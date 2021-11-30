@@ -1,9 +1,13 @@
 ABAC: An Adaptive Binary Arithmetic Coder
 
 
-Contents:
+Documentation:
 ac.cpp: The arithmetic coder. Static and adaptive versions.
+	abac_encode/decode: adaptive binary arithmetic coder
+	ac_encode/decode: static probability binary arithmetic coder
+
 huffman.cpp: Huffman coder for comparison (uses vector_bool.h)
+	huff_encode/decode
 
 
 How it works:
@@ -29,13 +33,17 @@ http://mattmahoney.net/dc/dce.html#Section_32
 Evaluation:
 Compression ratio for data without any transformations with the adaptive coder is as follows:
 
-	~3.6	for a synthetic screenshot
-		encode:  594M cycles
-		decode: 1124M cycles
+Image		Method		compression	encode		decode
+				ratio		cycles		cycles
 
-	~1.46	for a natural image
 
-Use the functions abac_encode/abac_decode from ac.cpp.
+raw synthetic	ABAC		3.61		 609M		1126M
+1920x1080	Huffman		2.41		  92.7M		  49.3M
+		Static Prob AC	1.28		 352M		 420M
+
+raw natural	ABAC		1.47		2511M		4726M
+3456x2304	Huffman		1.16		 466M		 499M
+		Static prob AC	1.01		2219M		2127M
 
 
 Build test:
