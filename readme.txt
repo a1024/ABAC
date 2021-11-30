@@ -31,19 +31,22 @@ http://mattmahoney.net/dc/dce.html#Section_32
 
 
 Evaluation:
-Compression ratio for data without any transformations with the adaptive coder is as follows:
+Data was compressed without any decorrelating transformations.
 
-Image		Method		compression	encode		decode
+File		Coder		compression	encode		decode
 				ratio		cycles		cycles
 
+1) synthetic	ABAC		3.61		 609M		1126M
+   1920x1080	Huffman		2.41		  92.7M		  49.3M
+   image	Static Prob AC	1.28		 352M		 420M
 
-raw synthetic	ABAC		3.61		 609M		1126M
-1920x1080	Huffman		2.41		  92.7M		  49.3M
-		Static Prob AC	1.28		 352M		 420M
+2) natural	ABAC		1.47		2511M		4726M
+   3456x2304	Huffman		1.16		 466M		 499M
+   image	Static prob AC	1.01		2219M		2127M
 
-raw natural	ABAC		1.47		2511M		4726M
-3456x2304	Huffman		1.16		 466M		 499M
-		Static prob AC	1.01		2219M		2127M
+3) C++ source	ABAC		1.22		 398M		 743M
+   1.32 MB	Huffman		1.43		 132M		  99.7M
+		Static prob AC	1.199		 359M		 437M
 
 
 Build test:
