@@ -17,6 +17,7 @@ Each bit-plane is compressed separately.
 
 The probability of next bit is calculated as follows:
 	P(next bit=0) = W(0)*confidence + (1/2)*(100%-confidence)
+		= 1/2 + (W(0)-1/2)*confidence
 
 where W(0) is the weighted sum:
 	W(0) = sum i=1 to LOG_WINDOW_SIZE: (1-bit[-i])*2^-i
