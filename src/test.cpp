@@ -66,6 +66,11 @@ int			histogram[nlevels]={};
 #endif
 int			main(int argc, char **argv)
 {
+	if(argc<2)
+	{
+		printf("Pass filename as command argument\n");
+		return 1;
+	}
 	//Huffman - text
 #if 0
 	std::string text;
@@ -152,7 +157,7 @@ int			main(int argc, char **argv)
 	//byte *original_image=stbi_load("example.png", &iw, &ih, &nch, 4);
 	if(!original_image)
 	{
-		printf("Failed to open image\n");
+		printf("Failed to open \'%s\'\n", argv[1]);
 		return 1;
 	}
 	auto image=(int*)original_image;
@@ -166,8 +171,17 @@ int			main(int argc, char **argv)
 
 	short *buffer=new short[imsize];
 	for(int k=0;k<imsize;++k)//extract red channel
-		buffer[k]=image[k]&0xFF;
+		buffer[k]=image[k]&0xFF;//*/
 	//stbi_image_free(original_image);
+
+/*	std::string text;
+	//open_text(argv[1], text);
+	open_text("D:/C/ABAC Linux/Makefile", text);
+	const int depth=8;
+	int imsize=text.size();
+	auto buffer=new short[imsize];
+	for(int k=0;k<imsize;++k)
+		buffer[k]=text[k];//*/
 
 /*	unsigned iw=0, ih=0;
 	std::vector<unsigned char> vimage;
@@ -191,29 +205,48 @@ int			main(int argc, char **argv)
 
 	//print_rgba8((unsigned*)image.data(), imsize);
 	//print_hex(buffer, imsize, depth);
-
-
+	
+#if 0
+	vector_bool bits;
+	int histogram[256];
+	huff_encode(buffer, imsize, 8, histogram, bits, true);
+	huff_decode(bits.data.data(), bits.bitSize, imsize, 8, histogram, b2, true);
+#endif
+#if 1
 	std::string data;
 	int sizes[depth]={}, probs[depth]={};
-	
-	//ac_debug(buffer, imsize, depth, data, sizes, probs, b2, true);
 
-	abac_encode(buffer, imsize, depth, data, sizes, true);
-	abac_decode(data.data(), sizes, b2, imsize, depth, true);
+	//abac_encode(buffer, imsize, depth, data, sizes, true);
+
+	//abac_encode_sse2(buffer, imsize, depth, data, sizes, true);
+	//abac_decode_sse2(data.data(), sizes, b2, imsize, depth, true);
+
+	abac_encode_avx2(buffer, imsize, depth, data, sizes, true);
+	abac_decode_avx2(data.data(), sizes, b2, imsize, depth, true);
+
+	//abac_decode(data.data(), sizes, b2, imsize, depth, true);
 
 	//ac_encode(buffer, imsize, depth, data, sizes, probs, true);
 	//ac_decode(data.data(), sizes, probs, b2, imsize, depth, true);
+	
+	//ac_debug(buffer, imsize, depth, data, sizes, probs, b2, true);
+#endif
 
 
 	//print_hex(b2, imsize, depth);
 
-	int nerrors=0;
+	int nerrors=0, kp=0, kb=0;
 	int depthmask=(1<<depth)-1;
 	//printf("Depthmask: %04X\n", depthmask);
 	for(int k=0;k<imsize;++k)
 	{
 		if((b2[k]^buffer[k])&depthmask)
 		{
+			if(!nerrors)
+			{
+				kb=k;
+				for(kp=0;kp<depth&&!((b2[k]^buffer[k])>>kp&1);++kp);
+			}
 			++nerrors;
 			printf("%d: %04X != %04X\n", k, (int)buffer[k], (int)b2[k]);
 			if(nerrors>=100)
@@ -231,6 +264,32 @@ int			main(int argc, char **argv)
 	//	print_bin(buffer[k]^b2[k], depth);
 	//	printf("\n");
 	//}
+
+	//for(int k=0;k<depth;++k)//print all bitplanes
+	//{
+	//	printf("Plane %d:\n", k);
+	//	print_bitplane(buffer, imsize, k);//
+	//	print_bitplane(b2, imsize, k);//
+	//}
+	//printf("\n");
+
+	if(nerrors)
+	{
+		const int width=64;
+		printf("Error in bit plane %d, pixel %d:\n", kp, kb);
+		int start=kb-(width>>1);
+		if(start<0)
+			start=0;
+		int end=start+width;
+		if(end>imsize)
+			end=imsize;
+		for(int k=start;k<end;++k)
+			printf("%d", k%10);
+		printf("\n");
+		print_bitplane(buffer+start, end-start, kp);//
+		print_bitplane(b2+start, end-start, kp);//
+	}
+
 	//print_bitplane(buffer, imsize, 0);//
 	//print_bitplane(b2, imsize, 0);//
 

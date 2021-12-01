@@ -22,16 +22,22 @@
 #ifdef __linux__
 #define	__rdtsc	__builtin_ia32_rdtsc
 #else
-#include<intrin.h>
+#include<immintrin.h>
+//#include<tmmintrin.h>
+//#include<intrin.h>
+#define	scanf	scanf_s
 #endif
 
 	#define	LOG_WINDOW_SIZE		16	//[2, 16]
 
 	#define	PRINT_ERROR//should be enabled
 
-//	#define	PRINT_VISUAL	//disable with release & large files
-//	#define	PRINT_BITPLANES	//ditto
-//	#define	DEBUG_PREDICTOR	//ditto
+//	#define	PRINT_VISUAL		//disable with release & large files
+//	#define	PRINT_BITPLANES		//^
+//	#define	DEBUG_PREDICTOR		//^
+//	#define	DEBUG_SIMD_ENC		//^
+//	#define	DEBUG_SIMD_DEC		//^
+//	#define	HARD_AVX2_PROFILE	//^
 
 #ifdef PRINT_VISUAL
 const int visual_plane=0, visual_start=0, visual_end=100;
@@ -44,7 +50,7 @@ typedef unsigned long long u64;
 void			breakpoint()
 {
 	int x=0;
-	x=1;
+	scanf("%d", &x);
 }
 //void			ac_print_summary(int nsymbols, int original_size, long long elapsed, bool encode)
 //{
@@ -636,9 +642,9 @@ void			ac_debug(const short *buffer, int imsize, int depth, std::string &out_dat
 			if((start^end)<0x1000000)//most significant byte has stabilized			zpaq 1.10
 			{
 				unsigned char codebyte=start>>24;
+#ifdef PRINT_VISUAL
 				if(codebyte==0)
 					breakpoint();
-#ifdef PRINT_VISUAL
 				if(kp==visual_plane&&kb>=visual_start&&kb<visual_end)
 					printf("\nShift-out: ");//
 #endif
@@ -810,6 +816,16 @@ struct			ProbInfo
 };
 static std::vector<ProbInfo> probs;
 #endif
+#ifdef DEBUG_SIMD_ENC
+struct			ProbInfo
+{
+	unsigned start, end, acc, p0;
+	ProbInfo():start(0), end(0), acc(0), p0(0){}
+	ProbInfo(int start, int end, int acc, int p0):start(start), end(end), acc(acc), p0(p0){}
+};
+static std::vector<ProbInfo> probs;
+const int examined_plane=4;
+#endif
 void			abac_encode(const short *buffer, int imsize, int depth, std::string &out_data, int *out_sizes, bool loud)
 {
 #ifdef PRINT_VISUAL
@@ -829,6 +845,7 @@ void			abac_encode(const short *buffer, int imsize, int depth, std::string &out_
 		//int prob=prob_init;
 		
 		int prob=1<<(LOG_WINDOW_SIZE-1);//cheap weighted average predictor
+		//int prob=(1<<(LOG_WINDOW_SIZE-1))-1;
 		//int prob=0x55555555&prob_init;
 
 		//int prob=0;
@@ -842,6 +859,7 @@ void			abac_encode(const short *buffer, int imsize, int depth, std::string &out_
 		
 		//u64 start=0, end=0x100000000;
 		unsigned start=0, end=0xFFFFFFFF;
+	//	unsigned conf_den=0, conf_invden=0;
 		for(int kb=0;kb<imsize;)//bit-pixel loop		http://mattmahoney.net/dc/dce.html#Section_32
 		{
 			//if(kp==0&&kb==6)
@@ -862,12 +880,29 @@ void			abac_encode(const short *buffer, int imsize, int depth, std::string &out_
 				start=0, end=0xFFFFFFFF;//because 1=0.9999...
 				range=end-start;
 			}
-
-			unsigned p0=prob;
-			if(plane.size())
+			
+			//int p0=prob;
+			//if(conf_den)
+			//	p0=0x8000+((long long)(p0-0x8000)*kb*conf_invden>>16);
+#if 1
+			int p0=prob;
+			int conf_den=(plane.size()<<3)+kb;
+#ifdef DEBUG_SIMD_ENC
+			if(kp==examined_plane&&kb==40)
+			//if(kp==examined_plane&&kb==7)
+				int LOL_1=0;
+#endif
+			if(conf_den)
+			//if(plane.size())
 			{
-				double ratio=(double)kb/(plane.size()<<3);
-				p0=0x7FFF+(int)(((double)p0-0x7FFF)*ratio/(1+ratio));
+				p0=0x8000+(long long)(p0-0x8000)*kb/conf_den;
+				//double conf=(double)kb/conf_den;
+				//p0=0x8000+(int)floor(((int)p0-0x8000)*conf);
+				//p0=(unsigned)(0x8000+((int)p0-0x8000)*conf);
+				//p0=(unsigned)(0x7FFF+((int)p0-0x7FFF)*conf);
+
+			//	double ratio=(double)kb/(plane.size()<<3);
+			//	p0=0x7FFF+(int)(((double)p0-0x7FFF)*ratio/(1+ratio));
 #ifdef DEBUG_PREDICTOR
 				if(kp==0)
 					printf("r=%lf, acc=%04X, p0=%d\n", ratio, prob, p0);
@@ -878,12 +913,24 @@ void			abac_encode(const short *buffer, int imsize, int depth, std::string &out_
 				//int ratio=(kb<<3)/plane.size();
 				//p0=0x7FFF+(int)((u64)((p0-0x7FFF)*ratio)/(1+ratio));//taking confidence into account
 			}
+			//else
+			//	p0=0x8000;
+#endif
 			p0=clamp(1, p0, prob_max);
 #ifdef DEBUG_PREDICTOR
 			if(kp==0)
 				probs.push_back(ProbInfo(kb, plane.size(), prob, p0));
 #endif
 			unsigned middle=start+(unsigned)(range*p0>>LOG_WINDOW_SIZE);
+#ifdef DEBUG_SIMD_ENC
+			if(kp==examined_plane&&kb==40)
+			//if(kp==examined_plane&&kb==7)
+			//if(kp==1&&(kb==904||kb==905))//
+			//if(kp==5&&kb==1)//
+				printf("kp=%d, kb=%d: %08X~%08X, mid=%08X, p0=%d\n", kp, kb, start, end, middle, p0);//
+			if(kp==examined_plane)
+				probs.push_back(ProbInfo(start, end, prob, p0));
+#endif
 
 			//unsigned middle=start+(unsigned)(range*clamp(1, prob, prob_max)>>LOG_WINDOW_SIZE);
 			//unsigned middle=start+(unsigned)(range*prob>>LOG_WINDOW_SIZE);
@@ -1009,6 +1056,7 @@ void			abac_decode(const char *data, const int *sizes, short *buffer, int imsize
 		auto plane=data+cusize;
 		
 		int prob=1<<(LOG_WINDOW_SIZE-1);//cheap weighted average predictor
+		//int prob=(1<<(LOG_WINDOW_SIZE-1))-1;
 		//int prob=0x55555555&prob_init;
 		//int prob=probabilities[depth-1-kp];
 		//int prob=prob_init;
@@ -1028,16 +1076,26 @@ void			abac_decode(const char *data, const int *sizes, short *buffer, int imsize
 				start=0, end=0xFFFFFFFF;//because 1=0.9999...
 				range=end-start;
 			}
-			unsigned p0=prob;
-			if(kc-4>0)
+			int p0=prob;
+			int conf_den=((kc-4)<<3)+kb;
+			if(conf_den)
+			//if(kc-4>0)
 			{
-				double ratio=(double)kb/((kc-4)<<3);
-				p0=0x7FFF+(int)(((double)p0-0x7FFF)*ratio/(1+ratio));
+				p0=0x8000+(long long)(p0-0x8000)*kb/conf_den;
+				//double conf=(double)kb/conf_den;
+				//p0=0x8000+(int)floor(((int)p0-0x8000)*conf);
+				//p0=(unsigned)(0x8000+((int)p0-0x8000)*conf);
+				//p0=(unsigned)(0x7FFF+((int)p0-0x7FFF)*conf);
+
+			//	double ratio=(double)kb/((kc-4)<<3);
+			//	p0=0x7FFF+(int)(((double)p0-0x7FFF)*ratio/(1+ratio));
 #ifdef DEBUG_PREDICTOR
-				if(kp==0)
-					printf("r=%lf, acc=%04X, p0=%d\n", ratio, prob, p0);
+				//if(kp==0)
+				//	printf("r=%lf, acc=%04X, p0=%d\n", ratio, prob, p0);
 #endif
 			}
+			//else
+			//	p0=0x8000;
 			p0=clamp(1, p0, prob_max);
 #ifdef DEBUG_PREDICTOR
 			if(kp==0)
@@ -1125,3 +1183,888 @@ void			abac_decode(const char *data, const int *sizes, short *buffer, int imsize
 		printf("AC decode:  %lld cycles\n", t2-t1);
 	}
 }
+
+#ifndef __GNUC__
+#ifdef DEBUG_SIMD_DEC
+const int		examined_plane=0, examined_pixel=8;
+//const int		examined_plane=4, examined_pixel=1227515;
+int examine_flag=0;
+#endif
+void			abac_encode_sse2(const short *buffer, int imsize, int depth, std::string &out_data, int *out_sizes, bool loud)
+{
+	if(!imsize)
+		return;
+	auto t1=__rdtsc();
+
+	std::vector<std::string> planes(depth);
+	for(int k=0;k<depth;++k)
+		planes[k].reserve(imsize>>8);
+
+	__m128i bitmask=_mm_set_epi32(8, 4, 2, 1);
+	__m128i m_ones=_mm_set1_epi32(-1);
+	__m128i probhalf=_mm_set1_epi32(0x8000);
+	__m128i msbyte_limit=_mm_set1_epi32(0x1000000);
+	__m128i m_one=_mm_set1_epi32(1), m_probmax=_mm_set1_epi32(prob_max);
+	__m128 f_one=_mm_set1_ps(1);
+	//__m128 f_half=_mm_set1_ps(0.5f);
+	for(int kp=0;kp+3<depth;kp+=4)//bit-plane loop: encode 4 planes simultaneously
+	{
+		__m128i i_outbitcounts=_mm_setzero_si128();
+		__m128 f_outbitcounts=_mm_cvtepi32_ps(i_outbitcounts);
+		__m128i prob=_mm_set1_epi32(1<<(LOG_WINDOW_SIZE-1));//estimated P(next bit = 0): weighted sum (sum i=1 to 16: !bit[-i]*2^i)
+		__m128i m_kb=_mm_setzero_si128();
+		__m128i start=_mm_setzero_si128(), end=_mm_set1_epi32(-1);//inclusive range
+		for(int kb=0;kb<imsize;)
+		{
+			__m128i range=_mm_sub_epi32(end, start);
+			__m128i eq_one=_mm_cmpeq_epi32(range, _mm_set1_epi32(1));
+			int condition_eq_one=_mm_movemask_ps(_mm_castsi128_ps(eq_one));
+			if(condition_eq_one)//because 1=0.9999...
+			{
+				for(int kch=0;kch<4;++kch)
+				{
+					if(condition_eq_one>>kch&1)
+					{
+						unsigned istart=start.m128i_u32[kch];
+						auto &plane=planes[depth-1-(kp+kch)];
+						plane.push_back(istart>>24);
+						plane.push_back(istart>>16&0xFF);
+						plane.push_back(istart>>8&0xFF);
+						plane.push_back(istart&0xFF);
+						start.m128i_u32[kch]=0, end.m128i_u32[kch]=0xFFFFFFFF;
+					}
+				}
+				range=_mm_sub_epi32(end, start);
+			}
+
+		/*	//calculate p0=0x8000+(long long)(p0-0x8000)*kb/conf_den;
+			__m128i p0=_mm_sub_epi32(prob, probhalf);
+			__m128i lo=_mm_mul_epi32(p0, m_kb);//SSE4.1
+			__m128i hi=_mm_shuffle_epi32(p0, _MM_SHUFFLE(2, 3, 0, 1));
+			hi=_mm_mul_epi32(hi, m_kb);//SSE4.1
+			__m128i den=_mm_add_epi32(i_outbitcounts, m_kb);
+			if(den.m128i_u32[0])
+				lo.m128i_i64[0]/=den.m128i_u32[0];
+			if(den.m128i_u32[1])
+				hi.m128i_i64[0]/=den.m128i_u32[1];
+			if(den.m128i_u32[2])
+				lo.m128i_i64[1]/=den.m128i_u32[2];
+			if(den.m128i_u32[3])
+				hi.m128i_i64[1]/=den.m128i_u32[3];
+			p0=_mm_castps_si128(_mm_shuffle_ps(_mm_castsi128_ps(lo), _mm_castsi128_ps(hi), _MM_SHUFFLE(2, 0, 2, 0)));
+			p0=_mm_shuffle_epi32(p0, _MM_SHUFFLE(3, 1, 2, 0));
+			p0=_mm_add_epi32(p0, probhalf);
+
+			//if confidence denominator==0 then confidence=100%
+			den=_mm_cmpeq_epi32(den, _mm_setzero_si128());
+			__m128i mask=_mm_xor_si128(den, m_ones);
+			p0=_mm_and_si128(p0, mask);
+			den=_mm_and_si128(den, prob);
+			p0=_mm_or_si128(p0, den);//*/
+
+			//calculate confidence = kb / (8kc+kb)		where kb: in bit idx, kc: out byte idx
+			__m128 conf_num=_mm_set1_ps((float)kb);
+			__m128 conf_den=_mm_add_ps(conf_num, f_outbitcounts);
+			__m128 conf=_mm_div_ps(conf_num, conf_den);
+
+			//if confidence denominator==0 then confidence=100%
+			__m128 den_nz=_mm_cmpneq_ps(conf_den, _mm_setzero_ps());
+			conf=_mm_and_ps(conf, den_nz);
+			den_nz=_mm_xor_ps(den_nz, _mm_castsi128_ps(m_ones));
+			den_nz=_mm_and_ps(den_nz, f_one);
+			conf=_mm_or_ps(conf, den_nz);
+
+			//predict P(0) = 1/2 + (W(0)-1/2)*confidence
+			__m128i p0=_mm_sub_epi32(prob, probhalf);
+			__m128 f_p0=_mm_cvtepi32_ps(p0);
+			f_p0=_mm_mul_ps(f_p0, conf);
+			f_p0=_mm_floor_ps(f_p0);//SSE4.1
+			p0=_mm_cvtps_epi32(f_p0);
+			p0=_mm_add_epi32(probhalf, p0);//*/
+
+			//clamp probability: P(0) = clamp(2^-L, P(0), 1-2^-L)	where L=16		//probability shouldn't be exactly 0 or 100%
+			__m128i c_min=_mm_cmpgt_epi32(p0, m_one);
+			__m128i c_max=_mm_cmplt_epi32(p0, m_probmax);
+			p0=_mm_and_si128(p0, c_min);
+			p0=_mm_and_si128(p0, c_max);
+			c_min=_mm_xor_si128(c_min, m_ones);
+			c_max=_mm_xor_si128(c_max, m_ones);
+			c_min=_mm_and_si128(c_min, m_one);
+			c_max=_mm_and_si128(c_max, m_probmax);
+			p0=_mm_or_si128(p0, c_min);
+			p0=_mm_or_si128(p0, c_max);
+
+#ifdef DEBUG_SIMD_ENC
+			if(examined_plane>=kp&&examined_plane<kp+4)
+			{
+				auto &p=probs[kb];
+				if(p0.m128i_u32[0]!=p.p0)
+					int LOL_1=0;
+			}
+			//if(kp==0&&kb==5)
+			//if(1>=kp&&1<kp+4&&(kb==904||kb==905))//
+			//if(5>=kp&&5<kp+4&&kb==1)//
+			//	int LOL_1=0;//
+#endif
+
+			//calculate middle = start+((u64)(end-start)*p0>>L)
+			__m128i lo=_mm_mul_epu32(range, p0);
+			lo=_mm_srli_epi64(lo, 16);
+			range=_mm_shuffle_epi32(range, _MM_SHUFFLE(2, 3, 0, 1));
+			p0=_mm_shuffle_epi32(p0, _MM_SHUFFLE(2, 3, 0, 1));
+			__m128i hi=_mm_mul_epu32(range, p0);
+			hi=_mm_srli_epi64(hi, 16);
+			__m128i middle=_mm_castps_si128(_mm_shuffle_ps(_mm_castsi128_ps(lo), _mm_castsi128_ps(hi), _MM_SHUFFLE(2, 0, 2, 0)));
+			middle=_mm_shuffle_epi32(middle, _MM_SHUFFLE(3, 1, 2, 0));
+			middle=_mm_add_epi32(middle, start);
+
+			//get next bit
+			__m128i bit_c=_mm_set1_epi32(buffer[kb]);
+			bit_c=_mm_srli_epi32(bit_c, kp);
+			bit_c=_mm_and_si128(bit_c, bitmask);
+			bit_c=_mm_cmpeq_epi32(bit_c, _mm_setzero_si128());
+			__m128i bit=_mm_xor_si128(bit_c, m_ones);
+
+#ifdef DEBUG_SIMD_DEC
+			if(examined_plane>=kp&&examined_plane<kp+4&&kb==examined_pixel)
+			//if(5>=kp&&5<kp+4&&kb==2326)
+			//if(2>=kp&&2<kp+4&&kb==1283)
+			{
+				printf("buffer[%d]=%04X, p0=%d, %08X~%08X, mid=%08X\n", kb, buffer[kb], p0.m128i_i32[examined_plane&3], start.m128i_u32[examined_plane&3], end.m128i_u32[examined_plane&3], middle.m128i_u32[examined_plane&3]);
+				examine_flag=1;
+			}
+			//	int LOL_1=0;
+#endif
+
+			//update weighted sum W(0) = !bit_new | W_prev(0)>>1	 = (sum i=1 to 16: !bit[-i]*2^i) / 2^16
+			prob=_mm_srli_epi32(prob, 1);
+			__m128i bit15=_mm_and_si128(bit_c, probhalf);
+			prob=_mm_or_si128(prob, bit15);
+
+			//select range: if(bit)start=middle; else end=middle-1;		same as: start=bit?middle:start, end=bit?end:middle-1;
+			__m128i midm1=_mm_sub_epi32(middle, m_one);
+			__m128i midp1=_mm_add_epi32(middle, m_one);
+			//__m128i midm1=_mm_sub_epi32(middle, _mm_set1_epi32(2));//X
+			
+			midp1=_mm_and_si128(midp1, bit);
+			start=_mm_and_si128(start, bit_c);
+			start=_mm_or_si128(start, midp1);
+			//middle=_mm_and_si128(middle, bit);
+			//start=_mm_and_si128(start, bit_c);
+			//start=_mm_or_si128(start, middle);
+
+			midm1=_mm_and_si128(midm1, bit_c);
+			end=_mm_and_si128(end, bit);
+			end=_mm_or_si128(end, midm1);
+
+			++kb;
+			m_kb=_mm_add_epi32(m_kb, m_one);
+
+			//check if most-significant byte is ready
+			__m128i diff=_mm_xor_si128(start, end);
+			diff=_mm_srli_epi32(diff, 24);
+			diff=_mm_cmpeq_epi32(diff, _mm_setzero_si128());
+			int ready_mask=_mm_movemask_ps(_mm_castsi128_ps(diff));
+			if(ready_mask)
+			{
+				for(int kch=0;kch<4;++kch)
+				{
+					if(ready_mask>>kch&1)
+					{
+						unsigned istart=start.m128i_u32[kch], iend=end.m128i_u32[kch];
+						auto &plane=planes[depth-1-(kp+kch)];
+						do
+						{
+							plane.push_back(istart>>24);
+#ifdef DEBUG_SIMD_DEC
+							if(examine_flag&&kp+kch==examined_plane)
+								printf("Shift-out: %02X\n", istart>>24);
+#endif
+							istart<<=8, iend=iend<<8|0xFF;
+							i_outbitcounts.m128i_u32[kch]+=8;
+							f_outbitcounts=_mm_cvtepi32_ps(i_outbitcounts);
+						}while((istart^iend)<0x1000000);
+						start.m128i_u32[kch]=istart, end.m128i_u32[kch]=iend;
+#ifdef DEBUG_SIMD_DEC
+						if(examine_flag&&kp+kch==examined_plane)
+						{
+							printf("New bounds: %08X~%08X\n", start.m128i_u32[kch], end.m128i_u32[kch]);
+							examine_flag=0;
+						}
+#endif
+					}
+				}
+			}
+		}
+		for(int kch=0;kch<4;++kch)
+		{
+			auto &plane=planes[depth-1-(kp+kch)];
+			unsigned istart=start.m128i_u32[kch];
+			plane.push_back(istart>>24&0xFF);//big-endian
+			plane.push_back(istart>>16&0xFF);
+			plane.push_back(istart>>8&0xFF);
+			plane.push_back(istart&0xFF);
+		}
+	}
+	auto t_enc=__rdtsc();
+	//out_sizes.resize(depth);
+	for(int k=0;k<depth;++k)
+		out_sizes[k]=planes[k].size();
+	out_data.clear();
+	for(int k=0;k<depth;++k)
+	{
+		auto &plane=planes[k];
+		out_data.insert(out_data.end(), plane.begin(), plane.end());
+	}
+
+	auto t2=__rdtsc();
+	if(loud)
+	{
+		int original_bitsize=imsize*depth, compressed_bitsize=(int)out_data.size()<<3;
+		printf("AC encode SSE2:  %lld cycles (Enc: %lld cycles)\n", t2-t1, t_enc-t1);
+		printf("Size: %d -> %d, ratio: %lf\n", original_bitsize>>3, compressed_bitsize>>3, (double)original_bitsize/compressed_bitsize);
+		printf("Bit\tkp\tSymbol count\n");
+		for(int k=0;k<depth;++k)
+			printf("%2d\t%2d\t%5d\n", depth-1-k, k, out_sizes[k]);
+		
+		printf("Preview:\n");
+		int kprint=out_data.size()<200?out_data.size():200;
+		for(int k=0;k<kprint;++k)
+			printf("%02X-", out_data[k]&0xFF);
+		printf("\n");
+	}
+}
+void			abac_decode_sse2(const char *data, const int *sizes, short *buffer, int imsize, int depth, bool loud)
+{
+	if(!imsize)
+		return;
+	auto t1=__rdtsc();
+	memset(buffer, 0, imsize*sizeof(short));
+
+	int *plane_offsets=new int[depth];
+	for(int kp=depth-1, cusize=0;kp>=0;--kp)
+	{
+		plane_offsets[kp]=cusize;
+		cusize+=sizes[depth-1-kp];
+	}
+	
+	__m128i bitmask=_mm_set_epi32(8, 4, 2, 1);
+	__m128i m_ones=_mm_set1_epi32(-1);
+	__m128i probhalf=_mm_set1_epi32(0x8000);
+	__m128i msbyte_limit=_mm_set1_epi32(0x1000000);
+	__m128i m_one=_mm_set1_epi32(1), m_probmax=_mm_set1_epi32(prob_max);
+//	__m128i shuffle_bigendian=_mm_set_epi8(12, 13, 14, 15, 8, 9, 10, 11, 4, 5, 6, 7, 0, 1, 2, 3);
+	__m128 f_one=_mm_set1_ps(1);
+	for(int kp=0, cusize=0;kp+3<depth;kp+=4)//bit-plane loop
+	{
+		__m128i i_outbitcounts=_mm_setzero_si128();
+		__m128 f_outbitcounts=_mm_cvtepi32_ps(i_outbitcounts);
+		__m128i prob=_mm_set1_epi32(1<<(LOG_WINDOW_SIZE-1));//estimated P(next bit = 0): weighted sum (sum i=1 to 16: !bit[-i]*2^i)
+		//__m128i m_kb=_mm_setzero_si128();
+		__m128i start=_mm_setzero_si128(), end=_mm_set1_epi32(-1);//inclusive range
+		__m128i code=_mm_set_epi32(
+			load32_big((unsigned char*)data+plane_offsets[kp+3]),
+			load32_big((unsigned char*)data+plane_offsets[kp+2]),
+			load32_big((unsigned char*)data+plane_offsets[kp+1]),
+			load32_big((unsigned char*)data+plane_offsets[kp]));
+	//	code=_mm_shuffle_epi8(code, shuffle_bigendian);
+		__m128i kc=_mm_set1_epi32(4);
+		for(int kb=0;kb<imsize;)//bit-pixel loop
+		{
+			__m128i range=_mm_sub_epi32(end, start);
+			__m128i eq_one=_mm_cmpeq_epi32(range, _mm_set1_epi32(1));
+			int condition_eq_one=_mm_movemask_ps(_mm_castsi128_ps(eq_one));
+			if(condition_eq_one)//because 1=0.9999...
+			{
+				for(int kch=0;kch<4;++kch)
+				{
+					if(condition_eq_one>>kch&1)
+					{
+						auto plane=data+plane_offsets[kp+kch];
+						code.m128i_u32[kch]=load32_big((unsigned char*)plane+kc.m128i_i32[kch]);
+						kc.m128i_i32[kch]+=4;
+						start.m128i_u32[kch]=0, end.m128i_u32[kch]=0xFFFFFFFF;
+					}
+				}
+				range=_mm_sub_epi32(end, start);
+			}
+			
+			//calculate confidence = kb / (8kc+kb)		where kb: in bit idx, kc: out byte idx
+			__m128 conf_num=_mm_set1_ps((float)kb);
+			__m128 conf_den=_mm_add_ps(conf_num, f_outbitcounts);
+			__m128 conf=_mm_div_ps(conf_num, conf_den);
+
+			//if confidence denominator==0 then confidence=100%
+			__m128 den_nz=_mm_cmpneq_ps(conf_den, _mm_setzero_ps());
+			conf=_mm_and_ps(conf, den_nz);
+			den_nz=_mm_xor_ps(den_nz, _mm_castsi128_ps(m_ones));
+			den_nz=_mm_and_ps(den_nz, f_one);
+			conf=_mm_or_ps(conf, den_nz);
+
+			//predict P(0) = 1/2 + (W(0)-1/2)*confidence
+			__m128i p0=_mm_sub_epi32(prob, probhalf);
+			__m128 f_p0=_mm_cvtepi32_ps(p0);
+			f_p0=_mm_mul_ps(f_p0, conf);
+			f_p0=_mm_floor_ps(f_p0);//SSE4.1
+			p0=_mm_cvtps_epi32(f_p0);
+			p0=_mm_add_epi32(probhalf, p0);//*/
+
+			//clamp probability: P(0) = clamp(2^-L, P(0), 1-2^-L)	where L=16		//probability shouldn't be exactly 0 or 100%
+			__m128i c_min=_mm_cmpgt_epi32(p0, m_one);
+			__m128i c_max=_mm_cmplt_epi32(p0, m_probmax);
+			p0=_mm_and_si128(p0, c_min);
+			p0=_mm_and_si128(p0, c_max);
+			c_min=_mm_xor_si128(c_min, m_ones);
+			c_max=_mm_xor_si128(c_max, m_ones);
+			c_min=_mm_and_si128(c_min, m_one);
+			c_max=_mm_and_si128(c_max, m_probmax);
+			p0=_mm_or_si128(p0, c_min);
+			p0=_mm_or_si128(p0, c_max);
+			
+			//calculate middle = start+((u64)(end-start)*p0>>L)
+			__m128i lo=_mm_mul_epu32(range, p0);
+			lo=_mm_srli_epi64(lo, 16);
+			range=_mm_shuffle_epi32(range, _MM_SHUFFLE(2, 3, 0, 1));
+			p0=_mm_shuffle_epi32(p0, _MM_SHUFFLE(2, 3, 0, 1));
+			__m128i hi=_mm_mul_epu32(range, p0);
+			hi=_mm_srli_epi64(hi, 16);
+			__m128i middle=_mm_castps_si128(_mm_shuffle_ps(_mm_castsi128_ps(lo), _mm_castsi128_ps(hi), _MM_SHUFFLE(2, 0, 2, 0)));
+			middle=_mm_shuffle_epi32(middle, _MM_SHUFFLE(3, 1, 2, 0));
+			middle=_mm_add_epi32(middle, start);
+
+			//unpack next bit	bit=code>=middle	unsigned compare
+			__m128i bit=_mm_max_epu32(code, middle);//SSE4.1
+			bit=_mm_cmpeq_epi32(bit, code);
+			__m128i bit_c=_mm_xor_si128(bit, m_ones);
+			//__m128i diff=_mm_sub_epi32(code, middle);
+			//__m128i bit_c=_mm_cmplt_epi32(diff, _mm_setzero_si128());
+			//__m128i bit=_mm_xor_si128(bit_c, m_ones);
+
+#ifdef DEBUG_SIMD_DEC
+			if(examined_plane>=kp&&examined_plane<kp+4&&kb==examined_pixel)
+			//if(5>=kp&&5<kp+4&&kb==2326)
+			//if(2>=kp&&2<kp+4&&kb==1283)
+				printf("buffer[%d]=%04X, p0=%d, code=%08X, %08X~%08X, mid=%08X, bit %d = %d\n", kb, buffer[kb], p0.m128i_i32[examined_plane&3], code.m128i_i32[examined_plane&3], start.m128i_u32[examined_plane&3], end.m128i_u32[examined_plane&3], middle.m128i_u32[examined_plane&3], examined_plane, bit.m128i_i32[examined_plane&3]==-1);
+			//	int LOL_1=0;
+#endif
+
+			//update weighted sum W(0) = !bit_new | W_prev(0)>>1	 = (sum i=1 to 16: !bit[-i]*2^i) / 2^16
+			prob=_mm_srli_epi32(prob, 1);
+			__m128i bit15=_mm_and_si128(bit_c, probhalf);
+			prob=_mm_or_si128(prob, bit15);
+
+			//select range: if(bit)start=middle; else end=middle-1;		same as: start=bit?middle:start, end=bit?end:middle-1;
+			__m128i midm1=_mm_sub_epi32(middle, m_one);
+			__m128i midp1=_mm_add_epi32(middle, m_one);
+			
+			midp1=_mm_and_si128(midp1, bit);
+			start=_mm_and_si128(start, bit_c);
+			start=_mm_or_si128(start, midp1);
+			//middle=_mm_and_si128(middle, bit);
+			//start=_mm_and_si128(start, bit_c);
+			//start=_mm_or_si128(start, middle);
+
+			midm1=_mm_and_si128(midm1, bit_c);
+			end=_mm_and_si128(end, bit);
+			end=_mm_or_si128(end, midm1);
+
+			int bits=_mm_movemask_ps(_mm_castsi128_ps(bit));
+			buffer[kb]|=bits<<kp;
+
+			++kb;
+			//m_kb=_mm_add_epi32(m_kb, m_one);
+			
+			//check if most-significant byte is ready
+			__m128i diff=_mm_xor_si128(start, end);
+			diff=_mm_srli_epi32(diff, 24);
+			diff=_mm_cmpeq_epi32(diff, _mm_setzero_si128());
+			int ready_mask=_mm_movemask_ps(_mm_castsi128_ps(diff));
+			if(ready_mask)
+			{
+				for(int kch=0;kch<4;++kch)
+				{
+					if(ready_mask>>kch&1)
+					{
+						unsigned istart=start.m128i_u32[kch], iend=end.m128i_u32[kch];
+						auto plane=data+plane_offsets[kp+kch];
+						do
+						{
+							code.m128i_u32[kch]=code.m128i_u32[kch]<<8|(unsigned char)plane[kc.m128i_u32[kch]];
+							++kc.m128i_u32[kch];
+							istart<<=8, iend=iend<<8|0xFF;
+							i_outbitcounts.m128i_u32[kch]+=8;
+							f_outbitcounts=_mm_cvtepi32_ps(i_outbitcounts);
+						}while((istart^iend)<0x1000000);
+						start.m128i_u32[kch]=istart, end.m128i_u32[kch]=iend;
+					}
+				}
+			}
+		}//end pixel loop
+	}//end bit-plane loop
+	delete[] plane_offsets, plane_offsets=nullptr;
+
+	auto t2=__rdtsc();
+	if(loud)
+	{
+		printf("AC decode:  %lld cycles\n", t2-t1);
+	}
+}
+
+void			abac_encode_avx2(const short *buffer, int imsize, int depth, std::string &out_data, int *out_sizes, bool loud)
+{
+	if(!imsize)
+		return;
+#ifdef HARD_AVX2_PROFILE
+	long long ti[8]={}, ti1, ti2;
+#endif
+	auto t1=__rdtsc();
+
+	std::vector<std::string> planes(depth);
+	__m256i bitmask=_mm256_set_epi32(128, 64, 32, 16, 8, 4, 2, 1);
+	__m256i m_ones=_mm256_set1_epi32(-1);
+	__m256i probhalf=_mm256_set1_epi32(0x8000);
+	__m256i msbyte_limit=_mm256_set1_epi32(0x1000000);
+	__m256i m_one=_mm256_set1_epi32(1), m_probmax=_mm256_set1_epi32(prob_max);
+	__m256 f_one=_mm256_set1_ps(1);
+	for(int k=0;k<depth;++k)
+		planes[k].reserve(imsize>>8);
+	for(int kp=0;kp+7<depth;kp+=8)//bit-plane loop: encode 4 planes simultaneously
+	{
+		__m256i i_outbitcounts=_mm256_setzero_si256();
+		__m256 f_outbitcounts=_mm256_cvtepi32_ps(i_outbitcounts);
+		__m256i prob=_mm256_set1_epi32(1<<(LOG_WINDOW_SIZE-1));//estimated P(next bit = 0): weighted sum (sum i=1 to 16: !bit[-i]*2^i)
+		__m256i m_kb=_mm256_setzero_si256();
+		__m256i start=_mm256_setzero_si256(), end=_mm256_set1_epi32(-1);//inclusive range
+		for(int kb=0;kb<imsize;)
+		{
+#ifdef HARD_AVX2_PROFILE
+			int part=0;
+			ti1=__rdtsc();
+#endif
+			__m256i range=_mm256_sub_epi32(end, start);
+			__m256i eq_one=_mm256_cmpeq_epi32(range, _mm256_set1_epi32(1));
+			int condition_eq_one=_mm256_movemask_ps(_mm256_castsi256_ps(eq_one));
+			if(condition_eq_one)//because 1=0.9999...
+			{
+				for(int kch=0;kch<8;++kch)
+				{
+					if(condition_eq_one>>kch&1)
+					{
+						unsigned istart=start.m256i_u32[kch];
+						auto &plane=planes[depth-1-(kp+kch)];
+						plane.push_back(istart>>24);
+						plane.push_back(istart>>16&0xFF);
+						plane.push_back(istart>>8&0xFF);
+						plane.push_back(istart&0xFF);
+						start.m256i_u32[kch]=0, end.m256i_u32[kch]=0xFFFFFFFF;
+					}
+				}
+				range=_mm256_sub_epi32(end, start);
+			}
+#ifdef HARD_AVX2_PROFILE
+			ti2=__rdtsc();
+			ti[part]+=ti2-ti1, ++part;
+			ti1=__rdtsc();
+#endif
+
+		/*	//calculate p0=0x8000+(long long)(p0-0x8000)*kb/conf_den;
+			__m256i p0=_mm256_sub_epi32(prob, probhalf);
+			__m256i lo=_mm256_mul_epi32(p0, m_kb);//SSE4.1 equivalent
+			__m256i hi=_mm256_shuffle_epi32(p0, _MM_SHUFFLE(2, 3, 0, 1));
+			hi=_mm256_mul_epi32(hi, m_kb);//SSE4.1 equivalent
+			__m256i den=_mm256_add_epi32(i_outbitcounts, m_kb);
+			if(den.m256i_u32[0])lo.m256i_i64[0]/=den.m256i_u32[0];
+			if(den.m256i_u32[1])hi.m256i_i64[0]/=den.m256i_u32[1];
+			if(den.m256i_u32[2])lo.m256i_i64[1]/=den.m256i_u32[2];
+			if(den.m256i_u32[3])hi.m256i_i64[1]/=den.m256i_u32[3];
+			if(den.m256i_u32[4])lo.m256i_i64[2]/=den.m256i_u32[4];
+			if(den.m256i_u32[5])hi.m256i_i64[2]/=den.m256i_u32[5];
+			if(den.m256i_u32[6])lo.m256i_i64[3]/=den.m256i_u32[6];
+			if(den.m256i_u32[7])hi.m256i_i64[3]/=den.m256i_u32[7];
+			p0=_mm256_castps_si256(_mm256_shuffle_ps(_mm256_castsi256_ps(lo), _mm256_castsi256_ps(hi), _MM_SHUFFLE(2, 0, 2, 0)));
+			p0=_mm256_shuffle_epi32(p0, _MM_SHUFFLE(3, 1, 2, 0));
+			p0=_mm256_add_epi32(p0, probhalf);
+#ifdef HARD_AVX2_PROFILE
+			ti2=__rdtsc();
+			ti[part]+=ti2-ti1, ++part;
+			ti1=__rdtsc();
+#endif
+
+			//if confidence denominator==0 then confidence=100%
+			den=_mm256_cmpeq_epi32(den, _mm256_setzero_si256());
+			__m256i mask=_mm256_xor_si256(den, m_ones);
+			p0=_mm256_and_si256(p0, mask);
+			den=_mm256_and_si256(den, prob);
+			p0=_mm256_or_si256(p0, den);//*/
+			
+			//calculate confidence = kb / (8kc+kb)		where kb: in bit idx, kc: out byte idx
+			__m256 conf_num=_mm256_set1_ps((float)kb);
+			__m256 conf_den=_mm256_add_ps(conf_num, f_outbitcounts);
+			__m256 conf=_mm256_div_ps(conf_num, conf_den);
+
+			//if confidence denominator==0 then confidence=100%
+			__m256 den_nz=_mm256_cmp_ps(conf_den, _mm256_setzero_ps(), _CMP_NEQ_UQ);
+			conf=_mm256_and_ps(conf, den_nz);
+			den_nz=_mm256_xor_ps(den_nz, _mm256_castsi256_ps(m_ones));
+			den_nz=_mm256_and_ps(den_nz, f_one);
+			conf=_mm256_or_ps(conf, den_nz);
+
+			//predict P(0) = 1/2 + (W(0)-1/2)*confidence
+			__m256i p0=_mm256_sub_epi32(prob, probhalf);
+			__m256 f_p0=_mm256_cvtepi32_ps(p0);
+			f_p0=_mm256_mul_ps(f_p0, conf);
+			f_p0=_mm256_floor_ps(f_p0);//SSE4.1
+			p0=_mm256_cvtps_epi32(f_p0);
+			p0=_mm256_add_epi32(probhalf, p0);//*/
+
+#ifdef HARD_AVX2_PROFILE
+			ti2=__rdtsc();
+			ti[part]+=ti2-ti1, ++part;
+			ti1=__rdtsc();
+#endif
+
+			//clamp probability: P(0) = clamp(2^-L, P(0), 1-2^-L)	where L=16		//probability shouldn't be exactly 0 or 100%
+			__m256i c_min=_mm256_cmpgt_epi32(p0, m_one);
+			__m256i c_max=_mm256_cmpgt_epi32(m_probmax, p0);
+			p0=_mm256_and_si256(p0, c_min);
+			p0=_mm256_and_si256(p0, c_max);
+			c_min=_mm256_xor_si256(c_min, m_ones);
+			c_max=_mm256_xor_si256(c_max, m_ones);
+			c_min=_mm256_and_si256(c_min, m_one);
+			c_max=_mm256_and_si256(c_max, m_probmax);
+			p0=_mm256_or_si256(p0, c_min);
+			p0=_mm256_or_si256(p0, c_max);
+#ifdef HARD_AVX2_PROFILE
+			ti2=__rdtsc();
+			ti[part]+=ti2-ti1, ++part;
+			ti1=__rdtsc();
+#endif
+
+#ifdef DEBUG_SIMD_ENC
+			if(examined_plane>=kp&&examined_plane<kp+8)
+			{
+				auto &p=probs[kb];
+				if(p0.m256i_u32[examined_plane&7]!=p.p0)
+					int LOL_1=0;
+			}
+			//if(kp==0&&kb==5)
+			//if(1>=kp&&1<kp+4&&(kb==904||kb==905))//
+			//if(5>=kp&&5<kp+4&&kb==1)//
+			//	int LOL_1=0;//
+#endif
+
+			//calculate middle = start+((u64)(end-start)*p0>>L)
+			__m256i lo=_mm256_mul_epu32(range, p0);
+			lo=_mm256_srli_epi64(lo, 16);
+			range=_mm256_shuffle_epi32(range, _MM_SHUFFLE(2, 3, 0, 1));
+			p0=_mm256_shuffle_epi32(p0, _MM_SHUFFLE(2, 3, 0, 1));
+			__m256i hi=_mm256_mul_epu32(range, p0);
+			hi=_mm256_srli_epi64(hi, 16);
+			__m256i middle=_mm256_castps_si256(_mm256_shuffle_ps(_mm256_castsi256_ps(lo), _mm256_castsi256_ps(hi), _MM_SHUFFLE(2, 0, 2, 0)));
+			middle=_mm256_shuffle_epi32(middle, _MM_SHUFFLE(3, 1, 2, 0));
+			middle=_mm256_add_epi32(middle, start);
+#ifdef HARD_AVX2_PROFILE
+			ti2=__rdtsc();
+			ti[part]+=ti2-ti1, ++part;
+			ti1=__rdtsc();
+#endif
+
+			//get next bit
+			__m256i bit_c=_mm256_set1_epi32(buffer[kb]);
+			bit_c=_mm256_srli_epi32(bit_c, kp);
+			bit_c=_mm256_and_si256(bit_c, bitmask);
+			bit_c=_mm256_cmpeq_epi32(bit_c, _mm256_setzero_si256());
+			__m256i bit=_mm256_xor_si256(bit_c, m_ones);
+#ifdef DEBUG_SIMD_DEC
+			if(examined_plane>=kp&&examined_plane<kp+4&&kb==examined_pixel)
+			{
+				printf("buffer[%d]=%04X, p0=%d, %08X~%08X, mid=%08X\n", kb, buffer[kb], p0.m256i_i32[examined_plane&3], start.m256i_u32[examined_plane&3], end.m256i_u32[examined_plane&3], middle.m256i_u32[examined_plane&3]);
+				examine_flag=1;
+			}
+#endif
+#ifdef HARD_AVX2_PROFILE
+			ti2=__rdtsc();
+			ti[part]+=ti2-ti1, ++part;
+			ti1=__rdtsc();
+#endif
+
+			//update weighted sum W(0) = !bit_new | W_prev(0)>>1	 = (sum i=1 to 16: !bit[-i]*2^i) / 2^16
+			prob=_mm256_srli_epi32(prob, 1);
+			__m256i bit15=_mm256_and_si256(bit_c, probhalf);
+			prob=_mm256_or_si256(prob, bit15);
+
+			//select range: if(bit)start=middle; else end=middle-1;		same as: start=bit?middle:start, end=bit?end:middle-1;
+			__m256i midm1=_mm256_sub_epi32(middle, m_one);
+			__m256i midp1=_mm256_add_epi32(middle, m_one);
+
+			midp1=_mm256_and_si256(midp1, bit);
+			start=_mm256_and_si256(start, bit_c);
+			start=_mm256_or_si256(start, midp1);
+
+			midm1=_mm256_and_si256(midm1, bit_c);
+			end=_mm256_and_si256(end, bit);
+			end=_mm256_or_si256(end, midm1);
+
+			++kb;
+			m_kb=_mm256_add_epi32(m_kb, m_one);
+#ifdef HARD_AVX2_PROFILE
+			ti2=__rdtsc();
+			ti[part]+=ti2-ti1, ++part;
+			ti1=__rdtsc();
+#endif
+
+			//check if most-significant byte is ready
+			__m256i diff=_mm256_xor_si256(start, end);
+			diff=_mm256_srli_epi32(diff, 24);
+			diff=_mm256_cmpeq_epi32(diff, _mm256_setzero_si256());
+			int ready_mask=_mm256_movemask_ps(_mm256_castsi256_ps(diff));
+			if(ready_mask)
+			{
+				for(int kch=0;kch<8;++kch)
+				{
+					if(ready_mask>>kch&1)
+					{
+						unsigned istart=start.m256i_u32[kch], iend=end.m256i_u32[kch];
+						auto &plane=planes[depth-1-(kp+kch)];
+						do
+						{
+							plane.push_back(istart>>24);
+#ifdef DEBUG_SIMD_DEC
+							if(examine_flag&&kp+kch==examined_plane)
+								printf("Shift-out: %02X\n", istart>>24);
+#endif
+							istart<<=8, iend=iend<<8|0xFF;
+							i_outbitcounts.m256i_u32[kch]+=8;
+							f_outbitcounts=_mm256_cvtepi32_ps(i_outbitcounts);
+						}while((istart^iend)<0x1000000);
+						start.m256i_u32[kch]=istart, end.m256i_u32[kch]=iend;
+#ifdef DEBUG_SIMD_DEC
+						if(examine_flag&&kp+kch==examined_plane)
+						{
+							printf("New bounds: %08X~%08X\n", start.m256i_u32[kch], end.m256i_u32[kch]);
+							examine_flag=0;
+						}
+#endif
+					}
+				}
+			}
+#ifdef HARD_AVX2_PROFILE
+			ti2=__rdtsc();
+			ti[part]+=ti2-ti1, ++part;
+			ti1=__rdtsc();
+#endif
+		}
+		for(int kch=0;kch<8;++kch)
+		{
+			auto &plane=planes[depth-1-(kp+kch)];
+			unsigned istart=start.m256i_u32[kch];
+			plane.push_back(istart>>24&0xFF);//big-endian
+			plane.push_back(istart>>16&0xFF);
+			plane.push_back(istart>>8&0xFF);
+			plane.push_back(istart&0xFF);
+		}
+	}
+	auto t_enc=__rdtsc();
+	//out_sizes.resize(depth);
+	for(int k=0;k<depth;++k)
+		out_sizes[k]=planes[k].size();
+	out_data.clear();
+	for(int k=0;k<depth;++k)
+	{
+		auto &plane=planes[k];
+		out_data.insert(out_data.end(), plane.begin(), plane.end());
+	}
+
+	auto t2=__rdtsc();
+	if(loud)
+	{
+		int original_bitsize=imsize*depth, compressed_bitsize=(int)out_data.size()<<3;
+		printf("AC encode AVX2:  %lld cycles (Enc: %lld cycles)\n", t2-t1, t_enc-t1);
+		printf("Size: %d -> %d, ratio: %lf\n", original_bitsize>>3, compressed_bitsize>>3, (double)original_bitsize/compressed_bitsize);
+		printf("Bit\tkp\tSymbol count\n");
+		for(int k=0;k<depth;++k)
+			printf("%2d\t%2d\t%5d\n", depth-1-k, k, out_sizes[k]);
+		
+		printf("Preview:\n");
+		int kprint=out_data.size()<200?out_data.size():200;
+		for(int k=0;k<kprint;++k)
+			printf("%02X-", out_data[k]&0xFF);
+		printf("\n");
+#ifdef HARD_AVX2_PROFILE
+		long long sum=0;
+#define SIZEOF(STATIC_ARRAY)	sizeof(STATIC_ARRAY)/sizeof(*STATIC_ARRAY)
+		for(int k=0;k<SIZEOF(ti);++k)
+			sum+=ti[k];
+		printf("AVX2 Profile:\n");
+		for(int k=0;k<SIZEOF(ti);++k)
+			printf("%d: %10lld, %9lf%%\n", k, ti[k], 100.*((double)ti[k]/sum));
+#endif
+	}
+}
+void			abac_decode_avx2(const char *data, const int *sizes, short *buffer, int imsize, int depth, bool loud)
+{
+	if(!imsize)
+		return;
+	auto t1=__rdtsc();
+	memset(buffer, 0, imsize*sizeof(short));
+
+	int *plane_offsets=new int[depth];
+	for(int kp=depth-1, cusize=0;kp>=0;--kp)
+	{
+		plane_offsets[kp]=cusize;
+		cusize+=sizes[depth-1-kp];
+	}
+	
+	__m256i bitmask=_mm256_set_epi32(128, 64, 32, 16, 8, 4, 2, 1);
+	__m256i m_ones=_mm256_set1_epi32(-1);
+	__m256i probhalf=_mm256_set1_epi32(0x8000);
+	__m256i msbyte_limit=_mm256_set1_epi32(0x1000000);
+	__m256i m_one=_mm256_set1_epi32(1), m_probmax=_mm256_set1_epi32(prob_max);
+	__m256 f_one=_mm256_set1_ps(1);
+	for(int kp=0, cusize=0;kp+7<depth;kp+=8)//bit-plane loop
+	{
+		__m256i i_outbitcounts=_mm256_setzero_si256();
+		__m256 f_outbitcounts=_mm256_cvtepi32_ps(i_outbitcounts);
+		__m256i prob=_mm256_set1_epi32(1<<(LOG_WINDOW_SIZE-1));//estimated P(next bit = 0): weighted sum (sum i=1 to 16: !bit[-i]*2^i)
+		__m256i start=_mm256_setzero_si256(), end=_mm256_set1_epi32(-1);//inclusive range
+		__m256i code=_mm256_set_epi32(
+			load32_big((unsigned char*)data+plane_offsets[kp+7]),
+			load32_big((unsigned char*)data+plane_offsets[kp+6]),
+			load32_big((unsigned char*)data+plane_offsets[kp+5]),
+			load32_big((unsigned char*)data+plane_offsets[kp+4]),
+			load32_big((unsigned char*)data+plane_offsets[kp+3]),
+			load32_big((unsigned char*)data+plane_offsets[kp+2]),
+			load32_big((unsigned char*)data+plane_offsets[kp+1]),
+			load32_big((unsigned char*)data+plane_offsets[kp]));
+		__m256i kc=_mm256_set1_epi32(4);
+		for(int kb=0;kb<imsize;)//bit-pixel loop
+		{
+			__m256i range=_mm256_sub_epi32(end, start);
+			__m256i eq_one=_mm256_cmpeq_epi32(range, _mm256_set1_epi32(1));
+			int condition_eq_one=_mm256_movemask_ps(_mm256_castsi256_ps(eq_one));
+			if(condition_eq_one)//because 1=0.9999...
+			{
+				for(int kch=0;kch<8;++kch)
+				{
+					if(condition_eq_one>>kch&1)
+					{
+						auto plane=data+plane_offsets[kp+kch];
+						code.m256i_u32[kch]=load32_big((unsigned char*)plane+kc.m256i_i32[kch]);
+						kc.m256i_i32[kch]+=4;
+						start.m256i_u32[kch]=0, end.m256i_u32[kch]=0xFFFFFFFF;
+					}
+				}
+				range=_mm256_sub_epi32(end, start);
+			}
+			
+			//calculate confidence = kb / (8kc+kb)		where kb: in bit idx, kc: out byte idx
+			__m256 conf_num=_mm256_set1_ps((float)kb);
+			__m256 conf_den=_mm256_add_ps(conf_num, f_outbitcounts);
+			__m256 conf=_mm256_div_ps(conf_num, conf_den);
+
+			//if confidence denominator==0 then confidence=100%
+			__m256 den_nz=_mm256_cmp_ps(conf_den, _mm256_setzero_ps(), _CMP_NEQ_UQ);
+			conf=_mm256_and_ps(conf, den_nz);
+			den_nz=_mm256_xor_ps(den_nz, _mm256_castsi256_ps(m_ones));
+			den_nz=_mm256_and_ps(den_nz, f_one);
+			conf=_mm256_or_ps(conf, den_nz);
+
+			//predict P(0) = 1/2 + (W(0)-1/2)*confidence
+			__m256i p0=_mm256_sub_epi32(prob, probhalf);
+			__m256 f_p0=_mm256_cvtepi32_ps(p0);
+			f_p0=_mm256_mul_ps(f_p0, conf);
+			f_p0=_mm256_floor_ps(f_p0);//SSE4.1 equivalent
+			p0=_mm256_cvtps_epi32(f_p0);
+			p0=_mm256_add_epi32(probhalf, p0);//*/
+
+			//clamp probability: P(0) = clamp(2^-L, P(0), 1-2^-L)	where L=16		//probability shouldn't be exactly 0 or 100%
+			__m256i c_min=_mm256_cmpgt_epi32(p0, m_one);
+			__m256i c_max=_mm256_cmpgt_epi32(m_probmax, p0);
+			p0=_mm256_and_si256(p0, c_min);
+			p0=_mm256_and_si256(p0, c_max);
+			c_min=_mm256_xor_si256(c_min, m_ones);
+			c_max=_mm256_xor_si256(c_max, m_ones);
+			c_min=_mm256_and_si256(c_min, m_one);
+			c_max=_mm256_and_si256(c_max, m_probmax);
+			p0=_mm256_or_si256(p0, c_min);
+			p0=_mm256_or_si256(p0, c_max);
+			
+			//calculate middle = start+((u64)(end-start)*p0>>L)
+			__m256i lo=_mm256_mul_epu32(range, p0);
+			lo=_mm256_srli_epi64(lo, 16);
+			range=_mm256_shuffle_epi32(range, _MM_SHUFFLE(2, 3, 0, 1));
+			p0=_mm256_shuffle_epi32(p0, _MM_SHUFFLE(2, 3, 0, 1));
+			__m256i hi=_mm256_mul_epu32(range, p0);
+			hi=_mm256_srli_epi64(hi, 16);
+			__m256i middle=_mm256_castps_si256(_mm256_shuffle_ps(_mm256_castsi256_ps(lo), _mm256_castsi256_ps(hi), _MM_SHUFFLE(2, 0, 2, 0)));
+			middle=_mm256_shuffle_epi32(middle, _MM_SHUFFLE(3, 1, 2, 0));
+			middle=_mm256_add_epi32(middle, start);
+
+			//unpack next bit	bit=code>=middle	unsigned compare
+			__m256i bit=_mm256_max_epu32(code, middle);//SSE4.1 equivalent
+			bit=_mm256_cmpeq_epi32(bit, code);
+			__m256i bit_c=_mm256_xor_si256(bit, m_ones);
+
+#ifdef DEBUG_SIMD_DEC
+			if(examined_plane>=kp&&examined_plane<kp+4&&kb==examined_pixel)
+				printf("buffer[%d]=%04X, p0=%d, code=%08X, %08X~%08X, mid=%08X, bit %d = %d\n", kb, buffer[kb], p0.m256i_i32[examined_plane&3], code.m256i_i32[examined_plane&3], start.m256i_u32[examined_plane&3], end.m256i_u32[examined_plane&3], middle.m256i_u32[examined_plane&3], examined_plane, bit.m256i_i32[examined_plane&3]==-1);
+#endif
+
+			//update weighted sum W(0) = !bit_new | W_prev(0)>>1	 = (sum i=1 to 16: !bit[-i]*2^i) / 2^16
+			prob=_mm256_srli_epi32(prob, 1);
+			__m256i bit15=_mm256_and_si256(bit_c, probhalf);
+			prob=_mm256_or_si256(prob, bit15);
+
+			//select range: if(bit)start=middle; else end=middle-1;		same as: start=bit?middle:start, end=bit?end:middle-1;
+			__m256i midm1=_mm256_sub_epi32(middle, m_one);
+			__m256i midp1=_mm256_add_epi32(middle, m_one);
+			
+			midp1=_mm256_and_si256(midp1, bit);
+			start=_mm256_and_si256(start, bit_c);
+			start=_mm256_or_si256(start, midp1);
+
+			midm1=_mm256_and_si256(midm1, bit_c);
+			end=_mm256_and_si256(end, bit);
+			end=_mm256_or_si256(end, midm1);
+
+			int bits=_mm256_movemask_ps(_mm256_castsi256_ps(bit));
+			buffer[kb]|=bits<<kp;
+
+			++kb;
+			
+			//check if most-significant byte is ready
+			__m256i diff=_mm256_xor_si256(start, end);
+			diff=_mm256_srli_epi32(diff, 24);
+			diff=_mm256_cmpeq_epi32(diff, _mm256_setzero_si256());
+			int ready_mask=_mm256_movemask_ps(_mm256_castsi256_ps(diff));
+			if(ready_mask)
+			{
+				for(int kch=0;kch<8;++kch)
+				{
+					if(ready_mask>>kch&1)
+					{
+						unsigned istart=start.m256i_u32[kch], iend=end.m256i_u32[kch];
+						auto plane=data+plane_offsets[kp+kch];
+						do
+						{
+							code.m256i_u32[kch]=code.m256i_u32[kch]<<8|(unsigned char)plane[kc.m256i_u32[kch]];
+							++kc.m256i_u32[kch];
+							istart<<=8, iend=iend<<8|0xFF;
+							i_outbitcounts.m256i_u32[kch]+=8;
+							f_outbitcounts=_mm256_cvtepi32_ps(i_outbitcounts);
+						}while((istart^iend)<0x1000000);
+						start.m256i_u32[kch]=istart, end.m256i_u32[kch]=iend;
+					}
+				}
+			}
+		}//end pixel loop
+	}//end bit-plane loop
+	delete[] plane_offsets, plane_offsets=nullptr;
+
+	auto t2=__rdtsc();
+	if(loud)
+	{
+		printf("AC decode:  %lld cycles\n", t2-t1);
+	}
+}
+#endif

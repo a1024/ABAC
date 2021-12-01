@@ -9,6 +9,14 @@ void			ac_decode(const char *data, const int *sizes, const int *probabilities, s
 void			abac_encode(const short *buffer, int imsize, int depth, std::string &out_data, int *out_sizes, bool loud);
 void			abac_decode(const char *data, const int *sizes, short *buffer, int imsize, int depth, bool loud);
 
+#ifndef __GNUC__
+void			abac_encode_sse2(const short *buffer, int imsize, int depth, std::string &out_data, int *out_sizes, bool loud);
+void			abac_decode_sse2(const char *data, const int *sizes, short *buffer, int imsize, int depth, bool loud);
+
+void			abac_encode_avx2(const short *buffer, int imsize, int depth, std::string &out_data, int *out_sizes, bool loud);
+void			abac_decode_avx2(const char *data, const int *sizes, short *buffer, int imsize, int depth, bool loud);
+#endif
+
 void			ac_test_bitplane_differentiation(short *buffer, int imsize, int depth, int &dmask);
 void			ac_differentiate_bitplanes(short *buffer, int imsize, int depth, int dmask);
 void			ac_integrate_bitplanes(short *buffer, int imsize, int depth, int dmask);

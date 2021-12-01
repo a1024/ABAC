@@ -24,6 +24,7 @@ bits loaded into an integer such that the MSB is the most recent bit.
 while confidence is a function of the current compression ratio:
 	ratio = consumed data size / current output size
 	confidence = ratio/(ratio+1)
+		= consumed bit count / (produced + condumed bit counts)
 
 The arithmetic coder itself is a modified version of the coder from zpaq 1.10
 See:
@@ -32,20 +33,28 @@ http://mattmahoney.net/dc/dce.html#Section_32
 
 Evaluation:
 Data was compressed without any decorrelating transformations.
+SIMD ABAC versions are incompatible with normal ABAC,
+due to floating point rounding behavior.
 
 File		Coder		compression	encode		decode
 				ratio		cycles		cycles
 
-1) synthetic	ABAC		3.61		 609M		1126M
-   1920x1080	Huffman		2.41		  92.7M		  49.3M
-   image	Static Prob AC	1.28		 352M		 420M
+1) synthetic	ABAC AVX2	3.608005	 287M		 215M
+   1920x1080	ABAC SSE4	3.608005	 254M		 352M
+   image	ABAC		3.607679	 687M		1477M
+		Huffman		2.41		  92.7M		  49.3M
+		Static prob AC	1.28		 352M		 420M
 
-2) natural	ABAC		1.47		2511M		4726M
-   3456x2304	Huffman		1.16		 466M		 499M
-   image	Static prob AC	1.01		2219M		2127M
+2) natural	ABAC AVX2	1.471159	1056M		1070M
+   3456x2304	ABAC SSE4	1.471159	1347M		1208M
+   image	ABAC		1.471149	3254M		5400M
+		Huffman		1.16		 466M		 499M
+		Static prob AC	1.01		2219M		2127M
 
-3) C++ source	ABAC		1.22		 398M		 743M
-   1.32 MB	Huffman		1.43		 132M		  99.7M
+3) C++ source	ABAC AVX2	1.223053	 321M		 267M
+   1.32 MB	ABAC SSE4	1.223053	 275M		 285M
+		ABAC		1.223054	 586M		 977M
+		Huffman		1.43		 132M		  99.7M
 		Static prob AC	1.199		 359M		 437M
 
 
