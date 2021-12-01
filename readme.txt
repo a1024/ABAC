@@ -4,6 +4,8 @@ ABAC: An Adaptive Binary Arithmetic Coder
 Documentation:
 ac.cpp: The arithmetic coder. Static and adaptive versions.
 	abac_encode/decode: adaptive binary arithmetic coder
+	abac_[encode/decode]_[sse2/avx2]: faster SIMD versions,
+		incompatible with non-SIMD versions.
 	ac_encode/decode: static probability binary arithmetic coder
 
 huffman.cpp: Huffman coder for comparison (uses vector_bool.h)
