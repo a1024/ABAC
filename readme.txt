@@ -39,7 +39,7 @@ Data was compressed without any decorrelating transformations.
 SIMD ABAC versions are incompatible with normal ABAC,
 due to floating point rounding behavior.
 
-File		Coder		compression	encode		decode
+File		Coder		Compression	Encode		Decode
 				ratio		cycles		cycles
 
 1) synthetic	ABAC AVX2	3.608005	 287M		 215M
@@ -59,8 +59,8 @@ File		Coder		compression	encode		decode
 3) C++ source	ABAC AVX2	1.223053	 321M		 267M
    1.32 MB	ABAC SSE4	1.223053	 275M		 285M
 		ABAC		1.223054	 586M		 977M
-		Simple LZ77	1.211728	 102M		   3.39M
 		Huffman		1.43		 132M		  99.7M
+		Simple LZ77	1.211728	 102M		   3.39M
 		Static prob AC	1.199		 359M		 437M
 
 
