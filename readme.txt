@@ -46,17 +46,20 @@ File		Coder		compression	encode		decode
    1920x1080	ABAC SSE4	3.608005	 254M		 352M
    image	ABAC		3.607679	 687M		1477M
 		Huffman		2.41		  92.7M		  49.3M
+		Simple LZ77	2.006596	 173M		   4.8M
 		Static prob AC	1.28		 352M		 420M
 
 2) natural	ABAC AVX2	1.471159	1056M		1070M
    3456x2304	ABAC SSE4	1.471159	1347M		1208M
    image	ABAC		1.471149	3254M		5400M
 		Huffman		1.16		 466M		 499M
+		Simple LZ77	1.003379	1008M		   5.37M
 		Static prob AC	1.01		2219M		2127M
 
 3) C++ source	ABAC AVX2	1.223053	 321M		 267M
    1.32 MB	ABAC SSE4	1.223053	 275M		 285M
 		ABAC		1.223054	 586M		 977M
+		Simple LZ77	1.211728	 102M		   3.39M
 		Huffman		1.43		 132M		  99.7M
 		Static prob AC	1.199		 359M		 437M
 
