@@ -826,6 +826,22 @@ struct			ProbInfo
 static std::vector<ProbInfo> probs;
 const int examined_plane=4;
 #endif
+inline int		weighted_bitsum(int x)
+{
+	int sum=0;
+	for(int k=0;k<16;++k)
+	{
+		int bit=x>>k&1;
+		sum+=(k+1)&-bit;
+	}
+	return sum;
+}
+inline int		hamming_weight(int x)
+{
+	x-=x>>1&0x55555555;
+	x=(x&0x33333333)+(x>>2&0x33333333);
+	return ((x+(x>>4))&0x0F0F0F0F)*0x01010101>>24;
+}
 void			abac_encode(const short *buffer, int imsize, int depth, std::string &out_data, int *out_sizes, bool loud)
 {
 #ifdef PRINT_VISUAL
@@ -885,7 +901,18 @@ void			abac_encode(const short *buffer, int imsize, int depth, std::string &out_
 			//if(conf_den)
 			//	p0=0x8000+((long long)(p0-0x8000)*kb*conf_invden>>16);
 #if 1
-			int p0=prob;
+			int p0=prob;		//1.471149
+
+			//int p_alt=(prob^prob<<1)&0xFFFF;
+			//int p0=prob+((~prob-prob)*hamming_weight(p_alt)>>6);		//1.450343
+
+			//int p_alt=(prob^prob<<1)&0xFFFF;
+			//int p0=prob+((~prob-prob)*p_alt>>16);						//1.361238
+			//printf("new=%d, acc=%04X, alt=%04X, P(0)=%d=%lf\n", bit, prob, ((prob^prob<<1)&0xFFFF), p0, (double)p0/0x10000);
+
+			//int p_alt=(prob^prob<<1)&0xFFFF;
+			//int p0=prob+((~prob-prob)*weighted_bitsum(p_alt)>>7);		//1.240445
+
 			int conf_den=(plane.size()<<3)+kb;
 #ifdef DEBUG_SIMD_ENC
 			if(kp==examined_plane&&kb==40)
@@ -1076,7 +1103,18 @@ void			abac_decode(const char *data, const int *sizes, short *buffer, int imsize
 				start=0, end=0xFFFFFFFF;//because 1=0.9999...
 				range=end-start;
 			}
+
+			//int p_alt=(prob^prob<<1)&0xFFFF;
+			//int p0=prob+((~prob-prob)*weighted_bitsum(p_alt)>>7);
+
+			//int p_alt=(prob^prob<<1)&0xFFFF;
+			//int p0=prob+((~prob-prob)*hamming_weight(p_alt)>>6);
+
+			//int p_alt=(prob^prob<<1)&0xFFFF;
+			//int p0=prob+((~prob-prob)*p_alt>>16);
+
 			int p0=prob;
+
 			int conf_den=((kc-4)<<3)+kb;
 			if(conf_den)
 			//if(kc-4>0)

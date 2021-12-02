@@ -1,6 +1,8 @@
 #include"ac.h"
-#include"lodepng.h"
 #include"huffman.h"
+#include"lz77.h"
+
+#include"lodepng.h"
 #include<stdlib.h>
 #include<string.h>
 #include<vector>
@@ -16,15 +18,17 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include"stb_image.h"
 
+#define	SIZEOF(STATIC_ARRAY)	(sizeof(STATIC_ARRAY)/sizeof(*STATIC_ARRAY))
+
 #ifdef __linux__
 typedef unsigned char byte;
 #endif
-bool			open_text(const char *filename, std::string &binary_data)
+bool			open_text(const char *filename, std::string &data)
 {
 	std::ifstream input(filename);
 	if(!input.is_open())
 		return false;
-	binary_data.assign(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+	data.assign(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
 	input.close();
 	return true;
 }
@@ -71,6 +75,67 @@ int			main(int argc, char **argv)
 		printf("Pass filename as command argument\n");
 		return 1;
 	}
+
+	//LZ77
+#if 1
+/*	int iw=0, ih=0, nch=0;
+	byte *original_image=stbi_load("20211129 1 confidence.PNG", &iw, &ih, &nch, 4);
+	if(!original_image)
+	{
+		printf("Couldn't open image\n");
+		return 1;
+	}
+	auto buffer=(char*)original_image;
+	int imsize=iw*ih;//*/
+
+	std::string str;
+//	open_text("D:/C/Compression Sandbox/Compression Sandbox/ac.cpp", str);
+	open_text("D:/C/Compression Sandbox/g2.cpp", str);
+	auto buffer=str.c_str();
+	int imsize=str.size();//*/
+
+/*	const char buffer[]="01234555555555555555555555555555555555555556789";
+	//const char buffer[]="Hello World! Sample Text. What is going on??!";
+	//const char buffer[]="0101_0101_0101_0101_0101_0101_0101_0101_0101_0101_0101_0101_0101_0101_0101_0101_";
+	printf("Original:\n%s\n", buffer);
+	int imsize=sizeof(buffer);//*/
+
+	//const int depth=8;
+	char *b2=new char[imsize];
+	memset(b2, 0, imsize);
+
+	std::string data;
+	lz77_encode(buffer, imsize, data, true);
+	lz77_decode(data.data(), data.size(), imsize, b2, true);
+	bool error=false;
+	for(int k=0;k<imsize;++k)
+	{
+		if(b2[k]!=buffer[k])
+		{
+			error=true;
+			printf("Error %d: %d -> %d, %c -> %c\n", k, b2[k]&0xFF, buffer[k]&0xFF, b2[k], buffer[k]);
+			int start=k-100;
+			if(start<0)
+				start=0;
+			int end=start+200;
+			if(end>imsize)
+				end=imsize;
+			printf("Before:\n%.*s\nAfter:\n%.*s\n", end-start, buffer+start, end-start, b2+start);
+			break;
+		}
+	}
+	if(!error)
+	{
+		int preview=imsize;
+		if(preview>200)
+			preview=200;
+		printf("Decoded:\n%.*s\n", preview, b2);
+	}
+	
+	//STBI_FREE(original_image);
+	delete[] b2;
+#endif
+
 	//Huffman - text
 #if 0
 	std::string text;
@@ -135,6 +200,7 @@ int			main(int argc, char **argv)
 	for(int k=0;k<imsize;++k)//extract red channel
 		buffer[k]=image[k]&0xFF;
 	short *b2=new short[imsize];
+	STBI_FREE(original_image);
 
 
 	int histogram[256]={};
@@ -149,7 +215,7 @@ int			main(int argc, char **argv)
 #endif
 
 	//AC - image
-#if 1
+#if 0
 	int iw=0, ih=0, nch=0;
 	byte *original_image=stbi_load(argv[1], &iw, &ih, &nch, 4);
 	//byte *original_image=stbi_load("20211129 1 confidence.PNG", &iw, &ih, &nch, 4);
@@ -175,13 +241,23 @@ int			main(int argc, char **argv)
 	//stbi_image_free(original_image);
 
 /*	std::string text;
-	//open_text(argv[1], text);
-	open_text("D:/C/ABAC Linux/Makefile", text);
+	open_text(argv[1], text);
+	//open_text("D:/C/ABAC Linux/Makefile", text);
 	const int depth=8;
 	int imsize=text.size();
 	auto buffer=new short[imsize];
 	for(int k=0;k<imsize;++k)
 		buffer[k]=text[k];//*/
+
+
+/*	int imsize=1024;
+	const int depth=1;
+	short *buffer=new short[imsize];
+	for(int k=0;k<imsize;++k)
+		buffer[k]=rand()&1;
+		//buffer[k]=!(k&1);
+		//buffer[k]=0;//*/
+
 
 /*	unsigned iw=0, ih=0;
 	std::vector<unsigned char> vimage;
@@ -216,15 +292,14 @@ int			main(int argc, char **argv)
 	std::string data;
 	int sizes[depth]={}, probs[depth]={};
 
-	//abac_encode(buffer, imsize, depth, data, sizes, true);
+	abac_encode(buffer, imsize, depth, data, sizes, true);
+	abac_decode(data.data(), sizes, b2, imsize, depth, true);
 
 	//abac_encode_sse2(buffer, imsize, depth, data, sizes, true);
 	//abac_decode_sse2(data.data(), sizes, b2, imsize, depth, true);
-
-	abac_encode_avx2(buffer, imsize, depth, data, sizes, true);
-	abac_decode_avx2(data.data(), sizes, b2, imsize, depth, true);
-
-	//abac_decode(data.data(), sizes, b2, imsize, depth, true);
+	//
+	//abac_encode_avx2(buffer, imsize, depth, data, sizes, true);
+	//abac_decode_avx2(data.data(), sizes, b2, imsize, depth, true);
 
 	//ac_encode(buffer, imsize, depth, data, sizes, probs, true);
 	//ac_decode(data.data(), sizes, probs, b2, imsize, depth, true);
