@@ -77,8 +77,9 @@ int			main(int argc, char **argv)
 	}
 
 	//LZ77
-#if 1
-/*	int iw=0, ih=0, nch=0;
+#if 0
+	int iw=0, ih=0, nch=0;
+	//byte *original_image=stbi_load("2005-12-29 Empire state building 29122005.JPG", &iw, &ih, &nch, 4);
 	byte *original_image=stbi_load("20211129 1 confidence.PNG", &iw, &ih, &nch, 4);
 	if(!original_image)
 	{
@@ -88,7 +89,7 @@ int			main(int argc, char **argv)
 	auto buffer=(char*)original_image;
 	int imsize=iw*ih;//*/
 
-	std::string str;
+/*	std::string str;
 //	open_text("D:/C/Compression Sandbox/Compression Sandbox/ac.cpp", str);
 	open_text("D:/C/Compression Sandbox/g2.cpp", str);
 	auto buffer=str.c_str();
@@ -215,13 +216,15 @@ int			main(int argc, char **argv)
 #endif
 
 	//AC - image
-#if 0
+#if 1
 	int iw=0, ih=0, nch=0;
 	byte *original_image=stbi_load(argv[1], &iw, &ih, &nch, 4);
 	//byte *original_image=stbi_load("20211129 1 confidence.PNG", &iw, &ih, &nch, 4);
 	//byte *original_image=stbi_load("2005-12-29 Empire state building 29122005.JPG", &iw, &ih, &nch, 4);
 	//byte *original_image=stbi_load("example.png", &iw, &ih, &nch, 4);
-	if(!original_image)
+	if(original_image)
+		printf("Opened \'%s\'\n", argv[1]);
+	else
 	{
 		printf("Failed to open \'%s\'\n", argv[1]);
 		return 1;
@@ -240,7 +243,8 @@ int			main(int argc, char **argv)
 		buffer[k]=image[k]&0xFF;//*/
 	//stbi_image_free(original_image);
 
-/*	std::string text;
+/*	printf("Opening \'%s\'\n", argv[1]);
+	std::string text;
 	open_text(argv[1], text);
 	//open_text("D:/C/ABAC Linux/Makefile", text);
 	const int depth=8;
@@ -292,12 +296,12 @@ int			main(int argc, char **argv)
 	std::string data;
 	int sizes[depth]={}, probs[depth]={};
 
-	abac_encode(buffer, imsize, depth, data, sizes, true);
-	abac_decode(data.data(), sizes, b2, imsize, depth, true);
+	//abac_encode(buffer, imsize, depth, data, sizes, true);
+	//abac_decode(data.data(), sizes, b2, imsize, depth, true);
 
-	//abac_encode_sse2(buffer, imsize, depth, data, sizes, true);
-	//abac_decode_sse2(data.data(), sizes, b2, imsize, depth, true);
-	//
+	abac_encode_sse2(buffer, imsize, depth, data, sizes, true);
+	abac_decode_sse2(data.data(), sizes, b2, imsize, depth, true);
+
 	//abac_encode_avx2(buffer, imsize, depth, data, sizes, true);
 	//abac_decode_avx2(data.data(), sizes, b2, imsize, depth, true);
 

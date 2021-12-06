@@ -62,6 +62,7 @@ File		Coder		Compression	Encode		Decode
 		Huffman		1.43		 132M		  99.7M
 		Simple LZ77	1.211728	 102M		   3.39M
 		Static prob AC	1.199		 359M		 437M
+		LZMA2 (7-zip)	8.5033		~805M		?
 
 
 Build test:
