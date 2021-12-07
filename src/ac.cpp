@@ -1,5 +1,6 @@
 //ac.cpp - Arithmetic Coder implementation
-//Copyright (C) 2021  Ayman Wagih Mohsen, unless source link provided.
+//Arithmetic Coder from ZPAQ0
+//modifications by Ayman Wagih Mohsen, unless source link provided.
 //
 //This program is free software: you can redistribute it and/or modify
 //it under the terms of the GNU General Public License as published by
@@ -28,22 +29,29 @@
 #define	scanf	scanf_s
 #endif
 
-	#define	LOG_WINDOW_SIZE		16	//[2, 16]
+	#define	LOG_WINDOW_SIZE		16	//[2, 16]	do not change
 
 	#define	PRINT_ERROR//should be enabled
 
-	#define	PREDICTOR_AWM_CONFBIT
+//choose one:
+//	#define	PREDICTOR_AWM_CONFBIT
+	#define PREDICTOR_AWM_PREVBIT
+//	#define	PREDICTOR_AWM_CONFBIT_WND
 //	#define	PREDICTOR_AWM_CONFSIZE
 //	#define	PREDICTOR_AWM_FULLCONF//bad
 //	#define	PREDICTOR_ZPAQ0
 
-//	#define	PRINT_VISUAL		//disable with release & large files
-//	#define	PRINT_BITPLANES		//^
-//	#define	DEBUG_PREDICTOR		//^
-//	#define	DEBUG_SIMD_ENC		//^
-//	#define	DEBUG_SIMD_DEC		//^
-//	#define	HARD_AVX2_PROFILE	//^
-//	#define	DEBUG_PREDICTOR2	//^
+//disable all of theese at release:
+//	#define	PRINT_VISUAL
+//	#define	PRINT_BITPLANES
+//	#define	DEBUG_PREDICTOR
+//	#define	DEBUG_SIMD_ENC
+//	#define	DEBUG_SIMD_DEC
+//	#define	HARD_AVX2_PROFILE
+//	#define	DEBUG_PREDICTOR2
+//	#define	DEBUG_PORTABILITY
+//	#define	DEBUG_CONFBIT
+//	#define	DEBUG_CONFBIT_WND
 
 #ifdef PRINT_VISUAL
 const int visual_plane=0, visual_start=0, visual_end=100;
@@ -869,6 +877,12 @@ void			abac_encode(const short *buffer, int imsize, int depth, std::string &out_
 #if defined PREDICTOR_AWM_CONFSIZE || defined PREDICTOR_AWM_FULLCONF
 		int prob=1<<(LOG_WINDOW_SIZE-1);//cheap weighted average predictor
 #endif
+#ifdef PREDICTOR_AWM_PREVBIT
+		int prevbit=0;
+#endif
+#ifdef PREDICTOR_AWM_CONFBIT_WND
+		int prob=1<<(LOG_WINDOW_SIZE-1), hitcount=0xAAAAAAAA&((1<<LOG_WINDOW_SIZE)-1);//cheap weighted average predictor
+#endif
 #ifdef PREDICTOR_AWM_CONFBIT
 		int prob=1<<(LOG_WINDOW_SIZE-1), hitcount=1;//cheap weighted average predictor
 #endif
@@ -881,12 +895,15 @@ void			abac_encode(const short *buffer, int imsize, int depth, std::string &out_
 		{
 			int bit=buffer[kb]>>kp&1;
 			//if(bit)//impossible non-causal predictor
-			//	prob=65536/8;
+			//	prob=65536/16;
 			//else
-			//	prob=65536*7/8;
-
+			//	prob=65536*15/16;
+			
+			//if(kp==2&&kb==71831)
+			//	int LOL_1=0;
 			u64 range=end-start;
-			if(range==1)
+			if(range<3)
+			//if(range==1)
 			{
 				plane.push_back(start>>24);
 				plane.push_back(start>>16&0xFF);
@@ -904,11 +921,58 @@ void			abac_encode(const short *buffer, int imsize, int depth, std::string &out_
 				printf("%08X~%08X, acc=%04X, p0=%d, middle=%08X, bit=%d\n", start, end, prob, p0, middle, bit);
 #endif
 #endif
+#ifdef PREDICTOR_AWM_CONFBIT_WND
+			int p0=0x8000+((long long)(prob-0x8000)*hitcount>>LOG_WINDOW_SIZE);
+			p0=clamp(1, p0, prob_max);
+			unsigned middle=start+(unsigned)(range*p0>>LOG_WINDOW_SIZE);
+
+			middle+=(middle==start)-(middle==end);
+			//middle-=middle==end;//half-open
+			
+#ifdef DEBUG_CONFBIT_WND
+			//if(kp==0&&kb>700&&kb<800)
+			//if(kp==2&&kb>71700&&kb<71900)
+			//if(kp==4&&kb>8100&&kb<8300)
+			//if(kp==3&&kb>8800&&kb<9000)
+			if(kp==7&&kb>2800&&kb<3000)
+			{
+				if(kb==8880)
+					int LOL_1=0;
+				printf("%d %08X~%08X %08X acc=%04X hit=%04X p0=%04X %08X %d\n", kb, start, end, (unsigned)range, prob, hitcount, p0, middle, bit);
+			}
+#endif
+#endif
+#ifdef PREDICTOR_AWM_PREVBIT
+			int p0=1+(0xFFFD&-!prevbit);
+			//p0=clamp(1, p0, prob_max);
+			unsigned middle=start+(unsigned)(range*p0>>LOG_WINDOW_SIZE);
+#endif
 #ifdef PREDICTOR_AWM_CONFBIT
+			//if(kp==0&&kb==1416)
+		//	if(kp==2&&kb==982)
+		//		int LOL_1=0;
+			//int p0=prob;
 			int p0=0x8000+(long long)(prob-0x8000)*hitcount/(kb+1);
 			p0=clamp(1, p0, prob_max);
 			unsigned middle=start+(unsigned)(range*p0>>LOG_WINDOW_SIZE);
+			//printf("\rconfidence=%lf", (double)hitcount/(kb+1));
+#ifdef DEBUG_CONFBIT
+			if(kp==6&&kb>=6056900&&kb<6057000)
+				printf("%d %08X~%08X %08X acc=%04X hit=%d p0=%04X %08X %d\n", kb, start, end, (unsigned)range, prob, hitcount, p0, middle, bit);
 #endif
+#ifdef DEBUG_PORTABILITY
+			//if(kp==2&&kb>=1100&&kb<1300)
+			if(kp==2&&kb>=700&&kb<1000)
+			//if(kp==0&&kb>=1400&&kb<1600)
+			//if(kp==0&&kb>=0&&kb<200)
+			//if(kp==0&&kb>=700&&kb<800)
+				printf("%d %d|%08X~%08X|%04X|%d/%d|%d|%08X\n", kb, bit, start, end, prob, hitcount, kb+1, p0, middle);
+			//	printf("%d %d|%08X~%08X|acc %04X|%d/%d|p0=%d|mid=%08X\n", kb, bit, start, end, prob, hitcount, kb+1, p0, middle);
+			//	printf("%d: %08X~%08X, acc=%04X, %d/%d, p0=%d, mid=%08X\n", kb, start, end, prob, hitcount, kb+1, p0, middle);
+			//	printf("%d: %d/%d = %lf, p0 = %d\n", kb, hitcount, kb+1, (double)hitcount/(kb+1), p0);
+#endif
+#endif
+			middle+=(middle==start)-(middle==end);
 #ifdef PREDICTOR_AWM_CONFSIZE
 			//int p0=prob;
 			//if(conf_den)
@@ -997,6 +1061,13 @@ void			abac_encode(const short *buffer, int imsize, int depth, std::string &out_
 			hitcount+=bit^(p0>=0x8000);
 			prob=!bit<<15|prob>>1;//cheap weighted average predictor		P(0) = (sum i=1 to 16: !b[-i]*2^i) / 2^16
 #endif
+#ifdef PREDICTOR_AWM_PREVBIT
+			prevbit=bit;
+#endif
+#ifdef PREDICTOR_AWM_CONFBIT_WND
+			hitcount=(bit^(p0>=0x8000))<<15|hitcount>>1;
+			prob=!bit<<15|prob>>1;//cheap weighted average predictor		P(0) = (sum i=1 to 16: !b[-i]*2^i) / 2^16
+#endif
 #ifdef PREDICTOR_ZPAQ0
 			n0+=!bit, n1+=bit;
 #endif
@@ -1020,9 +1091,13 @@ void			abac_encode(const short *buffer, int imsize, int depth, std::string &out_
 #endif
 			
 			if(bit)
-				start=middle;
+			//	start=middle;
+				start=middle+1;
 			else
+			//	end=middle;
 				end=middle-1;
+			//if(start>end)
+			//	int LOL_1=0;
 			++kb;
 			
 			if((start^end)<0x1000000)//most significant byte has stabilized			zpaq 1.10
@@ -1117,6 +1192,12 @@ void			abac_decode(const char *data, const int *sizes, short *buffer, int imsize
 #ifdef PREDICTOR_AWM_CONFBIT
 		int prob=1<<(LOG_WINDOW_SIZE-1), hitcount=1;//cheap weighted average predictor
 #endif
+#ifdef PREDICTOR_AWM_PREVBIT
+		int prevbit=0;
+#endif
+#ifdef PREDICTOR_AWM_CONFBIT_WND
+		int prob=1<<(LOG_WINDOW_SIZE-1), hitcount=0xAAAAAAAA&((1<<LOG_WINDOW_SIZE)-1);//cheap weighted average predictor
+#endif
 #ifdef PREDICTOR_ZPAQ0
 		int n0=1, n1=1;
 #endif
@@ -1126,7 +1207,8 @@ void			abac_decode(const char *data, const int *sizes, short *buffer, int imsize
 		for(int kc=4, kb=0;kb<imsize;)//bit-pixel loop
 		{
 			u64 range=end-start;
-			if(range==1)
+			if(range<3)
+			//if(range==1)
 			{
 				code=load32_big((unsigned char*)plane+kc);
 				kc+=4;
@@ -1151,11 +1233,44 @@ void			abac_decode(const char *data, const int *sizes, short *buffer, int imsize
 				printf("%08X~%08X, acc=%04X, p0=%d, middle=%08X, code=%08X, bit=%d\n", start, end, prob, p0, middle, code, code>=middle);
 #endif
 #endif
+#ifdef PREDICTOR_AWM_CONFBIT_WND
+			int p0=0x8000+((long long)(prob-0x8000)*hitcount>>LOG_WINDOW_SIZE);
+			p0=clamp(1, p0, prob_max);
+			unsigned middle=start+(unsigned)(range*p0>>LOG_WINDOW_SIZE);
+
+			//middle-=middle==end;//half-open
+#ifdef DEBUG_CONFBIT_WND
+			//if(kp==0&&kb>700&&kb<800)
+			//if(kp==2&&kb>71700&&kb<71900)
+			//if(kp==4&&kb>8100&&kb<8300)
+			//if(kp==3&&kb>8800&&kb<9000)
+			if(kp==7&&kb>2800&&kb<3000)
+			{
+				//if(kb==71821)
+				//if(kb==8217)
+				//if(kb==8880)
+				if(kb==2915)
+					int LOL_1=0;
+				printf("%d %08X~%08X %08X acc=%04X hit=%04X p0=%04X %08X %08X %d\n", kb, start, end, (unsigned)range, prob, hitcount, p0, middle, code, code>=middle);
+			}
+#endif
+#endif
+#ifdef PREDICTOR_AWM_PREVBIT
+			int p0=1+(0xFFFD&-!prevbit);
+			//p0=clamp(1, p0, prob_max);
+			unsigned middle=start+(unsigned)(range*p0>>LOG_WINDOW_SIZE);
+#endif
 #ifdef PREDICTOR_AWM_CONFBIT
+			//int p0=prob;
 			int p0=0x8000+(long long)(prob-0x8000)*hitcount/(kb+1);
 			p0=clamp(1, p0, prob_max);
 			unsigned middle=start+(unsigned)(range*p0>>LOG_WINDOW_SIZE);
+#ifdef DEBUG_CONFBIT
+			if(kp==6&&kb>=6056900&&kb<6057000)
+				printf("%d %08X~%08X %08X acc=%04X hit=%08X p0=%04X %08X %08X %d\n", kb, start, end, (unsigned)range, prob, hitcount, p0, middle, code, code>=middle);
 #endif
+#endif
+			middle+=(middle==start)-(middle==end);
 #ifdef PREDICTOR_AWM_CONFSIZE
 			int p0=prob;
 
@@ -1195,7 +1310,8 @@ void			abac_decode(const char *data, const int *sizes, short *buffer, int imsize
 			n0+=n0<1, n1+=n1<1;
 			unsigned middle=start+(unsigned)(range*n0/(n0+n1));
 #endif
-			int bit=code>=middle;
+			int bit=code>middle;
+		//	int bit=code>=middle;
 			//int prevbit;
 		/*	if(code==middle)
 			{
@@ -1231,6 +1347,13 @@ void			abac_decode(const char *data, const int *sizes, short *buffer, int imsize
 			hitcount+=bit^(p0>=0x8000);
 			prob=!bit<<15|prob>>1;//cheap weighted average predictor		P(0) = (sum i=1 to 16: !b[-i]*2^i) / 2^16
 #endif
+#ifdef PREDICTOR_AWM_CONFBIT_WND
+			hitcount=(bit^(p0>=0x8000))<<15|hitcount>>1;
+			prob=!bit<<15|prob>>1;//cheap weighted average predictor		P(0) = (sum i=1 to 16: !b[-i]*2^i) / 2^16
+#endif
+#ifdef PREDICTOR_AWM_PREVBIT
+			prevbit=bit;
+#endif
 #ifdef PREDICTOR_ZPAQ0
 			n0+=!bit, n1+=bit;
 #endif
@@ -1253,8 +1376,10 @@ void			abac_decode(const char *data, const int *sizes, short *buffer, int imsize
 #endif
 			
 			if(bit)
-				start=middle;
+			//	start=middle;
+				start=middle+1;
 			else
+			//	end=middle;
 				end=middle-1;
 			
 			buffer[kb]|=bit<<kp;
@@ -1284,11 +1409,24 @@ void			abac_decode(const char *data, const int *sizes, short *buffer, int imsize
 
 #ifndef __GNUC__
 #ifdef DEBUG_SIMD_DEC
-const int		examined_plane=0, examined_pixel=772;
+const int		examined_plane=0, examined_pixel=776;
+//const int		examined_plane=0, examined_pixel=772;
 //const int		examined_plane=0, examined_pixel=8;
 //const int		examined_plane=4, examined_pixel=1227515;
 int examine_flag=0;
 #endif
+inline __m128i	mul_sr16(__m128i const &a32, __m128i const &b16)
+{
+	__m128i lo=_mm_mul_epu32(a32, b16);
+	lo=_mm_srli_epi64(lo, 16);
+	__m128i a2=_mm_shuffle_epi32(a32, _MM_SHUFFLE(2, 3, 0, 1));
+	__m128i b2=_mm_shuffle_epi32(b16, _MM_SHUFFLE(2, 3, 0, 1));
+	__m128i hi=_mm_mul_epu32(a2, b2);
+	hi=_mm_srli_epi64(hi, 16);
+	__m128i product=_mm_castps_si128(_mm_shuffle_ps(_mm_castsi128_ps(lo), _mm_castsi128_ps(hi), _MM_SHUFFLE(2, 0, 2, 0)));
+	product=_mm_shuffle_epi32(product, _MM_SHUFFLE(3, 1, 2, 0));
+	return product;
+}
 void			abac_encode_sse2(const short *buffer, int imsize, int depth, std::string &out_data, int *out_sizes, bool loud)
 {
 	if(!imsize)
@@ -1304,14 +1442,20 @@ void			abac_encode_sse2(const short *buffer, int imsize, int depth, std::string 
 	__m128i probhalf=_mm_set1_epi32(0x8000);
 	__m128i msbyte_limit=_mm_set1_epi32(0x1000000);
 	__m128i m_one=_mm_set1_epi32(1), m_probmax=_mm_set1_epi32(prob_max);
+	__m128i mask_lo16=_mm_set1_epi32(0x0000FFFF);
 	__m128 f_one=_mm_set1_ps(1);
-	__m128 f_half=_mm_set1_ps(0.5f);
+	__m128 f_half=_mm_set1_ps(0.5f), f_minushalf=_mm_set1_ps(-0.5f);
 	for(int kp=0;kp+3<depth;kp+=4)//bit-plane loop: encode 4 planes simultaneously
 	{
 		__m128i i_outbitcounts=_mm_setzero_si128();
 		__m128 f_outbitcounts=_mm_cvtepi32_ps(i_outbitcounts);
 		__m128i prob=_mm_set1_epi32(1<<(LOG_WINDOW_SIZE-1));//estimated P(next bit = 0): weighted sum (sum i=1 to 16: !bit[-i]*2^i)
-		__m128i hitcount=_mm_set1_epi32(1);
+		__m128i hitcount=_mm_set1_epi32(0xAAAAAAAA&((1<<LOG_WINDOW_SIZE)-1));
+		//__m128i hitcount=_mm_set1_epi32(1);
+#ifdef PREDICTOR_AWM_PREVBIT
+		const __m128i pb_base=_mm_set1_epi32(2), pb_offset=_mm_set1_epi32(0xFFFF-2*2);
+		__m128i prevbit=_mm_setzero_si128();
+#endif
 		__m128i m_kb=_mm_set1_epi32(1);
 		__m128i start=_mm_setzero_si128(), end=_mm_set1_epi32(-1);//inclusive range
 		for(int kb=0;kb<imsize;)
@@ -1361,14 +1505,23 @@ void			abac_encode_sse2(const short *buffer, int imsize, int depth, std::string 
 			p0=_mm_and_si128(p0, mask);
 			den=_mm_and_si128(den, prob);
 			p0=_mm_or_si128(p0, den);//*/
-			
+		
+#ifdef PREDICTOR_AWM_CONFBIT_WND
+			//calculate p0 = 0x8000 + ((acc-0x8000)*hitcount>>16)
+			__m128i p0=_mm_sub_epi32(prob, probhalf);
+			p0=_mm_mulhi_epu16(p0, hitcount);
+			p0=_mm_and_si128(p0, mask_lo16);
+			p0=_mm_add_epi32(p0, probhalf);
+#endif
 #ifdef PREDICTOR_AWM_CONFBIT
 			//calculate confidence = (hitcount+1)/(kb+1)
 			__m128 conf_num=_mm_cvtepi32_ps(hitcount);
 			__m128 conf_den=_mm_cvtepi32_ps(m_kb);
 			__m128 conf=_mm_div_ps(conf_num, conf_den);
-			if(kp==4)
-				int LOL_1=0;
+#endif
+#ifdef PREDICTOR_AWM_PREVBIT
+			__m128i p0=_mm_and_si128(pb_offset, prevbit);
+			p0=_mm_add_epi32(p0, pb_base);
 #endif
 #ifdef PREDICTOR_AWM_CONFSIZE
 			//calculate confidence = kb / (8kc+kb)		where kb: in bit idx, kc: out byte idx
@@ -1383,15 +1536,23 @@ void			abac_encode_sse2(const short *buffer, int imsize, int depth, std::string 
 			den_nz=_mm_and_ps(den_nz, f_one);
 			conf=_mm_or_ps(conf, den_nz);
 #endif
-
+#if !defined PREDICTOR_AWM_CONFBIT_WND && !defined PREDICTOR_AWM_PREVBIT
 			//predict P(0) = 1/2 + (W(0)-1/2)*confidence
 			__m128i p0=_mm_sub_epi32(prob, probhalf);
 			__m128 f_p0=_mm_cvtepi32_ps(p0);
 			f_p0=_mm_mul_ps(f_p0, conf);
-			f_p0=_mm_sub_ps(f_p0, f_half);
-			//f_p0=_mm_floor_ps(f_p0);//SSE4.1
+			
+			f_p0=_mm_round_ps(f_p0, _MM_FROUND_TRUNC);//SSE4.1
+			//__m128 f_mask=_mm_cmplt_ps(f_p0, _mm_setzero_ps());//correction to cast product to integer
+			//__m128 f_correction=_mm_and_ps(f_mask, f_half);
+			//f_mask=_mm_xor_ps(f_mask, _mm_castsi128_ps(m_ones));
+			//f_mask=_mm_and_ps(f_mask, f_minushalf);
+			//f_correction=_mm_or_ps(f_correction, f_mask);
+			//f_p0=_mm_add_ps(f_p0, f_correction);
+
 			p0=_mm_cvtps_epi32(f_p0);			//FIX THIS
-			p0=_mm_add_epi32(probhalf, p0);//*/
+			p0=_mm_add_epi32(p0, probhalf);//*/
+#endif
 
 			//clamp probability: P(0) = clamp(2^-L, P(0), 1-2^-L)	where L=16		//probability shouldn't be exactly 0 or 100%
 			__m128i c_min=_mm_cmpgt_epi32(p0, m_one);
@@ -1419,14 +1580,15 @@ void			abac_encode_sse2(const short *buffer, int imsize, int depth, std::string 
 #endif
 
 			//calculate middle = start+((u64)(end-start)*p0>>L)
-			__m128i lo=_mm_mul_epu32(range, p0);
+			__m128i middle=mul_sr16(range, p0);
+		/*	__m128i lo=_mm_mul_epu32(range, p0);
 			lo=_mm_srli_epi64(lo, 16);
 			range=_mm_shuffle_epi32(range, _MM_SHUFFLE(2, 3, 0, 1));
 			eq_one=_mm_shuffle_epi32(p0, _MM_SHUFFLE(2, 3, 0, 1));
 			__m128i hi=_mm_mul_epu32(range, eq_one);
 			hi=_mm_srli_epi64(hi, 16);
 			__m128i middle=_mm_castps_si128(_mm_shuffle_ps(_mm_castsi128_ps(lo), _mm_castsi128_ps(hi), _MM_SHUFFLE(2, 0, 2, 0)));
-			middle=_mm_shuffle_epi32(middle, _MM_SHUFFLE(3, 1, 2, 0));
+			middle=_mm_shuffle_epi32(middle, _MM_SHUFFLE(3, 1, 2, 0));//*/
 			middle=_mm_add_epi32(middle, start);
 
 			//get next bit
@@ -1435,7 +1597,10 @@ void			abac_encode_sse2(const short *buffer, int imsize, int depth, std::string 
 			bit_c=_mm_and_si128(bit_c, bitmask);
 			bit_c=_mm_cmpeq_epi32(bit_c, _mm_setzero_si128());
 			__m128i bit=_mm_xor_si128(bit_c, m_ones);
-
+			
+#ifdef PREDICTOR_AWM_PREVBIT
+			prevbit=bit_c;
+#endif
 #ifdef DEBUG_SIMD_DEC
 			if(examined_plane>=kp&&examined_plane<kp+4&&kb==examined_pixel)
 			//if(5>=kp&&5<kp+4&&kb==2326)
@@ -1447,6 +1612,14 @@ void			abac_encode_sse2(const short *buffer, int imsize, int depth, std::string 
 			//	int LOL_1=0;
 #endif
 
+#ifdef PREDICTOR_AWM_CONFBIT_WND
+			//update hitcount: hit = !bit != (p0<0x8000),	hitcount = hit<<15|hitcount>>1
+			__m128i b2=_mm_cmplt_epi32(p0, probhalf);
+			b2=_mm_xor_si128(b2, bit_c);
+			b2=_mm_and_si128(b2, probhalf);
+			hitcount=_mm_srli_epi32(hitcount, 1);
+			hitcount=_mm_or_si128(hitcount, b2);
+#endif
 #ifdef PREDICTOR_AWM_CONFBIT
 			//update hitcount = !bit != (p0<0x8000)
 			__m128i b2=_mm_cmplt_epi32(p0, probhalf);
@@ -1572,13 +1745,19 @@ void			abac_decode_sse2(const char *data, const int *sizes, short *buffer, int i
 	__m128i msbyte_limit=_mm_set1_epi32(0x1000000);
 	__m128i m_one=_mm_set1_epi32(1), m_probmax=_mm_set1_epi32(prob_max);
 //	__m128i shuffle_bigendian=_mm_set_epi8(12, 13, 14, 15, 8, 9, 10, 11, 4, 5, 6, 7, 0, 1, 2, 3);
-	__m128 f_one=_mm_set1_ps(1), f_half=_mm_set1_ps(0.5f);
+	__m128i mask_lo16=_mm_set1_epi32(0x0000FFFF);
+	__m128 f_one=_mm_set1_ps(1), f_half=_mm_set1_ps(0.5f), f_minushalf=_mm_set1_ps(-0.5f);
 	for(int kp=0, cusize=0;kp+3<depth;kp+=4)//bit-plane loop
 	{
 		__m128i i_outbitcounts=_mm_setzero_si128();
 		__m128 f_outbitcounts=_mm_cvtepi32_ps(i_outbitcounts);
 		__m128i prob=_mm_set1_epi32(1<<(LOG_WINDOW_SIZE-1));//estimated P(next bit = 0): weighted sum (sum i=1 to 16: !bit[-i]*2^i)
-		__m128i hitcount=_mm_set1_epi32(1);
+		__m128i hitcount=_mm_set1_epi32(0xAAAAAAAA&((1<<LOG_WINDOW_SIZE)-1));
+		//__m128i hitcount=_mm_set1_epi32(1);
+#ifdef PREDICTOR_AWM_PREVBIT
+		const __m128i pb_base=_mm_set1_epi32(2), pb_offset=_mm_set1_epi32(0xFFFF-2*2);
+		__m128i prevbit=_mm_setzero_si128();
+#endif
 		__m128i m_kb=_mm_set1_epi32(1);
 		__m128i start=_mm_setzero_si128(), end=_mm_set1_epi32(-1);//inclusive range
 		__m128i code=_mm_set_epi32(
@@ -1608,11 +1787,25 @@ void			abac_decode_sse2(const char *data, const int *sizes, short *buffer, int i
 				range=_mm_sub_epi32(end, start);
 			}
 			
+#ifdef PREDICTOR_AWM_CONFBIT_WND
+			//calculate p0 = 0x8000 + ((acc-0x8000)*hitcount>>16)
+			__m128i p0=_mm_sub_epi32(prob, probhalf);
+			p0=_mm_mulhi_epu16(p0, hitcount);
+			p0=_mm_and_si128(p0, mask_lo16);
+			p0=_mm_add_epi32(p0, probhalf);
+#endif
 #ifdef PREDICTOR_AWM_CONFBIT
+			//if(kp==0&&kb==1416)
+			if(kp==0&&kb==982)
+				int LOL_1=0;
 			//calculate confidence = (hitcount+1)/(kb+1)
 			__m128 conf_num=_mm_cvtepi32_ps(hitcount);
 			__m128 conf_den=_mm_cvtepi32_ps(m_kb);
 			__m128 conf=_mm_div_ps(conf_num, conf_den);
+#endif
+#ifdef PREDICTOR_AWM_PREVBIT
+			__m128i p0=_mm_and_si128(pb_offset, prevbit);
+			p0=_mm_add_epi32(p0, pb_base);
 #endif
 #ifdef PREDICTOR_AWM_CONFSIZE
 			//calculate confidence = kb / (8kc+kb)		where kb: in bit idx, kc: out byte idx
@@ -1627,15 +1820,23 @@ void			abac_decode_sse2(const char *data, const int *sizes, short *buffer, int i
 			den_nz=_mm_and_ps(den_nz, f_one);
 			conf=_mm_or_ps(conf, den_nz);
 #endif
-
+#if !defined PREDICTOR_AWM_CONFBIT_WND && !defined PREDICTOR_AWM_PREVBIT
 			//predict P(0) = 1/2 + (W(0)-1/2)*confidence
 			__m128i p0=_mm_sub_epi32(prob, probhalf);
 			__m128 f_p0=_mm_cvtepi32_ps(p0);
 			f_p0=_mm_mul_ps(f_p0, conf);
-			f_p0=_mm_sub_ps(f_p0, f_half);
-			//f_p0=_mm_floor_ps(f_p0);//SSE4.1
+			
+			f_p0=_mm_round_ps(f_p0, _MM_FROUND_TRUNC);//SSE4.1
+			//__m128 f_mask=_mm_cmplt_ps(f_p0, _mm_setzero_ps());//correction to cast product to integer
+			//__m128 f_correction=_mm_and_ps(f_mask, f_half);
+			//f_mask=_mm_xor_ps(f_mask, _mm_castsi128_ps(m_ones));
+			//f_mask=_mm_and_ps(f_mask, f_minushalf);
+			//f_correction=_mm_or_ps(f_correction, f_mask);
+			//f_p0=_mm_add_ps(f_p0, f_correction);
+
 			p0=_mm_cvtps_epi32(f_p0);
 			p0=_mm_add_epi32(probhalf, p0);//*/
+#endif
 
 			//clamp probability: P(0) = clamp(2^-L, P(0), 1-2^-L)	where L=16		//probability shouldn't be exactly 0 or 100%
 			__m128i c_min=_mm_cmpgt_epi32(p0, m_one);
@@ -1650,14 +1851,15 @@ void			abac_decode_sse2(const char *data, const int *sizes, short *buffer, int i
 			p0=_mm_or_si128(p0, c_max);
 			
 			//calculate middle = start+((u64)(end-start)*p0>>L)
-			__m128i lo=_mm_mul_epu32(range, p0);
+			__m128i middle=mul_sr16(range, p0);
+		/*	__m128i lo=_mm_mul_epu32(range, p0);
 			lo=_mm_srli_epi64(lo, 16);
 			range=_mm_shuffle_epi32(range, _MM_SHUFFLE(2, 3, 0, 1));
 			eq_one=_mm_shuffle_epi32(p0, _MM_SHUFFLE(2, 3, 0, 1));
 			__m128i hi=_mm_mul_epu32(range, eq_one);
 			hi=_mm_srli_epi64(hi, 16);
 			__m128i middle=_mm_castps_si128(_mm_shuffle_ps(_mm_castsi128_ps(lo), _mm_castsi128_ps(hi), _MM_SHUFFLE(2, 0, 2, 0)));
-			middle=_mm_shuffle_epi32(middle, _MM_SHUFFLE(3, 1, 2, 0));
+			middle=_mm_shuffle_epi32(middle, _MM_SHUFFLE(3, 1, 2, 0));//*/
 			middle=_mm_add_epi32(middle, start);
 
 			//unpack next bit	bit=code>=middle	unsigned compare
@@ -1667,6 +1869,20 @@ void			abac_decode_sse2(const char *data, const int *sizes, short *buffer, int i
 			//__m128i diff=_mm_sub_epi32(code, middle);
 			//__m128i bit_c=_mm_cmplt_epi32(diff, _mm_setzero_si128());
 			//__m128i bit=_mm_xor_si128(bit_c, m_ones);
+#ifdef DEBUG_PORTABILITY
+			//if(kp==0&&kb>=1100&&kb<1300)
+			if(kp==0&&kb>=700&&kb<1000)
+				printf("%d %d|%08X~%08X|%04X|%d/%d=%f|%d|%08X c%08X\n", kb, bit.m128i_i32[2]==-1, start.m128i_u32[2], end.m128i_u32[2], prob.m128i_u32[2], hitcount.m128i_i32[2], kb+1, conf.m128_f32[2], p0.m128i_i32[2], middle.m128i_u32[2], code.m128i_u32[2]);
+			//if(kp==0&&kb>=1400&&kb<1600)
+			//if(kp==0&&kb>=0&&kb<200)
+			//if(kp==0&&kb>=700&&kb<800)
+			//	printf("%d %d|%08X~%08X|%04X|%d/%d=%f|%d|%08X c%08X\n", kb, bit.m128i_i32[0]==-1, start.m128i_u32[0], end.m128i_u32[0], prob.m128i_u32[0], hitcount.m128i_i32[0], kb+1, conf.m128_f32[0], p0.m128i_i32[0], middle.m128i_u32[0], code.m128i_u32[0]);
+			//	printf("%d: %08X~%08X, acc=%04X, %d/%d=%f, p0=%d, mid=%08X\n", kb, start.m128i_u32[0], end.m128i_u32[0], prob.m128i_u32[0], hitcount.m128i_i32[0], kb+1, conf.m128_f32[0], p0.m128i_i32[0], middle.m128i_u32[0]);
+			//	printf("%d: %d/%d = %lf = %f, p0 = %d\n", kb, hitcount.m128i_i32[0], kb+1, (double)hitcount.m128i_i32[0]/(kb+1), conf.m128_f32[0], p0.m128i_i32[0]);
+#endif
+#ifdef PREDICTOR_AWM_PREVBIT
+			prevbit=bit_c;
+#endif
 
 #ifdef DEBUG_SIMD_DEC
 			if(examined_plane>=kp&&examined_plane<kp+4&&kb==examined_pixel)
@@ -1675,7 +1891,15 @@ void			abac_decode_sse2(const char *data, const int *sizes, short *buffer, int i
 				printf("buffer[%d]=%04X, p0=%d, code=%08X, %08X~%08X, mid=%08X, bit %d = %d\n", kb, buffer[kb], p0.m128i_i32[examined_plane&3], code.m128i_i32[examined_plane&3], start.m128i_u32[examined_plane&3], end.m128i_u32[examined_plane&3], middle.m128i_u32[examined_plane&3], examined_plane, bit.m128i_i32[examined_plane&3]==-1);
 			//	int LOL_1=0;
 #endif
-
+			
+#ifdef PREDICTOR_AWM_CONFBIT_WND
+			//update hitcount: hit = !bit != (p0<0x8000),	hitcount = hit<<15|hitcount>>1
+			__m128i b2=_mm_cmplt_epi32(p0, probhalf);
+			b2=_mm_xor_si128(b2, bit_c);
+			b2=_mm_and_si128(b2, probhalf);
+			hitcount=_mm_srli_epi32(hitcount, 1);
+			hitcount=_mm_or_si128(hitcount, b2);
+#endif
 #ifdef PREDICTOR_AWM_CONFBIT
 			//update hitcount = !bit != (p0<0x8000)
 			__m128i b2=_mm_cmplt_epi32(p0, probhalf);
@@ -1689,6 +1913,14 @@ void			abac_decode_sse2(const char *data, const int *sizes, short *buffer, int i
 			prob=_mm_or_si128(prob, bit15);
 
 			//select range: if(bit)start=middle; else end=middle-1;		same as: start=bit?middle:start, end=bit?end:middle-1;
+		/*	__m128i temp=_mm_and_si128(middle, bit);
+			start=_mm_and_si128(start, bit_c);
+			start=_mm_or_si128(start, temp);
+
+			temp=_mm_and_si128(middle, bit_c);
+			end=_mm_and_si128(end, bit);
+			end=_mm_or_si128(end, temp);//*/
+
 			__m128i midm1=_mm_sub_epi32(middle, m_one);
 			__m128i midp1=_mm_add_epi32(middle, m_one);
 			
@@ -1701,8 +1933,9 @@ void			abac_decode_sse2(const char *data, const int *sizes, short *buffer, int i
 
 			midm1=_mm_and_si128(midm1, bit_c);
 			end=_mm_and_si128(end, bit);
-			end=_mm_or_si128(end, midm1);
+			end=_mm_or_si128(end, midm1);//*/
 
+			//extract bits
 			int bits=_mm_movemask_ps(_mm_castsi128_ps(bit));
 			buffer[kb]|=bits<<kp;
 
@@ -2203,3 +2436,312 @@ void			abac_decode_avx2(const char *data, const int *sizes, short *buffer, int i
 	}
 }
 #endif
+
+#if 0
+void			abac2_encode_init(ABAC_Context &context, int depth, int imsize)
+{
+	context.orig_size=imsize;//unused while encoding
+	context.kb=0;
+	context.depth=depth;
+	context.planes=new ABAC_Plane[depth];
+	for(int k=0;k<depth;++k)
+	{
+		context.planes[k].str=new std::string;
+		if(imsize)
+			context.planes[k].str->reserve(imsize>>3);
+	}
+}
+void			abac2_encode_finish(ABAC_Context &context, std::string &data, int *out_sizes)
+{
+	for(int k=0;k<context.depth;++k)
+	{
+		auto &plane=context.planes[k];
+		out_sizes[k]=plane.str->size();
+		data.insert(data.end(), plane.str->begin(), plane.str->end());
+	}
+	delete[] context.planes, context.planes=nullptr;
+}
+void			abac2_encode(ABAC_Context &context, u64 pixel)
+{
+	++context.orig_size;
+	for(int kp=0;kp<context.depth;++kp)
+	{
+		auto &plane=context.planes[kp];
+		int bit=pixel>>kp&1;
+		u64 range=plane.end-plane.start;
+		if(range<3)
+		{
+			plane.str->push_back(plane.start>>24);
+			plane.str->push_back(plane.start>>16&0xFF);
+			plane.str->push_back(plane.start>>8&0xFF);
+			plane.str->push_back(plane.start&0xFF);
+			plane.start=0, plane.end=0xFFFFFFFF;//because 1=0.9999...
+			range=plane.end-plane.start;
+		}
+		int p0=0x8000+(long long)(plane.prob-0x8000)*plane.hitcount/context.orig_size;
+		p0=clamp(1, p0, prob_max);
+		unsigned middle=plane.start+(unsigned)(range*p0>>LOG_WINDOW_SIZE);
+		middle+=(middle==plane.start)-(middle==plane.end);
+		plane.hitcount+=bit^(p0>=0x8000);
+		plane.prob=!bit<<15|plane.prob>>1;//cheap weighted average predictor		P(0) = (sum i=1 to 16: !b[-i]*2^i) / 2^16
+		if(bit)
+			plane.start=middle+1;
+		else
+			plane.end=middle-1;
+		while((plane.start^plane.end)<0x1000000)//most significant byte has stabilized			zpaq 1.10
+		{
+			plane.str->push_back(plane.start>>24);
+			plane.start<<=8;
+			plane.end=plane.end<<8|0xFF;
+		}
+	}
+/*	if(!imsize)
+		return;
+	auto t1=__rdtsc();
+
+	std::vector<std::string> planes(depth);
+	for(int kp=depth-1;kp>=0;--kp)//bit-plane loop		encode MSB first
+	{
+		auto &plane=planes[depth-1-kp];
+		plane.reserve(imsize>>8);
+		int prob=1<<(LOG_WINDOW_SIZE-1), hitcount=1;//cheap weighted average predictor
+
+		unsigned start=0, end=0xFFFFFFFF;
+		for(int kb=0;kb<imsize;)//bit-pixel loop		http://mattmahoney.net/dc/dce.html#Section_32
+		{
+			int bit=buffer[kb]>>kp&1;
+			u64 range=end-start;
+			if(range<3)
+			{
+				plane.push_back(start>>24);
+				plane.push_back(start>>16&0xFF);
+				plane.push_back(start>>8&0xFF);
+				plane.push_back(start&0xFF);
+				start=0, end=0xFFFFFFFF;//because 1=0.9999...
+				range=end-start;
+			}
+			int p0=0x8000+(long long)(prob-0x8000)*hitcount/(kb+1);
+			p0=clamp(1, p0, prob_max);
+			unsigned middle=start+(unsigned)(range*p0>>LOG_WINDOW_SIZE);
+			middle+=(middle==start)-(middle==end);
+			hitcount+=bit^(p0>=0x8000);
+			prob=!bit<<15|prob>>1;//cheap weighted average predictor		P(0) = (sum i=1 to 16: !b[-i]*2^i) / 2^16
+			if(bit)
+				start=middle+1;
+			else
+				end=middle-1;
+			++kb;
+			while((start^end)<0x1000000)//most significant byte has stabilized			zpaq 1.10
+			{
+				plane.push_back(start>>24);
+				start<<=8;
+				end=end<<8|0xFF;
+			}
+		}
+		plane.push_back(start>>24&0xFF);//big-endian
+		plane.push_back(start>>16&0xFF);
+		plane.push_back(start>>8&0xFF);
+		plane.push_back(start&0xFF);
+	}
+	auto t_enc=__rdtsc();
+	out_data.clear();
+	for(int k=0;k<depth;++k)
+		out_sizes[k]=planes[k].size();
+	for(int k=0;k<depth;++k)
+	{
+		auto &plane=planes[k];
+		out_data.insert(out_data.end(), plane.begin(), plane.end());
+	}
+
+	auto t2=__rdtsc();
+	if(loud)
+	{
+		int original_bitsize=imsize*depth, compressed_bitsize=(int)out_data.size()<<3;
+		printf("AC encode:  %lld cycles (Enc: %lld cycles)\n", t2-t1, t_enc-t1);
+		printf("Size: %d -> %d, ratio: %lf\n", original_bitsize>>3, compressed_bitsize>>3, (double)original_bitsize/compressed_bitsize);
+		printf("Bit\tkp\tSymbol count\n");
+		for(int k=0;k<depth;++k)
+			printf("%2d\t%2d\t%5d\n", depth-1-k, k, out_sizes[k]);
+		
+		printf("Preview:\n");
+		int kprint=out_data.size()<200?out_data.size():200;
+		for(int k=0;k<kprint;++k)
+			printf("%02X-", out_data[k]&0xFF);
+		printf("\n");
+	}//*/
+}
+
+void			abac2_decode_init(ABAC_Context &context, std::string const &data, const int *out_sizes)
+{
+	for(int k=0;k<context.depth;++k)
+	{
+	}
+}
+void			abac2_decode(const char *data, const int *sizes, short *buffer, int imsize, int depth, bool loud)
+{
+/*	if(!imsize)
+		return;
+	auto t1=__rdtsc();
+	memset(buffer, 0, imsize*sizeof(short));
+	
+	for(int kp=depth-1, cusize=0;kp>=0;--kp)//bit-plane loop
+	{
+		int ncodes=sizes[depth-1-kp];
+		auto plane=data+cusize;
+		int prob=1<<(LOG_WINDOW_SIZE-1), hitcount=1;//cheap weighted average predictor
+		unsigned start=0, end=0xFFFFFFFF;
+		unsigned code=load32_big((unsigned char*)plane);
+		for(int kc=4, kb=0;kb<imsize;)//bit-pixel loop
+		{
+			u64 range=end-start;
+			if(range<3)
+			{
+				code=load32_big((unsigned char*)plane+kc);
+				kc+=4;
+				start=0, end=0xFFFFFFFF;//because 1=0.9999...
+				range=end-start;
+			}
+			//int p0=prob;
+			int p0=0x8000+(long long)(prob-0x8000)*hitcount/(kb+1);
+			p0=clamp(1, p0, prob_max);
+			unsigned middle=start+(unsigned)(range*p0>>LOG_WINDOW_SIZE);
+			middle+=(middle==start)-(middle==end);
+			int bit=code>middle;
+			hitcount+=bit^(p0>=0x8000);
+			prob=!bit<<15|prob>>1;//cheap weighted average predictor		P(0) = (sum i=1 to 16: !b[-i]*2^i) / 2^16
+			
+			if(bit)
+				start=middle+1;
+			else
+				end=middle-1;
+			
+			buffer[kb]|=bit<<kp;
+			++kb;
+
+			while(kc<ncodes&&(start^end)<0x1000000)//shift-out identical bytes			zpaq 1.10
+			{
+				code=code<<8|(unsigned char)plane[kc];
+				++kc;
+				start<<=8;
+				end=end<<8|0xFF;
+			}
+		}
+		cusize+=ncodes;
+	}
+
+	auto t2=__rdtsc();
+	if(loud)
+	{
+		printf("AC decode:  %lld cycles\n", t2-t1);
+	}//*/
+}
+#endif
+
+	#define			ESTIMATE_CONFBIT
+//	#define			ESTIMATE_PREVBIT
+
+int				abac_estimate(const void *src, int imsize, int depth, int bytestride, bool loud, int *sizes)
+{
+	auto buffer=(const unsigned char*)src;
+	int compr_size=0;
+	if(!imsize)
+		return compr_size;
+	auto t1=__rdtsc();
+	
+	auto planesizes=new int[depth];
+	memset(planesizes, 0, depth*sizeof(int));
+//	std::vector<std::string> planes(depth);
+	for(int kp=depth-1;kp>=0;--kp)//bit-plane loop		encode MSB first
+	{
+	//	auto &plane=planes[depth-1-kp];
+	//	plane.reserve(imsize>>8);
+#ifdef ESTIMATE_CONFBIT
+		int prob=1<<(LOG_WINDOW_SIZE-1), hitcount=1;//cheap weighted average predictor
+#endif
+#ifdef ESTIMATE_PREVBIT
+		int prevbit=0;
+#endif
+
+		unsigned start=0, end=0xFFFFFFFF;
+		int bit_offset=kp/(bytestride<<3), bit_shift=kp%(bytestride<<3);
+		for(int kb=0, kb2=0;kb<imsize;kb2+=bytestride)//bit-pixel loop		http://mattmahoney.net/dc/dce.html#Section_32
+		{
+			int bit=buffer[kb2+bit_offset]>>bit_shift&1;
+			u64 range=end-start;
+			if(range<3)
+			{
+				planesizes[depth-1-kp]+=4;
+			//	plane.push_back(start>>24);
+			//	plane.push_back(start>>16&0xFF);
+			//	plane.push_back(start>>8&0xFF);
+			//	plane.push_back(start&0xFF);
+				start=0, end=0xFFFFFFFF;//because 1=0.9999...
+				range=end-start;
+			}
+#ifdef ESTIMATE_CONFBIT
+			int p0=0x8000+(long long)(prob-0x8000)*hitcount/(kb+1);
+			p0=clamp(1, p0, prob_max);
+#endif
+#ifdef ESTIMATE_PREVBIT
+			int p0=1+(0xFFFD&-!prevbit);
+#endif
+			unsigned middle=start+(unsigned)(range*p0>>16);
+			middle+=(middle==start)-(middle==end);
+#ifdef ESTIMATE_CONFBIT
+			hitcount+=bit^(p0>=0x8000);
+			prob=!bit<<15|prob>>1;//cheap weighted average predictor		P(0) = (sum i=1 to 16: !b[-i]*2^i) / 2^16
+#endif
+			if(bit)
+				start=middle+1;
+			else
+				end=middle-1;
+#ifdef ESTIMATE_PREVBIT
+			prevbit=bit;
+#endif
+			++kb;
+			while((start^end)<0x1000000)//most significant byte has stabilized			zpaq 1.10
+			{
+				++planesizes[depth-1-kp];
+			//	plane.push_back(start>>24);
+				start<<=8;
+				end=end<<8|0xFF;
+			}
+		}
+		planesizes[depth-1-kp]+=4;
+	//	plane.push_back(start>>24&0xFF);//big-endian
+	//	plane.push_back(start>>16&0xFF);
+	//	plane.push_back(start>>8&0xFF);
+	//	plane.push_back(start&0xFF);
+	}
+/*	auto t_enc=__rdtsc();
+	out_data.clear();
+	for(int k=0;k<depth;++k)
+		out_sizes[k]=planes[k].size();
+	for(int k=0;k<depth;++k)
+	{
+		auto &plane=planes[k];
+		out_data.insert(out_data.end(), plane.begin(), plane.end());
+	}//*/
+	auto t2=__rdtsc();
+
+	for(int kp=0;kp<depth;++kp)
+		compr_size+=planesizes[depth-1-kp];
+	if(sizes)
+		memcpy(sizes, planesizes, depth*sizeof(int));
+	if(loud)
+	{
+		int original_bitsize=imsize*depth, compressed_bitsize=(int)compr_size<<3;
+		printf("AC estimate:  %lld cycles\n", t2-t1);
+		printf("Size: %d -> %d, ratio: %lf\n", original_bitsize>>3, compressed_bitsize>>3, (double)original_bitsize/compressed_bitsize);
+		printf("Bit\tkp\tSymbol count\n");
+		for(int k=0;k<depth;++k)
+			printf("%2d\t%2d\t%5d\n", depth-1-k, k, planesizes[k]);
+		
+		//printf("Preview:\n");
+		//int kprint=out_data.size()<200?out_data.size():200;
+		//for(int k=0;k<kprint;++k)
+		//	printf("%02X-", out_data[k]&0xFF);
+		printf("\n");
+	}
+	return compr_size;
+}

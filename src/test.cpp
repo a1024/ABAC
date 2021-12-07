@@ -3,6 +3,9 @@
 #include"lz77.h"
 
 #include"lodepng.h"
+#ifndef __linux__
+#include<Windows.h>
+#endif
 #include<stdlib.h>
 #include<string.h>
 #include<vector>
@@ -22,6 +25,17 @@
 
 #ifdef __linux__
 typedef unsigned char byte;
+#define		set_console_buffer_size(...)
+#else
+int			set_console_buffer_size(short w, short h)
+{
+	COORD coords={w, h};
+	HANDLE handle=GetStdHandle(STD_OUTPUT_HANDLE);
+	int success=SetConsoleScreenBufferSize(handle, coords);
+	if(!success)
+		printf("Failed to resize console buffer: %d\n\n", GetLastError());
+	return success;
+}
 #endif
 bool			open_text(const char *filename, std::string &data)
 {
@@ -70,6 +84,7 @@ int			histogram[nlevels]={};
 #endif
 int			main(int argc, char **argv)
 {
+	set_console_buffer_size(120, 4000);
 	if(argc<2)
 	{
 		printf("Pass filename as command argument\n");
@@ -296,11 +311,13 @@ int			main(int argc, char **argv)
 	std::string data;
 	int sizes[depth]={}, probs[depth]={};
 
+	abac_estimate(buffer, imsize, depth, 2, true);
+
 	//abac_encode(buffer, imsize, depth, data, sizes, true);
 	//abac_decode(data.data(), sizes, b2, imsize, depth, true);
 
-	abac_encode_sse2(buffer, imsize, depth, data, sizes, true);
-	abac_decode_sse2(data.data(), sizes, b2, imsize, depth, true);
+	//abac_encode_sse2(buffer, imsize, depth, data, sizes, true);
+	//abac_decode_sse2(data.data(), sizes, b2, imsize, depth, true);
 
 	//abac_encode_avx2(buffer, imsize, depth, data, sizes, true);
 	//abac_decode_avx2(data.data(), sizes, b2, imsize, depth, true);
@@ -328,7 +345,7 @@ int			main(int argc, char **argv)
 			}
 			++nerrors;
 			printf("%d: %04X != %04X\n", k, (int)buffer[k], (int)b2[k]);
-			if(nerrors>=100)
+			//if(nerrors>=100)
 				break;
 		}
 	}
