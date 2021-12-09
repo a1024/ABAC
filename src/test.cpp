@@ -311,10 +311,10 @@ int			main(int argc, char **argv)
 	std::string data;
 	int sizes[depth]={}, probs[depth]={};
 
-	abac_estimate(buffer, imsize, depth, 2, true);
+	//abac_estimate(buffer, imsize, depth, 2, true);
 
-	//abac_encode(buffer, imsize, depth, data, sizes, true);
-	//abac_decode(data.data(), sizes, b2, imsize, depth, true);
+	abac_encode(buffer, imsize, depth, data, sizes, true);
+	abac_decode(data.data(), sizes, b2, imsize, depth, true);
 
 	//abac_encode_sse2(buffer, imsize, depth, data, sizes, true);
 	//abac_decode_sse2(data.data(), sizes, b2, imsize, depth, true);

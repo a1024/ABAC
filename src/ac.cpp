@@ -34,12 +34,14 @@
 	#define	PRINT_ERROR//should be enabled
 
 //choose one:
-//	#define	PREDICTOR_AWM_CONFBIT
-	#define PREDICTOR_AWM_PREVBIT
-//	#define	PREDICTOR_AWM_CONFBIT_WND
+	#define	PREDICTOR_AWM_CONFBIT
 //	#define	PREDICTOR_AWM_CONFSIZE
-//	#define	PREDICTOR_AWM_FULLCONF//bad
 //	#define	PREDICTOR_ZPAQ0
+
+//	#define	PREDICTOR_AWM_CONFBIT_WND//bad
+//	#define PREDICTOR_AWM_PREVBIT//bad
+//	#define	PREDICTOR_AWM_FULLCONF//bad
+
 
 //disable all of theese at release:
 //	#define	PRINT_VISUAL
