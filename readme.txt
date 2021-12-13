@@ -27,12 +27,17 @@ bits loaded into an integer such that the MSB is the most recent bit.
 while confidence can be a function of the current compression ratio:
 	ratio = consumed data size / current output size
 	confidence v1 = ratio/(ratio+1)
-		= consumed bit count / (produced + condumed bit counts)
+		= consumed bit count / (produced + consumed bit counts)
 
-Higher compression ratio is achieved with the confidence decined as the
+v1.5:
+Higher compression ratio is achieved with the confidence defined as the
 ratio of correctly predicted bits.
 	confidence v2 = number of correctly predicted bits
 		/ number of data bits consumed
+
+v2:
+An even higher compression ratio was achieved.
+See abac2_encode/decode in ac.cpp.
 
 
 The arithmetic coder itself is a modified version of the coder from zpaq 1.10
