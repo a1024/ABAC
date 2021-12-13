@@ -309,12 +309,17 @@ int			main(int argc, char **argv)
 #endif
 #if 1
 	std::string data;
-	int sizes[depth]={}, probs[depth]={};
+	int sizes[depth]={};
+	int conf[depth]={};
+//	int probs[depth]={};
 
 	//abac_estimate(buffer, imsize, depth, 2, true);
 
-	abac_encode(buffer, imsize, depth, data, sizes, true);
-	abac_decode(data.data(), sizes, b2, imsize, depth, true);
+	abac2_encode(buffer, imsize, depth, data, sizes, conf, true);
+	abac2_decode(data.data(), sizes, conf, b2, imsize, depth, true);
+
+	//abac_encode(buffer, imsize, depth, data, sizes, true);
+	//abac_decode(data.data(), sizes, b2, imsize, depth, true);
 
 	//abac_encode_sse2(buffer, imsize, depth, data, sizes, true);
 	//abac_decode_sse2(data.data(), sizes, b2, imsize, depth, true);
