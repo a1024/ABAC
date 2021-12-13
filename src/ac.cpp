@@ -466,365 +466,6 @@ void			ac_decode(const char *data, const int *sizes, const int *probabilities, s
 		printf("AC decode:  %lld cycles\n", t2-t1);
 	}
 }
-#if 0
-const int
-	ac_logwindowbits=5,
-	ac_windowbits=1<<ac_logwindowbits,
-	ac_windowbitsmask=ac_windowbits-1;
-const Symbol
-	ac_den=ac_windowbits+2,
-	ac_invden=((Symbol)1<<SYMBOL_BITS/2)/ac_den,
-	ac_range_end=(Symbol)1<<(sizeof(Symbol)*8-1)|1;
-void			ac_encode(const short *buffer, int imsize, int depth, std::vector<Symbol> &data, bool loud)
-{
-	auto t1=__rdtsc();
-
-	std::vector<std::vector<Symbol>> planes(depth);
-	for(int kp=0;kp<depth;++kp)
-	{
-		auto &plane=planes[kp];
-
-		int history[ac_windowbits];
-		for(int k=0;k<ac_windowbits;++k)
-			history[k]=k&1;
-		Symbol num=(ac_windowbits>>1)+1;
-		for(int kb=0;kb<imsize;)
-		{
-			Symbol start=0, end=ac_range_end;
-			//Symbol start=0, end=0x100000000;
-			for(;kb<imsize;)
-			{
-				auto middle=start+((MulType)(end-start)*(ac_den-num)*ac_invden>>SYMBOL_BITS/2);
-			//	long long middle=start+((end-start)*(ac_den-num)*ac_invden>>SYMBOL_BITS/2);
-				if(end-middle<=1||middle-start<=1)
-					break;
-
-				int bit=buffer[kb]>>kp&1;
-				if(bit)
-					start=middle;
-				else
-					end=middle;
-
-				int &sieve=history[kb&ac_windowbitsmask];
-				num+=bit-sieve;
-				sieve=bit;
-
-				++kb;
-				//if(kp==2&&kb==60)
-				//	int LOL_1=0;
-			}
-			plane.push_back(start);
-		}
-	}
-	data.clear();
-	for(int k=0, size=depth;k<depth;++k)
-	{
-		size+=planes[k].size();
-		data.push_back(size);
-	}
-	for(int k=0;k<depth;++k)
-	{
-		auto &plane=planes[k];
-		data.insert(data.end(), plane.begin(), plane.end());
-	}
-
-	auto t2=__rdtsc();
-	if(loud)
-	{
-		int compressed_bytesize=(int)data.size()*sizeof(Symbol);
-		printf("u%d/u%d encode:  %lld cycles\n", SYMBOL_BITS, SYMBOL_BITS*2, t2-t1);
-		printf("Size: %d -> %d, ratio: %lf\n", imsize, compressed_bytesize, (double)imsize/compressed_bytesize);
-		printf("Plane\tCululative symbol count\n");
-		for(int k=0;k<depth;++k)
-			printf("%2d\t%5d\n", k, data[k]);
-	}
-}
-void			ac_decode(const Symbol *data, short *buffer, int imsize, int depth, bool loud)
-{
-	auto t1=__rdtsc();
-	memset(buffer, 0, imsize*sizeof(short));
-	
-	for(int kp=0;kp<depth;++kp)
-	{
-		int ncodes=data[kp];
-		auto plane=data+(kp?data[kp-1]:depth);
-
-		int history[ac_windowbits];
-		for(int k=0;k<ac_windowbits;++k)
-			history[k]=k&1;
-		Symbol num=(ac_windowbits>>1)+1;
-		for(int kc=0, kb=0;kc<ncodes&&kb<imsize;++kc)
-		{
-			Symbol code=plane[kc];
-			Symbol start=0, end=ac_range_end;
-			//Symbol start=0, end=0x100000000;
-			for(;kb<imsize;)
-			{
-				auto middle=start+((MulType)(end-start)*(ac_den-num)*ac_invden>>SYMBOL_BITS/2);
-			//	Symbol middle=start+((end-start)*(ac_den-num)*ac_invden>>SYMBOL_BITS/2);
-				if(end-middle<=1||middle-start<=1)
-					break;
-
-				int bit=code>=middle;
-				if(bit)
-					start=middle;
-				else
-					end=middle;
-
-				int &sieve=history[kb&ac_windowbitsmask];
-				num+=bit-sieve;
-				sieve=bit;
-
-				buffer[kb]|=bit<<kp;
-				++kb;
-				//if(kp==2&&kb==60)
-				//	int LOL_1=0;
-			}
-		}
-	}
-
-	auto t2=__rdtsc();
-	if(loud)
-	{
-		printf("u%d/u%d decode:  %lld cycles\n", SYMBOL_BITS, SYMBOL_BITS*2, t2-t1);
-	}
-}
-#endif
-void			ac_debug(const short *buffer, int imsize, int depth, std::string &out_data, int *out_sizes, int *out_probabilities, short *out, bool loud)
-{
-	memset(out, 0, imsize*sizeof(short));
-#ifdef PRINT_VISUAL
-	ranges.clear();
-	int vkc_start=0, vkc_end=0;
-#endif
-	if(!imsize)
-		return;
-	auto t1=__rdtsc();
-
-#ifdef PRINT_ERROR
-	int nerrors=0;
-#endif
-	std::vector<std::string> planes(depth);
-	for(int kp=depth-1;kp>=0;--kp)//bit-plane loop		encode MSB first
-	{
-		auto &plane=planes[depth-1-kp];
-		plane.reserve(imsize>>8);
-
-		//int prob=prob_init;
-		int prob=0;
-		for(int k=0;k<imsize;++k)//calculate probability of one
-			prob+=buffer[k]>>kp&1;
-		prob=(u64)prob*(1<<LOG_WINDOW_SIZE)/imsize;
-		prob=(1<<LOG_WINDOW_SIZE)-prob;//probability of zero
-		prob=clamp(1, prob, prob_max);//avoid exact 0 and 100% probability
-		out_probabilities[depth-1-kp]=prob;
-		
-		unsigned start=0, end=0xFFFFFFFF, middle=0;
-		for(int kb=0;kb<imsize;)//bit-pixel loop		http://mattmahoney.net/dc/dce.html
-		{
-			u64 range=end-start;
-			if(range==1)
-			{
-				plane.push_back(start>>24);
-				plane.push_back(start>>16&0xFF);
-				plane.push_back(start>>8&0xFF);
-				plane.push_back(start&0xFF);
-				start=0, end=0xFFFFFFFF;//because 1=0.9999...
-				range=end-start;
-			}
-			middle=start+(unsigned)(range*prob>>LOG_WINDOW_SIZE);
-			//middle=start+(range*(prob_mask-prob)>>LOG_WINDOW_SIZE);
-			int bit=buffer[kb]>>kp&1;
-			//int prevbit;
-
-#ifdef PRINT_VISUAL
-			if(kp==visual_plane)
-			{
-				if(kb==visual_start)
-					vkc_start=plane.size();
-				if(kb==visual_end)
-					vkc_end=plane.size();
-				ranges.push_back(Range(start, end, middle, bit));
-			}
-			if(kp==visual_plane&&kb>=visual_start&&kb<visual_end)
-				print_range(start, end, middle, middle, kb, bit);
-#endif
-			
-			if(bit)
-				start=middle;
-				//start=middle+1;
-			else
-				end=middle-1;
-				//end=middle;
-			++kb;
-			
-			if((start^end)<0x1000000)//most significant byte has stabilized			zpaq 1.10
-			{
-				unsigned char codebyte=start>>24;
-#ifdef PRINT_VISUAL
-				if(codebyte==0)
-					breakpoint();
-				if(kp==visual_plane&&kb>=visual_start&&kb<visual_end)
-					printf("\nShift-out: ");//
-#endif
-				do
-				{
-#ifdef PRINT_VISUAL
-					if(kp==visual_plane&&kb>=visual_start&&kb<visual_end)
-						printf("%08X~%08X, ", start, end);//
-#endif
-					plane.push_back(start>>24);
-					start<<=8;
-					end=end<<8|0xFF;
-				}while((start^end)<0x1000000);
-#ifdef PRINT_VISUAL
-				if(kp==visual_plane&&kb>=visual_start&&kb<visual_end)
-					printf("\n");//
-#endif
-			}
-		}
-		middle=start+((u64)(end-start)*prob>>LOG_WINDOW_SIZE);
-		plane.push_back(middle>>24&0xFF);//big-endian
-		plane.push_back(middle>>16&0xFF);
-		plane.push_back(middle>>8&0xFF);
-		plane.push_back(middle&0xFF);
-		
-#ifdef PRINT_BITPLANES
-		if(kp==visual_plane)
-		{
-			//for(int k=vkc_start;k<vkc_end;++k)
-			for(int k=vkc_start-1;k<vkc_end+10;++k)
-			//for(int k=0;k<(int)plane.size();++k)
-				printf("%02X-", plane[k]&0xFF);
-			printf("\n");
-		}
-#endif
-
-		int ncodes=plane.size();
-		start=0, end=0xFFFFFFFF;
-		unsigned code=load32_big((unsigned char*)plane.c_str());
-		for(int kc=4, kb=0;kb<imsize;)//bit-pixel loop
-		{
-			u64 range=end-start;
-			if(range==1)
-			{
-				code=load32_big((unsigned char*)plane.data()+kc);
-				kc+=4;
-				start=0, end=0xFFFFFFFF;//because 1=0.9999...
-				range=end-start;
-			}
-			unsigned middle=start+(unsigned)(range*prob>>LOG_WINDOW_SIZE);
-			//if(middle>=end)
-			//	printf("Check: %08X~%08X, mid=%08X, prob=%d\n", start, end, middle, prob);
-			int bit=code>=middle;
-			//int prevbit;
-		/*	if(code==middle)
-			{
-#ifdef PRINT_VISUAL
-				printf("code==middle at kp=%d,kb=%d, %08X~%08X, mid %08X, code %08X\n", kp, kb, start, end, middle, code);
-#endif
-				int start2=start, end2=end, middle2=middle, code2=code, kc2=kc;
-				do
-				{
-					code2=code2<<8|(unsigned char)plane[kc2];
-					++kc2;
-					start2<<=8;
-					end2=end2<<8|0xFF;
-					//middle2=((u64)start2+end2)>>1;
-					middle2=start2+((u64)(end2-start2)*(prob_mask-prob)>>LOG_WINDOW_SIZE);
-#ifdef PRINT_VISUAL
-					printf("Look-ahead %d:\n", kc2-kc);
-					print_range(start2, end2, middle2, code2, kb, code2>=middle2);
-#endif
-				}while(code2==middle2);
-				bit=code2>=middle2;
-			}//*/
-#ifdef PRINT_VISUAL
-			if(kp==visual_plane&&kb>=visual_start&&kb<visual_end)
-			{
-				if(kb<(int)ranges.size())
-					print_range(ranges[kb].start, ranges[kb].end, ranges[kb].middle, code, kb, ranges[kb].bit);
-				print_range(start, end, middle, code, kb, bit);
-				printf("\n\n");
-			}
-#endif
-			out[kb]|=bit<<kp;
-#ifdef PRINT_ERROR
-			int bit0=buffer[kb]>>kp&1;
-#ifdef PRINT_VISUAL
-			if(kp==visual_plane&&kb>=visual_start&&kb<visual_end)
-#endif
-			if(loud&&bit!=bit0&&nerrors<100)
-			{
-				printf("Error pixel %d, plane %d: original %d != decoded %d, prob=%d\n", kb, kp, bit0, bit, prob);
-				int estart=kb-50, eend=kb+50;
-				//int estart=kb-100, eend=kb+100;
-				if(estart<0)
-					estart=0;
-				if(eend>imsize)
-					eend=imsize;
-				printf("Before:\t");
-				print_bitplane(buffer+estart, eend-estart, kp);
-				printf("After:\t");
-				print_bitplane(out+estart, kb+1-estart, kp);
-				print_range(start, end, middle, code, kb, bit);
-				++nerrors;
-			}
-#endif
-			
-			if(bit)
-				start=middle;
-				//start=middle+1;
-			else
-				//end=middle;
-				end=middle-1;
-			
-#ifdef PRINT_VISUAL
-			if(kp==visual_plane&&kb>=visual_start&&kb<visual_end)
-				printf("bit %d: %d\n", kb, bit);
-#endif
-			++kb;
-
-			while(kc<ncodes&&(start^end)<0x1000000)//shift-out identical bytes			zpaq 1.10
-			{
-#ifdef PRINT_VISUAL
-				if(kp==visual_plane&&kb>=visual_start&&kb<visual_end)
-					printf("\nShift-out: %08X~%08X, code %08X\n", start, end, code);//
-#endif
-				code=code<<8|(unsigned char)plane[kc];
-				++kc;
-				start<<=8;
-				end=end<<8|0xFF;
-			}
-		}
-	}
-	auto t_enc=__rdtsc();
-	//out_sizes.resize(depth);
-	out_data.clear();
-	for(int k=0;k<depth;++k)
-		out_sizes[k]=planes[k].size();
-	for(int k=0;k<depth;++k)
-	{
-		auto &plane=planes[k];
-		out_data.insert(out_data.end(), plane.begin(), plane.end());
-	}
-
-	auto t2=__rdtsc();
-	if(loud)
-	{
-		int original_bitsize=imsize*depth, compressed_bitsize=(int)out_data.size()<<3;
-		printf("AC encode:  %lld cycles (Enc: %lld cycles)\n", t2-t1, t_enc-t1);
-		printf("Size: %d -> %d, ratio: %lf\n", original_bitsize>>3, compressed_bitsize>>3, (double)original_bitsize/compressed_bitsize);
-		printf("Bit\tkp\tSymbol count\n");
-		for(int k=0;k<depth;++k)
-			printf("%2d\t%2d\t%5d\n", depth-1-k, k, out_sizes[k]);
-		
-		int kprint=out_data.size()<200?out_data.size():200;
-		for(int k=0;k<kprint;++k)
-			printf("%02X-", out_data[k]&0xFF);
-		printf("\n");
-	}
-}
 
 #ifdef DEBUG_PREDICTOR
 struct			ProbInfo
@@ -2535,6 +2176,8 @@ int				abac_estimate(const void *src, int imsize, int depth, int bytestride, boo
 //	std::vector<std::string> planes(depth);
 	for(int kp=depth-1;kp>=0;--kp)//bit-plane loop		encode MSB first
 	{
+		int bit_offset=kp>>3, bit_shift=kp&7;
+	//	int bit_offset=kp/(bytestride<<3), bit_shift=kp%(bytestride<<3);
 	//	auto &plane=planes[depth-1-kp];
 	//	plane.reserve(imsize>>8);
 #ifdef ESTIMATE_CONFBIT
@@ -2545,7 +2188,6 @@ int				abac_estimate(const void *src, int imsize, int depth, int bytestride, boo
 #endif
 
 		unsigned start=0, end=0xFFFFFFFF;
-		int bit_offset=kp/(bytestride<<3), bit_shift=kp%(bytestride<<3);
 		for(int kb=0, kb2=0;kb<imsize;kb2+=bytestride)//bit-pixel loop		http://mattmahoney.net/dc/dce.html#Section_32
 		{
 			int bit=buffer[kb2+bit_offset]>>bit_shift&1;
@@ -2634,7 +2276,7 @@ int				abac_estimate(const void *src, int imsize, int depth, int bytestride, boo
 
 //	#define		DEBUG_ABAC2
 
-const double	boost_power=4;//10
+const double	boost_power=4, min_conf=0.55;
 #ifdef DEBUG_ABAC2
 const int		examined_plane=4, examined_start=0, examined_end=100;
 #endif
@@ -2663,8 +2305,9 @@ static void		abac2_invimsize(int imsize, int &logimsize, int &invimsize)
 	invimsize=abac2_normalize16(imsize, logimsize);
 	invimsize=(1<<31)/invimsize;
 }
-void			abac2_encode(const short *buffer, int imsize, int depth, std::string &out_data, int *out_sizes, int *out_conf, bool loud)
+void			abac2_encode(const void *src, int imsize, int depth, int bytestride, std::string &out_data, int *out_sizes, int *out_conf, bool loud)
 {
+	auto buffer=(const unsigned char*)src;
 	if(!imsize)
 		return;
 	auto t1=__rdtsc();
@@ -2678,29 +2321,49 @@ void			abac2_encode(const short *buffer, int imsize, int depth, std::string &out
 	std::vector<std::string> planes(depth);
 	for(int kp=depth-1;kp>=0;--kp)//bit-plane loop		encode MSB first
 	{
+		int bit_offset=kp>>3, bit_shift=kp&7;
+		int bit_offset2=(kp+1)>>3, bit_shift2=(kp+1)&7;
+	//	int bit_offset=kp/(bytestride<<3), bit_shift=kp%(bytestride<<3);
+	//	int bit_offset2=(kp+1)/(bytestride<<3), bit_shift2=(kp+1)%(bytestride<<3);
 		auto &plane=planes[depth-1-kp];
-		plane.reserve(imsize>>8);
 		int prob=0x8000, prob_correct=0x8000;//cheap weighted average predictor
 #if 1
 		u64 hitcount=1;
 
-		for(int kb=0;kb<imsize;++kb)//analyze bitplane
+		for(int kb=0, kb2=0;kb<imsize;++kb, kb2+=bytestride)//analyze bitplane
 		{
-			int bit=buffer[kb]>>kp&1;
+			int bit=buffer[kb2+bit_offset]>>bit_shift&1;
+		//	int bit=buffer[kb]>>kp&1;
 			int p0=((long long)(prob-0x8000)*prob_correct>>16);
 			p0+=0x8000;
 			//int p0=0x8000+(long long)(prob-0x8000)*hitcount/(kb+1);
 			p0=clamp(1, p0, prob_max);
 			int correct=bit^(p0>=0x8000);
-			//if(kp==0)
-			//	printf("%d", !correct);//
+			//if(kp==1)
+			//	printf("%d", bit);//actual bits
+			//	printf("%d", p0<0x8000);//predicted bits
+			//	printf("%d", !correct);//prediction error
 			hitcount+=correct;
 			prob=!bit<<15|prob>>1;
 			prob_correct=correct<<15|prob_correct>>1;
 		}
 		out_conf[depth-1-kp]=hitcount;
+
+		if(hitcount<imsize*min_conf)
+		{
+			plane.resize((imsize+7)>>3, 0);
+			for(int kb=0, kb2=0, b=0;kb<imsize;++kb, kb2+=bytestride)
+			{
+				int byte_idx=kb>>3, bit_idx=kb&7;
+				int bit=buffer[kb2+bit_offset]>>bit_shift&1;
+			//	int bit=buffer[kb]>>kp&1;
+				plane[byte_idx]|=bit<<bit_idx;
+			}
+			goto done;
+		}
 		
 		int hitratio_sure=int(0x10000*pow((double)hitcount/imsize, 1/boost_power)), hitratio_notsure=int(0x10000*pow((double)hitcount/imsize, boost_power));
+		int hitratio_delta=hitratio_sure-hitratio_notsure;
 	//	int hitratio_sure=int(0x10000*cbrt((double)hitcount/imsize)), hitratio_notsure=int(0x10000*(double)hitcount*hitcount*hitcount/((double)imsize*imsize*imsize));
 	//	int hitratio_sure=int(0x10000*sqrt((double)hitcount/imsize)), hitratio_notsure=int(0x10000*(double)hitcount*hitcount/((double)imsize*imsize));
 		hitcount=(hitcount<<16)/imsize;
@@ -2714,14 +2377,17 @@ void			abac2_encode(const short *buffer, int imsize, int depth, std::string &out
 #ifdef ABAC2_CONF_MSB_RELATION
 		int prevbit0=0;
 #endif
-
+		
+		plane.reserve(imsize>>8);
 		unsigned start=0;
 		u64 range=0xFFFFFFFF;
-		for(int kb=0;kb<imsize;)//bit-pixel loop		http://mattmahoney.net/dc/dce.html#Section_32
+		for(int kb=0, kb2=0;kb<imsize;kb2+=bytestride)//bit-pixel loop		http://mattmahoney.net/dc/dce.html#Section_32
 		{
-			int bit=buffer[kb]>>kp&1;
+			int bit=buffer[kb2+bit_offset]>>bit_shift&1;
+		//	int bit=buffer[kb]>>kp&1;
 #ifdef ABAC2_CONF_MSB_RELATION
-			int prevbit=buffer[kb]>>(kp+1)&1;
+			int prevbit=buffer[kb2+bit_offset2]>>bit_shift2&1;
+		//	int prevbit=buffer[kb]>>(kp+1)&1;
 #endif
 			
 			if(range<3)
@@ -2733,11 +2399,17 @@ void			abac2_encode(const short *buffer, int imsize, int depth, std::string &out
 				start=0, range=0xFFFFFFFF;//because 1=0.9999...
 			}
 			
-			int p0=((long long)(prob-0x8000)*prob_correct>>16);
-			p0=(long long)p0*prob_correct>>16;
-			p0=(long long)p0*(prevbit==prevbit0?hitratio_sure:hitratio_notsure)>>16;
+			int p0=prob-0x8000;
+			p0=p0*prob_correct>>16;
+			p0=p0*prob_correct>>16;
+			int sure=-(prevbit==prevbit0);
+			p0=p0*(hitratio_notsure+(hitratio_delta&sure))>>16;
+			//p0=p0*(prevbit==prevbit0?hitratio_sure:hitratio_notsure)>>16;
 			//p0=(long long)p0*hitcount>>16;
 			p0+=0x8000;
+			//if(prevbit!=prevbit0)
+			//	p0=0x8000;
+			//	p0=0xFFFF-p0;
 
 			//int p0=0x8000+((long long)(prob-0x8000)*(prevbit==prevbit0?hitratio_sure:hitratio_notsure)>>16);
 
@@ -2806,6 +2478,7 @@ void			abac2_encode(const short *buffer, int imsize, int depth, std::string &out
 		plane.push_back(start>>16&0xFF);
 		plane.push_back(start>>8&0xFF);
 		plane.push_back(start&0xFF);
+	done:
 		if(loud)
 			printf("bit %d: conf = %6d / %6d = %lf%%\n", kp, out_conf[depth-1-kp], imsize, 100.*out_conf[depth-1-kp]/imsize);
 		//	printf("bit %d: conf = %6d / %6d = %lf%%\n", kp, hitcount, imsize, 100.*hitcount/imsize);
@@ -2829,9 +2502,9 @@ void			abac2_encode(const short *buffer, int imsize, int depth, std::string &out
 #ifdef MEASURE_PREDICTION
 		printf("Predicted: %6lld / %6lld = %lf%%\n", hitnum, hitden, 100.*hitnum/hitden);
 #endif
-		printf("Bit\tSymbol count\n");
+		printf("Bit\tbytes\tratio,\tbytes/bitplane = %d\n", imsize>>3);
 		for(int k=0;k<depth;++k)
-			printf("%2d\t%5d\n", depth-1-k, out_sizes[k]);
+			printf("%2d\t%5d\t%lf\n", depth-1-k, out_sizes[k], (double)imsize/(out_sizes[k]<<3));
 		
 		printf("Preview:\n");
 		int kprint=out_data.size()<200?out_data.size():200;
@@ -2840,8 +2513,9 @@ void			abac2_encode(const short *buffer, int imsize, int depth, std::string &out
 		printf("\n");
 	}
 }
-void			abac2_decode(const char *data, const int *sizes, const int *conf, short *buffer, int imsize, int depth, bool loud)
+void			abac2_decode(const char *data, const int *sizes, const int *conf, void *dst, int imsize, int depth, int bytestride, bool loud)
 {
+	auto buffer=(unsigned char*)dst;
 	if(!imsize)
 		return;
 	auto t1=__rdtsc();
@@ -2852,16 +2526,33 @@ void			abac2_decode(const char *data, const int *sizes, const int *conf, short *
 	
 	for(int kp=depth-1, cusize=0;kp>=0;--kp)//bit-plane loop
 	{
+		int bit_offset=kp>>3, bit_shift=kp&7;
+		int bit_offset2=(kp+1)>>3, bit_shift2=(kp+1)&7;
+	//	int bit_offset=kp/(bytestride<<3), bit_shift=kp%(bytestride<<3);
+	//	int bit_offset2=(kp+1)/(bytestride<<3), bit_shift2=(kp+1)%(bytestride<<3);
 		int ncodes=sizes[depth-1-kp];
 		auto plane=data+cusize;
 		
 		int prob=0x8000, prob_correct=0x8000;
 #if 1
 		u64 hitcount=conf[depth-1-kp];
+		if(hitcount<imsize*min_conf)
+		{
+			for(int kb=0, kb2=0, b=0;kb<imsize;++kb, kb2+=bytestride)
+			{
+				int byte_idx=kb>>3, bit_idx=kb&7;
+				int bit=plane[byte_idx]>>bit_idx&1;
+				buffer[kb2+bit_offset]|=bit<<bit_shift;
+			//	buffer[kb]|=bit<<kp;
+			}
+			cusize+=ncodes;
+			continue;
+		}
 #ifdef ABAC2_CONF_MSB_RELATION
 		int prevbit0=0;
 #endif
 		int hitratio_sure=int(0x10000*pow((double)hitcount/imsize, 1/boost_power)), hitratio_notsure=int(0x10000*pow((double)hitcount/imsize, boost_power));
+		int hitratio_delta=hitratio_sure-hitratio_notsure;
 		//int hitratio_sure=int(0x10000*cbrt((double)hitcount/imsize)), hitratio_notsure=int(0x10000*(double)hitcount*hitcount*hitcount/((double)imsize*imsize*imsize));
 		//int hitratio_sure=int(0x10000*sqrt((double)hitcount/imsize)), hitratio_notsure=int(0x10000*(double)hitcount*hitcount/((double)imsize*imsize));
 		hitcount=(hitcount<<16)/imsize;
@@ -2873,7 +2564,7 @@ void			abac2_decode(const char *data, const int *sizes, const int *conf, short *
 		unsigned start=0;
 		u64 range=0xFFFFFFFF;
 		unsigned code=load32_big((unsigned char*)plane);
-		for(int kc=4, kb=0;kb<imsize;)//bit-pixel loop
+		for(int kc=4, kb=0, kb2=0;kb<imsize;kb2+=bytestride)//bit-pixel loop
 		{
 			if(range<3)
 			{
@@ -2882,13 +2573,20 @@ void			abac2_decode(const char *data, const int *sizes, const int *conf, short *
 				start=0, range=0xFFFFFFFF;//because 1=0.9999...
 			}
 #ifdef ABAC2_CONF_MSB_RELATION
-			int prevbit=buffer[kb]>>(kp+1)&1;
+			int prevbit=buffer[kb2+bit_offset2]>>bit_shift2&1;
+		//	int prevbit=buffer[kb]>>(kp+1)&1;
 #endif
-			int p0=((long long)(prob-0x8000)*prob_correct>>16);
-			p0=(long long)p0*prob_correct>>16;
-			p0=(long long)p0*(prevbit==prevbit0?hitratio_sure:hitratio_notsure)>>16;
+			int p0=prob-0x8000;
+			p0=p0*prob_correct>>16;
+			p0=p0*prob_correct>>16;
+			int sure=-(prevbit==prevbit0);
+			p0=p0*(hitratio_notsure+(hitratio_delta&sure))>>16;
+			//p0=p0*(prevbit==prevbit0?hitratio_sure:hitratio_notsure)>>16;
 			//p0=(long long)p0*hitcount>>16;
 			p0+=0x8000;
+			//if(prevbit!=prevbit0)
+			//	p0=0x8000;
+			//	p0=0xFFFF-p0;
 
 			//int p0=0x8000+((long long)(prob-0x8000)*(prevbit==prevbit0?hitratio_sure:hitratio_notsure)>>16);
 
@@ -2933,6 +2631,337 @@ void			abac2_decode(const char *data, const int *sizes, const int *conf, short *
 			else
 				range=r2-1;
 			//	end=middle-1;
+			
+			buffer[kb2+bit_offset]|=bit<<bit_shift;
+		//	buffer[kb]|=bit<<kp;
+			++kb;
+			
+			while((start^(start+(unsigned)range))<0x1000000)//shift-out identical bytes			zpaq 1.10
+			{
+#ifdef DEBUG_ABAC2
+				if(kp==examined_plane&&kb>=examined_start&&kb<examined_end)
+					printf("range %08X byte-out %02X\n", (int)range, code>>24);
+#endif
+				code=code<<8|(unsigned char)plane[kc];
+				++kc;
+				start<<=8;
+				range=range<<8|0xFF;
+			}
+		}
+		cusize+=ncodes;
+	}
+
+	auto t2=__rdtsc();
+	if(loud)
+	{
+		printf("AC decode:  %lld cycles\n", t2-t1);
+	}
+}
+#endif
+
+#if 1
+
+	#define		ABAC3_ZPAQ0
+
+void			abac3_encode(const short *buffer, int imsize, int depth, std::string &out_data, int *out_sizes, int *out_conf, bool loud)
+{
+	if(!imsize)
+		return;
+	auto t1=__rdtsc();
+	
+#ifdef MEASURE_PREDICTION
+	u64 hitnum=0, hitden=0;//prediction efficiency
+#endif
+
+	std::vector<std::string> planes(depth);
+	for(int kp=depth-1;kp>=0;--kp)//bit-plane loop		encode MSB first
+	{
+		auto &plane=planes[depth-1-kp];
+#ifdef ABAC3_ZPAQ0
+		int zpaq0_num=1, zpaq0_den=2;
+#else
+		int prob=0x8000, prob2=0x8000, prob2_parity=1, prob_correct=0x8000;
+	//	int p0_bins[4]={1, 1, 1, 1}, countof0=4;
+	//	int p0_bins[16]={1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}, countof0=16;
+	//	int p0_bins[16]={8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8};
+		u64 hitcount=1;
+
+		for(int kb=0;kb<imsize;++kb)//analyze bitplane
+		{
+			int bit=buffer[kb]>>kp&1, bit2=buffer[kb]>>(kp+1)&1;
+			prob2_parity^=bit2^prob2&1;
+			prob2=!bit2<<15|prob2>>1;
+
+			//int p0=((long long)(p0_bins[prob]-(countof0>>2))*prob_correct>>16);
+			//p0+=countof0>>2;
+			//p0=clamp(1, p0, countof0>>2);
+			//int correct=bit^(p0>=2);
+
+			//int p0=((long long)(p0_bins[prob]-(countof0>>4))*prob_correct>>16);
+			//p0+=countof0>>4;
+			//p0=clamp(1, p0, countof0>>4);
+			//int correct=bit^(p0>=8);
+
+			//int p0=((long long)(p0_bins[prob]-8)*prob_correct>>16);
+			//p0+=8;
+			//p0=clamp(1, p0, 14);
+			//int correct=bit^(p0>=8);
+
+			int p0=((long long)(prob-0x8000)*prob_correct>>16);
+			p0+=0x8000;
+			p0=clamp(1, p0, 0xFFFE);
+			int correct=bit^(p0>=0x8000);
+			
+			if(kb<120)
+			//if(kp==0)
+				printf("%d", bit);//actual bits
+			//	printf("%d", p0<0x8000);//predicted bits
+			//	printf("%d", !correct);//prediction error
+			hitcount+=correct;
+			//p0_bins[prob]+=!bit, countof0+=bit;
+			//p0_bins[prob]=!bit<<3|p0_bins[prob]>>1;
+			prob=!bit<<15|prob>>1;
+			//prob=!bit<<3|prob>>1;
+			//prob=!bit<<1|prob>>1;
+			prob_correct=correct<<15|prob_correct>>1;
+		}
+		out_conf[depth-1-kp]=hitcount;
+
+		if(hitcount<imsize*min_conf)
+		{
+			plane.resize((imsize+7)>>3, 0);
+			for(int kb=0, b=0;kb<imsize;++kb)
+			{
+				int byte_idx=kb>>3, bit_idx=kb&7;
+				int bit=buffer[kb]>>kp&1;
+				plane[byte_idx]|=bit<<bit_idx;
+			}
+			goto done;
+		}
+		
+		int hitratio_sure=int(0x10000*pow((double)hitcount/imsize, 1/boost_power)), hitratio_notsure=int(0x10000*pow((double)hitcount/imsize, boost_power));
+		int hitratio_delta=hitratio_sure-hitratio_notsure;
+		hitcount=(hitcount<<16)/imsize;
+
+		prob_correct=prob=0x8000;
+#ifdef ABAC2_CONF_MSB_RELATION
+		int prevbit0=0;
+#endif
+#endif
+		
+		plane.reserve(imsize>>8);
+		unsigned start=0;
+		u64 range=0xFFFFFFFF;
+		for(int kb=0;kb<imsize;)//bit-pixel loop		http://mattmahoney.net/dc/dce.html#Section_32
+		{
+			int bit=buffer[kb]>>kp&1;
+#ifdef ABAC2_CONF_MSB_RELATION
+			int prevbit=buffer[kb]>>(kp+1)&1;
+#endif
+			
+			if(range<3)
+			{
+				plane.push_back(start>>24);
+				plane.push_back(start>>16&0xFF);
+				plane.push_back(start>>8&0xFF);
+				plane.push_back(start&0xFF);
+				start=0, range=0xFFFFFFFF;//because 1=0.9999...
+			}
+#ifdef ABAC3_ZPAQ0
+			unsigned r2=(unsigned)(range*zpaq0_num/zpaq0_den);
+			if(r2<=0)
+				r2=1;
+			else if(r2>=range)
+				r2=range-1;
+#else
+			int p0=prob-0x8000;
+			p0=p0*prob_correct>>16;
+			p0=p0*prob_correct>>16;
+			int sure=-(prevbit==prevbit0);
+			p0=p0*(hitratio_notsure+(hitratio_delta&sure))>>16;
+			p0+=0x8000;
+
+			p0=clamp(1, p0, prob_max);
+			unsigned r2=(unsigned)(range*p0>>16);
+			r2+=(r2==0)-(r2==range);
+#endif
+#ifdef DEBUG_ABAC2
+			if(kp==examined_plane&&kb>=examined_start&&kb<examined_end)
+				printf("%6d %6d %d %08X+%08X %08X %08X\n", kp, kb, bit, start, (int)range, r2, start+r2);
+#endif
+			
+#ifdef ABAC3_ZPAQ0
+			int correct=bit^(zpaq0_num>=(zpaq0_den>>1));
+			zpaq0_num+=!bit, ++zpaq0_den;
+			int sh=zpaq0_den>0x10000;
+			zpaq0_num>>=sh, zpaq0_den>>=sh;
+#else
+			int correct=bit^(p0>=0x8000);
+			prob=!bit<<15|prob>>1;
+			prob_correct=correct<<15|prob_correct>>1;
+#ifdef ABAC2_CONF_MSB_RELATION
+			prevbit0=prevbit;
+#endif
+#endif
+#ifdef MEASURE_PREDICTION
+			hitnum+=correct, ++hitden;
+#endif
+			auto start0=start;
+			if(bit)
+			{
+				++r2;
+				start+=r2, range-=r2;
+			}
+			else
+				range=r2-1;
+			if(start<start0)//
+			{
+				printf("OVERFLOW\nstart = %08X -> %08X, r2 = %08X", start0, start, r2);
+				int k=0;
+				scanf_s("%d", &k);
+			}
+			++kb;
+			
+			while((start^(start+(unsigned)range))<0x1000000)//most significant byte has stabilized			zpaq 1.10
+			{
+#ifdef DEBUG_ABAC2
+				if(kp==examined_plane&&kb>=examined_start&&kb<examined_end)
+					printf("range %08X byte-out %02X\n", (int)range, start>>24);
+#endif
+				plane.push_back(start>>24);
+				start<<=8;
+				range=range<<8|0xFF;
+			}
+		}
+		plane.push_back(start>>24&0xFF);//big-endian
+		plane.push_back(start>>16&0xFF);
+		plane.push_back(start>>8&0xFF);
+		plane.push_back(start&0xFF);
+	done:
+		if(loud)
+			printf("bit %d: conf = %6d / %6d = %lf%%\n", kp, out_conf[depth-1-kp], imsize, 100.*out_conf[depth-1-kp]/imsize);
+		//	printf("bit %d: conf = %6d / %6d = %lf%%\n", kp, hitcount, imsize, 100.*hitcount/imsize);
+	}
+	auto t_enc=__rdtsc();
+	out_data.clear();
+	for(int k=0;k<depth;++k)
+		out_sizes[k]=planes[k].size();
+	for(int k=0;k<depth;++k)
+	{
+		auto &plane=planes[k];
+		out_data.insert(out_data.end(), plane.begin(), plane.end());
+	}
+
+	auto t2=__rdtsc();
+	if(loud)
+	{
+		int original_bitsize=imsize*depth, compressed_bitsize=(int)out_data.size()<<3;
+		printf("AC encode:  %lld cycles (Enc: %lld cycles)\n", t2-t1, t_enc-t1);
+		printf("Size: %d -> %d, ratio: %lf\n", original_bitsize>>3, compressed_bitsize>>3, (double)original_bitsize/compressed_bitsize);
+#ifdef MEASURE_PREDICTION
+		printf("Predicted: %6lld / %6lld = %lf%%\n", hitnum, hitden, 100.*hitnum/hitden);
+#endif
+		printf("Bit\tbytes\tratio,\tbytes/bitplane = %d\n", imsize>>3);
+		for(int k=0;k<depth;++k)
+			printf("%2d\t%5d\t%lf\n", depth-1-k, out_sizes[k], (double)imsize/(out_sizes[k]<<3));
+		
+		printf("Preview:\n");
+		int kprint=out_data.size()<200?out_data.size():200;
+		for(int k=0;k<kprint;++k)
+			printf("%02X-", out_data[k]&0xFF);
+		printf("\n");
+	}
+}
+void			abac3_decode(const char *data, const int *sizes, const int *conf, short *buffer, int imsize, int depth, bool loud)
+{
+	if(!imsize)
+		return;
+	auto t1=__rdtsc();
+	memset(buffer, 0, imsize*sizeof(short));
+	
+	for(int kp=depth-1, cusize=0;kp>=0;--kp)//bit-plane loop
+	{
+		int ncodes=sizes[depth-1-kp];
+		auto plane=data+cusize;
+		
+#ifdef ABAC3_ZPAQ0
+		int zpaq0_num=1, zpaq0_den=2;
+#else
+		int prob=0x8000, prob_correct=0x8000;
+		u64 hitcount=conf[depth-1-kp];
+		if(hitcount<imsize*min_conf)
+		{
+			for(int kb=0, b=0;kb<imsize;++kb)
+			{
+				int byte_idx=kb>>3, bit_idx=kb&7;
+				int bit=plane[byte_idx]>>bit_idx&1;
+				buffer[kb]|=bit<<kp;
+			}
+			cusize+=ncodes;
+			continue;
+		}
+		int prevbit0=0;
+		int hitratio_sure=int(0x10000*pow((double)hitcount/imsize, 1/boost_power)), hitratio_notsure=int(0x10000*pow((double)hitcount/imsize, boost_power));
+		int hitratio_delta=hitratio_sure-hitratio_notsure;
+		hitcount=(hitcount<<16)/imsize;
+#endif
+		unsigned start=0;
+		u64 range=0xFFFFFFFF;
+		unsigned code=load32_big((unsigned char*)plane);
+		for(int kc=4, kb=0;kb<imsize;)//bit-pixel loop
+		{
+			if(range<3)
+			{
+				code=load32_big((unsigned char*)plane+kc);
+				kc+=4;
+				start=0, range=0xFFFFFFFF;//because 1=0.9999...
+			}
+#ifdef ABAC3_ZPAQ0
+			unsigned r2=(unsigned)(range*zpaq0_num/zpaq0_den);
+			if(r2<=0)
+				r2=1;
+			else if(r2>=range)
+				r2=range-1;
+#else
+			int prevbit=buffer[kb]>>(kp+1)&1;
+			int p0=prob-0x8000;
+			p0=p0*prob_correct>>16;
+			p0=p0*prob_correct>>16;
+			int sure=-(prevbit==prevbit0);
+			p0=p0*(hitratio_notsure+(hitratio_delta&sure))>>16;
+			p0+=0x8000;
+
+			p0=clamp(1, p0, prob_max);
+			unsigned r2=(unsigned)(range*p0>>16);
+			r2+=(r2==0)-(r2==range);
+#endif
+			unsigned middle=start+r2;
+			int bit=code>middle;
+#ifdef DEBUG_ABAC2
+			if(kp==examined_plane&&kb>=examined_start&&kb<examined_end)
+				printf("%6d %6d %d %08X+%08X %08X %08X %08X\n", kp, kb, bit, start, (int)range, r2, middle, code);
+#endif
+			
+#ifdef ABAC3_ZPAQ0
+			int correct=bit^(zpaq0_num>=(zpaq0_den>>1));
+			zpaq0_num+=!bit, ++zpaq0_den;
+			int sh=zpaq0_den>0x10000;
+			zpaq0_num>>=sh, zpaq0_den>>=sh;
+#else
+			int correct=bit^(p0>=0x8000);
+			prob=!bit<<15|prob>>1;
+			prob_correct=correct<<15|prob_correct>>1;
+#ifdef ABAC2_CONF_MSB_RELATION
+			prevbit0=prevbit;
+#endif
+#endif
+			if(bit)
+			{
+				++r2;
+				start+=r2, range-=r2;
+			}
+			else
+				range=r2-1;
 			
 			buffer[kb]|=bit<<kp;
 			++kb;

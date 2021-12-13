@@ -11,23 +11,23 @@
 #include<vector>
 #include<string>
 #include<fstream>
-
 #ifdef __linux__
 #define	__rdtsc	__builtin_ia32_rdtsc
 #else
 #include<intrin.h>
 #endif
-
 #define STB_IMAGE_IMPLEMENTATION
 #include"stb_image.h"
+
+//	#define		ENABLE_RVL
 
 #define	SIZEOF(STATIC_ARRAY)	(sizeof(STATIC_ARRAY)/sizeof(*STATIC_ARRAY))
 
 #ifdef __linux__
 typedef unsigned char byte;
-#define		set_console_buffer_size(...)
+#define			set_console_buffer_size(...)
 #else
-int			set_console_buffer_size(short w, short h)
+int				set_console_buffer_size(short w, short h)
 {
 	COORD coords={w, h};
 	HANDLE handle=GetStdHandle(STD_OUTPUT_HANDLE);
@@ -70,11 +70,143 @@ void			print_bin(int x, int nbits)
 			printf("_");
 	}
 }
-void			print_bitplane(const short *buffer, int imsize, int bitplane)
+void			print_bitplane(const void *src, int imsize, int bytestride, int bitplane)
+{
+	auto buffer=(byte*)src;
+	int bit_offset=bitplane>>3, bit_shift=bitplane&7;
+	for(int k=0, k2=0;k<imsize;++k, k2+=bytestride)
+		printf("%d", buffer[k2+bit_offset]>>bit_shift&1);
+	printf("\n");
+}
+
+void			differentiate_rows(const short *src, int bw, int bh, short *dst)//can be the same buffer
+{
+	for(int ky=0;ky<bh;++ky)
+	{
+		dst[bw*ky]=src[bw*ky];
+		for(int kx=bw-1;kx>=1;--kx)
+		{
+			int delta=src[bw*ky+kx]-src[bw*ky+kx-1];
+			int neg=delta<0;
+			delta^=-neg, delta+=neg;
+			delta=delta<<1|neg;//RVL
+			dst[bw*ky+kx]=delta;
+		}
+	}
+}
+void			integrate_rows(const short *src, int bw, int bh, short *dst)
+{
+	for(int ky=0;ky<bh;++ky)
+	{
+		dst[bw*ky]=src[bw*ky];
+		for(int kx=1;kx<bw;++kx)
+		{
+			int delta=src[bw*ky+kx];
+			int neg=delta&1;
+			delta>>=1;
+			delta^=-neg, delta+=neg;
+			delta+=src[bw*ky+kx-1];
+			dst[bw*ky+kx]=delta;
+		}
+	}
+}
+
+void			RVL_rows(const int *src, int bw, int bh, int *dst)//can be the same buffer		24 -> 27bit
+{
+	for(int ky=0;ky<bh;++ky)
+	{
+		for(int kx=bw-1;kx>=1;--kx)
+		{
+			auto p=(const byte*)(src+bw*ky+kx), p0=(const byte*)(src+bw*ky+kx-1);
+			int R=p[0]-p0[0], G=p[1]-p0[1], B=p[2]-p0[2], neg;
+			neg=R<0, R^=-neg, R+=neg, R=R<<1|neg;
+			neg=G<0, G^=-neg, G+=neg, G=G<<1|neg;
+			neg=B<0, B^=-neg, B+=neg, B=B<<1|neg;
+			dst[bw*ky+kx]=B<<18|G<<9|R;
+		}
+		auto ps=(const byte*)(src+bw*ky);
+		dst[bw*ky]=ps[2]<<18|ps[1]<<9|ps[0];
+	}
+}
+void			invRVL_rows(const int *src, int bw, int bh, int *dst)//27 -> 24bit
+{
+	for(int ky=0;ky<bh;++ky)
+	{
+		int ps=src[bw*ky];
+		dst[bw*ky]=(ps>>18&0xFF)<<16|(ps>>9&0xFF)<<8|ps&0xFF;
+		if(src==dst)
+		{
+			for(int kx=1;kx<bw;++kx)
+			{
+				int px=src[bw*ky+kx];
+				auto p0=(const byte*)(src+bw*ky+kx-1);
+				int R=px&0x1FF, G=px>>9&0x1FF, B=px>>18&0x1FF, neg;
+				neg=R&1, R>>=1, R^=-neg, R+=neg, R+=p0[0];
+				neg=G&1, G>>=1, G^=-neg, G+=neg, G+=p0[1];
+				neg=B&1, B>>=1, B^=-neg, B+=neg, B+=p0[2];
+				dst[bw*ky+kx]=B<<16|G<<8|R;
+			}
+		}
+		else
+		{
+			for(int kx=1;kx<bw;++kx)
+			{
+				int px=src[bw*ky+kx], px0=src[bw*ky+kx-1];
+				int R=px&0x1FF, G=px>>9&0x1FF, B=px>>18&0x1FF, neg;
+				neg=R&1, R>>=1, R^=-neg, R+=neg, R+=px0&0x1FF;
+				neg=G&1, G>>=1, G^=-neg, G+=neg, G+=px0>>9&0x1FF;
+				neg=B&1, B>>=1, B^=-neg, B+=neg, B+=px0>>18&0x1FF;
+				dst[bw*ky+kx]=B<<16|G<<8|R;
+			}
+		}
+	}
+}
+void			apply_RCT27_29(int *dst, const int *src, int imsize)
 {
 	for(int k=0;k<imsize;++k)
-		printf("%d", buffer[k]>>bitplane&1);
-	printf("\n");
+	{
+		int px=src[k];
+		int R=px&0x1FF, G=px>>9&0x1FF, B=px>>18&0x1FF;
+		int Y=(R+(G<<1)+B)>>2, Cb=(B-G)&0x3FF, Cr=(R-G)&0x3FF;
+		dst[k]=Cr<<19|Cb<<9|Y;
+	}
+}
+void			apply_invRCT29_27(int *dst, const int *src, int imsize)
+{
+	int mask=0xFFFFFC00;
+	for(int k=0;k<imsize;++k)
+	{
+		int px=src[k];
+		int Y=px&0x1FF, Cb=px>>9&0x3FF, Cr=px>>19&0x3FF;
+		Cb|=mask&-(Cb>>9&1);
+		Cr|=mask&-(Cr>>9&1);
+		int G=Y-((Cb+Cr)>>2), R=Cr+G, B=Cb+G;
+		dst[k]=B<<18|G<<9|R;
+	}
+}
+
+void			apply_RCT24_26(int *dst, const int *src, int imsize)
+{
+	for(int k=0;k<imsize;++k)
+	{
+		auto p=(const byte*)(src+k);
+		byte R=p[0], G=p[1], B=p[2];
+		int Y=(R+(G<<1)+B)>>2, Cb=(B-G)&0x1FF, Cr=(R-G)&0x1FF;
+		dst[k]=Cr<<17|Cb<<8|Y;
+	}
+}
+void			apply_invRCT26_24(int *dst, const int *src, int imsize)
+{
+	int mask=0xFFFFFE00;
+	for(int k=0;k<imsize;++k)
+	{
+		int px=src[k];
+		int Y=px&0xFF, Cb=px>>8&0x1FF, Cr=px>>17&0x1FF;
+		Cb|=mask&-(Cb>>8&1);
+		Cr|=mask&-(Cr>>8&1);
+		byte G=Y-((Cb+Cr)>>2), R=Cr+G, B=Cb+G;
+		dst[k]=B<<16|G<<8|R;
+	}
 }
 
 #if 0
@@ -82,7 +214,7 @@ const int	depth=8,
 			nlevels=1<<depth;
 int			histogram[nlevels]={};
 #endif
-int			main(int argc, char **argv)
+int				main(int argc, char **argv)
 {
 	set_console_buffer_size(120, 4000);
 	if(argc<2)
@@ -230,8 +362,77 @@ int			main(int argc, char **argv)
 	delete[] b2;
 #endif
 
-	//AC - image
 #if 1
+	int iw=0, ih=0, nch=0;
+	byte *original_image=stbi_load(argv[1], &iw, &ih, &nch, 4);
+	if(original_image)
+		printf("Opened \'%s\'\n", argv[1]);
+	else
+	{
+		printf("Failed to open \'%s\'\n", argv[1]);
+		return 1;
+	}
+	auto buffer=(int*)original_image;
+	int imsize=iw*ih;
+	auto b2=new int[imsize];
+	const int depth0=24;
+	//const int depth=29;
+	const int depth=26;
+	
+	//RVL_rows(buffer, iw, ih, b2);
+	//apply_RCT27_29(b2, b2, imsize);
+	apply_RCT24_26(b2, buffer, imsize);
+
+	std::string data;
+	int sizes[depth]={};
+	int conf[depth]={};
+	abac2_encode(b2, imsize, depth, sizeof(*b2), data, sizes, conf, true);
+	abac2_decode(data.data(), sizes, conf, b2, imsize, depth, sizeof(*b2), true);
+
+	//apply_invRCT29_27(b2, b2, imsize);
+	//invRVL_rows(b2, iw, ih, b2);
+	apply_invRCT26_24(b2, b2, imsize);
+	
+	int nerrors=0, kp=0, kb=0;
+	int depthmask=(1<<depth0)-1;
+	//printf("Depthmask: %04X\n", depthmask);
+	for(int k=0;k<imsize;++k)
+	{
+		if((b2[k]^buffer[k])&depthmask)
+		{
+			if(!nerrors)
+			{
+				kb=k;
+				for(kp=0;kp<depth0&&!((b2[k]^buffer[k])>>kp&1);++kp);
+			}
+			++nerrors;
+			printf("%d: %0*X != %0*X\n", k, (depth0+3)>>2, buffer[k]&depthmask, (depth0+3)>>2, b2[k]&depthmask);
+			//if(nerrors>=100)
+				break;
+		}
+	}
+	if(nerrors)
+	{
+		const int width=64;
+		printf("Error in bit plane %d, pixel %d:\n", kp, kb);
+		int start=kb-(width>>1);
+		if(start<0)
+			start=0;
+		int end=start+width;
+		if(end>imsize)
+			end=imsize;
+		for(int k=start;k<end;++k)
+			printf("%d", k%10);
+		printf("\n");
+		print_bitplane(buffer+start, end-start, sizeof(*buffer), kp);//
+		print_bitplane(b2+start, end-start, sizeof(*buffer), kp);//
+	}
+	stbi_image_free(original_image);
+	delete[] b2;
+#endif
+
+	//AC - image
+#if 0
 	int iw=0, ih=0, nch=0;
 	byte *original_image=stbi_load(argv[1], &iw, &ih, &nch, 4);
 	//byte *original_image=stbi_load("20211129 1 confidence.PNG", &iw, &ih, &nch, 4);
@@ -245,7 +446,11 @@ int			main(int argc, char **argv)
 		return 1;
 	}
 	auto image=(int*)original_image;
+#ifdef ENABLE_RVL
+	const int depth=9;
+#else
 	const int depth=8;
+#endif
 	int imsize=iw*ih;//*/
 
 /*	const char text[]="Sample text";
@@ -255,8 +460,8 @@ int			main(int argc, char **argv)
 
 	short *buffer=new short[imsize];
 	for(int k=0;k<imsize;++k)//extract red channel
-		buffer[k]=image[k]&0xFF;//*/
-	//stbi_image_free(original_image);
+		buffer[k]=image[k]&0xFF;
+	stbi_image_free(original_image);//*/
 
 /*	printf("Opening \'%s\'\n", argv[1]);
 	std::string text;
@@ -314,9 +519,22 @@ int			main(int argc, char **argv)
 //	int probs[depth]={};
 
 	//abac_estimate(buffer, imsize, depth, 2, true);
+	
+#ifdef ENABLE_RVL
+	differentiate_rows(buffer, iw, ih, buffer);
+#endif
+	abac3_encode(buffer, imsize, depth, data, sizes, conf, true);
+	abac3_decode(data.data(), sizes, conf, b2, imsize, depth, true);
+#ifdef ENABLE_RVL
+	integrate_rows(buffer, iw, ih, buffer);
+	integrate_rows(b2, iw, ih, b2);
+#endif
 
-	abac2_encode(buffer, imsize, depth, data, sizes, conf, true);
-	abac2_decode(data.data(), sizes, conf, b2, imsize, depth, true);
+	//abac3_encode(buffer, imsize, depth, data, sizes, conf, true);
+	//abac3_decode(data.data(), sizes, conf, b2, imsize, depth, true);
+
+	//abac2_encode(buffer, imsize, depth, data, sizes, conf, true);
+	//abac2_decode(data.data(), sizes, conf, b2, imsize, depth, true);
 
 	//abac_encode(buffer, imsize, depth, data, sizes, true);
 	//abac_decode(data.data(), sizes, b2, imsize, depth, true);
@@ -622,6 +840,7 @@ int			main(int argc, char **argv)
 #endif
 
 #ifdef _MSC_VER
+	printf("\nDone.\n");
 	int i=0;
 	scanf_s("%d", &i);
 #endif
