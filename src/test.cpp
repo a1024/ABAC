@@ -99,6 +99,24 @@ void			print_image(int *buffer, int bw, int bh, int x1, int x2, int y1, int y2)
 	}
 	printf("\n");
 }
+void			print_fdata(float *data, int bw, int bh, int x1, int x2, int y1, int y2)
+{
+	if(x1<0)
+		x1=0;
+	if(x2>bw)
+		x2=bw;
+	if(y1<0)
+		y1=0;
+	if(y2>bh)
+		y2=bh;
+	for(int ky=y1;ky<y2;++ky)
+	{
+		for(int kx=x1;kx<x2;++kx)
+			printf("%f ", data[bw*ky+kx]);
+		printf("\n");
+	}
+	printf("\n");
+}
 
 void			differentiate_rows(const short *src, int bw, int bh, short *dst)//can be the same buffer
 {
@@ -715,13 +733,18 @@ int				main(int argc, char **argv)
 	{
 		printf("Processing channel %d...\n", kc);
 		extract_channel(buffer, imsize, kc, data);
+			printf("Before DWT:\n"), print_fdata(data, iw, ih, 0, 8, 0, 8);
 		apply_DWT_2D	(data, iw, ih, filt, 4, filt+4);
+			printf("DWT:\n"), print_fdata(data, iw, ih, 0, 8, 0, 8);
 		apply_invDWT_2D	(data, iw, ih, filt, 4, filt+4);
+			printf("Inverse DWT:\n"), print_fdata(data, iw, ih, 0, 8, 0, 8);
 		assign_channel(data, imsize, kc, b2);
 	}
 
-	gen_filename();
-	save_image(g_buf, b2, iw, ih);
+	//gen_filename();
+	//save_image(g_buf, b2, iw, ih);
+	print_image(buffer, iw, ih, 0, iw, 0, ih);
+	print_image(b2, iw, ih, 0, iw, 0, ih);
 
 	delete[] data;
 	delete[] b2;
