@@ -16,6 +16,7 @@
 #else
 #include<intrin.h>
 #endif
+#include<time.h>
 #define STB_IMAGE_IMPLEMENTATION
 #include"stb_image.h"
 
@@ -23,6 +24,8 @@
 
 #define	SIZEOF(STATIC_ARRAY)	(sizeof(STATIC_ARRAY)/sizeof(*STATIC_ARRAY))
 
+#define			G_BUF_SIZE	1024
+char			g_buf[G_BUF_SIZE]={};
 #ifdef __linux__
 typedef unsigned char byte;
 #define			set_console_buffer_size(...)
@@ -76,6 +79,24 @@ void			print_bitplane(const void *src, int imsize, int bytestride, int bitplane)
 	int bit_offset=bitplane>>3, bit_shift=bitplane&7;
 	for(int k=0, k2=0;k<imsize;++k, k2+=bytestride)
 		printf("%d", buffer[k2+bit_offset]>>bit_shift&1);
+	printf("\n");
+}
+void			print_image(int *buffer, int bw, int bh, int x1, int x2, int y1, int y2)
+{
+	if(x1<0)
+		x1=0;
+	if(x2>bw)
+		x2=bw;
+	if(y1<0)
+		y1=0;
+	if(y2>bh)
+		y2=bh;
+	for(int ky=y1;ky<y2;++ky)
+	{
+		for(int kx=x1;kx<x2;++kx)
+			printf("%08X-", buffer[bw*ky+kx]);
+		printf("\n");
+	}
 	printf("\n");
 }
 
@@ -209,11 +230,301 @@ void			apply_invRCT26_24(int *dst, const int *src, int imsize)
 	}
 }
 
+void			apply_DWT24(int *buffer, int bw, int bh)
+{
+	//int imsize=bw*bh;
+	//for(int k=0;k<imsize;++k)//preprocess
+	//	buffer[k]^=0x808080;
+	//{
+	//	auto p=(byte*)(buffer+k);
+	//	p[0]+=128;
+	//	p[1]+=128;
+	//	p[2]+=128;
+	//}
+	int maxdim=bw;
+	if(maxdim<bh)
+		maxdim=bh;
+	auto temp=new int[maxdim];
+	for(int ky=0;ky<bh;++ky)
+	{
+		auto row=buffer+bw*ky;
+		for(int size=bw;size>2;)
+		{
+			int nodd=size>>1, neven=nodd+(size&1);
+			for(int kx=0;kx+1<size;kx+=2)//predict: hi analysis {-0.5, 1, -0.5}
+			{
+				auto p0=(byte*)(row+kx), p1=(byte*)(row+kx+1), p2=(byte*)(row+kx+(2&-(kx+2<size)));
+				p1[0]-=(p0[0]+p2[0])>>1;
+				p1[1]-=(p0[1]+p2[1])>>1;
+				p1[2]-=(p0[2]+p2[2])>>1;
+			}
+			for(int kx=0;kx+1<size;kx+=2)//update: lo analysis {0.25, 1, 0.25}
+			{
+				auto p0=(byte*)(row+kx+(kx==0)-(kx>0)), p1=(byte*)(row+kx), p2=(byte*)(row+kx+1);
+				p1[0]+=(p0[0]+p2[0])>>2;
+				p1[1]+=(p0[1]+p2[1])>>2;
+				p1[2]+=(p0[2]+p2[2])>>2;
+			}
+			for(int kx=0, kx2=0;kx<neven;++kx, kx2+=2)//split to even & odd samples
+				temp[kx]=row[kx2];
+			for(int kx=neven, kx2=1;kx<size;++kx, kx2+=2)
+				temp[kx]=row[kx2];
+			memcpy(row, temp, size*sizeof(*row));
+			size=neven;
+		}
+	}
+	delete[] temp;
+}
+void			apply_invDWT24(int *buffer, int bw, int bh)
+{
+	int maxdim=bw;
+	if(maxdim<bh)
+		maxdim=bh;
+	auto temp=new int[maxdim];
+	std::vector<int> sizes;
+	for(int size=bw;size>2;size=(size>>1)+(size&1))
+		sizes.push_back(size);
+	for(int ky=0;ky<bh;++ky)
+	{
+		auto row=buffer+bw*ky;
+		for(int ks=sizes.size()-1;ks>=0;--ks)
+		{
+			int size=sizes[ks];
+			int nodd=size>>1, neven=nodd+(size&1);
+			for(int kx=0, kx2=0;kx<neven;++kx, kx2+=2)//mix even & odd samples
+				temp[kx2]=row[kx];
+			for(int kx=neven, kx2=1;kx<size;++kx, kx2+=2)
+				temp[kx2]=row[kx];
+			memcpy(row, temp, size*sizeof(*row));
+			for(int kx=0;kx+1<size;kx+=2)//lo synthesis {-0.25, 1, -0.25}
+			{
+				auto p0=(byte*)(row+kx+(kx==0)-(kx>0)), p1=(byte*)(row+kx), p2=(byte*)(row+kx+1);
+				p1[0]-=(p0[0]+p2[0])>>2;
+				p1[1]-=(p0[1]+p2[1])>>2;
+				p1[2]-=(p0[2]+p2[2])>>2;
+			}
+			for(int kx=0;kx+1<size;kx+=2)//hi synthesis {0.5, 1, 0.5}
+			{
+				auto p0=(byte*)(row+kx), p1=(byte*)(row+kx+1), p2=(byte*)(row+kx+(2&-(kx+2<size)));
+				p1[0]+=(p0[0]+p2[0])>>1;
+				p1[1]+=(p0[1]+p2[1])>>1;
+				p1[2]+=(p0[2]+p2[2])>>1;
+			}
+			size=neven;
+		}
+	}
+	delete[] temp;
+	//int imsize=bw*bh;
+	//for(int k=0;k<imsize;++k)//preprocess
+	//	buffer[k]^=0x808080;
+}
+
+void			extract_channel(const int *buffer, int imsize, int channel, float *data)//[1, -1[
+{
+	auto p=(const byte*)buffer+channel;
+	const double inv128=1./128;
+	for(int k=0;k<imsize;++k, p+=4)
+		data[k]=float((*p-128)*inv128);
+}
+void			assign_channel(const float *data, int imsize, int channel, int *buffer)
+{
+	auto p=(byte*)buffer+channel;
+	for(int k=0;k<imsize;++k, p+=4)
+		*p=128+int(data[k]*128);
+}
+void			apply_DWT_1D(float *data, int size, int stride, float *temp, double *filt, int filtsize, double *norms)
+{
+	int nodd=size>>1, neven=nodd+(size&1), s2=stride<<1, bsize=size*stride;
+	for(int k=0;k<filtsize;k+=2)
+	{
+		double predict=filt[k], update=filt[k+1];
+		int kx=0;
+		//predict
+		for(;kx+s2<bsize;kx+=s2)
+			data[kx+stride]+=float(predict*(data[kx]+data[kx+s2]));
+		if(kx+stride<bsize)
+			data[kx+stride]+=float(predict*(data[kx]+data[kx]));
+			
+		//update
+		data[0]+=float(update*(data[stride]+data[stride]));
+		for(kx=s2;kx+s2<bsize;kx+=s2)
+			data[kx]+=float(update*(data[kx-stride]+data[kx+stride]));
+	}
+	for(int kx=0, kx2=0;kx<neven;++kx, kx2+=s2)//split even & odd samples
+		temp[kx]=float(norms[0]*data[kx2]);
+	for(int kx=neven, kx2=stride;kx<size;++kx, kx2+=s2)
+		temp[kx]=float(norms[1]*data[kx2]);
+	if(stride==1)
+		memcpy(data, temp, size*sizeof(*data));
+	else
+	{
+		for(int ks=0, kd=0;ks<size;kd+=stride, ++ks)
+			data[kd]=temp[ks];
+	}
+}
+void			apply_invDWT_1D(float *data, int size, int stride, float *temp, double *filt, int filtsize, double *norms)
+{
+	int nodd=size>>1, neven=nodd+(size&1), s2=stride<<1, bsize=size*stride;
+	if(stride==1)
+		memcpy(temp, data, size*sizeof(*data));
+	else
+	{
+		for(int ks=0, kd=0;ks<size;kd+=stride, ++ks)
+			temp[ks]=data[kd];
+	}
+	double evennorm=1/norms[0], oddnorm=1/norms[1];
+	for(int kx=0, kx2=0;kx<neven;++kx, kx2+=s2)//split even & odd samples
+		data[kx2]=float(evennorm*temp[kx]);
+	for(int kx=neven, kx2=stride;kx<size;++kx, kx2+=s2)
+		data[kx2]=float(oddnorm*temp[kx]);
+	for(int k=filtsize-2;k>=0;--k)
+	{
+		double predict=filt[k], update=filt[k+1];
+		int kx=0;
+		//update
+		data[0]-=float(update*(data[stride]+data[stride]));
+		for(kx=s2;kx+s2<bsize;kx+=s2)
+			data[kx]-=float(update*(data[kx-stride]+data[kx+stride]));
+
+		//predict
+		for(;kx+s2<bsize;kx+=s2)
+			data[kx+stride]-=float(predict*(data[kx]+data[kx+s2]));
+		if(kx+stride<bsize)
+			data[kx+stride]-=float(predict*(data[kx]+data[kx]));
+	}
+}
+void			apply_DWT_2D(float *buffer, int bw, int bh, double *filt, int filtsize, double *norms)//lifting scheme, filtsize is even, norms={lonorm, hinorm}
+{
+	int maxdim=bw;
+	if(maxdim<bh)
+		maxdim=bh;
+	auto temp=new float[maxdim];
+	for(int xsize=bw, ysize=bh;xsize>2&&ysize>2;)
+	{
+		//int xodd=xsize>>1, xeven=xodd+(xsize&1);
+		//int yodd=ysize>>1, yeven=yodd+(ysize&1);
+		for(int ky=0;ky<ysize;++ky)
+			apply_DWT_1D(buffer+bw*ky, xsize, 1, temp, filt, filtsize, norms);
+	/*	{
+			auto row=buffer+bw*ky;
+			for(int k=0;k<filtsize;k+=2)
+			{
+				double predict=filt[k], update=filt[k+1];
+				int kx=0;
+				for(;kx+2<xsize;kx+=2)
+					row[kx+1]+=float(predict*(row[kx]+row[kx+2]));
+				if(kx+1<xsize)
+					row[kx+1]+=float(predict*(row[kx]+row[kx]));
+			
+				row[0]+=float(update*(row[1]+row[1]));
+				for(kx=2;kx+2<xsize;kx+=2)
+					row[kx]+=float(update*(row[kx-1]+row[kx+1]));
+			}
+			for(int kx=0, kx2=0;kx<xeven;++kx, kx2+=2)//split to even & odd samples
+				temp[kx]=row[kx2];
+			for(int kx=xeven, kx2=1;kx<xsize;++kx, kx2+=2)
+				temp[kx]=row[kx2];
+			memcpy(row, temp, xsize*sizeof(*row));
+		}//*/
+		for(int kx=0;kx<xsize;++kx)
+			apply_DWT_1D(buffer+kx, ysize, bw, temp, filt, filtsize, norms);
+
+		xsize-=xsize>>1, ysize-=ysize>>1;
+	}
+	delete[] temp;
+}
+void			apply_invDWT_2D(float *buffer, int bw, int bh, double *filt, int filtsize, double *norms)//lifting scheme, filtsize is even, norms={lonorm, hinorm}
+{
+	int maxdim=bw;
+	if(maxdim<bh)
+		maxdim=bh;
+	auto temp=new float[maxdim];
+	for(int xsize=bw, ysize=bh;xsize>2&&ysize>2;)
+	{
+		for(int ky=0;ky<ysize;++ky)
+			apply_invDWT_1D(buffer+bw*ky, xsize, 1, temp, filt, filtsize, norms);
+		for(int kx=0;kx<xsize;++kx)
+			apply_invDWT_1D(buffer+kx, ysize, bw, temp, filt, filtsize, norms);
+
+		xsize-=xsize>>1, ysize-=ysize>>1;
+	}
+	delete[] temp;
+}
+
 #if 0
 const int	depth=8,
 			nlevels=1<<depth;
 int			histogram[nlevels]={};
 #endif
+void			load_image(const char *filename, int *&buffer, int &iw, int &ih)
+{
+	int nch=0;
+	byte *original_image=stbi_load(filename, &iw, &ih, &nch, 4);
+	if(original_image)
+		printf("Opened \'%s\'\n", filename);
+	else
+	{
+		printf("Failed to open \'%s\'\n", filename);
+#ifdef _MSC_VER
+		scanf_s("%d", &nch);
+#endif
+		exit(1);
+	}
+	buffer=(int*)original_image;
+}
+void			save_image(const char *filename, const int *buffer, int iw, int ih)
+{
+	printf("Enter ZERO to save result image: ");
+	int x=0;
+	scanf_s("%d", &x);
+	if(!x)
+		lodepng::encode(filename, (const byte*)buffer, iw, ih);
+}
+void			gen_filename()
+{
+	time_t t=time(nullptr);
+	tm now={};
+	localtime_s(&now, &t);
+	sprintf_s(g_buf, G_BUF_SIZE, "%04d%02d%02d_%02d%02d%02d.PNG", 1900+now.tm_year, now.tm_mon+1, now.tm_mday, now.tm_hour, now.tm_min, now.tm_sec);
+}
+void			match_buffers(int *buffer, int *b2, int imsize, int depth)
+{
+	int nerrors=0, kp=0, kb=0;
+	int depthmask=(1<<depth)-1;
+	for(int k=0;k<imsize;++k)
+	{
+		if((b2[k]^buffer[k])&depthmask)
+		{
+			if(!nerrors)
+			{
+				kb=k;
+				for(kp=0;kp<depth&&!((b2[k]^buffer[k])>>kp&1);++kp);
+			}
+			++nerrors;
+			printf("%d: %0*X != %0*X\n", k, (depth+3)>>2, buffer[k]&depthmask, (depth+3)>>2, b2[k]&depthmask);
+			//if(nerrors>=100)
+				break;
+		}
+	}
+	if(nerrors)
+	{
+		const int width=64;
+		printf("Error in bit plane %d, pixel %d:\n", kp, kb);
+		int start=kb-(width>>1);
+		if(start<0)
+			start=0;
+		int end=start+width;
+		if(end>imsize)
+			end=imsize;
+		for(int k=start;k<end;++k)
+			printf("%d", k%10);
+		printf("\n");
+		print_bitplane(buffer+start, end-start, sizeof(*buffer), kp);//
+		print_bitplane(b2+start, end-start, sizeof(*buffer), kp);//
+		//print_image(buffer, iw, ih, 0, iw, 0, ih);
+		//print_image(b2, iw, ih, 0, iw, 0, ih);
+	}
+}
 int				main(int argc, char **argv)
 {
 	set_console_buffer_size(120, 4000);
@@ -361,10 +672,70 @@ int				main(int argc, char **argv)
 	delete[] buffer;
 	delete[] b2;
 #endif
+	
+	//AC - quantized float
+#if 1
+#if 0
+#define FREE_ORIGINAL_IM
+	int iw=0, ih=0;
+	int *buffer=nullptr;
+	load_image(argv[1], buffer, iw, ih);
+#else
+	int iw=8, ih=8;
+	int buffer[]=
+	{
+		255, 255, 255, 255, 255, 255, 255, 255,
+		255, 255, 255, 255, 255, 255, 255, 255,
+		255, 255, 255, 255, 255, 255, 255, 255,
+		255, 255, 255, 255, 255, 255, 255, 255,
+		255, 255, 255, 255, 255, 255, 255, 255,
+		255, 255, 255, 255, 255, 255, 255, 255,
+		255, 255, 255, 255, 255, 255, 255, 255,
+		255, 255, 255, 255, 255, 255, 255, 255,
+	};
 
+#endif
+	int imsize=iw*ih;
+	auto b2=new int[imsize];
+	memset(b2, 0xFF, imsize*sizeof(*b2));
+
+	double filt[]=
+	{
+		-1.5861343420594238292020515785937243,
+		-0.052980118573376671019344897514278511,
+		 0.882911075528503100647487289764588328,
+		 0.443506852044983007635941975182636061,
+
+		 1.1496043988602962433651033986614476,
+		 0.86986445162473959153241758552174375,
+	};
+
+	auto data=new float[imsize];
+	for(int kc=0;kc<3;++kc)
+	{
+		printf("Processing channel %d...\n", kc);
+		extract_channel(buffer, imsize, kc, data);
+		apply_DWT_2D	(data, iw, ih, filt, 4, filt+4);
+		apply_invDWT_2D	(data, iw, ih, filt, 4, filt+4);
+		assign_channel(data, imsize, kc, b2);
+	}
+
+	gen_filename();
+	save_image(g_buf, b2, iw, ih);
+
+	delete[] data;
+	delete[] b2;
+#ifdef FREE_ORIGINAL_IM
+	stbi_image_free(buffer);
+#endif
+#endif
+
+	//AC - color image
+#if 0
 #if 1
 	int iw=0, ih=0, nch=0;
 	byte *original_image=stbi_load(argv[1], &iw, &ih, &nch, 4);
+#define FREE_ORIGINAL_IM
 	if(original_image)
 		printf("Opened \'%s\'\n", argv[1]);
 	else
@@ -373,15 +744,39 @@ int				main(int argc, char **argv)
 		return 1;
 	}
 	auto buffer=(int*)original_image;
+#endif
+#if 0
+	int iw=8, ih=8;
+	int buffer[]=
+	{
+		1, 2, 1, 1, 1, 1, 1, 1,
+		1, 1, 1, 1, 1, 1, 1, 1,
+		1, 1, 1, 1, 1, 1, 1, 1,
+		1, 1, 1, 1, 1, 1, 1, 1,
+		1, 1, 1, 1, 1, 1, 1, 1,
+		1, 1, 1, 1, 1, 1, 1, 1,
+		1, 1, 1, 1, 1, 1, 1, 1,
+		1, 1, 1, 1, 1, 1, 1, 1,
+	};
+#endif
+
 	int imsize=iw*ih;
 	auto b2=new int[imsize];
 	const int depth0=24;
 	//const int depth=29;
 	const int depth=26;
 	
+	//for(int k=0;k<imsize;++k)//
+	//	buffer[k]=rand();
+	memcpy(b2, buffer, imsize*sizeof(*buffer));
+	//	printf("Before:\n"), print_image(b2, iw, ih, iw>>1, (iw>>1)+8, ih>>1, (ih>>1)+8);
+	//apply_DWT24(b2, iw, ih);
+	//	printf("DWT:\n"), print_image(b2, iw, ih, iw>>1, (iw>>1)+8, ih>>1, (ih>>1)+8);
+
 	//RVL_rows(buffer, iw, ih, b2);
 	//apply_RCT27_29(b2, b2, imsize);
-	apply_RCT24_26(b2, buffer, imsize);
+	//apply_RCT24_26(b2, b2, imsize);
+		//printf("RCT26:\n"), print_image(b2, iw, ih, 0, iw, 0, ih);
 
 	std::string data;
 	int sizes[depth]={};
@@ -391,7 +786,11 @@ int				main(int argc, char **argv)
 
 	//apply_invRCT29_27(b2, b2, imsize);
 	//invRVL_rows(b2, iw, ih, b2);
-	apply_invRCT26_24(b2, b2, imsize);
+	//apply_invRCT26_24(b2, b2, imsize);//*/
+		//printf("IRCT26:\n"), print_image(b2, iw, ih, 0, iw, 0, ih);
+
+	//apply_invDWT24(b2, iw, ih);
+		//printf("IDWT:\n"), print_image(b2, iw, ih, 0, iw, 0, ih);
 	
 	int nerrors=0, kp=0, kb=0;
 	int depthmask=(1<<depth0)-1;
@@ -426,8 +825,12 @@ int				main(int argc, char **argv)
 		printf("\n");
 		print_bitplane(buffer+start, end-start, sizeof(*buffer), kp);//
 		print_bitplane(b2+start, end-start, sizeof(*buffer), kp);//
+		//print_image(buffer, iw, ih, 0, iw, 0, ih);
+		//print_image(b2, iw, ih, 0, iw, 0, ih);
 	}
+#ifdef FREE_ORIGINAL_IM
 	stbi_image_free(original_image);
+#endif
 	delete[] b2;
 #endif
 

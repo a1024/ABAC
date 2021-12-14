@@ -2267,6 +2267,7 @@ int				abac_estimate(const void *src, int imsize, int depth, int bytestride, boo
 		//	printf("%02X-", out_data[k]&0xFF);
 		printf("\n");
 	}
+	delete[] planesizes;
 	return compr_size;
 }
 
