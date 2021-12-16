@@ -13,13 +13,17 @@
 #include<fstream>
 #ifdef __linux__
 #define	__rdtsc	__builtin_ia32_rdtsc
+#define scanf_s scanf
+#define sprintf_s snprintf
 #else
 #include<intrin.h>
+#include<conio.h>
 #endif
 #include<time.h>
 #define STB_IMAGE_IMPLEMENTATION
 #include"stb_image.h"
 
+//	#define		DEBUG_DWT
 //	#define		ENABLE_RVL
 
 #define	SIZEOF(STATIC_ARRAY)	(sizeof(STATIC_ARRAY)/sizeof(*STATIC_ARRAY))
@@ -81,7 +85,7 @@ void			print_bitplane(const void *src, int imsize, int bytestride, int bitplane)
 		printf("%d", buffer[k2+bit_offset]>>bit_shift&1);
 	printf("\n");
 }
-void			print_image(int *buffer, int bw, int bh, int x1, int x2, int y1, int y2)
+void			print_image(const int *buffer, int bw, int bh, int x1, int x2, int y1, int y2)
 {
 	if(x1<0)
 		x1=0;
@@ -99,7 +103,7 @@ void			print_image(int *buffer, int bw, int bh, int x1, int x2, int y1, int y2)
 	}
 	printf("\n");
 }
-void			print_fdata(float *data, int bw, int bh, int x1, int x2, int y1, int y2)
+void			print_fdata(const float *data, int bw, int bh, int x1, int x2, int y1, int y2)
 {
 	if(x1<0)
 		x1=0;
@@ -113,6 +117,35 @@ void			print_fdata(float *data, int bw, int bh, int x1, int x2, int y1, int y2)
 	{
 		for(int kx=x1;kx<x2;++kx)
 			printf("%f ", data[bw*ky+kx]);
+		printf("\n");
+	}
+	printf("\n");
+}
+void			print_data(const float *data, int count, int stride)
+{
+	for(int k=0, end=count*stride;k<end;k+=stride)
+		printf("%f ", data[k]);
+	printf("\n");
+}
+void			print_diff(const int *buffer, const int *b2, int bw, int bh, int x1, int x2, int y1, int y2, int mask)
+{
+	if(x1<0)
+		x1=0;
+	if(x2>bw)
+		x2=bw;
+	if(y1<0)
+		y1=0;
+	if(y2>bh)
+		y2=bh;
+	auto m=(const byte*)&mask;
+	for(int ky=y1;ky<y2;++ky)
+	{
+		for(int kx=x1;kx<x2;++kx)
+		{
+			auto p=(const byte*)(buffer+bw*ky+kx), p2=(const byte*)(b2+bw*ky+kx);
+			printf("%02X%02X%02X%02X-", abs((p[3]&m[3])-(p2[3]&m[3])), abs((p[2]&m[2])-(p2[2]&m[2])), abs((p[1]&m[1])-(p2[1]&m[1])), abs((p[0]&m[0])-(p2[0]&m[0])));
+		}
+			//printf("%08X-", abs(buffer[bw*ky+kx]-b2[bw*ky+kx]));
 		printf("\n");
 	}
 	printf("\n");
@@ -337,7 +370,7 @@ void			apply_invDWT24(int *buffer, int bw, int bh)
 	//	buffer[k]^=0x808080;
 }
 
-void			extract_channel(const int *buffer, int imsize, int channel, float *data)//[1, -1[
+void			extract_channel(const int *buffer, int imsize, int channel, float *data)//[-1, 1[
 {
 	auto p=(const byte*)buffer+channel;
 	const double inv128=1./128;
@@ -348,25 +381,69 @@ void			assign_channel(const float *data, int imsize, int channel, int *buffer)
 {
 	auto p=(byte*)buffer+channel;
 	for(int k=0;k<imsize;++k, p+=4)
-		*p=128+int(data[k]*128);
+		*p=int(data[k]*128)+128;
+}
+float			get_amplitude(const float *data, int imsize)
+{
+	float amplitude=0;
+	for(int k=0;k<imsize;++k)
+	{
+		float val=abs(data[k]);
+		if(amplitude<val)
+			amplitude=val;
+	}
+	return amplitude;
+}
+void			quantize_DWT(const float *data, int imsize, int channel, float amplitude, int *buffer)
+{
+	auto p=(byte*)buffer+channel;
+	float factor=127/amplitude;
+	for(int k=0;k<imsize;++k, p+=4)
+	{
+		int coeff=int(data[k]*factor);
+		int neg=coeff<0;
+		coeff^=-neg, coeff+=neg;
+		*p=coeff<<1|neg;
+	}
+}
+void			extract_DWT(const int *buffer, int imsize, int channel, float amplitude, float *data)
+{
+	auto p=(const byte*)buffer+channel;
+	float factor=amplitude/127;
+	for(int k=0;k<imsize;++k, p+=4)
+	{
+		int coeff=*p;
+		int neg=coeff&1;
+		coeff>>=1, coeff^=-neg, coeff+=neg;
+		data[k]=coeff*factor;
+	}
 }
 void			apply_DWT_1D(float *data, int size, int stride, float *temp, double *filt, int filtsize, double *norms)
 {
+#ifdef DEBUG_DWT
+	printf("DWT1D input:\n"), print_data(data, size, stride);
+#endif
 	int nodd=size>>1, neven=nodd+(size&1), s2=stride<<1, bsize=size*stride;
 	for(int k=0;k<filtsize;k+=2)
 	{
 		double predict=filt[k], update=filt[k+1];
-		int kx=0;
+		int kx;
 		//predict
-		for(;kx+s2<bsize;kx+=s2)
+		for(kx=0;kx+s2<bsize;kx+=s2)
 			data[kx+stride]+=float(predict*(data[kx]+data[kx+s2]));
 		if(kx+stride<bsize)
 			data[kx+stride]+=float(predict*(data[kx]+data[kx]));
+#ifdef DEBUG_DWT
+	printf("DWT1D predict %d:\n", k), print_data(data, size, stride);
+#endif
 			
 		//update
 		data[0]+=float(update*(data[stride]+data[stride]));
-		for(kx=s2;kx+s2<bsize;kx+=s2)
+		for(kx=s2;kx+stride<bsize;kx+=s2)
 			data[kx]+=float(update*(data[kx-stride]+data[kx+stride]));
+#ifdef DEBUG_DWT
+	printf("DWT1D update %d:\n", k+1), print_data(data, size, stride);
+#endif
 	}
 	for(int kx=0, kx2=0;kx<neven;++kx, kx2+=s2)//split even & odd samples
 		temp[kx]=float(norms[0]*data[kx2]);
@@ -379,9 +456,15 @@ void			apply_DWT_1D(float *data, int size, int stride, float *temp, double *filt
 		for(int ks=0, kd=0;ks<size;kd+=stride, ++ks)
 			data[kd]=temp[ks];
 	}
+#ifdef DEBUG_DWT
+	printf("DWT1D even-odd permutation:\n"), print_data(data, size, stride);
+#endif
 }
 void			apply_invDWT_1D(float *data, int size, int stride, float *temp, double *filt, int filtsize, double *norms)
 {
+#ifdef DEBUG_DWT
+	printf("InvDWT1D input:\n"), print_data(data, size, stride);
+#endif
 	int nodd=size>>1, neven=nodd+(size&1), s2=stride<<1, bsize=size*stride;
 	if(stride==1)
 		memcpy(temp, data, size*sizeof(*data));
@@ -395,20 +478,29 @@ void			apply_invDWT_1D(float *data, int size, int stride, float *temp, double *f
 		data[kx2]=float(evennorm*temp[kx]);
 	for(int kx=neven, kx2=stride;kx<size;++kx, kx2+=s2)
 		data[kx2]=float(oddnorm*temp[kx]);
-	for(int k=filtsize-2;k>=0;--k)
+#ifdef DEBUG_DWT
+	printf("InvDWT1D even-odd permutation:\n"), print_data(data, size, stride);
+#endif
+	for(int k=filtsize-2;k>=0;k-=2)
 	{
 		double predict=filt[k], update=filt[k+1];
-		int kx=0;
+		int kx;
 		//update
 		data[0]-=float(update*(data[stride]+data[stride]));
-		for(kx=s2;kx+s2<bsize;kx+=s2)
+		for(kx=s2;kx+stride<bsize;kx+=s2)
 			data[kx]-=float(update*(data[kx-stride]+data[kx+stride]));
+#ifdef DEBUG_DWT
+	printf("InvDWT1D update %d:\n", k), print_data(data, size, stride);
+#endif
 
 		//predict
-		for(;kx+s2<bsize;kx+=s2)
+		for(kx=0;kx+s2<bsize;kx+=s2)
 			data[kx+stride]-=float(predict*(data[kx]+data[kx+s2]));
 		if(kx+stride<bsize)
 			data[kx+stride]-=float(predict*(data[kx]+data[kx]));
+#ifdef DEBUG_DWT
+	printf("InvDWT1D predict %d:\n", k), print_data(data, size, stride);
+#endif
 	}
 }
 void			apply_DWT_2D(float *buffer, int bw, int bh, double *filt, int filtsize, double *norms)//lifting scheme, filtsize is even, norms={lonorm, hinorm}
@@ -451,20 +543,29 @@ void			apply_DWT_2D(float *buffer, int bw, int bh, double *filt, int filtsize, d
 	}
 	delete[] temp;
 }
+void			DWT_sizes(int size, std::vector<int> &sizes)
+{
+	for(int ks=size;ks>2;ks-=ks>>1)
+		sizes.push_back(ks);
+}
 void			apply_invDWT_2D(float *buffer, int bw, int bh, double *filt, int filtsize, double *norms)//lifting scheme, filtsize is even, norms={lonorm, hinorm}
 {
 	int maxdim=bw;
 	if(maxdim<bh)
 		maxdim=bh;
 	auto temp=new float[maxdim];
-	for(int xsize=bw, ysize=bh;xsize>2&&ysize>2;)
+	std::vector<int> xsizes, ysizes;
+	DWT_sizes(bw, xsizes);
+	DWT_sizes(bh, ysizes);
+	int ks=xsizes.size()-1;
+	if(ks>(int)ysizes.size()-1)
+		ks=ysizes.size()-1;
+	for(;ks>=0;--ks)
 	{
-		for(int ky=0;ky<ysize;++ky)
-			apply_invDWT_1D(buffer+bw*ky, xsize, 1, temp, filt, filtsize, norms);
-		for(int kx=0;kx<xsize;++kx)
-			apply_invDWT_1D(buffer+kx, ysize, bw, temp, filt, filtsize, norms);
-
-		xsize-=xsize>>1, ysize-=ysize>>1;
+		for(int kx=0;kx<xsizes[ks];++kx)
+			apply_invDWT_1D(buffer+kx, ysizes[ks], bw, temp, filt, filtsize, norms);
+		for(int ky=0;ky<ysizes[ks];++ky)
+			apply_invDWT_1D(buffer+bw*ky, xsizes[ks], 1, temp, filt, filtsize, norms);
 	}
 	delete[] temp;
 }
@@ -492,7 +593,8 @@ void			load_image(const char *filename, int *&buffer, int &iw, int &ih)
 }
 void			save_image(const char *filename, const int *buffer, int iw, int ih)
 {
-	printf("Enter ZERO to save result image: ");
+	printf("About to save result to:\n\n\t\'%s\'\n\nEnter ZERO to save: ", filename);
+//	printf("Enter ZERO to save result image: ");
 	int x=0;
 	scanf_s("%d", &x);
 	if(!x)
@@ -501,8 +603,12 @@ void			save_image(const char *filename, const int *buffer, int iw, int ih)
 void			gen_filename()
 {
 	time_t t=time(nullptr);
+#ifdef __linux__
+	auto &now=*localtime(&t);
+#else
 	tm now={};
 	localtime_s(&now, &t);
+#endif
 	sprintf_s(g_buf, G_BUF_SIZE, "%04d%02d%02d_%02d%02d%02d.PNG", 1900+now.tm_year, now.tm_mon+1, now.tm_mday, now.tm_hour, now.tm_min, now.tm_sec);
 }
 void			match_buffers(int *buffer, int *b2, int imsize, int depth)
@@ -693,7 +799,7 @@ int				main(int argc, char **argv)
 	
 	//AC - quantized float
 #if 1
-#if 0
+#if 1
 #define FREE_ORIGINAL_IM
 	int iw=0, ih=0;
 	int *buffer=nullptr;
@@ -727,24 +833,97 @@ int				main(int argc, char **argv)
 		 1.1496043988602962433651033986614476,
 		 0.86986445162473959153241758552174375,
 	};
-
 	auto data=new float[imsize];
-	for(int kc=0;kc<3;++kc)
+	
+/*	for(int ky=0;ky<ih;++ky)
+		for(int kx=0;kx<iw;++kx)
+			data[iw*ky+kx]=(kx^ky)&1;
+	int x1=0, x2=8, y1=0, y2=8;
+	print_fdata(data, iw, ih, x1, x2, y1, y2);
+	apply_DWT_2D	(data, iw, ih, filt, 4, filt+4);
+	print_fdata(data, iw, ih, x1, x2, y1, y2);
+	apply_invDWT_2D	(data, iw, ih, filt, 4, filt+4);
+	print_fdata(data, iw, ih, x1, x2, y1, y2);//*/
+
+/*	float temp[8]={};
+	print_data(data, 8, 1);
+	apply_DWT_1D(data+1, 4, 2, temp, filt, 4, filt+4);
+	print_data(data, 8, 1);
+	apply_invDWT_1D(data+1, 4, 2, temp, filt, 4, filt+4);
+	print_data(data, 8, 1);//*/
+
+/*	for(;;)
+	{
+		for(int k=0;k<imsize;++k)//
+			buffer[k]=rand()&0xFF;
+		extract_channel(buffer, imsize, 0, data);
+		float temp[8]={};
+		apply_DWT_1D(data, 8, 1, temp, filt, 4, filt+4);
+		apply_invDWT_1D(data, 8, 1, temp, filt, 4, filt+4);
+		assign_channel(data, imsize, 0, b2);
+
+		print_image(buffer, iw, ih, 0, iw, 0, ih);
+		print_image(b2, iw, ih, 0, iw, 0, ih);
+		print_diff(buffer, b2, iw, ih, 0, 8, 0, 8, 0x000000FF);
+		_getch();
+	}//*/
+
+//	memcpy(b2, buffer, imsize*sizeof(*b2));
+
+	float amplitude[3]={};
+	int x1=0, x2=8, y1=0, y2=8;
+	for(int kc=0;kc<3;++kc)//encode channels
+	{
+		printf("Encoding channel %d...\n", kc);
+		extract_channel(buffer, imsize, kc, data);
+		//for(int ky=0;ky<ih;++ky)
+		//	for(int kx=0;kx<iw;++kx)
+		//		data[iw*ky+kx]=(kx^ky)&1;
+		//	printf("Before DWT:\n"), print_fdata(data, iw, ih, x1, x2, y1, y2);
+		apply_DWT_2D(data, iw, ih, filt, 4, filt+4);
+		amplitude[kc]=get_amplitude(data, imsize);
+		printf("Channel %d amplitude: %f\n", kc, amplitude);
+		quantize_DWT(data, imsize, kc, amplitude[kc], b2);
+
+	//	extract_DWT(b2, imsize, kc, amplitude[kc], data);//
+	//	apply_invDWT_2D(data, iw, ih, filt, 4, filt+4);//
+	//	assign_channel(data, imsize, kc, b2);//
+
+		//	printf("DWT:\n"), print_fdata(data, iw, ih, x1, x2, y1, y2);
+		//apply_invDWT_2D(data, iw, ih, filt, 4, filt+4);
+		//	printf("Inverse DWT:\n"), print_fdata(data, iw, ih, x1, x2, y1, y2), printf("\n");
+		//assign_channel(data, imsize, kc, b2);
+	}//*/
+
+	const int depth=24;
+	std::string cdata;
+	int sizes[depth]={};
+	int conf[depth]={};
+	abac2_encode(b2, imsize, depth, sizeof(*b2), cdata, sizes, conf, true);
+	abac2_decode(cdata.data(), sizes, conf, buffer, imsize, depth, sizeof(*b2), true);
+	match_buffers(b2, buffer, imsize, depth);
+
+	gen_filename();
+	save_image(g_buf, b2, iw, ih);
+
+	for(int kc=0;kc<3;++kc)//decode channels
+	{
+		printf("Decoding channel %d...\n", kc);
+		extract_DWT(b2, imsize, kc, amplitude[kc], data);//
+		apply_invDWT_2D(data, iw, ih, filt, 4, filt+4);//
+		assign_channel(data, imsize, kc, b2);//
+	}//*/
+/*	float amplitude[]={101.232773, 82.474693, 165.159637};//kodim23.png
+	for(int kc=0;kc<3;++kc)//decode channels
 	{
 		printf("Processing channel %d...\n", kc);
-		extract_channel(buffer, imsize, kc, data);
-			printf("Before DWT:\n"), print_fdata(data, iw, ih, 0, 8, 0, 8);
-		apply_DWT_2D	(data, iw, ih, filt, 4, filt+4);
-			printf("DWT:\n"), print_fdata(data, iw, ih, 0, 8, 0, 8);
-		apply_invDWT_2D	(data, iw, ih, filt, 4, filt+4);
-			printf("Inverse DWT:\n"), print_fdata(data, iw, ih, 0, 8, 0, 8);
+		extract_DWT(buffer, imsize, kc, amplitude[kc], data);
+		apply_invDWT_2D(data, iw, ih, filt, 4, filt+4);
 		assign_channel(data, imsize, kc, b2);
-	}
+	}//*/
 
-	//gen_filename();
-	//save_image(g_buf, b2, iw, ih);
-	print_image(buffer, iw, ih, 0, iw, 0, ih);
-	print_image(b2, iw, ih, 0, iw, 0, ih);
+	gen_filename();
+	save_image(g_buf, b2, iw, ih);//*/
 
 	delete[] data;
 	delete[] b2;

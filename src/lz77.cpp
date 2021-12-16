@@ -1,5 +1,10 @@
 #include"lz77.h"
+#include<string.h>
 #include<stdarg.h>
+#ifdef __linux__
+#define __rdtsc __builtin_ia32_rdtsc
+#define scanf_s scanf
+#endif
 
 static void		print_hex(const char *buffer, int size)
 {
@@ -179,7 +184,7 @@ void			lz77_encode(const void *src, int imsize, std::string &data, bool loud)
 	{
 		printf("\n");
 		printf("LZ77 Encode: %lld\n", t2-t1);
-		printf("Size: %d -> %d, ratio: %lf\n", imsize, data.size(), (double)imsize/data.size());
+		printf("Size: %d -> %d, ratio: %lf\n", imsize, (int)data.size(), (double)imsize/data.size());
 		printf("Data usage:\n");
 		printf("\tData: %5d\t%lf%%\n", data_count, 100.*data_count/data.size());
 		printf("\tInt:  %5d\t%lf%%\n", int_count, 100.*int_count/data.size());

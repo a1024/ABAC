@@ -18,10 +18,12 @@
 #include"ac.h"
 #include<stdio.h>
 #include<string.h>
+#include<math.h>
 #include<vector>
 
 #ifdef __linux__
 #define	__rdtsc	__builtin_ia32_rdtsc
+#define	scanf_s	scanf
 #else
 #include<immintrin.h>
 //#include<tmmintrin.h>
@@ -2328,7 +2330,7 @@ void			abac2_encode(const void *src, int imsize, int depth, int bytestride, std:
 	//	int bit_offset2=(kp+1)/(bytestride<<3), bit_shift2=(kp+1)%(bytestride<<3);
 		auto &plane=planes[depth-1-kp];
 		int prob=0x8000, prob_correct=0x8000;//cheap weighted average predictor
-#if 1
+
 		u64 hitcount=1;
 
 		for(int kb=0, kb2=0;kb<imsize;++kb, kb2+=bytestride)//analyze bitplane
@@ -2348,7 +2350,7 @@ void			abac2_encode(const void *src, int imsize, int depth, int bytestride, std:
 			prob=!bit<<15|prob>>1;
 			prob_correct=correct<<15|prob_correct>>1;
 		}
-		out_conf[depth-1-kp]=hitcount;
+		out_conf[depth-1-kp]=(int)hitcount;
 
 		if(hitcount<imsize*min_conf)
 		{
@@ -2360,126 +2362,126 @@ void			abac2_encode(const void *src, int imsize, int depth, int bytestride, std:
 			//	int bit=buffer[kb]>>kp&1;
 				plane[byte_idx]|=bit<<bit_idx;
 			}
-			goto done;
 		}
-		
-		int hitratio_sure=int(0x10000*pow((double)hitcount/imsize, 1/boost_power)), hitratio_notsure=int(0x10000*pow((double)hitcount/imsize, boost_power));
-		int hitratio_delta=hitratio_sure-hitratio_notsure;
-	//	int hitratio_sure=int(0x10000*cbrt((double)hitcount/imsize)), hitratio_notsure=int(0x10000*(double)hitcount*hitcount*hitcount/((double)imsize*imsize*imsize));
-	//	int hitratio_sure=int(0x10000*sqrt((double)hitcount/imsize)), hitratio_notsure=int(0x10000*(double)hitcount*hitcount/((double)imsize*imsize));
-		hitcount=(hitcount<<16)/imsize;
-
-		//hitcount=unsigned(((u64)hitcount<<16)/imsize);
-		//hitcount=abac2_normalize16(hitcount, logimsize);
-		//hitcount*=invimsize;
-
-		prob_correct=prob=0x8000;
-#endif
-#ifdef ABAC2_CONF_MSB_RELATION
-		int prevbit0=0;
-#endif
-		
-		plane.reserve(imsize>>8);
-		unsigned start=0;
-		u64 range=0xFFFFFFFF;
-		for(int kb=0, kb2=0;kb<imsize;kb2+=bytestride)//bit-pixel loop		http://mattmahoney.net/dc/dce.html#Section_32
+		else
 		{
-			int bit=buffer[kb2+bit_offset]>>bit_shift&1;
-		//	int bit=buffer[kb]>>kp&1;
+			int hitratio_sure=int(0x10000*pow((double)hitcount/imsize, 1/boost_power)), hitratio_notsure=int(0x10000*pow((double)hitcount/imsize, boost_power));
+			int hitratio_delta=hitratio_sure-hitratio_notsure;
+		//	int hitratio_sure=int(0x10000*cbrt((double)hitcount/imsize)), hitratio_notsure=int(0x10000*(double)hitcount*hitcount*hitcount/((double)imsize*imsize*imsize));
+		//	int hitratio_sure=int(0x10000*sqrt((double)hitcount/imsize)), hitratio_notsure=int(0x10000*(double)hitcount*hitcount/((double)imsize*imsize));
+			hitcount=(hitcount<<16)/imsize;
+
+			//hitcount=unsigned(((u64)hitcount<<16)/imsize);
+			//hitcount=abac2_normalize16(hitcount, logimsize);
+			//hitcount*=invimsize;
+
+			prob_correct=prob=0x8000;
+
 #ifdef ABAC2_CONF_MSB_RELATION
-			int prevbit=buffer[kb2+bit_offset2]>>bit_shift2&1;
-		//	int prevbit=buffer[kb]>>(kp+1)&1;
+			int prevbit0=0;
 #endif
 			
-			if(range<3)
+			plane.reserve(imsize>>8);
+			unsigned start=0;
+			u64 range=0xFFFFFFFF;
+			for(int kb=0, kb2=0;kb<imsize;kb2+=bytestride)//bit-pixel loop		http://mattmahoney.net/dc/dce.html#Section_32
 			{
-				plane.push_back(start>>24);
-				plane.push_back(start>>16&0xFF);
-				plane.push_back(start>>8&0xFF);
-				plane.push_back(start&0xFF);
-				start=0, range=0xFFFFFFFF;//because 1=0.9999...
-			}
-			
-			int p0=prob-0x8000;
-			p0=p0*prob_correct>>16;
-			p0=p0*prob_correct>>16;
-			int sure=-(prevbit==prevbit0);
-			p0=p0*(hitratio_notsure+(hitratio_delta&sure))>>16;
-			//p0=p0*(prevbit==prevbit0?hitratio_sure:hitratio_notsure)>>16;
-			//p0=(long long)p0*hitcount>>16;
-			p0+=0x8000;
-			//if(prevbit!=prevbit0)
-			//	p0=0x8000;
-			//	p0=0xFFFF-p0;
-
-			//int p0=0x8000+((long long)(prob-0x8000)*(prevbit==prevbit0?hitratio_sure:hitratio_notsure)>>16);
-
-			//int p0=(long long)(prob-0x8000)*sqrthitcount>>16;
-			//if(prevbit==prevbit0)
-			//	p0=(long long)p0*hitcount>>16;
-			//p0+=0x8000;
-
-			//int confboost=prevbit==prevbit0;
-			//confboost-=!confboost;
-			//confboost<<=LOG_CONFBOOST;
-			//int p0=0x8000+((long long)(prob-0x8000)*(hitcount+confboost)>>16);
-
-		//	int p0=0x8000+(int)((prob-0x8000)*(prevbit==prevbit0?sqrt((double)test_conf[kp]/imsize):(double)test_conf[kp]*test_conf[kp]/((double)imsize*imsize)));
-		//	int p0=prevbit==prevbit0?prob:0x8000;
-		//	int p0=0x8000+(long long)(prob-0x8000)*test_conf[kp]/imsize;
-		//	int p0=0x8000+(long long)(prob-0x8000)*hitcount/(kb+1);
-			p0=clamp(1, p0, prob_max);
-			unsigned r2=(unsigned)(range*p0>>16);
-			r2+=(r2==0)-(r2==range);
-#ifdef DEBUG_ABAC2
-			if(kp==examined_plane&&kb>=examined_start&&kb<examined_end)
-				printf("%6d %6d %d %08X+%08X %08X %08X\n", kp, kb, bit, start, (int)range, r2, start+r2);
-#endif
-
-			int correct=bit^(p0>=0x8000);
-		//	hitcount+=correct;
-			prob=!bit<<15|prob>>1;
-			prob_correct=correct<<15|prob_correct>>1;
+				int bit=buffer[kb2+bit_offset]>>bit_shift&1;
+			//	int bit=buffer[kb]>>kp&1;
 #ifdef ABAC2_CONF_MSB_RELATION
-			prevbit0=prevbit;
+				int prevbit=buffer[kb2+bit_offset2]>>bit_shift2&1;
+			//	int prevbit=buffer[kb]>>(kp+1)&1;
 #endif
-#ifdef MEASURE_PREDICTION
-			hitnum+=correct, ++hitden;
-#endif
-			auto start0=start;
-			if(bit)
-			{
-				++r2;
-				start+=r2, range-=r2;
-			}
-			//	start=middle+1;
-			else
-				range=r2-1;
-			//	end=middle-1;
-			if(start<start0)//
-			{
-				printf("OVERFLOW\nstart = %08X -> %08X, r2 = %08X", start0, start, r2);
-				int k=0;
-				scanf_s("%d", &k);
-			}
-			++kb;
-			
-			while((start^(start+(unsigned)range))<0x1000000)//most significant byte has stabilized			zpaq 1.10
-			{
+				
+				if(range<3)
+				{
+					plane.push_back(start>>24);
+					plane.push_back(start>>16&0xFF);
+					plane.push_back(start>>8&0xFF);
+					plane.push_back(start&0xFF);
+					start=0, range=0xFFFFFFFF;//because 1=0.9999...
+				}
+				
+				int p0=prob-0x8000;
+				p0=p0*prob_correct>>16;
+				p0=p0*prob_correct>>16;
+				int sure=-(prevbit==prevbit0);
+				p0=p0*(hitratio_notsure+(hitratio_delta&sure))>>16;
+				//p0=p0*(prevbit==prevbit0?hitratio_sure:hitratio_notsure)>>16;
+				//p0=(long long)p0*hitcount>>16;
+				p0+=0x8000;
+				//if(prevbit!=prevbit0)
+				//	p0=0x8000;
+				//	p0=0xFFFF-p0;
+
+				//int p0=0x8000+((long long)(prob-0x8000)*(prevbit==prevbit0?hitratio_sure:hitratio_notsure)>>16);
+
+				//int p0=(long long)(prob-0x8000)*sqrthitcount>>16;
+				//if(prevbit==prevbit0)
+				//	p0=(long long)p0*hitcount>>16;
+				//p0+=0x8000;
+
+				//int confboost=prevbit==prevbit0;
+				//confboost-=!confboost;
+				//confboost<<=LOG_CONFBOOST;
+				//int p0=0x8000+((long long)(prob-0x8000)*(hitcount+confboost)>>16);
+
+			//	int p0=0x8000+(int)((prob-0x8000)*(prevbit==prevbit0?sqrt((double)test_conf[kp]/imsize):(double)test_conf[kp]*test_conf[kp]/((double)imsize*imsize)));
+			//	int p0=prevbit==prevbit0?prob:0x8000;
+			//	int p0=0x8000+(long long)(prob-0x8000)*test_conf[kp]/imsize;
+			//	int p0=0x8000+(long long)(prob-0x8000)*hitcount/(kb+1);
+				p0=clamp(1, p0, prob_max);
+				unsigned r2=(unsigned)(range*p0>>16);
+				r2+=(r2==0)-(r2==range);
 #ifdef DEBUG_ABAC2
 				if(kp==examined_plane&&kb>=examined_start&&kb<examined_end)
-					printf("range %08X byte-out %02X\n", (int)range, start>>24);
+					printf("%6d %6d %d %08X+%08X %08X %08X\n", kp, kb, bit, start, (int)range, r2, start+r2);
 #endif
-				plane.push_back(start>>24);
-				start<<=8;
-				range=range<<8|0xFF;
+
+				int correct=bit^(p0>=0x8000);
+			//	hitcount+=correct;
+				prob=!bit<<15|prob>>1;
+				prob_correct=correct<<15|prob_correct>>1;
+#ifdef ABAC2_CONF_MSB_RELATION
+				prevbit0=prevbit;
+#endif
+#ifdef MEASURE_PREDICTION
+				hitnum+=correct, ++hitden;
+#endif
+				auto start0=start;
+				if(bit)
+				{
+					++r2;
+					start+=r2, range-=r2;
+				}
+				//	start=middle+1;
+				else
+					range=r2-1;
+				//	end=middle-1;
+				if(start<start0)//
+				{
+					printf("OVERFLOW\nstart = %08X -> %08X, r2 = %08X", start0, start, r2);
+					int k=0;
+					scanf_s("%d", &k);
+				}
+				++kb;
+				
+				while((start^(start+(unsigned)range))<0x1000000)//most significant byte has stabilized			zpaq 1.10
+				{
+#ifdef DEBUG_ABAC2
+					if(kp==examined_plane&&kb>=examined_start&&kb<examined_end)
+						printf("range %08X byte-out %02X\n", (int)range, start>>24);
+#endif
+					plane.push_back(start>>24);
+					start<<=8;
+					range=range<<8|0xFF;
+				}
 			}
+			plane.push_back(start>>24&0xFF);//big-endian
+			plane.push_back(start>>16&0xFF);
+			plane.push_back(start>>8&0xFF);
+			plane.push_back(start&0xFF);
 		}
-		plane.push_back(start>>24&0xFF);//big-endian
-		plane.push_back(start>>16&0xFF);
-		plane.push_back(start>>8&0xFF);
-		plane.push_back(start&0xFF);
-	done:
 		if(loud)
 			printf("bit %d: conf = %6d / %6d = %lf%%\n", kp, out_conf[depth-1-kp], imsize, 100.*out_conf[depth-1-kp]/imsize);
 		//	printf("bit %d: conf = %6d / %6d = %lf%%\n", kp, hitcount, imsize, 100.*hitcount/imsize);
@@ -2520,7 +2522,7 @@ void			abac2_decode(const char *data, const int *sizes, const int *conf, void *d
 	if(!imsize)
 		return;
 	auto t1=__rdtsc();
-	memset(buffer, 0, imsize*sizeof(short));
+	memset(buffer, 0, imsize*bytestride);
 	
 	//int logimsize=0, invimsize=0;
 	//abac2_invimsize(imsize, logimsize, invimsize);
@@ -2773,7 +2775,7 @@ void			abac3_encode(const short *buffer, int imsize, int depth, std::string &out
 			if(r2<=0)
 				r2=1;
 			else if(r2>=range)
-				r2=range-1;
+				r2=(unsigned)range-1;
 #else
 			int p0=prob-0x8000;
 			p0=p0*prob_correct>>16;
@@ -2838,7 +2840,9 @@ void			abac3_encode(const short *buffer, int imsize, int depth, std::string &out
 		plane.push_back(start>>16&0xFF);
 		plane.push_back(start>>8&0xFF);
 		plane.push_back(start&0xFF);
+#ifndef ABAC3_ZPAQ0
 	done:
+#endif
 		if(loud)
 			printf("bit %d: conf = %6d / %6d = %lf%%\n", kp, out_conf[depth-1-kp], imsize, 100.*out_conf[depth-1-kp]/imsize);
 		//	printf("bit %d: conf = %6d / %6d = %lf%%\n", kp, hitcount, imsize, 100.*hitcount/imsize);
@@ -2922,7 +2926,7 @@ void			abac3_decode(const char *data, const int *sizes, const int *conf, short *
 			if(r2<=0)
 				r2=1;
 			else if(r2>=range)
-				r2=range-1;
+				r2=(unsigned)range-1;
 #else
 			int prevbit=buffer[kb]>>(kp+1)&1;
 			int p0=prob-0x8000;
