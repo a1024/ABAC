@@ -12,5 +12,8 @@ release:	$(PROGRAM)
 $(PROGRAM):	$(SOURCES)
 	$(CXX) -no-pie $(CXXFLAGS) -march=core2 $(SOURCES) -o $(PROGRAM)
 
+run:
+	./$(PROGRAM) "example.png"
+
 clean:
 	rm $(PROGRAM)
