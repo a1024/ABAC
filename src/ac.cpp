@@ -66,7 +66,6 @@ const int visual_plane=0, visual_start=0, visual_end=100;
 //const int visual_plane=0, visual_start=700, visual_end=800;
 #endif
 void			print_bitplane(const short *buffer, int imsize, int bitplane);
-typedef unsigned long long u64;
 
 void			breakpoint()
 {
@@ -2310,9 +2309,9 @@ static void		abac2_invimsize(int imsize, int &logimsize, int &invimsize)
 }
 void			abac2_encode(const void *src, int imsize, int depth, int bytestride, std::string &out_data, int *out_sizes, int *out_conf, bool loud)
 {
-	auto buffer=(const unsigned char*)src;
 	if(!imsize)
 		return;
+	auto buffer=(const unsigned char*)src;
 	auto t1=__rdtsc();
 	
 #ifdef MEASURE_PREDICTION
@@ -2500,8 +2499,8 @@ void			abac2_encode(const void *src, int imsize, int depth, int bytestride, std:
 	if(loud)
 	{
 		int original_bitsize=imsize*depth, compressed_bitsize=(int)out_data.size()<<3;
-		printf("AC encode:  %lld cycles (Enc: %lld cycles)\n", t2-t1, t_enc-t1);
-		printf("Size: %d -> %d, ratio: %lf\n", original_bitsize>>3, compressed_bitsize>>3, (double)original_bitsize/compressed_bitsize);
+		printf("AC encode:  %lld cycles (Enc: %lld cycles), %lf c/byte\n", t2-t1, t_enc-t1, (double)(t2-t1)/(original_bitsize>>3));
+		printf("Size: %d -> %d, ratio: %lf, %lf bpp\n", original_bitsize>>3, compressed_bitsize>>3, (double)original_bitsize/compressed_bitsize, (double)compressed_bitsize/imsize);
 #ifdef MEASURE_PREDICTION
 		printf("Predicted: %6lld / %6lld = %lf%%\n", hitnum, hitden, 100.*hitnum/hitden);
 #endif
@@ -2576,7 +2575,9 @@ void			abac2_decode(const char *data, const int *sizes, const int *conf, void *d
 				start=0, range=0xFFFFFFFF;//because 1=0.9999...
 			}
 #ifdef ABAC2_CONF_MSB_RELATION
-			int prevbit=buffer[kb2+bit_offset2]>>bit_shift2&1;
+			int prevbit=0;
+			if(kp+1<depth)
+				prevbit=buffer[kb2+bit_offset2]>>bit_shift2&1;
 		//	int prevbit=buffer[kb]>>(kp+1)&1;
 #endif
 			int p0=prob-0x8000;
@@ -2657,7 +2658,7 @@ void			abac2_decode(const char *data, const int *sizes, const int *conf, void *d
 	auto t2=__rdtsc();
 	if(loud)
 	{
-		printf("AC decode:  %lld cycles\n", t2-t1);
+		printf("AC decode:  %lld cycles, %lf c/byte\n", t2-t1, (double)(t2-t1)/(imsize*depth>>3));
 	}
 }
 #endif
@@ -2991,5 +2992,226 @@ void			abac3_decode(const char *data, const int *sizes, const int *conf, short *
 	{
 		printf("AC decode:  %lld cycles\n", t2-t1);
 	}
+}
+#endif
+
+#if 0
+	#define		DEBUG_RANS
+
+#ifdef DEBUG_RANS
+const int rans_plane=0, rans_px=0;
+#endif
+
+//Asymmetric Numeral Systems coder	invented by Prof. Jarek Duda in 2009
+typedef unsigned short Prob;//weighted accumulator type
+void			rans_encode(const void *src, int imsize, int depth, int bytestride, std::string &out_data, int *out_sizes, int *out_conf, bool loud)
+{
+	const int prob_bits=sizeof(Prob)<<3, prob_mask=(1<<prob_bits)-1, prob_one=1<<prob_bits, prob_half=1<<(prob_bits-1), prob_max=prob_mask-1;
+	if(!imsize)
+		return;
+	u64 hitnum=0, hitden=0;//prediction efficiency
+	auto buffer=(const unsigned char*)src;
+	auto t1=__rdtsc();
+	out_data.reserve(imsize*depth>>3);
+	auto pred=new Prob[imsize];//4K: 22.9MB, FHD: 3.96MB temp buffer (for encoding only)
+	for(int kp=depth-1;kp>=0;--kp)//bit-plane loop		encode MSB first
+	{
+		int bit_offset=kp>>3, bit_shift=kp&7;
+		int bit_offset2=(kp+1)>>3, bit_shift2=(kp+1)&7;
+		
+		int prob=prob_half, prob_correct=prob_half;
+		int hitcount=0;
+		for(int kb=0, kb2=0;kb<imsize;++kb, kb2+=bytestride)//analyze bitplane (calculate hitcount)
+		{
+			int bit=buffer[kb2+bit_offset]>>bit_shift&1;
+			int p0=((long long)(prob-0x8000)*prob_correct>>16);
+			p0+=0x8000;
+			p0=clamp(1, p0, prob_max);
+			int correct=bit^(p0>=0x8000);
+			hitcount+=correct;
+			prob=!bit<<15|prob>>1;
+			prob_correct=correct<<15|prob_correct>>1;
+		}
+		out_conf[depth-1-kp]=(int)hitcount;
+		int idx=out_data.size();
+		if(hitcount<imsize*min_conf)//pack bitplane without compression (bypass)
+		{
+			out_data.resize(idx+((imsize+7)>>3), 0);
+			for(int kb=0, kb2=0, b=0;kb<imsize;++kb, kb2+=bytestride)
+			{
+				int byte_idx=kb>>3, bit_idx=kb&7;
+				int bit=buffer[kb2+bit_offset]>>bit_shift&1;
+				out_data[idx+byte_idx]|=bit<<bit_idx;
+			}
+		}
+		else//compress bitplane
+		{
+			int hitratio_sure=int(0x10000*pow((double)hitcount/imsize, 1/boost_power)), hitratio_notsure=int(0x10000*pow((double)hitcount/imsize, boost_power));
+			int hitratio_delta=hitratio_sure-hitratio_notsure;
+			prob_correct=prob=0x8000;
+			int prevbit0=0;
+			for(int kb=0, kb2=0;kb<imsize;++kb, kb2+=bytestride)//record forward predictions
+			{
+				int bit=buffer[kb2+bit_offset]>>bit_shift&1;
+				int prevbit=0;
+				if(kp+1<depth)
+					prevbit=buffer[kb2+bit_offset2]>>bit_shift2&1;
+				
+				int p0=prob-0x8000;
+				p0=p0*prob_correct>>16;
+				p0=p0*prob_correct>>16;
+				int sure=-(prevbit==prevbit0);
+				p0=p0*(hitratio_notsure+(hitratio_delta&sure))>>16;
+				p0+=0x8000;
+				p0=clamp(1, p0, prob_max);
+
+				pred[kb]=p0;
+				
+				int correct=bit^(p0>=0x8000);
+				prob=!bit<<15|prob>>1;
+				prob_correct=correct<<15|prob_correct>>1;
+				hitnum+=correct, ++hitden;
+			}
+			u64 state=prob_max;
+			for(int kb=imsize-1, kb2=kb*bytestride;kb>=0;--kb, kb2-=bytestride)//encode backwards
+			{
+				int bit=buffer[kb2+bit_offset]>>bit_shift&1;
+				int p0=pred[kb], ps=(p0^(0xFFFF&-bit))+bit;
+				//s=0	ceil((x+1)/P(0))-1
+				//s=1	floor(x/P(1))
+				//C(x, s) = (x/ps<<N) + x%ps + CDF[s],	CDF={0, p0}
+				while(state>(prob_one))
+				{
+					out_data.push_back((unsigned char)state);
+					state>>=8;
+				}
+				state=(state/ps<<prob_bits)+state%ps+(p0&-bit);
+#ifdef DEBUG_RANS
+				//if(kp==rans_plane&&kb>=rans_px-10&&kb<rans_px+10)
+				if(kp==rans_plane)
+					printf("%d %3d %d %04X %08X\n", kp, kb, bit, p0, state);
+#endif
+			}
+			while(state)
+			{
+				out_data.push_back((unsigned char)state);
+				state>>=8;
+			}
+		}
+		out_sizes[depth-1-kp]=out_data.size()-idx;
+	}
+	delete[] pred;
+	auto t2=__rdtsc();
+	if(loud)
+	{
+		int original_bitsize=imsize*depth, compressed_bitsize=(int)out_data.size()<<3;
+		printf("rABS encode:  %lld cycles\n", t2-t1);
+		printf("Size: %d -> %d, ratio: %lf, %lf bpp\n", original_bitsize>>3, compressed_bitsize>>3, (double)original_bitsize/compressed_bitsize, (double)compressed_bitsize/imsize);
+#ifdef MEASURE_PREDICTION
+		printf("Predicted: %6lld / %6lld = %lf%%\n", hitnum, hitden, 100.*hitnum/hitden);
+#endif
+		printf("Bit\tbytes\tratio\thitcount\tconf,\tbytes/bitplane = %d\n", imsize>>3);
+		for(int k=0;k<depth;++k)
+			printf("%2d\t%5d\t%lf\t%d\t%lf%%\n", depth-1-k, out_sizes[k], (double)imsize/(out_sizes[k]<<3), out_conf[k], 100.*out_conf[k]/imsize);
+		
+		printf("Preview:\n");
+		int kprint=out_data.size()<200?out_data.size():200;
+		for(int k=0;k<kprint;++k)
+			printf("%02X-", out_data[k]&0xFF);
+		printf("\n");
+	}
+/*	auto pred=new Prob[imsize*depth];//4K: 274.7MB, FHD: 47.5MB temp buffer (for encoding only)
+	auto prob=new Prob[depth], prob_correct=new Prob[depth];
+	for(int kb=0, kb2=0;kb<imsize;++kb, kb2+=bytestride)//analyze bitplanes
+	{
+		for(int kp=0, kbyte=0;kbyte<(bytestride>>3);++kbyte)
+		{
+			for(int kplane=0;kp<depth;++kplane, ++kp)
+			{
+				int bit=buffer[kb2+kbyte]>>kplane&1;
+				int p0=(prob[kp]-prob_half)*prob_correct[kp]>>prob_bits;
+				p0+=prob_half;
+				p0=clamp(1, p0, prob_max);
+				int correct=bit^(p0>=prob_half);
+				out_conf[depth-1-kp]+=correct;
+				prob[kp]=!bit<<15|prob[kp]>>1;
+				prob_correct[kp]=correct<<15|prob_correct[kp]>>1;
+			}
+		}
+	}
+	for(int kb=imsize-1;kb>=0;--kb)//compress data in reverse
+	{
+	}
+	delete[] pred, prob, prob_correct;//*/
+}
+void			rans_decode(const void *data, const int *sizes, const int *conf, void *dst, int imsize, int depth, int bytestride, bool loud)
+{
+	auto src=(const unsigned char*)data;
+	const int prob_bits=sizeof(Prob)<<3, prob_mask=(1<<prob_bits)-1, prob_one=1<<prob_bits, prob_half=1<<(prob_bits-1), prob_max=prob_mask-1;
+	auto buffer=(unsigned char*)dst;
+	auto t1=__rdtsc();
+	for(int kp=depth-1, csize=0, ks=0;kp>=0;--kp)//bit-plane loop		decode MSB first
+	{
+		int bit_offset=kp>>3, bit_shift=kp&7;
+		int bit_offset2=(kp+1)>>3, bit_shift2=(kp+1)&7;
+		int hitcount=conf[depth-1-kp];
+		if(hitcount<imsize*min_conf)
+		{
+			ks=csize;
+			auto plane=src+ks;
+			for(int kb=0, kb2=0, b=0;kb<imsize;++kb, kb2+=bytestride)
+			{
+				int byte_idx=kb>>3, bit_idx=kb&7;
+				int bit=plane[byte_idx]>>bit_idx&1;
+				buffer[kb2+bit_offset]|=bit<<bit_shift;
+			}
+			csize+=sizes[kp];
+		}
+		else
+		{
+			ks=csize+sizes[kp]-1;
+			int prob=0x8000, prob_correct=0x8000;
+			int prevbit0=0;
+			int hitratio_sure=int(0x10000*pow((double)hitcount/imsize, 1/boost_power)), hitratio_notsure=int(0x10000*pow((double)hitcount/imsize, boost_power));
+			int hitratio_delta=hitratio_sure-hitratio_notsure;
+			u64 state=0;
+			for(int kb=0, kb2=0;kb<imsize;++kb, kb2+=bytestride)
+			{
+				while(state<0x1000000&&ks>=csize)
+				{
+					state=state<<8|src[ks];
+					--ks;
+				}
+				int prevbit=0;
+				if(kp+1<depth)
+					prevbit=buffer[kb2+bit_offset2]>>bit_shift2&1;
+				int p0=prob-0x8000;
+				p0=p0*prob_correct>>16;
+				p0=p0*prob_correct>>16;
+				int sure=-(prevbit==prevbit0);
+				p0=p0*(hitratio_notsure+(hitratio_delta&sure))>>16;
+				p0+=0x8000;
+				p0=clamp(1, p0, prob_max);
+
+				int bit=(state&prob_mask)>p0;
+				int ps=(p0^(0xFFFF&-bit))+bit;
+				state=ps*(state>>prob_bits)+(state&prob_mask)-(p0&-bit);
+#ifdef DEBUG_RANS
+				//if(kp==rans_plane&&kb>=rans_px-10&&kb<rans_px+10)
+				if(kp==rans_plane)
+					printf("%d %3d %d %04X %08X\n", kp, kb, bit, p0, state);
+#endif
+				int correct=bit^(p0>=0x8000);
+				prob=!bit<<15|prob>>1;
+				prob_correct=correct<<15|prob_correct>>1;
+
+				buffer[kb2+bit_offset]|=bit<<bit_shift;
+			}
+			csize+=sizes[kp];
+		}
+	}
+	auto t2=__rdtsc();
+	if(loud)
+		printf("rABS decode:  %lld cycles\n", t2-t1);
 }
 #endif

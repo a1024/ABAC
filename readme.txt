@@ -2,6 +2,11 @@ ABAC: An Adaptive Binary Arithmetic Coder
 
 
 Documentation:
+acc.h:	Contains an implementation of an Asymmetric Numeral Systems
+	coder (rANS). Which is around 10 times faster than ABAC,
+	and gives slightly better compression ratio when used with
+	the 9-7 DWT. rANS was invented by Prof. J Duda in 2013.
+
 ac.cpp: The arithmetic coder. Static and adaptive versions.
 	abac_encode/decode: adaptive binary arithmetic coder
 	abac_[encode/decode]_[sse2/avx2]: faster SIMD versions,
@@ -12,40 +17,23 @@ huffman.cpp: Huffman coder for comparison (uses vector_bool.h)
 	huff_encode/decode
 
 
-How it works:
-Each bit-plane is compressed separately.
-
-The probability of next bit is calculated as follows:
-	P(next bit=0) = W(0)*confidence + (1/2)*(100%-confidence)
-		= 1/2 + (W(0)-1/2)*confidence
-
-where W(0) is the weighted sum:
-	W(0) = sum i=1 to LOG_WINDOW_SIZE: (1-bit[-i])*2^-i
-which is the complement of the LOG_WINDOW_SIZE (default is 16) previous
-bits loaded into an integer such that the MSB is the most recent bit.
-
-while confidence can be a function of the current compression ratio:
-	ratio = consumed data size / current output size
-	confidence v1 = ratio/(ratio+1)
-		= consumed bit count / (produced + consumed bit counts)
-
-v1.5:
-Higher compression ratio is achieved with the confidence defined as the
-ratio of correctly predicted bits.
-	confidence v2 = number of correctly predicted bits
-		/ number of data bits consumed
-
-v2:
-An even higher compression ratio was achieved.
-See abac2_encode/decode in ac.cpp.
 
 
-The arithmetic coder itself is a modified version of the coder from zpaq 1.10
-See:
-http://mattmahoney.net/dc/dce.html#Section_32
+Benchmark:
+
+Coder		compression	bits/pixel	Preparation	Encode rate	Decode rate
+		ratio				Cycles/Byte	Cycles/Byte	Cycles/Byte
+
+kodim23.png (768x512, 1179648 bytes uncompressed)
+DWT + rANS	31.977446	 0.750529	7.171305	 26.744629	 26.620768
+DWT + ABAC2	31.802443	 0.754659	0		383.514782	401.488471
+raw rANS	 1.084544	22.129110	4.808892	 49.566406	 32.628499
+raw ABAC2	 1.667309	15.593994	0		368.228766	310.917468
 
 
-Evaluation:
+
+
+Old Benchmark:
 Data was compressed without any decorrelating transformations.
 SIMD ABAC versions are currently incompatible with normal ABAC,
 due to floating point rounding behavior.
@@ -94,7 +82,44 @@ Static prob AC	1.199		 359M		 437M
 LZMA2 (7-zip)	8.5033		~805M		?
 
 
-Build test:
+
+
+Bit predictor:
+Each bit-plane is compressed separately.
+
+The probability of next bit is calculated as follows:
+	P(next bit=0) = W(0)*confidence + (1/2)*(100%-confidence)
+		= 1/2 + (W(0)-1/2)*confidence
+
+where W(0) is the weighted sum:
+	W(0) = sum i=1 to LOG_WINDOW_SIZE: (1-bit[-i])*2^-i
+which is the complement of the LOG_WINDOW_SIZE (default is 16) previous
+bits loaded into an integer such that the MSB is the most recent bit.
+
+while confidence can be a function of the current compression ratio:
+	ratio = consumed data size / current output size
+	confidence v1 = ratio/(ratio+1)
+		= consumed bit count / (produced + consumed bit counts)
+
+v1.5:
+Higher compression ratio is achieved with the confidence defined as the
+ratio of correctly predicted bits.
+	confidence v2 = number of correctly predicted bits
+		/ number of data bits consumed
+
+v2:
+An even higher compression ratio was achieved.
+See abac2_encode/decode in ac.cpp.
+
+
+The arithmetic coder itself is a modified version of the coder from zpaq 1.10
+See:
+http://mattmahoney.net/dc/dce.html#Section_32
+
+
+
+
+Build:
 1) Add the following files to the src directory:
 	- stb_image.h
 	- lodepng.h

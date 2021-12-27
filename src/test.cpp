@@ -151,6 +151,7 @@ void			print_diff(const int *buffer, const int *b2, int bw, int bh, int x1, int 
 	printf("\n");
 }
 
+//old transforms
 void			differentiate_rows(const short *src, int bw, int bh, short *dst)//can be the same buffer
 {
 	for(int ky=0;ky<bh;++ky)
@@ -370,6 +371,322 @@ void			apply_invDWT24(int *buffer, int bw, int bh)
 	//	buffer[k]^=0x808080;
 }
 
+
+//irreversible color transform
+void			apply_ICT_BT709(const int *buffer, int imsize, float *Y, float *Cb, float *Cr)
+{
+	const float gain=1.f/128;
+	const float m[9]=
+	{
+		//gain,		0,		0,
+		//0,		gain,	0,
+		//0,		0,		gain,
+		gain* 0.2126f,		gain* 0.7152f,		gain* 0.0722f,
+		gain*-0.114572f,	gain*-0.385428f,	gain* 0.5f,
+		gain* 0.5f,			gain* 0.454153f,	gain*-0.045847f,
+	};
+	for(int k=0;k<imsize;++k)
+	{
+		auto p=(const byte*)(buffer+k);
+		float R=float(p[0]-128), G=float(p[1]-128), B=float(p[2]-128);
+		Y [k]=m[0]*R+m[1]*G+m[2]*B;
+		Cb[k]=m[3]*R+m[4]*G+m[5]*B;
+		Cr[k]=m[6]*R+m[7]*G+m[8]*B;
+	}
+}
+void			apply_invICT_BT709(const float *Y, const float *Cb, const float *Cr, int imsize, int *buffer)
+{
+	const float gain=128;
+	const float m[9]=
+	{
+		//gain,		0,		0,
+		//0,		gain,	0,
+		//0,		0,		gain,
+		gain*-1.48852f,	gain*0.466159f,		gain*2.73974f,
+		gain* 1.73974f,	gain*-0.325895f,	gain*-0.814412f,
+		gain,			gain*1.8556f,		gain*-6.99456e-007f,
+	};
+	double Ramp=0, Gamp=0, Bamp=0;
+	for(int k=0;k<imsize;++k)
+	{
+		auto p=(byte*)(buffer+k);
+		float R=m[0]*Y[k]+m[1]*Cb[k]+m[2]*Cr[k]+gain;
+		float G=m[3]*Y[k]+m[4]*Cb[k]+m[5]*Cr[k]+gain;
+		float B=m[6]*Y[k]+m[7]*Cb[k]+m[8]*Cr[k]+gain;
+		if(R<0)
+			R=0;
+		if(R>255)
+			R=255;
+		if(G<0)
+			G=0;
+		if(G>255)
+			G=255;
+		if(B<0)
+			B=0;
+		if(B>255)
+			B=255;
+		p[0]=(byte)R;
+		p[1]=(byte)G;
+		p[2]=(byte)B;
+	}
+}
+
+//ICT subtracts mean
+#if 0
+void			apply_ICT_BT709(const int *buffer, int imsize, float *Y, float *Cb, float *Cr, float *means, float *amps)
+{
+	double Rmean=0, Gmean=0, Bmean=0;
+	memset(amps, 0, 3*sizeof(float));
+	for(int k=0;k<imsize;++k)
+	{
+		auto p=(const byte*)(buffer+k);
+		Rmean+=p[0];
+		Gmean+=p[1];
+		Bmean+=p[2];
+		if(amps[0]<p[0])
+			amps[0]=p[0];
+		if(amps[1]<p[1])
+			amps[1]=p[1];
+		if(amps[2]<p[2])
+			amps[2]=p[2];
+	}
+	double inv_imsize=1./imsize;
+	means[0]=float(Rmean*inv_imsize);
+	means[1]=float(Gmean*inv_imsize);
+	means[2]=float(Bmean*inv_imsize);
+
+	const float gain=2.f/255;
+	const float m[9]=
+	{
+		gain* 0.2126,	gain* 0.7152,	gain* 0.0722,
+		gain*-0.114572,	gain*-0.385428,	gain* 0.5,
+		gain* 0.5,		gain* 0.454153,	gain*-0.045847,
+	};
+	for(int k=0;k<imsize;++k)
+	{
+		auto p=(const byte*)(buffer+k);
+		float R=p[0]-means[0], G=p[1]-means[1], B=p[2]-means[2];
+		Y [k]=m[0]*R+m[1]*G+m[2]*B;//-1;
+		Cb[k]=m[3]*R+m[4]*G+m[5]*B;//-1;
+		Cr[k]=m[6]*R+m[7]*G+m[8]*B;//-1;
+	}
+}
+void			apply_invICT_BT709(const float *means, const float *amps, float *Y, float *Cb, float *Cr, int imsize, int *buffer)//YCbCr are overwritten
+{
+	const float gain=255.f/2;
+	const float m[9]=
+	{
+		gain*-1.48852,	gain*0.466159,	gain*2.73974,
+		gain* 1.73974,	gain*-0.325895,	gain*-0.814412,
+		gain,			gain*1.8556,	gain*-6.99456e-007,
+	};
+	double Ramp=0, Gamp=0, Bamp=0;
+	for(int k=0;k<imsize;++k)
+	{
+		auto p=(byte*)(buffer+k);
+		float R=m[0]*Y[k]+m[1]*Cb[k]+m[2]*Cr[k]+means[0];
+		float G=m[3]*Y[k]+m[4]*Cb[k]+m[5]*Cr[k]+means[1];
+		float B=m[6]*Y[k]+m[7]*Cb[k]+m[8]*Cr[k]+means[2];
+		Y[k]=R, Cb[k]=G, Cr[k]=B;
+		if(Ramp<R)
+			Ramp=R;
+		if(Gamp<G)
+			Gamp=G;
+		if(Bamp<B)
+			Bamp=B;
+	}
+	Ramp=amps[0]/Ramp;
+	Gamp=amps[1]/Gamp;
+	Bamp=amps[2]/Bamp;
+	printf("InvICT gains: %lf, %lf, %lf\n", Ramp, Gamp, Bamp);//
+	for(int k=0;k<imsize;++k)
+	{
+		auto p=(byte*)(buffer+k);
+	//	auto R=int(Y[k]*Ramp), G=int(Cb[k]*Gamp), B=int(Cr[k]*Bamp);
+		auto R=int(Y[k]), G=int(Cb[k]), B=int(Cr[k]);
+		p[0]=byte(R), p[1]=byte(G), p[2]=byte(B);
+	}
+}
+#endif
+
+#if 0
+void			apply_ICT_BT709_0(const int *buffer, int imsize, float *Y, float *Cb, float *Cr, float *means, float *amps)
+{
+	double Rmean=0, Gmean=0, Bmean=0;
+	for(int k=0;k<imsize;++k)
+	{
+		auto p=(const byte*)(buffer+k);
+		Rmean+=p[0];
+		Gmean+=p[1];
+		Bmean+=p[2];
+	}
+	double inv_imsize=1./imsize;
+	means[0]=float(Rmean*inv_imsize);
+	means[1]=float(Gmean*inv_imsize);
+	means[2]=float(Bmean*inv_imsize);
+
+	const float gain=2.f/255;
+	//const float gain=1;
+	//const float Kr=0.2126, Kb=0.0722, Kg=1-Kr-Kb;
+	const float m[9]=
+	{
+		gain* 0.2126,	gain* 0.7152,	gain* 0.0722,
+		gain*-0.114572,	gain*-0.385428,	gain* 0.5,
+		gain* 0.5,		gain* 0.454153,	gain*-0.045847,
+		//Kr, Kg, Kb,
+		//1, -Kg/(1-Kr), -Kb/(1-Kr),
+		//-Kr/(1-Kb), -Kg/(1-Kb), 1,
+	};
+	memset(amps, 0, 3*sizeof(float));
+	for(int k=0;k<imsize;++k)
+	{
+		auto p=(const byte*)(buffer+k);
+		float R=p[0]-means[0], G=p[1]-means[1], B=p[2]-means[2];
+		Y [k]=m[0]*R+m[1]*G+m[2]*B;//-1;
+		Cb[k]=m[3]*R+m[4]*G+m[5]*B;//-1;
+		Cr[k]=m[6]*R+m[7]*G+m[8]*B;//-1;
+		R=abs(R);
+		G=abs(G);
+		B=abs(B);
+		if(amps[0]<R)
+			amps[0]=R;
+		if(amps[1]<G)
+			amps[1]=G;
+		if(amps[2]<B)
+			amps[2]=B;
+	}
+}
+void			apply_invICT_BT709_0(const float *means, const float *amps, float *Y, float *Cb, float *Cr, int imsize, int *buffer)//YCbCr are overwritten
+{
+	const float gain=255.f/2;
+	//const float gain=1;
+	const float m[9]=
+	{
+		gain*-1.48852,	gain*0.466159,	gain*2.73974,
+		gain* 1.73974,	gain*-0.325895,	gain*-0.814412,
+		gain,			gain*1.8556,	gain*-6.99456e-007,
+		//gain, 0,				gain*1.5748,
+		//gain, gain*-0.187324,	gain*-0.468124,
+		//gain, gain*1.8556,	0,
+	};
+	double Ramp=0, Gamp=0, Bamp=0;
+	for(int k=0;k<imsize;++k)
+	{
+		auto p=(byte*)(buffer+k);
+		float R=m[0]*Y[k]+m[1]*Cb[k]+m[2]*Cr[k];
+		float G=m[3]*Y[k]+m[4]*Cb[k]+m[5]*Cr[k];
+		float B=m[6]*Y[k]+m[7]*Cb[k]+m[8]*Cr[k];
+		Y[k]=R, Cb[k]=G, Cr[k]=B;
+		R=abs(R);
+		G=abs(G);
+		B=abs(B);
+		if(Ramp<R)
+			Ramp=R;
+		if(Gamp<G)
+			Gamp=G;
+		if(Bamp<B)
+			Bamp=B;
+	}
+	Ramp=amps[0]/Ramp;
+	Gamp=amps[1]/Gamp;
+	Bamp=amps[2]/Bamp;
+	printf("InvICT gains: %lf, %lf, %lf\n", Ramp, Gamp, Bamp);//
+	for(int k=0;k<imsize;++k)
+	{
+		auto p=(byte*)(buffer+k);
+		auto R=int(means[0]+Y[k]*Ramp), G=int(means[1]+Cb[k]*Gamp), B=int(means[2]+Cr[k]*Bamp);
+		p[0]=byte(R), p[1]=byte(G), p[2]=byte(B);
+	}
+}
+#endif
+
+
+//	#define		QUANTIZER_NONLINEAR
+
+//quantizer
+float			get_amplitude(const float *data, int imsize)
+{
+	float amplitude=0;
+	for(int k=0;k<imsize;++k)
+	{
+		float val=abs(data[k]);
+		if(amplitude<val)
+			amplitude=val;
+	}
+	return amplitude;
+}
+void			DWT_quantize(const float *Y, const float *Cb, const float *Cr, int imsize, int *buffer, float *amps)
+{
+	amps[0]=get_amplitude(Y, imsize);
+	amps[1]=get_amplitude(Cb, imsize);
+	amps[2]=get_amplitude(Cr, imsize);
+#ifdef QUANTIZER_NONLINEAR
+	float invY=1/amps[0], invCb=1/amps[1], invCr=1/amps[2];
+	for(int k=0;k<imsize;++k)
+	{
+		auto p=(byte*)(buffer+k);
+		float Yk=Y[k]*invY, Cbk=Cb[k]*invCb, Crk=Cr[k]*invCr;
+		p[0]=(int)(127*sqrt(Yk))<<1|(Yk<0);
+		p[1]=(int)(127*sqrt(Cbk))<<1|(Cbk<0);
+		p[2]=(int)(127*sqrt(Crk))<<1|(Crk<0);
+	}
+#else
+	float f_Y=127/amps[0], f_Cb=127/amps[1], f_Cr=127/amps[2];
+	for(int k=0;k<imsize;++k)
+	{
+		auto p=(byte*)(buffer+k);
+		int Yk=int(Y[k]*f_Y), Cbk=int(Cb[k]*f_Cb), Crk=int(Cr[k]*f_Cr), neg;
+		neg=Yk <0, Yk ^=-neg, Yk +=neg, p[0]=Yk <<1|neg;
+		neg=Cbk<0, Cbk^=-neg, Cbk+=neg, p[1]=Cbk<<1|neg;
+		neg=Crk<0, Crk^=-neg, Crk+=neg, p[2]=Crk<<1|neg;
+	}
+#endif
+}
+void			DWT_dequantize(const int *buffer, int imsize, const float *amps, float *Y, float *Cb, float *Cr)
+{
+#ifdef QUANTIZER_NONLINEAR
+	float ampY=amps[0]/127, ampCb=amps[1]/127, ampCr=amps[2]/127;
+	for(int k=0;k<imsize;++k)
+	{
+		auto p=(const byte*)(buffer+k);
+		int neg;
+		neg=(p[0]&1)<<31, Y [k]=ampY *(p[0]>>1), Y [k]*=Y [k], (int&)Y [k]=(int&)Y [k]|neg;
+		neg=(p[1]&1)<<31, Cb[k]=ampCb*(p[1]>>1), Cb[k]*=Cb[k], (int&)Cb[k]=(int&)Cb[k]|neg;
+		neg=(p[2]&1)<<31, Cr[k]=ampCr*(p[2]>>1), Cr[k]*=Cr[k], (int&)Cr[k]=(int&)Cr[k]|neg;
+	}
+#else
+	float f_Y=amps[0]/127, f_Cb=amps[1]/127, f_Cr=amps[2]/127;
+	for(int k=0;k<imsize;++k)
+	{
+		auto p=(const byte*)(buffer+k);
+		int Yk=p[0], Cbk=p[1], Crk=p[2], neg;
+		neg=Yk &1, Yk >>=1, Yk ^=-neg, Yk +=neg, Y [k]=Yk *f_Y ;
+		neg=Cbk&1, Cbk>>=1, Cbk^=-neg, Cbk+=neg, Cb[k]=Cbk*f_Cb;
+		neg=Crk&1, Crk>>=1, Crk^=-neg, Crk+=neg, Cr[k]=Crk*f_Cr;
+	}
+#endif
+}
+void			DWT_quantize_ch(const float *data, int imsize, int channel, int *buffer, float *amps)
+{
+	amps[channel]=get_amplitude(data, imsize);
+	float gain=127/amps[0];
+	for(int k=0;k<imsize;++k)
+	{
+		int val=int(data[k]*gain), neg;
+		neg=val<0, val^=-neg, val+=neg, buffer[k]|=(val<<1|neg)<<(channel<<3);
+	}
+}
+void			DWT_dequantize_ch(const int *buffer, int imsize, int channel, const float *amps, float *data)
+{
+	float gain=amps[channel]/127;
+	for(int k=0;k<imsize;++k)
+	{
+		int val=buffer[k]>>(channel<<3)&0xFF, neg;
+		neg=val&1, val>>=1, val^=-neg, val+=neg, data[k]=val*gain;
+	}
+}
+
+//old transforms
 void			extract_channel(const int *buffer, int imsize, int channel, float *data)//[-1, 1[
 {
 	auto p=(const byte*)buffer+channel;
@@ -382,17 +699,6 @@ void			assign_channel(const float *data, int imsize, int channel, int *buffer)
 	auto p=(byte*)buffer+channel;
 	for(int k=0;k<imsize;++k, p+=4)
 		*p=int(data[k]*128)+128;
-}
-float			get_amplitude(const float *data, int imsize)
-{
-	float amplitude=0;
-	for(int k=0;k<imsize;++k)
-	{
-		float val=abs(data[k]);
-		if(amplitude<val)
-			amplitude=val;
-	}
-	return amplitude;
 }
 void			quantize_DWT(const float *data, int imsize, int channel, float amplitude, int *buffer)
 {
@@ -418,6 +724,9 @@ void			extract_DWT(const int *buffer, int imsize, int channel, float amplitude, 
 		data[k]=coeff*factor;
 	}
 }
+
+
+//DWT2 via lifting scheme
 void			apply_DWT_1D(float *data, int size, int stride, float *temp, double *filt, int filtsize, double *norms)
 {
 #ifdef DEBUG_DWT
@@ -428,7 +737,7 @@ void			apply_DWT_1D(float *data, int size, int stride, float *temp, double *filt
 	{
 		double predict=filt[k], update=filt[k+1];
 		int kx;
-		//predict
+		//predict: odd (high pass) += coeff * even neighbors
 		for(kx=0;kx+s2<bsize;kx+=s2)
 			data[kx+stride]+=float(predict*(data[kx]+data[kx+s2]));
 		if(kx+stride<bsize)
@@ -437,7 +746,7 @@ void			apply_DWT_1D(float *data, int size, int stride, float *temp, double *filt
 	printf("DWT1D predict %d:\n", k), print_data(data, size, stride);
 #endif
 			
-		//update
+		//update: even (low pass) += coeff * odd neighbors
 		data[0]+=float(update*(data[stride]+data[stride]));
 		for(kx=s2;kx+stride<bsize;kx+=s2)
 			data[kx]+=float(update*(data[kx-stride]+data[kx+stride]));
@@ -447,8 +756,10 @@ void			apply_DWT_1D(float *data, int size, int stride, float *temp, double *filt
 	}
 	for(int kx=0, kx2=0;kx<neven;++kx, kx2+=s2)//split even & odd samples
 		temp[kx]=float(norms[0]*data[kx2]);
+	//	temp[kx]=data[kx2];
 	for(int kx=neven, kx2=stride;kx<size;++kx, kx2+=s2)
 		temp[kx]=float(norms[1]*data[kx2]);
+	//	temp[kx]=data[kx2];
 	if(stride==1)
 		memcpy(data, temp, size*sizeof(*data));
 	else
@@ -476,8 +787,10 @@ void			apply_invDWT_1D(float *data, int size, int stride, float *temp, double *f
 	double evennorm=1/norms[0], oddnorm=1/norms[1];
 	for(int kx=0, kx2=0;kx<neven;++kx, kx2+=s2)//split even & odd samples
 		data[kx2]=float(evennorm*temp[kx]);
+	//	data[kx2]=temp[kx];
 	for(int kx=neven, kx2=stride;kx<size;++kx, kx2+=s2)
 		data[kx2]=float(oddnorm*temp[kx]);
+	//	data[kx2]=temp[kx];
 #ifdef DEBUG_DWT
 	printf("InvDWT1D even-odd permutation:\n"), print_data(data, size, stride);
 #endif
@@ -570,6 +883,7 @@ void			apply_invDWT_2D(float *buffer, int bw, int bh, double *filt, int filtsize
 	delete[] temp;
 }
 
+
 #if 0
 const int	depth=8,
 			nlevels=1<<depth;
@@ -597,10 +911,12 @@ void			save_image(const char *filename, const int *buffer, int iw, int ih)
 //	printf("Enter ZERO to save result image: ");
 	int x=0;
 	scanf_s("%d", &x);
-	if(!x)
+	if(x)
+		printf("Didn't save.\n");
+	else
 		lodepng::encode(filename, (const byte*)buffer, iw, ih);
 }
-void			gen_filename()
+void			gen_filename(double compression_ratio=0)
 {
 	time_t t=time(nullptr);
 #ifdef __linux__
@@ -609,7 +925,10 @@ void			gen_filename()
 	tm now={};
 	localtime_s(&now, &t);
 #endif
-	sprintf_s(g_buf, G_BUF_SIZE, "%04d%02d%02d_%02d%02d%02d.PNG", 1900+now.tm_year, now.tm_mon+1, now.tm_mday, now.tm_hour, now.tm_min, now.tm_sec);
+	if(compression_ratio)
+		sprintf_s(g_buf, G_BUF_SIZE, "%04d%02d%02d_%02d%02d%02d_%g.PNG", 1900+now.tm_year, now.tm_mon+1, now.tm_mday, now.tm_hour, now.tm_min, now.tm_sec, compression_ratio);
+	else
+		sprintf_s(g_buf, G_BUF_SIZE, "%04d%02d%02d_%02d%02d%02d.PNG", 1900+now.tm_year, now.tm_mon+1, now.tm_mday, now.tm_hour, now.tm_min, now.tm_sec);
 }
 void			match_buffers(int *buffer, int *b2, int imsize, int depth)
 {
@@ -649,6 +968,24 @@ void			match_buffers(int *buffer, int *b2, int imsize, int depth)
 		//print_image(b2, iw, ih, 0, iw, 0, ih);
 	}
 }
+enum			Transform
+{
+	TR_97DWT,
+	TR_RAW,
+	TR_COLOR_97DWT,
+	TR_RVL,
+};
+enum			Coder
+{
+	CODER_RANS,
+	CODER_HUFFMAN,
+	CODER_ABAC2,
+	CODER_ZPAQ0_AC,
+	CODER_LZ77_RANS,
+	CODER_LZ77_HUFFMAN,
+	CODER_LZ77_ABAC2,
+	CODER_LZ77_ZPAQ0_AC,
+};
 int				main(int argc, char **argv)
 {
 	set_console_buffer_size(120, 4000);
@@ -657,6 +994,304 @@ int				main(int argc, char **argv)
 		printf("Pass filename as command argument\n");
 		return 1;
 	}
+
+	//interactive
+#if 1
+	int *buffer=nullptr, iw=0, ih=0, imsize=0, nch=0, depths[4]={}, total_depth=0;
+	int transform=0;
+
+	int len=strlen(argv[1]);
+	if(	!strcmp(argv[1]+len-4, ".txt")||!strcmp(argv[1]+len-4, ".TXT")||
+		!strcmp(argv[1]+len-4, ".cpp")||!strcmp(argv[1]+len-4, ".CPP")||
+		!strcmp(argv[1]+len-2, ".c")||!strcmp(argv[1]+len-2, ".C"))
+	{
+		std::string text;
+		if(open_text(argv[1], text))
+			printf("Opened \'%s\'\n", argv[1]);
+		else
+		{
+			printf("Failed to open \'%s\'\n", argv[1]);
+			return 1;
+		}
+		iw=text.size(), ih=1, imsize=iw*ih, nch=1, depths[1]=8, total_depth=depths[1];
+		buffer=new int[imsize];
+		for(int k=0;k<imsize;++k)
+			buffer[k]=text[k];
+	}
+	else
+	{
+		auto original_image=stbi_load(argv[1], &iw, &ih, &nch, 4);
+		if(original_image)
+			printf("Opened \'%s\'\n", argv[1]);
+		else
+		{
+			printf("Failed to open \'%s\'\n", argv[1]);
+			return 1;
+		}
+		printf("Image has %d channels\n", nch);
+		printf(
+			"Select channels to take.\n"
+			"    0   Only the red channel\n"
+			"   [1]  RGB\n"
+			"    2   RGBA\n"
+			);
+		int mask=_getch();
+		//int mask=0;
+		//scanf_s("%d", &mask);
+		switch(mask)
+		{
+		case '0':
+			printf("%c: Only the red channel\n", (char)mask);
+			mask=0xFF;
+			depths[0]=8, total_depth=8;
+			break;
+		default:
+		case '1':
+			printf("%c: RGB\n", (char)mask);
+			mask=0xFFFFFF;
+			depths[0]=depths[1]=depths[2]=8, total_depth=24;
+			break;
+		case '2':
+			printf("%c: RGBA\n", (char)mask);
+			mask=0xFFFFFFFF;
+			depths[0]=depths[1]=depths[2]=depths[3]=8, total_depth=32;
+			break;
+		}
+	/*	printf("Enter a mask to select channels (ABGR, 1 or 0 per digit, eg: BGR=111, R=1, ...etc): ");
+		int mask=0;
+		for(;;)
+		{
+			scanf_s("%d", &mask);
+			if(mask)
+				break;
+			printf("No channels selected. Enter a channel mask: ");
+		}
+		for(int k=0;k<nch;++k, mask/=10)
+			if(mask%10)
+				depths[k]=8, total_depth+=depths[k];
+		mask=((1<<depths[3])-1)<<24|((1<<depths[2])-1)<<16|((1<<depths[1])-1)<<8|((1<<depths[0])-1);//*/
+
+		imsize=iw*ih;
+		buffer=new int[imsize];
+		auto b2=(int*)original_image;
+		for(int k=0;k<imsize;++k)
+			buffer[k]=b2[k]&mask;
+		STBI_FREE(original_image);
+		printf(
+			"Select transform:\n"
+			"   [0]  9-7 DWT\n"
+			"    1   Raw\n"
+			"    2   Color transform + 9-7 DWT\n"
+			"    3   RVL (+1 depth bit per channel)\n"
+			);
+		transform=_getch();
+		switch(transform)
+		{
+		default:
+		case '0':printf("%c: 9-7 DWT\n", (char)transform);	transform=TR_97DWT;break;
+		case '1':printf("%c: RAW\n", (char)transform);		transform=TR_RAW;break;
+		case '2':
+			if(depths[0]||depths[1]&&depths[2])
+			{
+				printf("%c: Color transform + 9-7 DWT\n", (char)transform);
+				transform=TR_COLOR_97DWT;
+			}
+			else
+			{
+				printf("Can't apply color transform because not all color channels were selected\n");
+				transform=TR_RAW;
+			}
+			break;
+		case '3':
+			if(depths[3])
+			{
+				printf("%c: Can't select RVL because alpha is selected. Deferring to RAW.\n", (char)transform);
+				transform=TR_RAW;
+			}
+			else
+			{
+				printf("%c: RVL\n", (char)transform);
+				transform=TR_RVL;
+			}
+			break;
+		}
+	}
+	printf(
+		"Select coder:\n"
+		"    Raw   LZ77\n"
+		"   [0]    A     rANS\n"
+		"    1     B     Huffman\n"
+		"    2     C     ABAC2\n"
+		"    3     D     ZPAQ0 AC\n"
+		);
+	int coder=_getch();
+	switch(coder)
+	{
+	default:
+	case '0':printf("%c: CODER_RANS\n",				(char)coder);	coder=CODER_RANS;break;
+	case '1':printf("%c: CODER_HUFFMAN\n",			(char)coder);	coder=CODER_HUFFMAN;break;
+	case '2':printf("%c: CODER_ABAC2\n",			(char)coder);	coder=CODER_ABAC2;break;
+	case '3':printf("%c: CODER_ZPAQ0_AC\n",			(char)coder);	coder=CODER_ZPAQ0_AC;break;
+	case 'A':printf("%c: CODER_LZ77_RANS\n",		(char)coder);	coder=CODER_LZ77_RANS;break;
+	case 'B':printf("%c: CODER_LZ77_HUFFMAN\n",		(char)coder);	coder=CODER_LZ77_HUFFMAN;break;
+	case 'C':printf("%c: CODER_LZ77_ABAC2\n",		(char)coder);	coder=CODER_LZ77_ABAC2;break;
+	case 'D':printf("%c: CODER_LZ77_ZPAQ0_AC\n",	(char)coder);	coder=CODER_LZ77_ZPAQ0_AC;break;
+	}
+	
+	double filt[]=
+	{
+		// 1,
+		// 1,
+		 1.1496043988602962433651033986614476,
+		 0.86986445162473959153241758552174375,
+
+		-1.5861343420594238292020515785937243,
+		-0.052980118573376671019344897514278511,
+		 0.882911075528503100647487289764588328,
+		 0.443506852044983007635941975182636061,
+	};
+	float *f_channels[4]={};
+	auto b2=new int[imsize];
+	memset(b2, 0, imsize*sizeof(*b2));
+	float amps[4]={};
+	float gain=1.f/128;
+	switch(transform)//decorrelating transform		buffer -> b2
+	{
+	case TR_97DWT:
+		{
+			auto t1=__rdtsc();
+			for(int kc=0;kc<4;++kc)
+			{
+				if(depths[kc])
+				{
+					f_channels[kc]=new float[imsize];
+					for(int k=0;k<imsize;++k)
+						f_channels[kc][k]=gain*((buffer[k]>>(kc<<3)&0xFF)-128);
+					apply_DWT_2D(f_channels[kc], iw, ih, filt+2, 4, filt);
+					DWT_quantize_ch(f_channels[kc], imsize, kc, b2, amps);
+				}
+			}
+			auto t2=__rdtsc();
+			printf("DWT + Quantization: %lld cycles, %lf CPB\n", t2-t1, (double)(t2-t1)/(imsize*total_depth>>3));
+		}
+		break;
+	case TR_RAW:
+		memcpy(b2, buffer, imsize*sizeof(*buffer));
+		break;
+	case TR_COLOR_97DWT:
+		f_channels[0]=new float[imsize];
+		f_channels[1]=new float[imsize];
+		f_channels[2]=new float[imsize];
+		if(depths[3])
+		{
+			f_channels[3]=new float[imsize];
+			for(int k=0;k<imsize;++k)
+				f_channels[3][k]=gain*((buffer[k]>>24&0xFF)-128);
+			apply_DWT_2D(f_channels[3], iw, ih, filt+2, 4, filt);
+		}
+		apply_ICT_BT709(buffer, imsize, f_channels[0], f_channels[1], f_channels[2]);
+		apply_DWT_2D(f_channels[0], iw, ih, filt+2, 4, filt);
+		apply_DWT_2D(f_channels[1], iw, ih, filt+2, 4, filt);
+		apply_DWT_2D(f_channels[2], iw, ih, filt+2, 4, filt);
+		DWT_quantize(f_channels[0], f_channels[1], f_channels[2], imsize, b2, amps);
+		if(depths[3])
+			DWT_quantize_ch(f_channels[3], imsize, 3, b2, amps);
+		break;
+	case TR_RVL:
+		RVL_rows(buffer, iw, ih, b2);
+		depths[0]=depths[1]=depths[2]=9, total_depth=27;
+		break;
+	}
+	switch(coder)//entropy coding		b2 -> buffer
+	{
+	case CODER_RANS:
+		{
+			std::vector<unsigned short> data;
+			auto freqs=rans_rgb888_start(b2, imsize, true);
+			rans_rgb888_encode(b2, imsize, freqs, data, 2);
+			rans_rgb888_decode(data.data(), data.size(), imsize, freqs, buffer, true);
+			rans_rgb888_finish(freqs);
+		}
+		break;
+	case CODER_HUFFMAN:
+		{
+			printf("Huffman expects 16bit buffer, not 32bit. TODO.\n");
+			memcpy(buffer, b2, imsize*sizeof(*buffer));//
+		}
+		break;
+	case CODER_ABAC2:
+		{
+			std::string data;
+			auto sizes=new int[total_depth];
+			auto conf=new int[total_depth];
+			abac2_encode(b2, imsize, total_depth, sizeof(*b2), data, sizes, conf, true);
+			abac2_decode(data.data(), sizes, conf, buffer, imsize, total_depth, sizeof(*buffer), true);
+			delete[] sizes, conf;
+		}
+		break;
+	case CODER_ZPAQ0_AC:
+		{
+			printf("ABAC3 expects 16bit buffer, not 32bit. TODO.\n");
+			memcpy(buffer, b2, imsize*sizeof(*buffer));//
+		}
+		break;
+	case CODER_LZ77_RANS:
+	case CODER_LZ77_HUFFMAN:
+	case CODER_LZ77_ABAC2:
+	case CODER_LZ77_ZPAQ0_AC:
+		{
+			printf("TODO.\n");
+			memcpy(buffer, b2, imsize*sizeof(*buffer));//
+		}
+		break;
+	}
+	match_buffers(b2, buffer, imsize, total_depth);
+	switch(transform)//inverse transform	buffer -> b2
+	{
+	case TR_97DWT:
+		{
+			auto t1=__rdtsc();
+			for(int kc=0;kc<4;++kc)
+			{
+				if(depths[kc])
+				{
+					DWT_dequantize_ch(buffer, imsize, kc, amps, f_channels[kc]);
+					apply_invDWT_2D(f_channels[kc], iw, ih, filt+2, 4, filt);
+					gain=127/amps[kc];
+					for(int k=0;k<imsize;++k)
+						b2[k]|=((128+(int)(gain*f_channels[kc][k]))&0xFF)<<(kc<<3);
+				}
+			}
+			auto t2=__rdtsc();
+			printf("Dequantization + InvDWT: %lld cycles, %lf CPB\n", t2-t1, (double)(t2-t1)/(imsize*total_depth>>3));
+		}
+		break;
+	case TR_RAW:
+		memcpy(b2, buffer, imsize*sizeof(*buffer));
+		break;
+	case TR_COLOR_97DWT:
+		DWT_dequantize(buffer, imsize, amps, f_channels[0], f_channels[1], f_channels[2]);
+		apply_invDWT_2D(f_channels[0], iw, ih, filt+2, 4, filt);
+		apply_invDWT_2D(f_channels[1], iw, ih, filt+2, 4, filt);
+		apply_invDWT_2D(f_channels[2], iw, ih, filt+2, 4, filt);
+		apply_invICT_BT709(f_channels[0], f_channels[1], f_channels[2], imsize, b2);
+		delete[] f_channels[0], f_channels[1], f_channels[2];
+		if(depths[3])
+		{
+			DWT_dequantize_ch(buffer, imsize, 3, amps, f_channels[3]);
+			apply_invDWT_2D(f_channels[3], iw, ih, filt+2, 4, filt);
+			for(int k=0;k<imsize;++k)
+				b2[k]|=((128+(int)(gain*f_channels[3][k]))&0xFF)<<24;
+			delete[] f_channels[3];
+		}
+		break;
+	case TR_RVL:
+		invRVL_rows(buffer, iw, ih, b2);
+		depths[0]=depths[1]=depths[2]=8, total_depth=24;
+		break;
+	}
+	delete[] buffer, b2;
+#endif
 
 	//LZ77
 #if 0
@@ -798,7 +1433,7 @@ int				main(int argc, char **argv)
 #endif
 	
 	//AC - quantized float
-#if 1
+#if 0
 #if 1
 #define FREE_ORIGINAL_IM
 	int iw=0, ih=0;
@@ -825,15 +1460,84 @@ int				main(int argc, char **argv)
 
 	double filt[]=
 	{
+		 1,
+		 1,
+		 //1.1496043988602962433651033986614476,
+		 //0.86986445162473959153241758552174375,
+
 		-1.5861343420594238292020515785937243,
 		-0.052980118573376671019344897514278511,
 		 0.882911075528503100647487289764588328,
 		 0.443506852044983007635941975182636061,
-
-		 1.1496043988602962433651033986614476,
-		 0.86986445162473959153241758552174375,
 	};
-	auto data=new float[imsize];
+	
+/*	const float gain=1;
+	const float m1[9]=
+	{
+		gain* 0.2126,	gain* 0.7152,	gain* 0.0722,
+		gain*-0.114572,	gain*-0.385428,	gain* 0.5,
+		gain* 0.5,		gain* 0.454153,	gain*-0.045847,
+	};
+	const float m2[9]=
+	{
+		gain*-1.48852,	gain*0.466159,	gain*2.73974,
+		gain* 1.73974,	gain*-0.325895,	gain*-0.814412,
+		gain,			gain*1.8556,	gain*-6.99456e-007,
+	};
+	float m3[9]={};
+	for(int k=0;k<3;++k)
+		for(int k2=0;k2<3;++k2)
+			for(int k3=0;k3<3;++k3)
+				m3[k*3+k2]+=m1[k*3+k3]*m2[k3*3+k2];
+	print_fdata(m3, 3, 3, 0, 3, 0, 3);
+	_getch();
+	exit(0);//*/
+	auto Y=new float[imsize], Cb=new float[imsize], Cr=new float[imsize];
+	apply_ICT_BT709(buffer, imsize, Y, Cb, Cr);
+	apply_DWT_2D(Y, iw, ih, filt+2, 4, filt);
+	apply_DWT_2D(Cb, iw, ih, filt+2, 4, filt);
+	apply_DWT_2D(Cr, iw, ih, filt+2, 4, filt);
+
+	float amps[3]={};
+	DWT_quantize(Y, Cb, Cr, imsize, b2, amps);
+	
+	const int depth=24;
+#if 1
+#define USE_RANS
+	std::vector<unsigned short> data;
+	auto freqs=rans_rgb888_start(b2, imsize, true);
+	rans_rgb888_encode(b2, imsize, freqs, data, 2);
+	rans_rgb888_decode(data.data(), data.size(), imsize, freqs, buffer, true);
+	//memcpy(buffer, b2, imsize*sizeof(*buffer));//
+	rans_rgb888_finish(freqs);
+#else
+	std::string cdata;
+	int sizes[depth]={};
+	int conf[depth]={};
+	abac2_encode(b2, imsize, depth, sizeof(*b2), cdata, sizes, conf, true);
+	abac2_decode(cdata.data(), sizes, conf, buffer, imsize, depth, sizeof(*b2), true);
+#endif
+	match_buffers(b2, buffer, imsize, depth);
+	
+	gen_filename();//TODO: mention amplitudes in filename
+	save_image(g_buf, b2, iw, ih);
+
+	DWT_dequantize(b2, imsize, amps, Y, Cb, Cr);
+	apply_invDWT_2D(Y, iw, ih, filt+2, 4, filt);
+	apply_invDWT_2D(Cb, iw, ih, filt+2, 4, filt);
+	apply_invDWT_2D(Cr, iw, ih, filt+2, 4, filt);//*/
+	apply_invICT_BT709(Y, Cb, Cr, imsize, b2);
+	
+#ifdef USE_RANS
+	gen_filename((double)imsize*3/(data.size()*sizeof(short)));
+#else
+	gen_filename((double)imsize*3/cdata.size());
+#endif
+	//gen_filename();
+	save_image(g_buf, b2, iw, ih);
+
+
+//	auto data=new float[imsize];
 	
 /*	for(int ky=0;ky<ih;++ky)
 		for(int kx=0;kx<iw;++kx)
@@ -870,7 +1574,7 @@ int				main(int argc, char **argv)
 
 //	memcpy(b2, buffer, imsize*sizeof(*b2));
 
-	float amplitude[3]={};
+/*	float amplitude[3]={};
 	int x1=0, x2=8, y1=0, y2=8;
 	for(int kc=0;kc<3;++kc)//encode channels
 	{
@@ -893,7 +1597,7 @@ int				main(int argc, char **argv)
 		//apply_invDWT_2D(data, iw, ih, filt, 4, filt+4);
 		//	printf("Inverse DWT:\n"), print_fdata(data, iw, ih, x1, x2, y1, y2), printf("\n");
 		//assign_channel(data, imsize, kc, b2);
-	}//*/
+	}
 
 	const int depth=24;
 	std::string cdata;
@@ -912,20 +1616,21 @@ int				main(int argc, char **argv)
 		extract_DWT(b2, imsize, kc, amplitude[kc], data);//
 		apply_invDWT_2D(data, iw, ih, filt, 4, filt+4);//
 		assign_channel(data, imsize, kc, b2);//
-	}//*/
-/*	float amplitude[]={101.232773, 82.474693, 165.159637};//kodim23.png
-	for(int kc=0;kc<3;++kc)//decode channels
-	{
-		printf("Processing channel %d...\n", kc);
-		extract_DWT(buffer, imsize, kc, amplitude[kc], data);
-		apply_invDWT_2D(data, iw, ih, filt, 4, filt+4);
-		assign_channel(data, imsize, kc, b2);
-	}//*/
+	}
+//	float amplitude[]={101.232773, 82.474693, 165.159637};//kodim23.png
+//	for(int kc=0;kc<3;++kc)//decode channels
+//	{
+//		printf("Processing channel %d...\n", kc);
+//		extract_DWT(buffer, imsize, kc, amplitude[kc], data);
+//		apply_invDWT_2D(data, iw, ih, filt, 4, filt+4);
+//		assign_channel(data, imsize, kc, b2);
+//	}
 
-	gen_filename();
+	gen_filename((double)imsize*3/cdata.size());
 	save_image(g_buf, b2, iw, ih);//*/
 
-	delete[] data;
+	delete[] Y, Cb, Cr;
+	//delete[] data;
 	delete[] b2;
 #ifdef FREE_ORIGINAL_IM
 	stbi_image_free(buffer);
@@ -946,8 +1651,7 @@ int				main(int argc, char **argv)
 		return 1;
 	}
 	auto buffer=(int*)original_image;
-#endif
-#if 0
+#else
 	int iw=8, ih=8;
 	int buffer[]=
 	{
@@ -979,12 +1683,26 @@ int				main(int argc, char **argv)
 	//apply_RCT27_29(b2, b2, imsize);
 	//apply_RCT24_26(b2, b2, imsize);
 		//printf("RCT26:\n"), print_image(b2, iw, ih, 0, iw, 0, ih);
+	
+#if 0
+#define	USE_RANS
+	std::vector<unsigned short> data;
+	int subtract=0;//742	801
+	if(subtract)
+		printf("imsize: %d\nleaving last %d pixels\n", imsize, subtract);
 
+	auto freqs=rans_rgb888_start(buffer, imsize-subtract, true);
+	rans_rgb888_encode(buffer, imsize-subtract, freqs, data, 2);
+	rans_rgb888_decode(data.data(), data.size(), imsize-subtract, freqs, b2, true);
+
+	rans_rgb888_finish(freqs);
+#else
 	std::string data;
 	int sizes[depth]={};
 	int conf[depth]={};
 	abac2_encode(b2, imsize, depth, sizeof(*b2), data, sizes, conf, true);
 	abac2_decode(data.data(), sizes, conf, b2, imsize, depth, sizeof(*b2), true);
+#endif
 
 	//apply_invRCT29_27(b2, b2, imsize);
 	//invRVL_rows(b2, iw, ih, b2);
@@ -997,7 +1715,11 @@ int				main(int argc, char **argv)
 	int nerrors=0, kp=0, kb=0;
 	int depthmask=(1<<depth0)-1;
 	//printf("Depthmask: %04X\n", depthmask);
+#ifdef USE_RANS
+	for(int k=imsize-1;k>=0;--k)
+#else
 	for(int k=0;k<imsize;++k)
+#endif
 	{
 		if((b2[k]^buffer[k])&depthmask)
 		{
@@ -1038,7 +1760,8 @@ int				main(int argc, char **argv)
 
 	//AC - image
 #if 0
-	int iw=0, ih=0, nch=0;
+/*	int iw=0, ih=0, nch=0;
+#define	FREE_IMAGE
 	byte *original_image=stbi_load(argv[1], &iw, &ih, &nch, 4);
 	//byte *original_image=stbi_load("20211129 1 confidence.PNG", &iw, &ih, &nch, 4);
 	//byte *original_image=stbi_load("2005-12-29 Empire state building 29122005.JPG", &iw, &ih, &nch, 4);
@@ -1058,15 +1781,19 @@ int				main(int argc, char **argv)
 #endif
 	int imsize=iw*ih;//*/
 
-/*	const char text[]="Sample text";
-	const int depth=8;
-	int imsize=sizeof(text);
+	const char text[]="Sample text yes";
+	//const int depth=8;
+	const int depth=1;
+	const int imsize=sizeof(text);
 	const char *image=text;//*/
 
 	short *buffer=new short[imsize];
 	for(int k=0;k<imsize;++k)//extract red channel
-		buffer[k]=image[k]&0xFF;
-	stbi_image_free(original_image);//*/
+	//	buffer[k]=image[k]&0xFF;
+		buffer[k]=image[k]>>6&1;
+#ifdef FREE_IMAGE
+	stbi_image_free(original_image);
+#endif//*/
 
 /*	printf("Opening \'%s\'\n", argv[1]);
 	std::string text;
@@ -1107,6 +1834,7 @@ int				main(int argc, char **argv)
 	//for(int k=0;k<100000;++k)
 	//	buffer[rand()%imsize]=rand();
 	auto b2=new short[imsize];
+	memset(b2, 0, imsize*sizeof(*b2));
 
 	//print_rgba8((unsigned*)image.data(), imsize);
 	//print_hex(buffer, imsize, depth);
@@ -1125,21 +1853,25 @@ int				main(int argc, char **argv)
 
 	//abac_estimate(buffer, imsize, depth, 2, true);
 	
-#ifdef ENABLE_RVL
-	differentiate_rows(buffer, iw, ih, buffer);
-#endif
-	abac3_encode(buffer, imsize, depth, data, sizes, conf, true);
-	abac3_decode(data.data(), sizes, conf, b2, imsize, depth, true);
-#ifdef ENABLE_RVL
-	integrate_rows(buffer, iw, ih, buffer);
-	integrate_rows(b2, iw, ih, b2);
-#endif
+	//memset(buffer, 0, imsize*sizeof(*buffer));//
+	//rans_encode(buffer, imsize, depth, sizeof(*buffer), data, sizes, conf, true);
+	//rans_decode(data.data(), sizes, conf, b2, imsize, depth, sizeof(*b2), true);
+	
+//#ifdef ENABLE_RVL
+//	differentiate_rows(buffer, iw, ih, buffer);
+//#endif
+//	abac3_encode(buffer, imsize, depth, data, sizes, conf, true);
+//	abac3_decode(data.data(), sizes, conf, b2, imsize, depth, true);
+//#ifdef ENABLE_RVL
+//	integrate_rows(buffer, iw, ih, buffer);
+//	integrate_rows(b2, iw, ih, b2);
+//#endif
 
 	//abac3_encode(buffer, imsize, depth, data, sizes, conf, true);
 	//abac3_decode(data.data(), sizes, conf, b2, imsize, depth, true);
 
-	//abac2_encode(buffer, imsize, depth, data, sizes, conf, true);
-	//abac2_decode(data.data(), sizes, conf, b2, imsize, depth, true);
+	abac2_encode(buffer, imsize, depth, data, sizes, conf, true);
+	abac2_decode(data.data(), sizes, conf, b2, imsize, depth, true);
 
 	//abac_encode(buffer, imsize, depth, data, sizes, true);
 	//abac_decode(data.data(), sizes, b2, imsize, depth, true);
@@ -1210,8 +1942,19 @@ int				main(int argc, char **argv)
 		for(int k=start;k<end;++k)
 			printf("%d", k%10);
 		printf("\n");
-		print_bitplane(buffer+start, end-start, kp);//
-		print_bitplane(b2+start, end-start, kp);//
+		print_bitplane(buffer+start, end-start, sizeof(*buffer), kp);//
+		print_bitplane(b2+start, end-start, sizeof(*b2), kp);//
+		for(int k=0;k<imsize;++k)
+		{
+			printf("%04X ", buffer[k]);
+			for(int k2=depth-1;k2>=0;--k2)
+				printf("%d", buffer[k]>>k2&1);
+			printf(" ");
+			printf("%04X ", b2[k]);
+			for(int k2=depth-1;k2>=0;--k2)
+				printf("%d", b2[k]>>k2&1);
+			printf("\n");
+		}
 	}
 
 	//print_bitplane(buffer, imsize, 0);//
