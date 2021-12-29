@@ -234,6 +234,48 @@ void			invRVL_rows(const int *src, int bw, int bh, int *dst)//27 -> 24bit
 		}
 	}
 }
+void			RVL_rows_gray(const int *src, int bw, int bh, int depth0, int *dst)//can be the same buffer		8 -> 9bit
+{
+	const int mask=(1<<depth0)-1;
+	for(int ky=0;ky<bh;++ky)
+	{
+		for(int kx=bw-1;kx>=1;--kx)
+		{
+			auto p=(const byte*)(src+bw*ky+kx), p0=(const byte*)(src+bw*ky+kx-1);
+			int val=(src[bw*ky+kx]&mask)-(src[bw*ky+kx-1]&mask), neg;
+			neg=val<0, val^=-neg, val+=neg, val=val<<1|neg;
+			dst[bw*ky+kx]=val;
+		}
+		dst[bw*ky]=src[bw*ky]&mask;
+	}
+}
+void			invRVL_rows_gray(const int *src, int bw, int bh, int depth0, int *dst)//8 -> 9bit
+{
+	const int mask=(1<<depth0)-1, m2=(1<<(depth0+1))-1;
+	for(int ky=0;ky<bh;++ky)
+	{
+		int ps=src[bw*ky];
+		dst[bw*ky]=src[bw*ky]&mask;
+		if(src==dst)
+		{
+			for(int kx=1;kx<bw;++kx)
+			{
+				int val=src[bw*ky+kx]&m2, neg;
+				neg=val&1, val>>=1, val^=-neg, val+=neg, val+=src[bw*ky+kx-1];
+				dst[bw*ky+kx]=val;
+			}
+		}
+		else
+		{
+			for(int kx=1;kx<bw;++kx)
+			{
+				int val=src[bw*ky+kx]&m2, px0=src[bw*ky+kx-1], neg;
+				neg=val&1, val>>=1, val^=-neg, val+=neg, val+=dst[bw*ky+kx-1];
+				dst[bw*ky+kx]=val;
+			}
+		}
+	}
+}
 void			apply_RCT27_29(int *dst, const int *src, int imsize)
 {
 	for(int k=0;k<imsize;++k)
@@ -978,10 +1020,12 @@ enum			Transform
 enum			Coder
 {
 	CODER_RANS,
+	CODER_RANS32,
 	CODER_HUFFMAN,
 	CODER_ABAC2,
 	CODER_ZPAQ0_AC,
 	CODER_LZ77_RANS,
+	CODER_LZ77_RANS32,
 	CODER_LZ77_HUFFMAN,
 	CODER_LZ77_ABAC2,
 	CODER_LZ77_ZPAQ0_AC,
@@ -1017,6 +1061,7 @@ int				main(int argc, char **argv)
 		buffer=new int[imsize];
 		for(int k=0;k<imsize;++k)
 			buffer[k]=text[k];
+		transform=TR_RAW;
 	}
 	else
 	{
@@ -1029,12 +1074,21 @@ int				main(int argc, char **argv)
 			return 1;
 		}
 		printf("Image has %d channels\n", nch);
-		printf(
-			"Select channels to take.\n"
-			"    0   Only the red channel\n"
-			"   [1]  RGB\n"
-			"    2   RGBA\n"
-			);
+		if(nch==4)
+			printf(
+				"\n"
+				"Select channels to take.\n"
+				"    0   Only the red channel\n"
+				"   [1]  RGB\n"
+				"    2   RGBA\n"
+				);
+		else
+			printf(
+				"\n"
+				"Select channels to take.\n"
+				"    0   Only the red channel\n"
+				"   [1]  RGB\n"
+				);
 		int mask=_getch();
 		//int mask=0;
 		//scanf_s("%d", &mask);
@@ -1045,16 +1099,20 @@ int				main(int argc, char **argv)
 			mask=0xFF;
 			depths[0]=8, total_depth=8;
 			break;
+		case '2':
+			if(nch==4)
+			{
+				printf("%c: RGBA\n", (char)mask);
+				mask=0xFFFFFFFF;
+				depths[0]=depths[1]=depths[2]=depths[3]=8, total_depth=32;
+				break;
+			}
+			//no break
 		default:
 		case '1':
 			printf("%c: RGB\n", (char)mask);
 			mask=0xFFFFFF;
 			depths[0]=depths[1]=depths[2]=8, total_depth=24;
-			break;
-		case '2':
-			printf("%c: RGBA\n", (char)mask);
-			mask=0xFFFFFFFF;
-			depths[0]=depths[1]=depths[2]=depths[3]=8, total_depth=32;
 			break;
 		}
 	/*	printf("Enter a mask to select channels (ABGR, 1 or 0 per digit, eg: BGR=111, R=1, ...etc): ");
@@ -1078,6 +1136,7 @@ int				main(int argc, char **argv)
 			buffer[k]=b2[k]&mask;
 		STBI_FREE(original_image);
 		printf(
+			"\n"
 			"Select transform:\n"
 			"   [0]  9-7 DWT\n"
 			"    1   Raw\n"
@@ -1117,26 +1176,31 @@ int				main(int argc, char **argv)
 		}
 	}
 	printf(
+		"\n"
 		"Select coder:\n"
 		"    Raw   LZ77\n"
 		"   [0]    A     rANS\n"
-		"    1     B     Huffman\n"
-		"    2     C     ABAC2\n"
-		"    3     D     ZPAQ0 AC\n"
+		"    1     B     rANS32\n"
+		"    2     C     Huffman\n"
+		"    3     D     ABAC2\n"
+		"    4     E     ZPAQ0 AC\n"
 		);
 	int coder=_getch();
 	switch(coder)
 	{
 	default:
 	case '0':printf("%c: CODER_RANS\n",				(char)coder);	coder=CODER_RANS;break;
-	case '1':printf("%c: CODER_HUFFMAN\n",			(char)coder);	coder=CODER_HUFFMAN;break;
-	case '2':printf("%c: CODER_ABAC2\n",			(char)coder);	coder=CODER_ABAC2;break;
-	case '3':printf("%c: CODER_ZPAQ0_AC\n",			(char)coder);	coder=CODER_ZPAQ0_AC;break;
+	case '1':printf("%c: CODER_RANS32\n",			(char)coder);	coder=CODER_RANS32;break;
+	case '2':printf("%c: CODER_HUFFMAN\n",			(char)coder);	coder=CODER_HUFFMAN;break;
+	case '3':printf("%c: CODER_ABAC2\n",			(char)coder);	coder=CODER_ABAC2;break;
+	case '4':printf("%c: CODER_ZPAQ0_AC\n",			(char)coder);	coder=CODER_ZPAQ0_AC;break;
 	case 'A':printf("%c: CODER_LZ77_RANS\n",		(char)coder);	coder=CODER_LZ77_RANS;break;
-	case 'B':printf("%c: CODER_LZ77_HUFFMAN\n",		(char)coder);	coder=CODER_LZ77_HUFFMAN;break;
-	case 'C':printf("%c: CODER_LZ77_ABAC2\n",		(char)coder);	coder=CODER_LZ77_ABAC2;break;
-	case 'D':printf("%c: CODER_LZ77_ZPAQ0_AC\n",	(char)coder);	coder=CODER_LZ77_ZPAQ0_AC;break;
+	case 'B':printf("%c: CODER_LZ77_RANS32\n",		(char)coder);	coder=CODER_LZ77_RANS32;break;
+	case 'C':printf("%c: CODER_LZ77_HUFFMAN\n",		(char)coder);	coder=CODER_LZ77_HUFFMAN;break;
+	case 'D':printf("%c: CODER_LZ77_ABAC2\n",		(char)coder);	coder=CODER_LZ77_ABAC2;break;
+	case 'E':printf("%c: CODER_LZ77_ZPAQ0_AC\n",	(char)coder);	coder=CODER_LZ77_ZPAQ0_AC;break;
 	}
+	printf("\n");
 	
 	double filt[]=
 	{
@@ -1198,28 +1262,87 @@ int				main(int argc, char **argv)
 			DWT_quantize_ch(f_channels[3], imsize, 3, b2, amps);
 		break;
 	case TR_RVL:
-		RVL_rows(buffer, iw, ih, b2);
-		depths[0]=depths[1]=depths[2]=9, total_depth=27;
+		if(total_depth==8)
+		{
+			RVL_rows_gray(buffer, iw, ih, 8, b2);
+			depths[0]=9, total_depth=9;
+		}
+		else if(total_depth==24)
+		{
+			RVL_rows(buffer, iw, ih, b2);
+			depths[0]=depths[1]=depths[2]=9, total_depth=27;
+		}
+		break;
+	}
+	switch(coder)
+	{
+	case CODER_LZ77_RANS:
+	case CODER_LZ77_HUFFMAN:
+	case CODER_LZ77_ABAC2:
+	case CODER_LZ77_ZPAQ0_AC:
+		printf("LZ77. TODO.\n");
 		break;
 	}
 	switch(coder)//entropy coding		b2 -> buffer
 	{
 	case CODER_RANS:
+	case CODER_LZ77_RANS:
 		{
 			std::vector<unsigned short> data;
-			auto freqs=rans_rgb888_start(b2, imsize, true);
-			rans_rgb888_encode(b2, imsize, freqs, data, 2);
-			rans_rgb888_decode(data.data(), data.size(), imsize, freqs, buffer, true);
-			rans_rgb888_finish(freqs);
+			if(total_depth==8)
+			{
+				auto freqs=rans_gray_start<int, 8>(b2, imsize, true);
+				rans_gray_encode<int, 8>(b2, imsize, freqs, data, 2);
+				rans_gray_decode<int, 8>(data.data(), data.size(), imsize, freqs, buffer, true);
+				rans_gray_finish(freqs);
+			}
+			if(total_depth==9)
+			{
+				auto freqs=rans_gray_start<int, 9>(b2, imsize, true);
+				rans_gray_encode<int, 9>(b2, imsize, freqs, data, 2);
+				rans_gray_decode<int, 9>(data.data(), data.size(), imsize, freqs, buffer, true);
+				rans_gray_finish(freqs);
+			}
+			else if(total_depth==24)
+			{
+				auto freqs=rans_rgb_start<int, 8, 8, 8>(b2, imsize, true);
+				rans_rgb_encode<int, 8, 8, 8>(b2, imsize, freqs, data, 2);
+				rans_rgb_decode<int, 8, 8, 8>(data.data(), data.size(), imsize, freqs, buffer, true);
+				rans_rgb_finish(freqs);
+			}
+			else if(total_depth==27)
+			{
+				auto freqs=rans_rgb_start<int, 9, 9, 9>(b2, imsize, true);
+				rans_rgb_encode<int, 9, 9, 9>(b2, imsize, freqs, data, 2);
+				rans_rgb_decode<int, 9, 9, 9>(data.data(), data.size(), imsize, freqs, buffer, true);
+				rans_rgb_finish(freqs);
+			}
+		}
+		break;
+	case CODER_RANS32:
+	case CODER_LZ77_RANS32:
+		{
+			std::vector<unsigned> data;
+			unsigned short freqs[1024];
+			int s2=imsize;
+			rans3_encode(b2, s2, data, freqs, RANS_SERIAL, 2);
+			rans3_decode(data.data(), data.size(), freqs, buffer, s2, RANS_SERIAL, true);
+			//std::string data;
+			//unsigned char freqs[128]={};
+			//int s2=imsize;
+			//rans2_encode(b2, s2, data, freqs, RANS_SERIAL, 2);
+			//rans2_decode(data.data(), data.size(), freqs, buffer, s2, RANS_SSE2, true);
 		}
 		break;
 	case CODER_HUFFMAN:
+	case CODER_LZ77_HUFFMAN:
 		{
 			printf("Huffman expects 16bit buffer, not 32bit. TODO.\n");
 			memcpy(buffer, b2, imsize*sizeof(*buffer));//
 		}
 		break;
 	case CODER_ABAC2:
+	case CODER_LZ77_ABAC2:
 		{
 			std::string data;
 			auto sizes=new int[total_depth];
@@ -1230,21 +1353,25 @@ int				main(int argc, char **argv)
 		}
 		break;
 	case CODER_ZPAQ0_AC:
+	case CODER_LZ77_ZPAQ0_AC:
 		{
 			printf("ABAC3 expects 16bit buffer, not 32bit. TODO.\n");
 			memcpy(buffer, b2, imsize*sizeof(*buffer));//
 		}
 		break;
+	}
+/*	switch(coder)
+	{
 	case CODER_LZ77_RANS:
 	case CODER_LZ77_HUFFMAN:
 	case CODER_LZ77_ABAC2:
 	case CODER_LZ77_ZPAQ0_AC:
 		{
-			printf("TODO.\n");
-			memcpy(buffer, b2, imsize*sizeof(*buffer));//
+			printf("LZ77. TODO.\n");
+		//	memcpy(buffer, b2, imsize*sizeof(*buffer));//
 		}
 		break;
-	}
+	}//*/
 	match_buffers(b2, buffer, imsize, total_depth);
 	switch(transform)//inverse transform	buffer -> b2
 	{
@@ -1286,8 +1413,16 @@ int				main(int argc, char **argv)
 		}
 		break;
 	case TR_RVL:
-		invRVL_rows(buffer, iw, ih, b2);
-		depths[0]=depths[1]=depths[2]=8, total_depth=24;
+		if(total_depth==9)
+		{
+			invRVL_rows_gray(buffer, iw, ih, 8, b2);
+			depths[0]=8, total_depth=8;
+		}
+		else if(total_depth==27)
+		{
+			invRVL_rows(buffer, iw, ih, b2);
+			depths[0]=depths[1]=depths[2]=8, total_depth=24;
+		}
 		break;
 	}
 	delete[] buffer, b2;

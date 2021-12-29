@@ -2995,6 +2995,588 @@ void			abac3_decode(const char *data, const int *sizes, const int *conf, short *
 }
 #endif
 
+
+	#define		RANS_PROFILE_LOOP
+//	#define		ANS_PRINT_HISTOGRAM//
+
+#ifdef RANS_PROFILE_LOOP
+#define	PROFILE_START()		t=__rdtsc()
+#define	PROFILE_UPDATE(X)	X+=__rdtsc()-t, t=__rdtsc()
+#else
+#define	PROFILE_START()
+#define	PROFILE_UPDATE(...)
+#endif
+struct			RANS2Freq
+{
+	unsigned short invf;
+	//unsigned char inv_sh;
+	unsigned char cmplf, CDF;
+};
+RANS2Freq		rans2_freqs[16*8]={};
+unsigned char	rans2_CDF2sym[256*8]={};
+//unsigned char	rans2_freqs[(16+16+256)*8]={};
+//unsigned short	rans2_invf[16*8]={};
+template<typename T>inline void rans_calc_qfreq(const int *buffer, int imsize, int bit0, int depth, int prob_bits, T *histogram, bool loud=false)
+{
+	const int nlevels=1<<depth, mask=nlevels-1, prob_den=1<<prob_bits, prob_max=prob_den-1;
+	MY_ASSERT(imsize, "Image size = %d\n", imsize);
+	std::vector<SortedHistInfo> h(nlevels);
+	for(int k=0;k<nlevels;++k)
+		h[k].idx=k;
+	for(int k=0;k<imsize;++k)
+		++h[buffer[k]>>bit0&mask].freq;
+	if(imsize!=prob_den)
+	{
+		for(int k=0;k<nlevels;++k)
+			//h[k].qfreq=(int)(((long long)h[k].freq<<prob_bits)/imsize);
+			h[k].qfreq=(int)((long long)h[k].freq*prob_max/imsize);
+
+		std::sort(h.begin(), h.end(), [](SortedHistInfo const &a, SortedHistInfo const &b)
+		{
+			return a.freq<b.freq;
+		});
+		int idx=0;
+		for(;idx<nlevels&&!h[idx].freq;++idx);
+		for(;idx<nlevels&&!h[idx].qfreq;++idx)
+			++h[idx].qfreq;
+		for(idx=nlevels-1;idx>=0&&h[idx].qfreq>=prob_max;--idx);
+		for(++idx;idx<nlevels;++idx)
+			--h[idx].qfreq;
+
+		int error=-prob_max;//too much -> +ve error & vice versa
+		for(int k=0;k<nlevels;++k)
+			error+=h[k].qfreq;
+		if(error>0)
+		{
+			while(error)
+			{
+				for(int k=0;k<nlevels&&error;++k)
+				{
+					int dec=h[k].qfreq>1;
+					h[k].qfreq-=dec, error-=dec;
+				}
+			}
+		}
+		else
+		{
+			while(error)
+			{
+				for(int k=nlevels-1;k>=0&&error;--k)
+				{
+					int inc=h[k].qfreq<prob_max-1;
+					h[k].qfreq+=inc, error+=inc;
+				}
+			}
+		}
+
+		std::sort(h.begin(), h.end(), [](SortedHistInfo const &a, SortedHistInfo const &b)
+		{
+			return a.idx<b.idx;
+		});
+	}
+	int sum=0;
+	for(int k=0;k<nlevels;++k)
+	{
+		if(k==0x58)
+			int LOL_1=0;
+		histogram[k]=h[k].qfreq;
+		sum+=histogram[k];
+	}
+	if(loud)
+	{
+#ifdef ANS_PRINT_HISTOGRAM
+		printf("s\tf0\tfq\tCDF\n");
+		for(int k=0;k<nlevels;++k)
+		{
+			if(histogram[k])
+				printf("%3d\t%5d\t%04X\n", k, h[k].freq, (int)histogram[k]);
+		}
+#endif
+		if(sum==prob_max)
+			printf("qfreq sum: %08X\n", sum);
+		else
+			printf("qfreq sum: %08X != %08X CDF ERROR\n", sum, prob_max);
+	}
+}
+void			rans2_qfreq_ext(const unsigned char *histogram, RANS2Freq *freqs, unsigned char *CDF2sym)
+{
+	const int nlevels=16, prob_den=256;
+	int sum=0;
+	for(int k=0;k<nlevels;++k)
+	{
+		freqs[k].CDF=sum;
+
+		//freqs[k].cmplf=~histogram[k]+1;//prob_max=256
+		freqs[k].cmplf=~histogram[k];//prob_max=255
+
+		//if(histogram[k]<2)
+		//	freqs[k].invf=0xFFFF;
+		//else
+		//	freqs[k].invf=0x10000/histogram[k];
+		if(histogram[k])
+			freqs[k].invf=0xFFFF/histogram[k];
+
+		sum+=histogram[k];
+		if(CDF2sym&&k&&histogram[k-1])
+			memset(CDF2sym+freqs[k-1].CDF, k-1, histogram[k-1]);
+		//{
+		//	for(int k2=freqs[k-1].CDF;k2<freqs[k].CDF;++k2)
+		//		CDF2sym[k2]=k-1;
+		//}
+	}
+	if(CDF2sym)
+		memset(CDF2sym+freqs[nlevels-1].CDF, nlevels-1, prob_den-freqs[nlevels-1].CDF);
+	//{
+	//	for(int k2=freqs[nlevels-1].CDF;k2<prob_den;++k2)
+	//		CDF2sym[k2]=nlevels-1;
+	//}
+}
+void			rans2_encode(const int *buffer, int imsize, std::string &out_data, unsigned char *out_freqs, int type, int loud)//freqs: 128 bytes
+{
+	auto t1=__rdtsc();
+	for(int k=0;k<8;++k)
+		rans_calc_qfreq(buffer, imsize, k<<2, 4, 8, out_freqs+(k<<4), true);
+
+	for(int k=0;k<8;++k)
+		rans2_qfreq_ext(out_freqs+(k<<4), rans2_freqs+(k<<4), rans2_CDF2sym+(k<<8));
+
+	//out_data.resize(1024);
+	//int kd=0;
+	out_data.clear();
+	out_data.reserve(imsize*sizeof(int));
+	
+#ifdef RANS_PROFILE_LOOP
+	long long t=0, t_load=0, t_renorm=0, t_fetch=0, t_update=0;
+#endif
+	switch(type)
+	{
+	case RANS_SERIAL:
+		{
+			unsigned short state[8]={};
+			for(int k=0;k<8;++k)
+				state[k]=0x0100;
+			unsigned short sym[8], limit[8], invf[8], compf[8], cdf[8], temp[8];
+			RANS2Freq *info[8];
+			PROFILE_START();
+			for(int k=0;k<imsize;++k)//forward in buffer & data
+			{
+				int p=buffer[k];
+				for(int k2=0;k2<8;++k2)
+					sym[k2]=p>>(k2<<2)&15;
+				for(int k2=0;k2<8;++k2)
+					limit[k2]=out_freqs[(k2<<4)+sym[k2]]<<8;
+				PROFILE_UPDATE(t_load);
+				for(int k2=0;k2<8;++k2)
+				{
+					if(state[k2]>=limit[k2])
+					{
+						out_data.push_back((unsigned char)state[k2]);
+						state[k2]>>=8;
+					}
+				}
+				PROFILE_UPDATE(t_renorm);
+				for(int k2=0;k2<8;++k2)
+					info[k2]=rans2_freqs+(k2<<4)+sym[k2];
+				for(int k2=0;k2<8;++k2)
+					invf[k2]=info[k2]->invf;
+				for(int k2=0;k2<8;++k2)
+					compf[k2]=info[k2]->cmplf;
+				for(int k2=0;k2<8;++k2)
+					cdf[k2]=info[k2]->CDF;
+				PROFILE_UPDATE(t_fetch);
+				for(int k2=0;k2<8;++k2)
+					temp[k2]=state[k2]*invf[k2]>>16;
+				for(int k2=0;k2<8;++k2)
+					temp[k2]*=compf[k2];
+				for(int k2=0;k2<8;++k2)
+					temp[k2]+=cdf[k2];
+				for(int k2=0;k2<8;++k2)
+					state[k2]+=temp[k2];
+				PROFILE_UPDATE(t_update);
+			}
+			int size=out_data.size();
+			out_data.resize(size+16);
+			memcpy(&out_data[0]+size, state, sizeof(state));
+		}
+		break;
+	case RANS_SSE2:
+		{
+			__m128i state=_mm_set1_epi16(0x0100);
+
+			//__m128i mask=_mm_set1_epi16(0x00FF);
+			//__m128i compf[8], cdf[8];
+			//for(int k=0;k<8;++k)
+			//{
+			//	for(int k2=0;k2<16;++k2)
+			//	{
+			//		auto &info=rans2_freqs[(k2<<4)+k2];
+			//		compf[k].m128i_u8[k2]=info.cmplf;
+			//		cdf[k].m128i_u8[k2]=info.CDF;
+			//	}
+			//}
+			
+			PROFILE_START();
+			for(int k=0;k<imsize;++k)//forward in buffer & data
+			{
+				int p=buffer[k];
+				__m128i sym=_mm_set_epi16(p>>28&15, p>>24&15, p>>20&15, p>>16&15, p>>12&15, p>>8&15, p>>4&15, p&15);
+				__m128i limit=_mm_set_epi16(
+					out_freqs[112+sym.m128i_i16[7]], out_freqs[96+sym.m128i_i16[6]], out_freqs[80+sym.m128i_i16[5]], out_freqs[64+sym.m128i_i16[4]],
+					out_freqs[ 48+sym.m128i_i16[3]], out_freqs[32+sym.m128i_i16[2]], out_freqs[16+sym.m128i_i16[1]], out_freqs[   sym.m128i_i16[0]]);
+				limit=_mm_slli_epi16(limit, 8);
+				PROFILE_UPDATE(t_load);
+				__m128i invf, cmplf, cdf;
+				//if(kd+7>=out_data.size())
+				//	out_data.resize(out_data.size()<<1);
+				for(int k2=0;k2<8;++k2)
+				{
+					if(state.m128i_u16[k2]>=limit.m128i_u16[k2])
+					{
+						//out_data[kd]=(unsigned char)state.m128i_u16[k2];
+						//++kd;
+						out_data.push_back((unsigned char)state.m128i_u16[k2]);
+						state.m128i_u16[k2]>>=8;
+					}
+				}
+				PROFILE_UPDATE(t_renorm);
+				for(int k2=0;k2<8;++k2)
+				{
+					auto &info=rans2_freqs[(k2<<4)+sym.m128i_u16[k2]];
+					invf.m128i_u16[k2]=info.invf;
+					cmplf.m128i_u16[k2]=info.cmplf;
+					cdf.m128i_u16[k2]=info.CDF;
+				}
+				PROFILE_UPDATE(t_fetch);
+				//old coder		x = (x/freq<<prob_bits) + x%freq + CDF		J Duda 2013
+				//fast coder	x += mulhi(x, invf)*cmpl_freq + CDF			Fabian 'ryg' Giesen 2014
+				__m128i temp=_mm_mulhi_epi16(state, invf);
+				temp=_mm_mullo_epi16(temp, cmplf);
+				temp=_mm_add_epi16(temp, cdf);
+				state=_mm_add_epi16(state, temp);
+				PROFILE_UPDATE(t_update);
+			}
+			//out_data.resize(kd);
+			int size=out_data.size();
+			out_data.resize(size+16);
+			_mm_storeu_si128((__m128i*)(out_data.data()+size), state);
+		}
+		break;
+	case RANS_AVX2:
+		{
+			MY_ASSERT(!(imsize&1), "Image size must be even to use AVX2");
+			__m256i state=_mm256_set1_epi16(0x0100);
+			PROFILE_START();
+			for(int k=0;k<imsize;k+=2)//forward in buffer & data
+			{
+				int p=buffer[k], q=buffer[k+1];
+				__m256i sym=_mm256_set_epi16(
+					q>>28&15, q>>24&15, q>>20&15, q>>16&15, q>>12&15, q>>8&15, q>>4&15, q&15,
+					p>>28&15, p>>24&15, p>>20&15, p>>16&15, p>>12&15, p>>8&15, p>>4&15, p&15);
+				__m256i limit=_mm256_set_epi16(
+					out_freqs[112+sym.m256i_i16[15]], out_freqs[96+sym.m256i_i16[14]], out_freqs[80+sym.m256i_i16[13]], out_freqs[64+sym.m256i_i16[12]],
+					out_freqs[ 48+sym.m256i_i16[11]], out_freqs[32+sym.m256i_i16[10]], out_freqs[16+sym.m256i_i16[ 9]], out_freqs[   sym.m256i_i16[ 8]],
+					out_freqs[112+sym.m256i_i16[ 7]], out_freqs[96+sym.m256i_i16[ 6]], out_freqs[80+sym.m256i_i16[ 5]], out_freqs[64+sym.m256i_i16[ 4]],
+					out_freqs[ 48+sym.m256i_i16[ 3]], out_freqs[32+sym.m256i_i16[ 2]], out_freqs[16+sym.m256i_i16[ 1]], out_freqs[   sym.m256i_i16[ 0]]);
+				limit=_mm256_slli_epi16(limit, 8);
+				PROFILE_UPDATE(t_load);
+				__m256i invf, cmplf, cdf;
+				for(int k2=0;k2<16;++k2)
+				{
+					if(state.m256i_u16[k2]>=limit.m256i_u16[k2])
+					{
+						out_data.push_back((unsigned char)state.m256i_u16[k2]);
+						state.m256i_u16[k2]>>=8;
+					}
+					auto &info=rans2_freqs[(k2<<4)+sym.m256i_u16[k2]];
+					invf.m256i_u16[k2]=info.invf;
+					cmplf.m256i_u16[k2]=info.cmplf;
+					cdf.m256i_u16[k2]=info.CDF;
+				}
+				PROFILE_UPDATE(t_renorm);
+				__m256i temp=_mm256_mulhi_epi16(state, invf);
+				temp=_mm256_mullo_epi16(temp, cmplf);
+				temp=_mm256_add_epi16(temp, cdf);
+				state=_mm256_add_epi16(state, temp);
+				PROFILE_UPDATE(t_update);
+			}
+			int size=out_data.size();
+			out_data.resize(size+32);
+			_mm256_storeu_si256((__m256i*)(out_data.data()+size), state);
+		}
+		break;
+	}
+#ifdef RANS_PROFILE_LOOP
+		if(loud)
+		{
+			int imbytes=imsize*sizeof(int);
+			auto t_total=t_load+t_renorm+t_fetch+t_update;
+			printf("rANS encode profile:\n");
+			printf("  load    %11lld  %lf cpb\t%lf%%\n", t_load, (double)t_load/imbytes, 100.*t_load/t_total);
+			printf("  renorm  %11lld  %lf cpb\t%lf%%\n", t_renorm, (double)t_renorm/imbytes, 100.*t_renorm/t_total);
+			printf("  fetch   %11lld  %lf cpb\t%lf%%\n", t_fetch, (double)t_fetch/imbytes, 100.*t_fetch/t_total);
+			printf("  update  %11lld  %lf cpb\t%lf%%\n\n", t_update, (double)t_update/imbytes, 100.*t_update/t_total);
+			printf("  total\t%11lld cycles  %lf\n\n", t_total, (double)t_total/imbytes);
+		}
+#endif
+	auto t2=__rdtsc();
+	if(loud)
+	{
+		int s0=imsize*sizeof(*buffer), sc=out_data.size();
+		printf("rANS2 encode: %lld cycles, %lf c/byte\n", t2-t1, (double)(t2-t1)/s0);
+		printf("size: %d -> %d, ratio: %lf, %lf bpp\n", s0, sc, (double)s0/sc, 8.*sc/imsize);
+
+		if(loud==2)
+		{
+			printf("Preview:\n");
+			int kprint=out_data.size()<100?out_data.size():100;
+			for(int k=0;k<kprint;++k)
+				printf("%02X-", out_data[k]&0xFF);
+			printf("\n");
+		}
+	}
+}
+void			rans2_decode(const char *data, const int csize, const unsigned char *freqs, int *buffer, int imsize, int type, bool loud)
+{
+	auto t1=__rdtsc();
+	memset(buffer, 0, imsize*sizeof(*buffer));
+	for(int k=0;k<8;++k)
+		rans2_qfreq_ext(freqs+(k<<4), rans2_freqs+(k<<4), rans2_CDF2sym+(k<<8));
+
+	int kc=csize-16;
+	__m128i const mask=_mm_set1_epi16(0x00FF);
+	__m128i state=_mm_loadu_si128((__m128i const*)(data+kc));
+	for(int k=imsize-1;;)//backwards in buffer & data
+	{
+		__m128i c=_mm_and_si128(state, mask), freq, cdf;
+		for(int k2=7;k2>=0;--k2)
+		{
+			auto sym=rans2_CDF2sym[(k2<<8)+c.m128i_u16[k2]];
+			buffer[k]=buffer[k]<<4|sym;
+			freq.m128i_u16[k2]=freqs[sym];
+			cdf.m128i_u16[k2]=rans2_freqs[(k2<<4)+sym].CDF;
+		}
+		--k;
+		if(k<0)
+			break;
+		state=_mm_srli_epi16(state, 8);
+		state=_mm_mullo_epi16(state, freq);
+		state=_mm_add_epi16(state, c);
+		state=_mm_sub_epi16(state, cdf);
+		for(int k2=7;k2>=0;--k2)//renormalization
+		{
+			if(state.m128i_u16[k2]<0x100)
+			{
+				MY_ASSERT(kc, "Ran out of data: kc=%d, kb=%d", kc, k);
+				--kc;
+				state.m128i_u16[k2]=state.m128i_u16[k2]<<8|data[kc];
+			}
+		}
+	}
+
+	auto t2=__rdtsc();
+	if(loud)
+		printf("rANS2 decode: %lld cycles, %lf c/byte\n", t2-t1, (double)(t2-t1)/(imsize*sizeof(*buffer)));
+}
+
+struct			RANS3Freq
+{
+	u64 invf;
+	unsigned short compf, CDF;
+};
+RANS3Freq		rans3_freqs[4][256]={};
+unsigned char	rans3_CDF2sym[4][0x10000]={};
+void			rans3_qfreq_ext(const unsigned short *histogram, RANS3Freq *freqs, unsigned char *CDF2sym)
+{
+	const int nlevels=256, prob_den=0x10000;
+	int sum=0;
+	for(int k=0;k<nlevels;++k)
+	{
+		freqs[k].CDF=sum;
+
+		freqs[k].compf=~histogram[k];
+
+		if(histogram[k])
+			freqs[k].invf=0xFFFFFFFFFFFFFFFF/histogram[k];
+		
+		sum+=histogram[k];
+		if(CDF2sym&&k&&histogram[k-1])
+		{
+			for(int k2=freqs[k-1].CDF;k2<freqs[k].CDF;++k2)
+				CDF2sym[k2]=k-1;
+		}
+	}
+	if(CDF2sym)
+	{
+		for(int k2=freqs[nlevels-1].CDF;k2<prob_den;++k2)
+			CDF2sym[k2]=nlevels-1;
+	}
+}
+void			rans3_encode(const int *buffer, int imsize, std::vector<unsigned> &out_data, unsigned short *out_freqs, int type, int loud)//freqs: 1024 shorts
+{
+	const int prob_bits=16;
+	auto t1=__rdtsc();
+	for(int k2=0;k2<4;++k2)
+		rans_calc_qfreq(buffer, imsize, k2<<3, 8, 16, out_freqs+(k2<<8), true);
+
+	for(int k2=0;k2<4;++k2)
+		rans3_qfreq_ext(out_freqs+(k2<<8), rans3_freqs[k2], nullptr);
+
+	out_data.clear();
+	out_data.reserve(imsize);
+#ifdef RANS_PROFILE_LOOP
+	long long t_prep=__rdtsc()-t1;
+	long long t=0, t_fetch=0, t_renorm=0, t_update=0;
+#endif
+	switch(type)
+	{
+	case RANS_SERIAL:
+		{
+			u64 state[4]={};
+			for(int k2=0;k2<4;++k2)
+				state[k2]=0x10000;
+			unsigned short freq[4]={}, cdf[4]={};
+			//old coder		x = (x/freq<<prob_bits) + x%freq + CDF		J Duda 2013
+			//fast coder	x += mulhi(x, invf)*cmpl_freq + CDF			Fabian 'ryg' Giesen 2014		is soft 64bit mulhi faster than 64bit IDIV?
+			PROFILE_START();
+			for(int k=0;k<imsize;++k)
+			{
+				auto p=(unsigned char*)(buffer+k);
+				for(int k2=0;k2<4;++k2)//fetch
+				{
+					freq[k2]=out_freqs[(k2<<8)+p[k2]];
+					cdf[k2]=rans3_freqs[k2][p[k2]].CDF;
+					MY_ASSERT(freq[k2], "Zero frequency symbol 0x%02X = %d, at %d ch %d", p[k2], p[k2], k, k2);
+				}
+				PROFILE_UPDATE(t_fetch);
+				for(int k2=0;k2<4;++k2)//renormalize
+				{
+					if(state[k2]>=(freq[k2]<<prob_bits))
+					{
+						out_data.push_back((unsigned)state[k2]);
+						state[k2]>>=32;
+					}
+				}
+				PROFILE_UPDATE(t_renorm);
+				for(int k2=0;k2<4;++k2)//update state
+					state[k2]=(state[k2]/freq[k2]<<prob_bits)+state[k2]%freq[k2]+cdf[k2];
+				PROFILE_UPDATE(t_update);
+			}
+			int size=out_data.size();
+			out_data.resize(size+8);
+			memcpy(out_data.data(), state, sizeof(state));
+		}
+		break;
+	case RANS_SSE2:
+	/*	for(int k=0;k<imsize;++k)
+		{
+			int p=buffer[k];
+			__m128i sym0, sym1;
+			sym0.m128i_u64[0]=p&0xFF;
+			sym0.m128i_u64[1]=p>>8&0xFF;
+			sym1.m128i_u64[0]=p>>16&0xFF;
+			sym1.m128i_u64[1]=p>>24&0xFF;
+		}//*/
+		break;
+	case RANS_AVX2:
+		break;
+	}
+	auto t2=__rdtsc();
+	if(loud)
+	{
+#ifdef RANS_PROFILE_LOOP
+		int imbytes=imsize*sizeof(int);
+		auto t_total=t_prep+t_fetch+t_renorm+t_update;
+		printf("rANS3 encode profile:\n");
+		printf("  prep    %11lld  %lf cpb\t%lf%%\n", t_prep, (double)t_prep/imbytes, 100.*t_prep/t_total);
+		printf("  fetch   %11lld  %lf cpb\t%lf%%\n", t_fetch, (double)t_fetch/imbytes, 100.*t_fetch/t_total);
+		printf("  renorm  %11lld  %lf cpb\t%lf%%\n", t_renorm, (double)t_renorm/imbytes, 100.*t_renorm/t_total);
+		printf("  update  %11lld  %lf cpb\t%lf%%\n\n", t_update, (double)t_update/imbytes, 100.*t_update/t_total);
+		printf("  total   %11lld  %lf cpb\n\n", t_total, (double)t_total/imbytes);
+#endif
+		int s0=imsize*sizeof(*buffer), sc=out_data.size()*sizeof(unsigned);
+		printf("rANS3 encode: %lld cycles, %lf c/byte\n", t2-t1, (double)(t2-t1)/s0);
+		printf("size: %d -> %d, ratio: %lf, %lf bpp\n", s0, sc, (double)s0/sc, 8.*sc/imsize);
+
+		if(loud==2)
+		{
+			printf("Preview:\n");
+			int kprint=out_data.size()<50?out_data.size():50;
+			for(int k=0;k<kprint;++k)
+				printf("%08X-", out_data[k]);
+			printf("\n");
+		}
+	}
+}
+void			rans3_decode(const unsigned *data, const int csize, const unsigned short *freqs, int *buffer, int imsize, int type, bool loud)
+{
+	const int prob_bits=16, mask=(1<<prob_bits)-1;
+	auto t1=__rdtsc();
+	for(int k2=0;k2<4;++k2)
+		rans3_qfreq_ext(freqs+(k2<<8), rans3_freqs[k2], rans3_CDF2sym[k2]);
+#ifdef RANS_PROFILE_LOOP
+	long long t_prep=__rdtsc()-t1;
+	long long t=0, t_extract=0, t_update=0, t_renorm=0;
+#endif
+	switch(type)
+	{
+	case RANS_SERIAL:
+		{
+			u64 state[4]={};
+			unsigned short cdf[4]={};
+			int kc=csize-sizeof(state);
+			memcpy(state, data+kc, sizeof(state));
+			PROFILE_START();
+			for(int k=imsize-1;;)//backwards in buffer & data
+			{
+				auto p=(unsigned char*)(buffer+k);
+				for(int k2=0;k2<4;++k2)//extract symbol
+				{
+					int c=state[k2]&mask;
+					p[k2]=rans3_CDF2sym[k2][c];
+				}
+				PROFILE_UPDATE(t_extract);
+				for(int k2=0;k2<4;++k2)//update state
+					state[k2]=freqs[p[k2]]*(state[k2]>>prob_bits)+(state[k2]&mask)-rans3_freqs[k2][p[k2]].CDF;
+				PROFILE_UPDATE(t_update);
+				--k;
+				if(k<0)
+					break;
+				for(int k2=0;k2<4;++k2)//renormalize
+				{
+					if(state[k2]<(1LL<<32))
+					{
+						--kc;
+						if(!kc)
+						{
+							printf("Ran out of data: kc=%d, kb=%d", kc, k);
+							goto error_finish;
+						}
+						state[k2]=state[k2]<<32|data[k2];
+					}
+				}
+				PROFILE_UPDATE(t_renorm);
+			}
+		error_finish:
+			;
+		}
+		break;
+	}
+	auto t2=__rdtsc();
+	if(loud)
+	{
+#ifdef RANS_PROFILE_LOOP
+		int imbytes=imsize*sizeof(int);
+		auto t_total=t_prep+t_extract+t_update+t_renorm;
+		printf("rANS3 encode profile:\n");
+		printf("  prep    %11lld  %lf cpb\t%lf%%\n", t_prep, (double)t_prep/imbytes, 100.*t_prep/t_total);
+		printf("  extract %11lld  %lf cpb\t%lf%%\n", t_extract, (double)t_extract/imbytes, 100.*t_extract/t_total);
+		printf("  update  %11lld  %lf cpb\t%lf%%\n\n", t_update, (double)t_update/imbytes, 100.*t_update/t_total);
+		printf("  renorm  %11lld  %lf cpb\t%lf%%\n", t_renorm, (double)t_renorm/imbytes, 100.*t_renorm/t_total);
+		printf("  total   %11lld  %lf cpb\n\n", t_total, (double)t_total/imbytes);
+#endif
+		printf("rANS decode: %lld cycles, %lf c/byte\n", t2-t1, (double)(t2-t1)/(imsize*sizeof(*buffer)));
+	}
+}
 #if 0
 	#define		DEBUG_RANS
 
