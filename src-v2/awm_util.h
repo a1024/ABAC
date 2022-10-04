@@ -59,6 +59,7 @@ double			_10pow(int n);
 int				minimum(int a, int b);
 int				maximum(int a, int b);
 int				acme_isdigit(char c, char base);
+double			time_ms();
 
 //error handling
 int				log_error(const char *file, int line, const char *format, ...);//doesn't stop execution

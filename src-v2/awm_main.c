@@ -20,10 +20,12 @@
 #include"stb_image.h"
 
 
-#define	LOUD		0
+#define	LOUD		1
 #define	DATA_SIZE	4		//can be 1, 2, 4 or 8
 #define iw 1920
 #define ih 1080
+
+	#define	USE_SSE2
 
 
 #if DATA_SIZE==1
@@ -35,13 +37,25 @@ typedef unsigned DataType;
 #elif DATA_SIZE==8
 typedef unsigned long long DataType;
 #else
-#error
+#error Invalid data type
 #endif
 
 #define image_size	(iw*ih)
 DataType buf[image_size]=
 {
 	0,
+
+	//0, 255,
+	//255, 0,
+
+	// 7,  7,  7,  7,  8,  8,  8,  7,
+	// 7,  7,  7,  7,  7,  8,  8,  8,
+	// 7,  8,  7,  7,  7,  7,  7,  8,
+	// 7,  7,  8,  7,  7,  7,  7,  7,
+	// 7,  7,  7,  7,  6,  7,  7,  7,
+	// 7,  7,  7,  7,  6,  6,  6,  6,
+	// 6,  6,  7,  7,  7,  7,  7,  7,
+	// 7,  7,  7,  8,  8,  8,  8,  8,
 
 	//0, 0, 0,
 	//0, 0, 0xFF,
@@ -185,14 +199,46 @@ void print_vbuffer(DataType *buffer, int bw, int bh)
 	}
 	printf("\n");
 }
+
 int main(int argc, char **argv)
 {
 	ArrayHandle cbuf;
 	int success;
 	const void *ptr, *end;
+	double t1, t2;
+
+	//for(int k=0;k<image_size;++k)
+	//	buf[k]=rand()<RAND_MAX/8?1:0;
 
 	//print_vbuffer(buf, iw, ih);
 
+#if 1
+	cbuf=0;
+	t1=time_ms();
+	for(int k=0;k<sizeof(DataType);++k)
+#ifdef USE_SSE2
+		success=abac0a_encode((unsigned char*)buf+k, image_size, sizeof(DataType), &cbuf, 1);
+#else
+		success=abac4_encode(buf, image_size, k<<3, 8, sizeof(DataType), &cbuf, 1);
+#endif
+	t2=time_ms();
+	t2-=t1;
+	printf("Encode: %lf ms, consumption rate: %lf MB/s\n", t2, image_size*sizeof(DataType)/(1.024*1024*t2));
+
+	ptr=cbuf->data, end=cbuf->data+cbuf->count;
+	t1=time_ms();
+	for(int k=0;k<sizeof(DataType);++k)
+#ifdef USE_SSE2
+		ptr=abac0a_decode(ptr, end, (unsigned char*)buf2+k, image_size, sizeof(DataType), 1);
+#else
+		ptr=abac4_decode(ptr, end, buf2, image_size, k<<3, 8, sizeof(DataType), 1);
+#endif
+	t2=time_ms();
+	t2-=t1;
+	printf("Decode: %lf ms, production rate: %lf MB/s\n", t2, image_size*sizeof(DataType)/(1.024*1024*t2));
+#endif
+
+#if 0
 	cbuf=0;
 	for(int k=0;k<sizeof(DataType);++k)
 		success=abac4_encode(buf, image_size, k<<3, 8, sizeof(DataType), &cbuf, 1);
@@ -200,8 +246,25 @@ int main(int argc, char **argv)
 	ptr=cbuf->data, end=cbuf->data+cbuf->count;
 	for(int k=0;k<sizeof(DataType);++k)
 		ptr=abac4_decode(ptr, end, buf2, image_size, k<<3, 8, sizeof(DataType), 1);
+#endif
 
 	//print_buffer(cbuf->data, -1, (int)cbuf->count);
+	//print_vbuffer(buf2, iw, ih);
+	
+	//printf("Diff:\n");
+	int clean=1;
+	for(int k=0;k<image_size;++k)
+	{
+		buf2[k]^=buf[k];
+		if(buf2[k])
+		{
+			clean=0;
+			printf("Error at (%d, %d)\n", k%iw, k/iw);
+			pause();
+		}
+	}
+	if(clean)
+		printf("SUCCESS\n");
 	//print_vbuffer(buf2, iw, ih);
 
 	pause();

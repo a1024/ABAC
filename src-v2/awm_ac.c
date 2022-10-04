@@ -25,7 +25,11 @@
 #else
 #include		<intrin.h>
 #endif
+#include		<stdarg.h>
 static const char file[]=__FILE__;
+
+
+//	#define		PRINT_SSE2
 
 
 #define			AC_MEASURE_PREDICTION
@@ -51,7 +55,683 @@ const int		magic_ac04='A'|'C'<<8|'0'<<16|'4'<<24,//ABAC
 				magic_ac08='A'|'C'<<8|'0'<<16|'8'<<24,//AVX2 ANS
 
 				magic_ac09='A'|'C'<<8|'0'<<16|'9'<<24,//OpenCL ABAC
-				magic_an09='A'|'N'<<8|'0'<<16|'9'<<24;//OpenCL ANS
+				magic_an09='A'|'N'<<8|'0'<<16|'9'<<24,//OpenCL ANS
+
+				magic_ac0A='A'|'C'<<8|'0'<<16|'A'<<24;//8-bit SSE2 ABAC
+
+
+#ifdef PRINT_SSE2
+void			print_reg(__m128i const *r, const char *format, ...)
+{
+	va_list args;
+
+	for(int k=0;k<4;++k)
+		printf("%08X ", r->m128i_i32[k]);
+	if(format)
+	{
+		va_start(args, format);
+		vprintf(format, args);
+		va_end(args);
+	}
+	printf("\n");
+}
+#else
+#define			print_reg(...)
+#endif
+
+//abac0a_encode(): Encodes 8-bit symbols. Uses SSSE3 with 15-bit probability.
+//If output was initialized, output->esize must be 1.
+int				abac0a_encode(const unsigned char *src, int count, int bytestride, ArrayHandle *output, int loud)
+{
+	DList list[8];
+	const unsigned char *buffer;
+	unsigned char *header;
+	size_t offset0;
+	u64 t1, t2;
+	__m128i
+		ones=_mm_set1_epi32(-1), ones32=_mm_set1_epi32(1), three=_mm_set1_epi32(3),
+		prob_min=_mm_set1_epi16(1), prob_half=_mm_set1_epi16(0x4000), prob_max=_mm_set1_epi16(0x7FFE),
+		prob=prob_half, prob_correct=prob_half,
+		limit=_mm_set1_epi32(0x1000000);
+	__m128i start[2], range[2], r2[2];
+	__m128i shuf_pack=_mm_set_epi8(15, 14, 11, 10, 7, 6, 3, 2, 13, 12, 9, 8, 5, 4, 1, 0);
+
+	if(!src||!count||!bytestride)
+		FAIL("abac4_encode(src=%p, count=%d, stride=%d)", src, count, bytestride);
+
+	t1=__rdtsc();
+	if(*output)
+	{
+		if(output[0]->esize!=1)
+			FAIL("Output array element size must be 1 byte");
+		offset0=output[0]->count;
+		ARRAY_APPEND(*output, 0, (1+8)*sizeof(int), 1, 0);
+	}
+	else
+	{
+		offset0=0;
+		ARRAY_ALLOC(char, *output, 0, (1+8)*sizeof(int), 0, 0);//magic + sizes[bitdepth]
+	}
+
+	header=(unsigned char*)array_back(output)+1-(1+8)*sizeof(int);
+	memcpy(header, &magic_ac0A, sizeof(int));
+	header+=sizeof(int);
+
+	for(int k=0;k<8;++k)
+		dlist_init(list+k, 1, 1024, 0);
+
+	buffer=(const unsigned char*)src;
+	start[0]=_mm_setzero_si128();
+	start[1]=_mm_setzero_si128();
+	range[0]=_mm_set1_epi32(0x7FFFFFFF);//the MSB is the 2's comp sign, all SSE2 cmp instructions are signed
+	range[1]=_mm_set1_epi32(0x7FFFFFFF);
+	//unsigned start[8]={0}, r2[8], range[8];
+	//for(int k=0;k<8;++k)
+	//	range[k]=0xFFFFFFFF;
+	for(int ks=0, ks2=0;ks<count;++ks, ks2+=bytestride)
+	{
+		print_reg(start, "%d start0", ks);
+		print_reg(start+1, "%d start1", ks);
+		print_reg(range, "%d range0", ks);
+		print_reg(range+1, "%d range1", ks);
+
+		//calculate probability of zero bit
+		__m128i p0=_mm_sub_epi16(prob, prob_half);
+
+		p0=_mm_slli_epi16(p0, 1);
+		prob_correct=_mm_slli_epi16(prob_correct, 1);
+		p0=_mm_mulhi_epu16(p0, prob_correct);
+		p0=_mm_mulhi_epu16(p0, prob_correct);
+		p0=_mm_srli_epi16(p0, 1);
+		prob_correct=_mm_srli_epi16(prob_correct, 1);
+
+		p0=_mm_add_epi16(p0, prob_half);
+
+		//clamp probability			eg: {0, 1, half, FFFF}
+		__m128i cmp=_mm_cmplt_epi16(prob_min, p0);//{0, FFFF, FFFF, FFFF}
+		p0=_mm_and_si128(p0, cmp);
+		cmp=_mm_xor_si128(cmp, ones);
+		cmp=_mm_and_si128(cmp, prob_min);
+		p0=_mm_or_si128(p0, cmp);
+
+		cmp=_mm_cmplt_epi16(p0, prob_max);//{FFFF, FFFF, FFFF, 0}
+		p0=_mm_and_si128(p0, cmp);
+		cmp=_mm_xor_si128(cmp, ones);
+		cmp=_mm_and_si128(cmp, prob_max);
+		p0=_mm_or_si128(p0, cmp);
+		
+#if 1
+		//calculate middle (r2)
+		__m128i t0=_mm_shuffle_epi8(range[0], shuf_pack);
+		__m128i t1=_mm_shuffle_epi8(range[1], shuf_pack);
+		__m128i r_lo=_mm_castps_si128(_mm_shuffle_ps(_mm_castsi128_ps(t0), _mm_castsi128_ps(t1), _MM_SHUFFLE(1, 0, 1, 0)));
+		__m128i r_hi=_mm_castps_si128(_mm_shuffle_ps(_mm_castsi128_ps(t0), _mm_castsi128_ps(t1), _MM_SHUFFLE(3, 2, 3, 2)));
+		p0=_mm_slli_epi16(p0, 1);
+		__m128i a=_mm_mulhi_epu16(r_lo, p0);
+		__m128i b0=_mm_mullo_epi16(r_hi, p0);
+		__m128i b1=_mm_mulhi_epu16(r_hi, p0);
+		p0=_mm_srli_epi16(p0, 1);
+
+		r2[0]=_mm_unpacklo_epi16(b0, b1);
+		r2[1]=_mm_unpackhi_epi16(b0, b1);
+
+		__m128i d0=_mm_unpacklo_epi16(a, _mm_setzero_si128());
+		__m128i d1=_mm_unpackhi_epi16(a, _mm_setzero_si128());
+
+		r2[0]=_mm_add_epi32(r2[0], d0);
+		r2[1]=_mm_add_epi32(r2[1], d1);
+
+		//__m128i p0lo=_mm_unpacklo_epi16(p0, _mm_setzero_si128());
+		//__m128i p0hi=_mm_unpackhi_epi16(p0, _mm_setzero_si128());
+#if 0
+		__m128i p0lo=_mm_unpacklo_epi16(p0, _mm_setzero_si128());
+		__m128i p0hi=_mm_unpackhi_epi16(p0, _mm_setzero_si128());
+		//__m128i r_lo=_mm_loadu_si128((const __m128i*)range);
+		//__m128i r_hi=_mm_loadu_si128((const __m128i*)(range+4));
+		p0lo=_mm_slli_epi32(p0lo, 17);
+		p0hi=_mm_slli_epi32(p0hi, 17);
+		p0lo=_mm_mullo_epi32(p0lo, range[0]);//X  need mulhi_epi32 which doesn't exist
+		p0hi=_mm_mullo_epi32(p0hi, range[1]);
+#endif
+		//avoid degenerate range		r2[k]+=(r2[k]==0)-(r2[k]==range[k]);
+		cmp=_mm_cmpeq_epi32(r2[0], _mm_setzero_si128());
+		cmp=_mm_and_si128(cmp, ones32);
+		__m128i cmp2=_mm_cmpeq_epi32(r2[0], range[0]);
+		cmp2=_mm_and_si128(cmp2, ones32);
+		cmp=_mm_sub_epi32(cmp, cmp2);
+		r2[0]=_mm_add_epi32(r2[0], cmp);
+		
+		cmp=_mm_cmpeq_epi32(r2[0], _mm_setzero_si128());
+		cmp=_mm_and_si128(cmp, ones32);
+		cmp2=_mm_cmpeq_epi32(r2[0], range[1]);
+		cmp2=_mm_and_si128(cmp2, ones32);
+		cmp=_mm_sub_epi32(cmp, cmp2);
+		r2[1]=_mm_add_epi32(r2[1], cmp);
+
+		print_reg(r2, "%d r2-0", ks);
+		print_reg(r2+1, "%d r2-1", ks);
+		
+		print_reg(&prob, "%d prob ", ks);
+		print_reg(&p0, "%d p0 ", ks);
+
+
+		//update prob_correct
+		unsigned char sym=src[ks2];
+		__m128i bit=_mm_set_epi16(sym>>7&1, sym>>6&1, sym>>5&1, sym>>4&1, sym>>3&1, sym>>2&1, sym>>1&1, sym>>0&1);
+		cmp=_mm_cmplt_epi16(p0, prob_half);
+		cmp=_mm_xor_si128(cmp, ones);
+		cmp=_mm_and_si128(cmp, prob_min);
+		cmp=_mm_xor_si128(cmp, bit);
+
+		cmp=_mm_slli_epi16(cmp, 6);//set pre-MSB, because setting MSB would negate the 2's comp value
+		prob_correct=_mm_srli_epi16(prob_correct, 1);
+		prob_correct=_mm_or_si128(prob_correct, cmp);
+
+		//update prob zero
+		prob=_mm_srli_epi16(prob, 1);
+		prob=_mm_or_si128(prob, _mm_slli_epi16(bit, 6));
+		
+		print_reg(&prob, "%d prob2 ", ks);
+		print_reg(&bit, "%d bit ", ks);
+
+
+		//update range
+		__m128i bitlo=_mm_unpacklo_epi16(bit, _mm_setzero_si128());
+		__m128i bithi=_mm_unpackhi_epi16(bit, _mm_setzero_si128());
+
+		//r2[k]+=bit.m128i_i16[k]-!bit.m128i_i16[k];
+		r2[0]=_mm_add_epi32(r2[0], bitlo);
+		r2[1]=_mm_add_epi32(r2[1], bithi);
+		r2[0]=_mm_sub_epi32(r2[0], _mm_sub_epi32(ones32, bitlo));
+		r2[1]=_mm_sub_epi32(r2[1], _mm_sub_epi32(ones32, bithi));
+
+		//start[k]+=r2[k]&-bit.m128i_i16[k];
+		bitlo=_mm_cmpeq_epi32(bitlo, ones32);
+		bithi=_mm_cmpeq_epi32(bithi, ones32);
+		t0=_mm_and_si128(bitlo, r2[0]);
+		t1=_mm_and_si128(bithi, r2[1]);
+		start[0]=_mm_add_epi32(start[0], t0);
+		start[1]=_mm_add_epi32(start[1], t1);
+		//__m128i start_lo=_mm_loadu_si128((const __m128i*)start);
+		//__m128i start_hi=_mm_loadu_si128((const __m128i*)(start+4));
+
+		//range[k]=((range[k]-r2[k])&-bit.m128i_i16[k])|(r2[k]&-!bit.m128i_i16[k]);
+		range[0]=_mm_sub_epi32(range[0], r2[0]);
+		range[1]=_mm_sub_epi32(range[1], r2[1]);
+		range[0]=_mm_and_si128(range[0], bitlo);
+		range[1]=_mm_and_si128(range[1], bithi);
+		bitlo=_mm_xor_si128(bitlo, ones);
+		bithi=_mm_xor_si128(bithi, ones);
+		r2[0]=_mm_and_si128(r2[0], bitlo);
+		r2[1]=_mm_and_si128(r2[1], bithi);
+		range[0]=_mm_or_si128(range[0], r2[0]);
+		range[1]=_mm_or_si128(range[1], r2[1]);
+
+		//renormalize
+		unsigned condition;
+		for(;;)
+		{
+			t0=_mm_add_epi32(start[0], range[0]);
+			t1=_mm_add_epi32(start[1], range[1]);
+			t0=_mm_xor_si128(t0, start[0]);
+			t1=_mm_xor_si128(t1, start[1]);
+			t0=_mm_cmpeq_epi32(t0, limit);
+			t1=_mm_cmpeq_epi32(t1, limit);
+			condition=_mm_movemask_epi8(t1)<<16|_mm_movemask_epi8(t0);
+			if(!condition)
+				break;
+			for(int k=0;k<8;++k)
+			{
+				if(condition>>(k<<2)&15)
+				{
+					int reg_idx=k>>2, idx=k&3;
+					dlist_push_back1(list+k, (char*)&start[reg_idx].m128i_i32[idx]+3);
+#ifdef PRINT_SSE2
+					printf("RENORM reg %d idx %d <-[%02X]%02X%04X\n", reg_idx, idx, ((char*)&start[reg_idx].m128i_i32[idx])[3], ((char*)&start[reg_idx].m128i_i32[idx])[2], ((short*)&start[reg_idx].m128i_i32[idx])[0]);
+#endif
+					start[reg_idx].m128i_i32[idx]<<=8;
+					range[reg_idx].m128i_i32[idx]=range[reg_idx].m128i_i32[idx]<<8|0xFF;
+				}
+			}
+		}
+		t0=_mm_cmplt_epi32(range[0], three);
+		t1=_mm_cmplt_epi32(range[1], three);
+		condition=_mm_movemask_epi8(t1)<<16|_mm_movemask_epi8(t0);
+		if(condition)
+		{
+			for(int k=0;k<8;++k)
+			{
+				if(condition>>(k<<2)&15)
+				{
+					int reg_idx=k>>2, idx=k&3;
+					dlist_push_back1(list+k, (char*)&start[reg_idx].m128i_i32[idx]+3);//big endian
+					dlist_push_back1(list+k, (char*)&start[reg_idx].m128i_i32[idx]+2);
+					dlist_push_back1(list+k, (char*)&start[reg_idx].m128i_i32[idx]+1);
+					dlist_push_back1(list+k, &start[reg_idx].m128i_i32[idx]);
+#ifdef PRINT_SSE2
+					printf("RENORM reg %d idx %d <-[%08X]\n", reg_idx, idx, start[reg_idx].m128i_i32[idx]);
+#endif
+
+					start[reg_idx].m128i_i32[idx]=0;
+					range[reg_idx].m128i_i32[idx]=0x7FFFFFFF;//because 1=0.9999...
+				}
+			}
+		}
+#ifdef PRINT_SSE2
+		printf("\n");
+#endif
+#endif
+#if 0
+		//update range & renormalize
+		for(int k=0;k<8;++k)
+		{
+			r2[k]=(unsigned)(range[k]*p0.m128i_i16[k]>>15);
+			r2[k]+=(r2[k]==0)-(r2[k]==range[k]);
+			//correct.m128i_i16[k]=bit.m128i_i16[k]^(p0.m128i_i16[k]>=prob_half.m128i_i16[k]);
+
+			//unsigned start0=start[k];
+
+			r2[k]+=bit.m128i_i16[k]-!bit.m128i_i16[k];
+			start[k]+=r2[k]&-bit.m128i_i16[k];
+			range[k]=((range[k]-r2[k])&-bit.m128i_i16[k])|(r2[k]&-!bit.m128i_i16[k]);
+
+			//if(bit.m128i_i16[k])
+			//{
+			//	++r2[k];
+			//	start[k]+=r2[k], range[k]-=r2[k];
+			//}
+			//else
+			//	range[k]=r2[k]-1;
+
+			//if(start[k]<start0)
+			//	LOG_ERROR("AC OVERFLOW: sym %d bit %d, start = %08X -> %08X, r2 = %08X", ks, k, start0, start[k], r2[k]);
+			
+			while((start[k]^(start[k]+(unsigned)range[k]))<0x1000000)//most significant byte has stabilized			zpaq 1.10
+			{
+#ifdef DEBUG_ABAC2
+				if(kp==examined_plane&&kb>=examined_start&&kb<examined_end)
+					printf("range 0x%08X byte-out 0x%02X\n", (int)range, start>>24);
+#endif
+				dlist_push_back1(list+k, (char*)(start+k)+3);
+				start[k]<<=8;
+				range[k]=range[k]<<8|0xFF;
+			}
+
+			if(range[k]<3)
+			{
+				dlist_push_back1(list+k, (char*)(start+k)+3);//big endian
+				dlist_push_back1(list+k, (char*)(start+k)+2);
+				dlist_push_back1(list+k, (char*)(start+k)+1);
+				dlist_push_back1(list+k, start+k);
+
+				start[k]=0, range[k]=0xFFFFFFFF;//because 1=0.9999...
+			}
+		}
+#endif
+	}
+	for(int k=0;k<8;++k)
+	{
+		int reg_idx=k>>2, idx=k&3;
+		dlist_push_back1(list+k, (char*)&start[reg_idx].m128i_i32[idx]+3);//big endian
+		dlist_push_back1(list+k, (char*)&start[reg_idx].m128i_i32[idx]+2);
+		dlist_push_back1(list+k, (char*)&start[reg_idx].m128i_i32[idx]+1);
+		dlist_push_back1(list+k, &start[reg_idx].m128i_i32[idx]);
+	}
+	for(int k=0;k<8;++k)
+		memcpy(header+k*sizeof(int), &list[k].nobj, sizeof(int));
+	for(int k=0;k<8;++k)//header pointer is now invalid
+		dlist_appendtoarray(list+k, output);
+	t2=__rdtsc();
+
+	if(loud)
+	{
+		size_t total_csize=output[0]->count-offset0;
+		printf("AC encode:  %lld cycles, %lf c/byte\n", t2-t1, (double)(t2-t1)/count);
+		printf("Size: %d -> %d, ratio: %lf, %lf bpp\n", count, total_csize, (double)count/total_csize, (double)(total_csize<<8)/count);
+#ifdef AC_MEASURE_PREDICTION
+		//printf("Predicted: %6lld / %6lld = %lf%%\n", hitnum, hitden, 100.*hitnum/hitden);
+#endif
+		printf("Bit\tbytes\tratio,\tbytes/bitplane = %d\n", (count+7)>>3);
+		for(int k=0;k<8;++k)
+			printf("%2d\t%5d\t%lf\n", 7-k, list[k].nobj, (double)count/(list[k].nobj<<3));
+		
+		printf("Preview:\n");
+		int kprint=total_csize<200?(int)total_csize:200;
+		for(int k=0;k<kprint;++k)
+			printf("%02X-", output[0]->data[offset0+k]&0xFF);
+		printf("\n");
+	}
+
+	for(int k=0;k<8;++k)
+		dlist_clear(list+k);
+
+	return 1;
+}
+const void*		abac0a_decode(const void *src_start, const void *src_end, unsigned char *dst, int count, int bytestride, int loud)
+{
+	const unsigned char *sizes, *data;
+	unsigned char *buffer;
+	const unsigned char *ptr[8], *end[8];
+	u64 t1, t2;
+	__m128i
+		ones=_mm_set1_epi32(-1), ones32=_mm_set1_epi32(1), three=_mm_set1_epi32(3),
+		prob_min=_mm_set1_epi16(1), prob_half=_mm_set1_epi16(0x4000), prob_max=_mm_set1_epi16(0x7FFE),
+		prob=prob_half, prob_correct=prob_half,
+		limit=_mm_set1_epi32(0x1000000);
+	__m128i code[2], start[2], range[2], r2[2];
+	__m128i shuf_pack=_mm_set_epi8(15, 14, 11, 10, 7, 6, 3, 2, 13, 12, 9, 8, 5, 4, 1, 0);
+
+	if(!src_start||!src_end||!dst||!count||!bytestride)
+		FAIL("abac4_decode(src_start=%p, src_end=%p, dst=%p, count=%d, bytestride=%d)", src_start, src_end, dst, count, bytestride);
+
+	t1=__rdtsc();
+	data=(const unsigned char*)src_start;
+	buffer=(unsigned char*)dst;
+	
+	int headercount=1+8;
+	if((int)(headercount*sizeof(int))>=(unsigned char*)src_end-data)
+		FAIL("File is %d bytes < %d", (int)((unsigned char*)src_end-data), headercount*sizeof(int));
+	int magic;
+	memcpy(&magic, data, sizeof(int));
+	if(magic!=magic_ac0A)
+		FAIL("Invalid magic number 0x%08X, expected 0x%08X", magic, magic_ac0A);
+	sizes=data+sizeof(int);
+	data=sizes+8*sizeof(int);
+
+	size_t offset=0;
+	for(int k=0;k<8;++k)
+	{
+		int size;
+		memcpy(&size, sizes+k*sizeof(int), sizeof(int));
+		ptr[k]=data+offset;
+		offset+=size;
+		end[k]=data+offset;
+	}
+	if((unsigned char*)src_end<end[7])
+		FAIL("File is %d bytes, header requires %d bytes", (int)((size_t)src_end-(size_t)src_start), (int)((size_t)end[7]-(size_t)src_start));
+	
+	//unsigned code[8], start[8]={0}, r2[8];
+	//u64 range[8];
+	start[0]=_mm_setzero_si128();
+	start[1]=_mm_setzero_si128();
+	range[0]=_mm_set1_epi32(0x7FFFFFFF);//the MSB is the 2's comp sign, all SSE2 cmp instructions are signed
+	range[1]=_mm_set1_epi32(0x7FFFFFFF);
+	for(int k=0;k<8;++k)
+	{
+		int reg_idx=k>>2, idx=k&3;
+		ptr[k]+=sizeof(int);
+		if(end[k]<ptr[k])
+			FAIL("Decode OOB: bit %d ptr %d size %d", k, (int)((size_t)ptr[k]-(size_t)src_start), (int)((size_t)src_end-(size_t)src_start));
+		code[reg_idx].m128i_i32[idx]=ptr[k][-4]<<24|ptr[k][-3]<<16|ptr[k][-2]<<8|ptr[k][-1];//big endian
+	}
+	for(int ks=0, ks2=0;ks<count;++ks, ks2+=bytestride)
+	{
+		print_reg(code, "%d code0", ks);
+		print_reg(code+1, "%d code1", ks);
+		print_reg(start, "%d start0", ks);
+		print_reg(start+1, "%d start1", ks);
+		print_reg(range, "%d range0", ks);
+		print_reg(range+1, "%d range1", ks);
+		
+		//calculate probability of zero bit
+		__m128i p0=_mm_sub_epi16(prob, prob_half);
+
+		p0=_mm_slli_epi16(p0, 1);
+		prob_correct=_mm_slli_epi16(prob_correct, 1);
+		p0=_mm_mulhi_epu16(p0, prob_correct);
+		p0=_mm_mulhi_epu16(p0, prob_correct);
+		p0=_mm_srli_epi16(p0, 1);
+		prob_correct=_mm_srli_epi16(prob_correct, 1);
+
+		p0=_mm_add_epi16(p0, prob_half);
+
+		//clamp probability			eg: {0, 1, half, FFFF}
+		__m128i cmp=_mm_cmplt_epi16(prob_min, p0);//{0, FFFF, FFFF, FFFF}
+		p0=_mm_and_si128(p0, cmp);
+		cmp=_mm_xor_si128(cmp, ones);
+		cmp=_mm_and_si128(cmp, prob_min);
+		p0=_mm_or_si128(p0, cmp);
+
+		cmp=_mm_cmplt_epi16(p0, prob_max);//{FFFF, FFFF, FFFF, 0}
+		p0=_mm_and_si128(p0, cmp);
+		cmp=_mm_xor_si128(cmp, ones);
+		cmp=_mm_and_si128(cmp, prob_max);
+		p0=_mm_or_si128(p0, cmp);
+
+		//calculate new range & get bit
+	/*	unsigned char sym=0;
+		__m128i bit;
+		for(int k=0;k<8;++k)
+		{
+			r2[k]=(unsigned)(range[k]*p0.m128i_i16[k]>>15);
+			r2[k]+=(r2[k]==0)-(r2[k]==range[k]);
+			
+			unsigned middle=start[k]+r2[k];
+			unsigned char b=middle<code[k];
+			bit.m128i_i16[k]=b;
+			sym|=b<<k;
+		}
+		dst[ks2]=sym;//*/
+
+		//calculate middle (r2)
+		__m128i t0=_mm_shuffle_epi8(range[0], shuf_pack);
+		__m128i t1=_mm_shuffle_epi8(range[1], shuf_pack);
+		__m128i r_lo=_mm_castps_si128(_mm_shuffle_ps(_mm_castsi128_ps(t0), _mm_castsi128_ps(t1), _MM_SHUFFLE(1, 0, 1, 0)));
+		__m128i r_hi=_mm_castps_si128(_mm_shuffle_ps(_mm_castsi128_ps(t0), _mm_castsi128_ps(t1), _MM_SHUFFLE(3, 2, 3, 2)));
+		p0=_mm_slli_epi16(p0, 1);
+		__m128i a=_mm_mulhi_epu16(r_lo, p0);
+		__m128i b0=_mm_mullo_epi16(r_hi, p0);
+		__m128i b1=_mm_mulhi_epu16(r_hi, p0);
+		p0=_mm_srli_epi16(p0, 1);
+
+		r2[0]=_mm_unpacklo_epi16(b0, b1);
+		r2[1]=_mm_unpackhi_epi16(b0, b1);
+
+		__m128i d0=_mm_unpacklo_epi16(a, _mm_setzero_si128());
+		__m128i d1=_mm_unpackhi_epi16(a, _mm_setzero_si128());
+
+		r2[0]=_mm_add_epi32(r2[0], d0);
+		r2[1]=_mm_add_epi32(r2[1], d1);
+
+		//__m128i p0lo=_mm_unpacklo_epi16(p0, _mm_setzero_si128());
+		//__m128i p0hi=_mm_unpackhi_epi16(p0, _mm_setzero_si128());
+#if 0
+		__m128i p0lo=_mm_unpacklo_epi16(p0, _mm_setzero_si128());
+		__m128i p0hi=_mm_unpackhi_epi16(p0, _mm_setzero_si128());
+		p0lo=_mm_slli_epi32(p0lo, 17);
+		p0hi=_mm_slli_epi32(p0hi, 17);
+		p0lo=_mm_mullo_epi32(p0lo, range[0]);//X  need mulhi_epi32 which doesn't exist
+		p0hi=_mm_mullo_epi32(p0hi, range[1]);
+#endif
+
+		//avoid degenerate range		r2[k]+=(r2[k]==0)-(r2[k]==range[k]);
+		cmp=_mm_cmpeq_epi32(r2[0], _mm_setzero_si128());
+		cmp=_mm_and_si128(cmp, ones32);
+		__m128i cmp2=_mm_cmpeq_epi32(r2[0], range[0]);
+		cmp2=_mm_and_si128(cmp2, ones32);
+		cmp=_mm_sub_epi32(cmp, cmp2);
+		r2[0]=_mm_add_epi32(r2[0], cmp);
+		
+		cmp=_mm_cmpeq_epi32(r2[0], _mm_setzero_si128());
+		cmp=_mm_and_si128(cmp, ones32);
+		cmp2=_mm_cmpeq_epi32(r2[0], range[1]);
+		cmp2=_mm_and_si128(cmp2, ones32);
+		cmp=_mm_sub_epi32(cmp, cmp2);
+		r2[1]=_mm_add_epi32(r2[1], cmp);
+
+		__m128i bitlo=_mm_add_epi32(start[0], r2[0]);
+		__m128i bithi=_mm_add_epi32(start[1], r2[1]);
+		bitlo=_mm_cmplt_epi32(bitlo, code[0]);
+		bithi=_mm_cmplt_epi32(bithi, code[1]);
+
+		//pack low 16-bit halves of each 32-bit int
+		bitlo=_mm_shuffle_epi8(bitlo, shuf_pack);
+		bithi=_mm_shuffle_epi8(bithi, shuf_pack);
+		__m128i bit=_mm_castps_si128(_mm_shuffle_ps(_mm_castsi128_ps(bitlo), _mm_castsi128_ps(bithi), _MM_SHUFFLE(1, 0, 1, 0)));
+
+		//store symbol
+		int mask=_mm_movemask_epi8(bit);
+		dst[ks2]=mask>>8&128|mask>>7&64|mask>>6&32|mask>>5&16|mask>>4&8|mask>>3&4|mask>>1&2|mask&1;
+		bit=_mm_and_si128(bit, prob_min);//leave only the LSB
+
+		print_reg(r2, "%d r2-0", ks);
+		print_reg(r2+1, "%d r2-1", ks);
+		
+		print_reg(&prob, "%d prob ", ks);
+		print_reg(&p0, "%d p0 ", ks);
+		
+		//update prob_correct
+		cmp=_mm_cmplt_epi16(p0, prob_half);
+		cmp=_mm_xor_si128(cmp, ones);
+		cmp=_mm_and_si128(cmp, prob_min);
+		cmp=_mm_xor_si128(cmp, bit);
+
+		cmp=_mm_slli_epi16(cmp, 6);//set pre-MSB, because setting MSB would negate the 2's comp value
+		prob_correct=_mm_srli_epi16(prob_correct, 1);
+		prob_correct=_mm_or_si128(prob_correct, cmp);
+
+		//update prob zero
+		prob=_mm_srli_epi16(prob, 1);
+		prob=_mm_or_si128(prob, _mm_slli_epi16(bit, 6));
+
+		print_reg(&prob, "%d prob2 ", ks);
+		print_reg(&bit, "%d bit ", ks);
+
+#if 1
+		//update range
+		bitlo=_mm_unpacklo_epi16(bit, _mm_setzero_si128());
+		bithi=_mm_unpackhi_epi16(bit, _mm_setzero_si128());
+
+		//r2[k]+=bit.m128i_i16[k]-!bit.m128i_i16[k];
+		r2[0]=_mm_add_epi32(r2[0], bitlo);
+		r2[1]=_mm_add_epi32(r2[1], bithi);
+		r2[0]=_mm_sub_epi32(r2[0], _mm_sub_epi32(ones32, bitlo));
+		r2[1]=_mm_sub_epi32(r2[1], _mm_sub_epi32(ones32, bithi));
+
+		//start[k]+=r2[k]&-bit.m128i_i16[k];
+		bitlo=_mm_cmpeq_epi32(bitlo, ones32);
+		bithi=_mm_cmpeq_epi32(bithi, ones32);
+		t0=_mm_and_si128(bitlo, r2[0]);
+		t1=_mm_and_si128(bithi, r2[1]);
+		start[0]=_mm_add_epi32(start[0], t0);
+		start[1]=_mm_add_epi32(start[1], t1);
+		
+		//range[k]=((range[k]-r2[k])&-bit.m128i_i16[k])|(r2[k]&-!bit.m128i_i16[k]);
+		range[0]=_mm_sub_epi32(range[0], r2[0]);
+		range[1]=_mm_sub_epi32(range[1], r2[1]);
+		range[0]=_mm_and_si128(range[0], bitlo);
+		range[1]=_mm_and_si128(range[1], bithi);
+		bitlo=_mm_xor_si128(bitlo, ones);
+		bithi=_mm_xor_si128(bithi, ones);
+		r2[0]=_mm_and_si128(r2[0], bitlo);
+		r2[1]=_mm_and_si128(r2[1], bithi);
+		range[0]=_mm_or_si128(range[0], r2[0]);
+		range[1]=_mm_or_si128(range[1], r2[1]);
+
+		//renormalize
+		unsigned condition;
+		for(;;)
+		{
+			t0=_mm_add_epi32(start[0], range[0]);
+			t1=_mm_add_epi32(start[1], range[1]);
+			t0=_mm_xor_si128(t0, start[0]);
+			t1=_mm_xor_si128(t1, start[1]);
+			t0=_mm_cmpeq_epi32(t0, limit);
+			t1=_mm_cmpeq_epi32(t1, limit);
+			condition=_mm_movemask_epi8(t1)<<16|_mm_movemask_epi8(t0);
+			if(!condition)
+				break;
+			for(int k=0;k<8;++k)
+			{
+				if(condition>>(k<<2)&15)
+				{
+					int reg_idx=k>>2, idx=k&3;
+
+					++ptr[k];
+					if(end[k]<ptr[k])
+						FAIL("Decode OOB: bit %d ptr %d size %d", k, (int)((size_t)ptr[k]-(size_t)src_start), (int)((size_t)src_end-(size_t)src_start));
+#ifdef PRINT_SSE2
+					printf("RENORM reg %d idx %d %08X<-[%02X]\n", reg_idx, idx, code[reg_idx].m128i_i32[idx], (int)ptr[k][-1]);
+#endif
+					code[reg_idx].m128i_i32[idx]<<=8;
+					code[reg_idx].m128i_i32[idx]|=ptr[k][-1];
+
+					start[reg_idx].m128i_i32[idx]<<=8;
+					range[reg_idx].m128i_i32[idx]=range[reg_idx].m128i_i32[idx]<<8|0xFF;
+				}
+			}
+		}
+		t0=_mm_cmplt_epi32(range[0], three);
+		t1=_mm_cmplt_epi32(range[1], three);
+		condition=_mm_movemask_epi8(t1)<<16|_mm_movemask_epi8(t0);
+		if(condition)
+		{
+			for(int k=0;k<8;++k)
+			{
+				if(condition>>(k<<2)&15)
+				{
+					int reg_idx=k>>2, idx=k&3;
+
+					ptr[k]+=sizeof(int);
+					if(end[k]<ptr[k])
+						FAIL("Decode OOB: bit %d ptr %d size %d", k, (int)((size_t)ptr[k]-(size_t)src_start), (int)((size_t)src_end-(size_t)src_start));
+#ifdef PRINT_SSE2
+					printf("RENORM reg %d idx %d %08X<-[%08X]\n", reg_idx, idx, code[reg_idx].m128i_i32[idx], ptr[k][-4]<<24|ptr[k][-3]<<16|ptr[k][-2]<<8|ptr[k][-1]);
+#endif
+					code[reg_idx].m128i_i32[idx]=ptr[k][-4]<<24|ptr[k][-3]<<16|ptr[k][-2]<<8|ptr[k][-1];//big endian
+
+					start[reg_idx].m128i_i32[idx]=0;
+					range[reg_idx].m128i_i32[idx]=0x7FFFFFFF;//because 1=0.9999...
+				}
+			}
+		}
+#ifdef PRINT_SSE2
+		printf("\n");
+#endif
+#endif
+#if 0
+		for(int k=0;k<8;++k)
+		{
+			if(bit.m128i_i16[k])
+			{
+				++r2[k];
+				start[k]+=r2[k], range[k]-=r2[k];
+			}
+			else
+				range[k]=r2[k]-1;
+			
+			while((start[k]^(start[k]+(unsigned)range[k]))<0x1000000)//shift-out identical bytes			zpaq 1.10
+			{
+#ifdef DEBUG_ABAC2
+				if(kp==examined_plane&&kb>=examined_start&&kb<examined_end)
+					printf("range 0x%08X byte-out 0x%02X\n", (int)range, code>>24);
+#endif
+				++ptr[k];
+				if(end[k]<ptr[k])
+					FAIL("Decode OOB: bit %d ptr %d size %d", k, (int)((size_t)ptr[k]-(size_t)src_start), (int)((size_t)src_end-(size_t)src_start));
+				code[k]=code[k]<<8|ptr[k][-1];
+				start[k]<<=8;
+				range[k]=range[k]<<8|0xFF;
+			}
+
+			if(range[k]<3)
+			{
+				ptr[k]+=sizeof(int);
+				if(end[k]<ptr[k])
+					FAIL("Decode OOB: bit %d ptr %d size %d", k, (int)((size_t)ptr[k]-(size_t)src_start), (int)((size_t)src_end-(size_t)src_start));
+				code[k]=ptr[k][-4]<<24|ptr[k][-3]<<16|ptr[k][-2]<<8|ptr[k][-1];//big endian
+
+				start[k]=0, range[k]=0xFFFFFFFF;//because 1=0.9999...
+			}
+		}
+#endif
+	}
+	t2=__rdtsc();
+
+	if(loud)
+		printf("AC decode:  %lld cycles, %lf c/byte\n", t2-t1, (double)(t2-t1)/count);
+	return ptr[7];
+}
 
 int				abac4_encode(const void *src, int symcount, int bitoffset, int bitdepth, int bytestride, ArrayHandle *output, int loud)
 {
@@ -277,7 +957,7 @@ int				abac4_encode(const void *src, int symcount, int bitoffset, int bitdepth, 
 #ifdef AC_MEASURE_PREDICTION
 		printf("Predicted: %6lld / %6lld = %lf%%\n", hitnum, hitden, 100.*hitnum/hitden);
 #endif
-		printf("Bit\tbytes\tratio,\tbytes/bitplane = %d\n", (symcount>>3)+((symcount&7)!=0));
+		printf("Bit\tbytes\tratio,\tbytes/bitplane = %d\n", (symcount+7)>>3);
 		for(int k=0;k<bitdepth;++k)
 			printf("%2d\t%5d\t%lf\n", bitdepth-1-k, sizes[k], (double)symcount/(sizes[k]<<3));
 		
