@@ -29,6 +29,8 @@
 static const char file[]=__FILE__;
 
 
+	#define		ENABLE_CONFIDENCE
+
 //	#define		PRINT_SSE2
 
 
@@ -61,12 +63,21 @@ const int		magic_ac04='A'|'C'<<8|'0'<<16|'4'<<24,//ABAC
 
 
 #ifdef PRINT_SSE2
-void			print_reg(__m128i const *r, const char *format, ...)
+static void		print_reg(__m128i const *r, int n, const char *format, ...)
 {
 	va_list args;
 
-	for(int k=0;k<4;++k)
-		printf("%08X ", r->m128i_i32[k]);
+	if(n==16)
+	{
+		for(int k=0;k<8;++k)
+			printf("%04X ", r->m128i_i16[7-k]);
+	}
+	else if(n==32)
+	{
+		for(int k2=1;k2>=0;--k2)
+			for(int k=3;k>=0;--k)
+				printf("%08X ", r[k2].m128i_i32[k]);
+	}
 	if(format)
 	{
 		va_start(args, format);
@@ -75,8 +86,24 @@ void			print_reg(__m128i const *r, const char *format, ...)
 	}
 	printf("\n");
 }
+static void		print_prob(int prob, int w, const char *format, ...)
+{
+	va_list args;
+
+	for(int k=0;k<w;++k)
+		printf("%c", '1'-(k*0x7FFF<prob*w));
+	if(format)
+	{
+		printf(" ");
+		va_start(args, format);
+		vprintf(format, args);
+		va_end(args);
+	}
+	printf("\n");
+}
 #else
 #define			print_reg(...)
+#define			print_prob(...)
 #endif
 
 //abac0a_encode(): Encodes 8-bit symbols. Uses SSSE3 with 15-bit probability.
@@ -91,7 +118,10 @@ int				abac0a_encode(const unsigned char *src, int count, int bytestride, ArrayH
 	__m128i
 		ones=_mm_set1_epi32(-1), ones32=_mm_set1_epi32(1), three=_mm_set1_epi32(3),
 		prob_min=_mm_set1_epi16(1), prob_half=_mm_set1_epi16(0x4000), prob_max=_mm_set1_epi16(0x7FFE),
-		prob=prob_half, prob_correct=prob_half,
+		prob=prob_half,
+#ifdef ENABLE_CONFIDENCE
+		prob_correct=prob_half,
+#endif
 		limit=_mm_set1_epi32(0x1000000);
 	__m128i start[2], range[2], r2[2];
 	__m128i shuf_pack=_mm_set_epi8(15, 14, 11, 10, 7, 6, 3, 2, 13, 12, 9, 8, 5, 4, 1, 0);
@@ -130,12 +160,11 @@ int				abac0a_encode(const unsigned char *src, int count, int bytestride, ArrayH
 	//	range[k]=0xFFFFFFFF;
 	for(int ks=0, ks2=0;ks<count;++ks, ks2+=bytestride)
 	{
-		print_reg(start, "%d start0", ks);
-		print_reg(start+1, "%d start1", ks);
-		print_reg(range, "%d range0", ks);
-		print_reg(range+1, "%d range1", ks);
+		print_reg(start, 32, "%d start", ks);
+		print_reg(range, 32, "%d range", ks);
 
 		//calculate probability of zero bit
+#ifdef ENABLE_CONFIDENCE
 		__m128i p0=_mm_sub_epi16(prob, prob_half);
 
 		p0=_mm_slli_epi16(p0, 1);
@@ -146,6 +175,9 @@ int				abac0a_encode(const unsigned char *src, int count, int bytestride, ArrayH
 		prob_correct=_mm_srli_epi16(prob_correct, 1);
 
 		p0=_mm_add_epi16(p0, prob_half);
+#else
+		__m128i p0=prob;
+#endif
 
 		//clamp probability			eg: {0, 1, half, FFFF}
 		__m128i cmp=_mm_cmplt_epi16(prob_min, p0);//{0, FFFF, FFFF, FFFF}
@@ -208,16 +240,19 @@ int				abac0a_encode(const unsigned char *src, int count, int bytestride, ArrayH
 		cmp=_mm_sub_epi32(cmp, cmp2);
 		r2[1]=_mm_add_epi32(r2[1], cmp);
 
-		print_reg(r2, "%d r2-0", ks);
-		print_reg(r2+1, "%d r2-1", ks);
+		print_reg(r2, 32, "%d r2", ks);
 		
-		print_reg(&prob, "%d prob ", ks);
-		print_reg(&p0, "%d p0 ", ks);
+		print_reg(&prob, 16, "%d prob ", ks);
+		print_prob(prob.m128i_u16[7], 64, "bit 7");
+		print_reg(&p0, 16, "%d p0 ", ks);
+		print_prob(p0.m128i_u16[7], 64, "bit 7");
 
 
-		//update prob_correct			prob_correct=correct<<15|prob_correct>>1;
 		unsigned char sym=src[ks2];
 		__m128i bit=_mm_set_epi16(sym>>7&1, sym>>6&1, sym>>5&1, sym>>4&1, sym>>3&1, sym>>2&1, sym>>1&1, sym>>0&1);
+		
+#ifdef ENABLE_CONFIDENCE
+		//update prob_correct			correct=bit^(p0>=PROB_HALF), prob_correct=correct<<15|prob_correct>>1;
 		cmp=_mm_cmplt_epi16(p0, prob_half);
 		cmp=_mm_xor_si128(cmp, ones);
 		cmp=_mm_and_si128(cmp, prob_min);
@@ -226,14 +261,15 @@ int				abac0a_encode(const unsigned char *src, int count, int bytestride, ArrayH
 		cmp=_mm_slli_epi16(cmp, 14);//set pre-MSB, because setting MSB would negate the 2's comp value
 		prob_correct=_mm_srli_epi16(prob_correct, 1);
 		prob_correct=_mm_or_si128(prob_correct, cmp);
+#endif
 
 		//update prob zero				prob=!bit<<15|prob>>1;
 		__m128i bit2=_mm_xor_si128(bit, prob_min);
 		prob=_mm_srli_epi16(prob, 1);
 		prob=_mm_or_si128(prob, _mm_slli_epi16(bit2, 14));
 		
-		print_reg(&prob, "%d prob2 ", ks);
-		print_reg(&bit, "%d bit ", ks);
+		print_reg(&prob, 16, "%d prob2 ", ks);
+		print_reg(&bit, 16, "%d bit ", ks);
 
 
 		//update range
@@ -288,7 +324,7 @@ int				abac0a_encode(const unsigned char *src, int count, int bytestride, ArrayH
 					int reg_idx=k>>2, idx=k&3;
 					dlist_push_back1(list+k, (char*)&start[reg_idx].m128i_i32[idx]+3);
 #ifdef PRINT_SSE2
-					printf("RENORM reg %d idx %d <-[%02X]%02X%04X\n", reg_idx, idx, ((char*)&start[reg_idx].m128i_i32[idx])[3], ((char*)&start[reg_idx].m128i_i32[idx])[2], ((short*)&start[reg_idx].m128i_i32[idx])[0]);
+					printf("RENORM bit %d <-[%02X]%02X%04X\n", k, ((char*)&start[reg_idx].m128i_i32[idx])[3], ((char*)&start[reg_idx].m128i_i32[idx])[2], ((short*)&start[reg_idx].m128i_i32[idx])[0]);
 #endif
 					start[reg_idx].m128i_i32[idx]<<=8;
 					range[reg_idx].m128i_i32[idx]=range[reg_idx].m128i_i32[idx]<<8|0xFF;
@@ -310,7 +346,7 @@ int				abac0a_encode(const unsigned char *src, int count, int bytestride, ArrayH
 					dlist_push_back1(list+k, (char*)&start[reg_idx].m128i_i32[idx]+1);
 					dlist_push_back1(list+k, &start[reg_idx].m128i_i32[idx]);
 #ifdef PRINT_SSE2
-					printf("RENORM reg %d idx %d <-[%08X]\n", reg_idx, idx, start[reg_idx].m128i_i32[idx]);
+					printf("RENORM bit %d <-[%08X]\n", k, start[reg_idx].m128i_i32[idx]);
 #endif
 
 					start[reg_idx].m128i_i32[idx]=0;
@@ -394,7 +430,7 @@ int				abac0a_encode(const unsigned char *src, int count, int bytestride, ArrayH
 #endif
 		printf("Bit\tbytes\tratio,\tbytes/bitplane = %d\n", (count+7)>>3);
 		for(int k=0;k<8;++k)
-			printf("%2d\t%5d\t%lf\n", 7-k, list[k].nobj, (double)count/(list[k].nobj<<3));
+			printf("%2d\t%5d\t%lf\n", k, list[k].nobj, (double)count/(list[k].nobj<<3));
 		
 		printf("Preview:\n");
 		int kprint=total_csize<200?(int)total_csize:200;
@@ -417,7 +453,10 @@ const void*		abac0a_decode(const void *src_start, const void *src_end, unsigned 
 	__m128i
 		ones=_mm_set1_epi32(-1), ones32=_mm_set1_epi32(1), three=_mm_set1_epi32(3),
 		prob_min=_mm_set1_epi16(1), prob_half=_mm_set1_epi16(0x4000), prob_max=_mm_set1_epi16(0x7FFE),
-		prob=prob_half, prob_correct=prob_half,
+		prob=prob_half,
+#ifdef ENABLE_CONFIDENCE
+		prob_correct=prob_half,
+#endif
 		limit=_mm_set1_epi32(0x1000000);
 	__m128i code[2], start[2], range[2], r2[2];
 	__m128i shuf_pack=_mm_set_epi8(15, 14, 11, 10, 7, 6, 3, 2, 13, 12, 9, 8, 5, 4, 1, 0);
@@ -467,14 +506,12 @@ const void*		abac0a_decode(const void *src_start, const void *src_end, unsigned 
 	}
 	for(int ks=0, ks2=0;ks<count;++ks, ks2+=bytestride)
 	{
-		print_reg(code, "%d code0", ks);
-		print_reg(code+1, "%d code1", ks);
-		print_reg(start, "%d start0", ks);
-		print_reg(start+1, "%d start1", ks);
-		print_reg(range, "%d range0", ks);
-		print_reg(range+1, "%d range1", ks);
+		print_reg(code, 32, "%d code", ks);
+		print_reg(start, 32, "%d start", ks);
+		print_reg(range, 32, "%d range", ks);
 		
 		//calculate probability of zero bit
+#ifdef ENABLE_CONFIDENCE
 		__m128i p0=_mm_sub_epi16(prob, prob_half);
 
 		p0=_mm_slli_epi16(p0, 1);
@@ -485,6 +522,9 @@ const void*		abac0a_decode(const void *src_start, const void *src_end, unsigned 
 		prob_correct=_mm_srli_epi16(prob_correct, 1);
 
 		p0=_mm_add_epi16(p0, prob_half);
+#else
+		__m128i p0=prob;
+#endif
 
 		//clamp probability			eg: {0, 1, half, FFFF}
 		__m128i cmp=_mm_cmplt_epi16(prob_min, p0);//{0, FFFF, FFFF, FFFF}
@@ -575,12 +615,12 @@ const void*		abac0a_decode(const void *src_start, const void *src_end, unsigned 
 		dst[ks2]=mask>>8&128|mask>>7&64|mask>>6&32|mask>>5&16|mask>>4&8|mask>>3&4|mask>>1&2|mask&1;
 		bit=_mm_and_si128(bit, prob_min);//leave only the LSB
 
-		print_reg(r2, "%d r2-0", ks);
-		print_reg(r2+1, "%d r2-1", ks);
+		print_reg(r2, 32, "%d r2", ks);
 		
-		print_reg(&prob, "%d prob ", ks);
-		print_reg(&p0, "%d p0 ", ks);
+		print_reg(&prob, 16, "%d prob ", ks);
+		print_reg(&p0, 16, "%d p0 ", ks);
 		
+#ifdef ENABLE_CONFIDENCE
 		//update prob_correct			prob_correct=correct<<15|prob_correct>>1;
 		cmp=_mm_cmplt_epi16(p0, prob_half);
 		cmp=_mm_xor_si128(cmp, ones);
@@ -590,14 +630,15 @@ const void*		abac0a_decode(const void *src_start, const void *src_end, unsigned 
 		cmp=_mm_slli_epi16(cmp, 14);//set pre-MSB, because setting MSB would negate the 2's comp value
 		prob_correct=_mm_srli_epi16(prob_correct, 1);
 		prob_correct=_mm_or_si128(prob_correct, cmp);
+#endif
 
 		//update prob zero				prob=!bit<<15|prob>>1;
 		__m128i bit2=_mm_xor_si128(bit, prob_min);
 		prob=_mm_srli_epi16(prob, 1);
 		prob=_mm_or_si128(prob, _mm_slli_epi16(bit2, 14));
 
-		print_reg(&prob, "%d prob2 ", ks);
-		print_reg(&bit, "%d bit ", ks);
+		print_reg(&prob, 16, "%d prob2 ", ks);
+		print_reg(&bit, 16, "%d bit ", ks);
 
 #if 1
 		//update range
@@ -653,7 +694,7 @@ const void*		abac0a_decode(const void *src_start, const void *src_end, unsigned 
 					if(end[k]<ptr[k])
 						FAIL("Decode OOB: bit %d ptr %d size %d", k, (int)((size_t)ptr[k]-(size_t)src_start), (int)((size_t)src_end-(size_t)src_start));
 #ifdef PRINT_SSE2
-					printf("RENORM reg %d idx %d %08X<-[%02X]\n", reg_idx, idx, code[reg_idx].m128i_i32[idx], (int)ptr[k][-1]);
+					printf("RENORM bit %d %08X<-[%02X]\n", k, code[reg_idx].m128i_i32[idx], (int)ptr[k][-1]);
 #endif
 					code[reg_idx].m128i_i32[idx]<<=8;
 					code[reg_idx].m128i_i32[idx]|=ptr[k][-1];
@@ -678,7 +719,7 @@ const void*		abac0a_decode(const void *src_start, const void *src_end, unsigned 
 					if(end[k]<ptr[k])
 						FAIL("Decode OOB: bit %d ptr %d size %d", k, (int)((size_t)ptr[k]-(size_t)src_start), (int)((size_t)src_end-(size_t)src_start));
 #ifdef PRINT_SSE2
-					printf("RENORM reg %d idx %d %08X<-[%08X]\n", reg_idx, idx, code[reg_idx].m128i_i32[idx], ptr[k][-4]<<24|ptr[k][-3]<<16|ptr[k][-2]<<8|ptr[k][-1]);
+					printf("RENORM bit %d %08X<-[%08X]\n", k, code[reg_idx].m128i_i32[idx], ptr[k][-4]<<24|ptr[k][-3]<<16|ptr[k][-2]<<8|ptr[k][-1]);
 #endif
 					code[reg_idx].m128i_i32[idx]=ptr[k][-4]<<24|ptr[k][-3]<<16|ptr[k][-2]<<8|ptr[k][-1];//big endian
 

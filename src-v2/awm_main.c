@@ -16,16 +16,20 @@
 
 #include"awm_ac.h"
 #include<stdio.h>
+#define WIN32_LEAN_AND_MEAN
+#include<Windows.h>
 #define STB_IMAGE_IMPLEMENTATION
 #include"stb_image.h"
 
+	#define	FILE_OPERATION
+	#define	USE_SSE2
 
 #define	LOUD		1
-#define	DATA_SIZE	4		//can be 1, 2, 4 or 8
-#define iw 1920
-#define ih 1080
 
-	#define	USE_SSE2
+#ifndef FILE_OPERATION
+#define	DATA_SIZE	1		//can be 1, 2, 4 or 8
+#define iw 16
+#define ih 16
 
 
 #if DATA_SIZE==1
@@ -41,9 +45,19 @@ typedef unsigned long long DataType;
 #endif
 
 #define image_size	(iw*ih)
+#define		ODDV		0x80
 DataType buf[image_size]=
 {
-	0,
+	//0,
+
+	ODDV, 0x00, 0x00, 0x00, ODDV, 0x00, 0x00, 0x00,
+	0x00, ODDV, 0x00, 0x00, 0x00, ODDV, 0x00, 0x00,
+	0x00, 0x00, ODDV, 0x00, 0x00, 0x00, ODDV, 0x00,
+	0x00, 0x00, 0x00, ODDV, 0x00, 0x00, 0x00, ODDV,
+	ODDV, 0x00, 0x00, 0x00, ODDV, 0x00, 0x00, 0x00,
+	0x00, ODDV, 0x00, 0x00, 0x00, ODDV, 0x00, 0x00,
+	0x00, 0x00, ODDV, 0x00, 0x00, 0x00, ODDV, 0x00,
+	0x00, 0x00, 0x00, ODDV, 0x00, 0x00, 0x00, ODDV,
 
 	//0, 255,
 	//255, 0,
@@ -145,32 +159,6 @@ DataType buf[image_size]=
 	//0x08090A0B, 0x0C0D0E0F,
 };
 DataType buf2[image_size]={0};
-void print_buffer(unsigned char *buffer, int bw, int bh)
-{
-	int symbolchars=sizeof(DataType)*2+1, unspecw=bh&-(bw==-1);
-	if(unspecw||bw*symbolchars>80)
-	{
-		bw=80/symbolchars;
-		if(unspecw)
-			bh/=bw;
-	}
-	if(bh*symbolchars>160)
-		bh=160/symbolchars;
-
-	for(int ky=0;ky<bh;++ky)
-	{
-		for(int kx=0;kx<bw;++kx)
-			printf("%02X ", (int)buffer[bw*ky+kx]);
-		printf("\n");
-	}
-	if(unspecw)
-	{
-		for(int k=bw*bh;k<unspecw;++k)
-			printf("%02X ", (int)buffer[k]);
-		printf("\n");
-	}
-	printf("\n");
-}
 void print_vbuffer(DataType *buffer, int bw, int bh)
 {
 	int symbolchars=sizeof(DataType)*2+1, unspecw=bw==-1;
@@ -199,9 +187,110 @@ void print_vbuffer(DataType *buffer, int bw, int bh)
 	}
 	printf("\n");
 }
+#endif
+void print_buffer(unsigned char *buffer, int bw, int bh)
+{
+	int symbolchars=2+1, unspecw=bh&-(bw==-1);
+	if(unspecw||bw*symbolchars>80)
+	{
+		bw=80/symbolchars;
+		if(unspecw)
+			bh/=bw;
+	}
+	if(bh*symbolchars>160)
+		bh=160/symbolchars;
 
+	for(int ky=0;ky<bh;++ky)
+	{
+		for(int kx=0;kx<bw;++kx)
+			printf("%02X ", (int)buffer[bw*ky+kx]);
+		printf("\n");
+	}
+	if(unspecw)
+	{
+		for(int k=bw*bh;k<unspecw;++k)
+			printf("%02X ", (int)buffer[k]);
+		printf("\n");
+	}
+	printf("\n");
+}
+
+void		set_console_buffer_size(short x, short y)
+{
+	COORD coord={x, y};
+	SMALL_RECT Rect={0, 0, x-1, y-1};
+
+    HANDLE Handle=GetStdHandle(STD_OUTPUT_HANDLE);
+    SetConsoleScreenBufferSize(Handle, coord);
+    SetConsoleWindowInfo(Handle, TRUE, &Rect);
+}
 int main(int argc, char **argv)
 {
+	set_console_buffer_size(120, 4096);
+#ifdef FILE_OPERATION
+	if(argc!=2)
+	{
+		printf("Usage: program input_file\n\n");
+		return 1;
+	}
+	int iw=0, ih=0, nch=0;
+	unsigned char *image=stbi_load(argv[1], &iw, &ih, &nch, 0);
+	if(!image)
+	{
+		printf("Failed to open \'%s\'\n\n", argv[1]);
+		return 1;
+	}
+	int imsize=iw*ih;
+	
+	double t1, t2;
+	int success=1;
+	ArrayHandle cbuf;
+	t1=time_ms();
+	cbuf=0;
+	for(int k=0;k<nch;++k)
+#ifdef USE_SSE2
+		success=abac0a_encode((unsigned char*)image+k, imsize, nch, &cbuf, 1);
+#else
+		success=abac4_encode(image, image_size, k<<3, 8, nch, &cbuf, 1);
+#endif
+	t2=time_ms();
+	t2-=t1;
+	printf("Encode: %lf ms, consumption rate: %lf MB/s\n", t2, imsize*nch/(1.024*1024*t2));
+	
+	unsigned char *buf2=(unsigned char*)malloc(imsize*nch);
+	memset(buf2, 0, imsize*nch);
+	t1=time_ms();
+	const void *ptr=cbuf->data, *end=cbuf->data+cbuf->count;
+	for(int k=0;k<nch;++k)
+#ifdef USE_SSE2
+		ptr=abac0a_decode(ptr, end, (unsigned char*)buf2+k, imsize, nch, 1);
+#else
+		ptr=abac4_decode(ptr, end, buf2, imsize, k<<3, 8, nch, 1);
+#endif
+	t2=time_ms();
+	t2-=t1;
+	printf("Decode: %lf ms, production rate: %lf MB/s\n", t2, imsize*nch/(1.024*1024*t2));
+	
+	int clean=1;
+	for(int k=0;k<imsize;++k)
+	{
+		buf2[k]^=image[k];
+		if(buf2[k])
+		{
+			clean=0;
+			printf("Error at (%d, %d)\n", k%iw, k/iw);
+			pause();
+		}
+	}
+	if(clean)
+		printf("SUCCESS\n");
+	free(buf2);
+	free(image);
+#ifdef _MSC_VER
+	//pause();
+#endif
+#endif
+#ifndef FILE_OPERATION
 	ArrayHandle cbuf;
 	int success;
 	const void *ptr, *end;
@@ -268,5 +357,6 @@ int main(int argc, char **argv)
 	//print_vbuffer(buf2, iw, ih);
 
 	pause();
+#endif
 	return 0;
 }
