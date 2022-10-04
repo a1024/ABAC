@@ -215,7 +215,7 @@ int				abac0a_encode(const unsigned char *src, int count, int bytestride, ArrayH
 		print_reg(&p0, "%d p0 ", ks);
 
 
-		//update prob_correct
+		//update prob_correct			prob_correct=correct<<15|prob_correct>>1;
 		unsigned char sym=src[ks2];
 		__m128i bit=_mm_set_epi16(sym>>7&1, sym>>6&1, sym>>5&1, sym>>4&1, sym>>3&1, sym>>2&1, sym>>1&1, sym>>0&1);
 		cmp=_mm_cmplt_epi16(p0, prob_half);
@@ -223,13 +223,14 @@ int				abac0a_encode(const unsigned char *src, int count, int bytestride, ArrayH
 		cmp=_mm_and_si128(cmp, prob_min);
 		cmp=_mm_xor_si128(cmp, bit);
 
-		cmp=_mm_slli_epi16(cmp, 6);//set pre-MSB, because setting MSB would negate the 2's comp value
+		cmp=_mm_slli_epi16(cmp, 14);//set pre-MSB, because setting MSB would negate the 2's comp value
 		prob_correct=_mm_srli_epi16(prob_correct, 1);
 		prob_correct=_mm_or_si128(prob_correct, cmp);
 
-		//update prob zero
+		//update prob zero				prob=!bit<<15|prob>>1;
+		__m128i bit2=_mm_xor_si128(bit, prob_min);
 		prob=_mm_srli_epi16(prob, 1);
-		prob=_mm_or_si128(prob, _mm_slli_epi16(bit, 6));
+		prob=_mm_or_si128(prob, _mm_slli_epi16(bit2, 14));
 		
 		print_reg(&prob, "%d prob2 ", ks);
 		print_reg(&bit, "%d bit ", ks);
@@ -580,19 +581,20 @@ const void*		abac0a_decode(const void *src_start, const void *src_end, unsigned 
 		print_reg(&prob, "%d prob ", ks);
 		print_reg(&p0, "%d p0 ", ks);
 		
-		//update prob_correct
+		//update prob_correct			prob_correct=correct<<15|prob_correct>>1;
 		cmp=_mm_cmplt_epi16(p0, prob_half);
 		cmp=_mm_xor_si128(cmp, ones);
 		cmp=_mm_and_si128(cmp, prob_min);
 		cmp=_mm_xor_si128(cmp, bit);
 
-		cmp=_mm_slli_epi16(cmp, 6);//set pre-MSB, because setting MSB would negate the 2's comp value
+		cmp=_mm_slli_epi16(cmp, 14);//set pre-MSB, because setting MSB would negate the 2's comp value
 		prob_correct=_mm_srli_epi16(prob_correct, 1);
 		prob_correct=_mm_or_si128(prob_correct, cmp);
 
-		//update prob zero
+		//update prob zero				prob=!bit<<15|prob>>1;
+		__m128i bit2=_mm_xor_si128(bit, prob_min);
 		prob=_mm_srli_epi16(prob, 1);
-		prob=_mm_or_si128(prob, _mm_slli_epi16(bit, 6));
+		prob=_mm_or_si128(prob, _mm_slli_epi16(bit2, 14));
 
 		print_reg(&prob, "%d prob2 ", ks);
 		print_reg(&bit, "%d bit ", ks);
