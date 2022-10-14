@@ -19,7 +19,8 @@
 #include		<stdlib.h>
 #include		<string.h>
 #include		<math.h>
-#include		<tmmintrin.h>
+#include		<immintrin.h>
+//#include		<tmmintrin.h>
 #ifdef __GNUC__
 #include		<x86intrin.h>
 #else
@@ -29,7 +30,9 @@
 static const char file[]=__FILE__;
 
 
-	#define		ENABLE_CONFIDENCE
+//	#define		ENABLE_GRAYCODE
+//	#define		ENABLE_SYMBOL_ESTIMATION
+	#define		ENABLE_CONFIDENCE//FIXME commenting this breaks abac0a
 
 //	#define		PRINT_SSE2
 
@@ -59,7 +62,8 @@ const int		magic_ac04='A'|'C'<<8|'0'<<16|'4'<<24,//ABAC
 				magic_ac09='A'|'C'<<8|'0'<<16|'9'<<24,//OpenCL ABAC
 				magic_an09='A'|'N'<<8|'0'<<16|'9'<<24,//OpenCL ANS
 
-				magic_ac0A='A'|'C'<<8|'0'<<16|'A'<<24;//8-bit SSE2 ABAC
+				magic_ac0A='A'|'C'<<8|'0'<<16|'A'<<24,//8-bit SSE2 ABAC
+				magic_ac0T='A'|'C'<<8|'0'<<16|'T'<<24;//testbench
 
 
 #ifdef PRINT_SSE2
@@ -105,6 +109,192 @@ static void		print_prob(int prob, int w, const char *format, ...)
 #define			print_reg(...)
 #define			print_prob(...)
 #endif
+
+//https://en.wikipedia.org/wiki/YCoCg#The_lifting-based_YCoCg-R_variation
+void			YCoCg_fwd(int *image, int count)
+{
+	int *v, R, G, B, Y, Co, Cg;
+	for(int k=0;k<count;++k)
+	{
+		v=image+k;
+		R=*v&0xFF;
+		G=*v>>8&0xFF;
+		B=*v>>16&0xFF;
+
+		Co=R-B;
+		B+=Co>>1;
+		Cg=G-B;
+		Y=B+(Cg>>1);
+
+		*v=Cg<<17|Co<<8|Y;
+	}
+}
+void			YCoCg_inv(int *image, int count)
+{
+	int *v, R, G, B, Y, Co, Cg;
+	for(int k=0;k<count;++k)
+	{
+		v=image+k;
+		Y=*v&0xFF;
+		Co=*v>>8&0x1FF;
+		Cg=*v>>17&0x1FF;
+
+		R=Y-(Cg>>1);
+		G=Cg+R;
+		B=R-(Co>>1);
+		R=B+Co;
+
+		*v=B<<16|G<<8|R;
+	}
+}
+
+
+//test: encodes YCoCg26 pixels stored in 32bit integers, no alpha.
+//src pixel: MSB {6 zeros}{9 Cg}{9 Co}{8 Y} LSB
+int				test_encode(const int *src, int iw, int ih, int bpp, Predictor predictor, ArrayHandle *output, int loud)
+{
+	DList list[32];
+	unsigned start[32]={0}, range[32];
+	unsigned short prob[32]={0}, hit_hist[32];
+	u64 predicted=0;
+	for(int kb=0;kb<bpp;++kb)
+	{
+		range[kb]=0xFFFFFFFF;
+		prob[kb]=0x8000;
+		hit_hist[kb]=0x8000;
+		dlist_init(list+kb, 1, 128, 0);
+	}
+	for(int ky=0;ky<ih;++ky)
+	{
+		printf("\r%lf%%\t\t", 100.*ky/(ih-1));
+		for(int kx=0;kx<iw;++kx)
+		{
+			predictor(src, iw, ih, bpp, kx, ky, hit_hist, prob);
+			for(int kb=0;kb<bpp;++kb)
+			{
+				unsigned r2=(unsigned)((long long)range[kb]*prob[kb]>>16);
+				r2+=(r2==0)-(r2==range[kb]);
+
+				int bit=src[iw*ky+kx]>>kb&1;
+
+				if(bit)
+				{
+					++r2;
+					start[kb]+=r2, range[kb]-=r2;
+				}
+				else
+					range[kb]=r2-1;
+				
+				int correct=bit^(prob[kb]>=PROB_HALF);
+				predicted+=correct;
+				hit_hist[kb]=correct<<15|hit_hist[kb]>>1;
+
+				//renormalize
+				while((start[kb]^(start[kb]+(unsigned)range[kb]))<0x1000000)//most significant byte has stabilized			zpaq 1.10
+				{
+					dlist_push_back1(list+kb, (char*)(start+kb)+3);
+					start[kb]<<=8;
+					range[kb]=range[kb]<<8|0xFF;
+				}
+				if(range[kb]<3)
+				{
+					dlist_push_back1(list+kb, (char*)(start+kb)+3);//big endian
+					dlist_push_back1(list+kb, (char*)(start+kb)+2);
+					dlist_push_back1(list+kb, (char*)(start+kb)+1);
+					dlist_push_back1(list+kb, start+kb);
+
+					start[kb]=0, range[kb]=0xFFFFFFFF;//because 1=0.9999...
+				}
+			}
+		}
+	}
+	printf("\n");
+	size_t offset0;
+	if(*output)
+	{
+		if(output[0]->esize!=1)
+			FAIL("Output array element size must be 1 byte");
+		offset0=output[0]->count;
+		ARRAY_APPEND(*output, 0, (1+8)*sizeof(int), 1, 0);
+	}
+	else
+	{
+		offset0=0;
+		ARRAY_ALLOC(char, *output, 0, (1+32)*sizeof(int), 0, 0);//magic + sizes[bitdepth]
+	}
+	memcpy(output[0]->data+offset0, &magic_ac0T, sizeof(int));
+	for(int kb=0;kb<bpp;++kb)
+		memcpy(output[0]->data+offset0+(1+kb)*sizeof(int), &list[kb].nobj, sizeof(int));
+	if(loud)
+	{
+		int symcount=iw*ih;
+		u64 original_bitsize=(u64)symcount*bpp, compressed_bitsize=0;
+		for(int kb=0;kb<bpp;++kb)
+			compressed_bitsize+=list[kb].nobj;
+		compressed_bitsize<<=3;
+		printf("TEST ENC: (%dx%dx%d/8) %lld -> %lld,  ratio: %lf,  %lf bpp\n", iw, ih, bpp, original_bitsize>>3, compressed_bitsize>>3, (double)original_bitsize/compressed_bitsize, (double)compressed_bitsize/symcount);
+		printf("Predicted: %6lld / %6lld = %lf%%\n", predicted, original_bitsize, 100.*predicted/original_bitsize);
+		printf("Bit\tbytes\tratio,\tbytes/bitplane = %d\n", (symcount+7)>>3);
+		for(int kb=0;kb<bpp;++kb)
+			printf("%2d\t%5d\t%lf\n", kb, list[kb].nobj, (double)symcount/(list[kb].nobj<<3));
+		
+		printf("Preview:\n");
+		int kprint=(int)(output[0]->count-offset0);
+		if(kprint>200)
+			kprint=200;
+		for(int k=0;k<kprint;++k)
+			printf("%02X-", output[0]->data[offset0+k]&0xFF);
+		printf("\n");
+	}
+	for(int kb=0;kb<bpp;++kb)
+		dlist_clear(list+kb);
+#if 0
+	//3 2
+	//1[0]	causal neighbors
+	int *ptr, wnd[4], val, Y[4], Co[4], Cg[4];
+	ptr=src;
+	for(int ky=0;ky<ih;++ky)
+	{
+		wnd[3]=0;
+		wnd[1]=0;
+		for(int kx=0;kx<iw;++kx, ++ptr)
+		{
+			wnd[2]=ky?ptr[-iw]:0;
+			wnd[0]=*ptr;
+
+			Y[0]=wnd[0]&0xFF, Co[0]=wnd[0]>>8&0x1FF, Cg[0]=wnd[0]>>17&0x1FF;
+			Y[1]=wnd[1]&0xFF, Co[1]=wnd[1]>>8&0x1FF, Cg[1]=wnd[1]>>17&0x1FF;
+			Y[2]=wnd[2]&0xFF, Co[2]=wnd[2]>>8&0x1FF, Cg[2]=wnd[2]>>17&0x1FF;
+			Y[3]=wnd[3]&0xFF, Co[3]=wnd[3]>>8&0x1FF, Cg[3]=wnd[3]>>17&0x1FF;
+
+			//prediction
+			Y[1]+=Y[3]-Y[2];
+			Co[1]+=Co[3]-Co[2];
+			Cg[1]+=Cg[3]-Cg[2];
+
+			//clamp
+			Y[1]=Y[1]>0x1FF?0x1FF:(Y[1]<0?0:Y[1]);
+			Co[1]=Co[1]>0x1FF?0x1FF:(Co[1]<0?0:Co[1]);
+			Cg[1]=Cg[1]>0x1FF?0x1FF:(Cg[1]<0?0:Cg[1]);
+
+			//Y[0]-=Y[1]+Y[3]-Y[2];//this can be done beforehand with non-causal neighbors
+			//Co[0]-=Co[1]+Co[3]-Co[2];
+			//Cg[0]-=Cg[1]+Cg[3]-Cg[2];
+			//
+			//Y[0]=abs(Y[0])<<1|(Y[0]<0);//how many bits is this now?
+			//Co[0]=abs(Co[0])<<1|(Co[0]<0);
+			//Cg[0]=abs(Cg[0])<<1|(Cg[0]<0);
+
+			wnd[3]=wnd[2];
+			wnd[1]=wnd[0];
+		}
+	}
+#endif
+	return 1;
+}
+//const void*		test_encode(const void *src_start, const void *src_end, int *dst, int iw, int ih, int loud)
+//{
+//}
 
 //abac0a_encode(): Encodes 8-bit symbols. Uses SSSE3 with 15-bit probability.
 //If output was initialized, output->esize must be 1.
@@ -192,7 +382,6 @@ int				abac0a_encode(const unsigned char *src, int count, int bytestride, ArrayH
 		cmp=_mm_and_si128(cmp, prob_max);
 		p0=_mm_or_si128(p0, cmp);
 		
-#if 1
 		//calculate middle (r2)
 		__m128i t0=_mm_shuffle_epi8(range[0], shuf_pack);
 		__m128i t1=_mm_shuffle_epi8(range[1], shuf_pack);
@@ -213,18 +402,6 @@ int				abac0a_encode(const unsigned char *src, int count, int bytestride, ArrayH
 		r2[0]=_mm_add_epi32(r2[0], d0);
 		r2[1]=_mm_add_epi32(r2[1], d1);
 
-		//__m128i p0lo=_mm_unpacklo_epi16(p0, _mm_setzero_si128());
-		//__m128i p0hi=_mm_unpackhi_epi16(p0, _mm_setzero_si128());
-#if 0
-		__m128i p0lo=_mm_unpacklo_epi16(p0, _mm_setzero_si128());
-		__m128i p0hi=_mm_unpackhi_epi16(p0, _mm_setzero_si128());
-		//__m128i r_lo=_mm_loadu_si128((const __m128i*)range);
-		//__m128i r_hi=_mm_loadu_si128((const __m128i*)(range+4));
-		p0lo=_mm_slli_epi32(p0lo, 17);
-		p0hi=_mm_slli_epi32(p0hi, 17);
-		p0lo=_mm_mullo_epi32(p0lo, range[0]);//X  need mulhi_epi32 which doesn't exist
-		p0hi=_mm_mullo_epi32(p0hi, range[1]);
-#endif
 		//avoid degenerate range		r2[k]+=(r2[k]==0)-(r2[k]==range[k]);
 		cmp=_mm_cmpeq_epi32(r2[0], _mm_setzero_si128());
 		cmp=_mm_and_si128(cmp, ones32);
@@ -249,6 +426,9 @@ int				abac0a_encode(const unsigned char *src, int count, int bytestride, ArrayH
 
 
 		unsigned char sym=src[ks2];
+#ifdef ENABLE_GRAYCODE
+		sym^=sym>>1;
+#endif
 		__m128i bit=_mm_set_epi16(sym>>7&1, sym>>6&1, sym>>5&1, sym>>4&1, sym>>3&1, sym>>2&1, sym>>1&1, sym>>0&1);
 		
 #ifdef ENABLE_CONFIDENCE
@@ -357,54 +537,6 @@ int				abac0a_encode(const unsigned char *src, int count, int bytestride, ArrayH
 #ifdef PRINT_SSE2
 		printf("\n");
 #endif
-#endif
-#if 0
-		//update range & renormalize
-		for(int k=0;k<8;++k)
-		{
-			r2[k]=(unsigned)(range[k]*p0.m128i_i16[k]>>15);
-			r2[k]+=(r2[k]==0)-(r2[k]==range[k]);
-			//correct.m128i_i16[k]=bit.m128i_i16[k]^(p0.m128i_i16[k]>=prob_half.m128i_i16[k]);
-
-			//unsigned start0=start[k];
-
-			r2[k]+=bit.m128i_i16[k]-!bit.m128i_i16[k];
-			start[k]+=r2[k]&-bit.m128i_i16[k];
-			range[k]=((range[k]-r2[k])&-bit.m128i_i16[k])|(r2[k]&-!bit.m128i_i16[k]);
-
-			//if(bit.m128i_i16[k])
-			//{
-			//	++r2[k];
-			//	start[k]+=r2[k], range[k]-=r2[k];
-			//}
-			//else
-			//	range[k]=r2[k]-1;
-
-			//if(start[k]<start0)
-			//	LOG_ERROR("AC OVERFLOW: sym %d bit %d, start = %08X -> %08X, r2 = %08X", ks, k, start0, start[k], r2[k]);
-			
-			while((start[k]^(start[k]+(unsigned)range[k]))<0x1000000)//most significant byte has stabilized			zpaq 1.10
-			{
-#ifdef DEBUG_ABAC2
-				if(kp==examined_plane&&kb>=examined_start&&kb<examined_end)
-					printf("range 0x%08X byte-out 0x%02X\n", (int)range, start>>24);
-#endif
-				dlist_push_back1(list+k, (char*)(start+k)+3);
-				start[k]<<=8;
-				range[k]=range[k]<<8|0xFF;
-			}
-
-			if(range[k]<3)
-			{
-				dlist_push_back1(list+k, (char*)(start+k)+3);//big endian
-				dlist_push_back1(list+k, (char*)(start+k)+2);
-				dlist_push_back1(list+k, (char*)(start+k)+1);
-				dlist_push_back1(list+k, start+k);
-
-				start[k]=0, range[k]=0xFFFFFFFF;//because 1=0.9999...
-			}
-		}
-#endif
 	}
 	for(int k=0;k<8;++k)
 	{
@@ -424,7 +556,7 @@ int				abac0a_encode(const unsigned char *src, int count, int bytestride, ArrayH
 	{
 		size_t total_csize=output[0]->count-offset0;
 		printf("AC encode:  %lld cycles, %lf c/byte\n", t2-t1, (double)(t2-t1)/count);
-		printf("Size: %d -> %d, ratio: %lf, %lf bpp\n", count, total_csize, (double)count/total_csize, (double)(total_csize<<8)/count);
+		printf("Size: %d -> %d, ratio: %lf, %lf bpp\n", count, total_csize, (double)count/total_csize, (double)(total_csize<<3)/count);
 #ifdef AC_MEASURE_PREDICTION
 		//printf("Predicted: %6lld / %6lld = %lf%%\n", hitnum, hitden, 100.*hitnum/hitden);
 #endif
@@ -490,8 +622,6 @@ const void*		abac0a_decode(const void *src_start, const void *src_end, unsigned 
 	if((unsigned char*)src_end<end[7])
 		FAIL("File is %d bytes, header requires %d bytes", (int)((size_t)src_end-(size_t)src_start), (int)((size_t)end[7]-(size_t)src_start));
 	
-	//unsigned code[8], start[8]={0}, r2[8];
-	//u64 range[8];
 	start[0]=_mm_setzero_si128();
 	start[1]=_mm_setzero_si128();
 	range[0]=_mm_set1_epi32(0x7FFFFFFF);//the MSB is the 2's comp sign, all SSE2 cmp instructions are signed
@@ -504,7 +634,7 @@ const void*		abac0a_decode(const void *src_start, const void *src_end, unsigned 
 			FAIL("Decode OOB: bit %d ptr %d size %d", k, (int)((size_t)ptr[k]-(size_t)src_start), (int)((size_t)src_end-(size_t)src_start));
 		code[reg_idx].m128i_i32[idx]=ptr[k][-4]<<24|ptr[k][-3]<<16|ptr[k][-2]<<8|ptr[k][-1];//big endian
 	}
-	for(int ks=0, ks2=0;ks<count;++ks, ks2+=bytestride)
+	for(int ks=0;ks<count;++ks, dst+=bytestride)
 	{
 		print_reg(code, 32, "%d code", ks);
 		print_reg(start, 32, "%d start", ks);
@@ -539,21 +669,6 @@ const void*		abac0a_decode(const void *src_start, const void *src_end, unsigned 
 		cmp=_mm_and_si128(cmp, prob_max);
 		p0=_mm_or_si128(p0, cmp);
 
-		//calculate new range & get bit
-	/*	unsigned char sym=0;
-		__m128i bit;
-		for(int k=0;k<8;++k)
-		{
-			r2[k]=(unsigned)(range[k]*p0.m128i_i16[k]>>15);
-			r2[k]+=(r2[k]==0)-(r2[k]==range[k]);
-			
-			unsigned middle=start[k]+r2[k];
-			unsigned char b=middle<code[k];
-			bit.m128i_i16[k]=b;
-			sym|=b<<k;
-		}
-		dst[ks2]=sym;//*/
-
 		//calculate middle (r2)
 		__m128i t0=_mm_shuffle_epi8(range[0], shuf_pack);
 		__m128i t1=_mm_shuffle_epi8(range[1], shuf_pack);
@@ -573,17 +688,6 @@ const void*		abac0a_decode(const void *src_start, const void *src_end, unsigned 
 
 		r2[0]=_mm_add_epi32(r2[0], d0);
 		r2[1]=_mm_add_epi32(r2[1], d1);
-
-		//__m128i p0lo=_mm_unpacklo_epi16(p0, _mm_setzero_si128());
-		//__m128i p0hi=_mm_unpackhi_epi16(p0, _mm_setzero_si128());
-#if 0
-		__m128i p0lo=_mm_unpacklo_epi16(p0, _mm_setzero_si128());
-		__m128i p0hi=_mm_unpackhi_epi16(p0, _mm_setzero_si128());
-		p0lo=_mm_slli_epi32(p0lo, 17);
-		p0hi=_mm_slli_epi32(p0hi, 17);
-		p0lo=_mm_mullo_epi32(p0lo, range[0]);//X  need mulhi_epi32 which doesn't exist
-		p0hi=_mm_mullo_epi32(p0hi, range[1]);
-#endif
 
 		//avoid degenerate range		r2[k]+=(r2[k]==0)-(r2[k]==range[k]);
 		cmp=_mm_cmpeq_epi32(r2[0], _mm_setzero_si128());
@@ -612,7 +716,13 @@ const void*		abac0a_decode(const void *src_start, const void *src_end, unsigned 
 
 		//store symbol
 		int mask=_mm_movemask_epi8(bit);
-		dst[ks2]=mask>>8&128|mask>>7&64|mask>>6&32|mask>>5&16|mask>>4&8|mask>>3&4|mask>>1&2|mask&1;
+		unsigned char sym=mask>>8&128|mask>>7&64|mask>>6&32|mask>>5&16|mask>>4&8|mask>>3&4|mask>>1&2|mask&1;
+#ifdef ENABLE_GRAYCODE
+		sym^=sym>>4;
+		sym^=sym>>2;
+		sym^=sym>>1;
+#endif
+		*dst=sym;
 		bit=_mm_and_si128(bit, prob_min);//leave only the LSB
 
 		print_reg(r2, 32, "%d r2", ks);
