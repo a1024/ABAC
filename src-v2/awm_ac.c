@@ -18,6 +18,7 @@
 #include		<stdio.h>
 #include		<stdlib.h>
 #include		<string.h>
+#define _USE_MATH_DEFINES
 #include		<math.h>
 #include		<immintrin.h>
 //#include		<tmmintrin.h>
@@ -109,6 +110,403 @@ static void		print_prob(int prob, int w, const char *format, ...)
 #define			print_reg(...)
 #define			print_prob(...)
 #endif
+
+
+//aligned malloc	//https://stackoverflow.com/questions/38088732/explanation-to-aligned-malloc-implementation
+void* aligned_malloc(size_t size, size_t align)
+{
+    void *p0, **pA;
+	size_t offset;
+
+    offset=align-1+sizeof(void*);
+	p0=(void*)malloc(size+offset);
+    if(!p0)
+       return 0;
+    pA=(void**)(((size_t)p0+offset)&~(align-1));
+    pA[-1]=p0;
+    return pA;
+}
+void aligned_free(void *p)
+{
+	if(p)
+	    free(((void**)p)[-1]);
+}
+
+
+//JPEG
+
+//https://en.wikipedia.org/wiki/YCbCr#JPEG_conversion
+void			YCbCr_fwd(const int *image, float *Y, float *Cb, float *Cr, int count)
+{
+	int k, R, G, B;
+	const int *v;
+
+	for(k=0;k<count;++k)
+	{
+		v=image+k;
+		R=*v&0xFF;
+		G=*v>>8&0xFF;
+		B=*v>>16&0xFF;
+		Y[k]=0.299f*R+0.587f*G+0.114f*B;
+		Cb[k]=128-0.168736f*R-0.331264f*G+0.5f*B;
+		Cr[k]=128+0.5f*R+0.418688f*G+0.081312f*B;
+	}
+}
+void			YCbCr_inv(int *image, const float *Y, const float *Cb, const float *Cr, int count)
+{
+	int k, R, G, B;
+	float Cb2, Cr2;
+
+	for(k=0;k<count;++k)
+	{
+		Cb2=Cb[k]-128;
+		Cr2=Cr[k]-128;
+		R=(int)(Y[k]+1.402f*Cr2);
+		G=(int)(Y[k]-0.344136f*Cb2-0.714136f*Cr2);
+		B=(int)(Y[k]+1.772f*Cb2);
+		image[k]=B<<16|G<<8|R;
+	}
+}
+
+//DCT 8x8 float
+void			DCT8_ref(double *data, int inv)
+{
+#define C0_5	0.5*0.9807852804032304491261822361342
+#define C1_0	0.5*0.9238795325112867561281831893968
+#define C1_5	0.5*0.8314696123025452370787883776179
+#define C2_0	0.5*0.7071067811865475244008443621048
+#define C2_5	0.5*0.5555702330196022247428308139485
+#define C3_0	0.5*0.3826834323650897717284599840304
+#define C3_5	0.5*0.195090322016128267848284868477
+	//https://en.wikipedia.org/wiki/Discrete_cosine_transform#DCT-II
+	static const double f_coeff[]=//X[k] = sqrt(2/N) * sum x[n] * cos(pi/N*(n+1/2)*k)
+	{//k \ n
+		0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5,
+		C0_5,  C1_5,  C2_5,  C3_5, -C3_5, -C2_5, -C1_5, -C0_5,
+		C1_0,  C3_0, -C3_0, -C1_0, -C1_0, -C3_0,  C3_0,  C1_0,
+		C1_5, -C3_5, -C0_5, -C2_5,  C2_5,  C0_5,  C3_5, -C1_5,
+		C2_0, -C2_0, -C2_0,  C2_0,  C2_0, -C2_0, -C2_0,  C2_0,
+		C2_5, -C0_5,  C3_5,  C1_5, -C1_5, -C3_5,  C0_5, -C2_5,
+		C3_0, -C1_0,  C1_0, -C3_0, -C3_0,  C1_0, -C1_0,  C3_0,
+		C3_5, -C2_5,  C1_5, -C0_5,  C0_5, -C1_5,  C2_5, -C3_5,
+	};
+	//https://en.wikipedia.org/wiki/Discrete_cosine_transform#DCT-III
+	static const double i_coeff[]=//X[k] = sqrt(2/N) * (x0/2 + sum x[n] * cos(pi/N*(k+1/2)*n))
+	{//k \ n
+		0.25,  C0_5,  C1_0,  C1_5,  C2_0,  C2_5,  C3_0,  C3_5,
+		0.25,  C1_5,  C3_0, -C3_5, -C2_0, -C0_5, -C1_0, -C2_5,
+		0.25,  C2_5, -C3_0, -C0_5, -C2_0,  C3_5,  C1_0,  C1_5,
+		0.25,  C3_5, -C1_0, -C2_5,  C2_0,  C1_5, -C3_0, -C0_5,
+		0.25, -C3_5, -C1_0,  C2_5,  C2_0, -C1_5, -C3_0,  C0_5,
+		0.25, -C2_5, -C3_0,  C0_5, -C2_0, -C3_5,  C1_0, -C1_5,
+		0.25, -C1_5,  C3_0,  C3_5, -C2_0,  C0_5, -C1_0,  C2_5,
+		0.25, -C0_5,  C1_0, -C1_5,  C2_0, -C2_5,  C3_0, -C3_5,
+	};
+#undef	C0_5
+#undef	C1_0
+#undef	C1_5
+#undef	C2_0
+#undef	C2_5
+#undef	C3_0
+#undef	C3_5
+	const double *coeff=inv?i_coeff:f_coeff;
+	double d2[8];
+	int k, n;
+
+	for(k=0;k<8;++k)
+	{
+		d2[k]=0;
+		for(n=0;n<8;++n)
+			d2[k]+=coeff[k<<3|n]*data[n];
+	}
+	memcpy(data, d2, 8*sizeof(double));
+}
+#if 0
+static const double S[]=//scaling coefficients
+{
+	0.353553390593273762200422/2,
+	0.254897789552079584470970,
+	0.270598050073098492199862,
+	0.300672443467522640271861,
+	0.353553390593273762200422,
+	0.449988111568207852319255,
+	0.653281482438188263928322,
+	1.281457723870753089398043,
+};
+
+static const double A[]=
+{
+	NAN,//0
+	0.707106781186547524400844,//1
+	0.541196100146196984399723,//2
+	0.707106781186547524400844,//3
+	1.306562964876376527856643,//4
+	0.382683432365089771728460,//5
+};
+#endif
+void			DCT8f_fwd(double *data)
+{
+#if 1
+	static const double coeff[]=
+	{
+		0.382683432365089771728460,//1
+		0.541196100146196984399723,//2
+		0.707106781186547524400844,//0
+		1.306562964876376527856643,
+	};
+
+	double
+		a0=data[0]+data[7],
+		a1=data[1]+data[6],
+		a2=data[2]+data[5],
+		a3=data[3]+data[4],
+		a4=data[3]-data[4],
+		a5=data[2]-data[5],
+		a6=data[1]-data[6],
+		a7=data[0]-data[7];
+	
+	double
+		b0=a0+a3,
+		b1=a1+a2,
+		b2=a1-a2,
+		b3=a0-a3,
+		b4=-a4-a5,
+		b5=(a5+a6)*coeff[2],
+		b6=a6+a7;
+	
+	double c0=(b4+b6)*coeff[0];
+
+	double
+		d0=(b2+b3)*coeff[2],
+		d1=-b4*coeff[1]-c0,
+		d2=b6*coeff[3]-c0,
+		d3=b5+a7,
+		d4=a7-b5;
+	
+	data[0]=(b0+b1)*0.125;
+	data[1]=(d3+d2)*0.125;
+	data[2]=(d0+b3)*0.125;
+	data[3]=(d4-d1)*0.125;
+	data[4]=(b0-b1)*0.125;
+	data[5]=(d1+d4)*0.125;
+	data[6]=(b3-d0)*0.125;
+	data[7]=(d3-d2)*0.125;
+
+	//data[0]=(b0+b1)*S[0];
+	//data[1]=(d3+d2)*S[1];
+	//data[2]=(d0+b3)*S[2];
+	//data[3]=(d4-d1)*S[3];
+	//data[4]=(b0-b1)*S[4];
+	//data[5]=(d1+d4)*S[5];
+	//data[6]=(b3-d0)*S[6];
+	//data[7]=(d3-d2)*S[7];
+#endif
+
+	//https://www.nayuki.io/page/fast-discrete-cosine-transform-algorithms
+#if 0
+	const double v0=data[0]+data[7];
+	const double v1=data[1]+data[6];
+	const double v2=data[2]+data[5];
+	const double v3=data[3]+data[4];
+	const double v4=data[3]-data[4];
+	const double v5=data[2]-data[5];
+	const double v6=data[1]-data[6];
+	const double v7=data[0]-data[7];
+	
+	const double v8=v0+v3;
+	const double v9=v1+v2;
+	const double v10=v1-v2;
+	const double v11=v0-v3;
+	const double v12=-v4-v5;
+	const double v13=(v5+v6)*A[3];
+	const double v14=v6+v7;
+	
+	const double v15=v8+v9;
+	const double v16=v8-v9;
+	const double v17=(v10+v11)*A[1];
+	const double v18=(v12+v14)*A[5];
+	
+	const double v19=-v12*A[2]-v18;
+	const double v20=v14*A[4]-v18;
+	
+	const double v21=v17+v11;
+	const double v22=v11-v17;
+	const double v23=v13+v7;
+	const double v24=v7-v13;
+	
+	const double v25=v19+v24;
+	const double v26=v23+v20;
+	const double v27=v23-v20;
+	const double v28=v24-v19;
+	
+	data[0]=S[0]*v15;
+	data[1]=S[1]*v26;
+	data[2]=S[2]*v21;
+	data[3]=S[3]*v28;
+	data[4]=S[4]*v16;
+	data[5]=S[5]*v25;
+	data[6]=S[6]*v22;
+	data[7]=S[7]*v27;
+#endif
+
+	//Plonka 2002 DCT-II	cosk = cos(k*pi/2N), here N=8		//https://fgiesen.wordpress.com/2013/11/04/bink-2-2-integer-dct-design-part-1/
+#if 0
+	const float
+		cos7=0.195090322016128267848284868477f,
+		sin7=0.9807852804032304491261822361342f,
+		cos5=0.5555702330196022247428308139485f,
+		sin5=0.8314696123025452370787883776179f,
+		cos6=0.3826834323650897717284599840304f,
+		sin6=0.9238795325112867561281831893968f;
+
+	float
+		a0=data[0]+data[7],
+		a1=data[1]+data[6],
+		a2=data[2]+data[5],
+		a3=data[3]+data[4],
+		a4=data[3]-data[4],
+		a5=data[2]-data[5],
+		a6=data[1]-data[6],
+		a7=data[0]-data[7];
+
+	float
+		b0=a0+a3,
+		b1=a1+a2,
+		b2=a1-a2,
+		b3=a0-a3,
+		b4=a4*cos7+a7*sin7,
+		b5=a5*cos5+a6*sin5,
+		b6=a6*cos5-a5*sin5,
+		b7=a7*cos7-a4*sin7;
+
+	a0=b0+b1;
+	a1=b0-b1;
+	a2=b2*cos6+b3*sin6;
+	a3=b3*cos6-b2*sin6;
+	a4=b4+b5;
+	a5=b4-b5;
+	a6=b6+b7;
+	a7=b6-b7;
+
+	data[0]=a0*0.125;
+	data[1]=a4*(0.125*M_SQRT2);
+	data[2]=a2*(0.125*M_SQRT2);
+	data[3]=a5*0.125;
+	data[4]=a1*0.125;
+	data[5]=a6*0.125;
+	data[6]=a3*(0.125*M_SQRT2);
+	data[7]=a7*(0.125*-M_SQRT2);
+#endif
+}
+void			DCT8f_inv(double *data)
+{
+#if 1
+	static const double coeff[]=
+	{
+		 0.76536686473017954345692,
+		-2.613125929752753055713286,
+		 1.082392200292393968799446,
+		 1.41421356237309504880168872421,
+	};
+	//data[0]/=S[0];//0 BRP is its own inverse
+	//data[1]/=S[1];//4
+	//data[2]/=S[2];//2
+	//data[3]/=S[3];//6
+	//data[4]/=S[4];//1
+	//data[5]/=S[5];//5
+	//data[6]/=S[6];//3
+	//data[7]/=S[7];//7
+	
+	double
+		a0=data[0]+data[4],
+		a1=data[2]+data[6],
+		a2=data[2]-data[6],
+		a3=data[0]-data[4],
+		a4=data[1]+data[7],
+		a5=data[5]+data[3],
+		a7=data[5]-data[3],
+		a6=data[1]-data[7];
+
+	const double v0=a0+a1;
+	const double v3=a0-a1;
+	const double b0=a4+a5;
+	const double b1=a4-a5;
+	const double v18=(a7-a6)*coeff[0];
+	const double v10=a2*coeff[3]-a1;
+
+	const double v1=a3+v10;
+	const double v2=a3-v10;
+	const double v12=a7*coeff[1]+v18;
+	const double v14=a6*coeff[2]-v18;
+	
+	const double v6=v14-b0;
+
+	const double v5=b1*coeff[3]-v6;
+	
+	const double v4=-v5-v12;
+	
+	data[0]=v0+b0;
+	data[1]=v1+v6;
+	data[2]=v2+v5;
+	data[3]=v3+v4;
+	data[4]=v3-v4;
+	data[5]=v2-v5;
+	data[6]=v1-v6;
+	data[7]=v0-b0;
+#endif
+
+	//https://www.nayuki.io/page/fast-discrete-cosine-transform-algorithms
+#if 0
+	const double v15=data[0]/S[0];
+	const double v26=data[1]/S[1];
+	const double v21=data[2]/S[2];
+	const double v28=data[3]/S[3];
+	const double v16=data[4]/S[4];
+	const double v25=data[5]/S[5];
+	const double v22=data[6]/S[6];
+	const double v27=data[7]/S[7];
+	
+	const double v19=(v25-v28)/2;
+	const double v20=(v26-v27)/2;
+	const double v23=(v26+v27)/2;
+	const double v24=(v25+v28)/2;
+	
+	const double v7 =(v23+v24)/2;
+	const double v11=(v21+v22)/2;
+	const double v13=(v23-v24)/2;
+	const double v17=(v21-v22)/2;
+	
+	const double v8=(v15+v16)/2;
+	const double v9=(v15-v16)/2;
+	
+	const double v18=(v19-v20)*A[5];//Different from original
+	const double v12=(v19*A[4]-v18)/(A[2]*A[5]-A[2]*A[4]-A[4]*A[5]);//den=-1
+	const double v14=(v18-v20*A[2])/(A[2]*A[5]-A[2]*A[4]-A[4]*A[5]);
+	
+	const double v6=v14-v7;
+	const double v5=v13/A[3]-v6;
+	const double v4=-v5-v12;
+	const double v10=v17/A[1]-v11;
+	
+	const double v0=(v8+v11)/2;
+	const double v1=(v9+v10)/2;
+	const double v2=(v9-v10)/2;
+	const double v3=(v8-v11)/2;
+	
+	data[0]=(v0+v7)*0.5;
+	data[1]=(v1+v6)*0.5;
+	data[2]=(v2+v5)*0.5;
+	data[3]=(v3+v4)*0.5;
+	data[4]=(v3-v4)*0.5;
+	data[5]=(v2-v5)*0.5;
+	data[6]=(v1-v6)*0.5;
+	data[7]=(v0-v7)*0.5;
+#endif
+}
+void			DCT8x8f_fwd(float *data, int bw, int bh)
+{
+}
+
 
 //https://en.wikipedia.org/wiki/YCoCg#The_lifting-based_YCoCg-R_variation
 void			YCoCg_fwd(int *image, int count)

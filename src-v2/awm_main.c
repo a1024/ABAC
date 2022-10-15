@@ -346,9 +346,71 @@ void pred1(const int *data, int iw, int ih, int bpp, int x, int y, unsigned shor
 	//	ret_prob[kb]=(int)((unsigned long long)ret_prob[kb]*0x10000/weight_sum);
 }
 
+#if 1
+void print_buffer_double(double *data, int count)
+{
+	for(int k=0;k<count;++k)
+		printf("%g ", data[k]);
+	printf("\n");
+}
+void DCT8f_fwd(double *data);
+void DCT8f_inv(double *data);
+void DCT8_ref(double *data, int inv);
+void DCT_test()
+{
+	double data[]=
+	{
+		1, 2, 3, 4, 3, 2, 2, 2,
+		//0.21, 0.36, 0.51, 0.14, 0.99, 0.01, 0.73, 0.28,
+	};
+	double d2[8];
+	long long t1, t2;
+	printf("Original:\n"), print_buffer_double(data, 8);
+	printf("\n");
+
+	t1=__rdtsc();
+	DCT8_ref(data, 0);
+	t2=__rdtsc();
+	printf("Forward Reference: %lldc\n", t2-t1), print_buffer_double(data, 8);
+	memcpy(d2, data, 8*sizeof(double));
+	t1=__rdtsc();
+	DCT8_ref(data, 1);
+	t2=__rdtsc();
+	printf("Inverse Reference: %lldc\n", t2-t1), print_buffer_double(data, 8);
+	printf("\n");
+
+	t1=__rdtsc();
+	DCT8f_fwd(data);
+	t2=__rdtsc();
+	printf("Forward Optimized: %lldc\n", t2-t1), print_buffer_double(data, 8);
+	for(int k=0;k<8;++k)
+		d2[k]/=data[k];
+	printf("Reference/Optimized:\n"), print_buffer_double(d2, 8);
+	t1=__rdtsc();
+	DCT8f_inv(data);
+	t2=__rdtsc();
+	printf("Inverse Optimized: %lldc\n", t2-t1), print_buffer_double(data, 8);
+	printf("\n");
+	
+	t1=__rdtsc();
+	DCT8f_inv(data);
+	t2=__rdtsc();
+	printf("Inverse Optimized: %lldc\n", t2-t1), print_buffer_double(data, 8);
+	t1=__rdtsc();
+	DCT8f_fwd(data);
+	t2=__rdtsc();
+	printf("Forward Optimized: %lldc\n", t2-t1), print_buffer_double(data, 8);
+
+	pause();
+	exit(0);
+}
+#endif
+
 
 int			main(int argc, char **argv)
 {
+	DCT_test();//
+
 	//int sum=0;
 	//for(int k=0;k<_countof(weights);++k)
 	//	sum+=weights[k];
@@ -440,8 +502,8 @@ int			main(int argc, char **argv)
 	array_free(&cbuf);
 	free(image);
 #endif
-#ifdef _MSC_VER
-	//pause();
+#ifdef _DEBUG
+	pause();
 #endif
 #endif
 #ifndef FILE_OPERATION
