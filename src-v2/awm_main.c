@@ -1,4 +1,4 @@
-//awm_main.c - AAC test
+//awm_main.c - Compression efficiency benchmark
 //Copyright (C) 2022  Ayman Wagih Mohsen
 //
 //This program is free software: you can redistribute it and/or modify
@@ -19,7 +19,11 @@
 #define WIN32_LEAN_AND_MEAN
 #include<Windows.h>
 #define STB_IMAGE_IMPLEMENTATION
-#include"stb_image.h"
+#include"stb_image.h"//for loading PNGs
+#include"lodepng.h"//for saving PNGs
+
+#define _USE_MATH_DEFINES
+#include<math.h>
 
 	#define	FILE_OPERATION
 	#define	USE_SSE2
@@ -346,7 +350,539 @@ void pred1(const int *data, int iw, int ih, int bpp, int x, int y, unsigned shor
 	//	ret_prob[kb]=(int)((unsigned long long)ret_prob[kb]*0x10000/weight_sum);
 }
 
+
 #if 1
+
+	#define		ESTIMATE_MAGNITUDE
+//	#define		CAP_NBLOCKS	2
+//	#define		ONEBLOCKGUIDE
+
+typedef float InternalType;
+InternalType b2[65536];
+#if defined CAP_NBLOCKS && defined ONEBLOCKGUIDE
+short b4[65536];
+#endif
+short *b3=(short*)b2;
+float mDCT8[64], mDCT16[256], mDCT32[1024];
+#ifdef CAP_NBLOCKS
+int nblocks=0;
+#endif
+#ifdef ESTIMATE_MAGNITUDE
+float pmin[9]={0}, pmax[9]={0};
+int peaksrccoord_x[9]={0}, peaksrccoord_y[9]={0};
+#endif
+void gen_name()
+{
+	static int callcount=0;
+	sprintf_s(g_buf, G_BUF_SIZE, "out-%03d.PNG", callcount);
+	++callcount;
+}
+void save_short(const short *buffer, int iw, int ih)
+{
+	gen_name();
+	lodepng_encode_file(g_buf, (unsigned char*)buffer, iw, ih, LCT_GREY, 16);
+}
+void save_float(const float *buffer, int iw, int ih)
+{
+	int size=iw*ih;
+	unsigned char *b2=(unsigned char*)malloc(size);
+	float vmin=buffer[0], vmax=buffer[0];
+	for(int k=0;k<size;++k)
+	{
+		if(vmin>buffer[k])
+			vmin=buffer[k];
+		if(vmax<buffer[k])
+			vmax=buffer[k];
+	}
+	float gain=vmax-vmin;
+	if(gain)
+	{
+		gain=255/gain;
+		for(int k=0;k<size;++k)
+			b2[k]=(unsigned char)((buffer[k]-vmin)*gain);
+	}
+	else
+		memset(b2, 0, size);
+	gen_name();
+	lodepng_encode_file(g_buf, b2, iw, ih, LCT_GREY, 8);
+	free(b2);
+}
+int try_encode(ArrayHandle *out, InternalType *src, int iw, int ih, int x, int y, int lgdx, int lgdy, float vmin, float vmax)//this assumes the src is padded
+{
+	int bw=1<<lgdx, bh=1<<lgdy, nstages=lgdx<lgdy?lgdx:lgdy, size=bw*bh;
+	unsigned long long hist[64]={0};
+	int nbits=0;
+	size_t outsize;
+	int ky, ylim=bh<ih-y?bh:ih-y, xlim=bw<iw-x?bw:iw-x;
+	unsigned char *flag;
+
+	for(ky=0;ky<ylim;++ky)//read block (zero-padded)
+	{
+		memcpy(b2+bw*ky, src+iw*(y+ky)+x, xlim*sizeof(InternalType));
+		if(xlim<bw)
+			memset(b2+bw*ky+xlim, 0, (bw-xlim)*sizeof(InternalType));
+	}
+	if(ky<bh)
+		memset(b2+bw*ky, 0, (bh-ky)*bw*sizeof(InternalType));
+	outsize=out[0]->count;
+	switch(nstages)
+	{
+	case 2://bypass 8x8
+		{
+			flag=(unsigned char*)ARRAY_APPEND(*out, 0, 65, 1, 0);
+			flag[0]=2;
+			for(int k=0;k<64;++k)
+			{
+				float val=b2[k];
+				if(val<0)
+					val=0;
+				if(val>255)
+					val=255;
+				flag[k+1]=(unsigned char)val;
+			}
+		}
+		return (int)(out[0]->count-outsize);
+
+		//try DCT		FIXME support for nonsquare blocks
+	case 3:
+		apply_DCT_2D(mDCT8, mDCT8, b2, 8, 8, b2+32486);
+		break;
+	case 4:
+		apply_DCT_2D(mDCT16, mDCT16, b2, 16, 16, b2+32486);
+		break;
+	case 5:
+		apply_DCT_2D(mDCT32, mDCT32, b2, 32, 32, b2+32486);
+		break;
+
+	case 6:case 7:case 8://try DWT
+		dwt2_2d_fwd(b2, bw, bh, nstages-2);
+		break;
+	}
+	vmin=vmax=b2[0];
+	for(int k=0;k<size;++k)//quantize & analyze
+	{
+		float fval;
+		short sval;
+		unsigned short code, neg;
+
+		fval=b2[k];
+		//fval=sqrtf(b2[k]*10);
+#ifdef ESTIMATE_MAGNITUDE
+		if(vmin>fval)//
+			vmin=fval;
+		if(vmax<fval)
+			vmax=fval;
+#endif
+		if(fval>40000)
+			fval=fval;
+		
+		//sval=(short)fval;
+		sval=(short)(fval*0.1f);
+
+		neg=sval<0;
+		sval^=-neg;
+		sval+=neg;
+		sval<<=1;
+		sval|=neg;
+
+		code=b3[k]=sval;
+		if(k)
+			hist[code>>10]|=1LL<<(code>>4&0x3F);
+	}
+#ifdef ESTIMATE_MAGNITUDE
+	if(pmin[nstages]>vmin)//
+		pmin[nstages]=vmin;
+	if(pmax[nstages]<vmax)
+		pmax[nstages]=vmax, peaksrccoord_x[nstages]=x, peaksrccoord_y[nstages]=y;
+#endif
+
+	for(int k=0;k<64*64;++k)
+		nbits+=hist[k>>6]>>(k&63)&1;
+	if(nbits>32)//test fails if more than [quarter] levels was used
+		return 0;
+
+	//save_short(b3, bw, bh);//
+#ifdef ONEBLOCKGUIDE
+	if(!nblocks)//
+		memcpy(b4, b3, size*sizeof(short));//
+#endif
+
+	flag=(unsigned char*)ARRAY_APPEND(*out, 0, 1, 1, 0);
+	*flag=nstages;
+	int csize=abac4_encode(b3, size, 0, 12, 2, out, 0);//entropy coding
+	
+	printf("Encode %dx%d, csize=%d, ratio=%lf, %f~%f\n", bw, bh, csize, (double)size/csize, vmin, vmax);//
+	//printf("Encode %dx%d, csize=%d, ratio=%lf\n", bw, bh, csize, (double)size/csize);//
+	return (int)(out[0]->count-outsize);
+}
+void encode_buffer(ArrayHandle *out, InternalType *buffer, int bw, int bh, float vmin, float vmax)
+{
+	int ds;//change in size
+	for(int ky=0;ky<bh;ky+=256)
+	{
+		for(int kx=0;kx<bw;kx+=256)
+		{
+			//printf("\r");
+			ds=try_encode(out, buffer, bw, bh, kx, ky, 8, 8, vmin, vmax);
+#ifdef CAP_NBLOCKS
+			if(ds){++nblocks; if(nblocks>=CAP_NBLOCKS)return;}
+#endif
+			if(!ds)
+			{
+				for(int k7=0;k7<4;++k7)
+				{
+					int x7=kx+((k7&1)<<7), y7=ky+((k7>>1)<<7);
+					ds=try_encode(out, buffer, bw, bh, x7, y7, 7, 7, vmin, vmax);
+#ifdef CAP_NBLOCKS
+					if(ds){++nblocks; if(nblocks>=CAP_NBLOCKS)return;}
+#endif
+					if(!ds)
+					{
+						for(int k6=0;k6<4;++k6)
+						{
+							int x6=x7+((k6&1)<<6), y6=y7+((k6>>1)<<6);
+							ds=try_encode(out, buffer, bw, bh, x6, y6, 6, 6, vmin, vmax);
+#ifdef CAP_NBLOCKS
+							if(ds){++nblocks; if(nblocks>=CAP_NBLOCKS)return;}
+#endif
+							if(!ds)
+							{
+								for(int k5=0;k5<4;++k5)
+								{
+									int x5=x6+((k5&1)<<5), y5=y6+((k5>>1)<<5);
+									ds=try_encode(out, buffer, bw, bh, x5, y5, 5, 5, vmin, vmax);
+#ifdef CAP_NBLOCKS
+									if(ds){++nblocks; if(nblocks>=CAP_NBLOCKS)return;}
+#endif
+									if(!ds)
+									{
+										for(int k4=0;k4<4;++k4)
+										{
+											int x4=x5+((k4&1)<<4), y4=y5+((k4>>1)<<4);
+											ds=try_encode(out, buffer, bw, bh, x4, y4, 4, 4, vmin, vmax);
+#ifdef CAP_NBLOCKS
+											if(ds){++nblocks; if(nblocks>=CAP_NBLOCKS)return;}
+#endif
+											if(!ds)
+											{
+												for(int k3=0;k3<4;++k3)
+												{
+													int x3=x4+((k3&1)<<3), y3=y4+((k3>>1)<<3);
+													ds=try_encode(out, buffer, bw, bh, x3, y3, 3, 3, vmin, vmax);
+#ifdef CAP_NBLOCKS
+													if(ds){++nblocks; if(nblocks>=CAP_NBLOCKS)return;}
+#endif
+													if(!ds)//bypass
+													{
+														ds=try_encode(out, buffer, bw, bh, x3, y3, 2, 2, vmin, vmax);
+#ifdef CAP_NBLOCKS
+														if(ds){++nblocks; if(nblocks>=CAP_NBLOCKS)return;}
+#endif
+													}
+												}
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+
+#if 0
+			for(int ky2=0;ky2<256;++ky2)
+				memcpy(b2+(ky2<<8), buffer+bw*ky+kx, 256*sizeof(InternalType));
+
+			//analyze block
+			memcpy(b3, b2, 65536*sizeof(InternalType));
+			dwt2_2d_fwd(b3, 256, 256, 8);
+			vmin=b3[1], vmax=b3[1];
+			for(int k=2;k<65536;++k)
+			{
+				if(vmin>b3[k])
+					vmin=b3[k];
+				if(vmax<b3[k])
+					vmax=b3[k];
+			}
+			if(vmax-vmin<4)//pass the test
+#endif
+		}
+	}
+	//printf("\n");
+}
+const unsigned char *srcstart=0;
+int decode_block(const unsigned char **srcptr, const unsigned char *srcend, float *dst, int iw, int ih, int x, int y, int lgdim)//recursive
+{
+	if(**srcptr<lgdim)
+	{
+		for(int k=0;k<4;++k)
+		{
+			if(!decode_block(srcptr, srcend, dst, iw, ih, x+(1<<(lgdim-1)&-(k&1)), y+(1<<(lgdim-1)&-(k>>1)), lgdim-1))
+				return 0;
+#ifdef CAP_NBLOCKS
+			if(!nblocks)
+				return 1;
+#endif
+		}
+	}
+	else//decode dim x dim block at (x, y)
+	{
+		++*srcptr;
+		if(lgdim==2)//bypass 8x8
+		{
+			for(int ky=0;ky<8;++ky)
+			{
+				for(int kx=0;kx<8&&*srcptr<srcend;++kx, ++*srcptr)
+					dst[iw*(y+ky)+x+kx]=**srcptr;
+			}
+		}
+		else
+		{
+			int dim=1<<lgdim, size=dim*dim;
+			memset(b3, 0, size*sizeof(short));
+			*srcptr=(unsigned char*)abac4_decode(*srcptr, srcend, b3, size, 0, 12, 2, 0);
+#ifdef ONEBLOCKGUIDE
+			if(nblocks==CAP_NBLOCKS)
+			{
+				for(int k=0;k<size;++k)
+				{
+					if(b3[k]!=b4[k])
+					{
+						printf("GUIDE: Decode error at %d: 0x%04X != original 0x%04X\n", k, b3[k], b4[k]);
+						return 0;
+					}
+				}
+			}
+#endif
+			if(!*srcptr)
+			{
+				printf("Failed to decode %dx%d block at (%d, %d)\n", dim, dim, x, y);
+				return 0;
+			}
+			//if(*srcptr<srcend&&(**srcptr<2||**srcptr>8))
+			//{
+			//	printf("Invalid next block flag at %d\n", (int)(*srcptr-srcstart));
+			//	return 0;
+			//}
+			//if(*srcptr<srcend&&!(srcptr[0][0]=='A'&&srcptr[0][0]=='C'&&srcptr[0][0]=='0'&&srcptr[0][0]=='4'))//abac4
+			//{
+			//	printf("Invalid next block tag at %d\n", (int)(*srcptr-srcstart));
+			//	return 0;
+			//}
+			for(int k=size-1;k>=0;--k)//dequantize
+			{
+				short sval;
+				unsigned short neg;
+
+				sval=b3[k];
+
+				neg=sval&1;
+				sval>>=1;
+				sval^=-neg;
+				sval+=neg;
+
+				b2[k]=(float)(10*sval);
+			}
+			switch(lgdim)
+			{
+			case 3://DCT 8x8
+				apply_DCT_2D(mDCT8, mDCT8, b2, 8, 8, b2+32486);
+				break;
+			case 4://DCT 16x16
+				apply_DCT_2D(mDCT16, mDCT16, b2, 16, 16, b2+32486);
+				break;
+			case 5://DCT 32x32
+				apply_DCT_2D(mDCT32, mDCT32, b2, 32, 32, b2+32486);
+				break;
+			case 6://DWT 64x64
+			case 7://DWT 128x128
+			case 8://DWT 256x256
+				dwt2_2d_inv(b2, dim, dim, lgdim-2);
+				break;
+			}
+			int ky, ylim=dim<ih-y?dim:ih-y, xlim=dim<iw-x?dim:iw-x;
+			for(ky=0;ky<ylim;++ky)//read block (zero-padded)
+				memcpy(dst+iw*(y+ky)+x, b2+dim*ky, xlim*sizeof(InternalType));
+		}
+	}
+#ifdef CAP_NBLOCKS
+	--nblocks;
+#endif
+	return 1;
+}
+int decode_buffer(const unsigned char **srcptr, const unsigned char *srcend, float *dst, int iw, int ih)
+{
+	for(int ky=0;ky<ih;ky+=256)
+	{
+		for(int kx=0;kx<iw;kx+=256)
+		{
+			if(!decode_block(srcptr, srcend, dst, iw, ih, kx, ky, 8))
+				return 0;
+#ifdef CAP_NBLOCKS
+			if(!nblocks)
+				return 1;
+#endif
+		}
+	}
+	return 1;
+}
+void test2(int argc, char **argv)
+{
+	int iw, ih, nch;
+	int *image;
+	int size;
+	InternalType *bufY, *bufCo, *bufCg;
+	ArrayHandle out;
+
+	if(argc!=2)
+	{
+		printf("Usage: program input_file\n\n");
+		exit(1);
+	}
+	image=(int*)stbi_load(argv[1], &iw, &ih, &nch, 4);
+	if(!image)
+	{
+		printf("Cannot open \'%s\'\n\n", argv[1]);
+		exit(1);
+	}
+
+	printf("Encoding \'%s\'...\n", argv[1]);//encode
+	init_fwdDCT(mDCT8, 3);
+	init_fwdDCT(mDCT16, 4);
+	init_fwdDCT(mDCT32, 5);
+	size=iw*ih;
+	bufY=(InternalType*)malloc(size*sizeof(InternalType));
+	bufCo=(InternalType*)malloc(size*sizeof(InternalType));
+	bufCg=(InternalType*)malloc(size*sizeof(InternalType));
+	ARRAY_ALLOC(unsigned char, out, 0, 0, 0, 0);
+	
+	//color transform
+	YCoCg_f32_fwd(image, size, bufY, bufCo, bufCg);
+	encode_buffer(&out, bufY, iw, ih, 0, 255);
+#ifndef CAP_NBLOCKS
+	encode_buffer(&out, bufCo, iw, ih, -255, 255);
+	encode_buffer(&out, bufCg, iw, ih, -255, 255);
+#endif
+
+#ifdef ESTIMATE_MAGNITUDE
+	printf("Ranges:\n");
+	for(int k=0;k<9;++k)
+		printf("%d\t%f ~ %f at (%d, %d)\n", k, pmin[k], pmax[k], peaksrccoord_x[k], peaksrccoord_y[k]);
+	printf("\n");
+#endif
+#if 0
+	const char hello[]="helloooooooooooooooooooo woooooooooooooooooooooorld!!!!!!!!!!!!";
+	int blocksize=sizeof(hello);
+	for(int k=0;k<4;++k)
+	{
+		int csize=abac4_encode(hello, blocksize, 0, 8, 1, &out, 0);
+		printf("Encoded %d -> %d\n", blocksize, csize);
+	}
+#endif
+#if 0
+	//long long tail=0xEFCDAB8967452301;
+	//ARRAY_APPEND(out, &tail, 8, 1, 0);
+	for(int k=0;k<(int)out->count;++k)
+		printf("%02X", out->data[k]&0xFF);
+	printf("\n");
+#endif
+
+	printf("%dx%dx3 = %d -> %d, ratio = %lf\n", iw, ih, size*3, (int)out->count, (double)size*3/out->count);
+	
+	printf("Decoding...\n");//decode
+	init_invDCT(mDCT8, 3);
+	init_invDCT(mDCT16, 4);
+	init_invDCT(mDCT32, 5);
+
+	const unsigned char *srcptr=out->data, *srcend=out->data+out->count;
+	srcstart=out->data;
+	int success;
+	success=decode_buffer(&srcptr, srcend, bufY, iw, ih);
+	if(!success)
+		goto quit;
+#ifndef CAP_NBLOCKS
+	success=decode_buffer(&srcptr, srcend, bufCo, iw, ih);
+	if(!success)
+		goto quit;
+	success=decode_buffer(&srcptr, srcend, bufCg, iw, ih);
+	if(!success)
+		goto quit;
+#endif
+	printf("Inverse color transform...\n");
+	YCoCg_f32_inv(image, size, bufY, bufCo, bufCg);
+
+	printf("Saving...\n");
+	lodepng_encode_file("out.PNG", (unsigned char*)image, iw, ih, LCT_RGBA, 8);
+	printf("SUCCESS?\n");
+	//spatial decorrelating transforms
+	//quantization
+	//entropy coding
+	//dequantization & inverse spatial transforms
+	//inverse channel transform
+	//save out.PNG
+quit:
+	pause();
+	exit(0);
+}
+void test3()
+{
+	const char hello[]="helloooooooooooooooooooo woooooooooooooooooooooorld!!!!!!!!!!!!";
+	int blocksize=sizeof(hello);
+	ArrayHandle out;
+	int csize;
+	unsigned char *buf;
+	const unsigned char *srcptr, *srcend;
+	int ntimes=4;
+
+	ARRAY_ALLOC(unsigned char, out, 0, 0, 0, 0);
+	for(int k=0;k<ntimes;++k)
+	{
+		csize=abac4_encode(hello, blocksize, 0, 8, 1, &out, 0);
+		printf("Encoded %d -> %d\n", blocksize, csize);
+	}
+
+	buf=(unsigned char*)malloc(blocksize);
+	memset(buf, 0, blocksize);
+	srcptr=out->data;
+	srcend=out->data+out->count;
+	for(int k=0;k<ntimes;++k)
+	{
+		srcptr=(unsigned char*)abac4_decode(srcptr, srcend, buf, blocksize, 0, 8, 1, 0);
+		if(!srcptr)
+		{
+			printf("Decode failure at block %d\n", k);
+			goto failure;
+		}
+		int clean=1;
+		for(int k2=0;k2<blocksize;++k2)
+		{
+			if(buf[k2]!=hello[k2])
+			{
+				printf("Decode failure at block %d at sym %d: 0x%02X != original 0x%02X\n", k, k2, buf[k2]&0xFF, hello[k2]&0xFF);
+				goto failure;
+			}
+		}
+	}
+	printf("SUCCESS\n");
+failure:
+	free(buf);
+	pause();
+	exit(0);
+}
+void test4()
+{
+	memset(b2, 0, sizeof(b2));
+	b2[0]=1000;
+	//dwt2_2d_fwd(b2, 256, 256, 6);
+	dwt2_2d_inv(b2, 256, 256, 6);
+	save_float(b2, 256, 256);
+
+	pause();
+	exit(0);
+}
+#endif
+#if 0
 void print_buffer_double(double *data, int count)
 {
 	for(int k=0;k<count;++k)
@@ -409,12 +945,16 @@ void DCT_test()
 
 int			main(int argc, char **argv)
 {
-	DCT_test();//
+	set_console_buffer_size(120, 4096);
+
+	//DCT_test();//
+//	test4();
+//	test3();
+	test2(argc, argv);
 
 	//int sum=0;
 	//for(int k=0;k<_countof(weights);++k)
 	//	sum+=weights[k];
-	set_console_buffer_size(120, 4096);
 #if 0
 	{
 		for(int k=0;k<32;++k)
@@ -446,7 +986,7 @@ int			main(int argc, char **argv)
 
 #if 0
 	ArrayHandle cbuf=0;
-	//YCoCg_fwd((int*)image, iw*ih);
+	//YCoCg_i32_fwd((int*)image, iw*ih);
 	test_encode((int*)image, iw, ih, nch<<3, pred1, &cbuf, 1);
 	
 	array_free(&cbuf);

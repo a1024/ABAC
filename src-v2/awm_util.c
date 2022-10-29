@@ -345,7 +345,7 @@ int				log_error(const char *file, int line, const char *format, ...)
 {
 	int firsttime=first_error_msg[0]=='\0';
 
-	size_t size=strlen(file), start=size-1;
+	ptrdiff_t size=strlen(file), start=size-1;
 	for(;start>=0&&file[start]!='/'&&file[start]!='\\';--start);
 	start+=start==-1||file[start]=='/'||file[start]=='\\';
 

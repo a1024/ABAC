@@ -35,6 +35,7 @@ static const char file[]=__FILE__;
 //	#define		ENABLE_SYMBOL_ESTIMATION
 	#define		ENABLE_CONFIDENCE//FIXME commenting this breaks abac0a
 
+//	#define		DEBUG_ABAC2
 //	#define		PRINT_SSE2
 
 
@@ -135,38 +136,11 @@ void aligned_free(void *p)
 
 //JPEG
 
-//https://en.wikipedia.org/wiki/YCbCr#JPEG_conversion
-void			YCbCr_fwd(const int *image, float *Y, float *Cb, float *Cr, int count)
-{
-	int k, R, G, B;
-	const int *v;
 
-	for(k=0;k<count;++k)
-	{
-		v=image+k;
-		R=*v&0xFF;
-		G=*v>>8&0xFF;
-		B=*v>>16&0xFF;
-		Y[k]=0.299f*R+0.587f*G+0.114f*B;
-		Cb[k]=128-0.168736f*R-0.331264f*G+0.5f*B;
-		Cr[k]=128+0.5f*R+0.418688f*G+0.081312f*B;
-	}
-}
-void			YCbCr_inv(int *image, const float *Y, const float *Cb, const float *Cr, int count)
-{
-	int k, R, G, B;
-	float Cb2, Cr2;
-
-	for(k=0;k<count;++k)
-	{
-		Cb2=Cb[k]-128;
-		Cr2=Cr[k]-128;
-		R=(int)(Y[k]+1.402f*Cr2);
-		G=(int)(Y[k]-0.344136f*Cb2-0.714136f*Cr2);
-		B=(int)(Y[k]+1.772f*Cb2);
-		image[k]=B<<16|G<<8|R;
-	}
-}
+//DCT
+//void			apply_transform_1D(const short *in, short *out, int size, const float *matrix)
+//{
+//}
 
 //DCT 8x8 float
 void			DCT8_ref(double *data, int inv)
@@ -221,17 +195,71 @@ void			DCT8_ref(double *data, int inv)
 	}
 	memcpy(data, d2, 8*sizeof(double));
 }
+void			DST8_ref(double *data, int inv)//TODO
+{
 #if 0
+#define C0_5	0.5*0.9807852804032304491261822361342
+#define C1_0	0.5*0.9238795325112867561281831893968
+#define C1_5	0.5*0.8314696123025452370787883776179
+#define C2_0	0.5*0.7071067811865475244008443621048
+#define C2_5	0.5*0.5555702330196022247428308139485
+#define C3_0	0.5*0.3826834323650897717284599840304
+#define C3_5	0.5*0.195090322016128267848284868477
+	//https://en.wikipedia.org/wiki/Discrete_sine_transform#DST-II
+	static const double f_coeff[]=//X[k] = sqrt(2/N) * sum x[n] * cos(pi/N*(n+1/2)*k)
+	{//k \ n
+		0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5,
+		C0_5,  C1_5,  C2_5,  C3_5, -C3_5, -C2_5, -C1_5, -C0_5,
+		C1_0,  C3_0, -C3_0, -C1_0, -C1_0, -C3_0,  C3_0,  C1_0,
+		C1_5, -C3_5, -C0_5, -C2_5,  C2_5,  C0_5,  C3_5, -C1_5,
+		C2_0, -C2_0, -C2_0,  C2_0,  C2_0, -C2_0, -C2_0,  C2_0,
+		C2_5, -C0_5,  C3_5,  C1_5, -C1_5, -C3_5,  C0_5, -C2_5,
+		C3_0, -C1_0,  C1_0, -C3_0, -C3_0,  C1_0, -C1_0,  C3_0,
+		C3_5, -C2_5,  C1_5, -C0_5,  C0_5, -C1_5,  C2_5, -C3_5,
+	};
+	//https://en.wikipedia.org/wiki/Discrete_sine_transform#DST-III
+	static const double i_coeff[]=//X[k] = sqrt(2/N) * (x0/2 + sum x[n] * cos(pi/N*(k+1/2)*n))
+	{//k \ n
+		0.25,  C0_5,  C1_0,  C1_5,  C2_0,  C2_5,  C3_0,  C3_5,
+		0.25,  C1_5,  C3_0, -C3_5, -C2_0, -C0_5, -C1_0, -C2_5,
+		0.25,  C2_5, -C3_0, -C0_5, -C2_0,  C3_5,  C1_0,  C1_5,
+		0.25,  C3_5, -C1_0, -C2_5,  C2_0,  C1_5, -C3_0, -C0_5,
+		0.25, -C3_5, -C1_0,  C2_5,  C2_0, -C1_5, -C3_0,  C0_5,
+		0.25, -C2_5, -C3_0,  C0_5, -C2_0, -C3_5,  C1_0, -C1_5,
+		0.25, -C1_5,  C3_0,  C3_5, -C2_0,  C0_5, -C1_0,  C2_5,
+		0.25, -C0_5,  C1_0, -C1_5,  C2_0, -C2_5,  C3_0, -C3_5,
+	};
+#undef	C0_5
+#undef	C1_0
+#undef	C1_5
+#undef	C2_0
+#undef	C2_5
+#undef	C3_0
+#undef	C3_5
+	const double *coeff=inv?i_coeff:f_coeff;
+	double d2[8];
+	int k, n;
+
+	for(k=0;k<8;++k)
+	{
+		d2[k]=0;
+		for(n=0;n<8;++n)
+			d2[k]+=coeff[k<<3|n]*data[n];
+	}
+	memcpy(data, d2, 8*sizeof(double));
+#endif
+}
+#if 1
 static const double S[]=//scaling coefficients
 {
-	0.353553390593273762200422/2,
-	0.254897789552079584470970,
-	0.270598050073098492199862,
-	0.300672443467522640271861,
-	0.353553390593273762200422,
-	0.449988111568207852319255,
-	0.653281482438188263928322,
-	1.281457723870753089398043,
+	0.353553390593273762200422*8*1.41421356237309504880168872421,
+	0.254897789552079584470970*8,
+	0.270598050073098492199862*8,
+	0.300672443467522640271861*8,
+	0.353553390593273762200422*8,
+	0.449988111568207852319255*8,
+	0.653281482438188263928322*8,
+	1.281457723870753089398043*8,
 };
 
 static const double A[]=
@@ -249,9 +277,9 @@ void			DCT8f_fwd(double *data)
 #if 1
 	static const double coeff[]=
 	{
-		0.382683432365089771728460,//1
-		0.541196100146196984399723,//2
-		0.707106781186547524400844,//0
+		0.382683432365089771728460,
+		0.541196100146196984399723,
+		0.707106781186547524400844,
 		1.306562964876376527856643,
 	};
 
@@ -292,14 +320,14 @@ void			DCT8f_fwd(double *data)
 	data[6]=(b3-d0)*0.125;
 	data[7]=(d3-d2)*0.125;
 
-	//data[0]=(b0+b1)*S[0];
-	//data[1]=(d3+d2)*S[1];
-	//data[2]=(d0+b3)*S[2];
-	//data[3]=(d4-d1)*S[3];
-	//data[4]=(b0-b1)*S[4];
-	//data[5]=(d1+d4)*S[5];
-	//data[6]=(b3-d0)*S[6];
-	//data[7]=(d3-d2)*S[7];
+	data[0]*=S[0];
+	data[1]*=S[1];
+	data[2]*=S[2];
+	data[3]*=S[3];
+	data[4]*=S[4];
+	data[5]*=S[5];
+	data[6]*=S[6];
+	data[7]*=S[7];
 #endif
 
 	//https://www.nayuki.io/page/fast-discrete-cosine-transform-algorithms
@@ -408,14 +436,14 @@ void			DCT8f_inv(double *data)
 		 1.082392200292393968799446,
 		 1.41421356237309504880168872421,
 	};
-	//data[0]/=S[0];//0 BRP is its own inverse
-	//data[1]/=S[1];//4
-	//data[2]/=S[2];//2
-	//data[3]/=S[3];//6
-	//data[4]/=S[4];//1
-	//data[5]/=S[5];//5
-	//data[6]/=S[6];//3
-	//data[7]/=S[7];//7
+	data[0]/=S[0];//0 BRP is its own inverse
+	data[1]/=S[1];//4
+	data[2]/=S[2];//2
+	data[3]/=S[3];//6
+	data[4]/=S[4];//1
+	data[5]/=S[5];//5
+	data[6]/=S[6];//3
+	data[7]/=S[7];//7
 	
 	double
 		a0=data[0]+data[4],
@@ -505,45 +533,6 @@ void			DCT8f_inv(double *data)
 }
 void			DCT8x8f_fwd(float *data, int bw, int bh)
 {
-}
-
-
-//https://en.wikipedia.org/wiki/YCoCg#The_lifting-based_YCoCg-R_variation
-void			YCoCg_fwd(int *image, int count)
-{
-	int *v, R, G, B, Y, Co, Cg;
-	for(int k=0;k<count;++k)
-	{
-		v=image+k;
-		R=*v&0xFF;
-		G=*v>>8&0xFF;
-		B=*v>>16&0xFF;
-
-		Co=R-B;
-		B+=Co>>1;
-		Cg=G-B;
-		Y=B+(Cg>>1);
-
-		*v=Cg<<17|Co<<8|Y;
-	}
-}
-void			YCoCg_inv(int *image, int count)
-{
-	int *v, R, G, B, Y, Co, Cg;
-	for(int k=0;k<count;++k)
-	{
-		v=image+k;
-		Y=*v&0xFF;
-		Co=*v>>8&0x1FF;
-		Cg=*v>>17&0x1FF;
-
-		R=Y-(Cg>>1);
-		G=Cg+R;
-		B=R-(Co>>1);
-		R=B+Co;
-
-		*v=B<<16|G<<8|R;
-	}
 }
 
 
@@ -1284,6 +1273,9 @@ const void*		abac0a_decode(const void *src_start, const void *src_end, unsigned 
 	return ptr[7];
 }
 
+#ifdef DEBUG_ABAC2
+int examined_plane=9, examined_start=0, examined_end=100;
+#endif
 int				abac4_encode(const void *src, int symcount, int bitoffset, int bitdepth, int bytestride, ArrayHandle *output, int loud)
 {
 	DList list;
@@ -1436,7 +1428,7 @@ int				abac4_encode(const void *src, int symcount, int bitoffset, int bitdepth, 
 				r2+=(r2==0)-(r2==range);
 #ifdef DEBUG_ABAC2
 				if(kp==examined_plane&&kb>=examined_start&&kb<examined_end)
-					printf("%6d %6d %d %08X+%08X %08X %08X\n", kp, kb, bit, start, (int)range, r2, start+r2);
+					printf("%6d %6d %d %08X+%08X %04X %08X %08X\n", kp, kb, bit, start, (int)range, p0, r2, start+r2);
 #endif
 
 				int correct=bit^(p0>=PROB_HALF);
@@ -1518,13 +1510,15 @@ int				abac4_encode(const void *src, int symcount, int bitoffset, int bitdepth, 
 			printf("%02X-", output[0]->data[offset0+k]&0xFF);
 		printf("\n");
 	}
+	size_t csize=list.nobj;
 	dlist_clear(&list);
-	return 1;
+	return (int)csize;
 }
 const void*		abac4_decode(const void *in_start, const void *in_end, void *dst, int imsize, int bitoffset, int bitdepth, int bytestride, int loud)//set the dst buffer to zero
 {
-	const unsigned char *sizes, *conf, *data;
+	const unsigned char *data;
 	unsigned char *buffer;
+	int sizes[64], conf[64];
 	u64 t1, t2;
 
 	if(!in_start||!in_end||!dst||!imsize||!bitdepth||!bytestride)
@@ -1533,7 +1527,8 @@ const void*		abac4_decode(const void *in_start, const void *in_end, void *dst, i
 	data=(const unsigned char*)in_start;
 	buffer=(unsigned char*)dst;
 	//memset(buffer, 0, imsize*bytestride);
-
+	
+#define PTR2OFFSET(PTR)		(int)((ptrdiff_t)(PTR)-(ptrdiff_t)in_start)
 	int headercount=1+(bitdepth<<1);
 	if((int)(headercount*sizeof(int))>=(unsigned char*)in_end-data)
 		FAIL("File is %d bytes < %d", (int)((unsigned char*)in_end-data), headercount*sizeof(int));
@@ -1541,33 +1536,42 @@ const void*		abac4_decode(const void *in_start, const void *in_end, void *dst, i
 	memcpy(&magic, data, sizeof(int));
 	if(magic!=magic_ac04)
 		FAIL("Invalid magic number 0x%08X, expected 0x%08X", magic, magic_ac04);
-	sizes=data+sizeof(int);
-	conf=sizes+bitdepth*sizeof(int);
-	data=conf+bitdepth*sizeof(int);
-	
+	data+=sizeof(int);
+	memcpy(sizes, data, bitdepth*sizeof(int));
+	data+=bitdepth*sizeof(int);
+	memcpy(conf, data, bitdepth*sizeof(int));
+	data+=bitdepth*sizeof(int);
+
+#if 0
+	printf("Compressed plane sizes:\n");
+	for(int k=0;k<bitdepth;++k)
+		printf("kp %d\t%d\n", k, sizes[k]);
+#endif
+
 	for(int kp=bitdepth-1;kp>=0;--kp)//bit-plane loop
 	{
 		int kp2=kp+bitoffset;
 		int bit_offset=kp2>>3, bit_shift=kp2&7;
 		int bit_offset2=(kp2+1)>>3, bit_shift2=(kp2+1)&7;
-		int ncodes;
-		memcpy(&ncodes, sizes+kp*sizeof(int), sizeof(int));
+		int ncodes=sizes[kp];
+		const unsigned char *plane_end=data+ncodes;
+		//memcpy(&ncodes, sizes+kp*sizeof(int), sizeof(int));
 		
 		unsigned prob=PROB_HALF, prob_correct=PROB_HALF;
 #if 1
-		u64 hitcount=0;
-		memcpy(&hitcount, conf+kp*sizeof(int), sizeof(int));
+		u64 hitcount=conf[kp];
+		//memcpy(&hitcount, conf+kp*sizeof(int), sizeof(int));
 		if(hitcount<imsize*MIN_CONF)
 		{
+			if(plane_end>(const unsigned char*)in_end)
+				FAIL("Decode error (bypass): plane end %d > input end %d", PTR2OFFSET(plane_end), PTR2OFFSET(in_end));
 			for(int kb=0, kb2=0;kb<imsize;++kb, kb2+=bytestride)
 			{
 				int byte_idx=kb>>3, bit_idx=kb&7;
 				const unsigned char *b=data+byte_idx;
-				if((const unsigned char*)in_end<b)
-				{
-					FAIL("Decode error (bypass): ptr %p > in_end %p", b, in_end);
-					return 0;
-				}
+				//if((const unsigned char*)in_end<b)
+				if(b>=plane_end)
+					FAIL("Decode error (bypass): ptr %d > plane %d ~ %d", PTR2OFFSET(b), PTR2OFFSET(plane_end-ncodes), PTR2OFFSET(plane_end));
 				int bit=*b>>bit_idx&1;
 				buffer[kb2+bit_offset]|=bit<<bit_shift;
 			//	buffer[kb]|=bit<<kp;
@@ -1577,8 +1581,7 @@ const void*		abac4_decode(const void *in_start, const void *in_end, void *dst, i
 					FAIL("Decode error (bypass): data %d expected %d got %d", kp, original_bit, bit);
 #endif
 			}
-			data+=ncodes;
-			//cusize+=ncodes;
+			data=plane_end;
 			continue;
 		}
 #ifdef ABAC2_CONF_MSB_RELATION
@@ -1597,14 +1600,21 @@ const void*		abac4_decode(const void *in_start, const void *in_end, void *dst, i
 		unsigned code, start=0;
 		u64 range=0xFFFFFFFF;
 
-		code=data[0]<<24|data[1]<<16|data[2]<<8|data[3];
 		data+=sizeof(int);
+		if(data>plane_end)
+			FAIL("Decode error: ptr %d > plane %d ~ %d, kp %d before loop", PTR2OFFSET(data), PTR2OFFSET(plane_end-ncodes), PTR2OFFSET(plane_end), kp);
+		code=data[-4]<<24|data[-3]<<16|data[-2]<<8|data[-1];
+
+		//printf("kp %d offset %d code %08X\n", kp, PTR2OFFSET(data), code);//
+
 		for(int kb=0, kb2=0;kb<imsize;kb2+=bytestride)//bit-pixel loop
 		{
 			if(range<3)
 			{
-				code=data[0]<<24|data[1]<<16|data[2]<<8|data[3];
 				data+=sizeof(int);
+				if(data>plane_end)
+					FAIL("Decode error: ptr %d > plane %d ~ %d, kp %d kb %d / %d", PTR2OFFSET(data), PTR2OFFSET(plane_end-ncodes), PTR2OFFSET(plane_end), kp, kb, imsize);
+				code=data[-4]<<24|data[-3]<<16|data[-2]<<8|data[-1];
 				start=0, range=0xFFFFFFFF;//because 1=0.9999...
 			}
 #ifdef ABAC2_CONF_MSB_RELATION
@@ -1650,7 +1660,7 @@ const void*		abac4_decode(const void *in_start, const void *in_end, void *dst, i
 			int bit=code>middle;
 #ifdef DEBUG_ABAC2
 			if(kp==examined_plane&&kb>=examined_start&&kb<examined_end)
-				printf("%6d %6d %d %08X+%08X %08X %08X %08X\n", kp, kb, bit, start, (int)range, r2, middle, code);
+				printf("%6d %6d %d %08X+%08X %04X %08X %08X %08X\n", kp, kb, bit, start, (int)range, p0, r2, middle, code);
 #endif
 			
 			int correct=bit^(p0>=PROB_HALF);
@@ -1694,16 +1704,25 @@ const void*		abac4_decode(const void *in_start, const void *in_end, void *dst, i
 				if(kp==examined_plane&&kb>=examined_start&&kb<examined_end)
 					printf("range 0x%08X byte-out 0x%02X\n", (int)range, code>>24);
 #endif
-				code=code<<8|*data;
 				++data;
+				if(data>plane_end)
+					FAIL("Decode error: ptr %d > plane %d ~ %d, kp %d kb %d / %d", PTR2OFFSET(data), PTR2OFFSET(plane_end-ncodes), PTR2OFFSET(plane_end), kp, kb, imsize);
+				code=code<<8|data[-1];
 				start<<=8;
 				range=range<<8|0xFF;
+
+				//printf("[%d/%d]%02X %d-", PTR2OFFSET(data), PTR2OFFSET(plane_end), data[-1]&0xFF, kb);//
+				//if(PTR2OFFSET(data)==160)//
+				//	printf("kp %d kb %d code %08X\n", kp, kb, code);//
 			}
 		}
+		if(data!=plane_end)
+			FAIL("Decode error: end of plane: ptr %d, plane %d ~ %d, kp %d", PTR2OFFSET(data), PTR2OFFSET(plane_end-ncodes), PTR2OFFSET(plane_end), kp);
 		//data+=ncodes;
 		//cusize+=ncodes;
 	}
 	t2=__rdtsc();
+#undef	PTR2OFFSET
 
 	if(loud)
 		printf("AC decode:  %lld cycles, %lf c/byte\n", t2-t1, (double)(t2-t1)/(imsize*bitdepth>>3));
