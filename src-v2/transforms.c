@@ -215,17 +215,28 @@ void fft_dit_ps(float *re, float *im, int lgsize, int forward)//DIT vs DIF: simp
 		float rewm=(float)cos(angle), imwm=(float)sin(angle);//exp(-+ 2*pi*i*(N/m)/N)
 		for(int k=0;k<size;k+=m)
 		{
-			float rew=1, imw=0;
 
-			for(int j=0;;)
+			float
+				re0=re[k],
+				im0=im[k],
+				re1=re[k+m2],
+				im1=im[k+m2];
+
+			re[k]=re0+re1;
+			im[k]=im0+im1;
+			re[k+m2]=re0-re1;
+			im[k+m2]=im0-im1;
+
+			float rew=rewm, imw=imwm;
+			for(int j=1;;)
 			{
 				int idx=k+j;
+				re0=re[idx];
+				im0=im[idx];
+				re1=re[idx+m2];
+				im1=im[idx+m2];
 				
 				float
-					re0=re[idx],
-					im0=im[idx],
-					re1=re[idx+m2],
-					im1=im[idx+m2],
 					re2=rew*re1-imw*im1,
 					im2=rew*im1+imw*re1;
 
@@ -233,6 +244,8 @@ void fft_dit_ps(float *re, float *im, int lgsize, int forward)//DIT vs DIF: simp
 				im[idx]=im0+im2;
 				re[idx+m2]=re0-re2;
 				im[idx+m2]=im0-im2;
+
+				nmuls+=4;//
 
 				++j;
 				if(j>=m2)
@@ -242,6 +255,8 @@ void fft_dit_ps(float *re, float *im, int lgsize, int forward)//DIT vs DIF: simp
 				im0=rewm*imw+imwm*rew;
 				rew=re0;
 				imw=im0;
+
+				nmuls+=4;//
 			}
 		}
 	}
@@ -257,8 +272,19 @@ void fft_dif_ps(float *re, float *im, int lgsize, int forward)
 		float rewm=(float)cos(angle), imwm=(float)sin(angle);//exp(-+ 2*pi*i*(N/m)/N)
 		for(int k=0;k<size;k+=m)
 		{
-			float rew=1, imw=0;
-			for(int j=0;;)
+			float
+				re0=re[k],
+				im0=im[k],
+				re1=re[k+m2],
+				im1=im[k+m2];
+
+			re[k]=re0+re1;
+			im[k]=im0+im1;
+			re[k+m2]=re0-re1;
+			im[k+m2]=im0-im1;
+			
+			float rew=rewm, imw=imwm;
+			for(int j=1;;)
 			{
 				int idx=k+j;
 				float
@@ -275,6 +301,8 @@ void fft_dif_ps(float *re, float *im, int lgsize, int forward)
 				
 				re[idx+m2]=rew*re0-imw*im0;
 				im[idx+m2]=rew*im0+imw*re0;
+
+				nmuls+=4;//
 				
 				++j;
 				if(j>=m2)
@@ -284,6 +312,8 @@ void fft_dif_ps(float *re, float *im, int lgsize, int forward)
 				im0=rewm*imw+imwm*rew;
 				rew=re0;
 				imw=im0;
+
+				nmuls+=4;//
 			}
 		}
 	}
