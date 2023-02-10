@@ -260,7 +260,7 @@ int rans4_encode(const void *src, ptrdiff_t nbytes, int symbytes, int is_signed,
 				val<<=1;
 				val|=neg;
 			}
-			SymbolInfo *p=info+(kc<<ANS_DEPTH)+val;
+			SymbolInfo *p=info+(kc<<ANS_DEPTH|val);
 
 			//renormalize
 			if(state[kc]>=p->renorm_limit)
@@ -339,8 +339,8 @@ int rans4_decode(const unsigned char *srcdata, ptrdiff_t srclen, ptrdiff_t nbyte
 		for(int kc=0;kc<symbytes;++kc, ++idx)
 		{
 			unsigned short c=(unsigned short)state[kc];
-			unsigned char val=CDF2sym[c];
-			SymbolInfo *p=info+val;
+			unsigned char val=CDF2sym[kc<<ANS_PROB_BITS|c];
+			SymbolInfo *p=info+(kc<<ANS_DEPTH|val);
 			//if(!p->freq)
 			//	LOG_ERROR("Symbol 0x%02X has zero frequency", s);
 			

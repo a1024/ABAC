@@ -98,9 +98,12 @@ int main(int argc, char **argv)
 	size_t len=resolution*nch;
 	unsigned char *buf=(unsigned char*)malloc(len),
 		*b2=(unsigned char*)malloc(len);
-	//srand((unsigned)__rdtsc());
-	printf("Generating test data...\n");
-	fill_halfbinomial(buf, len, 16);
+	srand((unsigned)__rdtsc());
+
+	int unibits=8;
+
+	printf("Generating test data (%d bit)...\n", unibits);
+	fill_halfbinomial(buf, len, unibits);
 	//calc_histogram(buf, len, hist);
 	//print_histogram(hist, 1);
 	printf("\n");
