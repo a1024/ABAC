@@ -11,7 +11,7 @@ static const char file[]=__FILE__;
 
 	#define PROF(...)//
 
-const int tag_rans4='A'|'N'<<8|'0'<<16|'4'<<24;
+const int tag_arans='A'|'N'<<8|'0'<<16|'5'<<24;
 
 typedef struct SortedHistInfoStruct
 {
@@ -19,7 +19,7 @@ typedef struct SortedHistInfoStruct
 		freq, //original freq
 		qfreq;//quantized freq
 } SortedHistInfo;
-static int histinfo_byfreq(const void *left, const void *right)
+int histinfo_byfreq(const void *left, const void *right)
 {
 	SortedHistInfo const *a, *b;
 
@@ -27,7 +27,7 @@ static int histinfo_byfreq(const void *left, const void *right)
 	b=(SortedHistInfo const*)right;
 	return (a->freq>b->freq)-(a->freq<b->freq);
 }
-static int histinfo_bysym(const void *left, const void *right)
+int histinfo_bysym(const void *left, const void *right)
 {
 	SortedHistInfo const *a, *b;
 
@@ -35,7 +35,7 @@ static int histinfo_bysym(const void *left, const void *right)
 	b=(SortedHistInfo const*)right;
 	return (a->sym>b->sym)-(a->sym<b->sym);
 }
-static int rans_calc_histogram(const unsigned char *buffer, int nsymbols, int bytestride, unsigned char *hist, int prob_bits, int integrate)//hist is unsigned char due to alignment issues, but it's 16bit
+int rans_calc_histogram(const unsigned char *buffer, int nsymbols, int bytestride, unsigned char *hist, int prob_bits, int integrate)//hist is unsigned char due to alignment issues, but it's 16bit
 {
 	int prob_sum=1<<prob_bits;
 	//MY_ASSERT(ANS_NLEVELS<prob_sum, "Channel depth %d >= PROB_BITS %d", ANS_NLEVELS, prob_sum);//what if ANS_NLEVELS = 2^N-1 ?
@@ -107,7 +107,7 @@ static int rans_calc_histogram(const unsigned char *buffer, int nsymbols, int by
 	{
 		if(h[k].qfreq>0xFFFF)
 			LOG_ERROR("Internal error: symbol %d has probability %d", k, h[k].qfreq);
-		memcpy(hist+(k<<1), integrate?&sum:&h[k].qfreq, 2);//2-byte alignment
+		memcpy(hist+((size_t)k<<1), integrate?&sum:&h[k].qfreq, 2);//2-byte alignment
 		sum+=h[k].qfreq;
 	}
 	if(sum!=ANS_L)
@@ -134,7 +134,7 @@ void print_histogram(SymbolInfo *hist, int nsymbols)
 }
 #endif
 
-static int rans_prep(const void *hist_ptr, int bytespersymbol, SymbolInfo **info, unsigned char **CDF2sym, int loud)
+int rans_prep(const void *hist_ptr, int bytespersymbol, SymbolInfo **info, unsigned char **CDF2sym, int loud)
 {
 	int tempsize=bytespersymbol*(ANS_NLEVELS*sizeof(SymbolInfo)+(ANS_L&-(CDF2sym!=0)));
 	*info=(SymbolInfo*)malloc(tempsize);
@@ -212,82 +212,64 @@ static int rans_prep(const void *hist_ptr, int bytespersymbol, SymbolInfo **info
 	return 1;
 }
 
-int rans4_encode(const void *src, ptrdiff_t nbytes, int symbytes, int is_signed, ArrayHandle *out, int loud)//symbytes: up to 16
+static unsigned short g_hist[256], g_freq[256];
+int arans_encode(const void *src, ptrdiff_t nbytes, int bytestride, ArrayHandle *out)
 {
-	const int infosize=ANS_NLEVELS*sizeof(SymbolInfo), lginfosize=13;
 	DList list;
 	const unsigned char *buf=(const unsigned char*)src;
-	size_t dstidx;
-	SymbolInfo *info;
-	int internalheadersize=4+8+symbytes*ANS_NLEVELS*sizeof(short);
-	int chmask=symbytes-1;
+	
+	long long cycles=__rdtsc();
+	dlist_init(&list, 1, 1024, 0);
+	dlist_push_back(&list, 0, 12);//header = {tag, csize}
 
+	unsigned state=0x10000;
+	unsigned char hist_idx=0;
+	memset(g_hist, -1, sizeof(g_hist));
+	for(int k=0;k<256;++k)
+		g_freq[k]=256;
+	for(ptrdiff_t ks=0;ks<nbytes;ks+=bytestride)
+	{
+		unsigned char sym=buf[ks];
+		unsigned short CDF=0;
+		for(int k=0;k<sym;++k)
+			CDF+=g_freq[k];
+		unsigned short freq=g_freq[sym];
+		if(state>=freq<<16)
+		{
+			dlist_push_back(&list, &state, 2);
+			state>>=16;
+		}
+		state=state/freq<<16|(state%freq+CDF);
+
+		//update
+		++hist_idx;
+		if(g_hist[hist_idx]!=0xFFFF&&g_freq[g_hist[hist_idx]]>0)
+		{
+			g_freq[g_hist[hist_idx]]-=4;
+			g_freq[sym]+=4;
+		}
+		g_hist[hist_idx]=sym;
+	}
+
+	size_t dstidx;
 	if(*out)
 	{
 		if(out[0]->esize!=1)
 			return RANS_INVALID_DST;
 		dstidx=out[0]->count;
-		ARRAY_APPEND(*out, 0, internalheadersize, 1, 0);
+		ARRAY_APPEND(*out, 0, 0, 1, 0);
 	}
 	else
 	{
 		dstidx=0;
-		ARRAY_ALLOC(char, *out, 0, internalheadersize, 0, 0);
+		ARRAY_ALLOC(char, *out, 0, 0, 0, 0);
 	}
-	memcpy(out[0]->data+dstidx, &tag_rans4, 4);
-	dstidx+=4+8;
-	for(int kc=0;kc<symbytes;++kc)
-		rans_calc_histogram(buf+kc, (int)(nbytes/symbytes), symbytes, out[0]->data+dstidx+kc*ANS_NLEVELS*sizeof(short), ANS_PROB_BITS, 0);
-	rans_prep(out[0]->data+dstidx, symbytes, &info, 0, 0);
-	dstidx-=8;
-	dlist_init(&list, 1, 1024, 0);
-
-	long long t1=__rdtsc();
-
-	unsigned state[16]={0};
-	for(int kc=0;kc<symbytes;++kc)
-		state[kc]=ANS_L;
-	for(ptrdiff_t ks=nbytes-symbytes, idx=nbytes-1;ks>=0;ks-=symbytes)
-	{
-		for(int kc=symbytes-1;kc>=0;--kc, --idx)
-		{
-			unsigned char val=buf[idx];
-			if(is_signed)
-			{
-				int neg=val<0;
-				val^=-neg;
-				val+=neg;
-				val<<=1;
-				val|=neg;
-			}
-			SymbolInfo *p=info+(kc<<ANS_DEPTH|val);
-
-			//renormalize
-			if(state[kc]>=p->renorm_limit)
-		//	if(state>=(unsigned)(si.freq<<(32-ANS_PROB_BITS)))
-			{
-				dlist_push_back(&list, state+kc, 2);
-				state[kc]>>=16;
-			}
-			PROF(RENORM);
-
-			//update
-#ifdef ANS_PRINT_STATE2
-			printf("enc: 0x%08X = 0x%08X+(0x%08X*0x%08X>>(32+%d))*0x%04X+0x%08X\n", state+((unsigned)((long long)state*si.inv_freq>>32)>>si.shift)*si.neg_freq+si.bias, state, state, si.inv_freq, si.shift, si.neg_freq, si.bias);
-#endif
-			state[kc]+=(((long long)state[kc]*p->inv_freq>>32)>>p->shift)*p->neg_freq+p->bias;//Ryg's division-free rANS encoder	https://github.com/rygorous/ryg_rans/blob/master/rans_byte.h
-			//state=(state/p->freq<<ANS_PROB_BITS)+state%p->freq+p->CDF;
-			PROF(UPDATE);
-		}
-	}
-	dlist_push_back(&list, state, symbytes*sizeof(unsigned));
-
-	memcpy(out[0]->data+dstidx, &list.nobj, sizeof(size_t));
 	dlist_appendtoarray(&list, out);
+	memcpy(out[0]->data+dstidx, &tag_arans, 4);
+	memcpy(out[0]->data+dstidx+4, &list.nobj, 8);
 
-	t1=__rdtsc()-t1;
+	cycles=__rdtsc()-cycles;
 
-	free(info);
 	dlist_clear(&list);
 	return RANS_SUCCESS;
 }
@@ -298,7 +280,7 @@ static int decode_error(size_t p, size_t srcstart, ptrdiff_t ks)
 	return 0;
 }
 #define READ_GUARD(NBYTES, IDX)		if((srcptr-=NBYTES)<srcstart)return decode_error((size_t)srcptr, (size_t)srcstart, IDX)
-int rans4_decode(const unsigned char *srcdata, ptrdiff_t srclen, ptrdiff_t nbytes, int symbytes, int is_signed, void *dstbuf, int loud)
+int arans_decode(const unsigned char *srcdata, ptrdiff_t srclen, ptrdiff_t nbytes, int symbytes, int is_signed, void *dstbuf, int loud)
 {
 	const int
 		histsize=ANS_NLEVELS*sizeof(short), lghistsize=9,
@@ -317,7 +299,7 @@ int rans4_decode(const unsigned char *srcdata, ptrdiff_t srclen, ptrdiff_t nbyte
 
 	if(srclen<internalheadersize)
 		return RANS_BUFFER_OVERRUN;
-	if(memcmp(srcptr, &tag_rans4, 4))
+	if(memcmp(srcptr, &tag_arans, 4))
 		return RANS_INVALID_TAG;
 	srcptr+=4;
 
@@ -326,7 +308,7 @@ int rans4_decode(const unsigned char *srcdata, ptrdiff_t srclen, ptrdiff_t nbyte
 
 	hist=srcptr;
 	rans_prep(hist, symbytes, &info, &CDF2sym, 0);
-	srcstart=srcptr+((size_t)symbytes<<9);
+	srcstart=srcptr+(symbytes<<9);
 	srcptr=srcstart+csize;
 
 	long long t1=__rdtsc();

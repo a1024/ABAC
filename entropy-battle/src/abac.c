@@ -27,7 +27,7 @@ static const char file[]=__FILE__;
 static const int magic_ac04='A'|'C'<<8|'0'<<16|'4'<<24;
 
 #ifdef DEBUG_ABAC2
-int examined_plane=9, examined_start=0, examined_end=100;
+static int examined_plane=9, examined_start=0, examined_end=100;
 #endif
 int abac4_encode(const void *src, int symcount, int bitoffset, int bitdepth, int bytestride, ArrayHandle *output, int loud)
 {

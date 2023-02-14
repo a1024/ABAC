@@ -11,7 +11,7 @@ extern "C"
 #endif
 
 
-	#define ENABLE_GUIDE//debug
+//	#define ENABLE_GUIDE//debug
 
 
 //Huffman Coder		TODO support channels/bytestride
@@ -26,6 +26,15 @@ int huff_decompress(
 	size_t srcSize,           //The byte count of data in src.
 	ArrayHandle *dst          //The destination array.
 );//Returns true on success.
+
+
+//Binary Arithmetic Coder (AC)
+long long   ac0_encode(const void *src, ptrdiff_t nbytes, int bitoffset, int bitdepth, int bytestride, ArrayHandle *out, int loud);
+const void* ac0_decode(const void *srcstart, const void *srcend, void *dst, size_t nbytes, int bitoffset, int bitdepth, int bytestride, int loud
+#ifdef ENABLE_GUIDE
+	, unsigned char *guide
+#endif
+);//set the dst buffer to zero
 
 
 //Adaptive Binary Arithmetic Coder (ABAC)
@@ -60,6 +69,17 @@ int rans_sse2_decode(const void *srcdata, size_t srclen, void *dstbuf, size_t nb
 	, unsigned char *guide
 #endif
 );
+
+
+int                  uabs_encode_ch(const void *src, size_t nbytes, int bitoffset, int bitdepth, int bytestride, ArrayHandle *out);
+const unsigned char* uabs_decode_ch(const unsigned char *data, size_t srclen, void *dst, size_t nbytes, int bitoffset, int bitdepth, int bytestride
+#ifdef ENABLE_GUIDE
+	, const unsigned char *guide
+#endif
+);
+
+
+int arans_encode(const void *src, ptrdiff_t nbytes, int bytestride, ArrayHandle *out);
 
 
 #ifdef __cplusplus
