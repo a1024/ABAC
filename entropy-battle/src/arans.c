@@ -234,7 +234,7 @@ int arans_encode(const void *src, ptrdiff_t nbytes, int bytestride, ArrayHandle 
 		for(int k=0;k<sym;++k)
 			CDF+=g_freq[k];
 		unsigned short freq=g_freq[sym];
-		if(state>=freq<<16)
+		if(state>=(unsigned)(freq<<16))
 		{
 			dlist_push_back(&list, &state, 2);
 			state>>=16;

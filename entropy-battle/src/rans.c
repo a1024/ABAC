@@ -7,11 +7,11 @@
 #include<intrin.h>
 #endif
 #include"rans_common.h"
+#define _USE_MATH_DEFINES
+#include<math.h>//experimental double precision
 static const char file[]=__FILE__;
 
 	#define PROF(...)//
-
-const int tag_rans4='A'|'N'<<8|'0'<<16|'4'<<24;
 
 typedef struct SortedHistInfoStruct
 {
@@ -52,8 +52,22 @@ static int rans_calc_histogram(const unsigned char *buffer, int nsymbols, int by
 	}
 	int bytesize=nsymbols*bytestride;
 	PROF(HISTOGRAM_INIT);
-	for(int k=0;k<bytesize;k+=bytestride)//this loop takes 73% of encode time
-		++h[buffer[k]].freq;
+	if(buffer)
+	{
+		for(int k=0;k<bytesize;k+=bytestride)//this loop takes 73% of encode time
+			++h[buffer[k]].freq;
+	}
+	else
+	{
+		nsymbols=0;
+		for(int k=0;k<ANS_NLEVELS;++k)
+		{
+			h[k].freq=((unsigned short*)hist)[k];
+			nsymbols+=h[k].freq;
+		}
+		if(!nsymbols)
+			LOG_ERROR("Invalid predictor, sum = %d", nsymbols);
+	}
 	PROF(HISTOGRAM_LOOKUP);
 	for(int k=0;k<ANS_NLEVELS;++k)
 		h[k].qfreq=((long long)h[k].freq<<ANS_PROB_BITS)/nsymbols;
@@ -109,6 +123,11 @@ static int rans_calc_histogram(const unsigned char *buffer, int nsymbols, int by
 			LOG_ERROR("Internal error: symbol %d has probability %d", k, h[k].qfreq);
 		memcpy(hist+(k<<1), integrate?&sum:&h[k].qfreq, 2);//2-byte alignment
 		sum+=h[k].qfreq;
+	}
+	if(!buffer)
+	{
+		for(int k=0;k<ANS_NLEVELS;++k)
+			((unsigned short*)hist)[k]=h[k].qfreq;
 	}
 	if(sum!=ANS_L)
 		LOG_ERROR("Internal error: CDF ends with 0x%08X, should end with 0x%08X", sum, ANS_L);
@@ -212,7 +231,8 @@ static int rans_prep(const void *hist_ptr, int bytespersymbol, SymbolInfo **info
 	return 1;
 }
 
-int rans4_encode(const void *src, ptrdiff_t nbytes, int symbytes, int is_signed, ArrayHandle *out, int loud)//symbytes: up to 16
+static const int tag_rans4='A'|'N'<<8|'0'<<16|'4'<<24;
+int rans4_encode(const void *src, ptrdiff_t nbytes, int symbytes, int is_signed, ArrayHandle *out, int loud, unsigned short *custom_pred)//symbytes: up to 16
 {
 	const int infosize=ANS_NLEVELS*sizeof(SymbolInfo), lginfosize=13;
 	DList list;
@@ -235,10 +255,15 @@ int rans4_encode(const void *src, ptrdiff_t nbytes, int symbytes, int is_signed,
 		ARRAY_ALLOC(char, *out, 0, internalheadersize, 0, 0);
 	}
 	memcpy(out[0]->data+dstidx, &tag_rans4, 4);
-	dstidx+=4+8;
+	dstidx+=(size_t)4+8;
+	unsigned char *histptr;
+	if(custom_pred)
+		histptr=(unsigned char*)custom_pred;
+	else
+		histptr=out[0]->data+dstidx;
 	for(int kc=0;kc<symbytes;++kc)
-		rans_calc_histogram(buf+kc, (int)(nbytes/symbytes), symbytes, out[0]->data+dstidx+kc*ANS_NLEVELS*sizeof(short), ANS_PROB_BITS, 0);
-	rans_prep(out[0]->data+dstidx, symbytes, &info, 0, 0);
+		rans_calc_histogram(custom_pred?0:buf+kc, (int)(nbytes/symbytes), symbytes, histptr+kc*ANS_NLEVELS*sizeof(short), ANS_PROB_BITS, 0);
+	rans_prep(histptr, symbytes, &info, 0, 0);
 	dstidx-=8;
 	dlist_init(&list, 1, 1024, 0);
 
@@ -298,7 +323,7 @@ static int decode_error(size_t p, size_t srcstart, ptrdiff_t ks)
 	return 0;
 }
 #define READ_GUARD(NBYTES, IDX)		if((srcptr-=NBYTES)<srcstart)return decode_error((size_t)srcptr, (size_t)srcstart, IDX)
-int rans4_decode(const unsigned char *srcdata, ptrdiff_t srclen, ptrdiff_t nbytes, int symbytes, int is_signed, void *dstbuf, int loud)
+int rans4_decode(const unsigned char *srcdata, ptrdiff_t srclen, ptrdiff_t nbytes, int symbytes, int is_signed, void *dstbuf, int loud, unsigned short *custom_pred)
 {
 	const int
 		histsize=ANS_NLEVELS*sizeof(short), lghistsize=9,
@@ -306,8 +331,7 @@ int rans4_decode(const unsigned char *srcdata, ptrdiff_t srclen, ptrdiff_t nbyte
 	const unsigned char
 		*data=(const unsigned char*)srcdata,
 		*srcptr=data,
-		*srcstart,
-		*hist;
+		*srcstart;
 	unsigned char *pixels=(unsigned char*)dstbuf;
 	SymbolInfo *info;
 	unsigned char *CDF2sym;
@@ -324,8 +348,12 @@ int rans4_decode(const unsigned char *srcdata, ptrdiff_t srclen, ptrdiff_t nbyte
 	memcpy(&csize, srcptr, 8);
 	srcptr+=8;
 
-	hist=srcptr;
-	rans_prep(hist, symbytes, &info, &CDF2sym, 0);
+	const void *histptr;
+	if(custom_pred)
+		histptr=custom_pred;
+	else
+		histptr=srcptr;
+	rans_prep(histptr, symbytes, &info, &CDF2sym, 0);
 	srcstart=srcptr+((size_t)symbytes<<9);
 	srcptr=srcstart+csize;
 
@@ -374,4 +402,396 @@ int rans4_decode(const unsigned char *srcdata, ptrdiff_t srclen, ptrdiff_t nbyte
 	}
 	free(info);
 	return RANS_SUCCESS;
+}
+
+
+const int tag_rans8='A'|'N'<<8|'0'<<16|'8'<<24;
+//binary rANS
+int rans8_testencode(const void *src, int bw, int bh, int bitdepth, int bytestride, unsigned short prob_MPS, ArrayHandle *out)
+{
+	size_t dstidx;
+	if(*out)
+	{
+		if(out[0]->esize!=1)
+			return RANS_INVALID_DST;
+		dstidx=out[0]->count;
+	}
+	else
+	{
+		dstidx=0;
+		ARRAY_ALLOC(char, *out, 0, 0, 0, 0);
+	}
+	long long t1=__rdtsc();
+
+	DList list;
+	dlist_init(&list, 1, 1024, 0);
+	dlist_push_back(&list, 0, 12);//{tag, csize}
+
+	const unsigned char *buf=(const unsigned char*)src;
+	unsigned state=0x10000;
+	if(!prob_MPS)
+		LOG_ERROR("Binary rANS: prob_MPS 0x%04X", prob_MPS);
+	//unsigned short prob_MPS=0xC000;//0.75
+	//unsigned short *prob=(unsigned short*)malloc(bitdepth*sizeof(short));
+	//for(int k=0;k<bitdepth;++k)
+	//	prob[k]=0x8000;
+	int bitstride=bytestride<<3;
+	ptrdiff_t bitidx=((ptrdiff_t)(bh*bw-1)*bitstride)+bitdepth-1, rowbits=(ptrdiff_t)bw*bitstride;
+	for(int ky=bh-1;ky>=0;--ky)
+	{
+		for(int kx=bw-1;kx>=0;--kx, bitidx-=bitstride)
+		{
+			ptrdiff_t bitidx2=bitidx;
+			for(int kp=bitdepth-1;kp>=0;--kp, --bitidx2)
+			{
+				unsigned char bit=buf[bitidx2>>3]>>(bitidx2&7)&1, b0=0;
+				ptrdiff_t bitidx0=bitidx2-rowbits;
+				if(bitidx0>=0)
+					b0=buf[bitidx0>>3]>>(bitidx0&7)&1;
+
+				unsigned short p0=prob_MPS;
+				p0^=-b0;//flip p0 to LPS if b0 is true
+				p0+=b0;
+
+				unsigned short CDF=p0&-bit, freq=(p0^-bit)+bit;
+				if(state>=(unsigned)(freq<<16))
+				{
+					dlist_push_back(&list, &state, 2);
+					state>>=16;
+				}
+				state=state/freq<<16|(CDF+state%freq);
+			}
+		}
+	}
+	dlist_appendtoarray(&list, out);
+	memcpy(out[0]->data+dstidx, &tag_rans8, 4);
+	memcpy(out[0]->data+dstidx+4, &list.nobj, 8);
+	t1=__rdtsc()-t1;
+
+	dlist_clear(&list);
+	return RANS_SUCCESS;
+}
+
+static const int tag_rans0b='A'|'N'<<8|'0'<<16|'A'<<24;
+//divides bitplanes into blocks and stores hamming weight of each block, prob_bits is in {2, 4, 8}
+int rans0b_testencode(const void *src, int bw, int bh, int bitdepth, int bytestride, int blockdim, int prob_bits, ArrayHandle *out)
+{
+	size_t dstidx;
+	if(*out)
+	{
+		if(out[0]->esize!=1)
+			return RANS_INVALID_DST;
+		dstidx=out[0]->count;
+	}
+	else
+	{
+		dstidx=0;
+		ARRAY_ALLOC(char, *out, 0, 0, 0, 0);
+	}
+	long long t1=__rdtsc();
+
+	if(bw%blockdim||bh%blockdim)
+		LOG_ERROR("Invalid dimensions");
+
+	int nbx=bw/blockdim, nby=bh/blockdim;
+	int auxsize=(nbx*nby*bitdepth*prob_bits+7)>>3;
+	unsigned char *probbuf=(unsigned char*)malloc(auxsize);
+	memset(probbuf, 0, auxsize);
+
+	DList list;
+	dlist_init(&list, 1, 1024, 0);
+	dlist_push_back(&list, 0, 12);//{tag, csize}
+	const unsigned char *buf=(const unsigned char*)src;
+	unsigned state=0x10000;
+	int blocksize=blockdim*blockdim;
+	for(int kp=bitdepth-1;kp>=0;--kp)//for each bitplane
+	{
+		//for each block
+		for(int ky=nby-1;ky>=0;--ky)
+		{
+			for(int kx=nbx-1;kx>=0;--kx)
+			{
+				int freq=blocksize;//count of zero bits
+
+				//for each bit
+				for(int ky2=blockdim-1;ky2>=0;--ky2)
+				{
+					for(int kx2=blockdim-1;kx2>=0;--kx2)
+					{
+						int bitidx=bytestride*(bw*(blockdim*ky+ky2)+blockdim*kx+kx2)+kp;//unoptimized
+						unsigned char bit=buf[bitidx>>3]>>(bitidx&7)&1;
+						freq-=bit;
+					}
+				}
+
+				int qfreq=((freq<<prob_bits)+(blocksize>>1))/blocksize;
+				qfreq+=!qfreq&&freq!=0;							//allow 0% and 100% prob only if the unquantized freq really is so
+				qfreq-=qfreq==1<<prob_bits&&freq<blocksize;
+				int blockidx=nbx*ky+kx;
+				int bitidx2=blockidx*prob_bits;
+				if(bitidx2>=auxsize<<3)//
+					LOG_ERROR("OOB");//
+				probbuf[bitidx2>>3]|=qfreq<<(bitidx2&7);
+
+				if(qfreq&&qfreq<1<<prob_bits)//otherwise the state won't be changed
+				{
+					unsigned short p0=qfreq<<(16-prob_bits);
+
+					//for each bit
+					for(int ky2=blockdim-1;ky2>=0;--ky2)
+					{
+						for(int kx2=blockdim-1;kx2>=0;--kx2)
+						{
+							int bitidx=bytestride*(bw*(blockdim*ky+ky2)+blockdim*kx+kx2)+kp;
+							if(bitidx>=bw*bh*bytestride<<3)//
+								LOG_ERROR("OOB");//
+							unsigned char bit=buf[bitidx>>3]>>(bitidx&7)&1;
+
+							unsigned short CDF=p0&-bit, freq=(p0^-bit)+bit;
+							if(state>=(unsigned)(freq<<16))
+							{
+								dlist_push_back(&list, &state, 2);
+								state>>=16;
+							}
+							state=state/freq<<16|(CDF+state%freq);
+						}
+					}
+				}
+			}
+		}
+	}
+	dlist_push_back(&list, probbuf, auxsize);
+	dlist_appendtoarray(&list, out);
+	memcpy(out[0]->data+dstidx, &tag_rans0b, 4);
+	memcpy(out[0]->data+dstidx+4, &list.nobj, 8);
+	t1=__rdtsc()-t1;
+
+	dlist_clear(&list);
+	return RANS_SUCCESS;
+}
+
+//2D adaptive rANS
+size_t rans0c_testencode(const void *src, int bw, int bh, int symbytes, int bytestride, ArrayHandle *out)
+{
+	double invsqrt2=1/sqrt(2.), invsqrt2pi=1/sqrt(2*M_PI);
+	size_t csize=4;
+	const unsigned char *buf=(const unsigned char*)src;
+	unsigned state=0x10000;
+	for(int ky=bh-1;ky>=0;--ky)
+	{
+		for(int kx=bw-1;kx>=0;--kx)
+		{
+			for(int kc=symbytes-1;kc>=0;--kc)
+			{
+				//printf("%d %d %d\r", kx, ky, kc);
+				unsigned char
+					s00=buf[bytestride*(bw*ky+kx)+kc],
+					s01=kx>0?buf[bytestride*(bw*ky+kx-1)+kc]:0,
+					s10=ky>0?buf[bytestride*(bw*(ky-1)+kx)+kc]:0;
+				double
+					mean=(s01+s10)*0.5,
+					conf=1./(abs(s01-s10)+3),
+					a=(0-mean)*conf,		//truncated normal distribution
+					b=(255-mean)*conf,
+					x=(s00-mean)*conf,
+					x1=(s00+1-mean)*conf,
+					Phi_a=0.5*(1+erf(a*invsqrt2)),
+					Phi_b=0.5*(1+erf(b*invsqrt2)),
+					Phi_x=0.5*(1+erf(x*invsqrt2)),
+					Phi_x1=0.5*(1+erf(x1*invsqrt2)),
+					den=Phi_b-Phi_a,
+					d_CDF=(Phi_x-Phi_a)/den,
+					d_freq=(Phi_x1-Phi_x)/den;
+				unsigned short freq=(int)(0xFFFF*d_freq)+1, CDF=(int)(0x10000*d_CDF);
+
+				if(state>=(unsigned)(freq<<16))//renorm
+				{
+					csize+=2;
+					state>>=16;
+				}
+
+				//if(!freq)
+				//	LOG_ERROR("%d %d %d freq = %d", kx, ky, kc, freq);
+				state=state/freq<<16|(CDF+state%freq);
+			}
+		}
+	}
+	csize+=4;
+	return csize;
+}
+
+static const int tag_rans05='A'|'N'<<8|'0'<<16|'5'<<24;
+typedef struct FreqInfoStruct
+{
+	double freq;//original freq
+	unsigned
+		sym,    //symbol
+		qfreq;  //quantized freq
+} FreqInfo;
+static int freqinfo_byfreq(const void *left, const void *right)
+{
+	FreqInfo const *a, *b;
+
+	a=(FreqInfo const*)left;
+	b=(FreqInfo const*)right;
+	return (a->freq>b->freq)-(a->freq<b->freq);
+}
+static int freqinfo_bysym(const void *left, const void *right)
+{
+	FreqInfo const *a, *b;
+
+	a=(FreqInfo const*)left;
+	b=(FreqInfo const*)right;
+	return (a->sym>b->sym)-(a->sym<b->sym);
+}
+static FreqInfo g_temp[256];
+Prob* rans5_preptable()
+{
+	const int nmean=256, nconf=256, nlevels=256;
+	const State prob_max=ONE-255;//ONE-(nlevels-1)
+	size_t len=(size_t)nmean*nconf*nlevels;
+	Prob *table=(Prob*)malloc(len*sizeof(Prob));
+	if(!table)
+	{
+		LOG_ERROR("Couldn't allocate arANS lookup table");
+		return 0;
+	}
+	//memset(table, 0, len*sizeof(int));
+	double invsqrt2=1/sqrt(2.), invsqrt2pi=1/sqrt(2*M_PI);
+	for(int diff=0;diff<nconf;++diff)//abs(left-top)
+	{
+		//printf("\r%3d / 256", diff);
+		double conf=1./((diff<<8)/nconf+3);
+		for(int sum=0;sum<nmean;++sum)//left+top
+		{
+			int mean=(sum<<8)/nmean;
+			double dsum=0;
+			for(int ks=0;ks<nlevels;++ks)
+			{
+				double
+					a=(0-mean)*conf,
+					b=(255-mean)*conf,
+					x=(ks-mean)*conf,
+					Phi_a=0.5*(1+erf(a*invsqrt2)),
+					Phi_b=0.5*(1+erf(b*invsqrt2)),
+					Phi_x=0.5*(1+erf(x*invsqrt2)),
+					den=Phi_b-Phi_a,
+					d_freq=invsqrt2pi*exp(-0.5*x*x)*conf/den;//column width=1
+					//d_CDF=(Phi_x-Phi_a)/den;
+				//if(d_freq>1)
+				//	LOG_ERROR("freq %lf", d_freq);
+				g_temp[ks].freq=d_freq;
+				g_temp[ks].sym=ks;
+				g_temp[ks].qfreq=(unsigned)(ONE*d_freq);
+				dsum+=d_freq;
+				//if(!sum&&!diff)
+				//	printf("%3d: %lf\n", ks, d_freq);
+			}
+
+			isort(g_temp, nlevels, sizeof(FreqInfo), freqinfo_byfreq);
+
+			int idx;
+			for(idx=0;idx<nlevels;++idx)//zero freq is not allowed for any symbol in lookup table
+				g_temp[idx].qfreq+=!g_temp[idx].qfreq;
+			//for(idx=nlevels-1;idx>=0&&g_temp[idx].qfreq>prob_max;--idx)
+			//	g_temp[idx].qfreq=prob_max;
+
+			long long error=-(long long)ONE;//too much -> +ve error & vice versa
+			for(int k=0;k<nlevels;++k)
+				error+=g_temp[k].qfreq;
+			//printf("error = %lld\r", (long long)error);//
+			if(error>0)
+			{
+				while(error)//decrement starting from smaller frequencies
+				{
+					for(int k=0;k<nlevels&&error;++k)
+					{
+						int dec=g_temp[k].qfreq>1;
+						g_temp[k].qfreq-=dec, error-=dec;
+					}
+				}
+			}
+			else
+			{
+				while(error)//increment starting from high frequencies
+				{
+					for(int k=nlevels-1;k>=0&&error;--k)
+					{
+						int inc=g_temp[k].qfreq<prob_max;
+						g_temp[k].qfreq+=inc, error+=inc;
+					}
+				}
+			}
+
+			isort(g_temp, nlevels, sizeof(FreqInfo), freqinfo_bysym);
+
+			State fsum=0;
+			idx=nlevels*(nmean*diff+sum);
+			for(int ks=0;ks<nlevels;++ks)
+			{
+				Prob f=g_temp[ks].qfreq;
+				table[idx|ks]=(Prob)fsum;
+				fsum+=f;
+				//if(!sum&&!diff)
+				//	printf("%3d: 0x%04X\n", ks, f);
+			}
+			if(fsum!=ONE)
+				LOG_ERROR("diff=%d, sum=%d: fsum = 0x%04llX", diff, sum, (long long)fsum);
+		}
+	}
+	return table;
+}
+long long rans5_encode(const void *src, int bw, int bh, int symbytes, int bytestride, ArrayHandle *out, Prob *table)
+{
+	const int nmean=256, nconf=256, nlevels=256;
+	
+	long long cycles=__rdtsc();
+	size_t dstidx;
+	if(*out)
+	{
+		if(out[0]->esize!=1)
+			return RANS_INVALID_DST;
+		dstidx=out[0]->count;
+	}
+	else
+		dstidx=0;
+
+	DList list;
+	dlist_init(&list, 1, 1024, 0);
+	dlist_push_back(&list, 0, 12);
+
+	const unsigned char *buf=(const unsigned char*)src;
+	State state=ONE;
+	for(int ky=bh-1;ky>=0;--ky)
+	{
+		for(int kx=bw-1;kx>=0;--kx)
+		{
+			for(int kc=symbytes-1;kc>=0;--kc)
+			{
+				unsigned char
+					s00=buf[bytestride*(bw*ky+kx)+kc],
+					s01=kx>0?buf[bytestride*(bw*ky+kx-1)+kc]:0,
+					s10=ky>0?buf[bytestride*(bw*(ky-1)+kx)+kc]:0;
+				int sum=(s01+s10)>>1, diff=abs(s01-s10);
+				int idx=nlevels*(nmean*diff+sum)+s00;
+				Prob CDF=table[idx], freq=(Prob)((s00<255?(State)table[idx+1]:ONE)-CDF);
+				
+				if(state>=(State)((State)freq<<PROBBITS))//renorm
+				{
+					dlist_push_back(&list, &state, sizeof(Prob));
+					state>>=PROBBITS;
+				}
+
+				state=state/freq<<PROBBITS|(state%freq+CDF);
+			}
+		}
+	}
+	dlist_push_back(&list, &state, sizeof(state));
+	dlist_appendtoarray(&list, out);
+
+	memcpy(out[0]->data+dstidx, &tag_rans05, 4);
+	memcpy(out[0]->data+dstidx+4, &list.nobj, 8);
+	dlist_clear(&list);
+	cycles=__rdtsc()-cycles;
+	return cycles;
 }

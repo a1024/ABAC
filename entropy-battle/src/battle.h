@@ -59,8 +59,27 @@ typedef enum RANS_ErrorEnum
 	
 	RANS_SUCCESS,
 } RANS_Error;
-int rans4_encode(const void *src, ptrdiff_t nbytes, int symbytes, int is_signed, ArrayHandle *out, int loud);//bytespersymbol: up to 16
-int rans4_decode(const unsigned char *srcdata, ptrdiff_t srclen, ptrdiff_t nbytes, int symbytes, int is_signed, void *dstbuf, int loud);
+int rans4_encode(const void *src, ptrdiff_t nbytes, int symbytes, int is_signed, ArrayHandle *out, int loud, unsigned short *custom_pred);//bytespersymbol: up to 16
+int rans4_decode(const unsigned char *srcdata, ptrdiff_t srclen, ptrdiff_t nbytes, int symbytes, int is_signed, void *dstbuf, int loud, unsigned short *custom_pred);
+
+//test
+int rans8_testencode(const void *src, int bw, int bh, int bitdepth, int bytestride, unsigned short prob_MPS, ArrayHandle *out);
+int rans0b_testencode(const void *src, int bw, int bh, int bitdepth, int bytestride, int blockdim, int prob_bits, ArrayHandle *out);
+size_t rans0c_testencode(const void *src, int bw, int bh, int symbytes, int bytestride, ArrayHandle *out);
+
+//	#define PROB32
+
+#ifdef PROB32
+typedef unsigned Prob;
+typedef unsigned long long State;
+#else
+typedef unsigned short Prob;
+typedef unsigned State;
+#endif
+#define PROBBITS (sizeof(Prob)<<3)
+#define ONE (State)(1LL<<PROBBITS)
+Prob* rans5_preptable();
+long long rans5_encode(const void *src, int bw, int bh, int symbytes, int bytestride, ArrayHandle *out, Prob *table);
 
 //rans_sse2: symbytes must be a power of two, nbytes must be divisible by 16
 int rans_sse2_encode(const void *src, size_t nbytes, int symbytes, int is_signed, ArrayHandle *out);
@@ -71,6 +90,7 @@ int rans_sse2_decode(const void *srcdata, size_t srclen, void *dstbuf, size_t nb
 );
 
 
+//WIP
 int                  uabs_encode_ch(const void *src, size_t nbytes, int bitoffset, int bitdepth, int bytestride, ArrayHandle *out);
 const unsigned char* uabs_decode_ch(const unsigned char *data, size_t srclen, void *dst, size_t nbytes, int bitoffset, int bitdepth, int bytestride
 #ifdef ENABLE_GUIDE
@@ -80,6 +100,11 @@ const unsigned char* uabs_decode_ch(const unsigned char *data, size_t srclen, vo
 
 
 int arans_encode(const void *src, ptrdiff_t nbytes, int bytestride, ArrayHandle *out);
+
+
+long long lz_encode(const void *src, int bw, int bh, int bytestride, ArrayHandle *data, size_t *ret_overhead);//FIXME encoding channels separately
+
+long long test1_encode(const void *src, int bw, int bh, int symbytes, int bytestride, ArrayHandle *data);
 
 
 #ifdef __cplusplus

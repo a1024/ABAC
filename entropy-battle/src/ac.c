@@ -181,7 +181,7 @@ long long ac0_encode(const void *src, ptrdiff_t nbytes, int bitoffset, int bitde
 		hitcount+=hitcount_p;
 #else
 		if(loud)
-			printf("bit %d: r =%6d /%6d = %lf\n", kp, nsym, csize, (double)nsym/csize);
+			printf("bit %d: r =%6d /%6d = %lf\n", kp, (int)nsym, (int)csize, (double)nsym/csize);
 #endif
 	}
 	size_t byteswritten=out[0]->count-dststartidx;
@@ -263,7 +263,7 @@ const void* ac0_decode(const void *srcstart, const void *srcend, void *dst, size
 				buf[startidx+ks]|=(frag>>6&1)<<sh, ks+=bytestride;
 				buf[startidx+ks]|=(frag>>7&1)<<sh, ks+=bytestride;
 			}
-			if(ks<nbytes)
+			if(ks<(ptrdiff_t)nbytes)
 			{
 				unsigned char frag=*srcptr;
 				int sh2=0;
@@ -272,7 +272,7 @@ const void* ac0_decode(const void *srcstart, const void *srcend, void *dst, size
 					buf[startidx+ks]|=(frag>>sh2&1)<<sh;
 					ks+=bytestride;
 					++sh2;
-				}while(ks<nbytes);
+				}while(ks<(ptrdiff_t)nbytes);
 				++srcptr;
 			}
 #ifdef ENABLE_GUIDE

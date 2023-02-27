@@ -14,7 +14,7 @@ static const char file[]=__FILE__;
 //	#define ENABLE_CHECK_DECODE//debug
 	#define PROF(...)//
 
-const int tag_rans0a='A'|'N'<<8|'0'<<16|'A'<<24;
+static const int tag_rans0a='A'|'N'<<8|'0'<<16|'A'<<24;
 
 //#define WRITE_GUARD(N)	if(p+N>max_size)bytes=(unsigned char*)realloc(bytes, max_size<<=1)
 int rans_sse2_encode(const void *src, size_t nbytes, int symbytes, int is_signed, ArrayHandle *out)
