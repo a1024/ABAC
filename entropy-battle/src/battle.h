@@ -105,6 +105,15 @@ int arans_encode(const void *src, ptrdiff_t nbytes, int bytestride, ArrayHandle 
 long long lz_encode(const void *src, int bw, int bh, int bytestride, ArrayHandle *data, size_t *ret_overhead);//FIXME encoding channels separately
 
 long long test1_encode(const void *src, int bw, int bh, int symbytes, int bytestride, ArrayHandle *data);
+long long test2_encode(const void *src, int bw, int bh, int symbytes, int bytestride, ArrayHandle *data);
+
+
+//transforms
+void haar_2d_fwd(const unsigned char *buf, int bw, int bh, int nch, int bytestride, int nstages, short **ret);//lossless DWT, don't forget to free ret if was zero
+void haar_2d_inv(short *buf, int bw, int bh, int nch, int bytestride, int nstages, unsigned char **ret);//buf is destroyed
+
+void intDCT8x8_fwd(const unsigned char *buf, int bw, int bh, int nch, int bytestride, unsigned short **ret);
+void DCTtest();//
 
 
 #ifdef __cplusplus

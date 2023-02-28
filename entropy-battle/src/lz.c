@@ -7,6 +7,7 @@
 #include<intrin.h>
 #endif
 #include<math.h>
+#include"lodepng.h"//for testing
 static const char file[]=__FILE__;
 
 static void print_hist(int *hist, int nlevels)
@@ -630,12 +631,12 @@ static int histinfo_bysym(const void *left, const void *right)
 	b=(HistInfo const*)right;
 	return (a->sym>b->sym)-(a->sym<b->sym);
 }
-static void rans_calc_CDF(const unsigned char *buffer, int len, unsigned short *CDF)
+static void rans_calc_CDF(const unsigned char *buffer, int len, int stride, unsigned short *CDF)
 {
 	const int nlevels=256;
-	if(!len)
+	if(!len||!stride)
 	{
-		LOG_ERROR("Symbol count is zero");
+		LOG_ERROR("rans_calc_CDF(): Invalid args");
 		return;
 	}
 	HistInfo hist[256];
@@ -644,12 +645,13 @@ static void rans_calc_CDF(const unsigned char *buffer, int len, unsigned short *
 		hist[k].sym=k;
 		hist[k].freq=0;
 	}
-	for(int k=0;k<len;++k)//this loop takes 73% of encode time
+	for(int k=0;k<len;k+=stride)//this loop takes 73% of encode time
 		++hist[buffer[k]].freq;
+	int count=len/stride;
 	for(int k=0;k<nlevels;++k)
-		hist[k].qfreq=((long long)hist[k].freq<<16)/len;
+		hist[k].qfreq=((long long)hist[k].freq<<16)/count;
 	
-	if(len!=0x10000)
+	if(count!=0x10000)
 	{
 		const int prob_max=0xFFFF;
 
@@ -696,7 +698,7 @@ static void rans_calc_CDF(const unsigned char *buffer, int len, unsigned short *
 		sum+=hist[k].qfreq;
 	}
 }
-void rans_bytes_encode(unsigned char *buf, int len, unsigned short *CDF, int nlevels, DList *list)
+void rans_bytes_encode(unsigned char *buf, int len, int symbytes, unsigned short *CDF, int nlevels, DList *list)
 {
 	unsigned state=0x10000;
 	for(int k=len-1;k>=0;--k)
@@ -704,7 +706,10 @@ void rans_bytes_encode(unsigned char *buf, int len, unsigned short *CDF, int nle
 		unsigned char sym=buf[k];
 		unsigned short c, freq;
 		if(CDF)
-			c=CDF[sym], freq=(sym<255?CDF[sym+1]:0x10000)-c;
+		{
+			int idx=(k%symbytes<<8)+sym;
+			c=CDF[idx], freq=(sym<255?CDF[idx+1]:0x10000)-c;
+		}
 		else
 			c=sym<<16/nlevels, freq=0x10000/nlevels;
 
@@ -718,13 +723,13 @@ void rans_bytes_encode(unsigned char *buf, int len, unsigned short *CDF, int nle
 	}
 	dlist_push_back(list, &state, 4);
 }
-double calc_sdev(unsigned char *buf, int len)
+double calc_sdev(unsigned char *buf, int len, int stride)
 {
 	int sum=0;
-	for(int k=0;k<len;++k)
+	for(int k=0;k<len;k+=stride)
 		sum+=buf[k];
 	double mean=(double)sum/len, s2=0;
-	for(int k=0;k<len;++k)
+	for(int k=0;k<len;k+=stride)
 	{
 		double x=buf[k]-mean;
 		s2+=x*x;
@@ -753,23 +758,23 @@ long long test1_encode(const void *src, int bw, int bh, int symbytes, int bytest
 			double sdev, temp;
 			for(int kx=0;kx<bw;++kx)//bypass
 				testrow[kx]=buf[bytestride*(bw*ky+kx)+kc];
-			sdev=calc_sdev(testrow, bw);
+			sdev=calc_sdev(testrow, bw, 1);
 
 			for(int kx=0;kx<bw;++kx)//h-diff
 				testrow[bw+kx]=buf[bytestride*(bw*ky+kx)+kc]-(kx?buf[bytestride*(bw*ky+kx-1)+kc]:0);
-			temp=calc_sdev(testrow+bw, bw);
+			temp=calc_sdev(testrow+bw, bw, 1);
 			if(sdev>temp)
 				sdev=temp, type=1;
 
 			for(int kx=0;kx<bw;++kx)//v-diff
 				testrow[bw*2+kx]=buf[bytestride*(bw*ky+kx)+kc]-(ky?buf[bytestride*(bw*(ky-1)+kx)+kc]:0);
-			temp=calc_sdev(testrow+bw*2, bw);
+			temp=calc_sdev(testrow+bw*2, bw, 1);
 			if(sdev>temp)
 				sdev=temp, type=2;
 
 			for(int kx=0;kx<bw;++kx)//av-diff
 				testrow[bw*3+kx]=buf[bytestride*(bw*ky+kx)+kc]-(((kx?buf[bytestride*(bw*ky+kx-1)+kc]:0)+(ky?buf[bytestride*(bw*(ky-1)+kx)+kc]:0))>>1);
-			temp=calc_sdev(testrow+bw*3, bw);
+			temp=calc_sdev(testrow+bw*3, bw, 1);
 			if(sdev>temp)
 				sdev=temp, type=3;
 
@@ -795,7 +800,7 @@ long long test1_encode(const void *src, int bw, int bh, int symbytes, int bytest
 
 				testrow[bw*4+kx]=buf[bytestride*(bw*ky+kx)+kc]-sub;
 			}
-			temp=calc_sdev(testrow+bw*4, bw);
+			temp=calc_sdev(testrow+bw*4, bw, 1);
 			if(sdev>temp)
 				sdev=temp, type=4;
 
@@ -805,11 +810,11 @@ long long test1_encode(const void *src, int bw, int bh, int symbytes, int bytest
 		ArrayHandle coeff=0, bypass=0;
 		lz2_encode(b2, (int)res, &coeff, &bypass);
 
-		rans_calc_CDF(coeff->data, (int)coeff->count, CDF);
+		rans_calc_CDF(coeff->data, (int)coeff->count, 1, CDF);
 		dlist_push_back(&list, &tag_lz02, 4);
 		dlist_push_back(&list, &coeff->count, 4);
 		dlist_push_back(&list, CDF, 256*sizeof(short));
-		rans_bytes_encode(coeff->data, (int)coeff->count, CDF, 256, &list);
+		rans_bytes_encode(coeff->data, (int)coeff->count, 1, CDF, 256, &list);
 		dlist_push_back(&list, bypass->data, bypass->count);
 		dlist_push_back(&list, b_type, bh);
 		//rans_bytes_encode(bypass->data, (int)bypass->count, 0, 256, &list);
@@ -824,3 +829,266 @@ long long test1_encode(const void *src, int bw, int bh, int symbytes, int bytest
 	cycles=__rdtsc()-cycles;
 	return cycles;
 }
+
+static const int tag_lz03='L'|'Z'<<8|'0'<<16|'3'<<24;
+long long test2_encode(const void *src, int bw, int bh, int symbytes, int bytestride, ArrayHandle *data)
+{
+	if(symbytes>4)
+		return 0;
+	long long cycles=__rdtsc();
+	
+	unsigned short CDF[256*4];
+	DList list;
+	dlist_init(&list, 1, 1024, 0);
+	const unsigned char *buf=(const unsigned char*)src;
+	int rowlen=symbytes*bw, srcrowlen=bytestride*bw;
+	unsigned char *testrow=(unsigned char*)malloc((size_t)rowlen*5);
+	unsigned char *b_type=(unsigned char*)malloc(bh);
+	size_t res=(size_t)rowlen*bh;
+	unsigned char *b2=(unsigned char*)malloc(res);
+	for(int ky=bh-1;ky>=0;--ky)
+	{
+		int type;
+		double sdev, temp;
+
+		for(int kx=0;kx<bw;++kx)//bypass
+		{
+			int srcidx=bytestride*(bw*ky+kx), dstidx=symbytes*kx;
+			for(int kc=0;kc<symbytes;++kc)
+				testrow[dstidx+kc]=buf[srcidx+kc];
+		}
+		sdev=0;
+		for(int kc=0;kc<symbytes;++kc)
+			sdev+=calc_sdev(testrow+kc, rowlen, symbytes);
+		type=0;
+		//omit division of sdev by symbytes
+
+		for(int kx=0;kx<bw;++kx)//h-diff
+		{
+			int srcidx=bytestride*(bw*ky+kx), dstidx=rowlen+symbytes*kx;
+			for(int kc=0;kc<symbytes;++kc)
+				testrow[dstidx+kc]=buf[srcidx+kc]-(kx?buf[srcidx-bytestride+kc]:0);
+		}
+		temp=0;
+		for(int kc=0;kc<symbytes;++kc)
+			temp+=calc_sdev(testrow+rowlen+kc, rowlen, symbytes);
+		if(sdev>temp)
+			sdev=temp, type=1;
+
+		for(int kx=0;kx<bw;++kx)//v-diff
+		{
+			int srcidx=bytestride*(bw*ky+kx), dstidx=rowlen*2+symbytes*kx;
+			for(int kc=0;kc<symbytes;++kc)
+				testrow[dstidx+kc]=buf[srcidx]-(ky?buf[srcidx-srcrowlen+kc]:0);
+		}
+		temp=0;
+		for(int kc=0;kc<symbytes;++kc)
+			temp+=calc_sdev(testrow+rowlen*2+kc, rowlen, symbytes);
+		if(sdev>temp)
+			sdev=temp, type=2;
+
+		for(int kx=0;kx<bw;++kx)//av-diff
+		{
+			int srcidx=bytestride*(bw*ky+kx), dstidx=rowlen*3+symbytes*kx;
+			for(int kc=0;kc<symbytes;++kc)
+				testrow[dstidx+kc]=buf[srcidx+kc]-(((kx?buf[srcidx-bytestride+kc]:0)+(ky?buf[srcidx-srcrowlen+kc]:0))>>1);
+		}
+		temp=0;
+		for(int kc=0;kc<symbytes;++kc)
+			temp+=calc_sdev(testrow+rowlen*3+kc, rowlen, symbytes);
+		if(sdev>temp)
+			sdev=temp, type=3;
+
+		for(int kx=0;kx<bw;++kx)//Paeth predictor
+		{
+			int srcidx=bytestride*(bw*ky+kx), dstidx=rowlen*4+symbytes*kx;
+			for(int kc=0;kc<symbytes;++kc)
+			{
+				unsigned char
+					A=kx?buf[srcidx-bytestride+kc]:0,
+					B=ky?buf[srcidx-srcrowlen+kc]:0,
+					C=kx&&ky?buf[srcidx-srcrowlen-bytestride+kc]:0,
+					p=A+B-C,
+					dist, d2, sub;
+
+				dist=abs(p-A);
+				sub=A;
+
+				d2=abs(p-B);
+				if(dist>d2)
+					dist=d2, sub=B;
+
+				d2=abs(p-C);
+				if(dist>d2)
+					dist=d2, sub=C;
+
+				testrow[dstidx+kc]=buf[srcidx+kc]-sub;
+			}
+		}
+		temp=0;
+		for(int kc=0;kc<symbytes;++kc)
+			temp+=calc_sdev(testrow+rowlen*4+kc, rowlen, symbytes);
+		if(sdev>temp)
+			sdev=temp, type=4;
+
+		b_type[ky]=type;
+		memcpy(b2+rowlen*ky, testrow+rowlen*type, rowlen);
+	}
+	ArrayHandle coeff=0, bypass=0;
+	lz2_encode(b2, (int)res, &coeff, &bypass);
+
+	//lodepng_encode_file("out.PNG", b2, bw, bh, bytestride==4?LCT_RGBA:LCT_RGB, 8);//
+
+	for(int kc=0;kc<symbytes;++kc)
+		rans_calc_CDF(coeff->data+kc, (int)coeff->count, symbytes, CDF+((size_t)kc<<8));
+	dlist_push_back(&list, &tag_lz03, 4);
+	dlist_push_back(&list, &coeff->count, 4);
+	dlist_push_back(&list, CDF, ((size_t)symbytes<<8)*sizeof(short));
+	rans_bytes_encode(coeff->data, (int)coeff->count, symbytes, CDF, 256, &list);
+	dlist_push_back(&list, bypass->data, bypass->count);
+	//rans_bytes_encode(bypass->data, (int)bypass->count, 0, 256, &list);
+	//dlist_push_back(&list, b_type, bh);
+	rans_bytes_encode(b_type, bh, 1, 0, 5, &list);
+
+	array_free(&coeff);
+	array_free(&bypass);
+
+	dlist_appendtoarray(&list, data);
+	dlist_clear(&list);
+
+	cycles=__rdtsc()-cycles;
+	return cycles;
+}
+
+#if 0
+long long test3_encode(const void *src, int bw, int bh, int symbytes, int bytestride, ArrayHandle *data)
+{
+	if(symbytes>4)
+		return 0;
+	long long cycles=__rdtsc();
+	
+	unsigned short CDF[256*4];
+	DList list;
+	dlist_init(&list, 1, 1024, 0);
+	//const unsigned char *buf=(const unsigned char*)src;
+	unsigned short *buf;
+	haar_2d_fwd((const unsigned char*)src, bw, bh, symbytes, bytestride, 0, &buf);
+	int rowlen=symbytes*bw, srcrowlen=bytestride*bw;
+	unsigned char *testrow=(unsigned char*)malloc((size_t)rowlen*5);
+	unsigned char *b_type=(unsigned char*)malloc(bh);
+	size_t res=(size_t)rowlen*bh;
+	//unsigned char *b2=(unsigned char*)malloc(res);
+	for(int ky=bh-1;ky>=0;--ky)
+	{
+		int type;
+		double sdev, temp;
+
+		for(int kx=0;kx<bw;++kx)//bypass
+		{
+			int srcidx=bytestride*(bw*ky+kx), dstidx=symbytes*kx;
+			for(int kc=0;kc<symbytes;++kc)
+				testrow[dstidx+kc]=buf[srcidx+kc];
+		}
+		sdev=0;
+		for(int kc=0;kc<symbytes;++kc)
+			sdev+=calc_sdev(testrow+kc, rowlen, symbytes);
+		type=0;
+		//omit division of sdev by symbytes
+
+		for(int kx=0;kx<bw;++kx)//h-diff
+		{
+			int srcidx=bytestride*(bw*ky+kx), dstidx=rowlen+symbytes*kx;
+			for(int kc=0;kc<symbytes;++kc)
+				testrow[dstidx+kc]=buf[srcidx+kc]-(kx?buf[srcidx-bytestride+kc]:0);
+		}
+		temp=0;
+		for(int kc=0;kc<symbytes;++kc)
+			temp+=calc_sdev(testrow+rowlen+kc, rowlen, symbytes);
+		if(sdev>temp)
+			sdev=temp, type=1;
+
+		for(int kx=0;kx<bw;++kx)//v-diff
+		{
+			int srcidx=bytestride*(bw*ky+kx), dstidx=rowlen*2+symbytes*kx;
+			for(int kc=0;kc<symbytes;++kc)
+				testrow[dstidx+kc]=buf[srcidx]-(ky?buf[srcidx-srcrowlen+kc]:0);
+		}
+		temp=0;
+		for(int kc=0;kc<symbytes;++kc)
+			temp+=calc_sdev(testrow+rowlen*2+kc, rowlen, symbytes);
+		if(sdev>temp)
+			sdev=temp, type=2;
+
+		for(int kx=0;kx<bw;++kx)//av-diff
+		{
+			int srcidx=bytestride*(bw*ky+kx), dstidx=rowlen*3+symbytes*kx;
+			for(int kc=0;kc<symbytes;++kc)
+				testrow[dstidx+kc]=buf[srcidx+kc]-(((kx?buf[srcidx-bytestride+kc]:0)+(ky?buf[srcidx-srcrowlen+kc]:0))>>1);
+		}
+		temp=0;
+		for(int kc=0;kc<symbytes;++kc)
+			temp+=calc_sdev(testrow+rowlen*3+kc, rowlen, symbytes);
+		if(sdev>temp)
+			sdev=temp, type=3;
+
+		for(int kx=0;kx<bw;++kx)//Paeth predictor
+		{
+			int srcidx=bytestride*(bw*ky+kx), dstidx=rowlen*4+symbytes*kx;
+			for(int kc=0;kc<symbytes;++kc)
+			{
+				unsigned char
+					A=kx?buf[srcidx-bytestride+kc]:0,
+					B=ky?buf[srcidx-srcrowlen+kc]:0,
+					C=kx&&ky?buf[srcidx-srcrowlen-bytestride+kc]:0,
+					p=A+B-C,
+					dist, d2, sub;
+
+				dist=abs(p-A);
+				sub=A;
+
+				d2=abs(p-B);
+				if(dist>d2)
+					dist=d2, sub=B;
+
+				d2=abs(p-C);
+				if(dist>d2)
+					dist=d2, sub=C;
+
+				testrow[dstidx+kc]=buf[srcidx+kc]-sub;
+			}
+		}
+		temp=0;
+		for(int kc=0;kc<symbytes;++kc)
+			temp+=calc_sdev(testrow+rowlen*4+kc, rowlen, symbytes);
+		if(sdev>temp)
+			sdev=temp, type=4;
+
+		b_type[ky]=type;
+		memcpy(b2+rowlen*ky, testrow+rowlen*type, rowlen);
+	}
+	ArrayHandle coeff=0, bypass=0;
+	lz2_encode(b2, (int)res, &coeff, &bypass);
+
+	//lodepng_encode_file("out.PNG", b2, bw, bh, symbytes==4?LCT_RGBA:LCT_RGB, 8);//
+
+	for(int kc=0;kc<symbytes;++kc)
+		rans_calc_CDF(coeff->data+kc, (int)coeff->count, symbytes, CDF+((size_t)kc<<8));
+	dlist_push_back(&list, &tag_lz03, 4);
+	dlist_push_back(&list, &coeff->count, 4);
+	dlist_push_back(&list, CDF, ((size_t)symbytes<<8)*sizeof(short));
+	rans_bytes_encode(coeff->data, (int)coeff->count, symbytes, CDF, 256, &list);
+	dlist_push_back(&list, bypass->data, bypass->count);
+	//rans_bytes_encode(bypass->data, (int)bypass->count, 0, 256, &list);
+	//dlist_push_back(&list, b_type, bh);
+	rans_bytes_encode(b_type, bh, 1, 0, 5, &list);
+
+	array_free(&coeff);
+	array_free(&bypass);
+
+	dlist_appendtoarray(&list, data);
+	dlist_clear(&list);
+
+	cycles=__rdtsc()-cycles;
+	return cycles;
+}
+#endif

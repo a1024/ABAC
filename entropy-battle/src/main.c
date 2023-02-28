@@ -9,6 +9,7 @@
 #include<intrin.h>
 #endif
 #include<sys/stat.h>
+#include"lodepng.h"//for testing
 #define STB_IMAGE_IMPLEMENTATION
 #include"stb_image.h"
 static const char file[]=__FILE__;
@@ -284,32 +285,59 @@ void print_pairwisehist(int *phist)
 	}
 	printf("\n");
 }
-void differentiate_image(unsigned char *buf, int iw, int ih, int stride)
+void differentiate_image(unsigned char *buf, int iw, int ih, int nch, int bytestride, int px_offset)
 {
-	int rowlen=iw*stride;
-	int idx=(iw*ih-1)*stride;
-	for(int ky=ih-1;ky>=1;--ky)
+	int rowlen=iw*bytestride;
+	for(int kc=0;kc<nch;++kc)
 	{
-		for(int kx=iw-1;kx>=1;--kx, idx-=stride)
-			buf[idx]-=buf[idx-stride]+buf[idx-rowlen]-buf[idx-rowlen-stride];
+		int idx=(iw*ih-1)*bytestride+kc;
+		for(int ky=ih-1;ky>=0;--ky)
+		{
+			for(int kx=iw-1;kx>=0;--kx, idx-=bytestride)
+			{
+				unsigned char
+					left=kx?buf[idx-bytestride]:0,
+					top=ky?buf[idx-rowlen]:0,
+					topleft=kx&&ky?buf[idx-rowlen-bytestride]:0,
+					sub=left+top-topleft;
+				if(kx||ky)
+					sub-=128;
+				buf[idx]-=sub;
+			}
+		}
 	}
 }
-void integrate_image(unsigned char *buf, int iw, int ih, int stride)
+void integrate_image(unsigned char *buf, int iw, int ih, int nch, int bytestride, int px_offset)
 {
-	int rowlen=iw*stride;
-	int idx=(iw+1)*stride;
-	for(int ky=1;ky<ih;++ky)
+	int rowlen=iw*bytestride;
+	for(int kc=0;kc<nch;++kc)
 	{
-		for(int kx=1;kx<iw;++kx)
-			buf[idx]+=buf[idx-stride]+buf[idx-rowlen]-buf[idx-rowlen-stride];
+		int idx=kc;
+		for(int ky=0;ky<ih;++ky)
+		{
+			for(int kx=0;kx<iw;++kx, idx+=bytestride)
+			{
+				unsigned char
+					left=kx?buf[idx-bytestride]:0,
+					top=ky?buf[idx-rowlen]:0,
+					topleft=kx&&ky?buf[idx-rowlen-bytestride]:0,
+					sub=left+top-topleft;
+				if(kx||ky)
+					sub-=128;
+				buf[idx]+=sub;
+			}
+		}
 	}
 }
 int main(int argc, char **argv)
 {
+	//DCTtest();
+
 	printf("EntropyBattle\n");
 #if 1
 	long long cycles;
-	int iw=0, ih=0, nch=4, nch0=0;
+	int iw=0, ih=0, nch0=0,
+		nch=4;
 	size_t resolution=0, len=0;
 	unsigned char *buf, *b2;
 	if(argc==2)
@@ -330,10 +358,13 @@ int main(int argc, char **argv)
 	}
 	else
 	{
-		iw=1920, ih=1080, nch=4, nch0=4;//1080*1920	640*480		50
+		iw=1920, ih=1080, nch0=3,//1080*1920*3	640*480		50		4*4*1
+			nch=4;
 		resolution=(size_t)iw*ih, len=resolution*nch;
 		buf=(unsigned char*)malloc(len);
-		srand((unsigned)__rdtsc());
+		if(!buf)
+			return 0;
+		//srand((unsigned)__rdtsc());
 	
 #ifdef UNIFORM
 		printf("Generating test data (uniform)...\n");
@@ -345,6 +376,8 @@ int main(int argc, char **argv)
 #endif
 	}
 	b2=(unsigned char*)malloc(len);
+	if(!b2)
+		return 0;
 	size_t usize=len*nch0>>2;
 
 	printf("\n");
@@ -359,15 +392,22 @@ int main(int argc, char **argv)
 
 	//print_bytes(buf, len);
 
-#if 0
+#if 1
 	printf("Differentiating image...\n");
-	//memcpy(b2, buf, len);
-	differentiate_image(buf, iw, ih, 4);
-	differentiate_image(buf+1, iw, ih, 4);
-	differentiate_image(buf+2, iw, ih, 4);
-	//integrate_image(buf, iw, ih, 4);
-	//integrate_image(buf+1, iw, ih, 4);
-	//integrate_image(buf+2, iw, ih, 4);
+
+	if(nch0==3&&!buf[3])//set alpha
+	{
+		for(int k=3;k<len;k+=nch)
+			buf[k]=0xFF;
+	}
+
+	memcpy(b2, buf, len);//save copy
+
+	differentiate_image(buf, iw, ih, nch0, nch, 128);//add/sub 128 for pleasant image
+
+	lodepng_encode_file("out.PNG", buf, iw, ih, LCT_RGBA, 8);//save differentiated image
+
+	//integrate_image(buf, iw, ih, nch0, nch, 128);//check
 	//compare_buffers(buf, b2, len, "Diff", 0);
 #endif
 
@@ -384,7 +424,9 @@ int main(int argc, char **argv)
 			double p=(double)freq/(len>>2);
 			if(freq)
 				entropy[kc]+=-p*log2(p);
-			//printf("%3d %6d %lf\n", k, (int)freq, p);//
+
+			//if(!kc)//
+			//	printf("%3d %6d %lf\n", k, freq, p);//
 		}
 		printf("ch %d E = %lf / 8, optimal ratio = %lf\n", kc, entropy[kc], 8/entropy[kc]);
 		entropy[4]+=entropy[kc];
@@ -468,11 +510,39 @@ int main(int argc, char **argv)
 	}
 #endif
 	printf("\n");
+	
+#if 0
+	printf("Haar wavelet\n");
+	int nstages=0;//0
+	short *b3=0;
+	haar_2d_fwd(buf, iw, ih, nch0, nch, nstages, &b3);
 
+	for(ptrdiff_t k=0;k<len;++k)//9 bit -> 16 bit
+	{
+		if(!((k+1)&3))
+			b3[k]=0xFFFF;
+		//else
+		//	b3[k]<<=7;
+	}
+	printf("Saving...\n");
+	lodepng_encode_file("out.PNG", b3, iw, ih, LCT_RGBA, 16);
+	printf("Done\n");
+
+	//haar_2d_inv(b3, iw, ih, nch0, nch, nstages, &b2);
+	//compare_buffers(b2, buf, len, "Haar", 0);
+	//memset(b2, 0, len);
+#endif
 
 #if 1
 	printf("LZ2\n");
 	cycles=test1_encode(buf, iw, ih, nch0, nch, &cdata);
+	printf("Enc %lf CPB, ratio %lf\n", (double)cycles/usize, (double)usize/cdata->count);
+	array_free(&cdata);
+	printf("\n");
+#endif
+#if 1
+	printf("test2\n");
+	cycles=test2_encode(buf, iw, ih, nch0, nch, &cdata);
 	printf("Enc %lf CPB, ratio %lf\n", (double)cycles/usize, (double)usize/cdata->count);
 	array_free(&cdata);
 	printf("\n");
@@ -537,6 +607,7 @@ int main(int argc, char **argv)
 
 	array_free(&cdata);
 	compare_buffers(b2, buf, len, "AC", 0);
+	memset(b2, 0, len);
 	printf("\n");
 #endif
 
@@ -570,6 +641,7 @@ int main(int argc, char **argv)
 
 		array_free(&cdata);
 		compare_buffers(b2, buf, len, "ABAC", 0);
+		memset(b2, 0, len);
 		printf("\n");
 	}
 #endif
@@ -602,6 +674,7 @@ int main(int argc, char **argv)
 
 	array_free(&cdata);
 	compare_buffers(b2, buf, len, "ABAC_SSE2", 0);
+	memset(b2, 0, len);
 	printf("\n");
 #endif
 
@@ -624,6 +697,7 @@ int main(int argc, char **argv)
 
 	array_free(&cdata);
 	compare_buffers(b2, buf, len, "rANS", 0);
+	memset(b2, 0, len);
 	//printf("actual ratio %lf\n", (double)usize/(cdata->count-(12+(size_t)256*4*sizeof(short))));
 
 #if 0
@@ -723,7 +797,7 @@ int main(int argc, char **argv)
 
 	//rANS_SSE2
 #ifdef ENABLE_ALL
-	if(!(nch&(nch-1)))
+	if(!(nch&(nch-1))&&!(len&15))
 	{
 		printf("rANS_SSE2\n");
 		cycles=__rdtsc();
@@ -738,6 +812,7 @@ int main(int argc, char **argv)
 
 		array_free(&cdata);
 		compare_buffers(b2, buf, len, "rANS_SSE2", 0);
+		memset(b2, 0, len);
 		printf("\n");
 	}
 #endif
