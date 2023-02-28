@@ -405,7 +405,7 @@ int main(int argc, char **argv)
 
 	differentiate_image(buf, iw, ih, nch0, nch, 128);//add/sub 128 for pleasant image
 
-	lodepng_encode_file("out.PNG", buf, iw, ih, LCT_RGBA, 8);//save differentiated image
+	//lodepng_encode_file("out.PNG", buf, iw, ih, LCT_RGBA, 8);//save differentiated image
 
 	//integrate_image(buf, iw, ih, nch0, nch, 128);//check
 	//compare_buffers(buf, b2, len, "Diff", 0);
