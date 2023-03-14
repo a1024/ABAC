@@ -1366,7 +1366,7 @@ size_t lz2d2_encode(const unsigned char *buf, int bw, int bh, int symbytes, int 
 			int blockw=1, blockh=1, updatew=1, updateh=1;
 			do
 			{
-				int srcidx, dstidx;
+				int dstidx;
 				if(updatew)
 				{
 					if(blockw<(1<<(sizeof(DeltaType)<<3))&&kx+blockw<bw)//try to add next column
@@ -1532,19 +1532,12 @@ size_t lz2d2_encode(const unsigned char *buf, int bw, int bh, int symbytes, int 
 	printf("LZ  maxw %d maxh %d maxA %d*%d\n", maxw, maxh, maxaw, maxah);
 	return savedbytes;
 }
-//typedef struct SpanfillInfoStruct
-//{
-//	unsigned short x1, x2, y, dy;
-//} SpanfillInfo;
-//typedef struct PixelIDStruct
-//{
-//	int regionid, pixelid;
-//} PixelID;
+
 typedef struct CNCPointStruct
 {
 	short x, y;
 } CNCPoint;
-size_t lz2d3_encode(const unsigned char *buf, int bw, int bh, int symbytes, int bytestride, ArrayHandle *mask, ArrayHandle *rle, ArrayHandle *lz)
+size_t lz2d3_encode(const unsigned char *buf, int bw, int bh, int symbytes, int bytestride, ArrayHandle *mask, ArrayHandle *rle, ArrayHandle *lz, int minlzbytes)
 {
 	ARRAY_ALLOC(LZ2DRLEInfo, *rle, 0, 0, 0, 0);
 	if(!*rle)
@@ -1578,17 +1571,6 @@ size_t lz2d3_encode(const unsigned char *buf, int bw, int bh, int symbytes, int 
 	temp->x=1;
 	temp->y=1;
 	memfill(temp+1, temp, (res-1)*sizeof(CNCPoint), sizeof(CNCPoint));
-	//memset(temp, 0, tsize*sizeof(CNCPoint));
-
-	//PixelID *m2=(PixelID*)malloc(res*sizeof(PixelID));//contains {flood-fill region index, unique pixel index}
-	//if(!m2)
-	//{
-	//	LOG_ERROR("lz2d_encode(): Allocation failed");
-	//	return 0;
-	//}
-	//memset(m2, 0, res*sizeof(PixelID));
-	//DList stack;
-	//dlist_init(&stack, sizeof(short[2]), 1024, 0);
 
 	size_t savedbytes=0;
 	for(int lgstep=1;lgstep<=8;++lgstep)
@@ -1599,10 +1581,6 @@ size_t lz2d3_encode(const unsigned char *buf, int bw, int bh, int symbytes, int 
 		{
 			for(int kx=0;kx<bw;kx+=step)
 			{
-				//if(step==64&&kx==192&&ky==128)//
-				//	kx=192;//
-				//if(step==128&&kx==128&&ky>=128)//
-				//	kx=128;//
 				int idx=bw*ky+kx;
 				if(temp[idx].x==halfx&&temp[idx+halfx].x==halfx&&temp[idx+halfy].x==halfx&&temp[idx+halfy+halfx].x==halfx)
 				{
@@ -1626,12 +1604,6 @@ size_t lz2d3_encode(const unsigned char *buf, int bw, int bh, int symbytes, int 
 	{
 		for(int kx=0;kx<bw;)
 		{
-			//if(kx==0&&ky==22)//
-			//	kx=0;//
-			//if(kx==992&&ky==48)//
-			//	kx=992;//
-			//if(kx==0&&ky==128)//
-			//	kx=0;//
 			int idx=bw*ky+kx;
 			if(mask[0]->data[idx]==0x10)
 			{
@@ -1660,16 +1632,6 @@ size_t lz2d3_encode(const unsigned char *buf, int bw, int bh, int symbytes, int 
 	{
 		for(int kx=0;kx<bw;)
 		{
-			//if(kx==3&&ky==5)//
-			//	kx=3;//
-			//if(kx==0&&ky==22)//
-			//	kx=0;//
-			//if(kx==96&&ky==96)//
-			//	kx=96;//
-			//if(kx==992&&ky==48)//
-			//	kx=992;//
-			//if(kx==568&&ky==306)//
-			//	kx=568;//
 			int idx=bw*ky+kx;
 			if(mask[0]->data[idx]==0x20)
 			{
@@ -1680,14 +1642,11 @@ size_t lz2d3_encode(const unsigned char *buf, int bw, int bh, int symbytes, int 
 			//while there is room downwards && p2 is responsible for its block && same height && same content && no overflow
 			while(ky+p->y<bh&&mask[0]->data[idx+bw*p->y]&15&&p->x==p2->x&&!memcmp(buf+bytestride*idx, buf+bytestride*(idx+bw*p->y), symbytes)&&p->y+p2->y<0x8000)
 			{
-				//if(kx==992&&ky+p->y==48)//
-				//	kx=992;//
 				p->y+=p2->y;
 				p2=temp+idx+bw*p->y;
 			}
 
 			//mask out merged block
-			//unsigned char val=0x20|mask[0]->data[idx]&15;
 			for(int ky2=0;ky2<temp[idx].y;++ky2)
 				memset(mask[0]->data+bw*(ky+ky2)+kx, 0x20, temp[idx].x);
 			mask[0]->data[idx]|=floor_log2(p->y)+1;//0~14 + 1
@@ -1701,30 +1660,16 @@ size_t lz2d3_encode(const unsigned char *buf, int bw, int bh, int symbytes, int 
 	{
 		for(int kx=0;kx<bw;)
 		{
-			//if(kx==992&&ky==48)//
-			//	kx=992;//
-			//if(kx==21&&ky==56)//
-			//	kx=21;//
-			//if(kx==20&&ky==61)//
-			//	kx=20;//
-			//if(kx==4&&ky==62)//
-			//	kx=4;//
 			int idx=bw*ky+kx;
 			if(!mask[0]->data[idx]||mask[0]->data[idx]>=0xC0)
 			{
 				++kx;
 				continue;
 			}
-			//if((mask[0]->data[idx]&0xF0)==0x20)//
-			//	mask[0]->data[idx]|=0x20;//
-			//if(mask[0]->data[idx]==48)//
-			//	mask[0]->data[idx]=48;//
 			size_t area=symbytes*((size_t)temp[idx].x*temp[idx].y-1);
+		//	if(area>minlzbytes)
 			if(area>sizeof(LZ2DRLEInfo))
 			{
-				//if(ky>=56&&val==224)//
-				//	val=224;//
-
 				//mask out block
 				unsigned char val=0xC0+rand()%63;
 				mask[0]->data[idx]=0;//unmask top-left pixel
@@ -1732,10 +1677,6 @@ size_t lz2d3_encode(const unsigned char *buf, int bw, int bh, int symbytes, int 
 					memset(mask[0]->data+bw*ky+kx+1, val, temp[idx].x-1);
 				for(int ky2=1;ky2<temp[idx].y;++ky2)
 					memset(mask[0]->data+bw*(ky+ky2)+kx, val, temp[idx].x);
-				//{
-				//	for(int kx2=0;kx2<temp[idx2].x;++kx2)
-				//		mask[0]->data[bw*(ky+ky2)+kx+kx2]=val;
-				//}
 
 				LZ2DRLEInfo *emit=(LZ2DRLEInfo*)ARRAY_APPEND(*rle, 0, 1, 1, 0);
 				emit->x=kx;
@@ -1757,6 +1698,7 @@ size_t lz2d3_encode(const unsigned char *buf, int bw, int bh, int symbytes, int 
 
 	//LZ2D
 #if 1
+	memset(g_hist, -1, sizeof(g_hist));
 	for(int ky=0;ky<bh;++ky)
 	{
 		for(int kx=0;kx<bw;)
@@ -1776,36 +1718,44 @@ size_t lz2d3_encode(const unsigned char *buf, int bw, int bh, int symbytes, int 
 				p=g_hist+(sym<<4|kh);
 				if(p->srcx==-1)
 					break;
-				int blockw=1, blockh=1, updatedw=1, updatedh=1;
+				int blockw=1, blockh=1, updatew=1, updateh=1;
 				do
 				{
 					int srcidx, dstidx;
-					if(updatedh&&blockh<(1<<(sizeof(DeltaType)<<3))&&blockh<blockw*4&&ky+blockh<bh&&p->srcy+blockh<bh)
+					if(updateh)
 					{
-						srcidx=bw*(p->srcy+blockh)+p->srcx, dstidx=bw*(ky+blockh)+kx;
-						if(strided_memcmp(buf+bytestride*srcidx, buf+bytestride*dstidx, symbytes, bytestride, 1, blockw, mask[0]->data+dstidx))
-							++blockh;
+						if(blockh<(1<<(sizeof(DeltaType)<<3))&&ky+blockh<bh&&p->srcy+blockh<bh)
+						{
+							srcidx=bw*(p->srcy+blockh)+p->srcx, dstidx=bw*(ky+blockh)+kx;
+							if(strided_memcmp(buf+bytestride*srcidx, buf+bytestride*dstidx, symbytes, bytestride, 1, blockw, mask[0]->data+dstidx))
+								++blockh;
+							else
+								updateh=0;
+						}
 						else
-							updatedh=0;
+							updateh=0;
 					}
-					else
-						updatedh=0;
-					if(updatedw&&blockw<(1<<(sizeof(DeltaType)<<3))&&blockw<blockh*4&&kx+blockw<bw&&p->srcx+blockw<bw)
+					if(updatew)
 					{
-						srcidx=bw*p->srcy+p->srcx+blockw, dstidx=bw*ky+kx+blockw;
-						if(strided_memcmp(buf+bytestride*srcidx, buf+bytestride*dstidx, symbytes, bytestride, bw, blockh, mask[0]->data+dstidx))
-							++blockw;
+						if(blockw<(1<<(sizeof(DeltaType)<<3))&&kx+blockw<bw&&p->srcx+blockw<bw)
+						{
+							srcidx=bw*p->srcy+p->srcx+blockw, dstidx=bw*ky+kx+blockw;
+							if(strided_memcmp(buf+bytestride*srcidx, buf+bytestride*dstidx, symbytes, bytestride, bw, blockh, mask[0]->data+dstidx))
+								++blockw;
+							else
+								updatew=0;
+						}
 						else
-							updatedw=0;
+							updatew=0;
 					}
-					else
-						updatedw=0;
-				}while(updatedh||updatedw);
+				}while(updateh||updatew);
 				if(bestw*besth<blockw*blockh)
 					bestw=blockw, besth=blockh, bestmatch=kh;
 			}
 
-			int redundantbytes=symbytes*bestw*besth, success=bestmatch!=0xFF&&redundantbytes>sizeof(LZ2DInfo);
+			int redundantbytes=symbytes*bestw*besth,
+			//	success=bestmatch!=0xFF&&redundantbytes>minlzbytes;
+				success=bestmatch!=0xFF&&redundantbytes>sizeof(LZ2DInfo);
 			if(success)//ignore if repeated bytes <= emission bytes
 			{
 				LZ2DInfo *emit=(LZ2DInfo*)ARRAY_APPEND(*lz, 0, 1, 1, 0);//emit repeated block
@@ -1819,15 +1769,15 @@ size_t lz2d3_encode(const unsigned char *buf, int bw, int bh, int symbytes, int 
 
 				unsigned char val=32+rand()%31;
 				for(int ky2=0;ky2<besth;++ky2)//mask block
-					//memset(mask[0]->data+bw*(ky+ky2)+kx, 0xFF, bestw);
-				{
-					for(int kx2=0;kx2<bestw;++kx2)
-					{
-						unsigned char *p3=mask[0]->data+bw*(ky+ky2)+kx+kx2;
-						*p3=val;
-						//*p3+=*p3<255;
-					}
-				}
+					memset(mask[0]->data+bw*(ky+ky2)+kx, val, bestw);
+				//{
+				//	for(int kx2=0;kx2<bestw;++kx2)
+				//	{
+				//		unsigned char *p3=mask[0]->data+bw*(ky+ky2)+kx+kx2;
+				//		*p3=val;
+				//		//*p3+=*p3<255;
+				//	}
+				//}
 
 				savedbytes+=redundantbytes;
 			}
@@ -1852,118 +1802,241 @@ size_t lz2d3_encode(const unsigned char *buf, int bw, int bh, int symbytes, int 
 	}
 #endif
 	return savedbytes;
+}
 
-#if 0
-	int regionid=1;
-	for(int ky=0;ky<bh;++ky)
+static void image_diff_masked(unsigned char *buf, int iw, int ih, int nch, int bytestride, const unsigned char *mask)
+{
+	int rowlen=iw*bytestride;
+	for(int kc=0;kc<nch;++kc)
 	{
-		for(int kx=0;kx<bw;)
+		int idx2=iw*ih-1,
+			idx=idx2*bytestride+kc;
+		for(int ky=ih-1;ky>=0;--ky)
 		{
-			int idx=bw*ky+kx;
-			if(mask[0]->data[idx])
+			for(int kx=iw-1;kx>=0;--kx, --idx2, idx-=bytestride)
 			{
-				++kx;
-				continue;
-			}
-
-			unsigned short *p;
-			PixelID *p2;
-
-			int x1=bw, x2=0, y1=bh, y2=0;
-			int pixelid=1;
-
-			p=(unsigned short*)dlist_push_back1(&stack, 0);
-			p[0]=kx, p[1]=ky;
-
-			while(stack.nobj)
-			{
-				p=(unsigned short*)dlist_back(&stack);
-				int x=p[0], y=p[1];
-				dlist_pop_back(&stack);
-				
-				p2=m2+bw*y+x;		//mark (x, y)
-				p2->regionid=regionid;
-				p2->pixelid=pixelid;
-				++pixelid;
-
-				if(x1>x)			//update bounding box
-					x1=x;
-				if(x2<x+1)
-					x2=x+1;
-				if(y1>y)
-					y1=y;
-				if(y2<y+1)
-					y2=y+1;
-
-				if(x+1<bw&&m2[bw*ky+kx+1].regionid!=regionid&&!memcmp(buf+bytestride*idx, buf+bytestride*(bw*y+x+1), symbytes))
+				if(!mask[idx2])
 				{
-					p2=m2+bw*ky+kx+1;//mark (x+1, y)
-					p2->regionid=regionid;
-					p2->pixelid=pixelid;
-					++pixelid;
-					
-					p=(unsigned short*)dlist_push_back1(&stack, 0);
-					p[0]=x+1;
-					p[1]=y;
-				}
-				if(x-1>=0&&m2[bw*ky+kx-1].regionid!=regionid&&!memcmp(buf+bytestride*idx, buf+bytestride*(bw*y+x-1), symbytes))
-				{
-					p2=m2+bw*ky+kx-1;//mark (x-1, y)
-					p2->regionid=regionid;
-					p2->pixelid=pixelid;
-					++pixelid;
-					
-					p=(unsigned short*)dlist_push_back1(&stack, 0);
-					p[0]=x-1;
-					p[1]=y;
-				}
-				if(y+1>=0&&m2[bw*(ky+1)+kx].regionid!=regionid&&!memcmp(buf+bytestride*idx, buf+bytestride*(bw*(y+1)+x), symbytes))
-				{
-					p2=m2+bw*(ky+1)+kx;//mark (x, y+1)
-					p2->regionid=regionid;
-					p2->pixelid=pixelid;
-					++pixelid;
-					
-					p=(unsigned short*)dlist_push_back1(&stack, 0);
-					p[0]=x;
-					p[1]=y+1;
-				}
-				if(y-1>=0&&m2[bw*(ky-1)+kx].regionid!=regionid&&!memcmp(buf+bytestride*idx, buf+bytestride*(bw*(y-1)+x), symbytes))
-				{
-					p2=m2+bw*(ky-1)+kx;//mark (x, y-1)
-					p2->regionid=regionid;
-					p2->pixelid=pixelid;
-					++pixelid;
-					
-					p=(unsigned short*)dlist_push_back1(&stack, 0);
-					p[0]=x;
-					p[1]=y-1;
+					unsigned char
+						left=kx&&!mask[idx2-1]?buf[idx-bytestride]:0,
+						top=ky&&!mask[idx2-iw]?buf[idx-rowlen]:0,
+						topleft=kx&&ky&&!mask[idx2-iw-1]?buf[idx-rowlen-bytestride]:0,
+						sub=left+top-topleft;
+					if(kx||ky)
+						sub-=128;
+					buf[idx]-=sub;
 				}
 			}
-			//dlist_clear(&stack);
-
-			for(int step=2;step<256;step<<=1)
-			{
-				int xa=x1&~(step-1), xb=(x2|(step-1))+1,
-					ya=y1&~(step-1), yb=(y2|(step-1))+1;
-				for(int ky2=y1;ky2<y2;ky2+=step)
-				{
-					for(int kx2=x1;kx2<x2;kx2+=step)
-					{
-						p2=m2+bw*ky2+kx2;
-						if(p2->regionid==regionid)
-						{
-						}
-					}
-				}
-			}
-
-			++regionid;
 		}
 	}
-#endif
 }
-//static const int tag_lz04='L'|'Z'<<8|'0'<<16|'4'<<24;
-//void test3_encode(const void *src, int bw, int bh, int symbytes, int bytestride, ArrayHandle *data)
-//{
-//}
+static void image_int_masked(unsigned char *buf, int iw, int ih, int nch, int bytestride, const unsigned char *mask)
+{
+	int rowlen=iw*bytestride;
+	for(int kc=0;kc<nch;++kc)
+	{
+		int idx2=iw*ih-1,
+			idx=idx2*bytestride+kc;
+		for(int ky=ih-1;ky>=0;--ky)
+		{
+			for(int kx=iw-1;kx>=0;--kx, --idx2, idx-=bytestride)
+			{
+				if(!mask[idx2])
+				{
+					unsigned char
+						left=kx&&!mask[idx2-1]?buf[idx-bytestride]:0,
+						top=ky&&!mask[idx2-iw]?buf[idx-rowlen]:0,
+						topleft=kx&&ky&&!mask[idx2-iw-1]?buf[idx-rowlen-bytestride]:0,
+						sub=left+top-topleft;
+					if(kx||ky)
+						sub-=128;
+					buf[idx]+=sub;
+				}
+			}
+		}
+	}
+}
+
+static int rans_calc_CDF_masked(const unsigned char *buffer, int len, int stride, const unsigned char *mask, unsigned short *CDF)
+{
+	const int nlevels=256;
+	if(!len||!stride)
+	{
+		LOG_ERROR("rans_calc_CDF_masked(): Invalid args");
+		return 0;
+	}
+	HistInfo hist[256];
+	for(int k=0;k<nlevels;++k)
+	{
+		hist[k].sym=k;
+		hist[k].freq=0;
+	}
+	int count=0;
+	for(int k=0, km=0;k<len;k+=stride, ++km)//this loop takes 73% of encode time
+	{
+		int inc=!mask[km];
+		hist[buffer[k]].freq+=inc;
+		count+=inc;
+	}
+	if(!count)
+		return 0;
+
+#if 0
+	static int call=0;
+	if(call==3)
+		print_hist(&hist->freq, sizeof(HistInfo)/sizeof(int), 256);//
+	++call;
+#endif
+
+	//int count=len/stride;
+	for(int k=0;k<nlevels;++k)
+		hist[k].qfreq=((long long)hist[k].freq<<16)/count;
+	
+	if(count!=0x10000)
+	{
+		const int prob_max=0xFFFF;
+
+		isort(hist, nlevels, sizeof(HistInfo), histinfo_byfreq);
+		int idx=0;
+		for(;idx<nlevels&&!hist[idx].freq;++idx);//skip absent symbols
+		for(;idx<nlevels&&!hist[idx].qfreq;++idx)//restore rare symbols
+			++hist[idx].qfreq;
+		//for(idx=nlevels-1;idx>=0&&hist[idx].qfreq>=prob_max;--idx);
+		//for(++idx;idx<nlevels;++idx)
+		//	hist[idx].qfreq=prob_max;
+
+		int error=-0x10000;//too much -> +ve error & vice versa
+		for(int k=0;k<nlevels;++k)
+			error+=hist[k].qfreq;
+		if(error>0)
+		{
+			while(error)
+			{
+				for(int k=0;k<nlevels&&error;++k)
+				{
+					int dec=hist[k].qfreq>1;
+					hist[k].qfreq-=dec, error-=dec;
+				}
+			}
+		}
+		else
+		{
+			while(error)
+			{
+				for(int k=nlevels-1;k>=0&&error;--k)
+				{
+					int inc=hist[k].qfreq<prob_max;
+					hist[k].qfreq+=inc, error+=inc;
+				}
+			}
+		}
+		isort(hist, nlevels, sizeof(HistInfo), histinfo_bysym);
+	}
+	int sum=0;
+	for(int k=0;k<nlevels;++k)
+	{
+		//freq[k]=hist[k].qfreq;
+		CDF[k]=sum;
+		sum+=hist[k].qfreq;
+		//if(sum>0xFFFF)
+		//	sum=0xFFFF;
+	}
+	return 1;
+}
+
+static const int tag_lz04='L'|'Z'<<8|'0'<<16|'4'<<24;
+unsigned short g_freq[256*4];
+int test3_encode(const void *src, int bw, int bh, int symbytes, int bytestride, ArrayHandle *data, int minlzbytes)
+{
+	size_t start=0;
+	if(*data)
+	{
+		if(data[0]->esize!=1)
+			return 0;
+		start=data[0]->count;
+	}
+	else
+	{
+		ARRAY_ALLOC(char, *data, 0, 0, 0, 0);
+		start=0;
+	}
+
+	const unsigned char *buf=(const unsigned char*)src;
+	ArrayHandle mask=0, rle=0, lz=0;
+	lz2d3_encode(buf, bw, bh, symbytes, bytestride, &mask, &rle, &lz, minlzbytes);
+	if(!mask||!rle||!lz)
+		return 0;
+
+	unsigned char *b2=(unsigned char*)malloc((size_t)bw*bh*bytestride);
+	if(!b2)
+	{
+		LOG_ERROR("test3_encode(): Allocation error");
+		return 0;
+	}
+	memcpy(b2, buf, (size_t)bw*bh*bytestride);
+	image_diff_masked(b2, bw, bh, symbytes, bytestride, mask->data);
+
+	for(int kc=0;kc<symbytes;++kc)
+	{
+		if(!rans_calc_CDF_masked(b2+kc, bytestride*bw*bh, bytestride, mask->data, g_CDF+((size_t)kc<<8)))
+		//if(!rans_calc_CDF_masked(b2+kc, bytestride*bw*bh, bytestride, mask->data, g_freq+((size_t)kc<<8), g_CDF+((size_t)kc<<8)))
+			return 0;
+	}
+
+	DList list;
+	dlist_init(&list, 1, 1024, 0);
+	dlist_push_back(&list, 0, (size_t)4*4);//tag, rle_count, lz_count, rANS_count
+	dlist_push_back(&list, rle->data, rle->esize*rle->count);
+	dlist_push_back(&list, lz->data, lz->esize*lz->count);
+	dlist_push_back(&list, g_CDF, ((size_t)symbytes<<8)*sizeof(short));
+	size_t rANS_bytes=list.nobj;
+
+	unsigned state=0x10000;
+	int idx=0;
+	for(int ky=0;ky<bh;++ky)
+	{
+		for(int kx=0;kx<bh;++kx, idx+=bytestride)
+		{
+			if(!mask->data[bw*ky+kx])
+			{
+				for(int kc=0;kc<symbytes;++kc)
+				{
+					unsigned char sym=b2[idx+kc];
+					//unsigned short c=g_CDF[kc<<8|sym], freq=g_freq[kc<<8|sym];
+					unsigned short c=g_CDF[kc<<8|sym], freq=(sym==255||c>g_CDF[kc<<8|(sym+1)]?0x10000:g_CDF[kc<<8|(sym+1)])-c;//CDF can overflow with zero frequency symbols at the end
+
+					if(state>=(unsigned)(freq<<16))//renorm
+					{
+						dlist_push_back(&list, &state, 2);
+						state>>=16;
+					}
+
+					state=state/freq<<16|(c+state%freq);//update
+				}
+			}
+		}
+	}
+	dlist_push_back(&list, &state, 4);
+	rANS_bytes=list.nobj-rANS_bytes;
+
+	dlist_appendtoarray(&list, data);
+
+	memcpy(data[0]->data+start, &tag_lz04, 4);
+	start+=4;
+
+	memcpy(data[0]->data+start, &rle->count, 4);
+	start+=4;
+
+	memcpy(data[0]->data+start, &lz->count, 4);
+	start+=4;
+
+	memcpy(data[0]->data+start, &rANS_bytes, 4);
+	start+=4;
+
+	dlist_clear(&list);
+	array_free(&mask);
+	array_free(&rle);
+	array_free(&lz);
+	free(b2);
+	return 1;
+}

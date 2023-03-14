@@ -285,7 +285,7 @@ void print_pairwisehist(int *phist)
 	}
 	printf("\n");
 }
-void differentiate_image(unsigned char *buf, int iw, int ih, int nch, int bytestride, int px_offset)
+void differentiate_image(unsigned char *buf, int iw, int ih, int nch, int bytestride)
 {
 	int rowlen=iw*bytestride;
 	for(int kc=0;kc<nch;++kc)
@@ -307,7 +307,7 @@ void differentiate_image(unsigned char *buf, int iw, int ih, int nch, int bytest
 		}
 	}
 }
-void integrate_image(unsigned char *buf, int iw, int ih, int nch, int bytestride, int px_offset)
+void integrate_image(unsigned char *buf, int iw, int ih, int nch, int bytestride)
 {
 	int rowlen=iw*bytestride;
 	for(int kc=0;kc<nch;++kc)
@@ -423,11 +423,11 @@ int main(int argc, char **argv)
 
 	memcpy(b2, buf, len);//save copy
 
-	differentiate_image(buf, iw, ih, nch0, nch, 128);//add/sub 128 for pleasant image
+	differentiate_image(buf, iw, ih, nch0, nch);//add/sub 128 for pleasant image
 
 	//lodepng_encode_file("out.PNG", buf, iw, ih, LCT_RGBA, 8);//save differentiated image
 
-	//integrate_image(buf, iw, ih, nch0, nch, 128);//check
+	//integrate_image(buf, iw, ih, nch0, nch);//check
 	//compare_buffers(buf, b2, len, "Diff", 0);
 #endif
 
@@ -586,12 +586,12 @@ int main(int argc, char **argv)
 #endif
 
 	//LZ2D
-#if 1
+#if 0
 	{
 		printf("LZ2D3\n");
 		ArrayHandle mask=0, rle=0, coeff=0;
 		cycles=__rdtsc();
-		size_t savedbytes=lz2d3_encode(buf, iw, ih, nch0, nch, &mask, &rle, &coeff);
+		size_t savedbytes=lz2d3_encode(buf, iw, ih, nch0, nch, &mask, &rle, &coeff, 64);
 		//size_t savedbytes=lz2d2_encode(buf, iw, ih, nch0, nch, &mask, &rle, &coeff);
 		//size_t savedbytes=lz2d_encode(buf, iw, ih, nch0, nch, &mask, &coeff);
 		cycles=__rdtsc()-cycles;
@@ -611,6 +611,23 @@ int main(int argc, char **argv)
 		}
 	}
 #endif
+
+	//test3
+#if 1
+	//for(int k=8;k<=256;k<<=1)//8=av(6, 10)
+	//for(int k=8;k<=32;++k)		//10 works best
+	{
+		//printf("test3 %3d\t\t", k);
+		printf("test3\n");
+		cycles=__rdtsc();
+		test3_encode(buf, iw, ih, nch0, nch, &cdata, 10);
+		cycles=__rdtsc()-cycles;
+		printf("Enc CPB %lf ratio %lf\n", (double)cycles/usize, (double)usize/cdata->count);
+		array_free(&cdata);
+	}
+	printf("\n");
+#endif
+
 	printf("\n");
 
 
