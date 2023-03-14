@@ -112,6 +112,8 @@ long long test2_encode(const void *src, int bw, int bh, int symbytes, int bytest
 
 
 size_t lz2d_encode(const unsigned char *buf, int bw, int bh, int symbytes, int bytestride, ArrayHandle *mask, ArrayHandle *coeff);
+size_t lz2d2_encode(const unsigned char *buf, int bw, int bh, int symbytes, int bytestride, ArrayHandle *mask, ArrayHandle *rle, ArrayHandle *lz);
+size_t lz2d3_encode(const unsigned char *buf, int bw, int bh, int symbytes, int bytestride, ArrayHandle *mask, ArrayHandle *rle, ArrayHandle *lz);
 
 
 //transforms

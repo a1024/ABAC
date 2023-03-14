@@ -1144,7 +1144,26 @@ typedef struct LZ2DInfoStruct
 	DeltaType w, h;
 	short dstx, dsty;
 } LZ2DInfo;
+typedef struct LZ2DRLEInfoStruct
+{
+	short x, y, w, h;
+} LZ2DRLEInfo;
 LZ2DSrcInfo g_hist[256*16];
+int strided_valcmp(const unsigned char *p1, const unsigned char *p2, int symbytes, int bytestride, int pxstride, int count, int pad1, int pad2, const unsigned char *dstmask)
+{
+	int fullstride=bytestride*pxstride;
+	const unsigned char *end=p1+(size_t)fullstride*count;
+	if(pad1&&!dstmask[-pxstride]&&!memcmp(p1-fullstride, p2, symbytes))//check if entering a sea
+		return 0;
+	for(;p1<end;p1+=fullstride, dstmask+=pxstride)
+	{
+		if(*dstmask||memcmp(p1, p2, symbytes))
+			return 0;
+	}
+	if(pad2&&!*dstmask&&!memcmp(p1, p2, symbytes))//check if entering a sea
+		return 0;
+	return 1;
+}
 int strided_memcmp(const unsigned char *p1, const unsigned char *p2, int symbytes, int bytestride, int pxstride, int count, const unsigned char *dstmask)
 {
 	int fullstride=bytestride*pxstride;
@@ -1256,7 +1275,7 @@ size_t lz2d_encode(const unsigned char *buf, int bw, int bh, int symbytes, int b
 
 				unsigned char val=1+rand()%255;
 				for(int ky2=0;ky2<besth;++ky2)//mask block
-					//memset(mask[0]->data+bw*(ky+ky2), 0xFF, bestw);
+					//memset(mask[0]->data+bw*(ky+ky2)+kx, 0xFF, bestw);
 				{
 					for(int kx2=0;kx2<bestw;++kx2)
 					{
@@ -1311,6 +1330,638 @@ size_t lz2d2_encode(const unsigned char *buf, int bw, int bh, int symbytes, int 
 		return 0;
 	}
 	memset(mask[0]->data, 0, res);
+	
+	memset(g_hist, -1, sizeof(g_hist));
+
+	ARRAY_ALLOC(LZ2DRLEInfo, *rle, 0, 0, 0, 0);
+	if(!*rle)
+	{
+		LOG_ERROR("lz2d_encode(): Allocation failed");
+		return 0;
+	}
+
+	ARRAY_ALLOC(LZ2DInfo, *lz, 0, 0, 0, 0);
+	if(!*lz)
+	{
+		LOG_ERROR("lz2d_encode(): Allocation failed");
+		return 0;
+	}
+	
+	int maxw=0, maxh=0, maxaw=0, maxah=0;//
+
+	size_t savedbytes=0;
+	for(int ky=0;ky<bh;++ky)
+	{
+		for(int kx=0;kx<bw;)
+		{
+			//if(kx==1&&ky==54)//
+			//	kx=1;//
+
+			int idx=bw*ky+kx;
+			if(mask[0]->data[idx])
+			{
+				++kx;
+				continue;
+			}
+			int blockw=1, blockh=1, updatew=1, updateh=1;
+			do
+			{
+				int srcidx, dstidx;
+				if(updatew)
+				{
+					if(blockw<(1<<(sizeof(DeltaType)<<3))&&kx+blockw<bw)//try to add next column
+					{
+						dstidx=bw*ky+kx+blockw;
+						if(strided_valcmp(buf+bytestride*dstidx, buf+bytestride*idx, symbytes, bytestride, bw, blockh, 0, !updateh&&ky+blockh<bh, mask[0]->data+dstidx))
+							++blockw;
+						else
+							updatew=0;
+					}
+					else
+						updatew=0;
+				}
+				if(updateh)
+				{
+					if(blockh<(1<<(sizeof(DeltaType)<<3))&&ky+blockh<bh)//try to add next row
+					{
+						dstidx=bw*(ky+blockh)+kx;
+						if(strided_valcmp(buf+bytestride*dstidx, buf+bytestride*idx, symbytes, bytestride, 1, blockw, kx>0, !updatew&&kx+blockw<bw, mask[0]->data+dstidx))
+							++blockh;
+						else
+							updateh=0;
+					}
+					else
+						updateh=0;
+				}
+			}while(updateh||updatew);
+			
+			if(maxw<blockw)
+				maxw=blockw;
+			if(maxh<blockh)
+				maxh=blockh;
+			if(maxaw*maxah<blockw*blockh)
+				maxaw=blockw, maxah=blockh;
+
+			size_t redundant=((size_t)blockw*blockh-1)*symbytes;
+			if(redundant>sizeof(LZ2DRLEInfo))
+			{
+				LZ2DRLEInfo *emit=(LZ2DRLEInfo*)ARRAY_APPEND(*rle, 0, 1, 1, 0);//emit RLE block
+				emit->x=kx;
+				emit->y=ky;
+				emit->w=blockw;
+				emit->h=blockh;
+				
+				//mask out redundant pixels
+				unsigned char val=64+rand()%31;
+				if(blockw>1)
+					memset(mask[0]->data+bw*ky+kx+1, val, blockw-1);//leave first pixel unmasked
+				for(int ky2=1;ky2<blockh;++ky2)
+					memset(mask[0]->data+bw*(ky+ky2)+kx, val, blockw);
+
+				savedbytes+=redundant;
+				kx+=blockw;
+			}
+			else
+				++kx;
+		}
+	}
+	printf("RLE maxw %d maxh %d maxA %d*%d\n", maxw, maxh, maxaw, maxah);
+
+	maxw=0, maxh=0, maxaw=0, maxah=0;
+
+	for(int ky=0;ky<bh;++ky)
+	{
+		for(int kx=0;kx<bw;)
+		{
+			LZ2DSrcInfo *p;
+			int idx=bw*ky+kx;
+			if(mask[0]->data[idx])
+			{
+				++kx;
+				continue;
+			}
+			unsigned char sym=buf[bytestride*idx], bestmatch=0xFF;
+			int bestw=0, besth=0;
+			int kh=0;
+			for(;kh<16;++kh)
+			{
+				p=g_hist+(sym<<4|kh);
+				if(p->srcx==-1)
+					break;
+				int blockw=1, blockh=1, updatedw=1, updatedh=1;
+				do
+				{
+					int srcidx, dstidx;
+					if(updatedh&&blockh<(1<<(sizeof(DeltaType)<<3))&&blockh<blockw*4&&ky+blockh<bh&&p->srcy+blockh<bh)
+					{
+						srcidx=bw*(p->srcy+blockh)+p->srcx, dstidx=bw*(ky+blockh)+kx;
+						if(strided_memcmp(buf+bytestride*srcidx, buf+bytestride*dstidx, symbytes, bytestride, 1, blockw, mask[0]->data+dstidx))
+							++blockh;
+						else
+							updatedh=0;
+					}
+					else
+						updatedh=0;
+					if(updatedw&&blockw<(1<<(sizeof(DeltaType)<<3))&&blockw<blockh*4&&kx+blockw<bw&&p->srcx+blockw<bw)
+					{
+						srcidx=bw*p->srcy+p->srcx+blockw, dstidx=bw*ky+kx+blockw;
+						if(strided_memcmp(buf+bytestride*srcidx, buf+bytestride*dstidx, symbytes, bytestride, bw, blockh, mask[0]->data+dstidx))
+							++blockw;
+						else
+							updatedw=0;
+					}
+					else
+						updatedw=0;
+				}while(updatedh||updatedw);
+				if(bestw*besth<blockw*blockh)
+					bestw=blockw, besth=blockh, bestmatch=kh;
+			}
+
+			if(maxw<bestw)
+				maxw=bestw;
+			if(maxh<besth)
+				maxh=besth;
+			if(maxaw*maxah<bestw*besth)
+				maxaw=bestw, maxah=besth;
+
+			int redundantbytes=symbytes*bestw*besth, success=bestmatch!=0xFF&&redundantbytes>sizeof(LZ2DInfo);
+			if(success)//ignore if repeated bytes <= emission bytes
+			{
+				LZ2DInfo *emit=(LZ2DInfo*)ARRAY_APPEND(*lz, 0, 1, 1, 0);//emit repeated block
+				p=g_hist+(sym<<4|bestmatch);
+				emit->srcx=p->srcx;
+				emit->srcy=p->srcy;
+				emit->w=bestw-1;
+				emit->h=besth-1;
+				emit->dstx=kx;
+				emit->dsty=ky;
+
+				unsigned char val=224+rand()%31;
+				for(int ky2=0;ky2<besth;++ky2)//mask block
+					//memset(mask[0]->data+bw*(ky+ky2)+kx, 0xFF, bestw);
+				{
+					for(int kx2=0;kx2<bestw;++kx2)
+					{
+						unsigned char *p3=mask[0]->data+bw*(ky+ky2)+kx+kx2;
+						*p3=val;
+						//*p3+=*p3<255;
+					}
+				}
+
+				savedbytes+=redundantbytes;
+			}
+
+			//update g_hist
+			if(kh>15)
+				kh=15;
+			p=g_hist+((size_t)sym<<4|kh);
+			p->srcx=kx;
+			p->srcy=ky;
+			if(kh)
+			{
+				LZ2DSrcInfo temp, *p2=g_hist+((size_t)sym<<4);
+				SWAPVAR(*p, *p2, temp);
+			}
+
+			if(success)
+				kx+=bestw;
+			else
+				++kx;
+		}
+	}
+	printf("LZ  maxw %d maxh %d maxA %d*%d\n", maxw, maxh, maxaw, maxah);
+	return savedbytes;
+}
+//typedef struct SpanfillInfoStruct
+//{
+//	unsigned short x1, x2, y, dy;
+//} SpanfillInfo;
+//typedef struct PixelIDStruct
+//{
+//	int regionid, pixelid;
+//} PixelID;
+typedef struct CNCPointStruct
+{
+	short x, y;
+} CNCPoint;
+size_t lz2d3_encode(const unsigned char *buf, int bw, int bh, int symbytes, int bytestride, ArrayHandle *mask, ArrayHandle *rle, ArrayHandle *lz)
+{
+	ARRAY_ALLOC(LZ2DRLEInfo, *rle, 0, 0, 0, 0);
+	if(!*rle)
+	{
+		LOG_ERROR("lz2d_encode(): Allocation failed");
+		return 0;
+	}
+	
+	ARRAY_ALLOC(LZ2DInfo, *lz, 0, 0, 0, 0);
+	if(!*lz)
+	{
+		LOG_ERROR("lz2d_encode(): Allocation failed");
+		return 0;
+	}
+	
+	size_t res=(size_t)bw*bh;
+	ARRAY_ALLOC(char, *mask, 0, res, 0, 0);
+	if(!*mask)
+	{
+		LOG_ERROR("lz2d_encode(): Allocation failed");
+		return 0;
+	}
+	memset(mask[0]->data, 1, res);//lgstep+1	initially all RLE blocks are 1x1
+
+	CNCPoint *temp=(CNCPoint*)malloc(res*sizeof(CNCPoint));
+	if(!temp)
+	{
+		LOG_ERROR("lz2d_encode(): Allocation failed");
+		return 0;
+	}
+	temp->x=1;
+	temp->y=1;
+	memfill(temp+1, temp, (res-1)*sizeof(CNCPoint), sizeof(CNCPoint));
+	//memset(temp, 0, tsize*sizeof(CNCPoint));
+
+	//PixelID *m2=(PixelID*)malloc(res*sizeof(PixelID));//contains {flood-fill region index, unique pixel index}
+	//if(!m2)
+	//{
+	//	LOG_ERROR("lz2d_encode(): Allocation failed");
+	//	return 0;
+	//}
+	//memset(m2, 0, res*sizeof(PixelID));
+	//DList stack;
+	//dlist_init(&stack, sizeof(short[2]), 1024, 0);
+
+	size_t savedbytes=0;
+	for(int lgstep=1;lgstep<=8;++lgstep)
+	{
+		int step=1<<lgstep;
+		int halfx=step>>1, halfy=bw*halfx;
+		for(int ky=0;ky<bh;ky+=step)
+		{
+			for(int kx=0;kx<bw;kx+=step)
+			{
+				//if(step==64&&kx==192&&ky==128)//
+				//	kx=192;//
+				//if(step==128&&kx==128&&ky>=128)//
+				//	kx=128;//
+				int idx=bw*ky+kx;
+				if(temp[idx].x==halfx&&temp[idx+halfx].x==halfx&&temp[idx+halfy].x==halfx&&temp[idx+halfy+halfx].x==halfx)
+				{
+					int r1=memcmp(buf+bytestride*idx, buf+bytestride*(idx+halfx), symbytes),
+						r2=memcmp(buf+bytestride*idx, buf+bytestride*(idx+halfy), symbytes),
+						r3=memcmp(buf+bytestride*idx, buf+bytestride*(idx+halfy+halfx), symbytes);
+					if(!r1&&!r2&&!r3)
+					{
+						temp[idx].x=step;
+						temp[idx].y=step;
+
+						for(int ky2=0;ky2<temp[idx].y;++ky2)
+							memset(mask[0]->data+bw*(ky+ky2)+kx, lgstep+1, temp[idx].x);
+					}
+				}
+			}
+		}
+	}
+#if 1
+	for(int ky=0;ky<bh;++ky)//merge adjacent blocks with same height
+	{
+		for(int kx=0;kx<bw;)
+		{
+			//if(kx==0&&ky==22)//
+			//	kx=0;//
+			//if(kx==992&&ky==48)//
+			//	kx=992;//
+			//if(kx==0&&ky==128)//
+			//	kx=0;//
+			int idx=bw*ky+kx;
+			if(mask[0]->data[idx]==0x10)
+			{
+				++kx;
+				continue;
+			}
+			CNCPoint *p=temp+idx, *p2=temp+idx+p->x;
+			//while there is room to the right && p2 is responsible for its block && same height && same content && no overflow
+			while(kx+p->x<bw&&mask[0]->data[idx+p->x]&15&&p->y==p2->y&&!memcmp(buf+bytestride*idx, buf+bytestride*(idx+p->x), symbytes)&&p->x+p2->x<0x8000)
+			{
+				p->x+=p2->x;
+				p2=temp+idx+p->x;
+			}
+
+			//mask out merged block
+			for(int ky2=0;ky2<temp[idx].y;++ky2)
+				memset(mask[0]->data+bw*(ky+ky2)+kx, 0x10, temp[idx].x);
+			mask[0]->data[idx]|=floor_log2(p->y)+1;//0~7 + 1
+
+			kx+=p->x;
+		}
+	}
+#endif
+#if 1
+	for(int ky=0;ky<bh;++ky)//merge stacked blocks with same width
+	{
+		for(int kx=0;kx<bw;)
+		{
+			//if(kx==3&&ky==5)//
+			//	kx=3;//
+			//if(kx==0&&ky==22)//
+			//	kx=0;//
+			//if(kx==96&&ky==96)//
+			//	kx=96;//
+			//if(kx==992&&ky==48)//
+			//	kx=992;//
+			//if(kx==568&&ky==306)//
+			//	kx=568;//
+			int idx=bw*ky+kx;
+			if(mask[0]->data[idx]==0x20)
+			{
+				++kx;
+				continue;
+			}
+			CNCPoint *p=temp+idx, *p2=temp+idx+bw*p->y;
+			//while there is room downwards && p2 is responsible for its block && same height && same content && no overflow
+			while(ky+p->y<bh&&mask[0]->data[idx+bw*p->y]&15&&p->x==p2->x&&!memcmp(buf+bytestride*idx, buf+bytestride*(idx+bw*p->y), symbytes)&&p->y+p2->y<0x8000)
+			{
+				//if(kx==992&&ky+p->y==48)//
+				//	kx=992;//
+				p->y+=p2->y;
+				p2=temp+idx+bw*p->y;
+			}
+
+			//mask out merged block
+			//unsigned char val=0x20|mask[0]->data[idx]&15;
+			for(int ky2=0;ky2<temp[idx].y;++ky2)
+				memset(mask[0]->data+bw*(ky+ky2)+kx, 0x20, temp[idx].x);
+			mask[0]->data[idx]|=floor_log2(p->y)+1;//0~14 + 1
+
+			kx+=p->x;
+		}
+	}
+#endif
+#if 1
+	for(int ky=0;ky<bh;++ky)//emit RLE codes
+	{
+		for(int kx=0;kx<bw;)
+		{
+			//if(kx==992&&ky==48)//
+			//	kx=992;//
+			//if(kx==21&&ky==56)//
+			//	kx=21;//
+			//if(kx==20&&ky==61)//
+			//	kx=20;//
+			//if(kx==4&&ky==62)//
+			//	kx=4;//
+			int idx=bw*ky+kx;
+			if(!mask[0]->data[idx]||mask[0]->data[idx]>=0xC0)
+			{
+				++kx;
+				continue;
+			}
+			//if((mask[0]->data[idx]&0xF0)==0x20)//
+			//	mask[0]->data[idx]|=0x20;//
+			//if(mask[0]->data[idx]==48)//
+			//	mask[0]->data[idx]=48;//
+			size_t area=symbytes*((size_t)temp[idx].x*temp[idx].y-1);
+			if(area>sizeof(LZ2DRLEInfo))
+			{
+				//if(ky>=56&&val==224)//
+				//	val=224;//
+
+				//mask out block
+				unsigned char val=0xC0+rand()%63;
+				mask[0]->data[idx]=0;//unmask top-left pixel
+				if(temp[idx].x>1)
+					memset(mask[0]->data+bw*ky+kx+1, val, temp[idx].x-1);
+				for(int ky2=1;ky2<temp[idx].y;++ky2)
+					memset(mask[0]->data+bw*(ky+ky2)+kx, val, temp[idx].x);
+				//{
+				//	for(int kx2=0;kx2<temp[idx2].x;++kx2)
+				//		mask[0]->data[bw*(ky+ky2)+kx+kx2]=val;
+				//}
+
+				LZ2DRLEInfo *emit=(LZ2DRLEInfo*)ARRAY_APPEND(*rle, 0, 1, 1, 0);
+				emit->x=kx;
+				emit->y=ky;
+				emit->w=temp[idx].x;
+				emit->h=temp[idx].y;
+
+				savedbytes+=area;
+			}
+			else
+			{
+				for(int ky2=0;ky2<temp[idx].y;++ky2)
+					memset(mask[0]->data+bw*(ky+ky2)+kx, 0, temp[idx].x);
+			}
+			kx+=temp[idx].x;
+		}
+	}
+#endif
+
+	//LZ2D
+#if 1
+	for(int ky=0;ky<bh;++ky)
+	{
+		for(int kx=0;kx<bw;)
+		{
+			LZ2DSrcInfo *p;
+			int idx=bw*ky+kx;
+			if(mask[0]->data[idx])
+			{
+				++kx;
+				continue;
+			}
+			unsigned char sym=buf[bytestride*idx], bestmatch=0xFF;
+			int bestw=0, besth=0;
+			int kh=0;
+			for(;kh<16;++kh)
+			{
+				p=g_hist+(sym<<4|kh);
+				if(p->srcx==-1)
+					break;
+				int blockw=1, blockh=1, updatedw=1, updatedh=1;
+				do
+				{
+					int srcidx, dstidx;
+					if(updatedh&&blockh<(1<<(sizeof(DeltaType)<<3))&&blockh<blockw*4&&ky+blockh<bh&&p->srcy+blockh<bh)
+					{
+						srcidx=bw*(p->srcy+blockh)+p->srcx, dstidx=bw*(ky+blockh)+kx;
+						if(strided_memcmp(buf+bytestride*srcidx, buf+bytestride*dstidx, symbytes, bytestride, 1, blockw, mask[0]->data+dstidx))
+							++blockh;
+						else
+							updatedh=0;
+					}
+					else
+						updatedh=0;
+					if(updatedw&&blockw<(1<<(sizeof(DeltaType)<<3))&&blockw<blockh*4&&kx+blockw<bw&&p->srcx+blockw<bw)
+					{
+						srcidx=bw*p->srcy+p->srcx+blockw, dstidx=bw*ky+kx+blockw;
+						if(strided_memcmp(buf+bytestride*srcidx, buf+bytestride*dstidx, symbytes, bytestride, bw, blockh, mask[0]->data+dstidx))
+							++blockw;
+						else
+							updatedw=0;
+					}
+					else
+						updatedw=0;
+				}while(updatedh||updatedw);
+				if(bestw*besth<blockw*blockh)
+					bestw=blockw, besth=blockh, bestmatch=kh;
+			}
+
+			int redundantbytes=symbytes*bestw*besth, success=bestmatch!=0xFF&&redundantbytes>sizeof(LZ2DInfo);
+			if(success)//ignore if repeated bytes <= emission bytes
+			{
+				LZ2DInfo *emit=(LZ2DInfo*)ARRAY_APPEND(*lz, 0, 1, 1, 0);//emit repeated block
+				p=g_hist+(sym<<4|bestmatch);
+				emit->srcx=p->srcx;
+				emit->srcy=p->srcy;
+				emit->w=bestw-1;
+				emit->h=besth-1;
+				emit->dstx=kx;
+				emit->dsty=ky;
+
+				unsigned char val=32+rand()%31;
+				for(int ky2=0;ky2<besth;++ky2)//mask block
+					//memset(mask[0]->data+bw*(ky+ky2)+kx, 0xFF, bestw);
+				{
+					for(int kx2=0;kx2<bestw;++kx2)
+					{
+						unsigned char *p3=mask[0]->data+bw*(ky+ky2)+kx+kx2;
+						*p3=val;
+						//*p3+=*p3<255;
+					}
+				}
+
+				savedbytes+=redundantbytes;
+			}
+
+			//update g_hist
+			if(kh>15)
+				kh=15;
+			p=g_hist+((size_t)sym<<4|kh);
+			p->srcx=kx;
+			p->srcy=ky;
+			if(kh)
+			{
+				LZ2DSrcInfo temp, *p2=g_hist+((size_t)sym<<4);
+				SWAPVAR(*p, *p2, temp);
+			}
+
+			if(success)
+				kx+=bestw;
+			else
+				++kx;
+		}
+	}
+#endif
+	return savedbytes;
+
+#if 0
+	int regionid=1;
+	for(int ky=0;ky<bh;++ky)
+	{
+		for(int kx=0;kx<bw;)
+		{
+			int idx=bw*ky+kx;
+			if(mask[0]->data[idx])
+			{
+				++kx;
+				continue;
+			}
+
+			unsigned short *p;
+			PixelID *p2;
+
+			int x1=bw, x2=0, y1=bh, y2=0;
+			int pixelid=1;
+
+			p=(unsigned short*)dlist_push_back1(&stack, 0);
+			p[0]=kx, p[1]=ky;
+
+			while(stack.nobj)
+			{
+				p=(unsigned short*)dlist_back(&stack);
+				int x=p[0], y=p[1];
+				dlist_pop_back(&stack);
+				
+				p2=m2+bw*y+x;		//mark (x, y)
+				p2->regionid=regionid;
+				p2->pixelid=pixelid;
+				++pixelid;
+
+				if(x1>x)			//update bounding box
+					x1=x;
+				if(x2<x+1)
+					x2=x+1;
+				if(y1>y)
+					y1=y;
+				if(y2<y+1)
+					y2=y+1;
+
+				if(x+1<bw&&m2[bw*ky+kx+1].regionid!=regionid&&!memcmp(buf+bytestride*idx, buf+bytestride*(bw*y+x+1), symbytes))
+				{
+					p2=m2+bw*ky+kx+1;//mark (x+1, y)
+					p2->regionid=regionid;
+					p2->pixelid=pixelid;
+					++pixelid;
+					
+					p=(unsigned short*)dlist_push_back1(&stack, 0);
+					p[0]=x+1;
+					p[1]=y;
+				}
+				if(x-1>=0&&m2[bw*ky+kx-1].regionid!=regionid&&!memcmp(buf+bytestride*idx, buf+bytestride*(bw*y+x-1), symbytes))
+				{
+					p2=m2+bw*ky+kx-1;//mark (x-1, y)
+					p2->regionid=regionid;
+					p2->pixelid=pixelid;
+					++pixelid;
+					
+					p=(unsigned short*)dlist_push_back1(&stack, 0);
+					p[0]=x-1;
+					p[1]=y;
+				}
+				if(y+1>=0&&m2[bw*(ky+1)+kx].regionid!=regionid&&!memcmp(buf+bytestride*idx, buf+bytestride*(bw*(y+1)+x), symbytes))
+				{
+					p2=m2+bw*(ky+1)+kx;//mark (x, y+1)
+					p2->regionid=regionid;
+					p2->pixelid=pixelid;
+					++pixelid;
+					
+					p=(unsigned short*)dlist_push_back1(&stack, 0);
+					p[0]=x;
+					p[1]=y+1;
+				}
+				if(y-1>=0&&m2[bw*(ky-1)+kx].regionid!=regionid&&!memcmp(buf+bytestride*idx, buf+bytestride*(bw*(y-1)+x), symbytes))
+				{
+					p2=m2+bw*(ky-1)+kx;//mark (x, y-1)
+					p2->regionid=regionid;
+					p2->pixelid=pixelid;
+					++pixelid;
+					
+					p=(unsigned short*)dlist_push_back1(&stack, 0);
+					p[0]=x;
+					p[1]=y-1;
+				}
+			}
+			//dlist_clear(&stack);
+
+			for(int step=2;step<256;step<<=1)
+			{
+				int xa=x1&~(step-1), xb=(x2|(step-1))+1,
+					ya=y1&~(step-1), yb=(y2|(step-1))+1;
+				for(int ky2=y1;ky2<y2;ky2+=step)
+				{
+					for(int kx2=x1;kx2<x2;kx2+=step)
+					{
+						p2=m2+bw*ky2+kx2;
+						if(p2->regionid==regionid)
+						{
+						}
+					}
+				}
+			}
+
+			++regionid;
+		}
+	}
+#endif
 }
 //static const int tag_lz04='L'|'Z'<<8|'0'<<16|'4'<<24;
 //void test3_encode(const void *src, int bw, int bh, int symbytes, int bytestride, ArrayHandle *data)

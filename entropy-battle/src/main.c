@@ -411,7 +411,8 @@ int main(int argc, char **argv)
 
 	//print_bytes(buf, len);
 
-#if 1
+	//2D differentiation
+#if 0
 	printf("Differentiating image...\n");
 
 	if(nch0==3&&!buf[3])//set alpha
@@ -587,16 +588,18 @@ int main(int argc, char **argv)
 	//LZ2D
 #if 1
 	{
-		printf("LZ2D\n");
-		ArrayHandle mask=0, coeff=0;
+		printf("LZ2D3\n");
+		ArrayHandle mask=0, rle=0, coeff=0;
 		cycles=__rdtsc();
-		size_t savedbytes=lz2d_encode(buf, iw, ih, nch0, nch, &mask, &coeff);
+		size_t savedbytes=lz2d3_encode(buf, iw, ih, nch0, nch, &mask, &rle, &coeff);
+		//size_t savedbytes=lz2d2_encode(buf, iw, ih, nch0, nch, &mask, &rle, &coeff);
+		//size_t savedbytes=lz2d_encode(buf, iw, ih, nch0, nch, &mask, &coeff);
 		cycles=__rdtsc()-cycles;
-		size_t totalbytes=(size_t)nch0*iw*ih, remaining=totalbytes-savedbytes+coeff->count*coeff->esize;
-		printf("LZ2D saved %lld / %lld bytes, csize %lld, ratio %lf,  %lld emitts, overhead %lld bytes,  %lf CPB\n",
+		size_t totalbytes=(size_t)nch0*iw*ih, overhead=rle->count*rle->esize+(coeff?coeff->count*coeff->esize:0), remaining=totalbytes-savedbytes+overhead;
+		printf("saved %lld / %lld bytes, csize %lld, ratio %lf,  %lld rle %lld lz, overhead %lld bytes,  %lf CPB\n",
 			savedbytes, totalbytes,
 			remaining, (double)totalbytes/remaining,
-			coeff->count, coeff->count*coeff->esize,
+			rle->count, coeff?coeff->count:0, overhead,
 			(double)cycles/usize);
 
 		lodepng_encode_file("out.PNG", mask->data, iw, ih, LCT_GREY, 8);//
