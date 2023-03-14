@@ -104,8 +104,14 @@ int arans_encode(const void *src, ptrdiff_t nbytes, int bytestride, ArrayHandle 
 
 long long lz_encode(const void *src, int bw, int bh, int bytestride, ArrayHandle *data, size_t *ret_overhead);//FIXME encoding channels separately
 
+extern int lz2_limit;
+void lz2_encode(unsigned char *buf, int len, ArrayHandle *coeff, ArrayHandle *bypass);
+
 long long test1_encode(const void *src, int bw, int bh, int symbytes, int bytestride, ArrayHandle *data);
 long long test2_encode(const void *src, int bw, int bh, int symbytes, int bytestride, ArrayHandle *data);
+
+
+size_t lz2d_encode(const unsigned char *buf, int bw, int bh, int symbytes, int bytestride, ArrayHandle *mask, ArrayHandle *coeff);
 
 
 //transforms

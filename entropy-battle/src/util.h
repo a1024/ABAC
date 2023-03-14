@@ -29,6 +29,7 @@ extern "C"
 //utility
 #define COUNTOF(ARR)		(sizeof(ARR)/sizeof(*(ARR)))		//stdlib defines _countof
 #define BETWEEN(LO, X, HI)	((unsigned)((X)-LO)<(unsigned)(HI+1-LO))
+#define SWAPVAR(A, B, TEMP)	TEMP=A, A=B, B=TEMP
 
 #ifdef _MSC_VER
 #define	ALIGN(N)	__declspec(align(N))
@@ -86,21 +87,21 @@ int pause_abort(const char *file, int lineno, const char *extraInfo);
 #pragma warning(push)
 #pragma warning(disable:4200)//no default-constructor for struct with zero-length array
 #endif
-typedef struct ArrayHeaderStruct
+typedef struct ArrayHeaderStruct//32 bytes on 64 bit system, or 16 bytes on 32 bit system
 {
-	size_t count, esize, cap;//cap is in bytes
+	size_t count,
+		esize, cap;//in bytes
 	void (*destructor)(void*);
 	unsigned char data[];
 } ArrayHeader, *ArrayHandle;
-//typedef const ArrayHeader *ArrayConstHandle;
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif
 ArrayHandle array_construct(const void *src, size_t esize, size_t count, size_t rep, size_t pad, void (*destructor)(void*));
 ArrayHandle array_copy(ArrayHandle *arr);//shallow
-void array_clear(ArrayHandle *arr);//keeps allocation
-void array_free(ArrayHandle *arr);
-void array_fit(ArrayHandle *arr, size_t pad);
+void  array_clear(ArrayHandle *arr);//keeps allocation
+void  array_free(ArrayHandle *arr);
+void  array_fit(ArrayHandle *arr, size_t pad);
 
 void* array_insert(ArrayHandle *arr, size_t idx, const void *data, size_t count, size_t rep, size_t pad);//cannot be nullptr
 void* array_erase(ArrayHandle *arr, size_t idx, size_t count);
@@ -111,10 +112,10 @@ void* array_back(ArrayHandle *arr);
 
 #define ARRAY_ALLOC(ELEM_TYPE, ARR, DATA, COUNT, PAD, DESTRUCTOR) ARR=array_construct(DATA, sizeof(ELEM_TYPE), COUNT, 1, PAD, DESTRUCTOR)
 #define ARRAY_APPEND(ARR, DATA, COUNT, REP, PAD) array_insert(&(ARR), (ARR)->count, DATA, COUNT, REP, PAD)
-#define ARRAY_DATA(ARR) (ARR)->data
-#define ARRAY_I(ARR, IDX) *(int*)array_at(&ARR, IDX)
-#define ARRAY_U(ARR, IDX) *(unsigned*)array_at(&ARR, IDX)
-#define ARRAY_F(ARR, IDX) *(double*)array_at(&ARR, IDX)
+//#define ARRAY_DATA(ARR) (ARR)->data
+//#define ARRAY_I(ARR, IDX) *(int*)array_at(&ARR, IDX)
+//#define ARRAY_U(ARR, IDX) *(unsigned*)array_at(&ARR, IDX)
+//#define ARRAY_F(ARR, IDX) *(double*)array_at(&ARR, IDX)
 
 
 //null terminated array

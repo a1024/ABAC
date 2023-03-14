@@ -1,5 +1,6 @@
 #include"battle.h"
 #include<stdio.h>//for debugging
+#include<stdlib.h>
 #include<string.h>
 #ifdef __GNUC__
 #include<x86intrin.h>
@@ -10,18 +11,20 @@
 #include"lodepng.h"//for testing
 static const char file[]=__FILE__;
 
-static void print_hist(int *hist, int nlevels)
+static void print_hist(int *hist, int hstride, int nlevels)
 {
 	int vmax=0;
 	for(int k=0;k<nlevels;++k)
 	{
-		if(vmax<hist[k])
-			vmax=hist[k];
+		if(vmax<hist[hstride*k])
+			vmax=hist[hstride*k];
 	}
+	if(!vmax)
+		return;
 	for(int k=0;k<nlevels;++k)
 	{
-		printf("%3d %6d ", k, hist[k]);
-		for(int k2=0, end=hist[k]*64/vmax;k2<end;++k2)
+		printf("%3d %6d ", k, hist[hstride*k]);
+		for(int k2=0, end=hist[hstride*k]*64/vmax;k2<end;++k2)
 			printf("*");
 		printf("\n");
 	}
@@ -377,7 +380,7 @@ long long lz_encode(const void *src, int bw, int bh, int bytestride, ArrayHandle
 		++hist[tag->len];
 	}
 
-	print_hist(hist, vmax);//
+	print_hist(hist, 1, vmax);//
 
 	free(hist);
 #endif
@@ -518,9 +521,9 @@ long long lz_encode(const void *src, int bw, int bh, int bytestride, ArrayHandle
 			++hist_repeat[tag[1]];
 	}
 	printf("bypass:\n");
-	print_hist(hist_bypass, max_bypass);
+	print_hist(hist_bypass, 1, max_bypass);
 	printf("repeat:\n");
-	print_hist(hist_repeat, max_repeat);
+	print_hist(hist_repeat, 1, max_repeat);
 	free(hist_bypass);
 	free(hist_repeat);
 	return cycles;
@@ -528,6 +531,7 @@ long long lz_encode(const void *src, int bw, int bh, int bytestride, ArrayHandle
 }
 
 //LZ2
+int lz2_limit=1;
 static int history[65536];
 void lz2_encode(unsigned char *buf, int len, ArrayHandle *coeff, ArrayHandle *bypass)
 {
@@ -554,6 +558,9 @@ void lz2_encode(unsigned char *buf, int len, ArrayHandle *coeff, ArrayHandle *by
 				seq_idx=k2;//sequence number
 			}
 		}
+
+		//if(longest_match<=lz2_limit)
+		//	seq_idx=0xFF;
 
 		if(seq_idx!=0xFF&&seq_idx)//place idx at seq_idx to front
 		{
@@ -586,7 +593,7 @@ void lz2_encode(unsigned char *buf, int len, ArrayHandle *coeff, ArrayHandle *by
 				{
 					dlist_push_back1(&list, &temp.idx);
 					dlist_push_back1(&list, &temp.len);
-					ARRAY_APPEND(*bypass, &sym, 1, 1, 0);
+					ARRAY_APPEND(*bypass, buf+ks-temp.len, temp.len, 1, 0);
 					temp.len=0;
 				}
 			}
@@ -598,7 +605,7 @@ void lz2_encode(unsigned char *buf, int len, ArrayHandle *coeff, ArrayHandle *by
 			{
 				dlist_push_back1(&list, &temp.idx);
 				dlist_push_back1(&list, &temp.len);
-				ARRAY_APPEND(*bypass, &sym, 1, 1, 0);
+				ARRAY_APPEND(*bypass, buf+ks-temp.len, temp.len, 1, 0);
 			}
 			temp.idx=0;
 			dlist_push_back1(&list, &seq_idx);
@@ -609,6 +616,42 @@ void lz2_encode(unsigned char *buf, int len, ArrayHandle *coeff, ArrayHandle *by
 	dlist_appendtoarray(&list, coeff);
 	dlist_clear(&list);
 }
+#if 0
+void lz2_decode(const unsigned char *coeff, const unsigned char *bypass, int coefflen, int bypasslen, int dstlen, unsigned char *dst)
+{
+	memset(history, -1, 65536*sizeof(int));
+	for(int kc=0, kb=0, kd=0;kd<dstlen;)
+	{
+		unsigned char seq_idx=coeff[kc], len, sym;
+		++kc;
+
+		len=coeff[kc];
+		++kc;
+
+		if(seq_idx==0xFF)
+		{
+			for(int k2=0;k2<len;++k2)
+			{
+				sym=bypass[kb];
+				++kb;
+
+				int *key=history+((size_t)sym<<8);
+				key[0]=kd;
+
+				dst[kd]=sym;
+				++kd;
+			}
+		}
+		else
+		{
+			for(int k2=0;k2<len;++k2)
+			{
+				sym=
+			}
+		}
+	}
+}
+#endif
 typedef struct HistInfoStruct
 {
 	int	sym,  //symbol
@@ -647,6 +690,14 @@ static void rans_calc_CDF(const unsigned char *buffer, int len, int stride, unsi
 	}
 	for(int k=0;k<len;k+=stride)//this loop takes 73% of encode time
 		++hist[buffer[k]].freq;
+
+#if 0
+	static int call=0;
+	if(call==3)
+		print_hist(&hist->freq, sizeof(HistInfo)/sizeof(int), 256);//
+	++call;
+#endif
+
 	int count=len/stride;
 	for(int k=0;k<nlevels;++k)
 		hist[k].qfreq=((long long)hist[k].freq<<16)/count;
@@ -711,7 +762,7 @@ void rans_bytes_encode(unsigned char *buf, int len, int symbytes, unsigned short
 			c=CDF[idx], freq=(sym<255?CDF[idx+1]:0x10000)-c;
 		}
 		else
-			c=sym<<16/nlevels, freq=0x10000/nlevels;
+			c=(sym<<16)/nlevels, freq=0x10000/nlevels;
 
 		if(state>=(unsigned)(freq<<16))//renorm
 		{
@@ -722,6 +773,51 @@ void rans_bytes_encode(unsigned char *buf, int len, int symbytes, unsigned short
 		state=state/freq<<16|(c+state%freq);//update
 	}
 	dlist_push_back(list, &state, 4);
+}
+int rans_bytes_decode(const unsigned char *data, int srclen, int count, int symbytes, int nlevels, unsigned short *CDF, unsigned char *CDF2sym, unsigned char *dst)
+{
+	const unsigned char *srcptr=data+srclen;
+	unsigned state;
+	srcptr-=4;
+	if(srcptr<data)
+	{
+		LOG_ERROR("rans_decode_bytes: idx %lld", srcptr-data);
+		return 0;
+	}
+	memcpy(&state, srcptr, 4);
+	for(int k=0;k<count;++k)
+	{
+		unsigned short c=(unsigned short)state;
+		unsigned char sym;
+		unsigned short cdf, freq;
+		if(CDF)				//fetch
+		{
+			int kc=k%symbytes;
+			sym=CDF2sym[kc<<16|c];
+			cdf=CDF[kc<<8|sym], freq=(sym<255?CDF[kc<<8|(sym+1)]:0x10000)-cdf;
+		}
+		else
+		{
+			sym=c*nlevels>>16;
+			cdf=(sym<<16)/nlevels, freq=0x10000/nlevels;
+		}
+		dst[k]=sym;
+
+		state=freq*(state>>16)+c-cdf;//update
+
+		if(state<0x10000)//renorm
+		{
+			srcptr-=2;
+			if(srcptr<data)
+			{
+				LOG_ERROR("rans_decode_bytes: idx %lld", srcptr-data);
+				return 0;
+			}
+			state<<=16;
+			memcpy(&state, srcptr, 2);
+		}
+	}
+	return 1;
 }
 double calc_sdev(unsigned char *buf, int len, int stride)
 {
@@ -831,13 +927,14 @@ long long test1_encode(const void *src, int bw, int bh, int symbytes, int bytest
 }
 
 static const int tag_lz03='L'|'Z'<<8|'0'<<16|'3'<<24;
+static unsigned short g_CDF[256*4];
+static unsigned char g_CDF2sym[65536*4];
 long long test2_encode(const void *src, int bw, int bh, int symbytes, int bytestride, ArrayHandle *data)
 {
 	if(symbytes>4)
 		return 0;
 	long long cycles=__rdtsc();
 	
-	unsigned short CDF[256*4];
 	DList list;
 	dlist_init(&list, 1, 1024, 0);
 	const unsigned char *buf=(const unsigned char*)src;
@@ -931,20 +1028,25 @@ long long test2_encode(const void *src, int bw, int bh, int symbytes, int bytest
 		if(sdev>temp)
 			sdev=temp, type=4;
 
+		//printf("%3d %d\n", ky, type);//natural: 0		synthetic: variable
+
 		b_type[ky]=type;
 		memcpy(b2+rowlen*ky, testrow+rowlen*type, rowlen);
 	}
 	ArrayHandle coeff=0, bypass=0;
 	lz2_encode(b2, (int)res, &coeff, &bypass);
 
+	printf("coeff %lld bypass %lld\n", coeff->count, bypass->count);
+
 	//lodepng_encode_file("out.PNG", b2, bw, bh, bytestride==4?LCT_RGBA:LCT_RGB, 8);//
 
 	for(int kc=0;kc<symbytes;++kc)
-		rans_calc_CDF(coeff->data+kc, (int)coeff->count, symbytes, CDF+((size_t)kc<<8));
+		rans_calc_CDF(coeff->data+kc, (int)coeff->count, symbytes, g_CDF+((size_t)kc<<8));
 	dlist_push_back(&list, &tag_lz03, 4);
 	dlist_push_back(&list, &coeff->count, 4);
-	dlist_push_back(&list, CDF, ((size_t)symbytes<<8)*sizeof(short));
-	rans_bytes_encode(coeff->data, (int)coeff->count, symbytes, CDF, 256, &list);
+	dlist_push_back(&list, &bypass->count, 4);
+	dlist_push_back(&list, g_CDF, ((size_t)symbytes<<8)*sizeof(short));
+	rans_bytes_encode(coeff->data, (int)coeff->count, symbytes, g_CDF, 256, &list);
 	dlist_push_back(&list, bypass->data, bypass->count);
 	//rans_bytes_encode(bypass->data, (int)bypass->count, 0, 256, &list);
 	//dlist_push_back(&list, b_type, bh);
@@ -959,136 +1061,258 @@ long long test2_encode(const void *src, int bw, int bh, int symbytes, int bytest
 	cycles=__rdtsc()-cycles;
 	return cycles;
 }
-
 #if 0
-long long test3_encode(const void *src, int bw, int bh, int symbytes, int bytestride, ArrayHandle *data)
+long long test2_decode(const void *src, size_t srclen, int bw, int bh, int symbytes, int bytestride, void *dst)
 {
-	if(symbytes>4)
-		return 0;
 	long long cycles=__rdtsc();
-	
-	unsigned short CDF[256*4];
-	DList list;
-	dlist_init(&list, 1, 1024, 0);
-	//const unsigned char *buf=(const unsigned char*)src;
-	unsigned short *buf;
-	haar_2d_fwd((const unsigned char*)src, bw, bh, symbytes, bytestride, 0, &buf);
-	int rowlen=symbytes*bw, srcrowlen=bytestride*bw;
-	unsigned char *testrow=(unsigned char*)malloc((size_t)rowlen*5);
-	unsigned char *b_type=(unsigned char*)malloc(bh);
-	size_t res=(size_t)rowlen*bh;
-	//unsigned char *b2=(unsigned char*)malloc(res);
-	for(int ky=bh-1;ky>=0;--ky)
+	const unsigned char
+		*data=(const unsigned char*)src,
+		*srcptr=data,
+		*srcend=data+srclen;
+	ptrdiff_t coeffcount=0, bypasscount=0;
+
+	if(srcptr+4>srcend||memcmp(srcptr, &tag_lz03, 4))
 	{
-		int type;
-		double sdev, temp;
-
-		for(int kx=0;kx<bw;++kx)//bypass
-		{
-			int srcidx=bytestride*(bw*ky+kx), dstidx=symbytes*kx;
-			for(int kc=0;kc<symbytes;++kc)
-				testrow[dstidx+kc]=buf[srcidx+kc];
-		}
-		sdev=0;
-		for(int kc=0;kc<symbytes;++kc)
-			sdev+=calc_sdev(testrow+kc, rowlen, symbytes);
-		type=0;
-		//omit division of sdev by symbytes
-
-		for(int kx=0;kx<bw;++kx)//h-diff
-		{
-			int srcidx=bytestride*(bw*ky+kx), dstidx=rowlen+symbytes*kx;
-			for(int kc=0;kc<symbytes;++kc)
-				testrow[dstidx+kc]=buf[srcidx+kc]-(kx?buf[srcidx-bytestride+kc]:0);
-		}
-		temp=0;
-		for(int kc=0;kc<symbytes;++kc)
-			temp+=calc_sdev(testrow+rowlen+kc, rowlen, symbytes);
-		if(sdev>temp)
-			sdev=temp, type=1;
-
-		for(int kx=0;kx<bw;++kx)//v-diff
-		{
-			int srcidx=bytestride*(bw*ky+kx), dstidx=rowlen*2+symbytes*kx;
-			for(int kc=0;kc<symbytes;++kc)
-				testrow[dstidx+kc]=buf[srcidx]-(ky?buf[srcidx-srcrowlen+kc]:0);
-		}
-		temp=0;
-		for(int kc=0;kc<symbytes;++kc)
-			temp+=calc_sdev(testrow+rowlen*2+kc, rowlen, symbytes);
-		if(sdev>temp)
-			sdev=temp, type=2;
-
-		for(int kx=0;kx<bw;++kx)//av-diff
-		{
-			int srcidx=bytestride*(bw*ky+kx), dstidx=rowlen*3+symbytes*kx;
-			for(int kc=0;kc<symbytes;++kc)
-				testrow[dstidx+kc]=buf[srcidx+kc]-(((kx?buf[srcidx-bytestride+kc]:0)+(ky?buf[srcidx-srcrowlen+kc]:0))>>1);
-		}
-		temp=0;
-		for(int kc=0;kc<symbytes;++kc)
-			temp+=calc_sdev(testrow+rowlen*3+kc, rowlen, symbytes);
-		if(sdev>temp)
-			sdev=temp, type=3;
-
-		for(int kx=0;kx<bw;++kx)//Paeth predictor
-		{
-			int srcidx=bytestride*(bw*ky+kx), dstidx=rowlen*4+symbytes*kx;
-			for(int kc=0;kc<symbytes;++kc)
-			{
-				unsigned char
-					A=kx?buf[srcidx-bytestride+kc]:0,
-					B=ky?buf[srcidx-srcrowlen+kc]:0,
-					C=kx&&ky?buf[srcidx-srcrowlen-bytestride+kc]:0,
-					p=A+B-C,
-					dist, d2, sub;
-
-				dist=abs(p-A);
-				sub=A;
-
-				d2=abs(p-B);
-				if(dist>d2)
-					dist=d2, sub=B;
-
-				d2=abs(p-C);
-				if(dist>d2)
-					dist=d2, sub=C;
-
-				testrow[dstidx+kc]=buf[srcidx+kc]-sub;
-			}
-		}
-		temp=0;
-		for(int kc=0;kc<symbytes;++kc)
-			temp+=calc_sdev(testrow+rowlen*4+kc, rowlen, symbytes);
-		if(sdev>temp)
-			sdev=temp, type=4;
-
-		b_type[ky]=type;
-		memcpy(b2+rowlen*ky, testrow+rowlen*type, rowlen);
+		LOG_ERROR("Unexpected EOF");
+		return 0;
 	}
-	ArrayHandle coeff=0, bypass=0;
-	lz2_encode(b2, (int)res, &coeff, &bypass);
+	srcptr+=4;
 
-	//lodepng_encode_file("out.PNG", b2, bw, bh, symbytes==4?LCT_RGBA:LCT_RGB, 8);//
+	if(srcptr+4>srcend)
+	{
+		LOG_ERROR("Unexpected EOF");
+		return 0;
+	}
+	memcpy(&coeffcount, srcptr, 4);
+	srcptr+=4;
+
+	if(srcptr+4>srcend)
+	{
+		LOG_ERROR("Unexpected EOF");
+		return 0;
+	}
+	memcpy(&bypasscount, srcptr, 4);
+	srcptr+=4;
+
+	if(srcptr+((size_t)symbytes<<8)*sizeof(short)>srcend)
+	{
+		LOG_ERROR("Unexpected EOF");
+		return 0;
+	}
+	memcpy(g_CDF, srcptr, ((size_t)symbytes<<8)*sizeof(short));
+	srcptr+=((size_t)symbytes<<8)*sizeof(short);
+
+	if(srcptr+coeffcount>srcend)
+	{
+		LOG_ERROR("Unexpected EOF");
+		return 0;
+	}
 
 	for(int kc=0;kc<symbytes;++kc)
-		rans_calc_CDF(coeff->data+kc, (int)coeff->count, symbytes, CDF+((size_t)kc<<8));
-	dlist_push_back(&list, &tag_lz03, 4);
-	dlist_push_back(&list, &coeff->count, 4);
-	dlist_push_back(&list, CDF, ((size_t)symbytes<<8)*sizeof(short));
-	rans_bytes_encode(coeff->data, (int)coeff->count, symbytes, CDF, 256, &list);
-	dlist_push_back(&list, bypass->data, bypass->count);
-	//rans_bytes_encode(bypass->data, (int)bypass->count, 0, 256, &list);
-	//dlist_push_back(&list, b_type, bh);
-	rans_bytes_encode(b_type, bh, 1, 0, 5, &list);
-
-	array_free(&coeff);
-	array_free(&bypass);
-
-	dlist_appendtoarray(&list, data);
-	dlist_clear(&list);
+	{
+		unsigned sum=0;
+		for(int sym=0;sym<256;++sym)
+		{
+			for(int k2=g_CDF[sym], end=(sym<255?g_CDF[sym+1]:0x10000);k2<end;++k2)
+				g_CDF2sym[kc<<16|k2]=sym;
+		}
+	}
+	unsigned char *coeff=(unsigned char*)malloc(coeffcount);
+	if(!coeff)
+	{
+		LOG_ERROR("malloc fail");
+		return 0;
+	}
+	rans_bytes_decode(srcptr, (int)(srcend-srcptr), (int)coeffcount, symbytes, 256, g_CDF, g_CDF2sym, coeff);//FIXME need to store rANS buffer length
 
 	cycles=__rdtsc()-cycles;
 	return cycles;
 }
 #endif
+
+
+//LZ2D
+typedef struct LZ2DSrcInfoStruct
+{
+	short srcx, srcy;
+} LZ2DSrcInfo;
+typedef unsigned char DeltaType;
+//typedef unsigned short DeltaType;
+typedef struct LZ2DInfoStruct
+{
+	short srcx, srcy;
+	DeltaType w, h;
+	short dstx, dsty;
+} LZ2DInfo;
+LZ2DSrcInfo g_hist[256*16];
+int strided_memcmp(const unsigned char *p1, const unsigned char *p2, int symbytes, int bytestride, int pxstride, int count, const unsigned char *dstmask)
+{
+	int fullstride=bytestride*pxstride;
+	const unsigned char *end=p1+(size_t)fullstride*count;
+	for(;p1<end;p1+=fullstride, p2+=fullstride, dstmask+=pxstride)
+	{
+		if(*dstmask)
+			return 0;
+		for(int k=0;k<symbytes;++k)
+		{
+			if(p1[k]!=p2[k])
+				return 0;
+		}
+	}
+	return 1;
+}
+size_t lz2d_encode(const unsigned char *buf, int bw, int bh, int symbytes, int bytestride, ArrayHandle *mask, ArrayHandle *coeff)
+{
+	size_t res=(size_t)bw*bh;
+	ARRAY_ALLOC(char, *mask, 0, res, 0, 0);
+	if(!*mask)
+	{
+		LOG_ERROR("lz2d_encode(): Allocation failed");
+		return 0;
+	}
+	memset(mask[0]->data, 0, res);
+	memset(g_hist, -1, sizeof(g_hist));
+
+	ARRAY_ALLOC(LZ2DInfo, *coeff, 0, 0, 0, 0);
+	if(!*coeff)
+	{
+		LOG_ERROR("lz2d_encode(): Allocation failed");
+		return 0;
+	}
+
+	int maxw=0, maxh=0, maxaw=0, maxah=0;//
+
+	size_t savedbytes=0;
+	for(int ky=0;ky<bh;++ky)
+	{
+#if 0
+		if(!(ky&15))//
+			printf("\r%d / %d = %lf", ky+1, bh, 100.*(ky+1)/bh);//
+#endif
+		for(int kx=0;kx<bw;)
+		{
+			LZ2DSrcInfo *p;
+			int idx=bw*ky+kx;
+			if(mask[0]->data[idx])
+			{
+				++kx;
+				continue;
+			}
+			unsigned char sym=buf[bytestride*idx], bestmatch=0xFF;
+			int bestw=0, besth=0;
+			int kh=0;
+			for(;kh<16;++kh)
+			{
+				p=g_hist+(sym<<4|kh);
+				if(p->srcx==-1)
+					break;
+				int blockw=1, blockh=1, updatedw=1, updatedh=1;
+				do
+				{
+					int srcidx, dstidx;
+					if(updatedh&&blockh<(1<<(sizeof(DeltaType)<<3))&&blockh<blockw*4&&ky+blockh<bh&&p->srcy+blockh<bh)
+					{
+						srcidx=bw*(p->srcy+blockh)+p->srcx, dstidx=bw*(ky+blockh)+kx;
+						if(strided_memcmp(buf+bytestride*srcidx, buf+bytestride*dstidx, symbytes, bytestride, 1, blockw, mask[0]->data+dstidx))
+							++blockh;
+						else
+							updatedh=0;
+					}
+					else
+						updatedh=0;
+					if(updatedw&&blockw<(1<<(sizeof(DeltaType)<<3))&&blockw<blockh*4&&kx+blockw<bw&&p->srcx+blockw<bw)
+					{
+						srcidx=bw*p->srcy+p->srcx+blockw, dstidx=bw*ky+kx+blockw;
+						if(strided_memcmp(buf+bytestride*srcidx, buf+bytestride*dstidx, symbytes, bytestride, bw, blockh, mask[0]->data+dstidx))
+							++blockw;
+						else
+							updatedw=0;
+					}
+					else
+						updatedw=0;
+				}while(updatedh||updatedw);
+				if(bestw*besth<blockw*blockh)
+					bestw=blockw, besth=blockh, bestmatch=kh;
+			}
+
+			if(maxw<bestw)
+				maxw=bestw;
+			if(maxh<besth)
+				maxh=besth;
+			if(maxaw*maxah<bestw*besth)
+				maxaw=bestw, maxah=besth;
+
+			int redundantbytes=symbytes*bestw*besth, success=bestmatch!=0xFF&&redundantbytes>sizeof(LZ2DInfo);
+			if(success)//ignore if repeated bytes <= emission bytes
+			{
+				LZ2DInfo *emit=(LZ2DInfo*)ARRAY_APPEND(*coeff, 0, 1, 1, 0);//emit repeated block
+				p=g_hist+(sym<<4|bestmatch);
+				emit->srcx=p->srcx;
+				emit->srcy=p->srcy;
+				emit->w=bestw-1;
+				emit->h=besth-1;
+				emit->dstx=kx;
+				emit->dsty=ky;
+
+				unsigned char val=1+rand()%255;
+				for(int ky2=0;ky2<besth;++ky2)//mask block
+					//memset(mask[0]->data+bw*(ky+ky2), 0xFF, bestw);
+				{
+					for(int kx2=0;kx2<bestw;++kx2)
+					{
+						unsigned char *p3=mask[0]->data+bw*(ky+ky2)+kx+kx2;
+						*p3=val;
+						//*p3+=*p3<255;
+					}
+				}
+
+				savedbytes+=redundantbytes;
+			}
+
+			//update g_hist
+			if(kh>15)
+				kh=15;
+			p=g_hist+((size_t)sym<<4|kh);
+			p->srcx=kx;
+			p->srcy=ky;
+			if(kh)
+			{
+				LZ2DSrcInfo temp, *p2=g_hist+((size_t)sym<<4);
+				SWAPVAR(*p, *p2, temp);
+			}
+
+			if(success)
+				kx+=bestw;
+			else
+				++kx;
+		}
+	}
+#if 0
+	printf("\n");//
+#endif
+	printf("maxw %d maxh %d maxA %d*%d\n", maxw, maxh, maxaw, maxah);
+#if 0
+	if(savedbytes*256<res*symbytes)//if saved bytes < (1/256) image bytes
+	{
+		array_free(mask);
+		array_free(coeff);
+		return 0;
+	}
+#endif
+	return savedbytes;
+}
+size_t lz2d2_encode(const unsigned char *buf, int bw, int bh, int symbytes, int bytestride, ArrayHandle *mask, ArrayHandle *rle, ArrayHandle *lz)
+{
+	size_t res=(size_t)bw*bh;
+	ARRAY_ALLOC(char, *mask, 0, res, 0, 0);
+	if(!*mask)
+	{
+		LOG_ERROR("lz2d_encode(): Allocation failed");
+		return 0;
+	}
+	memset(mask[0]->data, 0, res);
+}
+//static const int tag_lz04='L'|'Z'<<8|'0'<<16|'4'<<24;
+//void test3_encode(const void *src, int bw, int bh, int symbytes, int bytestride, ArrayHandle *data)
+//{
+//}

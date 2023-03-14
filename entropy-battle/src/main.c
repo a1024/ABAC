@@ -329,8 +329,27 @@ void integrate_image(unsigned char *buf, int iw, int ih, int nch, int bytestride
 		}
 	}
 }
+/*int pyramid_getsize(int width){return (width+1)*((width<<1)-1);}
+char pyramid_getchar(int width, int idx)
+{
+	int height=(width<<1)-1;
+	++width;
+	int x=idx%width, y=idx/width;
+	if(x==width-1)
+		return '\n';
+	if(x>y)
+		return ' ';
+	if(x>height-1-y)
+		return ' ';
+	return '*';
+}//*/
 int main(int argc, char **argv)
 {
+	//int width=10,
+	//	n=pyramid_getsize(width);
+	//for(int k=0;k<n;++k)
+	//	printf("%c", pyramid_getchar(width, k));
+
 	//DCTtest();
 
 	printf("EntropyBattle\n");
@@ -533,19 +552,25 @@ int main(int argc, char **argv)
 	//memset(b2, 0, len);
 #endif
 
-#if 1
-	printf("LZ2\n");
-	cycles=test1_encode(buf, iw, ih, nch0, nch, &cdata);
-	printf("Enc %lf CPB, ratio %lf\n", (double)cycles/usize, (double)usize/cdata->count);
-	array_free(&cdata);
-	printf("\n");
-#endif
-#if 1
-	printf("test2\n");
-	cycles=test2_encode(buf, iw, ih, nch0, nch, &cdata);
-	printf("Enc %lf CPB, ratio %lf\n", (double)cycles/usize, (double)usize/cdata->count);
-	array_free(&cdata);
-	printf("\n");
+	//test1 & test2
+#if 0
+	lz2_limit=1;
+	//for(lz2_limit=1;lz2_limit<=3;++lz2_limit)
+	{
+		printf("lz2_limit %d\n", lz2_limit);
+
+		printf("test1\n");
+		cycles=test1_encode(buf, iw, ih, nch0, nch, &cdata);
+		printf("Enc %lf CPB, ratio %lf\n", (double)cycles/usize, (double)usize/cdata->count);
+		array_free(&cdata);
+		printf("\n");
+
+		printf("test2\n");
+		cycles=test2_encode(buf, iw, ih, nch0, nch, &cdata);
+		printf("Enc %lf CPB, ratio %lf\n", (double)cycles/usize, (double)usize/cdata->count);
+		array_free(&cdata);
+		printf("\n");
+	}
 #endif
 #if 0
 	{
@@ -558,6 +583,33 @@ int main(int argc, char **argv)
 		printf("\n");
 	}
 #endif
+
+	//LZ2D
+#if 1
+	{
+		printf("LZ2D\n");
+		ArrayHandle mask=0, coeff=0;
+		cycles=__rdtsc();
+		size_t savedbytes=lz2d_encode(buf, iw, ih, nch0, nch, &mask, &coeff);
+		cycles=__rdtsc()-cycles;
+		size_t totalbytes=(size_t)nch0*iw*ih, remaining=totalbytes-savedbytes+coeff->count*coeff->esize;
+		printf("LZ2D saved %lld / %lld bytes, csize %lld, ratio %lf,  %lld emitts, overhead %lld bytes,  %lf CPB\n",
+			savedbytes, totalbytes,
+			remaining, (double)totalbytes/remaining,
+			coeff->count, coeff->count*coeff->esize,
+			(double)cycles/usize);
+
+		lodepng_encode_file("out.PNG", mask->data, iw, ih, LCT_GREY, 8);//
+
+		if(savedbytes)
+		{
+			array_free(&mask);
+			array_free(&coeff);
+		}
+	}
+#endif
+	printf("\n");
+
 
 	//Huffman
 #ifdef ENABLE_ALL

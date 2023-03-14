@@ -1099,7 +1099,7 @@ static RBNodeHandle tree_maximum(RBNodeHandle root)
 		root=root->right;
 	return root;
 }
-int				map_erase(MapHandle map, const void *data, RBNodeHandle node)
+int  map_erase(MapHandle map, const void *data, RBNodeHandle node)
 {
 	//https://github.com/gcc-mirror/gcc/blob/master/libstdc%2B%2B-v3/src/c%2B%2B98/tree.cc		line 286
 	RBNodeHandle *root, *leftmost, *rightmost, x, xp, y, z, *r2;
@@ -1497,7 +1497,7 @@ void bitstring_print(BitstringHandle str)
 
 //implementation of max-heap-based priority queue
 #if 1
-static void		pqueue_realloc(PQueueHandle *pq, size_t count, size_t pad)//CANNOT be nullptr, array must be initialized with array_alloc()
+static void pqueue_realloc(PQueueHandle *pq, size_t count, size_t pad)//CANNOT be nullptr, array must be initialized with array_alloc()
 {
 	void *p2;
 	size_t size, newcap;
@@ -1518,7 +1518,7 @@ static void		pqueue_realloc(PQueueHandle *pq, size_t count, size_t pad)//CANNOT 
 	}
 	pq[0]->count=count;
 }
-void				pqueue_heapifyup(PQueueHandle *pq, size_t idx, void *temp)
+void        pqueue_heapifyup(PQueueHandle *pq, size_t idx, void *temp)
 {
 	for(;idx!=0;)
 	{
@@ -1530,7 +1530,7 @@ void				pqueue_heapifyup(PQueueHandle *pq, size_t idx, void *temp)
 		idx=parent;
 	}
 }
-void				pqueue_heapifydown(PQueueHandle *pq, size_t idx, void *temp)
+void        pqueue_heapifydown(PQueueHandle *pq, size_t idx, void *temp)
 {
 	size_t L, R, largest;
 
@@ -1552,7 +1552,7 @@ void				pqueue_heapifydown(PQueueHandle *pq, size_t idx, void *temp)
 		idx=largest;
 	}
 }
-void				pqueue_buildheap(PQueueHandle *pq)
+void        pqueue_buildheap(PQueueHandle *pq)
 {
 	void *temp;
 
@@ -1585,7 +1585,7 @@ PQueueHandle		pqueue_construct(
 	memset(pq->data, 0, cap);
 	return pq;
 }
-void			pqueue_free(PQueueHandle *pq)//can be nullptr
+void pqueue_free(PQueueHandle *pq)//can be nullptr
 {
 	if(*pq&&pq[0]->destructor)
 	{
@@ -1596,7 +1596,7 @@ void			pqueue_free(PQueueHandle *pq)//can be nullptr
 	*pq=0;
 }
 
-void			pqueue_enqueue(PQueueHandle *pq, const void *src)//src cannot be nullptr
+void  pqueue_enqueue(PQueueHandle *pq, const void *src)//src cannot be nullptr
 {
 	size_t start;
 	void *temp;
@@ -1611,11 +1611,11 @@ void			pqueue_enqueue(PQueueHandle *pq, const void *src)//src cannot be nullptr
 	pqueue_heapifyup(pq, pq[0]->count-1, temp);
 	free(temp);
 }
-void*			pqueue_front(PQueueHandle *pq)
+void* pqueue_front(PQueueHandle *pq)
 {
 	return pq[0]->data;
 }
-void			pqueue_dequeue(PQueueHandle *pq)
+void  pqueue_dequeue(PQueueHandle *pq)
 {
 	void *temp;
 
@@ -1635,12 +1635,12 @@ void			pqueue_dequeue(PQueueHandle *pq)
 	pqueue_heapifydown(pq, 0, temp);
 	free(temp);
 }
-void			pqueue_print(PQueueHandle *pq, void (*printer)(const void*))
+void  pqueue_print(PQueueHandle *pq, void (*printer)(const void*))
 {
 	for(int k=0;k<(int)pq[0]->count;++k)
 		printer(pq[0]->data+k*pq[0]->esize);
 }
-void			pqueue_print_heap(PQueueHandle *pq, void (*printer)(const void*))
+void  pqueue_print_heap(PQueueHandle *pq, void (*printer)(const void*))
 {
 	for(int x=1, start=0;start<(int)pq[0]->count;x<<=1)
 	{
@@ -1653,7 +1653,7 @@ void			pqueue_print_heap(PQueueHandle *pq, void (*printer)(const void*))
 }
 #endif
 
-ArrayHandle		load_bin(const char *filename, int pad)
+ArrayHandle load_bin(const char *filename, int pad)
 {
 	struct stat info={0};
 	FILE *f;
@@ -1676,7 +1676,7 @@ ArrayHandle		load_bin(const char *filename, int pad)
 	memset(str->data+str->count, 0, str->cap-str->count);
 	return str;
 }
-int		save_file_bin(const char *filename, const unsigned char *src, size_t srcSize)
+int save_file_bin(const char *filename, const unsigned char *src, size_t srcSize)
 {
 	FILE *f;
 	size_t bytesRead;
