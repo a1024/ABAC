@@ -30,6 +30,9 @@ extern "C"
 #define COUNTOF(ARR)		(sizeof(ARR)/sizeof(*(ARR)))		//stdlib defines _countof
 #define BETWEEN(LO, X, HI)	((unsigned)((X)-LO)<(unsigned)(HI+1-LO))
 #define SWAPVAR(A, B, TEMP)	TEMP=A, A=B, B=TEMP
+#define MINVAR(A, B)        ((A)<(B)?(A):(B))
+#define MAXVAR(A, B)        ((A)>(B)?(A):(B))
+#define MOVEOBJ(SRC, DST, SIZE) memcpy(DST, SRC, SIZE), memset(SRC, 0, SIZE)
 
 #ifdef _MSC_VER
 #define	ALIGN(N)	__declspec(align(N))
@@ -74,7 +77,10 @@ int log_error(const char *file, int line, int quit, const char *format, ...);//d
 #define LOG_ERROR(format, ...)   log_error(file, __LINE__, 1, format, ##__VA_ARGS__)
 #define LOG_WARNING(format, ...) log_error(file, __LINE__, 0, format, ##__VA_ARGS__)
 int valid(const void *p);
-void pause();
+int pause();
+#ifdef _MSC_VER
+int pause1();
+#endif
 int pause_abort(const char *file, int lineno, const char *extraInfo);
 #define PANIC() pause_abort(file, __LINE__, 0)
 #define ASSERT(SUCCESS)   ((SUCCESS)!=0||pause_abort(file, __LINE__, #SUCCESS))
@@ -104,7 +110,7 @@ void  array_free(ArrayHandle *arr);
 void  array_fit(ArrayHandle *arr, size_t pad);
 
 void* array_insert(ArrayHandle *arr, size_t idx, const void *data, size_t count, size_t rep, size_t pad);//cannot be nullptr
-void* array_erase(ArrayHandle *arr, size_t idx, size_t count);
+void* array_erase(ArrayHandle *arr, size_t idx, size_t count);//does not reallocate
 void* array_replace(ArrayHandle *arr, size_t idx, size_t rem_count, const void *data, size_t ins_count, size_t rep, size_t pad);
 
 void* array_at(ArrayHandle *arr, size_t idx);
@@ -120,7 +126,8 @@ void* array_back(ArrayHandle *arr);
 
 //null terminated array
 #define ESTR_ALLOC(TYPE, STR, DATA, LEN) STR=array_construct(DATA, sizeof(TYPE), LEN, 1, 1, 0)
-#define STR_APPEND(STR, SRC, LEN, REP) array_insert(&(STR), (STR)->count, SRC, LEN, REP, 1)
+#define STR_APPEND(STR, SRC, LEN, REP)   array_insert(&(STR), (STR)->count, SRC, LEN, REP, 1)
+#define STR_POPBACK(STR, COUNT)          array_erase(&(STR), (STR)->count-(COUNT), COUNT)
 #define STR_FIT(STR) array_fit(&STR, 1)
 #define ESTR_AT(TYPE, STR, IDX) *(TYPE*)array_at(&(STR), IDX)
 
@@ -167,7 +174,8 @@ void dlist_appendtoarray(DListHandle list, ArrayHandle *dst);
 void* dlist_push_back1(DListHandle list, const void *obj);//shallow copy of obj
 void* dlist_push_back(DListHandle list, const void *data, size_t count);
 void* dlist_back(DListHandle list);//returns address of last object
-void  dlist_pop_back(DListHandle list);
+void  dlist_pop_back1(DListHandle list);
+void  dlist_pop_back(DListHandle list, size_t count);
 
 //iterator: seamlessly iterate through contained objects
 typedef struct DListIteratorStruct
@@ -360,7 +368,14 @@ void pqueue_print_heap(PQueueHandle *pq, void (*printer)(const void*));
 #endif
 
 
-ArrayHandle load_bin(const char *filename, int pad);
+ptrdiff_t get_filesize(const char *filename);//-1 not found,  0: folder (probably),  ...: regular file size
+
+int acme_stricmp(const char *a, const char *b);//case insensitive strcmp
+ptrdiff_t acme_strrchr(const char *str, ptrdiff_t len, char c);//find last occurrence, with known length for backward search
+ArrayHandle filter_path(const char *path);//replaces back slashes with slashes, and adds trailing slash if missing, as ArrayHandle
+ArrayHandle get_filenames(const char *path, const char **extensions, int extCount, int fullyqualified);//returns array of strings
+
+ArrayHandle load_file(const char *filename, int bin, int pad);
 int save_file_bin(const char *filename, const unsigned char *src, size_t srcSize);
 
 	

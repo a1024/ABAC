@@ -530,7 +530,8 @@ long long lz_encode(const void *src, int bw, int bh, int bytestride, ArrayHandle
 #endif
 }
 
-//LZ2
+//LZ2 UNDECODABLE
+#if 0
 int lz2_limit=1;
 static int history[65536];
 void lz2_encode(unsigned char *buf, int len, ArrayHandle *coeff, ArrayHandle *bypass)
@@ -616,6 +617,7 @@ void lz2_encode(unsigned char *buf, int len, ArrayHandle *coeff, ArrayHandle *by
 	dlist_appendtoarray(&list, coeff);
 	dlist_clear(&list);
 }
+#endif
 #if 0
 void lz2_decode(const unsigned char *coeff, const unsigned char *bypass, int coefflen, int bypasslen, int dstlen, unsigned char *dst)
 {
@@ -834,6 +836,7 @@ double calc_sdev(unsigned char *buf, int len, int stride)
 	return s2;
 }
 static const int tag_lz02='L'|'Z'<<8|'0'<<16|'2'<<24;
+#if 0
 long long test1_encode(const void *src, int bw, int bh, int symbytes, int bytestride, ArrayHandle *data)
 {
 	long long cycles=__rdtsc();
@@ -925,10 +928,12 @@ long long test1_encode(const void *src, int bw, int bh, int symbytes, int bytest
 	cycles=__rdtsc()-cycles;
 	return cycles;
 }
+#endif
 
 static const int tag_lz03='L'|'Z'<<8|'0'<<16|'3'<<24;
 static unsigned short g_CDF[256*4];
 static unsigned char g_CDF2sym[65536*4];
+#if 0
 long long test2_encode(const void *src, int bw, int bh, int symbytes, int bytestride, ArrayHandle *data)
 {
 	if(symbytes>4)
@@ -1038,7 +1043,7 @@ long long test2_encode(const void *src, int bw, int bh, int symbytes, int bytest
 
 	printf("coeff %lld bypass %lld\n", coeff->count, bypass->count);
 
-	//lodepng_encode_file("out.PNG", b2, bw, bh, bytestride==4?LCT_RGBA:LCT_RGB, 8);//
+	//lodepng_encode_file("out.PNG", b2, bw, bh, bytestride==4?LCT_RGBA:LCT_RGB, 8);//DEBUG SAVE
 
 	for(int kc=0;kc<symbytes;++kc)
 		rans_calc_CDF(coeff->data+kc, (int)coeff->count, symbytes, g_CDF+((size_t)kc<<8));
@@ -1061,6 +1066,7 @@ long long test2_encode(const void *src, int bw, int bh, int symbytes, int bytest
 	cycles=__rdtsc()-cycles;
 	return cycles;
 }
+#endif
 #if 0
 long long test2_decode(const void *src, size_t srclen, int bw, int bh, int symbytes, int bytestride, void *dst)
 {
@@ -1110,7 +1116,6 @@ long long test2_decode(const void *src, size_t srclen, int bw, int bh, int symby
 
 	for(int kc=0;kc<symbytes;++kc)
 	{
-		unsigned sum=0;
 		for(int sym=0;sym<256;++sym)
 		{
 			for(int k2=g_CDF[sym], end=(sym<255?g_CDF[sym+1]:0x10000);k2<end;++k2)
@@ -1138,48 +1143,51 @@ typedef struct LZ2DSrcInfoStruct
 } LZ2DSrcInfo;
 typedef unsigned char DeltaType;
 //typedef unsigned short DeltaType;
-typedef struct LZ2DInfoStruct
+typedef struct LZ2DInfoStruct//10 bytes
 {
-	short srcx, srcy;
+	unsigned short srcx, srcy;
 	DeltaType w, h;
-	short dstx, dsty;
+	unsigned short dstx, dsty;
 } LZ2DInfo;
-typedef struct LZ2DRLEInfoStruct
+typedef struct LZ2DRLEInfoStruct//8 bytes
 {
-	short x, y, w, h;
+	unsigned short x, y, w, h;
 } LZ2DRLEInfo;
 LZ2DSrcInfo g_hist[256*16];
-int strided_valcmp(const unsigned char *p1, const unsigned char *p2, int symbytes, int bytestride, int pxstride, int count, int pad1, int pad2, const unsigned char *dstmask)
+#if 0
+int strided_valcmp(const unsigned char *dst, const unsigned char *src, int symbytes, int bytestride, int pxstride, int count, int pad1, int pad2, const unsigned char *dstmask)
 {
 	int fullstride=bytestride*pxstride;
-	const unsigned char *end=p1+(size_t)fullstride*count;
-	if(pad1&&!dstmask[-pxstride]&&!memcmp(p1-fullstride, p2, symbytes))//check if entering a sea
+	const unsigned char *end=dst+(size_t)fullstride*count;
+	if(pad1&&!dstmask[-pxstride]&&!memcmp(dst-fullstride, src, symbytes))//check if entering a sea
 		return 0;
-	for(;p1<end;p1+=fullstride, dstmask+=pxstride)
+	for(;dst<end;dst+=fullstride, dstmask+=pxstride)
 	{
-		if(*dstmask||memcmp(p1, p2, symbytes))
+		if(*dstmask||memcmp(dst, src, symbytes))
 			return 0;
 	}
-	if(pad2&&!*dstmask&&!memcmp(p1, p2, symbytes))//check if entering a sea
+	if(pad2&&!*dstmask&&!memcmp(dst, src, symbytes))//check if entering a sea
 		return 0;
 	return 1;
 }
-int strided_memcmp(const unsigned char *p1, const unsigned char *p2, int symbytes, int bytestride, int pxstride, int count, const unsigned char *dstmask)
+#endif
+int strided_memcmp(const unsigned char *dst, const unsigned char *src, int symbytes, int bytestride, int pxstride, int count, const unsigned char *dstmask, const unsigned char *srcmask)
 {
 	int fullstride=bytestride*pxstride;
-	const unsigned char *end=p1+(size_t)fullstride*count;
-	for(;p1<end;p1+=fullstride, p2+=fullstride, dstmask+=pxstride)
+	const unsigned char *end=src+(size_t)fullstride*count;
+	for(;src<end;src+=fullstride, dst+=fullstride, srcmask+=pxstride, dstmask+=pxstride)
 	{
-		if(*dstmask)
+		if(*srcmask||*dstmask||memcmp(dst, src, symbytes))
 			return 0;
-		for(int k=0;k<symbytes;++k)
-		{
-			if(p1[k]!=p2[k])
-				return 0;
-		}
+		//for(int k=0;k<symbytes;++k)
+		//{
+		//	if(src[k]!=dst[k])
+		//		return 0;
+		//}
 	}
 	return 1;
 }
+#if 0
 size_t lz2d_encode(const unsigned char *buf, int bw, int bh, int symbytes, int bytestride, ArrayHandle *mask, ArrayHandle *coeff)
 {
 	size_t res=(size_t)bw*bh;
@@ -1232,7 +1240,7 @@ size_t lz2d_encode(const unsigned char *buf, int bw, int bh, int symbytes, int b
 					if(updatedh&&blockh<(1<<(sizeof(DeltaType)<<3))&&blockh<blockw*4&&ky+blockh<bh&&p->srcy+blockh<bh)
 					{
 						srcidx=bw*(p->srcy+blockh)+p->srcx, dstidx=bw*(ky+blockh)+kx;
-						if(strided_memcmp(buf+bytestride*srcidx, buf+bytestride*dstidx, symbytes, bytestride, 1, blockw, mask[0]->data+dstidx))
+						if(strided_memcmp(buf+bytestride*dstidx, buf+bytestride*srcidx, symbytes, bytestride, 1, blockw, mask[0]->data+dstidx, mask[0]->data+srcidx))
 							++blockh;
 						else
 							updatedh=0;
@@ -1242,7 +1250,7 @@ size_t lz2d_encode(const unsigned char *buf, int bw, int bh, int symbytes, int b
 					if(updatedw&&blockw<(1<<(sizeof(DeltaType)<<3))&&blockw<blockh*4&&kx+blockw<bw&&p->srcx+blockw<bw)
 					{
 						srcidx=bw*p->srcy+p->srcx+blockw, dstidx=bw*ky+kx+blockw;
-						if(strided_memcmp(buf+bytestride*srcidx, buf+bytestride*dstidx, symbytes, bytestride, bw, blockh, mask[0]->data+dstidx))
+						if(strided_memcmp(buf+bytestride*dstidx, buf+bytestride*srcidx, symbytes, bytestride, bw, blockh, mask[0]->data+dstidx, mask[0]->data+srcidx))
 							++blockw;
 						else
 							updatedw=0;
@@ -1455,7 +1463,7 @@ size_t lz2d2_encode(const unsigned char *buf, int bw, int bh, int symbytes, int 
 					if(updatedh&&blockh<(1<<(sizeof(DeltaType)<<3))&&blockh<blockw*4&&ky+blockh<bh&&p->srcy+blockh<bh)
 					{
 						srcidx=bw*(p->srcy+blockh)+p->srcx, dstidx=bw*(ky+blockh)+kx;
-						if(strided_memcmp(buf+bytestride*srcidx, buf+bytestride*dstidx, symbytes, bytestride, 1, blockw, mask[0]->data+dstidx))
+						if(strided_memcmp(buf+bytestride*dstidx, buf+bytestride*srcidx, symbytes, bytestride, 1, blockw, mask[0]->data+dstidx, mask[0]->data+srcidx))
 							++blockh;
 						else
 							updatedh=0;
@@ -1465,7 +1473,7 @@ size_t lz2d2_encode(const unsigned char *buf, int bw, int bh, int symbytes, int 
 					if(updatedw&&blockw<(1<<(sizeof(DeltaType)<<3))&&blockw<blockh*4&&kx+blockw<bw&&p->srcx+blockw<bw)
 					{
 						srcidx=bw*p->srcy+p->srcx+blockw, dstidx=bw*ky+kx+blockw;
-						if(strided_memcmp(buf+bytestride*srcidx, buf+bytestride*dstidx, symbytes, bytestride, bw, blockh, mask[0]->data+dstidx))
+						if(strided_memcmp(buf+bytestride*dstidx, buf+bytestride*srcidx, symbytes, bytestride, bw, blockh, mask[0]->data+dstidx, mask[0]->data+srcidx))
 							++blockw;
 						else
 							updatedw=0;
@@ -1532,12 +1540,13 @@ size_t lz2d2_encode(const unsigned char *buf, int bw, int bh, int symbytes, int 
 	printf("LZ  maxw %d maxh %d maxA %d*%d\n", maxw, maxh, maxaw, maxah);
 	return savedbytes;
 }
+#endif
 
 typedef struct CNCPointStruct
 {
 	short x, y;
 } CNCPoint;
-size_t lz2d3_encode(const unsigned char *buf, int bw, int bh, int symbytes, int bytestride, ArrayHandle *mask, ArrayHandle *rle, ArrayHandle *lz, int minlzbytes)
+size_t lz2d3_encode(const unsigned char *buf, int bw, int bh, int symbytes, int bytestride, ArrayHandle *mask, ArrayHandle *rle, ArrayHandle *lz)
 {
 	ARRAY_ALLOC(LZ2DRLEInfo, *rle, 0, 0, 0, 0);
 	if(!*rle)
@@ -1573,13 +1582,14 @@ size_t lz2d3_encode(const unsigned char *buf, int bw, int bh, int symbytes, int 
 	memfill(temp+1, temp, (res-1)*sizeof(CNCPoint), sizeof(CNCPoint));
 
 	size_t savedbytes=0;
+#if 1
 	for(int lgstep=1;lgstep<=8;++lgstep)
 	{
 		int step=1<<lgstep;
 		int halfx=step>>1, halfy=bw*halfx;
-		for(int ky=0;ky<bh;ky+=step)
+		for(int ky=0, yend=bh-halfx;ky<yend;ky+=step)
 		{
-			for(int kx=0;kx<bw;kx+=step)
+			for(int kx=0, xend=bw-halfx;kx<xend;kx+=step)
 			{
 				int idx=bw*ky+kx;
 				if(temp[idx].x==halfx&&temp[idx+halfx].x==halfx&&temp[idx+halfy].x==halfx&&temp[idx+halfy+halfx].x==halfx)
@@ -1660,6 +1670,11 @@ size_t lz2d3_encode(const unsigned char *buf, int bw, int bh, int symbytes, int 
 	{
 		for(int kx=0;kx<bw;)
 		{
+			//if(kx==1910&&ky==1074)//
+			//	kx=1910;//
+			//if(kx==1908&&ky==1076)//
+			//	kx=1908;//
+
 			int idx=bw*ky+kx;
 			if(!mask[0]->data[idx]||mask[0]->data[idx]>=0xC0)
 			{
@@ -1671,7 +1686,7 @@ size_t lz2d3_encode(const unsigned char *buf, int bw, int bh, int symbytes, int 
 			if(area>sizeof(LZ2DRLEInfo))
 			{
 				//mask out block
-				unsigned char val=0xC0+rand()%63;
+				unsigned char val=0xC0+rand()%63;//192~255, for debugging
 				mask[0]->data[idx]=0;//unmask top-left pixel
 				if(temp[idx].x>1)
 					memset(mask[0]->data+bw*ky+kx+1, val, temp[idx].x-1);
@@ -1695,6 +1710,9 @@ size_t lz2d3_encode(const unsigned char *buf, int bw, int bh, int symbytes, int 
 		}
 	}
 #endif
+#else//no RLE
+	memset(mask[0]->data, 0, res);
+#endif
 
 	//LZ2D
 #if 1
@@ -1703,6 +1721,9 @@ size_t lz2d3_encode(const unsigned char *buf, int bw, int bh, int symbytes, int 
 	{
 		for(int kx=0;kx<bw;)
 		{
+			//if(kx==1704&&ky==1073)//
+			//	kx=1704;//
+
 			LZ2DSrcInfo *p;
 			int idx=bw*ky+kx;
 			if(mask[0]->data[idx])
@@ -1715,19 +1736,25 @@ size_t lz2d3_encode(const unsigned char *buf, int bw, int bh, int symbytes, int 
 			int kh=0;
 			for(;kh<16;++kh)
 			{
+				//if(kx==1182&&ky==1078&&kh==15)//
+				//	kx=1182;//
+
 				p=g_hist+(sym<<4|kh);
-				if(p->srcx==-1)
+				if(p->srcx==-1)//first time
 					break;
+
+				ptrdiff_t srcidx=(ptrdiff_t)bw*p->srcy+p->srcx, dstidx=(ptrdiff_t)bw*ky+kx;
+				if(mask[0]->data[srcidx]&0x7F||symbytes>1&&memcmp(buf+bytestride*srcidx+1, buf+bytestride*dstidx+1, (size_t)symbytes-1))//check if first src pixel is clean, first pixel must match
+					continue;
 				int blockw=1, blockh=1, updatew=1, updateh=1;
 				do
 				{
-					int srcidx, dstidx;
 					if(updateh)
 					{
 						if(blockh<(1<<(sizeof(DeltaType)<<3))&&ky+blockh<bh&&p->srcy+blockh<bh)
 						{
-							srcidx=bw*(p->srcy+blockh)+p->srcx, dstidx=bw*(ky+blockh)+kx;
-							if(strided_memcmp(buf+bytestride*srcidx, buf+bytestride*dstidx, symbytes, bytestride, 1, blockw, mask[0]->data+dstidx))
+							ptrdiff_t offset=(ptrdiff_t)bw*blockh, srcidx2=srcidx+offset, dstidx2=dstidx+offset;
+							if(strided_memcmp(buf+bytestride*dstidx2, buf+bytestride*srcidx2, symbytes, bytestride, 1, blockw, mask[0]->data+dstidx2, mask[0]->data+srcidx2))
 								++blockh;
 							else
 								updateh=0;
@@ -1739,8 +1766,8 @@ size_t lz2d3_encode(const unsigned char *buf, int bw, int bh, int symbytes, int 
 					{
 						if(blockw<(1<<(sizeof(DeltaType)<<3))&&kx+blockw<bw&&p->srcx+blockw<bw)
 						{
-							srcidx=bw*p->srcy+p->srcx+blockw, dstidx=bw*ky+kx+blockw;
-							if(strided_memcmp(buf+bytestride*srcidx, buf+bytestride*dstidx, symbytes, bytestride, bw, blockh, mask[0]->data+dstidx))
+							ptrdiff_t srcidx2=srcidx+(ptrdiff_t)blockw, dstidx2=dstidx+(ptrdiff_t)blockw;
+							if(strided_memcmp(buf+bytestride*dstidx2, buf+bytestride*srcidx2, symbytes, bytestride, bw, blockh, mask[0]->data+dstidx2, mask[0]->data+srcidx2))
 								++blockw;
 							else
 								updatew=0;
@@ -1762,22 +1789,36 @@ size_t lz2d3_encode(const unsigned char *buf, int bw, int bh, int symbytes, int 
 				p=g_hist+(sym<<4|bestmatch);
 				emit->srcx=p->srcx;
 				emit->srcy=p->srcy;
-				emit->w=bestw-1;
+				emit->w=bestw-1;//1~256 - 1
 				emit->h=besth-1;
 				emit->dstx=kx;
 				emit->dsty=ky;
+				
+#if 0
+				{//
+					for(int ky2=0;ky2<besth;++ky2)//DEBUG check if src clean
+					{
+						for(int kx2=0;kx2<bestw;++kx2)
+						{
+							unsigned char src0=mask[0]->data[bw*(p->srcy+ky2)+p->srcx+kx2];
+							if(src0&0x7F)//LZ src'es can overlap
+							{
+								LOG_ERROR("Debug check: LZ src is not clean");
+								return 0;
+							}
+						}
+					}
+				}//
+#endif
 
-				unsigned char val=32+rand()%31;
-				for(int ky2=0;ky2<besth;++ky2)//mask block
+				//false-mask src block, avoiding LZ chains (but with worse ratio)
+				for(int ky2=0;ky2<besth;++ky2)
+					memset(mask[0]->data+bw*(p->srcy+ky2)+p->srcx, 128, bestw);
+
+				//mask dst block (can overlap with src)
+				unsigned char val=32+rand()%31;//32~63, for debugging
+				for(int ky2=0;ky2<besth;++ky2)
 					memset(mask[0]->data+bw*(ky+ky2)+kx, val, bestw);
-				//{
-				//	for(int kx2=0;kx2<bestw;++kx2)
-				//	{
-				//		unsigned char *p3=mask[0]->data+bw*(ky+ky2)+kx+kx2;
-				//		*p3=val;
-				//		//*p3+=*p3<255;
-				//	}
-				//}
 
 				savedbytes+=redundantbytes;
 			}
@@ -1804,28 +1845,41 @@ size_t lz2d3_encode(const unsigned char *buf, int bw, int bh, int symbytes, int 
 	return savedbytes;
 }
 
+//unsigned char *buf0=0;
 static void image_diff_masked(unsigned char *buf, int iw, int ih, int nch, int bytestride, const unsigned char *mask)
 {
 	int rowlen=iw*bytestride;
 	for(int kc=0;kc<nch;++kc)
 	{
-		int idx2=iw*ih-1,
+		int idx2=iw*ih-1,//differeniation is last -> first
 			idx=idx2*bytestride+kc;
 		for(int ky=ih-1;ky>=0;--ky)
 		{
 			for(int kx=iw-1;kx>=0;--kx, --idx2, idx-=bytestride)
 			{
-				if(!mask[idx2])
+				if(!(mask[idx2]&0x7F))//128 is a false mask for LZ src to avoid LZ chaining
 				{
 					unsigned char
-						left=kx&&!mask[idx2-1]?buf[idx-bytestride]:0,
-						top=ky&&!mask[idx2-iw]?buf[idx-rowlen]:0,
-						topleft=kx&&ky&&!mask[idx2-iw-1]?buf[idx-rowlen-bytestride]:0,
+						left=kx&&!(mask[idx2-1]&0x7F)?buf[idx-bytestride]:0,
+						top=ky&&!(mask[idx2-iw]&0x7F)?buf[idx-rowlen]:0,
+						topleft=kx&&ky&&!(mask[idx2-iw-1]&0x7F)?buf[idx-rowlen-bytestride]:0,
 						sub=left+top-topleft;
-					if(kx||ky)
+					//if(kx||ky)
+					if(sub)
 						sub-=128;
+
+					//if(kx==6&&ky==3)//DEBUG
+					////if(kx==1919&&ky==1079)//
+					//{
+					//	printf("XYC %5d %5d %d:\n", kx, ky, kc);
+					//	printf("  %3d %3d\n", topleft, top);
+					//	printf("  %3d %3d -> %3d\n", left, buf[idx], (unsigned)(unsigned char)(buf[idx]-sub));
+					//}
+
 					buf[idx]-=sub;
 				}
+				//else//DEBUG
+				//	buf[idx]=0;//
 			}
 		}
 	}
@@ -1835,11 +1889,11 @@ static void image_int_masked(unsigned char *buf, int iw, int ih, int nch, int by
 	int rowlen=iw*bytestride;
 	for(int kc=0;kc<nch;++kc)
 	{
-		int idx2=iw*ih-1,
+		int idx2=0,//integration is first ->last
 			idx=idx2*bytestride+kc;
-		for(int ky=ih-1;ky>=0;--ky)
+		for(int ky=0;ky<ih;++ky)
 		{
-			for(int kx=iw-1;kx>=0;--kx, --idx2, idx-=bytestride)
+			for(int kx=0;kx<iw;++kx, ++idx2, idx+=bytestride)
 			{
 				if(!mask[idx2])
 				{
@@ -1848,9 +1902,25 @@ static void image_int_masked(unsigned char *buf, int iw, int ih, int nch, int by
 						top=ky&&!mask[idx2-iw]?buf[idx-rowlen]:0,
 						topleft=kx&&ky&&!mask[idx2-iw-1]?buf[idx-rowlen-bytestride]:0,
 						sub=left+top-topleft;
-					if(kx||ky)
+					//if(kx||ky)
+					if(sub)
 						sub-=128;
-					buf[idx]+=sub;
+
+					//if(kx==6&&ky==3)//DEBUG
+					////if(kx==1919&&ky==1079)//
+					//{
+					//	printf("XYC %5d,%5d,%2d:\n", kx, ky, kc);
+					//	printf("  %3d %3d\n", topleft, top);
+					//	printf("  %3d %3d -> %3d\n", left, buf[idx], (unsigned)(unsigned char)(buf[idx]+sub));
+					//}
+
+					buf[idx]+=sub;//addition instead of subtraction
+
+					//if(buf0&&buf[idx]!=buf0[idx])//DEBUG
+					//{
+					//	printf("XYC %5d,%5d,%2d:  dec != buf0  0x%02X != 0x%02X  %d != %d\n", kx, ky, kc, buf[idx], buf0[idx], buf[idx], buf0[idx]);
+					//	LOG_ERROR("Integration error");
+					//}
 				}
 			}
 		}
@@ -1872,9 +1942,9 @@ static int rans_calc_CDF_masked(const unsigned char *buffer, int len, int stride
 		hist[k].freq=0;
 	}
 	int count=0;
-	for(int k=0, km=0;k<len;k+=stride, ++km)//this loop takes 73% of encode time
+	for(int k=0, km=0;k<len;k+=stride, ++km)
 	{
-		int inc=!mask[km];
+		int inc=!(mask[km]&0x7F);//128 is a false mask for LZ src to avoid LZ chaining
 		hist[buffer[k]].freq+=inc;
 		count+=inc;
 	}
@@ -1941,12 +2011,22 @@ static int rans_calc_CDF_masked(const unsigned char *buffer, int len, int stride
 		//if(sum>0xFFFF)
 		//	sum=0xFFFF;
 	}
-	return 1;
+	return count;
 }
 
+
+//	#define SAVE_DIFF2
+	#define SAVE_MASK_ENC		//just use this for debugging
+//	#define SAVE_DIFF1
+//	#define SAVE_MASK_DEC
+//	#define SAVE_OUT
+
+//	#define PRINT_TEST3_rANS
+
+
+//unsigned short g_freq[256*4];
 static const int tag_lz04='L'|'Z'<<8|'0'<<16|'4'<<24;
-unsigned short g_freq[256*4];
-int test3_encode(const void *src, int bw, int bh, int symbytes, int bytestride, ArrayHandle *data, int minlzbytes)
+size_t test3_encode(const void *src, int bw, int bh, int symbytes, int bytestride, ArrayHandle *data, int diff)
 {
 	size_t start=0;
 	if(*data)
@@ -1962,26 +2042,64 @@ int test3_encode(const void *src, int bw, int bh, int symbytes, int bytestride, 
 	}
 
 	const unsigned char *buf=(const unsigned char*)src;
-	ArrayHandle mask=0, rle=0, lz=0;
-	lz2d3_encode(buf, bw, bh, symbytes, bytestride, &mask, &rle, &lz, minlzbytes);
-	if(!mask||!rle||!lz)
-		return 0;
-
-	unsigned char *b2=(unsigned char*)malloc((size_t)bw*bh*bytestride);
+	ptrdiff_t srcbytes=(ptrdiff_t)bytestride*bw*bh;
+	unsigned char *b2=(unsigned char*)malloc(srcbytes);
 	if(!b2)
 	{
 		LOG_ERROR("test3_encode(): Allocation error");
 		return 0;
 	}
-	memcpy(b2, buf, (size_t)bw*bh*bytestride);
-	image_diff_masked(b2, bw, bh, symbytes, bytestride, mask->data);
+	memcpy(b2, buf, srcbytes);
 
+	if(diff==2)
+	{
+		differentiate_image(b2, bw, bh, symbytes, bytestride);
+#ifdef SAVE_DIFF2
+		lodepng_encode_file("diff.PNG", b2, bw, bh, LCT_RGBA, 8);//DEBUG SAVE
+#endif
+	}
+
+	ArrayHandle mask=0, rle=0, lz=0;
+	size_t savedbytes=lz2d3_encode(b2, bw, bh, symbytes, bytestride, &mask, &rle, &lz);
+	if(!mask||!rle||!lz)
+		return 0;
+	
+#ifdef SAVE_MASK_ENC
+	lodepng_encode_file("mask_enc.PNG", mask->data, bw, bh, LCT_GREY, 8);//DEBUG SAVE
+#endif
+
+	if(diff==1)
+	{
+		image_diff_masked(b2, bw, bh, symbytes, bytestride, mask->data);
+#ifdef SAVE_DIFF1
+		lodepng_encode_file("diff.PNG", b2, bw, bh, LCT_RGBA, 8);//DEBUG SAVE
+#endif
+	}
+
+	int rANS_pixelcount=0;
+#ifdef PRINT_TEST3_rANS
+	{//
+		for(int km=0;km<mask->count;++km)
+			rANS_pixelcount+=!(mask->data[km]&0x7F);
+		printf("Unmasked count %d\n", rANS_pixelcount);
+		rANS_pixelcount=0;
+	}//
+#endif
 	for(int kc=0;kc<symbytes;++kc)
 	{
-		if(!rans_calc_CDF_masked(b2+kc, bytestride*bw*bh, bytestride, mask->data, g_CDF+((size_t)kc<<8)))
-		//if(!rans_calc_CDF_masked(b2+kc, bytestride*bw*bh, bytestride, mask->data, g_freq+((size_t)kc<<8), g_CDF+((size_t)kc<<8)))
+		int count=rans_calc_CDF_masked(b2+kc, (int)srcbytes, bytestride, mask->data, g_CDF+((size_t)kc<<8));
+		//if(!rans_calc_CDF_masked(b2+kc, srcbytes, bytestride, mask->data, g_freq+((size_t)kc<<8), g_CDF+((size_t)kc<<8)))
+		if(!count)
 			return 0;
+		if(rANS_pixelcount&&rANS_pixelcount!=count)
+		{
+			LOG_ERROR("rANS mask channel mismatch");
+			return 0;
+		}
+		rANS_pixelcount=count;
 	}
+
+	//printf("rANS pixel count %d\n", rANS_pixelcount);//
 
 	DList list;
 	dlist_init(&list, 1, 1024, 0);
@@ -1991,19 +2109,41 @@ int test3_encode(const void *src, int bw, int bh, int symbytes, int bytestride, 
 	dlist_push_back(&list, g_CDF, ((size_t)symbytes<<8)*sizeof(short));
 	size_t rANS_bytes=list.nobj;
 
+	//unsigned s0=0;//
+
 	unsigned state=0x10000;
-	int idx=0;
 	for(int ky=0;ky<bh;++ky)
 	{
-		for(int kx=0;kx<bh;++kx, idx+=bytestride)
+		for(int kx=0;kx<bw;++kx)
 		{
-			if(!mask->data[bw*ky+kx])
+			int idx=bw*ky+kx;
+			if(!(mask->data[idx]&0x7F))//128 is a false mask for LZ src to avoid LZ chaining
 			{
+				--rANS_pixelcount;
+				//s0=state;//
+
+				idx*=bytestride;
 				for(int kc=0;kc<symbytes;++kc)
 				{
 					unsigned char sym=b2[idx+kc];
-					//unsigned short c=g_CDF[kc<<8|sym], freq=g_freq[kc<<8|sym];
-					unsigned short c=g_CDF[kc<<8|sym], freq=(sym==255||c>g_CDF[kc<<8|(sym+1)]?0x10000:g_CDF[kc<<8|(sym+1)])-c;//CDF can overflow with zero frequency symbols at the end
+					//unsigned short cdf=g_CDF[kc<<8|sym], freq=g_freq[kc<<8|sym];
+					unsigned short cdf=g_CDF[kc<<8|sym], freq;
+					{
+						int next;
+						if(sym==255)
+							next=0x10000;
+						else
+						{
+							next=g_CDF[kc<<8|(sym+1)];
+							if(next<cdf)//CDF will overflow with trailing zero frequency symbols  (uint16)0x10000==0
+								next=0x10000;
+						}
+						freq=(unsigned short)(next-cdf);
+#ifdef _DEBUG
+						if(!freq)
+							LOG_ERROR("rANS zero freq sym 0x%02X at XYC %5d,%5d,%2d", sym, kx, ky, kc);
+#endif
+					}
 
 					if(state>=(unsigned)(freq<<16))//renorm
 					{
@@ -2011,11 +2151,22 @@ int test3_encode(const void *src, int bw, int bh, int symbytes, int bytestride, 
 						state>>=16;
 					}
 
-					state=state/freq<<16|(c+state%freq);//update
+					state=state/freq<<16|(cdf+state%freq);//update
+					
+#ifdef PRINT_TEST3_rANS
+					if(rANS_pixelcount<2)//
+						printf("enc [%d] XYC %5d %5d %d%c 0x%02X %3d  cdf 0x%04X f 0x%04X  x2 0x%08X\n", rANS_pixelcount, kx, ky, kc, "RGB"[kc], sym, sym, cdf, freq, state);//
+#endif
 				}
 			}
 		}
 	}
+	if(rANS_pixelcount)
+	{
+		LOG_ERROR("rANS pixel count mismatch");
+		return 0;
+	}
+	//printf("Last states: end-3 0x%08X, end 0x%08X\n", s0, state);//
 	dlist_push_back(&list, &state, 4);
 	rANS_bytes=list.nobj-rANS_bytes;
 
@@ -2038,5 +2189,415 @@ int test3_encode(const void *src, int bw, int bh, int symbytes, int bytestride, 
 	array_free(&rle);
 	array_free(&lz);
 	free(b2);
+	return savedbytes;
+}
+int    test3_decode(const void *src, ptrdiff_t srclen, int iw, int ih, int symbytes, int bytestride, void *dst, int diff)
+{
+	const unsigned char
+		*data=(const unsigned char*)src,
+		*srcptr=data,
+		*srcend=data+srclen;
+	if(srcptr+(ptrdiff_t)4*4>=srcend||memcmp(data, &tag_lz04, 4))
+		return 0;
+	srcptr+=4;
+
+	ptrdiff_t rle_count=0, lz_count=0, rANS_bytes=0;
+	memcpy(&rle_count, srcptr, 4);
+	srcptr+=4;
+
+	memcpy(&lz_count, srcptr, 4);
+	srcptr+=4;
+
+	memcpy(&rANS_bytes, srcptr, 4);
+	srcptr+=4;
+
+	ptrdiff_t res=(ptrdiff_t)iw*ih;
+	unsigned char *mask=(unsigned char*)malloc(res);
+	if(!mask)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	memset(mask, 0, res);
+	
+	//1. reconstruct pixel mask
+	if(srcptr+rle_count*sizeof(LZ2DRLEInfo)>srcend)
+	{
+		LOG_ERROR("Unexpected EOF at RLE");
+		return 0;
+	}
+	for(int k=0;k<rle_count;++k)
+	{
+		LZ2DRLEInfo temp;
+		memcpy(&temp, srcptr, sizeof(LZ2DRLEInfo));
+		srcptr+=sizeof(LZ2DRLEInfo);
+		
+		unsigned char val=0xC0+rand()%63;//for debugging
+		memset(mask+iw*temp.y+temp.x+1, val, temp.w-1);//leave top-left pixel unmasked in RLE blocks
+		for(int ky=1;ky<temp.h;++ky)
+			memset(mask+iw*(temp.y+ky)+temp.x, val, temp.w);
+	}
+
+	if(srcptr+lz_count*sizeof(LZ2DInfo)>srcend)
+	{
+		LOG_ERROR("Unexpected EOF at LZ");
+		return 0;
+	}
+	for(int k=0;k<lz_count;++k)
+	{
+		LZ2DInfo t2;
+		memcpy(&t2, srcptr, sizeof(LZ2DInfo));
+		srcptr+=sizeof(LZ2DInfo);
+
+		int blockw=t2.w+1, blockh=t2.h+1;//0~255 + 1
+		
+		unsigned char val=32+rand()%31;//for debugging
+		for(int ky=0;ky<blockh;++ky)
+			memset(mask+iw*(t2.dsty+ky)+t2.dstx, val, blockw);
+	}
+
+#ifdef SAVE_MASK_DEC
+	lodepng_encode_file("mask_dec.PNG", mask, iw, ih, LCT_GREY, 8);//DEBUG SAVE
+#endif
+
+	ptrdiff_t CDF_bytes=((size_t)symbytes<<8)*sizeof(short);//read CDF
+	if(srcptr+CDF_bytes>srcend)
+	{
+		LOG_ERROR("Unexpected EOF at CDF");
+		return 0;
+	}
+	memcpy(g_CDF, srcptr, CDF_bytes);
+	srcptr+=CDF_bytes;
+
+	for(int kc=0;kc<symbytes;++kc)//fill g_CDF2sym[]
+	{
+		int k2=0, end=0;
+		for(int sym=0;sym<256;++sym, k2=end)
+		{
+			if(sym==255)
+				end=0x10000;
+			else
+			{
+				end=g_CDF[kc<<8|(sym+1)];
+				if(end<k2)
+					end=0x10000;
+			}
+
+			for(;k2<end;++k2)
+				g_CDF2sym[kc<<16|k2]=sym;
+
+			if(end==0x10000)//now redundant because	'k2' is recycled 'end'		//to avoid overwriting whole CDF2sym with 0xFF with trailing zero-freq symbols
+				break;
+		}
+	}
+
+#ifdef PRINT_TEST3_rANS
+	int rANS_pixelcount=0;//
+	{//
+		for(ptrdiff_t km=0;km<res;++km)
+			rANS_pixelcount+=!mask[km];
+		printf("Unmasked count %d\n", rANS_pixelcount);
+		rANS_pixelcount=0;
+	}//
+#endif
+	
+	//2. decode unmasked pixels
+	unsigned char *buf=(unsigned char*)dst;
+	memset(buf, 0, (size_t)bytestride*iw*ih);
+	const unsigned char *srcstart=srcptr;
+	srcptr+=rANS_bytes;
+	if(srcptr>srcend)
+	{
+		LOG_ERROR("Unexpected EOF at rANS");
+		return 0;
+	}
+	if(srcptr!=srcend)
+	{
+		LOG_ERROR("Dangling data");
+		return 0;
+	}
+	unsigned state;
+	srcptr-=4;
+	if(srcptr<srcstart)
+	{
+		LOG_ERROR("rANS OOB");
+		return 0;
+	}
+	memcpy(&state, srcptr, 4);
+	for(int ky=ih-1;ky>=0;--ky)
+	{
+		for(int kx=iw-1;kx>=0;--kx)
+		{
+			int idx=iw*ky+kx;
+			if(!mask[idx])
+			{
+#ifdef PRINT_TEST3_rANS
+				++rANS_pixelcount;//
+#endif
+
+				int idx2=idx*bytestride;
+				for(int kc=symbytes-1;kc>=0;--kc)
+				{
+					unsigned short lo=(unsigned short)state;
+					unsigned char sym=g_CDF2sym[kc<<16|lo];
+					unsigned short cdf=g_CDF[kc<<8|sym], freq;
+					{
+						int next;
+						if(sym==255)
+							next=0x10000;
+						else
+						{
+							next=g_CDF[kc<<8|(sym+1)];
+							if(next<cdf)
+								next=0x10000;
+						}
+						freq=(unsigned short)(next-cdf);
+#ifdef _DEBUG
+						if(!freq)
+							LOG_ERROR("rANS zero freq sym 0x%02X at XYC %5d,%5d,%2d", sym, kx, ky, kc);
+#endif
+					}
+					buf[idx2+kc]=sym;
+					
+#ifdef PRINT_TEST3_rANS
+					if(rANS_pixelcount<3)//
+						printf("dec [%d] XYC %5d %5d %d%c 0x%02X %3d  cdf 0x%04X f 0x%04X  x1 0x%08X\n", rANS_pixelcount-1, kx, ky, kc, "RGB"[kc], sym, sym, cdf, freq, state);//
+#endif
+
+					state=freq*(state>>16)+lo-cdf;//update
+
+					if(state<0x10000)//renorm
+					{
+						srcptr-=2;
+						if(srcptr<srcstart)
+						{
+							LOG_ERROR("rANS OOB");
+							return 0;
+						}
+						state<<=16;
+						memcpy(&state, srcptr, 2);
+					}
+				}
+			}
+		}
+	}
+
+	//3. masked integration (optional)
+	if(diff==1)
+		image_int_masked(buf, iw, ih, symbytes, bytestride, mask);
+	
+	//4. decode RLE & LZ simultaneously			decoded slower than encoded
+#if 1
+	const unsigned char
+		*rleptr=data+(ptrdiff_t)4*4,
+		*rleend=rleptr+rle_count*sizeof(LZ2DRLEInfo),
+		*lzptr=rleend,
+		*lzend=lzptr+lz_count*sizeof(LZ2DInfo);
+	if(rle_count||lz_count)
+	{
+		LZ2DRLEInfo rle;
+		LZ2DInfo lz;
+
+		if(rleptr+sizeof(LZ2DRLEInfo)<=rleend)
+		{
+			memcpy(&rle, rleptr, sizeof(LZ2DRLEInfo));
+			rleptr+=sizeof(LZ2DRLEInfo);
+		}
+		else
+			memset(&rle, -1, sizeof(LZ2DRLEInfo));
+
+		if(lzptr+sizeof(LZ2DInfo)<=lzend)
+		{
+			memcpy(&lz, lzptr, sizeof(LZ2DInfo));
+			lzptr+=sizeof(LZ2DInfo);
+		}
+		else
+			memset(&lz, -1, sizeof(LZ2DInfo));
+
+		for(int ky=0;ky<ih;++ky)
+		{
+			for(int kx=0;kx<iw;++kx)
+			{
+				if(kx==0&&ky==511)//
+					kx=0;//
+
+				if(lz.dstx!=0xFFFF&&ky==lz.dsty&&kx==lz.dstx)//4.1. first check LZ
+				{
+					//if(kx==1895&&ky==1072)//
+					//	kx=1895;//
+
+					int blockw=lz.w+1, blockh=lz.h+1;//0~255 + 1
+
+					int delta=bytestride*(iw-blockw);
+					unsigned char
+						*pd=buf+bytestride*(iw*lz.dsty+lz.dstx),
+						*ps=buf+bytestride*(iw*lz.srcy+lz.srcx);
+					for(int ky=0;ky<blockh;++ky)
+					{
+						for(int kx=0;kx<blockw;++kx)//copy pixels one by one because buffers may overlap
+						{
+							memcpy(pd, ps, bytestride);
+							pd+=bytestride;
+							ps+=bytestride;
+						}
+						pd+=delta;
+						ps+=delta;
+					}
+					
+					if(lzptr+sizeof(LZ2DInfo)<=lzend)
+					{
+						memcpy(&lz, lzptr, sizeof(LZ2DInfo));
+						lzptr+=sizeof(LZ2DInfo);
+					}
+					else//LZ is over
+					{
+						memset(&lz, -1, sizeof(LZ2DInfo));
+						if(rle.x==0xFFFF)
+							break;
+					}
+				}
+				if(rle.x!=0xFFFF&&ky==rle.y&&kx==rle.x)//4.2. then check RLE
+				{
+					unsigned char *start=buf+bytestride*(iw*rle.y+rle.x);
+					if(rle.w>1)
+						memfill(start+bytestride, start, bytestride*((size_t)rle.w-1), bytestride);
+					for(int ky=1;ky<rle.h;++ky)
+						memcpy(buf+bytestride*(iw*(rle.y+ky)+rle.x), start, bytestride*rle.w);
+					
+					if(rleptr+sizeof(LZ2DRLEInfo)<=rleend)
+					{
+						memcpy(&rle, rleptr, sizeof(LZ2DRLEInfo));
+						rleptr+=sizeof(LZ2DRLEInfo);
+					}
+					else//RLE is over
+					{
+						memset(&rle, -1, sizeof(LZ2DRLEInfo));
+						if(lz.dstx==0xFFFF)
+							break;
+					}
+				}
+			}
+			if(rle.x==0xFFFF&&lz.dstx==0xFFFF)//both RLE and LZ are over
+				break;
+		}
+	}
+#endif
+
+	//decode RLE & LZ separately				decoded faster than encoded
+#if 0
+	//3. copy LZ blocks
+#if 1
+	srcptr=data+(ptrdiff_t)4*4+rle_count*sizeof(LZ2DRLEInfo);
+	for(int k=0;k<lz_count;++k)
+	{
+		LZ2DInfo t2;
+		memcpy(&t2, srcptr, sizeof(LZ2DInfo));
+		srcptr+=sizeof(LZ2DInfo);
+
+		int blockw=t2.w+1, blockh=t2.h+1;//0~255 + 1
+
+		int delta=bytestride*(iw-blockw);
+		unsigned char
+			*pd=buf+bytestride*(iw*t2.dsty+t2.dstx),
+			*ps=buf+bytestride*(iw*t2.srcy+t2.srcx);
+		for(int ky=0;ky<blockh;++ky)
+		{
+			for(int kx=0;kx<blockw;++kx)//copy pixels one by one because buffers may overlap
+			{
+				memcpy(pd, ps, bytestride);
+				pd+=bytestride;
+				ps+=bytestride;
+			}
+			pd+=delta;
+			ps+=delta;
+		}
+		//	memcpy(buf+bytestride*(iw*(t2.dsty+ky)+t2.dstx), buf+bytestride*(iw*(t2.srcy+ky)+t2.srcx), t2.w);//X  can overlap
+	}
+#endif
+
+	//4. fill RLE blocks
+#if 1
+	srcptr=data+(ptrdiff_t)4*4;
+	for(int k=0;k<rle_count;++k)
+	{
+		LZ2DRLEInfo temp;
+		memcpy(&temp, srcptr, sizeof(LZ2DRLEInfo));
+		srcptr+=sizeof(LZ2DRLEInfo);
+
+		//if(temp.x==128&&temp.y==128)//
+		//	temp.x=128;//
+
+		unsigned char *start=buf+bytestride*(iw*temp.y+temp.x);
+		if(temp.w>1)
+			memfill(start+bytestride, start, bytestride*((size_t)temp.w-1), bytestride);
+		for(int ky=1;ky<temp.h;++ky)
+			memcpy(buf+bytestride*(iw*(temp.y+ky)+temp.x), start, bytestride*temp.w);
+	}
+#endif
+#endif
+
+	if(symbytes+1==bytestride)//set alpha
+	{
+		size_t dstsize=bytestride*res;
+		for(ptrdiff_t k=symbytes;k<(ptrdiff_t)dstsize;k+=bytestride)
+			buf[k]=0xFF;
+	}
+
+	if(diff==2)
+	{
+#ifdef SAVE_DIFF2
+		lodepng_encode_file("diff2.PNG", buf, iw, ih, LCT_RGBA, 8);//DEBUG SAVE
+#endif
+		integrate_image(buf, iw, ih, symbytes, bytestride);
+	}
+#ifdef SAVE_OUT
+	lodepng_encode_file("out.PNG", buf, iw, ih, LCT_RGBA, 8);//DEBUG SAVE
+#endif
+
 	return 1;
+}
+void   test3_printsummary(ArrayHandle cdata, size_t savedbytes, size_t usize, int symbytes)
+{
+	int *p=(int*)cdata->data;
+	const char *names[6]={"header", "RLE", "LZ", "CDF", "rANS", "total"};
+	size_t components[6]=
+	{
+		(size_t)4*4,//header {tag, count_RLE, count_LZ, ransbytes}
+		(size_t)p[1]*8,//RLE
+		(size_t)p[2]*10,//LZ
+		(size_t)symbytes<<9,//CDF		256*sizeof(short) per channel			can be replaced with sizeof(int) per channel using differentiation & fitting
+		p[3],//rANS
+		0,//total
+	};
+	const int ncomp=COUNTOF(components);
+	for(int k=0;k<ncomp-1;++k)
+		components[ncomp-1]+=components[k];
+
+	//printf("test3 summary:\n");
+	printf("masked %lld / %lld bytes %lf%%\n", savedbytes, usize, 100.*savedbytes/usize);
+	for(int k=0;k<COUNTOF(components);++k)		//Windows 11 / MSVC 2022 console text gets messed up
+	{
+		int printed=(int)strlen(names[k]);
+		//printf("%s", names[k]);
+		fputs(names[k], stdout);
+		if(printed<8)
+			printf("%*s", 8-printed, "");
+
+		printed=snprintf(g_buf, G_BUF_SIZE, "%lld", components[k]);
+		if(printed<8)
+			printf("%*s", 8-printed, "");
+		printf("%lld bytes %6.2lf%% ", components[k], 100.*components[k]/components[ncomp-1]);
+
+		const int graphwidth=75-(8+8+8);
+		for(int k2=0, end=(int)((graphwidth*components[k]+(components[ncomp-1]>>1))/components[ncomp-1]);k2<end;++k2)
+			fputc('*', stdout);
+
+		printf("\n");
+	}
+
+	//printf("\ntotal %lld bytes  ", total);
+	//if(total==cdata->count)
+	//	printf("CORRECT\n");
+	//else
+	//	printf("WRONG: cdata is %lld bytes (%d bytes %s)\n", cdata->count, abs((int)(total-cdata->count)), cdata->count>total?"more":"less");
 }

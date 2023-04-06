@@ -68,8 +68,8 @@ int abac4_encode(const void *src, int symcount, int bitoffset, int bitdepth, int
 		{
 			int bit=buffer[kb2+bit_offset]>>bit_shift&1;
 			int p0=prob-PROB_HALF;
-			p0=((long long)p0*prob_correct>>16);
-			p0=((long long)p0*p0>>16);
+			p0=(int)((long long)p0*prob_correct>>16);
+			p0=(int)((long long)p0*p0>>16);
 			p0+=PROB_HALF;
 			//unsigned p0=PROB_HALF+(long long)(prob-PROB_HALF)*hitcount/(kb+1);
 			PROB_CLAMP(p0);

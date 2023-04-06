@@ -25,6 +25,7 @@
 #ifdef _MSC_VER
 #define WIN32_LEAN_AND_MEAN
 #include<Windows.h>//QueryPerformance...
+#include<conio.h>
 #else
 #include<time.h>//clock_gettime
 #define sprintf_s	snprintf
@@ -356,7 +357,7 @@ int log_error(const char *file, int line, int quit, const char *format, ...)
 	if(quit)
 	{
 		pause();
-		abort();
+		exit(0);
 	}
 	return firsttime;
 }
@@ -396,13 +397,20 @@ int valid(const void *p)
 	}
 	return 1;
 }
-void pause()
+int pause()
 {
 	int k;
 
 	printf("Enter 0 to continue: ");
-	scanf("%d", &k);
+	while(!scanf("%d", &k));
+	return k;
 }
+#ifdef _MSC_VER
+int pause1()
+{
+	return _getch();
+}
+#endif
 int pause_abort(const char *file, int lineno, const char *extraInfo)
 {
 	printf("INTERNAL ERROR %s(%d)\nABORTING\n", file, lineno);
@@ -444,7 +452,7 @@ ArrayHandle array_construct(const void *src, size_t esize, size_t count, size_t 
 	
 	srcsize=count*esize;
 	dstsize=rep*srcsize;
-	for(cap=esize+pad*esize;cap<dstsize;cap<<=1);
+	cap=dstsize+pad*esize;
 	arr=(ArrayHandle)malloc(sizeof(ArrayHeader)+cap);
 	ASSERT_P(arr);
 	arr->count=count;
@@ -526,7 +534,7 @@ void* array_insert(ArrayHandle *arr, size_t idx, const void *data, size_t count,
 		memset(arr[0]->data+start, 0, dstsize);
 	return arr[0]->data+start;
 }
-void* array_erase(ArrayHandle *arr, size_t idx, size_t count)
+void* array_erase(ArrayHandle *arr, size_t idx, size_t count)//does not reallocate
 {
 	size_t k;
 
@@ -721,19 +729,6 @@ static void dlist_append_node(DListHandle list)
 	list->f=temp;
 	++list->nnodes;
 }
-void* dlist_push_back1(DListHandle list, const void *obj)
-{
-	size_t obj_idx=list->nobj%list->objpernode;//index of next object
-	if(!obj_idx)//need a new node
-		dlist_append_node(list);
-	void *p=list->f->data+obj_idx*list->objsize;
-	if(obj)
-		memcpy(p, obj, list->objsize);
-	else
-		memset(p, 0, list->objsize);
-	++list->nobj;
-	return p;
-}
 #if 0
 #define dlist_fill_node(LIST, COPYSIZE, SRC, DST)\
 	LIST->nobj+=COPYSIZE;\
@@ -754,6 +749,30 @@ static void dlist_fill_node(DListHandle list, size_t copysize, char **src, void 
 		memset(dst, 0, copysize);
 }
 #endif
+static void dlist_rdestroy(DListHandle list, ptrdiff_t rstart, ptrdiff_t rend)
+{
+	if(list->destructor)
+	{
+		--rstart;
+		rstart*=list->objsize;
+		rend  *=list->objsize;
+		for(;rstart>=rend;rstart-=list->objsize)
+			list->destructor(list->f->data+rstart);
+	}
+}
+void* dlist_push_back1(DListHandle list, const void *obj)
+{
+	size_t obj_idx=list->nobj%list->objpernode;//index of next object
+	if(!obj_idx)//need a new node
+		dlist_append_node(list);
+	void *p=list->f->data+obj_idx*list->objsize;
+	if(obj)
+		memcpy(p, obj, list->objsize);
+	else
+		memset(p, 0, list->objsize);
+	++list->nobj;
+	return p;
+}
 void* dlist_push_back(DListHandle list, const void *data, size_t count)
 {
 	size_t obj_idx, copysize;
@@ -796,19 +815,19 @@ void* dlist_back(DListHandle list)
 	obj_idx=(list->nobj-1)%list->objpernode;
 	return list->f->data+obj_idx*list->objsize;
 }
-void dlist_pop_back(DListHandle list)
+void  dlist_pop_back1(DListHandle list)
 {
 	size_t obj_idx;
 
 	if(!list->nobj)
-		LOG_ERROR("dlist_pop_back() called on empty list");
+		LOG_ERROR("dlist_pop_back1() called on empty list");
 	if(list->destructor)
 		list->destructor(dlist_back(list));
 	obj_idx=(list->nobj-1)%list->objpernode;
 	if(!obj_idx)//last object is first in the last block
 	{
 		DNodeHandle last=list->f;
-		list->f=list->f->prev;
+		list->f=last->prev;
 		free(last);
 		--list->nnodes;
 		if(!list->nnodes)//last object was popped out
@@ -816,14 +835,71 @@ void dlist_pop_back(DListHandle list)
 	}
 	--list->nobj;
 }
+void  dlist_pop_back(DListHandle list, size_t count)
+{
+	DNodeHandle last;
+	size_t
+		q1, r1,
+		q2, r2;
 
-void dlist_first(DListHandle list, DListItHandle it)
+	if(list->nobj<count)
+		LOG_ERROR("dlist_pop_back()  pop count %lld > list->nobj %lld", count, list->nobj);
+
+	q2=list->nobj/list->objpernode;
+	r2=list->nobj%list->objpernode;
+	list->nobj-=count;
+	q1=list->nobj/list->objpernode;
+	r1=list->nobj%list->objpernode;
+	list->nobj+=count;
+	
+	if(q1==q2)
+	{
+		dlist_rdestroy(list, r2, r1);
+		list->nobj-=count;
+	}
+	else
+	{
+		if(r2)
+		{
+			dlist_rdestroy(list, r2, 0);
+
+			list->nobj-=r2;
+			count-=r2;
+
+			last=list->f;
+			list->f=last->prev;
+			free(last);
+			--list->nnodes;
+		}
+		while(count>=list->objpernode)
+		{
+			dlist_rdestroy(list, list->objpernode, 0);
+
+			list->nobj-=list->objpernode;
+			count-=list->objpernode;
+
+			last=list->f;
+			list->f=last->prev;
+			free(last);
+			--list->nnodes;
+		}
+		if(count)
+		{
+			dlist_rdestroy(list, list->nobj%list->objpernode, r1);
+			list->nobj-=count;
+		}
+	}
+	if(!list->nnodes)//last object was popped out
+		list->i=0;
+}
+
+void  dlist_first(DListHandle list, DListItHandle it)
 {
 	it->list=list;
 	it->node=list->i;
 	it->obj_idx=0;
 }
-void dlist_last(DListHandle list, DListItHandle it)
+void  dlist_last(DListHandle list, DListItHandle it)
 {
 	it->list=list;
 	it->node=list->f;
@@ -837,7 +913,7 @@ void* dlist_it_deref(DListItHandle it)
 		LOG_ERROR("dlist_it_deref() node == nullptr");
 	return it->node->data+it->obj_idx%it->list->objpernode*it->list->objsize;
 }
-int dlist_it_inc(DListItHandle it)
+int   dlist_it_inc(DListItHandle it)
 {
 	++it->obj_idx;
 	if(it->obj_idx>=it->list->objpernode)
@@ -850,7 +926,7 @@ int dlist_it_inc(DListItHandle it)
 	}
 	return 1;
 }
-int dlist_it_dec(DListItHandle it)
+int   dlist_it_dec(DListItHandle it)
 {
 	if(it->obj_idx)
 		--it->obj_idx;
@@ -1653,11 +1729,129 @@ void  pqueue_print_heap(PQueueHandle *pq, void (*printer)(const void*))
 }
 #endif
 
-ArrayHandle load_bin(const char *filename, int pad)
+ptrdiff_t get_filesize(const char *filename)//-1 not found,  0: not a file,  ...: regular file size
+{
+	struct stat info={0};
+	int error=stat(filename, &info);
+	if(error)
+		return -1;
+	if((info.st_mode&S_IFMT)==S_IFREG)
+		return info.st_size;
+	return 0;
+}
+
+int acme_stricmp(const char *a, const char *b)//case insensitive strcmp
+{
+	if(!a||!b)
+		return !a&&!b;
+	while(*a&&tolower(*a)==tolower(*b))
+		++a, ++b;
+	return (*a>*b)-(*a<*b);
+}
+ptrdiff_t acme_strrchr(const char *str, ptrdiff_t len, char c)//find last occurrence, with known length for backward search
+{
+	ptrdiff_t k;
+
+	for(k=len-1;k>=0;--k)
+		if(str[k]==c)
+			return k;
+	return -1;
+}
+ArrayHandle filter_path(const char *path)//replaces back slashes with slashes, adds trailing slash if missing, as ArrayHandle
+{
+	ArrayHandle path2;
+
+	STR_COPY(path2, path, strlen(path));
+	for(ptrdiff_t k=0;k<(ptrdiff_t)path2->count;++k)//replace back slashes
+	{
+		if(path2->data[k]=='\\')
+			path2->data[k]='/';
+	}
+	if(path2->data[path2->count-1]!='/')//ensure trailing slash
+		STR_APPEND(path2, "/", 1, 1);
+	return path2;
+}
+static const char* get_extension(const char *filename, ptrdiff_t len)//excludes the dot
+{
+	ptrdiff_t idx;
+
+	idx=acme_strrchr(filename, len, '.');
+	if(idx==-1)
+		return 0;
+	return filename+idx+1;
+#if 0
+	const char *dot=strrchr(filename, '.');//https://stackoverflow.com/questions/5309471/getting-file-extension-in-c
+	if(!dot||dot==filename)
+		return "";
+	return dot+1;
+#endif
+}
+void	free_str(void *p)
+{
+	ArrayHandle *str;
+	
+	str=(ArrayHandle*)p;
+	array_free(str);
+}
+ArrayHandle get_filenames(const char *path, const char **extensions, int extCount, int fullyqualified)
+{
+	ArrayHandle searchpath, filename, filenames;
+	char c;
+	WIN32_FIND_DATAA data={0};
+	void *hSearch;
+	int success;
+	const char *extension;
+	ptrdiff_t len;
+	int found;
+	
+	//prepare searchpath
+	searchpath=filter_path(path);
+	c='*';
+	STR_APPEND(searchpath, &c, 1, 1);
+
+	hSearch=FindFirstFileA(searchpath->data, &data);//skip .
+	if(hSearch==INVALID_HANDLE_VALUE)
+		return 0;
+	success=FindNextFileA(hSearch, &data);//skip ..
+
+	STR_POPBACK(searchpath, 1);//pop the '*'
+	ARRAY_ALLOC(ArrayHandle, filenames, 0, 0, 0, free_str);
+
+	for(;success=FindNextFileA(hSearch, &data);)
+	{
+		len=strlen(data.cFileName);
+		extension=get_extension(data.cFileName, len);
+		if(!(data.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY))
+		{
+			found=0;
+			for(int k=0;k<extCount;++k)
+			{
+				if(!acme_stricmp(extension, extensions[k]))
+				{
+					found=1;
+					break;
+				}
+			}
+			if(found)
+			{
+				STR_ALLOC(filename, 0);
+				STR_APPEND(filename, searchpath->data, searchpath->count, 1);
+				STR_APPEND(filename, data.cFileName, strlen(data.cFileName), 1);
+				ARRAY_APPEND(filenames, &filename, 1, 1, 0);
+			}
+		}
+	}
+	success=FindClose(hSearch);
+	array_free(&searchpath);
+	return filenames;
+}
+
+ArrayHandle load_file(const char *filename, int bin, int pad)
 {
 	struct stat info={0};
 	FILE *f;
 	ArrayHandle str;
+	char mode[3]={'r', bin?'b':0, 0};
 
 	int error=stat(filename, &info);
 	if(error)
@@ -1666,9 +1860,15 @@ ArrayHandle load_bin(const char *filename, int pad)
 		LOG_ERROR("Cannot open %s\n%s", filename, g_buf);
 		return 0;
 	}
-	fopen_s(&f, filename, "rb");
+	fopen_s(&f, filename, mode);
 	//f=fopen(filename, "r");
 	//f=fopen(filename, "r, ccs=UTF-8");//gets converted to UTF-16 on Windows
+	if(!f)
+	{
+		strerror_s(g_buf, G_BUF_SIZE, errno);
+		LOG_ERROR("Cannot open %s\n%s", filename, g_buf);
+		return 0;
+	}
 
 	str=array_construct(0, 1, info.st_size, 1, pad+1, 0);
 	str->count=fread(str->data, 1, info.st_size, f);

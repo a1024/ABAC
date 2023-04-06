@@ -13,6 +13,9 @@ extern "C"
 
 //	#define ENABLE_GUIDE//debug
 
+//lossless tools
+void compare_bufs_uint8(unsigned char *b1, unsigned char *b0, int iw, int ih, int symbytes, int bytestride, const char *name, int backward);
+void compare_bufs_ps(float *b1, float *b0, int iw, int ih, const char *name, int backward);
 
 //Huffman Coder		TODO support channels/bytestride
 int huff_compress(
@@ -102,27 +105,98 @@ const unsigned char* uabs_decode_ch(const unsigned char *data, size_t srclen, vo
 int arans_encode(const void *src, ptrdiff_t nbytes, int bytestride, ArrayHandle *out);
 
 
-long long lz_encode(const void *src, int bw, int bh, int bytestride, ArrayHandle *data, size_t *ret_overhead);//FIXME encoding channels separately
+//long long lz_encode(const void *src, int bw, int bh, int bytestride, ArrayHandle *data, size_t *ret_overhead);//FIXME encoding channels separately
 
-extern int lz2_limit;
-void lz2_encode(unsigned char *buf, int len, ArrayHandle *coeff, ArrayHandle *bypass);
+//extern int lz2_limit;
+//void lz2_encode(unsigned char *buf, int len, ArrayHandle *coeff, ArrayHandle *bypass);//undecodable
 
-long long test1_encode(const void *src, int bw, int bh, int symbytes, int bytestride, ArrayHandle *data);
-long long test2_encode(const void *src, int bw, int bh, int symbytes, int bytestride, ArrayHandle *data);
-int test3_encode(const void *src, int bw, int bh, int symbytes, int bytestride, ArrayHandle *data, int minlzbytes);
+//long long test1_encode(const void *src, int bw, int bh, int symbytes, int bytestride, ArrayHandle *data);//undecodable
+//long long test2_encode(const void *src, int bw, int bh, int symbytes, int bytestride, ArrayHandle *data);//undecodable
+
+//size_t lz2d_encode(const unsigned char *buf, int bw, int bh, int symbytes, int bytestride, ArrayHandle *mask, ArrayHandle *coeff);
+//size_t lz2d2_encode(const unsigned char *buf, int bw, int bh, int symbytes, int bytestride, ArrayHandle *mask, ArrayHandle *rle, ArrayHandle *lz);
+size_t lz2d3_encode(const unsigned char *buf, int bw, int bh, int symbytes, int bytestride, ArrayHandle *mask, ArrayHandle *rle, ArrayHandle *lz);
+size_t test3_encode(const void *src, int bw, int bh, int symbytes, int bytestride, ArrayHandle *data, int diff);//returns bytes saved by lz2d3_encode()
+int    test3_decode(const void *src, ptrdiff_t srclen, int iw, int ih, int symbytes, int bytestride, void *dst, int diff);
+void   test3_printsummary(ArrayHandle cdata, size_t savedbytes, size_t usize, int symbytes);
+
+//extern unsigned char *buf0;//
+
+//XYB, squeeze DWT, ANS (inspired by JPEG XL but worse)
+size_t test4_encode(const unsigned char *src, int bw, int bh, ArrayHandle *data);
+int    test4_decode(const unsigned char *data, size_t srclen, int bw, int bh, unsigned char *buf);
+
+void save_16bit(const char *filename, const short *buf, const short *sub_b2, int iw, int ih, int nch, int val_offset, int val_shift, int saveas8bit);
+void save_mono8(const char *filename, unsigned char *buf, int iw, int ih, int stride);
+
+//adaptive binary ANS test
+size_t test5_encode(const unsigned char *src, int bw, int bh, ArrayHandle *data);
+int    test5_decode(const unsigned char *data, size_t srclen, int bw, int bh, unsigned char *buf);
+
+size_t test6_encode(const unsigned char *src, int bw, int bh, ArrayHandle *data);
 
 
-size_t lz2d_encode(const unsigned char *buf, int bw, int bh, int symbytes, int bytestride, ArrayHandle *mask, ArrayHandle *coeff);
-size_t lz2d2_encode(const unsigned char *buf, int bw, int bh, int symbytes, int bytestride, ArrayHandle *mask, ArrayHandle *rle, ArrayHandle *lz);
-size_t lz2d3_encode(const unsigned char *buf, int bw, int bh, int symbytes, int bytestride, ArrayHandle *mask, ArrayHandle *rle, ArrayHandle *lz, int minlzbytes);
+void codec33_init(const char *filename);
 
 
 //transforms
+
+//YCoCg-R		8 bit <-> ps,  3 channels, pixel stride 4 bytes,  Y in [0, 1], Co/Cg in [-1, 1],  used by AVC/HEVC/VVC
+void YCoCg_8bit_ps_fwd(const unsigned char *src, ptrdiff_t res, float *bufY, float *bufCo, float *bufCg);
+void YCoCg_8bit_ps_inv(const float *bufY, const float *bufCo, const float *bufCg, ptrdiff_t res, unsigned char *dst);
+
+void differentiate_image(unsigned char *buf, int iw, int ih, int nch, int bytestride);
+void integrate_image(unsigned char *buf, int iw, int ih, int nch, int bytestride);
+
+//lifting-based 9/7 DWT
+typedef struct DWTSizeStruct
+{
+	unsigned short w, h;
+} DWTSize;
+ArrayHandle dwt2d_gensizes(int iw, int ih, int wstop, int hstop, int nstages_override);//calculate dimensions of each DWT stage in descending order
+void        dwt2d_ps_fwd(float *buffer, DWTSize *sizes, int nsizes);//sizes in descending order
+void        dwt2d_ps_inv(float *buffer, DWTSize *sizes, int nsizes);//sizes in descending order
+
+//Haar (squeeze) DWT: n bit -> n+1 bit		temp size is maxdim*sizeof(short)
+//void squeeze_1d_fwd(short *buffer, int count, int stride, int vmax, short *b2);
+void squeeze_2d_fwd(short *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int vmax, short *temp);
+//void squeeze_1d_inv(short *buffer, int count, int stride, int vmax, short *b2);
+void squeeze_2d_inv(short *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int vmax, short *temp);
+
 void haar_2d_fwd(const unsigned char *buf, int bw, int bh, int nch, int bytestride, int nstages, short **ret);//lossless DWT, don't forget to free ret if was zero
 void haar_2d_inv(short *buf, int bw, int bh, int nch, int bytestride, int nstages, unsigned char **ret);//buf is destroyed
 
-void intDCT8x8_fwd(const unsigned char *buf, int bw, int bh, int nch, int bytestride, unsigned short **ret);
-void DCTtest();//
+void intDCT2_8x8_p32(const unsigned char *buf, int bw, int bh, int nch, int bytestride, unsigned short **ret);
+
+//fast 8 point DCT-II/III      call, transpose, then call again
+void transpose_block8x8_ps(float *ptr);//32 byte aligned
+void DCT2_8x8_ps(float *ptr);//ptr to 64 packed floats is aligned by 32 bytes
+void DCT3_8x8_ps(float *ptr);
+
+//FCT-II/III, O(N*lg(N)), POT size (uses FFT size N)
+typedef struct FCT1D_PS_ParamsStruct
+{
+	int lgsize;
+	int *fctp;
+	float *re, *im, *rew4N, *imw4N;
+} FCT1D_PS_Params;
+void FCT1D_ps_gen(int lgsize, FCT1D_PS_Params *p);//lgsize up to 16 (size up to 65536)
+void FCT1D_ps_free(FCT1D_PS_Params *p);
+void FCT1D_ps_fwd(FCT1D_PS_Params *p, float *data, int stride);
+void FCT1D_ps_inv(FCT1D_PS_Params *p, float *data, int stride);
+
+
+//lossy tools
+typedef struct RateDistortionStruct
+{
+	size_t usize, rate;
+	double ratio, BPP, RMSE, PSNR;
+} RateDistortion;
+void calc_distortion(unsigned char *b0, unsigned char *b1, int bw, int bh, int symbytes, int bytestride, RateDistortion *ret);//returned info is for each channel separately
+
+//lossy codecs
+int lossy1_encode(const void *src, int bw, int bh, int symbytes, int bytestride, ArrayHandle *data, int bitrate);
+int lossy1_decode(const void *src, ptrdiff_t srclen, int iw, int ih, int symbytes, int bytestride, void *dst, int bitrate);
 
 
 #ifdef __cplusplus
