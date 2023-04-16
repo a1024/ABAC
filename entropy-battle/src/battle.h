@@ -62,8 +62,8 @@ typedef enum RANS_ErrorEnum
 	
 	RANS_SUCCESS,
 } RANS_Error;
-int rans4_encode(const void *src, ptrdiff_t nbytes, int symbytes, int is_signed, ArrayHandle *out, int loud, unsigned short *custom_pred);//bytespersymbol: up to 16
-int rans4_decode(const unsigned char *srcdata, ptrdiff_t srclen, ptrdiff_t nbytes, int symbytes, int is_signed, void *dstbuf, int loud, unsigned short *custom_pred);
+int rans4_encode(const void *src, ptrdiff_t nsymbols, int symbytes, int bytestride, ArrayHandle *out, unsigned short *custom_pred);//symbytes: up to 16
+int rans4_decode(const unsigned char *srcdata, ptrdiff_t srclen, ptrdiff_t nsymbols, int symbytes, int bytestride, void *dstbuf, unsigned short *custom_pred);
 
 //test
 int rans8_testencode(const void *src, int bw, int bh, int bitdepth, int bytestride, unsigned short prob_MPS, ArrayHandle *out);
@@ -126,20 +126,36 @@ void   test3_printsummary(ArrayHandle cdata, size_t savedbytes, size_t usize, in
 size_t test4_encode(const unsigned char *src, int bw, int bh, ArrayHandle *data);
 int    test4_decode(const unsigned char *data, size_t srclen, int bw, int bh, unsigned char *buf);
 
-void save_16bit(const char *filename, const short *buf, const short *sub_b2, int iw, int ih, int nch, int val_offset, int val_shift, int saveas8bit);
-void save_mono8(const char *filename, unsigned char *buf, int iw, int ih, int stride);
-
 //adaptive binary ANS test
 size_t test5_encode(const unsigned char *src, int bw, int bh, ArrayHandle *data);
 int    test5_decode(const unsigned char *data, size_t srclen, int bw, int bh, unsigned char *buf);
 
 size_t test6_encode(const unsigned char *src, int bw, int bh, ArrayHandle *data);
 
+void   codec33_init(const char *filename);
+size_t codec33_encode(const unsigned char *src, int bw, int bh, ArrayHandle *data);
 
-void codec33_init(const char *filename);
+//size_t test7_encode(const unsigned char *src, int bw, int bh, int is_unsigned, ArrayHandle *data);
+
+size_t test8_encode(const unsigned char *src, int bw, int bh, int transform, ArrayHandle *data);
+int    test8_decode(const unsigned char *data, size_t srclen, int bw, int bh, int detransform, unsigned char *buf);
+
+size_t test10_encode(const unsigned char *src, int bw, int bh, ArrayHandle *data);
+int    test10_decode(const unsigned char *data, size_t srclen, int bw, int bh, unsigned char *buf);
 
 
 //transforms
+void apply_transforms_fwd(unsigned char *buf, int bw, int bh);
+void apply_transforms_inv(unsigned char *buf, int bw, int bh);
+
+void addbuf(unsigned char *buf, int iw, int ih, int nch, int bytestride, int ammount);
+
+void colortransform_xgz_fwd(char *buf, int iw, int ih);//3 channels, stride 4 bytes
+void colortransform_xgz_inv(char *buf, int iw, int ih);
+void colortransform_xyz_fwd(char *buf, int iw, int ih);//3 channels, stride 4 bytes
+void colortransform_xyz_inv(char *buf, int iw, int ih);
+void colortransform_ycocg_fwd(char *buf, int iw, int ih);
+void colortransform_ycocg_inv(char *buf, int iw, int ih);
 
 //YCoCg-R		8 bit <-> ps,  3 channels, pixel stride 4 bytes,  Y in [0, 1], Co/Cg in [-1, 1],  used by AVC/HEVC/VVC
 void YCoCg_8bit_ps_fwd(const unsigned char *src, ptrdiff_t res, float *bufY, float *bufCo, float *bufCg);
@@ -148,14 +164,24 @@ void YCoCg_8bit_ps_inv(const float *bufY, const float *bufCo, const float *bufCg
 void differentiate_image(unsigned char *buf, int iw, int ih, int nch, int bytestride);
 void integrate_image(unsigned char *buf, int iw, int ih, int nch, int bytestride);
 
-//lifting-based 9/7 DWT
+
 typedef struct DWTSizeStruct
 {
 	unsigned short w, h;
 } DWTSize;
 ArrayHandle dwt2d_gensizes(int iw, int ih, int wstop, int hstop, int nstages_override);//calculate dimensions of each DWT stage in descending order
-void        dwt2d_ps_fwd(float *buffer, DWTSize *sizes, int nsizes);//sizes in descending order
-void        dwt2d_ps_inv(float *buffer, DWTSize *sizes, int nsizes);//sizes in descending order
+
+//8bit DWTs
+void dwt2d_haar_fwd (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);//temp size is maxdim*sizeof(short)
+void dwt2d_haar_inv (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);//temp size is maxdim*sizeof(short)
+void dwt2d_cdf53_fwd(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);//temp size is maxdim*sizeof(short)
+void dwt2d_cdf53_inv(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);//temp size is maxdim*sizeof(short)
+void dwt2d_cdf97_fwd(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);//temp size is maxdim*sizeof(short)
+void dwt2d_cdf97_inv(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);//temp size is maxdim*sizeof(short)
+
+//lifting-based 9/7 DWT
+void dwt2d_ps_fwd(float *buffer, DWTSize *sizes, int nsizes);//sizes in descending order
+void dwt2d_ps_inv(float *buffer, DWTSize *sizes, int nsizes);//sizes in descending order
 
 //Haar (squeeze) DWT: n bit -> n+1 bit		temp size is maxdim*sizeof(short)
 //void squeeze_1d_fwd(short *buffer, int count, int stride, int vmax, short *b2);
@@ -184,6 +210,14 @@ void FCT1D_ps_gen(int lgsize, FCT1D_PS_Params *p);//lgsize up to 16 (size up to 
 void FCT1D_ps_free(FCT1D_PS_Params *p);
 void FCT1D_ps_fwd(FCT1D_PS_Params *p, float *data, int stride);
 void FCT1D_ps_inv(FCT1D_PS_Params *p, float *data, int stride);
+
+
+void save_32bit(const char *filename, const int *buf, int iw, int ih, int nch, int saveas8bit);
+void save_16bit(const char *filename, const short *buf, const short *sub_b2, int iw, int ih, int nch, int val_offset, int val_shift, int saveas8bit);
+void save_mono8(const char *filename, unsigned char *buf, int iw, int ih, int stride);
+void save_squeeze(const char *name, short *buf, DWTSize *sizes, int nsizes, int stride, int maxnbits);
+void save_channel(unsigned char *buf, int iw, int ih, int stride, const char *format, ...);
+void save_CDF53(const char *name, unsigned char *buf, DWTSize *sizes, int nsizes, int stride);
 
 
 //lossy tools

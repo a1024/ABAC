@@ -27,11 +27,12 @@ extern "C"
 #endif
 
 //utility
-#define COUNTOF(ARR)		(sizeof(ARR)/sizeof(*(ARR)))		//stdlib defines _countof
+#define COUNTOF(ARR)        (sizeof(ARR)/sizeof(*(ARR)))		//stdlib defines _countof
 #define BETWEEN(LO, X, HI)	((unsigned)((X)-LO)<(unsigned)(HI+1-LO))
 #define SWAPVAR(A, B, TEMP)	TEMP=A, A=B, B=TEMP
 #define MINVAR(A, B)        ((A)<(B)?(A):(B))
 #define MAXVAR(A, B)        ((A)>(B)?(A):(B))
+#define CLAMP(LO, X, HI)    ((X)<(LO)?(LO):((X)>(HI)?(HI):(X)))
 #define MOVEOBJ(SRC, DST, SIZE) memcpy(DST, SRC, SIZE), memset(SRC, 0, SIZE)
 
 #ifdef _MSC_VER

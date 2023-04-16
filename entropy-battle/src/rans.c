@@ -154,15 +154,15 @@ void print_histogram(SymbolInfo *hist, int nsymbols)
 }
 #endif
 
-static int rans_prep(const void *hist_ptr, int bytespersymbol, SymbolInfo **info, unsigned char **CDF2sym, int loud)
+static int rans_prep(const void *hist_ptr, int symbytes, SymbolInfo **info, unsigned char **CDF2sym, int loud)
 {
-	int tempsize=bytespersymbol*(ANS_NLEVELS*sizeof(SymbolInfo)+(ANS_L&-(CDF2sym!=0)));
+	int tempsize=symbytes*(ANS_NLEVELS*sizeof(SymbolInfo)+(ANS_L&-(CDF2sym!=0)));
 	*info=(SymbolInfo*)malloc(tempsize);
 	if(!*info)
 		LOG_ERROR("Failed to allocate temp buffer");
 	if(CDF2sym)
-		*CDF2sym=(unsigned char*)*info+bytespersymbol*ANS_NLEVELS*sizeof(SymbolInfo);
-	for(int kc=0;kc<bytespersymbol;++kc)
+		*CDF2sym=(unsigned char*)*info+symbytes*ANS_NLEVELS*sizeof(SymbolInfo);
+	for(int kc=0;kc<symbytes;++kc)
 	{
 		const unsigned short *c_histogram=(const unsigned short*)hist_ptr+(kc<<ANS_DEPTH);
 		SymbolInfo *c_info=*info+(kc<<ANS_DEPTH);
@@ -233,15 +233,14 @@ static int rans_prep(const void *hist_ptr, int bytespersymbol, SymbolInfo **info
 }
 
 static const int tag_rans4='A'|'N'<<8|'0'<<16|'4'<<24;
-int rans4_encode(const void *src, ptrdiff_t nbytes, int symbytes, int is_signed, ArrayHandle *out, int loud, unsigned short *custom_pred)//symbytes: up to 16
+int rans4_encode(const void *src, ptrdiff_t nsymbols, int symbytes, int bytestride, ArrayHandle *out, unsigned short *custom_pred)//symbytes: up to 16
 {
 	const int infosize=ANS_NLEVELS*sizeof(SymbolInfo), lginfosize=13;
 	DList list;
 	const unsigned char *buf=(const unsigned char*)src;
 	size_t dstidx;
 	SymbolInfo *info;
-	int internalheadersize=4+8+symbytes*ANS_NLEVELS*sizeof(short);
-	int chmask=symbytes-1;
+	int internalheadersize=4+8+(int)((size_t)symbytes*ANS_NLEVELS*sizeof(short));
 
 	if(*out)
 	{
@@ -263,37 +262,38 @@ int rans4_encode(const void *src, ptrdiff_t nbytes, int symbytes, int is_signed,
 	else
 		histptr=out[0]->data+dstidx;
 	for(int kc=0;kc<symbytes;++kc)
-		rans_calc_histogram(custom_pred?0:buf+kc, (int)(nbytes/symbytes), symbytes, histptr+kc*ANS_NLEVELS*sizeof(short), ANS_PROB_BITS, 0);
+		rans_calc_histogram(custom_pred?0:buf+kc, (int)nsymbols, bytestride, histptr+kc*ANS_NLEVELS*sizeof(short), ANS_PROB_BITS, 0);
 	rans_prep(histptr, symbytes, &info, 0, 0);
 	dstidx-=8;
 	dlist_init(&list, 1, 1024, 0);
 
 	long long t1=__rdtsc();
 
-	unsigned state[16]={0};
-	for(int kc=0;kc<symbytes;++kc)
-		state[kc]=ANS_L;
-	for(ptrdiff_t ks=nbytes-symbytes, idx=nbytes-1;ks>=0;ks-=symbytes)
+	unsigned state=ANS_L;
+	//unsigned state[16]={0};
+	//for(int kc=0;kc<symbytes;++kc)
+	//	state[kc]=ANS_L;
+	for(ptrdiff_t ks=(nsymbols-1)*bytestride;ks>=0;ks-=bytestride)
 	{
-		for(int kc=symbytes-1;kc>=0;--kc, --idx)
+		for(int kc=symbytes-1;kc>=0;--kc)
 		{
-			unsigned char val=buf[idx];
-			if(is_signed)
-			{
-				int neg=val<0;
-				val^=-neg;
-				val+=neg;
-				val<<=1;
-				val|=neg;
-			}
+			unsigned char val=buf[ks+kc];
+			//if(is_signed)
+			//{
+			//	int neg=val<0;
+			//	val^=-neg;
+			//	val+=neg;
+			//	val<<=1;
+			//	val|=neg;
+			//}
 			SymbolInfo *p=info+(kc<<ANS_DEPTH|val);
 
 			//renormalize
-			if(state[kc]>=p->renorm_limit)
+			if(state>=p->renorm_limit)
 		//	if(state>=(unsigned)(si.freq<<(32-ANS_PROB_BITS)))
 			{
-				dlist_push_back(&list, state+kc, 2);
-				state[kc]>>=16;
+				dlist_push_back(&list, &state, 2);
+				state>>=16;
 			}
 			PROF(RENORM);
 
@@ -301,12 +301,12 @@ int rans4_encode(const void *src, ptrdiff_t nbytes, int symbytes, int is_signed,
 #ifdef ANS_PRINT_STATE2
 			printf("enc: 0x%08X = 0x%08X+(0x%08X*0x%08X>>(32+%d))*0x%04X+0x%08X\n", state+((unsigned)((long long)state*si.inv_freq>>32)>>si.shift)*si.neg_freq+si.bias, state, state, si.inv_freq, si.shift, si.neg_freq, si.bias);
 #endif
-			state[kc]+=(((long long)state[kc]*p->inv_freq>>32)>>p->shift)*p->neg_freq+p->bias;//Ryg's division-free rANS encoder	https://github.com/rygorous/ryg_rans/blob/master/rans_byte.h
+			state+=(((long long)state*p->inv_freq>>32)>>p->shift)*p->neg_freq+p->bias;//Ryg's division-free rANS encoder	https://github.com/rygorous/ryg_rans/blob/master/rans_byte.h
 			//state=(state/p->freq<<ANS_PROB_BITS)+state%p->freq+p->CDF;
 			PROF(UPDATE);
 		}
 	}
-	dlist_push_back(&list, state, symbytes*sizeof(unsigned));
+	dlist_push_back(&list, &state, 4);
 
 	memcpy(out[0]->data+dstidx, &list.nobj, sizeof(size_t));
 	dlist_appendtoarray(&list, out);
@@ -324,7 +324,7 @@ static int decode_error(size_t p, size_t srcstart, ptrdiff_t ks)
 	return 0;
 }
 #define READ_GUARD(NBYTES, IDX)		if((srcptr-=NBYTES)<srcstart)return decode_error((size_t)srcptr, (size_t)srcstart, IDX)
-int rans4_decode(const unsigned char *srcdata, ptrdiff_t srclen, ptrdiff_t nbytes, int symbytes, int is_signed, void *dstbuf, int loud, unsigned short *custom_pred)
+int rans4_decode(const unsigned char *srcdata, ptrdiff_t srclen, ptrdiff_t nsymbols, int symbytes, int bytestride, void *dstbuf, unsigned short *custom_pred)
 {
 	const int
 		histsize=ANS_NLEVELS*sizeof(short), lghistsize=9,
@@ -336,8 +336,7 @@ int rans4_decode(const unsigned char *srcdata, ptrdiff_t srclen, ptrdiff_t nbyte
 	unsigned char *pixels=(unsigned char*)dstbuf;
 	SymbolInfo *info;
 	unsigned char *CDF2sym;
-	int internalheadersize=4+8+symbytes*ANS_NLEVELS;
-	int chmask=symbytes-1;
+	int internalheadersize=4+8+(int)((size_t)symbytes*ANS_NLEVELS*sizeof(short));
 	size_t csize;
 
 	if(srclen<internalheadersize)
@@ -360,43 +359,48 @@ int rans4_decode(const unsigned char *srcdata, ptrdiff_t srclen, ptrdiff_t nbyte
 
 	long long t1=__rdtsc();
 
-	unsigned state[16]={0};
-	READ_GUARD(symbytes*sizeof(unsigned), 0);
-	memcpy(state, srcptr, symbytes*sizeof(unsigned));
-	for(ptrdiff_t ks=0, idx=0;ks<nbytes;ks+=symbytes)
+	unsigned state=0;
+	READ_GUARD(4, 0);
+	memcpy(&state, srcptr, sizeof(unsigned));
+	//unsigned state[16]={0};
+	//READ_GUARD(symbytes*sizeof(unsigned), 0);
+	//memcpy(state, srcptr, symbytes*sizeof(unsigned));
+	ptrdiff_t nbytes=nsymbols*bytestride;
+	for(ptrdiff_t ks=0;ks<nbytes;ks+=bytestride)
 	{
-		for(int kc=0;kc<symbytes;++kc, ++idx)
+		for(int kc=0;kc<symbytes;++kc)
 		{
-			unsigned short c=(unsigned short)state[kc];
+			unsigned short c=(unsigned short)state;
 			unsigned char val=CDF2sym[kc<<ANS_PROB_BITS|c];
 			SymbolInfo *p=info+(kc<<ANS_DEPTH|val);
 			//if(!p->freq)
 			//	LOG_ERROR("Symbol 0x%02X has zero frequency", s);
 			
-			if(is_signed)
-			{
-				int neg=val&1;
-				val>>=1;
-				val^=-neg;
-				val+=neg;
-				val|=neg<<7&-!val;
-			}
-			pixels[idx]=val;
+			//if(is_signed)
+			//{
+			//	int neg=val&1;
+			//	val>>=1;
+			//	val^=-neg;
+			//	val+=neg;
+			//	val|=neg<<7&-!val;
+			//}
+			int idx=(int)ks+kc;
+			pixels[ks+kc]=val;
 			PROF(FETCH);
 
 #ifdef ANS_PRINT_STATE2
 			printf("dec: 0x%08X = 0x%04X*(0x%08X>>%d)+0x%04X-0x%08X\n", si.freq*(state>>ANS_PROB_BITS)+c-si.CDF, (int)si.freq, state, ANS_PROB_BITS, c, si.CDF);
 #endif
-			state[kc]=p->freq*(state[kc]>>ANS_PROB_BITS)+c-p->CDF;
+			state=p->freq*(state>>ANS_PROB_BITS)+c-p->CDF;
 			PROF(UPDATE);
 
-			if(state[kc]<ANS_L)
+			if(state<ANS_L)
 			{
 				if(idx>=nbytes-1)//shouldn't need this
 					break;//
 				READ_GUARD(2, idx);
-				state[kc]<<=16;
-				memcpy(state+kc, srcptr, 2);
+				state<<=16;
+				memcpy(&state, srcptr, 2);
 			}
 			PROF(RENORM);
 		}
@@ -2646,5 +2650,985 @@ size_t test6_encode(const unsigned char *src, int bw, int bh, ArrayHandle *data)
 	dlist_appendtoarray(&list, data);
 	dlist_clear(&list);
 	free(buf);
+	return 1;
+}
+
+#if 0
+void print_matrix_fixed(long long *matrix, int bw, int bh, int nbits)
+{
+	double nlevels=1<<nbits;
+	for(int ky=0;ky<bh;++ky)
+	{
+		for(int kx=0;kx<bw;++kx)
+			printf("\t%lf", (double)matrix[bw*ky+kx]/nlevels);
+		printf("\n");
+	}
+	printf("\n");
+}
+void impl_ref(long long *m, short dx, short dy)
+{
+#ifdef _DEBUG
+	long long pivot;
+#endif
+	long long coeff;
+	int mindim=dx<dy?dx:dy, it, ky, kx, npivots, kpivot;
+	for(it=0, npivots=0;it<mindim;++it)//iteration
+	{
+		for(ky=npivots;ky<dy;++ky)//find pivot
+		{
+			if(m[dx*ky+it])
+			{
+#ifdef _DEBUG
+				pivot=m[dx*ky+it];
+#endif
+				kpivot=ky;
+				++npivots;
+				break;
+			}
+		}
+		if(ky<dy)
+		{
+			if(ky>it)
+				for(kx=0;kx<dx;++kx)//swap rows
+					coeff=m[dx*it+kx], m[dx*it+kx]=m[dx*ky+kx], m[dx*ky+kx]=coeff;
+			for(++ky;ky<dy;++ky)//subtract pivot row
+			{
+				coeff=(m[dx*ky+it]<<16)/m[dx*kpivot+it];
+				for(kx=it;kx<dx;++kx)
+					m[dx*ky+kx]-=coeff*m[dx*kpivot+kx]>>16;
+			}
+		}
+	}
+}
+void impl_rref(long long *m, short dx, short dy)
+{
+#ifdef _DEBUG
+	long long pivot;
+#endif
+	long long coeff;
+	int mindim=dx<dy?dx:dy, it, ky, kx, npivots, kpivot;
+	for(it=0, npivots=0;it<mindim;++it)//iteration
+	{
+		kpivot=-1;
+		for(ky=npivots;ky<dy;++ky)//find pivot
+		{
+			if(m[dx*ky+it])
+			{
+#ifdef _DEBUG
+				pivot=m[dx*ky+it];
+#endif
+				kpivot=ky;
+				++npivots;
+				break;
+			}
+		}
+		if(kpivot==-1)
+			continue;
+		if(kpivot>npivots-1)
+		{
+			for(kx=0;kx<dx;++kx)//swap rows
+				coeff=m[dx*kpivot+kx], m[dx*kpivot+kx]=m[dx*(npivots-1)+kx], m[dx*(npivots-1)+kx]=coeff;
+			kpivot=npivots-1;
+		}
+		for(ky=0;ky<dy;++ky)
+		{
+			if(ky==kpivot)//normalize pivot row
+			{
+				coeff=0x100000000/m[dx*kpivot+it];
+				for(kx=it;kx<dx;++kx)
+				{
+					int idx=dx*kpivot+kx;
+					m[idx]*=coeff;
+					m[idx]>>=16;
+				}
+			}
+			else//subtract pivot row from all other rows
+			{
+				coeff=(m[dx*ky+it]<<16)/m[dx*kpivot+it];
+				for(kx=it;kx<dx;++kx)
+					m[dx*ky+kx]-=coeff*m[dx*kpivot+kx]>>16;
+			}
+			//print_matrix_fixed(m, dx, dy, 16);
+		}
+	}
+}
+long long impl_det(long long *m, int dx)//m is destroyed
+{
+	int k, dxplus1=dx+1;
+	long long result;
+
+	//print_matrix_debug(m, dx, dx);//
+	impl_ref(m, dx, dx);
+	//print_matrix_debug(m, dx, dx);//
+
+	result=m[0];//accumulate diagonal
+	for(k=1;k<dx;++k)
+		result=result*m[dxplus1*k]>>16;
+	return result;
+}
+void impl_matinv(long long *m, short dx)//resize m to (dy * 2dx) temporarily,		dx==dy always
+{
+	int k, dy=dx, size=dx*dy;
+			//print_matrix_fixed(m, dx<<1, dy, 16);
+	for(k=size-dx;k>=0;k-=dx)//expand M into [M, 0]
+	{
+		memcpy(m+((size_t)k<<1), m+k, dx*sizeof(long long));
+		memset(m+((size_t)k<<1)+dx, 0, dx*sizeof(long long));
+	}
+			//print_matrix_fixed(m, dx<<1, dy, 16);
+
+	for(k=0;k<dx;++k)//add identity: [M, I]
+		m[(dx<<1)*k+dx+k]=0x10000;
+			//print_matrix_fixed(m, dx<<1, dy, 16);
+
+	impl_rref(m, dx<<1, dy);//[I, M^-1]
+			//print_matrix_fixed(m, dx<<1, dy, 16);
+
+	for(k=0;k<size;k+=dx)//pack M^-1
+		memcpy(m+k, m+((size_t)k<<1)+dx, dx*sizeof(long long));
+			//print_matrix_fixed(m, dx<<1, dy, 16);
+}
+int test7_enc2(const unsigned char *buf, int bw, int bh, int x1, int y1, int x2, int y2, unsigned *cube, long long *plane, long long *line, DList *list)
+{
+	const int meanbits=16;//8
+	int count=(x2-x1)*(y2-y1);
+	long long mean[3]={0};
+	for(int ky=y1;ky<y2;++ky)
+	{
+		for(int kx=x1;kx<x2;++kx)
+		{
+			int idx=bw*ky+kx;
+			mean[0]+=buf[idx<<2  ];
+			mean[1]+=buf[idx<<2|1];
+			mean[2]+=buf[idx<<2|2];
+		}
+	}
+	mean[0]=(mean[0]<<meanbits)/count;
+	mean[1]=(mean[1]<<meanbits)/count;
+	mean[2]=(mean[2]<<meanbits)/count;
+
+	long long cov[9]={0}, invcov[18]={0};
+	for(int ky=y1;ky<y2;++ky)
+	{
+		for(int kx=x1;kx<x2;++kx)
+		{
+			int idx=bw*ky+kx;
+			int r=((int)buf[idx<<2  ]<<meanbits)-(int)mean[0],
+				g=((int)buf[idx<<2|1]<<meanbits)-(int)mean[1],
+				b=((int)buf[idx<<2|2]<<meanbits)-(int)mean[2];
+			// r*r    r*g    r*b
+			// r*g    g*g    g*b
+			// r*b    g*b    b*b
+			int rr=(int)((long long)r*r>>meanbits),
+				gg=(int)((long long)g*g>>meanbits),
+				bb=(int)((long long)b*b>>meanbits),
+				rg=(int)((long long)r*g>>meanbits),
+				rb=(int)((long long)r*b>>meanbits),
+				gb=(int)((long long)g*b>>meanbits);
+			cov[0]+=rr, cov[1]+=rg, cov[2]+=rb;
+			cov[3]+=rg, cov[4]+=gg, cov[5]+=gb;
+			cov[6]+=rb, cov[7]+=gb, cov[8]+=bb;
+		}
+	}
+	for(int k=0;k<9;++k)
+		cov[k]/=count;
+
+	memcpy(invcov, cov, 9*sizeof(long long));
+	impl_matinv(invcov, 3);//invert covariance
+
+	memcpy(invcov+9, cov, 9*sizeof(long long));
+	long long det=impl_det(invcov+9, 3);
+
+	const double twopicubed=248.0502134423985614;
+	long long gain=(long long)(65536./sqrt(llabs(det)*(twopicubed/65536.)));//TODO fixed sqrt
+
+#if 0
+	static int call=0;
+	++call;
+	printf("Covariance %d, det %lf\n", call, det/65536.);
+	print_matrix_fixed(cov, 3, 3, 16);
+	printf("Mean %d\n", call);
+	print_matrix_fixed(mean, 1, 3, meanbits);
+	printf("Invcov %d\n", call);
+	print_matrix_fixed(invcov, 3, 3, 16);
+#endif
+
+	memset(cube , 0, 0x1000000*sizeof(unsigned));
+	memset(plane, 0, 0x10000*sizeof(unsigned));
+	memset(line , 0, 0x100*sizeof(unsigned));
+	for(int color=0;color<0x1000000;++color)
+	{
+		if(color==0x808080)
+			color=0x808080;
+		int rgb[]=
+		{
+			((color    &255)<<meanbits)-mean[0],
+			((color>> 8&255)<<meanbits)-mean[1],
+			((color>>16&255)<<meanbits)-mean[2],
+		};
+		//f(b,g,r) = 1/sqrt((2pi)^3 * |Cov|) * exp (-(1/2) (x-mu)^T inv(Cov) (x-mu))
+		long long t[]=
+		{
+			(invcov[0]*rgb[0]+invcov[1]*rgb[1]+invcov[2]*rgb[2])>>meanbits,
+			(invcov[3]*rgb[0]+invcov[4]*rgb[1]+invcov[5]*rgb[2])>>meanbits,
+			(invcov[6]*rgb[0]+invcov[7]*rgb[1]+invcov[8]*rgb[2])>>meanbits,
+		};
+		long long f=-(t[0]*rgb[0]+t[1]*rgb[1]+t[2]*rgb[2])>>(meanbits+1);//(...)*-0.5
+		f=(long long)(65536.*exp(f/65536.));
+		cube[color]=(unsigned)(f*gain+1);//no sr16 for 32 bit precision, add 1 to guard against zero frequency
+	}
+
+	//normalization
+	long long rowsum=0, cdfsum=0;
+	for(int color=0, kb=0;kb<256;++kb)
+	{
+		for(int kg=0;kg<256;++kg)
+		{
+			int c0=color;
+			rowsum=0;
+			for(int kr=0;kr<256;++kr, ++color)
+				rowsum+=cube[color];
+
+			color=c0;
+			cdfsum=0;
+			for(int kr=0;kr<256;++kr, ++color)
+			{
+				unsigned freq=(unsigned)(((unsigned long long)cube[color]<<16)/rowsum);
+				cube[color]=(unsigned)cdfsum;
+				cdfsum+=freq;
+			}
+			if(cdfsum>0x10000)
+				LOG_ERROR("GB[%d, %d] CDF sum 0x%08llX > 0x10000", kg, kb, cdfsum);
+			plane[kb<<8|kg]=rowsum;
+		}
+	}
+	for(int kb=0;kb<256;++kb)
+	{
+		rowsum=0;
+		for(int kg=0;kg<256;++kg)
+			rowsum+=plane[kb<<8|kg];
+		
+		cdfsum=0;
+		for(int kg=0;kg<256;++kg)
+		{
+			long long freq=((unsigned long long)plane[kb<<8|kg]<<16)/rowsum;
+			plane[kb<<8|kg]=cdfsum;
+			cdfsum+=freq;
+		}
+		if(cdfsum>0x10000)
+			LOG_ERROR("B[%d] CDF sum 0x%08llX > 0x10000", kb, cdfsum);
+		line[kb]=rowsum;
+	}
+	rowsum=0;
+	for(int kb=0;kb<256;++kb)
+		rowsum+=line[kb];
+	cdfsum=0;
+	for(int kb=0;kb<256;++kb)
+	{
+		long long freq=((unsigned long long)line[kb]<<16)/rowsum;
+		line[kb]=cdfsum;
+		cdfsum+=freq;
+	}
+	if(cdfsum>0x10000)
+		LOG_ERROR("Master CDF sum 0x%08llX > 0x10000", cdfsum);
+
+	for(int k=0;k<3;++k)
+		dlist_push_back(list, mean, 4);
+	for(int k=0;k<9;++k)
+		dlist_push_back(list, cov, 4);
+
+	unsigned state=0x10000;
+	for(int ky=y2-1;ky>=y1;--ky)
+	{
+		for(int kx=x2-1;kx>=x1;--kx)
+		{
+			unsigned CDF[3], freq[3];
+			int v1, v2;
+			int idx=(bw*ky+kx)<<2;
+			//unsigned char rgb[]={buf[idx], buf[idx|1], buf[idx|2]};
+
+			v1=buf[idx];
+			CDF[2]=(unsigned)line[v1];
+			freq[2]=(unsigned)((v1<255?line[v1+1]:0x10000)-CDF[2]);
+			
+			v2=buf[idx|1];
+			v1=v1<<8|v2;
+			CDF[1]=(unsigned)plane[v1];
+			freq[1]=(unsigned)((v2<255?plane[v1+1]:0x10000)-CDF[1]);
+			
+			v2=buf[idx|1];
+			v1=v1<<8|v2;
+			CDF[0]=cube[v1];
+			freq[0]=(v2<255?cube[v1+1]:0x10000)-CDF[0];
+
+			//if(!freq[0]||!freq[1]||!freq[2])
+			//	LOG_ERROR("RGB freq 0x%04X 0x%04X 0x%04X", freq[0], freq[1], freq[2]);
+
+			for(int kc=2;kc>=0;--kc)
+			{
+				freq[kc]+=!freq[kc];//CHEAT
+
+				if(state>=(freq[kc]<<16))//renorm
+				{
+					dlist_push_back(list, &state, 2);
+					state>>=16;
+				}
+
+				state=state/freq[kc]<<16|(CDF[kc]+state%freq[kc]);//update
+			}
+		}
+	}
+	dlist_push_back(list, &state, 4);
+	return 1;
+}
+size_t test7_encode(const unsigned char *src, int bw, int bh, int is_unsigned, ArrayHandle *data)
+{
+	size_t res=(size_t)bw*bh, len=res<<2;
+	unsigned char *buf=(unsigned char*)malloc(len);
+	if(!buf)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+
+	memcpy(buf, src, len);
+	if(is_unsigned)
+		addhalf(buf, bw, bh, 3, 4, 128);
+	colortransform_ycocg_fwd((char*)buf, bw, bh);
+	ArrayHandle sizes=dwt2d_gensizes(bw, bh, 3, 3, 0);
+	char *temp=(char*)malloc(MAXVAR(bw, bh));
+	for(int kc=0;kc<3;++kc)
+		dwt2d_cdf53_fwd((char*)buf+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);
+	addhalf(buf, bw, bh, 3, 4, 128);//mean must be in [0, 255]
+
+	DList list;
+	dlist_init(&list, 1, 1024, 0);
+	
+	int fw2=bw>>1, fh2=bh>>1;//floor half
+
+	unsigned  *cube =(unsigned *)malloc((size_t)0x1000000*sizeof(unsigned));
+	long long *plane=(long long*)malloc((size_t)0x10000*sizeof(long long));
+	long long *line =(long long*)malloc((size_t)0x100*sizeof(long long));
+	test7_enc2(buf, bw, bh, 0  , 0  , fw2, fh2, cube, plane, line, &list);
+	test7_enc2(buf, bw, bh, fw2, 0  , bw , fh2, cube, plane, line, &list);
+	test7_enc2(buf, bw, bh, 0  , fh2, fw2, bh , cube, plane, line, &list);
+	test7_enc2(buf, bw, bh, fw2, fh2, bw , bh , cube, plane, line, &list);
+
+	//test7_enc2(buf, bw, bh, 0  , 0  , fw2, fh2, 0, 0, 0, &list);
+	//test7_enc2(buf, bw, bh, fw2, 0  , bw , fh2, 0, 0, 0, &list);
+	//test7_enc2(buf, bw, bh, 0  , fh2, fw2, bh , 0, 0, 0, &list);
+	//test7_enc2(buf, bw, bh, fw2, fh2, bw , bh , 0, 0, 0, &list);
+
+	free(cube);
+	free(plane);
+	free(line);
+	free(buf);
+
+	dlist_appendtoarray(&list, data);
+
+	dlist_clear(&list);
+	return 1;
+}
+#endif
+
+
+static void normalize_histogram(unsigned *srchist, int nlevels, int nsymbols, unsigned short *CDF)//hist is unsigned char due to alignment issues, but it's 16bit
+{
+	SortedHistInfo h[512];
+	for(int k=0;k<nlevels;++k)
+	{
+		h[k].sym=k;
+		h[k].freq=srchist[k];
+	}
+	for(int k=0;k<nlevels;++k)
+		h[k].qfreq=((long long)h[k].freq<<16)/nsymbols;
+	
+	if(nsymbols!=0x10000)
+	{
+		const int prob_max=0x10000-(nlevels-1);
+
+		isort(h, nlevels, sizeof(SortedHistInfo), histinfo_byfreq);
+		int idx=0;
+		for(;idx<nlevels&&!h[idx].freq;++idx);
+		for(;idx<nlevels&&!h[idx].qfreq;++idx)
+			++h[idx].qfreq;
+		for(idx=nlevels-1;idx>=0&&h[idx].qfreq>=prob_max;--idx);
+		for(++idx;idx<nlevels;++idx)
+			h[idx].qfreq=prob_max;
+
+		int error=-0x10000;//too much -> +ve error & vice versa
+		for(int k=0;k<nlevels;++k)
+			error+=h[k].qfreq;
+		if(error>0)
+		{
+			while(error)
+			{
+				for(int k=0;k<nlevels&&error;++k)
+				{
+					int dec=h[k].qfreq>1;
+					h[k].qfreq-=dec, error-=dec;
+				}
+			}
+		}
+		else
+		{
+			while(error)
+			{
+				for(int k=nlevels-1;k>=0&&error;--k)
+				{
+					int inc=h[k].qfreq<prob_max;
+					h[k].qfreq+=inc, error+=inc;
+				}
+			}
+		}
+		isort(h, nlevels, sizeof(SortedHistInfo), histinfo_bysym);
+	}
+	int sum=0;
+	for(int k=0;k<nlevels;++k)
+	{
+		CDF[k]=sum;
+		sum+=h[k].qfreq;
+	}
+}
+	static const int point=5, offset=112;
+size_t test8_encode(const unsigned char *src, int bw, int bh, int transform, ArrayHandle *data)
+{
+	int res=bw*bh;
+	unsigned char *b2=(unsigned char*)malloc((size_t)res<<2);
+	if(!b2)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	memcpy(b2, src, (size_t)res<<2);
+	if(transform)
+		apply_transforms_fwd(b2, bw, bh);
+	
+
+	const int headsize=1<<(8-point)*3, remsize=1<<point,
+		masklo=remsize-1, maskhi=(1<<(8-point))-1,
+		totalhsize=headsize+remsize*3;
+	
+	unsigned *hist=(unsigned*)malloc((size_t)totalhsize*sizeof(unsigned));
+	unsigned short *CDFs=(unsigned short*)malloc((size_t)totalhsize*sizeof(short));
+	if(!hist||!CDFs)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	memset(hist, 0, (size_t)totalhsize*sizeof(unsigned));
+	unsigned *histhead=hist, *histr=histhead+headsize, *histg=histr+remsize, *histb=histg+remsize;
+	for(int k=0;k<res;++k)
+	{
+		unsigned char r=b2[k<<2]-offset, g=b2[k<<2|1]-offset, b=b2[k<<2|2]-offset;
+		int head=(b>>point&maskhi)<<((8-point)<<1)|(g>>point&maskhi)<<(8-point)|r>>point&maskhi;
+		r&=masklo;
+		g&=masklo;
+		b&=masklo;
+		++histhead[head];
+		if(!head)
+		{
+			++histr[head<<point|r];
+			++histg[head<<point|g];
+			++histb[head<<point|b];
+		}
+	}
+
+	unsigned short *CDFh=CDFs, *CDFr=CDFh+headsize, *CDFg=CDFr+headsize*remsize, *CDFb=CDFg+headsize*remsize;
+	normalize_histogram(histhead, headsize, res, CDFh);
+	normalize_histogram(histr   , remsize , res, CDFr);
+	normalize_histogram(histg   , remsize , res, CDFg);
+	normalize_histogram(histb   , remsize , res, CDFb);
+	free(hist);
+
+	DList list;
+	dlist_init(&list, 1, 1024, 0);
+
+	dlist_push_back(&list, 0, 4);
+	dlist_push_back(&list, CDFs, (size_t)totalhsize*sizeof(short));
+
+	double csize[4]={0};//
+
+	unsigned state=0x10000;
+	for(int k=res-1;k>=0;--k)
+	{
+		int idx=k<<2;
+		unsigned char r=b2[idx]-offset, g=b2[idx|1]-offset, b=b2[idx|2]-offset;
+		int head=(b>>point&maskhi)<<((8-point)<<1)|(g>>point&maskhi)<<(8-point)|r>>point&maskhi;
+		r&=masklo;
+		g&=masklo;
+		b&=masklo;
+
+		unsigned CDF[4], freq[4];
+		CDF[0]=CDFh[head], freq[0]=(head<headsize-1?CDFh[head+1]:0x10000)-CDF[0];
+		if(head)
+		{
+			CDF[1]=CDFr[r], freq[1]=(r<masklo   ?CDFr[r+1]:0x10000)-CDF[1];
+			CDF[2]=CDFg[g], freq[2]=(g<masklo   ?CDFg[g+1]:0x10000)-CDF[2];
+			CDF[3]=CDFb[b], freq[3]=(b<masklo   ?CDFb[b+1]:0x10000)-CDF[3];
+		}
+		else//bypass rare pixels
+		{
+			CDF[1]=r<<(16-point), freq[1]=1<<(16-point);
+			CDF[2]=g<<(16-point), freq[2]=1<<(16-point);
+			CDF[3]=b<<(16-point), freq[3]=1<<(16-point);
+		}
+
+		//if(!k)
+		//{
+		//	printf("k %d\n", k);
+		//	printf("head %3d CDF 0x%04X freq 0x%04X\n", head, CDF[0], freq[0]);
+		//	printf("r    %3d CDF 0x%04X freq 0x%04X\n", r,    CDF[1], freq[1]);
+		//	printf("g    %3d CDF 0x%04X freq 0x%04X\n", g,    CDF[2], freq[2]);
+		//	printf("b    %3d CDF 0x%04X freq 0x%04X\n", b,    CDF[3], freq[3]);
+		//}
+
+		for(int k=3;k>=0;--k)
+		{
+			if(!freq[k])
+				LOG_ERROR("ZPS XY[%d %d]", k%bw, k/bw);
+
+			double p=freq[k]/65536.;//
+			csize[k]-=log2(p);//
+
+			if(state>=(freq[k]<<16))//renorm
+			{
+				dlist_push_back(&list, &state, 2);
+				state>>=16;
+			}
+
+			state=state/freq[k]<<16|(CDF[k]+state%freq[k]);//update
+		}
+	}
+	dlist_push_back(&list, &state, 4);
+
+	printf("head ~ %lf\n", csize[0]/((8-point)*3));//
+	printf("r    ~ %lf\n", csize[1]/point);//
+	printf("g    ~ %lf\n", csize[2]/point);//
+	printf("b    ~ %lf\n", csize[3]/point);//
+
+	size_t dststart=0;
+	if(*data)
+	{
+		if(data[0]->esize!=1)
+			LOG_ERROR("Invalid destination array");
+		dststart=data[0]->count;
+	}
+	dlist_appendtoarray(&list, data);
+	memcpy(data[0]->data+dststart, &list.nobj, 4);
+
+	dlist_clear(&list);
+	free(CDFs);
+	free(b2);
+	return 1;
+}
+static int t8_dec2(unsigned *state, const unsigned char *srcstart, const unsigned char **srcptr, unsigned short *CDF, int nbits)
+{
+	unsigned short c;
+	unsigned cdf, freq;
+	int sym;
+	int nlevels=1<<nbits;
+	c=(unsigned short)*state;
+	if(CDF)
+	{
+		for(sym=0;sym<nlevels-1;++sym)//find first sym where c>CDF[sym]		//linear search		FIXME use binary search
+		{
+			unsigned next=CDF[sym+1];
+			if(next<CDF[sym])
+				next=0x10000;
+			if(c<next)
+				break;
+		}
+
+		cdf=CDF[sym];
+		freq=(sym<nlevels-1?CDF[sym+1]:0x10000)-cdf;
+	}
+	else
+	{
+		sym=c>>(16-nbits);
+		cdf=sym<<(16-nbits), freq=1<<(16-nbits);
+	}
+
+	*state=freq*(*state>>16)+c-cdf;//update
+
+	if(*state<0x10000)//renorm
+	{
+		*state<<=16;
+		if(*srcptr-2>=srcstart)
+		{
+			*srcptr-=2;
+			memcpy(state, *srcptr, 2);
+		}
+	}
+	return sym;
+}
+int test8_decode(const unsigned char *data, size_t srclen, int bw, int bh, int detransform, unsigned char *buf)
+{
+	const int point=5, offset=112;
+
+	const int headsize=1<<(8-point)*3, remsize=1<<point,
+		masklo=remsize-1, maskhi=(1<<(8-point))-1,
+		totalhsize=headsize+headsize*remsize*3,
+		overhead=4+totalhsize*sizeof(short);
+	
+	const unsigned char *srcptr=data, *srcstart, *srcend=data+srclen;
+	if(srcptr+overhead>=srcend)
+	{
+		LOG_ERROR("Invalid file");
+		return 0;
+	}
+
+	size_t anslen=0;
+	memcpy(&anslen, srcptr, 4);
+	srcptr+=4;
+	if(anslen<overhead)
+	{
+		LOG_ERROR("Corrupt file");
+		return 0;
+	}
+	anslen-=overhead;
+	
+	unsigned short *CDFs=(unsigned short*)malloc((size_t)totalhsize*sizeof(short));
+	if(!CDFs)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	memcpy(CDFs, srcptr, (size_t)totalhsize*sizeof(short));
+	srcptr+=(size_t)totalhsize*sizeof(short);
+	unsigned short *CDFh=CDFs, *CDFr=CDFh+headsize, *CDFg=CDFr+headsize*remsize, *CDFb=CDFg+headsize*remsize;
+	
+	srcstart=srcptr;
+
+	if(srcptr+anslen>data+srclen)
+		LOG_ERROR("Inconsistent file");
+	srcptr+=anslen;
+	unsigned state;
+	if(srcptr-4<srcstart)
+		LOG_ERROR("ANS buffer overflow: ptr %#016llX <= start %#016llX", srcptr-data, srcstart-data);
+	srcptr-=4;
+	memcpy(&state, srcptr, 4);
+	for(int k=0, res=bw*bh;k<res;++k)
+	{
+		int head=t8_dec2(&state, srcstart, &srcptr, CDFh, 8-point);
+		int r   =t8_dec2(&state, srcstart, &srcptr, head?CDFr+remsize*head:0, point);
+		int g   =t8_dec2(&state, srcstart, &srcptr, head?CDFg+remsize*head:0, point);
+		int b   =t8_dec2(&state, srcstart, &srcptr, head?CDFb+remsize*head:0, point);
+
+		r|=(head                &maskhi)<<point;
+		g|=(head>> (8-point)    &maskhi)<<point;
+		b|=(head>>((8-point)<<1)&maskhi)<<point;
+
+		buf[k<<2  ]=r+offset;
+		buf[k<<2|1]=g+offset;
+		buf[k<<2|2]=b+offset;
+		buf[k<<2|3]=0xFF;
+	}
+	if(detransform)
+		apply_transforms_inv(buf, bw, bh);
+
+	free(CDFs);
+	return 1;
+}
+
+//test10
+void t10_enc2(unsigned *state, unsigned cdf, unsigned freq, DList *list)
+{
+	if(*state>=(freq<<16))//renorm
+	{
+		dlist_push_back(list, state, 2);
+		*state>>=16;
+	}
+
+	*state=*state/freq<<16|(cdf+*state%freq);//update
+}
+//int debug_px=205087;//
+size_t test10_encode(const unsigned char *src, int bw, int bh, ArrayHandle *data)
+{
+	int res=bw*bh;
+	unsigned char *b2=(unsigned char*)malloc((size_t)res<<2);
+	if(!b2)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	memcpy(b2, src, (size_t)res<<2);
+	apply_transforms_fwd(b2, bw, bh);
+
+	int totalhsize=256*3;
+	unsigned *hist=(unsigned*)malloc((size_t)totalhsize*sizeof(unsigned));
+	unsigned short *CDFs=(unsigned short*)malloc((size_t)totalhsize*sizeof(short));
+	if(!hist||!CDFs)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	memset(hist, 0, (size_t)totalhsize*sizeof(unsigned));
+	unsigned *h1=hist, *h2=h1+256, *h3=h2+256;
+	unsigned short *CDF1=CDFs, *CDF2=CDF1+256, *CDF3=CDF2+256;
+
+	int count_j2=0, count_j3=0;
+	for(int k=0;k<res;++k)
+	{
+		int r=b2[k<<2]-112, g=b2[k<<2|1]-112, b=b2[k<<2|2]-96;
+		int joint1=(b>>6&3)<<6|(g>>5&7)<<3|(r>>5&7);
+		++h1[joint1];
+		if(!joint1)
+		{
+			r-=14, r&=31;
+			g-=14, g&=31;
+			b-=24, b&=63;
+			int joint2=(b>>4&3)<<6|(g>>2&7)<<3|(r>>2&7);
+			++h2[joint2];
+			++count_j2;
+			if(!joint2)
+			{
+				--r, r&=3;
+				--g, r&=3;
+				b-=6, b&=15;
+				int joint3=(b&15)<<4|(g&3)<<2|(r&3);
+				++h3[joint3];
+				++count_j3;
+			}
+		}
+	}
+	normalize_histogram(h1, 256, res     , CDF1);
+	normalize_histogram(h2, 256, count_j2, CDF2);
+	normalize_histogram(h3, 256, count_j3, CDF3);
+
+	DList list;
+	dlist_init(&list, 1, 1024, 0);
+	
+	dlist_push_back(&list, 0, 4);
+	dlist_push_back(&list, CDFs, (size_t)totalhsize*sizeof(short));
+
+#if 0
+	int nc1=0, nc2=0, nc3=0, nbypass=0;//
+	double cs1=0, cs2=0, cs3=0;
+	long long fsum=0;
+#endif
+
+	unsigned state=0x10000;
+	for(int k=res-1;k>=0;--k)
+	{
+		//if(k==debug_px)//
+		//	k=debug_px;
+
+		unsigned cdf[4], freq[4], nsym;
+		int r=b2[k<<2]-112, g=b2[k<<2|1]-112, b=b2[k<<2|2]-96;
+		int joint1=(b>>6&3)<<6|(g>>5&7)<<3|(r>>5&7), joint2=0, joint3=0;
+		r-=14, r&=31;
+		g-=14, g&=31;
+		b-=24, b&=63;
+
+		//predict in order of decode
+		cdf[0]=CDF1[joint1], freq[0]=(joint1<255&&cdf[0]<CDF1[joint1+1]?CDF1[joint1+1]:0x10000)-cdf[0];//, nc1+=8, cs1-=log2(freq[0]/65536.), fsum+=freq[0];
+		if(joint1)//bypass
+		{
+			cdf[1]=r<<(16-5), freq[1]=1<<(16-5);
+			cdf[2]=g<<(16-5), freq[2]=1<<(16-5);
+			cdf[3]=b<<(16-6), freq[3]=1<<(16-6);
+			nsym=4;
+
+			//nbypass+=5+5+6;
+		}
+		else
+		{
+			joint2=(b>>4&3)<<6|(g>>2&7)<<3|(r>>2&7);
+			--r, r&=3;
+			--g, r&=3;
+			b-=6, b&=15;
+			joint3=(b&15)<<4|(g&3)<<2|(r&3);
+			cdf[1]=CDF2[joint2], freq[1]=(joint2<255&&cdf[1]<CDF2[joint2+1]?CDF2[joint2+1]:0x10000)-cdf[1];//, nc2+=8, cs2-=log2(freq[1]/65536.), fsum+=freq[1];
+			if(joint2)//bypass
+				cdf[2]=joint3<<(16-8), freq[2]=1<<(16-8);//, nbypass+=8;
+			else
+				cdf[2]=CDF3[joint3], freq[2]=(joint3<255&&cdf[2]<CDF3[joint3+1]?CDF3[joint3+1]:0x10000)-cdf[2];//, nc3+=8, cs3-=log2(freq[2]/65536.), fsum+=freq[2];
+			nsym=3;
+		}
+		//if(k==debug_px)//
+		//	printf("k %d nsym=%d J[%02X %02X %02X] RGB[%02X %02X %02X] RGB0[%02X %02X %02X]\n", k, nsym, joint1, joint2, joint3, r, g, b, b2[k<<2], b2[k<<2|1], b2[k<<2|2]);
+
+		//encode
+		for(int k2=nsym-1;k2>=0;--k2)
+		{
+			//unsigned s0=state;
+			t10_enc2(&state, cdf[k2], freq[k2], &list);
+			//if(k==debug_px)
+			//	printf("sym [%d] CDF %04X freq %04X state 0x%08X -> 0x%08X\n", k2, cdf[k2], freq[k2], s0, state);
+		}
+	}
+	dlist_push_back(&list, &state, 4);
+
+#if 0
+	printf("joint1   %14lf <- %7d CR %8lf\n", cs1/8, nc1/8, nc1/cs1);
+	printf("joint2   %14lf <- %7d CR %8lf\n", cs2/8, nc2/8, nc2/cs2);
+	printf("joint3   %14lf <- %7d CR %8lf\n", cs3/8, nc3/8, nc3/cs3);
+	printf("bypass   %7d\n", nbypass/8);
+	printf("overhead %7d\n", 256*3*2);
+	printf("csize    %14lf\n", (cs1+cs2+cs3+nbypass+256*3*2)/8);
+	printf("usize    %7d\n", (nc1+nc2+nc3+nbypass)/8);
+	printf("CR       %14lf\n", (nc1+nc2+nc3+nbypass)/(cs1+cs2+cs3+nbypass+256*3*2));
+	//printf("c1 %d c2 %d c3 %d bypass %d total %d j1 %lf j2 %lf j3 %lf fav %lf\n", nc1/8, nc2/8, nc3/8, nbypass/8, (nc1+nc2+nc3+nbypass)/8, cs1/8., cs2/8., cs3/8., fsum*8./(nc1+nc2+nc3));//
+#endif
+
+	size_t dststart=0;
+	if(*data)
+	{
+		if(data[0]->esize!=1)
+			LOG_ERROR("Invalid destination array");
+		dststart=data[0]->count;
+	}
+	dlist_appendtoarray(&list, data);
+	memcpy(data[0]->data+dststart, &list.nobj, 4);
+
+	dlist_clear(&list);
+	free(CDFs);
+	free(b2);
+	return 1;
+}
+void t10_fill_CDF2sym(const unsigned short *CDF, unsigned char *CDF2sym)
+{
+	int k2=0, end=0;
+	for(int sym=0;sym<256;++sym, k2=end)
+	{
+		if(sym==255)
+			end=0x10000;
+		else
+		{
+			end=CDF[sym+1];
+			if(end<k2)
+				end=0x10000;
+		}
+
+		for(;k2<end;++k2)
+			CDF2sym[k2]=sym;
+
+		if(end==0x10000)//now redundant because	'k2' is recycled 'end'		//to avoid overwriting whole CDF2sym with 0xFF with trailing zero-freq symbols
+			break;
+	}
+}
+static int t10_dec2(unsigned *state, const unsigned char *srcstart, const unsigned char **srcptr, unsigned short *CDF, unsigned char *CDF2sym, int nbits)
+{
+	unsigned short c;
+	unsigned cdf, freq;
+	int sym;
+	int nlevels=1<<nbits;
+	c=(unsigned short)*state;
+	if(CDF)
+	{
+		sym=CDF2sym[c];
+
+		cdf=CDF[sym];
+		freq=(sym<nlevels-1&&cdf<CDF[sym+1]?CDF[sym+1]:0x10000)-cdf;
+	}
+	else
+	{
+		sym=c>>(16-nbits);
+		cdf=sym<<(16-nbits), freq=1<<(16-nbits);
+	}
+
+	*state=freq*(*state>>16)+c-cdf;//update
+
+	if(*state<0x10000)//renorm
+	{
+		*state<<=16;
+		if(*srcptr-2>=srcstart)
+		{
+			*srcptr-=2;
+			memcpy(state, *srcptr, 2);
+		}
+	}
+	return sym;
+}
+//const unsigned char *debug_ptr=0;//
+int test10_decode(const unsigned char *data, size_t srclen, int bw, int bh, unsigned char *buf)
+{
+	const int cdflen=3*256*sizeof(short), overhead=4+cdflen;
+	int res=bw*bh;
+	
+	const unsigned char *srcptr, *srcstart, *srcend=data+srclen;
+	if(data+overhead>=srcend)
+	{
+		LOG_ERROR("Invalid file");
+		return 0;
+	}
+
+	size_t csize=0;
+	memcpy(&csize, data, 4);
+	if(csize<overhead)
+	{
+		LOG_ERROR("Corrupt file");
+		return 0;
+	}
+	if(csize>srclen)
+	{
+		LOG_ERROR("Incomplete file");
+		return 0;
+	}
+	
+	unsigned short *CDFs=(unsigned short*)malloc(cdflen);
+	unsigned char *CDF2sym=(unsigned char*)malloc((size_t)65536*3);
+	if(!CDFs||!CDF2sym)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	memcpy(CDFs, data+4, cdflen);
+	unsigned short *CDF1=CDFs, *CDF2=CDF1+256, *CDF3=CDF2+256;
+	unsigned char *CDF2sym1=CDF2sym, *CDF2sym2=CDF2sym1+0x10000, *CDF2sym3=CDF2sym2+0x10000;
+
+	t10_fill_CDF2sym(CDF1, CDF2sym1);
+	t10_fill_CDF2sym(CDF2, CDF2sym2);
+	t10_fill_CDF2sym(CDF3, CDF2sym3);
+	
+	srcstart=data+overhead;
+	srcptr=data+csize;
+
+	unsigned state;
+	if(srcptr-4<srcstart)
+		LOG_ERROR("ANS buffer overflow: ptr %#016llX <= start %#016llX", srcptr-data, srcstart-data);
+	srcptr-=4;
+	memcpy(&state, srcptr, 4);
+	for(int k=0, res=bw*bh;k<res;++k)
+	{
+		//if(k==debug_px)//
+		//	k=debug_px;
+
+		int r, g, b;
+		int joint1=t10_dec2(&state, srcstart, &srcptr, CDF1, CDF2sym1, 8), joint2=0, joint3=0;
+		if(joint1)//bypass
+		{
+			r=t10_dec2(&state, srcstart, &srcptr, 0, 0, 5);
+			g=t10_dec2(&state, srcstart, &srcptr, 0, 0, 5);
+			b=t10_dec2(&state, srcstart, &srcptr, 0, 0, 6);
+		}
+		else
+		{
+			joint2=t10_dec2(&state, srcstart, &srcptr, CDF2, CDF2sym2, 8);
+			if(joint2)//bypass
+				joint3=t10_dec2(&state, srcstart, &srcptr, 0, 0, 8);
+			else
+				joint3=t10_dec2(&state, srcstart, &srcptr, CDF3, CDF2sym3, 8);
+
+			r=joint3   & 3;
+			g=joint3>>2& 3;
+			b=joint3>>4&15;
+
+			r=(joint2   &7)<<2|(r+1)& 3;
+			g=(joint2>>3&7)<<2|(g+1)& 3;
+			b=(joint2>>6&3)<<4|(b+6)&15;
+		}
+		buf[k<<2  ]=((joint1   &7)<<5|(r+14)&31)+112;
+		buf[k<<2|1]=((joint1>>3&7)<<5|(g+14)&31)+112;
+		buf[k<<2|2]=((joint1>>6&3)<<6|(b+24)&63)+ 96;
+		buf[k<<2|3]=0xFF;
+
+		//if(debug_ptr&&memcmp(buf+((size_t)k<<2), debug_ptr+((size_t)k<<2), 4))//
+		//	LOG_ERROR("Error at pixel number %d", k);//
+	}
+	apply_transforms_inv(buf, bw, bh);
+
+	free(CDFs);
 	return 1;
 }

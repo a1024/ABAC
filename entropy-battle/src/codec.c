@@ -14,6 +14,9 @@
 #include"lodepng.h"//for debugging
 static const char file[]=__FILE__;
 
+#define FIXED_POINT		20
+#define FIXED_ONE		(1<<FIXED_POINT)
+
 typedef enum TensorTypeEnum
 {
 	TENSOR_WEIGHT,
@@ -312,11 +315,25 @@ static void c33_init_pred(Tensor *ptr, int ntensors, const char *name, ArrayHand
 		Conv2dStage *conv2d=(Conv2dStage*)array_at(preproc, k);
 		memcpy(&conv2d->co, conv_weight->shape, sizeof(int[4]));
 
-		conv2d->weight=conv_weight->data;
-		conv_weight->data=0;
-		
-		conv2d->bias=conv_bias->data;
-		conv_bias->data=0;
+		ArrayHandle src, dst;
+
+		src=conv_weight->data;
+		ARRAY_ALLOC(int, conv2d->weight, 0, src->count, 0, 0);
+		dst=conv2d->weight;
+		for(int kv=0;kv<(int)src->count;++kv)
+			((int*)dst->data)[kv]=(int)(((float*)src->data)[kv]*FIXED_ONE);
+
+		src=conv_bias->data;
+		ARRAY_ALLOC(int, conv2d->bias, 0, src->count, 0, 0);
+		dst=conv2d->bias;
+		for(int kv=0;kv<(int)src->count;++kv)
+			((int*)dst->data)[kv]=(int)(((float*)src->data)[kv]*FIXED_ONE);
+
+		//conv2d->weight=conv_weight->data;
+		//conv_weight->data=0;
+		//
+		//conv2d->bias=conv_bias->data;
+		//conv_bias->data=0;
 	}
 	ARRAY_ALLOC(Conv2dStage, *mainpart, 0, nmainstages, 0, free_conv2d);
 	for(int k=0;k<nmainstages;++k)
@@ -371,7 +388,7 @@ static void c33_init_pred(Tensor *ptr, int ntensors, const char *name, ArrayHand
 
 			int *bias=(int*)array_at(&conv2d->bias, ko);
 			float val=(ct_bk+cl_bk)*b_wk+b_bk;
-			*bias=(int)roundf(val*0x10000);
+			*bias=(int)roundf(val*FIXED_ONE);
 
 			for(int ki=0;ki<conv2d->ci;++ki)//for each kernel
 			{
@@ -384,7 +401,7 @@ static void c33_init_pred(Tensor *ptr, int ntensors, const char *name, ArrayHand
 						//float *src=(float*)array_at(&ct_weight->data, conv2d->kw*(ct_weight->shape[2]*((size_t)conv2d->ci*ko+ki)+ky)+kx);
 						//float *dst=(float*)array_at(&conv2d->weight, conv2d->kw*(conv2d->kh*((size_t)conv2d->ci*ko+ki)+ky)+kx);
 						float val=*src*b_wk;
-						*dst=(int)roundf(val*0x10000);
+						*dst=(int)roundf(val*FIXED_ONE);
 					}
 				}
 				for(int ky=0;ky<cl_weight->shape[2];++ky)//left filter height is always 1
@@ -395,7 +412,7 @@ static void c33_init_pred(Tensor *ptr, int ntensors, const char *name, ArrayHand
 						float *src=(float*)array_at(&cl_weight->data, srcidx2);
 						int *dst=(int*)array_at(&conv2d->weight, dstidx);
 						float val=*src*b_wk;
-						*dst=(int)roundf(val*0x10000);
+						*dst=(int)roundf(val*FIXED_ONE);
 					}
 					for(;kx<conv2d->kw;++kx, ++dstidx)
 					{
@@ -454,13 +471,253 @@ void codec33_init(const char *filename)
 		array_free(&params);
 	}
 }
-static void c33_enc_pred(const short *buf, int bw0, int bw, int bh, int *aux, int aw, int ah, ArrayHandle preproc, ArrayHandle mainpart, int *mean, int *conf)
+static void conv2d(const int *src, const int *weight, const int *bias, int co, int ci, int kw, int kh, int bw, int bh, int add, int *dst)
 {
-	Conv2dStage *pconv=(Conv2dStage*)preproc->data;
-	int npconv=(int*)preproc->count;
-	for(int k=0;k<(int)preproc->count;++k)
+	printf("conv2d [%d, %d, %d, %d] %d*%d\n", co, ci, kw, kh, bw, bh);//
+
+	int padx=kw>>1, pady=kh>>1;
+	for(int ko=0;ko<co;++ko)//for each output channel
 	{
-		Conv2dStage *pconv=array_at(&preproc, k);
+		for(int ky=pady;ky<bh-pady;++ky)//for each output row
+		{
+			for(int kx=padx;kx<bw-padx;++kx)//for each output pixel
+			{
+				int sum=bias[ko];
+				for(int ki=0;ki<ci;++ki)//for each input channel
+				{
+					const int *kernel=weight+kw*kh*(ci*ko+ki);
+					const int *channel=src+bw*bh*ki;
+					for(int ky2=0;ky2<kh;++ky2)//for each kernel row
+					{
+						for(int kx2=0;kx2<kw;++kx2)//for each kernel coeff
+							sum+=(int)((long long)kernel[kw*ky2+kx2]*channel[bw*(ky+ky2-pady)+kx+kx2-padx]>>FIXED_POINT);
+					}
+				}
+				if(add)
+					sum+=dst[bw*(bh*ko+ky)+kx];
+				if(sum<0)//LeakyReLU
+					sum=(long long)sum*0x28F6>>FIXED_POINT;
+					//sum=(((long long)sum+50)<<FIXED_POINT)/100;
+				dst[bw*(bh*ko+ky)+kx]=sum;
+			}
+		}
+	}
+}
+static int* c33_enc_pred(const short *buf, int bw0, int bw, int bh, int nbits, int *aux, int aw, int ah, int maxchannels, ArrayHandle preproc, ArrayHandle mainpart)
+{
+	Conv2dStage *c;
+	int nc=maxchannels>>1;
+	int *a1=aux, *a2=aux+aw*ah*nc;
+
+	if(preproc->count!=2||mainpart->count!=8)
+		LOG_ERROR("Outdated code");
+
+	c=(Conv2dStage*)array_at(&preproc, 0);
+	conv2d(a1, (int*)c->weight->data, (int*)c->bias->data, c->co, c->ci, c->kw, c->kh, aw, ah, 0, a2);
+
+	c=(Conv2dStage*)array_at(&preproc, 1);
+	conv2d(a2, (int*)c->weight->data, (int*)c->bias->data, c->co, c->ci, c->kw, c->kh, aw, ah, 0, a1);
+
+	for(int kc=0;kc<3;++kc)
+	{
+		for(int ky=0;ky<ah-1;++ky)
+		{
+			for(int kx=0;kx<aw;++kx)
+				a2[aw*(ah*kc+ky+2)+kx+1]=ky>=1&&ky<ah-1&&kx>=1&&kx<aw-1?buf[3*((aw-2)*ky+kx)+kc]<<(FIXED_POINT-nbits):0;
+		}
+	}
+	c=(Conv2dStage*)array_at(&mainpart, 0);
+	conv2d(a2, (int*)c->weight->data, (int*)c->bias->data, c->co, c->ci, c->kw, c->kh, aw, ah, 1, a1);
+	
+	c=(Conv2dStage*)array_at(&mainpart, 1);
+	conv2d(a1, (int*)c->weight->data, (int*)c->bias->data, c->co, c->ci, c->kw, c->kh, aw, ah, 0, a2);
+	
+	c=(Conv2dStage*)array_at(&mainpart, 2);
+	conv2d(a2, (int*)c->weight->data, (int*)c->bias->data, c->co, c->ci, c->kw, c->kh, aw, ah, 0, a1);
+	
+	c=(Conv2dStage*)array_at(&mainpart, 3);
+	conv2d(a1, (int*)c->weight->data, (int*)c->bias->data, c->co, c->ci, c->kw, c->kh, aw, ah, 0, a2);
+
+	c=(Conv2dStage*)array_at(&mainpart, 4);
+	conv2d(a2, (int*)c->weight->data, (int*)c->bias->data, c->co, c->ci, c->kw, c->kh, aw, ah, 0, a1);
+	
+	c=(Conv2dStage*)array_at(&mainpart, 5);
+	conv2d(a1, (int*)c->weight->data, (int*)c->bias->data, c->co, c->ci, c->kw, c->kh, aw, ah, 0, a2);
+	
+	c=(Conv2dStage*)array_at(&mainpart, 6);
+	conv2d(a2, (int*)c->weight->data, (int*)c->bias->data, c->co, c->ci, c->kw, c->kh, aw, ah, 0, a1);
+	
+	c=(Conv2dStage*)array_at(&mainpart, 7);
+	conv2d(a1, (int*)c->weight->data, (int*)c->bias->data, c->co, c->ci, c->kw, c->kh, aw, ah, 0, a2);
+
+	return a2;
+}
+static void blit_meanconf(const int *result, int rw, int rh, int x1, int x2, int y1, int y2, int *buf_mean, int *buf_conf, int bw)
+{
+	int dx=x2-x1, dy=y2-y1;
+	int conf_limit=(FIXED_ONE<<3)-1;
+	for(int ky=0;ky<dy;++ky)
+	{
+		for(int kx=0;kx<dx;++kx)
+		{
+			for(int kc=0;kc<3;++kc)
+			{
+				int idx=3*(bw*(y1+ky)+x1+kx)+kc;
+				if(kx+1<rw-1||ky+1<rh-1)
+				{
+					int val=result[rw*(rh*kc+ky+1)+kx+1];
+					//val=CLAMP(-FIXED_ONE, val, FIXED_ONE);
+					if(val<-FIXED_ONE)
+						val=FIXED_ONE;
+					if(val>FIXED_ONE)
+						val=FIXED_ONE;
+					buf_mean[idx]=val;
+
+					val=result[rw*(rh*(kc+3)+ky+1)+kx+1];
+					val=abs(val);
+					if(val>conf_limit)
+						val=conf_limit;
+					buf_conf[idx]=val;
+				}
+				else
+				{
+					buf_mean[idx]=0;
+					buf_conf[idx]=0;
+				}
+			}
+		}
+	}
+}
+static int powersof2[FIXED_POINT+4]=
+{
+	0x00100001, 0x00100001, 0x00100003, 0x00100006,
+	0x0010000B, 0x00100016, 0x0010002C, 0x00100059,
+	0x001000B1, 0x00100163, 0x001002C6, 0x0010058D,
+	0x00100B1B, 0x0010163E, 0x00102C9A, 0x001059B1,
+	0x0010B558, 0x001172B8, 0x001306FE, 0x0016A09E,
+	0x00200000, 0x00400000, 0x01000000, 0x10000000,
+};
+//void twopower_init()
+//{
+//	for(int k=0;k<FIXED_POINT+4;++k)
+//		powersof2[k]=(int)(pow(2., pow(2., (double)(FIXED_POINT-k))+FIXED_POINT)*FIXED_ONE);
+//}
+int twopower(int x)
+{
+	int product=FIXED_ONE;
+	for(int k=0;k<FIXED_POINT+4;++k)
+	{
+		int bit=x>>k&1;
+		if(bit)
+			product=(int)((long long)product*powersof2[k]>>20);
+	}
+	return product;
+}
+static int error_func_p20(int x)
+{
+	//approximation 3 on Wikipedia
+	const unsigned c[]=
+	{
+		0x120DD,//0x120DCCEB,//0.0705230784
+		0x0AD30,//0x0AD2FE74,//0.0422820123
+		0x025F9,//0x025F8DA3,//0.0092705272
+		0x0009F,//0x0009F660,//0.0001520143
+		0x00122,//0x00122007,//0.0002765672
+		0x0002D,//0x0002D27E,//0.0000430638
+	};
+	int neg=x<0;
+	unsigned long long x0=(unsigned long long)abs(x), res;//16.16 bits
+
+	//if(x0>0x32A1F)//erf(3.16453508) = 0x0.FFFF8000003 ~= 1 in 16.16 bit
+	if(x0>0x38F818)//erf(0x38F818>>20) = 0x0.FFFFF800004
+		res=FIXED_ONE;
+	else
+	{
+		res=(x0*c[5]>>FIXED_POINT)+c[4];
+		res=(res*x0>>FIXED_POINT)+c[3];
+		res=(res*x0>>FIXED_POINT)+c[2];
+		res=(res*x0>>FIXED_POINT)+c[1];
+		res=(res*x0>>FIXED_POINT)+c[0];
+		res=(res*x0>>FIXED_POINT)+FIXED_ONE;
+
+		res=(1LL<<(FIXED_POINT<<1)|res>>1)/res;//(ONE<<POINT)/res
+		res=res*res>>FIXED_POINT;
+		res=res*res>>FIXED_POINT;
+		res=res*res>>FIXED_POINT;
+		res=res*res>>FIXED_POINT;
+
+		res=FIXED_ONE-res;
+	}
+	res^=-neg;
+	res+=neg;
+	return (int)res;
+}
+static int c33_calc_phi(int sym, int nbits, int mean, int conf)
+{
+	int x;
+
+	x=(sym<<(20-nbits))-mean;
+	x=(int)((long long)x*conf>>20);
+	x=error_func_p20(x);
+
+	x+=sym;
+	//x=x<<nbits|sym;
+
+	return x;
+}
+static void c33_enc3(int bw, int x, int y, int c, short nbits, const int *buf_mean, const int *buf_conf, const short *buf, unsigned long long *state, DList *list)
+{
+	static int ncalls=0;
+	++ncalls;
+	int idx=3*(bw*y+x)+c, half=(1<<(nbits-1));
+	int mean=buf_mean[idx],
+		lgconf=buf_conf[idx],
+		sym=buf[idx];
+	
+	//if(sym<0||sym>=(1<<nbits))
+	if(sym<-half||sym>=half)
+		LOG_ERROR("Range error sym 0x%04X", sym);
+
+	int conf=twopower(lgconf);
+
+	//adaptive ANS
+	int erf_start=c33_calc_phi(0         -half, nbits, mean, conf),//always -1.0
+		erf_end  =c33_calc_phi((1<<nbits)-half, nbits, mean, conf),//always 1.0 (proof required)
+		erf_curr =c33_calc_phi(sym            , nbits, mean, conf),
+		erf_next =c33_calc_phi(sym+1          , nbits, mean, conf);
+
+	if(erf_start>erf_curr||erf_curr>erf_next||erf_next>erf_end)
+		LOG_ERROR("Out of range: start/curr/next/end: 0x%08X, 0x%08X, 0x%08X, 0x%08X", erf_start, erf_curr, erf_next, erf_end);
+
+	long long den=(long long)erf_end-erf_start, CDF, freq;
+	CDF =((long long)(erf_curr-erf_start)<<32|den>>1)/den;
+	freq=((long long)(erf_next-erf_curr )<<32|den>>1)/den;
+
+	if(CDF+freq>0x100000000)
+		LOG_ERROR("CDF is not normalized CDF 0x%08llX freq 0x%08llX", CDF, freq);
+	if(!freq)
+		LOG_ERROR("Zero freq");
+
+	if(*state>=((unsigned long long)freq<<32))//renorm
+	{
+		dlist_push_back(list, state, 4);
+		*state>>=32;
+	}
+
+	*state=*state/freq<<32|(CDF+*state%freq);//update
+}
+static void c33_enc2(short *buf, int *buf_mean, int *buf_conf, int bw, int x1, int x2, int y1, int y2, int nbits, unsigned long long *state, DList *list)
+{
+	int dx=x2-x1, dy=y2-y1;
+	for(int ky=y2-1;ky>=y1;--ky)
+	{
+		for(int kx=x2-1;kx>=x1;--kx)
+		{
+			for(int kc=2;kc>=0;--kc)
+			{
+				c33_enc3(bw, kx, ky, kc, nbits+(kc!=1), buf_mean, buf_conf, buf, state, list);
+			}
+		}
 	}
 }
 size_t codec33_encode(const unsigned char *src, int bw, int bh, ArrayHandle *data)
@@ -485,7 +742,7 @@ size_t codec33_encode(const unsigned char *src, int bw, int bh, ArrayHandle *dat
 
 	for(int ks=0, kd=0;ks<srclen-3;ks+=4, kd+=3)//color transform
 	{
-		buf[kd  ]=src[ks  ]-src[ks|1];//XGZ
+		buf[kd  ]=src[ks  ]-src[ks|1];//XGZ {9, 8, 9} bit
 		buf[kd+1]=src[ks|1]-128;
 		buf[kd+2]=src[ks|2]-src[ks|1];
 
@@ -508,11 +765,12 @@ size_t codec33_encode(const unsigned char *src, int bw, int bh, ArrayHandle *dat
 		return 0;
 	}
 	memset(aux, 0, auxlen);
-	int alen=aw*ah*3;
+	int alen=aw*ah*3, *result;
 	
 	for(int ks=0;ks<nsizes-1;++ks)
 	{
 		int dx=psizes[ks].w, dy=psizes[ks].h, px=dx>>1, py=dy>>1;
+		int aw2=px+2, ah2=py+2;
 		for(int kc=0;kc<3;++kc)
 			squeeze_2d_fwd(buf+kc, psizes, ks, ks+2, 3, 0, temprow);//squeeze transform from JPEG XL
 
@@ -528,11 +786,12 @@ size_t codec33_encode(const unsigned char *src, int bw, int bh, ArrayHandle *dat
 					short
 						curr=buf[idx],
 						left=kx?buf[idx-3]:0;
-					aux[aw*(ky+1)+kx+1]=curr-left;
+					aux[aw2*(ah2*kc+ky+1)+kx+1]=curr-left;
 				}
 			}
 		}
-		c33_enc_pred(buf+3*px, bw, px, py, aux, aw, ah, ctx.preproc_x, ctx.mainpart_x, buf_mean, buf_conf);
+		result=c33_enc_pred(buf+3*px, bw, px, py, 10, aux, aw2, ah2, 24*2, ctx.preproc_x, ctx.mainpart_x);
+		blit_meanconf(result, aw2, ah2, px, dx, 0, py, buf_mean, buf_conf, bw);
 
 		//diffy
 		memset(aux, 0, alen);
@@ -546,11 +805,12 @@ size_t codec33_encode(const unsigned char *src, int bw, int bh, ArrayHandle *dat
 					short
 						curr=buf[idx],
 						top=ky?buf[idx-3*bw]:0;
-					aux[aw*(ky+1)+kx+1]=curr-top;
+					aux[aw2*(ah2*kc+ky+1)+kx+1]=curr-top;
 				}
 			}
 		}
-		c33_enc_pred(buf+3*bw*py, bw, px, py, aux, aw, ah, ctx.preproc_y, ctx.mainpart_y, buf_mean, buf_conf);
+		result=c33_enc_pred(buf+3*bw*py, bw, px, py, 10, aux, aw2, ah2, 24*2, ctx.preproc_y, ctx.mainpart_y);
+		blit_meanconf(result, aw2, ah2, 0, px, py, dy, buf_mean, buf_conf, bw);
 			
 		//diffxy
 		memset(aux, 0, alen);
@@ -566,26 +826,40 @@ size_t codec33_encode(const unsigned char *src, int bw, int bh, ArrayHandle *dat
 						left=kx?buf[idx-3]:0,
 						top=ky?buf[idx-3*bw]:0,
 						topleft=kx&&ky?buf[idx-3*bw-3]:0;
-					aux[aw*(ky+1)+kx+1]=curr-left-top+topleft;
+					aux[aw2*(ah2*kc+ky+1)+kx+1]=curr-left-top+topleft;
 				}
 			}
 		}
-		c33_enc_pred(buf+3*(bw*py+px), bw, px, py, aux, aw, ah, ctx.preproc_xy, ctx.mainpart_xy, buf_mean, buf_conf);
+		result=c33_enc_pred(buf+3*(bw*py+px), bw, px, py, 11, aux, aw2, ah2, 24*2, ctx.preproc_xy, ctx.mainpart_xy);
+		blit_meanconf(result, aw2, ah2, px, dx, py, dy, buf_mean, buf_conf, bw);
 	}
-	array_free(&sizes);
+	blit_meanconf(0, 0, 0, 0, psizes[nsizes-1].w, 0, psizes[nsizes-1].h, buf_mean, buf_conf, bw);//bypass top-left subband
 	free(temprow);
 	free(aux);
 
-
+	//encode with adaptive ANS
 	DList list;
 	dlist_init(&list, 1, 1024, 0);
+	unsigned long long state=0x100000000;
+	for(int ks=0;ks<nsizes-1;++ks)
+	{
+		int dx=psizes[ks].w, dy=psizes[ks].h, px=dx>>1, py=dy>>1;
+		c33_enc2(buf, buf_mean, buf_conf, bw, px, dx,  0, py,  9, &state, &list);
+		c33_enc2(buf, buf_mean, buf_conf, bw,  0, px, py, dy,  9, &state, &list);
+		c33_enc2(buf, buf_mean, buf_conf, bw, px, dx, py, dy, 10, &state, &list);
+	}
+	c33_enc2(buf, buf_mean, buf_conf, bw, 0, psizes[nsizes-1].w, 0, psizes[nsizes-1].h, 9, &state, &list);
+	dlist_push_back(&list, &state, 8);
 
-	//encode
-
+#if 1
+	save_32bit("buf_mean.PNG",   buf_mean, bw, bh, 3, 0);
+	save_32bit("buf_lgconf.PNG", buf_conf, bw, bh, 3, 0);
+#endif
 
 	dlist_appendtoarray(&list, data);
 	dlist_clear(&list);
-
+	
+	array_free(&sizes);
 	free(buf_mean);
 	free(buf_conf);
 	free(buf);

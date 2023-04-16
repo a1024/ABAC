@@ -85,8 +85,20 @@ void compare_bufs_ps(float *b1, float *b0, int iw, int ih, const char *name, int
 }
 
 
+void addbuf(unsigned char *buf, int iw, int ih, int nch, int bytestride, int ammount)
+{
+	for(int kp=0, len=iw*ih*bytestride;kp<len;kp+=bytestride)
+	{
+		for(int kc=0;kc<nch;++kc)
+			buf[kp+kc]+=ammount;
+	}
+}
+
+
 //YCoCg-R (lifting-based YCoCg)		8 bit <-> ps,  3 channels, pixel stride 4 bytes,  Y in [0, 1], Co/Cg in [-1, 1],  used by AVC/HEVC/VVC
+#ifndef CLAMP
 #define CLAMP(LO, X, HI)	(X<LO?LO:(X>HI?HI:X))
+#endif
 void YCoCg_8bit_ps_fwd(const unsigned char *src, ptrdiff_t res, float *bufY, float *bufCo, float *bufCg)
 {
 	const float gain=1.f/255;
@@ -115,6 +127,433 @@ void YCoCg_8bit_ps_inv(const float *bufY, const float *bufCo, const float *bufCg
 		G=CLAMP(0, G, 255);
 		B=CLAMP(0, B, 255);
 		dst[idx]=R, dst[idx|1]=G, dst[idx|3]=B;
+	}
+}
+
+void colortransform_xgz_fwd(char *buf, int iw, int ih)//3 channels, stride 4 bytes
+{
+	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
+	{
+		char r=buf[k], g=buf[k|1], b=buf[k|2];
+
+		r-=g;
+		b-=g;
+
+		buf[k  ]=r;
+		buf[k|1]=g;
+		buf[k|2]=b;
+	}
+}
+void colortransform_xgz_inv(char *buf, int iw, int ih)//3 channels, stride 4 bytes
+{
+	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
+	{
+		char r=buf[k], g=buf[k|1], b=buf[k|2];
+
+		b+=g;
+		r+=g;
+
+		buf[k  ]=r;
+		buf[k|1]=g;
+		buf[k|2]=b;
+	}
+}
+void colortransform_xyz_fwd(char *buf, int iw, int ih)//3 channels, stride 4 bytes
+{
+	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
+	{
+		char r=buf[k], g=buf[k|1], b=buf[k|2];
+
+		r-=g;//what is this transform?
+		b-=g;
+		g-=(r+b)>>1;
+
+		buf[k  ]=r;
+		buf[k|1]=g;
+		buf[k|2]=b;
+
+		//buf[k  ]=r-g+128;//XGZ
+		//buf[k|1]=g;
+		//buf[k|2]=b-g+128;
+
+		//buf[k  ]=r;//RYZ
+		//buf[k|1]=g-r+128;
+		//buf[k|2]=b-r+128;
+
+		//buf[k  ]=r-b+128;//XYBdash
+		//buf[k|1]=g-b+128;
+		//buf[k|2]=b;
+	}
+}
+void colortransform_xyz_inv(char *buf, int iw, int ih)//3 channels, stride 4 bytes
+{
+	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
+	{
+		char r=buf[k], g=buf[k|1], b=buf[k|2];
+
+		g+=(r+b)>>1;//what is this transform???
+		b+=g;
+		r+=g;
+
+		buf[k  ]=r;
+		buf[k|1]=g;
+		buf[k|2]=b;
+	}
+}
+void colortransform_ycocg_fwd(char *buf, int iw, int ih)//3 channels, stride 4 bytes
+{
+	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
+	{
+		char r=buf[k], g=buf[k|1], b=buf[k|2];
+
+		r-=b;
+		b+=r>>1;
+		g-=b;
+		r+=g>>1;
+
+		buf[k  ]=r;
+		buf[k|1]=g;
+		buf[k|2]=b;
+	}
+}
+void colortransform_ycocg_inv(char *buf, int iw, int ih)//3 channels, stride 4 bytes
+{
+	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
+	{
+		char r=buf[k], g=buf[k|1], b=buf[k|2];
+		
+		r-=g>>1;
+		g+=b;
+		b-=r>>1;
+		r+=b;
+
+		buf[k  ]=r;
+		buf[k|1]=g;
+		buf[k|2]=b;
+	}
+}
+
+
+//lifting-based 8bit Haar DWT
+void dwt1d_haar_fwd(char *buffer, int count, int stride, char *b2)
+{
+	int nodd=count>>1, extraeven=count&1;
+	char *odd=b2, *even=b2+nodd;
+	
+	for(int k=0, ks=0;k<nodd;++k, ks+=stride<<1)//lazy wavelet: split into odd (low frequency) & even (high frequency)
+	{
+		even[k]=buffer[ks];
+		odd[k]=buffer[ks+stride];
+	}
+	if(extraeven)
+		even[nodd]=buffer[stride*(count-1)];
+
+
+	for(int k=0;k<nodd;++k)//predict
+		even[k]-=odd[k];
+	if(extraeven)
+		even[nodd]-=odd[nodd-1];
+	
+	for(int k=0;k<nodd;++k)//update
+		odd[k]+=even[k]>>1;
+
+
+	for(int k=0, ks=0;k<count;++k, ks+=stride)
+		buffer[ks]=b2[k];
+}
+void dwt1d_haar_inv(char *buffer, int count, int stride, char *b2)
+{
+	int nodd=count>>1, extraeven=count&1;
+	char *odd=b2, *even=b2+nodd;
+
+	for(int k=0, ks=0;k<count;++k, ks+=stride)
+		b2[k]=buffer[ks];
+	
+	
+	for(int k=0;k<nodd;++k)//unupdate
+		odd[k]-=even[k]>>1;
+	
+	for(int k=0;k<nodd;++k)//unpredict
+		even[k]+=odd[k];
+	if(extraeven)
+		even[nodd]+=odd[nodd-1];
+
+
+	for(int k=0, ks=0;k<nodd;++k, ks+=stride<<1)//inv lazy wavelet: join even & odd
+	{
+		buffer[ks]=even[k];
+		buffer[ks+stride]=odd[k];
+	}
+	if(extraeven)
+		buffer[stride*(count-1)]=even[nodd];
+}
+void dwt2d_haar_fwd(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp)//temp size is maxdim*sizeof(short)
+{
+	if(sizes_start>=sizes_end-1)
+		return;
+	int iw=sizes->w, ih=sizes->h, tsize=MAXVAR(iw, ih), rowlen=stride*iw;
+	for(int it=sizes_start;it<sizes_end-1;++it)
+	{
+		int w2=sizes[it].w, h2=sizes[it].h;
+
+		for(int ky=0;ky<h2;++ky)//horizontal DWT
+			dwt1d_haar_fwd(buffer+rowlen*ky, w2, stride, temp);
+
+		//save_channel(buffer, iw, ih, 4, "cdf53-stage%02dA.PNG", it);
+		//snprintf(g_buf, G_BUF_SIZE, "cdf53-stage%02dA.PNG", it);
+		//lodepng_encode_file(g_buf, buffer, iw, ih, LCT_RGBA, 8);
+
+		for(int kx=0;kx<w2;++kx)//vertical DWT
+			dwt1d_haar_fwd(buffer+stride*kx, h2, rowlen, temp);
+		
+		//save_channel(buffer, iw, ih, 4, "cdf53-stage%02dB.PNG", it);
+	}
+}
+void dwt2d_haar_inv(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp)//temp size is maxdim*sizeof(short)
+{
+	if(sizes_start>=sizes_end-1)
+		return;
+	int iw=sizes->w, ih=sizes->h, tsize=MAXVAR(iw, ih), rowlen=stride*iw;
+	for(int it=sizes_end-2;it>=sizes_start;--it)
+	{
+		int w2=sizes[it].w, h2=sizes[it].h;
+
+		for(int kx=0;kx<w2;++kx)//vertical IDWT
+			dwt1d_haar_inv(buffer+stride*kx, h2, rowlen, temp);
+
+		for(int ky=0;ky<h2;++ky)//horizontal IDWT
+			dwt1d_haar_inv(buffer+rowlen*ky, w2, stride, temp);
+	}
+}
+
+//lifting-based 8bit CDF 5/3 DWT
+void dwt1d_cdf53_fwd(char *buffer, int count, int stride, char *b2)
+{
+	int nodd=count>>1, extraeven=count&1;
+	char *odd=b2, *even=b2+nodd;
+	
+	for(int k=0, ks=0;k<nodd;++k, ks+=stride<<1)//lazy wavelet: split into odd (low frequency) & even (high frequency)
+	{
+		even[k]=buffer[ks];
+		odd[k]=buffer[ks+stride];
+	}
+	if(extraeven)
+		even[nodd]=buffer[stride*(count-1)];
+
+
+	even[0]-=odd[0];
+	for(int k=1;k<nodd;++k)//predict
+		even[k]-=(odd[k-1]+odd[k])>>1;
+	if(extraeven)
+		even[nodd]-=odd[nodd-1];
+	
+	for(int k=0;k<nodd-!extraeven;++k)//update
+		odd[k]+=(even[k]+even[k+1])>>2;
+	if(!extraeven)
+		odd[nodd-1]+=even[nodd-1]>>1;
+
+#if 0
+	for(int k=0;k<nodd-!extraeven;++k)//predict
+		odd[k]+=128-((even[k]+even[k+1])>>1);
+	if(!extraeven)
+		odd[nodd-1]+=128-even[nodd-1];
+	
+	even[0]+=(odd[0]-128)>>1;
+	for(int k=1;k<nodd-1;++k)//update
+		even[k]+=(odd[k]+odd[k+1])>>2;
+	if(extraeven)
+		even[nodd]+=(odd[nodd-1]-128)>>1;
+#endif
+
+
+	for(int k=0, ks=0;k<count;++k, ks+=stride)
+		buffer[ks]=b2[k];
+}
+void dwt1d_cdf53_inv(char *buffer, int count, int stride, char *b2)
+{
+	int nodd=count>>1, extraeven=count&1;
+	char *odd=b2, *even=b2+nodd;
+
+	for(int k=0, ks=0;k<count;++k, ks+=stride)
+		b2[k]=buffer[ks];
+
+	
+	for(int k=0;k<nodd-!extraeven;++k)//un-update
+		odd[k]-=(even[k]+even[k+1])>>2;
+	if(!extraeven)
+		odd[nodd-1]-=even[nodd-1]>>1;
+	
+	even[0]+=odd[0];
+	for(int k=1;k<nodd;++k)//un-predict
+		even[k]+=(odd[k-1]+odd[k])>>1;
+	if(extraeven)
+		even[nodd]+=odd[nodd-1];
+
+
+	for(int k=0, ks=0;k<nodd;++k, ks+=stride<<1)//inv lazy wavelet: join even & odd
+	{
+		buffer[ks]=even[k];
+		buffer[ks+stride]=odd[k];
+	}
+	if(extraeven)
+		buffer[stride*(count-1)]=even[nodd];
+}
+void dwt2d_cdf53_fwd(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp)//temp size is maxdim*sizeof(short)
+{
+	if(sizes_start>=sizes_end-1)
+		return;
+	int iw=sizes->w, ih=sizes->h, tsize=MAXVAR(iw, ih), rowlen=stride*iw;
+	for(int it=sizes_start;it<sizes_end-1;++it)
+	{
+		int w2=sizes[it].w, h2=sizes[it].h;
+
+		for(int ky=0;ky<h2;++ky)//horizontal DWT
+			dwt1d_cdf53_fwd(buffer+rowlen*ky, w2, stride, temp);
+
+		//save_channel(buffer, iw, ih, 4, "cdf53-stage%02dA.PNG", it);
+		//snprintf(g_buf, G_BUF_SIZE, "cdf53-stage%02dA.PNG", it);
+		//lodepng_encode_file(g_buf, buffer, iw, ih, LCT_RGBA, 8);
+
+		for(int kx=0;kx<w2;++kx)//vertical DWT
+			dwt1d_cdf53_fwd(buffer+stride*kx, h2, rowlen, temp);
+		
+		//save_channel(buffer, iw, ih, 4, "cdf53-stage%02dB.PNG", it);
+	}
+}
+void dwt2d_cdf53_inv(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp)//temp size is maxdim*sizeof(short)
+{
+	if(sizes_start>=sizes_end-1)
+		return;
+	int iw=sizes->w, ih=sizes->h, tsize=MAXVAR(iw, ih), rowlen=stride*iw;
+	for(int it=sizes_end-2;it>=sizes_start;--it)
+	{
+		int w2=sizes[it].w, h2=sizes[it].h;
+
+		for(int kx=0;kx<w2;++kx)//vertical IDWT
+			dwt1d_cdf53_inv(buffer+stride*kx, h2, rowlen, temp);
+
+		for(int ky=0;ky<h2;++ky)//horizontal IDWT
+			dwt1d_cdf53_inv(buffer+rowlen*ky, w2, stride, temp);
+	}
+}
+
+//lifting-based 8bit CDF 9/7 DWT
+static const int cdf97_coeff[]=
+{
+	//'factring wavelet transforms into lifting steps' - page 19
+	//'a wavelet tour of signal processing - the sparse way' - page 376
+	-0x1960C,	//-1.58613434342059f,	//alpha
+	-0x00D90,	//-0.0529801185729f,	//beta
+	 0x0E206,	// 0.8829110755309f,	//gamma
+	 0x07189,	// 0.4435068520439f,	//delta
+				// 1.1496043988602f,	//zeta		output gain is 1.89
+};
+static void dwt1d_u8_predict(char *odd, char *even, int nodd, int extraeven, int coeff)
+{
+	even[0]-=odd[0]*coeff>>15;
+	for(int k=1;k<nodd;++k)//predict
+		even[k]-=(odd[k-1]+odd[k])*coeff>>16;
+	if(extraeven)
+		even[nodd]-=odd[nodd-1]*coeff>>15;
+}
+static void dwt1d_u8_update(char *odd, char *even, int nodd, int extraeven, int coeff)
+{
+	for(int k=0;k<nodd-!extraeven;++k)//update
+		odd[k]+=(even[k]+even[k+1])*coeff>>16;
+	if(!extraeven)
+		odd[nodd-1]+=even[nodd-1]*coeff>>15;
+}
+static void dwt1d_u8_unpredict(char *odd, char *even, int nodd, int extraeven, int coeff)
+{
+	even[0]+=odd[0]*coeff>>15;
+	for(int k=1;k<nodd;++k)//unpredict
+		even[k]+=(odd[k-1]+odd[k])*coeff>>16;
+	if(extraeven)
+		even[nodd]+=odd[nodd-1]*coeff>>15;
+}
+static void dwt1d_u8_unupdate(char *odd, char *even, int nodd, int extraeven, int coeff)
+{
+	for(int k=0;k<nodd-!extraeven;++k)//unupdate
+		odd[k]-=(even[k]+even[k+1])*coeff>>16;
+	if(!extraeven)
+		odd[nodd-1]-=even[nodd-1]*coeff>>15;
+}
+void dwt1d_cdf97_fwd(char *buffer, int count, int stride, char *b2)
+{
+	int nodd=count>>1, extraeven=count&1;
+	char *odd=b2, *even=b2+nodd;
+	
+	for(int k=0, ks=0;k<nodd;++k, ks+=stride<<1)//lazy wavelet: split into odd (low frequency) & even (high frequency)
+	{
+		even[k]=buffer[ks];
+		odd[k]=buffer[ks+stride];
+	}
+	if(extraeven)
+		even[nodd]=buffer[stride*(count-1)];
+
+	dwt1d_u8_predict(odd, even, nodd, extraeven, cdf97_coeff[3]);
+	dwt1d_u8_update (odd, even, nodd, extraeven, cdf97_coeff[2]);
+	dwt1d_u8_predict(odd, even, nodd, extraeven, cdf97_coeff[1]);
+	dwt1d_u8_update (odd, even, nodd, extraeven, cdf97_coeff[0]);
+
+	for(int k=0, ks=0;k<count;++k, ks+=stride)
+		buffer[ks]=b2[k];
+}
+void dwt1d_cdf97_inv(char *buffer, int count, int stride, char *b2)
+{
+	int nodd=count>>1, extraeven=count&1;
+	char *odd=b2, *even=b2+nodd;
+
+	for(int k=0, ks=0;k<count;++k, ks+=stride)
+		b2[k]=buffer[ks];
+	
+	dwt1d_u8_unupdate (odd, even, nodd, extraeven, cdf97_coeff[0]);
+	dwt1d_u8_unpredict(odd, even, nodd, extraeven, cdf97_coeff[1]);
+	dwt1d_u8_unupdate (odd, even, nodd, extraeven, cdf97_coeff[2]);
+	dwt1d_u8_unpredict(odd, even, nodd, extraeven, cdf97_coeff[3]);
+
+	for(int k=0, ks=0;k<nodd;++k, ks+=stride<<1)//inv lazy wavelet: join even & odd
+	{
+		buffer[ks]=even[k];
+		buffer[ks+stride]=odd[k];
+	}
+	if(extraeven)
+		buffer[stride*(count-1)]=even[nodd];
+}
+void dwt2d_cdf97_fwd(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp)//temp size is maxdim*sizeof(short)
+{
+	if(sizes_start>=sizes_end-1)
+		return;
+	int iw=sizes->w, ih=sizes->h, tsize=MAXVAR(iw, ih), rowlen=stride*iw;
+	for(int it=sizes_start;it<sizes_end-1;++it)
+	{
+		int w2=sizes[it].w, h2=sizes[it].h;
+
+		for(int ky=0;ky<h2;++ky)//horizontal DWT
+			dwt1d_cdf97_fwd(buffer+rowlen*ky, w2, stride, temp);
+
+		//save_channel(buffer, iw, ih, 4, "cdf53-stage%02dA.PNG", it);
+
+		for(int kx=0;kx<w2;++kx)//vertical DWT
+			dwt1d_cdf97_fwd(buffer+stride*kx, h2, rowlen, temp);
+		
+		//save_channel(buffer, iw, ih, 4, "cdf53-stage%02dB.PNG", it);
+	}
+}
+void dwt2d_cdf97_inv(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp)//temp size is maxdim*sizeof(short)
+{
+	if(sizes_start>=sizes_end-1)
+		return;
+	int iw=sizes->w, ih=sizes->h, tsize=MAXVAR(iw, ih), rowlen=stride*iw;
+	for(int it=sizes_end-2;it>=sizes_start;--it)
+	{
+		int w2=sizes[it].w, h2=sizes[it].h;
+
+		for(int kx=0;kx<w2;++kx)//vertical IDWT
+			dwt1d_cdf97_inv(buffer+stride*kx, h2, rowlen, temp);
+
+		for(int ky=0;ky<h2;++ky)//horizontal IDWT
+			dwt1d_cdf97_inv(buffer+rowlen*ky, w2, stride, temp);
 	}
 }
 
@@ -147,7 +586,7 @@ ArrayHandle dwt2d_gensizes(int iw, int ih, int wstop, int hstop, int nstages_ove
 	}
 	return sizes;
 }
-const float dwt97_coeff[]=
+static const float dwt97_coeff[]=
 {
 	//'factring wavelet transforms into lifting steps' - page 19
 	//'a wavelet tour of signal processing - the sparse way' - page 376
