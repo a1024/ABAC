@@ -2053,7 +2053,7 @@ size_t test3_encode(const void *src, int bw, int bh, int symbytes, int bytestrid
 
 	if(diff==2)
 	{
-		differentiate_image(b2, bw, bh, symbytes, bytestride);
+		image_differentiate(b2, bw, bh, symbytes, bytestride);
 #ifdef SAVE_DIFF2
 		lodepng_encode_file("diff.PNG", b2, bw, bh, LCT_RGBA, 8);//DEBUG SAVE
 #endif
@@ -2548,7 +2548,7 @@ int    test3_decode(const void *src, ptrdiff_t srclen, int iw, int ih, int symby
 #ifdef SAVE_DIFF2
 		lodepng_encode_file("diff2.PNG", buf, iw, ih, LCT_RGBA, 8);//DEBUG SAVE
 #endif
-		integrate_image(buf, iw, ih, symbytes, bytestride);
+		image_integrate(buf, iw, ih, symbytes, bytestride);
 	}
 #ifdef SAVE_OUT
 	lodepng_encode_file("out.PNG", buf, iw, ih, LCT_RGBA, 8);//DEBUG SAVE

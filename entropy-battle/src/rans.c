@@ -178,14 +178,17 @@ static int rans_prep(const void *hist_ptr, int symbytes, SymbolInfo **info, unsi
 
 			if(p->freq<2)//0 freq: don't care, 1 freq:		//Ryg's fast rANS encoder
 			{
-				p->shift=0;
-				p->inv_freq=0xFFFFFFFF;
+				p->inv_freq=0xFFFFFFFFFFFFFFFF;
+			//	p->shift=0;
+			//	p->inv_freq=0xFFFFFFFF;
 				p->bias=sum+ANS_L-1;
 			}
 			else
 			{
-				p->shift=ceil_log2(p->freq)-1;
-				p->inv_freq=(unsigned)(((0x100000000<<p->shift)+p->freq-1)/p->freq);
+				unsigned long long dummy=0;
+				p->inv_freq=_udiv128(1, 0, p->freq, &dummy);
+			//	p->shift=ceil_log2(p->freq)-1;
+			//	p->inv_freq=(unsigned)(((0x100000000<<p->shift)+p->freq-1)/p->freq);
 				p->bias=sum;
 			}
 			if(p->freq)
@@ -233,6 +236,26 @@ static int rans_prep(const void *hist_ptr, int symbytes, SymbolInfo **info, unsi
 }
 
 static const int tag_rans4='A'|'N'<<8|'0'<<16|'4'<<24;
+void umul128_64_trunc128(unsigned long long *res, const unsigned long long *a, const unsigned long long b)
+{
+	unsigned long long t=0, t2;
+	res[0]=_umul128(a[0], b, &t);
+	res[1]=_umul128(a[1], b, &t2)+t;
+}
+void umul128_64(unsigned long long *res, const unsigned long long *a, const unsigned long long b)
+{
+	unsigned long long t=0;
+	res[0]=_umul128(a[0], b, &t);
+	res[1]=_umul128(a[1], b, res+2)+t;
+	res[2]+=res[1]<t;
+
+	//unsigned long long lo[2]={0}, hi[2]={0};
+	//lo[0]=_umul128(a[0], b, lo+1);
+	//hi[0]=_umul128(a[1], b, hi+1);
+	//res[0]=lo[0];
+	//res[1]=lo[1]+hi[0];
+	//res[2]=hi[1]+(res[1]<lo[1]);
+}
 int rans4_encode(const void *src, ptrdiff_t nsymbols, int symbytes, int bytestride, ArrayHandle *out, unsigned short *custom_pred)//symbytes: up to 16
 {
 	const int infosize=ANS_NLEVELS*sizeof(SymbolInfo), lginfosize=13;
@@ -301,8 +324,20 @@ int rans4_encode(const void *src, ptrdiff_t nsymbols, int symbytes, int bytestri
 #ifdef ANS_PRINT_STATE2
 			printf("enc: 0x%08X = 0x%08X+(0x%08X*0x%08X>>(32+%d))*0x%04X+0x%08X\n", state+((unsigned)((long long)state*si.inv_freq>>32)>>si.shift)*si.neg_freq+si.bias, state, state, si.inv_freq, si.shift, si.neg_freq, si.bias);
 #endif
-			state+=(((long long)state*p->inv_freq>>32)>>p->shift)*p->neg_freq+p->bias;//Ryg's division-free rANS encoder	https://github.com/rygorous/ryg_rans/blob/master/rans_byte.h
-			//state=(state/p->freq<<ANS_PROB_BITS)+state%p->freq+p->CDF;
+			//state+=(((long long)state*p->inv_freq>>32)>>p->shift)*p->neg_freq+p->bias;//Ryg's division-free rANS encoder	https://github.com/rygorous/ryg_rans/blob/master/rans_byte.h
+#if 0
+			unsigned s1=state, s2;
+			unsigned long long q[2]={0}, xfif[2];
+			q[0]=_umul128(s1, p->inv_freq, q+1);
+			umul128_64_trunc128(xfif, q, p->freq);
+			q[1]+=xfif[1]<s1;
+			//qhi+=qlo>>63;
+			s2=s1+(unsigned)(q[1]*p->neg_freq)+p->bias;
+#endif
+			//unsigned s1=state, s2=s1+(((long long)s1*p->inv_freq>>32)>>p->shift)*p->neg_freq+p->bias;
+			state=state/p->freq<<ANS_PROB_BITS|(p->CDF+state%p->freq);
+			//if(s2!=state)
+			//	LOG_ERROR("Debug break");
 			PROF(UPDATE);
 		}
 	}
@@ -3630,5 +3665,228 @@ int test10_decode(const unsigned char *data, size_t srclen, int bw, int bh, unsi
 	apply_transforms_inv(buf, bw, bh);
 
 	free(CDFs);
+	return 1;
+}
+
+
+void t14_calc_sdev(const unsigned char *b2, int iw, int ih, int lgblockdim, int x1, int y1, unsigned char *sdev)
+{
+	int blockdim=1<<lgblockdim;
+	int xend=MINVAR(x1+blockdim, iw),
+		yend=MINVAR(y1+blockdim, ih), count=(xend-x1)*(yend-y1);
+	unsigned long long variance[3]={0};
+	//memset(sdev, 0, 3*sizeof(long long));
+	for(int ky=y1;ky<yend;++ky)
+	{
+		for(int kx=x1;kx<xend;++kx)
+		{
+			int idx=(iw*ky+kx)<<2;
+			for(int kc=0;kc<3;++kc)
+			{
+				int val=b2[idx|kc]-128;
+				variance[kc]+=val*val;
+			}
+		}
+	}
+	unsigned temp[]=
+	{
+		(unsigned)ceil(sqrt((double)(variance[0]<<2)/count)),//8 bit
+		(unsigned)ceil(sqrt((double)(variance[1]<<2)/count)),
+		(unsigned)ceil(sqrt((double)(variance[2]<<2)/count)),
+	};
+	if(!temp[0])//
+		temp[0]=0;
+	if(!temp[1])//
+		temp[1]=0;
+	if(!temp[2])//
+		temp[2]=0;
+
+	for(int kc=0;kc<3;++kc)
+	{
+		if(temp[kc]>255)
+			sdev[kc]=255;
+		else
+			sdev[kc]=temp[kc];
+	}
+	sdev[3]=0;
+
+	//sdev[0]=(sdev[0]<<16)/count;
+	//sdev[1]=(sdev[1]<<16)/count;
+	//sdev[2]=(sdev[2]<<16)/count;
+	//sdev[0]=(unsigned long long)(sqrt(sdev[0]/65536.)*65536.);//7.16 bit
+	//sdev[1]=(unsigned long long)(sqrt(sdev[1]/65536.)*65536.);
+	//sdev[2]=(unsigned long long)(sqrt(sdev[2]/65536.)*65536.);
+
+	//int sh=16-(lgblockdim<<1);
+	//if(sh>0)//divide by block pixel count, 16 bit fixed precision
+	//{
+	//	variance[0]<<=sh;
+	//	variance[1]<<=sh;
+	//	variance[2]<<=sh;
+	//}
+	//else
+	//{
+	//	variance[0]>>=-sh;
+	//	variance[1]>>=-sh;
+	//	variance[2]>>=-sh;
+	//}
+}
+int t14_sdev_bilinear(int xtail, int ytail, unsigned char TL, unsigned char TR, unsigned char BL, unsigned char BR)
+{
+	int top, bot;
+	top=(TL<<16)+(TR-TL)*xtail;
+	bot=(BL<<16)+(BR-BL)*xtail;
+	top=top+(int)((long long)(bot-top)*ytail>>16);
+	return top;
+}
+int t14_enc2(unsigned char *b2, int bw, int bh, int lgblockdim, ArrayHandle *data)
+{
+	apply_transforms_fwd(b2, bw, bh);
+	DList list;
+	dlist_init(&list, 1, 1024, 0);
+	
+	int blockdim=1<<lgblockdim;
+	int w2=(bw+blockdim-1)/blockdim,
+		h2=(bh+blockdim-1)/blockdim, res2=w2*h2;
+	unsigned char *sdev=(unsigned char*)malloc((size_t)res2<<2);
+	if(!sdev)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	
+	memset(sdev, 0xFF, (size_t)res2<<2);
+	for(int ky=0;ky<h2;++ky)
+	{
+		for(int kx=0;kx<w2;++kx)//for each block
+		{
+			t14_calc_sdev(b2, bw, bh, lgblockdim, blockdim*kx, blockdim*ky, sdev+(((size_t)w2*ky+kx)<<2));
+			
+			//if(!sdev[(w2*ky+kx)<<2])//
+			//	sdev[(w2*ky+kx)<<2]=0;
+			//if(!sdev[(w2*ky+kx)<<2|1])//
+			//	sdev[(w2*ky+kx)<<2|1]=0;
+			//if(!sdev[(w2*ky+kx)<<2|2])//
+			//	sdev[(w2*ky+kx)<<2|2]=0;
+
+			//if(sdev[(w2*ky+kx)<<2]==0xFF||sdev[(w2*ky+kx)<<2|1]==0xFF||sdev[(w2*ky+kx)<<2|2]==0xFF)//
+			//if(!sdev[(w2*ky+kx)<<2]||!sdev[(w2*ky+kx)<<2|1]||!sdev[(w2*ky+kx)<<2|2])//
+			//	LOG_ERROR("Debug break");
+		}
+	}
+	unsigned state=0x10000;
+	unsigned mask=(1<<lgblockdim)-1, half=1<<(lgblockdim-1);
+	int sh=16-lgblockdim;
+	for(int ky=bh-1;ky>=0;--ky)
+	{
+		for(int kx=bw-1;kx>=0;--kx)
+		{
+			int kx2=kx>>lgblockdim, ky2=ky>>lgblockdim;
+			int idx=(bw*ky+kx)<<2;
+			
+			kx2-=kx<(int)(kx&~mask|half);//get current quartet coords
+			ky2-=ky<(int)(ky&~mask|half);
+			int x1=kx2>0?kx2-1:0;
+			int y1=ky2>0?ky2-1:0;
+			int x2=kx2<w2-1?kx2+1:w2-1;
+			int y2=ky2<h2-1?ky2+1:h2-1;
+			unsigned quad[]=
+			{
+				((unsigned*)sdev)[w2*y1+x1], ((unsigned*)sdev)[w2*y1+x2],
+				((unsigned*)sdev)[w2*y2+x2], ((unsigned*)sdev)[w2*y2+x2],
+			};
+			//kx2+=kx>=(int)(kx&~mask|half);//get current quartet coords
+			//ky2+=ky>=(int)(ky&~mask|half);
+			//kx2-=kx2>=w2;
+			//ky2-=ky2>=h2;
+			//decx=kx2>0;
+			//decy=ky2>0;
+			//unsigned quad[]=
+			//{
+			//	((unsigned*)sdev)[w2*(ky2-decy)+kx2-decx], ((unsigned*)sdev)[w2*(ky2-decy)+kx2],
+			//	((unsigned*)sdev)[w2* ky2      +kx2-decx], ((unsigned*)sdev)[w2* ky2      +kx2],
+			//};
+			const unsigned char *comp=(const unsigned char*)quad;
+			unsigned xtail=(kx+half)&mask, ytail=(ky+half)&mask;
+			if(sh>0)
+			{
+				xtail<<=sh;
+				ytail<<=sh;
+			}
+			else
+			{
+				xtail>>=-sh;
+				ytail>>=-sh;
+			}
+			for(int kc=2;kc>=0;--kc)
+			{
+				int sdev=t14_sdev_bilinear(xtail, ytail, comp[kc], comp[kc+4], comp[kc+8], comp[kc+12]);//calculate sdev with bilinear interpolation
+
+				double v2[]={comp[kc], comp[kc+4], comp[kc+8], comp[kc+12]};
+				double top=v2[0]+(v2[1]-v2[0])*(xtail/65536.);
+				double bot=v2[2]+(v2[3]-v2[2])*(xtail/65536.);
+				double mid=top+(bot-top)*(ytail/65536.);
+				if(fabs(mid-sdev/65536.)>0x2p-16)
+					LOG_ERROR("Debug break");
+
+				unsigned char sym=b2[idx|kc];
+				if(sdev)
+				{
+					long long start=-0x8000000000/sdev, end=0x7F00000000/sdev, curr=((long long)(sym-128)<<32)/sdev, next=((long long)(sym+1-128)<<32)/sdev;
+					start=error_func_p32(start)<<8;
+					end=error_func_p32(end)<<8|0xFF;
+					curr=error_func_p32(curr)<<8|sym;
+					next=(error_func_p32(next)<<8)+((long long)sym+1);
+					int den=end-start;
+					if(!den)
+						LOG_ERROR("Division by zero");
+					unsigned cdf=(unsigned)(((curr-start)<<16)/den), freq=(unsigned)(((next-curr)<<16)/den);
+					//unsigned cdf=(unsigned)(((long long)(curr-start)<<16)/den), freq=(unsigned)(((long long)(next-curr)<<16)/den);
+					
+					if(!freq)
+						LOG_ERROR("Division by zero");
+
+					if(state>=(freq<<16))//renorm
+					{
+						dlist_push_back(&list, &state, 2);
+						state>>=16;
+					}
+					state=state/freq<<16|(cdf+state%freq);//update
+				}
+				//if not sdev (const 128) don't encode block
+			}
+		}
+	}
+
+	size_t dststart=0;
+	if(*data)
+	{
+		if(data[0]->esize!=1)
+			LOG_ERROR("Invalid destination array");
+		dststart=data[0]->count;
+	}
+	dlist_appendtoarray(&list, data);
+	memcpy(data[0]->data+dststart, &list.nobj, 4);
+
+	dlist_clear(&list);
+	//if(w2>1||h2>1)
+	//	t14_enc2(sdev, w2, h2, lgblockdim, data);
+	//else
+	//	ARRAY_APPEND(*data, sdev, (size_t)res2<<2, 1, 0);
+	free(sdev);
+	return 1;
+}
+size_t test14_encode(const unsigned char *src, int bw, int bh, int lgblockdim, ArrayHandle *data)
+{
+	int res=bw*bh;
+	unsigned char *b2=(unsigned char*)malloc((size_t)res<<2);
+	if(!b2)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	memcpy(b2, src, (size_t)res<<2);
+	t14_enc2(b2, bw, bh, lgblockdim, data);
+	free(b2);
 	return 1;
 }

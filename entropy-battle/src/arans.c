@@ -158,14 +158,14 @@ int rans_prep(const void *hist_ptr, int bytespersymbol, SymbolInfo **info, unsig
 
 			if(p->freq<2)//0 freq: don't care, 1 freq:		//Ryg's fast rANS encoder
 			{
-				p->shift=0;
-				p->inv_freq=0xFFFFFFFF;
+			//	p->shift=0;
+			//	p->inv_freq=0xFFFFFFFF;
 				p->bias=sum+ANS_L-1;
 			}
 			else
 			{
-				p->shift=ceil_log2(p->freq)-1;
-				p->inv_freq=(unsigned)(((0x100000000<<p->shift)+p->freq-1)/p->freq);
+			//	p->shift=ceil_log2(p->freq)-1;
+			//	p->inv_freq=(unsigned)(((0x100000000<<p->shift)+p->freq-1)/p->freq);
 				p->bias=sum;
 			}
 			if(p->freq)

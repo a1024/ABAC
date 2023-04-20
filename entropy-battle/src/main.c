@@ -281,50 +281,6 @@ void print_pairwisehist(int *phist)
 	}
 	printf("\n");
 }
-void differentiate_image(unsigned char *buf, int iw, int ih, int nch, int bytestride)
-{
-	int rowlen=iw*bytestride;
-	for(int kc=0;kc<nch;++kc)
-	{
-		int idx=(iw*ih-1)*bytestride+kc;
-		for(int ky=ih-1;ky>=0;--ky)
-		{
-			for(int kx=iw-1;kx>=0;--kx, idx-=bytestride)
-			{
-				unsigned char
-					left=kx?buf[idx-bytestride]:0,
-					top=ky?buf[idx-rowlen]:0,
-					topleft=kx&&ky?buf[idx-rowlen-bytestride]:0,
-					sub=left+top-topleft;
-				if(kx||ky)
-					sub-=128;
-				buf[idx]-=sub;
-			}
-		}
-	}
-}
-void integrate_image(unsigned char *buf, int iw, int ih, int nch, int bytestride)
-{
-	int rowlen=iw*bytestride;
-	for(int kc=0;kc<nch;++kc)
-	{
-		int idx=kc;
-		for(int ky=0;ky<ih;++ky)
-		{
-			for(int kx=0;kx<iw;++kx, idx+=bytestride)
-			{
-				unsigned char
-					left=kx?buf[idx-bytestride]:0,
-					top=ky?buf[idx-rowlen]:0,
-					topleft=kx&&ky?buf[idx-rowlen-bytestride]:0,
-					sub=left+top-topleft;
-				if(kx||ky)
-					sub-=128;
-				buf[idx]+=sub;
-			}
-		}
-	}
-}
 void image_pred(unsigned char *buf, int iw, int ih, int nch, int bytestride)
 {
 	int rowlen=iw*bytestride;
@@ -546,7 +502,7 @@ void save_squeeze(const char *name, short *buf, DWTSize *sizes, int nsizes, int 
 	}
 	free(b2);
 }
-void save_channel(unsigned char *buf, int iw, int ih, int stride, const char *format, ...)
+void save_channel(unsigned char *buf, int iw, int ih, int stride, int val_offset, const char *format, ...)
 {
 	va_list args;
 	va_start(args, format);
@@ -557,7 +513,7 @@ void save_channel(unsigned char *buf, int iw, int ih, int stride, const char *fo
 	if(!b2)
 		return;
 	for(int ks=0, kd=0, res=iw*ih;kd<res;ks+=stride, ++kd)
-		b2[kd]=buf[ks];
+		b2[kd]=buf[ks]+val_offset;
 
 	lodepng_encode_file(g_buf, b2, iw, ih, LCT_GREY, 8);
 	free(b2);
@@ -621,48 +577,6 @@ void print_hist32(unsigned *hist, int nlevels, int all)
 	}
 	printf("\n");
 }
-void apply_transforms_fwd(unsigned char *buf, int bw, int bh)
-{
-	ArrayHandle sizes=dwt2d_gensizes(bw, bh, 3, 3, 0);
-	unsigned char *temp=(unsigned char*)malloc(MAXVAR(bw, bh));
-
-	addbuf(buf, bw, bh, 3, 4, 128);//unsigned char -> signed char
-
-	//colortransform_ycocg_fwd((char*)buf, bw, bh);
-	colortransform_xgz_fwd((char*)buf, bw, bh);
-	//colortransform_xyz_fwd((char*)buf, bw, bh);
-
-	for(int kc=0;kc<3;++kc)
-		dwt2d_haar_fwd((char*)buf+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, (char*)temp);
-		//dwt2d_cdf53_fwd((char*)buf+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, (char*)temp);
-		//dwt2d_cdf97_fwd((char*)buf+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, (char*)temp);
-
-	addbuf(buf, bw, bh, 3, 4, 128);
-
-	free(temp);
-	array_free(&sizes);
-}
-void apply_transforms_inv(unsigned char *buf, int bw, int bh)
-{
-	ArrayHandle sizes=dwt2d_gensizes(bw, bh, 3, 3, 0);
-	unsigned char *temp=(unsigned char*)malloc(MAXVAR(bw, bh));
-	
-	addbuf(buf, bw, bh, 3, 4, 128);
-
-	for(int kc=0;kc<3;++kc)
-		//dwt2d_haar_inv((char*)buf+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, (char*)temp);
-		dwt2d_cdf53_inv((char*)buf+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, (char*)temp);
-		//dwt2d_cdf97_inv((char*)buf+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, (char*)temp);
-
-	colortransform_ycocg_inv((char*)buf, bw, bh);
-	//colortransform_xgz_inv((char*)buf, bw, bh);
-	//colortransform_xyz_inv((char*)buf, bw, bh);
-
-	addbuf(buf, bw, bh, 3, 4, 128);//unsigned char -> signed char
-
-	free(temp);
-	array_free(&sizes);
-}
 long long accumulate_hist(unsigned *hist, int nbits)
 {
 	int nlevels=1<<nbits;
@@ -703,7 +617,7 @@ double get_mean(const unsigned char *buf, int res, int stride)
 {
 	long long sum=0;
 	for(int k=0;k<res;++k)
-		sum+=buf[k];
+		sum+=buf[stride*k];
 	double mean=(double)sum/res;
 	return mean;
 }
@@ -712,11 +626,222 @@ double get_var(const unsigned char *buf, int res, int stride, double mean)
 	double sum=0;
 	for(int k=0;k<res;++k)
 	{
-		double x=buf[k]-mean;
+		double x=buf[stride*k]-mean;
 		sum+=x*x;
 	}
 	sum/=res;
 	return sum;
+}
+double test13_estimate_csize(const unsigned char *buf, int bw, int bh, int blocksize, int loud)
+{
+	int res=bw*bh;
+	int blockcount=res/(blocksize*blocksize);
+	double csize=0;
+	unsigned *block=(unsigned*)malloc((size_t)blocksize*blocksize*sizeof(unsigned));
+	for(int ky=0;ky<bh;ky+=blocksize)
+	{
+		for(int kx=0;kx<bw;kx+=blocksize)
+		{
+			int xsize, ysize, count;
+
+			if(ky+blocksize<=bh)
+				ysize=blocksize;
+			else
+				ysize=bh-ky;
+
+			if(kx+blocksize<=bw)
+				xsize=blocksize;
+			else
+				xsize=bw-kx;
+
+			count=xsize*ysize;
+			for(int ky2=0;ky2<ysize;++ky2)
+				memcpy(block+xsize*ky2, (int*)buf+bw*(ky+ky2)+kx, xsize*sizeof(unsigned));
+			double mean[3]=
+			{
+				get_mean((unsigned char*)block  , count, 4),
+				get_mean((unsigned char*)block+1, count, 4),
+				get_mean((unsigned char*)block+2, count, 4),
+			};
+			double conf[]=
+			{
+				get_var((unsigned char*)block  , count, 4, mean[0]),
+				get_var((unsigned char*)block+1, count, 4, mean[1]),
+				get_var((unsigned char*)block+2, count, 4, mean[2]),
+			};
+			double gain=1/sqrt(8*M_PI*M_PI*M_PI*conf[0]*conf[1]*conf[2]);
+			conf[0]=1/sqrt(conf[0]);
+			conf[1]=1/sqrt(conf[1]);
+			conf[2]=1/sqrt(conf[2]);
+			for(int k=0;k<count;++k)
+			{
+				unsigned char *color=(unsigned char*)(block+k);
+				double
+					r=(color[0]-mean[0])*conf[0],
+					g=(color[1]-mean[1])*conf[1],
+					b=(color[2]-mean[2])*conf[2];
+				double prob=exp(-0.5*(r*r+b*b+g*g));
+				prob*=gain;
+				if(prob)
+				{
+					prob*=0xFFFFFFFF;
+					++prob;
+					prob/=0x100000000;
+					double contribution=-log2(prob);
+					if(isfinite(contribution))
+						csize+=contribution;
+				}
+			}
+		}
+	}
+	free(block);
+	csize/=8;
+	
+	int usize=res*3;
+	double CR=usize/csize;
+	//double CR=usize/(csize+24*blockcount);
+	if(loud)
+		printf("Test 13 estimate: bsize %3d usize %d csize %14lf overhead %7d CR %lf\n", blocksize, usize, csize, 24*blockcount, CR);
+	return csize;
+}
+double test12_estimate_csize(const unsigned char *buf, int bw, int bh, int blocksize, int loud)
+{
+	int res=bw*bh;
+	int blockcount=res/(blocksize*blocksize);
+	double csize=0;
+	if(blockcount>1000)
+	{
+		for(int ky=0;ky<bh;ky+=blocksize)
+		{
+			for(int kx=0;kx<bw;kx+=blocksize)
+			{
+				int xsize, ysize, count;
+
+				if(ky+blocksize<=bh)
+					ysize=blocksize;
+				else
+					ysize=bh-ky;
+
+				if(kx+blocksize<=bw)
+					xsize=blocksize;
+				else
+					xsize=bw-kx;
+				
+				count=xsize*ysize;
+				for(int ky2=0;ky2<ysize;++ky2)
+				{
+					for(int kx2=0;kx2<xsize;++kx2)
+					{
+						unsigned color=((int*)buf)[bw*(ky+ky2)+kx+kx2]&0xFFFFFF;
+						int freq=0;
+						for(int ky3=0;ky3<ysize;++ky3)
+						{
+							for(int kx3=0;kx3<xsize;++kx3)
+							{
+								unsigned c3=((int*)buf)[bw*(ky+ky3)+kx+kx3]&0xFFFFFF;
+								freq+=c3==color;
+							}
+						}
+						double p=(double)freq/count, bitsize=-log2(p);
+						csize+=bitsize;
+					}
+				}
+			}
+		}
+	}
+	else
+	{
+		const int hsize=0x1000000*sizeof(unsigned);
+		unsigned *hist=(unsigned*)malloc(hsize);
+		if(!hist)
+		{
+			LOG_ERROR("Allocation error");
+			return 0;
+		}
+
+		for(int ky=0;ky<bh;ky+=blocksize)
+		{
+			for(int kx=0;kx<bw;kx+=blocksize)
+			{
+				int xsize, ysize, count;
+
+				if(ky+blocksize<=bh)
+					ysize=blocksize;
+				else
+					ysize=bh-ky;
+
+				if(kx+blocksize<=bw)
+					xsize=blocksize;
+				else
+					xsize=bw-kx;
+
+				count=xsize*ysize;
+				memset(hist, 0, hsize);
+				for(int ky2=0;ky2<ysize;++ky2)
+				{
+					for(int kx2=0;kx2<xsize;++kx2)
+					{
+						unsigned color=((int*)buf)[bw*(ky+ky2)+kx+kx2]&0xFFFFFF;
+						++hist[color];
+					}
+				}
+				for(int ky2=0;ky2<ysize;++ky2)
+				{
+					for(int kx2=0;kx2<xsize;++kx2)
+					{
+						unsigned color=((int*)buf)[bw*(ky+ky2)+kx+kx2]&0xFFFFFF;
+						double p=(double)hist[color]/count, bitsize=-log2(p);
+						csize+=bitsize;
+					}
+				}
+			}
+		}
+		free(hist);
+	}
+	csize/=8;
+	
+	int usize=res*3;
+	double CR=usize/csize;
+	if(loud)
+		printf("Test 12 estimate: bsize %d usize %d csize %lf CR %lf\n\n", blocksize, usize, csize, CR);
+	return csize;
+}
+double test11_estimate_cr(const unsigned char *buf, int bw, int bh, int loud)
+{
+	const int hsize=0x1000000*sizeof(unsigned);
+	unsigned *hist=(unsigned*)malloc(hsize);
+	if(!hist)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	memset(hist, 0, hsize);
+
+	int res=bw*bh;
+	for(int k=0;k<res;++k)
+	{
+		unsigned color=((int*)buf)[k]&0xFFFFFF;
+		++hist[color];
+	}
+	double csize=0;
+	for(int k=0;k<res;++k)
+	{
+		unsigned color=((int*)buf)[k]&0xFFFFFF;
+		double p=(double)hist[color]/res;
+		p*=0xFFFFFFFF;
+		++p;
+		p/=0x100000000;
+		double bitsize=-log2(p);
+		csize+=bitsize;
+	}
+	free(hist);
+	csize/=8;
+	
+	int usize=res*3;
+	double CR=usize/csize;
+	if(loud)
+		printf("Test 11 estimate: usize %d csize %lf CR %lf\n\n", usize, csize, CR);
+	return csize;
 }
 double test9_estimate_cr(const unsigned char *buf, int bw, int bh, int loud)
 {
@@ -734,13 +859,46 @@ double test9_estimate_cr(const unsigned char *buf, int bw, int bh, int loud)
 		get_var(buf+1, res, 4, mean[1]),
 		get_var(buf+2, res, 4, mean[2]),
 	};
-	double entropy=0;
+	//conf[0]*=2;
+	//conf[1]*=2;
+	//conf[2]*=2;
 	double gain=1/sqrt(8*M_PI*M_PI*M_PI*conf[0]*conf[1]*conf[2]);
 	conf[0]=1/sqrt(conf[0]);
 	conf[1]=1/sqrt(conf[1]);
 	conf[2]=1/sqrt(conf[2]);
-	for(int color=0;color<0x1000000;++color)
+
+	double csize=0;
+	for(int kp=0;kp<res;++kp)//Zipf's law
 	{
+		double
+			r=(buf[kp<<2  ]-mean[0])*conf[0],
+			g=(buf[kp<<2|1]-mean[1])*conf[1],
+			b=(buf[kp<<2|2]-mean[2])*conf[2];
+		double prob=exp(-0.5*(r*r+b*b+g*g));
+		prob*=gain;
+		if(prob)
+		{
+			prob*=0xFFFFFFFF;
+			++prob;
+			prob/=0x100000000;
+			double contribution=-log2(prob);
+			if(isfinite(contribution))
+				csize+=contribution;
+		}
+	}
+	csize/=8;
+	double end=time_ms();
+	int usize=res*3;
+	double CR=usize/csize;
+	if(loud)
+		printf("Test 9 estimate: usize %d csize %lf CR %lf elapsed %lfms\n\n", usize, csize, CR, end-start);
+	return csize;
+#if 0
+	double entropy=0;
+	for(int color=0;color<0x1000000;++color)//Shannon's law
+	{
+		//if(color==0x808080)//
+		//	color=0x808080;//
 		double
 			r=((color    &255)-mean[0])*conf[0],
 			g=((color>> 8&255)-mean[1])*conf[1],
@@ -759,6 +917,7 @@ double test9_estimate_cr(const unsigned char *buf, int bw, int bh, int loud)
 	if(loud)
 		printf("Test 9 estimate: usize %d csize %lf CR %lf elapsed %lfms\n\n", res*3, csize, CR, end-start);
 	return csize;
+#endif
 }
 double test8_estimate_cr(const unsigned char *buf, int bw, int bh, int loud)
 {
@@ -1092,7 +1251,7 @@ void batch_test(const char *path)
 
 		ptrdiff_t res=(ptrdiff_t)iw*ih, len=res*stride, usize=res*nch0;
 		double ratio=(double)usize/formatsize;
-		printf("\"%s\"\tCR %lf (%lf BPP) Dec %lf CPB", fn[0]->data, ratio, 8/ratio, (double)cycles/usize);
+		printf("%3lld/%3lld  \"%s\"\tCR %lf (%lf BPP) Dec %lf CPB", k+1, filenames->count, fn[0]->data, ratio, 8/ratio, (double)cycles/usize);
 		if(!acme_stricmp(fn[0]->data+fn[0]->count-3, "PNG"))
 		{
 			sum_cPNGsize+=formatsize;
@@ -1114,25 +1273,26 @@ void batch_test(const char *path)
 		}
 		memset(b2, 0, len);
 
+		//transforms + ANS
 #if 1
 		apply_transforms_fwd(buf, iw, ih);
 
 		ArrayHandle cdata=0;
 		printf("rANS\n");
 		cycles=__rdtsc();
-		rans4_encode(buf, (ptrdiff_t)iw*ih, nch0, 4, &cdata, 0);
+		rans4_encode(buf, (ptrdiff_t)iw*ih, 3, 4, &cdata, 0);
 		cycles=__rdtsc()-cycles;
 		printf("Enc CPB %lf ratio %lf\n", (double)cycles/usize, (double)usize/cdata->count);
 		
 		sum_testsize+=cdata->count;
 
 		cycles=__rdtsc();
-		rans4_decode(cdata->data, cdata->count, (ptrdiff_t)iw*ih, nch0, 4, b2, 0);
+		rans4_decode(cdata->data, cdata->count, (ptrdiff_t)iw*ih, 3, 4, b2, 0);
 		cycles=__rdtsc()-cycles;
 		printf("Dec CPB %lf\n", (double)cycles/usize);
 
 		array_free(&cdata);
-		compare_bufs_uint8(b2, buf, iw, ih, nch0, 4, "rANS", 0);
+		compare_bufs_uint8(b2, buf, iw, ih, 3, 4, "rANS", 0);
 		memset(b2, 0, len);
 #endif
 
@@ -1160,11 +1320,13 @@ void batch_test(const char *path)
 		printf("\n");
 #endif
 
-		//test8 / test9
+		//tests 8 / 9 / 11
 #if 0
 		apply_transforms_fwd(buf, iw, ih);
+		double csize=test12_estimate_csize(buf, iw, ih, 16, 0);
+	//	double csize=test11_estimate_cr(buf, iw, ih, 0);
 	//	double csize=test9_estimate_cr(buf, iw, ih, 0);
-		double csize=test8_estimate_cr(buf, iw, ih, 0);
+	//	double csize=test8_estimate_cr(buf, iw, ih, 0);
 		double r2=(double)usize/csize;
 		printf("\tCR2 %lf", r2);
 		if(r2>ratio)
@@ -1555,7 +1717,7 @@ int main(int argc, char **argv)
 #endif
 
 	//test10
-#if 1
+#if 0
 	extern const unsigned char *debug_ptr;
 	//debug_ptr=buf;
 	printf("test10\n");
@@ -1578,8 +1740,13 @@ int main(int argc, char **argv)
 	printf("\n");
 #endif
 
+	//test11_estimate_cr(buf, iw, ih, 1);
+
 	//predict image
-#if 1
+	apply_transforms_fwd(buf, iw, ih);
+	//lodepng_encode_file("kodim21-YCoCgT-unplane.PNG", buf, iw, ih, LCT_RGBA, 8);//
+	//lodepng_encode_file("kodim21-XGZ-diff2d.PNG", buf, iw, ih, LCT_RGBA, 8);//
+#if 0
 	printf("Predict image...\n");
 	{
 		ArrayHandle sizes=dwt2d_gensizes(iw, ih, 3, 3, 0);
@@ -1588,30 +1755,32 @@ int main(int argc, char **argv)
 		addbuf(buf, iw, ih, nch0, nch, 128);//unsigned char -> signed char
 		
 		//colortransform_ycocg_fwd((char*)buf, iw, ih);
-		colortransform_xgz_fwd((char*)buf, iw, ih);
+		//colortransform_xgz_fwd((char*)buf, iw, ih);
 		//colortransform_xyz_fwd((char*)buf, iw, ih);
 
-#if 0
+#if 1
 		memcpy(b2, buf, len);
-		colortransform_xyz_fwd(b2, iw, ih);
-		colortransform_xyz_inv(b2, iw, ih);
+		//colortransform_xyz_fwd(b2, iw, ih);
+		//colortransform_xyz_inv(b2, iw, ih);
 		for(int kc=0;kc<3;++kc)
 		{
-			dwt2d_haar_fwd((char*)b2+kc, (DWTSize*)sizes->data, 0, 2, 4, (char*)temp);
-			dwt2d_haar_inv((char*)b2+kc, (DWTSize*)sizes->data, 0, 2, 4, (char*)temp);
+			dwt2d_squeeze_fwd((char*)b2+kc, (DWTSize*)sizes->data, 0, 2, 4, (char*)temp);
+			dwt2d_squeeze_inv((char*)b2+kc, (DWTSize*)sizes->data, 0, 2, 4, (char*)temp);
 		}
-		compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "CT", 0);
+		compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "transform", 0);
 		printf("\n");
 #endif
 		
-		for(int kc=0;kc<3;++kc)
-			//dwt2d_haar_fwd((char*)buf+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, (char*)temp);
-			dwt2d_cdf53_fwd((char*)buf+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, (char*)temp);
-			//dwt2d_cdf97_fwd((char*)buf+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, (char*)temp);
+		//for(int kc=0;kc<3;++kc)
+		//	//dwt2d_haar_fwd((char*)buf+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, (char*)temp);
+		//	dwt2d_squeeze_fwd((char*)buf+kc, (DWTSize*)sizes->data, 0, 2, 4, (char*)temp);
+		//	//dwt2d_cdf53_fwd((char*)buf+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, (char*)temp);
+		//	//dwt2d_cdf97_fwd((char*)buf+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, (char*)temp);
 
 		addbuf(buf, iw, ih, nch0, nch, 128);
-		//save_CDF53("kodim21-haar-stage", buf, (DWTSize*)sizes->data, (int)sizes->count, 4);//
-		//lodepng_encode_file("kodim21-haar.PNG", buf, iw, ih, LCT_RGBA, 8);//
+
+		//save_CDF53("kodim21-squeeze-stage", buf, (DWTSize*)sizes->data, 2, 4);//
+		//lodepng_encode_file("kodim21-cubic.PNG", buf, iw, ih, LCT_RGBA, 8);//
 
 		array_free(&sizes);
 		free(temp);
@@ -1622,22 +1791,27 @@ int main(int argc, char **argv)
 	//lodepng_encode_file("kodim21-XGZ-diff2d.PNG", buf, iw, ih, LCT_RGBA, 8);//
 #endif
 
-	//2D differentiation
+	//tests 11~13
 #if 0
-	printf("Differentiating image...\n");
-
-	//memcpy(b2, buf, len);//save copy
-
-	differentiate_image(buf, iw, ih, nch0, nch);//add/sub 128 for pleasant image
-
-	//lodepng_encode_file("out.PNG", buf, iw, ih, LCT_RGBA, 8);//save differentiated image
-
-	//integrate_image(buf, iw, ih, nch0, nch);//check
-	//compare_bufs_uint8(buf, b2, len, "Diff", 0);
+	//for(int bsize=1<<floor_log2(MAXVAR(iw, ih));bsize>=2;bsize>>=1)
+	for(int bsize=2, bend=MAXVAR(iw, ih);bsize<bend;bsize<<=1)
+		test13_estimate_csize(buf, iw, ih, bsize, 1);
+		//test12_estimate_csize(buf, iw, ih, bsize, 1);
+	test11_estimate_cr(buf, iw, ih, 1);
+	//test8_estimate_cr(buf, iw, ih, 1);
+	//test9_estimate_cr(buf, iw, ih, 1);
 #endif
 
-	test8_estimate_cr(buf, iw, ih, 1);
-	//test9_estimate_cr(buf, iw, ih, 1);
+	//test 14
+#if 1
+	printf("test14\n");
+	cycles=__rdtsc();
+	test14_encode(buf, iw, ih, 1, &cdata);
+	cycles=__rdtsc()-cycles;
+	printf("Enc %lf CPB  CR %lf\n", (double)cycles/usize, (double)usize/cdata->count);
+	array_free(&cdata);
+	printf("\n");
+#endif
 
 	for(int kc=0;kc<nch0;++kc)
 		calc_histogram(buf+kc, len, nch, hist+((size_t)kc<<8));
@@ -1958,21 +2132,21 @@ int main(int argc, char **argv)
 #if 1
 	printf("rANS\n");
 	cycles=__rdtsc();
-	rans4_encode(buf, (ptrdiff_t)iw*ih, nch0, nch, &cdata, 0);
+	rans4_encode(buf, (ptrdiff_t)iw*ih, 3, 4, &cdata, 0);
 	//rans4_encode(buf, len, 1, 0, &cdata, loud, pred);
 	cycles=__rdtsc()-cycles;
 	//double cr=(double)usize/cdata->count, cr0=8/entropy[4];
 	//printf("Enc CPB %lf ratio %lf%s\n", (double)cycles/usize, cr, cr>cr0?" IMPOSSIBLE":"");
-	printf("Enc CPB %lf ratio %lf\n", (double)cycles/usize, (double)usize/cdata->count);
+	printf("Enc %lf CPB  CR %lf\n", (double)cycles/usize, (double)usize/cdata->count);
 	
 	cycles=__rdtsc();
-	rans4_decode(cdata->data, cdata->count, (ptrdiff_t)iw*ih, nch0, nch, b2, 0);
+	rans4_decode(cdata->data, cdata->count, (ptrdiff_t)iw*ih, 3, 4, b2, 0);
 	//rans4_decode(cdata->data, cdata->count, len, 1, 0, b2, loud, pred);
 	cycles=__rdtsc()-cycles;
-	printf("Dec CPB %lf\n", (double)cycles/usize);
+	printf("Dec %lf CPB\n", (double)cycles/usize);
 
 	array_free(&cdata);
-	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "rANS", 0);
+	compare_bufs_uint8(b2, buf, iw, ih, 3, 4, "rANS", 0);
 	memset(b2, 0, len);
 	//printf("actual ratio %lf\n", (double)usize/(cdata->count-(12+(size_t)256*4*sizeof(short))));
 
@@ -2069,6 +2243,39 @@ int main(int argc, char **argv)
 	printf("\nBest prob_MPS 0x%04X ratio %lf\n\n", bestprob, bestcr);
 	//printf("\n");
 #endif
+#endif
+
+	//ANS128
+#if 0
+	{
+		int depths[]={nch0<<3};
+	//	int depths[]={8, 8, 8};
+		printf("ANS128\n");
+		cycles=__rdtsc();
+		size_t puresize=ans128_encode(buf, (ptrdiff_t)iw*ih, depths, COUNTOF(depths), nch, &cdata);
+		cycles=__rdtsc()-cycles;
+		printf("Enc %lf CPB  CR %lf  CR2 %lf\n", (double)cycles/usize, (double)usize/cdata->count, (double)usize/puresize);
+	
+		cycles=__rdtsc();
+		ans128_decode(cdata->data, cdata->count, (ptrdiff_t)iw*ih, depths, COUNTOF(depths), nch, b2);
+		cycles=__rdtsc()-cycles;
+		printf("Dec %lf CPB\n", (double)cycles/usize);
+
+		array_free(&cdata);
+		compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "ANS128", 0);
+		memset(b2, 0, len);
+	}
+#endif
+
+	//ANS16
+#if 0
+	printf("ANS16\n");
+	cycles=__rdtsc();
+	ans16_encode(buf, (ptrdiff_t)iw*ih, &cdata);
+	cycles=__rdtsc()-cycles;
+	printf("Enc %lf CPB  CR %lf\n", (double)cycles/usize, (double)usize/cdata->count);
+	array_free(&cdata);
+	printf("\n");
 #endif
 
 	//rANS_SSE2

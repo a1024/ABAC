@@ -15,13 +15,13 @@ typedef struct SymbolInfoStruct//32 bytes, size must be a power of two
 	unsigned short
 		freq,
 		neg_freq,
-		shift,
+	//	shift,
 		reserved0;
 	unsigned
 		CDF,
-		inv_freq,//TODO remove
 		bias,
 		renorm_limit;
+	unsigned long long inv_freq;
 	union
 	{
 		long long invf;
