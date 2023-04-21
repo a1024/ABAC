@@ -99,6 +99,7 @@ typedef enum TransformTypeEnum
 int transforms_customenabled=0;
 char transforms_mask[T_COUNT]={0};
 ArrayHandle transforms=0;//array of chars
+float guizoom=1.25f;
 
 float
 	pixel_amplitude=10,//4
@@ -147,6 +148,12 @@ void transforms_removebyid(unsigned tid)
 		}
 	}
 }
+void transforms_removeall()
+{
+	array_free(&transforms);
+	transforms_customenabled=0;
+	memset(transforms_mask, 0, T_COUNT);
+}
 void printtransform(float x, float y, unsigned tid, int place, long long highlight)
 {
 	const char *a=0;
@@ -165,8 +172,8 @@ void printtransform(float x, float y, unsigned tid, int place, long long highlig
 	case CT_INV_EXP:			a="C  Inv Experimental";	break;
 	case CT_FWD_LEARNED:		a="C  Fwd Learned";			break;
 	case CT_INV_LEARNED:		a="C  Inv Learned";			break;
-	case CT_FWD_CUSTOM:			a="C  Fwd Custom";			break;
-	case CT_INV_CUSTOM:			a="C  Inv Custom";			break;
+	case CT_FWD_CUSTOM:			a="C  Fwd CUSTOM";			break;
+	case CT_INV_CUSTOM:			a="C  Inv CUSTOM";			break;
 	case ST_FWD_DIFF2D:			a=" S Fwd 2D derivative";	break;
 	case ST_INV_DIFF2D:			a=" S Inv 2D derivative";	break;
 	case ST_FWD_UNPLANE:		a=" S Fwd Unplane";			break;
@@ -181,8 +188,8 @@ void printtransform(float x, float y, unsigned tid, int place, long long highlig
 	case ST_INV_CDF53:			a=" S Inv CDF 5/3";			break;
 	case ST_FWD_CDF97:			a=" S Fwd CDF 9/7";			break;
 	case ST_INV_CDF97:			a=" S Inv CDF 9/7";			break;
-	case ST_FWD_CUSTOM:			a=" S Fwd Custom ST";		break;
-	case ST_INV_CUSTOM:			a=" S Inv Custom ST";		break;
+	case ST_FWD_CUSTOM:			a=" S Fwd CUSTOM";			break;
+	case ST_INV_CUSTOM:			a=" S Inv CUSTOM";			break;
 	default:					a="ERROR";					break;
 	}
 	long long c0=0;
@@ -814,7 +821,7 @@ typedef struct AABBStruct
 {
 	float x1, x2, y1, y2;
 } AABB;
-AABB buttons[4]={0};//CT left, CT right, ST grid
+AABB buttons[3]={0};//CT left, CT right, ST grid
 
 int io_init(int argc, char **argv)//return false to abort
 {
@@ -830,13 +837,11 @@ int io_init(int argc, char **argv)//return false to abort
 }
 void io_resize()
 {
-	int y=h>>1;
-	float x1=tdx*(6.5f+4), x2=x1+tdx*10, x3=x2+tdx*4, x4=x3+tdx*10, y1=(float)y, y2=y1+tdy;
 	AABB *p=buttons;
-	p->x1=x1, p->x2=x2, p->y1=y1, p->y2=y2, ++p;
-	p->x1=x3, p->x2=x4, p->y1=y1, p->y2=y2, ++p;
-	p->x1=(float)(w>>1), p->x2=p->x1+tdx*55, p->y1=(float)((h>>1)+(h>>2)), p->y2=p->y1+tdy*3, ++p;
-	p->x1=(float)(w-200), p->x2=(float)w, p->y1=tdy*2, p->y2=p->y1+tdy*T_COUNT, ++p;
+	float xstep=tdx*guizoom, ystep=tdy*guizoom;
+	p->x1=xstep*2, p->x2=p->x1+xstep*30, p->y1=(float)(h>>1), p->y2=p->y1+customparam_ct_h*ystep, ++p;//color params - left
+	p->x1=(float)(w>>1), p->x2=p->x1+xstep*54, p->y1=(float)((h>>1)+(h>>2)), p->y2=p->y1+ystep*3, ++p;//spatial params
+	p->x1=(float)(w-200), p->x2=(float)w, p->y1=tdy*2, p->y2=p->y1+tdy*T_COUNT, ++p;//transforms list
 }
 int io_mousemove()//return true to redraw
 {
@@ -855,32 +860,27 @@ int io_mousewheel(int forward)
 	{
 		int idx;
 		AABB *p=buttons;
-		for(idx=0;idx<COUNTOF(buttons);++idx, ++p)
-		{
-			if(mx>=p->x1&&mx<p->x2&&my>=p->y1&&my<p->y2)
-				break;
-		}
-		if(idx<3)
+		for(idx=0;idx<COUNTOF(buttons)&&!(mx>=p->x1&&mx<p->x2&&my>=p->y1&&my<p->y2);++idx, ++p);
+		if(idx<2)
 		{
 			int x, y;
 			switch(idx)
 			{
 			case 0://color transform
-			case 1:
 				x=idx<<1|(mx-p->x1>(p->x2-p->x1)*0.5f);
-				y=(int)((my-p->y1)*customparam_ct_h/(p->y2-p->y1));
+				y=(int)floorf((my-p->y1)*customparam_ct_h/(p->y2-p->y1));
 				idx=customparam_ct_w*y+x;
 				break;
-			case 2://spatial transform
-				x=(int)((mx-p->x1)*(customparam_st_reach<<1|1)/(p->x2-p->x1));
-				y=(int)((my-p->y1)*(customparam_st_reach+1)/(p->y2-p->y1));
+			case 1://spatial transform
+				x=(int)floorf((mx-p->x1)*(customparam_st_reach<<1|1)/(p->x2-p->x1));
+				y=(int)floorf((my-p->y1)*(customparam_st_reach+1)/(p->y2-p->y1));
 				idx=COUNTOF(customparam_ct)+(customparam_st_reach<<1|1)*y+x;
 				break;
 			}
 			if(idx<COUNTOF(customparam_ct)+COUNTOF(customparam_st))
 			{
 				int sign=(forward>0)-(forward<0);//abs(forward) is 120
-				int ch=(int)((mx-p->x1)/tdx), ch2;
+				int ch=(int)floorf((mx-p->x1)/(guizoom*tdx)), ch2;
 				//if(GET_KEY_STATE(KEY_SHIFT))//fast
 				//	speed=0.1;
 				//else if(GET_KEY_STATE(KEY_CTRL))//slow
@@ -894,7 +894,7 @@ int io_mousewheel(int forward)
 					//r-=(>>nnnN.NNN)g+(  nnnN.NNN)b
 					ch2=ch-6;
 					MODVAR(ch2, ch2, 14);
-					if(ch2>=0&&ch<8)
+					if(ch2>=0&&ch2<8)
 					{
 						ch2-=4;
 						ch2+=ch2<0;//skip point
@@ -933,7 +933,7 @@ int io_mousewheel(int forward)
 					//>>nnnN.NNN >>nnnN.NNN >>nnnN.NNN >>nnnN.NNN >>nnnN.NNN
 					ch2=ch-2;
 					MODVAR(ch2, ch2, 11);
-					if(ch>=0&&ch<36&&ch2>=3&&ch2<8)
+					if(ch>=0&&ch<54&&ch2>=3&&ch2<8)
 					{
 						ch2-=4;
 						ch2+=ch2<0;//skip point
@@ -949,17 +949,25 @@ int io_mousewheel(int forward)
 				}
 				update_image();
 			}
+			else
+				goto normal_operation;
 		}
-	}
-	else if(keyboard[KEY_SHIFT])//shift wheel		change cam speed
-	{
-			 if(forward>0)	cam.move_speed*=2;
-		else				cam.move_speed*=0.5f;
+		else
+			goto normal_operation;
 	}
 	else
 	{
-			 if(forward>0)	cam_zoomIn(cam, 1.1f);
-		else				cam_zoomOut(cam, 1.1f);
+	normal_operation:
+		if(keyboard[KEY_SHIFT])//shift wheel		change cam speed
+		{
+				 if(forward>0)	cam.move_speed*=2;
+			else				cam.move_speed*=0.5f;
+		}
+		else
+		{
+				 if(forward>0)	cam_zoomIn(cam, 1.1f);
+			else				cam_zoomOut(cam, 1.1f);
+		}
 	}
 	return !timer;
 }
@@ -1091,8 +1099,59 @@ int io_keydn(IOKey key, char c)
 	{
 	case KEY_LBUTTON:
 	case KEY_RBUTTON:
+		if(image)
 		{
-			AABB *p=buttons+3;
+			int idx;
+			AABB *p=buttons;
+			for(idx=0;idx<COUNTOF(buttons)&&!(mx>=p->x1&&mx<p->x2&&my>=p->y1&&my<p->y2);++idx, ++p);
+			switch(idx)
+			{
+			case 0://color transform params
+			case 1://spatial transforms params
+				if(transforms_customenabled&&key==KEY_RBUTTON)
+				{
+					int x, y;
+					if(idx)//spatial transform
+					{
+						x=(int)floorf((mx-p->x1)*(customparam_st_reach<<1|1)/(p->x2-p->x1));
+						y=(int)floorf((my-p->y1)*(customparam_st_reach+1)/(p->y2-p->y1));
+						idx=COUNTOF(customparam_ct)+((size_t)customparam_st_reach<<1|1)*y+x;
+						customparam_st[idx-COUNTOF(customparam_ct)]=0;
+					}
+					else//color transform
+					{
+						x=idx<<1|(mx-p->x1>(p->x2-p->x1)*0.5f);
+						y=(int)floorf((my-p->y1)*customparam_ct_h/(p->y2-p->y1));
+						idx=customparam_ct_w*y+x;
+						customparam_ct[idx]=0;
+					}
+					update_image();
+					return 1;
+				}
+				break;
+			case 2://transform list
+				{
+					int idx=(int)floorf((my-p->y1)*T_COUNT/(p->y2-p->y1))+1;//zero idx is T_NONE
+					if(BETWEEN_EXC(1, idx, T_COUNT))
+					{
+						if(key==KEY_LBUTTON)
+							transforms_append(idx);
+						else
+							transforms_removebyid(idx);
+						update_image();
+						return 1;
+					}
+				}
+				break;
+			default:
+				if(key==KEY_LBUTTON)
+					goto esc;
+				break;
+			}
+		}
+#if 0
+		{
+			AABB *p=buttons+2;
 			if(image&&mx>=p->x1&&mx<p->x2&&my>=p->y1&&my<p->y2)
 			{
 				int idx=(int)(my-p->y1)*T_COUNT/(int)(p->y2-p->y1)+1;//zero idx is T_NONE
@@ -1109,6 +1168,7 @@ int io_keydn(IOKey key, char c)
 			else if(key==KEY_LBUTTON)
 				goto esc;
 		}
+#endif
 		break;
 	case KEY_ESC:
 	esc:
@@ -1140,8 +1200,8 @@ int io_keydn(IOKey key, char c)
 			"Ctrl O:\t\tOpen image\n"
 			"\n"
 			"R:\t\tReset cam\n"
-			"Ctrl R:\t\tReload image\n"
-			"Ctrl E:\t\tReset custom transforms\n"
+			"Ctrl R:\t\tDisable all transforms\n"
+			"Ctrl E:\t\tReset custom transform parameters\n"
 			"\n"
 			"Mouse1/Mouse2: Add/remove transforms to the list\n"
 			"\n"
@@ -1169,8 +1229,11 @@ int io_keydn(IOKey key, char c)
 		//prof_on=!prof_on;
 		return 0;
 	case 'R':
-		if(GET_KEY_STATE(KEY_CTRL))
+		if(GET_KEY_STATE(KEY_CTRL)&&image)
 		{
+			transforms_removeall();
+			update_image();
+#if 0
 			if(fn)
 			{
 				if(im0)
@@ -1179,11 +1242,13 @@ int io_keydn(IOKey key, char c)
 				if(im0)
 				{
 					array_free(&transforms);
+					memset(transforms_mask, 0, T_COUNT);
 					//color_transform=CT_NONE;
 					//spatialtransform=CT_NONE;
 					update_image();
 				}
 			}
+#endif
 		}
 		else
 			memcpy(&cam, &cam0, sizeof(cam));
@@ -1436,24 +1501,26 @@ void io_render()
 		for(int k=0;k<COUNTOF(sel);++k)
 			sel[k]=' ';
 		sel[customparam_sel]='>';
+		float xstep=tdx*guizoom, ystep=tdy*guizoom;
 		//long long prevcolor=set_text_colors(0xFF000000);
-		int x=w>>1, y=h>>1;
+		float x=xstep*2, y=(float)(h>>1);
 		//012345678901234567890123456789
 		//r-=(>>nnnN.NNN)g+(  nnnN.NNN)b
-		GUIPrint(0, tdx*6.5f, (float)(y      ), 1, "r-=(%c%c%8.3lf)g+(%c%c%8.3lf)b", sel[ 0], sel[ 0], customparam_ct[ 0], sel[ 1], sel[ 1], customparam_ct[ 1]);//do not change these strings!
-		GUIPrint(0, tdx*6.5f, (float)(y+tdy  ), 1, "g-=(%c%c%8.3lf)r+(%c%c%8.3lf)b", sel[ 2], sel[ 2], customparam_ct[ 2], sel[ 3], sel[ 3], customparam_ct[ 3]);
-		GUIPrint(0, tdx*6.5f, (float)(y+tdy*2), 1, "b-=(%c%c%8.3lf)r+(%c%c%8.3lf)g", sel[ 4], sel[ 4], customparam_ct[ 4], sel[ 5], sel[ 5], customparam_ct[ 5]);
-		GUIPrint(0, tdx*6.5f, (float)(y+tdy*3), 1, "r+=(%c%c%8.3lf)g+(%c%c%8.3lf)b", sel[ 6], sel[ 6], customparam_ct[ 6], sel[ 7], sel[ 7], customparam_ct[ 7]);
-		GUIPrint(0, tdx*6.5f, (float)(y+tdy*4), 1, "g+=(%c%c%8.3lf)r+(%c%c%8.3lf)b", sel[ 8], sel[ 8], customparam_ct[ 8], sel[ 9], sel[ 9], customparam_ct[ 9]);
-		GUIPrint(0, tdx*6.5f, (float)(y+tdy*5), 1, "b+=(%c%c%8.3lf)r+(%c%c%8.3lf)g", sel[10], sel[10], customparam_ct[10], sel[11], sel[11], customparam_ct[11]);
+		GUIPrint(0, x, y        , guizoom, "r-=(%c%c%8.3lf)g+(%c%c%8.3lf)b", sel[ 0], sel[ 0], customparam_ct[ 0], sel[ 1], sel[ 1], customparam_ct[ 1]);//do not change these strings!
+		GUIPrint(0, x, y+ystep  , guizoom, "g-=(%c%c%8.3lf)r+(%c%c%8.3lf)b", sel[ 2], sel[ 2], customparam_ct[ 2], sel[ 3], sel[ 3], customparam_ct[ 3]);
+		GUIPrint(0, x, y+ystep*2, guizoom, "b-=(%c%c%8.3lf)r+(%c%c%8.3lf)g", sel[ 4], sel[ 4], customparam_ct[ 4], sel[ 5], sel[ 5], customparam_ct[ 5]);
+		GUIPrint(0, x, y+ystep*3, guizoom, "r+=(%c%c%8.3lf)g+(%c%c%8.3lf)b", sel[ 6], sel[ 6], customparam_ct[ 6], sel[ 7], sel[ 7], customparam_ct[ 7]);
+		GUIPrint(0, x, y+ystep*4, guizoom, "g+=(%c%c%8.3lf)r+(%c%c%8.3lf)b", sel[ 8], sel[ 8], customparam_ct[ 8], sel[ 9], sel[ 9], customparam_ct[ 9]);
+		GUIPrint(0, x, y+ystep*5, guizoom, "b+=(%c%c%8.3lf)r+(%c%c%8.3lf)g", sel[10], sel[10], customparam_ct[10], sel[11], sel[11], customparam_ct[11]);
 
-		y=(h>>1)+(h>>2);
+		x=(float)(w>>1);
+		y=(float)((h>>1)+(h>>2));
 		//000000000011111111112222222222333333333344444444445555
 		//012345678901234567890123456789012345678901234567890123
 		//>>nnnN.NNN >>nnnN.NNN >>nnnN.NNN >>nnnN.NNN >>nnnN.NNN
-		GUIPrint(0, (float)x, (float)(y      ), 1, "%c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%8.3lf", sel[12], sel[12], customparam_st[ 0], sel[13], sel[13], customparam_st[ 1], sel[14], sel[14], customparam_st[ 2], sel[15], sel[15], customparam_st[ 3], sel[16], sel[16], customparam_st[ 4]);
-		GUIPrint(0, (float)x, (float)(y+tdy  ), 1, "%c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%8.3lf", sel[17], sel[17], customparam_st[ 5], sel[18], sel[18], customparam_st[ 6], sel[19], sel[19], customparam_st[ 7], sel[20], sel[20], customparam_st[ 8], sel[21], sel[21], customparam_st[ 9]);
-		GUIPrint(0, (float)x, (float)(y+tdy*2), 1, "%c%c%8.3lf %c%c%8.3lf",                                sel[22], sel[22], customparam_st[10], sel[23], sel[23], customparam_st[11]);//do not change these strings!
+		GUIPrint(0, (float)x, (float)(y        ), guizoom, "%c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%c%8.3lf", sel[12], sel[12], customparam_st[ 0], sel[13], sel[13], customparam_st[ 1], sel[14], sel[14], customparam_st[ 2], sel[15], sel[15], customparam_st[ 3], sel[16], sel[16], customparam_st[ 4]);
+		GUIPrint(0, (float)x, (float)(y+ystep  ), guizoom, "%c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%c%8.3lf", sel[17], sel[17], customparam_st[ 5], sel[18], sel[18], customparam_st[ 6], sel[19], sel[19], customparam_st[ 7], sel[20], sel[20], customparam_st[ 8], sel[21], sel[21], customparam_st[ 9]);
+		GUIPrint(0, (float)x, (float)(y+ystep*2), guizoom, "%c%c%8.3lf %c%c%8.3lf",                                  sel[22], sel[22], customparam_st[10], sel[23], sel[23], customparam_st[11]);//do not change these strings!
 		//set_text_colors(prevcolor);
 	}
 	const char *mode_str=0;
@@ -1505,7 +1572,7 @@ void io_render()
 		float
 			cr_combined=3/(1/ch_cr[0]+1/ch_cr[1]+1/ch_cr[2]),
 			scale=150,
-			xstart=200, xend=(float)w, ystart=(float)(h-tdy*5);
+			xstart=0, xend=(float)w-210, ystart=(float)(h-tdy*5);
 
 		if(xstart<xend)
 		{
@@ -1552,11 +1619,12 @@ void io_render()
 			draw_line(x, ystart, x+10, ystart-10, 0xFF000000);
 		}
 		int prevcolor;
-		prevcolor=set_text_color(0xFF000000);	GUIPrint(0, 0, ystart      , 1, "Combined      %9f", cr_combined   );
-		set_text_color(0xFF0000FF);				GUIPrint(0, 0, ystart+tdy  , 1, "R     %7d %9f", usage[0], ch_cr[0]);
-		set_text_color(0xFF00FF00);				GUIPrint(0, 0, ystart+tdy*2, 1, "G     %7d %9f", usage[1], ch_cr[1]);
-		set_text_color(0xFFFF0000);				GUIPrint(0, 0, ystart+tdy*3, 1, "B     %7d %9f", usage[2], ch_cr[2]);
-		set_text_color(0xFFFF00FF);				GUIPrint(0, 0, ystart+tdy*4, 1, "Joint %7d %9f", usage[3], ch_cr[3]);
+		xend=(float)w-200;
+		prevcolor=set_text_color(0xFF000000);	GUIPrint(xend, xend, ystart      , 1, "Combined      %9f", cr_combined   );
+		set_text_color(0xFF0000FF);				GUIPrint(xend, xend, ystart+tdy  , 1, "R     %7d %9f", usage[0], ch_cr[0]);
+		set_text_color(0xFF00FF00);				GUIPrint(xend, xend, ystart+tdy*2, 1, "G     %7d %9f", usage[1], ch_cr[1]);
+		set_text_color(0xFFFF0000);				GUIPrint(xend, xend, ystart+tdy*3, 1, "B     %7d %9f", usage[2], ch_cr[2]);
+		set_text_color(0xFFFF00FF);				GUIPrint(xend, xend, ystart+tdy*4, 1, "Joint %7d %9f", usage[3], ch_cr[3]);
 		set_text_color(prevcolor);
 	}
 #if 0
@@ -1631,7 +1699,7 @@ void io_render()
 		GUIPrint(0, 0, tdy*2, 1, "Usage:CR RGB[%d:%f, %d:%f, %d:%f] %f, joint %d:%f", usage[0], ch_cr[0], usage[1], ch_cr[1], usage[2], ch_cr[2], cr_combined, usage[3], ch_cr[3]);
 	}
 #endif
-	GUIPrint(0, 0, 0, 1, "p(%f, %f, %f) a(%f, %f) fov %f", cam.x, cam.y, cam.z, cam.ax, cam.ay, atan(cam.tanfov)*180/M_PI*2);
+	GUIPrint(0, 0, 0, 1, "p(%f, %f, %f) dx %f a(%f, %f) fov %f", cam.x, cam.y, cam.z, cam.move_speed, cam.ax, cam.ay, atan(cam.tanfov)*180/M_PI*2);
 	
 	static double t=0;
 	double t2=time_ms();
