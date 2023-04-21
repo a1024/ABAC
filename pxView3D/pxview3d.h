@@ -565,8 +565,8 @@ long long set_text_colors(long long colors);//0xBKBKBKBK_TXTXTXTX
 float print_line(float tab_origin, float x, float y, float zoom, const char *msg, int msg_length, int req_cols, int *ret_idx, int *ret_cols);//returns text width
 float GUIPrint(float tab_origin, float x, float y, float zoom, const char *format, ...);//returns text width
 
-void display_texture(int x1, int x2, int y1, int y2, unsigned txid, float alpha);
-void display_texture_i(int x1, int x2, int y1, int y2, int *rgb, int txw, int txh, float alpha);
+void display_texture(int x1, int x2, int y1, int y2, unsigned txid, float alpha, float tx1, float tx2, float ty1, float ty2);
+void display_texture_i(int x1, int x2, int y1, int y2, int *rgb, int txw, int txh, float alpha, float tx1, float tx2, float ty1, float ty2);
 
 //3D
 void mat4_lookAt(float *dst, const float *cam, const float *center, const float *up);

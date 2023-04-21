@@ -997,7 +997,7 @@ float GUIPrint(float tab_origin, float x, float y, float zoom, const char *forma
 	return print_line(tab_origin, x, y, zoom, g_buf, len, -1, 0, 0);
 }
 
-void display_texture(int x1, int x2, int y1, int y2, unsigned txid, float alpha)
+void display_texture(int x1, int x2, int y1, int y2, unsigned txid, float alpha, float tx1, float tx2, float ty1, float ty2)
 {
 	float _2_w=2.f/w, _2_h=2.f/h;
 	float rect[]=
@@ -1007,10 +1007,10 @@ void display_texture(int x1, int x2, int y1, int y2, unsigned txid, float alpha)
 	};
 	float vrtx[]=
 	{
-		rect[0], rect[1],		0, 0,//top left
-		rect[0], rect[3],		0, 1,//bottom left
-		rect[2], rect[3],		1, 1,//bottom right
-		rect[2], rect[1],		1, 0 //top right
+		rect[0], rect[1],		tx1, ty1,//top left
+		rect[0], rect[3],		tx1, ty2,//bottom left
+		rect[2], rect[3],		tx2, ty2,//bottom right
+		rect[2], rect[1],		tx2, ty1 //top right
 	};
 	setGLProgram(shader_texture.program);	GL_CHECK(error);
 	glUniform1f(u_texture_alpha, alpha);	GL_CHECK(error);
@@ -1031,7 +1031,7 @@ void display_texture(int x1, int x2, int y1, int y2, unsigned txid, float alpha)
 	glEnable(GL_DEPTH_TEST);
 #endif
 }
-void display_texture_i(int x1, int x2, int y1, int y2, int *rgb, int txw, int txh, float alpha)
+void display_texture_i(int x1, int x2, int y1, int y2, int *rgb, int txw, int txh, float alpha, float tx1, float tx2, float ty1, float ty2)
 {
 	static unsigned tx_id=0;
 	if(rgb)
@@ -1071,7 +1071,7 @@ void display_texture_i(int x1, int x2, int y1, int y2, int *rgb, int txw, int tx
 		//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);	GL_CHECK(error);
 		//glTexImage2D(GL_TEXTURE_2D,			0, GL_RGBA, w2, h2, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgb2);	GL_CHECK(error);//send bitmap to GPU
 
-		display_texture(x1, x2, y1, y2, tx_id, alpha);
+		display_texture(x1, x2, y1, y2, tx_id, alpha, tx1, tx2, ty1, ty2);
 
 #ifdef NPOT_ATIX2300_FIX
 		if(expand)

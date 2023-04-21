@@ -22,7 +22,7 @@ size_t filesize=0;
 int iw=0, ih=0, nch0=0;
 unsigned char *im0, *image=0;//stride=4
 int *im2=0, *im3=0;
-unsigned image_txid[3]={0};
+unsigned image_txid[3]={0};//0: interleaved channels, 1: separate channels, 2: histogram as texture
 
 typedef enum VisModeEnum
 {
@@ -31,6 +31,7 @@ typedef enum VisModeEnum
 	VIS_MESH_SEPARATE,
 	VIS_JOINT_HISTOGRAM,
 	VIS_IMAGE,
+	VIS_IMAGE_TRICOLOR,
 
 	VIS_COUNT,
 } VisMode;
@@ -1135,7 +1136,11 @@ int io_keydn(IOKey key, char c)
 					if(BETWEEN_EXC(1, idx, T_COUNT))
 					{
 						if(key==KEY_LBUTTON)
+						{
+							if(GET_KEY_STATE(KEY_CTRL))
+								transforms_removeall();
 							transforms_append(idx);
+						}
 						else
 							transforms_removebyid(idx);
 						update_image();
@@ -1196,14 +1201,15 @@ int io_keydn(IOKey key, char c)
 		messagebox(MBOX_OK, "Controls",
 			"WASDTG:\tMove cam\n"
 			"Arrow keys:\tTurn cam\n"
-			"Left Button:\tToggle mouse look\n"
+			"Mouse1:\tToggle mouse look\n"
 			"Ctrl O:\t\tOpen image\n"
 			"\n"
 			"R:\t\tReset cam\n"
 			"Ctrl R:\t\tDisable all transforms\n"
 			"Ctrl E:\t\tReset custom transform parameters\n"
 			"\n"
-			"Mouse1/Mouse2: Add/remove transforms to the list\n"
+			"Mouse1/Mouse2:\tAdd/remove transforms to the list\n"
+			"Ctrl Mouse1:\tReplace all transform with this one\n"
 			"\n"
 			//"Ctrl 1:\t\tApply YCoCg color transform\n"
 			//"Ctrl 2:\t\tApply YCoCgT color transform\n"
@@ -1477,12 +1483,17 @@ void io_render()
 		case VIS_MESH_SEPARATE:		chart_mesh_sep_draw();	break;
 		case VIS_JOINT_HISTOGRAM:	chart_jointhist_draw();	break;
 		case VIS_IMAGE:
-			display_texture_i(0, iw, (int)(tdy*3), (int)(tdy*3+ih), (int*)image, iw, ih, 1);
+			display_texture_i(0, iw, (int)(tdy*3), (int)(tdy*3)+ih, (int*)image, iw, ih, 1, 0, 1, 0, 1);
 			//{
 			//	//int x=(int)ceilf(tdx*6.5f);
 			//	int x=(int)floorf(tdx*6.5f);
 			//	display_texture_i(x, x+iw, (int)(tdy*3), (int)(tdy*3+ih), (int*)image, iw, ih, 1);
 			//}
+			break;
+		case VIS_IMAGE_TRICOLOR:
+			display_texture(0,  iw,    0,  ih,    image_txid[1], 1, 0, 1, 0,     1.f/3);
+			display_texture(iw, iw<<1, 0,  ih,    image_txid[1], 1, 0, 1, 1.f/3, 2.f/3);
+			display_texture(0,  iw,    ih, ih<<1, image_txid[1], 1, 0, 1, 2.f/3, 1);
 			break;
 		}
 	}
@@ -1531,6 +1542,7 @@ void io_render()
 	case VIS_MESH_SEPARATE:		mode_str="Separate Mesh";	break;
 	case VIS_JOINT_HISTOGRAM:	mode_str="Joint Histogram";	break;
 	case VIS_IMAGE:				mode_str="Image View";		break;
+	case VIS_IMAGE_TRICOLOR:	mode_str="Tricolor";		break;
 	}
 #if 0
 	switch(color_transform)
@@ -1618,14 +1630,16 @@ void io_render()
 			draw_line(x, ystart, x-10, ystart-10, 0xFF000000);
 			draw_line(x, ystart, x+10, ystart-10, 0xFF000000);
 		}
-		int prevcolor;
+		int prevtxtcolor, prevbkcolor;
 		xend=(float)w-200;
-		prevcolor=set_text_color(0xFF000000);	GUIPrint(xend, xend, ystart      , 1, "Combined      %9f", cr_combined   );
+		prevbkcolor=set_bk_color(0xC0C0C0C0);
+		prevtxtcolor=set_text_color(0xFF000000);GUIPrint(xend, xend, ystart      , 1, "Combined      %9f", cr_combined   );
 		set_text_color(0xFF0000FF);				GUIPrint(xend, xend, ystart+tdy  , 1, "R     %7d %9f", usage[0], ch_cr[0]);
 		set_text_color(0xFF00FF00);				GUIPrint(xend, xend, ystart+tdy*2, 1, "G     %7d %9f", usage[1], ch_cr[1]);
 		set_text_color(0xFFFF0000);				GUIPrint(xend, xend, ystart+tdy*3, 1, "B     %7d %9f", usage[2], ch_cr[2]);
 		set_text_color(0xFFFF00FF);				GUIPrint(xend, xend, ystart+tdy*4, 1, "Joint %7d %9f", usage[3], ch_cr[3]);
-		set_text_color(prevcolor);
+		set_text_color(prevtxtcolor);
+		set_bk_color(prevbkcolor);
 	}
 #if 0
 	if(image)
