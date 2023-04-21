@@ -571,7 +571,7 @@ void learnedtransform_inv(char *buf, int iw, int ih)
 #endif
 
 const int customparam_ct_w=2, customparam_ct_h=6, customparam_st_reach=2;
-double customparam_ct[]=
+/*const double customparam_ct0[]=
 {
 	 1,   0,
 	-0.5, 0,
@@ -580,13 +580,22 @@ double customparam_ct[]=
 	 0,   1,
 	 0,   0,
 };
-double customparam_st[]=
+const double customparam_st0[]=
 {
 	0,  0, 0, 0, 0,
 	0, -1, 1, 0, 0,
 	0,  1,
-};
+};*/
 int customparam_sel=12;
+double customparam_ct[12]={0};
+double customparam_st[12]={0};
+void customtransforms_resetparams()
+{
+	memset(customparam_ct, 0, sizeof(customparam_ct));
+	memset(customparam_st, 0, sizeof(customparam_st));
+	//memcpy(customparam_ct, customparam_ct0, sizeof(customparam_ct));
+	//memcpy(customparam_st, customparam_st0, sizeof(customparam_st));
+}
 void colortransform_custom_fwd(char *buf, int iw, int ih)
 {
 	for(int ky=0;ky<ih;++ky)

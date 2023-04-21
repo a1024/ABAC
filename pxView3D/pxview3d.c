@@ -18,8 +18,9 @@ Camera cam=
 }, cam0;
 
 ArrayHandle fn=0;
+size_t filesize=0;
 int iw=0, ih=0, nch0=0;
-unsigned char *image=0;//stride=4
+unsigned char *im0, *image=0;//stride=4
 int *im2=0, *im3=0;
 unsigned image_txid[3]={0};
 
@@ -35,6 +36,7 @@ typedef enum VisModeEnum
 } VisMode;
 int mode=VIS_MESH_SEPARATE;
 
+#if 0
 typedef enum ColorTransformTypeEnum
 {
 	CT_NONE,
@@ -66,6 +68,38 @@ typedef enum SpatialTransformTypeEnum
 } SpatialTransformType;
 int spatialtransform=ST_NONE;
 
+typedef struct TransformTypeStruct
+{
+	short is_spatial, id;
+} TransformType;
+#endif
+typedef enum TransformTypeEnum
+{
+	T_NONE,
+
+	CT_FWD_YCoCg,	CT_INV_YCoCg,
+	CT_FWD_YCoCgT,	CT_INV_YCoCgT,
+	CT_FWD_XGZ,		CT_INV_XGZ,
+	CT_FWD_XYZ,		CT_INV_XYZ,
+	CT_FWD_EXP,		CT_INV_EXP,
+	CT_FWD_LEARNED,	CT_INV_LEARNED,
+	CT_FWD_CUSTOM,	CT_INV_CUSTOM,
+
+	ST_FWD_DIFF2D,	ST_INV_DIFF2D,
+	ST_FWD_UNPLANE,	ST_INV_UNPLANE,
+	ST_FWD_LAZY,	ST_INV_LAZY,
+	ST_FWD_HAAR,	ST_INV_HAAR,
+	ST_FWD_SQUEEZE,	ST_INV_SQUEEZE,
+	ST_FWD_CDF53,	ST_INV_CDF53,
+	ST_FWD_CDF97,	ST_INV_CDF97,
+	ST_FWD_CUSTOM,	ST_INV_CUSTOM,
+
+	T_COUNT,
+} TransformType;
+int transforms_customenabled=0;
+char transforms_mask[T_COUNT]={0};
+ArrayHandle transforms=0;//array of chars
+
 float
 	pixel_amplitude=10,//4
 	mesh_separation=100;//10
@@ -76,6 +110,91 @@ unsigned gpu_vertices=0;
 ArrayHandle jointhist=0;
 float ch_cr[4]={0};
 int usage[4]={0};
+
+void transforms_append(unsigned tid)
+{
+	if(tid<T_COUNT)
+	{
+		if(!transforms)
+			ARRAY_ALLOC(char, transforms, &tid, 1, 0, 0);
+		else
+			ARRAY_APPEND(transforms, &tid, 1, 1, 0);
+		transforms_mask[tid]|=1;
+		transforms_customenabled|=tid==CT_FWD_CUSTOM||tid==CT_INV_CUSTOM||tid==ST_FWD_CUSTOM||tid==ST_INV_CUSTOM;
+	}
+}
+void transforms_removebyid(unsigned tid)
+{
+	if(transforms)
+	{
+		for(int k=(int)transforms->count-1;k>=0;--k)
+		{
+			if(tid==transforms->data[k])
+			{
+				array_erase(&transforms, k, 1);
+				break;//remove only one
+			}
+		}
+
+		memset(transforms_mask, 0, T_COUNT);
+		transforms_customenabled=0;
+		for(int k=0;k<(int)transforms->count;++k)//update trackers
+		{
+			unsigned char tid2=transforms->data[k];
+			if(tid2<T_COUNT)
+				transforms_mask[tid2]|=1;
+			transforms_customenabled|=tid2==CT_FWD_CUSTOM||tid2==CT_INV_CUSTOM||tid2==ST_FWD_CUSTOM||tid2==ST_INV_CUSTOM;
+		}
+	}
+}
+void printtransform(float x, float y, unsigned tid, int place, long long highlight)
+{
+	const char *a=0;
+	switch(tid)
+	{
+	case T_NONE:				a="NONE";					break;
+	case CT_FWD_YCoCg:			a="C  Fwd YCoCg";			break;
+	case CT_INV_YCoCg:			a="C  Inv YCoCg";			break;
+	case CT_FWD_YCoCgT:			a="C  Fwd YCoCgT";			break;
+	case CT_INV_YCoCgT:			a="C  Inv YCoCgT";			break;
+	case CT_FWD_XGZ:			a="C  Fwd XGZ";				break;
+	case CT_INV_XGZ:			a="C  Inv XGZ";				break;
+	case CT_FWD_XYZ:			a="C  Fwd XYZ";				break;
+	case CT_INV_XYZ:			a="C  Inv XYZ";				break;
+	case CT_FWD_EXP:			a="C  Fwd Experimental";	break;
+	case CT_INV_EXP:			a="C  Inv Experimental";	break;
+	case CT_FWD_LEARNED:		a="C  Fwd Learned";			break;
+	case CT_INV_LEARNED:		a="C  Inv Learned";			break;
+	case CT_FWD_CUSTOM:			a="C  Fwd Custom";			break;
+	case CT_INV_CUSTOM:			a="C  Inv Custom";			break;
+	case ST_FWD_DIFF2D:			a=" S Fwd 2D derivative";	break;
+	case ST_INV_DIFF2D:			a=" S Inv 2D derivative";	break;
+	case ST_FWD_UNPLANE:		a=" S Fwd Unplane";			break;
+	case ST_INV_UNPLANE:		a=" S Inv Unplane";			break;
+	case ST_FWD_LAZY:			a=" S Fwd Lazy DWT";		break;
+	case ST_INV_LAZY:			a=" S Inv Lazy DWT";		break;
+	case ST_FWD_HAAR:			a=" S Fwd Haar";			break;
+	case ST_INV_HAAR:			a=" S Inv Haar";			break;
+	case ST_FWD_SQUEEZE:		a=" S Fwd Squeeze";			break;
+	case ST_INV_SQUEEZE:		a=" S Inv Squeeze";			break;
+	case ST_FWD_CDF53:			a=" S Fwd CDF 5/3";			break;
+	case ST_INV_CDF53:			a=" S Inv CDF 5/3";			break;
+	case ST_FWD_CDF97:			a=" S Fwd CDF 9/7";			break;
+	case ST_INV_CDF97:			a=" S Inv CDF 9/7";			break;
+	case ST_FWD_CUSTOM:			a=" S Fwd Custom ST";		break;
+	case ST_INV_CUSTOM:			a=" S Inv Custom ST";		break;
+	default:					a="ERROR";					break;
+	}
+	long long c0=0;
+	if(highlight)
+		c0=set_text_colors(highlight);
+	if(place<0)
+		GUIPrint(0, x, y, 1, "%s", a);
+	else
+		GUIPrint(0, x, y, 1, "%d: %s", place, a);
+	if(highlight)
+		set_text_colors(c0);
+}
 
 int send_image_separate_subpixels(unsigned char *image, int iw, int ih, unsigned *txid)
 {
@@ -349,6 +468,93 @@ void chart_jointhist_update(unsigned char *im, int iw, int ih, ArrayHandle *cpuv
 }
 void update_image()
 {
+	if(image)
+	{
+		void *p2=realloc(image, (size_t)iw*ih<<2);
+		if(!p2)
+		{
+			LOG_ERROR("Allocation error");
+			return;
+		}
+		image=(unsigned char*)p2;
+	}
+	else
+	{
+		image=(unsigned char*)malloc((size_t)iw*ih<<2);
+		if(!image)
+		{
+			LOG_ERROR("Allocation error");
+			return;
+		}
+	}
+	memcpy(image, im0, (size_t)iw*ih<<2);
+	if(transforms)
+	{
+		addhalf(image, iw, ih, 3, 4);
+		for(int k=0;k<(int)transforms->count;++k)
+		{
+			unsigned char tid=transforms->data[k];
+			switch(tid)
+			{
+			case CT_FWD_YCoCg:		colortransform_ycocg_fwd((char*)image, iw, ih);		break;
+			case CT_INV_YCoCg:		colortransform_ycocg_inv((char*)image, iw, ih);		break;
+			case CT_FWD_YCoCgT:		colortransform_ycocgt_fwd((char*)image, iw, ih);	break;
+			case CT_INV_YCoCgT:		colortransform_ycocgt_inv((char*)image, iw, ih);	break;
+			case CT_FWD_XGZ:		colortransform_xgz_fwd((char*)image, iw, ih);		break;
+			case CT_INV_XGZ:		colortransform_xgz_inv((char*)image, iw, ih);		break;
+			case CT_FWD_XYZ:		colortransform_xyz_fwd((char*)image, iw, ih);		break;
+			case CT_INV_XYZ:		colortransform_xyz_inv((char*)image, iw, ih);		break;
+			case CT_FWD_EXP:		colortransform_exp_fwd((char*)image, iw, ih);		break;
+			case CT_INV_EXP:		colortransform_exp_inv((char*)image, iw, ih);		break;
+			case CT_FWD_LEARNED:	colortransform_learned_fwd((char*)image, iw, ih);	break;
+			case CT_INV_LEARNED:	colortransform_learned_inv((char*)image, iw, ih);	break;
+			case CT_FWD_CUSTOM:		colortransform_custom_fwd((char*)image, iw, ih);	break;
+			case CT_INV_CUSTOM:		colortransform_custom_inv((char*)image, iw, ih);	break;
+
+			case ST_FWD_DIFF2D:		image_differentiate((char*)image, iw, ih, 3, 4);	break;
+			case ST_INV_DIFF2D:		image_integrate((char*)image, iw, ih, 3, 4);		break;
+			case ST_FWD_UNPLANE:	image_unplane((char*)image, iw, ih, 3, 4);			break;
+			case ST_INV_UNPLANE:	image_replane((char*)image, iw, ih, 3, 4);			break;
+			case ST_FWD_LAZY:
+			case ST_INV_LAZY:
+			case ST_FWD_HAAR:
+			case ST_INV_HAAR:
+			case ST_FWD_SQUEEZE:
+			case ST_INV_SQUEEZE:
+			case ST_FWD_CDF53:
+			case ST_INV_CDF53:
+			case ST_FWD_CDF97:
+			case ST_INV_CDF97:
+				{
+					ArrayHandle sizes=dwt2d_gensizes(iw, ih, 3, 3, 0);
+					char *temp=(char*)malloc(MAXVAR(iw, ih));
+					for(int kc=0;kc<3;++kc)
+					{
+						switch(tid)
+						{
+						case ST_FWD_LAZY:   dwt2d_lazy_fwd   ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						case ST_INV_LAZY:   dwt2d_lazy_inv   ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						case ST_FWD_HAAR:   dwt2d_haar_fwd   ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						case ST_INV_HAAR:   dwt2d_haar_inv   ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						case ST_FWD_SQUEEZE:dwt2d_squeeze_fwd((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						case ST_INV_SQUEEZE:dwt2d_squeeze_inv((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						case ST_FWD_CDF53:  dwt2d_cdf53_fwd  ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						case ST_INV_CDF53:  dwt2d_cdf53_inv  ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						case ST_FWD_CDF97:  dwt2d_cdf97_fwd  ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						case ST_INV_CDF97:  dwt2d_cdf97_inv  ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						}
+					}
+					array_free(&sizes);
+					free(temp);
+				}
+				break;
+			case ST_FWD_CUSTOM:		image_customst_fwd((char*)image, iw, ih, 3, 4);break;
+			case ST_INV_CUSTOM:		image_customst_inv((char*)image, iw, ih, 3, 4);break;
+			}
+		}//for
+		addhalf(image, iw, ih, 3, 4);
+	}//if transforms
+
 	channel_entropy(image, iw*ih, 3, 4, ch_cr, usage);
 
 	if(!send_image_separate_subpixels(image, iw, ih, image_txid))
@@ -425,6 +631,7 @@ void chart_jointhist_draw()
 	draw_contour3d_rect(&cam, gpu_vertices, (int)(cpu_vertices->count/5), image_txid[2], 0.8f);
 }
 
+#if 0
 void applycolortransform(int tidx)
 {
 	addhalf(image, iw, ih, 3, 4);
@@ -589,6 +796,7 @@ void undospatialtransform(int tidx)
 	}
 	addhalf(image, iw, ih, 3, 4);
 }
+#endif
 
 
 //active keys turn on timer
@@ -601,6 +809,12 @@ int active_keys_pressed=0;
 //mouse
 char drag=0;
 int mx0=0, my0=0;
+
+typedef struct AABBStruct
+{
+	float x1, x2, y1, y2;
+} AABB;
+AABB buttons[4]={0};//CT left, CT right, ST grid
 
 int io_init(int argc, char **argv)//return false to abort
 {
@@ -616,6 +830,13 @@ int io_init(int argc, char **argv)//return false to abort
 }
 void io_resize()
 {
+	int y=h>>1;
+	float x1=tdx*(6.5f+4), x2=x1+tdx*10, x3=x2+tdx*4, x4=x3+tdx*10, y1=(float)y, y2=y1+tdy;
+	AABB *p=buttons;
+	p->x1=x1, p->x2=x2, p->y1=y1, p->y2=y2, ++p;
+	p->x1=x3, p->x2=x4, p->y1=y1, p->y2=y2, ++p;
+	p->x1=(float)(w>>1), p->x2=p->x1+tdx*55, p->y1=(float)((h>>1)+(h>>2)), p->y2=p->y1+tdy*3, ++p;
+	p->x1=(float)(w-200), p->x2=(float)w, p->y1=tdy*2, p->y2=p->y1+tdy*T_COUNT, ++p;
 }
 int io_mousemove()//return true to redraw
 {
@@ -630,7 +851,107 @@ int io_mousemove()//return true to redraw
 }
 int io_mousewheel(int forward)
 {
-	if(keyboard[KEY_SHIFT])//shift wheel		change cam speed
+	if(image&&transforms_customenabled)//change custom transform params
+	{
+		int idx;
+		AABB *p=buttons;
+		for(idx=0;idx<COUNTOF(buttons);++idx, ++p)
+		{
+			if(mx>=p->x1&&mx<p->x2&&my>=p->y1&&my<p->y2)
+				break;
+		}
+		if(idx<3)
+		{
+			int x, y;
+			switch(idx)
+			{
+			case 0://color transform
+			case 1:
+				x=idx<<1|(mx-p->x1>(p->x2-p->x1)*0.5f);
+				y=(int)((my-p->y1)*customparam_ct_h/(p->y2-p->y1));
+				idx=customparam_ct_w*y+x;
+				break;
+			case 2://spatial transform
+				x=(int)((mx-p->x1)*(customparam_st_reach<<1|1)/(p->x2-p->x1));
+				y=(int)((my-p->y1)*(customparam_st_reach+1)/(p->y2-p->y1));
+				idx=COUNTOF(customparam_ct)+(customparam_st_reach<<1|1)*y+x;
+				break;
+			}
+			if(idx<COUNTOF(customparam_ct)+COUNTOF(customparam_st))
+			{
+				int sign=(forward>0)-(forward<0);//abs(forward) is 120
+				int ch=(int)((mx-p->x1)/tdx), ch2;
+				//if(GET_KEY_STATE(KEY_SHIFT))//fast
+				//	speed=0.1;
+				//else if(GET_KEY_STATE(KEY_CTRL))//slow
+				//	speed=0.001;
+				//else//normal speed
+				//	speed=0.01;
+				if(idx<COUNTOF(customparam_ct))//color transform
+				{
+					//000000000011111111112222222222
+					//012345678901234567890123456789
+					//r-=(>>nnnN.NNN)g+(  nnnN.NNN)b
+					ch2=ch-6;
+					MODVAR(ch2, ch2, 14);
+					if(ch2>=0&&ch<8)
+					{
+						ch2-=4;
+						ch2+=ch2<0;//skip point
+						double speed=pow(10, -ch2);
+						customparam_ct[idx]+=sign*speed;
+					}
+					else
+						customparam_ct[idx]+=sign*0.05;
+					//ch2=(ch-6)%14;
+					//if(ch>=6&&ch<28&&ch2>=3&&ch2<8)
+					//{
+					//	ch2-=3;
+					//	ch2+=ch2>0;//skip point
+					//	double speed=pow(10, -ch2);
+					//	customparam_ct[idx]+=sign*speed;
+					//}
+					//else
+					//	customparam_ct[idx]+=sign*0.05;
+
+					//undocolortransform(color_transform);
+					//switch(ch)
+					//{
+					//case  9:case 23:customparam_ct[idx]+=sign;break;
+					//case 10:case 24:
+					//case 11:case 25:customparam_ct[idx]+=sign*0.1;break;
+					//case 12:case 26:customparam_ct[idx]+=sign*0.01;break;
+					//case 13:case 27:customparam_ct[idx]+=sign*0.001;break;
+					//default:		customparam_ct[idx]+=sign*0.01;break;
+					//}
+					//applycolortransform(color_transform);
+				}
+				else//spatial transform
+				{
+					//000000000011111111112222222222333333333344444444445555
+					//012345678901234567890123456789012345678901234567890123
+					//>>nnnN.NNN >>nnnN.NNN >>nnnN.NNN >>nnnN.NNN >>nnnN.NNN
+					ch2=ch-2;
+					MODVAR(ch2, ch2, 11);
+					if(ch>=0&&ch<36&&ch2>=3&&ch2<8)
+					{
+						ch2-=4;
+						ch2+=ch2<0;//skip point
+						double speed=pow(10, -ch2);
+						customparam_st[idx-COUNTOF(customparam_ct)]+=sign*speed;
+					}
+					else
+						customparam_st[idx-COUNTOF(customparam_ct)]+=sign*0.05;
+
+					//undospatialtransform(spatialtransform);
+					//customparam_st[idx-COUNTOF(customparam_ct)]+=sign*speed;
+					//applyspatialtransform(spatialtransform);
+				}
+				update_image();
+			}
+		}
+	}
+	else if(keyboard[KEY_SHIFT])//shift wheel		change cam speed
 	{
 			 if(forward>0)	cam.move_speed*=2;
 		else				cam.move_speed*=0.5f;
@@ -664,7 +985,7 @@ int io_keydn(IOKey key, char c)
 	//	}
 	//	break;
 	//}
-	if(color_transform==CT_CUSTOM||spatialtransform==ST_CUSTOM)
+	if(transforms_customenabled)
 	{
 		switch(key)
 		{
@@ -769,7 +1090,28 @@ int io_keydn(IOKey key, char c)
 	switch(key)
 	{
 	case KEY_LBUTTON:
+	case KEY_RBUTTON:
+		{
+			AABB *p=buttons+3;
+			if(image&&mx>=p->x1&&mx<p->x2&&my>=p->y1&&my<p->y2)
+			{
+				int idx=(int)(my-p->y1)*T_COUNT/(int)(p->y2-p->y1)+1;//zero idx is T_NONE
+				if(BETWEEN_EXC(1, idx, T_COUNT))
+				{
+					if(key==KEY_LBUTTON)
+						transforms_append(idx);
+					else
+						transforms_removebyid(idx);
+					update_image();
+					return 1;
+				}
+			}
+			else if(key==KEY_LBUTTON)
+				goto esc;
+		}
+		break;
 	case KEY_ESC:
+	esc:
 		show_mouse(drag);
 		drag=!drag;
 		if(drag)//enter mouse control
@@ -781,7 +1123,6 @@ int io_keydn(IOKey key, char c)
 			set_mouse(mx0, my0);
 		break;
 	case KEY_MBUTTON:
-	case KEY_RBUTTON:
 		//printf("Click at (%d, %d)\n", mx, my);
 		break;
 
@@ -800,26 +1141,29 @@ int io_keydn(IOKey key, char c)
 			"\n"
 			"R:\t\tReset cam\n"
 			"Ctrl R:\t\tReload image\n"
+			"Ctrl E:\t\tReset custom transforms\n"
 			"\n"
-			"Ctrl 1:\t\tApply YCoCg color transform\n"
-			"Ctrl 2:\t\tApply YCoCgT color transform\n"
-			"Ctrl 3:\t\tApply XGZ color transform\n"
-			"Ctrl 4:\t\tApply XYZ color transform\n"
-			"Ctrl 5:\t\tApply experimental transform\n"
-			"Ctrl 6:\t\tApply learned transform\n"
-			"Ctrl 7:\t\tApply custom color transform\n"
-			"Ctrl 0:\t\tUndo color transform\n"
+			"Mouse1/Mouse2: Add/remove transforms to the list\n"
 			"\n"
-			"1:\t\tApply 2D derivative\n"
-			"2:\t\tApply Unplane\n"
-			"3:\t\tApply Lazy DWT\n"
-			"4:\t\tApply Haar transform\n"
-			"5:\t\tApply Squeeze transform from JPEG XL\n"
-			"6:\t\tApply CDF 5/3 transform\n"
-			"7:\t\tApply CDF 9/7 transform\n"
-			"8:\t\tApply custom spatial transform\n"
-			"0:\t\tUndo spatial transform\n"
-			"\n"
+			//"Ctrl 1:\t\tApply YCoCg color transform\n"
+			//"Ctrl 2:\t\tApply YCoCgT color transform\n"
+			//"Ctrl 3:\t\tApply XGZ color transform\n"
+			//"Ctrl 4:\t\tApply XYZ color transform\n"
+			//"Ctrl 5:\t\tApply experimental transform\n"
+			//"Ctrl 6:\t\tApply learned transform\n"
+			//"Ctrl 7:\t\tApply custom color transform\n"
+			//"Ctrl 0:\t\tUndo color transform\n"
+			//"\n"
+			//"1:\t\tApply 2D derivative\n"
+			//"2:\t\tApply Unplane\n"
+			//"3:\t\tApply Lazy DWT\n"
+			//"4:\t\tApply Haar transform\n"
+			//"5:\t\tApply Squeeze transform from JPEG XL\n"
+			//"6:\t\tApply CDF 5/3 transform\n"
+			//"7:\t\tApply CDF 9/7 transform\n"
+			//"8:\t\tApply custom spatial transform\n"
+			//"0:\t\tUndo spatial transform\n"
+			//"\n"
 			"M / Shift M:\tSelect [Levels / Mesh / SeparateMesh / Histogram / Image]\n"
 		);
 		//prof_on=!prof_on;
@@ -829,13 +1173,14 @@ int io_keydn(IOKey key, char c)
 		{
 			if(fn)
 			{
-				if(image)
-					free(image);
-				image=stbi_load((char*)fn->data, &iw, &ih, &nch0, 4);
-				if(image)
+				if(im0)
+					free(im0);
+				im0=stbi_load((char*)fn->data, &iw, &ih, &nch0, 4);
+				if(im0)
 				{
-					color_transform=CT_NONE;
-					spatialtransform=CT_NONE;
+					array_free(&transforms);
+					//color_transform=CT_NONE;
+					//spatialtransform=CT_NONE;
 					update_image();
 				}
 			}
@@ -843,9 +1188,15 @@ int io_keydn(IOKey key, char c)
 		else
 			memcpy(&cam, &cam0, sizeof(cam));
 		return 1;
-	//case 'E':
+	case 'E':
+		if(image&&GET_KEY_STATE(KEY_CTRL)&&transforms_customenabled)//reset params
+		{
+			customtransforms_resetparams();
+			update_image();
+			return 1;
+		}
 	//	wireframe=!wireframe;
-	//	return 1;
+		break;
 	case 'O':
 		if(GET_KEY_STATE(KEY_CTRL))
 		{
@@ -855,15 +1206,17 @@ int io_keydn(IOKey key, char c)
 				if(fn)
 					array_free(&fn);
 				fn=fn2;
-				if(image)
-					free(image);
-				image=stbi_load((char*)fn->data, &iw, &ih, &nch0, 4);
+				if(im0)
+					free(im0);
+				im0=stbi_load((char*)fn->data, &iw, &ih, &nch0, 4);
 				//array_free(&fn);
-				if(image)
+				if(im0)
 				{
+					filesize=get_filesize((char*)fn->data);
 					set_window_title("%s - pxView3D", (char*)fn->data);
-					color_transform=CT_NONE;
-					spatialtransform=CT_NONE;
+					//color_transform=CT_NONE;
+					//spatialtransform=CT_NONE;
+					//array_free(&transforms);
 					update_image();
 				}
 			}
@@ -881,6 +1234,7 @@ int io_keydn(IOKey key, char c)
 		//		openfiles=dialog_open_file(file_filters, SIZEOF(file_filters), 1);
 		//}
 		return 1;
+#if 0
 	case '0':case '1':case '2':case '3':case '4':case '5':case '6':case '7':case '8':case '9':
 		if(image)
 		{
@@ -889,9 +1243,10 @@ int io_keydn(IOKey key, char c)
 			{
 				if(tidx<CT_COUNT&&tidx!=color_transform)
 				{
-					undocolortransform(color_transform);
-					color_transform=tidx;
-					applycolortransform(color_transform);
+					transforms_append(0, tidx);
+					//undocolortransform(color_transform);
+					//color_transform=tidx;
+					//applycolortransform(color_transform);
 					update_image();
 					return 1;
 				}
@@ -900,15 +1255,17 @@ int io_keydn(IOKey key, char c)
 			{
 				if(tidx<ST_COUNT&&tidx!=spatialtransform)
 				{
-					undospatialtransform(spatialtransform);
-					spatialtransform=tidx;
-					applyspatialtransform(spatialtransform);
+					transforms_append(0, tidx);
+					//undospatialtransform(spatialtransform);
+					//spatialtransform=tidx;
+					//applyspatialtransform(spatialtransform);
 					update_image();
 					return 1;
 				}
 			}
 		}
 		break;
+#endif
 	//case 'E':
 	//	if(image)
 	//	{
@@ -916,13 +1273,30 @@ int io_keydn(IOKey key, char c)
 	//		update_image();
 	//	}
 	//	return 1;
-	//case 'C':
-	//	if(image)
-	//	{
-	//		color_transform(image, iw, ih);
-	//		update_image();
-	//	}
-	//	return 1;
+	case 'C':
+		if(image&&GET_KEY_STATE(KEY_CTRL)&&transforms_customenabled)//copy custom transform value
+		{
+			int printed=snprintf(g_buf, G_BUF_SIZE, "%15.13lf", customparam_sel<COUNTOF(customparam_ct)?customparam_ct[customparam_sel]:customparam_st[customparam_sel-COUNTOF(customparam_ct)]);
+			copy_to_clipboard(g_buf, printed);
+			//color_transform(image, iw, ih);
+			//update_image();
+		}
+		return 1;
+	case 'V':
+		if(image&&GET_KEY_STATE(KEY_CTRL)&&transforms_customenabled)//paste custom transform value
+		{
+			ArrayHandle text=paste_from_clipboard(0);
+			if(text)
+			{
+				double val=atof(text->data);
+				if(customparam_sel<COUNTOF(customparam_ct))
+					customparam_ct[customparam_sel]=val;
+				else
+					customparam_st[customparam_sel-COUNTOF(customparam_ct)]=val;
+				return 1;
+			}
+		}
+		break;
 	case 'M':
 		if(image)
 		{
@@ -975,7 +1349,8 @@ void io_timer()
 	if(keyboard[KEY_DOWN])	cam_turnDown(cam, key_turn_speed);
 	if(keyboard[KEY_LEFT])	cam_turnLeft(cam, key_turn_speed);
 	if(keyboard[KEY_RIGHT])	cam_turnRight(cam, key_turn_speed);
-	if(color_transform==CT_CUSTOM||spatialtransform==ST_CUSTOM)
+	if(transforms_customenabled)
+	//if(color_transform==CT_CUSTOM||spatialtransform==ST_CUSTOM)
 	{
 		int update=keyboard[KEY_ENTER]-keyboard[KEY_BKSP];
 		if(update)
@@ -989,15 +1364,15 @@ void io_timer()
 				speed=0.01;
 			if(customparam_sel<COUNTOF(customparam_ct))
 			{
-				undocolortransform(color_transform);
+				//undocolortransform(color_transform);
 				customparam_ct[customparam_sel]+=speed*update;
-				applycolortransform(color_transform);
+				//applycolortransform(color_transform);
 			}
 			else
 			{
-				undospatialtransform(spatialtransform);
+				//undospatialtransform(spatialtransform);
 				customparam_st[customparam_sel-COUNTOF(customparam_ct)]+=speed*update;
-				applyspatialtransform(spatialtransform);
+				//applyspatialtransform(spatialtransform);
 			}
 			update_image();
 		}
@@ -1054,15 +1429,18 @@ void io_render()
 	//if(im2)
 	//	display_texture_i(0, iw*3, h>>1, (h>>1)+ih, im2, iw*2, ih, 0.4f);
 
-	if(color_transform==CT_CUSTOM||spatialtransform==ST_CUSTOM)
+	if(transforms_customenabled)
+	//if(color_transform==CT_CUSTOM||spatialtransform==ST_CUSTOM)
 	{
 		char sel[COUNTOF(customparam_ct)+COUNTOF(customparam_st)]={0};
 		for(int k=0;k<COUNTOF(sel);++k)
 			sel[k]=' ';
 		sel[customparam_sel]='>';
 		//long long prevcolor=set_text_colors(0xFF000000);
-		int y=h>>1;
-		GUIPrint(0, tdx*6.5f, (float)(y      ), 1, "r-=(%c%c%8.3lf)g+(%c%c%8.3lf)b", sel[ 0], sel[ 0], customparam_ct[ 0], sel[ 1], sel[ 1], customparam_ct[ 1]);
+		int x=w>>1, y=h>>1;
+		//012345678901234567890123456789
+		//r-=(>>nnnN.NNN)g+(  nnnN.NNN)b
+		GUIPrint(0, tdx*6.5f, (float)(y      ), 1, "r-=(%c%c%8.3lf)g+(%c%c%8.3lf)b", sel[ 0], sel[ 0], customparam_ct[ 0], sel[ 1], sel[ 1], customparam_ct[ 1]);//do not change these strings!
 		GUIPrint(0, tdx*6.5f, (float)(y+tdy  ), 1, "g-=(%c%c%8.3lf)r+(%c%c%8.3lf)b", sel[ 2], sel[ 2], customparam_ct[ 2], sel[ 3], sel[ 3], customparam_ct[ 3]);
 		GUIPrint(0, tdx*6.5f, (float)(y+tdy*2), 1, "b-=(%c%c%8.3lf)r+(%c%c%8.3lf)g", sel[ 4], sel[ 4], customparam_ct[ 4], sel[ 5], sel[ 5], customparam_ct[ 5]);
 		GUIPrint(0, tdx*6.5f, (float)(y+tdy*3), 1, "r+=(%c%c%8.3lf)g+(%c%c%8.3lf)b", sel[ 6], sel[ 6], customparam_ct[ 6], sel[ 7], sel[ 7], customparam_ct[ 7]);
@@ -1070,13 +1448,15 @@ void io_render()
 		GUIPrint(0, tdx*6.5f, (float)(y+tdy*5), 1, "b+=(%c%c%8.3lf)r+(%c%c%8.3lf)g", sel[10], sel[10], customparam_ct[10], sel[11], sel[11], customparam_ct[11]);
 
 		y=(h>>1)+(h>>2);
-		int x=w>>1;
+		//000000000011111111112222222222333333333344444444445555
+		//012345678901234567890123456789012345678901234567890123
+		//>>nnnN.NNN >>nnnN.NNN >>nnnN.NNN >>nnnN.NNN >>nnnN.NNN
 		GUIPrint(0, (float)x, (float)(y      ), 1, "%c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%8.3lf", sel[12], sel[12], customparam_st[ 0], sel[13], sel[13], customparam_st[ 1], sel[14], sel[14], customparam_st[ 2], sel[15], sel[15], customparam_st[ 3], sel[16], sel[16], customparam_st[ 4]);
 		GUIPrint(0, (float)x, (float)(y+tdy  ), 1, "%c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%8.3lf", sel[17], sel[17], customparam_st[ 5], sel[18], sel[18], customparam_st[ 6], sel[19], sel[19], customparam_st[ 7], sel[20], sel[20], customparam_st[ 8], sel[21], sel[21], customparam_st[ 9]);
-		GUIPrint(0, (float)x, (float)(y+tdy*2), 1, "%c%c%8.3lf %c%c%8.3lf",                                sel[22], sel[22], customparam_st[10], sel[23], sel[23], customparam_st[11]);
+		GUIPrint(0, (float)x, (float)(y+tdy*2), 1, "%c%c%8.3lf %c%c%8.3lf",                                sel[22], sel[22], customparam_st[10], sel[23], sel[23], customparam_st[11]);//do not change these strings!
 		//set_text_colors(prevcolor);
 	}
-	const char *mode_str=0, *color_str=0, *space_str=0;
+	const char *mode_str=0;
 	switch(mode)
 	{
 	case VIS_PLANES:			mode_str="Planes";			break;
@@ -1085,6 +1465,7 @@ void io_render()
 	case VIS_JOINT_HISTOGRAM:	mode_str="Joint Histogram";	break;
 	case VIS_IMAGE:				mode_str="Image View";		break;
 	}
+#if 0
 	switch(color_transform)
 	{
 	case CT_NONE:				color_str="NONE";			break;
@@ -1108,8 +1489,19 @@ void io_render()
 	case ST_CDF97:				space_str="CDF 9/7";break;
 	case ST_CUSTOM:				space_str="Custom"; break;
 	}
+#endif
 	if(image)
 	{
+		float x=(float)(w-200), y=tdy*2;
+		for(int k=T_NONE+1;k<T_COUNT;++k, y+=tdy)//print available transforms on right
+			printtransform(x, y, k, -1, transforms_mask[k]?0xA0FF0000FFFFFFFF:0);
+		if(transforms)
+		{
+			x=(float)(w-400);
+			y=tdy*2;
+			for(int k=0;k<(int)transforms->count;++k, y+=tdy)//print applied transforms on left
+				printtransform(x, y, transforms->data[k], k, 0);
+		}
 		float
 			cr_combined=3/(1/ch_cr[0]+1/ch_cr[1]+1/ch_cr[2]),
 			scale=150,
@@ -1150,20 +1542,22 @@ void io_render()
 				x=(float)(xend-scale*ks);
 			}
 			float barw=4;
-			draw_rect(xend-scale*ch_cr[0]   , xend, ystart+tdy*0.5f-barw, ystart+tdy*0.5f+barw+1, 0xFF0000FF);
-			draw_rect(xend-scale*ch_cr[1]   , xend, ystart+tdy*1.5f-barw, ystart+tdy*1.5f+barw+1, 0xFF00FF00);
-			draw_rect(xend-scale*ch_cr[2]   , xend, ystart+tdy*2.5f-barw, ystart+tdy*2.5f+barw+1, 0xFFFF0000);
-			draw_rect(xend-scale*cr_combined, xend, ystart+tdy*3.5f-barw, ystart+tdy*3.5f+barw+1, 0xFF000000);
+			draw_rect(xend-scale*cr_combined, xend, ystart+tdy*0.5f-barw, ystart+tdy*0.5f+barw+1, 0xFF000000);
+			draw_rect(xend-scale*ch_cr[0]   , xend, ystart+tdy*1.5f-barw, ystart+tdy*1.5f+barw+1, 0xFF0000FF);
+			draw_rect(xend-scale*ch_cr[1]   , xend, ystart+tdy*2.5f-barw, ystart+tdy*2.5f+barw+1, 0xFF00FF00);
+			draw_rect(xend-scale*ch_cr[2]   , xend, ystart+tdy*3.5f-barw, ystart+tdy*3.5f+barw+1, 0xFFFF0000);
 			draw_rect(xend-scale*ch_cr[3]   , xend, ystart+tdy*4.5f-barw, ystart+tdy*4.5f+barw+1, 0xFFFF00FF);
+			x=xend-((float)iw*ih*3/filesize)*scale;
+			draw_line(x, ystart, x-10, ystart-10, 0xFF000000);
+			draw_line(x, ystart, x+10, ystart-10, 0xFF000000);
 		}
-		int prevcolor=set_text_color(0xFF0000FF);
-		//int prevbk=set_bk_color(0xA0808080);
-		GUIPrint(0, 0, ystart      , 1, "R     %7d %9f", usage[0], ch_cr[0]), set_text_color(0xFF00FF00);
-		GUIPrint(0, 0, ystart+tdy  , 1, "G     %7d %9f", usage[1], ch_cr[1]), set_text_color(0xFFFF0000);
-		GUIPrint(0, 0, ystart+tdy*2, 1, "B     %7d %9f", usage[2], ch_cr[2]), set_text_color(0xFF000000);
-		GUIPrint(0, 0, ystart+tdy*3, 1, "Combined      %9f", cr_combined   ), set_text_color(0xFFFF00FF);
-		GUIPrint(0, 0, ystart+tdy*4, 1, "Joint %7d %9f", usage[3], ch_cr[3]), set_text_color(prevcolor);
-		//set_bk_color(prevbk);
+		int prevcolor;
+		prevcolor=set_text_color(0xFF000000);	GUIPrint(0, 0, ystart      , 1, "Combined      %9f", cr_combined   );
+		set_text_color(0xFF0000FF);				GUIPrint(0, 0, ystart+tdy  , 1, "R     %7d %9f", usage[0], ch_cr[0]);
+		set_text_color(0xFF00FF00);				GUIPrint(0, 0, ystart+tdy*2, 1, "G     %7d %9f", usage[1], ch_cr[1]);
+		set_text_color(0xFFFF0000);				GUIPrint(0, 0, ystart+tdy*3, 1, "B     %7d %9f", usage[2], ch_cr[2]);
+		set_text_color(0xFFFF00FF);				GUIPrint(0, 0, ystart+tdy*4, 1, "Joint %7d %9f", usage[3], ch_cr[3]);
+		set_text_color(prevcolor);
 	}
 #if 0
 	if(image)
@@ -1241,7 +1635,8 @@ void io_render()
 	
 	static double t=0;
 	double t2=time_ms();
-	GUIPrint(0, 0, tdy, 1, "timer %d, fps %10lf, [%d/%d] %s,\tCT: [%d/%d] %s,\tST: [%d/%d] %s", timer, 1000./(t2-t), mode+1, VIS_COUNT, mode_str, color_transform+1, CT_COUNT, color_str, spatialtransform+1, ST_COUNT, space_str);
+	GUIPrint(0, 0, tdy, 1, "timer %d, fps %10lf, [%d/%d] %s", timer, 1000./(t2-t), mode+1, VIS_COUNT, mode_str);
+	//GUIPrint(0, 0, tdy, 1, "timer %d, fps %10lf, [%d/%d] %s,\tCT: [%d/%d] %s,\tST: [%d/%d] %s", timer, 1000./(t2-t), mode+1, VIS_COUNT, mode_str, color_transform+1, CT_COUNT, color_str, spatialtransform+1, ST_COUNT, space_str);
 	//if(joint_CR)
 	//	GUIPrint(0, 0, tdy*3, 1, "Joint CR %f", joint_CR);
 	t=t2;

@@ -205,7 +205,7 @@ const char*	dialog_save_file(Filter *filters, int nfilters, const char *initialn
 
 void set_window_title(const char *format, ...);
 
-void copy_to_clipboard(const char *a, int size);
+int copy_to_clipboard(const char *a, int size);
 ArrayHandle paste_from_clipboard(int loud);
 
 #define GET_KEY_STATE(KEY)	(keyboard[KEY]=(GetAsyncKeyState(KEY)>>15)!=0)
@@ -562,8 +562,8 @@ int toggle_sdftext();
 int set_text_color(int color_txt);
 int set_bk_color(int color_bk);
 long long set_text_colors(long long colors);//0xBKBKBKBK_TXTXTXTX
-float print_line(float tab_origin, float x, float y, float zoom, const char *msg, int msg_length, int req_cols, int *ret_idx, int *ret_cols);
-float GUIPrint(float tab_origin, float x, float y, float zoom, const char *format, ...);
+float print_line(float tab_origin, float x, float y, float zoom, const char *msg, int msg_length, int req_cols, int *ret_idx, int *ret_cols);//returns text width
+float GUIPrint(float tab_origin, float x, float y, float zoom, const char *format, ...);//returns text width
 
 void display_texture(int x1, int x2, int y1, int y2, unsigned txid, float alpha);
 void display_texture_i(int x1, int x2, int y1, int y2, int *rgb, int txw, int txh, float alpha);
@@ -592,9 +592,16 @@ void depth_test(int enable);
 
 
 //transforms
-extern int customparam_sel;
+extern       int customparam_sel;
 extern const int customparam_ct_w, customparam_ct_h, customparam_st_reach;
-extern double customparam_ct[12], customparam_st[12];
+//extern const double customparam_ct0[12], customparam_st0[12];
+extern       double customparam_ct[12], customparam_st[12];
+void customtransforms_resetparams();
+void colortransform_custom_fwd(char *buf, int iw, int ih);
+void colortransform_custom_inv(char *buf, int iw, int ih);
+void image_customst_fwd(char *buf, int iw, int ih, int nch, int bytestride);
+void image_customst_inv(char *buf, int iw, int ih, int nch, int bytestride);
+
 void addhalf(unsigned char *buf, int iw, int ih, int nch, int bytestride);
 
 //color transforms		3 channels, stride 4 bytes
@@ -612,9 +619,6 @@ void colortransform_exp_inv  (char *buf, int iw, int ih);
 void colortransform_learned_fwd(char *buf, int iw, int ih);
 void colortransform_learned_inv(char *buf, int iw, int ih);
 
-void colortransform_custom_fwd(char *buf, int iw, int ih);
-void colortransform_custom_inv(char *buf, int iw, int ih);
-
 
 //spatial transforms
 void image_differentiate(char *buf, int iw, int ih, int nch, int bytestride);
@@ -622,9 +626,6 @@ void image_integrate(char *buf, int iw, int ih, int nch, int bytestride);
 
 void image_unplane(char *buf, int iw, int ih, int nch, int bytestride);
 void image_replane(char *buf, int iw, int ih, int nch, int bytestride);
-
-void image_customst_fwd(char *buf, int iw, int ih, int nch, int bytestride);
-void image_customst_inv(char *buf, int iw, int ih, int nch, int bytestride);
 
 typedef struct DWTSizeStruct
 {

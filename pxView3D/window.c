@@ -585,11 +585,12 @@ void set_window_title(const char *format, ...)
 	SetWindowTextA(ghWnd, g_buf);
 }
 
-void copy_to_clipboard(const char *a, int size)
+int copy_to_clipboard(const char *a, int size)
 {
 	char *clipboard=(char*)LocalAlloc(LMEM_FIXED, (size+1)*sizeof(char));
 	if(!clipboard)
-		LOG_ERROR("copy_to_clipboard(): LocalAlloc() error");
+		return 0;
+	//	LOG_ERROR("copy_to_clipboard(): LocalAlloc() error");
 
 	memcpy(clipboard, a, (size+1)*sizeof(char));
 	clipboard[size]='\0';
@@ -598,6 +599,7 @@ void copy_to_clipboard(const char *a, int size)
 	EmptyClipboard();
 	SetClipboardData(CF_OEMTEXT, (void*)clipboard);
 	CloseClipboard();
+	return 1;
 }
 ArrayHandle paste_from_clipboard(int loud)
 {
