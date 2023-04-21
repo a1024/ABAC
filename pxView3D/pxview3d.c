@@ -29,9 +29,11 @@ typedef enum VisModeEnum
 	VIS_PLANES,
 	VIS_MESH,
 	VIS_MESH_SEPARATE,
-	VIS_JOINT_HISTOGRAM,
-	VIS_IMAGE,
 	VIS_IMAGE_TRICOLOR,
+	VIS_IMAGE,
+	VIS_IMAGE_BLOCK,
+	VIS_HISTOGRAM,
+	VIS_JOINT_HISTOGRAM,
 
 	VIS_COUNT,
 } VisMode;
@@ -102,6 +104,8 @@ char transforms_mask[T_COUNT]={0};
 ArrayHandle transforms=0;//array of chars
 float guizoom=1.25f;
 
+float blocksize=64;
+
 float
 	pixel_amplitude=10,//4
 	mesh_separation=100;//10
@@ -112,6 +116,11 @@ unsigned gpu_vertices=0;
 ArrayHandle jointhist=0;
 float ch_cr[4]={0};
 int usage[4]={0};
+
+int range_intersect(float a1, float a2, float b1, float b2)
+{
+	return a2>b1&&a1<b2;
+}
 
 void transforms_append(unsigned tid)
 {
@@ -429,6 +438,57 @@ void chart_mesh_sep_update(unsigned char *im, int iw, int ih, ArrayHandle *cpuv,
 	glBindBuffer(GL_ARRAY_BUFFER, *gpuv);	GL_CHECK(error);
 	glBufferData(GL_ARRAY_BUFFER, nf*sizeof(float), cpuv[0]->data, GL_STATIC_DRAW);	GL_CHECK(error);
 }
+static int hist[768], histmax;
+static float blockCR[3]={0};
+void chart_hist_update(unsigned char *im, int iw, int ih, int x1, int x2, int y1, int y2)
+{
+	memset(hist, 0, 768LL*sizeof(int));
+	histmax=0;
+	if(x1<0)
+		x1=0;
+	if(x2>iw)
+		x2=iw;
+	if(y1<0)
+		y1=0;
+	if(y2>ih)
+		y2=ih;
+	int xcount=x2-x1, ycount=y2-y1, count=xcount*ycount;
+	if(count)
+	{
+		for(int kc=0;kc<3;++kc)
+		{
+			for(int ky=y1;ky<y2;++ky)
+			{
+				for(int kx=x1;kx<x2;++kx)
+				{
+					unsigned char sym=im[(iw*ky+kx)<<2|kc];
+					++hist[kc<<8|sym];
+				}
+			}
+			//for(int k=0;k<res;++k)
+			//{
+			//	unsigned char sym=im[k<<2|kc];
+			//	++hist[kc<<8|sym];
+			//}
+			for(int k=0;k<256;++k)
+			{
+				if(histmax<hist[kc<<8|k])
+					histmax=hist[kc<<8|k];
+			}
+			double entropy=0;
+			for(int k=0;k<256;++k)
+			{
+				int freq=hist[kc<<8|k];
+				if(freq)
+				{
+					double p=(double)freq/count;
+					entropy-=p*log2(p);
+				}
+			}
+			blockCR[kc]=(float)(8/entropy);
+		}
+	}
+}
 void chart_jointhist_update(unsigned char *im, int iw, int ih, ArrayHandle *cpuv, unsigned *gpuv, unsigned *txid)
 {
 	int nbits=6;
@@ -579,6 +639,9 @@ void update_image()
 	case VIS_MESH_SEPARATE:
 		chart_mesh_sep_update(image, iw, ih, &cpu_vertices, &gpu_vertices);
 		break;
+	case VIS_HISTOGRAM:
+		chart_hist_update(image, iw, ih, 0, iw, 0, ih);
+		break;
 	case VIS_JOINT_HISTOGRAM:
 		chart_jointhist_update(image, iw, ih, &cpu_vertices, &gpu_vertices, image_txid+2);
 		break;
@@ -632,6 +695,28 @@ void chart_mesh_sep_draw()
 	draw_AAcuboid_wire(0, (float)iw, 0, (float)ih, mesh_separation*2, mesh_separation*2+pixel_amplitude, 0xFF000000);
 
 	draw_3D_triangles(&cam, gpu_vertices, (int)(cpu_vertices->count/5), image_txid[1]);
+}
+void chart_hist_draw(float x1, float x2, float y1, float y2, unsigned char alpha)
+{
+	if(histmax)
+	{
+		float dy=(y2-y1)/3.f, histpx=dy/histmax;
+		for(int kc=0;kc<3;++kc)
+		{
+			int k=1;
+			float y=k*histpx*10000;
+			for(;y<dy;++k)
+			{
+				draw_line(x1, y1+(kc+1)*dy-y, x2, y1+(kc+1)*dy-y, alpha<<24|0xFF<<(kc<<3));//0x40
+				y=k*histpx*10000;
+			}
+		}
+		for(int kc=0;kc<3;++kc)
+		{
+			for(int k=0;k<256;++k)
+				draw_rect(x1+k*(x2-x1)/256, x1+(k+1)*(x2-x1)/256, y1+(kc+1)*dy-hist[kc<<8|k]*histpx, y1+(kc+1)*dy, alpha<<24|0xFF<<(kc<<3));//0x80
+		}
+	}
 }
 void chart_jointhist_draw()
 {
@@ -846,6 +931,15 @@ void io_resize()
 }
 int io_mousemove()//return true to redraw
 {
+	if(mode==VIS_IMAGE_BLOCK)
+	{
+		if(drag)
+		{
+			show_mouse(drag);
+			drag=0;
+		}
+		return 1;
+	}
 	if(drag)
 	{
 		int X0=w>>1, Y0=h>>1;
@@ -959,7 +1053,22 @@ int io_mousewheel(int forward)
 	else
 	{
 	normal_operation:
-		if(keyboard[KEY_SHIFT])//shift wheel		change cam speed
+		if(mode==VIS_IMAGE_BLOCK)
+		{
+			if(forward>0)
+			{
+				blocksize*=2;
+				if(blocksize>1024)
+					blocksize=1024;
+			}
+			else
+			{
+				blocksize*=0.5f;
+				if(blocksize<1)
+					blocksize=1;
+			}
+		}
+		else if(keyboard[KEY_SHIFT])//shift wheel		change cam speed
 		{
 				 if(forward>0)	cam.move_speed*=2;
 			else				cam.move_speed*=0.5f;
@@ -1150,7 +1259,7 @@ int io_keydn(IOKey key, char c)
 				break;
 			default:
 				if(key==KEY_LBUTTON)
-					goto esc;
+					goto toggle_drag;
 				break;
 			}
 		}
@@ -1176,16 +1285,19 @@ int io_keydn(IOKey key, char c)
 #endif
 		break;
 	case KEY_ESC:
-	esc:
-		show_mouse(drag);
-		drag=!drag;
-		if(drag)//enter mouse control
+toggle_drag:
+		if(mode!=VIS_IMAGE_BLOCK)
 		{
-			mx0=mx, my0=my;
-			set_mouse(w>>1, h>>1);
+			show_mouse(drag);
+			drag=!drag;
+			if(drag)//enter mouse control
+			{
+				mx0=mx, my0=my;
+				set_mouse(w>>1, h>>1);
+			}
+			else//leave mouse control
+				set_mouse(mx0, my0);
 		}
-		else//leave mouse control
-			set_mouse(mx0, my0);
 		break;
 	case KEY_MBUTTON:
 		//printf("Click at (%d, %d)\n", mx, my);
@@ -1230,7 +1342,15 @@ int io_keydn(IOKey key, char c)
 			//"8:\t\tApply custom spatial transform\n"
 			//"0:\t\tUndo spatial transform\n"
 			//"\n"
-			"M / Shift M:\tSelect [Levels / Mesh / SeparateMesh / Histogram / Image]\n"
+			"M / Shift M:\tSelect among:\n"
+			"\t1: Levels\n"
+			"\t2: Mesh\n"
+			"\t3: Separate Mesh\n"
+			"\t4: Histogram\n"
+			"\t5: Joint Histogram\n"
+			"\t6: Image\n"
+			"\t7: Separate components\n"
+			//"[Levels / Mesh / SeparateMesh / Histogram / Image]\n"
 		);
 		//prof_on=!prof_on;
 		return 0;
@@ -1347,8 +1467,28 @@ int io_keydn(IOKey key, char c)
 	case 'C':
 		if(image&&GET_KEY_STATE(KEY_CTRL)&&transforms_customenabled)//copy custom transform value
 		{
-			int printed=snprintf(g_buf, G_BUF_SIZE, "%15.13lf", customparam_sel<COUNTOF(customparam_ct)?customparam_ct[customparam_sel]:customparam_st[customparam_sel-COUNTOF(customparam_ct)]);
+			int printed=0;
+			for(int ky=0;ky<customparam_ct_h;++ky)
+			{
+				for(int kx=0;kx<customparam_ct_w;++kx)
+					printed+=snprintf(g_buf+printed, G_BUF_SIZE-printed, "\t%g", customparam_ct[customparam_ct_w*ky+kx]);
+				printed+=snprintf(g_buf+printed, G_BUF_SIZE-printed, "\n");
+			}
+			int stw=customparam_st_reach<<1|1;
+			for(int k=0;k<COUNTOF(customparam_st);++k)
+			{
+				int x=k%stw, y=k/stw;
+				printed+=snprintf(g_buf+printed, G_BUF_SIZE-printed, "%g%c", customparam_st[k], x<stw-1&&k<COUNTOF(customparam_st)-1?'\t':'\n');
+			}
+
+			//for(int k=0;k<COUNTOF(customparam_ct);++k)
+			//	printed+=snprintf(g_buf+printed, G_BUF_SIZE-printed, "%15.13lf%c", customparam_ct[k], k<COUNTOF(customparam_ct)-1?'\t':'\n');
+			//for(int k=0;k<COUNTOF(customparam_st);++k)
+			//	printed+=snprintf(g_buf+printed, G_BUF_SIZE-printed, "%15.13lf%c", customparam_st[k], k<COUNTOF(customparam_st)-1?'\t':'\n');
+
+			//int printed=snprintf(g_buf, G_BUF_SIZE, "%15.13lf", customparam_sel<COUNTOF(customparam_ct)?customparam_ct[customparam_sel]:customparam_st[customparam_sel-COUNTOF(customparam_ct)]);
 			copy_to_clipboard(g_buf, printed);
+
 			//color_transform(image, iw, ih);
 			//update_image();
 		}
@@ -1359,11 +1499,28 @@ int io_keydn(IOKey key, char c)
 			ArrayHandle text=paste_from_clipboard(0);
 			if(text)
 			{
-				double val=atof(text->data);
-				if(customparam_sel<COUNTOF(customparam_ct))
-					customparam_ct[customparam_sel]=val;
-				else
-					customparam_st[customparam_sel-COUNTOF(customparam_ct)]=val;
+				int k=0, idx=0;
+				for(;k<COUNTOF(customparam_ct);++k)
+				{
+					for(;idx<text->count&&isspace(text->data[idx]);++idx);
+					customparam_ct[k]=atof(text->data+idx);
+					for(;idx<text->count&&!isspace(text->data[idx]);++idx);
+				}
+				for(;k<COUNTOF(customparam_ct)+COUNTOF(customparam_st);++k)
+				{
+					for(;idx<text->count&&isspace(text->data[idx]);++idx);
+					customparam_st[k-COUNTOF(customparam_ct)]=atof(text->data+idx);
+					for(;idx<text->count&&!isspace(text->data[idx]);++idx);
+				}
+
+				//double val=atof(text->data);
+				//if(customparam_sel<COUNTOF(customparam_ct))
+				//	customparam_ct[customparam_sel]=val;
+				//else
+				//	customparam_st[customparam_sel-COUNTOF(customparam_ct)]=val;
+
+				array_free(&text);
+				update_image();
 				return 1;
 			}
 		}
@@ -1481,9 +1638,43 @@ void io_render()
 		case VIS_PLANES:			chart_planes_draw();	break;
 		case VIS_MESH:				chart_mesh_draw();		break;
 		case VIS_MESH_SEPARATE:		chart_mesh_sep_draw();	break;
+		case VIS_HISTOGRAM:			chart_hist_draw(0, (float)w, 0, (float)h, 0x60);break;
 		case VIS_JOINT_HISTOGRAM:	chart_jointhist_draw();	break;
 		case VIS_IMAGE:
-			display_texture_i(0, iw, (int)(tdy*3), (int)(tdy*3)+ih, (int*)image, iw, ih, 1, 0, 1, 0, 1);
+			{
+				float yoffset=tdy*3;
+				display_texture_i(0, iw, (int)yoffset, (int)yoffset+ih, (int*)image, iw, ih, 1, 0, 1, 0, 1);
+			}
+			break;
+		case VIS_IMAGE_BLOCK:
+			{
+				float yoffset=tdy*3, half=blocksize*0.5f;;
+				display_texture_i(0, iw, (int)yoffset, (int)yoffset+ih, (int*)image, iw, ih, 1, 0, 1, 0, 1);
+				float x1=mx-half, x2=mx+half, y1=my-yoffset-half, y2=my-yoffset+half;
+
+				//if(range_intersect(x1, x2, 0, iw)&&range_intersect(y1, y2, 0, ih))
+				if(mx>=0&&mx<iw&&my>=yoffset&&my<yoffset+ih)
+				{
+					if(iw<blocksize)
+						x1=0, x2=(float)iw;
+					if(x1<0)
+						x1=0, x2=blocksize;
+					if(x2>iw)
+						x1=iw-blocksize, x2=(float)iw;
+				
+					if(ih<blocksize)
+						y1=0, y2=(float)ih;
+					if(y1<0)
+						y1=0, y2=blocksize;
+					if(y2>ih)
+						y1=ih-blocksize, y2=(float)ih;
+
+					draw_rect_hollow(x1, x2, yoffset+y1, yoffset+y2, 0xFFFF00FF);
+					chart_hist_update(image, iw, ih, (int)x1, (int)x2, (int)y1, (int)y2);
+					chart_hist_draw(0, (float)w, 0, (float)h, 0x30);
+					GUIPrint(0, 0, tdy*2, 1, "RGB[%8f %8f %8f] %8f %g", blockCR[0], blockCR[1], blockCR[2], 3/(1/blockCR[0]+1/blockCR[1]+1/blockCR[2]), blocksize);
+				}
+			}
 			//{
 			//	//int x=(int)ceilf(tdx*6.5f);
 			//	int x=(int)floorf(tdx*6.5f);
@@ -1540,8 +1731,10 @@ void io_render()
 	case VIS_PLANES:			mode_str="Planes";			break;
 	case VIS_MESH:				mode_str="Combined Mesh";	break;
 	case VIS_MESH_SEPARATE:		mode_str="Separate Mesh";	break;
+	case VIS_HISTOGRAM:			mode_str="Histogram";		break;
 	case VIS_JOINT_HISTOGRAM:	mode_str="Joint Histogram";	break;
 	case VIS_IMAGE:				mode_str="Image View";		break;
+	case VIS_IMAGE_BLOCK:		mode_str="Image Block";		break;
 	case VIS_IMAGE_TRICOLOR:	mode_str="Tricolor";		break;
 	}
 #if 0
@@ -1583,9 +1776,10 @@ void io_render()
 		}
 		float
 			cr_combined=3/(1/ch_cr[0]+1/ch_cr[1]+1/ch_cr[2]),
-			scale=150,
-			xstart=0, xend=(float)w-210, ystart=(float)(h-tdy*5);
-
+			scale=400,
+			xstart=20, xend=(float)w-210, ystart=(float)(h-tdy*5);
+		
+		float crformat=(float)iw*ih*3/filesize;
 		if(xstart<xend)
 		{
 			float crmax=cr_combined;
@@ -1594,6 +1788,8 @@ void io_render()
 				if(isfinite((double)ch_cr[k])&&crmax<ch_cr[k])
 					crmax=ch_cr[k];
 			}
+			if(crmax<crformat)
+				crmax=crformat;
 			if(xend-scale*crmax<xstart)
 				scale=(xend-xstart)/crmax;
 			if(scale<5)
@@ -1621,19 +1817,37 @@ void io_render()
 				x=(float)(xend-scale*ks);
 			}
 			float barw=4;
-			draw_rect(xend-scale*cr_combined, xend, ystart+tdy*0.5f-barw, ystart+tdy*0.5f+barw+1, 0xFF000000);
-			draw_rect(xend-scale*ch_cr[0]   , xend, ystart+tdy*1.5f-barw, ystart+tdy*1.5f+barw+1, 0xFF0000FF);
-			draw_rect(xend-scale*ch_cr[1]   , xend, ystart+tdy*2.5f-barw, ystart+tdy*2.5f+barw+1, 0xFF00FF00);
-			draw_rect(xend-scale*ch_cr[2]   , xend, ystart+tdy*3.5f-barw, ystart+tdy*3.5f+barw+1, 0xFFFF0000);
+			if(mode==VIS_IMAGE_BLOCK)
+			{
+				float blockcombined=3/(1/blockCR[0]+1/blockCR[1]+1/blockCR[2]);
+				draw_rect(xend-scale*blockcombined, xend, ystart+tdy*0.5f-barw, ystart+tdy*0.5f+1, 0xFF000000);
+				draw_rect(xend-scale*blockCR[0]   , xend, ystart+tdy*1.5f-barw, ystart+tdy*1.5f+1, 0xFF0000FF);
+				draw_rect(xend-scale*blockCR[1]   , xend, ystart+tdy*2.5f-barw, ystart+tdy*2.5f+1, 0xFF00FF00);
+				draw_rect(xend-scale*blockCR[2]   , xend, ystart+tdy*3.5f-barw, ystart+tdy*3.5f+1, 0xFFFF0000);
+				draw_rect(xend-scale*cr_combined  , xend, ystart+tdy*0.5f, ystart+tdy*0.5f+barw+1, 0xFF000000);
+				draw_rect(xend-scale*ch_cr[0]     , xend, ystart+tdy*1.5f, ystart+tdy*1.5f+barw+1, 0xFF0000FF);
+				draw_rect(xend-scale*ch_cr[1]     , xend, ystart+tdy*2.5f, ystart+tdy*2.5f+barw+1, 0xFF00FF00);
+				draw_rect(xend-scale*ch_cr[2]     , xend, ystart+tdy*3.5f, ystart+tdy*3.5f+barw+1, 0xFFFF0000);
+			}
+			else
+			{
+				draw_rect(xend-scale*cr_combined, xend, ystart+tdy*0.5f-barw, ystart+tdy*0.5f+barw+1, 0xFF000000);
+				draw_rect(xend-scale*ch_cr[0]   , xend, ystart+tdy*1.5f-barw, ystart+tdy*1.5f+barw+1, 0xFF0000FF);
+				draw_rect(xend-scale*ch_cr[1]   , xend, ystart+tdy*2.5f-barw, ystart+tdy*2.5f+barw+1, 0xFF00FF00);
+				draw_rect(xend-scale*ch_cr[2]   , xend, ystart+tdy*3.5f-barw, ystart+tdy*3.5f+barw+1, 0xFFFF0000);
+			}
 			draw_rect(xend-scale*ch_cr[3]   , xend, ystart+tdy*4.5f-barw, ystart+tdy*4.5f+barw+1, 0xFFFF00FF);
-			x=xend-((float)iw*ih*3/filesize)*scale;
+			x=xend-crformat*scale;
 			draw_line(x, ystart, x-10, ystart-10, 0xFF000000);
 			draw_line(x, ystart, x+10, ystart-10, 0xFF000000);
 		}
 		int prevtxtcolor, prevbkcolor;
 		xend=(float)w-200;
 		prevbkcolor=set_bk_color(0xC0C0C0C0);
-		prevtxtcolor=set_text_color(0xFF000000);GUIPrint(xend, xend, ystart      , 1, "Combined      %9f", cr_combined   );
+		prevtxtcolor=set_text_color(0xFF000000);GUIPrint(xend, xend, ystart-tdy  , 1, "Format        %9f", crformat);
+		set_bk_color(0xE0FFFFFF);
+		prevtxtcolor=set_text_color(0xFF000000);GUIPrint(xend, xend, ystart      , 1, "Combined      %9f", cr_combined);
+		set_bk_color(0xC0C0C0C0);
 		set_text_color(0xFF0000FF);				GUIPrint(xend, xend, ystart+tdy  , 1, "R     %7d %9f", usage[0], ch_cr[0]);
 		set_text_color(0xFF00FF00);				GUIPrint(xend, xend, ystart+tdy*2, 1, "G     %7d %9f", usage[1], ch_cr[1]);
 		set_text_color(0xFFFF0000);				GUIPrint(xend, xend, ystart+tdy*3, 1, "B     %7d %9f", usage[2], ch_cr[2]);

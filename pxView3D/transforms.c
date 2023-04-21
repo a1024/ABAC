@@ -130,10 +130,10 @@ void colortransform_ycocgt_fwd(char *buf, int iw, int ih)//3 channels, stride 4 
 	{
 		char r=buf[k], g=buf[k|1], b=buf[k|2];
 
-		r-=g;		//co = r-b							diff(r, b)
-		g+=r>>1;	//(r+b)/2
-		b-=g;		//cg = g-(r+b)/2					diff(g, av(r, b))
-		g+=b>>1;	//Y  = (r+b)/2 + (g-(r+b)/2)/2		av(g, av(r, b))
+		r-=g;		//diff(r, g)
+		g+=r>>1;
+		b-=g;		//diff(b, av(r, g))
+		g+=b>>1;	//av(b, av(r, g))
 
 		buf[k  ]=r;
 		buf[k|1]=g;
@@ -1474,22 +1474,22 @@ void dwt2d_cdf97_inv(char *buffer, DWTSize *sizes, int sizes_start, int sizes_en
 	}
 }
 
-unsigned hist[256]={0};
+static unsigned qhist[256]={0};
 void channel_entropy(unsigned char *buf, int resolution, int nch, int bytestride, float *cr, int *usage)
 {
 	double entropy[4]={0};
 	memset(usage, 0, 4*sizeof(int));
 	for(int kc=0;kc<nch;++kc)
 	{
-		memset(hist, 0, 256*sizeof(unsigned));
+		memset(qhist, 0, 256*sizeof(unsigned));
 		for(int k=0, end=resolution*bytestride;k<end;k+=bytestride)
 		{
 			unsigned char val=buf[k+kc];
-			++hist[val];
+			++qhist[val];
 		}
 		for(int ks=0;ks<256;++ks)
 		{
-			unsigned freq=hist[ks];
+			unsigned freq=qhist[ks];
 			if(freq)
 			{
 				double p=(double)freq/resolution;
