@@ -644,6 +644,15 @@ void dwt2d_cdf53_fwd  (char *buffer, DWTSize *sizes, int sizes_start, int sizes_
 void dwt2d_cdf53_inv  (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);
 void dwt2d_cdf97_fwd  (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);
 void dwt2d_cdf97_inv  (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);
+void dwt2d_exp_fwd    (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);
+void dwt2d_exp_inv    (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);
+void dwt2d_custom_fwd (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);
+void dwt2d_custom_inv (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);
+
+void dwt2d_dec_fwd(char *buffer, int iw, int ih);
+void dwt2d_dec_inv(char *buffer, int iw, int ih);
+void image_dct4_fwd(char *image, int iw, int ih);
+void image_dct4_inv(char *image, int iw, int ih);
 
 void channel_entropy(unsigned char *buf, int resolution, int nch, int bytestride, float *cr, int *usage);
 void jointhistogram(unsigned char *buf, int resolution, int nbits, ArrayHandle *hist);

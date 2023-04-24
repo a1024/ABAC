@@ -32,12 +32,13 @@ typedef enum VisModeEnum
 	VIS_IMAGE_TRICOLOR,
 	VIS_IMAGE,
 	VIS_IMAGE_BLOCK,
+	VIS_DWT_BLOCK,
 	VIS_HISTOGRAM,
 	VIS_JOINT_HISTOGRAM,
 
 	VIS_COUNT,
 } VisMode;
-int mode=VIS_MESH_SEPARATE;
+int mode=VIS_IMAGE;
 
 #if 0
 typedef enum ColorTransformTypeEnum
@@ -80,22 +81,26 @@ typedef enum TransformTypeEnum
 {
 	T_NONE,
 
-	CT_FWD_YCoCg,	CT_INV_YCoCg,
-	CT_FWD_YCoCgT,	CT_INV_YCoCgT,
-	CT_FWD_XGZ,		CT_INV_XGZ,
-	CT_FWD_XYZ,		CT_INV_XYZ,
-	CT_FWD_EXP,		CT_INV_EXP,
-	CT_FWD_LEARNED,	CT_INV_LEARNED,
-	CT_FWD_CUSTOM,	CT_INV_CUSTOM,
+	CT_FWD_YCoCg,		CT_INV_YCoCg,
+	CT_FWD_YCoCgT,		CT_INV_YCoCgT,
+	CT_FWD_XGZ,			CT_INV_XGZ,
+	CT_FWD_XYZ,			CT_INV_XYZ,
+	CT_FWD_EXP,			CT_INV_EXP,
+	CT_FWD_LEARNED,		CT_INV_LEARNED,
+	CT_FWD_CUSTOM,		CT_INV_CUSTOM,
 
-	ST_FWD_DIFF2D,	ST_INV_DIFF2D,
-	ST_FWD_UNPLANE,	ST_INV_UNPLANE,
-	ST_FWD_LAZY,	ST_INV_LAZY,
-	ST_FWD_HAAR,	ST_INV_HAAR,
-	ST_FWD_SQUEEZE,	ST_INV_SQUEEZE,
-	ST_FWD_CDF53,	ST_INV_CDF53,
-	ST_FWD_CDF97,	ST_INV_CDF97,
-	ST_FWD_CUSTOM,	ST_INV_CUSTOM,
+	ST_FWD_DIFF2D,		ST_INV_DIFF2D,
+	ST_FWD_UNPLANE,		ST_INV_UNPLANE,
+	ST_FWD_CUSTOM,		ST_INV_CUSTOM,
+	ST_FWD_DCT4,		ST_INV_DCT4,
+	ST_FWD_LAZY,		ST_INV_LAZY,
+	ST_FWD_HAAR,		ST_INV_HAAR,
+	ST_FWD_SQUEEZE,		ST_INV_SQUEEZE,
+	ST_FWD_CDF53,		ST_INV_CDF53,
+	ST_FWD_CDF97,		ST_INV_CDF97,
+	ST_FWD_DEC_DWT,		ST_INV_DEC_DWT,
+	ST_FWD_EXPDWT,		ST_INV_EXPDWT,
+	ST_FWD_CUSTOM_DWT,	ST_INV_CUSTOM_DWT,
 
 	T_COUNT,
 } TransformType;
@@ -105,6 +110,7 @@ ArrayHandle transforms=0;//array of chars
 float guizoom=1.25f;
 
 float blocksize=64;
+int blockmx=0, blockmy=0;
 
 float
 	pixel_amplitude=10,//4
@@ -117,10 +123,10 @@ ArrayHandle jointhist=0;
 float ch_cr[4]={0};
 int usage[4]={0};
 
-int range_intersect(float a1, float a2, float b1, float b2)
-{
-	return a2>b1&&a1<b2;
-}
+//int range_intersect(float a1, float a2, float b1, float b2)
+//{
+//	return a2>b1&&a1<b2;
+//}
 
 void transforms_append(unsigned tid)
 {
@@ -131,7 +137,15 @@ void transforms_append(unsigned tid)
 		else
 			ARRAY_APPEND(transforms, &tid, 1, 1, 0);
 		transforms_mask[tid]|=1;
-		transforms_customenabled|=tid==CT_FWD_CUSTOM||tid==CT_INV_CUSTOM||tid==ST_FWD_CUSTOM||tid==ST_INV_CUSTOM;
+		transforms_customenabled|=
+			tid==CT_FWD_CUSTOM||
+			tid==CT_INV_CUSTOM||
+			tid==ST_FWD_CUSTOM||
+			tid==ST_INV_CUSTOM||
+			tid==ST_FWD_EXPDWT||
+			tid==ST_INV_EXPDWT||
+			tid==ST_FWD_CUSTOM_DWT||
+			tid==ST_INV_CUSTOM_DWT;
 	}
 }
 void transforms_removebyid(unsigned tid)
@@ -154,7 +168,15 @@ void transforms_removebyid(unsigned tid)
 			unsigned char tid2=transforms->data[k];
 			if(tid2<T_COUNT)
 				transforms_mask[tid2]|=1;
-			transforms_customenabled|=tid2==CT_FWD_CUSTOM||tid2==CT_INV_CUSTOM||tid2==ST_FWD_CUSTOM||tid2==ST_INV_CUSTOM;
+			transforms_customenabled|=
+				tid2==CT_FWD_CUSTOM||
+				tid2==CT_INV_CUSTOM||
+				tid2==ST_FWD_CUSTOM||
+				tid2==ST_INV_CUSTOM||
+				tid2==ST_FWD_EXPDWT||
+				tid2==ST_INV_EXPDWT||
+				tid2==ST_FWD_CUSTOM_DWT||
+				tid2==ST_INV_CUSTOM_DWT;
 		}
 	}
 }
@@ -188,6 +210,10 @@ void printtransform(float x, float y, unsigned tid, int place, long long highlig
 	case ST_INV_DIFF2D:			a=" S Inv 2D derivative";	break;
 	case ST_FWD_UNPLANE:		a=" S Fwd Unplane";			break;
 	case ST_INV_UNPLANE:		a=" S Inv Unplane";			break;
+	case ST_FWD_DCT4:			a=" S Fwd DCT4";			break;
+	case ST_INV_DCT4:			a=" S Inv DCT4";			break;
+	case ST_FWD_CUSTOM:			a=" S Fwd CUSTOM";			break;
+	case ST_INV_CUSTOM:			a=" S Inv CUSTOM";			break;
 	case ST_FWD_LAZY:			a=" S Fwd Lazy DWT";		break;
 	case ST_INV_LAZY:			a=" S Inv Lazy DWT";		break;
 	case ST_FWD_HAAR:			a=" S Fwd Haar";			break;
@@ -198,8 +224,12 @@ void printtransform(float x, float y, unsigned tid, int place, long long highlig
 	case ST_INV_CDF53:			a=" S Inv CDF 5/3";			break;
 	case ST_FWD_CDF97:			a=" S Fwd CDF 9/7";			break;
 	case ST_INV_CDF97:			a=" S Inv CDF 9/7";			break;
-	case ST_FWD_CUSTOM:			a=" S Fwd CUSTOM";			break;
-	case ST_INV_CUSTOM:			a=" S Inv CUSTOM";			break;
+	case ST_FWD_DEC_DWT:		a=" S Fwd Dec. DWT";		break;
+	case ST_INV_DEC_DWT:		a=" S Inv Dec. DWT";		break;
+	case ST_FWD_EXPDWT:			a=" S Fwd Exp DWT";			break;
+	case ST_INV_EXPDWT:			a=" S Inv Exp DWT";			break;
+	case ST_FWD_CUSTOM_DWT:		a=" S Fwd CUSTOM DWT";		break;
+	case ST_INV_CUSTOM_DWT:		a=" S Inv CUSTOM DWT";		break;
 	default:					a="ERROR";					break;
 	}
 	long long c0=0;
@@ -482,11 +512,58 @@ void chart_hist_update(unsigned char *im, int iw, int ih, int x1, int x2, int y1
 				if(freq)
 				{
 					double p=(double)freq/count;
+					p*=0xFF00;
+					++p;
+					p/=0x10000;
 					entropy-=p*log2(p);
 				}
 			}
 			blockCR[kc]=(float)(8/entropy);
 		}
+	}
+}
+void chart_dwthist_update(unsigned char *im, int iw, int ih, int kc, int kband, int x1, int x2, int y1, int y2)
+{
+	memset(hist+((size_t)kband<<8), 0, 256LL*sizeof(int));
+	//histmax=0;
+	if(x1<0)
+		x1=0;
+	if(x2>iw)
+		x2=iw;
+	if(y1<0)
+		y1=0;
+	if(y2>ih)
+		y2=ih;
+	int xcount=x2-x1, ycount=y2-y1, count=xcount*ycount;
+	if(count)
+	{
+		for(int ky=y1;ky<y2;++ky)
+		{
+			for(int kx=x1;kx<x2;++kx)
+			{
+				unsigned char sym=im[(iw*ky+kx)<<2|kc];
+				++hist[kband<<8|sym];
+			}
+		}
+		for(int k=0;k<256;++k)
+		{
+			if(histmax<hist[kband<<8|k])
+				histmax=hist[kband<<8|k];
+		}
+		double entropy=0;
+		for(int k=0;k<256;++k)
+		{
+			int freq=hist[kband<<8|k];
+			if(freq)
+			{
+				double p=(double)freq/count;
+				p*=0xFF00;
+				++p;
+				p/=0x10000;
+				entropy-=p*log2(p);
+			}
+		}
+		blockCR[kband]=(float)(8/entropy);
 	}
 }
 void chart_jointhist_update(unsigned char *im, int iw, int ih, ArrayHandle *cpuv, unsigned *gpuv, unsigned *txid)
@@ -583,6 +660,10 @@ void update_image()
 			case ST_INV_DIFF2D:		image_integrate((char*)image, iw, ih, 3, 4);		break;
 			case ST_FWD_UNPLANE:	image_unplane((char*)image, iw, ih, 3, 4);			break;
 			case ST_INV_UNPLANE:	image_replane((char*)image, iw, ih, 3, 4);			break;
+			case ST_FWD_CUSTOM:		image_customst_fwd((char*)image, iw, ih, 3, 4);		break;
+			case ST_INV_CUSTOM:		image_customst_inv((char*)image, iw, ih, 3, 4);		break;
+			case ST_FWD_DCT4:		image_dct4_fwd((char*)image, iw, ih);				break;
+			case ST_INV_DCT4:		image_dct4_inv((char*)image, iw, ih);				break;
 			case ST_FWD_LAZY:
 			case ST_INV_LAZY:
 			case ST_FWD_HAAR:
@@ -593,6 +674,10 @@ void update_image()
 			case ST_INV_CDF53:
 			case ST_FWD_CDF97:
 			case ST_INV_CDF97:
+			case ST_FWD_EXPDWT:
+			case ST_INV_EXPDWT:
+			case ST_FWD_CUSTOM_DWT:
+			case ST_INV_CUSTOM_DWT:
 				{
 					ArrayHandle sizes=dwt2d_gensizes(iw, ih, 3, 3, 0);
 					char *temp=(char*)malloc(MAXVAR(iw, ih));
@@ -600,24 +685,28 @@ void update_image()
 					{
 						switch(tid)
 						{
-						case ST_FWD_LAZY:   dwt2d_lazy_fwd   ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-						case ST_INV_LAZY:   dwt2d_lazy_inv   ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-						case ST_FWD_HAAR:   dwt2d_haar_fwd   ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-						case ST_INV_HAAR:   dwt2d_haar_inv   ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-						case ST_FWD_SQUEEZE:dwt2d_squeeze_fwd((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-						case ST_INV_SQUEEZE:dwt2d_squeeze_inv((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-						case ST_FWD_CDF53:  dwt2d_cdf53_fwd  ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-						case ST_INV_CDF53:  dwt2d_cdf53_inv  ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-						case ST_FWD_CDF97:  dwt2d_cdf97_fwd  ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-						case ST_INV_CDF97:  dwt2d_cdf97_inv  ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						case ST_FWD_LAZY:      dwt2d_lazy_fwd   ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						case ST_INV_LAZY:      dwt2d_lazy_inv   ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						case ST_FWD_HAAR:      dwt2d_haar_fwd   ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						case ST_INV_HAAR:      dwt2d_haar_inv   ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						case ST_FWD_SQUEEZE:   dwt2d_squeeze_fwd((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						case ST_INV_SQUEEZE:   dwt2d_squeeze_inv((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						case ST_FWD_CDF53:     dwt2d_cdf53_fwd  ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						case ST_INV_CDF53:     dwt2d_cdf53_inv  ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						case ST_FWD_CDF97:     dwt2d_cdf97_fwd  ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						case ST_INV_CDF97:     dwt2d_cdf97_inv  ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						case ST_FWD_EXPDWT:    dwt2d_exp_fwd    ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						case ST_INV_EXPDWT:    dwt2d_exp_inv    ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						case ST_FWD_CUSTOM_DWT:dwt2d_custom_fwd ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						case ST_INV_CUSTOM_DWT:dwt2d_custom_inv ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
 						}
 					}
 					array_free(&sizes);
 					free(temp);
 				}
 				break;
-			case ST_FWD_CUSTOM:		image_customst_fwd((char*)image, iw, ih, 3, 4);break;
-			case ST_INV_CUSTOM:		image_customst_inv((char*)image, iw, ih, 3, 4);break;
+			case ST_FWD_DEC_DWT:   dwt2d_dec_fwd((char*)image, iw, ih);	break;
+			case ST_INV_DEC_DWT:   dwt2d_dec_inv((char*)image, iw, ih);	break;
 			}
 		}//for
 		addhalf(image, iw, ih, 3, 4);
@@ -696,25 +785,25 @@ void chart_mesh_sep_draw()
 
 	draw_3D_triangles(&cam, gpu_vertices, (int)(cpu_vertices->count/5), image_txid[1]);
 }
-void chart_hist_draw(float x1, float x2, float y1, float y2, unsigned char alpha)
+void chart_hist_draw(float x1, float x2, float y1, float y2, int cstart, int cend, int color, unsigned char alpha)
 {
 	if(histmax)
 	{
 		float dy=(y2-y1)/3.f, histpx=dy/histmax;
-		for(int kc=0;kc<3;++kc)
+		for(int kc=cstart;kc<cend;++kc)
 		{
 			int k=1;
 			float y=k*histpx*10000;
 			for(;y<dy;++k)
 			{
-				draw_line(x1, y1+(kc+1)*dy-y, x2, y1+(kc+1)*dy-y, alpha<<24|0xFF<<(kc<<3));//0x40
+				draw_line(x1, y1+(kc+1)*dy-y, x2, y1+(kc+1)*dy-y, color?color:alpha<<24|0xFF<<(kc<<3));//0x40
 				y=k*histpx*10000;
 			}
 		}
-		for(int kc=0;kc<3;++kc)
+		for(int kc=cstart;kc<cend;++kc)
 		{
 			for(int k=0;k<256;++k)
-				draw_rect(x1+k*(x2-x1)/256, x1+(k+1)*(x2-x1)/256, y1+(kc+1)*dy-hist[kc<<8|k]*histpx, y1+(kc+1)*dy, alpha<<24|0xFF<<(kc<<3));//0x80
+				draw_rect(x1+k*(x2-x1)/256, x1+(k+1)*(x2-x1)/256, y1+(kc+1)*dy-hist[kc<<8|k]*histpx, y1+(kc+1)*dy, color?color:alpha<<24|0xFF<<(kc<<3));//0x80
 		}
 	}
 }
@@ -931,16 +1020,20 @@ void io_resize()
 }
 int io_mousemove()//return true to redraw
 {
-	if(mode==VIS_IMAGE_BLOCK)
+	if(mode==VIS_IMAGE_BLOCK||mode==VIS_DWT_BLOCK)
 	{
 		if(drag)
 		{
 			show_mouse(drag);
 			drag=0;
 		}
-		return 1;
+		if(GET_KEY_STATE(KEY_LBUTTON))
+		{
+			blockmx=mx, blockmy=my;
+			return 1;
+		}
 	}
-	if(drag)
+	else if(drag)
 	{
 		int X0=w>>1, Y0=h>>1;
 		cam_turnMouse(cam, mx-X0, my-Y0, mouse_sensitivity);
@@ -1053,7 +1146,7 @@ int io_mousewheel(int forward)
 	else
 	{
 	normal_operation:
-		if(mode==VIS_IMAGE_BLOCK)
+		if(mode==VIS_IMAGE_BLOCK||mode==VIS_DWT_BLOCK)
 		{
 			if(forward>0)
 			{
@@ -1286,7 +1379,15 @@ int io_keydn(IOKey key, char c)
 		break;
 	case KEY_ESC:
 toggle_drag:
-		if(mode!=VIS_IMAGE_BLOCK)
+		if(mode==VIS_IMAGE_BLOCK||mode==VIS_DWT_BLOCK)
+		{
+			if(key==KEY_LBUTTON)
+			{
+				blockmx=mx, blockmy=my;
+				return 1;
+			}
+		}
+		else
 		{
 			show_mouse(drag);
 			drag=!drag;
@@ -1638,7 +1739,13 @@ void io_render()
 		case VIS_PLANES:			chart_planes_draw();	break;
 		case VIS_MESH:				chart_mesh_draw();		break;
 		case VIS_MESH_SEPARATE:		chart_mesh_sep_draw();	break;
-		case VIS_HISTOGRAM:			chart_hist_draw(0, (float)w, 0, (float)h, 0x60);break;
+		case VIS_HISTOGRAM:
+			{
+				float yoffset=tdy*3;
+				display_texture_i(0, iw, (int)yoffset, (int)yoffset+ih, (int*)image, iw, ih, 1, 0, 1, 0, 1);
+				chart_hist_draw(0, (float)w, 0, (float)h, 0, 3, 0, 0x60);
+			}
+			break;
 		case VIS_JOINT_HISTOGRAM:	chart_jointhist_draw();	break;
 		case VIS_IMAGE:
 			{
@@ -1648,12 +1755,12 @@ void io_render()
 			break;
 		case VIS_IMAGE_BLOCK:
 			{
-				float yoffset=tdy*3, half=blocksize*0.5f;;
+				float yoffset=tdy*3, half=blocksize*0.5f;
 				display_texture_i(0, iw, (int)yoffset, (int)yoffset+ih, (int*)image, iw, ih, 1, 0, 1, 0, 1);
-				float x1=mx-half, x2=mx+half, y1=my-yoffset-half, y2=my-yoffset+half;
+				float x1=blockmx-half, x2=blockmx+half, y1=blockmy-yoffset-half, y2=blockmy-yoffset+half;
 
 				//if(range_intersect(x1, x2, 0, iw)&&range_intersect(y1, y2, 0, ih))
-				if(mx>=0&&mx<iw&&my>=yoffset&&my<yoffset+ih)
+				if(blockmx>=0&&blockmx<iw&&blockmy>=yoffset&&blockmy<yoffset+ih)
 				{
 					if(iw<blocksize)
 						x1=0, x2=(float)iw;
@@ -1671,7 +1778,7 @@ void io_render()
 
 					draw_rect_hollow(x1, x2, yoffset+y1, yoffset+y2, 0xFFFF00FF);
 					chart_hist_update(image, iw, ih, (int)x1, (int)x2, (int)y1, (int)y2);
-					chart_hist_draw(0, (float)w, 0, (float)h, 0x30);
+					chart_hist_draw(0, (float)w, 0, (float)h, 0, 3, 0, 0x30);
 					GUIPrint(0, 0, tdy*2, 1, "RGB[%8f %8f %8f] %8f %g", blockCR[0], blockCR[1], blockCR[2], 3/(1/blockCR[0]+1/blockCR[1]+1/blockCR[2]), blocksize);
 				}
 			}
@@ -1680,6 +1787,92 @@ void io_render()
 			//	int x=(int)floorf(tdx*6.5f);
 			//	display_texture_i(x, x+iw, (int)(tdy*3), (int)(tdy*3+ih), (int*)image, iw, ih, 1);
 			//}
+			break;
+		case VIS_DWT_BLOCK:
+			{
+				int w2=iw, h2=ih;//do not scale
+				for(int kc=0;kc<3;++kc)
+				{
+					int kx=kc&1, ky=kc>>1;
+					display_texture(kx*w2, (kx+1)*w2, ky*h2, (ky+1)*h2, image_txid[1], 1, 0, 1, kc/3.f, (kc+1)/3.f);
+				}
+				float half=blocksize*0.5f;
+				for(int kc=0;kc<3;++kc)
+				{
+					int kx=kc&1, ky=kc>>1;
+					int
+						x1=kx*w2, x2=(kx+1)*w2,
+						y1=ky*h2, y2=(ky+1)*h2;
+					if(blockmx>=x1&&blockmx<x2&&blockmy>=y1&&blockmy<y2)
+					{
+						float
+							mx1=blockmx-half, mx2=blockmx+half,
+							my1=blockmy-half, my2=blockmy+half;
+
+						if(w2<blocksize)
+							mx1=(float)x1, mx2=(float)x2;
+						if(mx1<x1)
+							mx1=(float)x1, mx2=x1+blocksize;
+						if(mx2>x2)
+							mx1=x2-blocksize, mx2=(float)x2;
+				
+						if(h2<blocksize)
+							my1=(float)y1, my2=(float)y2;
+						if(my1<y1)
+							my1=(float)y1, my2=y1+blocksize;
+						if(my2>y2)
+							my1=y2-blocksize, my2=(float)y2;
+						
+						float px=(x1+x2)*0.5f, py=(y1+y2)*0.5f;
+						if(mx1<px&&my1<py)
+						{
+							//if(fabsf(my1/mx1)<fabsf(py/px))
+							if(fabsf(my1*px)<fabsf(py*mx1))
+								mx1=(float)px, mx2=px+blocksize;
+							else
+								my1=(float)py, my2=py+blocksize;
+						}
+
+						DRAW_LINEI(x1, py, x2, py, 0x80FFFFFF);
+						DRAW_LINEI(px, y1, px, y2, 0x80FFFFFF);
+						float px2=x1+(px-x1)*0.5f, py2=y1+(py-y1)*0.5f;
+						DRAW_LINEI(x1, py2, px, py2, 0x80FFFFFF);
+						DRAW_LINEI(px2, y1, px2, py, 0x80FFFFFF);
+
+						int histcolor=0x40FF00FF;
+						histmax=0;
+						draw_rect_hollow(mx1, mx2, my1, my2, 0xFFFF00FF);
+						chart_dwthist_update(image, iw, ih, kc, 2, (int)mx1-x1, (int)mx2-x1, (int)my1-y1, (int)my2-y1);
+						chart_hist_draw(0, (float)w, 0, (float)h, 2, 3, histcolor, 0);
+
+						mx1=x1+(mx1-x1)*0.5f;
+						mx2=x1+(mx2-x1)*0.5f;
+						my1=y1+(my1-y1)*0.5f;
+						my2=y1+(my2-y1)*0.5f;
+
+						histmax=0;
+						draw_rect_hollow(mx1, mx2, my1, my2, 0xFFFF00FF);
+						chart_dwthist_update(image, iw, ih, kc, 1, (int)mx1-x1, (int)mx2-x1, (int)my1-y1, (int)my2-y1);
+						chart_hist_draw(0, (float)w, 0, (float)h, 1, 2, histcolor, 0);
+						
+						mx1=x1+(mx1-x1)*0.5f;
+						mx2=x1+(mx2-x1)*0.5f;
+						my1=y1+(my1-y1)*0.5f;
+						my2=y1+(my2-y1)*0.5f;
+
+						histmax=0;
+						draw_rect_hollow(mx1, mx2, my1, my2, 0xFFFF00FF);
+						chart_dwthist_update(image, iw, ih, kc, 0, (int)mx1-x1, (int)mx2-x1, (int)my1-y1, (int)my2-y1);
+						chart_hist_draw(0, (float)w, 0, (float)h, 0, 1, histcolor, 0);
+
+						GUIPrint(0, 0, tdy*2, 1, "[%8f %8f %8f] %g", blockCR[0], blockCR[1], blockCR[2], blocksize);
+						break;
+					}
+				}
+			}
+			//display_texture(0,  iw,    0,  ih,    image_txid[1], 1, 0, 1, 0,     1.f/3);
+			//display_texture(iw, iw<<1, 0,  ih,    image_txid[1], 1, 0, 1, 1.f/3, 2.f/3);
+			//display_texture(0,  iw,    ih, ih<<1, image_txid[1], 1, 0, 1, 2.f/3, 1);
 			break;
 		case VIS_IMAGE_TRICOLOR:
 			display_texture(0,  iw,    0,  ih,    image_txid[1], 1, 0, 1, 0,     1.f/3);
@@ -1720,8 +1913,10 @@ void io_render()
 		//000000000011111111112222222222333333333344444444445555
 		//012345678901234567890123456789012345678901234567890123
 		//>>nnnN.NNN >>nnnN.NNN >>nnnN.NNN >>nnnN.NNN >>nnnN.NNN
+		int bk0=set_bk_color(0xA060A060);
 		GUIPrint(0, (float)x, (float)(y        ), guizoom, "%c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%c%8.3lf", sel[12], sel[12], customparam_st[ 0], sel[13], sel[13], customparam_st[ 1], sel[14], sel[14], customparam_st[ 2], sel[15], sel[15], customparam_st[ 3], sel[16], sel[16], customparam_st[ 4]);
 		GUIPrint(0, (float)x, (float)(y+ystep  ), guizoom, "%c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%c%8.3lf", sel[17], sel[17], customparam_st[ 5], sel[18], sel[18], customparam_st[ 6], sel[19], sel[19], customparam_st[ 7], sel[20], sel[20], customparam_st[ 8], sel[21], sel[21], customparam_st[ 9]);
+		set_bk_color(bk0);
 		GUIPrint(0, (float)x, (float)(y+ystep*2), guizoom, "%c%c%8.3lf %c%c%8.3lf",                                  sel[22], sel[22], customparam_st[10], sel[23], sel[23], customparam_st[11]);//do not change these strings!
 		//set_text_colors(prevcolor);
 	}
@@ -1735,6 +1930,7 @@ void io_render()
 	case VIS_JOINT_HISTOGRAM:	mode_str="Joint Histogram";	break;
 	case VIS_IMAGE:				mode_str="Image View";		break;
 	case VIS_IMAGE_BLOCK:		mode_str="Image Block";		break;
+	case VIS_DWT_BLOCK:			mode_str="DWT Block";		break;
 	case VIS_IMAGE_TRICOLOR:	mode_str="Tricolor";		break;
 	}
 #if 0
@@ -1817,13 +2013,13 @@ void io_render()
 				x=(float)(xend-scale*ks);
 			}
 			float barw=4;
-			if(mode==VIS_IMAGE_BLOCK)
+			if(mode==VIS_IMAGE_BLOCK||mode==VIS_DWT_BLOCK)
 			{
 				float blockcombined=3/(1/blockCR[0]+1/blockCR[1]+1/blockCR[2]);
-				draw_rect(xend-scale*blockcombined, xend, ystart+tdy*0.5f-barw, ystart+tdy*0.5f+1, 0xFF000000);
-				draw_rect(xend-scale*blockCR[0]   , xend, ystart+tdy*1.5f-barw, ystart+tdy*1.5f+1, 0xFF0000FF);
-				draw_rect(xend-scale*blockCR[1]   , xend, ystart+tdy*2.5f-barw, ystart+tdy*2.5f+1, 0xFF00FF00);
-				draw_rect(xend-scale*blockCR[2]   , xend, ystart+tdy*3.5f-barw, ystart+tdy*3.5f+1, 0xFFFF0000);
+				draw_rect(xend-scale*blockcombined, xend, ystart+tdy*0.5f-barw, ystart+tdy*0.5f  , 0xFF404040);
+				draw_rect(xend-scale*blockCR[0]   , xend, ystart+tdy*1.5f-barw, ystart+tdy*1.5f  , 0xFF0000B0);
+				draw_rect(xend-scale*blockCR[1]   , xend, ystart+tdy*2.5f-barw, ystart+tdy*2.5f  , 0xFF00B000);
+				draw_rect(xend-scale*blockCR[2]   , xend, ystart+tdy*3.5f-barw, ystart+tdy*3.5f  , 0xFFB00000);
 				draw_rect(xend-scale*cr_combined  , xend, ystart+tdy*0.5f, ystart+tdy*0.5f+barw+1, 0xFF000000);
 				draw_rect(xend-scale*ch_cr[0]     , xend, ystart+tdy*1.5f, ystart+tdy*1.5f+barw+1, 0xFF0000FF);
 				draw_rect(xend-scale*ch_cr[1]     , xend, ystart+tdy*2.5f, ystart+tdy*2.5f+barw+1, 0xFF00FF00);
