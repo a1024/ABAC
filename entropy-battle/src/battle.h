@@ -154,6 +154,16 @@ size_t ans16_encode(const unsigned char *src, ptrdiff_t res, ArrayHandle *data);
 
 size_t test14_encode(const unsigned char *src, int bw, int bh, int lgblockdim, ArrayHandle *data);
 
+extern unsigned char *debug_ptr;
+size_t test16_encode(const unsigned char *src, int bw, int bh, int alpha, int blocksize, int margin, ArrayHandle *data, int loud);
+int    test16_decode(const unsigned char *data, size_t srclen, int bw, int bh, int alpha, int blocksize, int margin, unsigned char *buf);
+
+//void test17_saveconf(const unsigned char *src, int bw, int bh, int blocksize);
+size_t test17_encode(const unsigned char *src, int bw, int bh, int blocksize, int alpha, ArrayHandle *data, int loud);
+int    test17_decode(const unsigned char *data, size_t srclen, int bw, int bh, int blocksize, int alpha, unsigned char *buf);
+
+size_t test18_encode(const unsigned char *src, int bw, int bh, ArrayHandle *data);
+
 
 //transforms
 void apply_transforms_fwd(unsigned char *buf, int bw, int bh);
@@ -236,7 +246,8 @@ void save_16bit(const char *filename, const short *buf, const short *sub_b2, int
 void save_mono8(const char *filename, unsigned char *buf, int iw, int ih, int stride);
 void save_squeeze(const char *name, short *buf, DWTSize *sizes, int nsizes, int stride, int maxnbits);
 void save_channel(unsigned char *buf, int iw, int ih, int stride, int val_offset, const char *format, ...);
-void save_CDF53(const char *name, unsigned char *buf, DWTSize *sizes, int nsizes, int stride);
+void save_DWT_int8(const char *name, unsigned char *buf, DWTSize *sizes, int nsizes, int stride);
+void save_DWT_int8_all(const char *name, unsigned char *buf, DWTSize *sizes, int nsizes);
 
 
 //lossy tools

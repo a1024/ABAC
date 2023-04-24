@@ -87,7 +87,7 @@ void compare_bufs_ps(float *b1, float *b0, int iw, int ih, const char *name, int
 
 void apply_transforms_fwd(unsigned char *buf, int bw, int bh)
 {
-	ArrayHandle sizes=dwt2d_gensizes(bw, bh, 3, 3, 0);
+	ArrayHandle sizes=dwt2d_gensizes(bw, bh, 7, 7, 0);
 	unsigned char *temp=(unsigned char*)malloc(MAXVAR(bw, bh));
 
 	addbuf(buf, bw, bh, 3, 4, 128);//unsigned char -> signed char
@@ -97,18 +97,19 @@ void apply_transforms_fwd(unsigned char *buf, int bw, int bh)
 	//colortransform_xgz_fwd((char*)buf, bw, bh);
 	//colortransform_xyz_fwd((char*)buf, bw, bh);
 	
-	image_unplane((char*)buf, bw, bh, 3, 4);
+	//image_unplane((char*)buf, bw, bh, 3, 4);
 	//image_differentiate((char*)buf, bw, bh, 3, 4);
-	//for(int kc=0;kc<3;++kc)
-	//	//dwt2d_haar_fwd((char*)buf+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, (char*)temp);
-	//	//dwt2d_squeeze_fwd((char*)buf+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, (char*)temp);
-	//	dwt2d_cdf53_fwd((char*)buf+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, (char*)temp);
-	//	//dwt2d_cdf97_fwd((char*)buf+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, (char*)temp);
+	for(int kc=0;kc<3;++kc)
+		//dwt2d_haar_fwd((char*)buf+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, (char*)temp);
+		//dwt2d_squeeze_fwd((char*)buf+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, (char*)temp);
+		dwt2d_cdf53_fwd((char*)buf+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, (char*)temp);
+		//dwt2d_cdf97_fwd((char*)buf+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, (char*)temp);
 
 	addbuf(buf, bw, bh, 3, 4, 128);
 	
-	//save_CDF53("kodim21-squeeze-stage", buf, (DWTSize*)sizes->data, (int)sizes->count, 4);//
-	//save_CDF53("kodim21-cubic-stage", buf, (DWTSize*)sizes->data, (int)sizes->count, 4);//
+	//save_DWT_int8_all("kodim21-cdf53", buf, (DWTSize*)sizes->data, (int)sizes->count);
+	//save_DWT_int8("kodim21-squeeze-stage", buf, (DWTSize*)sizes->data, (int)sizes->count, 4);//
+	//save_DWT_int8("kodim21-cubic-stage", buf, (DWTSize*)sizes->data, (int)sizes->count, 4);//
 
 	free(temp);
 	array_free(&sizes);
@@ -1212,11 +1213,12 @@ static const int cdf97_coeff[]=
 {
 	//'factring wavelet transforms into lifting steps' - page 19
 	//'a wavelet tour of signal processing - the sparse way' - page 376
-	-0x1960C,	//-1.58613434342059f,	//alpha
-	-0x00D90,	//-0.0529801185729f,	//beta
-	 0x0E206,	// 0.8829110755309f,	//gamma
-	 0x07189,	// 0.4435068520439f,	//delta
-				// 1.1496043988602f,	//zeta		output gain is 1.89
+	//Lifting-based Discrete Wavelet Transform for Real-Time Signal Detection 2015-10
+	 0x1960C,	//-1.58613434342059f,	//alpha
+	 0x00D90,	//-0.0529801185729f,	//beta
+	-0x0E206,	// 0.8829110755309f,	//gamma
+	-0x07189,	// 0.4435068520439f,	//delta
+	 0x1264C,	// 1.1496043988602f,	//zeta		output gain is 1.89
 };
 static void dwt1d_u8_predict(char *odd, char *even, int nodd, int extraeven, int coeff)
 {
@@ -1248,6 +1250,16 @@ static void dwt1d_u8_unupdate(char *odd, char *even, int nodd, int extraeven, in
 	if(!extraeven)
 		odd[nodd-1]-=even[nodd-1]*coeff>>15;
 }
+static void dwt1d_u8_scale(char *buf, int count, int coeff)
+{
+	for(int k=0;k<count;++k)
+		buf[k]=buf[k]*coeff>>16;
+}
+static void dwt1d_u8_unscale(char *buf, int count, int coeff)
+{
+	for(int k=0;k<count;++k)
+		buf[k]=(buf[k]<<16)/coeff;
+}
 void dwt1d_cdf97_fwd(char *buffer, int count, int stride, char *b2)
 {
 	int nodd=count>>1, extraeven=count&1;
@@ -1261,10 +1273,11 @@ void dwt1d_cdf97_fwd(char *buffer, int count, int stride, char *b2)
 	if(extraeven)
 		even[nodd]=buffer[stride*(count-1)];
 
-	dwt1d_u8_predict(odd, even, nodd, extraeven, cdf97_coeff[3]);
-	dwt1d_u8_update (odd, even, nodd, extraeven, cdf97_coeff[2]);
-	dwt1d_u8_predict(odd, even, nodd, extraeven, cdf97_coeff[1]);
-	dwt1d_u8_update (odd, even, nodd, extraeven, cdf97_coeff[0]);
+	dwt1d_u8_predict(odd, even, nodd, extraeven, cdf97_coeff[0]);
+	dwt1d_u8_update (odd, even, nodd, extraeven, cdf97_coeff[1]);
+	dwt1d_u8_predict(odd, even, nodd, extraeven, cdf97_coeff[2]);
+	dwt1d_u8_update (odd, even, nodd, extraeven, cdf97_coeff[3]);
+	//dwt1d_u8_scale(b2, count, cdf97_coeff[4]);
 
 	for(int k=0, ks=0;k<count;++k, ks+=stride)
 		buffer[ks]=b2[k];
@@ -1277,10 +1290,11 @@ void dwt1d_cdf97_inv(char *buffer, int count, int stride, char *b2)
 	for(int k=0, ks=0;k<count;++k, ks+=stride)
 		b2[k]=buffer[ks];
 	
-	dwt1d_u8_unupdate (odd, even, nodd, extraeven, cdf97_coeff[0]);
-	dwt1d_u8_unpredict(odd, even, nodd, extraeven, cdf97_coeff[1]);
-	dwt1d_u8_unupdate (odd, even, nodd, extraeven, cdf97_coeff[2]);
-	dwt1d_u8_unpredict(odd, even, nodd, extraeven, cdf97_coeff[3]);
+	//dwt1d_u8_unscale(b2, count, cdf97_coeff[4]);
+	dwt1d_u8_unupdate (odd, even, nodd, extraeven, cdf97_coeff[3]);
+	dwt1d_u8_unpredict(odd, even, nodd, extraeven, cdf97_coeff[2]);
+	dwt1d_u8_unupdate (odd, even, nodd, extraeven, cdf97_coeff[1]);
+	dwt1d_u8_unpredict(odd, even, nodd, extraeven, cdf97_coeff[0]);
 
 	for(int k=0, ks=0;k<nodd;++k, ks+=stride<<1)//inv lazy wavelet: join even & odd
 	{

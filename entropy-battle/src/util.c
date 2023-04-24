@@ -681,20 +681,24 @@ void dlist_clear(DListHandle list)
 		list->nobj=list->nnodes=0;
 	}
 }
-void dlist_appendtoarray(DListHandle list, ArrayHandle *dst)
+size_t dlist_appendtoarray(DListHandle list, ArrayHandle *dst)
 {
 	DNodeHandle it;
-	size_t payloadsize;
+	size_t start, payloadsize;
 
 	if(!*dst)
+	{
+		start=0;
 		*dst=array_construct(0, list->objsize, 0, 0, list->nnodes*list->objpernode, list->destructor);
+	}
 	else
 	{
 		if(dst[0]->esize!=list->objsize)
 		{
 			LOG_ERROR("dlist_appendtoarray(): dst->esize=%d, list->objsize=%d", dst[0]->esize, list->objsize);
-			return;
+			return 0;
 		}
+		start=dst[0]->count;
 		ARRAY_APPEND(*dst, 0, 0, 0, list->nnodes*list->objpernode);
 	}
 	it=list->i;
@@ -706,6 +710,7 @@ void dlist_appendtoarray(DListHandle list, ArrayHandle *dst)
 		it=it->next;
 	}
 	dst[0]->count+=list->nobj;
+	return start;
 }
 
 static void dlist_append_node(DListHandle list)
