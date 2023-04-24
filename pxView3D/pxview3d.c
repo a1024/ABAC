@@ -86,13 +86,18 @@ typedef enum TransformTypeEnum
 	CT_FWD_XGZ,			CT_INV_XGZ,
 	CT_FWD_XYZ,			CT_INV_XYZ,
 	CT_FWD_EXP,			CT_INV_EXP,
-	CT_FWD_LEARNED,		CT_INV_LEARNED,
 	CT_FWD_CUSTOM,		CT_INV_CUSTOM,
 
+	CST_SEPARATOR,
+
 	ST_FWD_DIFF2D,		ST_INV_DIFF2D,
-	ST_FWD_UNPLANE,		ST_INV_UNPLANE,
+	ST_FWD_HPF,			ST_INV_HPF,
+	ST_FWD_MEDIAN,		ST_INV_MEDIAN,
+	ST_FWD_GRADPRED,	ST_INV_GRADPRED,
 	ST_FWD_CUSTOM,		ST_INV_CUSTOM,
 	ST_FWD_DCT4,		ST_INV_DCT4,
+	ST_FWD_DCT8,		ST_INV_DCT8,
+
 	ST_FWD_LAZY,		ST_INV_LAZY,
 	ST_FWD_HAAR,		ST_INV_HAAR,
 	ST_FWD_SQUEEZE,		ST_INV_SQUEEZE,
@@ -109,6 +114,12 @@ char transforms_mask[T_COUNT]={0};
 ArrayHandle transforms=0;//array of chars
 float guizoom=1.25f;
 
+double av_rmse=0;
+
+int profile_idx=0;
+ArrayHandle losshist=0;
+double minloss=0, maxloss=0;
+
 float blocksize=64;
 int blockmx=0, blockmy=0;
 
@@ -123,44 +134,14 @@ ArrayHandle jointhist=0;
 float ch_cr[4]={0};
 int usage[4]={0};
 
-//int range_intersect(float a1, float a2, float b1, float b2)
-//{
-//	return a2>b1&&a1<b2;
-//}
+#define combCRhist_SIZE 256
+float combCRhist[combCRhist_SIZE][4]={0}, combCRhist_max=0;
+int combCRhist_idx=0;
 
-void transforms_append(unsigned tid)
-{
-	if(tid<T_COUNT)
-	{
-		if(!transforms)
-			ARRAY_ALLOC(char, transforms, &tid, 1, 0, 0);
-		else
-			ARRAY_APPEND(transforms, &tid, 1, 1, 0);
-		transforms_mask[tid]|=1;
-		transforms_customenabled|=
-			tid==CT_FWD_CUSTOM||
-			tid==CT_INV_CUSTOM||
-			tid==ST_FWD_CUSTOM||
-			tid==ST_INV_CUSTOM||
-			tid==ST_FWD_EXPDWT||
-			tid==ST_INV_EXPDWT||
-			tid==ST_FWD_CUSTOM_DWT||
-			tid==ST_INV_CUSTOM_DWT;
-	}
-}
-void transforms_removebyid(unsigned tid)
+void transforms_update()
 {
 	if(transforms)
 	{
-		for(int k=(int)transforms->count-1;k>=0;--k)
-		{
-			if(tid==transforms->data[k])
-			{
-				array_erase(&transforms, k, 1);
-				break;//remove only one
-			}
-		}
-
 		memset(transforms_mask, 0, T_COUNT);
 		transforms_customenabled=0;
 		for(int k=0;k<(int)transforms->count;++k)//update trackers
@@ -180,13 +161,72 @@ void transforms_removebyid(unsigned tid)
 		}
 	}
 }
+void transforms_removebyid(unsigned tid)
+{
+	if(transforms)
+	{
+		for(int k=(int)transforms->count-1;k>=0;--k)
+		{
+			if(tid==transforms->data[k])
+			{
+				array_erase(&transforms, k, 1);
+				break;//remove only one
+			}
+		}
+		transforms_update();
+	}
+}
 void transforms_removeall()
 {
 	array_free(&transforms);
 	transforms_customenabled=0;
 	memset(transforms_mask, 0, T_COUNT);
 }
-void printtransform(float x, float y, unsigned tid, int place, long long highlight)
+void transforms_append(unsigned tid)
+{
+	if(tid<T_COUNT&&tid!=CST_SEPARATOR)
+	{
+		if(!transforms)
+		{
+			ARRAY_ALLOC(char, transforms, &tid, 1, 0, 0);
+			transforms_mask[tid]|=1;
+			transforms_customenabled|=
+				tid==CT_FWD_CUSTOM||
+				tid==CT_INV_CUSTOM||
+				tid==ST_FWD_CUSTOM||
+				tid==ST_INV_CUSTOM||
+				tid==ST_FWD_EXPDWT||
+				tid==ST_INV_EXPDWT||
+				tid==ST_FWD_CUSTOM_DWT||
+				tid==ST_INV_CUSTOM_DWT;
+		}
+		else
+		{
+			int idx=-1;//first idx of a transform of this type
+			if(GET_KEY_STATE(KEY_CTRL))//replace all transforms of this type
+			{
+				for(int k=0;k<transforms->count;)
+				{
+					if((tid<CST_SEPARATOR)==(transforms->data[k]<CST_SEPARATOR))
+					{
+						if(idx==-1)
+							idx=k;
+						array_erase(&transforms, k, 1);
+						transforms_mask[transforms->data[k]]=0;
+					}
+					else
+						++k;
+				}
+			}
+			if(idx==-1)
+				ARRAY_APPEND(transforms, &tid, 1, 1, 0);
+			else
+				array_insert(&transforms, idx, &tid, 1, 1, 0);
+			transforms_update();
+		}
+	}
+}
+void transforms_printname(float x, float y, unsigned tid, int place, long long highlight)
 {
 	const char *a=0;
 	switch(tid)
@@ -202,16 +242,21 @@ void printtransform(float x, float y, unsigned tid, int place, long long highlig
 	case CT_INV_XYZ:			a="C  Inv XYZ";				break;
 	case CT_FWD_EXP:			a="C  Fwd Experimental";	break;
 	case CT_INV_EXP:			a="C  Inv Experimental";	break;
-	case CT_FWD_LEARNED:		a="C  Fwd Learned";			break;
-	case CT_INV_LEARNED:		a="C  Inv Learned";			break;
 	case CT_FWD_CUSTOM:			a="C  Fwd CUSTOM";			break;
 	case CT_INV_CUSTOM:			a="C  Inv CUSTOM";			break;
+	case CST_SEPARATOR:			a="";						break;
 	case ST_FWD_DIFF2D:			a=" S Fwd 2D derivative";	break;
 	case ST_INV_DIFF2D:			a=" S Inv 2D derivative";	break;
-	case ST_FWD_UNPLANE:		a=" S Fwd Unplane";			break;
-	case ST_INV_UNPLANE:		a=" S Inv Unplane";			break;
+	case ST_FWD_HPF:			a=" S Fwd HPF";				break;
+	case ST_INV_HPF:			a=" S Inv HPF";				break;
+	case ST_FWD_MEDIAN:			a=" S Fwd Median";			break;
+	case ST_INV_MEDIAN:			a=" S Inv Median";			break;
+	case ST_FWD_GRADPRED:		a=" S Fwd Gradient";		break;
+	case ST_INV_GRADPRED:		a=" S Inv Gradient";		break;
 	case ST_FWD_DCT4:			a=" S Fwd DCT4";			break;
 	case ST_INV_DCT4:			a=" S Inv DCT4";			break;
+	case ST_FWD_DCT8:			a=" S Fwd DCT8";			break;
+	case ST_INV_DCT8:			a=" S Inv DCT8";			break;
 	case ST_FWD_CUSTOM:			a=" S Fwd CUSTOM";			break;
 	case ST_INV_CUSTOM:			a=" S Inv CUSTOM";			break;
 	case ST_FWD_LAZY:			a=" S Fwd Lazy DWT";		break;
@@ -651,19 +696,24 @@ void update_image()
 			case CT_INV_XYZ:		colortransform_xyz_inv((char*)image, iw, ih);		break;
 			case CT_FWD_EXP:		colortransform_exp_fwd((char*)image, iw, ih);		break;
 			case CT_INV_EXP:		colortransform_exp_inv((char*)image, iw, ih);		break;
-			case CT_FWD_LEARNED:	colortransform_learned_fwd((char*)image, iw, ih);	break;
-			case CT_INV_LEARNED:	colortransform_learned_inv((char*)image, iw, ih);	break;
 			case CT_FWD_CUSTOM:		colortransform_custom_fwd((char*)image, iw, ih);	break;
 			case CT_INV_CUSTOM:		colortransform_custom_inv((char*)image, iw, ih);	break;
 
-			case ST_FWD_DIFF2D:		image_differentiate((char*)image, iw, ih, 3, 4);	break;
-			case ST_INV_DIFF2D:		image_integrate((char*)image, iw, ih, 3, 4);		break;
-			case ST_FWD_UNPLANE:	image_unplane((char*)image, iw, ih, 3, 4);			break;
-			case ST_INV_UNPLANE:	image_replane((char*)image, iw, ih, 3, 4);			break;
-			case ST_FWD_CUSTOM:		image_customst_fwd((char*)image, iw, ih, 3, 4);		break;
-			case ST_INV_CUSTOM:		image_customst_inv((char*)image, iw, ih, 3, 4);		break;
+			case ST_FWD_DIFF2D:		pred_diff2d_fwd((char*)image, iw, ih, 3, 4);		break;
+			case ST_INV_DIFF2D:		pred_diff2d_inv((char*)image, iw, ih, 3, 4);		break;
+			case ST_FWD_HPF:		pred_hpf_fwd((char*)image, iw, ih, 3, 4);			break;
+			case ST_INV_HPF:		pred_hpf_inv((char*)image, iw, ih, 3, 4);			break;
+			case ST_FWD_MEDIAN:		pred_median_fwd((char*)image, iw, ih, 3, 4);		break;
+			case ST_INV_MEDIAN:		pred_median_inv((char*)image, iw, ih, 3, 4);		break;
+			case ST_FWD_GRADPRED:	pred_grad_fwd((char*)image, iw, ih, 3, 4);			break;
+			case ST_INV_GRADPRED:	pred_grad_inv((char*)image, iw, ih, 3, 4);			break;
+			case ST_FWD_CUSTOM:		pred_custom_fwd((char*)image, iw, ih, 3, 4);		break;
+			case ST_INV_CUSTOM:		pred_custom_inv((char*)image, iw, ih, 3, 4);		break;
 			case ST_FWD_DCT4:		image_dct4_fwd((char*)image, iw, ih);				break;
 			case ST_INV_DCT4:		image_dct4_inv((char*)image, iw, ih);				break;
+			case ST_FWD_DCT8:		image_dct8_fwd((char*)image, iw, ih);				break;
+			case ST_INV_DCT8:		image_dct8_inv((char*)image, iw, ih);				break;
+
 			case ST_FWD_LAZY:
 			case ST_INV_LAZY:
 			case ST_FWD_HAAR:
@@ -713,6 +763,17 @@ void update_image()
 	}//if transforms
 
 	channel_entropy(image, iw*ih, 3, 4, ch_cr, usage);
+	
+	combCRhist[combCRhist_idx][0]=ch_cr[0];
+	combCRhist[combCRhist_idx][1]=ch_cr[1];
+	combCRhist[combCRhist_idx][2]=ch_cr[2];
+	combCRhist[combCRhist_idx][3]=3/(1/ch_cr[0]+1/ch_cr[1]+1/ch_cr[2]);
+	for(int k=0;k<4;++k)
+	{
+		if(combCRhist_max<combCRhist[combCRhist_idx][k])
+			combCRhist_max=combCRhist[combCRhist_idx][k];
+	}
+	combCRhist_idx=(combCRhist_idx+1)%combCRhist_SIZE;
 
 	if(!send_image_separate_subpixels(image, iw, ih, image_txid))
 		LOG_ERROR("Failed to send texture to GPU");
@@ -996,7 +1057,7 @@ typedef struct AABBStruct
 {
 	float x1, x2, y1, y2;
 } AABB;
-AABB buttons[3]={0};//CT left, CT right, ST grid
+AABB buttons[4]={0};//0: CT,  1: ST,  2: list of transforms,  3: clamp bounds
 
 int io_init(int argc, char **argv)//return false to abort
 {
@@ -1014,9 +1075,10 @@ void io_resize()
 {
 	AABB *p=buttons;
 	float xstep=tdx*guizoom, ystep=tdy*guizoom;
-	p->x1=xstep*2, p->x2=p->x1+xstep*30, p->y1=(float)(h>>1), p->y2=p->y1+customparam_ct_h*ystep, ++p;//color params - left
-	p->x1=(float)(w>>1), p->x2=p->x1+xstep*54, p->y1=(float)((h>>1)+(h>>2)), p->y2=p->y1+ystep*3, ++p;//spatial params
-	p->x1=(float)(w-200), p->x2=(float)w, p->y1=tdy*2, p->y2=p->y1+tdy*T_COUNT, ++p;//transforms list
+	p->x1=xstep*2, p->x2=p->x1+xstep*30, p->y1=(float)(h>>1), p->y2=p->y1+customparam_ct_h*ystep, ++p;//0: color params - left
+	p->x1=(float)(w>>1), p->x2=p->x1+xstep*54, p->y1=(float)((h>>1)+(h>>2)), p->y2=p->y1+ystep*3, ++p;//1: spatial params
+	p->x1=(float)(w-200), p->x2=(float)w, p->y1=tdy*2, p->y2=p->y1+tdy*T_COUNT, ++p;//2: transforms list
+	p->x1=(float)(w>>1), p->x2=p->x1+xstep*14, p->y1=(float)((h>>1)+(h>>2))+ystep*4, p->y2=p->y1+ystep, ++p;//3: clamp bounds
 }
 int io_mousemove()//return true to redraw
 {
@@ -1042,103 +1104,128 @@ int io_mousemove()//return true to redraw
 	}
 	return 0;
 }
+void click_hittest(int mx, int my, int *objidx, int *cellx, int *celly, int *cellidx, AABB **p)
+{
+	*p=buttons;
+	*objidx=0;
+	for(*objidx=0;*objidx<COUNTOF(buttons);++*objidx, ++*p)
+	{
+		if((*p-buttons==0||*p-buttons==1||*p-buttons==3)&&!transforms_customenabled)//when these buttons are inactive they shouldn't block the click
+			continue;
+		if(mx>=p[0]->x1&&mx<p[0]->x2&&my>=p[0]->y1&&my<p[0]->y2)
+			break;
+	}
+	switch(*objidx)
+	{
+	case 0://color transform
+		*cellx=mx-p[0]->x1>(p[0]->x2-p[0]->x1)*0.5f;
+		*celly=(int)floorf((my-p[0]->y1)*customparam_ct_h/(p[0]->y2-p[0]->y1));
+		*cellidx=customparam_ct_w**celly+*cellx;
+		break;
+	case 1://spatial transform
+		*cellx=(int)floorf((mx-p[0]->x1)*(customparam_st_reach<<1|1)/(p[0]->x2-p[0]->x1));
+		*celly=(int)floorf((my-p[0]->y1)*(customparam_st_reach+1)/(p[0]->y2-p[0]->y1));
+		*cellidx=(customparam_st_reach<<1|1)**celly+*cellx;
+		break;
+	case 2://list of transforms
+		*cellx=0;
+		*celly=(int)floorf((my-p[0]->y1)*T_COUNT/(p[0]->y2-p[0]->y1))+1;//zero idx is T_NONE
+		*cellidx=*celly;
+		break;
+	case 3://clamp bounds
+		*cellx=mx-p[0]->x1>(p[0]->x2-p[0]->x1)*0.5f;
+		*celly=0;
+		*cellidx=*cellx;
+		break;
+	default:
+		*objidx=-1;
+		*p=0;
+		*cellx=-1;
+		*celly=-1;
+		*cellidx=-1;
+		break;
+	}
+}
 int io_mousewheel(int forward)
 {
 	if(image&&transforms_customenabled)//change custom transform params
 	{
-		int idx;
+		int objidx=0, cellx=0, celly=0, cellidx=0;
 		AABB *p=buttons;
-		for(idx=0;idx<COUNTOF(buttons)&&!(mx>=p->x1&&mx<p->x2&&my>=p->y1&&my<p->y2);++idx, ++p);
-		if(idx<2)
+		click_hittest(mx, my, &objidx, &cellx, &celly, &cellidx, &p);
+		if(objidx!=-1)
 		{
-			int x, y;
-			switch(idx)
+			int sign=(forward>0)-(forward<0);//abs(forward) is 120
+			int ch=(int)floorf((mx-p->x1)/(guizoom*tdx)), ch2;
+			switch(objidx)
 			{
 			case 0://color transform
-				x=idx<<1|(mx-p->x1>(p->x2-p->x1)*0.5f);
-				y=(int)floorf((my-p->y1)*customparam_ct_h/(p->y2-p->y1));
-				idx=customparam_ct_w*y+x;
+
+				//000000000011111111112222222222
+				//012345678901234567890123456789
+				//r-=(>>nnnN.NNN)g+(  nnnN.NNN)b
+				ch2=ch-6;
+				MODVAR(ch2, ch2, 14);
+				if(ch2>=0&&ch2<8)
+				{
+					ch2-=4;
+					ch2+=ch2<0;//skip point
+					double delta=pow(10, -ch2);
+					customparam_ct[cellidx]+=sign*delta;
+				}
+				else
+					customparam_ct[cellidx]+=sign*0.05;
 				break;
 			case 1://spatial transform
-				x=(int)floorf((mx-p->x1)*(customparam_st_reach<<1|1)/(p->x2-p->x1));
-				y=(int)floorf((my-p->y1)*(customparam_st_reach+1)/(p->y2-p->y1));
-				idx=COUNTOF(customparam_ct)+(customparam_st_reach<<1|1)*y+x;
+
+				//000000000011111111112222222222333333333344444444445555
+				//012345678901234567890123456789012345678901234567890123
+				//>>nnnN.NNN >>nnnN.NNN >>nnnN.NNN >>nnnN.NNN >>nnnN.NNN
+				ch2=ch-2;
+				MODVAR(ch2, ch2, 11);
+				if(ch>=0&&ch<54&&ch2>=3&&ch2<8)
+				{
+					ch2-=4;
+					ch2+=ch2<0;//skip point
+					double delta=pow(10, -ch2);
+					customparam_st[cellidx]+=sign*delta;
+				}
+				else
+					customparam_st[cellidx]+=sign*0.05;
+				break;
+			case 3://clamp bounds
+			
+				//012345678901234567890		ch
+				//   1234   1234			ch2
+				//[ SNNNN, SNNNN] clamp
+				//   3210   3210			power
+				ch2=ch-2;
+				MODVAR(ch2, ch2, 7);
+				if(ch>=3&&ch<14&&ch2>=1&&ch2<5)
+				{
+					ch2=4-ch2;
+					int delta=(int)pow(10, ch2);
+					customparam_clamp[cellidx]+=sign*delta;
+					if(cellidx)
+					{
+						if(sign<0)//upper decreased & fell below lower
+						{
+							if(customparam_clamp[0]>customparam_clamp[1])
+								customparam_clamp[0]=customparam_clamp[1];
+						}
+					}
+					else
+					{
+						if(sign>0)//lower increased & rose above upper
+						{
+							if(customparam_clamp[1]<customparam_clamp[0])
+								customparam_clamp[1]=customparam_clamp[0];
+						}
+					}
+				}
 				break;
 			}
-			if(idx<COUNTOF(customparam_ct)+COUNTOF(customparam_st))
-			{
-				int sign=(forward>0)-(forward<0);//abs(forward) is 120
-				int ch=(int)floorf((mx-p->x1)/(guizoom*tdx)), ch2;
-				//if(GET_KEY_STATE(KEY_SHIFT))//fast
-				//	speed=0.1;
-				//else if(GET_KEY_STATE(KEY_CTRL))//slow
-				//	speed=0.001;
-				//else//normal speed
-				//	speed=0.01;
-				if(idx<COUNTOF(customparam_ct))//color transform
-				{
-					//000000000011111111112222222222
-					//012345678901234567890123456789
-					//r-=(>>nnnN.NNN)g+(  nnnN.NNN)b
-					ch2=ch-6;
-					MODVAR(ch2, ch2, 14);
-					if(ch2>=0&&ch2<8)
-					{
-						ch2-=4;
-						ch2+=ch2<0;//skip point
-						double speed=pow(10, -ch2);
-						customparam_ct[idx]+=sign*speed;
-					}
-					else
-						customparam_ct[idx]+=sign*0.05;
-					//ch2=(ch-6)%14;
-					//if(ch>=6&&ch<28&&ch2>=3&&ch2<8)
-					//{
-					//	ch2-=3;
-					//	ch2+=ch2>0;//skip point
-					//	double speed=pow(10, -ch2);
-					//	customparam_ct[idx]+=sign*speed;
-					//}
-					//else
-					//	customparam_ct[idx]+=sign*0.05;
-
-					//undocolortransform(color_transform);
-					//switch(ch)
-					//{
-					//case  9:case 23:customparam_ct[idx]+=sign;break;
-					//case 10:case 24:
-					//case 11:case 25:customparam_ct[idx]+=sign*0.1;break;
-					//case 12:case 26:customparam_ct[idx]+=sign*0.01;break;
-					//case 13:case 27:customparam_ct[idx]+=sign*0.001;break;
-					//default:		customparam_ct[idx]+=sign*0.01;break;
-					//}
-					//applycolortransform(color_transform);
-				}
-				else//spatial transform
-				{
-					//000000000011111111112222222222333333333344444444445555
-					//012345678901234567890123456789012345678901234567890123
-					//>>nnnN.NNN >>nnnN.NNN >>nnnN.NNN >>nnnN.NNN >>nnnN.NNN
-					ch2=ch-2;
-					MODVAR(ch2, ch2, 11);
-					if(ch>=0&&ch<54&&ch2>=3&&ch2<8)
-					{
-						ch2-=4;
-						ch2+=ch2<0;//skip point
-						double speed=pow(10, -ch2);
-						customparam_st[idx-COUNTOF(customparam_ct)]+=sign*speed;
-					}
-					else
-						customparam_st[idx-COUNTOF(customparam_ct)]+=sign*0.05;
-
-					//undospatialtransform(spatialtransform);
-					//customparam_st[idx-COUNTOF(customparam_ct)]+=sign*speed;
-					//applyspatialtransform(spatialtransform);
-				}
-				update_image();
-			}
-			else
-				goto normal_operation;
+			update_image();
 		}
 		else
 			goto normal_operation;
@@ -1200,6 +1287,38 @@ int io_keydn(IOKey key, char c)
 	{
 		switch(key)
 		{
+		case KEY_LBUTTON:
+			{
+				int objidx=0, cellx=0, celly=0, cellidx=0;
+				AABB *p;
+				click_hittest(mx, my, &objidx, &cellx, &celly, &cellidx, &p);
+				if(objidx==1)
+				{
+					if(!losshist)
+						ARRAY_ALLOC(double, losshist, 0, 1000, 0, 0);
+					double *p2=(double*)losshist->data;
+					profile_idx=cellidx;
+					double temp=customparam_st[cellidx];
+					for(int k=0;k<1000;++k)
+					{
+						customparam_st[cellidx]=customparam_ct[8]+(customparam_ct[9]-customparam_ct[8])*k/1000;
+						p2[k]=opt_causal_reach2(image, iw, ih, 1, customparam_st, customparam_ct+11, 1e-10, 1);
+					}
+					customparam_st[cellidx]=temp;
+					//av_rmse=opt_causal_reach2(image, iw, ih, 1, customparam_st, customparam_ct+11, 1e-10, 1);
+						
+					for(int k=0;k<1000;++k)
+					{
+						if(!k||minloss>p2[k])
+							minloss=p2[k];
+						if(!k||maxloss<p2[k])
+							maxloss=p2[k];
+					}
+					//update_image();
+					return 1;
+				}
+			}
+			break;
 		case KEY_UP:
 		case KEY_DOWN:
 		case KEY_LEFT:
@@ -1304,50 +1423,50 @@ int io_keydn(IOKey key, char c)
 	case KEY_RBUTTON:
 		if(image)
 		{
-			int idx;
+			int objidx=0, cellx=0, celly=0, cellidx=0;
 			AABB *p=buttons;
-			for(idx=0;idx<COUNTOF(buttons)&&!(mx>=p->x1&&mx<p->x2&&my>=p->y1&&my<p->y2);++idx, ++p);
-			switch(idx)
+			click_hittest(mx, my, &objidx, &cellx, &celly, &cellidx, &p);
+			switch(objidx)
 			{
 			case 0://color transform params
-			case 1://spatial transforms params
-				if(transforms_customenabled&&key==KEY_RBUTTON)
+				if(key==KEY_RBUTTON)
 				{
-					int x, y;
-					if(idx)//spatial transform
-					{
-						x=(int)floorf((mx-p->x1)*(customparam_st_reach<<1|1)/(p->x2-p->x1));
-						y=(int)floorf((my-p->y1)*(customparam_st_reach+1)/(p->y2-p->y1));
-						idx=COUNTOF(customparam_ct)+((size_t)customparam_st_reach<<1|1)*y+x;
-						customparam_st[idx-COUNTOF(customparam_ct)]=0;
-					}
-					else//color transform
-					{
-						x=idx<<1|(mx-p->x1>(p->x2-p->x1)*0.5f);
-						y=(int)floorf((my-p->y1)*customparam_ct_h/(p->y2-p->y1));
-						idx=customparam_ct_w*y+x;
-						customparam_ct[idx]=0;
-					}
+					customparam_ct[cellidx]=0;
+					update_image();
+					return 1;
+				}
+				break;
+			case 1://spatial transforms params
+				if(key==KEY_RBUTTON)
+				{
+					customparam_st[cellidx]=0;
 					update_image();
 					return 1;
 				}
 				break;
 			case 2://transform list
 				{
-					int idx=(int)floorf((my-p->y1)*T_COUNT/(p->y2-p->y1))+1;//zero idx is T_NONE
-					if(BETWEEN_EXC(1, idx, T_COUNT))
+					if(BETWEEN_EXC(1, cellidx, T_COUNT))
 					{
 						if(key==KEY_LBUTTON)
 						{
-							if(GET_KEY_STATE(KEY_CTRL))
-								transforms_removeall();
-							transforms_append(idx);
+							//if(GET_KEY_STATE(KEY_CTRL))
+							//	transforms_removeall();
+							transforms_append(cellidx);
 						}
 						else
-							transforms_removebyid(idx);
+							transforms_removebyid(cellidx);
 						update_image();
 						return 1;
 					}
+				}
+				break;
+			case 3://clamp bounds
+				if(key==KEY_RBUTTON)
+				{
+					customparam_clamp[cellidx]=0;
+					update_image();
+					return 1;
 				}
 				break;
 			default:
@@ -1356,26 +1475,6 @@ int io_keydn(IOKey key, char c)
 				break;
 			}
 		}
-#if 0
-		{
-			AABB *p=buttons+2;
-			if(image&&mx>=p->x1&&mx<p->x2&&my>=p->y1&&my<p->y2)
-			{
-				int idx=(int)(my-p->y1)*T_COUNT/(int)(p->y2-p->y1)+1;//zero idx is T_NONE
-				if(BETWEEN_EXC(1, idx, T_COUNT))
-				{
-					if(key==KEY_LBUTTON)
-						transforms_append(idx);
-					else
-						transforms_removebyid(idx);
-					update_image();
-					return 1;
-				}
-			}
-			else if(key==KEY_LBUTTON)
-				goto esc;
-		}
-#endif
 		break;
 	case KEY_ESC:
 toggle_drag:
@@ -1414,7 +1513,7 @@ toggle_drag:
 		messagebox(MBOX_OK, "Controls",
 			"WASDTG:\tMove cam\n"
 			"Arrow keys:\tTurn cam\n"
-			"Mouse1:\tToggle mouse look\n"
+			"Mouse1:\t\tToggle mouse look\n"
 			"Ctrl O:\t\tOpen image\n"
 			"\n"
 			"R:\t\tReset cam\n"
@@ -1422,36 +1521,18 @@ toggle_drag:
 			"Ctrl E:\t\tReset custom transform parameters\n"
 			"\n"
 			"Mouse1/Mouse2:\tAdd/remove transforms to the list\n"
-			"Ctrl Mouse1:\tReplace all transform with this one\n"
+			"Ctrl Mouse1:\tReplace all transforms of this type\n"
 			"\n"
-			//"Ctrl 1:\t\tApply YCoCg color transform\n"
-			//"Ctrl 2:\t\tApply YCoCgT color transform\n"
-			//"Ctrl 3:\t\tApply XGZ color transform\n"
-			//"Ctrl 4:\t\tApply XYZ color transform\n"
-			//"Ctrl 5:\t\tApply experimental transform\n"
-			//"Ctrl 6:\t\tApply learned transform\n"
-			//"Ctrl 7:\t\tApply custom color transform\n"
-			//"Ctrl 0:\t\tUndo color transform\n"
-			//"\n"
-			//"1:\t\tApply 2D derivative\n"
-			//"2:\t\tApply Unplane\n"
-			//"3:\t\tApply Lazy DWT\n"
-			//"4:\t\tApply Haar transform\n"
-			//"5:\t\tApply Squeeze transform from JPEG XL\n"
-			//"6:\t\tApply CDF 5/3 transform\n"
-			//"7:\t\tApply CDF 9/7 transform\n"
-			//"8:\t\tApply custom spatial transform\n"
-			//"0:\t\tUndo spatial transform\n"
-			//"\n"
-			"M / Shift M:\tSelect among:\n"
+			"M / Shift M:\tCycles between:\n"
 			"\t1: Levels\n"
 			"\t2: Mesh\n"
-			"\t3: Separate Mesh\n"
-			"\t4: Histogram\n"
-			"\t5: Joint Histogram\n"
-			"\t6: Image\n"
-			"\t7: Separate components\n"
-			//"[Levels / Mesh / SeparateMesh / Histogram / Image]\n"
+			"\t3: Mesh (separate channels)\n"
+			"\t4: Image tricolor\n"
+			"\t5: Image view\n"
+			"\t6: Image block histogram\n"
+			"\t7: DWT block histogram\n"
+			"\t8: Histogram\n"
+			"\t9: Joint histogram\n"
 		);
 		//prof_on=!prof_on;
 		return 0;
@@ -1460,22 +1541,6 @@ toggle_drag:
 		{
 			transforms_removeall();
 			update_image();
-#if 0
-			if(fn)
-			{
-				if(im0)
-					free(im0);
-				im0=stbi_load((char*)fn->data, &iw, &ih, &nch0, 4);
-				if(im0)
-				{
-					array_free(&transforms);
-					memset(transforms_mask, 0, T_COUNT);
-					//color_transform=CT_NONE;
-					//spatialtransform=CT_NONE;
-					update_image();
-				}
-			}
-#endif
 		}
 		else
 			memcpy(&cam, &cam0, sizeof(cam));
@@ -1513,58 +1578,7 @@ toggle_drag:
 				}
 			}
 		}
-		//if(keyboard[KEY_CTRL])
-		//{
-		//	if(openfiles)
-		//	{
-		//		int temp1[2]={};
-		//		FREE_ARRAY_OF_POINTERS(openfiles, temp1);
-		//	}
-		//	if(keyboard[KEY_SHIFT])
-		//		openfiles=dialog_open_folder(1);
-		//	else
-		//		openfiles=dialog_open_file(file_filters, SIZEOF(file_filters), 1);
-		//}
 		return 1;
-#if 0
-	case '0':case '1':case '2':case '3':case '4':case '5':case '6':case '7':case '8':case '9':
-		if(image)
-		{
-			int tidx=key-'0';
-			if(GET_KEY_STATE(KEY_CTRL))//color transform
-			{
-				if(tidx<CT_COUNT&&tidx!=color_transform)
-				{
-					transforms_append(0, tidx);
-					//undocolortransform(color_transform);
-					//color_transform=tidx;
-					//applycolortransform(color_transform);
-					update_image();
-					return 1;
-				}
-			}
-			else//spatial transform
-			{
-				if(tidx<ST_COUNT&&tidx!=spatialtransform)
-				{
-					transforms_append(0, tidx);
-					//undospatialtransform(spatialtransform);
-					//spatialtransform=tidx;
-					//applyspatialtransform(spatialtransform);
-					update_image();
-					return 1;
-				}
-			}
-		}
-		break;
-#endif
-	//case 'E':
-	//	if(image)
-	//	{
-	//		differentiate_image(image, iw, ih, 3, 4);
-	//		update_image();
-	//	}
-	//	return 1;
 	case 'C':
 		if(image&&GET_KEY_STATE(KEY_CTRL)&&transforms_customenabled)//copy custom transform value
 		{
@@ -1581,17 +1595,10 @@ toggle_drag:
 				int x=k%stw, y=k/stw;
 				printed+=snprintf(g_buf+printed, G_BUF_SIZE-printed, "%g%c", customparam_st[k], x<stw-1&&k<COUNTOF(customparam_st)-1?'\t':'\n');
 			}
+			for(int k=0;k<COUNTOF(customparam_clamp);++k)
+				printed+=snprintf(g_buf+printed, G_BUF_SIZE-printed, "%d%c", customparam_clamp[k], k<COUNTOF(customparam_clamp)-1?'\t':'\n');
 
-			//for(int k=0;k<COUNTOF(customparam_ct);++k)
-			//	printed+=snprintf(g_buf+printed, G_BUF_SIZE-printed, "%15.13lf%c", customparam_ct[k], k<COUNTOF(customparam_ct)-1?'\t':'\n');
-			//for(int k=0;k<COUNTOF(customparam_st);++k)
-			//	printed+=snprintf(g_buf+printed, G_BUF_SIZE-printed, "%15.13lf%c", customparam_st[k], k<COUNTOF(customparam_st)-1?'\t':'\n');
-
-			//int printed=snprintf(g_buf, G_BUF_SIZE, "%15.13lf", customparam_sel<COUNTOF(customparam_ct)?customparam_ct[customparam_sel]:customparam_st[customparam_sel-COUNTOF(customparam_ct)]);
 			copy_to_clipboard(g_buf, printed);
-
-			//color_transform(image, iw, ih);
-			//update_image();
 		}
 		return 1;
 	case 'V':
@@ -1600,26 +1607,37 @@ toggle_drag:
 			ArrayHandle text=paste_from_clipboard(0);
 			if(text)
 			{
-				int k=0, idx=0;
-				for(;k<COUNTOF(customparam_ct);++k)
+				int k=0, kend=COUNTOF(customparam_ct), idx=0;
+				for(;k<kend;++k)
 				{
 					for(;idx<text->count&&isspace(text->data[idx]);++idx);
 					customparam_ct[k]=atof(text->data+idx);
 					for(;idx<text->count&&!isspace(text->data[idx]);++idx);
+					if(idx>=text->count)
+						goto paste_finish;
 				}
-				for(;k<COUNTOF(customparam_ct)+COUNTOF(customparam_st);++k)
+				k=0;
+				kend=COUNTOF(customparam_ct);
+				for(;k<kend;++k)
 				{
 					for(;idx<text->count&&isspace(text->data[idx]);++idx);
-					customparam_st[k-COUNTOF(customparam_ct)]=atof(text->data+idx);
+					customparam_st[k]=atof(text->data+idx);
 					for(;idx<text->count&&!isspace(text->data[idx]);++idx);
+					if(idx>=text->count)
+						goto paste_finish;
+				}
+				k=0;
+				kend=COUNTOF(customparam_clamp);
+				for(;k<kend;++k)
+				{
+					for(;idx<text->count&&isspace(text->data[idx]);++idx);
+					customparam_clamp[k]=atoi(text->data+idx);
+					for(;idx<text->count&&!isspace(text->data[idx]);++idx);
+					if(idx>=text->count)
+						goto paste_finish;
 				}
 
-				//double val=atof(text->data);
-				//if(customparam_sel<COUNTOF(customparam_ct))
-				//	customparam_ct[customparam_sel]=val;
-				//else
-				//	customparam_st[customparam_sel-COUNTOF(customparam_ct)]=val;
-
+			paste_finish:
 				array_free(&text);
 				update_image();
 				return 1;
@@ -1633,6 +1651,26 @@ toggle_drag:
 			update_image();
 		}
 		return 1;
+	case KEY_SPACE:
+		if(image&&transforms_customenabled)
+		{
+			static double lr=0.0000001;
+			double l0=av_rmse, t0=time_ms(), tnow;
+			int it=0;
+			do
+			{
+				av_rmse=opt_causal_reach2(image, iw, ih, 1, customparam_st, customparam_ct+11, 1e-10, 0);
+				++it;
+				//lr*=0.99;
+				tnow=time_ms();
+			}
+			while(fabs(av_rmse-l0)>0.01&&it<10000&&tnow-t0<2000);
+			//if(it<1000)
+			//	lr*=0.1;
+			update_image();
+			return 1;
+		}
+		break;
 	//default:
 	//	printf("%02X %02X=%c down\n", key, c, c);
 	//	if(key=='A')
@@ -1898,9 +1936,14 @@ void io_render()
 		sel[customparam_sel]='>';
 		float xstep=tdx*guizoom, ystep=tdy*guizoom;
 		//long long prevcolor=set_text_colors(0xFF000000);
-		float x=xstep*2, y=(float)(h>>1);
+		//float x=xstep*2, y=(float)(h>>1);
+
+		//color transforms
 		//012345678901234567890123456789
 		//r-=(>>nnnN.NNN)g+(  nnnN.NNN)b
+		float
+			x=buttons[0].x1,
+			y=buttons[0].y1;
 		GUIPrint(0, x, y        , guizoom, "r-=(%c%c%8.3lf)g+(%c%c%8.3lf)b", sel[ 0], sel[ 0], customparam_ct[ 0], sel[ 1], sel[ 1], customparam_ct[ 1]);//do not change these strings!
 		GUIPrint(0, x, y+ystep  , guizoom, "g-=(%c%c%8.3lf)r+(%c%c%8.3lf)b", sel[ 2], sel[ 2], customparam_ct[ 2], sel[ 3], sel[ 3], customparam_ct[ 3]);
 		GUIPrint(0, x, y+ystep*2, guizoom, "b-=(%c%c%8.3lf)r+(%c%c%8.3lf)g", sel[ 4], sel[ 4], customparam_ct[ 4], sel[ 5], sel[ 5], customparam_ct[ 5]);
@@ -1908,17 +1951,25 @@ void io_render()
 		GUIPrint(0, x, y+ystep*4, guizoom, "g+=(%c%c%8.3lf)r+(%c%c%8.3lf)b", sel[ 8], sel[ 8], customparam_ct[ 8], sel[ 9], sel[ 9], customparam_ct[ 9]);
 		GUIPrint(0, x, y+ystep*5, guizoom, "b+=(%c%c%8.3lf)r+(%c%c%8.3lf)g", sel[10], sel[10], customparam_ct[10], sel[11], sel[11], customparam_ct[11]);
 
-		x=(float)(w>>1);
-		y=(float)((h>>1)+(h>>2));
+		//spatial transforms
 		//000000000011111111112222222222333333333344444444445555
 		//012345678901234567890123456789012345678901234567890123
 		//>>nnnN.NNN >>nnnN.NNN >>nnnN.NNN >>nnnN.NNN >>nnnN.NNN
+		x=buttons[1].x1;
+		y=buttons[1].y1;
 		int bk0=set_bk_color(0xA060A060);
-		GUIPrint(0, (float)x, (float)(y        ), guizoom, "%c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%c%8.3lf", sel[12], sel[12], customparam_st[ 0], sel[13], sel[13], customparam_st[ 1], sel[14], sel[14], customparam_st[ 2], sel[15], sel[15], customparam_st[ 3], sel[16], sel[16], customparam_st[ 4]);
-		GUIPrint(0, (float)x, (float)(y+ystep  ), guizoom, "%c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%c%8.3lf", sel[17], sel[17], customparam_st[ 5], sel[18], sel[18], customparam_st[ 6], sel[19], sel[19], customparam_st[ 7], sel[20], sel[20], customparam_st[ 8], sel[21], sel[21], customparam_st[ 9]);
+		GUIPrint(0, x, y        , guizoom, "%c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%c%8.3lf", sel[12], sel[12], customparam_st[ 0], sel[13], sel[13], customparam_st[ 1], sel[14], sel[14], customparam_st[ 2], sel[15], sel[15], customparam_st[ 3], sel[16], sel[16], customparam_st[ 4]);
+		GUIPrint(0, x, y+ystep  , guizoom, "%c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%c%8.3lf", sel[17], sel[17], customparam_st[ 5], sel[18], sel[18], customparam_st[ 6], sel[19], sel[19], customparam_st[ 7], sel[20], sel[20], customparam_st[ 8], sel[21], sel[21], customparam_st[ 9]);
 		set_bk_color(bk0);
-		GUIPrint(0, (float)x, (float)(y+ystep*2), guizoom, "%c%c%8.3lf %c%c%8.3lf",                                  sel[22], sel[22], customparam_st[10], sel[23], sel[23], customparam_st[11]);//do not change these strings!
+		GUIPrint(0, x, y+ystep*2, guizoom, "%c%c%8.3lf %c%c%8.3lf",                                  sel[22], sel[22], customparam_st[10], sel[23], sel[23], customparam_st[11]);//do not change these strings!
 		//set_text_colors(prevcolor);
+		
+		//clamp bounds
+		//012345678901234567890
+		//[ SNNNN, SNNNN] clamp
+		x=buttons[3].x1;
+		y=buttons[3].y1;
+		GUIPrint(0, x, y, guizoom, "[ %5d, %5d] clamp", customparam_clamp[0], customparam_clamp[1]);
 	}
 	const char *mode_str=0;
 	switch(mode)
@@ -1962,13 +2013,13 @@ void io_render()
 	{
 		float x=(float)(w-200), y=tdy*2;
 		for(int k=T_NONE+1;k<T_COUNT;++k, y+=tdy)//print available transforms on right
-			printtransform(x, y, k, -1, transforms_mask[k]?0xA0FF0000FFFFFFFF:0);
+			transforms_printname(x, y, k, -1, transforms_mask[k]?0xA0FF0000FFFFFFFF:0);
 		if(transforms)
 		{
 			x=(float)(w-400);
 			y=tdy*2;
 			for(int k=0;k<(int)transforms->count;++k, y+=tdy)//print applied transforms on left
-				printtransform(x, y, transforms->data[k], k, 0);
+				transforms_printname(x, y, transforms->data[k], k, 0);
 		}
 		float
 			cr_combined=3/(1/ch_cr[0]+1/ch_cr[1]+1/ch_cr[2]),
@@ -2050,6 +2101,56 @@ void io_render()
 		set_text_color(0xFFFF00FF);				GUIPrint(xend, xend, ystart+tdy*4, 1, "Joint %7d %9f", usage[3], ch_cr[3]);
 		set_text_color(prevtxtcolor);
 		set_bk_color(prevbkcolor);
+
+		if(transforms_customenabled)
+		{
+			//double maxloss=0;
+			if(losshist&&minloss<maxloss)
+			{
+				double *data=(double*)losshist->data;
+				//for(int k=0;k<(int)losshist->count-1;++k)
+				//{
+				//	if(maxloss<data[k])
+				//		maxloss=data[k];
+				//}
+				double gain=h/(maxloss-minloss);
+				for(int k=0;k<(int)losshist->count-1;++k)
+					draw_line((float)k, h-(float)((data[k]-minloss)*gain), (float)(k+1), h-(float)((data[k+1]-minloss)*gain), 0xFFFF00FF);
+					//draw_line((float)k*w/losshist->count, (float)((data[k]-minloss)*gain), (float)(k+1)*w/losshist->count, (float)((data[k+1]-minloss)*gain), 0xFFFF00FF);
+				double xmark=(customparam_st[profile_idx]-customparam_ct[8])*1000/(customparam_ct[9]-customparam_ct[8]);
+				//double xmark=(customparam_st[profile_idx]-customparam_ct[8])*w/(customparam_ct[9]-customparam_ct[8]);
+				draw_line((float)xmark, 0, (float)xmark, (float)h, 0xFFFFFF00);
+			}
+			GUIPrint(0, 0, tdy*2, 1, "RMSE %lf", av_rmse);
+			if(minloss<maxloss)
+				GUIPrint(0, 200, tdy*2, 1, "[%lf~%lf]", minloss, maxloss);
+		}
+
+		float g2=h/combCRhist_max;
+		int idx=combCRhist_idx-1, idx2=combCRhist_idx-2;
+		idx+=combCRhist_SIZE&-(idx<0);
+		idx2+=combCRhist_SIZE&-(idx2<0);
+		xstart=(float)(w-combCRhist_SIZE-200);
+		float cx=xstart+(float)idx, cy=h-combCRhist[idx][3]*g2;
+		draw_rect_hollow(cx-10, cx+10, cy-10, cy+10, 0xC0C0C0C0);
+		if(combCRhist[idx][3]<combCRhist[idx2][3])
+			draw_rect(cx-5, cx+5, cy, cy+5, 0xC0C0C0C0);
+		else
+			draw_rect(cx-5, cx+5, cy-5, cy, 0xC0C0C0C0);
+		//draw_ellipse(cx-10, cx+10, cy-5, cy+5, 0xC0C0C0C0);
+		for(int k=0;k<combCRhist_SIZE-1;++k)
+		{
+			if(k!=combCRhist_idx-1)
+			{
+				draw_line(xstart+(float)k, h-(float)(combCRhist[k][0]*g2), xstart+(float)(k+1), h-(float)(combCRhist[k+1][0]*g2), 0xC00000FF);
+				draw_line(xstart+(float)k, h-(float)(combCRhist[k][1]*g2), xstart+(float)(k+1), h-(float)(combCRhist[k+1][1]*g2), 0xC000FF00);
+				draw_line(xstart+(float)k, h-(float)(combCRhist[k][2]*g2), xstart+(float)(k+1), h-(float)(combCRhist[k+1][2]*g2), 0xC0FF0000);
+				draw_line(xstart+(float)k, h-(float)(combCRhist[k][3]*g2), xstart+(float)(k+1), h-(float)(combCRhist[k+1][3]*g2), 0xC0000000);
+			}
+		}
+
+		//extern int testhist[3];//
+		//GUIPrint(0, 0, tdy*2, 1, "%d %d %d", testhist[0], testhist[1], testhist[2]);//
 	}
 #if 0
 	if(image)

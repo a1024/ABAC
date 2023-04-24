@@ -86,7 +86,7 @@ void memreverse(void *p, size_t count, size_t esize)
 	}
 	free(temp);
 }
-void memrotate(void *p, size_t byteoffset, size_t bytesize, void *temp)
+void memrotate(void *p, size_t byteoffset, size_t bytesize, void *temp)//temp buffer is min(byteoffset, bytesize-byteoffset)
 {
 	unsigned char *buf=(unsigned char*)p;
 

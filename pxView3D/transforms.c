@@ -244,6 +244,7 @@ void colortransform_exp_inv(char *buf, int iw, int ih)
 	}
 }
 
+#if 0
 float lrct[]=
 {
 	-0.235968455672264100f, -0.005472748540341854f,  0.546232640743255600f,
@@ -303,6 +304,7 @@ void colortransform_learned_inv(char *buf, int iw, int ih)
 		buf[k<<2]=r, buf[k<<2|1]=g, buf[k<<2|2]=b;
 	}
 }
+#endif
 #if 0
 #if 1
 float lrt_biases[]=
@@ -587,8 +589,8 @@ const double customparam_st0[]=
 	0,  1,
 };*/
 int customparam_sel=12;
-double customparam_ct[12]={0};
-double customparam_st[12]={0};
+double customparam_ct[12]={0}, customparam_st[12]={0};
+int customparam_clamp[2]={-128, 127};
 void customtransforms_resetparams()
 {
 	memset(customparam_ct, 0, sizeof(customparam_ct));
@@ -643,21 +645,203 @@ void colortransform_custom_inv(char *buf, int iw, int ih)
 
 
 //spatial transforms
+
+//learned predictor
+#if 1
+void mulmatvec_pd(double *dst, const double *matrix, const double *vector, int mw, int mh)
+{
+	for(int ky=0;ky<mh;++ky)
+	{
+		double sum=0;
+		for(int kx=0;kx<mw;++kx)
+			sum+=matrix[mw*ky+kx]*vector[kx];
+		dst[ky]=sum;
+	}
+}
+void mulvTmat_pd(double *dst, const double *vT, const double *matrix, int mw, int mh)
+{
+	for(int kx=0;kx<mw;++kx)
+	{
+		double sum=0;
+		for(int ky=0;ky<mh;++ky)
+			sum+=vT[ky]*matrix[mw*ky+kx];
+		dst[kx]=sum;
+	}
+}
+void mulvecs_pd(double *dst, const double *a, const double *b, int count)
+{
+	for(int k=0;k<count;++k)
+		dst[k]=a[k]*b[k];
+}
+void scalevec_pd(double *vec, int count, double factor)
+{
+	for(int k=0;k<count;++k)
+		vec[k]*=factor;
+}
+void addvecs_pd(double *dst, const double *a, const double *b, int count)
+{
+	for(int k=0;k<count;++k)
+		dst[k]=a[k]+b[k];
+}
+void addvec1_pd(double *dst, const double *a, const double b, int count)
+{
+	for(int k=0;k<count;++k)
+		dst[k]=a[k]+b;
+}
+double vecsum_pd(const double *data, int count)
+{
+	double sum=0;
+	for(int k=0;k<count;++k)
+		sum+=data[k];
+	return sum;
+}
+void negbuffer_pd(double *data, int count)
+{
+	for(int k=0;k<count;++k)
+		data[k]=-data[k];
+}
+void subvecs_pd(double *dst, const double *pos, const double *neg, int count)
+{
+	for(int k=0;k<count;++k)
+		dst[k]=pos[k]-neg[k];
+}
+void leakyReLU_pd(double *dst, const double *src, int count)
+{
+	for(int k=0;k<count;++k)
+	{
+		if(src[k]<0)
+			dst[k]=src[k]*0.01;
+		else
+			dst[k]=src[k];
+	}
+}
+void leakyReLUdash_pd(double *data, int count)
+{
+	for(int k=0;k<count;++k)
+	{
+		if(data[k]<0)
+			data[k]=0.01;
+		else
+			data[k]=1;
+	}
+}
+double calc_rmse_pd(const double *error, int count)
+{
+	double sum=0;
+	for(int k=0;k<count;++k)
+		sum+=error[k]*error[k];
+	sum/=count;
+	sum=sqrt(sum);
+	return sum;
+}
+void fill_matrow_unchecked(const unsigned char *buf, int iw, int ih, int kc, int kx, int ky, double *mrow, double *target)
+{
+	int idx=iw*ky+kx;
+	mrow[0]=buf[(idx-iw*2-2)<<2|kc];
+	mrow[1]=buf[(idx-iw*2-1)<<2|kc];
+	mrow[2]=buf[(idx-iw*2)<<2|kc];
+	mrow[3]=buf[(idx-iw*2+1)<<2|kc];
+	mrow[4]=buf[(idx-iw*2+2)<<2|kc];
+
+	mrow[5]=buf[(idx-iw-2)<<2|kc];
+	mrow[6]=buf[(idx-iw-1)<<2|kc];
+	mrow[7]=buf[(idx-iw)<<2|kc];
+	mrow[8]=buf[(idx-iw+1)<<2|kc];
+	mrow[9]=buf[(idx-iw+2)<<2|kc];
+
+	mrow[10]=buf[(idx-2)<<2|kc];
+	mrow[11]=buf[(idx-1)<<2|kc];
+
+	*target=buf[idx<<2|kc];
+}
+double leakyReLU1(double x)
+{
+	if(x<0)
+		x*=0.01;
+	return x;
+}
+#define OPT_N 12
+#define OPT_B 12
+static double g_mat[OPT_N*OPT_B], g_y[OPT_N], g_v[OPT_B], g_v2[OPT_B], g_grad[OPT_N+1];
+double opt_causal_reach2(const unsigned char *buf, int iw, int ih, int kc, double *x, double *bias, double lr, int test)
+{
+	int nupdates=0;
+	double rmse=0;
+	for(int ky=2, row=0;ky<ih-2;ky+=3)
+	{
+		for(int kx=2;kx<iw-4;kx+=5)
+		{
+			fill_matrow_unchecked(buf, iw, ih, kc, kx, ky, g_mat+row*12, g_y+row);
+			row=(row+1)%12;
+			if(!row)
+			{
+#if 1
+				//forward
+				mulmatvec_pd(g_v,  g_mat, x,  OPT_N, OPT_B);
+				addvec1_pd(g_v,  g_v, *bias,  OPT_N);
+				leakyReLU_pd(g_v2,  g_v,  OPT_N);
+				subvecs_pd(g_v2,  g_y, g_v2,  OPT_N);
+				
+				rmse+=calc_rmse_pd(g_v2, OPT_N);
+
+				if(!test)
+				{
+					//backward
+					leakyReLUdash_pd(g_v, OPT_N);
+					negbuffer_pd(g_v, OPT_N);
+					mulvecs_pd(g_v2, g_v2, g_v, OPT_N);
+					mulvTmat_pd(g_grad, g_v2, g_mat, OPT_N, OPT_N);
+					g_grad[OPT_N]=vecsum_pd(g_v2, OPT_N);
+				
+					scalevec_pd(g_grad, OPT_N+1, lr);
+
+					subvecs_pd(x, x, g_grad, OPT_N);
+					*bias-=g_grad[OPT_N];
+				}
+				++nupdates;
+#endif
+#if 0
+				mulmatvec_pd(g_mat, x, 12, 12, g_v);
+				subvecs_pd(g_y, g_v, g_v, 12);
+				rmse+=calc_rmse_pd(g_v, 12);
+				mulvTmat_pd(g_v, g_mat, 12, 12, g_grad);
+				scalevec_pd(g_grad, 12, lr);
+				addvecs_pd(x, g_grad, x, 12);
+				++nupdates;
+#endif
+			}
+		}
+	}
+	rmse/=nupdates;
+	return rmse;
+}
+#endif
+
+#define PREDICT_LINEAR(A, B)		((A)<<1)-(B)
+#define PREDICT_QUADRATIC(A, B, C)	((A)-3*(B)+3*(C))
+#if 0
 static char predict_linear(char prev2, char prev)
 {
 	int pred=(prev<<1)-prev2;
-	if(pred<-128)
-		pred=-128;
-	if(pred>127)
-		pred=127;
+	//if(pred<-128)
+	//	pred=-128;
+	//if(pred>127)
+	//	pred=127;
 	return pred;
 
 	//return prev2+((prev-prev2)<<1);
 }
-static char predict_quadratic(char prev2, char prev)
+static int predict_quadratic(char prev3, char prev2, char prev)
 {
+	int pred=prev3-3*prev2+3*prev;
+	//if(pred<-128)
+	//	pred=-128;
+	//if(pred>127)
+	//	pred=127;
+	return pred;
 }
-static char predict_simple(char topleft, char top, char left)
+#endif
+static int predict_simple(char topleft, char top, char left)
 {
 	int xdelta=top-topleft, ydelta=left-topleft, pred;
 	if((xdelta>0)==(ydelta>0))
@@ -666,8 +850,20 @@ static char predict_simple(char topleft, char top, char left)
 		pred=topleft+xdelta+ydelta;//average slope
 	return pred;
 }
-char predict(const char *buf, int iw, int kx, int ky, int idx, int bytestride, int rowlen)
+int testhist[3]={0};//
+int predict(const char *buf, int iw, int kx, int ky, int idx, int bytestride, int rowlen)
 {
+	char cn[]=
+	{
+		kx-1>=0&&ky-1>=0?buf[idx-rowlen-bytestride]:0,
+		         ky-1>=0?buf[idx-rowlen           ]:0,
+		
+		kx-1>=0?buf[idx-bytestride]:0,
+	};
+	int pred=cn[1]+cn[2]-cn[0];
+	pred=CLAMP(customparam_clamp[0], pred, customparam_clamp[1]);
+	return pred;
+
 #if 0
 	char cn[]=
 	{
@@ -699,8 +895,33 @@ char predict(const char *buf, int iw, int kx, int ky, int idx, int bytestride, i
 		kx-2>=0?buf[idx-(bytestride<<1)]:0,
 		kx-1>=0?buf[idx- bytestride    ]:0,
 	};
+
+	int predx0=cn[23], predy0=cn[17];
+	int predx1=PREDICT_LINEAR(cn[22], cn[23]), predy1=PREDICT_LINEAR(cn[10], cn[17]);
+	int predx2=PREDICT_QUADRATIC(cn[21], cn[22], cn[23]), predy2=PREDICT_QUADRATIC(cn[3], cn[10], cn[17]);
+	int pred=(predx0+predy0)>>1;
+	int best=abs(predx0-predy0),
+		test=abs(predx1-predy1);
+	if(best>test)
+		best=test, pred=(predx1+predy1)>>1;
+	test=abs(predx2-predy2);
+	if(best>test)
+		pred=(predx2+predy2)>>1;
+
+	if(pred==(predx0+predy0)>>1)
+		++testhist[0];
+	else if(pred==(predx1+predy1)>>1)
+		++testhist[1];
+	else if(pred==(predx2+predy2)>>1)
+		++testhist[2];
+
+	if(pred<-128)
+		pred=-128;
+	if(pred>127)
+		pred=127;
+
 #endif
-#if 1
+#if 0
 	char cn[]=
 	{
 		kx-2>=0&&ky-2>=0?buf[idx-(rowlen<<1)-(bytestride<<1)]:0,
@@ -731,9 +952,241 @@ char predict(const char *buf, int iw, int kx, int ky, int idx, int bytestride, i
 	//	pred=-64;
 	//if(pred>64)
 	//	pred=64;
+	//return pred;
+}
+void pred_diff2d_fwd(char *buf, int iw, int ih, int nch, int bytestride)
+{
+	memset(testhist, 0, sizeof(testhist));//
+	int rowlen=iw*bytestride;
+	for(int kc=0;kc<nch;++kc)
+	{
+		int idx=(iw*ih-1)*bytestride+kc;
+		for(int ky=ih-1;ky>=0;--ky)
+		{
+			for(int kx=iw-1;kx>=0;--kx, idx-=bytestride)
+			{
+				char pred=predict(buf, iw, kx, ky, idx, bytestride, rowlen);
+#if 0
+				char
+					left=kx?buf[idx-bytestride]:0,
+					top=ky?buf[idx-rowlen]:0,
+					topleft=kx&&ky?buf[idx-rowlen-bytestride]:0,
+					pred=left+top-topleft;
+				//if(kx||ky)
+				//	pred-=128;
+#endif
+				buf[idx]-=pred;
+			}
+		}
+	}
+}
+void pred_diff2d_inv(char *buf, int iw, int ih, int nch, int bytestride)
+{
+	memset(testhist, 0, sizeof(testhist));//
+	int rowlen=iw*bytestride;
+	for(int kc=0;kc<nch;++kc)
+	{
+		int idx=kc;
+		for(int ky=0;ky<ih;++ky)
+		{
+			for(int kx=0;kx<iw;++kx, idx+=bytestride)
+			{
+				char pred=predict(buf, iw, kx, ky, idx, bytestride, rowlen);
+#if 0
+				char
+					left=kx?buf[idx-bytestride]:0,
+					top=ky?buf[idx-rowlen]:0,
+					topleft=kx&&ky?buf[idx-rowlen-bytestride]:0,
+					pred=left+top-topleft;
+				//if(kx||ky)
+				//	pred-=128;
+#endif
+				buf[idx]+=pred;
+			}
+		}
+	}
+}
+
+void pred_hpf_fwd(char *buf, int iw, int ih, int nch, int bytestride)
+{
+	memset(testhist, 0, sizeof(testhist));//
+	int rowlen=iw*bytestride;
+	for(int kc=0;kc<nch;++kc)
+	{
+		int idx=(iw*ih-1)*bytestride+kc;
+		for(int ky=ih-1;ky>=0;--ky)
+		{
+			for(int kx=iw-1;kx>=0;--kx, idx-=bytestride)
+			{
+				char
+					left=kx?buf[idx-bytestride]:0,
+					top=ky?buf[idx-rowlen]:0,
+					topleft=kx&&ky?buf[idx-rowlen-bytestride]:0,
+					pred=(left+top)>>1;
+
+				pred=CLAMP(customparam_clamp[0], pred, customparam_clamp[1]);
+				buf[idx]-=pred;
+			}
+		}
+	}
+}
+void pred_hpf_inv(char *buf, int iw, int ih, int nch, int bytestride)
+{
+	memset(testhist, 0, sizeof(testhist));//
+	int rowlen=iw*bytestride;
+	for(int kc=0;kc<nch;++kc)
+	{
+		int idx=kc;
+		for(int ky=0;ky<ih;++ky)
+		{
+			for(int kx=0;kx<iw;++kx, idx+=bytestride)
+			{
+				char
+					left=kx?buf[idx-bytestride]:0,
+					top=ky?buf[idx-rowlen]:0,
+					topleft=kx&&ky?buf[idx-rowlen-bytestride]:0,
+					pred=(left+top)>>1;
+
+				pred=CLAMP(customparam_clamp[0], pred, customparam_clamp[1]);
+				buf[idx]+=pred;
+			}
+		}
+	}
+}
+
+int predict_median(const char *buf, int iw, int kx, int ky, int idx, int bytestride, int rowlen)
+{
+	char cn[]=
+	{
+		kx-3>=0&&ky-3>=0?buf[idx-(rowlen<<1)- bytestride*3  ]:0,
+		kx-2>=0&&ky-3>=0?buf[idx-(rowlen<<1)-(bytestride<<1)]:0,
+		kx-1>=0&&ky-3>=0?buf[idx-(rowlen<<1)- bytestride    ]:0,
+		         ky-3>=0?buf[idx-(rowlen<<1)                ]:0,
+		kx+1<iw&&ky-3>=0?buf[idx-(rowlen<<1)+ bytestride    ]:0,
+		kx+2<iw&&ky-3>=0?buf[idx-(rowlen<<1)+(bytestride<<1)]:0,
+		kx+3<iw&&ky-3>=0?buf[idx-(rowlen<<1)+ bytestride*3  ]:0,
+		
+		kx-3>=0&&ky-2>=0?buf[idx-(rowlen<<1)- bytestride*3  ]:0,
+		kx-2>=0&&ky-2>=0?buf[idx-(rowlen<<1)-(bytestride<<1)]:0,
+		kx-1>=0&&ky-2>=0?buf[idx-(rowlen<<1)- bytestride    ]:0,
+		         ky-2>=0?buf[idx-(rowlen<<1)                ]:0,
+		kx+1<iw&&ky-2>=0?buf[idx-(rowlen<<1)+ bytestride    ]:0,
+		kx+2<iw&&ky-2>=0?buf[idx-(rowlen<<1)+(bytestride<<1)]:0,
+		kx+3<iw&&ky-2>=0?buf[idx-(rowlen<<1)+ bytestride*3  ]:0,
+		
+		kx-3>=0&&ky-1>=0?buf[idx-rowlen- bytestride*3  ]:0,
+		kx-2>=0&&ky-1>=0?buf[idx-rowlen-(bytestride<<1)]:0,
+		kx-1>=0&&ky-1>=0?buf[idx-rowlen- bytestride    ]:0,
+		         ky-1>=0?buf[idx-rowlen                ]:0,
+		kx+1<iw&&ky-1>=0?buf[idx-rowlen+ bytestride    ]:0,
+		kx+2<iw&&ky-1>=0?buf[idx-rowlen+(bytestride<<1)]:0,
+		kx+3<iw&&ky-1>=0?buf[idx-rowlen+ bytestride*3  ]:0,
+		
+		kx-3>=0?buf[idx- bytestride*3  ]:0,
+		kx-2>=0?buf[idx-(bytestride<<1)]:0,
+		kx-1>=0?buf[idx- bytestride    ]:0,
+	};
+	for(int k=1;k<COUNTOF(cn);++k)//insertion sort
+	{
+		char val=cn[k];
+		int L=0, R=k-1;
+		int idx=-1;
+		while(L<=R)
+		{
+			int mid=(L+R)>>1;
+			if(cn[mid]<val)
+				L=mid+1;
+			else if(cn[mid]>val)
+				R=mid-1;
+			else
+			{
+				idx=mid;
+				break;
+			}
+		}
+		if(idx==-1)
+			idx=L+(L<k&&cn[L]<val);
+		if(idx<k)
+		{
+			char temp=cn[k];
+			memmove(cn+idx+1, cn+idx, (size_t)k-idx);
+			cn[idx]=temp;
+		}
+	}
+	int pred=(cn[(COUNTOF(cn)>>1)-1]+cn[COUNTOF(cn)>>1])>>1;
+
+	pred=CLAMP(customparam_clamp[0], pred, customparam_clamp[1]);
 	return pred;
 }
-void image_differentiate(char *buf, int iw, int ih, int nch, int bytestride)
+void pred_median_fwd(char *buf, int iw, int ih, int nch, int bytestride)
+{
+	memset(testhist, 0, sizeof(testhist));//
+	int rowlen=iw*bytestride;
+	for(int kc=0;kc<nch;++kc)
+	{
+		int idx=(iw*ih-1)*bytestride+kc;
+		for(int ky=ih-1;ky>=0;--ky)
+		{
+			for(int kx=iw-1;kx>=0;--kx, idx-=bytestride)
+			{
+				char pred=predict_median(buf, iw, kx, ky, idx, bytestride, rowlen);
+
+				buf[idx]-=pred;
+			}
+		}
+	}
+}
+void pred_median_inv(char *buf, int iw, int ih, int nch, int bytestride)
+{
+	memset(testhist, 0, sizeof(testhist));//
+	int rowlen=iw*bytestride;
+	for(int kc=0;kc<nch;++kc)
+	{
+		int idx=kc;
+		for(int ky=0;ky<ih;++ky)
+		{
+			for(int kx=0;kx<iw;++kx, idx+=bytestride)
+			{
+				char pred=predict_median(buf, iw, kx, ky, idx, bytestride, rowlen);
+
+				buf[idx]+=pred;
+			}
+		}
+	}
+}
+
+int predict_grad(const char *buf, int iw, int kx, int ky, int idx, int bytestride, int rowlen)
+{
+	char
+		left=kx?buf[idx-bytestride]:0,
+		top=ky?buf[idx-rowlen]:0,
+		topleft=kx&&ky?buf[idx-rowlen-bytestride]:0;
+
+	int pred;
+
+	char vmax, vmin;
+	if(top<left)
+		vmin=top, vmax=left;
+	else
+		vmin=left, vmax=top;
+
+	if(topleft>vmax)//choose steepest slope if both downward or upward
+		pred=vmin;
+	else if(topleft<vmin)
+		pred=vmax;
+	else
+		pred=left+top-topleft;//planar prediction (unplane)
+
+	//char xdelta=top-topleft, ydelta=left-topleft;
+	//if((xdelta>0)==(ydelta>0))
+	//	pred=topleft+(abs(xdelta)>abs(ydelta)?xdelta:ydelta);//take steepest slope once and stop, equivalent to original unplane
+	//else
+	//	pred=topleft+xdelta+ydelta;//average slope
+	
+	pred=CLAMP(customparam_clamp[0], pred, customparam_clamp[1]);
+	return pred;
+}
+void pred_grad_fwd(char *buf, int iw, int ih, int nch, int bytestride)
 {
 	int rowlen=iw*bytestride;
 	for(int kc=0;kc<nch;++kc)
@@ -743,22 +1196,14 @@ void image_differentiate(char *buf, int iw, int ih, int nch, int bytestride)
 		{
 			for(int kx=iw-1;kx>=0;--kx, idx-=bytestride)
 			{
-				char pred=predict(buf, iw, kx, ky, idx, bytestride, rowlen);
-#if 0
-				char
-					left=kx?buf[idx-bytestride]:0,
-					top=ky?buf[idx-rowlen]:0,
-					topleft=kx&&ky?buf[idx-rowlen-bytestride]:0,
-					pred=left+top-topleft;
-				//if(kx||ky)
-				//	pred-=128;
-#endif
+				int pred=predict_grad(buf, iw, kx, ky, idx, bytestride, rowlen);
+
 				buf[idx]-=pred;
 			}
 		}
 	}
 }
-void image_integrate    (char *buf, int iw, int ih, int nch, int bytestride)
+void pred_grad_inv(char *buf, int iw, int ih, int nch, int bytestride)
 {
 	int rowlen=iw*bytestride;
 	for(int kc=0;kc<nch;++kc)
@@ -768,23 +1213,58 @@ void image_integrate    (char *buf, int iw, int ih, int nch, int bytestride)
 		{
 			for(int kx=0;kx<iw;++kx, idx+=bytestride)
 			{
-				char pred=predict(buf, iw, kx, ky, idx, bytestride, rowlen);
-#if 0
-				char
-					left=kx?buf[idx-bytestride]:0,
-					top=ky?buf[idx-rowlen]:0,
-					topleft=kx&&ky?buf[idx-rowlen-bytestride]:0,
-					pred=left+top-topleft;
-				//if(kx||ky)
-				//	pred-=128;
-#endif
+				int pred=predict_grad(buf, iw, kx, ky, idx, bytestride, rowlen);
+
 				buf[idx]+=pred;
 			}
 		}
 	}
 }
 
-void image_unplane(char *buf, int iw, int ih, int nch, int bytestride)
+int predict_custom(const char *buf, int iw, int kx, int ky, int idx, int bytestride, int rowlen)
+{
+	char comp[]=
+	{
+		kx-2>=0&&ky-2>=0?buf[idx-(rowlen<<1)-(bytestride<<1)]:0,
+		kx-1>=0&&ky-2>=0?buf[idx-(rowlen<<1)-bytestride]:0,
+		         ky-2>=0?buf[idx-(rowlen<<1)]:0,
+		kx+1<iw&&ky-2>=0?buf[idx-(rowlen<<1)+bytestride]:0,
+		kx+2<iw&&ky-2>=0?buf[idx-(rowlen<<1)+(bytestride<<1)]:0,
+
+		kx-2>=0&&ky-1>=0?buf[idx-rowlen-(bytestride<<1)]:0,
+		kx-1>=0&&ky-1>=0?buf[idx-rowlen-bytestride]:0,
+		         ky-1>=0?buf[idx-rowlen]:0,
+		kx+1<iw&&ky-1>=0?buf[idx-rowlen+bytestride]:0,
+		kx+2<iw&&ky-1>=0?buf[idx-rowlen+(bytestride<<1)]:0,
+
+		kx-2>=0?buf[idx-(bytestride<<1)]:0,
+		kx-1>=0?buf[idx-bytestride]:0,
+	};
+
+	char pred=(char)(
+
+		leakyReLU1(//
+
+		customparam_st[ 0]*comp[ 0]+
+		customparam_st[ 1]*comp[ 1]+
+		customparam_st[ 2]*comp[ 2]+
+		customparam_st[ 3]*comp[ 3]+
+		customparam_st[ 4]*comp[ 4]+
+		customparam_st[ 5]*comp[ 5]+
+		customparam_st[ 6]*comp[ 6]+
+		customparam_st[ 7]*comp[ 7]+
+		customparam_st[ 8]*comp[ 8]+
+		customparam_st[ 9]*comp[ 9]+
+		customparam_st[10]*comp[10]+
+		customparam_st[11]*comp[11]
+
+		+customparam_ct[11])//
+	);
+	
+	pred=CLAMP(customparam_clamp[0], pred, customparam_clamp[1]);
+	return pred;
+}
+void pred_custom_fwd(char *buf, int iw, int ih, int nch, int bytestride)
 {
 	int rowlen=iw*bytestride;
 	for(int kc=0;kc<nch;++kc)
@@ -794,76 +1274,14 @@ void image_unplane(char *buf, int iw, int ih, int nch, int bytestride)
 		{
 			for(int kx=iw-1;kx>=0;--kx, idx-=bytestride)
 			{
-#if 1
-				char
-					left=kx?buf[idx-bytestride]:0,
-					top=ky?buf[idx-rowlen]:0,
-					topleft=kx&&ky?buf[idx-rowlen-bytestride]:0,
-					
-					leftleft=kx-2>=0?buf[idx-(bytestride<<1)]:0,
-					toptop=ky-2>=0?buf[idx-(rowlen<<1)]:0,
-					topright=kx<iw-1&&ky?buf[idx-rowlen+bytestride]:0,
-
-					pred;
-
-				char xdelta=top-topleft, ydelta=left-topleft;
-				if((xdelta>0)==(ydelta>0))
-					pred=topleft+(abs(xdelta)>abs(ydelta)?xdelta:ydelta);//take steepest slope once and stop, equivalent to original unplane
-					//pred=topleft+((xdelta+ydelta)>>1);//average slope halved
-				else
-					pred=topleft+xdelta+ydelta;//average slope
-#endif
-#if 0
-				char
-					xdelta=((top-topleft)*3+(left-leftleft))>>2,
-					ydelta=((left-topleft)*3+(top-toptop))>>2,
-					xdelta2=top-topright;
-				pred=(topleft+xdelta+ydelta+topright+xdelta2)>>1;
-#endif
-
-#if 0
-				char vmax, vmin;
-				if(top<left)
-					vmin=top, vmax=left;
-				else
-					vmin=left, vmax=top;
-#if 0
-				//if(topleft>vmax&&vmin>topright)
-				//	pred=top+left-topleft;
-				//else
-				if(topleft>vmax)
-					pred=vmin;
-				//else if(topleft<vmin&&vmax<topright)
-				//{
-				//	pred=top+left-topleft;
-				//
-				//	//pred=topleft+top-topleft+left-topleft;
-				//
-				//	//char xdelta=top-topleft, ydelta=left-topleft;
-				//	//pred=topleft+xdelta+ydelta;
-				//}
-				else if(topleft<vmin)
-					pred=vmax;
-				else
-					pred=top+left-topleft;
-#endif
-
-#if 1
-				if(topleft>vmax)//choose steepest slope if both downward or upward
-					pred=vmin;
-				else if(topleft<vmin)
-					pred=vmax;
-				else
-					pred=left+top-topleft;//planar prediction (unplane)
-#endif
-#endif
+				char pred=predict_custom(buf, iw, kx, ky, idx, bytestride, rowlen);
 
 				buf[idx]-=pred;
 			}
 		}
 	}
 }
-void image_replane(char *buf, int iw, int ih, int nch, int bytestride)
+void pred_custom_inv(char *buf, int iw, int ih, int nch, int bytestride)
 {
 	int rowlen=iw*bytestride;
 	for(int kc=0;kc<nch;++kc)
@@ -873,63 +1291,7 @@ void image_replane(char *buf, int iw, int ih, int nch, int bytestride)
 		{
 			for(int kx=0;kx<iw;++kx, idx+=bytestride)
 			{
-#if 1
-				char
-					left=kx?buf[idx-bytestride]:0,
-					top=ky?buf[idx-rowlen]:0,
-					topleft=kx&&ky?buf[idx-rowlen-bytestride]:0,
-					
-					leftleft=kx-2>=0?buf[idx-(bytestride<<1)]:0,
-					toptop=ky-2>=0?buf[idx-(rowlen<<1)]:0,
-					topright=kx<iw-1&&ky?buf[idx-rowlen+bytestride]:0,
-
-					pred;
-
-				char xdelta=top-topleft, ydelta=left-topleft;
-				if((xdelta>0)==(ydelta>0))
-					pred=topleft+(abs(xdelta)>abs(ydelta)?xdelta:ydelta);//take steepest slope once and stop, equivalent to original unplane
-					//pred=topleft+((xdelta+ydelta)>>1);//average slope halved
-				else
-					pred=topleft+xdelta+ydelta;//average slope
-#endif
-				
-#if 0
-				char
-					xdelta=((top-topleft)*3+(left-leftleft))>>2,
-					ydelta=((left-topleft)*3+(top-toptop))>>2,
-					xdelta2=top-topright;
-				pred=(topleft+xdelta+ydelta+topright+xdelta2)>>1;
-#endif
-
-#if 0
-				char vmax, vmin;
-				if(top<left)
-					vmin=top, vmax=left;
-				else
-					vmin=left, vmax=top;
-#if 0
-				//if(topleft>vmax&&vmin>topright)
-				//	pred=top+left-topleft;
-				//else
-				if(topleft>vmax)
-					pred=vmin;
-				//else if(topleft<vmin&&vmax<topright)
-				//	pred=top+left-topleft;
-				else if(topleft<vmin)
-					pred=vmax;
-				else
-					pred=top+left-topleft;
-#endif
-
-#if 1
-				if(topleft>vmax)
-					pred=vmin;
-				else if(topleft<vmin)
-					pred=vmax;
-				else
-					pred=left+top-topleft;
-#endif
-#endif
+				char pred=predict_custom(buf, iw, kx, ky, idx, bytestride, rowlen);
 
 				buf[idx]+=pred;
 			}
@@ -937,100 +1299,8 @@ void image_replane(char *buf, int iw, int ih, int nch, int bytestride)
 	}
 }
 
-void image_customst_fwd(char *buf, int iw, int ih, int nch, int bytestride)
-{
-	int rowlen=iw*bytestride;
-	for(int kc=0;kc<nch;++kc)
-	{
-		int idx=(iw*ih-1)*bytestride+kc;
-		for(int ky=ih-1;ky>=0;--ky)
-		{
-			for(int kx=iw-1;kx>=0;--kx, idx-=bytestride)
-			{
-				char comp[]=
-				{
-					kx-2>=0&&ky-2>=0?buf[idx-(rowlen<<1)-(bytestride<<1)]:0,
-					kx-1>=0&&ky-2>=0?buf[idx-(rowlen<<1)-bytestride]:0,
-					         ky-2>=0?buf[idx-(rowlen<<1)]:0,
-					kx+1<iw&&ky-2>=0?buf[idx-(rowlen<<1)+bytestride]:0,
-					kx+2<iw&&ky-2>=0?buf[idx-(rowlen<<1)+(bytestride<<1)]:0,
 
-					kx-2>=0&&ky-1>=0?buf[idx-rowlen-(bytestride<<1)]:0,
-					kx-1>=0&&ky-1>=0?buf[idx-rowlen-bytestride]:0,
-					         ky-1>=0?buf[idx-rowlen]:0,
-					kx+1<iw&&ky-1>=0?buf[idx-rowlen+bytestride]:0,
-					kx+2<iw&&ky-1>=0?buf[idx-rowlen+(bytestride<<1)]:0,
-
-					kx-2>=0?buf[idx-(bytestride<<1)]:0,
-					kx-1>=0?buf[idx-bytestride]:0,
-				};
-
-				char pred=(char)(
-					customparam_st[ 0]*comp[ 0]+
-					customparam_st[ 1]*comp[ 1]+
-					customparam_st[ 2]*comp[ 2]+
-					customparam_st[ 3]*comp[ 3]+
-					customparam_st[ 4]*comp[ 4]+
-					customparam_st[ 5]*comp[ 5]+
-					customparam_st[ 6]*comp[ 6]+
-					customparam_st[ 7]*comp[ 7]+
-					customparam_st[ 8]*comp[ 8]+
-					customparam_st[ 9]*comp[ 9]+
-					customparam_st[10]*comp[10]+
-					customparam_st[11]*comp[11]
-				);
-				buf[idx]-=pred;
-			}
-		}
-	}
-}
-void image_customst_inv(char *buf, int iw, int ih, int nch, int bytestride)
-{
-	int rowlen=iw*bytestride;
-	for(int kc=0;kc<nch;++kc)
-	{
-		int idx=kc;
-		for(int ky=0;ky<ih;++ky)
-		{
-			for(int kx=0;kx<iw;++kx, idx+=bytestride)
-			{
-				char comp[]=
-				{
-					kx-2>=0&&ky-2>=0?buf[idx-(rowlen<<1)-(bytestride<<1)]:0,
-					kx-1>=0&&ky-2>=0?buf[idx-(rowlen<<1)-bytestride]:0,
-					         ky-2>=0?buf[idx-(rowlen<<1)]:0,
-					kx+1<iw&&ky-2>=0?buf[idx-(rowlen<<1)+bytestride]:0,
-					kx+2<iw&&ky-2>=0?buf[idx-(rowlen<<1)+(bytestride<<1)]:0,
-
-					kx-2>=0&&ky-1>=0?buf[idx-rowlen-(bytestride<<1)]:0,
-					kx-1>=0&&ky-1>=0?buf[idx-rowlen-bytestride]:0,
-					         ky-1>=0?buf[idx-rowlen]:0,
-					kx+1<iw&&ky-1>=0?buf[idx-rowlen+bytestride]:0,
-					kx+2<iw&&ky-1>=0?buf[idx-rowlen+(bytestride<<1)]:0,
-
-					kx-2>=0?buf[idx-(bytestride<<1)]:0,
-					kx-1>=0?buf[idx-bytestride]:0,
-				};
-
-				char pred=(char)(
-					customparam_st[ 0]*comp[ 0]+
-					customparam_st[ 1]*comp[ 1]+
-					customparam_st[ 2]*comp[ 2]+
-					customparam_st[ 3]*comp[ 3]+
-					customparam_st[ 4]*comp[ 4]+
-					customparam_st[ 5]*comp[ 5]+
-					customparam_st[ 6]*comp[ 6]+
-					customparam_st[ 7]*comp[ 7]+
-					customparam_st[ 8]*comp[ 8]+
-					customparam_st[ 9]*comp[ 9]+
-					customparam_st[10]*comp[10]+
-					customparam_st[11]*comp[11]
-				);
-				buf[idx]+=pred;
-			}
-		}
-	}
-}
+//DWTs
 
 //lifting-based 8bit CDF 5/3 DWT
 void dwt1d_custom_fwd(char *buffer, int count, int stride, char *b2)
@@ -1953,6 +2223,9 @@ void dwt2d_dec_inv(char *buffer, int iw, int ih)
 	array_free(&sizes);
 }
 
+
+//DCTs
+
 static void dct4_fwd_i8(char *x)
 {
 	x[3]=x[0]-x[3];
@@ -2097,6 +2370,250 @@ void image_dct4_inv(char *image, int iw, int ih)
 				image[(idx+1)<<2|kc]=x[1];
 				image[(idx+2)<<2|kc]=x[2];
 				image[(idx+3)<<2|kc]=x[3];
+			}
+		}
+#endif
+	}
+	free(temp);
+}
+
+static void dct8_fwd_i8(char *x)
+{
+	//binDCT-C7
+	x[7]=x[0]-x[7];
+	x[6]=x[1]-x[6];
+	x[5]=x[2]-x[5];
+	x[4]=x[3]-x[4];
+	x[0]-=x[7]>>1;
+	x[1]-=x[6]>>1;
+	x[2]-=x[5]>>1;
+	x[3]-=x[4]>>1;
+
+	x[3]=x[0]-x[3];
+	x[2]=x[1]-x[2];
+	x[0]-=x[3]>>1;
+	x[1]-=x[2]>>1;
+
+	x[1]=x[0]-x[1];
+	x[0]-=x[1]>>1;
+
+	x[2]=(x[3]*13>>5)-x[2];
+	x[3]-=x[2]*11>>5;
+
+	x[5]-=x[6]*13>>5;
+	x[6]+=x[5]*11>>4;
+	x[5]=(x[6]*15>>5)-x[5];
+
+	x[5]=x[4]-x[5];
+	x[6]=x[7]-x[6];
+	x[4]-=x[5]>>1;
+	x[7]-=x[6]>>1;
+
+	x[4]=(x[7]*3>>4)-x[4];
+	x[7]-=x[4]*3>>4;
+
+	x[5]+=x[6]*11>>4;
+	x[6]-=x[5]*15>>5;
+}
+static void dct8_inv_i8(char *x)
+{
+	//invBinDCT-C7
+	x[6]+=x[5]*15>>5;
+	x[5]-=x[6]*11>>4;
+
+	x[7]+=x[4]*3>>4;
+	x[4]=(x[7]*3>>4)-x[4];
+
+	x[7]+=x[6]>>1;
+	x[4]+=x[5]>>1;
+	x[6]=x[7]-x[6];
+	x[5]=x[4]-x[5];
+
+	x[5]=(x[6]*15>>5)-x[5];
+	x[6]-=x[5]*11>>4;
+	x[5]+=x[6]*13>>5;
+
+	x[3]+=x[2]*11>>5;
+	x[2]=(x[3]*13>>5)-x[2];
+
+	x[0]+=x[1]>>1;
+	x[1]=x[0]-x[1];
+
+	x[1]+=x[2]>>1;
+	x[0]+=x[3]>>1;
+	x[2]=x[1]-x[2];
+	x[3]=x[0]-x[3];
+
+	x[3]+=x[4]>>1;
+	x[2]+=x[5]>>1;
+	x[1]+=x[6]>>1;
+	x[0]+=x[7]>>1;
+	x[4]=x[3]-x[4];
+	x[5]=x[2]-x[5];
+	x[6]=x[1]-x[6];
+	x[7]=x[0]-x[7];
+}
+void image_dct8_fwd(char *image, int iw, int ih)
+{
+	char *temp=(char*)malloc(MAXVAR(iw, ih));
+	if(!temp)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	memset(temp, 0, MAXVAR(iw, ih));
+	for(int kc=0;kc<3;++kc)
+	{
+#if 1
+		for(int ky=0;ky<ih;++ky)
+		{
+			for(int kx=0;kx<iw-7;kx+=8)
+			{
+				int idx=iw*ky+kx;
+				char x[]=
+				{
+					image[ idx   <<2|kc],
+					image[(idx+1)<<2|kc],
+					image[(idx+2)<<2|kc],
+					image[(idx+3)<<2|kc],
+					image[(idx+4)<<2|kc],
+					image[(idx+5)<<2|kc],
+					image[(idx+6)<<2|kc],
+					image[(idx+7)<<2|kc],
+				};
+
+				//char y[8];
+				//memcpy(y, x, 8);
+				//dct8_fwd_i8(y);
+				//dct8_inv_i8(y);
+				//if(memcmp(x, y, 8))
+				//	x[0]=y[0];
+
+				dct8_fwd_i8(x);
+
+				temp[ kx>>3           ]=x[0];
+				temp[(kx>>3)+(iw>>3)  ]=x[1];
+				temp[(kx>>3)+(iw>>3)*2]=x[2];
+				temp[(kx>>3)+(iw>>3)*3]=x[3];
+				temp[(kx>>3)+(iw>>3)*4]=x[4];
+				temp[(kx>>3)+(iw>>3)*5]=x[5];
+				temp[(kx>>3)+(iw>>3)*6]=x[6];
+				temp[(kx>>3)+(iw>>3)*7]=x[7];
+			}
+			for(int kx=0;kx<iw;++kx)
+				image[(iw*ky+kx)<<2|kc]=temp[kx];
+		}
+#endif
+#if 1
+		for(int kx=0;kx<iw;++kx)
+		{
+			for(int ky=0;ky<ih-7;ky+=8)
+			{
+				int idx=iw*ky+kx;
+				char x[]=
+				{
+					image[ idx      <<2|kc],
+					image[(idx+iw  )<<2|kc],
+					image[(idx+iw*2)<<2|kc],
+					image[(idx+iw*3)<<2|kc],
+					image[(idx+iw*4)<<2|kc],
+					image[(idx+iw*5)<<2|kc],
+					image[(idx+iw*6)<<2|kc],
+					image[(idx+iw*7)<<2|kc],
+				};
+
+				dct8_fwd_i8(x);
+
+				temp[(ky>>3)          ]=x[0];
+				temp[(ky>>3)+(ih>>3)  ]=x[1];
+				temp[(ky>>3)+(ih>>3)*2]=x[2];
+				temp[(ky>>3)+(ih>>3)*3]=x[3];
+				temp[(ky>>3)+(ih>>3)*4]=x[4];
+				temp[(ky>>3)+(ih>>3)*5]=x[5];
+				temp[(ky>>3)+(ih>>3)*6]=x[6];
+				temp[(ky>>3)+(ih>>3)*7]=x[7];
+			}
+			for(int ky=0;ky<ih;++ky)
+				image[(iw*ky+kx)<<2|kc]=temp[ky];
+		}
+#endif
+	}
+	free(temp);
+}
+void image_dct8_inv(char *image, int iw, int ih)
+{
+	char *temp=(char*)malloc(MAXVAR(iw, ih));
+	if(!temp)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	memset(temp, 0, MAXVAR(iw, ih));
+	for(int kc=0;kc<3;++kc)
+	{
+#if 1
+		for(int kx=0;kx<iw;++kx)
+		{
+			for(int ky=0;ky<ih;++ky)
+				temp[ky]=image[(iw*ky+kx)<<2|kc];
+			for(int ky=0;ky<ih-7;ky+=8)
+			{
+				int idx=iw*ky+kx;
+				char x[]=
+				{
+					temp[(ky>>3)          ],
+					temp[(ky>>3)+(ih>>3)  ],
+					temp[(ky>>3)+(ih>>3)*2],
+					temp[(ky>>3)+(ih>>3)*3],
+					temp[(ky>>3)+(ih>>3)*4],
+					temp[(ky>>3)+(ih>>3)*5],
+					temp[(ky>>3)+(ih>>3)*6],
+					temp[(ky>>3)+(ih>>3)*7],
+				};
+
+				dct8_inv_i8(x);
+				
+				image[ idx      <<2|kc]=x[0];
+				image[(idx+iw  )<<2|kc]=x[1];
+				image[(idx+iw*2)<<2|kc]=x[2];
+				image[(idx+iw*3)<<2|kc]=x[3];
+				image[(idx+iw*4)<<2|kc]=x[4];
+				image[(idx+iw*5)<<2|kc]=x[5];
+				image[(idx+iw*6)<<2|kc]=x[6];
+				image[(idx+iw*7)<<2|kc]=x[7];
+			}
+		}
+#endif
+#if 1
+		for(int ky=0;ky<ih;++ky)
+		{
+			for(int kx=0;kx<iw;++kx)
+				temp[kx]=image[(iw*ky+kx)<<2|kc];
+			for(int kx=0;kx<iw-7;kx+=8)
+			{
+				int idx=iw*ky+kx;
+				char x[]=
+				{
+					temp[(kx>>3)          ],
+					temp[(kx>>3)+(iw>>3)  ],
+					temp[(kx>>3)+(iw>>3)*2],
+					temp[(kx>>3)+(iw>>3)*3],
+					temp[(kx>>3)+(iw>>3)*4],
+					temp[(kx>>3)+(iw>>3)*5],
+					temp[(kx>>3)+(iw>>3)*6],
+					temp[(kx>>3)+(iw>>3)*7],
+				};
+
+				dct8_inv_i8(x);
+				
+				image[ idx   <<2|kc]=x[0];
+				image[(idx+1)<<2|kc]=x[1];
+				image[(idx+2)<<2|kc]=x[2];
+				image[(idx+3)<<2|kc]=x[3];
+				image[(idx+4)<<2|kc]=x[4];
+				image[(idx+5)<<2|kc]=x[5];
+				image[(idx+6)<<2|kc]=x[6];
+				image[(idx+7)<<2|kc]=x[7];
 			}
 		}
 #endif

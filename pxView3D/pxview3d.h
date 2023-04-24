@@ -596,11 +596,12 @@ extern       int customparam_sel;
 extern const int customparam_ct_w, customparam_ct_h, customparam_st_reach;
 //extern const double customparam_ct0[12], customparam_st0[12];
 extern       double customparam_ct[12], customparam_st[12];
+extern       int    customparam_clamp[2];
 void customtransforms_resetparams();
 void colortransform_custom_fwd(char *buf, int iw, int ih);
 void colortransform_custom_inv(char *buf, int iw, int ih);
-void image_customst_fwd(char *buf, int iw, int ih, int nch, int bytestride);
-void image_customst_inv(char *buf, int iw, int ih, int nch, int bytestride);
+void pred_custom_fwd(char *buf, int iw, int ih, int nch, int bytestride);
+void pred_custom_inv(char *buf, int iw, int ih, int nch, int bytestride);
 
 void addhalf(unsigned char *buf, int iw, int ih, int nch, int bytestride);
 
@@ -616,16 +617,25 @@ void colortransform_ycocgt_inv(char *buf, int iw, int ih);
 
 void colortransform_exp_fwd  (char *buf, int iw, int ih);
 void colortransform_exp_inv  (char *buf, int iw, int ih);
-void colortransform_learned_fwd(char *buf, int iw, int ih);
-void colortransform_learned_inv(char *buf, int iw, int ih);
+//void colortransform_learned_fwd(char *buf, int iw, int ih);
+//void colortransform_learned_inv(char *buf, int iw, int ih);
 
+
+//optimizer
+double opt_causal_reach2(const unsigned char *buf, int iw, int ih, int kc, double *x, double *bias, double lr, int test);
 
 //spatial transforms
-void image_differentiate(char *buf, int iw, int ih, int nch, int bytestride);
-void image_integrate(char *buf, int iw, int ih, int nch, int bytestride);
+void pred_diff2d_fwd(char *buf, int iw, int ih, int nch, int bytestride);
+void pred_diff2d_inv(char *buf, int iw, int ih, int nch, int bytestride);
 
-void image_unplane(char *buf, int iw, int ih, int nch, int bytestride);
-void image_replane(char *buf, int iw, int ih, int nch, int bytestride);
+void pred_hpf_fwd(char *buf, int iw, int ih, int nch, int bytestride);
+void pred_hpf_inv(char *buf, int iw, int ih, int nch, int bytestride);
+
+void pred_median_fwd(char *buf, int iw, int ih, int nch, int bytestride);
+void pred_median_inv(char *buf, int iw, int ih, int nch, int bytestride);
+
+void pred_grad_fwd(char *buf, int iw, int ih, int nch, int bytestride);
+void pred_grad_inv(char *buf, int iw, int ih, int nch, int bytestride);
 
 typedef struct DWTSizeStruct
 {
@@ -651,8 +661,12 @@ void dwt2d_custom_inv (char *buffer, DWTSize *sizes, int sizes_start, int sizes_
 
 void dwt2d_dec_fwd(char *buffer, int iw, int ih);
 void dwt2d_dec_inv(char *buffer, int iw, int ih);
+
 void image_dct4_fwd(char *image, int iw, int ih);
 void image_dct4_inv(char *image, int iw, int ih);
+
+void image_dct8_fwd(char *image, int iw, int ih);
+void image_dct8_inv(char *image, int iw, int ih);
 
 void channel_entropy(unsigned char *buf, int resolution, int nch, int bytestride, float *cr, int *usage);
 void jointhistogram(unsigned char *buf, int resolution, int nbits, ArrayHandle *hist);
