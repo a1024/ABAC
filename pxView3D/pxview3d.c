@@ -114,7 +114,7 @@ char transforms_mask[T_COUNT]={0};
 ArrayHandle transforms=0;//array of chars
 float guizoom=1.25f;
 
-double av_rmse=0;
+double av_rmse=0, g_lr=1e-10;
 
 int profile_idx=0;
 ArrayHandle losshist=0;
@@ -134,8 +134,9 @@ ArrayHandle jointhist=0;
 float ch_cr[4]={0};
 int usage[4]={0};
 
-#define combCRhist_SIZE 256
-float combCRhist[combCRhist_SIZE][4]={0}, combCRhist_max=0;
+#define combCRhist_SIZE 128
+#define combCRhist_logDX 2
+float combCRhist[combCRhist_SIZE][4]={0}, combCRhist_max=1;
 int combCRhist_idx=0;
 
 void transforms_update()
@@ -770,7 +771,7 @@ void update_image()
 	combCRhist[combCRhist_idx][3]=3/(1/ch_cr[0]+1/ch_cr[1]+1/ch_cr[2]);
 	for(int k=0;k<4;++k)
 	{
-		if(combCRhist_max<combCRhist[combCRhist_idx][k])
+		if(combCRhist_max==1||combCRhist_max<combCRhist[combCRhist_idx][k])
 			combCRhist_max=combCRhist[combCRhist_idx][k];
 	}
 	combCRhist_idx=(combCRhist_idx+1)%combCRhist_SIZE;
@@ -1057,7 +1058,7 @@ typedef struct AABBStruct
 {
 	float x1, x2, y1, y2;
 } AABB;
-AABB buttons[4]={0};//0: CT,  1: ST,  2: list of transforms,  3: clamp bounds
+AABB buttons[5]={0};//0: CT,  1: ST,  2: list of transforms,  3: clamp bounds
 
 int io_init(int argc, char **argv)//return false to abort
 {
@@ -1079,6 +1080,7 @@ void io_resize()
 	p->x1=(float)(w>>1), p->x2=p->x1+xstep*54, p->y1=(float)((h>>1)+(h>>2)), p->y2=p->y1+ystep*3, ++p;//1: spatial params
 	p->x1=(float)(w-200), p->x2=(float)w, p->y1=tdy*2, p->y2=p->y1+tdy*T_COUNT, ++p;//2: transforms list
 	p->x1=(float)(w>>1), p->x2=p->x1+xstep*14, p->y1=(float)((h>>1)+(h>>2))+ystep*4, p->y2=p->y1+ystep, ++p;//3: clamp bounds
+	p->x1=(float)(w>>1), p->x2=p->x1+xstep*17, p->y1=(float)((h>>1)+(h>>2))+ystep*5, p->y2=p->y1+ystep, ++p;//3: clamp bounds
 }
 int io_mousemove()//return true to redraw
 {
@@ -1110,7 +1112,7 @@ void click_hittest(int mx, int my, int *objidx, int *cellx, int *celly, int *cel
 	*objidx=0;
 	for(*objidx=0;*objidx<COUNTOF(buttons);++*objidx, ++*p)
 	{
-		if((*p-buttons==0||*p-buttons==1||*p-buttons==3)&&!transforms_customenabled)//when these buttons are inactive they shouldn't block the click
+		if(!transforms_customenabled&&(*p-buttons==0||*p-buttons==1||*p-buttons==3||*p-buttons==4))//when these buttons are inactive they shouldn't block the click
 			continue;
 		if(mx>=p[0]->x1&&mx<p[0]->x2&&my>=p[0]->y1&&my<p[0]->y2)
 			break;
@@ -1134,6 +1136,11 @@ void click_hittest(int mx, int my, int *objidx, int *cellx, int *celly, int *cel
 		break;
 	case 3://clamp bounds
 		*cellx=mx-p[0]->x1>(p[0]->x2-p[0]->x1)*0.5f;
+		*celly=0;
+		*cellidx=*cellx;
+		break;
+	case 4://learning rate
+		*cellx=0;
 		*celly=0;
 		*cellidx=*cellx;
 		break;
@@ -1224,6 +1231,18 @@ int io_mousewheel(int forward)
 					}
 				}
 				break;
+			case 4:
+				//learning rate
+				//012345678901234567
+				//lr 0.NNNNNNNNNNNN
+				//    -123456789012
+				if(ch>=5&&ch<17)
+				{
+					ch=4-ch;
+					double delta=pow(10, ch);
+					g_lr+=sign*delta;
+				}
+				break;
 			}
 			update_image();
 		}
@@ -1302,7 +1321,7 @@ int io_keydn(IOKey key, char c)
 					for(int k=0;k<1000;++k)
 					{
 						customparam_st[cellidx]=customparam_ct[8]+(customparam_ct[9]-customparam_ct[8])*k/1000;
-						p2[k]=opt_causal_reach2(image, iw, ih, 1, customparam_st, customparam_ct+11, 1e-10, 1);
+						p2[k]=opt_causal_reach2(image, iw, ih, 1, customparam_st, customparam_ct+11, g_lr, 1);
 					}
 					customparam_st[cellidx]=temp;
 					//av_rmse=opt_causal_reach2(image, iw, ih, 1, customparam_st, customparam_ct+11, 1e-10, 1);
@@ -1423,7 +1442,7 @@ int io_keydn(IOKey key, char c)
 	case KEY_RBUTTON:
 		if(image)
 		{
-			int objidx=0, cellx=0, celly=0, cellidx=0;
+			int objidx=-1, cellx=0, celly=0, cellidx=0;
 			AABB *p=buttons;
 			click_hittest(mx, my, &objidx, &cellx, &celly, &cellidx, &p);
 			switch(objidx)
@@ -1464,7 +1483,10 @@ int io_keydn(IOKey key, char c)
 			case 3://clamp bounds
 				if(key==KEY_RBUTTON)
 				{
-					customparam_clamp[cellidx]=0;
+					if(cellidx)
+						customparam_clamp[1]=127;
+					else
+						customparam_clamp[0]=-128;
 					update_image();
 					return 1;
 				}
@@ -1475,6 +1497,8 @@ int io_keydn(IOKey key, char c)
 				break;
 			}
 		}
+		else
+			goto toggle_drag;
 		break;
 	case KEY_ESC:
 toggle_drag:
@@ -1506,7 +1530,7 @@ toggle_drag:
 #define		AK(KEY)		case KEY:
 	ACTIVE_KEY_LIST
 #undef		AK
-		timer_start();
+		timer_start(10);
 		break;
 		
 	case KEY_F1:
@@ -1519,6 +1543,7 @@ toggle_drag:
 			"R:\t\tReset cam\n"
 			"Ctrl R:\t\tDisable all transforms\n"
 			"Ctrl E:\t\tReset custom transform parameters\n"
+			"H:\t\tReset CR history graph\n"
 			"\n"
 			"Mouse1/Mouse2:\tAdd/remove transforms to the list\n"
 			"Ctrl Mouse1:\tReplace all transforms of this type\n"
@@ -1651,23 +1676,30 @@ toggle_drag:
 			update_image();
 		}
 		return 1;
+	case 'H':
+		//if(GET_KEY_STATE(KEY_CTRL))
+		{
+			memset(combCRhist, 0, sizeof(combCRhist));
+			combCRhist_idx=0;
+			combCRhist_max=1;
+			return 1;
+		}
+		break;
 	case KEY_SPACE:
 		if(image&&transforms_customenabled)
 		{
-			static double lr=0.0000001;
-			double l0=av_rmse, t0=time_ms(), tnow;
-			int it=0;
-			do
-			{
-				av_rmse=opt_causal_reach2(image, iw, ih, 1, customparam_st, customparam_ct+11, 1e-10, 0);
-				++it;
-				//lr*=0.99;
-				tnow=time_ms();
-			}
-			while(fabs(av_rmse-l0)>0.01&&it<10000&&tnow-t0<2000);
-			//if(it<1000)
-			//	lr*=0.1;
-			update_image();
+			timer_start(50);
+			//double l0=av_rmse, t0=time_ms(), tnow;
+			//int it=0;
+			//do
+			//{
+				//av_rmse=opt_causal_reach2(image, iw, ih, 1, customparam_st, customparam_ct+11, g_lr, 0);
+				//++it;
+				//tnow=time_ms();
+			//}
+			//while(fabs(av_rmse-l0)>0.01&&it<10000&&tnow-t0<2000);
+
+			//update_image();
 			return 1;
 		}
 		break;
@@ -1688,7 +1720,8 @@ int io_keyup(IOKey key, char c)
 	//case KEY_RBUTTON:
 	//	printf("Declick at (%d, %d)\n", mx, my);
 	//	break;
-
+		
+	case KEY_SPACE:
 #define		AK(KEY)		case KEY:
 	ACTIVE_KEY_LIST
 #undef		AK
@@ -1719,29 +1752,37 @@ void io_timer()
 	if(transforms_customenabled)
 	//if(color_transform==CT_CUSTOM||spatialtransform==ST_CUSTOM)
 	{
-		int update=keyboard[KEY_ENTER]-keyboard[KEY_BKSP];
-		if(update)
+		if(keyboard[KEY_SPACE])
 		{
-			double speed;
-			if(GET_KEY_STATE(KEY_SHIFT))//fast
-				speed=0.1;
-			else if(GET_KEY_STATE(KEY_CTRL))//slow
-				speed=0.001;
-			else//normal speed
-				speed=0.01;
-			if(customparam_sel<COUNTOF(customparam_ct))
-			{
-				//undocolortransform(color_transform);
-				customparam_ct[customparam_sel]+=speed*update;
-				//applycolortransform(color_transform);
-			}
-			else
-			{
-				//undospatialtransform(spatialtransform);
-				customparam_st[customparam_sel-COUNTOF(customparam_ct)]+=speed*update;
-				//applyspatialtransform(spatialtransform);
-			}
+			av_rmse=opt_causal_reach2(image, iw, ih, 1, customparam_st, customparam_ct+11, g_lr, 0);
 			update_image();
+		}
+		else
+		{
+			int update=keyboard[KEY_ENTER]-keyboard[KEY_BKSP];
+			if(update)
+			{
+				double speed;
+				if(GET_KEY_STATE(KEY_SHIFT))//fast
+					speed=0.1;
+				else if(GET_KEY_STATE(KEY_CTRL))//slow
+					speed=0.001;
+				else//normal speed
+					speed=0.01;
+				if(customparam_sel<COUNTOF(customparam_ct))
+				{
+					//undocolortransform(color_transform);
+					customparam_ct[customparam_sel]+=speed*update;
+					//applycolortransform(color_transform);
+				}
+				else
+				{
+					//undospatialtransform(spatialtransform);
+					customparam_st[customparam_sel-COUNTOF(customparam_ct)]+=speed*update;
+					//applyspatialtransform(spatialtransform);
+				}
+				update_image();
+			}
 		}
 	}
 	else
@@ -1952,8 +1993,8 @@ void io_render()
 		GUIPrint(0, x, y+ystep*5, guizoom, "b+=(%c%c%8.3lf)r+(%c%c%8.3lf)g", sel[10], sel[10], customparam_ct[10], sel[11], sel[11], customparam_ct[11]);
 
 		//spatial transforms
-		//000000000011111111112222222222333333333344444444445555
-		//012345678901234567890123456789012345678901234567890123
+		//0000000000111111111122222222223333333333444444444455555
+		//0123456789012345678901234567890123456789012345678901234
 		//>>nnnN.NNN >>nnnN.NNN >>nnnN.NNN >>nnnN.NNN >>nnnN.NNN
 		x=buttons[1].x1;
 		y=buttons[1].y1;
@@ -1965,11 +2006,18 @@ void io_render()
 		//set_text_colors(prevcolor);
 		
 		//clamp bounds
-		//012345678901234567890
+		//0123456789012345678901
 		//[ SNNNN, SNNNN] clamp
 		x=buttons[3].x1;
 		y=buttons[3].y1;
 		GUIPrint(0, x, y, guizoom, "[ %5d, %5d] clamp", customparam_clamp[0], customparam_clamp[1]);
+
+		//learning rate
+		//012345678901234567
+		//lr 0.NNNNNNNNNNNN
+		x=buttons[4].x1;
+		y=buttons[4].y1;
+		GUIPrint(0, x, y, guizoom, "lr %14.12lf", g_lr);
 	}
 	const char *mode_str=0;
 	switch(mode)
@@ -2130,8 +2178,8 @@ void io_render()
 		int idx=combCRhist_idx-1, idx2=combCRhist_idx-2;
 		idx+=combCRhist_SIZE&-(idx<0);
 		idx2+=combCRhist_SIZE&-(idx2<0);
-		xstart=(float)(w-combCRhist_SIZE-200);
-		float cx=xstart+(float)idx, cy=h-combCRhist[idx][3]*g2;
+		xstart=(float)(w-(combCRhist_SIZE<<combCRhist_logDX)-200);
+		float cx=xstart+(float)(idx<<combCRhist_logDX), cy=h-combCRhist[idx][3]*g2;
 		draw_rect_hollow(cx-10, cx+10, cy-10, cy+10, 0xC0C0C0C0);
 		if(combCRhist[idx][3]<combCRhist[idx2][3])
 			draw_rect(cx-5, cx+5, cy, cy+5, 0xC0C0C0C0);
@@ -2142,12 +2190,13 @@ void io_render()
 		{
 			if(k!=combCRhist_idx-1)
 			{
-				draw_line(xstart+(float)k, h-(float)(combCRhist[k][0]*g2), xstart+(float)(k+1), h-(float)(combCRhist[k+1][0]*g2), 0xC00000FF);
-				draw_line(xstart+(float)k, h-(float)(combCRhist[k][1]*g2), xstart+(float)(k+1), h-(float)(combCRhist[k+1][1]*g2), 0xC000FF00);
-				draw_line(xstart+(float)k, h-(float)(combCRhist[k][2]*g2), xstart+(float)(k+1), h-(float)(combCRhist[k+1][2]*g2), 0xC0FF0000);
-				draw_line(xstart+(float)k, h-(float)(combCRhist[k][3]*g2), xstart+(float)(k+1), h-(float)(combCRhist[k+1][3]*g2), 0xC0000000);
+				draw_line(xstart+(float)(k<<combCRhist_logDX), h-(float)(combCRhist[k][0]*g2), xstart+(float)((k+1)<<combCRhist_logDX), h-(float)(combCRhist[k+1][0]*g2), 0xC00000FF);
+				draw_line(xstart+(float)(k<<combCRhist_logDX), h-(float)(combCRhist[k][1]*g2), xstart+(float)((k+1)<<combCRhist_logDX), h-(float)(combCRhist[k+1][1]*g2), 0xC000FF00);
+				draw_line(xstart+(float)(k<<combCRhist_logDX), h-(float)(combCRhist[k][2]*g2), xstart+(float)((k+1)<<combCRhist_logDX), h-(float)(combCRhist[k+1][2]*g2), 0xC0FF0000);
+				draw_line(xstart+(float)(k<<combCRhist_logDX), h-(float)(combCRhist[k][3]*g2), xstart+(float)((k+1)<<combCRhist_logDX), h-(float)(combCRhist[k+1][3]*g2), 0xC0000000);
 			}
 		}
+		draw_line(xstart, h-g2, xstart+(combCRhist_SIZE<<combCRhist_logDX), h-g2, 0xC0000000);
 
 		//extern int testhist[3];//
 		//GUIPrint(0, 0, tdy*2, 1, "%d %d %d", testhist[0], testhist[1], testhist[2]);//

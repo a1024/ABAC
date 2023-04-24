@@ -678,6 +678,14 @@ void scalevec_pd(double *vec, int count, double factor)
 	for(int k=0;k<count;++k)
 		vec[k]*=factor;
 }
+void filternan_pd(double *vec, int count)
+{
+	for(int k=0;k<count;++k)
+	{
+		if(!isfinite(vec[k]))
+			vec[k]=0;
+	}
+}
 void addvecs_pd(double *dst, const double *a, const double *b, int count)
 {
 	for(int k=0;k<count;++k)
@@ -775,23 +783,24 @@ double opt_causal_reach2(const unsigned char *buf, int iw, int ih, int kc, doubl
 			row=(row+1)%12;
 			if(!row)
 			{
-#if 1
-				//forward
-				mulmatvec_pd(g_v,  g_mat, x,  OPT_N, OPT_B);
-				addvec1_pd(g_v,  g_v, *bias,  OPT_N);
-				leakyReLU_pd(g_v2,  g_v,  OPT_N);
-				subvecs_pd(g_v2,  g_y, g_v2,  OPT_N);
+#if 0
+				//forward		pred = leakyReLU(M x + b)		x & b are params, M & y are pixels
+				mulmatvec_pd(g_v,  g_mat, x,  OPT_N, OPT_B);	//     M x
+				addvec1_pd(g_v,  g_v, *bias,  OPT_N);			//v  = M x + b
+				leakyReLU_pd(g_v2,  g_v,  OPT_N);				//     leakyReLU(M x + b)
+				subvecs_pd(g_v2,  g_y, g_v2,  OPT_N);			//v2 = y - leakyReLU(M x + b)
 				
-				rmse+=calc_rmse_pd(g_v2, OPT_N);
+				rmse+=calc_rmse_pd(g_v2, OPT_N);				//L  = sum i: (y[i] - leakyReLU(M x[i] + b))^2
 
 				if(!test)
 				{
 					//backward
-					leakyReLUdash_pd(g_v, OPT_N);
-					negbuffer_pd(g_v, OPT_N);
-					mulvecs_pd(g_v2, g_v2, g_v, OPT_N);
-					mulvTmat_pd(g_grad, g_v2, g_mat, OPT_N, OPT_N);
-					g_grad[OPT_N]=vecsum_pd(g_v2, OPT_N);
+					leakyReLUdash_pd(g_v, OPT_N);				//v  = leakyReLU'(M x + b)
+					negbuffer_pd(g_v, OPT_N);					//v  = -leakyReLU'(M x + b)
+
+					mulvecs_pd(g_v2, g_v2, g_v, OPT_N);			//v2 = 2 * (y - leakyReLU(M x + b)) * -leakyReLU'(M x + b)
+					mulvTmat_pd(g_grad, g_v2, g_mat, OPT_N, OPT_N);	//gx = v2T M
+					g_grad[OPT_N]=vecsum_pd(g_v2, OPT_N);			//gb = sum(v2)
 				
 					scalevec_pd(g_grad, OPT_N+1, lr);
 
@@ -800,13 +809,14 @@ double opt_causal_reach2(const unsigned char *buf, int iw, int ih, int kc, doubl
 				}
 				++nupdates;
 #endif
-#if 0
-				mulmatvec_pd(g_mat, x, 12, 12, g_v);
-				subvecs_pd(g_y, g_v, g_v, 12);
-				rmse+=calc_rmse_pd(g_v, 12);
-				mulvTmat_pd(g_v, g_mat, 12, 12, g_grad);
-				scalevec_pd(g_grad, 12, lr);
-				addvecs_pd(x, g_grad, x, 12);
+#if 1
+				mulmatvec_pd(g_v, g_mat, x, OPT_N, OPT_N);
+				subvecs_pd(g_v, g_y, g_v, OPT_N);
+				rmse+=calc_rmse_pd(g_v, OPT_N);
+				mulvTmat_pd(g_grad, g_v, g_mat, OPT_N, OPT_N);
+				scalevec_pd(g_grad, OPT_N, lr);
+				addvecs_pd(x, x, g_grad, OPT_N);
+				filternan_pd(x, OPT_N);
 				++nupdates;
 #endif
 			}
@@ -1243,7 +1253,7 @@ int predict_custom(const char *buf, int iw, int kx, int ky, int idx, int bytestr
 
 	char pred=(char)(
 
-		leakyReLU1(//
+		//leakyReLU1(//
 
 		customparam_st[ 0]*comp[ 0]+
 		customparam_st[ 1]*comp[ 1]+
@@ -1258,7 +1268,7 @@ int predict_custom(const char *buf, int iw, int kx, int ky, int idx, int bytestr
 		customparam_st[10]*comp[10]+
 		customparam_st[11]*comp[11]
 
-		+customparam_ct[11])//
+		//+customparam_ct[11])//
 	);
 	
 	pred=CLAMP(customparam_clamp[0], pred, customparam_clamp[1]);

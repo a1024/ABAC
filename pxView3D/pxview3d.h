@@ -210,7 +210,7 @@ ArrayHandle paste_from_clipboard(int loud);
 
 #define GET_KEY_STATE(KEY)	(keyboard[KEY]=(GetAsyncKeyState(KEY)>>15)!=0)
 
-void timer_start();
+void timer_start(int ms);
 void timer_stop();
 
 void set_mouse(int x, int y);

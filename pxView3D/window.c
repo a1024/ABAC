@@ -629,10 +629,10 @@ void update_main_key_states()
 	keyboard[VK_MENU]=GET_KEY_STATE(VK_LMENU)<<1|GET_KEY_STATE(VK_RMENU);
 }
 
-void timer_start()
+void timer_start(int ms)
 {
 	if(!timer)
-		SetTimer(ghWnd, 0, 10, 0), timer=1;
+		SetTimer(ghWnd, 0, ms, 0), timer=1;
 }
 void timer_stop()
 {
