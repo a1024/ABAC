@@ -682,7 +682,7 @@ void filternan_pd(double *vec, int count)
 {
 	for(int k=0;k<count;++k)
 	{
-		if(!isfinite(vec[k]))
+		if(!isfinite(vec[k])||fabs(vec[k])>1e6)
 			vec[k]=0;
 	}
 }
@@ -771,8 +771,9 @@ double leakyReLU1(double x)
 #define OPT_N 12
 #define OPT_B 12
 static double g_mat[OPT_N*OPT_B], g_y[OPT_N], g_v[OPT_B], g_v2[OPT_B], g_grad[OPT_N+1];
-double opt_causal_reach2(const unsigned char *buf, int iw, int ih, int kc, double *x, double *bias, double lr, int test)
+double opt_causal_reach2(unsigned char *buf, int iw, int ih, int kc, double *x, double *bias, double lr, int test)
 {
+	addhalf(buf, iw, ih, 3, 4);
 	int nupdates=0;
 	double rmse=0;
 	for(int ky=2, row=0;ky<ih-2;ky+=3)
@@ -822,8 +823,120 @@ double opt_causal_reach2(const unsigned char *buf, int iw, int ih, int kc, doubl
 			}
 		}
 	}
+	addhalf(buf, iw, ih, 3, 4);
 	rmse/=nupdates;
 	return rmse;
+}
+
+#define O2_N 72
+double customparam_hybrid[(7*3+3)*3*3]={0};//shape [3, 72]		maps 24 causal neighbors (72 values) -> 1 pixel (3 values)
+double opt_causal_hybrid_r3(unsigned char *buf, int iw, int ih, double lr)
+{
+	double *x=customparam_hybrid;
+	ArrayHandle tensors;
+	ARRAY_ALLOC(double, tensors, 0, 0, 0, 0);
+	int off_src=(int)ARRAY_APPEND_OFFSET(tensors, 0, O2_N, 1, 0);
+	int off_grad=(int)ARRAY_APPEND_OFFSET(tensors, 0, O2_N*3, 1, 0);
+
+	double *t=(double*)tensors->data;
+	
+	addhalf(buf, iw, ih, 3, 4);
+	int nupdates=0;
+	double rmse=0;
+	for(int ky=3, row=0;ky<ih-3;ky+=4)
+	{
+		for(int kx=3;kx<iw-6;kx+=7)
+		{
+			int idx=iw*ky+kx;
+			for(int ky2=0, kd=0;ky2<4;++ky2)//fetch causal neighbors
+			{
+				for(int kx2=0;kx2<7&&kd<O2_N;++kx2)
+				{
+					for(int kc=0;kc<3;++kc, ++kd)
+						t[off_src+kd]=(char)buf[(idx+iw*(ky2-3)+kx2-3)<<2|kc];
+				}
+			}
+			double v[3]={(char)buf[idx<<2], (char)buf[idx<<2|1], (char)buf[idx<<2|2]};
+
+			for(int kc=0;kc<3;++kc)//v[3] = y[3] - x[3, 72] src.flatten[72]
+			{
+				for(int k=0;k<O2_N;++k)
+					v[kc]-=x[kc*O2_N+k]*t[off_src+k];
+			}
+
+			rmse+=calc_rmse_pd(v, 3);
+
+			for(int kc=0;kc<3;++kc)//grad = v[3] * -src.flatten[72]T		outer product
+			{
+				for(int k=0;k<O2_N;++k)
+					t[off_grad+kc*O2_N+k]=v[kc]*-t[off_src+k];
+			}
+			
+			scalevec_pd(t+off_grad, O2_N*3, lr);
+			subvecs_pd(x, x, t+off_grad, O2_N*3);
+			filternan_pd(x, O2_N*3);
+
+			++nupdates;
+		}
+	}
+	array_free(&tensors);
+	rmse/=nupdates;
+	addhalf(buf, iw, ih, 3, 4);
+	return rmse;
+}
+void predict_hybrid(const char *buf, int iw, int kx, int ky, int idx, int rowlen, int *ret_pred)
+{
+	char cn[72];
+	for(int ky2=0, kd=0;ky2<4;++ky2)//fetch causal neighbors
+	{
+		for(int kx2=0;kx2<7&&kd<O2_N;++kx2)
+		{
+			for(int kc=0;kc<3;++kc, ++kd)
+				cn[kd]=ky2-3>=0&&BETWEEN_EXC(3, kx2, iw+3)>=0?buf[(idx+((iw*(ky2-3)+kx2-3)<<2))|kc]:0;
+		}
+	}
+	for(int kc=0;kc<3;++kc)//v[3] = y[3] - x[3, 72] src.flatten[72]
+	{
+		double sum=0;
+		for(int k=0;k<O2_N;++k)
+			sum+=customparam_hybrid[kc*O2_N+k]*cn[k];
+		sum=CLAMP(customparam_clamp[0], sum, customparam_clamp[1]);
+		ret_pred[kc]=(int)round(sum);
+	}
+}
+void pred_hybrid_fwd(char *buf, int iw, int ih)
+{
+	int rowlen=iw<<2;
+	int idx=(iw*ih-1)<<2;
+	for(int ky=ih-1;ky>=0;--ky)
+	{
+		for(int kx=iw-1;kx>=0;--kx, idx-=4)
+		{
+			int pred[3];
+			predict_hybrid(buf, iw, kx, ky, idx, rowlen, pred);
+			
+			buf[idx  ]-=pred[0];
+			buf[idx|1]-=pred[1];
+			buf[idx|2]-=pred[2];
+		}
+	}
+}
+void pred_hybrid_inv(char *buf, int iw, int ih)
+{
+	int rowlen=iw<<2;
+	int idx=0;
+	for(int ky=0;ky<ih;++ky)
+	{
+		for(int kx=0;kx<iw;++kx, idx+=4)
+		{
+			int pred[3];
+			predict_hybrid(buf, iw, kx, ky, idx, rowlen, pred);
+
+			buf[idx  ]+=pred[0];
+			buf[idx|1]+=pred[1];
+			buf[idx|2]+=pred[2];
+		}
+	}
 }
 #endif
 
@@ -860,8 +973,8 @@ static int predict_simple(char topleft, char top, char left)
 		pred=topleft+xdelta+ydelta;//average slope
 	return pred;
 }
-int testhist[3]={0};//
-int predict(const char *buf, int iw, int kx, int ky, int idx, int bytestride, int rowlen)
+//int testhist[3]={0};//
+int  predict_diff2d(const char *buf, int iw, int kx, int ky, int idx, int bytestride, int rowlen)
 {
 	char cn[]=
 	{
@@ -966,7 +1079,7 @@ int predict(const char *buf, int iw, int kx, int ky, int idx, int bytestride, in
 }
 void pred_diff2d_fwd(char *buf, int iw, int ih, int nch, int bytestride)
 {
-	memset(testhist, 0, sizeof(testhist));//
+	//memset(testhist, 0, sizeof(testhist));//
 	int rowlen=iw*bytestride;
 	for(int kc=0;kc<nch;++kc)
 	{
@@ -975,7 +1088,7 @@ void pred_diff2d_fwd(char *buf, int iw, int ih, int nch, int bytestride)
 		{
 			for(int kx=iw-1;kx>=0;--kx, idx-=bytestride)
 			{
-				char pred=predict(buf, iw, kx, ky, idx, bytestride, rowlen);
+				char pred=predict_diff2d(buf, iw, kx, ky, idx, bytestride, rowlen);
 #if 0
 				char
 					left=kx?buf[idx-bytestride]:0,
@@ -992,7 +1105,7 @@ void pred_diff2d_fwd(char *buf, int iw, int ih, int nch, int bytestride)
 }
 void pred_diff2d_inv(char *buf, int iw, int ih, int nch, int bytestride)
 {
-	memset(testhist, 0, sizeof(testhist));//
+	//memset(testhist, 0, sizeof(testhist));//
 	int rowlen=iw*bytestride;
 	for(int kc=0;kc<nch;++kc)
 	{
@@ -1001,7 +1114,7 @@ void pred_diff2d_inv(char *buf, int iw, int ih, int nch, int bytestride)
 		{
 			for(int kx=0;kx<iw;++kx, idx+=bytestride)
 			{
-				char pred=predict(buf, iw, kx, ky, idx, bytestride, rowlen);
+				char pred=predict_diff2d(buf, iw, kx, ky, idx, bytestride, rowlen);
 #if 0
 				char
 					left=kx?buf[idx-bytestride]:0,
@@ -1019,7 +1132,7 @@ void pred_diff2d_inv(char *buf, int iw, int ih, int nch, int bytestride)
 
 void pred_hpf_fwd(char *buf, int iw, int ih, int nch, int bytestride)
 {
-	memset(testhist, 0, sizeof(testhist));//
+	//memset(testhist, 0, sizeof(testhist));//
 	int rowlen=iw*bytestride;
 	for(int kc=0;kc<nch;++kc)
 	{
@@ -1042,7 +1155,7 @@ void pred_hpf_fwd(char *buf, int iw, int ih, int nch, int bytestride)
 }
 void pred_hpf_inv(char *buf, int iw, int ih, int nch, int bytestride)
 {
-	memset(testhist, 0, sizeof(testhist));//
+	//memset(testhist, 0, sizeof(testhist));//
 	int rowlen=iw*bytestride;
 	for(int kc=0;kc<nch;++kc)
 	{
@@ -1064,35 +1177,35 @@ void pred_hpf_inv(char *buf, int iw, int ih, int nch, int bytestride)
 	}
 }
 
-int predict_median(const char *buf, int iw, int kx, int ky, int idx, int bytestride, int rowlen)
+int  predict_median(const char *buf, int iw, int kx, int ky, int idx, int bytestride, int rowlen)
 {
 	char cn[]=
 	{
-		kx-3>=0&&ky-3>=0?buf[idx-(rowlen<<1)- bytestride*3  ]:0,
-		kx-2>=0&&ky-3>=0?buf[idx-(rowlen<<1)-(bytestride<<1)]:0,
-		kx-1>=0&&ky-3>=0?buf[idx-(rowlen<<1)- bytestride    ]:0,
-		         ky-3>=0?buf[idx-(rowlen<<1)                ]:0,
-		kx+1<iw&&ky-3>=0?buf[idx-(rowlen<<1)+ bytestride    ]:0,
-		kx+2<iw&&ky-3>=0?buf[idx-(rowlen<<1)+(bytestride<<1)]:0,
-		kx+3<iw&&ky-3>=0?buf[idx-(rowlen<<1)+ bytestride*3  ]:0,
+	//	kx-3>=0&&ky-3>=0?buf[idx-(rowlen<<1)- bytestride*3  ]:0,
+	//	kx-2>=0&&ky-3>=0?buf[idx-(rowlen<<1)-(bytestride<<1)]:0,
+	//	kx-1>=0&&ky-3>=0?buf[idx-(rowlen<<1)- bytestride    ]:0,
+	//	         ky-3>=0?buf[idx-(rowlen<<1)                ]:0,
+	//	kx+1<iw&&ky-3>=0?buf[idx-(rowlen<<1)+ bytestride    ]:0,
+	//	kx+2<iw&&ky-3>=0?buf[idx-(rowlen<<1)+(bytestride<<1)]:0,
+	//	kx+3<iw&&ky-3>=0?buf[idx-(rowlen<<1)+ bytestride*3  ]:0,
 		
-		kx-3>=0&&ky-2>=0?buf[idx-(rowlen<<1)- bytestride*3  ]:0,
+	//	kx-3>=0&&ky-2>=0?buf[idx-(rowlen<<1)- bytestride*3  ]:0,
 		kx-2>=0&&ky-2>=0?buf[idx-(rowlen<<1)-(bytestride<<1)]:0,
 		kx-1>=0&&ky-2>=0?buf[idx-(rowlen<<1)- bytestride    ]:0,
 		         ky-2>=0?buf[idx-(rowlen<<1)                ]:0,
 		kx+1<iw&&ky-2>=0?buf[idx-(rowlen<<1)+ bytestride    ]:0,
 		kx+2<iw&&ky-2>=0?buf[idx-(rowlen<<1)+(bytestride<<1)]:0,
-		kx+3<iw&&ky-2>=0?buf[idx-(rowlen<<1)+ bytestride*3  ]:0,
+	//	kx+3<iw&&ky-2>=0?buf[idx-(rowlen<<1)+ bytestride*3  ]:0,
 		
-		kx-3>=0&&ky-1>=0?buf[idx-rowlen- bytestride*3  ]:0,
+	//	kx-3>=0&&ky-1>=0?buf[idx-rowlen- bytestride*3  ]:0,
 		kx-2>=0&&ky-1>=0?buf[idx-rowlen-(bytestride<<1)]:0,
 		kx-1>=0&&ky-1>=0?buf[idx-rowlen- bytestride    ]:0,
 		         ky-1>=0?buf[idx-rowlen                ]:0,
 		kx+1<iw&&ky-1>=0?buf[idx-rowlen+ bytestride    ]:0,
 		kx+2<iw&&ky-1>=0?buf[idx-rowlen+(bytestride<<1)]:0,
-		kx+3<iw&&ky-1>=0?buf[idx-rowlen+ bytestride*3  ]:0,
+	//	kx+3<iw&&ky-1>=0?buf[idx-rowlen+ bytestride*3  ]:0,
 		
-		kx-3>=0?buf[idx- bytestride*3  ]:0,
+	//	kx-3>=0?buf[idx- bytestride*3  ]:0,
 		kx-2>=0?buf[idx-(bytestride<<1)]:0,
 		kx-1>=0?buf[idx- bytestride    ]:0,
 	};
@@ -1130,7 +1243,7 @@ int predict_median(const char *buf, int iw, int kx, int ky, int idx, int bytestr
 }
 void pred_median_fwd(char *buf, int iw, int ih, int nch, int bytestride)
 {
-	memset(testhist, 0, sizeof(testhist));//
+	//memset(testhist, 0, sizeof(testhist));//
 	int rowlen=iw*bytestride;
 	for(int kc=0;kc<nch;++kc)
 	{
@@ -1148,7 +1261,7 @@ void pred_median_fwd(char *buf, int iw, int ih, int nch, int bytestride)
 }
 void pred_median_inv(char *buf, int iw, int ih, int nch, int bytestride)
 {
-	memset(testhist, 0, sizeof(testhist));//
+	//memset(testhist, 0, sizeof(testhist));//
 	int rowlen=iw*bytestride;
 	for(int kc=0;kc<nch;++kc)
 	{
@@ -1165,7 +1278,7 @@ void pred_median_inv(char *buf, int iw, int ih, int nch, int bytestride)
 	}
 }
 
-int predict_grad(const char *buf, int iw, int kx, int ky, int idx, int bytestride, int rowlen)
+int  predict_grad(const char *buf, int iw, int kx, int ky, int idx, int bytestride, int rowlen)
 {
 	char
 		left=kx?buf[idx-bytestride]:0,
@@ -1231,7 +1344,7 @@ void pred_grad_inv(char *buf, int iw, int ih, int nch, int bytestride)
 	}
 }
 
-int predict_custom(const char *buf, int iw, int kx, int ky, int idx, int bytestride, int rowlen)
+int  predict_custom(const char *buf, int iw, int kx, int ky, int idx, int bytestride, int rowlen)
 {
 	char comp[]=
 	{
@@ -1311,8 +1424,101 @@ void pred_custom_inv(char *buf, int iw, int ih, int nch, int bytestride)
 
 
 //DWTs
+void dwt2d_grad_fwd(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp)
+{
+	for(int it=sizes_start;it<sizes_end-1;++it)
+	//for(int it=sizes_start;it<1;++it)
+	{
+		for(int ky=0;ky<sizes[it].h-1;ky+=2)
+		{
+			for(int kx=0;kx<sizes[it].w-1;kx+=2)
+			{
+				int idx=sizes->w*ky+kx;
+				char v[]=
+				{
+					buffer[ idx            *stride],
+					buffer[(idx         +1)*stride],
+					buffer[(idx+sizes->w  )*stride],
+					buffer[(idx+sizes->w+1)*stride],
+				};
 
-//lifting-based 8bit CDF 5/3 DWT
+				//if((unsigned char)v[0]==0xFF||(unsigned char)v[1]==0xFF||(unsigned char)v[2]==0xFF||(unsigned char)v[3]==0xFF)
+				//	v[0]=0xFF;
+
+				char vmin, vmax;
+				if(v[1]<v[2])
+					vmin=v[1], vmax=v[2];
+				else
+					vmin=v[2], vmax=v[1];
+				if(v[0]<vmin)
+					v[3]-=vmax;
+				else if(v[0]>vmax)
+					v[3]-=vmin;
+				else
+					v[3]-=v[1]+v[2]-v[0];
+
+				v[2]-=v[0];
+				v[1]-=v[0];
+				v[0]+=(v[1]+v[2])>>2;
+
+				buffer[ idx            *stride]=v[3];//grad
+				buffer[(idx         +1)*stride]=v[2];//diffy
+				buffer[(idx+sizes->w  )*stride]=v[1];//diffx
+				buffer[(idx+sizes->w+1)*stride]=v[0];//av
+
+				//buffer[ idx            <<2|kc]=v[0];//av
+				//buffer[(idx         +1)<<2|kc]=v[1];//diffx
+				//buffer[(idx+sizes->w  )<<2|kc]=v[2];//diffy
+				//buffer[(idx+sizes->w+1)<<2|kc]=v[3];//grad
+			}
+		}
+		dwt2d_lazy_fwd(buffer, sizes, it, it+2, stride, temp);
+	}
+}
+void dwt2d_grad_inv(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp)
+{
+	for(int it=sizes_start;it<sizes_end-1;++it)
+	{
+		dwt2d_lazy_inv(buffer, sizes, it, it+2, stride, temp);
+		for(int ky=0;ky<sizes[it].h-1;ky+=2)
+		{
+			for(int kx=0;kx<sizes[it].w-1;kx+=2)
+			{
+				int idx=sizes->w*ky+kx;
+				char v[]=
+				{
+					buffer[ idx            *stride],
+					buffer[(idx         +1)*stride],
+					buffer[(idx+sizes->w  )*stride],
+					buffer[(idx+sizes->w+1)*stride],
+				};
+
+				v[0]-=(v[1]+v[2])>>2;
+					
+				v[1]+=v[0];
+				v[2]+=v[0];
+
+				char vmin, vmax;
+				if(v[1]<v[2])
+					vmin=v[1], vmax=v[2];
+				else
+					vmin=v[2], vmax=v[1];
+				if(v[0]<vmin)
+					v[3]+=vmax;
+				else if(v[0]>vmax)
+					v[3]+=vmin;
+				else
+					v[3]+=v[1]+v[2]-v[0];
+
+				buffer[ idx            *stride]=v[3];
+				buffer[(idx         +1)*stride]=v[2];
+				buffer[(idx+sizes->w  )*stride]=v[1];
+				buffer[(idx+sizes->w+1)*stride]=v[0];
+			}
+		}
+	}
+}
+
 void dwt1d_custom_fwd(char *buffer, int count, int stride, char *b2)
 {
 	int nodd=count>>1, extraeven=count&1;
@@ -1412,7 +1618,7 @@ void dwt2d_custom_fwd(char *buffer, DWTSize *sizes, int sizes_start, int sizes_e
 {
 	if(sizes_start>=sizes_end-1)
 		return;
-	int iw=sizes->w, ih=sizes->h, tsize=MAXVAR(iw, ih), rowlen=stride*iw;
+	int iw=sizes->w, ih=sizes->h, rowlen=stride*iw;
 	for(int it=sizes_start;it<sizes_end-1;++it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -1434,7 +1640,7 @@ void dwt2d_custom_inv(char *buffer, DWTSize *sizes, int sizes_start, int sizes_e
 {
 	if(sizes_start>=sizes_end-1)
 		return;
-	int iw=sizes->w, ih=sizes->h, tsize=MAXVAR(iw, ih), rowlen=stride*iw;
+	int iw=sizes->w, ih=sizes->h, rowlen=stride*iw;
 	for(int it=sizes_end-2;it>=sizes_start;--it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -1579,7 +1785,7 @@ void dwt2d_exp_fwd(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end,
 {
 	if(sizes_start>=sizes_end-1)
 		return;
-	int iw=sizes->w, ih=sizes->h, tsize=MAXVAR(iw, ih), rowlen=stride*iw;
+	int iw=sizes->w, ih=sizes->h, rowlen=stride*iw;
 	for(int it=sizes_start;it<sizes_end-1;++it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -1595,7 +1801,7 @@ void dwt2d_exp_inv(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end,
 {
 	if(sizes_start>=sizes_end-1)
 		return;
-	int iw=sizes->w, ih=sizes->h, tsize=MAXVAR(iw, ih), rowlen=stride*iw;
+	int iw=sizes->w, ih=sizes->h, rowlen=stride*iw;
 	for(int it=sizes_end-2;it>=sizes_start;--it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -1675,7 +1881,7 @@ void dwt2d_lazy_fwd(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end
 {
 	if(sizes_start>=sizes_end-1)
 		return;
-	int iw=sizes->w, ih=sizes->h, tsize=MAXVAR(iw, ih), rowlen=stride*iw;
+	int iw=sizes->w, ih=sizes->h, rowlen=stride*iw;
 	for(int it=sizes_start;it<sizes_end-1;++it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -1697,7 +1903,7 @@ void dwt2d_lazy_inv(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end
 {
 	if(sizes_start>=sizes_end-1)
 		return;
-	int iw=sizes->w, ih=sizes->h, tsize=MAXVAR(iw, ih), rowlen=stride*iw;
+	int iw=sizes->w, ih=sizes->h, rowlen=stride*iw;
 	for(int it=sizes_end-2;it>=sizes_start;--it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -1767,7 +1973,7 @@ void dwt2d_haar_fwd(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end
 {
 	if(sizes_start>=sizes_end-1)
 		return;
-	int iw=sizes->w, ih=sizes->h, tsize=MAXVAR(iw, ih), rowlen=stride*iw;
+	int iw=sizes->w, ih=sizes->h, rowlen=stride*iw;
 	for(int it=sizes_start;it<sizes_end-1;++it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -1789,7 +1995,7 @@ void dwt2d_haar_inv(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end
 {
 	if(sizes_start>=sizes_end-1)
 		return;
-	int iw=sizes->w, ih=sizes->h, tsize=MAXVAR(iw, ih), rowlen=stride*iw;
+	int iw=sizes->w, ih=sizes->h, rowlen=stride*iw;
 	for(int it=sizes_end-2;it>=sizes_start;--it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -1878,14 +2084,15 @@ void dwt1d_squeeze_inv(char *buffer, int count, int stride, char *b2)
 		e+=o;
 
 		buffer[kd]=e;
-		buffer[kd+stride]=o;
+		if(ks<nodd)
+			buffer[kd+stride]=o;
 	}
 }
 void dwt2d_squeeze_fwd(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp)
 {
 	if(sizes_start>=sizes_end-1)
 		return;
-	int iw=sizes->w, ih=sizes->h, tsize=MAXVAR(iw, ih), rowlen=stride*iw;
+	int iw=sizes->w, ih=sizes->h, rowlen=stride*iw;
 	for(int it=sizes_start;it<sizes_end-1;++it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -1905,7 +2112,7 @@ void dwt2d_squeeze_inv(char *buffer, DWTSize *sizes, int sizes_start, int sizes_
 {
 	if(sizes_start>=sizes_end-1)
 		return;
-	int iw=sizes->w, ih=sizes->h, tsize=MAXVAR(iw, ih), rowlen=stride*iw;
+	int iw=sizes->w, ih=sizes->h, rowlen=stride*iw;
 	for(int it=sizes_end-2;it>=sizes_start;--it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -1995,7 +2202,7 @@ void dwt2d_cdf53_fwd(char *buffer, DWTSize *sizes, int sizes_start, int sizes_en
 {
 	if(sizes_start>=sizes_end-1)
 		return;
-	int iw=sizes->w, ih=sizes->h, tsize=MAXVAR(iw, ih), rowlen=stride*iw;
+	int iw=sizes->w, ih=sizes->h, rowlen=stride*iw;
 	for(int it=sizes_start;it<sizes_end-1;++it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -2017,7 +2224,7 @@ void dwt2d_cdf53_inv(char *buffer, DWTSize *sizes, int sizes_start, int sizes_en
 {
 	if(sizes_start>=sizes_end-1)
 		return;
-	int iw=sizes->w, ih=sizes->h, tsize=MAXVAR(iw, ih), rowlen=stride*iw;
+	int iw=sizes->w, ih=sizes->h, rowlen=stride*iw;
 	for(int it=sizes_end-2;it>=sizes_start;--it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -2130,7 +2337,7 @@ void dwt2d_cdf97_fwd(char *buffer, DWTSize *sizes, int sizes_start, int sizes_en
 {
 	if(sizes_start>=sizes_end-1)
 		return;
-	int iw=sizes->w, ih=sizes->h, tsize=MAXVAR(iw, ih), rowlen=stride*iw;
+	int iw=sizes->w, ih=sizes->h, rowlen=stride*iw;
 	for(int it=sizes_start;it<sizes_end-1;++it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -2150,7 +2357,7 @@ void dwt2d_cdf97_inv(char *buffer, DWTSize *sizes, int sizes_start, int sizes_en
 {
 	if(sizes_start>=sizes_end-1)
 		return;
-	int iw=sizes->w, ih=sizes->h, tsize=MAXVAR(iw, ih), rowlen=stride*iw;
+	int iw=sizes->w, ih=sizes->h, rowlen=stride*iw;
 	for(int it=sizes_end-2;it>=sizes_start;--it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;

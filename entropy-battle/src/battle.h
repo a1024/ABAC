@@ -154,7 +154,6 @@ size_t ans16_encode(const unsigned char *src, ptrdiff_t res, ArrayHandle *data);
 
 size_t test14_encode(const unsigned char *src, int bw, int bh, int lgblockdim, ArrayHandle *data);
 
-extern unsigned char *debug_ptr;
 size_t test16_encode(const unsigned char *src, int bw, int bh, int alpha, int blocksize, int margin, ArrayHandle *data, int loud);
 int    test16_decode(const unsigned char *data, size_t srclen, int bw, int bh, int alpha, int blocksize, int margin, unsigned char *buf);
 
@@ -163,6 +162,10 @@ size_t test17_encode(const unsigned char *src, int bw, int bh, int blocksize, in
 int    test17_decode(const unsigned char *data, size_t srclen, int bw, int bh, int blocksize, int alpha, unsigned char *buf);
 
 size_t test18_encode(const unsigned char *src, int bw, int bh, ArrayHandle *data);
+
+extern unsigned char *debug_ptr;
+size_t test19_encode(const unsigned char *src, int bw, int bh, int alpha, int blocksize, int margin, ArrayHandle *data, int loud);
+int test19_decode(const unsigned char *data, size_t srclen, int bw, int bh, int alpha, int blocksize, int margin, unsigned char *buf);
 
 
 //transforms
@@ -186,8 +189,8 @@ void YCoCg_8bit_ps_inv(const float *bufY, const float *bufCo, const float *bufCg
 
 void image_differentiate(char *buf, int iw, int ih, int nch, int bytestride);
 void image_integrate    (char *buf, int iw, int ih, int nch, int bytestride);
-void image_unplane     (char *buf, int iw, int ih, int nch, int bytestride);
-void image_replane     (char *buf, int iw, int ih, int nch, int bytestride);
+void pred_grad_fwd     (char *buf, int iw, int ih, int nch, int bytestride);
+void pred_grad_inv     (char *buf, int iw, int ih, int nch, int bytestride);
 
 
 typedef struct DWTSizeStruct

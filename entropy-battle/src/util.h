@@ -251,7 +251,7 @@ typedef struct SListStruct
 		back;	//prev always nullptr, can only append to back
 } SList, *SListHandle;
 
-//API
+//single-linked list API
 void slist_init(SListHandle list, size_t esize, void (*destructor)(void*));
 void slist_clear(SListHandle list);
 void* slist_push_front(SListHandle list, const void *data);

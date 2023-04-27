@@ -1869,8 +1869,37 @@ void batch_test(const char *path)
 			return;
 		}
 		memset(b2, 0, len);
+
+		//test 19
+#if 0
+		{
+			ArrayHandle cdata=0;
+			int alpha=0xD3E4, block=15, margin=29;
+
+			printf("T19 a 0x%04X b %3d m %3d ", alpha, block, margin);
+			cycles=__rdtsc();
+			test19_encode(buf, iw, ih, alpha, block, margin, &cdata, 1);
+			cycles=__rdtsc()-cycles;
+			printf("Enc %11lf CPB  CR %9lf  csize %lld ", (double)cycles/usize, (double)usize/cdata->count, cdata->count);
+
+			sum_testsize+=cdata->count;
+			if((ptrdiff_t)cdata->count<formatsize)
+				printf("!!! ");
+
+			cycles=__rdtsc();
+			test19_decode(cdata->data, cdata->count, iw, ih, alpha, block, margin, b2);
+			cycles=__rdtsc()-cycles;
+			printf("Dec %11lf CPB ", (double)cycles/usize);
+
+			//printf("\n");
+			array_free(&cdata);
+			compare_bufs_uint8(b2, buf, iw, ih, nch0, 4, "T19", 0);
+			memset(b2, 0, len);
+			//printf("\n");
+		}
+#endif
 		
-		//test16 in practice
+		//test16
 #if 1
 		{
 			ArrayHandle cdata=0;
@@ -2067,6 +2096,8 @@ void batch_test(const char *path)
 	printf("\nDone.\n");
 	pause();
 }
+void dwt1d_squeeze_fwd(char *buffer, int count, int stride, char *b2);
+void dwt1d_squeeze_inv(char *buffer, int count, int stride, char *b2);
 int main(int argc, char **argv)
 {
 	//int width=10,
@@ -2107,7 +2138,10 @@ int main(int argc, char **argv)
 		buf=stbi_load(fn, &iw, &ih, &nch0, nch);
 		cycles=__rdtsc()-cycles;
 		if(!buf)
+		{
 			LOG_ERROR("Couldn't open \"%s\"", fn);
+			return 0;
+		}
 		resolution=(size_t)iw*ih;
 		len=resolution*nch;
 
@@ -2380,7 +2414,7 @@ int main(int argc, char **argv)
 
 	//test11_estimate_cr(buf, iw, ih, 1);
 
-	//test16 in practice
+	//test16
 #if 1
 	{
 		int besta=0, bestb=0, bestm=0, bestc=0;
@@ -2416,7 +2450,10 @@ int main(int argc, char **argv)
 				//printf("\n");
 			}
 		}
-		printf("T16 best ABMS 0x%04X %2d %2d %d CR %lf\n\n", besta, bestb, bestm, bestc, (double)usize/bestc);
+		if(it>1)
+			printf("T16 best ABMS 0x%04X %2d %2d %d CR %lf\n", besta, bestb, bestm, bestc, (double)usize/bestc);
+		else
+			printf("\n");
 	}
 #endif
 
@@ -2458,6 +2495,50 @@ int main(int argc, char **argv)
 	printf("\n");
 #endif
 
+	//test 19
+#if 1
+	{
+		//int a=0xD3E7, b=15, m=30;
+		
+		int besta=0, bestb=0, bestm=0, bestc=0;
+		int it=0;
+		for(int m=5;m<=5;++m)
+		{
+			for(int b=10;b<=10;++b)
+			{
+				for(int a=0xD3E4;a<=0xD3E4;++a, ++it)
+				{
+					//debug_ptr=buf;//
+					printf("T19 a 0x%04X b %3d m %3d ", a, b, m);
+					cycles=__rdtsc();
+					test19_encode(buf, iw, ih, a, b, m, &cdata, 0);
+					cycles=__rdtsc()-cycles;
+					printf("Enc %11lf CPB  CR %9lf  csize %lld ", (double)cycles/usize, (double)usize/cdata->count, cdata->count);
+
+					if(!it||bestc>(int)cdata->count)
+						besta=a, bestb=b, bestm=m, bestc=(int)cdata->count;
+#if 1
+					cycles=__rdtsc();
+					test19_decode(cdata->data, cdata->count, iw, ih, a, b, m, b2);
+					cycles=__rdtsc()-cycles;
+					printf("Dec %11lf CPB ", (double)cycles/usize);
+
+					//printf("\n");
+					compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T19", 0);
+					memset(b2, 0, len);
+#endif
+					printf("\n");
+					array_free(&cdata);
+				}
+			}
+		}
+		if(it>1)
+			printf("T19 best ABMS 0x%04X %2d %2d %d CR %lf\n", besta, bestb, bestm, bestc, (double)usize/bestc);
+		else
+			printf("\n");
+	}
+#endif
+
 	//predict image
 	apply_transforms_fwd(buf, iw, ih);
 	//lodepng_encode_file("kodim21-YCoCgT-unplane.PNG", buf, iw, ih, LCT_RGBA, 8);//
@@ -2466,7 +2547,7 @@ int main(int argc, char **argv)
 	printf("Predict image...\n");
 	{
 		ArrayHandle sizes=dwt2d_gensizes(iw, ih, 3, 3, 0);
-		unsigned char *temp=(unsigned char*)malloc(MAXVAR(iw, ih));
+		char *temp=(char*)malloc(MAXVAR(iw, ih));
 		
 		addbuf(buf, iw, ih, nch0, nch, 128);//unsigned char -> signed char
 		
@@ -2474,14 +2555,24 @@ int main(int argc, char **argv)
 		//colortransform_xgz_fwd((char*)buf, iw, ih);
 		//colortransform_xyz_fwd((char*)buf, iw, ih);
 
+		//char *b3=(char*)malloc(iw), *b4=(char*)malloc(iw);
+		//if(!b3||!b4)
+		//	return 0;
+		//memcpy(b3, buf, iw);
+		//dwt1d_squeeze_fwd(b3, iw, 1, b4);
+		//dwt1d_squeeze_inv(b3, iw, 1, b4);
+		//compare_bufs_uint8((unsigned char*)b3, buf, iw, 1, 1, 1, "squeeze row", 0);
+		//free(b3);
+		//free(b4);
+
 #if 1
 		memcpy(b2, buf, len);
 		//colortransform_xyz_fwd(b2, iw, ih);
 		//colortransform_xyz_inv(b2, iw, ih);
 		for(int kc=0;kc<3;++kc)
 		{
-			dwt2d_squeeze_fwd((char*)b2+kc, (DWTSize*)sizes->data, 0, 2, 4, (char*)temp);
-			dwt2d_squeeze_inv((char*)b2+kc, (DWTSize*)sizes->data, 0, 2, 4, (char*)temp);
+			dwt2d_squeeze_fwd((char*)b2+kc, (DWTSize*)sizes->data, 0, 2, 4, temp);
+			dwt2d_squeeze_inv((char*)b2+kc, (DWTSize*)sizes->data, 0, 2, 4, temp);
 		}
 		compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "transform", 0);
 		printf("\n");

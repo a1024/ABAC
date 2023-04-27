@@ -597,6 +597,7 @@ extern const int customparam_ct_w, customparam_ct_h, customparam_st_reach;
 //extern const double customparam_ct0[12], customparam_st0[12];
 extern       double customparam_ct[12], customparam_st[12];
 extern       int    customparam_clamp[2];
+extern       double customparam_hybrid[(7*3+3)*3*3];
 void customtransforms_resetparams();
 void colortransform_custom_fwd(char *buf, int iw, int ih);
 void colortransform_custom_inv(char *buf, int iw, int ih);
@@ -621,8 +622,11 @@ void colortransform_exp_inv  (char *buf, int iw, int ih);
 //void colortransform_learned_inv(char *buf, int iw, int ih);
 
 
-//optimizer
-double opt_causal_reach2(const unsigned char *buf, int iw, int ih, int kc, double *x, double *bias, double lr, int test);
+//optimizers
+double opt_causal_reach2(unsigned char *buf, int iw, int ih, int kc, double *x, double *bias, double lr, int test);
+double opt_causal_hybrid_r3(unsigned char *buf, int iw, int ih, double lr);
+void pred_hybrid_fwd(char *buf, int iw, int ih);
+void pred_hybrid_inv(char *buf, int iw, int ih);
 
 //spatial transforms
 void pred_diff2d_fwd(char *buf, int iw, int ih, int nch, int bytestride);
@@ -643,7 +647,9 @@ typedef struct DWTSizeStruct
 } DWTSize;
 ArrayHandle dwt2d_gensizes(int iw, int ih, int wstop, int hstop, int nstages_override);//calculate dimensions of each DWT stage in descending order
 
-//8bit DWTs			temp is size maxdim*sizeof(short)
+//8bit DWTs			temp is size max(w, h)
+void dwt2d_grad_fwd   (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);
+void dwt2d_grad_inv   (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);
 void dwt2d_lazy_fwd   (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);
 void dwt2d_lazy_inv   (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);
 void dwt2d_haar_fwd   (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);
