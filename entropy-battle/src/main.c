@@ -1185,6 +1185,11 @@ double test16_estimate_csize(const unsigned char *buf, int bw, int bh, int block
 	double csize[3]={0};
 	const int hsize=256*sizeof(unsigned);
 	unsigned *h0=(unsigned*)malloc((size_t)hsize*3);
+	if(!h0)
+	{
+		LOG_ERROR("Allcation error");
+		return 0;
+	}
 	memset(h0, 0, (size_t)hsize*3);
 	for(int kc=0;kc<3;++kc)//for each channel
 	{
@@ -1351,6 +1356,88 @@ double test16_estimate_csize(const unsigned char *buf, int bw, int bh, int block
 	}
 	return csize_total;
 }
+#if 0
+int t20_accblock(const unsigned char *buf, int bw, int x1, int x2, int y1, int y2, int xstep, int ystep, int attenuation)
+{
+	unsigned long long sdev=0;
+	y2*=ystep;
+	x2*=xstep;
+	int normal=0;
+	for(int ky=y1;ky*ystep<y2;ky+=ystep)
+	{
+		int weight=0x10000;
+		for(int kx=x1;kx*xstep<x2;kx+=xstep)
+		{
+			char val=buf[bw*ky+kx]-128;
+			sdev+=val*val;
+		}
+	}
+
+}
+double test20_estimate_csize(const unsigned char *buf, int bw, int bh, int attenuation, int mixfactor, int blocksize, int margin, int loud)
+{
+	const int hsize=256*sizeof(unsigned);
+	unsigned *hist=(unsigned*)malloc(hsize);
+	if(!hist)
+	{
+		LOG_ERROR("Allcation error");
+		return 0;
+	}
+	int res=bw*bh;
+	for(int kc=0;kc<3;++kc)
+	{
+		memset(hist, 0, hsize);
+		for(int k=0;k<res;++k)
+		{
+			unsigned char sym=buf[k<<2|kc];
+			++hist[sym];
+		}
+		for(int ky=0;ky<bh;ky+=blocksize)
+		{
+			for(int kx=0;kx<bw;kx+=blocksize)//for each block
+			{
+				int xsize, ysize, count;
+
+				if(ky+blocksize<=bh)
+					ysize=blocksize;
+				else
+					ysize=bh-ky;
+
+				if(kx+blocksize<=bw)
+					xsize=blocksize;
+				else
+					xsize=bw-kx;
+				count=xsize*ysize;
+
+				int left=kx-margin, top=ky-margin, right=kx+xsize+margin;
+				if(left<0)
+					left=0;
+				if(top<0)
+					top=0;
+				if(right>bw)
+					right=bw;
+				int xend=kx+xsize, yend=ky+ysize;
+				if(left<kx)
+				{
+					for(int ky2=ky;ky2<yend;++ky2)
+					{
+						int factor=0x10000;
+						for(int kx2=kx-1;kx2>=left;--kx2)
+						{
+						}
+					}
+				}
+				for(int ky2=ky;ky2<yend;++ky2)
+				{
+					for(int kx2=kx;kx2<xend;++kx2)//for each pixel
+					{
+					}
+				}
+			}
+		}
+	}
+}
+#endif
 
 #if 0
 int error_func_p16(int x);
@@ -1874,7 +1961,7 @@ void batch_test(const char *path)
 #if 0
 		{
 			ArrayHandle cdata=0;
-			int alpha=0xD3E4, block=15, margin=29;
+			int alpha=0xD3E4, block=30, margin=60;
 
 			printf("T19 a 0x%04X b %3d m %3d ", alpha, block, margin);
 			cycles=__rdtsc();
@@ -2096,8 +2183,6 @@ void batch_test(const char *path)
 	printf("\nDone.\n");
 	pause();
 }
-void dwt1d_squeeze_fwd(char *buffer, int count, int stride, char *b2);
-void dwt1d_squeeze_inv(char *buffer, int count, int stride, char *b2);
 int main(int argc, char **argv)
 {
 	//int width=10,
@@ -2417,6 +2502,7 @@ int main(int argc, char **argv)
 	//test16
 #if 1
 	{
+		//debug_ptr=buf;//
 		int besta=0, bestb=0, bestm=0, bestc=0;
 		int it=0;
 		for(int m=30;m<=30;++m)
@@ -2425,7 +2511,6 @@ int main(int argc, char **argv)
 			{
 				for(int a=0xD3E7;a<=0xD3E7;++a, ++it)
 				{
-					//debug_ptr=buf;//
 					int alpha=a,//(60<<16)/100;	0xA51F	0xD3DA	0xD3D6	0xD3EB
 						bsize=b,//32 24 26 20
 						margin=m;
@@ -2496,7 +2581,7 @@ int main(int argc, char **argv)
 #endif
 
 	//test 19
-#if 1
+#if 0
 	{
 		//int a=0xD3E7, b=15, m=30;
 		
@@ -2534,6 +2619,50 @@ int main(int argc, char **argv)
 		}
 		if(it>1)
 			printf("T19 best ABMS 0x%04X %2d %2d %d CR %lf\n", besta, bestb, bestm, bestc, (double)usize/bestc);
+		else
+			printf("\n");
+	}
+#endif
+	
+	//test20
+#if 1
+	{
+		//debug_ptr=buf;//
+		int loud=1;//
+		int bestB=0, besta=0, bestb=0, bestm=0, bestc=0;
+		int it=0;
+		for(int blockcount=2;blockcount<=8;++blockcount)
+		{
+			for(int margin=30;margin<=30;++margin)
+			{
+				for(int blocksize=1;blocksize<=1;++blocksize)
+				{
+					for(int alpha=0;alpha<=0;++alpha, ++it)//0xD3E7
+					{
+						printf("T20 B %3d a 0x%04X b %3d m %3d ", blockcount, alpha, blocksize, margin);
+						cycles=__rdtsc();
+						test20_encode(buf, iw, ih, blocksize, margin, alpha, blockcount, &cdata, loud);
+						cycles=__rdtsc()-cycles;
+						printf("Enc %11lf CPB  CR %9lf  csize %7lld ", (double)cycles/usize, (double)usize/cdata->count, cdata->count);
+
+						if(!it||bestc>(int)cdata->count)
+							bestB=blockcount, besta=alpha, bestb=blocksize, bestm=margin, bestc=(int)cdata->count;
+
+						cycles=__rdtsc();
+						test20_decode(cdata->data, cdata->count, iw, ih, blocksize, margin, alpha, blockcount, b2);
+						cycles=__rdtsc()-cycles;
+						printf("Dec %11lf CPB ", (double)cycles/usize);
+
+						array_free(&cdata);
+						compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T20", 0);
+						memset(b2, 0, len);
+					}
+					//printf("\n");
+				}
+			}
+		}
+		if(it>1)
+			printf("T20 best Babms %3d 0x%04X %2d %2d %d CR %lf\n", bestB, besta, bestb, bestm, bestc, (double)usize/bestc);
 		else
 			printf("\n");
 	}

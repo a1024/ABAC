@@ -603,6 +603,8 @@ void colortransform_custom_fwd(char *buf, int iw, int ih);
 void colortransform_custom_inv(char *buf, int iw, int ih);
 void pred_custom_fwd(char *buf, int iw, int ih, int nch, int bytestride);
 void pred_custom_inv(char *buf, int iw, int ih, int nch, int bytestride);
+void pred_slope_fwd(char *buf, int iw, int ih, int nch, int bytestride);
+void pred_slope_inv(char *buf, int iw, int ih, int nch, int bytestride);
 
 void addhalf(unsigned char *buf, int iw, int ih, int nch, int bytestride);
 
@@ -673,6 +675,12 @@ void image_dct4_inv(char *image, int iw, int ih);
 
 void image_dct8_fwd(char *image, int iw, int ih);
 void image_dct8_inv(char *image, int iw, int ih);
+
+void image_split_fwd(char *image, int iw, int ih);
+void image_split_inv(char *image, int iw, int ih);
+
+void pred_dct3_fwd(char *buf, int iw, int ih, int nch, int bytestride);
+void pred_dct3_inv(char *buf, int iw, int ih, int nch, int bytestride);
 
 void channel_entropy(unsigned char *buf, int resolution, int nch, int bytestride, float *cr, int *usage);
 void jointhistogram(unsigned char *buf, int resolution, int nbits, ArrayHandle *hist);

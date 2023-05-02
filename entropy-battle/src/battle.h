@@ -167,6 +167,11 @@ extern unsigned char *debug_ptr;
 size_t test19_encode(const unsigned char *src, int bw, int bh, int alpha, int blocksize, int margin, ArrayHandle *data, int loud);
 int test19_decode(const unsigned char *data, size_t srclen, int bw, int bh, int alpha, int blocksize, int margin, unsigned char *buf);
 
+size_t test20_encode(const unsigned char *src, int bw, int bh, int blocksize, int margin, int alpha, int blockcount, ArrayHandle *data, int loud);
+int test20_decode(const unsigned char *data, size_t srclen, int bw, int bh, int blocksize, int margin, int alpha, int blockcount, unsigned char *buf);
+
+
+
 
 //transforms
 void apply_transforms_fwd(unsigned char *buf, int bw, int bh);

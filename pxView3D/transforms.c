@@ -1,5 +1,6 @@
 #include"pxview3d.h"
 #include<stdlib.h>
+#define _USE_MATH_DEFINES
 #include<math.h>
 static const char file[]=__FILE__;
 
@@ -1181,13 +1182,13 @@ int  predict_median(const char *buf, int iw, int kx, int ky, int idx, int bytest
 {
 	char cn[]=
 	{
-	//	kx-3>=0&&ky-3>=0?buf[idx-(rowlen<<1)- bytestride*3  ]:0,
-	//	kx-2>=0&&ky-3>=0?buf[idx-(rowlen<<1)-(bytestride<<1)]:0,
-	//	kx-1>=0&&ky-3>=0?buf[idx-(rowlen<<1)- bytestride    ]:0,
-	//	         ky-3>=0?buf[idx-(rowlen<<1)                ]:0,
-	//	kx+1<iw&&ky-3>=0?buf[idx-(rowlen<<1)+ bytestride    ]:0,
-	//	kx+2<iw&&ky-3>=0?buf[idx-(rowlen<<1)+(bytestride<<1)]:0,
-	//	kx+3<iw&&ky-3>=0?buf[idx-(rowlen<<1)+ bytestride*3  ]:0,
+	//	kx-3>=0&&ky-3>=0?buf[idx-(rowlen*3)- bytestride*3  ]:0,
+	//	kx-2>=0&&ky-3>=0?buf[idx-(rowlen*3)-(bytestride<<1)]:0,
+	//	kx-1>=0&&ky-3>=0?buf[idx-(rowlen*3)- bytestride    ]:0,
+	//	         ky-3>=0?buf[idx-(rowlen*3)                ]:0,
+	//	kx+1<iw&&ky-3>=0?buf[idx-(rowlen*3)+ bytestride    ]:0,
+	//	kx+2<iw&&ky-3>=0?buf[idx-(rowlen*3)+(bytestride<<1)]:0,
+	//	kx+3<iw&&ky-3>=0?buf[idx-(rowlen*3)+ bytestride*3  ]:0,
 		
 	//	kx-3>=0&&ky-2>=0?buf[idx-(rowlen<<1)- bytestride*3  ]:0,
 		kx-2>=0&&ky-2>=0?buf[idx-(rowlen<<1)-(bytestride<<1)]:0,
@@ -1276,6 +1277,275 @@ void pred_median_inv(char *buf, int iw, int ih, int nch, int bytestride)
 			}
 		}
 	}
+}
+
+//double bestslope=0;
+int get_mean(char *buf, int iw, int x1, int y1, int x2, int y2)
+{
+	int sum=0, count=-1;
+
+	int dx=abs(x2-x1), dy=abs(y2-y1), xa, ya, xb, yb;
+	int error, inc, cmp;
+	if(dx>=dy)//horizontal & 45 degrees
+	{
+		error=dx>>1;//initialize yerror fraction with half the denominator
+		if(x1<x2)
+			xa=x1, ya=y1, xb=x2, yb=y2;
+		else
+			xa=x2, ya=y2, xb=x1, yb=y1;
+		inc=ya<=yb?1:-1;
+		for(int kx=xa, ky=ya;kx<=xb;++kx)
+		{
+			//if(kx<0||kx>=bw||ky<0||ky>=bh)//
+			//	return;//
+			if(kx<0||kx>=iw||ky<0)
+				break;
+			if(count>=0)
+				sum+=buf[iw*ky+kx];
+			++count;
+			//buffer[bw*ky+kx]=color;
+
+			error+=dy;//add slope to fraction 'yerror'
+			cmp=-(error>=dx);	//if fraction >1 then:
+			ky+=inc&cmp;		//	...increment y
+			error-=dx&cmp;		//	...and subtract 1 from yerror fraction
+		}
+	}
+	else//vertical & 45 degrees (steep)
+	{
+		error=dy>>1;//initialize xerror fraction with half the denominator
+		if(y1<y2)
+			xa=x1, ya=y1, xb=x2, yb=y2;
+		else
+			xa=x2, ya=y2, xb=x1, yb=y1;
+		inc=xa<=xb?1:-1;
+		for(int ky=ya, kx=xa;ky<=yb;++ky)
+		{
+			//if(kx<0||kx>=bw||ky<0||ky>=bh)//
+			//	return;//
+			if(kx<0||kx>=iw||ky<0)
+				break;
+			if(count>=0)
+				sum+=buf[iw*ky+kx];
+			++count;
+			//buffer[bw*ky+kx]=color;
+
+			error+=dx;//add invslope to fraction 'xerror'
+			cmp=-(error>=dy);	//if fraction >1 then:
+			kx+=inc&cmp;		//	...increment x
+			error-=dy&cmp;		//	...and subtract 1 from xerror fraction
+		}
+	}
+	if(count<=0)
+		return 0;
+	sum=(int)(((long long)sum<<16)/count);
+	return sum;
+#if 0
+	int error=2*sx-sy;
+	int x=kx, y=ky;
+	if(error>0)
+	{
+		--x;
+		error-=sy<<1;
+	}
+	error+=sx<<1;
+	--y;
+	for(;;--y)//Bressenham's line algorithm
+	{
+		if(x<0||y<0||x>=iw||count>=distance)
+			break;
+
+		sum+=buf[iw*y+x];
+		++count;
+
+		if(error>0)
+		{
+			--x;
+			error-=sy<<1;
+		}
+		error+=sx<<1;
+	}
+	if(!count)
+		return 0;
+	sum=(int)(((long long)sum<<16)/count);
+	return sum;
+#endif
+}
+#if 0
+int get_rmse(char *a1, char *a2, int count)
+{
+	long long sum=0;
+	for(int k=0;k<count;++k)
+		sum+=a1[k]*a2[k];
+	sum=(long long)(sqrt((double)sum/count)*0x10000);
+	return (int)sum;
+}
+#endif
+char predict_slope(char *buf, int iw, int kx, int ky, int idx, int bytestride, int rowlen)
+{
+	if(!kx||!ky)
+		return 0;
+	int distance=10;
+	int besterror=0x7FFFFFFF, bestslope1=0, bestslope2=0;
+	for(int angle=1;angle<16-1;++angle)
+	{
+		double th=M_PI*angle/16;
+		double rx=distance*cos(th), ry=distance*sin(th);
+		int mean=get_mean(buf, iw, kx-1, ky, kx-1+(int)round(rx), ky-(int)round(ry));
+		int error=abs((buf[iw*ky+kx-1]<<16)-mean);
+		if(besterror>error)
+			besterror=error, bestslope1=angle;
+	}
+	besterror=0x7FFFFFFF;
+	for(int angle=1;angle<16-1;++angle)
+	{
+		double th=M_PI*angle/16;
+		double rx=distance*cos(th), ry=distance*sin(th);
+		int mean=get_mean(buf, iw, kx, ky-1, kx+(int)round(rx), ky-1-(int)round(ry));
+		int error=abs((buf[iw*ky+kx-1]<<16)-mean);
+		if(besterror>error)
+			besterror=error, bestslope2=angle;
+	}
+	double th=M_PI*(bestslope1+bestslope2)/32;
+	double rx=distance*cos(th), ry=distance*sin(th);
+	int pred=get_mean(buf, iw, kx, ky, kx+(int)round(rx), ky-(int)round(ry));
+	pred=(pred+(1<<15))>>16;
+	return pred;
+
+#if 0
+	char cn[]=
+	{
+		kx-3>=0&&ky-3>=0?buf[idx-(rowlen*3)- bytestride*3  ]:0,//0
+		kx-2>=0&&ky-3>=0?buf[idx-(rowlen*3)-(bytestride<<1)]:0,
+		kx-1>=0&&ky-3>=0?buf[idx-(rowlen*3)- bytestride    ]:0,
+		         ky-3>=0?buf[idx-(rowlen*3)                ]:0,
+		kx+1<iw&&ky-3>=0?buf[idx-(rowlen*3)+ bytestride    ]:0,
+		kx+2<iw&&ky-3>=0?buf[idx-(rowlen*3)+(bytestride<<1)]:0,
+		kx+3<iw&&ky-3>=0?buf[idx-(rowlen*3)+ bytestride*3  ]:0,
+		
+		kx-3>=0&&ky-2>=0?buf[idx-(rowlen<<1)- bytestride*3  ]:0,//7
+		kx-2>=0&&ky-2>=0?buf[idx-(rowlen<<1)-(bytestride<<1)]:0,
+		kx-1>=0&&ky-2>=0?buf[idx-(rowlen<<1)- bytestride    ]:0,
+		         ky-2>=0?buf[idx-(rowlen<<1)                ]:0,
+		kx+1<iw&&ky-2>=0?buf[idx-(rowlen<<1)+ bytestride    ]:0,
+		kx+2<iw&&ky-2>=0?buf[idx-(rowlen<<1)+(bytestride<<1)]:0,
+		kx+3<iw&&ky-2>=0?buf[idx-(rowlen<<1)+ bytestride*3  ]:0,
+		
+		kx-3>=0&&ky-1>=0?buf[idx-rowlen- bytestride*3  ]:0,//14
+		kx-2>=0&&ky-1>=0?buf[idx-rowlen-(bytestride<<1)]:0,
+		kx-1>=0&&ky-1>=0?buf[idx-rowlen- bytestride    ]:0,
+		         ky-1>=0?buf[idx-rowlen                ]:0,
+		kx+1<iw&&ky-1>=0?buf[idx-rowlen+ bytestride    ]:0,
+		kx+2<iw&&ky-1>=0?buf[idx-rowlen+(bytestride<<1)]:0,
+		kx+3<iw&&ky-1>=0?buf[idx-rowlen+ bytestride*3  ]:0,
+		
+		kx-3>=0?buf[idx- bytestride*3  ]:0,//21
+		kx-2>=0?buf[idx-(bytestride<<1)]:0,
+		kx-1>=0?buf[idx- bytestride    ]:0,
+	};
+	int bestslope12=0, bestrmse12=0x7FFFFFFF,
+		bestslope23=0, bestrmse23=0x7FFFFFFF, rmse;
+	rmse=get_rmse(cn+7  , cn+14  , 7  ); if(bestrmse12>rmse)bestrmse12=rmse, bestslope12= 0;
+	rmse=get_rmse(cn+7+1, cn+14  , 7-1); if(bestrmse12>rmse)bestrmse12=rmse, bestslope12= 1;
+	rmse=get_rmse(cn+7  , cn+14+1, 7-1); if(bestrmse12>rmse)bestrmse12=rmse, bestslope12=-1;
+	rmse=get_rmse(cn+7+2, cn+14  , 7-2); if(bestrmse12>rmse)bestrmse12=rmse, bestslope12= 2;
+	rmse=get_rmse(cn+7  , cn+14+2, 7-2); if(bestrmse12>rmse)bestrmse12=rmse, bestslope12=-2;
+	rmse=get_rmse(cn+7+3, cn+14  , 7-3); if(bestrmse12>rmse)bestrmse12=rmse, bestslope12= 3;
+	rmse=get_rmse(cn+7  , cn+14+3, 7-3); if(bestrmse12>rmse)bestrmse12=rmse, bestslope12=-3;
+	
+	rmse=get_rmse(cn    , cn+ 7  , 7  ); if(bestrmse23>rmse)bestrmse23=rmse, bestslope23= 0;
+	rmse=get_rmse(cn  +1, cn+ 7  , 7-1); if(bestrmse23>rmse)bestrmse23=rmse, bestslope23= 1;
+	rmse=get_rmse(cn    , cn+ 7+1, 7-1); if(bestrmse23>rmse)bestrmse23=rmse, bestslope23=-1;
+	rmse=get_rmse(cn  +2, cn+ 7  , 7-2); if(bestrmse23>rmse)bestrmse23=rmse, bestslope23= 2;
+	rmse=get_rmse(cn    , cn+ 7+2, 7-2); if(bestrmse23>rmse)bestrmse23=rmse, bestslope23=-2;
+	rmse=get_rmse(cn  +3, cn+ 7  , 7-3); if(bestrmse23>rmse)bestrmse23=rmse, bestslope23= 3;
+	rmse=get_rmse(cn    , cn+ 7+3, 7-3); if(bestrmse23>rmse)bestrmse23=rmse, bestslope23=-3;
+
+	bestslope+=(bestslope12*3+bestslope23)*0.25;
+
+	int pred=(cn[14+3+bestslope12]+cn[7+3+bestslope23])>>1;
+	//int pred=cn[14+3+bestslope12];
+
+	return pred;
+#endif
+
+#if 0
+	if(x0>=x&&y0>=y)
+		return 0;
+	if(y0>=y)
+		return buf[iw*y+x0];
+	if(x0>=x)
+		return buf[iw*y0+x];
+	return (buf[iw*y+x0]+buf[iw*y0+x])>>1;
+#endif
+#if 0
+	if(x0>=x&&y0>=y)
+		return 0;
+	int sum=0;
+	if(y0>=y)//horizontal prediction
+	{
+		for(int kx=x0;kx<x;++kx)
+			sum+=buf[iw*y+kx];
+		sum/=x-x0;
+		return sum;
+	}
+	if(x0>=x)//vertical prediction
+	{
+		for(int ky=y0;ky<y;++ky)
+			sum+=buf[iw*ky+x];
+		sum/=y-y0;
+		return sum;
+	}
+	for(int k=0, kend=x-x0+y-y0;k<kend;++k)
+	{
+		if(k<y)
+			sum+=buf[iw*k+x-k];
+		else if(k<x)
+			sum+=buf[iw*k+x-k];
+		else
+			sum+=buf[iw*y+k];
+	}
+#endif
+}
+void pred_slope_fwd(char *buf, int iw, int ih, int nch, int bytestride)
+{
+	//bestslope=0;
+	int rowlen=iw*bytestride;
+	for(int kc=0;kc<nch;++kc)
+	{
+		int idx=(iw*ih-1)*bytestride+kc;
+		for(int ky=ih-1;ky>=0;--ky)
+		{
+			for(int kx=iw-1;kx>=0;--kx, idx-=bytestride)
+			{
+				//if(kx==iw>>1&&ky==ih>>1)
+				//	kx=iw>>1;
+				char pred=predict_slope(buf, iw, kx, ky, idx, bytestride, rowlen);
+
+				buf[idx]-=pred;
+			}
+		}
+	}
+	//bestslope/=iw*ih;
+}
+void pred_slope_inv(char *buf, int iw, int ih, int nch, int bytestride)
+{
+	//bestslope=0;
+	int rowlen=iw*bytestride;
+	for(int kc=0;kc<nch;++kc)
+	{
+		int idx=kc;
+		for(int ky=0;ky<ih;++ky)
+		{
+			for(int kx=0;kx<iw;++kx, idx+=bytestride)
+			{
+				char pred=predict_slope(buf, iw, kx, ky, idx, bytestride, rowlen);
+
+				buf[idx]+=pred;
+			}
+		}
+	}
+	//bestslope/=iw*ih;
 }
 
 int  predict_grad(const char *buf, int iw, int kx, int ky, int idx, int bytestride, int rowlen)
@@ -2836,6 +3106,258 @@ void image_dct8_inv(char *image, int iw, int ih)
 #endif
 	}
 	free(temp);
+}
+
+
+void predict_dct3_prep(float *dct3, float *dct4)
+{
+	dct3[0]=2,          dct3[1]= 2, dct3[2]=2;
+	dct3[3]=sqrtf(3.f), dct3[4]= 0, dct3[5]=-sqrtf(3.f);
+	dct3[6]=1,          dct3[7]=-2, dct3[8]=1;
+
+	for(int k=0;k<9;++k)
+		dct3[k]/=3.f;
+
+	float a=(float)cos(M_PI/8), b=(float)cos(M_PI/4), c=(float)cos(M_PI*3/8);
+	dct4[ 0]=0.5f, dct4[ 1]= a, dct4[ 2]= b, dct4[ 3]= c;
+	dct4[ 4]=0.5f, dct4[ 5]= a, dct4[ 6]=-b, dct4[ 7]=-c;
+	dct4[ 8]=0.5f, dct4[ 9]=-a, dct4[10]=-b, dct4[11]= c;
+	dct4[12]=0.5f, dct4[13]=-a, dct4[14]= b, dct4[15]=-c;
+}
+int  predict_dct3(const char *buf, int iw, int kx, int ky, int idx, int bytestride, int rowlen, const float *dct3, const float *dct4)
+{
+	float
+		left[]=
+	{
+		kx-3>=0?(float)buf[idx-bytestride*3]:0,
+		kx-2>=0?(float)buf[idx-bytestride*2]:0,
+		kx-1>=0?(float)buf[idx-bytestride  ]:0,
+	},
+		top []=
+	{
+		ky-3>=0?(float)buf[idx-rowlen*3]:0,
+		ky-2>=0?(float)buf[idx-rowlen*2]:0,
+		ky-1>=0?(float)buf[idx-rowlen  ]:0,
+	},
+		topleft[]=
+	{
+		kx-3>=0&&ky-3>=0?(float)buf[idx-(rowlen+bytestride)*3]:0,
+		kx-2>=0&&ky-2>=0?(float)buf[idx-(rowlen+bytestride)*2]:0,
+		kx-1>=0&&ky-1>=0?(float)buf[idx-(rowlen+bytestride)  ]:0,
+	},
+		topright[]=
+	{
+		kx+3<iw&&ky-3>=0?(float)buf[idx-(rowlen-bytestride)*3]:0,
+		kx+2<iw&&ky-2>=0?(float)buf[idx-(rowlen-bytestride)*2]:0,
+		kx+1<iw&&ky-1>=0?(float)buf[idx-(rowlen-bytestride)  ]:0,
+	};
+	float x[]=
+	{
+		(dct3[0]*left[0]+dct3[1]*left[1]+dct3[2]*left[2] + dct3[0]*top[0]+dct3[1]*top[1]+dct3[2]*top[2] + dct3[0]*topleft[0]+dct3[1]*topleft[1]+dct3[2]*topleft[2] + dct3[0]*topright[0]+dct3[1]*topright[1]+dct3[2]*topright[2])*0.25f,
+		(dct3[3]*left[0]+dct3[4]*left[1]+dct3[5]*left[2] + dct3[3]*top[0]+dct3[4]*top[1]+dct3[5]*top[2] + dct3[3]*topleft[0]+dct3[4]*topleft[1]+dct3[5]*topleft[2] + dct3[3]*topright[0]+dct3[4]*topright[1]+dct3[5]*topright[2])*0.25f,
+		0,
+		(dct3[6]*left[0]+dct3[7]*left[1]+dct3[8]*left[2] + dct3[6]*top[0]+dct3[7]*top[1]+dct3[8]*top[2] + dct3[6]*topleft[0]+dct3[7]*topleft[1]+dct3[8]*topleft[2] + dct3[6]*topright[0]+dct3[7]*topright[1]+dct3[8]*topright[2])*0.25f,
+	};
+	x[2]=x[1];
+	float pred=dct4[12]*x[0]+dct4[13]*x[1]+dct4[14]*x[2]+dct4[15]*x[3];
+	pred=roundf(pred);
+	
+	pred=CLAMP(customparam_clamp[0], pred, customparam_clamp[1]);
+	return (int)pred;
+}
+void pred_dct3_fwd(char *buf, int iw, int ih, int nch, int bytestride)
+{
+	float coeff[25];
+	predict_dct3_prep(coeff, coeff+9);
+
+	int rowlen=iw*bytestride;
+	for(int kc=0;kc<nch;++kc)
+	{
+		int idx=(iw*ih-1)*bytestride+kc;
+		for(int ky=ih-1;ky>=0;--ky)
+		{
+			for(int kx=iw-1;kx>=0;--kx, idx-=bytestride)
+			{
+				int pred=predict_dct3(buf, iw, kx, ky, idx, bytestride, rowlen, coeff, coeff+9);
+
+				buf[idx]-=pred;
+			}
+		}
+	}
+}
+void pred_dct3_inv(char *buf, int iw, int ih, int nch, int bytestride)
+{
+	float coeff[25];
+	predict_dct3_prep(coeff, coeff+9);
+
+	int rowlen=iw*bytestride;
+	for(int kc=0;kc<nch;++kc)
+	{
+		int idx=kc;
+		for(int ky=0;ky<ih;++ky)
+		{
+			for(int kx=0;kx<iw;++kx, idx+=bytestride)
+			{
+				int pred=predict_dct3(buf, iw, kx, ky, idx, bytestride, rowlen, coeff, coeff+9);
+
+				buf[idx]+=pred;
+			}
+		}
+	}
+}
+
+
+//other
+void image_split_fwd(char *image, int iw, int ih)
+{
+	char *b2=(char*)malloc((size_t)iw*ih<<2);
+	if(!b2)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	memcpy(b2, image, (size_t)iw*ih<<2);
+	//int maxdim=MAXVAR(iw, ih);
+	//char *temp=(char*)malloc(maxdim);
+	//if(!temp)
+	//{
+	//	LOG_ERROR("Allocation error");
+	//	return;
+	//}
+	//memset(temp, 0, maxdim);
+	for(int kc=0;kc<3;++kc)
+	{
+		for(int ky=0;ky<ih-1;ky+=2)
+		{
+			for(int kx=0;kx<iw-1;kx+=2)
+			{
+				int idx=iw*ky+kx;
+				char x[]=
+				{
+					b2[ idx      <<2|kc],
+					b2[(idx+1   )<<2|kc],
+					b2[(idx  +iw)<<2|kc],
+					b2[(idx+1+iw)<<2|kc],
+				};
+#if 0
+				for(int k=1;k<4;++k)//mini-CDF (insertion sort)
+				{
+					int L=0, R=k-1, mid, found=0;
+					while(L<=R)
+					{
+						mid=(L+R)>>1;
+						if(x[mid]<x[k])
+							L=mid+1;
+						else if(x[mid]>x[k])
+							R=mid-1;
+						else
+						{
+							found=1;
+							break;
+						}
+					}
+					if(!found)
+						mid=L+(L<k&&x[L]<x[k]);
+				}
+#endif
+#if 1
+				char temp;
+				if(x[0]>x[1])temp=x[0], x[0]=x[1], x[1]=temp;//mini-CDF (dedicated sort)
+				if(x[2]>x[3])temp=x[2], x[2]=x[3], x[3]=temp;//https://stackoverflow.com/questions/6145364/sort-4-number-with-few-comparisons
+				if(x[0]>x[2])temp=x[0], x[0]=x[2], x[2]=temp;
+				if(x[1]>x[3])temp=x[1], x[1]=x[3], x[3]=temp;
+				if(x[1]>x[2])temp=x[1], x[1]=x[2], x[2]=temp;
+#endif
+				int idx2=iw*(ky>>1)+(kx>>1);
+				image[ idx2                    <<2|kc]=x[0];
+				image[(idx2           +(iw>>1))<<2|kc]=x[1];
+				image[(idx2+iw*(ih>>1)        )<<2|kc]=x[2];
+				image[(idx2+iw*(ih>>1)+(iw>>1))<<2|kc]=x[3];
+			}
+		}
+#if 0
+		for(int ky=0;ky<ih;++ky)
+		{
+			for(int kx=0;kx<iw-1;kx+=2)
+			{
+				int idx=iw*ky+kx;
+				char x[]=
+				{
+					image[ idx   <<2|kc],
+					image[(idx+1)<<2|kc],
+				};
+
+				temp[ kx>>1           ]=x[0];
+				temp[(kx>>1)+(iw>>1)  ]=x[1];
+			}
+			for(int kx=0;kx<iw;++kx)
+				image[(iw*ky+kx)<<2|kc]=temp[kx];
+		}
+#endif
+#if 0
+		for(int kx=0;kx<iw;++kx)
+		{
+			for(int ky=0;ky<ih-3;ky+=4)
+			{
+				int idx=iw*ky+kx;
+				char x[]=
+				{
+					image[ idx      <<2|kc],
+					image[(idx+iw  )<<2|kc],
+				};
+
+				temp[(ky>>1)          ]=x[0];
+				temp[(ky>>1)+(ih>>1)  ]=x[1];
+			}
+			for(int ky=0;ky<ih;++ky)
+				image[(iw*ky+kx)<<2|kc]=temp[ky];
+		}
+#endif
+	}
+	free(b2);
+	//free(temp);
+}
+void image_split_inv(char *image, int iw, int ih)
+{
+	char *b2=(char*)malloc((size_t)iw*ih<<2);
+	if(!b2)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	memcpy(b2, image, (size_t)iw*ih<<2);
+	for(int kc=0;kc<3;++kc)
+	{
+		for(int ky=0;ky<ih-1;ky+=2)
+		{
+			for(int kx=0;kx<iw-1;kx+=2)
+			{
+				int idx=iw*ky+kx, idx2=iw*(ky>>1)+(kx>>1);
+				char x[]=
+				{
+					b2[ idx2                    <<2|kc],
+					b2[(idx2           +(iw>>1))<<2|kc],
+					b2[(idx2+iw*(ih>>1)        )<<2|kc],
+					b2[(idx2+iw*(ih>>1)+(iw>>1))<<2|kc],
+				};
+				
+#if 0
+				char temp;
+				if(x[0]>x[1])temp=x[0], x[0]=x[1], x[1]=temp;//mini-CDF (dedicated sort)
+				if(x[2]>x[3])temp=x[2], x[2]=x[3], x[3]=temp;//https://stackoverflow.com/questions/6145364/sort-4-number-with-few-comparisons
+				if(x[0]>x[2])temp=x[0], x[0]=x[2], x[2]=temp;
+				if(x[1]>x[3])temp=x[1], x[1]=x[3], x[3]=temp;
+				if(x[1]>x[2])temp=x[1], x[1]=x[2], x[2]=temp;
+#endif
+				
+				image[ idx      <<2|kc]=x[0];
+				image[(idx+1   )<<2|kc]=x[1];
+				image[(idx  +iw)<<2|kc]=x[2];
+				image[(idx+1+iw)<<2|kc]=x[3];
+			}
+		}
+	}
+	free(b2);
 }
 
 static unsigned qhist[256]={0};

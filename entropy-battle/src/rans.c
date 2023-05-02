@@ -5137,7 +5137,7 @@ void debug_dec_update(unsigned state, unsigned cdf, unsigned freq, int kx, int k
 #define debug_dec_update(...)
 #endif
 
-#if 1
+#if 0
 void t19_calchist(const unsigned char *b2, int bw, int kc, int x1, int x2, int y1, int y2, int xslope, int yslope, int constant, int maxinc, unsigned *CDF2, int *hcount)
 {
 	//int constant=maxinc+(y2-y1)*yslope+(x2-x1)*xslope;
@@ -5194,6 +5194,31 @@ void t19_prepblock(const unsigned short *CDF, const unsigned char *b2, int kc, D
 		memset(CDF2, 0, 256*sizeof(unsigned));
 		if(maxinc>0)
 		{
+			int dwtblockbounds[4];
+			memcpy(dwtblockbounds, blockbounds, sizeof(dwtblockbounds));
+			for(;;)
+			{
+				dwtblockbounds[0]>>=1;
+				dwtblockbounds[1]>>=1;
+				dwtblockbounds[2]>>=1;
+				dwtblockbounds[3]>>=1;
+				if(dwtblockbounds[0]>=dwtblockbounds[1]||dwtblockbounds[2]>=dwtblockbounds[3])
+					break;
+				t19_calchist(b2, sizes->w, kc, blockbounds[0], blockbounds[1], top, blockbounds[2], 0, 0, maxinc, maxinc, CDF2, &hcount);//DWT block(s)
+			}
+
+			//LPF
+#if 0
+			//for(int k=0;k<255;++k)
+			//	CDF2[k]+=CDF[k+1]>>1;
+			//for(int k=255;k>0;--k)
+			//	CDF2[k]+=CDF[k-1]>>1;
+			for(int k=0;k<255;++k)
+				CDF2[k]=(CDF2[k]+CDF[k+1])>>1;
+			for(int k=255;k>0;--k)
+				CDF2[k]=(CDF2[k]+CDF[k-1])>>1;
+#endif
+
 			if(left<blockbounds[0])
 			{
 				t19_calchist(b2, sizes->w, kc, left, blockbounds[0], blockbounds[2], blockbounds[3], 1, 0, maxinc-(blockbounds[0]-left), maxinc, CDF2, &hcount);//left
@@ -5206,18 +5231,11 @@ void t19_prepblock(const unsigned short *CDF, const unsigned char *b2, int kc, D
 				if(blockbounds[1]<right)
 					t19_calchist(b2, sizes->w, kc, blockbounds[1], right, top, blockbounds[2], -1, 1, maxinc-(blockbounds[2]-top), maxinc, CDF2, &hcount);//topright
 			}
-		}
-		int dwtblockbounds[4];
-		memcpy(dwtblockbounds, blockbounds, sizeof(dwtblockbounds));
-		for(;;)
-		{
-			dwtblockbounds[0]>>=1;
-			dwtblockbounds[1]>>=1;
-			dwtblockbounds[2]>>=1;
-			dwtblockbounds[3]>>=1;
-			if(dwtblockbounds[0]>=dwtblockbounds[1]||dwtblockbounds[2]>=dwtblockbounds[3])
-				break;
-			t19_calchist(b2, sizes->w, kc, blockbounds[0], blockbounds[1], top, blockbounds[2], 0, 0, maxinc, maxinc, CDF2, &hcount);//DWT block(s)
+#if 0
+			hcount=0;
+			for(int k=0;k<256;++k)
+				hcount+=CDF[k];
+#endif
 		}
 	}
 
@@ -5560,6 +5578,465 @@ int test19_decode(const unsigned char *data, size_t srclen, int bw, int bh, int 
 	addbuf(buf, bw, bh, 3, 4, 128);//back to unsigned char
 	free(temp);
 #endif
+	return 1;
+}
+#endif
+
+#if 1
+void t20_prepblock(const unsigned char *b2, unsigned short *CDF, int bw, int bh, int kc, int bx, int by, int alpha, int blocksize, int margin, unsigned *CDF2, int *xend, int *yend)
+{
+	int kx=bx*blocksize, ky=by*blocksize;
+
+	*yend=ky+blocksize<=bh?ky+blocksize:bh;
+	*xend=kx+blocksize<=bw?kx+blocksize:bw;
+				
+	int overflow=0;//CDF overflow can happen only once
+	if(!bx&&!by||!alpha)//first block has zero alpha
+	{
+		//if(bx==1&&!by)
+		//	bx=1;
+		for(int sym=0;sym<256;++sym)
+		{
+			if(overflow)
+				CDF2[sym]=0x10000;
+				//CDF2[sym]=0xFF00|sym;
+			else
+			{
+				int cdf0=CDF[sym], cdf=cdf0;
+				//cdf=((unsigned)(cdf*0xFF00)>>16)+sym;
+				CDF2[sym]=cdf;
+				if(sym<255&&cdf0>CDF[sym+1])
+					overflow=1;
+			}
+		}
+		CDF2[256]=0x10000;
+	}
+	else
+	{
+		memset(CDF2, 0, 256*sizeof(unsigned));
+
+		int count2=0;
+
+		int left=kx-margin;
+		if(left<0)
+			left=0;
+		int right=kx+blocksize+margin;
+		if(right>bw)
+			right=bw;
+		int top=ky-margin;
+		if(top<0)
+			top=0;
+
+		if(left<kx)//if left block is available
+		{
+			for(int ky2=ky;ky2<*yend;++ky2)
+			{
+				for(int kx2=left;kx2<kx;++kx2)//for each pixel
+				{
+					unsigned char sym=b2[(bw*ky2+kx2)<<2|kc];
+					int dist=kx-kx2;
+					if(dist<0||dist>margin)
+						LOG_ERROR("Wrong distance");
+					
+					int inc=(margin<<1|1)-dist;
+					//int inc=(kx2>>1)+1;
+					//int inc=(kx2*3>>2)+1;
+					//int inc=kx2<<1|1;
+					//int inc=1;
+					//int inc=kx2*kx2+1;
+					//int inc=0x10000/(kx2+1);
+
+					if(!inc)
+						LOG_ERROR("Zero inc");
+
+					CDF2[sym]+=inc;
+					count2+=inc;
+					//if(count2<inc)
+					//	LOG_ERROR("OVERFLOW");
+				}
+			}
+			//count2+=(blocksize*(blocksize+1)>>1)**ysize;
+			//count2+=blocksize**ysize;
+		}
+		if(top<ky)//if top block is available
+		{
+			for(int ky2=top;ky2<ky;++ky2)
+			{
+				for(int kx2=kx;kx2<*xend;++kx2)//for each pixel
+				{
+					unsigned char sym=b2[(bw*ky2+kx2)<<2|kc];
+					int dist=ky-ky2;
+					if(dist<0||dist>margin)
+						LOG_ERROR("Wrong distance");
+					
+					int inc=(margin<<1|1)-dist;
+					//int inc=(ky2>>1)+1;
+					//int inc=(ky2*3>>2)+1;
+					//int inc=ky2<<1|1;
+					//int inc=1;
+					//int inc=ky2*ky2+1;
+					//int inc=0x10000/(ky2+1);
+					
+					if(!inc)
+						LOG_ERROR("Zero inc");
+
+					CDF2[sym]+=inc;
+					count2+=inc;
+					if(count2<inc)
+						LOG_ERROR("OVERFLOW");
+				}
+			}
+			//count2+=(blocksize*(blocksize+1)>>1)**xsize;
+			//count2+=blocksize**xsize;
+		}
+		if(left<kx&&top<ky)//if topleft block is available
+		{
+			for(int ky2=top;ky2<ky;++ky2)
+			{
+				for(int kx2=left;kx2<kx;++kx2)//for each pixel
+				{
+					unsigned char sym=b2[(bw*ky2+kx2)<<2|kc];
+					int dist=kx-kx2+ky-ky2;
+					//int dist=MAXVAR(kx-kx2, ky-ky2);
+					
+					if(dist<0||dist>(margin<<1))
+						LOG_ERROR("Wrong distance");
+					
+					int inc=(margin<<1|1)-dist;
+					
+					if(!inc)
+						LOG_ERROR("Zero inc");
+
+					CDF2[sym]+=inc;
+					count2+=inc;
+				}
+			}
+		}
+		if(right>kx+blocksize&&top<ky)//if topright block is available
+		{
+			for(int ky2=top;ky2<ky;++ky2)
+			{
+				for(int kx2=kx+blocksize;kx2<right;++kx2)//for each pixel
+				{
+					unsigned char sym=b2[(bw*ky2+kx2)<<2|kc];
+					int dist=kx2-(kx+blocksize)+ky-ky2;
+					//int dist=MAXVAR(kx2-(kx+blocksize), ky-ky2);
+
+					if(dist<0||dist>(margin<<1))
+						LOG_ERROR("Wrong distance");
+					
+					int inc=(margin<<1|1)-dist;
+					
+					if(!inc)
+						LOG_ERROR("Zero inc");
+
+					CDF2[sym]+=inc;
+					count2+=inc;
+				}
+			}
+		}
+
+		int sum=0;
+		for(int sym=0;sym<256;++sym)
+		{
+			int cdf1=!overflow?CDF[sym]:0x10000;
+			if(sym<255)
+				overflow|=cdf1>CDF[sym+1];
+			int f1=(sym<255&&!overflow?CDF[sym+1]:0x10000)-cdf1;
+
+			int f2=CDF2[sym];
+			int freq=(int)(((long long)f2<<16)/count2);//normalize
+
+			//if(f1||f2)//
+			//	printf("");
+
+			freq=f1+(int)(((long long)freq-f1)*alpha>>16);//blend
+			freq=((unsigned)(freq*0xFF00)>>16)+1;//guard
+			if(freq<0||freq>0xFF01)
+				LOG_ERROR("Impossible freq 0x%04X / 0x10000", freq);
+			CDF2[sym]=sum;
+			sum+=freq;
+			if(sum>0x10000)
+				LOG_ERROR("ANS CDF sum 0x%04X, freq 0x%04X", sum, freq);
+		}
+		CDF2[256]=0x10000;
+	}
+}
+size_t test20_encode(const unsigned char *src, int bw, int bh, int blocksize, int margin, int alpha, int blockcount, ArrayHandle *data, int loud)
+{
+	int res=bw*bh;
+	unsigned char *b2=(unsigned char*)malloc((size_t)res<<2);
+	if(!b2)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	memcpy(b2, src, (size_t)res<<2);
+	apply_transforms_fwd(b2, bw, bh);
+
+	int macroblocksize=blocksize*blockcount,
+		macroblockcx=(bw+macroblocksize-1)/macroblocksize,
+		macroblockcy=(bh+macroblocksize-1)/macroblocksize,
+		macroblockcount=macroblockcx*macroblockcy;
+	unsigned *hist=(unsigned*)malloc(257LL*sizeof(int));
+	unsigned short *CDF=(unsigned short*)malloc(macroblockcount*768LL*sizeof(short));
+	if(!hist||!CDF)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	for(int kc=0;kc<3;++kc)
+	{
+		for(int mby=0;mby<macroblockcy;++mby)
+		{
+			int yend=macroblocksize*(mby+1);
+			if(yend>bh)
+				yend=bh;
+			int ystart=macroblocksize*mby, dy=yend-ystart;
+			for(int mbx=0;mbx<macroblockcx;++mbx)
+			{
+				int xend=macroblocksize*(mbx+1);
+				if(xend>bw)
+					xend=bw;
+				int xstart=macroblocksize*mbx, dx=xend-xstart;
+
+				memset(hist, 0, 256LL*sizeof(int));
+				for(int ky=ystart;ky<yend;++ky)
+				{
+					for(int kx=xstart;kx<xend;++kx)
+					{
+						unsigned char sym=b2[(bw*ky+kx)<<2|kc];
+						++hist[sym];
+					}
+				}
+				unsigned short *CDFk=CDF+((3*(macroblockcx*mby+mbx)+kc)<<8);
+				int sum=0, count=dy*dx;
+				for(int sym=0;sym<256;++sym)//normalize & accumulate histogram to fit in an unsigned short & quickly fetch CDF and freq
+				{
+					int freq=hist[sym];
+					//freq=(int)(((long long)freq<<16)/count);
+					freq=(int)(((long long)freq*0xFFFF)/count);
+					//freq=(int)(((long long)freq*0xFF00)/count+1);
+					CDFk[sym]=sum;
+					sum+=freq;
+					if(sum>0x10000)
+						LOG_ERROR("CDF Overflow");
+				}
+				//if(kc==0&&mby==255&&mbx==356)
+				//	mbx=356;
+				//normalize_histogram(hist, 256, dx*dy, CDF+((3*(macroblockcx*mby+mbx)+kc)<<8));
+			}
+		}
+	}
+
+	DList list;
+	dlist_init(&list, 1, 1024, 0);
+
+	int ansbookmarks[3]={0};
+	dlist_push_back(&list, 0, 12);
+	dlist_push_back(&list, CDF, macroblockcount*768LL*sizeof(short));
+
+	int bxcount=(bw+blocksize-1)/blocksize,
+		bycount=(bh+blocksize-1)/blocksize;
+	for(int kc=0;kc<3;++kc)
+	{
+		unsigned state=0x10000;
+		for(int by=bycount-1;by>=0;--by)
+		{
+			int mby=by/blockcount;
+			int ky=by*blocksize;
+			for(int bx=bxcount-1;bx>=0;--bx)//for each block
+			{
+				//if(kc==0&&bx==0&&by==0)
+				//	kc=0;
+				
+				int mbx=bx/blockcount;
+				int kx=bx*blocksize;
+				int xend=0, yend=0;
+				t20_prepblock(b2, CDF+((3*(macroblockcx*mby+mbx)+kc)<<8), bw, bh, kc, bx, by, alpha, blocksize, margin, hist, &xend, &yend);
+
+				//if(kc==0&&bx==0&&by==0)
+				//	print_CDF(hist, b2, bw, bh, kc, kx, xend, ky, yend);
+
+				//encode block
+				for(int ky2=yend-1;ky2>=ky;--ky2)
+				{
+					for(int kx2=xend-1;kx2>=kx;--kx2)//for each pixel
+					{
+						unsigned char sym=b2[(bw*ky2+kx2)<<2|kc];
+
+						int cdf=hist[sym], freq=hist[sym+1]-cdf;
+
+						//if(kc==0&&ky2==0&&kx2==15)//
+						//	printf("\n\nsym 0x%02X cdf 0x%04X freq 0x%04X\n\n", sym, cdf, freq);
+
+						if(!freq)
+							LOG_ERROR("ZPS");
+						
+						if(state>=(unsigned)(freq<<16))//renorm
+						{
+							dlist_push_back(&list, &state, 2);
+							state>>=16;
+						}
+						debug_enc_update(state, cdf, freq, kx, ky, 0, kc, sym);
+						state=state/freq<<16|(cdf+state%freq);//update
+					}
+				}
+			}
+		}
+		dlist_push_back(&list, &state, 4);
+		ansbookmarks[kc]=(int)list.nobj;
+	}
+	size_t dststart=dlist_appendtoarray(&list, data);
+	memcpy(data[0]->data+dststart, ansbookmarks, 12);
+	
+	if(loud)
+	{
+		int osize=(int)(macroblockcount*768LL*sizeof(short)), rsize=ansbookmarks[0]-osize, bsize=ansbookmarks[1]-ansbookmarks[0], gsize=ansbookmarks[2]-ansbookmarks[1], s0=bw*bh;
+		printf("alpha 0x%04X block %d margin %d\n", alpha, blocksize, margin);
+		printf("Overhead %7d\n", osize);
+		printf("Red      %7d  %lf\n", rsize, (double)s0/rsize);
+		printf("Green    %7d  %lf\n", bsize, (double)s0/bsize);
+		printf("Blue     %7d  %lf\n", gsize, (double)s0/gsize);
+		printf("Uncompr. %7d\n", s0);
+
+		//printf("alpha 0x%04X block %d margin %d\n", alpha, blocksize, margin);
+		//printf("Overhead %7d\n", (int)(macroblockcount*768LL*sizeof(short)));
+		//printf("Red      %7d\n", ansbookmarks[0]-(int)(macroblockcount*768LL*sizeof(short)));
+		//printf("Green    %7d\n", ansbookmarks[1]-ansbookmarks[0]);
+		//printf("Blue     %7d\n", ansbookmarks[2]-ansbookmarks[1]);
+	}
+
+	dlist_clear(&list);
+	free(b2);
+	free(hist);
+	free(CDF);
+	return 1;
+}
+int test20_decode(const unsigned char *data, size_t srclen, int bw, int bh, int blocksize, int margin, int alpha, int blockcount, unsigned char *buf)
+{
+	int macroblocksize=blocksize*blockcount,
+		macroblockcx=(bw+macroblocksize-1)/macroblocksize,
+		macroblockcy=(bh+macroblocksize-1)/macroblocksize,
+		macroblockcount=macroblockcx*macroblockcy;
+	int cdflen=macroblockcount*768*(int)sizeof(short), overhead=12+cdflen;
+	int res=bw*bh;
+	
+	const unsigned char *srcptr, *srcstart, *srcend=data+srclen;
+	if(data+overhead>=srcend)
+	{
+		LOG_ERROR("Invalid file");
+		return 0;
+	}
+
+	unsigned ansbookmarks[3];
+	memcpy(ansbookmarks, data, 12);
+	if(ansbookmarks[2]<(unsigned)overhead)
+	{
+		LOG_ERROR("Corrupt file");
+		return 0;
+	}
+	if(ansbookmarks[2]>srclen)
+	{
+		LOG_ERROR("Incomplete file");
+		return 0;
+	}
+	
+	unsigned short *CDF=(unsigned short*)malloc(cdflen);
+	unsigned *CDF2=(unsigned*)malloc(257LL*sizeof(unsigned));
+	if(!CDF||!CDF2)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	memcpy(CDF, data+12, cdflen);
+	
+	int bxcount=(bw+blocksize-1)/blocksize,
+		bycount=(bh+blocksize-1)/blocksize;
+	for(int kc=0;kc<3;++kc)
+	{
+		unsigned state;
+		srcptr=data+ansbookmarks[kc];
+		srcstart=kc?data+ansbookmarks[kc-1]:data+overhead;
+		srcptr-=4;
+		if(srcptr<srcstart)
+			LOG_ERROR("ANS buffer overflow");
+		memcpy(&state, srcptr, 4);
+		
+		for(int by=0;by<bycount;++by)
+		{
+			int mby=by/blockcount;
+			int ky=by*blocksize;
+			for(int bx=0;bx<bxcount;++bx)//for each block
+			{
+				//if(kc==0&&bx==0&&by==0)
+				//	kc=0;
+				
+				int mbx=bx/blockcount;
+				int kx=bx*blocksize;
+				int xend=0, yend=0;
+				t20_prepblock(buf, CDF+((3*(macroblockcx*mby+mbx)+kc)<<8), bw, bh, kc, bx, by, alpha, blocksize, margin, CDF2, &xend, &yend);
+				for(int ky2=ky;ky2<yend;++ky2)
+				{
+					for(int kx2=kx;kx2<xend;++kx2)//for each pixel
+					{
+						unsigned c=(unsigned short)state;
+						int sym=0;
+						int L=0, R=256, found=0, c0;
+						while(L<=R)
+						{
+							sym=(L+R)>>1;
+							if(CDF2[sym]<c)
+								L=sym+1;
+							else if(CDF2[sym]>c)
+								R=sym-1;
+							else
+							{
+								found=1;
+								break;
+							}
+						}
+						if(!found)
+							sym=L+(L<257&&CDF2[L]<c)-1;
+						else
+							for(c0=CDF2[sym];sym<255&&CDF2[sym+1]==c0;++sym);
+
+						//int found=binary_search(CDF2, 257, sizeof(int), threeway_uint32, &c, &sym);
+						//if(found)
+						//	for(int cdf=CDF2[sym];sym<255&&CDF2[sym+1]==cdf;++sym);
+						//else//binary_search gives insertion index
+						//	--sym;
+
+						//if(kc==0&&ky2==14&&kx2==14)
+						//	kx2=14;
+						//if(sym!=debug_ptr[(bw*ky2+kx2)<<2|kc])//
+						//	LOG_ERROR("");
+
+						buf[(bw*ky2+kx2)<<2|kc]=(unsigned char)sym;
+
+						unsigned cdf=CDF2[sym], freq=CDF2[sym+1]-cdf;
+						
+						debug_dec_update(state, cdf, freq, kx, ky, 0, kc, sym);
+						state=freq*(state>>16)+c-cdf;//update
+						if(state<0x10000)//renorm
+						{
+							state<<=16;
+							if(srcptr-2>=srcstart)
+							{
+								srcptr-=2;
+								memcpy(&state, srcptr, 2);
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	free(CDF);
+	free(CDF2);
+	for(int k=0;k<res;++k)//set alpha
+		buf[k<<2|3]=0xFF;
+	apply_transforms_inv(buf, bw, bh);
 	return 1;
 }
 #endif

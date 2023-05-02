@@ -383,6 +383,7 @@ void pred_grad_inv(char *buf, int iw, int ih, int nch, int bytestride)
 	}
 }
 
+
 //YCoCg-R (lifting-based YCoCg)		8 bit <-> ps,  3 channels, pixel stride 4 bytes,  Y in [0, 1], Co/Cg in [-1, 1],  used by AVC/HEVC/VVC
 #ifndef CLAMP
 #define CLAMP(LO, X, HI)	(X<LO?LO:(X>HI?HI:X))
