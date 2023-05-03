@@ -1548,6 +1548,637 @@ void pred_slope_inv(char *buf, int iw, int ih, int nch, int bytestride)
 	//bestslope/=iw*ih;
 }
 
+double grad2_csize[GRAD2PREDCOUNT];
+int grad2_hits[GRAD2PREDCOUNT];
+int grad2_hist[GRAD2PREDCOUNT*256];
+static double calc_csize(int *hist)
+{
+	int sum=0;
+	for(int sym=0;sym<256;++sym)
+		sum+=hist[sym];
+	if(!sum)
+		return 0;
+	double csize=0;
+	for(int sym=0;sym<256;++sym)
+	{
+		int freq=hist[sym];
+		if(freq)
+		{
+			double p=(double)freq/sum;
+			csize-=p*log2(p);
+		}
+	}
+	return 8/csize;
+}
+int  pred_grad(char top, char left, char topleft)
+{
+	char vmin, vmax;
+	int pred;
+	if(top<left)
+		vmin=top, vmax=left;
+	else
+		vmin=left, vmax=top;
+	if(topleft<vmin)
+		pred=vmax;
+	else if(topleft>vmax)
+		pred=vmin;
+	else
+		pred=top+left-topleft;
+	return pred;
+}
+int  predict_grad2(const char *buf, int iw, int kx, int ky, int idx, int bytestride, int rowlen, char *curr, int is_fwd)
+{
+	char
+		ctl3     =kx-3>=0&&ky-3>=0?buf[idx-rowlen*3-bytestride*3]:0,
+		ct3      =         ky-3>=0?buf[idx-rowlen*3             ]:0,
+		ctr3     =kx+3<iw&&ky-3>=0?buf[idx-rowlen*3+bytestride*3]:0,
+
+		ctltl    =kx-2>=0&&ky-2>=0?buf[idx-rowlen*2-bytestride*2]:0,
+		cttl     =kx-2>=0&&ky-2>=0?buf[idx-rowlen*2-bytestride  ]:0,
+		ctt      =         ky-2>=0?buf[idx-rowlen*2             ]:0,
+		ctrtr    =kx+2<iw&&ky-2>=0?buf[idx-rowlen*2+bytestride*2]:0,
+
+		ctll     =kx-2>=0&&ky-1>=0?buf[idx-rowlen-bytestride*2]:0,
+		ctopleft =kx-1>=0&&ky-1>=0?buf[idx-rowlen-bytestride  ]:0,
+		ctop     =kx  <iw&&ky-1>=0?buf[idx-rowlen             ]:0,
+		ctopright=kx+1<iw&&ky-1>=0?buf[idx-rowlen+bytestride  ]:0,
+		
+		cl3      =kx-3>=0?buf[idx-bytestride*3]:0,
+		cll      =kx-2>=0?buf[idx-bytestride*2]:0,
+		cleft    =        buf[idx-bytestride  ]  ,
+		ccurr    =kx  <iw?buf[idx             ]:0;
+	int
+		g45tl=ctopleft-ctltl,
+		gxtl=ctop-ctopleft,
+		gyt=ctop-ctt,
+		gxtr=ctop-ctopright,
+		g45tr=ctopright-ctrtr,
+		gxl=cleft-cll,
+		gyl=cleft-ctopleft,
+		g270tl=ctopleft-ctt,
+		g270tr=ctopright-ctt;
+
+	int pred[GRAD2PREDCOUNT]={0};
+
+	pred[0]=pred_grad(ctop, cleft, ctopleft);//0: grad predictor
+	//if((gyl<0)!=(gxtl<0))
+	//	pred[0]=ctt+gyl+gxtl;
+	//else if(g270tl<0)
+	//	pred[0]=ctt+MINVAR(gyl, gxtl);
+	//else
+	//	pred[0]=ctt+MAXVAR(gyl, gxtl);
+
+	pred[1]=pred_grad(ctopleft, ctopright, ctt);//1: grad45 predictor
+	//if((g270tl<0)!=(g270tr<0))
+	//	pred[1]=ctt+g270tl+g270tr;
+	//else if(g270tl<0)
+	//	pred[1]=ctt+MINVAR(g270tl, g270tr);
+	//else
+	//	pred[1]=ctt+MAXVAR(g270tl, g270tr);
+						
+	if((gxl<0)!=(gyt<0))//2: path predictor
+		pred[2]=(cleft+gxl+ctop+gyt)>>1;
+	else if(gxl<0)
+		pred[2]=MINVAR(ctop, cleft);
+	else
+		pred[2]=MAXVAR(ctop, cleft);
+
+	if((g45tl<0)!=(g45tr<0))//3: path45 predictor
+		pred[3]=(ctopleft+g45tl+ctopright+g45tr)>>1;
+	else if(g45tl<0)
+		pred[3]=MINVAR(ctopleft, ctopright);
+	else
+		pred[3]=MAXVAR(ctopleft, ctopright);
+
+	int temp;
+	if(gyl<0)//4: gamma predictor
+	{
+		if(gxtl<0)
+		{
+			if(gxtr<0)	//hole
+				pred[4]=MINVAR(ctop, cleft)-((gxtl+gxtr)>>1);
+			else		//bottom-right descends
+				temp=ctopleft+ctopright, pred[4]=MINVAR(temp, cleft<<1)>>1;
+		}
+		else
+		{
+			if(gxtr<0)	//bottom-left descends
+				pred[4]=(ctopleft+ctopright+ctop*2+cleft*2)/6;
+			else		//roof, bottom descends
+				pred[4]=((ctopleft+ctopright)>>1)+gyl;
+		}
+	}
+	else
+	{
+		if(gxtl<0)
+		{
+			if(gxtr<0)	//valley, top descends
+				pred[4]=((ctopleft+ctopright)>>1)+gyl;
+			else		//top-right descends
+				pred[4]=(ctopleft+ctopright+ctop*2+cleft*2)/6;
+		}
+		else
+		{
+			if(gxtr<0)	//top-left descends
+				temp=ctopleft+ctopright, pred[4]=MAXVAR(temp, cleft<<1)>>1;
+			else		//peak
+				pred[4]=MAXVAR(ctop, cleft)+((gxtl+gxtr)>>1);
+		}
+	}
+
+	int d1, d2;//5: select predictor
+	d1=abs(cll-((cl3+cleft)>>1));                        pred[5]=(cleft+(cleft<<1)-cll)>>1;//av(const, lin) is the best among the 4 select versions
+	d2=abs(ctltl-((ctl3+ctopleft)>>1));  if(d2<d1)d1=d2, pred[5]=(ctopleft+(ctopleft<<1)-ctltl)>>1;
+	d2=abs(ctt-((ct3+ctop)>>1));         if(d2<d1)d1=d2, pred[5]=(ctop+(ctop<<1)-ctt)>>1;
+	d2=abs(ctrtr-((ctr3+ctopright)>>1)); if(d2<d1)d1=d2, pred[5]=(ctopright+(ctopright<<1)-ctrtr)>>1;
+
+	//d1=abs(cll-((cl3+cleft)>>1));                        pred[5]=(cleft<<1)-cll;
+	//d2=abs(ctltl-((ctl3+ctopleft)>>1));  if(d2<d1)d1=d2, pred[5]=(ctopleft<<1)-ctltl;
+	//d2=abs(ctt-((ct3+ctop)>>1));         if(d2<d1)d1=d2, pred[5]=(ctop<<1)-ctt;
+	//d2=abs(ctrtr-((ctr3+ctopright)>>1)); if(d2<d1)d1=d2, pred[5]=(ctopright<<1)-ctrtr;
+	
+	//d1=abs(cll-((cl3+cleft)>>1));                        pred[5]=cleft;
+	//d2=abs(ctltl-((ctl3+ctopleft)>>1));  if(d2<d1)d1=d2, pred[5]=ctopleft;
+	//d2=abs(ctt-((ct3+ctop)>>1));         if(d2<d1)d1=d2, pred[5]=ctop;
+	//d2=abs(ctrtr-((ctr3+ctopright)>>1)); if(d2<d1)d1=d2, pred[5]=ctopright;
+#if 0
+	int param[]=//select predictor v2
+	{
+		abs(cll  -((cl3 +cleft    )>>1)),//0
+		abs(ctt  -((ct3 +ctop     )>>1)),//1
+		abs(ctltl-((ctl3+ctopleft )>>1)),//2
+		abs(ctrtr-((ctr3+ctopright)>>1)),//3
+	};
+	int den[3]=
+	{
+		param[0]+param[1],
+		param[2]+param[3],
+	};
+	den[2]=den[0]+den[1];
+	int pred90=den[0]?(((cleft<<1)-cll)*param[1]+((ctop<<1)-ctt)*param[0])/den[0]:(cleft+ctop)>>1,
+		pred45=den[1]?(((ctopleft<<1)-ctltl)*param[3]+((ctopright<<1)-ctrtr)*param[2])/den[1]:(ctopleft+ctopright)>>1;
+	pred[5]=den[2]?(pred90*den[0]+pred45*den[1])/den[2]:(pred90*5+pred45*3)>>3;
+#endif
+
+
+	int g2left=pred_grad(ctopleft, cll, ctll), g2top=pred_grad(ctt, ctopleft, cttl);//6: grad2
+	int g2error=(abs(cleft-g2left)+abs(ctop-g2top))>>1;
+	pred[6]=pred[0]*(255-g2error)/255;
+
+	//pred[7]=ctop+cleft-ctopleft;//youchat
+	//if(pred[7]<0)
+	//	pred[7]=ctop;
+	//else
+	//{
+	//	pred[7]=cleft;
+	//	if(abs(ctop-cleft)<=abs(ctop-ctopleft))
+	//		pred[7]=ctop;
+	//}
+
+	pred[7]=(pred[2]+pred[3]+pred[4])/3;
+	
+	int pred2=0;
+#if 1
+	int weights[]=
+	{
+		405214, 238662, 113409, 76552, 107912, 105129, 94864, 37906
+		//489270, 244357, 116299, 79014, 109588, 107769, 33351
+	}, sum=0;
+	for(int k=0;k<GRAD2PREDCOUNT;++k)
+	{
+		pred2+=pred[k]*weights[k];
+		sum+=weights[k];
+	}
+	pred2/=sum;
+#else
+	for(int k=0;k<GRAD2PREDCOUNT;++k)
+		pred2+=pred[k];
+	pred2/=GRAD2PREDCOUNT;
+#endif
+	//int pred2=(pred[0]*247756+pred[1]*279346+pred[2]*315392+pred[3]*152132+pred[4]*185022)/1179648;
+
+	pred2=CLAMP(customparam_clamp[0], pred2, customparam_clamp[1]);
+
+	char val;
+	if(is_fwd)
+		val=*curr, *curr-=pred2;
+	else
+		*curr+=pred2, val=*curr;
+
+	int delta, winner=0, winner_se=0;
+	for(int k=0;k<GRAD2PREDCOUNT;++k)
+	{
+		delta=val-pred[k];
+		if(!((idx+3)&3))
+			++grad2_hist[k<<8|(delta+128)];
+		delta*=delta;
+		//grad2_rmse[k]+=delta;
+		if(!k||winner_se>delta)
+			winner_se=delta, winner=k;
+	}
+	++grad2_hits[winner];
+
+	//*curr=winner<<5|val>>3;
+
+	//if(!((idx+3)&3))//
+	//	*curr=winner*255/GRAD2PREDCOUNT;
+	//else
+	//	*curr=val;
+
+	//*curr=abs(val-pred[4]);//
+	//*curr=abs(val-pred[kx*5/iw]);//
+
+	return pred2;
+}
+void pred_grad2_finish(int res)
+{
+	for(int k=0;k<GRAD2PREDCOUNT;++k)
+		grad2_csize[k]=calc_csize(grad2_hist+(k<<8));
+	//	grad2_rmse[k]=sqrt(grad2_rmse[k]/res);
+}
+void pred_grad2_fwd(char *buf, int iw, int ih, int nch, int bytestride)
+{
+	memset(grad2_hist, 0, sizeof(grad2_hist));
+	memset(grad2_hits, 0, sizeof(grad2_hits));
+	int rowlen=iw*bytestride;
+	for(int kc=0;kc<nch;++kc)
+	{
+		int idx=(iw*ih-1)*bytestride+kc;
+		for(int ky=ih-1;ky>=0;--ky)
+		{
+			for(int kx=iw-1;kx>=0;--kx, idx-=bytestride)
+			{
+				int pred=predict_grad2(buf, iw, kx, ky, idx, bytestride, rowlen, buf+idx, 1);
+
+				//buf[idx]-=pred;
+			}
+		}
+	}
+	pred_grad2_finish(iw*ih);
+}
+void pred_grad2_inv(char *buf, int iw, int ih, int nch, int bytestride)
+{
+	memset(grad2_hist, 0, sizeof(grad2_hist));
+	memset(grad2_hits, 0, sizeof(grad2_hits));
+	int rowlen=iw*bytestride;
+	for(int kc=0;kc<nch;++kc)
+	{
+		int idx=kc;
+		for(int ky=0;ky<ih;++ky)
+		{
+			for(int kx=0;kx<iw;++kx, idx+=bytestride)
+			{
+				int pred=predict_grad2(buf, iw, kx, ky, idx, bytestride, rowlen, buf+idx, 0);
+
+				//buf[idx]+=pred;
+			}
+		}
+	}
+	pred_grad2_finish(iw*ih);
+}
+
+int  predict_path(const char *buf, int iw, int kx, int ky, int idx, int bytestride, int rowlen)
+{
+	char
+		ctl3     =kx-3>=0&&ky-3>=0?buf[idx-rowlen*3-bytestride*3]:0,
+		ct3      =         ky-3>=0?buf[idx-rowlen*3             ]:0,
+		ctr3     =kx+3<iw&&ky-3>=0?buf[idx-rowlen*3+bytestride*3]:0,
+
+		ctltl    =kx-2>=0&&ky-2>=0?buf[idx-rowlen*2-bytestride*2]:0,
+		ctt      =         ky-2>=0?buf[idx-rowlen*2             ]:0,
+		ctrtr    =kx+2<iw&&ky-2>=0?buf[idx-rowlen*2+bytestride*2]:0,
+
+		ctopleft =kx-1>=0&&ky-1>=0?buf[idx-rowlen-bytestride]:0,
+		ctop     =         ky-1>=0?buf[idx-rowlen           ]:0,
+		ctopright=kx+1<iw&&ky-1>=0?buf[idx-rowlen+bytestride]:0,
+		
+		cl3      =kx-3>=0?buf[idx-bytestride*3]:0,
+		cll      =kx-2>=0?buf[idx-bytestride*2]:0,
+		cleft    =kx-1>=0?buf[idx-bytestride  ]:0,
+		ccurr    =        buf[idx             ]  ;
+	int
+		g45tl=ctopleft-ctltl,
+		gxtl=ctop-ctopleft,
+		gyt=ctop-ctt,
+		gxtr=ctop-ctopright,
+		g45tr=ctopright-ctrtr,
+		gxl=cleft-cll,
+		gyl=cleft-ctopleft,
+		g270tl=ctopleft-ctt,
+		g270tr=ctopright-ctt;
+	
+	int pred=0;
+	if((gxl<0)!=(gyt<0))//2: path predictor
+		pred+=(cleft+gxl+ctop+gyt)>>1;
+	else if(gxl<0)
+		pred+=MINVAR(ctop, cleft);
+	else
+		pred+=MAXVAR(ctop, cleft);
+
+	//pred*=3;
+
+	//if((g45tl<0)!=(g45tr<0))//3: path45 predictor
+	//	pred+=(ctopleft+g45tl+ctopright+g45tr)>>1;
+	//else if(g45tl<0)
+	//	pred+=MINVAR(ctopleft, ctopright);
+	//else
+	//	pred+=MAXVAR(ctopleft, ctopright);
+
+#if 0
+	int param[8]=
+	{
+		cll  -((cl3 +cleft    )>>1),//0
+		ctt  -((ct3 +ctop     )>>1),//1
+		ctltl-((ctl3+ctopleft )>>1),//2
+		ctrtr-((ctr3+ctopright)>>1),//3
+	};
+	param[4]=param[0]<0, param[0]=abs(param[0]);
+	param[5]=param[1]<0, param[1]=abs(param[1]);
+	param[6]=param[2]<0, param[2]=abs(param[2]);
+	param[7]=param[3]<0, param[3]=abs(param[3]);
+	int den[3]=
+	{
+		param[0]+param[1],
+		param[2]+param[3],
+	};
+	den[2]=den[0]+den[1];
+	int pred90=den[0]?(((cleft<<1)-cll)*param[1]+((ctop<<1)-ctt)*param[0])/den[0]:(cleft+ctop)>>1,
+		pred45=den[1]?(((ctopleft<<1)-ctltl)*param[3]+((ctopright<<1)-ctrtr)*param[2])/den[1]:(ctopleft+ctopright)>>1;
+	pred=den[2]?(pred90*den[0]+pred45*den[1])/den[2]:(pred90*5+pred45*3)>>3;
+#endif
+
+	//int d1, d2;//select predictor
+	//d1=cll-((cl3+cleft)>>1);                 pred=cleft;
+	//d2=ctltl-((ctl3+ctopleft)>>1);  if(d2<d1)pred=ctopleft;
+	//d2=ctt-((ct3+ctop)>>1);         if(d2<d1)pred=ctop;
+	//d2=ctrtr-((ctr3+ctopright)>>1); if(d2<d1)pred=ctopright;
+
+	//d1=cll-((cl3+cleft)>>1);                 pred=(cleft+(cleft<<1)-cll)>>1;
+	//d2=ctltl-((ctl3+ctopleft)>>1);  if(d2<d1)pred=(ctopleft+(ctopleft<<1)-ctltl)>>1;
+	//d2=ctt-((ct3+ctop)>>1);         if(d2<d1)pred=(ctop+(ctop<<1)-ctt)>>1;
+	//d2=ctrtr-((ctr3+ctopright)>>1); if(d2<d1)pred=(ctopright+(ctopright<<1)-ctrtr)>>1;
+
+	//pred>>=2;
+	
+	pred=CLAMP(customparam_clamp[0], pred, customparam_clamp[1]);
+	return pred;
+}
+void pred_path_fwd(char *buf, int iw, int ih, int nch, int bytestride)
+{
+	int rowlen=iw*bytestride;
+	for(int kc=0;kc<nch;++kc)
+	{
+		int idx=(iw*ih-1)*bytestride+kc;
+		for(int ky=ih-1;ky>=0;--ky)
+		{
+			for(int kx=iw-1;kx>=0;--kx, idx-=bytestride)
+			{
+				int pred=predict_path(buf, iw, kx, ky, idx, bytestride, rowlen);
+
+				buf[idx]-=pred;
+			}
+		}
+	}
+}
+void pred_path_inv(char *buf, int iw, int ih, int nch, int bytestride)
+{
+	int rowlen=iw*bytestride;
+	for(int kc=0;kc<nch;++kc)
+	{
+		int idx=kc;
+		for(int ky=0;ky<ih;++ky)
+		{
+			for(int kx=0;kx<iw;++kx, idx+=bytestride)
+			{
+				int pred=predict_path(buf, iw, kx, ky, idx, bytestride, rowlen);
+
+				buf[idx]+=pred;
+			}
+		}
+	}
+}
+
+int adagrad_type[ADAGRADCOUNT];
+double adagrad_rmse[ADAGRADCOUNT], adagrad_csize[ADAGRADCOUNT];
+void pred_adaptive(char *buf, int iw, int ih, int nch, int bytestride, int fwd)
+{
+	memset(adagrad_type, 0, sizeof(adagrad_type));
+	memset(grad2_hist, 0, sizeof(grad2_hist));
+	int res=iw*ih;
+	char *b2=(char*)malloc((size_t)res*bytestride);
+	if(!b2)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	memset(b2, 0, (size_t)res*bytestride);
+	int rowlen=iw*bytestride;
+	for(int kc=0;kc<nch;++kc)
+	{
+		int idx=kc;
+		for(int ky=0;ky<ih;++ky)
+		{
+			int error[3]={0};
+			for(int kx=0;kx<iw;++kx, idx+=bytestride)
+			{
+				int pred;
+				int current_val=buf[idx];
+				
+				char *src=fwd?buf:b2;
+				char
+					ctl3     =kx-3>=0&&ky-3>=0?src[idx-rowlen*3-bytestride*3]:0,
+					ct3      =         ky-3>=0?src[idx-rowlen*3             ]:0,
+					ctr3     =kx+3<iw&&ky-3>=0?src[idx-rowlen*3+bytestride*3]:0,
+
+					ctltl    =kx-2>=0&&ky-2>=0?src[idx-rowlen*2-bytestride*2]:0,
+					ctt      =         ky-2>=0?src[idx-rowlen*2             ]:0,
+					ctrtr    =kx+2<iw&&ky-2>=0?src[idx-rowlen*2+bytestride*2]:0,
+
+					ctopleft =kx-1>=0&&ky-1>=0?src[idx-rowlen-bytestride]:0,
+					ctop     =kx  <iw&&ky-1>=0?src[idx-rowlen           ]:0,
+					ctopright=kx+1<iw&&ky-1>=0?src[idx-rowlen+bytestride]:0,
+		
+					cl3      =kx-3>=0?src[idx-bytestride*3]:0,
+					cll      =kx-2>=0?src[idx-bytestride*2]:0,
+					cleft    =kx-1>=0?src[idx-bytestride  ]:0;
+				int
+					g45tl=ctopleft-ctltl,
+					gxtl=ctop-ctopleft,
+					gyt=ctop-ctt,
+					gxtr=ctop-ctopright,
+					g45tr=ctopright-ctrtr,
+					gxl=cleft-cll,
+					gyl=cleft-ctopleft;
+				
+				//int gx=gxl+gxtl, gy=gyl+gyt,
+				//	T=customparam_st[0];//44
+				//if(gy>T+gx)
+				//	pred=cleft;
+				//else if(gy+T<gx)
+				//	pred=ctop;
+				//else
+				//	pred=ctop+cleft-ctopleft;
+
+				int type;
+
+				//grad
+#if 0
+				char vmin, vmax;
+				if(ctop<cleft)
+					vmin=ctop, vmax=cleft;
+				else
+					vmin=cleft, vmax=ctop;
+
+				//CHEAT
+#if 0
+				pred=vmin, type=0;
+				if(abs(buf[idx]-pred)>=abs(buf[idx]-vmax))
+					pred=vmax, type=1;
+				int p2=ctop+cleft-ctopleft;
+				if(abs(buf[idx]-pred)>=abs(buf[idx]-p2))
+					pred=p2, type=2;
+#endif
+				if(ctopleft<vmin)
+					pred=vmax, type=0;
+				else if(ctopleft>vmax)
+					pred=vmin, type=1;
+				else
+				{
+					pred=ctop+cleft-ctopleft, type=2;
+					//pred=pred*(255-abs(error))/255;
+				}
+#endif
+
+				//linear extrapolation
+#if 0
+				int predleft=(cleft<<1)-cll, predtop=(ctop<<1)-ctt;
+				if(!error[0]&&!error[1])
+					pred=predleft;
+				else if((error[0]<0)==(error[1]<0))
+					pred=(predleft*abs(error[1])+predtop*abs(error[0]))/(abs(error[0])+abs(error[1])), type=0;
+				else
+					pred=(predleft+predtop)>>1, type=1;
+#endif
+
+				//multigrad
+#if 0
+				type=0;
+				int prednear=pred_grad(ctop, cleft, ctopleft),
+					predtop=pred_grad(ctopleft, ctopright, ctt),
+					predfar=pred_grad(ctt, cll, ctltl);
+				int den=abs(error[1])+abs(error[2]);
+				if(den)
+					pred=(predfar*abs(error[1])+predtop*abs(error[2]))/den;
+				else
+					pred=predtop;
+				int den2=den+abs(error[0]);
+				if(den2)
+					pred=(pred*abs(error[0])+prednear*den)/den2;
+				else
+					pred=prednear;
+#endif
+
+				//gamma v2
+#if 1
+				int temp;
+				if(gyl<0)//gamma predictor
+				{
+					if(gxtl<0)
+					{
+						if(gxtr<0)	//hole
+							pred=MINVAR(ctop, cleft)-(gxtl+gxtr)/8, type=0;
+						else		//bottom-right descends
+							temp=ctopleft+ctopright, pred=MINVAR(temp, cleft<<1)/2, type=1;
+							//pred2+=(ctopleft+ctopright+ctop+cleft)*0.25f;
+							//pred+=ctopright;
+					}
+					else
+					{
+						if(gxtr<0)	//bottom-left descends
+							pred=(ctopleft+ctopright+ctop*2+cleft*2)/6, type=2;
+							//pred2+=ctop+gyl;
+						else		//roof, bottom descends
+							pred=ctop+cleft-ctopleft, type=3;
+							//pred=(ctopleft+ctopright)/2+gyl, type=3;
+					}
+				}
+				else
+				{
+					if(gxtl<0)
+					{
+						if(gxtr<0)	//valley, top descends
+							pred=ctop+cleft-ctopleft, type=4;
+							//pred=(ctopleft+ctopright)/2+gyl, type=4;
+						else		//top-right descends
+							pred=(ctopleft+ctopright+ctop*2+cleft*2)/6, type=5;
+							//pred2+=ctop+gyl;
+					}
+					else
+					{
+						if(gxtr<0)	//top-left descends
+							temp=ctopleft+ctopright, pred=MAXVAR(temp, cleft<<1)/2, type=6;
+							//pred2+=(ctopleft+ctopright+ctop+cleft)*0.25f;
+						else		//peak
+							pred=MAXVAR(ctop, cleft)+(gxtl+gxtr)/16, type=7;
+					}
+				}
+#endif
+
+				//pred=pred_grad(ctop, cleft, ctopleft)+((error[0]-error[1])>>2);
+
+				//pred=pred*(255-abs(error))/255;
+				
+				pred=CLAMP(customparam_clamp[0], pred, customparam_clamp[1]);
+
+				++adagrad_type[type];
+				int delta=current_val-pred;
+				adagrad_rmse[type]+=delta*delta;
+				++grad2_hist[type<<8|(delta+128)];//
+
+				if(fwd)
+				{
+					b2[idx]=buf[idx]-pred;
+
+					//b2[idx]=type*255/7-128;
+					//b2[idx]=type<<6|current_error>>2&0x3F;//
+				}
+				else
+					b2[idx]=buf[idx]+pred;
+				
+
+				//++grad2_hist[type<<8|(current_val+128)];//
+
+				//error[0]=current_val-prednear;
+				//error[1]=current_val-predtop;
+				//error[2]=current_val-predfar;
+
+				//error[0]=current_val-predleft;
+				//error[1]=current_val-predtop;
+
+				//error[2]=error[1];
+				//error[1]=error[0];
+				//error[0]=current_error;
+
+				//error=current_error+(error-current_error)*3/8;
+			}
+		}
+	}
+	for(int kc=nch;kc<bytestride;++kc)
+	{
+		for(int k=0;k<res;++k)
+			b2[k*bytestride+kc]=buf[k*bytestride+kc];
+	}
+	memcpy(buf, b2, (size_t)res*bytestride);
+	free(b2);
+	for(int k=0;k<ADAGRADCOUNT;++k)
+	{
+		adagrad_rmse[k]=sqrt(adagrad_rmse[k]/adagrad_type[k]);
+		double invCR=calc_entropy(grad2_hist+(k<<8), -1)/8;
+		adagrad_csize[k]=adagrad_type[k]*invCR;
+
+	}
+}
+
 int  predict_grad(const char *buf, int iw, int kx, int ky, int idx, int bytestride, int rowlen)
 {
 	char

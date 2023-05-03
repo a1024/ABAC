@@ -93,9 +93,12 @@ typedef enum TransformTypeEnum
 	ST_FWD_HYBRID3,		ST_INV_HYBRID3,
 
 	ST_FWD_DIFF2D,		ST_INV_DIFF2D,
-	ST_FWD_MEDIAN,		ST_INV_MEDIAN,
-	ST_FWD_DCT3PRED,	ST_INV_DCT3PRED,
-	ST_FWD_HPF,			ST_INV_HPF,
+	ST_FWD_GRAD2,		ST_INV_GRAD2,
+	ST_FWD_ADAPTIVE,	ST_INV_ADAPTIVE,
+//	ST_FWD_MEDIAN,		ST_INV_MEDIAN,
+//	ST_FWD_DCT3PRED,	ST_INV_DCT3PRED,
+//	ST_FWD_PATHPRED,	ST_INV_PATHPRED,
+//	ST_FWD_HPF,			ST_INV_HPF,
 	ST_FWD_GRADPRED,	ST_INV_GRADPRED,
 	ST_FWD_CUSTOM,		ST_INV_CUSTOM,
 	ST_FWD_DCT4,		ST_INV_DCT4,
@@ -260,12 +263,18 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case ST_INV_HYBRID3:		a=" S Inv Hybrid3";			break;
 	case ST_FWD_DIFF2D:			a=" S Fwd 2D derivative";	break;
 	case ST_INV_DIFF2D:			a=" S Inv 2D derivative";	break;
-	case ST_FWD_HPF:			a=" S Fwd HPF";				break;
-	case ST_INV_HPF:			a=" S Inv HPF";				break;
-	case ST_FWD_MEDIAN:			a=" S Fwd Median";			break;
-	case ST_INV_MEDIAN:			a=" S Inv Median";			break;
-	case ST_FWD_DCT3PRED:		a=" S Fwd DCT3 Predictor";	break;
-	case ST_INV_DCT3PRED:		a=" S Inv DCT3 Predictor";	break;
+//	case ST_FWD_HPF:			a=" S Fwd HPF";				break;
+//	case ST_INV_HPF:			a=" S Inv HPF";				break;
+	case ST_FWD_GRAD2:			a=" S Fwd Grad2";			break;
+	case ST_INV_GRAD2:			a=" S Inv Grad2";			break;
+	case ST_FWD_ADAPTIVE:		a=" S Fwd Adaptive";		break;
+	case ST_INV_ADAPTIVE:		a=" S Inv Adaptive";		break;
+//	case ST_FWD_MEDIAN:			a=" S Fwd Median";			break;
+//	case ST_INV_MEDIAN:			a=" S Inv Median";			break;
+//	case ST_FWD_DCT3PRED:		a=" S Fwd DCT3 Predictor";	break;
+//	case ST_INV_DCT3PRED:		a=" S Inv DCT3 Predictor";	break;
+//	case ST_FWD_PATHPRED:		a=" S Fwd Path Predictor";	break;
+//	case ST_INV_PATHPRED:		a=" S Inv Path Predictor";	break;
 	case ST_FWD_GRADPRED:		a=" S Fwd Gradient";		break;
 	case ST_INV_GRADPRED:		a=" S Inv Gradient";		break;
 	case ST_FWD_DCT4:			a=" S Fwd DCT4";			break;
@@ -534,6 +543,31 @@ void chart_mesh_sep_update(unsigned char *im, int iw, int ih, ArrayHandle *cpuv,
 }
 static int hist[768], histmax[3], hist2[768], histmax2[3];
 static float blockCR[3]={0};
+double calc_entropy(int *hist, int sum)
+{
+	double entropy=0;
+	if(sum==-1)
+	{
+		sum=0;
+		for(int sym=0;sym<256;++sym)
+			sum+=hist[sym];
+	}
+	if(!sum)
+		return 0;
+	for(int k=0;k<256;++k)
+	{
+		int freq=hist[k];
+		if(freq)
+		{
+			double p=(double)freq/sum;
+			p*=0xFF00;
+			++p;
+			p/=0x10000;
+			entropy-=p*log2(p);
+		}
+	}
+	return entropy;
+}
 void chart_hist_update(unsigned char *im, int iw, int ih, int x1, int x2, int y1, int y2, int *hist, int *histmax)
 {
 	if(x1<0)
@@ -568,19 +602,7 @@ void chart_hist_update(unsigned char *im, int iw, int ih, int x1, int x2, int y1
 				if(histmax[kc]<hist[kc<<8|k])
 					histmax[kc]=hist[kc<<8|k];
 			}
-			double entropy=0;
-			for(int k=0;k<256;++k)
-			{
-				int freq=hist[kc<<8|k];
-				if(freq)
-				{
-					double p=(double)freq/count;
-					p*=0xFF00;
-					++p;
-					p/=0x10000;
-					entropy-=p*log2(p);
-				}
-			}
+			double entropy=calc_entropy(hist+(kc<<8), count);
 			blockCR[kc]=(float)(8/entropy);
 		}
 	}
@@ -722,12 +744,21 @@ void update_image()
 
 			case ST_FWD_DIFF2D:		pred_diff2d_fwd((char*)image, iw, ih, 3, 4);		break;
 			case ST_INV_DIFF2D:		pred_diff2d_inv((char*)image, iw, ih, 3, 4);		break;
-			case ST_FWD_HPF:		pred_hpf_fwd((char*)image, iw, ih, 3, 4);			break;
-			case ST_INV_HPF:		pred_hpf_inv((char*)image, iw, ih, 3, 4);			break;
-			case ST_FWD_MEDIAN:		pred_median_fwd((char*)image, iw, ih, 3, 4);		break;
-			case ST_INV_MEDIAN:		pred_median_inv((char*)image, iw, ih, 3, 4);		break;
-			case ST_FWD_DCT3PRED:	pred_dct3_fwd((char*)image, iw, ih, 3, 4);			break;
-			case ST_INV_DCT3PRED:	pred_dct3_inv((char*)image, iw, ih, 3, 4);			break;
+		//	case ST_FWD_HPF:		pred_hpf_fwd((char*)image, iw, ih, 3, 4);			break;
+		//	case ST_INV_HPF:		pred_hpf_inv((char*)image, iw, ih, 3, 4);			break;
+			case ST_FWD_GRAD2:		pred_grad2_fwd((char*)image, iw, ih, 3, 4);			break;
+			case ST_INV_GRAD2:		pred_grad2_inv((char*)image, iw, ih, 3, 4);			break;
+			case ST_FWD_ADAPTIVE:
+				pred_adaptive((char*)image, iw, ih, 3, 4, 1);
+				//lodepng_encode_file("grad_mask.PNG", image, iw, ih, LCT_RGBA, 8);
+				break;
+			case ST_INV_ADAPTIVE:	pred_adaptive((char*)image, iw, ih, 3, 4, 0);		break;
+		//	case ST_FWD_MEDIAN:		pred_median_fwd((char*)image, iw, ih, 3, 4);		break;
+		//	case ST_INV_MEDIAN:		pred_median_inv((char*)image, iw, ih, 3, 4);		break;
+		//	case ST_FWD_DCT3PRED:	pred_dct3_fwd((char*)image, iw, ih, 3, 4);			break;
+		//	case ST_INV_DCT3PRED:	pred_dct3_inv((char*)image, iw, ih, 3, 4);			break;
+		//	case ST_FWD_PATHPRED:	pred_path_fwd((char*)image, iw, ih, 3, 4);			break;
+		//	case ST_INV_PATHPRED:	pred_path_inv((char*)image, iw, ih, 3, 4);			break;
 			case ST_FWD_GRADPRED:	pred_grad_fwd((char*)image, iw, ih, 3, 4);			break;
 			case ST_INV_GRADPRED:	pred_grad_inv((char*)image, iw, ih, 3, 4);			break;
 			case ST_FWD_CUSTOM:		pred_custom_fwd((char*)image, iw, ih, 3, 4);		break;
@@ -873,14 +904,16 @@ void chart_mesh_sep_draw()
 {
 	float RMSE1=0, RMSE2=0;
 	int RMSE_den=0;
+	float reach=5;
 	float ix=0, iy=0;
 	if(extrainfo)
 	{
 		float *vertices=(float*)cpu_vertices->data;
 		ix=iw-1-cam.x, iy=cam.y;
-		float xstart=ix-5, xend=ix+5, ystart=iy-5, yend=iy+5;
+		float xstart=ix-reach, xend=ix+reach, ystart=iy-reach, yend=iy+reach;
 		for(int ky=0, kv=0;ky<ih-1;++ky)
 		{
+			float error[3]={0};
 			for(int kx=0;kx<iw-1;++kx)
 			{
 				for(int kc=0;kc<3;++kc, kv+=30)
@@ -921,7 +954,7 @@ void chart_mesh_sep_draw()
 							cll      =kx2-2>=0&&ky2  <ih?image[(idx     -2)<<2|kc]-128:0,
 							cleft    =          ky2  <ih?image[(idx     -1)<<2|kc]-128:0,
 							ccurr    =kx2  <iw&&ky2  <ih?image[ idx        <<2|kc]-128:0;
-						char
+						int
 							g45tl=ctopleft-ctltl,
 							gxtl=ctop-ctopleft,
 							gyt=ctop-ctt,
@@ -959,24 +992,24 @@ void chart_mesh_sep_draw()
 							pred2+=MAXVAR(gyl, gxtl);
 #endif
 
-#if 1
+#if 0
 						pred2=0;
-						//if((g45tl<0)!=(g45tr<0))
-						//	pred2+=(ctopleft+g45tl+ctopright+g45tr)*0.5f;
-						//else if(g45tl<0)
-						//	pred2+=MINVAR(ctopleft, ctopright);
-						//else
-						//	pred2+=MAXVAR(ctopleft, ctopright);
-						//
-						//if((gxl<0)!=(gyt<0))
-						//	pred2+=(cleft+gxl+ctop+gyt)*0.5f;
-						//else if(gxl<0)
-						//	pred2+=MINVAR(ctop, cleft);
-						//else
-						//	pred2+=MAXVAR(ctop, cleft);
+						if((g45tl<0)!=(g45tr<0))//path45
+							pred2+=(ctopleft+g45tl+ctopright+g45tr)*0.5f;
+						else if(g45tl<0)
+							pred2+=MINVAR(ctopleft, ctopright);
+						else
+							pred2+=MAXVAR(ctopleft, ctopright);
+						
+						if((gxl<0)!=(gyt<0))//path
+							pred2+=(cleft+gxl+ctop+gyt)*0.5f;
+						else if(gxl<0)
+							pred2+=MINVAR(ctop, cleft);
+						else
+							pred2+=MAXVAR(ctop, cleft);
 
-						char temp;
-						if(gyl<0)
+						int temp;
+						if(gyl<0)//gamma predictor
 						{
 							if(gxtl<0)
 							{
@@ -1015,13 +1048,27 @@ void chart_mesh_sep_draw()
 									pred2+=MAXVAR(ctop, cleft)+(gxtl+gxtr)*0.5f;
 							}
 						}
-						//pred2*=1.f/3;
+						pred2*=1.f/3;
 #endif
+
+						int gx=gxl+gxtl, gy=gyl+gyt, T=44;
+						if(gy>T+gx)
+							pred2=cleft;
+						else if(gy+T<gx)
+							pred2=ctop;
+						else
+							pred2=(float)(ctop+cleft-ctopleft);
+
+						//pred2=pred;//plain gradient
+
+						//pred2=pred2*(255-error[kc])/255;
 
 						//if(gyl<0&&gxtl<0&&gxtr<0)
 						//	pred2+=MINVAR(ctop, cleft)-(gxtl+gxtr)*0.5f;
 						//else if(gyl>0&&gxtl>0&&gxtr>0)
 						//	pred2+=MAXVAR(ctop, cleft)+(gxtl+gxtr)*0.5f;
+
+						error[kc]*=(ccurr-pred2)/128;
 
 						pred2+=128;
 						pred2=CLAMP(0, pred2, 255);
@@ -1112,6 +1159,30 @@ void chart_hist_draw(float x1, float x2, float y1, float y2, int cstart, int cen
 				draw_rect(x1+k*(x2-x1)/256, x1+(k+1)*(x2-x1)/256, y1+(kc+1)*dy-hist[kc<<8|k]*histpx, y1+(kc+1)*dy, color?color:alpha<<24|0xFF<<(kc<<3));//0x80
 		}
 	}
+}
+void chart_hist_draw2(float x1, float x2, float y1, float y2, int color, int *hist, int histmax)
+{
+	if(histmax==-1)
+	{
+		histmax=0;
+		for(int sym=0;sym<256;++sym)
+		{
+			if(histmax<hist[sym])
+				histmax=hist[sym];
+		}
+	}
+	if(!histmax)
+		return;
+	float dy=y2-y1, histpx=dy/histmax;
+	int k=1;
+	float y=k*histpx*10000;
+	for(;y<dy;++k)
+	{
+		draw_line(x1, y2-y, x2, y2-y, color);
+		y=k*histpx*10000;
+	}
+	for(int k=0;k<256;++k)
+		draw_rect(x1+k*(x2-x1)/256, x1+(k+1)*(x2-x1)/256, y2-hist[k]*histpx, y2, color);
 }
 void chart_jointhist_draw()
 {
@@ -2524,6 +2595,104 @@ void io_render()
 			}
 		}
 		draw_line(xstart, h-g2, xstart+(combCRhist_SIZE<<combCRhist_logDX), h-g2, 0xC0000000);
+
+		//grad2 info
+#if 1
+		if(transforms_mask[ST_FWD_GRAD2]||transforms_mask[ST_INV_GRAD2])
+		{
+			const char *prednames[]=
+			{
+				"grad",
+				"grad45",
+				"path",
+				"path45",
+				"gamma",
+				"select",
+				"grad2",
+				"combined",
+			};
+			x=(float)(w>>1);
+			y=(float)(h>>1);
+			for(int k=0;k<GRAD2PREDCOUNT;++k)
+			{
+				GUIPrint(0, x, y, 1, "%d%9lf %7d %s", k, grad2_csize[k], grad2_hits[k], prednames[k]);
+				y+=tdy;
+			}
+			//GUIPrint(0, 0, (float)(h>>1)-tdy, 1, "RMSE grad%10lf:%d grad45%10lf:%d path%10lf:%d path45%10lf:%d gamma%10lf:%d",
+			//	grad2_rmse[0], grad2_hits[0],
+			//	grad2_rmse[1], grad2_hits[1],
+			//	grad2_rmse[2], grad2_hits[2],
+			//	grad2_rmse[3], grad2_hits[3],
+			//	grad2_rmse[4], grad2_hits[4]);
+		}
+		else if(transforms_mask[ST_FWD_ADAPTIVE]||transforms_mask[ST_INV_ADAPTIVE])
+		{
+			const char *prednames[]=
+			{
+				"hole\t",
+				"bottom-right",
+				"bottom-left",
+				"roof bottom",
+				"valley top",
+				"top-right",
+				"top-left",
+				"peak\t",
+			};
+			x=(float)(w>>3);
+			y=(float)(h>>1);
+
+			int total=0;
+			double csize=0;
+			for(int k=0;k<ADAGRADCOUNT;++k)
+			{
+				total+=adagrad_type[k];
+				csize+=adagrad_csize[k];
+			}
+
+			g_printed=0;
+			for(int k=0;k<ADAGRADCOUNT;++k)
+			{
+				float width;
+#define PRINTSTRING "%d %s\t\t%7d %5.2lf%% %10lf %14f CR %5.3lf", k, prednames[k], adagrad_type[k], 100.*adagrad_type[k]/total, adagrad_rmse[k], adagrad_csize[k], adagrad_type[k]/adagrad_csize[k]
+				width=GUIPrint_append(0, x, y, 1, 1, PRINTSTRING);
+				GUIPrint_append(0, x, y, 1, 0, "\n");
+
+				//GUIPrint(0, x, y, 1, PRINTSTRING);
+#undef  PRINTSTRING
+
+				width=ceilf(width/200)*200;
+				if(x+width<w-400)
+				{
+					float divisor=x+width+(float)(adagrad_csize[k]*(w-400-(x+width))/csize);
+					draw_rect(x+width, divisor, y, y+tdy*0.75f, 0x80808080);
+					draw_rect(divisor, x+width+(float)(adagrad_type[k]*(w-400-(x+width))/csize), y, y+tdy*0.75f, 0x80C0C0C0);
+				}
+				y+=tdy;
+			}
+			static int copied=0;
+			if(!copied)
+			{
+				copy_to_clipboard(g_buf, g_printed);
+				copied=1;
+			}
+#if 0
+			float
+				xmargin=(float)w*0.05f, dx=(w-xmargin*2)/4,
+				ymargin=(float)h*0.05f, dy=(h-ymargin*2)/2;
+			for(int ky=0;ky<2;++ky)
+			{
+				for(int kx=0;kx<4;++kx)
+				{
+					float
+						x1=xmargin+dx*kx, x2=xmargin+dx*(kx+1)*0.95f,
+						y1=ymargin+dy*ky, y2=ymargin+dy*(ky+1)*0.95f;
+					chart_hist_draw2(x1, x2, y1, y2, 0x80808080, grad2_hist+((ky<<2|kx)<<8), -1);
+					draw_rect_hollow(x1, x2, y1, y2, 0x80808080);
+				}
+			}
+#endif
+		}
+#endif
 
 		//extern int testhist[3];//
 		//GUIPrint(0, 0, tdy*2, 1, "%d %d %d", testhist[0], testhist[1], testhist[2]);//

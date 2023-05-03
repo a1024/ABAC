@@ -1887,7 +1887,45 @@ void test8()//useless
 	exit(0);
 }
 #endif
-extern unsigned g_conf;
+//extern unsigned g_conf;
+#if 0
+void test9()
+{
+	for(int topleft=0;topleft<256;topleft+=16)
+	{
+		for(int top=0;top<256;top+=16)
+		{
+			for(int left=0;left<256;left+=16)
+			{
+				int pred;
+
+				int vmin, vmax;
+				if(top<left)
+					vmin=top, vmax=left;
+				else
+					vmin=left, vmax=top;
+
+				if(topleft<vmin)
+					pred=vmax;
+				else if(topleft>vmax)
+					pred=vmin;
+				else
+					pred=top+left-topleft;
+
+				printf("%3d ", pred);
+				//printf("%02X ", pred);
+			}
+			printf("\n");
+		}
+		printf("\n");
+	}
+	printf("\n");
+
+	printf("Done.\n");
+	pause();
+	exit(0);
+}
+#endif
 
 const char *g_extensions[]=
 {
@@ -2196,6 +2234,7 @@ int main(int argc, char **argv)
 	//test6();
 	//test7();
 	//test8();
+	//test9();
 
 	printf("EntropyBattle\n");
 #if 1

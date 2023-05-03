@@ -996,6 +996,22 @@ float GUIPrint(float tab_origin, float x, float y, float zoom, const char *forma
 	va_end(args);
 	return print_line(tab_origin, x, y, zoom, g_buf, len, -1, 0, 0);
 }
+int g_printed=0;
+float GUIPrint_append(float tab_origin, float x, float y, float zoom, int show, const char *format, ...)
+{
+	int len;
+	va_list args;
+	float width=0;
+
+	va_start(args, format);
+	len=vsnprintf(g_buf+g_printed, G_BUF_SIZE-g_printed, format, args);
+	va_end(args);
+
+	if(show)
+		width=print_line(0, x, y, 1, g_buf+g_printed, len, -1, 0, 0);
+	g_printed+=len;
+	return width;
+}
 
 void display_texture(int x1, int x2, int y1, int y2, unsigned txid, float alpha, float tx1, float tx2, float ty1, float ty2)
 {

@@ -564,6 +564,8 @@ int set_bk_color(int color_bk);
 long long set_text_colors(long long colors);//0xBKBKBKBK_TXTXTXTX
 float print_line(float tab_origin, float x, float y, float zoom, const char *msg, int msg_length, int req_cols, int *ret_idx, int *ret_cols);//returns text width
 float GUIPrint(float tab_origin, float x, float y, float zoom, const char *format, ...);//returns text width
+extern int g_printed;
+float GUIPrint_append(float tab_origin, float x, float y, float zoom, int show, const char *format, ...);
 
 void display_texture(int x1, int x2, int y1, int y2, unsigned txid, float alpha, float tx1, float tx2, float ty1, float ty2);
 void display_texture_i(int x1, int x2, int y1, int y2, int *rgb, int txw, int txh, float alpha, float tx1, float tx2, float ty1, float ty2);
@@ -640,6 +642,21 @@ void pred_hpf_inv(char *buf, int iw, int ih, int nch, int bytestride);
 void pred_median_fwd(char *buf, int iw, int ih, int nch, int bytestride);
 void pred_median_inv(char *buf, int iw, int ih, int nch, int bytestride);
 
+#define GRAD2PREDCOUNT 8
+extern double grad2_csize[GRAD2PREDCOUNT];
+extern int grad2_hits[GRAD2PREDCOUNT];
+extern int grad2_hist[GRAD2PREDCOUNT*256];
+void pred_grad2_fwd(char *buf, int iw, int ih, int nch, int bytestride);
+void pred_grad2_inv(char *buf, int iw, int ih, int nch, int bytestride);
+
+#define ADAGRADCOUNT 8
+extern int    adagrad_type[ADAGRADCOUNT];
+extern double adagrad_rmse[ADAGRADCOUNT], adagrad_csize[ADAGRADCOUNT];
+void pred_adaptive(char *buf, int iw, int ih, int nch, int bytestride, int fwd);
+
+void pred_path_fwd(char *buf, int iw, int ih, int nch, int bytestride);
+void pred_path_inv(char *buf, int iw, int ih, int nch, int bytestride);
+
 void pred_grad_fwd(char *buf, int iw, int ih, int nch, int bytestride);
 void pred_grad_inv(char *buf, int iw, int ih, int nch, int bytestride);
 
@@ -682,6 +699,7 @@ void image_split_inv(char *image, int iw, int ih);
 void pred_dct3_fwd(char *buf, int iw, int ih, int nch, int bytestride);
 void pred_dct3_inv(char *buf, int iw, int ih, int nch, int bytestride);
 
+double calc_entropy(int *hist, int sum);//pass -1 if sum is unknown
 void channel_entropy(unsigned char *buf, int resolution, int nch, int bytestride, float *cr, int *usage);
 void jointhistogram(unsigned char *buf, int resolution, int nbits, ArrayHandle *hist);
 
