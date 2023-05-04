@@ -2086,17 +2086,26 @@ void pred_adaptive(char *buf, int iw, int ih, int nch, int bytestride, int fwd)
 					if(gxtl<0)
 					{
 						if(gxtr<0)	//hole
-							pred=MINVAR(ctop, cleft)-(gxtl+gxtr)/8, type=0;
+							pred=MINVAR(ctop, cleft), type=0;
+							//pred=MINVAR(ctop, cleft)+(int)(gxtl*(-0.16+customparam_st[0])+gxtr*(-0.06+customparam_st[5])), type=0;
+							//pred=MINVAR(ctop, cleft)+(int)(gxtl*customparam_st[0]+gxtr*customparam_st[5]), type=0;//params: -0.16 -0.06
+							//pred=MINVAR(ctop, cleft)+(int)((gxtl+gxtr)*customparam_st[0]), type=0;
+							//pred=MINVAR(ctop, cleft), type=0;
+							//pred=MINVAR(ctop, cleft)-(gxtl+gxtr)/4, type=0;
 						else		//bottom-right descends
-							temp=ctopleft+ctopright, pred=MINVAR(temp, cleft<<1)/2, type=1;
+							pred=MINVAR(ctop, cleft), type=1;
+							//pred=(int)(gyl*(0.5+customparam_st[1])+(ctopleft+gxtl*(0.51+customparam_st[6])+ctopright+gxtr)*0.5), type=1;
+							//pred=(int)(gyl*(1+customparam_st[1])+(ctopleft+gxtl*(1+customparam_st[6])+ctopright+gxtr)*0.5), type=1;//params: -0.5 -0.49
+							//temp=ctop*2+ctopleft+ctopright, pred=MINVAR(temp, cleft<<2)/4, type=1;
 							//pred2+=(ctopleft+ctopright+ctop+cleft)*0.25f;
 							//pred+=ctopright;
 					}
 					else
 					{
 						if(gxtr<0)	//bottom-left descends
-							pred=(ctopleft+ctopright+ctop*2+cleft*2)/6, type=2;
-							//pred2+=ctop+gyl;
+							pred=ctop+cleft-ctopleft, type=2;
+							//pred=(ctopleft+ctopright+ctop*2+cleft*2)/6, type=2;
+							//pred=ctop+gyl, type=2;
 						else		//roof, bottom descends
 							pred=ctop+cleft-ctopleft, type=3;
 							//pred=(ctopleft+ctopright)/2+gyl, type=3;
@@ -2109,17 +2118,21 @@ void pred_adaptive(char *buf, int iw, int ih, int nch, int bytestride, int fwd)
 						if(gxtr<0)	//valley, top descends
 							pred=ctop+cleft-ctopleft, type=4;
 							//pred=(ctopleft+ctopright)/2+gyl, type=4;
+							//pred=(ctopleft+ctopright)>>1, type=4;
 						else		//top-right descends
-							pred=(ctopleft+ctopright+ctop*2+cleft*2)/6, type=5;
+							pred=ctop+cleft-ctopleft, type=5;
+							//pred=(ctopleft+ctopright+ctop*2+cleft*2)/6, type=5;
 							//pred2+=ctop+gyl;
 					}
 					else
 					{
 						if(gxtr<0)	//top-left descends
-							temp=ctopleft+ctopright, pred=MAXVAR(temp, cleft<<1)/2, type=6;
+							pred=MAXVAR(ctop, cleft), type=6;
+							//temp=ctopleft+ctopright, pred=MAXVAR(temp, cleft<<1)/2, type=6;
 							//pred2+=(ctopleft+ctopright+ctop+cleft)*0.25f;
 						else		//peak
-							pred=MAXVAR(ctop, cleft)+(gxtl+gxtr)/16, type=7;
+							pred=MAXVAR(ctop, cleft), type=7;
+							//pred=MAXVAR(ctop, cleft)+(gxtl+gxtr)/16, type=7;
 					}
 				}
 #endif
@@ -2175,8 +2188,128 @@ void pred_adaptive(char *buf, int iw, int ih, int nch, int bytestride, int fwd)
 		adagrad_rmse[k]=sqrt(adagrad_rmse[k]/adagrad_type[k]);
 		double invCR=calc_entropy(grad2_hist+(k<<8), -1)/8;
 		adagrad_csize[k]=adagrad_type[k]*invCR;
-
 	}
+}
+
+int sortnb_cases[SORTNBCASES];
+double sortnb_rmse[SORTNBCASES];
+void pred_sortnb(char *buf, int iw, int ih, int nch, int bytestride, int fwd)
+{
+	memset(sortnb_cases, 0, sizeof(sortnb_cases));
+	memset(sortnb_rmse, 0, sizeof(sortnb_rmse));
+	int res=iw*ih;
+	char *b2=(char*)malloc((size_t)res*bytestride);
+	if(!b2)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	memset(b2, 0, (size_t)res*bytestride);
+	int rowlen=iw*bytestride;
+	for(int kc=0;kc<nch;++kc)
+	{
+		int idx=kc;
+		for(int ky=0;ky<ih;++ky)
+		{
+			int error[3]={0};
+			for(int kx=0;kx<iw;++kx, idx+=bytestride)
+			{
+				int pred;
+
+				int curr=buf[idx];
+				char *src=fwd?buf:b2;
+				char
+					top     =         ky-1>=0?src[idx-rowlen           ]:0,
+					left    =kx-1>=0         ?src[idx       -bytestride]:0,
+					topleft =kx-1>=0&&ky-1>=0?src[idx-rowlen-bytestride]:0,
+					topright=kx+1<iw&&ky-1>=0?src[idx-rowlen+bytestride]:0;
+				char nb[]={topleft, top, topright, left};
+				int permutation=0;
+				char temp;
+
+#define SORT_STEP(A, B)\
+				if(nb[A]<nb[B])\
+					permutation+=0;\
+				else if(nb[A]>nb[B])\
+					permutation+=1, temp=nb[A], nb[A]=nb[B], nb[B]=temp;\
+				else\
+					permutation+=2;
+
+				SORT_STEP(0, 1);
+				permutation*=3;
+				SORT_STEP(0, 2);
+				permutation*=3;
+				SORT_STEP(0, 3);
+
+				permutation*=3;
+				SORT_STEP(1, 2);
+				permutation*=3;
+				SORT_STEP(1, 3);
+
+				permutation*=3;
+				SORT_STEP(2, 3);
+#undef  SORT_STEP
+
+				int c=0;
+				switch(permutation)
+				{
+				case 232:case 253:case 259:case 256:case 283:case 293:case 301:case 310:case 320:case 364:
+				case 391:case 415:case 416:case 448:case 475:case 547:case 617:case 644:case 701:case 728:
+					pred=nb[0];//A
+					c=0;
+					break;
+				case 50:case 205:case 250:case 254:case 266:case 269:case 274:case 337:case 340:case 520:
+					pred=(nb[0]+nb[1])>>1;//(A+B)/2
+					c=1;
+					break;
+				case 26:case 31:case 245:case 334:case 335:case 590:case 593:
+					pred=nb[1];//B
+					c=2;
+					break;
+				case 94:case 148:case 244:
+					pred=(nb[1]+nb[2])>>1;//(B+C)/2
+					c=3;
+					break;
+				case 4:case 11:case 58:case 77:case 92:case 173:case 333:case 414:case 487:case 488:
+					pred=nb[2];//C
+					c=4;
+					break;
+				case 7:case 13:case 16:case 67:case 97:case 171:case 172:case 261:case 585:
+					pred=(nb[2]+nb[3])>>1;//(C+D)/2
+					c=5;
+					break;
+				case 0:case 2:case 9:case 10:case 18:case 23:case 486:case 666:
+					pred=nb[3];//D
+					c=6;
+					break;
+				case 1:case 40:case 90:case 91:case 121:case 243:case 247:case 252:default:
+					pred=pred_grad(top, left, topleft);
+					c=7;
+					break;
+				}
+
+				if(fwd)
+					b2[idx]=buf[idx]-pred;
+				else
+					b2[idx]=buf[idx]+pred;
+
+				++sortnb_cases[c];
+				if(fwd)
+					sortnb_rmse[c]+=b2[idx]*b2[idx];
+				else
+					sortnb_rmse[c]+=buf[idx]*buf[idx];
+			}
+		}
+	}
+	for(int kc=nch;kc<bytestride;++kc)
+	{
+		for(int k=0;k<res;++k)
+			b2[k*bytestride+kc]=buf[k*bytestride+kc];
+	}
+	memcpy(buf, b2, (size_t)res*bytestride);
+	free(b2);
+	for(int k=0;k<SORTNBCASES;++k)
+		sortnb_rmse[k]=sqrt(sortnb_rmse[k]/sortnb_cases[k]);
 }
 
 int  predict_grad(const char *buf, int iw, int kx, int ky, int idx, int bytestride, int rowlen)

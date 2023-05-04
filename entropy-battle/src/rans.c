@@ -6040,3 +6040,227 @@ int test20_decode(const unsigned char *data, size_t srclen, int bw, int bh, int 
 	return 1;
 }
 #endif
+
+#if 1
+void e10_iter(unsigned char *buf, int iw, int ih, int kc, long long *hist);
+int e10_cmp_overhead(const void *p1, const void *p2)
+{
+	short idx1=*(const short*)p1, idx2=*(const short*)p2;
+	return (idx1>idx2)-(idx1<idx2);
+}
+int e10_encode_ch(const unsigned char *src, int bw, int bh, int kc, ArrayHandle *data, int loud)
+{
+	int res=bw*bh;
+	int histlen=(729LL*9+729LL*3)*sizeof(long long),//9 histograms with 729 cases + 729 sets of means for 3 gradients
+		overheadlen=75LL*10*sizeof(short);
+
+	unsigned char *b2=(unsigned char*)malloc((size_t)res<<2);
+	long long *hist=(long long*)malloc(histlen);
+	unsigned short *overhead=(unsigned short*)malloc(overheadlen);
+	if(!b2||!hist||!overhead)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	memcpy(b2, src, (size_t)res<<2);
+
+	addbuf(b2, bw, bh, 3, 4, 128);
+	colortransform_ycocgt_fwd((char*)b2, bw, bh);
+	//pred_grad_fwd((char*)b2, bw, bh, 3, 4);
+	addbuf(b2, bw, bh, 3, 4, 128);
+
+	memset(hist, 0, histlen);
+	//long long *grad=hist+729LL*9;
+
+	e10_iter(b2, bw, bh, kc, hist);
+	int overhead_count=0;
+	for(int ks=0;ks<729;++ks)
+	{
+		long long *hk=hist+9*ks;
+		int sum=0;
+		for(int k=0;k<9;++k)
+			sum+=(int)hk[k];
+		if(sum)
+		{
+			if(overhead_count>=75)
+			{
+				LOG_ERROR("Unexpected number of cases %d", ks);
+				return 0;
+			}
+			unsigned short *ok=overhead+10*overhead_count;
+			ok[0]=ks;
+			int sum2=0;
+			for(int k=0;k<9;++k)
+			{
+				int freq=(int)(hk[k]*0xFFFF/sum);
+				ok[1+k]=sum2;
+				sum2+=freq;
+			}
+			++overhead_count;
+		}
+	}
+	free(hist);
+
+	DList list;
+	dlist_init(&list, 1, 1024, 0);
+	dlist_push_back(&list, 0, 5);//int csize, char overhead_count
+	dlist_push_back(&list, overhead, overheadlen);
+	unsigned state=0x10000;
+	for(int ky=bh-1;ky>=0;--ky)
+	{
+		for(int kx=bw-1;kx>=0;--kx)
+		{
+			int idx=bw*ky+kx;
+			char
+				topleft =kx-1>=0&&ky-1>=0?b2[(idx-bw-1)<<2|kc]-128:0,
+				top     =         ky-1>=0?b2[(idx-bw  )<<2|kc]-128:0,
+				topright=kx+1<bw&&ky-1>=0?b2[(idx-bw+1)<<2|kc]-128:0,
+				left    =kx-1>=0         ?b2[(idx   -1)<<2|kc]-128:0,
+				curr    =                 b2[ idx      <<2|kc]-128  ;
+			char nb[]={-128, topleft, top, topright, left, 127};
+
+			int permutation=0;
+			char temp;
+
+#define SORT_STEP(A, B)\
+			if(nb[1+A]<nb[1+B])\
+				permutation+=0;\
+			else if(nb[1+A]>nb[1+B])\
+				permutation+=1, temp=nb[1+A], nb[1+A]=nb[1+B], nb[1+B]=temp;\
+			else\
+				permutation+=2;
+
+			SORT_STEP(0, 1);
+			permutation*=3;
+			SORT_STEP(0, 2);
+			permutation*=3;
+			SORT_STEP(0, 3);
+
+			permutation*=3;
+			SORT_STEP(1, 2);
+			permutation*=3;
+			SORT_STEP(1, 3);
+
+			permutation*=3;
+			SORT_STEP(2, 3);
+#undef  SORT_STEP
+
+			size_t idx2;
+			int found=binary_search(overhead, 75, 10*sizeof(short), e10_cmp_overhead, &permutation, &idx2);
+			if(!found)
+				LOG_ERROR("Permutation %d not found in overhead", permutation);
+
+			unsigned short *CDF=overhead+10*idx2+1;
+		/*	int weights[]=
+			{
+				nb[1]-nb[0],
+				1,
+				nb[2]-(nb[1]-1),
+				1,
+				nb[3]-(nb[2]-1),
+				1,
+				nb[4]-(nb[3]-1),
+				1,
+				nb[5]-(nb[4]-1),
+			};*/
+#if 0
+			long long CDF[10]={0};
+			//int sum=0;
+			for(int k=0;k<9;++k)
+			{
+				CDF[k]=hk[k];
+
+				//CDF[k]=sum;
+				//sum+=hk[k];
+
+				//if(weights[k])
+				//{
+				//	int freq=hk[k]/weights[k];
+				//	weights[k]+=!weights[k];
+				//	sum+=weights[k];
+				//}
+				//else if(k)
+				//	CDF[k]=CDF[k-1];
+			}
+			//CDF[9]=sum;
+#endif
+
+			int c;
+				 if(curr<nb[1])		c=0;
+			else if(curr==nb[1])	c=1;
+			else if(curr<nb[2])		c=2;
+			else if(curr==nb[2])	c=3;
+			else if(curr<nb[3])		c=4;
+			else if(curr==nb[3])	c=5;
+			else if(curr<nb[4])		c=6;
+			else if(curr==nb[4])	c=7;
+			else					c=8;
+
+			int cdf, freq;
+			if(c&1)//curr == nb[1+(c>>1)]
+			{
+				cdf=CDF[c];
+				freq=(c<9-1?CDF[c+1]:0x10000)-cdf;
+			}
+			else//nb[c>>1] <[=] curr < nb[1+(c>>1)]		if c==0 [<=] else [<]
+			{
+				int den=nb[(c>>1)+1]-nb[c>>1];
+				cdf=CDF[c]+(curr-nb[c>>1])*(CDF[c+1]-CDF[c])/den;
+				freq=(CDF[c+1]-CDF[c])/den;
+			}
+			cdf=(int)((long long)cdf*0xFF00>>16)+curr;//guard
+			freq=(int)((long long)freq*0xFF00>>16)+1;
+				 
+			//long long interval, den;
+			//interval=(c<9-1?CDF[c+1]:0x10000)-CDF[c];
+			//den=(long long)weights[c]<<16;
+			//freq=(int)((interval*0xFF00)/den)+1;
+			//if(c&1)
+			//	cdf=(int)((long long)CDF[c]*0xFF00/den)+curr;
+			//else
+			//	cdf=(int)(((long long)CDF[c]+(curr-nb[c>>1])*interval)*0xFF00/den)+curr;
+
+			//interval=CDF[c+1]-CDF[c];
+			//den=weights[c]*CDF[9];
+			//freq=(int)((interval*0xFFFF)/den);
+			//if(c&1)
+			//	cdf=(int)(CDF[1]*0xFFFF/den);
+			//else
+			//	cdf=(int)((CDF[0]+(curr-nb[c>>1])*interval)*0xFFFF/den);
+
+			//	 if(curr<nb[0])		interval=CDF[1]-CDF[0], den=(nb[0] -  -128)*CDF[9], freq=(int)((interval*0xFFFF)/den), cdf=(int)((CDF[0]+(curr -  -128)*interval)*0xFFFF/den);
+			//else if(curr==nb[0])	interval=CDF[2]-CDF[1], den=                CDF[9], freq=(int)((interval*0xFFFF)/den), cdf=(int)(CDF[1]*0xFFFF/den);
+			//else if(curr<nb[1])		interval=CDF[3]-CDF[2], den=(nb[1] - nb[0])*CDF[9], freq=(int)((interval*0xFFFF)/den), cdf=(int)((CDF[2]+(curr - nb[0])*interval)*0xFFFF/den);
+			//else if(curr==nb[1])	interval=CDF[4]-CDF[3], den=                CDF[9], freq=(int)((interval*0xFFFF)/den), cdf=(int)(CDF[1]*0xFFFF/den);
+			//else if(curr<nb[2])		freq=weights[4];
+			//else if(curr==nb[2])	freq=weights[5];
+			//else if(curr<nb[3])		freq=weights[6];
+			//else if(curr==nb[3])	freq=weights[7];
+			//else					freq=weights[8];
+
+			if(!freq)
+				LOG_ERROR("ZPS");
+						
+			if(state>=(unsigned)(freq<<16))//renorm
+			{
+				dlist_push_back(&list, &state, 2);
+				state>>=16;
+			}
+			debug_enc_update(state, cdf, freq, kx, ky, 0, kc, sym);
+			state=state/freq<<16|(cdf+state%freq);//update
+		}
+	}
+	dlist_push_back(&list, &state, 4);
+	size_t dststart=dlist_appendtoarray(&list, data);
+	memcpy(data[0]->data+dststart, &list.nobj, 4);
+	memcpy(data[0]->data+dststart, &overhead_count, 1);
+
+	if(loud)
+		printf("ch %d  usize %7d  csize %7d  CR %lf\n", kc, res, (int)list.nobj, (double)res/list.nobj);
+
+	dlist_clear(&list);
+	free(overhead);
+	free(b2);
+	return 1;
+}
+#endif

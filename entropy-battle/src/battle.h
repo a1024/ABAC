@@ -170,6 +170,8 @@ int test19_decode(const unsigned char *data, size_t srclen, int bw, int bh, int 
 size_t test20_encode(const unsigned char *src, int bw, int bh, int blocksize, int margin, int alpha, int blockcount, ArrayHandle *data, int loud);
 int test20_decode(const unsigned char *data, size_t srclen, int bw, int bh, int blocksize, int margin, int alpha, int blockcount, unsigned char *buf);
 
+int e10_encode_ch(const unsigned char *src, int bw, int bh, int kc, ArrayHandle *data, int loud);
+
 
 
 

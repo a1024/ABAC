@@ -95,6 +95,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_DIFF2D,		ST_INV_DIFF2D,
 	ST_FWD_GRAD2,		ST_INV_GRAD2,
 	ST_FWD_ADAPTIVE,	ST_INV_ADAPTIVE,
+	ST_FWD_SORTNB,		ST_INV_SORTNB,
 //	ST_FWD_MEDIAN,		ST_INV_MEDIAN,
 //	ST_FWD_DCT3PRED,	ST_INV_DCT3PRED,
 //	ST_FWD_PATHPRED,	ST_INV_PATHPRED,
@@ -169,7 +170,11 @@ void transforms_update()
 				tid2==ST_FWD_CUSTOM_DWT||
 				tid2==ST_INV_CUSTOM_DWT||
 				tid2==ST_FWD_HYBRID3||
-				tid2==ST_INV_HYBRID3;
+				tid2==ST_INV_HYBRID3||
+				tid2==ST_FWD_ADAPTIVE||
+				tid2==ST_INV_ADAPTIVE||
+				tid2==ST_FWD_SORTNB||
+				tid2==ST_INV_SORTNB;
 		}
 	}
 }
@@ -212,7 +217,11 @@ void transforms_append(unsigned tid)
 				tid==ST_FWD_CUSTOM_DWT||
 				tid==ST_INV_CUSTOM_DWT||
 				tid==ST_FWD_HYBRID3||
-				tid==ST_INV_HYBRID3;
+				tid==ST_INV_HYBRID3||
+				tid==ST_FWD_ADAPTIVE||
+				tid==ST_INV_ADAPTIVE||
+				tid==ST_FWD_SORTNB||
+				tid==ST_INV_SORTNB;
 		}
 		else
 		{
@@ -269,6 +278,8 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case ST_INV_GRAD2:			a=" S Inv Grad2";			break;
 	case ST_FWD_ADAPTIVE:		a=" S Fwd Adaptive";		break;
 	case ST_INV_ADAPTIVE:		a=" S Inv Adaptive";		break;
+	case ST_FWD_SORTNB:			a=" S Fwd Sort Nb";			break;
+	case ST_INV_SORTNB:			a=" S Inv Sort Nb";			break;
 //	case ST_FWD_MEDIAN:			a=" S Fwd Median";			break;
 //	case ST_INV_MEDIAN:			a=" S Inv Median";			break;
 //	case ST_FWD_DCT3PRED:		a=" S Fwd DCT3 Predictor";	break;
@@ -753,6 +764,8 @@ void update_image()
 				//lodepng_encode_file("grad_mask.PNG", image, iw, ih, LCT_RGBA, 8);
 				break;
 			case ST_INV_ADAPTIVE:	pred_adaptive((char*)image, iw, ih, 3, 4, 0);		break;
+			case ST_FWD_SORTNB:		pred_sortnb((char*)image, iw, ih, 3, 4, 1);			break;
+			case ST_INV_SORTNB:		pred_sortnb((char*)image, iw, ih, 3, 4, 0);			break;
 		//	case ST_FWD_MEDIAN:		pred_median_fwd((char*)image, iw, ih, 3, 4);		break;
 		//	case ST_INV_MEDIAN:		pred_median_inv((char*)image, iw, ih, 3, 4);		break;
 		//	case ST_FWD_DCT3PRED:	pred_dct3_fwd((char*)image, iw, ih, 3, 4);			break;
@@ -2602,13 +2615,13 @@ void io_render()
 		{
 			const char *prednames[]=
 			{
-				"grad",
-				"grad45",
-				"path",
-				"path45",
-				"gamma",
-				"select",
-				"grad2",
+				"grad    ",
+				"grad45  ",
+				"path    ",
+				"path45  ",
+				"gamma   ",
+				"select  ",
+				"grad2   ",
 				"combined",
 			};
 			x=(float)(w>>1);
@@ -2629,15 +2642,36 @@ void io_render()
 		{
 			const char *prednames[]=
 			{
-				"hole\t",
+				"hole        ",
 				"bottom-right",
-				"bottom-left",
-				"roof bottom",
-				"valley top",
-				"top-right",
-				"top-left",
-				"peak\t",
+				"bottom-left ",
+				"roof bottom ",
+				"valley top  ",
+				"top-right   ",
+				"top-left    ",
+				"peak        ",
 			};
+
+			//draw histograms
+#if 1
+			float
+				xmargin=(float)w*0.05f, dx=(w-xmargin*2)/4,
+				ymargin=(float)h*0.05f, dy=(h-ymargin*2)/2;
+			for(int ky=0;ky<2;++ky)
+			{
+				for(int kx=0;kx<4;++kx)
+				{
+					float
+						x1=xmargin+dx*kx, x2=xmargin+dx*(kx+1)*0.95f,
+						y1=ymargin+dy*ky, y2=ymargin+dy*(ky+1)*0.95f;
+					int idx=ky<<2|kx;
+					chart_hist_draw2(x1, x2, y1, y2, 0x80808080, grad2_hist+(idx<<8), -1);
+					draw_rect_hollow(x1, x2, y1, y2, 0x80808080);
+					GUIPrint(0, x1, y1, 1, "%d %s", idx, prednames[idx]);
+				}
+			}
+#endif
+
 			x=(float)(w>>3);
 			y=(float)(h>>1);
 
@@ -2660,7 +2694,7 @@ void io_render()
 				//GUIPrint(0, x, y, 1, PRINTSTRING);
 #undef  PRINTSTRING
 
-				width=ceilf(width/200)*200;
+				width=ceilf(width/50)*50;
 				if(x+width<w-400)
 				{
 					float divisor=x+width+(float)(adagrad_csize[k]*(w-400-(x+width))/csize);
@@ -2675,22 +2709,36 @@ void io_render()
 				copy_to_clipboard(g_buf, g_printed);
 				copied=1;
 			}
-#if 0
-			float
-				xmargin=(float)w*0.05f, dx=(w-xmargin*2)/4,
-				ymargin=(float)h*0.05f, dy=(h-ymargin*2)/2;
-			for(int ky=0;ky<2;++ky)
+		}
+		else if(transforms_mask[ST_FWD_SORTNB]||transforms_mask[ST_INV_SORTNB])
+		{
+			const char *casenames[]=
 			{
-				for(int kx=0;kx<4;++kx)
-				{
-					float
-						x1=xmargin+dx*kx, x2=xmargin+dx*(kx+1)*0.95f,
-						y1=ymargin+dy*ky, y2=ymargin+dy*(ky+1)*0.95f;
-					chart_hist_draw2(x1, x2, y1, y2, 0x80808080, grad2_hist+((ky<<2|kx)<<8), -1);
-					draw_rect_hollow(x1, x2, y1, y2, 0x80808080);
-				}
+				"A",
+				"(A+B)/2",
+				"B",
+				"(B+C)/2",
+				"C",
+				"(C+D)/2",
+				"D",
+				"grad",
+			};
+			int res=iw*ih*3;
+			x=(float)(w>>1);
+			y=(float)(h>>1);
+			g_printed=0;
+			for(int k=0;k<SORTNBCASES;++k)
+			{
+				GUIPrint_append(0, x, y, 1, 1, "%5.2lf%%  E %5.2f %s", 100.*sortnb_cases[k]/res, sortnb_rmse[k], casenames[k]);
+				GUIPrint_append(0, x, y, 1, 0, "\n");
+				y+=tdy;
 			}
-#endif
+			static int copied2=0;
+			if(!copied2)
+			{
+				copy_to_clipboard(g_buf, g_printed);
+				copied2=1;
+			}
 		}
 #endif
 

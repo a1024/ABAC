@@ -1926,6 +1926,400 @@ void test9()
 	exit(0);
 }
 #endif
+#if 1
+typedef struct E10_CaseStruct
+{
+	int idx;
+	float prob;
+} E10_Case;
+int e10_cmp_case(const void *p1, const void *p2)
+{
+	E10_Case const *c1, *c2;
+
+	c1=(E10_Case const*)p1;
+	c2=(E10_Case const*)p2;
+	return (c1->prob<c2->prob)-(c1->prob>c2->prob);//descending order
+}
+long long e10_totalpixelcount=0, e10_constcount=0;
+int e10_reset(long long *hist)
+{
+	int histlen=(729LL*9+729LL*3)*sizeof(long long);//9 histograms with 729 cases + 729 sets of means for 3 gradients
+	if(hist)
+		memset(hist, 0, histlen);
+	return histlen;
+}
+long long* e10_start()
+{
+	int histlen=e10_reset(0);
+	long long *hist=(long long*)malloc(histlen);
+	if(!hist)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	e10_reset(hist);
+	return hist;
+}
+void e10_iter(unsigned char *buf, int iw, int ih, int kc, long long *hist)
+{
+	long long *grad=hist+729LL*9;
+	for(int ky=0;ky<ih;++ky)
+	{
+		for(int kx=0;kx<iw;++kx)
+		{
+			int idx=iw*ky+kx;
+			char
+				topleft =kx-1>=0&&ky-1>=0?buf[(idx-iw-1)<<2|kc]-128:0,
+				top     =         ky-1>=0?buf[(idx-iw  )<<2|kc]-128:0,
+				topright=kx+1<iw&&ky-1>=0?buf[(idx-iw+1)<<2|kc]-128:0,
+				left    =kx-1>=0         ?buf[(idx   -1)<<2|kc]-128:0,
+				curr    =                 buf[ idx      <<2|kc]-128  ;
+			char nb[]={topleft, top, topright, left};
+
+			int permutation=0;
+			char temp;
+
+#define SORT_STEP(A, B)\
+			if(nb[A]<nb[B])\
+				permutation+=0;\
+			else if(nb[A]>nb[B])\
+				permutation+=1, temp=nb[A], nb[A]=nb[B], nb[B]=temp;\
+			else\
+				permutation+=2;
+
+			SORT_STEP(0, 1);
+			permutation*=3;
+			SORT_STEP(0, 2);
+			permutation*=3;
+			SORT_STEP(0, 3);
+
+			permutation*=3;
+			SORT_STEP(1, 2);
+			permutation*=3;
+			SORT_STEP(1, 3);
+
+			permutation*=3;
+			SORT_STEP(2, 3);
+#undef  SORT_STEP
+
+			long long *hk=hist+permutation*9, *gk=grad+permutation*3;
+				 if(curr<nb[0])		++hk[0];
+			else if(curr==nb[0])	++hk[1];
+			else if(curr<nb[1])		++hk[2];
+			else if(curr==nb[1])	++hk[3];
+			else if(curr<nb[2])		++hk[4];
+			else if(curr==nb[2])	++hk[5];
+			else if(curr<nb[3])		++hk[6];
+			else if(curr==nb[3])	++hk[7];
+			else					++hk[8];
+
+			gk[0]+=nb[1]-nb[0];
+			gk[1]+=nb[2]-nb[1];
+			gk[2]+=nb[3]-nb[2];
+			e10_constcount+=nb[0]==nb[1]&&nb[0]==nb[2]&&nb[0]==nb[3];
+			++e10_totalpixelcount;
+		}
+	}
+}
+double e10_estimate_csize(unsigned char *buf, int iw, int ih, int kc, long long *hist)//no transforms
+{
+	int *CDF=(int*)malloc(256*sizeof(int));
+	if(!CDF)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	double csize=0;
+	long long *grad=hist+729LL*9;
+	for(int ky=0;ky<ih;++ky)
+	{
+		for(int kx=0;kx<iw;++kx)
+		{
+			int idx=iw*ky+kx;
+			char
+				topleft =kx-1>=0&&ky-1>=0?buf[(idx-iw-1)<<2|kc]-128:0,
+				top     =         ky-1>=0?buf[(idx-iw  )<<2|kc]-128:0,
+				topright=kx+1<iw&&ky-1>=0?buf[(idx-iw+1)<<2|kc]-128:0,
+				left    =kx-1>=0         ?buf[(idx   -1)<<2|kc]-128:0,
+				curr    =                 buf[ idx      <<2|kc]-128  ;
+			char nb[]={topleft, top, topright, left};
+
+			int permutation=0;
+			char temp;
+
+#define SORT_STEP(A, B)\
+			if(nb[A]<nb[B])\
+				permutation+=0;\
+			else if(nb[A]>nb[B])\
+				permutation+=1, temp=nb[A], nb[A]=nb[B], nb[B]=temp;\
+			else\
+				permutation+=2;
+
+			SORT_STEP(0, 1);
+			permutation*=3;
+			SORT_STEP(0, 2);
+			permutation*=3;
+			SORT_STEP(0, 3);
+
+			permutation*=3;
+			SORT_STEP(1, 2);
+			permutation*=3;
+			SORT_STEP(1, 3);
+
+			permutation*=3;
+			SORT_STEP(2, 3);
+#undef  SORT_STEP
+			long long *hk=hist+permutation*9, *gk=grad+permutation*3;
+			long long freq=0, sum;
+
+			long long weights[]=
+			{
+				nb[0] - -128,
+				1,
+				nb[1] - (nb[0]-1),
+				1,
+				nb[2] - (nb[1]-1),
+				1,
+				nb[3] - (nb[2]-1),
+				1,
+				128 - (nb[3]-1),
+			};
+			sum=0;
+			for(int k=0;k<9;++k)
+			{
+				if(weights[k])
+				{
+					weights[k]=hk[k]/weights[k];
+					weights[k]+=!weights[k];
+					sum+=weights[k];
+				}
+			}
+
+				 if(curr<nb[0])		freq=weights[0];
+			else if(curr==nb[0])	freq=weights[1];
+			else if(curr<nb[1])		freq=weights[2];
+			else if(curr==nb[1])	freq=weights[3];
+			else if(curr<nb[2])		freq=weights[4];
+			else if(curr==nb[2])	freq=weights[5];
+			else if(curr<nb[3])		freq=weights[6];
+			else if(curr==nb[3])	freq=weights[7];
+			else					freq=weights[8];
+			double p=(double)freq/sum, bitsize=-log2(p);
+			csize+=bitsize;
+		}
+	}
+	csize/=8;
+	return csize;
+}
+long long *e10_sum=0;
+int e10_cmp_priority(const void *p1, const void *p2)
+{
+	int idx1=*(const int*)p1, idx2=*(const int*)p2;
+	return (e10_sum[idx1]<e10_sum[idx2])-(e10_sum[idx1]>e10_sum[idx2]);//descending order
+}
+void e10_print(long long *hist)
+{
+	#define SORT_BY_PRIORITY
+	
+	long long *grad=hist+729LL*9;
+	int ncases=0;
+	long long totalsum=0;
+#ifdef SORT_BY_PRIORITY
+	long long *sum=(long long*)malloc(729*sizeof(long long));
+	int *priority=(int*)malloc(729*sizeof(int));
+	if(!sum||!priority)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	memset(sum, 0, 729*sizeof(long long));
+	for(int k=0;k<729*9;++k)
+		sum[k/9]+=hist[k];
+	for(int k=0;k<729;++k)
+	{
+		priority[k]=k;
+		totalsum+=sum[k];
+	}
+	e10_sum=sum;
+	isort(priority, 729, sizeof(int), e10_cmp_priority);
+#else
+	for(int k=0;k<729*9;++k)
+		totalsum+=hist[k];
+#endif
+	printf("0123 == topleft, top, topright, left\n");
+	printf("permutation  order  weight  x<a  x==a  a<x<b  x==b  b<x<c  x==c  c<x<d  x==d  x>d\n\n");
+	//printf("               <a           ==a          <b           ==b          <c           ==c          <d           ==d          >d          weight\n\n");
+	for(int kp=0;kp<729;++kp)
+	{
+#ifdef SORT_BY_PRIORITY
+		int idx=priority[kp];
+#else
+		int idx=kp;
+#endif
+		long long *hk=hist+9*idx;
+		char arr[]={'0', '1', '2', '3', 0};
+		//char arr[]={'C', 'T', 'R', 'L', 0};
+
+		int permutation=idx, outcome;
+		char temp;
+
+#define UNSORT_STEP(A, B)\
+			 if(outcome==0)		;\
+		else if(outcome==1)		temp=arr[A], arr[A]=arr[B], arr[B]=temp;\
+		else					arr[B]=arr[A];
+		
+		outcome=permutation%3, permutation/=3;
+		UNSORT_STEP(2, 3);
+
+		outcome=permutation%3, permutation/=3;
+		UNSORT_STEP(1, 3);
+		outcome=permutation%3, permutation/=3;
+		UNSORT_STEP(1, 2);
+
+		outcome=permutation%3, permutation/=3;
+		UNSORT_STEP(0, 3);
+		outcome=permutation%3, permutation/=3;
+		UNSORT_STEP(0, 2);
+		outcome=permutation%3, permutation/=3;
+		UNSORT_STEP(0, 1);
+#undef  UNSORT_STEP
+		
+		long long sum=0, kmax=0;
+		for(int kr=0;kr<9;++kr)
+		{
+			sum+=hk[kr];
+			if(hk[kmax]<hk[kr])
+				kmax=kr;
+		}
+		
+		//if(sum*100./totalsum>0.3)
+		if(sum)
+		{
+			float per[9];
+			int kmax=0;
+			printf("[%3d] %s %5.2lf  ", idx, arr, sum*100./totalsum);
+			for(int kr=0;kr<9;++kr)
+			{
+				per[kr]=hk[kr]*100.f/sum;
+				if(per[kmax]<per[kr])
+					kmax=kr;
+				if(per[kr])
+					printf(" %2.0f", per[kr]);
+				else
+					printf("   ");
+			}
+			printf("  -128");
+			int start=0, end;
+			float CDF=0;
+			for(int kr=0;kr<9;++kr)
+			{
+				CDF+=per[kr];
+				end=(int)roundf(CDF);
+				char c=kr&1?'a'+(kr>>1):'-';
+				//switch(kr)
+				//{
+				//case 0:c='-';break;
+				//case 1:c='a';break;
+				//case 2:c='-';break;
+				//case 3:c='b';break;
+				//case 4:c='-';break;
+				//case 5:c='c';break;
+				//case 6:c='-';break;
+				//case 7:c='d';break;
+				//case 8:c='-';break;
+				//}
+				//char c=kr==kmax?'^':(kr<9-2&&kr&1?'0':'.');
+
+				int e2=start+(end-start+1)/2;
+				for(int k2=start;k2<e2;++k2)
+					printf("%c", c);
+				if(kr>=2&&kr<9-1&&!(kr&1))
+				{
+					double interval=(double)grad[idx*3+((kr-2)>>1)]/sum;
+					if(interval)
+						printf("%5.2lf", interval);
+					else
+						printf("     ");
+				}
+				for(int k2=e2;k2<end;++k2)
+					printf("%c", c);
+
+				start=end;
+				if(kr<9-1)
+					printf("%c", (per[kr]?'A':'a')+(kr>>1));
+				else
+					printf("127");
+			}
+			printf("  [%3d]\n", idx);
+			//long long range=grad[idx*3]+grad[idx*3+1]+grad[idx*3+2];
+			//printf(" %4.2lf %4.2lf %4.2lf", (double)grad[idx*3]/sum, (double)grad[idx*3+1]/sum, (double)grad[idx*3+2]/sum);
+			//printf("\n");
+
+#if 0
+			E10_Case h2[9];
+			for(int kr=0;kr<9;++kr)
+			{
+				h2[kr].idx=kr;
+				h2[kr].prob=hk[kr]*100.f/sum;
+			}
+			isort(h2, 9, sizeof(E10_Case), e10_cmp_case);
+			printf("[%3d] %s %9lf%%  ", idx, arr, sum*100./totalsum);
+			for(int kr=0;kr<9&&h2[kr].prob>0.5f;++kr)
+			{
+				const char *a=0;
+				switch(h2[kr].idx)
+				{
+				case 0:a="x<a  ";break;
+				case 1:a="x==a ";break;
+				case 2:a="a<x<b";break;
+				case 3:a="x==b ";break;
+				case 4:a="b<x<c";break;
+				case 5:a="x==c ";break;
+				case 6:a="c<x<d";break;
+				case 7:a="x==d ";break;
+				case 8:a="d<x  ";break;
+				}
+				printf("  %5.2f%% %s", h2[kr].prob, a);
+			}
+			printf("\n");
+#endif
+			++ncases;
+		}
+	/*	if(sum)
+		{
+			printf("[%3d] %s", kp, arr);
+			for(int kr=0;kr<9;++kr)
+			{
+				char c1, c2;
+				if(kr==kmax)
+					c1='[', c2=']';
+				else
+					c1=c2=' ';
+				printf(" %c%9lf%%%c", c1, hk[kr]*100./sum, c2);
+			}
+			printf("\t%9lf%%\n", sum*100./totalsum);
+			++ncases;
+		}*/
+
+		//printf("[%3d] %s", kp, arr);
+		//if(!sum)
+		//	printf(" 0 0 0 0 0 0 0 0 0\n");
+		//else
+		//{
+		//	for(int kr=0;kr<9;++kr)
+		//		printf(" %9lf", (double)hk[kr]*100./sum);
+		//	printf("\n");
+		//}
+	}
+	printf("\n%d cases with P > 0.5%%\n", ncases);
+	printf("const neighbors: %lld / %lld = %lf%%\n", e10_constcount, e10_totalpixelcount, 100.*e10_constcount/e10_totalpixelcount);
+	free(sum);
+	free(priority);
+}
+#endif
+
+
+//	#define BATCHTEST_NO_B2
 
 const char *g_extensions[]=
 {
@@ -1947,6 +2341,15 @@ void batch_test(const char *path)
 		sum_uPNGsize=0, sum_uJPEGsize=0,
 		sum_testsize=0;
 		//sum_test3size[2]={0};
+#if 0	
+	long long *hist=e10_start();//
+	if(!hist)
+	{
+		exit(0);
+		return;
+	}
+#endif
+
 	for(ptrdiff_t k=0;k<(ptrdiff_t)filenames->count;++k)
 	{
 		ArrayHandle *fn=(ArrayHandle*)array_at(&filenames, k);
@@ -1973,7 +2376,11 @@ void batch_test(const char *path)
 
 		ptrdiff_t res=(ptrdiff_t)iw*ih, len=res*stride, usize=res*nch0;
 		double ratio=(double)usize/formatsize;
+#ifndef BATCHTEST_NO_B2
 		printf("%3lld/%3lld  \"%s\"\tCR %lf (%lf BPP) Dec %lf CPB", k+1, filenames->count, fn[0]->data, ratio, 8/ratio, (double)cycles/usize);
+#else
+		printf("%3lld/%3lld  %.2lf%%\r", k+1, filenames->count, (k+1)*100./filenames->count);
+#endif
 		if(!acme_stricmp(fn[0]->data+fn[0]->count-3, "PNG"))
 		{
 			sum_cPNGsize+=formatsize;
@@ -1986,7 +2393,7 @@ void batch_test(const char *path)
 			sum_uJPEGsize+=usize;
 			++count_JPEG;
 		}
-
+#ifndef BATCHTEST_NO_B2
 		unsigned char *b2=(unsigned char*)malloc(len);
 		if(!b2)
 		{
@@ -1994,6 +2401,35 @@ void batch_test(const char *path)
 			return;
 		}
 		memset(b2, 0, len);
+#endif
+
+#if 1
+		{
+			ArrayHandle cdata=0;
+			cycles=__rdtsc();
+			e10_encode_ch(buf, iw, ih, 0, &cdata, 0);
+			e10_encode_ch(buf, iw, ih, 1, &cdata, 0);
+			e10_encode_ch(buf, iw, ih, 2, &cdata, 0);
+			cycles=__rdtsc()-cycles;
+			printf(" Enc %lf CPB  CR %lf  csize %lld", (double)cycles/usize, (double)usize/cdata->count, cdata->count);
+			sum_testsize+=cdata->count;
+			if((ptrdiff_t)cdata->count<formatsize)
+				printf(" !!!");
+
+			array_free(&cdata);
+			printf("\n");
+		}
+#endif
+
+		//experiment 10: predictor sorts neighbors
+#if 0
+		addbuf(buf, iw, ih, 3, 4, 128);
+		colortransform_ycocgt_fwd((char*)buf, iw, ih);
+		addbuf(buf, iw, ih, 3, 4, 128);
+		//apply_transforms_fwd(buf, iw, ih);
+
+		e10_iter(buf, iw, ih, 1, hist);
+#endif
 
 		//test 19
 #if 0
@@ -2025,7 +2461,7 @@ void batch_test(const char *path)
 #endif
 		
 		//test16
-#if 1
+#if 0
 		{
 			ArrayHandle cdata=0;
 			int alpha=0xD3E7,
@@ -2199,8 +2635,14 @@ void batch_test(const char *path)
 
 		//printf("\n");
 		free(buf);
+#ifndef BATCHTEST_NO_B2
 		free(b2);
+#endif
 	}
+#if 0
+	e10_print(hist);
+	free(hist);
+#else
 	ptrdiff_t totalusize=sum_uPNGsize+sum_uJPEGsize;
 	if(totalusize)
 	{
@@ -2215,6 +2657,7 @@ void batch_test(const char *path)
 	}
 	else
 		printf("\nNo valid images found\n");
+#endif
 
 	array_free(&filenames);
 
@@ -2539,7 +2982,7 @@ int main(int argc, char **argv)
 	//test11_estimate_cr(buf, iw, ih, 1);
 
 	//test16
-#if 1
+#if 0
 	{
 		//debug_ptr=buf;//
 		int besta=0, bestb=0, bestm=0, bestc=0;
@@ -2664,13 +3107,13 @@ int main(int argc, char **argv)
 #endif
 	
 	//test20
-#if 1
+#if 0
 	{
 		//debug_ptr=buf;//
 		int loud=1;//
 		int bestB=0, besta=0, bestb=0, bestm=0, bestc=0;
 		int it=0;
-		for(int blockcount=2;blockcount<=8;++blockcount)
+		for(int blockcount=8;blockcount<=8;++blockcount)
 		{
 			for(int margin=30;margin<=30;++margin)
 			{
@@ -2705,6 +3148,43 @@ int main(int argc, char **argv)
 		else
 			printf("\n");
 	}
+#endif
+
+	//experiment 10: predictor that sorts neighbors
+#if 0
+	{
+		memcpy(b2, buf, len);
+		addbuf(b2, iw, ih, 3, 4, 128);
+		colortransform_ycocgt_fwd((char*)b2, iw, ih);
+		//pred_grad_fwd((char*)b2, iw, ih, 3, 4);
+		addbuf(b2, iw, ih, 3, 4, 128);
+
+		double csize;
+		long long *hist=e10_start();
+		for(int kc=0;kc<3;++kc)
+		{
+			e10_iter(b2, iw, ih, kc, hist);
+			//csize=e10_estimate_csize(b2, iw, ih, kc, hist);
+			printf("ch %d  U %d  C %lf  CR %lf\n", kc, iw*ih, csize, iw*ih/csize);
+			e10_print(hist);
+			e10_reset(hist);
+			printf("\n\n");
+		}
+		free(hist);
+	}
+#endif
+
+	//e10 codec
+#if 1
+	printf("E10 sortpred\n");
+	cycles=__rdtsc();
+	e10_encode_ch(buf, iw, ih, 0, &cdata, 1);
+	e10_encode_ch(buf, iw, ih, 1, &cdata, 1);
+	e10_encode_ch(buf, iw, ih, 2, &cdata, 1);
+	cycles=__rdtsc()-cycles;
+	printf("Enc %lf CPB  CR %lf  csize %lld\n", (double)cycles/usize, (double)usize/cdata->count, cdata->count);
+	array_free(&cdata);
+	printf("\n");
 #endif
 
 	//predict image

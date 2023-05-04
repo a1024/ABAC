@@ -654,6 +654,11 @@ extern int    adagrad_type[ADAGRADCOUNT];
 extern double adagrad_rmse[ADAGRADCOUNT], adagrad_csize[ADAGRADCOUNT];
 void pred_adaptive(char *buf, int iw, int ih, int nch, int bytestride, int fwd);
 
+#define SORTNBCASES 8
+extern int sortnb_cases[SORTNBCASES];
+extern double sortnb_rmse[SORTNBCASES];
+void pred_sortnb(char *buf, int iw, int ih, int nch, int bytestride, int fwd);
+
 void pred_path_fwd(char *buf, int iw, int ih, int nch, int bytestride);
 void pred_path_inv(char *buf, int iw, int ih, int nch, int bytestride);
 
