@@ -158,6 +158,529 @@ void colortransform_ycocgt_inv(char *buf, int iw, int ih)//3 channels, stride 4 
 	}
 }
 
+void c_mul_add(double *dst, const double *a, const double *b)
+{
+	double
+		r=a[0]*b[0]-a[1]*b[1],
+		i=a[0]*b[1]+a[1]*b[0];
+	dst[0]+=r, dst[1]+=i;
+}
+void c_mul_sub(double *dst, const double *a, const double *b)
+{
+	double
+		r=a[0]*b[0]-a[1]*b[1],
+		i=a[0]*b[1]+a[1]*b[0];
+	dst[0]-=r, dst[1]-=i;
+}
+double c_abs2(const double *z)
+{
+	return z[0]*z[0]+z[1]*z[1];
+}
+void c_div(double *dst, double const *a, double const *b)
+{
+	double invabsb2=1/c_abs2(b);
+	double
+		r=(a[0]*b[0]+a[1]*b[1])*invabsb2,
+		i=(a[1]*b[0]-a[0]*b[1])*invabsb2;
+	dst[0]=r, dst[1]=i;
+}
+void c_exp(double *dst, double const *x)
+{
+	double m=exp(x[0]);
+	dst[0]=m*cos(x[1]);
+	dst[1]=m*sin(x[1]);
+}
+void c_ln(double *dst, double const *x)
+{
+	double
+		r=log(sqrt(c_abs2(x))),
+		i=atan2(x[1], x[0]);
+	dst[0]=r, dst[1]=i;
+}
+void c_cbrt(double *dst, const double *x)//sqrt(x)=exp(0.5lnx)
+{
+	double temp[2];
+	if(x[0]||x[1])
+	{
+		c_ln(temp, x);
+		temp[0]*=1./3, temp[1]*=1./3;
+		c_exp(dst, temp);
+	}
+	else
+		dst[0]=x[0], dst[1]=x[1];
+}
+void impl_solve_cubic(const double *coeffs, double *roots)//finds r[0], r[1], & r[2], the solutions of x^3 + c[2]x^2 + c[1]x + c[0] = 0
+{
+	//https://math.stackexchange.com/questions/15865/why-not-write-the-solutions-of-a-cubic-this-way/18873#18873
+	double p=coeffs[2], q=coeffs[1], r=coeffs[0],
+		p2, p3, q2, pq, A[2], B[2];
+	double sqrt27=3*sqrt(3), inv3cbrt2=1./(3*cbrt(2)), ninth=1./9;
+	double cm[]={-0.5, -sqrt(3)*0.5}, cp[]={-0.5, sqrt(3)*0.5};
+
+	if(!p&&!q)
+	{
+		roots[4]=roots[2]=roots[0]=-cbrt(r);
+		roots[5]=roots[3]=roots[1]=0;
+		return;
+	}
+
+	p2=p*p;
+	p3=p2*p;
+	q2=q*q;
+	pq=p*q;
+
+	A[0]=(4*q-p2)*q2+(4*p3-18*pq+27*r)*r;
+	if(A[0]<0)
+		A[1]=sqrt(fabs(A[0])), A[0]=0;
+	else
+		A[0]=sqrt(A[0]), A[1]=0;
+	A[0]*=sqrt27;
+	A[1]*=sqrt27;
+	A[0]-=27*r;
+	A[0]+=9*pq-2*p3;
+	c_cbrt(A, A);
+	A[0]*=inv3cbrt2;
+	A[1]*=inv3cbrt2;
+	B[0]=3*q-p2;
+	c_div(B, B, A);
+	B[0]*=ninth;
+	B[1]*=ninth;
+	roots[4]=roots[2]=roots[0]=p*(-1./3);
+	roots[5]=roots[3]=roots[1]=0;
+	roots[0]+=A[0]-B[0];
+	roots[1]+=A[1]-B[1];
+	c_mul_add(roots+2, A, cm);
+	c_mul_sub(roots+2, B, cp);
+	c_mul_add(roots+4, A, cp);
+	c_mul_sub(roots+4, B, cm);
+}
+void impl_rref(double *m, short dx, short dy)
+{
+#ifdef _DEBUG
+	double pivot;
+#endif
+	double coeff;
+	int mindim=dx<dy?dx:dy, it, ky, kx, npivots, kpivot;
+	for(it=0, npivots=0;it<mindim;++it)//iteration
+	{
+		kpivot=-1;
+		for(ky=npivots;ky<dy;++ky)//find pivot
+		{
+			if(fabs(m[dx*ky+it])>1e-10)
+			{
+#ifdef _DEBUG
+				pivot=m[dx*ky+it];
+#endif
+				kpivot=ky;
+				++npivots;
+				break;
+			}
+		}
+		if(kpivot==-1)
+			continue;
+		if(kpivot>npivots-1)
+		{
+			for(kx=0;kx<dx;++kx)//swap rows
+				coeff=m[dx*kpivot+kx], m[dx*kpivot+kx]=m[dx*(npivots-1)+kx], m[dx*(npivots-1)+kx]=coeff;
+			kpivot=npivots-1;
+		}
+		for(ky=0;ky<dy;++ky)
+		{
+			if(ky==kpivot)//normalize pivot row
+			{
+				coeff=1/m[dx*kpivot+it];
+				for(kx=it;kx<dx;++kx)
+					m[dx*kpivot+kx]*=coeff;
+			}
+			else//subtract pivot row from all other rows
+			{
+				coeff=m[dx*ky+it]/m[dx*kpivot+it];
+				for(kx=it;kx<dx;++kx)
+					m[dx*ky+kx]-=coeff*m[dx*kpivot+kx];
+			}
+			//print_matrix_debug(m, dx, dy);//
+		}
+	}
+}
+int impl_nullspace(double *M, int dx, int dy, double *solution, int sstart, char *dep_flags, short *row_idx)
+{
+	//M is rref'ed
+	//solution allocated size dy*dy, pre-memset solution to zero
+	//p_flags & row_idx both size dx
+	//returns number of vectors in solution
+	int kx, kxdst, ky, keq, kfree, idx, idx2, nvec;
+#ifdef DEBUG_NULLSPACE
+	printf("Before RREF:\n");
+	print_matrix_debug(M, dx, dy);
+#endif
+	impl_rref(M, dx, dy);//first, get rref(M)
+#ifdef DEBUG_NULLSPACE
+	printf("After RREF:\n");
+	print_matrix_debug(M, dx, dy);
+#endif
+	memset(dep_flags, 0, dx);
+	memset(row_idx, 0, dx*sizeof(short));
+	for(ky=0;ky<dy;++ky)//find pivots (dependent variables)
+	{
+		for(kx=ky;kx<dx;++kx)//find first nonzero element
+		{
+			idx=dx*ky+kx;
+			if(fabs(M[idx])>1e-10)
+				break;
+		}
+		if(kx<dx)//if found
+			dep_flags[kx]=1, row_idx[ky]=kx;
+		else
+			break;
+	}
+	nvec=dx-ky;
+	for(ky=0, keq=0, kfree=0;ky<dx;++ky)
+	{
+		if(dep_flags[ky])//pivot, dependent variable
+		{
+			for(kx=0, kxdst=0;kx<dx;++kx)
+			{
+				if(dep_flags[kx])
+					continue;
+				idx=dx*ky+kxdst, idx2=dx*keq+kx;
+				if(sstart+idx>=9)
+					LOG_ERROR("");
+				solution[sstart+idx]=-M[idx2];
+				++kxdst;
+			}
+			++keq;
+		}
+		else//free variable
+		{
+			idx=dx*ky;
+			if(sstart+idx+nvec>9)
+				LOG_ERROR("");
+			memset(solution+sstart+idx, 0, nvec*sizeof(double));
+			if(sstart+idx+kfree>=9)
+				LOG_ERROR("");
+			solution[sstart+idx+kfree]=1;
+			++kfree;
+		}
+#ifdef DEBUG_NULLSPACE
+		//printf("Nullspace row %d:\n", ky);
+		print_matrix_debug(solution+dx*ky, nvec, 1);//
+#endif
+	}
+	return nvec;
+}
+int impl_egvec(double const *M, int n, const double *lambdas, double *S)
+{
+	int kv, kx, nvec, size=n*n, again;
+	double *temp=(double*)malloc(size*sizeof(double));
+	char *dep_flags=(char*)malloc(n);
+	short *row_idx=(short*)malloc(n*sizeof(short));
+	if(!temp||!dep_flags||!row_idx)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	memset(S, 0, size*sizeof(double));
+	for(kv=0, nvec=0;kv<n&&nvec<n;++kv)//get eigenvectors
+	{
+		again=0;
+		for(kx=0;kx<kv;++kx)//check for repeated eigenvalues
+		{
+			if(fabs(lambdas[kx]-lambdas[kv])<1e-10)
+			{
+				again=1;
+				break;
+			}
+		}
+		if(again)
+			continue;
+		memcpy(temp, M, size*sizeof(double));
+		for(kx=0;kx<n;++kx)
+			temp[(n+1)*kx]-=lambdas[kv];
+
+		nvec+=impl_nullspace(temp, n, n, S, nvec, dep_flags, row_idx);
+		//if(nvec>6)
+		//	LOG_ERROR("OOB");
+		//print_matrix_debug(S, n, n);//
+		//for(ky=0;ky<n;++ky)
+		//{
+		//	for(kx=ky;kx<n;++kx)
+		//		if(fabs(temp[n*ky+kx].r)>1e-10||fabs(temp[n*ky+kx].i)>1e-10)
+		//			break;
+		//}
+	}
+	free(dep_flags), free(row_idx);
+	free(temp);
+	return nvec;
+}
+void colortransform_adaptive(char *buf, int iw, int ih, int fwd)
+{
+	int res=iw*ih;
+	char *b2=(char*)malloc((size_t)res<<2);
+	if(!b2)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	int black=0xFF000000;
+	memfill(b2, &black, (size_t)res<<2, 4);
+	char *src=fwd?buf:b2;
+	for(int ky=0;ky<ih;++ky)
+	{
+		for(int kx=0;kx<iw;++kx)
+		{
+			int idx=iw*ky+kx;
+#define ACT_N 12
+			char r[ACT_N]={0}, g[ACT_N]={0}, b[ACT_N]={0};//topleft, top, topright, left
+			if(ky-2>=0)
+			{
+				if(kx-2>=0)	r[0]=src[(idx-iw*2-2)<<2], g[0]=src[(idx-iw*2-2)<<2|1], b[0]=src[(idx-iw*2-2)<<2|2];
+				if(kx-1>=0)	r[1]=src[(idx-iw*2-1)<<2], g[1]=src[(idx-iw*2-1)<<2|1], b[1]=src[(idx-iw*2-1)<<2|2];
+							r[2]=src[(idx-iw*2  )<<2], g[2]=src[(idx-iw*2  )<<2|1], b[2]=src[(idx-iw*2  )<<2|2];
+				if(kx+1<iw)	r[3]=src[(idx-iw*2+1)<<2], g[3]=src[(idx-iw*2+1)<<2|1], b[3]=src[(idx-iw*2+1)<<2|2];
+				if(kx+2<iw)	r[4]=src[(idx-iw*2+2)<<2], g[4]=src[(idx-iw*2+2)<<2|1], b[4]=src[(idx-iw*2+2)<<2|2];
+			}
+			if(ky-1>=0)
+			{
+				if(kx-2>=0)	r[5]=src[(idx-iw-2)<<2], g[5]=src[(idx-iw-2)<<2|1], b[5]=src[(idx-iw-2)<<2|2];
+				if(kx-1>=0)	r[6]=src[(idx-iw-1)<<2], g[6]=src[(idx-iw-1)<<2|1], b[6]=src[(idx-iw-1)<<2|2];
+							r[7]=src[(idx-iw  )<<2], g[7]=src[(idx-iw  )<<2|1], b[7]=src[(idx-iw  )<<2|2];
+				if(kx+1<iw)	r[8]=src[(idx-iw+1)<<2], g[8]=src[(idx-iw+1)<<2|1], b[8]=src[(idx-iw+1)<<2|2];
+				if(kx+2<iw)	r[9]=src[(idx-iw+2)<<2], g[9]=src[(idx-iw+2)<<2|1], b[9]=src[(idx-iw+2)<<2|2];
+			}
+			if(kx-2>=0)	r[10]=src[(idx-2)<<2], g[10]=src[(idx-2)<<2|1], b[10]=src[(idx-2)<<2|2];
+			if(kx-1>=0)	r[11]=src[(idx-1)<<2], g[11]=src[(idx-1)<<2|1], b[11]=src[(idx-1)<<2|2];
+
+			//if(kx-1>=0&&ky-1>=0)
+			//	r[0]=src[(idx-iw-1)<<2], g[0]=src[(idx-iw-1)<<2|1], b[0]=src[(idx-iw-1)<<2|2];
+			//if(ky-1>=0)
+			//	r[1]=src[(idx-iw)<<2], g[1]=src[(idx-iw)<<2|1], b[1]=src[(idx-iw)<<2|2];
+			//if(kx+1<iw&&ky-1>=0)
+			//	r[2]=src[(idx-iw+1)<<2], g[2]=src[(idx-iw+1)<<2|1], b[2]=src[(idx-iw+1)<<2|2];
+			//if(kx-1>=0)
+			//	r[3]=src[(idx-1)<<2], g[3]=src[(idx-1)<<2|1], b[3]=src[(idx-1)<<2|2];
+			
+			//get prediction range
+			int rmin=r[0], bmin=b[0];
+			int rmax=r[0], bmax=b[0];
+
+			for(int k=1;k<ACT_N;++k)
+			{
+				if(rmin>r[k]) rmin=r[k];
+				if(rmax<r[k]) rmax=r[k];
+				//if(gmin>g[k]) gmin=g[k];
+				//if(gmax<g[k]) gmax=g[k];
+				if(bmin>b[k]) bmin=b[k];
+				if(bmax<b[k]) bmax=b[k];
+			}
+
+			char rcurr=buf[idx<<2], gcurr=buf[idx<<2|1], bcurr=buf[idx<<2|2];
+
+#if 0
+			int pred=((g[3]?(r[3]*gcurr+(g[3]>>1))/g[3]:r[3])+(b[3]?(r[3]*bcurr+(b[3]>>1))/b[3]:r[3])+1)>>1;
+			pred=CLAMP(rmin, pred, rmax);
+			rcurr-=pred;
+
+			pred=g[3]?(b[3]*gcurr+(g[3]>>1))/g[3]:b[3];
+			pred=CLAMP(bmin, pred, bmax);
+			bcurr-=pred;
+#endif
+
+#if 1
+			//if(kx==405&&ky==170)
+			//if(kx==4&&ky==2)
+			//	kx=4;
+
+			double mean[3]={0};
+			double points[ACT_N*3];
+			for(int k=0;k<ACT_N;++k)
+			{
+				mean[0]+=r[k];
+				mean[1]+=g[k];
+				mean[2]+=b[k];
+			}
+			mean[0]/=ACT_N;
+			mean[1]/=ACT_N;
+			mean[2]/=ACT_N;
+			for(int k=0;k<ACT_N;++k)
+			{
+				points[3*k  ]=r[k]-mean[0];
+				points[3*k+1]=g[k]-mean[1];
+				points[3*k+2]=b[k]-mean[2];
+			}
+			double cov[9]={0};
+			for(int k=0;k<4;++k)
+			{
+				double *point=points+k*3, xy=point[0]*point[1], yz=point[1]*point[2], zx=point[2]*point[0];
+				cov[0]+=point[0]*point[0]; cov[1]+=xy; cov[2]+=zx;//outer product
+				cov[3]+=xy; cov[4]+=point[1]*point[1]; cov[5]+=yz;
+				cov[6]+=zx; cov[7]+=yz; cov[8]+=point[2]*point[2];
+			}
+			for(int k=0;k<9;++k)//divide matrix by N-1 because the mean was from these samples
+				cov[k]*=1./3;
+
+			//get eigenvalues
+			double evalues[6]={0};
+			double C[3];
+				
+			//C[2] = -tr(M) = -(M[0]+M[4]+M[8]);
+			C[2]=-(cov[0]+cov[4]+cov[8]);
+
+			//C[1] = cof0+cof4+cof8 = M[4]*M[8]-M[5]*M[7] + M[0]*M[8]-M[2]*M[6] + M[0]*M[4]-M[1]*M[3];
+			//C[1]=cov[4]*cov[8]-cov[5]*cov[7];
+			//C[0]=C[1];
+			//C[1]+=cov[0]*cov[8];
+			//C[1]-=cov[2]*cov[6];
+			//C[1]+=cov[0]*cov[4];
+			//C[1]-=cov[1]*cov[3];
+			C[1]=cov[4]*cov[8]-cov[5]*cov[7] + cov[0]*cov[8]-cov[2]*cov[6] + cov[0]*cov[4]-cov[1]*cov[3];
+
+			//C[0] = -det(M) = -(M[0]*(M[4]*M[8]-M[5]*M[7]) - M[1]*(M[3]*M[8]-M[5]*M[6]) + M[2]*(M[3]*M[7]-M[4]*M[6]));
+			//C[0]*=cov[0];
+			//C[0]-=cov[1]*(cov[3]*cov[8]-cov[5]*cov[6]);
+			//C[0]+=cov[2]*(cov[3]*cov[7]-cov[4]*cov[6]);
+			//C[0]=-C[0];
+			C[0]=-(cov[0]*(cov[4]*cov[8]-cov[5]*cov[7]) - cov[1]*(cov[3]*cov[8]-cov[5]*cov[6]) + cov[2]*(cov[3]*cov[7]-cov[4]*cov[6]));
+
+			//if(!C[0]&&!C[1]&&!C[2])
+			//	goto skip;
+
+			impl_solve_cubic(C, evalues);
+
+			evalues[1]=evalues[2];//take real parts
+			evalues[2]=evalues[4];
+			//evalues[0]=sqrt(evalues[0]*evalues[0]+evalues[1]*evalues[1]);
+			//evalues[1]=sqrt(evalues[2]*evalues[2]+evalues[3]*evalues[3]);
+			//evalues[2]=sqrt(evalues[4]*evalues[4]+evalues[5]*evalues[5]);
+
+			if(fabs(evalues[0])<fabs(evalues[1]))SWAPVAR(evalues[0], evalues[1], evalues[3]);//sort in descending order
+			if(fabs(evalues[1])<fabs(evalues[2]))SWAPVAR(evalues[1], evalues[2], evalues[3]);
+			if(fabs(evalues[0])<fabs(evalues[1]))SWAPVAR(evalues[0], evalues[1], evalues[3]);
+
+			//get eigenvectors
+			double evecs[9];
+			impl_egvec(cov, 3, evalues, evecs);
+
+			//normalize v0
+			evalues[3]=1/sqrt(evecs[0]*evecs[0]+evecs[1]*evecs[1]+evecs[2]*evecs[2]);
+			evecs[0]*=evalues[3];
+			evecs[1]*=evalues[3];
+			evecs[2]*=evalues[3];
+
+			//predict components
+			int pred;
+			int count=0;
+			double t=0;
+			if(fwd)
+			{
+				if(evecs[1])
+					t+=(gcurr-mean[1])/evecs[1], ++count;
+				if(evecs[2])
+					t+=(bcurr-mean[2])/evecs[2], ++count;
+				if(count)
+				{
+					t/=count;
+					pred=(int)(t*evecs[0]+mean[0]);
+					pred=CLAMP(rmin, pred, rmax);
+				}
+				else
+					pred=(gcurr+bcurr)>>1;
+				rcurr-=pred;
+
+				if(evecs[1])
+				{
+					t=(gcurr-mean[1])/evecs[1];
+					pred=(int)(t*evecs[2]+mean[2]);
+					pred=CLAMP(bmin, pred, bmax);
+				}
+				else
+					pred=gcurr;
+				bcurr-=pred;
+			}
+			else
+			{
+				if(evecs[1])
+				{
+					t=(gcurr-mean[1])/evecs[1];
+					pred=(int)(t*evecs[2]+mean[2]);
+					pred=CLAMP(bmin, pred, bmax);
+				}
+				else
+					pred=gcurr;
+				bcurr+=pred;
+				
+				if(evecs[1])
+					t+=(gcurr-mean[1])/evecs[1], ++count;
+				if(evecs[2])
+					t+=(bcurr-mean[2])/evecs[2], ++count;
+				if(count)
+				{
+					t/=count;
+					pred=(int)(t*evecs[0]+mean[0]);
+				}
+				else
+					pred=(gcurr+bcurr)>>1;
+				pred=CLAMP(rmin, pred, rmax);
+				rcurr+=pred;
+			}
+#endif
+#undef ACT_N
+
+#if 0
+			//if(red&&green&&blue)
+			//{
+			//	int LOL_1=0;
+			//}
+			double coeff[3]={0};
+			
+			coeff[0]=green+blue?(double)red/(green+blue):1;
+			coeff[0]=CLAMP(-128, coeff[0], 127);
+			red-=(int)(coeff[0]*(green+blue));
+			red=CLAMP(-128, red, 127);
+
+			coeff[1]=red+green?(double)blue/(red+green):1;
+			coeff[1]=CLAMP(-128, coeff[1], 127);
+			blue-=(int)(coeff[1]*(red+green));
+			blue=CLAMP(-128, blue, 127);
+
+			coeff[2]=red+blue?(double)green/(red+blue):1;
+			coeff[2]=CLAMP(-128, coeff[2], 127);
+			//green+=(int)(coeff[2]*(red+blue));
+			//green=CLAMP(-128, green, 127);
+
+			int temp;
+			if(fwd)
+			{
+				temp=(int)(coeff[0]*(cg+cb));
+				cr-=CLAMP(-128, temp, 127);
+
+				temp=(int)(coeff[1]*(cr+cg));
+				cb-=CLAMP(-128, temp, 127);
+
+				temp=(int)(coeff[2]*(cr+cb));
+				cg-=CLAMP(-128, temp, 127);
+			}
+			else
+			{
+				temp=(int)(coeff[2]*(cr+cb));
+				cg+=CLAMP(-128, temp, 127);
+
+				temp=(int)(coeff[1]*(cr+cg));
+				cb+=CLAMP(-128, temp, 127);
+
+				temp=(int)(coeff[0]*(cg+cb));
+				cr+=CLAMP(-128, temp, 127);
+			}
+#endif
+
+			b2[idx<<2  ]=rcurr;
+			b2[idx<<2|1]=gcurr;
+			b2[idx<<2|2]=bcurr;
+		}
+	}
+	memcpy(buf, b2, (size_t)res<<2);
+	free(b2);
+}
+
 void colortransform_exp_fwd(char *buf, int iw, int ih)
 {
 	for(int ky=0;ky<ih;++ky)
@@ -646,6 +1169,86 @@ void colortransform_custom_inv(char *buf, int iw, int ih)
 
 
 //spatial transforms
+
+const int permute_idx[]=
+{
+	136, 229, 247, 217,  82, 226,  99, 203, 139,  29, 238, 193, 141, 134,   7, 160,
+	 32, 253, 165,  51,  37, 113, 115,  60,  94, 140,  78,  70, 202,  24, 218, 151,
+	219, 190, 246, 161,  81, 163, 135, 248, 198, 220, 155, 102,  65,  35, 213, 122,
+	242, 171,  57, 249,  12, 148, 119,  97, 232, 221, 132,  46, 117,  41,  84, 183,
+	188,  93, 129, 157, 145,  90,  40, 243, 182, 154, 194,  91, 177,  72, 252, 121,
+	 52, 101, 167,  92,  34,  38, 168, 235,  88, 215, 196, 211,  22,  63, 175, 199,
+	 75,  16, 192,  87, 186,   2,  56, 245,  58, 137, 201,  61,  71, 234, 111,  76,
+	170, 240,   1, 166,   4,  68,  43, 228, 208, 244,  15, 153,  53, 237, 123, 108,
+	 95,  18,   8,  14,  23,  67,  62, 231,  74, 227,  27, 254,  33, 250, 207,  96,
+	  0, 120, 173, 181,  39, 176, 225,  55, 107,  26, 251, 179, 239,  25, 112,  79,
+	128,  64, 130, 162, 143,   9,  21,   6, 223, 216,  86, 191,  45, 144,   3, 106,
+	 69, 147,  83, 114, 118, 169,  77,  31,  47,  42, 100, 174, 172, 138, 159, 164,
+	 19, 209,  80, 131, 210,  89, 150, 236, 133, 241,  20, 224, 212,  36, 104, 184,
+	 10,  49, 124, 255,  44, 110,   5,  50, 197, 222,  54, 109,  85, 146, 206, 158,
+	126, 125, 105, 187, 185, 200,  30,  66, 152, 204,  48,  11,  28, 149,  17, 230,
+	116, 233, 214,  98, 127, 103, 156, 142, 178, 205, 180, 195, 189,  59,  73,  13,
+};
+char permute_temp[256];
+void shuffle(char *buf, int iw, int ih, int fwd)
+{
+	for(int kc=0;kc<3;++kc)
+	{
+		for(int ky=0;ky<ih-1;ky+=2)
+		{
+			int y=fwd?ky:((ih-1)&~1)-ky;
+			y=(y+permute_idx[y&0xFF])%ih;
+			int ycount=16;
+			if(ycount>ih-y)
+				ycount=ih-y;
+			for(int kx=0;kx<iw-1;kx+=2)
+			{
+				int x=fwd?kx:((iw-1)&~1)-kx;
+				x=(x+permute_idx[0xFF-(x&0xFF)])%iw;
+				int xcount=16;
+				if(xcount>iw-x)
+					xcount=iw-x;
+				int blockcount=xcount*ycount;
+				for(int ky2=0;ky2<ycount;++ky2)
+				{
+					for(int kx2=0;kx2<xcount;++kx2)
+						permute_temp[xcount*ky2+kx2]=buf[(iw*(y+ky2)+x+kx2)<<2|kc];
+				}
+				int idx, idx2;
+				char temp;
+				if(fwd)
+				{
+					for(int ky2=0;ky2<ycount;++ky2)
+					{
+						for(int kx2=0;kx2<xcount;++kx2)
+						{
+							idx=xcount*ky2+kx2, idx2=permute_idx[idx]%blockcount;
+							if(idx!=idx2)
+								SWAPVAR(permute_temp[idx], permute_temp[idx2], temp);
+						}
+					}
+				}
+				else
+				{
+					for(int ky2=ycount-1;ky2>=0;--ky2)
+					{
+						for(int kx2=xcount-1;kx2>=0;--kx2)
+						{
+							idx=xcount*ky2+kx2, idx2=permute_idx[idx]%blockcount;
+							if(idx!=idx2)
+								SWAPVAR(permute_temp[idx], permute_temp[idx2], temp);
+						}
+					}
+				}
+				for(int ky2=0;ky2<ycount;++ky2)
+				{
+					for(int kx2=0;kx2<xcount;++kx2)
+						buf[(iw*(y+ky2)+x+kx2)<<2|kc]=permute_temp[xcount*ky2+kx2];
+				}
+			}
+		}
+	}
+}
 
 //learned predictor
 #if 1
@@ -2318,7 +2921,8 @@ void pred_jxl(char *buf, int iw, int ih, int nch, int bytestride, int fwd)
 					etopright=ky-1>=0&&kx+1<iw?error[prevrow+kx+1]:0;
 				double predictions[]=
 				{
-					ctop+cleft-ctopleft,
+					cleft+ctopright-ctop,
+					//ctop+cleft-ctopleft,
 					ctop-(int)((etop+eleft+etopright)*customparam_st[10]),
 					cleft-(int)((etop+eleft+etopleft)*customparam_st[11]),
 					ctop-(int)(etopleft*customparam_st[5]+ctop*customparam_st[6]+ctopright*customparam_st[7]+(ctt-ctop)*customparam_st[8]+(ctopleft-cleft)*customparam_st[9]),

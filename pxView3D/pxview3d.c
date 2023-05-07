@@ -85,7 +85,8 @@ typedef enum TransformTypeEnum
 	CT_FWD_YCoCgT,		CT_INV_YCoCgT,
 	CT_FWD_XGZ,			CT_INV_XGZ,
 	CT_FWD_XYZ,			CT_INV_XYZ,
-	CT_FWD_EXP,			CT_INV_EXP,
+//	CT_FWD_EXP,			CT_INV_EXP,
+	CT_FWD_ADAPTIVE,	CT_INV_ADAPTIVE,
 	CT_FWD_CUSTOM,		CT_INV_CUSTOM,
 
 	CST_SEPARATOR,
@@ -105,15 +106,16 @@ typedef enum TransformTypeEnum
 	ST_FWD_CUSTOM,		ST_INV_CUSTOM,
 	ST_FWD_DCT4,		ST_INV_DCT4,
 	ST_FWD_DCT8,		ST_INV_DCT8,
+	ST_FWD_SHUFFLE,		ST_INV_SHUFFLE,
 //	ST_FWD_SPLIT,		ST_INV_SPLIT,
 
 	ST_FWD_LAZY,		ST_INV_LAZY,
 	ST_FWD_HAAR,		ST_INV_HAAR,
 	ST_FWD_SQUEEZE,		ST_INV_SQUEEZE,
-	ST_FWD_CDF53,		ST_INV_CDF53,
-	ST_FWD_CDF97,		ST_INV_CDF97,
-	ST_FWD_GRAD_DWT,	ST_INV_GRAD_DWT,
-	ST_FWD_DEC_DWT,		ST_INV_DEC_DWT,
+	ST_FWD_LEGALL53,	ST_INV_LEGALL53,
+//	ST_FWD_CDF97,		ST_INV_CDF97,
+//	ST_FWD_GRAD_DWT,	ST_INV_GRAD_DWT,
+//	ST_FWD_DEC_DWT,		ST_INV_DEC_DWT,
 	ST_FWD_EXPDWT,		ST_INV_EXPDWT,
 	ST_FWD_CUSTOM_DWT,	ST_INV_CUSTOM_DWT,
 
@@ -268,8 +270,10 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case CT_INV_XGZ:			a="C  Inv XGZ";				break;
 	case CT_FWD_XYZ:			a="C  Fwd XYZ";				break;
 	case CT_INV_XYZ:			a="C  Inv XYZ";				break;
-	case CT_FWD_EXP:			a="C  Fwd Experimental";	break;
-	case CT_INV_EXP:			a="C  Inv Experimental";	break;
+//	case CT_FWD_EXP:			a="C  Fwd Experimental";	break;
+//	case CT_INV_EXP:			a="C  Inv Experimental";	break;
+	case CT_FWD_ADAPTIVE:		a="C  Fwd Adaptive";		break;
+	case CT_INV_ADAPTIVE:		a="C  Inv Adaptive";		break;
 	case CT_FWD_CUSTOM:			a="C  Fwd CUSTOM";			break;
 	case CT_INV_CUSTOM:			a="C  Inv CUSTOM";			break;
 	case CST_SEPARATOR:			a="";						break;
@@ -299,6 +303,8 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case ST_INV_DCT4:			a=" S Inv DCT4";			break;
 	case ST_FWD_DCT8:			a=" S Fwd DCT8";			break;
 	case ST_INV_DCT8:			a=" S Inv DCT8";			break;
+	case ST_FWD_SHUFFLE:		a=" S Fwd Shuffle";			break;
+	case ST_INV_SHUFFLE:		a=" S Inv Shuffle";			break;
 //	case ST_FWD_SPLIT:			a=" S Fwd Split";			break;
 //	case ST_INV_SPLIT:			a=" S Inv Split";			break;
 	case ST_FWD_CUSTOM:			a=" S Fwd CUSTOM";			break;
@@ -309,14 +315,14 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case ST_INV_HAAR:			a=" S Inv Haar";			break;
 	case ST_FWD_SQUEEZE:		a=" S Fwd Squeeze";			break;
 	case ST_INV_SQUEEZE:		a=" S Inv Squeeze";			break;
-	case ST_FWD_CDF53:			a=" S Fwd CDF 5/3";			break;
-	case ST_INV_CDF53:			a=" S Inv CDF 5/3";			break;
-	case ST_FWD_CDF97:			a=" S Fwd CDF 9/7";			break;
-	case ST_INV_CDF97:			a=" S Inv CDF 9/7";			break;
-	case ST_FWD_GRAD_DWT:		a=" S Fwd Gradient DWT";	break;
-	case ST_INV_GRAD_DWT:		a=" S Inv Gradient DWT";	break;
-	case ST_FWD_DEC_DWT:		a=" S Fwd Dec. DWT";		break;
-	case ST_INV_DEC_DWT:		a=" S Inv Dec. DWT";		break;
+	case ST_FWD_LEGALL53:		a=" S Fwd LeGall 5/3";		break;
+	case ST_INV_LEGALL53:		a=" S Inv LeGall 5/3";		break;
+//	case ST_FWD_CDF97:			a=" S Fwd CDF 9/7";			break;
+//	case ST_INV_CDF97:			a=" S Inv CDF 9/7";			break;
+//	case ST_FWD_GRAD_DWT:		a=" S Fwd Gradient DWT";	break;
+//	case ST_INV_GRAD_DWT:		a=" S Inv Gradient DWT";	break;
+//	case ST_FWD_DEC_DWT:		a=" S Fwd Dec. DWT";		break;
+//	case ST_INV_DEC_DWT:		a=" S Inv Dec. DWT";		break;
 	case ST_FWD_EXPDWT:			a=" S Fwd Exp DWT";			break;
 	case ST_INV_EXPDWT:			a=" S Inv Exp DWT";			break;
 	case ST_FWD_CUSTOM_DWT:		a=" S Fwd CUSTOM DWT";		break;
@@ -752,8 +758,10 @@ void update_image()
 			case CT_INV_XGZ:		colortransform_xgz_inv((char*)image, iw, ih);		break;
 			case CT_FWD_XYZ:		colortransform_xyz_fwd((char*)image, iw, ih);		break;
 			case CT_INV_XYZ:		colortransform_xyz_inv((char*)image, iw, ih);		break;
-			case CT_FWD_EXP:		colortransform_exp_fwd((char*)image, iw, ih);		break;
-			case CT_INV_EXP:		colortransform_exp_inv((char*)image, iw, ih);		break;
+		//	case CT_FWD_EXP:		colortransform_exp_fwd((char*)image, iw, ih);		break;
+		//	case CT_INV_EXP:		colortransform_exp_inv((char*)image, iw, ih);		break;
+			case CT_FWD_ADAPTIVE:	colortransform_adaptive((char*)image, iw, ih, 1);	break;
+			case CT_INV_ADAPTIVE:	colortransform_adaptive((char*)image, iw, ih, 0);	break;
 			case CT_FWD_CUSTOM:		colortransform_custom_fwd((char*)image, iw, ih);	break;
 			case CT_INV_CUSTOM:		colortransform_custom_inv((char*)image, iw, ih);	break;
 
@@ -786,6 +794,8 @@ void update_image()
 			case ST_INV_DCT4:		image_dct4_inv((char*)image, iw, ih);				break;
 			case ST_FWD_DCT8:		image_dct8_fwd((char*)image, iw, ih);				break;
 			case ST_INV_DCT8:		image_dct8_inv((char*)image, iw, ih);				break;
+			case ST_FWD_SHUFFLE:	shuffle((char*)image, iw, ih, 1);					break;
+			case ST_INV_SHUFFLE:	shuffle((char*)image, iw, ih, 0);					break;
 		//	case ST_FWD_SPLIT:		image_split_fwd((char*)image, iw, ih);				break;
 		//	case ST_INV_SPLIT:		image_split_inv((char*)image, iw, ih);				break;
 
@@ -795,12 +805,12 @@ void update_image()
 			case ST_INV_HAAR:
 			case ST_FWD_SQUEEZE:
 			case ST_INV_SQUEEZE:
-			case ST_FWD_CDF53:
-			case ST_INV_CDF53:
-			case ST_FWD_CDF97:
-			case ST_INV_CDF97:
-			case ST_FWD_GRAD_DWT:
-			case ST_INV_GRAD_DWT:
+			case ST_FWD_LEGALL53:
+			case ST_INV_LEGALL53:
+		//	case ST_FWD_CDF97:
+		//	case ST_INV_CDF97:
+		//	case ST_FWD_GRAD_DWT:
+		//	case ST_INV_GRAD_DWT:
 			case ST_FWD_EXPDWT:
 			case ST_INV_EXPDWT:
 			case ST_FWD_CUSTOM_DWT:
@@ -818,12 +828,12 @@ void update_image()
 						case ST_INV_HAAR:      dwt2d_haar_inv   ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
 						case ST_FWD_SQUEEZE:   dwt2d_squeeze_fwd((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
 						case ST_INV_SQUEEZE:   dwt2d_squeeze_inv((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-						case ST_FWD_CDF53:     dwt2d_cdf53_fwd  ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-						case ST_INV_CDF53:     dwt2d_cdf53_inv  ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-						case ST_FWD_CDF97:     dwt2d_cdf97_fwd  ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-						case ST_INV_CDF97:     dwt2d_cdf97_inv  ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-						case ST_FWD_GRAD_DWT:  dwt2d_grad_fwd   ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-						case ST_INV_GRAD_DWT:  dwt2d_grad_inv   ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						case ST_FWD_LEGALL53:  dwt2d_cdf53_fwd  ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						case ST_INV_LEGALL53:  dwt2d_cdf53_inv  ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+					//	case ST_FWD_CDF97:     dwt2d_cdf97_fwd  ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+					//	case ST_INV_CDF97:     dwt2d_cdf97_inv  ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+					//	case ST_FWD_GRAD_DWT:  dwt2d_grad_fwd   ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+					//	case ST_INV_GRAD_DWT:  dwt2d_grad_inv   ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
 						case ST_FWD_EXPDWT:    dwt2d_exp_fwd    ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
 						case ST_INV_EXPDWT:    dwt2d_exp_inv    ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
 						case ST_FWD_CUSTOM_DWT:dwt2d_custom_fwd ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
@@ -834,8 +844,8 @@ void update_image()
 					free(temp);
 				}
 				break;
-			case ST_FWD_DEC_DWT:   dwt2d_dec_fwd((char*)image, iw, ih);	break;
-			case ST_INV_DEC_DWT:   dwt2d_dec_inv((char*)image, iw, ih);	break;
+		//	case ST_FWD_DEC_DWT:   dwt2d_dec_fwd((char*)image, iw, ih);	break;
+		//	case ST_INV_DEC_DWT:   dwt2d_dec_inv((char*)image, iw, ih);	break;
 			}
 		}//for
 		addhalf(image, iw, ih, 3, 4);
@@ -2371,8 +2381,8 @@ void io_render()
 			break;
 		case VIS_IMAGE_TRICOLOR:
 			display_texture(0,  iw,    0,  ih,    image_txid[1], 1, 0, 1, 0,     1.f/3);
-			display_texture(iw, iw<<1, 0,  ih,    image_txid[1], 1, 0, 1, 1.f/3, 2.f/3);
-			display_texture(0,  iw,    ih, ih<<1, image_txid[1], 1, 0, 1, 2.f/3, 1);
+			display_texture(iw, iw<<1, 0,  ih,    image_txid[1], 1, 0, 1, 2.f/3, 1);
+			display_texture(0,  iw,    ih, ih<<1, image_txid[1], 1, 0, 1, 1.f/3, 2.f/3);
 			break;
 		}
 	}

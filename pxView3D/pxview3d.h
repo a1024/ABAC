@@ -625,6 +625,8 @@ void colortransform_exp_inv  (char *buf, int iw, int ih);
 //void colortransform_learned_fwd(char *buf, int iw, int ih);
 //void colortransform_learned_inv(char *buf, int iw, int ih);
 
+void colortransform_adaptive(char *buf, int iw, int ih, int fwd);
+
 
 //optimizers
 double opt_causal_reach2(unsigned char *buf, int iw, int ih, int kc, double *x, double *bias, double lr, int test);
@@ -633,6 +635,8 @@ void pred_hybrid_fwd(char *buf, int iw, int ih);
 void pred_hybrid_inv(char *buf, int iw, int ih);
 
 //spatial transforms
+void shuffle(char *buf, int iw, int ih, int fwd);
+
 void pred_diff2d_fwd(char *buf, int iw, int ih, int nch, int bytestride);
 void pred_diff2d_inv(char *buf, int iw, int ih, int nch, int bytestride);
 
