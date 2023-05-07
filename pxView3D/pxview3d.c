@@ -95,6 +95,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_DIFF2D,		ST_INV_DIFF2D,
 	ST_FWD_GRAD2,		ST_INV_GRAD2,
 	ST_FWD_ADAPTIVE,	ST_INV_ADAPTIVE,
+	ST_FWD_JXL,			ST_INV_JXL,
 	ST_FWD_SORTNB,		ST_INV_SORTNB,
 //	ST_FWD_MEDIAN,		ST_INV_MEDIAN,
 //	ST_FWD_DCT3PRED,	ST_INV_DCT3PRED,
@@ -104,7 +105,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_CUSTOM,		ST_INV_CUSTOM,
 	ST_FWD_DCT4,		ST_INV_DCT4,
 	ST_FWD_DCT8,		ST_INV_DCT8,
-	ST_FWD_SPLIT,		ST_INV_SPLIT,
+//	ST_FWD_SPLIT,		ST_INV_SPLIT,
 
 	ST_FWD_LAZY,		ST_INV_LAZY,
 	ST_FWD_HAAR,		ST_INV_HAAR,
@@ -171,8 +172,10 @@ void transforms_update()
 				tid2==ST_INV_CUSTOM_DWT||
 				tid2==ST_FWD_HYBRID3||
 				tid2==ST_INV_HYBRID3||
-				tid2==ST_FWD_ADAPTIVE||
-				tid2==ST_INV_ADAPTIVE||
+			//	tid2==ST_FWD_ADAPTIVE||
+			//	tid2==ST_INV_ADAPTIVE||
+				tid2==ST_FWD_JXL||
+				tid2==ST_INV_JXL||
 				tid2==ST_FWD_SORTNB||
 				tid2==ST_INV_SORTNB;
 		}
@@ -218,8 +221,10 @@ void transforms_append(unsigned tid)
 				tid==ST_INV_CUSTOM_DWT||
 				tid==ST_FWD_HYBRID3||
 				tid==ST_INV_HYBRID3||
-				tid==ST_FWD_ADAPTIVE||
-				tid==ST_INV_ADAPTIVE||
+			//	tid==ST_FWD_ADAPTIVE||
+			//	tid==ST_INV_ADAPTIVE||
+				tid==ST_FWD_JXL||
+				tid==ST_INV_JXL||
 				tid==ST_FWD_SORTNB||
 				tid==ST_INV_SORTNB;
 		}
@@ -278,6 +283,8 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case ST_INV_GRAD2:			a=" S Inv Grad2";			break;
 	case ST_FWD_ADAPTIVE:		a=" S Fwd Adaptive";		break;
 	case ST_INV_ADAPTIVE:		a=" S Inv Adaptive";		break;
+	case ST_FWD_JXL:			a=" S Fwd JXL";				break;
+	case ST_INV_JXL:			a=" S Inv JXL";				break;
 	case ST_FWD_SORTNB:			a=" S Fwd Sort Nb";			break;
 	case ST_INV_SORTNB:			a=" S Inv Sort Nb";			break;
 //	case ST_FWD_MEDIAN:			a=" S Fwd Median";			break;
@@ -292,8 +299,8 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case ST_INV_DCT4:			a=" S Inv DCT4";			break;
 	case ST_FWD_DCT8:			a=" S Fwd DCT8";			break;
 	case ST_INV_DCT8:			a=" S Inv DCT8";			break;
-	case ST_FWD_SPLIT:			a=" S Fwd Split";			break;
-	case ST_INV_SPLIT:			a=" S Inv Split";			break;
+//	case ST_FWD_SPLIT:			a=" S Fwd Split";			break;
+//	case ST_INV_SPLIT:			a=" S Inv Split";			break;
 	case ST_FWD_CUSTOM:			a=" S Fwd CUSTOM";			break;
 	case ST_INV_CUSTOM:			a=" S Inv CUSTOM";			break;
 	case ST_FWD_LAZY:			a=" S Fwd Lazy DWT";		break;
@@ -759,11 +766,10 @@ void update_image()
 		//	case ST_INV_HPF:		pred_hpf_inv((char*)image, iw, ih, 3, 4);			break;
 			case ST_FWD_GRAD2:		pred_grad2_fwd((char*)image, iw, ih, 3, 4);			break;
 			case ST_INV_GRAD2:		pred_grad2_inv((char*)image, iw, ih, 3, 4);			break;
-			case ST_FWD_ADAPTIVE:
-				pred_adaptive((char*)image, iw, ih, 3, 4, 1);
-				//lodepng_encode_file("grad_mask.PNG", image, iw, ih, LCT_RGBA, 8);
-				break;
+			case ST_FWD_ADAPTIVE:	pred_adaptive((char*)image, iw, ih, 3, 4, 1);		break;
 			case ST_INV_ADAPTIVE:	pred_adaptive((char*)image, iw, ih, 3, 4, 0);		break;
+			case ST_FWD_JXL:		pred_jxl((char*)image, iw, ih, 3, 4, 1);			break;
+			case ST_INV_JXL:		pred_jxl((char*)image, iw, ih, 3, 4, 0);			break;
 			case ST_FWD_SORTNB:		pred_sortnb((char*)image, iw, ih, 3, 4, 1);			break;
 			case ST_INV_SORTNB:		pred_sortnb((char*)image, iw, ih, 3, 4, 0);			break;
 		//	case ST_FWD_MEDIAN:		pred_median_fwd((char*)image, iw, ih, 3, 4);		break;
@@ -780,8 +786,8 @@ void update_image()
 			case ST_INV_DCT4:		image_dct4_inv((char*)image, iw, ih);				break;
 			case ST_FWD_DCT8:		image_dct8_fwd((char*)image, iw, ih);				break;
 			case ST_INV_DCT8:		image_dct8_inv((char*)image, iw, ih);				break;
-			case ST_FWD_SPLIT:		image_split_fwd((char*)image, iw, ih);				break;
-			case ST_INV_SPLIT:		image_split_inv((char*)image, iw, ih);				break;
+		//	case ST_FWD_SPLIT:		image_split_fwd((char*)image, iw, ih);				break;
+		//	case ST_INV_SPLIT:		image_split_inv((char*)image, iw, ih);				break;
 
 			case ST_FWD_LAZY:
 			case ST_INV_LAZY:
@@ -2580,9 +2586,9 @@ void io_render()
 				//double xmark=(customparam_st[profile_idx]-customparam_ct[8])*w/(customparam_ct[9]-customparam_ct[8]);
 				draw_line((float)xmark, 0, (float)xmark, (float)h, 0xFFFFFF00);
 			}
-			GUIPrint(0, 0, tdy*2, 1, "RMSE %lf", av_rmse);
+			GUIPrint(0, 0, tdy*3, 1, "RMSE %lf", av_rmse);
 			if(minloss<maxloss)
-				GUIPrint(0, 200, tdy*2, 1, "[%lf~%lf]", minloss, maxloss);
+				GUIPrint(0, 200, tdy*3, 1, "[%lf~%lf]", minloss, maxloss);
 		}
 
 		float g2=h/combCRhist_max;
@@ -2642,6 +2648,17 @@ void io_render()
 		{
 			const char *prednames[]=
 			{
+#if 1
+				"grad    ",
+				"avgall  ",
+				"left    ",
+				"top     ",
+				"topleft ",
+				"topright",
+				"linx    ",
+				"liny    ",
+#endif
+#if 0
 				"hole        ",
 				"bottom-right",
 				"bottom-left ",
@@ -2650,6 +2667,7 @@ void io_render()
 				"top-right   ",
 				"top-left    ",
 				"peak        ",
+#endif
 			};
 
 			//draw histograms
@@ -2672,14 +2690,16 @@ void io_render()
 			}
 #endif
 
-			x=(float)(w>>3);
-			y=(float)(h>>1);
+			x=tdx*guizoom;
+			y=(float)((h>>1)+(h>>2));
+			//x=(float)(w>>2);
+			//y=(float)(h>>1);
 
 			int total=0;
 			double csize=0;
 			for(int k=0;k<ADAGRADCOUNT;++k)
 			{
-				total+=adagrad_type[k];
+				total+=adagrad_hits[k];
 				csize+=adagrad_csize[k];
 			}
 
@@ -2687,7 +2707,7 @@ void io_render()
 			for(int k=0;k<ADAGRADCOUNT;++k)
 			{
 				float width;
-#define PRINTSTRING "%d %s\t\t%7d %5.2lf%% %10lf %14f CR %5.3lf", k, prednames[k], adagrad_type[k], 100.*adagrad_type[k]/total, adagrad_rmse[k], adagrad_csize[k], adagrad_type[k]/adagrad_csize[k]
+#define PRINTSTRING "%d %s\t%7d %5.2lf%% %10lf %14f CR %5.3lf  E %11.8lf abs %12.9lf", k, prednames[k], adagrad_hits[k], 100.*adagrad_hits[k]/total, adagrad_rmse[k], adagrad_csize[k], adagrad_hits[k]/adagrad_csize[k], adagrad_signederror[k]/(iw*ih*3), adagrad_abserror[k]/(iw*ih*3)
 				width=GUIPrint_append(0, x, y, 1, 1, PRINTSTRING);
 				GUIPrint_append(0, x, y, 1, 0, "\n");
 
@@ -2699,7 +2719,7 @@ void io_render()
 				{
 					float divisor=x+width+(float)(adagrad_csize[k]*(w-400-(x+width))/csize);
 					draw_rect(x+width, divisor, y, y+tdy*0.75f, 0x80808080);
-					draw_rect(divisor, x+width+(float)(adagrad_type[k]*(w-400-(x+width))/csize), y, y+tdy*0.75f, 0x80C0C0C0);
+					draw_rect(divisor, x+width+(float)(adagrad_hits[k]*(w-400-(x+width))/csize), y, y+tdy*0.75f, 0x80C0C0C0);
 				}
 				y+=tdy;
 			}

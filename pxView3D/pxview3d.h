@@ -650,9 +650,12 @@ void pred_grad2_fwd(char *buf, int iw, int ih, int nch, int bytestride);
 void pred_grad2_inv(char *buf, int iw, int ih, int nch, int bytestride);
 
 #define ADAGRADCOUNT 8
-extern int    adagrad_type[ADAGRADCOUNT];
+extern int    adagrad_hits[ADAGRADCOUNT];
 extern double adagrad_rmse[ADAGRADCOUNT], adagrad_csize[ADAGRADCOUNT];
+extern double adagrad_abserror[ADAGRADCOUNT], adagrad_signederror[ADAGRADCOUNT];
 void pred_adaptive(char *buf, int iw, int ih, int nch, int bytestride, int fwd);
+
+void pred_jxl(char *buf, int iw, int ih, int nch, int bytestride, int fwd);
 
 #define SORTNBCASES 8
 extern int sortnb_cases[SORTNBCASES];

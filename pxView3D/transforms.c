@@ -1586,6 +1586,16 @@ int  pred_grad(char top, char left, char topleft)
 		pred=top+left-topleft;
 	return pred;
 }
+int	 pred_paeth(char top, char left, char topleft)
+{
+	int p=top+left-topleft;
+	int closest=top;
+	if(abs(closest-p)>abs(left-p))
+		closest=left;
+	if(abs(closest-p)>abs(topleft-p))
+		closest=topleft;
+	return closest;
+}
 int  predict_grad2(const char *buf, int iw, int kx, int ky, int idx, int bytestride, int rowlen, char *curr, int is_fwd)
 {
 	char
@@ -1958,12 +1968,15 @@ void pred_path_inv(char *buf, int iw, int ih, int nch, int bytestride)
 	}
 }
 
-int adagrad_type[ADAGRADCOUNT];
+int adagrad_hits[ADAGRADCOUNT];
 double adagrad_rmse[ADAGRADCOUNT], adagrad_csize[ADAGRADCOUNT];
+double adagrad_abserror[ADAGRADCOUNT], adagrad_signederror[ADAGRADCOUNT];
 void pred_adaptive(char *buf, int iw, int ih, int nch, int bytestride, int fwd)
 {
-	memset(adagrad_type, 0, sizeof(adagrad_type));
+	memset(adagrad_hits, 0, sizeof(adagrad_hits));
 	memset(grad2_hist, 0, sizeof(grad2_hist));
+	memset(adagrad_abserror, 0, sizeof(adagrad_abserror));
+	memset(adagrad_signederror, 0, sizeof(adagrad_signederror));
 	int res=iw*ih;
 	char *b2=(char*)malloc((size_t)res*bytestride);
 	if(!b2)
@@ -1978,7 +1991,7 @@ void pred_adaptive(char *buf, int iw, int ih, int nch, int bytestride, int fwd)
 		int idx=kc;
 		for(int ky=0;ky<ih;++ky)
 		{
-			int error[3]={0};
+			int error[8]={0};
 			for(int kx=0;kx<iw;++kx, idx+=bytestride)
 			{
 				int pred;
@@ -1994,9 +2007,10 @@ void pred_adaptive(char *buf, int iw, int ih, int nch, int bytestride, int fwd)
 					ctt      =         ky-2>=0?src[idx-rowlen*2             ]:0,
 					ctrtr    =kx+2<iw&&ky-2>=0?src[idx-rowlen*2+bytestride*2]:0,
 
-					ctopleft =kx-1>=0&&ky-1>=0?src[idx-rowlen-bytestride]:0,
-					ctop     =kx  <iw&&ky-1>=0?src[idx-rowlen           ]:0,
-					ctopright=kx+1<iw&&ky-1>=0?src[idx-rowlen+bytestride]:0,
+					ctopleft =kx-1>=0&&ky-1>=0?src[idx-rowlen-bytestride  ]:0,
+					ctop     =kx  <iw&&ky-1>=0?src[idx-rowlen             ]:0,
+					ctopright=kx+1<iw&&ky-1>=0?src[idx-rowlen+bytestride  ]:0,
+					ctrr     =kx+2<iw&&ky-1>=0?src[idx-rowlen+bytestride*2]:0,
 		
 					cl3      =kx-3>=0?src[idx-bytestride*3]:0,
 					cll      =kx-2>=0?src[idx-bytestride*2]:0,
@@ -2079,7 +2093,7 @@ void pred_adaptive(char *buf, int iw, int ih, int nch, int bytestride, int fwd)
 #endif
 
 				//gamma v2
-#if 1
+#if 0
 				int temp;
 				if(gyl<0)//gamma predictor
 				{
@@ -2137,27 +2151,64 @@ void pred_adaptive(char *buf, int iw, int ih, int nch, int bytestride, int fwd)
 				}
 #endif
 
+#if 1
+				int predictors[]=
+				{
+					pred_grad(ctop, cleft, ctopleft),
+					(-2*ctt+6*ctop+3*ctopright+ctrr+cll+7*cleft+8)>>4,
+					cleft,
+					ctop,
+					ctopleft,
+					ctopright,
+					(cleft<<1)-cll,
+					(ctop<<1)-ctt,
+					//pred_paeth(ctop, cleft, ctopleft),
+				};
+
+				type=(kx+ky+kc)&7;
+				pred=predictors[type];
+				//type=0;
+				//pred=predictors[0];
+				//for(int k=1;k<COUNTOF(predictors);++k)
+				//{
+				//	if(error[type]>error[k])
+				//		type=k, pred=predictors[k];
+				//}
+#endif
+
 				//pred=pred_grad(ctop, cleft, ctopleft)+((error[0]-error[1])>>2);
 
 				//pred=pred*(255-abs(error))/255;
 				
+				//if(kc==1&&kx==(iw>>1)&&ky==(ih>>1))//
+				//	kx=iw>>1;
+
 				pred=CLAMP(customparam_clamp[0], pred, customparam_clamp[1]);
-
-				++adagrad_type[type];
-				int delta=current_val-pred;
-				adagrad_rmse[type]+=delta*delta;
-				++grad2_hist[type<<8|(delta+128)];//
-
 				if(fwd)
 				{
+					current_val=buf[idx];
 					b2[idx]=buf[idx]-pred;
 
 					//b2[idx]=type*255/7-128;
 					//b2[idx]=type<<6|current_error>>2&0x3F;//
 				}
 				else
+				{
 					b2[idx]=buf[idx]+pred;
+					current_val=b2[idx];
+				}
 				
+				++adagrad_hits[type];
+				int delta=current_val-pred;
+				adagrad_rmse[type]+=delta*delta;
+				++grad2_hist[type<<8|(delta+128)];//
+
+				for(int k=0;k<COUNTOF(error);++k)
+				{
+					error[k]=current_val-predictors[k];
+					adagrad_abserror[k]+=abs(error[k]);
+					adagrad_signederror[k]+=error[k];
+				}
 
 				//++grad2_hist[type<<8|(current_val+128)];//
 
@@ -2185,10 +2236,147 @@ void pred_adaptive(char *buf, int iw, int ih, int nch, int bytestride, int fwd)
 	free(b2);
 	for(int k=0;k<ADAGRADCOUNT;++k)
 	{
-		adagrad_rmse[k]=sqrt(adagrad_rmse[k]/adagrad_type[k]);
+		adagrad_rmse[k]=sqrt(adagrad_rmse[k]/adagrad_hits[k]);
 		double invCR=calc_entropy(grad2_hist+(k<<8), -1)/8;
-		adagrad_csize[k]=adagrad_type[k]*invCR;
+		adagrad_csize[k]=adagrad_hits[k]*invCR;
+		//adagrad_abserror[k]/=adagrad_hits[k];
 	}
+}
+
+void pred_jxl(char *buf, int iw, int ih, int nch, int bytestride, int fwd)
+{
+	if(!(customparam_st[0]+customparam_st[1]+customparam_st[2]+customparam_st[3]))
+		customparam_st[0]=customparam_st[1]=customparam_st[2]=customparam_st[3]=1;
+	int res=iw*ih;
+	char *b2=(char*)malloc((size_t)res*bytestride);
+	int errorbuflen=iw*2;
+	char *pred_errors[]=
+	{
+		(char*)malloc((size_t)errorbuflen),
+		(char*)malloc((size_t)errorbuflen),
+		(char*)malloc((size_t)errorbuflen),
+		(char*)malloc((size_t)errorbuflen),
+	};
+	char *error=(char*)malloc((size_t)iw*2);
+	if(!b2||!pred_errors[0]||!pred_errors[1]||!pred_errors[2]||!pred_errors[3]||!error)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	memset(pred_errors[0], 0, errorbuflen);
+	memset(pred_errors[1], 0, errorbuflen);
+	memset(pred_errors[2], 0, errorbuflen);
+	memset(pred_errors[3], 0, errorbuflen);
+	memset(error, 0, errorbuflen);
+	memset(b2, 0, (size_t)res*bytestride);
+	int rowlen=iw*bytestride;
+	for(int kc=0;kc<nch;++kc)
+	{
+		int idx=kc;
+		for(int ky=0;ky<ih;++ky)
+		{
+			int currrow=ky&1?0:iw, prevrow=ky&1?iw:0;
+			for(int kx=0;kx<iw;++kx, idx+=bytestride)
+			{
+				int pred, curr;
+				
+				char *src=fwd?buf:b2;
+				char
+					ctl3     =kx-3>=0&&ky-3>=0?src[idx-rowlen*3-bytestride*3]:0,
+					ct3      =         ky-3>=0?src[idx-rowlen*3             ]:0,
+					ctr3     =kx+3<iw&&ky-3>=0?src[idx-rowlen*3+bytestride*3]:0,
+
+					ctltl    =kx-2>=0&&ky-2>=0?src[idx-rowlen*2-bytestride*2]:0,
+					ctt      =         ky-2>=0?src[idx-rowlen*2             ]:0,
+					ctrtr    =kx+2<iw&&ky-2>=0?src[idx-rowlen*2+bytestride*2]:0,
+
+					ctopleft =kx-1>=0&&ky-1>=0?src[idx-rowlen-bytestride  ]:0,
+					ctop     =kx  <iw&&ky-1>=0?src[idx-rowlen             ]:0,
+					ctopright=kx+1<iw&&ky-1>=0?src[idx-rowlen+bytestride  ]:0,
+					ctrr     =kx+2<iw&&ky-1>=0?src[idx-rowlen+bytestride*2]:0,
+		
+					cl3      =kx-3>=0?src[idx-bytestride*3]:0,
+					cll      =kx-2>=0?src[idx-bytestride*2]:0,
+					cleft    =kx-1>=0?src[idx-bytestride  ]:0;
+
+
+				//w0   w1   w2   w3
+				//p3Ca p3Cb p3Cc p3Cd p3Ce
+				//p1C  p2c
+
+				double weights[4];
+				for(int k=0;k<4;++k)
+				{
+					int w=(ky-1>=0?pred_errors[k][prevrow+kx]:0)+(ky-1>=0&&kx+1<iw?pred_errors[k][prevrow+kx+1]:0)+(ky-1>=0&&kx-1>=0?pred_errors[k][prevrow+kx-1]:0);
+					weights[k]=customparam_st[k]/(w+1);
+				}
+
+				char
+					etop=ky-1>=0?error[prevrow+kx]:0,
+					eleft=kx-1>=0?error[currrow+kx-1]:0,
+					etopleft=ky-1>=0&&kx-1>=0?error[prevrow+kx-1]:0,
+					etopright=ky-1>=0&&kx+1<iw?error[prevrow+kx+1]:0;
+				double predictions[]=
+				{
+					ctop+cleft-ctopleft,
+					ctop-(int)((etop+eleft+etopright)*customparam_st[10]),
+					cleft-(int)((etop+eleft+etopleft)*customparam_st[11]),
+					ctop-(int)(etopleft*customparam_st[5]+ctop*customparam_st[6]+ctopright*customparam_st[7]+(ctt-ctop)*customparam_st[8]+(ctopleft-cleft)*customparam_st[9]),
+				};
+
+				double sum=weights[0]+weights[1]+weights[2]+weights[3];
+				if(sum)
+					pred=(int)round((predictions[0]*weights[0]+predictions[1]*weights[1]+predictions[2]*weights[2]+predictions[3]*weights[3])/sum);
+				else
+					pred=(int)round(predictions[0]);
+
+				int vmin=cleft, vmax=cleft;
+				if(vmin>ctopright)
+					vmin=ctopright;
+				if(vmin>ctop)
+					vmin=ctop;
+
+				if(vmax<ctopright)
+					vmax=ctopright;
+				if(vmax<ctop)
+					vmax=ctop;
+
+				pred=CLAMP(vmin, pred, vmax);
+				//pred=CLAMP(customparam_clamp[0], pred, customparam_clamp[1]);
+				if(fwd)
+				{
+					curr=buf[idx];
+					b2[idx]=buf[idx]-pred;
+				}
+				else
+				{
+					b2[idx]=buf[idx]+pred;
+					curr=b2[idx];
+				}
+
+				error[currrow+kx]=pred-curr;
+				for(int k=0;k<4;++k)
+				{
+					int e=(int)round(fabs(curr-predictions[k]));
+					pred_errors[k][currrow+kx]=e;
+					if(kx+1<iw)
+						pred_errors[k][prevrow+kx+1]+=e;
+				}
+			}
+		}
+	}
+	for(int kc=nch;kc<bytestride;++kc)
+	{
+		for(int k=0;k<res;++k)
+			b2[k*bytestride+kc]=buf[k*bytestride+kc];
+	}
+	memcpy(buf, b2, (size_t)res*bytestride);
+	free(b2);
+	free(pred_errors[0]);
+	free(pred_errors[1]);
+	free(pred_errors[2]);
+	free(pred_errors[3]);
+	free(error);
 }
 
 int sortnb_cases[SORTNBCASES];
