@@ -234,7 +234,8 @@ void apply_transforms_fwd(unsigned char *buf, int bw, int bh)
 	//colortransform_xgz_fwd((char*)buf, bw, bh);
 	//colortransform_xyz_fwd((char*)buf, bw, bh);
 	
-	pred_grad_fwd((char*)buf, bw, bh, 3, 4);
+	pred_jxl((char*)buf, bw, bh, 3, 4, 1);
+	//pred_grad_fwd((char*)buf, bw, bh, 3, 4);
 	//image_differentiate((char*)buf, bw, bh, 3, 4);
 	//for(int kc=0;kc<3;++kc)
 	//	//dwt2d_haar_fwd((char*)buf+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, (char*)temp);
@@ -258,7 +259,8 @@ void apply_transforms_inv(unsigned char *buf, int bw, int bh)
 	
 	addbuf(buf, bw, bh, 3, 4, 128);
 	
-	pred_grad_inv((char*)buf, bw, bh, 3, 4);
+	pred_jxl((char*)buf, bw, bh, 3, 4, 0);
+	//pred_grad_inv((char*)buf, bw, bh, 3, 4);
 	//image_integrate((char*)buf, bw, bh, 3, 4);
 	//for(int kc=0;kc<3;++kc)
 	//	//dwt2d_haar_inv((char*)buf+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, (char*)temp);
@@ -381,6 +383,147 @@ void pred_grad_inv(char *buf, int iw, int ih, int nch, int bytestride)
 			}
 		}
 	}
+}
+
+
+double jxlpred_params[33]=
+{
+	1, 1, 1, 1,
+	1, 1, 1, 1,
+	1, 1, 1, 1,
+};
+void pred_jxl(char *buf, int iw, int ih, int nch, int bytestride, int fwd)
+{
+	int res=iw*ih;
+	char *b2=(char*)malloc((size_t)res*bytestride);
+	int errorbuflen=iw*2;
+	char *pred_errors[]=
+	{
+		(char*)malloc((size_t)errorbuflen),
+		(char*)malloc((size_t)errorbuflen),
+		(char*)malloc((size_t)errorbuflen),
+		(char*)malloc((size_t)errorbuflen),
+	};
+	char *error=(char*)malloc((size_t)iw*2);
+	if(!b2||!pred_errors[0]||!pred_errors[1]||!pred_errors[2]||!pred_errors[3]||!error)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	memset(pred_errors[0], 0, errorbuflen);
+	memset(pred_errors[1], 0, errorbuflen);
+	memset(pred_errors[2], 0, errorbuflen);
+	memset(pred_errors[3], 0, errorbuflen);
+	memset(error, 0, errorbuflen);
+	memset(b2, 0, (size_t)res*bytestride);
+	int rowlen=iw*bytestride;
+	for(int kc=0;kc<nch;++kc)
+	{
+		int idx=kc;
+		for(int ky=0;ky<ih;++ky)
+		{
+			int currrow=ky&1?0:iw, prevrow=ky&1?iw:0;
+			for(int kx=0;kx<iw;++kx, idx+=bytestride)
+			{
+				int pred, curr;
+				
+				char *src=fwd?buf:b2;
+				char
+					ctl3     =kx-3>=0&&ky-3>=0?src[idx-rowlen*3-bytestride*3]:0,
+					ct3      =         ky-3>=0?src[idx-rowlen*3             ]:0,
+					ctr3     =kx+3<iw&&ky-3>=0?src[idx-rowlen*3+bytestride*3]:0,
+
+					ctltl    =kx-2>=0&&ky-2>=0?src[idx-rowlen*2-bytestride*2]:0,
+					ctt      =         ky-2>=0?src[idx-rowlen*2             ]:0,
+					ctrtr    =kx+2<iw&&ky-2>=0?src[idx-rowlen*2+bytestride*2]:0,
+
+					ctopleft =kx-1>=0&&ky-1>=0?src[idx-rowlen-bytestride  ]:0,
+					ctop     =kx  <iw&&ky-1>=0?src[idx-rowlen             ]:0,
+					ctopright=kx+1<iw&&ky-1>=0?src[idx-rowlen+bytestride  ]:0,
+					ctrr     =kx+2<iw&&ky-1>=0?src[idx-rowlen+bytestride*2]:0,
+		
+					cl3      =kx-3>=0?src[idx-bytestride*3]:0,
+					cll      =kx-2>=0?src[idx-bytestride*2]:0,
+					cleft    =kx-1>=0?src[idx-bytestride  ]:0;
+
+
+				//w0   w1   w2   w3
+				//p3Ca p3Cb p3Cc p3Cd p3Ce
+				//p1C  p2c
+
+				double weights[4];
+				for(int k=0;k<4;++k)
+				{
+					int w=(ky-1>=0?pred_errors[k][prevrow+kx]:0)+(ky-1>=0&&kx+1<iw?pred_errors[k][prevrow+kx+1]:0)+(ky-1>=0&&kx-1>=0?pred_errors[k][prevrow+kx-1]:0);
+					weights[k]=jxlpred_params[kc*4+k]/(w+1);
+				}
+
+				char
+					etop=ky-1>=0?error[prevrow+kx]:0,
+					eleft=kx-1>=0?error[currrow+kx-1]:0,
+					etopleft=ky-1>=0&&kx-1>=0?error[prevrow+kx-1]:0,
+					etopright=ky-1>=0&&kx+1<iw?error[prevrow+kx+1]:0;
+				double predictions[]=
+				{
+					cleft+ctopright-ctop,
+					ctop-(int)((etop+eleft+etopright)*jxlpred_params[12+kc*7]),
+					cleft-(int)((etop+eleft+etopleft)*jxlpred_params[12+kc*7+1]),
+					ctop-(int)(etopleft*jxlpred_params[12+kc*7+2]+ctop*jxlpred_params[12+kc*7+3]+ctopright*jxlpred_params[12+kc*7+4]+(ctt-ctop)*jxlpred_params[12+kc*7+5]+(ctopleft-cleft)*jxlpred_params[12+kc*7+6]),
+				};
+
+				double sum=weights[0]+weights[1]+weights[2]+weights[3];
+				if(sum)
+					pred=(int)round((predictions[0]*weights[0]+predictions[1]*weights[1]+predictions[2]*weights[2]+predictions[3]*weights[3])/sum);
+				else
+					pred=(int)round(predictions[0]);
+
+				int vmin=cleft, vmax=cleft;
+				if(vmin>ctopright)
+					vmin=ctopright;
+				if(vmin>ctop)
+					vmin=ctop;
+
+				if(vmax<ctopright)
+					vmax=ctopright;
+				if(vmax<ctop)
+					vmax=ctop;
+
+				pred=CLAMP(vmin, pred, vmax);
+				//pred=CLAMP(customparam_clamp[0], pred, customparam_clamp[1]);
+				if(fwd)
+				{
+					curr=buf[idx];
+					b2[idx]=buf[idx]-pred;
+				}
+				else
+				{
+					b2[idx]=buf[idx]+pred;
+					curr=b2[idx];
+				}
+
+				error[currrow+kx]=pred-curr;
+				for(int k=0;k<4;++k)
+				{
+					int e=(int)round(fabs(curr-predictions[k]));
+					pred_errors[k][currrow+kx]=e;
+					if(kx+1<iw)
+						pred_errors[k][prevrow+kx+1]+=e;
+				}
+			}
+		}
+	}
+	for(int kc=nch;kc<bytestride;++kc)
+	{
+		for(int k=0;k<res;++k)
+			b2[k*bytestride+kc]=buf[k*bytestride+kc];
+	}
+	memcpy(buf, b2, (size_t)res*bytestride);
+	free(b2);
+	free(pred_errors[0]);
+	free(pred_errors[1]);
+	free(pred_errors[2]);
+	free(pred_errors[3]);
+	free(error);
 }
 
 

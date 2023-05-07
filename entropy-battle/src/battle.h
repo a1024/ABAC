@@ -157,6 +157,7 @@ size_t test14_encode(const unsigned char *src, int bw, int bh, int lgblockdim, A
 size_t test16_encode(const unsigned char *src, int bw, int bh, int alpha, int blocksize, int margin, ArrayHandle *data, int loud);
 int    test16_decode(const unsigned char *data, size_t srclen, int bw, int bh, int alpha, int blocksize, int margin, unsigned char *buf);
 
+#if 0
 //void test17_saveconf(const unsigned char *src, int bw, int bh, int blocksize);
 size_t test17_encode(const unsigned char *src, int bw, int bh, int blocksize, int alpha, ArrayHandle *data, int loud);
 int    test17_decode(const unsigned char *data, size_t srclen, int bw, int bh, int blocksize, int alpha, unsigned char *buf);
@@ -170,7 +171,12 @@ int test19_decode(const unsigned char *data, size_t srclen, int bw, int bh, int 
 size_t test20_encode(const unsigned char *src, int bw, int bh, int blocksize, int margin, int alpha, int blockcount, ArrayHandle *data, int loud);
 int test20_decode(const unsigned char *data, size_t srclen, int bw, int bh, int blocksize, int margin, int alpha, int blockcount, unsigned char *buf);
 
-int e10_encode_ch(const unsigned char *src, int bw, int bh, int kc, ArrayHandle *data, int loud);
+int    e10_encode_ch(const unsigned char *src, int bw, int bh, int kc, ArrayHandle *data, int loud);
+size_t e10_decode_ch(const unsigned char *data, size_t datastart, size_t datalen, int bw, int bh, int kc, unsigned char *buf);
+
+int    e10dash_encode_ch(const unsigned char *src, int bw, int bh, int kc, int alpha, int blocksize, int margin, ArrayHandle *data, int loud);
+size_t e10dash_decode_ch(const unsigned char *data, size_t datastart, size_t datalen, int bw, int bh, int kc, int alpha, int blocksize, int margin, unsigned char *buf);
+#endif
 
 
 
@@ -193,6 +199,10 @@ void colortransform_ycocgt_inv(char *buf, int iw, int ih);
 //YCoCg-R		8 bit <-> ps,  3 channels, pixel stride 4 bytes,  Y in [0, 1], Co/Cg in [-1, 1],  used by AVC/HEVC/VVC
 void YCoCg_8bit_ps_fwd(const unsigned char *src, ptrdiff_t res, float *bufY, float *bufCo, float *bufCg);
 void YCoCg_8bit_ps_inv(const float *bufY, const float *bufCo, const float *bufCg, ptrdiff_t res, unsigned char *dst);
+
+
+extern double jxlpred_params[33];
+void pred_jxl(char *buf, int iw, int ih, int nch, int bytestride, int fwd);
 
 void image_differentiate(char *buf, int iw, int ih, int nch, int bytestride);
 void image_integrate    (char *buf, int iw, int ih, int nch, int bytestride);

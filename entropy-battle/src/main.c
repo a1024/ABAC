@@ -1926,7 +1926,7 @@ void test9()
 	exit(0);
 }
 #endif
-#if 1
+#if 0
 typedef struct E10_CaseStruct
 {
 	int idx;
@@ -2021,7 +2021,7 @@ void e10_iter(unsigned char *buf, int iw, int ih, int kc, long long *hist)
 		}
 	}
 }
-double e10_estimate_csize(unsigned char *buf, int iw, int ih, int kc, long long *hist)//no transforms
+double e10_estimate_csize(unsigned char *buf, int iw, int ih, int kc, long long *hist, int loud)//no transforms
 {
 	int *CDF=(int*)malloc(256*sizeof(int));
 	if(!CDF)
@@ -2030,7 +2030,11 @@ double e10_estimate_csize(unsigned char *buf, int iw, int ih, int kc, long long 
 		return 0;
 	}
 	double csize=0;
-	long long *grad=hist+729LL*9;
+
+	double csize_cases=0, csize_rem=0;
+	double usize_cases=0, usize_rem=0;
+	int casehist[9]={0};
+
 	for(int ky=0;ky<ih;++ky)
 	{
 		for(int kx=0;kx<iw;++kx)
@@ -2069,46 +2073,74 @@ double e10_estimate_csize(unsigned char *buf, int iw, int ih, int kc, long long 
 			permutation*=3;
 			SORT_STEP(2, 3);
 #undef  SORT_STEP
-			long long *hk=hist+permutation*9, *gk=grad+permutation*3;
-			long long freq=0, sum;
+			long long *hk=hist+permutation*9;
+			long long freq=0, sum=0, sum_hk=0;
 
-			long long weights[]=
+			long long intervals[]=
 			{
 				nb[0] - -128,
 				1,
-				nb[1] - (nb[0]-1),
+				nb[1] - (nb[0]+1),
 				1,
-				nb[2] - (nb[1]-1),
+				nb[2] - (nb[1]+1),
 				1,
-				nb[3] - (nb[2]-1),
+				nb[3] - (nb[2]+1),
 				1,
-				128 - (nb[3]-1),
+				128 - (nb[3]+1),
 			};
-			sum=0;
+			int PDF[9]={0};
 			for(int k=0;k<9;++k)
 			{
-				if(weights[k])
+				if(intervals[k])
 				{
-					weights[k]=hk[k]/weights[k];
-					weights[k]+=!weights[k];
-					sum+=weights[k];
+					sum_hk+=hk[k];
+					PDF[k]=hk[k]/intervals[k];
+					PDF[k]+=!PDF[k];
+					sum+=PDF[k];
 				}
 			}
 
-				 if(curr<nb[0])		freq=weights[0];
-			else if(curr==nb[0])	freq=weights[1];
-			else if(curr<nb[1])		freq=weights[2];
-			else if(curr==nb[1])	freq=weights[3];
-			else if(curr<nb[2])		freq=weights[4];
-			else if(curr==nb[2])	freq=weights[5];
-			else if(curr<nb[3])		freq=weights[6];
-			else if(curr==nb[3])	freq=weights[7];
-			else					freq=weights[8];
+			int caseidx;
+				 if(curr<nb[0])		caseidx=0;
+			else if(curr==nb[0])	caseidx=1;
+			else if(curr<nb[1])		caseidx=2;
+			else if(curr==nb[1])	caseidx=3;
+			else if(curr<nb[2])		caseidx=4;
+			else if(curr==nb[2])	caseidx=5;
+			else if(curr<nb[3])		caseidx=6;
+			else if(curr==nb[3])	caseidx=7;
+			else					caseidx=8;
+			++casehist[caseidx];
+			freq=PDF[caseidx];
 			double p=(double)freq/sum, bitsize=-log2(p);
 			csize+=bitsize;
+
+			p=(double)hk[caseidx]/sum_hk, bitsize=-log2(p);
+			csize_cases+=bitsize;
+			p=1./9, bitsize=-log2(p);
+			usize_cases+=bitsize;
+			if(!(caseidx&1)&&intervals[caseidx]>1)
+			{
+				p=1./intervals[caseidx], bitsize=-log2(p);
+				csize_rem+=bitsize;
+			}
 		}
 	}
+	//for(int k=0;k<9;++k)
+	//	printf("\tcase %d %7d\n", k, casehist[k]);
 	csize/=8;
+	csize_cases/=8;
+	usize_cases/=8;
+	csize_rem/=8;
+	if(loud)
+	{
+		printf("Channel %d estimates:\n", kc);
+		printf("naive %14lf  CR %lf\n", csize, iw*ih/csize);
+		printf("cases %14lf  CR %lf  U %lf\n", csize_cases, usize_cases/csize_cases, usize_cases);
+		printf("rem   %14lf  bypass\n", csize_rem);
+		printf("total %14lf  CR %lf\n", csize_cases+csize_rem, iw*ih/(csize_cases+csize_rem));
+		printf("\n");
+	}
 	return csize;
 }
 long long *e10_sum=0;
@@ -2318,6 +2350,28 @@ void e10_print(long long *hist)
 }
 #endif
 
+void estimate_csize_from_transforms(const unsigned char *buf, unsigned char *b2, int iw, int ih, double *csize)
+{
+	int len=iw*ih<<2;
+	memcpy(b2, buf, len);
+	apply_transforms_fwd(b2, iw, ih);
+	double entropy[3]={0};
+	for(int kc=0;kc<3;++kc)
+	{
+		calc_histogram(b2+kc, len, 4, hist+((size_t)kc<<8));
+		for(int k=0;k<256;++k)
+		{
+			int freq=hist[kc<<8|k];
+			double p=(double)freq/(len>>2);
+			if(freq)
+				entropy[kc]-=p*log2(p);
+		}
+	}
+	csize[0]=entropy[0]*(len>>2)/8;
+	csize[1]=entropy[1]*(len>>2)/8;
+	csize[2]=entropy[2]*(len>>2)/8;
+}
+
 
 //	#define BATCHTEST_NO_B2
 
@@ -2403,7 +2457,8 @@ void batch_test(const char *path)
 		memset(b2, 0, len);
 #endif
 
-#if 1
+		//E10 codec
+#if 0
 		{
 			ArrayHandle cdata=0;
 			cycles=__rdtsc();
@@ -3150,41 +3205,136 @@ int main(int argc, char **argv)
 	}
 #endif
 
-	//experiment 10: predictor that sorts neighbors
+	//E10 estimate: predictor that sorts neighbors
 #if 0
 	{
+		printf("E10 estimate\n");
 		memcpy(b2, buf, len);
 		addbuf(b2, iw, ih, 3, 4, 128);
 		colortransform_ycocgt_fwd((char*)b2, iw, ih);
 		//pred_grad_fwd((char*)b2, iw, ih, 3, 4);
 		addbuf(b2, iw, ih, 3, 4, 128);
 
-		double csize;
+		double csize, totalcsize=0;
 		long long *hist=e10_start();
 		for(int kc=0;kc<3;++kc)
 		{
 			e10_iter(b2, iw, ih, kc, hist);
-			//csize=e10_estimate_csize(b2, iw, ih, kc, hist);
-			printf("ch %d  U %d  C %lf  CR %lf\n", kc, iw*ih, csize, iw*ih/csize);
-			e10_print(hist);
+			csize=e10_estimate_csize(b2, iw, ih, kc, hist, 1);
+			//printf("ch %d  U %d  C %lf  CR %lf\n", kc, iw*ih, csize, iw*ih/csize);
+			totalcsize+=csize;
+			//e10_print(hist);
 			e10_reset(hist);
-			printf("\n\n");
+			//printf("\n\n");
 		}
 		free(hist);
+		printf("total usize %d  csize %lf  CR %lf\n\n", (int)usize, totalcsize, usize/totalcsize);
+		memset(b2, 0, len);
 	}
 #endif
 
-	//e10 codec
+	//E10 codec
+#if 0
+	{
+		int alpha=0xD3E7, blocksize=15, margin=30;
+		printf("E10 sortpred\n");
+		cycles=__rdtsc();
+		e10dash_encode_ch(buf, iw, ih, 0, alpha, blocksize, margin, &cdata, 1);
+		e10dash_encode_ch(buf, iw, ih, 1, alpha, blocksize, margin, &cdata, 1);
+		e10dash_encode_ch(buf, iw, ih, 2, alpha, blocksize, margin, &cdata, 1);
+
+		//e10_encode_ch(buf, iw, ih, 0, &cdata, 1);
+		//e10_encode_ch(buf, iw, ih, 1, &cdata, 1);
+		//e10_encode_ch(buf, iw, ih, 2, &cdata, 1);
+		cycles=__rdtsc()-cycles;
+		printf("Enc %lf CPB  CR %lf  csize %lld\n", (double)cycles/usize, (double)usize/cdata->count, cdata->count);
+		
+		cycles=__rdtsc();
+		size_t offset=0;
+		offset=e10dash_decode_ch(cdata->data, offset, cdata->count, iw, ih, 0, alpha, blocksize, margin, b2);
+		offset=e10dash_decode_ch(cdata->data, offset, cdata->count, iw, ih, 1, alpha, blocksize, margin, b2);
+		offset=e10dash_decode_ch(cdata->data, offset, cdata->count, iw, ih, 2, alpha, blocksize, margin, b2);
+		//offset=e10_decode_ch(cdata->data, offset, cdata->count, iw, ih, 0, b2);
+		//offset=e10_decode_ch(cdata->data, offset, cdata->count, iw, ih, 1, b2);
+		//offset=e10_decode_ch(cdata->data, offset, cdata->count, iw, ih, 2, b2);
 #if 1
-	printf("E10 sortpred\n");
-	cycles=__rdtsc();
-	e10_encode_ch(buf, iw, ih, 0, &cdata, 1);
-	e10_encode_ch(buf, iw, ih, 1, &cdata, 1);
-	e10_encode_ch(buf, iw, ih, 2, &cdata, 1);
-	cycles=__rdtsc()-cycles;
-	printf("Enc %lf CPB  CR %lf  csize %lld\n", (double)cycles/usize, (double)usize/cdata->count, cdata->count);
-	array_free(&cdata);
-	printf("\n");
+		addbuf(b2, iw, ih, 3, 4, 128);
+		pred_grad_inv((char*)b2, iw, ih, 3, 4);
+		colortransform_ycocgt_inv((char*)b2, iw, ih);
+		addbuf(b2, iw, ih, 3, 4, 128);
+#endif
+		cycles=__rdtsc()-cycles;
+		printf("Dec %11lf CPB ", (double)cycles/usize);
+		
+		array_free(&cdata);
+		compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "E10", 0);
+		memset(b2, 0, len);
+		printf("\n");
+	}
+#endif
+
+	//test16 codec with jxl optimizer
+#if 1
+	{
+		int alpha=0xD3E7,
+			bsize=15,
+			margin=30;
+		int res=iw*ih;
+		double step=0.01, CR0=0, CR, csize[3]={0};
+
+		estimate_csize_from_transforms(buf, b2, iw, ih, csize);
+		CR=res*3/(csize[0]+csize[1]+csize[2]);
+		printf("%4d TRGB %lf [%lf %lf %lf]\n", 0, CR, res/csize[0], res/csize[1], res/csize[2]);
+
+		for(int k=0;k<256;++k)
+		{
+			int idx=k%33;
+			if(!(k+1)%33)
+				step*=0.9;
+			do
+			{
+				CR0=CR;
+				jxlpred_params[idx]+=step;
+				estimate_csize_from_transforms(buf, b2, iw, ih, csize);
+				CR=res*3/(csize[0]+csize[1]+csize[2]);
+				printf("%4d TRGB %lf [%lf %lf %lf]\n", k+1, CR, res/csize[0], res/csize[1], res/csize[2]);
+			}
+			while(CR>CR0);
+
+			do
+			{
+				CR0=CR;
+				jxlpred_params[idx]-=step;
+				estimate_csize_from_transforms(buf, b2, iw, ih, csize);
+				CR=res*3/(csize[0]+csize[1]+csize[2]);
+				printf("%4d TRGB %lf [%lf %lf %lf]\n", k+1, CR, res/csize[0], res/csize[1], res/csize[2]);
+			}
+			while(CR>CR0);
+		}
+
+		for(int k=0;k<3;++k)
+			printf("%lf %lf %lf %lf\n", jxlpred_params[k<<2], jxlpred_params[k<<2|1], jxlpred_params[k<<2|2], jxlpred_params[k<<2|3]);
+		for(int k=12;k<33;k+=7)
+			printf("%lf %lf %lf %lf %lf %lf %lf\n", jxlpred_params[k], jxlpred_params[k+1], jxlpred_params[k+2], jxlpred_params[k+3], jxlpred_params[k+4], jxlpred_params[k+5], jxlpred_params[k+6]);
+		//for(int k=0;k<33;++k)
+		//	printf("%3d  %lf\n", k, jxlpred_params[k]);
+		printf("\n");
+
+		printf("T16 a 0x%04X b %3d m %3d ", alpha, bsize, margin);
+		cycles=__rdtsc();
+		test16_encode(buf, iw, ih, alpha, bsize, margin, &cdata, 1);
+		cycles=__rdtsc()-cycles;
+		printf("Enc %11lf CPB  CR %9lf  csize %lld ", (double)cycles/usize, (double)usize/cdata->count, cdata->count);
+
+		cycles=__rdtsc();
+		test16_decode(cdata->data, cdata->count, iw, ih, alpha, bsize, margin, b2);
+		cycles=__rdtsc()-cycles;
+		printf("Dec %11lf CPB ", (double)cycles/usize);
+
+		array_free(&cdata);
+		compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T16", 0);
+		memset(b2, 0, len);
+	}
 #endif
 
 	//predict image
@@ -3637,7 +3787,7 @@ int main(int argc, char **argv)
 	cycles=__rdtsc()-cycles;
 	//double cr=(double)usize/cdata->count, cr0=8/entropy[4];
 	//printf("Enc CPB %lf ratio %lf%s\n", (double)cycles/usize, cr, cr>cr0?" IMPOSSIBLE":"");
-	printf("Enc %lf CPB  CR %lf\n", (double)cycles/usize, (double)usize/cdata->count);
+	printf("Enc %lf CPB  csize %d  CR %lf\n", (double)cycles/usize, (int)cdata->count, (double)usize/cdata->count);
 	
 	cycles=__rdtsc();
 	rans4_decode(cdata->data, cdata->count, (ptrdiff_t)iw*ih, 3, 4, b2, 0);

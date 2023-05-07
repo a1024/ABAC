@@ -5095,14 +5095,12 @@ size_t test18_encode(const unsigned char *src, int bw, int bh, ArrayHandle *data
 #ifdef DEBUG_ANS
 typedef struct DebugANSInfoStruct
 {
-	unsigned state;
-	unsigned short cdf, freq;
-	unsigned id;
-	unsigned short kx, ky;
-	unsigned char kq, kc, sym;
+	unsigned state, cdf, freq, id, kx, ky;
+	unsigned char kq, kc;
+	unsigned short sym;
 } DebugANSInfo;
 SList states={0};
-int debug_channel=0;
+int debug_channel=1;
 void debug_enc_update(unsigned state, unsigned cdf, unsigned freq, int kx, int ky, int kq, int kc, unsigned char sym)
 {
 	if(kc==debug_channel)
@@ -5124,8 +5122,9 @@ void debug_dec_update(unsigned state, unsigned cdf, unsigned freq, int kx, int k
 			LOG_ERROR("Nothing to decode");
 		DebugANSInfo *i0=(DebugANSInfo*)STACK_TOP(&states), info;
 		memcpy(&info, i0, sizeof(info));
+
 		if(info.state!=state||info.cdf!=cdf||info.freq!=freq||kx!=info.kx||ky!=info.ky||kq!=info.kq||kc!=info.kc||info.sym!=sym)
-			LOG_ERROR("Decode error");
+			LOG_ERROR("Decode error  (%d decodes remaining)", info.id);
 
 		state=freq*(state>>16)+(unsigned short)state-cdf;//update
 
@@ -5582,7 +5581,7 @@ int test19_decode(const unsigned char *data, size_t srclen, int bw, int bh, int 
 }
 #endif
 
-#if 1
+#if 0
 void t20_prepblock(const unsigned char *b2, unsigned short *CDF, int bw, int bh, int kc, int bx, int by, int alpha, int blocksize, int margin, unsigned *CDF2, int *xend, int *yend)
 {
 	int kx=bx*blocksize, ky=by*blocksize;
@@ -6041,14 +6040,126 @@ int test20_decode(const unsigned char *data, size_t srclen, int bw, int bh, int 
 }
 #endif
 
-#if 1
+#if 0
 void e10_iter(unsigned char *buf, int iw, int ih, int kc, long long *hist);
-int e10_cmp_overhead(const void *p1, const void *p2)
+int  e10_cmp_overhead(const void *p1, const void *p2)
 {
 	short idx1=*(const short*)p1, idx2=*(const short*)p2;
 	return (idx1>idx2)-(idx1<idx2);
 }
-int e10_encode_ch(const unsigned char *src, int bw, int bh, int kc, ArrayHandle *data, int loud)
+void e10_getminiCDF(int *nb, unsigned short *overhead, int overhead_count, int *miniCDF)
+{
+	int permutation=0;
+	char temp;
+
+#define SORT_STEP(A, B)\
+	if(nb[1+A]<nb[1+B])\
+		permutation+=0;\
+	else if(nb[1+A]>nb[1+B])\
+		permutation+=1, temp=nb[1+A], nb[1+A]=nb[1+B], nb[1+B]=temp;\
+	else\
+		permutation+=2;
+
+	SORT_STEP(0, 1);
+	permutation*=3;
+	SORT_STEP(0, 2);
+	permutation*=3;
+	SORT_STEP(0, 3);
+
+	permutation*=3;
+	SORT_STEP(1, 2);
+	permutation*=3;
+	SORT_STEP(1, 3);
+
+	permutation*=3;
+	SORT_STEP(2, 3);
+#undef  SORT_STEP
+
+	size_t idx;
+	int found=binary_search(overhead, overhead_count, 10*sizeof(short), e10_cmp_overhead, &permutation, &idx);
+	if(!found)
+		LOG_ERROR("Permutation %d not found in overhead", permutation);
+
+	unsigned short *ok=overhead+10*idx+1;
+	
+	miniCDF[0]=0;                //case 0: CDF[1]-CDF[0]: -129<x<nb[1]
+	miniCDF[1]=ok[1]+nb[1]  +128;//case 1: CDF[2]-CDF[1]: x==nb[1]
+	miniCDF[2]=ok[2]+nb[1]+1+128;//case 2: CDF[3]-CDF[2]: nb[1]<x<nb[2]
+	miniCDF[3]=ok[3]+nb[2]  +128;//case 3: CDF[4]-CDF[3]: x==nb[2]
+	miniCDF[4]=ok[4]+nb[2]+1+128;//case 4: CDF[5]-CDF[4]: nb[2]<x<nb[3]
+	miniCDF[5]=ok[5]+nb[3]  +128;//case 5: CDF[6]-CDF[5]: x==nb[3]
+	miniCDF[6]=ok[6]+nb[3]+1+128;//case 6: CDF[7]-CDF[6]: nb[3]<x<nb[4]
+	miniCDF[7]=ok[7]+nb[4]  +128;//case 7: CDF[8]-CDF[7]: x==nb[4]
+	miniCDF[8]=ok[8]+nb[4]+1+128;//case 8: CDF[9]-CDF[8]: nb[4]<x<128
+	miniCDF[9]=0x10000;
+
+	int sum=0x10000;
+	if(nb[4]==127)//case 8 is off
+		miniCDF[8]=sum;
+	else
+		sum=miniCDF[8];
+
+	if(nb[3]==nb[4])//cases 7 & 6 are off
+		miniCDF[6]=miniCDF[7]=sum;
+	else if(nb[3]+1==nb[4])//case 6 is off
+		sum=miniCDF[6]=miniCDF[7];
+	else
+		sum=miniCDF[6];
+
+	if(nb[2]==nb[3])//cases 5 & 4 are off
+		miniCDF[4]=miniCDF[5]=sum;
+	else if(nb[2]+1==nb[3])//case 4 is off
+		sum=miniCDF[4]=miniCDF[5];
+	else
+		sum=miniCDF[4];
+
+	if(nb[1]==nb[2])//cases 3 & 2 are off
+		miniCDF[2]=miniCDF[3]=sum;
+	else if(nb[1]+1==nb[2])//case 2 is off
+		sum=miniCDF[2]=miniCDF[3];
+	else
+		sum=miniCDF[2];
+
+	if(-128==nb[1])//case 0 is off, case 1 cannot be off
+		miniCDF[1]=0;
+	
+	//miniCDF[0]=0;//CDF[1]-CDF[0]: -128<x<nb[1]
+	//miniCDF[1]=              ok[1]+nb[1]  +128;                //CDF[2]-CDF[1]: x==nb[1]
+	//miniCDF[2]=nb[1]+1<nb[2]?ok[2]+nb[1]+1+128:ok[3]+nb[2]+128;//CDF[3]-CDF[2]: nb[1]<x<nb[2]
+	//miniCDF[3]=              ok[3]+nb[2]  +128;                //CDF[4]-CDF[3]: x==nb[2]
+	//miniCDF[4]=nb[2]+1<nb[3]?ok[4]+nb[2]+1+128:ok[5]+nb[3]+128;//CDF[5]-CDF[4]: nb[2]<x<nb[3]
+	//miniCDF[5]=              ok[5]+nb[3]  +128;                //CDF[6]-CDF[5]: x==nb[3]
+	//miniCDF[6]=nb[3]+1<nb[4]?ok[6]+nb[3]+1+128:ok[7]+nb[4]+128;//CDF[7]-CDF[6]: nb[3]<x<nb[4]
+	//miniCDF[7]=              ok[7]+nb[4]  +128;                //CDF[8]-CDF[7]: x==nb[4]
+	//miniCDF[8]=nb[4]+1<128  ?ok[8]+nb[4]+1+128:0x10000;        //CDF[9]-CDF[8]: nb[4]<x<128
+	//miniCDF[9]=0x10000;
+
+	//miniCDF[9]=0x10000;
+	//miniCDF[8]=nb[4]+1<128  ?ok[8]+nb[4]+1+128:miniCDF[9];//CDF[9]-CDF[8]: nb[4]<x<128
+	//miniCDF[7]=              ok[7]+nb[4]  +128;           //CDF[8]-CDF[7]: x==nb[4]
+	//miniCDF[6]=nb[3]+1<nb[4]?ok[6]+nb[3]+1+128:miniCDF[7];//CDF[7]-CDF[6]: nb[3]<x<nb[4]
+	//miniCDF[5]=              ok[5]+nb[3]  +128;           //CDF[6]-CDF[5]: x==nb[3]
+	//miniCDF[4]=nb[2]+1<nb[3]?ok[4]+nb[2]+1+128:miniCDF[5];//CDF[5]-CDF[4]: nb[2]<x<nb[3]
+	//miniCDF[3]=              ok[3]+nb[2]  +128;           //CDF[4]-CDF[3]: x==nb[2]
+	//miniCDF[2]=nb[1]+1<nb[2]?ok[2]+nb[1]+1+128:miniCDF[3];//CDF[3]-CDF[2]: nb[1]<x<nb[2]
+	//miniCDF[1]=              ok[1]+nb[1]  +128;           //CDF[2]-CDF[1]: x==nb[1]
+	//miniCDF[0]=0;//CDF[1]-CDF[0]: -128<x<nb[1]
+
+	//int miniCDF[]=
+	//{
+	//	(int)((long long)ok[0]*0xFF00>>16),            //0
+	//	(int)((long long)ok[1]*0xFF00>>16)+nb[1]  +128,//1
+	//	(int)((long long)ok[2]*0xFF00>>16)+nb[1]+1+128,//2
+	//	(int)((long long)ok[3]*0xFF00>>16)+nb[2]  +128,//3
+	//	(int)((long long)ok[4]*0xFF00>>16)+nb[2]+1+128,//4
+	//	(int)((long long)ok[5]*0xFF00>>16)+nb[3]  +128,//5
+	//	(int)((long long)ok[6]*0xFF00>>16)+nb[3]+1+128,//6
+	//	(int)((long long)ok[7]*0xFF00>>16)+nb[4]  +128,//7
+	//	(int)((long long)ok[8]*0xFF00>>16)+nb[4]+1+128,//8
+	//	0x10000,//9
+	//};
+}
+int    e10_encode_ch(const unsigned char *src, int bw, int bh, int kc, ArrayHandle *data, int loud)
 {
 	int res=bw*bh;
 	int histlen=(729LL*9+729LL*3)*sizeof(long long),//9 histograms with 729 cases + 729 sets of means for 3 gradients
@@ -6064,46 +6175,77 @@ int e10_encode_ch(const unsigned char *src, int bw, int bh, int kc, ArrayHandle 
 	}
 	memcpy(b2, src, (size_t)res<<2);
 
+#if 1
 	addbuf(b2, bw, bh, 3, 4, 128);
 	colortransform_ycocgt_fwd((char*)b2, bw, bh);
 	//pred_grad_fwd((char*)b2, bw, bh, 3, 4);
 	addbuf(b2, bw, bh, 3, 4, 128);
+#endif
+	if(loud)//
+		printf("Channel %d:\n", kc);
 
 	memset(hist, 0, histlen);
-	//long long *grad=hist+729LL*9;
 
 	e10_iter(b2, bw, bh, kc, hist);
-	int overhead_count=0;
+	long long *grad=hist+729LL*9;
+	int overheadcount=0;
 	for(int ks=0;ks<729;++ks)
 	{
-		long long *hk=hist+9*ks;
+		long long *hk=hist+9*ks, *gk=grad+3*ks;
 		int sum=0;
 		for(int k=0;k<9;++k)
 			sum+=(int)hk[k];
 		if(sum)
 		{
-			if(overhead_count>=75)
+			if(loud)//
+			{
+				int rem=256-(int)((gk[0]+gk[1]+gk[2])/sum);
+				int ranges[]=
+				{
+					rem>>1,
+					1,
+					(int)(gk[0]/sum),
+					1,
+					(int)(gk[1]/sum),
+					1,
+					(int)(gk[2]/sum),
+					1,
+					rem-(rem>>1),
+				};
+				printf("[%3d] %7d ", ks, sum);
+				for(int k=0;k<9;++k)
+				{
+					if(hk[k])
+						printf(" %7d/%2d", (int)hk[k], ranges[k]);
+					else
+						printf(" -------/%2d", ranges[k]);
+				}
+				printf("\n");
+			}
+			if(overheadcount>=75)
 			{
 				LOG_ERROR("Unexpected number of cases %d", ks);
 				return 0;
 			}
-			unsigned short *ok=overhead+10*overhead_count;
+			unsigned short *ok=overhead+10*overheadcount;
 			ok[0]=ks;
 			int sum2=0;
 			for(int k=0;k<9;++k)
 			{
-				int freq=(int)(hk[k]*0xFFFF/sum);
+				int freq=(int)(hk[k]*0xFF00/sum);
 				ok[1+k]=sum2;
 				sum2+=freq;
 			}
-			++overhead_count;
+			++overheadcount;
 		}
 	}
 	free(hist);
 
+	int casehist[9]={0};
+
 	DList list;
 	dlist_init(&list, 1, 1024, 0);
-	dlist_push_back(&list, 0, 5);//int csize, char overhead_count
+	dlist_push_back(&list, 0, 5);//int csize, char overheadcount
 	dlist_push_back(&list, overhead, overheadlen);
 	unsigned state=0x10000;
 	for(int ky=bh-1;ky>=0;--ky)
@@ -6117,126 +6259,42 @@ int e10_encode_ch(const unsigned char *src, int bw, int bh, int kc, ArrayHandle 
 				topright=kx+1<bw&&ky-1>=0?b2[(idx-bw+1)<<2|kc]-128:0,
 				left    =kx-1>=0         ?b2[(idx   -1)<<2|kc]-128:0,
 				curr    =                 b2[ idx      <<2|kc]-128  ;
-			char nb[]={-128, topleft, top, topright, left, 127};
+			int nb[]={-128, topleft, top, topright, left, 128};
+			
+			//if(kc==0&&ky==1&&kx==20)//
+			//	kx=20;
 
-			int permutation=0;
-			char temp;
+			int miniCDF[10];
+			e10_getminiCDF(nb, overhead, overheadcount, miniCDF);
 
-#define SORT_STEP(A, B)\
-			if(nb[1+A]<nb[1+B])\
-				permutation+=0;\
-			else if(nb[1+A]>nb[1+B])\
-				permutation+=1, temp=nb[1+A], nb[1+A]=nb[1+B], nb[1+B]=temp;\
-			else\
-				permutation+=2;
+			int caseidx;
+				 if(curr<nb[1])		caseidx=0;
+			else if(curr==nb[1])	caseidx=1;
+			else if(curr<nb[2])		caseidx=2;
+			else if(curr==nb[2])	caseidx=3;
+			else if(curr<nb[3])		caseidx=4;
+			else if(curr==nb[3])	caseidx=5;
+			else if(curr<nb[4])		caseidx=6;
+			else if(curr==nb[4])	caseidx=7;
+			else					caseidx=8;
 
-			SORT_STEP(0, 1);
-			permutation*=3;
-			SORT_STEP(0, 2);
-			permutation*=3;
-			SORT_STEP(0, 3);
+			++casehist[caseidx];
 
-			permutation*=3;
-			SORT_STEP(1, 2);
-			permutation*=3;
-			SORT_STEP(1, 3);
-
-			permutation*=3;
-			SORT_STEP(2, 3);
-#undef  SORT_STEP
-
-			size_t idx2;
-			int found=binary_search(overhead, 75, 10*sizeof(short), e10_cmp_overhead, &permutation, &idx2);
-			if(!found)
-				LOG_ERROR("Permutation %d not found in overhead", permutation);
-
-			unsigned short *CDF=overhead+10*idx2+1;
-		/*	int weights[]=
+			int cdf, freq, base;
+			if(caseidx&1)//curr == nb[1+(caseidx>>1)]
 			{
-				nb[1]-nb[0],
-				1,
-				nb[2]-(nb[1]-1),
-				1,
-				nb[3]-(nb[2]-1),
-				1,
-				nb[4]-(nb[3]-1),
-				1,
-				nb[5]-(nb[4]-1),
-			};*/
-#if 0
-			long long CDF[10]={0};
-			//int sum=0;
-			for(int k=0;k<9;++k)
-			{
-				CDF[k]=hk[k];
-
-				//CDF[k]=sum;
-				//sum+=hk[k];
-
-				//if(weights[k])
-				//{
-				//	int freq=hk[k]/weights[k];
-				//	weights[k]+=!weights[k];
-				//	sum+=weights[k];
-				//}
-				//else if(k)
-				//	CDF[k]=CDF[k-1];
+				cdf=miniCDF[caseidx];
+				freq=(caseidx<9-1?miniCDF[caseidx+1]:0x10000)-cdf;
 			}
-			//CDF[9]=sum;
-#endif
-
-			int c;
-				 if(curr<nb[1])		c=0;
-			else if(curr==nb[1])	c=1;
-			else if(curr<nb[2])		c=2;
-			else if(curr==nb[2])	c=3;
-			else if(curr<nb[3])		c=4;
-			else if(curr==nb[3])	c=5;
-			else if(curr<nb[4])		c=6;
-			else if(curr==nb[4])	c=7;
-			else					c=8;
-
-			int cdf, freq;
-			if(c&1)//curr == nb[1+(c>>1)]
+			else//nb[caseidx>>1] <[=] curr < nb[1+(caseidx>>1)]		if caseidx==0 [<=] else [<]
 			{
-				cdf=CDF[c];
-				freq=(c<9-1?CDF[c+1]:0x10000)-cdf;
+				base=nb[caseidx>>1]+(caseidx!=0);//open range if case > 0
+				freq=(miniCDF[caseidx+1]-miniCDF[caseidx])/(nb[(caseidx>>1)+1]-base);
+				cdf=miniCDF[caseidx]+(curr-base)*freq;
+				//cdf=miniCDF[caseidx]+(curr-nb[caseidx>>1])*(miniCDF[caseidx+1]-miniCDF[caseidx])/den;
 			}
-			else//nb[c>>1] <[=] curr < nb[1+(c>>1)]		if c==0 [<=] else [<]
-			{
-				int den=nb[(c>>1)+1]-nb[c>>1];
-				cdf=CDF[c]+(curr-nb[c>>1])*(CDF[c+1]-CDF[c])/den;
-				freq=(CDF[c+1]-CDF[c])/den;
-			}
-			cdf=(int)((long long)cdf*0xFF00>>16)+curr;//guard
-			freq=(int)((long long)freq*0xFF00>>16)+1;
-				 
-			//long long interval, den;
-			//interval=(c<9-1?CDF[c+1]:0x10000)-CDF[c];
-			//den=(long long)weights[c]<<16;
-			//freq=(int)((interval*0xFF00)/den)+1;
-			//if(c&1)
-			//	cdf=(int)((long long)CDF[c]*0xFF00/den)+curr;
-			//else
-			//	cdf=(int)(((long long)CDF[c]+(curr-nb[c>>1])*interval)*0xFF00/den)+curr;
-
-			//interval=CDF[c+1]-CDF[c];
-			//den=weights[c]*CDF[9];
-			//freq=(int)((interval*0xFFFF)/den);
-			//if(c&1)
-			//	cdf=(int)(CDF[1]*0xFFFF/den);
-			//else
-			//	cdf=(int)((CDF[0]+(curr-nb[c>>1])*interval)*0xFFFF/den);
-
-			//	 if(curr<nb[0])		interval=CDF[1]-CDF[0], den=(nb[0] -  -128)*CDF[9], freq=(int)((interval*0xFFFF)/den), cdf=(int)((CDF[0]+(curr -  -128)*interval)*0xFFFF/den);
-			//else if(curr==nb[0])	interval=CDF[2]-CDF[1], den=                CDF[9], freq=(int)((interval*0xFFFF)/den), cdf=(int)(CDF[1]*0xFFFF/den);
-			//else if(curr<nb[1])		interval=CDF[3]-CDF[2], den=(nb[1] - nb[0])*CDF[9], freq=(int)((interval*0xFFFF)/den), cdf=(int)((CDF[2]+(curr - nb[0])*interval)*0xFFFF/den);
-			//else if(curr==nb[1])	interval=CDF[4]-CDF[3], den=                CDF[9], freq=(int)((interval*0xFFFF)/den), cdf=(int)(CDF[1]*0xFFFF/den);
-			//else if(curr<nb[2])		freq=weights[4];
-			//else if(curr==nb[2])	freq=weights[5];
-			//else if(curr<nb[3])		freq=weights[6];
-			//else if(curr==nb[3])	freq=weights[7];
-			//else					freq=weights[8];
+			//cdf=(int)((long long)cdf*0xFF00>>16)+curr;//guard
+			//freq=(int)((long long)freq*0xFF00>>16)+1;
 
 			if(!freq)
 				LOG_ERROR("ZPS");
@@ -6246,21 +6304,521 @@ int e10_encode_ch(const unsigned char *src, int bw, int bh, int kc, ArrayHandle 
 				dlist_push_back(&list, &state, 2);
 				state>>=16;
 			}
-			debug_enc_update(state, cdf, freq, kx, ky, 0, kc, sym);
+			debug_enc_update(state, cdf, freq, kx, ky, 0, kc, curr);
 			state=state/freq<<16|(cdf+state%freq);//update
 		}
 	}
 	dlist_push_back(&list, &state, 4);
 	size_t dststart=dlist_appendtoarray(&list, data);
 	memcpy(data[0]->data+dststart, &list.nobj, 4);
-	memcpy(data[0]->data+dststart, &overhead_count, 1);
+	memcpy(data[0]->data+dststart+4, &overheadcount, 1);
 
 	if(loud)
+	{
 		printf("ch %d  usize %7d  csize %7d  CR %lf\n", kc, res, (int)list.nobj, (double)res/list.nobj);
+		for(int k=0;k<9;++k)
+			printf("\tcase %d %7d\n", k, casehist[k]);
+		printf("\n\n");
+	}
 
 	dlist_clear(&list);
 	free(overhead);
 	free(b2);
 	return 1;
+}
+size_t e10_decode_ch(const unsigned char *data, size_t datastart, size_t datalen, int bw, int bh, int kc, unsigned char *buf)
+{
+	int res=bw*bh;
+	int overheadlen=75LL*10*sizeof(short);
+
+	unsigned short *overhead=(unsigned short*)malloc(overheadlen);
+	if(!overhead)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	const unsigned char *srcstart=data+datastart, *srcptr;
+
+	int csize=0, overheadcount=0;
+	memcpy(&csize, srcstart, 4);
+	memcpy(&overheadcount, srcstart+4, 1);
+	if(datastart+5+overheadcount*10*sizeof(short)>datalen)
+	{
+		LOG_ERROR("Unexpected EOF");
+		return 0;
+	}
+	memcpy(overhead, srcstart+5, overheadcount*10*sizeof(short));
+
+	unsigned state;
+	srcstart+=5+overheadcount*10*sizeof(short);
+	srcptr=data+datastart+csize-4;
+	if(srcptr<srcstart)
+	{
+		LOG_ERROR("ANS overflow");
+		return 0;
+	}
+	memcpy(&state, srcptr, 4);
+	for(int ky=0;ky<bh;++ky)
+	{
+		for(int kx=0;kx<bw;++kx)
+		{
+			int idx=bw*ky+kx;
+			char
+				topleft =kx-1>=0&&ky-1>=0?buf[(idx-bw-1)<<2|kc]-128:0,
+				top     =         ky-1>=0?buf[(idx-bw  )<<2|kc]-128:0,
+				topright=kx+1<bw&&ky-1>=0?buf[(idx-bw+1)<<2|kc]-128:0,
+				left    =kx-1>=0         ?buf[(idx   -1)<<2|kc]-128:0;
+			int nb[]={-128, topleft, top, topright, left, 128};
+
+			//if(kc==0&&ky==1&&kx==20)//
+			//	kx=20;
+			
+			int miniCDF[10];
+			e10_getminiCDF(nb, overhead, overheadcount, miniCDF);
+
+			int c=(unsigned short)state;
+			int caseidx=0;
+			int L=0, R=10, found=0;
+			while(L<=R)
+			{
+				caseidx=(L+R)>>1;
+				if(miniCDF[caseidx]<c)
+					L=caseidx+1;
+				else if(miniCDF[caseidx]>c)
+					R=caseidx-1;
+				else
+				{
+					found=1;
+					break;
+				}
+			}
+			if(!found)
+				caseidx=L+(L<10&&miniCDF[L]<c)-1;
+			else
+				for(;caseidx<10-1&&miniCDF[caseidx+1]==c;++caseidx);
+
+			int curr, cdf, freq, base;
+			if(caseidx&1)
+			{
+				curr=nb[(caseidx>>1)+1];
+				cdf=miniCDF[caseidx];
+				freq=miniCDF[caseidx+1]-cdf;
+			}
+			else
+			{
+				base=nb[caseidx>>1]+(caseidx!=0);//open range if case > 0
+				freq=(miniCDF[caseidx+1]-miniCDF[caseidx])/(nb[(caseidx>>1)+1]-base);
+				curr=base+(c-miniCDF[caseidx])/freq;
+				if(curr>nb[(caseidx>>1)+1]-1)
+					curr=nb[(caseidx>>1)+1]-1;
+				cdf=miniCDF[caseidx]+(curr-base)*freq;
+			}
+
+			buf[idx<<2|kc]=curr+128;
+
+			debug_dec_update(state, cdf, freq, kx, ky, 0, kc, curr);
+			state=freq*(state>>16)+c-cdf;//update
+			if(state<0x10000)//renorm
+			{
+				state<<=16;
+				if(srcptr-2>=srcstart)
+				{
+					srcptr-=2;
+					memcpy(&state, srcptr, 2);
+				}
+			}
+		}
+	}
+	return datastart+csize;
+}
+
+static void   ans_enc_update(unsigned *state, int cdf, int freq, DList *list
+#ifdef DEBUG_ANS
+	, int kc, int kx, int ky, int curr
+#endif
+)
+{
+	if(!freq)
+		LOG_ERROR("ZPS");
+	if(*state>=(unsigned)(freq<<16))//renorm
+	{
+		dlist_push_back(list, state, 2);
+		*state>>=16;
+	}
+	debug_enc_update(*state, cdf, freq, kx, ky, 0, kc, curr);
+	*state=*state/freq<<16|(cdf+*state%freq);//update
+}
+static int    ans_CDF2sym(int c, int *CDF, int start, int end, int norm)
+{
+	int sym=0;
+	int L=start, R=end, found=0;
+	int vmin=CDF[start], range=CDF[end]-vmin, test;
+	//vmin=(int)((long long)vmin*norm/range)+start;
+	while(L<=R)
+	{
+		sym=(L+R)>>1;
+		test=CDF[sym];
+		if(norm)
+			test=(int)((long long)(test-vmin)*norm/range)+sym-start;
+		if(test<c)
+			L=sym+1;
+		else if(test>c)
+			R=sym-1;
+		else
+		{
+			found=1;
+			break;
+		}
+	}
+	if(!found)
+		sym=L+(L<end&&(norm?(int)((long long)(CDF[L]-vmin)*norm/range)+L-start:CDF[L])<c)-1;
+	else
+		for(;sym<end-1&&(norm?(int)((long long)(CDF[sym+1]-vmin)*norm/range)+sym+1-start:CDF[sym+1])==c;++sym);
+	return sym;
+}
+static void ans_dec_update(unsigned *state, int cdf, int freq, const unsigned char *srcstart, const unsigned char **srcptr)
+{
+	*state=freq*(*state>>16)+(unsigned short)*state-cdf;//update
+	if(*state<0x10000)//renorm
+	{
+		*state<<=16;
+		if(*srcptr-2>=srcstart)
+		{
+			*srcptr-=2;
+			memcpy(&*state, *srcptr, 2);
+		}
+	}
+}
+int    e10dash_encode_ch(const unsigned char *src, int bw, int bh, int kc, int alpha, int blocksize, int margin, ArrayHandle *data, int loud)
+{
+	int res=bw*bh;
+	int histlen=(729LL*9+729LL*3)*sizeof(long long),//9 histograms with 729 cases + 729 sets of means for 3 gradients
+		overheadlen=75LL*10*sizeof(short);
+
+	unsigned char *b2=(unsigned char*)malloc((size_t)res<<2);
+	long long *hist=(long long*)malloc(histlen);
+	unsigned short *overhead=(unsigned short*)malloc(overheadlen);
+	unsigned short *CDF0=(unsigned short*)malloc(256LL*sizeof(short));
+	int *CDF2=(int*)malloc(257*sizeof(int));
+	if(!b2||!hist||!overhead||!CDF2)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	memcpy(b2, src, (size_t)res<<2);
+
+#if 1
+	addbuf(b2, bw, bh, 3, 4, 128);
+	colortransform_ycocgt_fwd((char*)b2, bw, bh);
+	pred_grad_fwd((char*)b2, bw, bh, 3, 4);
+	addbuf(b2, bw, bh, 3, 4, 128);
+#endif
+
+	int *hist2=(int*)hist;
+	memset(hist2, 0, 256LL*sizeof(unsigned));
+	for(int k=0;k<res;++k)
+	{
+		unsigned char sym=b2[k<<2|kc];
+		++hist2[kc<<8|sym];
+	}
+	normalize_histogram(hist2, 256, res, CDF0);
+
+	double csize_cases=0, csize_remainder=0, p;//
+	int remcount=0;//
+
+	//if(loud)//
+	//	printf("Channel %d:\n", kc);
+
+	memset(hist, 0, histlen);
+
+	e10_iter(b2, bw, bh, kc, hist);
+	long long *grad=hist+729LL*9;
+	int overheadcount=0;
+	for(int ks=0;ks<729;++ks)
+	{
+		long long *hk=hist+9*ks, *gk=grad+3*ks;
+		int sum=0;
+		for(int k=0;k<9;++k)
+			sum+=(int)hk[k];
+		if(sum)
+		{
+#if 0
+			if(loud)//
+			{
+				int rem=256-(int)((gk[0]+gk[1]+gk[2])/sum);
+				int ranges[]=
+				{
+					rem>>1,
+					1,
+					(int)(gk[0]/sum),
+					1,
+					(int)(gk[1]/sum),
+					1,
+					(int)(gk[2]/sum),
+					1,
+					rem-(rem>>1),
+				};
+				printf("[%3d] %7d ", ks, sum);
+				for(int k=0;k<9;++k)
+				{
+					if(hk[k])
+						printf(" %7d/%2d", (int)hk[k], ranges[k]);
+					else
+						printf(" -------/%2d", ranges[k]);
+				}
+				printf("\n");
+			}
+#endif
+			if(overheadcount>=75)
+			{
+				LOG_ERROR("Unexpected number of cases %d", ks);
+				return 0;
+			}
+			unsigned short *ok=overhead+10*overheadcount;
+			ok[0]=ks;
+			int sum2=0;
+			for(int k=0;k<9;++k)
+			{
+				int freq=(int)(hk[k]*0xFF00/sum);
+				ok[1+k]=sum2;
+				sum2+=freq;
+			}
+			++overheadcount;
+		}
+	}
+	overheadlen=overheadcount*10LL*sizeof(short);
+	free(hist);
+
+	DList list;
+	dlist_init(&list, 1, 1024, 0);
+	dlist_push_back(&list, 0, 5);//int csize, char overheadcount
+	dlist_push_back(&list, CDF0, 256LL*sizeof(short));
+	dlist_push_back(&list, overhead, overheadlen);
+
+	int bxcount=(bw+blocksize-1)/blocksize,
+		bycount=(bh+blocksize-1)/blocksize;
+	unsigned state=0x10000;
+	for(int by=bycount-1;by>=0;--by)
+	{
+		int ky=by*blocksize;
+		for(int bx=bxcount-1;bx>=0;--bx)
+		{
+			int kx=bx*blocksize;
+			int xend=0, yend=0;
+			t16_prepblock(b2, CDF0, bw, bh, kc, bx, by, alpha, blocksize, margin, CDF2, &xend, &yend);
+			for(int ky2=yend-1;ky2>=ky;--ky2)
+			{
+				for(int kx2=xend-1;kx2>=kx;--kx2)
+				{
+					int idx=bw*ky2+kx2;
+					int
+						topleft =kx2-1>=0  &&ky2-1>=0?b2[(idx-bw-1)<<2|kc]-128:0,
+						top     =            ky2-1>=0?b2[(idx-bw  )<<2|kc]-128:0,
+						topright=kx2+1<xend&&ky2-1>=0?b2[(idx-bw+1)<<2|kc]-128:0,
+						left    =kx2-1>=0            ?b2[(idx   -1)<<2|kc]-128:0,
+						curr    =                     b2[ idx      <<2|kc]-128  ;
+					int nb[]={-129, topleft, top, topright, left, 128};
+					
+					//if(ky2==(bh>>1)&&kx2==(bw>>1))//
+					//	kx2=bw>>1;
+					//if(kc==1&&ky2==0&&kx2==0)//
+					//	kx2=0;
+
+					int miniCDF[10];
+					e10_getminiCDF(nb, overhead, overheadcount, miniCDF);
+
+					int caseidx, cdf, freq, start, end, range, norm;
+						 if(curr<nb[1])		caseidx=0;
+					else if(curr==nb[1])	caseidx=1;
+					else if(curr<nb[2])		caseidx=2;
+					else if(curr==nb[2])	caseidx=3;
+					else if(curr<nb[3])		caseidx=4;
+					else if(curr==nb[3])	caseidx=5;
+					else if(curr<nb[4])		caseidx=6;
+					else if(curr==nb[4])	caseidx=7;
+					else					caseidx=8;
+						 
+					if(!(caseidx&1))
+					{
+						start=nb[caseidx>>1]+1+128;
+						end=nb[(caseidx>>1)+1]+128;
+						if(start+1<end)
+						{
+							norm=0x10000-(end-start);
+							range=CDF2[end]-CDF2[start];
+							curr+=128;
+
+							cdf=(int)((long long)(CDF2[curr]-CDF2[start])*norm/range)+curr-start;
+							freq=(int)((long long)(CDF2[curr+1]-CDF2[curr])*norm/range)+1;
+
+							//cdf=(int)((long long)CDF2[curr]*norm/range)+curr-start;
+							//freq=(int)((long long)CDF2[curr+1]*norm/range)+curr+1-start-cdf;
+							//cdf-=((int)((long long)CDF2[start]*norm/range)+start);
+
+							//cdf=(int)((long long)(CDF2[curr+128]-CDF2[base+128])*norm/range)+curr-base;
+							//freq=(int)((long long)(CDF2[curr+128+1]-CDF2[curr+128])*norm/range)+1;
+							
+							p=(double)freq/0x10000;//
+							csize_remainder-=log2(p);
+							++remcount;
+
+							ans_enc_update(&state, cdf, freq, &list
+#ifdef DEBUG_ANS
+								, kc, kx2, ky2, curr
+#endif
+							);
+						}
+					}
+
+					cdf=miniCDF[caseidx], freq=miniCDF[caseidx+1]-cdf;
+
+					p=(double)freq/0x10000;//
+					csize_cases-=log2(p);
+
+					ans_enc_update(&state, cdf, freq, &list
+#ifdef DEBUG_ANS
+						, kc, kx2, ky2, caseidx
+#endif
+					);
+
+				}
+			}
+		}
+	}
+	dlist_push_back(&list, &state, 4);
+	size_t dststart=dlist_appendtoarray(&list, data);
+	memcpy(data[0]->data+dststart, &list.nobj, 4);
+	memcpy(data[0]->data+dststart+4, &overheadcount, 1);
+
+	if(loud)
+	{
+		csize_cases/=8;
+		csize_remainder/=8;
+		printf("ch %d  usize %7d  csize %7d  CR %lf  cases %.2lf  rem %.2lf / %d  total %.2lf\n\n", kc, res, (int)list.nobj, (double)res/list.nobj, csize_cases, csize_remainder, remcount, csize_cases+csize_remainder);
+	}
+
+	dlist_clear(&list);
+	free(overhead);
+	free(b2);
+	return 1;
+}
+size_t e10dash_decode_ch(const unsigned char *data, size_t datastart, size_t datalen, int bw, int bh, int kc, int alpha, int blocksize, int margin, unsigned char *buf)
+{
+	int res=bw*bh;
+	int overheadlen=75LL*10*sizeof(short);
+
+	if(datastart+5+256*sizeof(short)>datalen)
+	{
+		LOG_ERROR("Unexpected EOF");
+		return 0;
+	}
+
+	unsigned short *overhead=(unsigned short*)malloc(overheadlen);
+	unsigned short *CDF0=(unsigned short*)malloc(256LL*sizeof(short));
+	int *CDF2=(int*)malloc(257*sizeof(int));
+	if(!overhead||!CDF0||!CDF2)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	const unsigned char *srcstart=data+datastart, *srcptr;
+
+	int csize=0, overheadcount=0;
+	memcpy(&csize, srcstart, 4);
+	memcpy(&overheadcount, srcstart+4, 1);
+	if(datastart+5+overheadcount*10*sizeof(short)>datalen)
+	{
+		LOG_ERROR("Unexpected EOF");
+		return 0;
+	}
+
+	memcpy(CDF0, srcstart+5, 256LL*sizeof(short));
+	memcpy(overhead, srcstart+5+256LL*sizeof(short), overheadcount*10LL*sizeof(short));
+
+	unsigned state;
+	srcstart+=5+256LL*sizeof(short)+overheadcount*10LL*sizeof(short);
+	srcptr=data+datastart+csize-4;
+	if(srcptr<srcstart)
+	{
+		LOG_ERROR("ANS overflow");
+		return 0;
+	}
+	memcpy(&state, srcptr, 4);
+	int bxcount=(bw+blocksize-1)/blocksize,
+		bycount=(bh+blocksize-1)/blocksize;
+	for(int by=0;by<bycount;++by)
+	{
+		int ky=by*blocksize;
+		for(int bx=0;bx<bxcount;++bx)//for each block
+		{
+			int kx=bx*blocksize;
+			int xend=0, yend=0;
+			t16_prepblock(buf, CDF0, bw, bh, kc, bx, by, alpha, blocksize, margin, CDF2, &xend, &yend);
+			for(int ky2=ky;ky2<yend;++ky2)
+			{
+				for(int kx2=kx;kx2<xend;++kx2)//for each pixel
+				{
+					int idx=bw*ky2+kx2;
+					int
+						topleft =kx2-1>=0  &&ky2-1>=0?buf[(idx-bw-1)<<2|kc]-128:0,
+						top     =            ky2-1>=0?buf[(idx-bw  )<<2|kc]-128:0,
+						topright=kx2+1<xend&&ky2-1>=0?buf[(idx-bw+1)<<2|kc]-128:0,
+						left    =kx2-1>=0            ?buf[(idx   -1)<<2|kc]-128:0;
+					int nb[]={-129, topleft, top, topright, left, 128};
+					
+					//if(kc==1&&ky2==0&&kx2==0)//
+					//	kx2=0;
+			
+					int miniCDF[10], cdf, freq, curr;
+					e10_getminiCDF(nb, overhead, overheadcount, miniCDF);
+
+					int caseidx=ans_CDF2sym((unsigned short)state, miniCDF, 0, 9, 0);
+
+					cdf=miniCDF[caseidx];
+					freq=miniCDF[caseidx+1]-cdf;
+					debug_dec_update(state, cdf, freq, kx2, ky2, 0, kc, caseidx);
+					ans_dec_update(&state, cdf, freq, srcstart, &srcptr);
+
+					int start, end, range, norm;
+					if(caseidx&1)
+						curr=nb[(caseidx>>1)+1]+128;
+					else
+					{
+						start=nb[caseidx>>1]+1+128;
+						end=nb[(caseidx>>1)+1]+128;
+						if(start==end-1)
+							curr=start;
+						else
+						{
+							norm=0x10000-(end-start);
+
+							curr=ans_CDF2sym((unsigned short)state, CDF2, start, end, norm);
+
+							range=CDF2[end]-CDF2[start];
+							cdf=(int)((long long)(CDF2[curr]-CDF2[start])*norm/range)+curr-start;
+							freq=(int)((long long)(CDF2[curr+1]-CDF2[curr])*norm/range)+1;
+
+							//cdf=(int)((long long)CDF2[curr]*norm/range)+curr - ((int)((long long)CDF2[start]*norm/range)-start);
+							//freq=(int)((long long)CDF2[curr+1]*norm/range) - (int)((long long)CDF2[curr]*norm/range) + 1;
+
+							//cdf=(int)((long long)(CDF2[curr]-CDF2[base+128])*norm/range)+curr-base;
+							//freq=(int)((long long)(CDF2[curr+1]-CDF2[curr])*norm/range)+1;
+
+							debug_dec_update(state, cdf, freq, kx2, ky2, 0, kc, curr);
+							ans_dec_update(&state, cdf, freq, srcstart, &srcptr);
+						}
+					}
+					buf[idx<<2|kc]=curr;
+
+					//if(ky2==(bh>>1)&&kx2==(bw>>1))//
+					//	kx2=bw>>1;
+				}
+			}
+		}
+	}
+	free(overhead);
+	free(CDF0);
+	free(CDF2);
+	return datastart+csize;
 }
 #endif
