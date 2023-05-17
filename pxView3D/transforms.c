@@ -1,4 +1,5 @@
 #include"pxview3d.h"
+#include<stdio.h>
 #include<stdlib.h>
 #define _USE_MATH_DEFINES
 #include<math.h>
@@ -1544,30 +1545,9 @@ void pred_hybrid_inv(char *buf, int iw, int ih)
 }
 #endif
 
-#define PREDICT_LINEAR(A, B)		((A)<<1)-(B)
+#define PREDICT_LINEAR(A, B)		(((B)<<1)-(A))
 #define PREDICT_QUADRATIC(A, B, C)	((A)-3*(B)+3*(C))
 #if 0
-static char predict_linear(char prev2, char prev)
-{
-	int pred=(prev<<1)-prev2;
-	//if(pred<-128)
-	//	pred=-128;
-	//if(pred>127)
-	//	pred=127;
-	return pred;
-
-	//return prev2+((prev-prev2)<<1);
-}
-static int predict_quadratic(char prev3, char prev2, char prev)
-{
-	int pred=prev3-3*prev2+3*prev;
-	//if(pred<-128)
-	//	pred=-128;
-	//if(pred>127)
-	//	pred=127;
-	return pred;
-}
-#endif
 static int predict_simple(char topleft, char top, char left)
 {
 	int xdelta=top-topleft, ydelta=left-topleft, pred;
@@ -1577,9 +1557,81 @@ static int predict_simple(char topleft, char top, char left)
 		pred=topleft+xdelta+ydelta;//average slope
 	return pred;
 }
+#endif
 //int testhist[3]={0};//
 int  predict_diff2d(const char *buf, int iw, int kx, int ky, int idx, int bytestride, int rowlen)
 {
+	char top[]=
+	{
+		ky-4>=0?buf[idx-rowlen*4]:0,
+		ky-3>=0?buf[idx-rowlen*3]:0,
+		ky-2>=0?buf[idx-(rowlen<<1)]:0,
+		ky-1>=0?buf[idx-rowlen]:0,
+	};
+	char left[]=
+	{
+		kx-4>=0?buf[idx- bytestride*4  ]:0,
+		kx-3>=0?buf[idx- bytestride*3  ]:0,
+		kx-2>=0?buf[idx-(bytestride<<1)]:0,
+		kx-1>=0?buf[idx- bytestride    ]:0,
+	};
+	char topleft[]=
+	{
+		kx-4>=0&&ky-4>=0?buf[idx- rowlen*4  - bytestride*4  ]:0,
+		kx-3>=0&&ky-3>=0?buf[idx- rowlen*3  - bytestride*3  ]:0,
+		kx-2>=0&&ky-2>=0?buf[idx-(rowlen<<1)-(bytestride<<1)]:0,
+		kx-1>=0&&ky-1>=0?buf[idx- rowlen    - bytestride    ]:0,
+	};
+	char topright[]=
+	{
+		kx+4<iw&&ky-4>=0?buf[idx- rowlen*4  + bytestride*4  ]:0,
+		kx+3<iw&&ky-3>=0?buf[idx- rowlen*3  + bytestride*3  ]:0,
+		kx+2<iw&&ky-2>=0?buf[idx-(rowlen<<1)+(bytestride<<1)]:0,
+		kx+1<iw&&ky-1>=0?buf[idx- rowlen    + bytestride    ]:0,
+	};
+	int errors[]=
+	{
+		abs(left[3]-PREDICT_LINEAR(left[1], left[2])),
+		abs(top[3]-PREDICT_LINEAR(top[1], top[2])),
+		abs(topleft[3]-PREDICT_LINEAR(topleft[1], topleft[2])),
+		abs(topright[3]-PREDICT_LINEAR(topright[1], topright[2])),
+	};
+
+	int eidx=0;
+	if(errors[eidx]>errors[1])
+		eidx=1;
+	if(errors[eidx]>errors[2])
+		eidx=2;
+	if(errors[eidx]>errors[3])
+		eidx=3;
+	char *ptr[]={left, top, topleft, topright}, *ptr2=ptr[eidx];
+
+	int weights[]=
+	{
+		0x10000/(errors[0]+1),
+		0x10000/(errors[1]+1),
+		0x10000/(errors[2]+1),
+		0x10000/(errors[3]+1),
+	};
+	int sum=weights[0]+weights[1]+weights[2]+weights[3], pred;
+	int p[]=
+	{
+		PREDICT_LINEAR(left[2], left[3]),
+		PREDICT_LINEAR(top[2], top[3]),
+		PREDICT_LINEAR(topleft[2], topleft[3]),
+		PREDICT_LINEAR(topright[2], topright[3]),
+	};
+	pred=(p[0]*weights[0]+p[1]*weights[1]+p[2]*weights[2]+p[3]*weights[3]+(sum>>1))/sum;
+	//int pred=PREDICT_LINEAR(p2[1], p2[2]);
+
+	int vmin=ptr2[0], vmax=ptr2[0];
+	if(vmin>ptr2[1]) vmin=ptr2[1];
+	if(vmax<ptr2[1]) vmax=ptr2[1];
+	if(vmin>ptr2[2]) vmin=ptr2[2];
+	if(vmax<ptr2[2]) vmax=ptr2[2];
+	pred=CLAMP(vmin, pred, vmax);
+	return pred;
+#if 0
 	char cn[]=
 	{
 		kx-1>=0&&ky-1>=0?buf[idx-rowlen-bytestride]:0,
@@ -1587,20 +1639,31 @@ int  predict_diff2d(const char *buf, int iw, int kx, int ky, int idx, int bytest
 		
 		kx-1>=0?buf[idx-bytestride]:0,
 	};
-	int pred=cn[1]+cn[2]-cn[0];
-	pred=CLAMP(customparam_clamp[0], pred, customparam_clamp[1]);
+	int pred=cn[1]+cn[2]-cn[0], vmin=cn[0], vmax=cn[0];
+	if(vmin>cn[1])
+		vmin=cn[1];
+	if(vmin>cn[2])
+		vmin=cn[2];
+	if(vmax<cn[1])
+		vmax=cn[1];
+	if(vmax<cn[2])
+		vmax=cn[2];
+	pred=CLAMP(vmin, pred, vmax);//equivalent to gradient
+
+	//pred=CLAMP(customparam_clamp[0], pred, customparam_clamp[1]);
 	return pred;
+#endif
 
 #if 0
 	char cn[]=
 	{
-		kx-3>=0&&ky-3>=0?buf[idx-(rowlen<<1)- bytestride*3  ]:0,
-		kx-2>=0&&ky-3>=0?buf[idx-(rowlen<<1)-(bytestride<<1)]:0,
-		kx-1>=0&&ky-3>=0?buf[idx-(rowlen<<1)- bytestride    ]:0,
-		         ky-3>=0?buf[idx-(rowlen<<1)                ]:0,
-		kx+1<iw&&ky-3>=0?buf[idx-(rowlen<<1)+ bytestride    ]:0,
-		kx+2<iw&&ky-3>=0?buf[idx-(rowlen<<1)+(bytestride<<1)]:0,
-		kx+3<iw&&ky-3>=0?buf[idx-(rowlen<<1)+ bytestride*3  ]:0,
+		kx-3>=0&&ky-3>=0?buf[idx-rowlen*3- bytestride*3  ]:0,
+		kx-2>=0&&ky-3>=0?buf[idx-rowlen*3-(bytestride<<1)]:0,
+		kx-1>=0&&ky-3>=0?buf[idx-rowlen*3- bytestride    ]:0,
+		         ky-3>=0?buf[idx-rowlen*3                ]:0,
+		kx+1<iw&&ky-3>=0?buf[idx-rowlen*3+ bytestride    ]:0,
+		kx+2<iw&&ky-3>=0?buf[idx-rowlen*3+(bytestride<<1)]:0,
+		kx+3<iw&&ky-3>=0?buf[idx-rowlen*3+ bytestride*3  ]:0,
 		
 		kx-3>=0&&ky-2>=0?buf[idx-(rowlen<<1)- bytestride*3  ]:0,
 		kx-2>=0&&ky-2>=0?buf[idx-(rowlen<<1)-(bytestride<<1)]:0,
@@ -1635,18 +1698,19 @@ int  predict_diff2d(const char *buf, int iw, int kx, int ky, int idx, int bytest
 	if(best>test)
 		pred=(predx2+predy2)>>1;
 
-	if(pred==(predx0+predy0)>>1)
-		++testhist[0];
-	else if(pred==(predx1+predy1)>>1)
-		++testhist[1];
-	else if(pred==(predx2+predy2)>>1)
-		++testhist[2];
+	//if(pred==(predx0+predy0)>>1)
+	//	++testhist[0];
+	//else if(pred==(predx1+predy1)>>1)
+	//	++testhist[1];
+	//else if(pred==(predx2+predy2)>>1)
+	//	++testhist[2];
 
 	if(pred<-128)
 		pred=-128;
 	if(pred>127)
 		pred=127;
 
+	return pred;
 #endif
 #if 0
 	char cn[]=
@@ -1673,6 +1737,8 @@ int  predict_diff2d(const char *buf, int iw, int kx, int ky, int idx, int bytest
 		predict_simple(cn[5], cn[6], cn[10])-cn[11];
 	int pred=predict_simple(cn[7], cn[8], cn[11]);
 	pred=pred-(pred*error>>9);//10
+
+	return pred;
 #endif
 
 	//if(pred<-64)
@@ -1692,6 +1758,9 @@ void pred_diff2d_fwd(char *buf, int iw, int ih, int nch, int bytestride)
 		{
 			for(int kx=iw-1;kx>=0;--kx, idx-=bytestride)
 			{
+				if(kx==(iw>>1)&&ky==(ih>>1))//
+					kx=iw>>1;
+
 				char pred=predict_diff2d(buf, iw, kx, ky, idx, bytestride, rowlen);
 #if 0
 				char
@@ -2846,10 +2915,260 @@ void pred_adaptive(char *buf, int iw, int ih, int nch, int bytestride, int fwd)
 	}
 }
 
+
+short jxlparams_i16[33]=//signed fixed 7.8 bit
+{
+	0x0B37,  0x110B,  0x121B,  0x0BFC, -0x0001,  0x000E, -0x0188, -0x00E7, -0x00BB, -0x004A,  0x00BA,
+	0x0DB8,  0x0E22,  0x181F,  0x0BF3, -0x005C, -0x005B,  0x00DF,  0x0051,  0x00BD,  0x005C, -0x0102,
+	0x064C,  0x0F31,  0x1040,  0x0BF8, -0x0007, -0x000D, -0x0085, -0x0063, -0x00A2, -0x0017,  0x00F2,
+
+	//0x0DD3, 0x1002, 0x11F9, 0x0BEC, 0x0002,-0x0029,-0x010E,-0x00E8,-0x00A2,-0x0089, 0x0064,
+	//0x0FAF, 0x0C9E, 0x139F, 0x0E13,-0x009D,-0x005C, 0x0041, 0x0013, 0x00DD,-0x0004,-0x00C3,
+	//0x09A8, 0x0F00, 0x1191, 0x0B9E,-0x0026,-0x0027,-0x0086,-0x0084,-0x005F,-0x0038, 0x00B2,
+
+	//0x1000, 0x1000, 0x1000, 0x1000, 0, 0, 0, 0, 0, 0, 0,
+	//0x1000, 0x1000, 0x1000, 0x1000, 0, 0, 0, 0, 0, 0, 0,
+	//0x1000, 0x1000, 0x1000, 0x1000, 0, 0, 0, 0, 0, 0, 0,
+
+	//0x0C7B, 0x0B5C, 0x0A14, 0x0B33,  -0x0148,-0x0029, 0, 0, 0, 0, 0,
+	//0x0A14, 0x0829, 0x1548, 0x0CA4,   0x047B, 0x0052, 0, 0, 0, 0, 0,
+	//0x0B33, 0x0C29, 0x0DC3, 0x119A,  -0x0148,-0x00F6, 0, 0, 0, 0, 0,
+
+	//0x0C7B, 0x0B5C, 0x0A14, 0x0B33,-0x0148,-0x0029, 0x0971, 0x01EC,-0x01C3, 0x047B, 0x0AB8,
+	//0x0A14, 0x0829, 0x1548, 0x0CA4, 0x047B, 0x0052,-0x011F, 0x0000, 0x0029, 0x063D, 0x0266,
+	//0x0B33, 0x0C29, 0x0DC3, 0x119A,-0x0148,-0x00F6, 0x0614, 0x00A4,-0x007B, 0x019A, 0x0E8F,
+
+	//0x63, 0x5A, 0x50, 0x59,    -0x0A, -0x01,  0x4B, 0x0F, -0x0E, -0x24, 0x55,
+	//0x50, 0x41, 0xA9, 0x64,     0x24,  0x03, -0x09,    0,  0x01,  0x32, 0x13,
+	//0x59, 0x61, 0x6D, 0x8C,    -0x0A, -0x08,  0x30, 0x05, -0x04,  0x0D, 0x74,
+};
+//float jxlparams_ps[33]=
+//{
+//	0.78f,    0.71f,    0.63f,   0.7f ,		-0.08f,   -0.01f,    0.59f,   0.12f,    -0.11f,   0.28f,    0.67f,
+//	0.63f,    0.51f,    1.33f,   0.79f,		 0.28f,    0.02f,   -0.07f,   0.f  ,     0.01f,   0.39f,    0.15f,
+//	0.7f ,    0.76f,    0.86f,   1.1f ,		-0.08f,   -0.06f,    0.38f,   0.04f,    -0.03f,   0.1f ,    0.91f,
+//};
+void pred_jxl_prealloc(const char *src, int iw, int ih, int kc, short *params, int fwd, char *dst, int *temp_w10)
+{
+	int res=iw*ih, errorbuflen=iw*2, rowlen=iw<<2;
+	int *error=temp_w10, *pred_errors[]=
+	{
+		temp_w10+errorbuflen,
+		temp_w10+errorbuflen*2,
+		temp_w10+errorbuflen*3,
+		temp_w10+errorbuflen*4,
+	};
+	int idx=kc;
+	for(int ky=0;ky<ih;++ky)
+	{
+		int currrow=ky&1?0:iw, prevrow=ky&1?iw:0;
+		for(int kx=0;kx<iw;++kx, idx+=4)
+		{
+			int pred, curr;
+			
+			const char *src2=fwd?src:dst;
+			char
+				ctt      =         ky-2>=0?src2[idx-rowlen*2]:0,
+				ctopleft =kx-1>=0&&ky-1>=0?src2[idx-rowlen-4]:0,
+				ctop     =kx  <iw&&ky-1>=0?src2[idx-rowlen  ]:0,
+				ctopright=kx+1<iw&&ky-1>=0?src2[idx-rowlen+4]:0,
+				cleft    =kx-1>=0         ?src2[idx       -4]:0;
+
+			//if(kx==(iw>>1)&&ky==(ih>>1))
+			//	kx=iw>>1;
+
+			//w0   w1   w2   w3
+			//p3Ca p3Cb p3Cc p3Cd p3Ce
+			//p1C  p2c
+			
+			int weights[4];//fixed 23.8 bit
+			for(int k=0;k<4;++k)
+			{
+				int w=(ky-1>=0?pred_errors[k][prevrow+kx]:0)+(ky-1>=0&&kx+1<iw?pred_errors[k][prevrow+kx+1]:0)+(ky-1>=0&&kx-1>=0?pred_errors[k][prevrow+kx-1]:0);
+				weights[k]=(params[k]<<8)/(w+1);
+			}
+
+			int
+				etop=ky-1>=0?error[prevrow+kx]:0,
+				eleft=kx-1>=0?error[currrow+kx-1]:0,
+				etopleft=ky-1>=0&&kx-1>=0?error[prevrow+kx-1]:0,
+				etopright=ky-1>=0&&kx+1<iw?error[prevrow+kx+1]:0,
+				sumtopleft=etop+eleft;
+			int predictions[]=//fixed 23.8 bit
+			{
+				(cleft+ctopright-ctop)<<8,
+				(ctop<<8)-((sumtopleft+etopright)*params[4]>>8),
+				(cleft<<8)-((sumtopleft+etopleft)*params[5]>>8),
+
+				//(ctop<<8)-(((etopleft*params[6])>>8)+ctop*params[7]+ctopright*params[8]+(ctt-ctop)*params[9]+(ctopleft-cleft)*params[10]),
+				(ctop<<8)-(((etopleft*params[6]+etop*params[7]+etopright*params[8])>>8)+(ctt-ctop)*params[9]+(ctopleft-cleft)*params[10]),
+			};
+
+			int sum=weights[0]+weights[1]+weights[2]+weights[3];
+			if(sum)
+				pred=(predictions[0]*weights[0]+predictions[1]*weights[1]+predictions[2]*weights[2]+predictions[3]*weights[3]+(sum>>1)-1)/sum;
+			else
+				pred=predictions[0];
+
+			int vmin=cleft, vmax=cleft;
+			if(vmin>ctopright)
+				vmin=ctopright;
+			if(vmin>ctop)
+				vmin=ctop;
+
+			if(vmax<ctopright)
+				vmax=ctopright;
+			if(vmax<ctop)
+				vmax=ctop;
+
+			vmin<<=8;
+			vmax<<=8;
+
+			pred=CLAMP(vmin, pred, vmax);
+			if(fwd)
+			{
+				curr=src[idx]<<8;
+				dst[idx]=src[idx]-((pred+127)>>8);
+			}
+			else
+			{
+				dst[idx]=src[idx]+((pred+127)>>8);
+				curr=dst[idx]<<8;
+			}
+
+			error[currrow+kx]=curr-pred;
+			for(int k=0;k<4;++k)
+			{
+				int e=abs(curr-predictions[k]);
+				pred_errors[k][currrow+kx]=e;
+				if(kx+1<iw)
+					pred_errors[k][prevrow+kx+1]+=e;
+			}
+		}
+	}
+}
+void calc_histogram(unsigned char *buf, ptrdiff_t len, ptrdiff_t stride, int *hist)
+{
+	memset(hist, 0, 256*sizeof(int));
+	for(ptrdiff_t k=0, end=len-(stride-1);k<end;k+=stride)
+		++hist[buf[k]];
+}
+double pred_jxl_calccsize(const char *src, int iw, int ih, int kc, short *params, int *temp, char *dst, int *hist)
+{
+	int res=iw*ih;
+	pred_jxl_prealloc(src, iw, ih, kc, params, 1, dst, temp);
+	addhalf((unsigned char*)dst+kc, iw, ih, 1, 4);
+	calc_histogram(dst+kc, (ptrdiff_t)res<<2, 4, hist);
+
+	double entropy=0;
+	for(int k=0;k<256;++k)
+	{
+		int freq=hist[k];
+		if(freq)
+		{
+			double p=(double)freq/res;
+			p*=0x10000-255;
+			++p;
+			p/=0x10000;
+			entropy-=p*log2(p);
+		}
+	}
+	double invCR=entropy/8, csize=res*invCR;
+	return csize;
+}
+void pred_jxl_optimize(const char *src, int iw, int ih, int kc, short *params, int step, int pidx, char *dst, int loud)
+{
+	int *temp=(int*)malloc((size_t)iw*10*sizeof(int));
+	int *hist=(int*)malloc(256*sizeof(int));
+	if(!temp||!hist)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	
+	int res=iw*ih;
+	double csize0, csize, csize00;
+	short p0=params[pidx];
+	csize=pred_jxl_calccsize(src, iw, ih, kc, params, temp, dst, hist);
+	csize00=csize;
+
+	//static int it=0;
+	//for(int k=it, end=it+niter;k<end;++k, ++it)
+	//{
+		//int idx=it%11;
+	int subit;
+	for(subit=0;subit<20;++subit)
+	{
+		csize0=csize;
+		params[pidx]+=step;
+		csize=pred_jxl_calccsize(src, iw, ih, kc, params, temp, dst, hist);
+		if(csize>csize0)//cancel last change and break
+		{
+			params[pidx]-=step;
+			csize=csize0;
+			break;
+		}
+	}
+		
+	for(subit=0;subit<20;++subit)
+	{
+		csize0=csize;
+		params[pidx]-=step;
+		csize=pred_jxl_calccsize(src, iw, ih, kc, params, temp, dst, hist);
+		if(csize>csize0)
+		{
+			params[pidx]+=step;
+			csize=csize0;
+			break;
+		}
+	}
+	if(csize>csize00)//prevent CR from worsening
+	{
+		params[pidx]=p0;
+		csize=csize00;
+	}
+	//}
+	//it%=33;
+	//if(loud)
+	//	printf("\n");
+	
+	free(hist);
+	free(temp);
+}
+void pred_jxl_apply(char *buf, int iw, int ih, short *allparams, int fwd)
+{
+	int res=iw*ih;
+	int *temp=(int*)malloc((size_t)iw*10*sizeof(int));
+	char *buf2=(char*)malloc((size_t)res<<2);
+	if(!temp||!buf2)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	
+	pred_jxl_prealloc(buf, iw, ih, 0, allparams   , fwd, buf2, temp);
+	pred_jxl_prealloc(buf, iw, ih, 1, allparams+11, fwd, buf2, temp);
+	pred_jxl_prealloc(buf, iw, ih, 2, allparams+22, fwd, buf2, temp);
+
+	for(int k=0;k<res;++k)
+	{
+		buf[k<<2  ]=buf2[k<<2  ];
+		buf[k<<2|1]=buf2[k<<2|1];
+		buf[k<<2|2]=buf2[k<<2|2];
+	}
+
+	free(temp);
+	free(buf2);
+}
+
 void pred_jxl(char *buf, int iw, int ih, int nch, int bytestride, int fwd)
 {
-	if(!(customparam_st[0]+customparam_st[1]+customparam_st[2]+customparam_st[3]))
-		customparam_st[0]=customparam_st[1]=customparam_st[2]=customparam_st[3]=1;
+	if(!(customparam_st[0]+customparam_st[1]+customparam_st[2]+customparam_st[3]))//reset params if all weights are zero
+	{
+		customparam_st[0]=1, customparam_st[1]=0.5, customparam_st[2]=1.1, customparam_st[3]=1.1;
+		customparam_st[5]=0.5, customparam_st[6]=customparam_st[7]=0, customparam_st[8]=0.5, customparam_st[9]=0.15;
+		customparam_st[10]=0.2, customparam_st[11]=0.002;
+	}
 	int res=iw*ih;
 	char *b2=(char*)malloc((size_t)res*bytestride);
 	int errorbuflen=iw*2;
@@ -2928,24 +3247,28 @@ void pred_jxl(char *buf, int iw, int ih, int nch, int bytestride, int fwd)
 					ctop-(int)(etopleft*customparam_st[5]+ctop*customparam_st[6]+ctopright*customparam_st[7]+(ctt-ctop)*customparam_st[8]+(ctopleft-cleft)*customparam_st[9]),
 				};
 
-				double sum=weights[0]+weights[1]+weights[2]+weights[3];
-				if(sum)
-					pred=(int)round((predictions[0]*weights[0]+predictions[1]*weights[1]+predictions[2]*weights[2]+predictions[3]*weights[3])/sum);
+				double wsum=weights[0]+weights[1]+weights[2]+weights[3];
+				if(wsum)
+					pred=(int)round((predictions[0]*weights[0]+predictions[1]*weights[1]+predictions[2]*weights[2]+predictions[3]*weights[3])/wsum);
 				else
 					pred=(int)round(predictions[0]);
 
-				int vmin=cleft, vmax=cleft;
-				if(vmin>ctopright)
-					vmin=ctopright;
-				if(vmin>ctop)
-					vmin=ctop;
+				//if(((etop<0)!=(eleft<0))||((etop<0)!=(etopleft<0)))
+				//if(((etop^eleft)|(etop^etopleft))<=0)
+				{
+					int vmin=cleft, vmax=cleft;
+					if(vmin>ctopright)
+						vmin=ctopright;
+					if(vmin>ctop)
+						vmin=ctop;
 
-				if(vmax<ctopright)
-					vmax=ctopright;
-				if(vmax<ctop)
-					vmax=ctop;
+					if(vmax<ctopright)
+						vmax=ctopright;
+					if(vmax<ctop)
+						vmax=ctop;
 
-				pred=CLAMP(vmin, pred, vmax);
+					pred=CLAMP(vmin, pred, vmax);
+				}
 				//pred=CLAMP(customparam_clamp[0], pred, customparam_clamp[1]);
 				if(fwd)
 				{
@@ -2982,6 +3305,7 @@ void pred_jxl(char *buf, int iw, int ih, int nch, int bytestride, int fwd)
 	free(pred_errors[3]);
 	free(error);
 }
+
 
 int sortnb_cases[SORTNBCASES];
 double sortnb_rmse[SORTNBCASES];
@@ -3965,14 +4289,78 @@ void dwt1d_cdf53_fwd(char *buffer, int count, int stride, char *b2)
 	if(extraeven)
 		even[nodd]=buffer[stride*(count-1)];
 
-
+#if 1
+	if(fabs(customparam_st[0])<1)//linear
+	{
+		even[0]-=odd[0];
+		for(int k=1;k<nodd;++k)//linear predictor (deviation from linearity)
+			even[k]-=(odd[k-1]+odd[k]+1)>>1;
+		if(extraeven)
+			even[nodd]-=odd[nodd-1];
+	}
+	else if(fabs(customparam_st[0])<3)//cubic
+	{
+		for(int k=0;k<nodd+extraeven;++k)
+		{
+			int prev3=k-2>=0?odd[k-2]:0, prev1=k-1>=0?odd[k-1]:0, next1=k<nodd?odd[k]:0, next3=k+1<nodd?odd[k+1]:0;
+			even[k]-=(-(prev3+next3)+(prev1+next1)*9+8)>>4;
+		}
+	}
+	else if(fabs(customparam_st[0])<5)//power 5
+	{
+		for(int k=0;k<nodd+extraeven;++k)
+		{
+			int prev5=k-3>=0?odd[k-3]:0,
+				prev3=k-2>=0?odd[k-2]:0,
+				prev1=k-1>=0?odd[k-1]:0,
+				next1=k<nodd?odd[k]:0,
+				next3=k+1<nodd?odd[k+1]:0,
+				next5=k+2<nodd?odd[k+2]:0;
+			even[k]-=(3*(prev5+next5)-25*(prev3+next3)+150*(prev1+next1)+128)>>8;
+		}
+	}
+	else if(fabs(customparam_st[0])<7)//power 7
+	{
+		for(int k=0;k<nodd+extraeven;++k)
+		{
+			int prev7=k-4>=0?odd[k-4]:0,
+				prev5=k-3>=0?odd[k-3]:0,
+				prev3=k-2>=0?odd[k-2]:0,
+				prev1=k-1>=0?odd[k-1]:0,
+				next1=k<nodd?odd[k]:0,
+				next3=k+1<nodd?odd[k+1]:0,
+				next5=k+2<nodd?odd[k+2]:0,
+				next7=k+3<nodd?odd[k+3]:0;
+			even[k]-=(-5*(prev7+next7)+49*(prev5+next5)-245*(prev3+next3)+1225*(prev1+next1)+1024)>>11;
+		}
+	}
+	else if(fabs(customparam_st[0])<9)//power 9
+	{
+		for(int k=0;k<nodd+extraeven;++k)
+		{
+			int prev9=k-5>=0?odd[k-5]:0,
+				prev7=k-4>=0?odd[k-4]:0,
+				prev5=k-3>=0?odd[k-3]:0,
+				prev3=k-2>=0?odd[k-2]:0,
+				prev1=k-1>=0?odd[k-1]:0,
+				next1=k<nodd?odd[k]:0,
+				next3=k+1<nodd?odd[k+1]:0,
+				next5=k+2<nodd?odd[k+2]:0,
+				next7=k+3<nodd?odd[k+3]:0,
+				next9=k+4<nodd?odd[k+4]:0;
+			even[k]-=(35*(prev9+next9)-405*(prev7+next7)+2268*(prev5+next5)-8820*(prev3+next3)+39690*(prev1+next1)+0x8000)>>16;
+		}
+	}
+#endif
+#if 0
 	even[0]-=odd[0];
-	for(int k=1;k<nodd;++k)//linear predictor
+	for(int k=1;k<nodd;++k)//linear predictor (deviation from linearity)
 		even[k]-=(odd[k-1]+odd[k])>>1;
 	if(extraeven)
 		even[nodd]-=odd[nodd-1];
+#endif
 	
-	for(int k=0;k<nodd-!extraeven;++k)//update
+	for(int k=0;k<nodd-!extraeven;++k)//update (smoothing?)
 		odd[k]+=(even[k]+even[k+1])>>2;
 	if(!extraeven)
 		odd[nodd-1]+=even[nodd-1]>>1;

@@ -176,8 +176,8 @@ void transforms_update()
 				tid2==ST_INV_HYBRID3||
 			//	tid2==ST_FWD_ADAPTIVE||
 			//	tid2==ST_INV_ADAPTIVE||
-				tid2==ST_FWD_JXL||
-				tid2==ST_INV_JXL||
+			//	tid2==ST_FWD_JXL||
+			//	tid2==ST_INV_JXL||
 				tid2==ST_FWD_SORTNB||
 				tid2==ST_INV_SORTNB;
 		}
@@ -225,8 +225,8 @@ void transforms_append(unsigned tid)
 				tid==ST_INV_HYBRID3||
 			//	tid==ST_FWD_ADAPTIVE||
 			//	tid==ST_INV_ADAPTIVE||
-				tid==ST_FWD_JXL||
-				tid==ST_INV_JXL||
+			//	tid==ST_FWD_JXL||
+			//	tid==ST_INV_JXL||
 				tid==ST_FWD_SORTNB||
 				tid==ST_INV_SORTNB;
 		}
@@ -592,7 +592,7 @@ double calc_entropy(int *hist, int sum)
 	}
 	return entropy;
 }
-void chart_hist_update(unsigned char *im, int iw, int ih, int x1, int x2, int y1, int y2, int *hist, int *histmax)
+void chart_hist_update(unsigned char *im, int iw, int ih, int x1, int x2, int y1, int y2, int *hist, int *histmax, float *CR)
 {
 	if(x1<0)
 		x1=0;
@@ -603,6 +603,7 @@ void chart_hist_update(unsigned char *im, int iw, int ih, int x1, int x2, int y1
 	if(y2>ih)
 		y2=ih;
 	int xcount=x2-x1, ycount=y2-y1, count=xcount*ycount;
+	double entropy;
 	if(count)
 	{
 		for(int kc=0;kc<3;++kc)
@@ -626,8 +627,11 @@ void chart_hist_update(unsigned char *im, int iw, int ih, int x1, int x2, int y1
 				if(histmax[kc]<hist[kc<<8|k])
 					histmax[kc]=hist[kc<<8|k];
 			}
-			double entropy=calc_entropy(hist+(kc<<8), count);
-			blockCR[kc]=(float)(8/entropy);
+			if(CR)
+			{
+				entropy=calc_entropy(hist+(kc<<8), count);
+				CR[kc]=(float)(8/entropy);
+			}
 		}
 	}
 }
@@ -776,8 +780,10 @@ void update_image()
 			case ST_INV_GRAD2:		pred_grad2_inv((char*)image, iw, ih, 3, 4);			break;
 			case ST_FWD_ADAPTIVE:	pred_adaptive((char*)image, iw, ih, 3, 4, 1);		break;
 			case ST_INV_ADAPTIVE:	pred_adaptive((char*)image, iw, ih, 3, 4, 0);		break;
-			case ST_FWD_JXL:		pred_jxl((char*)image, iw, ih, 3, 4, 1);			break;
-			case ST_INV_JXL:		pred_jxl((char*)image, iw, ih, 3, 4, 0);			break;
+			case ST_FWD_JXL:		pred_jxl_apply((char*)image, iw, ih, jxlparams_i16, 1);break;
+			case ST_INV_JXL:		pred_jxl_apply((char*)image, iw, ih, jxlparams_i16, 0);break;
+		//	case ST_FWD_JXL:		pred_jxl((char*)image, iw, ih, 3, 4, 1);			break;
+		//	case ST_INV_JXL:		pred_jxl((char*)image, iw, ih, 3, 4, 0);			break;
 			case ST_FWD_SORTNB:		pred_sortnb((char*)image, iw, ih, 3, 4, 1);			break;
 			case ST_INV_SORTNB:		pred_sortnb((char*)image, iw, ih, 3, 4, 0);			break;
 		//	case ST_FWD_MEDIAN:		pred_median_fwd((char*)image, iw, ih, 3, 4);		break;
@@ -881,7 +887,7 @@ void update_image()
 	case VIS_HISTOGRAM:
 		memset(histmax, 0, sizeof(histmax));
 		memset(hist, 0, sizeof(hist));
-		chart_hist_update(image, iw, ih, 0, iw, 0, ih, hist, histmax);
+		chart_hist_update(image, iw, ih, 0, iw, 0, ih, hist, histmax, 0);
 		break;
 	case VIS_JOINT_HISTOGRAM:
 		chart_jointhist_update(image, iw, ih, &cpu_vertices, &gpu_vertices, image_txid+2);
@@ -1402,7 +1408,7 @@ typedef struct AABBStruct
 {
 	float x1, x2, y1, y2;
 } AABB;
-AABB buttons[5]={0};//0: CT,  1: ST,  2: list of transforms,  3: clamp bounds,  4: learning rate
+AABB buttons[6]={0};//0: CT,  1: ST,  2: list of transforms,  3: clamp bounds,  4: learning rate
 
 int io_init(int argc, char **argv)//return false to abort
 {
@@ -1425,6 +1431,7 @@ void io_resize()
 	p->x1=(float)(w-200), p->x2=(float)w, p->y1=tdy*2, p->y2=p->y1+tdy*T_COUNT, ++p;//2: transforms list
 	p->x1=(float)(w>>1), p->x2=p->x1+xstep*14, p->y1=(float)((h>>1)+(h>>2))+ystep*4, p->y2=p->y1+ystep, ++p;//3: clamp bounds
 	p->x1=(float)(w>>1), p->x2=p->x1+xstep*21, p->y1=(float)((h>>1)+(h>>2))+ystep*5, p->y2=p->y1+ystep, ++p;//4: learning rate
+	p->x1=(float)(w>>2), p->x2=p->x1+tdx*11*6, p->y1=(float)((h>>1)+(h>>2)), p->y2=p->y1+tdy*3;//5: jxl params
 }
 int io_mousemove()//return true to redraw
 {
@@ -1488,6 +1495,11 @@ void click_hittest(int mx, int my, int *objidx, int *cellx, int *celly, int *cel
 		*celly=0;
 		*cellidx=*cellx;
 		break;
+	case 5://jxl params
+		*cellx=(int)floorf((mx-p[0]->x1)*11/(p[0]->x2-p[0]->x1));
+		*celly=(int)floorf((my-p[0]->y1)* 3/(p[0]->y2-p[0]->y1));
+		*cellidx=11**celly+*cellx;
+		break;
 	default:
 		*objidx=-1;
 		*p=0;
@@ -1499,7 +1511,7 @@ void click_hittest(int mx, int my, int *objidx, int *cellx, int *celly, int *cel
 }
 int io_mousewheel(int forward)
 {
-	if(image&&transforms_customenabled)//change custom transform params
+	if(image&&(transforms_customenabled||transforms_mask[ST_FWD_JXL]||transforms_mask[ST_INV_JXL]))//change custom transform params
 	{
 		int objidx=0, cellx=0, celly=0, cellidx=0;
 		AABB *p=buttons;
@@ -1575,8 +1587,8 @@ int io_mousewheel(int forward)
 					}
 				}
 				break;
-			case 4:
-				//learning rate
+			case 4://learning rate
+
 				//0123456789012345678901
 				//lr -0.NNNNNNNNNNNNNNN
 				//     -123456789123456
@@ -1586,6 +1598,17 @@ int io_mousewheel(int forward)
 					double delta=pow(10, ch);
 					g_lr+=sign*delta;
 				}
+				break;
+			case 5://jxl params
+				ch=(int)floorf((mx-p->x1)/tdx);
+				MODVAR(ch2, ch, 6);
+				if(ch2>=2&&ch2<6)
+				{
+					int delta=sign<<((5-ch2)<<2);
+					jxlparams_i16[cellidx]+=delta;
+				}
+				else if(cellx>=4)
+					jxlparams_i16[cellidx]=-jxlparams_i16[cellidx];
 				break;
 			}
 			update_image();
@@ -1860,6 +1883,17 @@ int io_keydn(IOKey key, char c)
 					return 1;
 				}
 				break;
+			case 5://jxl params
+				if(key==KEY_RBUTTON)
+				{
+					if(cellx>=4)
+						jxlparams_i16[cellidx]=0;
+					else
+						jxlparams_i16[cellidx]=4096;
+					update_image();
+					return 1;
+				}
+				break;
 			default:
 				if(key==KEY_LBUTTON)
 					goto toggle_drag;
@@ -1979,16 +2013,27 @@ toggle_drag:
 			int printed=0;
 			ArrayHandle str;
 			STR_ALLOC(str, 65536);
-			if(transforms_mask[ST_FWD_HYBRID3]||transforms_mask[ST_INV_HYBRID3])
+			if(transforms_mask[ST_FWD_JXL]||transforms_mask[ST_INV_JXL])
+			{
+				for(int ky=0;ky<3;++ky)
+				{
+					for(int kx=0;kx<11;++kx)
+					{
+						short val=jxlparams_i16[11*ky+kx];
+						printed+=snprintf((char*)str->data+printed, str->count-printed, "%c0x%04X,%c", val<0?'-':' ', abs(val), kx+1<11?' ':'\n');
+					}
+				}
+			}
+			else if(transforms_mask[ST_FWD_HYBRID3]||transforms_mask[ST_INV_HYBRID3])
 			{
 				for(int ko=0;ko<3;++ko)
 				{
 					for(int ky=0;ky<3;++ky)
 					{
 						for(int kx=0;kx<24;++kx)
-							printed+=snprintf((char*)str->data+printed, G_BUF_SIZE-printed, "%g%c", customparam_hybrid[24*(3*ko+ky)+kx], kx+1<24?'\t':'\n');
+							printed+=snprintf((char*)str->data+printed, str->count-printed, "%g%c", customparam_hybrid[24*(3*ko+ky)+kx], kx+1<24?'\t':'\n');
 					}
-					printed+=snprintf((char*)str->data+printed, G_BUF_SIZE-printed, "\n");
+					printed+=snprintf((char*)str->data+printed, str->count-printed, "\n");
 				}
 			}
 			else if(transforms_customenabled)
@@ -1996,17 +2041,17 @@ toggle_drag:
 				for(int ky=0;ky<customparam_ct_h;++ky)
 				{
 					for(int kx=0;kx<customparam_ct_w;++kx)
-						printed+=snprintf((char*)str->data+printed, G_BUF_SIZE-printed, "\t%g", customparam_ct[customparam_ct_w*ky+kx]);
-					printed+=snprintf((char*)str->data+printed, G_BUF_SIZE-printed, "\n");
+						printed+=snprintf((char*)str->data+printed, str->count-printed, "\t%g", customparam_ct[customparam_ct_w*ky+kx]);
+					printed+=snprintf((char*)str->data+printed, str->count-printed, "\n");
 				}
 				int stw=customparam_st_reach<<1|1;
 				for(int k=0;k<COUNTOF(customparam_st);++k)
 				{
 					int x=k%stw, y=k/stw;
-					printed+=snprintf((char*)str->data+printed, G_BUF_SIZE-printed, "%g%c", customparam_st[k], x<stw-1&&k<COUNTOF(customparam_st)-1?'\t':'\n');
+					printed+=snprintf((char*)str->data+printed, str->count-printed, "%g%c", customparam_st[k], x<stw-1&&k<COUNTOF(customparam_st)-1?'\t':'\n');
 				}
 				for(int k=0;k<COUNTOF(customparam_clamp);++k)
-					printed+=snprintf((char*)str->data+printed, G_BUF_SIZE-printed, "%d%c", customparam_clamp[k], k<COUNTOF(customparam_clamp)-1?'\t':'\n');
+					printed+=snprintf((char*)str->data+printed, str->count-printed, "%d%c", customparam_clamp[k], k<COUNTOF(customparam_clamp)-1?'\t':'\n');
 			}
 			copy_to_clipboard((char*)str->data, printed);
 			array_free(&str);
@@ -2019,7 +2064,30 @@ toggle_drag:
 			if(text)
 			{
 				int k, kend, idx;
-				if(transforms_mask[ST_FWD_HYBRID3]||transforms_mask[ST_INV_HYBRID3])
+				if(transforms_mask[ST_FWD_JXL]||transforms_mask[ST_INV_JXL])
+				{
+					k=0, kend=COUNTOF(jxlparams_i16), idx=0;
+					for(;k<kend;++k)
+					{
+						for(;idx<text->count&&isspace(text->data[idx]);++idx);
+
+						int neg=text->data[idx]=='-';
+						idx+=neg;//skip sign
+						if(text->data[idx]=='0'&&(text->data[idx]&0xDF)=='X')//skip hex prefix
+							idx+=2;
+						char *end=text->data+idx;
+						jxlparams_i16[k]=(short)strtol(text->data+idx, &end, 16);
+						idx=(int)(end-text->data);
+						if(neg)
+							jxlparams_i16[k]=-jxlparams_i16[k];
+
+						for(;idx<text->count&&!isspace(text->data[idx]);++idx);//skip comma
+
+						if(idx>=text->count)
+							goto paste_finish;
+					}
+				}
+				else if(transforms_mask[ST_FWD_HYBRID3]||transforms_mask[ST_INV_HYBRID3])
 				{
 					k=0, kend=COUNTOF(customparam_hybrid), idx=0;
 					for(;k<kend;++k)
@@ -2094,9 +2162,66 @@ toggle_drag:
 		}
 		break;
 	case KEY_SPACE:
-		if(image&&transforms_customenabled)
+	case 'B':
+	case 'N':
+		if(image)
 		{
-			timer_start(50);
+			if(transforms_customenabled)
+				timer_start(50);
+			else if(transforms_mask[ST_FWD_JXL]||transforms_mask[ST_INV_JXL])
+			{
+				if(GET_KEY_STATE(KEY_CTRL))
+				{
+					for(int k=0;k<33;++k)
+						jxlparams_i16[k]=(k%11<4)<<12;
+				}
+				else
+				{
+					static int press=0;
+					int res=iw*ih;
+					char *buf2=(char*)malloc((size_t)res<<2);
+					char *buf3=(char*)malloc((size_t)res<<2);
+					if(!buf2||!buf3)
+					{
+						LOG_ERROR("Allocation error");
+						return 0;
+					}
+					memcpy(buf2, im0, (size_t)res<<2);
+					addhalf((unsigned char*)buf2, iw, ih, 3, 4);
+					colortransform_ycocgt_fwd(buf2, iw, ih);
+
+					int step=256;
+						 if(keyboard['1'])step=128;
+					else if(keyboard['2'])step= 64;
+					else if(keyboard['3'])step= 32;
+					else if(keyboard['4'])step= 16;
+					else if(keyboard['5'])step=  8;
+					else if(keyboard['6'])step=  4;
+					else if(keyboard['7'])step=  2;
+					else if(keyboard['8'])step=  1;
+
+					//int step=key=='N'?1:(key=='B'?8:64);
+
+					//int step=0x40/(press+1);
+					//step+=!step;
+
+					//int idx=press%33;
+					for(int idx=0;idx<33;++idx)
+					{
+						int kc=idx/11;
+						pred_jxl_optimize(buf2, iw, ih, kc, jxlparams_i16+11*kc, step, idx%11, buf3, 0);
+					}
+
+					//pred_jxl_optimize(buf2, iw, ih, 0, jxlparams_i16   , step, 1, buf3, 1);
+					//pred_jxl_optimize(buf2, iw, ih, 1, jxlparams_i16+11, step, 1, buf3, 1);
+					//pred_jxl_optimize(buf2, iw, ih, 2, jxlparams_i16+22, step, 1, buf3, 1);
+
+					free(buf2);
+					free(buf3);
+					++press;
+				}
+				update_image();
+			}
 			//double l0=av_rmse, t0=time_ms(), tnow;
 			//int it=0;
 			//do
@@ -2272,9 +2397,9 @@ void io_render()
 					memset(histmax2, 0, sizeof(histmax2));
 					memset(hist, 0, sizeof(hist));
 					memset(hist2, 0, sizeof(hist2));
-					chart_hist_update(image, iw, ih, (int)x1, (int)x2, (int)y1, (int)y2, hist, histmax);
-					chart_hist_update(image, iw, ih, (int)x1-margin, (int)x1, (int)y1, (int)y2, hist2, histmax2);
-					chart_hist_update(image, iw, ih, (int)x1-margin, (int)x2+margin, (int)y1-margin, (int)y1, hist2, histmax2);
+					chart_hist_update(image, iw, ih, (int)x1, (int)x2, (int)y1, (int)y2, hist, histmax, blockCR);
+					chart_hist_update(image, iw, ih, (int)x1-margin, (int)x1, (int)y1, (int)y2, hist2, histmax2, 0);
+					chart_hist_update(image, iw, ih, (int)x1-margin, (int)x2+margin, (int)y1-margin, (int)y1, hist2, histmax2, 0);
 					chart_hist_draw(0, (float)w, 0, (float)h, 0, 3, 0x80808080, 0, hist2, histmax2);
 					chart_hist_draw(0, (float)w, 0, (float)h, 0, 3, 0, 0x30, hist, histmax);
 
@@ -2287,7 +2412,7 @@ void io_render()
 					draw_line(x1-margin, y1-margin, x2+margin, y1-margin, boxcolor);
 					draw_line(x2+margin, y1-margin, x2+margin, y1, boxcolor);
 					draw_line(x2+margin, y1, x2, y1, boxcolor);
-					GUIPrint(0, 0, tdy*2, 1, "RGB[%8f %8f %8f] %8f block %d margin %d", blockCR[0], blockCR[1], blockCR[2], 3/(1/blockCR[0]+1/blockCR[1]+1/blockCR[2]), blocksize, margin);
+					GUIPrint(0, 0, tdy*2, 1, "TRGB %8f [%8f %8f %8f] block %d margin %d", 3/(1/blockCR[0]+1/blockCR[1]+1/blockCR[2]), blockCR[0], blockCR[1], blockCR[2], blocksize, margin);
 				}
 			}
 			//{
@@ -2445,6 +2570,42 @@ void io_render()
 		x=buttons[4].x1;
 		y=buttons[4].y1;
 		GUIPrint(0, x, y, guizoom, "lr %18.15lf", g_lr);
+	}
+	else if(transforms_mask[ST_FWD_JXL]||transforms_mask[ST_INV_JXL])
+	{
+		int printed;
+		float x, y;
+
+		x=buttons[5].x1;
+		y=buttons[5].y1;
+
+		printed=0;
+		for(int k=0;k<11;++k)
+		{
+			int val=jxlparams_i16[k+0];
+			printed+=snprintf(g_buf+printed, G_BUF_SIZE-printed, " %c%4X", val<0?'-':' ', abs(val));
+		}
+		print_line(0, x, y, 1, g_buf, printed, -1, 0, 0);
+
+		y+=tdy;
+		
+		printed=0;
+		for(int k=0;k<11;++k)
+		{
+			int val=jxlparams_i16[k+11];
+			printed+=snprintf(g_buf+printed, G_BUF_SIZE-printed, " %c%4X", val<0?'-':' ', abs(val));
+		}
+		print_line(0, x, y, 1, g_buf, printed, -1, 0, 0);
+
+		y+=tdy;
+		
+		printed=0;
+		for(int k=0;k<11;++k)
+		{
+			int val=jxlparams_i16[k+22];
+			printed+=snprintf(g_buf+printed, G_BUF_SIZE-printed, " %c%4X", val<0?'-':' ', abs(val));
+		}
+		print_line(0, x, y, 1, g_buf, printed, -1, 0, 0);
 	}
 	const char *mode_str=0;
 	switch(mode)

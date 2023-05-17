@@ -222,6 +222,12 @@ void impl_matinv_pd(double *m, short dx)//resize m to (dy * 2dx) temporarily,		d
 }
 #endif
 #endif
+//float jxlparams_ps[33]=
+//{
+//		0.78f,    0.71f,    0.63f,   0.7f ,		-0.08f,   -0.01f,    0.59f,   0.12f,    -0.11f,   0.28f,    0.67f,
+//		0.63f,    0.51f,    1.33f,   0.79f,		 0.28f,    0.02f,   -0.07f,   0.f  ,     0.01f,   0.39f,    0.15f,
+//		0.7f ,    0.76f,    0.86f,   1.1f ,		-0.08f,   -0.06f,    0.38f,   0.04f,    -0.03f,   0.1f ,    0.91f,
+//};
 void apply_transforms_fwd(unsigned char *buf, int bw, int bh)
 {
 	ArrayHandle sizes=dwt2d_gensizes(bw, bh, 7, 7, 0);
@@ -234,7 +240,12 @@ void apply_transforms_fwd(unsigned char *buf, int bw, int bh)
 	//colortransform_xgz_fwd((char*)buf, bw, bh);
 	//colortransform_xyz_fwd((char*)buf, bw, bh);
 	
-	pred_jxl((char*)buf, bw, bh, 3, 4, 1);
+	pred_jxl_apply((char*)buf, bw, bh, jxlparams_i16, 1);
+
+	//pred_jxl((char*)buf, bw, bh, 0, 4, jxlpred_params   , 1);
+	//pred_jxl((char*)buf, bw, bh, 1, 4, jxlpred_params+11, 1);
+	//pred_jxl((char*)buf, bw, bh, 2, 4, jxlpred_params+22, 1);
+
 	//pred_grad_fwd((char*)buf, bw, bh, 3, 4);
 	//image_differentiate((char*)buf, bw, bh, 3, 4);
 	//for(int kc=0;kc<3;++kc)
@@ -259,7 +270,12 @@ void apply_transforms_inv(unsigned char *buf, int bw, int bh)
 	
 	addbuf(buf, bw, bh, 3, 4, 128);
 	
-	pred_jxl((char*)buf, bw, bh, 3, 4, 0);
+	pred_jxl_apply((char*)buf, bw, bh, jxlparams_i16, 0);
+
+	//pred_jxl((char*)buf, bw, bh, 0, 4, jxlpred_params   , 0);
+	//pred_jxl((char*)buf, bw, bh, 1, 4, jxlpred_params+11, 0);
+	//pred_jxl((char*)buf, bw, bh, 2, 4, jxlpred_params+22, 0);
+
 	//pred_grad_inv((char*)buf, bw, bh, 3, 4);
 	//image_integrate((char*)buf, bw, bh, 3, 4);
 	//for(int kc=0;kc<3;++kc)
@@ -388,11 +404,276 @@ void pred_grad_inv(char *buf, int iw, int ih, int nch, int bytestride)
 
 double jxlpred_params[33]=
 {
-	1, 1, 1, 1,
-	1, 1, 1, 1,
-	1, 1, 1, 1,
+	 0.78,    0.71,    0.63,   0.7 ,
+	-0.08,   -0.01,    0.59,   0.12,    -0.11,   0.28,    0.67,
+
+	 0.63,    0.51,    1.33,   0.79,
+	 0.28,    0.02,   -0.07,   0   ,     0.01,   0.39,    0.15,
+
+	 0.7 ,    0.76,    0.86,   1.1 ,
+	-0.08,   -0.06,    0.38,   0.04,    -0.03,   0.1 ,    0.91,
+
+	// 0.93,    0.82,   0.71,   0.81,
+	// 0.72,    0.51,   1.23,   0.89,
+	// 0.84,    0.8 ,   0.89,   1.19,
+	//-0.08,   -0.01,   0.58,   0.07,    -0.07,    0.32,    0.63,
+	// 0.35,    0.01,  -0.03,   0.02,     0   ,    0.54,    0.17,
+	//-0.09,   -0.06,   0.25,   0   ,     0.01,    0.27,    0.82,
+
+	//0.860000, 0.860000, 0.830000, 0.830000,
+	//0.790000, 0.600000, 0.970000, 0.970000,
+	//1.200000, 0.800000, 0.920000, 1.170000,
+	//-0.030000, -0.010000, 0.360000, 0.000000, -0.010000, 0.450000, 0.540000,
+	//0.320000, -0.020000, 0.070000, -0.010000, 0.000000, 0.870000, 0.220000,
+	//-0.010000, -0.030000, 0.150000, -0.010000, -0.000000, 0.600000, 0.560000,
+
+	//1, 1, 1, 1,
+	//1, 1, 1, 1,
+	//1, 1, 1, 1,
 };
-void pred_jxl(char *buf, int iw, int ih, int nch, int bytestride, int fwd)
+short jxlparams_i16[33]=//signed fixed 7.8 bit
+{
+	0x0B37,  0x110B,  0x121B,  0x0BFC, -0x0001,  0x000E, -0x0188, -0x00E7, -0x00BB, -0x004A,  0x00BA,
+	0x0DB8,  0x0E22,  0x181F,  0x0BF3, -0x005C, -0x005B,  0x00DF,  0x0051,  0x00BD,  0x005C, -0x0102,
+	0x064C,  0x0F31,  0x1040,  0x0BF8, -0x0007, -0x000D, -0x0085, -0x0063, -0x00A2, -0x0017,  0x00F2,
+
+	//0x0BD6, 0x10E7, 0x11F9, 0x0BEC,    0x0003,  0x0016, -0x01AC, -0x0127, -0x00C3, -0x0048,  0x00C3,
+	//0x0DB8, 0x0E22, 0x181F, 0x0BF3,   -0x005C, -0x005B,  0x00DF,  0x0051,  0x00BD,  0x005C, -0x0102,
+	//0x0684, 0x0F1F, 0x100D, 0x0C40,   -0x0007, -0x000D, -0x0087, -0x0063, -0x009F, -0x0018,  0x00F2,
+
+	//0x0EEE, 0x103B, 0x0FAC, 0x0FF6, -0x0005,  0x0006, -0x0125, -0x007A, -0x004C,  0x0013,  0x0032,
+	//0x0F92, 0x0FF3, 0x0FDF, 0x1006, -0x007A, -0x00C2, -0x000B, -0x006E,  0x007F, -0x004E, -0x00A0,
+	//0x0E7E, 0x0FD7, 0x1024, 0x0FF4, -0x0011, -0x0048, -0x0054, -0x0053, -0x0038,  0x0018,  0x007D,
+
+	//0x1000, 0x1000, 0x1000, 0x1000, 0, 0, 0, 0, 0, 0, 0,
+	//0x1000, 0x1000, 0x1000, 0x1000, 0, 0, 0, 0, 0, 0, 0,
+	//0x1000, 0x1000, 0x1000, 0x1000, 0, 0, 0, 0, 0, 0, 0,
+
+	//0x0C7B, 0x0B5C, 0x0A14, 0x0B33,  -0x0148,-0x0029, 0, 0, 0, 0, 0,
+	//0x0A14, 0x0829, 0x1548, 0x0CA4,   0x047B, 0x0052, 0, 0, 0, 0, 0,
+	//0x0B33, 0x0C29, 0x0DC3, 0x119A,  -0x0148,-0x00F6, 0, 0, 0, 0, 0,
+
+	//0x0C7B, 0x0B5C, 0x0A14, 0x0B33,-0x0148,-0x0029, 0x0971, 0x01EC,-0x01C3, 0x047B, 0x0AB8,
+	//0x0A14, 0x0829, 0x1548, 0x0CA4, 0x047B, 0x0052,-0x011F, 0x0000, 0x0029, 0x063D, 0x0266,
+	//0x0B33, 0x0C29, 0x0DC3, 0x119A,-0x0148,-0x00F6, 0x0614, 0x00A4,-0x007B, 0x019A, 0x0E8F,
+
+	//0x63, 0x5A, 0x50, 0x59,    -0x0A, -0x01,  0x4B, 0x0F, -0x0E, -0x24, 0x55,
+	//0x50, 0x41, 0xA9, 0x64,     0x24,  0x03, -0x09,    0,  0x01,  0x32, 0x13,
+	//0x59, 0x61, 0x6D, 0x8C,    -0x0A, -0x08,  0x30, 0x05, -0x04,  0x0D, 0x74,
+};
+//float jxlparams_ps[33]=
+//{
+//	0.78f,    0.71f,    0.63f,   0.7f ,		-0.08f,   -0.01f,    0.59f,   0.12f,    -0.11f,   0.28f,    0.67f,
+//	0.63f,    0.51f,    1.33f,   0.79f,		 0.28f,    0.02f,   -0.07f,   0.f  ,     0.01f,   0.39f,    0.15f,
+//	0.7f ,    0.76f,    0.86f,   1.1f ,		-0.08f,   -0.06f,    0.38f,   0.04f,    -0.03f,   0.1f ,    0.91f,
+//};
+void pred_jxl_prealloc(const char *src, int iw, int ih, int kc, const short *params, int fwd, char *dst, int *temp_w10)
+{
+	int res=iw*ih, errorbuflen=iw*2, rowlen=iw<<2;
+	int *error=temp_w10, *pred_errors[]=
+	{
+		temp_w10+errorbuflen,
+		temp_w10+errorbuflen*2,
+		temp_w10+errorbuflen*3,
+		temp_w10+errorbuflen*4,
+	};
+	int idx=kc;
+	for(int ky=0;ky<ih;++ky)
+	{
+		int currrow=ky&1?0:iw, prevrow=ky&1?iw:0;
+		for(int kx=0;kx<iw;++kx, idx+=4)
+		{
+			int pred, curr;
+			
+			const char *src2=fwd?src:dst;
+			char
+				ctt      =         ky-2>=0?src2[idx-rowlen*2]:0,
+				ctopleft =kx-1>=0&&ky-1>=0?src2[idx-rowlen-4]:0,
+				ctop     =kx  <iw&&ky-1>=0?src2[idx-rowlen  ]:0,
+				ctopright=kx+1<iw&&ky-1>=0?src2[idx-rowlen+4]:0,
+				cleft    =kx-1>=0         ?src2[idx       -4]:0;
+
+			//if(kx==(iw>>1)&&ky==(ih>>1))
+			//	kx=iw>>1;
+
+			//w0   w1   w2   w3
+			//p3Ca p3Cb p3Cc p3Cd p3Ce
+			//p1C  p2c
+			
+			int weights[4];//fixed 23.8 bit
+			for(int k=0;k<4;++k)
+			{
+				int w=(ky-1>=0?pred_errors[k][prevrow+kx]:0)+(ky-1>=0&&kx+1<iw?pred_errors[k][prevrow+kx+1]:0)+(ky-1>=0&&kx-1>=0?pred_errors[k][prevrow+kx-1]:0);
+				weights[k]=(params[k]<<8)/(w+1);
+			}
+
+			int
+				etop=ky-1>=0?error[prevrow+kx]:0,
+				eleft=kx-1>=0?error[currrow+kx-1]:0,
+				etopleft=ky-1>=0&&kx-1>=0?error[prevrow+kx-1]:0,
+				etopright=ky-1>=0&&kx+1<iw?error[prevrow+kx+1]:0,
+				sumtopleft=etop+eleft;
+			int predictions[]=//fixed 23.8 bit
+			{
+				(cleft+ctopright-ctop)<<8,
+				(ctop<<8)-((sumtopleft+etopright)*params[4]>>8),
+				(cleft<<8)-((sumtopleft+etopleft)*params[5]>>8),
+
+				//(ctop<<8)-(((etopleft*params[6])>>8)+ctop*params[7]+ctopright*params[8]+(ctt-ctop)*params[9]+(ctopleft-cleft)*params[10]),
+				(ctop<<8)-(((etopleft*params[6]+etop*params[7]+etopright*params[8])>>8)+(ctt-ctop)*params[9]+(ctopleft-cleft)*params[10]),
+			};
+
+			int sum=weights[0]+weights[1]+weights[2]+weights[3];
+			if(sum)
+				pred=(predictions[0]*weights[0]+predictions[1]*weights[1]+predictions[2]*weights[2]+predictions[3]*weights[3]+(sum>>1)-1)/sum;
+			else
+				pred=predictions[0];
+
+			int vmin=cleft, vmax=cleft;
+			if(vmin>ctopright)
+				vmin=ctopright;
+			if(vmin>ctop)
+				vmin=ctop;
+
+			if(vmax<ctopright)
+				vmax=ctopright;
+			if(vmax<ctop)
+				vmax=ctop;
+
+			vmin<<=8;
+			vmax<<=8;
+
+			pred=CLAMP(vmin, pred, vmax);
+			if(fwd)
+			{
+				curr=src[idx]<<8;
+				dst[idx]=src[idx]-((pred+127)>>8);
+			}
+			else
+			{
+				dst[idx]=src[idx]+((pred+127)>>8);
+				curr=dst[idx]<<8;
+			}
+
+			error[currrow+kx]=curr-pred;
+			for(int k=0;k<4;++k)
+			{
+				int e=abs(curr-predictions[k]);
+				pred_errors[k][currrow+kx]=e;
+				if(kx+1<iw)
+					pred_errors[k][prevrow+kx+1]+=e;
+			}
+		}
+	}
+}
+double pred_jxl_calccsize(const char *src, int iw, int ih, int kc, const short *params, int *temp, char *dst, int *hist, int it, int loud)
+{
+	int res=iw*ih;
+	pred_jxl_prealloc(src, iw, ih, kc, params, 1, dst, temp);
+	//addbuf(dst+kc, iw, ih, 1, 4, 128);//just slows down the optimization
+	calc_histogram(dst+kc, (ptrdiff_t)res<<2, 4, hist);
+
+	double entropy=0;
+	int freq;
+	double p;
+	for(int k=0;k<256;++k)
+	{
+		freq=hist[k];
+		if(freq)
+		{
+			p=(double)freq/res;
+			p*=0x10000-255;
+			++p;
+			p/=0x10000;
+			entropy-=p*log2(p);
+		}
+	}
+	double invCR=entropy/8, csize=res*invCR;
+	//if(loud)
+	//	printf("%4d %14lf\r", it, csize);
+	return csize;
+}
+double pred_jxl_optimize(const char *src, int iw, int ih, int kc, short *params, int step, int pidx, char *dst, int loud)
+{
+	int *temp=(int*)malloc((size_t)iw*10*sizeof(int));
+	int *hist=(int*)malloc(256*sizeof(int));
+	if(!temp||!hist)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	
+	int res=iw*ih;
+	double csize0, csize, csize00;
+	short p0=params[pidx];
+	csize=pred_jxl_calccsize(src, iw, ih, kc, params, temp, dst, hist, pidx, loud);
+	csize00=csize;
+
+	int subit;
+	for(subit=0;subit<20;++subit)
+	{
+		csize0=csize;
+		params[pidx]+=step;
+		csize=pred_jxl_calccsize(src, iw, ih, kc, params, temp, dst, hist, pidx, loud);
+		if(csize>=csize0)//cancel last change and break
+		{
+			params[pidx]-=step;
+			csize=csize0;
+			break;
+		}
+	}
+		
+	for(subit=0;subit<20;++subit)
+	{
+		csize0=csize;
+		params[pidx]-=step;
+		csize=pred_jxl_calccsize(src, iw, ih, kc, params, temp, dst, hist, pidx, loud);
+		if(csize>=csize0)
+		{
+			params[pidx]+=step;
+			csize=csize0;
+			break;
+		}
+	}
+	free(hist);
+	free(temp);
+
+	if(csize>=csize00)//prevent CR from worsening
+	{
+		params[pidx]=p0;
+		csize=csize00;
+	}
+	//if(loud)
+	//	printf("%4d %14lf\r", pidx, csize);
+	return csize;
+}
+void pred_jxl_apply(char *buf, int iw, int ih, short *allparams, int fwd)
+{
+	int res=iw*ih;
+	int *temp=(int*)malloc((size_t)iw*10*sizeof(int));
+	char *buf2=(char*)malloc((size_t)res<<2);
+	if(!temp||!buf2)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	
+	pred_jxl_prealloc(buf, iw, ih, 0, allparams   , fwd, buf2, temp);
+	pred_jxl_prealloc(buf, iw, ih, 1, allparams+11, fwd, buf2, temp);
+	pred_jxl_prealloc(buf, iw, ih, 2, allparams+22, fwd, buf2, temp);
+
+	for(int k=0;k<res;++k)
+	{
+		buf[k<<2  ]=buf2[k<<2  ];
+		buf[k<<2|1]=buf2[k<<2|1];
+		buf[k<<2|2]=buf2[k<<2|2];
+	}
+
+	free(temp);
+	free(buf2);
+}
+#if 0
+void pred_jxl(char *buf, int iw, int ih, int kc, int bytestride, double *params, int fwd)
 {
 	int res=iw*ih;
 	char *b2=(char*)malloc((size_t)res*bytestride);
@@ -404,7 +685,7 @@ void pred_jxl(char *buf, int iw, int ih, int nch, int bytestride, int fwd)
 		(char*)malloc((size_t)errorbuflen),
 		(char*)malloc((size_t)errorbuflen),
 	};
-	char *error=(char*)malloc((size_t)iw*2);
+	char *error=(char*)malloc((size_t)errorbuflen);
 	if(!b2||!pred_errors[0]||!pred_errors[1]||!pred_errors[2]||!pred_errors[3]||!error)
 	{
 		LOG_ERROR("Allocation error");
@@ -417,107 +698,98 @@ void pred_jxl(char *buf, int iw, int ih, int nch, int bytestride, int fwd)
 	memset(error, 0, errorbuflen);
 	memset(b2, 0, (size_t)res*bytestride);
 	int rowlen=iw*bytestride;
-	for(int kc=0;kc<nch;++kc)
+
+	int idx=kc;
+	for(int ky=0;ky<ih;++ky)
 	{
-		int idx=kc;
-		for(int ky=0;ky<ih;++ky)
+		int currrow=ky&1?0:iw, prevrow=ky&1?iw:0;
+		for(int kx=0;kx<iw;++kx, idx+=bytestride)
 		{
-			int currrow=ky&1?0:iw, prevrow=ky&1?iw:0;
-			for(int kx=0;kx<iw;++kx, idx+=bytestride)
-			{
-				int pred, curr;
+			int pred, curr;
+			
+			char *src=fwd?buf:b2;
+			char
+				ctt      =         ky-2>=0?src[idx-rowlen*2]:0,
+
+				ctopleft =kx-1>=0&&ky-1>=0?src[idx-rowlen-bytestride  ]:0,
+				ctop     =kx  <iw&&ky-1>=0?src[idx-rowlen             ]:0,
+				ctopright=kx+1<iw&&ky-1>=0?src[idx-rowlen+bytestride  ]:0,
+				ctrr     =kx+2<iw&&ky-1>=0?src[idx-rowlen+bytestride*2]:0,
 				
-				char *src=fwd?buf:b2;
-				char
-					ctl3     =kx-3>=0&&ky-3>=0?src[idx-rowlen*3-bytestride*3]:0,
-					ct3      =         ky-3>=0?src[idx-rowlen*3             ]:0,
-					ctr3     =kx+3<iw&&ky-3>=0?src[idx-rowlen*3+bytestride*3]:0,
-
-					ctltl    =kx-2>=0&&ky-2>=0?src[idx-rowlen*2-bytestride*2]:0,
-					ctt      =         ky-2>=0?src[idx-rowlen*2             ]:0,
-					ctrtr    =kx+2<iw&&ky-2>=0?src[idx-rowlen*2+bytestride*2]:0,
-
-					ctopleft =kx-1>=0&&ky-1>=0?src[idx-rowlen-bytestride  ]:0,
-					ctop     =kx  <iw&&ky-1>=0?src[idx-rowlen             ]:0,
-					ctopright=kx+1<iw&&ky-1>=0?src[idx-rowlen+bytestride  ]:0,
-					ctrr     =kx+2<iw&&ky-1>=0?src[idx-rowlen+bytestride*2]:0,
-		
-					cl3      =kx-3>=0?src[idx-bytestride*3]:0,
-					cll      =kx-2>=0?src[idx-bytestride*2]:0,
-					cleft    =kx-1>=0?src[idx-bytestride  ]:0;
+				cl3      =kx-3>=0?src[idx-bytestride*3]:0,
+				cll      =kx-2>=0?src[idx-bytestride*2]:0,
+				cleft    =kx-1>=0?src[idx-bytestride  ]:0;
 
 
-				//w0   w1   w2   w3
-				//p3Ca p3Cb p3Cc p3Cd p3Ce
-				//p1C  p2c
+			//w0   w1   w2   w3
+			//p3Ca p3Cb p3Cc p3Cd p3Ce
+			//p1C  p2c
 
-				double weights[4];
-				for(int k=0;k<4;++k)
-				{
-					int w=(ky-1>=0?pred_errors[k][prevrow+kx]:0)+(ky-1>=0&&kx+1<iw?pred_errors[k][prevrow+kx+1]:0)+(ky-1>=0&&kx-1>=0?pred_errors[k][prevrow+kx-1]:0);
-					weights[k]=jxlpred_params[kc*4+k]/(w+1);
-				}
+			double weights[4];
+			for(int k=0;k<4;++k)
+			{
+				int w=(ky-1>=0?pred_errors[k][prevrow+kx]:0)+(ky-1>=0&&kx+1<iw?pred_errors[k][prevrow+kx+1]:0)+(ky-1>=0&&kx-1>=0?pred_errors[k][prevrow+kx-1]:0);
+				weights[k]=params[k]/(w+1);
+			}
 
-				char
-					etop=ky-1>=0?error[prevrow+kx]:0,
-					eleft=kx-1>=0?error[currrow+kx-1]:0,
-					etopleft=ky-1>=0&&kx-1>=0?error[prevrow+kx-1]:0,
-					etopright=ky-1>=0&&kx+1<iw?error[prevrow+kx+1]:0;
-				double predictions[]=
-				{
-					cleft+ctopright-ctop,
-					ctop-(int)((etop+eleft+etopright)*jxlpred_params[12+kc*7]),
-					cleft-(int)((etop+eleft+etopleft)*jxlpred_params[12+kc*7+1]),
-					ctop-(int)(etopleft*jxlpred_params[12+kc*7+2]+ctop*jxlpred_params[12+kc*7+3]+ctopright*jxlpred_params[12+kc*7+4]+(ctt-ctop)*jxlpred_params[12+kc*7+5]+(ctopleft-cleft)*jxlpred_params[12+kc*7+6]),
-				};
+			char
+				etop=ky-1>=0?error[prevrow+kx]:0,
+				eleft=kx-1>=0?error[currrow+kx-1]:0,
+				etopleft=ky-1>=0&&kx-1>=0?error[prevrow+kx-1]:0,
+				etopright=ky-1>=0&&kx+1<iw?error[prevrow+kx+1]:0;
+			double predictions[]=
+			{
+				cleft+ctopright-ctop,
+				ctop-(int)((etop+eleft+etopright)*params[4]),
+				cleft-(int)((etop+eleft+etopleft)*params[5]),
+				ctop-(int)(etopleft*params[6]+ctop*params[7]+ctopright*params[8]+(ctt-ctop)*params[9]+(ctopleft-cleft)*params[10]),
+			};
 
-				double sum=weights[0]+weights[1]+weights[2]+weights[3];
-				if(sum)
-					pred=(int)round((predictions[0]*weights[0]+predictions[1]*weights[1]+predictions[2]*weights[2]+predictions[3]*weights[3])/sum);
-				else
-					pred=(int)round(predictions[0]);
+			double sum=weights[0]+weights[1]+weights[2]+weights[3];
+			if(sum)
+				pred=(int)round((predictions[0]*weights[0]+predictions[1]*weights[1]+predictions[2]*weights[2]+predictions[3]*weights[3])/sum);
+			else
+				pred=(int)round(predictions[0]);
 
-				int vmin=cleft, vmax=cleft;
-				if(vmin>ctopright)
-					vmin=ctopright;
-				if(vmin>ctop)
-					vmin=ctop;
+			int vmin=cleft, vmax=cleft;
+			if(vmin>ctopright)
+				vmin=ctopright;
+			if(vmin>ctop)
+				vmin=ctop;
 
-				if(vmax<ctopright)
-					vmax=ctopright;
-				if(vmax<ctop)
-					vmax=ctop;
+			if(vmax<ctopright)
+				vmax=ctopright;
+			if(vmax<ctop)
+				vmax=ctop;
 
-				pred=CLAMP(vmin, pred, vmax);
-				//pred=CLAMP(customparam_clamp[0], pred, customparam_clamp[1]);
-				if(fwd)
-				{
-					curr=buf[idx];
-					b2[idx]=buf[idx]-pred;
-				}
-				else
-				{
-					b2[idx]=buf[idx]+pred;
-					curr=b2[idx];
-				}
+			pred=CLAMP(vmin, pred, vmax);
+			//pred=CLAMP(customparam_clamp[0], pred, customparam_clamp[1]);
+			if(fwd)
+			{
+				curr=buf[idx];
+				b2[idx]=buf[idx]-pred;
+			}
+			else
+			{
+				b2[idx]=buf[idx]+pred;
+				curr=b2[idx];
+			}
 
-				error[currrow+kx]=pred-curr;
-				for(int k=0;k<4;++k)
-				{
-					int e=(int)round(fabs(curr-predictions[k]));
-					pred_errors[k][currrow+kx]=e;
-					if(kx+1<iw)
-						pred_errors[k][prevrow+kx+1]+=e;
-				}
+			error[currrow+kx]=pred-curr;
+			for(int k=0;k<4;++k)
+			{
+				int e=(int)round(fabs(curr-predictions[k]));
+				pred_errors[k][currrow+kx]=e;
+				if(kx+1<iw)
+					pred_errors[k][prevrow+kx+1]+=e;
 			}
 		}
 	}
-	for(int kc=nch;kc<bytestride;++kc)
+	for(int k=0;k<res;++k)
 	{
-		for(int k=0;k<res;++k)
-			b2[k*bytestride+kc]=buf[k*bytestride+kc];
+		int idx=k*bytestride+kc;
+		buf[idx]=b2[idx];
 	}
-	memcpy(buf, b2, (size_t)res*bytestride);
 	free(b2);
 	free(pred_errors[0]);
 	free(pred_errors[1]);
@@ -525,6 +797,7 @@ void pred_jxl(char *buf, int iw, int ih, int nch, int bytestride, int fwd)
 	free(pred_errors[3]);
 	free(error);
 }
+#endif
 
 
 //YCoCg-R (lifting-based YCoCg)		8 bit <-> ps,  3 channels, pixel stride 4 bytes,  Y in [0, 1], Co/Cg in [-1, 1],  used by AVC/HEVC/VVC

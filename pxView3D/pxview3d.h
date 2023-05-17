@@ -659,7 +659,16 @@ extern double adagrad_rmse[ADAGRADCOUNT], adagrad_csize[ADAGRADCOUNT];
 extern double adagrad_abserror[ADAGRADCOUNT], adagrad_signederror[ADAGRADCOUNT];
 void pred_adaptive(char *buf, int iw, int ih, int nch, int bytestride, int fwd);
 
+
+extern short jxlparams_i16[33];
+//extern float jxlparams_ps[33];
+void pred_jxl_prealloc(const char *src, int iw, int ih, int kc, short *params, int fwd, char *dst, int *temp_w10);
+void calc_histogram(unsigned char *buf, ptrdiff_t len, ptrdiff_t stride, int *hist);
+void pred_jxl_optimize(const char *src, int iw, int ih, int kc, short *params, int step, int pidx, char *dst, int loud);
+void pred_jxl_apply(char *buf, int iw, int ih, short *allparams, int fwd);
+
 void pred_jxl(char *buf, int iw, int ih, int nch, int bytestride, int fwd);
+
 
 #define SORTNBCASES 8
 extern int sortnb_cases[SORTNBCASES];

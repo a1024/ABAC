@@ -11,6 +11,10 @@ extern "C"
 #endif
 
 
+unsigned char* image_load(const char *filename, int *iw, int *ih);
+int image_save_png_rgba8(const char *filename, const unsigned char *image, int iw, int ih);
+
+
 //	#define ENABLE_GUIDE//debug
 
 //lossless tools
@@ -154,8 +158,27 @@ size_t ans16_encode(const unsigned char *src, ptrdiff_t res, ArrayHandle *data);
 
 size_t test14_encode(const unsigned char *src, int bw, int bh, int lgblockdim, ArrayHandle *data);
 
-size_t test16_encode(const unsigned char *src, int bw, int bh, int alpha, int blocksize, int margin, ArrayHandle *data, int loud);
-int    test16_decode(const unsigned char *data, size_t srclen, int bw, int bh, int alpha, int blocksize, int margin, unsigned char *buf);
+size_t test16_encode(const unsigned char *src, int bw, int bh, int alpha, int *blockw, int *blockh, int *margin, ArrayHandle *data, int loud, int *csizes);
+int    test16_decode(const unsigned char *data, size_t srclen, int bw, int bh, int alpha, int *blockw, int *blockh, int *margin, unsigned char *buf);
+
+
+	#define DEBUG_ANS
+
+#ifdef DEBUG_ANS
+typedef struct DebugANSInfoStruct
+{
+	unsigned state, cdf, freq, id, kx, ky;
+	unsigned char kq, kc;
+	unsigned short sym;
+} DebugANSInfo;
+extern SList states;
+extern int debug_channel;
+void debug_enc_update(unsigned state, unsigned cdf, unsigned freq, int kx, int ky, int kq, int kc, unsigned char sym);
+void debug_dec_update(unsigned state, unsigned cdf, unsigned freq, int kx, int ky, int kq, int kc, unsigned char sym);
+#else
+#define debug_enc_update(...)
+#define debug_dec_update(...)
+#endif
 
 #if 0
 //void test17_saveconf(const unsigned char *src, int bw, int bh, int blocksize);
@@ -176,7 +199,16 @@ size_t e10_decode_ch(const unsigned char *data, size_t datastart, size_t datalen
 
 int    e10dash_encode_ch(const unsigned char *src, int bw, int bh, int kc, int alpha, int blocksize, int margin, ArrayHandle *data, int loud);
 size_t e10dash_decode_ch(const unsigned char *data, size_t datastart, size_t datalen, int bw, int bh, int kc, int alpha, int blocksize, int margin, unsigned char *buf);
+
+size_t test21_encode(const unsigned char *src, int bw, int bh, int alpha, int blocksize, ArrayHandle *data, int loud);
+int    test21_decode(const unsigned char *data, size_t srclen, int bw, int bh, int alpha, int blocksize, unsigned char *buf);
+
+size_t test22_encode(const unsigned char *src, int bw, int bh, int alpha, int *blockw, int *blockh, ArrayHandle *data, int loud, int *csizes);
+int    test22_decode(const unsigned char *data, size_t srclen, int bw, int bh, int alpha, int *blockw, int *blockh, unsigned char *buf);
 #endif
+
+size_t test23_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud, int *csizes);
+int    test23_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
 
 
 
@@ -201,8 +233,14 @@ void YCoCg_8bit_ps_fwd(const unsigned char *src, ptrdiff_t res, float *bufY, flo
 void YCoCg_8bit_ps_inv(const float *bufY, const float *bufCo, const float *bufCg, ptrdiff_t res, unsigned char *dst);
 
 
-extern double jxlpred_params[33];
-void pred_jxl(char *buf, int iw, int ih, int nch, int bytestride, int fwd);
+extern short jxlparams_i16[33];
+//extern double jxlpred_params[33];
+void pred_jxl_prealloc(const char *src, int iw, int ih, int kc, const short *params, int fwd, char *dst, int *temp_w10);
+void calc_histogram(unsigned char *buf, ptrdiff_t len, ptrdiff_t stride, int *hist);
+double pred_jxl_optimize(const char *src, int iw, int ih, int kc, short *params, int step, int pidx, char *dst, int loud);
+void pred_jxl_apply(char *buf, int iw, int ih, short *allparams, int fwd);
+
+//void pred_jxl(char *buf, int iw, int ih, int kc, int bytestride, double *params, int fwd);//deprecated
 
 void image_differentiate(char *buf, int iw, int ih, int nch, int bytestride);
 void image_integrate    (char *buf, int iw, int ih, int nch, int bytestride);

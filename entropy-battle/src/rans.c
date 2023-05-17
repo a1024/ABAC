@@ -3067,7 +3067,7 @@ size_t test7_encode(const unsigned char *src, int bw, int bh, int is_unsigned, A
 #endif
 
 
-static void normalize_histogram(unsigned *srchist, int nlevels, int nsymbols, unsigned short *CDF)//hist is unsigned char due to alignment issues, but it's 16bit
+void normalize_histogram(unsigned *srchist, int nlevels, int nsymbols, unsigned short *CDF)//hist is unsigned char due to alignment issues, but it's 16bit
 {
 	SortedHistInfo h[512];
 	for(int k=0;k<nlevels;++k)
@@ -3892,6 +3892,8 @@ size_t test14_encode(const unsigned char *src, int bw, int bh, int lgblockdim, A
 }
 
 
+//	#define T16_ENABLE_CONF
+
 int get_mean_p16(const unsigned char *buf, int bw, int kc, int x1, int x2, int y1, int y2)
 {
 	long long sum=0;
@@ -4028,12 +4030,12 @@ void print_CDF(const unsigned *CDF, const unsigned char *b2, int bw, int bh, int
 	//printf("\n");
 	free(CDF0);
 }
-void t16_prepblock(const unsigned char *b2, unsigned short *CDF, int bw, int bh, int kc, int bx, int by, int alpha, int blocksize, int margin, unsigned *h2, int *xend, int *yend)
+void t16_prepblock(const unsigned char *b2, const unsigned short *CDF, int bw, int bh, int kc, int bx, int by, int alpha, int blockw, int blockh, int margin, unsigned *CDF2, int *xend, int *yend)
 {
-	int kx=bx*blocksize, ky=by*blocksize;
+	int kx=bx*blockw, ky=by*blockh;
 
-	*yend=ky+blocksize<=bh?ky+blocksize:bh;
-	*xend=kx+blocksize<=bw?kx+blocksize:bw;
+	*yend=ky+blockh<=bh?ky+blockh:bh;
+	*xend=kx+blockw<=bw?kx+blockw:bw;
 				
 	int overflow=0;//CDF overflow can happen only once
 	if(!bx&&!by)//first block has zero alpha
@@ -4041,32 +4043,36 @@ void t16_prepblock(const unsigned char *b2, unsigned short *CDF, int bw, int bh,
 		for(int sym=0;sym<256;++sym)
 		{
 			if(overflow)
-				h2[sym]=0xFF00|sym;
+				CDF2[sym]=0xFF00|sym;
 			else
 			{
 				int cdf=CDF[sym];
-				h2[sym]=((unsigned)(cdf*0xFF00)>>16)+sym;
+				CDF2[sym]=((unsigned)(cdf*0xFF00)>>16)+sym;
 				if(sym<255)
 					overflow|=cdf>CDF[sym+1];
 			}
 		}
-		h2[256]=0x10000;
+		CDF2[256]=0x10000;
 	}
 	else
 	{
-		memset(h2, 0, 256*sizeof(unsigned));
+		memset(CDF2, 0, 256*sizeof(unsigned));
 
 		int count2=0;
 
 		int left=kx-margin;
 		if(left<0)
 			left=0;
-		int right=kx+blocksize+margin;
+		int right=kx+blockw+margin;
 		if(right>bw)
 			right=bw;
 		int top=ky-margin;
 		if(top<0)
 			top=0;
+
+#ifdef T16_ENABLE_CONF
+		double sdev=0;
+#endif
 
 		if(left<kx)//if left block is available
 		{
@@ -4074,7 +4080,7 @@ void t16_prepblock(const unsigned char *b2, unsigned short *CDF, int bw, int bh,
 			{
 				for(int kx2=left;kx2<kx;++kx2)//for each pixel
 				{
-					unsigned char sym=b2[(bw*ky2+kx2)<<2|kc];
+					int sym=b2[(bw*ky2+kx2)<<2|kc];
 					int dist=kx-kx2;
 					if(dist<0||dist>margin)
 						LOG_ERROR("Wrong distance");
@@ -4090,8 +4096,14 @@ void t16_prepblock(const unsigned char *b2, unsigned short *CDF, int bw, int bh,
 					if(!inc)
 						LOG_ERROR("Zero inc");
 
-					h2[sym]+=inc;
+					CDF2[sym]+=inc;
 					count2+=inc;
+					
+#ifdef T16_ENABLE_CONF
+					sym-=128;
+					sdev+=inc*sym*sym;
+#endif
+
 					//if(count2<inc)
 					//	LOG_ERROR("OVERFLOW");
 				}
@@ -4121,8 +4133,14 @@ void t16_prepblock(const unsigned char *b2, unsigned short *CDF, int bw, int bh,
 					if(!inc)
 						LOG_ERROR("Zero inc");
 
-					h2[sym]+=inc;
+					CDF2[sym]+=inc;
 					count2+=inc;
+					
+#ifdef T16_ENABLE_CONF
+					sym-=128;
+					sdev+=inc*sym*sym;
+#endif
+
 					if(count2<inc)
 						LOG_ERROR("OVERFLOW");
 				}
@@ -4148,20 +4166,25 @@ void t16_prepblock(const unsigned char *b2, unsigned short *CDF, int bw, int bh,
 					if(!inc)
 						LOG_ERROR("Zero inc");
 
-					h2[sym]+=inc;
+					CDF2[sym]+=inc;
 					count2+=inc;
+					
+#ifdef T16_ENABLE_CONF
+					sym-=128;
+					sdev+=inc*sym*sym;
+#endif
 				}
 			}
 		}
-		if(right>kx+blocksize&&top<ky)//if topright block is available
+		if(right>kx+blockw&&top<ky)//if topright block is available
 		{
 			for(int ky2=top;ky2<ky;++ky2)
 			{
-				for(int kx2=kx+blocksize;kx2<right;++kx2)//for each pixel
+				for(int kx2=kx+blockw;kx2<right;++kx2)//for each pixel
 				{
 					unsigned char sym=b2[(bw*ky2+kx2)<<2|kc];
-					int dist=kx2-(kx+blocksize)+ky-ky2;
-					//int dist=MAXVAR(kx2-(kx+blocksize), ky-ky2);
+					int dist=kx2-(kx+blockw)+ky-ky2;
+					//int dist=MAXVAR(kx2-(kx+blockw), ky-ky2);
 
 					if(dist<0||dist>(margin<<1))
 						LOG_ERROR("Wrong distance");
@@ -4171,8 +4194,13 @@ void t16_prepblock(const unsigned char *b2, unsigned short *CDF, int bw, int bh,
 					if(!inc)
 						LOG_ERROR("Zero inc");
 
-					h2[sym]+=inc;
+					CDF2[sym]+=inc;
 					count2+=inc;
+					
+#ifdef T16_ENABLE_CONF
+					sym-=128;
+					sdev+=inc*sym*sym;
+#endif
 				}
 			}
 		}
@@ -4201,6 +4229,11 @@ void t16_prepblock(const unsigned char *b2, unsigned short *CDF, int bw, int bh,
 			}
 		}
 #endif
+#ifdef T16_ENABLE_CONF
+		sdev/=count2;
+		sdev=sqrt(sdev);
+		double conf=1/(sqrt(2)*sdev);
+#endif
 
 		int sum=0;
 		for(int sym=0;sym<256;++sym)
@@ -4210,25 +4243,38 @@ void t16_prepblock(const unsigned char *b2, unsigned short *CDF, int bw, int bh,
 				overflow|=cdf1>CDF[sym+1];
 			int f1=(sym<255&&!overflow?CDF[sym+1]:0x10000)-cdf1;
 
-			int f2=h2[sym];
-			int freq=(int)(((long long)f2<<16)/count2);//normalize
+			int f2=(int)(((long long)CDF2[sym]<<16)/count2);//normalize
+			
+#ifdef T16_ENABLE_CONF
+			double start=erf((0-128)*conf), end=erf((256-128)*conf), x=erf((sym-128)*conf), x2=erf((sym+1-128)*conf);
+			int f3=(int)((x2-x)*0x10000/(end-start));
+#endif
 
 			//if(f1||f2)//
 			//	printf("");
 
-			freq=f1+(int)(((long long)freq-f1)*alpha>>16);//blend
+			//int freq=f1+(int)(((long long)f3-f1)*alpha>>16);//blend
+			//freq=freq+(int)(((long long)f2-freq)*alpha>>16);//blend
+
+			//int freq=f2;
+			int freq=f1+(int)(((long long)f2-f1)*alpha>>16);//blend
+
+#ifdef T16_ENABLE_CONF
+			freq=freq+(int)(((long long)f3-freq)*alpha>>16);//blend2
+#endif
+
 			freq=((unsigned)(freq*0xFF00)>>16)+1;//guard
 			if(freq<0||freq>0xFF01)
 				LOG_ERROR("Impossible freq 0x%04X / 0x10000", freq);
-			h2[sym]=sum;
+			CDF2[sym]=sum;
 			sum+=freq;
 			if(sum>0x10000)
 				LOG_ERROR("ANS CDF sum 0x%04X, freq 0x%04X", sum, freq);
 		}
-		h2[256]=0x10000;
+		CDF2[256]=0x10000;
 	}
 }
-size_t test16_encode(const unsigned char *src, int bw, int bh, int alpha, int blocksize, int margin, ArrayHandle *data, int loud)
+size_t test16_encode(const unsigned char *src, int bw, int bh, int alpha, int *blockw, int *blockh, int *margin, ArrayHandle *data, int loud, int *csizes)
 {
 	int res=bw*bh;
 	unsigned char *b2=(unsigned char*)malloc((size_t)res<<2);
@@ -4269,22 +4315,23 @@ size_t test16_encode(const unsigned char *src, int bw, int bh, int alpha, int bl
 	dlist_push_back(&list, 0, 12);
 	dlist_push_back(&list, CDF, 768*sizeof(short));
 
-	int bxcount=(bw+blocksize-1)/blocksize,
-		bycount=(bh+blocksize-1)/blocksize;
 	for(int kc=0;kc<3;++kc)
 	{
+		int bxcount=(bw+blockw[kc]-1)/blockw[kc],
+			bycount=(bh+blockh[kc]-1)/blockh[kc];
+
 		unsigned state=0x10000;
 		for(int by=bycount-1;by>=0;--by)
 		{
-			int ky=by*blocksize;
+			int ky=by*blockh[kc];
 			for(int bx=bxcount-1;bx>=0;--bx)//for each block
 			{
 				//if(kc==0&&bx==0&&by==0)
 				//	kc=0;
 
-				int kx=bx*blocksize;
+				int kx=bx*blockw[kc];
 				int xend=0, yend=0;
-				t16_prepblock(b2, CDF+((size_t)kc<<8), bw, bh, kc, bx, by, alpha, blocksize, margin, h2, &xend, &yend);
+				t16_prepblock(b2, CDF+((size_t)kc<<8), bw, bh, kc, bx, by, alpha, blockw[kc], blockh[kc], margin[kc], h2, &xend, &yend);
 
 				//if(kc==0&&bx==0&&by==0)
 				//	print_CDF(h2, b2, bw, bh, kc, kx, xend, ky, yend);
@@ -4332,14 +4379,28 @@ size_t test16_encode(const unsigned char *src, int bw, int bh, int alpha, int bl
 	}
 	size_t dststart=dlist_appendtoarray(&list, data);
 	memcpy(data[0]->data+dststart, ansbookmarks, 12);
-
+	
+	int overhead=12+(int)(totalhsize*sizeof(short));
+	int ch[]=
+	{
+		ansbookmarks[0]-overhead,
+		ansbookmarks[1]-ansbookmarks[0],
+		ansbookmarks[2]-ansbookmarks[1],
+	};
+	if(csizes)
+	{
+		csizes[0]=ch[0];
+		csizes[1]=ch[1];
+		csizes[2]=ch[2];
+	}
 	if(loud)
 	{
-		printf("alpha 0x%04X block %d margin %d\n", alpha, blocksize, margin);
-		printf("Overhead %7d\n", (int)(totalhsize*sizeof(short)));
-		printf("Red      %7d\n", ansbookmarks[0]-(int)(totalhsize*sizeof(short)));
-		printf("Green    %7d\n", ansbookmarks[1]-ansbookmarks[0]);
-		printf("Blue     %7d\n", ansbookmarks[2]-ansbookmarks[1]);
+		printf("alpha 0x%04X\n", alpha);
+		printf("Total    %7d  %lf\n", ansbookmarks[2], 3.*res/ansbookmarks[2]);
+		printf("Overhead %7d\n", overhead);
+		printf("Red      %7d  %lf  %dx%d  M %d\n", ch[0], (double)res/ch[0], blockw[0], blockh[0], margin[0]);
+		printf("Green    %7d  %lf  %dx%d  M %d\n", ch[1], (double)res/ch[1], blockw[1], blockh[1], margin[1]);
+		printf("Blue     %7d  %lf  %dx%d  M %d\n", ch[2], (double)res/ch[2], blockw[2], blockh[2], margin[2]);
 	}
 
 	dlist_clear(&list);
@@ -4355,7 +4416,7 @@ int threeway_uint32(const void *p1, const void *p2)
 	return (v1>v2)-(v1<v2);
 }
 unsigned char *debug_ptr=0;
-int test16_decode(const unsigned char *data, size_t srclen, int bw, int bh, int alpha, int blocksize, int margin, unsigned char *buf)
+int test16_decode(const unsigned char *data, size_t srclen, int bw, int bh, int alpha, int *blockw, int *blockh, int *margin, unsigned char *buf)
 {
 	const int cdflen=768LL*sizeof(short), overhead=12LL+cdflen;
 	int res=bw*bh;
@@ -4389,10 +4450,11 @@ int test16_decode(const unsigned char *data, size_t srclen, int bw, int bh, int 
 	}
 	memcpy(CDF, data+12, cdflen);
 	
-	int bxcount=(bw+blocksize-1)/blocksize,
-		bycount=(bh+blocksize-1)/blocksize;
 	for(int kc=0;kc<3;++kc)
 	{
+		int bxcount=(bw+blockw[kc]-1)/blockw[kc],
+			bycount=(bh+blockh[kc]-1)/blockh[kc];
+
 		unsigned state;
 		srcptr=data+ansbookmarks[kc];
 		srcstart=kc?data+ansbookmarks[kc-1]:data+overhead;
@@ -4403,15 +4465,15 @@ int test16_decode(const unsigned char *data, size_t srclen, int bw, int bh, int 
 		
 		for(int by=0;by<bycount;++by)
 		{
-			int ky=by*blocksize;
+			int ky=by*blockh[kc];
 			for(int bx=0;bx<bxcount;++bx)//for each block
 			{
 				//if(kc==0&&bx==0&&by==0)
 				//	kc=0;
 
-				int kx=bx*blocksize;
+				int kx=bx*blockw[kc];
 				int xend=0, yend=0;
-				t16_prepblock(buf, CDF+((size_t)kc<<8), bw, bh, kc, bx, by, alpha, blocksize, margin, h2, &xend, &yend);
+				t16_prepblock(buf, CDF+((size_t)kc<<8), bw, bh, kc, bx, by, alpha, blockw[kc], blockh[kc], margin[kc], h2, &xend, &yend);
 				for(int ky2=ky;ky2<yend;++ky2)
 				{
 					for(int kx2=kx;kx2<xend;++kx2)//for each pixel
@@ -5090,17 +5152,9 @@ size_t test18_encode(const unsigned char *src, int bw, int bh, ArrayHandle *data
 #endif
 
 
-//	#define DEBUG_ANS
-
 #ifdef DEBUG_ANS
-typedef struct DebugANSInfoStruct
-{
-	unsigned state, cdf, freq, id, kx, ky;
-	unsigned char kq, kc;
-	unsigned short sym;
-} DebugANSInfo;
 SList states={0};
-int debug_channel=1;
+int debug_channel=0;
 void debug_enc_update(unsigned state, unsigned cdf, unsigned freq, int kx, int ky, int kq, int kc, unsigned char sym)
 {
 	if(kc==debug_channel)
@@ -5131,9 +5185,6 @@ void debug_dec_update(unsigned state, unsigned cdf, unsigned freq, int kx, int k
 		STACK_POP(&states);
 	}
 }
-#else
-#define debug_enc_update(...)
-#define debug_dec_update(...)
 #endif
 
 #if 0
