@@ -85,6 +85,233 @@ void compare_bufs_ps(float *b1, float *b0, int iw, int ih, const char *name, int
 }
 
 
+void cvt_i8_i32(const char *src, int iw, int ih, int *dst)
+{
+	int len=iw*ih<<2;
+	for(int k=0;k<len;++k)
+		dst[k]=src[k];
+}
+void addbuf_i32(int *buf, int iw, int ih, int nch, int bytestride, int amount)
+{
+	int len=iw*ih<<2;
+	for(int kc=0;kc<nch;++kc)
+	{
+		for(int k=0;k<len;++k)
+			buf[k]+=amount;
+	}
+}
+void colortransform_ycocb_fwd_i32(int *buf, int iw, int ih)
+{
+	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
+	{
+		int r=buf[k], g=buf[k|1], b=buf[k|2];
+
+		r-=g;
+		g+=r>>1;
+		b-=g;
+		g+=b>>1;
+
+		buf[k  ]=r;//Co
+		buf[k|1]=g;//Y
+		buf[k|2]=b;//Cb
+	}
+}
+void colortransform_ycocb_inv_i32(int *buf, int iw, int ih)
+{
+	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
+	{
+		int r=buf[k], g=buf[k|1], b=buf[k|2];
+		
+		g-=b>>1;
+		b+=g;
+		g-=r>>1;
+		r+=g;
+
+		buf[k  ]=r;//Co
+		buf[k|1]=g;//Y
+		buf[k|2]=b;//Cb
+	}
+}
+int jxlparams_i32[33]=//signed fixed 23.8 bit
+{
+	//kodak
+	0x0B37,  0x110B,  0x121B,  0x0BFC, -0x0001,  0x000E, -0x0188, -0x00E7, -0x00BB, -0x004A,  0x00BA,
+	0x0DB8,  0x0E22,  0x181F,  0x0BF3, -0x005C, -0x005B,  0x00DF,  0x0051,  0x00BD,  0x005C, -0x0102,
+	0x064C,  0x0F31,  0x1040,  0x0BF8, -0x0007, -0x000D, -0x0085, -0x0063, -0x00A2, -0x0017,  0x00F2,
+	//0x000B3700,  0x00110B00,  0x00121B00,  0x000BFC00, -0x00000100,  0x00000E00, -0x00018800, -0x0000E700, -0x0000BB00, -0x00004A00,  0x0000BA00,
+	//0x000DB800,  0x000E2200,  0x00181F00,  0x000BF300, -0x00005C00, -0x00005B00,  0x0000DF00,  0x00005100,  0x0000BD00,  0x00005C00, -0x00010200,
+	//0x00064C00,  0x000F3100,  0x00104000,  0x000BF800, -0x00000700, -0x00000D00, -0x00008500, -0x00006300, -0x0000A200, -0x00001700,  0x0000F200,
+};
+void pred_jxl_i32(const int *src, int iw, int ih, int kc, const int *params, int fwd, int *dst, int *temp_w10)
+{
+	int res=iw*ih, errorbuflen=iw*2, rowlen=iw<<2;
+	int *error=temp_w10, *pred_errors[]=
+	{
+		temp_w10+errorbuflen,
+		temp_w10+errorbuflen*2,
+		temp_w10+errorbuflen*3,
+		temp_w10+errorbuflen*4,
+	};
+	int idx=kc;
+	for(int ky=0;ky<ih;++ky)
+	{
+		int currrow=ky&1?0:iw, prevrow=ky&1?iw:0;
+		for(int kx=0;kx<iw;++kx, idx+=4)
+		{
+			int pred, curr;
+			
+			const int *src2=fwd?src:dst;
+			int
+				ctt      =         ky-2>=0?src2[idx-rowlen*2]<<8:0,
+				ctopleft =kx-1>=0&&ky-1>=0?src2[idx-rowlen-4]<<8:0,
+				ctop     =kx  <iw&&ky-1>=0?src2[idx-rowlen  ]<<8:0,
+				ctopright=kx+1<iw&&ky-1>=0?src2[idx-rowlen+4]<<8:0,
+				cleft    =kx-1>=0         ?src2[idx       -4]<<8:0;
+
+			//if(kx==(iw>>1)&&ky==(ih>>1))
+			//	kx=iw>>1;
+
+			//w0   w1   w2   w3
+			//p3Ca p3Cb p3Cc p3Cd p3Ce
+			//p1C  p2c
+			
+			int weights[4];//fixed 23.8 bit
+			for(int k=0;k<4;++k)
+			{
+				int w=(ky-1>=0?pred_errors[k][prevrow+kx]:0)+(ky-1>=0&&kx+1<iw?pred_errors[k][prevrow+kx+1]:0)+(ky-1>=0&&kx-1>=0?pred_errors[k][prevrow+kx-1]:0);
+				weights[k]=(int)(((long long)params[k]<<8)/(w+1));
+			}
+
+			int
+				etop=ky-1>=0?error[prevrow+kx]:0,
+				eleft=kx-1>=0?error[currrow+kx-1]:0,
+				etopleft=ky-1>=0&&kx-1>=0?error[prevrow+kx-1]:0,
+				etopright=ky-1>=0&&kx+1<iw?error[prevrow+kx+1]:0,
+				esumtopleft=etop+eleft;
+			long long predictions[]=//fixed 23.8 bit
+			{
+				cleft+ctopright-ctop,
+				ctop-((long long)(esumtopleft+etopright)*params[4]>>8),
+				cleft-((long long)(esumtopleft+etopleft)*params[5]>>8),
+				ctop-((long long)(etopleft*params[6]+etop*params[7]+etopright*params[8]+(ctt-ctop)*params[9]+(ctopleft-cleft)*params[10])>>8),
+			};
+
+			int sum=weights[0]+weights[1]+weights[2]+weights[3];
+			if(sum)
+				pred=(int)((predictions[0]*weights[0]+predictions[1]*weights[1]+predictions[2]*weights[2]+predictions[3]*weights[3]+(sum>>1)-1)/sum);
+			else
+				pred=(int)predictions[0];
+
+			int vmin=cleft, vmax=cleft;
+			if(vmin>ctopright)
+				vmin=ctopright;
+			if(vmin>ctop)
+				vmin=ctop;
+
+			if(vmax<ctopright)
+				vmax=ctopright;
+			if(vmax<ctop)
+				vmax=ctop;
+
+			pred=CLAMP(vmin, pred, vmax);
+			if(fwd)
+			{
+				curr=src[idx]<<8;
+				dst[idx]=src[idx]-((pred+127)>>8);
+			}
+			else
+			{
+				dst[idx]=src[idx]+((pred+127)>>8);
+				curr=dst[idx]<<8;
+			}
+
+			error[currrow+kx]=curr-pred;
+			for(int k=0;k<4;++k)
+			{
+				int e=abs(curr-(int)predictions[k]);
+				pred_errors[k][currrow+kx]=e;
+				if(kx+1<iw)
+					pred_errors[k][prevrow+kx+1]+=e;
+			}
+		}
+	}
+}
+double estimate_csize_i32(int *buf, int iw, int ih, int nr, int ng, int nb)
+{
+	double csize=0;
+	double entropy, invCR, chsize;
+	int nbits[]={nr, ng, nb}, res=iw*ih, len=res*4;
+	for(int kc=0;kc<3;++kc)
+	{
+		int nlevels=1<<nbits[kc], half=1<<(nbits[kc]-1), mask=nlevels-1;
+		int *hist=(int*)malloc(nlevels*sizeof(int));
+		if(!hist)
+		{
+			LOG_ERROR("Allocation error");
+			return 0;
+		}
+		memset(hist, 0, nlevels*sizeof(int));
+		for(int k=kc;k<len;k+=4)
+		{
+			unsigned val=(buf[k]+half)&mask;
+			++hist[val];
+		}
+		entropy=0;
+		for(int k=0;k<nlevels;++k)
+		{
+			int freq=hist[k];
+			if(freq)
+			{
+				double p=(double)freq/res;
+				double bitsize=-p*log2(p);
+				entropy+=bitsize;
+			}
+		}
+		free(hist);
+		invCR=entropy/8, chsize=res*invCR;
+		csize+=chsize;
+	}
+	return csize;
+}
+double estimate_csize_i32_trunc(int *buf, int iw, int ih, int nr, int ng, int nb)
+{
+	double csize=0;
+	double entropy, invCR, chsize;
+	int nbits[]={nr, ng, nb}, res=iw*ih, len=res*4;
+	for(int kc=0;kc<3;++kc)
+	{
+		int half=1<<(nbits[kc]-1);
+		int *hist=(int*)malloc(256*sizeof(int));
+		if(!hist)
+		{
+			LOG_ERROR("Allocation error");
+			return 0;
+		}
+		memset(hist, 0, 256*sizeof(int));
+		for(int k=kc;k<len;k+=4)
+		{
+			unsigned val=(buf[k]+half)&0xFF;
+			++hist[val];
+		}
+		entropy=0;
+		for(int k=0;k<256;++k)
+		{
+			int freq=hist[k];
+			if(freq)
+			{
+				double p=(double)freq/res;
+				double bitsize=-p*log2(p);
+				entropy+=bitsize;
+			}
+		}
+		free(hist);
+		invCR=entropy/8, chsize=res*invCR;
+		csize+=chsize;
+	}
+	return csize;
+}
+
+
 #if 0
 void print_matrix_pd(double *matrix, int bw, int bh)
 {
@@ -231,11 +458,11 @@ void impl_matinv_pd(double *m, short dx)//resize m to (dy * 2dx) temporarily,		d
 void apply_transforms_fwd(unsigned char *buf, int bw, int bh)
 {
 	ArrayHandle sizes=dwt2d_gensizes(bw, bh, 7, 7, 0);
-	unsigned char *temp=(unsigned char*)malloc(MAXVAR(bw, bh));
+	//unsigned char *temp=(unsigned char*)malloc(MAXVAR(bw, bh));//for DWT
 
 	addbuf(buf, bw, bh, 3, 4, 128);//unsigned char -> signed char
 	
-	colortransform_ycocgt_fwd((char*)buf, bw, bh);
+	colortransform_ycocb_fwd((char*)buf, bw, bh);
 	//colortransform_ycocg_fwd((char*)buf, bw, bh);
 	//colortransform_xgz_fwd((char*)buf, bw, bh);
 	//colortransform_xyz_fwd((char*)buf, bw, bh);
@@ -260,13 +487,13 @@ void apply_transforms_fwd(unsigned char *buf, int bw, int bh)
 	//save_DWT_int8("kodim21-squeeze-stage", buf, (DWTSize*)sizes->data, (int)sizes->count, 4);//
 	//save_DWT_int8("kodim21-cubic-stage", buf, (DWTSize*)sizes->data, (int)sizes->count, 4);//
 
-	free(temp);
+	//free(temp);
 	array_free(&sizes);
 }
 void apply_transforms_inv(unsigned char *buf, int bw, int bh)
 {
 	ArrayHandle sizes=dwt2d_gensizes(bw, bh, 3, 3, 0);
-	unsigned char *temp=(unsigned char*)malloc(MAXVAR(bw, bh));
+	//unsigned char *temp=(unsigned char*)malloc(MAXVAR(bw, bh));
 	
 	addbuf(buf, bw, bh, 3, 4, 128);
 	
@@ -284,14 +511,14 @@ void apply_transforms_inv(unsigned char *buf, int bw, int bh)
 	//	//dwt2d_cdf53_inv((char*)buf+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, (char*)temp);
 	//	//dwt2d_cdf97_inv((char*)buf+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, (char*)temp);
 	
-	colortransform_ycocgt_inv((char*)buf, bw, bh);
+	colortransform_ycocb_inv((char*)buf, bw, bh);
 	//colortransform_ycocg_inv((char*)buf, bw, bh);
 	//colortransform_xgz_inv((char*)buf, bw, bh);
 	//colortransform_xyz_inv((char*)buf, bw, bh);
 
 	addbuf(buf, bw, bh, 3, 4, 128);//unsigned char -> signed char
 
-	free(temp);
+	//free(temp);
 	array_free(&sizes);
 }
 void addbuf(unsigned char *buf, int iw, int ih, int nch, int bytestride, int ammount)
@@ -433,6 +660,12 @@ double jxlpred_params[33]=
 };
 short jxlparams_i16[33]=//signed fixed 7.8 bit
 {
+	//CLIC	X
+	//0x0779,  0x120C,  0x0C00,  0x0A3D, -0x0051,  0x000E, -0x0196, -0x01E7,  0x0065,  0x0076,  0x00FA,
+	//0x0897,  0x1A0F,  0x1697,  0x0A6B, -0x0054, -0x002B, -0x0021, -0x0051,  0x00AD, -0x001C, -0x0028,
+	//0x0BB2,  0x186F,  0x1012,  0x0B8F, -0x0053, -0x005F, -0x008B, -0x0085,  0x0006,  0x009D,  0x008C,
+
+	//kodak
 	0x0B37,  0x110B,  0x121B,  0x0BFC, -0x0001,  0x000E, -0x0188, -0x00E7, -0x00BB, -0x004A,  0x00BA,
 	0x0DB8,  0x0E22,  0x181F,  0x0BF3, -0x005C, -0x005B,  0x00DF,  0x0051,  0x00BD,  0x005C, -0x0102,
 	0x064C,  0x0F31,  0x1040,  0x0BF8, -0x0007, -0x000D, -0x0085, -0x0063, -0x00A2, -0x0017,  0x00F2,
@@ -512,14 +745,12 @@ void pred_jxl_prealloc(const char *src, int iw, int ih, int kc, const short *par
 				eleft=kx-1>=0?error[currrow+kx-1]:0,
 				etopleft=ky-1>=0&&kx-1>=0?error[prevrow+kx-1]:0,
 				etopright=ky-1>=0&&kx+1<iw?error[prevrow+kx+1]:0,
-				sumtopleft=etop+eleft;
+				esumtopleft=etop+eleft;
 			int predictions[]=//fixed 23.8 bit
 			{
 				(cleft+ctopright-ctop)<<8,
-				(ctop<<8)-((sumtopleft+etopright)*params[4]>>8),
-				(cleft<<8)-((sumtopleft+etopleft)*params[5]>>8),
-
-				//(ctop<<8)-(((etopleft*params[6])>>8)+ctop*params[7]+ctopright*params[8]+(ctt-ctop)*params[9]+(ctopleft-cleft)*params[10]),
+				(ctop<<8)-((esumtopleft+etopright)*params[4]>>8),
+				(cleft<<8)-((esumtopleft+etopleft)*params[5]>>8),
 				(ctop<<8)-(((etopleft*params[6]+etop*params[7]+etopright*params[8])>>8)+(ctt-ctop)*params[9]+(ctopleft-cleft)*params[10]),
 			};
 
@@ -647,7 +878,33 @@ double pred_jxl_optimize(const char *src, int iw, int ih, int kc, short *params,
 	//	printf("%4d %14lf\r", pidx, csize);
 	return csize;
 }
-void pred_jxl_apply(char *buf, int iw, int ih, short *allparams, int fwd)
+void   pred_jxl_optimizeall(unsigned char *buf2, int iw, int ih, int loud)
+{
+	int res=iw*ih;
+	unsigned char *buf3=(unsigned char*)malloc((size_t)res<<2);
+	int step[]={64, 8, 1};
+	double csize0[3]={0};
+	for(int kc=0;kc<3;++kc)
+	{
+		for(int ks=0;ks<3;++ks)
+		{
+			for(int it=0, improve=1;it<64&&improve;++it)
+			{
+				improve=0;
+				for(int idx=0;idx<11;++idx)
+				{
+					double csize=pred_jxl_optimize((char*)buf2, iw, ih, kc, jxlparams_i16+11*kc, step[ks], idx, (char*)buf3, loud);
+					if(!csize0[kc]||csize0[kc]>csize)
+						csize0[kc]=csize, improve=1;
+					if(loud)
+						printf("C%d S%2d  %4d %15lf %d\n", kc, step[ks], idx, csize, improve);
+				}
+			}
+		}
+	}
+	free(buf3);
+}
+void   pred_jxl_apply(char *buf, int iw, int ih, short *allparams, int fwd)
 {
 	int res=iw*ih;
 	int *temp=(int*)malloc((size_t)iw*10*sizeof(int));
@@ -916,9 +1173,9 @@ void colortransform_ycocg_fwd(char *buf, int iw, int ih)//3 channels, stride 4 b
 		g-=b;
 		b+=g>>1;
 
-		buf[k  ]=r;
-		buf[k|1]=g;
-		buf[k|2]=b;
+		buf[k  ]=r;//Co
+		buf[k|1]=g;//Cg
+		buf[k|2]=b;//Y
 	}
 }
 void colortransform_ycocg_inv(char *buf, int iw, int ih)//3 channels, stride 4 bytes
@@ -937,7 +1194,7 @@ void colortransform_ycocg_inv(char *buf, int iw, int ih)//3 channels, stride 4 b
 		buf[k|2]=b;
 	}
 }
-void colortransform_ycocgt_fwd(char *buf, int iw, int ih)//3 channels, stride 4 bytes
+void colortransform_ycocb_fwd(char *buf, int iw, int ih)//3 channels, stride 4 bytes
 {
 	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
 	{
@@ -948,12 +1205,12 @@ void colortransform_ycocgt_fwd(char *buf, int iw, int ih)//3 channels, stride 4 
 		b-=g;
 		g+=b>>1;
 
-		buf[k  ]=r;
-		buf[k|1]=g;
-		buf[k|2]=b;
+		buf[k  ]=r;//Co
+		buf[k|1]=g;//Y
+		buf[k|2]=b;//Cb
 	}
 }
-void colortransform_ycocgt_inv(char *buf, int iw, int ih)//3 channels, stride 4 bytes
+void colortransform_ycocb_inv(char *buf, int iw, int ih)//3 channels, stride 4 bytes
 {
 	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
 	{

@@ -2403,7 +2403,7 @@ void batch_test(const char *path)
 		//experiment 10: predictor sorts neighbors
 #if 0
 		addbuf(buf, iw, ih, 3, 4, 128);
-		colortransform_ycocgt_fwd((char*)buf, iw, ih);
+		colortransform_ycocb_fwd((char*)buf, iw, ih);
 		addbuf(buf, iw, ih, 3, 4, 128);
 		//apply_transforms_fwd(buf, iw, ih);
 
@@ -3191,7 +3191,7 @@ int main(int argc, char **argv)
 		printf("E10 estimate\n");
 		memcpy(b2, buf, len);
 		addbuf(b2, iw, ih, 3, 4, 128);
-		colortransform_ycocgt_fwd((char*)b2, iw, ih);
+		colortransform_ycocb_fwd((char*)b2, iw, ih);
 		//pred_grad_fwd((char*)b2, iw, ih, 3, 4);
 		addbuf(b2, iw, ih, 3, 4, 128);
 
@@ -3240,7 +3240,7 @@ int main(int argc, char **argv)
 #if 1
 		addbuf(b2, iw, ih, 3, 4, 128);
 		pred_grad_inv((char*)b2, iw, ih, 3, 4);
-		colortransform_ycocgt_inv((char*)b2, iw, ih);
+		colortransform_ycocb_inv((char*)b2, iw, ih);
 		addbuf(b2, iw, ih, 3, 4, 128);
 #endif
 		cycles=__rdtsc()-cycles;
@@ -3445,7 +3445,7 @@ int main(int argc, char **argv)
 #endif
 
 	//test 23: test 16 optimizer
-#if 1
+#if 0
 	{
 		printf("T23\n");
 		cycles=__rdtsc();
@@ -3461,6 +3461,91 @@ int main(int argc, char **argv)
 		array_free(&cdata);
 		compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T23", 0);
 		memset(b2, 0, len);
+		printf("\n");
+	}
+#endif
+
+	//YCoCb
+#if 0
+	{
+		int color=0xFF000000;
+		memfill(b2, &color, len, 4);
+		for(int ky=0;ky<256;++ky)
+		{
+			for(int kx=0;kx<256;++kx)
+			{
+				int idx=iw*ky+kx;
+				
+				//YCoCg
+				b2[idx<<2  ]=kx-128;//Cr
+				b2[idx<<2|1]=ky-128;//Cb
+				b2[idx<<2|2]=0;
+
+				//YCoCgT
+				//b2[idx<<2  ]=kx-128;//Cr
+				//b2[idx<<2|1]=0;//Y
+				//b2[idx<<2|2]=ky-128;//Cb
+			}
+		}
+		colortransform_ycocg_inv((char*)b2, iw, ih);
+		addbuf(b2, iw, ih, 3, 4, 128);
+		image_save_png_rgba8("YCoCg.PNG", b2, iw, ih);//
+	}
+#endif
+
+	//truncation experiment
+#if 0
+	{
+		int *b3=(int*)malloc(len*sizeof(int));
+		int *b4=(int*)malloc(len*sizeof(int));
+		int *temp=(int*)malloc(iw*10LL*sizeof(int));
+		cvt_i8_i32(buf, iw, ih, b3);
+		addbuf_i32(b3, iw, ih, 3, 4, -128);
+		colortransform_ycocb_fwd_i32(b3, iw, ih);
+		for(int kc=0;kc<3;++kc)
+			pred_jxl_i32(b3+kc, iw, ih, kc, jxlparams_i32, 1, b4, temp);
+		double csize=estimate_csize_i32(b4, iw, ih, 10, 9, 10);
+		double csize0=estimate_csize_i32_trunc(b4, iw, ih, 10, 9, 10);
+		printf("Overflow test\n");
+		printf("est. complete  csize %lf  usize %lld  CR %lf\n", csize, usize, usize/csize);
+		printf("est. truncated csize %lf  usize %lld  CR %lf\n", csize0, usize, usize/csize0);
+		printf("\n");
+		free(b3);
+		free(b4);
+		free(temp);
+	}
+#endif
+
+	//experiment 24: adaptive test16 params
+#if 1
+	{
+		printf("E24\n");
+		int res=iw*ih;
+		double bestsize=0;
+		int bestw=0, besti=0, beste=0;
+		double csizes[4];
+		int it=0;
+		for(int kw=15;kw<=15;++kw)
+		for(int ki=56;ki<=56;++ki)
+		for(int ke=8;ke<=8;++ke)
+		{
+			unsigned char minwidth[]={kw, 40, 15};//40	kw;//126;
+			unsigned char maxinc[]={ki, 84, 56};//84	ki;//121;
+			unsigned char encounter_threshold[]={ke, 8, 8};//8	ke;//31;//0xBF		255-100+k
+			printf("W %3d I %3d E %3d %9.6lf%%\t", (int)minwidth[2], (int)maxinc[2], encounter_threshold[2], encounter_threshold[2]*100./0xFF);
+			csizes[0]=e24_estimate(buf, iw, ih, minwidth, maxinc, encounter_threshold, csizes+1);
+			//printf("\n");
+			if(!it||bestsize>csizes[0])
+				bestsize=csizes[0], bestw=minwidth[2], besti=maxinc[2], beste=encounter_threshold[2];
+			++it;
+		}
+		printf("best W %d  I %d  E %d  CR %lf\n", bestw, besti, beste, usize/bestsize);
+		//csizes[0]=e24_estimate(buf, iw, ih, 8, 64, 0xBF, csizes+1);
+
+		//printf("T %14lf  CR %lf\n", csizes[0], usize/csizes[0]);
+		//printf("R %14lf  CR %lf\n", csizes[1], res/csizes[1]);
+		//printf("G %14lf  CR %lf\n", csizes[2], res/csizes[2]);
+		//printf("B %14lf  CR %lf\n", csizes[3], res/csizes[3]);
 		printf("\n");
 	}
 #endif
@@ -3494,7 +3579,7 @@ int main(int argc, char **argv)
 #if 1
 		memcpy(b2, buf, len);
 
-		colortransform_ycocgt_fwd((char*)b2, iw, ih);
+		colortransform_ycocb_fwd((char*)b2, iw, ih);
 		float jxlparams[33]=
 		{
 			 0.78f,    0.71f,    0.63f,   0.7f ,		-0.08f,   -0.01f,    0.59f,   0.12f,    -0.11f,   0.28f,    0.67f,

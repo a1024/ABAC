@@ -210,10 +210,22 @@ int    test22_decode(const unsigned char *data, size_t srclen, int bw, int bh, i
 size_t test23_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud, int *csizes);
 int    test23_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
 
+double e24_estimate(const unsigned char *src, int iw, int ih, unsigned char *gw0, unsigned char *maxinc, unsigned char *encounter_threshold, double *ret_csizes);//{16, 64, 0xBF}
+
 
 
 
 //transforms
+void cvt_i8_i32(const char *src, int iw, int ih, int *dst);
+void addbuf_i32(int *buf, int iw, int ih, int nch, int bytestride, int amount);
+void colortransform_ycocb_fwd_i32(int *buf, int iw, int ih);
+void colortransform_ycocb_inv_i32(int *buf, int iw, int ih);
+extern int jxlparams_i32[33];
+void pred_jxl_i32(const int *src, int iw, int ih, int kc, const int *params, int fwd, int *dst, int *temp_w10);
+double estimate_csize_i32(int *buf, int iw, int ih, int nr, int ng, int nb);
+double estimate_csize_i32_trunc(int *buf, int iw, int ih, int nr, int ng, int nb);
+
+
 void apply_transforms_fwd(unsigned char *buf, int bw, int bh);
 void apply_transforms_inv(unsigned char *buf, int bw, int bh);
 
@@ -225,8 +237,8 @@ void colortransform_xyz_fwd(char *buf, int iw, int ih);//3 channels, stride 4 by
 void colortransform_xyz_inv(char *buf, int iw, int ih);
 void colortransform_ycocg_fwd(char *buf, int iw, int ih);
 void colortransform_ycocg_inv(char *buf, int iw, int ih);
-void colortransform_ycocgt_fwd(char *buf, int iw, int ih);//like YCoCg but with g & b swapped
-void colortransform_ycocgt_inv(char *buf, int iw, int ih);
+void colortransform_ycocb_fwd(char *buf, int iw, int ih);//like YCoCg but with g & b swapped
+void colortransform_ycocb_inv(char *buf, int iw, int ih);
 
 //YCoCg-R		8 bit <-> ps,  3 channels, pixel stride 4 bytes,  Y in [0, 1], Co/Cg in [-1, 1],  used by AVC/HEVC/VVC
 void YCoCg_8bit_ps_fwd(const unsigned char *src, ptrdiff_t res, float *bufY, float *bufCo, float *bufCg);
@@ -238,7 +250,8 @@ extern short jxlparams_i16[33];
 void pred_jxl_prealloc(const char *src, int iw, int ih, int kc, const short *params, int fwd, char *dst, int *temp_w10);
 void calc_histogram(unsigned char *buf, ptrdiff_t len, ptrdiff_t stride, int *hist);
 double pred_jxl_optimize(const char *src, int iw, int ih, int kc, short *params, int step, int pidx, char *dst, int loud);
-void pred_jxl_apply(char *buf, int iw, int ih, short *allparams, int fwd);
+void   pred_jxl_optimizeall(unsigned char *buf2, int iw, int ih, int loud);
+void   pred_jxl_apply(char *buf, int iw, int ih, short *allparams, int fwd);
 
 //void pred_jxl(char *buf, int iw, int ih, int kc, int bytestride, double *params, int fwd);//deprecated
 

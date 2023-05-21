@@ -3894,6 +3894,7 @@ size_t test14_encode(const unsigned char *src, int bw, int bh, int lgblockdim, A
 
 //	#define T16_ENABLE_CONF
 
+//test 16: encode blocks using mixed histogram from causal neighbors (margin)
 int get_mean_p16(const unsigned char *buf, int bw, int kc, int x1, int x2, int y1, int y2)
 {
 	long long sum=0;
@@ -4994,7 +4995,7 @@ size_t test18_encode(const unsigned char *src, int bw, int bh, ArrayHandle *data
 	memcpy(b2, src, (size_t)res<<2);
 
 	addbuf(b2, bw, bh, 3, 4, 128);//unsigned char -> signed char
-	colortransform_ycocgt_fwd((char*)b2, bw, bh);
+	colortransform_ycocb_fwd((char*)b2, bw, bh);
 	ArrayHandle sizes=dwt2d_gensizes(bw, bh, 3, 3, 0);
 	unsigned char *temp=(unsigned char*)malloc(MAXVAR(bw, bh));
 	DWTSize *psizes=(DWTSize*)sizes->data;
@@ -5354,7 +5355,7 @@ size_t test19_encode(const unsigned char *src, int bw, int bh, int alpha, int bl
 
 #if 1
 	addbuf(b2, bw, bh, 3, 4, 128);//unsigned char -> signed char
-	colortransform_ycocgt_fwd((char*)b2, bw, bh);
+	colortransform_ycocb_fwd((char*)b2, bw, bh);
 	pred_grad_fwd((char*)b2, bw, bh, 3, 4);
 
 	unsigned char *temp=(unsigned char*)malloc(MAXVAR(bw, bh));
@@ -5624,7 +5625,7 @@ int test19_decode(const unsigned char *data, size_t srclen, int bw, int bh, int 
 		//dwt2d_cdf97_inv  ((char*)buf+kc, psizes, 0, nsizes, 4, (char*)temp);
 	
 	pred_grad_inv((char*)buf, bw, bh, 3, 4);
-	colortransform_ycocgt_inv((char*)buf, bw, bh);
+	colortransform_ycocb_inv((char*)buf, bw, bh);
 	addbuf(buf, bw, bh, 3, 4, 128);//back to unsigned char
 	free(temp);
 #endif
@@ -6228,7 +6229,7 @@ int    e10_encode_ch(const unsigned char *src, int bw, int bh, int kc, ArrayHand
 
 #if 1
 	addbuf(b2, bw, bh, 3, 4, 128);
-	colortransform_ycocgt_fwd((char*)b2, bw, bh);
+	colortransform_ycocb_fwd((char*)b2, bw, bh);
 	//pred_grad_fwd((char*)b2, bw, bh, 3, 4);
 	addbuf(b2, bw, bh, 3, 4, 128);
 #endif
@@ -6560,7 +6561,7 @@ int    e10dash_encode_ch(const unsigned char *src, int bw, int bh, int kc, int a
 
 #if 1
 	addbuf(b2, bw, bh, 3, 4, 128);
-	colortransform_ycocgt_fwd((char*)b2, bw, bh);
+	colortransform_ycocb_fwd((char*)b2, bw, bh);
 	pred_grad_fwd((char*)b2, bw, bh, 3, 4);
 	addbuf(b2, bw, bh, 3, 4, 128);
 #endif
