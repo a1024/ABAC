@@ -81,8 +81,8 @@ typedef enum TransformTypeEnum
 {
 	T_NONE,
 
-	CT_FWD_YCoCg,		CT_INV_YCoCg,
-	CT_FWD_YCoCgT,		CT_INV_YCoCgT,
+	CT_FWD_YCoCg,		CT_INV_YCoCg,//HEVC, VVC
+	CT_FWD_YCoCb,		CT_INV_YCoCb,
 	CT_FWD_XGZ,			CT_INV_XGZ,
 	CT_FWD_XYZ,			CT_INV_XYZ,
 //	CT_FWD_EXP,			CT_INV_EXP,
@@ -90,12 +90,13 @@ typedef enum TransformTypeEnum
 	CT_FWD_CUSTOM,		CT_INV_CUSTOM,
 
 	CST_SEPARATOR,
+	
+	ST_FWD_JOINT,		ST_INV_JOINT,
+//	ST_FWD_HYBRID3,		ST_INV_HYBRID3,
 
-	ST_FWD_HYBRID3,		ST_INV_HYBRID3,
-
-	ST_FWD_DIFF2D,		ST_INV_DIFF2D,
+//	ST_FWD_DIFF2D,		ST_INV_DIFF2D,
 	ST_FWD_GRAD2,		ST_INV_GRAD2,
-	ST_FWD_ADAPTIVE,	ST_INV_ADAPTIVE,
+//	ST_FWD_ADAPTIVE,	ST_INV_ADAPTIVE,
 	ST_FWD_JXL,			ST_INV_JXL,
 	ST_FWD_SORTNB,		ST_INV_SORTNB,
 //	ST_FWD_MEDIAN,		ST_INV_MEDIAN,
@@ -105,7 +106,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_GRADPRED,	ST_INV_GRADPRED,
 	ST_FWD_CUSTOM,		ST_INV_CUSTOM,
 	ST_FWD_DCT4,		ST_INV_DCT4,
-	ST_FWD_DCT8,		ST_INV_DCT8,
+//	ST_FWD_DCT8,		ST_INV_DCT8,
 	ST_FWD_SHUFFLE,		ST_INV_SHUFFLE,
 //	ST_FWD_SPLIT,		ST_INV_SPLIT,
 
@@ -172,8 +173,8 @@ void transforms_update()
 				tid2==ST_INV_EXPDWT||
 				tid2==ST_FWD_CUSTOM_DWT||
 				tid2==ST_INV_CUSTOM_DWT||
-				tid2==ST_FWD_HYBRID3||
-				tid2==ST_INV_HYBRID3||
+			//	tid2==ST_FWD_HYBRID3||
+			//	tid2==ST_INV_HYBRID3||
 			//	tid2==ST_FWD_ADAPTIVE||
 			//	tid2==ST_INV_ADAPTIVE||
 			//	tid2==ST_FWD_JXL||
@@ -221,8 +222,8 @@ void transforms_append(unsigned tid)
 				tid==ST_INV_EXPDWT||
 				tid==ST_FWD_CUSTOM_DWT||
 				tid==ST_INV_CUSTOM_DWT||
-				tid==ST_FWD_HYBRID3||
-				tid==ST_INV_HYBRID3||
+			//	tid==ST_FWD_HYBRID3||
+			//	tid==ST_INV_HYBRID3||
 			//	tid==ST_FWD_ADAPTIVE||
 			//	tid==ST_INV_ADAPTIVE||
 			//	tid==ST_FWD_JXL||
@@ -262,10 +263,10 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	switch(tid)
 	{
 	case T_NONE:				a="NONE";					break;
-	case CT_FWD_YCoCg:			a="C  Fwd YCoCg";			break;
-	case CT_INV_YCoCg:			a="C  Inv YCoCg";			break;
-	case CT_FWD_YCoCgT:			a="C  Fwd YCoCgT";			break;
-	case CT_INV_YCoCgT:			a="C  Inv YCoCgT";			break;
+	case CT_FWD_YCoCg:			a="C  Fwd YCoCg-R";			break;
+	case CT_INV_YCoCg:			a="C  Inv YCoCg-R";			break;
+	case CT_FWD_YCoCb:			a="C  Fwd YCoCb-R";			break;
+	case CT_INV_YCoCb:			a="C  Inv YCoCb-R";			break;
 	case CT_FWD_XGZ:			a="C  Fwd XGZ";				break;
 	case CT_INV_XGZ:			a="C  Inv XGZ";				break;
 	case CT_FWD_XYZ:			a="C  Fwd XYZ";				break;
@@ -277,16 +278,19 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case CT_FWD_CUSTOM:			a="C  Fwd CUSTOM";			break;
 	case CT_INV_CUSTOM:			a="C  Inv CUSTOM";			break;
 	case CST_SEPARATOR:			a="";						break;
-	case ST_FWD_HYBRID3:		a=" S Fwd Hybrid3";			break;
-	case ST_INV_HYBRID3:		a=" S Inv Hybrid3";			break;
-	case ST_FWD_DIFF2D:			a=" S Fwd 2D derivative";	break;
-	case ST_INV_DIFF2D:			a=" S Inv 2D derivative";	break;
+	case ST_FWD_JOINT:			a=" S Fwd Joint";			break;
+	case ST_INV_JOINT:			a=" S Inv Joint";			break;
+//	case ST_FWD_HYBRID3:		a=" S Fwd Hybrid3";			break;
+//	case ST_INV_HYBRID3:		a=" S Inv Hybrid3";			break;
+
+//	case ST_FWD_DIFF2D:			a=" S Fwd 2D derivative";	break;
+//	case ST_INV_DIFF2D:			a=" S Inv 2D derivative";	break;
 //	case ST_FWD_HPF:			a=" S Fwd HPF";				break;
 //	case ST_INV_HPF:			a=" S Inv HPF";				break;
 	case ST_FWD_GRAD2:			a=" S Fwd Grad2";			break;
 	case ST_INV_GRAD2:			a=" S Inv Grad2";			break;
-	case ST_FWD_ADAPTIVE:		a=" S Fwd Adaptive";		break;
-	case ST_INV_ADAPTIVE:		a=" S Inv Adaptive";		break;
+//	case ST_FWD_ADAPTIVE:		a=" S Fwd Adaptive";		break;
+//	case ST_INV_ADAPTIVE:		a=" S Inv Adaptive";		break;
 	case ST_FWD_JXL:			a=" S Fwd JXL";				break;
 	case ST_INV_JXL:			a=" S Inv JXL";				break;
 	case ST_FWD_SORTNB:			a=" S Fwd Sort Nb";			break;
@@ -301,8 +305,8 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case ST_INV_GRADPRED:		a=" S Inv Gradient";		break;
 	case ST_FWD_DCT4:			a=" S Fwd DCT4";			break;
 	case ST_INV_DCT4:			a=" S Inv DCT4";			break;
-	case ST_FWD_DCT8:			a=" S Fwd DCT8";			break;
-	case ST_INV_DCT8:			a=" S Inv DCT8";			break;
+//	case ST_FWD_DCT8:			a=" S Fwd DCT8";			break;
+//	case ST_INV_DCT8:			a=" S Inv DCT8";			break;
 	case ST_FWD_SHUFFLE:		a=" S Fwd Shuffle";			break;
 	case ST_INV_SHUFFLE:		a=" S Inv Shuffle";			break;
 //	case ST_FWD_SPLIT:			a=" S Fwd Split";			break;
@@ -756,8 +760,8 @@ void update_image()
 			{
 			case CT_FWD_YCoCg:		colortransform_ycocg_fwd((char*)image, iw, ih);		break;
 			case CT_INV_YCoCg:		colortransform_ycocg_inv((char*)image, iw, ih);		break;
-			case CT_FWD_YCoCgT:		colortransform_ycocgt_fwd((char*)image, iw, ih);	break;
-			case CT_INV_YCoCgT:		colortransform_ycocgt_inv((char*)image, iw, ih);	break;
+			case CT_FWD_YCoCb:		colortransform_ycocb_fwd((char*)image, iw, ih);		break;
+			case CT_INV_YCoCb:		colortransform_ycocb_inv((char*)image, iw, ih);		break;
 			case CT_FWD_XGZ:		colortransform_xgz_fwd((char*)image, iw, ih);		break;
 			case CT_INV_XGZ:		colortransform_xgz_inv((char*)image, iw, ih);		break;
 			case CT_FWD_XYZ:		colortransform_xyz_fwd((char*)image, iw, ih);		break;
@@ -769,17 +773,19 @@ void update_image()
 			case CT_FWD_CUSTOM:		colortransform_custom_fwd((char*)image, iw, ih);	break;
 			case CT_INV_CUSTOM:		colortransform_custom_inv((char*)image, iw, ih);	break;
 
-			case ST_FWD_HYBRID3:	pred_hybrid_fwd((char*)image, iw, ih);				break;
-			case ST_INV_HYBRID3:	pred_hybrid_inv((char*)image, iw, ih);				break;
+			case ST_FWD_JOINT:		pred_joint_apply((char*)image, iw, ih, jointpredparams, 1);break;
+			case ST_INV_JOINT:		pred_joint_apply((char*)image, iw, ih, jointpredparams, 0);break;
+		//	case ST_FWD_HYBRID3:	pred_hybrid_fwd((char*)image, iw, ih);				break;
+		//	case ST_INV_HYBRID3:	pred_hybrid_inv((char*)image, iw, ih);				break;
 
-			case ST_FWD_DIFF2D:		pred_diff2d_fwd((char*)image, iw, ih, 3, 4);		break;
-			case ST_INV_DIFF2D:		pred_diff2d_inv((char*)image, iw, ih, 3, 4);		break;
+		//	case ST_FWD_DIFF2D:		pred_diff2d_fwd((char*)image, iw, ih, 3, 4);		break;
+		//	case ST_INV_DIFF2D:		pred_diff2d_inv((char*)image, iw, ih, 3, 4);		break;
 		//	case ST_FWD_HPF:		pred_hpf_fwd((char*)image, iw, ih, 3, 4);			break;
 		//	case ST_INV_HPF:		pred_hpf_inv((char*)image, iw, ih, 3, 4);			break;
 			case ST_FWD_GRAD2:		pred_grad2_fwd((char*)image, iw, ih, 3, 4);			break;
 			case ST_INV_GRAD2:		pred_grad2_inv((char*)image, iw, ih, 3, 4);			break;
-			case ST_FWD_ADAPTIVE:	pred_adaptive((char*)image, iw, ih, 3, 4, 1);		break;
-			case ST_INV_ADAPTIVE:	pred_adaptive((char*)image, iw, ih, 3, 4, 0);		break;
+		//	case ST_FWD_ADAPTIVE:	pred_adaptive((char*)image, iw, ih, 3, 4, 1);		break;
+		//	case ST_INV_ADAPTIVE:	pred_adaptive((char*)image, iw, ih, 3, 4, 0);		break;
 			case ST_FWD_JXL:		pred_jxl_apply((char*)image, iw, ih, jxlparams_i16, 1);break;
 			case ST_INV_JXL:		pred_jxl_apply((char*)image, iw, ih, jxlparams_i16, 0);break;
 		//	case ST_FWD_JXL:		pred_jxl((char*)image, iw, ih, 3, 4, 1);			break;
@@ -798,8 +804,8 @@ void update_image()
 			case ST_INV_CUSTOM:		pred_custom_inv((char*)image, iw, ih, 3, 4);		break;
 			case ST_FWD_DCT4:		image_dct4_fwd((char*)image, iw, ih);				break;
 			case ST_INV_DCT4:		image_dct4_inv((char*)image, iw, ih);				break;
-			case ST_FWD_DCT8:		image_dct8_fwd((char*)image, iw, ih);				break;
-			case ST_INV_DCT8:		image_dct8_inv((char*)image, iw, ih);				break;
+		//	case ST_FWD_DCT8:		image_dct8_fwd((char*)image, iw, ih);				break;
+		//	case ST_INV_DCT8:		image_dct8_inv((char*)image, iw, ih);				break;
 			case ST_FWD_SHUFFLE:	shuffle((char*)image, iw, ih, 1);					break;
 			case ST_INV_SHUFFLE:	shuffle((char*)image, iw, ih, 0);					break;
 		//	case ST_FWD_SPLIT:		image_split_fwd((char*)image, iw, ih);				break;
@@ -1236,7 +1242,7 @@ void applycolortransform(int tidx)
 		colortransform_ycocg_fwd((unsigned char*)image, iw, ih);
 		break;
 	case CT_YCoCgT:
-		colortransform_ycocgt_fwd((unsigned char*)image, iw, ih);
+		colortransform_ycocb_fwd((unsigned char*)image, iw, ih);
 		break;
 	case CT_XGZ:
 		colortransform_xgz_fwd((unsigned char*)image, iw, ih);
@@ -1266,7 +1272,7 @@ void undocolortransform(int tidx)
 		colortransform_ycocg_inv((unsigned char*)image, iw, ih);
 		break;
 	case CT_YCoCgT:
-		colortransform_ycocgt_inv((unsigned char*)image, iw, ih);
+		colortransform_ycocb_inv((unsigned char*)image, iw, ih);
 		break;
 	case CT_XGZ:
 		colortransform_xgz_inv((unsigned char*)image, iw, ih);
@@ -2024,18 +2030,37 @@ toggle_drag:
 					}
 				}
 			}
-			else if(transforms_mask[ST_FWD_HYBRID3]||transforms_mask[ST_INV_HYBRID3])
+			else if(transforms_mask[ST_FWD_JOINT]||transforms_mask[ST_INV_JOINT])
 			{
-				for(int ko=0;ko<3;++ko)
+				for(int ky=0;ky<3;++ky)
 				{
-					for(int ky=0;ky<3;++ky)
+					for(int kx=0;kx<24;++kx)
 					{
-						for(int kx=0;kx<24;++kx)
-							printed+=snprintf((char*)str->data+printed, str->count-printed, "%g%c", customparam_hybrid[24*(3*ko+ky)+kx], kx+1<24?'\t':'\n');
+						int val=jointpredparams[24*ky+kx];
+						printed+=snprintf((char*)str->data+printed, str->count-printed, "%c0x%08X,%c", val<0?'-':' ', abs(val), kx+1<24?' ':'\n');
 					}
-					printed+=snprintf((char*)str->data+printed, str->count-printed, "\n");
+				}
+				for(int ky=0;ky<3;++ky)
+				{
+					for(int kx=0;kx<4;++kx)
+					{
+						int val=jointpredparams[72+24*ky+kx];
+						printed+=snprintf((char*)str->data+printed, str->count-printed, "%c0x%08X,%c", val<0?'-':' ', abs(val), kx+1<4?' ':'\n');
+					}
 				}
 			}
+			//else if(transforms_mask[ST_FWD_HYBRID3]||transforms_mask[ST_INV_HYBRID3])
+			//{
+			//	for(int ko=0;ko<3;++ko)
+			//	{
+			//		for(int ky=0;ky<3;++ky)
+			//		{
+			//			for(int kx=0;kx<24;++kx)
+			//				printed+=snprintf((char*)str->data+printed, str->count-printed, "%g%c", customparam_hybrid[24*(3*ko+ky)+kx], kx+1<24?'\t':'\n');
+			//		}
+			//		printed+=snprintf((char*)str->data+printed, str->count-printed, "\n");
+			//	}
+			//}
 			else if(transforms_customenabled)
 			{
 				for(int ky=0;ky<customparam_ct_h;++ky)
@@ -2076,7 +2101,7 @@ toggle_drag:
 						if(text->data[idx]=='0'&&(text->data[idx]&0xDF)=='X')//skip hex prefix
 							idx+=2;
 						char *end=text->data+idx;
-						jxlparams_i16[k]=(short)strtol(text->data+idx, &end, 16);
+						jxlparams_i16[k]=(int)strtol(text->data+idx, &end, 16);
 						idx=(int)(end-text->data);
 						if(neg)
 							jxlparams_i16[k]=-jxlparams_i16[k];
@@ -2087,18 +2112,41 @@ toggle_drag:
 							goto paste_finish;
 					}
 				}
-				else if(transforms_mask[ST_FWD_HYBRID3]||transforms_mask[ST_INV_HYBRID3])
+				else if(transforms_mask[ST_FWD_JOINT]||transforms_mask[ST_INV_JOINT])
 				{
-					k=0, kend=COUNTOF(customparam_hybrid), idx=0;
+					k=0, kend=COUNTOF(jointpredparams), idx=0;
 					for(;k<kend;++k)
 					{
 						for(;idx<text->count&&isspace(text->data[idx]);++idx);
-						customparam_hybrid[k]=atof(text->data+idx);
-						for(;idx<text->count&&!isspace(text->data[idx]);++idx);
+
+						int neg=text->data[idx]=='-';
+						idx+=neg;//skip sign
+						if(text->data[idx]=='0'&&(text->data[idx]&0xDF)=='X')//skip hex prefix
+							idx+=2;
+						char *end=text->data+idx;
+						jointpredparams[k]=(int)strtol(text->data+idx, &end, 16);
+						idx=(int)(end-text->data);
+						if(neg)
+							jointpredparams[k]=-jointpredparams[k];
+
+						for(;idx<text->count&&!isspace(text->data[idx]);++idx);//skip comma
+
 						if(idx>=text->count)
 							goto paste_finish;
 					}
 				}
+				//else if(transforms_mask[ST_FWD_HYBRID3]||transforms_mask[ST_INV_HYBRID3])
+				//{
+				//	k=0, kend=COUNTOF(customparam_hybrid), idx=0;
+				//	for(;k<kend;++k)
+				//	{
+				//		for(;idx<text->count&&isspace(text->data[idx]);++idx);
+				//		customparam_hybrid[k]=atof(text->data+idx);
+				//		for(;idx<text->count&&!isspace(text->data[idx]);++idx);
+				//		if(idx>=text->count)
+				//			goto paste_finish;
+				//	}
+				//}
 				else if(transforms_customenabled)
 				{
 					k=0, kend=COUNTOF(customparam_ct), idx=0;
@@ -2168,16 +2216,29 @@ toggle_drag:
 		{
 			if(transforms_customenabled)
 				timer_start(50);
-			else if(transforms_mask[ST_FWD_JXL]||transforms_mask[ST_INV_JXL])
+			else if(transforms_mask[ST_FWD_JXL]||transforms_mask[ST_INV_JXL]||transforms_mask[ST_FWD_JOINT]||transforms_mask[ST_INV_JOINT])
 			{
+				int jxl=transforms_mask[ST_FWD_JXL]||transforms_mask[ST_INV_JXL];
 				if(GET_KEY_STATE(KEY_CTRL))
 				{
-					for(int k=0;k<33;++k)
-						jxlparams_i16[k]=(k%11<4)<<12;
+					if(jxl)
+					{
+						for(int k=0;k<33;++k)
+							jxlparams_i16[k]=(k%11<4)<<12;
+					}
+					else
+					{
+						memset(jointpredparams, 0, sizeof(jointpredparams));
+						//jointpredparams[0]=0x1000;
+						//jointpredparams[25]=0x1000;
+						//jointpredparams[50]=0x1000;
+						//for(int k=0;k<12;++k)
+						//	jointpredparams[72+k]=0x1000;
+					}
 				}
 				else
 				{
-					static int press=0;
+					//static int press=0;
 					int res=iw*ih;
 					char *buf2=(char*)malloc((size_t)res<<2);
 					char *buf3=(char*)malloc((size_t)res<<2);
@@ -2188,7 +2249,6 @@ toggle_drag:
 					}
 					memcpy(buf2, im0, (size_t)res<<2);
 					addhalf((unsigned char*)buf2, iw, ih, 3, 4);
-					colortransform_ycocgt_fwd(buf2, iw, ih);
 
 					int step=256;
 						 if(keyboard['1'])step=128;
@@ -2206,10 +2266,19 @@ toggle_drag:
 					//step+=!step;
 
 					//int idx=press%33;
-					for(int idx=0;idx<33;++idx)
+					if(jxl)
 					{
-						int kc=idx/11;
-						pred_jxl_optimize(buf2, iw, ih, kc, jxlparams_i16+11*kc, step, idx%11, buf3, 0);
+						colortransform_ycocb_fwd(buf2, iw, ih);
+						for(int idx=0;idx<33;++idx)
+						{
+							int kc=idx/11;
+							pred_jxl_optimize(buf2, iw, ih, kc, jxlparams_i16+11*kc, step, idx%11, buf3, 0);
+						}
+					}
+					else
+					{
+						memset(buf3, 0xFF, (size_t)iw*ih<<2);
+						pred_joint_optimize(buf2, iw, ih, jointpredparams, step, buf3, 1);
 					}
 
 					//pred_jxl_optimize(buf2, iw, ih, 0, jxlparams_i16   , step, 1, buf3, 1);
@@ -2218,7 +2287,7 @@ toggle_drag:
 
 					free(buf2);
 					free(buf3);
-					++press;
+					//++press;
 				}
 				update_image();
 			}
@@ -2285,12 +2354,13 @@ void io_timer()
 
 	if(keyboard[KEY_SPACE])
 	{
-		if(transforms_mask[ST_FWD_HYBRID3]||transforms_mask[ST_INV_HYBRID3])
-		{
-			opt_causal_hybrid_r3(image, iw, ih, g_lr);
-			update_image();
-		}
-		else if(transforms_mask[ST_FWD_CUSTOM]||transforms_mask[ST_INV_CUSTOM])
+		//if(transforms_mask[ST_FWD_HYBRID3]||transforms_mask[ST_INV_HYBRID3])
+		//{
+		//	opt_causal_hybrid_r3(image, iw, ih, g_lr);
+		//	update_image();
+		//}
+		//else
+		if(transforms_mask[ST_FWD_CUSTOM]||transforms_mask[ST_INV_CUSTOM])
 		{
 			av_rmse=opt_causal_reach2(image, iw, ih, 1, customparam_st, customparam_ct+11, g_lr, 0);
 			update_image();
@@ -2530,7 +2600,7 @@ void io_render()
 		//long long prevcolor=set_text_colors(0xFF000000);
 		//float x=xstep*2, y=(float)(h>>1);
 
-		if(!(transforms_mask[ST_FWD_HYBRID3]||transforms_mask[ST_INV_HYBRID3]))
+		//if(!(transforms_mask[ST_FWD_HYBRID3]||transforms_mask[ST_INV_HYBRID3]))
 		{
 			//color transforms
 			//012345678901234567890123456789
@@ -2606,6 +2676,36 @@ void io_render()
 			printed+=snprintf(g_buf+printed, G_BUF_SIZE-printed, " %c%4X", val<0?'-':' ', abs(val));
 		}
 		print_line(0, x, y, 1, g_buf, printed, -1, 0, 0);
+	}
+	else if(transforms_mask[ST_FWD_JOINT]||transforms_mask[ST_INV_JOINT])
+	{
+		int printed;
+		float x, y;
+
+		x=tdx;
+		y=(float)((h>>1)+(h>>2));
+		for(int kc=0;kc<3;++kc)
+		{
+			printed=0;
+			for(int k=0;k<24;++k)
+			{
+				int val=jointpredparams[24*kc+k];
+				printed+=snprintf(g_buf+printed, G_BUF_SIZE-printed, " %c%08X", val<0?'-':' ', abs(val));
+			}
+			print_line(0, x, y, 0.75f, g_buf, printed, -1, 0, 0);
+			y+=tdy*0.75f;
+		}
+		for(int kc=0;kc<3;++kc)
+		{
+			printed=0;
+			for(int k=0;k<4;++k)
+			{
+				int val=jointpredparams[72+4*kc+k];
+				printed+=snprintf(g_buf+printed, G_BUF_SIZE-printed, " %c%08X", val<0?'-':' ', abs(val));
+			}
+			print_line(0, x, y, 0.75f, g_buf, printed, -1, 0, 0);
+			y+=tdy*0.75f;
+		}
 	}
 	const char *mode_str=0;
 	switch(mode)
@@ -2815,6 +2915,7 @@ void io_render()
 			//	grad2_rmse[3], grad2_hits[3],
 			//	grad2_rmse[4], grad2_hits[4]);
 		}
+#if 0
 		else if(transforms_mask[ST_FWD_ADAPTIVE]||transforms_mask[ST_INV_ADAPTIVE])
 		{
 			const char *prednames[]=
@@ -2901,6 +3002,7 @@ void io_render()
 				copied=1;
 			}
 		}
+#endif
 		else if(transforms_mask[ST_FWD_SORTNB]||transforms_mask[ST_INV_SORTNB])
 		{
 			const char *casenames[]=
@@ -3021,6 +3123,7 @@ void io_render()
 	t=t2;
 
 	//prof_add("finish");
+	swapbuffers();
 }
 int io_quit_request()//return 1 to exit
 {

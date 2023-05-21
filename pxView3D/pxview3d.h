@@ -24,6 +24,8 @@ extern float
 	NS_x0, NS_x1, NS_y0, NS_y1;
 extern float tdx, tdy;
 
+extern unsigned char *im0, *image;
+
 typedef enum IOKeyEnum
 {
 #if defined _MSC_VER || defined _WINDOWS || defined _WIN32
@@ -203,6 +205,7 @@ ArrayHandle dialog_open_folder();
 ArrayHandle	dialog_open_file(Filter *filters, int nfilters, int multiple);
 const char*	dialog_save_file(Filter *filters, int nfilters, const char *initialname);
 
+void get_window_title(char *buf, int len);
 void set_window_title(const char *format, ...);
 
 int copy_to_clipboard(const char *a, int size);
@@ -216,6 +219,8 @@ void timer_stop();
 void set_mouse(int x, int y);
 void get_mouse(int *px, int *py);
 void show_mouse(int show);
+
+void swapbuffers();
 
 
 //OpenGL standard macros & types
@@ -617,8 +622,8 @@ void colortransform_xyz_fwd   (char *buf, int iw, int ih);
 void colortransform_xyz_inv   (char *buf, int iw, int ih);
 void colortransform_ycocg_fwd (char *buf, int iw, int ih);
 void colortransform_ycocg_inv (char *buf, int iw, int ih);
-void colortransform_ycocgt_fwd(char *buf, int iw, int ih);
-void colortransform_ycocgt_inv(char *buf, int iw, int ih);
+void colortransform_ycocb_fwd(char *buf, int iw, int ih);
+void colortransform_ycocb_inv(char *buf, int iw, int ih);
 
 void colortransform_exp_fwd  (char *buf, int iw, int ih);
 void colortransform_exp_inv  (char *buf, int iw, int ih);
@@ -658,6 +663,14 @@ extern int    adagrad_hits[ADAGRADCOUNT];
 extern double adagrad_rmse[ADAGRADCOUNT], adagrad_csize[ADAGRADCOUNT];
 extern double adagrad_abserror[ADAGRADCOUNT], adagrad_signederror[ADAGRADCOUNT];
 void pred_adaptive(char *buf, int iw, int ih, int nch, int bytestride, int fwd);
+
+
+#define PREDJOINT_NPARAMS ((24+4)*3)
+extern int jointpredparams[PREDJOINT_NPARAMS];
+void   pred_joint(const char *src, int iw, int ih, int *params, int fwd, char *dst, int *temp_w24);
+double pred_joint_calcsize(const char *src, int iw, int ih, int *params, int *temp, char *dst, int *hist, int loud, int iter, int itcount);
+void   pred_joint_optimize(const char *src, int iw, int ih, int *params, int step, char *dst, int loud);
+void   pred_joint_apply(char *buf, int iw, int ih, int *allparams, int fwd);
 
 
 extern short jxlparams_i16[33];

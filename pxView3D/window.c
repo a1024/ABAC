@@ -576,6 +576,10 @@ const char* dialog_save_file(Filter *filters, int nfilters, const char *initialn
 	//return g_buf;
 }
 
+void get_window_title(char *buf, int len)
+{
+	GetWindowTextA(ghWnd, buf, len);
+}
 void set_window_title(const char *format, ...)
 {
 	va_list args;
@@ -659,6 +663,10 @@ void show_mouse(int show)
 	ShowCursor(show);
 }
 
+void swapbuffers()
+{
+	SwapBuffers(ghDC);
+}
 LRESULT __stdcall WndProc(HWND hWnd, unsigned message, WPARAM wParam, LPARAM lParam)
 {
 	switch(message)
@@ -674,12 +682,12 @@ LRESULT __stdcall WndProc(HWND hWnd, unsigned message, WPARAM wParam, LPARAM lPa
 		io_timer();
 		io_render();
 		//prof_print();
-		SwapBuffers(ghDC);
+		//SwapBuffers(ghDC);
 		break;
 	case WM_PAINT:
 		io_render();
 		//prof_print();
-		SwapBuffers(ghDC);
+		//SwapBuffers(ghDC);
 		break;
 	case WM_ACTIVATE:
 		update_main_key_states();
