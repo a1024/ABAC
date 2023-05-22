@@ -2322,7 +2322,7 @@ void e24_prepblock(const unsigned char *buf2, const unsigned short *CDF0, int iw
 	}
 	CDF2[256]=0x10000;
 }
-double e24_estimate(const unsigned char *src, int iw, int ih, unsigned char *gw0, unsigned char *maxinc, unsigned char *encounter_threshold, double *ret_csizes)//{16, 64, 0xBF}
+double e24_estimate(const unsigned char *src, int iw, int ih, int cstart, int cend, unsigned char *gw0, unsigned char *maxinc, unsigned char *encounter_threshold, double *ret_csizes, int loud)//{16, 64, 0xBF}
 {
 	int res=iw*ih;
 	unsigned char *buf2=(unsigned char*)malloc((size_t)res<<2);
@@ -2338,7 +2338,7 @@ double e24_estimate(const unsigned char *src, int iw, int ih, unsigned char *gw0
 	memcpy(buf2, src, (size_t)res<<2);
 	apply_transforms_fwd(buf2, iw, ih);
 	
-	for(int kc=0;kc<3;++kc)
+	for(int kc=cstart;kc<cend;++kc)
 	{
 		memset(CDF2, 0, 256LL*sizeof(unsigned));
 		for(int k=0;k<res;++k)
@@ -2350,7 +2350,7 @@ double e24_estimate(const unsigned char *src, int iw, int ih, unsigned char *gw0
 	}
 
 	unsigned *CDF3=CDF2+256;
-	for(int kc=0;kc<3;++kc)
+	for(int kc=cstart;kc<cend;++kc)
 	{
 		for(int ky=0;ky<ih;++ky)
 		{
@@ -2375,25 +2375,25 @@ double e24_estimate(const unsigned char *src, int iw, int ih, unsigned char *gw0
 					unique&=CDF2[sym]==1;
 				}
 				T24Params *p=gwidths+res*kc+iw*ky+ng;
-				if(unique)
+				//if(unique)
 				{
-					for(;gend<iw;++gend)//expand group while next sym is unique
-					{
-						unsigned char sym=buf2[(iw*ky+kx+gend)<<2|kc];
-						if(CDF2[sym])
-							break;
-						++CDF2[sym];
-					}
-					p->gend=gend;
-
-					p->mleft=0;
-					p->mtop=0;
-					p->mright=0;
-
-					p->alpha=0;
-				}
-				else
-				{
+				//	for(;gend<iw;++gend)//expand group while next sym is unique
+				//	{
+				//		unsigned char sym=buf2[(iw*ky+kx+gend)<<2|kc];
+				//		if(CDF2[sym])
+				//			break;
+				//		++CDF2[sym];
+				//	}
+				//	p->gend=gend;
+				//
+				//	p->mleft=0;
+				//	p->mtop=0;
+				//	p->mright=0;
+				//
+				//	p->alpha=0;
+				//}
+				//else
+				//{
 					for(;gend<iw;++gend)//expand group while next sym is encountered before
 					{
 						unsigned char sym=buf2[(iw*ky+kx+gend)<<2|kc];
@@ -2555,9 +2555,9 @@ double e24_estimate(const unsigned char *src, int iw, int ih, unsigned char *gw0
 	
 	//encode
 	double csizes[3]={0};
-	int gcount[3]={0};
+	int gcount[3]={0}, zero_alpha[3]={0};
 	double av_gw[3]={0}, av_margin[9]={0}, av_alpha[3]={0};
-	for(int kc=0;kc<3;++kc)
+	for(int kc=cstart;kc<cend;++kc)
 	{
 		double chsize=0;
 		for(int ky=0;ky<ih;++ky)
@@ -2573,6 +2573,7 @@ double e24_estimate(const unsigned char *src, int iw, int ih, unsigned char *gw0
 				av_margin[3*kc+2]+=p->mright;
 				av_alpha[kc]+=p->alpha;
 				++gcount[kc];
+				zero_alpha[kc]+=!p->alpha;
 
 				if(p->alpha)
 					e24_prepblock(buf2, CDF0+((size_t)kc<<8), iw, ih, kc, kx, ky, maxinc[kc], p, CDF2);
@@ -2594,10 +2595,13 @@ double e24_estimate(const unsigned char *src, int iw, int ih, unsigned char *gw0
 	double csize=csizes[0]+csizes[1]+csizes[2];
 
 	int usize=res*3;
-	printf("T %14lf  CR %lf\n", csize, usize/csize);
-	printf("R %14lf  CR %lf  W %lf  M %10lf %10lf %10lf  A %lf%%\n", csizes[0], res/csizes[0], av_gw[0]/gcount[0], av_margin[0]/gcount[0], av_margin[1]/gcount[0], av_margin[2]/gcount[0], 100.*av_alpha[0]/(0xFF*gcount[0]));
-	printf("G %14lf  CR %lf  W %lf  M %10lf %10lf %10lf  A %lf%%\n", csizes[1], res/csizes[1], av_gw[1]/gcount[1], av_margin[3]/gcount[1], av_margin[4]/gcount[1], av_margin[5]/gcount[1], 100.*av_alpha[1]/(0xFF*gcount[1]));
-	printf("B %14lf  CR %lf  W %lf  M %10lf %10lf %10lf  A %lf%%\n", csizes[2], res/csizes[2], av_gw[2]/gcount[2], av_margin[6]/gcount[2], av_margin[7]/gcount[2], av_margin[8]/gcount[2], 100.*av_alpha[2]/(0xFF*gcount[2]));
+	if(loud)
+	{
+		printf("T %14lf  CR %lf\n", csize, usize/csize);
+		printf("R %14lf  CR %lf  W %lf  M %10lf %10lf %10lf  A %lf%% Z %lf%%\n", csizes[0], res/csizes[0], av_gw[0]/gcount[0], av_margin[0]/gcount[0], av_margin[1]/gcount[0], av_margin[2]/gcount[0], 100.*av_alpha[0]/(0xFF*gcount[0]), 100.*zero_alpha[0]/gcount[0]);
+		printf("G %14lf  CR %lf  W %lf  M %10lf %10lf %10lf  A %lf%% Z %lf%%\n", csizes[1], res/csizes[1], av_gw[1]/gcount[1], av_margin[3]/gcount[1], av_margin[4]/gcount[1], av_margin[5]/gcount[1], 100.*av_alpha[1]/(0xFF*gcount[1]), 100.*zero_alpha[1]/gcount[1]);
+		printf("B %14lf  CR %lf  W %lf  M %10lf %10lf %10lf  A %lf%% Z %lf%%\n", csizes[2], res/csizes[2], av_gw[2]/gcount[2], av_margin[6]/gcount[2], av_margin[7]/gcount[2], av_margin[8]/gcount[2], 100.*av_alpha[2]/(0xFF*gcount[2]), 100.*zero_alpha[2]/gcount[2]);
+	}
 
 	free(buf2);
 	free(CDF0);

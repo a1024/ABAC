@@ -3519,24 +3519,43 @@ int main(int argc, char **argv)
 	//experiment 24: adaptive test16 params
 #if 1
 	{
+#define SEARCH 1
 		printf("E24\n");
 		int res=iw*ih;
 		double bestsize=0;
 		int bestw=0, besti=0, beste=0;
 		double csizes[4];
 		int it=0;
-		for(int kw=15;kw<=15;++kw)
-		for(int ki=56;ki<=56;++ki)
-		for(int ke=8;ke<=8;++ke)
+		for(int kw=1;kw<=255;kw+=40)//min=1
+		for(int ki=1;ki<=255;ki+=40)//min=1
+		for(int ke=0;ke<=255;ke+=40)
 		{
-			unsigned char minwidth[]={kw, 40, 15};//40	kw;//126;
-			unsigned char maxinc[]={ki, 84, 56};//84	ki;//121;
-			unsigned char encounter_threshold[]={ke, 8, 8};//8	ke;//31;//0xBF		255-100+k
-			printf("W %3d I %3d E %3d %9.6lf%%\t", (int)minwidth[2], (int)maxinc[2], encounter_threshold[2], encounter_threshold[2]*100./0xFF);
-			csizes[0]=e24_estimate(buf, iw, ih, minwidth, maxinc, encounter_threshold, csizes+1);
-			//printf("\n");
+			int testchannel=1;
+			unsigned char minwidth[]={(24), 33, (28)};//expand group with same values			parens: not optimized
+			unsigned char maxinc[]={(51), 86, (51)};
+			unsigned char encounter_threshold[]={(161), 6, (61)};
+			
+			//unsigned char minwidth[]={(24), 35, (28)};//fixed group width
+			//unsigned char maxinc[]={(51), 84, (51)};
+			//unsigned char encounter_threshold[]={(161), 7, (61)};
+
+			//unsigned char minwidth[]={24, 4, 28};//expand group with unique values
+			//unsigned char maxinc[]={51, 64, 51};
+			//unsigned char encounter_threshold[]={161, 0, 61};
+
+			//unsigned char minwidth[]={15, 40, 15};//40	kw;//126;	//old algorithm
+			//unsigned char maxinc[]={56, 84, 56};//84	ki;//121;
+			//unsigned char encounter_threshold[]={8, 8, 8};//8	ke;//31;//0xBF		255-100+k		//{16, 64, 0xBF}
+			printf("[%3d] W %3d I %3d E %3d %9.6lf%%%c", it, (int)minwidth[testchannel], (int)maxinc[testchannel], encounter_threshold[testchannel], encounter_threshold[testchannel]*100./0xFF, SEARCH?'\t':'\n');
+			csizes[0]=e24_estimate(buf, iw, ih, SEARCH?testchannel:0, SEARCH?testchannel+1:3, minwidth, maxinc, encounter_threshold, csizes+1, !SEARCH);
+			if(SEARCH)
+				printf("T %14lf  CR %lf\t", csizes[0], SEARCH?res/csizes[1+testchannel]:usize/csizes[0]);
 			if(!it||bestsize>csizes[0])
-				bestsize=csizes[0], bestw=minwidth[2], besti=maxinc[2], beste=encounter_threshold[2];
+			{
+				bestsize=csizes[0], bestw=minwidth[testchannel], besti=maxinc[testchannel], beste=encounter_threshold[testchannel];
+				printf("record");
+			}
+			printf("\n");
 			++it;
 		}
 		printf("best W %d  I %d  E %d  CR %lf\n", bestw, besti, beste, usize/bestsize);

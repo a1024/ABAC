@@ -210,7 +210,7 @@ int    test22_decode(const unsigned char *data, size_t srclen, int bw, int bh, i
 size_t test23_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud, int *csizes);
 int    test23_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
 
-double e24_estimate(const unsigned char *src, int iw, int ih, unsigned char *gw0, unsigned char *maxinc, unsigned char *encounter_threshold, double *ret_csizes);//{16, 64, 0xBF}
+double e24_estimate(const unsigned char *src, int iw, int ih, int cstart, int cend, unsigned char *gw0, unsigned char *maxinc, unsigned char *encounter_threshold, double *ret_csizes, int loud);
 
 
 
