@@ -182,3 +182,19 @@ void save_mono8(const char *filename, unsigned char *buf, int iw, int ih, int st
 	lodepng_encode_file(filename, b2, iw, ih, LCT_GREY, 8);
 	free(b2);
 }
+void save_channel(unsigned char *buf, int iw, int ih, int stride, int val_offset, const char *format, ...)
+{
+	va_list args;
+	va_start(args, format);
+	vsnprintf(g_buf, G_BUF_SIZE, format, args);
+	va_end(args);
+
+	unsigned char *b2=(unsigned char*)malloc((size_t)iw*ih);
+	if(!b2)
+		return;
+	for(int ks=0, kd=0, res=iw*ih;kd<res;ks+=stride, ++kd)
+		b2[kd]=buf[ks]+val_offset;
+	
+	lodepng_encode_file(g_buf, b2, iw, ih, LCT_GREY, 8);
+	free(b2);
+}

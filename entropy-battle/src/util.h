@@ -72,6 +72,8 @@ int minimum(int a, int b);
 int maximum(int a, int b);
 int acme_isdigit(char c, char base);
 double time_ms();
+int timedelta2str(char *buf, size_t len, double ms);
+int acme_strftime(char *buf, size_t len, const char *format);//prints current time to string
 
 //error handling
 int log_error(const char *file, int line, int quit, const char *format, ...);//doesn't stop execution

@@ -3,6 +3,7 @@
 #include<stdlib.h>
 #include<string.h>
 #include<stdarg.h>
+#include<time.h>
 #define _USE_MATH_DEFINES
 #include<math.h>
 #ifdef __GNUC__
@@ -391,23 +392,6 @@ void save_squeeze(const char *name, short *buf, DWTSize *sizes, int nsizes, int 
 		image_save_png_rgba8(fn, b2, px+xodd, py+yodd);
 		//lodepng_encode_file(fn, b2, px+xodd, py+yodd, LCT_RGBA, 8);
 	}
-	free(b2);
-}
-void save_channel(unsigned char *buf, int iw, int ih, int stride, int val_offset, const char *format, ...)
-{
-	va_list args;
-	va_start(args, format);
-	vsnprintf(g_buf, G_BUF_SIZE, format, args);
-	va_end(args);
-
-	unsigned char *b2=(unsigned char*)malloc((size_t)iw*ih);
-	if(!b2)
-		return;
-	for(int ks=0, kd=0, res=iw*ih;kd<res;ks+=stride, ++kd)
-		b2[kd]=buf[ks]+val_offset;
-	
-	image_save_png_rgba8(g_buf, b2, iw, ih);
-	//lodepng_encode_file(g_buf, b2, iw, ih, LCT_GREY, 8);
 	free(b2);
 }
 void save_DWT_int8(const char *name, unsigned char *buf, DWTSize *sizes, int nsizes, int stride)
@@ -2353,6 +2337,39 @@ void batch_test(const char *path)
 		}
 		memset(b2, 0, len);
 #endif
+
+#if 1
+		{
+			ArrayHandle cdata=0;
+			printf("\nT25\n");
+			int lbsizes[]=
+			{
+				128, 128,
+				128, 128,
+				128, 128,
+			};
+			int sbsizes[]=
+			{
+				16, 16,
+				16, 16,
+				16, 16,
+			};
+			double elapsed=time_ms();
+			cycles=__rdtsc();
+			t25_encode(buf, iw, ih, lbsizes, sbsizes, &cdata, 1);
+			cycles=__rdtsc()-cycles;
+			elapsed=time_ms()-elapsed;
+			printf("Enc %11lf CPB  CR %9lf  csize %lld ", (double)cycles/usize, (double)usize/cdata->count, cdata->count);
+			timedelta2str(0, 0, elapsed);
+			
+			sum_testsize+=cdata->count;
+			if((ptrdiff_t)cdata->count<formatsize)
+				printf(" !!!");
+		
+			array_free(&cdata);
+			printf("\n\n");
+		}
+#endif
 		
 	//test 23: test 16 optimizer
 #if 0
@@ -2439,8 +2456,8 @@ void batch_test(const char *path)
 		}
 #endif
 		
-		//test16
-#if 1
+		//test16 - THE BEST
+#if 0
 		{
 			ArrayHandle cdata=0;
 			int alpha=0xD3E7,
@@ -3517,37 +3534,43 @@ int main(int argc, char **argv)
 #endif
 
 	//experiment 24: adaptive test16 params
-#if 1
+#if 0
 	{
-#define SEARCH 1
+#define SEARCH 0
 		printf("E24\n");
 		int res=iw*ih;
 		double bestsize=0;
 		int bestw=0, besti=0, beste=0;
 		double csizes[4];
 		int it=0;
+		T24Params t24_params[]=
+		{
+			{ 8, 26, 26, 26, 0xD4},
+			{23, 37, 37, 37, 0xD4},
+			{ 8, 26, 26, 26, 0xD4},
+		};
 		for(int kw=1;kw<=255;kw+=40)//min=1
 		for(int ki=1;ki<=255;ki+=40)//min=1
 		for(int ke=0;ke<=255;ke+=40)
 		{
-			int testchannel=1;
-			unsigned char minwidth[]={(24), 33, (28)};//expand group with same values			parens: not optimized
-			unsigned char maxinc[]={(51), 86, (51)};
-			unsigned char encounter_threshold[]={(161), 6, (61)};
+			int testchannel=2;
+			unsigned char minwidth[]={29, 33, 40};//expand group with same values			parens: not optimized
+			unsigned char maxinc[]={71, 86, 77};
+			unsigned char encounter_threshold[]={184, 6, 156};
+
+			//unsigned char minwidth[]={24, 4, 28};//expand group with unique values
+			//unsigned char maxinc[]={51, 64, 51};
+			//unsigned char encounter_threshold[]={161, 0, 61};
 			
 			//unsigned char minwidth[]={(24), 35, (28)};//fixed group width
 			//unsigned char maxinc[]={(51), 84, (51)};
 			//unsigned char encounter_threshold[]={(161), 7, (61)};
 
-			//unsigned char minwidth[]={24, 4, 28};//expand group with unique values
-			//unsigned char maxinc[]={51, 64, 51};
-			//unsigned char encounter_threshold[]={161, 0, 61};
-
 			//unsigned char minwidth[]={15, 40, 15};//40	kw;//126;	//old algorithm
 			//unsigned char maxinc[]={56, 84, 56};//84	ki;//121;
 			//unsigned char encounter_threshold[]={8, 8, 8};//8	ke;//31;//0xBF		255-100+k		//{16, 64, 0xBF}
 			printf("[%3d] W %3d I %3d E %3d %9.6lf%%%c", it, (int)minwidth[testchannel], (int)maxinc[testchannel], encounter_threshold[testchannel], encounter_threshold[testchannel]*100./0xFF, SEARCH?'\t':'\n');
-			csizes[0]=e24_estimate(buf, iw, ih, SEARCH?testchannel:0, SEARCH?testchannel+1:3, minwidth, maxinc, encounter_threshold, csizes+1, !SEARCH);
+			csizes[0]=e24_estimate(buf, iw, ih, SEARCH?testchannel:0, SEARCH?testchannel+1:3, minwidth, maxinc, encounter_threshold, t24_params, csizes+1, !SEARCH);
 			if(SEARCH)
 				printf("T %14lf  CR %lf\t", csizes[0], SEARCH?res/csizes[1+testchannel]:usize/csizes[0]);
 			if(!it||bestsize>csizes[0])
@@ -3569,10 +3592,39 @@ int main(int argc, char **argv)
 	}
 #endif
 
+	//test25
+#if 1
+	{
+		printf("T25\n");
+		int lbsizes[]=
+		{
+			32, 32,
+			32, 32,
+			32, 32,
+		};
+		int sbsizes[]=//unused
+		{
+			16, 16,
+			16, 16,
+			16, 16,
+		};
+		cycles=__rdtsc();
+		t25_encode(buf, iw, ih, lbsizes, sbsizes, &cdata, 1);
+		cycles=__rdtsc()-cycles;
+		printf("Enc %11lf CPB  CR %9lf  csize %lld ", (double)cycles/usize, (double)usize/cdata->count, cdata->count);
+		
+		array_free(&cdata);
+		printf("\n");
+	}
+#endif
+
 	//predict image
 	apply_transforms_fwd(buf, iw, ih);
 	//lodepng_encode_file("kodim21-YCoCgT-unplane.PNG", buf, iw, ih, LCT_RGBA, 8);//
 	//lodepng_encode_file("kodim21-XGZ-diff2d.PNG", buf, iw, ih, LCT_RGBA, 8);//
+
+	//colortransform_ycocb_fwd(buf, iw, ih);
+	//save_channel(buf+1, iw, ih, 4, 0, "kodim13-YCoCb-jxl-luma.PNG");
 #if 0
 	printf("Predict image...\n");
 	{

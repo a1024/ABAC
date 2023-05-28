@@ -2244,22 +2244,23 @@ int    test23_decode(const unsigned char *data, size_t srclen, int iw, int ih, u
 }
 
 
-//test 24: test16 with a mix of adaptive and pre-calculated: alpha, group width and margin		group height is fixed at 1
-typedef struct T24ParamsStruct
+//experiment 24: test16 with a mix of adaptive and pre-calculated: alpha, group width and margin		group height is fixed at 1
+void e24_addhist_unchecked(const unsigned char *buf2, int iw, int ih, int kc, int x1, int x2, int y1, int y2, int x0, int y0, int maxinc, unsigned *CDF2)
 {
-	int gend;//a group is gw x 1
-	unsigned char
-		mleft, mtop, mright,//margin dimensions
-		alpha;//cdf = cdf_static + (cdf_margin-cdf_static)*alpha
-} T24Params;
-void e24_addhist_unchecked(const unsigned char *buf2, int iw, int kc, int x1, int x2, int y1, int y2, int x0, int y0, int maxinc, unsigned *CDF2)
-{
+	if(x1<0)
+		x1=0;
+	if(x2>iw)
+		x2=iw;
+	if(y1<0)
+		y1=0;
+	if(y2>ih)
+		y2=ih;
 	for(int ky=y1;ky<y2;++ky)
 	{
 		for(int kx=x1;kx<x2;++kx)
 		{
 			unsigned char sym=buf2[(iw*ky+kx)<<2|kc];
-			int inc=maxinc-(abs(ky-y0)+abs(kx-x0));
+			int inc=maxinc-(abs(ky-y0)+abs(kx-x0));//X
 			if(inc>0)
 			{
 				CDF2[sym]+=inc;
@@ -2275,11 +2276,11 @@ void e24_prepblock(const unsigned char *buf2, const unsigned short *CDF0, int iw
 	if(p->alpha&&p->mleft&&p->mtop)
 	{
 		memset(CDF2, 0, 257*sizeof(unsigned));
-		int x0=(x+p->gend)>>1;
+		int x0=x+(p->gwidth>>1);
 		if(p->mtop)
-			e24_addhist_unchecked(buf2, iw, kc, x-p->mleft, p->gend+p->mright, y-p->mtop, y, x0, y, maxinc, CDF2);
+			e24_addhist_unchecked(buf2, iw, ih, kc, x-p->mleft, x+p->gwidth+p->mright, y-p->mtop, y, x0, y, maxinc, CDF2);
 		if(p->mleft)
-			e24_addhist_unchecked(buf2, iw, kc, x-p->mleft, x, y, y+1, x0, y, maxinc, CDF2);
+			e24_addhist_unchecked(buf2, iw, ih, kc, x-p->mleft, x, y, y+1, x0, y, maxinc, CDF2);
 		if(!CDF2[256])
 			goto just_static;
 
@@ -2322,7 +2323,7 @@ void e24_prepblock(const unsigned char *buf2, const unsigned short *CDF0, int iw
 	}
 	CDF2[256]=0x10000;
 }
-double e24_estimate(const unsigned char *src, int iw, int ih, int cstart, int cend, unsigned char *gw0, unsigned char *maxinc, unsigned char *encounter_threshold, double *ret_csizes, int loud)//{16, 64, 0xBF}
+double e24_estimate(const unsigned char *src, int iw, int ih, int cstart, int cend, unsigned char *gw0, unsigned char *maxinc, unsigned char *encounter_threshold, T24Params const *params, double *ret_csizes, int loud)//{16, 64, 0xBF}
 {
 	int res=iw*ih;
 	unsigned char *buf2=(unsigned char*)malloc((size_t)res<<2);
@@ -2350,6 +2351,8 @@ double e24_estimate(const unsigned char *src, int iw, int ih, int cstart, int ce
 	}
 
 	unsigned *CDF3=CDF2+256;
+	if(params)
+		goto encode;
 	for(int kc=cstart;kc<cend;++kc)
 	{
 		for(int ky=0;ky<ih;++ky)
@@ -2360,8 +2363,8 @@ double e24_estimate(const unsigned char *src, int iw, int ih, int cstart, int ce
 			int ng=0;
 			for(int kx=0;kx<iw;++ng)
 			{
-				if(ky==(ih>>1)&&kx>(iw>>1))//
-					ky=ih>>1;
+				//if(ky==(ih>>1)&&kx>(iw>>1))//
+				//	ky=ih>>1;
 
 				memset(CDF2, 0, 256*sizeof(unsigned));
 				int gend=kx+gw0[kc],//16
@@ -2384,7 +2387,7 @@ double e24_estimate(const unsigned char *src, int iw, int ih, int cstart, int ce
 				//			break;
 				//		++CDF2[sym];
 				//	}
-				//	p->gend=gend;
+				//	p->gwidth=gend-kx;
 				//
 				//	p->mleft=0;
 				//	p->mtop=0;
@@ -2401,7 +2404,7 @@ double e24_estimate(const unsigned char *src, int iw, int ih, int cstart, int ce
 							break;
 						++CDF2[sym];
 					}
-					int gwidth=gend-(ng?p[-1].gend:0);
+					int gwidth=gend-kx;
 					int mleft=0, mtop=0, mright=0, mcount=0, alpha=0;
 					char exleft=1, extop=1, exright=1;
 					int inc=maxinc[kc];//64
@@ -2517,7 +2520,7 @@ double e24_estimate(const unsigned char *src, int iw, int ih, int cstart, int ce
 					else
 						alpha=0;
 
-					p->gend=gend;
+					p->gwidth=gend-kx;
 
 					p->mleft=mleft;
 					p->mtop=mtop;
@@ -2535,78 +2538,705 @@ double e24_estimate(const unsigned char *src, int iw, int ih, int cstart, int ce
 		int bcount=0;
 		for(int ky=0;ky<ih;++ky)
 		{
-			for(int kg=0, ng=ngroups[ih*kc+ky];kg<ng;++kg)
+			for(int kg=0, ng=ngroups[ih*kc+ky], kx=0;kg<ng;++kg)
 			{
 				T24Params *p=gwidths+res*kc+iw*ky+kg;
 				if(!p->alpha)
 				{
-					int kx=kg?gwidths[res*kc+iw*ky+kg].gend:0;
-					for(;kx<p->gend;++kx)
+					for(int kx2=kx;kx2<kx+p->gwidth;++kx2)
 					{
-						unsigned char sym=buf2[(iw*ky+kx)<<2|kc];
+						unsigned char sym=buf2[(iw*ky+kx2)<<2|kc];
 						++CDF2[sym];
 						++bcount;
 					}
 				}
+				kx+=p->gwidth;
 			}
 		}
 		t21_normalize_histogram(CDF2, 256, bcount, CDF0+((3LL+kc)<<8));
 	}
 	
-	//encode
-	double csizes[3]={0};
-	int gcount[3]={0}, zero_alpha[3]={0};
-	double av_gw[3]={0}, av_margin[9]={0}, av_alpha[3]={0};
-	for(int kc=cstart;kc<cend;++kc)
+encode:
 	{
-		double chsize=0;
-		for(int ky=0;ky<ih;++ky)
+		double csizes[3]={0};
+		int gcount[3]={0}, zero_alpha[3]={0};
+		double av_gw[3]={0}, av_margin[9]={0}, av_alpha[3]={0};
+		for(int kc=cstart;kc<cend;++kc)
 		{
-			for(int kg=0, ng=ngroups[ih*kc+ky];kg<ng;++kg)
+			double chsize=0;
+			for(int ky=0;ky<ih;++ky)
 			{
-				T24Params *p=gwidths+res*kc+iw*ky+kg;
-				int kx=kg?p[-1].gend:0;
-
-				av_gw[kc]+=p->gend-kx;
-				av_margin[3*kc  ]+=p->mleft;
-				av_margin[3*kc+1]+=p->mtop;
-				av_margin[3*kc+2]+=p->mright;
-				av_alpha[kc]+=p->alpha;
-				++gcount[kc];
-				zero_alpha[kc]+=!p->alpha;
-
-				if(p->alpha)
-					e24_prepblock(buf2, CDF0+((size_t)kc<<8), iw, ih, kc, kx, ky, maxinc[kc], p, CDF2);
-				else
-					e24_prepblock(buf2, CDF0+((kc+3LL)<<8), iw, ih, kc, kx, ky, maxinc[kc], p, CDF2);
-				for(;kx<p->gend;++kx)
+				for(int kg=0, ng=params?(iw+params[kc].gwidth-1)/params[kc].gwidth:ngroups[ih*kc+ky], kx=0;kg<ng;++kg)
 				{
-					unsigned char sym=buf2[(iw*ky+kx)<<2|kc];
-					int freq=CDF2[sym+1]-CDF2[sym];
-					double p=(double)freq/0x10000, bitsize=-log2(p);//Zipf's law
-					chsize+=bitsize;
+					T24Params const *p=params?params+kc:gwidths+res*kc+iw*ky+kg;
+					
+					int gwidth=p->gwidth;
+					if(gwidth>iw-kx)
+						gwidth=iw-kx;
+
+					av_gw[kc]+=gwidth;
+					av_margin[3*kc  ]+=p->mleft;
+					av_margin[3*kc+1]+=p->mtop;
+					av_margin[3*kc+2]+=p->mright;
+					av_alpha[kc]+=p->alpha;
+					++gcount[kc];
+					zero_alpha[kc]+=!p->alpha;
+
+					e24_prepblock(buf2, CDF0+(((size_t)kc+(!params&&p->alpha?3:0))<<8), iw, ih, kc, kx, ky, maxinc[kc], p, CDF2);
+					int kx2=kx;
+					for(;kx2<kx+gwidth;++kx2)
+					{
+						unsigned char sym=buf2[(iw*ky+kx2)<<2|kc];
+						int freq=CDF2[sym+1]-CDF2[sym];
+						double p=(double)freq/0x10000, bitsize=-log2(p);//Zipf's law
+						chsize+=bitsize;
+					}
+					kx+=gwidth;
+				}
+			}
+			csizes[kc]=chsize/8;
+			if(ret_csizes)
+				ret_csizes[kc]=csizes[kc];
+		}
+		double csize=csizes[0]+csizes[1]+csizes[2];
+
+		int usize=res*3;
+		if(loud)
+		{
+			printf("T %14lf  CR %lf\n", csize, usize/csize);
+			printf("R %14lf  CR %lf  W %lf  M %10lf %10lf %10lf  A %lf%% Z %lf%%\n", csizes[0], res/csizes[0], av_gw[0]/gcount[0], av_margin[0]/gcount[0], av_margin[1]/gcount[0], av_margin[2]/gcount[0], 100.*av_alpha[0]/(0xFF*gcount[0]), 100.*zero_alpha[0]/gcount[0]);
+			printf("G %14lf  CR %lf  W %lf  M %10lf %10lf %10lf  A %lf%% Z %lf%%\n", csizes[1], res/csizes[1], av_gw[1]/gcount[1], av_margin[3]/gcount[1], av_margin[4]/gcount[1], av_margin[5]/gcount[1], 100.*av_alpha[1]/(0xFF*gcount[1]), 100.*zero_alpha[1]/gcount[1]);
+			printf("B %14lf  CR %lf  W %lf  M %10lf %10lf %10lf  A %lf%% Z %lf%%\n", csizes[2], res/csizes[2], av_gw[2]/gcount[2], av_margin[6]/gcount[2], av_margin[7]/gcount[2], av_margin[8]/gcount[2], 100.*av_alpha[2]/(0xFF*gcount[2]), 100.*zero_alpha[2]/gcount[2]);
+		}
+
+		free(buf2);
+		free(CDF0);
+		free(CDF2);
+		free(gwidths);
+		free(ngroups);
+		return csize;
+	}
+}
+
+
+//test 25 (the 4th optimizer for test16): image is divided into large blocks, each lblock has an sblock selected (least compressible part) on which the T16 params are optimized
+typedef struct T25ParamsStruct
+{
+	short
+		gwidth,//>=1
+		mleft,
+		mtop,
+		mright,
+		alpha,//0~0xFF
+		maxinc;//>=1;
+} T25Params;
+typedef struct T25ParamsPackedStruct
+{
+	unsigned char
+		gwidth,//>=1
+		mleft,
+		mtop,
+		mright,
+		alpha,//0~0xFF
+		maxinc;//>=1;
+} T25ParamsPacked;
+typedef struct RectStruct
+{
+	int x1, x2, y1, y2;
+} Rect;
+#define T25_PARAM(P, IDX) ((short*)(P))[IDX]
+static T25Params t25_limits={32, 40, 40, 40, 255, 96};
+static int t25_ctr=0;
+int t25_incparam(T25Params *param, int pidx, int step)
+{
+	int prevval=0;
+	switch(pidx)
+	{
+	case 0:prevval=param->gwidth, param->gwidth+=step; if(param->gwidth<8)param->gwidth=8; break;
+	case 1:prevval=param->mleft , param->mleft +=step; if(param->mleft <0)param->mleft =0; break;
+	case 2:prevval=param->mtop  , param->mtop  +=step; if(param->mtop  <0)param->mtop  =0; break;
+	case 3:prevval=param->mright, param->mright+=step; if(param->mright<0)param->mright=0; break;
+	case 4:prevval=param->alpha , param->alpha +=step; if(param->alpha <0)param->alpha =0; else if(param->alpha>0xFF)param->alpha=0xFF; break;
+	case 5:prevval=param->maxinc, param->maxinc+=step; if(param->maxinc<1)param->maxinc=1; break;
+	}
+	if(T25_PARAM(param, pidx)>T25_PARAM(&t25_limits, pidx))
+		T25_PARAM(param, pidx)=T25_PARAM(&t25_limits, pidx);
+
+	if(!BETWEEN(1, param->gwidth, t25_limits.gwidth)||!BETWEEN(0, param->mleft, t25_limits.mleft)||!BETWEEN(0, param->mtop, t25_limits.mtop)||!BETWEEN(0, param->mright, t25_limits.mright)||!BETWEEN(0, param->alpha, t25_limits.alpha)||!BETWEEN(0, param->maxinc, t25_limits.maxinc))
+		LOG_ERROR("Invalid params INC  W %3d  MLTR %3d %3d %3d  A 0x%02X I %3d", param->gwidth, param->mleft, param->mtop, param->mright, param->alpha, param->maxinc);
+	
+	return prevval;
+}
+void t25_normalize_histogram(unsigned *srchist, int nlevels, int nsymbols, unsigned short *CDF)//hist is unsigned char due to alignment issues, but it's 16bit
+{
+	if(!nsymbols)//bypass
+	{
+		for(int k=0;k<nlevels;++k)
+			CDF[k]=(unsigned short)(k<<8);
+		return;
+	}
+	unsigned sum=0, qfreq;
+	for(int sym=0;sym<nlevels;++sym)
+	{
+		qfreq=((long long)srchist[sym]<<16)/nsymbols;
+		CDF[sym]=sum;
+		sum+=qfreq;
+	}
+}
+void t25_addhist(const unsigned char *buf2, int iw, int ih, int kc, int x1, int x2, int y1, int y2, int x0a, int x0b, int y0, int maxinc, unsigned *CDF2)
+{
+	if(x1<0)
+		x1=0;
+	if(x2>iw)
+		x2=iw;
+	if(y1<0)
+		y1=0;
+	if(y2>ih)
+		y2=ih;
+	for(int ky=y1;ky<y2;++ky)
+	{
+		for(int kx=x1;kx<x2;++kx)
+		{
+			unsigned char sym=buf2[(iw*ky+kx)<<2|kc];
+			int dist=abs(ky-y0);
+			if(kx<x0a)
+				dist+=abs(kx-x0a);
+			else if(kx>x0b)
+				dist+=abs(kx-x0b);
+			int inc=maxinc-dist;
+			if(inc>0)
+			{
+				CDF2[sym]+=inc;
+				CDF2[256]+=inc;
+			}
+		}
+	}
+}
+int t25_prepblock(const unsigned char *buf2, const unsigned short *CDF0, int iw, int ih, int kc, int x1, int x2, int y, T25Params const *p, unsigned *CDF2)
+{
+	int overflow=0;
+	int sum, cdf1, f1, f2, freq;
+	memset(CDF2, 0, 257*sizeof(unsigned));
+	if(p->mtop)
+		t25_addhist(buf2, iw, ih, kc, x1-p->mleft, x2+p->mright, y-p->mtop, y, x1, x2, y, p->maxinc, CDF2);
+	if(p->mleft)
+		t25_addhist(buf2, iw, ih, kc, x1-p->mleft, x1, y, y+1, x1, x2, y, p->maxinc, CDF2);
+
+	if(CDF2[256])
+	{
+		sum=0;
+		for(int sym=0;sym<256;++sym)
+		{
+			cdf1=!overflow?CDF0[sym]:0x10000;
+			if(sym<255)
+				overflow|=cdf1>CDF0[sym+1];
+			f1=(sym<255&&!overflow?CDF0[sym+1]:0x10000)-cdf1;
+
+			f2=(int)(((long long)CDF2[sym]<<16)/CDF2[256]);//normalize
+
+			freq=f1+(int)(((long long)f2-f1)*p->alpha/0xFF);//blend
+
+			freq=(int)((long long)freq*0xFF00>>16)+1;//guard
+			//freq=CLAMP(0, freq, 0xFF01);
+			if(freq<0||freq>0xFF01)
+			{
+				printf("Impossible freq 0x%04X  f1 0x%04X  f2 0x%04X  W %3d  MLTR %3d %3d %3d  A 0x%02X I %3d\n", freq, f1, f2, p->gwidth, p->mleft, p->mtop, p->mright, p->alpha, p->maxinc);
+				return 0;
+			}
+				//LOG_ERROR("Impossible freq 0x%04X / 0x10000", freq);
+			CDF2[sym]=sum;
+			sum+=freq;
+			if(sum>0x10000)
+			{
+				printf("ANS CDF sum 0x%04X, freq 0x%04X", sum, freq);
+				return 0;
+			}
+		}
+	}
+	else
+	{
+		for(int sym=0;sym<256;++sym)
+		{
+			if(overflow)
+				CDF2[sym]=0xFF00|sym;
+			else
+			{
+				int cdf=CDF0[sym];
+				CDF2[sym]=((unsigned)(cdf*0xFF00)>>16)+sym;
+				if(sym<255)
+					overflow|=cdf>CDF0[sym+1];
+			}
+		}
+	}
+	CDF2[256]=0x10000;
+	return 1;
+}
+double t25_calcloss(const unsigned char *buf, int iw, int ih, int kc, Rect const *r, T25Params const *param, const unsigned short *CDF0, unsigned *CDF2, int loud)
+{
+	double chsize=0;
+	if(!BETWEEN(1, param->gwidth, t25_limits.gwidth)||!BETWEEN(0, param->mleft, t25_limits.mleft)||!BETWEEN(0, param->mtop, t25_limits.mtop)||!BETWEEN(0, param->mright, t25_limits.mright)||!BETWEEN(0, param->alpha, t25_limits.alpha)||!BETWEEN(0, param->maxinc, t25_limits.maxinc))
+		LOG_ERROR("Invalid params LOSS W %3d  MLTR %3d %3d %3d  A 0x%02X I %3d", param->gwidth, param->mleft, param->mtop, param->mright, param->alpha, param->maxinc);
+	//if(loud)
+	//	printf("W %3d  MLTR %3d %3d %3d  A 0x%02X I %3d\r",
+	//		param->gwidth,
+	//		param->mleft,
+	//		param->mtop,
+	//		param->mright,
+	//		param->alpha,
+	//		param->maxinc);
+	for(int ky=r->y1;ky<r->y2;++ky)
+	{
+		for(int kx=r->x1;kx<r->x2;)
+		{
+			int xend=MINVAR(kx+param->gwidth, r->x2);
+			int success=t25_prepblock(buf, CDF0, iw, ih, kc, kx, xend, ky, param, CDF2);
+			if(!success)
+				return 0;
+				
+			int kx2=kx;
+			for(;kx2<kx+param->gwidth;++kx2)
+			{
+				unsigned char sym=buf[(iw*ky+kx2)<<2|kc];
+				int freq=CDF2[sym+1]-CDF2[sym];
+				double prob=(double)freq/0x10000, bitsize=-log2(prob);//Zipf's law
+				chsize+=bitsize;
+			}
+			kx+=param->gwidth;
+		}
+	}
+	++t25_ctr;
+	return chsize;
+}
+#if 0
+int t25_opt2(const unsigned char *buf, int iw, int ih, int kc, Rect const *r, const unsigned short *CDF0, unsigned *CDF2, T25Params *param, double *csize, int pidx, int step, int loud)
+{
+	int went_fwd=0;
+	for(int subit=0;subit<20;++subit)
+	{
+		double csize0=*csize;
+		short prevval=t25_incparam(param, pidx, step);
+		if(prevval==T25_PARAM(param, pidx))//out of range
+			break;
+		if(loud)
+			printf("W%c%3d  MLTR %c%3d %c%3d %c%3d  A%c0x%02X I%c%3d\r",
+				pidx==0?'>':' ', param->gwidth,
+				pidx==1?'>':' ', param->mleft,
+				pidx==2?'>':' ', param->mtop,
+				pidx==3?'>':' ', param->mright,
+				pidx==4?'>':' ', param->alpha,
+				pidx==5?'>':' ', param->maxinc);
+		*csize=t25_calcloss(buf, iw, ih, kc, r, param, CDF0, CDF2);
+		if(*csize>csize0)//cancel last change and break
+		{
+			T25_PARAM(param, pidx)=prevval;
+			*csize=csize0;
+			break;
+		}
+		went_fwd=1;
+	}
+	return went_fwd;
+}
+double t25_optimize(const unsigned char *buf, int iw, int ih, int kc, Rect const *r, T25Params *param, const unsigned short *CDF0, unsigned *CDF2, int loud)
+{
+	double csize00, csize;
+	int prevval0;
+	int steps[]={16, 8, 4, 2, 1};
+
+	for(int ks=0;ks<COUNTOF(steps);++ks)
+	{
+		int step=steps[ks];
+		for(int it=0, improve=1;it<64&&improve;++it)
+		{
+			improve=0;
+			for(int pidx=0;pidx<sizeof(T25Params)/sizeof(short);++pidx)
+			{
+				prevval0=T25_PARAM(param, pidx);
+				csize00=csize=t25_calcloss(buf, iw, ih, kc, r, param, CDF0, CDF2);
+
+				int went_fwd=t25_opt2(buf, iw, ih, kc, r, CDF0, CDF2, param, &csize, pidx, step, loud);
+				if(!went_fwd)
+					t25_opt2(buf, iw, ih, kc, r, CDF0, CDF2, param, &csize, pidx, -step, loud);
+
+				if(csize>csize00)//prevent CR from worsening
+				{
+					T25_PARAM(param, pidx)=prevval0;
+					csize=csize00;
 				}
 			}
 		}
-		csizes[kc]=chsize/8;
-		if(ret_csizes)
-			ret_csizes[kc]=csizes[kc];
 	}
-	double csize=csizes[0]+csizes[1]+csizes[2];
+	return csize;
+}
+#endif
+double t25_optimize_v2(const unsigned char *buf, int iw, int ih, int kc, Rect const *r, T25Params *param, const unsigned short *CDF0, unsigned *CDF2, int loud)
+{
+	double csize0;
+	int steps[]={32, 16, 8, 4, 2, 1},
+		limit[]={ 1,  1, 1, 1, 1, 1};
+	//int steps[]={64, 16, 4, 1},
+	//	limit[]={4, 4, 4, 4};
+	
+	csize0=t25_calcloss(buf, iw, ih, kc, r, param, CDF0, CDF2, loud);
+	if(!csize0)
+		LOG_ERROR("Start W %3d  MLTR %3d %3d %3d  A 0x%02X I %3d", param->gwidth, param->mleft, param->mtop, param->mright, param->alpha, param->maxinc);
+	for(int ks=0;ks<COUNTOF(steps);++ks)
+	{
+		int step=steps[ks];
+		for(int it=0, improve=1;it<limit[ks]&&improve;++it)
+		{
+			int bestpidx=0, beststep=0;
+			double bestcsize=csize0;
+			improve=0;
+			
+			for(int pidx=0;pidx<sizeof(T25Params)/sizeof(short);++pidx)
+			{
+				double csize;
+				short prevval;
 
-	int usize=res*3;
+				prevval=t25_incparam(param, pidx, step);
+				if(T25_PARAM(param, pidx)!=prevval)
+				{
+					csize=t25_calcloss(buf, iw, ih, kc, r, param, CDF0, CDF2, loud);
+					if(!csize0)
+						LOG_ERROR("Plus W %3d  MLTR %3d %3d %3d  A 0x%02X I %3d", param->gwidth, param->mleft, param->mtop, param->mright, param->alpha, param->maxinc);
+					T25_PARAM(param, pidx)=prevval;
+					if(bestcsize>csize)
+						bestcsize=csize, bestpidx=pidx, beststep=step;
+				}
+
+				prevval=t25_incparam(param, pidx, -step);
+				if(T25_PARAM(param, pidx)!=prevval)
+				{
+					csize=t25_calcloss(buf, iw, ih, kc, r, param, CDF0, CDF2, loud);
+					if(!csize0)
+						LOG_ERROR("Minus W %3d  MLTR %3d %3d %3d  A 0x%02X I %3d", param->gwidth, param->mleft, param->mtop, param->mright, param->alpha, param->maxinc);
+					T25_PARAM(param, pidx)=prevval;
+					if(bestcsize>csize)
+						bestcsize=csize, bestpidx=pidx, beststep=-step;
+				}
+			}
+			if(bestcsize<csize0)
+			{
+				t25_incparam(param, bestpidx, beststep);
+				improve=1;
+				csize0=bestcsize;
+			}
+		}
+	}
+	return csize0;
+}
+#if 0
+int t25_optimizeall(const unsigned char *buf, int iw, int ih, int x1, int x2, int y1, int y2, int loud)
+{
+	int res=iw*ih;
+	unsigned short *CDF0=(unsigned short*)malloc(256LL*3*sizeof(short));
+	unsigned *CDF2=(unsigned*)malloc(257LL*sizeof(unsigned));
+	if(!CDF0||!CDF2)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	for(int kc=0;kc<3;++kc)
+	{
+		memset(CDF2, 0, 256LL*sizeof(unsigned));
+		for(int k=0;k<res;++k)
+		{
+			unsigned char sym=buf[k<<2|kc];
+			++CDF2[sym];
+		}
+		t25_normalize_histogram(CDF2, 256, res, CDF0+((size_t)kc<<8));
+	}
+	
+	if(x1<0)
+		x1=0;
+	if(x2>iw)
+		x2=iw;
+	if(y1<0)
+		y1=0;
+	if(y2>ih)
+		y2=ih;
+	
+	double csizes[3]={0};
+	int steps[]={4, 2, 1};
+	int usize=(x2-x1)*(y2-y1);
+	for(int kc=0;kc<3;++kc)
+	{
+		for(int ks=0;ks<COUNTOF(steps);++ks)
+		{
+			for(int it=0, improve=1;it<64&&improve;++it)
+			{
+				improve=0;
+				for(int pidx=0;pidx<sizeof(t25_params)/sizeof(t25_params->gwidth);++pidx)
+				{
+					csizes[kc]=t25_optimize(buf, iw, ih, kc, x1, x2, y1, y2, t25_params+kc, pidx, steps[ks], CDF0+((size_t)kc<<8), CDF2);
+					if(loud)
+						io_render();
+				}
+			}
+		}
+		csizes[kc]/=8;
+		t25_cr[kc]=usize>0&&csizes[kc]?(x2-x1)*(y2-y1)/csizes[kc]:0;
+	}
+
+	free(CDF0);
+	free(CDF2);
+	return 1;
+}
+#endif
+
+void t25_calchist(const unsigned char *buf, int iw, int ih, int kc, int x1, int x2, int y1, int y2, unsigned *hist)
+{
+	for(int ky=y1;ky<y2;++ky)
+	{
+		for(int kx=x1;kx<x2;++kx)
+		{
+			int idx=iw*ky+kx;
+			unsigned char sym=buf[idx<<2|kc];
+			++hist[sym];
+		}
+	}
+}
+double t25_calccsize(const unsigned char *buf, int iw, int ih, int kc, Rect const *r, unsigned *hist)
+{
+	memset(hist, 0, 256*sizeof(int));
+	t25_calchist(buf, iw, ih, kc, r->x1, r->x2, r->y1, r->y2, hist);
+	//for(int ky=r->y1;ky<r->y2;++ky)
+	//{
+	//	for(int kx=r->x1;kx<r->x2;++kx)
+	//	{
+	//		int idx=iw*ky+kx;
+	//		unsigned char sym=buf[idx<<2|kc];
+	//		++hist[sym];
+	//	}
+	//}
+	int count=(r->x2-r->x1)*(r->y2-r->y1);
+	double bitsize=0;
+	for(int ky=r->y1;ky<r->y2;++ky)
+	{
+		for(int kx=r->x1;kx<r->x2;++kx)
+		{
+			int idx=iw*ky+kx;
+			unsigned char sym=buf[idx<<2|kc];
+			unsigned freq=hist[sym];
+			double prob=(double)freq/count;
+			bitsize-=log2(prob);//Zipf's law
+		}
+	}
+	double csize=bitsize/8;
+	return csize;
+}
+void t25_selectsmallblock(const unsigned char *buf, int iw, int ih, int kc, Rect const *lb, Rect *sb, int sbw, int sbh, unsigned *hist)
+{
+	int bw=lb->x2-lb->x1,
+		bh=lb->y2-lb->y1,
+		nbx=bw/sbw, nby=bh/sbh;
+	if(nbx<=1||nby<=1)
+	{
+		*sb=*lb;
+		return;
+	}
+	//memset(hist, 0, 256*sizeof(int));
+	//for(int ky=lb->y1;ky<lb->y2;++ky)
+	//{
+	//	for(int kx=lb->x1;kx<lb->x2;++kx)
+	//	{
+	//		int idx=iw*ky+kx;
+	//		unsigned char sym=buf[idx<<2|kc];
+	//		++hist[sym];
+	//	}
+	//}
+	double bestcsize=0;
+	int bestx=0, besty=0;
+	int it=0;
+	for(int by=0;by<nby;++by)
+	{
+		int ky=lb->y1+by*sbh;
+		for(int bx=0;bx<nbx;++bx, ++it)
+		{
+			int kx=lb->x1+bx*sbw;
+			Rect r_cand={kx, kx+sbw, ky, ky+sbh};
+			double csize=t25_calccsize(buf, iw, ih, kc, &r_cand, hist);
+			if(!it||bestcsize>csize)
+				bestcsize=csize, bestx=kx, besty=ky;
+		}
+	}
+	sb->x1=bestx;
+	sb->x2=bestx+sbw;
+	sb->y1=besty;
+	sb->y2=besty+sbh;
+}
+
+static T25Params t25_params[3]=
+{
+	{ 8, 26, 26, 26, 0xD4, 32},
+	{23, 32, 32, 32, 0xD4, 32},
+	{ 8, 26, 26, 26, 0xD4, 32},
+};
+int t25_encode(const unsigned char *src, int iw, int ih, int *lbsizes, int *sbsizes, ArrayHandle *data, int loud)
+{
+	int res=iw*ih;
+	unsigned char *buf2=(unsigned char*)malloc((size_t)res<<2);
+	unsigned short *CDF0=(unsigned short*)malloc(768LL*sizeof(short));
+	unsigned *CDF2=(unsigned*)malloc(257LL*sizeof(unsigned));
+	if(!buf2||!CDF0||!CDF2)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	memcpy(buf2, src, (size_t)res<<2);
+	apply_transforms_fwd(buf2, iw, ih);
+
+	for(int kc=0;kc<3;++kc)
+	{
+		memset(CDF2, 0, 256LL*sizeof(unsigned));
+		t25_calchist(buf2, iw, ih, kc, 0, iw, 0, ih, CDF2);
+		t21_normalize_histogram(CDF2, 256, res, CDF0+((size_t)kc<<8));
+	}
+
+	DList list;
+	dlist_init(&list, 1, 1024, 0);
+
+	int ansbookmarks[3]={0};
+	dlist_push_back(&list, 0, 12);
+	//dlist_push_back(&list, jxlparams_i16, 33*sizeof(short));
+	dlist_push_back(&list, CDF0, 768*sizeof(short));
+
+	int overhead[4]={0, 0, 0, (int)list.nobj};//
+
+	for(int kc=0;kc<3;++kc)
+	{
+		int lbw=lbsizes[kc<<1], lbh=lbsizes[kc<<1|1],
+			sbw=sbsizes[kc<<1], sbh=sbsizes[kc<<1|1],
+			lbx=(iw+lbw-1)/lbw, lby=(ih+lbh-1)/lbh;
+		Rect lblock;
+		//Rect sblock;
+		ArrayHandle params;
+		ARRAY_ALLOC(T25ParamsPacked, params, 0, 0, (size_t)lbx*lby, 0);
+		for(int by=0;by<lby;++by)
+		{
+			lblock.y1=by*lbh;
+			lblock.y2=MINVAR(lblock.y1+lbh, ih);
+			for(int bx=0;bx<lbx;++bx)
+			{
+				lblock.x1=bx*lbw;
+				lblock.x2=MINVAR(lblock.x1+lbw, iw);
+
+				t25_ctr=0;
+
+#if 0
+				lblock.x1=640;//
+				lblock.x2=lblock.x1+lbw;
+				lblock.y1=384;
+				lblock.y2=lblock.y1+lbh;
+				t25_params[kc].gwidth=1;
+				t25_params[kc].mleft=30;
+				t25_params[kc].mtop=6;
+				t25_params[kc].mright=32;
+				t25_params[kc].alpha=0xD7;
+				t25_params[kc].maxinc=32;
+#endif
+
+				t25_optimize_v2(buf2, iw, ih, kc, &lblock, t25_params+kc, CDF0, CDF2, loud);//optimize for whole large block
+
+				//t25_selectsmallblock(buf2, iw, ih, kc, &lblock, &sblock, sbw, sbh, CDF2);
+				//t25_optimize(buf2, iw, ih, kc, &sblock, t25_params+kc, CDF0, CDF2);//optimize for small block
+
+				T25ParamsPacked *pp=(T25ParamsPacked*)ARRAY_APPEND(params, 0, 1, 1, 0);
+				for(int k=0;k<sizeof(T25ParamsPacked);++k)
+					((unsigned char*)pp)[k]=(unsigned char)T25_PARAM(t25_params+kc, k);
+				//pp->gwidth=(unsigned char)t25_params[kc].gwidth;
+				//pp->mleft =(unsigned char)t25_params[kc].mleft;
+				//pp->mtop  =(unsigned char)t25_params[kc].mtop;
+				//pp->mright=(unsigned char)t25_params[kc].mright;
+				//pp->alpha =(unsigned char)t25_params[kc].alpha;
+				//pp->maxinc=(unsigned char)t25_params[kc].maxinc;
+
+				if(loud)
+					printf("CXY %d %3d %3d  W %3d  MLTR %3d %3d %3d  A 0x%02X I %3d  %d iters\r", kc, lblock.x1, lblock.y1, t25_params[kc].gwidth, t25_params[kc].mleft, t25_params[kc].mtop, t25_params[kc].mright, t25_params[kc].alpha, t25_params[kc].maxinc, t25_ctr);
+			}
+		}
+		if(loud)
+			printf("\n");
+		dlist_push_back(&list, params->data, params->count*params->esize);
+
+		overhead[kc]=(int)(params->count*params->esize);//
+
+		//if(kc==2)//
+		//	kc=2;
+
+		unsigned state=0x10000;
+		for(int ky=ih-1;ky>=0;--ky)
+		{
+			int by=ky/lbh;
+			lblock.y1=by*lbh;
+			lblock.y2=MINVAR(lblock.y1+lbh, ih);
+			for(int bx=lbx-1;bx>=0;--bx)
+			{
+				T25ParamsPacked *pp=(T25ParamsPacked*)array_at(&params, lbx*by+bx);
+				T25Params param={pp->gwidth, pp->mleft, pp->mtop, pp->mright, pp->alpha, pp->maxinc};
+				int ng=(lbw+param.gwidth-1)/param.gwidth;
+				lblock.x1=bx*lbw;
+				lblock.x2=MINVAR(lblock.x1+lbw, iw);
+				for(int kg=ng-1;kg>=0;--kg)
+				{
+					int x1=lblock.x1+kg*param.gwidth, x2=MINVAR(x1+param.gwidth, lblock.x2);
+					int success=t25_prepblock(buf2, CDF0, iw, ih, kc, x1, x2, ky, &param, CDF2);
+					if(!success)
+						LOG_ERROR("t25_prepblock error");
+					for(int kx=x2-1;kx>=x1;--kx)
+					{
+						unsigned char sym=buf2[(iw*ky+kx)<<2|kc];
+
+						int cdf=CDF2[sym], freq=CDF2[sym+1]-cdf;
+
+						//if(kc==0&&ky==511&&kx==512)//
+						//	printf("CXY %d %d %d  sym 0x%02X cdf 0x%04X freq 0x%04X  state 0x%08X\n", kc, kx, ky, sym, cdf, freq, state);
+
+						if(!freq)
+							LOG_ERROR("ZPS");
+
+						//double prob=freq/65536.;
+						//csize-=log2(prob);
+						//unsigned s0=state;
+						
+						if(state>=(unsigned)(freq<<16))//renorm
+						{
+							dlist_push_back(&list, &state, 2);
+							state>>=16;
+						}
+						debug_enc_update(state, cdf, freq, kx, ky, 0, kc, sym);
+						state=state/freq<<16|(cdf+state%freq);//update
+					}
+				}
+			}
+		}
+		dlist_push_back(&list, &state, 4);
+		ansbookmarks[kc]=(int)list.nobj;
+
+		array_free(&params);
+	}
+	size_t dststart=dlist_appendtoarray(&list, data);
+	memcpy(data[0]->data+dststart, ansbookmarks, 12);
+	
+	int chsizes[]=
+	{
+		ansbookmarks[0]-overhead[3]    -overhead[0],
+		ansbookmarks[1]-ansbookmarks[0]-overhead[1],
+		ansbookmarks[2]-ansbookmarks[1]-overhead[2],
+	};
 	if(loud)
 	{
-		printf("T %14lf  CR %lf\n", csize, usize/csize);
-		printf("R %14lf  CR %lf  W %lf  M %10lf %10lf %10lf  A %lf%% Z %lf%%\n", csizes[0], res/csizes[0], av_gw[0]/gcount[0], av_margin[0]/gcount[0], av_margin[1]/gcount[0], av_margin[2]/gcount[0], 100.*av_alpha[0]/(0xFF*gcount[0]), 100.*zero_alpha[0]/gcount[0]);
-		printf("G %14lf  CR %lf  W %lf  M %10lf %10lf %10lf  A %lf%% Z %lf%%\n", csizes[1], res/csizes[1], av_gw[1]/gcount[1], av_margin[3]/gcount[1], av_margin[4]/gcount[1], av_margin[5]/gcount[1], 100.*av_alpha[1]/(0xFF*gcount[1]), 100.*zero_alpha[1]/gcount[1]);
-		printf("B %14lf  CR %lf  W %lf  M %10lf %10lf %10lf  A %lf%% Z %lf%%\n", csizes[2], res/csizes[2], av_gw[2]/gcount[2], av_margin[6]/gcount[2], av_margin[7]/gcount[2], av_margin[8]/gcount[2], 100.*av_alpha[2]/(0xFF*gcount[2]), 100.*zero_alpha[2]/gcount[2]);
+		int totaloverhead=overhead[0]+overhead[1]+overhead[2]+overhead[3], totalch=chsizes[0]+chsizes[1]+chsizes[2];
+		printf("Total    %7d  %lf\n", totaloverhead+totalch, 3.*res/list.nobj);
+		printf("Overhead %7d\n", totaloverhead);
+		printf("Red      %7d  %lf\n", chsizes[0], (double)res/chsizes[0]);
+		printf("Green    %7d  %lf\n", chsizes[1], (double)res/chsizes[1]);
+		printf("Blue     %7d  %lf\n", chsizes[2], (double)res/chsizes[2]);
 	}
 
+	dlist_clear(&list);
 	free(buf2);
 	free(CDF0);
 	free(CDF2);
-	free(gwidths);
-	free(ngroups);
-	return csize;
+	return 1;
 }

@@ -22,12 +22,12 @@
 #include<sys/stat.h>
 #include<math.h>
 #include<errno.h>
+#include<time.h>
 #ifdef _MSC_VER
 #define WIN32_LEAN_AND_MEAN
 #include<Windows.h>//QueryPerformance...
 #include<conio.h>
 #else
-#include<time.h>//clock_gettime
 #define sprintf_s	snprintf
 #define vsprintf_s	vsnprintf
 #ifndef _HUGE
@@ -267,7 +267,7 @@ int floor_log10(double x)
 	sh= x<nmask[1];      logn-=sh;
 	return logn;
 }
-double			power(double x, int y)
+double	power(double x, int y)
 {
 	double mask[]={1, 0}, product=1;
 	if(y<0)
@@ -283,7 +283,7 @@ double			power(double x, int y)
 	}
 	return product;
 }
-double			_10pow(int n)
+double	_10pow(int n)
 {
 	static double *mask=0;
 	int k;
@@ -301,9 +301,9 @@ double			_10pow(int n)
 		return _HUGE;
 	return mask[n+308];
 }
-int				minimum(int a, int b){return a<b?a:b;}
-int				maximum(int a, int b){return a>b?a:b;}
-int				acme_isdigit(char c, char base)
+int		minimum(int a, int b){return a<b?a:b;}
+int		maximum(int a, int b){return a>b?a:b;}
+int		acme_isdigit(char c, char base)
 {
 	switch(base)
 	{
@@ -315,7 +315,7 @@ int				acme_isdigit(char c, char base)
 	return 0;
 }
 
-double			time_ms()
+double	time_ms()
 {
 #ifdef _MSC_VER
 	static double inv_f=0;
@@ -333,6 +333,47 @@ double			time_ms()
 	return t.tv_sec*1000+t.tv_nsec*1e-6;
 #endif
 }
+int		timedelta2str(char *buf, size_t len, double ms)
+{
+	int printed;
+	int days, hours, mins;
+	double secs;
+
+	days=(int)floor(ms/(1000*60*60*24));
+	ms-=days*(1000*60*60*24);
+
+	hours=(int)floor(ms/(1000*60*60));
+	ms-=hours*(1000*60*60);
+
+	mins=(int)floor(ms/(1000*60));
+	ms-=mins*(1000*60);
+
+	secs=ms/1000;
+
+	printed=0;
+	if(buf)
+	{
+		if(days)
+			printed+=snprintf(buf, len, "%dD-", days);
+		printed+=snprintf(buf, len, "%02d-%02d-%09.6lf", hours, mins, secs);
+	}
+	else
+	{
+		if(days)
+			printed+=printf("%dD-", days);
+		printed+=printf("%02d-%02d-%09.6lf", hours, mins, secs);
+	}
+	return printed;
+}
+int		acme_strftime(char *buf, size_t len, const char *format)
+{
+	time_t tstamp;
+	struct tm tformat;
+
+	tstamp=time(0);
+	localtime_s(&tformat, &tstamp);
+	strftime(buf, len, format, &tformat);
+}
 
 //error handling
 char first_error_msg[G_BUF_SIZE]={0}, latest_error_msg[G_BUF_SIZE]={0};
@@ -344,7 +385,7 @@ int log_error(const char *file, int line, int quit, const char *format, ...)
 	for(;start>=0&&file[start]!='/'&&file[start]!='\\';--start);
 	start+=start==-1||file[start]=='/'||file[start]=='\\';
 
-	int printed=sprintf_s(latest_error_msg, G_BUF_SIZE, "%s(%d): ", file+start, line);
+	int printed=sprintf_s(latest_error_msg, G_BUF_SIZE, "\n%s(%d): ", file+start, line);
 	va_list args;
 	va_start(args, format);
 	printed+=vsprintf_s(latest_error_msg+printed, G_BUF_SIZE-printed, format, args);
