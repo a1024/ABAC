@@ -137,9 +137,9 @@ void colortransform_ycocb_fwd(char *buf, int iw, int ih)//3 channels, stride 4 b
 		b-=g;		//diff(b, av(r, g))
 		g+=b>>1;	//av(b, av(r, g))
 
-		buf[k  ]=r;
-		buf[k|1]=g;
-		buf[k|2]=b;
+		buf[k  ]=r;//Co
+		buf[k|1]=g;//Y
+		buf[k|2]=b;//Cb
 	}
 }
 void colortransform_ycocb_inv(char *buf, int iw, int ih)//3 channels, stride 4 bytes
@@ -3384,11 +3384,11 @@ void calc_histogram(unsigned char *buf, ptrdiff_t len, ptrdiff_t stride, int *hi
 	for(ptrdiff_t k=0, end=len-(stride-1);k<end;k+=stride)
 		++hist[buf[k]];
 }
-double pred_jxl_calccsize(const char *src, int iw, int ih, int kc, short *params, int *temp, char *dst, int *hist)
+double pred_jxl_calcloss(const char *src, int iw, int ih, int kc, short *params, int *temp, char *dst, int *hist)
 {
 	int res=iw*ih;
 	pred_jxl_prealloc(src, iw, ih, kc, params, 1, dst, temp);
-	addhalf((unsigned char*)dst+kc, iw, ih, 1, 4);
+	//addhalf((unsigned char*)dst+kc, iw, ih, 1, 4);
 	calc_histogram(dst+kc, (ptrdiff_t)res<<2, 4, hist);
 
 	double entropy=0;
@@ -3398,7 +3398,7 @@ double pred_jxl_calccsize(const char *src, int iw, int ih, int kc, short *params
 		if(freq)
 		{
 			double p=(double)freq/res;
-			p*=0x10000-255;
+			p*=0x10000-256;
 			++p;
 			p/=0x10000;
 			entropy-=p*log2(p);
@@ -3407,6 +3407,64 @@ double pred_jxl_calccsize(const char *src, int iw, int ih, int kc, short *params
 	double invCR=entropy/8, csize=res*invCR;
 	return csize;
 }
+void pred_jxl_opt_v2(char *buf2, int iw, int ih, short *params, int loud)
+{
+	int res=iw*ih;
+	char *buf3=(char*)malloc((size_t)res<<2);
+	int *temp=(int*)malloc((size_t)iw*10*sizeof(int));
+	int *hist=(int*)malloc(256*sizeof(int));
+	if(!buf3||!temp||!hist)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	int steps[]={256, 128, 64, 32, 16, 8, 4, 2, 1};
+	for(int kc=0;kc<3;++kc)
+	{
+		short *param=params+kc*11;
+		double csize0=pred_jxl_calcloss(buf2, iw, ih, kc, param, temp, buf3, hist);
+		for(int ks=0;ks<COUNTOF(steps);++ks)
+		{
+			int step=steps[ks];
+			double bestcsize=csize0;
+			int bestidx=0, beststep=0;
+			for(int idx=0;idx<11;++idx)
+			{
+				double csize;
+				short prev;
+
+				prev=param[idx];
+				param[idx]+=step;
+				csize=pred_jxl_calcloss(buf2, iw, ih, kc, param, temp, buf3, hist);
+				param[idx]=prev;
+				if(bestcsize>csize)
+					bestcsize=csize, bestidx=idx, beststep=step;
+
+				prev=param[idx];
+				param[idx]-=step;
+				if(idx<4&&param[idx]<1)
+					param[idx]=1;
+				csize=pred_jxl_calcloss(buf2, iw, ih, kc, param, temp, buf3, hist);
+				param[idx]=prev;
+				if(bestcsize>csize)
+					bestcsize=csize, bestidx=idx, beststep=-step;
+			}
+			if(csize0>bestcsize)
+			{
+				csize0=bestcsize;
+
+				param[bestidx]+=beststep;
+				if(bestidx<4&&param[bestidx]<1)
+					param[bestidx]=1;
+			}
+			//set_window_title("%lf", csize0);//
+		}
+	}
+	free(hist);
+	free(temp);
+	free(buf3);
+}
+#if 0
 void pred_jxl_optimize(const char *src, int iw, int ih, int kc, short *params, int step, int pidx, char *dst, int loud)
 {
 	int *temp=(int*)malloc((size_t)iw*10*sizeof(int));
@@ -3420,7 +3478,7 @@ void pred_jxl_optimize(const char *src, int iw, int ih, int kc, short *params, i
 	int res=iw*ih;
 	double csize0, csize, csize00;
 	short p0=params[pidx];
-	csize=pred_jxl_calccsize(src, iw, ih, kc, params, temp, dst, hist);
+	csize=pred_jxl_calcloss(src, iw, ih, kc, params, temp, dst, hist);
 	csize00=csize;
 
 	//static int it=0;
@@ -3432,7 +3490,7 @@ void pred_jxl_optimize(const char *src, int iw, int ih, int kc, short *params, i
 	{
 		csize0=csize;
 		params[pidx]+=step;
-		csize=pred_jxl_calccsize(src, iw, ih, kc, params, temp, dst, hist);
+		csize=pred_jxl_calcloss(src, iw, ih, kc, params, temp, dst, hist);
 		if(csize>csize0)//cancel last change and break
 		{
 			params[pidx]-=step;
@@ -3445,7 +3503,7 @@ void pred_jxl_optimize(const char *src, int iw, int ih, int kc, short *params, i
 	{
 		csize0=csize;
 		params[pidx]-=step;
-		csize=pred_jxl_calccsize(src, iw, ih, kc, params, temp, dst, hist);
+		csize=pred_jxl_calcloss(src, iw, ih, kc, params, temp, dst, hist);
 		if(csize>csize0)
 		{
 			params[pidx]+=step;
@@ -3466,6 +3524,7 @@ void pred_jxl_optimize(const char *src, int iw, int ih, int kc, short *params, i
 	free(hist);
 	free(temp);
 }
+#endif
 void pred_jxl_apply(char *buf, int iw, int ih, short *allparams, int fwd)
 {
 	int res=iw*ih;
@@ -5804,4 +5863,288 @@ void jointhistogram(unsigned char *buf, int resolution, int nbits, ArrayHandle *
 	//}
 
 	//return CR;
+}
+
+
+E24Params e24_params[3]=
+{
+	{ 8, 26, 26, 26, 0xD4, 71},
+	{23, 37, 37, 37, 0xD4, 86},
+	{ 8, 26, 26, 26, 0xD4, 77},
+};
+double e24_cr[3]={0};
+#define E24_SETPARAM(P, IDX, VAL) ((short*)(P))[IDX]=VAL
+int e24_incparam(E24Params *p, int pidx, int step)
+{
+	int prevval=0;
+	switch(pidx)
+	{
+	case 0:prevval=p->gwidth, p->gwidth+=step; if(p->gwidth<1)p->gwidth=1; break;
+	case 1:prevval=p->mleft , p->mleft +=step; if(p->mleft <0)p->mleft =0; break;
+	case 2:prevval=p->mtop  , p->mtop  +=step; if(p->mtop  <0)p->mtop  =0; break;
+	case 3:prevval=p->mright, p->mright+=step; if(p->mright<0)p->mright=0; break;
+	case 4:prevval=p->alpha , p->alpha +=step; if(p->alpha <0)p->alpha =0; else if(p->alpha>0xFF)p->alpha=0xFF; break;
+	case 5:prevval=p->maxinc, p->maxinc+=step; if(p->maxinc<1)p->maxinc=1; break;
+	}
+	return prevval;
+}
+void e24_normalize_histogram(unsigned *srchist, int nlevels, int nsymbols, unsigned short *CDF)//hist is unsigned char due to alignment issues, but it's 16bit
+{
+	if(!nsymbols)//bypass
+	{
+		for(int k=0;k<nlevels;++k)
+			CDF[k]=(unsigned short)(k<<8);
+		return;
+	}
+	unsigned sum=0, qfreq;
+	for(int sym=0;sym<nlevels;++sym)
+	{
+		qfreq=((long long)srchist[sym]<<16)/nsymbols;
+		CDF[sym]=sum;
+		sum+=qfreq;
+	}
+}
+void e24_addhist(const unsigned char *buf2, int iw, int ih, int kc, int x1, int x2, int y1, int y2, int x0a, int x0b, int y0, int maxinc, unsigned *CDF2)
+{
+	if(x1<0)
+		x1=0;
+	if(x2>iw)
+		x2=iw;
+	if(y1<0)
+		y1=0;
+	if(y2>ih)
+		y2=ih;
+	for(int ky=y1;ky<y2;++ky)
+	{
+		for(int kx=x1;kx<x2;++kx)
+		{
+			unsigned char sym=buf2[(iw*ky+kx)<<2|kc];
+			int dist=abs(ky-y0);
+			if(kx<x0a)
+				dist+=abs(kx-x0a);
+			else if(kx>x0b)
+				dist+=abs(kx-x0b);
+			int inc=maxinc-dist;
+			if(inc>0)
+			{
+				CDF2[sym]+=inc;
+				CDF2[256]+=inc;
+			}
+		}
+	}
+}
+double e24_calcloss(const unsigned char *buf, int iw, int ih, int kc, int x1, int x2, int y1, int y2, E24Params const *p, const unsigned short *CDF0, unsigned *CDF2)
+{
+	double chsize=0;
+	for(int ky=y1;ky<y2;++ky)
+	{
+		for(int kx=x1;kx<x2;)
+		{
+			int xend=kx+p->gwidth;
+			if(xend>x2)
+				xend=x2;
+			memset(CDF2, 0, 257*sizeof(unsigned));
+			if(p->mtop)
+				e24_addhist(buf, iw, ih, kc, kx-p->mleft, xend+p->mright, ky-p->mtop, ky, kx, xend, ky, p->maxinc, CDF2);
+			if(p->mleft)
+				e24_addhist(buf, iw, ih, kc, kx-p->mleft, kx, ky, ky+1, kx, xend, ky, p->maxinc, CDF2);
+
+			int overflow=0;
+			int sum, cdf1, f1, f2, freq;
+			if(CDF2[256])
+			{
+				sum=0;
+				for(int sym=0;sym<256;++sym)
+				{
+					cdf1=!overflow?CDF0[sym]:0x10000;
+					if(sym<255)
+						overflow|=cdf1>CDF0[sym+1];
+					f1=(sym<255&&!overflow?CDF0[sym+1]:0x10000)-cdf1;
+
+					f2=(int)(((long long)CDF2[sym]<<16)/CDF2[256]);//normalize
+
+					freq=f1+(int)(((long long)f2-f1)*p->alpha/0xFF);//blend
+
+					freq=((unsigned)(freq*0xFF00)>>16)+1;//guard
+					if(freq<0||freq>0xFF01)
+						LOG_ERROR("Impossible freq 0x%04X / 0x10000", freq);
+					CDF2[sym]=sum;
+					sum+=freq;
+					if(sum>0x10000)
+						LOG_ERROR("ANS CDF sum 0x%04X, freq 0x%04X", sum, freq);
+				}
+			}
+			else
+			{
+				for(int sym=0;sym<256;++sym)
+				{
+					if(overflow)
+						CDF2[sym]=0xFF00|sym;
+					else
+					{
+						int cdf=CDF0[sym];
+						CDF2[sym]=((unsigned)(cdf*0xFF00)>>16)+sym;
+						if(sym<255)
+							overflow|=cdf>CDF0[sym+1];
+					}
+				}
+			}
+			CDF2[256]=0x10000;
+				
+			int kx2=kx;
+			for(;kx2<kx+p->gwidth;++kx2)
+			{
+				unsigned char sym=buf[(iw*ky+kx2)<<2|kc];
+				int freq=CDF2[sym+1]-CDF2[sym];
+				double p=(double)freq/0x10000, bitsize=-log2(p);//Zipf's law
+				chsize+=bitsize;
+			}
+			kx+=p->gwidth;
+		}
+	}
+	return chsize;
+}
+double e24_optimize(const unsigned char *buf, int iw, int ih, int kc, int x1, int x2, int y1, int y2, E24Params *p, int pidx, int step, const unsigned short *CDF0, unsigned *CDF2)
+{
+	double csize00, csize0, csize;
+	int prevval0, prevval;
+
+	prevval0=((short*)p)[pidx];
+	csize00=csize=e24_calcloss(buf, iw, ih, kc, x1, x2, y1, y2, p, CDF0, CDF2);
+		
+	int subit;
+	for(subit=0;subit<20;++subit)
+	{
+		csize0=csize;
+		prevval=e24_incparam(p, pidx, step);
+		csize=e24_calcloss(buf, iw, ih, kc, x1, x2, y1, y2, p, CDF0, CDF2);
+		if(csize>=csize0)//cancel last change and break
+		{
+			E24_SETPARAM(p, pidx, prevval);
+			csize=csize0;
+			break;
+		}
+	}
+		
+	for(subit=0;subit<20;++subit)
+	{
+		csize0=csize;
+		prevval=e24_incparam(p, pidx, -step);
+		csize=e24_calcloss(buf, iw, ih, kc, x1, x2, y1, y2, p, CDF0, CDF2);
+		if(csize>=csize0)
+		{
+			E24_SETPARAM(p, pidx, prevval);
+			csize=csize0;
+			break;
+		}
+	}
+	if(csize>=csize00)//prevent CR from worsening
+	{
+		E24_SETPARAM(p, pidx, prevval0);
+		csize=csize00;
+	}
+	return csize;
+}
+int e24_optimizeall(const unsigned char *buf, int iw, int ih, int x1, int x2, int y1, int y2, int loud)
+{
+	int res=iw*ih;
+	unsigned short *CDF0=(unsigned short*)malloc(256LL*3*sizeof(short));
+	unsigned *CDF2=(unsigned*)malloc(257LL*sizeof(unsigned));
+	if(!CDF0||!CDF2)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	for(int kc=0;kc<3;++kc)
+	{
+		memset(CDF2, 0, 256LL*sizeof(unsigned));
+		for(int k=0;k<res;++k)
+		{
+			unsigned char sym=buf[k<<2|kc];
+			++CDF2[sym];
+		}
+		e24_normalize_histogram(CDF2, 256, res, CDF0+((size_t)kc<<8));
+	}
+	
+	if(x1<0)
+		x1=0;
+	if(x2>iw)
+		x2=iw;
+	if(y1<0)
+		y1=0;
+	if(y2>ih)
+		y2=ih;
+	
+	double csizes[3]={0};
+	int steps[]={4, 2, 1};
+	int usize=(x2-x1)*(y2-y1);
+	for(int kc=0;kc<3;++kc)
+	{
+		for(int ks=0;ks<COUNTOF(steps);++ks)
+		{
+			for(int it=0, improve=1;it<64&&improve;++it)
+			{
+				improve=0;
+				for(int pidx=0;pidx<sizeof(e24_params)/sizeof(e24_params->gwidth);++pidx)
+				{
+					csizes[kc]=e24_optimize(buf, iw, ih, kc, x1, x2, y1, y2, e24_params+kc, pidx, steps[ks], CDF0+((size_t)kc<<8), CDF2);
+					if(loud)
+						io_render();
+				}
+			}
+		}
+		csizes[kc]/=8;
+		e24_cr[kc]=usize>0&&csizes[kc]?(x2-x1)*(y2-y1)/csizes[kc]:0;
+	}
+
+	free(CDF0);
+	free(CDF2);
+	return 1;
+}
+void e24_estimate(const unsigned char *buf, int iw, int ih, int x1, int x2, int y1, int y2)
+{
+	int res=iw*ih;
+	unsigned short *CDF0=(unsigned short*)malloc(256LL*3*sizeof(short));
+	unsigned *CDF2=(unsigned*)malloc(257LL*sizeof(unsigned));
+	if(!CDF0||!CDF2)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	for(int kc=0;kc<3;++kc)
+	{
+		memset(CDF2, 0, 256LL*sizeof(unsigned));
+		for(int k=0;k<res;++k)
+		{
+			unsigned char sym=buf[k<<2|kc];
+			++CDF2[sym];
+		}
+		e24_normalize_histogram(CDF2, 256, res, CDF0+((size_t)kc<<8));
+	}
+	
+	if(x1<0)
+		x1=0;
+	if(x2>iw)
+		x2=iw;
+	if(y1<0)
+		y1=0;
+	if(y2>ih)
+		y2=ih;
+
+	double csizes[3];
+	int usize=(x2-x1)*(y2-y1);
+	csizes[0]=e24_calcloss(buf, iw, ih, 0, x1, x2, y1, y2, e24_params  , CDF0, CDF2);
+	csizes[1]=e24_calcloss(buf, iw, ih, 1, x1, x2, y1, y2, e24_params+1, CDF0, CDF2);
+	csizes[2]=e24_calcloss(buf, iw, ih, 2, x1, x2, y1, y2, e24_params+2, CDF0, CDF2);
+
+	csizes[0]/=8;
+	csizes[1]/=8;
+	csizes[2]/=8;
+
+	e24_cr[0]=usize>0&&csizes[0]?(x2-x1)*(y2-y1)/csizes[0]:0;
+	e24_cr[1]=usize>0&&csizes[1]?(x2-x1)*(y2-y1)/csizes[1]:0;
+	e24_cr[2]=usize>0&&csizes[2]?(x2-x1)*(y2-y1)/csizes[2]:0;
+
+	free(CDF0);
+	free(CDF2);
 }

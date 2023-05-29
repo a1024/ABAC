@@ -677,7 +677,8 @@ extern short jxlparams_i16[33];
 //extern float jxlparams_ps[33];
 void pred_jxl_prealloc(const char *src, int iw, int ih, int kc, short *params, int fwd, char *dst, int *temp_w10);
 void calc_histogram(unsigned char *buf, ptrdiff_t len, ptrdiff_t stride, int *hist);
-void pred_jxl_optimize(const char *src, int iw, int ih, int kc, short *params, int step, int pidx, char *dst, int loud);
+void pred_jxl_opt_v2(char *buf2, int iw, int ih, short *params, int loud);
+//void pred_jxl_optimize(const char *src, int iw, int ih, int kc, short *params, int step, int pidx, char *dst, int loud);
 void pred_jxl_apply(char *buf, int iw, int ih, short *allparams, int fwd);
 
 void pred_jxl(char *buf, int iw, int ih, int nch, int bytestride, int fwd);
@@ -736,6 +737,23 @@ void pred_dct3_inv(char *buf, int iw, int ih, int nch, int bytestride);
 double calc_entropy(int *hist, int sum);//pass -1 if sum is unknown
 void channel_entropy(unsigned char *buf, int resolution, int nch, int bytestride, float *cr, int *usage);
 void jointhistogram(unsigned char *buf, int resolution, int nbits, ArrayHandle *hist);
+
+
+//experiment 24: test 16 optimization per block
+typedef struct E24ParamsStruct
+{
+	short
+		gwidth,//>=1
+		mleft,
+		mtop,
+		mright,
+		alpha,//0~0xFF
+		maxinc;//>=1;
+} E24Params;
+extern E24Params e24_params[3];
+extern double e24_cr[3];
+int e24_optimizeall(const unsigned char *buf, int iw, int ih, int x1, int x2, int y1, int y2, int loud);
+void e24_estimate(const unsigned char *buf, int iw, int ih, int x1, int x2, int y1, int y2);
 
 
 #ifdef __cplusplus

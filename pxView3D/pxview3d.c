@@ -32,6 +32,7 @@ typedef enum VisModeEnum
 	VIS_IMAGE_TRICOLOR,
 	VIS_IMAGE,
 	VIS_IMAGE_BLOCK,
+	VIS_IMAGE_E24,//experiment 24
 	VIS_DWT_BLOCK,
 	VIS_HISTOGRAM,
 	VIS_JOINT_HISTOGRAM,
@@ -1230,6 +1231,29 @@ void chart_jointhist_draw()
 	draw_AAcuboid_wire(0, 64, 0, 64, 0, 64, 0xFF000000);
 	draw_contour3d_rect(&cam, gpu_vertices, (int)(cpu_vertices->count/5), image_txid[2], 0.8f);
 }
+void e24_update()
+{
+	float yoffset=tdy*3, half=blocksize*0.5f;
+	float x1=blockmx-half, x2=blockmx+half, y1=blockmy-yoffset-half, y2=blockmy-yoffset+half;
+	if(blockmx>=0&&blockmx<iw&&blockmy>=yoffset&&blockmy<yoffset+ih)
+	{
+		if(iw<blocksize)
+			x1=0, x2=(float)iw;
+		if(x1<0)
+			x1=0, x2=(float)blocksize;
+		if(x2>iw)
+			x1=(float)(iw-blocksize), x2=(float)iw;
+				
+		if(ih<blocksize)
+			y1=0, y2=(float)ih;
+		if(y1<0)
+			y1=0, y2=(float)blocksize;
+		if(y2>ih)
+			y1=(float)(ih-blocksize), y2=(float)ih;
+
+		e24_estimate(image, iw, ih, (int)roundf(x1), (int)roundf(x2), (int)roundf(y1), (int)roundf(y2));
+	}
+}
 
 #if 0
 void applycolortransform(int tidx)
@@ -1441,7 +1465,7 @@ void io_resize()
 }
 int io_mousemove()//return true to redraw
 {
-	if(mode==VIS_IMAGE_BLOCK||mode==VIS_DWT_BLOCK)
+	if(mode==VIS_IMAGE_BLOCK||mode==VIS_IMAGE_E24||mode==VIS_DWT_BLOCK)
 	{
 		if(drag)
 		{
@@ -1451,6 +1475,8 @@ int io_mousemove()//return true to redraw
 		if(GET_KEY_STATE(KEY_LBUTTON))
 		{
 			blockmx=mx, blockmy=my;
+			//if(mode==VIS_IMAGE_E24)
+			//	e24_update();
 			return 1;
 		}
 	}
@@ -1625,7 +1651,7 @@ int io_mousewheel(int forward)
 	else
 	{
 	normal_operation:
-		if(mode==VIS_IMAGE_BLOCK||mode==VIS_DWT_BLOCK)
+		if(mode==VIS_IMAGE_BLOCK||mode==VIS_IMAGE_E24||mode==VIS_DWT_BLOCK)
 		{
 			if(GET_KEY_STATE(KEY_CTRL))
 			{
@@ -1656,6 +1682,7 @@ int io_mousewheel(int forward)
 					if(blocksize<1)
 						blocksize=1;
 				}
+				//e24_update();
 			}
 		}
 		else if(GET_KEY_STATE(KEY_SHIFT))//shift wheel		change cam speed
@@ -1693,7 +1720,29 @@ int io_keydn(IOKey key, char c)
 	//	}
 	//	break;
 	//}
-	if(transforms_customenabled)
+	if(mode==VIS_IMAGE_E24)
+	{
+		switch(key)
+		{
+		case KEY_LEFT:
+			blockmx-=blocksize;
+			//e24_update();
+			return 1;
+		case KEY_RIGHT:
+			blockmx+=blocksize;
+			//e24_update();
+			return 1;
+		case KEY_UP:
+			blockmy-=blocksize;
+			//e24_update();
+			return 1;
+		case KEY_DOWN:
+			blockmy+=blocksize;
+			//e24_update();
+			return 1;
+		}
+	}
+	else if(transforms_customenabled)
 	{
 		switch(key)
 		{
@@ -1911,11 +1960,12 @@ int io_keydn(IOKey key, char c)
 		break;
 	case KEY_ESC:
 toggle_drag:
-		if(mode==VIS_IMAGE_BLOCK||mode==VIS_DWT_BLOCK)
+		if(mode==VIS_IMAGE_BLOCK||mode==VIS_IMAGE_E24||mode==VIS_DWT_BLOCK)
 		{
 			if(key==KEY_LBUTTON)
 			{
 				blockmx=mx, blockmy=my;
+				//e24_update();
 				return 1;
 			}
 		}
@@ -2019,7 +2069,15 @@ toggle_drag:
 			int printed=0;
 			ArrayHandle str;
 			STR_ALLOC(str, 65536);
-			if(transforms_mask[ST_FWD_JXL]||transforms_mask[ST_INV_JXL])
+			if(mode==VIS_IMAGE_E24)
+			{
+				for(int kc=0;kc<3;++kc)
+				{
+					E24Params const *p=e24_params+kc;
+					printed+=snprintf((char*)str->data+printed, str->count-printed, "%3d  %3d %3d %3d  %3d %3d\n", p->gwidth, p->mleft, p->mtop, p->mright, p->alpha, p->maxinc);
+				}
+			}
+			else if(transforms_mask[ST_FWD_JXL]||transforms_mask[ST_INV_JXL])
 			{
 				for(int ky=0;ky<3;++ky)
 				{
@@ -2089,7 +2147,30 @@ toggle_drag:
 			if(text)
 			{
 				int k, kend, idx;
-				if(transforms_mask[ST_FWD_JXL]||transforms_mask[ST_INV_JXL])
+				if(mode==VIS_IMAGE_E24)
+				{
+					k=0, kend=sizeof(e24_params)/sizeof(e24_params->alpha), idx=0;
+					for(;k<kend;++k)
+					{
+						for(;idx<text->count&&isspace(text->data[idx]);++idx);
+
+						int neg=text->data[idx]=='-';
+						idx+=neg;//skip sign
+						if(text->data[idx]=='0'&&(text->data[idx]&0xDF)=='X')//skip hex prefix
+							idx+=2;
+						char *end=text->data+idx;
+						((short*)e24_params)[k]=(int)strtol(text->data+idx, &end, 10);
+						idx=(int)(end-text->data);
+						if(neg)
+							((short*)e24_params)[k]=-((short*)e24_params)[k];
+
+						for(;idx<text->count&&!isspace(text->data[idx]);++idx);//skip comma
+
+						if(idx>=text->count)
+							goto paste_finish;
+					}
+				}
+				else if(transforms_mask[ST_FWD_JXL]||transforms_mask[ST_INV_JXL])
 				{
 					k=0, kend=COUNTOF(jxlparams_i16), idx=0;
 					for(;k<kend;++k)
@@ -2210,11 +2291,34 @@ toggle_drag:
 		}
 		break;
 	case KEY_SPACE:
-	case 'B':
-	case 'N':
+	//case 'B':
+	//case 'N':
 		if(image)
 		{
-			if(transforms_customenabled)
+			if(mode==VIS_IMAGE_E24)
+			{
+				float yoffset=tdy*3, half=blocksize*0.5f;
+				float x1=blockmx-half, x2=blockmx+half, y1=blockmy-yoffset-half, y2=blockmy-yoffset+half;
+				if(blockmx>=0&&blockmx<iw&&blockmy>=yoffset&&blockmy<yoffset+ih)
+				{
+					if(iw<blocksize)
+						x1=0, x2=(float)iw;
+					if(x1<0)
+						x1=0, x2=(float)blocksize;
+					if(x2>iw)
+						x1=(float)(iw-blocksize), x2=(float)iw;
+				
+					if(ih<blocksize)
+						y1=0, y2=(float)ih;
+					if(y1<0)
+						y1=0, y2=(float)blocksize;
+					if(y2>ih)
+						y1=(float)(ih-blocksize), y2=(float)ih;
+
+					e24_optimizeall(image, iw, ih, (int)roundf(x1), (int)roundf(x2), (int)roundf(y1), (int)roundf(y2), 1);
+				}
+			}
+			else if(transforms_customenabled)
 				timer_start(50);
 			else if(transforms_mask[ST_FWD_JXL]||transforms_mask[ST_INV_JXL]||transforms_mask[ST_FWD_JOINT]||transforms_mask[ST_INV_JOINT])
 			{
@@ -2259,7 +2363,7 @@ toggle_drag:
 					else if(keyboard['6'])step=  4;
 					else if(keyboard['7'])step=  2;
 					else if(keyboard['8'])step=  1;
-
+					;
 					//int step=key=='N'?1:(key=='B'?8:64);
 
 					//int step=0x40/(press+1);
@@ -2269,11 +2373,12 @@ toggle_drag:
 					if(jxl)
 					{
 						colortransform_ycocb_fwd(buf2, iw, ih);
-						for(int idx=0;idx<33;++idx)
-						{
-							int kc=idx/11;
-							pred_jxl_optimize(buf2, iw, ih, kc, jxlparams_i16+11*kc, step, idx%11, buf3, 0);
-						}
+						pred_jxl_opt_v2(buf2, iw, ih, jxlparams_i16, 0);
+						//for(int idx=0;idx<33;++idx)
+						//{
+						//	int kc=idx/11;
+						//	pred_jxl_optimize(buf2, iw, ih, kc, jxlparams_i16+11*kc, step, idx%11, buf3, 0);
+						//}
 					}
 					else
 					{
@@ -2490,6 +2595,57 @@ void io_render()
 			//	int x=(int)floorf(tdx*6.5f);
 			//	display_texture_i(x, x+iw, (int)(tdy*3), (int)(tdy*3+ih), (int*)image, iw, ih, 1);
 			//}
+			break;
+		case VIS_IMAGE_E24:
+			{
+				float yoffset=tdy*3, half=blocksize*0.5f;
+				display_texture_i(0, iw, (int)yoffset, (int)yoffset+ih, (int*)image, iw, ih, 1, 0, 1, 0, 1);
+				float x1=blockmx-half, x2=blockmx+half, y1=blockmy-yoffset-half, y2=blockmy-yoffset+half;
+				if(blockmx>=0&&blockmx<iw&&blockmy>=yoffset&&blockmy<yoffset+ih)
+				{
+					if(iw<blocksize)
+						x1=0, x2=(float)iw;
+					if(x1<0)
+						x1=0, x2=(float)blocksize;
+					if(x2>iw)
+						x1=(float)(iw-blocksize), x2=(float)iw;
+				
+					if(ih<blocksize)
+						y1=0, y2=(float)ih;
+					if(y1<0)
+						y1=0, y2=(float)blocksize;
+					if(y2>ih)
+						y1=(float)(ih-blocksize), y2=(float)ih;
+					
+					e24_estimate(image, iw, ih, (int)roundf(x1), (int)roundf(x2), (int)roundf(y1), (int)roundf(y2));
+
+					int boxcolor=0xFFFFFF00;
+					y1+=yoffset;
+					y2+=yoffset;
+					draw_rect_hollow(x1, x2, y1, y2, boxcolor);
+					float total_cr=(float)(3/(1/e24_cr[0]+1/e24_cr[1]+1/e24_cr[2])), scale=128;
+
+					draw_line(x1+scale, y1-32, x1+scale, y1, 0xC0000000);
+					draw_rect(x1, x1+total_cr*scale, y1-2, y1-8, 0xC0000000);
+					draw_rect(x1, x1+(float)e24_cr[0]*scale, y1-10, y1-16, 0xC00000FF);
+					draw_rect(x1, x1+(float)e24_cr[1]*scale, y1-18, y1-24, 0xC000FF00);
+					draw_rect(x1, x1+(float)e24_cr[2]*scale, y1-26, y1-32, 0xC0FF0000);
+#if 0
+					draw_line(x1+scale, y1, x1+scale, y2, 0x80000000);
+					//draw_rect(x1, x1+scale, y1-8, y1, 0x80FF80FF);
+					draw_line(x1, y1-2, x1+total_cr*scale, y1-2, 0xFF000000);
+					draw_line(x1, y1-4, x1+(float)e24_cr[0]*scale, y1-4, 0xFF0000FF);
+					draw_line(x1, y1-6, x1+(float)e24_cr[1]*scale, y1-6, 0xFF00FF00);
+					draw_line(x1, y1-8, x1+(float)e24_cr[2]*scale, y1-8, 0xFFFF0000);
+#endif
+					GUIPrint(0, 0, tdy*2, 1, "E24 TRGB %8f [%8lf %8lf %8lf]  block %d", total_cr, e24_cr[0], e24_cr[1], e24_cr[2], blocksize);
+					for(int k=0;k<3;++k)
+					{
+						E24Params *p=e24_params+k;
+						GUIPrint(0, (float)(w>>1)-100, (float)(h>>2)+(k+1)*tdy, 1, "W %3d  MLTR %3d %3d %3d A 0x%02X I %3d", p->gwidth, p->mleft, p->mtop, p->mright, p->alpha, p->maxinc);
+					}
+				}
+			}
 			break;
 		case VIS_DWT_BLOCK:
 			{
@@ -2717,6 +2873,7 @@ void io_render()
 	case VIS_JOINT_HISTOGRAM:	mode_str="Joint Histogram";	break;
 	case VIS_IMAGE:				mode_str="Image View";		break;
 	case VIS_IMAGE_BLOCK:		mode_str="Image Block";		break;
+	case VIS_IMAGE_E24:			mode_str="Image Exp24";		break;
 	case VIS_DWT_BLOCK:			mode_str="DWT Block";		break;
 	case VIS_IMAGE_TRICOLOR:	mode_str="Tricolor";		break;
 	}
@@ -2800,17 +2957,31 @@ void io_render()
 				x=(float)(xend-scale*ks);
 			}
 			float barw=4;
-			if(mode==VIS_IMAGE_BLOCK||mode==VIS_DWT_BLOCK)
+			if(mode==VIS_IMAGE_BLOCK||mode==VIS_IMAGE_E24||mode==VIS_DWT_BLOCK)
 			{
-				float blockcombined=3/(1/blockCR[0]+1/blockCR[1]+1/blockCR[2]);
-				draw_rect(xend-scale*blockcombined, xend, ystart+tdy*0.5f-barw, ystart+tdy*0.5f  , 0xFF404040);
-				draw_rect(xend-scale*blockCR[0]   , xend, ystart+tdy*1.5f-barw, ystart+tdy*1.5f  , 0xFF0000B0);
-				draw_rect(xend-scale*blockCR[1]   , xend, ystart+tdy*2.5f-barw, ystart+tdy*2.5f  , 0xFF00B000);
-				draw_rect(xend-scale*blockCR[2]   , xend, ystart+tdy*3.5f-barw, ystart+tdy*3.5f  , 0xFFB00000);
-				draw_rect(xend-scale*cr_combined  , xend, ystart+tdy*0.5f, ystart+tdy*0.5f+barw+1, 0xFF000000);
-				draw_rect(xend-scale*ch_cr[0]     , xend, ystart+tdy*1.5f, ystart+tdy*1.5f+barw+1, 0xFF0000FF);
-				draw_rect(xend-scale*ch_cr[1]     , xend, ystart+tdy*2.5f, ystart+tdy*2.5f+barw+1, 0xFF00FF00);
-				draw_rect(xend-scale*ch_cr[2]     , xend, ystart+tdy*3.5f, ystart+tdy*3.5f+barw+1, 0xFFFF0000);
+				float cr[4];
+				if(mode==VIS_IMAGE_E24)
+				{
+					cr[0]=(float)e24_cr[0];
+					cr[1]=(float)e24_cr[1];
+					cr[2]=(float)e24_cr[2];
+					cr[3]=3/(1/cr[0]+1/cr[1]+1/cr[2]);
+				}
+				else
+				{
+					cr[0]=blockCR[0];
+					cr[1]=blockCR[1];
+					cr[2]=blockCR[2];
+					cr[3]=3/(1/blockCR[0]+1/blockCR[1]+1/blockCR[2]);
+				}
+				draw_rect(xend-scale*cr[3]      , xend, ystart+tdy*0.5f-barw, ystart+tdy*0.5f  , 0xFF404040);
+				draw_rect(xend-scale*cr[0]      , xend, ystart+tdy*1.5f-barw, ystart+tdy*1.5f  , 0xFF0000B0);
+				draw_rect(xend-scale*cr[1]      , xend, ystart+tdy*2.5f-barw, ystart+tdy*2.5f  , 0xFF00B000);
+				draw_rect(xend-scale*cr[2]      , xend, ystart+tdy*3.5f-barw, ystart+tdy*3.5f  , 0xFFB00000);
+				draw_rect(xend-scale*cr_combined, xend, ystart+tdy*0.5f, ystart+tdy*0.5f+barw+1, 0xFF000000);
+				draw_rect(xend-scale*ch_cr[0]   , xend, ystart+tdy*1.5f, ystart+tdy*1.5f+barw+1, 0xFF0000FF);
+				draw_rect(xend-scale*ch_cr[1]   , xend, ystart+tdy*2.5f, ystart+tdy*2.5f+barw+1, 0xFF00FF00);
+				draw_rect(xend-scale*ch_cr[2]   , xend, ystart+tdy*3.5f, ystart+tdy*3.5f+barw+1, 0xFFFF0000);
 			}
 			else
 			{
