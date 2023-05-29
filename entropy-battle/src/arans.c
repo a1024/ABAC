@@ -1969,7 +1969,8 @@ size_t test23_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data
 
 	addbuf(buf2, iw, ih, 3, 4, 128);
 	colortransform_ycocb_fwd((char*)buf2, iw, ih);
-	pred_jxl_optimizeall(buf2, iw, ih, loud);
+	pred_jxl_opt_v2((char*)buf2, iw, ih, jxlparams_i16, loud);
+	//pred_jxl_optimizeall(buf2, iw, ih, loud);
 #if 1
 	if(loud)
 	{
@@ -2233,7 +2234,7 @@ int    test23_decode(const unsigned char *data, size_t srclen, int iw, int ih, u
 	free(CDF2);
 
 	addbuf(buf, iw, ih, 3, 4, 128);
-	pred_jxl_apply((char*)buf, iw, ih, jxlparams_i16, 0);
+	pred_jxl_apply((char*)buf, iw, ih, jxlparams, 0);
 	colortransform_ycocb_inv((char*)buf, iw, ih);
 	addbuf(buf, iw, ih, 3, 4, 128);
 
@@ -2871,8 +2872,8 @@ double t25_optimize(const unsigned char *buf, int iw, int ih, int kc, Rect const
 double t25_optimize_v2(const unsigned char *buf, int iw, int ih, int kc, Rect const *r, T25Params *param, const unsigned short *CDF0, unsigned *CDF2, int loud)
 {
 	double csize0;
-	int steps[]={32, 16, 8, 4, 2, 1},
-		limit[]={ 1,  1, 1, 1, 1, 1};
+	int steps[]={16, 8, 4, 2, 1};
+	//	limit[]={ 1,  1, 1, 1, 1, 1};
 	//int steps[]={64, 16, 4, 1},
 	//	limit[]={4, 4, 4, 4};
 	
@@ -2882,45 +2883,40 @@ double t25_optimize_v2(const unsigned char *buf, int iw, int ih, int kc, Rect co
 	for(int ks=0;ks<COUNTOF(steps);++ks)
 	{
 		int step=steps[ks];
-		for(int it=0, improve=1;it<limit[ks]&&improve;++it)
-		{
-			int bestpidx=0, beststep=0;
-			double bestcsize=csize0;
-			improve=0;
+		int bestpidx=0, beststep=0;
+		double bestcsize=csize0;
 			
-			for(int pidx=0;pidx<sizeof(T25Params)/sizeof(short);++pidx)
-			{
-				double csize;
-				short prevval;
+		for(int pidx=0;pidx<sizeof(T25Params)/sizeof(short);++pidx)
+		{
+			double csize;
+			short prevval;
 
-				prevval=t25_incparam(param, pidx, step);
-				if(T25_PARAM(param, pidx)!=prevval)
-				{
-					csize=t25_calcloss(buf, iw, ih, kc, r, param, CDF0, CDF2, loud);
-					if(!csize0)
-						LOG_ERROR("Plus W %3d  MLTR %3d %3d %3d  A 0x%02X I %3d", param->gwidth, param->mleft, param->mtop, param->mright, param->alpha, param->maxinc);
-					T25_PARAM(param, pidx)=prevval;
-					if(bestcsize>csize)
-						bestcsize=csize, bestpidx=pidx, beststep=step;
-				}
-
-				prevval=t25_incparam(param, pidx, -step);
-				if(T25_PARAM(param, pidx)!=prevval)
-				{
-					csize=t25_calcloss(buf, iw, ih, kc, r, param, CDF0, CDF2, loud);
-					if(!csize0)
-						LOG_ERROR("Minus W %3d  MLTR %3d %3d %3d  A 0x%02X I %3d", param->gwidth, param->mleft, param->mtop, param->mright, param->alpha, param->maxinc);
-					T25_PARAM(param, pidx)=prevval;
-					if(bestcsize>csize)
-						bestcsize=csize, bestpidx=pidx, beststep=-step;
-				}
-			}
-			if(bestcsize<csize0)
+			prevval=t25_incparam(param, pidx, step);
+			if(T25_PARAM(param, pidx)!=prevval)
 			{
-				t25_incparam(param, bestpidx, beststep);
-				improve=1;
-				csize0=bestcsize;
+				csize=t25_calcloss(buf, iw, ih, kc, r, param, CDF0, CDF2, loud);
+				if(!csize0)
+					LOG_ERROR("Plus W %3d  MLTR %3d %3d %3d  A 0x%02X I %3d", param->gwidth, param->mleft, param->mtop, param->mright, param->alpha, param->maxinc);
+				T25_PARAM(param, pidx)=prevval;
+				if(bestcsize>csize)
+					bestcsize=csize, bestpidx=pidx, beststep=step;
 			}
+
+			prevval=t25_incparam(param, pidx, -step);
+			if(T25_PARAM(param, pidx)!=prevval)
+			{
+				csize=t25_calcloss(buf, iw, ih, kc, r, param, CDF0, CDF2, loud);
+				if(!csize0)
+					LOG_ERROR("Minus W %3d  MLTR %3d %3d %3d  A 0x%02X I %3d", param->gwidth, param->mleft, param->mtop, param->mright, param->alpha, param->maxinc);
+				T25_PARAM(param, pidx)=prevval;
+				if(bestcsize>csize)
+					bestcsize=csize, bestpidx=pidx, beststep=-step;
+			}
+		}
+		if(bestcsize<csize0)
+		{
+			t25_incparam(param, bestpidx, beststep);
+			csize0=bestcsize;
 		}
 	}
 	return csize0;
@@ -3072,7 +3068,7 @@ static T25Params t25_params[3]=
 	{23, 32, 32, 32, 0xD4, 32},
 	{ 8, 26, 26, 26, 0xD4, 32},
 };
-int t25_encode(const unsigned char *src, int iw, int ih, int *lbsizes, int *sbsizes, ArrayHandle *data, int loud)
+int t25_encode(const unsigned char *src, int iw, int ih, int *blockw, int *blockh, ArrayHandle *data, int loud)
 {
 	int res=iw*ih;
 	unsigned char *buf2=(unsigned char*)malloc((size_t)res<<2);
@@ -3084,7 +3080,29 @@ int t25_encode(const unsigned char *src, int iw, int ih, int *lbsizes, int *sbsi
 		return 0;
 	}
 	memcpy(buf2, src, (size_t)res<<2);
+#if 0
 	apply_transforms_fwd(buf2, iw, ih);
+#else
+	addbuf(buf2, iw, ih, 3, 4, 128);
+	colortransform_ycocb_fwd((char*)buf2, iw, ih);
+	pred_jxl_opt_v2((char*)buf2, iw, ih, jxlparams_i16, loud);
+#if 1
+	if(loud)
+	{
+		for(int kc=0;kc<3;++kc)//
+		{
+			for(int kp=0;kp<11;++kp)
+			{
+				short val=jxlparams_i16[11*kc+kp];
+				printf(" %c0x%04X,", val<0?'-':' ', abs(val));
+			}
+			printf("\n");
+		}
+	}
+#endif
+	pred_jxl_apply((char*)buf2, iw, ih, jxlparams_i16, 1);
+	addbuf(buf2, iw, ih, 3, 4, 128);
+#endif
 
 	for(int kc=0;kc<3;++kc)
 	{
@@ -3098,15 +3116,15 @@ int t25_encode(const unsigned char *src, int iw, int ih, int *lbsizes, int *sbsi
 
 	int ansbookmarks[3]={0};
 	dlist_push_back(&list, 0, 12);
-	//dlist_push_back(&list, jxlparams_i16, 33*sizeof(short));
+	dlist_push_back(&list, jxlparams_i16, 33*sizeof(short));
 	dlist_push_back(&list, CDF0, 768*sizeof(short));
 
 	int overhead[4]={0, 0, 0, (int)list.nobj};//
 
 	for(int kc=0;kc<3;++kc)
 	{
-		int lbw=lbsizes[kc<<1], lbh=lbsizes[kc<<1|1],
-			sbw=sbsizes[kc<<1], sbh=sbsizes[kc<<1|1],
+		int lbw=blockw[kc], lbh=blockh[kc],
+		//	sbw=sbsizes[kc<<1], sbh=sbsizes[kc<<1|1],
 			lbx=(iw+lbw-1)/lbw, lby=(ih+lbh-1)/lbh;
 		Rect lblock;
 		//Rect sblock;
@@ -3152,7 +3170,7 @@ int t25_encode(const unsigned char *src, int iw, int ih, int *lbsizes, int *sbsi
 				//pp->maxinc=(unsigned char)t25_params[kc].maxinc;
 
 				if(loud)
-					printf("CXY %d %3d %3d  W %3d  MLTR %3d %3d %3d  A 0x%02X I %3d  %d iters\r", kc, lblock.x1, lblock.y1, t25_params[kc].gwidth, t25_params[kc].mleft, t25_params[kc].mtop, t25_params[kc].mright, t25_params[kc].alpha, t25_params[kc].maxinc, t25_ctr);
+					printf("CXY %d %4d %4d  W %3d  MLTR %3d %3d %3d  A 0x%02X I %3d  %d iters\r", kc, lblock.x1, lblock.y1, t25_params[kc].gwidth, t25_params[kc].mleft, t25_params[kc].mtop, t25_params[kc].mright, t25_params[kc].alpha, t25_params[kc].maxinc, t25_ctr);
 			}
 		}
 		if(loud)
@@ -3238,5 +3256,147 @@ int t25_encode(const unsigned char *src, int iw, int ih, int *lbsizes, int *sbsi
 	free(buf2);
 	free(CDF0);
 	free(CDF2);
+	return 1;
+}
+int t25_decode(const unsigned char *data, size_t srclen, int iw, int ih, int *blockw, int *blockh, unsigned char *buf, int loud)
+{
+	const int cdflen=768LL*sizeof(short), overhead=12LL+33*sizeof(short)+cdflen;
+	int res=iw*ih;
+	
+	const unsigned char *srcptr, *srcstart, *srcend=data+srclen;
+	if(data+overhead>=srcend)
+	{
+		LOG_ERROR("Corrupt file");
+		return 0;
+	}
+
+	unsigned ansbookmarks[3];
+	memcpy(ansbookmarks, data, 12);
+	if(ansbookmarks[2]<(unsigned)overhead||ansbookmarks[2]>srclen)
+	{
+		LOG_ERROR("Corrupt file");
+		return 0;
+	}
+	
+	unsigned short *CDF0=(unsigned short*)malloc(cdflen);
+	unsigned *CDF2=(unsigned*)malloc(257LL*sizeof(unsigned));
+	if(!CDF0||!CDF2)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	short jxlparams[33];
+	memcpy(jxlparams, data+12, 33*sizeof(short));
+	memcpy(CDF0, data+12+33*sizeof(short), cdflen);
+	int lbx[]=
+	{
+		(iw+blockw[0]-1)/blockw[0],
+		(iw+blockw[1]-1)/blockw[1],
+		(iw+blockw[2]-1)/blockw[2],
+	};
+	int lby[]=
+	{
+		(ih+blockh[0]-1)/blockh[0],
+		(ih+blockh[1]-1)/blockh[1],
+		(ih+blockh[2]-1)/blockh[2],
+	};
+	T25ParamsPacked *params[]=
+	{
+		(T25ParamsPacked*)(data+overhead),
+		(T25ParamsPacked*)(data+ansbookmarks[0]),
+		(T25ParamsPacked*)(data+ansbookmarks[1]),
+	};
+	int pcount[]=
+	{
+		lbx[0]*lby[0],
+		lbx[1]*lby[1],
+		lbx[2]*lby[2],
+	};
+	Rect block;
+	for(int kc=0;kc<3;++kc)
+	{
+		unsigned state;
+		srcptr=data+ansbookmarks[kc];
+		srcstart=kc?data+ansbookmarks[kc-1]:data+overhead;
+		srcptr-=4;
+		if(srcptr<srcstart)
+			LOG_ERROR("ANS buffer overflow");
+		memcpy(&state, srcptr, 4);
+
+		for(int ky=0;ky<ih;++ky)
+		{
+			int by=ky/blockh[kc];
+			block.y1=by*blockh[kc];
+			block.y2=MINVAR(block.y1+blockh[kc], ih);
+			for(int bx=0;bx<lbx[kc];++bx)
+			{
+				T25ParamsPacked *pp=params[kc]+lbx[kc]*by+bx;
+				T25Params param={pp->gwidth, pp->mleft, pp->mtop, pp->mright, pp->alpha, pp->maxinc};
+				int ng=(blockw[kc]+param.gwidth-1)/param.gwidth;
+				block.x1=bx*blockw[kc];
+				block.x2=MINVAR(block.x1+blockw[kc], iw);
+				for(int kg=0;kg<ng;++kg)
+				{
+					int x1=block.x1+kg*param.gwidth, x2=MINVAR(x1+param.gwidth, block.x2);
+					int success=t25_prepblock(buf, CDF0, iw, ih, kc, x1, x2, ky, &param, CDF2);
+					if(!success)
+						LOG_ERROR("t25_prepblock error");
+					for(int kx=x1;kx<x2;++kx)
+					{
+						unsigned c=(unsigned short)state;
+						int sym=0;
+					
+						//if(kc==0&&ky==2&&kx==512)//
+						//	printf("");
+
+						int L=0, R=256, found=0;
+						while(L<=R)
+						{
+							sym=(L+R)>>1;
+							if(CDF2[sym]<c)
+								L=sym+1;
+							else if(CDF2[sym]>c)
+								R=sym-1;
+							else
+							{
+								found=1;
+								break;
+							}
+						}
+						if(!found)
+							sym=L+(L<256&&CDF2[L]<c)-1;
+						else
+							for(;sym<256-1&&CDF2[sym+1]==c;++sym);
+
+						buf[(iw*ky+kx)<<2|kc]=(unsigned char)sym;
+
+						unsigned cdf=CDF2[sym], freq=CDF2[sym+1]-cdf;
+						
+						debug_dec_update(state, cdf, freq, kx, ky, 0, kc, sym);
+						state=freq*(state>>16)+c-cdf;//update
+						if(state<0x10000)//renorm
+						{
+							state<<=16;
+							if(srcptr-2>=srcstart)
+							{
+								srcptr-=2;
+								memcpy(&state, srcptr, 2);
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	free(CDF0);
+	free(CDF2);
+
+	addbuf(buf, iw, ih, 3, 4, 128);
+	pred_jxl_apply((char*)buf, iw, ih, jxlparams, 0);
+	colortransform_ycocb_inv((char*)buf, iw, ih);
+	addbuf(buf, iw, ih, 3, 4, 128);
+
+	for(int k=0;k<res;++k)//set alpha
+		buf[k<<2|3]=0xFF;
 	return 1;
 }

@@ -797,7 +797,7 @@ void   pred_jxl_prealloc(const char *src, int iw, int ih, int kc, const short *p
 		}
 	}
 }
-double pred_jxl_calccsize(const char *src, int iw, int ih, int kc, const short *params, int *temp, char *dst, int *hist, int it, int loud)
+double pred_jxl_calcloss(const char *src, int iw, int ih, int kc, const short *params, int *temp, char *dst, int *hist)
 {
 	int res=iw*ih;
 	pred_jxl_prealloc(src, iw, ih, kc, params, 1, dst, temp);
@@ -824,6 +824,64 @@ double pred_jxl_calccsize(const char *src, int iw, int ih, int kc, const short *
 	//	printf("%4d %14lf\r", it, csize);
 	return csize;
 }
+void pred_jxl_opt_v2(char *buf2, int iw, int ih, short *params, int loud)
+{
+	int res=iw*ih;
+	char *buf3=(char*)malloc((size_t)res<<2);
+	int *temp=(int*)malloc((size_t)iw*10*sizeof(int));
+	int *hist=(int*)malloc(256*sizeof(int));
+	if(!buf3||!temp||!hist)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	int steps[]={256, 128, 64, 32, 16, 8, 4, 2, 1};
+	for(int kc=0;kc<3;++kc)
+	{
+		short *param=params+kc*11;
+		double csize0=pred_jxl_calcloss(buf2, iw, ih, kc, param, temp, buf3, hist);
+		for(int ks=0;ks<COUNTOF(steps);++ks)
+		{
+			int step=steps[ks];
+			double bestcsize=csize0;
+			int bestidx=0, beststep=0;
+			for(int idx=0;idx<11;++idx)
+			{
+				double csize;
+				short prev;
+
+				prev=param[idx];
+				param[idx]+=step;
+				csize=pred_jxl_calcloss(buf2, iw, ih, kc, param, temp, buf3, hist);
+				param[idx]=prev;
+				if(bestcsize>csize)
+					bestcsize=csize, bestidx=idx, beststep=step;
+
+				prev=param[idx];
+				param[idx]-=step;
+				if(idx<4&&param[idx]<1)
+					param[idx]=1;
+				csize=pred_jxl_calcloss(buf2, iw, ih, kc, param, temp, buf3, hist);
+				param[idx]=prev;
+				if(bestcsize>csize)
+					bestcsize=csize, bestidx=idx, beststep=-step;
+			}
+			if(csize0>bestcsize)
+			{
+				csize0=bestcsize;
+
+				param[bestidx]+=beststep;
+				if(bestidx<4&&param[bestidx]<1)
+					param[bestidx]=1;
+			}
+			//set_window_title("%lf", csize0);//
+		}
+	}
+	free(hist);
+	free(temp);
+	free(buf3);
+}
+#if 0
 double pred_jxl_optimize(const char *src, int iw, int ih, int kc, short *params, int step, int pidx, char *dst, int loud)
 {
 	int *temp=(int*)malloc((size_t)iw*10*sizeof(int));
@@ -837,7 +895,7 @@ double pred_jxl_optimize(const char *src, int iw, int ih, int kc, short *params,
 	int res=iw*ih;
 	double csize0, csize, csize00;
 	short p0=params[pidx];
-	csize=pred_jxl_calccsize(src, iw, ih, kc, params, temp, dst, hist, pidx, loud);
+	csize=pred_jxl_calcloss(src, iw, ih, kc, params, temp, dst, hist);
 	csize00=csize;
 
 	int subit;
@@ -845,7 +903,7 @@ double pred_jxl_optimize(const char *src, int iw, int ih, int kc, short *params,
 	{
 		csize0=csize;
 		params[pidx]+=step;
-		csize=pred_jxl_calccsize(src, iw, ih, kc, params, temp, dst, hist, pidx, loud);
+		csize=pred_jxl_calcloss(src, iw, ih, kc, params, temp, dst, hist);
 		if(csize>=csize0)//cancel last change and break
 		{
 			params[pidx]-=step;
@@ -858,7 +916,7 @@ double pred_jxl_optimize(const char *src, int iw, int ih, int kc, short *params,
 	{
 		csize0=csize;
 		params[pidx]-=step;
-		csize=pred_jxl_calccsize(src, iw, ih, kc, params, temp, dst, hist, pidx, loud);
+		csize=pred_jxl_calcloss(src, iw, ih, kc, params, temp, dst, hist);
 		if(csize>=csize0)
 		{
 			params[pidx]+=step;
@@ -904,6 +962,7 @@ void   pred_jxl_optimizeall(unsigned char *buf2, int iw, int ih, int loud)
 	}
 	free(buf3);
 }
+#endif
 void   pred_jxl_apply(char *buf, int iw, int ih, short *allparams, int fwd)
 {
 	int res=iw*ih;

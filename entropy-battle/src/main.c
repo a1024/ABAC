@@ -2341,33 +2341,47 @@ void batch_test(const char *path)
 #if 1
 		{
 			ArrayHandle cdata=0;
+			int blockw[]={128, 128, 128}, blockh[]={128, 128, 128};
+			double elapsed;
 			printf("\nT25\n");
-			int lbsizes[]=
-			{
-				128, 128,
-				128, 128,
-				128, 128,
-			};
-			int sbsizes[]=
-			{
-				16, 16,
-				16, 16,
-				16, 16,
-			};
-			double elapsed=time_ms();
+			//int lbsizes[]=
+			//{
+			//	128, 128,
+			//	128, 128,
+			//	128, 128,
+			//};
+			//int sbsizes[]=//unused
+			//{
+			//	16, 16,
+			//	16, 16,
+			//	16, 16,
+			//};
+			elapsed=time_ms();
 			cycles=__rdtsc();
-			t25_encode(buf, iw, ih, lbsizes, sbsizes, &cdata, 1);
+			t25_encode(buf, iw, ih, blockw, blockh, &cdata, 1);
 			cycles=__rdtsc()-cycles;
 			elapsed=time_ms()-elapsed;
-			printf("Enc %11lf CPB  CR %9lf  csize %lld ", (double)cycles/usize, (double)usize/cdata->count, cdata->count);
+			printf("Enc %11lf CPB  CR %9lf  csize %lld  ", (double)cycles/usize, (double)usize/cdata->count, cdata->count);
 			timedelta2str(0, 0, elapsed);
 			
 			sum_testsize+=cdata->count;
 			if((ptrdiff_t)cdata->count<formatsize)
 				printf(" !!!");
+			printf("\n");
 		
+			elapsed=time_ms();
+			cycles=__rdtsc();
+			t25_decode(cdata->data, cdata->count, iw, ih, blockw, blockh, b2, 1);
+			cycles=__rdtsc()-cycles;
+			elapsed=time_ms()-elapsed;
+			printf("Dec %11lf CPB  ", (double)cycles/usize);
+			timedelta2str(0, 0, elapsed);
+			printf("\n");
+
 			array_free(&cdata);
-			printf("\n\n");
+			compare_bufs_uint8(b2, buf, iw, ih, nch0, 4, "T25", 0);
+			memset(b2, 0, len);
+			printf("\n");
 		}
 #endif
 		
@@ -3596,24 +3610,41 @@ int main(int argc, char **argv)
 #if 1
 	{
 		printf("T25\n");
-		int lbsizes[]=
-		{
-			32, 32,
-			32, 32,
-			32, 32,
-		};
-		int sbsizes[]=//unused
-		{
-			16, 16,
-			16, 16,
-			16, 16,
-		};
+		double elapsed;
+		int blockw[]={128, 128, 128}, blockh[]={128, 128, 128};
+		//int lbsizes[]=
+		//{
+		//	32, 32,
+		//	32, 32,
+		//	32, 32,
+		//};
+		//int sbsizes[]=//unused
+		//{
+		//	16, 16,
+		//	16, 16,
+		//	16, 16,
+		//};
+		elapsed=time_ms();
 		cycles=__rdtsc();
-		t25_encode(buf, iw, ih, lbsizes, sbsizes, &cdata, 1);
+		t25_encode(buf, iw, ih, blockw, blockh, &cdata, 1);
 		cycles=__rdtsc()-cycles;
-		printf("Enc %11lf CPB  CR %9lf  csize %lld ", (double)cycles/usize, (double)usize/cdata->count, cdata->count);
+		elapsed=time_ms()-elapsed;
+		printf("Enc %11lf CPB  CR %9lf  csize %lld  ", (double)cycles/usize, (double)usize/cdata->count, cdata->count);
+		timedelta2str(0, 0, elapsed);
+		printf("\n");
 		
+		elapsed=time_ms();
+		cycles=__rdtsc();
+		t25_decode(cdata->data, cdata->count, iw, ih, blockw, blockh, b2, 1);
+		cycles=__rdtsc()-cycles;
+		elapsed=time_ms()-elapsed;
+		printf("Dec %11lf CPB  ", (double)cycles/usize);
+		timedelta2str(0, 0, elapsed);
+		printf("\n");
+
 		array_free(&cdata);
+		compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T25", 0);
+		memset(b2, 0, len);
 		printf("\n");
 	}
 #endif

@@ -162,7 +162,7 @@ size_t test16_encode(const unsigned char *src, int bw, int bh, int alpha, int *b
 int    test16_decode(const unsigned char *data, size_t srclen, int bw, int bh, int alpha, int *blockw, int *blockh, int *margin, unsigned char *buf);
 
 
-	#define DEBUG_ANS
+//	#define DEBUG_ANS
 
 #ifdef DEBUG_ANS
 typedef struct DebugANSInfoStruct
@@ -220,7 +220,8 @@ typedef struct T24ParamsStruct
 double e24_estimate(const unsigned char *src, int iw, int ih, int cstart, int cend, unsigned char *gw0, unsigned char *maxinc, unsigned char *encounter_threshold, T24Params const *params, double *ret_csizes, int loud);
 
 
-int t25_encode(const unsigned char *src, int iw, int ih, int *lbsizes, int *sbsizes, ArrayHandle *data, int loud);
+int t25_encode(const unsigned char *src, int iw, int ih, int *blockw, int *blockh, ArrayHandle *data, int loud);
+int t25_decode(const unsigned char *data, size_t srclen, int iw, int ih, int *blockw, int *blockh, unsigned char *buf, int loud);
 
 
 
@@ -259,9 +260,10 @@ extern short jxlparams_i16[33];
 //extern double jxlpred_params[33];
 void pred_jxl_prealloc(const char *src, int iw, int ih, int kc, const short *params, int fwd, char *dst, int *temp_w10);
 void calc_histogram(unsigned char *buf, ptrdiff_t len, ptrdiff_t stride, int *hist);
-double pred_jxl_optimize(const char *src, int iw, int ih, int kc, short *params, int step, int pidx, char *dst, int loud);
-void   pred_jxl_optimizeall(unsigned char *buf2, int iw, int ih, int loud);
-void   pred_jxl_apply(char *buf, int iw, int ih, short *allparams, int fwd);
+void pred_jxl_opt_v2(char *buf2, int iw, int ih, short *params, int loud);
+//double pred_jxl_optimize(const char *src, int iw, int ih, int kc, short *params, int step, int pidx, char *dst, int loud);
+//void   pred_jxl_optimizeall(unsigned char *buf2, int iw, int ih, int loud);
+void pred_jxl_apply(char *buf, int iw, int ih, short *allparams, int fwd);
 
 //void pred_jxl(char *buf, int iw, int ih, int kc, int bytestride, double *params, int fwd);//deprecated
 
