@@ -69,10 +69,10 @@ void print_histogram(size_t *hist, int all)
 	}
 	printf("\n");
 }
-void calc_histogram(unsigned char *buf, ptrdiff_t len, ptrdiff_t stride, int *hist)
+void calc_histogram(unsigned char *buf, ptrdiff_t bytesize, ptrdiff_t stride, int *hist)
 {
 	memset(hist, 0, 256*sizeof(int));
-	for(ptrdiff_t k=0, end=len-(stride-1);k<end;k+=stride)
+	for(ptrdiff_t k=0, end=bytesize-(stride-1);k<end;k+=stride)
 		++hist[buf[k]];
 }
 unsigned hammingweight(unsigned n)
@@ -2264,6 +2264,7 @@ const char *g_extensions[]=
 };
 void batch_test(const char *path)
 {
+	double t_start=time_ms();
 	ArrayHandle filenames=get_filenames(path, g_extensions, COUNTOF(g_extensions), 1);
 	if(!filenames)
 	{
@@ -2311,10 +2312,10 @@ void batch_test(const char *path)
 
 		ptrdiff_t res=(ptrdiff_t)iw*ih, len=res*stride, usize=res*nch0;
 		double ratio=(double)usize/formatsize;
-#ifndef BATCHTEST_NO_B2
-		printf("%3lld/%3lld  \"%s\"\tCR %lf (%lf BPP) Dec %lf CPB", k+1, filenames->count, fn[0]->data, ratio, 8/ratio, (double)cycles/usize);
-#else
+#ifdef BATCHTEST_NO_B2
 		printf("%3lld/%3lld  %.2lf%%\r", k+1, filenames->count, (k+1)*100./filenames->count);
+#else
+		printf("%3lld/%3lld  \"%s\"\tCR %lf (%lf BPP) Dec %lf CPB", k+1, filenames->count, fn[0]->data, ratio, 8/ratio, (double)cycles/usize);
 #endif
 		if(!acme_stricmp(fn[0]->data+fn[0]->count-3, "PNG"))
 		{
@@ -2338,10 +2339,12 @@ void batch_test(const char *path)
 		memset(b2, 0, len);
 #endif
 
+		//T25: T16 optimizer
 #if 1
 		{
 			ArrayHandle cdata=0;
-			int blockw[]={128, 128, 128}, blockh[]={128, 128, 128};
+			int blockw[]={96, 96, 96}, blockh[]={96, 96, 96};
+			//int blockw[]={128, 128, 128}, blockh[]={128, 128, 128};
 			double elapsed;
 			printf("\nT25\n");
 			//int lbsizes[]=
@@ -2473,13 +2476,22 @@ void batch_test(const char *path)
 		//test16 - THE BEST
 #if 0
 		{
+			printf("\nT16\n");
+#if 1
+			memcpy(b2, buf, len);
+			addbuf(b2, iw, ih, 3, 4, 128);
+			colortransform_ycocb_fwd((char*)b2, iw, ih);
+			pred_opt_opt_v3((char*)b2, iw, ih, 1);
+			memset(b2, 0, len);
+			pred_opt_printparam();
+#endif
+
 			ArrayHandle cdata=0;
 			int alpha=0xD3E7,
 				blockw[]={ 8, 23,  8},//best block for channels 0 & 2: 1x1
 				blockh[]={ 1,  1,  1},
 				margin[]={26, 37, 26};
 
-			printf("T16\n");
 			cycles=__rdtsc();
 			test16_encode(buf, iw, ih, alpha, blockw, blockh, margin, &cdata, 1, 0);
 			cycles=__rdtsc()-cycles;
@@ -2651,6 +2663,9 @@ void batch_test(const char *path)
 		free(b2);
 #endif
 	}
+	printf("Batch elapsed ");
+	timedelta2str(0, 0, time_ms()-t_start);
+	printf("\n");
 #if 0
 	e10_print(hist);
 	free(hist);

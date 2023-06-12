@@ -227,6 +227,7 @@ int t25_decode(const unsigned char *data, size_t srclen, int iw, int ih, int *bl
 
 
 //transforms
+#if 0
 void cvt_i8_i32(const char *src, int iw, int ih, int *dst);
 void addbuf_i32(int *buf, int iw, int ih, int nch, int bytestride, int amount);
 void colortransform_ycocb_fwd_i32(int *buf, int iw, int ih);
@@ -235,6 +236,7 @@ extern int jxlparams_i32[33];
 void pred_jxl_i32(const int *src, int iw, int ih, int kc, const int *params, int fwd, int *dst, int *temp_w10);
 double estimate_csize_i32(int *buf, int iw, int ih, int nr, int ng, int nb);
 double estimate_csize_i32_trunc(int *buf, int iw, int ih, int nr, int ng, int nb);
+#endif
 
 
 void apply_transforms_fwd(unsigned char *buf, int bw, int bh);
@@ -256,11 +258,29 @@ void YCoCg_8bit_ps_fwd(const unsigned char *src, ptrdiff_t res, float *bufY, flo
 void YCoCg_8bit_ps_inv(const float *bufY, const float *bufCo, const float *bufCg, ptrdiff_t res, unsigned char *dst);
 
 
+	#define PW2_NPRED 20	//63
+	#define PW2_NPARAM (PW2_NPRED+11)
+//	#define PW2_NPRED 22
+//	#define PW2_NPARAM (PW2_NPRED+8)
+extern double pw2_errors[PW2_NPRED];
+extern short pw2_params[PW2_NPARAM*3];
+void pred_w2_opt_v2(const char *buf2, int iw, int ih, short *params, int loud);
+void pred_w2_apply(char *buf, int iw, int ih, short *allparams, int fwd);
+
+void pred_opt_printparam();
+void pred_opt_opt_v2(const char *buf2, int iw, int ih);
+void pred_opt_opt_v3(const char *buf2, int iw, int ih, int loud);
+void pred_opt_opt_v4(const char *buf2, int iw, int ih, int loud);//uses Nelder-Mead algorithm
+void pred_opt_opt_v5(const char *buf2, int iw, int ih, int loud);//multi-threaded Nelder-Mead
+void pred_opt_opt_v6(const char *buf2, int iw, int ih, int loud);//multi-threaded grid
+void pred_opt_apply(char *buf, int iw, int ih, int fwd);
+
+
 extern short jxlparams_i16[33];
 //extern double jxlpred_params[33];
 void pred_jxl_prealloc(const char *src, int iw, int ih, int kc, const short *params, int fwd, char *dst, int *temp_w10);
-void calc_histogram(unsigned char *buf, ptrdiff_t len, ptrdiff_t stride, int *hist);
-void pred_jxl_opt_v2(char *buf2, int iw, int ih, short *params, int loud);
+void calc_histogram(unsigned char *buf, ptrdiff_t bytesize, ptrdiff_t stride, int *hist);
+void pred_jxl_opt_v2(const char *buf2, int iw, int ih, short *params, int loud);
 //double pred_jxl_optimize(const char *src, int iw, int ih, int kc, short *params, int step, int pidx, char *dst, int loud);
 //void   pred_jxl_optimizeall(unsigned char *buf2, int iw, int ih, int loud);
 void pred_jxl_apply(char *buf, int iw, int ih, short *allparams, int fwd);

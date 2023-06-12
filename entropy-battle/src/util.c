@@ -372,7 +372,7 @@ int		acme_strftime(char *buf, size_t len, const char *format)
 
 	tstamp=time(0);
 	localtime_s(&tformat, &tstamp);
-	strftime(buf, len, format, &tformat);
+	return (int)strftime(buf, len, format, &tformat);
 }
 
 //error handling

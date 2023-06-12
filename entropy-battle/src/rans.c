@@ -4277,6 +4277,7 @@ void t16_prepblock(const unsigned char *b2, const unsigned short *CDF, int bw, i
 }
 size_t test16_encode(const unsigned char *src, int bw, int bh, int alpha, int *blockw, int *blockh, int *margin, ArrayHandle *data, int loud, int *csizes)
 {
+	double t_start=time_ms();
 	int res=bw*bh;
 	unsigned char *b2=(unsigned char*)malloc((size_t)res<<2);
 	if(!b2)
@@ -4396,6 +4397,9 @@ size_t test16_encode(const unsigned char *src, int bw, int bh, int alpha, int *b
 	}
 	if(loud)
 	{
+		printf("Encode elapsed ");
+		timedelta2str(0, 0, time_ms()-t_start);
+		printf("\n");
 		printf("alpha 0x%04X\n", alpha);
 		printf("Total    %7d  %lf\n", ansbookmarks[2], 3.*res/ansbookmarks[2]);
 		printf("Overhead %7d\n", overhead);
