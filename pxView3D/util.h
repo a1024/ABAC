@@ -73,7 +73,21 @@ double _10pow(int n);
 int minimum(int a, int b);
 int maximum(int a, int b);
 int acme_isdigit(char c, char base);
+
 double time_ms();
+
+typedef struct TimeInfoStruct
+{
+	int days, hours, mins;
+	float secs;
+} TimeInfo;
+void parsetimedelta(double delta, TimeInfo *ti);
+int timedelta2str(char *buf, size_t len, double ms);
+int acme_strftime(char *buf, size_t len, const char *format);//prints current time to string
+
+int print_bin8(int x);
+int print_bin32(unsigned x);
+int print_binn(unsigned long long x, int nbits);
 
 //error handling
 int log_error(const char *file, int line, int quit, const char *format, ...);//doesn't stop execution

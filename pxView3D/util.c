@@ -22,12 +22,12 @@
 #include<sys/stat.h>
 #include<math.h>
 #include<errno.h>
+#include<time.h>
 #ifdef _MSC_VER
 #define WIN32_LEAN_AND_MEAN
 #include<Windows.h>//QueryPerformance...
 #include<conio.h>
 #else
-#include<time.h>//clock_gettime
 #define sprintf_s	snprintf
 #define vsprintf_s	vsnprintf
 #ifndef _HUGE
@@ -332,6 +332,80 @@ double			time_ms()
 	clock_gettime(CLOCK_REALTIME, &t);//<time.h>
 	return t.tv_sec*1000+t.tv_nsec*1e-6;
 #endif
+}
+
+void parsetimedelta(double ms, TimeInfo *ti)
+{
+	ti->days=(int)floor(ms/(1000*60*60*24));
+	ms-=ti->days*(1000*60*60*24);
+
+	ti->hours=(int)floor(ms/(1000*60*60));
+	ms-=ti->hours*(1000*60*60);
+
+	ti->mins=(int)floor(ms/(1000*60));
+	ms-=ti->mins*(1000*60);
+
+	ti->secs=ms/1000;
+}
+int		timedelta2str(char *buf, size_t len, double ms)
+{
+	int printed;
+	TimeInfo ti;
+
+	parsetimedelta(ms, &ti);
+
+	printed=0;
+	if(buf)
+	{
+		if(ti.days)
+			printed+=snprintf(buf, len, "%dD-", ti.days);
+		printed+=snprintf(buf, len, "%02d-%02d-%09.6lf", ti.hours, ti.mins, ti.secs);
+	}
+	else
+	{
+		if(ti.days)
+			printed+=printf("%dD-", ti.days);
+		printed+=printf("%02d-%02d-%09.6lf", ti.hours, ti.mins, ti.secs);
+	}
+	return printed;
+}
+int		acme_strftime(char *buf, size_t len, const char *format)
+{
+	time_t tstamp;
+	struct tm tformat;
+
+	tstamp=time(0);
+	localtime_s(&tformat, &tstamp);
+	return (int)strftime(buf, len, format, &tformat);
+}
+int print_bin8(int x)
+{
+	//printf("0b");
+	for(int k=7;k>=0;--k)
+	{
+		int bit=x>>k&1;
+		printf("%c", '0'+bit);
+	}
+	return 34;
+}
+int print_bin32(unsigned x)
+{
+	printf("0b");
+	for(int k=31;k>=0;--k)
+	{
+		int bit=x>>k&1;
+		printf("%c", '0'+bit);
+	}
+	return 34;
+}
+int print_binn(unsigned long long x, int nbits)
+{
+	for(int k=nbits-1;k>=0;--k)
+	{
+		int bit=x>>k&1;
+		printf("%c", '0'+bit);
+	}
+	return nbits;
 }
 
 //error handling

@@ -10,6 +10,10 @@ extern "C"
 {
 #endif
 
+
+//	#define ALLOW_OPENCL
+
+
 extern int w, h, mx, my, mouse_bypass;
 extern HWND ghWnd;
 extern HDC ghDC;
@@ -598,6 +602,8 @@ void draw_contour3d_rect(Camera const *cam, unsigned vbuf, int nvertices, unsign
 void depth_test(int enable);
 
 
+
+
 //transforms
 extern       int customparam_sel;
 extern const int customparam_ct_w, customparam_ct_h, customparam_st_reach;
@@ -633,11 +639,22 @@ void colortransform_exp_inv  (char *buf, int iw, int ih);
 void colortransform_adaptive(char *buf, int iw, int ih, int fwd);
 
 
+
+
+//chroma from luma (CfL)
+void pred_cfl(char *buf, int iw, int ih, int fwd);
+
+
+
+
 //optimizers
 double opt_causal_reach2(unsigned char *buf, int iw, int ih, int kc, double *x, double *bias, double lr, int test);
 double opt_causal_hybrid_r3(unsigned char *buf, int iw, int ih, double lr);
 void pred_hybrid_fwd(char *buf, int iw, int ih);
 void pred_hybrid_inv(char *buf, int iw, int ih);
+
+
+
 
 //spatial transforms
 void shuffle(char *buf, int iw, int ih, int fwd);
@@ -672,6 +689,15 @@ double pred_joint_calcsize(const char *src, int iw, int ih, int *params, int *te
 void   pred_joint_optimize(const char *src, int iw, int ih, int *params, int step, char *dst, int loud);
 void   pred_joint_apply(char *buf, int iw, int ih, int *allparams, int fwd);
 
+
+	#define PW2_NPRED 20	//63
+	#define PW2_NPARAM (PW2_NPRED+11)
+//	#define PW2_NPRED 22
+//	#define PW2_NPARAM (PW2_NPRED+8)
+extern double pw2_errors[PW2_NPRED];
+extern short pw2_params[PW2_NPARAM*3];
+void pred_w2_opt_v2(char *buf2, int iw, int ih, short *params, int loud);
+void pred_w2_apply(char *buf, int iw, int ih, short *allparams, int fwd);
 
 extern short jxlparams_i16[33];
 //extern float jxlparams_ps[33];
@@ -754,6 +780,18 @@ extern E24Params e24_params[3];
 extern double e24_cr[3];
 int e24_optimizeall(const unsigned char *buf, int iw, int ih, int x1, int x2, int y1, int y2, int loud);
 void e24_estimate(const unsigned char *buf, int iw, int ih, int x1, int x2, int y1, int y2);
+
+
+//transforms pt2
+extern unsigned long long xoroshiro128_state[2];
+#define XOROSHIRO128_RESET() xoroshiro128_state[0]=0xDF900294D8F554A5, xoroshiro128_state[1]=0x170865DF4B3201FC
+unsigned long long xoroshiro128_next(void);
+
+void pred_learned(char *buf, int iw, int ih, int fwd);
+
+
+//CPU transforms
+void pred_learned_cpu(char *buf, int iw, int ih, int fwd);
 
 
 #ifdef __cplusplus

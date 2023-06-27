@@ -1169,7 +1169,70 @@ void colortransform_custom_inv(char *buf, int iw, int ih)
 }
 
 
+//chroma from luma (CfL)
+short cfl_params[4]={0};//{alpha, beta} x2 chroma channels
+void pred_cfl_calcparams(char *buf, int iw, int ih, int x1, int x2, int y1, int y2, int kl, int kc, short *params)
+{
+	double alpha, beta, term[4]={0};
+	for(int ky=y1;ky<y2;++ky)
+	{
+		for(int kx=x1;kx<x2;++kx)
+		{
+			int idx=(iw*ky+kx)<<2;
+			char L=buf[idx|kl], C=buf[idx|kc];
+			term[0]+=L*C;
+			term[1]+=L;
+			term[2]+=C;
+			term[3]+=L*L;
+		}
+	}
+	int bw=x2-x1, bh=y2-y1, count=bw*bh;
+	if(!count||!term[1]&&!term[3])
+	{
+		params[0]=0, params[1]=0;
+		return;
+	}
+	alpha=(count*term[0]-term[1]*term[2])/(count*term[3]-term[1]*term[1]);
+	beta=(term[2]-alpha*term[1])/count;
+	params[0]=(short)(alpha*256);
+	params[1]=(short)(beta*256);
+}
+void pred_cfl(char *buf, int iw, int ih, int fwd)
+{
+#if 0
+	if(fwd)
+	{
+		pred_cfl_calcparams(buf, iw, ih, 0, iw, 0, ih, 1, 0, cfl_params);
+		pred_cfl_calcparams(buf, iw, ih, 0, iw, 0, ih, 1, 2, cfl_params+2);
+	}
+	for(int ky=0;ky<ih;++ky)
+	{
+		for(int kx=0;kx<iw;++kx)
+		{
+			int idx=(iw*ky+kx)<<2;
+			char Co=buf[idx], Y=buf[idx|1], Cb=buf[idx|2];
+			int pred_o=(cfl_params[0]*Y+cfl_params[1]+127)>>8;
+			int pred_b=(cfl_params[2]*Y+cfl_params[3]+127)>>8;
+			if(fwd)
+			{
+				Co-=pred_o;
+				Cb-=pred_b;
+			}
+			else
+			{
+				Co+=pred_o;
+				Cb+=pred_b;
+			}
+			buf[idx  ]=Co;
+			buf[idx|2]=Cb;
+		}
+	}
+#endif
+}
+
+
 //spatial transforms
+
 
 const int permute_idx[]=
 {
@@ -3249,6 +3312,431 @@ void   pred_joint_apply(char *buf, int iw, int ih, int *allparams, int fwd)
 }
 
 
+double pw2_errors[PW2_NPRED]={0};//
+short pw2_params[PW2_NPARAM*3]=
+{
+	//0
+	
+	 0x003D, 0x0036, 0x0006, 0x007E, 0x0012, 0x0007, 0x0007, 0x0005, 0x001E, 0x0000, 0x0028, 0x0055,-0x0020, 0x0020, 0x0005, 0x0011, 0x0034, 0x0000, 0x0004, 0x003E,-0x0100, 0x0001,-0x0086,-0x0041, 0x0051,-0x0080, 0x0004, 0x0002,-0x0003,-0x0003, 0x00D9,
+	 0x00EA, 0x01C8, 0x00A2, 0x005E, 0x01F4, 0x0045, 0x0091, 0x0066, 0x003B, 0x0027,-0x0011, 0x001B, 0x00FF, 0x007E, 0x00D1, 0x00F3, 0x008F, 0x0130, 0x018E,-0x00AC, 0x010C, 0x0008,-0x007E, 0x00A2, 0x000E,-0x0069,-0x0073,-0x0125,-0x0092, 0x0000, 0x0078,
+	 0x0006, 0x003D, 0x0031, 0x002F, 0x003F, 0x0015, 0x0011, 0x0036, 0x002E,-0x0022, 0x0011, 0x0034,-0x0007, 0x0012,-0x0018, 0x0012, 0x002F, 0x0000, 0x0000, 0x001C, 0x00A2, 0x02E1, 0x00C9,-0x00E0,-0x0068,-0x004E,-0x013E,-0x0012, 0x0001, 0x0000,-0x0046,
+
+	// 0x007D, 0x0040, 0x0039, 0x004A, 0x0007, 0x0003, 0x001D, 0x0007, 0x0000, 0x0007, 0x0002, 0x000F, 0x001B, 0x0018, 0x000A, 0x0008, 0x001C,-0x0008, 0x0004, 0x0005, 0x0006,-0x0022,-0x003B,-0x0041,-0x00C8,-0x0040,-0x0085,-0x0050, 0x0060,
+	// 0x007A, 0x00F9, 0x0165, 0x00C2, 0x0036, 0x0100, 0x0054, 0x0000,-0x0081,-0x0078, 0x0020, 0x004D,-0x0010, 0x0028, 0x00BD, 0x009D, 0x0020,-0x0082,-0x003F, 0x0060, 0x002A, 0x0161,-0x004E,-0x001D, 0x0123,-0x0008,-0x0080, 0x0020, 0x003C,
+	// 0x0010, 0x0039, 0x002E, 0x0037, 0x000E,-0x0010, 0x0014, 0x0008,-0x0007,-0x001C, 0x0074, 0x0019, 0x0010, 0x001B, 0x000D, 0x0047, 0x000A, 0x001C, 0x0008, 0x0004, 0x0023,-0x0012,-0x0156,-0x0074,-0x00A0,-0x0002,-0x0088,-0x0060, 0x0102,
+};
+static int pred_w2_paeth2(int T, int L, int TL, int TR)
+{
+	int p=T+L-TL, closest=T;
+	if(abs(closest-p)>abs(L-p))
+		closest=L;
+	if(abs(closest-p)>abs(TL-p))
+		closest=TL;
+	if(abs(closest-p)>abs(TR-p))
+		closest=TR;
+	return closest;
+}
+static int pred_w2_select(int T, int L, int TL)
+{
+	int p=T+L-TL, pT=abs(p-T), pL=abs(p-L);
+	return pT<pL?L:T;
+}
+static pred_w2_cgrad(int T, int L, int TL)
+{
+	int vmin, vmax, grad;
+
+	if(T<L)
+		vmin=T, vmax=L;
+	else
+		vmin=L, vmax=T;
+	grad=T+L-TL;
+	grad=CLAMP(vmin, grad, vmax);
+	return grad;
+}
+static int clamp4(int p, int a, int b, int c, int d)
+{
+	int vmin=a, vmax=a;
+	if(vmin>b)vmin=b;
+	if(vmin>c)vmin=c;
+	if(vmin>d)vmin=d;
+	if(vmax<b)vmax=b;
+	if(vmax<c)vmax=c;
+	if(vmax<d)vmax=d;
+	p=CLAMP(vmin, p, vmax);
+	return p;
+}
+static int clip(int x)
+{
+	x=CLAMP(-128, x, 127);
+	return x;
+}
+void pred_w2_prealloc(const char *src, int iw, int ih, int kc, short *params, int fwd, char *dst, int *temp)//temp is (PW2_NPRED+1)*2w
+{
+	int errorbuflen=iw<<1, rowlen=iw<<2;
+	int *error=temp, *pred_errors[PW2_NPRED];
+	for(int k=0;k<PW2_NPRED;++k)
+		pred_errors[k]=temp+errorbuflen*(k+1);
+	int idx=kc;
+
+	const char *src2=fwd?src:dst;
+	memset(pw2_errors, 0, sizeof(pw2_errors));
+	for(int ky=0;ky<ih;++ky)
+	{
+		//int pred_left=0, pred_left2=0;
+
+		int currrow=ky&1?0:iw, prevrow=ky&1?iw:0;
+		for(int kx=0;kx<iw;++kx, idx+=4)
+		{
+			//           T3
+			//   T2L2    T2    T2R2
+			//        TL T  TR TR2
+			//L3 L2   L  X
+			int
+				cT6  =         ky-6>=0?src2[idx-rowlen*6   ]<<8:0,
+				cT5  =         ky-5>=0?src2[idx-rowlen*5   ]<<8:0,
+
+				cT4L3=kx-3>=0&&ky-4>=0?src2[idx-rowlen*4-12]<<8:0,
+				cT4  =         ky-4>=0?src2[idx-rowlen*4   ]<<8:0,
+				cT4R3=kx+3<iw&&ky-4>=0?src2[idx-rowlen*4+12]<<8:0,
+				
+				cT3L5=kx-5>=0&&ky-3>=0?src2[idx-rowlen*3-20]<<8:0,
+				cT3L4=kx-4>=0&&ky-3>=0?src2[idx-rowlen*3-16]<<8:0,
+				cT3L2=kx-2>=0&&ky-3>=0?src2[idx-rowlen*3- 8]<<8:0,
+				cT3L =kx-1>=0&&ky-3>=0?src2[idx-rowlen*3- 4]<<8:0,
+				cT3  =         ky-3>=0?src2[idx-rowlen*3   ]<<8:0,
+				cT3R =kx+1<iw&&ky-3>=0?src2[idx-rowlen*3+ 4]<<8:0,
+				cT3R2=kx+2<iw&&ky-3>=0?src2[idx-rowlen*3+ 8]<<8:0,
+				cT3R3=kx+3<iw&&ky-3>=0?src2[idx-rowlen*3+12]<<8:0,
+				cT3R4=kx+4<iw&&ky-3>=0?src2[idx-rowlen*3+16]<<8:0,
+				
+				cT2L3=kx-3>=0&&ky-2>=0?src2[idx-rowlen*2-12]<<8:0,
+				cT2L2=kx-2>=0&&ky-2>=0?src2[idx-rowlen*2- 8]<<8:0,
+				cT2L =kx-1>=0&&ky-2>=0?src2[idx-rowlen*2- 4]<<8:0,
+				cT2  =         ky-2>=0?src2[idx-rowlen*2   ]<<8:0,
+				cT2R =kx+1<iw&&ky-2>=0?src2[idx-rowlen*2+ 4]<<8:0,
+				cT2R2=kx+2<iw&&ky-2>=0?src2[idx-rowlen*2+ 8]<<8:0,
+				cT2R3=kx+3<iw&&ky-2>=0?src2[idx-rowlen*2+12]<<8:0,
+				cT2R4=kx+4<iw&&ky-2>=0?src2[idx-rowlen*2+16]<<8:0,
+				
+				cTL3 =kx-3>=0&&ky-1>=0?src2[idx-rowlen  -12]<<8:0,
+				cTL2 =kx-2>=0&&ky-1>=0?src2[idx-rowlen  - 8]<<8:0,
+				cTL  =kx-1>=0&&ky-1>=0?src2[idx-rowlen  - 4]<<8:0,
+				cT   =kx  <iw&&ky-1>=0?src2[idx-rowlen     ]<<8:0,
+				cTR  =kx+1<iw&&ky-1>=0?src2[idx-rowlen  + 4]<<8:0,
+				cTR2 =kx+2<iw&&ky-1>=0?src2[idx-rowlen  + 8]<<8:0,
+				cTR3 =kx+3<iw&&ky-1>=0?src2[idx-rowlen  +12]<<8:0,
+				cTR4 =kx+4<iw&&ky-1>=0?src2[idx-rowlen  +16]<<8:0,
+				cTR5 =kx+5<iw&&ky-1>=0?src2[idx-rowlen  +20]<<8:0,
+				cTR6 =kx+6<iw&&ky-1>=0?src2[idx-rowlen  +24]<<8:0,
+				cTR7 =kx+7<iw&&ky-1>=0?src2[idx-rowlen  +28]<<8:0,
+
+				cL6  =kx-6>=0         ?src2[idx         -24]<<8:0,
+				cL5  =kx-5>=0         ?src2[idx         -20]<<8:0,
+				cL4  =kx-4>=0         ?src2[idx         -16]<<8:0,
+				cL3  =kx-2>=0         ?src2[idx         -12]<<8:0,
+				cL2  =kx-2>=0         ?src2[idx         - 8]<<8:0,
+				cL   =kx-1>=0         ?src2[idx         - 4]<<8:0;
+
+			//w0   w1   w2   w3
+			//p3Ca p3Cb p3Cc p3Cd p3Ce
+			//p1C  p2c
+
+			//if(kx==(iw>>1)&&ky==(ih>>1))//
+			//	kx=iw>>1;
+			
+			int weights[PW2_NPRED];//fixed 23.8 bit
+			for(int k=0;k<PW2_NPRED;++k)
+			{
+				int w=(ky-1>=0?pred_errors[k][prevrow+kx]:0)+(ky-1>=0&&kx+1<iw?pred_errors[k][prevrow+kx+1]:0)+(ky-1>=0&&kx-1>=0?pred_errors[k][prevrow+kx-1]:0);
+				weights[k]=(params[k]<<8)/(w+1);
+			}
+
+			//TL T TR
+			//L  X
+			int
+				eT=ky-1>=0?error[prevrow+kx]:0,
+				eL=kx-1>=0?error[currrow+kx-1]:0,
+				eTL=ky-1>=0&&kx-1>=0?error[prevrow+kx-1]:0,
+				eTR=ky-1>=0&&kx+1<iw?error[prevrow+kx+1]:0,
+				eT_L=eT+eL;
+
+			//pred_left=pred_left+((cL-pred_left)*params[PW2_NPRED+11]>>8);
+			//pred_left2=pred_left2+((cL-pred_left2)*abs(eL)>>16);
+
+			//int pred_w=(cT*(0x10000-eT)+cL*(0x10000-eL)+cTL*(0x10000-eTL)+cTR*(0x10000-eTR))>>16;
+
+			int predictions[PW2_NPRED]=//fixed 23.8 bit
+			{
+				//from jxl
+				cT-((eTL*params[PW2_NPRED]+eT*params[PW2_NPRED+1]+eTR*params[PW2_NPRED+2]+(cT2-cT)*params[PW2_NPRED+3]+(cTL-cL)*params[PW2_NPRED+4])>>8),//k13: 1.998458 how many optimizations?
+				//k13: 1.737220, 1.837736, 1.842377, 1.847278, 1.865093, 1.861586, 1.866601, 1.872176, 1.878888, 1.883146, 1.883862, 1.883863, <
+
+				cL-((eT_L+eTL)*params[PW2_NPRED+5]>>8),
+				//k13: 1.737220, 1.932766, 1.960469, 1.966698, 1.970106, 1.971381, 1.971891, 1.972187, 1.972368, 1.972492, 1.972565, 1.972580, 1.972594, 1.972602, <
+
+				cT-((eT_L+eTR)*params[PW2_NPRED+6]>>8),
+				//k13: 1.737220, 1.934911, 1.951553, 1.962075, 1.973068, 1.979630, 1.983403, 1.985205, 1.986109, 1.986488, 1.986609, 1.986677, 1.986688, 1.986689, <
+
+				cL+cTR-cT,
+				//k13: 1.909206, 1.918954, 1.946385, 1.963439, 1.970334, 1.981971, 1.983898, 1.984527, 1.985102, 1.985773, 1.986008, 1.986331, 1.986678, 1.986722, 1.986756			...1.998458
+#if 1
+				cL-(eL*params[PW2_NPRED+7]>>8),
+				cT-(eT*params[PW2_NPRED+8]>>8),
+				//k13: 1.909206, 1.922112, 1.931268, 1.954690, 1.964123, 1.978742, 1.981578, 1.984138, 1.985535, 1.986711, 1.987659, 1.988190, 1.988474, 1.988532, 1.988550
+				cTL-(eTL*params[PW2_NPRED+9]>>8),
+				cTR-(eTR*params[PW2_NPRED+10]>>8),
+				//k13: 1.909206, 1.921490, 1.932631, 1.949766, 1.950930, 1.951645, 1.951977, 1.960758, 1.967595, 1.969669, 1.972408, 1.973050, 1.973506, 1.974268, 1.975184			...1.977183
+#endif
+#if 0
+				pred_left,
+				pred_left2,//k13: 1.977869 how many optimizations?
+				(cL*params[PW2_NPRED+11]+cT*params[PW2_NPRED+12]+cTL*params[PW2_NPRED+13]+cTR*params[PW2_NPRED+14])>>8,//1.909206 -> 
+				(cL*params[PW2_NPRED+11]+cT*params[PW2_NPRED+12]+cTL*params[PW2_NPRED+13]+cTR*params[PW2_NPRED+14])>>8,//1.909206 -> 
+#endif
+				//pred_w,//k13: 1.909206
+#if 1
+				//paq8px by Matt Mahoney
+
+				//k13: 1.737220, 1.958513, 1.973267, 1.979685, 1.983374, 1.985860, 1.987622, 1.989731, 1.991147, 1.992018, 1.992707, 1.993444, 1.994374, 1.995238, 1.996056,   1.996876, 1.997423, 1.997708, 1.997946, 1.998162, 1.998320, 1.998364, 1.998611, 1.998815, 1.998948, 1.999125, 1.999207, 1.999222, 1.999229, 1.999235, 1.999241, 1.999242, 1.999247, 1.999248, 1.999250, 1.999251, <
+
+				clamp4(cL+cT-cTL, cL, cTL, cT, cTR),//0
+				//clip(cL+cT-cTL),//1
+				clamp4(cL+cTR-cT, cL, cTL, cT, cTR),//2
+				//clip(cL+cTR-cT),//3
+				clamp4(cT+cTL-cT2L, cL, cTL, cT, cTR),//4
+				//clip(cT+cTL-cT2L),//5
+				clamp4(cT+cTR-cT2R, cL, cT, cTR, cTR2),//6
+				//clip(cT+cTR-cT2R),//7
+				(cL+cTR2)>>1,//8
+				//clip(cT*3-cT2*3+cT3),//9
+				//clip(cL*3-cL2*3+cL3),//10
+				//(cL+clip(cTR*3-cT2R*3+cT3R))>>1,//11
+				//(cL+clip(cTR2*3-cT2R3*3+cT3R4))>>1,//12
+				//clip(cT2+cT4-cT6),//13
+				//clip(cL2+cL4-cL6),//14
+				//clip((cT5-6*cT4+15*cT3-20*cT2+15*cT+clamp4(cL*2-cTL2, cL, cTL, cT, cT2))/6),//15
+				//clip((-3*cL2+8*cL+clamp4(3*cTR2-3*cT2R2+cT3R2, cTR, cTR2, cTR3, cTR4))/6),//16
+				//clip(cT2+cTL-cT3L),//17
+				//clip(cT2+cTR-cT3R),//18
+				//clip((cL*2+cTL) - (cL2*2+cTL2) + cL3),//19
+				//clip(3*(cTL+cTL2)/2-cT2L3*3+(cT3L4+cT3L5)/2),//20
+				//clip(cTR2+cTR-cT2R3),//21
+				//clip(cTL2+cL2-cL4),//22
+				//clip(((cL+cTL)*3-cTL2*6+cTL3+cT2L3)/2),//23
+				//clip((cTR*2+cTR2) - (cT2R2+cT3R2*2) + cT4R3),//24
+				cT6,//25
+				(cTR4+cTR6)>>1,//26
+				(cL4+cL6)>>1,//27
+				(cL+cT+cTR5+cTR7)>>2,//28
+				//clip(cTR3+cL-cTR2),//29
+				//clip(4*cT3-3*cT4),//30
+				//clip(cT+cT2-cT3),//31
+				//clip(cL+cL2-cL3),//32
+				//clip(cL+cTR2-cTR),//33
+				//clip(cL2+cTR2-cT),//34
+				//(clip(cL*2-cTL)+clip(cL*2-cTL2)+cT+cTR)>>2,//35
+				clamp4(cT*2-cT2, cL, cT, cTR, cTR2),//36
+				(cT+cT3)>>1,//37
+				//clip(cT2+cL-cT2L),//38
+				//clip(cTR2+cT-cT2R2),//39
+				//clip((4*cL3-15*cL2+20*cL+clip(cTR2*2-cT2R2))/10),//40
+				//clip((cT3R3-4*cT2R2+6*cTR+clip(cL*3-cTL*3+cT2L))/4),//41
+				//clip((cT*2+cTR) - (cT2+2*cT2R) + cT3R),//42
+				//clip((cTL*2+cT2L) - (cT2L2+cT3L2*2) + cT4L3),//43
+				//clip(cT2L2+cL-cT2L3),//44
+				//clip((-cT4+5*cT3-10*cT2+10*cT+clip(cL*4-cTL2*6+cT2L3*4-cT3L4))/5),//45
+				//clip(cTR2+clip(cTR3*2-cT2R4-cTR4)),//46
+				//clip(cTL+cL-cTL2),//47
+				//clip((cT*2+cTL) - (cT2+2*cT2L) + cT3L),//48
+				//clip(cT2+clip(cTR2*2-cT2R3) - cT2R),//49
+				//clip((-cL4+5*cL3-10*cL2+10*cL+clip(cTR*2-cT2R))/5),//50
+				//clip((-cL5+4*cL4-5*cL3+5*cL+clip(cTR*2-cT2R))>>2),//51
+				//clip((cL3-4*cL2+6*cL+clip(cTR*3-cT2R*3+cT3R))>>2),//52
+				//clip((-cT2R2+3*cTR+clip(4*cL-6*cTL+4*cT2L-cT3L))/3),//53
+				((cL+cT)*3-cTL*2)>>2,//54
+#endif
+#if 0
+
+				pred_w2_paeth2(cT, cL, cTL, cTR),
+				(cL<<1)-cL2 + eL*params[PW2_NPRED+7],
+				(cT<<1)-cT2,
+				(cTL<<1)-cT2L2,
+				(cTR<<1)-cT2R2,
+
+				0,
+				cL,
+				cT,
+				pred_w2_select(cT, cL, cTL),
+				pred_w2_cgrad(cT, cL, cTL),
+				cTL,
+				cTR,
+				cL2,
+				(cL+cT)>>1,
+				(cL+cTL)>>1,
+				(cT+cTL)>>1,
+				(cT+cTR)>>1,
+				(6*cT-2*cT2+7*cL+cL2+cTR2+3*cTR+8)>>4,
+#endif
+			};
+
+			long long pred, sum=0;
+			for(int k=0;k<PW2_NPRED;++k)
+				sum+=weights[k];
+			if(sum)
+			{
+				pred=(sum>>1)-1;
+				for(int k=0;k<PW2_NPRED;++k)
+					pred+=predictions[k]*weights[k];
+				pred/=sum;
+			}
+			else
+				pred=predictions[0];
+
+			int vmin=cL, vmax=cL, curr;
+			//if(vmin>cTR)
+			//	vmin=cTR;
+			if(vmin>cT)
+				vmin=cT;
+
+			//if(vmax<cTR)
+			//	vmax=cTR;
+			if(vmax<cT)
+				vmax=cT;
+
+			pred=CLAMP(vmin, pred, vmax);
+			if(fwd)
+			{
+				curr=src[idx]<<8;
+				dst[idx]=src[idx]-(int)((pred+127)>>8);
+			}
+			else
+			{
+				dst[idx]=src[idx]+(int)((pred+127)>>8);
+				curr=dst[idx]<<8;
+			}
+
+			error[currrow+kx]=curr-(int)pred;
+			for(int k=0;k<PW2_NPRED;++k)
+			{
+				int e=abs(curr-predictions[k]);
+				pw2_errors[k]+=e;//
+				pred_errors[k][currrow+kx]=e;
+				if(kx+1<iw)
+					pred_errors[k][prevrow+kx+1]+=e;
+			}
+		}
+	}
+	for(int k=0;k<PW2_NPRED;++k)
+		pw2_errors[k]/=iw*ih*256;
+}
+void pred_w2_apply(char *buf, int iw, int ih, short *allparams, int fwd)
+{
+	int res=iw*ih;
+	int *temp=(int*)malloc((size_t)iw*(PW2_NPRED+1)*2*sizeof(int));
+	char *buf2=(char*)malloc((size_t)res<<2);
+	if(!temp||!buf2)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	
+	pred_w2_prealloc(buf, iw, ih, 0, allparams             , fwd, buf2, temp);
+	pred_w2_prealloc(buf, iw, ih, 1, allparams+PW2_NPARAM  , fwd, buf2, temp);
+	pred_w2_prealloc(buf, iw, ih, 2, allparams+PW2_NPARAM*2, fwd, buf2, temp);
+
+	for(int k=0;k<res;++k)
+	{
+		buf[k<<2  ]=buf2[k<<2  ];
+		buf[k<<2|1]=buf2[k<<2|1];
+		buf[k<<2|2]=buf2[k<<2|2];
+	}
+
+	free(temp);
+	free(buf2);
+}
+double pred_w2_calcloss(const char *src, int iw, int ih, int kc, short *params, int *temp, char *dst, int *hist)
+{
+	int res=iw*ih;
+	pred_w2_prealloc(src, iw, ih, kc, params, 1, dst, temp);
+	//addhalf((unsigned char*)dst+kc, iw, ih, 1, 4);
+	calc_histogram(dst+kc, (ptrdiff_t)res<<2, 4, hist);
+
+	double entropy=0;
+	for(int k=0;k<256;++k)
+	{
+		int freq=hist[k];
+		if(freq)
+		{
+			double p=(double)freq/res;
+			entropy-=p*log2(p);
+		}
+	}
+	double invCR=entropy/8, csize=res*invCR;
+	return csize;
+}
+void pred_w2_opt_v2(char *buf2, int iw, int ih, short *params, int loud)
+{
+	int res=iw*ih;
+	char *buf3=(char*)malloc((size_t)res<<2);
+	int *temp=(int*)malloc((size_t)iw*(PW2_NPRED+1)*2*sizeof(int));
+	int *hist=(int*)malloc(256*sizeof(int));
+	if(!buf3||!temp||!hist)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	char title0[256];
+	get_window_title(title0, 256);
+	int steps[]={128, 64, 32, 16, 8, 4, 2, 1};
+	for(int kc=0;kc<3;++kc)
+	{
+		short *param=params+kc*PW2_NPARAM;
+		double csize0=pred_w2_calcloss(buf2, iw, ih, kc, param, temp, buf3, hist);
+		for(int ks=0;ks<COUNTOF(steps);++ks)
+		{
+			int step=steps[ks];
+			double bestcsize=csize0;
+			int bestidx=0, beststep=0;
+			for(int idx=0;idx<PW2_NPARAM;++idx)
+			{
+				double csize;
+				short prev;
+
+				prev=param[idx];
+				param[idx]+=step;
+				csize=pred_w2_calcloss(buf2, iw, ih, kc, param, temp, buf3, hist);
+				param[idx]=prev;
+				if(bestcsize>csize)
+					bestcsize=csize, bestidx=idx, beststep=step;
+
+				prev=param[idx];
+				param[idx]-=step;
+				if(idx<4&&param[idx]<1)
+					param[idx]=1;
+				csize=pred_w2_calcloss(buf2, iw, ih, kc, param, temp, buf3, hist);
+				param[idx]=prev;
+				if(bestcsize>csize)
+					bestcsize=csize, bestidx=idx, beststep=-step;
+
+				set_window_title("Ch%d csize %lf [%d/%d %d/%d]...", kc, csize0, kc*COUNTOF(steps)+ks+1, COUNTOF(steps)*3, idx+1, PW2_NPARAM);//
+			}
+			if(csize0>bestcsize)
+			{
+				csize0=bestcsize;
+
+				param[bestidx]+=beststep;
+				if(bestidx<4&&param[bestidx]<1)
+					param[bestidx]=1;
+			}
+			//set_window_title("Ch%d csize %lf [%d/%d]...", kc, csize0, kc*COUNTOF(steps)+ks+1, COUNTOF(steps)*3);//
+		}
+	}
+	free(hist);
+	free(temp);
+	free(buf3);
+	set_window_title("%s", title0);//
+}
+
 short jxlparams_i16[33]=//signed fixed 7.8 bit
 {
 	0x0B37,  0x110B,  0x121B,  0x0BFC, -0x0001,  0x000E, -0x0188, -0x00E7, -0x00BB, -0x004A,  0x00BA,
@@ -3283,6 +3771,12 @@ short jxlparams_i16[33]=//signed fixed 7.8 bit
 //};
 void pred_jxl_prealloc(const char *src, int iw, int ih, int kc, short *params, int fwd, char *dst, int *temp_w10)
 {
+#if 0
+	params[0]=0;
+	params[1]=0;
+	params[2]=0;
+	params[3]=0x100;
+#endif
 	int errorbuflen=iw<<1, rowlen=iw<<2;
 	int *error=temp_w10, *pred_errors[]=
 	{
