@@ -586,7 +586,9 @@ void set_window_title(const char *format, ...)
 	va_start(args, format);
 	vsnprintf(g_buf, G_BUF_SIZE, format, args);
 	va_end(args);
-	SetWindowTextA(ghWnd, g_buf);
+	int success=SetWindowTextA(ghWnd, g_buf);
+	if(!success)
+		LOG_ERROR("Error setting window title");
 }
 
 int copy_to_clipboard(const char *a, int size)

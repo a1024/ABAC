@@ -11,7 +11,7 @@ extern "C"
 #endif
 
 
-//	#define ALLOW_OPENCL
+	#define ALLOW_OPENCL
 
 
 extern int w, h, mx, my, mouse_bypass;
@@ -762,7 +762,7 @@ void pred_dct3_inv(char *buf, int iw, int ih, int nch, int bytestride);
 
 double calc_entropy(int *hist, int sum);//pass -1 if sum is unknown
 void channel_entropy(unsigned char *buf, int resolution, int nch, int bytestride, float *cr, int *usage);
-void jointhistogram(unsigned char *buf, int resolution, int nbits, ArrayHandle *hist);
+void jointhistogram(unsigned char *buf, int iw, int ih, int nbits, ArrayHandle *hist, int space_not_color);
 
 
 //experiment 24: test 16 optimization per block
@@ -788,10 +788,18 @@ extern unsigned long long xoroshiro128_state[2];
 unsigned long long xoroshiro128_next(void);
 
 void pred_learned(char *buf, int iw, int ih, int fwd);
+void pred_learned_v2(char *buf, int iw, int ih, int fwd);
+void pred_learned_v3(char *buf, int iw, int ih, int fwd);
 
 
 //CPU transforms
 void pred_learned_cpu(char *buf, int iw, int ih, int fwd);
+
+
+//GPU trainsforms
+#ifdef ALLOW_OPENCL
+void pred_learned_gpu(char *buf, int iw, int ih, int fwd);
+#endif
 
 
 #ifdef __cplusplus

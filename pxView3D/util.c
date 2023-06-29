@@ -345,7 +345,7 @@ void parsetimedelta(double ms, TimeInfo *ti)
 	ti->mins=(int)floor(ms/(1000*60));
 	ms-=ti->mins*(1000*60);
 
-	ti->secs=ms/1000;
+	ti->secs=(float)(ms/1000);
 }
 int		timedelta2str(char *buf, size_t len, double ms)
 {

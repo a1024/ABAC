@@ -2,10 +2,11 @@
 #include<stdlib.h>
 #include<math.h>
 #include<immintrin.h>
+#include<process.h>
 static const char file[]=__FILE__;
 
 
-	#define DEBUG_AVX2
+//	#define DEBUG_AVX2
 
 
 #define BLOCKW 32
@@ -17,12 +18,12 @@ static const char file[]=__FILE__;
 	DST[1]=_mm256_setzero_ps()
 
 #define V16_LOAD(DST, PTR, IDX)\
-	DST[0]=_mm256_load_ps(PTR+((IDX)<<4LL  )),\
-	DST[1]=_mm256_load_ps(PTR+((IDX)<<4LL|8))
+	DST[0]=_mm256_load_ps(PTR+((IDX)<<4  )),\
+	DST[1]=_mm256_load_ps(PTR+((IDX)<<4|8))
 
 #define V16_STORE(PTR, IDX, SRC)\
-	_mm256_store_ps(PTR+((IDX)<<4LL  ), SRC[0]),\
-	_mm256_store_ps(PTR+((IDX)<<4LL|8), SRC[1])
+	_mm256_store_ps(PTR+((IDX)<<4  ), SRC[0]),\
+	_mm256_store_ps(PTR+((IDX)<<4|8), SRC[1])
 
 #define V16_ASSIGN(DST, X)\
 	DST[0]=X[0],\
@@ -68,6 +69,36 @@ static const char file[]=__FILE__;
 	DST[0]=_mm256_mul_ps(VEC[0], C),\
 	DST[1]=_mm256_mul_ps(VEC[1], C)
 
+//DST = M1*M2 + O
+#define V16_FMADD(DST, M1, M2, O)\
+	DST[0]=_mm256_fmadd_ps(M1[0], M2[0], O[0]),\
+	DST[1]=_mm256_fmadd_ps(M1[1], M2[1], O[1])
+
+//DST = VM1*CM2 + VO
+#define V16_FMADD_C(DST, VM1, CM2, VO)\
+	DST[0]=_mm256_fmadd_ps(VM1[0], CM2, VO[0]),\
+	DST[1]=_mm256_fmadd_ps(VM1[1], CM2, VO[1])
+
+//DST = -NM1*NM2 + O
+#define V16_FNMADD(DST, NM1, NM2, O)\
+	DST[0]=_mm256_fnmadd_ps(NM1[0], NM2[0], O[0]),\
+	DST[1]=_mm256_fnmadd_ps(NM1[1], NM2[1], O[1])
+
+//DST = -VNM1*CNM2 + VO
+#define V16_FNMADD_C(DST, VNM1, CNM2, VO)\
+	DST[0]=_mm256_fnmadd_ps(VNM1[0], CNM2, VO[0]),\
+	DST[1]=_mm256_fnmadd_ps(VNM1[1], CNM2, VO[1])
+
+//DST = M1*M2 - NO
+#define V16_FMSUB(DST, M1, M2, NO)\
+	DST[0]=_mm256_fmsub_ps(M1[0], M2[0], NO[0]),\
+	DST[1]=_mm256_fmsub_ps(M1[1], M2[1], NO[1])
+
+//DST = VM1*CM2 - VNO
+#define V16_FMSUB_C(DST, VM1, CM2, VNO)\
+	DST[0]=_mm256_fmsub_ps(VM1[0], CM2, VNO[0]),\
+	DST[1]=_mm256_fmsub_ps(VM1[1], CM2, VNO[1])
+
 #define V16_MIN(DST, A, B)\
 	DST[0]=_mm256_min_ps(A[0], B[0]),\
 	DST[1]=_mm256_min_ps(A[1], B[1])
@@ -94,8 +125,7 @@ static const char file[]=__FILE__;
 
 #define V16_PARABOLIC(DST, XP3, XN3, XP1)\
 	V16_SUB(DST, XP3, XN3),\
-	V16_MUL_C(DST, DST, m3),\
-	V16_ADD(DST, DST, XP1)
+	V16_FMADD_C(DST, DST, m3, XP1)
 
 #if 1
 static int assert_ptr(const float *p)
@@ -128,30 +158,41 @@ static int assert_ptr(const float *p)
 #endif
 
 #ifdef DEBUG_AVX2
-const unsigned char *gg_buf;
+int xindices[16]={0}, idxidx=0;
+#endif
+#if 0
+#ifdef DEBUG_AVX2
+const char *gg_buf;
 int g_iw=0, g_ih=0, g_kx0=0, g_kx=0, g_ky;
+int xindices[16]={0}, idxidx=0;
 static float LOAD(int OFFSET)
 {
+	xindices[idxidx]=g_kx+OFFSET;
+	idxidx=(idxidx+1)&15;
+
 	if(((g_kx0+OFFSET)&~(BLOCKW-1))==((g_kx+OFFSET)&~(BLOCKW-1))&&(unsigned)(g_kx+OFFSET)<(unsigned)g_iw)
 	{
-		const unsigned char *row=gg_buf+g_iw*g_ky+g_kx;
+		const char *row=gg_buf+g_iw*g_ky+g_kx;
 		if((unsigned)g_ky>=(unsigned)g_ih||(unsigned)(g_kx+OFFSET)>=(unsigned)g_iw)
 			LOG_ERROR("ACCESS VIOLATION");
-		return (float)row[g_kx+OFFSET];
+		return (float)row[OFFSET];
 	}
 	return 0;
 }
 #else
-#define LOAD(OFFSET) ((kx0+OFFSET)&~(BLOCKW-1))==((kx+OFFSET)&~(BLOCKW-1))&&(unsigned)(kx+OFFSET)<(unsigned)iw?(float)row[kx+OFFSET]:0
+#define LOAD(OFFSET) ((kx0+OFFSET)&~(BLOCKW-1))==((kx+OFFSET)&~(BLOCKW-1))&&(unsigned)(kx+OFFSET)<(unsigned)iw?(float)row[OFFSET]:0
 #endif
-static void load_vec16(__m256 *dst, const unsigned char *buf, int iw, int ih, int kx, int ky, int ox, int oy)
+#endif
+static void load_vec16(__m256 *dst, const char *buf, int iw, int ih, int kx, int ky, int ox, int oy)
 {
+	int kx0=kx, ky0=ky;
 	kx+=ox;
 	ky+=oy;
-	if((unsigned)ky<(unsigned)ih)
+	if((ky0&~(BLOCKW-1))==(ky&~(BLOCKW-1))&&(unsigned)ky<(unsigned)ih)
 	{
-		const unsigned char *row=buf+iw*ky+kx;
-		int kx0=kx-ox;
+		__declspec(align(32)) float arr[16];
+		const char *row=buf+iw*ky+kx;
+#if 0
 #ifdef DEBUG_AVX2
 		gg_buf=buf;
 		g_iw=iw;
@@ -160,16 +201,22 @@ static void load_vec16(__m256 *dst, const unsigned char *buf, int iw, int ih, in
 		g_kx=kx;
 		g_ky=ky;
 #endif
-		dst[0]=_mm256_set_ps(
-			LOAD(0),
-			LOAD(BLOCKW  ),
-			LOAD(BLOCKW*2),
-			LOAD(BLOCKW*3),
-			LOAD(BLOCKW*4),
-			LOAD(BLOCKW*5),
-			LOAD(BLOCKW*6),
-			LOAD(BLOCKW*7)
-		);
+#endif
+		for(int k=0;k<16;++k)
+		{
+			int offset=BLOCKW*k;
+#ifdef DEBUG_AVX2
+			xindices[idxidx]=kx+offset;
+			idxidx=(idxidx+1)&15;
+#endif
+			if(((kx0+offset)&~(BLOCKW-1))==((kx+offset)&~(BLOCKW-1))&&(unsigned)(kx+offset)<(unsigned)iw)
+				arr[k]=row[offset];
+			else
+				arr[k]=0;
+		}
+		dst[0]=_mm256_load_ps(arr);
+		dst[1]=_mm256_load_ps(arr+8);
+#if 0
 		dst[1]=_mm256_set_ps(
 			LOAD(BLOCKW* 8),
 			LOAD(BLOCKW* 9),
@@ -180,7 +227,18 @@ static void load_vec16(__m256 *dst, const unsigned char *buf, int iw, int ih, in
 			LOAD(BLOCKW*14),
 			LOAD(BLOCKW*15)
 		);
+		dst[0]=_mm256_set_ps(
+			LOAD(0),
+			LOAD(BLOCKW  ),
+			LOAD(BLOCKW*2),
+			LOAD(BLOCKW*3),
+			LOAD(BLOCKW*4),
+			LOAD(BLOCKW*5),
+			LOAD(BLOCKW*6),
+			LOAD(BLOCKW*7)
+		);
 #undef LOAD
+#endif
 	}
 	else
 	{
@@ -188,9 +246,9 @@ static void load_vec16(__m256 *dst, const unsigned char *buf, int iw, int ih, in
 		dst[1]=_mm256_setzero_ps();
 	}
 }
-static void store_vec16(__m256 const *src, unsigned char *buf, int iw, int ih, int kx, int ky)
+static void store_vec16(__m256 const *src, char *buf, int iw, int ih, int kx, int ky)
 {
-	unsigned char *row=buf+iw*ky+kx;
+	char *row=buf+iw*ky+kx;
 	__declspec(align(32)) int vec[16];
 	__m256i isrc[2]=
 	{
@@ -202,8 +260,14 @@ static void store_vec16(__m256 const *src, unsigned char *buf, int iw, int ih, i
 	if((unsigned)ky>=(unsigned)ih)
 		return;
 	for(int kx2=0;kx2<16;++kx2)
+	{
+#ifdef DEBUG_AVX2
+		if(xindices[kx2]!=kx+BLOCKW*kx2)
+			LOG_ERROR("Load and store are misaligned");
+#endif
 		if((unsigned)(kx+BLOCKW*kx2)<(unsigned)iw)
 			row[BLOCKW*kx2]=vec[kx2];
+	}
 }
 
 static void v16_sgn(float *dst, const float *v16)
@@ -363,8 +427,8 @@ static void matmul(float *dst, const float *m1, const float *m2, int h1, int w1h
 
 				V16_LOAD(mleft, m1, w1h2*ky+k);
 				V16_LOAD(mright, m2, w2*k+kx);
-				V16_MUL(mleft, mleft, mright);
-				V16_ADD(sum, sum, mleft);
+				V16_FMADD(sum, mleft, mright, sum);
+				//V16_MUL(mleft, mleft, mright), V16_ADD(sum, sum, mleft);
 			}
 			//	sum+=MUL(m1[w1h2*ky+k], m2[w2*k+kx]);
 			V16_STORE(dst, w2*ky+kx, sum);
@@ -393,8 +457,8 @@ static void linear(float *dst, const float *mat, const float *vec, const float *
 
 			V16_LOAD(mleft, mat, win*ko+ki);
 			V16_LOAD(mright, vec, ki);
-			V16_MUL(mleft, mleft, mright);
-			V16_ADD(sum, sum, mleft);
+			V16_FMADD(sum, mleft, mright, sum);
+			//V16_MUL(mleft, mleft, mright), V16_ADD(sum, sum, mleft);
 		}
 		//	temp+=MUL(mat[win*ko+ki], vec[ki]);
 		V16_STORE(dst, ko, sum);
@@ -439,7 +503,7 @@ static void initialize(float *w, int count, float sqrt_fan_in)
 		_mm256_store_ps(w+(k<<4|8), wk);
 	}
 }
-static void initialize_all(Params *p)
+static void initialize_all(Params *p, int nthreads)
 {
 	XOROSHIRO128_RESET();
 	initialize((float*)p->weight1	, _countof(p->weight1)	, sqrtf(NF0));
@@ -449,6 +513,7 @@ static void initialize_all(Params *p)
 	initialize((float*)p->weight3	, _countof(p->weight3)	, sqrtf(NF2));
 	initialize((float*)p->bias3		, _countof(p->bias3)	, sqrtf(NF2));
 	initialize((float*)p->weight4	, _countof(p->weight4)	, sqrtf(NF3));
+	memfill(p+1, p, (nthreads-1)*sizeof(*p), sizeof(*p));
 }
 
 static void clamp4(__m256 *dst, __m256 const *p, __m256 const *a, __m256 const *b, __m256 const *c, __m256 const *d)
@@ -486,6 +551,10 @@ static void get_nb2(const char *buf, const char *errors, int iw, int ih, int kx,
 {
 	const int CW=7;
 	int idx=iw*ky+kx, w3=iw*3, w2=iw*2;
+	__m256 const
+		m_10=_mm256_set1_ps(0.1f), m_6=_mm256_set1_ps(1.f/6), m_5=_mm256_set1_ps(0.2f), m_4=_mm256_set1_ps(0.25f), m_3=_mm256_set1_ps(1.f/3), mhalf=_mm256_set1_ps(0.5f),
+		m2=_mm256_set1_ps(2), m3=_mm256_set1_ps(3), m4=_mm256_set1_ps(4), m5=_mm256_set1_ps(5), m6=_mm256_set1_ps(6), m8=_mm256_set1_ps(8), m10=_mm256_set1_ps(10), m15=_mm256_set1_ps(15), m20=_mm256_set1_ps(20);
+	__m256 temp[2], temp2[2];
 	__m256
 		NNNNNN[2], NNNNN[2],
 
@@ -575,58 +644,6 @@ static void get_nb2(const char *buf, const char *errors, int iw, int ih, int kx,
 	load_vec16(WWW		, buf, iw, ih, kx, ky, -3, 0);
 	load_vec16(WW		, buf, iw, ih, kx, ky, -2, 0);
 	load_vec16(W		, buf, iw, ih, kx, ky, -1, 0);
-#if 0
-	__m256
-		DECLVEC16(NNNNNN	, buf, kx	, ky-6),
-
-		DECLVEC16(NNNNN		, buf, kx	, ky-5),
-
-		DECLVEC16(NNNNWWW	, buf, kx-3	, ky-4),
-		DECLVEC16(NNNN		, buf, kx	, ky-4),
-		DECLVEC16(NNNNEEE	, buf, kx+3	, ky-4),
-
-		DECLVEC16(NNNWWWWW	, buf, kx-5	, ky-3),
-		DECLVEC16(NNNWWWW	, buf, kx-4	, ky-3),
-		DECLVEC16(NNNWW		, buf, kx-2	, ky-3),
-		DECLVEC16(NNNW		, buf, kx-1	, ky-3),
-		DECLVEC16(NNN		, buf, kx	, ky-3),
-		DECLVEC16(NNNE		, buf, kx+1	, ky-3),
-		DECLVEC16(NNNEE		, buf, kx+2	, ky-3),
-		DECLVEC16(NNNEEE	, buf, kx+3	, ky-3),
-		DECLVEC16(NNNEEEE	, buf, kx+4	, ky-3),
-
-		DECLVEC16(NNWWW		, buf, kx-3	, ky-2),
-		DECLVEC16(NNWW		, buf, kx-2	, ky-2),
-		DECLVEC16(NNW		, buf, kx-1	, ky-2),
-		DECLVEC16(NN		, buf, kx	, ky-2),
-		DECLVEC16(NNE		, buf, kx+1	, ky-2),
-		DECLVEC16(NNEE		, buf, kx+2	, ky-2),
-		DECLVEC16(NNEEE		, buf, kx+3	, ky-2),
-		DECLVEC16(NNEEEE	, buf, kx+4	, ky-2),
-
-		DECLVEC16(NWWW		, buf, kx-3	, ky-1),
-		DECLVEC16(NWW		, buf, kx-2	, ky-1),
-		DECLVEC16(NW		, buf, kx-1	, ky-1),
-		DECLVEC16(N			, buf, kx	, ky-1),
-		DECLVEC16(NE		, buf, kx+1	, ky-1),
-		DECLVEC16(NEE		, buf, kx+2	, ky-1),
-		DECLVEC16(NEEE		, buf, kx+3	, ky-1),
-		DECLVEC16(NEEEE		, buf, kx+4	, ky-1),
-		DECLVEC16(NEEEEE	, buf, kx+5	, ky-1),
-		DECLVEC16(NEEEEEE	, buf, kx+6	, ky-1),
-		DECLVEC16(NEEEEEEE	, buf, kx+7	, ky-1),
-		
-		DECLVEC16(WWWWWW	, buf, kx-6	, ky  ),
-		DECLVEC16(WWWWW		, buf, kx-5	, ky  ),
-		DECLVEC16(WWWW		, buf, kx-4	, ky  ),
-		DECLVEC16(WWW		, buf, kx-3	, ky  ),
-		DECLVEC16(WW		, buf, kx-2	, ky  ),
-		DECLVEC16(W			, buf, kx-1	, ky  );
-#endif
-	__m256 const
-		m_10=_mm256_set1_ps(0.1f), m_6=_mm256_set1_ps(1.f/6), m_5=_mm256_set1_ps(0.2f), m_4=_mm256_set1_ps(0.25f), m_3=_mm256_set1_ps(1.f/3), mhalf=_mm256_set1_ps(0.5f),
-		m3=_mm256_set1_ps(3), m4=_mm256_set1_ps(4), m5=_mm256_set1_ps(5), m6=_mm256_set1_ps(6), m8=_mm256_set1_ps(8), m10=_mm256_set1_ps(10), m15=_mm256_set1_ps(15), m20=_mm256_set1_ps(20);
-	__m256 temp[2], temp2[2];
 
 
 	//0
@@ -704,14 +721,17 @@ static void get_nb2(const char *buf, const char *errors, int iw, int ih, int kx,
 
 	//15
 	V16_ADD(temp, W, W);
-	//V16_MUL_C(temp, W, m2);
 	V16_SUB(temp, temp, NWW);
 	clamp4(temp, temp, W, NW, N, NN);
 	V16_ADD(temp, temp, NNNNN);
-	V16_MUL_C(temp2, NNNN, m6), V16_SUB(temp, temp, temp2);
-	V16_MUL_C(temp2, NNN, m15), V16_ADD(temp, temp, temp2);
-	V16_MUL_C(temp2, NN, m20), V16_SUB(temp, temp, temp2);
-	V16_MUL_C(temp2, N, m15), V16_ADD(temp, temp, temp2);
+	V16_FNMADD_C(temp, NNNN, m6, temp);
+	V16_FMADD_C(temp, NNN, m15, temp);
+	V16_FNMADD_C(temp, NN, m20, temp);
+	V16_FMADD_C(temp, N, m15, temp);
+	//V16_MUL_C(temp2, NNNN, m6), V16_SUB(temp, temp, temp2);
+	//V16_MUL_C(temp2, NNN, m15), V16_ADD(temp, temp, temp2);
+	//V16_MUL_C(temp2, NN, m20), V16_SUB(temp, temp, temp2);
+	//V16_MUL_C(temp2, N, m15), V16_ADD(temp, temp, temp2);
 	V16_MUL_C(temp, temp, m_6);
 	clip(ctx, temp);
 	ctx+=2;
@@ -719,8 +739,10 @@ static void get_nb2(const char *buf, const char *errors, int iw, int ih, int kx,
 	//16
 	V16_PARABOLIC(temp, NEE, NNEE, NNNEE);
 	clamp4(temp, temp, NE, NEE, NEEE, NEEEE);
-	V16_MUL_C(temp2, W, m8), V16_ADD(temp, temp, temp2);
-	V16_MUL_C(temp2, WW, m3), V16_SUB(temp, temp, temp2);
+	V16_FMADD_C(temp, W, m8, temp);
+	V16_FNMADD_C(temp, WW, m3, temp);
+	//V16_MUL_C(temp2, W, m8), V16_ADD(temp, temp, temp2);
+	//V16_MUL_C(temp2, WW, m3), V16_SUB(temp, temp, temp2);
 	clip(ctx, temp);
 	ctx+=2;
 
@@ -736,10 +758,9 @@ static void get_nb2(const char *buf, const char *errors, int iw, int ih, int kx,
 
 	//19
 	V16_SUB(temp, W, WW);
-	V16_ADD(temp, temp, temp);
-	//V16_MUL_C(temp, temp, m2);
-	V16_SUB(temp2, NW, NWW);
-	V16_ADD(temp, temp, temp2);
+	V16_FMSUB_C(temp, temp, m2, NWW);
+	//V16_ADD_PPN(temp, temp, temp, NWW);
+	V16_ADD(temp, temp, NW);
 	V16_ADD(temp, temp, WWW);
 	clip(ctx, temp);
 	ctx+=2;
@@ -770,10 +791,9 @@ static void get_nb2(const char *buf, const char *errors, int iw, int ih, int kx,
 
 	//24
 	V16_SUB(temp, NE, NNNEE);
-	V16_ADD(temp, temp, temp);
-	//V16_MUL_C(temp, temp, m2);
-	V16_SUB(temp2, NEE, NNEE);
-	V16_ADD(temp, temp, temp2);
+	V16_FMSUB_C(temp, temp, m2, NNEE);
+	//V16_ADD_PPN(temp, temp, temp, NNEE);
+	V16_ADD(temp, temp, NEE);
 	V16_ADD(temp, temp, NNNNEEE);
 	clip(ctx, temp);
 	ctx+=2;
@@ -804,8 +824,9 @@ static void get_nb2(const char *buf, const char *errors, int iw, int ih, int kx,
 
 	//30
 	V16_MUL_C(temp, NNN, m4);
-	V16_MUL_C(temp2, NNNN, m3);
-	V16_SUB(temp, temp, temp2);
+	V16_FNMADD_C(temp, NNNN, m3, temp);
+	//V16_MUL_C(temp2, NNNN, m3);
+	//V16_SUB(temp, temp, temp2);
 	clip(ctx, temp);
 	ctx+=2;
 
@@ -863,9 +884,12 @@ static void get_nb2(const char *buf, const char *errors, int iw, int ih, int kx,
 	//40
 	V16_ADD_PPN(temp, NEE, NEE, NNEE);
 	clip(temp, temp);
-	V16_MUL_C(temp2, W, m20), V16_ADD(temp, temp, temp2);
-	V16_MUL_C(temp2, WW, m15), V16_SUB(temp, temp, temp2);
-	V16_MUL_C(temp2, WWW, m4), V16_ADD(temp, temp, temp2);
+	V16_FMADD_C(temp, W, m20, temp);
+	V16_FNMADD_C(temp, WW, m15, temp);
+	V16_FMADD_C(temp, WWW, m4, temp);
+	//V16_MUL_C(temp2, W, m20), V16_ADD(temp, temp, temp2);
+	//V16_MUL_C(temp2, WW, m15), V16_SUB(temp, temp, temp2);
+	//V16_MUL_C(temp2, WWW, m4), V16_ADD(temp, temp, temp2);
 	V16_MUL_C(temp, temp, m_10);
 	clip(ctx, temp);
 	ctx+=2;
@@ -873,8 +897,10 @@ static void get_nb2(const char *buf, const char *errors, int iw, int ih, int kx,
 	//41
 	V16_PARABOLIC(temp, W, NW, NNW);
 	clip(temp, temp);
-	V16_MUL_C(temp2, NE, m6), V16_ADD(temp, temp, temp2);
-	V16_MUL_C(temp2, NNEE, m4), V16_SUB(temp, temp, temp2);
+	V16_FMADD_C(temp, NE, m6, temp);
+	V16_FNMADD_C(temp, NNEE, m4, temp);
+	//V16_MUL_C(temp2, NE, m6), V16_ADD(temp, temp, temp2);
+	//V16_MUL_C(temp2, NNEE, m4), V16_SUB(temp, temp, temp2);
 	V16_ADD(temp, temp, NNNEEE);
 	V16_MUL_C(temp, temp, m_4);
 	clip(ctx, temp);
@@ -905,13 +931,18 @@ static void get_nb2(const char *buf, const char *errors, int iw, int ih, int kx,
 
 	//45
 	V16_MUL_C(temp, W, m4);
-	V16_MUL_C(temp2, NWW, m6), V16_SUB(temp, temp, temp2);
-	V16_MUL_C(temp2, NNWWW, m4), V16_ADD(temp, temp, temp2);
+	V16_FNMADD_C(temp, NWW, m6, temp);
+	V16_FMADD_C(temp, NNWWW, m4, temp);
+	//V16_MUL_C(temp2, NWW, m6), V16_SUB(temp, temp, temp2);
+	//V16_MUL_C(temp2, NNWWW, m4), V16_ADD(temp, temp, temp2);
 	V16_SUB(temp, temp, NNNWWWW);
 	clip(temp, temp);
-	V16_MUL_C(temp2, N, m10), V16_ADD(temp, temp, temp2);
-	V16_MUL_C(temp2, NN, m10), V16_SUB(temp, temp, temp2);
-	V16_MUL_C(temp2, NNN, m5), V16_ADD(temp, temp, temp2);
+	V16_FMADD_C(temp, N, m10, temp);
+	V16_FNMADD_C(temp, NN, m10, temp);
+	V16_FMADD_C(temp, NNN, m5, temp);
+	//V16_MUL_C(temp2, N, m10), V16_ADD(temp, temp, temp2);
+	//V16_MUL_C(temp2, NN, m10), V16_SUB(temp, temp, temp2);
+	//V16_MUL_C(temp2, NNN, m5), V16_ADD(temp, temp, temp2);
 	V16_SUB(temp, temp, NNNN);
 	V16_MUL_C(temp, temp, m_5);
 	clip(ctx, temp);
@@ -950,9 +981,12 @@ static void get_nb2(const char *buf, const char *errors, int iw, int ih, int kx,
 	//50
 	V16_ADD_PPN(temp, NE, NE, NNE);
 	clip(temp, temp);
-	V16_MUL_C(temp2, W, m10), V16_ADD(temp, temp, temp2);
-	V16_MUL_C(temp2, WW, m10), V16_SUB(temp, temp, temp2);
-	V16_MUL_C(temp2, WWW, m5), V16_ADD(temp, temp, temp2);
+	V16_FMADD_C(temp, W, m10, temp);
+	V16_FNMADD_C(temp, WW, m10, temp);
+	V16_FMADD_C(temp, WWW, m5, temp);
+	//V16_MUL_C(temp2, W, m10), V16_ADD(temp, temp, temp2);
+	//V16_MUL_C(temp2, WW, m10), V16_SUB(temp, temp, temp2);
+	//V16_MUL_C(temp2, WWW, m5), V16_ADD(temp, temp, temp2);
 	V16_SUB(temp, temp, WWWW);
 	V16_MUL_C(temp, temp, m_5);
 	clip(ctx, temp);
@@ -961,9 +995,12 @@ static void get_nb2(const char *buf, const char *errors, int iw, int ih, int kx,
 	//51
 	V16_ADD_PPN(temp, NE, NE, NNE);
 	clip(temp, temp);
-	V16_MUL_C(temp2, W, m5), V16_ADD(temp, temp, temp2);
-	V16_MUL_C(temp2, WWW, m5), V16_SUB(temp, temp, temp2);
-	V16_MUL_C(temp2, WWWW, m4), V16_ADD(temp, temp, temp2);
+	V16_FMADD_C(temp, W, m5, temp);
+	V16_FNMADD_C(temp, WWW, m5, temp);
+	V16_FMADD_C(temp, WWWW, m4, temp);
+	//V16_MUL_C(temp2, W, m5), V16_ADD(temp, temp, temp2);
+	//V16_MUL_C(temp2, WWW, m5), V16_SUB(temp, temp, temp2);
+	//V16_MUL_C(temp2, WWWW, m4), V16_ADD(temp, temp, temp2);
 	V16_SUB(temp, temp, WWWWW);
 	V16_MUL_C(temp, temp, m_4);
 	clip(ctx, temp);
@@ -972,8 +1009,10 @@ static void get_nb2(const char *buf, const char *errors, int iw, int ih, int kx,
 	//52
 	V16_PARABOLIC(temp, NE, NNE, NNNE);
 	clip(temp, temp);
-	V16_MUL_C(temp2, W, m6), V16_ADD(temp, temp, temp2);
-	V16_MUL_C(temp2, WW, m4), V16_SUB(temp, temp, temp2);
+	V16_FMADD_C(temp, W, m6, temp);
+	V16_FNMADD_C(temp, WW, m4, temp);
+	//V16_MUL_C(temp2, W, m6), V16_ADD(temp, temp, temp2);
+	//V16_MUL_C(temp2, WW, m4), V16_SUB(temp, temp, temp2);
 	V16_ADD(temp, temp, WWW);
 	V16_MUL_C(temp, temp, m_4);
 	clip(ctx, temp);
@@ -981,12 +1020,14 @@ static void get_nb2(const char *buf, const char *errors, int iw, int ih, int kx,
 
 	//53
 	V16_MUL_C(temp, W, m4);
-	V16_MUL_C(temp2, NW, m6), V16_SUB(temp, temp, temp2);
-	V16_MUL_C(temp2, NNW, m4), V16_ADD(temp, temp, temp2);
+	V16_FNMADD_C(temp, NW, m6, temp);
+	V16_FMADD_C(temp, NNW, m4, temp);
+	//V16_MUL_C(temp2, NW, m6), V16_SUB(temp, temp, temp2);
+	//V16_MUL_C(temp2, NNW, m4), V16_ADD(temp, temp, temp2);
 	V16_SUB(temp, temp, NNNW);
 	clip(temp, temp);
-	V16_MUL_C(temp2, NE, m3);
-	V16_ADD(temp, temp, temp2);
+	V16_FMADD_C(temp, NE, m3, temp);
+	//V16_MUL_C(temp2, NE, m3), V16_ADD(temp, temp, temp2);
 	V16_SUB(temp, temp, NNEE);
 	V16_MUL_C(temp, temp, m_3);
 	clip(ctx, temp);
@@ -994,9 +1035,10 @@ static void get_nb2(const char *buf, const char *errors, int iw, int ih, int kx,
 
 	//54		((W+N)*3-NW*2)/4 = (W+N)/2*3 - NW/2
 	V16_AVERAGE(temp, W, N);
-	V16_MUL_C(temp, temp, m3);
-	V16_MUL_C(temp2, NW, mhalf);
-	V16_SUB(ctx, temp, temp2);
+	V16_MUL_C(ctx, temp, m3);
+	V16_FNMADD_C(ctx, NW, mhalf, ctx);
+	//V16_MUL_C(temp, temp, m3);
+	//V16_MUL_C(temp2, NW, mhalf), V16_SUB(ctx, temp, temp2);
 	ctx+=2;
 
 	load_vec16(ctx, errors, iw, ih, kx, ky, 0, -6); ctx+=2;
@@ -1044,63 +1086,6 @@ static void get_nb2(const char *buf, const char *errors, int iw, int ih, int kx,
 	load_vec16(ctx, errors, iw, ih, kx, ky, -2, 0); ctx+=2;
 	load_vec16(ctx, errors, iw, ih, kx, ky, -1, 0); ctx+=2;
 
-	
-//#undef V16_ASSIGN
-//#undef V16_ADD
-//#undef V16_SUB
-//#undef V16_MUL_C
-//#undef V16_ADD_PPN
-//#undef V16_AVERAGE
-//#undef V16_PARABOLIC
-
-
-#if 0
-		cT6  =         ky-6>=0?LOAD(buf[idx-iw*6  ]):0,
-
-		cT5  =         ky-5>=0?LOAD(buf[idx-iw*5  ]):0,
-
-		cT4L3=kx-3>=0&&ky-4>=0?LOAD(buf[idx-iw*4-3]):0,
-		cT4  =         ky-4>=0?LOAD(buf[idx-iw*4  ]):0,
-		cT4R3=kx+3<iw&&ky-4>=0?LOAD(buf[idx-iw*4+3]):0,
-
-		cT3L5=kx-5>=0&&ky-3>=0?LOAD(buf[idx-iw*3-5]):0,
-		cT3L4=kx-4>=0&&ky-3>=0?LOAD(buf[idx-iw*3-4]):0,
-		cT3L2=kx-2>=0&&ky-3>=0?LOAD(buf[idx-iw*3-2]):0,
-		cT3L =kx-1>=0&&ky-3>=0?LOAD(buf[idx-iw*3-1]):0,
-		cT3  =         ky-3>=0?LOAD(buf[idx-iw*3  ]):0,
-		cT3R =kx+1<iw&&ky-3>=0?LOAD(buf[idx-iw*3+1]):0,
-		cT3R2=kx+2<iw&&ky-3>=0?LOAD(buf[idx-iw*3+2]):0,
-		cT3R3=kx+3<iw&&ky-3>=0?LOAD(buf[idx-iw*3+3]):0,
-		cT3R4=kx+4<iw&&ky-3>=0?LOAD(buf[idx-iw*3+4]):0,
-
-		cT2L3=kx-3>=0&&ky-2>=0?LOAD(buf[idx-iw*2-3]):0,
-		cT2L2=kx-2>=0&&ky-2>=0?LOAD(buf[idx-iw*2-2]):0,
-		cT2L =kx-1>=0&&ky-2>=0?LOAD(buf[idx-iw*2-1]):0,
-		cT2  =         ky-2>=0?LOAD(buf[idx-iw*2  ]):0,
-		cT2R =kx+1<iw&&ky-2>=0?LOAD(buf[idx-iw*2+1]):0,
-		cT2R2=kx+2<iw&&ky-2>=0?LOAD(buf[idx-iw*2+2]):0,
-		cT2R3=kx+3<iw&&ky-2>=0?LOAD(buf[idx-iw*2+3]):0,
-		cT2R4=kx+4<iw&&ky-2>=0?LOAD(buf[idx-iw*2+4]):0,
-
-		cTL3 =kx-3>=0&&ky-1>=0?LOAD(buf[idx-iw  -3]):0,
-		cTL2 =kx-2>=0&&ky-1>=0?LOAD(buf[idx-iw  -2]):0,
-		cTL  =kx-1>=0&&ky-1>=0?LOAD(buf[idx-iw  -1]):0,
-		cT   =kx  <iw&&ky-1>=0?LOAD(buf[idx-iw    ]):0,
-		cTR  =kx+1<iw&&ky-1>=0?LOAD(buf[idx-iw  +1]):0,
-		cTR2 =kx+2<iw&&ky-1>=0?LOAD(buf[idx-iw  +2]):0,
-		cTR3 =kx+3<iw&&ky-1>=0?LOAD(buf[idx-iw  +3]):0,
-		cTR4 =kx+4<iw&&ky-1>=0?LOAD(buf[idx-iw  +4]):0,
-		cTR5 =kx+5<iw&&ky-1>=0?LOAD(buf[idx-iw  +5]):0,
-		cTR6 =kx+6<iw&&ky-1>=0?LOAD(buf[idx-iw  +6]):0,
-		cTR7 =kx+7<iw&&ky-1>=0?LOAD(buf[idx-iw  +7]):0,
-
-		cL6  =kx-6>=0         ?LOAD(buf[idx     -6]):0,
-		cL5  =kx-5>=0         ?LOAD(buf[idx     -5]):0,
-		cL4  =kx-4>=0         ?LOAD(buf[idx     -4]):0,
-		cL3  =kx-3>=0         ?LOAD(buf[idx     -3]):0,
-		cL2  =kx-2>=0         ?LOAD(buf[idx     -2]):0,
-		cL   =kx-1>=0         ?LOAD(buf[idx     -1]):0;
-#endif
 #if 0
 	*ctx++ = clamp4(cL+cT-cTL, cL, cTL, cT, cTR);//0
 	*ctx++ = clip(cL+cT-cTL);//1
@@ -1275,8 +1260,8 @@ static void train(const char *src, const char *errors, int iw, int ih, int kx, i
 
 			V16_LOAD(vp, params, k);
 			V16_LOAD(vg, gradient, k);
-			V16_MUL_C(vg, vg, vlr);
-			V16_SUB(vp, vp, vg);
+			V16_FNMADD_C(vp, vg, vlr, vp);
+			//V16_MUL_C(vg, vg, vlr), V16_SUB(vp, vp, vg);
 			V16_STORE(params, k, vp);
 		}
 	}
@@ -1284,16 +1269,80 @@ static void train(const char *src, const char *errors, int iw, int ih, int kx, i
 	//for(int k=0;k<sizeof(Params)/sizeof(DataType);++k)
 	//	params[k]-=LEARNING_RATE(gradient[k], lr);
 }
+typedef struct ThreadArgsStruct
+{
+	char *src, *dst, *buf2, *errors;
+	int iw, ih, kc, ystart;
+	Temps *t;
+	Params *p;
+	BwdTemps *b;
+	Params *g;
+} ThreadArgs;
+static void pred_learned_thread(void *args)
+{
+	const int reach=5;
+
+	ThreadArgs *a=(ThreadArgs*)args;
+	int yend=MINVAR(a->ystart+BLOCKH, a->ih);
+	float lr=0.001f, lr2;
+	__m256 curr[2];
+	for(int ky=a->ystart;ky<yend;++ky)
+	{
+		//if(ky>=(a->ih>>4))//
+		//	printf("");
+
+		//if(!(ky&15))
+		//{
+		//	TimeInfo ti;
+		//	parsetimedelta(time_ms()-t_start, &ti);
+		//	set_window_title("%d/3, %d/%d, %.2lf%% - %02d-%02d-%06.3f", kc+1, ky+1, ih, 100.*(ih*kc+ky+1)/(ih*3), ti.hours, ti.mins, ti.secs);
+		//}
+			
+		//for(int kx0=0;kx0<iw-(BLOCKW*16-1);kx0+=BLOCKW*16)
+		for(int kx0=0;kx0<a->iw;kx0+=BLOCKW*16)
+		{
+			for(int kx=0;kx<BLOCKW;++kx)
+			{
+				int niter=a->kc==1?1:6;
+				for(int k=0;k<niter;++k)
+				{
+					for(int ky2=-reach;ky2<0;++ky2)
+					{
+						for(int kx2=-reach;kx2<=reach;++kx2)
+						{
+							lr2=lr/sqrtf((float)(kx2*kx2+ky2*ky2));
+							train(a->buf2, a->errors, a->iw, a->ih, kx0+kx+kx2, ky+ky2, a->t, a->p, a->b, a->g, lr2);
+						}
+					}
+					for(int kx2=-reach;kx2<0;++kx2)
+					{
+						lr2=lr/abs(kx2);
+						train(a->buf2, a->errors, a->iw, a->ih, kx0+kx+kx2, ky, a->t, a->p, a->b, a->g, lr2);
+					}
+				}
+				//if(kx0)
+				//	printf("");
+
+				eval_fwd(a->buf2, a->errors, a->iw, a->ih, kx0+kx, ky, a->t, a->p);
+				load_vec16(curr, a->buf2, a->iw, a->ih, kx0+kx, ky, 0, 0);
+				V16_SUB(curr, curr, a->t->pred);
+				store_vec16(curr, a->errors, a->iw, a->ih, kx0+kx, ky);
+			}
+		}
+	}
+}
 void pred_learned_cpu(char *buf, int iw, int ih, int fwd)
 {
 	double t_start=time_ms();
-	int res=iw*ih;
+	int res=iw*ih, nthreads=(ih+BLOCKH-1)/BLOCKH;
 	char *src=(char*)malloc(res), *dst=(char*)malloc(res);
-	Temps *t=(Temps*)_mm_malloc(sizeof(Temps), 32);
-	Params *p=(Params*)_mm_malloc(sizeof(Params), 32);
-	BwdTemps *b=(BwdTemps*)_mm_malloc(sizeof(BwdTemps), 32);
-	Params *g=(Params*)_mm_malloc(sizeof(Params), 32);
-	if(!src||!dst||!t||!p||!b||!g)
+	Temps *t=(Temps*)_mm_malloc(sizeof(Temps)*nthreads, 32);
+	Params *p=(Params*)_mm_malloc(sizeof(Params)*nthreads, 32);
+	BwdTemps *b=(BwdTemps*)_mm_malloc(sizeof(BwdTemps)*nthreads, 32);
+	Params *g=(Params*)_mm_malloc(sizeof(Params)*nthreads, 32);
+	ThreadArgs *args=(ThreadArgs*)malloc(nthreads*sizeof(ThreadArgs));
+	HANDLE *threads=(HANDLE*)malloc(nthreads*sizeof(HANDLE));
+	if(!src||!dst||!t||!p||!b||!g||!args||!threads)
 	{
 		LOG_ERROR("Allocation error");
 		return;
@@ -1302,22 +1351,60 @@ void pred_learned_cpu(char *buf, int iw, int ih, int fwd)
 	STR_ALLOC(title, 1024);
 	get_window_title(title->data, 1024);
 	
-	const int reach=1;//5
+	const int reach=5;
 
 	char *buf2=fwd?src:dst, *errors=fwd?dst:src;
-	float lr=0.001f, lr2;
-	__m256 curr[2];
+	//float lr=0.001f, lr2;
+	//__m256 curr[2];
+	for(int kt=0;kt<nthreads;++kt)
+	{
+		ThreadArgs *a=args+kt;
+		a->src=src;
+		a->dst=dst;
+		a->buf2=buf2;
+		a->errors=errors;
+		a->iw=iw;
+		a->ih=ih;
+		a->ystart=BLOCKH*kt;
+		a->t=t+kt;
+		a->p=p+kt;
+		a->b=b+kt;
+		a->g=g+kt;
+	}
 	for(int kc=0;kc<3;++kc)
 	{
-		initialize_all(p);
+		{
+			TimeInfo ti;
+			parsetimedelta(time_ms()-t_start, &ti);
+			set_window_title("%d/3 - %02d-%02d-%06.3f", kc+1, ti.hours, ti.mins, ti.secs);
+		}
+		initialize_all(p, nthreads);
 
 		for(int k=0;k<res;++k)
 			src[k]=buf[k<<2|kc];
 		
+#if 1
+		for(int kt=0;kt<nthreads;++kt)
+		{
+			ThreadArgs *a=args+kt;
+			a->kc=kc;
+			threads[kt]=(HANDLE)_beginthread(pred_learned_thread, 0, a);
+			if(!threads[kt])
+			{
+				LOG_ERROR("Failed to create thread %d", kt);
+				goto cleanup;
+			}
+		}
+		WaitForMultipleObjects(nthreads, threads, TRUE, INFINITE);
+		for(int kt=0;kt<nthreads;++kt)
+			CloseHandle(threads[kt]);
+
+#endif
+#if 0
 		for(int ky=0;ky<ih;++ky)
 		{
-			//if(ky>=(ih>>1))//
-			//	printf("");
+			if(ky>=(ih>>4))//
+				printf("");
 
 			if(!(ky&15))
 			{
@@ -1331,8 +1418,8 @@ void pred_learned_cpu(char *buf, int iw, int ih, int fwd)
 			{
 				for(int kx=0;kx<BLOCKW;++kx)
 				{
-					//int niter=kc==1?1:6;
-					for(int k=0;k<1;++k)
+					int niter=kc==1?1:6;
+					for(int k=0;k<niter;++k)
 					{
 						for(int ky2=-reach;ky2<0;++ky2)
 						{
@@ -1348,6 +1435,8 @@ void pred_learned_cpu(char *buf, int iw, int ih, int fwd)
 							train(buf2, errors, iw, ih, kx0+kx+kx2, ky, t, p, b, g, lr2);
 						}
 					}
+					//if(kx0)
+					//	printf("");
 
 					eval_fwd(buf2, errors, iw, ih, kx0+kx, ky, t, p);
 					load_vec16(curr, buf2, iw, ih, kx0+kx, ky, 0, 0);
@@ -1356,6 +1445,7 @@ void pred_learned_cpu(char *buf, int iw, int ih, int fwd)
 				}
 			}
 		}
+#endif
 
 		for(int k=0;k<res;++k)
 			buf[k<<2|kc]=dst[k];
@@ -1370,7 +1460,10 @@ void pred_learned_cpu(char *buf, int iw, int ih, int fwd)
 #else
 	set_window_title("%s", title->data);
 #endif
+cleanup:
 	array_free(&title);
+	free(threads);
+	free(args);
 	_mm_free(g);
 	_mm_free(b);
 	_mm_free(p);

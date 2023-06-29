@@ -6278,7 +6278,7 @@ void channel_entropy(unsigned char *buf, int resolution, int nch, int bytestride
 	csize/=8;
 	cr[3]=(float)(resolution*3/csize);
 }
-void jointhistogram(unsigned char *buf, int resolution, int nbits, ArrayHandle *hist)
+void jointhistogram(unsigned char *buf, int iw, int ih, int nbits, ArrayHandle *hist, int space_not_color)
 {
 	int nlevels=1<<nbits, hsize=nlevels*nlevels*nlevels;
 	if(*hist)
@@ -6286,24 +6286,76 @@ void jointhistogram(unsigned char *buf, int resolution, int nbits, ArrayHandle *
 	ARRAY_ALLOC(unsigned, *hist, 0, hsize, 0, 0);
 	//unsigned *hist=(unsigned*)malloc(hsize*sizeof(unsigned));
 	unsigned *h=(unsigned*)hist[0]->data;
-	for(int k=0;k<resolution;++k)
-	{
-		unsigned char r=buf[k<<2]>>(8-nbits), g=buf[k<<2|1]>>(8-nbits), b=buf[k<<2|2]>>(8-nbits);
-		int color=b<<(nbits<<1)|g<<nbits|r;
 
-		++h[color];
+	int res=iw*ih;
+	switch(space_not_color)
+	{
+	case 0://show correlation in color
+		for(int k=0;k<res;++k)
+		{
+			unsigned char r=buf[k<<2]>>(8-nbits), g=buf[k<<2|1]>>(8-nbits), b=buf[k<<2|2]>>(8-nbits);
+			int color=b<<(nbits<<1)|g<<nbits|r;
+
+			++h[color];
+		}
+		break;
+	case 1://show correlation in space x (CURR, W, WW)
+		for(int ky=0;ky<ih;++ky)
+		{
+			for(int kx=0;kx<iw;++kx)
+			{
+				unsigned char
+					v2=kx-2>=0?buf[(iw*ky+kx-2)<<2|1]>>(8-nbits):0,//WW
+					v1=kx-1>=0?buf[(iw*ky+kx-1)<<2|1]>>(8-nbits):0,//W
+					v0=kx-0>=0?buf[(iw*ky+kx-0)<<2|1]>>(8-nbits):0;//curr
+				int color=v2<<(nbits<<1)|v1<<nbits|v0;
+
+				++h[color];
+			}
+		}
+		break;
+	case 2://show correlation in space x (CURR, N, NN)
+		for(int ky=0;ky<ih;++ky)
+		{
+			for(int kx=0;kx<iw;++kx)
+			{
+				unsigned char
+					v2=ky-2>=0?buf[(iw*(ky-2)+kx)<<2|1]>>(8-nbits):0,//NN
+					v1=ky-1>=0?buf[(iw*(ky-1)+kx)<<2|1]>>(8-nbits):0,//N
+					v0=ky-0>=0?buf[(iw*(ky-0)+kx)<<2|1]>>(8-nbits):0;//curr
+				int color=v2<<(nbits<<1)|v1<<nbits|v0;
+
+				++h[color];
+			}
+		}
+		break;
+	case 3://show correlation in space x (CURR, N, W)
+		for(int ky=0;ky<ih;++ky)
+		{
+			for(int kx=0;kx<iw;++kx)
+			{
+				unsigned char
+					v2=kx-1>=0?buf[(iw* ky   +kx-1)<<2|1]>>(8-nbits):0,//W
+					v1=ky-1>=0?buf[(iw*(ky-1)+kx  )<<2|1]>>(8-nbits):0,//N
+					v0=        buf[(iw* ky   +kx  )<<2|1]>>(8-nbits)  ;//curr
+				int color=v2<<(nbits<<1)|v1<<nbits|v0;
+
+				++h[color];
+			}
+		}
+		break;
 	}
 
 	//X  don't calculate csize from downsampled histogram
 #if 0
 	double csize=0;
-	for(int k=0;k<resolution;++k)//calculate csize using Zipf's law
+	for(int k=0;k<res;++k)//calculate csize using Zipf's law
 	{
 		unsigned char r=buf[k<<2]>>(8-nbits), g=buf[k<<2|1]>>(8-nbits), b=buf[k<<2|2]>>(8-nbits);
 		int color=b<<(nbits<<1)|g<<nbits|r;
 
 		unsigned freq=h[color];
-		double p=(double)freq/resolution;
+		double p=(double)freq/res;
 
 		p*=0xFFFFFFFF;//guard against quantized zero
 		++p;
@@ -6312,7 +6364,7 @@ void jointhistogram(unsigned char *buf, int resolution, int nbits, ArrayHandle *
 		csize-=log2(p);
 	}
 	csize/=nbits;
-	float CR=(float)(resolution*3/csize);
+	float CR=(float)(res*3/csize);
 #endif
 
 #if 0
@@ -6322,7 +6374,7 @@ void jointhistogram(unsigned char *buf, int resolution, int nbits, ArrayHandle *
 		int freq=h[k];
 		if(freq)
 		{
-			float p=(float)freq/resolution;
+			float p=(float)freq/res;
 			entropy-=p*log2f(p);
 		}
 	}

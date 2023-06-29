@@ -157,6 +157,9 @@ int usage[4]={0};
 float combCRhist[combCRhist_SIZE][4]={0}, combCRhist_max=1;
 int combCRhist_idx=0;
 
+int show_full_image=0;
+int space_not_color=0;
+
 void transforms_update()
 {
 	if(transforms)
@@ -698,7 +701,7 @@ void chart_jointhist_update(unsigned char *im, int iw, int ih, ArrayHandle *cpuv
 	int nbits=6;
 
 	int nlevels=1<<nbits, th=nlevels*nlevels;
-	jointhistogram(image, iw*ih, nbits, &jointhist);
+	jointhistogram(image, iw, ih, nbits, &jointhist, space_not_color);
 	
 	if(!*txid)
 		glGenTextures(1, txid);
@@ -790,8 +793,8 @@ void update_image()
 		//	case ST_FWD_HYBRID3:	pred_hybrid_fwd((char*)image, iw, ih);				break;
 		//	case ST_INV_HYBRID3:	pred_hybrid_inv((char*)image, iw, ih);				break;
 				
-			case ST_FWD_LEARNED:	pred_learned_cpu((char*)image, iw, ih, 1);			break;
-			case ST_INV_LEARNED:	pred_learned_cpu((char*)image, iw, ih, 0);			break;
+			case ST_FWD_LEARNED:	pred_learned_v3((char*)image, iw, ih, 1);			break;
+			case ST_INV_LEARNED:	pred_learned((char*)image, iw, ih, 1);				break;//
 		//	case ST_FWD_DIFF2D:		pred_diff2d_fwd((char*)image, iw, ih, 3, 4);		break;
 		//	case ST_INV_DIFF2D:		pred_diff2d_inv((char*)image, iw, ih, 3, 4);		break;
 		//	case ST_FWD_HPF:		pred_hpf_fwd((char*)image, iw, ih, 3, 4);			break;
@@ -2051,15 +2054,16 @@ toggle_drag:
 			"Ctrl Mouse1:\tReplace all transforms of this type\n"
 			"\n"
 			"M / Shift M:\tCycles between:\n"
-			"\t1: Levels\n"
-			"\t2: Mesh\n"
-			"\t3: Mesh (separate channels)\n"
-			"\t4: Image tricolor\n"
+			"\t1: 3D View: Levels\n"
+			"\t2: 3D View: Mesh\n"
+			"\t3: 3D View: Mesh (separate channels)\n"
+			"\t4: Image tricolor view\n"
 			"\t5: Image view\n"
 			"\t6: Image block histogram\n"
-			"\t7: DWT block histogram\n"
-			"\t8: Histogram\n"
-			"\t9: Joint histogram\n"
+			"\t7: Optimized block compression estimate (E24)\n"
+			"\t8: DWT block histogram\n"
+			"\t9: Histogram\n"
+			"\t10: Joint histogram\n"
 		);
 		//prof_on=!prof_on;
 		return 0;
@@ -2112,7 +2116,12 @@ toggle_drag:
 			int printed=0;
 			ArrayHandle str;
 			STR_ALLOC(str, 65536);
-			if(mode==VIS_IMAGE_E24)
+			if(mode==VIS_IMAGE)
+			{
+				float cr_combined=3/(1/ch_cr[0]+1/ch_cr[1]+1/ch_cr[2]);
+				printed+=snprintf((char*)str->data+printed, str->count-printed, "T %f\tR %f\tG %f\tB %f\tJ %f", cr_combined, ch_cr[0], ch_cr[1], ch_cr[2], ch_cr[3]);
+			}
+			else if(mode==VIS_IMAGE_E24)
 			{
 				for(int kc=0;kc<3;++kc)
 				{
@@ -2196,6 +2205,18 @@ toggle_drag:
 			}
 			copy_to_clipboard((char*)str->data, printed);
 			array_free(&str);
+		}
+		else
+		{
+			if(mode==VIS_IMAGE)
+				show_full_image=!show_full_image;
+			else if(mode==VIS_JOINT_HISTOGRAM)
+			{
+				int shift=GET_KEY_STATE(KEY_SHIFT);
+				space_not_color+=1-(shift<<1);
+				MODVAR(space_not_color, space_not_color, 4);
+				update_image();
+			}
 		}
 		return 1;
 	case 'V':
@@ -2601,7 +2622,10 @@ void io_render()
 		case VIS_IMAGE:
 			{
 				float yoffset=tdy*3;
-				display_texture_i(0, iw, (int)yoffset, (int)yoffset+ih, (int*)image, iw, ih, 1, 0, 1, 0, 1);
+				if(show_full_image)
+					display_texture_i(0, w, 0, h, (int*)image, iw, ih, 1, 0, 1, 0, 1);
+				else
+					display_texture_i(0, iw, (int)yoffset, (int)yoffset+ih, (int*)image, iw, ih, 1, 0, 1, 0, 1);
 			}
 			break;
 		case VIS_IMAGE_BLOCK:
@@ -3047,7 +3071,7 @@ void io_render()
 		prevtxtcolor=set_text_color(0xFF000000);GUIPrint(xend, xend, ystart      , 1, "Combined      %9f", cr_combined);
 		set_bk_color(0xC0C0C0C0);
 		set_text_color(0xFF0000FF);				GUIPrint(xend, xend, ystart+tdy  , 1, "R     %7d %9f", usage[0], ch_cr[0]);
-		set_text_color(0xFF00FF00);				GUIPrint(xend, xend, ystart+tdy*2, 1, "G     %7d %9f", usage[1], ch_cr[1]);
+		set_text_color(0xFF00C000);				GUIPrint(xend, xend, ystart+tdy*2, 1, "G     %7d %9f", usage[1], ch_cr[1]);
 		set_text_color(0xFFFF0000);				GUIPrint(xend, xend, ystart+tdy*3, 1, "B     %7d %9f", usage[2], ch_cr[2]);
 		set_text_color(0xFFFF00FF);				GUIPrint(xend, xend, ystart+tdy*4, 1, "Joint %7d %9f", usage[3], ch_cr[3]);
 		set_text_color(prevtxtcolor);
@@ -3344,6 +3368,19 @@ void io_render()
 	static double t=0;
 	double t2=time_ms();
 	GUIPrint(0, 0, tdy, 1, "timer %d, fps %10lf, [%d/%d] %s", timer, 1000./(t2-t), mode+1, VIS_COUNT, mode_str);
+	if(mode==VIS_IMAGE)
+		GUIPrint(0, 0, tdy*2, 1, "%s", show_full_image?"FILL SCREEN":"1:1");
+	else if(mode==VIS_JOINT_HISTOGRAM)
+	{
+		switch(space_not_color)
+		{
+		case 0:mode_str="COLOR   (R, G, B)";break;
+		case 1:mode_str="SPACE X (CURR, W, WW)";break;
+		case 2:mode_str="SPACE Y (CURR, N, NN)";break;
+		case 3:mode_str="SPACE   (CURR, N, W)";break;
+		}
+		GUIPrint(0, 0, tdy*2, 1, "%s", mode_str);
+	}
 	//GUIPrint(0, 0, tdy, 1, "timer %d, fps %10lf, [%d/%d] %s,\tCT: [%d/%d] %s,\tST: [%d/%d] %s", timer, 1000./(t2-t), mode+1, VIS_COUNT, mode_str, color_transform+1, CT_COUNT, color_str, spatialtransform+1, ST_COUNT, space_str);
 	//if(joint_CR)
 	//	GUIPrint(0, 0, tdy*3, 1, "Joint CR %f", joint_CR);
