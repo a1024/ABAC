@@ -1922,7 +1922,7 @@ ArrayHandle get_filenames(const char *path, const char **extensions, int extCoun
 	return filenames;
 }
 
-ArrayHandle load_file(const char *filename, int bin, int pad)
+ArrayHandle load_file(const char *filename, int bin, int pad, int erroronfail)
 {
 	struct stat info={0};
 	FILE *f;
@@ -1932,8 +1932,11 @@ ArrayHandle load_file(const char *filename, int bin, int pad)
 	int error=stat(filename, &info);
 	if(error)
 	{
-		strerror_s(g_buf, G_BUF_SIZE, errno);
-		LOG_ERROR("Cannot open %s\n%s", filename, g_buf);
+		if(erroronfail)
+		{
+			strerror_s(g_buf, G_BUF_SIZE, errno);
+			LOG_ERROR("Cannot open %s\n%s", filename, g_buf);
+		}
 		return 0;
 	}
 	fopen_s(&f, filename, mode);
@@ -1941,8 +1944,11 @@ ArrayHandle load_file(const char *filename, int bin, int pad)
 	//f=fopen(filename, "r, ccs=UTF-8");//gets converted to UTF-16 on Windows
 	if(!f)
 	{
-		strerror_s(g_buf, G_BUF_SIZE, errno);
-		LOG_ERROR("Cannot open %s\n%s", filename, g_buf);
+		if(erroronfail)
+		{
+			strerror_s(g_buf, G_BUF_SIZE, errno);
+			LOG_ERROR("Cannot open %s\n%s", filename, g_buf);
+		}
 		return 0;
 	}
 

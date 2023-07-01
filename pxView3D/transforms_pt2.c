@@ -193,8 +193,8 @@ static void linear(DataType *dst, const DataType *mat, const DataType *vec, cons
 #define NF2 NF0
 #define NF3 NF0
 #else
-#define NF1 128	//64
-#define NF2 128	//32
+#define NF1 32	//64
+#define NF2 32	//32
 #define NF3 94	//32
 #endif
 typedef struct TempsStruct
@@ -218,7 +218,7 @@ typedef struct ParamsStruct
 		weight3[NF3*NF2], bias3[NF3],
 		weight4[1*NF3];
 } Params;
-const int NPARAMS=sizeof(Params)/sizeof(DataType);
+static const int NPARAMS=sizeof(Params)/sizeof(DataType);
 //static DataType gradient(DataType T, DataType L, DataType TL)
 //{
 //	DataType vmin=L<T?L:T, vmax=L>T?L:T;
@@ -337,7 +337,6 @@ static void get_neighbors(const char *buf, int iw, int ih, int x, int y, DataTyp
 #endif
 static void get_nb2(const char *buf, const char *errors, int iw, int ih, int kx, int ky, DataType *ctx)
 {
-	const int CW=7;
 	int idx=iw*ky+kx, w3=iw*3, w2=iw*2;
 	DataType
 		cT6  =         ky-6>=0?LOAD(buf[idx-iw*6  ]):0,
@@ -530,7 +529,6 @@ static void eval_fwd(const char *src, const char *errors, int iw, int ih, int kx
 {
 	get_nb2(src, errors, iw, ih, kx, ky, t->nb);
 
-	//residuals
 	linear(t->net1, p->weight1, t->nb, p->bias1, NF0, NF1);	//n1 = w1*nb + b1
 	act(t->x1, t->net1, NF1);								//x1 = act(n1)
 #ifdef RESNET
@@ -764,9 +762,9 @@ void pred_learned(char *buf, int iw, int ih, int fwd)
 		int reach=0, niter=0;
 		switch(kc)
 		{
-		case 0:reach=5, niter=9;break;
-		case 1:reach=5, niter=9;break;
-		case 2:reach=5, niter=9;break;
+		case 0:reach=5, niter=1;break;
+		case 1:reach=5, niter=1;break;
+		case 2:reach=5, niter=1;break;
 		}
 		initialize_all(p, 1, 0, 1);
 
@@ -1840,4 +1838,180 @@ void pred_learned_v3(char *buf, int iw, int ih, int fwd)
 	free(g);
 	free(args);
 	free(ebuf2);
+}
+
+
+#define V4_NTHREADS 6
+#define V4_REACH 9
+#define V4_NITER 1
+typedef struct V4ThreadArgsStruct
+{
+	char *src, *dst, *buf2, *errors;
+	int iw, ih, kc, threadno, fwd;
+	Temps *t;
+	Params *p;
+	BwdTemps *b;
+	Params *g;
+	double t_start;
+} V4ThreadArgs;
+static unsigned __stdcall pred_learned_v4_thread(void *args)
+{
+	V4ThreadArgs *a=(V4ThreadArgs*)args;
+
+	//for(int ky=0;ky<a->ih;++ky)//
+	//	for(int kx=0;kx<a->iw;++kx)
+	//		a->dst[a->iw*ky+kx]=a->threadno*255/V4_NTHREADS;
+	//return 0;
+
+	int pred, idx;
+	float lr=0.001f, lr2;
+	for(int ky=0;ky<a->ih;++ky)
+	{
+		if(!a->threadno)
+		{
+			TimeInfo ti;
+			parsetimedelta(time_ms()-a->t_start, &ti);
+			set_window_title("%d/3, %d/%d, %.2lf%% - %02d-%02d-%06.3f", a->kc, ky, a->ih, 100.*ky/a->ih, ti.hours, ti.mins, ti.secs);
+		}
+
+		for(int kx=0;kx<a->iw;++kx)
+		{
+			//int niter2=V4_NITER+10/(1+ky);
+			for(int k=0;k<V4_NITER;++k)
+			{
+				for(int ky2=-V4_REACH;ky2<0;++ky2)
+				{
+					for(int kx2=-V4_REACH;kx2<=V4_REACH;++kx2)
+					{
+						lr2=lr/((float)(kx2*kx2+ky2*ky2));
+						train(a->buf2, a->errors, a->iw, a->ih, kx+kx2, ky+ky2, a->t, a->p, a->b, a->g, lr2, 1, 0);
+					}
+				}
+				for(int kx2=-V4_REACH;kx2<0;++kx2)
+				{
+					lr2=lr/abs(kx2);
+					train(a->buf2, a->errors, a->iw, a->ih, kx+kx2, ky, a->t, a->p, a->b, a->g, lr2, 1, 0);
+				}
+			}
+
+			eval_fwd(a->buf2, a->errors, a->iw, a->ih, kx, ky, a->t, a->p);
+
+			pred=STORE(a->t->pred);
+			pred=CLAMP(-128, pred, 127);
+
+			idx=a->iw*ky+kx;
+			if(a->fwd)
+				a->dst[idx]=a->src[idx]-pred;
+			else
+				a->dst[idx]=a->src[idx]+pred;
+		}
+	}
+	return 0;
+}
+void pred_learned_v4(char *buf, int iw, int ih, int fwd)
+{
+	double t_start=time_ms();
+	int res=iw*ih;
+	char *src=(char*)malloc(res*3), *dst=(char*)malloc(res*3);
+	Temps *t=(Temps*)malloc(sizeof(Temps)*V4_NTHREADS);
+	Params *p=(Params*)malloc(sizeof(Params)*V4_NTHREADS);
+	BwdTemps *b=(BwdTemps*)malloc(sizeof(BwdTemps)*V4_NTHREADS);
+	Params *g=(Params*)malloc(sizeof(Params)*V4_NTHREADS);
+	V4ThreadArgs *args=(V4ThreadArgs*)malloc(sizeof(V4ThreadArgs)*V4_NTHREADS), *a;
+	HANDLE threads[V4_NTHREADS]={0};
+	if(!src||!dst||!t||!p||!b||!g||!args)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	ArrayHandle title;
+	STR_ALLOC(title, 1024);
+	get_window_title(title->data, 1024);
+	//memset(p, 0, sizeof(Params));
+
+	char *buf2=fwd?src:dst, *errors=fwd?dst:src;
+	const int blockw=(3*iw+V4_NTHREADS-1)/V4_NTHREADS;
+	for(int kt=0;kt<V4_NTHREADS;++kt)
+	{
+		a=args+kt;
+		int kc=kt*3/V4_NTHREADS, kb=kt%(V4_NTHREADS/3);
+		int xstart=blockw*kb, xend=xstart+blockw;
+		//int xstart=blockw*kt, xend=xstart+blockw;
+		if(xend>iw)
+			xend=iw;
+		int offset=res*kc+ih*xstart;
+		a->src=src+offset;
+		a->dst=dst+offset;
+		a->buf2=buf2+offset;
+		a->errors=errors+offset;
+		a->iw=xend-xstart;
+		a->ih=ih;
+		a->kc=kt*3/V4_NTHREADS;
+		a->threadno=kt;
+		a->fwd=fwd;
+		a->t=t+kt;
+		a->p=p+kt;
+		a->b=b+kt;
+		a->g=g+kt;
+		a->t_start=t_start;
+	}
+	initialize_all(p, 1, 0, 1);
+	memfill(p+1, p, (V4_NTHREADS-1)*sizeof(*p), sizeof(*p));
+	
+	for(int kt=0, idx=0;kt<V4_NTHREADS;++kt)
+	{
+		int kc=kt*3/V4_NTHREADS, kb=kt%(V4_NTHREADS/3);
+		int xstart=blockw*kb, xend=xstart+blockw;
+		if(xend>iw)
+			xend=iw;
+		for(int ky=0;ky<ih;++ky)
+		{
+			for(int kx=xstart;kx<xend;++kx, ++idx)
+				src[idx]=buf[(iw*ky+kx)<<2|kc];
+		}
+	}
+	
+	for(int kt=1;kt<V4_NTHREADS;++kt)
+	{
+		threads[kt]=(HANDLE)_beginthreadex(0, 0, pred_learned_v4_thread, args+kt, 0, 0);
+		if(!threads[kt])
+		{
+			LOG_ERROR("Thread error");
+			return;
+		}
+	}
+	pred_learned_v4_thread(args);
+	WaitForMultipleObjects(V4_NTHREADS-1, threads+1, TRUE, INFINITE);
+	for(int kt=1;kt<V4_NTHREADS;++kt)
+		CloseHandle(threads[kt]);
+	
+	for(int kt=0, idx=0;kt<V4_NTHREADS;++kt)
+	{
+		int kc=kt*3/V4_NTHREADS, kb=kt%(V4_NTHREADS/3);
+		int xstart=blockw*kb, xend=xstart+blockw;
+		if(xend>iw)
+			xend=iw;
+		for(int ky=0;ky<ih;++ky)
+		{
+			for(int kx=xstart;kx<xend;++kx, ++idx)
+				buf[(iw*ky+kx)<<2|kc]=dst[idx];
+		}
+	}
+#if 1
+	{
+		TimeInfo ti;
+		parsetimedelta(time_ms()-t_start, &ti);
+		set_window_title("3/3, %d/%d, 100%% - %02d-%02d-%06.3f", ih, ih, ti.hours, ti.mins, ti.secs);
+	}
+#else
+	set_window_title("%s", title->data);
+#endif
+	array_free(&title);
+	free(src);
+	free(dst);
+	free(t);
+	free(p);
+	free(b);
+	free(g);
+	free(args);
 }

@@ -12,6 +12,7 @@ extern "C"
 
 
 	#define ALLOW_OPENCL
+//	#define ENABLE_CONSOLE_MAIN_TEST
 
 
 extern int w, h, mx, my, mouse_bypass;
@@ -790,6 +791,7 @@ unsigned long long xoroshiro128_next(void);
 void pred_learned(char *buf, int iw, int ih, int fwd);
 void pred_learned_v2(char *buf, int iw, int ih, int fwd);
 void pred_learned_v3(char *buf, int iw, int ih, int fwd);
+void pred_learned_v4(char *buf, int iw, int ih, int fwd);//kodim13 2.007026
 
 
 //CPU transforms

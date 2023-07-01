@@ -92,11 +92,14 @@ typedef enum TransformTypeEnum
 
 	CST_SEPARATOR,
 	
+	ST_FWD_LEARNED,		ST_INV_LEARNED,
+#ifdef ALLOW_OPENCL
+	ST_FWD_LEARNED_GPU,	ST_INV_LEARNED_GPU,
+#endif
 	ST_FWD_CFL,			ST_INV_CFL,
 	ST_FWD_JOINT,		ST_INV_JOINT,
 //	ST_FWD_HYBRID3,		ST_INV_HYBRID3,
 	
-	ST_FWD_LEARNED,		ST_INV_LEARNED,
 //	ST_FWD_DIFF2D,		ST_INV_DIFF2D,
 //	ST_FWD_GRAD2,		ST_INV_GRAD2,
 //	ST_FWD_ADAPTIVE,	ST_INV_ADAPTIVE,
@@ -284,16 +287,22 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case CT_INV_ADAPTIVE:		a="C  Inv Adaptive";		break;
 	case CT_FWD_CUSTOM:			a="C  Fwd CUSTOM";			break;
 	case CT_INV_CUSTOM:			a="C  Inv CUSTOM";			break;
+
 	case CST_SEPARATOR:			a="";						break;
-	case ST_FWD_JOINT:			a=" S Fwd Joint";			break;
-	case ST_INV_JOINT:			a=" S Inv Joint";			break;
-	case ST_FWD_CFL:			a=" S Fwd CfL";				break;
-	case ST_INV_CFL:			a=" S Inv CfL";				break;
-//	case ST_FWD_HYBRID3:		a=" S Fwd Hybrid3";			break;
-//	case ST_INV_HYBRID3:		a=" S Inv Hybrid3";			break;
 
 	case ST_FWD_LEARNED:		a=" S Fwd Learned";			break;
 	case ST_INV_LEARNED:		a=" S Inv Learned";			break;
+#ifdef ALLOW_OPENCL
+	case ST_FWD_LEARNED_GPU:	a=" S Fwd Learned GPU";		break;
+	case ST_INV_LEARNED_GPU:	a=" S Inv Learned GPU";		break;
+#endif
+	case ST_FWD_CFL:			a=" S Fwd CfL";				break;
+	case ST_INV_CFL:			a=" S Inv CfL";				break;
+	case ST_FWD_JOINT:			a=" S Fwd Joint";			break;
+	case ST_INV_JOINT:			a=" S Inv Joint";			break;
+//	case ST_FWD_HYBRID3:		a=" S Fwd Hybrid3";			break;
+//	case ST_INV_HYBRID3:		a=" S Inv Hybrid3";			break;
+
 //	case ST_FWD_DIFF2D:			a=" S Fwd 2D derivative";	break;
 //	case ST_INV_DIFF2D:			a=" S Inv 2D derivative";	break;
 //	case ST_FWD_HPF:			a=" S Fwd HPF";				break;
@@ -792,9 +801,13 @@ void update_image()
 			case ST_INV_CFL:		pred_cfl((char*)image, iw, ih, 0);					break;
 		//	case ST_FWD_HYBRID3:	pred_hybrid_fwd((char*)image, iw, ih);				break;
 		//	case ST_INV_HYBRID3:	pred_hybrid_inv((char*)image, iw, ih);				break;
-				
-			case ST_FWD_LEARNED:	pred_learned_v3((char*)image, iw, ih, 1);			break;
+
+			case ST_FWD_LEARNED:	pred_learned_v4((char*)image, iw, ih, 1);			break;
 			case ST_INV_LEARNED:	pred_learned((char*)image, iw, ih, 1);				break;//
+#ifdef ALLOW_OPENCL
+			case ST_FWD_LEARNED_GPU:pred_learned_gpu((char*)image, iw, ih, 1);			break;
+			case ST_INV_LEARNED_GPU:pred_learned_gpu((char*)image, iw, ih, 0);			break;
+#endif
 		//	case ST_FWD_DIFF2D:		pred_diff2d_fwd((char*)image, iw, ih, 3, 4);		break;
 		//	case ST_INV_DIFF2D:		pred_diff2d_inv((char*)image, iw, ih, 3, 4);		break;
 		//	case ST_FWD_HPF:		pred_hpf_fwd((char*)image, iw, ih, 3, 4);			break;

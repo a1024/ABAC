@@ -81,7 +81,7 @@ void console_start()//https://stackoverflow.com/questions/191842/how-do-i-get-co
 		std::ios::sync_with_stdio();
 #endif
 
-		console_log("\n\tWARNNG: CLOSING THIS WINDOW WILL CLOSE THE PROGRAM\n\n");
+		console_log("\n\tWARNING: CLOSING THIS WINDOW WILL CLOSE THE PROGRAM\n\n");
 	}
 }
 void console_end()

@@ -394,7 +394,7 @@ ptrdiff_t acme_strrchr(const char *str, ptrdiff_t len, char c);//find last occur
 ArrayHandle filter_path(const char *path);//replaces back slashes with slashes, and adds trailing slash if missing, as ArrayHandle
 ArrayHandle get_filenames(const char *path, const char **extensions, int extCount, int fullyqualified);//returns array of strings
 
-ArrayHandle load_file(const char *filename, int bin, int pad);
+ArrayHandle load_file(const char *filename, int bin, int pad, int erroronfail);
 int save_file_bin(const char *filename, const unsigned char *src, size_t srcSize);
 
 	
