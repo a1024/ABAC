@@ -4,6 +4,7 @@ I didn't invent the algorithms used here, but tried to improve the implementatio
 Each folder here contains a different project.
 The most up-to-date projects are:
 - pxView3D:  A visualization and benchmarking tool for image transforms.
-- entropy-battle:  An image compression benchmark.
+- e2:  An image compression benchmark.
+- entropy-battle:  An image compression benchmark. Older project, contains more obsolete techniques.
 
 The other folders are outdated.

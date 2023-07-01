@@ -1,0 +1,111 @@
+#pragma once
+#ifndef INC_E2_H
+#define INC_E2_H
+#ifdef _MSC_VER
+#define _CRT_SECURE_NO_WARNINGS
+#endif
+#include"util.h"
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
+
+const char*	clerr2str(int error);
+#define CL_CHECK(ERR) ASSERT_MSG(!(ERR), "OpenCL error %d: %s\n", ERR, clerr2str(ERR))
+
+
+void calc_histogram(const unsigned char *buf, ptrdiff_t bytesize, ptrdiff_t stride, int *hist);
+
+
+unsigned char* image_load(const char *filename, int *iw, int *ih);
+int image_save_png_rgba8(const char *filename, const unsigned char *image, int iw, int ih);
+
+
+//	#define ENABLE_GUIDE//debug
+
+//lossless tools
+void compare_bufs_uint8(unsigned char *b1, unsigned char *b0, int iw, int ih, int symbytes, int bytestride, const char *name, int backward);
+void compare_bufs_ps(float *b1, float *b0, int iw, int ih, const char *name, int backward);
+
+size_t test16_encode(const unsigned char *src, int bw, int bh, int alpha, int *blockw, int *blockh, int *margin, ArrayHandle *data, int loud, int *csizes);
+int    test16_decode(const unsigned char *data, size_t srclen, int bw, int bh, int alpha, int *blockw, int *blockh, int *margin, unsigned char *buf);
+
+
+void t25_normalize_histogram(const unsigned *srchist, int nlevels, int nsymbols, unsigned short *CDF);
+int t25_encode(const unsigned char *src, int iw, int ih, int *blockw, int *blockh, int use_ans, ArrayHandle *data, int loud);
+int t25_decode(const unsigned char *data, size_t srclen, int iw, int ih, int *blockw, int *blockh, int use_ans, unsigned char *buf, int loud);
+
+
+typedef struct T26ParamsStruct
+{
+	unsigned char
+		gwidth,//>=1
+		mleft,
+		mtop,
+		mright,
+		alpha,//0~0xFF
+		maxinc;//>=1;
+} T26Params;
+int t26_encode(const unsigned char *src, int iw, int ih, T26Params const *params, int use_ans, ArrayHandle *data, int loud);
+int t26_decode(const unsigned char *data, size_t srclen, int iw, int ih, T26Params const *params, int use_ans, unsigned char *buf, int loud);
+
+//int t27_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T27 X
+int t28_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T28: Bayesian inference (histogram to heap)		first good result
+int t29_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T29: alpha, slightly better than T28
+//int t30_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T30 X  bad so far
+int t31_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T31: Adaptive Bayesian inference
+//int t32_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T32: Joint adaptive Bayesian inference (needs 128MB RAM)		X  bad
+//int t33_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T33: Adaptive Bayesian inference with circular buffer		X  bad
+
+
+
+
+//transforms
+void apply_transforms_fwd(unsigned char *buf, int bw, int bh);
+void apply_transforms_inv(unsigned char *buf, int bw, int bh);
+
+void addbuf(unsigned char *buf, int iw, int ih, int nch, int bytestride, int ammount);
+
+void colortransform_ycocg_fwd(char *buf, int iw, int ih);
+void colortransform_ycocg_inv(char *buf, int iw, int ih);
+void colortransform_ycocb_fwd(char *buf, int iw, int ih);//like YCoCg but with green & blue swapped
+void colortransform_ycocb_inv(char *buf, int iw, int ih);
+
+
+	#define PW2_NPRED 20	//63
+	#define PW2_NPARAM (PW2_NPRED+11)
+//	#define PW2_NPRED 22
+//	#define PW2_NPARAM (PW2_NPRED+8)
+extern double pw2_errors[PW2_NPRED];
+extern short pw2_params[PW2_NPARAM*3];
+void pred_w2_opt_v2(const char *buf2, int iw, int ih, short *params, int loud);
+void pred_w2_apply(char *buf, int iw, int ih, short *allparams, int fwd);
+
+void pred_opt_printparam();
+void pred_opt_opt_v6(const char *buf2, int iw, int ih, int loud);//multi-threaded grid
+void pred_opt_apply(char *buf, int iw, int ih, int fwd);
+
+
+extern short jxlparams_i16[33];
+//extern double jxlpred_params[33];
+void pred_jxl_prealloc(const char *src, int iw, int ih, int kc, const short *params, int fwd, char *dst, int *temp_w10);
+void pred_jxl_opt_v2(const char *buf2, int iw, int ih, short *params, int loud);
+void pred_jxl_apply(char *buf, int iw, int ih, short *allparams, int fwd);
+
+void pred_grad_fwd     (char *buf, int iw, int ih, int nch, int bytestride);
+void pred_grad_inv     (char *buf, int iw, int ih, int nch, int bytestride);
+
+
+
+
+void save_32bit(const char *filename, const int *buf, int iw, int ih, int nch, int saveas8bit);
+void save_16bit(const char *filename, const short *buf, const short *sub_b2, int iw, int ih, int nch, int val_offset, int val_shift, int saveas8bit);
+void save_mono8(const char *filename, unsigned char *buf, int iw, int ih, int stride);
+void save_channel(unsigned char *buf, int iw, int ih, int stride, int val_offset, const char *format, ...);
+
+
+#ifdef __cplusplus
+}
+#endif
+#endif//INC_E2_H
