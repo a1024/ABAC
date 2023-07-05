@@ -70,6 +70,8 @@ void acval_dump()
 	printf("\nDec:\n");
 	for(int k=(acval_idx+1)%ACVAL_CBUFSIZE, k2=acval_idx-(ACVAL_CBUFSIZE-1), end=acval_idx%ACVAL_CBUFSIZE;;k=(k+1)%ACVAL_CBUFSIZE, ++k2)
 	{
+		if(k2<0)
+			continue;
 		if(k==end)
 			printf("\n");
 		acval_print(k2, acval_cbuf+k, 1);
@@ -236,6 +238,8 @@ inline void abac_enc(ABACEncContext *ctx, unsigned short p0, int bit)
 
 	mid=ctx->lo+(int)((unsigned long long)(ctx->hi-ctx->lo)*p0>>16);
 
+	acval_enc(bit, bit?p0:0, bit?0x10000-p0:p0, ctx->lo, ctx->hi, bit?mid:ctx->lo, bit?ctx->hi:mid-1, ctx->cache, ctx->nbits);
+
 	if(bit)
 		ctx->lo=mid;
 	else
@@ -322,7 +326,9 @@ inline int abac_dec(ABACDecContext *ctx, unsigned short p0)
 		LOG_ERROR2("ZPS");
 
 	mid=ctx->lo+(int)((unsigned long long)(ctx->hi-ctx->lo)*p0>>16);
-	int bit=ctx->code>mid;
+	int bit=ctx->code>=mid;
+
+	acval_dec(bit, bit?p0:0, bit?0x10000-p0:p0, ctx->lo, ctx->hi, bit?mid:ctx->lo, bit?ctx->hi:mid-1, ctx->cache, ctx->nbits, ctx->code);
 	
 	if(bit)
 		ctx->lo=mid;

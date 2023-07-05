@@ -107,15 +107,19 @@ void batch_test(const char *path)
 			printf("\nT35 (ABAC + context tree)\n");
 			t35_encode(buf, iw, ih, &cdata, 1);
 
-			//printf("\nT34 (ABAC + adaptive Bayesian inference)\n");
-			//t34_encode(buf, iw, ih, &cdata, 1);
-
 			sum_testsize+=cdata->count;
 			if((ptrdiff_t)cdata->count<formatsize)
 				printf(" !!!");
-			printf("\n");
+
+			t35_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 
 			array_free(&cdata);
+			compare_bufs_uint8(b2, buf, iw, ih, nch0, 4, "T35", 0);
+
+			//printf("\nT34 (ABAC + adaptive Bayesian inference)\n");
+			//t34_encode(buf, iw, ih, &cdata, 1);
+
+			printf("\n");
 		}
 #endif
 
@@ -338,7 +342,8 @@ int main(int argc, char **argv)
 	unsigned char *buf, *b2;
 	const char *fn=0;
 #ifdef _DEBUG
-	fn="D:/ML/dataset-kodak/kodim13.png";
+	fn="D:/ML/dataset-kodak";
+	//fn="D:/ML/dataset-kodak/kodim13.png";
 #endif
 	if(fn||argc==2)
 	{
@@ -651,7 +656,7 @@ int main(int argc, char **argv)
 #endif
 
 	//test26: T16 with range coder
-#if 1
+#if 0
 	{
 		int use_ans=0;
 		double elapsed;
@@ -706,14 +711,18 @@ int main(int argc, char **argv)
 	//t33_encode(buf, iw, ih, &cdata, 1);
 	//array_free(&cdata);
 
-	printf("T34 (ABAC + adaptive Bayesian inference)\n");
-	t34_encode(buf, iw, ih, &cdata, 1);
-	array_free(&cdata);
+	//printf("T34 (ABAC + adaptive Bayesian inference)\n");
+	//t34_encode(buf, iw, ih, &cdata, 1);
+	//array_free(&cdata);
 	
 	printf("T35 Entropy coding with context tree\n");
 	//printf("T35 Combines spatial transform with entropy coding\n");
 	t35_encode(buf, iw, ih, &cdata, 1);
+	t35_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 	array_free(&cdata);
+	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T35", 0);
+	memset(b2, 0, len);
+	printf("\n");
 #endif
 
 	//predict image

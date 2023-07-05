@@ -61,7 +61,9 @@ int t31_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 //int t32_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T32: Joint adaptive Bayesian inference (needs 128MB RAM)		X  bad
 //int t33_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T33: Adaptive Bayesian inference with circular buffer		X  bad
 int t34_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);
+
 int t35_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T35: Combines spatial transform with entropy coding
+int t35_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
 
 
 
