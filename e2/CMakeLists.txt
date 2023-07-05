@@ -2,13 +2,13 @@
 # project specific logic here.
 #
 
-find_package(OpenCL REQUIRED)
-include_directories(
-	"E:/C/OpenCL-Headers"
-)
-link_directories(
-	"E:/C/OpenCL-Headers"
-)
+#find_package(OpenCL REQUIRED)
+#include_directories(
+#	"E:/C/OpenCL-Headers"
+#)
+#link_directories(
+#	"E:/C/OpenCL-Headers"
+#)
 add_executable(e2
 	"e2.c"
 	"format.c"
@@ -19,7 +19,7 @@ add_executable(e2
 	"transforms.c"
 	"util.c"
 )
-target_link_libraries(e2 OpenCL::OpenCL)
+#target_link_libraries(e2 OpenCL::OpenCL)
 
 if (CMAKE_VERSION VERSION_GREATER 3.12)
   set_property(TARGET e2 PROPERTY CXX_STANDARD 20)

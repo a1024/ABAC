@@ -69,6 +69,7 @@ int t35_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 
 
 //transforms
+extern short *g_param_ptr;
 void apply_transforms_fwd(unsigned char *buf, int bw, int bh);
 void apply_transforms_inv(unsigned char *buf, int bw, int bh);
 

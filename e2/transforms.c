@@ -94,6 +94,7 @@ void compare_bufs_ps(float *b1, float *b0, int iw, int ih, const char *name, int
 }
 
 
+short *g_param_ptr=0;
 void apply_transforms_fwd(unsigned char *buf, int bw, int bh)
 {
 	//ArrayHandle sizes=dwt2d_gensizes(bw, bh, 7, 7, 0);
@@ -106,9 +107,9 @@ void apply_transforms_fwd(unsigned char *buf, int bw, int bh)
 	//colortransform_xgz_fwd((char*)buf, bw, bh);
 	//colortransform_xyz_fwd((char*)buf, bw, bh);
 	
-	pred_opt_apply((char*)buf, bw, bh, 1);
+	//pred_opt_apply((char*)buf, bw, bh, 1);
 	//pred_w2_apply((char*)buf, bw, bh, pw2_params, 1);
-	//pred_jxl_apply((char*)buf, bw, bh, jxlparams_i16, 1);
+	pred_jxl_apply((char*)buf, bw, bh, g_param_ptr?g_param_ptr:jxlparams_i16, 1);
 
 	//pred_jxl((char*)buf, bw, bh, 0, 4, jxlpred_params   , 1);
 	//pred_jxl((char*)buf, bw, bh, 1, 4, jxlpred_params+11, 1);
@@ -138,9 +139,9 @@ void apply_transforms_inv(unsigned char *buf, int bw, int bh)
 	
 	addbuf(buf, bw, bh, 3, 4, 128);
 	
-	pred_opt_apply((char*)buf, bw, bh, 0);
+	//pred_opt_apply((char*)buf, bw, bh, 0);
 	//pred_w2_apply((char*)buf, bw, bh, pw2_params, 0);
-	//pred_jxl_apply((char*)buf, bw, bh, jxlparams_i16, 0);
+	pred_jxl_apply((char*)buf, bw, bh, g_param_ptr?g_param_ptr:jxlparams_i16, 0);
 
 	//pred_jxl((char*)buf, bw, bh, 0, 4, jxlpred_params   , 0);
 	//pred_jxl((char*)buf, bw, bh, 1, 4, jxlpred_params+11, 0);
