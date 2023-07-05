@@ -89,7 +89,37 @@ void batch_test(const char *path)
 		}
 		memset(b2, 0, len);
 #endif
+		
+		//T34 ABAC + adaptive Bayesian inference
+#if 1
+		{
+			ArrayHandle cdata=0;
+			printf("\n");
+#if 1
+			memcpy(b2, buf, len);
+			addbuf(b2, iw, ih, 3, 4, 128);
+			colortransform_ycocb_fwd((char*)b2, iw, ih);
+			pred_opt_opt_v6((char*)b2, iw, ih, 1);
+			memset(b2, 0, len);
+			pred_opt_printparam();
+#endif
 
+			printf("\nT35 (ABAC + context tree)\n");
+			t35_encode(buf, iw, ih, &cdata, 1);
+
+			//printf("\nT34 (ABAC + adaptive Bayesian inference)\n");
+			//t34_encode(buf, iw, ih, &cdata, 1);
+
+			sum_testsize+=cdata->count;
+			if((ptrdiff_t)cdata->count<formatsize)
+				printf(" !!!");
+			printf("\n");
+
+			array_free(&cdata);
+		}
+#endif
+
+		//T29
 #if 0
 		{
 			ArrayHandle cdata=0;
@@ -112,8 +142,8 @@ void batch_test(const char *path)
 		}
 #endif
 
-	//test26: T16 with range coder
-#if 1
+		//test26: T16 with range coder
+#if 0
 		{
 			int use_ans=0;
 			ArrayHandle cdata=0;
@@ -263,6 +293,7 @@ void batch_test(const char *path)
 	if(totalusize)
 	{
 		printf("\nOn average:\n");
+		printf("BMP     csize %9lld\n", totalusize);
 		if(sum_cPNGsize)
 			printf("PNG     csize %9lld  CR %lf  (%lld images)\n", sum_cPNGsize, (double)sum_uPNGsize/sum_cPNGsize, count_PNG);
 		if(sum_cJPEGsize)
@@ -620,7 +651,7 @@ int main(int argc, char **argv)
 #endif
 
 	//test26: T16 with range coder
-#if 0
+#if 1
 	{
 		int use_ans=0;
 		double elapsed;
@@ -667,13 +698,22 @@ int main(int argc, char **argv)
 	//t30_encode(buf, iw, ih, &cdata, 1);
 	//array_free(&cdata);
 
-	printf("T31 (ABAC + adaptive Bayesian inference)\n");
-	t31_encode(buf, iw, ih, &cdata, 1);
-	array_free(&cdata);
+	//printf("T31 (ABAC + adaptive Bayesian inference)\n");
+	//t31_encode(buf, iw, ih, &cdata, 1);
+	//array_free(&cdata);
 
 	//printf("T33 (ABAC + adaptive Bayesian inference with circular buffer)\n");	//X
 	//t33_encode(buf, iw, ih, &cdata, 1);
 	//array_free(&cdata);
+
+	printf("T34 (ABAC + adaptive Bayesian inference)\n");
+	t34_encode(buf, iw, ih, &cdata, 1);
+	array_free(&cdata);
+	
+	printf("T35 Entropy coding with context tree\n");
+	//printf("T35 Combines spatial transform with entropy coding\n");
+	t35_encode(buf, iw, ih, &cdata, 1);
+	array_free(&cdata);
 #endif
 
 	//predict image

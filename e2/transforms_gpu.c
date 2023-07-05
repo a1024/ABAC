@@ -1,12 +1,16 @@
 #include"e2.h"
-#define CL_TARGET_OPENCL_VERSION 300
-#include<CL/cl.h>
 #include<stdio.h>
 #include<stdlib.h>
 #include<string.h>
 #include<math.h>
+#ifdef ALLOW_OPENCL
+#define CL_TARGET_OPENCL_VERSION 300
+#include<CL/cl.h>
+#pragma comment(lib, "OpenCL.lib")
+#endif
 static const char file[]=__FILE__;
 
+#ifdef ALLOW_OPENCL
 #define KERNEL_FN "E:/C/e2/e2/kernels.h"
 
 const char* clerr2str(int error)
@@ -255,3 +259,4 @@ void ocl_init(const char *srcname)
 	}
 #endif
 }
+#endif

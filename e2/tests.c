@@ -42,37 +42,7 @@ unsigned long long xoroshiro128_next(void)
 	return result;
 }
 
-#ifdef FIXEDPREC
-typedef long long DataType;
-#define FRACBITS 16
-#define MAGBITS 12
-#define ONE (1<<FRACBITS)
-#define ONE_PERCENT ((0x28F5C28+(1<<(32-FRACBITS-1)))>>(32-FRACBITS))//0.01<<32
-//#define ONE_PERCENT (int)(0.01*ONE+0.5)
-#define ONE_PERMILLE ((0x418937+(1<<(32-FRACBITS-1)))>>(32-FRACBITS))//0.001<<32
-#define MAXMAG (1<<(FRACBITS+FRACBITS-MAGBITS))
-#define MUL(A, B) (int)((long long)(A)*(B)>>FRACBITS)
-#define INITIALIZE(FIN, FOUT) sample(FIN, FOUT)
-#define LOAD(PX) ((PX)<<MAGBITS)
-#define STORE(VAL) (int)(((VAL)+(1<<(MAGBITS-1))-1)>>MAGBITS)
-//#define LEARNING_RATE(G) MUL(G, ONE_PERMILLE)
-//#define LEARNING_RATE(G) ((G)>>FRACBITS)
-#define ABS llabs
-#define FROMFLOAT(X) (int)((X)*ONE)
-#else
-typedef float DataType;
-#define ONE 1
-#define ONE_PERCENT 0.01f
-#define ONE_PERMILLE 0.001f
-#define MAXMAG 10
-#define MUL(A, B) ((A)*(B))
-#define INITIALIZE(FIN, FOUT) (float)sample(FIN, FOUT)/0xFFFF
-#define LOAD(PX) MUL(PX+0.5f, 1.f/256)
-#define STORE(VAL) (char)(MUL(VAL, 256)-0.5f)
-//#define LEARNING_RATE(G) ((G)*0.001f)
-#define ABS fabsf
-#define FROMFLOAT(X) X
-#endif
+#if 0
 static inline void initialize(DataType *w, int count, DataType sqrt_fan_in)
 {
 	for(int k=0;k<count;++k)
@@ -92,6 +62,7 @@ static inline void initialize(DataType *w, int count, DataType sqrt_fan_in)
 	//}
 	//return (x<<8)*2/(fin+fout);
 }
+#endif
 
 long long error_func_p32(long long x)
 {
@@ -3457,7 +3428,7 @@ int t31_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	int res=iw*ih;
 	double t_start=time_ms();
 	unsigned char *buf2=(unsigned char*)malloc((size_t)res<<2);
-	double *ptree=(double*)malloc(255LL*3*2*sizeof(double));
+	int *ptree=(int*)malloc(255LL*3*2*sizeof(int));
 	//int *ctree=(int*)malloc(255LL*3*2*sizeof(int));
 	//unsigned *chist=(unsigned*)malloc(256*sizeof(unsigned));
 	if(!buf2||!ptree)
@@ -3519,7 +3490,7 @@ int t31_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 #endif
 	for(int k=0;k<255*3*2;++k)
 		ptree[k]=1;
-	double inc=1;
+	//double inc=1;
 
 	DList list;
 	dlist_init(&list, 1, 1024, 0);
@@ -3542,7 +3513,7 @@ int t31_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 
 			for(int kc=2;kc>=0;--kc)
 			{
-				double *tree=ptree+(255*kc<<1);
+				int *tree=ptree+(255*kc<<1);
 				int step=1;
 				unsigned char sym=0;
 				for(int kb=7;kb>=0;--kb)//MSB -> LSB
@@ -3550,15 +3521,15 @@ int t31_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 					//if(kc==1&&kb==5)//
 					//	printf("");
 
-					double *c=tree+(sym<<1);
-					int p0=(int)(c[0]+c[1]?c[0]*0x10000/(c[0]+c[1]):0x8000);
+					int *c=tree+(sym<<1);
+					//int p0=(int)(c[0]+c[1]?c[0]*0x10000/(c[0]+c[1]):0x8000);
 					//int p0=c[0];
-					//int p0=c[0]+c[1]?(int)(((long long)c[0]<<16)/(c[0]+c[1])):0x8000;
+					int p0=c[0]+c[1]?(int)(((long long)c[0]<<16)/(c[0]+c[1])):0x8000;
 					p0=CLAMP(1, p0, 0xFFFF);
 					int bit=ptr[kc]>>kb&1;
 					abac_enc(&ctx, p0, bit);
 
-					c[bit]+=inc;//CR 2.009992
+					++c[bit];//CR 2.009992
 					//inc*=1.01;//inflation		X  CR 0.074982
 					
 					//c[bit]+=(ptr-buf2)/(iw*ih);//X  CR 1.5
@@ -3890,3 +3861,1431 @@ int t33_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	return 1;
 }
 #endif
+
+
+#define LR (int)(0.07*0x10000+0.5)
+
+
+//T34: Adaptive Bayesian inference
+#define NESTIMATORS 7
+typedef struct NodeStruct
+{
+	int n[2];				//total counts
+	unsigned short rec[6];	//p1 += (revealedbit-p1)/2^i
+
+	//unsigned short rec6;//p1 = p1+(revealedbit-p1)*0.015625
+	//unsigned short rec5;//p1 = p1+(revealedbit-p1)*0.03125
+	//unsigned short rec4;//p1 = p1+(revealedbit-p1)*0.0625
+	//unsigned short rec3;//p1 = p1+(revealedbit-p1)*0.125
+	//unsigned short rec2;//p1 = p1+(revealedbit-p1)*0.25
+	//unsigned short rec1;//p1 = p1+(revealedbit-p1)*0.5 = 0.5*revealedbit + 0.5*p1_prev	last 16 bits
+
+	//int n65536_0, n65536_1;	//last 65536 symbols
+	//int n4096_0, n4096_1;		//last 4096 symbols
+	//int n256_0, n256_1;		//last 256 symbols
+} Node;
+#define HM_W 24
+#define HM_H 16
+int t34_weights[3*8*NESTIMATORS];
+int t34_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud)
+{
+	int res=iw*ih;
+	double t_start=time_ms();
+	unsigned char *buf2=(unsigned char*)malloc((size_t)res<<2);
+	Node *tree=(Node*)malloc(255LL*3*sizeof(Node));
+	if(!buf2||!tree)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	memcpy(buf2, src, (size_t)res<<2);
+	apply_transforms_fwd(buf2, iw, ih);
+
+	DList list;
+	dlist_init(&list, 1, 1024, 0);
+	
+	ABACEncContext ctx;
+	abac_enc_init(&ctx, &list);
+	
+	float ssizes[HM_W*HM_H*3]={0}, ssdevs[HM_W*HM_H*3]={0};
+	float csizes[24]={0};
+	int hits[24]={0};
+	
+#if 1
+	for(int k=0;k<3*8*NESTIMATORS;++k)//fixed 15.16 bit
+		t34_weights[k]=0x8000;
+	for(int k=0;k<255*3;++k)
+	{
+		Node *p=tree+k;
+		p->n[0]=1;
+		p->n[1]=1;
+		for(int k=0;k<NESTIMATORS-1;++k)
+			p->rec[k]=0x8000;
+		//p->rec6=0x8000;
+		//p->rec5=0x8000;
+		//p->rec4=0x8000;
+		//p->rec3=0x8000;
+		//p->rec2=0x8000;
+		//p->rec1=0x8000;
+	}
+	unsigned char *ptr=buf2;
+	//for(int ky=ih-1;ky>=0;--ky)
+	for(int ky=0;ky<ih;++ky)
+	{
+		for(int kx=0;kx<iw;++kx, ptr+=4)
+		{
+			for(int kc=2;kc>=0;--kc)
+			{
+				Node *treek=tree+255*kc;
+				int *wk=t34_weights+8*NESTIMATORS*kc;
+				int step=1;
+				unsigned char sym=0, esym=0;
+				for(int kb=7;kb>=0;--kb, wk+=NESTIMATORS)//MSB -> LSB
+				{
+					Node *node=treek+sym;
+					long long sum=node->n[0]+node->n[1];
+					int p0a[NESTIMATORS]=
+					{
+						sum?(int)(((long long)node->n[0]<<16)/sum):0x8000,
+						//0x10000-node->rec6,
+						//0x10000-node->rec5,
+						//0x10000-node->rec4,
+						//0x10000-node->rec3,
+						//0x10000-node->rec2,
+						//0x10000-node->rec1,
+					};
+					for(int k=0;k<NESTIMATORS-1;++k)
+						p0a[k+1]=0x10000-node->rec[k];
+
+					//fwd
+					long long wsum=0;
+					sum=0;
+					for(int k=0;k<NESTIMATORS;++k)
+					{
+						sum+=(long long)p0a[k]*wk[k];
+						wsum+=wk[k];
+					}
+					int p0=wsum?(int)((sum+(wsum>>1))/wsum):0x8000;
+					p0=CLAMP(1, p0, 0xFFFF);
+					int bit=ptr[kc]>>kb&1;
+					abac_enc(&ctx, p0, bit);
+
+					//bwd
+					int p_bit=bit?0x10000-p0:p0;
+					long long dL_dp0=-(1LL<<32)/p_bit;//fixed 47.16 bit
+					dL_dp0^=-bit;
+					dL_dp0+=bit;
+					for(int k=0;k<NESTIMATORS;++k)
+					{
+						int diff=p0a[k]-p0;//fixed 15.16 bit
+						long long grad = dL_dp0*diff/wsum;
+						long long wnew=LR*grad>>16;
+						wnew=wk[k]-wnew;
+						wnew=CLAMP(1, wnew, 0xFFFF);
+						wk[k]=(int)wnew;
+					}
+
+					//update
+					++node->n[bit];
+					for(int k=0;k<NESTIMATORS-1;++k)
+					{
+						int temp=node->rec[k]+(((bit<<16)-node->rec[k])>>((k+1)<<1));
+						node->rec[k]=CLAMP(1, temp, 0xFFFF);
+					}
+//					int temp;
+//#define UPDATE_REC(N) temp=node->rec##N+(((bit<<16)-node->rec##N)>>(N<<1)), node->rec##N=CLAMP(1, temp, 0xFFFF);
+//					UPDATE_REC(6);
+//					UPDATE_REC(5);
+//					UPDATE_REC(4);
+//					UPDATE_REC(3);
+//					UPDATE_REC(2);
+//					UPDATE_REC(1);
+					
+#if 1
+					int hit=bit?p0<0x8000:p0>0x8000;//
+					hits[kc<<3|kb]+=hit;
+					float p=(unsigned short)(bit?0x10000-p0:p0)*(1.f/0x10000);
+					float bitsize=-log2f(p);
+					csizes[kc<<3|kb]+=bitsize;//
+
+					int idx2=HM_W*(HM_H*kc+ky*HM_H/ih)+kx*HM_W/iw;//
+					ssizes[idx2]+=bitsize;
+					float fp0=(float)(p0-0x8000)/0x10000;
+					ssdevs[idx2]+=fp0*fp0;//
+#endif
+
+					sym<<=1;
+					sym|=bit;
+					treek+=step;
+					step<<=1;
+				}
+			}
+		}
+		if(loud==2)
+		{
+			static double csize_prev=0;
+			double csize=0;
+			for(int k=0;k<24;++k)
+				csize+=csizes[k]/8;
+			printf("Y%4d  CR%9lf  CR_row%9lf\n", ky, ((ky+1)*iw*3)/(csize+1), (iw*3+1)/(csize-csize_prev+1));
+			csize_prev=csize;
+		}
+	}
+#endif
+#if 0
+	int inc=1;
+	int alpha[8];
+	for(int k=0;k<8;++k)
+		alpha[k]=0x10000;
+	for(int k=0;k<255*3*2;++k)
+		ptree[k]=1;
+	const int blocksize=4;
+	for(int y1=0;y1<ih;y1+=blocksize)
+	{
+		int y2=y1+blocksize;
+		if(y2>ih)
+			y2=ih;
+		for(int x1=0;x1<iw;x1+=blocksize)
+		{
+			int x2=x1+blocksize;
+			if(x2>iw)
+				x2=iw;
+
+			for(int k=0;k<255*3*2;++k)//reset dtree
+				dtree[k]=1;
+
+			for(int ky=y1;ky<y2;++ky)
+			{
+				for(int kx=x1;kx<x2;++kx)
+				{
+					for(int kc=2;kc>=0;--kc)
+					{
+						int *tree1=ptree+(255*kc<<1);
+						int *tree2=dtree+(255*kc<<1);
+						int step=1;
+						unsigned char sym=buf2[(iw*ky+kx)<<2|kc], seenbits=0;
+						int offset=64;
+						for(int kb=7;kb>=0;--kb, offset>>=1)//MSB -> LSB
+						{
+							int *c=tree1+(seenbits<<1);
+							int *d=tree2+(seenbits<<1);
+							int p0_1=c[0]+c[1]?(int)(((long long)c[0]<<16)/(c[0]+c[1])):0x8000;
+							int p0_2=d[0]+d[1]?(int)(((long long)d[0]<<16)/(d[0]+d[1])):0x8000;
+							int p0=p0_1+(int)((long long)(p0_2-p0_1)*alpha[kb]>>16);
+							p0=CLAMP(1, p0, 0xFFFF);
+							int bit=sym>>kb&1;
+							abac_enc(&ctx, p0, bit);
+
+							++c[bit];
+							d[bit]+=inc;
+
+							//int hit1=bit?p0_1<0x8000:p0_1>0x8000,
+							//	hit2=bit?p0_2<0x8000:p0_2>0x8000;
+							//alpha[kc]+=(hit1<hit2)-(hit1>hit2);
+
+							int hit=bit?p0<0x8000:p0>0x8000;
+							hits[kc<<3|kb]+=hit;//
+							float p=(unsigned short)(bit?0x10000-p0:p0)*(1.f/0x10000);
+							float bitsize=-log2f(p);
+							csizes[kc<<3|kb]+=bitsize;//
+
+							int idx2=HM_W*(HM_H*kc+ky*HM_H/ih)+kx*HM_W/iw;//
+							ssizes[idx2]+=bitsize;
+							float fp0=(float)(p0-0x8000)/0x10000;
+							ssdevs[idx2]+=fp0*fp0;//
+
+							seenbits<<=1;
+							seenbits|=bit;
+							tree1+=step<<1;
+							tree2+=step<<1;
+							step<<=1;
+						}
+					}
+				}
+			}
+			//inc<<=1;//X
+		}
+	}
+#endif
+#if 0
+	for(int k=0;k<255*3*2;++k)
+		ptree[k]=1;
+	unsigned char *ptr=buf2;
+	for(int ky=0;ky<ih;++ky)
+	{
+		for(int kx=0;kx<iw;++kx, ptr+=4)
+		{
+			//if(ky==(ih>>1)&&kx==(iw>>1))//
+			//	printf("");//
+
+			for(int kc=2;kc>=0;--kc)
+			{
+				int *tree=ptree+(255*kc<<1);
+				int step=1;
+				unsigned char sym=0;
+				int offset=64;
+				for(int kb=7;kb>=0;--kb, offset>>=1)//MSB -> LSB
+				{
+					//if(kc==1&&kb==5)//
+					//	printf("");
+
+					int *c=tree+(sym<<1);
+					int p0=c[0]+c[1]?(int)(((long long)c[0]<<16)/(c[0]+c[1])):0x8000;
+					p0=CLAMP(1, p0, 0xFFFF);
+					int bit=(ptr[kc]-offset)>>kb&1;
+					abac_enc(&ctx, p0, bit);
+
+					++c[bit];
+					
+					int hit=bit?p0<0x8000:p0>0x8000;//
+					hits[kc<<3|kb]+=hit;
+					float p=(unsigned short)(bit?0x10000-p0:p0)*(1.f/0x10000);
+					float bitsize=-log2f(p);
+					csizes[kc<<3|kb]+=bitsize;//
+
+					sym<<=1;
+					sym|=bit;
+					tree+=step<<1;
+					step<<=1;
+				}
+			}
+		}
+	}
+#endif
+	abac_enc_flush(&ctx);
+
+	size_t dststart=dlist_appendtoarray(&list, data);
+	if(loud)
+	{
+		double csize=0;
+		printf("Encode elapsed ");
+		timedelta2str(0, 0, time_ms()-t_start);
+		printf("\n");
+		for(int k=0;k<24;++k)
+		{
+			if(!(k&7))
+			{
+				printf("C%d\n", k>>3);
+				csize=0;
+			}
+			printf("bit %2d  size %14f  CR %14f  H %7d %10lf%%\n", k&7, csizes[k]/8, iw*ih/csizes[k], hits[k], 100.*hits[k]/(iw*ih));
+			csize+=csizes[k]/8;
+			if(!((k+1)&7))
+				printf("C%d  size %14lf  CR %14lf\n\n", k>>3, csize, iw*ih/csize);
+		}
+		printf("Total %lld  CR %lf  P %7d/8 = %g\n", list.nobj, 3.*iw*ih/list.nobj, iw*ih, iw*ih/8.);
+		printf("\n");
+		
+		if(loud==2)
+		{
+			float ubitsize=8*((float)iw/HM_W)*((float)ih/HM_H);
+#if 0
+			printf("Sdev maps:\n");
+			for(int kc=0;kc<3;++kc)
+			{
+				for(int ky=0;ky<HM_H;++ky)
+				{
+					for(int kx=0;kx<HM_W;++kx)
+						printf("%8.3f", sqrtf(ssdevs[HM_W*(HM_H*kc+ky)+kx]/ubitsize));
+					printf("\n");
+				}
+				printf("\n");
+			}
+			printf("\n");
+#endif
+
+			printf("CR maps:\n");
+			for(int kc=0;kc<3;++kc)
+			{
+				for(int ky=0;ky<HM_H;++ky)
+				{
+					for(int kx=0;kx<HM_W;++kx)
+						printf("%8.3f", ubitsize/ssizes[HM_W*(HM_H*kc+ky)+kx]);
+					printf("\n");
+				}
+				printf("\n");
+			}
+			printf("\n");
+		}
+	}
+	dlist_clear(&list);
+	free(tree);
+	free(buf2);
+	return 1;
+}
+
+
+	#define FIXEDPREC
+
+#ifdef FIXEDPREC
+typedef long long DataType;
+#define FRACBITS 16
+#define MAGBITS 12
+#define ONE (1<<FRACBITS)
+#define ONE_PERCENT ((0x28F5C28+(1<<(32-FRACBITS-1)))>>(32-FRACBITS))//0.01<<32
+//#define ONE_PERCENT (int)(0.01*ONE+0.5)
+#define ONE_PERMILLE ((0x418937+(1<<(32-FRACBITS-1)))>>(32-FRACBITS))//0.001<<32
+#define MAXMAG (1<<(FRACBITS+FRACBITS-MAGBITS))
+#define MUL(A, B) (int)((long long)(A)*(B)>>FRACBITS)
+#define INITIALIZE(FIN, FOUT) sample(FIN, FOUT)
+//#define LOAD(PX) ((PX)<<MAGBITS)
+//#define STORE(VAL) (int)(((VAL)+(1<<(MAGBITS-1))-1)>>MAGBITS)
+//#define LEARNING_RATE(G) MUL(G, ONE_PERMILLE)
+//#define LEARNING_RATE(G) ((G)>>FRACBITS)
+#define ABS llabs
+#define FROMFLOAT(X) (int)((X)*ONE)
+#else
+typedef float DataType;
+#define ONE 1
+#define ONE_PERCENT 0.01f
+#define ONE_PERMILLE 0.001f
+#define MAXMAG 10
+#define MUL(A, B) ((A)*(B))
+#define INITIALIZE(FIN, FOUT) (float)sample(FIN, FOUT)/0xFFFF
+//#define LOAD(PX) MUL(PX+0.5f, 1.f/256)
+//#define STORE(VAL) (char)(MUL(VAL, 256)-0.5f)
+//#define LEARNING_RATE(G) ((G)*0.001f)
+#define ABS fabsf
+#define FROMFLOAT(X) X
+#endif
+static void add_vec(DataType *dst, const DataType *a, const DataType *b, int count)
+{
+	for(int k=0;k<count;++k)
+		dst[k]=a[k]+b[k];
+}
+static void act(DataType *dst, const DataType *src, int count)
+{
+	for(int k=0;k<count;++k)
+	{
+		DataType val=src[k];
+		DataType negpart=MUL(val, ONE_PERCENT);
+		val=val>negpart?val:negpart;
+		val=CLAMP(-MAXMAG, val, MAXMAG);
+		dst[k]=val;
+	}
+}
+static void act_dash(DataType *dst, const DataType *src, int count)
+{
+	for(int k=0;k<count;++k)
+	{
+		DataType val=src[k];
+		if(val<-MAXMAG||val>MAXMAG)
+			val=0;
+		else
+			val=val<0?ONE_PERCENT:ONE;
+		dst[k]=val;
+	}
+}
+static void mul_vec_scalar(DataType *dst, DataType *vec, DataType scalar, int count)
+{
+	for(int k=0;k<count;++k)
+		dst[k]=MUL(vec[k], scalar);
+}
+static void mul_vec_ew(DataType *dst, const DataType *v1, const DataType *v2, int count)
+{
+	for(int k=0;k<count;++k)
+		dst[k]=MUL(v1[k], v2[k]);
+}
+static void mul_vec_outer(DataType *dst, const DataType *left, const DataType *right, int lh, int rw)
+{
+	for(int ky=0;ky<lh;++ky)
+	{
+		for(int kx=0;kx<rw;++kx)
+			dst[rw*ky+kx]=MUL(left[ky], right[kx]);
+	}
+}
+static void mul_mat(DataType *dst, const DataType *m1, const DataType *m2, int h1, int w1h2, int w2)
+{
+	for(int ky=0;ky<h1;++ky)
+	{
+		for(int kx=0;kx<w2;++kx)
+		{
+			DataType sum=0;
+			for(int k=0;k<w1h2;++k)
+				sum+=MUL(m1[w1h2*ky+k], m2[w2*k+kx]);
+			dst[w2*ky+kx]=sum;
+		}
+	}
+}
+static void linear(DataType *dst, const DataType *mat, const DataType *vec, const DataType *bias, int win, int hout)//fixed 15.16 bit
+{
+	for(int ko=0;ko<hout;++ko)
+	{
+		DataType temp=bias?bias[ko]:0;
+		for(int ki=0;ki<win;++ki)
+			temp+=MUL(mat[win*ko+ki], vec[ki]);
+		dst[ko]=temp;
+	}
+}
+
+
+//T35: Combines spatial transform with entropy coding
+
+//#define T35_ENABLE_CTX2
+#define T35_PREC 16	//fractional bits
+#define T35_NF0 134
+#define T35_NF1 7
+#define T35_N_REC_ESTIMATORS 6
+#define T35_N_USED_EXTRA_ESTIMATORS 1
+#define T35_NESTIMATORS (T35_N_REC_ESTIMATORS+1 + T35_N_USED_EXTRA_ESTIMATORS)
+typedef struct T35PredCtxNodeStruct//starts exactly like T35CtxNode
+{
+	int key;
+	int n[2];
+} T35PredCtxNode;
+typedef struct T35CtxNodeStruct
+{
+	int key;
+	int n[2];
+	unsigned short rec[T35_N_REC_ESTIMATORS];
+} T35CtxNode;
+static CmpRes t35_cmp_node(const void *key, const void *candidate)
+{
+	int const *k=(int const*)key;
+	T35CtxNode const *c=(T35CtxNode const*)candidate;
+	return (*k>c->key)-(*k<c->key);
+}
+static void t35_debugprinter(RBNodeHandle *node, int depth)
+{
+	T35CtxNode *p;
+	if(node)
+	{
+		p=(T35CtxNode*)node[0]->data;
+		printf("0x%08X %5d %5d\n", p->key, p->n[0], p->n[1]);
+	}
+}
+Map t35_ctx[24], t35_predctx[24*T35_N_USED_EXTRA_ESTIMATORS];
+int t35_weights[24*T35_NESTIMATORS];
+//Map t35_ctx[T35_NF0*3];
+//float t35_weights[T35_NF0*3], t35_prob0[T35_NF0];
+//typedef struct T35NodeStruct
+//{
+//	int n[2];
+//	struct T35NodeStruct *c[2];
+//} T35Node;
+//void t35_init_node(T35Node *node)
+//{
+//	node->n[0]=1;
+//	node->n[1]=1;
+//	node->c[0]=0;
+//	node->c[1]=0;
+//}
+//typedef struct T35TempsStruct
+//{
+//	DataType nb[T35_NF0], net1[T35_NF1], x1[T35_NF1], p0;
+//	DataType dL_dp0, dp0_dx1[T35_NF1];
+//} T35Temps;
+//typedef struct T35ParamsStruct
+//{
+//	DataType
+//		weights1[T35_NF1*T35_NF0], bias1[T35_NF1],
+//		weights2[T35_NF1];
+//} T35Params;
+//typedef struct T35NodeStruct
+//{
+//	unsigned short p1[T35_NF0];
+//} T35Node;
+//T35Node *t35_tree_roots[T35_NF0], *t35_tree_ptr[T35_NF0];
+DataType t35_pred[MAXVAR(T35_NF0, T35_N_USED_EXTRA_ESTIMATORS)];
+static const int t35_bitidx[]=
+{//ch, bit
+	0, 7,
+	1, 7,
+	2, 7,
+	2, 6,
+	1, 6,
+	0, 6,
+	0, 5,
+	1, 5,
+	2, 5,
+	2, 4,
+	1, 4,
+	0, 4,
+	0, 3,
+	1, 3,
+	2, 3,
+	2, 2,
+	1, 2,
+	0, 2,
+	0, 1,
+	1, 1,
+	2, 1,
+	2, 0,
+	1, 0,
+	0, 0,
+};
+static void initialize_fix16(DataType *weights, int count, int fan_in)
+{
+	DataType gain=(int)(0x10000/fan_in);
+	for(int k=0;k<count;++k)
+	{
+		DataType x=(DataType)(xoroshiro128_next()&0xFFFF);
+		weights[k]=x*gain>>16;//[0, 2^16-1]/sqrt_fan_in
+	}
+}
+static void initialize_fp32(float *weights, int count, int fan_in)
+{
+	float gain=1/(0x10000*sqrtf((float)fan_in));
+	for(int k=0;k<count;++k)
+	{
+		int x=(int)(xoroshiro128_next()&0xFFFF);
+		weights[k]=x*gain;//[0, 1]/sqrt_fan_in
+	}
+}
+DataType clip(DataType x)
+{
+	x=CLAMP(-128<<T35_PREC, x, 127<<T35_PREC);
+	return x;
+}
+DataType clamp4(DataType x, DataType a, DataType b, DataType c, DataType d)
+{
+	DataType vmin=a, vmax=a;
+	if(vmin>b)vmin=b;
+	if(vmax<b)vmax=b;
+	if(vmin>c)vmin=c;
+	if(vmax<c)vmax=c;
+	if(vmin>d)vmin=d;
+	if(vmax<d)vmax=d;
+	x=CLAMP(vmin, x, vmax);
+	return x;
+}
+static void t35_getctx(const char *buf, int iw, int ih, int kx, int ky, int kc, DataType *ctx)
+{
+	//offsets are in NW direction
+#define LOAD(CO, XO, YO) (unsigned)(kx-CO)<3u&&(unsigned)(kx-(XO))<(unsigned)iw&&(unsigned)(ky-YO)<(unsigned)ih?buf[(iw*(ky-YO)+kx-(XO))<<2|(kx-CO)]<<T35_PREC:0
+	int WWWWWW  =LOAD(0,  6, 0),
+		WWWWW   =LOAD(0,  5, 0),
+		WWWW    =LOAD(0,  4, 0),
+		WWW     =LOAD(0,  3, 0),
+		WW      =LOAD(0,  2, 0),
+		W       =LOAD(0,  1, 0),
+		NWWWW   =LOAD(0,  4, 1),
+		NWWW    =LOAD(0,  3, 1),
+		NWW     =LOAD(0,  2, 1),
+		NW      =LOAD(0,  1, 1),
+		N       =LOAD(0,  0, 1),
+		NE      =LOAD(0, -1, 1),
+		NEE     =LOAD(0, -2, 1),
+		NEEE    =LOAD(0, -3, 1),
+		NEEEE   =LOAD(0, -4, 1),
+		NEEEEEE =LOAD(0, -6, 1),
+		NNWWW   =LOAD(0,  3, 2),
+		NNWW    =LOAD(0,  2, 2),
+		NNW     =LOAD(0,  1, 2),
+		NN      =LOAD(0,  0, 2),
+		NNE     =LOAD(0, -1, 2),
+		NNEE    =LOAD(0, -2, 2),
+		NNEEE   =LOAD(0, -3, 2),
+		NNNWWWW =LOAD(0,  4, 3),
+		NNNWWW  =LOAD(0,  3, 3),
+		NNNWW   =LOAD(0,  2, 3),
+		NNNW    =LOAD(0,  1, 3),
+		NNN     =LOAD(0,  0, 3),
+		NNNE    =LOAD(0, -1, 3),
+		NNNEE   =LOAD(0, -2, 3),
+		NNNEEE  =LOAD(0, -3, 3),
+		NNNNW   =LOAD(0,  1, 4),
+		NNNN    =LOAD(0,  0, 4),
+		NNNNE   =LOAD(0, -1, 4),
+		NNNNN   =LOAD(0,  0, 5),
+		NNNNNN  =LOAD(0,  0, 6),
+		WWWWWWp1=LOAD(1,  6, 0),
+		WWWWp1  =LOAD(1,  4, 0),
+		WWWp1   =LOAD(1,  3, 0),
+		WWp1    =LOAD(1,  2, 0),
+		Wp1     =LOAD(1,  1, 0),
+		p1      =LOAD(1,  0, 0),
+		NWWp1   =LOAD(1,  2, 1),
+		NWp1    =LOAD(1,  1, 1),
+		Np1     =LOAD(1,  0, 1),
+		NEp1    =LOAD(1, -1, 1),
+		NEEp1   =LOAD(1, -2, 1),
+		NNWWp1  =LOAD(1,  2, 2),
+		NNp1    =LOAD(1,  0, 2),
+		NNEp1   =LOAD(1, -1, 2),
+		NNEEp1  =LOAD(1, -2, 2),
+		NNNWp1  =LOAD(1,  1, 3),
+		NNNp1   =LOAD(1,  0, 3),
+		NNNEp1  =LOAD(1, -1, 3),
+		NNNNp1  =LOAD(1,  0, 4),
+		NNNNNNp1=LOAD(1,  0, 6),
+		WWWWWWp2=LOAD(2,  6, 0),
+		WWWWp2  =LOAD(2,  4, 0),
+		WWWp2   =LOAD(2,  3, 0),
+		WWp2    =LOAD(2,  2, 0),
+		Wp2     =LOAD(2,  1, 0),
+		p2      =LOAD(2,  0, 0),
+		NWWp2   =LOAD(2,  2, 1),
+		NWp2    =LOAD(2,  1, 1),
+		Np2     =LOAD(2,  0, 1),
+		NEp2    =LOAD(2, -1, 1),
+		NEEp2   =LOAD(2, -2, 1),
+		NNWWp2  =LOAD(2,  2, 2),
+		NNp2    =LOAD(2,  0, 2),
+		NNEp2   =LOAD(2, -1, 2),
+		NNEEp2  =LOAD(2, -2, 2),
+		NNNWp2  =LOAD(2,  1, 3),
+		NNNp2   =LOAD(2,  0, 3),
+		NNNEp2  =LOAD(2, -1, 3),
+		NNNNp2  =LOAD(2,  0, 4),
+		NNNNNNp2=LOAD(2,  0, 6);
+#undef LOAD
+	int j=-1;
+	ctx[++j] = clamp4(N + p1 - Np1, W, NW, N, NE);
+	ctx[++j] = clamp4(N + p2 - Np2, W, NW, N, NE);
+	ctx[++j] = (W + clamp4(NE * 3 - NNE * 3 + NNNE, W, N, NE, NEE)) / 2;
+	ctx[++j] = clamp4((W + clip(NE * 2 - NNE)) / 2, W, NW, N, NE);
+	ctx[++j] = (W + NEE) / 2;
+	ctx[++j] = ((WWW - 4 * WW + 6 * W + (NE * 4 - NNE * 6 + NNNE * 4 - NNNNE)) / 4);
+	ctx[++j] = ((-WWWW + 5 * WWW - 10 * WW + 10 * W + clamp4(NE * 4 - NNE * 6 + NNNE * 4 - NNNNE, N, NE, NEE, NEEE)) / 5);
+	ctx[++j] = ((-4 * WW + 15 * W + 10 * (NE * 3 - NNE * 3 + NNNE) - (NEEE * 3 - NNEEE * 3 + NNNEEE)) / 20);
+	ctx[++j] = ((-3 * WW + 8 * W + clamp4(NEE * 3 - NNEE * 3 + NNNEE, NE, NEE, NEEE, NEEEE)) / 6);
+	ctx[++j] = ((W + (NE * 2 - NNE)) / 2 + p1 - (Wp1 + (NEp1 * 2 - NNEp1)) / 2);
+	ctx[++j] = ((W + (NE * 2 - NNE)) / 2 + p2 - (Wp2 + (NEp2 * 2 - NNEp2)) / 2);
+	ctx[++j] = ((-3 * WW + 8 * W + (NEE * 2 - NNEE)) / 6 + p1 -(-3 * WWp1 + 8 * Wp1 + (NEEp1 * 2 - NNEEp1)) / 6);
+	ctx[++j] = ((-3 * WW + 8 * W + (NEE * 2 - NNEE)) / 6 + p2 -(-3 * WWp2 + 8 * Wp2 + (NEEp2 * 2 - NNEEp2)) / 6);
+	ctx[++j] = ((W + NEE) / 2 + p1 - (Wp1 + NEEp1) / 2);
+	ctx[++j] = ((W + NEE) / 2 + p2 - (Wp2 + NEEp2) / 2);
+	ctx[++j] = ((WW + (NEE * 2 - NNEE)) / 2 + p1 - (WWp1 + (NEEp1 * 2 - NNEEp1)) / 2);
+	ctx[++j] = ((WW + (NEE * 2 - NNEE)) / 2 + p2 - (WWp2 + (NEEp2 * 2 - NNEEp2)) / 2);
+	ctx[++j] = (WW + NEE - N + p1 - (WWp1 + NEEp1 - Np1));
+	ctx[++j] = (WW + NEE - N + p2 - (WWp2 + NEEp2 - Np2));
+	ctx[++j] = (W + N - NW);
+	ctx[++j] = (W + N - NW + p1 - (Wp1 + Np1 - NWp1));
+	ctx[++j] = (W + N - NW + p2 - (Wp2 + Np2 - NWp2));
+	ctx[++j] = (W + NE - N);
+	ctx[++j] = (N + NW - NNW);
+	ctx[++j] = (N + NW - NNW + p1 - (Np1 + NWp1 - NNEp1));
+	ctx[++j] = (N + NW - NNW + p2 - (Np2 + NWp2 - NNEp2));
+	ctx[++j] = (N + NE - NNE);
+	ctx[++j] = (N + NE - NNE + p1 - (Np1 + NEp1 - NNEp1));
+	ctx[++j] = (N + NE - NNE + p2 - (Np2 + NEp2 - NNEp2));
+	ctx[++j] = (N + NN - NNN);
+	ctx[++j] = (N + NN - NNN + p1 - (Np1 + NNp1 - NNNp1));
+	ctx[++j] = (N + NN - NNN + p2 - (Np2 + NNp2 - NNNp2));
+	ctx[++j] = (W + WW - WWW);
+	ctx[++j] = (W + WW - WWW + p1 - (Wp1 + WWp1 - WWWp1));
+	ctx[++j] = (W + WW - WWW + p2 - (Wp2 + WWp2 - WWWp2));
+	ctx[++j] = (W + NEE - NE);
+	ctx[++j] = (W + NEE - NE + p1 - (Wp1 + NEEp1 - NEp1));
+	ctx[++j] = (W + NEE - NE + p2 - (Wp2 + NEEp2 - NEp2));
+	ctx[++j] = (NN + p1 - NNp1);
+	ctx[++j] = (NN + p2 - NNp2);
+	ctx[++j] = (NN + W - NNW);
+	ctx[++j] = (NN + W - NNW + p1 - (NNp1 + Wp1 - NNEp1));
+	ctx[++j] = (NN + W - NNW + p2 - (NNp2 + Wp2 - NNEp2));
+	ctx[++j] = (NN + NW - NNNW);
+	ctx[++j] = (NN + NW - NNNW + p1 - (NNp1 + NWp1 - NNNWp1));
+	ctx[++j] = (NN + NW - NNNW + p2 - (NNp2 + NWp2 - NNNWp2));
+	ctx[++j] = (NN + NE - NNNE);
+	ctx[++j] = (NN + NE - NNNE + p1 - (NNp1 + NEp1 - NNNEp1));
+	ctx[++j] = (NN + NE - NNNE + p2 - (NNp2 + NEp2 - NNNEp2));
+	ctx[++j] = (NN + NNNN - NNNNNN);
+	ctx[++j] = (NN + NNNN - NNNNNN + p1 - (NNp1 + NNNNp1 - NNNNNNp1));
+	ctx[++j] = (NN + NNNN - NNNNNN + p2 - (NNp2 + NNNNp2 - NNNNNNp2));
+	ctx[++j] = (WW + p1 - WWp1);
+	ctx[++j] = (WW + p2 - WWp2);
+	ctx[++j] = (WW + WWWW - WWWWWW);
+	ctx[++j] = (WW + WWWW - WWWWWW + p1 - (WWp1 + WWWWp1 - WWWWWWp1));
+	ctx[++j] = (WW + WWWW - WWWWWW + p2 - (WWp2 + WWWWp2 - WWWWWWp2));
+	ctx[++j] = (N * 2 - NN + p1 - (Np1 * 2 - NNp1));
+	ctx[++j] = (N * 2 - NN + p2 - (Np2 * 2 - NNp2));
+	ctx[++j] = (W * 2 - WW + p1 - (Wp1 * 2 - WWp1));
+	ctx[++j] = (W * 2 - WW + p2 - (Wp2 * 2 - WWp2));
+	ctx[++j] = (N * 3 - NN * 3 + NNN);
+	ctx[++j] = clamp4(N * 3 - NN * 3 + NNN, W, NW, N, NE);
+	ctx[++j] = clamp4(W * 3 - WW * 3 + WWW, W, NW, N, NE);
+	ctx[++j] = clamp4(N * 2 - NN, W, NW, N, NE);
+	ctx[++j] = ((NNNNN - 6 * NNNN + 15 * NNN - 20 * NN + 15 * N + clamp4(W * 4 - NWW * 6 + NNWWW * 4 - NNNWWWW, W, NW, N, NN)) / 6);
+	ctx[++j] = ((NNNEEE - 4 * NNEE + 6 * NE + (W * 4 - NW * 6 + NNW * 4 - NNNW)) / 4);
+	ctx[++j] = (((N + 3 * NW) / 4) * 3 - ((NNW + NNWW) / 2) * 3 + (NNNWW * 3 + NNNWWW) / 4);
+	ctx[++j] = ((W * 2 + NW) - (WW + 2 * NWW) + NWWW);
+	ctx[++j] = ((W * 2 - NW) + (W * 2 - NWW) + N + NE) / 4;
+	ctx[++j] = (N + W + 1) >> 1;
+	ctx[++j] = (NEEEE + NEEEEEE + 1) >> 1;
+	ctx[++j] = (WWWWWW + WWWW + 1) >> 1;
+	ctx[++j] = ((W + N) * 3 - NW * 2) >> 2;
+	ctx[++j] = N;
+	ctx[++j] = NN;
+    ctx[++j] = N + p1 - Np1;
+    ctx[++j] = N + p2 - Np2;
+    ctx[++j] = W + p1 - Wp1;
+    ctx[++j] = W + p2 - Wp2;
+    ctx[++j] = NW + p1 - NWp1;
+    ctx[++j] = NW + p2 - NWp2;
+    ctx[++j] = NE + p1 - NEp1;
+    ctx[++j] = NE + p2 - NEp2;
+    ctx[++j] = NN + p1 - NNp1;
+    ctx[++j] = NN + p2 - NNp2;
+    ctx[++j] = WW + p1 - WWp1;
+    ctx[++j] = WW + p2 - WWp2;
+    ctx[++j] = W + N - NW;
+    ctx[++j] = W + N - NW + p1 - Wp1 - Np1 + NWp1;
+    ctx[++j] = W + N - NW + p2 - Wp2 - Np2 + NWp2;
+    ctx[++j] = W + NE - N;
+    ctx[++j] = W + NE - N + p1 - Wp1 - NEp1 + Np1;
+    ctx[++j] = W + NE - N + p2 - Wp2 - NEp2 + Np2;
+    ctx[++j] = W + NEE - NE;
+    ctx[++j] = W + NEE - NE + p1 - Wp1 - NEEp1 + NEp1;
+    ctx[++j] = W + NEE - NE + p2 - Wp2 - NEEp2 + NEp2;
+    ctx[++j] = N + NN - NNN;
+    ctx[++j] = N + NN - NNN + p1 - Np1 - NNp1 + NNNp1;
+    ctx[++j] = N + NN - NNN + p2 - Np2 - NNp2 + NNNp2;
+    ctx[++j] = N + NE - NNE;
+    ctx[++j] = N + NE - NNE + p1 - Np1 - NEp1 + NNEp1;
+    ctx[++j] = N + NE - NNE + p2 - Np2 - NEp2 + NNEp2;
+    ctx[++j] = N + NW - NNW;
+    ctx[++j] = N + NW - NNW + p1 - Np1 - NWp1 + NNEp1;
+    ctx[++j] = N + NW - NNW + p2 - Np2 - NWp2 + NNEp2;
+    ctx[++j] = NE + NW - NN;
+    ctx[++j] = NE + NW - NN + p1 - NEp1 - NWp1 + NNp1;
+    ctx[++j] = NE + NW - NN + p2 - NEp2 - NWp2 + NNp2;
+    ctx[++j] = NW + W - NWW;
+    ctx[++j] = NW + W - NWW + p1 - NWp1 - Wp1 + NWWp1;
+    ctx[++j] = NW + W - NWW + p2 - NWp2 - Wp2 + NWWp2;
+    ctx[++j] = W * 2 - WW;
+    ctx[++j] = W * 2 - WW + p1 - Wp1 * 2 + WWp1;
+    ctx[++j] = W * 2 - WW + p2 - Wp2 * 2 + WWp2;
+    ctx[++j] = N * 2 - NN;
+    ctx[++j] = N * 2 - NN + p1 - Np1 * 2 + NNp1;
+    ctx[++j] = N * 2 - NN + p2 - Np2 * 2 + NNp2;
+    ctx[++j] = NW * 2 - NNWW;
+    ctx[++j] = NW * 2 - NNWW + p1 - NWp1 * 2 + NNWWp1;
+    ctx[++j] = NW * 2 - NNWW + p2 - NWp2 * 2 + NNWWp2;
+    ctx[++j] = NE * 2 - NNEE;
+    ctx[++j] = NE * 2 - NNEE + p1 - NEp1 * 2 + NNEEp1;
+    ctx[++j] = NE * 2 - NNEE + p2 - NEp2 * 2 + NNEEp2;
+    ctx[++j] = N * 3 - NN * 3 + NNN + p1 - Np1 * 3 + NNp1 * 3 - NNNp1;
+    ctx[++j] = N * 3 - NN * 3 + NNN + p2 - Np2 * 3 + NNp2 * 3 - NNNp2;
+    ctx[++j] = N * 3 - NN * 3 + NNN;
+    ctx[++j] = (W + NE * 2 - NNE + 1) >> 1;
+    ctx[++j] = (W + NE * 3 - NNE * 3 + NNNE+1) >> 1;
+    ctx[++j] = (W + NE * 2 - NNE) / 2 + p1 - (Wp1 + NEp1 * 2 - NNEp1) / 2;
+    ctx[++j] = (W + NE * 2 - NNE) / 2 + p2 - (Wp2 + NEp2 * 2 - NNEp2) / 2;
+    ctx[++j] = NNE + NE - NNNE;
+    ctx[++j] = NNE + W - NN;
+    ctx[++j] = NNW + W - NNWW;
+}
+//static void t35_free_tree(T35Node **node)
+//{
+//	if(*node)
+//	{
+//		t35_free_tree(node[0]->c  );
+//		t35_free_tree(node[0]->c+1);
+//		free(*node);
+//		*node=0;
+//	}
+//}
+int t35_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud)
+{
+	int res=iw*ih;
+	double t_start=time_ms();
+	char *buf2=(char*)malloc((size_t)res<<2);
+	//T35Params *params=(T35Params*)malloc(3*sizeof(T35Params));
+	//T35Temps *temps=(T35Temps*)malloc(sizeof(T35Temps));
+	//T35Params *grads=(T35Params*)malloc(sizeof(T35Params));
+	if(!buf2)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	memcpy(buf2, src, (size_t)res<<2);
+
+	//addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);
+	//colortransform_ycocb_fwd(buf2, iw, ih);
+
+	apply_transforms_fwd(buf2, iw, ih);
+	addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);
+
+	//addbuf((unsigned char*)buf2, iw, ih, 3, 4, 192);//makes MSB easy
+
+	DList list;
+	dlist_init(&list, 1, 1024, 0);
+	
+	ABACEncContext ctx;
+	abac_enc_init(&ctx, &list);
+	
+	float csizes[24]={0};
+//#ifdef T35_ENABLE_CTX2
+//	float csizes2[24]={0};
+//#endif
+	int hits[24]={0};
+	int nnodes1=0, nnodes2=0;
+	//int ctxhits=0;
+	//double rmse=0;
+	//long long p0_av=0;
+	
+#if 1
+	for(int k=0;k<24*T35_NESTIMATORS;++k)//fixed 15.16 bit
+		t35_weights[k]=0x8000;
+	for(int k=0;k<24;++k)
+	//for(int k=0;k<T35_NF0*3;++k)
+	{
+		MAP_INIT(t35_ctx+k, T35CtxNode, t35_cmp_node, 0);
+//#ifdef T35_ENABLE_CTX2
+//#endif
+	}
+	for(int k=0;k<24*T35_N_USED_EXTRA_ESTIMATORS;++k)
+		MAP_INIT(t35_predctx+k, T35PredCtxNode, t35_cmp_node, 0);
+	//XOROSHIRO128_RESET();
+	//initialize_fp32(t35_weights, _countof(t35_weights), _countof(t35_weights));
+	//for(int kc=0;kc<3;++kc)
+	//{
+	//	T35Params *p=params+kc;
+	//	initialize_fix16(p->weights1, T35_NF1*T35_NF0, (int)sqrt(T35_NF0));
+	//	initialize_fix16(p->bias1, T35_NF1, (int)sqrt(T35_NF0));
+	//	initialize_fix16(p->weights2, T35_NF1, (int)sqrt(T35_NF1));
+	//}
+	for(int ky=0;ky<ih;++ky)
+	{
+		if(ky==20)
+			printf("");
+		for(int kx=0;kx<iw;++kx)
+		{
+			for(int kc=0;kc<3;++kc)
+			{
+				int ctxcount=(kx-1>=0)+(ky-1>=0)+(kc-1>=0);
+				int W =kx-1>=0?buf2[(iw* ky   +kx-1)<<2| kc   ]:0,
+					N =ky-1>=0?buf2[(iw*(ky-1)+kx  )<<2| kc   ]:0,
+					m1=kc-1>=0?buf2[(iw* ky   +kx  )<<2|(kc-1)]:0;
+				int helper=ctxcount?(W+N+m1)/ctxcount:0;
+				int dec=0;
+				//T35Params *p=params+kc, *g=grads;
+				//T35Temps *t=temps;
+				//int vmin=0, vmax=0xFF;
+
+				t35_pred[0]=helper<<8;
+
+				//t35_pred[0]=helper;
+
+				//t35_pred[0]=helper<<T35_PREC;
+				//t35_getctx(buf2, iw, ih, kx, ky, kc, t35_pred+1);
+				//for(int k=0;k<T35_N_USED_EXTRA_ESTIMATORS;++k)
+				//	t35_pred[k]=(int)((t35_pred[k]+(1<<(T35_PREC-1)))>>T35_PREC);
+				for(int kb=7;kb>=0;--kb)//MSB -> LSB
+				{
+					//int context2=helper<<8|dec;
+					//int context2=dec|helper>>(7-kb);
+
+					//int context=dec;//2.054492
+					//int context=dec<<1|W&1;//2.046863
+					//int context=dec<<2|(W&1)<<1|(N&1);//2.041012
+					//int context=dec|helper>>(7-kb);//1.549502
+					//int context=dec<<8|helper>>kb;//1.549070
+					//int context=dec<<8|W;//1.511695
+					//int context=dec<<12|(W>>4)<<8|(N>>4)<<4|m1>>4;//1.233044
+
+					//int context=dec<<8|(dec_prev&((1<<kb)-1));
+					//int context=dec<<8|dec_prev;
+
+					int *wk=t35_weights+T35_NESTIMATORS*(kc<<3|kb);
+					int found1=0;
+					RBNodeHandle *hnode=map_insert(t35_ctx+(kc<<3|kb), &dec, &found1);
+					int p0, p0a[T35_NESTIMATORS]={0}, p0idx=0;
+					long long sum, wsum=0;
+					T35CtxNode *node1=(T35CtxNode*)hnode[0]->data;
+					if(found1)
+					{
+						int k=0;
+						sum=node1->n[0]+node1->n[1];
+						p0a[p0idx+k]=sum?(int)(((long long)node1->n[0]<<16)/sum):0x8000;
+						++k;
+						for(;k<T35_N_REC_ESTIMATORS+1;++k)
+							p0a[p0idx+k]=node1->rec[k-1];
+						p0idx+=k;
+					}
+					else
+					{
+						int k=0;
+						for(;k<T35_N_REC_ESTIMATORS+1;++k)
+							p0a[p0idx+k]=0x8000;
+						p0idx+=k;
+					}
+
+					int found2[T35_N_USED_EXTRA_ESTIMATORS]={0};
+					T35PredCtxNode *node2[T35_N_USED_EXTRA_ESTIMATORS]={0};
+					for(int k=0;k<T35_N_USED_EXTRA_ESTIMATORS;++k)
+					{
+						//if(t35_pred[k]==-100)
+						//{
+						//	p0a[p0idx]=0x8000;
+						//	++p0idx;
+						//	continue;
+						//}
+						//int helper=(int)((t35_pred[k]+(1<<(T35_PREC-1)))>>T35_PREC);
+						//if(helper)
+						//	printf("");
+						//int context2=dec|helper>>(7-kb);
+						hnode=map_insert(t35_predctx+T35_N_USED_EXTRA_ESTIMATORS*(kc<<3|kb)+k, t35_pred+k, found2+k);
+						node2[k]=(T35PredCtxNode*)hnode[0]->data;
+						if(found2[k])
+						{
+							int sum=node2[k]->n[0]+node2[k]->n[1];
+							//p0a[p0idx]=sum?(int)(((long long)node2[k]->n[0]<<16)/sum):0x8000;
+							int prob2=sum?(int)(((long long)node2[k]->n[0]<<16)/sum):0x8000;
+							p0a[p0idx]=CLAMP(1, prob2, 0xFFFF);
+							++p0idx;
+						}
+						else
+						{
+							p0a[p0idx]=0x8000;
+							++p0idx;
+						}
+					}
+
+					sum=0;
+					for(int k=0;k<T35_NESTIMATORS;++k)
+					{
+						sum+=(long long)p0a[k]*wk[k];
+						wsum+=wk[k];
+					}
+					p0=wsum?(int)((sum+(wsum>>1))/wsum):0x8000;
+					int p0_0=p0;
+
+					p0=CLAMP(1, p0, 0xFFFF);
+					
+					int bit=buf2[(iw*ky+kx)<<2|kc]>>kb&1;
+					
+#if 0
+					{
+						int found=0;
+						hnode=map_insert(t35_predctx+(kc<<3|kb), &context2, &found);
+						if(found)
+						{
+							int sum=node->n[0]+node->n[1];
+							int prob2=sum?(int)(((long long)node->n[0]<<16)/sum):0x8000;
+							prob2=CLAMP(1, prob2, 0xFFFF);
+
+							prob2=bit?0x10000-prob2:prob2;
+							csizes2[kc<<3|kb]-=log2f((float)prob2*(1.f/0x10000));
+
+							++node->n[bit];
+						}
+						else
+						{
+							node->key=context2;
+							node->n[0]=1;
+							node->n[1]=1;
+
+							csizes2[kc<<3|kb]+=1;
+						}
+					}
+#endif
+					abac_enc(&ctx, p0, bit);
+
+					int hit=bit?p0<0x8000:p0>0x8000;//
+					hits[kc<<3|kb]+=hit;
+					int prob=bit?0x10000-p0:p0;
+					float bitsize=-log2f((float)prob*(1.f/0x10000));
+					csizes[kc<<3|kb]+=bitsize;//
+					
+					//bwd
+					if(p0_0>=1&&p0_0<=0xFFFF)
+					{
+						int p_bit=bit?0x10000-p0:p0;
+						long long dL_dp0=-(1LL<<32)/p_bit;//fixed 47.16 bit
+						dL_dp0^=-bit;
+						dL_dp0+=bit;
+						for(int k=0;k<T35_NESTIMATORS;++k)
+						{
+							int diff=p0a[k]-p0;//fixed 15.16 bit
+							long long grad = dL_dp0*diff/wsum;
+							long long wnew=LR*grad>>16;
+							wnew=wk[k]-wnew;
+							wnew=CLAMP(1, wnew, 0xFFFF);
+							wk[k]=(int)wnew;
+						}
+					}
+
+					//update
+
+					//int found=0;
+					//hnode=map_insert(t35_ctx+(kc<<3|kb), &context, &found);
+					//T35CtxNode *node=(T35CtxNode*)hnode[0]->data;
+					if(found1)
+					{
+						++node1->n[bit];
+						for(int k=0;k<T35_N_REC_ESTIMATORS;++k)
+						{
+							int temp=node1->rec[k]+(((!bit<<16)-node1->rec[k])>>((k+1)<<1));
+							node1->rec[k]=CLAMP(1, temp, 0xFFFF);
+						}
+					}
+					else
+					{
+						node1->key=dec;
+						node1->n[0]=1;
+						node1->n[1]=1;
+						for(int k=0;k<T35_N_REC_ESTIMATORS;++k)
+							node1->rec[k]=0x8000;
+						++nnodes1;
+					}
+					dec|=bit<<kb;
+					
+					for(int k=0;k<T35_N_USED_EXTRA_ESTIMATORS;++k)
+					{
+						//if(t35_pred[k]==-100)
+						//	continue;
+						if(found2[k])
+							++node2[k]->n[bit];
+						else
+						{
+							//int helper=(int)((t35_pred[k]+(1<<(T35_PREC-1)))>>T35_PREC);
+							//node2[k]->key=dec|helper>>(7-kb);
+							node2[k]->key=(int)t35_pred[k];
+							node2[k]->n[0]=1;
+							node2[k]->n[1]=1;
+							++nnodes2;
+						}
+						//int vmax=dec|((1<<kb)-1);//dec already has decoded bit
+						//if((unsigned)(t35_pred[k]-dec)>=(unsigned)vmax)
+						//	t35_pred[k]=-100;//an invalid value to disable this predictor
+
+						//t35_pred[k]=CLAMP(dec, t35_pred[k], vmax);
+
+						t35_pred[k]|=bit<<kb;
+						//t35_pred[k]=t35_pred[k]<<1|bit;
+						
+						//t35_pred[k]>>=1;
+						//t35_pred[k]|=bit<<7;
+					}
+
+					//dec<<=1;
+					//dec|=bit;
+
+					//if(bit)
+					//	vmin+=bit<<kb;
+					//else
+					//	vmax-=bit<<kb;
+#if 0
+					for(int kp=0;kp<T35_NF0;++kp)//update
+					{
+						int pred=(unsigned char)((t35_pred[kp]+(1<<(T35_PREC-1)))>>T35_PREC);
+						pred=CLAMP(vmin, pred, vmax);
+						int delta=pred-vmin;
+						//if(delta<0)
+						//	LOG_ERROR("");
+						T35CtxNode node0={delta<<3|kb, {1, 1}};
+						int found=0;
+						RBNodeHandle *node2=map_find(&t35_ctx, &node0);
+						int p0;
+						if(node2)
+						{
+							T35CtxNode *node=(T35CtxNode*)node2[0]->data;
+							int sum=node->n[0]+node->n[1];
+							p0=sum?((long long)node->n[0]<<16)/sum:0x8000;
+							++ctxhits;
+						}
+						else
+							p0=0x8000;
+						t35_prob0[kp]=p0;
+						//t->nb[kp]=p0-0x8000;
+					}
+
+					//fwd
+
+					//linear(t->net1, p->weights1, t->nb, p->bias1, T35_NF0, T35_NF1);
+					//act(t->x1, t->net1, T35_NF1);
+					float sum=0, wsum=0;
+					for(int k=0;k<T35_NF1;++k)
+					{
+						sum+=t35_prob0[k]*t35_weights[k];
+						wsum+=t35_weights[k];
+						//sum+=MUL(p->weights2[k], t->x1[k]);
+						//wsum+=p->weights2[k];
+					}
+					float fp0=wsum?sum/wsum:0x8000;
+					//t->p0=wsum?(sum<<16)/wsum:0;
+					//linear(&t->p0, p->weights2, t->x1, 0, T35_NF1, 1);
+					int p0=(int)fp0;
+					//int p0=t->p0+0x8000;//0.122
+					p0=(int)CLAMP(1, p0, 0xFFFF);
+
+					//p0=0x10000-p0;//0.135
+
+					//p0=rand()<<1|1;//random guesses are better than this (CR 0.693 vs 0.125)
+
+					//if(kx==(iw>>1))//
+					//	printf("");
+
+					//encode
+					int bit=buf2[(iw*ky+kx)<<2|kc]>>kb&1;
+					abac_enc(&ctx, p0, bit);
+
+					int hit=bit?p0<0x8000:p0>0x8000;//
+					hits[kc<<3|kb]+=hit;
+					int prob=bit?0x10000-p0:p0;
+					float bitsize=-log2f((float)prob*(1.f/0x10000));
+					csizes[kc<<3|kb]+=bitsize;//
+					double error=(double)((bit<<16)-prob)/0x10000;
+					error*=error;
+					rmse+=error;
+					p0_av+=p0;
+
+
+					//bwd
+					if((unsigned)fp0<(unsigned)0xFFFE)
+					{
+						float fprob=bit?0x10000-fp0:fp0;
+						float dL_dp0=-1/fprob;
+						if(bit)
+							dL_dp0=-dL_dp0;
+						for(int k=0;k<T35_NF0;++k)
+						{
+							float diff=t35_prob0[k]-fp0;
+							float grad=dL_dp0*diff/wsum;
+							float delta=grad*100;			//LR
+							float pnew=t35_weights[k]-delta;
+							pnew=CLAMP(0.001, pnew, 1000);
+							t35_weights[k]=pnew;
+						}
+					}
+#if 0
+					if((unsigned)t->p0<(unsigned)0xFFFE)
+					{
+						t->dL_dp0=-(1LL<<32)/prob;
+						t->dL_dp0^=-bit;
+						t->dL_dp0+=bit;
+						for(int ki=0;ki<T35_NF1;++ki)
+						{
+							DataType diff=t->x1[ki]-t->p0;
+							g->weights2[ki]=t->dL_dp0*diff/wsum;//shift left 16 & shift right 16 were cancelled
+							t->dp0_dx1[ki]=(p->weights2[ki]<<16)/wsum;
+						}
+						act_dash(g->bias1, t->net1, T35_NF1);
+						mul_vec_outer(g->weights1, g->bias1, t->nb, T35_NF1, T35_NF0);
+						DataType *iparams=(DataType*)p, *igrad=(DataType*)g;
+						for(int k=0;k<sizeof(T35Params)/sizeof(DataType);++k)
+						{
+							DataType pnew=iparams[k]-(igrad[k]*(int)(0.07*0x10000)>>16);
+							pnew=CLAMP(-(1LL<<31), pnew, 1LL<<31);
+							iparams[k]=pnew;
+						}
+					}
+#endif
+
+					for(int kp=0;kp<T35_NF0;++kp)//update
+					{
+						unsigned char pred=(unsigned char)((t35_pred[kp]+(1<<(T35_PREC-1)))>>T35_PREC);
+						pred=CLAMP(vmin, pred, vmax);
+						unsigned char delta=pred-vmin;
+						T35CtxNode node0={delta<<3|kb, {1, 1}};
+						int found=0;
+
+						RBNodeHandle *node2=map_insert(t35_ctx+T35_NF0*kc+kp, &node0, &found);
+						
+						T35CtxNode *node=(T35CtxNode*)node2[0]->data;
+						if(found)
+							++node->n[bit];
+						else
+						{
+							node->delta=node0.delta;
+							node->n[0]=1;
+							node->n[1]=1;
+							++nnodes;
+						}
+					}
+					if(bit)
+						vmin+=bit<<kb;
+					else
+						vmax-=bit<<kb;
+#endif
+				}//bit loop
+			}//channel loop
+		}//x loop
+		if(loud==2)
+		{
+			static double csize_prev=0;
+			//static double rmse_prev=0;
+			//static int ctxhits_prev=0;
+			double csize=0;
+			for(int k=0;k<24;++k)
+				csize+=csizes[k]/8;
+			printf("Y%4d  nnodes%8lld  CR%9lf  CR_row%9lf\n", ky, nnodes1*sizeof(T35CtxNode)+nnodes2*sizeof(T35PredCtxNode), ((ky+1)*iw*3)/(csize+1), (iw*3+1)/(csize-csize_prev+1));
+			//printf("Y%4d  nnodes%7d  CR%9lf  CR_row%9lf  ctxhit%6.2lf%%  ctxhit_row%6.2lf%% RMSE %6.2lf%% pAV %6.2lf%%\n", ky, nnodes, ((ky+1)*iw*3)/(csize+1), (iw*3+1)/(csize-csize_prev+1), 100.*ctxhits/(iw*(ky+1)*24*T35_NF0), 100.*(ctxhits-ctxhits_prev)/(iw*24*T35_NF0), 100.*(sqrt((rmse)/(iw*3))-sqrt((rmse_prev)/(iw*3))), 100.*p0_av/(24*iw*(ky+1))/0x10000);
+			csize_prev=csize;
+			//ctxhits_prev=ctxhits;
+			//rmse_prev=rmse;
+		}
+	}//y loop
+#endif
+#if 0
+	memset(buf3, 0, (size_t)res<<2);
+	//memset(t35_tree_roots, 0, sizeof(t35_tree_roots));
+	XOROSHIRO128_RESET();
+	for(int kc=0;kc<3;++kc)
+	{
+		T35Params *p=params+kc;
+		initialize_fix16(p->weights1, T35_NF1*T35_NF0, T35_NF0);
+		initialize_fix16(p->bias1, T35_NF1, T35_NF0);
+		initialize_fix16(p->weights2, T35_NF1, T35_NF1);
+	}
+	for(int k=0;k<T35_NF0;++k)
+	{
+		T35Node **node=t35_tree_roots+k;
+		*node=(T35Node*)malloc(sizeof(T35Node));
+		t35_init_node(*node);
+	}
+	for(int ky=0;ky<ih;++ky)
+	{
+		printf("Y %d nnodes %d\r", ky, nnodes);
+		for(int kx=0;kx<iw;++kx)
+		{
+#if 1
+			memcpy(t35_tree_ptr, t35_tree_roots, sizeof(t35_tree_ptr));
+			//for(int k=0;k<T35_NF0;++k)
+			//	t35_tree_ptr[k]=t35_tree_roots+k;
+			for(int kb2=0;kb2<24;++kb2)
+			{
+				int kc=t35_bitidx[kb2<<1], kb=t35_bitidx[kb2<<1|1];
+				T35Params *p=params+kc, *g=grads;
+				T35Temps *t=temps;
+				char *px=buf3+((iw*ky+kx)<<2|kc);
+				int unknownmask=(1<<(kb+1))-1;
+				int vmin=*px&~unknownmask, vmax=vmin|unknownmask>>1;
+				vmin<<=T35_PREC;
+				vmax<<=T35_PREC;
+				//*px&=~(1<<kb);//no need to average out vmin & vmax
+
+				//fwd
+				t35_getctx(buf3, iw, ih, kx, ky, kc, t35_pred);
+				for(int kp=0;kp<T35_NF0;++kp)
+				{
+					t35_pred[kp]=CLAMP(vmin, t35_pred[kp], vmax);
+					DataType delta=t35_pred[kp]-vmin;
+					T35Node *node=t35_tree_ptr[kp];
+					if(!node)
+					{
+						LOG_ERROR("Unallocated node");
+						return 0;
+					}
+					int sum=node->n[0]+node->n[1];
+					t->nb[kp]=sum?(int)(((long long)node->n[0]<<16)/sum):0x8000;
+				}
+				linear(t->net1, p->weights1, t->nb, p->bias1, T35_NF0, T35_NF1);
+				act(t->x1, t->net1, T35_NF1);
+				DataType sum=0, wsum=0;
+				for(int k=0;k<T35_NF1;++k)
+				{
+					sum+=MUL(p->weights2[k], t->x1[k]);
+					wsum+=p->weights2[k];
+				}
+				t->p0=wsum?(sum<<16)/wsum:0x8000;
+				//linear(&t->p0, p->weights2, t->x1, 0, T35_NF1, 1);
+				int p0=(int)CLAMP(1, t->p0, 0xFFFF);
+
+				if(kx==(iw>>1))//
+					printf("");
+
+				//encode
+				int bit=buf2[(iw*ky+kx)<<2|kc]>>kb&1;
+				abac_enc(&ctx, p0, bit);
+
+				int hit=bit?p0<0x8000:p0>0x8000;//
+				hits[kc<<3|kb]+=hit;
+				int prob=bit?0x10000-p0:p0;
+				float bitsize=-log2f((float)prob*(1.f/0x10000));
+				csizes[kc<<3|kb]+=bitsize;//
+
+
+				//bwd
+				if((unsigned)t->p0<(unsigned)0xFFFE)
+				{
+					t->dL_dp0=-(1LL<<32)/prob;
+					t->dL_dp0^=-bit;
+					t->dL_dp0+=bit;
+					for(int ki=0;ki<T35_NF1;++ki)
+					{
+						DataType diff=t->x1[ki]-t->p0;
+						g->weights2[ki]=t->dL_dp0*diff/wsum;//shift left 16 & shift right 16 were cancelled
+						t->dp0_dx1[ki]=(p->weights2[ki]<<16)/wsum;
+					}
+					act_dash(g->bias1, t->net1, T35_NF1);
+					mul_vec_outer(g->weights1, g->bias1, t->nb, T35_NF1, T35_NF0);
+					DataType *iparams=(DataType*)p, *igrad=(DataType*)g;
+					for(int k=0;k<sizeof(T35Params)/sizeof(DataType);++k)
+					{
+						DataType pnew=iparams[k]-(igrad[k]*(int)(0.001*0x10000)>>16);
+						pnew=CLAMP(-(1LL<<31), pnew, 1LL<<31);
+						iparams[k]=pnew;
+					}
+				}
+
+				//update
+				*px|=bit<<kb;
+				for(int kp=0;kp<T35_NF0;++kp)
+				{
+					DataType delta=t35_pred[kp]-((DataType)*px<<T35_PREC);
+					T35Node **node=t35_tree_ptr+kp, **next=node[0]->c+bit;
+					++node[0]->n[bit];
+					if(!*next)
+					{
+						++nnodes;
+						*next=(T35Node*)malloc(sizeof(T35Node));
+						if(!*next)
+						{
+							LOG_ERROR("Allocation error");
+							return 0;
+						}
+						t35_init_node(*next);
+					}
+					*node=*next;
+				}
+			}
+#endif
+		}
+	}
+	for(int k=0;k<T35_NF0;++k)
+		t35_free_tree(t35_tree_roots+k);
+#endif
+	abac_enc_flush(&ctx);
+
+	size_t dststart=dlist_appendtoarray(&list, data);
+	if(loud)
+	{
+		double csize=0;
+//#ifdef T35_ENABLE_CTX2
+//		double csize2=0;
+//#endif
+		printf("\n");//skip progress line
+		printf("Used %f MB of memory\n", ((float)nnodes1*sizeof(T35CtxNode)+(float)nnodes2*sizeof(T35PredCtxNode))/(1024*1024));
+		printf("Encode elapsed ");
+		timedelta2str(0, 0, time_ms()-t_start);
+		printf("\n");
+		for(int k=0;k<24;++k)
+		{
+			if(!(k&7))
+			{
+				printf("C%d\n", k>>3);
+				csize=0;
+			}
+//#ifdef T35_ENABLE_CTX2
+//			csize2+=csizes2[k]/8;
+//			printf("bit %2d  size %14f  CR %14f  H %7d %10lf%%  CR2 %14f\n", k&7, csizes[k]/8, iw*ih/csizes[k], hits[k], 100.*hits[k]/(iw*ih), iw*ih/csizes2[k]);
+//#else
+			printf("bit %2d  size %14f  CR %14f  H %7d %10lf%%\n", k&7, csizes[k]/8, iw*ih/csizes[k], hits[k], 100.*hits[k]/(iw*ih));
+//#endif
+			csize+=csizes[k]/8;
+			if(!((k+1)&7))
+				printf("C%d  size %14lf  CR %14lf\n\n", k>>3, csize, iw*ih/csize);
+		}
+//#ifdef T35_ENABLE_CTX2
+//		printf("Total %lld  CR %lf  P %7d/8 = %g  CR2 %lf\n", list.nobj, 3.*iw*ih/list.nobj, iw*ih, iw*ih/8., 3.*iw*ih/csize2);
+//#else
+		printf("Total %lld  CR %lf  P %7d/8 = %g\n", list.nobj, 3.*iw*ih/list.nobj, iw*ih, iw*ih/8.);
+//#endif
+		printf("\n");
+	}
+	dlist_clear(&list);
+	for(int k=0;k<24;++k)
+	//for(int k=0;k<T35_NF0*3;++k)
+	{
+		MAP_CLEAR(t35_ctx+k);
+//#ifdef T35_ENABLE_CTX2
+//#endif
+	}
+	for(int k=0;k<24*T35_N_USED_EXTRA_ESTIMATORS;++k)
+		MAP_CLEAR(t35_predctx+k);
+	free(buf2);
+	return 1;
+}

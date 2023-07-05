@@ -11,6 +11,9 @@ extern "C"
 #endif
 
 
+//	#define ALLOW_OPENCL
+
+
 const char*	clerr2str(int error);
 #define CL_CHECK(ERR) ASSERT_MSG(!(ERR), "OpenCL error %d: %s\n", ERR, clerr2str(ERR))
 
@@ -57,6 +60,8 @@ int t29_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 int t31_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T31: Adaptive Bayesian inference
 //int t32_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T32: Joint adaptive Bayesian inference (needs 128MB RAM)		X  bad
 //int t33_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T33: Adaptive Bayesian inference with circular buffer		X  bad
+int t34_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);
+int t35_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T35: Combines spatial transform with entropy coding
 
 
 

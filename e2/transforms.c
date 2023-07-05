@@ -303,7 +303,7 @@ void pred_grad_inv(char *buf, int iw, int ih, int nch, int bytestride)
 
 
 //	#define ONLY_USE_W2PRED
-//	#define ONLY_USE_JXLPRED
+	#define ONLY_USE_JXLPRED
 
 double pw2_errors[PW2_NPRED]={0};//
 short pw2_params[PW2_NPARAM*3]=
@@ -807,9 +807,15 @@ void pred_opt_printparam()
 	pred_opt_printrow(params+4, 7);
 	printf("\n");
 
+#ifdef ONLY_USE_JXLPRED
+	params=jxlparams_i16+11;
+	pred_opt_printrow(params, 4);
+	pred_opt_printrow(params+4, 7);
+#else
 	params=pw2_params+PW2_NPARAM;
 	pred_opt_printrow(params, PW2_NPRED);
 	pred_opt_printrow(params+PW2_NPRED, PW2_NPARAM-PW2_NPRED);
+#endif
 	printf("\n");
 
 	params=jxlparams_i16+22;
