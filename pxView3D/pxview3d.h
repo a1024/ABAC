@@ -15,6 +15,11 @@ extern "C"
 //	#define DEBUG_MEMORY
 //	#define ENABLE_CONSOLE_MAIN_TEST
 
+
+#define TIMER_ID_KEYBOARD 1
+#define TIMER_ID_MONITOR 2
+#define TIMER_MONITOR_MS 100
+
 extern int w, h, mx, my, mouse_bypass;
 extern HWND ghWnd;
 extern HDC ghDC;
@@ -219,8 +224,8 @@ ArrayHandle paste_from_clipboard(int loud);
 
 #define GET_KEY_STATE(KEY)	(keyboard[KEY]=(GetAsyncKeyState(KEY)>>15)!=0)
 
-void timer_start(int ms);
-void timer_stop();
+void timer_start(int ms, int id);
+void timer_stop(int id);
 
 void set_mouse(int x, int y);
 void get_mouse(int *px, int *py);
@@ -675,11 +680,13 @@ void pred_hybrid_inv(char *buf, int iw, int ih);
 #define LOGIC_ROWPARAMS (LOGIC_NNB*2+1)
 #define LOGIC_PARAMS_PER_CH (LOGIC_NF0*LOGIC_ROWPARAMS+LOGIC_NF1)
 #define LOGIC_TOTALPARAMS (3*LOGIC_PARAMS_PER_CH)
+extern int logic_opt_timeron;
 extern short logic_params[LOGIC_TOTALPARAMS];
 extern HANDLE ghMutex;
 void pred_logic_apply(char *buf, int iw, int ih, const short *allparams, int fwd);
 void logic_opt(char *buf, int iw, int ih, int kc, short *channel_params);//this frees buf at the end of thread
 void logic_opt_checkonthread(float *info);
+void logic_opt_forceclosethread();
 
 void shuffle(char *buf, int iw, int ih, int fwd);
 

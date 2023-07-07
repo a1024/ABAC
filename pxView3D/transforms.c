@@ -1122,7 +1122,7 @@ int customparam_clamp[2]={-128, 127};
 void customtransforms_resetparams()
 {
 	memset(customparam_ct, 0, sizeof(customparam_ct));
-	memset(customparam_st, 0, sizeof(customparam_st));
+	memset(customparam_st+12*customparam_ch_idx, 0, sizeof(customparam_st)/6);
 	//memcpy(customparam_ct, customparam_ct0, sizeof(customparam_ct));
 	//memcpy(customparam_st, customparam_st0, sizeof(customparam_st));
 }
@@ -1503,6 +1503,7 @@ double opt_causal_reach2(unsigned char *buf, int iw, int ih, int kc, double *x, 
 	#define LOGIC_WEIGHTED_AVERAGE1
 	#define LOGIC_WEIGHTED_AVERAGE2
 
+int logic_opt_timeron=0;
 short logic_params[LOGIC_TOTALPARAMS]={0};
 void pred_logic_prealloc(const char *src, int iw, int ih, int kc, int fwd, char *dst, const short *params)//params are fixed 3.12 bit
 {
@@ -1517,30 +1518,38 @@ void pred_logic_prealloc(const char *src, int iw, int ih, int kc, int fwd, char 
 			int nb[LOGIC_NNB*2]=
 			{
 #define LOAD(BUF, XO, YO) (unsigned)(kx+XO)<(unsigned)iw&&(unsigned)(ky+YO)<(unsigned)ih?src[(iw*(ky+YO)+kx+XO)<<2|kc]<<12:0
+#if LOGIC_REACH>=2
 				LOAD(pixels, -2, -2),
 				LOAD(pixels, -1, -2),
 				LOAD(pixels,  0, -2),
 				LOAD(pixels,  1, -2),
 				LOAD(pixels,  2, -2),
 				LOAD(pixels, -2, -1),
+#endif
 				LOAD(pixels, -1, -1),
 				LOAD(pixels,  0, -1),
 				LOAD(pixels,  1, -1),
+#if LOGIC_REACH>=2
 				LOAD(pixels,  2, -1),
 				LOAD(pixels, -2,  0),
+#endif
 				LOAD(pixels, -1,  0),
-
+				
+#if LOGIC_REACH>=2
 				LOAD(errors, -2, -2),
 				LOAD(errors, -1, -2),
 				LOAD(errors,  0, -2),
 				LOAD(errors,  1, -2),
 				LOAD(errors,  2, -2),
 				LOAD(errors, -2, -1),
+#endif
 				LOAD(errors, -1, -1),
 				LOAD(errors,  0, -1),
 				LOAD(errors,  1, -1),
+#if LOGIC_REACH>=2
 				LOAD(errors,  2, -1),
 				LOAD(errors, -2,  0),
+#endif
 				LOAD(errors, -1,  0),
 #undef  LOAD
 			};
@@ -1641,7 +1650,9 @@ int cmp_logicinfo(const void *left, const void *right)
 }
 typedef struct LogicThreadInfoStruct
 {
-	char *buf;//not const for free()
+	char *buf, *temp;//not const for free()
+	int hist[256];
+	LogicInfo *params;
 	int iw, ih, kc;
 	short *channel_params;
 	float progressbar;//goes from 0 to 100
@@ -1712,28 +1723,29 @@ unsigned __stdcall logic_opt_thread(LogicThreadInfo *info)
 {
 	double t_start=time_ms();
 	int res=info->iw*info->ih;
-	char *temp=(char*)malloc((size_t)res<<2);
-	int *hist=malloc(256*sizeof(int));
 	const int nv=LOGIC_PARAMS_PER_CH, np=LOGIC_PARAMS_PER_CH+1;
-	LogicInfo *params=(LogicInfo*)malloc((np+3LL)*sizeof(LogicInfo));
-	if(!temp||!hist||!params)
-	{
-		LOG_ERROR("Allocation error");
-		return 1;
-	}
+	//char *temp=(char*)malloc((size_t)res<<2);
+	//int *hist=malloc(256*sizeof(int));
+	//LogicInfo *params=(LogicInfo*)malloc((np+3LL)*sizeof(LogicInfo));
+	//if(!temp||!hist||!params)
+	//{
+	//	LOG_ERROR("Allocation error");
+	//	return 1;
+	//}
 	LogicInfo
-		*worst=params+np-1,
-		*x0=params+np,
+		*best=info->params,
+		*worst=info->params+np-1,
+		*x0=info->params+np,
 		*xr=x0+1,
 		*x2=xr+1;
 	
-#define CALC_LOSS(X, P) (X)->loss=logic_calcloss((X)->params, info, temp, hist, P, (float)t_start)
+#define CALC_LOSS(X, P) (X)->loss=logic_calcloss((X)->params, info, info->temp, info->hist, P, (float)t_start)
 	
 	//initialize N+1 param sets
 	srand((unsigned)__rdtsc());
 	for(int kp=0;kp<np;++kp)
 	{
-		LogicInfo *x=params+kp;
+		LogicInfo *x=best+kp;
 		//info->progressbar=(float)(kp+1)/np;
 		//set_window_title("C%d it 0/100: %lf, elapsed %lf, %d/%d", kc, params->loss, (time_ms()-t_start)*0.001, kp, np);
 		if(kp)
@@ -1746,12 +1758,12 @@ unsigned __stdcall logic_opt_thread(LogicThreadInfo *info)
 		CALC_LOSS(x, (float)(kp+1)/np);
 		//logic_thread_update(info, kp?0:params->params, (float)params->loss, (float)(kp+1)/np, temp);
 	}
-	double loss0=params->loss;
+	double loss0=best->loss;
 	const int alpha=0x10000, gamma=0x20000, rho=0x8000, sigma=0x8000;
 	for(int ki=0;ki<100;++ki)
 	{
 		//1  order
-		isort(params, np, sizeof(LogicInfo), cmp_logicinfo);
+		isort(best, np, sizeof(LogicInfo), cmp_logicinfo);
 		
 		//logic_thread_update(info, params->params, (float)params->loss, (float)(ki+1), temp);
 		//set_window_title("C%d it %d/100: %lf, elapsed %lf", kc, ki+1, params->loss, (time_ms()-t_start)*0.001);
@@ -1760,9 +1772,9 @@ unsigned __stdcall logic_opt_thread(LogicThreadInfo *info)
 
 		//2  get the centroid of all points except worst
 		memset(x0->params, 0, sizeof(x0->params));
-		for(int k2=0;k2<nv;++k2)//exclude the worst point
+		for(int k2=0;k2<np-1;++k2)//exclude the worst point
 		{
-			LogicInfo *x=params+k2;
+			LogicInfo *x=best+k2;
 			for(int k3=0;k3<nv;++k3)
 				x0->params[k3]+=x->params[k3];
 		}
@@ -1773,14 +1785,14 @@ unsigned __stdcall logic_opt_thread(LogicThreadInfo *info)
 		for(int k2=0;k2<nv;++k2)
 			xr->params[k2]=x0->params[k2]+(int)((long long)(x0->params[k2]-worst->params[k2])*alpha>>16);
 		CALC_LOSS(xr, (float)(ki+1));
-		if(xr->loss>params->loss&&xr->loss<worst[-1].loss)//if xr is between best and 2nd worst, replace worst with xr
+		if(xr->loss>best->loss&&xr->loss<worst[-1].loss)//if xr is between best and 2nd worst, replace worst with xr
 		{
 			memcpy(worst, xr, sizeof(LogicInfo));
 			continue;
 		}
 
 		//4  expansion
-		if(xr->loss<params->loss)//if xr is best so far
+		if(xr->loss<best->loss)//if xr is best so far
 		{
 			for(int k2=0;k2<nv;++k2)
 				x2->params[k2]=x0->params[k2]+(int)((long long)(xr->params[k2]-x0->params[k2])*gamma>>16);
@@ -1822,13 +1834,13 @@ unsigned __stdcall logic_opt_thread(LogicThreadInfo *info)
 			//logic_thread_update(info, 0, (float)params->loss, ki+1+(float)(kp+1)/np, temp);
 			//info->progressbar=ki+1+(float)(kp+1)/np;
 			//set_window_title("C%d it %d/100: %lf, elapsed %lf, %d/%d", kc, ki+1, params->loss, (time_ms()-t_start)*0.001, kp, np);
-			LogicInfo *x=params+kp;
+			LogicInfo *x=best+kp;
 			for(int k2=0;k2<nv;++k2)
-				x->params[k2]=params->params[k2]+(int)((long long)(x->params[k2]-params->params[k2])*sigma>>16);
+				x->params[k2]=best->params[k2]+(int)((long long)(x->params[k2]-best->params[k2])*sigma>>16);
 			CALC_LOSS(x, ki+1+(float)(kp+1)/np);
 		}
 	}
-	CALC_LOSS(params, 100);
+	CALC_LOSS(best, 100);
 	//info->progressbar=101;
 #undef CALC_LOSS
 	//if(params->loss>loss0)
@@ -1838,11 +1850,23 @@ unsigned __stdcall logic_opt_thread(LogicThreadInfo *info)
 	//logic_thread_update(info, 0, (float)params->loss, 100, temp);
 	//memcpy(info->channel_params, params->params, sizeof(params->params));
 
-	free(params);
-	free(temp);
-	free(hist);
+	//free(params);
+	//free(temp);
+	//free(hist);
 	info->progressbar=-1;
 	return 0;
+}
+static void logic_opt_freeresources()
+{
+	CloseHandle(logic_hthread);
+	logic_hthread=0;
+	CloseHandle(ghMutex);
+	ghMutex=0;
+	free(logic_info.buf);
+	free(logic_info.temp);
+	free(logic_info.params);
+	memset(&logic_info, 0, sizeof(logic_info));
+	timer_stop(TIMER_ID_MONITOR);
 }
 void logic_opt_checkonthread(float *info)
 {
@@ -1858,12 +1882,15 @@ void logic_opt_checkonthread(float *info)
 			loss=logic_info.loss;
 			if(progressbar<0)
 			{
-				CloseHandle(logic_hthread);
-				logic_hthread=0;
-				CloseHandle(ghMutex);
-				ghMutex=0;
-				free(logic_info.buf);
-				memset(&logic_info, 0, sizeof(logic_info));
+				logic_opt_freeresources();
+				//CloseHandle(logic_hthread);
+				//logic_hthread=0;
+				//CloseHandle(ghMutex);
+				//ghMutex=0;
+				//free(logic_info.buf);
+				//free(logic_info.temp);
+				//free(logic_info.params);
+				//memset(&logic_info, 0, sizeof(logic_info));
 				update_image();
 			}
 			else
@@ -1880,15 +1907,35 @@ void logic_opt_checkonthread(float *info)
 		info[2]=loss;
 	}
 }
+void logic_opt_forceclosethread()
+{
+	if(logic_hthread)
+	{
+		TerminateThread(logic_hthread, 0);
+		logic_opt_freeresources();
+		//CloseHandle(logic_hthread);
+		//logic_hthread=0;
+		//CloseHandle(ghMutex);
+		//ghMutex=0;
+	}
+}
 void logic_opt(char *buf, int iw, int ih, int kc, short *channel_params)
 {
+	int res=iw*ih;
     ghMutex=CreateMutexA(0, 0, 0);//default security parameters, initially not owned, unnamed
 	if(!ghMutex)
 	{
-		LOG_ERROR("Thread error");
+		LOG_ERROR("Mutex allocation error");
 		return;
 	}
 	logic_info.buf=buf;
+	logic_info.temp=(char*)malloc((size_t)res<<2);
+	logic_info.params=(LogicInfo*)malloc((LOGIC_PARAMS_PER_CH+1+3LL)*sizeof(LogicInfo));
+	if(!logic_info.temp||!logic_info.params)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
 	logic_info.iw=iw;
 	logic_info.ih=ih;
 	logic_info.kc=kc;
@@ -1897,6 +1944,7 @@ void logic_opt(char *buf, int iw, int ih, int kc, short *channel_params)
 	logic_hthread=(HANDLE)_beginthreadex(0, 0, logic_opt_thread, &logic_info, 0, 0);
 	if(!logic_hthread)
 		LOG_ERROR("Thread error");
+	timer_start(TIMER_MONITOR_MS, TIMER_ID_MONITOR);
 }
 
 #define O2_NPARAMS (_countof(customparam_st)/3)

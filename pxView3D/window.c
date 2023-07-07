@@ -636,15 +636,15 @@ void update_main_key_states()
 	keyboard[VK_MENU]=GET_KEY_STATE(VK_LMENU)<<1|GET_KEY_STATE(VK_RMENU);
 }
 
-void timer_start(int ms)
+void timer_start(int ms, int id)
 {
 	if(!timer)
-		SetTimer(ghWnd, 0, ms, 0), timer=1;
+		SetTimer(ghWnd, id, ms, 0), timer=1;
 }
-void timer_stop()
+void timer_stop(int id)
 {
 	if(timer&&!g_repaint)
-		KillTimer(ghWnd, 0), timer=0;
+		KillTimer(ghWnd, id), timer=0;
 }
 
 void set_mouse(int x, int y)
@@ -843,25 +843,51 @@ int __stdcall WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrev, _In_ c
 		}
 	}
 #endif
-	for(;ret=GetMessageA(&msg, ghWnd, 0, 0);)
+	for(;;)
 	{
-		if(ret==-1)
-		{
-			LOG_ERROR("GetMessage returned -1 with: hwnd=%08X, msg=%s, wP=%d, lP=%d. \nQuitting.", msg.hwnd, wm2str(msg.message), msg.wParam, msg.lParam);
+		ret=GetMessageA(&msg, ghWnd, 0, 0);
+		if(!ret||ret==-1)//GetMessageA returns 0 at WM_QUIT, and -1 when ghWnd was closed
 			break;
-		}
+		TranslateMessage(&msg);
+		DispatchMessageA(&msg);
+		//if(g_repaint)
+		//{
+		//	PostMessageA(ghWnd, WM_PAINT, 0, 0);
+		//	ret=GetMessageA(&msg, ghWnd, 0, 0);
+		//	TranslateMessage(&msg);
+		//	DispatchMessageA(&msg);
+		//}
+	}
+#if 0
+	for(;;)
+	{
+		ret=GetMessageA(&msg, ghWnd, 0, 0);
+		if(ret==-1)
+			break;
+		//if(ret==-1)
+		//{
+		//	LOG_ERROR("GetMessage returned -1 with: hwnd=%08X, msg=%s, wP=%d, lP=%d. \nQuitting.", msg.hwnd, wm2str(msg.message), msg.wParam, msg.lParam);
+		//	break;
+		//}
 		TranslateMessage(&msg);
 		DispatchMessageA(&msg);
 		while(g_repaint)
 		{
 			PostMessageA(ghWnd, WM_PAINT, 0, 0);
-			GetMessageA(&msg, ghWnd, 0, 0);
-			//if(msg.message==WM_PAINT)
-			//	Sleep(1000);
-			TranslateMessage(&msg);
-			DispatchMessageA(&msg);
+			for(;;)
+			{
+				ret=GetMessageA(&msg, ghWnd, 0, 0);
+				if(ret==-1)
+					break;
+				TranslateMessage(&msg);
+				DispatchMessageA(&msg);
+			}
+			//GetMessageA(&msg, ghWnd, 0, 0);
+			//TranslateMessage(&msg);
+			//DispatchMessageA(&msg);
 		}
 	}
+#endif
 
 		//finish
 		io_cleanup();

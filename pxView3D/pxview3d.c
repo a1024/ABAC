@@ -1749,7 +1749,7 @@ static void count_active_keys(IOKey upkey)
 	ACTIVE_KEY_LIST
 #undef		AK
 	if(!active_keys_pressed)
-		timer_stop();
+		timer_stop(TIMER_ID_KEYBOARD);
 }
 int parse_nvals(ArrayHandle text, short *params, int count)
 {
@@ -2062,7 +2062,7 @@ toggle_drag:
 #define		AK(KEY)		case KEY:
 	ACTIVE_KEY_LIST
 #undef		AK
-		timer_start(10);
+		timer_start(10, TIMER_ID_KEYBOARD);
 		break;
 		
 	case KEY_F1:
@@ -2259,7 +2259,7 @@ toggle_drag:
 				for(int k=0;k<COUNTOF(customparam_clamp);++k)
 					str_append(&str, "%d%c", customparam_clamp[k], k<COUNTOF(customparam_clamp)-1?'\t':'\n');
 			}
-			copy_to_clipboard((char*)str->data, str->count);
+			copy_to_clipboard((char*)str->data, (int)str->count);
 			array_free(&str);
 		}
 		else
@@ -2421,10 +2421,12 @@ toggle_drag:
 	case KEY_RBRACKET:
 		if(transforms_customenabled||transforms_mask[ST_FWD_LOGIC]||transforms_mask[ST_INV_LOGIC])
 		{
+			int logic=transforms_mask[ST_FWD_LOGIC]||transforms_mask[ST_INV_LOGIC];
 			//const int nval=_countof(customparam_st);
 			//memcpy(allcustomparam_st+nval*customparam_ch_idx, customparam_st, sizeof(customparam_st));//save
-			customparam_ch_idx+=((key==KEY_RBRACKET)<<1)-1;
+			customparam_ch_idx+=(((key==KEY_RBRACKET)<<1)-1)<<logic;
 			MODVAR(customparam_ch_idx, customparam_ch_idx, 6);
+			customparam_ch_idx&=~logic;
 			//memcpy(customparam_st, allcustomparam_st+nval*customparam_ch_idx, sizeof(customparam_st));//load
 			return 1;
 		}
@@ -3024,8 +3026,9 @@ void io_render()
 		logic_opt_checkonthread(info);
 		if(info[0]>=0)
 		{
-			set_window_title(			"Ch %d: %6.2f%%, %f sec, CR %f", kc, info[0], info[1], 1/info[2]);
-			GUIPrint(0, x, y-tdy, 1,	"Ch %d: %6.2f%%, %f sec, CR %f", kc, info[0], info[1], 1/info[2]);
+			float cr=1/info[2];
+			set_window_title(			"Ch %d: %6.2f%%, %f sec, CR %f", kc, info[0], info[1], cr);
+			GUIPrint(0, x, y-tdy, 1,	"Ch %d: %6.2f%%, %f sec, CR %f", kc, info[0], info[1], cr);
 			g_repaint=1;
 			//int success=RedrawWindow(ghWnd, 0, 0, RDW_INTERNALPAINT|RDW_ERASENOW);
 			//if(!success)
@@ -3033,6 +3036,8 @@ void io_render()
 			//swapbuffers();
 			//return;
 			//InvalidateRect(ghWnd, 0, 0);
+			if(info[2]!=0&&ch_cr[kc]<cr)
+				ch_cr[kc]=cr;
 		}
 		else
 			GUIPrint(0, x, y-tdy, 1, "Ch %d", kc);
@@ -3569,6 +3574,8 @@ void io_render()
 }
 int io_quit_request()//return 1 to exit
 {
+	logic_opt_forceclosethread();
+	g_repaint=0;
 	//int button_idx=messagebox(MBOX_OKCANCEL, "Are you sure?", "Quit application?");
 	//return button_idx==0;
 
