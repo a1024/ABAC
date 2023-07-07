@@ -24,6 +24,7 @@ HWND ghWnd=0;
 HDC ghDC=0;
 HGLRC hRC=0;
 char keyboard[256]={0}, timer=0;
+int g_repaint=0;
 RECT R={0};
 wchar_t g_wbuf[G_BUF_SIZE]={0};
 ArrayHandle exedir=0;
@@ -642,7 +643,7 @@ void timer_start(int ms)
 }
 void timer_stop()
 {
-	if(timer)
+	if(timer&&!g_repaint)
 		KillTimer(ghWnd, 0), timer=0;
 }
 
@@ -681,12 +682,14 @@ LRESULT __stdcall WndProc(HWND hWnd, unsigned message, WPARAM wParam, LPARAM lPa
 		io_resize();
 		break;
 	case WM_TIMER:
+		g_repaint=0;
 		io_timer();
 		io_render();
 		//prof_print();
 		//SwapBuffers(ghDC);
 		break;
 	case WM_PAINT:
+		g_repaint=0;
 		io_render();
 		//prof_print();
 		//SwapBuffers(ghDC);
@@ -819,7 +822,28 @@ int __stdcall WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrev, _In_ c
 	ShowWindow(ghWnd, nShowCmd);
 
 	int ret;
-	for(;ret=GetMessageA(&msg, 0, 0, 0);)
+#if 0
+	for(;;)
+	{
+		ret=PeekMessageA(&msg, ghWnd, 0, 0, PM_REMOVE);
+		if(msg.message==WM_NCLBUTTONDOWN||msg.message==WM_SYSCOMMAND)
+			break;
+		if(ret)
+		{
+			//ret=GetMessageA(&msg, 0, 0, 0);
+			//if(msg.message==WM_QUIT)
+			//	break;
+			TranslateMessage(&msg);
+			DispatchMessageA(&msg);
+		}
+		else
+		{
+			if(!WaitMessage())
+				LOG_ERROR("WaitMessage() error %d", GetLastError());
+		}
+	}
+#endif
+	for(;ret=GetMessageA(&msg, ghWnd, 0, 0);)
 	{
 		if(ret==-1)
 		{
@@ -828,6 +852,15 @@ int __stdcall WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrev, _In_ c
 		}
 		TranslateMessage(&msg);
 		DispatchMessageA(&msg);
+		while(g_repaint)
+		{
+			PostMessageA(ghWnd, WM_PAINT, 0, 0);
+			GetMessageA(&msg, ghWnd, 0, 0);
+			//if(msg.message==WM_PAINT)
+			//	Sleep(1000);
+			TranslateMessage(&msg);
+			DispatchMessageA(&msg);
+		}
 	}
 
 		//finish

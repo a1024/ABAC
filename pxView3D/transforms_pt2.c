@@ -110,6 +110,24 @@ static void initialize(DataType *w, int count, DataType sqrt_fan_in, DataType al
 	//return (x<<8)*2/(fin+fout);
 }
 
+static void smooth_if(DataType *dst, const DataType *cond, const DataType *a, const DataType *b, int count)
+{
+	for(int k=0;k<count;++k)
+		dst[k]=b[k]+(a[k]-b[k])*cond[k];
+}
+static void smooth_if_dash(DataType *g_cond, DataType *g_a, DataType *g_b, const DataType *cond, const DataType *a, const DataType *b, int count)
+{
+	for(int k=0;k<count;++k)
+	{
+		float grad_cond=a[k]-b[k], grad_a=cond[k], grad_b=ONE-cond[k];
+		if(g_cond)
+			g_cond[k]=a[k]-b[k];
+		if(g_a)
+			g_a[k]=grad_a;
+		if(g_b)
+			g_b[k]=grad_b;
+	}
+}
 static void add_vec(DataType *dst, const DataType *a, const DataType *b, int count)
 {
 	for(int k=0;k<count;++k)
@@ -185,7 +203,7 @@ static void linear(DataType *dst, const DataType *mat, const DataType *vec, cons
 	#define RESNET2
 
 #define NF0_MAIN	55		//55
-#define NF0_ERRORS	39		//39
+#define NF0_ERRORS	0		//39
 #define NF0_PX		0		//39
 #define NF0 (NF0_MAIN+NF0_ERRORS+NF0_PX)
 #ifdef RESNET
@@ -193,27 +211,28 @@ static void linear(DataType *dst, const DataType *mat, const DataType *vec, cons
 #define NF2 NF0
 #define NF3 NF0
 #else
-#define NF1 32	//64
-#define NF2 32	//32
+#define NF1 16	//64
+#define NF2 16	//32
 #define NF3 94	//32
 #endif
+#define NF1x3 (NF1*3)//condition, choice_a, choice_b
 typedef struct TempsStruct
 {
 	DataType
 		nb[NF0],
-		net1[NF1], x1[NF1],
+		net1[NF1x3], x1[NF1x3], x1_sel[NF1],
 		net2[NF2], x2[NF2],
 		net3[NF3], x3[NF3],
 		pred, expr, loss;
 } Temps;
 typedef struct BwdTempsStruct
 {
-	DataType dL_dp, dL_dx3[NF3], dL_dx2[NF2], dL_dx1[NF1];
+	DataType dL_dp, dL_dx3[NF3], dL_dx2[NF2], dL_dx1s[NF1], dL_dx1[NF1x3];
 } BwdTemps;
 typedef struct ParamsStruct
 {
 	DataType
-		weight1[NF1*NF0], bias1[NF1],
+		weight1[NF1x3*NF0], bias1[NF1x3],
 		weight2[NF2*NF1], bias2[NF2],
 		weight3[NF3*NF2], bias3[NF3],
 		weight4[1*NF3];
@@ -529,24 +548,23 @@ static void eval_fwd(const char *src, const char *errors, int iw, int ih, int kx
 {
 	get_nb2(src, errors, iw, ih, kx, ky, t->nb);
 
-	linear(t->net1, p->weight1, t->nb, p->bias1, NF0, NF1);	//n1 = w1*nb + b1
-	act(t->x1, t->net1, NF1);								//x1 = act(n1)
+	linear(t->net1, p->weight1, t->nb, p->bias1, NF0, NF1x3);	//n1 = w1*nb + b1
+	act(t->x1, t->net1, NF1x3);									//x1 = act(n1)
 #ifdef RESNET
-	add_vec(t->x1, t->x1, t->nb, NF0);						//x1r = x1 + nb		= act(w1*nb + b1) + nb												dx1r_dw1 = act'(n1)*nb		dx1r_db1 = act'(n1)
+	add_vec(t->x1, t->x1, t->nb, NF0);							//x1r = x1 + nb		= act(w1*nb + b1) + nb												dx1r_dw1 = act'(n1)*nb		dx1r_db1 = act'(n1)
 #endif
 
-	linear(t->net2, p->weight2, t->x1, p->bias2, NF1, NF2);//n2 = w2*x1r + b2
-	act(t->x2, t->net2, NF2);								//x2 = act(n2)
+	smooth_if(t->x1_sel, t->x1, t->x1+NF1, t->x1+NF1*2, NF1);	//x1s = x1[2] + (x1[1]-x1[2])*x1[0]
+
+	linear(t->net2, p->weight2, t->x1_sel, p->bias2, NF1, NF2);	//n2 = w2*x1s + b2
+	act(t->x2, t->net2, NF2);									//x2 = act(n2)
 #ifdef RESNET
-	add_vec(t->x2, t->x2, t->x1, NF0);						//x2r = x2 + x1r	= act(w2*x1r + b2) + x1r		dx2r_dx1r = act'(n2)*w2 + I			dx2r_dw2 = act'(n2)*x1r		dx2r_db2 = act'(n2)
+	add_vec(t->x2, t->x2, t->x1_sel, NF0);						//x2r = x2 + x1r	= act(w2*x1r + b2) + x1r		dx2r_dx1r = act'(n2)*w2 + I			dx2r_dw2 = act'(n2)*x1r		dx2r_db2 = act'(n2)
 #endif
 
 	linear(t->net3, p->weight3, t->x2, p->bias3, NF2, NF3);	//n3 = w3*x2r + b3
 	act(t->x3, t->net3, NF3);								//x3 = act(n3)
-#ifdef RESNET2
-	add_vec(t->x3, t->x3, t->nb, NF0);
-#endif
-#ifdef RESNET
+#if defined RESNET2 || defined RESNET
 	add_vec(t->x3, t->x3, t->x2, NF0);						//x3r = x3 + x2r	= act(w3*x2r + b3) + x2r		dx3r_dx2r = act'(n3)*w3 + I			dx3r_dw3 = act'(n3)*x2r		dx3r_db3 = act'(n3)		<- read right to left
 #endif
 
@@ -618,14 +636,17 @@ static void train(const char *src, const char *errors, int iw, int ih, int kx, i
 	mul_vec_outer(g->weight2, g->bias2, t->x1, NF2, NF1);
 	MARK_TIME(3);//bwd layer 2
 
-
-	mul_mat(b->dL_dx1, g->bias2, p->weight2, 1, NF2, NF1);
+	mul_mat(b->dL_dx1s, g->bias2, p->weight2, 1, NF2, NF1);
+	smooth_if_dash(b->dL_dx1, b->dL_dx1+NF1, b->dL_dx1+NF1*2, t->x1, t->x1+NF1, t->x1+NF1*2, NF1);
+	mul_vec_ew(b->dL_dx1      , b->dL_dx1      , b->dL_dx1s, NF1);
+	mul_vec_ew(b->dL_dx1+NF1  , b->dL_dx1+NF1  , b->dL_dx1s, NF1);
+	mul_vec_ew(b->dL_dx1+NF1*2, b->dL_dx1+NF1*2, b->dL_dx1s, NF1);
 #ifdef RESNET
 	add_vec(b->dL_dx1, b->dL_dx1, b->dL_dx2, NF1);
 #endif
-	act_dash(g->bias1, t->net1, NF1);
-	mul_vec_ew(g->bias1, g->bias1, b->dL_dx1, NF1);
-	mul_vec_outer(g->weight1, g->bias1, t->nb, NF1, NF0);
+	act_dash(g->bias1, t->net1, NF1x3);
+	mul_vec_ew(g->bias1, g->bias1, b->dL_dx1, NF1x3);
+	mul_vec_outer(g->weight1, g->bias1, t->nb, NF1x3, NF0);
 	MARK_TIME(4);//bwd layer 1
 
 #if 0
@@ -1841,9 +1862,11 @@ void pred_learned_v3(char *buf, int iw, int ih, int fwd)
 }
 
 
-#define V4_NTHREADS 6
+#define V4_NTHREADS 2
 #define V4_REACH 9
 #define V4_NITER 1
+
+#define V4_TOTALTHREADS (3*V4_NTHREADS)
 typedef struct V4ThreadArgsStruct
 {
 	char *src, *dst, *buf2, *errors;
@@ -1913,12 +1936,12 @@ void pred_learned_v4(char *buf, int iw, int ih, int fwd)
 	double t_start=time_ms();
 	int res=iw*ih;
 	char *src=(char*)malloc(res*3), *dst=(char*)malloc(res*3);
-	Temps *t=(Temps*)malloc(sizeof(Temps)*V4_NTHREADS);
-	Params *p=(Params*)malloc(sizeof(Params)*V4_NTHREADS);
-	BwdTemps *b=(BwdTemps*)malloc(sizeof(BwdTemps)*V4_NTHREADS);
-	Params *g=(Params*)malloc(sizeof(Params)*V4_NTHREADS);
-	V4ThreadArgs *args=(V4ThreadArgs*)malloc(sizeof(V4ThreadArgs)*V4_NTHREADS), *a;
-	HANDLE threads[V4_NTHREADS]={0};
+	Temps *t=(Temps*)malloc(sizeof(Temps)*V4_TOTALTHREADS);
+	Params *p=(Params*)malloc(sizeof(Params)*V4_TOTALTHREADS);
+	BwdTemps *b=(BwdTemps*)malloc(sizeof(BwdTemps)*V4_TOTALTHREADS);
+	Params *g=(Params*)malloc(sizeof(Params)*V4_TOTALTHREADS);
+	V4ThreadArgs *args=(V4ThreadArgs*)malloc(sizeof(V4ThreadArgs)*V4_TOTALTHREADS), *a;
+	HANDLE threads[V4_TOTALTHREADS]={0};
 	if(!src||!dst||!t||!p||!b||!g||!args)
 	{
 		LOG_ERROR("Allocation error");
@@ -1930,48 +1953,52 @@ void pred_learned_v4(char *buf, int iw, int ih, int fwd)
 	//memset(p, 0, sizeof(Params));
 
 	char *buf2=fwd?src:dst, *errors=fwd?dst:src;
-	const int blockw=(3*iw+V4_NTHREADS-1)/V4_NTHREADS;
-	for(int kt=0;kt<V4_NTHREADS;++kt)
+	const int blockh=(ih+V4_NTHREADS-1)/V4_NTHREADS;
+	for(int kc=0;kc<3;++kc)
 	{
-		a=args+kt;
-		int kc=kt*3/V4_NTHREADS, kb=kt%(V4_NTHREADS/3);
-		int xstart=blockw*kb, xend=xstart+blockw;
-		//int xstart=blockw*kt, xend=xstart+blockw;
-		if(xend>iw)
-			xend=iw;
-		int offset=res*kc+ih*xstart;
-		a->src=src+offset;
-		a->dst=dst+offset;
-		a->buf2=buf2+offset;
-		a->errors=errors+offset;
-		a->iw=xend-xstart;
-		a->ih=ih;
-		a->kc=kt*3/V4_NTHREADS;
-		a->threadno=kt;
-		a->fwd=fwd;
-		a->t=t+kt;
-		a->p=p+kt;
-		a->b=b+kt;
-		a->g=g+kt;
-		a->t_start=t_start;
+		for(int kb=0;kb<V4_NTHREADS;++kb)
+		{
+			int threadidx=V4_NTHREADS*kc+kb;
+			a=args+threadidx;
+			int ystart=blockh*kb, yend=ystart+blockh;
+			if(yend>ih)
+				yend=ih;
+			int offset=res*kc+iw*ystart;//MARKER
+			a->src=src+offset;
+			a->dst=dst+offset;
+			a->buf2=buf2+offset;
+			a->errors=errors+offset;
+			a->iw=iw;
+			a->ih=yend-ystart;
+			a->kc=kc;
+			a->threadno=threadidx;
+			a->fwd=fwd;
+			a->t=t+threadidx;
+			a->p=p+threadidx;
+			a->b=b+threadidx;
+			a->g=g+threadidx;
+			a->t_start=t_start;
+		}
 	}
 	initialize_all(p, 1, 0, 1);
-	memfill(p+1, p, (V4_NTHREADS-1)*sizeof(*p), sizeof(*p));
+	memfill(p+1, p, (V4_TOTALTHREADS-1)*sizeof(*p), sizeof(*p));
 	
-	for(int kt=0, idx=0;kt<V4_NTHREADS;++kt)
+	for(int kc=0, idx=0;kc<3;++kc)
 	{
-		int kc=kt*3/V4_NTHREADS, kb=kt%(V4_NTHREADS/3);
-		int xstart=blockw*kb, xend=xstart+blockw;
-		if(xend>iw)
-			xend=iw;
-		for(int ky=0;ky<ih;++ky)
+		for(int kb=0;kb<V4_NTHREADS;++kb)
 		{
-			for(int kx=xstart;kx<xend;++kx, ++idx)
-				src[idx]=buf[(iw*ky+kx)<<2|kc];
+			int ystart=blockh*kb, yend=ystart+blockh;
+			if(yend>ih)
+				yend=ih;
+			for(int ky=ystart;ky<yend;++ky)
+			{
+				for(int kx=0;kx<iw;++kx, ++idx)
+					src[idx]=buf[(iw*ky+kx)<<2|kc];
+			}
 		}
 	}
 	
-	for(int kt=1;kt<V4_NTHREADS;++kt)
+	for(int kt=1;kt<V4_TOTALTHREADS;++kt)
 	{
 		threads[kt]=(HANDLE)_beginthreadex(0, 0, pred_learned_v4_thread, args+kt, 0, 0);
 		if(!threads[kt])
@@ -1981,22 +2008,36 @@ void pred_learned_v4(char *buf, int iw, int ih, int fwd)
 		}
 	}
 	pred_learned_v4_thread(args);
-	WaitForMultipleObjects(V4_NTHREADS-1, threads+1, TRUE, INFINITE);
-	for(int kt=1;kt<V4_NTHREADS;++kt)
+	WaitForMultipleObjects(V4_TOTALTHREADS-1, threads+1, TRUE, INFINITE);
+	for(int kt=1;kt<V4_TOTALTHREADS;++kt)
 		CloseHandle(threads[kt]);
 	
-	for(int kt=0, idx=0;kt<V4_NTHREADS;++kt)
+	for(int kc=0, idx=0;kc<3;++kc)
 	{
-		int kc=kt*3/V4_NTHREADS, kb=kt%(V4_NTHREADS/3);
-		int xstart=blockw*kb, xend=xstart+blockw;
-		if(xend>iw)
-			xend=iw;
-		for(int ky=0;ky<ih;++ky)
+		for(int kb=0;kb<V4_NTHREADS;++kb)
 		{
-			for(int kx=xstart;kx<xend;++kx, ++idx)
-				buf[(iw*ky+kx)<<2|kc]=dst[idx];
+			int ystart=blockh*kb, yend=ystart+blockh;
+			if(yend>ih)
+				yend=ih;
+			for(int ky=ystart;ky<yend;++ky)
+			{
+				for(int kx=0;kx<iw;++kx, ++idx)
+					buf[(iw*ky+kx)<<2|kc]=dst[idx];
+			}
 		}
 	}
+	//for(int kt=0, idx=0;kt<V4_NTHREADS;++kt)
+	//{
+	//	int kc=kt*3/V4_NTHREADS, kb=kt%(V4_NTHREADS/3);
+	//	int xstart=blockw*kb, xend=xstart+blockw;
+	//	if(xend>iw)
+	//		xend=iw;
+	//	for(int ky=0;ky<ih;++ky)
+	//	{
+	//		for(int kx=xstart;kx<xend;++kx, ++idx)
+	//			buf[(iw*ky+kx)<<2|kc]=dst[idx];
+	//	}
+	//}
 #if 1
 	{
 		TimeInfo ti;

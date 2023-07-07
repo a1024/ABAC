@@ -93,6 +93,7 @@ int print_binn(unsigned long long x, int nbits);
 //error handling
 int log_error(const char *file, int line, int quit, const char *format, ...);//doesn't stop execution
 #define LOG_ERROR(format, ...)   log_error(file, __LINE__, 1, format, ##__VA_ARGS__)
+#define LOG_ERROR2(format, ...)  log_error(__FILE__, __LINE__, 1, format, ##__VA_ARGS__)
 #define LOG_WARNING(format, ...) log_error(file, __LINE__, 0, format, ##__VA_ARGS__)
 int valid(const void *p);
 int pause();
@@ -133,6 +134,8 @@ void* array_replace(ArrayHandle *arr, size_t idx, size_t rem_count, const void *
 
 void* array_at(ArrayHandle *arr, size_t idx);
 void* array_back(ArrayHandle *arr);
+
+int str_append(ArrayHandle *str, const char *format, ...);//requires C99, prints twice
 
 #define ARRAY_ALLOC(ELEM_TYPE, ARR, DATA, COUNT, PAD, DESTRUCTOR) ARR=array_construct(DATA, sizeof(ELEM_TYPE), COUNT, 1, PAD, DESTRUCTOR)
 #define ARRAY_APPEND(ARR, DATA, COUNT, REP, PAD)  array_insert(&(ARR), (ARR)->count, DATA, COUNT, REP, PAD)

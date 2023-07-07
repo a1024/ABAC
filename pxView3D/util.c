@@ -684,6 +684,24 @@ void* array_back(ArrayHandle *arr)
 		return 0;
 	return arr[0]->data+(arr[0]->count-1)*arr[0]->esize;
 }
+
+int str_append(ArrayHandle *str, const char *format, ...)
+{
+	size_t reqlen;
+	va_list args;
+	va_start(args, format);
+	reqlen=vsnprintf(0, 0, format, args);//requires C99
+	if(str[0]->count+reqlen+1>str[0]->cap)
+	{
+		size_t c0=str[0]->count;
+		array_realloc(str, str[0]->count+reqlen, 1);
+		str[0]->count=c0;
+	}
+	reqlen=vsnprintf(str[0]->data+str[0]->count, str[0]->cap-str[0]->count, format, args);
+	str[0]->count+=reqlen;
+	va_end(args);
+	return (int)reqlen;
+}
 #endif
 
 //double-linked array list

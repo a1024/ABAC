@@ -4,6 +4,8 @@
 #include<math.h>
 #include"stb_image.h"
 #include"lodepng.h"
+#define DEBUG_MEMORY_IMPLEMENTATION
+#include"intercept_malloc.h"
 static const char file[]=__FILE__;
 
 float
@@ -92,6 +94,7 @@ typedef enum TransformTypeEnum
 
 	CST_SEPARATOR,
 	
+	ST_FWD_LOGIC,		ST_INV_LOGIC,
 	ST_FWD_LEARNED,		ST_INV_LEARNED,
 #ifdef ALLOW_OPENCL
 	ST_FWD_LEARNED_GPU,	ST_INV_LEARNED_GPU,
@@ -104,7 +107,8 @@ typedef enum TransformTypeEnum
 //	ST_FWD_GRAD2,		ST_INV_GRAD2,
 //	ST_FWD_ADAPTIVE,	ST_INV_ADAPTIVE,
 	ST_FWD_JXL,			ST_INV_JXL,
-	ST_FWD_W2,			ST_INV_W2,
+	ST_FWD_MM,			ST_INV_MM,
+	ST_FWD_JMJ,			ST_INV_JMJ,
 	ST_FWD_SORTNB,		ST_INV_SORTNB,
 //	ST_FWD_MEDIAN,		ST_INV_MEDIAN,
 //	ST_FWD_DCT3PRED,	ST_INV_DCT3PRED,
@@ -290,6 +294,8 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 
 	case CST_SEPARATOR:			a="";						break;
 
+	case ST_FWD_LOGIC:			a=" S Fwd Logic";			break;
+	case ST_INV_LOGIC:			a=" S Inv Logic";			break;
 	case ST_FWD_LEARNED:		a=" S Fwd Learned";			break;
 	case ST_INV_LEARNED:		a=" S Inv Learned";			break;
 #ifdef ALLOW_OPENCL
@@ -313,8 +319,10 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 //	case ST_INV_ADAPTIVE:		a=" S Inv Adaptive";		break;
 	case ST_FWD_JXL:			a=" S Fwd JXL";				break;
 	case ST_INV_JXL:			a=" S Inv JXL";				break;
-	case ST_FWD_W2:				a=" S Fwd W2";				break;
-	case ST_INV_W2:				a=" S Inv W2";				break;
+	case ST_FWD_MM:				a=" S Fwd MM";				break;
+	case ST_INV_MM:				a=" S Inv MM";				break;
+	case ST_FWD_JMJ:			a=" S Fwd JMJ";				break;
+	case ST_INV_JMJ:			a=" S Inv JMJ";				break;
 	case ST_FWD_SORTNB:			a=" S Fwd Sort Nb";			break;
 	case ST_INV_SORTNB:			a=" S Inv Sort Nb";			break;
 //	case ST_FWD_MEDIAN:			a=" S Fwd Median";			break;
@@ -801,9 +809,11 @@ void update_image()
 			case ST_INV_CFL:		pred_cfl((char*)image, iw, ih, 0);					break;
 		//	case ST_FWD_HYBRID3:	pred_hybrid_fwd((char*)image, iw, ih);				break;
 		//	case ST_INV_HYBRID3:	pred_hybrid_inv((char*)image, iw, ih);				break;
-
+				
+			case ST_FWD_LOGIC:		pred_logic_apply((char*)image, iw, ih, logic_params, 1);break;
+			case ST_INV_LOGIC:		pred_logic_apply((char*)image, iw, ih, logic_params, 0);break;
 			case ST_FWD_LEARNED:	pred_learned_v4((char*)image, iw, ih, 1);			break;
-			case ST_INV_LEARNED:	pred_learned((char*)image, iw, ih, 1);				break;//
+			case ST_INV_LEARNED:	pred_learned_v4((char*)image, iw, ih, 0);			break;
 #ifdef ALLOW_OPENCL
 			case ST_FWD_LEARNED_GPU:pred_learned_gpu((char*)image, iw, ih, 1);			break;
 			case ST_INV_LEARNED_GPU:pred_learned_gpu((char*)image, iw, ih, 0);			break;
@@ -818,8 +828,10 @@ void update_image()
 		//	case ST_INV_ADAPTIVE:	pred_adaptive((char*)image, iw, ih, 3, 4, 0);		break;
 			case ST_FWD_JXL:		pred_jxl_apply((char*)image, iw, ih, jxlparams_i16, 1);break;
 			case ST_INV_JXL:		pred_jxl_apply((char*)image, iw, ih, jxlparams_i16, 0);break;
-			case ST_FWD_W2:			pred_w2_apply((char*)image, iw, ih, pw2_params, 1);	break;
-			case ST_INV_W2:			pred_w2_apply((char*)image, iw, ih, pw2_params, 0);	break;
+			case ST_FWD_MM:			pred_w2_apply((char*)image, iw, ih, pw2_params, 1);	break;
+			case ST_INV_MM:			pred_w2_apply((char*)image, iw, ih, pw2_params, 0);	break;
+			case ST_FWD_JMJ:		pred_jmj_apply((char*)image, iw, ih, 1);			break;
+			case ST_INV_JMJ:		pred_jmj_apply((char*)image, iw, ih, 0);			break;
 		//	case ST_FWD_JXL:		pred_jxl((char*)image, iw, ih, 3, 4, 1);			break;
 		//	case ST_INV_JXL:		pred_jxl((char*)image, iw, ih, 3, 4, 0);			break;
 			case ST_FWD_SORTNB:		pred_sortnb((char*)image, iw, ih, 3, 4, 1);			break;
@@ -832,8 +844,8 @@ void update_image()
 		//	case ST_INV_PATHPRED:	pred_path_inv((char*)image, iw, ih, 3, 4);			break;
 			case ST_FWD_GRADPRED:	pred_grad_fwd((char*)image, iw, ih, 3, 4);			break;
 			case ST_INV_GRADPRED:	pred_grad_inv((char*)image, iw, ih, 3, 4);			break;
-			case ST_FWD_CUSTOM:		pred_custom_fwd((char*)image, iw, ih, 3, 4);		break;
-			case ST_INV_CUSTOM:		pred_custom_inv((char*)image, iw, ih, 3, 4);		break;
+			case ST_FWD_CUSTOM:		pred_custom_fwd((char*)image, iw, ih, 3, 4, allcustomparam_st);break;
+			case ST_INV_CUSTOM:		pred_custom_inv((char*)image, iw, ih, 3, 4, allcustomparam_st);break;
 			case ST_FWD_DCT4:		image_dct4_fwd((char*)image, iw, ih);				break;
 			case ST_INV_DCT4:		image_dct4_inv((char*)image, iw, ih);				break;
 		//	case ST_FWD_DCT8:		image_dct8_fwd((char*)image, iw, ih);				break;
@@ -878,10 +890,10 @@ void update_image()
 					//	case ST_INV_CDF97:     dwt2d_cdf97_inv  ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
 					//	case ST_FWD_GRAD_DWT:  dwt2d_grad_fwd   ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
 					//	case ST_INV_GRAD_DWT:  dwt2d_grad_inv   ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-						case ST_FWD_EXPDWT:    dwt2d_exp_fwd    ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-						case ST_INV_EXPDWT:    dwt2d_exp_inv    ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-						case ST_FWD_CUSTOM_DWT:dwt2d_custom_fwd ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-						case ST_INV_CUSTOM_DWT:dwt2d_custom_inv ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						case ST_FWD_EXPDWT:    dwt2d_exp_fwd    ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, allcustomparam_st);break;//TODO use customdwtparams instead of sharing allcustomparam_st
+						case ST_INV_EXPDWT:    dwt2d_exp_inv    ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, allcustomparam_st);break;
+						case ST_FWD_CUSTOM_DWT:dwt2d_custom_fwd ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, allcustomparam_st);break;
+						case ST_INV_CUSTOM_DWT:dwt2d_custom_inv ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, allcustomparam_st);break;
 						}
 					}
 					array_free(&sizes);
@@ -1614,10 +1626,10 @@ int io_mousewheel(int forward)
 					ch2-=4;
 					ch2+=ch2<0;//skip point
 					double delta=pow(10, -ch2);
-					customparam_st[cellidx]+=sign*delta;
+					allcustomparam_st[12*customparam_st_ch+cellidx]+=sign*delta;
 				}
 				else
-					customparam_st[cellidx]+=sign*0.05;
+					allcustomparam_st[12*customparam_st_ch+cellidx]+=sign*0.05;
 				break;
 			case 3://clamp bounds
 			
@@ -1816,13 +1828,13 @@ int io_keydn(IOKey key, char c)
 						ARRAY_ALLOC(double, losshist, 0, 1000, 0, 0);
 					double *p2=(double*)losshist->data;
 					profile_idx=cellidx;
-					double temp=customparam_st[cellidx];
+					double temp=allcustomparam_st[12*customparam_st_ch+cellidx];
 					for(int k=0;k<1000;++k)
 					{
-						customparam_st[cellidx]=customparam_ct[8]+(customparam_ct[9]-customparam_ct[8])*k/1000;
-						p2[k]=opt_causal_reach2(image, iw, ih, 1, customparam_st, customparam_ct+11, g_lr, 1);
+						allcustomparam_st[12*customparam_st_ch+cellidx]=customparam_ct[8]+(customparam_ct[9]-customparam_ct[8])*k/1000;
+						p2[k]=opt_causal_reach2(image, iw, ih, 1, allcustomparam_st+12*customparam_st_ch, customparam_ct+11, g_lr, 1);
 					}
-					customparam_st[cellidx]=temp;
+					allcustomparam_st[12*customparam_st_ch+cellidx]=temp;
 					//av_rmse=opt_causal_reach2(image, iw, ih, 1, customparam_st, customparam_ct+11, 1e-10, 1);
 						
 					for(int k=0;k<1000;++k)
@@ -1842,7 +1854,7 @@ int io_keydn(IOKey key, char c)
 		case KEY_LEFT:
 		case KEY_RIGHT:
 			{
-				const int idx_limit=COUNTOF(customparam_ct)+COUNTOF(customparam_st);
+				const int idx_limit=COUNTOF(customparam_ct)+COUNTOF(allcustomparam_st)/3;
 				const int st_w=customparam_st_reach<<1|1, st_h=customparam_st_reach+1, st_yoffset=customparam_ct_h-st_h,
 					w_total=customparam_ct_w+st_w, h_total=customparam_ct_h;
 				int x, y;
@@ -1957,7 +1969,7 @@ int io_keydn(IOKey key, char c)
 			case 1://spatial transforms params
 				if(key==KEY_RBUTTON)
 				{
-					customparam_st[cellidx]=0;
+					allcustomparam_st[12*customparam_st_ch+cellidx]=0;
 					update_image();
 					return 1;
 				}
@@ -2061,7 +2073,11 @@ toggle_drag:
 			"R:\t\tReset cam\n"
 			"Ctrl R:\t\tDisable all transforms\n"
 			"Ctrl E:\t\tReset custom transform parameters\n"
+			"[]:\t\tSwitch channel (custom transform)\n"
 			"H:\t\tReset CR history graph\n"
+			"Ctrl C:\t\tCopy data\n"
+			"Ctrl V:\t\tPaste data\n"
+			"C:\t\tToggle joint histogram type / fill screen in image view\n"
 			"\n"
 			"Mouse1/Mouse2:\tAdd/remove transforms to the list\n"
 			"Ctrl Mouse1:\tReplace all transforms of this type\n"
@@ -2128,18 +2144,39 @@ toggle_drag:
 		{
 			int printed=0;
 			ArrayHandle str;
-			STR_ALLOC(str, 65536);
+			STR_ALLOC(str, 0);
 			if(mode==VIS_IMAGE)
 			{
 				float cr_combined=3/(1/ch_cr[0]+1/ch_cr[1]+1/ch_cr[2]);
-				printed+=snprintf((char*)str->data+printed, str->count-printed, "T %f\tR %f\tG %f\tB %f\tJ %f", cr_combined, ch_cr[0], ch_cr[1], ch_cr[2], ch_cr[3]);
+				str_append(&str, "T %f\tR %f\tG %f\tB %f\tJ %f", cr_combined, ch_cr[0], ch_cr[1], ch_cr[2], ch_cr[3]);
 			}
 			else if(mode==VIS_IMAGE_E24)
 			{
 				for(int kc=0;kc<3;++kc)
 				{
 					E24Params const *p=e24_params+kc;
-					printed+=snprintf((char*)str->data+printed, str->count-printed, "%3d  %3d %3d %3d  %3d %3d\n", p->gwidth, p->mleft, p->mtop, p->mright, p->alpha, p->maxinc);
+					str_append(&str, "%3d  %3d %3d %3d  %3d %3d\n", p->gwidth, p->mleft, p->mtop, p->mright, p->alpha, p->maxinc);
+				}
+			}
+			else if(transforms_mask[ST_FWD_LOGIC]||transforms_mask[ST_INV_LOGIC])
+			{
+				for(int kc=0, idx=0;kc<3;++kc)
+				{
+					for(int ky=0;ky<LOGIC_NF0;++ky)
+					{
+						for(int kx=0;kx<LOGIC_ROWPARAMS;++kx, ++idx)
+						{
+							short val=logic_params[idx];
+							str_append(&str, "%c0x%04X,", val<0?'-':' ', abs(val));
+						}
+						str_append(&str, "\n");
+					}
+					for(int kx=0;kx<LOGIC_NF1;++kx, ++idx)
+					{
+						short val=logic_params[idx];
+						str_append(&str, "%c0x%04X,", val<0?'-':' ', abs(val));
+					}
+					str_append(&str, "\n");
 				}
 			}
 			else if(transforms_mask[ST_FWD_JXL]||transforms_mask[ST_INV_JXL])
@@ -2149,22 +2186,22 @@ toggle_drag:
 					for(int kx=0;kx<11;++kx)
 					{
 						short val=jxlparams_i16[11*ky+kx];
-						printed+=snprintf((char*)str->data+printed, str->count-printed, "%c0x%04X,", val<0?'-':' ', abs(val));
+						str_append(&str, "%c0x%04X,", val<0?'-':' ', abs(val));
 						if(kx+1==11)
-							printed+=snprintf((char*)str->data+printed, str->count-printed, "\n");
+							str_append(&str, "\n");
 					}
 				}
 			}
-			else if(transforms_mask[ST_FWD_W2]||transforms_mask[ST_INV_W2])
+			else if(transforms_mask[ST_FWD_MM]||transforms_mask[ST_INV_MM])
 			{
 				for(int ky=0;ky<3;++ky)
 				{
 					for(int kx=0;kx<PW2_NPARAM;++kx)
 					{
 						short val=pw2_params[PW2_NPARAM*ky+kx];
-						printed+=snprintf((char*)str->data+printed, str->count-printed, "%c0x%04X,", val<0?'-':' ', abs(val));
+						str_append(&str, "%c0x%04X,", val<0?'-':' ', abs(val));
 						if(kx+1==PW2_NPARAM)
-							printed+=snprintf((char*)str->data+printed, str->count-printed, "\n");
+							str_append(&str, "\n");
 					}
 				}
 			}
@@ -2175,7 +2212,7 @@ toggle_drag:
 					for(int kx=0;kx<24;++kx)
 					{
 						int val=jointpredparams[24*ky+kx];
-						printed+=snprintf((char*)str->data+printed, str->count-printed, "%c0x%08X,%c", val<0?'-':' ', abs(val), kx+1<24?' ':'\n');
+						str_append(&str, "%c0x%08X,%c", val<0?'-':' ', abs(val), kx+1<24?' ':'\n');
 					}
 				}
 				for(int ky=0;ky<3;++ky)
@@ -2183,7 +2220,7 @@ toggle_drag:
 					for(int kx=0;kx<4;++kx)
 					{
 						int val=jointpredparams[72+24*ky+kx];
-						printed+=snprintf((char*)str->data+printed, str->count-printed, "%c0x%08X,%c", val<0?'-':' ', abs(val), kx+1<4?' ':'\n');
+						str_append(&str, "%c0x%08X,%c", val<0?'-':' ', abs(val), kx+1<4?' ':'\n');
 					}
 				}
 			}
@@ -2204,17 +2241,22 @@ toggle_drag:
 				for(int ky=0;ky<customparam_ct_h;++ky)
 				{
 					for(int kx=0;kx<customparam_ct_w;++kx)
-						printed+=snprintf((char*)str->data+printed, str->count-printed, "\t%g", customparam_ct[customparam_ct_w*ky+kx]);
-					printed+=snprintf((char*)str->data+printed, str->count-printed, "\n");
+						str_append(&str, "\t%g", customparam_ct[customparam_ct_w*ky+kx]);
+					str_append(&str, "\n");
 				}
-				int stw=customparam_st_reach<<1|1;
-				for(int k=0;k<COUNTOF(customparam_st);++k)
+				const int stw=customparam_st_reach<<1|1;
+				for(int kc=0;kc<3;++kc)
 				{
-					int x=k%stw, y=k/stw;
-					printed+=snprintf((char*)str->data+printed, str->count-printed, "%g%c", customparam_st[k], x<stw-1&&k<COUNTOF(customparam_st)-1?'\t':'\n');
+					const int np=_countof(allcustomparam_st)/3;
+					const double *params=allcustomparam_st+12*kc;
+					for(int k=0;k<np;++k)
+					{
+						int x=k%stw, y=k/stw;
+						str_append(&str, "%g%c", params[k], x<stw-1&&k<np-1?'\t':'\n');
+					}
 				}
 				for(int k=0;k<COUNTOF(customparam_clamp);++k)
-					printed+=snprintf((char*)str->data+printed, str->count-printed, "%d%c", customparam_clamp[k], k<COUNTOF(customparam_clamp)-1?'\t':'\n');
+					str_append(&str, "%d%c", customparam_clamp[k], k<COUNTOF(customparam_clamp)-1?'\t':'\n');
 			}
 			copy_to_clipboard((char*)str->data, printed);
 			array_free(&str);
@@ -2262,11 +2304,15 @@ toggle_drag:
 							goto paste_finish;
 					}
 				}
+				else if(transforms_mask[ST_FWD_LOGIC]||transforms_mask[ST_INV_LOGIC])
+				{
+					parse_nvals(text, logic_params, COUNTOF(logic_params));
+				}
 				else if(transforms_mask[ST_FWD_JXL]||transforms_mask[ST_INV_JXL])
 				{
 					parse_nvals(text, jxlparams_i16, COUNTOF(jxlparams_i16));
 				}
-				else if(transforms_mask[ST_FWD_W2]||transforms_mask[ST_INV_W2])
+				else if(transforms_mask[ST_FWD_MM]||transforms_mask[ST_INV_MM])
 				{
 					parse_nvals(text, pw2_params, COUNTOF(pw2_params));
 				}
@@ -2317,11 +2363,11 @@ toggle_drag:
 							goto paste_finish;
 					}
 					k=0;
-					kend=COUNTOF(customparam_ct);
+					kend=COUNTOF(allcustomparam_st);
 					for(;k<kend;++k)
 					{
 						for(;idx<text->count&&isspace(text->data[idx]);++idx);
-						customparam_st[k]=atof(text->data+idx);
+						allcustomparam_st[k]=atof(text->data+idx);
 						for(;idx<text->count&&!isspace(text->data[idx]);++idx);
 						if(idx>=text->count)
 							goto paste_finish;
@@ -2348,7 +2394,8 @@ toggle_drag:
 	case 'M':
 		if(image)
 		{
-			MODVAR(mode, mode+1-(GET_KEY_STATE(KEY_SHIFT)<<1), VIS_COUNT);
+			int shift=GET_KEY_STATE(KEY_SHIFT);
+			MODVAR(mode, mode+1-(shift<<1), VIS_COUNT);
 			update_image();
 		}
 		return 1;
@@ -2364,6 +2411,20 @@ toggle_drag:
 	case 'X':
 		{
 			extrainfo=!extrainfo;
+			return 1;
+		}
+		break;
+	case 'Z'://TODO show neighbor pixels around cursor
+		break;
+	case KEY_LBRACKET:
+	case KEY_RBRACKET:
+		if(transforms_customenabled||transforms_mask[ST_FWD_LOGIC]||transforms_mask[ST_INV_LOGIC])
+		{
+			//const int nval=_countof(customparam_st);
+			//memcpy(allcustomparam_st+nval*customparam_st_ch, customparam_st, sizeof(customparam_st));//save
+			customparam_st_ch+=((key==KEY_RBRACKET)<<1)-1;
+			MODVAR(customparam_st_ch, customparam_st_ch, 3);
+			//memcpy(customparam_st, allcustomparam_st+nval*customparam_st_ch, sizeof(customparam_st));//load
 			return 1;
 		}
 		break;
@@ -2395,12 +2456,55 @@ toggle_drag:
 					e24_optimizeall(image, iw, ih, (int)roundf(x1), (int)roundf(x2), (int)roundf(y1), (int)roundf(y2), 1);
 				}
 			}
+			else if(transforms_mask[ST_FWD_LOGIC]||transforms_mask[ST_INV_LOGIC])
+			{
+				int res=iw*ih;
+				char *buf2=(char*)malloc((size_t)res<<2);
+				if(!buf2)
+				{
+					LOG_ERROR("Allocation error");
+					return 0;
+				}
+				memcpy(buf2, im0, (size_t)res<<2);
+				addhalf((unsigned char*)buf2, iw, ih, 3, 4);
+				colortransform_ycocb_fwd(buf2, iw, ih);
+#if 1
+				float info[3]={0};
+				logic_opt_checkonthread(info);
+				if(info[0]<0)
+					logic_opt(buf2, iw, ih, customparam_st_ch, logic_params+LOGIC_PARAMS_PER_CH*customparam_st_ch);
+				else
+					free(buf2);
+#else
+				free(buf2);
+				srand((unsigned)__rdtsc());
+				short *params=logic_params+LOGIC_PARAMS_PER_CH*customparam_st_ch;
+				for(int k=0;k<LOGIC_PARAMS_PER_CH;++k)
+					params[k]=rand();
+				update_image();
+#endif
+			}
 			else if(transforms_customenabled)
-				timer_start(50);
-			else if(transforms_mask[ST_FWD_JXL]||transforms_mask[ST_INV_JXL]||transforms_mask[ST_FWD_W2]||transforms_mask[ST_INV_W2]||transforms_mask[ST_FWD_JOINT]||transforms_mask[ST_INV_JOINT])
+			{
+				int res=iw*ih;
+				char *buf2=(char*)malloc((size_t)res<<2);
+				if(!buf2)
+				{
+					LOG_ERROR("Allocation error");
+					return 0;
+				}
+				memcpy(buf2, im0, (size_t)res<<2);
+				addhalf((unsigned char*)buf2, iw, ih, 3, 4);
+				colortransform_ycocb_fwd(buf2, iw, ih);
+				opt_cr2_v2(buf2, iw, ih, customparam_st_ch);
+				free(buf2);
+				update_image();
+			}
+			//	timer_start(50);
+			else if(transforms_mask[ST_FWD_JXL]||transforms_mask[ST_INV_JXL]||transforms_mask[ST_FWD_MM]||transforms_mask[ST_INV_MM]||transforms_mask[ST_FWD_JOINT]||transforms_mask[ST_INV_JOINT])
 			{
 				int jxl=transforms_mask[ST_FWD_JXL]||transforms_mask[ST_INV_JXL];
-				int pw2=transforms_mask[ST_FWD_W2]||transforms_mask[ST_INV_W2];
+				int pw2=transforms_mask[ST_FWD_MM]||transforms_mask[ST_INV_MM];
 				if(GET_KEY_STATE(KEY_CTRL))
 				{
 					if(jxl)
@@ -2540,6 +2644,7 @@ void io_timer()
 	if(keyboard[KEY_LEFT])	cam_turnLeft(cam, key_turn_speed);
 	if(keyboard[KEY_RIGHT])	cam_turnRight(cam, key_turn_speed);
 
+#if 0
 	if(keyboard[KEY_SPACE])
 	{
 		//if(transforms_mask[ST_FWD_HYBRID3]||transforms_mask[ST_INV_HYBRID3])
@@ -2554,6 +2659,7 @@ void io_timer()
 			update_image();
 		}
 	}
+#endif
 	if(transforms_customenabled)
 	{
 		int update=keyboard[KEY_ENTER]-keyboard[KEY_BKSP];
@@ -2575,7 +2681,7 @@ void io_timer()
 			else
 			{
 				//undospatialtransform(spatialtransform);
-				customparam_st[customparam_sel-COUNTOF(customparam_ct)]+=speed*update;
+				allcustomparam_st[12*customparam_st_ch+customparam_sel-COUNTOF(customparam_ct)]+=speed*update;
 				//applyspatialtransform(spatialtransform);
 			}
 			update_image();
@@ -2587,7 +2693,7 @@ void io_timer()
 		if(keyboard[KEY_BKSP])	cam_zoomOut(cam, 1.1f);
 	}
 }
-void print_i16s(float x, float y, short *row, int count)
+void print_i16s(float x, float y, const short *row, int count)
 {
 	int printed=0;
 	for(int k=0;k<count;++k)
@@ -2634,11 +2740,16 @@ void io_render()
 		case VIS_JOINT_HISTOGRAM:	chart_jointhist_draw();	break;
 		case VIS_IMAGE:
 			{
+				int waitstatus=0;
+				if(ghMutex)
+					waitstatus=WaitForSingleObject(ghMutex, INFINITE);
 				float yoffset=tdy*3;
 				if(show_full_image)
 					display_texture_i(0, w, 0, h, (int*)image, iw, ih, 1, 0, 1, 0, 1);
 				else
 					display_texture_i(0, iw, (int)yoffset, (int)yoffset+ih, (int*)image, iw, ih, 1, 0, 1, 0, 1);
+				if(waitstatus==WAIT_OBJECT_0)
+					ReleaseMutex(ghMutex);
 			}
 			break;
 		case VIS_IMAGE_BLOCK:
@@ -2844,8 +2955,8 @@ void io_render()
 	if(transforms_customenabled)
 	//if(color_transform==CT_CUSTOM||spatialtransform==ST_CUSTOM)
 	{
-		char sel[COUNTOF(customparam_ct)+COUNTOF(customparam_st)]={0};
-		for(int k=0;k<COUNTOF(sel);++k)
+		char sel[_countof(customparam_ct)+_countof(allcustomparam_st)/3]={0};
+		for(int k=0;k<_countof(sel);++k)
 			sel[k]=' ';
 		sel[customparam_sel]='>';
 		float xstep=tdx*guizoom, ystep=tdy*guizoom, x, y;
@@ -2873,10 +2984,12 @@ void io_render()
 			x=buttons[1].x1;
 			y=buttons[1].y1;
 			int bk0=set_bk_color(0xA060A060);
-			GUIPrint(0, x, y        , guizoom, "%c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%c%8.3lf", sel[12], sel[12], customparam_st[ 0], sel[13], sel[13], customparam_st[ 1], sel[14], sel[14], customparam_st[ 2], sel[15], sel[15], customparam_st[ 3], sel[16], sel[16], customparam_st[ 4]);
-			GUIPrint(0, x, y+ystep  , guizoom, "%c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%c%8.3lf", sel[17], sel[17], customparam_st[ 5], sel[18], sel[18], customparam_st[ 6], sel[19], sel[19], customparam_st[ 7], sel[20], sel[20], customparam_st[ 8], sel[21], sel[21], customparam_st[ 9]);
+			const double *params=allcustomparam_st+12*customparam_st_ch;
+			GUIPrint(0, x, y-tdy, 1, "Ch %d", customparam_st_ch);
+			GUIPrint(0, x, y        , guizoom, "%c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%c%8.3lf", sel[12], sel[12], params[ 0], sel[13], sel[13], params[ 1], sel[14], sel[14], params[ 2], sel[15], sel[15], params[ 3], sel[16], sel[16], params[ 4]);
+			GUIPrint(0, x, y+ystep  , guizoom, "%c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%c%8.3lf", sel[17], sel[17], params[ 5], sel[18], sel[18], params[ 6], sel[19], sel[19], params[ 7], sel[20], sel[20], params[ 8], sel[21], sel[21], params[ 9]);
 			set_bk_color(bk0);
-			GUIPrint(0, x, y+ystep*2, guizoom, "%c%c%8.3lf %c%c%8.3lf",                                  sel[22], sel[22], customparam_st[10], sel[23], sel[23], customparam_st[11]);//do not change these strings!
+			GUIPrint(0, x, y+ystep*2, guizoom, "%c%c%8.3lf %c%c%8.3lf",                                  sel[22], sel[22], params[10], sel[23], sel[23], params[11]);//do not change these strings!
 			//set_text_colors(prevcolor);
 		}
 		//clamp bounds
@@ -2893,6 +3006,50 @@ void io_render()
 		y=buttons[4].y1;
 		GUIPrint(0, x, y, guizoom, "lr %18.15lf", g_lr);
 	}
+	else if(transforms_mask[ST_FWD_LOGIC]||transforms_mask[ST_INV_LOGIC])
+	{
+		float x, y, info[3]={0};
+		const short *params=logic_params+LOGIC_PARAMS_PER_CH*customparam_st_ch;
+
+		x=0;
+		y=(float)(h>>1);
+		logic_opt_checkonthread(info);
+		if(info[0]>=0)
+		{
+			set_window_title(			"Ch %d: %10f%%, %f sec, CR %f sec", customparam_st_ch, info[0], info[1], 1/info[2]);
+			GUIPrint(0, x, y-tdy, 1,	"Ch %d: %10f%%, %f sec, CR %f sec", customparam_st_ch, info[0], info[1], 1/info[2]);
+			g_repaint=1;
+			//int success=RedrawWindow(ghWnd, 0, 0, RDW_INTERNALPAINT|RDW_ERASENOW);
+			//if(!success)
+			//	LOG_ERROR("Failed to redraw");
+			//swapbuffers();
+			//return;
+			//InvalidateRect(ghWnd, 0, 0);
+		}
+		else
+			GUIPrint(0, x, y-tdy, 1, "Ch %d", customparam_st_ch);
+		//LOG_ERROR("Unreachable");
+
+		int waitstatus=-1;
+		if(info[0]>=0&&ghMutex)
+		{
+			waitstatus=WaitForSingleObject(ghMutex, INFINITE);
+			//if(waitstatus!=WAIT_OBJECT_0)
+			//	LOG_ERROR("WaitForSingleObject error");
+		}
+		for(int ky=0;ky<LOGIC_NF0;++ky)
+		{
+			print_i16s(x, y, params, LOGIC_ROWPARAMS);
+			y+=tdy;
+			params+=LOGIC_ROWPARAMS;
+		}
+		print_i16s(x, y, params, LOGIC_NF1);
+		if(info[0]>=0&&ghMutex)
+		{
+			if(waitstatus==WAIT_OBJECT_0)
+				ReleaseMutex(ghMutex);
+		}
+	}
 	else if(transforms_mask[ST_FWD_JXL]||transforms_mask[ST_INV_JXL])
 	{
 		float x, y;
@@ -2904,7 +3061,7 @@ void io_render()
 		print_i16s(x, y, jxlparams_i16+11, 11);	y+=tdy;
 		print_i16s(x, y, jxlparams_i16+22, 11);
 	}
-	else if(transforms_mask[ST_FWD_W2]||transforms_mask[ST_INV_W2])
+	else if(transforms_mask[ST_FWD_MM]||transforms_mask[ST_INV_MM])
 	{
 		float x, y;
 		
@@ -3105,7 +3262,7 @@ void io_render()
 				for(int k=0;k<(int)losshist->count-1;++k)
 					draw_line((float)k, h-(float)((data[k]-minloss)*gain), (float)(k+1), h-(float)((data[k+1]-minloss)*gain), 0xFFFF00FF);
 					//draw_line((float)k*w/losshist->count, (float)((data[k]-minloss)*gain), (float)(k+1)*w/losshist->count, (float)((data[k+1]-minloss)*gain), 0xFFFF00FF);
-				double xmark=(customparam_st[profile_idx]-customparam_ct[8])*1000/(customparam_ct[9]-customparam_ct[8]);
+				double xmark=(allcustomparam_st[12*customparam_st_ch+profile_idx]-customparam_ct[8])*1000/(customparam_ct[9]-customparam_ct[8]);
 				//double xmark=(customparam_st[profile_idx]-customparam_ct[8])*w/(customparam_ct[9]-customparam_ct[8]);
 				draw_line((float)xmark, 0, (float)xmark, (float)h, 0xFFFFFF00);
 			}
@@ -3140,7 +3297,7 @@ void io_render()
 
 		//grad2 info
 #if 1
-		if(transforms_mask[ST_FWD_W2]||transforms_mask[ST_INV_W2])
+		if(transforms_mask[ST_FWD_MM]||transforms_mask[ST_INV_MM])
 		{
 			x=(float)(w>>1);
 			y=0;
@@ -3376,11 +3533,11 @@ void io_render()
 #endif
 	//extern double bestslope;
 	//GUIPrint(0, 0, 0, 1, "p(%f, %f, %f) dx %f a(%f, %f) fov %f, bestslope=%lf", cam.x, cam.y, cam.z, cam.move_speed, cam.ax, cam.ay, atan(cam.tanfov)*180/M_PI*2, bestslope);
-	GUIPrint(0, 0, 0, 1, "p(%f, %f, %f) dx %f a(%f, %f) fov %f", cam.x, cam.y, cam.z, cam.move_speed, cam.ax, cam.ay, atan(cam.tanfov)*180/M_PI*2);
+	GUIPrint(0, 0, 0, 1, "p(%f, %f, %f) dx %f a(%f, %f) fov %f  image %p", cam.x, cam.y, cam.z, cam.move_speed, cam.ax, cam.ay, atan(cam.tanfov)*180/M_PI*2, image);
 	
 	static double t=0;
 	double t2=time_ms();
-	GUIPrint(0, 0, tdy, 1, "timer %d, fps %10lf, [%d/%d] %s", timer, 1000./(t2-t), mode+1, VIS_COUNT, mode_str);
+	GUIPrint(0, 0, tdy, 1, "timer %d, fps%11lf, [%2d/%2d] %s", timer, 1000./(t2-t), mode+1, VIS_COUNT, mode_str);
 	if(mode==VIS_IMAGE)
 		GUIPrint(0, 0, tdy*2, 1, "%s", show_full_image?"FILL SCREEN":"1:1");
 	else if(mode==VIS_JOINT_HISTOGRAM)

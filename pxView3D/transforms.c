@@ -3,6 +3,8 @@
 #include<stdlib.h>
 #define _USE_MATH_DEFINES
 #include<math.h>
+#include<process.h>
+#include"intercept_malloc.h"
 static const char file[]=__FILE__;
 
 void addhalf(unsigned char *buf, int iw, int ih, int nch, int bytestride)
@@ -1114,12 +1116,14 @@ const double customparam_st0[]=
 	0,  1,
 };*/
 int customparam_sel=12;
-double customparam_ct[12]={0}, customparam_st[12]={0};
+double customparam_ct[12]={0};
+double allcustomparam_st[12*3]={0};
+int customparam_st_ch=0;
 int customparam_clamp[2]={-128, 127};
 void customtransforms_resetparams()
 {
 	memset(customparam_ct, 0, sizeof(customparam_ct));
-	memset(customparam_st, 0, sizeof(customparam_st));
+	memset(allcustomparam_st, 0, sizeof(allcustomparam_st));
 	//memcpy(customparam_ct, customparam_ct0, sizeof(customparam_ct));
 	//memcpy(customparam_st, customparam_st0, sizeof(customparam_st));
 }
@@ -1494,6 +1498,589 @@ double opt_causal_reach2(unsigned char *buf, int iw, int ih, int kc, double *x, 
 	addhalf(buf, iw, ih, 3, 4);
 	rmse/=nupdates;
 	return rmse;
+}
+
+
+	#define LOGIC_WEIGHTED_AVERAGE1
+	#define LOGIC_WEIGHTED_AVERAGE2
+
+short logic_params[LOGIC_TOTALPARAMS]={0};
+void pred_logic_prealloc(const char *src, int iw, int ih, int kc, int fwd, char *dst, const short *params)//params are fixed 3.12 bit
+{
+	const char *pixels=fwd?src:dst, *errors=fwd?dst:src;
+	int idx;
+	long long pred=0;
+	for(int ky=0;ky<ih;++ky)
+	{
+		for(int kx=0;kx<iw;++kx)
+		{
+			//fixed 19.12 bit
+			int nb[LOGIC_NNB*2]=
+			{
+#define LOAD(BUF, XO, YO) (unsigned)(kx+XO)<(unsigned)iw&&(unsigned)(ky+YO)<(unsigned)ih?src[(iw*(ky+YO)+kx+XO)<<2|kc]<<12:0
+				LOAD(pixels, -2, -2),
+				LOAD(pixels, -1, -2),
+				LOAD(pixels,  0, -2),
+				LOAD(pixels,  1, -2),
+				LOAD(pixels,  2, -2),
+				LOAD(pixels, -2, -1),
+				LOAD(pixels, -1, -1),
+				LOAD(pixels,  0, -1),
+				LOAD(pixels,  1, -1),
+				LOAD(pixels,  2, -1),
+				LOAD(pixels, -2,  0),
+				LOAD(pixels, -1,  0),
+
+				LOAD(errors, -2, -2),
+				LOAD(errors, -1, -2),
+				LOAD(errors,  0, -2),
+				LOAD(errors,  1, -2),
+				LOAD(errors,  2, -2),
+				LOAD(errors, -2, -1),
+				LOAD(errors, -1, -1),
+				LOAD(errors,  0, -1),
+				LOAD(errors,  1, -1),
+				LOAD(errors,  2, -1),
+				LOAD(errors, -2,  0),
+				LOAD(errors, -1,  0),
+#undef  LOAD
+			};
+			int temp[LOGIC_NF0]={0};
+			const short *lastrow=params+LOGIC_ROWPARAMS*LOGIC_NF0;
+#ifdef LOGIC_WEIGHTED_AVERAGE1
+			for(int kc=0;kc<LOGIC_NF0;++kc)
+			{
+				const short *row=params+LOGIC_ROWPARAMS*kc;
+				long long
+					sum=row[LOGIC_NNB*2],//bias
+					wsum=0;
+				for(int kx=0;kx<24;++kx)
+				{
+					sum+=(long long)nb[kx]*row[kx];
+					wsum+=row[kx];
+				}
+				if(wsum)
+					temp[kc]=(int)(sum/wsum);
+				else
+					temp[kc]=(int)((sum+(1LL<<11))>>12);
+			}
+#else
+			for(int kc=0;kc<LOGIC_NF0;++kc)
+			{
+				const short *row=params+LOGIC_ROWPARAMS*kc;
+				long long sum=row[LOGIC_NNB*2];//bias
+				for(int kx=0;kx<24;++kx)
+					sum+=(long long)nb[kx]*row[kx];
+				temp[kc]=(int)((sum+(1LL<<11))>>12);
+			}
+#endif
+			for(int kc=0;kc<LOGIC_NF1;++kc)
+			{
+				int cond=temp[kc+LOGIC_NF1*2LL];
+				cond=CLAMP(-0x1000, cond, 0x1000);
+				temp[kc]=temp[kc]+(int)((long long)(temp[kc+LOGIC_NF1]-temp[kc])*cond>>12);
+			}
+
+			pred=0;
+#ifdef LOGIC_WEIGHTED_AVERAGE2
+			long long wsum=0;
+			for(int kc=0;kc<LOGIC_NF1;++kc)
+			{
+				pred+=(long long)temp[kc]*lastrow[kc];
+				wsum+=lastrow[kc];
+			}
+			if(wsum)
+				pred/=wsum;
+			else
+				pred>>=12;
+			pred+=1LL<<11;//rounding
+			pred>>=12;
+#else
+			for(int kc=0;kc<LOGIC_NF0;++kc)
+				pred+=(long long)temp[kc]*lastrow[kc];
+			pred+=1LL<<27;//rounding
+			pred>>=28;
+#endif
+			pred=CLAMP(-128, pred, 128);
+
+			idx=(iw*ky+kx)<<2|kc;
+			if(fwd)
+				dst[idx]=(char)(src[idx]-pred);
+			else
+				dst[idx]=(char)(src[idx]+pred);
+		}
+	}
+}
+void pred_logic_apply(char *buf, int iw, int ih, const short *allparams, int fwd)
+{
+	int res=iw*ih;
+	char *temp=(char*)malloc((size_t)res<<2);
+	if(!temp)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	memcpy(temp, buf, (size_t)res<<2);//copy alpha
+	pred_logic_prealloc(buf, iw, ih, 0, fwd, temp, allparams);
+	pred_logic_prealloc(buf, iw, ih, 1, fwd, temp, allparams+LOGIC_PARAMS_PER_CH);
+	pred_logic_prealloc(buf, iw, ih, 2, fwd, temp, allparams+LOGIC_PARAMS_PER_CH*2);
+	memcpy(buf, temp, (size_t)res<<2);
+	free(temp);
+}
+typedef struct LogicInfoStruct
+{
+	double loss;
+	short params[LOGIC_PARAMS_PER_CH];
+} LogicInfo;
+int cmp_logicinfo(const void *left, const void *right)
+{
+	LogicInfo const *a, *b;
+
+	a=(LogicInfo const*)left;
+	b=(LogicInfo const*)right;
+	return (a->loss>b->loss)-(a->loss<b->loss);//ascending order
+}
+typedef struct LogicThreadInfoStruct
+{
+	char *buf;//not const for free()
+	int iw, ih, kc;
+	short *channel_params;
+	float progressbar;//goes from 0 to 100
+	float t_elapsed;//seconds
+	float loss;
+} LogicThreadInfo;
+LogicThreadInfo logic_info={0};
+HANDLE logic_hthread=0, ghMutex=0;
+void logic_thread_update(LogicThreadInfo *info, const short *params, float progressbar, float t_start, float loss, const char *buf)
+{
+	int waitstatus=WaitForSingleObject(ghMutex, INFINITE);
+	switch(waitstatus)
+	{
+	case WAIT_OBJECT_0:
+		if(params)
+			memcpy(info->channel_params, params, LOGIC_PARAMS_PER_CH*sizeof(short));
+		if(buf)
+		{
+			int res=info->iw*info->ih;
+			for(int k=0;k<res;++k)
+			{
+				unsigned char sym=buf[k<<2|info->kc]+128;
+				image[k<<2  ]=sym;
+				image[k<<2|1]=sym;
+				image[k<<2|2]=sym;
+			}
+		}
+		//if(buf)
+		//	memcpy(image, buf, (size_t)info->iw*info->ih<<2);
+		info->progressbar=progressbar;
+		info->t_elapsed=(float)((time_ms()-t_start)*0.001);
+		info->loss=loss;
+		ReleaseMutex(ghMutex);
+		break;
+	case WAIT_ABANDONED:
+		break;
+	}
+}
+double logic_calcloss(short *params, LogicThreadInfo *info, char *temp, int *hist, float progressbar, float t_start)
+{
+	int res=info->iw*info->ih;
+	pred_logic_prealloc(info->buf, info->iw, info->ih, info->kc, 1, temp, params);
+
+	memset(hist, 0, 256*sizeof(int));
+	for(int k=0;k<res;++k)
+	{
+		unsigned char sym=temp[k<<2|info->kc];
+		++hist[sym];
+	}
+	double entropy=0;
+	for(int sym=0;sym<256;++sym)
+	{
+		int freq=hist[sym];
+		if(freq)
+		{
+			double prob=(double)freq/res;
+			double bitsize=-log2(prob);
+			if(isinf(bitsize))
+				LOG_ERROR("loss error");
+			entropy+=prob*bitsize;
+		}
+	}
+	double invCR=entropy/8;
+	logic_thread_update(info, params, progressbar, t_start, (float)invCR, temp);
+	return invCR;
+}
+unsigned __stdcall logic_opt_thread(LogicThreadInfo *info)
+{
+	double t_start=time_ms();
+	int res=info->iw*info->ih;
+	char *temp=(char*)malloc((size_t)res<<2);
+	int *hist=malloc(256*sizeof(int));
+	const int nv=LOGIC_PARAMS_PER_CH, np=LOGIC_PARAMS_PER_CH+1;
+	LogicInfo *params=(LogicInfo*)malloc((np+3LL)*sizeof(LogicInfo));
+	if(!temp||!hist||!params)
+	{
+		LOG_ERROR("Allocation error");
+		return 1;
+	}
+	LogicInfo
+		*worst=params+np-1,
+		*x0=params+np,
+		*xr=x0+1,
+		*x2=xr+1;
+	
+#define CALC_LOSS(X, P) (X)->loss=logic_calcloss((X)->params, info, temp, hist, P, (float)t_start)
+	
+	//initialize N+1 param sets
+	srand((unsigned)__rdtsc());
+	for(int kp=0;kp<np;++kp)
+	{
+		LogicInfo *x=params+kp;
+		//info->progressbar=(float)(kp+1)/np;
+		//set_window_title("C%d it 0/100: %lf, elapsed %lf, %d/%d", kc, params->loss, (time_ms()-t_start)*0.001, kp, np);
+		if(kp)
+		{
+			for(int k2=0;k2<nv;++k2)
+				x->params[k2]=info->channel_params[k2]+(rand()&0x1FFF)-0x1000;
+		}
+		else
+			memcpy(x->params, info->channel_params, sizeof(x->params));
+		CALC_LOSS(x, (float)(kp+1)/np);
+		//logic_thread_update(info, kp?0:params->params, (float)params->loss, (float)(kp+1)/np, temp);
+	}
+	double loss0=params->loss;
+	const int alpha=0x10000, gamma=0x20000, rho=0x8000, sigma=0x8000;
+	for(int ki=0;ki<100;++ki)
+	{
+		//1  order
+		isort(params, np, sizeof(LogicInfo), cmp_logicinfo);
+		
+		//logic_thread_update(info, params->params, (float)params->loss, (float)(ki+1), temp);
+		//set_window_title("C%d it %d/100: %lf, elapsed %lf", kc, ki+1, params->loss, (time_ms()-t_start)*0.001);
+		//memcpy(channel_params, params->params, sizeof(params->params));
+		//io_render();
+
+		//2  get the centroid of all points except worst
+		memset(x0->params, 0, sizeof(x0->params));
+		for(int k2=0;k2<nv;++k2)//exclude the worst point
+		{
+			LogicInfo *x=params+k2;
+			for(int k3=0;k3<nv;++k3)
+				x0->params[k3]+=x->params[k3];
+		}
+		for(int k2=0;k2<nv;++k2)
+			x0->params[k2]/=nv;
+
+		//3  reflection
+		for(int k2=0;k2<nv;++k2)
+			xr->params[k2]=x0->params[k2]+(int)((long long)(x0->params[k2]-worst->params[k2])*alpha>>16);
+		CALC_LOSS(xr, (float)(ki+1));
+		if(xr->loss>params->loss&&xr->loss<worst[-1].loss)//if xr is between best and 2nd worst, replace worst with xr
+		{
+			memcpy(worst, xr, sizeof(LogicInfo));
+			continue;
+		}
+
+		//4  expansion
+		if(xr->loss<params->loss)//if xr is best so far
+		{
+			for(int k2=0;k2<nv;++k2)
+				x2->params[k2]=x0->params[k2]+(int)((long long)(xr->params[k2]-x0->params[k2])*gamma>>16);
+			CALC_LOSS(x2, (float)(ki+1));
+			if(x2->loss<xr->loss)
+				memcpy(worst, x2, sizeof(LogicInfo));
+			else
+				memcpy(worst, xr, sizeof(LogicInfo));
+			continue;
+		}
+
+		//5  contraction
+		if(xr->loss<worst->loss)//if xr is between 2nd worst and worst
+		{
+			for(int k2=0;k2<nv;++k2)
+				x2->params[k2]=x0->params[k2]+(int)((long long)(xr->params[k2]-x0->params[k2])*rho>>16);
+			CALC_LOSS(x2, (float)(ki+1));
+			if(x2->loss<xr->loss)//if contracted point is better than xr
+			{
+				memcpy(worst, x2, sizeof(LogicInfo));
+				continue;
+			}
+		}
+		else
+		{
+			for(int k2=0;k2<nv;++k2)
+				x2->params[k2]=x0->params[k2]+(int)((long long)(worst->params[k2]-x0->params[k2])*rho>>16);
+			CALC_LOSS(x2, (float)(ki+1));
+			if(x2->loss<worst->loss)//if contracted point is better than xr
+			{
+				memcpy(worst, x2, sizeof(LogicInfo));
+				continue;
+			}
+		}
+
+		//6  shrink
+		for(int kp=1;kp<np;++kp)
+		{
+			//logic_thread_update(info, 0, (float)params->loss, ki+1+(float)(kp+1)/np, temp);
+			//info->progressbar=ki+1+(float)(kp+1)/np;
+			//set_window_title("C%d it %d/100: %lf, elapsed %lf, %d/%d", kc, ki+1, params->loss, (time_ms()-t_start)*0.001, kp, np);
+			LogicInfo *x=params+kp;
+			for(int k2=0;k2<nv;++k2)
+				x->params[k2]=params->params[k2]+(int)((long long)(x->params[k2]-params->params[k2])*sigma>>16);
+			CALC_LOSS(x, ki+1+(float)(kp+1)/np);
+		}
+	}
+	CALC_LOSS(params, 100);
+	//info->progressbar=101;
+#undef CALC_LOSS
+	//if(params->loss>loss0)
+	//{
+	//	messagebox(MBOX_OK, "Error", "Loss has increased");
+	//}
+	//logic_thread_update(info, 0, (float)params->loss, 100, temp);
+	//memcpy(info->channel_params, params->params, sizeof(params->params));
+
+	free(params);
+	free(temp);
+	free(hist);
+	info->progressbar=-1;
+	return 0;
+}
+void logic_opt_checkonthread(float *info)
+{
+	float progressbar=-1, t_elapsed=-1, loss=-1;
+	if(logic_hthread)
+	{
+		int waitstatus=WaitForSingleObject(ghMutex, INFINITE);
+		switch(waitstatus)
+		{
+		case WAIT_OBJECT_0:
+			progressbar=logic_info.progressbar;
+			t_elapsed=logic_info.t_elapsed;
+			loss=logic_info.loss;
+			if(progressbar<0)
+			{
+				CloseHandle(logic_hthread);
+				logic_hthread=0;
+				CloseHandle(ghMutex);
+				ghMutex=0;
+				free(logic_info.buf);
+				memset(&logic_info, 0, sizeof(logic_info));
+				update_image();
+			}
+			else
+				ReleaseMutex(ghMutex);
+			break;
+		case WAIT_ABANDONED:
+			break;
+		}
+	}
+	if(info)
+	{
+		info[0]=progressbar;
+		info[1]=t_elapsed;
+		info[2]=loss;
+	}
+}
+void logic_opt(char *buf, int iw, int ih, int kc, short *channel_params)
+{
+    ghMutex=CreateMutexA(0, 0, 0);//default security parameters, initially not owned, unnamed
+	if(!ghMutex)
+	{
+		LOG_ERROR("Thread error");
+		return;
+	}
+	logic_info.buf=buf;
+	logic_info.iw=iw;
+	logic_info.ih=ih;
+	logic_info.kc=kc;
+	logic_info.channel_params=channel_params;
+	logic_info.progressbar=0;
+	logic_hthread=(HANDLE)_beginthreadex(0, 0, logic_opt_thread, &logic_info, 0, 0);
+	if(!logic_hthread)
+		LOG_ERROR("Thread error");
+}
+
+#define O2_NPARAMS (_countof(allcustomparam_st)/3)
+typedef struct OptCR2InfoStruct
+{
+	double loss, params[O2_NPARAMS];
+} OptCR2Info;
+int cmp_optcr2info(const void *left, const void *right)
+{
+	OptCR2Info const *a, *b;
+
+	a=(OptCR2Info const*)left;
+	b=(OptCR2Info const*)right;
+	return (a->loss>b->loss)-(a->loss<b->loss);//ascending order
+}
+double opt_cr2_calcloss(double *params, const char *buf, int iw, int ih, int kc, char *temp, int *hist)
+{
+	int res=iw*ih;
+	//memcpy(allcustomparam_st+12*customparam_st_ch, params, sizeof(allcustomparam_st)/3);
+	memcpy(temp, buf, (size_t)res<<2);
+	pred_custom_fwd(temp+kc, iw, ih, 1, 4, params);
+
+	memset(hist, 0, 256*sizeof(int));
+	for(int k=0;k<res;++k)
+	{
+		unsigned char sym=temp[k<<2|kc];
+		++hist[sym];
+	}
+	double entropy=0;
+	for(int sym=0;sym<256;++sym)
+	{
+		int freq=hist[sym];
+		if(freq)
+		{
+			double prob=(double)freq/res;
+			entropy-=prob*log2(prob);
+		}
+	}
+	double invCR=entropy/8;
+	//x->loss=invCR;
+	return invCR;
+}
+void opt_cr2_v2(const char *buf, int iw, int ih, int kc)
+{
+	//double params[_countof(customparam_st)];
+	//memcpy(params, customparam_st, sizeof(params));//save params
+	int res=iw*ih;
+	char *temp=(char*)malloc((size_t)res<<2);
+	int *hist=malloc(256*sizeof(int));
+	const int nv=O2_NPARAMS, np=O2_NPARAMS+1;
+	OptCR2Info *params=(OptCR2Info*)malloc((np+3LL)*sizeof(OptCR2Info));
+	if(!temp||!hist||!params)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	OptCR2Info
+		*worst=params+np-1,
+		*x0=params+np,
+		*xr=x0+1,
+		*x2=xr+1;
+	
+	double initial_step=0.1;
+#define CALC_LOSS(X) (X)->loss=opt_cr2_calcloss((X)->params, buf, iw, ih, kc, temp, hist)
+	
+	//initialize N+1 param sets
+	srand((unsigned)__rdtsc());
+	for(int kp=0;kp<np;++kp)
+	{
+		OptCR2Info *x=params+kp;
+		if(kp)
+		{
+			for(int k2=0;k2<nv;++k2)
+				x->params[k2]=allcustomparam_st[12*kc+k2]+((double)rand()-((RAND_MAX>>1)+1))*(initial_step/RAND_MAX);
+		}
+		else
+			memcpy(x->params, allcustomparam_st+12*kc, sizeof(x->params));
+		CALC_LOSS(x);
+		//x->loss=opt_cr2_calcloss(x->params, buf, iw, ih, kc, temp, hist);
+	}
+	double loss0=params->loss;
+	const double alpha=1, gamma=2, rho=0.5, sigma=0.5;
+	for(int ki=0;ki<100;++ki)
+	{
+		//1  order
+		isort(params, np, sizeof(OptCR2Info), cmp_optcr2info);
+		
+		set_window_title("it %d/100: %lf", ki+1, params->loss);
+
+		//2  get the centroid of all points except worst
+		memset(x0->params, 0, sizeof(x0->params));
+		for(int k2=0;k2<nv;++k2)//exclude the worst point
+		{
+			OptCR2Info *x=params+k2;
+			for(int k3=0;k3<nv;++k3)
+				x0->params[k3]+=x->params[k3];
+		}
+		for(int k2=0;k2<nv;++k2)
+			x0->params[k2]/=nv;
+
+		//3  reflection
+		for(int k2=0;k2<nv;++k2)
+			xr->params[k2]=x0->params[k2]+(x0->params[k2]-worst->params[k2])*alpha;
+		CALC_LOSS(xr);
+		if(xr->loss>params->loss&&xr->loss<worst[-1].loss)//if xr is between best and 2nd worst, replace worst with xr
+		{
+			memcpy(worst, xr, sizeof(OptCR2Info));
+			continue;
+		}
+
+		//4  expansion
+		if(xr->loss<params->loss)//if xr is best so far
+		{
+			for(int k2=0;k2<nv;++k2)
+				x2->params[k2]=x0->params[k2]+(xr->params[k2]-x0->params[k2])*gamma;
+			CALC_LOSS(x2);
+			if(x2->loss<xr->loss)
+				memcpy(worst, x2, sizeof(OptCR2Info));
+			else
+				memcpy(worst, xr, sizeof(OptCR2Info));
+			continue;
+		}
+
+		//5  contraction
+		if(xr->loss<worst->loss)//if xr is between 2nd worst and worst
+		{
+			for(int k2=0;k2<nv;++k2)
+				x2->params[k2]=x0->params[k2]+(xr->params[k2]-x0->params[k2])*rho;
+			CALC_LOSS(x2);
+			if(x2->loss<xr->loss)//if contracted point is better than xr
+			{
+				memcpy(worst, x2, sizeof(OptCR2Info));
+				continue;
+			}
+		}
+		else
+		{
+			for(int k2=0;k2<nv;++k2)
+				x2->params[k2]=x0->params[k2]+(worst->params[k2]-x0->params[k2])*rho;
+			CALC_LOSS(x2);
+			if(x2->loss<worst->loss)//if contracted point is better than xr
+			{
+				memcpy(worst, x2, sizeof(OptCR2Info));
+				continue;
+			}
+		}
+
+		//6  shrink
+		for(int kp=1;kp<np;++kp)
+		{
+			OptCR2Info *x=params+kp;
+			for(int k2=0;k2<nv;++k2)
+				x->params[k2]=params->params[k2]+(x->params[k2]-params->params[k2])*sigma;
+			CALC_LOSS(x2);
+		}
+	}
+#undef CALC_LOSS
+	if(params->loss>loss0)
+	{
+		messagebox(MBOX_OK, "Error", "Loss has increased");
+	}
+	memcpy(allcustomparam_st+12*kc, params->params, sizeof(allcustomparam_st)/3);
+
+#if 0
+	double l1, losses[_countof(customparam_st)<<1];
+	double steps[]={2, 1, 0.5, 0.25, 0.125, 0.0625, 0.03125, 0.015625, 0.0078125, 0.00390625};
+	
+	srand((unsigned)__rdtsc());
+	l1=opt_cr2_calcloss(buf, iw, ih, kc, temp, hist);
+	for(int ks=0;ks<_countof(steps);++ks)
+	{
+		double step=steps[rand()%_countof(steps)];
+		for(int kp=0;kp<_countof(losses);++kp)
+		{
+			customparam_st[kp>>1]+=kp&1?-step:step;
+			losses[kp]=opt_cr2_calcloss(buf, iw, ih, kc, temp, hist);
+			customparam_st[kp>>1]-=kp&1?-step:step;
+		}
+	}
+#endif
+	free(params);
+	free(temp);
+	free(hist);
 }
 
 #define O2_N 72
@@ -3736,6 +4323,31 @@ void pred_w2_opt_v2(char *buf2, int iw, int ih, short *params, int loud)
 	free(buf3);
 	set_window_title("%s", title0);//
 }
+void pred_jmj_apply(char *buf, int iw, int ih, int fwd)
+{
+	int res=iw*ih;
+	int *temp=(int*)malloc((size_t)iw*(PW2_NPRED+1)*2*sizeof(int));
+	char *buf2=(char*)malloc((size_t)res<<2);
+	if(!temp||!buf2)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	
+	pred_jxl_prealloc(buf, iw, ih, 0, jxlparams_i16        , fwd, buf2, temp);
+	pred_w2_prealloc (buf, iw, ih, 1, pw2_params+PW2_NPARAM, fwd, buf2, temp);
+	pred_jxl_prealloc(buf, iw, ih, 2, jxlparams_i16+22     , fwd, buf2, temp);
+
+	for(int k=0;k<res;++k)
+	{
+		buf[k<<2  ]=buf2[k<<2  ];
+		buf[k<<2|1]=buf2[k<<2|1];
+		buf[k<<2|2]=buf2[k<<2|2];
+	}
+
+	free(temp);
+	free(buf2);
+}
 
 short jxlparams_i16[33]=//signed fixed 7.8 bit
 {
@@ -4045,6 +4657,7 @@ void pred_jxl_apply(char *buf, int iw, int ih, short *allparams, int fwd)
 	free(buf2);
 }
 
+#if 0
 void pred_jxl(char *buf, int iw, int ih, int nch, int bytestride, int fwd)
 {
 	if(!(customparam_st[0]+customparam_st[1]+customparam_st[2]+customparam_st[3]))//reset params if all weights are zero
@@ -4189,6 +4802,7 @@ void pred_jxl(char *buf, int iw, int ih, int nch, int bytestride, int fwd)
 	free(pred_errors[3]);
 	free(error);
 }
+#endif
 
 
 int sortnb_cases[SORTNBCASES];
@@ -4378,7 +4992,7 @@ void pred_grad_inv(char *buf, int iw, int ih, int nch, int bytestride)
 	}
 }
 
-int  predict_custom(const char *buf, int iw, int kx, int ky, int idx, int bytestride, int rowlen)
+int  predict_custom(const char *buf, int iw, int kx, int ky, int idx, int bytestride, int rowlen, const double *params)
 {
 	char comp[]=
 	{
@@ -4399,56 +5013,53 @@ int  predict_custom(const char *buf, int iw, int kx, int ky, int idx, int bytest
 	};
 
 	char pred=(char)(
-
-		//leakyReLU1(//
-
-		customparam_st[ 0]*comp[ 0]+
-		customparam_st[ 1]*comp[ 1]+
-		customparam_st[ 2]*comp[ 2]+
-		customparam_st[ 3]*comp[ 3]+
-		customparam_st[ 4]*comp[ 4]+
-		customparam_st[ 5]*comp[ 5]+
-		customparam_st[ 6]*comp[ 6]+
-		customparam_st[ 7]*comp[ 7]+
-		customparam_st[ 8]*comp[ 8]+
-		customparam_st[ 9]*comp[ 9]+
-		customparam_st[10]*comp[10]+
-		customparam_st[11]*comp[11]
-
-		//+customparam_ct[11])//
+		params[ 0]*comp[ 0]+
+		params[ 1]*comp[ 1]+
+		params[ 2]*comp[ 2]+
+		params[ 3]*comp[ 3]+
+		params[ 4]*comp[ 4]+
+		params[ 5]*comp[ 5]+
+		params[ 6]*comp[ 6]+
+		params[ 7]*comp[ 7]+
+		params[ 8]*comp[ 8]+
+		params[ 9]*comp[ 9]+
+		params[10]*comp[10]+
+		params[11]*comp[11]
 	);
 	
 	pred=CLAMP(customparam_clamp[0], pred, customparam_clamp[1]);
 	return pred;
 }
-void pred_custom_fwd(char *buf, int iw, int ih, int nch, int bytestride)
+void pred_custom_fwd(char *buf, int iw, int ih, int nch, int bytestride, const double *params)
 {
 	int rowlen=iw*bytestride;
 	for(int kc=0;kc<nch;++kc)
 	{
+		const double *p2=params+12*kc;
 		int idx=(iw*ih-1)*bytestride+kc;
 		for(int ky=ih-1;ky>=0;--ky)
 		{
 			for(int kx=iw-1;kx>=0;--kx, idx-=bytestride)
 			{
-				char pred=predict_custom(buf, iw, kx, ky, idx, bytestride, rowlen);
+				char pred=predict_custom(buf, iw, kx, ky, idx, bytestride, rowlen, p2);
 
 				buf[idx]-=pred;
 			}
 		}
 	}
 }
-void pred_custom_inv(char *buf, int iw, int ih, int nch, int bytestride)
+void pred_custom_inv(char *buf, int iw, int ih, int nch, int bytestride, const double *params)
 {
 	int rowlen=iw*bytestride;
 	for(int kc=0;kc<nch;++kc)
 	{
+		const double *p2=params+12*kc;
 		int idx=kc;
 		for(int ky=0;ky<ih;++ky)
 		{
 			for(int kx=0;kx<iw;++kx, idx+=bytestride)
 			{
-				char pred=predict_custom(buf, iw, kx, ky, idx, bytestride, rowlen);
+				char pred=predict_custom(buf, iw, kx, ky, idx, bytestride, rowlen, p2);
 
 				buf[idx]+=pred;
 			}
@@ -4553,7 +5164,8 @@ void dwt2d_grad_inv(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end
 	}
 }
 
-void dwt1d_custom_fwd(char *buffer, int count, int stride, char *b2)
+double customdwtparams[12]={0};
+void dwt1d_custom_fwd(char *buffer, int count, int stride, char *b2, const double *params)
 {
 	int nodd=count>>1, extraeven=count&1;
 	char *odd=b2, *even=b2+nodd;
@@ -4567,41 +5179,41 @@ void dwt1d_custom_fwd(char *buffer, int count, int stride, char *b2)
 		even[nodd]=buffer[stride*(count-1)];
 
 
-	even[0]-=(char)floor(odd[0]*(customparam_st[0]+customparam_st[5]));
+	even[0]-=(char)floor(odd[0]*(params[0]+params[5]));
 	for(int k=1;k<nodd;++k)//predict
-		even[k]-=(char)floor(odd[k-1]*customparam_st[0]+odd[k]*customparam_st[5]);
+		even[k]-=(char)floor(odd[k-1]*params[0]+odd[k]*params[5]);
 	if(extraeven)
-		even[nodd]-=(char)floor(odd[nodd-1]*(customparam_st[0]+customparam_st[5]));
+		even[nodd]-=(char)floor(odd[nodd-1]*(params[0]+params[5]));
 	
 	for(int k=0;k<nodd-!extraeven;++k)//update
-		odd[k]+=(char)floor(even[k]*customparam_st[1]+even[k+1]*customparam_st[6]);
+		odd[k]+=(char)floor(even[k]*params[1]+even[k+1]*params[6]);
 	if(!extraeven)
-		odd[nodd-1]+=(char)floor(even[nodd-1]*(customparam_st[1]+customparam_st[6]));
+		odd[nodd-1]+=(char)floor(even[nodd-1]*(params[1]+params[6]));
 
 
-	even[0]-=(char)(odd[0]*(customparam_st[2]+customparam_st[7]));
+	even[0]-=(char)(odd[0]*(params[2]+params[7]));
 	for(int k=1;k<nodd;++k)//predict
-		even[k]-=(char)floor(odd[k-1]*customparam_st[2]+odd[k]*customparam_st[7]);
+		even[k]-=(char)floor(odd[k-1]*params[2]+odd[k]*params[7]);
 	if(extraeven)
-		even[nodd]-=(char)floor(odd[nodd-1]*(customparam_st[2]+customparam_st[7]));
+		even[nodd]-=(char)floor(odd[nodd-1]*(params[2]+params[7]));
 	
 	for(int k=0;k<nodd-!extraeven;++k)//update
-		odd[k]+=(char)floor(even[k]*customparam_st[3]+even[k+1]*customparam_st[8]);
+		odd[k]+=(char)floor(even[k]*params[3]+even[k+1]*params[8]);
 	if(!extraeven)
-		odd[nodd-1]+=(char)floor(even[nodd-1]*(customparam_st[3]+customparam_st[8]));
+		odd[nodd-1]+=(char)floor(even[nodd-1]*(params[3]+params[8]));
 
 
-	even[0]-=(char)floor(odd[0]*(customparam_st[4]+customparam_st[9]));
+	even[0]-=(char)floor(odd[0]*(params[4]+params[9]));
 	for(int k=1;k<nodd;++k)//predict
-		even[k]-=(char)floor(odd[k-1]*customparam_st[4]+odd[k]*customparam_st[9]);
+		even[k]-=(char)floor(odd[k-1]*params[4]+odd[k]*params[9]);
 	if(extraeven)
-		even[nodd]-=(char)floor(odd[nodd-1]*(customparam_st[4]+customparam_st[9]));
+		even[nodd]-=(char)floor(odd[nodd-1]*(params[4]+params[9]));
 
 
 	for(int k=0, ks=0;k<count;++k, ks+=stride)
 		buffer[ks]=b2[k];
 }
-void dwt1d_custom_inv(char *buffer, int count, int stride, char *b2)
+void dwt1d_custom_inv(char *buffer, int count, int stride, char *b2, const double *params)
 {
 	int nodd=count>>1, extraeven=count&1;
 	char *odd=b2, *even=b2+nodd;
@@ -4609,35 +5221,35 @@ void dwt1d_custom_inv(char *buffer, int count, int stride, char *b2)
 	for(int k=0, ks=0;k<count;++k, ks+=stride)
 		b2[k]=buffer[ks];
 	
-	even[0]+=(char)floor(odd[0]*(customparam_st[4]+customparam_st[9]));
+	even[0]+=(char)floor(odd[0]*(params[4]+params[9]));
 	for(int k=1;k<nodd;++k)//un-predict
-		even[k]+=(char)floor(odd[k-1]*customparam_st[4]+odd[k]*customparam_st[9]);
+		even[k]+=(char)floor(odd[k-1]*params[4]+odd[k]*params[9]);
 	if(extraeven)
-		even[nodd]+=(char)floor(odd[nodd-1]*(customparam_st[4]+customparam_st[9]));
+		even[nodd]+=(char)floor(odd[nodd-1]*(params[4]+params[9]));
 
 	
 	for(int k=0;k<nodd-!extraeven;++k)//un-update
-		odd[k]-=(char)floor(even[k]*customparam_st[3]+even[k+1]*customparam_st[8]);
+		odd[k]-=(char)floor(even[k]*params[3]+even[k+1]*params[8]);
 	if(!extraeven)
-		odd[nodd-1]-=(char)floor(even[nodd-1]*(customparam_st[3]+customparam_st[8]));
+		odd[nodd-1]-=(char)floor(even[nodd-1]*(params[3]+params[8]));
 	
-	even[0]+=(char)floor(odd[0]*(customparam_st[2]+customparam_st[7]));
+	even[0]+=(char)floor(odd[0]*(params[2]+params[7]));
 	for(int k=1;k<nodd;++k)//un-predict
-		even[k]+=(char)floor(odd[k-1]*customparam_st[2]+odd[k]*customparam_st[7]);
+		even[k]+=(char)floor(odd[k-1]*params[2]+odd[k]*params[7]);
 	if(extraeven)
-		even[nodd]+=(char)floor(odd[nodd-1]*(customparam_st[2]+customparam_st[7]));
+		even[nodd]+=(char)floor(odd[nodd-1]*(params[2]+params[7]));
 
 	
 	for(int k=0;k<nodd-!extraeven;++k)//un-update
-		odd[k]-=(char)floor(even[k]*customparam_st[1]+even[k+1]*customparam_st[6]);
+		odd[k]-=(char)floor(even[k]*params[1]+even[k+1]*params[6]);
 	if(!extraeven)
-		odd[nodd-1]-=(char)floor(even[nodd-1]*(customparam_st[1]+customparam_st[6]));
+		odd[nodd-1]-=(char)floor(even[nodd-1]*(params[1]+params[6]));
 	
-	even[0]+=(char)floor(odd[0]*(customparam_st[0]+customparam_st[5]));
+	even[0]+=(char)floor(odd[0]*(params[0]+params[5]));
 	for(int k=1;k<nodd;++k)//un-predict
-		even[k]+=(char)floor(odd[k-1]*customparam_st[0]+odd[k]*customparam_st[5]);
+		even[k]+=(char)floor(odd[k-1]*params[0]+odd[k]*params[5]);
 	if(extraeven)
-		even[nodd]+=(char)floor(odd[nodd-1]*(customparam_st[0]+customparam_st[5]));
+		even[nodd]+=(char)floor(odd[nodd-1]*(params[0]+params[5]));
 
 
 	for(int k=0, ks=0;k<nodd;++k, ks+=stride<<1)//inv lazy wavelet: join even & odd
@@ -4648,7 +5260,7 @@ void dwt1d_custom_inv(char *buffer, int count, int stride, char *b2)
 	if(extraeven)
 		buffer[stride*(count-1)]=even[nodd];
 }
-void dwt2d_custom_fwd(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp)
+void dwt2d_custom_fwd(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp, const double *params)
 {
 	if(sizes_start>=sizes_end-1)
 		return;
@@ -4658,19 +5270,19 @@ void dwt2d_custom_fwd(char *buffer, DWTSize *sizes, int sizes_start, int sizes_e
 		int w2=sizes[it].w, h2=sizes[it].h;
 
 		for(int ky=0;ky<h2;++ky)//horizontal DWT
-			dwt1d_custom_fwd(buffer+rowlen*ky, w2, stride, temp);
+			dwt1d_custom_fwd(buffer+rowlen*ky, w2, stride, temp, params);
 
 		//save_channel(buffer, iw, ih, 4, "cdf53-stage%02dA.PNG", it);
 		//snprintf(g_buf, G_BUF_SIZE, "cdf53-stage%02dA.PNG", it);
 		//lodepng_encode_file(g_buf, buffer, iw, ih, LCT_RGBA, 8);
 
 		for(int kx=0;kx<w2;++kx)//vertical DWT
-			dwt1d_custom_fwd(buffer+stride*kx, h2, rowlen, temp);
+			dwt1d_custom_fwd(buffer+stride*kx, h2, rowlen, temp, params);
 		
 		//save_channel(buffer, iw, ih, 4, "cdf53-stage%02dB.PNG", it);
 	}
 }
-void dwt2d_custom_inv(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp)
+void dwt2d_custom_inv(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp, const double *params)
 {
 	if(sizes_start>=sizes_end-1)
 		return;
@@ -4680,14 +5292,14 @@ void dwt2d_custom_inv(char *buffer, DWTSize *sizes, int sizes_start, int sizes_e
 		int w2=sizes[it].w, h2=sizes[it].h;
 
 		for(int kx=0;kx<w2;++kx)//vertical IDWT
-			dwt1d_custom_inv(buffer+stride*kx, h2, rowlen, temp);
+			dwt1d_custom_inv(buffer+stride*kx, h2, rowlen, temp, params);
 
 		for(int ky=0;ky<h2;++ky)//horizontal IDWT
-			dwt1d_custom_inv(buffer+rowlen*ky, w2, stride, temp);
+			dwt1d_custom_inv(buffer+rowlen*ky, w2, stride, temp, params);
 	}
 }
 
-void dwt1d_exp_fwd(char *buffer, int count, int stride, char *b2)
+void dwt1d_exp_fwd(char *buffer, int count, int stride, char *b2, const double *paramsx12)
 {
 	int nodd=count>>1, extraeven=count&1;
 	char *odd=b2, *even=b2+nodd;
@@ -4715,11 +5327,11 @@ void dwt1d_exp_fwd(char *buffer, int count, int stride, char *b2)
 			next4=k+4<nodd?odd[k+4]:0,
 			next5=k+5<nodd?odd[k+5]:0;
 		char pred=(char)(0.5*floor(
-			customparam_st[0]*(prev+next)+
-			customparam_st[1]*(prev2+next2)+
-			customparam_st[2]*(prev3+next3)+
-			customparam_st[3]*(prev4+next4)+
-			customparam_st[4]*(prev5+next5)
+			paramsx12[0]*(prev+next)+
+			paramsx12[1]*(prev2+next2)+
+			paramsx12[2]*(prev3+next3)+
+			paramsx12[3]*(prev4+next4)+
+			paramsx12[4]*(prev5+next5)
 		));
 		even[k]-=pred;
 		//even[k]-=(9*(prev+next)+prev2+next2)>>4;
@@ -4738,11 +5350,11 @@ void dwt1d_exp_fwd(char *buffer, int count, int stride, char *b2)
 			next4=k+3<nodd+extraeven?even[k+3]:0,
 			next5=k+4<nodd+extraeven?even[k+4]:0;
 		char update=(char)(0.5*floor(
-			customparam_st[5]*(prev+next)+
-			customparam_st[6]*(prev2+next2)+
-			customparam_st[7]*(prev3+next3)+
-			customparam_st[8]*(prev4+next4)+
-			customparam_st[9]*(prev5+next5)
+			paramsx12[5]*(prev+next)+
+			paramsx12[6]*(prev2+next2)+
+			paramsx12[7]*(prev3+next3)+
+			paramsx12[8]*(prev4+next4)+
+			paramsx12[9]*(prev5+next5)
 		));
 		odd[k]+=update;
 	}
@@ -4751,7 +5363,7 @@ void dwt1d_exp_fwd(char *buffer, int count, int stride, char *b2)
 	for(int k=0, ks=0;k<count;++k, ks+=stride)
 		buffer[ks]=b2[k];
 }
-void dwt1d_exp_inv(char *buffer, int count, int stride, char *b2)
+void dwt1d_exp_inv(char *buffer, int count, int stride, char *b2, const double *paramsx12)
 {
 	int nodd=count>>1, extraeven=count&1;
 	char *odd=b2, *even=b2+nodd;
@@ -4774,11 +5386,11 @@ void dwt1d_exp_inv(char *buffer, int count, int stride, char *b2)
 			next4=k+3<nodd+extraeven?even[k+3]:0,
 			next5=k+4<nodd+extraeven?even[k+4]:0;
 		char update=(char)(0.5*floor(
-			customparam_st[5]*(prev+next)+
-			customparam_st[6]*(prev2+next2)+
-			customparam_st[7]*(prev3+next3)+
-			customparam_st[8]*(prev4+next4)+
-			customparam_st[9]*(prev5+next5)
+			paramsx12[5]*(prev+next)+
+			paramsx12[6]*(prev2+next2)+
+			paramsx12[7]*(prev3+next3)+
+			paramsx12[8]*(prev4+next4)+
+			paramsx12[9]*(prev5+next5)
 		));
 		odd[k]-=update;
 	}
@@ -4796,11 +5408,11 @@ void dwt1d_exp_inv(char *buffer, int count, int stride, char *b2)
 			next4=k+4<nodd?odd[k+4]:0,
 			next5=k+5<nodd?odd[k+5]:0;
 		char pred=(char)(0.5*floor(
-			customparam_st[0]*(prev+next)+
-			customparam_st[1]*(prev2+next2)+
-			customparam_st[2]*(prev3+next3)+
-			customparam_st[3]*(prev4+next4)+
-			customparam_st[4]*(prev5+next5)
+			paramsx12[0]*(prev+next)+
+			paramsx12[1]*(prev2+next2)+
+			paramsx12[2]*(prev3+next3)+
+			paramsx12[3]*(prev4+next4)+
+			paramsx12[4]*(prev5+next5)
 		));
 		even[k]+=pred;
 		//even[k]+=(9*(prev+next)+prev2+next2)>>4;
@@ -4815,7 +5427,7 @@ void dwt1d_exp_inv(char *buffer, int count, int stride, char *b2)
 	if(extraeven)
 		buffer[stride*(count-1)]=even[nodd];
 }
-void dwt2d_exp_fwd(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp)
+void dwt2d_exp_fwd(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp, const double *params)
 {
 	if(sizes_start>=sizes_end-1)
 		return;
@@ -4825,13 +5437,13 @@ void dwt2d_exp_fwd(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end,
 		int w2=sizes[it].w, h2=sizes[it].h;
 
 		for(int ky=0;ky<h2;++ky)//horizontal DWT
-			dwt1d_exp_fwd(buffer+rowlen*ky, w2, stride, temp);
+			dwt1d_exp_fwd(buffer+rowlen*ky, w2, stride, temp, params);
 
 		for(int kx=0;kx<w2;++kx)//vertical DWT
-			dwt1d_exp_fwd(buffer+stride*kx, h2, rowlen, temp);
+			dwt1d_exp_fwd(buffer+stride*kx, h2, rowlen, temp, params);
 	}
 }
-void dwt2d_exp_inv(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp)
+void dwt2d_exp_inv(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp, const double *params)
 {
 	if(sizes_start>=sizes_end-1)
 		return;
@@ -4841,10 +5453,10 @@ void dwt2d_exp_inv(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end,
 		int w2=sizes[it].w, h2=sizes[it].h;
 
 		for(int kx=0;kx<w2;++kx)//vertical IDWT
-			dwt1d_exp_inv(buffer+stride*kx, h2, rowlen, temp);
+			dwt1d_exp_inv(buffer+stride*kx, h2, rowlen, temp, params);
 
 		for(int ky=0;ky<h2;++ky)//horizontal IDWT
-			dwt1d_exp_inv(buffer+rowlen*ky, w2, stride, temp);
+			dwt1d_exp_inv(buffer+rowlen*ky, w2, stride, temp, params);
 	}
 }
 
@@ -5173,7 +5785,7 @@ void dwt1d_cdf53_fwd(char *buffer, int count, int stride, char *b2)
 	if(extraeven)
 		even[nodd]=buffer[stride*(count-1)];
 
-#if 1
+#if 0
 	if(fabs(customparam_st[0])<1.5)//linear
 	{
 		even[0]-=odd[0];
@@ -5267,28 +5879,16 @@ void dwt1d_cdf53_fwd(char *buffer, int count, int stride, char *b2)
 			odd[nodd-1]+=even[nodd-1]>>1;
 	}
 #endif
-#if 0
+
+	//orginal CDF 5/3 DWT
+#if 1
 	even[0]-=odd[0];
 	for(int k=1;k<nodd;++k)//linear predictor (deviation from linearity)
 		even[k]-=(odd[k-1]+odd[k])>>1;
 	if(extraeven)
 		even[nodd]-=odd[nodd-1];
 	
-	for(int k=0;k<nodd-!extraeven;++k)//update (smoothing?)
-		odd[k]+=(even[k]+even[k+1])>>2;
-	if(!extraeven)
-		odd[nodd-1]+=even[nodd-1]>>1;
-#endif
-
-	//orginal CDF 5/3 DWT
-#if 0
-	even[0]-=odd[0];
-	for(int k=1;k<nodd;++k)//linear predictor
-		even[k]-=(odd[k-1]+odd[k])>>1;
-	if(extraeven)
-		even[nodd]-=odd[nodd-1];
-	
-	for(int k=0;k<nodd-!extraeven;++k)//update
+	for(int k=0;k<nodd-!extraeven;++k)//update (smoothing)
 		odd[k]+=(even[k]+even[k+1])>>2;
 	if(!extraeven)
 		odd[nodd-1]+=even[nodd-1]>>1;

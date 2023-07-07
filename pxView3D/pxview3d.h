@@ -12,14 +12,15 @@ extern "C"
 
 
 	#define ALLOW_OPENCL
+//	#define DEBUG_MEMORY
 //	#define ENABLE_CONSOLE_MAIN_TEST
-
 
 extern int w, h, mx, my, mouse_bypass;
 extern HWND ghWnd;
 extern HDC ghDC;
 extern HGLRC hRC;
 extern char keyboard[256], timer;
+extern int g_repaint;//set to 1 to paint again
 extern RECT R;
 extern wchar_t g_wbuf[G_BUF_SIZE];
 extern ArrayHandle exedir;
@@ -605,18 +606,24 @@ void depth_test(int enable);
 
 
 
+//pxView3D
+void update_image();
+
 //transforms
-extern       int customparam_sel;
-extern const int customparam_ct_w, customparam_ct_h, customparam_st_reach;
-//extern const double customparam_ct0[12], customparam_st0[12];
-extern       double customparam_ct[12], customparam_st[12];
-extern       int    customparam_clamp[2];
-extern       double customparam_hybrid[(7*3+3)*3*3];
+extern int customparam_sel;
+extern int const customparam_ct_w, customparam_ct_h, customparam_st_reach;
+//extern double const customparam_ct0[12], customparam_st0[12];
+extern double customparam_ct[12], allcustomparam_st[12*3], customdwtparams[12];
+extern int    customparam_st_ch;
+extern int    customparam_clamp[2];
+extern double customparam_hybrid[(7*3+3)*3*3];
 void customtransforms_resetparams();
 void colortransform_custom_fwd(char *buf, int iw, int ih);
 void colortransform_custom_inv(char *buf, int iw, int ih);
-void pred_custom_fwd(char *buf, int iw, int ih, int nch, int bytestride);
-void pred_custom_inv(char *buf, int iw, int ih, int nch, int bytestride);
+void pred_custom_fwd(char *buf, int iw, int ih, int nch, int bytestride, const double *params);
+void pred_custom_inv(char *buf, int iw, int ih, int nch, int bytestride, const double *params);
+void opt_cr2_v2(const char *buf, int iw, int ih, int kc);
+
 void pred_slope_fwd(char *buf, int iw, int ih, int nch, int bytestride);
 void pred_slope_inv(char *buf, int iw, int ih, int nch, int bytestride);
 
@@ -658,6 +665,20 @@ void pred_hybrid_inv(char *buf, int iw, int ih);
 
 
 //spatial transforms
+
+#define LOGIC_REACH 2			//do not change
+#define LOGIC_NNB (2*(LOGIC_REACH+1)*LOGIC_REACH)	//number of causal neighbors
+#define LOGIC_NF1 4				//number of output features from smooth_if
+#define LOGIC_NF0 (3*LOGIC_NF1)	//number of inputs to smooth_if
+#define LOGIC_ROWPARAMS (LOGIC_NNB*2+1)
+#define LOGIC_PARAMS_PER_CH (LOGIC_NF0*LOGIC_ROWPARAMS+LOGIC_NF1)
+#define LOGIC_TOTALPARAMS (3*LOGIC_PARAMS_PER_CH)
+extern short logic_params[LOGIC_TOTALPARAMS];
+extern HANDLE ghMutex;
+void pred_logic_apply(char *buf, int iw, int ih, const short *allparams, int fwd);
+void logic_opt(char *buf, int iw, int ih, int kc, short *channel_params);//this frees buf at the end of thread
+void logic_opt_checkonthread(float *info);
+
 void shuffle(char *buf, int iw, int ih, int fwd);
 
 void pred_diff2d_fwd(char *buf, int iw, int ih, int nch, int bytestride);
@@ -699,6 +720,7 @@ extern double pw2_errors[PW2_NPRED];
 extern short pw2_params[PW2_NPARAM*3];
 void pred_w2_opt_v2(char *buf2, int iw, int ih, short *params, int loud);
 void pred_w2_apply(char *buf, int iw, int ih, short *allparams, int fwd);
+void pred_jmj_apply(char *buf, int iw, int ih, int fwd);
 
 extern short jxlparams_i16[33];
 //extern float jxlparams_ps[33];
@@ -741,10 +763,10 @@ void dwt2d_cdf53_fwd  (char *buffer, DWTSize *sizes, int sizes_start, int sizes_
 void dwt2d_cdf53_inv  (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);
 void dwt2d_cdf97_fwd  (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);
 void dwt2d_cdf97_inv  (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);
-void dwt2d_exp_fwd    (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);
-void dwt2d_exp_inv    (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);
-void dwt2d_custom_fwd (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);
-void dwt2d_custom_inv (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);
+void dwt2d_exp_fwd    (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp, const double *params);
+void dwt2d_exp_inv    (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp, const double *params);
+void dwt2d_custom_fwd (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp, const double *params);
+void dwt2d_custom_inv (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp, const double *params);
 
 void dwt2d_dec_fwd(char *buffer, int iw, int ih);
 void dwt2d_dec_inv(char *buffer, int iw, int ih);
