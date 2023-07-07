@@ -1116,14 +1116,13 @@ const double customparam_st0[]=
 	0,  1,
 };*/
 int customparam_sel=12;
-double customparam_ct[12]={0};
-double allcustomparam_st[12*3]={0};
-int customparam_st_ch=0;
+double customparam_ct[12]={0}, customparam_st[12*6]={0};
+int customparam_ch_idx=0;
 int customparam_clamp[2]={-128, 127};
 void customtransforms_resetparams()
 {
 	memset(customparam_ct, 0, sizeof(customparam_ct));
-	memset(allcustomparam_st, 0, sizeof(allcustomparam_st));
+	memset(customparam_st, 0, sizeof(customparam_st));
 	//memcpy(customparam_ct, customparam_ct0, sizeof(customparam_ct));
 	//memcpy(customparam_st, customparam_st0, sizeof(customparam_st));
 }
@@ -1900,7 +1899,7 @@ void logic_opt(char *buf, int iw, int ih, int kc, short *channel_params)
 		LOG_ERROR("Thread error");
 }
 
-#define O2_NPARAMS (_countof(allcustomparam_st)/3)
+#define O2_NPARAMS (_countof(customparam_st)/3)
 typedef struct OptCR2InfoStruct
 {
 	double loss, params[O2_NPARAMS];
@@ -1916,9 +1915,10 @@ int cmp_optcr2info(const void *left, const void *right)
 double opt_cr2_calcloss(double *params, const char *buf, int iw, int ih, int kc, char *temp, int *hist)
 {
 	int res=iw*ih;
-	//memcpy(allcustomparam_st+12*customparam_st_ch, params, sizeof(allcustomparam_st)/3);
-	memcpy(temp, buf, (size_t)res<<2);
-	pred_custom_fwd(temp+kc, iw, ih, 1, 4, params);
+	//memcpy(customparam_st+O2_NPARAMS*customparam_st_ch, params, sizeof(customparam_st)/6);
+	//memcpy(temp, buf, (size_t)res<<2);
+	pred_custom_prealloc(buf, iw, ih, kc, 1, params, temp);
+	//pred_custom_fwd(temp+kc, iw, ih, 1, 4, params);
 
 	memset(hist, 0, 256*sizeof(int));
 	for(int k=0;k<res;++k)
@@ -1971,10 +1971,10 @@ void opt_cr2_v2(const char *buf, int iw, int ih, int kc)
 		if(kp)
 		{
 			for(int k2=0;k2<nv;++k2)
-				x->params[k2]=allcustomparam_st[12*kc+k2]+((double)rand()-((RAND_MAX>>1)+1))*(initial_step/RAND_MAX);
+				x->params[k2]=customparam_st[O2_NPARAMS*kc+k2]+((double)rand()-((RAND_MAX>>1)+1))*(initial_step/RAND_MAX);
 		}
 		else
-			memcpy(x->params, allcustomparam_st+12*kc, sizeof(x->params));
+			memcpy(x->params, customparam_st+O2_NPARAMS*kc, sizeof(x->params));
 		CALC_LOSS(x);
 		//x->loss=opt_cr2_calcloss(x->params, buf, iw, ih, kc, temp, hist);
 	}
@@ -2059,7 +2059,7 @@ void opt_cr2_v2(const char *buf, int iw, int ih, int kc)
 	{
 		messagebox(MBOX_OK, "Error", "Loss has increased");
 	}
-	memcpy(allcustomparam_st+12*kc, params->params, sizeof(allcustomparam_st)/3);
+	memcpy(customparam_st+O2_NPARAMS*kc, params->params, sizeof(customparam_st)/3);
 
 #if 0
 	double l1, losses[_countof(customparam_st)<<1];
@@ -4992,27 +4992,42 @@ void pred_grad_inv(char *buf, int iw, int ih, int nch, int bytestride)
 	}
 }
 
-int  predict_custom(const char *buf, int iw, int kx, int ky, int idx, int bytestride, int rowlen, const double *params)
+int  predict_custom(const char *pixels, const char *errors, int iw, int kx, int ky, int idx, int bytestride, int rowlen, const double *params)
 {
 	char comp[]=
 	{
-		kx-2>=0&&ky-2>=0?buf[idx-(rowlen<<1)-(bytestride<<1)]:0,
-		kx-1>=0&&ky-2>=0?buf[idx-(rowlen<<1)-bytestride]:0,
-		         ky-2>=0?buf[idx-(rowlen<<1)]:0,
-		kx+1<iw&&ky-2>=0?buf[idx-(rowlen<<1)+bytestride]:0,
-		kx+2<iw&&ky-2>=0?buf[idx-(rowlen<<1)+(bytestride<<1)]:0,
+		kx-2>=0&&ky-2>=0?pixels[idx-(rowlen<<1)-(bytestride<<1)]:0,
+		kx-1>=0&&ky-2>=0?pixels[idx-(rowlen<<1)-bytestride]:0,
+		         ky-2>=0?pixels[idx-(rowlen<<1)]:0,
+		kx+1<iw&&ky-2>=0?pixels[idx-(rowlen<<1)+bytestride]:0,
+		kx+2<iw&&ky-2>=0?pixels[idx-(rowlen<<1)+(bytestride<<1)]:0,
 
-		kx-2>=0&&ky-1>=0?buf[idx-rowlen-(bytestride<<1)]:0,
-		kx-1>=0&&ky-1>=0?buf[idx-rowlen-bytestride]:0,
-		         ky-1>=0?buf[idx-rowlen]:0,
-		kx+1<iw&&ky-1>=0?buf[idx-rowlen+bytestride]:0,
-		kx+2<iw&&ky-1>=0?buf[idx-rowlen+(bytestride<<1)]:0,
+		kx-2>=0&&ky-1>=0?pixels[idx-rowlen-(bytestride<<1)]:0,
+		kx-1>=0&&ky-1>=0?pixels[idx-rowlen-bytestride]:0,
+		         ky-1>=0?pixels[idx-rowlen]:0,
+		kx+1<iw&&ky-1>=0?pixels[idx-rowlen+bytestride]:0,
+		kx+2<iw&&ky-1>=0?pixels[idx-rowlen+(bytestride<<1)]:0,
 
-		kx-2>=0?buf[idx-(bytestride<<1)]:0,
-		kx-1>=0?buf[idx-bytestride]:0,
+		kx-2>=0?pixels[idx-(bytestride<<1)]:0,
+		kx-1>=0?pixels[idx-bytestride]:0,
+
+		kx-2>=0&&ky-2>=0?errors[idx-(rowlen<<1)-(bytestride<<1)]:0,
+		kx-1>=0&&ky-2>=0?errors[idx-(rowlen<<1)-bytestride]:0,
+		         ky-2>=0?errors[idx-(rowlen<<1)]:0,
+		kx+1<iw&&ky-2>=0?errors[idx-(rowlen<<1)+bytestride]:0,
+		kx+2<iw&&ky-2>=0?errors[idx-(rowlen<<1)+(bytestride<<1)]:0,
+
+		kx-2>=0&&ky-1>=0?errors[idx-rowlen-(bytestride<<1)]:0,
+		kx-1>=0&&ky-1>=0?errors[idx-rowlen-bytestride]:0,
+		         ky-1>=0?errors[idx-rowlen]:0,
+		kx+1<iw&&ky-1>=0?errors[idx-rowlen+bytestride]:0,
+		kx+2<iw&&ky-1>=0?errors[idx-rowlen+(bytestride<<1)]:0,
+
+		kx-2>=0?errors[idx-(bytestride<<1)]:0,
+		kx-1>=0?errors[idx-bytestride]:0,
 	};
 
-	char pred=(char)(
+	int pred=(int)(
 		params[ 0]*comp[ 0]+
 		params[ 1]*comp[ 1]+
 		params[ 2]*comp[ 2]+
@@ -5024,12 +5039,60 @@ int  predict_custom(const char *buf, int iw, int kx, int ky, int idx, int bytest
 		params[ 8]*comp[ 8]+
 		params[ 9]*comp[ 9]+
 		params[10]*comp[10]+
-		params[11]*comp[11]
+		params[11]*comp[11]+
+		params[12]*comp[12]+
+		params[13]*comp[13]+
+		params[14]*comp[14]+
+		params[15]*comp[15]+
+		params[16]*comp[16]+
+		params[17]*comp[17]+
+		params[18]*comp[18]+
+		params[19]*comp[19]+
+		params[20]*comp[20]+
+		params[21]*comp[21]+
+		params[22]*comp[22]+
+		params[23]*comp[23]
 	);
 	
-	pred=CLAMP(customparam_clamp[0], pred, customparam_clamp[1]);
+	pred=CLAMP(-128, pred, 127);
 	return pred;
 }
+void pred_custom_prealloc(const char *src, int iw, int ih, int kc, int fwd, const double *ch_params, char *dst)
+{
+	int idx=0, rowlen=iw*4;
+	const char *pixels=fwd?src:dst, *errors=fwd?dst:src;
+	for(int ky=0;ky<ih;++ky)
+	{
+		for(int kx=0;kx<iw;++kx)
+		{
+			idx=(iw*ky+kx)<<2|kc;
+			int pred=predict_custom(pixels, errors, iw, kx, ky, idx, 4, rowlen, ch_params);
+
+			if(fwd)
+				dst[idx]=src[idx]-pred;
+			else
+				dst[idx]=src[idx]+pred;
+		}
+	}
+}
+void pred_custom_apply(char *src, int iw, int ih, int fwd, const double *allparams)
+{
+	int res=iw*ih;
+	char *dst=(char*)malloc((size_t)res<<2);
+	if(!dst)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	pred_custom_prealloc(src, iw, ih, 0, fwd, allparams, dst);
+	pred_custom_prealloc(src, iw, ih, 1, fwd, allparams+24, dst);
+	pred_custom_prealloc(src, iw, ih, 2, fwd, allparams+24*2, dst);
+	for(int k=0;k<res;++k)//set alpha
+		dst[k<<2|3]=0xFF;
+	memcpy(src, dst, (size_t)res<<2);
+	free(dst);
+}
+#if 0
 void pred_custom_fwd(char *buf, int iw, int ih, int nch, int bytestride, const double *params)
 {
 	int rowlen=iw*bytestride;
@@ -5066,6 +5129,7 @@ void pred_custom_inv(char *buf, int iw, int ih, int nch, int bytestride, const d
 		}
 	}
 }
+#endif
 
 
 //DWTs

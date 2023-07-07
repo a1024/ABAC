@@ -844,8 +844,8 @@ void update_image()
 		//	case ST_INV_PATHPRED:	pred_path_inv((char*)image, iw, ih, 3, 4);			break;
 			case ST_FWD_GRADPRED:	pred_grad_fwd((char*)image, iw, ih, 3, 4);			break;
 			case ST_INV_GRADPRED:	pred_grad_inv((char*)image, iw, ih, 3, 4);			break;
-			case ST_FWD_CUSTOM:		pred_custom_fwd((char*)image, iw, ih, 3, 4, allcustomparam_st);break;
-			case ST_INV_CUSTOM:		pred_custom_inv((char*)image, iw, ih, 3, 4, allcustomparam_st);break;
+			case ST_FWD_CUSTOM:		pred_custom_apply((char*)image, iw, ih, 1, customparam_st);break;
+			case ST_INV_CUSTOM:		pred_custom_apply((char*)image, iw, ih, 0, customparam_st);break;
 			case ST_FWD_DCT4:		image_dct4_fwd((char*)image, iw, ih);				break;
 			case ST_INV_DCT4:		image_dct4_inv((char*)image, iw, ih);				break;
 		//	case ST_FWD_DCT8:		image_dct8_fwd((char*)image, iw, ih);				break;
@@ -890,10 +890,10 @@ void update_image()
 					//	case ST_INV_CDF97:     dwt2d_cdf97_inv  ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
 					//	case ST_FWD_GRAD_DWT:  dwt2d_grad_fwd   ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
 					//	case ST_INV_GRAD_DWT:  dwt2d_grad_inv   ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-						case ST_FWD_EXPDWT:    dwt2d_exp_fwd    ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, allcustomparam_st);break;//TODO use customdwtparams instead of sharing allcustomparam_st
-						case ST_INV_EXPDWT:    dwt2d_exp_inv    ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, allcustomparam_st);break;
-						case ST_FWD_CUSTOM_DWT:dwt2d_custom_fwd ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, allcustomparam_st);break;
-						case ST_INV_CUSTOM_DWT:dwt2d_custom_inv ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, allcustomparam_st);break;
+						case ST_FWD_EXPDWT:    dwt2d_exp_fwd    ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, customparam_st);break;//TODO use customdwtparams instead of sharing allcustomparam_st
+						case ST_INV_EXPDWT:    dwt2d_exp_inv    ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, customparam_st);break;
+						case ST_FWD_CUSTOM_DWT:dwt2d_custom_fwd ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, customparam_st);break;
+						case ST_INV_CUSTOM_DWT:dwt2d_custom_inv ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, customparam_st);break;
 						}
 					}
 					array_free(&sizes);
@@ -1626,10 +1626,10 @@ int io_mousewheel(int forward)
 					ch2-=4;
 					ch2+=ch2<0;//skip point
 					double delta=pow(10, -ch2);
-					allcustomparam_st[12*customparam_st_ch+cellidx]+=sign*delta;
+					customparam_st[12*customparam_ch_idx+cellidx]+=sign*delta;
 				}
 				else
-					allcustomparam_st[12*customparam_st_ch+cellidx]+=sign*0.05;
+					customparam_st[12*customparam_ch_idx+cellidx]+=sign*0.05;
 				break;
 			case 3://clamp bounds
 			
@@ -1817,6 +1817,7 @@ int io_keydn(IOKey key, char c)
 	{
 		switch(key)
 		{
+#if 0
 		case KEY_LBUTTON:
 			{
 				int objidx=0, cellx=0, celly=0, cellidx=0;
@@ -1828,13 +1829,13 @@ int io_keydn(IOKey key, char c)
 						ARRAY_ALLOC(double, losshist, 0, 1000, 0, 0);
 					double *p2=(double*)losshist->data;
 					profile_idx=cellidx;
-					double temp=allcustomparam_st[12*customparam_st_ch+cellidx];
+					double temp=customparam_st[12*customparam_ch_idx+cellidx];
 					for(int k=0;k<1000;++k)
 					{
-						allcustomparam_st[12*customparam_st_ch+cellidx]=customparam_ct[8]+(customparam_ct[9]-customparam_ct[8])*k/1000;
-						p2[k]=opt_causal_reach2(image, iw, ih, 1, allcustomparam_st+12*customparam_st_ch, customparam_ct+11, g_lr, 1);
+						customparam_st[12*customparam_ch_idx+cellidx]=customparam_ct[8]+(customparam_ct[9]-customparam_ct[8])*k/1000;
+						p2[k]=opt_causal_reach2(image, iw, ih, 1, customparam_st+12*customparam_ch_idx, customparam_ct+11, g_lr, 1);
 					}
-					allcustomparam_st[12*customparam_st_ch+cellidx]=temp;
+					customparam_st[12*customparam_ch_idx+cellidx]=temp;
 					//av_rmse=opt_causal_reach2(image, iw, ih, 1, customparam_st, customparam_ct+11, 1e-10, 1);
 						
 					for(int k=0;k<1000;++k)
@@ -1849,12 +1850,13 @@ int io_keydn(IOKey key, char c)
 				}
 			}
 			break;
+#endif
 		case KEY_UP:
 		case KEY_DOWN:
 		case KEY_LEFT:
 		case KEY_RIGHT:
 			{
-				const int idx_limit=COUNTOF(customparam_ct)+COUNTOF(allcustomparam_st)/3;
+				const int idx_limit=COUNTOF(customparam_ct)+COUNTOF(customparam_st)/6;
 				const int st_w=customparam_st_reach<<1|1, st_h=customparam_st_reach+1, st_yoffset=customparam_ct_h-st_h,
 					w_total=customparam_ct_w+st_w, h_total=customparam_ct_h;
 				int x, y;
@@ -1969,7 +1971,7 @@ int io_keydn(IOKey key, char c)
 			case 1://spatial transforms params
 				if(key==KEY_RBUTTON)
 				{
-					allcustomparam_st[12*customparam_st_ch+cellidx]=0;
+					customparam_st[12*customparam_ch_idx+cellidx]=0;
 					update_image();
 					return 1;
 				}
@@ -2142,7 +2144,6 @@ toggle_drag:
 	case 'C':
 		if(image&&GET_KEY_STATE(KEY_CTRL))//copy custom transform value
 		{
-			int printed=0;
 			ArrayHandle str;
 			STR_ALLOC(str, 0);
 			if(mode==VIS_IMAGE)
@@ -2245,10 +2246,10 @@ toggle_drag:
 					str_append(&str, "\n");
 				}
 				const int stw=customparam_st_reach<<1|1;
-				for(int kc=0;kc<3;++kc)
+				for(int kc2=0;kc2<6;++kc2)
 				{
-					const int np=_countof(allcustomparam_st)/3;
-					const double *params=allcustomparam_st+12*kc;
+					const int np=_countof(customparam_st)/6;
+					const double *params=customparam_st+12*kc2;
 					for(int k=0;k<np;++k)
 					{
 						int x=k%stw, y=k/stw;
@@ -2258,7 +2259,7 @@ toggle_drag:
 				for(int k=0;k<COUNTOF(customparam_clamp);++k)
 					str_append(&str, "%d%c", customparam_clamp[k], k<COUNTOF(customparam_clamp)-1?'\t':'\n');
 			}
-			copy_to_clipboard((char*)str->data, printed);
+			copy_to_clipboard((char*)str->data, str->count);
 			array_free(&str);
 		}
 		else
@@ -2363,11 +2364,11 @@ toggle_drag:
 							goto paste_finish;
 					}
 					k=0;
-					kend=COUNTOF(allcustomparam_st);
+					kend=COUNTOF(customparam_st);
 					for(;k<kend;++k)
 					{
 						for(;idx<text->count&&isspace(text->data[idx]);++idx);
-						allcustomparam_st[k]=atof(text->data+idx);
+						customparam_st[k]=atof(text->data+idx);
 						for(;idx<text->count&&!isspace(text->data[idx]);++idx);
 						if(idx>=text->count)
 							goto paste_finish;
@@ -2421,10 +2422,10 @@ toggle_drag:
 		if(transforms_customenabled||transforms_mask[ST_FWD_LOGIC]||transforms_mask[ST_INV_LOGIC])
 		{
 			//const int nval=_countof(customparam_st);
-			//memcpy(allcustomparam_st+nval*customparam_st_ch, customparam_st, sizeof(customparam_st));//save
-			customparam_st_ch+=((key==KEY_RBRACKET)<<1)-1;
-			MODVAR(customparam_st_ch, customparam_st_ch, 3);
-			//memcpy(customparam_st, allcustomparam_st+nval*customparam_st_ch, sizeof(customparam_st));//load
+			//memcpy(allcustomparam_st+nval*customparam_ch_idx, customparam_st, sizeof(customparam_st));//save
+			customparam_ch_idx+=((key==KEY_RBRACKET)<<1)-1;
+			MODVAR(customparam_ch_idx, customparam_ch_idx, 6);
+			//memcpy(customparam_st, allcustomparam_st+nval*customparam_ch_idx, sizeof(customparam_st));//load
 			return 1;
 		}
 		break;
@@ -2472,13 +2473,16 @@ toggle_drag:
 				float info[3]={0};
 				logic_opt_checkonthread(info);
 				if(info[0]<0)
-					logic_opt(buf2, iw, ih, customparam_st_ch, logic_params+LOGIC_PARAMS_PER_CH*customparam_st_ch);
+				{
+					int kc=customparam_ch_idx/2;
+					logic_opt(buf2, iw, ih, kc, logic_params+LOGIC_PARAMS_PER_CH*kc);
+				}
 				else
 					free(buf2);
 #else
 				free(buf2);
 				srand((unsigned)__rdtsc());
-				short *params=logic_params+LOGIC_PARAMS_PER_CH*customparam_st_ch;
+				short *params=logic_params+LOGIC_PARAMS_PER_CH*customparam_ch_idx;
 				for(int k=0;k<LOGIC_PARAMS_PER_CH;++k)
 					params[k]=rand();
 				update_image();
@@ -2496,7 +2500,7 @@ toggle_drag:
 				memcpy(buf2, im0, (size_t)res<<2);
 				addhalf((unsigned char*)buf2, iw, ih, 3, 4);
 				colortransform_ycocb_fwd(buf2, iw, ih);
-				opt_cr2_v2(buf2, iw, ih, customparam_st_ch);
+				opt_cr2_v2(buf2, iw, ih, customparam_ch_idx/2);
 				free(buf2);
 				update_image();
 			}
@@ -2681,7 +2685,7 @@ void io_timer()
 			else
 			{
 				//undospatialtransform(spatialtransform);
-				allcustomparam_st[12*customparam_st_ch+customparam_sel-COUNTOF(customparam_ct)]+=speed*update;
+				customparam_st[12*customparam_ch_idx+customparam_sel-COUNTOF(customparam_ct)]+=speed*update;
 				//applyspatialtransform(spatialtransform);
 			}
 			update_image();
@@ -2955,7 +2959,7 @@ void io_render()
 	if(transforms_customenabled)
 	//if(color_transform==CT_CUSTOM||spatialtransform==ST_CUSTOM)
 	{
-		char sel[_countof(customparam_ct)+_countof(allcustomparam_st)/3]={0};
+		char sel[_countof(customparam_ct)+_countof(customparam_st)/6]={0};
 		for(int k=0;k<_countof(sel);++k)
 			sel[k]=' ';
 		sel[customparam_sel]='>';
@@ -2984,8 +2988,11 @@ void io_render()
 			x=buttons[1].x1;
 			y=buttons[1].y1;
 			int bk0=set_bk_color(0xA060A060);
-			const double *params=allcustomparam_st+12*customparam_st_ch;
-			GUIPrint(0, x, y-tdy, 1, "Ch %d", customparam_st_ch);
+			const double *params=customparam_st+12*customparam_ch_idx;
+			if(customparam_ch_idx&1)
+				GUIPrint(0, x, y-tdy, 1, "Er %d", customparam_ch_idx/2);
+			else
+				GUIPrint(0, x, y-tdy, 1, "Ch %d", customparam_ch_idx/2);
 			GUIPrint(0, x, y        , guizoom, "%c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%c%8.3lf", sel[12], sel[12], params[ 0], sel[13], sel[13], params[ 1], sel[14], sel[14], params[ 2], sel[15], sel[15], params[ 3], sel[16], sel[16], params[ 4]);
 			GUIPrint(0, x, y+ystep  , guizoom, "%c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%c%8.3lf %c%c%8.3lf", sel[17], sel[17], params[ 5], sel[18], sel[18], params[ 6], sel[19], sel[19], params[ 7], sel[20], sel[20], params[ 8], sel[21], sel[21], params[ 9]);
 			set_bk_color(bk0);
@@ -3009,15 +3016,16 @@ void io_render()
 	else if(transforms_mask[ST_FWD_LOGIC]||transforms_mask[ST_INV_LOGIC])
 	{
 		float x, y, info[3]={0};
-		const short *params=logic_params+LOGIC_PARAMS_PER_CH*customparam_st_ch;
+		int kc=customparam_ch_idx/2;
+		const short *params=logic_params+LOGIC_PARAMS_PER_CH*kc;
 
 		x=0;
 		y=(float)(h>>1);
 		logic_opt_checkonthread(info);
 		if(info[0]>=0)
 		{
-			set_window_title(			"Ch %d: %10f%%, %f sec, CR %f sec", customparam_st_ch, info[0], info[1], 1/info[2]);
-			GUIPrint(0, x, y-tdy, 1,	"Ch %d: %10f%%, %f sec, CR %f sec", customparam_st_ch, info[0], info[1], 1/info[2]);
+			set_window_title(			"Ch %d: %6.2f%%, %f sec, CR %f", kc, info[0], info[1], 1/info[2]);
+			GUIPrint(0, x, y-tdy, 1,	"Ch %d: %6.2f%%, %f sec, CR %f", kc, info[0], info[1], 1/info[2]);
 			g_repaint=1;
 			//int success=RedrawWindow(ghWnd, 0, 0, RDW_INTERNALPAINT|RDW_ERASENOW);
 			//if(!success)
@@ -3027,7 +3035,7 @@ void io_render()
 			//InvalidateRect(ghWnd, 0, 0);
 		}
 		else
-			GUIPrint(0, x, y-tdy, 1, "Ch %d", customparam_st_ch);
+			GUIPrint(0, x, y-tdy, 1, "Ch %d", kc);
 		//LOG_ERROR("Unreachable");
 
 		int waitstatus=-1;
@@ -3262,7 +3270,7 @@ void io_render()
 				for(int k=0;k<(int)losshist->count-1;++k)
 					draw_line((float)k, h-(float)((data[k]-minloss)*gain), (float)(k+1), h-(float)((data[k+1]-minloss)*gain), 0xFFFF00FF);
 					//draw_line((float)k*w/losshist->count, (float)((data[k]-minloss)*gain), (float)(k+1)*w/losshist->count, (float)((data[k+1]-minloss)*gain), 0xFFFF00FF);
-				double xmark=(allcustomparam_st[12*customparam_st_ch+profile_idx]-customparam_ct[8])*1000/(customparam_ct[9]-customparam_ct[8]);
+				double xmark=(customparam_st[12*customparam_ch_idx+profile_idx]-customparam_ct[8])*1000/(customparam_ct[9]-customparam_ct[8]);
 				//double xmark=(customparam_st[profile_idx]-customparam_ct[8])*w/(customparam_ct[9]-customparam_ct[8]);
 				draw_line((float)xmark, 0, (float)xmark, (float)h, 0xFFFFFF00);
 			}
@@ -3533,7 +3541,7 @@ void io_render()
 #endif
 	//extern double bestslope;
 	//GUIPrint(0, 0, 0, 1, "p(%f, %f, %f) dx %f a(%f, %f) fov %f, bestslope=%lf", cam.x, cam.y, cam.z, cam.move_speed, cam.ax, cam.ay, atan(cam.tanfov)*180/M_PI*2, bestslope);
-	GUIPrint(0, 0, 0, 1, "p(%f, %f, %f) dx %f a(%f, %f) fov %f  image %p", cam.x, cam.y, cam.z, cam.move_speed, cam.ax, cam.ay, atan(cam.tanfov)*180/M_PI*2, image);
+	GUIPrint(0, 0, 0, 1, "p(%f, %f, %f) dx %f a(%f, %f) fov %f", cam.x, cam.y, cam.z, cam.move_speed, cam.ax, cam.ay, atan(cam.tanfov)*180/M_PI*2);
 	
 	static double t=0;
 	double t2=time_ms();
