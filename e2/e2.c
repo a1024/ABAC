@@ -504,7 +504,8 @@ int main(int argc, char **argv)
 	unsigned char *buf, *b2;
 	const char *fn=0;
 #ifdef _DEBUG
-	fn="D:/ML/dataset-CLIC30";
+	fn="D:/ML/dataset-kodak-small/13.PNG";
+	//fn="D:/ML/dataset-CLIC30";
 	//fn="D:/ML/dataset-kodak";
 	//fn="D:/ML/dataset-kodak/kodim13.png";
 #endif
@@ -878,12 +879,20 @@ int main(int argc, char **argv)
 	//t34_encode(buf, iw, ih, &cdata, 1);
 	//array_free(&cdata);
 	
-	printf("T35 Entropy coding with context tree\n");
-	//printf("T35 Combines spatial transform with entropy coding\n");
-	t35_encode(buf, iw, ih, &cdata, 1);
-	t35_decode(cdata->data, cdata->count, iw, ih, b2, 1);
+//	printf("T35 Entropy coding with context tree\n");
+//	//printf("T35 Combines spatial transform with entropy coding\n");
+//	t35_encode(buf, iw, ih, &cdata, 1);
+//	t35_decode(cdata->data, cdata->count, iw, ih, b2, 1);
+//	array_free(&cdata);
+//	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T35", 0);
+//	memset(b2, 0, len);
+//	printf("\n");
+	
+	printf("T36 stretch & squish\n");
+	t36_encode(buf, iw, ih, &cdata, 1);
+	t36_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 	array_free(&cdata);
-	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T35", 0);
+	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T36", 0);
 	memset(b2, 0, len);
 	printf("\n");
 #endif

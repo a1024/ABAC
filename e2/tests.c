@@ -4319,13 +4319,14 @@ static void linear(DataType *dst, const DataType *mat, const DataType *vec, cons
 }
 
 
+#if 0
 #define T35_PREC 16	//fractional bits
-DataType clip(DataType x)
+DataType clip_64(DataType x)
 {
-	x=CLAMP(-128<<T35_PREC, x, 127<<T35_PREC);
+	x=CLAMP(-(128<<T35_PREC), x, 127<<T35_PREC);
 	return x;
 }
-DataType clamp4(DataType x, DataType a, DataType b, DataType c, DataType d)
+DataType clamp4_64(DataType x, DataType a, DataType b, DataType c, DataType d)
 {
 	DataType vmin=a, vmax=a;
 	if(vmin>b)vmin=b;
@@ -4419,15 +4420,15 @@ static void t35_getctx(const char *buf, int iw, int ih, int kx, int ky, int kc, 
 		NNNNNNp2=LOAD(2,  0, 6);
 #undef LOAD
 	int j=-1;
-	ctx[++j] = clamp4(N + p1 - Np1, W, NW, N, NE);
-	ctx[++j] = clamp4(N + p2 - Np2, W, NW, N, NE);
-	ctx[++j] = (W + clamp4(NE * 3 - NNE * 3 + NNNE, W, N, NE, NEE)) / 2;
-	ctx[++j] = clamp4((W + clip(NE * 2 - NNE)) / 2, W, NW, N, NE);
+	ctx[++j] = clamp4_64(N + p1 - Np1, W, NW, N, NE);
+	ctx[++j] = clamp4_64(N + p2 - Np2, W, NW, N, NE);
+	ctx[++j] = (W + clamp4_64(NE * 3 - NNE * 3 + NNNE, W, N, NE, NEE)) / 2;
+	ctx[++j] = clamp4_64((W + clip_64(NE * 2 - NNE)) / 2, W, NW, N, NE);
 	ctx[++j] = (W + NEE) / 2;
 	ctx[++j] = ((WWW - 4 * WW + 6 * W + (NE * 4 - NNE * 6 + NNNE * 4 - NNNNE)) / 4);
-	ctx[++j] = ((-WWWW + 5 * WWW - 10 * WW + 10 * W + clamp4(NE * 4 - NNE * 6 + NNNE * 4 - NNNNE, N, NE, NEE, NEEE)) / 5);
+	ctx[++j] = ((-WWWW + 5 * WWW - 10 * WW + 10 * W + clamp4_64(NE * 4 - NNE * 6 + NNNE * 4 - NNNNE, N, NE, NEE, NEEE)) / 5);
 	ctx[++j] = ((-4 * WW + 15 * W + 10 * (NE * 3 - NNE * 3 + NNNE) - (NEEE * 3 - NNEEE * 3 + NNNEEE)) / 20);
-	ctx[++j] = ((-3 * WW + 8 * W + clamp4(NEE * 3 - NNEE * 3 + NNNEE, NE, NEE, NEEE, NEEEE)) / 6);
+	ctx[++j] = ((-3 * WW + 8 * W + clamp4_64(NEE * 3 - NNEE * 3 + NNNEE, NE, NEE, NEEE, NEEEE)) / 6);
 	ctx[++j] = ((W + (NE * 2 - NNE)) / 2 + p1 - (Wp1 + (NEp1 * 2 - NNEp1)) / 2);
 	ctx[++j] = ((W + (NE * 2 - NNE)) / 2 + p2 - (Wp2 + (NEp2 * 2 - NNEp2)) / 2);
 	ctx[++j] = ((-3 * WW + 8 * W + (NEE * 2 - NNEE)) / 6 + p1 -(-3 * WWp1 + 8 * Wp1 + (NEEp1 * 2 - NNEEp1)) / 6);
@@ -4481,10 +4482,10 @@ static void t35_getctx(const char *buf, int iw, int ih, int kx, int ky, int kc, 
 	ctx[++j] = (W * 2 - WW + p1 - (Wp1 * 2 - WWp1));
 	ctx[++j] = (W * 2 - WW + p2 - (Wp2 * 2 - WWp2));
 	ctx[++j] = (N * 3 - NN * 3 + NNN);
-	ctx[++j] = clamp4(N * 3 - NN * 3 + NNN, W, NW, N, NE);
-	ctx[++j] = clamp4(W * 3 - WW * 3 + WWW, W, NW, N, NE);
-	ctx[++j] = clamp4(N * 2 - NN, W, NW, N, NE);
-	ctx[++j] = ((NNNNN - 6 * NNNN + 15 * NNN - 20 * NN + 15 * N + clamp4(W * 4 - NWW * 6 + NNWWW * 4 - NNNWWWW, W, NW, N, NN)) / 6);
+	ctx[++j] = clamp4_64(N * 3 - NN * 3 + NNN, W, NW, N, NE);
+	ctx[++j] = clamp4_64(W * 3 - WW * 3 + WWW, W, NW, N, NE);
+	ctx[++j] = clamp4_64(N * 2 - NN, W, NW, N, NE);
+	ctx[++j] = ((NNNNN - 6 * NNNN + 15 * NNN - 20 * NN + 15 * N + clamp4_64(W * 4 - NWW * 6 + NNWWW * 4 - NNNWWWW, W, NW, N, NN)) / 6);
 	ctx[++j] = ((NNNEEE - 4 * NNEE + 6 * NE + (W * 4 - NW * 6 + NNW * 4 - NNNW)) / 4);
 	ctx[++j] = (((N + 3 * NW) / 4) * 3 - ((NNW + NNWW) / 2) * 3 + (NNNWW * 3 + NNNWWW) / 4);
 	ctx[++j] = ((W * 2 + NW) - (WW + 2 * NWW) + NWWW);
@@ -4495,73 +4496,78 @@ static void t35_getctx(const char *buf, int iw, int ih, int kx, int ky, int kc, 
 	ctx[++j] = ((W + N) * 3 - NW * 2) >> 2;
 	ctx[++j] = N;
 	ctx[++j] = NN;
-    ctx[++j] = N + p1 - Np1;
-    ctx[++j] = N + p2 - Np2;
-    ctx[++j] = W + p1 - Wp1;
-    ctx[++j] = W + p2 - Wp2;
-    ctx[++j] = NW + p1 - NWp1;
-    ctx[++j] = NW + p2 - NWp2;
-    ctx[++j] = NE + p1 - NEp1;
-    ctx[++j] = NE + p2 - NEp2;
-    ctx[++j] = NN + p1 - NNp1;
-    ctx[++j] = NN + p2 - NNp2;
-    ctx[++j] = WW + p1 - WWp1;
-    ctx[++j] = WW + p2 - WWp2;
-    ctx[++j] = W + N - NW;
-    ctx[++j] = W + N - NW + p1 - Wp1 - Np1 + NWp1;
-    ctx[++j] = W + N - NW + p2 - Wp2 - Np2 + NWp2;
-    ctx[++j] = W + NE - N;
-    ctx[++j] = W + NE - N + p1 - Wp1 - NEp1 + Np1;
-    ctx[++j] = W + NE - N + p2 - Wp2 - NEp2 + Np2;
-    ctx[++j] = W + NEE - NE;
-    ctx[++j] = W + NEE - NE + p1 - Wp1 - NEEp1 + NEp1;
-    ctx[++j] = W + NEE - NE + p2 - Wp2 - NEEp2 + NEp2;
-    ctx[++j] = N + NN - NNN;
-    ctx[++j] = N + NN - NNN + p1 - Np1 - NNp1 + NNNp1;
-    ctx[++j] = N + NN - NNN + p2 - Np2 - NNp2 + NNNp2;
-    ctx[++j] = N + NE - NNE;
-    ctx[++j] = N + NE - NNE + p1 - Np1 - NEp1 + NNEp1;
-    ctx[++j] = N + NE - NNE + p2 - Np2 - NEp2 + NNEp2;
-    ctx[++j] = N + NW - NNW;
-    ctx[++j] = N + NW - NNW + p1 - Np1 - NWp1 + NNEp1;
-    ctx[++j] = N + NW - NNW + p2 - Np2 - NWp2 + NNEp2;
-    ctx[++j] = NE + NW - NN;
-    ctx[++j] = NE + NW - NN + p1 - NEp1 - NWp1 + NNp1;
-    ctx[++j] = NE + NW - NN + p2 - NEp2 - NWp2 + NNp2;
-    ctx[++j] = NW + W - NWW;
-    ctx[++j] = NW + W - NWW + p1 - NWp1 - Wp1 + NWWp1;
-    ctx[++j] = NW + W - NWW + p2 - NWp2 - Wp2 + NWWp2;
-    ctx[++j] = W * 2 - WW;
-    ctx[++j] = W * 2 - WW + p1 - Wp1 * 2 + WWp1;
-    ctx[++j] = W * 2 - WW + p2 - Wp2 * 2 + WWp2;
-    ctx[++j] = N * 2 - NN;
-    ctx[++j] = N * 2 - NN + p1 - Np1 * 2 + NNp1;
-    ctx[++j] = N * 2 - NN + p2 - Np2 * 2 + NNp2;
-    ctx[++j] = NW * 2 - NNWW;
-    ctx[++j] = NW * 2 - NNWW + p1 - NWp1 * 2 + NNWWp1;
-    ctx[++j] = NW * 2 - NNWW + p2 - NWp2 * 2 + NNWWp2;
-    ctx[++j] = NE * 2 - NNEE;
-    ctx[++j] = NE * 2 - NNEE + p1 - NEp1 * 2 + NNEEp1;
-    ctx[++j] = NE * 2 - NNEE + p2 - NEp2 * 2 + NNEEp2;
-    ctx[++j] = N * 3 - NN * 3 + NNN + p1 - Np1 * 3 + NNp1 * 3 - NNNp1;
-    ctx[++j] = N * 3 - NN * 3 + NNN + p2 - Np2 * 3 + NNp2 * 3 - NNNp2;
-    ctx[++j] = N * 3 - NN * 3 + NNN;
-    ctx[++j] = (W + NE * 2 - NNE + 1) >> 1;
-    ctx[++j] = (W + NE * 3 - NNE * 3 + NNNE+1) >> 1;
-    ctx[++j] = (W + NE * 2 - NNE) / 2 + p1 - (Wp1 + NEp1 * 2 - NNEp1) / 2;
-    ctx[++j] = (W + NE * 2 - NNE) / 2 + p2 - (Wp2 + NEp2 * 2 - NNEp2) / 2;
-    ctx[++j] = NNE + NE - NNNE;
-    ctx[++j] = NNE + W - NN;
-    ctx[++j] = NNW + W - NNWW;
+	ctx[++j] = N + p1 - Np1;
+	ctx[++j] = N + p2 - Np2;
+	ctx[++j] = W + p1 - Wp1;
+	ctx[++j] = W + p2 - Wp2;
+	ctx[++j] = NW + p1 - NWp1;
+	ctx[++j] = NW + p2 - NWp2;
+	ctx[++j] = NE + p1 - NEp1;
+	ctx[++j] = NE + p2 - NEp2;
+	ctx[++j] = NN + p1 - NNp1;
+	ctx[++j] = NN + p2 - NNp2;
+	ctx[++j] = WW + p1 - WWp1;
+	ctx[++j] = WW + p2 - WWp2;
+	ctx[++j] = W + N - NW;
+	ctx[++j] = W + N - NW + p1 - Wp1 - Np1 + NWp1;
+	ctx[++j] = W + N - NW + p2 - Wp2 - Np2 + NWp2;
+	ctx[++j] = W + NE - N;
+	ctx[++j] = W + NE - N + p1 - Wp1 - NEp1 + Np1;
+	ctx[++j] = W + NE - N + p2 - Wp2 - NEp2 + Np2;
+	ctx[++j] = W + NEE - NE;
+	ctx[++j] = W + NEE - NE + p1 - Wp1 - NEEp1 + NEp1;
+	ctx[++j] = W + NEE - NE + p2 - Wp2 - NEEp2 + NEp2;
+	ctx[++j] = N + NN - NNN;
+	ctx[++j] = N + NN - NNN + p1 - Np1 - NNp1 + NNNp1;
+	ctx[++j] = N + NN - NNN + p2 - Np2 - NNp2 + NNNp2;
+	ctx[++j] = N + NE - NNE;
+	ctx[++j] = N + NE - NNE + p1 - Np1 - NEp1 + NNEp1;
+	ctx[++j] = N + NE - NNE + p2 - Np2 - NEp2 + NNEp2;
+	ctx[++j] = N + NW - NNW;
+	ctx[++j] = N + NW - NNW + p1 - Np1 - NWp1 + NNEp1;
+	ctx[++j] = N + NW - NNW + p2 - Np2 - NWp2 + NNEp2;
+	ctx[++j] = NE + NW - NN;
+	ctx[++j] = NE + NW - NN + p1 - NEp1 - NWp1 + NNp1;
+	ctx[++j] = NE + NW - NN + p2 - NEp2 - NWp2 + NNp2;
+	ctx[++j] = NW + W - NWW;
+	ctx[++j] = NW + W - NWW + p1 - NWp1 - Wp1 + NWWp1;
+	ctx[++j] = NW + W - NWW + p2 - NWp2 - Wp2 + NWWp2;
+	ctx[++j] = W * 2 - WW;
+	ctx[++j] = W * 2 - WW + p1 - Wp1 * 2 + WWp1;
+	ctx[++j] = W * 2 - WW + p2 - Wp2 * 2 + WWp2;
+	ctx[++j] = N * 2 - NN;
+	ctx[++j] = N * 2 - NN + p1 - Np1 * 2 + NNp1;
+	ctx[++j] = N * 2 - NN + p2 - Np2 * 2 + NNp2;
+	ctx[++j] = NW * 2 - NNWW;
+	ctx[++j] = NW * 2 - NNWW + p1 - NWp1 * 2 + NNWWp1;
+	ctx[++j] = NW * 2 - NNWW + p2 - NWp2 * 2 + NNWWp2;
+	ctx[++j] = NE * 2 - NNEE;
+	ctx[++j] = NE * 2 - NNEE + p1 - NEp1 * 2 + NNEEp1;
+	ctx[++j] = NE * 2 - NNEE + p2 - NEp2 * 2 + NNEEp2;
+	ctx[++j] = N * 3 - NN * 3 + NNN + p1 - Np1 * 3 + NNp1 * 3 - NNNp1;
+	ctx[++j] = N * 3 - NN * 3 + NNN + p2 - Np2 * 3 + NNp2 * 3 - NNNp2;
+	ctx[++j] = N * 3 - NN * 3 + NNN;
+	ctx[++j] = (W + NE * 2 - NNE + 1) >> 1;
+	ctx[++j] = (W + NE * 3 - NNE * 3 + NNNE+1) >> 1;
+	ctx[++j] = (W + NE * 2 - NNE) / 2 + p1 - (Wp1 + NEp1 * 2 - NNEp1) / 2;
+	ctx[++j] = (W + NE * 2 - NNE) / 2 + p2 - (Wp2 + NEp2 * 2 - NNEp2) / 2;
+	ctx[++j] = NNE + NE - NNNE;
+	ctx[++j] = NNE + W - NN;
+	ctx[++j] = NNW + W - NNWW;
 }
+#endif
 
 
 //T35: Combines spatial transform with entropy coding
 
 #define T35_N_REC_ESTIMATORS 6
-#define T35_NMAPS 6
+//#define T35_NMAPS (1+134)
+//#define T35_NMAPS 134
+#define T35_NMAPS 14
 //#define T35_NMAPS 3
 #define T35_NESTIMATORS (T35_N_REC_ESTIMATORS+T35_NMAPS)
+//#define T35_NESTIMATORS T35_NMAPS
+#define T35_PRINT_ESTIMATOR_CR
 
 //#define T35_NF0 134
 //#define T35_NF1 7
@@ -4597,12 +4603,16 @@ typedef struct T35CtxStruct
 	int weights[24][T35_NESTIMATORS];
 	int found[T35_NMAPS];
 	T35CtxNode *node1;
+	//T35PredCtxNode *node2[T35_NMAPS];
 	T35PredCtxNode *node2[T35_NMAPS-1];
 	int context[T35_NMAPS];
 	int p0arr[T35_NESTIMATORS];
 	int p0_0, p0;//p0_0 isn't clamped
 	long long wsum;
 	int nnodes[2];//2 types of nodes
+#ifdef T35_PRINT_ESTIMATOR_CR
+	float csizes[24*T35_NESTIMATORS];
+#endif
 } T35Ctx;
 void t35_ctx_init(T35Ctx *ctx)
 {
@@ -4611,12 +4621,21 @@ void t35_ctx_init(T35Ctx *ctx)
 			ctx->weights[k][k2]=0x8000;
 	for(int k=0;k<24;++k)
 	{
+		//for(int k2=0;k2<T35_NMAPS;++k2)
+		//	MAP_INIT(ctx->maps[k]+k2, T35PredCtxNode, t35_cmp_node, 0);
+#if 1
 		MAP_INIT(ctx->maps[k], T35CtxNode, t35_cmp_node, 0);
 		for(int k2=1;k2<T35_NMAPS;++k2)
 			MAP_INIT(ctx->maps[k]+k2, T35PredCtxNode, t35_cmp_node, 0);
+#endif
 	}
 }
-static int clamp4_32(int x, int a, int b, int c, int d)
+int clip(int x)
+{
+	x=CLAMP(-128, x, 127);
+	return x;
+}
+static int clamp4(int x, int a, int b, int c, int d)
 {
 	int vmin=a, vmax=a;
 	if(vmin>b)vmin=b;
@@ -4630,20 +4649,26 @@ static int clamp4_32(int x, int a, int b, int c, int d)
 }
 void t35_ctx_get_context(T35Ctx *ctx, char *buf, int iw, int ih, int kc, int kx, int ky)
 {
-	ctx->context[0]=0;
+#if 1
+	int j=-1;
 
-	int ctxcount=(kx-1>=0)+(ky-1>=0)+(kc-1>=0);
-	int W =kx-1>=0?(char)buf[(iw* ky   +kx-1)<<2| kc   ]:0,
-		N =ky-1>=0?(char)buf[(iw*(ky-1)+kx  )<<2| kc   ]:0,
-		m1=kc-1>=0?(char)buf[(iw* ky   +kx  )<<2|(kc-1)]:0;
-	int helper=ctxcount?(W+N+m1)/ctxcount:0;
-	ctx->context[1]=helper<<8;
-	
-	int NW  =kx-1>=0&&ky-1>=0?(char)buf[(iw*(ky-1)+kx-1)<<2| kc   ]:0,
-		NE  =kx+1<iw&&ky-1>=0?(char)buf[(iw*(ky-1)+kx-1)<<2| kc   ]:0,
-		Nm1 =kc-1>=0&&ky-1>=0?(char)buf[(iw*(ky-1)+kx  )<<2|(kc-1)]:0,
-		Wm1 =kc-1>=0&&kx-1>=0?(char)buf[(iw* ky   +kx-1)<<2|(kc-1)]:0,
-		NWm1=kc-1>=0&&kx-1>=0&&ky-1>=0?(char)buf[(iw*(ky-1)+kx-1)<<2|(kc-1)]:0;
+	int count_W_N_m1=(kx-1>=0)+(ky-1>=0)+(kc-1>=0);
+	const int offset=0;
+	int W   =kx-1>=0         ?buf[(iw* ky   +kx-1)<<2| kc   ]+offset:0,
+		NW  =kx-1>=0&&ky-1>=0?buf[(iw*(ky-1)+kx-1)<<2| kc   ]+offset:0,
+		N   =ky-1>=0         ?buf[(iw*(ky-1)+kx  )<<2| kc   ]+offset:0,
+		NE  =kx+1<iw&&ky-1>=0?buf[(iw*(ky-1)+kx-1)<<2| kc   ]+offset:0,
+		NN  =ky-2>=0         ?buf[(iw*(ky-2)+kx  )<<2| kc   ]+offset:0,
+
+		m1  =kc-1>=0                  ?buf[(iw* ky   +kx  )<<2|(kc-1)]+offset:0,
+		Nm1 =kc-1>=0         &&ky-1>=0?buf[(iw*(ky-1)+kx  )<<2|(kc-1)]+offset:0,
+		Wm1 =kc-1>=0&&kx-1>=0         ?buf[(iw* ky   +kx-1)<<2|(kc-1)]+offset:0,
+		NWm1=kc-1>=0&&kx-1>=0&&ky-1>=0?buf[(iw*(ky-1)+kx-1)<<2|(kc-1)]+offset:0,
+
+		m2  =kc-2>=0                  ?buf[(iw* ky   +kx  )<<2|(kc-2)]+offset:0,
+		Nm2 =kc-2>=0         &&ky-1>=0?buf[(iw*(ky-1)+kx  )<<2|(kc-2)]+offset:0,
+		Wm2 =kc-2>=0&&kx-1>=0         ?buf[(iw* ky   +kx-1)<<2|(kc-2)]+offset:0,
+		NWm2=kc-2>=0&&kx-1>=0&&ky-1>=0?buf[(iw*(ky-1)+kx-1)<<2|(kc-2)]+offset:0;
 	//int ctxcount3=0;
 	//int NW  =kx-1>=0&&ky-1>=0?(++ctxcount3, (char)buf[(iw*(ky-1)+kx-1)<<2| kc   ]):0,
 	//	NE  =kx+1<iw&&ky-1>=0?(++ctxcount3, (char)buf[(iw*(ky-1)+kx-1)<<2| kc   ]):0,
@@ -4652,23 +4677,262 @@ void t35_ctx_get_context(T35Ctx *ctx, char *buf, int iw, int ih, int kc, int kx,
 	//	NWm1=kc-1>=0&&kx-1>=0&&ky-1>=0?(++ctxcount3, (char)buf[(iw*(ky-1)+kx-1)<<2|(kc-1)]):0;
 	//ctxcount3+=ctxcount<<1;
 	//int helper3=ctxcount3?(((W+N+m1)<<1)+NW+Nm1+Wm1+NWm1)/ctxcount3:0;
-	int helper3=NW;
-	ctx->context[2]=helper3<<8;
 	
-	ctx->context[3]=clamp4_32(N+W-NW, N, W, NW, NE)<<8;
-	ctx->context[4]=clamp4_32(N+m1-Nm1, N, m1, Nm1, NW)<<8;
-	ctx->context[5]=clamp4_32(W+m1-Wm1, W, m1, Wm1, NW)<<8;
-	//ctx->context[3]=Nm1<<8;
-	//ctx->context[4]=Wm1<<8;
-	//ctx->context[5]=NWm1<<8;
+	ctx->context[++j]=0;
+	ctx->context[++j]=N;
+	ctx->context[++j]=W;
+	ctx->context[++j]=NW;
+	ctx->context[++j]=m1;
+	ctx->context[++j]=W+NE-N;
+	ctx->context[++j]=count_W_N_m1?(W+N+m1)/count_W_N_m1:0;
+	ctx->context[++j]=clamp4(N+W-NW, N, W, NW, NE);
+	ctx->context[++j]=clamp4(N+m1-Nm1, N, m1, Nm1, NW);
+	ctx->context[++j]=clamp4(W+m1-Wm1, W, m1, Wm1, NW);
+	ctx->context[++j]=NW+NE-NN;
+	ctx->context[++j]=(N+W-NW + m1)>>1;
+	ctx->context[++j]=m2;
+	ctx->context[++j]=(N+W-NW + m2)>>1;
+
+	//ctx->context[++j]=Nm1+Wm1-NWm1;
+	//ctx->context[++j]=Nm1;
+	//ctx->context[++j]=Wm1;
+	//ctx->context[++j]=NWm1;
+#endif
+
+#if 0
+	//offsets are in NW direction
+#define LOAD(CO, XO, YO) (unsigned)(kc-CO)<3u&&(unsigned)(kx-(XO))<(unsigned)iw&&(unsigned)(ky-YO)<(unsigned)ih?buf[(iw*(ky-YO)+kx-(XO))<<2|(kc-CO)]<<T35_PREC:0
+	int WWWWWW  =LOAD(0,  6, 0),
+		WWWWW   =LOAD(0,  5, 0),
+		WWWW    =LOAD(0,  4, 0),
+		WWW     =LOAD(0,  3, 0),
+		WW      =LOAD(0,  2, 0),
+		W       =LOAD(0,  1, 0),
+		NWWWW   =LOAD(0,  4, 1),
+		NWWW    =LOAD(0,  3, 1),
+		NWW     =LOAD(0,  2, 1),
+		NW      =LOAD(0,  1, 1),
+		N       =LOAD(0,  0, 1),
+		NE      =LOAD(0, -1, 1),
+		NEE     =LOAD(0, -2, 1),
+		NEEE    =LOAD(0, -3, 1),
+		NEEEE   =LOAD(0, -4, 1),
+		NEEEEEE =LOAD(0, -6, 1),
+		NNWWW   =LOAD(0,  3, 2),
+		NNWW    =LOAD(0,  2, 2),
+		NNW     =LOAD(0,  1, 2),
+		NN      =LOAD(0,  0, 2),
+		NNE     =LOAD(0, -1, 2),
+		NNEE    =LOAD(0, -2, 2),
+		NNEEE   =LOAD(0, -3, 2),
+		NNNWWWW =LOAD(0,  4, 3),
+		NNNWWW  =LOAD(0,  3, 3),
+		NNNWW   =LOAD(0,  2, 3),
+		NNNW    =LOAD(0,  1, 3),
+		NNN     =LOAD(0,  0, 3),
+		NNNE    =LOAD(0, -1, 3),
+		NNNEE   =LOAD(0, -2, 3),
+		NNNEEE  =LOAD(0, -3, 3),
+		NNNNW   =LOAD(0,  1, 4),
+		NNNN    =LOAD(0,  0, 4),
+		NNNNE   =LOAD(0, -1, 4),
+		NNNNN   =LOAD(0,  0, 5),
+		NNNNNN  =LOAD(0,  0, 6),
+		WWWWWWp1=LOAD(1,  6, 0),
+		WWWWp1  =LOAD(1,  4, 0),
+		WWWp1   =LOAD(1,  3, 0),
+		WWp1    =LOAD(1,  2, 0),
+		Wp1     =LOAD(1,  1, 0),
+		p1      =LOAD(1,  0, 0),
+		NWWp1   =LOAD(1,  2, 1),
+		NWp1    =LOAD(1,  1, 1),
+		Np1     =LOAD(1,  0, 1),
+		NEp1    =LOAD(1, -1, 1),
+		NEEp1   =LOAD(1, -2, 1),
+		NNWWp1  =LOAD(1,  2, 2),
+		NNp1    =LOAD(1,  0, 2),
+		NNEp1   =LOAD(1, -1, 2),
+		NNEEp1  =LOAD(1, -2, 2),
+		NNNWp1  =LOAD(1,  1, 3),
+		NNNp1   =LOAD(1,  0, 3),
+		NNNEp1  =LOAD(1, -1, 3),
+		NNNNp1  =LOAD(1,  0, 4),
+		NNNNNNp1=LOAD(1,  0, 6),
+		WWWWWWp2=LOAD(2,  6, 0),
+		WWWWp2  =LOAD(2,  4, 0),
+		WWWp2   =LOAD(2,  3, 0),
+		WWp2    =LOAD(2,  2, 0),
+		Wp2     =LOAD(2,  1, 0),
+		p2      =LOAD(2,  0, 0),
+		NWWp2   =LOAD(2,  2, 1),
+		NWp2    =LOAD(2,  1, 1),
+		Np2     =LOAD(2,  0, 1),
+		NEp2    =LOAD(2, -1, 1),
+		NEEp2   =LOAD(2, -2, 1),
+		NNWWp2  =LOAD(2,  2, 2),
+		NNp2    =LOAD(2,  0, 2),
+		NNEp2   =LOAD(2, -1, 2),
+		NNEEp2  =LOAD(2, -2, 2),
+		NNNWp2  =LOAD(2,  1, 3),
+		NNNp2   =LOAD(2,  0, 3),
+		NNNEp2  =LOAD(2, -1, 3),
+		NNNNp2  =LOAD(2,  0, 4),
+		NNNNNNp2=LOAD(2,  0, 6);
+#undef LOAD
+	int j=-1;
+	ctx->context[++j]=0;
+
+	ctx->context[++j] = clamp4(N + p1 - Np1, W, NW, N, NE);
+	ctx->context[++j] = clamp4(N + p2 - Np2, W, NW, N, NE);
+	ctx->context[++j] = (W + clamp4(NE * 3 - NNE * 3 + NNNE, W, N, NE, NEE)) / 2;
+	ctx->context[++j] = clamp4((W + clip(NE * 2 - NNE)) / 2, W, NW, N, NE);
+	ctx->context[++j] = (W + NEE) / 2;
+	ctx->context[++j] = ((WWW - 4 * WW + 6 * W + (NE * 4 - NNE * 6 + NNNE * 4 - NNNNE)) / 4);
+	ctx->context[++j] = ((-WWWW + 5 * WWW - 10 * WW + 10 * W + clamp4(NE * 4 - NNE * 6 + NNNE * 4 - NNNNE, N, NE, NEE, NEEE)) / 5);
+	ctx->context[++j] = ((-4 * WW + 15 * W + 10 * (NE * 3 - NNE * 3 + NNNE) - (NEEE * 3 - NNEEE * 3 + NNNEEE)) / 20);
+	ctx->context[++j] = ((-3 * WW + 8 * W + clamp4(NEE * 3 - NNEE * 3 + NNNEE, NE, NEE, NEEE, NEEEE)) / 6);
+	ctx->context[++j] = ((W + (NE * 2 - NNE)) / 2 + p1 - (Wp1 + (NEp1 * 2 - NNEp1)) / 2);
+	ctx->context[++j] = ((W + (NE * 2 - NNE)) / 2 + p2 - (Wp2 + (NEp2 * 2 - NNEp2)) / 2);
+	ctx->context[++j] = ((-3 * WW + 8 * W + (NEE * 2 - NNEE)) / 6 + p1 -(-3 * WWp1 + 8 * Wp1 + (NEEp1 * 2 - NNEEp1)) / 6);
+	ctx->context[++j] = ((-3 * WW + 8 * W + (NEE * 2 - NNEE)) / 6 + p2 -(-3 * WWp2 + 8 * Wp2 + (NEEp2 * 2 - NNEEp2)) / 6);
+	ctx->context[++j] = ((W + NEE) / 2 + p1 - (Wp1 + NEEp1) / 2);
+	ctx->context[++j] = ((W + NEE) / 2 + p2 - (Wp2 + NEEp2) / 2);
+	ctx->context[++j] = ((WW + (NEE * 2 - NNEE)) / 2 + p1 - (WWp1 + (NEEp1 * 2 - NNEEp1)) / 2);
+	ctx->context[++j] = ((WW + (NEE * 2 - NNEE)) / 2 + p2 - (WWp2 + (NEEp2 * 2 - NNEEp2)) / 2);
+	ctx->context[++j] = (WW + NEE - N + p1 - (WWp1 + NEEp1 - Np1));
+	ctx->context[++j] = (WW + NEE - N + p2 - (WWp2 + NEEp2 - Np2));
+	ctx->context[++j] = (W + N - NW);
+	ctx->context[++j] = (W + N - NW + p1 - (Wp1 + Np1 - NWp1));
+	ctx->context[++j] = (W + N - NW + p2 - (Wp2 + Np2 - NWp2));
+	ctx->context[++j] = (W + NE - N);
+	ctx->context[++j] = (N + NW - NNW);
+	ctx->context[++j] = (N + NW - NNW + p1 - (Np1 + NWp1 - NNEp1));
+	ctx->context[++j] = (N + NW - NNW + p2 - (Np2 + NWp2 - NNEp2));
+	ctx->context[++j] = (N + NE - NNE);
+	ctx->context[++j] = (N + NE - NNE + p1 - (Np1 + NEp1 - NNEp1));
+	ctx->context[++j] = (N + NE - NNE + p2 - (Np2 + NEp2 - NNEp2));
+	ctx->context[++j] = (N + NN - NNN);
+	ctx->context[++j] = (N + NN - NNN + p1 - (Np1 + NNp1 - NNNp1));
+	ctx->context[++j] = (N + NN - NNN + p2 - (Np2 + NNp2 - NNNp2));
+	ctx->context[++j] = (W + WW - WWW);
+	ctx->context[++j] = (W + WW - WWW + p1 - (Wp1 + WWp1 - WWWp1));
+	ctx->context[++j] = (W + WW - WWW + p2 - (Wp2 + WWp2 - WWWp2));
+	ctx->context[++j] = (W + NEE - NE);
+	ctx->context[++j] = (W + NEE - NE + p1 - (Wp1 + NEEp1 - NEp1));
+	ctx->context[++j] = (W + NEE - NE + p2 - (Wp2 + NEEp2 - NEp2));
+	ctx->context[++j] = (NN + p1 - NNp1);
+	ctx->context[++j] = (NN + p2 - NNp2);
+	ctx->context[++j] = (NN + W - NNW);
+	ctx->context[++j] = (NN + W - NNW + p1 - (NNp1 + Wp1 - NNEp1));
+	ctx->context[++j] = (NN + W - NNW + p2 - (NNp2 + Wp2 - NNEp2));
+	ctx->context[++j] = (NN + NW - NNNW);
+	ctx->context[++j] = (NN + NW - NNNW + p1 - (NNp1 + NWp1 - NNNWp1));
+	ctx->context[++j] = (NN + NW - NNNW + p2 - (NNp2 + NWp2 - NNNWp2));
+	ctx->context[++j] = (NN + NE - NNNE);
+	ctx->context[++j] = (NN + NE - NNNE + p1 - (NNp1 + NEp1 - NNNEp1));
+	ctx->context[++j] = (NN + NE - NNNE + p2 - (NNp2 + NEp2 - NNNEp2));
+	ctx->context[++j] = (NN + NNNN - NNNNNN);
+	ctx->context[++j] = (NN + NNNN - NNNNNN + p1 - (NNp1 + NNNNp1 - NNNNNNp1));
+	ctx->context[++j] = (NN + NNNN - NNNNNN + p2 - (NNp2 + NNNNp2 - NNNNNNp2));
+	ctx->context[++j] = (WW + p1 - WWp1);
+	ctx->context[++j] = (WW + p2 - WWp2);
+	ctx->context[++j] = (WW + WWWW - WWWWWW);
+	ctx->context[++j] = (WW + WWWW - WWWWWW + p1 - (WWp1 + WWWWp1 - WWWWWWp1));
+	ctx->context[++j] = (WW + WWWW - WWWWWW + p2 - (WWp2 + WWWWp2 - WWWWWWp2));
+	ctx->context[++j] = (N * 2 - NN + p1 - (Np1 * 2 - NNp1));
+	ctx->context[++j] = (N * 2 - NN + p2 - (Np2 * 2 - NNp2));
+	ctx->context[++j] = (W * 2 - WW + p1 - (Wp1 * 2 - WWp1));
+	ctx->context[++j] = (W * 2 - WW + p2 - (Wp2 * 2 - WWp2));
+	ctx->context[++j] = (N * 3 - NN * 3 + NNN);
+	ctx->context[++j] = clamp4(N * 3 - NN * 3 + NNN, W, NW, N, NE);
+	ctx->context[++j] = clamp4(W * 3 - WW * 3 + WWW, W, NW, N, NE);
+	ctx->context[++j] = clamp4(N * 2 - NN, W, NW, N, NE);
+	ctx->context[++j] = ((NNNNN - 6 * NNNN + 15 * NNN - 20 * NN + 15 * N + clamp4(W * 4 - NWW * 6 + NNWWW * 4 - NNNWWWW, W, NW, N, NN)) / 6);
+	ctx->context[++j] = ((NNNEEE - 4 * NNEE + 6 * NE + (W * 4 - NW * 6 + NNW * 4 - NNNW)) / 4);
+	ctx->context[++j] = (((N + 3 * NW) / 4) * 3 - ((NNW + NNWW) / 2) * 3 + (NNNWW * 3 + NNNWWW) / 4);
+	ctx->context[++j] = ((W * 2 + NW) - (WW + 2 * NWW) + NWWW);
+	ctx->context[++j] = ((W * 2 - NW) + (W * 2 - NWW) + N + NE) / 4;
+	ctx->context[++j] = (N + W + 1) >> 1;
+	ctx->context[++j] = (NEEEE + NEEEEEE + 1) >> 1;
+	ctx->context[++j] = (WWWWWW + WWWW + 1) >> 1;
+	ctx->context[++j] = ((W + N) * 3 - NW * 2) >> 2;
+	ctx->context[++j] = N;
+	ctx->context[++j] = NN;
+	ctx->context[++j] = N + p1 - Np1;
+	ctx->context[++j] = N + p2 - Np2;
+	ctx->context[++j] = W + p1 - Wp1;
+	ctx->context[++j] = W + p2 - Wp2;
+	ctx->context[++j] = NW + p1 - NWp1;
+	ctx->context[++j] = NW + p2 - NWp2;
+	ctx->context[++j] = NE + p1 - NEp1;
+	ctx->context[++j] = NE + p2 - NEp2;
+	ctx->context[++j] = NN + p1 - NNp1;
+	ctx->context[++j] = NN + p2 - NNp2;
+	ctx->context[++j] = WW + p1 - WWp1;
+	ctx->context[++j] = WW + p2 - WWp2;
+	ctx->context[++j] = W + N - NW;
+	ctx->context[++j] = W + N - NW + p1 - Wp1 - Np1 + NWp1;
+	ctx->context[++j] = W + N - NW + p2 - Wp2 - Np2 + NWp2;
+	ctx->context[++j] = W + NE - N;
+	ctx->context[++j] = W + NE - N + p1 - Wp1 - NEp1 + Np1;
+	ctx->context[++j] = W + NE - N + p2 - Wp2 - NEp2 + Np2;
+	ctx->context[++j] = W + NEE - NE;
+	ctx->context[++j] = W + NEE - NE + p1 - Wp1 - NEEp1 + NEp1;
+	ctx->context[++j] = W + NEE - NE + p2 - Wp2 - NEEp2 + NEp2;
+	ctx->context[++j] = N + NN - NNN;
+	ctx->context[++j] = N + NN - NNN + p1 - Np1 - NNp1 + NNNp1;
+	ctx->context[++j] = N + NN - NNN + p2 - Np2 - NNp2 + NNNp2;
+	ctx->context[++j] = N + NE - NNE;
+	ctx->context[++j] = N + NE - NNE + p1 - Np1 - NEp1 + NNEp1;
+	ctx->context[++j] = N + NE - NNE + p2 - Np2 - NEp2 + NNEp2;
+	ctx->context[++j] = N + NW - NNW;
+	ctx->context[++j] = N + NW - NNW + p1 - Np1 - NWp1 + NNEp1;
+	ctx->context[++j] = N + NW - NNW + p2 - Np2 - NWp2 + NNEp2;
+	ctx->context[++j] = NE + NW - NN;
+	ctx->context[++j] = NE + NW - NN + p1 - NEp1 - NWp1 + NNp1;
+	ctx->context[++j] = NE + NW - NN + p2 - NEp2 - NWp2 + NNp2;
+	ctx->context[++j] = NW + W - NWW;
+	ctx->context[++j] = NW + W - NWW + p1 - NWp1 - Wp1 + NWWp1;
+	ctx->context[++j] = NW + W - NWW + p2 - NWp2 - Wp2 + NWWp2;
+	ctx->context[++j] = W * 2 - WW;
+	ctx->context[++j] = W * 2 - WW + p1 - Wp1 * 2 + WWp1;
+	ctx->context[++j] = W * 2 - WW + p2 - Wp2 * 2 + WWp2;
+	ctx->context[++j] = N * 2 - NN;
+	ctx->context[++j] = N * 2 - NN + p1 - Np1 * 2 + NNp1;
+	ctx->context[++j] = N * 2 - NN + p2 - Np2 * 2 + NNp2;
+	ctx->context[++j] = NW * 2 - NNWW;
+	ctx->context[++j] = NW * 2 - NNWW + p1 - NWp1 * 2 + NNWWp1;
+	ctx->context[++j] = NW * 2 - NNWW + p2 - NWp2 * 2 + NNWWp2;
+	ctx->context[++j] = NE * 2 - NNEE;
+	ctx->context[++j] = NE * 2 - NNEE + p1 - NEp1 * 2 + NNEEp1;
+	ctx->context[++j] = NE * 2 - NNEE + p2 - NEp2 * 2 + NNEEp2;
+	ctx->context[++j] = N * 3 - NN * 3 + NNN + p1 - Np1 * 3 + NNp1 * 3 - NNNp1;
+	ctx->context[++j] = N * 3 - NN * 3 + NNN + p2 - Np2 * 3 + NNp2 * 3 - NNNp2;
+	ctx->context[++j] = N * 3 - NN * 3 + NNN;
+	ctx->context[++j] = (W + NE * 2 - NNE + 1) >> 1;
+	ctx->context[++j] = (W + NE * 3 - NNE * 3 + NNNE+1) >> 1;
+	ctx->context[++j] = (W + NE * 2 - NNE) / 2 + p1 - (Wp1 + NEp1 * 2 - NNEp1) / 2;
+	ctx->context[++j] = (W + NE * 2 - NNE) / 2 + p2 - (Wp2 + NEp2 * 2 - NNEp2) / 2;
+	ctx->context[++j] = NNE + NE - NNNE;
+	ctx->context[++j] = NNE + W - NN;
+	ctx->context[++j] = NNW + W - NNWW;
+#endif
+	for(int k=0;k<T35_NMAPS;++k)
+	{
+		ctx->context[k]-=offset;
+		ctx->context[k]<<=8;
+	}
 }
 void t35_ctx_estimate_p0(T35Ctx *ctx, int kc, int kb)
 {
 	int workidx=kc<<3|kb;
 	int *wk=ctx->weights[workidx];
-	RBNodeHandle *hnode=map_insert(ctx->maps[workidx], ctx->context, ctx->found);
+
 	int p0idx=0;
 	long long sum;
+	RBNodeHandle *hnode;
+#if 1
+	hnode=map_insert(ctx->maps[workidx], ctx->context, ctx->found);
 	ctx->node1=(T35CtxNode*)hnode[0]->data;
 	if(ctx->found[0])
 	{
@@ -4689,6 +4953,7 @@ void t35_ctx_estimate_p0(T35Ctx *ctx, int kc, int kb)
 			ctx->p0arr[p0idx+k]=0x8000;
 		p0idx+=k;
 	}
+#endif
 
 	T35PredCtxNode *node;
 	for(int k=1;k<T35_NMAPS;++k)
@@ -4697,7 +4962,7 @@ void t35_ctx_estimate_p0(T35Ctx *ctx, int kc, int kb)
 		node=ctx->node2[k-1]=(T35PredCtxNode*)hnode[0]->data;
 		if(ctx->found[k])
 		{
-			int sum=node->n[0]+node->n[1];
+			sum=node->n[0]+node->n[1];
 			//if(!sum)
 			//	LOG_ERROR("");
 			ctx->p0arr[p0idx]=sum?(int)(((long long)node->n[0]<<16)/sum):0x8000;
@@ -4725,8 +4990,21 @@ void t35_ctx_estimate_p0(T35Ctx *ctx, int kc, int kb)
 }
 void t35_ctx_update(T35Ctx *ctx, int kc, int kb, int bit)
 {
+	int workidx=kc<<3|kb;
+#ifdef T35_PRINT_ESTIMATOR_CR
+	for(int k=0;k<T35_NESTIMATORS;++k)
+	{
+		int prob=(unsigned short)(bit?0x10000-ctx->p0arr[k]:ctx->p0arr[k]);
+		if(prob)
+		{
+			float p=(float)prob/0x10000;
+			float bitsize=-log2f(p);
+			ctx->csizes[T35_NESTIMATORS*workidx+k]+=bitsize;
+		}
+	}
+#endif
 	//bwd
-	int *wk=ctx->weights[kc<<3|kb];
+	int *wk=ctx->weights[workidx];
 	if(ctx->p0_0>=1&&ctx->p0_0<=0xFFFF)
 	{
 		int p_bit=bit?0x10000-ctx->p0:ctx->p0;
@@ -4745,6 +5023,7 @@ void t35_ctx_update(T35Ctx *ctx, int kc, int kb, int bit)
 	}
 
 	//update
+#if 1
 	{
 		T35CtxNode *node=ctx->node1;
 		if(ctx->found[0])
@@ -4767,6 +5046,7 @@ void t35_ctx_update(T35Ctx *ctx, int kc, int kb, int bit)
 		}
 		ctx->context[0]|=bit<<kb;
 	}
+#endif
 
 	for(int k=1;k<T35_NMAPS;++k)
 	{
@@ -4821,7 +5101,6 @@ static const int t35_bitidx[]=
 	1, 0,
 	0, 0,
 };
-#endif
 static void initialize_fix16(DataType *weights, int count, int fan_in)
 {
 	DataType gain=(int)(0x10000/fan_in);
@@ -4840,6 +5119,7 @@ static void initialize_fp32(float *weights, int count, int fan_in)
 		weights[k]=x*gain;//[0, 1]/sqrt_fan_in
 	}
 }
+#endif
 T35Ctx t35_context;
 int t35_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud)
 {
@@ -4894,6 +5174,15 @@ int t35_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 				}
 			}
 		}
+		if(loud==2)
+		{
+			static float csize_prev=0;
+			float csize=0;
+			for(int k=0;k<24;++k)
+				csize+=csizes[k]/8;
+			printf("Y %d  CR %f\n", ky, iw*3/(csize-csize_prev));
+			csize_prev=csize;
+		}
 	}
 	abac_enc_flush(&ctx);
 
@@ -4920,6 +5209,48 @@ int t35_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 		}
 		printf("Total %lld  CR %lf  P %7d/8 = %g\n", list.nobj, 3.*iw*ih/list.nobj, iw*ih, iw*ih/8.);
 		printf("\n");
+
+		for(int kc=0;kc<3;++kc)
+		{
+			printf("C%d  ", kc);
+			for(int kb=7;kb>=0;--kb)
+				printf("  B%d %11.3f", kb, iw*ih/csizes[kc<<3|kb]);
+			printf("\n");
+		}
+		printf("\n");
+
+#ifdef T35_PRINT_ESTIMATOR_CR
+		printf("Estimator efficiencies:\n");
+		int minidx[24]={0}, maxidx[24]={0};
+		for(int kb=0;kb<24;++kb)
+		{
+			float *sizes=t35_context.csizes+T35_NESTIMATORS*kb;
+			for(int ke=1;ke<T35_NESTIMATORS;++ke)
+			{
+				if(sizes[minidx[kb]]>sizes[ke])
+					minidx[kb]=ke;
+				if(sizes[maxidx[kb]]<sizes[ke])
+					maxidx[kb]=ke;
+			}
+		}
+		for(int ke=0;ke<T35_NESTIMATORS;++ke)
+		{
+			float *sizes=t35_context.csizes+ke;
+			printf("E%2d ", ke);
+			for(int kb=0;kb<24;++kb)
+			{
+				char c;
+				if(ke==minidx[kb])
+					c='*';
+				else if(ke==maxidx[kb])
+					c='L';
+				else
+					c=' ';
+				printf(" %7.2f%c", sizes[T35_NESTIMATORS*kb]/t35_context.csizes[T35_NESTIMATORS*kb+minidx[kb]], c);
+			}
+			printf("\n");
+		}
+#endif
 	}
 	t35_ctx_clear(&t35_context);
 	dlist_clear(&list);
@@ -4963,6 +5294,966 @@ int t35_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 	
 	//addbuf(buf, iw, ih, 3, 4, 128);
 	apply_transforms_inv(buf, iw, ih);
+	if(loud)
+	{
+		printf("Decode elapsed ");
+		timedelta2str(0, 0, time_ms()-t_start);
+		printf("\n");
+	}
+	return 1;
+}
+
+
+//T36: stretch & squish from paq8px
+
+#define T36_NESTIMATORS 25//135
+#define T36_LR (long long)(0.001*0x10000+0.5)
+#define T36_ACT_ROUGHNESS 9	//do not change
+#define T36_SQRT_ONEPLUS_ROUGHNESS 0x3298B
+#define T36_PRINT_ESTIMATOR_CR
+int sqrt_f16(int v)//https://github.com/chmike/fpsqrt
+{
+	unsigned t, q, b, r;
+
+	r=v;
+	b=0x40000000;
+	q=0;
+	while(b>0x40)
+	{
+		t=q+b;
+		if(r>=t)
+		{
+			r-=t;
+			q=t+b;//equivalent to q += 2*b
+		}
+		r<<=1;
+		b>>=1;
+	}
+	q>>=8;
+	return q;
+}
+int t36_stretch(int p0)
+{
+	//stretch(x) = x/resqrt(1 + sq3*(1-4xx))	[-1/2, 1/2]
+	int p2=(int)((long long)p0*p0>>16);
+	p2<<=2;
+	p2=0x10000-p2;
+	p2*=T36_ACT_ROUGHNESS;
+	p2+=0x10000;
+	p2=sqrt_f16(p2);
+	p2=(int)(((long long)p0<<16)/p2);
+	return p2;
+}
+int t36_squish(int x)
+{
+	//squish(x) = resqrt(1+sq3)*x/resqrt(1+sq(2*3)xx)
+	int x2=(int)((long long)x*x>>16);
+	x2*=T36_ACT_ROUGHNESS<<2;
+	x2+=0x10000;
+	x2=sqrt_f16(x2);
+	x2=(int)((long long)T36_SQRT_ONEPLUS_ROUGHNESS*x/x2);
+	return x2;
+}
+int t36_squish_dash(int x, int squishx)
+{
+	//squish'(x) = x ? (1 - sq(2*3)/(1+sq3)*sq(squishx))*(squishx)/x : sqrt(1+sq3)
+	int temp;
+	if(x)
+	{
+		temp=(int)((long long)squishx*squishx>>16);
+		temp*=T36_ACT_ROUGHNESS<<2;
+		temp/=T36_ACT_ROUGHNESS+1;
+		temp=0x10000-temp;
+		temp=(int)((long long)temp*squishx/x);
+	}
+	else
+		temp=T36_SQRT_ONEPLUS_ROUGHNESS;
+	return temp;
+}
+void t36_stretch_squish_test()
+{
+	printf("ramp,  stretch, ramp,  squish, ramp\n");
+	for(int k=0;k<256;++k)
+	{
+		int v0=(k<<8)-0x8000;
+		int v1=t36_stretch(v0);
+		int v2=t36_squish(v1);
+		int v3=t36_squish(v0);
+		int v4=t36_stretch(v3);
+		printf("%12d %12d %12d %12d %12d\n", v0, v1, v2, v3, v4);
+		//printf("0x%08X 0x%08X 0x%08X\n", v0, v1, v2);
+	}
+	pause();
+}
+typedef struct T36NodeStruct
+{
+	int key;
+	int n[2];
+} T36Node;
+static CmpRes t36_cmp_node(const void *key, const void *candidate)
+{
+	int const *k=(int const*)key;
+	T36Node const *c=(T36Node const*)candidate;
+	return (*k>c->key)-(*k<c->key);
+}
+//static void t36_debugprinter(RBNodeHandle *node, int depth)
+//{
+//	T36Node *p;
+//	if(node)
+//	{
+//		p=(T36Node*)node[0]->data;
+//		printf("0x%08X %5d %5d\n", p->key, p->n[0], p->n[1]);
+//	}
+//}
+typedef struct T36CtxStruct
+{
+	Map maps[24][T36_NESTIMATORS];
+	int context[T36_NESTIMATORS];
+	int found[T36_NESTIMATORS];
+	T36Node *node[T36_NESTIMATORS];
+	int weights[24][T36_NESTIMATORS];//fixed 15.16 bit
+	int t[T36_NESTIMATORS], x, s0, p0;//t[i]=stretch(p0arr[i]),  x = w . t + w0,  s0=squish(x) in [-1/2, 1/2],  p0=CLAMP(s0+1/2)
+	long long wsum;
+	int nnodes;
+	int nestimators;
+	int p0arr[T36_NESTIMATORS];
+#ifdef T36_PRINT_ESTIMATOR_CR
+	float csizes[24*T36_NESTIMATORS];
+#endif
+
+	int iw;
+	int *ebufs[24*T36_NESTIMATORS];//probability errors
+	int ei[T36_NESTIMATORS];
+
+	char *ebuf;//pixel errors
+} T36Ctx;
+void t36_ctx_init(T36Ctx *ctx, int iw, int ih)
+{
+	XOROSHIRO128_RESET();
+	for(int k=0;k<24;++k)//fixed 15.16 bit
+		for(int k2=0;k2<T36_NESTIMATORS;++k2)
+			ctx->weights[k][k2]=0x8000+(xoroshiro128_next()&0x1FF)-0x100;
+			//ctx->weights[k][k2]=(xoroshiro128_next()&0xFFFF)/T36_NESTIMATORS;
+	for(int k=0;k<24;++k)
+	{
+		for(int k2=0;k2<T36_NESTIMATORS;++k2)
+			MAP_INIT(ctx->maps[k]+k2, T36Node, t36_cmp_node, 0);
+	}
+
+	ctx->iw=iw;
+	int initval=1;
+	for(int k=0;k<24*T36_NESTIMATORS;++k)
+	{
+		ctx->ebufs[k]=(int*)malloc(iw*sizeof(int));
+		if(!ctx->ebufs[k])
+		{
+			LOG_ERROR("Allocation error");
+			return;
+		}
+		memfill(ctx->ebufs[k], &initval, iw*sizeof(int), sizeof(int));
+	}
+
+	ctx->ebuf=(char*)malloc((size_t)iw*ih<<2);
+	if(!ctx->ebuf)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	initval=0xFF000000;
+	memfill(ctx->ebuf, &initval, (size_t)iw*ih<<2, sizeof(int));
+}
+void t36_ctx_clear(T36Ctx *ctx)
+{
+	for(int k=0;k<24;++k)
+	{
+		for(int k2=0;k2<T36_NESTIMATORS;++k2)
+			MAP_CLEAR(ctx->maps[k]+k2);
+	}
+	ctx->nnodes=0;
+	
+	for(int k=0;k<24*T36_NESTIMATORS;++k)
+	{
+		free(ctx->ebufs[k]);
+		ctx->ebufs[k]=0;
+	}
+
+	free(ctx->ebuf);
+	ctx->ebuf=0;
+}
+void t36_ctx_get_context(T36Ctx *ctx, char *buf, int iw, int ih, int kc, int kx, int ky)
+{
+#if 1
+	int j=-1;
+#define LOAD(BUF, CO, XO, YO) (unsigned)(kx-(XO))<(unsigned)iw&&(unsigned)(ky-YO)<(unsigned)ih?BUF[(iw*(ky-YO)+kx-(XO))<<2|(kc+CO)%3]:0
+	char
+		NNWW=LOAD(buf, 0,  2, 2),
+		NNW =LOAD(buf, 0,  1, 2),
+		NN  =LOAD(buf, 0,  0, 2),
+		NNE =LOAD(buf, 0, -1, 2),
+		NNEE=LOAD(buf, 0, -2, 2),
+		
+		NWW =LOAD(buf, 0,  2, 1),
+		NW  =LOAD(buf, 0,  1, 1),
+		N   =LOAD(buf, 0,  0, 1),
+		NE  =LOAD(buf, 0, -1, 1),
+		NEE =LOAD(buf, 0, -2, 1),
+
+		WW  =LOAD(buf, 0,  2, 0),
+		W   =LOAD(buf, 0,  1, 0),
+
+		eNNWW=LOAD(ctx->ebuf, 0,  2, 2),
+		eNNW =LOAD(ctx->ebuf, 0,  1, 2),
+		eNN  =LOAD(ctx->ebuf, 0,  0, 2),
+		eNNE =LOAD(ctx->ebuf, 0, -1, 2),
+		eNNEE=LOAD(ctx->ebuf, 0, -2, 2),
+		
+		eNWW =LOAD(ctx->ebuf, 0,  2, 1),
+		eNW  =LOAD(ctx->ebuf, 0,  1, 1),
+		eN   =LOAD(ctx->ebuf, 0,  0, 1),
+		eNE  =LOAD(ctx->ebuf, 0, -1, 1),
+		eNEE =LOAD(ctx->ebuf, 0, -2, 1),
+
+		eWW  =LOAD(ctx->ebuf, 0,  2, 0),
+		eW   =LOAD(ctx->ebuf, 0,  1, 0),
+
+		Wp1 =LOAD(buf, 1,  1, 0),
+		Np1 =LOAD(buf, 1,  0, 1),
+		NWp1=LOAD(buf, 1,  1, 1),
+		NEp1=LOAD(buf, 1, -1, 1),
+
+		Wp2 =LOAD(buf, 2,  1, 0),
+		Np2 =LOAD(buf, 2,  0, 1),
+		NWp2=LOAD(buf, 2,  1, 1),
+		NEp2=LOAD(buf, 2, -1, 1);
+#undef LOAD
+	ctx->context[++j]=0;
+#if 0
+	ctx->context[++j]=clamp4(N+W-NW, N, W, NW, NE);
+	ctx->context[++j]=(N+W)>>1;
+	ctx->context[++j]=N*2-NN;
+	ctx->context[++j]=W*2-WW;
+	ctx->context[++j]=NW*2-NNWW;
+	ctx->context[++j]=NE+NW-NN;
+	ctx->context[++j]=NE*2-NNEE;
+	ctx->context[++j]=W+NE-N;
+	ctx->context[++j]=N*3-NNW-NE;
+	ctx->context[++j]=(W*4+NEE*2-(WW+NE*2))/3;
+	ctx->context[++j]=N*3-NNE-NW;
+	ctx->context[++j]=W+NW-NWW;
+	ctx->context[++j]=N+NE-NNE;
+	ctx->context[++j]=N+NW-NNW;
+	ctx->context[++j]=N-(NE*2+WW)+(W*2+NEE);
+	ctx->context[++j]=(N+NW+W+NN)/2-NNW;
+	ctx->context[++j]=(N+NE+W+NNEE)/2-NNE;
+	ctx->context[++j]=(N+W)-(NNW+NWW)/2;
+	ctx->context[++j]=(NNW+W+NW*2)/2-NNWW;
+	ctx->context[++j]=(W+NNE+N*2)/2-NN;
+	ctx->context[++j]=(N+WW+NW+W)/2-NWW;
+	switch(kc)
+	{
+	case 0://R
+		{
+			ctx->context[++j]=(
+				 0x00AD*NNWW-0x020A*NNW+0x0259*NN-0x0230*NNE+0x0161*NNEE
+				-0x034E*NWW +0x01D7*NW +0x0326*N +0x04B7*NE -0x0091*NEE
+				+0x0504*WW  +0x0544*W
+				+0x002B*eNNWW+0x0189*eNNW+0x00A6*eNN+0x016D*eNNE-0x006B*eNNEE
+				+0x0199*eNWW +0x02DD*eNW +0x05F0*eN +0x0148*eNE +0x0117*eNEE
+				+0x0024*eWW  +0x068D*eW
+			)>>12;
+		}
+		break;
+	case 1://G
+		{
+			ctx->context[++j]=(
+				 0x0033*NNWW-0x0020*NNW+0x00B3*NN+0x0048*NNE+0x00BD*NNEE
+				+0x0065*NWW +0x00CD*NW +0x015D*N -0x000D*NE +0x00AD*NEE
+				+0x01B7*WW  +0x0928*W
+				+0x0058*eNNWW-0x004E*eNNW-0x0132*eNN+0x0083*eNNE-0x0013*eNNEE
+				-0x0163*eNWW +0x01A4*eNW +0x0688*eN +0x01E1*eNE +0x004F*eNEE
+				-0x03AD*eWW  +0x0347*eW
+			)>>12;
+		}
+		break;
+	case 2://B
+		{
+			ctx->context[++j]=(
+				 0x0018*NNWW-0x021A*NNW+0x034A*NN-0x0249*NNE+0x00F7*NNEE
+				-0x0261*NWW -0x0008*NW +0x044F*N +0x0347*NE +0x0018*NEE
+				+0x0346*WW  +0x0797*W
+				+0x0043*eNNWW+0x00EC*eNNW+0x0041*eNN+0x014C*eNNE-0x0067*eNNEE
+				+0x009D*eNWW +0x03B9*eNW +0x0627*eN +0x0214*eNE +0x004F*eNEE
+				+0x0026*eWW  +0x0543*eW
+			)>>12;
+		}
+		break;
+	}
+#endif
+	ctx->nestimators=j+1;
+	int pred=0;
+	for(int k=0;k<ctx->nestimators;++k)
+	{
+		ctx->context[k]=clip(ctx->context[k]);
+		pred+=ctx->context[k];
+	}
+	pred/=ctx->nestimators;
+	ctx->ebuf[(iw*ky+kx)<<2|kc]=pred;
+#endif
+
+#if 0
+	int j=-1;
+
+	int count_W_N_m1=(kx-1>=0)+(ky-1>=0)+(kc-1>=0);
+	int W   =kx-1>=0         ?buf[(iw* ky   +kx-1)<<2| kc   ]:0,
+		NW  =kx-1>=0&&ky-1>=0?buf[(iw*(ky-1)+kx-1)<<2| kc   ]:0,
+		N   =ky-1>=0         ?buf[(iw*(ky-1)+kx  )<<2| kc   ]:0,
+		NE  =kx+1<iw&&ky-1>=0?buf[(iw*(ky-1)+kx-1)<<2| kc   ]:0,
+		NN  =ky-2>=0         ?buf[(iw*(ky-2)+kx  )<<2| kc   ]:0,
+
+		m1  =kc-1>=0                  ?buf[(iw* ky   +kx  )<<2|(kc-1)]:0,
+		Nm1 =kc-1>=0         &&ky-1>=0?buf[(iw*(ky-1)+kx  )<<2|(kc-1)]:0,
+		Wm1 =kc-1>=0&&kx-1>=0         ?buf[(iw* ky   +kx-1)<<2|(kc-1)]:0,
+		NWm1=kc-1>=0&&kx-1>=0&&ky-1>=0?buf[(iw*(ky-1)+kx-1)<<2|(kc-1)]:0,
+
+		m2  =kc-2>=0                  ?buf[(iw* ky   +kx  )<<2|(kc-2)]:0,
+		Nm2 =kc-2>=0         &&ky-1>=0?buf[(iw*(ky-1)+kx  )<<2|(kc-2)]:0,
+		Wm2 =kc-2>=0&&kx-1>=0         ?buf[(iw* ky   +kx-1)<<2|(kc-2)]:0,
+		NWm2=kc-2>=0&&kx-1>=0&&ky-1>=0?buf[(iw*(ky-1)+kx-1)<<2|(kc-2)]:0;
+	
+	//ctx->context[++j]=0;
+	ctx->context[++j]=N;
+	ctx->context[++j]=W;
+	ctx->context[++j]=NW;
+	ctx->context[++j]=m1;
+	//ctx->context[++j]=W+NE-N;
+	ctx->context[++j]=count_W_N_m1?(W+N+m1)/count_W_N_m1:0;
+	ctx->context[++j]=clamp4(N+W-NW, N, W, NW, NE);
+	ctx->context[++j]=clamp4(N+m1-Nm1, N, m1, Nm1, NW);
+	ctx->context[++j]=clamp4(W+m1-Wm1, W, m1, Wm1, NW);
+	//ctx->context[++j]=NW+NE-NN;
+	//ctx->context[++j]=(N+W-NW + m1)>>1;
+	ctx->context[++j]=m2;
+	ctx->context[++j]=(N+W-NW + m2)>>1;
+	//ctx->context[++j]=Nm1+Wm1-NWm1;
+	//ctx->context[++j]=Nm1;
+	//ctx->context[++j]=Wm1;
+	//ctx->context[++j]=NWm1;
+
+	ctx->nestimators=j+1;
+#endif
+	
+#if 0
+	//offsets are in NW direction
+#define LOAD(CO, XO, YO) (unsigned)(kc-CO)<3u&&(unsigned)(kx-(XO))<(unsigned)iw&&(unsigned)(ky-YO)<(unsigned)ih?buf[(iw*(ky-YO)+kx-(XO))<<2|(kc-CO)]:0
+	int WWWWWW  =LOAD(0,  6, 0),
+		WWWWW   =LOAD(0,  5, 0),
+		WWWW    =LOAD(0,  4, 0),
+		WWW     =LOAD(0,  3, 0),
+		WW      =LOAD(0,  2, 0),
+		W       =LOAD(0,  1, 0),
+		NWWWW   =LOAD(0,  4, 1),
+		NWWW    =LOAD(0,  3, 1),
+		NWW     =LOAD(0,  2, 1),
+		NW      =LOAD(0,  1, 1),
+		N       =LOAD(0,  0, 1),
+		NE      =LOAD(0, -1, 1),
+		NEE     =LOAD(0, -2, 1),
+		NEEE    =LOAD(0, -3, 1),
+		NEEEE   =LOAD(0, -4, 1),
+		NEEEEEE =LOAD(0, -6, 1),
+		NNWWW   =LOAD(0,  3, 2),
+		NNWW    =LOAD(0,  2, 2),
+		NNW     =LOAD(0,  1, 2),
+		NN      =LOAD(0,  0, 2),
+		NNE     =LOAD(0, -1, 2),
+		NNEE    =LOAD(0, -2, 2),
+		NNEEE   =LOAD(0, -3, 2),
+		NNNWWWW =LOAD(0,  4, 3),
+		NNNWWW  =LOAD(0,  3, 3),
+		NNNWW   =LOAD(0,  2, 3),
+		NNNW    =LOAD(0,  1, 3),
+		NNN     =LOAD(0,  0, 3),
+		NNNE    =LOAD(0, -1, 3),
+		NNNEE   =LOAD(0, -2, 3),
+		NNNEEE  =LOAD(0, -3, 3),
+		NNNNW   =LOAD(0,  1, 4),
+		NNNN    =LOAD(0,  0, 4),
+		NNNNE   =LOAD(0, -1, 4),
+		NNNNN   =LOAD(0,  0, 5),
+		NNNNNN  =LOAD(0,  0, 6),
+		WWWWWWp1=LOAD(1,  6, 0),
+		WWWWp1  =LOAD(1,  4, 0),
+		WWWp1   =LOAD(1,  3, 0),
+		WWp1    =LOAD(1,  2, 0),
+		Wp1     =LOAD(1,  1, 0),
+		p1      =LOAD(1,  0, 0),
+		NWWp1   =LOAD(1,  2, 1),
+		NWp1    =LOAD(1,  1, 1),
+		Np1     =LOAD(1,  0, 1),
+		NEp1    =LOAD(1, -1, 1),
+		NEEp1   =LOAD(1, -2, 1),
+		NNWWp1  =LOAD(1,  2, 2),
+		NNp1    =LOAD(1,  0, 2),
+		NNEp1   =LOAD(1, -1, 2),
+		NNEEp1  =LOAD(1, -2, 2),
+		NNNWp1  =LOAD(1,  1, 3),
+		NNNp1   =LOAD(1,  0, 3),
+		NNNEp1  =LOAD(1, -1, 3),
+		NNNNp1  =LOAD(1,  0, 4),
+		NNNNNNp1=LOAD(1,  0, 6),
+		WWWWWWp2=LOAD(2,  6, 0),
+		WWWWp2  =LOAD(2,  4, 0),
+		WWWp2   =LOAD(2,  3, 0),
+		WWp2    =LOAD(2,  2, 0),
+		Wp2     =LOAD(2,  1, 0),
+		p2      =LOAD(2,  0, 0),
+		NWWp2   =LOAD(2,  2, 1),
+		NWp2    =LOAD(2,  1, 1),
+		Np2     =LOAD(2,  0, 1),
+		NEp2    =LOAD(2, -1, 1),
+		NEEp2   =LOAD(2, -2, 1),
+		NNWWp2  =LOAD(2,  2, 2),
+		NNp2    =LOAD(2,  0, 2),
+		NNEp2   =LOAD(2, -1, 2),
+		NNEEp2  =LOAD(2, -2, 2),
+		NNNWp2  =LOAD(2,  1, 3),
+		NNNp2   =LOAD(2,  0, 3),
+		NNNEp2  =LOAD(2, -1, 3),
+		NNNNp2  =LOAD(2,  0, 4),
+		NNNNNNp2=LOAD(2,  0, 6);
+#undef LOAD
+	int j=-1;
+	ctx->context[++j]=0;
+	ctx->context[++j] = clamp4(N + p1 - Np1, W, NW, N, NE);
+	ctx->context[++j] = clamp4(N + p2 - Np2, W, NW, N, NE);
+#if 1
+	ctx->context[++j] = (W + clamp4(NE * 3 - NNE * 3 + NNNE, W, N, NE, NEE)) / 2;
+	ctx->context[++j] = clamp4((W + clip(NE * 2 - NNE)) / 2, W, NW, N, NE);
+#endif
+	ctx->context[++j] = (W + NEE) / 2;
+#if 1
+	//ctx->context[++j] = ((WWW - 4 * WW + 6 * W + (NE * 4 - NNE * 6 + NNNE * 4 - NNNNE)) / 4);
+	//ctx->context[++j] = ((-WWWW + 5 * WWW - 10 * WW + 10 * W + clamp4(NE * 4 - NNE * 6 + NNNE * 4 - NNNNE, N, NE, NEE, NEEE)) / 5);
+	//ctx->context[++j] = ((-4 * WW + 15 * W + 10 * (NE * 3 - NNE * 3 + NNNE) - (NEEE * 3 - NNEEE * 3 + NNNEEE)) / 20);
+	//ctx->context[++j] = ((-3 * WW + 8 * W + clamp4(NEE * 3 - NNEE * 3 + NNNEE, NE, NEE, NEEE, NEEEE)) / 6);
+	//ctx->context[++j] = ((W + (NE * 2 - NNE)) / 2 + p1 - (Wp1 + (NEp1 * 2 - NNEp1)) / 2);
+	ctx->context[++j] = ((W + (NE * 2 - NNE)) / 2 + p2 - (Wp2 + (NEp2 * 2 - NNEp2)) / 2);
+	//ctx->context[++j] = ((-3 * WW + 8 * W + (NEE * 2 - NNEE)) / 6 + p1 -(-3 * WWp1 + 8 * Wp1 + (NEEp1 * 2 - NNEEp1)) / 6);
+	//ctx->context[++j] = ((-3 * WW + 8 * W + (NEE * 2 - NNEE)) / 6 + p2 -(-3 * WWp2 + 8 * Wp2 + (NEEp2 * 2 - NNEEp2)) / 6);
+#endif
+	ctx->context[++j] = ((W + NEE) / 2 + p1 - (Wp1 + NEEp1) / 2);
+	ctx->context[++j] = ((W + NEE) / 2 + p2 - (Wp2 + NEEp2) / 2);
+#if 1
+	//ctx->context[++j] = ((WW + (NEE * 2 - NNEE)) / 2 + p1 - (WWp1 + (NEEp1 * 2 - NNEEp1)) / 2);
+	ctx->context[++j] = ((WW + (NEE * 2 - NNEE)) / 2 + p2 - (WWp2 + (NEEp2 * 2 - NNEEp2)) / 2);
+	ctx->context[++j] = (WW + NEE - N + p1 - (WWp1 + NEEp1 - Np1));
+	ctx->context[++j] = (WW + NEE - N + p2 - (WWp2 + NEEp2 - Np2));
+	ctx->context[++j] = (W + N - NW);
+	ctx->context[++j] = (W + N - NW + p1 - (Wp1 + Np1 - NWp1));
+	ctx->context[++j] = (W + N - NW + p2 - (Wp2 + Np2 - NWp2));
+	ctx->context[++j] = (W + NE - N);
+	ctx->context[++j] = (N + NW - NNW);
+	ctx->context[++j] = (N + NW - NNW + p1 - (Np1 + NWp1 - NNEp1));
+	ctx->context[++j] = (N + NW - NNW + p2 - (Np2 + NWp2 - NNEp2));
+	ctx->context[++j] = (N + NE - NNE);
+	ctx->context[++j] = (N + NE - NNE + p1 - (Np1 + NEp1 - NNEp1));
+	ctx->context[++j] = (N + NE - NNE + p2 - (Np2 + NEp2 - NNEp2));
+	ctx->context[++j] = (N + NN - NNN);
+	//ctx->context[++j] = (N + NN - NNN + p1 - (Np1 + NNp1 - NNNp1));
+	ctx->context[++j] = (N + NN - NNN + p2 - (Np2 + NNp2 - NNNp2));
+	ctx->context[++j] = (W + WW - WWW);
+	//ctx->context[++j] = (W + WW - WWW + p1 - (Wp1 + WWp1 - WWWp1));
+	ctx->context[++j] = (W + WW - WWW + p2 - (Wp2 + WWp2 - WWWp2));
+	ctx->context[++j] = (W + NEE - NE);
+	ctx->context[++j] = (W + NEE - NE + p1 - (Wp1 + NEEp1 - NEp1));
+	ctx->context[++j] = (W + NEE - NE + p2 - (Wp2 + NEEp2 - NEp2));
+#endif
+	ctx->context[++j] = (NN + p1 - NNp1);
+	ctx->context[++j] = (NN + p2 - NNp2);
+#if 1
+	ctx->context[++j] = (NN + W - NNW);
+	ctx->context[++j] = (NN + W - NNW + p1 - (NNp1 + Wp1 - NNEp1));
+	ctx->context[++j] = (NN + W - NNW + p2 - (NNp2 + Wp2 - NNEp2));
+	ctx->context[++j] = (NN + NW - NNNW);
+	//ctx->context[++j] = (NN + NW - NNNW + p1 - (NNp1 + NWp1 - NNNWp1));
+	ctx->context[++j] = (NN + NW - NNNW + p2 - (NNp2 + NWp2 - NNNWp2));
+	ctx->context[++j] = (NN + NE - NNNE);
+	//ctx->context[++j] = (NN + NE - NNNE + p1 - (NNp1 + NEp1 - NNNEp1));
+	ctx->context[++j] = (NN + NE - NNNE + p2 - (NNp2 + NEp2 - NNNEp2));
+	ctx->context[++j] = (NN + NNNN - NNNNNN);
+	//ctx->context[++j] = (NN + NNNN - NNNNNN + p1 - (NNp1 + NNNNp1 - NNNNNNp1));
+	ctx->context[++j] = (NN + NNNN - NNNNNN + p2 - (NNp2 + NNNNp2 - NNNNNNp2));
+#endif
+	ctx->context[++j] = (WW + p1 - WWp1);
+	ctx->context[++j] = (WW + p2 - WWp2);
+#if 1
+	ctx->context[++j] = (WW + WWWW - WWWWWW);
+	//ctx->context[++j] = (WW + WWWW - WWWWWW + p1 - (WWp1 + WWWWp1 - WWWWWWp1));
+	ctx->context[++j] = (WW + WWWW - WWWWWW + p2 - (WWp2 + WWWWp2 - WWWWWWp2));
+	//ctx->context[++j] = (N * 2 - NN + p1 - (Np1 * 2 - NNp1));//
+	ctx->context[++j] = (N * 2 - NN + p2 - (Np2 * 2 - NNp2));
+	//ctx->context[++j] = (W * 2 - WW + p1 - (Wp1 * 2 - WWp1));
+	ctx->context[++j] = (W * 2 - WW + p2 - (Wp2 * 2 - WWp2));
+	//ctx->context[++j] = (N * 3 - NN * 3 + NNN);
+	ctx->context[++j] = clamp4(N * 3 - NN * 3 + NNN, W, NW, N, NE);
+	ctx->context[++j] = clamp4(W * 3 - WW * 3 + WWW, W, NW, N, NE);
+#endif
+	ctx->context[++j] = clamp4(N * 2 - NN, W, NW, N, NE);
+	//ctx->context[++j] = ((NNNNN - 6 * NNNN + 15 * NNN - 20 * NN + 15 * N + clamp4(W * 4 - NWW * 6 + NNWWW * 4 - NNNWWWW, W, NW, N, NN)) / 6);
+	//ctx->context[++j] = ((NNNEEE - 4 * NNEE + 6 * NE + (W * 4 - NW * 6 + NNW * 4 - NNNW)) / 4);
+	//ctx->context[++j] = (((N + 3 * NW) / 4) * 3 - ((NNW + NNWW) / 2) * 3 + (NNNWW * 3 + NNNWWW) / 4);
+	//ctx->context[++j] = ((W * 2 + NW) - (WW + 2 * NWW) + NWWW);
+	//ctx->context[++j] = ((W * 2 - NW) + (W * 2 - NWW) + N + NE) / 4;
+	ctx->context[++j] = (N + W + 1) >> 1;
+	ctx->context[++j] = (NEEEE + NEEEEEE + 1) >> 1;
+	ctx->context[++j] = (WWWWWW + WWWW + 1) >> 1;
+#if 1
+	ctx->context[++j] = ((W + N) * 3 - NW * 2) >> 2;
+#endif
+	ctx->context[++j] = N;
+	ctx->context[++j] = NN;
+	ctx->context[++j] = N + p1 - Np1;
+	ctx->context[++j] = N + p2 - Np2;
+	ctx->context[++j] = W + p1 - Wp1;
+	ctx->context[++j] = W + p2 - Wp2;
+	ctx->context[++j] = NW + p1 - NWp1;
+	ctx->context[++j] = NW + p2 - NWp2;
+	ctx->context[++j] = NE + p1 - NEp1;
+	ctx->context[++j] = NE + p2 - NEp2;
+	ctx->context[++j] = NN + p1 - NNp1;
+	ctx->context[++j] = NN + p2 - NNp2;
+	ctx->context[++j] = WW + p1 - WWp1;
+	ctx->context[++j] = WW + p2 - WWp2;
+#if 1
+	ctx->context[++j] = W + N - NW;
+	ctx->context[++j] = W + N - NW + p1 - Wp1 - Np1 + NWp1;
+	ctx->context[++j] = W + N - NW + p2 - Wp2 - Np2 + NWp2;
+	ctx->context[++j] = W + NE - N;
+	ctx->context[++j] = W + NE - N + p1 - Wp1 - NEp1 + Np1;
+	ctx->context[++j] = W + NE - N + p2 - Wp2 - NEp2 + Np2;
+	ctx->context[++j] = W + NEE - NE;
+	ctx->context[++j] = W + NEE - NE + p1 - Wp1 - NEEp1 + NEp1;
+	ctx->context[++j] = W + NEE - NE + p2 - Wp2 - NEEp2 + NEp2;
+	ctx->context[++j] = N + NN - NNN;
+	//ctx->context[++j] = N + NN - NNN + p1 - Np1 - NNp1 + NNNp1;
+	ctx->context[++j] = N + NN - NNN + p2 - Np2 - NNp2 + NNNp2;
+	ctx->context[++j] = N + NE - NNE;
+	ctx->context[++j] = N + NE - NNE + p1 - Np1 - NEp1 + NNEp1;
+	ctx->context[++j] = N + NE - NNE + p2 - Np2 - NEp2 + NNEp2;
+	ctx->context[++j] = N + NW - NNW;
+	ctx->context[++j] = N + NW - NNW + p1 - Np1 - NWp1 + NNEp1;
+	ctx->context[++j] = N + NW - NNW + p2 - Np2 - NWp2 + NNEp2;
+	ctx->context[++j] = NE + NW - NN;
+	ctx->context[++j] = NE + NW - NN + p1 - NEp1 - NWp1 + NNp1;
+	ctx->context[++j] = NE + NW - NN + p2 - NEp2 - NWp2 + NNp2;
+	ctx->context[++j] = NW + W - NWW;
+	ctx->context[++j] = NW + W - NWW + p1 - NWp1 - Wp1 + NWWp1;
+	ctx->context[++j] = NW + W - NWW + p2 - NWp2 - Wp2 + NWWp2;
+	ctx->context[++j] = W * 2 - WW;
+	//ctx->context[++j] = W * 2 - WW + p1 - Wp1 * 2 + WWp1;
+	ctx->context[++j] = W * 2 - WW + p2 - Wp2 * 2 + WWp2;
+	ctx->context[++j] = N * 2 - NN;
+	//ctx->context[++j] = N * 2 - NN + p1 - Np1 * 2 + NNp1;
+	ctx->context[++j] = N * 2 - NN + p2 - Np2 * 2 + NNp2;
+	ctx->context[++j] = NW * 2 - NNWW;
+	//ctx->context[++j] = NW * 2 - NNWW + p1 - NWp1 * 2 + NNWWp1;
+	ctx->context[++j] = NW * 2 - NNWW + p2 - NWp2 * 2 + NNWWp2;
+	ctx->context[++j] = NE * 2 - NNEE;
+	//ctx->context[++j] = NE * 2 - NNEE + p1 - NEp1 * 2 + NNEEp1;
+	ctx->context[++j] = NE * 2 - NNEE + p2 - NEp2 * 2 + NNEEp2;
+	//ctx->context[++j] = N * 3 - NN * 3 + NNN + p1 - Np1 * 3 + NNp1 * 3 - NNNp1;
+	//ctx->context[++j] = N * 3 - NN * 3 + NNN + p2 - Np2 * 3 + NNp2 * 3 - NNNp2;
+	//ctx->context[++j] = N * 3 - NN * 3 + NNN;
+	ctx->context[++j] = (W + NE * 2 - NNE + 1) >> 1;
+	//ctx->context[++j] = (W + NE * 3 - NNE * 3 + NNNE+1) >> 1;
+	//ctx->context[++j] = (W + NE * 2 - NNE) / 2 + p1 - (Wp1 + NEp1 * 2 - NNEp1) / 2;
+	ctx->context[++j] = (W + NE * 2 - NNE) / 2 + p2 - (Wp2 + NEp2 * 2 - NNEp2) / 2;
+	ctx->context[++j] = NNE + NE - NNNE;
+	ctx->context[++j] = NNE + W - NN;
+	ctx->context[++j] = NNW + W - NNWW;
+#endif
+
+	//if(j+1!=T36_NESTIMATORS)
+	//	LOG_ERROR("j %d, estimators %d", j, T36_NESTIMATORS);
+	ctx->nestimators=j+1;
+	//for(int k=0;k<ctx->nestimators;++k)
+	//	ctx->context[k]<<=8;
+#endif
+}
+void t36_ctx_estimate_p0(T36Ctx *ctx, int kc, int kb, int kx)
+{
+	int workidx=kc<<3|kb;
+	int *wk=ctx->weights[workidx];
+	int p0idx=0;
+	long long sum;
+	int p0temp;
+	RBNodeHandle *hnode;
+	T36Node *node;
+
+	for(int k=0;k<ctx->nestimators;++k)
+	{
+		hnode=map_insert(ctx->maps[workidx]+k, ctx->context+k, ctx->found+k);
+		node=ctx->node[k]=(T36Node*)hnode[0]->data;
+		if(ctx->found[k])
+		{
+			sum=node->n[0]+node->n[1];
+			p0temp=sum?(int)(((long long)node->n[0]<<16)/sum):0x8000;
+			ctx->p0arr[k]=p0temp;
+			p0temp-=0x8000;
+			ctx->t[k]=t36_stretch(p0temp);
+		}
+		else
+		{
+			ctx->p0arr[k]=0x8000;
+			ctx->t[k]=0;
+		}
+	}
+
+	sum=0;
+	ctx->wsum=0;
+	int previdx=kx-1;
+	MODVAR(previdx, previdx, ctx->iw);
+	for(int k=0;k<ctx->nestimators;++k)
+	{
+		int *ebuf=ctx->ebufs[T36_NESTIMATORS*workidx+k];
+		ctx->ei[k]=(ebuf[previdx]+ebuf[kx])>>1;//(left+top)/2
+
+		//int previdx=ctx->eidx+k-24*T36_NESTIMATORS;
+		//MODVAR(previdx, previdx, ctx->ebuflen);
+		//ctx->ei[k]=(ctx->ebuf[previdx]+ctx->ebuf[(ctx->eidx+k)%ctx->ebuflen])>>1;
+
+		ctx->wsum+=((long long)wk[k]<<16)/ctx->ei[k];
+		sum+=ctx->t[k]*((long long)wk[k]<<16)/ctx->ei[k];
+	}
+	ctx->x=ctx->wsum?(int)(sum/ctx->wsum):0;
+	
+	//ctx->x=wk[T36_NESTIMATORS];//bias
+	//for(int k=0;k<T36_NESTIMATORS;++k)
+	//	ctx->x+=(int)((long long)ctx->t[k]*wk[k]>>16);
+	
+	ctx->s0=t36_squish(ctx->x);
+	ctx->p0=ctx->s0+0x8000;
+	ctx->p0=CLAMP(1, ctx->p0, 0xFFFF);
+}
+void t36_ctx_update(T36Ctx *ctx, int kc, int kb, int bit, int kx)
+{
+	int workidx=kc<<3|kb;
+#ifdef T36_PRINT_ESTIMATOR_CR
+	for(int k=0;k<ctx->nestimators;++k)
+	{
+		int prob=(unsigned short)(bit?0x10000-ctx->p0arr[k]:ctx->p0arr[k]);
+		if(prob)
+		{
+			float p=(float)prob/0x10000;
+			float bitsize=-log2f(p);
+			//if(isfinite(bitsize))
+				ctx->csizes[T36_NESTIMATORS*workidx+k]+=bitsize;
+			//else
+			//	LOG_ERROR("p0i = 0x%04X", prob);
+		}
+	}
+#endif
+
+	//bwd
+	if((unsigned)(ctx->s0+0x7FFF)<0xFFFF)//1 <= s0 < 0x10000
+	{
+		int pbit=bit?0x10000-ctx->p0:ctx->p0;
+		int dL_dp0=-(int)(0x100000000/pbit);
+		dL_dp0^=-bit;
+		dL_dp0+=bit;
+		int ds0_dx=t36_squish_dash(ctx->x, ctx->s0);
+		//int ds0_dx=(int)((long long)ctx->s0*ctx->s0>>16);
+		//ds0_dx*=T36_ACT_ROUGHNESS;
+		//ds0_dx/=T36_ACT_ROUGHNESS+1;
+		//ds0_dx=0x10000-ds0_dx;
+		//ds0_dx=(int)(ctx->x ? (long long)ds0_dx*ctx->s0/ctx->x : T36_SQRT_ONEPLUS_ROUGHNESS>>16);
+		int grad=(int)((long long)dL_dp0*ds0_dx>>16);
+		int delta=(int)(T36_LR*grad>>16);
+
+		int *wk=ctx->weights[workidx];
+
+		int wnew;
+		for(int k=0;k<ctx->nestimators;++k)
+		{
+			wnew=wk[k]-(int)((long long)delta*(ctx->t[k]-ctx->x)/((long long)ctx->ei[k]*ctx->wsum>>16));
+			wnew=CLAMP(1, wnew, 0x10000);
+			wk[k]=wnew;
+		}
+
+		//wk[T36_NESTIMATORS]-=delta;
+		//for(int k=0;k<T36_NESTIMATORS;++k)
+		//	wk[k]-=(int)((long long)delta*ctx->t[k]>>16);
+	}
+	int p0_ideal=bit?0:0x10000, *ebuf;
+	for(int k=0;k<ctx->nestimators;++k)
+	{
+		ebuf=ctx->ebufs[T36_NESTIMATORS*workidx+k];
+		ebuf[kx]=abs(p0_ideal-ctx->p0arr[k])+1;
+	}
+
+	//for(int k=0;k<ctx->nestimators;++k)
+	//	ctx->ebuf[(ctx->eidx+k)%ctx->ebuflen]=abs(p0_ideal-ctx->p0arr[k])+1;
+	//ctx->eidx+=T36_NESTIMATORS;
+	//ctx->eidx%=ctx->ebuflen;
+
+	//update
+	T36Node *node;
+	for(int k=0;k<ctx->nestimators;++k)
+	{
+		node=ctx->node[k];
+		if(ctx->found[k])
+			++node->n[bit];
+		else
+		{
+			node->key=ctx->context[k];
+			node->n[0]=1;
+			node->n[1]=1;
+			++ctx->nnodes;
+		}
+		ctx->context[k]+=bit<<kb;
+		//ctx->context[k]|=bit<<kb;
+	}
+}
+void t36_ctx_print(T36Ctx *ctx, int kc, int kb)
+{
+	int workidx=kc<<3|kb;
+	int *wk=ctx->weights[workidx];
+	for(int k=0;k<ctx->nestimators;++k)
+		printf("E%3d ctx 0x%08X found %d p0arr 0x%04X t 0x%04X w 0x%08X\n", k, ctx->context[k], ctx->found[k], ctx->p0arr[k], ctx->t[k], wk[k]);
+	printf("x 0x%08X s0 0x%04X p0 0x%04X\n", ctx->x, ctx->s0, ctx->p0);
+	//MAP_DEBUGPRINT(ctx->maps[workidx]+1, );
+	printf("\n");
+}
+T36Ctx t36_ctx={0};
+int t36_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud)
+{
+	//t36_stretch_squish_test();//
+
+	int res=iw*ih;
+	double t_start=time_ms();
+	char *buf2=(char*)malloc((size_t)res<<2);
+	if(!buf2)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	memcpy(buf2, src, (size_t)res<<2);
+	addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);
+
+	//addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);
+	//colortransform_ycocb_fwd(buf2, iw, ih);
+	//addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);
+
+	//apply_transforms_fwd(buf2, iw, ih);
+	//addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);
+	//addbuf((unsigned char*)buf2, iw, ih, 3, 4, 192);//makes MSB easy
+
+	DList list;
+	dlist_init(&list, 1, 1024, 0);
+	
+	ABACEncContext ctx;
+	abac_enc_init(&ctx, &list);
+	
+	float csizes[24]={0};
+	int hits[24]={0};
+	
+	t36_ctx_init(&t36_ctx, iw, ih);
+	for(int ky=0;ky<ih;++ky)
+	{
+		for(int kx=0;kx<iw;++kx)
+		{
+			for(int kc=0;kc<3;++kc)
+			{
+				//if(kc==0&&kx==0&&ky==1)//
+				//	printf("");
+				t36_ctx_get_context(&t36_ctx, (char*)buf2, iw, ih, kc, kx, ky);
+				for(int kb=7;kb>=0;--kb)//MSB -> LSB
+				{
+					//if(kc==0&&kx==2&&ky==0&&kb==7)//
+					//	printf("");
+
+					t36_ctx_estimate_p0(&t36_ctx, kc, kb, kx);
+					
+					//if(kc==1&&kx==3&&ky==0&&kb==7)//
+					//	t36_ctx_print(&t36_ctx, kc, kb);
+					//if(t36_ctx.p0!=0x8000)//
+					//	printf("");
+
+					int bit=buf2[(iw*ky+kx)<<2|kc]>>kb&1;
+					abac_enc(&ctx, t36_ctx.p0, bit);
+					
+					int hit=bit?t36_ctx.p0<0x8000:t36_ctx.p0>0x8000;//
+					hits[kc<<3|kb]+=hit;
+					int prob=bit?0x10000-t36_ctx.p0:t36_ctx.p0;
+					float bitsize=-log2f((float)prob*(1.f/0x10000));
+					csizes[kc<<3|kb]+=bitsize;//
+
+					//if(t36_ctx.p0!=0x8000)//
+					//	printf("");
+					
+					t36_ctx_update(&t36_ctx, kc, kb, bit, kx);
+					//for(int k=0;k<16;++k)//X
+					//{
+					//	t36_ctx_estimate_p0(&t36_ctx, kc, kb);
+					//	t36_ctx_update(&t36_ctx, kc, kb, bit, 0);
+					//}
+				}
+				t36_ctx.ebuf[(iw*ky+kx)<<2|kc]-=buf2[(iw*ky+kx)<<2|kc];
+			}
+		}
+		if(loud)
+		{
+			static float csize_prev=0;
+			float csize=0;
+			TimeInfo ti;
+			parsetimedelta(time_ms()-t_start, &ti);
+			for(int k=0;k<24;++k)
+				csize+=csizes[k]/8;
+			printf("Y%5d  CR%10f %8.2f MB  %02d-%02d-%06.3f\n", ky, iw*3/(csize-csize_prev), (float)t36_ctx.nnodes*sizeof(T36Node)/(1024*1024), ti.hours, ti.mins, ti.secs);
+			csize_prev=csize;
+		}
+	}
+	abac_enc_flush(&ctx);
+
+	size_t dststart=dlist_appendtoarray(&list, data);
+	if(loud)
+	{
+		double csize=0;
+		printf("\n");//skip progress line
+		printf("Used %f MB of memory\n", (float)t36_ctx.nnodes*sizeof(T36Node)/(1024*1024));
+		printf("Encode elapsed ");
+		timedelta2str(0, 0, time_ms()-t_start);
+		printf("\n");
+		for(int k=0;k<24;++k)
+		{
+			if(!(k&7))
+			{
+				printf("C%d\n", k>>3);
+				csize=0;
+			}
+			printf("bit %2d  size %14f  CR %14f  H %7d %10lf%%\n", k&7, csizes[k]/8, iw*ih/csizes[k], hits[k], 100.*hits[k]/(iw*ih));
+			csize+=csizes[k]/8;
+			if(!((k+1)&7))
+				printf("C%d  size %14lf  CR %14lf\n\n", k>>3, csize, iw*ih/csize);
+		}
+		printf("Total %lld  CR %lf  P %7d/8 = %g\n", list.nobj, 3.*iw*ih/list.nobj, iw*ih, iw*ih/8.);
+		printf("\n");
+
+		for(int kc=0;kc<3;++kc)
+		{
+			printf("C%d  ", kc);
+			for(int kb=7;kb>=0;--kb)
+				printf("  B%d %11.3f", kb, iw*ih/csizes[kc<<3|kb]);
+			printf("\n");
+		}
+		printf("\n");
+
+#ifdef T36_PRINT_ESTIMATOR_CR
+		printf("Estimator efficiencies:\n");
+		int minidx[24]={0}, maxidx[24]={0};
+		for(int kb=0;kb<24;++kb)
+		{
+			float *sizes=t36_ctx.csizes+T36_NESTIMATORS*kb;
+			for(int ke=1;ke<t36_ctx.nestimators;++ke)
+			{
+				if(sizes[minidx[kb]]>sizes[ke])
+					minidx[kb]=ke;
+				if(sizes[maxidx[kb]]<sizes[ke])
+					maxidx[kb]=ke;
+			}
+		}
+		for(int ke=0;ke<t36_ctx.nestimators;++ke)
+		{
+			float *sizes=t36_ctx.csizes+ke;
+			printf("E%3d ", ke);
+			for(int kb=0;kb<24;++kb)
+			{
+				char c;
+				if(ke==minidx[kb])
+					c='*';
+				else if(ke==maxidx[kb])
+					c='L';
+				else
+					c=' ';
+				printf(" %7.2f %c", sizes[T36_NESTIMATORS*kb]/t36_ctx.csizes[T36_NESTIMATORS*kb+minidx[kb]], c);
+			}
+			printf("\n");
+		}
+#endif
+	}
+	t36_ctx_clear(&t36_ctx);
+	dlist_clear(&list);
+	free(buf2);
+	return 1;
+}
+int t36_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud)
+{
+	int res=iw*ih;
+	double t_start=time_ms();
+
+	//int debug_index=0;
+
+	ABACDecContext ctx;
+	abac_dec_init(&ctx, data, data+srclen);
+
+	int black=0xFF000000;
+	memfill(buf, &black, res*sizeof(int), sizeof(int));
+	t36_ctx_init(&t36_ctx, iw, ih);
+
+	for(int ky=0;ky<ih;++ky)
+	{
+		//if(loud)
+		//	printf("Dec Y%5d  %lf\r", ky, time_ms()-t_start);
+		for(int kx=0;kx<iw;++kx)
+		{
+			for(int kc=0;kc<3;++kc)
+			{
+				//if(kc==0&&kx==0&&ky==1)//
+				//	printf("");
+				t36_ctx_get_context(&t36_ctx, (char*)buf, iw, ih, kc, kx, ky);
+				for(int kb=7;kb>=0;--kb)//MSB -> LSB
+				{
+					//if(kc==1&&kx==3&&ky==0&&kb==7)//
+					//	printf("");
+
+					t36_ctx_estimate_p0(&t36_ctx, kc, kb, kx);
+
+					//if(kc==1&&kx==3&&ky==0&&kb==7)//
+					//	t36_ctx_print(&t36_ctx, kc, kb);
+					//if(t36_ctx.p0!=0x8000)//
+					//	printf("");
+					
+					int bit=abac_dec(&ctx, t36_ctx.p0);
+					buf[(iw*ky+kx)<<2|kc]|=bit<<kb;
+
+					t36_ctx_update(&t36_ctx, kc, kb, bit, kx);
+					//for(int k=0;k<16;++k)
+					//{
+					//	t36_ctx_estimate_p0(&t36_ctx, kc, kb);
+					//	t36_ctx_update(&t36_ctx, kc, kb, bit, 0);
+					//}
+				}
+				t36_ctx.ebuf[(iw*ky+kx)<<2|kc]-=buf[(iw*ky+kx)<<2|kc];
+			}
+		}
+		if(loud)
+		{
+			TimeInfo ti;
+			parsetimedelta(time_ms()-t_start, &ti);
+			printf("Y%5d %8.2f MB  %02d-%02d-%06.3f\r", ky, (float)t36_ctx.nnodes*sizeof(T36Node)/(1024*1024), ti.hours, ti.mins, ti.secs);
+		}
+	}
+	if(loud)
+		printf("\n");
+	t36_ctx_clear(&t36_ctx);
+	
+	addbuf((unsigned char*)buf, iw, ih, 3, 4, 128);
+
+	//addbuf((unsigned char*)buf, iw, ih, 3, 4, 128);
+	//colortransform_ycocb_fwd(buf, iw, ih);
+	//addbuf((unsigned char*)buf, iw, ih, 3, 4, 128);
+
+	//apply_transforms_inv(buf, iw, ih);
 	if(loud)
 	{
 		printf("Decode elapsed ");

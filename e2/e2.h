@@ -65,6 +65,9 @@ int t34_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 int t35_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T35: Combines spatial transform with entropy coding
 int t35_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
 
+int t36_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);
+int t36_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
+
 
 
 

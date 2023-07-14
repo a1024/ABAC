@@ -220,7 +220,15 @@ void colortransform_ycocb_fwd(char *buf, int iw, int ih)//3 channels, stride 4 b
 		b-=g;
 		g+=b>>1;
 
-		buf[k  ]=r;//Co
+		//buf[k  ]=g;//Y
+		//buf[k|1]=r;//Co
+		//buf[k|2]=b;//Cb
+
+		//buf[k  ]=r;//Co
+		//buf[k|1]=b;//Cb
+		//buf[k|2]=g;//Y
+
+		buf[k  ]=r;//Co	original
 		buf[k|1]=g;//Y
 		buf[k|2]=b;//Cb
 	}
@@ -229,7 +237,9 @@ void colortransform_ycocb_inv(char *buf, int iw, int ih)//3 channels, stride 4 b
 {
 	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
 	{
-		char r=buf[k], g=buf[k|1], b=buf[k|2];
+		//char r=buf[k|1], g=buf[k], b=buf[k|2];//Y Co Cb
+		//char r=buf[k], g=buf[k|2], b=buf[k|1];//Co Cb Y
+		char r=buf[k], g=buf[k|1], b=buf[k|2];//Co Y Cb	original
 		
 		g-=b>>1;
 		b+=g;
