@@ -507,6 +507,176 @@ inline int ac_dec(ACDecContext *ctx)
 }
 
 
+#if 0
+//arithmetic coder v2
+typedef struct AC2EncContextStruct
+{
+	unsigned long long lo, hi, cache;
+	int nbits;
+	unsigned const *CDF;
+	DList *list;
+} AC2EncContext;
+inline void ac2_enc_init(AC2EncContext *ctx, unsigned const *CDF, DList *list)
+{
+	ctx->lo=0;
+	ctx->hi=0xFFFFFFFF;
+	ctx->cache=0;
+	ctx->nbits=0;
+	ctx->CDF=CDF;
+	ctx->list=list;
+}
+inline void ac2_enc(AC2EncContext *ctx, int sym)
+{
+	unsigned mingap, lo2, hi2;
+	int cdf_curr, cdf_next;
+
+	for(;;)//renorm
+	{
+		mingap=(ctx->hi-ctx->lo)>>16;
+		if(ctx->lo<ctx->hi&&mingap>0)
+			break;
+		if(ctx->nbits>=32)
+		{
+			dlist_push_back(ctx->list, &ctx->cache, 4);
+			ctx->cache=0;
+			ctx->nbits=0;
+		}
+		ctx->cache|=(ctx->lo&0x80000000)>>ctx->nbits;//cache is written MSB -> LSB
+		++ctx->nbits;
+
+		ctx->lo<<=1;//shift out MSB
+		ctx->hi<<=1;
+		ctx->hi|=1;
+	}
+
+	cdf_curr=ctx->CDF2[sym];
+	cdf_next=ctx->CDF2[sym+1];
+
+	if(cdf_curr>=cdf_next)
+		LOG_ERROR2("ZPS");
+
+	lo2=ctx->lo+((unsigned long long)(ctx->hi-ctx->lo)*cdf_curr>>16);
+	hi2=ctx->lo+((unsigned long long)(ctx->hi-ctx->lo)*cdf_next>>16);
+	acval_enc(sym, cdf_curr, cdf_next, ctx->lo, ctx->hi, lo2, hi2, ctx->cache, ctx->nbits);//
+	ctx->lo=lo2;
+	ctx->hi=hi2-1;//OBLIGATORY range leak guard
+}
+inline void ac2_enc_flush(AC2EncContext *ctx)
+{
+	int k2=0;
+	do//flush
+	{
+		while(ctx->nbits<32)
+		{
+			ctx->cache|=(ctx->lo&0x80000000)>>ctx->nbits;//cache is written MSB -> LSB
+			++ctx->nbits;
+			++k2;
+
+			ctx->lo<<=1;//shift out MSB
+			ctx->hi<<=1;
+			ctx->hi|=1;
+		}
+		dlist_push_back(ctx->list, &ctx->cache, 4);
+		ctx->cache=0;
+		ctx->nbits=0;
+	}while(k2<32);
+}
+typedef struct AC2DecContextStruct
+{
+	unsigned lo, hi, cache;
+	int nbits;
+	unsigned code;
+	const unsigned *CDF2;
+	const unsigned char *srcptr, *srcend;
+} AC2DecContext;
+inline void ac2_dec_init(AC2DecContext *ctx, const unsigned *CDF2, const unsigned char *start, unsigned const char *end)
+{
+	ctx->lo=0;
+	ctx->hi=0xFFFFFFFF;
+	ctx->nbits=32;
+	ctx->CDF2=CDF2;
+	ctx->srcptr=start;
+	ctx->srcend=end;
+
+	if(ctx->srcend-ctx->srcptr<4)
+		LOG_ERROR2("buffer overflow");
+	memcpy(&ctx->code, ctx->srcptr, 4);
+	ctx->srcptr+=4;
+
+	if(ctx->srcend-ctx->srcptr<4)
+		LOG_ERROR2("buffer overflow");
+	memcpy(&ctx->cache, ctx->srcptr, 4);
+	ctx->srcptr+=4;
+}
+inline int ac2_dec(AC2DecContext *ctx)
+{
+	unsigned mingap;
+	for(;;)//renorm
+	{
+		mingap=(ctx->hi-ctx->lo)>>16;
+		if(ctx->lo<ctx->hi&&mingap>0)
+			break;
+		if(!ctx->nbits)
+		{
+			if(ctx->srcend-ctx->srcptr<4)
+			{
+#ifdef AC_VALIDATE
+				printf("buffer overflow\n");
+				acval_dump();
+#endif
+				LOG_ERROR2("buffer overflow");
+			}
+			memcpy(&ctx->cache, ctx->srcptr, 4);
+			ctx->srcptr+=4;
+
+			ctx->nbits=32;
+		}
+		--ctx->nbits;
+		ctx->code<<=1;//shift out MSB		cache is read MSB -> LSB
+		ctx->code|=(unsigned)(ctx->cache>>ctx->nbits&1);
+
+		ctx->lo<<=1;
+		ctx->hi<<=1;
+		ctx->hi|=1;
+	}
+
+	unsigned lo2, hi2;
+	int sym=0;
+	int L=0, R=256, found=0;
+	unsigned code2;
+	while(L<=R)
+	{
+		sym=(L+R)>>1;
+		code2=ctx->lo+((unsigned long long)(ctx->hi-ctx->lo)*ctx->CDF2[sym]>>16);
+		if(code2<ctx->code)
+			L=sym+1;
+		else if(code2>ctx->code)
+			R=sym-1;
+		else
+		{
+			found=1;
+			break;
+		}
+	}
+	if(found)
+		for(;sym<256-1&&ctx->lo+((unsigned long long)(ctx->hi-ctx->lo)*ctx->CDF2[sym+1]>>16)==ctx->code;++sym);
+	else
+		sym=L+(L<256&&ctx->lo+((unsigned long long)(ctx->hi-ctx->lo)*ctx->CDF2[sym+1]>>16)<ctx->code)-(L!=0);
+
+	//buf[(iw*ky+kx2)<<2|kc]=(unsigned char)sym;
+
+	unsigned cdf_start=ctx->CDF2[sym], cdf_end=ctx->CDF2[sym+1];
+					
+	lo2=ctx->lo+((unsigned long long)(ctx->hi-ctx->lo)*cdf_start>>16);
+	hi2=ctx->lo+((unsigned long long)(ctx->hi-ctx->lo)*cdf_end  >>16);
+	acval_dec(sym, cdf_start, cdf_end, ctx->lo, ctx->hi, lo2, hi2, ctx->cache, ctx->nbits, ctx->code);//
+	ctx->lo=lo2;
+	ctx->hi=hi2-1;//OBLIGATORY range leak guard
+	return sym;
+}
+#endif
+
+
 //asymmetric numeral systems coder
 typedef struct ANSEncContextStruct
 {

@@ -4558,7 +4558,7 @@ static void t35_getctx(const char *buf, int iw, int ih, int kx, int ky, int kc, 
 #endif
 
 
-//T35: Combines spatial transform with entropy coding
+//T35: Combines spatial transform with entropy coding		THIS IS THE RECORD HOLDER, DO NOT MODIFY
 
 #define T35_N_REC_ESTIMATORS 6
 //#define T35_NMAPS (1+134)
@@ -5305,7 +5305,7 @@ int t35_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 
 
 //T36: stretch & squish from paq8px
-
+#if 0
 #define T36_NESTIMATORS 25//135
 #define T36_LR (long long)(0.001*0x10000+0.5)
 #define T36_ACT_ROUGHNESS 9	//do not change
@@ -5527,7 +5527,7 @@ void t36_ctx_get_context(T36Ctx *ctx, char *buf, int iw, int ih, int kc, int kx,
 		NEp2=LOAD(buf, 2, -1, 1);
 #undef LOAD
 	ctx->context[++j]=0;
-#if 0
+#if 1
 	ctx->context[++j]=clamp4(N+W-NW, N, W, NW, NE);
 	ctx->context[++j]=(N+W)>>1;
 	ctx->context[++j]=N*2-NN;
@@ -6038,13 +6038,13 @@ int t36_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 		return 0;
 	}
 	memcpy(buf2, src, (size_t)res<<2);
-	addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);
+	//addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);
 
 	//addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);
 	//colortransform_ycocb_fwd(buf2, iw, ih);
 	//addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);
 
-	//apply_transforms_fwd(buf2, iw, ih);
+	apply_transforms_fwd(buf2, iw, ih);
 	//addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);
 	//addbuf((unsigned char*)buf2, iw, ih, 3, 4, 192);//makes MSB easy
 
@@ -6247,15 +6247,1650 @@ int t36_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 		printf("\n");
 	t36_ctx_clear(&t36_ctx);
 	
-	addbuf((unsigned char*)buf, iw, ih, 3, 4, 128);
+	//addbuf((unsigned char*)buf, iw, ih, 3, 4, 128);
 
 	//addbuf((unsigned char*)buf, iw, ih, 3, 4, 128);
 	//colortransform_ycocb_fwd(buf, iw, ih);
 	//addbuf((unsigned char*)buf, iw, ih, 3, 4, 128);
 
-	//apply_transforms_inv(buf, iw, ih);
+	apply_transforms_inv(buf, iw, ih);
 	if(loud)
 	{
+		printf("Decode elapsed ");
+		timedelta2str(0, 0, time_ms()-t_start);
+		printf("\n");
+	}
+	return 1;
+}
+#endif
+
+
+//T37: Fixed array as binary tree predictor
+
+#define T37_NESTIMATORS 14
+#define T37_PRINT_ESTIMATOR_CR
+
+void print_weights(int *weights, int count)
+{
+	int sum=0;
+	for(int k=0;k<count;++k)
+		sum+=weights[k];
+	int sum2=0;
+	printf("|");
+	for(int k=0, kp=0;k<count;++k)
+	{
+		sum2+=weights[k];
+		int print=sum2*80/sum;
+		for(int k2=kp;k2<print;++k2)
+			printf("-");
+		kp=print;
+		printf("|");
+	}
+}
+typedef struct T37CtxStruct
+{
+	int context[T37_NESTIMATORS], dec;
+	unsigned short estimators[3][T37_NESTIMATORS][255];
+	//unsigned short estimators[T37_NESTIMATORS][1+4+16+64+256+1024+4096+16384];
+	int idx[T37_NESTIMATORS];
+	char hintbit[T37_NESTIMATORS];
+	int weights[24][T37_NESTIMATORS];
+	int p0arr[T37_NESTIMATORS];
+	int p0_0, p0;//p0_0 isn't clamped
+	long long wsum;
+#ifdef T37_PRINT_ESTIMATOR_CR
+	float csizes[24*T37_NESTIMATORS];
+#endif
+} T37Ctx;
+void t37_ctx_init(T37Ctx *ctx)
+{
+	int val=0x8000;
+	memfill(ctx->weights, &val, sizeof(ctx->weights), sizeof(int));
+	//for(int k=0;k<T37_NESTIMATORS;++k)//fixed 15.16 bit
+	//	ctx->weights[k]=0x8000;
+	memfill(ctx->estimators, &val, sizeof(ctx->estimators), sizeof(short));
+}
+void t37_ctx_get_context(T37Ctx *ctx, char *buf, int iw, int ih, int kc, int kx, int ky)
+{
+	int count_W_N_m1=(kx-1>=0)+(ky-1>=0)+(kc-1>=0);
+	int W   =kx-1>=0         ?buf[(iw* ky   +kx-1)<<2| kc   ]:0,
+		NW  =kx-1>=0&&ky-1>=0?buf[(iw*(ky-1)+kx-1)<<2| kc   ]:0,
+		N   =ky-1>=0         ?buf[(iw*(ky-1)+kx  )<<2| kc   ]:0,
+		NE  =kx+1<iw&&ky-1>=0?buf[(iw*(ky-1)+kx-1)<<2| kc   ]:0,
+		NN  =ky-2>=0         ?buf[(iw*(ky-2)+kx  )<<2| kc   ]:0,
+
+		m1  =kc-1>=0                  ?buf[(iw* ky   +kx  )<<2|(kc-1)]:0,
+		Nm1 =kc-1>=0         &&ky-1>=0?buf[(iw*(ky-1)+kx  )<<2|(kc-1)]:0,
+		Wm1 =kc-1>=0&&kx-1>=0         ?buf[(iw* ky   +kx-1)<<2|(kc-1)]:0,
+		NWm1=kc-1>=0&&kx-1>=0&&ky-1>=0?buf[(iw*(ky-1)+kx-1)<<2|(kc-1)]:0,
+
+		m2  =kc-2>=0                  ?buf[(iw* ky   +kx  )<<2|(kc-2)]:0,
+		Nm2 =kc-2>=0         &&ky-1>=0?buf[(iw*(ky-1)+kx  )<<2|(kc-2)]:0,
+		Wm2 =kc-2>=0&&kx-1>=0         ?buf[(iw* ky   +kx-1)<<2|(kc-2)]:0,
+		NWm2=kc-2>=0&&kx-1>=0&&ky-1>=0?buf[(iw*(ky-1)+kx-1)<<2|(kc-2)]:0;
+	
+	int j=-1;
+
+	ctx->context[++j]=0;
+	ctx->context[++j]=N;
+	ctx->context[++j]=W;
+	ctx->context[++j]=NW;
+	ctx->context[++j]=m1;
+	ctx->context[++j]=W+NE-N;
+	ctx->context[++j]=count_W_N_m1?(W+N+m1)/count_W_N_m1:0;
+	ctx->context[++j]=clamp4(N+W-NW, N, W, NW, NE);
+	ctx->context[++j]=clamp4(N+m1-Nm1, N, m1, Nm1, NW);
+	ctx->context[++j]=clamp4(W+m1-Wm1, W, m1, Wm1, NW);
+	ctx->context[++j]=NW+NE-NN;
+	ctx->context[++j]=(N+W-NW + m1)>>1;
+	ctx->context[++j]=m2;
+	ctx->context[++j]=(N+W-NW + m2)>>1;
+
+	//memset(ctx->idx, 0, sizeof(ctx->idx));
+	ctx->dec=0;
+
+	for(int k=1;k<T37_NESTIMATORS;++k)
+	{
+		ctx->context[k]+=128;
+		ctx->context[k]=CLAMP(0, ctx->context[k], 255);
+	}
+}
+static void t37_access_idx(T37Ctx *ctx, int kb, int ke)
+{
+	int vmin=ctx->dec, vmax=vmin|((1<<(kb+1))-1);
+	int pred=ctx->context[ke];
+	if(ke)
+		pred=CLAMP(vmin, pred, vmax);
+	//if(pred!=ctx->context[ke])
+	//	printf("");
+	int key=ctx->dec-pred, bit;
+	ctx->idx[ke]=0;
+	for(int kb2=7;kb2>kb;--kb2)
+	{
+		bit=key>>kb2&1;
+		ctx->idx[ke]=(ctx->idx[ke]<<1)+bit+1;
+	}
+	ctx->hintbit[ke]=key>>kb&1;
+}
+void t37_ctx_estimate_p0(T37Ctx *ctx, int kc, int kb)
+{
+	//static const int factors[]=
+	//{
+	//	0, 0, 0, 0, 0, 1, 1, 0,
+	//	0, 0, 0, 0, 0, 0, 0, 0,
+	//	0, 0, 0, 0, 1, 0, 1, 0,
+	//};
+
+	int workidx=kc<<3|kb;
+	int *wk=ctx->weights[workidx];
+	long long sum=0;
+	ctx->wsum=0;
+	for(int k=0;k<T37_NESTIMATORS;++k)
+	{
+		t37_access_idx(ctx, kb, k);
+		ctx->p0arr[k]=ctx->estimators[kc][k][ctx->idx[k]];
+
+		if(k)//first estimator has zero-predictor for plain histogram (no hint bit)
+		{
+			if(ctx->hintbit[k])
+				ctx->p0arr[k]-=ctx->p0arr[k]>>2;
+			else
+				ctx->p0arr[k]+=(0x10000-ctx->p0arr[k])>>2;
+		}
+
+		sum+=(long long)ctx->p0arr[k]*wk[k];
+		ctx->wsum+=wk[k];
+	}
+	//ctx->p0_0=ctx->wsum?(int)((sum+(ctx->wsum>>1))/ctx->wsum):0x8000;//same CR
+	ctx->p0_0=ctx->wsum?(int)(sum/ctx->wsum):0x8000;
+
+	//if(!factors[workidx])
+	//	ctx->p0=ctx->p0arr[0];
+	//else
+		ctx->p0=ctx->p0_0;
+
+	ctx->p0=CLAMP(1, ctx->p0, 0xFFFF);
+}
+void t37_ctx_update(T37Ctx *ctx, int kc, int kb, int bit)
+{
+	int workidx=kc<<3|kb;
+#ifdef T37_PRINT_ESTIMATOR_CR
+	for(int k=0;k<T37_NESTIMATORS;++k)
+	{
+		int prob=(bit?0x10000-ctx->p0arr[k]:ctx->p0arr[k]);
+		prob=CLAMP(1, prob, 0xFFFF);
+		float p=(float)prob/0x10000;
+		float bitsize=-log2f(p);
+		//if(fpclassify(bitsize)!=FP_NORMAL)
+		//	LOG_ERROR("");
+		ctx->csizes[T37_NESTIMATORS*workidx+k]+=bitsize;
+	}
+#endif
+	//bwd
+	int *wk=ctx->weights[kc<<3|kb];
+	if(ctx->p0_0>=1&&ctx->p0_0<=0xFFFF)
+	{
+		int p_bit=bit?0x10000-ctx->p0:ctx->p0;
+		long long dL_dp0=-(1LL<<32)/p_bit;//fixed 47.16 bit
+		dL_dp0^=-bit;
+		dL_dp0+=bit;
+		for(int k=0;k<T37_NESTIMATORS;++k)
+		{
+			int diff=ctx->p0arr[k]-ctx->p0;//fixed 15.16 bit
+			long long grad = dL_dp0*diff/ctx->wsum;
+			long long wnew=LR*grad>>16;
+			wnew=wk[k]-wnew;
+			wnew=CLAMP(1, wnew, 0xFFFF);
+			wk[k]=(int)wnew;
+		}
+	}
+
+	//update
+	for(int k=0;k<T37_NESTIMATORS;++k)
+	{
+		unsigned short *p0=ctx->estimators[kc][k]+ctx->idx[k];
+
+		//*p0+=(!bit-bit)<<8;
+
+		//if(!k)
+		{
+			if(bit)
+				*p0-=*p0>>7;
+			else
+				*p0+=(0x10000-*p0)>>7;
+			//*p0=CLAMP(1, *p0, 0xFFFF);
+		}
+
+		//int pred=ctx->context[k]>>kb&1;
+		//int choice=bit<<1|pred;
+
+		//ctx->idx[k]=(idx<<1)+choice+1;
+		//ctx->idx[k]=(idx<<2)+choice+1;
+	}
+	ctx->dec|=bit<<kb;
+}
+T37Ctx t37_context;
+int t37_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud)
+{
+	int res=iw*ih;
+	double t_start=time_ms();
+	char *buf2=(char*)malloc((size_t)res<<2);
+	if(!buf2)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	memcpy(buf2, src, (size_t)res<<2);
+	//addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);
+	//colortransform_ycocb_fwd(buf2, iw, ih);
+	//addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);
+
+	apply_transforms_fwd(buf2, iw, ih);
+	addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);
+	//addbuf((unsigned char*)buf2, iw, ih, 3, 4, 192);//makes MSB easy
+
+	DList list;
+	dlist_init(&list, 1, 1024, 0);
+	
+	ABACEncContext ctx;
+	abac_enc_init(&ctx, &list);
+	
+	float csizes[24]={0};
+	int hits[24]={0};
+	
+	t37_ctx_init(&t37_context);
+	for(int ky=0;ky<ih;++ky)
+	{
+		for(int kx=0;kx<iw;++kx)
+		{
+			if(ky==10&&kx==10)//
+				printf("");
+
+			for(int kc=0;kc<3;++kc)
+			{
+				t37_ctx_get_context(&t37_context, (char*)buf2, iw, ih, kc, kx, ky);
+				for(int kb=7;kb>=0;--kb)//MSB -> LSB
+				{
+					//if(kc==1&&kx==1&&ky==0&&kb==1)
+					//	printf("");
+					//if((t37_context.dec>>kb)!=(t37_context.context[0]>>kb))//
+					//	printf("");
+
+					t37_ctx_estimate_p0(&t37_context, kc, kb);
+
+					//if(t37_context.p0!=0x8000)//
+					//	printf("");
+
+					int bit=(buf2[(iw*ky+kx)<<2|kc]+128)>>kb&1;//signed -> unsigned
+					abac_enc(&ctx, t37_context.p0, bit);
+					
+					int hit=bit?t37_context.p0<0x8000:t37_context.p0>0x8000;//
+					hits[kc<<3|kb]+=hit;
+					int prob=bit?0x10000-t37_context.p0:t37_context.p0;
+					float bitsize=-log2f((float)prob*(1.f/0x10000));
+					csizes[kc<<3|kb]+=bitsize;//
+
+					t37_ctx_update(&t37_context, kc, kb, bit);
+				}
+			}
+		}
+		if(loud)
+		{
+			static float csize_prev=0;
+			float csize=0;
+			for(int k=0;k<24;++k)
+				csize+=csizes[k]/8;
+			printf("Y%5d  CR%11f p0 0x%04X ", ky, iw*3/(csize-csize_prev), t37_context.p0);
+			print_weights(t37_context.weights[8], T37_NESTIMATORS);
+			printf("\n");
+			csize_prev=csize;
+		}
+	}
+	abac_enc_flush(&ctx);
+
+	size_t dststart=dlist_appendtoarray(&list, data);
+	if(loud)
+	{
+		double csize=0;
+		printf("\n");//skip progress line
+		printf("Encode elapsed ");
+		timedelta2str(0, 0, time_ms()-t_start);
+		printf("\n");
+		for(int k=0;k<24;++k)
+		{
+			if(!(k&7))
+			{
+				printf("C%d\n", k>>3);
+				csize=0;
+			}
+			printf("bit %2d  size %14f  CR %14f  H %7d %10lf%%\n", k&7, csizes[k]/8, iw*ih/csizes[k], hits[k], 100.*hits[k]/(iw*ih));
+			csize+=csizes[k]/8;
+			if(!((k+1)&7))
+				printf("C%d  size %14lf  CR %14lf\n\n", k>>3, csize, iw*ih/csize);
+		}
+		printf("Total %lld  CR %lf  P %7d/8 = %g\n", list.nobj, 3.*iw*ih/list.nobj, iw*ih, iw*ih/8.);
+		printf("\n");
+
+		for(int kc=0;kc<3;++kc)
+		{
+			printf("C%d  ", kc);
+			for(int kb=7;kb>=0;--kb)
+				printf("  B%d %11.3f", kb, iw*ih/csizes[kc<<3|kb]);
+			printf("\n");
+		}
+		printf("\n");
+
+#ifdef T37_PRINT_ESTIMATOR_CR
+		printf("Estimator efficiencies:\n");
+		int minidx[24]={0}, maxidx[24]={0};
+		for(int kb=0;kb<24;++kb)
+		{
+			float *sizes=t37_context.csizes+T37_NESTIMATORS*kb;
+			for(int ke=1;ke<T37_NESTIMATORS;++ke)
+			{
+				if(sizes[minidx[kb]]>sizes[ke])
+					minidx[kb]=ke;
+				if(sizes[maxidx[kb]]<sizes[ke])
+					maxidx[kb]=ke;
+			}
+		}
+		for(int ke=0;ke<T37_NESTIMATORS;++ke)
+		{
+			float *sizes=t37_context.csizes+ke;
+			printf("E%2d ", ke);
+			for(int kb=0;kb<24;++kb)
+			{
+				char c;
+				if(ke==minidx[kb])
+					c='*';
+				else if(ke==maxidx[kb])
+					c='L';
+				else
+					c=' ';
+				printf(" %7.2f%c", iw*ih/t37_context.csizes[T37_NESTIMATORS*kb+minidx[kb]], c);
+				//printf(" %7.2f%c", sizes[T37_NESTIMATORS*kb]/t37_context.csizes[T37_NESTIMATORS*kb+minidx[kb]], c);
+			}
+			printf("\n");
+		}
+#endif
+	}
+	dlist_clear(&list);
+	free(buf2);
+	return 1;
+}
+int t37_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud)
+{
+	int res=iw*ih;
+	double t_start=time_ms();
+
+	//int debug_index=0;
+
+	ABACDecContext ctx;
+	abac_dec_init(&ctx, data, data+srclen);
+
+	int black=0xFF000000;
+	memfill(buf, &black, res*sizeof(int), sizeof(int));
+	t37_ctx_init(&t37_context);
+
+	for(int ky=0;ky<ih;++ky)
+	{
+		for(int kx=0;kx<iw;++kx)
+		{
+			for(int kc=0;kc<3;++kc)
+			{
+				t37_ctx_get_context(&t37_context, (char*)buf, iw, ih, kc, kx, ky);
+				for(int kb=7;kb>=0;--kb)//MSB -> LSB
+				{
+					t37_ctx_estimate_p0(&t37_context, kc, kb);
+					
+					int bit=abac_dec(&ctx, t37_context.p0);
+					buf[(iw*ky+kx)<<2|kc]|=bit<<kb;//unsigned
+
+					t37_ctx_update(&t37_context, kc, kb, bit);
+				}
+				buf[(iw*ky+kx)<<2|kc]+=128;//unsigned -> signed
+			}
+		}
+	}
+	
+	addbuf(buf, iw, ih, 3, 4, 128);
+	apply_transforms_inv(buf, iw, ih);
+	if(loud)
+	{
+		printf("Decode elapsed ");
+		timedelta2str(0, 0, time_ms()-t_start);
+		printf("\n");
+	}
+	return 1;
+}
+
+
+#define T38_PERSISTENCE 7
+int t38_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud)
+{
+	int res=iw*ih;
+	double t_start=time_ms();
+	char *buf2=(char*)malloc((size_t)res<<2);
+	if(!buf2)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	memcpy(buf2, src, (size_t)res<<2);
+	//addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);
+	//colortransform_ycocb_fwd(buf2, iw, ih);
+	//addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);
+
+	apply_transforms_fwd(buf2, iw, ih);
+	//addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);
+	//addbuf((unsigned char*)buf2, iw, ih, 3, 4, 192);//makes MSB easy
+
+	DList list;
+	dlist_init(&list, 1, 1024, 0);
+	
+	ABACEncContext ctx;
+	abac_enc_init(&ctx, &list);
+	
+	float csizes[24]={0};
+	int hits[24]={0};
+
+	unsigned short prob0[3][255], ctx_idx;
+	unsigned short prob_init=0x8000;
+	memfill(prob0, &prob_init, sizeof(prob0), 2);
+	
+	for(int ky=0;ky<ih;++ky)
+	{
+		for(int kx=0;kx<iw;++kx)
+		{
+			if(ky==10&&kx==10)//
+				printf("");
+
+			for(int kc=0;kc<3;++kc)
+			{
+				ctx_idx=0;
+				for(int kb=7;kb>=0;--kb)//MSB -> LSB
+				{
+					unsigned short *p0=prob0[kc]+ctx_idx;
+
+					//if(*p0!=0x8000)//
+					//	printf("");
+
+					int bit=buf2[(iw*ky+kx)<<2|kc]>>kb&1;
+					abac_enc(&ctx, *p0, bit);
+					
+					int hit=bit?*p0<0x8000:*p0>0x8000;//
+					hits[kc<<3|kb]+=hit;
+					int prob=bit?0x10000-*p0:*p0;
+					float bitsize=-log2f((float)prob*(1.f/0x10000));
+					csizes[kc<<3|kb]+=bitsize;//
+
+					if(bit)
+						*p0-=*p0>>T38_PERSISTENCE;
+					else
+						*p0+=(0x10000-*p0)>>T38_PERSISTENCE;
+					*p0=CLAMP(1, *p0, 0xFFFF);
+
+					ctx_idx<<=1;
+					ctx_idx+=bit+1;
+				}
+			}
+		}
+		if(loud==2)
+		{
+			static float csize_prev=0;
+			float csize=0;
+			for(int k=0;k<24;++k)
+				csize+=csizes[k]/8;
+			printf("Y %d  CR %f\n", ky, iw*3/(csize-csize_prev));
+			csize_prev=csize;
+		}
+	}
+	abac_enc_flush(&ctx);
+
+	size_t dststart=dlist_appendtoarray(&list, data);
+	if(loud)
+	{
+		double csize=0;
+		printf("\n");//skip progress line
+		printf("Encode elapsed ");
+		timedelta2str(0, 0, time_ms()-t_start);
+		printf("\n");
+		for(int k=0;k<24;++k)
+		{
+			if(!(k&7))
+			{
+				printf("C%d\n", k>>3);
+				csize=0;
+			}
+			printf("bit %2d  size %14f  CR %14f  H %7d %10lf%%\n", k&7, csizes[k]/8, iw*ih/csizes[k], hits[k], 100.*hits[k]/(iw*ih));
+			csize+=csizes[k]/8;
+			if(!((k+1)&7))
+				printf("C%d  size %14lf  CR %14lf\n\n", k>>3, csize, iw*ih/csize);
+		}
+		printf("Total %lld  CR %lf  P %7d/8 = %g\n", list.nobj, 3.*iw*ih/list.nobj, iw*ih, iw*ih/8.);
+		printf("\n");
+
+		for(int kc=0;kc<3;++kc)
+		{
+			printf("C%d  ", kc);
+			for(int kb=7;kb>=0;--kb)
+				printf("  B%d %11.3f", kb, iw*ih/csizes[kc<<3|kb]);
+			printf("\n");
+		}
+		printf("\n");
+	}
+	dlist_clear(&list);
+	free(buf2);
+	return 1;
+}
+int t38_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud)
+{
+	int res=iw*ih;
+	double t_start=time_ms();
+
+	ABACDecContext ctx;
+	abac_dec_init(&ctx, data, data+srclen);
+
+	int black=0xFF000000;
+	memfill(buf, &black, res*sizeof(int), sizeof(int));
+	
+	unsigned short prob0[3][255], ctx_idx;
+	unsigned short prob_init=0x8000;
+	memfill(prob0, &prob_init, sizeof(prob0), 2);
+
+	for(int ky=0;ky<ih;++ky)
+	{
+		for(int kx=0;kx<iw;++kx)
+		{
+			for(int kc=0;kc<3;++kc)
+			{
+				ctx_idx=0;
+				for(int kb=7;kb>=0;--kb)//MSB -> LSB
+				{
+					unsigned short *p0=prob0[kc]+ctx_idx;
+					
+					int bit=abac_dec(&ctx, *p0);
+					buf[(iw*ky+kx)<<2|kc]|=bit<<kb;
+					
+					if(bit)
+						*p0-=*p0>>T38_PERSISTENCE;
+					else
+						*p0+=(0x10000-*p0)>>T38_PERSISTENCE;
+					*p0=CLAMP(1, *p0, 0xFFFF);
+
+					ctx_idx<<=1;
+					ctx_idx+=bit+1;
+				}
+			}
+		}
+	}
+	
+	//addbuf(buf, iw, ih, 3, 4, 128);
+	apply_transforms_inv(buf, iw, ih);
+	if(loud)
+	{
+		printf("Decode elapsed ");
+		timedelta2str(0, 0, time_ms()-t_start);
+		printf("\n");
+	}
+	return 1;
+}
+
+
+
+
+//T39: Multiple estimators for all maps
+
+//	#define T39_APPLY_SPATIAL
+	#define T39_USE_ARRAYS
+//	#define T39_DISABLE_REC
+//	#define T39_PROB_TWEAK	//X
+
+#define T39_NMAPS 14	//14	31		135 HALF HOUR PER IMAGE
+
+#ifndef T39_DISABLE_REC
+#define T39_N_REC_ESTIMATORS 6		//15
+#define T39_NESTIMATORS ((T39_N_REC_ESTIMATORS+1)*T39_NMAPS)
+#else
+#define T39_NESTIMATORS T39_NMAPS
+#endif
+#define T39_PRINT_ESTIMATOR_CR
+
+//#define T39_BLOCKSIZE_X 2048	//512
+//#define T39_BLOCKSIZE_Y 2048	//512
+//	#define T39_DISABLE_COUNTER
+
+typedef struct T39NodeStruct
+{
+#ifndef T39_USE_ARRAYS
+	int key;
+#endif
+	int n[2];
+#ifndef T39_DISABLE_REC
+	unsigned short rec[T39_N_REC_ESTIMATORS];
+#endif
+} T39Node;
+#ifndef T39_USE_ARRAYS
+static CmpRes t39_cmp_node(const void *key, const void *candidate)
+{
+	int const *k=(int const*)key;
+	T35CtxNode const *c=(T35CtxNode const*)candidate;
+	return (*k>c->key)-(*k<c->key);
+}
+//static void t39_debugprinter(RBNodeHandle *node, int depth)
+//{
+//	T35CtxNode *p;
+//	if(node)
+//	{
+//		p=(T35CtxNode*)node[0]->data;
+//		printf("0x%08X %5d %5d\n", p->key, p->n[0], p->n[1]);
+//	}
+//}
+#endif
+typedef struct T39CtxStruct
+{
+	int context[T39_NMAPS];
+#ifdef T39_USE_ARRAYS
+	ArrayHandle maps[24][T39_NMAPS];//(256+512+1024+2048+4096+8192+16384+32768)*20*14 = 17.43 MB for 14 maps with 6 rec estimators
+#else
+	Map maps[24][T39_NMAPS];
+	int found[T39_NMAPS];
+#endif
+	T39Node *node[T39_NMAPS];
+
+	int p0arr[T39_NESTIMATORS], p0_0, p0, p0rev;//p0_0 isn't clamped
+	int weights[24][T39_NESTIMATORS];
+	long long wsum;
+
+#ifdef T39_PROB_TWEAK
+	long long proberrors[24];
+	int bitsprocessed;
+	int hits[24];
+	double csizes[24];//needs fixed prec
+#endif
+
+	int nnodes;
+#ifdef T39_PRINT_ESTIMATOR_CR
+	float csizes_est[24*T39_NESTIMATORS];
+#endif
+} T39Ctx;
+T39Ctx* t39_ctx_init()
+{
+	int val=0x8000;
+	T39Ctx *ctx=(T39Ctx*)malloc(sizeof(T39Ctx));
+	if(!ctx)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	memset(ctx, 0, sizeof(T39Ctx));
+	memfill(ctx->weights, &val, sizeof(ctx->weights), sizeof(int));
+	for(int k=0;k<24;++k)
+	{
+		int kb=k&7;
+		for(int k2=0;k2<T39_NMAPS;++k2)
+		{
+#ifdef T39_USE_ARRAYS
+			int nnodes=256<<(7-kb);
+			ARRAY_ALLOC(T39Node, ctx->maps[k][k2], 0, nnodes, 0, 0);
+			ctx->nnodes+=nnodes;
+#else
+			MAP_INIT(ctx->maps[k]+k2, T39Node, t39_cmp_node, 0);
+#endif
+		}
+	}
+	return ctx;
+}
+void t39_ctx_clear(T39Ctx **ctx)
+{
+	for(int k=0;k<24;++k)
+	{
+		for(int k2=0;k2<T39_NMAPS;++k2)
+#ifdef T39_USE_ARRAYS
+			array_free(ctx[0]->maps[k]+k2);
+#else
+			MAP_CLEAR(ctx[0]->maps[k]+k2);
+#endif
+	}
+	free(*ctx);
+	*ctx=0;
+}
+void t39_ctx_reset(T39Ctx *ctx, int hardreset)
+{
+#ifdef T39_USE_ARRAYS
+	T39Node node0={{1, 1}};
+#ifndef T39_DISABLE_REC
+	for(int k=0;k<T39_N_REC_ESTIMATORS;++k)
+		node0.rec[k]=0x8000;
+#endif
+#endif
+	for(int k=0;k<24;++k)
+	{
+		if(hardreset)
+		{
+			for(int k2=0;k2<T39_NMAPS;++k2)
+#ifdef T39_USE_ARRAYS
+				memfill(ctx->maps[k][k2]->data, &node0, ctx->maps[k][k2]->count*sizeof(T39Node), sizeof(T39Node));
+#else
+				MAP_CLEAR(ctx->maps[k]+k2);
+#endif
+		}
+#ifdef T39_PROB_TWEAK
+		ctx->proberrors[k]=0;
+#endif
+	}
+	if(hardreset)
+		ctx->nnodes=0;
+#ifdef T39_PROB_TWEAK
+	ctx->bitsprocessed=0;
+#endif
+}
+//void t39_ctx_get_context(T39Ctx *ctx, char *buf, int iw, int ih, int kc, int kx, int ky, int x1, int x2, int y1, int y2)
+void t39_ctx_get_context(T39Ctx *ctx, char *buf, int iw, int ih, int kc, int kx, int ky)
+{
+#define LOAD(C, X, Y) (unsigned)(kc-C)<3&&(unsigned)(kx-(X))<(unsigned)iw&&(unsigned)(ky-Y)<(unsigned)ih?buf[(iw*(ky-Y)+kx-(X))<<2|(kc-C)]:0
+//#define LOAD(C, X, Y) (unsigned)(kc-C)<3&&(unsigned)(kx-(X)-x1)<(unsigned)(x2-x1)&&(unsigned)(ky-Y-y1)<(unsigned)(y2-y1)?buf[(iw*(ky-Y)+kx-(X))<<2|(kc-C)]:0
+//#define LOAD(CO, XO, YO) (unsigned)(kc-CO)<3u&&(unsigned)(kx-(XO))<(unsigned)iw&&(unsigned)(ky-YO)<(unsigned)ih?buf[(iw*(ky-YO)+kx-(XO))<<2|(kc-CO)]:0
+#if 1
+	int count_W_N_m1=(kx-1>=0)+(ky-1>=0)+(kc-1>=0);
+	int W   =LOAD(0,  1, 0),
+		NW  =LOAD(0,  1, 1),
+		N   =LOAD(0,  0, 1),
+		NE  =LOAD(0, -1, 1),
+		NN  =LOAD(0,  0, 2),
+
+		m1  =LOAD(1, 0, 0),
+		Nm1 =LOAD(1, 0, 1),
+		Wm1 =LOAD(1, 1, 0),
+		NWm1=LOAD(1, 1, 1),
+
+		m2  =LOAD(2, 0, 0),
+		Nm2 =LOAD(2, 0, 1),
+		Wm2 =LOAD(2, 1, 0),
+		NWm2=LOAD(2, 1, 1);
+
+	int j=-1;
+
+	//bit, channel-bitplane, compressibility			based on kodim13
+	//
+	//Orangeness:			best pred				worst pred
+	// 0	0-0		*		(N+W)/2					0
+	// 1	0-1		**		(N+W)/2					0
+	// 2	0-2		***		(N+W)/2					NW+NE-NN
+	// 3	0-3		****	(N+W)/2					NW+NE-NN
+	// 4	0-4		****	W						NW+NE-NN
+	// 5	0-5		****	0						NW+NE-NN
+	// 6	0-6		****	0						NW+NE-NN
+	// 7	0-7		*		NW+NE-NN				0
+	//
+	//Luma:
+	// 8	1-0		*		NW+NE-NN				NW+NE-NN
+	// 9	1-1		*		(W+N+m1)/3				NW+NE-NN
+	//10	1-2		*		(W+N+m1)/3				NW+NE-NN
+	//11	1-3		*		W						0
+	//12	1-4		**		W						0
+	//13	1-5		***		(N+W-NW + m2)>>1		NW+NE-NN
+	//14	1-6		****	(W+N+m1)/3				NW+NE-NN
+	//15	1-7		*		NW+NE-NN				0
+	//
+	//Blueness:
+	//16	2-0		*		W						clamp4(N+m1-Nm1, N, m1, Nm1, NW)
+	//17	2-1		**		N						clamp4(N+m1-Nm1, N, m1, Nm1, NW)
+	//18	2-2		***		W						(N+W-NW + m1)>>1
+	//19	2-3		****	(N+W-NW + m2)>>1		(N+W-NW + m1)>>1
+	//20	2-4		****	(N+W-NW + m2)>>1		(N+W-NW + m1)>>1
+	//21	2-5		****	m2						(N+W-NW + m1)>>1
+	//22	2-6		****	0						(N+W-NW + m1)>>1
+	//23	2-7		*		m2						0
+
+	ctx->context[++j]=0;//0
+	ctx->context[++j]=N;//1
+	ctx->context[++j]=W;//2
+	ctx->context[++j]=NW;//3
+	ctx->context[++j]=m1;//4
+	ctx->context[++j]=W+NE-N;//5
+	ctx->context[++j]=count_W_N_m1?(W+N+m1)/count_W_N_m1:0;//6
+	ctx->context[++j]=clamp4(N+W-NW, N, W, NW, NE);//7
+	ctx->context[++j]=clamp4(N+m1-Nm1, N, m1, Nm1, NW);//8
+	ctx->context[++j]=clamp4(W+m1-Wm1, W, m1, Wm1, NW);//9
+	ctx->context[++j]=NW+NE-NN;//10
+	ctx->context[++j]=(N+W-NW + m1)>>1;//11
+	ctx->context[++j]=m2;//12
+	ctx->context[++j]=(N+W-NW + m2)>>1;//13
+
+	//ctx->context[++j]=clamp4((W+NE-N + NW+NE-NN)>>1, N, W, NW, NE);
+	//ctx->context[++j]=Nm1+Wm1-NWm1;
+	//ctx->context[++j]=Nm1;
+	//ctx->context[++j]=Wm1;
+	//ctx->context[++j]=NWm1;
+#endif
+	
+#if 0
+	//offsets are in NW direction
+	int WWWWWW  =LOAD(0,  6, 0),
+		WWWWW   =LOAD(0,  5, 0),
+		WWWW    =LOAD(0,  4, 0),
+		WWW     =LOAD(0,  3, 0),
+		WW      =LOAD(0,  2, 0),
+		W       =LOAD(0,  1, 0),
+		NWWWW   =LOAD(0,  4, 1),
+		NWWW    =LOAD(0,  3, 1),
+		NWW     =LOAD(0,  2, 1),
+		NW      =LOAD(0,  1, 1),
+		N       =LOAD(0,  0, 1),
+		NE      =LOAD(0, -1, 1),
+		NEE     =LOAD(0, -2, 1),
+		NEEE    =LOAD(0, -3, 1),
+		NEEEE   =LOAD(0, -4, 1),
+		NEEEEEE =LOAD(0, -6, 1),
+		NNWWW   =LOAD(0,  3, 2),
+		NNWW    =LOAD(0,  2, 2),
+		NNW     =LOAD(0,  1, 2),
+		NN      =LOAD(0,  0, 2),
+		NNE     =LOAD(0, -1, 2),
+		NNEE    =LOAD(0, -2, 2),
+		NNEEE   =LOAD(0, -3, 2),
+		NNNWWWW =LOAD(0,  4, 3),
+		NNNWWW  =LOAD(0,  3, 3),
+		NNNWW   =LOAD(0,  2, 3),
+		NNNW    =LOAD(0,  1, 3),
+		NNN     =LOAD(0,  0, 3),
+		NNNE    =LOAD(0, -1, 3),
+		NNNEE   =LOAD(0, -2, 3),
+		NNNEEE  =LOAD(0, -3, 3),
+		NNNNW   =LOAD(0,  1, 4),
+		NNNN    =LOAD(0,  0, 4),
+		NNNNE   =LOAD(0, -1, 4),
+		NNNNN   =LOAD(0,  0, 5),
+		NNNNNN  =LOAD(0,  0, 6),
+		WWWWWWp1=LOAD(1,  6, 0),
+		WWWWp1  =LOAD(1,  4, 0),
+		WWWp1   =LOAD(1,  3, 0),
+		WWp1    =LOAD(1,  2, 0),
+		Wp1     =LOAD(1,  1, 0),
+		p1      =LOAD(1,  0, 0),
+		NWWp1   =LOAD(1,  2, 1),
+		NWp1    =LOAD(1,  1, 1),
+		Np1     =LOAD(1,  0, 1),
+		NEp1    =LOAD(1, -1, 1),
+		NEEp1   =LOAD(1, -2, 1),
+		NNWWp1  =LOAD(1,  2, 2),
+		NNp1    =LOAD(1,  0, 2),
+		NNEp1   =LOAD(1, -1, 2),
+		NNEEp1  =LOAD(1, -2, 2),
+		NNNWp1  =LOAD(1,  1, 3),
+		NNNp1   =LOAD(1,  0, 3),
+		NNNEp1  =LOAD(1, -1, 3),
+		NNNNp1  =LOAD(1,  0, 4),
+		NNNNNNp1=LOAD(1,  0, 6),
+		WWWWWWp2=LOAD(2,  6, 0),
+		WWWWp2  =LOAD(2,  4, 0),
+		WWWp2   =LOAD(2,  3, 0),
+		WWp2    =LOAD(2,  2, 0),
+		Wp2     =LOAD(2,  1, 0),
+		p2      =LOAD(2,  0, 0),
+		NWWp2   =LOAD(2,  2, 1),
+		NWp2    =LOAD(2,  1, 1),
+		Np2     =LOAD(2,  0, 1),
+		NEp2    =LOAD(2, -1, 1),
+		NEEp2   =LOAD(2, -2, 1),
+		NNWWp2  =LOAD(2,  2, 2),
+		NNp2    =LOAD(2,  0, 2),
+		NNEp2   =LOAD(2, -1, 2),
+		NNEEp2  =LOAD(2, -2, 2),
+		NNNWp2  =LOAD(2,  1, 3),
+		NNNp2   =LOAD(2,  0, 3),
+		NNNEp2  =LOAD(2, -1, 3),
+		NNNNp2  =LOAD(2,  0, 4),
+		NNNNNNp2=LOAD(2,  0, 6);
+	int j=-1;
+
+	//ctx->context[++j] = ((W + N) * 3 - NW * 2) >> 2;//#74
+	//ctx->context[++j] = (N + W + 1) >> 1;//#71
+	//ctx->context[++j] = ((W * 2 - NW) + (W * 2 - NWW) + N + NE) / 4;//#70
+	//ctx->context[++j] = N;//#75
+
+	ctx->context[++j]=0;
+	ctx->context[++j] = clamp4(N + p1 - Np1, W, NW, N, NE);
+	ctx->context[++j] = clamp4(N + p2 - Np2, W, NW, N, NE);
+	ctx->context[++j] = (W + clamp4(NE * 3 - NNE * 3 + NNNE, W, N, NE, NEE)) / 2;
+	ctx->context[++j] = clamp4((W + clip(NE * 2 - NNE)) / 2, W, NW, N, NE);
+	ctx->context[++j] = (W + NEE) / 2;
+	ctx->context[++j] = ((WWW - 4 * WW + 6 * W + (NE * 4 - NNE * 6 + NNNE * 4 - NNNNE)) / 4);
+	ctx->context[++j] = ((-WWWW + 5 * WWW - 10 * WW + 10 * W + clamp4(NE * 4 - NNE * 6 + NNNE * 4 - NNNNE, N, NE, NEE, NEEE)) / 5);
+	ctx->context[++j] = ((-4 * WW + 15 * W + 10 * (NE * 3 - NNE * 3 + NNNE) - (NEEE * 3 - NNEEE * 3 + NNNEEE)) / 20);
+	ctx->context[++j] = ((-3 * WW + 8 * W + clamp4(NEE * 3 - NNEE * 3 + NNNEE, NE, NEE, NEEE, NEEEE)) / 6);
+	ctx->context[++j] = ((W + (NE * 2 - NNE)) / 2 + p1 - (Wp1 + (NEp1 * 2 - NNEp1)) / 2);
+	ctx->context[++j] = ((W + (NE * 2 - NNE)) / 2 + p2 - (Wp2 + (NEp2 * 2 - NNEp2)) / 2);
+	ctx->context[++j] = ((-3 * WW + 8 * W + (NEE * 2 - NNEE)) / 6 + p1 -(-3 * WWp1 + 8 * Wp1 + (NEEp1 * 2 - NNEEp1)) / 6);
+	ctx->context[++j] = ((-3 * WW + 8 * W + (NEE * 2 - NNEE)) / 6 + p2 -(-3 * WWp2 + 8 * Wp2 + (NEEp2 * 2 - NNEEp2)) / 6);
+	ctx->context[++j] = ((W + NEE) / 2 + p1 - (Wp1 + NEEp1) / 2);
+	ctx->context[++j] = ((W + NEE) / 2 + p2 - (Wp2 + NEEp2) / 2);
+	ctx->context[++j] = ((WW + (NEE * 2 - NNEE)) / 2 + p1 - (WWp1 + (NEEp1 * 2 - NNEEp1)) / 2);
+	ctx->context[++j] = ((WW + (NEE * 2 - NNEE)) / 2 + p2 - (WWp2 + (NEEp2 * 2 - NNEEp2)) / 2);
+	ctx->context[++j] = (WW + NEE - N + p1 - (WWp1 + NEEp1 - Np1));
+	ctx->context[++j] = (WW + NEE - N + p2 - (WWp2 + NEEp2 - Np2));
+	ctx->context[++j] = (W + N - NW);
+	ctx->context[++j] = (W + N - NW + p1 - (Wp1 + Np1 - NWp1));
+	ctx->context[++j] = (W + N - NW + p2 - (Wp2 + Np2 - NWp2));
+	ctx->context[++j] = (W + NE - N);
+	ctx->context[++j] = (N + NW - NNW);
+	ctx->context[++j] = (N + NW - NNW + p1 - (Np1 + NWp1 - NNEp1));
+	ctx->context[++j] = (N + NW - NNW + p2 - (Np2 + NWp2 - NNEp2));
+	ctx->context[++j] = (N + NE - NNE);
+	ctx->context[++j] = (N + NE - NNE + p1 - (Np1 + NEp1 - NNEp1));
+	ctx->context[++j] = (N + NE - NNE + p2 - (Np2 + NEp2 - NNEp2));
+	ctx->context[++j] = (N + NN - NNN);
+	ctx->context[++j] = (N + NN - NNN + p1 - (Np1 + NNp1 - NNNp1));
+	ctx->context[++j] = (N + NN - NNN + p2 - (Np2 + NNp2 - NNNp2));
+	ctx->context[++j] = (W + WW - WWW);
+	ctx->context[++j] = (W + WW - WWW + p1 - (Wp1 + WWp1 - WWWp1));
+	ctx->context[++j] = (W + WW - WWW + p2 - (Wp2 + WWp2 - WWWp2));
+	ctx->context[++j] = (W + NEE - NE);
+	ctx->context[++j] = (W + NEE - NE + p1 - (Wp1 + NEEp1 - NEp1));
+	ctx->context[++j] = (W + NEE - NE + p2 - (Wp2 + NEEp2 - NEp2));
+	ctx->context[++j] = (NN + p1 - NNp1);
+	ctx->context[++j] = (NN + p2 - NNp2);
+	ctx->context[++j] = (NN + W - NNW);
+	ctx->context[++j] = (NN + W - NNW + p1 - (NNp1 + Wp1 - NNEp1));
+	ctx->context[++j] = (NN + W - NNW + p2 - (NNp2 + Wp2 - NNEp2));
+	ctx->context[++j] = (NN + NW - NNNW);
+	ctx->context[++j] = (NN + NW - NNNW + p1 - (NNp1 + NWp1 - NNNWp1));
+	ctx->context[++j] = (NN + NW - NNNW + p2 - (NNp2 + NWp2 - NNNWp2));
+	ctx->context[++j] = (NN + NE - NNNE);
+	ctx->context[++j] = (NN + NE - NNNE + p1 - (NNp1 + NEp1 - NNNEp1));
+	ctx->context[++j] = (NN + NE - NNNE + p2 - (NNp2 + NEp2 - NNNEp2));
+	ctx->context[++j] = (NN + NNNN - NNNNNN);
+	ctx->context[++j] = (NN + NNNN - NNNNNN + p1 - (NNp1 + NNNNp1 - NNNNNNp1));
+	ctx->context[++j] = (NN + NNNN - NNNNNN + p2 - (NNp2 + NNNNp2 - NNNNNNp2));
+	ctx->context[++j] = (WW + p1 - WWp1);
+	ctx->context[++j] = (WW + p2 - WWp2);
+	ctx->context[++j] = (WW + WWWW - WWWWWW);
+	ctx->context[++j] = (WW + WWWW - WWWWWW + p1 - (WWp1 + WWWWp1 - WWWWWWp1));
+	ctx->context[++j] = (WW + WWWW - WWWWWW + p2 - (WWp2 + WWWWp2 - WWWWWWp2));
+	ctx->context[++j] = (N * 2 - NN + p1 - (Np1 * 2 - NNp1));
+	ctx->context[++j] = (N * 2 - NN + p2 - (Np2 * 2 - NNp2));
+	ctx->context[++j] = (W * 2 - WW + p1 - (Wp1 * 2 - WWp1));
+	ctx->context[++j] = (W * 2 - WW + p2 - (Wp2 * 2 - WWp2));
+	ctx->context[++j] = (N * 3 - NN * 3 + NNN);
+	ctx->context[++j] = clamp4(N * 3 - NN * 3 + NNN, W, NW, N, NE);
+	ctx->context[++j] = clamp4(W * 3 - WW * 3 + WWW, W, NW, N, NE);
+	ctx->context[++j] = clamp4(N * 2 - NN, W, NW, N, NE);
+	ctx->context[++j] = ((NNNNN - 6 * NNNN + 15 * NNN - 20 * NN + 15 * N + clamp4(W * 4 - NWW * 6 + NNWWW * 4 - NNNWWWW, W, NW, N, NN)) / 6);
+	ctx->context[++j] = ((NNNEEE - 4 * NNEE + 6 * NE + (W * 4 - NW * 6 + NNW * 4 - NNNW)) / 4);
+	ctx->context[++j] = (((N + 3 * NW) / 4) * 3 - ((NNW + NNWW) / 2) * 3 + (NNNWW * 3 + NNNWWW) / 4);
+	ctx->context[++j] = ((W * 2 + NW) - (WW + 2 * NWW) + NWWW);
+	ctx->context[++j] = ((W * 2 - NW) + (W * 2 - NWW) + N + NE) / 4;
+	ctx->context[++j] = (N + W + 1) >> 1;
+	ctx->context[++j] = (NEEEE + NEEEEEE + 1) >> 1;
+	ctx->context[++j] = (WWWWWW + WWWW + 1) >> 1;
+	ctx->context[++j] = ((W + N) * 3 - NW * 2) >> 2;
+	ctx->context[++j] = N;
+	ctx->context[++j] = NN;
+	ctx->context[++j] = N + p1 - Np1;
+	ctx->context[++j] = N + p2 - Np2;
+	ctx->context[++j] = W + p1 - Wp1;
+	ctx->context[++j] = W + p2 - Wp2;
+	ctx->context[++j] = NW + p1 - NWp1;
+	ctx->context[++j] = NW + p2 - NWp2;
+	ctx->context[++j] = NE + p1 - NEp1;
+	ctx->context[++j] = NE + p2 - NEp2;
+	ctx->context[++j] = NN + p1 - NNp1;
+	ctx->context[++j] = NN + p2 - NNp2;
+	ctx->context[++j] = WW + p1 - WWp1;
+	ctx->context[++j] = WW + p2 - WWp2;
+	ctx->context[++j] = W + N - NW;
+	ctx->context[++j] = W + N - NW + p1 - Wp1 - Np1 + NWp1;
+	ctx->context[++j] = W + N - NW + p2 - Wp2 - Np2 + NWp2;
+	ctx->context[++j] = W + NE - N;
+	ctx->context[++j] = W + NE - N + p1 - Wp1 - NEp1 + Np1;
+	ctx->context[++j] = W + NE - N + p2 - Wp2 - NEp2 + Np2;
+	ctx->context[++j] = W + NEE - NE;
+	ctx->context[++j] = W + NEE - NE + p1 - Wp1 - NEEp1 + NEp1;
+	ctx->context[++j] = W + NEE - NE + p2 - Wp2 - NEEp2 + NEp2;
+	ctx->context[++j] = N + NN - NNN;
+	ctx->context[++j] = N + NN - NNN + p1 - Np1 - NNp1 + NNNp1;
+	ctx->context[++j] = N + NN - NNN + p2 - Np2 - NNp2 + NNNp2;
+	ctx->context[++j] = N + NE - NNE;
+	ctx->context[++j] = N + NE - NNE + p1 - Np1 - NEp1 + NNEp1;
+	ctx->context[++j] = N + NE - NNE + p2 - Np2 - NEp2 + NNEp2;
+	ctx->context[++j] = N + NW - NNW;
+	ctx->context[++j] = N + NW - NNW + p1 - Np1 - NWp1 + NNEp1;
+	ctx->context[++j] = N + NW - NNW + p2 - Np2 - NWp2 + NNEp2;
+	ctx->context[++j] = NE + NW - NN;
+	ctx->context[++j] = NE + NW - NN + p1 - NEp1 - NWp1 + NNp1;
+	ctx->context[++j] = NE + NW - NN + p2 - NEp2 - NWp2 + NNp2;
+	ctx->context[++j] = NW + W - NWW;
+	ctx->context[++j] = NW + W - NWW + p1 - NWp1 - Wp1 + NWWp1;
+	ctx->context[++j] = NW + W - NWW + p2 - NWp2 - Wp2 + NWWp2;
+	ctx->context[++j] = W * 2 - WW;
+	ctx->context[++j] = W * 2 - WW + p1 - Wp1 * 2 + WWp1;
+	ctx->context[++j] = W * 2 - WW + p2 - Wp2 * 2 + WWp2;
+	ctx->context[++j] = N * 2 - NN;
+	ctx->context[++j] = N * 2 - NN + p1 - Np1 * 2 + NNp1;
+	ctx->context[++j] = N * 2 - NN + p2 - Np2 * 2 + NNp2;
+	ctx->context[++j] = NW * 2 - NNWW;
+	ctx->context[++j] = NW * 2 - NNWW + p1 - NWp1 * 2 + NNWWp1;
+	ctx->context[++j] = NW * 2 - NNWW + p2 - NWp2 * 2 + NNWWp2;
+	ctx->context[++j] = NE * 2 - NNEE;
+	ctx->context[++j] = NE * 2 - NNEE + p1 - NEp1 * 2 + NNEEp1;
+	ctx->context[++j] = NE * 2 - NNEE + p2 - NEp2 * 2 + NNEEp2;
+	ctx->context[++j] = N * 3 - NN * 3 + NNN + p1 - Np1 * 3 + NNp1 * 3 - NNNp1;
+	ctx->context[++j] = N * 3 - NN * 3 + NNN + p2 - Np2 * 3 + NNp2 * 3 - NNNp2;
+	ctx->context[++j] = N * 3 - NN * 3 + NNN;
+	ctx->context[++j] = (W + NE * 2 - NNE + 1) >> 1;
+	ctx->context[++j] = (W + NE * 3 - NNE * 3 + NNNE+1) >> 1;
+	ctx->context[++j] = (W + NE * 2 - NNE) / 2 + p1 - (Wp1 + NEp1 * 2 - NNEp1) / 2;
+	ctx->context[++j] = (W + NE * 2 - NNE) / 2 + p2 - (Wp2 + NEp2 * 2 - NNEp2) / 2;
+	ctx->context[++j] = NNE + NE - NNNE;
+	ctx->context[++j] = NNE + W - NN;
+	ctx->context[++j] = NNW + W - NNWW;
+#endif
+#undef LOAD
+	for(int k=0;k<T39_NMAPS;++k)
+	{
+		ctx->context[k]+=128;
+#ifdef T39_USE_ARRAYS
+		ctx->context[k]=CLAMP(0, ctx->context[k], 255);
+#else
+		ctx->context[k]<<=8;
+#endif
+	}
+	
+#ifdef T39_PROB_TWEAK
+	ctx->bitsprocessed+=!kc;
+#endif
+}
+int t39_ctx_map_context(int *context, int kp, int workidx)//replacement for context[kp]
+{
+	return context[kp];
+
+	//static const int rep[]={ 0,  0, 10, 10, 10, 10, 10,  0,     10, 10, 10,  0,  0, 10, 10,  0,      8,  8, 11, 11, 11, 11, 11,  0};
+	//static const int sub[]={ 6,  6,  6,  6,  2,  0,  0, 10,     10,  6,  6,  2,  2, 13,  6, 10,      2,  1,  2, 13, 13, 12,  0, 12};
+	//return context[kp==rep[workidx]?sub[workidx]:kp];
+}
+void t39_ctx_estimate_p0(T39Ctx *ctx, int kc, int kb)
+{
+	int workidx=kc<<3|kb;
+	int *wk=ctx->weights[workidx];
+
+	int p0idx=0;
+	long long sum;
+#ifndef T39_USE_ARRAYS
+	RBNodeHandle *hnode;
+#endif
+	T39Node *node;
+	for(int kp=0;kp<T39_NMAPS;++kp)//for each predictor
+	{
+		int k2=0;
+		int context=t39_ctx_map_context(ctx->context, kp, kc);
+#ifdef T39_USE_ARRAYS
+		ArrayHandle map=ctx->maps[workidx][kp];
+		node=ctx->node[kp]=(T39Node*)array_at(&map, context);
+		
+		sum=node->n[0]+node->n[1];
+		ctx->p0arr[p0idx+k2]=sum?(int)(((long long)node->n[0]<<16)/sum):0x8000;
+		++k2;
+#ifndef T39_DISABLE_REC
+		for(;k2<T39_N_REC_ESTIMATORS+1;++k2)
+			ctx->p0arr[p0idx+k2]=node->rec[k2-1];
+#endif
+		p0idx+=k2;
+#else
+		hnode=map_insert(ctx->maps[workidx]+kp, &context, ctx->found+kp);
+		node=ctx->node[kp]=(T39Node*)hnode[0]->data;
+		if(ctx->found[kp])
+		{
+			sum=node->n[0]+node->n[1];
+			ctx->p0arr[p0idx+k2]=sum?(int)(((long long)node->n[0]<<16)/sum):0x8000;
+			++k2;
+			for(;k2<T39_N_REC_ESTIMATORS+1;++k2)
+				ctx->p0arr[p0idx+k2]=node->rec[k2-1];
+			p0idx+=k2;
+		}
+		else
+		{
+			for(;k2<T39_N_REC_ESTIMATORS+1;++k2)
+				ctx->p0arr[p0idx+k2]=0x8000;
+			//{
+			//	int bestbit=ctx->context[k2]>>kb&1;
+			//	ctx->p0arr[p0idx+k2]=0x8000+0x0000*((bestbit<<1)-1);
+			//}
+			p0idx+=k2;
+		}
+#endif
+	}
+
+	sum=0;
+	ctx->wsum=0;
+	for(int k=0;k<T39_NESTIMATORS;++k)
+	{
+#ifdef T39_DISABLE_COUNTER
+		if(k%(T39_N_REC_ESTIMATORS+1))//
+#endif
+		{
+			sum+=(long long)ctx->p0arr[k]*wk[k];
+			ctx->wsum+=wk[k];
+		}
+	}
+	//ctx->p0=ctx->wsum?(int)((sum+(ctx->wsum>>1))/ctx->wsum):0x8000;//same CR
+	ctx->p0=ctx->wsum?(int)(sum/ctx->wsum):0x8000;
+	ctx->p0_0=ctx->p0;
+
+	ctx->p0=CLAMP(1, ctx->p0, 0xFFFF);
+
+
+	//if(ctx->p0!=0x8000)//
+	//	printf("");
+	
+#ifdef T39_PROB_TWEAK
+	//if(workidx==0)//
+	//	printf("");
+
+	int bitsprocessed=ctx->bitsprocessed-1;
+	int prevproberror=bitsprocessed?(int)(ctx->proberrors[workidx]/bitsprocessed):0;
+	double success=bitsprocessed?(double)ctx->hits[workidx]/bitsprocessed:0;
+	if(success>0.5&&ctx->p0!=0x8000)
+	//if(prevproberror&&prevproberror<0x8000&&ctx->p0!=0x8000)
+	{
+		double invCR=ctx->csizes[workidx]/bitsprocessed;
+		double success2=pow((success-0.5)*2, invCR)*0.5+0.5;
+		int p_MPS=(int)(success2*0x10000);
+		//int p_MPS=(int)(((long long)ctx->hits[workidx]<<16)/bitsprocessed);
+		//int p_MPS=0xFFFF;
+		//int p_MPS=0x10000-prevproberror;
+		int p_MPS0=ctx->p0<0x8000?0x10000-ctx->p0:ctx->p0;
+		if(p_MPS<p_MPS0)
+			p_MPS=p_MPS0;
+		//else
+		//	p_MPS=0xFFFF;
+		ctx->p0rev=ctx->p0<0x8000?0x10000-p_MPS:p_MPS;
+		ctx->p0rev=CLAMP(1, ctx->p0rev, 0xFFFF);
+
+		//ctx->p0rev=ctx->p0rev+((ctx->p0-ctx->p0rev)>>0);
+		//ctx->p0rev=(ctx->p0rev+ctx->p0+(ctx->p0>0x8000))>>1;
+	}
+	else
+		ctx->p0rev=ctx->p0;
+
+	//int p_MPS=ctx->hits[24]-1?(int)(((long long)ctx->hits[workidx]*3<<16)/(ctx->hits[24]-1)):(ctx->p0<0x8000?0x10000-ctx->p0:ctx->p0);
+	//if(p_MPS>0x8000)
+	//{
+	//	ctx->p0rev=ctx->p0<0x8000?0x10000-p_MPS:p_MPS;
+	//	ctx->p0rev=CLAMP(1, ctx->p0rev, 0xFFFF);
+	//}
+	//else
+	//	ctx->p0rev=ctx->p0;
+#else
+	ctx->p0rev=ctx->p0;
+#endif
+}
+void t39_ctx_update(T39Ctx *ctx, int kc, int kb, int bit)
+{
+	int workidx=kc<<3|kb;
+	
+#ifdef T39_PROB_TWEAK
+	int prob=(bit?0x10000-ctx->p0:ctx->p0);
+	double p=(double)prob/0x10000;
+	double bitsize=-log2(p);
+	ctx->csizes[workidx]+=bitsize;
+#endif
+
+#ifdef T39_PRINT_ESTIMATOR_CR
+	for(int k=0;k<T39_NESTIMATORS;++k)
+	{
+		int prob=(bit?0x10000-ctx->p0arr[k]:ctx->p0arr[k]);
+		if(prob)
+		{
+			float p=(float)prob/0x10000;
+			float bitsize=-log2f(p);
+			ctx->csizes_est[T39_NESTIMATORS*workidx+k]+=bitsize;
+		}
+	}
+#endif
+	//bwd
+	int *wk=ctx->weights[workidx];
+	if(ctx->p0_0>=1&&ctx->p0_0<=0xFFFF)
+	{
+		int p_bit=bit?0x10000-ctx->p0:ctx->p0;
+		long long dL_dp0=-(1LL<<32)/p_bit;//fixed 47.16 bit
+		dL_dp0^=-bit;
+		dL_dp0+=bit;
+		for(int k=0;k<T39_NESTIMATORS;++k)
+		{
+			int diff=ctx->p0arr[k]-ctx->p0;//fixed 15.16 bit
+			long long grad = dL_dp0*diff/ctx->wsum;
+			long long wnew=LR*grad>>16;
+			wnew=wk[k]-wnew;
+			wnew=CLAMP(1, wnew, 0xFFFF);
+			wk[k]=(int)wnew;
+		}
+	}
+
+	//update
+#ifndef T39_DISABLE_REC
+	static const int shifts[]=
+	{
+		//7, 7, 7, 6, 5, 0, 0, 8,//T39_N_REC_ESTIMATORS 1
+		//8, 7, 7, 6, 6, 6, 7, 7,
+		//7, 7, 7, 5, 4, 4, 2, 7,
+
+		5, 5, 4, 2, 1, 0, 0, 5,//T39_N_REC_ESTIMATORS 6
+		7, 5, 5, 4, 4, 5, 4, 6,
+		5, 5, 5, 2, 1, 1, 1, 5,
+
+		//6, 5, 5, 4, 2, 0, 0, 6,
+		//9, 7, 6, 5, 4, 5, 4, 6,
+		//6, 5, 5, 4, 4, 3, 1, 6,
+	};
+	//static const int bitrating[]=//higher is more compressible
+	//{
+	//	1, 2, 3, 4, 4, 4, 4, 1,
+	//	1, 1, 1, 1, 2, 3, 4, 1,
+	//	1, 2, 3, 4, 4, 4, 4, 1,
+	//};
+#endif
+	T39Node *node;
+	for(int kp=0;kp<T39_NMAPS;++kp)
+	{
+		node=ctx->node[kp];
+#ifndef T39_USE_ARRAYS
+		if(ctx->found[kp])
+		{
+#endif
+			++node->n[bit];
+#ifndef T39_DISABLE_REC
+			//static const int lgdens[]={0, 1, 2, 4, 8, 14};
+			for(int k=0;k<T39_N_REC_ESTIMATORS;++k)
+			{
+				//int lgden=k+2;
+				//int lgden=k+shifts[workidx];
+				//int lgden=k+1;
+				//int lgden=(k+1)<<1;//X
+				//int lgden=k+((4-bitrating[workidx])<<1);
+				//int lgden=k+4-bitrating[workidx];
+				//int lgden=k+3;
+				int lgden=k;
+				//int lgden=lgdens[k];
+				//int lgden=((k+1)<<1)-1;
+				int temp=node->rec[k]+(((!bit<<16)-node->rec[k])>>lgden);
+				node->rec[k]=CLAMP(1, temp, 0xFFFF);
+			}
+#endif
+#ifndef T39_USE_ARRAYS
+		}
+		else
+		{
+			int context=t39_ctx_map_context(ctx->context, kp, kc);
+			node->key=context;
+			node->n[0]=1;
+			node->n[1]=1;
+			for(int k=0;k<T39_N_REC_ESTIMATORS;++k)
+				node->rec[k]=0x8000;
+			++ctx->nnodes;
+		}
+		ctx->context[kp]|=bit<<kb;
+#else
+		ctx->context[kp]|=bit<<(8+7-kb);
+		//ctx->context[kp]<<=1;
+		//ctx->context[kp]|=bit;
+#endif
+	}
+#ifdef T39_PROB_TWEAK
+	ctx->proberrors[workidx]+=abs((bit<<16)-ctx->p0);
+	ctx->hits[workidx]+=bit==(ctx->p0<0x8000);
+	//if(ctx->hits[workidx]<0)
+	//	printf("");
+	//if(workidx==15)
+	//	printf("");
+	//ctx->hits[workidx]+=bit==(ctx->p0<0x8000);
+#endif
+}
+int t39_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud)
+{
+	int res=iw*ih;
+	double t_start=time_ms();
+	char *buf2=(char*)malloc((size_t)res<<2);
+	T39Ctx *t39_ctx=t39_ctx_init();
+	if(!buf2||!t39_ctx)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	memcpy(buf2, src, (size_t)res<<2);
+#ifdef T39_APPLY_SPATIAL
+	apply_transforms_fwd(buf2, iw, ih);
+	addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);//buffer is signed
+#else
+	addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);
+	colortransform_ycocb_fwd(buf2, iw, ih);
+	//addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);//X  the buffer is signed
+#endif
+
+	DList list;
+	dlist_init(&list, 1, 1024, 0);
+	
+	ABACEncContext ctx;
+	abac_enc_init(&ctx, &list);
+	
+	float csizes[24]={0};
+	//int hits[24]={0};
+	
+#if 0
+	int nx=(iw+T39_BLOCKSIZE_X-1)/T39_BLOCKSIZE_X,
+		ny=(ih+T39_BLOCKSIZE_Y-1)/T39_BLOCKSIZE_Y;
+	for(int by=0, blockNo=0;by<ny;++by)
+	{
+		int y1=by*T39_BLOCKSIZE_Y, y2=y1+T39_BLOCKSIZE_Y;
+		if(y2>ih)y2=ih;
+
+		for(int bx=0;bx<nx;++bx, ++blockNo)
+		{
+			int x1=bx*T39_BLOCKSIZE_X, x2=x1+T39_BLOCKSIZE_X;
+			if(x2>iw)x2=iw;
+			
+#ifdef T39_PROB_TWEAK
+			t39_ctx_reset(t39_ctx, 0);
+#else
+			t39_ctx_reset(t39_ctx, 1);
+#endif
+			//t39_ctx_reset(t39_ctx, !(blockNo&63));
+
+			for(int ky=y1;ky<y2;++ky)
+			{
+				for(int kx=x1;kx<x2;++kx)
+				{
+					//if(kx==5&&ky==5)//
+					//	printf("");
+
+					for(int kc=0;kc<3;++kc)
+					{
+						t39_ctx_get_context(t39_ctx, (char*)buf2, iw, ih, kc, kx, ky, x1, x2, y1, y2);
+						for(int kb=7;kb>=0;--kb)//MSB -> LSB
+						{
+							t39_ctx_estimate_p0(t39_ctx, kc, kb);
+
+							int bit=(buf2[(iw*ky+kx)<<2|kc]+128)>>kb&1;//signed -> unsigned
+							abac_enc(&ctx, t39_ctx->p0rev, bit);
+
+							int prob_ideal=0x10000&-bit;//
+							float prob_error=(float)abs(prob_ideal-t39_ctx->p0rev)*(1.f/0x10000);
+							//hits[kc<<3|kb]+=prob_error;
+							float bitsize=-log2f(prob_error);
+							//if(bitsize<0)
+							//	LOG_ERROR("Bitsize negative");
+							csizes[kc<<3|kb]+=bitsize;//
+
+							t39_ctx_update(t39_ctx, kc, kb, bit);
+						}
+					}
+				}
+			}
+		}
+
+		if(loud)
+		{
+			static float csize1=0;
+			if(!by)
+				csize1=0;
+			float csize=0;
+			for(int k=0;k<24;++k)
+				csize+=csizes[k];
+			csize/=8;
+
+			//if(iw*(y2-y1)*3/(csize-csize1)<0)
+			//	LOG_ERROR("Size estimation error");
+
+			printf("%5d/%5d  %6.2lf%%  CR%11f  CR_delta%11f%c", by+1, ny, 100.*(by+1)/ny, iw*(y2+1)*3/csize, iw*(y2-y1)*3/(csize-csize1), loud==2?'\n':'\r');
+			csize1=csize;
+		}
+	}
+#endif
+#if 1
+	for(int ky=0;ky<ih;++ky)
+	{
+		for(int kx=0;kx<iw;++kx)
+		{
+			for(int kc=0;kc<3;++kc)
+			{
+				t39_ctx_get_context(t39_ctx, (char*)buf2, iw, ih, kc, kx, ky);
+				for(int kb=7;kb>=0;--kb)//MSB -> LSB
+				{
+					t39_ctx_estimate_p0(t39_ctx, kc, kb);
+
+					int bit=buf2[(iw*ky+kx)<<2|kc]>>kb&1;
+					abac_enc(&ctx, t39_ctx->p0, bit);
+					
+					int prob=bit?0x10000-t39_ctx->p0:t39_ctx->p0;//
+					float bitsize=-log2f((float)prob*(1.f/0x10000));
+					csizes[kc<<3|kb]+=bitsize;//
+
+					t39_ctx_update(t39_ctx, kc, kb, bit);
+				}
+			}
+		}
+		if(loud)
+		{
+			static float csize_prev=0;
+			float csize=0;
+			for(int k=0;k<24;++k)
+				csize+=csizes[k]/8;
+			printf("%5d/%5d  %6.2lf%%  CR%11f  CR_delta%11f%c", ky+1, ih, 100.*(ky+1)/ih, iw*(ky+1)*3/csize, iw*3/(csize-csize_prev), loud==2?'\n':'\r');
+			csize_prev=csize;
+		}
+		//if(!((ky+1)&127))
+		//	t39_ctx_reset(&t39_ctx, 0);
+	}
+#endif
+	abac_enc_flush(&ctx);
+
+	size_t dststart=dlist_appendtoarray(&list, data);
+	if(loud)
+	{
+		printf("\n");//skip progress line
+		printf("Used %f MB of memory\n", (float)t39_ctx->nnodes*sizeof(T39Node)/(1024*1024));
+		printf("Encode elapsed ");
+		timedelta2str(0, 0, time_ms()-t_start);
+		printf("\n");
+#if 0
+		double csize=0;
+		for(int k=0;k<24;++k)
+		{
+			if(!(k&7))
+			{
+				printf("C%d\n", k>>3);
+				csize=0;
+			}
+			printf("bit %2d  size %14f  CR %14f  H %7d %10lf%%\n", k&7, csizes[k]/8, iw*ih/csizes[k], hits[k], 100.*hits[k]/(iw*ih));
+			csize+=csizes[k]/8;
+			if(!((k+1)&7))
+				printf("C%d  size %14lf  CR %14lf\n\n", k>>3, csize, iw*ih/csize);
+		}
+		printf("Total %lld    CR %lf    WH %d*%d  bitplane %g\n", list.nobj, 3.*iw*ih/list.nobj, iw, ih, iw*ih/8.);
+		printf("\n");
+#endif
+		
+		float chsizes[4]={0};
+		//printf("\t\tC0\t\t\t\tC1\t\t\t\tC2\n\n");
+		printf("\tC0\t\tC1\t\tC2\n\n");
+		for(int kb=7;kb>=0;--kb)
+		{
+			printf("B%d  ", kb);
+			for(int kc=0;kc<3;++kc)
+			{
+				int idx=kc<<3|kb;
+				float size=csizes[idx];
+				//printf("       %12.3f %12.2f", iw*ih/size, hits[idx]);
+				printf(" %15.6f", iw*ih/size);
+				chsizes[kc]+=size;
+			}
+			printf("\n");
+		}
+		printf("\n");
+		chsizes[3]=chsizes[0]+chsizes[1]+chsizes[2];
+		printf("Total%15.6f %15.6f %15.6f %15.6f\n", iw*ih*8/chsizes[0], iw*ih*8/chsizes[1], iw*ih*8/chsizes[2], iw*ih*24/chsizes[3]);
+		printf("Total size\t%8d\t\t\t     %15.6f\n", (int)list.nobj, iw*ih*3./list.nobj);
+
+#ifdef T39_PRINT_ESTIMATOR_CR
+		if(loud==2)
+		{
+			printf("Estimator efficiencies:\n");
+			int minidx[24]={0}, maxidx[24]={0};
+			for(int kb=0;kb<24;++kb)
+			{
+				float *sizes=t39_ctx->csizes_est+T39_NESTIMATORS*kb;
+				for(int ke=1;ke<T39_NESTIMATORS;++ke)
+				{
+					if(sizes[minidx[kb]]>sizes[ke])
+						minidx[kb]=ke;
+					if(sizes[maxidx[kb]]<sizes[ke])
+						maxidx[kb]=ke;
+				}
+			}
+			for(int ke=0;ke<T39_NESTIMATORS;++ke)
+			{
+				float *sizes=t39_ctx->csizes_est+ke;
+#ifndef T39_DISABLE_REC
+				printf("E%3d-%02d-%02d ", ke, ke/(T39_N_REC_ESTIMATORS+1), ke%(T39_N_REC_ESTIMATORS+1));
+#else
+				printf("E%3d ", ke);
+#endif
+				for(int kb=0;kb<24;++kb)
+				{
+					char c;
+					if(ke==minidx[kb])
+						c='*';
+					else if(ke==maxidx[kb])
+						c='L';
+					else
+						c=' ';
+					printf("%8.2f %c", iw*ih/sizes[T39_NESTIMATORS*kb], c);
+					//printf(" %7.2f%c", sizes[T39_NESTIMATORS*kb]/t39_ctx->csizes_est[T39_NESTIMATORS*kb+minidx[kb]], c);
+					if(kb+1<24&&!((kb+1)&7))
+						printf("    ");
+				}
+				printf("\n");
+#ifndef T39_DISABLE_REC
+				if(!((ke+1)%(T39_N_REC_ESTIMATORS+1)))
+#else
+				if(!((ke+1)%8))
+#endif
+				{
+					printf("\n");
+					printf("\t\t*         **        ***       ****      ****      ****      ****      *             *         *         *         *         **        ***       ****      *             *         **        ***       ****      ****      ****      ****      *\n");
+					printf("\t\t0         1         2         3         4         5         6         7             0         1         2         3         4         5         6         7             0         1         2         3         4         5         6         7\n");
+				}
+			}
+		}
+#endif
+	}
+	t39_ctx_clear(&t39_ctx);
+	dlist_clear(&list);
+	free(buf2);
+	return 1;
+}
+int t39_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud)
+{
+	int res=iw*ih;
+	double t_start=time_ms();
+
+	//int debug_index=0;
+	T39Ctx *t39_ctx=t39_ctx_init();
+	if(!t39_ctx)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+
+	ABACDecContext ctx;
+	abac_dec_init(&ctx, data, data+srclen);
+
+	int black=0xFF000000;
+	memfill(buf, &black, res*sizeof(int), sizeof(int));
+	t39_ctx_init(t39_ctx);
+	
+#if 0
+	int nx=(iw+T39_BLOCKSIZE_X-1)/T39_BLOCKSIZE_X,
+		ny=(ih+T39_BLOCKSIZE_Y-1)/T39_BLOCKSIZE_Y;
+	for(int by=0, blockNo=0;by<ny;++by)
+	{
+		int y1=by*T39_BLOCKSIZE_Y, y2=y1+T39_BLOCKSIZE_Y;
+		if(y2>ih)y2=ih;
+		for(int bx=0;bx<nx;++bx, ++blockNo)
+		{
+			int x1=bx*T39_BLOCKSIZE_X, x2=x1+T39_BLOCKSIZE_X;
+			if(x2>iw)x2=iw;
+			
+#ifdef T39_PROB_TWEAK
+			t39_ctx_reset(t39_ctx, 0);
+#else
+			t39_ctx_reset(t39_ctx, 1);
+#endif
+
+			for(int ky=y1;ky<y2;++ky)
+			{
+				for(int kx=x1;kx<x2;++kx)
+				{
+					for(int kc=0;kc<3;++kc)
+					{
+						t39_ctx_get_context(t39_ctx, (char*)buf, iw, ih, kc, kx, ky, x1, x2, y1, y2);
+						for(int kb=7;kb>=0;--kb)//MSB -> LSB
+						{
+							t39_ctx_estimate_p0(t39_ctx, kc, kb);
+					
+							int bit=abac_dec(&ctx, t39_ctx->p0rev);
+							buf[(iw*ky+kx)<<2|kc]|=bit<<kb;
+
+							t39_ctx_update(t39_ctx, kc, kb, bit);
+						}
+						buf[(iw*ky+kx)<<2|kc]+=128;//unsigned -> signed
+					}
+				}
+			}
+		}
+
+		if(loud)
+			printf("%5d/%5d  %6.2lf%%%c", by+1, ny, 100.*(by+1)/ny, loud==2?'\n':'\r');
+	}
+#endif
+#if 1
+	for(int ky=0;ky<ih;++ky)
+	{
+		for(int kx=0;kx<iw;++kx)
+		{
+			for(int kc=0;kc<3;++kc)
+			{
+				t39_ctx_get_context(t39_ctx, (char*)buf, iw, ih, kc, kx, ky);
+				for(int kb=7;kb>=0;--kb)//MSB -> LSB
+				{
+					t39_ctx_estimate_p0(t39_ctx, kc, kb);
+					
+					int bit=abac_dec(&ctx, t39_ctx->p0);
+					buf[(iw*ky+kx)<<2|kc]|=bit<<kb;
+
+					t39_ctx_update(t39_ctx, kc, kb, bit);
+				}
+			}
+		}
+		if(loud)
+			printf("%5d/%5d  %6.2lf%%\r", ky+1, ih, 100.*(ky+1)/ih);
+		//if(!((ky+1)&127))
+		//	t39_ctx_reset(&t39_ctx, 0);
+	}
+#endif
+	t39_ctx_clear(&t39_ctx);
+	
+#ifdef T39_APPLY_SPATIAL
+	addbuf(buf, iw, ih, 3, 4, 128);//buffer is signed
+	apply_transforms_inv(buf, iw, ih);
+#else
+	//addbuf(buf, iw, ih, 3, 4, 128);//X  the buffer is signed
+	colortransform_ycocb_inv((char*)buf, iw, ih);
+	addbuf(buf, iw, ih, 3, 4, 128);
+#endif
+	if(loud)
+	{
+		printf("\n");//skip progress line
 		printf("Decode elapsed ");
 		timedelta2str(0, 0, time_ms()-t_start);
 		printf("\n");

@@ -65,8 +65,17 @@ int t34_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 int t35_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T35: Combines spatial transform with entropy coding
 int t35_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
 
-int t36_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);
-int t36_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
+//int t36_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T36: stretch & squeeze	X
+//int t36_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
+
+int t37_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T37: Fixed array as binary tree predictor
+int t37_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
+
+int t38_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T38: Single simple bit predictor
+int t38_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
+
+int t39_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T39: Multiple estimators for all maps
+int t39_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
 
 
 
