@@ -34,7 +34,7 @@ typedef enum VisModeEnum
 	VIS_IMAGE_TRICOLOR,
 	VIS_IMAGE,
 	VIS_IMAGE_BLOCK,
-	VIS_IMAGE_E24,//experiment 24
+//	VIS_IMAGE_E24,//experiment 24
 	VIS_DWT_BLOCK,
 	VIS_HISTOGRAM,
 	VIS_JOINT_HISTOGRAM,
@@ -99,8 +99,8 @@ typedef enum TransformTypeEnum
 #ifdef ALLOW_OPENCL
 	ST_FWD_LEARNED_GPU,	ST_INV_LEARNED_GPU,
 #endif
-	ST_FWD_CFL,			ST_INV_CFL,
-	ST_FWD_JOINT,		ST_INV_JOINT,
+//	ST_FWD_CFL,			ST_INV_CFL,
+//	ST_FWD_JOINT,		ST_INV_JOINT,
 //	ST_FWD_HYBRID3,		ST_INV_HYBRID3,
 	
 //	ST_FWD_DIFF2D,		ST_INV_DIFF2D,
@@ -109,13 +109,14 @@ typedef enum TransformTypeEnum
 	ST_FWD_JXL,			ST_INV_JXL,
 	ST_FWD_MM,			ST_INV_MM,
 	ST_FWD_JMJ,			ST_INV_JMJ,
-	ST_FWD_SORTNB,		ST_INV_SORTNB,
 //	ST_FWD_MEDIAN,		ST_INV_MEDIAN,
 //	ST_FWD_DCT3PRED,	ST_INV_DCT3PRED,
 //	ST_FWD_PATHPRED,	ST_INV_PATHPRED,
 //	ST_FWD_HPF,			ST_INV_HPF,
-	ST_FWD_GRADPRED,	ST_INV_GRADPRED,
 	ST_FWD_CUSTOM,		ST_INV_CUSTOM,
+	ST_FWD_GRADPRED,	ST_INV_GRADPRED,
+	ST_FWD_SORTNB,		ST_INV_SORTNB,
+//	ST_FWD_BITWISE,		ST_INV_BITWISE,
 	ST_FWD_DCT4,		ST_INV_DCT4,
 //	ST_FWD_DCT8,		ST_INV_DCT8,
 	ST_FWD_SHUFFLE,		ST_INV_SHUFFLE,
@@ -302,10 +303,10 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case ST_FWD_LEARNED_GPU:	a=" S Fwd Learned GPU";		break;
 	case ST_INV_LEARNED_GPU:	a=" S Inv Learned GPU";		break;
 #endif
-	case ST_FWD_CFL:			a=" S Fwd CfL";				break;
-	case ST_INV_CFL:			a=" S Inv CfL";				break;
-	case ST_FWD_JOINT:			a=" S Fwd Joint";			break;
-	case ST_INV_JOINT:			a=" S Inv Joint";			break;
+//	case ST_FWD_CFL:			a=" S Fwd CfL";				break;
+//	case ST_INV_CFL:			a=" S Inv CfL";				break;
+//	case ST_FWD_JOINT:			a=" S Fwd Joint";			break;
+//	case ST_INV_JOINT:			a=" S Inv Joint";			break;
 //	case ST_FWD_HYBRID3:		a=" S Fwd Hybrid3";			break;
 //	case ST_INV_HYBRID3:		a=" S Inv Hybrid3";			break;
 
@@ -333,6 +334,8 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 //	case ST_INV_PATHPRED:		a=" S Inv Path Predictor";	break;
 	case ST_FWD_GRADPRED:		a=" S Fwd Gradient";		break;
 	case ST_INV_GRADPRED:		a=" S Inv Gradient";		break;
+//	case ST_FWD_BITWISE:		a=" S Fwd Bitwise";			break;
+//	case ST_INV_BITWISE:		a=" S Inv Bitwise";			break;
 	case ST_FWD_DCT4:			a=" S Fwd DCT4";			break;
 	case ST_INV_DCT4:			a=" S Inv DCT4";			break;
 //	case ST_FWD_DCT8:			a=" S Fwd DCT8";			break;
@@ -803,10 +806,10 @@ void update_image()
 			case CT_FWD_CUSTOM:		colortransform_custom_fwd((char*)image, iw, ih);	break;
 			case CT_INV_CUSTOM:		colortransform_custom_inv((char*)image, iw, ih);	break;
 
-			case ST_FWD_JOINT:		pred_joint_apply((char*)image, iw, ih, jointpredparams, 1);break;
-			case ST_INV_JOINT:		pred_joint_apply((char*)image, iw, ih, jointpredparams, 0);break;
-			case ST_FWD_CFL:		pred_cfl((char*)image, iw, ih, 1);					break;
-			case ST_INV_CFL:		pred_cfl((char*)image, iw, ih, 0);					break;
+		//	case ST_FWD_JOINT:		pred_joint_apply((char*)image, iw, ih, jointpredparams, 1);break;
+		//	case ST_INV_JOINT:		pred_joint_apply((char*)image, iw, ih, jointpredparams, 0);break;
+		//	case ST_FWD_CFL:		pred_cfl((char*)image, iw, ih, 1);					break;
+		//	case ST_INV_CFL:		pred_cfl((char*)image, iw, ih, 0);					break;
 		//	case ST_FWD_HYBRID3:	pred_hybrid_fwd((char*)image, iw, ih);				break;
 		//	case ST_INV_HYBRID3:	pred_hybrid_inv((char*)image, iw, ih);				break;
 				
@@ -844,6 +847,8 @@ void update_image()
 		//	case ST_INV_PATHPRED:	pred_path_inv((char*)image, iw, ih, 3, 4);			break;
 			case ST_FWD_GRADPRED:	pred_grad_fwd((char*)image, iw, ih, 3, 4);			break;
 			case ST_INV_GRADPRED:	pred_grad_inv((char*)image, iw, ih, 3, 4);			break;
+		//	case ST_FWD_BITWISE:	pred_bitwise((char*)image, iw, ih, 1);				break;
+		//	case ST_INV_BITWISE:	pred_bitwise((char*)image, iw, ih, 0);				break;
 			case ST_FWD_CUSTOM:		pred_custom_apply((char*)image, iw, ih, 1, customparam_st);break;
 			case ST_INV_CUSTOM:		pred_custom_apply((char*)image, iw, ih, 0, customparam_st);break;
 			case ST_FWD_DCT4:		image_dct4_fwd((char*)image, iw, ih);				break;
@@ -1508,7 +1513,9 @@ void io_resize()
 }
 int io_mousemove()//return true to redraw
 {
-	if(mode==VIS_IMAGE_BLOCK||mode==VIS_IMAGE_E24||mode==VIS_DWT_BLOCK)
+	if(mode==VIS_IMAGE_BLOCK
+		//||mode==VIS_IMAGE_E24
+		||mode==VIS_DWT_BLOCK)
 	{
 		if(drag)
 		{
@@ -1694,7 +1701,9 @@ int io_mousewheel(int forward)
 	else
 	{
 	normal_operation:
-		if(mode==VIS_IMAGE_BLOCK||mode==VIS_IMAGE_E24||mode==VIS_DWT_BLOCK)
+		if(mode==VIS_IMAGE_BLOCK
+			//||mode==VIS_IMAGE_E24
+			||mode==VIS_DWT_BLOCK)
 		{
 			if(GET_KEY_STATE(KEY_CTRL))
 			{
@@ -1751,11 +1760,11 @@ static void count_active_keys(IOKey upkey)
 	if(!active_keys_pressed)
 		timer_stop(TIMER_ID_KEYBOARD);
 }
-int parse_nvals(ArrayHandle text, short *params, int count)
+int parse_nvals(ArrayHandle text, int idx, short *params, int count)
 {
-	int k, idx;
+	int k;
 
-	k=0, idx=0;
+	k=0;
 	while(k<count)
 	{
 		for(;idx<text->count&&isspace(text->data[idx]);++idx);
@@ -1775,9 +1784,9 @@ int parse_nvals(ArrayHandle text, short *params, int count)
 		++k;
 
 		if(idx>=text->count&&k<count)
-			return 0;
+			return idx;
 	}
-	return 1;
+	return idx;
 }
 int io_keydn(IOKey key, char c)
 {
@@ -1791,6 +1800,7 @@ int io_keydn(IOKey key, char c)
 	//	}
 	//	break;
 	//}
+#if 0
 	if(mode==VIS_IMAGE_E24)
 	{
 		switch(key)
@@ -1813,7 +1823,9 @@ int io_keydn(IOKey key, char c)
 			return 1;
 		}
 	}
-	else if(transforms_customenabled)
+	else
+#endif
+	if(transforms_customenabled)
 	{
 		switch(key)
 		{
@@ -2033,7 +2045,9 @@ int io_keydn(IOKey key, char c)
 		break;
 	case KEY_ESC:
 toggle_drag:
-		if(mode==VIS_IMAGE_BLOCK||mode==VIS_IMAGE_E24||mode==VIS_DWT_BLOCK)
+		if(mode==VIS_IMAGE_BLOCK
+			//||mode==VIS_IMAGE_E24
+			||mode==VIS_DWT_BLOCK)
 		{
 			if(key==KEY_LBUTTON)
 			{
@@ -2091,10 +2105,10 @@ toggle_drag:
 			"\t4: Image tricolor view\n"
 			"\t5: Image view\n"
 			"\t6: Image block histogram\n"
-			"\t7: Optimized block compression estimate (E24)\n"
-			"\t8: DWT block histogram\n"
-			"\t9: Histogram\n"
-			"\t10: Joint histogram\n"
+		//	"\t7: Optimized block compression estimate (E24)\n"
+			"\t7: DWT block histogram\n"
+			"\t8: Histogram\n"
+			"\t9: Joint histogram\n"
 		);
 		//prof_on=!prof_on;
 		return 0;
@@ -2151,14 +2165,14 @@ toggle_drag:
 				float cr_combined=3/(1/ch_cr[0]+1/ch_cr[1]+1/ch_cr[2]);
 				str_append(&str, "T %f\tR %f\tG %f\tB %f\tJ %f", cr_combined, ch_cr[0], ch_cr[1], ch_cr[2], ch_cr[3]);
 			}
-			else if(mode==VIS_IMAGE_E24)
-			{
-				for(int kc=0;kc<3;++kc)
-				{
-					E24Params const *p=e24_params+kc;
-					str_append(&str, "%3d  %3d %3d %3d  %3d %3d\n", p->gwidth, p->mleft, p->mtop, p->mright, p->alpha, p->maxinc);
-				}
-			}
+			//else if(mode==VIS_IMAGE_E24)
+			//{
+			//	for(int kc=0;kc<3;++kc)
+			//	{
+			//		E24Params const *p=e24_params+kc;
+			//		str_append(&str, "%3d  %3d %3d %3d  %3d %3d\n", p->gwidth, p->mleft, p->mtop, p->mright, p->alpha, p->maxinc);
+			//	}
+			//}
 			else if(transforms_mask[ST_FWD_LOGIC]||transforms_mask[ST_INV_LOGIC])
 			{
 				for(int kc=0, idx=0;kc<3;++kc)
@@ -2172,12 +2186,21 @@ toggle_drag:
 						}
 						str_append(&str, "\n");
 					}
+#ifdef LOGIC_NF1
 					for(int kx=0;kx<LOGIC_NF1;++kx, ++idx)
 					{
 						short val=logic_params[idx];
 						str_append(&str, "%c0x%04X,", val<0?'-':' ', abs(val));
 					}
 					str_append(&str, "\n");
+#else
+					for(int kx=0;kx<LOGIC_NF0;++kx, ++idx)
+					{
+						short val=logic_params[idx];
+						str_append(&str, "%c0x%04X,", val<0?'-':' ', abs(val));
+					}
+					str_append(&str, "\n");
+#endif
 				}
 			}
 			else if(transforms_mask[ST_FWD_JXL]||transforms_mask[ST_INV_JXL])
@@ -2206,6 +2229,7 @@ toggle_drag:
 					}
 				}
 			}
+#if 0
 			else if(transforms_mask[ST_FWD_JOINT]||transforms_mask[ST_INV_JOINT])
 			{
 				for(int ky=0;ky<3;++ky)
@@ -2225,20 +2249,22 @@ toggle_drag:
 					}
 				}
 			}
-			//else if(transforms_mask[ST_FWD_HYBRID3]||transforms_mask[ST_INV_HYBRID3])
-			//{
-			//	for(int ko=0;ko<3;++ko)
-			//	{
-			//		for(int ky=0;ky<3;++ky)
-			//		{
-			//			for(int kx=0;kx<24;++kx)
-			//				printed+=snprintf((char*)str->data+printed, str->count-printed, "%g%c", customparam_hybrid[24*(3*ko+ky)+kx], kx+1<24?'\t':'\n');
-			//		}
-			//		printed+=snprintf((char*)str->data+printed, str->count-printed, "\n");
-			//	}
-			//}
+			else if(transforms_mask[ST_FWD_HYBRID3]||transforms_mask[ST_INV_HYBRID3])
+			{
+				for(int ko=0;ko<3;++ko)
+				{
+					for(int ky=0;ky<3;++ky)
+					{
+						for(int kx=0;kx<24;++kx)
+							printed+=snprintf((char*)str->data+printed, str->count-printed, "%g%c", customparam_hybrid[24*(3*ko+ky)+kx], kx+1<24?'\t':'\n');
+					}
+					printed+=snprintf((char*)str->data+printed, str->count-printed, "\n");
+				}
+			}
+#endif
 			else if(transforms_customenabled)
 			{
+				int shift=GET_KEY_STATE(KEY_SHIFT);
 				for(int ky=0;ky<customparam_ct_h;++ky)
 				{
 					for(int kx=0;kx<customparam_ct_w;++kx)
@@ -2253,7 +2279,13 @@ toggle_drag:
 					for(int k=0;k<np;++k)
 					{
 						int x=k%stw, y=k/stw;
-						str_append(&str, "%g%c", params[k], x<stw-1&&k<np-1?'\t':'\n');
+						if(shift)
+						{
+							int val=(int)(params[k]*0x1000);//fixed 3.12 bit
+							str_append(&str, "%c0x%04X,%c", val<0?'-':' ', abs(val), x<stw-1&&k<np-1?'\t':'\n');
+						}
+						else
+							str_append(&str, "%g%c", params[k], x<stw-1&&k<np-1?'\t':'\n');
 					}
 				}
 				for(int k=0;k<COUNTOF(customparam_clamp);++k)
@@ -2282,9 +2314,12 @@ toggle_drag:
 			if(text)
 			{
 				int k, kend, idx;
+
+				idx=0;
+#if 0
 				if(mode==VIS_IMAGE_E24)
 				{
-					k=0, kend=sizeof(e24_params)/sizeof(e24_params->alpha), idx=0;
+					k=0, kend=sizeof(e24_params)/sizeof(e24_params->alpha);
 					for(;k<kend;++k)
 					{
 						for(;idx<text->count&&isspace(text->data[idx]);++idx);
@@ -2305,21 +2340,24 @@ toggle_drag:
 							goto paste_finish;
 					}
 				}
-				else if(transforms_mask[ST_FWD_LOGIC]||transforms_mask[ST_INV_LOGIC])
+				else
+#endif
+				if(transforms_mask[ST_FWD_LOGIC]||transforms_mask[ST_INV_LOGIC])
 				{
-					parse_nvals(text, logic_params, COUNTOF(logic_params));
+					parse_nvals(text, idx, logic_params, COUNTOF(logic_params));
 				}
 				else if(transforms_mask[ST_FWD_JXL]||transforms_mask[ST_INV_JXL])
 				{
-					parse_nvals(text, jxlparams_i16, COUNTOF(jxlparams_i16));
+					parse_nvals(text, idx, jxlparams_i16, COUNTOF(jxlparams_i16));
 				}
 				else if(transforms_mask[ST_FWD_MM]||transforms_mask[ST_INV_MM])
 				{
-					parse_nvals(text, pw2_params, COUNTOF(pw2_params));
+					parse_nvals(text, idx, pw2_params, COUNTOF(pw2_params));
 				}
+#if 0
 				else if(transforms_mask[ST_FWD_JOINT]||transforms_mask[ST_INV_JOINT])
 				{
-					k=0, kend=COUNTOF(jointpredparams), idx=0;
+					k=0, kend=COUNTOF(jointpredparams);
 					for(;k<kend;++k)
 					{
 						for(;idx<text->count&&isspace(text->data[idx]);++idx);
@@ -2340,21 +2378,23 @@ toggle_drag:
 							goto paste_finish;
 					}
 				}
-				//else if(transforms_mask[ST_FWD_HYBRID3]||transforms_mask[ST_INV_HYBRID3])
-				//{
-				//	k=0, kend=COUNTOF(customparam_hybrid), idx=0;
-				//	for(;k<kend;++k)
-				//	{
-				//		for(;idx<text->count&&isspace(text->data[idx]);++idx);
-				//		customparam_hybrid[k]=atof(text->data+idx);
-				//		for(;idx<text->count&&!isspace(text->data[idx]);++idx);
-				//		if(idx>=text->count)
-				//			goto paste_finish;
-				//	}
-				//}
+				else if(transforms_mask[ST_FWD_HYBRID3]||transforms_mask[ST_INV_HYBRID3])
+				{
+					k=0, kend=COUNTOF(customparam_hybrid), idx=0;
+					for(;k<kend;++k)
+					{
+						for(;idx<text->count&&isspace(text->data[idx]);++idx);
+						customparam_hybrid[k]=atof(text->data+idx);
+						for(;idx<text->count&&!isspace(text->data[idx]);++idx);
+						if(idx>=text->count)
+							goto paste_finish;
+					}
+				}
+#endif
 				else if(transforms_customenabled)
 				{
-					k=0, kend=COUNTOF(customparam_ct), idx=0;
+					int shift=GET_KEY_STATE(KEY_SHIFT);
+					k=0, kend=COUNTOF(customparam_ct);
 					for(;k<kend;++k)
 					{
 						for(;idx<text->count&&isspace(text->data[idx]);++idx);
@@ -2365,13 +2405,23 @@ toggle_drag:
 					}
 					k=0;
 					kend=COUNTOF(customparam_st);
-					for(;k<kend;++k)
+					if(shift)
 					{
-						for(;idx<text->count&&isspace(text->data[idx]);++idx);
-						customparam_st[k]=atof(text->data+idx);
-						for(;idx<text->count&&!isspace(text->data[idx]);++idx);
-						if(idx>=text->count)
-							goto paste_finish;
+						short params[COUNTOF(customparam_st)];
+						idx=parse_nvals(text, idx, params, COUNTOF(params));
+						for(int k2=0;k2<COUNTOF(customparam_st);++k2)
+							customparam_st[k2]=(double)params[k2]/0x1000;
+					}
+					else
+					{
+						for(;k<kend;++k)
+						{
+							for(;idx<text->count&&isspace(text->data[idx]);++idx);
+							customparam_st[k]=atof(text->data+idx);
+							for(;idx<text->count&&!isspace(text->data[idx]);++idx);
+							if(idx>=text->count)
+								goto paste_finish;
+						}
 					}
 					k=0;
 					kend=COUNTOF(customparam_clamp);
@@ -2436,6 +2486,7 @@ toggle_drag:
 	//case 'N':
 		if(image)
 		{
+#if 0
 			if(mode==VIS_IMAGE_E24)
 			{
 				float yoffset=tdy*3, half=blocksize*0.5f;
@@ -2459,7 +2510,9 @@ toggle_drag:
 					e24_optimizeall(image, iw, ih, (int)roundf(x1), (int)roundf(x2), (int)roundf(y1), (int)roundf(y2), 1);
 				}
 			}
-			else if(transforms_mask[ST_FWD_LOGIC]||transforms_mask[ST_INV_LOGIC])
+			else
+#endif
+			if(transforms_mask[ST_FWD_LOGIC]||transforms_mask[ST_INV_LOGIC])
 			{
 				int res=iw*ih;
 				char *buf2=(char*)malloc((size_t)res<<2);
@@ -2472,7 +2525,7 @@ toggle_drag:
 				addhalf((unsigned char*)buf2, iw, ih, 3, 4);
 				colortransform_ycocb_fwd(buf2, iw, ih);
 #if 1
-				float info[3]={0};
+				float info[4]={0};
 				logic_opt_checkonthread(info);
 				if(info[0]<0)
 				{
@@ -2507,7 +2560,9 @@ toggle_drag:
 				update_image();
 			}
 			//	timer_start(50);
-			else if(transforms_mask[ST_FWD_JXL]||transforms_mask[ST_INV_JXL]||transforms_mask[ST_FWD_MM]||transforms_mask[ST_INV_MM]||transforms_mask[ST_FWD_JOINT]||transforms_mask[ST_INV_JOINT])
+			else if(transforms_mask[ST_FWD_JXL]||transforms_mask[ST_INV_JXL]||transforms_mask[ST_FWD_MM]||transforms_mask[ST_INV_MM]
+			//	||transforms_mask[ST_FWD_JOINT]||transforms_mask[ST_INV_JOINT]
+			)
 			{
 				int jxl=transforms_mask[ST_FWD_JXL]||transforms_mask[ST_INV_JXL];
 				int pw2=transforms_mask[ST_FWD_MM]||transforms_mask[ST_INV_MM];
@@ -2704,7 +2759,7 @@ void print_i16s(float x, float y, const short *row, int count)
 	int printed=0;
 	for(int k=0;k<count;++k)
 	{
-		int val=row[k+0];
+		short val=row[k];
 		printed+=snprintf(g_buf+printed, G_BUF_SIZE-printed, " %c%4X", val<0?'-':' ', abs(val));
 	}
 	print_line(0, x, y, 1, g_buf, printed, -1, 0, 0);
@@ -2809,6 +2864,7 @@ void io_render()
 			//	display_texture_i(x, x+iw, (int)(tdy*3), (int)(tdy*3+ih), (int*)image, iw, ih, 1);
 			//}
 			break;
+#if 0
 		case VIS_IMAGE_E24:
 			{
 				float yoffset=tdy*3, half=blocksize*0.5f;
@@ -2860,6 +2916,7 @@ void io_render()
 				}
 			}
 			break;
+#endif
 		case VIS_DWT_BLOCK:
 			{
 				int w2=iw, h2=ih;//do not scale
@@ -3017,7 +3074,7 @@ void io_render()
 	}
 	else if(transforms_mask[ST_FWD_LOGIC]||transforms_mask[ST_INV_LOGIC])
 	{
-		float x, y, info[3]={0};
+		float x, y, info[4]={0};
 		int kc=customparam_ch_idx/2;
 		const short *params=logic_params+LOGIC_PARAMS_PER_CH*kc;
 
@@ -3027,8 +3084,10 @@ void io_render()
 		if(info[0]>=0)
 		{
 			float cr=1/info[2];
-			set_window_title(			"Ch %d: %6.2f%%, %f sec, CR %f", kc, info[0], info[1], cr);
-			GUIPrint(0, x, y-tdy, 1,	"Ch %d: %6.2f%%, %f sec, CR %f", kc, info[0], info[1], cr);
+			TimeInfo ti;
+			parsetimedelta(info[1]*1000, &ti);
+			set_window_title(			"Ch %d: %6.2f%%, %02d-%02d-%f, CR %f, bitidx %d", kc, info[0], ti.hours, ti.mins, ti.secs, cr, ((int*)info)[3]);
+			GUIPrint(0, x, y-tdy, 1,	"Ch %d: %6.2f%%, %02d-%02d-%f, CR %f, bitidx %d", kc, info[0], ti.hours, ti.mins, ti.secs, cr, ((int*)info)[3]);
 			g_repaint=1;
 			//int success=RedrawWindow(ghWnd, 0, 0, RDW_INTERNALPAINT|RDW_ERASENOW);
 			//if(!success)
@@ -3056,7 +3115,11 @@ void io_render()
 			y+=tdy;
 			params+=LOGIC_ROWPARAMS;
 		}
+#ifdef LOGIC_NF1
 		print_i16s(x, y, params, LOGIC_NF1);
+#else
+		print_i16s(x, y, params, LOGIC_NF0);
+#endif
 		if(info[0]>=0&&ghMutex)
 		{
 			if(waitstatus==WAIT_OBJECT_0)
@@ -3084,6 +3147,7 @@ void io_render()
 		print_i16s(x, y, pw2_params+PW2_NPARAM  , PW2_NPARAM);	y+=tdy;
 		print_i16s(x, y, pw2_params+PW2_NPARAM*2, PW2_NPARAM);
 	}
+#if 0
 	else if(transforms_mask[ST_FWD_JOINT]||transforms_mask[ST_INV_JOINT])
 	{
 		int printed;
@@ -3114,6 +3178,7 @@ void io_render()
 			y+=tdy*0.75f;
 		}
 	}
+#endif
 	const char *mode_str=0;
 	switch(mode)
 	{
@@ -3124,7 +3189,7 @@ void io_render()
 	case VIS_JOINT_HISTOGRAM:	mode_str="Joint Histogram";	break;
 	case VIS_IMAGE:				mode_str="Image View";		break;
 	case VIS_IMAGE_BLOCK:		mode_str="Image Block";		break;
-	case VIS_IMAGE_E24:			mode_str="Image Exp24";		break;
+//	case VIS_IMAGE_E24:			mode_str="Image Exp24";		break;
 	case VIS_DWT_BLOCK:			mode_str="DWT Block";		break;
 	case VIS_IMAGE_TRICOLOR:	mode_str="Tricolor";		break;
 	}
@@ -3208,17 +3273,19 @@ void io_render()
 				x=(float)(xend-scale*ks);
 			}
 			float barw=4;
-			if(mode==VIS_IMAGE_BLOCK||mode==VIS_IMAGE_E24||mode==VIS_DWT_BLOCK)
+			if(mode==VIS_IMAGE_BLOCK
+			//	||mode==VIS_IMAGE_E24
+				||mode==VIS_DWT_BLOCK)
 			{
 				float cr[4];
-				if(mode==VIS_IMAGE_E24)
-				{
-					cr[0]=(float)e24_cr[0];
-					cr[1]=(float)e24_cr[1];
-					cr[2]=(float)e24_cr[2];
-					cr[3]=3/(1/cr[0]+1/cr[1]+1/cr[2]);
-				}
-				else
+				//if(mode==VIS_IMAGE_E24)
+				//{
+				//	cr[0]=(float)e24_cr[0];
+				//	cr[1]=(float)e24_cr[1];
+				//	cr[2]=(float)e24_cr[2];
+				//	cr[3]=3/(1/cr[0]+1/cr[1]+1/cr[2]);
+				//}
+				//else
 				{
 					cr[0]=blockCR[0];
 					cr[1]=blockCR[1];

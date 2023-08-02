@@ -1500,8 +1500,218 @@ double opt_causal_reach2(unsigned char *buf, int iw, int ih, int kc, double *x, 
 }
 
 
-	#define LOGIC_WEIGHTED_AVERAGE1
-	#define LOGIC_WEIGHTED_AVERAGE2
+#if 0
+typedef struct JointContextStruct
+{
+	int key;
+	int hist[256];
+} JointContext;
+Map j_map;
+CmpRes cmp_jctx(const void *key, const void *candidate)
+{
+	const int *k=(const int*)key, *c=(const int*)candidate;
+	return (*k>*c)-(*k<*c);
+}
+void pred_bitwise(char *buf, int iw, int ih, int fwd)
+{
+	int res=iw*ih;
+	char *buf2=(char*)malloc((size_t)res<<2);
+	//int *hist=(int*)malloc(0x1000000*sizeof(int));
+	if(!buf2)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	int pred=0xFF000000;
+	memfill(buf2, &pred, (size_t)res<<2, 4);
+	//int grads[256]={0};
+	MAP_INIT(&j_map, JointContext, cmp_jctx, 0);
+	//memset(hist, 0, 0x1000000*sizeof(int));
+	//for(int k=0;k<res;++k)
+	//	((int*)buf2)[k]=0xFF00000;
+	//memcpy(buf2, buf, (size_t)res<<2);
+	const char *pixels=fwd?buf:buf2, *errors=fwd?buf2:buf;
+	for(int ky=0;ky<ih;++ky)
+	{
+		for(int kx=0;kx<iw;++kx)
+		{
+			//if(kx==(iw>>1)&&ky==(ih>>1))
+			//if(kx==4&&ky==3)
+			//	printf("");
+			for(int kc=0;kc<3;++kc)
+			{
+#define LOAD(BUF, C, X, Y) (unsigned)(kx-(X))<(unsigned)iw&&(unsigned)(ky-Y)<(unsigned)ih?BUF[(iw*(ky-Y)+kx-(X))<<2|(kc-C)%3]:0
+				char
+					W =LOAD(pixels, 0,  1, 0),
+					NW=LOAD(pixels, 0,  1, 1),
+					N =LOAD(pixels, 0,  0, 1),
+					NE=LOAD(pixels, 0, -1, 1);
+#undef LOAD
+				int idx=(iw*ky+kx)<<2|kc;
+				int grad=N+W-NW;
+				grad=CLAMP(-128, grad, 127);
+
+				//int found0=grads[grad+128];
+				//if(found0)
+				//	printf("");
+
+				int found=0;
+				int key=kc<<16|(N+128)<<8|(W+128);
+				RBNodeHandle *hnode=map_insert(&j_map, &key, &found);
+				JointContext *node=(JointContext*)hnode[0]->data;
+				int pred;
+				if(found)
+				{
+					int best=0, sum=0;
+					for(int sym=0;sym<256;++sym)
+					{
+						if(node->hist[best]<node->hist[sym])
+							best=sym;
+						sum+=node->hist[sym];
+					}
+					if(sum)
+						pred=best-128;
+					else
+						pred=grad;
+				}
+				else
+				{
+					node->key=key;
+					pred=grad;
+				}
+
+				if(fwd)
+					buf2[idx]=buf[idx]-pred;
+				else
+					buf2[idx]=buf[idx]+pred;
+				int curr=pixels[idx]+128;
+				++node->hist[curr];
+				//grads[grad+128]=1;
+
+#if 0
+				//int vmin, vmax;
+				//int emin, emax;
+				//if(N<W)
+				//	vmin=N, vmax=W;
+				//else
+				//	vmin=W, vmax=N;
+				//grad=CLAMP(vmin, grad, vmax);
+#if 1
+				grad+=128;
+				int pixel=0, error=0;
+				int kb=7, bit0, pred, diff=0;
+				for(;kb>=0;--kb)
+				{
+					int vmax=pixel+(1<<(kb+1))-1;
+					grad=CLAMP(pixel, grad, vmax);
+					pred=grad>=pixel+(1<<kb);
+					if(fwd)
+					{
+						bit0=(pixels[idx]+128)>>kb&1;//original bit
+						diff=bit0-pred;
+					}
+					else
+					{
+						diff=errors[idx]>>kb&1;//"zero" bit
+						bit0=diff+pred;
+					}
+					pixel^=bit0<<kb;
+					error^=(diff&1)<<kb;
+					if(diff)
+					{
+						int mask, rem;
+
+						mask=(1<<kb)-1;
+						//pred=-(diff>0)&mask;//X
+						pred=0;
+						//if(mask)
+						//	printf("");
+						if(fwd)
+						{
+							rem=(pixels[idx]+128)&mask;
+							error+=rem-pred;
+						}
+						else
+						{
+							rem=errors[idx]&mask;
+							pixel+=rem+pred;
+						}
+#if 0
+						--kb;
+						pred=diff>0;
+						int pixel2=0, error2=0, kb0=kb;
+						for(;kb>=0;--kb)
+						{
+							if(fwd)
+							{
+								bit0=pixels[idx]>>kb&1;//original bit
+								diff=bit0-pred;
+							}
+							else
+							{
+								diff=errors[idx]>>kb&1;//"zero" bit
+								bit0=diff+pred;
+							}
+							pixel2+=bit0<<kb;
+							error2+=(diff&1)<<kb;
+						}
+						pixel|=pixel2&(1<<(kb0+1))-1;
+						error|=error2&(1<<(kb0+1))-1;
+#endif
+						break;
+					}
+				}
+				buf2[idx]=fwd?error:pixel;
+#endif
+#if 0
+				buf2[idx]=buf[idx];
+				int diff=0;
+				for(int kb=7, mask=0xFFFFFF00;kb>=0;--kb, mask>>=1)
+				{
+					vmin=pixels[idx]&mask;
+					vmax=vmin+(1<<(kb+1))-1;
+					//emin=errors[idx]&mask;
+					//emax=emin+(1<<(kb+1))-1;
+					grad=CLAMP(vmin, grad, vmax);
+					//if(kb<7)
+					//{
+					//}
+					int vmid=(vmin+vmax+1)>>1;
+					pred=grad>=vmid;
+					if(fwd)
+						buf2[idx]-=pred<<kb;
+					else
+						buf2[idx]+=pred<<kb;
+					int bit0=pixels[idx]>>kb&1;
+					diff=bit0-pred;
+					if(diff)
+					{
+						--kb;
+						for(;kb>=0;--kb)
+						{
+							pred=diff>0;
+							if(fwd)
+								buf2[idx]-=pred<<kb;
+							else
+								buf2[idx]+=pred<<kb;
+						}
+					}
+				}
+#endif
+#endif
+			}
+		}
+	}
+	set_window_title("%d nodes, %lf MB", j_map.nnodes, (double)j_map.nnodes*sizeof(JointContext)/(1024*1024));
+	memcpy(buf, buf2, (size_t)res<<2);
+	free(buf2);
+	MAP_CLEAR(&j_map);
+}
+#endif
+
+
+//	#define LOGIC_WEIGHTED_AVERAGE1
+//	#define LOGIC_WEIGHTED_AVERAGE2
 
 int logic_opt_timeron=0;
 short logic_params[LOGIC_TOTALPARAMS]={0};
@@ -1510,6 +1720,99 @@ void pred_logic_prealloc(const char *src, int iw, int ih, int kc, int fwd, char 
 	const char *pixels=fwd?src:dst, *errors=fwd?dst:src;
 	int idx;
 	long long pred=0;
+#if 1
+	for(int ky=0;ky<ih;++ky)
+	{
+		for(int kx=0;kx<iw;++kx)
+		{
+			//fixed 19.12 bit
+			int nb[LOGIC_NNB*2]=
+			{
+#define LOAD(BUF, XO, YO) (unsigned)(kx+XO)<(unsigned)iw&&(unsigned)(ky+YO)<(unsigned)ih?src[(iw*(ky+YO)+kx+XO)<<2|kc]<<12:0
+#if LOGIC_REACH>=2
+				LOAD(pixels, -2, -2),
+				LOAD(pixels, -1, -2),
+				LOAD(pixels,  0, -2),
+				LOAD(pixels,  1, -2),
+				LOAD(pixels,  2, -2),
+				LOAD(pixels, -2, -1),
+#endif
+				LOAD(pixels, -1, -1),
+				LOAD(pixels,  0, -1),
+				LOAD(pixels,  1, -1),
+#if LOGIC_REACH>=2
+				LOAD(pixels,  2, -1),
+				LOAD(pixels, -2,  0),
+#endif
+				LOAD(pixels, -1,  0),
+				
+#if LOGIC_REACH>=2
+				LOAD(errors, -2, -2),
+				LOAD(errors, -1, -2),
+				LOAD(errors,  0, -2),
+				LOAD(errors,  1, -2),
+				LOAD(errors,  2, -2),
+				LOAD(errors, -2, -1),
+#endif
+				LOAD(errors, -1, -1),
+				LOAD(errors,  0, -1),
+				LOAD(errors,  1, -1),
+#if LOGIC_REACH>=2
+				LOAD(errors,  2, -1),
+				LOAD(errors, -2,  0),
+#endif
+				LOAD(errors, -1,  0),
+#undef  LOAD
+			};
+			int temp[LOGIC_NF0]={0};
+			const short *lastrow=params+LOGIC_ROWPARAMS*LOGIC_NF0;
+			for(int kc=0;kc<LOGIC_NF0;++kc)
+			{
+				const short *row=params+LOGIC_ROWPARAMS*kc;
+				long long sum=0;
+
+				//weighted average
+				long long wsum=0;
+				for(int kx=0;kx<LOGIC_NNB*2;++kx)
+				{
+					sum+=(long long)nb[kx]*row[kx];
+					wsum+=row[kx];
+				}
+				if(wsum)
+					temp[kc]=(int)(sum/wsum);
+				else
+					temp[kc]=(int)((sum+(1LL<<11))>>12);
+
+				//kernel
+				//for(int kx=0;kx<LOGIC_NNB*2;++kx)
+				//	sum+=(long long)nb[kx]*row[kx];
+				//temp[kc]=(int)((sum+(1LL<<11))>>12);
+			}
+
+			pred=0;
+			long long wsum=0;
+			for(int kc=0;kc<LOGIC_NF0;++kc)
+			{
+				pred+=(long long)temp[kc]*lastrow[kc];
+				wsum+=lastrow[kc];
+			}
+			if(wsum)
+				pred/=wsum;
+			else
+				pred>>=12;
+			pred+=1LL<<11;//rounding
+			pred>>=12;
+			pred=CLAMP(-128, pred, 128);
+
+			idx=(iw*ky+kx)<<2|kc;
+			if(fwd)
+				dst[idx]=(char)(src[idx]-pred);
+			else
+				dst[idx]=(char)(src[idx]+pred);
+		}
+	}
+#endif
+#if 0
 	for(int ky=0;ky<ih;++ky)
 	{
 		for(int kx=0;kx<iw;++kx)
@@ -1562,7 +1865,7 @@ void pred_logic_prealloc(const char *src, int iw, int ih, int kc, int fwd, char 
 				long long
 					sum=row[LOGIC_NNB*2],//bias
 					wsum=0;
-				for(int kx=0;kx<24;++kx)
+				for(int kx=0;kx<LOGIC_NNB*2;++kx)
 				{
 					sum+=(long long)nb[kx]*row[kx];
 					wsum+=row[kx];
@@ -1577,7 +1880,7 @@ void pred_logic_prealloc(const char *src, int iw, int ih, int kc, int fwd, char 
 			{
 				const short *row=params+LOGIC_ROWPARAMS*kc;
 				long long sum=row[LOGIC_NNB*2];//bias
-				for(int kx=0;kx<24;++kx)
+				for(int kx=0;kx<LOGIC_NNB*2;++kx)
 					sum+=(long long)nb[kx]*row[kx];
 				temp[kc]=(int)((sum+(1LL<<11))>>12);
 			}
@@ -1618,6 +1921,7 @@ void pred_logic_prealloc(const char *src, int iw, int ih, int kc, int fwd, char 
 				dst[idx]=(char)(src[idx]+pred);
 		}
 	}
+#endif
 }
 void pred_logic_apply(char *buf, int iw, int ih, const short *allparams, int fwd)
 {
@@ -1658,10 +1962,12 @@ typedef struct LogicThreadInfoStruct
 	float progressbar;//goes from 0 to 100
 	float t_elapsed;//seconds
 	float loss;
+	int bitidx;
+	int toggle_histogram[LOGIC_PARAMS_PER_CH<<4];
 } LogicThreadInfo;
 LogicThreadInfo logic_info={0};
 HANDLE logic_hthread=0, ghMutex=0;
-void logic_thread_update(LogicThreadInfo *info, const short *params, float progressbar, float t_start, float loss, const char *buf)
+void logic_thread_update(LogicThreadInfo *info, const short *params, float progressbar, float t_start, float loss, const char *buf, int bitidx)
 {
 	int waitstatus=WaitForSingleObject(ghMutex, INFINITE);
 	switch(waitstatus)
@@ -1685,13 +1991,15 @@ void logic_thread_update(LogicThreadInfo *info, const short *params, float progr
 		info->progressbar=progressbar;
 		info->t_elapsed=(float)((time_ms()-t_start)*0.001);
 		info->loss=loss;
+		info->bitidx=bitidx;
+		++info->toggle_histogram[bitidx];
 		ReleaseMutex(ghMutex);
 		break;
 	case WAIT_ABANDONED:
 		break;
 	}
 }
-double logic_calcloss(short *params, LogicThreadInfo *info, char *temp, int *hist, float progressbar, float t_start)
+double logic_calcloss(short *params, LogicThreadInfo *info, char *temp, int *hist, float progressbar, float t_start, int bitidx)
 {
 	int res=info->iw*info->ih;
 	pred_logic_prealloc(info->buf, info->iw, info->ih, info->kc, 1, temp, params);
@@ -1716,10 +2024,11 @@ double logic_calcloss(short *params, LogicThreadInfo *info, char *temp, int *his
 		}
 	}
 	double invCR=entropy/8;
-	logic_thread_update(info, params, progressbar, t_start, (float)invCR, temp);
+	logic_thread_update(info, params, progressbar, t_start, (float)invCR, temp, bitidx);
 	return invCR;
 }
-unsigned __stdcall logic_opt_thread(LogicThreadInfo *info)
+#if 0
+unsigned __stdcall logic_opt_thread(LogicThreadInfo *info)//Nelder-Mead optimizer
 {
 	double t_start=time_ms();
 	int res=info->iw*info->ih;
@@ -1856,6 +2165,70 @@ unsigned __stdcall logic_opt_thread(LogicThreadInfo *info)
 	info->progressbar=-1;
 	return 0;
 }
+#endif
+unsigned __stdcall logic_opt_thread_v2(LogicThreadInfo *info)
+{
+	double t_start=time_ms();
+	const int nv=LOGIC_PARAMS_PER_CH;
+	int bitidx=0;
+	double bestloss;
+	LogicInfo *set1=info->params, *set2=info->params+1;
+	memcpy(set1->params, info->channel_params, sizeof(set1->params));
+	memcpy(set2->params, info->channel_params, sizeof(set2->params));
+	
+#define GET_RAND_IDX() (xoroshiro128_next()%(LOGIC_PARAMS_PER_CH<<4))
+#define TOGGLE_BIT(X, IDX) (X)->params[IDX>>4]^=1<<(IDX&15)
+#define CALC_LOSS(X, P) (X)->loss=logic_calcloss((X)->params, info, info->temp, info->hist, P, (float)t_start, bitidx)
+	
+	srand((unsigned)__rdtsc());
+	xoroshiro128_state[0]^=rand();
+	xoroshiro128_state[1]^=rand();
+
+	const int niter=4800;
+	//const int niter=250;
+	CALC_LOSS(set1, 0);
+	bestloss=set1->loss;
+	for(int ki=0, set2divergence=0;ki<niter;++ki, ++set2divergence)
+	{
+		bitidx=GET_RAND_IDX();
+		//bitidx=(bitidx+rand())%(LOGIC_PARAMS_PER_CH<<4);
+		TOGGLE_BIT(set1, bitidx);
+		//set1->params[bitidx>>4]^=1<<(bitidx&15);
+		CALC_LOSS(set1, ki*100.f/niter);
+		if(set1->loss>bestloss)//revert set1 if worse
+		{
+			set1->loss=bestloss;
+			TOGGLE_BIT(set1, bitidx);
+			//set1->params[bitidx>>4]^=1<<(bitidx&15);
+		}
+		else if(set1->loss<bestloss)
+		{
+			bestloss=set1->loss;
+			memcpy(set2, set1, sizeof(*set2));//set1 won, overwrite set2
+		}
+		
+		bitidx=GET_RAND_IDX();
+		if(set2divergence>25)//set2 went too far, overwrite set2
+		{
+			set2divergence=0;
+			memcpy(set2, set1, sizeof(*set2));
+		}
+		TOGGLE_BIT(set2, bitidx);
+		CALC_LOSS(set2, ki*100.f/niter);//don't revert set2 if worse
+		if(set2->loss<bestloss)
+		{
+			bestloss=set2->loss;
+			memcpy(set1, set2, sizeof(*set1));//set2 won, overwrite set1
+			set2divergence=0;
+		}
+	}
+	CALC_LOSS(set1, 100);
+#undef GET_RAND_IDX
+#undef TOGGLE_BIT
+#undef CALC_LOSS
+	info->progressbar=-1;
+	return 0;
+}
 static void logic_opt_freeresources()
 {
 	CloseHandle(logic_hthread);
@@ -1871,6 +2244,7 @@ static void logic_opt_freeresources()
 void logic_opt_checkonthread(float *info)
 {
 	float progressbar=-1, t_elapsed=-1, loss=-1;
+	int bitidx=-1;
 	if(logic_hthread)
 	{
 		int waitstatus=WaitForSingleObject(ghMutex, INFINITE);
@@ -1880,6 +2254,7 @@ void logic_opt_checkonthread(float *info)
 			progressbar=logic_info.progressbar;
 			t_elapsed=logic_info.t_elapsed;
 			loss=logic_info.loss;
+			bitidx=logic_info.bitidx;
 			if(progressbar<0)
 			{
 				logic_opt_freeresources();
@@ -1905,6 +2280,7 @@ void logic_opt_checkonthread(float *info)
 		info[0]=progressbar;
 		info[1]=t_elapsed;
 		info[2]=loss;
+		((int*)info)[3]=bitidx;
 	}
 }
 void logic_opt_forceclosethread()
@@ -1930,7 +2306,8 @@ void logic_opt(char *buf, int iw, int ih, int kc, short *channel_params)
 	}
 	logic_info.buf=buf;
 	logic_info.temp=(char*)malloc((size_t)res<<2);
-	logic_info.params=(LogicInfo*)malloc((LOGIC_PARAMS_PER_CH+1+3LL)*sizeof(LogicInfo));
+	logic_info.params=(LogicInfo*)malloc(2*sizeof(LogicInfo));
+	//logic_info.params=(LogicInfo*)malloc((LOGIC_PARAMS_PER_CH+1+3LL)*sizeof(LogicInfo));
 	if(!logic_info.temp||!logic_info.params)
 	{
 		LOG_ERROR("Allocation error");
@@ -1941,7 +2318,9 @@ void logic_opt(char *buf, int iw, int ih, int kc, short *channel_params)
 	logic_info.kc=kc;
 	logic_info.channel_params=channel_params;
 	logic_info.progressbar=0;
-	logic_hthread=(HANDLE)_beginthreadex(0, 0, logic_opt_thread, &logic_info, 0, 0);
+	memset(logic_info.toggle_histogram, 0, sizeof(logic_info.toggle_histogram));
+	logic_hthread=(HANDLE)_beginthreadex(0, 0, logic_opt_thread_v2, &logic_info, 0, 0);
+	//logic_hthread=(HANDLE)_beginthreadex(0, 0, logic_opt_thread, &logic_info, 0, 0);
 	if(!logic_hthread)
 		LOG_ERROR("Thread error");
 	timer_start(TIMER_MONITOR_MS, TIMER_ID_MONITOR);
@@ -1975,7 +2354,7 @@ double opt_cr2_calcloss(double *params, const char *buf, int iw, int ih, int kc,
 		++hist[sym];
 	}
 	double entropy=0;
-	for(int sym=0;sym<256;++sym)
+	for(int sym=0;sym<256;++sym)//Shannon law
 	{
 		int freq=hist[sym];
 		if(freq)
@@ -1985,7 +2364,32 @@ double opt_cr2_calcloss(double *params, const char *buf, int iw, int ih, int kc,
 		}
 	}
 	double invCR=entropy/8;
-	//x->loss=invCR;
+#if 0
+	double csize=0;
+	for(int k=0;k<res;++k)//Zipf's law
+	{
+		unsigned char sym=temp[k<<2|kc];
+		int freq=hist[sym];
+		if(freq)
+		{
+			double prob=(double)freq/res;
+			csize-=log2(prob);
+		}
+	}
+	csize/=8;
+	double csize2=res*invCR;
+	if(fabs(csize-csize2)>1e-3)
+		LOG_ERROR("BROKEN");
+#endif
+	//for(int k=0;k<res;++k)
+	//{
+	//	image[k<<2  ]=temp[k<<2|kc]+128;
+	//	image[k<<2|1]=temp[k<<2|kc]+128;
+	//	image[k<<2|2]=temp[k<<2|kc]+128;
+	//}
+	//memcpy(image, temp, (size_t)res<<2);
+	//io_render();
+
 	return invCR;
 }
 void opt_cr2_v2(const char *buf, int iw, int ih, int kc)
@@ -2002,7 +2406,9 @@ void opt_cr2_v2(const char *buf, int iw, int ih, int kc)
 		LOG_ERROR("Allocation error");
 		return;
 	}
+	memset(temp, 0, (size_t)res<<2);
 	OptCR2Info
+		*best=params,
 		*worst=params+np-1,
 		*x0=params+np,
 		*xr=x0+1,
@@ -2015,31 +2421,36 @@ void opt_cr2_v2(const char *buf, int iw, int ih, int kc)
 	srand((unsigned)__rdtsc());
 	for(int kp=0;kp<np;++kp)
 	{
-		OptCR2Info *x=params+kp;
-		if(kp)
-		{
+		OptCR2Info *x=best+kp;
+		//if(kp)
+		//{
 			for(int k2=0;k2<nv;++k2)
 				x->params[k2]=customparam_st[O2_NPARAMS*kc+k2]+((double)rand()-((RAND_MAX>>1)+1))*(initial_step/RAND_MAX);
-		}
-		else
-			memcpy(x->params, customparam_st+O2_NPARAMS*kc, sizeof(x->params));
+		//}
+		//else
+		//	memcpy(x->params, customparam_st+O2_NPARAMS*kc, sizeof(x->params));
 		CALC_LOSS(x);
 		//x->loss=opt_cr2_calcloss(x->params, buf, iw, ih, kc, temp, hist);
 	}
-	double loss0=params->loss;
+	memcpy(x0->params, customparam_st+O2_NPARAMS*kc, sizeof(x0->params));
+	CALC_LOSS(x0);
+	double loss0=x0->loss;
+	//extern float ch_cr[4];
+	//if(fabs(1/loss0-ch_cr[kc])>1e-3)
+	//	LOG_ERROR("CR: loss %lf ch_cr %lf", 1/loss0, ch_cr[kc]);
 	const double alpha=1, gamma=2, rho=0.5, sigma=0.5;
 	for(int ki=0;ki<100;++ki)
 	{
 		//1  order
-		isort(params, np, sizeof(OptCR2Info), cmp_optcr2info);
+		isort(best, np, sizeof(OptCR2Info), cmp_optcr2info);
 		
-		set_window_title("it %d/100: %lf", ki+1, params->loss);
+		set_window_title("it %d/100: %lf", ki+1, best->loss);
 
 		//2  get the centroid of all points except worst
 		memset(x0->params, 0, sizeof(x0->params));
 		for(int k2=0;k2<nv;++k2)//exclude the worst point
 		{
-			OptCR2Info *x=params+k2;
+			OptCR2Info *x=best+k2;
 			for(int k3=0;k3<nv;++k3)
 				x0->params[k3]+=x->params[k3];
 		}
@@ -2057,7 +2468,7 @@ void opt_cr2_v2(const char *buf, int iw, int ih, int kc)
 		}
 
 		//4  expansion
-		if(xr->loss<params->loss)//if xr is best so far
+		if(xr->loss<best->loss)//if xr is best so far
 		{
 			for(int k2=0;k2<nv;++k2)
 				x2->params[k2]=x0->params[k2]+(xr->params[k2]-x0->params[k2])*gamma;
@@ -2096,18 +2507,19 @@ void opt_cr2_v2(const char *buf, int iw, int ih, int kc)
 		//6  shrink
 		for(int kp=1;kp<np;++kp)
 		{
-			OptCR2Info *x=params+kp;
+			OptCR2Info *x=best+kp;
 			for(int k2=0;k2<nv;++k2)
-				x->params[k2]=params->params[k2]+(x->params[k2]-params->params[k2])*sigma;
+				x->params[k2]=best->params[k2]+(x->params[k2]-best->params[k2])*sigma;
 			CALC_LOSS(x2);
 		}
 	}
 #undef CALC_LOSS
-	if(params->loss>loss0)
-	{
-		messagebox(MBOX_OK, "Error", "Loss has increased");
-	}
-	memcpy(customparam_st+O2_NPARAMS*kc, params->params, sizeof(customparam_st)/3);
+	//if(best->loss>loss0)
+	//{
+	//	messagebox(MBOX_OK, "Error", "Loss has increased");
+	//}
+	if(best->loss<loss0)
+		memcpy(customparam_st+O2_NPARAMS*kc, best->params, sizeof(customparam_st)/3);
 
 #if 0
 	double l1, losses[_countof(customparam_st)<<1];
@@ -2127,6 +2539,126 @@ void opt_cr2_v2(const char *buf, int iw, int ih, int kc)
 	}
 #endif
 	free(params);
+	free(temp);
+	free(hist);
+}
+
+double opt_cr2_calcloss_v3(double *params, const char *buf, int iw, int ih, int kc, char *temp, int *hist, float t_start, float progress)
+{
+	int res=iw*ih;
+	pred_custom_prealloc(buf, iw, ih, kc, 1, params, temp);
+
+	memset(hist, 0, 256*sizeof(int));
+	for(int k=0;k<res;++k)
+	{
+		unsigned char sym=temp[k<<2|kc];
+		++hist[sym];
+	}
+	double entropy=0;
+	for(int sym=0;sym<256;++sym)
+	{
+		int freq=hist[sym];
+		if(freq)
+		{
+			double prob=(double)freq/res;
+			entropy-=prob*log2(prob);
+		}
+	}
+	double invCR=entropy/8;
+	//x->loss=invCR;
+
+	TimeInfo ti;
+	parsetimedelta(time_ms()-t_start, &ti);
+	set_window_title("%6.2f%%  %02d-%02d-%06.3f  CR %lf", progress, ti.hours, ti.mins, ti.secs, 1/invCR);
+
+	return invCR;
+}
+typedef struct OptCR2Info3Struct
+{
+	double loss;
+	short params[O2_NPARAMS];
+} OptCR2Info3;
+void set_params_pd(double *params_pd, const short *params_i16, int count)
+{
+	for(int k=0;k<count;++k)
+		params_pd[k]=params_i16[k]/4096.;
+}
+void get_params_pd(short *params_i16, const double *params_pd, int count)
+{
+	for(int k=0;k<count;++k)
+		params_i16[k]=(int)(params_pd[k]*4096);
+}
+void opt_cr2_v3(const char *buf, int iw, int ih, int kc)//X  inefficient
+{
+	double t_start=time_ms();
+	double *params0=customparam_st+O2_NPARAMS*kc;
+	int res=iw*ih;
+	char *temp=(char*)malloc((size_t)res<<2);
+	int *hist=malloc(256*sizeof(int));
+	const int nv=O2_NPARAMS;
+	OptCR2Info3 sets[2];
+	double params_pd[O2_NPARAMS];
+	int bitidx=0;
+	double bestloss;
+	if(!temp||!hist)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	get_params_pd(sets->params, params0, O2_NPARAMS);//copy params
+	memcpy(sets[1].params, sets->params, sizeof(sets->params));
+	
+#define GET_RAND_IDX() (xoroshiro128_next()%(O2_NPARAMS<<4))
+#define TOGGLE_BIT(X, IDX) (X)->params[IDX>>4]^=1<<(IDX&15)
+#define CALC_LOSS(X, P) set_params_pd(params_pd, (X)->params, O2_NPARAMS), (X)->loss=opt_cr2_calcloss_v3(params_pd, buf, iw, ih, kc, temp, hist, (float)t_start, P)
+	
+	const int niter=2*(O2_NPARAMS<<4);
+	srand((unsigned)__rdtsc());
+	xoroshiro128_state[0]^=rand();
+	xoroshiro128_state[1]^=rand();
+	CALC_LOSS(sets, 0);
+	bestloss=sets[0].loss;
+	for(int ki=0, set2divergence=0;ki<niter;++ki, ++set2divergence)
+	{
+		bitidx=GET_RAND_IDX();
+		TOGGLE_BIT(sets, bitidx);
+		CALC_LOSS(sets, ki*100.f/niter);
+		if(sets[0].loss>bestloss)//revert set1 if worse
+		{
+			sets[0].loss=bestloss;
+			TOGGLE_BIT(sets, bitidx);
+		}
+		else if(sets[0].loss<bestloss)
+		{
+			bestloss=sets[0].loss;
+			memcpy(sets+1, sets, sizeof(*sets));//set1 won, overwrite set2
+		}
+		
+		bitidx=GET_RAND_IDX();
+		if(set2divergence>25)//set2 went too far, overwrite set2
+		{
+			set2divergence=0;
+			memcpy(sets+1, sets, sizeof(*sets));
+		}
+		TOGGLE_BIT(sets+1, bitidx);
+		CALC_LOSS(sets+1, ki*100.f/niter);//don't revert set2 if worse
+		if(sets[1].loss<bestloss)
+		{
+			bestloss=sets[1].loss;
+			memcpy(sets, sets+1, sizeof(*sets));//set2 won, overwrite set1
+			set2divergence=0;
+		}
+	}
+	CALC_LOSS(sets, 100);
+#undef GET_RAND_IDX
+#undef TOGGLE_BIT
+#undef CALC_LOSS
+	if(sets->loss>bestloss)
+	{
+		messagebox(MBOX_OK, "Error", "Loss has increased");
+	}
+	set_params_pd(params0, sets->params, O2_NPARAMS);
+
 	free(temp);
 	free(hist);
 }
@@ -5040,8 +5572,179 @@ void pred_grad_inv(char *buf, int iw, int ih, int nch, int bytestride)
 	}
 }
 
-int  predict_custom(const char *pixels, const char *errors, int iw, int kx, int ky, int idx, int bytestride, int rowlen, const double *params)
+int  predict_custom(const char *pixels, const char *errors, int iw, int ih, int kc, int kx, int ky, const double *params, double sum)
 {
+#if 0
+#define LOAD(BUF, X, Y) (unsigned)(kx-(X))<(unsigned)iw&&(unsigned)(ky-Y)<(unsigned)ih?BUF[(iw*(ky-Y)+kx-(X))<<2|kc]:0
+	char
+		NNNWWW =LOAD(pixels,  2, 3),
+		NNWW   =LOAD(pixels,  2, 2),//1
+		NNW    =LOAD(pixels,  1, 2),//4
+		NN     =LOAD(pixels,  0, 2),//3
+		NNE    =LOAD(pixels, -1, 2),//3
+		NNEE   =LOAD(pixels, -2, 2),//2
+		NWW    =LOAD(pixels,  2, 1),//2
+		NW     =LOAD(pixels,  1, 1),//7
+		N      =LOAD(pixels,  0, 1),//13
+		NE     =LOAD(pixels, -1, 1),//8
+		NEE    =LOAD(pixels, -2, 1),//2
+		WW     =LOAD(pixels,  2, 0),//3
+		W      =LOAD(pixels,  1, 0),//11
+		eNNNWWW=LOAD(errors,  2, 2),
+		eNNWW  =LOAD(errors,  2, 2),
+		eNNW   =LOAD(errors,  1, 2),
+		eNN    =LOAD(errors,  0, 2),
+		eNNE   =LOAD(errors, -1, 2),
+		eNNEE  =LOAD(errors, -2, 2),
+		eNWW   =LOAD(errors,  2, 1),
+		eNW    =LOAD(errors,  1, 1),
+		eN     =LOAD(errors,  0, 1),
+		eNE    =LOAD(errors, -1, 1),
+		eNEE   =LOAD(errors, -2, 1),
+		eWW    =LOAD(errors,  2, 0),
+		eW     =LOAD(errors,  1, 0);
+
+	double features[]=
+	{
+		NNWW, NNW, NN, NNE, NNEE, NWW, NW, N, NE, NEE, WW, W,
+		eNNWW, eNNW, eNN, eNNE, eNNEE, eNWW, eNW, eN, eNE, eNEE, eWW, eW,
+		//NNWW+eNNWW, NNW+eNNW, NN+eNN, NNE+eNNE, NNEE+eNNEE, NWW+eNWW, NW+eNW, N+eN, NE+eNE, NEE+eNEE, WW+eWW, W+eW
+	};
+#if 0
+	double features[]=
+	{
+		(N+W-NW) + (eN+eW-eNW)*params[23],
+		N + eN*params[23],
+		W + eW*params[23],
+		(N+W)*0.5*params[23] + (eN+eW)*0.5*params[23],
+		(N*2-NN) + (eN*2-eNN)*params[23],
+		(W*2-WW) + (eW*2-eWW)*params[23],
+		(NW*2-NNWW) + (eNW*2-eNNWW)*params[23],
+		(NE+NW-NN) + (eNE+eNW-eNN)*params[23],
+		(NE*2-NNEE) + (eNE*2-eNNEE)*params[23],
+		(W+NE-N) + (eW+eNE-eN)*params[23],
+		(N*3-NNW-NE) + (eN*3-eNNW-eNE)*params[23],
+		(W*4+NEE*2-(WW+NE*2))/3 + (eW*4+eNEE*2-(eWW+eNE*2))/3*params[23],
+		(N*3-NNE-NW) + (eN*3-eNNE-eNW)*params[23],
+		(W+NW-NWW) + (eW+eNW-eNWW)*params[23],
+		(N+NE-NNE) + (eN+eNE-eNNE)*params[23],
+		(N+NW-NNW) + (eN+eNW-eNNW)*params[23],
+		(N-(NE*2+WW)+(W*2+NEE)) + (eN-(eNE*2+eWW)+(eW*2+eNEE))*params[23],
+		((N+NW+W+NN)/2-NNW) + ((eN+eNW+eW+eNN)/2-eNNW)*params[23],
+		((N+NE+W+NNEE)/2-NNE) + ((eN+eNE+eW+eNNEE)/2-eNNE)*params[23],
+		((N+W)-(NNW+NWW)/2) + ((eN+eW)-(eNNW+eNWW)/2)*params[23],
+		((NNW+W+NW*2)/2-NNWW) + ((eNNW+eW+eNW*2)/2-eNNWW)*params[23],
+		((W+NNE+N*2)/2-NN) + ((eW+eNNE+eN*2)/2-eNN)*params[23],
+		((N+WW+NW+W)/2-NWW) + ((eN+eWW+eNW+eW)/2-eNWW)*params[23],
+	};
+#endif
+	double fpred=0;
+	for(int k=0;k<_countof(features);++k)
+		fpred+=features[k]*params[k];
+	if(sum)
+		fpred/=sum;
+	int pred=(int)round(fpred);
+#endif
+
+#if 0
+	int pred;
+	if(!sum)
+		pred=N+W-NW;
+	else
+		pred=(int)((
+			params[ 0]*(N+W-NW)+
+			params[ 1]*N+
+			params[ 2]*W+
+			params[ 3]*(N+W)*0.5+
+			params[ 4]*(N*2-NN)+
+			params[ 5]*(W*2-WW)+
+			params[ 6]*(NW*2-NNWW)+
+			params[ 7]*(NE+NW-NN)+
+			params[ 8]*(NE*2-NNEE)+
+			params[ 9]*(W+NE-N)+
+			params[10]*(N*3-NNW-NE)+
+			params[11]*(W*4+NEE*2-(WW+NE*2))/3+
+			params[12]*(eN+eW+eNW)+
+			params[13]*eN+
+			params[14]*eW+
+			params[15]*(eN+eW)*0.5+
+			params[16]*(eN*2-eNN)+
+			params[17]*(eW*2-eWW)+
+			params[18]*(eNW*2-eNNWW)+
+			params[19]*(eNE+eNW-eNN)+
+			params[20]*(eNE*2-eNNEE)+
+			params[21]*(eW+eNE-eN)+
+			params[22]*(eN*3-eNNW-eNE)+
+			params[23]*(eW*4+eNEE*2-(eWW+eNE*2))/3
+		)/sum);
+#endif
+
+#if 1
+#define LOAD(BUF, X, Y) (unsigned)(kx-(X))<(unsigned)iw&&(unsigned)(ky-Y)<(unsigned)ih?BUF[(iw*(ky-Y)+kx-(X))<<2|kc]:0
+	char comp[]=
+	{
+#if 0
+		LOAD(pixels,  3, 3),
+		LOAD(pixels,  2, 3),
+		LOAD(pixels,  1, 3),
+		LOAD(pixels,  0, 3),
+		LOAD(pixels, -1, 3),
+		LOAD(pixels, -2, 3),
+		LOAD(pixels, -3, 3),
+		
+		LOAD(pixels,  3, 2),
+		LOAD(pixels,  2, 2),
+		LOAD(pixels,  1, 2),
+		LOAD(pixels,  0, 2),
+		LOAD(pixels, -1, 2),
+		LOAD(pixels, -2, 2),
+		LOAD(pixels, -3, 2),
+		
+		LOAD(pixels,  3, 1),
+		LOAD(pixels,  2, 1),
+		LOAD(pixels,  1, 1),
+		LOAD(pixels,  0, 1),
+		LOAD(pixels, -1, 1),
+		LOAD(pixels, -2, 1),
+		LOAD(pixels, -3, 1),
+		
+		LOAD(pixels,  3, 0),
+		LOAD(pixels,  2, 0),
+		LOAD(pixels,  1, 0),
+#endif
+#if 1
+		LOAD(pixels,  2, 2),
+		LOAD(pixels,  1, 2),
+		LOAD(pixels,  0, 2),
+		LOAD(pixels, -1, 2),
+		LOAD(pixels, -2, 2),
+		
+		LOAD(pixels,  2, 1),
+		LOAD(pixels,  1, 1),
+		LOAD(pixels,  0, 1),
+		LOAD(pixels, -1, 1),
+		LOAD(pixels, -2, 1),
+		
+		LOAD(pixels,  2, 0),
+		LOAD(pixels,  1, 0),
+		
+		LOAD(errors,  2, 2),
+		LOAD(errors,  1, 2),
+		LOAD(errors,  0, 2),
+		LOAD(errors, -1, 2),
+		LOAD(errors, -2, 2),
+		
+		LOAD(errors,  2, 1),
+		LOAD(errors,  1, 1),
+		LOAD(errors,  0, 1),
+		LOAD(errors, -1, 1),
+		LOAD(errors, -2, 1),
+		
+		LOAD(errors,  2, 0),
+		LOAD(errors,  1, 0),
+#endif
+	};
+#if 0
 	char comp[]=
 	{
 		kx-2>=0&&ky-2>=0?pixels[idx-(rowlen<<1)-(bytestride<<1)]:0,
@@ -5074,6 +5777,7 @@ int  predict_custom(const char *pixels, const char *errors, int iw, int kx, int 
 		kx-2>=0?errors[idx-(bytestride<<1)]:0,
 		kx-1>=0?errors[idx-bytestride]:0,
 	};
+#endif
 
 	int pred=(int)(
 		params[ 0]*comp[ 0]+
@@ -5101,7 +5805,13 @@ int  predict_custom(const char *pixels, const char *errors, int iw, int kx, int 
 		params[22]*comp[22]+
 		params[23]*comp[23]
 	);
-	
+#endif
+	//int vmin, vmax;
+	//if(comp[7]<comp[11])
+	//	vmin=comp[7], vmax=comp[11];
+	//else
+	//	vmin=comp[11], vmax=comp[7];
+	//pred=CLAMP(vmin, pred, vmax);
 	pred=CLAMP(-128, pred, 127);
 	return pred;
 }
@@ -5109,12 +5819,15 @@ void pred_custom_prealloc(const char *src, int iw, int ih, int kc, int fwd, cons
 {
 	int idx=0, rowlen=iw*4;
 	const char *pixels=fwd?src:dst, *errors=fwd?dst:src;
+	double sum=0;
+	for(int k=0;k<23;++k)
+		sum+=ch_params[k];
 	for(int ky=0;ky<ih;++ky)
 	{
 		for(int kx=0;kx<iw;++kx)
 		{
 			idx=(iw*ky+kx)<<2|kc;
-			int pred=predict_custom(pixels, errors, iw, kx, ky, idx, 4, rowlen, ch_params);
+			int pred=predict_custom(pixels, errors, iw, ih, kc, kx, ky, ch_params, sum);
 
 			if(fwd)
 				dst[idx]=src[idx]-pred;

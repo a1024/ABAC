@@ -187,7 +187,7 @@ void io_render();
 int io_quit_request();//return 1 to exit
 void io_cleanup();//cleanup
 
-	
+
 void   console_start();
 void   console_end();
 void   console_buffer_size(short x, short y);
@@ -196,7 +196,7 @@ void   console_pause();
 int    console_scan(char *buf, int len);
 int    console_scan_int();
 double console_scan_float();
-	
+
 int sys_check(const char *file, int line, const char *info);
 #define SYS_ASSERT(SUCCESS)	((void)((SUCCESS)!=0||sys_check(file, __LINE__, 0)))
 
@@ -630,6 +630,7 @@ void pred_custom_prealloc(const char *src, int iw, int ih, int kc, int fwd, cons
 //void pred_custom_fwd(char *buf, int iw, int ih, int nch, int bytestride, const double *params);
 //void pred_custom_inv(char *buf, int iw, int ih, int nch, int bytestride, const double *params);
 void opt_cr2_v2(const char *buf, int iw, int ih, int kc);
+void opt_cr2_v3(const char *buf, int iw, int ih, int kc);
 
 void pred_slope_fwd(char *buf, int iw, int ih, int nch, int bytestride);
 void pred_slope_inv(char *buf, int iw, int ih, int nch, int bytestride);
@@ -673,6 +674,17 @@ void pred_hybrid_inv(char *buf, int iw, int ih);
 
 //spatial transforms
 
+//void pred_bitwise(char *buf, int iw, int ih, int fwd);
+
+#if 1
+#define LOGIC_REACH 2			//do not change
+#define LOGIC_NNB (2*(LOGIC_REACH+1)*LOGIC_REACH)	//number of causal neighbors
+#define LOGIC_NF0 4			//number of predictors
+#define LOGIC_ROWPARAMS (LOGIC_NNB*2)
+#define LOGIC_PARAMS_PER_CH (LOGIC_NF0*LOGIC_NNB*2+LOGIC_NF0)
+#define LOGIC_TOTALPARAMS (3*LOGIC_PARAMS_PER_CH)
+#endif
+#if 0
 #define LOGIC_REACH 2			//do not change
 #define LOGIC_NNB (2*(LOGIC_REACH+1)*LOGIC_REACH)	//number of causal neighbors
 #define LOGIC_NF1 4				//number of output features from smooth_if
@@ -680,6 +692,7 @@ void pred_hybrid_inv(char *buf, int iw, int ih);
 #define LOGIC_ROWPARAMS (LOGIC_NNB*2+1)
 #define LOGIC_PARAMS_PER_CH (LOGIC_NF0*LOGIC_ROWPARAMS+LOGIC_NF1)
 #define LOGIC_TOTALPARAMS (3*LOGIC_PARAMS_PER_CH)
+#endif
 extern int logic_opt_timeron;
 extern short logic_params[LOGIC_TOTALPARAMS];
 extern HANDLE ghMutex;

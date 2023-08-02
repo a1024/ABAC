@@ -822,27 +822,6 @@ int __stdcall WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrev, _In_ c
 	ShowWindow(ghWnd, nShowCmd);
 
 	int ret;
-#if 0
-	for(;;)
-	{
-		ret=PeekMessageA(&msg, ghWnd, 0, 0, PM_REMOVE);
-		if(msg.message==WM_NCLBUTTONDOWN||msg.message==WM_SYSCOMMAND)
-			break;
-		if(ret)
-		{
-			//ret=GetMessageA(&msg, 0, 0, 0);
-			//if(msg.message==WM_QUIT)
-			//	break;
-			TranslateMessage(&msg);
-			DispatchMessageA(&msg);
-		}
-		else
-		{
-			if(!WaitMessage())
-				LOG_ERROR("WaitMessage() error %d", GetLastError());
-		}
-	}
-#endif
 	for(;;)
 	{
 		ret=GetMessageA(&msg, ghWnd, 0, 0);
@@ -850,44 +829,7 @@ int __stdcall WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrev, _In_ c
 			break;
 		TranslateMessage(&msg);
 		DispatchMessageA(&msg);
-		//if(g_repaint)
-		//{
-		//	PostMessageA(ghWnd, WM_PAINT, 0, 0);
-		//	ret=GetMessageA(&msg, ghWnd, 0, 0);
-		//	TranslateMessage(&msg);
-		//	DispatchMessageA(&msg);
-		//}
 	}
-#if 0
-	for(;;)
-	{
-		ret=GetMessageA(&msg, ghWnd, 0, 0);
-		if(ret==-1)
-			break;
-		//if(ret==-1)
-		//{
-		//	LOG_ERROR("GetMessage returned -1 with: hwnd=%08X, msg=%s, wP=%d, lP=%d. \nQuitting.", msg.hwnd, wm2str(msg.message), msg.wParam, msg.lParam);
-		//	break;
-		//}
-		TranslateMessage(&msg);
-		DispatchMessageA(&msg);
-		while(g_repaint)
-		{
-			PostMessageA(ghWnd, WM_PAINT, 0, 0);
-			for(;;)
-			{
-				ret=GetMessageA(&msg, ghWnd, 0, 0);
-				if(ret==-1)
-					break;
-				TranslateMessage(&msg);
-				DispatchMessageA(&msg);
-			}
-			//GetMessageA(&msg, ghWnd, 0, 0);
-			//TranslateMessage(&msg);
-			//DispatchMessageA(&msg);
-		}
-	}
-#endif
 
 		//finish
 		io_cleanup();
