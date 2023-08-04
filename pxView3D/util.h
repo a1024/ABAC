@@ -31,6 +31,7 @@ extern "C"
 #define BETWEEN_INC(LO, X, HI) ((unsigned)((X)-LO)<(unsigned)(HI+1-LO))
 #define BETWEEN_EXC(LO, X, HI) ((unsigned)((X)-LO)<(unsigned)(HI-LO))
 #define SWAPVAR(A, B, TEMP)	TEMP=A, A=B, B=TEMP
+#define SWAPMEM(A, B, TEMP, SIZE) memcpy(TEMP, A, SIZE), memcpy(A, B, SIZE), memcpy(B, TEMP, SIZE)
 #define MINVAR(A, B)        ((A)<(B)?(A):(B))
 #define MAXVAR(A, B)        ((A)>(B)?(A):(B))
 #define CLAMP(LO, X, HI)    ((X)>(LO)?(X)<(HI)?(X):(HI):(LO))

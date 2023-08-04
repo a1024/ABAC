@@ -612,6 +612,7 @@ void depth_test(int enable);
 
 
 //pxView3D
+extern float ch_cr[4];
 void update_image();
 
 //transforms
@@ -631,6 +632,20 @@ void pred_custom_prealloc(const char *src, int iw, int ih, int kc, int fwd, cons
 //void pred_custom_inv(char *buf, int iw, int ih, int nch, int bytestride, const double *params);
 void opt_cr2_v2(const char *buf, int iw, int ih, int kc);
 void opt_cr2_v3(const char *buf, int iw, int ih, int kc);
+
+
+#define C2_REACH 2	//changing this requires updating the GUI and copy text formatting
+typedef struct Custom2ParamsStruct
+{
+	short c0[C2_REACH*(C2_REACH+1)*2*6];//fixed 1.14 bit
+	short c1[C2_REACH*(C2_REACH+1)*2*6+2];
+	short c2[C2_REACH*(C2_REACH+1)*2*6+4];
+} Custom2Params;
+extern Custom2Params c2_params;
+//void pred_custom2_apply(char *src, int iw, int ih, int fwd);
+void custom2_apply(char *src, int iw, int ih, int fwd, Custom2Params const *params);
+void custom2_opt(char *src, int iw, int ih, Custom2Params *srcparams);
+
 
 void pred_slope_fwd(char *buf, int iw, int ih, int nch, int bytestride);
 void pred_slope_inv(char *buf, int iw, int ih, int nch, int bytestride);
