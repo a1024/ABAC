@@ -1238,6 +1238,124 @@ void pred_cfl(char *buf, int iw, int ih, int fwd)
 //spatial transforms
 
 
+typedef struct KalmanInfoStruct
+{
+	double R, H, Q, P, Uhat, K;
+} KalmanInfo;
+static void kalman_init(KalmanInfo *info)
+{
+	info->R=-0.0001;//noise covariance, higher values reject more noise
+	info->H=1;
+	info->Q=10;
+	info->P=0;
+	info->Uhat=0;
+	info->K=0;
+}
+static void kalman_predict(KalmanInfo *info, double U)
+{
+	info->K=info->P*info->H/(info->H*info->P*info->H+info->R);//update kalman gain
+	info->Uhat+=info->K*(U-info->H*info->Uhat);//update estimated
+	info->P=(1-info->K*info->H)*info->P+info->Q;//update error covariance
+}
+void kalman_apply(char *src, int iw, int ih, int fwd)
+{
+	//predict from grad
+#if 1
+	int res=iw*ih;
+	char *dst=(char*)malloc((size_t)res<<2);
+	if(!dst)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	memcpy(dst, src, (size_t)res<<2);//copy alpha
+
+	KalmanInfo kalman[3];
+	kalman_init(kalman+0);
+	kalman_init(kalman+1);
+	kalman_init(kalman+2);
+	const char *pixels=fwd?src:dst, *errors=fwd?dst:src;
+	for(int ky=0;ky<ih;++ky)
+	{
+		for(int kx=0;kx<iw;++kx)
+		{
+			for(int kc=0;kc<3;++kc)
+			{
+#define LOAD(X, Y) (unsigned)(kx+(X))<(unsigned)iw&&(unsigned)(ky+(Y))<(unsigned)ih?pixels[(iw*(ky+(Y))+kx+(X))<<2|kc]:0
+				char
+					N =LOAD( 0, -1),
+					W =LOAD(-1,  0),
+					NW=LOAD(-1, -1);
+				char vmin, vmax;
+				if(N<W)
+					vmin=N, vmax=W;
+				else
+					vmin=W, vmax=N;
+				int pred=N+W-NW;
+				pred=CLAMP(vmin, pred, vmax);
+				
+				kalman_predict(kalman+kc, pred);
+				pred=(int)round(CLAMP(vmin, kalman[kc].Uhat, vmax));
+				//pred=(int)round(CLAMP(-128, kalman[kc].Uhat, 127));
+				int idx=(iw*ky+kx)<<2|kc;
+				if(fwd)
+					dst[idx]=src[idx]-pred;
+				else
+					dst[idx]=src[idx]+pred;
+#undef  LOAD
+			}
+		}
+	}
+	memcpy(src, dst, (size_t)res<<2);
+	free(dst);
+#endif
+
+	//predict from left
+#if 0
+	KalmanInfo c[3];
+	kalman_init(c);
+	kalman_init(c+1);
+	kalman_init(c+2);
+	for(int ky=0;ky<ih;++ky)
+	{
+		for(int kx=0;kx<iw;++kx)
+		{
+			int idx=(iw*ky+kx)<<2;
+
+			char curr[3];
+			char pred[]=
+			{
+				(char)round(CLAMP(-128, c[0].Uhat, 127)),
+				(char)round(CLAMP(-128, c[1].Uhat, 127)),
+				(char)round(CLAMP(-128, c[2].Uhat, 127)),
+			};
+			if(fwd)
+			{
+				curr[0]=src[idx+0];
+				curr[1]=src[idx+1];
+				curr[2]=src[idx+2];
+				src[idx+0]-=pred[0];
+				src[idx+1]-=pred[1];
+				src[idx+2]-=pred[2];
+			}
+			else
+			{
+				src[idx+0]+=pred[0];
+				src[idx+1]+=pred[1];
+				src[idx+2]+=pred[2];
+				curr[0]=src[idx+0];
+				curr[1]=src[idx+1];
+				curr[2]=src[idx+2];
+			}
+			kalman_predict(c+0, curr[0]);
+			kalman_predict(c+1, curr[1]);
+			kalman_predict(c+2, curr[2]);
+		}
+	}
+#endif
+}
+
+
 const int permute_idx[]=
 {
 	136, 229, 247, 217,  82, 226,  99, 203, 139,  29, 238, 193, 141, 134,   7, 160,
@@ -4540,6 +4658,10 @@ static int clip(int x)
 }
 void pred_w2_prealloc(const char *src, int iw, int ih, int kc, short *params, int fwd, char *dst, int *temp)//temp is (PW2_NPRED+1)*2w
 {
+#ifdef JMJ_USE_KALMAN
+	KalmanInfo kalman;
+	kalman_init(&kalman);
+#endif
 	int errorbuflen=iw<<1, rowlen=iw<<2;
 	int *error=temp, *pred_errors[PW2_NPRED];
 	for(int k=0;k<PW2_NPRED;++k)
@@ -4772,6 +4894,10 @@ void pred_w2_prealloc(const char *src, int iw, int ih, int kc, short *params, in
 				vmax=cT;
 
 			pred=CLAMP(vmin, pred, vmax);
+#ifdef JMJ_USE_KALMAN
+			kalman_predict(&kalman, pred);
+			pred=(int)round(CLAMP(vmin, kalman.Uhat, vmax));
+#endif
 			if(fwd)
 			{
 				curr=src[idx]<<8;
@@ -4970,6 +5096,10 @@ void pred_jxl_prealloc(const char *src, int iw, int ih, int kc, short *params, i
 	params[2]=0;
 	params[3]=0x100;
 #endif
+#ifdef JMJ_USE_KALMAN
+	KalmanInfo kalman;
+	kalman_init(&kalman);
+#endif
 	int errorbuflen=iw<<1, rowlen=iw<<2;
 	int *error=temp_w10, *pred_errors[]=
 	{
@@ -5043,6 +5173,10 @@ void pred_jxl_prealloc(const char *src, int iw, int ih, int kc, short *params, i
 			vmax<<=8;
 
 			pred=CLAMP(vmin, pred, vmax);
+#ifdef JMJ_USE_KALMAN
+			kalman_predict(&kalman, pred);
+			pred=(int)round(CLAMP(vmin, kalman.Uhat, vmax));
+#endif
 			if(fwd)
 			{
 				curr=src[idx]<<8;
@@ -6455,6 +6589,53 @@ void c2_checkpoint(char pixel, char error, char pred)
 }
 #endif
 
+#if 0
+double kalman(double U)
+{
+	static const double
+		R=40,//noise covariance (actually 10)
+		H=1;//measurement map scalar
+	static double
+		Q=10,//initial estimated covariance
+		P=0,//initial error covariance (must be 0)
+		Uhat=0,//initial estimated state (assume we don't know)
+		K=0;//initial Kalman gain
+
+	//begin
+	K=P*H/(H*P*H+R);//update kalman gain
+	Uhat+=K*(U-H*Uhat);//update estimated
+	P=(1-K*H)*P+Q;//update error covariance
+	return Uhat;
+}
+#endif
+#if 0
+void c2_test(char *src, int count)
+{
+	static const double
+		R=40,//noise covariance (actually 10)
+		H=1;//measurement map scalar
+	static double
+		Q=10,//initial estimated covariance
+		P=0,//initial error covariance (must be 0)
+		Uhat=0,//initial estimated state (assume we don't know)
+		K=0;//initial Kalman gain
+
+	console_start();
+	console_log("idx  src  pred  diff\n");
+	for(int k=0;k<count;++k)
+	{
+		double U=src[k<<2];//red channel
+		K=P*H/(H*P*H+R);//update kalman gain
+		Uhat+=K*(U-H*Uhat);//update estimated
+		P=(1-K*H)*P+Q;//update error covariance
+
+		console_log("%4d %4d %11lf  %11lf\n", k, src[k<<2], Uhat, src[k<<2]-Uhat);
+	}
+	console_log("Done.\n");
+	pause();
+}
+#endif
+
 #define C2_NPARAMSTOTAL (C2_REACH*(C2_REACH+1)*2*6*3+6)
 //unsigned char *debug_buf=0;
 Custom2Params c2_params=
@@ -6687,6 +6868,10 @@ static void custom2_opt2_calcloss(const char *src, int iw, int ih, Custom2OptInf
 }
 void custom2_opt(char *src, int iw, int ih, Custom2Params *srcparams)
 {
+	static int call_idx=0;
+	++call_idx;
+	//c2_test(src+iw*(ih>>1), 128);
+
 #ifdef C2_USE_GA
 	int res=iw*ih;
 	unsigned char *temp=(unsigned char*)malloc((size_t)res<<2);
@@ -6709,14 +6894,26 @@ void custom2_opt(char *src, int iw, int ih, Custom2Params *srcparams)
 	//};
 	short *p0=(short*)srcparams;
 	memcpy(info.params, srcparams, sizeof(info.params));
+	srand((unsigned)__rdtsc());//
+	
+	//random starting point
+#if 1
+	if(call_idx==1)
+	{
+		for(int k=0;k<nd;++k)
+			//info.params[k]=(rand()&0x1FFF)-0x1000;
+			info.params[k]=(rand()&0x1FF)-0x100;
+			//info.params[k]=(rand()&0x1F)-0x10;
+	}
+#endif
+
 	CALC_LOSS();
 	double invCR0[3];
 	memcpy(invCR0, info.invCR, sizeof(invCR0));
 	const int niter=C2_NPARAMSTOTAL*10;
-	srand((unsigned)__rdtsc());//
 	for(int it=0;it<niter;++it)
 	{
-		set_window_title("it %d/%d: TRGB %lf  %lf %lf %lf", it+1, niter, 1/info.loss, 1/info.invCR[0], 1/info.invCR[1], 1/info.invCR[2]);
+		set_window_title("it %d/%d: TRGB %lf  %lf %lf %lf  %d", it+1, niter, 1/info.loss, 1/info.invCR[0], 1/info.invCR[1], 1/info.invCR[2], call_idx);
 		//short delta[C2_NPARAMSTOTAL];//X
 		//for(int k=0;k<_countof(delta);++k)
 		//	delta[k]=(rand()%3)-1;
@@ -6724,7 +6921,8 @@ void custom2_opt(char *src, int iw, int ih, Custom2Params *srcparams)
 		//int idx=it*nd/niter;
 		//int idx=rand()%nd,
 		//int inc=(rand()&0x1FFF)-0x1000;
-		int inc=(rand()&0x1F)-0x10;
+		int inc=(rand()&0x1FF)-0x100;
+		//int inc=(rand()&0x1F)-0x10;
 		//int inc=((rand()&1)<<1)-1;
 		//int inc=(int)(((rand()<<1)-0x8000)*pow(info.loss, 20));
 		//for(int k=0;k<_countof(delta);++k)

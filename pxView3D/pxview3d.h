@@ -633,6 +633,8 @@ void pred_custom_prealloc(const char *src, int iw, int ih, int kc, int fwd, cons
 void opt_cr2_v2(const char *buf, int iw, int ih, int kc);
 void opt_cr2_v3(const char *buf, int iw, int ih, int kc);
 
+void kalman_apply(char *src, int iw, int ih, int fwd);
+
 
 #define C2_REACH 2	//changing this requires updating the GUI and copy text formatting
 typedef struct Custom2ParamsStruct
@@ -749,6 +751,7 @@ void   pred_joint_optimize(const char *src, int iw, int ih, int *params, int ste
 void   pred_joint_apply(char *buf, int iw, int ih, int *allparams, int fwd);
 
 
+//	#define JMJ_USE_KALMAN
 	#define PW2_NPRED 20	//63
 	#define PW2_NPARAM (PW2_NPRED+11)
 //	#define PW2_NPRED 22

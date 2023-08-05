@@ -477,8 +477,10 @@ int pause()
 {
 	int k;
 
-	printf("Enter 0 to continue: ");
-	while(!scanf("%d", &k));
+	console_log("Enter 0 to continue: ");
+	k=console_scan_int();
+	//printf("Enter 0 to continue: ");
+	//while(!scanf("%d", &k));
 	return k;
 }
 #ifdef _MSC_VER

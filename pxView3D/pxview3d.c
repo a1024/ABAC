@@ -95,6 +95,7 @@ typedef enum TransformTypeEnum
 	CST_SEPARATOR,
 	
 	ST_FWD_CUSTOM2,		ST_INV_CUSTOM2,
+	ST_FWD_KALMAN,		ST_INV_KALMAN,
 //	ST_FWD_LOGIC,		ST_INV_LOGIC,
 	ST_FWD_LEARNED,		ST_INV_LEARNED,
 #ifdef ALLOW_OPENCL
@@ -298,6 +299,8 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 
 	case ST_FWD_CUSTOM2:		a=" S Fwd CUSTOM2";			break;
 	case ST_INV_CUSTOM2:		a=" S Inv CUSTOM2";			break;
+	case ST_FWD_KALMAN:			a=" S Fwd Kalman";			break;
+	case ST_INV_KALMAN:			a=" S Inv Kalman";			break;
 //	case ST_FWD_LOGIC:			a=" S Fwd Logic";			break;
 //	case ST_INV_LOGIC:			a=" S Inv Logic";			break;
 	case ST_FWD_LEARNED:		a=" S Fwd Learned";			break;
@@ -818,6 +821,8 @@ void update_image()
 				
 			case ST_FWD_CUSTOM2:	custom2_apply((char*)image, iw, ih, 1, &c2_params);	break;
 			case ST_INV_CUSTOM2:	custom2_apply((char*)image, iw, ih, 0, &c2_params);	break;
+			case ST_FWD_KALMAN:		kalman_apply((char*)image, iw, ih, 1);				break;
+			case ST_INV_KALMAN:		kalman_apply((char*)image, iw, ih, 0);				break;
 		//	case ST_FWD_CUSTOM2:	pred_custom2_apply((char*)image, iw, ih, 1);		break;
 		//	case ST_INV_CUSTOM2:	pred_custom2_apply((char*)image, iw, ih, 0);		break;
 		//	case ST_FWD_LOGIC:		pred_logic_apply((char*)image, iw, ih, logic_params, 1);break;
@@ -2105,7 +2110,8 @@ toggle_drag:
 			"R:\t\tReset cam\n"
 			"Ctrl R:\t\tDisable all transforms\n"
 			"Ctrl E:\t\tReset custom transform parameters\n"
-			"[]:\t\tSwitch channel (custom transform)\n"
+			"[ ]:\t\t(Custom transforms) Select coefficient page\n"
+			"Space:\t\t(Custom transforms) Optimize\n"
 			"H:\t\tReset CR history graph\n"
 			"Ctrl C:\t\tCopy data\n"
 			"Ctrl V:\t\tPaste data\n"
