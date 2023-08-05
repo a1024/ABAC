@@ -11,11 +11,9 @@ extern "C"
 #endif
 
 
+//	#define ALLOW_SRAND
+//	#define ALLOW_VULKAN
 //	#define ALLOW_OPENCL
-
-
-const char*	clerr2str(int error);
-#define CL_CHECK(ERR) ASSERT_MSG(!(ERR), "OpenCL error %d: %s\n", ERR, clerr2str(ERR))
 
 
 void calc_histogram(const unsigned char *buf, ptrdiff_t bytesize, ptrdiff_t stride, int *hist);
@@ -77,6 +75,12 @@ int t38_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 int t39_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T39: Multiple estimators for all maps
 int t39_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
 
+int t40_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T40 Random generated predictors
+int t40_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
+
+int t41_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T41 SIMD ABAC
+int t41_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
+
 
 
 
@@ -115,6 +119,28 @@ void pred_jxl_apply(char *buf, int iw, int ih, short *allparams, int fwd);
 
 void pred_grad_fwd     (char *buf, int iw, int ih, int nch, int bytestride);
 void pred_grad_inv     (char *buf, int iw, int ih, int nch, int bytestride);
+
+
+//	#define CUSTOM_TRAIN_ON_DOUBLES
+	#define CUSTOM_USE_MULHRS
+
+#define CUSTOM_REACH 2
+#define CUSTOM_REACH_E 2
+#define CUSTOM_NNB (CUSTOM_REACH*(CUSTOM_REACH+1)*2)
+#define CUSTOM_NNB_E (CUSTOM_REACH_E*(CUSTOM_REACH_E+1)*2)
+#define CUSTOM_NPARAMS (CUSTOM_NNB+CUSTOM_NNB_E)
+double opt_custom(const char *buf, int iw, int ih, int kc, int niter, short *params, int loud);
+float opt_custom_v2(const char *buf, int iw, int ih, int kc, int niter, short *params, float loss0, int loud);
+
+
+#ifdef ALLOW_VULKAN
+int init_vk();
+#endif
+
+
+#ifdef ALLOW_OPENCL
+int init_cl(const char *searchpath);
+#endif
 
 
 

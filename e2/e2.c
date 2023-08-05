@@ -5,6 +5,49 @@
 #include<math.h>
 static const char file[]=__FILE__;
 
+#if 0
+void test1()
+{
+	//double w0=2.95, w1=3.05;
+	double w0=4.5, w1=1;
+	double lr=0.05;
+	for(int it=0;it<100;++it)
+	{
+		double grad_w0=0, grad_w1=0;
+		printf("iter %3d: w0=%g\tw1=%g\tmissed:", it, w0, w1);
+		for(int n=-10;n<0;++n)
+		{
+			double c=w1*n+w0;
+			if(c>0)//check negative integers
+			{
+				printf(" %d", n);
+				++grad_w0;//delta is +ve for -ve numbers
+				grad_w1+=n;
+			}
+		}
+		for(int n=0;n<10;++n)
+		{
+			double c=w1*n+w0;
+			if(c<0)//check positive integers
+			{
+				printf(" %d", n);
+				--grad_w0;//delta is -ve for +ve numbers
+				grad_w1-=n;
+			}
+		}
+		if(!grad_w0)
+			printf(" None");
+		printf("\tgrad_w0=%g\tgrad_w1=%g", grad_w0, grad_w1);
+		printf("\n");
+		w0-=lr*grad_w0;
+		w1-=lr*grad_w1;
+	}
+	printf("Done.\n");
+	pause();
+	exit(0);
+}
+#endif
+
 int hist[256*4];
 
 short jxl_Kodak_params[]=
@@ -237,9 +280,8 @@ const char *g_extensions[]=
 void batch_test(const char *path)
 {
 	int known_dataset=0;
-	printf("Start ");
-	acme_strftime(0, 0, "%Y-%m-%d_%H%M%S");
-	printf("\n");
+	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H%M%S");
+	printf("Start %s\n", g_buf);
 	double t_start=time_ms();
 	ArrayHandle filenames=get_filenames(path, g_extensions, COUNTOF(g_extensions), 1);
 	if(!filenames)
@@ -328,7 +370,7 @@ void batch_test(const char *path)
 		{
 			ArrayHandle cdata=0;
 			printf("\n");
-#if 1
+#if 0
 			if(known_dataset==1&&k<30)//pre-trained
 				g_param_ptr=jxl_CLIC30_params+33*k;
 			else if(known_dataset==2&&k<24)
@@ -345,16 +387,18 @@ void batch_test(const char *path)
 #endif
 
 			//printf("\nT35 (ABAC + context tree)\n");
-			printf("\nT39 Multiple estimators for all maps  WH %d*%d\n", iw, ih);
-			t39_encode(buf, iw, ih, &cdata, 1);
+			//printf("\nT39 Multiple estimators for all maps  WH %d*%d\n", iw, ih);
 			//t35_encode(buf, iw, ih, &cdata, 1);
+			t39_encode(buf, iw, ih, &cdata, 1);
+			//t40_encode(buf, iw, ih, &cdata, 1);
 
 			sum_testsize+=cdata->count;
 			if((ptrdiff_t)cdata->count<formatsize)
 				printf(" !!!\n");
 
-			t39_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 			//t35_decode(cdata->data, cdata->count, iw, ih, b2, 1);
+			t39_decode(cdata->data, cdata->count, iw, ih, b2, 1);
+			//t40_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 
 			array_free(&cdata);
 			compare_bufs_uint8(b2, buf, iw, ih, nch0, 4, "Test", 0);
@@ -552,9 +596,8 @@ void batch_test(const char *path)
 	else
 		printf("\nNo valid images found\n");
 #endif
-	printf("Finish ");
-	acme_strftime(0, 0, "%Y-%m-%d_%H%M%S");
-	printf("\n");
+	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H%M%S");
+	printf("Finish %s\n", g_buf);
 
 	array_free(&filenames);
 
@@ -578,6 +621,9 @@ int main(int argc, char **argv)
 	//test8();
 	//test9();
 	//test_swar();
+	//system("cd");
+	//init_vk();//
+	//test1();
 
 	printf("Entropy2\n");
 #if 1
@@ -588,11 +634,17 @@ int main(int argc, char **argv)
 	unsigned char *buf, *b2;
 	const char *fn=0;
 #ifdef _DEBUG
+	//fn="C:/Projects/datasets/CLIC11-crop4-2.PNG";
+	//fn="C:/Projects/datasets/CLIC11-small4.PNG";
+	//fn="C:/Projects/datasets/dataset-CLIC30/11.png";
+	//fn="C:/Projects/datasets/dataset-kodak";
+	fn="C:/Projects/datasets/dataset-kodak/kodim13.png";
+
 	//fn="D:/ML/dataset-CLIC30";
 	//fn="D:/ML/dataset-kodak";
 	//fn="D:/ML/dataset-CLIC30/16.png";//hardest noiseless CLIC30 image
 	//fn="D:/ML/dataset-CLIC30/17.png";
-	fn="D:/ML/dataset-kodak/kodim13.png";
+	//fn="D:/ML/dataset-kodak/kodim13.png";
 	//fn="D:/ML/dataset-kodak-small/13.PNG";
 #endif
 	if(fn||argc==2)
@@ -965,7 +1017,7 @@ int main(int argc, char **argv)
 	//t34_encode(buf, iw, ih, &cdata, 1);
 	//array_free(&cdata);
 	
-	//best so far
+	//old record
 #if 0
 	printf("T35 Entropy coding with context tree\n");
 	//printf("T35 Combines spatial transform with entropy coding\n");
@@ -1001,6 +1053,8 @@ int main(int argc, char **argv)
 	//memset(b2, 0, len);
 	//printf("\n");
 	
+	//record
+#if 1
 	printf("T39 Multiple estimators for all maps\n");
 	t39_encode(buf, iw, ih, &cdata, 2);
 	t39_decode(cdata->data, cdata->count, iw, ih, b2, 2);
@@ -1008,6 +1062,21 @@ int main(int argc, char **argv)
 	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T39", 0);
 	memset(b2, 0, len);
 	printf("\n");
+#endif
+	
+	//t40_encode(buf, iw, ih, &cdata, 2);
+	//t40_decode(cdata->data, cdata->count, iw, ih, b2, 2);
+	//array_free(&cdata);
+	//compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T40", 0);
+	//memset(b2, 0, len);
+	//printf("\n");
+	
+	//t41_encode(buf, iw, ih, &cdata, 2);
+	//t41_decode(cdata->data, cdata->count, iw, ih, b2, 2);
+	//array_free(&cdata);
+	//compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T41", 0);
+	//memset(b2, 0, len);
+	//printf("\n");
 #endif
 
 	//predict image

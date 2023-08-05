@@ -1244,3 +1244,667 @@ void   pred_jxl_apply(char *buf, int iw, int ih, short *allparams, int fwd)
 	free(temp);
 	free(buf2);
 }
+
+
+
+#ifdef CUSTOM_TRAIN_ON_DOUBLES
+typedef double ParamType;
+typedef double RegType;
+#else
+typedef short ParamType;//fixed 3.12 bit
+typedef int RegType;
+#endif
+void pred_custom_prealloc_ch(const char *src, int iw, int ih, int kc, int fwd, const ParamType *params, char *dst)
+{
+	int idx;
+	RegType temp;
+	int pred;
+	const char *pixels=fwd?src:dst, *errors=fwd?dst:src;
+	for(int ky=0;ky<ih;++ky)
+	{
+		for(int kx=0;kx<iw;++kx)
+		{
+			char comp[CUSTOM_NPARAMS]={0};
+			idx=0;
+			for(int ky2=-CUSTOM_REACH;ky2<0;++ky2)
+			{
+				for(int kx2=-CUSTOM_REACH;kx2<=CUSTOM_REACH;++kx2, ++idx)
+				{
+					if((unsigned)(ky+ky2)<(unsigned)ih&&(unsigned)(kx+kx2)<(unsigned)iw)
+						comp[idx]=pixels[(iw*(ky+ky2)+kx+kx2)<<2|kc];
+				}
+			}
+			for(int kx2=-CUSTOM_REACH;kx2<0;++kx2, ++idx)
+			{
+				if((unsigned)(kx+kx2)<(unsigned)iw)
+					comp[idx]=pixels[(iw*ky+kx+kx2)<<2|kc];
+			}
+
+			for(int ky2=-CUSTOM_REACH_E;ky2<0;++ky2)
+			{
+				for(int kx2=-CUSTOM_REACH_E;kx2<=CUSTOM_REACH_E;++kx2, ++idx)
+				{
+					if((unsigned)(ky+ky2)<(unsigned)ih&&(unsigned)(kx+kx2)<(unsigned)iw)
+						comp[idx]=errors[(iw*(ky+ky2)+kx+kx2)<<2|kc];
+				}
+			}
+			for(int kx2=-CUSTOM_REACH_E;kx2<0;++kx2, ++idx)
+			{
+				if((unsigned)(kx+kx2)<(unsigned)iw)
+					comp[idx]=errors[(iw*ky+kx+kx2)<<2|kc];
+			}
+
+			temp=0;
+			for(int k=0;k<CUSTOM_NPARAMS;++k)
+				temp+=comp[k]*params[k];
+#ifdef CUSTOM_TRAIN_ON_DOUBLES
+			pred=(int)round(temp);
+#else
+			temp>>=12;
+			pred=temp;
+#endif
+
+			pred=CLAMP(-128, pred, 127);
+
+			idx=(iw*ky+kx)<<2|kc;
+
+			if(fwd)
+				dst[idx]=src[idx]-pred;
+			else
+				dst[idx]=src[idx]+pred;
+		}
+	}
+}
+typedef struct OptCustomInfoStruct
+{
+	double loss;
+	ParamType params[CUSTOM_NPARAMS];
+} OptCustomInfo;
+int opt_custom_cmpinfo(const void *left, const void *right)
+{
+	OptCustomInfo const *a, *b;
+
+	a=(OptCustomInfo const*)left;
+	b=(OptCustomInfo const*)right;
+	return (a->loss>b->loss)-(a->loss<b->loss);//ascending order
+}
+double opt_custom_calcloss(ParamType *params, const char *buf, int iw, int ih, int kc, char *temp, int *hist)
+{
+	int res=iw*ih;
+	pred_custom_prealloc_ch(buf, iw, ih, kc, 1, params, temp);
+
+	memset(hist, 0, 256*sizeof(int));
+	for(int k=0;k<res;++k)
+	{
+		unsigned char sym=temp[k<<2|kc];
+		++hist[sym];
+	}
+	double entropy=0;
+	for(int sym=0;sym<256;++sym)//Shannon law
+	{
+		int freq=hist[sym];
+		if(freq)
+		{
+			double prob=(double)freq/res;
+			entropy-=prob*log2(prob);
+		}
+	}
+	double invCR=entropy/8;
+
+	return invCR;
+}
+double opt_custom(const char *buf, int iw, int ih, int kc, int niter, short *params, int loud)
+{
+	int res=iw*ih;
+	char *temp=(char*)malloc((size_t)res<<2);
+	int *hist=malloc(256*sizeof(int));
+	const int nv=CUSTOM_NPARAMS, np=CUSTOM_NPARAMS+1;
+	OptCustomInfo *best=(OptCustomInfo*)malloc((np+3LL)*sizeof(OptCustomInfo));
+	if(!temp||!hist||!best)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	memset(temp, 0, (size_t)res<<2);
+	OptCustomInfo
+		*worst=best+np-1,
+		*x0=best+np,
+		*xr=x0+1,
+		*x2=xr+1;
+	
+#define CALC_LOSS(X) (X)->loss=opt_custom_calcloss((X)->params, buf, iw, ih, kc, temp, hist)
+	
+	//srand((unsigned)__rdtsc());
+
+	//initialize N+1 param sets
+	for(int kp=0;kp<np;++kp)
+	{
+		OptCustomInfo *x=best+kp;
+		for(int k2=0;k2<nv;++k2)
+		{
+			int val;
+
+			val=params[k2]+(rand()&0x3FF)-0x200;
+			//val=params[k2]+(rand()&0x1FF)-0x100;
+
+#ifdef CUSTOM_TRAIN_ON_DOUBLES
+			x->params[k2]=(ParamType)val/0x1000;
+#else
+			x->params[k2]=val;
+#endif
+		}
+		CALC_LOSS(x);
+	}
+#ifdef CUSTOM_TRAIN_ON_DOUBLES
+	for(int k=0;k<np;++k)
+		x0->params[k]=(double)params[k]/0x1000;
+#else
+	memcpy(x0->params, params, sizeof(x0->params));
+#endif
+	CALC_LOSS(x0);
+	double loss0=x0->loss;
+	const int alpha=0x1000, gamma=0x20000, rho=0x8000, sigma=0x8000;
+	for(int ki=0;ki<niter;++ki)
+	{
+		//1  order
+		isort(best, np, sizeof(OptCustomInfo), opt_custom_cmpinfo);
+		
+		if(loud)
+			printf("it %3d/%3d: %14lf\r", ki+1, niter, 1/best->loss);
+
+		//2  get the centroid of all points except worst
+		memset(x0->params, 0, sizeof(x0->params));
+		for(int k2=0;k2<nv;++k2)//exclude the worst point
+		{
+			OptCustomInfo *x=best+k2;
+			for(int k3=0;k3<nv;++k3)
+				x0->params[k3]+=x->params[k3];
+		}
+		for(int k2=0;k2<nv;++k2)
+			x0->params[k2]/=nv;
+
+		//3  reflection
+		for(int k2=0;k2<nv;++k2)
+			xr->params[k2]=x0->params[k2]+(int)((long long)(x0->params[k2]-worst->params[k2])*alpha>>16);
+		CALC_LOSS(xr);
+		if(xr->loss>best->loss&&xr->loss<worst[-1].loss)//if xr is between best and 2nd worst, replace worst with xr
+		{
+			memcpy(worst, xr, sizeof(OptCustomInfo));
+			continue;
+		}
+
+		//4  expansion
+		if(xr->loss<best->loss)//if xr is best so far
+		{
+			for(int k2=0;k2<nv;++k2)
+				x2->params[k2]=x0->params[k2]+(int)((long long)(xr->params[k2]-x0->params[k2])*gamma>>16);
+			CALC_LOSS(x2);
+			if(x2->loss<xr->loss)
+				memcpy(worst, x2, sizeof(OptCustomInfo));
+			else
+				memcpy(worst, xr, sizeof(OptCustomInfo));
+			continue;
+		}
+
+		//5  contraction
+		if(xr->loss<worst->loss)//if xr is between 2nd worst and worst
+		{
+			for(int k2=0;k2<nv;++k2)
+				x2->params[k2]=x0->params[k2]+(int)((long long)(xr->params[k2]-x0->params[k2])*rho>>16);
+			CALC_LOSS(x2);
+			if(x2->loss<xr->loss)//if contracted point is better than xr
+			{
+				memcpy(worst, x2, sizeof(OptCustomInfo));
+				continue;
+			}
+		}
+		else
+		{
+			for(int k2=0;k2<nv;++k2)
+				x2->params[k2]=x0->params[k2]+(int)((long long)(worst->params[k2]-x0->params[k2])*rho>>16);
+			CALC_LOSS(x2);
+			if(x2->loss<worst->loss)//if contracted point is better than xr
+			{
+				memcpy(worst, x2, sizeof(OptCustomInfo));
+				continue;
+			}
+		}
+
+		//6  shrink
+		for(int kp=1;kp<np;++kp)
+		{
+			OptCustomInfo *x=best+kp;
+			for(int k2=0;k2<nv;++k2)
+				x->params[k2]=best->params[k2]+(int)((long long)(x->params[k2]-best->params[k2])*sigma>>16);
+			CALC_LOSS(x2);
+		}
+	}
+#undef CALC_LOSS
+	if(loud)
+		printf("\n");
+	if(best->loss<loss0)
+	{
+#ifdef CUSTOM_TRAIN_ON_DOUBLES
+		for(int k=0;k<np;++k)
+		{
+			int val=(int)(best->params[k]*0x1000);
+			params[k]=CLAMP(-32768, val, 32767);
+		}
+#else
+		memcpy(params, best->params, sizeof(best->params));
+#endif
+		loss0=best->loss;
+	}
+
+	free(best);
+	free(temp);
+	free(hist);
+	return loss0;
+}
+
+
+
+#define LOAD  _mm256_load_si256
+#define STORE _mm256_store_si256
+void print_strided_histogram(int *hist, int stride)
+{
+	int sum=0;
+	for(int k=0;k<256;++k)
+	{
+		int freq=hist[k*stride];
+		printf("%3d %7d\n", k, freq);
+		sum+=freq;
+	}
+	printf("Total: %7d\n", sum);
+}
+static void opt_custom_v2_calcloss(const short *src, int iw, int ih, const short *params, short *dst, int *hist, float *loss)
+{
+	int res=iw*ih;
+	//const int fwd=1;
+	//const char *pixels=fwd?src:dst, *errors=fwd?dst:src;
+	int idx;
+#if 0
+	__m256i vmin=_mm256_set1_epi32(-(128<<12));
+	__m256i vmax=_mm256_set1_epi32(127<<12);
+	__m256i pred[2], val[2], p[2], temp;
+	for(int ky=0;ky<ih;++ky)
+	{
+		for(int kx=0;kx<iw;++kx)
+		{
+			//if(kx==(iw>>1)&&ky==(ih>>1))//
+			//	printf("");
+
+			pred[0]=_mm256_setzero_si256();
+			pred[1]=_mm256_setzero_si256();
+			idx=0;
+			for(int ky2=-CUSTOM_REACH;ky2<0;++ky2)
+			{
+				for(int kx2=-CUSTOM_REACH;kx2<=CUSTOM_REACH;++kx2, ++idx)
+				{
+					if((unsigned)(ky+ky2)<(unsigned)ih&&(unsigned)(kx+kx2)<(unsigned)iw)
+					{
+						temp=_mm256_set1_epi16(src[iw*(ky+ky2)+kx+kx2]);//pixels
+						val[0]=_mm256_cvtepi16_epi32(_mm256_extractf128_si256(temp, 0));
+						val[1]=_mm256_cvtepi16_epi32(_mm256_extractf128_si256(temp, 1));
+						temp=LOAD((__m256i*)params+idx);
+						p[0]=_mm256_cvtepi16_epi32(_mm256_extractf128_si256(temp, 0));
+						p[1]=_mm256_cvtepi16_epi32(_mm256_extractf128_si256(temp, 1));
+						val[0]=_mm256_mullo_epi32(val[0], p[0]);
+						val[1]=_mm256_mullo_epi32(val[1], p[1]);
+						pred[0]=_mm256_add_epi32(pred[0], val[0]);
+						pred[1]=_mm256_add_epi32(pred[1], val[1]);
+					}
+				}
+			}
+			for(int kx2=-CUSTOM_REACH;kx2<0;++kx2, ++idx)
+			{
+				if((unsigned)(kx+kx2)<(unsigned)iw)
+				{
+					temp=_mm256_set1_epi16(src[iw*ky+kx+kx2]);//pixels
+					val[0]=_mm256_cvtepi16_epi32(_mm256_extractf128_si256(temp, 0));
+					val[1]=_mm256_cvtepi16_epi32(_mm256_extractf128_si256(temp, 1));
+					temp=LOAD((__m256i*)params+idx);
+					p[0]=_mm256_cvtepi16_epi32(_mm256_extractf128_si256(temp, 0));
+					p[1]=_mm256_cvtepi16_epi32(_mm256_extractf128_si256(temp, 1));
+					val[0]=_mm256_mullo_epi32(val[0], p[0]);
+					val[1]=_mm256_mullo_epi32(val[1], p[1]);
+					pred[0]=_mm256_add_epi32(pred[0], val[0]);
+					pred[1]=_mm256_add_epi32(pred[1], val[1]);
+				}
+			}
+
+			for(int ky2=-CUSTOM_REACH_E;ky2<0;++ky2)
+			{
+				for(int kx2=-CUSTOM_REACH_E;kx2<=CUSTOM_REACH_E;++kx2, ++idx)
+				{
+					if((unsigned)(ky+ky2)<(unsigned)ih&&(unsigned)(kx+kx2)<(unsigned)iw)
+					{
+						temp=LOAD((__m256i*)dst+iw*(ky+ky2)+kx+kx2);//errors
+						val[0]=_mm256_cvtepi16_epi32(_mm256_extractf128_si256(temp, 0));
+						val[1]=_mm256_cvtepi16_epi32(_mm256_extractf128_si256(temp, 1));
+						temp=LOAD((__m256i*)params+idx);
+						p[0]=_mm256_cvtepi16_epi32(_mm256_extractf128_si256(temp, 0));
+						p[1]=_mm256_cvtepi16_epi32(_mm256_extractf128_si256(temp, 1));
+						val[0]=_mm256_mullo_epi32(val[0], p[0]);
+						val[1]=_mm256_mullo_epi32(val[1], p[1]);
+						pred[0]=_mm256_add_epi32(pred[0], val[0]);
+						pred[1]=_mm256_add_epi32(pred[1], val[1]);
+					}
+				}
+			}
+			for(int kx2=-CUSTOM_REACH_E;kx2<0;++kx2, ++idx)
+			{
+				if((unsigned)(kx+kx2)<(unsigned)iw)
+				{
+					temp=LOAD((__m256i*)dst+iw*ky+kx+kx2);//errors
+					val[0]=_mm256_cvtepi16_epi32(_mm256_extractf128_si256(temp, 0));
+					val[1]=_mm256_cvtepi16_epi32(_mm256_extractf128_si256(temp, 1));
+					temp=LOAD((__m256i*)params+idx);
+					p[0]=_mm256_cvtepi16_epi32(_mm256_extractf128_si256(temp, 0));
+					p[1]=_mm256_cvtepi16_epi32(_mm256_extractf128_si256(temp, 1));
+					val[0]=_mm256_mullo_epi32(val[0], p[0]);
+					val[1]=_mm256_mullo_epi32(val[1], p[1]);
+					pred[0]=_mm256_add_epi32(pred[0], val[0]);
+					pred[1]=_mm256_add_epi32(pred[1], val[1]);
+				}
+			}
+			pred[0]=_mm256_max_epi32(pred[0], vmin);//clamp
+			pred[1]=_mm256_max_epi32(pred[1], vmin);
+			pred[0]=_mm256_min_epi32(pred[0], vmax);
+			pred[1]=_mm256_min_epi32(pred[1], vmax);
+			pred[0]=_mm256_srai_epi32(pred[0], 12);//mulhi, pre-shift left by 4			16 right + 4 left = 12 right
+			pred[1]=_mm256_srai_epi32(pred[1], 12);
+
+			idx=iw*ky+kx;
+			temp=_mm256_set1_epi32(src[idx]);
+			val[0]=_mm256_sub_epi32(temp, pred[0]);
+			val[1]=_mm256_sub_epi32(temp, pred[1]);
+			ALIGN(32) int temp2[16];
+			memcpy(temp2, val, sizeof(__m256[2]));
+			for(int k=0;k<16;++k)
+				dst[idx<<4|k]=temp2[k];
+			//temp=_mm256_packs_epi32(val[0], val[1]);
+			//if(temp.m256i_i16[0]!=val[0].m256i_i32[0])
+			//	LOG_ERROR("");
+			//STORE((__m256i*)dst+idx, temp);
+		}
+	}
+#endif
+#if 1
+	__m256i vmin=_mm256_set1_epi16(-128);
+	__m256i vmax=_mm256_set1_epi16(127);
+	__m256i pred, val, p;
+	for(int ky=0;ky<ih;++ky)
+	{
+		for(int kx=0;kx<iw;++kx)
+		{
+			//if(kx==(iw>>1)&&ky==(ih>>1))//
+			//	printf("");
+
+			pred=_mm256_setzero_si256();
+			idx=0;
+			for(int ky2=-CUSTOM_REACH;ky2<0;++ky2)
+			{
+				for(int kx2=-CUSTOM_REACH;kx2<=CUSTOM_REACH;++kx2, ++idx)
+				{
+					if((unsigned)(ky+ky2)<(unsigned)ih&&(unsigned)(kx+kx2)<(unsigned)iw)
+					{
+						val=_mm256_set1_epi16(src[iw*(ky+ky2)+kx+kx2]);//pixels
+						p=LOAD((__m256i*)params+idx);
+#ifdef CUSTOM_USE_MULHRS
+						val=_mm256_mulhrs_epi16(val, p);
+#else
+						val=_mm256_mulhi_epi16(val, p);
+#endif
+						pred=_mm256_add_epi16(pred, val);
+						//comp[idx]=pixels[(iw*(ky+ky2)+kx+kx2)<<2|kc];
+					}
+				}
+			}
+			for(int kx2=-CUSTOM_REACH;kx2<0;++kx2, ++idx)
+			{
+				if((unsigned)(kx+kx2)<(unsigned)iw)
+				{
+					val=_mm256_set1_epi16(src[iw*ky+kx+kx2]);//pixels
+					p=LOAD((__m256i*)params+idx);
+#ifdef CUSTOM_USE_MULHRS
+					val=_mm256_mulhrs_epi16(val, p);
+#else
+					val=_mm256_mulhi_epi16(val, p);
+#endif
+					pred=_mm256_add_epi16(pred, val);
+				}
+				//	comp[idx]=pixels[(iw*ky+kx+kx2)<<2|kc];
+			}
+
+			for(int ky2=-CUSTOM_REACH_E;ky2<0;++ky2)
+			{
+				for(int kx2=-CUSTOM_REACH_E;kx2<=CUSTOM_REACH_E;++kx2, ++idx)
+				{
+					if((unsigned)(ky+ky2)<(unsigned)ih&&(unsigned)(kx+kx2)<(unsigned)iw)
+					{
+						val=LOAD((__m256i*)dst+iw*(ky+ky2)+kx+kx2);//errors
+						p=LOAD((__m256i*)params+idx);
+#ifdef CUSTOM_USE_MULHRS
+						val=_mm256_mulhrs_epi16(val, p);
+#else
+						val=_mm256_mulhi_epi16(val, p);
+#endif
+						pred=_mm256_add_epi16(pred, val);
+					}
+					//	comp[idx]=errors[(iw*(ky+ky2)+kx+kx2)<<2|kc];
+				}
+			}
+			for(int kx2=-CUSTOM_REACH_E;kx2<0;++kx2, ++idx)
+			{
+				if((unsigned)(kx+kx2)<(unsigned)iw)
+				{
+					val=LOAD((__m256i*)dst+iw*ky+kx+kx2);//errors
+					p=LOAD((__m256i*)params+idx);
+#ifdef CUSTOM_USE_MULHRS
+					val=_mm256_mulhrs_epi16(val, p);
+#else
+					val=_mm256_mulhi_epi16(val, p);
+#endif
+					pred=_mm256_add_epi16(pred, val);
+				}
+				//	comp[idx]=errors[(iw*ky+kx+kx2)<<2|kc];
+			}
+			pred=_mm256_max_epi16(pred, vmin);//clamp
+			pred=_mm256_min_epi16(pred, vmax);
+			pred=_mm256_slli_epi16(pred, 4);//pre-shift
+
+			idx=iw*ky+kx;
+			val=_mm256_set1_epi16(src[idx]);
+			//if(fwd)
+				val=_mm256_sub_epi16(val, pred);
+			//else
+			//	val=_mm256_add_epi16(val, pred);
+
+			STORE((__m256i*)dst+idx, val);
+		}
+	}
+#endif
+
+	memset(hist, 0, 256LL*16*sizeof(int));
+	for(int k=0;k<(res<<4);++k)
+	{
+		int ch=k&15;
+		unsigned char sym=dst[k]>>4;
+		//if(k==(res>>2))
+		//	printf("");
+		++hist[sym<<4|ch];
+	}
+	__m256 entropy[2]={0};
+	__m256 sign=_mm256_castsi256_ps(_mm256_set1_epi32(0x80000000));
+	__m256 prob_gain=_mm256_set1_ps(1.f/res);
+	for(int k=0;k<(256<<1);k+=2)
+	{
+		__m256i ih0=LOAD((__m256i*)hist+k);
+		__m256i ih1=LOAD((__m256i*)hist+k+1);
+		__m256 fh0=_mm256_cvtepi32_ps(ih0);
+		__m256 fh1=_mm256_cvtepi32_ps(ih1);
+		fh0=_mm256_mul_ps(fh0, prob_gain);//get probability
+		fh1=_mm256_mul_ps(fh1, prob_gain);
+		__m256 nonzero0=_mm256_cmp_ps(fh0, _mm256_setzero_ps(), _CMP_NEQ_OQ);//zero probability mask
+		__m256 nonzero1=_mm256_cmp_ps(fh1, _mm256_setzero_ps(), _CMP_NEQ_OQ);
+		__m256 bitsize0=_mm256_log2_ps(fh0);//log2(p)
+		__m256 bitsize1=_mm256_log2_ps(fh1);
+		bitsize0=_mm256_mul_ps(bitsize0, fh0);//p*log2(p)
+		bitsize1=_mm256_mul_ps(bitsize1, fh1);
+		bitsize0=_mm256_xor_ps(bitsize0, sign);//-p*log2(p)
+		bitsize1=_mm256_xor_ps(bitsize1, sign);
+		bitsize0=_mm256_and_ps(bitsize0, nonzero0);//remove zero prob mask
+		bitsize1=_mm256_and_ps(bitsize1, nonzero1);
+		entropy[0]=_mm256_add_ps(entropy[0], bitsize0);
+		entropy[1]=_mm256_add_ps(entropy[1], bitsize1);
+	}
+	prob_gain=_mm256_set1_ps(1.f/8);
+	entropy[0]=_mm256_mul_ps(entropy[0], prob_gain);
+	entropy[1]=_mm256_mul_ps(entropy[1], prob_gain);
+
+	//ALIGN(32) float e2[16];//
+	//memcpy(e2, entropy, sizeof(__m256[2]));
+	//for(int k=0;k<16;++k)
+	//{
+	//	if(e2[k]<0.1f)
+	//	{
+	//		print_strided_histogram(hist+k, 16);
+	//		LOG_ERROR("Too good to be true");
+	//	}
+	//}//
+
+	memcpy(loss, entropy, sizeof(__m256[2]));
+
+	//double entropy[16]=0;
+	//for(int sym=0;sym<256;++sym)//Shannon's law
+	//{
+	//	int freq=hist[sym];
+	//	if(freq)
+	//	{
+	//		double prob=(double)freq/res;
+	//		entropy-=prob*log2(prob);
+	//	}
+	//}
+	//double invCR=entropy/8;
+	//return invCR;
+}
+float opt_custom_v2(const char *buf, int iw, int ih, int kc, int niter, short *params, float loss0, int loud)
+{
+	int res=iw*ih;
+	short *buf2=(short*)_mm_malloc(res*sizeof(short), 32);
+	short *temp=(short*)_mm_malloc((size_t)res*16*sizeof(short), 32);
+	int *hist=_mm_malloc(256LL*16*sizeof(int), 32);
+	if(!buf2||!temp||!hist)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	ALIGN(32) short curr[CUSTOM_NPARAMS*16];//interleaved params
+	ALIGN(32) float loss[16], bestloss;
+	for(int k=0;k<CUSTOM_NPARAMS;++k)//interleave params
+		memfill(curr+((size_t)k<<4), params+k, sizeof(__m256i), sizeof(short));
+	//memfill(curr, params, sizeof(curr), CUSTOM_NPARAMS*sizeof(short));
+	for(int k=0;k<res;++k)
+		buf2[k]=buf[k<<2|kc]<<4;//pre-shift for mulhi_epi16
+
+#define CALC_LOSS() opt_custom_v2_calcloss(buf2, iw, ih, curr, temp, hist, loss)
+
+	if(!loss0)
+	{
+		CALC_LOSS();
+		loss0=loss[0];
+	}
+	bestloss=loss0;
+	int best=0;
+	for(int it=0;it<niter;++it)
+	{
+#if 1
+		int delta[CUSTOM_NPARAMS*16];
+		int amplitude=(niter+1)/(it+1);
+		for(int k=0;k<CUSTOM_NPARAMS*16;++k)
+		{
+			delta[k]=(rand()%(amplitude<<1|1))-amplitude;
+			//delta[k]=(rand()%3)-1;
+			curr[k]+=delta[k];
+		}
+		CALC_LOSS();
+		best=0;
+		for(int k=1;k<16;++k)
+		{
+			if(loss[best]>loss[k])
+				best=k;
+		}
+		if(loss[best]<bestloss)//if new record, populate the result
+		{
+			bestloss=loss[best];
+			for(int ky=0;ky<CUSTOM_NPARAMS;++ky)
+			{
+				for(int kx=0;kx<16;++kx)
+				{
+					if(kx==best)
+						continue;
+					curr[ky<<4|kx]=curr[ky<<4|best];
+				}
+			}
+		}
+		else//if didn't improve, revert all half of search channels
+		{
+			for(int ky=0;ky<CUSTOM_NPARAMS;++ky)
+			{
+				for(int kx=0;kx<8;++kx)
+				{
+					int idx=ky<<4|kx;
+					curr[idx]-=delta[idx];
+				}
+			}
+			//for(int k=0;k<CUSTOM_NPARAMS*16;++k)
+			//	curr[k]-=delta[k];
+		}
+#endif
+#if 0
+		int bitidx[16];
+		for(int k=0;k<16;++k)
+			bitidx[k]=rand()%(CUSTOM_NPARAMS<<4);//mod number of bits in param array
+		for(int k=0;k<16;++k)
+			curr[(bitidx[k]>>4)<<4|k]^=1<<(bitidx[k]&15);
+		CALC_LOSS();
+		best=0;
+		for(int k=1;k<16;++k)
+		{
+			if(loss[best]>loss[k])
+				best=k;
+		}
+		if(loss[best]<bestloss)//if improved, populate the result
+		{
+			bestloss=loss[best];
+			for(int ky=0;ky<CUSTOM_NPARAMS;++ky)
+			{
+				for(int kx=0;kx<16;++kx)
+				{
+					if(kx==best)
+						continue;
+					curr[ky<<4|kx]=curr[ky<<4|best];
+				}
+			}
+		}
+		else//if didn't improve, revert all half of search channels
+		{
+			for(int k=0;k<16;++k)
+				curr[(bitidx[k]>>4)<<4|k]^=1<<(bitidx[k]&15);
+		}
+#endif
+	}
+	if(loss0>bestloss)
+	{
+		loss0=bestloss;
+		for(int k=0;k<CUSTOM_NPARAMS;++k)
+			params[k]=curr[k<<4|best];
+	}
+	
+#undef CALC_LOSS
+	_mm_free(buf2);
+	_mm_free(temp);
+	_mm_free(hist);
+	return loss0;
+}

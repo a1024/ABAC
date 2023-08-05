@@ -397,6 +397,8 @@ ArrayHandle get_filenames(const char *path, const char **extensions, int extCoun
 ArrayHandle load_file(const char *filename, int bin, int pad);
 int save_file_bin(const char *filename, const unsigned char *src, size_t srcSize);
 
+ArrayHandle searchfor_file(const char *searchpath, const char *filetitle);
+
 	
 #ifdef __cplusplus
 }

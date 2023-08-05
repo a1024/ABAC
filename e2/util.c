@@ -1974,3 +1974,20 @@ int save_file_bin(const char *filename, const unsigned char *src, size_t srcSize
 	}
 	return 1;
 }
+
+ArrayHandle searchfor_file(const char *searchpath, const char *filetitle)
+{
+	ArrayHandle filename;
+	ptrdiff_t size;
+
+	STR_COPY(filename, filetitle, strlen(filetitle));
+	size=get_filesize((char*)filename->data);
+	if(size==-1)
+	{
+		array_insert(&filename, 0, searchpath, strlen(searchpath), 1, 1);
+		size=get_filesize((char*)filename->data);
+		if(size==-1)
+			array_free(&filename);
+	}
+	return filename;
+}

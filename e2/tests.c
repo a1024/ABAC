@@ -6841,12 +6841,14 @@ int t38_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 
 //T39: Multiple estimators for all maps
 
+//	#define T39_USE_KALMAN
+	#define T39_UNSIGNED_BITS
 //	#define T39_APPLY_SPATIAL
 	#define T39_USE_ARRAYS
 //	#define T39_DISABLE_REC
 //	#define T39_PROB_TWEAK	//X
 
-#define T39_NMAPS 14	//14	31		135 HALF HOUR PER IMAGE
+#define T39_NMAPS 15	//14	31		135 HALF HOUR PER IMAGE
 
 #ifndef T39_DISABLE_REC
 #define T39_N_REC_ESTIMATORS 6		//15
@@ -6854,12 +6856,33 @@ int t38_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 #else
 #define T39_NESTIMATORS T39_NMAPS
 #endif
-#define T39_PRINT_ESTIMATOR_CR
+//#define T39_PRINT_ESTIMATOR_CR
 
 //#define T39_BLOCKSIZE_X 2048	//512
 //#define T39_BLOCKSIZE_Y 2048	//512
 //	#define T39_DISABLE_COUNTER
 
+#ifdef T39_USE_KALMAN
+typedef struct KalmanInfoStruct
+{
+	double R, H, Q, P, Uhat, K;
+} KalmanInfo;
+static void kalman_init(KalmanInfo *info)
+{
+	info->R=0.001;//noise covariance, higher values reject more noise
+	info->H=1;
+	info->Q=10;
+	info->P=0;
+	info->Uhat=0;
+	info->K=0;
+}
+static void kalman_predict(KalmanInfo *info, double U)
+{
+	info->K=info->P*info->H/(info->H*info->P*info->H+info->R);//update kalman gain
+	info->Uhat+=info->K*(U-info->H*info->Uhat);//update estimated
+	info->P=(1-info->K*info->H)*info->P+info->Q;//update error covariance
+}
+#endif
 typedef struct T39NodeStruct
 {
 #ifndef T39_USE_ARRAYS
@@ -6889,6 +6912,10 @@ static CmpRes t39_cmp_node(const void *key, const void *candidate)
 #endif
 typedef struct T39CtxStruct
 {
+	int pred14;
+#ifdef T39_USE_KALMAN
+	KalmanInfo kalman[T39_NMAPS];
+#endif
 	int context[T39_NMAPS];
 #ifdef T39_USE_ARRAYS
 	ArrayHandle maps[24][T39_NMAPS];//(256+512+1024+2048+4096+8192+16384+32768)*20*14 = 17.43 MB for 14 maps with 6 rec estimators
@@ -6917,6 +6944,13 @@ typedef struct T39CtxStruct
 T39Ctx* t39_ctx_init()
 {
 	int val=0x8000;
+#ifdef T39_USE_ARRAYS
+	T39Node node0={{1, 1}};
+#ifndef T39_DISABLE_REC
+	for(int k=0;k<T39_N_REC_ESTIMATORS;++k)
+		node0.rec[k]=0x8000;
+#endif
+#endif
 	T39Ctx *ctx=(T39Ctx*)malloc(sizeof(T39Ctx));
 	if(!ctx)
 	{
@@ -6933,12 +6967,17 @@ T39Ctx* t39_ctx_init()
 #ifdef T39_USE_ARRAYS
 			int nnodes=256<<(7-kb);
 			ARRAY_ALLOC(T39Node, ctx->maps[k][k2], 0, nnodes, 0, 0);
+			memfill(ctx->maps[k][k2]->data, &node0, ctx->maps[k][k2]->count*sizeof(T39Node), sizeof(T39Node));
 			ctx->nnodes+=nnodes;
 #else
 			MAP_INIT(ctx->maps[k]+k2, T39Node, t39_cmp_node, 0);
 #endif
 		}
 	}
+#ifdef T39_USE_KALMAN
+	for(int k=0;k<T39_NMAPS;++k)
+		kalman_init(ctx->kalman+k);
+#endif
 	return ctx;
 }
 void t39_ctx_clear(T39Ctx **ctx)
@@ -6986,28 +7025,65 @@ void t39_ctx_reset(T39Ctx *ctx, int hardreset)
 #endif
 }
 //void t39_ctx_get_context(T39Ctx *ctx, char *buf, int iw, int ih, int kc, int kx, int ky, int x1, int x2, int y1, int y2)
-void t39_ctx_get_context(T39Ctx *ctx, char *buf, int iw, int ih, int kc, int kx, int ky)
+void t39_ctx_get_context(T39Ctx *ctx, const char *buf, const char *ebuf, int iw, int ih, int kc, int kx, int ky)
 {
-#define LOAD(C, X, Y) (unsigned)(kc-C)<3&&(unsigned)(kx-(X))<(unsigned)iw&&(unsigned)(ky-Y)<(unsigned)ih?buf[(iw*(ky-Y)+kx-(X))<<2|(kc-C)]:0
+#define LOAD(BUF, C, X, Y) (unsigned)(kc-C)<3&&(unsigned)(kx-(X))<(unsigned)iw&&(unsigned)(ky-Y)<(unsigned)ih?BUF[(iw*(ky-Y)+kx-(X))<<2|(kc-C)]:0
 //#define LOAD(C, X, Y) (unsigned)(kc-C)<3&&(unsigned)(kx-(X)-x1)<(unsigned)(x2-x1)&&(unsigned)(ky-Y-y1)<(unsigned)(y2-y1)?buf[(iw*(ky-Y)+kx-(X))<<2|(kc-C)]:0
 //#define LOAD(CO, XO, YO) (unsigned)(kc-CO)<3u&&(unsigned)(kx-(XO))<(unsigned)iw&&(unsigned)(ky-YO)<(unsigned)ih?buf[(iw*(ky-YO)+kx-(XO))<<2|(kc-CO)]:0
 #if 1
 	int count_W_N_m1=(kx-1>=0)+(ky-1>=0)+(kc-1>=0);
-	int W   =LOAD(0,  1, 0),
-		NW  =LOAD(0,  1, 1),
-		N   =LOAD(0,  0, 1),
-		NE  =LOAD(0, -1, 1),
-		NN  =LOAD(0,  0, 2),
+	int
+		NNWW =LOAD(buf, 0,  2, 2),
+		NNW  =LOAD(buf, 0,  1, 2),
+		NN   =LOAD(buf, 0,  0, 2),
+		NNE  =LOAD(buf, 0, -1, 2),
+		NNEE =LOAD(buf, 0, -2, 2),
+		NWW  =LOAD(buf, 0,  2, 1),
+		NW   =LOAD(buf, 0,  1, 1),
+		N    =LOAD(buf, 0,  0, 1),
+		NE   =LOAD(buf, 0, -1, 1),
+		NEE  =LOAD(buf, 0, -2, 1),
+		WW   =LOAD(buf, 0,  2, 0),
+		W    =LOAD(buf, 0,  1, 0),
+		eNNWW=LOAD(ebuf, 0,  2, 2),
+		eNNW =LOAD(ebuf, 0,  1, 2),
+		eNN  =LOAD(ebuf, 0,  0, 2),
+		eNNE =LOAD(ebuf, 0, -1, 2),
+		eNNEE=LOAD(ebuf, 0, -2, 2),
+		eNWW =LOAD(ebuf, 0,  2, 1),
+		eNW  =LOAD(ebuf, 0,  1, 1),
+		eN   =LOAD(ebuf, 0,  0, 1),
+		eNE  =LOAD(ebuf, 0, -1, 1),
+		eNEE =LOAD(ebuf, 0, -2, 1),
+		eWW  =LOAD(ebuf, 0,  2, 0),
+		eW   =LOAD(ebuf, 0,  1, 0),
 
-		m1  =LOAD(1, 0, 0),
-		Nm1 =LOAD(1, 0, 1),
-		Wm1 =LOAD(1, 1, 0),
-		NWm1=LOAD(1, 1, 1),
+		m1  =LOAD(buf, 1, 0, 0),
+		Nm1 =LOAD(buf, 1, 0, 1),
+		Wm1 =LOAD(buf, 1, 1, 0),
+		NWm1=LOAD(buf, 1, 1, 1),
 
-		m2  =LOAD(2, 0, 0),
-		Nm2 =LOAD(2, 0, 1),
-		Wm2 =LOAD(2, 1, 0),
-		NWm2=LOAD(2, 1, 1);
+		m2  =LOAD(buf, 2, 0, 0),
+		Nm2 =LOAD(buf, 2, 0, 1),
+		Wm2 =LOAD(buf, 2, 1, 0),
+		NWm2=LOAD(buf, 2, 1, 1);
+#if 0
+	int W   =LOAD(buf, 0,  1, 0),
+		NW  =LOAD(buf, 0,  1, 1),
+		N   =LOAD(buf, 0,  0, 1),
+		NE  =LOAD(buf, 0, -1, 1),
+		NN  =LOAD(buf, 0,  0, 2),
+
+		m1  =LOAD(buf, 1, 0, 0),
+		Nm1 =LOAD(buf, 1, 0, 1),
+		Wm1 =LOAD(buf, 1, 1, 0),
+		NWm1=LOAD(buf, 1, 1, 1),
+
+		m2  =LOAD(buf, 2, 0, 0),
+		Nm2 =LOAD(buf, 2, 0, 1),
+		Wm2 =LOAD(buf, 2, 1, 0),
+		NWm2=LOAD(buf, 2, 1, 1);
+#endif
 
 	int j=-1;
 
@@ -7058,6 +7134,84 @@ void t39_ctx_get_context(T39Ctx *ctx, char *buf, int iw, int ih, int kc, int kx,
 	ctx->context[++j]=m2;//12
 	ctx->context[++j]=(N+W-NW + m2)>>1;//13
 
+	//kodim13
+#if 1
+	switch(kc)
+	{
+	case 0:
+		ctx->pred14=(
+			+0x00C6* NNWW-0x0267* NNW+0x0400* NN-0x04C4* NNE+0x0188* NNEE
+			-0x0166* NWW -0x0013* NW +0x034D* N +0x05BF* NE +0x002C* NEE
+			+0x03E6* WW  +0x05BA* W
+			+0x0076*eNNWW+0x0228*eNNW-0x001D*eNN+0x0241*eNNE-0x0167*eNNEE
+			+0x00DA*eNWW +0x0404*eNW +0x0468*eN -0x0008*eNE +0x00C5*eNEE
+			+0x0077*eWW  +0x05E7*eW
+		)>>12;
+		break;
+	case 1:
+		ctx->pred14=(
+			+0x0010* NNWW+0x0020* NNW-0x0163* NN-0x000E* NNE+0x012B* NNEE
+			-0x000E* NWW +0x02A6* NW +0x02F1* N +0x0081* NE +0x01D5* NEE
+			+0x0215* WW  +0x063A* W
+			-0x0074*eNNWW-0x015D*eNNW-0x00CC*eNN-0x00EB*eNNE-0x0156*eNNEE
+			-0x0167*eNWW +0x0011*eNW +0x04A7*eN +0x00A5*eNE -0x00B2*eNEE
+			-0x01D2*eWW  +0x0650*eW
+		)>>12;
+		break;
+	case 2:
+		ctx->pred14=(
+			+0x00AC* NNWW-0x02B4* NNW+0x021E* NN-0x0010* NNE+0x0036* NNEE
+			-0x0257* NWW +0x0076* NW +0x054D* N +0x00F9* NE +0x00BF* NEE
+			+0x02D3* WW  +0x07D5* W
+			+0x001D*eNNWW+0x0125*eNNW+0x009D*eNN+0x00EA*eNNE+0x007F*eNNEE
+			+0x00AA*eNWW +0x035E*eNW +0x0669*eN +0x03FD*eNE -0x0044*eNEE
+			+0x005C*eWW  +0x0526*eW
+		)>>12;
+		break;
+	}
+	ctx->pred14=CLAMP(-128, ctx->pred14, 127);
+	ctx->context[++j]=ctx->pred14;//14
+#endif
+	
+	//CLIC16
+#if 0
+	switch(kc)
+	{
+	case 0:
+		ctx->pred14=(
+			+0x00C8* NNWW-0x01B9* NNW+0x01CB* NN+0x0170* NNE-0x00E7* NNEE
+			-0x01DA* NWW +0x00A8* NW +0x03FD* N +0x01DD* NE +0x00AB* NEE
+			+0x00A5* WW  +0x0900* W
+			+0x00FF*eNNWW+0x0040*eNNW-0x02B6*eNN+0x000D*eNNE+0x0182*eNNEE
+			+0x0031*eNWW +0x00DE*eNW +0x065B*eN +0x0220*eNE +0x0056*eNEE
+			-0x02EB*eWW  +0x036E*eW
+		)>>12;
+		break;
+	case 1:
+		ctx->pred14=(
+			+0x0080* NNWW-0x00DF* NNW-0x00FC* NN+0x0195* NNE+0x0052* NNEE
+			+0x0146* NWW -0x021E* NW +0x050F* N +0x0285* NE -0x012A* NEE
+			-0x00E5* WW  +0x0AD7* W
+			-0x003E*eNNWW+0x0126*eNNW-0x011B*eNN-0x011B*eNNE+0x0049*eNNEE
+			-0x008A*eNWW +0x0174*eNW +0x048C*eN +0x007B*eNE +0x025C*eNEE
+			-0x0199*eWW  +0x0428*eW
+		)>>12;
+		break;
+	case 2:
+		ctx->pred14=(
+			-0x00B6* NNWW-0x0040* NNW+0x009D* NN-0x00E4* NNE+0x0088* NNEE
+			-0x0263* NWW +0x02C8* NW +0x0420* N +0x0300* NE +0x0034* NEE
+			+0x0131* WW  +0x07F9* W
+			+0x0139*eNNWW-0x006E*eNNW-0x00E6*eNN+0x0019*eNNE-0x0020*eNNEE
+			-0x0099*eNWW -0x002F*eNW +0x0693*eN +0x014F*eNE +0x003C*eNEE
+			-0x0124*eWW  +0x05CC*eW
+		)>>12;
+		break;
+	}
+	ctx->pred14=CLAMP(-128, ctx->pred14, 127);
+	ctx->context[++j]=ctx->pred14;//14
+#endif
+
 	//ctx->context[++j]=clamp4((W+NE-N + NW+NE-NN)>>1, N, W, NW, NE);
 	//ctx->context[++j]=Nm1+Wm1-NWm1;
 	//ctx->context[++j]=Nm1;
@@ -7067,82 +7221,82 @@ void t39_ctx_get_context(T39Ctx *ctx, char *buf, int iw, int ih, int kc, int kx,
 	
 #if 0
 	//offsets are in NW direction
-	int WWWWWW  =LOAD(0,  6, 0),
-		WWWWW   =LOAD(0,  5, 0),
-		WWWW    =LOAD(0,  4, 0),
-		WWW     =LOAD(0,  3, 0),
-		WW      =LOAD(0,  2, 0),
-		W       =LOAD(0,  1, 0),
-		NWWWW   =LOAD(0,  4, 1),
-		NWWW    =LOAD(0,  3, 1),
-		NWW     =LOAD(0,  2, 1),
-		NW      =LOAD(0,  1, 1),
-		N       =LOAD(0,  0, 1),
-		NE      =LOAD(0, -1, 1),
-		NEE     =LOAD(0, -2, 1),
-		NEEE    =LOAD(0, -3, 1),
-		NEEEE   =LOAD(0, -4, 1),
-		NEEEEEE =LOAD(0, -6, 1),
-		NNWWW   =LOAD(0,  3, 2),
-		NNWW    =LOAD(0,  2, 2),
-		NNW     =LOAD(0,  1, 2),
-		NN      =LOAD(0,  0, 2),
-		NNE     =LOAD(0, -1, 2),
-		NNEE    =LOAD(0, -2, 2),
-		NNEEE   =LOAD(0, -3, 2),
-		NNNWWWW =LOAD(0,  4, 3),
-		NNNWWW  =LOAD(0,  3, 3),
-		NNNWW   =LOAD(0,  2, 3),
-		NNNW    =LOAD(0,  1, 3),
-		NNN     =LOAD(0,  0, 3),
-		NNNE    =LOAD(0, -1, 3),
-		NNNEE   =LOAD(0, -2, 3),
-		NNNEEE  =LOAD(0, -3, 3),
-		NNNNW   =LOAD(0,  1, 4),
-		NNNN    =LOAD(0,  0, 4),
-		NNNNE   =LOAD(0, -1, 4),
-		NNNNN   =LOAD(0,  0, 5),
-		NNNNNN  =LOAD(0,  0, 6),
-		WWWWWWp1=LOAD(1,  6, 0),
-		WWWWp1  =LOAD(1,  4, 0),
-		WWWp1   =LOAD(1,  3, 0),
-		WWp1    =LOAD(1,  2, 0),
-		Wp1     =LOAD(1,  1, 0),
-		p1      =LOAD(1,  0, 0),
-		NWWp1   =LOAD(1,  2, 1),
-		NWp1    =LOAD(1,  1, 1),
-		Np1     =LOAD(1,  0, 1),
-		NEp1    =LOAD(1, -1, 1),
-		NEEp1   =LOAD(1, -2, 1),
-		NNWWp1  =LOAD(1,  2, 2),
-		NNp1    =LOAD(1,  0, 2),
-		NNEp1   =LOAD(1, -1, 2),
-		NNEEp1  =LOAD(1, -2, 2),
-		NNNWp1  =LOAD(1,  1, 3),
-		NNNp1   =LOAD(1,  0, 3),
-		NNNEp1  =LOAD(1, -1, 3),
-		NNNNp1  =LOAD(1,  0, 4),
-		NNNNNNp1=LOAD(1,  0, 6),
-		WWWWWWp2=LOAD(2,  6, 0),
-		WWWWp2  =LOAD(2,  4, 0),
-		WWWp2   =LOAD(2,  3, 0),
-		WWp2    =LOAD(2,  2, 0),
-		Wp2     =LOAD(2,  1, 0),
-		p2      =LOAD(2,  0, 0),
-		NWWp2   =LOAD(2,  2, 1),
-		NWp2    =LOAD(2,  1, 1),
-		Np2     =LOAD(2,  0, 1),
-		NEp2    =LOAD(2, -1, 1),
-		NEEp2   =LOAD(2, -2, 1),
-		NNWWp2  =LOAD(2,  2, 2),
-		NNp2    =LOAD(2,  0, 2),
-		NNEp2   =LOAD(2, -1, 2),
-		NNEEp2  =LOAD(2, -2, 2),
-		NNNWp2  =LOAD(2,  1, 3),
-		NNNp2   =LOAD(2,  0, 3),
-		NNNEp2  =LOAD(2, -1, 3),
-		NNNNp2  =LOAD(2,  0, 4),
-		NNNNNNp2=LOAD(2,  0, 6);
+	int WWWWWW  =LOAD(buf, 0,  6, 0),
+		WWWWW   =LOAD(buf, 0,  5, 0),
+		WWWW    =LOAD(buf, 0,  4, 0),
+		WWW     =LOAD(buf, 0,  3, 0),
+		WW      =LOAD(buf, 0,  2, 0),
+		W       =LOAD(buf, 0,  1, 0),
+		NWWWW   =LOAD(buf, 0,  4, 1),
+		NWWW    =LOAD(buf, 0,  3, 1),
+		NWW     =LOAD(buf, 0,  2, 1),
+		NW      =LOAD(buf, 0,  1, 1),
+		N       =LOAD(buf, 0,  0, 1),
+		NE      =LOAD(buf, 0, -1, 1),
+		NEE     =LOAD(buf, 0, -2, 1),
+		NEEE    =LOAD(buf, 0, -3, 1),
+		NEEEE   =LOAD(buf, 0, -4, 1),
+		NEEEEEE =LOAD(buf, 0, -6, 1),
+		NNWWW   =LOAD(buf, 0,  3, 2),
+		NNWW    =LOAD(buf, 0,  2, 2),
+		NNW     =LOAD(buf, 0,  1, 2),
+		NN      =LOAD(buf, 0,  0, 2),
+		NNE     =LOAD(buf, 0, -1, 2),
+		NNEE    =LOAD(buf, 0, -2, 2),
+		NNEEE   =LOAD(buf, 0, -3, 2),
+		NNNWWWW =LOAD(buf, 0,  4, 3),
+		NNNWWW  =LOAD(buf, 0,  3, 3),
+		NNNWW   =LOAD(buf, 0,  2, 3),
+		NNNW    =LOAD(buf, 0,  1, 3),
+		NNN     =LOAD(buf, 0,  0, 3),
+		NNNE    =LOAD(buf, 0, -1, 3),
+		NNNEE   =LOAD(buf, 0, -2, 3),
+		NNNEEE  =LOAD(buf, 0, -3, 3),
+		NNNNW   =LOAD(buf, 0,  1, 4),
+		NNNN    =LOAD(buf, 0,  0, 4),
+		NNNNE   =LOAD(buf, 0, -1, 4),
+		NNNNN   =LOAD(buf, 0,  0, 5),
+		NNNNNN  =LOAD(buf, 0,  0, 6),
+		WWWWWWp1=LOAD(buf, 1,  6, 0),
+		WWWWp1  =LOAD(buf, 1,  4, 0),
+		WWWp1   =LOAD(buf, 1,  3, 0),
+		WWp1    =LOAD(buf, 1,  2, 0),
+		Wp1     =LOAD(buf, 1,  1, 0),
+		p1      =LOAD(buf, 1,  0, 0),
+		NWWp1   =LOAD(buf, 1,  2, 1),
+		NWp1    =LOAD(buf, 1,  1, 1),
+		Np1     =LOAD(buf, 1,  0, 1),
+		NEp1    =LOAD(buf, 1, -1, 1),
+		NEEp1   =LOAD(buf, 1, -2, 1),
+		NNWWp1  =LOAD(buf, 1,  2, 2),
+		NNp1    =LOAD(buf, 1,  0, 2),
+		NNEp1   =LOAD(buf, 1, -1, 2),
+		NNEEp1  =LOAD(buf, 1, -2, 2),
+		NNNWp1  =LOAD(buf, 1,  1, 3),
+		NNNp1   =LOAD(buf, 1,  0, 3),
+		NNNEp1  =LOAD(buf, 1, -1, 3),
+		NNNNp1  =LOAD(buf, 1,  0, 4),
+		NNNNNNp1=LOAD(buf, 1,  0, 6),
+		WWWWWWp2=LOAD(buf, 2,  6, 0),
+		WWWWp2  =LOAD(buf, 2,  4, 0),
+		WWWp2   =LOAD(buf, 2,  3, 0),
+		WWp2    =LOAD(buf, 2,  2, 0),
+		Wp2     =LOAD(buf, 2,  1, 0),
+		p2      =LOAD(buf, 2,  0, 0),
+		NWWp2   =LOAD(buf, 2,  2, 1),
+		NWp2    =LOAD(buf, 2,  1, 1),
+		Np2     =LOAD(buf, 2,  0, 1),
+		NEp2    =LOAD(buf, 2, -1, 1),
+		NEEp2   =LOAD(buf, 2, -2, 1),
+		NNWWp2  =LOAD(buf, 2,  2, 2),
+		NNp2    =LOAD(buf, 2,  0, 2),
+		NNEp2   =LOAD(buf, 2, -1, 2),
+		NNEEp2  =LOAD(buf, 2, -2, 2),
+		NNNWp2  =LOAD(buf, 2,  1, 3),
+		NNNp2   =LOAD(buf, 2,  0, 3),
+		NNNEp2  =LOAD(buf, 2, -1, 3),
+		NNNNp2  =LOAD(buf, 2,  0, 4),
+		NNNNNNp2=LOAD(buf, 2,  0, 6);
 	int j=-1;
 
 	//ctx->context[++j] = ((W + N) * 3 - NW * 2) >> 2;//#74
@@ -7289,6 +7443,10 @@ void t39_ctx_get_context(T39Ctx *ctx, char *buf, int iw, int ih, int kc, int kx,
 #undef LOAD
 	for(int k=0;k<T39_NMAPS;++k)
 	{
+#ifdef T39_USE_KALMAN
+		kalman_predict(ctx->kalman+k, ctx->context[k]);
+		ctx->context[k]=(int)round(CLAMP(-128, ctx->kalman[k].Uhat, 127));
+#endif
 		ctx->context[k]+=128;
 #ifdef T39_USE_ARRAYS
 		ctx->context[k]=CLAMP(0, ctx->context[k], 255);
@@ -7551,13 +7709,15 @@ int t39_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	int res=iw*ih;
 	double t_start=time_ms();
 	char *buf2=(char*)malloc((size_t)res<<2);
+	char *ebuf=(char*)malloc((size_t)res<<2);
 	T39Ctx *t39_ctx=t39_ctx_init();
-	if(!buf2||!t39_ctx)
+	if(!buf2||!ebuf||!t39_ctx)
 	{
 		LOG_ERROR("Allocation error");
 		return 0;
 	}
 	memcpy(buf2, src, (size_t)res<<2);
+	memset(ebuf, 0, (size_t)res<<2);
 #ifdef T39_APPLY_SPATIAL
 	apply_transforms_fwd(buf2, iw, ih);
 	addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);//buffer is signed
@@ -7653,12 +7813,16 @@ int t39_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 		{
 			for(int kc=0;kc<3;++kc)
 			{
-				t39_ctx_get_context(t39_ctx, (char*)buf2, iw, ih, kc, kx, ky);
+				int idx=(iw*ky+kx)<<2|kc;
+				t39_ctx_get_context(t39_ctx, (char*)buf2, ebuf, iw, ih, kc, kx, ky);
 				for(int kb=7;kb>=0;--kb)//MSB -> LSB
 				{
 					t39_ctx_estimate_p0(t39_ctx, kc, kb);
-
-					int bit=buf2[(iw*ky+kx)<<2|kc]>>kb&1;
+#ifdef T39_UNSIGNED_BITS
+					int bit=(buf2[idx]+128)>>kb&1;
+#else
+					int bit=buf2[idx]>>kb&1;
+#endif
 					abac_enc(&ctx, t39_ctx->p0, bit);
 					
 					int prob=bit?0x10000-t39_ctx->p0:t39_ctx->p0;//
@@ -7667,6 +7831,7 @@ int t39_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 
 					t39_ctx_update(t39_ctx, kc, kb, bit);
 				}
+				ebuf[idx]=buf2[idx]-t39_ctx->pred14;
 			}
 		}
 		if(loud)
@@ -7675,7 +7840,8 @@ int t39_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 			float csize=0;
 			for(int k=0;k<24;++k)
 				csize+=csizes[k]/8;
-			printf("%5d/%5d  %6.2lf%%  CR%11f  CR_delta%11f%c", ky+1, ih, 100.*(ky+1)/ih, iw*(ky+1)*3/csize, iw*3/(csize-csize_prev), loud==2?'\n':'\r');
+			printf("%5d/%5d  %6.2lf%%  CR%11f  CR_delta%11f\r", ky+1, ih, 100.*(ky+1)/ih, iw*(ky+1)*3/csize, iw*3/(csize-csize_prev));
+			//printf("%5d/%5d  %6.2lf%%  CR%11f  CR_delta%11f%c", ky+1, ih, 100.*(ky+1)/ih, iw*(ky+1)*3/csize, iw*3/(csize-csize_prev), loud==2?'\n':'\r');
 			csize_prev=csize;
 		}
 		//if(!((ky+1)&127))
@@ -7795,8 +7961,9 @@ int t39_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 	double t_start=time_ms();
 
 	//int debug_index=0;
+	char *ebuf=(char*)malloc((size_t)res<<2);
 	T39Ctx *t39_ctx=t39_ctx_init();
-	if(!t39_ctx)
+	if(!ebuf||!t39_ctx)
 	{
 		LOG_ERROR("Allocation error");
 		return 0;
@@ -7860,16 +8027,21 @@ int t39_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 		{
 			for(int kc=0;kc<3;++kc)
 			{
-				t39_ctx_get_context(t39_ctx, (char*)buf, iw, ih, kc, kx, ky);
+				int idx=(iw*ky+kx)<<2|kc;
+				t39_ctx_get_context(t39_ctx, (char*)buf, ebuf, iw, ih, kc, kx, ky);
 				for(int kb=7;kb>=0;--kb)//MSB -> LSB
 				{
 					t39_ctx_estimate_p0(t39_ctx, kc, kb);
 					
 					int bit=abac_dec(&ctx, t39_ctx->p0);
-					buf[(iw*ky+kx)<<2|kc]|=bit<<kb;
+					buf[idx]|=bit<<kb;
 
 					t39_ctx_update(t39_ctx, kc, kb, bit);
 				}
+#ifdef T39_UNSIGNED_BITS
+				buf[idx]+=128;//unsigned -> signed
+#endif
+				ebuf[idx]=buf[idx]-t39_ctx->pred14;
 			}
 		}
 		if(loud)
