@@ -93,13 +93,18 @@ typedef enum TransformTypeEnum
 	CT_FWD_CUSTOM,		CT_INV_CUSTOM,
 
 	CST_SEPARATOR,
+
+	ST_PREPROC_GRAD,
+	ST_PREPROC_X,
+	ST_PREPROC_X2,
 	
 	ST_FWD_CUSTOM2,		ST_INV_CUSTOM2,
+	ST_FWD_CUSTOM3,		ST_INV_CUSTOM3,
 	ST_FWD_KALMAN,		ST_INV_KALMAN,
 //	ST_FWD_LOGIC,		ST_INV_LOGIC,
 	ST_FWD_LEARNED,		ST_INV_LEARNED,
 #ifdef ALLOW_OPENCL
-	ST_FWD_LEARNED_GPU,	ST_INV_LEARNED_GPU,
+//	ST_FWD_LEARNED_GPU,	ST_INV_LEARNED_GPU,
 #endif
 //	ST_FWD_CFL,			ST_INV_CFL,
 //	ST_FWD_JOINT,		ST_INV_JOINT,
@@ -297,8 +302,14 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 
 	case CST_SEPARATOR:			a="";						break;
 
+	case ST_PREPROC_GRAD:		a=" S Preproc Grad";		break;
+	case ST_PREPROC_X:			a=" S Preproc X";			break;
+	case ST_PREPROC_X2:			a=" S Preproc X2";			break;
+
 	case ST_FWD_CUSTOM2:		a=" S Fwd CUSTOM2";			break;
 	case ST_INV_CUSTOM2:		a=" S Inv CUSTOM2";			break;
+	case ST_FWD_CUSTOM3:		a=" S Fwd CUSTOM3";			break;
+	case ST_INV_CUSTOM3:		a=" S Inv CUSTOM3";			break;
 	case ST_FWD_KALMAN:			a=" S Fwd Kalman";			break;
 	case ST_INV_KALMAN:			a=" S Inv Kalman";			break;
 //	case ST_FWD_LOGIC:			a=" S Fwd Logic";			break;
@@ -306,8 +317,8 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case ST_FWD_LEARNED:		a=" S Fwd Learned";			break;
 	case ST_INV_LEARNED:		a=" S Inv Learned";			break;
 #ifdef ALLOW_OPENCL
-	case ST_FWD_LEARNED_GPU:	a=" S Fwd Learned GPU";		break;
-	case ST_INV_LEARNED_GPU:	a=" S Inv Learned GPU";		break;
+//	case ST_FWD_LEARNED_GPU:	a=" S Fwd Learned GPU";		break;
+//	case ST_INV_LEARNED_GPU:	a=" S Inv Learned GPU";		break;
 #endif
 //	case ST_FWD_CFL:			a=" S Fwd CfL";				break;
 //	case ST_INV_CFL:			a=" S Inv CfL";				break;
@@ -812,6 +823,10 @@ void update_image()
 			case CT_FWD_CUSTOM:		colortransform_custom_fwd((char*)image, iw, ih);	break;
 			case CT_INV_CUSTOM:		colortransform_custom_inv((char*)image, iw, ih);	break;
 
+			case ST_PREPROC_GRAD:	preproc_grad((char*)image, iw, ih);					break;
+			case ST_PREPROC_X:		preproc_x((char*)image, iw, ih);					break;
+			case ST_PREPROC_X2:		preproc_x2((char*)image, iw, ih);					break;
+
 		//	case ST_FWD_JOINT:		pred_joint_apply((char*)image, iw, ih, jointpredparams, 1);break;
 		//	case ST_INV_JOINT:		pred_joint_apply((char*)image, iw, ih, jointpredparams, 0);break;
 		//	case ST_FWD_CFL:		pred_cfl((char*)image, iw, ih, 1);					break;
@@ -821,6 +836,8 @@ void update_image()
 				
 			case ST_FWD_CUSTOM2:	custom2_apply((char*)image, iw, ih, 1, &c2_params);	break;
 			case ST_INV_CUSTOM2:	custom2_apply((char*)image, iw, ih, 0, &c2_params);	break;
+			case ST_FWD_CUSTOM3:	custom3_apply((char*)image, iw, ih, 1, &c3_params);	break;
+			case ST_INV_CUSTOM3:	custom3_apply((char*)image, iw, ih, 0, &c3_params);	break;
 			case ST_FWD_KALMAN:		kalman_apply((char*)image, iw, ih, 1);				break;
 			case ST_INV_KALMAN:		kalman_apply((char*)image, iw, ih, 0);				break;
 		//	case ST_FWD_CUSTOM2:	pred_custom2_apply((char*)image, iw, ih, 1);		break;
@@ -830,8 +847,8 @@ void update_image()
 			case ST_FWD_LEARNED:	pred_learned_v4((char*)image, iw, ih, 1);			break;
 			case ST_INV_LEARNED:	pred_learned_v4((char*)image, iw, ih, 0);			break;
 #ifdef ALLOW_OPENCL
-			case ST_FWD_LEARNED_GPU:pred_learned_gpu((char*)image, iw, ih, 1);			break;
-			case ST_INV_LEARNED_GPU:pred_learned_gpu((char*)image, iw, ih, 0);			break;
+		//	case ST_FWD_LEARNED_GPU:pred_learned_gpu((char*)image, iw, ih, 1);			break;
+		//	case ST_INV_LEARNED_GPU:pred_learned_gpu((char*)image, iw, ih, 0);			break;
 #endif
 		//	case ST_FWD_DIFF2D:		pred_diff2d_fwd((char*)image, iw, ih, 3, 4);		break;
 		//	case ST_INV_DIFF2D:		pred_diff2d_inv((char*)image, iw, ih, 3, 4);		break;
@@ -1800,7 +1817,7 @@ int parse_nvals(ArrayHandle text, int idx, short *params, int count)
 	}
 	return idx;
 }
-static void append_i16_row(ArrayHandle *str, short *vals, int count)
+static void append_i16_row(ArrayHandle *str, const short *vals, int count)
 {
 	for(int k=0;k<count;++k)
 	{
@@ -2112,6 +2129,8 @@ toggle_drag:
 			"Ctrl E:\t\tReset custom transform parameters\n"
 			"[ ]:\t\t(Custom transforms) Select coefficient page\n"
 			"Space:\t\t(Custom transforms) Optimize\n"
+			"Shift space:\t(Custom transforms) Optimize blockwise\n"
+			//"Ctrl Space\t(Custom transforms) Reset params\n"
 			"H:\t\tReset CR history graph\n"
 			"Ctrl C:\t\tCopy data\n"
 			"Ctrl V:\t\tPaste data\n"
@@ -2253,6 +2272,30 @@ toggle_drag:
 					append_i16_row(&str, c2_params.c2+k*12+10, 2);
 				}
 				append_i16_row(&str, c2_params.c2+6*12, 4);
+			}
+			else if(transforms_mask[ST_FWD_CUSTOM3]||transforms_mask[ST_INV_CUSTOM3])
+			{
+				const int width=C3_REACH<<2|2;//interleaved pixels & errors
+				const short *coeffs[]=
+				{
+					c3_params.c00, c3_params.c01, c3_params.c02,
+					c3_params.c10, c3_params.c11, c3_params.c12,
+					c3_params.c20, c3_params.c21, c3_params.c22,
+				};
+				const int tails[]=
+				{
+					C3_REACH<<1,      C3_REACH<<1,    C3_REACH<<1,
+					(C3_REACH<<1)+2,  C3_REACH<<1,    C3_REACH<<1,
+					(C3_REACH<<1)+2, (C3_REACH<<1)+2, C3_REACH<<1,
+				};
+				for(int kc=0;kc<9;++kc)
+				{
+					for(int k=0;k<C3_REACH;++k)
+						append_i16_row(&str, coeffs[kc]+width*k, width);
+					append_i16_row(&str, coeffs[kc]+width*C3_REACH, tails[kc]);
+					if(kc+1<9)
+						str_append(&str, "\n");
+				}
 			}
 			else if(transforms_mask[ST_FWD_JXL]||transforms_mask[ST_INV_JXL])
 			{
@@ -2399,7 +2442,11 @@ toggle_drag:
 #endif
 				if(transforms_mask[ST_FWD_CUSTOM2]||transforms_mask[ST_INV_CUSTOM2])
 				{
-					parse_nvals(text, idx, (short*)&c2_params, _countof(c2_params.c0)+_countof(c2_params.c1)+_countof(c2_params.c2));
+					parse_nvals(text, idx, (short*)&c2_params, sizeof(c2_params)/sizeof(short));
+				}
+				else if(transforms_mask[ST_FWD_CUSTOM3]||transforms_mask[ST_INV_CUSTOM3])
+				{
+					parse_nvals(text, idx, (short*)&c3_params, sizeof(c3_params)/sizeof(short));
 				}
 				else if(transforms_mask[ST_FWD_JXL]||transforms_mask[ST_INV_JXL])
 				{
@@ -2621,7 +2668,8 @@ toggle_drag:
 			else if(transforms_mask[ST_FWD_CUSTOM2]||transforms_mask[ST_INV_CUSTOM2])
 			{
 				if(GET_KEY_STATE(KEY_CTRL))
-					memset(&c2_params, 0, sizeof(c2_params));
+					custom2_opt_batch(&c2_params);
+					//memset(&c2_params, 0, sizeof(c2_params));
 				else
 				{
 					int res=iw*ih;
@@ -2633,8 +2681,64 @@ toggle_drag:
 					}
 					memcpy(buf2, im0, (size_t)res<<2);
 					addhalf((unsigned char*)buf2, iw, ih, 3, 4);
-					//colortransform_ycocb_fwd(buf2, iw, ih);
-					custom2_opt(buf2, iw, ih, &c2_params);
+					colortransform_ycocb_fwd(buf2, iw, ih);//
+					//pred_grad_fwd(buf2, iw, ih, 3, 4);//
+
+					if(GET_KEY_STATE(KEY_SHIFT))
+						custom2_opt_blocks(buf2, iw, ih, &c2_params);
+					else
+					{
+						int maskbits=10;
+							 if(keyboard[KEY_1])maskbits=1;
+						else if(keyboard[KEY_2])maskbits=2;
+						else if(keyboard[KEY_3])maskbits=3;
+						else if(keyboard[KEY_4])maskbits=4;
+						else if(keyboard[KEY_5])maskbits=5;
+						else if(keyboard[KEY_6])maskbits=6;
+						else if(keyboard[KEY_7])maskbits=7;
+						else if(keyboard[KEY_8])maskbits=8;
+						else if(keyboard[KEY_9])maskbits=9;
+						custom2_opt(buf2, iw, ih, &c2_params, 0, maskbits, 1, 0);
+					}
+
+					free(buf2);
+				}
+				update_image();
+			}
+			else if(transforms_mask[ST_FWD_CUSTOM3]||transforms_mask[ST_INV_CUSTOM3])
+			{
+				int maskbits=10;
+					 if(keyboard[KEY_1])maskbits=1;
+				else if(keyboard[KEY_2])maskbits=2;
+				else if(keyboard[KEY_3])maskbits=3;
+				else if(keyboard[KEY_4])maskbits=4;
+				else if(keyboard[KEY_5])maskbits=5;
+				else if(keyboard[KEY_6])maskbits=6;
+				else if(keyboard[KEY_7])maskbits=7;
+				else if(keyboard[KEY_8])maskbits=8;
+				else if(keyboard[KEY_9])maskbits=9;
+				if(GET_KEY_STATE(KEY_CTRL))
+					custom3_opt_batch(&c3_params, 0, maskbits, 1, 0);
+				else
+				{
+					int res=iw*ih;
+					char *buf2=(char*)malloc((size_t)res<<2);
+					if(!buf2)
+					{
+						LOG_ERROR("Allocation error");
+						return 0;
+					}
+					memcpy(buf2, im0, (size_t)res<<2);
+					addhalf((unsigned char*)buf2, iw, ih, 3, 4);
+					colortransform_ycocb_fwd(buf2, iw, ih);//
+					//pred_grad_fwd(buf2, iw, ih, 3, 4);//
+#ifdef ALLOW_OPENCL
+					if(GET_KEY_STATE(KEY_SHIFT))
+						custom3_opt_gpu(buf2, iw, ih, &c3_params, 0, maskbits, 1);
+					else
+#endif
+						custom3_opt(buf2, iw, ih, &c3_params, 0, maskbits, 1, 0);
+
 					free(buf2);
 				}
 				update_image();
@@ -2833,7 +2937,7 @@ void io_timer()
 		if(keyboard[KEY_BKSP])	cam_zoomOut(cam, 1.1f);
 	}
 }
-void print_i16s(float x, float y, float zoom, const short *row, int count)
+float print_i16_row(float x, float y, float zoom, const short *row, int count)
 {
 	int printed=0;
 	for(int k=0;k<count;++k)
@@ -2841,7 +2945,7 @@ void print_i16s(float x, float y, float zoom, const short *row, int count)
 		short val=row[k];
 		printed+=snprintf(g_buf+printed, G_BUF_SIZE-printed, " %c%4X", val<0?'-':' ', abs(val));
 	}
-	print_line(0, x, y, zoom, g_buf, printed, -1, 0, 0);
+	return print_line(0, x, y, zoom, g_buf, printed, -1, 0, 0);
 }
 void io_render()
 {
@@ -3191,14 +3295,14 @@ void io_render()
 		}
 		for(int ky=0;ky<LOGIC_NF0;++ky)
 		{
-			print_i16s(x, y, 1, params, LOGIC_ROWPARAMS);
+			print_i16_row(x, y, 1, params, LOGIC_ROWPARAMS);
 			y+=tdy;
 			params+=LOGIC_ROWPARAMS;
 		}
 #ifdef LOGIC_NF1
-		print_i16s(x, y, 1, params, LOGIC_NF1);
+		print_i16_row(x, y, 1, params, LOGIC_NF1);
 #else
-		print_i16s(x, y, 1, params, LOGIC_NF0);
+		print_i16_row(x, y, 1, params, LOGIC_NF0);
 #endif
 		if(info[0]>=0&&ghMutex)
 		{
@@ -3214,9 +3318,9 @@ void io_render()
 		x=buttons[5].x1;
 		y=buttons[5].y1;
 
-		print_i16s(x, y, 1, jxlparams_i16   , 11);	y+=tdy;
-		print_i16s(x, y, 1, jxlparams_i16+11, 11);	y+=tdy;
-		print_i16s(x, y, 1, jxlparams_i16+22, 11);
+		print_i16_row(x, y, 1, jxlparams_i16   , 11);	y+=tdy;
+		print_i16_row(x, y, 1, jxlparams_i16+11, 11);	y+=tdy;
+		print_i16_row(x, y, 1, jxlparams_i16+22, 11);
 	}
 	else if(transforms_mask[ST_FWD_MM]||transforms_mask[ST_INV_MM])
 	{
@@ -3224,9 +3328,9 @@ void io_render()
 		
 		x=0;
 		y=buttons[5].y1;
-		print_i16s(x, y, 1, pw2_params             , PW2_NPARAM);	y+=tdy;
-		print_i16s(x, y, 1, pw2_params+PW2_NPARAM  , PW2_NPARAM);	y+=tdy;
-		print_i16s(x, y, 1, pw2_params+PW2_NPARAM*2, PW2_NPARAM);
+		print_i16_row(x, y, 1, pw2_params             , PW2_NPARAM);	y+=tdy;
+		print_i16_row(x, y, 1, pw2_params+PW2_NPARAM  , PW2_NPARAM);	y+=tdy;
+		print_i16_row(x, y, 1, pw2_params+PW2_NPARAM*2, PW2_NPARAM);
 	}
 #if 0
 	else if(transforms_mask[ST_FWD_JOINT]||transforms_mask[ST_INV_JOINT])
@@ -3458,6 +3562,14 @@ void io_render()
 
 		//grad2 info
 #if 1
+		if(transforms_mask[ST_PREPROC_GRAD]||transforms_mask[ST_PREPROC_X2])
+		{
+			extern double lossygrad_rmse[3], lossygrad_psnr[3];
+			x=(float)(w>>1);
+			y=(float)(h>>1);
+			GUIPrint(0, x, y, 1, "RMSE RGB %14lf %14lf %14lf", lossygrad_rmse[0], lossygrad_rmse[1], lossygrad_rmse[2]); y+=tdy;
+			GUIPrint(0, x, y, 1, "PSNR RGB %14lf %14lf %14lf", lossygrad_psnr[0], lossygrad_psnr[1], lossygrad_psnr[2]);
+		}
 		if(transforms_mask[ST_FWD_CUSTOM2]||transforms_mask[ST_INV_CUSTOM2])
 		{
 			float width=300.f, zoom=1, ystart=tdy*zoom*3;
@@ -3466,9 +3578,9 @@ void io_render()
 			y=ystart;
 			for(int k=0;k<6;++k)
 			{
-				print_i16s(x, y, zoom, c2_params.c0+k*12, 5);		y+=tdy*zoom;
-				print_i16s(x, y, zoom, c2_params.c0+k*12+5, 5);		y+=tdy*zoom;
-				print_i16s(x, y, zoom, c2_params.c0+k*12+10, 2);	y+=tdy*zoom;
+				print_i16_row(x, y, zoom, c2_params.c0+k*12, 5);		y+=tdy*zoom;
+				print_i16_row(x, y, zoom, c2_params.c0+k*12+5, 5);		y+=tdy*zoom;
+				print_i16_row(x, y, zoom, c2_params.c0+k*12+10, 2);	y+=tdy*zoom;
 				y+=tdy*zoom;
 			}
 
@@ -3476,23 +3588,52 @@ void io_render()
 			y=ystart;
 			for(int k=0;k<6;++k)
 			{
-				print_i16s(x, y, zoom, c2_params.c1+k*12, 5);		y+=tdy*zoom;
-				print_i16s(x, y, zoom, c2_params.c1+k*12+5, 5);		y+=tdy*zoom;
-				print_i16s(x, y, zoom, c2_params.c1+k*12+10, 2);	y+=tdy*zoom;
+				print_i16_row(x, y, zoom, c2_params.c1+k*12, 5);		y+=tdy*zoom;
+				print_i16_row(x, y, zoom, c2_params.c1+k*12+5, 5);		y+=tdy*zoom;
+				print_i16_row(x, y, zoom, c2_params.c1+k*12+10, 2);	y+=tdy*zoom;
 				y+=tdy*zoom;
 			}
-			print_i16s(x, y, zoom, c2_params.c1+6*12, 2);		y+=tdy*zoom;
+			print_i16_row(x, y, zoom, c2_params.c1+6*12, 2);		y+=tdy*zoom;
 			
 			x+=width;
 			y=ystart;
 			for(int k=0;k<6;++k)
 			{
-				print_i16s(x, y, zoom, c2_params.c2+k*12, 5);		y+=tdy*zoom;
-				print_i16s(x, y, zoom, c2_params.c2+k*12+5, 5);		y+=tdy*zoom;
-				print_i16s(x, y, zoom, c2_params.c2+k*12+10, 2);	y+=tdy*zoom;
+				print_i16_row(x, y, zoom, c2_params.c2+k*12, 5);		y+=tdy*zoom;
+				print_i16_row(x, y, zoom, c2_params.c2+k*12+5, 5);		y+=tdy*zoom;
+				print_i16_row(x, y, zoom, c2_params.c2+k*12+10, 2);	y+=tdy*zoom;
 				y+=tdy*zoom;
 			}
-			print_i16s(x, y, zoom, c2_params.c2+6*12, 4);		y+=tdy*zoom;
+			print_i16_row(x, y, zoom, c2_params.c2+6*12, 4);		y+=tdy*zoom;
+		}
+		else if(transforms_mask[ST_FWD_CUSTOM3]||transforms_mask[ST_INV_CUSTOM3])
+		{
+			const int width=C3_REACH<<2|2;
+			const short *coeffs[]=
+			{
+				c3_params.c00, c3_params.c01, c3_params.c02,
+				c3_params.c10, c3_params.c11, c3_params.c12,
+				c3_params.c20, c3_params.c21, c3_params.c22,
+			};
+			const int tails[]=
+			{
+				 C3_REACH<<1,     C3_REACH<<1,    C3_REACH<<1,
+				(C3_REACH<<1)+2,  C3_REACH<<1,    C3_REACH<<1,
+				(C3_REACH<<1)+2, (C3_REACH<<1)+2, C3_REACH<<1,
+			};
+			float zoom=0.75, ystart=tdy*zoom*4;
+			x=(float)(w>>1);
+			y=ystart;
+			for(int kc=0;kc<9;++kc)
+			{
+				for(int k=0;k<C3_REACH;++k)
+				{
+					print_i16_row(x, y, zoom, coeffs[kc]+width*k, width);
+					y+=tdy*zoom;
+				}
+				print_i16_row(x, y, zoom, coeffs[kc]+width*C3_REACH, tails[kc]);
+				y+=tdy*zoom*2;
+			}
 		}
 		else if(transforms_mask[ST_FWD_MM]||transforms_mask[ST_INV_MM])
 		{

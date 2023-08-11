@@ -133,7 +133,8 @@ const char*		clerr2str(int error)
 #define CHECKCL(E) (!(E)||LOG_ERROR("CL Error %s", clerr2str(E)))
 
 
-#define CLKERNELNALELIST CLKERNEL(train) CLKERNEL(update) CLKERNEL(predict)
+#define CLKERNELNALELIST CLKERNEL(custom3_eval)
+//#define CLKERNELNALELIST CLKERNEL(train) CLKERNEL(update) CLKERNEL(predict)
 
 typedef enum		CLKernelIdxEnum
 {
@@ -218,12 +219,13 @@ int init_ocl()
 
 	//build kernels
 	{
-		ArrayHandle srctext=load_file("cl_kernels.h", 0, 0, 0);
+		ArrayHandle srctext=load_file("cl_kernels2.h", 0, 0, 0);
 		if(!srctext)
-			srctext=load_file("E:/C/pxView3D/pxView3D/cl_kernels.h", 0, 0, 0);
+			srctext=load_file("C:/Projects/pxView3D/pxView3D/cl_kernels2.h", 0, 0, 0);
+			//srctext=load_file("E:/C/pxView3D/pxView3D/cl_kernels.h", 0, 0, 0);
 		if(!srctext)
 		{
-			LOG_ERROR("Cannot open cl_kernels.h");
+			LOG_ERROR("Cannot open cl_kernels2.h");
 			return 0;
 		}
 		const char *k_src=(const char*)srctext->data;
@@ -267,6 +269,7 @@ int init_ocl()
 }
 
 
+#if 0
 //SYNC THIS WITH CL_KERNELS.H:
 
 //	#define ZIGZAG_TRAVERSAL
@@ -544,5 +547,116 @@ int main(int argc, char **argv)
 	pause();
 	return 0;
 }
+#endif//ENABLE_CONSOLE_MAIN_TEST
 #endif
+
+
+//GPU training for CUSTOM3
+#if 1
+#define C3_NTHREADS 4
+
+static short c3_allparams[C3_NTHREADS*C3_NPARAMS];
+static float c3_invCRs[C3_NTHREADS*3];
+void custom3_opt_gpu(const char *src, int iw, int ih, Custom3Params *srcparams, int niter, int maskbits, int loud)
+{
+	static int call_idx=0;
+	++call_idx;
+	double t_start=time_ms();
+	int res=iw*ih;
+	if(!init_ocl())
+		return;
+	
+	int error=0;
+	cl_mem gpu_indices=clCreateBuffer(context, CL_MEM_READ_ONLY, 3*sizeof(int), 0, &error); CHECKCL(error);
+	cl_mem gpu_params=clCreateBuffer(context, CL_MEM_READ_ONLY, C3_NTHREADS*C3_NPARAMS*sizeof(short), 0, &error); CHECKCL(error);
+	cl_mem gpu_pixels=clCreateBuffer(context, CL_MEM_READ_ONLY, res*4*sizeof(char), 0, &error); CHECKCL(error);
+	cl_mem gpu_allerrors=clCreateBuffer(context, CL_MEM_READ_WRITE, C3_NTHREADS*(C3_REACH+1)*iw*sizeof(char), 0, &error); CHECKCL(error);
+	cl_mem gpu_neighbors=clCreateBuffer(context, CL_MEM_READ_WRITE, (C3_NNB+2)*sizeof(short), 0, &error); CHECKCL(error);
+	cl_mem gpu_histograms=clCreateBuffer(context, CL_MEM_READ_WRITE, C3_NTHREADS*768*sizeof(int), 0, &error); CHECKCL(error);
+	cl_mem gpu_invCRs=clCreateBuffer(context, CL_MEM_WRITE_ONLY, C3_NTHREADS*3*sizeof(float), 0, &error); CHECKCL(error);
+	if(!gpu_indices||!gpu_params||!gpu_pixels||!gpu_allerrors||!gpu_neighbors||!gpu_histograms||!gpu_invCRs)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	if(call_idx==1)
+	{
+		short *p0=(short*)srcparams;
+		int sum=0;
+		for(int k=0;k<C3_NPARAMS;++k)
+			sum+=abs(p0[k]);
+		if(!sum)//randomize if starting from all zeros
+		{
+			for(int k=0;k<C3_NPARAMS;++k)
+				p0[k]=(rand()&0x1F)-0x10;
+		}
+	}
+	memfill(c3_allparams, srcparams, C3_NTHREADS*C3_NPARAMS*sizeof(short), C3_NPARAMS*sizeof(short));
+
+	int indices[]={C3_REACH, iw, ih};
+	error=clEnqueueWriteBuffer(commandqueue, gpu_indices, CL_FALSE, 0, 3*sizeof(int), indices, 0, 0, 0); CHECKCL(error);
+	error=clEnqueueWriteBuffer(commandqueue, gpu_pixels, CL_FALSE, 0, res*4*sizeof(char), src, 0, 0, 0); CHECKCL(error);
+
+	error=clSetKernelArg(kernels[OCL_custom3_eval], 0, sizeof(cl_mem), &gpu_indices);
+	error=clSetKernelArg(kernels[OCL_custom3_eval], 1, sizeof(cl_mem), &gpu_params);
+	error=clSetKernelArg(kernels[OCL_custom3_eval], 2, sizeof(cl_mem), &gpu_pixels);
+	error=clSetKernelArg(kernels[OCL_custom3_eval], 3, sizeof(cl_mem), &gpu_allerrors);
+	error=clSetKernelArg(kernels[OCL_custom3_eval], 4, sizeof(cl_mem), &gpu_neighbors);
+	error=clSetKernelArg(kernels[OCL_custom3_eval], 5, sizeof(cl_mem), &gpu_histograms);
+	error=clSetKernelArg(kernels[OCL_custom3_eval], 6, sizeof(cl_mem), &gpu_invCRs);
+	
+	if(!niter)
+		niter=C3_NPARAMS*10;
+	if(loud)
+		srand((unsigned)__rdtsc());//
+	for(int it=0;it<niter;++it)
+	{
+		int idx=it%C3_NPARAMS;
+		int delta[C3_NTHREADS];
+		for(int k=0;k<C3_NTHREADS;++k)
+			delta[k]=(rand()&((1<<maskbits)-1))-(1<<(maskbits-1));
+		if(!it)
+			delta[0]=0;
+
+		for(int k=!it;k<C3_NTHREADS;++k)
+			c3_allparams[C3_NPARAMS*k+idx]+=delta[k];
+		error=clEnqueueWriteBuffer(commandqueue, gpu_params, CL_FALSE, 0, C3_NTHREADS*C3_NPARAMS*sizeof(short), c3_allparams, 0, 0, 0); CHECKCL(error);
+		error=clFlush(commandqueue);	CHECKCL(error);
+		error=clFinish(commandqueue);	CHECKCL(error);
+
+		size_t globalsize=C3_NTHREADS;
+		error=clEnqueueNDRangeKernel(commandqueue, kernels[OCL_custom3_eval], 1, 0, &globalsize, 0, 0, 0, 0);	CHECKCL(error);
+		error=clFlush(commandqueue);	CHECKCL(error);
+		error=clFinish(commandqueue);	CHECKCL(error);
+
+		error=clEnqueueReadBuffer(commandqueue, gpu_invCRs, CL_TRUE, 0, C3_NTHREADS*3*sizeof(float), c3_invCRs, 0, 0, 0);
+		int bestidx=0;
+		float bestloss=c3_invCRs[0]+c3_invCRs[1]+c3_invCRs[2];
+		for(int k=1;k<C3_NTHREADS;++k)//select best params
+		{
+			float loss=c3_invCRs[3*k]+c3_invCRs[3*k+1]+c3_invCRs[3*k+2];
+			if(bestloss>loss)
+				bestloss=loss, bestidx=k;
+		}
+		if(bestidx)//populate best params
+			memfill(c3_allparams, c3_allparams+C3_NPARAMS*bestidx, bestidx*C3_NPARAMS*sizeof(short), C3_NPARAMS*sizeof(short));
+		if(bestidx<C3_NTHREADS-1)
+			memfill(c3_allparams+C3_NPARAMS, c3_allparams+C3_NPARAMS*bestidx, (C3_NTHREADS-1-bestidx)*C3_NPARAMS*sizeof(short), C3_NPARAMS*sizeof(short));
+
+		if(loud)
+			set_window_title("%4d/%4d: TRGB %lf  %lf %lf %lf  %d", it+1, niter, 3/bestloss, 1/c3_invCRs[3*bestidx], 1/c3_invCRs[3*bestidx+1], 1/c3_invCRs[3*bestidx+2], call_idx);
+	}
+	memcpy(srcparams, c3_allparams, sizeof(*srcparams));
+
+	error=clReleaseMemObject(gpu_indices); CHECKCL(error);
+	error=clReleaseMemObject(gpu_params); CHECKCL(error);
+	error=clReleaseMemObject(gpu_pixels); CHECKCL(error);
+	error=clReleaseMemObject(gpu_allerrors); CHECKCL(error);
+	error=clReleaseMemObject(gpu_neighbors); CHECKCL(error);
+	error=clReleaseMemObject(gpu_histograms); CHECKCL(error);
+	error=clReleaseMemObject(gpu_invCRs); CHECKCL(error);
+}
 #endif
+
+
+#endif//ALLOW_OPENCL

@@ -370,7 +370,7 @@ int sys_check(const char *file, int line, const char *info)
 
 static int format_utf8_message(const char *title, const char *format, char *args)//returns idx of title in g_wbuf
 {
-	int len=vsprintf_s(g_buf, G_BUF_SIZE, format, args);
+	int len=vsnprintf(g_buf, G_BUF_SIZE, format, args);
 	len=MultiByteToWideChar(CP_UTF8, 0, g_buf, len, g_wbuf, G_BUF_SIZE);	SYS_ASSERT(len);
 	g_wbuf[len]='\0';
 	++len;

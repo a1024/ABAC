@@ -616,6 +616,10 @@ extern float ch_cr[4];
 void update_image();
 
 //transforms
+void preproc_grad(char *src, int iw, int ih);
+void preproc_x(char *src, int iw, int ih);
+void preproc_x2(char *src, int iw, int ih);
+
 extern int customparam_sel;
 extern int const customparam_ct_w, customparam_ct_h, customparam_st_reach;
 //extern double const customparam_ct0[12], customparam_st0[12];
@@ -637,16 +641,36 @@ void kalman_apply(char *src, int iw, int ih, int fwd);
 
 
 #define C2_REACH 2	//changing this requires updating the GUI and copy text formatting
+#define C2_NNB (C2_REACH*(C2_REACH+1)*2*6)
 typedef struct Custom2ParamsStruct
 {
-	short c0[C2_REACH*(C2_REACH+1)*2*6];//fixed 1.14 bit
-	short c1[C2_REACH*(C2_REACH+1)*2*6+2];
-	short c2[C2_REACH*(C2_REACH+1)*2*6+4];
+	short c0[C2_NNB];//fixed 1.14 bit
+	short c1[C2_NNB+2];
+	short c2[C2_NNB+4];
 } Custom2Params;
 extern Custom2Params c2_params;
 //void pred_custom2_apply(char *src, int iw, int ih, int fwd);
 void custom2_apply(char *src, int iw, int ih, int fwd, Custom2Params const *params);
-void custom2_opt(char *src, int iw, int ih, Custom2Params *srcparams);
+void custom2_opt(const char *src, int iw, int ih, Custom2Params *srcparams, int niter, int maskbits, int loud, double *loss);
+void custom2_opt_blocks(const char *src, int iw, int ih, Custom2Params *srcparams);
+void custom2_opt_batch(Custom2Params *srcparams);
+
+
+//CUSTOM3
+#define C3_REACH 4
+#define C3_NNB (C3_REACH*(C3_REACH+1)*4)
+#define C3_NPARAMS (C3_NNB*9+6)
+typedef struct Custom3ParamsStruct
+{
+	short c00[C3_NNB  ], c01[C3_NNB  ], c02[C3_NNB];//fixed 1.14 bit
+	short c10[C3_NNB+2], c11[C3_NNB  ], c12[C3_NNB];
+	short c20[C3_NNB+2], c21[C3_NNB+2], c22[C3_NNB];
+} Custom3Params;
+extern Custom3Params c3_params;
+void custom3_apply(char *src, int iw, int ih, int fwd, Custom3Params const *params);
+void custom3_opt(const char *src, int iw, int ih, Custom3Params *srcparams, int niter, int maskbits, int loud, double *loss);
+void custom3_opt_batch(Custom3Params *srcparams, int niter, int maskbits, int loud, double *loss);
+void custom3_opt_gpu(const char *src, int iw, int ih, Custom3Params *srcparams, int niter, int maskbits, int loud);
 
 
 void pred_slope_fwd(char *buf, int iw, int ih, int nch, int bytestride);

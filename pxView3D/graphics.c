@@ -872,7 +872,7 @@ float print_line(float tab_origin, float x, float y, float zoom, const char *msg
 {
 	if(msg_length<1)
 		return 0;
-	float rect[4]={0};
+	float rect[4]={0};//{x1, y1, x2, y2}
 	QuadCoords *txc=0, *atlas=sdf_active?sdf_glyph_coords:font_coords;
 	//if(sdf_active)
 	//	zoom*=16.f/sdf_txh;
@@ -882,8 +882,8 @@ float print_line(float tab_origin, float x, float y, float zoom, const char *msg
 		return 0;//no need to do anything, this line is outside the screen
 	//	return idx2col(msg, msg_length, (int)(tab_origin/width))*width;
 	float CX1=2.f/rdx, CX0=CX1*(x-rx0)-1;//delta optimization
-	rect[1]=1-(y-ry0)*2.f/rdy;
-	rect[3]=1-(y+height-ry0)*2.f/rdy;
+	rect[1]=1-(y       -ry0)*2.f/rdy;//y1
+	rect[3]=1-(y+height-ry0)*2.f/rdy;//y2
 	vrtx_resize(msg_length<<2, 4);//vx, vy, txx, txy		x4 vertices/char
 	int k=ret_idx?*ret_idx:0;
 	if(req_cols<0||cursor_cols<req_cols)

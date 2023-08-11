@@ -6,6 +6,7 @@
 #include<process.h>
 #include"intercept_malloc.h"
 #include"lodepng.h"//
+#include<immintrin.h>
 static const char file[]=__FILE__;
 
 void addhalf(unsigned char *buf, int iw, int ih, int nch, int bytestride)
@@ -1238,6 +1239,473 @@ void pred_cfl(char *buf, int iw, int ih, int fwd)
 //spatial transforms
 
 
+double lossygrad_rmse[3]={0}, lossygrad_psnr[3]={0};
+void preproc_grad(char *src, int iw, int ih)
+{
+	memset(lossygrad_rmse, 0, sizeof(lossygrad_rmse));
+	memset(lossygrad_psnr, 0, sizeof(lossygrad_psnr));
+	int res=iw*ih;
+	char *dst=(char*)malloc((size_t)res<<2);
+	if(!dst)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	memcpy(dst, src, (size_t)res<<2);//copy alpha
+	long long MSE[3]={0};
+	for(int kc=0;kc<3;++kc)
+	{
+		for(int ky=0;ky<ih;++ky)
+		{
+			for(int kx=0;kx<iw;++kx)
+			{
+#define LOAD(BUF, X, Y) (unsigned)(kx+(X))<(unsigned)iw&&(unsigned)(ky+(Y))<(unsigned)ih?BUF[(iw*(ky+(Y))+kx+(X))<<2|kc]:0
+
+				//calc sdev
+				int sdev=0;
+				int idx=(iw*ky+kx)<<2|kc;
+				int curr=src[idx];
+				char vals[]=
+				{
+					LOAD(src,  0, -1),
+					LOAD(src, -1,  0),
+					LOAD(src, -1, -1),
+					curr
+				};
+				int mean=0;
+				for(int k=0;k<_countof(vals);++k)
+					mean+=vals[k];
+				mean>>=2;
+				for(int k=0;k<_countof(vals);++k)
+				{
+					int dev=vals[k]-mean;
+					sdev+=dev*dev;
+				}
+				sdev/=3;
+				sdev=(int)round(sqrt(sdev));
+
+				int tolerance=sdev;//tolerance is proportional to sdev of neighborhood
+				if(tolerance>4)
+					tolerance=4;
+				
+				if(kx==(iw>>1)&&ky==(ih>>1))//
+					printf("");
+				
+				//calc pred
+				char
+					N =LOAD(dst,  0, -1),
+					W =LOAD(dst, -1,  0),
+					NW=LOAD(dst, -1, -1);
+				char vmin, vmax;
+				if(N<W)
+					vmin=N, vmax=W;
+				else
+					vmin=W, vmax=N;
+				int pred=N+W-NW;
+				pred=CLAMP(vmin, pred, vmax);
+
+				//select quantization
+				int delta=curr-pred, qdelta, recon;
+				int kb=8;
+				do//{7, ...1} because bit 0 can't be quantized
+				{
+					--kb;
+
+					//quantize
+					qdelta=delta+(1<<(kb-1));//add half
+					qdelta>>=kb;
+					qdelta<<=kb;
+					//qdelta&=~((1<<kb)-1);
+
+					recon=pred+qdelta;
+					if(recon<-128||recon>127)
+						continue;
+				}while(abs(curr-recon)>tolerance&&kb>=1);
+				qdelta=delta;
+				if(kb>0)
+				{
+					qdelta+=(1<<(kb-1));//add half
+					qdelta>>=kb;
+					qdelta<<=kb;
+				}
+				recon=pred+qdelta;
+				recon=CLAMP(-128, recon, 127);
+				//if(recon<-128||recon>127)
+				//	LOG_ERROR("Overflow");
+
+				int error=curr-recon;
+				MSE[kc]+=error*error;
+
+				dst[idx]=recon;
+#undef  LOAD
+			}
+		}
+		lossygrad_rmse[kc]=sqrt((double)MSE[kc]/res);//RMSE is the Euclidean distance (l2 norm)
+		lossygrad_psnr[kc]=20*log10(255/lossygrad_rmse[kc]);
+	}
+	memcpy(src, dst, (size_t)res<<2);
+	free(dst);
+}
+
+#define X_BLOCKSIZE 3
+void preproc_x(char *src, int iw, int ih)//https://github.com/Equationist/xpng/blob/master/main.c
+{
+	int res=iw*ih;
+	unsigned char *noise=(unsigned char*)malloc((size_t)res<<2);
+	int *freq=(int*)malloc(768*sizeof(int));
+	char *dst=(char*)malloc((size_t)res<<2);
+	char *diff=(char*)malloc((size_t)res<<2);
+	if(!noise||!freq||!dst||!diff)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	for(int kc=0;kc<3;++kc)//calc noise
+	{
+		for(int ky=0;ky<ih;++ky)
+		{
+			for(int kx=0;kx<iw;++kx)
+			{
+				int n=0;
+				long long x=0, x2=0;
+				for(int ky2=ky-X_BLOCKSIZE/2;ky2<=ky+X_BLOCKSIZE/2;++ky2)
+				{
+					if((unsigned)ky2<(unsigned)ih)
+					{
+						for(int kx2=ky-X_BLOCKSIZE/2;kx2<=kx+X_BLOCKSIZE/2;++kx2)
+						{
+							if((unsigned)kx2<(unsigned)iw)
+							{
+								char px=src[(iw*ky2+kx2)<<2|kc];
+								x+=px;
+								x2+=px*px;
+								++n;
+							}
+						}
+					}
+				}
+				noise[(iw*ky+kx)<<2|kc]=(int)round(sqrt((double)(x2-x*x)/n));
+			}
+		}
+	}
+
+	for(int step=1;step<=128;step<<=1)//set preference levels
+	{
+		for(int k=-128;k<128;k+=step)
+			freq[(unsigned char)k]=step;
+	}
+	memfill(freq+256, freq, 512*sizeof(int), 256*sizeof(int));
+	
+	memcpy(dst, src, (size_t)res<<2);//copy alpha
+
+	const int clevel=6;//0~40
+	for(int kc=0;kc<3;++kc)
+	{
+		for(int ky=0;ky<ih;++ky)
+		{
+			//long long refdist=1;
+			for(int kx=0;kx<iw;++kx)
+			{
+#define LOAD(BUF, X, Y) (unsigned)(kx+(X))<(unsigned)iw&&(unsigned)(ky+(Y))<(unsigned)ih?BUF[(iw*(ky+(Y))+kx+(X))<<2|kc]:0
+				char
+					N =LOAD(dst,  0, -1),
+					W =LOAD(dst, -1,  0),
+					NW=LOAD(dst, -1, -1);
+				char vmin, vmax;
+				if(N<W)
+					vmin=N, vmax=W;
+				else
+					vmin=W, vmax=N;
+				int pred=N+W-NW;
+				pred=CLAMP(vmin, pred, vmax);
+				pred+=128;
+#undef  LOAD
+				int idx=(iw*ky+kx)<<2|kc;
+				int curr=src[idx];
+				curr+=128;
+
+				int tolerance=clevel+noise[idx]*clevel/(10+clevel);
+
+				int ltarget=0, rtarget=255;
+				if(tolerance<curr)
+					ltarget=curr-tolerance;
+				if(curr<255-tolerance)
+					rtarget=curr+tolerance;
+
+				//find best quantization within allowable tolerance
+				int approx=curr;
+				long long f=0;
+				int a=ltarget;
+				do
+				{
+					unsigned char d=a-pred;
+					//if((unsigned)(kc<<8|d)>=768)
+					//	LOG_ERROR("OOB");
+					if(freq[kc<<8|d]>f)
+					{
+						approx=a;
+						f=freq[kc<<8|d];
+					}
+				}while(a++!=rtarget);
+				diff[idx]=approx-pred;
+				dst[idx]=approx-128;
+
+				//if(abs(curr-(pred+(unsigned char)diff[idx-refdist]))<tolerance)//RLE-related
+				//{
+				//	diff[idx]=diff[idx-refdist];
+				//	dst[idx]=pred+diff[idx];
+				//	continue;
+				//}
+				//for(size_t rd=1;rd<(kx<<2|kc)&&rd<=4;++rd)
+				//{
+				//	if(abs(curr-(pred+(unsigned char)diff[idx-rd]))<tolerance)
+				//	{
+				//		refdist=rd;
+				//		diff[idx]=diff[idx-rd];
+				//		dst[idx]=pred+diff[idx];
+				//	}
+				//}
+			}
+		}
+	}
+	memcpy(src, dst, (size_t)res<<2);
+	free(noise);
+	free(freq);
+	free(dst);
+	free(diff);
+}
+
+static void x2_ycocb_fwd(char *comp)
+{
+	comp[0]-=comp[1];
+	comp[1]+=comp[0]>>1;
+	comp[2]-=comp[1];
+	comp[1]+=comp[2]>>1;
+}
+static void x2_ycocb_inv(char *comp)
+{
+	comp[1]-=comp[2]>>1;
+	comp[2]+=comp[1];
+	comp[1]-=comp[0]>>1;
+	comp[0]+=comp[1];
+}
+static int x2_grad(int N, int W, int NW)
+{
+	char vmin, vmax;
+	if(N<W)
+		vmin=N, vmax=W;
+	else
+		vmin=W, vmax=N;
+	int pred=N+W-NW;
+	pred=CLAMP(vmin, pred, vmax);
+	return pred;
+}
+void preproc_x2(char *src, int iw, int ih)//https://github.com/Equationist/xpng/blob/master/main.c
+{
+	long long MSE[3]={0};
+	memset(lossygrad_rmse, 0, sizeof(lossygrad_rmse));
+	memset(lossygrad_psnr, 0, sizeof(lossygrad_psnr));
+
+	int res=iw*ih;
+	unsigned char *noise=(unsigned char*)malloc((size_t)res<<2);
+	int *pref=(int*)malloc(256*sizeof(int));
+	char *dst=(char*)malloc((size_t)res<<2);
+	//char *diff=(char*)malloc((size_t)res<<2);
+	if(!noise||!pref||!dst)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	for(int kc=0;kc<3;++kc)//calc noise
+	{
+		for(int ky=0;ky<ih;++ky)
+		{
+			for(int kx=0;kx<iw;++kx)
+			{
+				int n=0;
+				long long x=0, x2=0;
+				for(int ky2=ky-X_BLOCKSIZE/2;ky2<=ky+X_BLOCKSIZE/2;++ky2)
+				{
+					if((unsigned)ky2<(unsigned)ih)
+					{
+						for(int kx2=ky-X_BLOCKSIZE/2;kx2<=kx+X_BLOCKSIZE/2;++kx2)
+						{
+							if((unsigned)kx2<(unsigned)iw)
+							{
+								char px=src[(iw*ky2+kx2)<<2|kc];
+								x+=px;
+								x2+=px*px;
+								++n;
+							}
+						}
+					}
+				}
+				noise[(iw*ky+kx)<<2|kc]=(int)round(sqrt((double)(x2-x*x)/n));
+			}
+		}
+	}
+
+	for(int step=1;step<=128;step<<=1)//set preference levels
+	{
+		for(int k=-128;k<128;k+=step)
+			pref[(unsigned char)k]=step;
+	}
+	
+	memcpy(dst, src, (size_t)res<<2);//copy alpha
+
+	const int clevel=24;//0~40, default 6
+	for(int ky=0;ky<ih;++ky)
+	{
+		set_window_title("%d/%d", ky+1, ih);
+		for(int kx=0;kx<iw;++kx)
+		{
+			int idx;
+			char N[3]={0}, W[3]={0}, NW[3]={0};
+			if(ky>0)
+			{
+				idx=(iw*(ky-1)+kx)<<2;
+				N[0]=dst[idx];
+				N[1]=dst[idx|1];
+				N[2]=dst[idx|2];
+				if(kx>0)
+				{
+					idx=(iw*(ky-1)+kx-1)<<2;
+					NW[0]=dst[idx];
+					NW[1]=dst[idx|1];
+					NW[2]=dst[idx|2];
+				}
+			}
+			if(kx>0)
+			{
+				idx=(iw*ky+kx-1)<<2;
+				W[0]=dst[idx];
+				W[1]=dst[idx|1];
+				W[2]=dst[idx|2];
+			}
+			x2_ycocb_fwd(N);
+			x2_ycocb_fwd(W);
+			x2_ycocb_fwd(NW);
+			int pred[]=
+			{
+				x2_grad(N[0], W[0], NW[0]),
+				x2_grad(N[1], W[1], NW[1]),
+				x2_grad(N[2], W[2], NW[2]),
+			};
+			idx=(iw*ky+kx)<<2;
+			unsigned char curr[]=
+			{
+				src[idx],
+				src[idx|1],
+				src[idx|2],
+			};
+			//unsigned char c2[]=
+			//{
+			//	src[idx],
+			//	src[idx|1],
+			//	src[idx|2],
+			//};
+			//x2_ycocb_fwd((char*)c2);
+			
+			pred[0]+=128;
+			pred[1]+=128;
+			pred[2]+=128;
+			curr[0]+=128;
+			curr[1]+=128;
+			curr[2]+=128;
+			//c2[0]+=128;
+			//c2[1]+=128;
+			//c2[2]+=128;
+
+			if(kx==(iw>>1)&&ky==(ih>>1))
+				printf("");
+
+			int ltarget[3], rtarget[3];
+			for(int kc=0;kc<3;++kc)
+			{
+				int tolerance=clevel+noise[idx|kc]*clevel/(10+clevel);
+
+				ltarget[kc]=curr[kc]-tolerance,
+				rtarget[kc]=curr[kc]+tolerance;
+				if(ltarget[kc]<  0)ltarget[kc]=  0;
+				if(rtarget[kc]>255)rtarget[kc]=255;
+			}
+
+			//find best quantization within allowable tolerance
+			unsigned char approx[]=
+			{
+				curr[0],
+				curr[1],
+				curr[2],
+			};
+			int bestscore=0;
+			for(int kr=ltarget[0];kr<=rtarget[0];++kr)
+			{
+				for(int kg=ltarget[1];kg<=rtarget[1];++kg)
+				{
+					for(int kb=ltarget[2];kb<=rtarget[2];++kb)
+					{
+						char c2[]=
+						{
+							kr-128,
+							kg-128,
+							kb-128,
+						};
+						x2_ycocb_fwd(c2);
+						unsigned char delta[]=
+						{
+							c2[0]-pred[0],
+							c2[1]-pred[1],
+							c2[2]-pred[2],
+						};
+						int score=pref[delta[0]]+pref[delta[1]]+pref[delta[2]];
+						if(bestscore<score)
+						{
+							bestscore=score;
+							approx[0]=kr;
+							approx[1]=kg;
+							approx[2]=kb;
+						}
+					}
+				}
+			}
+			curr[0]-=128;
+			curr[1]-=128;
+			curr[2]-=128;
+			approx[0]-=128;
+			approx[1]-=128;
+			approx[2]-=128;
+
+			dst[idx]=approx[0];
+			dst[idx|1]=approx[1];
+			dst[idx|2]=approx[2];
+
+			int error;
+			error=curr[0]-approx[0], MSE[0]+=error*error;
+			error=curr[1]-approx[1], MSE[1]+=error*error;
+			error=curr[2]-approx[2], MSE[2]+=error*error;
+		}
+	}
+	for(int kc=0;kc<3;++kc)
+	{
+		lossygrad_rmse[kc]=sqrt((double)MSE[kc]/res);//RMSE is the Euclidean distance (l2 norm)
+		lossygrad_psnr[kc]=20*log10(255/lossygrad_rmse[kc]);
+	}
+
+	ArrayHandle str;
+	STR_ALLOC(str, 0);
+	str_append(&str, "RMSE RGB %14lf %14lf %14lf\n", lossygrad_rmse[0], lossygrad_rmse[1], lossygrad_rmse[2]);
+	str_append(&str, "PSNR RGB %14lf %14lf %14lf\n", lossygrad_psnr[0], lossygrad_psnr[1], lossygrad_psnr[2]);
+	copy_to_clipboard((char*)str->data, (int)str->count);
+	array_free(&str);
+
+	memcpy(src, dst, (size_t)res<<2);
+	free(noise);
+	free(pref);
+	free(dst);
+	//free(diff);
+}
+
+
 typedef struct KalmanInfoStruct
 {
 	double R, H, Q, P, Uhat, K;
@@ -2153,7 +2621,7 @@ unsigned __stdcall logic_opt_thread(LogicThreadInfo *info)//Nelder-Mead optimize
 	int res=info->iw*info->ih;
 	const int nv=LOGIC_PARAMS_PER_CH, np=LOGIC_PARAMS_PER_CH+1;
 	//char *temp=(char*)malloc((size_t)res<<2);
-	//int *hist=malloc(256*sizeof(int));
+	//int *hist=(int*)malloc(256*sizeof(int));
 	//LogicInfo *params=(LogicInfo*)malloc((np+3LL)*sizeof(LogicInfo));
 	//if(!temp||!hist||!params)
 	//{
@@ -2517,7 +2985,7 @@ void opt_cr2_v2(const char *buf, int iw, int ih, int kc)
 	//memcpy(params, customparam_st, sizeof(params));//save params
 	int res=iw*ih;
 	char *temp=(char*)malloc((size_t)res<<2);
-	int *hist=malloc(256*sizeof(int));
+	int *hist=(int*)malloc(256*sizeof(int));
 	const int nv=O2_NPARAMS, np=O2_NPARAMS+1;
 	OptCR2Info *params=(OptCR2Info*)malloc((np+3LL)*sizeof(OptCR2Info));
 	if(!temp||!hist||!params)
@@ -2713,7 +3181,7 @@ void opt_cr2_v3(const char *buf, int iw, int ih, int kc)//X  inefficient
 	double *params0=customparam_st+O2_NPARAMS*kc;
 	int res=iw*ih;
 	char *temp=(char*)malloc((size_t)res<<2);
-	int *hist=malloc(256*sizeof(int));
+	int *hist=(int*)malloc(256*sizeof(int));
 	const int nv=O2_NPARAMS;
 	OptCR2Info3 sets[2];
 	double params_pd[O2_NPARAMS];
@@ -6728,7 +7196,7 @@ typedef double C2OptParam_t;
 #endif
 typedef struct Custom2OptInfoStruct
 {
-	double loss, invCR[3];//loss is the sum
+	double loss, invCR[3];//loss is the average
 	C2OptParam_t params[C2_NPARAMSTOTAL];
 	//Custom2Params params;//params are double to calculate centroid and have smoother training
 } Custom2OptInfo;
@@ -6866,7 +7334,7 @@ static void custom2_opt2_calcloss(const char *src, int iw, int ih, Custom2OptInf
 	}
 	info->loss/=3;
 }
-void custom2_opt(char *src, int iw, int ih, Custom2Params *srcparams)
+void custom2_opt(const char *src, int iw, int ih, Custom2Params *srcparams, int niter, int maskbits, int loud, double *loss)
 {
 	static int call_idx=0;
 	++call_idx;
@@ -6875,7 +7343,7 @@ void custom2_opt(char *src, int iw, int ih, Custom2Params *srcparams)
 #ifdef C2_USE_GA
 	int res=iw*ih;
 	unsigned char *temp=(unsigned char*)malloc((size_t)res<<2);
-	int *hist=malloc(768*sizeof(int));
+	int *hist=(int*)malloc(768*sizeof(int));
 	if(!temp||!hist)
 	{
 		LOG_ERROR("Allocation error");
@@ -6894,34 +7362,45 @@ void custom2_opt(char *src, int iw, int ih, Custom2Params *srcparams)
 	//};
 	short *p0=(short*)srcparams;
 	memcpy(info.params, srcparams, sizeof(info.params));
-	srand((unsigned)__rdtsc());//
+	if(loud)
+		srand((unsigned)__rdtsc());//
 	
 	//random starting point
 #if 1
 	if(call_idx==1)
 	{
+		int sum=0;
 		for(int k=0;k<nd;++k)
-			//info.params[k]=(rand()&0x1FFF)-0x1000;
-			info.params[k]=(rand()&0x1FF)-0x100;
-			//info.params[k]=(rand()&0x1F)-0x10;
+			sum+=info.params[k];
+		if(!sum)
+		{
+			for(int k=0;k<nd;++k)
+				//info.params[k]=(rand()&0x1FFF)-0x1000;
+				info.params[k]=(rand()&0x1FF)-0x100;
+				//info.params[k]=(rand()&0x1F)-0x10;
+		}
 	}
 #endif
 
 	CALC_LOSS();
 	double invCR0[3];
 	memcpy(invCR0, info.invCR, sizeof(invCR0));
-	const int niter=C2_NPARAMSTOTAL*10;
+	//const int niter=C2_NPARAMSTOTAL*10;
+	if(!niter)
+		niter=2220;
 	for(int it=0;it<niter;++it)
 	{
-		set_window_title("it %d/%d: TRGB %lf  %lf %lf %lf  %d", it+1, niter, 1/info.loss, 1/info.invCR[0], 1/info.invCR[1], 1/info.invCR[2], call_idx);
+		if(loud)
+			set_window_title("%d %4d/%4d: TRGB %lf  %lf %lf %lf  %d", loud, it+1, niter, 1/info.loss, 1/info.invCR[0], 1/info.invCR[1], 1/info.invCR[2], call_idx);
 		//short delta[C2_NPARAMSTOTAL];//X
 		//for(int k=0;k<_countof(delta);++k)
 		//	delta[k]=(rand()%3)-1;
 		int idx=it%nd;
 		//int idx=it*nd/niter;
 		//int idx=rand()%nd,
+		int inc=(rand()&((1<<maskbits)-1))-(1<<(maskbits-1));
 		//int inc=(rand()&0x1FFF)-0x1000;
-		int inc=(rand()&0x1FF)-0x100;
+		//int inc=(rand()&0x1FF)-0x100;
 		//int inc=(rand()&0x1F)-0x10;
 		//int inc=((rand()&1)<<1)-1;
 		//int inc=(int)(((rand()<<1)-0x8000)*pow(info.loss, 20));
@@ -6980,18 +7459,25 @@ void custom2_opt(char *src, int iw, int ih, Custom2Params *srcparams)
 
 		//preview
 #if 1
-		memcpy(srcparams, info.params, sizeof(info.params));
-		ch_cr[0]=(float)(1/info.invCR[0]);
-		ch_cr[1]=(float)(1/info.invCR[1]);
-		ch_cr[2]=(float)(1/info.invCR[2]);
-		unsigned char *ptr;
-		addhalf(temp, iw, ih, 3, 4);
-		SWAPVAR(image, temp, ptr);
-		io_render();
-		SWAPVAR(image, temp, ptr);
+		if(loud)
+		{
+			memcpy(srcparams, info.params, sizeof(info.params));
+			ch_cr[0]=(float)(1/info.invCR[0]);
+			ch_cr[1]=(float)(1/info.invCR[1]);
+			ch_cr[2]=(float)(1/info.invCR[2]);
+			unsigned char *ptr;
+			addhalf(temp, iw, ih, 3, 4);
+			SWAPVAR(image, temp, ptr);
+			io_render();
+			SWAPVAR(image, temp, ptr);
+		}
 #endif
 	}
-	//memcpy(srcparams, info.params, sizeof(info.params));
+#undef  CALC_LOSS
+	if(!loud)
+		memcpy(srcparams, info.params, sizeof(info.params));
+	if(loss)
+		memcpy(loss, invCR0, sizeof(invCR0));
 	
 #ifdef C2_VALIDATE
 	c2_start_check();
@@ -7011,7 +7497,7 @@ void custom2_opt(char *src, int iw, int ih, Custom2Params *srcparams)
 #else
 	int res=iw*ih;
 	char *temp=(char*)malloc((size_t)res<<2);
-	int *hist=malloc(768*sizeof(int));
+	int *hist=(int*)malloc(768*sizeof(int));
 	const int
 		nv=C2_NPARAMSTOTAL,
 		np=C2_NPARAMSTOTAL+1;
@@ -7139,6 +7625,354 @@ void custom2_opt(char *src, int iw, int ih, Custom2Params *srcparams)
 	free(temp);
 	free(hist);
 #endif
+}
+void custom2_opt_blocks(const char *src, int iw, int ih, Custom2Params *srcparams)
+{
+	const int blocksize=128, niter=512;
+	static int call_idx=0;
+	++call_idx;
+
+	char *buf=(char*)malloc((size_t)blocksize*blocksize<<2);
+	if(!buf)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	double invCR[4];
+	for(int it=0;it<niter;++it)
+	{
+		int x=rand()%(iw-(blocksize-1)), y=rand()%(ih-(blocksize-1));
+		for(int ky=0;ky<blocksize;++ky)
+			memcpy(buf+(((size_t)blocksize*ky)<<2), src+((iw*((size_t)y+ky)+x)<<2), (size_t)blocksize<<2);
+
+		custom2_opt(buf, blocksize, blocksize, srcparams, 100, 10, 0, invCR);
+
+		invCR[3]=(invCR[0]+invCR[1]+invCR[2])/3;
+		set_window_title("%4d/%4d: TRGB %lf  %lf %lf %lf  %d", it+1, niter, 1/invCR[3], 1/invCR[0], 1/invCR[1], 1/invCR[2], call_idx);
+	}
+	free(buf);
+}
+unsigned char* stbi_load(char const *filename, int *x, int *y, int *comp, int req_comp);
+void custom2_opt_batch(Custom2Params *srcparams)
+{
+	ArrayHandle folder=dialog_open_folder();
+	if(!folder)
+		return;
+	const char *extensions[]=
+	{
+		"PNG",
+		"JPG",
+		"JPEG",
+	};
+	ArrayHandle filenames=get_filenames((char*)folder->data, extensions, _countof(extensions), 1);
+	array_free(&folder);
+	if(!filenames)
+		return;
+	for(int ks=0;ks<(int)filenames->count;++ks)
+	{
+		ArrayHandle *fn=(ArrayHandle*)array_at(&filenames, ks);
+		int iw=0, ih=0;
+		char *buf=(char*)stbi_load(fn[0]->data, &iw, &ih, 0, 4);
+		if(!buf)
+			continue;
+		addhalf((unsigned char*)buf, iw, ih, 3, 4);
+		colortransform_ycocb_fwd(buf, iw, ih);//
+		custom2_opt(buf, iw, ih, srcparams, 0, 10, ks+1, 0);
+		free(buf);
+	}
+	array_free(&filenames);
+}
+
+
+//CUSTOM3
+Custom3Params c3_params={0};
+static int custom3_loadnb(const char *pixels, const char *errors, int iw, int ih, int kc, int kx, int ky, short *nb)
+{
+	int idx=-1;
+	for(int ky2=-C3_REACH;ky2<0;++ky2)
+	{
+		for(int kx2=-C3_REACH;kx2<=C3_REACH;++kx2)
+		{
+			if((unsigned)(kx+kx2)<(unsigned)iw&&(unsigned)(ky+ky2)<(unsigned)ih)
+			{
+				int idx2=(iw*(ky+ky2)+kx+kx2)<<2|kc;
+				nb[++idx]=pixels[idx2];
+				nb[++idx]=errors[idx2];
+			}
+			else
+			{
+				nb[++idx]=0;
+				nb[++idx]=0;
+			}
+		}
+	}
+	for(int kx2=-C3_REACH;kx2<0;++kx2)
+	{
+		if((unsigned)(kx+kx2)<(unsigned)iw)
+		{
+			int idx2=(iw*ky+kx+kx2)<<2|kc;
+			nb[++idx]=pixels[idx2];
+			nb[++idx]=errors[idx2];
+		}
+		else
+		{
+			nb[++idx]=0;
+			nb[++idx]=0;
+		}
+	}
+	return ++idx;
+}
+static int custom3_dot(const short *a, const short *b, int count)
+{
+	int k;
+	__m256i sum=_mm256_setzero_si256();
+	for(k=0;k<count-15;k+=16)//https://stackoverflow.com/questions/62041400/inner-product-of-two-16bit-integer-vectors-with-avx2-in-c
+	{
+		__m256i va=_mm256_loadu_si256((__m256i*)(a+k));
+		__m256i vb=_mm256_loadu_si256((__m256i*)(b+k));
+		va=_mm256_madd_epi16(va, vb);
+		sum=_mm256_add_epi32(sum, va);
+	}
+	__m128i s2=_mm_add_epi32(_mm256_extracti128_si256(sum, 1), _mm256_castsi256_si128(sum));
+	__m128i hi=_mm_shuffle_epi32(s2, _MM_SHUFFLE(2, 1, 3, 2));
+	s2=_mm_add_epi32(s2, hi);
+	s2=_mm_hadd_epi32(s2, s2);
+	int s3=_mm_extract_epi32(s2, 0);
+	for(;k<count;++k)
+		s3+=a[k]*b[k];
+	return s3;
+}
+static void custom3_prealloc(const char *src, int iw, int ih, int fwd, Custom3Params const *params, char *dst)
+{
+	const char *pixels=fwd?src:dst, *errors=fwd?dst:src;
+	int pred, idx;
+	const short *coeffs[]=
+	{
+		params->c00, params->c01, params->c02,
+		params->c10, params->c11, params->c12,
+		params->c20, params->c21, params->c22,
+	};
+	short nb[3][C3_NNB+2]={0};
+	for(int ky=0;ky<ih;++ky)
+	{
+		for(int kx=0;kx<iw;++kx)
+		{
+			int count[3], idx2;
+			for(int kc=0;kc<3;++kc)
+				count[kc]=custom3_loadnb(pixels, errors, iw, ih, kc, kx, ky, nb[kc]);
+			
+			idx=(iw*ky+kx)<<2;
+			idx2=0;
+			
+			for(int kdst=0;kdst<3;++kdst)
+			{
+				pred=0;
+				for(int kc=0;kc<3;++kc)
+					pred+=custom3_dot(coeffs[idx2+kc], nb[kc], count[kc]);
+				pred+=1<<13;
+				pred>>=14;
+				pred=CLAMP(-128, pred, 127);
+				if(fwd)
+					dst[idx]=src[idx]-pred;
+				else
+					dst[idx]=src[idx]+pred;
+
+				nb[kdst][C3_NNB  ]=pixels[idx];
+				nb[kdst][C3_NNB+1]=errors[idx];
+				count[kdst]+=2;
+				++idx;
+				idx2+=3;
+			}
+		}
+	}
+}
+void custom3_apply(char *src, int iw, int ih, int fwd, Custom3Params const *params)
+{
+	int res=iw*ih;
+	char *temp=(char*)malloc((size_t)res<<2);
+	if(!temp)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	memcpy(temp, src, (size_t)res<<2);//copy alpha
+
+	custom3_prealloc(src, iw, ih, fwd, params, temp);
+
+	memcpy(src, temp, (size_t)res<<2);
+	free(temp);
+}
+typedef struct Custom3OptInfoStruct
+{
+	double invCR[4];//loss == invCR[3]=(invCR[0]+invCR[1]+invCR[2])/3
+	short params[C3_NPARAMS];
+} Custom3OptInfo;
+static void custom3_calcloss(const char *src, int iw, int ih, Custom3OptInfo *info, char *temp, int *hist)
+{
+	int res=iw*ih;
+	custom3_prealloc(src, iw, ih, 1, (Custom3Params*)info->params, temp);
+
+	memset(hist, 0, 768*sizeof(int));
+	for(int k=0;k<res;++k)
+	{
+		unsigned char *p=temp+(k<<2);
+		++hist[p[0]];
+		++hist[p[1]|256];
+		++hist[p[2]|512];
+	}
+	info->invCR[3]=0;
+	for(int kc=0;kc<3;++kc)
+	{
+		double entropy=0;
+		for(int sym=0;sym<256;++sym)//Shannon's law
+		{
+			int freq=hist[kc<<8|sym];
+			if(freq)
+			{
+				double prob=(double)freq/res;
+				entropy-=prob*log2(prob);
+			}
+		}
+		info->invCR[kc]=entropy/8;
+		info->invCR[3]+=info->invCR[kc];
+	}
+	info->invCR[3]/=3;
+}
+void custom3_opt(const char *src, int iw, int ih, Custom3Params *srcparams, int niter, int maskbits, int loud, double *loss)
+{
+	static int call_idx=0;
+	++call_idx;
+
+	int res=iw*ih;
+	unsigned char *temp=(unsigned char*)malloc((size_t)res<<2);
+	int *hist=(int*)malloc(768*sizeof(int));
+	if(!temp||!hist)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	for(int k=0;k<res;++k)//set alpha for preview
+		temp[k<<2|3]=0xFF;
+	Custom3OptInfo info;
+#define CALC_LOSS() custom3_calcloss(src, iw, ih, &info, (char*)temp, hist)
+	const int nd=C3_NPARAMS;
+	memcpy(info.params, srcparams, sizeof(info.params));
+	if(loud)
+		srand((unsigned)__rdtsc());//
+	
+	//random starting point
+#if 1
+	if(call_idx==1)
+	{
+		int sum=0;
+		for(int k=0;k<nd;++k)
+			sum+=info.params[k];
+		if(!sum)//randomize if starting from all zeros
+		{
+			for(int k=0;k<nd;++k)
+				//info.params[k]=(rand()&0x1FFF)-0x1000;
+				//info.params[k]=(rand()&0x1FF)-0x100;
+				info.params[k]=(rand()&0x1F)-0x10;
+		}
+	}
+#endif
+
+	CALC_LOSS();
+	double invCR[4];
+	memcpy(invCR, info.invCR, sizeof(invCR));
+	if(!niter)
+		niter=C3_NPARAMS*10;
+	for(int it=0;it<niter;++it)
+	{
+		if(loud)
+			set_window_title("%4d/%4d: TRGB %lf  %lf %lf %lf  %d", it+1, niter, 1/info.invCR[3], 1/info.invCR[0], 1/info.invCR[1], 1/info.invCR[2], call_idx);
+		int idx=it%nd;
+		int inc=(rand()&((1<<maskbits)-1))-(1<<(maskbits-1));
+		//int inc=(rand()&0x1FFF)-0x1000;
+		//int inc=(rand()&0x1FF)-0x100;
+		//int inc=(rand()&0x1F)-0x10;
+		//int inc=((rand()&1)<<1)-1;
+		//int inc=(int)(((rand()<<1)-0x8000)*pow(info.loss, 20));
+		
+		info.params[idx]+=inc;
+		
+		CALC_LOSS();
+		
+		if(info.invCR[3]>invCR[3])
+		{
+			memcpy(info.invCR, invCR, sizeof(info.invCR));
+			info.params[idx]-=inc;
+		}
+		else
+			memcpy(invCR, info.invCR, sizeof(invCR));
+
+		//preview
+#if 1
+		if(loud)
+		{
+			memcpy(srcparams, info.params, sizeof(info.params));
+			ch_cr[0]=(float)(1/info.invCR[0]);
+			ch_cr[1]=(float)(1/info.invCR[1]);
+			ch_cr[2]=(float)(1/info.invCR[2]);
+			unsigned char *ptr;
+			addhalf(temp, iw, ih, 3, 4);
+			SWAPVAR(image, temp, ptr);
+			io_render();
+			SWAPVAR(image, temp, ptr);
+		}
+#endif
+	}
+#undef  CALC_LOSS
+	if(!loud)
+		memcpy(srcparams, info.params, sizeof(info.params));
+	if(loss)
+		memcpy(loss, invCR, sizeof(invCR));
+	
+	free(temp);
+	free(hist);
+}
+void custom3_opt_batch(Custom3Params *srcparams, int niter, int maskbits, int loud, double *loss)
+{
+	ArrayHandle folder=dialog_open_folder();
+	if(!folder)
+		return;
+	const char *extensions[]=
+	{
+		"PNG",
+		"JPG",
+		"JPEG",
+	};
+	ArrayHandle filenames=get_filenames((char*)folder->data, extensions, _countof(extensions), 1);
+	array_free(&folder);
+	if(!filenames)
+		return;
+
+	int iw=0, ih=0;
+	ArrayHandle bmp;
+	ARRAY_ALLOC(int, bmp, 0, 0, 0, 0);
+	for(int ks=0;ks<(int)filenames->count;++ks)
+	{
+		ArrayHandle *fn=(ArrayHandle*)array_at(&filenames, ks);
+		int iw2=0, ih2=0;
+		char *buf=(char*)stbi_load(fn[0]->data, &iw2, &ih2, 0, 4);
+		if(!buf)
+			continue;
+		if(!iw||iw==iw2)
+		{
+			iw=iw2;
+			ih+=ih2;
+			ARRAY_APPEND(bmp, buf, iw2*ih2, 1, 0);
+		}
+		free(buf);
+	}
+	array_free(&filenames);
+	if(bmp->count)
+	{
+		addhalf(bmp->data, iw, ih, 3, 4);
+		colortransform_ycocb_fwd((char*)bmp->data, iw, ih);//
+		custom3_opt((char*)bmp->data, iw, ih, srcparams, niter, maskbits, loud, 0);
+	}
+	array_free(&bmp);
 }
 
 
