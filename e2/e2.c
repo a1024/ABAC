@@ -1054,7 +1054,7 @@ int main(int argc, char **argv)
 	//printf("\n");
 	
 	//record
-#if 1
+#if 0
 	printf("T39 Multiple estimators for all maps\n");
 	t39_encode(buf, iw, ih, &cdata, 2);
 	t39_decode(cdata->data, cdata->count, iw, ih, b2, 2);
@@ -1064,19 +1064,26 @@ int main(int argc, char **argv)
 	printf("\n");
 #endif
 	
-	//t40_encode(buf, iw, ih, &cdata, 2);
+	//t40_encode(buf, iw, ih, &cdata, 2);	//X
 	//t40_decode(cdata->data, cdata->count, iw, ih, b2, 2);
 	//array_free(&cdata);
 	//compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T40", 0);
 	//memset(b2, 0, len);
 	//printf("\n");
 	
-	//t41_encode(buf, iw, ih, &cdata, 2);
+	//t41_encode(buf, iw, ih, &cdata, 2);	//X
 	//t41_decode(cdata->data, cdata->count, iw, ih, b2, 2);
 	//array_free(&cdata);
 	//compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T41", 0);
 	//memset(b2, 0, len);
 	//printf("\n");
+	
+	t42_encode(buf, iw, ih, &cdata, 2);
+	t42_decode(cdata->data, cdata->count, iw, ih, b2, 2);
+	array_free(&cdata);
+	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T42", 0);
+	memset(b2, 0, len);
+	printf("\n");
 #endif
 
 	//predict image

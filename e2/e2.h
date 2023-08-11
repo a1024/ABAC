@@ -75,11 +75,14 @@ int t38_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 int t39_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T39: Multiple estimators for all maps
 int t39_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
 
-int t40_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T40 Random generated predictors
-int t40_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
+//int t40_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T40 Random generated predictors
+//int t40_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
 
-int t41_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T41 SIMD ABAC
-int t41_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
+//int t41_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T41 SIMD ABAC
+//int t41_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
+
+int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T42: T39 with 'custom2' filter
+int t42_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
 
 
 
