@@ -132,6 +132,7 @@ void* array_insert(ArrayHandle *arr, size_t idx, const void *data, size_t count,
 void* array_erase(ArrayHandle *arr, size_t idx, size_t count);//does not reallocate
 void* array_replace(ArrayHandle *arr, size_t idx, size_t rem_count, const void *data, size_t ins_count, size_t rep, size_t pad);
 
+#define ARRAY_AT(ETYPE, ARR, IDX) (ETYPE*)((ARR)&&IDX<(ARR)->count?(ARR)->data+(IDX)*(ARR)->esize:LOG_ERROR("OOB"))
 void* array_at(ArrayHandle *arr, size_t idx);
 void* array_back(ArrayHandle *arr);
 

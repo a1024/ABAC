@@ -670,9 +670,15 @@ void* array_replace(ArrayHandle *arr, size_t idx, size_t rem_count, const void *
 void* array_at(ArrayHandle *arr, size_t idx)
 {
 	if(!arr[0])
+	{
+		LOG_ERROR("nullptr exception");
 		return 0;
+	}
 	if(idx>=arr[0]->count)
+	{
+		LOG_ERROR("OOB");
 		return 0;
+	}
 	return arr[0]->data+idx*arr[0]->esize;
 }
 void* array_back(ArrayHandle *arr)

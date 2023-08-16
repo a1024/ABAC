@@ -365,7 +365,7 @@ void batch_test(const char *path)
 		memset(b2, 0, len);
 #endif
 		
-		//T34 ABAC + adaptive Bayesian inference
+		//T34+: ABAC + adaptive Bayesian inference
 #if 1
 		{
 			ArrayHandle cdata=0;
@@ -388,17 +388,25 @@ void batch_test(const char *path)
 
 			//printf("\nT35 (ABAC + context tree)\n");
 			//printf("\nT39 Multiple estimators for all maps  WH %d*%d\n", iw, ih);
+
 			//t35_encode(buf, iw, ih, &cdata, 1);
-			t39_encode(buf, iw, ih, &cdata, 1);
+			//t35_decode(cdata->data, cdata->count, iw, ih, b2, 1);
+
+			//t39_encode(buf, iw, ih, &cdata, 1);//prev record
+			//t39_decode(cdata->data, cdata->count, iw, ih, b2, 1);//prev record
+
 			//t40_encode(buf, iw, ih, &cdata, 1);
+			//t40_decode(cdata->data, cdata->count, iw, ih, b2, 1);
+
+			//t42_encode(buf, iw, ih, &cdata, 1);
+			//t42_decode(cdata->data, cdata->count, iw, ih, b2, 1);
+
+			t43_encode(buf, iw, ih, &cdata, 1);
+			t43_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 
 			sum_testsize+=cdata->count;
 			if((ptrdiff_t)cdata->count<formatsize)
 				printf(" !!!\n");
-
-			//t35_decode(cdata->data, cdata->count, iw, ih, b2, 1);
-			t39_decode(cdata->data, cdata->count, iw, ih, b2, 1);
-			//t40_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 
 			array_free(&cdata);
 			compare_bufs_uint8(b2, buf, iw, ih, nch0, 4, "Test", 0);
@@ -638,13 +646,13 @@ int main(int argc, char **argv)
 	//fn="C:/Projects/datasets/CLIC11-small4.PNG";
 	//fn="C:/Projects/datasets/dataset-CLIC30/11.png";
 	//fn="C:/Projects/datasets/dataset-kodak";
-	fn="C:/Projects/datasets/dataset-kodak/kodim13.png";
+	//fn="C:/Projects/datasets/dataset-kodak/kodim13.png";
 
 	//fn="D:/ML/dataset-CLIC30";
 	//fn="D:/ML/dataset-kodak";
 	//fn="D:/ML/dataset-CLIC30/16.png";//hardest noiseless CLIC30 image
 	//fn="D:/ML/dataset-CLIC30/17.png";
-	//fn="D:/ML/dataset-kodak/kodim13.png";
+	fn="D:/ML/dataset-kodak/kodim13.png";
 	//fn="D:/ML/dataset-kodak-small/13.PNG";
 #endif
 	if(fn||argc==2)
@@ -995,7 +1003,7 @@ int main(int argc, char **argv)
 	}
 #endif
 
-	//T27: ABAC
+	//T27+: ABAC
 #if 1
 	//printf("T29 (ABAC + Bayesian inference)\n");
 	//t29_encode(buf, iw, ih, &cdata, 1);
@@ -1056,8 +1064,8 @@ int main(int argc, char **argv)
 	//record
 #if 0
 	printf("T39 Multiple estimators for all maps\n");
-	t39_encode(buf, iw, ih, &cdata, 2);
-	t39_decode(cdata->data, cdata->count, iw, ih, b2, 2);
+	t39_encode(buf, iw, ih, &cdata, 1);
+	t39_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 	array_free(&cdata);
 	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T39", 0);
 	memset(b2, 0, len);
@@ -1078,10 +1086,17 @@ int main(int argc, char **argv)
 	//memset(b2, 0, len);
 	//printf("\n");
 	
-	t42_encode(buf, iw, ih, &cdata, 2);
-	t42_decode(cdata->data, cdata->count, iw, ih, b2, 2);
+	//t42_encode(buf, iw, ih, &cdata, 2);
+	//t42_decode(cdata->data, cdata->count, iw, ih, b2, 2);
+	//array_free(&cdata);
+	//compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T42", 0);
+	//memset(b2, 0, len);
+	//printf("\n");
+	
+	t43_encode(buf, iw, ih, &cdata, 2);
+	t43_decode(cdata->data, cdata->count, iw, ih, b2, 2);
 	array_free(&cdata);
-	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T42", 0);
+	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T43", 0);
 	memset(b2, 0, len);
 	printf("\n");
 #endif

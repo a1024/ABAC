@@ -72,7 +72,7 @@ int t37_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 int t38_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T38: Single simple bit predictor
 int t38_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
 
-int t39_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T39: Multiple estimators for all maps
+int t39_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T39: Multiple estimators for all maps		NOT GENERALIZED
 int t39_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
 
 //int t40_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T40 Random generated predictors
@@ -81,8 +81,11 @@ int t39_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 //int t41_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T41 SIMD ABAC
 //int t41_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
 
-int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T42: T39 with 'custom2' filter
+int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T42: T39 with 'custom2' filter		NOT GENERALIZED
 int t42_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
+
+int t43_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T43: Wisdom of the crowd
+int t43_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
 
 
 

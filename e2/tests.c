@@ -6918,7 +6918,7 @@ typedef struct T39CtxStruct
 #endif
 	int context[T39_NMAPS];
 #ifdef T39_USE_ARRAYS
-	ArrayHandle maps[24][T39_NMAPS];//(256+512+1024+2048+4096+8192+16384+32768)*20*14 = 17.43 MB for 14 maps with 6 rec estimators
+	ArrayHandle maps[24][T39_NMAPS];//3*(256+512+1024+2048+4096+8192+16384+32768)*15*sizeof(T39Node) = 56.03 MB for 14 maps with 6 rec estimators
 #else
 	Map maps[24][T39_NMAPS];
 	int found[T39_NMAPS];
@@ -6941,6 +6941,59 @@ typedef struct T39CtxStruct
 	float csizes_est[24*T39_NESTIMATORS];
 #endif
 } T39Ctx;
+void t39_explore(T39Ctx *ctx, const char *src, int iw, int ih)
+{
+	int res=iw*ih;
+	int hist[256]={0};
+	int kc=0,//red (orangeness)
+		ke=0;//zero predictor
+	//double entropy=0;
+	for(int sym=0;sym<256;++sym)
+	{
+		if(sym==128)//
+			printf("");
+
+		int prob=0x10000;
+		int context=0x80;
+		for(int kb=7;kb>=0;--kb)
+		{
+			ArrayHandle map=ctx->maps[kc<<3|kb][ke];
+			int bit=sym>>kb&1;
+			T39Node *node=array_at(&map, context);
+
+			//int pb=bit?0x10000-node->rec[3]:node->rec[3];
+			int pb=(int)(((long long)node->n[bit]<<16)/(node->n[0]+node->n[1]));
+
+			pb=CLAMP(1, pb, 0xFFFF);
+			prob=(int)(((long long)prob*pb+0x8000)>>16);
+			context|=bit<<(8+7-kb);
+		}
+		hist[sym]=prob;
+
+		//printf("%3d  0x%04X\n", sym, prob);
+		//if(prob)
+		//{
+		//	double p=(double)prob/res;
+		//	entropy-=p*log2(p);				//X  need to use cross-entropy with image histogram
+		//}
+	}
+	//double invCR=entropy/8;
+	//printf("CR %lf\n", 1/invCR);
+
+	double csize=0;
+	for(int k=0;k<res;++k)//Zipf's law
+	{
+		unsigned char sym=src[k<<2|kc]+128;
+		int prob=hist[sym];
+		if(prob)
+		{
+			double p=(double)prob/res;
+			csize-=log2(p);
+		}
+	}
+	csize/=8;
+	printf("C%d  csize %lf  CR %lf\n", kc, csize, res/csize);
+}
 T39Ctx* t39_ctx_init()
 {
 	int val=0x8000;
@@ -7032,7 +7085,7 @@ void t39_ctx_get_context(T39Ctx *ctx, const char *buf, const char *ebuf, int iw,
 //#define LOAD(CO, XO, YO) (unsigned)(kc-CO)<3u&&(unsigned)(kx-(XO))<(unsigned)iw&&(unsigned)(ky-YO)<(unsigned)ih?buf[(iw*(ky-YO)+kx-(XO))<<2|(kc-CO)]:0
 #if 1
 	int count_W_N_m1=(kx-1>=0)+(ky-1>=0)+(kc-1>=0);
-	int
+	char
 		NNWW =LOAD(buf, 0,  2, 2),
 		NNW  =LOAD(buf, 0,  1, 2),
 		NN   =LOAD(buf, 0,  0, 2),
@@ -7130,6 +7183,7 @@ void t39_ctx_get_context(T39Ctx *ctx, const char *buf, const char *ebuf, int iw,
 	ctx->context[++j]=clamp4(N+m1-Nm1, N, m1, Nm1, NW);//8
 	ctx->context[++j]=clamp4(W+m1-Wm1, W, m1, Wm1, NW);//9
 	ctx->context[++j]=NW+NE-NN;//10
+	//ctx->context[++j]=(N+W+NW+NE)>>2;//10_v2
 	ctx->context[++j]=(N+W-NW + m1)>>1;//11
 	ctx->context[++j]=m2;//12
 	ctx->context[++j]=(N+W-NW + m2)>>1;//13
@@ -7689,7 +7743,7 @@ void t39_ctx_update(T39Ctx *ctx, int kc, int kb, int bit)
 		}
 		ctx->context[kp]|=bit<<kb;
 #else
-		ctx->context[kp]|=bit<<(8+7-kb);
+		ctx->context[kp]|=bit<<(8+7-kb);//append bits in reverse
 		//ctx->context[kp]<<=1;
 		//ctx->context[kp]|=bit;
 #endif
@@ -7949,6 +8003,7 @@ int t39_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 			}
 		}
 #endif
+		//t39_explore(t39_ctx, buf2, iw, ih);
 	}
 	t39_ctx_clear(&t39_ctx);
 	dlist_clear(&list);

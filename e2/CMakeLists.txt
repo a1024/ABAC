@@ -30,7 +30,7 @@ add_executable(e2
 	"transforms_ocl.c"
 	"transforms_vk.c"
 	"util.c"
- "ac_simd.h")
+)
 #target_link_libraries(e2 OpenCL::OpenCL)
 
 if (CMAKE_VERSION VERSION_GREATER 3.12)
