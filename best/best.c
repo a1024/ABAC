@@ -100,13 +100,15 @@ void batch_test(const char *path)
 			ArrayHandle cdata=0;
 			printf("\n");
 
-			t39_encode(buf, iw, ih, &cdata, 1);
+			//t39_encode(buf, iw, ih, &cdata, 1);
+			//t39_decode(cdata->data, cdata->count, iw, ih, b2, 1);
+
+			t42_encode(buf, iw, ih, &cdata, 1);
+			t42_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 
 			sum_testsize+=cdata->count;
 			if((ptrdiff_t)cdata->count<formatsize)
 				printf(" !!!\n");
-
-			t39_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 
 			array_free(&cdata);
 			compare_bufs_uint8(b2, buf, iw, ih, nch0, 4, "T39", 0);
@@ -284,9 +286,10 @@ int main(int argc, char **argv)
 	ArrayHandle cdata=0;
 
 
-	//printf("T39 Multiple estimators for all maps\n");
-	t39_encode(buf, iw, ih, &cdata, 1);
-	t39_decode(cdata->data, cdata->count, iw, ih, b2, 1);
+	//t39_encode(buf, iw, ih, &cdata, 1);
+	//t39_decode(cdata->data, cdata->count, iw, ih, b2, 1);
+	t42_encode(buf, iw, ih, &cdata, 1);
+	t42_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 	array_free(&cdata);
 	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T39", 0);
 	memset(b2, 0, len);

@@ -14,6 +14,9 @@ void colortransform_ycocb_inv(char *buf, int iw, int ih);
 	
 int t39_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);
 int t39_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
+
+int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);
+int t42_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
 	
 #ifdef __cplusplus
 }
