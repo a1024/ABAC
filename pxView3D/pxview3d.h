@@ -657,7 +657,7 @@ void custom2_opt_batch(Custom2Params *srcparams);
 
 
 //CUSTOM3
-#define C3_REACH 4
+#define C3_REACH 3
 #define C3_NNB (C3_REACH*(C3_REACH+1)*4)
 #define C3_NPARAMS (C3_NNB*9+6)
 typedef struct Custom3ParamsStruct
@@ -670,7 +670,8 @@ extern Custom3Params c3_params;
 void custom3_apply(char *src, int iw, int ih, int fwd, Custom3Params const *params);
 void custom3_opt(const char *src, int iw, int ih, Custom3Params *srcparams, int niter, int maskbits, int loud, double *loss);
 void custom3_opt_batch(Custom3Params *srcparams, int niter, int maskbits, int loud, double *loss);
-void custom3_opt_gpu(const char *src, int iw, int ih, Custom3Params *srcparams, int niter, int maskbits, int loud);
+//void custom3_opt_gpu(const char *src, int iw, int ih, Custom3Params *srcparams, int niter, int maskbits, int loud);//X  extremely slow
+void custom3_opt_batch2(Custom3Params *srcparams, int niter, int maskbits, int loud, double *loss);
 
 
 void pred_slope_fwd(char *buf, int iw, int ih, int nch, int bytestride);

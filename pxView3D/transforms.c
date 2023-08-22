@@ -1553,7 +1553,7 @@ void preproc_x2(char *src, int iw, int ih)//https://github.com/Equationist/xpng/
 	
 	memcpy(dst, src, (size_t)res<<2);//copy alpha
 
-	const int clevel=24;//0~40, default 6
+	const int clevel=6;//0~40, default 6
 	for(int ky=0;ky<ih;++ky)
 	{
 		set_window_title("%d/%d", ky+1, ih);
@@ -7685,6 +7685,13 @@ void custom2_opt_batch(Custom2Params *srcparams)
 
 
 //CUSTOM3
+//#define C3_GRIDSEARCH 1
+//#define C3_OPT_UNISPHERE//X  bad
+#ifdef C3_GRIDSEARCH
+#define C3_OPT_NCOMP 3
+#else
+#define C3_OPT_NCOMP (C3_NPARAMS>>5)
+#endif
 Custom3Params c3_params={0};
 static int custom3_loadnb(const char *pixels, const char *errors, int iw, int ih, int kc, int kx, int ky, short *nb)
 {
@@ -7838,6 +7845,16 @@ static void custom3_calcloss(const char *src, int iw, int ih, Custom3OptInfo *in
 	}
 	info->invCR[3]/=3;
 }
+static float gen_normal()
+{
+	float val=0;
+	for(int k2=0;k2<12;++k2)
+		val+=(float)rand()/RAND_MAX;
+	val-=6;
+	//val*=10;
+	return val;
+	//return (int)roundf(val);
+}
 void custom3_opt(const char *src, int iw, int ih, Custom3Params *srcparams, int niter, int maskbits, int loud, double *loss)
 {
 	static int call_idx=0;
@@ -7860,8 +7877,8 @@ void custom3_opt(const char *src, int iw, int ih, Custom3Params *srcparams, int 
 	if(loud)
 		srand((unsigned)__rdtsc());//
 	
-	//random starting point
-#if 1
+	//random starting point		X  use ctrl N to add noise periodically
+#if 0
 	if(call_idx==1)
 	{
 		int sum=0;
@@ -7878,39 +7895,144 @@ void custom3_opt(const char *src, int iw, int ih, Custom3Params *srcparams, int 
 #endif
 
 	CALC_LOSS();
-	double invCR[4];
+	double invCR[4], loss0;
 	memcpy(invCR, info.invCR, sizeof(invCR));
+	loss0=info.invCR[3];
 	if(!niter)
+//#if C3_REACH==1
+//		niter=C3_NPARAMS*100;
+//#else
 		niter=C3_NPARAMS*10;
-	for(int it=0;it<niter;++it)
+//#endif
+	//if(niter>1000)
+	//	niter=1000;
+	int shakethreshold=C3_NPARAMS;
+	for(int it=0, watchdog=0;it<niter;++it)
 	{
 		if(loud)
-			set_window_title("%4d/%4d: TRGB %lf  %lf %lf %lf  %d", it+1, niter, 1/info.invCR[3], 1/info.invCR[0], 1/info.invCR[1], 1/info.invCR[2], call_idx);
-		int idx=it%nd;
-		int inc=(rand()&((1<<maskbits)-1))-(1<<(maskbits-1));
-		//int inc=(rand()&0x1FFF)-0x1000;
-		//int inc=(rand()&0x1FF)-0x100;
-		//int inc=(rand()&0x1F)-0x10;
-		//int inc=((rand()&1)<<1)-1;
-		//int inc=(int)(((rand()<<1)-0x8000)*pow(info.loss, 20));
-		
-		info.params[idx]+=inc;
-		
-		CALC_LOSS();
-		
-		if(info.invCR[3]>invCR[3])
+			set_window_title("%d-%d %4d/%4d,%d/%d: %lf RGB %lf %lf %lf", loud, call_idx, it+1, niter, watchdog, shakethreshold, 1/info.invCR[3], 1/info.invCR[0], 1/info.invCR[1], 1/info.invCR[2]);
+		int idx[C3_OPT_NCOMP]={0}, inc[C3_OPT_NCOMP]={0}, stuck=0;
+		if(watchdog>=shakethreshold)//bump if stuck
 		{
-			memcpy(info.invCR, invCR, sizeof(info.invCR));
-			info.params[idx]-=inc;
+			memcpy(info.params, srcparams, sizeof(info.params));
+			for(int k=0;k<C3_NPARAMS;++k)
+				//info.params[k]+=gen_normal();//X  bump is too hard
+				info.params[k]+=((rand()&1)<<1)-1;
+				//info.params[k]+=rand()%3-1;
+			watchdog=0;
+			stuck=1;
 		}
 		else
+		{
+#ifdef C3_OPT_UNISPHERE
+			//const float power=1.f/C3_OPT_NCOMP;
+			float
+				fdelta[C3_OPT_NCOMP],
+				radius=powf((float)rand()*(1<<maskbits)/RAND_MAX, 1.f/C3_OPT_NCOMP),
+				//radius=4096,
+				norm=0;
+			for(int k=0;k<C3_OPT_NCOMP;++k)
+			{
+				fdelta[k]=gen_normal()*0.25f;
+				norm+=fdelta[k]*fdelta[k];
+			}
+			radius*=C3_OPT_NCOMP/norm;
+			for(int k=0;k<C3_OPT_NCOMP;++k)
+			{
+				fdelta[k]*=radius;
+				fdelta[k]=CLAMP(-0x7FFF, fdelta[k], 0x7FFF);
+			}
+#endif
+			for(int k=0;k<C3_OPT_NCOMP;++k)
+			{
+				idx[k]=rand()%nd;
+				//idx[k]=(it+k)%nd;
+#ifdef C3_GRIDSEARCH
+				inc[k]=1;
+				//inc[k]=((rand()&15)<<1)+1;
+#else
+#ifdef C3_OPT_UNISPHERE
+				inc[k]=(int)roundf(fdelta[k]);
+				//inc[k]=gen_normal();
+#else
+				while(!(inc[k]=(rand()&((1<<maskbits)-1))-(1<<(maskbits-1))));//reject zero delta
+#endif
+
+				//int inc=(rand()&0x1FFF)-0x1000;
+				//int inc=(rand()&0x1FF)-0x100;
+				//int inc=(rand()&0x1F)-0x10;
+				//int inc=((rand()&1)<<1)-1;
+				//int inc=(int)(((rand()<<1)-0x8000)*pow(info.loss, 20));
+		
+				info.params[idx[k]]+=inc[k];
+#endif
+			}
+		}
+
+#ifdef C3_GRIDSEARCH
+		short
+			pz=info.params[idx[2]],
+			py=info.params[idx[1]],
+			px=info.params[idx[0]];
+		short bestx=0, besty=0, bestz=0;
+		double bestloss=0;
+		int it2=0;
+		for(int kz=-C3_GRIDSEARCH*inc[2];kz<=C3_GRIDSEARCH*inc[2];kz+=inc[2])
+		{
+			info.params[idx[2]]=pz+kz;
+			for(int ky=-C3_GRIDSEARCH*inc[1];ky<=C3_GRIDSEARCH*inc[1];ky+=inc[1])
+			{
+				info.params[idx[1]]=py+ky;
+				for(int kx=-C3_GRIDSEARCH*inc[0];kx<=C3_GRIDSEARCH*inc[0];kx+=inc[0], ++it2)
+				{
+					info.params[idx[0]]=px+kx;
+					CALC_LOSS();
+					if(!it2||bestloss>info.invCR[3])
+					{
+						bestloss=info.invCR[3];
+						//memcpy(invCR, info.invCR, sizeof(info.invCR));
+						bestx=info.params[idx[0]];
+						besty=info.params[idx[1]];
+						bestz=info.params[idx[2]];
+					}
+				}
+			}
+		}
+		info.params[idx[0]]=bestx;
+		info.params[idx[1]]=besty;
+		info.params[idx[2]]=bestz;
+#else
+		CALC_LOSS();
+#endif
+		
+		if(info.invCR[3]>invCR[3])//revert if worse
+		{
+			if(stuck)//a bad branch may surpass the local minimum
+				memcpy(invCR, info.invCR, sizeof(info.invCR));
+			else
+			{
+				memcpy(info.invCR, invCR, sizeof(info.invCR));
+				for(int k=0;k<C3_OPT_NCOMP;++k)
+					info.params[idx[k]]-=inc[k];
+			}
+			++watchdog;
+		}
+		else//save if better
+		{
+			if(loss0>info.invCR[3])
+			{
+				memcpy(srcparams, info.params, sizeof(info.params));
+				loss0=info.invCR[3];
+				--it;//bis
+			}
 			memcpy(invCR, info.invCR, sizeof(invCR));
+			watchdog=0;
+		}
 
 		//preview
 #if 1
 		if(loud)
 		{
-			memcpy(srcparams, info.params, sizeof(info.params));
 			ch_cr[0]=(float)(1/info.invCR[0]);
 			ch_cr[1]=(float)(1/info.invCR[1]);
 			ch_cr[2]=(float)(1/info.invCR[2]);
@@ -7923,8 +8045,8 @@ void custom3_opt(const char *src, int iw, int ih, Custom3Params *srcparams, int 
 #endif
 	}
 #undef  CALC_LOSS
-	if(!loud)
-		memcpy(srcparams, info.params, sizeof(info.params));
+	//if(!loud)
+	//	memcpy(srcparams, info.params, sizeof(info.params));
 	if(loss)
 		memcpy(loss, invCR, sizeof(invCR));
 	
@@ -7973,6 +8095,55 @@ void custom3_opt_batch(Custom3Params *srcparams, int niter, int maskbits, int lo
 		custom3_opt((char*)bmp->data, iw, ih, srcparams, niter, maskbits, loud, 0);
 	}
 	array_free(&bmp);
+}
+typedef struct ImageStruct
+{
+	int iw, ih;
+	char *data;
+} Image;
+void free_image(void *p)
+{
+	Image *im=(Image*)p;
+	free(im->data);
+	im->data=0;
+}
+void custom3_opt_batch2(Custom3Params *srcparams, int niter, int maskbits, int loud, double *loss)
+{
+	ArrayHandle folder=dialog_open_folder();
+	if(!folder)
+		return;
+	const char *extensions[]=
+	{
+		"PNG",
+		"JPG",
+		"JPEG",
+	};
+	ArrayHandle filenames=get_filenames((char*)folder->data, extensions, _countof(extensions), 1);
+	array_free(&folder);
+	if(!filenames)
+		return;
+
+	ArrayHandle images;
+	ARRAY_ALLOC(Image, images, 0, 0, filenames->count, free_image);
+	for(int ks=0;ks<(int)filenames->count;++ks)
+	{
+		ArrayHandle *fn=(ArrayHandle*)array_at(&filenames, ks);
+		Image im2;
+		im2.data=(char*)stbi_load(fn[0]->data, &im2.iw, &im2.ih, 0, 4);
+		if(!im2.data)
+			continue;
+		addhalf(im2.data, im2.iw, im2.ih, 3, 4);
+		colortransform_ycocb_fwd((char*)im2.data, im2.iw, im2.ih);
+		ARRAY_APPEND(images, &im2, 1, 1, 0);
+	}
+	array_free(&filenames);
+	for(int it=0;it<10;++it)
+	{
+		int idx=rand()%images->count;
+		Image *im=(Image*)array_at(&images, idx);
+		custom3_opt(im->data, im->iw, im->ih, srcparams, C3_NPARAMS, maskbits, idx+1, 0);
+	}
+	array_free(&images);
 }
 
 

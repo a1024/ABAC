@@ -22,7 +22,7 @@ Camera cam=
 ArrayHandle fn=0;
 size_t filesize=0;
 int iw=0, ih=0, nch0=0;
-unsigned char *im0, *image=0;//stride=4
+unsigned char *im0, *image=0, *zimage=0;//stride=4
 int *im2=0, *im3=0;
 unsigned image_txid[3]={0};//0: interleaved channels, 1: separate channels, 2: histogram as texture
 
@@ -35,6 +35,7 @@ typedef enum VisModeEnum
 	VIS_IMAGE,
 	VIS_IMAGE_BLOCK,
 //	VIS_IMAGE_E24,//experiment 24
+	VIS_ZIPF,
 	VIS_DWT_BLOCK,
 	VIS_HISTOGRAM,
 	VIS_JOINT_HISTOGRAM,
@@ -968,6 +969,63 @@ void update_image()
 	case VIS_MESH_SEPARATE:
 		chart_mesh_sep_update(image, iw, ih, &cpu_vertices, &gpu_vertices);
 		break;
+	case VIS_ZIPF:
+		{
+			int res=iw*ih;
+			float *fbuf=(float*)malloc(res*3*sizeof(float));
+			void *p=realloc(zimage, (size_t)res<<2);
+			int *hist=(int*)malloc(768*sizeof(int));
+			if(!fbuf||!p||!hist)
+			{
+				LOG_ERROR("Allocation error");
+				return;
+			}
+			zimage=(unsigned char*)p;
+			memset(hist, 0, 768*sizeof(int));
+			for(int k=0;k<res;++k)
+			{
+				unsigned char *p=image+(k<<2);
+				++hist[0<<8|p[0]];
+				++hist[1<<8|p[1]];
+				++hist[2<<8|p[2]];
+			}
+			float vmax=0;
+			for(int k=0;k<res;++k)
+			{
+				for(int kc=0;kc<3;++kc)
+				{
+					unsigned char sym=image[k<<2|kc];
+					int prob=hist[kc<<8|sym];
+					if(prob)
+					{
+						float p=(float)prob/res;
+						float bitsize=-log2f(p);
+						fbuf[k*3+kc]=bitsize;
+						if(vmax<bitsize)
+							vmax=bitsize;
+					}
+				}
+			}
+			if(vmax)
+			{
+				for(int k=0;k<res;++k)
+				{
+					for(int kc=0;kc<3;++kc)
+					{
+						float val=fbuf[k*3+kc]*255/vmax;
+						zimage[k<<2|kc]=CLAMP(0, val, 255);
+					}
+					zimage[k<<2|3]=0xFF;
+				}
+			}
+			else
+			{
+				int black=0xFF000000;
+				memfill(zimage, &black, res*sizeof(int), sizeof(int));
+			}
+			free(fbuf);
+		}
+		break;
 	case VIS_HISTOGRAM:
 		memset(histmax, 0, sizeof(histmax));
 		memset(hist, 0, sizeof(hist));
@@ -1799,7 +1857,7 @@ int parse_nvals(ArrayHandle text, int idx, short *params, int count)
 		for(;idx<text->count&&isspace(text->data[idx]);++idx);
 
 		int neg=text->data[idx]=='-';
-		idx+=neg;//skip sign
+		idx+=neg||text->data[idx]=='+';//skip sign
 		if(text->data[idx]=='0'&&(text->data[idx]&0xDF)=='X')//skip hex prefix
 			idx+=2;
 		char *end=text->data+idx;
@@ -2201,7 +2259,7 @@ toggle_drag:
 		{
 			ArrayHandle str;
 			STR_ALLOC(str, 0);
-			if(mode==VIS_IMAGE)
+			if(mode==VIS_IMAGE||mode==VIS_ZIPF)
 			{
 				float cr_combined=3/(1/ch_cr[0]+1/ch_cr[1]+1/ch_cr[2]);
 				str_append(&str, "T %f\tR %f\tG %f\tB %f\tJ %f", cr_combined, ch_cr[0], ch_cr[1], ch_cr[2], ch_cr[3]);
@@ -2390,7 +2448,7 @@ toggle_drag:
 		}
 		else
 		{
-			if(mode==VIS_IMAGE)
+			if(mode==VIS_IMAGE||mode==VIS_ZIPF)
 				show_full_image=!show_full_image;
 			else if(mode==VIS_JOINT_HISTOGRAM)
 			{
@@ -2586,6 +2644,21 @@ toggle_drag:
 			return 1;
 		}
 		break;
+	case 'N':
+		if(GET_KEY_STATE(KEY_CTRL))//add noise
+		{
+			if(transforms_mask[ST_FWD_CUSTOM3]||transforms_mask[ST_INV_CUSTOM3])
+			{
+				srand((unsigned)__rdtsc());
+				short *p=(short*)&c3_params;
+				for(int k=0;k<C3_NPARAMS;++k)
+					//p[k]+=((rand()&1)<<1)-1;
+					p[k]+=rand()%3-1;
+				update_image();
+			}
+			return 1;
+		}
+		break;
 	case KEY_SPACE:
 	//case 'B':
 	//case 'N':
@@ -2719,6 +2792,8 @@ toggle_drag:
 				else if(keyboard[KEY_9])maskbits=9;
 				if(GET_KEY_STATE(KEY_CTRL))
 					custom3_opt_batch(&c3_params, 0, maskbits, 1, 0);
+				else if(GET_KEY_STATE(KEY_SHIFT))
+					custom3_opt_batch2(&c3_params, 0, maskbits, 1, 0);
 				else
 				{
 					int res=iw*ih;
@@ -2732,11 +2807,11 @@ toggle_drag:
 					addhalf((unsigned char*)buf2, iw, ih, 3, 4);
 					colortransform_ycocb_fwd(buf2, iw, ih);//
 					//pred_grad_fwd(buf2, iw, ih, 3, 4);//
-#ifdef ALLOW_OPENCL
-					if(GET_KEY_STATE(KEY_SHIFT))
-						custom3_opt_gpu(buf2, iw, ih, &c3_params, 0, maskbits, 1);
-					else
-#endif
+//#ifdef ALLOW_OPENCL
+//					if(GET_KEY_STATE(KEY_SHIFT))
+//						custom3_opt_gpu(buf2, iw, ih, &c3_params, 0, maskbits, 1);//X  too slow
+//					else
+//#endif
 						custom3_opt(buf2, iw, ih, &c3_params, 0, maskbits, 1, 0);
 
 					free(buf2);
@@ -2983,15 +3058,16 @@ void io_render()
 			break;
 		case VIS_JOINT_HISTOGRAM:	chart_jointhist_draw();	break;
 		case VIS_IMAGE:
+		case VIS_ZIPF:
 			{
 				int waitstatus=0;
 				if(ghMutex)
 					waitstatus=WaitForSingleObject(ghMutex, INFINITE);
 				float yoffset=tdy*3;
 				if(show_full_image)
-					display_texture_i(0, w, 0, h, (int*)image, iw, ih, 1, 0, 1, 0, 1);
+					display_texture_i(0, w, 0, h, (int*)(mode==VIS_ZIPF?zimage:image), iw, ih, 1, 0, 1, 0, 1);
 				else
-					display_texture_i(0, iw, (int)yoffset, (int)yoffset+ih, (int*)image, iw, ih, 1, 0, 1, 0, 1);
+					display_texture_i(0, iw, (int)yoffset, (int)yoffset+ih, (int*)(mode==VIS_ZIPF?zimage:image), iw, ih, 1, 0, 1, 0, 1);
 				if(waitstatus==WAIT_OBJECT_0)
 					ReleaseMutex(ghMutex);
 			}
@@ -3373,6 +3449,7 @@ void io_render()
 	case VIS_HISTOGRAM:			mode_str="Histogram";		break;
 	case VIS_JOINT_HISTOGRAM:	mode_str="Joint Histogram";	break;
 	case VIS_IMAGE:				mode_str="Image View";		break;
+	case VIS_ZIPF:				mode_str="Zipf View";		break;
 	case VIS_IMAGE_BLOCK:		mode_str="Image Block";		break;
 //	case VIS_IMAGE_E24:			mode_str="Image Exp24";		break;
 	case VIS_DWT_BLOCK:			mode_str="DWT Block";		break;
@@ -3876,7 +3953,7 @@ void io_render()
 	static double t=0;
 	double t2=time_ms();
 	GUIPrint(0, 0, tdy, 1, "timer %d, fps%11lf, [%2d/%2d] %s", timer, 1000./(t2-t), mode+1, VIS_COUNT, mode_str);
-	if(mode==VIS_IMAGE)
+	if(mode==VIS_IMAGE||mode==VIS_ZIPF)
 		GUIPrint(0, 0, tdy*2, 1, "%s", show_full_image?"FILL SCREEN":"1:1");
 	else if(mode==VIS_JOINT_HISTOGRAM)
 	{
