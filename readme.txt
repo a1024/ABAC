@@ -4,8 +4,11 @@ I didn't invent the algorithms used here, but tried to improve the implementatio
 Each folder here contains a different project.
 The most up-to-date projects are:
 - best:      The most efficient algorithm so far (without speed considerations).
-- pxView3D:  A visualization and benchmarking tool for image transforms.
-- e2:        An image compression benchmark with the latest (but not the best) experiments.
-- entropy-battle:  An image compression benchmark. Older project, contains more obsolete techniques.
+
+- lossy:     Experiments on lossy compression.
+
+- pxView3D:  A visualization and benchmarking tool for reversible image transforms.
+- e2:        Experiments on lossless compression. Newer, cleaner project.
+- entropy-battle:  Experiments on lossless image compression. Older, messier project, contains more obsolete techniques.
 
 The other folders are outdated.
