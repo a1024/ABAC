@@ -1,5 +1,5 @@
+#include"pxView3d.h"
 #include<stdio.h>
-#include"pxview3d.h"
 #include<tmmintrin.h>
 #define STB_IMAGE_IMPLEMENTATION
 #include"stb_image.h"
@@ -721,6 +721,78 @@ void draw_rect_hollow(float x1, float x2, float y1, float y2, int color)
 #endif
 }
 
+void draw_rect_enqueue(ArrayHandle *vertices, float x1, float x2, float y1, float y2)
+{
+	float
+		X1=screen2NDC_x(x1), Y1=screen2NDC_y(y1),
+		X2=screen2NDC_x(x2), Y2=screen2NDC_y(y2);
+		//X1=screen2NDC_x_bias(x1), Y1=screen2NDC_y_bias(y1),
+		//X2=screen2NDC_x_bias(x2), Y2=screen2NDC_y_bias(y2);
+	float *vptr;
+	if(!*vertices)
+	{
+		ARRAY_ALLOC(float[2], *vertices, 0, 6, 0, 0);
+		vptr=(float*)vertices[0]->data;
+	}
+	else
+		vptr=(float*)ARRAY_APPEND(*vertices, 0, 6, 1, 0);
+	*vptr++=X1; *vptr++=Y1;
+	*vptr++=X1; *vptr++=Y2;
+	*vptr++=X2; *vptr++=Y2;
+	*vptr++=X2; *vptr++=Y2;
+	*vptr++=X2; *vptr++=Y1;
+	*vptr++=X1; *vptr++=Y1;
+}
+void draw_curve_enqueue(ArrayHandle *vertices, float x, float y)
+{
+	float *vptr;
+	if(!*vertices)
+	{
+		ARRAY_ALLOC(float[2], *vertices, 0, 1, 0, 0);
+		vptr=(float*)vertices[0]->data;
+	}
+	else
+		vptr=(float*)ARRAY_APPEND(*vertices, 0, 1, 1, 0);
+	*vptr++=screen2NDC_x(x); *vptr++=screen2NDC_y(y);
+}
+void draw_2d_flush(ArrayHandle vertices, int color, unsigned primitive)
+{
+	if(!vertices||!vertices->count)
+		return;
+
+	setGLProgram(shader_2D.program);		GL_CHECK(error);
+	send_color(u_2D_color, color);			GL_CHECK(error);
+
+	glEnableVertexAttribArray(a_2D_coords);	GL_CHECK(error);
+
+	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);							GL_CHECK(error);
+	glBufferData(GL_ARRAY_BUFFER, (int)(vertices->count*vertices->esize), vertices->data, GL_STATIC_DRAW);GL_CHECK(error);
+	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, 0);		GL_CHECK(error);
+	
+//	glBindBuffer(GL_ARRAY_BUFFER, 0);										GL_CHECK(error);
+//	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, g_fbuf);	GL_CHECK(error);
+	
+#ifndef NO_3D
+	glDisable(GL_DEPTH_TEST);
+#endif
+	glDrawArrays(primitive, 0, (int)vertices->count);	GL_CHECK(error);
+	glDisableVertexAttribArray(a_2D_coords);			GL_CHECK(error);
+#ifndef NO_3D
+	glEnable(GL_DEPTH_TEST);
+#endif
+	vertices->count=0;
+}
+
+ArrayHandle vrtx=0;
+void vrtx_resize(int vcount, int floatspervertex)
+{
+	int nfloats=vcount*floatspervertex;
+	if(!vrtx)
+		ARRAY_ALLOC(float, vrtx, 0, nfloats, 0, 0);
+	else if(nfloats>vrtx->count)
+		ARRAY_APPEND(vrtx, 0, nfloats-vrtx->count, 1, 0);
+}
+#if 0
 float *vrtx=0;
 int vrtx_bcap=0;
 int vrtx_resize(int vcount, int floatspervertex)
@@ -740,6 +812,7 @@ int vrtx_resize(int vcount, int floatspervertex)
 	}
 	return 1;
 }
+#endif
 void draw_ellipse(float x1, float x2, float y1, float y2, int color)
 {
 	float ya, yb;
@@ -748,11 +821,11 @@ void draw_ellipse(float x1, float x2, float y1, float y2, int color)
 	else
 		ya=y2, yb=y1;
 	int line_count=(int)ceil(yb)-(int)floor(ya);
-	if(!vrtx_resize(line_count*2, 2))
-		return;
+	vrtx_resize(line_count*2, 2);
 	float x0=(x1+x2)*0.5f, y0=(y1+y2)*0.5f, rx=fabsf(x2-x0), ry=yb-y0;
 	int nlines=0;
 	float ygain=2.f/line_count;
+	float *vptr=(float*)vrtx->data;
 	for(int kl=0;kl<line_count;++kl)//pixel-perfect ellipse (no anti-aliasing) drawn as horizontal lines
 	{
 		//ellipse equation: sq[(x-x0)/rx] + sq[(y-y0)/ry] = 1	->	x0 +- rx*sqrt(1 - sq[(y-y0)/ry])
@@ -766,8 +839,8 @@ void draw_ellipse(float x1, float x2, float y1, float y2, int color)
 
 		int idx=nlines<<2;
 		y=screen2NDC_y(y);
-		vrtx[idx  ]=screen2NDC_x(x0-x), vrtx[idx+1]=y;
-		vrtx[idx+2]=screen2NDC_x(x0+x+1), vrtx[idx+3]=y;
+		vptr[idx  ]=screen2NDC_x(x0-x  ), vptr[idx+1]=y;
+		vptr[idx+2]=screen2NDC_x(x0+x+1), vptr[idx+3]=y;
 		++nlines;
 	}
 	setGLProgram(shader_2D.program);		GL_CHECK(error);
@@ -776,7 +849,7 @@ void draw_ellipse(float x1, float x2, float y1, float y2, int color)
 	glEnableVertexAttribArray(a_2D_coords);	GL_CHECK(error);
 
 	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);								GL_CHECK(error);
-	glBufferData(GL_ARRAY_BUFFER, nlines*4*sizeof(float), vrtx, GL_STATIC_DRAW);GL_CHECK(error);
+	glBufferData(GL_ARRAY_BUFFER, nlines*4*sizeof(float), vptr, GL_STATIC_DRAW);GL_CHECK(error);
 	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, 0);			GL_CHECK(error);
 
 //	glBindBuffer(GL_ARRAY_BUFFER, 0);		GL_CHECK();
@@ -868,7 +941,7 @@ long long set_text_colors(long long colors)//0xBKBKBKBK_TXTXTXTX
 	}
 	return colors;
 }
-float print_line(float tab_origin, float x, float y, float zoom, const char *msg, int msg_length, int req_cols, int *ret_idx, int *ret_cols)
+float print_line_enqueue(ArrayHandle *vertices, float tab_origin, float x, float y, float zoom, const char *msg, int msg_length, int req_cols, int *ret_idx, int *ret_cols)
 {
 	if(msg_length<1)
 		return 0;
@@ -884,7 +957,13 @@ float print_line(float tab_origin, float x, float y, float zoom, const char *msg
 	float CX1=2.f/rdx, CX0=CX1*(x-rx0)-1;//delta optimization
 	rect[1]=1-(y       -ry0)*2.f/rdy;//y1
 	rect[3]=1-(y+height-ry0)*2.f/rdy;//y2
-	vrtx_resize(msg_length<<2, 4);//vx, vy, txx, txy		x4 vertices/char
+
+	if(!*vertices)
+		ARRAY_ALLOC(float[4], *vertices, 0, 0, msg_length<<2, 0);//vx, vy, txx, txy		x4 vertices/char
+	else
+		ARRAY_APPEND(*vertices, 0, 0, 1, msg_length<<2);
+	//vrtx_resize(msg_length<<2, 4);
+
 	int k=ret_idx?*ret_idx:0;
 	if(req_cols<0||cursor_cols<req_cols)
 	{
@@ -919,12 +998,149 @@ float print_line(float tab_origin, float x, float y, float zoom, const char *msg
 					//toNDC_nobias(float(x+msg_width		), float(y			), rect[0], rect[1]);
 					//toNDC_nobias(float(x+msg_width+width	), float(y+height	), rect[2], rect[3]);//y2<y1
 
-					idx=printable_count<<4;
+					//idx=printable_count<<4;
+					idx=0;
 					txc=atlas+c-32;
-					vrtx[idx   ]=rect[0], vrtx[idx+ 1]=rect[1],		vrtx[idx+ 2]=txc->x1, vrtx[idx+ 3]=txc->y1;//top left
-					vrtx[idx+ 4]=rect[0], vrtx[idx+ 5]=rect[3],		vrtx[idx+ 6]=txc->x1, vrtx[idx+ 7]=txc->y2;//bottom left
-					vrtx[idx+ 8]=rect[2], vrtx[idx+ 9]=rect[3],		vrtx[idx+10]=txc->x2, vrtx[idx+11]=txc->y2;//bottom right
-					vrtx[idx+12]=rect[2], vrtx[idx+13]=rect[1],		vrtx[idx+14]=txc->x2, vrtx[idx+15]=txc->y1;//top right
+					float *vptr=(float*)ARRAY_APPEND(*vertices, 0, 4, 1, 0);
+					vptr[idx++]=rect[0], vptr[idx++]=rect[1],	vptr[idx++]=txc->x1, vptr[idx++]=txc->y1;//top left
+					vptr[idx++]=rect[0], vptr[idx++]=rect[3],	vptr[idx++]=txc->x1, vptr[idx++]=txc->y2;//bottom left
+					vptr[idx++]=rect[2], vptr[idx++]=rect[3],	vptr[idx++]=txc->x2, vptr[idx++]=txc->y2;//bottom right
+					vptr[idx++]=rect[2], vptr[idx++]=rect[1],	vptr[idx++]=txc->x2, vptr[idx++]=txc->y1;//top right
+
+					++printable_count;
+				}
+				else
+					cursor_cols+=advance_cols;
+				if(req_cols>=0&&cursor_cols>=req_cols)
+				{
+					++k;
+					break;
+				}
+			}
+		}
+	}
+	if(ret_idx)
+		*ret_idx=k;
+	if(ret_cols)
+		*ret_cols=cursor_cols;
+	return cursor_cols*width;
+}
+void print_line_flush(ArrayHandle vertices, float zoom)
+{
+	if(vertices&&vertices->count)
+	{
+#ifndef NO_3D
+		glDisable(GL_DEPTH_TEST);
+#endif
+		if(sdf_active)
+		{
+			setGLProgram(shader_sdftext.program);
+			glUniform1f(u_sdftext_zoom, zoom*16.f/(sdf_txh*sdf_slope));
+			select_texture(sdf_atlas_txid, u_sdftext_atlas);
+
+			glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);							GL_CHECK(error);
+			glBufferData(GL_ARRAY_BUFFER, (int)(vertices->count*vertices->esize), vertices->data, GL_STATIC_DRAW);GL_CHECK(error);
+			glVertexAttribPointer(a_sdftext_coords, 4, GL_FLOAT, GL_TRUE, 0, 0);	GL_CHECK(error);
+
+		//	glBindBuffer(GL_ARRAY_BUFFER, 0);										GL_CHECK(error);
+		//	glVertexAttribPointer(a_sdftext_coords, 4, GL_FLOAT, GL_TRUE, 0, vptr);	GL_CHECK(error);
+
+			glEnableVertexAttribArray(a_sdftext_coords);	GL_CHECK(error);
+			glDrawArrays(GL_QUADS, 0, (int)vertices->count);GL_CHECK(error);
+			glDisableVertexAttribArray(a_sdftext_coords);	GL_CHECK(error);
+		}
+		else
+		{
+			setGLProgram(shader_text.program);
+			select_texture(font_txid, u_text_atlas);
+
+			glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);							GL_CHECK(error);
+			glBufferData(GL_ARRAY_BUFFER, (int)(vertices->count*vertices->esize), vertices->data, GL_STATIC_DRAW);GL_CHECK(error);//set vertices & texcoords
+			glVertexAttribPointer(a_text_coords, 4, GL_FLOAT, GL_TRUE, 0, 0);		GL_CHECK(error);
+
+		//	glBindBuffer(GL_ARRAY_BUFFER, 0);									GL_CHECK(error);
+		//	glVertexAttribPointer(a_text_coords, 4, GL_FLOAT, GL_TRUE, 0, vptr);GL_CHECK(error);
+
+			glEnableVertexAttribArray(a_text_coords);		GL_CHECK(error);
+			glDrawArrays(GL_QUADS, 0, (int)vertices->count);GL_CHECK(error);//draw the quads: 4 vertices per character quad
+			glDisableVertexAttribArray(a_text_coords);		GL_CHECK(error);
+		}
+#ifndef NO_3D
+		glEnable(GL_DEPTH_TEST);
+#endif
+		vertices->count=0;
+	}
+}
+float GUIPrint_enqueue(ArrayHandle *vertices, float tab_origin, float x, float y, float zoom, const char *format, ...)
+{
+	int len;
+	va_list args;
+
+	va_start(args, format);
+	len=vsnprintf(g_buf, G_BUF_SIZE, format, args);
+	va_end(args);
+	return print_line_enqueue(vertices, tab_origin, x, y, zoom, g_buf, len, -1, 0, 0);
+}
+
+float print_line_immediate(float tab_origin, float x, float y, float zoom, const char *msg, int msg_length, int req_cols, int *ret_idx, int *ret_cols)
+{
+	if(msg_length<1)
+		return 0;
+	float rect[4]={0};//{x1, y1, x2, y2}
+	QuadCoords *txc=0, *atlas=sdf_active?sdf_glyph_coords:font_coords;
+	//if(sdf_active)
+	//	zoom*=16.f/sdf_txh;
+	float width=tdx*zoom, height=tdy*zoom;
+	int tab_origin_cols=(int)(tab_origin/width), idx, printable_count=0, cursor_cols=ret_cols?*ret_cols:0, advance_cols;
+	if(y+height<ry0||y>=ry0+rdy)//off-screen optimization
+		return 0;//no need to do anything, this line is outside the screen
+	//	return idx2col(msg, msg_length, (int)(tab_origin/width))*width;
+	float CX1=2.f/rdx, CX0=CX1*(x-rx0)-1;//delta optimization
+	rect[1]=1-(y       -ry0)*2.f/rdy;//y1
+	rect[3]=1-(y+height-ry0)*2.f/rdy;//y2
+	vrtx_resize(msg_length<<2, 4);//vx, vy, txx, txy		x4 vertices/char
+	int k=ret_idx?*ret_idx:0;
+	float *vptr=(float*)vrtx->data;
+	if(req_cols<0||cursor_cols<req_cols)
+	{
+		idx=0;
+		CX1*=width;
+		for(;k<msg_length;++k)
+		{
+			char c=msg[k];
+			if(c>=32&&c<0xFF)
+				advance_cols=1;
+			else if(c=='\t')
+			{
+				MODVAR(advance_cols, cursor_cols-tab_origin_cols, tab_count);
+				advance_cols=tab_count-advance_cols;
+				c=' ';
+				//advance_cols=tab_count-mod(cursor_cols-tab_origin_cols, tab_count), c=' ';
+			}
+			else
+				advance_cols=0;
+			if(advance_cols)
+			{
+				if(x+(cursor_cols+advance_cols)*width>=rx0&&x+cursor_cols*width<rx0+rdx)//off-screen optimization
+				{
+					rect[0]=CX1*cursor_cols+CX0;//xn1
+					cursor_cols+=advance_cols;
+					rect[2]=CX1*cursor_cols+CX0;//xn2
+
+					//rect[0]=(x+msg_width-rx0)*2.f/rdx-1;//xn1
+					//rect[1]=1-(y-ry0)*2.f/rdy;//yn1
+					//rect[2]=(x+msg_width+width-rx0)*2.f/rdx-1;//xn2
+					//rect[3]=1-(y+height-ry0)*2.f/rdy;//yn2
+
+					//toNDC_nobias(float(x+msg_width		), float(y			), rect[0], rect[1]);
+					//toNDC_nobias(float(x+msg_width+width	), float(y+height	), rect[2], rect[3]);//y2<y1
+
+					//idx=printable_count<<4;
+					txc=atlas+c-32;
+					vptr[idx++]=rect[0], vptr[idx++]=rect[1],	vptr[idx++]=txc->x1, vptr[idx++]=txc->y1;//top left
+					vptr[idx++]=rect[0], vptr[idx++]=rect[3],	vptr[idx++]=txc->x1, vptr[idx++]=txc->y2;//bottom left
+					vptr[idx++]=rect[2], vptr[idx++]=rect[3],	vptr[idx++]=txc->x2, vptr[idx++]=txc->y2;//bottom right
+					vptr[idx++]=rect[2], vptr[idx++]=rect[1],	vptr[idx++]=txc->x2, vptr[idx++]=txc->y1;//top right
 
 					++printable_count;
 				}
@@ -949,11 +1165,11 @@ float print_line(float tab_origin, float x, float y, float zoom, const char *msg
 				select_texture(sdf_atlas_txid, u_sdftext_atlas);
 
 				glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);							GL_CHECK(error);
-				glBufferData(GL_ARRAY_BUFFER, printable_count<<6, vrtx, GL_STATIC_DRAW);GL_CHECK(error);
+				glBufferData(GL_ARRAY_BUFFER, printable_count<<6, vptr, GL_STATIC_DRAW);GL_CHECK(error);
 				glVertexAttribPointer(a_sdftext_coords, 4, GL_FLOAT, GL_TRUE, 0, 0);	GL_CHECK(error);
 
 			//	glBindBuffer(GL_ARRAY_BUFFER, 0);										GL_CHECK(error);
-			//	glVertexAttribPointer(a_sdftext_coords, 4, GL_FLOAT, GL_TRUE, 0, vrtx);	GL_CHECK(error);
+			//	glVertexAttribPointer(a_sdftext_coords, 4, GL_FLOAT, GL_TRUE, 0, vptr);	GL_CHECK(error);
 
 				glEnableVertexAttribArray(a_sdftext_coords);	GL_CHECK(error);
 				glDrawArrays(GL_QUADS, 0, printable_count<<2);	GL_CHECK(error);
@@ -965,11 +1181,11 @@ float print_line(float tab_origin, float x, float y, float zoom, const char *msg
 				select_texture(font_txid, u_text_atlas);
 
 				glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);							GL_CHECK(error);
-				glBufferData(GL_ARRAY_BUFFER, printable_count<<6, vrtx, GL_STATIC_DRAW);GL_CHECK(error);//set vertices & texcoords
+				glBufferData(GL_ARRAY_BUFFER, printable_count<<6, vptr, GL_STATIC_DRAW);GL_CHECK(error);//set vertices & texcoords
 				glVertexAttribPointer(a_text_coords, 4, GL_FLOAT, GL_TRUE, 0, 0);		GL_CHECK(error);
 
 			//	glBindBuffer(GL_ARRAY_BUFFER, 0);									GL_CHECK(error);
-			//	glVertexAttribPointer(a_text_coords, 4, GL_FLOAT, GL_TRUE, 0, vrtx);GL_CHECK(error);
+			//	glVertexAttribPointer(a_text_coords, 4, GL_FLOAT, GL_TRUE, 0, vptr);GL_CHECK(error);
 
 				glEnableVertexAttribArray(a_text_coords);		GL_CHECK(error);
 				glDrawArrays(GL_QUADS, 0, printable_count<<2);	GL_CHECK(error);//draw the quads: 4 vertices per character quad
@@ -994,7 +1210,7 @@ float GUIPrint(float tab_origin, float x, float y, float zoom, const char *forma
 	va_start(args, format);
 	len=vsnprintf(g_buf, G_BUF_SIZE, format, args);
 	va_end(args);
-	return print_line(tab_origin, x, y, zoom, g_buf, len, -1, 0, 0);
+	return print_line_immediate(tab_origin, x, y, zoom, g_buf, len, -1, 0, 0);
 }
 int g_printed=0;
 float GUIPrint_append(float tab_origin, float x, float y, float zoom, int show, const char *format, ...)
@@ -1006,10 +1222,13 @@ float GUIPrint_append(float tab_origin, float x, float y, float zoom, int show, 
 	va_start(args, format);
 	len=vsnprintf(g_buf+g_printed, G_BUF_SIZE-g_printed, format, args);
 	va_end(args);
-
-	if(show)
-		width=print_line(0, x, y, 1, g_buf+g_printed, len, -1, 0, 0);
+	
 	g_printed+=len;
+	if(show)
+	{
+		width=print_line_immediate(0, x, y, 1, g_buf, g_printed, -1, 0, 0);
+		g_printed=0;
+	}
 	return width;
 }
 
@@ -1035,7 +1254,7 @@ void display_texture(int x1, int x2, int y1, int y2, unsigned txid, float alpha,
 	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);				GL_CHECK(error);
 	glBufferData(GL_ARRAY_BUFFER, 16<<2, vrtx, GL_STATIC_DRAW);	GL_CHECK(error);//send vertices & texcoords
 
-	glVertexAttribPointer(a_texture_coords, 4, GL_FLOAT, GL_FALSE, 4<<2, (void*)0);		GL_CHECK(error);//select vertices & texcoord
+	glVertexAttribPointer(a_texture_coords, 4, GL_FLOAT, GL_FALSE, sizeof(float[4]), (void*)0);		GL_CHECK(error);//select vertices & texcoord
 
 #ifndef NO_3D
 	glDisable(GL_DEPTH_TEST);
@@ -1047,12 +1266,12 @@ void display_texture(int x1, int x2, int y1, int y2, unsigned txid, float alpha,
 	glEnable(GL_DEPTH_TEST);
 #endif
 }
-void display_texture_i(int x1, int x2, int y1, int y2, int *rgb, int txw, int txh, float alpha, float tx1, float tx2, float ty1, float ty2)
+void display_texture_i(int x1, int x2, int y1, int y2, int *rgb, int txw, int txh, float tx1, float tx2, float ty1, float ty2, float alpha, int linear)
 {
 	static unsigned tx_id=0;
 	if(rgb)
 	{
-#define	NPOT_ATIX2300_FIX
+//#define NPOT_ATIX2300_FIX
 		int *rgb2, w2, h2;
 #ifdef NPOT_ATIX2300_FIX
 		int expand;
@@ -1081,7 +1300,7 @@ void display_texture_i(int x1, int x2, int y1, int y2, int *rgb, int txw, int tx
 			glGenTextures(1, &tx_id);
 			GL_CHECK(error);
 		}
-		send_texture_pot(tx_id, rgb2, w2, h2, 0);
+		send_texture_pot(tx_id, rgb2, w2, h2, linear);
 		//glBindTexture(GL_TEXTURE_2D, tx_id);								GL_CHECK(error);
 		//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);	GL_CHECK(error);
 		//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);	GL_CHECK(error);
@@ -1299,19 +1518,20 @@ void draw_3d_line(Camera const *cam, const float *w1, const float *w2, int color
 	
 	//prepare coords
 	vrtx_resize(2, 5);
-	vrtx[0]=-w1[0];
-	vrtx[1]=-w1[1];
-	vrtx[2]=w1[2];
-	//memcpy(vrtx, w1, 3*sizeof(float));
-	vrtx[3]=0;
-	vrtx[4]=0;
+	float *vptr=(float*)vrtx->data;
+	vptr[0]=-w1[0];
+	vptr[1]=-w1[1];
+	vptr[2]=w1[2];
+	//memcpy(vptr, w1, 3*sizeof(float));
+	vptr[3]=0;
+	vptr[4]=0;
 	
-	vrtx[5]=-w2[0];
-	vrtx[6]=-w2[1];
-	vrtx[7]=w2[2];
-	//memcpy(vrtx+5, w2, 3*sizeof(float));
-	vrtx[8]=0;
-	vrtx[9]=0;
+	vptr[5]=-w2[0];
+	vptr[6]=-w2[1];
+	vptr[7]=w2[2];
+	//memcpy(vptr+5, w2, 3*sizeof(float));
+	vptr[8]=0;
+	vptr[9]=0;
 	
 	//prepare matrix
 	mat4_FPSView(mView, &cam->x, cam->ax, cam->ay);
@@ -1325,7 +1545,7 @@ void draw_3d_line(Camera const *cam, const float *w1, const float *w2, int color
 	glUniformMatrix4fv(u_3D_matrix, 1, GL_FALSE, mVP);	GL_CHECK(error);
 	
 	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);		GL_CHECK(error);
-	glBufferData(GL_ARRAY_BUFFER, 2*5*sizeof(float), vrtx, GL_STATIC_DRAW);	GL_CHECK(error);//send vertices & texcoords
+	glBufferData(GL_ARRAY_BUFFER, 2*5*sizeof(float), vptr, GL_STATIC_DRAW);	GL_CHECK(error);//send vertices & texcoords
 	glVertexAttribPointer(a_3D_vertex, 3, GL_FLOAT, GL_FALSE, 5*sizeof(float), (void*)0);					GL_CHECK(error);//select vertices & texcoords
 	glVertexAttribPointer(a_3D_texcoord, 2, GL_FLOAT, GL_FALSE, 5*sizeof(float), (void*)(3*sizeof(float)));	GL_CHECK(error);
 	glEnableVertexAttribArray(a_3D_vertex);		GL_CHECK(error);
@@ -1335,6 +1555,60 @@ void draw_3d_line(Camera const *cam, const float *w1, const float *w2, int color
 
 	glDisableVertexAttribArray(a_3D_vertex);	GL_CHECK(error);
 	glDisableVertexAttribArray(a_3D_texcoord);	GL_CHECK(error);
+}
+
+void draw_3d_line_enqueue(ArrayHandle *vertices, float x, float y, float z)
+{
+	float *vptr;
+	if(!*vertices)
+	{
+		ARRAY_ALLOC(float[5], *vertices, 0, 1, 0, 0);
+		vptr=(float*)vertices[0]->data;
+	}
+	else
+		vptr=(float*)ARRAY_APPEND(*vertices, 0, 1, 1, 0);
+
+	vptr[0]=-x;
+	vptr[1]=-y;
+	vptr[2]=z;
+	vptr[3]=0;
+	vptr[4]=0;
+}
+void draw_3d_flush(ArrayHandle vertices, Camera const *cam, int *texture, int tw, int th, int linear, unsigned primitive)
+{
+	static unsigned txid=0;
+	float mView[16], mProj[16], mVP[16];
+	__m128 temp1;
+
+	//prepare texture
+	if(!txid)
+		glGenTextures(1, &txid);
+	send_texture_pot(txid, texture, tw, th, linear);
+	
+	//prepare matrix
+	mat4_FPSView(mView, &cam->x, cam->ax, cam->ay);
+	mat4_perspective(mProj, cam->tanfov, (float)(w)/h, 0.1f, 1000.f);
+	mat4_mul_mat4(mVP, mProj, mView, temp1);
+
+	setGLProgram(shader_3D.program);
+
+	select_texture(txid, u_3D_texture);
+	
+	glUniformMatrix4fv(u_3D_matrix, 1, GL_FALSE, mVP);	GL_CHECK(error);
+	
+	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);		GL_CHECK(error);
+	glBufferData(GL_ARRAY_BUFFER, (int)(vertices->count*vertices->esize), vertices->data, GL_STATIC_DRAW);		GL_CHECK(error);//send vertices & texcoords
+	glVertexAttribPointer(a_3D_vertex, 3, GL_FLOAT, GL_FALSE, (int)vertices->esize, (void*)0);					GL_CHECK(error);//select vertices & texcoords
+	glVertexAttribPointer(a_3D_texcoord, 2, GL_FLOAT, GL_FALSE, (int)vertices->esize, (void*)(3*sizeof(float)));GL_CHECK(error);
+	glEnableVertexAttribArray(a_3D_vertex);		GL_CHECK(error);
+	glEnableVertexAttribArray(a_3D_texcoord);	GL_CHECK(error);
+
+	glDrawArrays(primitive, 0, (int)vertices->count);GL_CHECK(error);
+
+	glDisableVertexAttribArray(a_3D_vertex);	GL_CHECK(error);
+	glDisableVertexAttribArray(a_3D_texcoord);	GL_CHECK(error);
+
+	vertices->count=0;
 }
 
 void draw_contour3d_rect(Camera const *cam, unsigned vbuf, int nvertices, unsigned txid, float alpha)

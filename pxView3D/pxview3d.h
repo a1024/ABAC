@@ -11,7 +11,7 @@ extern "C"
 #endif
 
 
-	#define ALLOW_OPENCL
+//	#define ALLOW_OPENCL
 //	#define DEBUG_MEMORY
 //	#define ENABLE_CONSOLE_MAIN_TEST
 
@@ -578,13 +578,17 @@ int toggle_sdftext();
 int set_text_color(int color_txt);
 int set_bk_color(int color_bk);
 long long set_text_colors(long long colors);//0xBKBKBKBK_TXTXTXTX
-float print_line(float tab_origin, float x, float y, float zoom, const char *msg, int msg_length, int req_cols, int *ret_idx, int *ret_cols);//returns text width
+float print_line_immediate(float tab_origin, float x, float y, float zoom, const char *msg, int msg_length, int req_cols, int *ret_idx, int *ret_cols);//returns text width
 float GUIPrint(float tab_origin, float x, float y, float zoom, const char *format, ...);//returns text width
 extern int g_printed;
 float GUIPrint_append(float tab_origin, float x, float y, float zoom, int show, const char *format, ...);
 
+float GUIPrint_enqueue(ArrayHandle *vertices, float tab_origin, float x, float y, float zoom, const char *format, ...);
+float print_line_enqueue(ArrayHandle *vertices, float tab_origin, float x, float y, float zoom, const char *msg, int msg_length, int req_cols, int *ret_idx, int *ret_cols);
+void print_line_flush(ArrayHandle vertices, float zoom);
+
 void display_texture(int x1, int x2, int y1, int y2, unsigned txid, float alpha, float tx1, float tx2, float ty1, float ty2);
-void display_texture_i(int x1, int x2, int y1, int y2, int *rgb, int txw, int txh, float alpha, float tx1, float tx2, float ty1, float ty2);
+void display_texture_i(int x1, int x2, int y1, int y2, int *rgb, int txw, int txh, float tx1, float tx2, float ty1, float ty2, float alpha, int linear);
 
 //3D
 void mat4_lookAt(float *dst, const float *cam, const float *center, const float *up);
@@ -603,6 +607,9 @@ void gpubuf_send_VNT(GPUModel *dst, const float *VVVNNNTT, int n_floats, const i
 void draw_L3D(Camera const *cam, GPUModel const *model, const float *modelpos, const float *lightpos, int lightcolor);
 
 void draw_3d_line(Camera const *cam, const float *w1, const float *w2, int color);//world coordinates
+
+void draw_3d_line_enqueue(ArrayHandle *vertices, float x, float y, float z);
+void draw_3d_flush(ArrayHandle vertices, Camera const *cam, int *texture, int tw, int th, int linear, unsigned primitive);
 
 void draw_contour3d_rect(Camera const *cam, unsigned vbuf, int nvertices, unsigned txid, float alpha);
 
@@ -672,6 +679,11 @@ void custom3_opt(const char *src, int iw, int ih, Custom3Params *srcparams, int 
 void custom3_opt_batch(Custom3Params *srcparams, int niter, int maskbits, int loud, double *loss);
 //void custom3_opt_gpu(const char *src, int iw, int ih, Custom3Params *srcparams, int niter, int maskbits, int loud);//X  extremely slow
 void custom3_opt_batch2(Custom3Params *srcparams, int niter, int maskbits, int loud, double *loss);
+
+
+//CUSTOM4
+#define C4_REACH 2
+#define C4_NLAYERS 6
 
 
 void pred_slope_fwd(char *buf, int iw, int ih, int nch, int bytestride);
@@ -798,6 +810,9 @@ void pred_jxl_apply(char *buf, int iw, int ih, short *allparams, int fwd);
 void pred_jxl(char *buf, int iw, int ih, int nch, int bytestride, int fwd);
 
 
+void pred_calic(char *buf, int iw, int ih, int fwd);
+
+
 #define SORTNBCASES 8
 extern int sortnb_cases[SORTNBCASES];
 extern double sortnb_rmse[SORTNBCASES];
@@ -854,6 +869,7 @@ void jointhistogram(unsigned char *buf, int iw, int ih, int nbits, ArrayHandle *
 
 
 //experiment 24: test 16 optimization per block
+#if 0
 typedef struct E24ParamsStruct
 {
 	short
@@ -868,6 +884,15 @@ extern E24Params e24_params[3];
 extern double e24_cr[3];
 int e24_optimizeall(const unsigned char *buf, int iw, int ih, int x1, int x2, int y1, int y2, int loud);
 void e24_estimate(const unsigned char *buf, int iw, int ih, int x1, int x2, int y1, int y2);
+#endif
+
+//Bayes memory experiment
+typedef struct BayesCounterStruct
+{
+	int n[2];
+} BayesCounter;
+extern ArrayHandle bayes_mem[8];
+void bayes_estimate(unsigned char *image, int iw, int ih, int x1, int x2, int y1, int y2, int kc);
 
 
 //transforms pt2

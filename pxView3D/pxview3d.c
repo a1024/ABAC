@@ -33,6 +33,7 @@ typedef enum VisModeEnum
 	VIS_MESH_SEPARATE,
 	VIS_IMAGE_TRICOLOR,
 	VIS_IMAGE,
+	VIS_BAYES,
 	VIS_IMAGE_BLOCK,
 //	VIS_IMAGE_E24,//experiment 24
 	VIS_ZIPF,
@@ -95,13 +96,13 @@ typedef enum TransformTypeEnum
 
 	CST_SEPARATOR,
 
-	ST_PREPROC_GRAD,
-	ST_PREPROC_X,
-	ST_PREPROC_X2,
+//	ST_PREPROC_GRAD,
+//	ST_PREPROC_X,
+//	ST_PREPROC_X2,
 	
-	ST_FWD_CUSTOM2,		ST_INV_CUSTOM2,
+//	ST_FWD_CUSTOM2,		ST_INV_CUSTOM2,
 	ST_FWD_CUSTOM3,		ST_INV_CUSTOM3,
-	ST_FWD_KALMAN,		ST_INV_KALMAN,
+//	ST_FWD_KALMAN,		ST_INV_KALMAN,
 //	ST_FWD_LOGIC,		ST_INV_LOGIC,
 	ST_FWD_LEARNED,		ST_INV_LEARNED,
 #ifdef ALLOW_OPENCL
@@ -117,6 +118,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_JXL,			ST_INV_JXL,
 	ST_FWD_MM,			ST_INV_MM,
 	ST_FWD_JMJ,			ST_INV_JMJ,
+	ST_FWD_CALIC,		ST_INV_CALIC,
 //	ST_FWD_MEDIAN,		ST_INV_MEDIAN,
 //	ST_FWD_DCT3PRED,	ST_INV_DCT3PRED,
 //	ST_FWD_PATHPRED,	ST_INV_PATHPRED,
@@ -303,16 +305,16 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 
 	case CST_SEPARATOR:			a="";						break;
 
-	case ST_PREPROC_GRAD:		a=" S Preproc Grad";		break;
-	case ST_PREPROC_X:			a=" S Preproc X";			break;
-	case ST_PREPROC_X2:			a=" S Preproc X2";			break;
+//	case ST_PREPROC_GRAD:		a=" S Preproc Grad";		break;
+//	case ST_PREPROC_X:			a=" S Preproc X";			break;
+//	case ST_PREPROC_X2:			a=" S Preproc X2";			break;
 
-	case ST_FWD_CUSTOM2:		a=" S Fwd CUSTOM2";			break;
-	case ST_INV_CUSTOM2:		a=" S Inv CUSTOM2";			break;
+//	case ST_FWD_CUSTOM2:		a=" S Fwd CUSTOM2";			break;
+//	case ST_INV_CUSTOM2:		a=" S Inv CUSTOM2";			break;
 	case ST_FWD_CUSTOM3:		a=" S Fwd CUSTOM3";			break;
 	case ST_INV_CUSTOM3:		a=" S Inv CUSTOM3";			break;
-	case ST_FWD_KALMAN:			a=" S Fwd Kalman";			break;
-	case ST_INV_KALMAN:			a=" S Inv Kalman";			break;
+//	case ST_FWD_KALMAN:			a=" S Fwd Kalman";			break;
+//	case ST_INV_KALMAN:			a=" S Inv Kalman";			break;
 //	case ST_FWD_LOGIC:			a=" S Fwd Logic";			break;
 //	case ST_INV_LOGIC:			a=" S Inv Logic";			break;
 	case ST_FWD_LEARNED:		a=" S Fwd Learned";			break;
@@ -336,6 +338,8 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 //	case ST_INV_GRAD2:			a=" S Inv Grad2";			break;
 //	case ST_FWD_ADAPTIVE:		a=" S Fwd Adaptive";		break;
 //	case ST_INV_ADAPTIVE:		a=" S Inv Adaptive";		break;
+	case ST_FWD_CALIC:			a=" S Fwd CALIC";			break;
+	case ST_INV_CALIC:			a=" S Inv CALIC";			break;
 	case ST_FWD_JXL:			a=" S Fwd JXL";				break;
 	case ST_INV_JXL:			a=" S Inv JXL";				break;
 	case ST_FWD_MM:				a=" S Fwd MM";				break;
@@ -779,6 +783,32 @@ void chart_jointhist_update(unsigned char *im, int iw, int ih, ArrayHandle *cpuv
 	glBindBuffer(GL_ARRAY_BUFFER, *gpuv);	GL_CHECK(error);
 	glBufferData(GL_ARRAY_BUFFER, nf*sizeof(float), cpuv[0]->data, GL_STATIC_DRAW);	GL_CHECK(error);
 }
+
+int bayes_kc=0;
+void bayes_update()
+{
+	float yoffset=tdy*3, half=blocksize*0.5f;
+	float x1=blockmx-half, x2=blockmx+half, y1=blockmy-yoffset-half, y2=blockmy-yoffset+half;
+	if(blockmx>=0&&blockmx<iw&&blockmy>=yoffset&&blockmy<yoffset+ih)
+	{
+		if(iw<blocksize)
+			x1=0, x2=(float)iw;
+		if(x1<0)
+			x1=0, x2=(float)blocksize;
+		if(x2>iw)
+			x1=(float)(iw-blocksize), x2=(float)iw;
+				
+		if(ih<blocksize)
+			y1=0, y2=(float)ih;
+		if(y1<0)
+			y1=0, y2=(float)blocksize;
+		if(y2>ih)
+			y1=(float)(ih-blocksize), y2=(float)ih;
+
+		bayes_estimate(image, iw, ih, (int)roundf(x1), (int)roundf(x2), (int)roundf(y1), (int)roundf(y2), bayes_kc);
+	}
+}
+
 void update_image()
 {
 	if(image)
@@ -824,9 +854,9 @@ void update_image()
 			case CT_FWD_CUSTOM:		colortransform_custom_fwd((char*)image, iw, ih);	break;
 			case CT_INV_CUSTOM:		colortransform_custom_inv((char*)image, iw, ih);	break;
 
-			case ST_PREPROC_GRAD:	preproc_grad((char*)image, iw, ih);					break;
-			case ST_PREPROC_X:		preproc_x((char*)image, iw, ih);					break;
-			case ST_PREPROC_X2:		preproc_x2((char*)image, iw, ih);					break;
+		//	case ST_PREPROC_GRAD:	preproc_grad((char*)image, iw, ih);					break;
+		//	case ST_PREPROC_X:		preproc_x((char*)image, iw, ih);					break;
+		//	case ST_PREPROC_X2:		preproc_x2((char*)image, iw, ih);					break;
 
 		//	case ST_FWD_JOINT:		pred_joint_apply((char*)image, iw, ih, jointpredparams, 1);break;
 		//	case ST_INV_JOINT:		pred_joint_apply((char*)image, iw, ih, jointpredparams, 0);break;
@@ -835,12 +865,12 @@ void update_image()
 		//	case ST_FWD_HYBRID3:	pred_hybrid_fwd((char*)image, iw, ih);				break;
 		//	case ST_INV_HYBRID3:	pred_hybrid_inv((char*)image, iw, ih);				break;
 				
-			case ST_FWD_CUSTOM2:	custom2_apply((char*)image, iw, ih, 1, &c2_params);	break;
-			case ST_INV_CUSTOM2:	custom2_apply((char*)image, iw, ih, 0, &c2_params);	break;
+		//	case ST_FWD_CUSTOM2:	custom2_apply((char*)image, iw, ih, 1, &c2_params);	break;
+		//	case ST_INV_CUSTOM2:	custom2_apply((char*)image, iw, ih, 0, &c2_params);	break;
 			case ST_FWD_CUSTOM3:	custom3_apply((char*)image, iw, ih, 1, &c3_params);	break;
 			case ST_INV_CUSTOM3:	custom3_apply((char*)image, iw, ih, 0, &c3_params);	break;
-			case ST_FWD_KALMAN:		kalman_apply((char*)image, iw, ih, 1);				break;
-			case ST_INV_KALMAN:		kalman_apply((char*)image, iw, ih, 0);				break;
+		//	case ST_FWD_KALMAN:		kalman_apply((char*)image, iw, ih, 1);				break;
+		//	case ST_INV_KALMAN:		kalman_apply((char*)image, iw, ih, 0);				break;
 		//	case ST_FWD_CUSTOM2:	pred_custom2_apply((char*)image, iw, ih, 1);		break;
 		//	case ST_INV_CUSTOM2:	pred_custom2_apply((char*)image, iw, ih, 0);		break;
 		//	case ST_FWD_LOGIC:		pred_logic_apply((char*)image, iw, ih, logic_params, 1);break;
@@ -859,6 +889,8 @@ void update_image()
 		//	case ST_INV_GRAD2:		pred_grad2_inv((char*)image, iw, ih, 3, 4);			break;
 		//	case ST_FWD_ADAPTIVE:	pred_adaptive((char*)image, iw, ih, 3, 4, 1);		break;
 		//	case ST_INV_ADAPTIVE:	pred_adaptive((char*)image, iw, ih, 3, 4, 0);		break;
+			case ST_FWD_CALIC:		pred_calic((char*)image, iw, ih, 1);				break;
+			case ST_INV_CALIC:		pred_calic((char*)image, iw, ih, 0);				break;
 			case ST_FWD_JXL:		pred_jxl_apply((char*)image, iw, ih, jxlparams_i16, 1);break;
 			case ST_INV_JXL:		pred_jxl_apply((char*)image, iw, ih, jxlparams_i16, 0);break;
 			case ST_FWD_MM:			pred_w2_apply((char*)image, iw, ih, pw2_params, 1);	break;
@@ -969,6 +1001,9 @@ void update_image()
 	case VIS_MESH_SEPARATE:
 		chart_mesh_sep_update(image, iw, ih, &cpu_vertices, &gpu_vertices);
 		break;
+	case VIS_BAYES:
+		bayes_update();
+		break;
 	case VIS_ZIPF:
 		{
 			int res=iw*ih;
@@ -1013,7 +1048,7 @@ void update_image()
 					for(int kc=0;kc<3;++kc)
 					{
 						float val=fbuf[k*3+kc]*255/vmax;
-						zimage[k<<2|kc]=CLAMP(0, val, 255);
+						zimage[k<<2|kc]=(unsigned char)CLAMP(0, val, 255);
 					}
 					zimage[k<<2|3]=0xFF;
 				}
@@ -1366,6 +1401,7 @@ void chart_jointhist_draw()
 	draw_AAcuboid_wire(0, 64, 0, 64, 0, 64, 0xFF000000);
 	draw_contour3d_rect(&cam, gpu_vertices, (int)(cpu_vertices->count/5), image_txid[2], 0.8f);
 }
+#if 0
 void e24_update()
 {
 	float yoffset=tdy*3, half=blocksize*0.5f;
@@ -1389,6 +1425,7 @@ void e24_update()
 		e24_estimate(image, iw, ih, (int)roundf(x1), (int)roundf(x2), (int)roundf(y1), (int)roundf(y2));
 	}
 }
+#endif
 
 #if 0
 void applycolortransform(int tidx)
@@ -1601,6 +1638,7 @@ void io_resize()
 int io_mousemove()//return true to redraw
 {
 	if(mode==VIS_IMAGE_BLOCK
+		||mode==VIS_BAYES
 		//||mode==VIS_IMAGE_E24
 		||mode==VIS_DWT_BLOCK)
 	{
@@ -1789,6 +1827,7 @@ int io_mousewheel(int forward)
 	{
 	normal_operation:
 		if(mode==VIS_IMAGE_BLOCK
+			||mode==VIS_BAYES
 			//||mode==VIS_IMAGE_E24
 			||mode==VIS_DWT_BLOCK)
 		{
@@ -2142,6 +2181,7 @@ int io_keydn(IOKey key, char c)
 	case KEY_ESC:
 toggle_drag:
 		if(mode==VIS_IMAGE_BLOCK
+			||mode==VIS_BAYES
 			//||mode==VIS_IMAGE_E24
 			||mode==VIS_DWT_BLOCK)
 		{
@@ -2303,7 +2343,6 @@ toggle_drag:
 #endif
 				}
 			}
-#endif
 			else if(transforms_mask[ST_FWD_CUSTOM2]||transforms_mask[ST_INV_CUSTOM2])
 			{
 				for(int k=0;k<6;++k)
@@ -2331,6 +2370,7 @@ toggle_drag:
 				}
 				append_i16_row(&str, c2_params.c2+6*12, 4);
 			}
+#endif
 			else if(transforms_mask[ST_FWD_CUSTOM3]||transforms_mask[ST_INV_CUSTOM3])
 			{
 				const int width=C3_REACH<<2|2;//interleaved pixels & errors
@@ -2498,11 +2538,12 @@ toggle_drag:
 				}
 				else
 #endif
-				if(transforms_mask[ST_FWD_CUSTOM2]||transforms_mask[ST_INV_CUSTOM2])
-				{
-					parse_nvals(text, idx, (short*)&c2_params, sizeof(c2_params)/sizeof(short));
-				}
-				else if(transforms_mask[ST_FWD_CUSTOM3]||transforms_mask[ST_INV_CUSTOM3])
+				//if(transforms_mask[ST_FWD_CUSTOM2]||transforms_mask[ST_INV_CUSTOM2])
+				//{
+				//	parse_nvals(text, idx, (short*)&c2_params, sizeof(c2_params)/sizeof(short));
+				//}
+				//else
+				if(transforms_mask[ST_FWD_CUSTOM3]||transforms_mask[ST_INV_CUSTOM3])
 				{
 					parse_nvals(text, idx, (short*)&c3_params, sizeof(c3_params)/sizeof(short));
 				}
@@ -2738,6 +2779,7 @@ toggle_drag:
 				update_image();
 			}
 			//	timer_start(50);
+#if 0
 			else if(transforms_mask[ST_FWD_CUSTOM2]||transforms_mask[ST_INV_CUSTOM2])
 			{
 				if(GET_KEY_STATE(KEY_CTRL))
@@ -2778,6 +2820,7 @@ toggle_drag:
 				}
 				update_image();
 			}
+#endif
 			else if(transforms_mask[ST_FWD_CUSTOM3]||transforms_mask[ST_INV_CUSTOM3])
 			{
 				int maskbits=10;
@@ -3020,7 +3063,7 @@ float print_i16_row(float x, float y, float zoom, const short *row, int count)
 		short val=row[k];
 		printed+=snprintf(g_buf+printed, G_BUF_SIZE-printed, " %c%4X", val<0?'-':' ', abs(val));
 	}
-	return print_line(0, x, y, zoom, g_buf, printed, -1, 0, 0);
+	return print_line_immediate(0, x, y, zoom, g_buf, printed, -1, 0, 0);
 }
 void io_render()
 {
@@ -3052,7 +3095,7 @@ void io_render()
 		case VIS_HISTOGRAM:
 			{
 				float yoffset=tdy*3;
-				display_texture_i(0, iw, (int)yoffset, (int)yoffset+ih, (int*)image, iw, ih, 1, 0, 1, 0, 1);
+				display_texture_i(0, iw, (int)yoffset, (int)yoffset+ih, (int*)image, iw, ih, 0, 1, 0, 1, 1, 0);
 				chart_hist_draw(0, (float)w, 0, (float)h, 0, 3, 0, 0x60, hist, histmax);
 			}
 			break;
@@ -3065,17 +3108,72 @@ void io_render()
 					waitstatus=WaitForSingleObject(ghMutex, INFINITE);
 				float yoffset=tdy*3;
 				if(show_full_image)
-					display_texture_i(0, w, 0, h, (int*)(mode==VIS_ZIPF?zimage:image), iw, ih, 1, 0, 1, 0, 1);
+					display_texture_i(0, w, 0, h, (int*)(mode==VIS_ZIPF?zimage:image), iw, ih, 0, 1, 0, 1, 1, 0);
 				else
-					display_texture_i(0, iw, (int)yoffset, (int)yoffset+ih, (int*)(mode==VIS_ZIPF?zimage:image), iw, ih, 1, 0, 1, 0, 1);
+					display_texture_i(0, iw, (int)yoffset, (int)yoffset+ih, (int*)(mode==VIS_ZIPF?zimage:image), iw, ih, 0, 1, 0, 1, 1, 0);
 				if(waitstatus==WAIT_OBJECT_0)
 					ReleaseMutex(ghMutex);
+			}
+			break;
+		case VIS_BAYES:
+			{
+				bayes_update();
+				if(*bayes_mem)
+				{
+					static ArrayHandle vertices=0;
+					int texture[]=
+					{
+						0xFF0000FF, 0xFF0000FF,
+						0xFF0000FF, 0xFF0000FF,
+					};
+					for(int kb=7;kb>=0;--kb)
+					{
+						ArrayHandle mem=bayes_mem[kb];
+						int x=7-kb;
+						for(int kctx=0, nctx=1<<x;kctx<nctx;++kctx)
+						{
+							for(int kp=0;kp<256;++kp)
+							{
+								BayesCounter *node=(BayesCounter*)array_at(&mem, kctx<<8|kp);
+								float z=(float)node->n[1]/(node->n[0]+node->n[1]);
+								draw_3d_line_enqueue(&vertices, (float)x*4, (float)kp/16, z+kctx);
+							}
+							draw_3d_flush(vertices, &cam, texture, 2, 2, 0, GL_LINE_STRIP);
+						}
+					}
+				}
+				float yoffset=tdy*3, half=blocksize*0.5f;
+				display_texture_i(0, iw, (int)yoffset, (int)yoffset+ih, (int*)image, iw, ih, 0, 1, 0, 1, 0.5f, 0);
+				float x1=blockmx-half, x2=blockmx+half, y1=blockmy-yoffset-half, y2=blockmy-yoffset+half;
+
+				//if(range_intersect(x1, x2, 0, iw)&&range_intersect(y1, y2, 0, ih))
+				if(blockmx>=0&&blockmx<iw&&blockmy>=yoffset&&blockmy<yoffset+ih)
+				{
+					if(iw<blocksize)
+						x1=0, x2=(float)iw;
+					if(x1<0)
+						x1=0, x2=(float)blocksize;
+					if(x2>iw)
+						x1=(float)(iw-blocksize), x2=(float)iw;
+				
+					if(ih<blocksize)
+						y1=0, y2=(float)ih;
+					if(y1<0)
+						y1=0, y2=(float)blocksize;
+					if(y2>ih)
+						y1=(float)(ih-blocksize), y2=(float)ih;
+					
+					int boxcolor=0xFFFFFF00;
+					y1+=yoffset;
+					y2+=yoffset;
+					draw_rect_hollow(x1, x2, y1, y2, boxcolor);
+				}
 			}
 			break;
 		case VIS_IMAGE_BLOCK:
 			{
 				float yoffset=tdy*3, half=blocksize*0.5f;
-				display_texture_i(0, iw, (int)yoffset, (int)yoffset+ih, (int*)image, iw, ih, 1, 0, 1, 0, 1);
+				display_texture_i(0, iw, (int)yoffset, (int)yoffset+ih, (int*)image, iw, ih, 0, 1, 0, 1, 1, 0);
 				float x1=blockmx-half, x2=blockmx+half, y1=blockmy-yoffset-half, y2=blockmy-yoffset+half;
 
 				//if(range_intersect(x1, x2, 0, iw)&&range_intersect(y1, y2, 0, ih))
@@ -3449,6 +3547,7 @@ void io_render()
 	case VIS_HISTOGRAM:			mode_str="Histogram";		break;
 	case VIS_JOINT_HISTOGRAM:	mode_str="Joint Histogram";	break;
 	case VIS_IMAGE:				mode_str="Image View";		break;
+	case VIS_BAYES:				mode_str="Bayes";			break;
 	case VIS_ZIPF:				mode_str="Zipf View";		break;
 	case VIS_IMAGE_BLOCK:		mode_str="Image Block";		break;
 //	case VIS_IMAGE_E24:			mode_str="Image Exp24";		break;
@@ -3503,9 +3602,11 @@ void io_render()
 			float crmax=cr_combined;
 			for(int k=0;k<4;++k)//get max CR
 			{
-				if(isfinite((double)ch_cr[k])&&crmax<ch_cr[k])
+				if(isfinite(ch_cr[k])&&crmax<ch_cr[k])
 					crmax=ch_cr[k];
 			}
+			if(!isfinite(crmax))
+				crmax=0;
 			if(crmax<crformat)
 				crmax=crformat;
 			if(xend-scale*crmax<xstart)
@@ -3639,6 +3740,7 @@ void io_render()
 
 		//grad2 info
 #if 1
+#if 0
 		if(transforms_mask[ST_PREPROC_GRAD]||transforms_mask[ST_PREPROC_X2])
 		{
 			extern double lossygrad_rmse[3], lossygrad_psnr[3];
@@ -3647,7 +3749,7 @@ void io_render()
 			GUIPrint(0, x, y, 1, "RMSE RGB %14lf %14lf %14lf", lossygrad_rmse[0], lossygrad_rmse[1], lossygrad_rmse[2]); y+=tdy;
 			GUIPrint(0, x, y, 1, "PSNR RGB %14lf %14lf %14lf", lossygrad_psnr[0], lossygrad_psnr[1], lossygrad_psnr[2]);
 		}
-		if(transforms_mask[ST_FWD_CUSTOM2]||transforms_mask[ST_INV_CUSTOM2])
+		else if(transforms_mask[ST_FWD_CUSTOM2]||transforms_mask[ST_INV_CUSTOM2])
 		{
 			float width=300.f, zoom=1, ystart=tdy*zoom*3;
 			x=(float)(w>>2);
@@ -3683,7 +3785,9 @@ void io_render()
 			}
 			print_i16_row(x, y, zoom, c2_params.c2+6*12, 4);		y+=tdy*zoom;
 		}
-		else if(transforms_mask[ST_FWD_CUSTOM3]||transforms_mask[ST_INV_CUSTOM3])
+		else
+#endif
+		if(transforms_mask[ST_FWD_CUSTOM3]||transforms_mask[ST_INV_CUSTOM3])
 		{
 			const int width=C3_REACH<<2|2;
 			const short *coeffs[]=

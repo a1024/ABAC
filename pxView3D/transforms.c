@@ -8147,6 +8147,253 @@ void custom3_opt_batch2(Custom3Params *srcparams, int niter, int maskbits, int l
 }
 
 
+//CUSTOM4
+static int custom4_loadnb(const char *pixels, const char *errors, int iw, int ih, int kc, int kx, int ky, short *nb)
+{
+	int idx=-1;
+	for(int ky2=-C4_REACH;ky2<0;++ky2)
+	{
+		for(int kx2=-C4_REACH;kx2<=C4_REACH;++kx2)
+		{
+			if((unsigned)(kx+kx2)<(unsigned)iw&&(unsigned)(ky+ky2)<(unsigned)ih)
+			{
+				int idx2=(iw*(ky+ky2)+kx+kx2)<<2|kc;
+				nb[++idx]=pixels[idx2];
+				nb[++idx]=errors[idx2];
+			}
+			else
+			{
+				nb[++idx]=0;
+				nb[++idx]=0;
+			}
+		}
+	}
+	for(int kx2=-C4_REACH;kx2<0;++kx2)
+	{
+		if((unsigned)(kx+kx2)<(unsigned)iw)
+		{
+			int idx2=(iw*ky+kx+kx2)<<2|kc;
+			nb[++idx]=pixels[idx2];
+			nb[++idx]=errors[idx2];
+		}
+		else
+		{
+			nb[++idx]=0;
+			nb[++idx]=0;
+		}
+	}
+	return ++idx;
+}
+static int custom4_dot(const short *a, const short *b, int count)
+{
+	int k;
+	__m256i sum=_mm256_setzero_si256();
+	for(k=0;k<count-15;k+=16)//https://stackoverflow.com/questions/62041400/inner-product-of-two-16bit-integer-vectors-with-avx2-in-c
+	{
+		__m256i va=_mm256_loadu_si256((__m256i*)(a+k));
+		__m256i vb=_mm256_loadu_si256((__m256i*)(b+k));
+		va=_mm256_madd_epi16(va, vb);
+		sum=_mm256_add_epi32(sum, va);
+	}
+	__m128i s2=_mm_add_epi32(_mm256_extracti128_si256(sum, 1), _mm256_castsi256_si128(sum));
+	__m128i hi=_mm_shuffle_epi32(s2, _MM_SHUFFLE(2, 1, 3, 2));
+	s2=_mm_add_epi32(s2, hi);
+	s2=_mm_hadd_epi32(s2, s2);
+	int s3=_mm_extract_epi32(s2, 0);
+	for(;k<count;++k)
+		s3+=a[k]*b[k];
+	return s3;
+}
+static void custom4_prealloc(const char *src, int iw, int ih, int fwd, Custom3Params const *params, char *dst)
+{
+	const char *pixels=fwd?src:dst, *errors=fwd?dst:src;
+	int pred, idx;
+	const short *coeffs[]=
+	{
+		params->c00, params->c01, params->c02,
+		params->c10, params->c11, params->c12,
+		params->c20, params->c21, params->c22,
+	};
+	short nb[3][C3_NNB+2]={0};
+	for(int ky=0;ky<ih;++ky)
+	{
+		for(int kx=0;kx<iw;++kx)
+		{
+			int count[3], idx2;
+			for(int kc=0;kc<3;++kc)
+				count[kc]=custom3_loadnb(pixels, errors, iw, ih, kc, kx, ky, nb[kc]);
+			
+			idx=(iw*ky+kx)<<2;
+			idx2=0;
+			
+			for(int kdst=0;kdst<3;++kdst)
+			{
+				pred=0;
+				for(int kc=0;kc<3;++kc)
+					pred+=custom3_dot(coeffs[idx2+kc], nb[kc], count[kc]);
+				pred+=1<<13;
+				pred>>=14;
+				pred=CLAMP(-128, pred, 127);
+				if(fwd)
+					dst[idx]=src[idx]-pred;
+				else
+					dst[idx]=src[idx]+pred;
+
+				nb[kdst][C3_NNB  ]=pixels[idx];
+				nb[kdst][C3_NNB+1]=errors[idx];
+				count[kdst]+=2;
+				++idx;
+				idx2+=3;
+			}
+		}
+	}
+}
+
+
+void pred_calic(char *buf, int iw, int ih, int fwd)//https://github.com/siddharths2710/CALIC/blob/master/calic.ipynb
+{
+	int res=iw*ih;
+	char *b2=(char*)malloc((size_t)res<<2);
+	int *arrN=(int*)malloc(1024*sizeof(int));
+	int *arrS=(int*)malloc(1024*sizeof(int));
+	if(!b2||!arrN||!arrS)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	memcpy(b2, buf, (size_t)res<<2);//copy alpha
+	const int thresholds[]={5, 15, 25, 42, 60, 85, 140};
+	const char *pixels=fwd?buf:b2, *errors=fwd?b2:buf;
+	for(int kc=0;kc<3;++kc)//process each channel separately
+	{
+		int prev_error=0;
+		memset(arrN, 0, 1024*sizeof(int));
+		memset(arrS, 0, 1024*sizeof(int));
+		for(int ky=0;ky<ih;++ky)
+		{
+			for(int kx=0;kx<iw;++kx)
+			{
+#define LOAD(BUF, X, Y) (unsigned)(kx+(X))<(unsigned)iw&&(unsigned)(ky+(Y))<(unsigned)ih?BUF[(iw*(ky+(Y))+kx+(X))<<2|kc]:0
+				char
+					NNWW=LOAD(pixels, -2, -2),
+					NNW =LOAD(pixels, -1, -2),
+					NN  =LOAD(pixels,  0, -2),
+					NNE =LOAD(pixels,  1, -2),
+					NNEE=LOAD(pixels,  2, -2),
+					NWW =LOAD(pixels, -2, -1),
+					NW  =LOAD(pixels, -1, -1),
+					N   =LOAD(pixels,  0, -1),
+					NE  =LOAD(pixels,  1, -1),
+					WW  =LOAD(pixels, -2,  0),
+					W   =LOAD(pixels, -1,  0);
+#undef  LOAD
+				//NNWW NNW NN NNE NNEE
+				//NWW  NW  N  NE
+				//WW   W   ?
+				int dx=abs(W-WW)+abs(N-NW)+abs(N-NE);
+				int dy=abs(W-NW)+abs(N-NN)+abs(NE-NNE);
+				int d45=abs(W-NWW)+abs(NW-NNWW)+abs(N-NNW);
+				int d135=abs(NE-NNEE)+abs(N-NNE)+abs(W-N);
+				int pred;
+
+				//'A context-based adaptive lossless/nearly-lossless coding scheme for continuous-tone images'
+#if 0
+				if(dy+dx>32)//sharp edge
+					pred=(dy*W+dx*N)/(dy+dx)+(NE-NW)/8;
+				else if(dy-dx>12)//horizontal edge
+					pred=(2*W+N)/3+(NE-NW)/8;
+				else if(dy-dx<-12)//vertical edge
+					pred=(W+2*N)/3+(NE-NW)/8;
+				else//shallow area
+					pred=(W+N)/2+(NE-NW)/8;
+
+				if(d45-d135>32)//sharp 135-deg diagonal edge
+					pred+=(NE-NW)/8;
+				else if(d45-d135>16)//135-deg diagonal edge
+					pred+=(NE-NW)/16;
+				else if(d45-d135<-32)//sharp 45-deg diagonal edge
+					pred-=(NE-NW)/8;
+				else if(d45-d135<-16)//45-deg diagonal edge
+					pred-=(NE-NW)/16;
+#endif
+
+				//'CALIC - A context-based adaptive lossless image codec'
+#if 1
+				if(dy-dx>80)
+					pred=W;
+				else if(dy-dx<-80)
+					pred=N;
+				else
+				{
+					//pred=((W+N)*5+(NE+NW)*3)/16;
+					//pred=((W+N)*3+(NE+NW))/8;
+					pred=(W+N)/2+(NE+NW)/4;		//these weights don't add up to one
+					if(dy-dx>32)
+						pred=(pred+W)/2;
+					else if(dy-dx>8)
+						pred=(pred*3+W)/4;
+					else if(dy-dx<-32)
+						pred=(pred+N)/2;
+					else if(dy-dx<-8)
+						pred=(pred*3+N)/4;
+				}
+#endif
+#if 0
+				int vmin, vmax;
+				if(N<W)
+					vmin=N, vmax=W;
+				else
+					vmin=W, vmax=N;
+				pred=N+W-NW;
+				pred=CLAMP(vmin, pred, vmax);
+#endif
+
+				int B=((2*W-WW)<pred)<<7|((2*N-NN)<pred)<<6|(WW<pred)<<5|(NN<pred)<<4|(NE<pred)<<3|(NW<pred)<<2|(W<pred)<<1|(N<pred);
+
+				int delta=dx+dy+2*abs(prev_error);
+				int Qdelta=7;
+				for(int k=0;k<_countof(thresholds);++k)
+				{
+					if(delta<=thresholds[k])
+					{
+						Qdelta=k;
+						break;
+					}
+				}
+				int C=B*Qdelta/2;//context (texture identifier)
+				//int C=B<<2|Qdelta>>1;//why not like this?
+
+				++arrN[C];
+				arrS[C]+=prev_error;
+				if(arrN[C]>=255)
+				{
+					arrN[C]/=2;
+					arrS[C]/=2;
+				}
+				int pred2=pred+arrS[C]/arrN[C];//sum of encountered errors / number of occurrences
+
+				//if(kx==(iw>>1)&&ky==(ih>>1))//
+				//	printf("");//
+
+				int idx=(iw*ky+kx)<<2|kc;
+				if(fwd)
+					b2[idx]=buf[idx]-pred2;
+				else
+					b2[idx]=buf[idx]+pred2;
+
+				//context[idx]=C;//store context for entropy coder
+
+				prev_error=errors[idx];
+			}
+		}
+	}
+	memcpy(buf, b2, (size_t)res<<2);
+	free(b2);
+	free(arrN);
+	free(arrS);
+}
+
+
 //DWTs
 void dwt2d_grad_fwd(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp)
 {
@@ -10119,6 +10366,7 @@ void jointhistogram(unsigned char *buf, int iw, int ih, int nbits, ArrayHandle *
 }
 
 
+#if 0
 E24Params e24_params[3]=
 {
 	{ 8, 26, 26, 26, 0xD4, 71},
@@ -10400,4 +10648,51 @@ void e24_estimate(const unsigned char *buf, int iw, int ih, int x1, int x2, int 
 
 	free(CDF0);
 	free(CDF2);
+}
+#endif
+
+ArrayHandle bayes_mem[8]={0};
+void bayes_estimate(unsigned char *src, int iw, int ih, int x1, int x2, int y1, int y2, int kc)
+{
+	if(!*bayes_mem)
+	{
+		for(int kb=7;kb>=0;--kb)
+			ARRAY_ALLOC(BayesCounter, bayes_mem[kb], 0, 256LL<<(7-kb), 0, 0);
+	}
+	int val=1;
+	for(int kb=7;kb>=0;--kb)//reset memory
+		memfill(bayes_mem[kb]->data, &val, bayes_mem[kb]->count*bayes_mem[kb]->esize, sizeof(int));
+	for(int ky=y1;ky<y2;++ky)
+	{
+		for(int kx=x1;kx<x2;++kx)
+		{
+			char nb[]=
+			{
+#define LOAD(X, Y) (unsigned)(kx+(X))<(unsigned)iw&&(unsigned)(ky+(Y))<(unsigned)ih?src[(iw*(ky+(Y))+kx+(X))<<2|kc]-128:0
+				LOAD(-2, -2), LOAD(-1, -2), LOAD( 0, -2), LOAD( 1, -2), LOAD( 2, -2),
+				LOAD(-2, -1), LOAD(-1, -1), LOAD( 0, -1), LOAD( 1, -1), LOAD( 2, -1),
+				LOAD(-2,  0), LOAD(-1,  0),
+#undef  LOAD
+			};
+			int pred=0;
+			{
+				double fpred=0;
+				for(int k=0;k<12;++k)
+					fpred+=(double)nb[k]/12;
+					//fpred+=customparam_st[12*(kc<<1)+k]*nb[k];
+				pred=(int)CLAMP(-128, fpred, 127)+128;
+			}
+			int context=pred;
+			int idx=(iw*ky+kx)<<2|kc;
+			unsigned char sym=src[idx];
+			for(int kb=7;kb>=0;--kb)
+			{
+				int bit=sym>>kb&1;
+				ArrayHandle mem=bayes_mem[kb];
+				BayesCounter *ctr=(BayesCounter*)array_at(&mem, context);
+				++ctr->n[bit];
+				context|=bit<<(8+7-kb);
+			}
+		}
+	}
 }
