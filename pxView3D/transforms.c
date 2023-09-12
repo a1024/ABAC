@@ -8327,7 +8327,7 @@ void pred_calic(char *buf, int iw, int ih, int fwd)//https://github.com/siddhart
 				{
 					//pred=((W+N)*5+(NE+NW)*3)/16;
 					//pred=((W+N)*3+(NE+NW))/8;
-					pred=(W+N)/2+(NE+NW)/4;		//these weights don't add up to one
+					pred=(W+N)/2+(NE-NW)/4;
 					if(dy-dx>32)
 						pred=(pred+W)/2;
 					else if(dy-dx>8)
