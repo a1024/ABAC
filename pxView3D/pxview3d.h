@@ -711,8 +711,8 @@ void colortransform_xyz_fwd   (char *buf, int iw, int ih);
 void colortransform_xyz_inv   (char *buf, int iw, int ih);
 void colortransform_ycocg_fwd (char *buf, int iw, int ih);
 void colortransform_ycocg_inv (char *buf, int iw, int ih);
-void colortransform_ycocb_fwd(char *buf, int iw, int ih);
-void colortransform_ycocb_inv(char *buf, int iw, int ih);
+void colortransform_ycmcb_fwd(char *buf, int iw, int ih);
+void colortransform_ycmcb_inv(char *buf, int iw, int ih);
 
 void colortransform_exp_fwd  (char *buf, int iw, int ih);
 void colortransform_exp_inv  (char *buf, int iw, int ih);

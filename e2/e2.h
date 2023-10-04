@@ -110,8 +110,8 @@ void addbuf(unsigned char *buf, int iw, int ih, int nch, int bytestride, int amm
 
 void colortransform_ycocg_fwd(char *buf, int iw, int ih);
 void colortransform_ycocg_inv(char *buf, int iw, int ih);
-void colortransform_ycocb_fwd(char *buf, int iw, int ih);//like YCoCg but with green & blue swapped
-void colortransform_ycocb_inv(char *buf, int iw, int ih);
+void colortransform_ycmcb_fwd(char *buf, int iw, int ih);//like YCoCg but with green & blue swapped
+void colortransform_ycmcb_inv(char *buf, int iw, int ih);
 
 
 	#define PW2_NPRED 20	//63

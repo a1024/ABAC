@@ -153,27 +153,27 @@ void colortransform_ycocg_inv(char *buf, int iw, int ih)//3 channels, stride 4 b
 		buf[k|2]=b;
 	}
 }
-void colortransform_ycocb_fwd(char *buf, int iw, int ih)//3 channels, stride 4 bytes
+void colortransform_ycmcb_fwd(char *buf, int iw, int ih)//3 channels, stride 4 bytes
 {
 	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
 	{
 		char r=buf[k], g=buf[k|1], b=buf[k|2];
 
-		r-=g;		//diff(r, g)                 1      -1      0
+		r-=g;		//diff(r, g)                [ 1      -1      0  ].RGB
 		g+=r>>1;
-		b-=g;		//diff(b, av(r, g))			-1/2    -1/2    1
-		g+=b>>1;	//av(b, av(r, g))            1/4     1/4    1/2
+		b-=g;		//diff(b, av(r, g))			[-1/2    -1/2    1  ].RGB
+		g+=b>>1;	//av(b, av(r, g))           [ 1/4     1/4    1/2].RGB
 
-		buf[k  ]=r;//Co
+		buf[k  ]=r;//Cm
 		buf[k|1]=g;//Y
 		buf[k|2]=b;//Cb
 	}
 }
-void colortransform_ycocb_inv(char *buf, int iw, int ih)//3 channels, stride 4 bytes
+void colortransform_ycmcb_inv(char *buf, int iw, int ih)//3 channels, stride 4 bytes
 {
 	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
 	{
-		char r=buf[k], g=buf[k|1], b=buf[k|2];
+		char r=buf[k], g=buf[k|1], b=buf[k|2];//Cm Y Cb
 		
 		g-=b>>1;
 		b+=g;
@@ -542,14 +542,14 @@ void colortransform_adaptive(char *src, int iw, int ih, int fwd)
 				rW=pixels[(idx-(1<<2))|0];
 				gW=pixels[(idx-(1<<2))|1];
 				bW=pixels[(idx-(1<<2))|2];
-				eW=pythagoras(errors[(idx-(1<<2))|0], errors[(idx-(1<<2))|1], errors[(idx-(1<<2))|2]);
+				eW=pythagoras(errors[(idx-(1<<2))|0], errors[(idx-(1<<2))|2]);
 			}
 			if(ky)
 			{
 				rN=pixels[(idx-(iw<<2))|0];
 				gN=pixels[(idx-(iw<<2))|1];
 				bN=pixels[(idx-(iw<<2))|2];
-				eN=pythagoras(errors[(idx-(iw<<2))|0], errors[(idx-(iw<<2))|1], errors[(idx-(iw<<2))|2]);
+				eN=pythagoras(errors[(idx-(iw<<2))|0], errors[(idx-(iw<<2))|2]);
 			}
 			for(int k=0;k<1;++k)
 			{
@@ -8120,7 +8120,7 @@ void custom2_opt_batch(Custom2Params *srcparams)
 		if(!buf)
 			continue;
 		addhalf((unsigned char*)buf, iw, ih, 3, 4);
-		colortransform_ycocb_fwd(buf, iw, ih);//
+		colortransform_ycmcb_fwd(buf, iw, ih);//
 		custom2_opt(buf, iw, ih, srcparams, 0, 10, ks+1, 0);
 		free(buf);
 	}
@@ -8515,7 +8515,7 @@ void custom3_opt_batch(Custom3Params *srcparams, int niter, int maskbits, int lo
 	if(bmp->count)
 	{
 		addhalf(bmp->data, iw, ih, 3, 4);
-		colortransform_ycocb_fwd((char*)bmp->data, iw, ih);//
+		colortransform_ycmcb_fwd((char*)bmp->data, iw, ih);//
 		custom3_opt((char*)bmp->data, iw, ih, srcparams, niter, maskbits, loud, 0);
 	}
 	array_free(&bmp);
@@ -8557,7 +8557,7 @@ void custom3_opt_batch2(Custom3Params *srcparams, int niter, int maskbits, int l
 		if(!im2.data)
 			continue;
 		addhalf(im2.data, im2.iw, im2.ih, 3, 4);
-		colortransform_ycocb_fwd((char*)im2.data, im2.iw, im2.ih);
+		colortransform_ycmcb_fwd((char*)im2.data, im2.iw, im2.ih);
 		ARRAY_APPEND(images, &im2, 1, 1, 0);
 	}
 	array_free(&filenames);
@@ -8654,9 +8654,9 @@ static void custom4_prealloc(const char *src, int iw, int ih, int fwd, Custom4Pa
 			for(int kh=0;kh<C4_HIDDENNODES;++kh)
 			{
 				int pred2=0;
-				pred2+=custom4_dot(params->c10[kh]           , nb[0], C4_NNB+2);
-				pred2+=custom4_dot(params->c10[kh]+C4_NNB  +2, nb[1], C4_NNB);
-				pred2+=custom4_dot(params->c10[kh]+C4_NNB*2+2, nb[2], C4_NNB);
+				pred2+=fast_dot(params->c10[kh]           , nb[0], C4_NNB+2);
+				pred2+=fast_dot(params->c10[kh]+C4_NNB  +2, nb[1], C4_NNB);
+				pred2+=fast_dot(params->c10[kh]+C4_NNB*2+2, nb[2], C4_NNB);
 				pred2+=1<<13;
 				pred2>>=14;
 				pred+=(int)(params->c11[kh]*tanh(pred2)*(128/16384.));
@@ -8676,9 +8676,9 @@ static void custom4_prealloc(const char *src, int iw, int ih, int fwd, Custom4Pa
 			for(int kh=0;kh<C4_HIDDENNODES;++kh)
 			{
 				int pred2=0;
-				pred2+=custom4_dot(params->c20[kh]           , nb[0], C4_NNB+2);
-				pred2+=custom4_dot(params->c20[kh]+C4_NNB  +2, nb[1], C4_NNB+2);
-				pred2+=custom4_dot(params->c20[kh]+C4_NNB*2+4, nb[2], C4_NNB);
+				pred2+=fast_dot(params->c20[kh]           , nb[0], C4_NNB+2);
+				pred2+=fast_dot(params->c20[kh]+C4_NNB  +2, nb[1], C4_NNB+2);
+				pred2+=fast_dot(params->c20[kh]+C4_NNB*2+4, nb[2], C4_NNB);
 				pred2+=1<<13;
 				pred2>>=14;
 				pred+=(int)(params->c21[kh]*tanh(pred2)*(128/16384.));

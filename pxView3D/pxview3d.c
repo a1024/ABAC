@@ -860,8 +860,8 @@ void update_image()
 			{
 			case CT_FWD_YCoCg:		colortransform_ycocg_fwd((char*)image, iw, ih);		break;
 			case CT_INV_YCoCg:		colortransform_ycocg_inv((char*)image, iw, ih);		break;
-			case CT_FWD_YCoCb:		colortransform_ycocb_fwd((char*)image, iw, ih);		break;
-			case CT_INV_YCoCb:		colortransform_ycocb_inv((char*)image, iw, ih);		break;
+			case CT_FWD_YCoCb:		colortransform_ycmcb_fwd((char*)image, iw, ih);		break;
+			case CT_INV_YCoCb:		colortransform_ycmcb_inv((char*)image, iw, ih);		break;
 		//	case CT_FWD_XGZ:		colortransform_xgz_fwd((char*)image, iw, ih);		break;
 		//	case CT_INV_XGZ:		colortransform_xgz_inv((char*)image, iw, ih);		break;
 		//	case CT_FWD_XYZ:		colortransform_xyz_fwd((char*)image, iw, ih);		break;
@@ -1467,7 +1467,7 @@ void applycolortransform(int tidx)
 		colortransform_ycocg_fwd((unsigned char*)image, iw, ih);
 		break;
 	case CT_YCoCgT:
-		colortransform_ycocb_fwd((unsigned char*)image, iw, ih);
+		colortransform_ycmcb_fwd((unsigned char*)image, iw, ih);
 		break;
 	case CT_XGZ:
 		colortransform_xgz_fwd((unsigned char*)image, iw, ih);
@@ -1497,7 +1497,7 @@ void undocolortransform(int tidx)
 		colortransform_ycocg_inv((unsigned char*)image, iw, ih);
 		break;
 	case CT_YCoCgT:
-		colortransform_ycocb_inv((unsigned char*)image, iw, ih);
+		colortransform_ycmcb_inv((unsigned char*)image, iw, ih);
 		break;
 	case CT_XGZ:
 		colortransform_xgz_inv((unsigned char*)image, iw, ih);
@@ -2773,7 +2773,7 @@ toggle_drag:
 				}
 				memcpy(buf2, im0, (size_t)res<<2);
 				addhalf((unsigned char*)buf2, iw, ih, 3, 4);
-				colortransform_ycocb_fwd(buf2, iw, ih);
+				colortransform_ycmcb_fwd(buf2, iw, ih);
 #if 1
 				float info[4]={0};
 				logic_opt_checkonthread(info);
@@ -2806,7 +2806,7 @@ toggle_drag:
 				}
 				memcpy(buf2, im0, (size_t)res<<2);
 				addhalf((unsigned char*)buf2, iw, ih, 3, 4);
-				colortransform_ycocb_fwd(buf2, iw, ih);
+				colortransform_ycmcb_fwd(buf2, iw, ih);
 				opt_cr2_v2(buf2, iw, ih, customparam_ch_idx/2);
 				free(buf2);
 				update_image();
@@ -2829,7 +2829,7 @@ toggle_drag:
 					}
 					memcpy(buf2, im0, (size_t)res<<2);
 					addhalf((unsigned char*)buf2, iw, ih, 3, 4);
-					colortransform_ycocb_fwd(buf2, iw, ih);//
+					colortransform_ycmcb_fwd(buf2, iw, ih);//
 					//pred_grad_fwd(buf2, iw, ih, 3, 4);//
 
 					if(GET_KEY_STATE(KEY_SHIFT))
@@ -2881,7 +2881,7 @@ toggle_drag:
 					}
 					memcpy(buf2, im0, (size_t)res<<2);
 					addhalf((unsigned char*)buf2, iw, ih, 3, 4);
-					colortransform_ycocb_fwd(buf2, iw, ih);//
+					colortransform_ycmcb_fwd(buf2, iw, ih);//
 					//pred_grad_fwd(buf2, iw, ih, 3, 4);//
 //#ifdef ALLOW_OPENCL
 //					if(GET_KEY_STATE(KEY_SHIFT))
@@ -2921,7 +2921,7 @@ toggle_drag:
 					}
 					memcpy(buf2, im0, (size_t)res<<2);
 					addhalf((unsigned char*)buf2, iw, ih, 3, 4);
-					colortransform_ycocb_fwd(buf2, iw, ih);//
+					colortransform_ycmcb_fwd(buf2, iw, ih);//
 
 					custom4_opt(buf2, iw, ih, &c4_params, 0, maskbits, 1, 0);
 
@@ -2984,7 +2984,7 @@ toggle_drag:
 					//int idx=press%33;
 					if(jxl)
 					{
-						colortransform_ycocb_fwd(buf2, iw, ih);
+						colortransform_ycmcb_fwd(buf2, iw, ih);
 						pred_jxl_opt_v2(buf2, iw, ih, jxlparams_i16, 0);
 						//for(int idx=0;idx<33;++idx)
 						//{
@@ -2994,7 +2994,7 @@ toggle_drag:
 					}
 					else if(pw2)
 					{
-						colortransform_ycocb_fwd(buf2, iw, ih);
+						colortransform_ycmcb_fwd(buf2, iw, ih);
 						pred_w2_opt_v2(buf2, iw, ih, pw2_params, 0);
 					}
 					else

@@ -128,7 +128,7 @@ void apply_transforms_fwd(unsigned char *buf, int bw, int bh)
 
 	addbuf(buf, bw, bh, 3, 4, 128);//unsigned char -> signed char
 	
-	colortransform_ycocb_fwd((char*)buf, bw, bh);
+	colortransform_ycmcb_fwd((char*)buf, bw, bh);
 	//colortransform_ycocg_fwd((char*)buf, bw, bh);
 	//colortransform_xgz_fwd((char*)buf, bw, bh);
 	//colortransform_xyz_fwd((char*)buf, bw, bh);
@@ -181,7 +181,7 @@ void apply_transforms_inv(unsigned char *buf, int bw, int bh)
 	//	//dwt2d_cdf53_inv((char*)buf+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, (char*)temp);
 	//	//dwt2d_cdf97_inv((char*)buf+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, (char*)temp);
 	
-	colortransform_ycocb_inv((char*)buf, bw, bh);
+	colortransform_ycmcb_inv((char*)buf, bw, bh);
 	//colortransform_ycocg_inv((char*)buf, bw, bh);
 	//colortransform_xgz_inv((char*)buf, bw, bh);
 	//colortransform_xyz_inv((char*)buf, bw, bh);
@@ -235,7 +235,7 @@ void colortransform_ycocg_inv(char *buf, int iw, int ih)//3 channels, stride 4 b
 		buf[k|2]=b;
 	}
 }
-void colortransform_ycocb_fwd(char *buf, int iw, int ih)//3 channels, stride 4 bytes
+void colortransform_ycmcb_fwd(char *buf, int iw, int ih)//3 channels, stride 4 bytes
 {
 	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
 	{
@@ -251,7 +251,7 @@ void colortransform_ycocb_fwd(char *buf, int iw, int ih)//3 channels, stride 4 b
 		buf[k|2]=b;//Cb
 	}
 }
-void colortransform_ycocb_inv(char *buf, int iw, int ih)//3 channels, stride 4 bytes
+void colortransform_ycmcb_inv(char *buf, int iw, int ih)//3 channels, stride 4 bytes
 {
 	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
 	{
