@@ -1580,7 +1580,7 @@ int t41_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 
 
 //T42: The answer (T39 with 'custom3' filter)
-#if 0
+#if 1
 //	#define T42_DISABLE_REC
 //	#define T42_DISABLE_COUNTER
 //	#define T42_PRINT_ESTIMATOR_CR
@@ -1588,7 +1588,7 @@ int t41_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 #define T42_LR (int)(0.07*0x10000+0.5)
 #define T42_NMAPS 15
 
-#define C3_REACH 2	//changing this requires re-training the filter
+#define C3_REACH 3	//changing this requires re-training the filter
 #define C3_NNB (C3_REACH*(C3_REACH+1)*4)
 #define C3_NPARAMS (C3_NNB*9+6)
 
@@ -1613,7 +1613,7 @@ typedef struct Custom3ParamsStruct
 short filter[]=
 {
 	//CUSTOM3-r2 CLIC16
-#if 1
+#if 0
 	 0x00FE, 0x0398, 0x0001,-0x01E1,-0x01E5,-0x0E5E,-0x0019, 0x02FD,-0x000A, 0x0201,
 	 0x0070, 0x03C6,-0x1CA5, 0x055A, 0x32FC,-0x041F,-0x0234, 0x0EEA, 0x0059, 0x010A,
 	-0x009D,-0x0BB0, 0x2C77, 0x0407,
@@ -1652,7 +1652,7 @@ short filter[]=
 #endif
 
 	//CUSTOM3-r3 kodim13
-#if 0
+#if 1
 	-0x0085, 0x0000, 0x000A, 0x0116, 0x0004, 0x01C3, 0x0008, 0x0176, 0x0002, 0x0143, 0x0025, 0x004B, 0x0007, 0x0026,
 	 0x0034, 0x000F, 0x0342, 0x024E,-0x0B11, 0x0676, 0x113C,-0x048D,-0x1126, 0x06FC, 0x03F1,-0x03C2,-0x0005, 0x008F,
 	-0x00B5,-0x006A,-0x0768, 0x041C,-0x0236, 0x0EDC, 0x0E5C, 0x0E9E, 0x1718,-0x01DB, 0x0117, 0x0210, 0x006C, 0x029A,
@@ -1710,7 +1710,7 @@ typedef struct T42CtxStruct
 {
 	int pred14;
 	int context[T42_NMAPS];
-	ArrayHandle maps[24][T42_NMAPS];//(256+512+1024+2048+4096+8192+16384+32768)*20*14 = 17.43 MB for 14 maps with 6 rec estimators
+	ArrayHandle maps[24][T42_NMAPS];//3*(256+512+1024+2048+4096+8192+16384+32768)*15*sizeof(T42Node) = 56.03 MB for 15 maps with 6 rec estimators
 	T42Node *node[T42_NMAPS];
 
 	int p0arr[T42_NESTIMATORS], p0_0, p0;//p0_0 isn't clamped
@@ -1750,6 +1750,29 @@ T42Ctx* t42_ctx_init()
 		}
 	}
 	return ctx;
+}
+T42Ctx* t42_ctx_copy(T42Ctx *ctx)
+{
+	T42Ctx *ctx2=(T42Ctx*)malloc(sizeof(T42Ctx));
+	if(!ctx2)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	memset(ctx2, 0, sizeof(T42Ctx));
+	memcpy(ctx2->weights, ctx->weights, sizeof(ctx2->weights));
+	for(int k=0;k<24;++k)
+	{
+		int kb=k&7;
+		for(int k2=0;k2<T42_NMAPS;++k2)
+		{
+			int nnodes=256<<(7-kb);
+			ARRAY_ALLOC(T42Node, ctx2->maps[k][k2], 0, nnodes, 0, 0);
+			memcpy(ctx2->maps[k][k2]->data, ctx->maps[k][k2]->data, ctx->maps[k][k2]->count*ctx->maps[k][k2]->esize);
+			ctx2->nnodes+=nnodes;
+		}
+	}
+	return ctx2;
 }
 void t42_ctx_clear(T42Ctx **ctx)
 {
@@ -2046,6 +2069,87 @@ void t42_ctx_update(T42Ctx *ctx, int kc, int kb, int bit)
 		ctx->context[kp]|=bit<<(8+7-kb);
 	}
 }
+void t42_explore(void *ctx0)
+{
+#if 1
+	const char *prednames[]=
+	{
+		"0               ",
+		"N               ",
+		"W               ",
+		"NW              ",
+		"m1              ",
+		"W+NE-N          ",
+		"av(W,N,m1)      ",
+		"clamp(N+W-NW)   ",
+		"clamp(N+m1-Nm1) ",
+		"clamp(W+m1-Wm1) ",
+		"clamp(NW+NE-NN) ",
+		"(N+W-NW + m1)>>1",
+		"m2              ",
+		"(N+W-NW + m2)>>1",
+		"CUSTOM3-r3      ",
+	};
+	printf("About to overwrite dump.txt at:\n");
+	system("cd");
+	pause();
+	FILE *f=fopen("dump.txt", "w");
+	T42Ctx *ctx=(T42Ctx*)ctx0;
+	for(int kw=0;kw<24;++kw)
+	{
+		//printf("C%d B%d %lf\n", kw>>3, kw&7, csizes[kw]);
+		fprintf(f, "C%d B%d\n", kw>>3, kw&7);
+		for(int kp=0;kp<T42_NMAPS;++kp)
+		{
+			ArrayHandle tree=ctx->maps[kw][kp];
+			//printf("C%d  B%d  %s\t", kw>>3, kw&7, prednames[kp]);
+			fprintf(f, "%s\t", prednames[kp]);
+			for(int kv=0;kv<(int)tree->count;++kv)
+			{
+				T42Node *node=(T42Node*)array_at(&tree, kv);
+				int sum=node->n[0]+node->n[1];
+				if(sum>2)
+				{
+					int c=(node->n[1]*15+(sum>>1))/sum;
+					fprintf(f, "%X", c);
+				}
+				else
+					fprintf(f, "-");
+			}
+			fprintf(f, "\n");
+		}
+		fprintf(f, "\n");
+	}
+	fclose(f);
+	printf("Done.\n");
+#endif
+#if 0
+	int total_count=0, total_use=0;
+	for(int kw=0;kw<24;++kw)
+	{
+		for(int kp=0;kp<T42_NMAPS;++kp)
+		{
+			ArrayHandle tree=ctx->maps[kw][kp];
+			int count=(int)tree->count;
+			int unused=0;
+			for(int kv=0;kv<count;++kv)
+			{
+				T42Node *node=(T42Node*)array_at(&tree, kv);
+				unused+=node->n[0]==1&&node->n[1]==1;
+			}
+			printf("C%d  B%d  P%3d  %7d/%7d\n", kw>>3, kw&7, kp, unused, count);
+
+			total_count+=count;
+			total_use+=count-unused;
+		}
+	}
+	printf("Usage %d/%d\n", total_use, total_count);
+#endif
+}
+void t42_freectx(void **ctx)
+{
+	t42_ctx_clear((T42Ctx**)ctx);
+}
 int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud)
 {
 	int res=iw*ih;
@@ -2057,12 +2161,18 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	}
 	char *buf2=(char*)malloc((size_t)res<<2);
 	char *ebuf=(char*)malloc((size_t)res<<2);
-	T42Ctx *t42_ctx=t42_ctx_init();
-	if(!buf2||!ebuf||!t42_ctx)
+
+	//T42Ctx *ctx=(T42Ctx*)*ctx0;
+	//if(!ctx)
+	//	ctx=t42_ctx_init();
+	T42Ctx *ctx=t42_ctx_init();
+
+	if(!buf2||!ebuf||!ctx)
 	{
 		LOG_ERROR("Allocation error");
 		return 0;
 	}
+	//*ctx0=t42_ctx_copy(ctx);
 	memcpy(buf2, src, (size_t)res<<2);
 	memset(ebuf, 0, (size_t)res<<2);
 	addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);
@@ -2071,8 +2181,8 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	DList list;
 	dlist_init(&list, 1, 1024, 0);
 	
-	ABACEncContext ctx;
-	abac_enc_init(&ctx, &list);
+	ABACEncContext ac;
+	abac_enc_init(&ac, &list);
 	
 	float csizes[24]={0};
 	
@@ -2083,20 +2193,22 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 			for(int kc=0;kc<3;++kc)
 			{
 				idx=(iw*ky+kx)<<2|kc;
-				t42_ctx_get_context(t42_ctx, (char*)buf2, ebuf, iw, ih, kc, kx, ky);
+				t42_ctx_get_context(ctx, (char*)buf2, ebuf, iw, ih, kc, kx, ky);
 				for(int kb=7;kb>=0;--kb)//MSB -> LSB
 				{
-					t42_ctx_estimate_p0(t42_ctx, kc, kb);
+					t42_ctx_estimate_p0(ctx, kc, kb);
+					unsigned short p0=ctx->p0;
+
 					int bit=(buf2[idx]+128)>>kb&1;
-					abac_enc(&ctx, t42_ctx->p0, bit);
+					abac_enc(&ac, p0, bit);
 					
-					int prob=bit?0x10000-t42_ctx->p0:t42_ctx->p0;//
+					int prob=bit?0x10000-p0:p0;//
 					float bitsize=-log2f((float)prob*(1.f/0x10000));
 					csizes[kc<<3|kb]+=bitsize;//
 
-					t42_ctx_update(t42_ctx, kc, kb, bit);
+					t42_ctx_update(ctx, kc, kb, bit);
 				}
-				ebuf[idx]=buf2[idx]-t42_ctx->pred14;
+				ebuf[idx]=buf2[idx]-ctx->pred14;
 			}
 		}
 		if(loud)
@@ -2109,13 +2221,13 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 			csize_prev=csize;
 		}
 	}
-	abac_enc_flush(&ctx);
+	abac_enc_flush(&ac);
 
 	size_t dststart=dlist_appendtoarray(&list, data);
 	if(loud)
 	{
 		printf("\n");//skip progress line
-		printf("Used %f MB of memory\n", (float)t42_ctx->nnodes*sizeof(T42Node)/(1024*1024));
+		printf("Used %f MB of memory\n", (float)ctx->nnodes*sizeof(T42Node)/(1024*1024));
 		printf("Encode elapsed ");
 		timedelta2str(0, 0, time_ms()-t_start);
 		printf("\n");
@@ -2138,6 +2250,8 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 		chsizes[3]=chsizes[0]+chsizes[1]+chsizes[2];
 		printf("Total%15.6f %15.6f %15.6f %15.6f\n", iw*ih*8/chsizes[0], iw*ih*8/chsizes[1], iw*ih*8/chsizes[2], iw*ih*24/chsizes[3]);
 		printf("Total size\t%8d\t\t\t     %15.6f\n", (int)list.nobj, iw*ih*3./list.nobj);
+
+		//t42_explore(t42_ctx, csizes);
 
 #ifdef T42_PRINT_ESTIMATOR_CR
 		if(loud==2)
@@ -2192,7 +2306,8 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 		}
 #endif
 	}
-	t42_ctx_clear(&t42_ctx);
+	t42_ctx_clear(&ctx);
+	//t42_ctx_clear(&t42_ctx);
 	dlist_clear(&list);
 	free(buf2);
 	return 1;
@@ -2203,19 +2318,21 @@ int t42_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 	double t_start=time_ms();
 
 	char *ebuf=(char*)malloc((size_t)res<<2);
-	T42Ctx *t42_ctx=t42_ctx_init();
-	if(!ebuf||!t42_ctx)
+	//if(!*ctx0)
+	//	*ctx0=t42_ctx_init();
+	T42Ctx *ctx=t42_ctx_init();
+	if(!ebuf||!ctx)
 	{
 		LOG_ERROR("Allocation error");
 		return 0;
 	}
+	//T42Ctx *ctx=(T42Ctx*)*ctx0;
 
-	ABACDecContext ctx;
-	abac_dec_init(&ctx, data, data+srclen);
+	ABACDecContext ac;
+	abac_dec_init(&ac, data, data+srclen);
 
 	int black=0xFF000000;
 	memfill(buf, &black, res*sizeof(int), sizeof(int));
-	t42_ctx_init(t42_ctx);
 	
 	for(int ky=0, idx;ky<ih;++ky)
 	{
@@ -2224,24 +2341,24 @@ int t42_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 			for(int kc=0;kc<3;++kc)
 			{
 				idx=(iw*ky+kx)<<2|kc;
-				t42_ctx_get_context(t42_ctx, (char*)buf, ebuf, iw, ih, kc, kx, ky);
+				t42_ctx_get_context(ctx, (char*)buf, ebuf, iw, ih, kc, kx, ky);
 				for(int kb=7;kb>=0;--kb)//MSB -> LSB
 				{
-					t42_ctx_estimate_p0(t42_ctx, kc, kb);
+					t42_ctx_estimate_p0(ctx, kc, kb);
 					
-					int bit=abac_dec(&ctx, t42_ctx->p0);
+					int bit=abac_dec(&ac, ctx->p0);
 					buf[idx]|=bit<<kb;
 
-					t42_ctx_update(t42_ctx, kc, kb, bit);
+					t42_ctx_update(ctx, kc, kb, bit);
 				}
 				buf[idx]+=128;//unsigned -> signed
-				ebuf[idx]=buf[idx]-t42_ctx->pred14;
+				ebuf[idx]=buf[idx]-ctx->pred14;
 			}
 		}
 		if(loud)
 			printf("%5d/%5d  %6.2lf%%\r", ky+1, ih, 100.*(ky+1)/ih);
 	}
-	t42_ctx_clear(&t42_ctx);
+	t42_ctx_clear(&ctx);
 	
 	colortransform_ycocb_inv((char*)buf, iw, ih);
 	addbuf(buf, iw, ih, 3, 4, 128);
@@ -2988,6 +3105,7 @@ void t43_ctx_clear(T43Ctx **ctx)
 	free(*ctx);
 	*ctx=0;
 }
+#if 0
 static int custom3_loadnb(const char *pixels, const char *errors, int iw, int ih, int kc, int kx, int ky, short *nb)
 {
 	int idx=-1;
@@ -3044,6 +3162,7 @@ static int custom3_dot(const short *a, const short *b, int count)
 		s3+=a[k]*b[k];
 	return s3;
 }
+#endif
 void t43_ctx_get_context(T43Ctx *ctx, const char *buf, const char *ebuf, int iw, int ih, int kc, int kx, int ky)
 {
 #define LOAD(BUF, C, X, Y) (unsigned)(kc-C)<3&&(unsigned)(kx-(X))<(unsigned)iw&&(unsigned)(ky-Y)<(unsigned)ih?BUF[(iw*(ky-Y)+kx-(X))<<2|(kc-C)]:0
@@ -3495,3 +3614,47 @@ int t43_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 	return 1;
 }
 #endif
+
+
+void ac_vs_ans()
+{
+	DList list_abac, list_bans;
+	dlist_init(&list_abac, 1, 1024, 0);
+	dlist_init(&list_bans, 1, 1024, 0);
+
+	ABACEncContext abac;
+	abac_enc_init(&abac, &list_abac);
+
+	BANSEncContext bans;
+	bans_enc_init(&bans, &list_bans);
+
+	int p0=0xFFFF;
+	
+	for(int k=0;k<1000000;++k)
+	{
+		p0=rand()|1;
+		abac_enc(&abac, p0, 0);
+		bans_enc(&bans, p0, 0);
+	}
+
+	//double t_abac=time_ms();
+	//for(int k=0;k<1000000000;++k)
+	//	abac_enc(&abac, p0, 0);
+	//abac_enc_flush(&abac);
+	//t_abac=time_ms()-t_abac;
+	//
+	//double t_bans=time_ms();
+	//for(int k=0;k<1000000000;++k)
+	//	bans_enc(&bans, p0, 0);
+	//bans_enc_flush(&bans);
+	//t_bans=time_ms()-t_bans;
+
+	//printf("ABAC  %8lld bytes  %lf ms\n", list_abac.nobj, t_abac);//5724 bytes  3160.941600 ms
+	//printf("BANS  %8lld bytes  %lf ms\n", list_bans.nobj, t_bans);//2618 bytes  8928.841800 ms
+	printf("ABAC  %8lld bytes\n", list_abac.nobj);
+	printf("BANS  %8lld bytes\n", list_bans.nobj);
+	dlist_clear(&list_abac);
+	dlist_clear(&list_bans);
+	pause();
+	exit(0);
+}

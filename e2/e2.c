@@ -3,6 +3,8 @@
 #include<stdlib.h>
 #include<string.h>
 #include<math.h>
+#define QOI_IMPLEMENTATION
+#include"qoi.h"
 static const char file[]=__FILE__;
 
 #if 0
@@ -398,11 +400,11 @@ void batch_test(const char *path)
 			//t40_encode(buf, iw, ih, &cdata, 1);
 			//t40_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 
-			//t42_encode(buf, iw, ih, &cdata, 1);
-			//t42_decode(cdata->data, cdata->count, iw, ih, b2, 1);
+			t42_encode(buf, iw, ih, &cdata, 1);
+			t42_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 
-			t43_encode(buf, iw, ih, &cdata, 1);
-			t43_decode(cdata->data, cdata->count, iw, ih, b2, 1);
+			//t43_encode(buf, iw, ih, &cdata, 1);
+			//t43_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 
 			sum_testsize+=cdata->count;
 			if((ptrdiff_t)cdata->count<formatsize)
@@ -523,7 +525,7 @@ void batch_test(const char *path)
 		}
 #endif
 		
-		//test16 - THE BEST
+		//test16
 #if 0
 		{
 			printf("\nT16\n");
@@ -632,6 +634,8 @@ int main(int argc, char **argv)
 	//system("cd");
 	//init_vk();//
 	//test1();
+	//void ac_vs_ans();
+	//ac_vs_ans();
 
 	printf("Entropy2\n");
 #if 1
@@ -646,13 +650,13 @@ int main(int argc, char **argv)
 	//fn="C:/Projects/datasets/CLIC11-small4.PNG";
 	//fn="C:/Projects/datasets/dataset-CLIC30/11.png";
 	//fn="C:/Projects/datasets/dataset-kodak";
-	//fn="C:/Projects/datasets/dataset-kodak/kodim13.png";
+	fn="C:/Projects/datasets/dataset-kodak/kodim13.png";
 
 	//fn="D:/ML/dataset-CLIC30";
 	//fn="D:/ML/dataset-kodak";
 	//fn="D:/ML/dataset-CLIC30/16.png";//hardest noiseless CLIC30 image
 	//fn="D:/ML/dataset-CLIC30/17.png";
-	fn="D:/ML/dataset-kodak/kodim13.png";
+//	fn="D:/ML/dataset-kodak/kodim13.png";
 	//fn="D:/ML/dataset-kodak-small/13.PNG";
 #endif
 	if(fn||argc==2)
@@ -743,24 +747,6 @@ int main(int argc, char **argv)
 		printf("Usage: e2.exe  file_or_path\n");
 		pause();
 		return 0;
-#if 0
-		iw=1920, ih=1080, nch0=3,//1080*1920*3	640*480		50		4*4*1
-			nch=4;
-		resolution=(size_t)iw*ih, len=resolution*nch;
-		buf=(unsigned char*)malloc(len);
-		if(!buf)
-			return 0;
-		//srand((unsigned)__rdtsc());
-	
-#ifdef UNIFORM
-		printf("Generating test data (uniform)...\n");
-		fill_uniform(buf, len);
-#else
-		int unibits=256;
-		printf("Generating test data (%d bit binomial)...\n", unibits);
-		fill_halfbinomial(buf, len, unibits);
-#endif
-#endif
 	}
 
 	if(nch0==3&&!buf[3])//set alpha
@@ -780,6 +766,8 @@ int main(int argc, char **argv)
 	//const void *ptr, *end;
 	
 	int loud=0;
+
+	//grad_explore(buf, iw, ih);
 
 	//test16
 #if 0
@@ -1061,7 +1049,7 @@ int main(int argc, char **argv)
 	//memset(b2, 0, len);
 	//printf("\n");
 	
-	//record
+	//old record
 #if 0
 	printf("T39 Multiple estimators for all maps\n");
 	t39_encode(buf, iw, ih, &cdata, 1);
@@ -1086,19 +1074,21 @@ int main(int argc, char **argv)
 	//memset(b2, 0, len);
 	//printf("\n");
 	
-	//t42_encode(buf, iw, ih, &cdata, 2);
-	//t42_decode(cdata->data, cdata->count, iw, ih, b2, 2);
-	//array_free(&cdata);
-	//compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T42", 0);
-	//memset(b2, 0, len);
-	//printf("\n");
-	
-	t43_encode(buf, iw, ih, &cdata, 2);
-	t43_decode(cdata->data, cdata->count, iw, ih, b2, 2);
+#if 0
+	t42_encode(buf, iw, ih, &cdata, 1);		//current record		FIXME revert
+	t42_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 	array_free(&cdata);
-	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T43", 0);
+	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T42", 0);
 	memset(b2, 0, len);
 	printf("\n");
+#endif
+	
+	//t43_encode(buf, iw, ih, &cdata, 2);
+	//t43_decode(cdata->data, cdata->count, iw, ih, b2, 2);
+	//array_free(&cdata);
+	//compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T43", 0);
+	//memset(b2, 0, len);
+	//printf("\n");
 #endif
 
 	//predict image
@@ -1172,6 +1162,36 @@ int main(int argc, char **argv)
 //	image_pred(buf, iw, ih, nch0, nch);
 
 	//lodepng_encode_file("kodim21-XGZ-diff2d.PNG", buf, iw, ih, LCT_RGBA, 8);//
+#endif
+
+	//SLIC
+#if 1
+	{
+		double t0=time_ms();
+		slic_encode(iw, ih, 4, 8, buf, &cdata);
+		t0=time_ms()-t0;
+		printf("\nSLIC %8d  CR %lf  Enc %lf ms\n", (int)cdata->count, iw*ih*3./cdata->count, t0);
+		array_free(&cdata);
+	}
+#endif
+
+	//QOI
+#if 1
+	{
+		for(int k=0, res=iw*ih;k<res;++k)
+		{
+			b2[k*3+0]=buf[k<<2|0];
+			b2[k*3+1]=buf[k<<2|1];
+			b2[k*3+2]=buf[k<<2|2];
+		}
+		qoi_desc desc={iw, ih, 3, QOI_LINEAR};
+		int csize=0;
+		double t0=time_ms();
+		void *cdata_qoi=qoi_encode(b2, &desc, &csize);
+		t0=time_ms()-t0;
+		printf("\nQOI %8d  CR %lf  Enc %lf ms\n\n", csize, iw*ih*3./csize, t0);
+		free(cdata_qoi);
+	}
 #endif
 
 	for(int kc=0;kc<nch0;++kc)

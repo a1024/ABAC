@@ -83,9 +83,20 @@ int t39_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 
 int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T42: T39 with 'custom2' filter		NOT GENERALIZED
 int t42_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
+void t42_explore(void *ctx0);
+void t42_freectx(void **ctx);
 
 int t43_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T43: Wisdom of the crowd
 int t43_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
+
+
+//nch:   must be from {1, 2, 3, 4}.
+//depth: must be from [1~16]. If depth<=8, data must be in bytes, otherwise data must be in little-endian uint16's (shorts).
+//data:  must be unsigned integers shifted leftmost. For example:
+//	A 14-bit subpixel must be stored like this: 0bXXXX_XXXX_XXXX_XX00
+//	A 5-bit integer must be stored like this: 0bXXXX_X000
+int slic_encode(int iw, int ih, int nch, int depth, const void *pixels, ArrayHandle *data);
+void* slic_decode(const void *data, int len, int *iw, int *ih, int *nch, int *depth);
 
 
 
@@ -123,8 +134,9 @@ void pred_jxl_prealloc(const char *src, int iw, int ih, int kc, const short *par
 void pred_jxl_opt_v2(const char *buf2, int iw, int ih, short *params, int loud);
 void pred_jxl_apply(char *buf, int iw, int ih, short *allparams, int fwd);
 
-void pred_grad_fwd     (char *buf, int iw, int ih, int nch, int bytestride);
-void pred_grad_inv     (char *buf, int iw, int ih, int nch, int bytestride);
+void pred_grad_fwd(char *buf, int iw, int ih, int nch, int bytestride);
+void pred_grad_inv(char *buf, int iw, int ih, int nch, int bytestride);
+void grad_explore(const unsigned char *buf, int iw, int ih);
 
 
 //	#define CUSTOM_TRAIN_ON_DOUBLES

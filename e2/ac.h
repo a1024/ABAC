@@ -595,6 +595,69 @@ inline int ans_dec(ANSDecContext *ctx, int kc)
 }
 
 
+//binary asymmetric numeral systems coder
+typedef struct BANSEncContextStruct
+{
+	unsigned state;
+	DList *list;
+} BANSEncContext;
+inline void bans_enc_init(BANSEncContext *ctx, DList *list)
+{
+	ctx->state=0x10000;
+	ctx->list=list;
+}
+inline void bans_enc(BANSEncContext *ctx, unsigned short p0, int bit)
+{
+	int cdf=bit?p0:0, freq=bit?0x10000-p0:p0;
+	if(ctx->state>=(unsigned)(freq<<16))//renorm
+	{
+		dlist_push_back(ctx->list, &ctx->state, 2);
+		ctx->state>>=16;
+	}
+	debug_enc_update(ctx->state, cdf, freq, 0, 0, 0, 0, sym);
+	ctx->state=ctx->state/freq<<16|(cdf+ctx->state%freq);//update
+}
+inline void bans_enc_flush(BANSEncContext *ctx)
+{
+	dlist_push_back(ctx->list, &ctx->state, 4);
+}
+typedef struct BANSDecContextStruct
+{
+	unsigned state;
+	const unsigned char *srcptr, *srcstart;
+} BANSDecContext;
+inline void bans_dec_init(BANSDecContext *ctx, const unsigned char *start, const unsigned char *end)
+{
+	ctx->srcptr=end;
+	ctx->srcstart=start;
+	
+	ctx->srcptr-=4;
+	if(ctx->srcptr<ctx->srcstart)
+		LOG_ERROR2("ANS buffer overflow");
+	memcpy(&ctx->state, ctx->srcptr, 4);
+}
+inline int bans_dec(BANSDecContext *ctx, unsigned short p0)
+{
+	unsigned c=(unsigned short)ctx->state;
+	int bit=c>=p0;
+	
+	int cdf=bit?p0:0, freq=bit?0x10000-p0:p0;
+						
+	debug_dec_update(ctx->state, cdf, freq, 0, 0, 0, 0, bit);
+	ctx->state=freq*(ctx->state>>16)+c-cdf;//update
+	if(ctx->state<0x10000)//renorm
+	{
+		ctx->state<<=16;
+		if(ctx->srcptr-2>=ctx->srcstart)
+		{
+			ctx->srcptr-=2;
+			memcpy(&ctx->state, ctx->srcptr, 2);
+		}
+	}
+	return bit;
+}
+
+
 #ifdef __cplusplus
 }
 #endif

@@ -25,6 +25,32 @@ void calc_histogram(const unsigned char *buf, ptrdiff_t bytesize, ptrdiff_t stri
 		++hist[buf[k]];
 }
 
+void print_histogram(const int *hist, int nlevels, int graphwidth)
+{
+	int vmax=0, count=0;
+	for(int sym=0;sym<nlevels;++sym)
+	{
+		int freq=hist[sym];
+		count+=freq;
+		if(vmax<freq)
+			vmax=freq;
+	}
+	if(!vmax)
+	{
+		printf("Histogram is all zeros\n");
+		return;
+	}
+	printf("histsum %d\n", count);
+	for(int sym=0;sym<nlevels;++sym)
+	{
+		int freq=hist[sym];
+		int nstars=(freq*graphwidth+(vmax>>1))/vmax;
+		printf("%3d %8d ", sym, freq);
+		for(int k2=0;k2<nstars;++k2)
+			printf("*");
+		printf("\n");
+	}
+}
 static void print_sbuf(short *buf, int bw, int bh, int kc, int bytestride)
 {
 	static int call=0;
@@ -310,6 +336,60 @@ void pred_grad_inv(char *buf, int iw, int ih, int nch, int bytestride)
 			}
 		}
 	}
+}
+void grad_explore(const unsigned char *buf, int iw, int ih)
+{
+	pause();
+	int nhist=6;
+	int *hist=(int*)malloc(256LL*nhist*sizeof(int));
+	if(!hist)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	memset(hist, 0, 256LL*nhist*sizeof(int));
+	const int kc=1;
+	for(int ky=0;ky<ih;++ky)
+	{
+		for(int kx=0;kx<iw;++kx)
+		{
+#define LOAD(X, Y) (unsigned)(kx+(X))<(unsigned)iw&&(unsigned)(ky+(Y))<(unsigned)ih?buf[(iw*(ky+(Y))+kx+(X))<<2|kc]:0
+			unsigned char
+				N =LOAD( 0, -1),
+				W =LOAD(-1,  0),
+				NW=LOAD(-1, -1),
+				curr=LOAD(0, 0);
+#undef  LOAD
+			int vmin, vmax;
+			if(N<W)
+				vmin=N, vmax=W;
+			else
+				vmin=W, vmax=N;
+			int pred=N+W-NW;
+			pred=CLAMP(vmin, pred, vmax);
+			int h=(NW>vmax)-(NW<vmin)+1;
+			++hist[h<<9|0<<8|curr];
+			++hist[h<<9|1<<8|pred];
+		}
+	}
+	const char *histnames[]=
+	{
+		"hist[curr] when  NW < min(N,W)",
+		"hist[pred] when  NW < min(N,W)",
+		"hist[curr] when  min(N,W) <= NW <= max(N,W)",
+		"hist[pred] when  min(N,W) <= NW <= max(N,W)",
+		"hist[curr] when  NW > max(N,W)",
+		"hist[pred] when  NW > max(N,W)",
+	};
+	for(int k=0;k<nhist;++k)
+	{
+		printf("%s:\n", histnames[k]);
+		print_histogram(hist+(k<<8), 256, 128);
+		printf("\n");
+	}
+	free(hist);
+	pause();
+	exit(0);
 }
 
 
