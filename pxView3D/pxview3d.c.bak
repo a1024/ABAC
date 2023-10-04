@@ -2894,41 +2894,6 @@ toggle_drag:
 				}
 				update_image();
 			}
-			else if(transforms_mask[ST_FWD_CUSTOM4]||transforms_mask[ST_INV_CUSTOM4])
-			{
-				int maskbits=10;
-					 if(keyboard[KEY_1])maskbits=1;
-				else if(keyboard[KEY_2])maskbits=2;
-				else if(keyboard[KEY_3])maskbits=3;
-				else if(keyboard[KEY_4])maskbits=4;
-				else if(keyboard[KEY_5])maskbits=5;
-				else if(keyboard[KEY_6])maskbits=6;
-				else if(keyboard[KEY_7])maskbits=7;
-				else if(keyboard[KEY_8])maskbits=8;
-				else if(keyboard[KEY_9])maskbits=9;
-				//if(GET_KEY_STATE(KEY_CTRL))
-				//	custom3_opt_batch(&c3_params, 0, maskbits, 1, 0);
-				//else if(GET_KEY_STATE(KEY_SHIFT))
-				//	custom3_opt_batch2(&c3_params, 0, maskbits, 1, 0);
-				//else
-				{
-					int res=iw*ih;
-					char *buf2=(char*)malloc((size_t)res<<2);
-					if(!buf2)
-					{
-						LOG_ERROR("Allocation error");
-						return 0;
-					}
-					memcpy(buf2, im0, (size_t)res<<2);
-					addhalf((unsigned char*)buf2, iw, ih, 3, 4);
-					colortransform_ycocb_fwd(buf2, iw, ih);//
-
-					custom4_opt(buf2, iw, ih, &c4_params, 0, maskbits, 1, 0);
-
-					free(buf2);
-				}
-				update_image();
-			}
 			else if(transforms_mask[ST_FWD_JXL]||transforms_mask[ST_INV_JXL]||transforms_mask[ST_FWD_MM]||transforms_mask[ST_INV_MM]
 			//	||transforms_mask[ST_FWD_JOINT]||transforms_mask[ST_INV_JOINT]
 			)

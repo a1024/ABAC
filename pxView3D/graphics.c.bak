@@ -1685,3 +1685,4 @@ void draw_contour3d(Camera const *cam, float x1, float x2, float y1, float y2, f
 	glDisableVertexAttribArray(a_contour3D_vertex);	GL_CHECK(error);
 	glDisableVertexAttribArray(a_contour3D_texcoord);	GL_CHECK(error);
 }
+

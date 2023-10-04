@@ -685,18 +685,7 @@ int fast_dot(const short *a, const short *b, int count);
 
 //CUSTOM4
 #define C4_REACH 2
-#define C4_HIDDENNODES 12
-#define C4_NNB (C4_REACH*(C4_REACH+1)*4)		//for pixels & errors
-typedef struct Custom4ParamsStruct
-{
-	short c00[C4_HIDDENNODES][C4_NNB*3  ], c01[C4_HIDDENNODES];//fixed 1.14 bit
-	short c10[C4_HIDDENNODES][C4_NNB*3+2], c11[C4_HIDDENNODES];
-	short c20[C4_HIDDENNODES][C4_NNB*3+4], c21[C4_HIDDENNODES];
-} Custom4Params;
-#define C4_NPARAMS (sizeof(Custom4Params)/sizeof(short))
-extern Custom4Params c4_params;
-void custom4_apply(char *src, int iw, int ih, int fwd, Custom4Params const *params);
-void custom4_opt(const char *src, int iw, int ih, Custom4Params *srcparams, int niter, int maskbits, int loud, double *loss);
+#define C4_NLAYERS 6
 
 
 void pred_slope_fwd(char *buf, int iw, int ih, int nch, int bytestride);

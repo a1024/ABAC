@@ -8612,252 +8612,71 @@ static int custom4_loadnb(const char *pixels, const char *errors, int iw, int ih
 	}
 	return ++idx;
 }
-static void custom4_prealloc(const char *src, int iw, int ih, int fwd, Custom4Params const *params, char *dst)
+#if 0
+static int custom4_dot(const short *a, const short *b, int count)
+{
+	int k;
+	__m256i sum=_mm256_setzero_si256();
+	for(k=0;k<count-15;k+=16)//https://stackoverflow.com/questions/62041400/inner-product-of-two-16bit-integer-vectors-with-avx2-in-c
+	{
+		__m256i va=_mm256_loadu_si256((__m256i*)(a+k));
+		__m256i vb=_mm256_loadu_si256((__m256i*)(b+k));
+		va=_mm256_madd_epi16(va, vb);
+		sum=_mm256_add_epi32(sum, va);
+	}
+	__m128i s2=_mm_add_epi32(_mm256_extracti128_si256(sum, 1), _mm256_castsi256_si128(sum));
+	__m128i hi=_mm_shuffle_epi32(s2, _MM_SHUFFLE(2, 1, 3, 2));
+	s2=_mm_add_epi32(s2, hi);
+	s2=_mm_hadd_epi32(s2, s2);
+	int s3=_mm_extract_epi32(s2, 0);
+	for(;k<count;++k)
+		s3+=a[k]*b[k];
+	return s3;
+}
+#endif
+static void custom4_prealloc(const char *src, int iw, int ih, int fwd, Custom3Params const *params, char *dst)
 {
 	const char *pixels=fwd?src:dst, *errors=fwd?dst:src;
 	int pred, idx;
+	const short *coeffs[]=
+	{
+		params->c00, params->c01, params->c02,
+		params->c10, params->c11, params->c12,
+		params->c20, params->c21, params->c22,
+	};
 	short nb[3][C3_NNB+2]={0};
 	for(int ky=0;ky<ih;++ky)
 	{
 		for(int kx=0;kx<iw;++kx)
 		{
-			int count[3];
-			//int idx2;
+			int count[3], idx2;
 			for(int kc=0;kc<3;++kc)
-				count[kc]=custom4_loadnb(pixels, errors, iw, ih, kc, kx, ky, nb[kc]);
+				count[kc]=custom3_loadnb(pixels, errors, iw, ih, kc, kx, ky, nb[kc]);
 			
 			idx=(iw*ky+kx)<<2;
+			idx2=0;
 			
-			pred=0;
-			for(int kh=0;kh<C4_HIDDENNODES;++kh)
+			for(int kdst=0;kdst<3;++kdst)
 			{
-				int pred2=0;
-				pred2+=fast_dot(params->c00[kh]         , nb[0], C4_NNB);
-				pred2+=fast_dot(params->c00[kh]+C4_NNB  , nb[1], C4_NNB);
-				pred2+=fast_dot(params->c00[kh]+C4_NNB*2, nb[2], C4_NNB);
-				pred2+=1<<13;
-				pred2>>=14;
-				pred+=(int)(params->c01[kh]*tanh(pred2)*(128/16384.));
-				//pred2=(int)(128*tanh(pred2));
-				//pred+=(int)((long long)params->c01[kh]*pred2>>14);
+				pred=0;
+				for(int kc=0;kc<3;++kc)
+					pred+=fast_dot(coeffs[idx2+kc], nb[kc], count[kc]);
+				pred+=1<<13;
+				pred>>=14;
+				pred=CLAMP(-128, pred, 127);
+				if(fwd)
+					dst[idx]=src[idx]-pred;
+				else
+					dst[idx]=src[idx]+pred;
+
+				nb[kdst][C3_NNB  ]=pixels[idx];
+				nb[kdst][C3_NNB+1]=errors[idx];
+				count[kdst]+=2;
+				++idx;
+				idx2+=3;
 			}
-			pred=CLAMP(-128, pred, 127);
-			if(fwd)
-				dst[idx]=src[idx]-pred;
-			else
-				dst[idx]=src[idx]+pred;
-			nb[0][C3_NNB  ]=pixels[idx];
-			nb[0][C3_NNB+1]=errors[idx];
-			++idx;
-			
-			pred=0;
-			for(int kh=0;kh<C4_HIDDENNODES;++kh)
-			{
-				int pred2=0;
-				pred2+=custom4_dot(params->c10[kh]           , nb[0], C4_NNB+2);
-				pred2+=custom4_dot(params->c10[kh]+C4_NNB  +2, nb[1], C4_NNB);
-				pred2+=custom4_dot(params->c10[kh]+C4_NNB*2+2, nb[2], C4_NNB);
-				pred2+=1<<13;
-				pred2>>=14;
-				pred+=(int)(params->c11[kh]*tanh(pred2)*(128/16384.));
-				//pred2=(int)(128*tanh(pred2));
-				//pred+=(int)((long long)params->c01[kh]*pred2>>14);
-			}
-			pred=CLAMP(-128, pred, 127);
-			if(fwd)
-				dst[idx]=src[idx]-pred;
-			else
-				dst[idx]=src[idx]+pred;
-			nb[1][C3_NNB  ]=pixels[idx];
-			nb[1][C3_NNB+1]=errors[idx];
-			++idx;
-			
-			pred=0;
-			for(int kh=0;kh<C4_HIDDENNODES;++kh)
-			{
-				int pred2=0;
-				pred2+=custom4_dot(params->c20[kh]           , nb[0], C4_NNB+2);
-				pred2+=custom4_dot(params->c20[kh]+C4_NNB  +2, nb[1], C4_NNB+2);
-				pred2+=custom4_dot(params->c20[kh]+C4_NNB*2+4, nb[2], C4_NNB);
-				pred2+=1<<13;
-				pred2>>=14;
-				pred+=(int)(params->c21[kh]*tanh(pred2)*(128/16384.));
-				//pred2=(int)(128*tanh(pred2));
-				//pred+=(int)((long long)params->c01[kh]*pred2>>14);
-			}
-			pred=CLAMP(-128, pred, 127);
-			if(fwd)
-				dst[idx]=src[idx]-pred;
-			else
-				dst[idx]=src[idx]+pred;
 		}
 	}
-}
-void custom4_apply(char *src, int iw, int ih, int fwd, Custom4Params const *params)
-{
-	int res=iw*ih;
-	char *temp=(char*)malloc((size_t)res<<2);
-	if(!temp)
-	{
-		LOG_ERROR("Allocation error");
-		return;
-	}
-	memcpy(temp, src, (size_t)res<<2);//copy alpha
-
-	custom4_prealloc(src, iw, ih, fwd, params, temp);
-
-	memcpy(src, temp, (size_t)res<<2);
-	free(temp);
-}
-typedef struct Custom4OptInfoStruct
-{
-	double invCR[4];//loss == invCR[3]=(invCR[0]+invCR[1]+invCR[2])/3
-	short params[C4_NPARAMS];
-} Custom4OptInfo;
-static void custom4_calcloss(const char *src, int iw, int ih, Custom4OptInfo *info, char *temp, int *hist)
-{
-	int res=iw*ih;
-	custom4_prealloc(src, iw, ih, 1, (Custom4Params*)info->params, temp);
-
-	memset(hist, 0, 768*sizeof(int));
-	for(int k=0;k<res;++k)
-	{
-		unsigned char *p=temp+(k<<2);
-		++hist[p[0]];
-		++hist[p[1]|256];
-		++hist[p[2]|512];
-	}
-	info->invCR[3]=0;
-	for(int kc=0;kc<3;++kc)
-	{
-		double entropy=0;
-		for(int sym=0;sym<256;++sym)//Shannon's law
-		{
-			int freq=hist[kc<<8|sym];
-			if(freq)
-			{
-				double prob=(double)freq/res;
-				entropy-=prob*log2(prob);
-			}
-		}
-		info->invCR[kc]=entropy/8;
-		info->invCR[3]+=info->invCR[kc];
-	}
-	info->invCR[3]/=3;
-}
-void custom4_opt(const char *src, int iw, int ih, Custom4Params *srcparams, int niter, int maskbits, int loud, double *loss)
-{
-	static int call_idx=0;
-	++call_idx;
-
-	int res=iw*ih;
-	unsigned char *temp=(unsigned char*)malloc((size_t)res<<2);
-	int *hist=(int*)malloc(768*sizeof(int));
-	if(!temp||!hist)
-	{
-		LOG_ERROR("Allocation error");
-		return;
-	}
-	for(int k=0;k<res;++k)//set alpha for preview
-		temp[k<<2|3]=0xFF;
-	Custom4OptInfo info;
-#define CALC_LOSS() custom4_calcloss(src, iw, ih, &info, (char*)temp, hist)
-	const int nd=C4_NPARAMS;
-	memcpy(info.params, srcparams, sizeof(info.params));
-	if(loud)
-		srand((unsigned)__rdtsc());//
-
-	CALC_LOSS();
-	double invCR[4], loss0;
-	memcpy(invCR, info.invCR, sizeof(invCR));
-	loss0=info.invCR[3];
-	if(!niter)
-		niter=C4_NPARAMS*10;
-	if(niter>1000)
-		niter=1000;
-	int shakethreshold=C3_NPARAMS;
-	for(int it=0, watchdog=0;it<niter;++it)
-	{
-		if(loud)
-			set_window_title("%d-%d %4d/%4d,%d/%d: %lf RGB %lf %lf %lf", loud, call_idx, it+1, niter, watchdog, shakethreshold, 1/info.invCR[3], 1/info.invCR[0], 1/info.invCR[1], 1/info.invCR[2]);
-		int idx[C4_OPT_NCOMP]={0}, inc[C4_OPT_NCOMP]={0}, stuck=0;
-		if(watchdog>=shakethreshold)//bump if stuck
-		{
-			memcpy(info.params, srcparams, sizeof(info.params));
-			for(int k=0;k<C4_NPARAMS;++k)
-				info.params[k]+=((rand()&1)<<1)-1;
-				//info.params[k]+=rand()%3-1;
-			watchdog=0;
-			stuck=1;
-		}
-		else
-		{
-			for(int k=0;k<C4_OPT_NCOMP;++k)
-			{
-				idx[k]=rand()%nd;
-				//idx[k]=(it+k)%nd;
-
-				while(!(inc[k]=(rand()&((1<<maskbits)-1))-(1<<(maskbits-1))));//reject zero delta
-
-				//int inc=(rand()&0x1FFF)-0x1000;
-				//int inc=(rand()&0x1FF)-0x100;
-				//int inc=(rand()&0x1F)-0x10;
-				//int inc=((rand()&1)<<1)-1;
-				//int inc=(int)(((rand()<<1)-0x8000)*pow(info.loss, 20));
-		
-				info.params[idx[k]]+=inc[k];
-			}
-		}
-
-		CALC_LOSS();
-		
-		if(info.invCR[3]>invCR[3])//revert if worse
-		{
-			if(stuck)//a bad branch may surpass the local minimum
-				memcpy(invCR, info.invCR, sizeof(info.invCR));
-			else
-			{
-				memcpy(info.invCR, invCR, sizeof(info.invCR));
-				for(int k=0;k<C4_OPT_NCOMP;++k)
-					info.params[idx[k]]-=inc[k];
-			}
-			++watchdog;
-		}
-		else//save if better
-		{
-			if(loss0>info.invCR[3])
-			{
-				memcpy(srcparams, info.params, sizeof(info.params));
-				loss0=info.invCR[3];
-				--it;//bis
-			}
-			memcpy(invCR, info.invCR, sizeof(invCR));
-			watchdog=0;
-		}
-
-		//preview
-#if 1
-		if(loud)
-		{
-			ch_cr[0]=(float)(1/info.invCR[0]);
-			ch_cr[1]=(float)(1/info.invCR[1]);
-			ch_cr[2]=(float)(1/info.invCR[2]);
-			unsigned char *ptr;
-			addhalf(temp, iw, ih, 3, 4);
-			SWAPVAR(image, temp, ptr);
-			io_render();
-			SWAPVAR(image, temp, ptr);
-		}
-#endif
-	}
-#undef  CALC_LOSS
-	//if(!loud)
-	//	memcpy(srcparams, info.params, sizeof(info.params));
-	if(loss)
-		memcpy(loss, invCR, sizeof(invCR));
-	
-	free(temp);
-	free(hist);
 }
 
 
@@ -9835,8 +9654,6 @@ void pred_wu97(char *buf, int iw, int ih, int fwd)//'Lossless Compression of Con
 	free(temp);
 	free(b2);
 }
-
-
 
 
 //DWTs
@@ -11682,13 +11499,9 @@ void jointhistogram(unsigned char *buf, int iw, int ih, int nbits, ArrayHandle *
 	int nlevels=1<<nbits, hsize=nlevels*nlevels*nlevels;
 	if(*hist)
 		array_free(hist);
-	unsigned *htemp=(unsigned*)malloc(hsize*sizeof(unsigned));
-	if(!htemp)
-	{
-		LOG_ERROR("Allocation error");
-		return;
-	}
-	memset(htemp, 0, hsize*sizeof(unsigned));
+	ARRAY_ALLOC(unsigned, *hist, 0, hsize, 0, 0);
+	//unsigned *hist=(unsigned*)malloc(hsize*sizeof(unsigned));
+	unsigned *h=(unsigned*)hist[0]->data;
 
 	int res=iw*ih;
 	switch(space_not_color)
@@ -11699,7 +11512,7 @@ void jointhistogram(unsigned char *buf, int iw, int ih, int nbits, ArrayHandle *
 			unsigned char r=buf[k<<2]>>(8-nbits), g=buf[k<<2|1]>>(8-nbits), b=buf[k<<2|2]>>(8-nbits);
 			int color=b<<(nbits<<1)|g<<nbits|r;
 
-			++htemp[color];
+			++h[color];
 		}
 		break;
 	case 1://show correlation in space x (CURR, W, WW)
@@ -11713,7 +11526,7 @@ void jointhistogram(unsigned char *buf, int iw, int ih, int nbits, ArrayHandle *
 					v0=kx-0>=0?buf[(iw*ky+kx-0)<<2|1]>>(8-nbits):0;//curr
 				int color=v2<<(nbits<<1)|v1<<nbits|v0;
 
-				++htemp[color];
+				++h[color];
 			}
 		}
 		break;
@@ -11728,7 +11541,7 @@ void jointhistogram(unsigned char *buf, int iw, int ih, int nbits, ArrayHandle *
 					v0=ky-0>=0?buf[(iw*(ky-0)+kx)<<2|1]>>(8-nbits):0;//curr
 				int color=v2<<(nbits<<1)|v1<<nbits|v0;
 
-				++htemp[color];
+				++h[color];
 			}
 		}
 		break;
@@ -11743,29 +11556,75 @@ void jointhistogram(unsigned char *buf, int iw, int ih, int nbits, ArrayHandle *
 					v0=        buf[(iw* ky   +kx  )<<2|1]>>(8-nbits)  ;//curr
 				int color=v2<<(nbits<<1)|v1<<nbits|v0;
 
-				++htemp[color];
+				++h[color];
 			}
 		}
 		break;
 	}
 
-	//don't calculate csize from downsampled histogram
+	//X  don't calculate csize from downsampled histogram
+#if 0
+	double csize=0;
+	for(int k=0;k<res;++k)//calculate csize using Zipf's law
+	{
+		unsigned char r=buf[k<<2]>>(8-nbits), g=buf[k<<2|1]>>(8-nbits), b=buf[k<<2|2]>>(8-nbits);
+		int color=b<<(nbits<<1)|g<<nbits|r;
+
+		unsigned freq=h[color];
+		double p=(double)freq/res;
+
+		p*=0xFFFFFFFF;//guard against quantized zero
+		++p;
+		p/=0x100000000;
+
+		csize-=log2(p);
+	}
+	csize/=nbits;
+	float CR=(float)(res*3/csize);
+#endif
+
+#if 0
+	float entropy=0;//also BPP
+	for(int k=0;k<hsize;++k)//calculate entropy using Shannon's law
+	{
+		int freq=h[k];
+		if(freq)
+		{
+			float p=(float)freq/res;
+			entropy-=p*log2f(p);
+		}
+	}
+	float CR=3*nbits/entropy;
+#endif
 
 	unsigned histmin=0;
 	unsigned histmax=0;
 	for(int k=0;k<hsize;++k)//get min & max
 	{
-		if(histmin>htemp[k])
-			histmin=htemp[k];
-		if(histmax<htemp[k])
-			histmax=htemp[k];
+		if(histmin>h[k])
+			histmin=h[k];
+		if(histmax<h[k])
+			histmax=h[k];
 	}
 
-	ARRAY_ALLOC(char, *hist, 0, hsize, 0, 0);
-	unsigned char *h2=hist[0]->data;
+	unsigned char *h2=(unsigned char*)h;
 	for(int k=0;k<hsize;++k)//normalize
-		h2[k]=htemp[k]*255/histmax;
-	free(htemp);
+		h2[k]=(h[k]<<8)/histmax;
+
+	//for(int k=0;k<hsize;++k)
+	//	h[k]=(unsigned)(((long long)h[k]<<32)/histmax);
+
+	//for(int kz=0;kz<nlevels-1;++kz)
+	//{
+	//	for(int ky=0;ky<nlevels-1;++ky)
+	//	{
+	//		for(int kx=0;kx<nlevels-1;++kx)
+	//		{
+	//		}
+	//	}
+	//}
+
+	//return CR;
 }
 
 
