@@ -223,7 +223,7 @@ void colortransform_ycocg_inv(char *buf, int iw, int ih)//3 channels, stride 4 b
 {
 	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
 	{
-		char r=buf[k], g=buf[k|1], b=buf[k|2];
+		char r=buf[k], g=buf[k|1], b=buf[k|2];//Co Cg Y
 		
 		b-=g>>1;
 		g+=b;
@@ -241,20 +241,12 @@ void colortransform_ycocb_fwd(char *buf, int iw, int ih)//3 channels, stride 4 b
 	{
 		char r=buf[k], g=buf[k|1], b=buf[k|2];
 
-		r-=g;
-		g+=r>>1;
-		b-=g;
-		g+=b>>1;
+		r-=g;   //r-g
+		g+=r>>1;//g+(r-g)/2 = (r+g)/2
+		b-=g;   //b-(r+g)/2
+		g+=b>>1;//(r+g)/2+(b-(r+g)/2)/2 = 1/4 r + 1/4 g + 1/2 b
 
-		//buf[k  ]=g;//Y
-		//buf[k|1]=r;//Co
-		//buf[k|2]=b;//Cb
-
-		//buf[k  ]=r;//Co
-		//buf[k|1]=b;//Cb
-		//buf[k|2]=g;//Y
-
-		buf[k  ]=r;//Co	original
+		buf[k  ]=r;//Cm
 		buf[k|1]=g;//Y
 		buf[k|2]=b;//Cb
 	}
@@ -263,9 +255,7 @@ void colortransform_ycocb_inv(char *buf, int iw, int ih)//3 channels, stride 4 b
 {
 	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
 	{
-		//char r=buf[k|1], g=buf[k], b=buf[k|2];//Y Co Cb
-		//char r=buf[k], g=buf[k|2], b=buf[k|1];//Co Cb Y
-		char r=buf[k], g=buf[k|1], b=buf[k|2];//Co Y Cb	original
+		char r=buf[k], g=buf[k|1], b=buf[k|2];//Cm Y Cb
 		
 		g-=b>>1;
 		b+=g;
