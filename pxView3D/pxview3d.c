@@ -33,12 +33,12 @@ typedef enum VisModeEnum
 	VIS_MESH_SEPARATE,
 	VIS_IMAGE_TRICOLOR,
 	VIS_IMAGE,
+	VIS_HISTOGRAM,
 	VIS_BAYES,
 	VIS_IMAGE_BLOCK,
 //	VIS_IMAGE_E24,//experiment 24
 	VIS_ZIPF,
 	VIS_DWT_BLOCK,
-	VIS_HISTOGRAM,
 	VIS_JOINT_HISTOGRAM,
 
 	VIS_COUNT,
@@ -88,8 +88,8 @@ typedef enum TransformTypeEnum
 
 	CT_FWD_YCoCg,		CT_INV_YCoCg,//HEVC, VVC
 	CT_FWD_YCoCb,		CT_INV_YCoCb,
-	CT_FWD_XGZ,			CT_INV_XGZ,
-	CT_FWD_XYZ,			CT_INV_XYZ,
+//	CT_FWD_XGZ,			CT_INV_XGZ,
+//	CT_FWD_XYZ,			CT_INV_XYZ,
 //	CT_FWD_EXP,			CT_INV_EXP,
 	CT_FWD_ADAPTIVE,	CT_INV_ADAPTIVE,
 	CT_FWD_CUSTOM,		CT_INV_CUSTOM,
@@ -104,7 +104,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_CUSTOM3,		ST_INV_CUSTOM3,
 //	ST_FWD_KALMAN,		ST_INV_KALMAN,
 //	ST_FWD_LOGIC,		ST_INV_LOGIC,
-	ST_FWD_LEARNED,		ST_INV_LEARNED,
+//	ST_FWD_LEARNED,		ST_INV_LEARNED,
 #ifdef ALLOW_OPENCL
 //	ST_FWD_LEARNED_GPU,	ST_INV_LEARNED_GPU,
 #endif
@@ -125,6 +125,9 @@ typedef enum TransformTypeEnum
 //	ST_FWD_HPF,			ST_INV_HPF,
 	ST_FWD_CUSTOM,		ST_INV_CUSTOM,
 	ST_FWD_GRADPRED,	ST_INV_GRADPRED,
+	ST_FWD_GRAD2,		ST_INV_GRAD2,
+	ST_FWD_CTX,			ST_INV_CTX,
+//	ST_FWD_WU97,		ST_INV_WU97,
 	ST_FWD_SORTNB,		ST_INV_SORTNB,
 //	ST_FWD_BITWISE,		ST_INV_BITWISE,
 	ST_FWD_DCT4,		ST_INV_DCT4,
@@ -292,10 +295,10 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case CT_INV_YCoCg:			a="C  Inv YCoCg-R";			break;
 	case CT_FWD_YCoCb:			a="C  Fwd YCoCb-R";			break;
 	case CT_INV_YCoCb:			a="C  Inv YCoCb-R";			break;
-	case CT_FWD_XGZ:			a="C  Fwd XGZ";				break;
-	case CT_INV_XGZ:			a="C  Inv XGZ";				break;
-	case CT_FWD_XYZ:			a="C  Fwd XYZ";				break;
-	case CT_INV_XYZ:			a="C  Inv XYZ";				break;
+//	case CT_FWD_XGZ:			a="C  Fwd XGZ";				break;
+//	case CT_INV_XGZ:			a="C  Inv XGZ";				break;
+//	case CT_FWD_XYZ:			a="C  Fwd XYZ";				break;
+//	case CT_INV_XYZ:			a="C  Inv XYZ";				break;
 //	case CT_FWD_EXP:			a="C  Fwd Experimental";	break;
 //	case CT_INV_EXP:			a="C  Inv Experimental";	break;
 	case CT_FWD_ADAPTIVE:		a="C  Fwd Adaptive";		break;
@@ -317,8 +320,8 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 //	case ST_INV_KALMAN:			a=" S Inv Kalman";			break;
 //	case ST_FWD_LOGIC:			a=" S Fwd Logic";			break;
 //	case ST_INV_LOGIC:			a=" S Inv Logic";			break;
-	case ST_FWD_LEARNED:		a=" S Fwd Learned";			break;
-	case ST_INV_LEARNED:		a=" S Inv Learned";			break;
+//	case ST_FWD_LEARNED:		a=" S Fwd Learned";			break;
+//	case ST_INV_LEARNED:		a=" S Inv Learned";			break;
 #ifdef ALLOW_OPENCL
 //	case ST_FWD_LEARNED_GPU:	a=" S Fwd Learned GPU";		break;
 //	case ST_INV_LEARNED_GPU:	a=" S Inv Learned GPU";		break;
@@ -356,6 +359,12 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 //	case ST_INV_PATHPRED:		a=" S Inv Path Predictor";	break;
 	case ST_FWD_GRADPRED:		a=" S Fwd Gradient";		break;
 	case ST_INV_GRADPRED:		a=" S Inv Gradient";		break;
+	case ST_FWD_GRAD2:			a=" S Fwd Grad2";			break;
+	case ST_INV_GRAD2:			a=" S Inv Grad2";			break;
+	case ST_FWD_CTX:			a=" S Fwd Ctx";				break;
+	case ST_INV_CTX:			a=" S Inv Ctx";				break;
+//	case ST_FWD_WU97:			a=" S Fwd Wu 97";			break;
+//	case ST_INV_WU97:			a=" S Inv Wu 97";			break;
 //	case ST_FWD_BITWISE:		a=" S Fwd Bitwise";			break;
 //	case ST_INV_BITWISE:		a=" S Inv Bitwise";			break;
 	case ST_FWD_DCT4:			a=" S Fwd DCT4";			break;
@@ -843,10 +852,10 @@ void update_image()
 			case CT_INV_YCoCg:		colortransform_ycocg_inv((char*)image, iw, ih);		break;
 			case CT_FWD_YCoCb:		colortransform_ycocb_fwd((char*)image, iw, ih);		break;
 			case CT_INV_YCoCb:		colortransform_ycocb_inv((char*)image, iw, ih);		break;
-			case CT_FWD_XGZ:		colortransform_xgz_fwd((char*)image, iw, ih);		break;
-			case CT_INV_XGZ:		colortransform_xgz_inv((char*)image, iw, ih);		break;
-			case CT_FWD_XYZ:		colortransform_xyz_fwd((char*)image, iw, ih);		break;
-			case CT_INV_XYZ:		colortransform_xyz_inv((char*)image, iw, ih);		break;
+		//	case CT_FWD_XGZ:		colortransform_xgz_fwd((char*)image, iw, ih);		break;
+		//	case CT_INV_XGZ:		colortransform_xgz_inv((char*)image, iw, ih);		break;
+		//	case CT_FWD_XYZ:		colortransform_xyz_fwd((char*)image, iw, ih);		break;
+		//	case CT_INV_XYZ:		colortransform_xyz_inv((char*)image, iw, ih);		break;
 		//	case CT_FWD_EXP:		colortransform_exp_fwd((char*)image, iw, ih);		break;
 		//	case CT_INV_EXP:		colortransform_exp_inv((char*)image, iw, ih);		break;
 			case CT_FWD_ADAPTIVE:	colortransform_adaptive((char*)image, iw, ih, 1);	break;
@@ -875,8 +884,8 @@ void update_image()
 		//	case ST_INV_CUSTOM2:	pred_custom2_apply((char*)image, iw, ih, 0);		break;
 		//	case ST_FWD_LOGIC:		pred_logic_apply((char*)image, iw, ih, logic_params, 1);break;
 		//	case ST_INV_LOGIC:		pred_logic_apply((char*)image, iw, ih, logic_params, 0);break;
-			case ST_FWD_LEARNED:	pred_learned_v4((char*)image, iw, ih, 1);			break;
-			case ST_INV_LEARNED:	pred_learned_v4((char*)image, iw, ih, 0);			break;
+		//	case ST_FWD_LEARNED:	pred_learned_v4((char*)image, iw, ih, 1);			break;
+		//	case ST_INV_LEARNED:	pred_learned_v4((char*)image, iw, ih, 0);			break;
 #ifdef ALLOW_OPENCL
 		//	case ST_FWD_LEARNED_GPU:pred_learned_gpu((char*)image, iw, ih, 1);			break;
 		//	case ST_INV_LEARNED_GPU:pred_learned_gpu((char*)image, iw, ih, 0);			break;
@@ -909,6 +918,12 @@ void update_image()
 		//	case ST_INV_PATHPRED:	pred_path_inv((char*)image, iw, ih, 3, 4);			break;
 			case ST_FWD_GRADPRED:	pred_grad_fwd((char*)image, iw, ih, 3, 4);			break;
 			case ST_INV_GRADPRED:	pred_grad_inv((char*)image, iw, ih, 3, 4);			break;
+			case ST_FWD_GRAD2:		pred_grad2((char*)image, iw, ih, 1);				break;
+			case ST_INV_GRAD2:		pred_grad2((char*)image, iw, ih, 0);				break;
+			case ST_FWD_CTX:		pred_ctx((char*)image, iw, ih, 1);					break;
+			case ST_INV_CTX:		pred_ctx((char*)image, iw, ih, 0);					break;
+		//	case ST_FWD_WU97:		pred_wu97((char*)image, iw, ih, 1);					break;
+		//	case ST_INV_WU97:		pred_wu97((char*)image, iw, ih, 0);					break;
 		//	case ST_FWD_BITWISE:	pred_bitwise((char*)image, iw, ih, 1);				break;
 		//	case ST_INV_BITWISE:	pred_bitwise((char*)image, iw, ih, 0);				break;
 			case ST_FWD_CUSTOM:		pred_custom_apply((char*)image, iw, ih, 1, customparam_st);break;
@@ -1925,16 +1940,21 @@ static void append_i16_row(ArrayHandle *str, const short *vals, int count)
 }
 int io_keydn(IOKey key, char c)
 {
-	//switch(key)
-	//{
-	//case 'S':
-	//	if(keyboard[KEY_CTRL])
-	//	{
-	//	//	savedfile=dialog_save_file(file_filters, SIZEOF(file_filters), initialname);
-	//		return 1;
-	//	}
-	//	break;
-	//}
+	switch(key)
+	{
+	case 'S':
+		if(keyboard[KEY_CTRL]&&image)
+		{
+			char *filename=dialog_save_file(0, 0, "Untitled.PNG");
+			if(filename)
+			{
+				lodepng_encode_file(filename, image, iw, ih, LCT_RGBA, 8);
+				free(filename);
+			}
+			return 1;
+		}
+		break;
+	}
 #if 0
 	if(mode==VIS_IMAGE_E24)
 	{
@@ -3065,6 +3085,83 @@ float print_i16_row(float x, float y, float zoom, const short *row, int count)
 	}
 	return print_line_immediate(0, x, y, zoom, g_buf, printed, -1, 0, 0);
 }
+
+void draw_cuboid_i(const float *points)
+{
+	draw_3d_line(&cam, points+3*0, points+3*1, 0xFF0000FF);
+	draw_3d_line(&cam, points+3*2, points+3*3, 0xFF0000FF);
+	draw_3d_line(&cam, points+3*4, points+3*5, 0xFF0000FF);
+	draw_3d_line(&cam, points+3*6, points+3*7, 0xFF0000FF);
+	draw_3d_line(&cam, points+3*0, points+3*2, 0xFF00FF00);
+	draw_3d_line(&cam, points+3*1, points+3*3, 0xFF00FF00);
+	draw_3d_line(&cam, points+3*4, points+3*6, 0xFF00FF00);
+	draw_3d_line(&cam, points+3*5, points+3*7, 0xFF00FF00);
+	draw_3d_line(&cam, points+3*0, points+3*4, 0xFFFF0000);
+	draw_3d_line(&cam, points+3*1, points+3*5, 0xFFFF0000);
+	draw_3d_line(&cam, points+3*2, points+3*6, 0xFFFF0000);
+	draw_3d_line(&cam, points+3*3, points+3*7, 0xFFFF0000);
+}
+void draw_ycocg(float x, float y, float z)
+{
+	float points[]=
+	{
+		x-1, y-1, z-1,
+		x+1, y-1, z-1,
+		x-1, y+1, z-1,
+		x+1, y+1, z-1,
+		x-1, y-1, z+1,
+		x+1, y-1, z+1,
+		x-1, y+1, z+1,
+		x+1, y+1, z+1,
+	};
+	draw_cuboid_i(points);
+	for(int k=0;k<8;++k)
+	{
+		float *p=points+3*k;
+		p[0]-=x;
+		p[1]-=y;
+		p[2]-=z;
+		p[0]-=p[2];
+		p[2]+=p[0]*0.5f;
+		p[1]-=p[2];
+		p[2]+=p[1]*0.5f;
+		p[0]+=x;
+		p[1]+=y;
+		p[2]+=z;
+	}
+	draw_cuboid_i(points);
+}
+void draw_ycmcb(float x, float y, float z)
+{
+	float points[]=
+	{
+		x-1, y-1, z-1,
+		x+1, y-1, z-1,
+		x-1, y+1, z-1,
+		x+1, y+1, z-1,
+		x-1, y-1, z+1,
+		x+1, y-1, z+1,
+		x-1, y+1, z+1,
+		x+1, y+1, z+1,
+	};
+	draw_cuboid_i(points);
+	for(int k=0;k<8;++k)
+	{
+		float *p=points+3*k;
+		p[0]-=x;
+		p[1]-=y;
+		p[2]-=z;
+		p[0]-=p[1];
+		p[1]+=p[0]*0.5f;
+		p[2]-=p[1];
+		p[1]+=p[2]*0.5f;
+		p[0]+=x;
+		p[1]+=y;
+		p[2]+=z;
+	}
+	draw_cuboid_i(points);
+}
+
 void io_render()
 {
 	//prof_add("entry");
@@ -3083,6 +3180,13 @@ void io_render()
 	draw_3d_line(&cam, axes, axes+3, 0xFF0000FF);
 	draw_3d_line(&cam, axes, axes+6, 0xFF00FF00);
 	draw_3d_line(&cam, axes, axes+9, 0xFFFF0000);
+#if 1
+	if(!image)
+	{
+		draw_ycocg(10, 0, 0);
+		draw_ycmcb(20, 0, 0);
+	}
+#endif
 	//prof_add("model");
 
 	if(image)

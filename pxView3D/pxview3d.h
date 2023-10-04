@@ -214,7 +214,7 @@ typedef struct FilterStruct
 } Filter;
 ArrayHandle dialog_open_folder();
 ArrayHandle	dialog_open_file(Filter *filters, int nfilters, int multiple);
-const char*	dialog_save_file(Filter *filters, int nfilters, const char *initialname);
+char* dialog_save_file(Filter *filters, int nfilters, const char *initialname);
 
 void get_window_title(char *buf, int len);
 void set_window_title(const char *format, ...);
@@ -679,6 +679,7 @@ void custom3_opt(const char *src, int iw, int ih, Custom3Params *srcparams, int 
 void custom3_opt_batch(Custom3Params *srcparams, int niter, int maskbits, int loud, double *loss);
 //void custom3_opt_gpu(const char *src, int iw, int ih, Custom3Params *srcparams, int niter, int maskbits, int loud);//X  extremely slow
 void custom3_opt_batch2(Custom3Params *srcparams, int niter, int maskbits, int loud, double *loss);
+int fast_dot(const short *a, const short *b, int count);
 
 
 //CUSTOM4
@@ -823,6 +824,12 @@ void pred_path_inv(char *buf, int iw, int ih, int nch, int bytestride);
 
 void pred_grad_fwd(char *buf, int iw, int ih, int nch, int bytestride);
 void pred_grad_inv(char *buf, int iw, int ih, int nch, int bytestride);
+
+void pred_grad2(char *buf, int iw, int ih, int fwd);
+
+void pred_ctx(char *src, int iw, int ih, int fwd);
+
+void pred_wu97(char *buf, int iw, int ih, int fwd);
 
 typedef struct DWTSizeStruct
 {

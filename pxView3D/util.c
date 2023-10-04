@@ -267,7 +267,7 @@ int floor_log10(double x)
 	sh= x<nmask[1];      logn-=sh;
 	return logn;
 }
-double			power(double x, int y)
+double power(double x, int y)
 {
 	double mask[]={1, 0}, product=1;
 	if(y<0)
@@ -283,7 +283,7 @@ double			power(double x, int y)
 	}
 	return product;
 }
-double			_10pow(int n)
+double _10pow(int n)
 {
 	static double *mask=0;
 	int k;
@@ -301,9 +301,9 @@ double			_10pow(int n)
 		return _HUGE;
 	return mask[n+308];
 }
-int				minimum(int a, int b){return a<b?a:b;}
-int				maximum(int a, int b){return a>b?a:b;}
-int				acme_isdigit(char c, char base)
+int minimum(int a, int b){return a<b?a:b;}
+int maximum(int a, int b){return a>b?a:b;}
+int acme_isdigit(char c, char base)
 {
 	switch(base)
 	{
@@ -315,9 +315,10 @@ int				acme_isdigit(char c, char base)
 	return 0;
 }
 
-double			time_ms()
+double time_ms()//seconds since first call
 {
 #ifdef _MSC_VER
+	static long long t0=0;
 	static double inv_f=0;
 	LARGE_INTEGER li;
 	//if(!inv_f)
@@ -326,7 +327,9 @@ double			time_ms()
 		inv_f=1/(double)li.QuadPart;
 	//}
 	QueryPerformanceCounter(&li);
-	return 1000.*(double)li.QuadPart*inv_f;
+	if(!t0)
+		t0=li.QuadPart;
+	return 1000.*(double)(li.QuadPart-t0)*inv_f;
 #else
 	struct timespec t;
 	clock_gettime(CLOCK_REALTIME, &t);//<time.h>
@@ -347,7 +350,7 @@ void parsetimedelta(double ms, TimeInfo *ti)
 
 	ti->secs=(float)(ms/1000);
 }
-int		timedelta2str(char *buf, size_t len, double ms)
+int timedelta2str(char *buf, size_t len, double ms)
 {
 	int printed;
 	TimeInfo ti;
@@ -369,7 +372,7 @@ int		timedelta2str(char *buf, size_t len, double ms)
 	}
 	return printed;
 }
-int		acme_strftime(char *buf, size_t len, const char *format)
+int acme_strftime(char *buf, size_t len, const char *format)
 {
 	time_t tstamp;
 	struct tm tformat;

@@ -513,7 +513,7 @@ ArrayHandle dialog_open_file(Filter *filters, int nfilters, int multiple)//TODO:
 	if(multiple)
 	{
 		for(;wlen<G_BUF_SIZE;++wlen)
-			if(ofn.lpstrFile[wlen]=='\0'&&ofn.lpstrFile[wlen]=='\0')
+			if(ofn.lpstrFile[wlen]=='\0')
 				break;
 	}
 	else
@@ -526,7 +526,7 @@ ArrayHandle dialog_open_file(Filter *filters, int nfilters, int multiple)//TODO:
 	return result;
 }
 //const wchar_t		initialname[]=L"Untitled.txt";
-const char* dialog_save_file(Filter *filters, int nfilters, const char *initialname)
+char* dialog_save_file(Filter *filters, int nfilters, const char *initialname)
 {
 	ArrayHandle winfilts=prep_filters(filters, nfilters);
 	

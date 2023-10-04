@@ -9,6 +9,26 @@
 #include<immintrin.h>
 static const char file[]=__FILE__;
 
+int fast_dot(const short *a, const short *b, int count)
+{
+	int k;
+	__m256i sum=_mm256_setzero_si256();
+	for(k=0;k<count-31;k+=16)//https://stackoverflow.com/questions/62041400/inner-product-of-two-16bit-integer-vectors-with-avx2-in-c
+	{
+		__m256i va=_mm256_loadu_si256((__m256i*)(a+k));
+		__m256i vb=_mm256_loadu_si256((__m256i*)(b+k));
+		va=_mm256_madd_epi16(va, vb);
+		sum=_mm256_add_epi32(sum, va);
+	}
+	__m128i s2=_mm_add_epi32(_mm256_extracti128_si256(sum, 1), _mm256_castsi256_si128(sum));
+	__m128i hi=_mm_shuffle_epi32(s2, _MM_SHUFFLE(2, 1, 3, 2));
+	s2=_mm_add_epi32(s2, hi);
+	s2=_mm_hadd_epi32(s2, s2);
+	int s3=_mm_extract_epi32(s2, 0);
+	for(;k<count;++k)
+		s3+=a[k]*b[k];
+	return s3;
+}
 void addhalf(unsigned char *buf, int iw, int ih, int nch, int bytestride)
 {
 	for(int kp=0, len=iw*ih*bytestride;kp<len;kp+=bytestride)
@@ -136,10 +156,10 @@ void colortransform_ycocb_fwd(char *buf, int iw, int ih)//3 channels, stride 4 b
 	{
 		char r=buf[k], g=buf[k|1], b=buf[k|2];
 
-		r-=g;		//diff(r, g)
+		r-=g;		//diff(r, g)				1		0		-1
 		g+=r>>1;
-		b-=g;		//diff(b, av(r, g))
-		g+=b>>1;	//av(b, av(r, g))
+		b-=g;		//diff(b, av(r, g))			-1/2	1		-1/2
+		g+=b>>1;	//av(b, av(r, g))			1/4		1/2		1/4
 
 		buf[k  ]=r;//Co
 		buf[k|1]=g;//Y
@@ -417,22 +437,160 @@ int impl_egvec(double const *M, int n, const double *lambdas, double *S)
 	free(temp);
 	return nvec;
 }
-void colortransform_adaptive(char *buf, int iw, int ih, int fwd)
+
+int pythagoras(int a, int b)
+{
+	a*=a;
+	b*=b;
+	a+=b;
+	return a;
+}
+void act_fwd(short *coeff, char *r, char *g, char *b)
+{
+	*r+=(coeff[ 0]**g+coeff[ 1]**b+128)>>8;
+	*g+=(coeff[ 2]**r+coeff[ 3]**b+128)>>8;
+	*b+=(coeff[ 4]**r+coeff[ 5]**g+128)>>8;
+	*r+=(coeff[ 6]**g+coeff[ 7]**b+128)>>8;
+	*g+=(coeff[ 8]**r+coeff[ 9]**b+128)>>8;
+	*b+=(coeff[10]**r+coeff[11]**g+128)>>8;
+}
+void act_train(short *coeff, char r0, char g0, char b0, int e0)
+{
+	int idx[]=
+	{
+		xoroshiro128_next()%12,
+		xoroshiro128_next()%12,
+		xoroshiro128_next()%12,
+	};
+	int inc[]=
+	{
+		((xoroshiro128_next()&1)<<1)-1,
+		((xoroshiro128_next()&1)<<1)-1,
+		((xoroshiro128_next()&1)<<1)-1,
+		//(xoroshiro128_next()&63)-32,
+		//(xoroshiro128_next()&63)-32,
+		//(xoroshiro128_next()&63)-32,
+	};
+
+	coeff[idx[0]]+=inc[0];
+	coeff[idx[1]]+=inc[1];
+	coeff[idx[2]]+=inc[2];
+
+	char r=r0, g=g0, b=b0;
+	//act_fwd(coeff, &r, &g, &b);
+	r+=(coeff[ 0]*g+coeff[ 1]*b+128)>>8;
+	g+=(coeff[ 2]*r+coeff[ 3]*b+128)>>8;
+	b+=(coeff[ 4]*r+coeff[ 5]*g+128)>>8;
+	r+=(coeff[ 6]*g+coeff[ 7]*b+128)>>8;
+	g+=(coeff[ 8]*r+coeff[ 9]*b+128)>>8;
+	b+=(coeff[10]*r+coeff[11]*g+128)>>8;
+
+	int error=pythagoras(r, b);
+	if(error>=e0)
+	{
+		coeff[idx[0]]-=inc[0];
+		coeff[idx[1]]-=inc[1];
+		coeff[idx[2]]-=inc[2];
+	}
+}
+void colortransform_adaptive(char *src, int iw, int ih, int fwd)
 {
 	int res=iw*ih;
-	char *b2=(char*)malloc((size_t)res<<2);
-	if(!b2)
+	char *dst=(char*)malloc((size_t)res<<2);
+	short *coeff=(short*)malloc(iw*sizeof(short[9]));
+	if(!dst||!coeff)
 	{
 		LOG_ERROR("Allocation error");
 		return;
 	}
-	int black=0xFF000000;
-	memfill(b2, &black, (size_t)res<<2, 4);
-	char *src=fwd?buf:b2;
+	memcpy(dst, src, (size_t)res<<2);
+	//int black=0xFF000000;
+	//memfill(dst, &black, (size_t)res<<2, 4);
+	const char *pixels=fwd?src:dst, *errors=fwd?dst:src;
+	short coeff0[]=
+	{
+		 0x0100,  0x0000, -0x0100,
+		 0x0040,  0x0080,  0x0040,
+		-0x0080,  0x0100, -0x0080,
+	};
+	//short coeff0[12]=
+	//{
+	//	-0x0100,  0x0000,
+	//	 0x0080,  0x0000,
+	//	 0x0000, -0x0100,
+	//	 0x0000,  0x0000,
+	//	 0x0000,  0x0080,
+	//	 0x0000,  0x0000,
+	//};
+	memfill(coeff, coeff0, iw*sizeof(short[9]), sizeof(short[9]));
+	XOROSHIRO128_RESET();
 	for(int ky=0;ky<ih;++ky)
 	{
 		for(int kx=0;kx<iw;++kx)
 		{
+			int idx=(iw*ky+kx)<<2;
+			char
+				rN=0, gN=0, bN=0,
+				rW=0, gW=0, bW=0;
+			int eN=0,
+				eW=0;
+			if(kx)
+			{
+				rW=pixels[(idx-(1<<2))|0];
+				gW=pixels[(idx-(1<<2))|1];
+				bW=pixels[(idx-(1<<2))|2];
+				eW=pythagoras(errors[(idx-(1<<2))|0], errors[(idx-(1<<2))|1], errors[(idx-(1<<2))|2]);
+			}
+			if(ky)
+			{
+				rN=pixels[(idx-(iw<<2))|0];
+				gN=pixels[(idx-(iw<<2))|1];
+				bN=pixels[(idx-(iw<<2))|2];
+				eN=pythagoras(errors[(idx-(iw<<2))|0], errors[(idx-(iw<<2))|1], errors[(idx-(iw<<2))|2]);
+			}
+			for(int k=0;k<1;++k)
+			{
+				if(kx)
+					act_train(coeff, rW, gW, bW, eW);
+				if(ky)
+					act_train(coeff, rN, gN, bN, eN);
+			}
+
+			char r=src[idx], g=src[idx|1], b=src[idx|2];
+			char y, c0, c1;
+			if(fwd)
+			{
+				y =(r*coeff0[0]+g*coeff0[1]+b*coeff0[2]+128)>>8;
+				c0=(r*coeff0[3]+g*coeff0[4]+b*coeff0[5]+128)>>8;
+				c1=(r*coeff0[6]+g*coeff0[7]+b*coeff0[8]+128)>>8;
+				//r+=(coeff[ 0]*g+coeff[ 1]*b+128)>>8;
+				//g+=(coeff[ 2]*r+coeff[ 3]*b+128)>>8;
+				//b+=(coeff[ 4]*r+coeff[ 5]*g+128)>>8;
+				//r+=(coeff[ 6]*g+coeff[ 7]*b+128)>>8;
+				//g+=(coeff[ 8]*r+coeff[ 9]*b+128)>>8;
+				//b+=(coeff[10]*r+coeff[11]*g+128)>>8;
+			}
+			else
+			{
+				b-=(coeff[10]*r+coeff[11]*g+128)>>8;
+				g-=(coeff[ 8]*r+coeff[ 9]*b+128)>>8;
+				r-=(coeff[ 6]*g+coeff[ 7]*b+128)>>8;
+				b-=(coeff[ 4]*r+coeff[ 5]*g+128)>>8;
+				g-=(coeff[ 2]*r+coeff[ 3]*b+128)>>8;
+				r-=(coeff[ 0]*g+coeff[ 1]*b+128)>>8;
+			}
+			dst[idx|0]=r;
+			dst[idx|1]=g;
+			dst[idx|2]=b;
+
+			//int e0=pythagoras(r, b);
+			//const char r0=pixels[idx], g0=pixels[idx|1], b0=pixels[idx|2];
+			//for(int k=0;k<2;++k)
+			//{
+			//	//train
+			//}
+
+#if 0
 			int idx=iw*ky+kx;
 #define ACT_N 12
 			char r[ACT_N]={0}, g[ACT_N]={0}, b[ACT_N]={0};//topleft, top, topright, left
@@ -478,7 +636,7 @@ void colortransform_adaptive(char *buf, int iw, int ih, int fwd)
 				if(bmax<b[k]) bmax=b[k];
 			}
 
-			char rcurr=buf[idx<<2], gcurr=buf[idx<<2|1], bcurr=buf[idx<<2|2];
+			char rcurr=src[idx<<2], gcurr=src[idx<<2|1], bcurr=src[idx<<2|2];
 
 #if 0
 			int pred=((g[3]?(r[3]*gcurr+(g[3]>>1))/g[3]:r[3])+(b[3]?(r[3]*bcurr+(b[3]>>1))/b[3]:r[3])+1)>>1;
@@ -680,10 +838,11 @@ void colortransform_adaptive(char *buf, int iw, int ih, int fwd)
 			b2[idx<<2  ]=rcurr;
 			b2[idx<<2|1]=gcurr;
 			b2[idx<<2|2]=bcurr;
+#endif
 		}
 	}
-	memcpy(buf, b2, (size_t)res<<2);
-	free(b2);
+	memcpy(src, dst, (size_t)res<<2);
+	free(dst);
 }
 
 void colortransform_exp_fwd(char *buf, int iw, int ih)
@@ -1705,7 +1864,7 @@ void preproc_x2(char *src, int iw, int ih)//https://github.com/Equationist/xpng/
 	//free(diff);
 }
 
-
+#if 0
 typedef struct KalmanInfoStruct
 {
 	double R, H, Q, P, Uhat, K;
@@ -1822,6 +1981,7 @@ void kalman_apply(char *src, int iw, int ih, int fwd)
 	}
 #endif
 }
+#endif
 
 
 const int permute_idx[]=
@@ -2885,7 +3045,7 @@ void logic_opt_forceclosethread()
 void logic_opt(char *buf, int iw, int ih, int kc, short *channel_params)
 {
 	int res=iw*ih;
-    ghMutex=CreateMutexA(0, 0, 0);//default security parameters, initially not owned, unnamed
+	ghMutex=CreateMutexA(0, 0, 0);//default security parameters, initially not owned, unnamed
 	if(!ghMutex)
 	{
 		LOG_ERROR("Mutex allocation error");
@@ -3452,7 +3612,7 @@ int  predict_diff2d(const char *buf, int iw, int kx, int ky, int idx, int bytest
 	char cn[]=
 	{
 		kx-1>=0&&ky-1>=0?buf[idx-rowlen-bytestride]:0,
-		         ky-1>=0?buf[idx-rowlen           ]:0,
+				 ky-1>=0?buf[idx-rowlen           ]:0,
 		
 		kx-1>=0?buf[idx-bytestride]:0,
 	};
@@ -3477,7 +3637,7 @@ int  predict_diff2d(const char *buf, int iw, int kx, int ky, int idx, int bytest
 		kx-3>=0&&ky-3>=0?buf[idx-rowlen*3- bytestride*3  ]:0,
 		kx-2>=0&&ky-3>=0?buf[idx-rowlen*3-(bytestride<<1)]:0,
 		kx-1>=0&&ky-3>=0?buf[idx-rowlen*3- bytestride    ]:0,
-		         ky-3>=0?buf[idx-rowlen*3                ]:0,
+				 ky-3>=0?buf[idx-rowlen*3                ]:0,
 		kx+1<iw&&ky-3>=0?buf[idx-rowlen*3+ bytestride    ]:0,
 		kx+2<iw&&ky-3>=0?buf[idx-rowlen*3+(bytestride<<1)]:0,
 		kx+3<iw&&ky-3>=0?buf[idx-rowlen*3+ bytestride*3  ]:0,
@@ -3485,7 +3645,7 @@ int  predict_diff2d(const char *buf, int iw, int kx, int ky, int idx, int bytest
 		kx-3>=0&&ky-2>=0?buf[idx-(rowlen<<1)- bytestride*3  ]:0,
 		kx-2>=0&&ky-2>=0?buf[idx-(rowlen<<1)-(bytestride<<1)]:0,
 		kx-1>=0&&ky-2>=0?buf[idx-(rowlen<<1)- bytestride    ]:0,
-		         ky-2>=0?buf[idx-(rowlen<<1)                ]:0,
+				 ky-2>=0?buf[idx-(rowlen<<1)                ]:0,
 		kx+1<iw&&ky-2>=0?buf[idx-(rowlen<<1)+ bytestride    ]:0,
 		kx+2<iw&&ky-2>=0?buf[idx-(rowlen<<1)+(bytestride<<1)]:0,
 		kx+3<iw&&ky-2>=0?buf[idx-(rowlen<<1)+ bytestride*3  ]:0,
@@ -3493,7 +3653,7 @@ int  predict_diff2d(const char *buf, int iw, int kx, int ky, int idx, int bytest
 		kx-3>=0&&ky-1>=0?buf[idx-rowlen- bytestride*3  ]:0,
 		kx-2>=0&&ky-1>=0?buf[idx-rowlen-(bytestride<<1)]:0,
 		kx-1>=0&&ky-1>=0?buf[idx-rowlen- bytestride    ]:0,
-		         ky-1>=0?buf[idx-rowlen                ]:0,
+				 ky-1>=0?buf[idx-rowlen                ]:0,
 		kx+1<iw&&ky-1>=0?buf[idx-rowlen+ bytestride    ]:0,
 		kx+2<iw&&ky-1>=0?buf[idx-rowlen+(bytestride<<1)]:0,
 		kx+3<iw&&ky-1>=0?buf[idx-rowlen+ bytestride*3  ]:0,
@@ -3534,13 +3694,13 @@ int  predict_diff2d(const char *buf, int iw, int kx, int ky, int idx, int bytest
 	{
 		kx-2>=0&&ky-2>=0?buf[idx-(rowlen<<1)-(bytestride<<1)]:0,
 		kx-1>=0&&ky-2>=0?buf[idx-(rowlen<<1)- bytestride    ]:0,
-		         ky-2>=0?buf[idx-(rowlen<<1)                ]:0,
+				 ky-2>=0?buf[idx-(rowlen<<1)                ]:0,
 		kx+1<iw&&ky-2>=0?buf[idx-(rowlen<<1)+ bytestride    ]:0,
 		kx+2<iw&&ky-2>=0?buf[idx-(rowlen<<1)+(bytestride<<1)]:0,
 
 		kx-2>=0&&ky-1>=0?buf[idx-rowlen-(bytestride<<1)]:0,
 		kx-1>=0&&ky-1>=0?buf[idx-rowlen- bytestride    ]:0,
-		         ky-1>=0?buf[idx-rowlen                ]:0,
+				 ky-1>=0?buf[idx-rowlen                ]:0,
 		kx+1<iw&&ky-1>=0?buf[idx-rowlen+ bytestride    ]:0,
 		kx+2<iw&&ky-1>=0?buf[idx-rowlen+(bytestride<<1)]:0,
 
@@ -3682,7 +3842,7 @@ int  predict_median(const char *buf, int iw, int kx, int ky, int idx, int bytest
 	//	kx-3>=0&&ky-2>=0?buf[idx-(rowlen<<1)- bytestride*3  ]:0,
 		kx-2>=0&&ky-2>=0?buf[idx-(rowlen<<1)-(bytestride<<1)]:0,
 		kx-1>=0&&ky-2>=0?buf[idx-(rowlen<<1)- bytestride    ]:0,
-		         ky-2>=0?buf[idx-(rowlen<<1)                ]:0,
+				 ky-2>=0?buf[idx-(rowlen<<1)                ]:0,
 		kx+1<iw&&ky-2>=0?buf[idx-(rowlen<<1)+ bytestride    ]:0,
 		kx+2<iw&&ky-2>=0?buf[idx-(rowlen<<1)+(bytestride<<1)]:0,
 	//	kx+3<iw&&ky-2>=0?buf[idx-(rowlen<<1)+ bytestride*3  ]:0,
@@ -3690,7 +3850,7 @@ int  predict_median(const char *buf, int iw, int kx, int ky, int idx, int bytest
 	//	kx-3>=0&&ky-1>=0?buf[idx-rowlen- bytestride*3  ]:0,
 		kx-2>=0&&ky-1>=0?buf[idx-rowlen-(bytestride<<1)]:0,
 		kx-1>=0&&ky-1>=0?buf[idx-rowlen- bytestride    ]:0,
-		         ky-1>=0?buf[idx-rowlen                ]:0,
+				 ky-1>=0?buf[idx-rowlen                ]:0,
 		kx+1<iw&&ky-1>=0?buf[idx-rowlen+ bytestride    ]:0,
 		kx+2<iw&&ky-1>=0?buf[idx-rowlen+(bytestride<<1)]:0,
 	//	kx+3<iw&&ky-1>=0?buf[idx-rowlen+ bytestride*3  ]:0,
@@ -3907,7 +4067,7 @@ char predict_slope(char *buf, int iw, int kx, int ky, int idx, int bytestride, i
 		kx-3>=0&&ky-3>=0?buf[idx-(rowlen*3)- bytestride*3  ]:0,//0
 		kx-2>=0&&ky-3>=0?buf[idx-(rowlen*3)-(bytestride<<1)]:0,
 		kx-1>=0&&ky-3>=0?buf[idx-(rowlen*3)- bytestride    ]:0,
-		         ky-3>=0?buf[idx-(rowlen*3)                ]:0,
+				 ky-3>=0?buf[idx-(rowlen*3)                ]:0,
 		kx+1<iw&&ky-3>=0?buf[idx-(rowlen*3)+ bytestride    ]:0,
 		kx+2<iw&&ky-3>=0?buf[idx-(rowlen*3)+(bytestride<<1)]:0,
 		kx+3<iw&&ky-3>=0?buf[idx-(rowlen*3)+ bytestride*3  ]:0,
@@ -3915,7 +4075,7 @@ char predict_slope(char *buf, int iw, int kx, int ky, int idx, int bytestride, i
 		kx-3>=0&&ky-2>=0?buf[idx-(rowlen<<1)- bytestride*3  ]:0,//7
 		kx-2>=0&&ky-2>=0?buf[idx-(rowlen<<1)-(bytestride<<1)]:0,
 		kx-1>=0&&ky-2>=0?buf[idx-(rowlen<<1)- bytestride    ]:0,
-		         ky-2>=0?buf[idx-(rowlen<<1)                ]:0,
+				 ky-2>=0?buf[idx-(rowlen<<1)                ]:0,
 		kx+1<iw&&ky-2>=0?buf[idx-(rowlen<<1)+ bytestride    ]:0,
 		kx+2<iw&&ky-2>=0?buf[idx-(rowlen<<1)+(bytestride<<1)]:0,
 		kx+3<iw&&ky-2>=0?buf[idx-(rowlen<<1)+ bytestride*3  ]:0,
@@ -3923,7 +4083,7 @@ char predict_slope(char *buf, int iw, int kx, int ky, int idx, int bytestride, i
 		kx-3>=0&&ky-1>=0?buf[idx-rowlen- bytestride*3  ]:0,//14
 		kx-2>=0&&ky-1>=0?buf[idx-rowlen-(bytestride<<1)]:0,
 		kx-1>=0&&ky-1>=0?buf[idx-rowlen- bytestride    ]:0,
-		         ky-1>=0?buf[idx-rowlen                ]:0,
+				 ky-1>=0?buf[idx-rowlen                ]:0,
 		kx+1<iw&&ky-1>=0?buf[idx-rowlen+ bytestride    ]:0,
 		kx+2<iw&&ky-1>=0?buf[idx-rowlen+(bytestride<<1)]:0,
 		kx+3<iw&&ky-1>=0?buf[idx-rowlen+ bytestride*3  ]:0,
@@ -5126,10 +5286,6 @@ static int clip(int x)
 }
 void pred_w2_prealloc(const char *src, int iw, int ih, int kc, short *params, int fwd, char *dst, int *temp)//temp is (PW2_NPRED+1)*2w
 {
-#ifdef JMJ_USE_KALMAN
-	KalmanInfo kalman;
-	kalman_init(&kalman);
-#endif
 	int errorbuflen=iw<<1, rowlen=iw<<2;
 	int *error=temp, *pred_errors[PW2_NPRED];
 	for(int k=0;k<PW2_NPRED;++k)
@@ -5205,7 +5361,11 @@ void pred_w2_prealloc(const char *src, int iw, int ih, int kc, short *params, in
 			int weights[PW2_NPRED];//fixed 23.8 bit
 			for(int k=0;k<PW2_NPRED;++k)
 			{
-				int w=(ky-1>=0?pred_errors[k][prevrow+kx]:0)+(ky-1>=0&&kx+1<iw?pred_errors[k][prevrow+kx+1]:0)+(ky-1>=0&&kx-1>=0?pred_errors[k][prevrow+kx-1]:0);
+				//eNW + eN + eNE
+				int w=
+					 (ky-1>=0&&kx-1>=0?pred_errors[k][prevrow+kx-1]:0)
+					+(ky-1>=0?pred_errors[k][prevrow+kx]:0)
+					+(ky-1>=0&&kx+1<iw?pred_errors[k][prevrow+kx+1]:0);
 				weights[k]=(params[k]<<8)/(w+1);
 			}
 
@@ -5351,21 +5511,16 @@ void pred_w2_prealloc(const char *src, int iw, int ih, int kc, short *params, in
 				pred=predictions[0];
 
 			int vmin=cL, vmax=cL, curr;
-			//if(vmin>cTR)
-			//	vmin=cTR;
-			if(vmin>cT)
-				vmin=cT;
-
-			//if(vmax<cTR)
-			//	vmax=cTR;
-			if(vmax<cT)
-				vmax=cT;
-
+			if(vmin>cT)vmin=cT;
+			if(vmax<cT)vmax=cT;
+			//if(vmin>cTR)vmin=cTR;
+			//if(vmax<cTR)vmax=cTR;
 			pred=CLAMP(vmin, pred, vmax);
-#ifdef JMJ_USE_KALMAN
-			kalman_predict(&kalman, pred);
-			pred=(int)round(CLAMP(vmin, kalman.Uhat, vmax));
-#endif
+
+			//if(kc==1&&kx==384&&ky==256)//
+			//if(pred)
+			//	printf("");
+
 			if(fwd)
 			{
 				curr=src[idx]<<8;
@@ -5383,7 +5538,7 @@ void pred_w2_prealloc(const char *src, int iw, int ih, int kc, short *params, in
 				int e=abs(curr-predictions[k]);
 				pw2_errors[k]+=e;//
 				pred_errors[k][currrow+kx]=e;
-				if(kx+1<iw)
+				if(kx+1<iw)//add current error to eNE, such that eN = eN0 + eW
 					pred_errors[k][prevrow+kx+1]+=e;
 			}
 		}
@@ -5564,10 +5719,6 @@ void pred_jxl_prealloc(const char *src, int iw, int ih, int kc, short *params, i
 	params[2]=0;
 	params[3]=0x100;
 #endif
-#ifdef JMJ_USE_KALMAN
-	KalmanInfo kalman;
-	kalman_init(&kalman);
-#endif
 	int errorbuflen=iw<<1, rowlen=iw<<2;
 	int *error=temp_w10, *pred_errors[]=
 	{
@@ -5641,10 +5792,7 @@ void pred_jxl_prealloc(const char *src, int iw, int ih, int kc, short *params, i
 			vmax<<=8;
 
 			pred=CLAMP(vmin, pred, vmax);
-#ifdef JMJ_USE_KALMAN
-			kalman_predict(&kalman, pred);
-			pred=(int)round(CLAMP(vmin, kalman.Uhat, vmax));
-#endif
+
 			if(fwd)
 			{
 				curr=src[idx]<<8;
@@ -6175,6 +6323,299 @@ void pred_grad_inv(char *buf, int iw, int ih, int nch, int bytestride)
 	}
 }
 
+
+#define CTX_NPRED 4
+static int median3(int a, int b, int c)
+{
+	if(a<b)
+	{
+		if(b<c)
+			return b;
+		return a<c?c:a;
+	}
+	if(a<c)
+		return a;
+	return b<c?c:b;
+}
+//typedef struct Pred3InfoStruct
+//{
+//	//char key[2];
+//	int val, count;
+//} Pred3Info;
+static double sigmoid(double x)
+{
+	if(x<-6)
+		return 0;
+	if(x>6)
+		return 1;
+	return 1/(1+exp(-x));
+}
+void pred_ctx(char *src, int iw, int ih, int fwd)
+{
+	int res=iw*ih;
+	char *dst=(char*)malloc((size_t)res<<2);
+	int *hist=(int*)malloc(0x10000*sizeof(int));
+	//int *temp=(int*)malloc(iw*(CTX_NPRED<<1)*sizeof(int));
+	//Pred3Info *context=(Pred3Info*)malloc(0x10000*sizeof(Pred3Info));
+	if(!dst||!hist)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	memcpy(dst, src, (size_t)res<<2);//copy alpha
+	const char *pixels=fwd?src:dst, *errors=fwd?dst:src;
+	for(int kc=0;kc<3;++kc)
+	{
+		memset(hist, 0, 0x10000*sizeof(int));
+		//memset(temp, 0, iw*(CTX_NPRED<<1)*sizeof(int));
+		//memset(context, 0, 0x10000*sizeof(Pred3Info));
+		for(int ky=0;ky<ih;++ky)
+		{
+			for(int kx=0;kx<iw;++kx)
+			{
+#define LOAD(X, Y) ((unsigned)(kx+(X))<(unsigned)iw&&(unsigned)(ky+(Y))<(unsigned)ih?pixels[(iw*(ky+(Y))+kx+(X))<<2|kc]:0)
+
+				char
+					NNW=LOAD(-1, -2),
+					NW =LOAD(-1, -1),
+					N  =LOAD( 0, -1),
+					NE =LOAD( 1, -1),
+					W  =LOAD(-1,  0);
+
+				//softclamp grad
+#if 0
+				char vmin, vmax;
+				if(N<W)
+					vmin=N, vmax=W;
+				else
+					vmin=W, vmax=N;
+				int range=vmax-vmin;
+				double mid=(vmax+vmin)*0.5;
+				int pred;
+				if(range)
+				{
+					pred=vmin+(int)(range/(1+exp(-((double)(N+W-NW)-mid)*10/range)));
+					//pred=mid+(int)(range*(sigmoid(((double)(N+W-NW)-mid)*10/range)-0.5));
+					//pred=mid+(int)(range*0.5*tanh(((double)(N+W-NW)-mid)*6/range));
+				}
+				else
+					pred=W;
+				if(pred<-128||pred>127)
+					pred=CLAMP(-128, pred, 127);
+#endif
+
+				//collinearity
+#if 0
+				int pred=N+W-NW;
+				//if(abs(N-(NW+NE)/2)>2&&abs(NW-(W+NNW)/2)>2)
+				{
+					char vmin, vmax;
+					if(N<W)
+						vmin=N, vmax=W;
+					else
+						vmin=W, vmax=N;
+					pred=CLAMP(vmin, pred, vmax);
+				}
+#endif
+
+				//blur
+#if 0
+				int preds[CTX_NPRED]={0};
+				long long num=0;
+				int den=0;
+				int pred=0;
+				for(int kp=0;kp<CTX_NPRED;++kp)
+				{
+					int weight=0;
+					if(kx>0)//W
+					{
+						preds[kp]+=temp[iw*kp+kx-1];
+						weight+=temp[iw*(CTX_NPRED+kp)+kx-1];
+					}
+					if(ky>0)//N
+					{
+						preds[kp]+=temp[iw*kp+kx];
+						weight+=temp[iw*(CTX_NPRED+kp)+kx];
+					}
+					int sh=kx>0&&ky>0;
+					preds[kp]>>=sh;
+					weight>>=sh;
+					weight=0x1000000/(weight+1);
+					num+=(long long)preds[kp]*weight;
+					den+=weight;
+				}
+				if(den)
+					pred=(int)((num+(den>>1))/den);
+#endif
+
+				//clamped grad
+#if 1
+				char vmin, vmax;
+				if(N<W)
+					vmin=N, vmax=W;
+				else
+					vmin=W, vmax=N;
+				int pred0=N+W-NW;
+				//int pred=NW+(N-NW)+(W-NW);//same
+
+				//int pred=NW+((N-NW)+(NE-N))/2+(W-NW);
+				//int pred=NW+(NE-NW)/2+W-NW;
+				//int pred=W+(NE-NW)/2;
+
+				pred0=CLAMP(vmin, pred0, vmax);
+
+				pred0+=128;
+				pred0&=0xFF;
+				int *dist=hist+(pred0<<8), pred=0, vmax2=0;
+				//int start=pred0-32, end=pred0+32;
+				//if(start<0)
+				//	start=0;
+				//if(end>256)
+				//	end=256;
+				for(int k=0;k<256;++k)//pred = argmax(distribution)
+				{
+					if(vmax2<dist[k])
+						vmax2=dist[k], pred=k;
+				}
+				if(vmax2)
+					pred-=128;
+				else
+					pred=pred0-128;
+				if(pred<vmin||pred>vmax)
+					pred=CLAMP(vmin, pred, vmax);
+
+				//int pred=CLAMP(vmin, pred0, vmax);
+#endif
+				//int pred=median3(N, W, N+W-NW);//equivalent to clamped gradient
+
+				//context
+#if 0
+				int ctx=(unsigned char)N<<8|(unsigned char)W;
+				//int ctx=(unsigned char)(N-NW)<<8|(unsigned char)(W-NW);
+				//int ctx=((unsigned char)(W-NW)>>6)<<6|((unsigned char)(N-NW)>>3)<<3|((unsigned char)(NE-N)>>3);
+				//int ctx=((unsigned char)NE>>5)<<9|((unsigned char)NW>>5)<<6|((unsigned char)W>>5)<<3|((unsigned char)N>>5);
+				ctx&=0xFFFF;
+				Pred3Info *p=context+ctx;
+				int pred;
+				if(p->count)
+					pred=(p->val+(p->count>>1))/p->count;
+				else
+				{
+					char vmin, vmax;
+					if(N<W)
+						vmin=N, vmax=W;
+					else
+						vmin=W, vmax=N;
+					pred=N+W-NW;
+					pred=CLAMP(vmin, pred, vmax);
+				}
+#endif
+
+				//median
+#if 0
+				char nb[5]=
+				{
+					LOAD( 0, -1),//N
+					LOAD(-1,  0),//W
+					LOAD(-1, -1),//NW
+					//LOAD( 1, -1),//NE
+				};
+				nb[_countof(nb)-1]=nb[0]+nb[1]-nb[2];
+				//char vmin, vmax;
+				//if(nb[0]<nb[1])
+				//	vmin=nb[0], vmax=nb[1];
+				//else
+				//	vmin=nb[1], vmax=nb[0];
+				//nb[_countof(nb)-1]=CLAMP(vmin, nb[_countof(nb)-1], vmax);
+				for(int i=0;i<_countof(nb)-1;++i)
+				{
+					for(int j=i+1;j<_countof(nb);++j)
+					{
+						if(nb[j]<nb[i])
+						{
+							char temp=nb[i];
+							nb[i]=nb[j];
+							nb[j]=temp;
+						}
+					}
+				}
+				char pred=(nb[1]+nb[2])>>1;
+#endif
+
+				int idx=(iw*ky+kx)<<2|kc;
+
+				//if(kx==384&&ky==256)
+				//	printf("");
+
+				//pred+=128;
+				//pred>>=8;
+				if(fwd)
+					dst[idx]=src[idx]-pred;
+				else
+					dst[idx]=src[idx]+pred;
+
+				int curr=pixels[idx]+128;
+				++hist[pred0<<8|curr];
+
+			//	pred0+=128;
+			//	pred0&=0xFF;
+			//	int curr=pixels[idx]+128;
+			//	++hist[curr<<8|pred0];
+
+			//	int curr=pixels[idx];
+			//	//curr<<=8;
+			//	for(int kp=0;kp<CTX_NPRED;++kp)
+			//	{
+			//		temp[iw*kp+kx]+=(curr-temp[iw*kp+kx])>>kp;
+			//		temp[iw*(CTX_NPRED+kp)+kx]=abs(curr-pred);
+			//	}
+
+				//p->val+=pixels[idx];
+				//++p->count;
+				//if(p->count>=0x10000)
+				//{
+				//	p->count>>=1;
+				//	p->val/=2;
+				//}
+#undef  LOAD
+			}
+		}
+#if 0
+		int vmax=0;
+		for(int k=0;k<0x10000;++k)
+		{
+			if(vmax<hist[k])
+				vmax=hist[k];
+		}
+		const char *fn=0;
+		switch(kc)
+		{
+		case 0:fn="dump_c0.PNG";break;
+		case 1:fn="dump_c1.PNG";break;
+		case 2:fn="dump_c2.PNG";break;
+		}
+		for(int k=0;k<0x10000;++k)
+			((unsigned char*)hist)[k]=hist[k]*0xFF/vmax;
+		lodepng_encode_file(fn, (unsigned char*)hist, 256, 256, LCT_GREY, 8);
+#endif
+#if 0
+		FILE *f=fopen(fn, "w");
+		for(int ky=0;ky<256;++ky)
+		{
+			for(int kx=0;kx<256;++kx)
+				fprintf(f, " %02X", hist[ky<<8|kx]*0xFF/vmax);
+			fprintf(f, "\n");
+		}
+		fprintf(f, "\n");
+		fclose(f);
+#endif
+	}
+	memcpy(src, dst, (size_t)res<<2);
+	free(dst);
+	free(hist);
+	//free(temp);
+}
+
 int  predict_custom(const char *pixels, const char *errors, int iw, int ih, int kc, int kx, int ky, const double *params, double sum)
 {
 #if 0
@@ -6353,13 +6794,13 @@ int  predict_custom(const char *pixels, const char *errors, int iw, int ih, int 
 	{
 		kx-2>=0&&ky-2>=0?pixels[idx-(rowlen<<1)-(bytestride<<1)]:0,
 		kx-1>=0&&ky-2>=0?pixels[idx-(rowlen<<1)-bytestride]:0,
-		         ky-2>=0?pixels[idx-(rowlen<<1)]:0,
+				 ky-2>=0?pixels[idx-(rowlen<<1)]:0,
 		kx+1<iw&&ky-2>=0?pixels[idx-(rowlen<<1)+bytestride]:0,
 		kx+2<iw&&ky-2>=0?pixels[idx-(rowlen<<1)+(bytestride<<1)]:0,
 
 		kx-2>=0&&ky-1>=0?pixels[idx-rowlen-(bytestride<<1)]:0,
 		kx-1>=0&&ky-1>=0?pixels[idx-rowlen-bytestride]:0,
-		         ky-1>=0?pixels[idx-rowlen]:0,
+				 ky-1>=0?pixels[idx-rowlen]:0,
 		kx+1<iw&&ky-1>=0?pixels[idx-rowlen+bytestride]:0,
 		kx+2<iw&&ky-1>=0?pixels[idx-rowlen+(bytestride<<1)]:0,
 
@@ -6368,13 +6809,13 @@ int  predict_custom(const char *pixels, const char *errors, int iw, int ih, int 
 
 		kx-2>=0&&ky-2>=0?errors[idx-(rowlen<<1)-(bytestride<<1)]:0,
 		kx-1>=0&&ky-2>=0?errors[idx-(rowlen<<1)-bytestride]:0,
-		         ky-2>=0?errors[idx-(rowlen<<1)]:0,
+				 ky-2>=0?errors[idx-(rowlen<<1)]:0,
 		kx+1<iw&&ky-2>=0?errors[idx-(rowlen<<1)+bytestride]:0,
 		kx+2<iw&&ky-2>=0?errors[idx-(rowlen<<1)+(bytestride<<1)]:0,
 
 		kx-2>=0&&ky-1>=0?errors[idx-rowlen-(bytestride<<1)]:0,
 		kx-1>=0&&ky-1>=0?errors[idx-rowlen-bytestride]:0,
-		         ky-1>=0?errors[idx-rowlen]:0,
+				 ky-1>=0?errors[idx-rowlen]:0,
 		kx+1<iw&&ky-1>=0?errors[idx-rowlen+bytestride]:0,
 		kx+2<iw&&ky-1>=0?errors[idx-rowlen+(bytestride<<1)]:0,
 
@@ -7729,26 +8170,6 @@ static int custom3_loadnb(const char *pixels, const char *errors, int iw, int ih
 	}
 	return ++idx;
 }
-static int custom3_dot(const short *a, const short *b, int count)
-{
-	int k;
-	__m256i sum=_mm256_setzero_si256();
-	for(k=0;k<count-15;k+=16)//https://stackoverflow.com/questions/62041400/inner-product-of-two-16bit-integer-vectors-with-avx2-in-c
-	{
-		__m256i va=_mm256_loadu_si256((__m256i*)(a+k));
-		__m256i vb=_mm256_loadu_si256((__m256i*)(b+k));
-		va=_mm256_madd_epi16(va, vb);
-		sum=_mm256_add_epi32(sum, va);
-	}
-	__m128i s2=_mm_add_epi32(_mm256_extracti128_si256(sum, 1), _mm256_castsi256_si128(sum));
-	__m128i hi=_mm_shuffle_epi32(s2, _MM_SHUFFLE(2, 1, 3, 2));
-	s2=_mm_add_epi32(s2, hi);
-	s2=_mm_hadd_epi32(s2, s2);
-	int s3=_mm_extract_epi32(s2, 0);
-	for(;k<count;++k)
-		s3+=a[k]*b[k];
-	return s3;
-}
 static void custom3_prealloc(const char *src, int iw, int ih, int fwd, Custom3Params const *params, char *dst)
 {
 	const char *pixels=fwd?src:dst, *errors=fwd?dst:src;
@@ -7775,7 +8196,7 @@ static void custom3_prealloc(const char *src, int iw, int ih, int fwd, Custom3Pa
 			{
 				pred=0;
 				for(int kc=0;kc<3;++kc)
-					pred+=custom3_dot(coeffs[idx2+kc], nb[kc], count[kc]);
+					pred+=fast_dot(coeffs[idx2+kc], nb[kc], count[kc]);
 				pred+=1<<13;
 				pred>>=14;
 				pred=CLAMP(-128, pred, 127);
@@ -8184,6 +8605,7 @@ static int custom4_loadnb(const char *pixels, const char *errors, int iw, int ih
 	}
 	return ++idx;
 }
+#if 0
 static int custom4_dot(const short *a, const short *b, int count)
 {
 	int k;
@@ -8204,6 +8626,7 @@ static int custom4_dot(const short *a, const short *b, int count)
 		s3+=a[k]*b[k];
 	return s3;
 }
+#endif
 static void custom4_prealloc(const char *src, int iw, int ih, int fwd, Custom3Params const *params, char *dst)
 {
 	const char *pixels=fwd?src:dst, *errors=fwd?dst:src;
@@ -8230,7 +8653,7 @@ static void custom4_prealloc(const char *src, int iw, int ih, int fwd, Custom3Pa
 			{
 				pred=0;
 				for(int kc=0;kc<3;++kc)
-					pred+=custom3_dot(coeffs[idx2+kc], nb[kc], count[kc]);
+					pred+=fast_dot(coeffs[idx2+kc], nb[kc], count[kc]);
 				pred+=1<<13;
 				pred>>=14;
 				pred=CLAMP(-128, pred, 127);
@@ -8391,6 +8814,838 @@ void pred_calic(char *buf, int iw, int ih, int fwd)//https://github.com/siddhart
 	free(b2);
 	free(arrN);
 	free(arrS);
+}
+
+
+//	#define G2_WAVELET
+	#define G2_MM
+
+#ifdef G2_WAVELET
+#define G2_REACH 8
+#define G2_NNB (G2_REACH*(G2_REACH+1)*2)
+static const int g2_sums[]=
+{
+	0x0001122A,
+	0x0002A440,
+	0x00043654,
+	0x0005C47E,
+	0x0002A440,
+	0x0005C858,
+	0x0008EC6A,
+	0x000C08AA,
+	0x00043654,
+	0x0008EC6A,
+	0x000DA278,
+	0x00124CCC,
+	0x0005C47E,
+	0x000C08AA,
+	0x00124CCC,
+	0x00188152,
+};
+static const short g2_kernels[]=
+{
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0002, 0x0008, 0x0002, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0015, 0x01B9, 0x04B0, 0x01B9, 0x0015, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0002, 0x01B9, 0x22A5, 0x5E2D, 0x22A5, 0x01B9, 0x0002, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0008, 0x04B0, 0x5E2D,
+
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0002, 0x0006, 0x0008, 0x0006, 0x0002, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0002, 0x0015, 0x007E, 0x01B9, 0x03A6, 0x04B0, 0x03A6, 0x01B9, 0x007E, 0x0015, 0x0002, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0002, 0x002E, 0x01B9, 0x09ED, 0x22A5, 0x4958, 0x5E2D, 0x4958, 0x22A5, 0x09ED, 0x01B9, 0x002E, 0x0002, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0008, 0x007E, 0x04B0, 0x1AFB, 0x5E2D, 0xC75F,
+	 
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0001, 0x0002, 0x0005, 0x0007, 0x0008, 0x0007, 0x0005, 0x0002, 0x0001, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0005, 0x0015, 0x004A, 0x00CA, 0x01B9, 0x0301, 0x0432, 0x04B0, 0x0432, 0x0301, 0x01B9, 0x00CA, 0x004A, 0x0015, 0x0005, 0x0000,
+	 0x0013, 0x0068, 0x01B9, 0x05DB, 0x0FEA, 0x22A5, 0x3C62, 0x5445, 0x5E2D, 0x5445, 0x3C62, 0x22A5, 0x0FEA, 0x05DB, 0x01B9, 0x0068, 0x0013,
+	 0x0035, 0x011B, 0x04B0, 0x0FEA, 0x2B44, 0x5E2D, 0xA424, 0xE514,
+	 
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0001, 0x0002, 0x0004, 0x0006, 0x0007, 0x0008, 0x0007, 0x0006, 0x0004, 0x0002, 0x0001, 0x0000, 0x0000, 0x0000,
+	 0x0015, 0x0038, 0x007E, 0x00FB, 0x01B9, 0x02AB, 0x03A6, 0x0467, 0x04B0, 0x0467, 0x03A6, 0x02AB, 0x01B9, 0x00FB, 0x007E, 0x0038, 0x0015,
+	 0x01B9, 0x0467, 0x09ED, 0x13BD, 0x22A5, 0x35A9, 0x4958, 0x5878, 0x5E2D, 0x5878, 0x4958, 0x35A9, 0x22A5, 0x13BD, 0x09ED, 0x0467, 0x01B9,
+	 0x04B0, 0x0BF9, 0x1AFB, 0x35A9, 0x5E2D, 0x91DD, 0xC75F, 0xF07D,
+
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0002, 0x0008, 0x0002, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0002, 0x002E, 0x007E, 0x002E, 0x0002, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0015, 0x01B9, 0x04B0, 0x01B9, 0x0015, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x007E, 0x09ED, 0x1AFB, 0x09ED, 0x007E, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0002, 0x01B9, 0x22A5, 0x5E2D, 0x22A5, 0x01B9, 0x0002, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0006, 0x03A6, 0x4958, 0xC75F, 0x4958, 0x03A6, 0x0006, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0008, 0x04B0, 0x5E2D,
+	 
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0002, 0x0006, 0x0008, 0x0006, 0x0002, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0002, 0x000D, 0x002E, 0x0062, 0x007E, 0x0062, 0x002E, 0x000D, 0x0002, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0002, 0x0015, 0x007E, 0x01B9, 0x03A6, 0x04B0, 0x03A6, 0x01B9, 0x007E, 0x0015, 0x0002, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x000D, 0x007E, 0x02D8, 0x09ED, 0x1503, 0x1AFB, 0x1503, 0x09ED, 0x02D8, 0x007E, 0x000D, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0002, 0x002E, 0x01B9, 0x09ED, 0x22A5, 0x4958, 0x5E2D, 0x4958, 0x22A5, 0x09ED, 0x01B9, 0x002E, 0x0002, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0006, 0x0062, 0x03A6, 0x1503, 0x4958, 0x9B45, 0xC75F, 0x9B45, 0x4958, 0x1503, 0x03A6, 0x0062, 0x0006, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0008, 0x007E, 0x04B0, 0x1AFB, 0x5E2D, 0xC75F,
+	 
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0001, 0x0002, 0x0005, 0x0007, 0x0008, 0x0007, 0x0005, 0x0002, 0x0001, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0002, 0x0007, 0x0015, 0x002E, 0x0051, 0x0071, 0x007E, 0x0071, 0x0051, 0x002E, 0x0015, 0x0007, 0x0002, 0x0000, 0x0000,
+	 0x0000, 0x0005, 0x0015, 0x004A, 0x00CA, 0x01B9, 0x0301, 0x0432, 0x04B0, 0x0432, 0x0301, 0x01B9, 0x00CA, 0x004A, 0x0015, 0x0005, 0x0000,
+	 0x0005, 0x001D, 0x007E, 0x01AD, 0x048F, 0x09ED, 0x114C, 0x1825, 0x1AFB, 0x1825, 0x114C, 0x09ED, 0x048F, 0x01AD, 0x007E, 0x001D, 0x0005,
+	 0x0013, 0x0068, 0x01B9, 0x05DB, 0x0FEA, 0x22A5, 0x3C62, 0x5445, 0x5E2D, 0x5445, 0x3C62, 0x22A5, 0x0FEA, 0x05DB, 0x01B9, 0x0068, 0x0013,
+	 0x0029, 0x00DC, 0x03A6, 0x0C65, 0x21B2, 0x4958, 0x7FD5, 0xB268, 0xC75F, 0xB268, 0x7FD5, 0x4958, 0x21B2, 0x0C65, 0x03A6, 0x00DC, 0x0029,
+	 0x0035, 0x011B, 0x04B0, 0x0FEA, 0x2B44, 0x5E2D, 0xA424, 0xE514,
+	 
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0001, 0x0002, 0x0004, 0x0006, 0x0007, 0x0008, 0x0007, 0x0006, 0x0004, 0x0002, 0x0001, 0x0000, 0x0000, 0x0000,
+	 0x0002, 0x0005, 0x000D, 0x001A, 0x002E, 0x0048, 0x0062, 0x0076, 0x007E, 0x0076, 0x0062, 0x0048, 0x002E, 0x001A, 0x000D, 0x0005, 0x0002,
+	 0x0015, 0x0038, 0x007E, 0x00FB, 0x01B9, 0x02AB, 0x03A6, 0x0467, 0x04B0, 0x0467, 0x03A6, 0x02AB, 0x01B9, 0x00FB, 0x007E, 0x0038, 0x0015,
+	 0x007E, 0x0143, 0x02D8, 0x05A7, 0x09ED, 0x0F5F, 0x1503, 0x1958, 0x1AFB, 0x1958, 0x1503, 0x0F5F, 0x09ED, 0x05A7, 0x02D8, 0x0143, 0x007E,
+	 0x01B9, 0x0467, 0x09ED, 0x13BD, 0x22A5, 0x35A9, 0x4958, 0x5878, 0x5E2D, 0x5878, 0x4958, 0x35A9, 0x22A5, 0x13BD, 0x09ED, 0x0467, 0x01B9,
+	 0x03A6, 0x0953, 0x1503, 0x29CA, 0x4958, 0x7199, 0x9B45, 0xBB4B, 0xC75F, 0xBB4B, 0x9B45, 0x7199, 0x4958, 0x29CA, 0x1503, 0x0953, 0x03A6,
+	 0x04B0, 0x0BF9, 0x1AFB, 0x35A9, 0x5E2D, 0x91DD, 0xC75F, 0xF07D,
+	 
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0013, 0x0035, 0x0013, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0005, 0x0068, 0x011B, 0x0068, 0x0005, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0015, 0x01B9, 0x04B0, 0x01B9, 0x0015, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x004A, 0x05DB, 0x0FEA, 0x05DB, 0x004A, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0001, 0x00CA, 0x0FEA, 0x2B44, 0x0FEA, 0x00CA, 0x0001, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0002, 0x01B9, 0x22A5, 0x5E2D, 0x22A5, 0x01B9, 0x0002, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0005, 0x0301, 0x3C62, 0xA424, 0x3C62, 0x0301, 0x0005, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0007, 0x0432, 0x5445, 0xE514, 0x5445, 0x0432, 0x0007, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0008, 0x04B0, 0x5E2D,
+	 
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0005, 0x0013, 0x0029, 0x0035, 0x0029, 0x0013, 0x0005, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0005, 0x001D, 0x0068, 0x00DC, 0x011B, 0x00DC, 0x0068, 0x001D, 0x0005, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0002, 0x0015, 0x007E, 0x01B9, 0x03A6, 0x04B0, 0x03A6, 0x01B9, 0x007E, 0x0015, 0x0002, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0007, 0x004A, 0x01AD, 0x05DB, 0x0C65, 0x0FEA, 0x0C65, 0x05DB, 0x01AD, 0x004A, 0x0007, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0001, 0x0015, 0x00CA, 0x048F, 0x0FEA, 0x21B2, 0x2B44, 0x21B2, 0x0FEA, 0x048F, 0x00CA, 0x0015, 0x0001, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0002, 0x002E, 0x01B9, 0x09ED, 0x22A5, 0x4958, 0x5E2D, 0x4958, 0x22A5, 0x09ED, 0x01B9, 0x002E, 0x0002, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0005, 0x0051, 0x0301, 0x114C, 0x3C62, 0x7FD5, 0xA424, 0x7FD5, 0x3C62, 0x114C, 0x0301, 0x0051, 0x0005, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0007, 0x0071, 0x0432, 0x1825, 0x5445, 0xB268, 0xE514, 0xB268, 0x5445, 0x1825, 0x0432, 0x0071, 0x0007, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0008, 0x007E, 0x04B0, 0x1AFB, 0x5E2D, 0xC75F,
+	 
+	 0x0000, 0x0000, 0x0000, 0x0003, 0x0009, 0x0013, 0x0022, 0x002F, 0x0035, 0x002F, 0x0022, 0x0013, 0x0009, 0x0003, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0001, 0x0005, 0x0011, 0x002F, 0x0068, 0x00B5, 0x00FD, 0x011B, 0x00FD, 0x00B5, 0x0068, 0x002F, 0x0011, 0x0005, 0x0001, 0x0000,
+	 0x0000, 0x0005, 0x0015, 0x004A, 0x00CA, 0x01B9, 0x0301, 0x0432, 0x04B0, 0x0432, 0x0301, 0x01B9, 0x00CA, 0x004A, 0x0015, 0x0005, 0x0000,
+	 0x0003, 0x0011, 0x004A, 0x00FD, 0x02B0, 0x05DB, 0x0A34, 0x0E3E, 0x0FEA, 0x0E3E, 0x0A34, 0x05DB, 0x02B0, 0x00FD, 0x004A, 0x0011, 0x0003,
+	 0x0009, 0x002F, 0x00CA, 0x02B0, 0x0750, 0x0FEA, 0x1BBE, 0x26B7, 0x2B44, 0x26B7, 0x1BBE, 0x0FEA, 0x0750, 0x02B0, 0x00CA, 0x002F, 0x0009,
+	 0x0013, 0x0068, 0x01B9, 0x05DB, 0x0FEA, 0x22A5, 0x3C62, 0x5445, 0x5E2D, 0x5445, 0x3C62, 0x22A5, 0x0FEA, 0x05DB, 0x01B9, 0x0068, 0x0013,
+	 0x0022, 0x00B5, 0x0301, 0x0A34, 0x1BBE, 0x3C62, 0x693E, 0x92E1, 0xA424, 0x92E1, 0x693E, 0x3C62, 0x1BBE, 0x0A34, 0x0301, 0x00B5, 0x0022,
+	 0x002F, 0x00FD, 0x0432, 0x0E3E, 0x26B7, 0x5445, 0x92E1, 0xCCFD, 0xE514, 0xCCFD, 0x92E1, 0x5445, 0x26B7, 0x0E3E, 0x0432, 0x00FD, 0x002F,
+	 0x0035, 0x011B, 0x04B0, 0x0FEA, 0x2B44, 0x5E2D, 0xA424, 0xE514,
+		 
+	 0x0000, 0x0002, 0x0005, 0x000B, 0x0013, 0x001E, 0x0029, 0x0032, 0x0035, 0x0032, 0x0029, 0x001E, 0x0013, 0x000B, 0x0005, 0x0002, 0x0000,
+	 0x0005, 0x000D, 0x001D, 0x003B, 0x0068, 0x00A1, 0x00DC, 0x0109, 0x011B, 0x0109, 0x00DC, 0x00A1, 0x0068, 0x003B, 0x001D, 0x000D, 0x0005,
+	 0x0015, 0x0038, 0x007E, 0x00FB, 0x01B9, 0x02AB, 0x03A6, 0x0467, 0x04B0, 0x0467, 0x03A6, 0x02AB, 0x01B9, 0x00FB, 0x007E, 0x0038, 0x0015,
+	 0x004A, 0x00BE, 0x01AD, 0x0356, 0x05DB, 0x0911, 0x0C65, 0x0EF3, 0x0FEA, 0x0EF3, 0x0C65, 0x0911, 0x05DB, 0x0356, 0x01AD, 0x00BE, 0x004A,
+	 0x00CA, 0x0206, 0x048F, 0x0911, 0x0FEA, 0x18A7, 0x21B2, 0x28A5, 0x2B44, 0x28A5, 0x21B2, 0x18A7, 0x0FEA, 0x0911, 0x048F, 0x0206, 0x00CA,
+	 0x01B9, 0x0467, 0x09ED, 0x13BD, 0x22A5, 0x35A9, 0x4958, 0x5878, 0x5E2D, 0x5878, 0x4958, 0x35A9, 0x22A5, 0x13BD, 0x09ED, 0x0467, 0x01B9,
+	 0x0301, 0x07AD, 0x114C, 0x2267, 0x3C62, 0x5D86, 0x7FD5, 0x9A32, 0xA424, 0x9A32, 0x7FD5, 0x5D86, 0x3C62, 0x2267, 0x114C, 0x07AD, 0x0301,
+	 0x0432, 0x0AB6, 0x1825, 0x3004, 0x5445, 0x8286, 0xB268, 0xD733, 0xE514, 0xD733, 0xB268, 0x8286, 0x5445, 0x3004, 0x1825, 0x0AB6, 0x0432,
+	 0x04B0, 0x0BF9, 0x1AFB, 0x35A9, 0x5E2D, 0x91DD, 0xC75F, 0xF07D,
+		 
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0015, 0x01B9, 0x04B0, 0x01B9, 0x0015, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0038, 0x0467, 0x0BF9, 0x0467, 0x0038, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x007E, 0x09ED, 0x1AFB, 0x09ED, 0x007E, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0001, 0x00FB, 0x13BD, 0x35A9, 0x13BD, 0x00FB, 0x0001, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0002, 0x01B9, 0x22A5, 0x5E2D, 0x22A5, 0x01B9, 0x0002, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0004, 0x02AB, 0x35A9, 0x91DD, 0x35A9, 0x02AB, 0x0004, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0006, 0x03A6, 0x4958, 0xC75F, 0x4958, 0x03A6, 0x0006, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0007, 0x0467, 0x5878, 0xF07D, 0x5878, 0x0467, 0x0007, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0008, 0x04B0, 0x5E2D,
+		 
+	 0x0000, 0x0000, 0x0000, 0x0002, 0x0015, 0x007E, 0x01B9, 0x03A6, 0x04B0, 0x03A6, 0x01B9, 0x007E, 0x0015, 0x0002, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x0005, 0x0038, 0x0143, 0x0467, 0x0953, 0x0BF9, 0x0953, 0x0467, 0x0143, 0x0038, 0x0005, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0000, 0x000D, 0x007E, 0x02D8, 0x09ED, 0x1503, 0x1AFB, 0x1503, 0x09ED, 0x02D8, 0x007E, 0x000D, 0x0000, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0001, 0x001A, 0x00FB, 0x05A7, 0x13BD, 0x29CA, 0x35A9, 0x29CA, 0x13BD, 0x05A7, 0x00FB, 0x001A, 0x0001, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0002, 0x002E, 0x01B9, 0x09ED, 0x22A5, 0x4958, 0x5E2D, 0x4958, 0x22A5, 0x09ED, 0x01B9, 0x002E, 0x0002, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0004, 0x0048, 0x02AB, 0x0F5F, 0x35A9, 0x7199, 0x91DD, 0x7199, 0x35A9, 0x0F5F, 0x02AB, 0x0048, 0x0004, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0006, 0x0062, 0x03A6, 0x1503, 0x4958, 0x9B45, 0xC75F, 0x9B45, 0x4958, 0x1503, 0x03A6, 0x0062, 0x0006, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0007, 0x0076, 0x0467, 0x1958, 0x5878, 0xBB4B, 0xF07D, 0xBB4B, 0x5878, 0x1958, 0x0467, 0x0076, 0x0007, 0x0000, 0x0000,
+	 0x0000, 0x0000, 0x0008, 0x007E, 0x04B0, 0x1AFB, 0x5E2D, 0xC75F,
+		 
+	 0x0000, 0x0005, 0x0015, 0x004A, 0x00CA, 0x01B9, 0x0301, 0x0432, 0x04B0, 0x0432, 0x0301, 0x01B9, 0x00CA, 0x004A, 0x0015, 0x0005, 0x0000,
+	 0x0002, 0x000D, 0x0038, 0x00BE, 0x0206, 0x0467, 0x07AD, 0x0AB6, 0x0BF9, 0x0AB6, 0x07AD, 0x0467, 0x0206, 0x00BE, 0x0038, 0x000D, 0x0002,
+	 0x0005, 0x001D, 0x007E, 0x01AD, 0x048F, 0x09ED, 0x114C, 0x1825, 0x1AFB, 0x1825, 0x114C, 0x09ED, 0x048F, 0x01AD, 0x007E, 0x001D, 0x0005,
+	 0x000B, 0x003B, 0x00FB, 0x0356, 0x0911, 0x13BD, 0x2267, 0x3004, 0x35A9, 0x3004, 0x2267, 0x13BD, 0x0911, 0x0356, 0x00FB, 0x003B, 0x000B,
+	 0x0013, 0x0068, 0x01B9, 0x05DB, 0x0FEA, 0x22A5, 0x3C62, 0x5445, 0x5E2D, 0x5445, 0x3C62, 0x22A5, 0x0FEA, 0x05DB, 0x01B9, 0x0068, 0x0013,
+	 0x001E, 0x00A1, 0x02AB, 0x0911, 0x18A7, 0x35A9, 0x5D86, 0x8286, 0x91DD, 0x8286, 0x5D86, 0x35A9, 0x18A7, 0x0911, 0x02AB, 0x00A1, 0x001E,
+	 0x0029, 0x00DC, 0x03A6, 0x0C65, 0x21B2, 0x4958, 0x7FD5, 0xB268, 0xC75F, 0xB268, 0x7FD5, 0x4958, 0x21B2, 0x0C65, 0x03A6, 0x00DC, 0x0029,
+	 0x0032, 0x0109, 0x0467, 0x0EF3, 0x28A5, 0x5878, 0x9A32, 0xD733, 0xF07D, 0xD733, 0x9A32, 0x5878, 0x28A5, 0x0EF3, 0x0467, 0x0109, 0x0032,
+	 0x0035, 0x011B, 0x04B0, 0x0FEA, 0x2B44, 0x5E2D, 0xA424, 0xE514,
+		 
+	 0x0015, 0x0038, 0x007E, 0x00FB, 0x01B9, 0x02AB, 0x03A6, 0x0467, 0x04B0, 0x0467, 0x03A6, 0x02AB, 0x01B9, 0x00FB, 0x007E, 0x0038, 0x0015,
+	 0x0038, 0x008F, 0x0143, 0x0282, 0x0467, 0x06D2, 0x0953, 0x0B3F, 0x0BF9, 0x0B3F, 0x0953, 0x06D2, 0x0467, 0x0282, 0x0143, 0x008F, 0x0038,
+	 0x007E, 0x0143, 0x02D8, 0x05A7, 0x09ED, 0x0F5F, 0x1503, 0x1958, 0x1AFB, 0x1958, 0x1503, 0x0F5F, 0x09ED, 0x05A7, 0x02D8, 0x0143, 0x007E,
+	 0x00FB, 0x0282, 0x05A7, 0x0B3F, 0x13BD, 0x1E93, 0x29CA, 0x3268, 0x35A9, 0x3268, 0x29CA, 0x1E93, 0x13BD, 0x0B3F, 0x05A7, 0x0282, 0x00FB,
+	 0x01B9, 0x0467, 0x09ED, 0x13BD, 0x22A5, 0x35A9, 0x4958, 0x5878, 0x5E2D, 0x5878, 0x4958, 0x35A9, 0x22A5, 0x13BD, 0x09ED, 0x0467, 0x01B9,
+	 0x02AB, 0x06D2, 0x0F5F, 0x1E93, 0x35A9, 0x531C, 0x7199, 0x8906, 0x91DD, 0x8906, 0x7199, 0x531C, 0x35A9, 0x1E93, 0x0F5F, 0x06D2, 0x02AB,
+	 0x03A6, 0x0953, 0x1503, 0x29CA, 0x4958, 0x7199, 0x9B45, 0xBB4B, 0xC75F, 0xBB4B, 0x9B45, 0x7199, 0x4958, 0x29CA, 0x1503, 0x0953, 0x03A6,
+	 0x0467, 0x0B3F, 0x1958, 0x3268, 0x5878, 0x8906, 0xBB4B, 0xE1EB, 0xF07D, 0xE1EB, 0xBB4B, 0x8906, 0x5878, 0x3268, 0x1958, 0x0B3F, 0x0467,
+	 0x04B0, 0x0BF9, 0x1AFB, 0x35A9, 0x5E2D, 0x91DD, 0xC75F, 0xF07D,
+};
+void pred_grad2(char *buf, int iw, int ih, int fwd)
+{
+#if 1
+	int res=iw*ih;
+	char *b2=(char*)malloc((size_t)res<<2);
+	int *prederrors=(int*)malloc(iw*_countof(g2_sums)*sizeof(int));
+	if(!b2||!prederrors)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	memcpy(b2, buf, (size_t)res<<2);//copy alpha
+	const char *pixels=fwd?buf:b2, *errors=fwd?b2:buf;
+
+	//int vmin2=0, vmax2=0;
+	for(int kc=0;kc<3;++kc)
+	{
+		memset(prederrors, 0, iw*_countof(g2_sums)*sizeof(int));
+		for(int ky=0;ky<ih;++ky)
+		{
+			for(int kx=0;kx<iw;++kx)
+			{
+				short nb[G2_NNB];
+				int idx=0;
+				for(int ky2=-G2_REACH;ky2<0;++ky2)
+				{
+					for(int kx2=-G2_REACH;kx2<=G2_REACH;++kx2)
+					{
+						nb[idx]=(unsigned)(kx+kx2)<(unsigned)iw&&(unsigned)(ky+ky2)<(unsigned)ih?pixels[(iw*(ky+ky2)+kx+kx2)<<2|kc]:0;
+						++idx;
+					}
+				}
+				for(int kx2=-G2_REACH;kx2<0;++kx2)
+				{
+					nb[idx]=(unsigned)(kx+kx2)<(unsigned)iw?pixels[(iw*ky+kx+kx2)<<2|kc]:0;
+					++idx;
+				}
+
+				int pred;
+				long long num;
+				int preds[_countof(g2_sums)], den;//floor_log2(G2_REACH)^2
+
+				num=0, den=0;
+				for(int k=0;k<_countof(g2_sums);++k)
+				{
+					pred=fast_dot(nb, g2_kernels+G2_NNB*k, G2_NNB);
+					preds[k]=(int)(((long long)pred<<8)/g2_sums[k]);
+					int e=(unsigned)(kx-1)<(unsigned)iw?prederrors[iw*k+kx-1]:0;
+					e+=(unsigned)(ky-1)<(unsigned)ih?prederrors[iw*k+kx]:0;
+					int w=0x1000000/(e+1);
+					num+=(long long)preds[k]*w;
+					den+=w;
+				}
+				pred=den?(int)(num/den):preds[0];
+
+				//if(vmin2>pred)vmin2=pred;//
+				//if(vmax2<pred)vmax2=pred;
+				//pred=CLAMP(-(128<<8), pred, 127<<8);
+				idx=(iw*ky+kx)<<2|kc;
+
+
+				//if(kx==(iw>>1)&&ky==(ih>>1))//
+				//	printf("");
+				
+				if(fwd)
+					b2[idx]=buf[idx]-((pred+128)>>8);
+				else
+					b2[idx]=buf[idx]+((pred+128)>>8);
+
+				int curr=pixels[idx]<<8;
+				for(int k=0;k<_countof(g2_sums);++k)
+				{
+					int e=abs(curr-preds[k]);
+					prederrors[iw*k+kx]=e;
+					if(kx<iw&&ky>0)
+						prederrors[iw*k+kx+1]+=e;
+				}
+			}
+		}
+	}
+	//console_start();
+	//console_log("[%d %d]\n", vmin2, vmax2);
+	memcpy(buf, b2, (size_t)res<<2);
+	free(b2);
+#endif
+#if 0
+#define KERNEL(X, FX, Y, FY) exp(-((X)*(X)/(double)((FX)*(FX))+(Y)*(Y)/(double)((FY)*(FY))))
+	console_start();
+	int nf=floor_log2(G2_REACH)+1;
+	for(int fy=1;fy<=nf;++fy)
+	{
+		for(int fx=1;fx<=nf;++fx)
+		{
+			console_log("XY %d %d:\n", fx, fy);
+			int sum=0;
+			for(int ky=-G2_REACH;ky<0;++ky)
+			{
+				for(int kx=-G2_REACH;kx<=G2_REACH;++kx)
+				{
+					double coeff=KERNEL(kx, fx, ky, fy);
+					if(!isfinite(coeff))
+						LOG_ERROR("");
+					int val=(int)(0x10000*coeff);
+					console_log("%c0x%04X,", val<0?'-':' ', abs(val));
+					sum+=val;
+				}
+				console_log("\n");
+			}
+			for(int kx=-G2_REACH;kx<0;++kx)
+			{
+				double coeff=KERNEL(kx, fx, 0, 1);
+				if(!isfinite(coeff))
+					LOG_ERROR("");
+				int val=(int)(0x10000*coeff);
+				console_log("%c0x%04X,", val<0?'-':' ', abs(val));
+				sum+=val;
+			}
+			console_log("\n");
+			console_log("Sum 0x%08X\n", sum);
+			console_log("\n");
+		}
+	}
+	console_log("Done.\n");
+	console_pause();
+#endif
+}
+#elif defined G2_MM
+#define G2_NPRED 21
+short g2_weights[]=
+{
+	 0x003D, 0x0036, 0x0006, 0x007E, 0x0012, 0x0007, 0x0007, 0x0005, 0x001E, 0x0000, 0x0028, 0x0055,-0x0020, 0x0020, 0x0005, 0x0011, 0x0034, 0x0000, 0x0004, 0x003E,
+	 0x0004,
+	 //0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010,
+	 -0x0100, 0x0001,-0x0086,-0x0041, 0x0051,-0x0080, 0x0004, 0x0002,-0x0003,-0x0003, 0x00D9,
+
+	 0x00EA, 0x01C8, 0x00A2, 0x005E, 0x01F4, 0x0045, 0x0091, 0x0066, 0x003B, 0x0027,-0x0011, 0x001B, 0x00FF, 0x007E, 0x00D1, 0x00F3, 0x008F, 0x0130, 0x018E,-0x00AC,
+	 0x0004,
+	 //0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010,
+	 0x010C, 0x0008,-0x007E, 0x00A2, 0x000E,-0x0069,-0x0073,-0x0125,-0x0092, 0x0000, 0x0078,
+
+	 0x0006, 0x003D, 0x0031, 0x002F, 0x003F, 0x0015, 0x0011, 0x0036, 0x002E,-0x0022, 0x0011, 0x0034,-0x0007, 0x0012,-0x0018, 0x0012, 0x002F, 0x0000, 0x0000, 0x001C,
+	 0x0004,
+	 //0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010,
+	 0x00A2, 0x02E1, 0x00C9,-0x00E0,-0x0068,-0x004E,-0x013E,-0x0012, 0x0001, 0x0000,-0x0046,
+};
+void pred_grad2(char *buf, int iw, int ih, int fwd)
+{
+	int res=iw*ih;
+	char *b2=(char*)malloc((size_t)res<<2);
+	int *perrors=(int*)malloc(iw*(G2_NPRED+1)*2*sizeof(int));
+	if(!b2||!perrors)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	memcpy(b2, buf, (size_t)res<<2);//copy alpha
+	const char *pixels=fwd?buf:b2, *errors=fwd?b2:buf;
+	for(int kc=0;kc<3;++kc)
+	{
+		int maxerror=0;
+		short *params=g2_weights+(_countof(g2_weights)/3)*kc;
+		int *hireserror=perrors+iw*2*G2_NPRED;
+		memset(perrors, 0, 2*iw*(G2_NPRED+1)*sizeof(int));
+		//int weights[3]=
+		//{
+		//	0x8000,
+		//	0x8000,
+		//	0x8000,
+		//};
+		//int certainty=512;
+		for(int ky=0;ky<ih;++ky)
+		{
+			for(int kx=0;kx<iw;++kx)
+			{
+#define LOAD(X, Y) (unsigned)(kx+(X))<(unsigned)iw&&(unsigned)(ky+(Y))<(unsigned)ih?pixels[(iw*(ky+(Y))+kx+(X))<<2|kc]<<8:0
+				int
+					NNNNNN  =LOAD( 0, -6),
+					NNNNWWWW=LOAD(-4, -4),
+					NNNN    =LOAD( 0, -4),
+					NNNNEEEE=LOAD( 4, -4),
+					NNNWWW  =LOAD(-3, -3),
+					NNN     =LOAD( 0, -3),
+					NNNEEE  =LOAD( 3, -3),
+					NNWW    =LOAD(-2, -2),
+					NNW     =LOAD(-1, -2),
+					NN      =LOAD( 0, -2),
+					NNE     =LOAD( 1, -2),
+					NNEE    =LOAD( 2, -2),
+					NW      =LOAD(-1, -1),
+					N       =LOAD( 0, -1),
+					NE      =LOAD( 1, -1),
+					NEEEE   =LOAD( 4, -1),
+					NEEEEE  =LOAD( 5, -1),
+					NEEEEEE =LOAD( 6, -1),
+					NEEEEEEE=LOAD( 7, -1),
+					NEE     =LOAD( 2, -1),
+					WWWWWW  =LOAD(-6,  0),
+					WWWW    =LOAD(-4,  0),
+					WWW     =LOAD(-3,  0),
+					WW      =LOAD(-2,  0),
+					W       =LOAD(-1,  0);
+#undef  LOAD
+#define LOAD(X, Y) (unsigned)(kx+(X))<(unsigned)iw&&(unsigned)(ky+(Y))<(unsigned)ih?hireserror[iw*((ky+(Y))&1)+kx+(X)]:0
+				int
+					eNW=LOAD(-1, -1),
+					eN =LOAD( 0, -1),
+					eNE=LOAD( 1, -1),
+					eW =LOAD(-1,  0);
+#undef  LOAD
+				int preds[G2_NPRED], pred;
+				int prederrs[G2_NPRED];
+
+				for(int k=0;k<G2_NPRED;++k)
+				{
+					//eNW + eN + eNE
+					prederrs[k]=
+						((unsigned)(kx-1)<(unsigned)iw?perrors[iw*2*k+iw*((ky-1)&1)+kx-1]:0)+
+						perrors[iw*2*k+iw*((ky-1)&1)+kx]+
+						((unsigned)(kx+1)<(unsigned)iw?perrors[iw*2*k+iw*((ky-1)&1)+kx+1]:0);
+				}
+				
+				//const int den2=2;
+				const int correction=0;
+				//int correction=((eN+eW)*5+(eNW+eNE)*3)/(16*4);
+				int j=-1;
+				int vmin, vmax;
+#if 1
+#define GRAD(pred, N, W, NW, vmin, vmax)\
+				do\
+				{\
+					if(N<W)\
+						vmin=N, vmax=W;\
+					else\
+						vmin=W, vmax=N;\
+					pred=N+W-NW;\
+					pred=CLAMP(vmin, pred, vmax);\
+				}while(0)
+#endif
+				vmin=N, vmax=N;
+				if(vmin>W)vmin=W;
+				if(vmax<W)vmax=W;
+#if 1
+				//the 4 predictors from JPEG XL:
+				++j, preds[j]=N-((eNW*params[G2_NPRED]+eN*params[G2_NPRED+1]+eNE*params[G2_NPRED+2]+(NN-N)*params[G2_NPRED+3]+(NW-W)*params[G2_NPRED+4])>>8);
+				++j, preds[j]=W-((eN+eW+eNW)*params[G2_NPRED+5]>>8);
+				++j, preds[j]=N-((eN+eW+eNE)*params[G2_NPRED+6]>>8);
+				++j, preds[j]=W+NE-N;
+				//++j, preds[j]=N+((eN+eW+eNE)*10>>5);
+				//++j, preds[j]=W+((eN+eW+eNW)*10>>5);
+				//++j, preds[j]=N+((eNW*5+eN*5+eNE*5+(NN-N)*12+(NW-W)*4)>>5);
+				
+				++j, preds[j]=W -(eW *params[G2_NPRED+ 7]>>8);
+				++j, preds[j]=N -(eN *params[G2_NPRED+ 8]>>8);
+				++j, preds[j]=NW-(eNW*params[G2_NPRED+ 9]>>8);
+				++j, preds[j]=NE-(eNE*params[G2_NPRED+10]>>8);
+				//++j, preds[j]=W+(eW*10>>5);
+				//++j, preds[j]=N+(eN*10>>5);
+				//++j, preds[j]=NW+(eNW*8>>5);
+				//++j, preds[j]=NE+(eNE*8>>5);
+				//++j, preds[j]=W+(prederrs[j]*10>>5);
+				//++j, preds[j]=N+(prederrs[j]*10>>5);
+				//++j, preds[j]=NW+(prederrs[j]*8>>5);
+				//++j, preds[j]=NE+(prederrs[j]*8>>5);
+				//++j, preds[j]=W+correction;
+				//++j, preds[j]=N+correction;
+				//++j, preds[j]=NW+correction;
+				//++j, preds[j]=NE+correction;
+				
+				++j, preds[j]=clamp4(N+W -NW +correction, N, W, NW, NE);
+				++j, preds[j]=clamp4(W+NE-N  +correction, N, W, NW, NE);
+				++j, preds[j]=clamp4(N+NW-NNW+correction, N, W, NW, NE);
+				++j, preds[j]=clamp4(N+NE-NNE+correction, N, W, NE, NEE);
+				
+				++j, preds[j]=(W+NEE)/2+correction;
+				++j, preds[j]=NNNNNN+correction;
+				++j, preds[j]=(NEEEE+NEEEEEE)/2+correction;
+				++j, preds[j]=(WWWW+WWWWWW)/2+correction;
+				//++j, preds[j]=W*3-WW*3+WWW;//parabolic
+				//++j, preds[j]=N*3-NN*3+NNN;
+				//++j, preds[j]=NW*3-NNWW*3+NNNWWW;
+				//++j, preds[j]=NE*3-NNEE*3+NNNEEE;
+				//++j, preds[j]=W*2-WW;//linear
+				//++j, preds[j]=N*2-NN;
+				//++j, preds[j]=NW*2-NNWW;
+				//++j, preds[j]=NE*2-NNEE;
+				//++j, preds[j]=4*W-6*WW+4*WWW-WWWW, preds[j]=CLAMP(vmin, preds[j], vmax);//cubic
+				//++j, preds[j]=4*N-6*NN+4*NNN-NNNN, preds[j]=CLAMP(vmin, preds[j], vmax);
+				//++j, preds[j]=4*NW-6*NNWW+4*NNNWWW-NNNNWWWW, preds[j]=CLAMP(vmin, preds[j], vmax);
+				//++j, preds[j]=4*NE-6*NNEE+4*NNNEEE-NNNNEEEE, preds[j]=CLAMP(vmin, preds[j], vmax);
+
+				++j, preds[j]=(N+W+NEEEEE+NEEEEEEE)/4+correction;
+				++j, preds[j]=clamp4(N*2-NN+correction, N, W, NE, NEE);
+				++j, preds[j]=(N+NNN)/2+correction;
+				++j, preds[j]=((N+W)*3-NW*2)/4+correction;
+#endif
+
+				++j; GRAD(preds[j], N, W, NW, vmin, vmax);
+				//++j, preds[j]=W+NE-N, preds[j]=CLAMP(vmin, preds[j], vmax);
+
+				//++j;
+				//int gx1=N-NW, gx2=W-WW, gy1=W-NW, gy2=N-NN;
+				//if(abs(gx1-gx2)<abs(gy1-gy2))
+				//	preds[j]=W+(gx1*11+gx2*5)/16;
+				//else
+				//	preds[j]=N+(gy1*11+gy2*5)/16;
+
+				//++j, preds[j]=(W+((N-NW)*11+(W-WW)*5)/16 + N+((W-NW)*11+(N-NN)*5)/16)/2;
+				//++j, preds[j]=NW+(N-NW)+(W-NW);//==N+W-NW
+				//++j, preds[j]=((N+W)*5+(NE+NW)*3)/16;
+				//++j, preds[j]=(N+W)/2+(NE-NW)/4;
+				//++j, preds[j]=N;
+				//++j, preds[j]=W;
+				//++j; GRAD(preds[j], NE, NW, NN, vmin, vmax);
+				//++j; GRAD(preds[j], NN, WW, NNWW, vmin, vmax);
+
+				long long num=0;
+				int weights[G2_NPRED], den=0;
+				for(int k=0;k<G2_NPRED;++k)
+				{
+					weights[k]=(params[k]<<8)/(prederrs[k]+1);
+					//if(maxerror<prederrs[k])
+					//	maxerror=prederrs[k];
+					//weights[k]=maxerror-prederrs[k]+1;
+
+					num+=(long long)preds[k]*weights[k];
+					den+=weights[k];
+				}
+				pred=den?(int)(num/den):preds[0];
+				
+				pred=CLAMP(vmin, pred, vmax);
+				
+				
+				//if(kc==1&&kx==384&&ky==256)//
+				//if(pred)
+				//	printf("");
+				
+				//int pred0=pred;
+				//int energy=abs(eN)+abs(eW)+abs(eNW)+abs(eNE);
+				//pred-=pred*energy/certainty;//pred=pred0*(1-energy/certainty)
+
+				//pred-=pred*(abs(eN)+abs(eW)+abs(eNW))/1108;//improves only with kodim13
+
+				//pred*=(1108-(abs(eN)+abs(eW)+abs(eNW)));
+				//pred/=1108;
+
+				//pred/=(abs(eN)+abs(eW)+abs(eNW))/128+1;
+
+				//if(abs(eN)+abs(eW)+abs(eNW)>512)pred/=2;
+
+				//pred+=(eN>0&&eW>0&&eNW>0)-(eN<0&&eW<0&&eNW<0);
+
+				//if(eN>0&&eW>0&&eNW>0)pred=MAXVAR(vmax, NW);
+				//else if(eN<0&&eW<0&&eNW<0)pred=MINVAR(vmin, NW);
+
+				//pred=CLAMP(-128, pred, 127);
+
+				int idx=(iw*ky+kx)<<2|kc;
+				if(fwd)
+					b2[idx]=buf[idx]-((pred+128)>>8);
+				else
+					b2[idx]=buf[idx]+((pred+128)>>8);
+
+				//update correction
+
+				int curr=pixels[idx]<<8;
+				hireserror[iw*(ky&1)+kx]=curr-pred;
+				for(int k=0;k<G2_NPRED;++k)
+				{
+					int e=abs(curr-preds[k]);
+					perrors[iw*2*k+iw*(ky&1)+kx]=e;
+					if(kx<iw&&ky>0)
+						perrors[iw*2*k+iw*((ky-1)&1)+kx+1]+=e;
+				}
+#if 0
+				int curr=pixels[idx];
+				//curr=pred0*(1-energy/temperature)	->	temperature = energy/(1 - abs(curr/pred0))
+
+				if(abs(curr)<abs(pred))
+				{
+					certainty-=10;
+					if(certainty<512)
+						certainty=512;
+				}
+				else
+					++certainty;
+
+				//certainty+=abs(curr)<abs(pred)?-1:1;
+
+				//int den=pred0?0x10000-abs((curr<<16)/pred0):1;
+				//if(den>0)
+				//{
+				//	int t2=(energy<<16)/den;
+				//	if(t2>512)
+				//		temperature=t2;
+				//}
+
+				//int num=pred0*energy, den=pred0-curr;
+				//if(num&&den&&abs(num)>abs(den))
+				//	temperature=abs(num/den);
+#endif
+			}
+		}
+	}
+	memcpy(buf, b2, (size_t)res<<2);
+	free(perrors);
+	free(b2);
+}
+#endif
+
+#define LOAD(BUF, X, Y) ((unsigned)(kx+(X))<(unsigned)iw&&(unsigned)(ky+(Y))<(unsigned)ih?BUF[(iw*(ky+(Y))+kx+(X))<<2|kc]:0)
+static void pred_wu97_pass3_row(const char *src, char *dst, int iw, int ih, int fwd, int kc, int kx0, int ky)
+{
+	const char *pixels=fwd?src:dst, *errors=fwd?dst:src;
+	for(int kx=kx0;kx<iw;kx+=2)
+	{
+		char
+			NW=LOAD(pixels, -1, -1),
+			N =LOAD(pixels,  0, -1),
+			NE=LOAD(pixels,  1, -1),
+			W =LOAD(pixels, -1,  0),
+			E =LOAD(pixels,  1,  0),
+			S =LOAD(pixels,  0,  1);
+		int pred=((N+W+S+E)*3-(NW+NE)*2+4)>>3;
+		pred=CLAMP(-128, pred, 127);
+
+		int idx=(iw*ky+kx)<<2|kc;
+		if(fwd)
+			dst[idx]=src[idx]-pred;
+		else
+			dst[idx]=src[idx]+pred;
+	}
+}
+static void pred_wu97_pass3(const char *src, char *dst, int iw, int ih, int fwd)
+{
+	for(int kc=0;kc<3;++kc)
+	{
+		for(int ky=0;ky<ih;ky+=2)
+		{
+			pred_wu97_pass3_row(src, dst, iw, ih, fwd, kc, 1, ky);
+			pred_wu97_pass3_row(src, dst, iw, ih, fwd, kc, 0, ky+1);
+		}
+	}
+}
+static void pred_wu97_pass2_fwd(const char *pixels, char *errors, int iw, int ih)//diamonds to sticks
+{
+	for(int kc=0;kc<3;++kc)
+	{
+#if 1
+		for(int ky=0;ky<ih;ky+=2)//pass2
+		{
+			for(int kx=0;kx<iw;kx+=2)
+			{
+				char
+					NN  =LOAD(pixels,  0, -2),
+					NW  =LOAD(pixels, -1, -1),
+					NE  =LOAD(pixels,  1, -1),
+					WW  =LOAD(pixels, -2,  0),
+					curr=LOAD(pixels,  0,  0),
+					EE  =LOAD(pixels,  2,  0),
+					SW  =LOAD(pixels, -1,  1),
+					SE  =LOAD(pixels,  1,  1),
+					SEEE=LOAD(pixels,  3,  1),
+					SS  =LOAD(pixels,  0,  2),
+					SSSE=LOAD(pixels,  1,  3);
+				
+				char
+					dcurr=curr-SE,
+					acurr=SE+(dcurr>>1),
+					aE=SEEE+((char)(EE-SEEE)>>1),
+					aS=SSSE+((char)(SS-SSSE)>>1);
+
+				//if(kx==(iw>>1)&&ky==(ih>>1))//
+				//if(kc==0&&kx==0&&ky==0)//
+				//	printf("");
+
+				int pred=(acurr*0xE666+(NE+NW+SW)*0x2AAB-(NN+WW)*0x0CCD-(aE+aS)*0x2666+0x8000)>>16;
+				pred=CLAMP(-128, pred, 127);
+				pred-=acurr;
+				pred<<=1;
+				//pred=CLAMP(-128, pred, 127);
+
+				int idx=(iw*ky+kx)<<2|kc;
+				errors[idx]=acurr;
+				errors[idx+((iw+1)<<2)]=dcurr-pred;
+				//errors[idx+((iw+1)<<2)]=dcurr;
+			}
+		}
+#endif
+#if 1
+		for(int ky=(ih-2)&(-2);ky>=0;ky-=2)//pass1
+		{
+			for(int kx=(iw-2)&(-2);kx>=0;kx-=2)
+			{
+				char
+					NNWW=LOAD(errors, -2, -2),
+					NN  =LOAD(errors,  0, -2),
+					NNEE=LOAD(errors,  2, -2),
+					WW  =LOAD(errors, -2,  0);
+				//int pred=(NN+WW)/2+(NNEE-NNWW)/4;
+
+				int vmin, vmax;
+				if(NN<WW)
+					vmin=NN, vmax=WW;
+				else
+					vmin=WW, vmax=NN;
+				int pred=NN+WW-NNWW;
+				pred=CLAMP(vmin, pred, vmax);
+
+				//if(kc==0&&kx==2&&ky==0)//
+				//	printf("");
+				//if(kc==0&&kx==0&&ky==2)//
+				//	printf("");
+
+				int idx=(iw*ky+kx)<<2|kc;
+				errors[idx]-=pred;
+			}
+		}
+#endif
+	}
+}
+static void pred_wu97_pass2_inv(const char *errors, char *pixels, int iw, int ih)//sticks to diamonds
+{
+	for(int kc=0;kc<3;++kc)
+	{
+#if 1
+		for(int ky=0;ky<ih;ky+=2)//pass1
+		{
+			for(int kx=0;kx<iw;kx+=2)
+			{
+				char
+					NNWW=LOAD(pixels, -2, -2),
+					NN  =LOAD(pixels,  0, -2),
+					NNEE=LOAD(pixels,  2, -2),
+					WW  =LOAD(pixels, -2,  0);
+				//int pred=(NN+WW)/2+(NNEE-NNWW)/4;
+				
+				int vmin, vmax;
+				if(NN<WW)
+					vmin=NN, vmax=WW;
+				else
+					vmin=WW, vmax=NN;
+				int pred=NN+WW-NNWW;
+				pred=CLAMP(vmin, pred, vmax);
+
+				//if(kc==0&&kx==2&&ky==0)//
+				//	printf("");
+				//if(kc==0&&kx==0&&ky==2)//
+				//	printf("");
+
+				int idx=(iw*ky+kx)<<2|kc;
+				pixels[idx]=errors[idx]+pred;
+
+				//idx+=(iw+1)<<2;
+				//pixels[idx]=errors[idx];//copy diff
+			}
+		}
+#endif
+#if 1
+		for(int ky=0;ky<ih;ky+=2)//pass2
+		{
+			for(int kx=0;kx<iw;kx+=2)
+			{
+				char
+					NN  =LOAD(pixels,  0, -2),
+					NW  =LOAD(pixels, -1, -1),
+					NE  =LOAD(pixels,  1, -1),
+					WW  =LOAD(pixels, -2,  0),
+					SW  =LOAD(pixels, -1,  1);
+#if 1
+				char//original
+					acurr=LOAD(pixels, 0, 0),
+					dcurr=LOAD(errors, 1, 1),
+					aE   =LOAD(pixels, 2, 0),
+					aS   =LOAD(pixels, 0, 2);
+#endif
+#if 0
+				char//pass2 only
+					acurr=LOAD(errors, 0, 0),
+					dcurr=LOAD(errors, 1, 1),
+					aE   =LOAD(errors, 2, 0),
+					aS   =LOAD(errors, 0, 2);
+#endif
+
+				//if(kc==0&&kx==0&&ky==0)//
+				//	printf("");
+
+				int pred=(acurr*0xE666+(NE+NW+SW)*0x2AAB-(NN+WW)*0x0CCD-(aE+aS)*0x2666+0x8000)>>16;
+				pred=CLAMP(-128, pred, 127);
+				pred-=acurr;
+				pred<<=1;
+				//pred=CLAMP(-128, pred, 127);
+
+				dcurr+=pred;
+
+				char curr=dcurr, SE=acurr;
+				SE-=curr>>1;	//SE = av - floor(diff/2)
+				curr+=SE;		//curr = diff + SE
+
+				int idx=(iw*ky+kx)<<2|kc;
+				pixels[idx]=curr;
+				pixels[idx+((iw+1)<<2)]=SE;
+			}
+		}
+#endif
+	}
+}
+#undef  LOAD
+void pred_wu97(char *buf, int iw, int ih, int fwd)//'Lossless Compression of Continuous-Tone Images via Context Selection, Quantization, and Modeling'
+{
+	int res=iw*ih;
+	char *b2=(char*)malloc((size_t)res<<2);
+	char *temp=(char*)malloc(MAXVAR(iw, ih));
+	if(!b2||!temp)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	//int black=0xFF000000;
+	//memfill(b2, &black, (size_t)res<<2, sizeof(int));
+	memcpy(b2, buf, (size_t)res<<2);//copy alpha
+	ArrayHandle sizes=dwt2d_gensizes(iw, ih, 0, 0, 1);
+	if(fwd)
+	{
+		pred_wu97_pass3(buf, b2, iw, ih, fwd);
+		pred_wu97_pass2_fwd(buf, b2, iw, ih);
+		dwt2d_lazy_fwd(b2  , (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);
+		dwt2d_lazy_fwd(b2+1, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);
+		dwt2d_lazy_fwd(b2+2, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);
+
+	}
+	else
+	{
+		dwt2d_lazy_inv(buf  , (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);
+		dwt2d_lazy_inv(buf+1, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);
+		dwt2d_lazy_inv(buf+2, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);
+		pred_wu97_pass2_inv(buf, b2, iw, ih);
+		pred_wu97_pass3(buf, b2, iw, ih, fwd);
+	}
+	array_free(&sizes);
+	memcpy(buf, b2, (size_t)res<<2);
+	free(temp);
+	free(b2);
 }
 
 
