@@ -271,6 +271,7 @@ void colortransform_ycmcb_inv(char *buf, int iw, int ih)//3 channels, stride 4 b
 
 
 
+//clamped gradient predictor, aka LOCO-I / Median Edge Detector (MED) predictor from JPEG-LS
 void pred_grad_fwd(char *buf, int iw, int ih, int nch, int bytestride)
 {
 	int rowlen=iw*bytestride;
@@ -282,19 +283,25 @@ void pred_grad_fwd(char *buf, int iw, int ih, int nch, int bytestride)
 			for(int kx=iw-1;kx>=0;--kx, idx-=bytestride)
 			{
 				char
-					left=kx?buf[idx-bytestride]:0,
-					top=ky?buf[idx-rowlen]:0,
-					topleft=kx&&ky?buf[idx-rowlen-bytestride]:0,
-					sub;
+					W=kx?buf[idx-bytestride]:0,
+					N=ky?buf[idx-rowlen]:0,
+					NW=kx&&ky?buf[idx-rowlen-bytestride]:0,
+					pred;
 
-				if(topleft>MAXVAR(left, top))//planar prediction (unplane)
-					sub=MINVAR(left, top);
-				else if(topleft<MINVAR(left, top))
-					sub=MAXVAR(left, top);
+				char vmin, vmax;
+				if(N<W)
+					vmin=N, vmax=W;
 				else
-					sub=left+top-topleft;
+					vmin=W, vmax=N;
 
-				buf[idx]-=sub;
+				if(NW>vmax)
+					pred=vmin;
+				else if(NW<vmin)
+					pred=vmax;
+				else
+					pred=N+W-NW;
+
+				buf[idx]-=pred;
 			}
 		}
 	}
@@ -310,19 +317,25 @@ void pred_grad_inv(char *buf, int iw, int ih, int nch, int bytestride)
 			for(int kx=0;kx<iw;++kx, idx+=bytestride)
 			{
 				char
-					left=kx?buf[idx-bytestride]:0,
-					top=ky?buf[idx-rowlen]:0,
-					topleft=kx&&ky?buf[idx-rowlen-bytestride]:0,
-					sub;
+					W=kx?buf[idx-bytestride]:0,
+					N=ky?buf[idx-rowlen]:0,
+					NW=kx&&ky?buf[idx-rowlen-bytestride]:0,
+					pred;
 
-				if(topleft>MAXVAR(left, top))
-					sub=MINVAR(left, top);
-				else if(topleft<MINVAR(left, top))
-					sub=MAXVAR(left, top);
+				char vmin, vmax;
+				if(N<W)
+					vmin=N, vmax=W;
 				else
-					sub=left+top-topleft;
+					vmin=W, vmax=N;
 
-				buf[idx]+=sub;
+				if(NW>vmax)
+					pred=vmin;
+				else if(NW<vmin)
+					pred=vmax;
+				else
+					pred=N+W-NW;//2D derivative
+
+				buf[idx]+=pred;
 			}
 		}
 	}

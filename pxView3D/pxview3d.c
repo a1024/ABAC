@@ -296,8 +296,8 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case T_NONE:				a="NONE";					break;
 	case CT_FWD_YCoCg:			a="C  Fwd YCoCg-R";			break;
 	case CT_INV_YCoCg:			a="C  Inv YCoCg-R";			break;
-	case CT_FWD_YCoCb:			a="C  Fwd YCoCb-R";			break;
-	case CT_INV_YCoCb:			a="C  Inv YCoCb-R";			break;
+	case CT_FWD_YCoCb:			a="C  Fwd YCmCb-R";			break;
+	case CT_INV_YCoCb:			a="C  Inv YCmCb-R";			break;
 //	case CT_FWD_XGZ:			a="C  Fwd XGZ";				break;
 //	case CT_INV_XGZ:			a="C  Inv XGZ";				break;
 //	case CT_FWD_XYZ:			a="C  Fwd XYZ";				break;

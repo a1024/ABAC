@@ -6260,27 +6260,28 @@ void pred_sortnb(char *buf, int iw, int ih, int nch, int bytestride, int fwd)
 		sortnb_rmse[k]=sqrt(sortnb_rmse[k]/sortnb_cases[k]);
 }
 
+//clamped gradient predictor, aka LOCO-I / Median Edge Detector (MED) predictor from JPEG-LS
 int  predict_grad(const char *buf, int iw, int kx, int ky, int idx, int bytestride, int rowlen)
 {
 	char
-		left=kx?buf[idx-bytestride]:0,
-		top=ky?buf[idx-rowlen]:0,
-		topleft=kx&&ky?buf[idx-rowlen-bytestride]:0;
+		W=kx?buf[idx-bytestride]:0,
+		N=ky?buf[idx-rowlen]:0,
+		NW=kx&&ky?buf[idx-rowlen-bytestride]:0;
 
 	int pred;
 
 	char vmax, vmin;
-	if(top<left)
-		vmin=top, vmax=left;
+	if(N<W)
+		vmin=N, vmax=W;
 	else
-		vmin=left, vmax=top;
+		vmin=W, vmax=N;
 
-	if(topleft>vmax)//choose steepest slope if both downward or upward
+	if(NW>vmax)//choose steepest slope if both downward or upward
 		pred=vmin;
-	else if(topleft<vmin)
+	else if(NW<vmin)
 		pred=vmax;
 	else
-		pred=left+top-topleft;//planar prediction (unplane)
+		pred=N+W-NW;
 
 	//char xdelta=top-topleft, ydelta=left-topleft;
 	//if((xdelta>0)==(ydelta>0))
@@ -6288,7 +6289,7 @@ int  predict_grad(const char *buf, int iw, int kx, int ky, int idx, int bytestri
 	//else
 	//	pred=topleft+xdelta+ydelta;//average slope
 	
-	pred=CLAMP(customparam_clamp[0], pred, customparam_clamp[1]);
+	//pred=CLAMP(customparam_clamp[0], pred, customparam_clamp[1]);
 	return pred;
 }
 void pred_grad_fwd(char *buf, int iw, int ih, int nch, int bytestride)
