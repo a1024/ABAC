@@ -87,13 +87,16 @@ typedef enum TransformTypeEnum
 {
 	T_NONE,
 
+	CT_FWD_YCmCb,		CT_INV_YCmCb,
 	CT_FWD_YCoCg,		CT_INV_YCoCg,//HEVC, VVC
-	CT_FWD_YCoCb,		CT_INV_YCoCb,
+	CT_FWD_SUBG,		CT_INV_SUBG,
+	CT_FWD_XYB,			CT_INV_XYB,
 //	CT_FWD_XGZ,			CT_INV_XGZ,
 //	CT_FWD_XYZ,			CT_INV_XYZ,
 //	CT_FWD_EXP,			CT_INV_EXP,
-	CT_FWD_ADAPTIVE,	CT_INV_ADAPTIVE,
+//	CT_FWD_ADAPTIVE,	CT_INV_ADAPTIVE,	//X  mediocre chroma spatial predictor that leaves luma as it is
 	CT_FWD_CUSTOM,		CT_INV_CUSTOM,
+//	CT_FWD_QUAD,		CT_INV_QUAD,		//X  leaves quarter of image spatially correlated
 
 	CST_SEPARATOR,
 
@@ -296,18 +299,24 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case T_NONE:				a="NONE";					break;
 	case CT_FWD_YCoCg:			a="C  Fwd YCoCg-R";			break;
 	case CT_INV_YCoCg:			a="C  Inv YCoCg-R";			break;
-	case CT_FWD_YCoCb:			a="C  Fwd YCmCb-R";			break;
-	case CT_INV_YCoCb:			a="C  Inv YCmCb-R";			break;
+	case CT_FWD_YCmCb:			a="C  Fwd YCmCb-R";			break;
+	case CT_INV_YCmCb:			a="C  Inv YCmCb-R";			break;
+	case CT_FWD_SUBG:			a="C  Fwd SubGreen";		break;
+	case CT_INV_SUBG:			a="C  Inv SubGreen";		break;
+	case CT_FWD_XYB:			a="C  Fwd XYB";				break;
+	case CT_INV_XYB:			a="C  Inv XYB";				break;
 //	case CT_FWD_XGZ:			a="C  Fwd XGZ";				break;
 //	case CT_INV_XGZ:			a="C  Inv XGZ";				break;
 //	case CT_FWD_XYZ:			a="C  Fwd XYZ";				break;
 //	case CT_INV_XYZ:			a="C  Inv XYZ";				break;
 //	case CT_FWD_EXP:			a="C  Fwd Experimental";	break;
 //	case CT_INV_EXP:			a="C  Inv Experimental";	break;
-	case CT_FWD_ADAPTIVE:		a="C  Fwd Adaptive";		break;
-	case CT_INV_ADAPTIVE:		a="C  Inv Adaptive";		break;
+//	case CT_FWD_ADAPTIVE:		a="C  Fwd Adaptive";		break;
+//	case CT_INV_ADAPTIVE:		a="C  Inv Adaptive";		break;
 	case CT_FWD_CUSTOM:			a="C  Fwd CUSTOM";			break;
 	case CT_INV_CUSTOM:			a="C  Inv CUSTOM";			break;
+//	case CT_FWD_QUAD:			a="C  Fwd Quad";			break;
+//	case CT_INV_QUAD:			a="C  Inv Quad";			break;
 
 	case CST_SEPARATOR:			a="";						break;
 
@@ -860,18 +869,24 @@ void update_image()
 			{
 			case CT_FWD_YCoCg:		colortransform_ycocg_fwd((char*)image, iw, ih);		break;
 			case CT_INV_YCoCg:		colortransform_ycocg_inv((char*)image, iw, ih);		break;
-			case CT_FWD_YCoCb:		colortransform_ycmcb_fwd((char*)image, iw, ih);		break;
-			case CT_INV_YCoCb:		colortransform_ycmcb_inv((char*)image, iw, ih);		break;
+			case CT_FWD_YCmCb:		colortransform_ycmcb_fwd((char*)image, iw, ih);		break;
+			case CT_INV_YCmCb:		colortransform_ycmcb_inv((char*)image, iw, ih);		break;
+			case CT_FWD_SUBG:		colortransform_subg_fwd((char*)image, iw, ih);		break;
+			case CT_INV_SUBG:		colortransform_subg_inv((char*)image, iw, ih);		break;
+			case CT_FWD_XYB:		lossy_colortransform_xyb((char*)image, iw, ih, 1);	break;
+			case CT_INV_XYB:		lossy_colortransform_xyb((char*)image, iw, ih, 0);	break;
 		//	case CT_FWD_XGZ:		colortransform_xgz_fwd((char*)image, iw, ih);		break;
 		//	case CT_INV_XGZ:		colortransform_xgz_inv((char*)image, iw, ih);		break;
 		//	case CT_FWD_XYZ:		colortransform_xyz_fwd((char*)image, iw, ih);		break;
 		//	case CT_INV_XYZ:		colortransform_xyz_inv((char*)image, iw, ih);		break;
 		//	case CT_FWD_EXP:		colortransform_exp_fwd((char*)image, iw, ih);		break;
 		//	case CT_INV_EXP:		colortransform_exp_inv((char*)image, iw, ih);		break;
-			case CT_FWD_ADAPTIVE:	colortransform_adaptive((char*)image, iw, ih, 1);	break;
-			case CT_INV_ADAPTIVE:	colortransform_adaptive((char*)image, iw, ih, 0);	break;
+		//	case CT_FWD_ADAPTIVE:	colortransform_adaptive((char*)image, iw, ih, 1);	break;
+		//	case CT_INV_ADAPTIVE:	colortransform_adaptive((char*)image, iw, ih, 0);	break;
 			case CT_FWD_CUSTOM:		colortransform_custom_fwd((char*)image, iw, ih);	break;
 			case CT_INV_CUSTOM:		colortransform_custom_inv((char*)image, iw, ih);	break;
+		//	case CT_FWD_QUAD:		colortransform_quad((char*)image, iw, ih, 1);		break;
+		//	case CT_INV_QUAD:		colortransform_quad((char*)image, iw, ih, 1);		break;
 
 		//	case ST_PREPROC_GRAD:	preproc_grad((char*)image, iw, ih);					break;
 		//	case ST_PREPROC_X:		preproc_x((char*)image, iw, ih);					break;
@@ -1425,8 +1440,26 @@ void chart_hist_draw2(float x1, float x2, float y1, float y2, int color, int *hi
 }
 void chart_jointhist_draw()
 {
-	const float cubesize=64, height=2;
+	const float cubesize=64, height=1;
 	draw_AAcuboid_wire(0, cubesize, 0, cubesize, 0, height*cubesize, 0xFF000000);
+
+	const int rowlen=iw;
+	//if(iw>rowlen)
+	{
+		int px=0, py=ih>>1;
+		//int px=rand()%(iw-rowlen), py=rand()%ih;
+		static ArrayHandle vertices=0;
+		for(int kx=px;kx<px+rowlen;++kx)
+		{
+			int idx=(iw*py+kx)<<2;
+			unsigned char r=image[idx|0], g=image[idx|1], b=image[idx|2];
+			draw_3d_line_enqueue(&vertices, cubesize*r/255, cubesize*g/255, height*cubesize*b/255);
+		}
+		int color=0xFF000000;
+		int texture[]={color, color, color, color};
+		draw_3d_flush(vertices, &cam, texture, 2, 2, 0, GL_LINE_STRIP);
+	}
+
 	draw_contour3d(&cam, 0, cubesize, 0, cubesize, 0, height*cubesize, txid_jointhist, 1<<jointhist_nbits, 0.8f);
 	//draw_contour3d_rect(&cam, gpu_vertices, (int)(cpu_vertices->count/5), image_txid[2], 0.8f);
 }

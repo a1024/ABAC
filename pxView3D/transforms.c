@@ -159,10 +159,10 @@ void colortransform_ycmcb_fwd(char *buf, int iw, int ih)//3 channels, stride 4 b
 	{
 		char r=buf[k], g=buf[k|1], b=buf[k|2];
 
-		r-=g;		//diff(r, g)                [ 1      -1      0  ].RGB
+		r-=g;       //diff(r, g)            [ 1      -1      0  ].RGB
 		g+=r>>1;
-		b-=g;		//diff(b, av(r, g))			[-1/2    -1/2    1  ].RGB
-		g+=b>>1;	//av(b, av(r, g))           [ 1/4     1/4    1/2].RGB
+		b-=g;       //diff(b, av(r, g))     [-1/2    -1/2    1  ].RGB
+		g+=b>>1;    //av(b, av(r, g))       [ 1/4     1/4    1/2].RGB
 
 		buf[k  ]=r;//Cm
 		buf[k|1]=g;//Y
@@ -184,6 +184,197 @@ void colortransform_ycmcb_inv(char *buf, int iw, int ih)//3 channels, stride 4 b
 		buf[k|1]=g;
 		buf[k|2]=b;
 	}
+}
+void colortransform_subg_fwd(char *buf, int iw, int ih)
+{
+	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
+	{
+		char r=buf[k], g=buf[k|1], b=buf[k|2];
+
+		r-=g;       //r-g							[1     -1     0  ].RGB
+		b-=g;       //b-g							[0     -1     1  ].RGB
+		g+=(r+b)>>2;//g+(r-g+b-g)/4 = r/4+g/2+b/4	[1/4    1/2   1/4].RGB
+
+		buf[k  ]=r;//C?
+		buf[k|1]=g;//Y
+		buf[k|2]=b;//C?
+	}
+}
+void colortransform_subg_inv(char *buf, int iw, int ih)
+{
+	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
+	{
+		char r=buf[k], g=buf[k|1], b=buf[k|2];//Cm Y Cb
+		
+		g-=(r+b)>>2;
+		b+=g;
+		r+=g;
+
+		buf[k  ]=r;
+		buf[k|1]=g;
+		buf[k|2]=b;
+	}
+}
+void lossy_colortransform_xyb(char *buf, int iw, int ih, int fwd)
+{
+	const double bias=0.00379307325527544933;
+	double cbrt_bias=cbrt(bias);
+	for(int ky=0;ky<ih;++ky)//for demonstration purposes only
+	{
+		for(int kx=0;kx<iw;++kx)
+		{
+			int idx=(iw*ky+kx)<<2;
+
+			if(fwd)
+			{
+				double
+					r=(double)(buf[idx|0]+128)/255,
+					g=(double)(buf[idx|1]+128)/255,
+					b=(double)(buf[idx|2]+128)/255;
+
+				double
+					L=0.3*r+0.622*g+0.078*b,
+					M=0.23*r+0.692*g+0.078*b,
+					S=0.24342268924547819*r+0.20476744424496821*g+0.55180986650955360*b;
+				L=cbrt(L+bias)-cbrt_bias;
+				M=cbrt(M+bias)-cbrt_bias;
+				S=cbrt(S+bias)-cbrt_bias;
+				r=(L-M)*0.5;//X
+				g=(L+M)*0.5;//Y
+				b=S-g;		//B-Y
+
+				r*=4096;//customparam_ct[0]*1000
+				g*=144;
+				b*=1024;
+				r=CLAMP(-128, r, 127);
+				g=CLAMP(-128, g, 127);
+				b=CLAMP(-128, b, 127);
+
+				buf[idx|0]=(char)r;
+				buf[idx|1]=(char)g;
+				buf[idx|2]=(char)b;
+			}
+			else
+			{
+				double
+					r=(double)buf[idx|0]/4096,
+					g=(double)buf[idx|1]/144,
+					b=(double)buf[idx|2]/1024;
+
+				double
+					L=g+r,
+					M=g-r,//g is the sum
+					S=b+g;
+				L+=cbrt_bias, L*=L*L, L-=bias;
+				M+=cbrt_bias, M*=M*M, M-=bias;
+				S+=cbrt_bias, S*=S*S, S-=bias;
+				r=11.03160*L-9.86694*M-0.164623*S;
+				g=-3.25415*L+4.41877*M-0.164623*S;
+				b=-3.65885*L+2.71292*M+1.945930*S;
+
+				buf[idx|0]=(char)(255*r-128);
+				buf[idx|1]=(char)(255*g-128);
+				buf[idx|2]=(char)(255*b-128);
+			}
+		}
+	}
+}
+
+void colortransform_quad(char *src, int iw, int ih, int fwd)
+{
+	int res=iw*ih;
+	char *dst=(char*)malloc((size_t)res<<2);
+	if(!dst)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	memcpy(dst, src, (size_t)res<<2);
+	for(int ky=0;ky<ih-1;ky+=2)
+	{
+		for(int kx=0;kx<iw-1;kx+=2)
+		{
+			int idx=(iw*ky+kx)<<2;
+			char comp[]=
+			{
+				src[idx  ], src[idx+4  ], src[idx+(iw<<2)  ], src[idx+(iw<<2)+4  ],//r
+				src[idx+1], src[idx+4+1], src[idx+(iw<<2)+1], src[idx+(iw<<2)+4+1],//g
+				src[idx+2], src[idx+4+2], src[idx+(iw<<2)+2], src[idx+(iw<<2)+4+2],//b
+			};
+
+			if(fwd)
+			{
+				for(int k=0;k<4;++k)
+				{
+					comp[k+0]-=comp[k+4];
+					comp[k+4]+=comp[k+0]>>1;
+					comp[k+8]-=comp[k+4];
+					comp[k+4]+=comp[k+8]>>1;
+				}
+				for(int k=0;k<12;k+=4)
+				{
+					comp[k|1]-=comp[k|0];
+					comp[k|0]+=comp[k|1]>>1;
+					comp[k|3]-=comp[k|2];
+					comp[k|2]+=comp[k|3]>>1;
+					comp[k|2]-=comp[k|0];
+					comp[k|0]+=comp[k|2]>>1;
+				}
+			}
+			else
+			{
+				for(int k=0;k<12;k+=4)
+				{
+					comp[k|0]-=comp[k|2]>>1;
+					comp[k|2]+=comp[k|0];
+					comp[k|2]-=comp[k|3]>>1;
+					comp[k|3]+=comp[k|2];
+					comp[k|0]-=comp[k|1]>>1;
+					comp[k|1]+=comp[k|0];
+				}
+				for(int k=0;k<4;++k)
+				{
+					comp[k+4]-=comp[k+8]>>1;
+					comp[k+8]+=comp[k+4];
+					comp[k+4]-=comp[k+0]>>1;
+					comp[k+0]+=comp[k+4];
+				}
+			}
+
+			dst[(iw*(ky>>1)+(kx>>1))<<2|0]=comp[0|0];
+			dst[(iw*(ky>>1)+(kx>>1))<<2|1]=comp[4|0];
+			dst[(iw*(ky>>1)+(kx>>1))<<2|2]=comp[8|0];
+
+			dst[(iw*(ky>>1)+(iw>>1)+(kx>>1))<<2|0]=comp[0|1];
+			dst[(iw*(ky>>1)+(iw>>1)+(kx>>1))<<2|1]=comp[4|1];
+			dst[(iw*(ky>>1)+(iw>>1)+(kx>>1))<<2|2]=comp[8|1];
+
+			dst[(iw*((ih>>1)+(ky>>1))+(kx>>1))<<2|0]=comp[0|2];
+			dst[(iw*((ih>>1)+(ky>>1))+(kx>>1))<<2|1]=comp[4|2];
+			dst[(iw*((ih>>1)+(ky>>1))+(kx>>1))<<2|2]=comp[8|2];
+
+			dst[(iw*((ih>>1)+(ky>>1))+(iw>>1)+(kx>>1))<<2|0]=comp[0|3];
+			dst[(iw*((ih>>1)+(ky>>1))+(iw>>1)+(kx>>1))<<2|1]=comp[4|3];
+			dst[(iw*((ih>>1)+(ky>>1))+(iw>>1)+(kx>>1))<<2|2]=comp[8|3];
+
+			//char r[]={src[idx  ], src[idx+4  ], src[idx+(iw<<2)  ], src[idx+(iw<<2)+4  ]};
+			//char g[]={src[idx+1], src[idx+4+1], src[idx+(iw<<2)+1], src[idx+(iw<<2)+4+1]};
+			//char b[]={src[idx+2], src[idx+4+2], src[idx+(iw<<2)+2], src[idx+(iw<<2)+4+2]};
+			//
+			//for(int k=0;k<4;++k)
+			//{
+			//	r[k]-=g[k];       //diff(r, g)            [ 1      -1      0  ].RGB
+			//	g[k]+=r[k]>>1;
+			//	b[k]-=g[k];       //diff(b, av(r, g))     [-1/2    -1/2    1  ].RGB
+			//	g[k]+=b[k]>>1;    //av(b, av(r, g))       [ 1/4     1/4    1/2].RGB
+			//}
+			//r[0]-=r[1];
+			//r[1]+=r[0]>>1;
+			//r[2]-=
+		}
+	}
+	memcpy(src, dst, (size_t)res<<2);
+	free(dst);
 }
 
 void c_mul_add(double *dst, const double *a, const double *b)
@@ -496,8 +687,151 @@ void act_train(short *coeff, char r0, char g0, char b0, int e0)
 		coeff[idx[2]]-=inc[2];
 	}
 }
-void colortransform_adaptive(char *src, int iw, int ih, int fwd)
+void colortransform_adaptive(char *src, int iw, int ih, int fwd)//does mediocre job at spatially predicting chroma, doesn't spatially predict luma
 {
+	int res=iw*ih;
+	char *dst=(char*)malloc((size_t)res<<2);
+	int *blurrer=(int*)malloc(iw*4*sizeof(int));
+	if(!dst||!blurrer)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	const char *pixels=fwd?src:dst;
+	int idx;
+	memcpy(dst, src, (size_t)res<<2);
+	memset(blurrer, 0, iw*3*sizeof(int));
+	for(int ky=0;ky<ih;++ky)
+	{
+		int predr=0, predg=0, predb=0;
+		for(int kx=0;kx<iw;++kx)
+		{
+#if 0
+			int predr=0, predg=0, predb=0, c=0;
+			if(kx)
+			{
+				idx=(iw*ky+kx-1)<<2;
+				++c;
+				predr+=pixels[idx|0];
+				predg+=pixels[idx|1];
+				predb+=pixels[idx|2];
+			}
+			if(ky)
+			{
+				idx=(iw*(ky-1)+kx)<<2;
+				++c;
+				predr+=pixels[idx|0];
+				predg+=pixels[idx|1];
+				predb+=pixels[idx|2];
+				if(kx)
+				{
+					idx=(iw*(ky-1)+kx-1)<<2;
+					++c;
+					predr+=pixels[idx|0];
+					predg+=pixels[idx|1];
+					predb+=pixels[idx|2];
+				}
+				if(kx<iw-1)
+				{
+					idx=(iw*(ky-1)+kx+1)<<2;
+					++c;
+					predr+=pixels[idx|0];
+					predg+=pixels[idx|1];
+					predb+=pixels[idx|2];
+				}
+			}
+#endif
+			idx=(iw*ky+kx)<<2;
+			char r=src[idx|0], g=src[idx|1], b=src[idx|2];
+#if 0
+			if(fwd)
+			{
+				if(predg)
+					r-=g*predr/predg;
+				else
+					r-=g;
+				g+=r/2;
+				b-=g;
+				g+=b>>1;
+			}
+			else
+			{
+				g-=b>>1;
+				b+=g;
+				g-=r/2;
+				if(predg)
+					r+=g*predr/predg;
+				else
+					r+=g;
+			}
+#endif
+#if 1
+			if(ky)//N
+			{
+				predr=blurrer[kx<<2|0];
+				predg=blurrer[kx<<2|1];
+				predb=blurrer[kx<<2|2];
+			}
+			if(kx)//W
+			{
+				predr=blurrer[(kx-1)<<2|0];
+				predg=blurrer[(kx-1)<<2|1];
+				predb=blurrer[(kx-1)<<2|2];
+			}
+			char r0, g0, b0;
+			if(fwd)
+			{
+				r0=r;
+				g0=g;
+				b0=b;
+
+				if(predg&&abs(predr/predg)<127)
+					r-=(int)((long long)g*predr/predg);
+				else
+					r-=g;
+
+				if(predg&&abs(predb/predg)<127)
+					b-=(int)((long long)g*predb/predg);
+				else
+					b-=g;
+
+				g+=(r+b)>>2;
+			}
+			else
+			{
+
+				g-=(r+b)>>2;
+
+				if(predg&&abs(predb/predg)<127)
+					b+=(int)((long long)g*predb/predg);
+				else
+					b+=g;
+
+				if(predg&&abs(predr/predg)<127)
+					r+=(int)((long long)g*predr/predg);
+				else
+					r+=g;
+
+				r0=r;
+				g0=g;
+				b0=b;
+			}
+			blurrer[kx<<2|0]=((r0<<16)-predr)>>3;
+			blurrer[kx<<2|1]=((g0<<16)-predg)>>3;
+			blurrer[kx<<2|2]=((b0<<16)-predb)>>3;
+			//predr+=((r0<<16)-predr)>>4;
+			//predg+=((g0<<16)-predg)>>4;
+			//predb+=((b0<<16)-predb)>>4;
+#endif
+			dst[idx|0]=r;
+			dst[idx|1]=g;
+			dst[idx|2]=b;
+		}
+	}
+	memcpy(src, dst, (size_t)res<<2);
+	free(dst);
+
+#if 0
 	int res=iw*ih;
 	char *dst=(char*)malloc((size_t)res<<2);
 	short *coeff=(short*)malloc(iw*sizeof(short[9]));
@@ -532,6 +866,48 @@ void colortransform_adaptive(char *src, int iw, int ih, int fwd)
 		for(int kx=0;kx<iw;++kx)
 		{
 			int idx=(iw*ky+kx)<<2;
+			char
+				rN=0, gN=0, bN=0,
+				rW=0, gW=0, bW=0;
+			if(kx)
+			{
+				rW=pixels[(idx-(1<<2))|0];
+				gW=pixels[(idx-(1<<2))|1];
+				bW=pixels[(idx-(1<<2))|2];
+			}
+			if(ky)
+			{
+				rN=pixels[(idx-(iw<<2))|0];
+				gN=pixels[(idx-(iw<<2))|1];
+				bN=pixels[(idx-(iw<<2))|2];
+			}
+			char
+				pr=(rN+rW)>>1,
+				pg=(gN+gW)>>1,
+				pb=(bN+bW)>>1;
+			char r=src[idx], g=src[idx|1], b=src[idx|2];
+
+			if(fwd)
+			{
+				r-=g;
+				//r-=pg?(int)(g*sqrt((double)pr/pg)):g;//X  noisy: inefficient with spatial predictor
+				g+=r>>1;
+				b-=g;
+				g+=b>>1;
+			}
+			else
+			{
+				g-=b>>1;
+				b+=g;
+				g-=r>>1;
+				r+=g;
+				//r+=pg?(int)(g*sqrt((double)pr/pg)):g;//X
+			}
+
+			dst[idx|0]=r;
+			dst[idx|1]=g;
+			dst[idx|2]=b;
+#if 0
 			char
 				rN=0, gN=0, bN=0,
 				rW=0, gW=0, bW=0;
@@ -592,6 +968,7 @@ void colortransform_adaptive(char *src, int iw, int ih, int fwd)
 			//{
 			//	//train
 			//}
+#endif
 
 #if 0
 			int idx=iw*ky+kx;
@@ -846,6 +1223,7 @@ void colortransform_adaptive(char *src, int iw, int ih, int fwd)
 	}
 	memcpy(src, dst, (size_t)res<<2);
 	free(dst);
+#endif
 }
 
 void colortransform_exp_fwd(char *buf, int iw, int ih)
@@ -5781,15 +6159,11 @@ void pred_jxl_prealloc(const char *src, int iw, int ih, int kc, short *params, i
 				pred=predictions[0];
 
 			int vmin=cleft, vmax=cleft;
-			if(vmin>ctopright)
-				vmin=ctopright;
-			if(vmin>ctop)
-				vmin=ctop;
+			if(vmin>ctopright)vmin=ctopright;
+			if(vmax<ctopright)vmax=ctopright;
 
-			if(vmax<ctopright)
-				vmax=ctopright;
-			if(vmax<ctop)
-				vmax=ctop;
+			if(vmin>ctop)vmin=ctop;
+			if(vmax<ctop)vmax=ctop;
 
 			vmin<<=8;
 			vmax<<=8;
@@ -9321,21 +9695,22 @@ void pred_grad2(char *buf, int iw, int ih, int fwd)
 }
 #elif defined G2_MM
 #define G2_NPRED 21
+//#define G2_NPRED (21+12)
 short g2_weights[]=
 {
 	 0x003D, 0x0036, 0x0006, 0x007E, 0x0012, 0x0007, 0x0007, 0x0005, 0x001E, 0x0000, 0x0028, 0x0055,-0x0020, 0x0020, 0x0005, 0x0011, 0x0034, 0x0000, 0x0004, 0x003E,
 	 0x0004,
-	 //0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010,
+	 //0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010,
 	 -0x0100, 0x0001,-0x0086,-0x0041, 0x0051,-0x0080, 0x0004, 0x0002,-0x0003,-0x0003, 0x00D9,
 
 	 0x00EA, 0x01C8, 0x00A2, 0x005E, 0x01F4, 0x0045, 0x0091, 0x0066, 0x003B, 0x0027,-0x0011, 0x001B, 0x00FF, 0x007E, 0x00D1, 0x00F3, 0x008F, 0x0130, 0x018E,-0x00AC,
 	 0x0004,
-	 //0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010,
+	 //0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010,
 	 0x010C, 0x0008,-0x007E, 0x00A2, 0x000E,-0x0069,-0x0073,-0x0125,-0x0092, 0x0000, 0x0078,
 
 	 0x0006, 0x003D, 0x0031, 0x002F, 0x003F, 0x0015, 0x0011, 0x0036, 0x002E,-0x0022, 0x0011, 0x0034,-0x0007, 0x0012,-0x0018, 0x0012, 0x002F, 0x0000, 0x0000, 0x001C,
 	 0x0004,
-	 //0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010,
+	 //0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010,
 	 0x00A2, 0x02E1, 0x00C9,-0x00E0,-0x0068,-0x004E,-0x013E,-0x0012, 0x0001, 0x0000,-0x0046,
 };
 void pred_grad2(char *buf, int iw, int ih, int fwd)
@@ -9507,6 +9882,23 @@ void pred_grad2(char *buf, int iw, int ih, int fwd)
 				//++j, preds[j]=W;
 				//++j; GRAD(preds[j], NE, NW, NN, vmin, vmax);
 				//++j; GRAD(preds[j], NN, WW, NNWW, vmin, vmax);
+
+#if 0
+				++j, preds[j]=2*W -WW  , preds[j]=CLAMP(-(128<<8), preds[j], 127<<8);//linear
+				++j, preds[j]=2*N -NN  , preds[j]=CLAMP(-(128<<8), preds[j], 127<<8);
+				++j, preds[j]=2*NW-NNWW, preds[j]=CLAMP(-(128<<8), preds[j], 127<<8);
+				++j, preds[j]=2*NE-NNEE, preds[j]=CLAMP(-(128<<8), preds[j], 127<<8);
+
+				++j, preds[j]=3*W -3*WW  +WWW   , preds[j]=CLAMP(-(128<<8), preds[j], 127<<8);//parabolic
+				++j, preds[j]=3*N -3*NN  +NNN   , preds[j]=CLAMP(-(128<<8), preds[j], 127<<8);
+				++j, preds[j]=3*NW-3*NNWW+NNNWWW, preds[j]=CLAMP(-(128<<8), preds[j], 127<<8);
+				++j, preds[j]=3*NE-3*NNEE+NNNEEE, preds[j]=CLAMP(-(128<<8), preds[j], 127<<8);
+
+				++j, preds[j]=4*W -6*WW  -4*WWW   +WWWW    , preds[j]=CLAMP(-(128<<8), preds[j], 127<<8);//cubic
+				++j, preds[j]=4*N -6*NN  -4*NNN   +NNNN    , preds[j]=CLAMP(-(128<<8), preds[j], 127<<8);
+				++j, preds[j]=4*NW-6*NNWW-4*NNNWWW+NNNNWWWW, preds[j]=CLAMP(-(128<<8), preds[j], 127<<8);
+				++j, preds[j]=4*NE-6*NNEE-4*NNNEEE+NNNNEEEE, preds[j]=CLAMP(-(128<<8), preds[j], 127<<8);
+#endif
 
 				long long num=0;
 				int weights[G2_NPRED], den=0;
