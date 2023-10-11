@@ -90,7 +90,8 @@ typedef enum TransformTypeEnum
 	CT_FWD_YCmCb,		CT_INV_YCmCb,
 	CT_FWD_YCoCg,		CT_INV_YCoCg,//HEVC, VVC
 	CT_FWD_SUBG,		CT_INV_SUBG,
-	CT_FWD_XYB,			CT_INV_XYB,
+	CT_FWD_YCbCr,		CT_INV_YCbCr,//JPEG
+	CT_FWD_XYB,			CT_INV_XYB,  //JPEG XL
 //	CT_FWD_XGZ,			CT_INV_XGZ,
 //	CT_FWD_XYZ,			CT_INV_XYZ,
 //	CT_FWD_EXP,			CT_INV_EXP,
@@ -106,7 +107,7 @@ typedef enum TransformTypeEnum
 	
 //	ST_FWD_CUSTOM2,		ST_INV_CUSTOM2,
 	ST_FWD_CUSTOM3,		ST_INV_CUSTOM3,
-	ST_FWD_CUSTOM4,		ST_INV_CUSTOM4,
+//	ST_FWD_CUSTOM4,		ST_INV_CUSTOM4,
 //	ST_FWD_KALMAN,		ST_INV_KALMAN,
 //	ST_FWD_LOGIC,		ST_INV_LOGIC,
 //	ST_FWD_LEARNED,		ST_INV_LEARNED,
@@ -303,6 +304,8 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case CT_INV_YCmCb:			a="C  Inv YCmCb-R";			break;
 	case CT_FWD_SUBG:			a="C  Fwd SubGreen";		break;
 	case CT_INV_SUBG:			a="C  Inv SubGreen";		break;
+	case CT_FWD_YCbCr:			a="C  Fwd YCbCr";			break;
+	case CT_INV_YCbCr:			a="C  Inv YCbCr";			break;
 	case CT_FWD_XYB:			a="C  Fwd XYB";				break;
 	case CT_INV_XYB:			a="C  Inv XYB";				break;
 //	case CT_FWD_XGZ:			a="C  Fwd XGZ";				break;
@@ -328,8 +331,8 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 //	case ST_INV_CUSTOM2:		a=" S Inv CUSTOM2";			break;
 	case ST_FWD_CUSTOM3:		a=" S Fwd CUSTOM3";			break;
 	case ST_INV_CUSTOM3:		a=" S Inv CUSTOM3";			break;
-	case ST_FWD_CUSTOM4:		a=" S Fwd CUSTOM4";			break;
-	case ST_INV_CUSTOM4:		a=" S Inv CUSTOM4";			break;
+//	case ST_FWD_CUSTOM4:		a=" S Fwd CUSTOM4";			break;
+//	case ST_INV_CUSTOM4:		a=" S Inv CUSTOM4";			break;
 //	case ST_FWD_KALMAN:			a=" S Fwd Kalman";			break;
 //	case ST_INV_KALMAN:			a=" S Inv Kalman";			break;
 //	case ST_FWD_LOGIC:			a=" S Fwd Logic";			break;
@@ -873,6 +876,8 @@ void update_image()
 			case CT_INV_YCmCb:		colortransform_ycmcb_inv((char*)image, iw, ih);		break;
 			case CT_FWD_SUBG:		colortransform_subg_fwd((char*)image, iw, ih);		break;
 			case CT_INV_SUBG:		colortransform_subg_inv((char*)image, iw, ih);		break;
+			case CT_FWD_YCbCr:		lossy_colortransform_ycbcr((char*)image, iw, ih, 1);break;
+			case CT_INV_YCbCr:		lossy_colortransform_ycbcr((char*)image, iw, ih, 0);break;
 			case CT_FWD_XYB:		lossy_colortransform_xyb((char*)image, iw, ih, 1);	break;
 			case CT_INV_XYB:		lossy_colortransform_xyb((char*)image, iw, ih, 0);	break;
 		//	case CT_FWD_XGZ:		colortransform_xgz_fwd((char*)image, iw, ih);		break;
@@ -903,8 +908,8 @@ void update_image()
 		//	case ST_INV_CUSTOM2:	custom2_apply((char*)image, iw, ih, 0, &c2_params);	break;
 			case ST_FWD_CUSTOM3:	custom3_apply((char*)image, iw, ih, 1, &c3_params);	break;
 			case ST_INV_CUSTOM3:	custom3_apply((char*)image, iw, ih, 0, &c3_params);	break;
-			case ST_FWD_CUSTOM4:	custom4_apply((char*)image, iw, ih, 1, &c4_params);	break;
-			case ST_INV_CUSTOM4:	custom4_apply((char*)image, iw, ih, 0, &c4_params);	break;
+		//	case ST_FWD_CUSTOM4:	custom4_apply((char*)image, iw, ih, 1, &c4_params);	break;
+		//	case ST_INV_CUSTOM4:	custom4_apply((char*)image, iw, ih, 0, &c4_params);	break;
 		//	case ST_FWD_KALMAN:		kalman_apply((char*)image, iw, ih, 1);				break;
 		//	case ST_INV_KALMAN:		kalman_apply((char*)image, iw, ih, 0);				break;
 		//	case ST_FWD_CUSTOM2:	pred_custom2_apply((char*)image, iw, ih, 1);		break;
@@ -2927,6 +2932,7 @@ toggle_drag:
 				}
 				update_image();
 			}
+#if 0
 			else if(transforms_mask[ST_FWD_CUSTOM4]||transforms_mask[ST_INV_CUSTOM4])
 			{
 				int maskbits=10;
@@ -2962,6 +2968,7 @@ toggle_drag:
 				}
 				update_image();
 			}
+#endif
 			else if(transforms_mask[ST_FWD_JXL]||transforms_mask[ST_INV_JXL]||transforms_mask[ST_FWD_MM]||transforms_mask[ST_INV_MM]
 			//	||transforms_mask[ST_FWD_JOINT]||transforms_mask[ST_INV_JOINT]
 			)

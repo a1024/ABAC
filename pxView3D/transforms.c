@@ -215,6 +215,53 @@ void colortransform_subg_inv(char *buf, int iw, int ih)
 		buf[k|2]=b;
 	}
 }
+void lossy_colortransform_ycbcr(char *buf, int iw, int ih, int fwd)
+{
+	for(int ky=0;ky<ih;++ky)//for demonstration purposes only
+	{
+		for(int kx=0;kx<iw;++kx)
+		{
+			int idx=(iw*ky+kx)<<2;
+			
+			if(fwd)
+			{
+				double
+					r=(double)(buf[idx|0]+128),
+					g=(double)(buf[idx|1]+128),
+					b=(double)(buf[idx|2]+128);
+
+				double
+					Y=0.299*r+0.587*g+0.114*b,
+					Cb=128-0.168736*r-0.331264*g+0.5*b,
+					Cr=128+0.5*r-0.418688*g-0.081312*b;
+
+				Y=CLAMP(0, Y, 255);
+				Cb=CLAMP(0, Cb, 255);
+				Cr=CLAMP(0, Cr, 255);
+
+				buf[idx|0]=(char)Y-128;
+				buf[idx|1]=(char)Cb-128;
+				buf[idx|2]=(char)Cr-128;
+			}
+			else
+			{
+				double
+					Y=(double)buf[idx|0],
+					Cb=(double)buf[idx|1],
+					Cr=(double)buf[idx|2];
+
+				double
+					r=Y+1.402*Cr,
+					g=Y-0.344136*Cb-0.714136*Cr,
+					b=Y+1.772*Cb;
+
+				buf[idx|0]=(char)r;
+				buf[idx|1]=(char)g;
+				buf[idx|2]=(char)b;
+			}
+		}
+	}
+}
 void lossy_colortransform_xyb(char *buf, int iw, int ih, int fwd)
 {
 	const double bias=0.00379307325527544933;

@@ -715,6 +715,7 @@ void colortransform_ycmcb_fwd(char *buf, int iw, int ih);
 void colortransform_ycmcb_inv(char *buf, int iw, int ih);
 void colortransform_subg_fwd(char *buf, int iw, int ih);
 void colortransform_subg_inv(char *buf, int iw, int ih);
+void lossy_colortransform_ycbcr(char *buf, int iw, int ih, int fwd);
 void lossy_colortransform_xyb(char *buf, int iw, int ih, int fwd);
 
 //void colortransform_quad(char *buf, int iw, int ih, int fwd);
