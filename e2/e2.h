@@ -95,7 +95,7 @@ int t43_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 //data:  must be unsigned integers shifted leftmost. For example:
 //	A 14-bit subpixel must be stored like this: 0bXXXX_XXXX_XXXX_XX00
 //	A 5-bit integer must be stored like this: 0bXXXX_X000
-int slic_encode(int iw, int ih, int nch, int depth, const void *pixels, ArrayHandle *data);
+int slic_encode(int iw, int ih, int nch, int depth, const void *pixels, ArrayHandle *data, int loud);
 void* slic_decode(const void *data, int len, int *iw, int *ih, int *nch, int *depth);
 
 

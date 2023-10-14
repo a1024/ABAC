@@ -555,7 +555,7 @@ static void print_causalkernel(const short *params, int reach)
 int t40_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud)
 {
 	int res=iw*ih;
-	double t_start=time_ms();
+	double t_start=time_sec();
 	if(loud)
 	{
 		acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H-%M-%S");
@@ -602,7 +602,7 @@ int t40_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 				if(loud)
 				{
 					TimeInfo ti;
-					parsetimedelta(time_ms()-t_start, &ti);
+					parsetimedelta(time_sec()-t_start, &ti);
 					printf("[%d/%d  %2d/%2d  %3d/%3d]  %6.2lf%%  CR%11lf  %02d-%02d-%06.3f%c", kc+1, 3, k+1, T40_NRANDPRED, k2+1, T40_NITER, 100.*(T40_NITER*(T40_NRANDPRED*kc+k)+k2+1)/(3*T40_NRANDPRED*T40_NITER), 1/curr, ti.hours, ti.mins, ti.secs, loud==2?'\n':'\r');
 				}
 				//if(!best)
@@ -713,7 +713,7 @@ int t40_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 		printf("\n");//skip progress line
 		printf("Used %f MB of memory\n", (float)t40_ctx->nnodes*sizeof(T40Node)/(1024*1024));
 		printf("Encode elapsed ");
-		timedelta2str(0, 0, time_ms()-t_start);
+		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 		
 		float chsizes[4]={0};
@@ -799,7 +799,7 @@ int t40_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 int t40_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud)
 {
 	int res=iw*ih;
-	double t_start=time_ms();
+	double t_start=time_sec();
 	if(loud)
 	{
 		acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H-%M-%S");
@@ -888,7 +888,7 @@ int t40_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 	{
 		printf("\n");//skip progress line
 		printf("Decode elapsed ");
-		timedelta2str(0, 0, time_ms()-t_start);
+		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 	}
 	t40_ctx_clear(&t40_ctx);
@@ -1177,7 +1177,7 @@ void t41_ctx_update(T41Ctx *ctx, int kc, int kb, __m256i const *bits)
 int t41_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud)
 {
 	int res=iw*ih;
-	double t_start=time_ms();
+	double t_start=time_sec();
 	if(loud)
 	{
 		acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H-%M-%S");
@@ -1221,7 +1221,7 @@ int t41_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 				if(loud)
 				{
 					TimeInfo ti;
-					parsetimedelta(time_ms()-t_start, &ti);
+					parsetimedelta(time_sec()-t_start, &ti);
 					printf("[%d/%d  %2d/%2d  %3d/%3d]  %6.2lf%%  CR%11lf  %02d-%02d-%06.3f%c", kc+1, 3, kp+1, T41_NRANDPRED, k2+1, T41_NITER, 100.*(T41_NITER*(T41_NRANDPRED*kc+kp)+k2+1)/(3*T41_NRANDPRED*T41_NITER), 1/curr, ti.hours, ti.mins, ti.secs, loud==2?'\n':'\r');
 				}
 				//if(!best)
@@ -1376,7 +1376,7 @@ int t41_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 		printf("\n");//skip progress line
 		printf("Used %f MB of memory\n", (float)t41_ctx->nnodes*sizeof(T41Node)/(1024*1024));
 		printf("Encode elapsed ");
-		timedelta2str(0, 0, time_ms()-t_start);
+		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 		
 		int res2=bw*bh;
@@ -1470,7 +1470,7 @@ int t41_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 int t41_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud)
 {
 	int res=iw*ih;
-	double t_start=time_ms();
+	double t_start=time_sec();
 	if(loud)
 	{
 		acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H-%M-%S");
@@ -1566,7 +1566,7 @@ int t41_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 	{
 		printf("\n");//skip progress line
 		printf("Decode elapsed ");
-		timedelta2str(0, 0, time_ms()-t_start);
+		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 	}
 	t41_ctx_clear(&t41_ctx);
@@ -2153,7 +2153,7 @@ void t42_freectx(void **ctx)
 int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud)
 {
 	int res=iw*ih;
-	double t_start=time_ms();
+	double t_start=time_sec();
 	if(loud)
 	{
 		acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H-%M-%S");
@@ -2229,7 +2229,7 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 		printf("\n");//skip progress line
 		printf("Used %f MB of memory\n", (float)ctx->nnodes*sizeof(T42Node)/(1024*1024));
 		printf("Encode elapsed ");
-		timedelta2str(0, 0, time_ms()-t_start);
+		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 		
 		float chsizes[4]={0};
@@ -2315,7 +2315,7 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 int t42_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud)
 {
 	int res=iw*ih;
-	double t_start=time_ms();
+	double t_start=time_sec();
 
 	char *ebuf=(char*)malloc((size_t)res<<2);
 	//if(!*ctx0)
@@ -2366,7 +2366,7 @@ int t42_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 	{
 		printf("\n");//skip progress line
 		printf("Decode elapsed ");
-		timedelta2str(0, 0, time_ms()-t_start);
+		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 	}
 	return 1;
@@ -3404,7 +3404,7 @@ void t43_update_error(T43Ctx *ctx, char pixel, char *error)
 int t43_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud)
 {
 	int res=iw*ih;
-	double t_start=time_ms();
+	double t_start=time_sec();
 	if(loud)
 	{
 		acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H-%M-%S");
@@ -3476,7 +3476,7 @@ int t43_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 		printf("\n");//skip progress line
 		printf("Used %f MB of memory\n", (float)t43_ctx->nnodes*sizeof(T43Node)/(1024*1024));
 		printf("Encode elapsed ");
-		timedelta2str(0, 0, time_ms()-t_start);
+		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 		
 		float chsizes[4]={0};
@@ -3559,7 +3559,7 @@ int t43_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 int t43_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud)
 {
 	int res=iw*ih;
-	double t_start=time_ms();
+	double t_start=time_sec();
 
 	char *ebuf=(char*)malloc((size_t)res<<2);
 	T43Ctx *t43_ctx=t43_ctx_init();
@@ -3608,7 +3608,7 @@ int t43_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 	{
 		printf("\n");//skip progress line
 		printf("Decode elapsed ");
-		timedelta2str(0, 0, time_ms()-t_start);
+		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 	}
 	return 1;
@@ -3637,17 +3637,17 @@ void ac_vs_ans()
 		bans_enc(&bans, p0, 0);
 	}
 
-	//double t_abac=time_ms();
+	//double t_abac=time_sec();
 	//for(int k=0;k<1000000000;++k)
 	//	abac_enc(&abac, p0, 0);
 	//abac_enc_flush(&abac);
-	//t_abac=time_ms()-t_abac;
+	//t_abac=time_sec()-t_abac;
 	//
-	//double t_bans=time_ms();
+	//double t_bans=time_sec();
 	//for(int k=0;k<1000000000;++k)
 	//	bans_enc(&bans, p0, 0);
 	//bans_enc_flush(&bans);
-	//t_bans=time_ms()-t_bans;
+	//t_bans=time_sec()-t_bans;
 
 	//printf("ABAC  %8lld bytes  %lf ms\n", list_abac.nobj, t_abac);//5724 bytes  3160.941600 ms
 	//printf("BANS  %8lld bytes  %lf ms\n", list_bans.nobj, t_bans);//2618 bytes  8928.841800 ms

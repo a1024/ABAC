@@ -74,15 +74,15 @@ int minimum(int a, int b);
 int maximum(int a, int b);
 int acme_isdigit(char c, char base);
 
-double time_ms();
+double time_sec();
 
 typedef struct TimeInfoStruct
 {
 	int days, hours, mins;
 	float secs;
 } TimeInfo;
-void parsetimedelta(double delta, TimeInfo *ti);
-int timedelta2str(char *buf, size_t len, double ms);
+void parsetimedelta(double secs, TimeInfo *ti);
+int timedelta2str(char *buf, size_t len, double secs);
 int acme_strftime(char *buf, size_t len, const char *format);//prints current time to string
 
 int print_bin8(int x);

@@ -315,43 +315,44 @@ int		acme_isdigit(char c, char base)
 	return 0;
 }
 
-double	time_ms()
+double	time_sec()
 {
 #ifdef _MSC_VER
-	static double inv_f=0;
+	static long long t0=0;
 	LARGE_INTEGER li;
-	//if(!inv_f)
-	//{
-		QueryPerformanceFrequency(&li);//<Windows.h>
-		inv_f=1/(double)li.QuadPart;
-	//}
+	double t;
 	QueryPerformanceCounter(&li);
-	return 1000.*(double)li.QuadPart*inv_f;
+	if(!t0)
+		t0=li.QuadPart;
+	t=(double)(li.QuadPart-t0);
+	QueryPerformanceFrequency(&li);
+	t/=(double)li.QuadPart;
+	return t;
 #else
 	struct timespec t;
 	clock_gettime(CLOCK_REALTIME, &t);//<time.h>
-	return t.tv_sec*1000+t.tv_nsec*1e-6;
+	return t.tv_sec+t.tv_nsec*1e-9;
 #endif
 }
-void parsetimedelta(double ms, TimeInfo *ti)
+void parsetimedelta(double secs, TimeInfo *ti)
 {
-	ti->days=(int)floor(ms/(1000*60*60*24));
-	ms-=ti->days*(1000*60*60*24);
+	ti->days=(int)floor(secs/(60*60*24));
+	secs-=ti->days*(60*60*24);
 
-	ti->hours=(int)floor(ms/(1000*60*60));
-	ms-=ti->hours*(1000*60*60);
+	ti->hours=(int)floor(secs/(60*60));
+	secs-=ti->hours*(60*60);
 
-	ti->mins=(int)floor(ms/(1000*60));
-	ms-=ti->mins*(1000*60);
+	ti->mins=(int)floor(secs/60);
+	secs-=ti->mins*60;
 
-	ti->secs=(float)(ms/1000);
+	ti->secs=(float)(secs);
 }
-int		timedelta2str(char *buf, size_t len, double ms)
+int		timedelta2str(char *buf, size_t len, double secs)
 {
 	int printed;
 	TimeInfo ti;
 
-	parsetimedelta(ms, &ti);
+	parsetimedelta(secs, &ti);
 
 	printed=0;
 	if(buf)

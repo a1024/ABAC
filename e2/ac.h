@@ -614,7 +614,7 @@ inline void bans_enc(BANSEncContext *ctx, unsigned short p0, int bit)
 		dlist_push_back(ctx->list, &ctx->state, 2);
 		ctx->state>>=16;
 	}
-	debug_enc_update(ctx->state, cdf, freq, 0, 0, 0, 0, sym);
+	debug_enc_update(ctx->state, cdf, freq, 0, 0, 0, 0, bit);
 	ctx->state=ctx->state/freq<<16|(cdf+ctx->state%freq);//update
 }
 inline void bans_enc_flush(BANSEncContext *ctx)

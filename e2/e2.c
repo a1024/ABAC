@@ -1,8 +1,9 @@
-﻿#include "e2.h"
+﻿#include"e2.h"
 #include<stdio.h>
 #include<stdlib.h>
 #include<string.h>
 #include<math.h>
+#include<time.h>
 #define QOI_IMPLEMENTATION
 #include"qoi.h"
 static const char file[]=__FILE__;
@@ -44,6 +45,78 @@ void test1()
 		w0-=lr*grad_w0;
 		w1-=lr*grad_w1;
 	}
+	printf("Done.\n");
+	pause();
+	exit(0);
+}
+#endif
+#if 0
+int query_weekday(int year, int month, int day)//args start with 1 (eg: 2023-10-13 is 13th October), 0 is Saturday
+{
+	//https://www.efaculty.in/c-programs/find-day-of-week-from-a-given-date-program-in-c/
+	const int dayspermonth[]={31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+	long long absday=day;
+	for(int km=0;km<month-1;++km)
+		absday+=dayspermonth[km];
+	if(month>2)
+		absday+=year%100!=0 && year%4==0 || year%400==0;
+	int f=(year-1)/4, h=(year-1)/100, fh=(year-1)/400;
+	int weekday=(year+absday+f-h+fh)%7;
+	return weekday;
+}
+void test_calendar()
+{
+	const char *daynames[]=
+	{
+		"Sa",
+		"Su",
+		"Mo",
+		"Tu",
+		"We",
+		"Th",
+		"Fr",
+	};
+	const int dayspermonth[]={31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+
+	{
+		time_t now=time(0);
+		struct tm *date=localtime(&now);
+		int wday=query_weekday(1900+date->tm_year, date->tm_mon+1, date->tm_mday);
+		//int wday=query_weekday(2021, 4, 12);//should be 'Monday' 2
+		printf("Today is %04d-%02d-%02d%s\n\n", 1900+date->tm_year, date->tm_mon+1, date->tm_mday, daynames[wday]);
+		if(wday!=(date->tm_wday+1)%7)//tm_wday: 0 is Sunday
+			printf("  Error!\n");
+	}
+
+	int weekhist[31][7]={0};
+	for(int year=1;year<2024;++year)
+	{
+		for(int month=0;month<12;++month)
+		{
+			for(int day=0;day<dayspermonth[month];++day)
+			{
+				int weekday=query_weekday(year, month, day);
+			
+				++weekhist[day][weekday];
+			}
+		}
+	}
+
+	printf("\t");
+	for(int kw=0;kw<7;++kw)
+		printf("\t%s", daynames[kw]);
+	printf("\n");
+
+	for(int km=0;km<31;++km)
+	{
+		printf("%d\t\t", km+1);
+		for(int kw=0;kw<7;++kw)
+			printf("%d\t", weekhist[km][kw]);
+		printf("\n");
+	}
+	//for(int kd=0;kd<7;++kd)
+	//	printf("%s  %d\n", daynames[kd], weekhist[kd]);
+
 	printf("Done.\n");
 	pause();
 	exit(0);
@@ -284,7 +357,7 @@ void batch_test(const char *path)
 	int known_dataset=0;
 	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H%M%S");
 	printf("Start %s\n", g_buf);
-	double t_start=time_ms();
+	double t_start=time_sec();
 	ArrayHandle filenames=get_filenames(path, g_extensions, COUNTOF(g_extensions), 1);
 	if(!filenames)
 	{
@@ -426,11 +499,11 @@ void batch_test(const char *path)
 			ArrayHandle cdata=0;
 			double elapsed;
 
-			elapsed=time_ms();
+			elapsed=time_sec();
 			cycles=__rdtsc();
 			t29_encode(buf, iw, ih, &cdata, 0);
 			cycles=__rdtsc()-cycles;
-			elapsed=time_ms()-elapsed;
+			elapsed=time_sec()-elapsed;
 			printf("Enc %11lf CPB  CR %9lf  csize %lld  ", (double)cycles/usize, (double)usize/cdata->count, cdata->count);
 			timedelta2str(0, 0, elapsed);
 
@@ -458,11 +531,11 @@ void batch_test(const char *path)
 			printf("\nT26 (%s)\n", use_ans?"ANS":"AC");
 			//printf("\nT26\n");
 		
-			elapsed=time_ms();
+			elapsed=time_sec();
 			cycles=__rdtsc();
 			t26_encode(buf, iw, ih, params, use_ans, &cdata, 1);
 			cycles=__rdtsc()-cycles;
-			elapsed=time_ms()-elapsed;
+			elapsed=time_sec()-elapsed;
 			printf("Enc %11lf CPB  CR %9lf  csize %lld  ", (double)cycles/usize, (double)usize/cdata->count, cdata->count);
 			timedelta2str(0, 0, elapsed);
 
@@ -471,11 +544,11 @@ void batch_test(const char *path)
 				printf(" !!!");
 			printf("\n");
 		
-			elapsed=time_ms();
+			elapsed=time_sec();
 			cycles=__rdtsc();
 			t26_decode(cdata->data, cdata->count, iw, ih, params, use_ans, b2, 1);
 			cycles=__rdtsc()-cycles;
-			elapsed=time_ms()-elapsed;
+			elapsed=time_sec()-elapsed;
 			printf("Dec %11lf CPB  ", (double)cycles/usize);
 			timedelta2str(0, 0, elapsed);
 			printf("\n");
@@ -496,11 +569,11 @@ void batch_test(const char *path)
 			int blockw[]={128, 128, 128}, blockh[]={128, 128, 128};
 			double elapsed;
 			printf("\nT25 (%s)\n", use_ans?"ANS":"AC");
-			elapsed=time_ms();
+			elapsed=time_sec();
 			cycles=__rdtsc();
 			t25_encode(buf, iw, ih, blockw, blockh, use_ans, &cdata, 1);
 			cycles=__rdtsc()-cycles;
-			elapsed=time_ms()-elapsed;
+			elapsed=time_sec()-elapsed;
 			printf("Enc %11lf CPB  CR %9lf  csize %lld  ", (double)cycles/usize, (double)usize/cdata->count, cdata->count);
 			timedelta2str(0, 0, elapsed);
 			
@@ -509,11 +582,11 @@ void batch_test(const char *path)
 				printf(" !!!");
 			printf("\n");
 		
-			elapsed=time_ms();
+			elapsed=time_sec();
 			cycles=__rdtsc();
 			t25_decode(cdata->data, cdata->count, iw, ih, blockw, blockh, use_ans, b2, 1);
 			cycles=__rdtsc()-cycles;
-			elapsed=time_ms()-elapsed;
+			elapsed=time_sec()-elapsed;
 			printf("Dec %11lf CPB  ", (double)cycles/usize);
 			timedelta2str(0, 0, elapsed);
 			printf("\n");
@@ -584,7 +657,7 @@ void batch_test(const char *path)
 #endif
 	}
 	printf("Batch elapsed ");
-	timedelta2str(0, 0, time_ms()-t_start);
+	timedelta2str(0, 0, time_sec()-t_start);
 	printf("\n");
 #if 0
 	e10_print(hist);
@@ -617,7 +690,6 @@ void batch_test(const char *path)
 int main(int argc, char **argv)
 {
 	//const int LOL_1=(-1)/2;//0
-
 	//int width=10,
 	//	n=pyramid_getsize(width);
 	//for(int k=0;k<n;++k)
@@ -636,6 +708,7 @@ int main(int argc, char **argv)
 	//test1();
 	//void ac_vs_ans();
 	//ac_vs_ans();
+	//test_calendar();
 
 	printf("Entropy2\n");
 #if 1
@@ -675,9 +748,11 @@ int main(int argc, char **argv)
 			return 0;
 		}
 		printf("Opening \"%s\"\n", fn);
+		double t_dec=time_sec();
 		cycles=__rdtsc();
 		buf=image_load(fn, &iw, &ih);
 		cycles=__rdtsc()-cycles;
+		t_dec=time_sec()-t_dec;
 		if(!buf)
 		{
 			LOG_ERROR("Couldn't open \"%s\"", fn);
@@ -686,7 +761,7 @@ int main(int argc, char **argv)
 		resolution=(size_t)iw*ih;
 		len=resolution*nch;
 
-		printf("Format Dec %lf CPB, ratio = %d * %d * %d / %lld = %lf\n", (double)cycles/(resolution*nch0), iw, ih, nch0, formatsize, (double)resolution*nch0/formatsize);
+		printf("Format Dec %lfsec %lf CPB, ratio = %d * %d * %d / %lld = %lf\n", t_dec, (double)cycles/(resolution*nch0), iw, ih, nch0, formatsize, (double)resolution*nch0/formatsize);
 	}
 	else if(argc==3)
 	{
@@ -928,20 +1003,20 @@ int main(int argc, char **argv)
 		//	16, 16,
 		//	16, 16,
 		//};
-		elapsed=time_ms();
+		elapsed=time_sec();
 		cycles=__rdtsc();
 		t25_encode(buf, iw, ih, blockw, blockh, use_ans, &cdata, 1);
 		cycles=__rdtsc()-cycles;
-		elapsed=time_ms()-elapsed;
+		elapsed=time_sec()-elapsed;
 		printf("Enc %11lf CPB  CR %9lf  csize %lld  ", (double)cycles/usize, (double)usize/cdata->count, cdata->count);
 		timedelta2str(0, 0, elapsed);
 		printf("\n");
 		
-		elapsed=time_ms();
+		elapsed=time_sec();
 		cycles=__rdtsc();
 		t25_decode(cdata->data, cdata->count, iw, ih, blockw, blockh, use_ans, b2, 1);
 		cycles=__rdtsc()-cycles;
-		elapsed=time_ms()-elapsed;
+		elapsed=time_sec()-elapsed;
 		printf("Dec %11lf CPB  ", (double)cycles/usize);
 		timedelta2str(0, 0, elapsed);
 		printf("\n");
@@ -966,20 +1041,20 @@ int main(int argc, char **argv)
 		};
 		printf("T26 (%s)\n", use_ans?"ANS":"AC");
 		
-		elapsed=time_ms();
+		elapsed=time_sec();
 		cycles=__rdtsc();
 		t26_encode(buf, iw, ih, params, use_ans, &cdata, 1);
 		cycles=__rdtsc()-cycles;
-		elapsed=time_ms()-elapsed;
+		elapsed=time_sec()-elapsed;
 		printf("Enc %11lf CPB  CR %9lf  csize %lld  ", (double)cycles/usize, (double)usize/cdata->count, cdata->count);
 		timedelta2str(0, 0, elapsed);
 		printf("\n");
 		
-		elapsed=time_ms();
+		elapsed=time_sec();
 		cycles=__rdtsc();
 		t26_decode(cdata->data, cdata->count, iw, ih, params, use_ans, b2, 1);
 		cycles=__rdtsc()-cycles;
-		elapsed=time_ms()-elapsed;
+		elapsed=time_sec()-elapsed;
 		printf("Dec %11lf CPB  ", (double)cycles/usize);
 		timedelta2str(0, 0, elapsed);
 		printf("\n");
@@ -1091,6 +1166,47 @@ int main(int argc, char **argv)
 	//printf("\n");
 #endif
 
+	//SLIC
+#if 1
+	{
+		double t_enc=0, t_dec=0;
+
+		t_enc=time_sec();
+		slic_encode(iw, ih, 4, 8, buf, &cdata, 1);
+		t_enc=time_sec()-t_enc;
+
+		int iw2=0, ih2=0, nch2=0, depth2=0;
+		t_dec=time_sec();
+		unsigned char *ret=(unsigned char*)slic_decode(cdata->data, (int)cdata->count, &iw2, &ih2, &nch2, &depth2);
+		t_dec=time_sec()-t_dec;
+
+		printf("\nSLI %8d  CR %lf    Enc %lfsec  Dec %lfsec\n", (int)cdata->count, iw*ih*3./cdata->count, t_enc, t_dec);
+		array_free(&cdata);
+
+		compare_bufs_uint8(ret, buf, iw, ih, 3, 4, "SLIC", 0);
+		free(ret);
+	}
+#endif
+
+	//QOI
+#if 1
+	{
+		for(int k=0, res=iw*ih;k<res;++k)
+		{
+			b2[k*3+0]=buf[k<<2|0];
+			b2[k*3+1]=buf[k<<2|1];
+			b2[k*3+2]=buf[k<<2|2];
+		}
+		qoi_desc desc={iw, ih, 3, QOI_LINEAR};
+		int csize=0;
+		double t0=time_sec();
+		void *cdata_qoi=qoi_encode(b2, &desc, &csize);
+		t0=time_sec()-t0;
+		printf("\nQOI %8d  CR %lf    Enc %lfsec\n\n", csize, iw*ih*3./csize, t0);
+		free(cdata_qoi);
+	}
+#endif
+
 	//predict image
 	apply_transforms_fwd(buf, iw, ih);
 	//lodepng_encode_file("kodim21-YCoCgT-unplane.PNG", buf, iw, ih, LCT_RGBA, 8);//
@@ -1162,36 +1278,6 @@ int main(int argc, char **argv)
 //	image_pred(buf, iw, ih, nch0, nch);
 
 	//lodepng_encode_file("kodim21-XGZ-diff2d.PNG", buf, iw, ih, LCT_RGBA, 8);//
-#endif
-
-	//SLIC
-#if 1
-	{
-		double t0=time_ms();
-		slic_encode(iw, ih, 4, 8, buf, &cdata);
-		t0=time_ms()-t0;
-		printf("\nSLIC %8d  CR %lf  Enc %lf ms\n", (int)cdata->count, iw*ih*3./cdata->count, t0);
-		array_free(&cdata);
-	}
-#endif
-
-	//QOI
-#if 1
-	{
-		for(int k=0, res=iw*ih;k<res;++k)
-		{
-			b2[k*3+0]=buf[k<<2|0];
-			b2[k*3+1]=buf[k<<2|1];
-			b2[k*3+2]=buf[k<<2|2];
-		}
-		qoi_desc desc={iw, ih, 3, QOI_LINEAR};
-		int csize=0;
-		double t0=time_ms();
-		void *cdata_qoi=qoi_encode(b2, &desc, &csize);
-		t0=time_ms()-t0;
-		printf("\nQOI %8d  CR %lf  Enc %lf ms\n\n", csize, iw*ih*3./csize, t0);
-		free(cdata_qoi);
-	}
 #endif
 
 	for(int kc=0;kc<nch0;++kc)

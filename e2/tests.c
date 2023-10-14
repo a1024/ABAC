@@ -551,7 +551,7 @@ void t16_prepblock(const unsigned char *b2, const unsigned short *CDF, int bw, i
 }
 size_t test16_encode(const unsigned char *src, int bw, int bh, int alpha, int *blockw, int *blockh, int *margin, ArrayHandle *data, int loud, int *csizes)
 {
-	double t_start=time_ms();
+	double t_start=time_sec();
 	int res=bw*bh;
 	unsigned char *b2=(unsigned char*)malloc((size_t)res<<2);
 	if(!b2)
@@ -672,7 +672,7 @@ size_t test16_encode(const unsigned char *src, int bw, int bh, int alpha, int *b
 	if(loud)
 	{
 		printf("Encode elapsed ");
-		timedelta2str(0, 0, time_ms()-t_start);
+		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 		printf("alpha 0x%04X\n", alpha);
 		printf("Total    %7d  %lf\n", ansbookmarks[2], 3.*res/ansbookmarks[2]);
@@ -1263,7 +1263,7 @@ static T25Params t25_params[3]=
 int t25_encode(const unsigned char *src, int iw, int ih, int *blockw, int *blockh, int use_ans, ArrayHandle *data, int loud)
 {
 	int res=iw*ih;
-	double t_start=time_ms();
+	double t_start=time_sec();
 	unsigned char *buf2=(unsigned char*)malloc((size_t)res<<2);
 	unsigned short *CDF0=(unsigned short*)malloc(768LL*sizeof(short));
 	unsigned *CDF2=(unsigned*)malloc(257LL*sizeof(unsigned));
@@ -1540,7 +1540,7 @@ int t25_encode(const unsigned char *src, int iw, int ih, int *blockw, int *block
 	{
 		int totaloverhead=overhead[0]+overhead[1]+overhead[2]+overhead[3], totalch=chsizes[0]+chsizes[1]+chsizes[2];
 		printf("Encode elapsed ");
-		timedelta2str(0, 0, time_ms()-t_start);
+		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 		printf("Total    %7d  %lf\n", totaloverhead+totalch, 3.*res/list.nobj);
 		printf("Overhead %7d\n", totaloverhead);
@@ -1852,7 +1852,7 @@ int t26_prepblock(const unsigned char *buf2, const unsigned short *CDF0, int iw,
 int t26_encode(const unsigned char *src, int iw, int ih, T26Params const *params, int use_ans, ArrayHandle *data, int loud)
 {
 	int res=iw*ih;
-	double t_start=time_ms();
+	double t_start=time_sec();
 	unsigned char *buf2=(unsigned char*)malloc((size_t)res<<2);
 	unsigned short *CDF0=(unsigned short*)malloc(768LL*sizeof(short));
 	unsigned *CDF2=(unsigned*)malloc(257LL*sizeof(unsigned));
@@ -2055,7 +2055,7 @@ int t26_encode(const unsigned char *src, int iw, int ih, T26Params const *params
 	if(loud)
 	{
 		printf("Encode elapsed ");
-		timedelta2str(0, 0, time_ms()-t_start);
+		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 		printf("Total    %7d  %lf\n", bookmarks[2], 3.*res/bookmarks[2]);
 		printf("Overhead %7d\n", overhead);
@@ -2331,7 +2331,7 @@ static DataType t27_weights_pred[24][18], t27_weights_bits[49],//includes bias
 int t27_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud)
 {
 	int res=iw*ih;
-	double t_start=time_ms();
+	double t_start=time_sec();
 	unsigned char *buf2=(unsigned char*)malloc((size_t)res<<2);
 	unsigned short *CDF0=(unsigned short*)malloc(768LL*sizeof(short));
 	unsigned *CDF2=(unsigned*)malloc(257LL*sizeof(unsigned));
@@ -2522,7 +2522,7 @@ int t27_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	if(loud)
 	{
 		printf("Encode elapsed ");
-		timedelta2str(0, 0, time_ms()-t_start);
+		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 		for(int k=0;k<24;++k)
 		{
@@ -2548,7 +2548,7 @@ int t27_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 int t28_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud)
 {
 	int res=iw*ih;
-	double t_start=time_ms();
+	double t_start=time_sec();
 	unsigned char *buf2=(unsigned char*)malloc((size_t)res<<2);
 	unsigned short *qtree=(unsigned short*)malloc(765*sizeof(short));
 	unsigned *chist=(unsigned*)malloc(256*sizeof(unsigned));
@@ -2750,7 +2750,7 @@ int t28_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	{
 		double csize=0;
 		printf("Encode elapsed ");
-		timedelta2str(0, 0, time_ms()-t_start);
+		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 		for(int k=0;k<24;++k)
 		{
@@ -2780,7 +2780,7 @@ int t28_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 int t29_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud)
 {
 	int res=iw*ih;
-	double t_start=time_ms();
+	double t_start=time_sec();
 	unsigned char *buf2=(unsigned char*)malloc((size_t)res<<2);
 	unsigned short *qtree=(unsigned short*)malloc(765*sizeof(short));
 	unsigned *chist=(unsigned*)malloc(256*sizeof(unsigned));
@@ -2987,7 +2987,7 @@ int t29_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	{
 		double csize=0;
 		printf("Encode elapsed ");
-		timedelta2str(0, 0, time_ms()-t_start);
+		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 		for(int k=0;k<24;++k)
 		{
@@ -3043,7 +3043,7 @@ void t30_init_weight(float *w, int count)
 int t30_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud)
 {
 	int res=iw*ih;
-	double t_start=time_ms();
+	double t_start=time_sec();
 	unsigned char *buf2=(unsigned char*)malloc((size_t)res<<2);
 	unsigned short *qtree=(unsigned short*)malloc(765*sizeof(short));
 	unsigned *chist=(unsigned*)malloc(256*sizeof(unsigned));
@@ -3395,7 +3395,7 @@ int t30_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	{
 		double csize=0;
 		printf("Encode elapsed ");
-		timedelta2str(0, 0, time_ms()-t_start);
+		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 		for(int k=0;k<24;++k)
 		{
@@ -3426,7 +3426,7 @@ int t30_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 int t31_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud)
 {
 	int res=iw*ih;
-	double t_start=time_ms();
+	double t_start=time_sec();
 	unsigned char *buf2=(unsigned char*)malloc((size_t)res<<2);
 	int *ptree=(int*)malloc(255LL*3*2*sizeof(int));
 	//int *ctree=(int*)malloc(255LL*3*2*sizeof(int));
@@ -3565,7 +3565,7 @@ int t31_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	{
 		double csize=0;
 		printf("Encode elapsed ");
-		timedelta2str(0, 0, time_ms()-t_start);
+		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 		for(int k=0;k<24;++k)
 		{
@@ -3596,7 +3596,7 @@ int t31_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 int t32_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud)
 {
 	int res=iw*ih;
-	double t_start=time_ms();
+	double t_start=time_sec();
 	unsigned char *buf2=(unsigned char*)malloc((size_t)res<<2);
 	int treesize=((1<<24)-1)*2;
 	int *ptree=(int*)malloc(treesize*sizeof(int));
@@ -3696,7 +3696,7 @@ int t32_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	{
 		double csize=0;
 		printf("Encode elapsed ");
-		timedelta2str(0, 0, time_ms()-t_start);
+		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 		for(int k=0;k<24;++k)
 		{
@@ -3736,7 +3736,7 @@ typedef struct T33BufferStruct
 int t33_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud)
 {
 	int res=iw*ih;
-	double t_start=time_ms();
+	double t_start=time_sec();
 	unsigned char *buf2=(unsigned char*)malloc((size_t)res<<2);
 	T33Buffer *ptree=(T33Buffer*)malloc(255LL*3*sizeof(T33Buffer));
 	if(!buf2||!ptree)
@@ -3836,7 +3836,7 @@ int t33_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	{
 		double csize=0;
 		printf("Encode elapsed ");
-		timedelta2str(0, 0, time_ms()-t_start);
+		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 		for(int k=0;k<24;++k)
 		{
@@ -3890,7 +3890,7 @@ int t34_weights[3*8*NESTIMATORS];
 int t34_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud)
 {
 	int res=iw*ih;
-	double t_start=time_ms();
+	double t_start=time_sec();
 	unsigned char *buf2=(unsigned char*)malloc((size_t)res<<2);
 	Node *tree=(Node*)malloc(255LL*3*sizeof(Node));
 	if(!buf2||!tree)
@@ -4159,7 +4159,7 @@ int t34_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	{
 		double csize=0;
 		printf("Encode elapsed ");
-		timedelta2str(0, 0, time_ms()-t_start);
+		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 		for(int k=0;k<24;++k)
 		{
@@ -5124,7 +5124,7 @@ T35Ctx t35_context;
 int t35_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud)
 {
 	int res=iw*ih;
-	double t_start=time_ms();
+	double t_start=time_sec();
 	char *buf2=(char*)malloc((size_t)res<<2);
 	if(!buf2)
 	{
@@ -5193,7 +5193,7 @@ int t35_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 		printf("\n");//skip progress line
 		printf("Used %f MB of memory\n", ((float)t35_context.nnodes[0]*sizeof(T35CtxNode)+(float)t35_context.nnodes[1]*sizeof(T35PredCtxNode))/(1024*1024));
 		printf("Encode elapsed ");
-		timedelta2str(0, 0, time_ms()-t_start);
+		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 		for(int k=0;k<24;++k)
 		{
@@ -5260,7 +5260,7 @@ int t35_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 int t35_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud)
 {
 	int res=iw*ih;
-	double t_start=time_ms();
+	double t_start=time_sec();
 
 	//int debug_index=0;
 
@@ -5297,7 +5297,7 @@ int t35_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 	if(loud)
 	{
 		printf("Decode elapsed ");
-		timedelta2str(0, 0, time_ms()-t_start);
+		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 	}
 	return 1;
@@ -6030,7 +6030,7 @@ int t36_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	//t36_stretch_squish_test();//
 
 	int res=iw*ih;
-	double t_start=time_ms();
+	double t_start=time_sec();
 	char *buf2=(char*)malloc((size_t)res<<2);
 	if(!buf2)
 	{
@@ -6106,7 +6106,7 @@ int t36_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 			static float csize_prev=0;
 			float csize=0;
 			TimeInfo ti;
-			parsetimedelta(time_ms()-t_start, &ti);
+			parsetimedelta(time_sec()-t_start, &ti);
 			for(int k=0;k<24;++k)
 				csize+=csizes[k]/8;
 			printf("Y%5d  CR%10f %8.2f MB  %02d-%02d-%06.3f\n", ky, iw*3/(csize-csize_prev), (float)t36_ctx.nnodes*sizeof(T36Node)/(1024*1024), ti.hours, ti.mins, ti.secs);
@@ -6122,7 +6122,7 @@ int t36_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 		printf("\n");//skip progress line
 		printf("Used %f MB of memory\n", (float)t36_ctx.nnodes*sizeof(T36Node)/(1024*1024));
 		printf("Encode elapsed ");
-		timedelta2str(0, 0, time_ms()-t_start);
+		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 		for(int k=0;k<24;++k)
 		{
@@ -6189,7 +6189,7 @@ int t36_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 int t36_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud)
 {
 	int res=iw*ih;
-	double t_start=time_ms();
+	double t_start=time_sec();
 
 	//int debug_index=0;
 
@@ -6203,7 +6203,7 @@ int t36_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 	for(int ky=0;ky<ih;++ky)
 	{
 		//if(loud)
-		//	printf("Dec Y%5d  %lf\r", ky, time_ms()-t_start);
+		//	printf("Dec Y%5d  %lf\r", ky, time_sec()-t_start);
 		for(int kx=0;kx<iw;++kx)
 		{
 			for(int kc=0;kc<3;++kc)
@@ -6239,7 +6239,7 @@ int t36_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 		if(loud)
 		{
 			TimeInfo ti;
-			parsetimedelta(time_ms()-t_start, &ti);
+			parsetimedelta(time_sec()-t_start, &ti);
 			printf("Y%5d %8.2f MB  %02d-%02d-%06.3f\r", ky, (float)t36_ctx.nnodes*sizeof(T36Node)/(1024*1024), ti.hours, ti.mins, ti.secs);
 		}
 	}
@@ -6257,7 +6257,7 @@ int t36_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 	if(loud)
 	{
 		printf("Decode elapsed ");
-		timedelta2str(0, 0, time_ms()-t_start);
+		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 	}
 	return 1;
@@ -6473,7 +6473,7 @@ T37Ctx t37_context;
 int t37_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud)
 {
 	int res=iw*ih;
-	double t_start=time_ms();
+	double t_start=time_sec();
 	char *buf2=(char*)malloc((size_t)res<<2);
 	if(!buf2)
 	{
@@ -6554,7 +6554,7 @@ int t37_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 		double csize=0;
 		printf("\n");//skip progress line
 		printf("Encode elapsed ");
-		timedelta2str(0, 0, time_ms()-t_start);
+		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 		for(int k=0;k<24;++k)
 		{
@@ -6621,7 +6621,7 @@ int t37_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 int t37_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud)
 {
 	int res=iw*ih;
-	double t_start=time_ms();
+	double t_start=time_sec();
 
 	//int debug_index=0;
 
@@ -6658,7 +6658,7 @@ int t37_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 	if(loud)
 	{
 		printf("Decode elapsed ");
-		timedelta2str(0, 0, time_ms()-t_start);
+		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 	}
 	return 1;
@@ -6669,7 +6669,7 @@ int t37_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 int t38_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud)
 {
 	int res=iw*ih;
-	double t_start=time_ms();
+	double t_start=time_sec();
 	char *buf2=(char*)malloc((size_t)res<<2);
 	if(!buf2)
 	{
@@ -6753,7 +6753,7 @@ int t38_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 		double csize=0;
 		printf("\n");//skip progress line
 		printf("Encode elapsed ");
-		timedelta2str(0, 0, time_ms()-t_start);
+		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 		for(int k=0;k<24;++k)
 		{
@@ -6786,7 +6786,7 @@ int t38_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 int t38_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud)
 {
 	int res=iw*ih;
-	double t_start=time_ms();
+	double t_start=time_sec();
 
 	ABACDecContext ctx;
 	abac_dec_init(&ctx, data, data+srclen);
@@ -6830,7 +6830,7 @@ int t38_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 	if(loud)
 	{
 		printf("Decode elapsed ");
-		timedelta2str(0, 0, time_ms()-t_start);
+		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 	}
 	return 1;
@@ -7761,7 +7761,7 @@ void t39_ctx_update(T39Ctx *ctx, int kc, int kb, int bit)
 int t39_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud)
 {
 	int res=iw*ih;
-	double t_start=time_ms();
+	double t_start=time_sec();
 	char *buf2=(char*)malloc((size_t)res<<2);
 	char *ebuf=(char*)malloc((size_t)res<<2);
 	T39Ctx *t39_ctx=t39_ctx_init();
@@ -7910,7 +7910,7 @@ int t39_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 		printf("\n");//skip progress line
 		printf("Used %f MB of memory\n", (float)t39_ctx->nnodes*sizeof(T39Node)/(1024*1024));
 		printf("Encode elapsed ");
-		timedelta2str(0, 0, time_ms()-t_start);
+		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 #if 0
 		double csize=0;
@@ -8013,7 +8013,7 @@ int t39_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 int t39_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud)
 {
 	int res=iw*ih;
-	double t_start=time_ms();
+	double t_start=time_sec();
 
 	//int debug_index=0;
 	char *ebuf=(char*)malloc((size_t)res<<2);
@@ -8119,7 +8119,7 @@ int t39_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 	{
 		printf("\n");//skip progress line
 		printf("Decode elapsed ");
-		timedelta2str(0, 0, time_ms()-t_start);
+		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 	}
 	return 1;

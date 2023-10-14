@@ -957,7 +957,7 @@ static unsigned __stdcall o6_thread(void *args)
 }
 void pred_opt_opt_v6(const char *buf2, int iw, int ih, int loud)//multi-threaded
 {
-	double t_start=time_ms();
+	double t_start=time_sec();
 	double loss=0;
 	int res=iw*ih;
 	char *buf3=(char*)malloc((O6_MAXTHREADS+1)*(size_t)res<<2);
@@ -1070,7 +1070,7 @@ void pred_opt_opt_v6(const char *buf2, int iw, int ih, int loud)//multi-threaded
 	if(loud)
 	{
 		printf("Pred opt elapsed ");
-		timedelta2str(0, 0, time_ms()-t_start);
+		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 	}
 	free(hist);
