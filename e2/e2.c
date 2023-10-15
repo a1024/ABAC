@@ -1167,7 +1167,7 @@ int main(int argc, char **argv)
 #endif
 
 	//SLIC
-#if 1
+#if 0
 	{
 		double t_enc=0, t_dec=0;
 
@@ -1184,6 +1184,28 @@ int main(int argc, char **argv)
 		array_free(&cdata);
 
 		compare_bufs_uint8(ret, buf, iw, ih, 3, 4, "SLIC", 0);
+		free(ret);
+	}
+#endif
+
+	//SLIC2
+#if 1
+	{
+		double t_enc=0, t_dec=0;
+
+		t_enc=time_sec();
+		long long retlen=0;
+		unsigned char *data=slic2_encode(iw, ih, 4, 8, buf, &retlen, 1);
+		t_enc=time_sec()-t_enc;
+
+		int iw2=0, ih2=0, nch2=0, depth2=0;
+		t_dec=time_sec();
+		unsigned char *ret=(unsigned char*)slic2_decode(data, retlen, &iw2, &ih2, &nch2, &depth2);
+		t_dec=time_sec()-t_dec;
+
+		printf("\nSLI %8d  CR %lf    Enc %lfsec  Dec %lfsec\n", (int)retlen, iw*ih*3./retlen, t_enc, t_dec);
+		compare_bufs_uint8(ret, buf, iw, ih, 3, 4, "SLI2", 0);
+		free(data);
 		free(ret);
 	}
 #endif

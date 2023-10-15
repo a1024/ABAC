@@ -24,6 +24,7 @@ add_executable(e2
 	"format.c"
 	"lodepng.c"
 	"slic.c"
+	"slic2.c"
 	"tests.c"
 	"tests2.c"
 	"transforms.c"

@@ -99,6 +99,20 @@ int slic_encode(int iw, int ih, int nch, int depth, const void *pixels, ArrayHan
 void* slic_decode(const void *data, int len, int *iw, int *ih, int *nch, int *depth);
 
 
+//nch:   Also the pixel stride. Must be from 1 to 4. The channels are interleaved and packed.
+//depth: Must be from [1~16]. If depth<=8, data must be in bytes, otherwise data must be in little-endian uint16's (shorts).
+//src:   Must be unsigned integers shifted leftmost. For example:
+//	A 5-bit subpixel must be stored like this: 0bXXXX_X000
+//	A 14-bit subpixel must be stored like this: 0bXXXX_XXXX_XXXX_XX00
+//ret_dummy_alpha:  Tells if image has redundant alpha channel
+unsigned char* slic2_encode(int iw, int ih, int nch, int depth, const void *src, long long *ret_size);
+void*          slic2_decode(const unsigned char *data, long long len, int *ret_iw, int *ret_ih, int *ret_nch, int *ret_depth, int *ret_dummy_alpha, int force_alpha);
+
+//I/O wrappers, return FALSE on error
+int   slic2_save(const char *filename, int iw, int ih, int nch, int depth, const void *src);
+void* slic2_load(const char *filename, int *ret_iw, int *ret_ih, int *ret_nch, int *ret_depth, int *ret_dummy_alpha, int force_alpha);
+
+
 
 
 //transforms

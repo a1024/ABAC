@@ -47,7 +47,7 @@ typedef struct SLICHeaderStruct
 	SH=(TEMP>=1<<2)<<1,	LOGN+=SH, TEMP>>=SH,\
 	SH= TEMP>=1<<1,		LOGN+=SH;
 //#define SLIC_LOAD(BUF, X, Y) ((unsigned)(kx+(X))<(unsigned)iw&&(unsigned)(ky+(Y))<(unsigned)ih?BUF[iw*(ky+(Y))+kx+(X)]:0)
-static void slic_rct(short *buf, int iw, int ih, int depth, int fwd)//reversible color transform: YCoCb
+static void slic_rct(short *buf, int iw, int ih, int depth, int fwd)//reversible color transform: YCmCb-R
 {
 	size_t res=(size_t)iw*ih;
 	int mask=(short)(0xFFFF0000>>depth);
@@ -122,7 +122,6 @@ typedef struct CounterStruct
 	unsigned short n[2];
 } Counter;
 static Counter hist[256][64];
-//static int hist2[4][256];//
 #ifdef USE_ANS
 typedef struct ProbSymStruct
 {
@@ -137,18 +136,11 @@ int slic_encode(int iw, int ih, int nch, int depth, const void *pixels, ArrayHan
 	double t_start=time_sec();
 #endif
 	size_t res=(size_t)iw*ih;
-	//size_t ctrsize=slic_calc_ctx_size(depth);
 	short *src=(short*)malloc(res*(nch+1)*sizeof(short));
 #ifdef USE_ANS
 	DList prob;
 	dlist_init(&prob, sizeof(ProbSym), 1024, 0);//(4*bitcount) bytes
-
-	//unsigned short *prob=(unsigned short*)malloc(res*nch*6*sizeof(short));
 #endif
-	//unsigned short *ctr=(unsigned short*)malloc(0x1000000*sizeof(short));//32MB
-	unsigned char *dst=0;
-	size_t dstlen=0;
-	int has_alpha=0;
 	SLICHeader header=
 	{
 		{'S', 'L', 'I', 'C'},
@@ -169,8 +161,6 @@ int slic_encode(int iw, int ih, int nch, int depth, const void *pixels, ArrayHan
 			for(int k=0;k<res;++k)
 				src[res*kc+k]=(src0[nch*k+kc]<<8)-0x8000;
 		}
-		//for(int k=0;k<n;++k)
-		//	src[k]=(src0[k]<<8)-0x8000;
 	}
 	else
 	{
@@ -180,10 +170,9 @@ int slic_encode(int iw, int ih, int nch, int depth, const void *pixels, ArrayHan
 			for(int k=0;k<res;++k)
 				src[res*kc+k]=src0[nch*k+kc]-0x8000;
 		}
-		//for(int k=0;k<n;++k)
-		//	src[k]=src0[k]-0x8000;
 	}
 	short *buf;
+	int has_alpha=0;
 	if(nch==2||nch==4)//if there is alpha: check if alpha is redundant to store it in the header
 	{
 		buf=src+res*(nch-1);
@@ -206,11 +195,6 @@ int slic_encode(int iw, int ih, int nch, int depth, const void *pixels, ArrayHan
 	double csizes[4][7]={0};
 	int usizes[4][7]={0};
 #endif
-	//{
-	//	int fillval=1;
-	//	memfill(usizes, &fillval, sizeof(usizes), sizeof(fillval));
-	//}
-	//memset(hist2, 0, sizeof(hist2));
 
 	DList list;
 	dlist_init(&list, 1, 1024, 0);
@@ -353,170 +337,11 @@ int slic_encode(int iw, int ih, int nch, int depth, const void *pixels, ArrayHan
 					}
 					//++bypassctr[bit];
 				}
-
-#if 0
-				*(short*)&pixel>>=16-depth;
-				int neg=(short)pixel<0;//pack sign to LSB
-				pixel^=-neg;
-				pixel+=neg;
-				pixel<<=1;
-				pixel|=neg;
-				//pixel-=pixel>1;
-				//pixel=(pixel^-(pixel==1))+(pixel==1);
-				if(pixel==1)
-					pixel=0xFFFF;
-				else
-					pixel-=pixel>=0;
-
-#endif
-#if 0
-				++hist2[kc][(pixel+0x8000)>>8];//
-
-				int neg=pixel<0;//split to sign and magnitude
-				pixel^=-neg;
-				pixel+=neg;
-
-				const int nenc=3;
-				int nbits=nenc;
-				if(pixel)//floor_log2 doesn't work with zero
-				{
-					int sh, temp;
-					FLOOR_LOG2(nbits, pixel, sh, temp);//fast floor_log2 (which is MSB index)
-					nbits-=16-depth;
-					++nbits;//convert MSB index to bit count
-				}
-				if(nbits<nenc)
-					nbits=nenc;
-				int nbypass=nbits-nenc;
-				int mask=((1<<nbypass)-1)<<(16-depth);
-
-				//int token=pixel&~mask, bypass=pixel&mask;//X
-				//int token=pixel>>(nbypass+16-depth), bypass=pixel>>(16-depth)&((1<<nbypass)-1);//X
-
-				pixel^=-neg;//restore sign
-				pixel+=neg;
-				for(int kb=16-1;kb>=16-depth;--kb)
-				{
-					int bit=pixel>>kb&1;
-					int p0;
-
-					Counter *ctr=hk+hidx+bit;
-					int p0=(int)(((long long)ctr->n[0]<<16)/(ctr->n[0]+ctr->n[1]));
-
-					abac_enc(&ec, p0, bit);
-
-					if(loud)
-					{
-						double p=(double)(bit?0x10000-p0:p0)/0x10000;
-						p=-log2(p);
-						int kb2=kb+1;
-						csizes[kc][kb2]+=p;
-						++usizes[kc][kb2];
-					}
-
-					int cnew=ctr->n[bit];
-					++cnew;
-					if(cnew>0xFFFF)
-					{
-						ctr->n[0]>>=1;
-						ctr->n[1]>>=1;
-						ctr->n[0]+=!ctr->n[0];
-						ctr->n[1]+=!ctr->n[1];
-						++ctr->n[bit];
-					}
-					else
-						ctr->n[bit]=cnew;
-
-					//p0+=((!bit<<16)-p0)>>4;//update
-					//p0=CLAMP(1, p0, 0xFFFF);
-					//hk[hidx+bit]=p0;
-
-					hidx<<=1;
-					hidx+=bit+1;
-				}
-				for(int kb=nbypass-1;kb>=0;--kb)
-				{
-					int bit=bypass>>kb&1;
-					int p0=(int)(((long long)bypassctr[0]<<16)/(bypassctr[0]+bypassctr[1]));
-					p0=CLAMP(1, p0, 0xFFFF);
-
-					abac_enc(&ec, p0, bit);
-
-					if(loud)
-					{
-						double p=(double)(bit?0x10000-p0:p0)/0x10000;
-						p=-log2(p);
-						csizes[kc][0]+=p;
-						++usizes[kc][0];
-					}
-
-					++bypassctr[bit];
-				}//bit loop
-#endif
 			}//x loop
 		}//y loop
 #ifndef DISABLE_LOUD
 		if(loud)
 			printf("C%d Bypass p0 %lf\n", kc, (double)bypassctr[0]/(bypassctr[0]+bypassctr[1]));
-#endif
-#if 0
-		for(int k=0;k<0x1000000;++k)
-			ctr[k]=0x8000;
-		unsigned state=0x10000;
-		for(int ky=ih-1;ky>=0;--ky)
-		{
-			for(int kx=iw-1;kx>=0;--kx)
-			{
-				short
-					N =SLIC_LOAD(buf,  0, -1),
-					W =SLIC_LOAD(buf, -1,  0);
-				unsigned short pred=((N+W+1)>>1)+0x8000;
-				if(depth<8)
-					pred>>=16-depth;
-				else
-					pred>>=8;
-
-				//if(kx==(iw>>1)&&ky==(ih>>1))//
-				//	printf("");
-
-				int idx=iw*ky+kx;
-				int ctridx=0;
-				int bitidx=0;
-				for(int kb=16-1;kb>=16-depth;--kb, ++bitidx)
-				{
-					unsigned short *p0=ctr+(ctridx<<8|pred);
-
-					prob[bitidx]=*p0;
-					int bit=buf[idx]>>kb&1;
-
-					int p0_new=*p0+(((!bit<<16)-*p0)>>4);
-					if(p0_new<     1)p0_new=     1;
-					if(p0_new>0xFFFF)p0_new=0xFFFF;
-					*p0=p0_new;
-
-					ctridx<<=1;
-					++ctridx;
-					ctridx+=bit;
-				}//bit loop
-
-				for(int kb=16-depth;kb<16;++kb)
-				{
-					--bitidx;
-					int p0=prob[bitidx];
-					int bit=buf[idx]>>kb&1;
-					int cdf=bit?p0:0, freq=bit?0x10000-p0:p0;
-
-					if(state>=(unsigned)(freq<<16))//renorm
-					{
-						dlist_push_back(&list, &state, 2);
-						state>>=16;
-					}
-					state=state/freq<<16|(cdf+state%freq);//update
-				}//bit loop
-			}//x-loop
-		}//y-loop
-		dlist_push_back(&list, &state, 4);
-		header.bookmarks[kc]=(int)list.nobj;
 #endif
 	}//channel loop
 #ifdef USE_ANS
@@ -563,41 +388,12 @@ int slic_encode(int iw, int ih, int nch, int depth, const void *pixels, ArrayHan
 		int real_nch=nch-(!has_alpha&&(nch==2||nch==4));
 		printf("Total %15.6lf %15.6lf %15.6lf %15.6lf %15.6lf\n", res*depth/chsizes[0], res*depth/chsizes[1], res*depth/chsizes[2], res*depth/chsizes[3], res*depth*real_nch/chsizes[4]);
 		printf("Total size\t%8d\t\t\t     %15.6lf\n", (int)list.nobj, (double)res*real_nch/list.nobj);
-
-#if 0
-		//for(int k=0;k<256;++k)//print debug histograms
-		//	printf("%3d %8d %8d %8d %8d\n", k, hist2[0][k], hist2[1][k], hist2[2][k], hist2[3][k]);
-		double invCR=0;
-		for(int kc=0;kc<real_nch;++kc)//print debug entropy
-		{
-			double entropy=0;
-			int sum=0;
-			for(int k=0;k<256;++k)
-				sum+=hist2[kc][k];
-			for(int k=0;k<256;++k)
-			{
-				int freq=hist2[kc][k];
-				if(freq)
-				{
-					double p=(double)freq/sum;
-					entropy+=-p*log2(p);
-				}
-			}
-			double invCRk=entropy/8;
-			printf("Entropy %lf  CR %lf\n", entropy, 1/invCRk);
-			invCR+=invCRk;
-		}
-		invCR/=real_nch;
-		printf("Total CR from entropy %lf\n", 1/invCR);
-#endif
 	}
 #endif
 
 	dlist_appendtoarray(&list, data);
 	dlist_clear(&list);
 	free(src);
-	//free(ctr);
-	//free(prob);
 	return 0;
 }
 void* slic_decode(const void *data, int len, int *ret_iw, int *ret_ih, int *ret_nch, int *ret_depth)
@@ -727,8 +523,6 @@ void* slic_decode(const void *data, int len, int *ret_iw, int *ret_ih, int *ret_
 					}
 					sym=1<<(nbits+1)|(token&1)<<nbits|bypass;
 				}
-				//int MSB=sym>>(depth-1)&1;
-				//sym|=-(MSB<<depth);//sign-extend symbol	X  no need
 
 				short pixel=(sym>>1)^-(sym&1);//inverse L-permutation
 				buf[idx]=pixel<<(16-depth);
