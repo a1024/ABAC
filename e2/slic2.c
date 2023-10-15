@@ -1268,10 +1268,13 @@ int main(int argc, char **argv)
 	if(size1>0&&size2>0)
 	{
 		nch-=dummy_alpha;
-		printf("Uncompressed/Compressed ratio (16-bit): %lf -> %lf", (double)iw*ih*nch*depth/(size1<<3), (double)iw*ih*nch*depth/(size2<<3));
+		printf(
+			"Uncompressed/Compressed ratio (16-bit):\n"
+			"  %lld -> %lld bytes\n"
+			"  %lf -> %lf  CR\n", size1, size2, (double)iw*ih*nch*depth/(size1<<3), (double)iw*ih*nch*depth/(size2<<3)
+		);
 		if(dummy_alpha)
-			printf("  Dummy alpha");
-		printf("\n");
+			printf("  Dummy alpha\n");
 	}
 	else
 		printf("Operation failed\n");
