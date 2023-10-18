@@ -1,4 +1,7 @@
 //SLIC2: A simple lossless image codec v2
+//By:  Ayman Wagih Mohsen
+//To compile:
+//  gcc -O3 -DMAIN slic2.c lodepng.c -o slic2
 
 
 //START OF HEADER
@@ -10,7 +13,7 @@ extern "C"
 #endif
 	
 
-//nch:   Also the pixel stride. Must be from 1 to 4. The channels are interleaved and packed.
+//nch:   Must be from 1 to 4. The channels must be interleaved and packed.
 //depth: Must be from [1~16]. If depth<=8, data must be in bytes, otherwise data must be in little-endian uint16's (shorts).
 //src:   Must be unsigned integers shifted leftmost. For example:
 //	A 5-bit subpixel must be stored like this: 0bXXXX_X000
