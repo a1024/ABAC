@@ -19,6 +19,7 @@ extern "C"
 //	A 5-bit subpixel must be stored like this: 0bXXXX_X000
 //	A 14-bit subpixel must be stored like this: 0bXXXX_XXXX_XXXX_XX00
 //ret_dummy_alpha:  Tells if image has redundant alpha channel
+//Don't forget to free returned buffers
 unsigned char* slic2_encode(int iw, int ih, int nch, int depth, const void *src, long long *ret_size);
 void*          slic2_decode(const unsigned char *data, long long len, int *ret_iw, int *ret_ih, int *ret_nch, int *ret_depth, int *ret_dummy_alpha, int force_alpha);
 
@@ -1086,6 +1087,41 @@ void print_usage(const char *programname)
 		programname
 	);
 }
+void* load_image(const char *filename, int *iw, int *ih, int *nch0, int *depth, clock_t *elapsed)//returned number of channels is always 4 for simplicity, nch0 is just for CR calculation
+{
+	*elapsed=clock();
+	unsigned short *udata=stbi_load_16(filename, iw, ih, nch0, 4);
+	*elapsed=clock()-*elapsed;
+	if(!udata)
+		return 0;
+	int actually8bit=1;
+	ptrdiff_t npx=(ptrdiff_t)*iw**ih*4;
+	for(ptrdiff_t k=0;k<npx;++k)//check for 8-bit image: stbi_load_16() duplicates bytes in this case
+	{
+		unsigned short val=udata[k];
+		if((val>>8)!=(val&0xFF))
+		{
+			actually8bit=0;
+			break;
+		}
+	}
+	if(!actually8bit)
+	{
+		*depth=16;
+		return udata;
+	}
+	*depth=8;
+	unsigned char *udata8=(unsigned char*)malloc(npx);
+	if(!udata8)
+	{
+		ERROR("Allocaiton error");
+		return 0;
+	}
+	for(ptrdiff_t k=0;k<npx;++k)
+		udata8[k]=(unsigned char)udata[k];
+	free(udata);
+	return udata8;
+}
 int main(int argc, char **argv)
 {
 #ifndef _DEBUG
@@ -1094,15 +1130,17 @@ int main(int argc, char **argv)
 		print_usage(argv[0]);
 		return 1;
 	}
-#endif
 	const char *op=argv[1], *fn1=argv[2], *fn2=argv[3];
+#else
+	const char *op="T", *fn1="C:/Projects/datasets/dataset-kodak/kodim01.png", *fn2=0;
+#endif
 	if(strlen(op)!=1)
 	{
 		printf("INVALID operation \'%s\'\n", op);
 		print_usage(argv[0]);
 		return 1;
 	}
-	int iw=0, ih=0, nch=4, depth=16;
+	int iw=0, ih=0, nch0=0, nch=4, depth=16;
 	clock_t t;
 	ptrdiff_t size1=get_filesize(fn1), size2;
 	int dummy_alpha=0;
@@ -1112,27 +1150,23 @@ int main(int argc, char **argv)
 		{
 			printf("Encode SLI\n");
 			printf("Opening \'%s\'...\n", fn1);
-			int nch0=0;
 			void *udata;
-		
-			t=clock();
-			depth=16;
-			udata=stbi_load_16(fn1, &iw, &ih, &nch0, nch);
-			t=clock()-t;
+
+			udata=load_image(fn1, &iw, &ih, &nch0, &depth, &t);
 			if(!udata)
 			{
 				printf("CANNOT open \'%s\'\n", fn1);
 				return 1;
 			}
 			printf("Took %lf sec\n", (double)t/CLOCKS_PER_SEC);
-			if(nch0<nch)
+			if(nch0<4)
 				dummy_alpha=1;
-			printf("C*W*H*D  %d*%d*%d*%d\n", nch-dummy_alpha, iw, ih, depth);
+			printf("C*W*H*D  %d*%d*%d*%d\n", nch0, iw, ih, depth);
 		
 			printf("Saving \'%s\'...\n", fn2);
 			t=clock();
 			long long ret_size=0;
-			if(!slic2_save(fn2, iw, ih, nch, depth, udata))
+			if(!slic2_save(fn2, iw, ih, 4, depth, udata))
 				printf("ERROR saving \'%s\'\n", fn2);
 			t=clock()-t;
 			printf("Took %lf sec\n", (double)t/CLOCKS_PER_SEC);
@@ -1196,55 +1230,54 @@ int main(int argc, char **argv)
 		{
 			printf("Test SLI\n");
 			printf("Opening \'%s\'...\n", fn1);
-			int nch0=0;
 			void *udata;
-		
-			t=clock();
-			depth=16;
-			udata=stbi_load_16(fn1, &iw, &ih, &nch0, nch);
-			t=clock()-t;
+			
+			udata=load_image(fn1, &iw, &ih, &nch0, &depth, &t);
 			if(!udata)
 			{
 				printf("CANNOT open \'%s\'\n", fn1);
 				return 1;
 			}
 			printf("Took %lf sec\n", (double)t/CLOCKS_PER_SEC);
-			printf("C*W*H*D  %d*%d*%d*%d\n", nch-dummy_alpha, iw, ih, depth);
+			printf("C*W*H*D  %d*%d*%d*%d\n", nch0, iw, ih, depth);
 			
 			printf("Test encode...\n");
 			t=clock();
 			long long ret_size=0;
-			unsigned char *cdata=slic2_encode(iw, ih, nch, depth, udata, &ret_size);
+			unsigned char *cdata=slic2_encode(iw, ih, 4, depth, udata, &ret_size);
 			t=clock()-t;
 			printf("Took %lf sec\n", (double)t/CLOCKS_PER_SEC);
 			
 			printf("Test decode...\n");
 			t=clock();
 			int iw2=0, ih2=0, nch2=0, depth2=0, dummy_alpha2=0;
-			unsigned short *udata2=slic2_decode(cdata, ret_size, &iw2, &ih2, &nch2, &depth2, &dummy_alpha2, 1);
+			unsigned char *udata2=slic2_decode(cdata, ret_size, &iw2, &ih2, &nch2, &depth2, &dummy_alpha2, 1);
 			t=clock()-t;
 			printf("Took %lf sec\n", (double)t/CLOCKS_PER_SEC);
 
 			printf("Checking...\n");
-			if(iw2!=iw||ih2!=ih||nch2!=nch||depth2!=depth)
+			if(iw2!=iw||ih2!=ih||nch2!=4||depth2!=depth)
 			{
 				printf(
 					"ERROR wrong image parameters:\n"
 					"C*W*H*D:  %d*%d*%d*%d  !=  %d*%d*%d*%d\n",
-					nch, iw, ih, depth,
+					4, iw, ih, depth,
 					nch2, iw2, ih2, depth2
 				);
 				return 1;
 			}
 			int success=1;
-			for(ptrdiff_t k=0, npx=nch*iw*ih;k<npx;++k)
+			for(ptrdiff_t k=0, npx=(ptrdiff_t)nch*iw*ih*depth>>3;k<npx;++k)
 			{
-				unsigned short
-					v1=((unsigned short*)udata)[k],
+				unsigned char
+					v1=((unsigned char*)udata)[k],
 					v2=udata2[k];
 				if(v2!=v1)
 				{
-					int kc=k%nch, kx, ky;
+					int kc, kx, ky;
+					if(depth>8)
+						k>>=1;
+					kc=k%nch;
 					k/=nch;
 					kx=k%iw;
 					ky=(int)(k/iw);
@@ -1270,11 +1303,13 @@ int main(int argc, char **argv)
 	}
 	if(size1>0&&size2>0)
 	{
-		nch-=dummy_alpha;
+		ptrdiff_t usize=(ptrdiff_t)iw*ih*nch0*depth>>3;
 		printf(
 			"Uncompressed/Compressed ratio (16-bit):\n"
-			"  %lld -> %lld bytes\n"
-			"  %lf -> %lf  CR\n", size1, size2, (double)iw*ih*nch*depth/(size1<<3), (double)iw*ih*nch*depth/(size2<<3)
+			"  Uncompressed size C*W*H*D %d*%d*%d*%d = %lld bytes\n"
+			"  Compressed size   %lld -> %lld bytes\n"
+			"  Compression ratio %lf -> %lf\n",
+			nch0, iw, ih, depth, usize, size1, size2, (double)usize/size1, (double)usize/size2
 		);
 		if(dummy_alpha)
 			printf("  Dummy alpha\n");
