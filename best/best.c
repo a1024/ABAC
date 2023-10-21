@@ -34,7 +34,7 @@ void batch_test(const char *path)
 {
 	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H%M%S");
 	printf("Start %s\n", g_buf);
-	double t_start=time_ms();
+	double t_start=time_sec();
 	ArrayHandle filenames=get_filenames(path, g_extensions, COUNTOF(g_extensions), 1);
 	if(!filenames)
 	{
@@ -111,7 +111,7 @@ void batch_test(const char *path)
 				printf(" !!!\n");
 
 			array_free(&cdata);
-			compare_bufs_uint8(b2, buf, iw, ih, nch0, 4, "T39", 0);
+			compare_bufs_uint8(b2, buf, iw, ih, nch0, 4, "T42", 0);
 
 			printf("\n");
 		}
@@ -120,7 +120,7 @@ void batch_test(const char *path)
 		free(b2);
 	}
 	printf("Batch elapsed ");
-	timedelta2str(0, 0, time_ms()-t_start);
+	timedelta2str(0, 0, time_sec()-t_start);
 	printf("\n");
 	ptrdiff_t totalusize=sum_uPNGsize+sum_uJPEGsize;
 	if(totalusize)
@@ -291,7 +291,7 @@ int main(int argc, char **argv)
 	t42_encode(buf, iw, ih, &cdata, 1);
 	t42_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 	array_free(&cdata);
-	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T39", 0);
+	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T42", 0);
 	memset(b2, 0, len);
 	printf("\n");
 

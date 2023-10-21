@@ -162,24 +162,6 @@ size_t test16_encode(const unsigned char *src, int bw, int bh, int alpha, int *b
 int    test16_decode(const unsigned char *data, size_t srclen, int bw, int bh, int alpha, int *blockw, int *blockh, int *margin, unsigned char *buf);
 
 
-//	#define DEBUG_ANS
-
-#ifdef DEBUG_ANS
-typedef struct DebugANSInfoStruct
-{
-	unsigned state, cdf, freq, id, kx, ky;
-	unsigned char kq, kc;
-	unsigned short sym;
-} DebugANSInfo;
-extern SList states;
-extern int debug_channel;
-void debug_enc_update(unsigned state, unsigned cdf, unsigned freq, int kx, int ky, int kq, int kc, unsigned char sym);
-void debug_dec_update(unsigned state, unsigned cdf, unsigned freq, int kx, int ky, int kq, int kc, unsigned char sym);
-#else
-#define debug_enc_update(...)
-#define debug_dec_update(...)
-#endif
-
 #if 0
 //void test17_saveconf(const unsigned char *src, int bw, int bh, int blocksize);
 size_t test17_encode(const unsigned char *src, int bw, int bh, int blocksize, int alpha, ArrayHandle *data, int loud);
@@ -220,8 +202,22 @@ typedef struct T24ParamsStruct
 double e24_estimate(const unsigned char *src, int iw, int ih, int cstart, int cend, unsigned char *gw0, unsigned char *maxinc, unsigned char *encounter_threshold, T24Params const *params, double *ret_csizes, int loud);
 
 
-int t25_encode(const unsigned char *src, int iw, int ih, int *blockw, int *blockh, ArrayHandle *data, int loud);
-int t25_decode(const unsigned char *data, size_t srclen, int iw, int ih, int *blockw, int *blockh, unsigned char *buf, int loud);
+int t25_encode(const unsigned char *src, int iw, int ih, int *blockw, int *blockh, int use_ans, ArrayHandle *data, int loud);
+int t25_decode(const unsigned char *data, size_t srclen, int iw, int ih, int *blockw, int *blockh, int use_ans, unsigned char *buf, int loud);
+
+
+typedef struct T26ParamsStruct
+{
+	unsigned char
+		gwidth,//>=1
+		mleft,
+		mtop,
+		mright,
+		alpha,//0~0xFF
+		maxinc;//>=1;
+} T26Params;
+int t26_encode(const unsigned char *src, int iw, int ih, T26Params const *params, int use_ans, ArrayHandle *data, int loud);
+int t26_decode(const unsigned char *data, size_t srclen, int iw, int ih, T26Params const *params, int use_ans, unsigned char *buf, int loud);
 
 
 

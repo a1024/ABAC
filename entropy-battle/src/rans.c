@@ -4403,9 +4403,9 @@ size_t test16_encode(const unsigned char *src, int bw, int bh, int alpha, int *b
 		printf("alpha 0x%04X\n", alpha);
 		printf("Total    %7d  %lf\n", ansbookmarks[2], 3.*res/ansbookmarks[2]);
 		printf("Overhead %7d\n", overhead);
-		printf("Red      %7d  %lf  %dx%d  M %d\n", ch[0], (double)res/ch[0], blockw[0], blockh[0], margin[0]);
-		printf("Green    %7d  %lf  %dx%d  M %d\n", ch[1], (double)res/ch[1], blockw[1], blockh[1], margin[1]);
-		printf("Blue     %7d  %lf  %dx%d  M %d\n", ch[2], (double)res/ch[2], blockw[2], blockh[2], margin[2]);
+		printf("Red      %7d  %lf  %2dx%d  M %d\n", ch[0], (double)res/ch[0], blockw[0], blockh[0], margin[0]);
+		printf("Green    %7d  %lf  %2dx%d  M %d\n", ch[1], (double)res/ch[1], blockw[1], blockh[1], margin[1]);
+		printf("Blue     %7d  %lf  %2dx%d  M %d\n", ch[2], (double)res/ch[2], blockw[2], blockh[2], margin[2]);
 	}
 
 	dlist_clear(&list);
@@ -5156,41 +5156,6 @@ size_t test18_encode(const unsigned char *src, int bw, int bh, ArrayHandle *data
 }
 #endif
 
-
-#ifdef DEBUG_ANS
-SList states={0};
-int debug_channel=0;
-void debug_enc_update(unsigned state, unsigned cdf, unsigned freq, int kx, int ky, int kq, int kc, unsigned char sym)
-{
-	if(kc==debug_channel)
-	{
-		if(!states.count)
-			slist_init(&states, sizeof(DebugANSInfo), 0);
-
-		state=state/freq<<16|(cdf+state%freq);//update
-
-		DebugANSInfo info={state, cdf, freq, (unsigned)states.count, kx, ky, kq, kc, sym};
-		STACK_PUSH(&states, &info);
-	}
-}
-void debug_dec_update(unsigned state, unsigned cdf, unsigned freq, int kx, int ky, int kq, int kc, unsigned char sym)
-{
-	if(kc==debug_channel)
-	{
-		if(!states.count)
-			LOG_ERROR("Nothing to decode");
-		DebugANSInfo *i0=(DebugANSInfo*)STACK_TOP(&states), info;
-		memcpy(&info, i0, sizeof(info));
-
-		if(info.state!=state||info.cdf!=cdf||info.freq!=freq||kx!=info.kx||ky!=info.ky||kq!=info.kq||kc!=info.kc||info.sym!=sym)
-			LOG_ERROR("Decode error  (%d decodes remaining)", info.id);
-
-		state=freq*(state>>16)+(unsigned short)state-cdf;//update
-
-		STACK_POP(&states);
-	}
-}
-#endif
 
 #if 0
 void t19_calchist(const unsigned char *b2, int bw, int kc, int x1, int x2, int y1, int y2, int xslope, int yslope, int constant, int maxinc, unsigned *CDF2, int *hcount)

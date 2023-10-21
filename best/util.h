@@ -70,11 +70,9 @@ int ceil_log2(unsigned long long n);
 int floor_log10(double x);
 double power(double x, int y);
 double _10pow(int n);
-int minimum(int a, int b);
-int maximum(int a, int b);
 int acme_isdigit(char c, char base);
 
-double time_ms();
+double time_sec();
 
 typedef struct TimeInfoStruct
 {

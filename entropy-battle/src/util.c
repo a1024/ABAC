@@ -315,25 +315,27 @@ int		acme_isdigit(char c, char base)
 	return 0;
 }
 
-double	time_ms()
+double time_ms()
 {
 #ifdef _MSC_VER
-	static double inv_f=0;
+	static long long t0=0;
 	LARGE_INTEGER li;
-	//if(!inv_f)
-	//{
-		QueryPerformanceFrequency(&li);//<Windows.h>
-		inv_f=1/(double)li.QuadPart;
-	//}
+	double t;
 	QueryPerformanceCounter(&li);
-	return 1000.*(double)li.QuadPart*inv_f;
+	if(!t0)
+		t0=li.QuadPart;
+	t=(double)(li.QuadPart-t0);
+	QueryPerformanceFrequency(&li);
+	t/=(double)li.QuadPart;
+	t*=1000;
+	return t;
 #else
 	struct timespec t;
 	clock_gettime(CLOCK_REALTIME, &t);//<time.h>
 	return t.tv_sec*1000+t.tv_nsec*1e-6;
 #endif
 }
-int		timedelta2str(char *buf, size_t len, double ms)
+int timedelta2str(char *buf, size_t len, double ms)
 {
 	int printed;
 	int days, hours, mins;
@@ -365,7 +367,7 @@ int		timedelta2str(char *buf, size_t len, double ms)
 	}
 	return printed;
 }
-int		acme_strftime(char *buf, size_t len, const char *format)
+int acme_strftime(char *buf, size_t len, const char *format)
 {
 	time_t tstamp;
 	struct tm tformat;
@@ -373,6 +375,35 @@ int		acme_strftime(char *buf, size_t len, const char *format)
 	tstamp=time(0);
 	localtime_s(&tformat, &tstamp);
 	return (int)strftime(buf, len, format, &tformat);
+}
+int print_bin8(int x)
+{
+	//printf("0b");
+	for(int k=7;k>=0;--k)
+	{
+		int bit=x>>k&1;
+		printf("%c", '0'+bit);
+	}
+	return 34;
+}
+int print_bin32(unsigned x)
+{
+	printf("0b");
+	for(int k=31;k>=0;--k)
+	{
+		int bit=x>>k&1;
+		printf("%c", '0'+bit);
+	}
+	return 34;
+}
+int print_binn(unsigned long long x, int nbits)
+{
+	for(int k=nbits-1;k>=0;--k)
+	{
+		int bit=x>>k&1;
+		printf("%c", '0'+bit);
+	}
+	return nbits;
 }
 
 //error handling

@@ -494,7 +494,7 @@ void t42_ctx_update(T42Ctx *ctx, int kc, int kb, int bit)
 int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud)
 {
 	int res=iw*ih;
-	double t_start=time_ms();
+	double t_start=time_sec();
 	if(loud)
 	{
 		acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H-%M-%S");
@@ -563,7 +563,7 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 		printf("\n");//skip progress line
 		printf("Used %f MB of memory\n", (float)t42_ctx->nnodes*sizeof(T42Node)/(1024*1024));
 		printf("Encode elapsed ");
-		timedelta2str(0, 0, time_ms()-t_start);
+		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 #if 0
 		double csize=0;
@@ -665,7 +665,7 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 int t42_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud)
 {
 	int res=iw*ih;
-	double t_start=time_ms();
+	double t_start=time_sec();
 
 	//int debug_index=0;
 	char *ebuf=(char*)malloc((size_t)res<<2);
@@ -717,7 +717,7 @@ int t42_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 	{
 		printf("\n");//skip progress line
 		printf("Decode elapsed ");
-		timedelta2str(0, 0, time_ms()-t_start);
+		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 	}
 	return 1;

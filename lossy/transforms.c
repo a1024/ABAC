@@ -99,6 +99,9 @@ void upsample(const float *src, int iw, int ih, float *dst)//src & dst CANNOT be
 	}
 }
 
+
+//Color Trannsforms
+
 void colortransform_ycocg_fwd(char *buf, int iw, int ih)//3 channels, stride 4 bytes
 {
 	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
@@ -551,6 +554,9 @@ void colortransform_ycocb_ps_inv(float *c0, float *c1, float *c2, int iw, int ih
 	}
 }
 #endif
+
+
+//DCTs
 
 //	#define DCT_8x8_PS_SCALED
 
@@ -1908,19 +1914,112 @@ void DCT3_8x8_i16_buf(const short *src, int iw, int ih, short *dst, float dequan
 }
 
 
-void quantize(float *buf, int iw, int ih, const float *qmatrix)
+static void blit_ps(const float *src, int iw, int ih, int x, int y, int dx, int dy, float *dst)
+{
+	for(int ky2=0;ky2<dy;++ky2)
+	{
+		memcpy(dst+256*ky2, src+iw*(y+ky2)+x, dx*sizeof(float));
+		//if(dx<256)//const pad x
+		//	memfill(temp+256*ky2+dx, temp+256*ky2+dx-1, (256-dx)*sizeof(float), sizeof(float));
+	}
+	//if(dy<256)//const pad y
+	//	memfill(temp+256*dy, temp+256*(dy-1), 256*(256-dy)*sizeof(float), 256*sizeof(float));
+}
+static void blockDCT_ps(float *buf, int bw, int bh, int iw, int ih, FCT1D_PS_Params *px, FCT1D_PS_Params *py)
+{
+	for(int ky=0;ky<ih;++ky)
+		FCT1D_ps_fwd(px, buf+bw*ky, 1);
+	for(int kx=0;kx<iw;++kx)
+		FCT1D_ps_fwd(py, buf+kx, bw);
+}
+static void macroblockDCT_ps(const float *src, int iw, int ih, int x, int y, int lgDCTw, int lgDCTh, float *temp, FCT1D_PS_Params *p)
+{
+	const int mbsize=256;
+	blit_ps(src, iw, ih, x, y, mbsize, mbsize, temp);
+	for(int ky=0;ky<mbsize;++ky)//horizontal DCTs
+	{
+		for(int kx=0;kx<mbsize;kx+=1<<lgDCTw)
+			FCT1D_ps_fwd(p+lgDCTw, temp+mbsize*ky+kx, 1);
+	}
+	for(int ky=0;ky<mbsize;ky+=1<<lgDCTh)//vertical DCTs
+	{
+		for(int kx=0;kx<iw;++kx)
+			FCT1D_ps_fwd(p+lgDCTh, temp+mbsize*ky+kx, mbsize);
+	}
+}
+static void quantize_block(const float *src, int bw, int bh, int iw, int ih, short *dst, int dw, int dh, int x, int y, int q)
 {
 	for(int ky=0;ky<ih;++ky)
 	{
 		for(int kx=0;kx<iw;++kx)
 		{
-			int idx=iw*ky+kx;
-			float val=buf[idx];
-			val/=qmatrix[(ky&7)<<3|kx&7];
-			val=roundf(val);
-			buf[idx]=CLAMP(-128, val, 128);
+			float val=src[bw*ky+kx];
+			val/=(float)q;
+			val=CLAMP(-0x8000, val, 0x7FFF);
+			dst[dw*(y+ky)+x+kx]=(short)val;
 		}
 	}
+}
+static void get_sdev(const float *buf, int iw, int ih, int x1, int x2, int y1, int y2, int *count, double *sdev)
+{
+	for(int ky=y1;ky<y2;++ky)
+	{
+		for(int kx=x1;kx<x2;++kx, ++*count)
+		{
+			float val=buf[iw*ky+kx];
+			*sdev+=(double)val*val;
+		}
+	}
+	//if(count)
+	//{
+	//	sdev/=count;
+	//	sdev=sqrt(sdev);
+	//}
+	//return sdev;
+}
+ArrayHandle vDCT3_2d_ps_fwd(const float *src, int iw, int ih, int q, short *dst)
+{
+	float *temp=(float*)malloc(256LL*256*sizeof(float));
+	if(!temp)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	ArrayHandle strategy;
+	ARRAY_ALLOC(char, strategy, 0, 0, 0, 0);
+	FCT1D_PS_Params p[9];//{rx, ry, 4, 8, 16, 32, 64, 128, 256}
+	if(iw&255)
+		FCT1D_ps_gen(iw&255, p);
+	if(ih&255)
+		FCT1D_ps_gen(ih&255, p+1);
+	for(int k=2;k<9;++k)
+		FCT1D_ps_gen(k, p+k);
+	for(int ky=0;ky<ih;ky+=256)
+	{
+		int yend=MINVAR(ky+256, ih), dy=yend-ky;
+		for(int kx=0;kx<iw;kx+=256)
+		{
+			int xend=MINVAR(kx+256, iw), dx=xend-kx;
+			if(dx==256&&dy==256)
+			{
+				double sdevx, sdevy;
+				macroblockDCT_ps(src, iw, ih, kx, ky, 8, 8, temp, p);
+				sdevx=get_sdev(temp, 256, 256, 64, 256,  0, 256);
+				sdevy=get_sdev(temp, 256, 256,  0, 256, 64, 256);
+				int decision=0;
+			}
+			else//border case blocks are not divided because creating arbitrary-size DCT plans on the fly is slow
+			{
+				blit_ps(src, iw, ih, kx, ky, dx, dy, temp);
+				blockDCT_ps(temp, 256, 256, dx, dy, dx==256?p+8:p, dy==256?p+8:p+1);
+				quantize_block(temp, 256, 256, dx, dy, dst, iw, ih, kx, ky, q);
+			}
+		}
+	}
+	for(int k=0;k<9;++k)
+		FCT1D_ps_free(p+k);
+	free(temp);
+	return strategy;
 }
 
 
@@ -2325,6 +2424,21 @@ void lg53ps2d_inv(float *buffer, DWTSize *sizes, int sizes_start, int sizes_end,
 	}
 }
 
+
+void quantize(float *buf, int iw, int ih, const float *qmatrix)
+{
+	for(int ky=0;ky<ih;++ky)
+	{
+		for(int kx=0;kx<iw;++kx)
+		{
+			int idx=iw*ky+kx;
+			float val=buf[idx];
+			val/=qmatrix[(ky&7)<<3|kx&7];
+			val=roundf(val);
+			buf[idx]=CLAMP(-128, val, 128);
+		}
+	}
+}
 
 void quantize_dwt_i16_fwd(short *buf, int llw, int llh, int iw, int ih, int Q)
 {

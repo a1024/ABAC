@@ -301,8 +301,6 @@ double	_10pow(int n)
 		return _HUGE;
 	return mask[n+308];
 }
-int		minimum(int a, int b){return a<b?a:b;}
-int		maximum(int a, int b){return a>b?a:b;}
 int		acme_isdigit(char c, char base)
 {
 	switch(base)
@@ -315,18 +313,19 @@ int		acme_isdigit(char c, char base)
 	return 0;
 }
 
-double	time_ms()
+double time_sec()
 {
 #ifdef _MSC_VER
-	static double inv_f=0;
+	static long long t0=0;
 	LARGE_INTEGER li;
-	//if(!inv_f)
-	//{
-		QueryPerformanceFrequency(&li);//<Windows.h>
-		inv_f=1/(double)li.QuadPart;
-	//}
+	double t;
 	QueryPerformanceCounter(&li);
-	return 1000.*(double)li.QuadPart*inv_f;
+	if(!t0)
+		t0=li.QuadPart;
+	t=(double)(li.QuadPart-t0);
+	QueryPerformanceFrequency(&li);
+	t/=(double)li.QuadPart;
+	return t;
 #else
 	struct timespec t;
 	clock_gettime(CLOCK_REALTIME, &t);//<time.h>

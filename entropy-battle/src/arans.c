@@ -1,4 +1,4 @@
-#include"battle.h"
+#include"ac.h"
 #include"lodepng.h"
 #include<stdio.h>//for debugging
 #include<stdlib.h>
@@ -2620,7 +2620,11 @@ encode:
 }
 
 
-	#define T25_OPT_PRED
+#if 1
+int hist_unsigned[8], hist_signed[8], hist_zigzag[8], hist_hixed[8];
+#endif
+
+//	#define T25_OPT_PRED
 
 //test 25 (the 4th optimizer for test16): image is divided into large blocks, each lblock has an sblock selected (least compressible part) on which the T16 params are optimized
 typedef struct T25ParamsStruct
@@ -2728,6 +2732,8 @@ int t25_prepblock(const unsigned char *buf2, const unsigned short *CDF0, int iw,
 	if(CDF2[256])
 	{
 		sum=0;
+		if(rec)//
+			printf("\nCXXY %d %d %d %d A %d\n", kc, x1, x2, y, p->alpha);
 		for(int sym=0;sym<256;++sym)
 		{
 			cdf1=!overflow?CDF0[sym]:0x10000;
@@ -2737,7 +2743,10 @@ int t25_prepblock(const unsigned char *buf2, const unsigned short *CDF0, int iw,
 
 			f2=(int)(((long long)CDF2[sym]<<16)/CDF2[256]);//normalize
 
-			freq=f1+(int)(((long long)f2-f1)*p->alpha/0xFF);//blend
+			if(f2<f1)
+				freq=f2+(int)(((long long)f1-f2)*(0xFF-p->alpha)/0xFF);//blend
+			else
+				freq=f1+(int)(((long long)f2-f1)*p->alpha/0xFF);//blend
 
 			int f3=freq;//
 
@@ -2755,7 +2764,7 @@ int t25_prepblock(const unsigned char *buf2, const unsigned short *CDF0, int iw,
 				//LOG_ERROR("Impossible freq 0x%04X / 0x10000", freq);
 			CDF2[sym]=sum;
 			sum+=freq;
-			if(sum>0x10000)
+			if(sum>0x10000&&sym<255)
 			{
 				if(!rec)//
 				{
@@ -3083,7 +3092,7 @@ static T25Params t25_params[3]=
 	{23, 32, 32, 32, 0xD4, 32},
 	{ 8, 26, 26, 26, 0xD4, 32},
 };
-int t25_encode(const unsigned char *src, int iw, int ih, int *blockw, int *blockh, ArrayHandle *data, int loud)
+int t25_encode(const unsigned char *src, int iw, int ih, int *blockw, int *blockh, int use_ans, ArrayHandle *data, int loud)
 {
 	int res=iw*ih;
 	double t_start=time_ms();
@@ -3143,7 +3152,7 @@ int t25_encode(const unsigned char *src, int iw, int ih, int *blockw, int *block
 	{
 		memset(CDF2, 0, 256LL*sizeof(unsigned));
 		t25_calchist(buf2, iw, ih, kc, 0, iw, 0, ih, CDF2);
-		t21_normalize_histogram(CDF2, 256, res, CDF0+((size_t)kc<<8));
+		t25_normalize_histogram(CDF2, 256, res, CDF0+((size_t)kc<<8));
 	}
 
 	DList list;
@@ -3218,53 +3227,134 @@ int t25_encode(const unsigned char *src, int iw, int ih, int *blockw, int *block
 		//if(kc==2)//
 		//	kc=2;
 
-		unsigned state=0x10000;
-		for(int ky=ih-1;ky>=0;--ky)
+		if(use_ans)
 		{
-			int by=ky/lbh;
-			lblock.y1=by*lbh;
-			lblock.y2=MINVAR(lblock.y1+lbh, ih);
-			for(int bx=lbx-1;bx>=0;--bx)
+			ANSEncContext ctx;
+			ans_enc_init(&ctx, CDF2, &list);
+			//unsigned state=0x10000;
+			for(int ky=ih-1;ky>=0;--ky)
 			{
-				T25ParamsPacked *pp=(T25ParamsPacked*)array_at(&params, lbx*by+bx);
-				T25Params param={pp->gwidth, pp->mleft, pp->mtop, pp->mright, pp->alpha, pp->maxinc};
-				int ng=(lbw+param.gwidth-1)/param.gwidth;
-				lblock.x1=bx*lbw;
-				lblock.x2=MINVAR(lblock.x1+lbw, iw);
-				for(int kg=ng-1;kg>=0;--kg)
+				int by=ky/lbh;
+				lblock.y1=by*lbh;
+				lblock.y2=MINVAR(lblock.y1+lbh, ih);
+				for(int bx=lbx-1;bx>=0;--bx)
 				{
-					int x1=lblock.x1+kg*param.gwidth, x2=MINVAR(x1+param.gwidth, lblock.x2);
-					int success=t25_prepblock(buf2, CDF0, iw, ih, kc, x1, x2, ky, &param, CDF2, 0);
-					if(!success)
-						LOG_ERROR("t25_prepblock error");
-					for(int kx=x2-1;kx>=x1;--kx)
+					T25ParamsPacked *pp=(T25ParamsPacked*)array_at(&params, lbx*by+bx);
+					T25Params param={pp->gwidth, pp->mleft, pp->mtop, pp->mright, pp->alpha, pp->maxinc};
+					int ng=(lbw+param.gwidth-1)/param.gwidth;
+					lblock.x1=bx*lbw;
+					lblock.x2=MINVAR(lblock.x1+lbw, iw);
+					for(int kg=ng-1;kg>=0;--kg)
 					{
-						unsigned char sym=buf2[(iw*ky+kx)<<2|kc];
-
-						int cdf=CDF2[sym], freq=CDF2[sym+1]-cdf;
-
-						//if(kc==0&&ky==511&&kx==512)//
-						//	printf("CXY %d %d %d  sym 0x%02X cdf 0x%04X freq 0x%04X  state 0x%08X\n", kc, kx, ky, sym, cdf, freq, state);
-
-						if(!freq)
-							LOG_ERROR("ZPS");
-
-						//double prob=freq/65536.;
-						//csize-=log2(prob);
-						//unsigned s0=state;
-						
-						if(state>=(unsigned)(freq<<16))//renorm
+						int x1=lblock.x1+kg*param.gwidth, x2=MINVAR(x1+param.gwidth, lblock.x2);
+						int success=t25_prepblock(buf2, CDF0, iw, ih, kc, x1, x2, ky, &param, CDF2, 0);
+						if(!success)
+							LOG_ERROR("t25_prepblock error");
+						for(int kx=x2-1;kx>=x1;--kx)
 						{
-							dlist_push_back(&list, &state, 2);
-							state>>=16;
+							ans_enc(&ctx, buf2[(iw*ky+kx)<<2|kc], kc);
+							//unsigned char sym=buf2[(iw*ky+kx)<<2|kc];
+							//ans_enc(&state, CDF2[sym], CDF2[sym+1]-CDF2[sym], &list);
+#if 0
+							int cdf=CDF2[sym], freq=CDF2[sym+1]-cdf;
+
+							//if(kc==0&&ky==511&&kx==512)//
+							//	printf("CXY %d %d %d  sym 0x%02X cdf 0x%04X freq 0x%04X  state 0x%08X\n", kc, kx, ky, sym, cdf, freq, state);
+
+							if(!freq)
+								LOG_ERROR("ZPS");
+
+							//double prob=freq/65536.;
+							//csize-=log2(prob);
+							//unsigned s0=state;
+						
+							if(state>=(unsigned)(freq<<16))//renorm
+							{
+								dlist_push_back(&list, &state, 2);
+								state>>=16;
+							}
+							debug_enc_update(state, cdf, freq, kx, ky, 0, kc, sym);
+							state=state/freq<<16|(cdf+state%freq);//update
+#endif
 						}
-						debug_enc_update(state, cdf, freq, kx, ky, 0, kc, sym);
-						state=state/freq<<16|(cdf+state%freq);//update
 					}
 				}
 			}
+			ans_enc_flush(&ctx);
+			//ans_enc_flush(&list, state);
+			//dlist_push_back(&list, &state, 4);
 		}
-		dlist_push_back(&list, &state, 4);
+		else
+		{
+			ACEncContext ctx;
+			ac_enc_init(&ctx, CDF2, &list);
+			for(int ky=0;ky<ih;++ky)
+			{
+				int by=ky/lbh;
+				lblock.y1=by*lbh;
+				lblock.y2=MINVAR(lblock.y1+lbh, ih);
+				for(int bx=0;bx<lbx;++bx)
+				{
+					T25ParamsPacked *pp=(T25ParamsPacked*)array_at(&params, lbx*by+bx);
+					T25Params param={pp->gwidth, pp->mleft, pp->mtop, pp->mright, pp->alpha, pp->maxinc};
+					int ng=(lbw+param.gwidth-1)/param.gwidth;
+					lblock.x1=bx*lbw;
+					lblock.x2=MINVAR(lblock.x1+lbw, iw);
+					for(int kg=0;kg<ng;++kg)
+					{
+						int x1=lblock.x1+kg*param.gwidth, x2=MINVAR(x1+param.gwidth, lblock.x2);
+						int success=t25_prepblock(buf2, CDF0, iw, ih, kc, x1, x2, ky, &param, CDF2, 0);
+						if(!success)
+							LOG_ERROR("t25_prepblock error");
+						for(int kx=x1;kx<x2;++kx)
+						{
+#if 1
+							{//
+								static int counter=0;
+								unsigned char su=buf2[(iw*ky+kx)<<2|kc];
+								int si=(char)(su+128);//signed
+
+								int sz=si;
+
+								int neg=sz<0;//zigzag code
+								sz^=-neg;
+								sz+=neg;
+								sz<<=1;
+								sz|=neg;
+
+								int sf=sz;
+								int s128=sf==1;
+								sf-=sf>1;
+								sf+=s128;
+
+								int sg=sf;
+								sg^=sg>>1;//to gray code
+
+								if(counter>=10000&&counter<11000)
+								{
+									if(counter==10000)
+										printf("unsigned, signed, zigzag, fixed, grey\n");
+									print_bin8((unsigned)su);
+									printf(" ");
+									print_bin8((unsigned)si);
+									printf(" ");
+									print_bin8((unsigned)sz);
+									printf(" ");
+									print_bin8((unsigned)sf);
+									printf(" ");
+									print_bin8((unsigned)sg);
+									printf("\n");
+								}
+								++counter;
+							}
+#endif
+							ac_enc(&ctx, buf2[(iw*ky+kx)<<2|kc]);
+						}
+					}
+				}
+			}
+			ac_enc_flush(&ctx);
+		}
 		ansbookmarks[kc]=(int)list.nobj;
 
 		array_free(&params);
@@ -3297,14 +3387,13 @@ int t25_encode(const unsigned char *src, int iw, int ih, int *blockw, int *block
 	free(CDF2);
 	return 1;
 }
-int t25_decode(const unsigned char *data, size_t srclen, int iw, int ih, int *blockw, int *blockh, unsigned char *buf, int loud)
+int t25_decode(const unsigned char *data, size_t srclen, int iw, int ih, int *blockw, int *blockh, int use_ans, unsigned char *buf, int loud)
 {
 	const short predidx[]={0, 11, 11+PW2_NPARAM}, predlen[]={11, PW2_NPARAM, 11, 22+PW2_NPARAM};
 	const int cdflen=768LL*sizeof(short), overhead=12LL+predlen[3]*sizeof(short)+cdflen;
 	int res=iw*ih;
 	
-	const unsigned char *srcptr, *srcstart, *srcend=data+srclen;
-	if(data+overhead>=srcend)
+	if(srclen<=overhead)
 	{
 		LOG_ERROR("Corrupt file");
 		return 0;
@@ -3340,11 +3429,11 @@ int t25_decode(const unsigned char *data, size_t srclen, int iw, int ih, int *bl
 		(ih+blockh[1]-1)/blockh[1],
 		(ih+blockh[2]-1)/blockh[2],
 	};
-	T25ParamsPacked *params[]=
+	T25ParamsPacked const *params[]=
 	{
-		(T25ParamsPacked*)(data+overhead),
-		(T25ParamsPacked*)(data+ansbookmarks[0]),
-		(T25ParamsPacked*)(data+ansbookmarks[1]),
+		(T25ParamsPacked const*)(data+overhead),
+		(T25ParamsPacked const*)(data+ansbookmarks[0]),
+		(T25ParamsPacked const*)(data+ansbookmarks[1]),
 	};
 	int pcount[]=
 	{
@@ -3355,75 +3444,116 @@ int t25_decode(const unsigned char *data, size_t srclen, int iw, int ih, int *bl
 	Rect block;
 	for(int kc=0;kc<3;++kc)
 	{
-		unsigned state;
-		srcptr=data+ansbookmarks[kc];
-		srcstart=kc?data+ansbookmarks[kc-1]:data+overhead;
-		srcptr-=4;
-		if(srcptr<srcstart)
-			LOG_ERROR("ANS buffer overflow");
-		memcpy(&state, srcptr, 4);
-
-		for(int ky=0;ky<ih;++ky)
+		const unsigned char
+			*srcstart=(const unsigned char*)(params[kc]+pcount[kc]),
+			*srcend=data+ansbookmarks[kc];
+		if(use_ans)
 		{
-			int by=ky/blockh[kc];
-			block.y1=by*blockh[kc];
-			block.y2=MINVAR(block.y1+blockh[kc], ih);
-			for(int bx=0;bx<lbx[kc];++bx)
+			ANSDecContext ctx;
+			ans_dec_init(&ctx, CDF2, srcstart, srcend);
+			//ans_dec_init(&ctx, CDF2, data+(kc?ansbookmarks[kc-1]:overhead), data+ansbookmarks[kc]);
+			//unsigned state;
+			//srcptr=data+ansbookmarks[kc];
+			//srcstart=kc?data+ansbookmarks[kc-1]:data+overhead;
+			//srcptr-=4;
+			//if(srcptr<srcstart)
+			//	LOG_ERROR("ANS buffer overflow");
+			//memcpy(&state, srcptr, 4);
+
+			for(int ky=0;ky<ih;++ky)
 			{
-				T25ParamsPacked *pp=params[kc]+lbx[kc]*by+bx;
-				T25Params param={pp->gwidth, pp->mleft, pp->mtop, pp->mright, pp->alpha, pp->maxinc};
-				int ng=(blockw[kc]+param.gwidth-1)/param.gwidth;
-				block.x1=bx*blockw[kc];
-				block.x2=MINVAR(block.x1+blockw[kc], iw);
-				for(int kg=0;kg<ng;++kg)
+				int by=ky/blockh[kc];
+				block.y1=by*blockh[kc];
+				block.y2=MINVAR(block.y1+blockh[kc], ih);
+				for(int bx=0;bx<lbx[kc];++bx)
 				{
-					int x1=block.x1+kg*param.gwidth, x2=MINVAR(x1+param.gwidth, block.x2);
-					int success=t25_prepblock(buf, CDF0, iw, ih, kc, x1, x2, ky, &param, CDF2, 0);
-					if(!success)
-						LOG_ERROR("t25_prepblock error");
-					for(int kx=x1;kx<x2;++kx)
+					T25ParamsPacked const *pp=params[kc]+lbx[kc]*by+bx;
+					T25Params param={pp->gwidth, pp->mleft, pp->mtop, pp->mright, pp->alpha, pp->maxinc};
+					int ng=(blockw[kc]+param.gwidth-1)/param.gwidth;
+					block.x1=bx*blockw[kc];
+					block.x2=MINVAR(block.x1+blockw[kc], iw);
+					for(int kg=0;kg<ng;++kg)
 					{
-						unsigned c=(unsigned short)state;
-						int sym=0;
+						int x1=block.x1+kg*param.gwidth, x2=MINVAR(x1+param.gwidth, block.x2);
+						int success=t25_prepblock(buf, CDF0, iw, ih, kc, x1, x2, ky, &param, CDF2, 0);
+						if(!success)
+							LOG_ERROR("t25_prepblock error");
+						for(int kx=x1;kx<x2;++kx)
+						{
+							buf[(iw*ky+kx)<<2|kc]=ans_dec(&ctx, kc);
+#if 0
+							unsigned c=(unsigned short)state;
+							int sym=0;
 					
-						//if(kc==0&&ky==2&&kx==512)//
-						//	printf("");
+							//if(kc==0&&ky==2&&kx==512)//
+							//	printf("");
 
-						int L=0, R=256, found=0;
-						while(L<=R)
-						{
-							sym=(L+R)>>1;
-							if(CDF2[sym]<c)
-								L=sym+1;
-							else if(CDF2[sym]>c)
-								R=sym-1;
+							int L=0, R=256, found=0;
+							while(L<=R)
+							{
+								sym=(L+R)>>1;
+								if(CDF2[sym]<c)
+									L=sym+1;
+								else if(CDF2[sym]>c)
+									R=sym-1;
+								else
+								{
+									found=1;
+									break;
+								}
+							}
+							if(found)
+								for(;sym<256-1&&CDF2[sym+1]==c;++sym);
 							else
-							{
-								found=1;
-								break;
-							}
-						}
-						if(found)
-							for(;sym<256-1&&CDF2[sym+1]==c;++sym);
-						else
-							sym=L+(L<256&&CDF2[L]<c)-(L!=0);
-							//sym=L+(L<256&&CDF2[L]<c)-1;
+								sym=L+(L<256&&CDF2[L]<c)-(L!=0);
+								//sym=L+(L<256&&CDF2[L]<c)-1;
 
-						buf[(iw*ky+kx)<<2|kc]=(unsigned char)sym;
+							buf[(iw*ky+kx)<<2|kc]=(unsigned char)sym;
 
-						unsigned cdf=CDF2[sym], freq=CDF2[sym+1]-cdf;
+							unsigned cdf=CDF2[sym], freq=CDF2[sym+1]-cdf;
 						
-						debug_dec_update(state, cdf, freq, kx, ky, 0, kc, sym);
-						state=freq*(state>>16)+c-cdf;//update
-						if(state<0x10000)//renorm
-						{
-							state<<=16;
-							if(srcptr-2>=srcstart)
+							debug_dec_update(state, cdf, freq, kx, ky, 0, kc, sym);
+							state=freq*(state>>16)+c-cdf;//update
+							if(state<0x10000)//renorm
 							{
-								srcptr-=2;
-								memcpy(&state, srcptr, 2);
+								state<<=16;
+								if(srcptr-2>=srcstart)
+								{
+									srcptr-=2;
+									memcpy(&state, srcptr, 2);
+								}
 							}
+#endif
 						}
+					}
+				}
+			}
+		}
+		else
+		{
+			ACDecContext ctx;
+			ac_dec_init(&ctx, CDF2, srcstart, srcend);
+
+			for(int ky=0;ky<ih;++ky)
+			{
+				int by=ky/blockh[kc];
+				block.y1=by*blockh[kc];
+				block.y2=MINVAR(block.y1+blockh[kc], ih);
+				for(int bx=0;bx<lbx[kc];++bx)
+				{
+					T25ParamsPacked const *pp=params[kc]+lbx[kc]*by+bx;
+					T25Params param={pp->gwidth, pp->mleft, pp->mtop, pp->mright, pp->alpha, pp->maxinc};
+					int ng=(blockw[kc]+param.gwidth-1)/param.gwidth;
+					block.x1=bx*blockw[kc];
+					block.x2=MINVAR(block.x1+blockw[kc], iw);
+					for(int kg=0;kg<ng;++kg)
+					{
+						int x1=block.x1+kg*param.gwidth, x2=MINVAR(x1+param.gwidth, block.x2);
+						int success=t25_prepblock(buf, CDF0, iw, ih, kc, x1, x2, ky, &param, CDF2, 0);
+						if(!success)
+							LOG_ERROR("t25_prepblock error");
+						for(int kx=x1;kx<x2;++kx)
+							buf[(iw*ky+kx)<<2|kc]=ac_dec(&ctx);
 					}
 				}
 			}

@@ -2254,6 +2254,81 @@ void estimate_csize_from_transforms(const unsigned char *buf, unsigned char *b2,
 }
 
 
+//SWAR signed fixed point multiplication
+#if 1
+//{2, 1} is 2.1 bit
+//{3, 2} is 5.2 bit
+//{4, 8} is 7.8 bit
+#define SWAR_lgNBITS 4	//4 3 2
+#define SWAR_FRACBITS 8	//8 2 1
+
+#define SWAR_lgEBITS (SWAR_lgNBITS+1)
+#define SWAR_EBITS (1<<SWAR_lgEBITS)
+#define SWAR_NVALS (1<<(6-SWAR_lgEBITS))
+#define SWAR_NBITS (1<<SWAR_lgNBITS)
+#define SWAR_ONE (1LL<<SWAR_FRACBITS)
+#define SWAR_ONEANDHALF (SWAR_ONE|0x1LL<<(SWAR_FRACBITS-1))
+long long swar_pack_signed(const short *vals)
+{
+	long long reg=0;
+	for(int k=0;k<SWAR_NVALS;++k)
+		reg+=(long long)vals[k]<<(k<<SWAR_lgEBITS);
+	return reg;
+}
+void swar_unpack_signed(long long reg, short *vals)
+{
+	for(int k=0;k<SWAR_NVALS;++k)
+	{
+		int val=(int)(reg&((1LL<<SWAR_EBITS)-1));
+		int neg=val>>(SWAR_EBITS-1)&1;
+#if SWAR_EBITS>32
+		val+=-neg<<SWAR_EBITS;
+#endif
+		reg>>=SWAR_EBITS;
+		reg+=neg;
+		vals[k]=val;
+	}
+}
+void test_swar_printvals(const short *vals)
+{
+	//short vals[SWAR_NVALS];
+	//swar_unpack_signed(reg, vals);
+	printf("{");
+	for(int k=0;k<SWAR_NVALS;++k)
+		printf(" %g,", (double)vals[k]/(1<<SWAR_FRACBITS));
+	printf("}");
+}
+void test_swar()
+{
+	short vals[SWAR_NVALS];
+	printf("%d.%d bit\n", SWAR_NBITS-SWAR_FRACBITS-1, SWAR_FRACBITS);
+	for(int k=0;k<(1<<SWAR_NVALS);++k)//signed multiplication of fixed 2.1 bit x8
+	{
+		for(int kv=0;kv<SWAR_NVALS;++kv)
+		{
+			int neg=k>>kv&1;
+			vals[kv]=neg?-SWAR_ONE:SWAR_ONE;
+		}
+		test_swar_printvals(vals);
+		long long reg=swar_pack_signed(vals);
+
+		printf(" * %g = ", (double)-SWAR_ONEANDHALF/(1<<SWAR_FRACBITS));
+
+		reg*=-SWAR_ONEANDHALF;
+		reg>>=SWAR_FRACBITS;
+
+		swar_unpack_signed(reg, vals);
+		test_swar_printvals(vals);
+		printf("\n");
+	}
+
+	printf("Done.\n");
+	pause();
+	exit(0);
+}
+#endif
+
+
 //	#define BATCHTEST_NO_B2
 
 const char *g_extensions[]=
@@ -2339,14 +2414,60 @@ void batch_test(const char *path)
 		memset(b2, 0, len);
 #endif
 
+	//test26: T16 with range coder
+#if 0
+		{
+			int use_ans=1;
+			ArrayHandle cdata=0;
+			double elapsed;
+			T26Params params[]=
+			{
+				{ 8, 26, 26, 26, 0xD3, 52},
+				{23, 37, 37, 37, 0xD3, 52},
+				{ 8, 26, 26, 26, 0xD3, 52},
+			};
+			printf("\nT26 (%s)\n", use_ans?"ANS":"AC");
+			//printf("\nT26\n");
+		
+			elapsed=time_ms();
+			cycles=__rdtsc();
+			t26_encode(buf, iw, ih, params, use_ans, &cdata, 1);
+			cycles=__rdtsc()-cycles;
+			elapsed=time_ms()-elapsed;
+			printf("Enc %11lf CPB  CR %9lf  csize %lld  ", (double)cycles/usize, (double)usize/cdata->count, cdata->count);
+			timedelta2str(0, 0, elapsed);
+
+			sum_testsize+=cdata->count;
+			if((ptrdiff_t)cdata->count<formatsize)
+				printf(" !!!");
+			printf("\n");
+		
+			elapsed=time_ms();
+			cycles=__rdtsc();
+			t26_decode(cdata->data, cdata->count, iw, ih, params, use_ans, b2, 1);
+			cycles=__rdtsc()-cycles;
+			elapsed=time_ms()-elapsed;
+			printf("Dec %11lf CPB  ", (double)cycles/usize);
+			timedelta2str(0, 0, elapsed);
+			printf("\n");
+
+			array_free(&cdata);
+			compare_bufs_uint8(b2, buf, iw, ih, nch0, 4, "T26", 0);
+			memset(b2, 0, len);
+			printf("\n");
+		}
+#endif
+
 		//T25: T16 optimizer
 #if 1
 		{
+			int use_ans=0;
 			ArrayHandle cdata=0;
 			int blockw[]={96, 96, 96}, blockh[]={96, 96, 96};
 			//int blockw[]={128, 128, 128}, blockh[]={128, 128, 128};
 			double elapsed;
-			printf("\nT25\n");
+			printf("\nT25 (%s)\n", use_ans?"ANS":"AC");
+			//printf("\nT25\n");
 			//int lbsizes[]=
 			//{
 			//	128, 128,
@@ -2361,7 +2482,7 @@ void batch_test(const char *path)
 			//};
 			elapsed=time_ms();
 			cycles=__rdtsc();
-			t25_encode(buf, iw, ih, blockw, blockh, &cdata, 1);
+			t25_encode(buf, iw, ih, blockw, blockh, use_ans, &cdata, 1);
 			cycles=__rdtsc()-cycles;
 			elapsed=time_ms()-elapsed;
 			printf("Enc %11lf CPB  CR %9lf  csize %lld  ", (double)cycles/usize, (double)usize/cdata->count, cdata->count);
@@ -2374,7 +2495,7 @@ void batch_test(const char *path)
 		
 			elapsed=time_ms();
 			cycles=__rdtsc();
-			t25_decode(cdata->data, cdata->count, iw, ih, blockw, blockh, b2, 1);
+			t25_decode(cdata->data, cdata->count, iw, ih, blockw, blockh, use_ans, b2, 1);
 			cycles=__rdtsc()-cycles;
 			elapsed=time_ms()-elapsed;
 			printf("Dec %11lf CPB  ", (double)cycles/usize);
@@ -2388,7 +2509,7 @@ void batch_test(const char *path)
 		}
 #endif
 		
-	//test 23: test 16 optimizer
+		//test 23: test 16 optimizer
 #if 0
 		{
 			ArrayHandle cdata=0;
@@ -2513,6 +2634,7 @@ void batch_test(const char *path)
 			printf("\n");
 		}
 #endif
+
 		//test16 estimate
 #if 0
 		apply_transforms_fwd(buf, iw, ih);
@@ -2547,7 +2669,7 @@ void batch_test(const char *path)
 		memset(b2, 0, len);
 #endif
 
-	//test10
+		//test10
 #if 0
 		ArrayHandle cdata=0;
 		//debug_ptr=buf;
@@ -2675,10 +2797,10 @@ void batch_test(const char *path)
 	{
 		printf("\nOn average:\n");
 		if(sum_cPNGsize)
-			printf("PNG     CR %lf  (%lld images)\n", (double)sum_uPNGsize/sum_cPNGsize, count_PNG);
+			printf("PNG     csize %9lld  CR %lf  (%lld images)\n", sum_cPNGsize, (double)sum_uPNGsize/sum_cPNGsize, count_PNG);
 		if(sum_cJPEGsize)
-			printf("JPEG    CR %lf  (%lld images)\n", (double)sum_uJPEGsize/sum_cJPEGsize, count_JPEG);
-		printf("test    CR %lf\n", (double)totalusize/sum_testsize);
+			printf("JPEG    csize %9lld  CR %lf  (%lld images)\n", sum_cJPEGsize, (double)sum_uJPEGsize/sum_cJPEGsize, count_JPEG);
+		printf("test    csize %9lld  CR %lf\n", sum_testsize, (double)totalusize/sum_testsize);
 		//printf("test3s  CR %lf\n", (double)totalusize/sum_test3size[0]);
 		//printf("test3sd CR %lf\n", (double)totalusize/sum_test3size[1]);
 	}
@@ -2693,6 +2815,8 @@ void batch_test(const char *path)
 }
 int main(int argc, char **argv)
 {
+	//const int LOL_1=(-1)/2;//0
+
 	//int width=10,
 	//	n=pyramid_getsize(width);
 	//for(int k=0;k<n;++k)
@@ -2705,6 +2829,7 @@ int main(int argc, char **argv)
 	//test7();
 	//test8();
 	//test9();
+	//test_swar();
 
 	printf("EntropyBattle\n");
 #if 1
@@ -3301,7 +3426,7 @@ int main(int argc, char **argv)
 
 
 	//test16 codec with jxl predictor optimizer
-#if 1
+#if 0
 	{
 		int alpha=0xD3E7,
 			blockw[]={ 8, 23,  8},//best block for channels 0 & 2: 1x1
@@ -3389,9 +3514,9 @@ int main(int argc, char **argv)
 			}
 		}
 		int res=iw*ih;
-		printf("R %7d %lf %dx%d  M %d\n", bestcsizes[0], (double)res/bestcsizes[0], bestw[0], besth[0], bestm[0]);
-		printf("G %7d %lf %dx%d  M %d\n", bestcsizes[1], (double)res/bestcsizes[1], bestw[1], besth[1], bestm[1]);
-		printf("B %7d %lf %dx%d  M %d\n", bestcsizes[2], (double)res/bestcsizes[2], bestw[2], besth[2], bestm[2]);
+		printf("R %7d %lf %2dx%d  M %d\n", bestcsizes[0], (double)res/bestcsizes[0], bestw[0], besth[0], bestm[0]);
+		printf("G %7d %lf %2dx%d  M %d\n", bestcsizes[1], (double)res/bestcsizes[1], bestw[1], besth[1], bestm[1]);
+		printf("B %7d %lf %2dx%d  M %d\n", bestcsizes[2], (double)res/bestcsizes[2], bestw[2], besth[2], bestm[2]);
 		printf("\n");
 	}
 #endif
@@ -3621,10 +3746,11 @@ int main(int argc, char **argv)
 	}
 #endif
 
-	//test25
+	//test25: T16 optimizer
 #if 1
 	{
-		printf("T25\n");
+		int use_ans=0;
+		printf("T25 (%s)\n", use_ans?"ANS":"AC");
 		double elapsed;
 		int blockw[]={128, 128, 128}, blockh[]={128, 128, 128};
 		//int lbsizes[]=
@@ -3641,7 +3767,7 @@ int main(int argc, char **argv)
 		//};
 		elapsed=time_ms();
 		cycles=__rdtsc();
-		t25_encode(buf, iw, ih, blockw, blockh, &cdata, 1);
+		t25_encode(buf, iw, ih, blockw, blockh, use_ans, &cdata, 1);
 		cycles=__rdtsc()-cycles;
 		elapsed=time_ms()-elapsed;
 		printf("Enc %11lf CPB  CR %9lf  csize %lld  ", (double)cycles/usize, (double)usize/cdata->count, cdata->count);
@@ -3650,7 +3776,7 @@ int main(int argc, char **argv)
 		
 		elapsed=time_ms();
 		cycles=__rdtsc();
-		t25_decode(cdata->data, cdata->count, iw, ih, blockw, blockh, b2, 1);
+		t25_decode(cdata->data, cdata->count, iw, ih, blockw, blockh, use_ans, b2, 1);
 		cycles=__rdtsc()-cycles;
 		elapsed=time_ms()-elapsed;
 		printf("Dec %11lf CPB  ", (double)cycles/usize);
@@ -3659,6 +3785,44 @@ int main(int argc, char **argv)
 
 		array_free(&cdata);
 		compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T25", 0);
+		memset(b2, 0, len);
+		printf("\n");
+	}
+#endif
+
+	//test26: T16 with range coder
+#if 0
+	{
+		int use_ans=0;
+		double elapsed;
+		T26Params params[]=
+		{
+			{ 8, 26, 26, 26, 0xD3, 52},
+			{23, 37, 37, 37, 0xD3, 52},
+			{ 8, 26, 26, 26, 0xD3, 52},
+		};
+		printf("T26 (%s)\n", use_ans?"ANS":"AC");
+		
+		elapsed=time_ms();
+		cycles=__rdtsc();
+		t26_encode(buf, iw, ih, params, use_ans, &cdata, 1);
+		cycles=__rdtsc()-cycles;
+		elapsed=time_ms()-elapsed;
+		printf("Enc %11lf CPB  CR %9lf  csize %lld  ", (double)cycles/usize, (double)usize/cdata->count, cdata->count);
+		timedelta2str(0, 0, elapsed);
+		printf("\n");
+		
+		elapsed=time_ms();
+		cycles=__rdtsc();
+		t26_decode(cdata->data, cdata->count, iw, ih, params, use_ans, b2, 1);
+		cycles=__rdtsc()-cycles;
+		elapsed=time_ms()-elapsed;
+		printf("Dec %11lf CPB  ", (double)cycles/usize);
+		timedelta2str(0, 0, elapsed);
+		printf("\n");
+
+		array_free(&cdata);
+		compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T26", 0);
 		memset(b2, 0, len);
 		printf("\n");
 	}

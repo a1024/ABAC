@@ -315,21 +315,20 @@ int acme_isdigit(char c, char base)
 	return 0;
 }
 
-double time_ms()//seconds since first call
+double time_ms()
 {
 #ifdef _MSC_VER
 	static long long t0=0;
-	static double inv_f=0;
 	LARGE_INTEGER li;
-	//if(!inv_f)
-	//{
-		QueryPerformanceFrequency(&li);//<Windows.h>
-		inv_f=1/(double)li.QuadPart;
-	//}
+	double t;
 	QueryPerformanceCounter(&li);
 	if(!t0)
 		t0=li.QuadPart;
-	return 1000.*(double)(li.QuadPart-t0)*inv_f;
+	t=(double)(li.QuadPart-t0);
+	QueryPerformanceFrequency(&li);
+	t/=(double)li.QuadPart;
+	t*=1000;
+	return t;
 #else
 	struct timespec t;
 	clock_gettime(CLOCK_REALTIME, &t);//<time.h>

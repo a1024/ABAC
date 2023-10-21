@@ -635,6 +635,9 @@ void pred_grad_inv(char *buf, int iw, int ih, int nch, int bytestride)
 }
 
 
+//	#define ONLY_USE_W2PRED
+//	#define ONLY_USE_JXLPRED
+
 double pw2_errors[PW2_NPRED]={0};//
 short pw2_params[PW2_NPARAM*3]=
 {
@@ -1084,9 +1087,15 @@ void pred_w2_opt_v2(const char *buf2, int iw, int ih, short *params, int loud)
 	free(buf3);
 	//set_window_title("%s", title0);//
 }
+
 double pred_opt_calcloss(const char *src, int iw, int ih, int kc, short *params, int *temp, char *dst, int *hist)
 {
 	int res=iw*ih;
+#ifdef ONLY_USE_W2PRED
+	pred_w2_prealloc(src, iw, ih, kc, params, 1, dst, temp);
+#elif defined ONLY_USE_JXLPRED
+	pred_jxl_prealloc(src, iw, ih, kc, params, 1, dst, temp);
+#else
 	switch(kc)
 	{
 	case 0:
@@ -1097,6 +1106,7 @@ double pred_opt_calcloss(const char *src, int iw, int ih, int kc, short *params,
 		pred_w2_prealloc(src, iw, ih, kc, params, 1, dst, temp);
 		break;
 	}
+#endif
 	//addhalf((unsigned char*)dst+kc, iw, ih, 1, 4);
 	calc_histogram(dst+kc, (ptrdiff_t)res<<2, 4, hist);
 
@@ -1917,7 +1927,6 @@ void pred_opt_opt_v6(const char *buf2, int iw, int ih, int loud)//multi-threaded
 {
 	double t_start=time_ms();
 	double loss=0;
-	//short params[(MAXVAR(11, PW2_NPARAM)+3)&~3];
 	int res=iw*ih;
 	char *buf3=(char*)malloc((O6_MAXTHREADS+1)*(size_t)res<<2);
 	int *temp=(int*)malloc((O6_MAXTHREADS+1)*(size_t)iw*(PW2_NPRED+1)*2*sizeof(int));
@@ -1945,7 +1954,6 @@ void pred_opt_opt_v6(const char *buf2, int iw, int ih, int loud)//multi-threaded
 			p->threadidx=kt;
 
 			p->loss=0;
-			//p->params=params;
 
 			temp_idx+=(size_t)iw*(PW2_NPRED+1)*2;
 			buf3_idx+=(size_t)res<<2;
@@ -1958,16 +1966,33 @@ void pred_opt_opt_v6(const char *buf2, int iw, int ih, int loud)//multi-threaded
 	for(int kc=0;kc<3;++kc)
 	{
 		short *params=0, nparam=0;
+#ifdef ONLY_USE_W2PRED
+		switch(kc)
+		{
+		case 0:params=pw2_params,              nparam=PW2_NPARAM;break;
+		case 1:params=pw2_params+PW2_NPARAM,   nparam=PW2_NPARAM;break;
+		case 2:params=pw2_params+PW2_NPARAM*2, nparam=PW2_NPARAM;break;
+		}
+#elif defined ONLY_USE_JXLPRED
+		switch(kc)
+		{
+		case 0:params=jxlparams_i16,    nparam=11;break;
+		case 1:params=jxlparams_i16+11, nparam=11;break;
+		case 2:params=jxlparams_i16+22, nparam=11;break;
+		}
+#else
 		switch(kc)
 		{
 		case 0:params=jxlparams_i16,         nparam=11;        break;
 		case 1:params=pw2_params+PW2_NPARAM, nparam=PW2_NPARAM;break;
 		case 2:params=jxlparams_i16+22,      nparam=11;        break;
 		}
+#endif
 		int nthreads=nparam<<1;
-		for(int ks=0;ks<COUNTOF(steps);++ks)
+		const int nsteps=COUNTOF(steps), ntrials=nsteps*4;
+		for(int ks=0;ks<ntrials;++ks)
 		{
-			int step=steps[ks];
+			int step=steps[ks%nsteps];
 			for(int kt=0;kt<nthreads;++kt)
 			{
 				Opt6Context *p=o6_ctx+kt;
@@ -2003,7 +2028,7 @@ void pred_opt_opt_v6(const char *buf2, int iw, int ih, int loud)//multi-threaded
 				else
 					params[idx]+=step;
 			}
-			printf("[%d/3 %d/%d] C%d csize %10lf CR %10lf\n", kc+1, ks+1, (int)COUNTOF(steps), kc, bestresult, iw*ih/bestresult);//
+			printf("[%d/3 %2d/%2d] C%d csize %14lf CR %9lf\r", kc+1, ks+1, ntrials, kc, bestresult, iw*ih/bestresult);//
 #if 0
 			double bestcsize=csize0;
 			int bestidx=0, beststep=0;
@@ -2042,8 +2067,8 @@ void pred_opt_opt_v6(const char *buf2, int iw, int ih, int loud)//multi-threaded
 #endif
 			//set_window_title("Ch%d csize %lf [%d/%d]...", kc, csize0, kc*COUNTOF(steps)+ks+1, COUNTOF(steps)*3);//
 		}
-		//if(loud)
-		//	printf("\n");//
+		if(loud)
+			printf("\n");//
 	}
 
 	if(loud)
