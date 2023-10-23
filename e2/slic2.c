@@ -208,7 +208,7 @@ static unsigned char* slic2_dlist_toarray(C2DListHandle list, int *ret_size)
 		ERROR("Allocation error");
 		return 0;
 	}
-	*ret_size=list->nbytes;
+	*ret_size=(int)list->nbytes;
 
 	it=list->i;
 	for(size_t offset=0;it;)
@@ -252,7 +252,7 @@ static void slic2_dlist_fill_node(C2DListHandle list, size_t copysize, char **sr
 	else
 		memset(dst, 0, copysize);
 }
-void* slic2_dlist_push_back(C2DListHandle list, const void *data, size_t count)
+static void* slic2_dlist_push_back(C2DListHandle list, const void *data, size_t count)
 {
 	size_t obj_idx, copysize;
 	char *buffer;
@@ -1066,7 +1066,7 @@ void* slic2_load(const char *filename, int *ret_iw, int *ret_ih, int *ret_nch, i
 	if(bytesread!=size)//OPTIONAL CHECK
 		printf("Error reading \'%s\'\n", filename);
 
-	void *udata=slic2_decode(cdata, bytesread, ret_iw, ret_ih, ret_nch, ret_depth, ret_dummy_alpha, force_alpha);
+	void *udata=slic2_decode(cdata, (int)bytesread, ret_iw, ret_ih, ret_nch, ret_depth, ret_dummy_alpha, force_alpha);
 	free(cdata);
 	return udata;
 }

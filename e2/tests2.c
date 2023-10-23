@@ -2181,8 +2181,8 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	DList list;
 	dlist_init(&list, 1, 1024, 0);
 	
-	ABACEncContext ac;
-	abac_enc_init(&ac, &list);
+	ABACEncoder ec;
+	abac_enc_init(&ec, &list);
 	
 	float csizes[24]={0};
 	
@@ -2200,7 +2200,7 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 					unsigned short p0=ctx->p0;
 
 					int bit=(buf2[idx]+128)>>kb&1;
-					abac_enc(&ac, p0, bit);
+					abac_enc(&ec, p0, bit);
 					
 					int prob=bit?0x10000-p0:p0;//
 					float bitsize=-log2f((float)prob*(1.f/0x10000));
@@ -2221,7 +2221,7 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 			csize_prev=csize;
 		}
 	}
-	abac_enc_flush(&ac);
+	abac_enc_flush(&ec);
 
 	size_t dststart=dlist_appendtoarray(&list, data);
 	if(loud)
@@ -2328,8 +2328,8 @@ int t42_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 	}
 	//T42Ctx *ctx=(T42Ctx*)*ctx0;
 
-	ABACDecContext ac;
-	abac_dec_init(&ac, data, data+srclen);
+	ABACDecoder ec;
+	abac_dec_init(&ec, data, data+srclen);
 
 	int black=0xFF000000;
 	memfill(buf, &black, res*sizeof(int), sizeof(int));
@@ -2346,7 +2346,7 @@ int t42_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 				{
 					t42_ctx_estimate_p0(ctx, kc, kb);
 					
-					int bit=abac_dec(&ac, ctx->p0);
+					int bit=abac_dec(&ec, ctx->p0);
 					buf[idx]|=bit<<kb;
 
 					t42_ctx_update(ctx, kc, kb, bit);
@@ -3426,8 +3426,8 @@ int t43_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	DList list;
 	dlist_init(&list, 1, 1024, 0);
 	
-	ABACEncContext ctx;
-	abac_enc_init(&ctx, &list);
+	ABACEncoder ec;
+	abac_enc_init(&ec, &list);
 	
 	float csizes[24]={0};
 	
@@ -3447,7 +3447,7 @@ int t43_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 				{
 					t43_ctx_estimate_p0(t43_ctx, kc, kb);
 					int bit=(buf2[idx]+128)>>kb&1;
-					abac_enc(&ctx, t43_ctx->p0, bit);
+					abac_enc(&ec, t43_ctx->p0, bit);
 					
 					int prob=bit?0x10000-t43_ctx->p0:t43_ctx->p0;//
 					float bitsize=-log2f((float)prob*(1.f/0x10000));
@@ -3468,7 +3468,7 @@ int t43_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 			csize_prev=csize;
 		}
 	}
-	abac_enc_flush(&ctx);
+	abac_enc_flush(&ec);
 
 	size_t dststart=dlist_appendtoarray(&list, data);
 	if(loud)
@@ -3569,8 +3569,8 @@ int t43_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 		return 0;
 	}
 
-	ABACDecContext ctx;
-	abac_dec_init(&ctx, data, data+srclen);
+	ABACDecoder ec;
+	abac_dec_init(&ec, data, data+srclen);
 
 	int black=0xFF000000;
 	memfill(buf, &black, res*sizeof(int), sizeof(int));
@@ -3588,7 +3588,7 @@ int t43_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 				{
 					t43_ctx_estimate_p0(t43_ctx, kc, kb);
 					
-					int bit=abac_dec(&ctx, t43_ctx->p0);
+					int bit=abac_dec(&ec, t43_ctx->p0);
 					buf[idx]|=bit<<kb;
 
 					t43_ctx_update(t43_ctx, kc, kb, bit);
@@ -3622,10 +3622,10 @@ void ac_vs_ans()
 	dlist_init(&list_abac, 1, 1024, 0);
 	dlist_init(&list_bans, 1, 1024, 0);
 
-	ABACEncContext abac;
+	ABACEncoder abac;
 	abac_enc_init(&abac, &list_abac);
 
-	BANSEncContext bans;
+	BANSEncoder bans;
 	bans_enc_init(&bans, &list_bans);
 
 	int p0=0xFFFF;

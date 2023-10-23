@@ -158,7 +158,7 @@ int slic_encode(int iw, int ih, int nch, int depth, const void *pixels, ArrayHan
 		const unsigned char *src0=(const unsigned char*)pixels;
 		for(int kc=0;kc<nch;++kc)
 		{
-			for(int k=0;k<res;++k)
+			for(int k=0;k<(int)res;++k)
 				src[res*kc+k]=(src0[nch*k+kc]<<8)-0x8000;
 		}
 	}
@@ -167,7 +167,7 @@ int slic_encode(int iw, int ih, int nch, int depth, const void *pixels, ArrayHan
 		const unsigned short *src0=(const unsigned short*)pixels;
 		for(int kc=0;kc<nch;++kc)
 		{
-			for(int k=0;k<res;++k)
+			for(int k=0;k<(int)res;++k)
 				src[res*kc+k]=src0[nch*k+kc]-0x8000;
 		}
 	}
@@ -177,7 +177,7 @@ int slic_encode(int iw, int ih, int nch, int depth, const void *pixels, ArrayHan
 	{
 		buf=src+res*(nch-1);
 		short alpha=buf[0];
-		for(int k=1;k<res;++k)
+		for(int k=1;k<(int)res;++k)
 		{
 			if(buf[k]!=alpha)
 			{
@@ -202,10 +202,10 @@ int slic_encode(int iw, int ih, int nch, int depth, const void *pixels, ArrayHan
 	buf=src+res*nch;
 	const short half=1<<(depth-1);
 #ifdef USE_ANS
-	BANSEncContext ec;
+	BANSEncoder ec;
 	bans_enc_init(&ec, &list);
 #else
-	ABACEncContext ec;
+	ABACEncoder ec;
 	abac_enc_init(&ec, &list);
 #endif
 	for(int kc=0;kc<nch;++kc)//for each channel
@@ -420,10 +420,10 @@ void* slic_decode(const void *data, int len, int *ret_iw, int *ret_ih, int *ret_
 	short *buf=dst+res*nch;
 	const unsigned char *src=(const unsigned char*)data;
 #ifdef USE_ANS
-	BANSDecContext ec;
+	BANSDecoder ec;
 	bans_dec_init(&ec, src+sizeof(header), src+len);
 #else
-	ABACDecContext ec;
+	ABACDecoder ec;
 	abac_dec_init(&ec, src+sizeof(header), src+len);
 #endif
 	for(int kc=0;kc<nch;++kc)

@@ -416,7 +416,7 @@ void batch_test(const char *path)
 #ifdef BATCHTEST_NO_B2
 		printf("%3lld/%3lld  %.2lf%%\r", k+1, filenames->count, (k+1)*100./filenames->count);
 #else
-		printf("%3lld/%3lld  \"%s\"\tCR %lf (%lf BPP) Dec %lf CPB", k+1, filenames->count, fn[0]->data, ratio, 8/ratio, (double)cycles/usize);
+		printf("%3lld/%3lld  \"%s\"\tCR %lf (%lf BPP) Dec %lf CPB", (long long)(k+1), (long long)filenames->count, fn[0]->data, ratio, 8/ratio, (double)cycles/usize);
 #endif
 		if(!acme_stricmp(fn[0]->data+fn[0]->count-3, "PNG"))
 		{
@@ -439,9 +439,35 @@ void batch_test(const char *path)
 		}
 		memset(b2, 0, len);
 #endif
+
+	//SLIC2
+#if 1
+	{
+		double t_enc=0, t_dec=0;
+
+		t_enc=time_sec();
+		int retlen=0;
+		unsigned char *data=slic2_encode(iw, ih, 4, 8, buf, &retlen);
+		t_enc=time_sec()-t_enc;
+
+		sum_testsize+=retlen;
+		if((ptrdiff_t)retlen<formatsize)
+			printf(" !!!\n");
+
+		int iw2=0, ih2=0, nch2=0, depth2=0;
+		t_dec=time_sec();
+		unsigned char *ret=(unsigned char*)slic2_decode(data, retlen, &iw2, &ih2, &nch2, &depth2, 0, 1);
+		t_dec=time_sec()-t_dec;
+
+		printf("\nSLI %8d  CR %lf    Enc %lfsec  Dec %lfsec\n", (int)retlen, iw*ih*3./retlen, t_enc, t_dec);
+		compare_bufs_uint8(ret, buf, iw, ih, 3, 4, "SLI2", 0);
+		free(data);
+		free(ret);
+	}
+#endif
 		
 		//T34+: ABAC + adaptive Bayesian inference
-#if 1
+#if 0
 		{
 			ArrayHandle cdata=0;
 			printf("\n");
@@ -663,11 +689,11 @@ void batch_test(const char *path)
 	e10_print(hist);
 	free(hist);
 #else
-	ptrdiff_t totalusize=sum_uPNGsize+sum_uJPEGsize;
+	long long totalusize=sum_uPNGsize+sum_uJPEGsize;
 	if(totalusize)
 	{
 		printf("\nOn average:\n");
-		printf("BMP     csize %9lld\n", totalusize);
+		printf("BMP     csize %9lld\n", (long long)totalusize);
 		if(sum_cPNGsize)
 			printf("PNG     csize %9lld  CR %lf  (%lld images)\n", sum_cPNGsize, (double)sum_uPNGsize/sum_cPNGsize, count_PNG);
 		if(sum_cJPEGsize)
@@ -723,13 +749,13 @@ int main(int argc, char **argv)
 	//fn="C:/Projects/datasets/CLIC11-small4.PNG";
 	//fn="C:/Projects/datasets/dataset-CLIC30/11.png";
 	//fn="C:/Projects/datasets/dataset-kodak";
-	fn="C:/Projects/datasets/dataset-kodak/kodim13.png";
+//	fn="C:/Projects/datasets/dataset-kodak/kodim13.png";
 
 	//fn="D:/ML/dataset-CLIC30";
 	//fn="D:/ML/dataset-kodak";
 	//fn="D:/ML/dataset-CLIC30/16.png";//hardest noiseless CLIC30 image
 	//fn="D:/ML/dataset-CLIC30/17.png";
-//	fn="D:/ML/dataset-kodak/kodim13.png";
+	fn="D:/ML/dataset-kodak/kodim13.png";
 	//fn="D:/ML/dataset-kodak-small/13.PNG";
 #endif
 	if(fn||argc==2)
@@ -761,7 +787,7 @@ int main(int argc, char **argv)
 		resolution=(size_t)iw*ih;
 		len=resolution*nch;
 
-		printf("Format Dec %lfsec %lf CPB, ratio = %d * %d * %d / %lld = %lf\n", t_dec, (double)cycles/(resolution*nch0), iw, ih, nch0, formatsize, (double)resolution*nch0/formatsize);
+		printf("Format Dec %lfsec %lf CPB, ratio = %d * %d * %d / %lld = %lf\n", t_dec, (double)cycles/(resolution*nch0), iw, ih, nch0, (long long)formatsize, (double)resolution*nch0/formatsize);
 	}
 	else if(argc==3)
 	{
@@ -826,7 +852,7 @@ int main(int argc, char **argv)
 
 	if(nch0==3&&!buf[3])//set alpha
 	{
-		for(int k=3;k<len;k+=nch)
+		for(int k=3;k<(int)len;k+=nch)
 			buf[k]=0xFF;
 	}
 
@@ -1067,7 +1093,7 @@ int main(int argc, char **argv)
 #endif
 
 	//T27+: ABAC
-#if 1
+#if 0
 	//printf("T29 (ABAC + Bayesian inference)\n");
 	//t29_encode(buf, iw, ih, &cdata, 1);
 	//array_free(&cdata);
@@ -1194,13 +1220,13 @@ int main(int argc, char **argv)
 		double t_enc=0, t_dec=0;
 
 		t_enc=time_sec();
-		long long retlen=0;
-		unsigned char *data=slic2_encode(iw, ih, 4, 8, buf, &retlen, 1);
+		int retlen=0;
+		unsigned char *data=slic2_encode(iw, ih, 4, 8, buf, &retlen);
 		t_enc=time_sec()-t_enc;
 
 		int iw2=0, ih2=0, nch2=0, depth2=0;
 		t_dec=time_sec();
-		unsigned char *ret=(unsigned char*)slic2_decode(data, retlen, &iw2, &ih2, &nch2, &depth2);
+		unsigned char *ret=(unsigned char*)slic2_decode(data, retlen, &iw2, &ih2, &nch2, &depth2, 0, 1);
 		t_dec=time_sec()-t_dec;
 
 		printf("\nSLI %8d  CR %lf    Enc %lfsec  Dec %lfsec\n", (int)retlen, iw*ih*3./retlen, t_enc, t_dec);

@@ -105,12 +105,16 @@ void* slic_decode(const void *data, int len, int *iw, int *ih, int *nch, int *de
 //	A 5-bit subpixel must be stored like this: 0bXXXX_X000
 //	A 14-bit subpixel must be stored like this: 0bXXXX_XXXX_XXXX_XX00
 //ret_dummy_alpha:  Tells if image has redundant alpha channel
-unsigned char* slic2_encode(int iw, int ih, int nch, int depth, const void *src, long long *ret_size);
-void*          slic2_decode(const unsigned char *data, long long len, int *ret_iw, int *ret_ih, int *ret_nch, int *ret_depth, int *ret_dummy_alpha, int force_alpha);
+unsigned char* slic2_encode(int iw, int ih, int nch, int depth, const void *src, int *ret_size);
+void*          slic2_decode(const unsigned char *data, int len, int *ret_iw, int *ret_ih, int *ret_nch, int *ret_depth, int *ret_dummy_alpha, int force_alpha);
 
 //I/O wrappers, return FALSE on error
 int   slic2_save(const char *filename, int iw, int ih, int nch, int depth, const void *src);
 void* slic2_load(const char *filename, int *ret_iw, int *ret_ih, int *ret_nch, int *ret_depth, int *ret_dummy_alpha, int force_alpha);
+
+
+unsigned char* slic3_encode(int iw, int ih, int nch, int depth, const void *src, int *ret_size);
+void*          slic3_decode(const unsigned char *src, int len, int *ret_iw, int *ret_ih, int *ret_nch, int *ret_depth, int *ret_dummy_alpha, int force_alpha);
 
 
 

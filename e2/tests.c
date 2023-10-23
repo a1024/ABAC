@@ -1397,8 +1397,8 @@ int t25_encode(const unsigned char *src, int iw, int ih, int *blockw, int *block
 
 		if(use_ans)
 		{
-			ANSEncContext ctx;
-			ans_enc_init(&ctx, CDF2, &list);
+			ANSEncoder ec;
+			ans_enc_init(&ec, &list);
 			//unsigned state=0x10000;
 			for(int ky=ih-1;ky>=0;--ky)
 			{
@@ -1420,7 +1420,7 @@ int t25_encode(const unsigned char *src, int iw, int ih, int *blockw, int *block
 							LOG_ERROR("t25_prepblock error");
 						for(int kx=x2-1;kx>=x1;--kx)
 						{
-							ans_enc(&ctx, buf2[(iw*ky+kx)<<2|kc], kc);
+							ans_enc(&ec, buf2[(iw*ky+kx)<<2|kc], CDF2, 256);
 							//unsigned char sym=buf2[(iw*ky+kx)<<2|kc];
 							//ans_enc(&state, CDF2[sym], CDF2[sym+1]-CDF2[sym], &list);
 #if 0
@@ -1448,14 +1448,14 @@ int t25_encode(const unsigned char *src, int iw, int ih, int *blockw, int *block
 					}
 				}
 			}
-			ans_enc_flush(&ctx);
+			ans_enc_flush(&ec);
 			//ans_enc_flush(&list, state);
 			//dlist_push_back(&list, &state, 4);
 		}
 		else
 		{
-			ACEncContext ctx;
-			ac_enc_init(&ctx, CDF2, &list);
+			ACEncoder ec;
+			ac_enc_init(&ec, &list);
 			for(int ky=0;ky<ih;++ky)
 			{
 				int by=ky/lbh;
@@ -1516,12 +1516,12 @@ int t25_encode(const unsigned char *src, int iw, int ih, int *blockw, int *block
 								++counter;
 							}
 #endif
-							ac_enc(&ctx, buf2[(iw*ky+kx)<<2|kc]);
+							ac_enc(&ec, buf2[(iw*ky+kx)<<2|kc], CDF2, 256);
 						}
 					}
 				}
 			}
-			ac_enc_flush(&ctx);
+			ac_enc_flush(&ec);
 		}
 		ansbookmarks[kc]=(int)list.nobj;
 
@@ -1617,9 +1617,9 @@ int t25_decode(const unsigned char *data, size_t srclen, int iw, int ih, int *bl
 			*srcend=data+ansbookmarks[kc];
 		if(use_ans)
 		{
-			ANSDecContext ctx;
-			ans_dec_init(&ctx, CDF2, srcstart, srcend);
-			//ans_dec_init(&ctx, CDF2, data+(kc?ansbookmarks[kc-1]:overhead), data+ansbookmarks[kc]);
+			ANSDecoder ec;
+			ans_dec_init(&ec, srcstart, srcend);
+			//ans_dec_init(&ec, data+(kc?ansbookmarks[kc-1]:overhead), data+ansbookmarks[kc]);
 			//unsigned state;
 			//srcptr=data+ansbookmarks[kc];
 			//srcstart=kc?data+ansbookmarks[kc-1]:data+overhead;
@@ -1648,7 +1648,7 @@ int t25_decode(const unsigned char *data, size_t srclen, int iw, int ih, int *bl
 							LOG_ERROR("t25_prepblock error");
 						for(int kx=x1;kx<x2;++kx)
 						{
-							buf[(iw*ky+kx)<<2|kc]=ans_dec(&ctx, kc);
+							buf[(iw*ky+kx)<<2|kc]=ans_dec(&ec, CDF2, 256);
 #if 0
 							unsigned c=(unsigned short)state;
 							int sym=0;
@@ -1699,8 +1699,8 @@ int t25_decode(const unsigned char *data, size_t srclen, int iw, int ih, int *bl
 		}
 		else
 		{
-			ACDecContext ctx;
-			ac_dec_init(&ctx, CDF2, srcstart, srcend);
+			ACDecoder ec;
+			ac_dec_init(&ec, srcstart, srcend);
 
 			for(int ky=0;ky<ih;++ky)
 			{
@@ -1721,7 +1721,7 @@ int t25_decode(const unsigned char *data, size_t srclen, int iw, int ih, int *bl
 						if(!success)
 							LOG_ERROR("t25_prepblock error");
 						for(int kx=x1;kx<x2;++kx)
-							buf[(iw*ky+kx)<<2|kc]=ac_dec(&ctx);
+							buf[(iw*ky+kx)<<2|kc]=ac_dec(&ec, CDF2, 256);
 					}
 				}
 			}
@@ -1913,8 +1913,8 @@ int t26_encode(const unsigned char *src, int iw, int ih, T26Params const *params
 
 		if(use_ans)
 		{
-			ANSEncContext ctx;
-			ans_enc_init(&ctx, CDF2, &list);
+			ANSEncoder ec;
+			ans_enc_init(&ec, &list);
 
 			for(int ky=ih-1;ky>=0;--ky)//for each row
 			{
@@ -1937,16 +1937,16 @@ int t26_encode(const unsigned char *src, int iw, int ih, T26Params const *params
 						if(kc==0&&ky==0&&bx==0&&kx==0)//
 							printf("");
 
-						ans_enc(&ctx, buf2[(iw*ky+kx)<<2|kc], kc);
+						ans_enc(&ec, buf2[(iw*ky+kx)<<2|kc], CDF2, 256);
 					}
 				}
 			}
-			ans_enc_flush(&ctx);
+			ans_enc_flush(&ec);
 		}
 		else
 		{
-			ACEncContext ctx;
-			ac_enc_init(&ctx, CDF2, &list);
+			ACEncoder ec;
+			ac_enc_init(&ec, &list);
 
 			//unsigned state_lo=0, state_hi=0xFFFFFFFF;
 			//unsigned cache=0;
@@ -2009,11 +2009,11 @@ int t26_encode(const unsigned char *src, int iw, int ih, T26Params const *params
 						}
 	#endif
 					
-						ac_enc(&ctx, buf2[(iw*ky+kx)<<2|kc]);
+						ac_enc(&ec, buf2[(iw*ky+kx)<<2|kc], CDF2, 256);
 					}
 				}
 			}
-			ac_enc_flush(&ctx);
+			ac_enc_flush(&ec);
 #if 0
 			int k2=0;
 			do//flush
@@ -2112,23 +2112,23 @@ int t26_decode(const unsigned char *data, size_t srclen, int iw, int ih, T26Para
 
 		if(use_ans)
 		{
-			ANSDecContext ctx;
-			ans_dec_init(&ctx, CDF2, kc?data+bookmarks[kc-1]:data+overhead, data+bookmarks[kc]);
+			ANSDecoder ec;
+			ans_dec_init(&ec, kc?data+bookmarks[kc-1]:data+overhead, data+bookmarks[kc]);
 
 			//unsigned state_lo=0, state_hi=0xFFFFFFFF, code, cache;
 			//int nbits=32;
 			//srcptr=kc?data+bookmarks[kc-1]:data+overhead;
 			//srcend=data+bookmarks[kc];
 
-			//if(ctx.srcend-ctx.srcptr<4)
+			//if(ec.srcend-ec.srcptr<4)
 			//	LOG_ERROR("buffer overflow");
-			//memcpy(&ctx.code, ctx.srcptr, 4);
-			//ctx.srcptr+=4;
+			//memcpy(&ec.code, ec.srcptr, 4);
+			//ec.srcptr+=4;
 			//
-			//if(ctx.srcend-ctx.srcptr<4)
+			//if(ec.srcend-ec.srcptr<4)
 			//	LOG_ERROR("buffer overflow");
-			//memcpy(&ctx.cache, ctx.srcptr, 4);
-			//ctx.srcptr+=4;
+			//memcpy(&ec.cache, ec.srcptr, 4);
+			//ec.srcptr+=4;
 
 			for(int ky=0;ky<ih;++ky)//for each row
 			{
@@ -2145,7 +2145,7 @@ int t26_decode(const unsigned char *data, size_t srclen, int iw, int ih, T26Para
 						LOG_ERROR("t26_prepblock error");
 					for(int kx=x1;kx<x2;++kx)//for each pixel
 					{
-						buf[(iw*ky+kx)<<2|kc]=ans_dec(&ctx, kc);
+						buf[(iw*ky+kx)<<2|kc]=ans_dec(&ec, CDF2, 256);
 #if 0
 						unsigned rlo, rhi, mingap;
 
@@ -2280,8 +2280,8 @@ int t26_decode(const unsigned char *data, size_t srclen, int iw, int ih, T26Para
 		}
 		else
 		{
-			ACDecContext ctx;
-			ac_dec_init(&ctx, CDF2, kc?data+bookmarks[kc-1]:data+overhead, data+bookmarks[kc]);
+			ACDecoder ec;
+			ac_dec_init(&ec, kc?data+bookmarks[kc-1]:data+overhead, data+bookmarks[kc]);
 
 			for(int ky=0;ky<ih;++ky)//for each row
 			{
@@ -2292,7 +2292,7 @@ int t26_decode(const unsigned char *data, size_t srclen, int iw, int ih, T26Para
 					if(!success)
 						LOG_ERROR("t26_prepblock error");
 					for(int kx=x1;kx<x2;++kx)//for each pixel
-						buf[(iw*ky+kx)<<2|kc]=ac_dec(&ctx);
+						buf[(iw*ky+kx)<<2|kc]=ac_dec(&ec, CDF2, 256);
 				}
 			}
 		}
@@ -2698,8 +2698,8 @@ int t28_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 
 	dlist_push_back(&list, qtree, 765*sizeof(short));
 	
-	ABACEncContext ctx;
-	abac_enc_init(&ctx, &list);
+	ABACEncoder ec;
+	abac_enc_init(&ec, &list);
 
 	float lr=0.001f;
 	
@@ -2727,7 +2727,7 @@ int t28_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 
 					int p0=0x10000-tree[sym];
 					int bit=ptr[kc]>>kb&1;
-					abac_enc(&ctx, p0, bit);
+					abac_enc(&ec, p0, bit);
 					
 					int hit=bit?p0<0x8000:p0>0x8000;//
 					hits[kc<<3|kb]+=hit;
@@ -2743,7 +2743,7 @@ int t28_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 			}
 		}
 	}
-	abac_enc_flush(&ctx);
+	abac_enc_flush(&ec);
 	
 	size_t dststart=dlist_appendtoarray(&list, data);
 	if(loud)
@@ -2835,8 +2835,8 @@ int t29_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 
 	dlist_push_back(&list, qtree, 765*sizeof(short));
 	
-	ABACEncContext ctx;
-	abac_enc_init(&ctx, &list);
+	ABACEncoder ec;
+	abac_enc_init(&ec, &list);
 
 	int alpha[24]=
 	{
@@ -2881,7 +2881,7 @@ int t29_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 						int bit=ptr[kc]>>kb&1;
 						//if(!train)
 						{
-							abac_enc(&ctx, p0, bit);
+							abac_enc(&ec, p0, bit);
 					
 							int hit=bit?p0<0x8000:p0>0x8000;//
 							hits[bitidx]+=hit;
@@ -2980,7 +2980,7 @@ int t29_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 			}
 		}
 	}
-	abac_enc_flush(&ctx);
+	abac_enc_flush(&ec);
 	
 	size_t dststart=dlist_appendtoarray(&list, data);
 	if(loud)
@@ -3497,8 +3497,8 @@ int t31_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 
 	//dlist_push_back(&list, ctree, 255LL*3*2*sizeof(int));
 	
-	ABACEncContext ctx;
-	abac_enc_init(&ctx, &list);
+	ABACEncoder ec;
+	abac_enc_init(&ec, &list);
 	
 	float csizes[24]={0};
 	int hits[24]={0};
@@ -3527,7 +3527,7 @@ int t31_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 					int p0=c[0]+c[1]?(int)(((long long)c[0]<<16)/(c[0]+c[1])):0x8000;
 					p0=CLAMP(1, p0, 0xFFFF);
 					int bit=ptr[kc]>>kb&1;
-					abac_enc(&ctx, p0, bit);
+					abac_enc(&ec, p0, bit);
 
 					++c[bit];//CR 2.009992
 					//inc*=1.01;//inflation		X  CR 0.074982
@@ -3558,7 +3558,7 @@ int t31_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 			}
 		}
 	}
-	abac_enc_flush(&ctx);
+	abac_enc_flush(&ec);
 	
 	size_t dststart=dlist_appendtoarray(&list, data);
 	if(loud)
@@ -3904,8 +3904,8 @@ int t34_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	DList list;
 	dlist_init(&list, 1, 1024, 0);
 	
-	ABACEncContext ctx;
-	abac_enc_init(&ctx, &list);
+	ABACEncoder ec;
+	abac_enc_init(&ec, &list);
 	
 	float ssizes[HM_W*HM_H*3]={0}, ssdevs[HM_W*HM_H*3]={0};
 	float csizes[24]={0};
@@ -3968,7 +3968,7 @@ int t34_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 					int p0=wsum?(int)(sum/wsum):0x8000;
 					p0=CLAMP(1, p0, 0xFFFF);
 					int bit=ptr[kc]>>kb&1;
-					abac_enc(&ctx, p0, bit);
+					abac_enc(&ec, p0, bit);
 
 					//bwd
 					int p_bit=bit?0x10000-p0:p0;
@@ -4074,7 +4074,7 @@ int t34_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 							int p0=p0_1+(int)((long long)(p0_2-p0_1)*alpha[kb]>>16);
 							p0=CLAMP(1, p0, 0xFFFF);
 							int bit=sym>>kb&1;
-							abac_enc(&ctx, p0, bit);
+							abac_enc(&ec, p0, bit);
 
 							++c[bit];
 							d[bit]+=inc;
@@ -4133,7 +4133,7 @@ int t34_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 					int p0=c[0]+c[1]?(int)(((long long)c[0]<<16)/(c[0]+c[1])):0x8000;
 					p0=CLAMP(1, p0, 0xFFFF);
 					int bit=(ptr[kc]-offset)>>kb&1;
-					abac_enc(&ctx, p0, bit);
+					abac_enc(&ec, p0, bit);
 
 					++c[bit];
 					
@@ -4152,7 +4152,7 @@ int t34_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 		}
 	}
 #endif
-	abac_enc_flush(&ctx);
+	abac_enc_flush(&ec);
 
 	size_t dststart=dlist_appendtoarray(&list, data);
 	if(loud)
@@ -5143,8 +5143,8 @@ int t35_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	DList list;
 	dlist_init(&list, 1, 1024, 0);
 	
-	ABACEncContext ctx;
-	abac_enc_init(&ctx, &list);
+	ABACEncoder ec;
+	abac_enc_init(&ec, &list);
 	
 	float csizes[24]={0};
 	int hits[24]={0};
@@ -5162,7 +5162,7 @@ int t35_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 					t35_ctx_estimate_p0(&t35_context, kc, kb);
 
 					int bit=buf2[(iw*ky+kx)<<2|kc]>>kb&1;
-					abac_enc(&ctx, t35_context.p0, bit);
+					abac_enc(&ec, t35_context.p0, bit);
 					
 					int hit=bit?t35_context.p0<0x8000:t35_context.p0>0x8000;//
 					hits[kc<<3|kb]+=hit;
@@ -5184,7 +5184,7 @@ int t35_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 			csize_prev=csize;
 		}
 	}
-	abac_enc_flush(&ctx);
+	abac_enc_flush(&ec);
 
 	size_t dststart=dlist_appendtoarray(&list, data);
 	if(loud)
@@ -5264,8 +5264,8 @@ int t35_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 
 	//int debug_index=0;
 
-	ABACDecContext ctx;
-	abac_dec_init(&ctx, data, data+srclen);
+	ABACDecoder ec;
+	abac_dec_init(&ec, data, data+srclen);
 
 	int black=0xFF000000;
 	memfill(buf, &black, res*sizeof(int), sizeof(int));
@@ -5282,7 +5282,7 @@ int t35_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 				{
 					t35_ctx_estimate_p0(&t35_context, kc, kb);
 					
-					int bit=abac_dec(&ctx, t35_context.p0);
+					int bit=abac_dec(&ec, t35_context.p0);
 					buf[(iw*ky+kx)<<2|kc]|=bit<<kb;
 
 					t35_ctx_update(&t35_context, kc, kb, bit);
@@ -6492,8 +6492,8 @@ int t37_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	DList list;
 	dlist_init(&list, 1, 1024, 0);
 	
-	ABACEncContext ctx;
-	abac_enc_init(&ctx, &list);
+	ABACEncoder ec;
+	abac_enc_init(&ec, &list);
 	
 	float csizes[24]={0};
 	int hits[24]={0};
@@ -6522,7 +6522,7 @@ int t37_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 					//	printf("");
 
 					int bit=(buf2[(iw*ky+kx)<<2|kc]+128)>>kb&1;//signed -> unsigned
-					abac_enc(&ctx, t37_context.p0, bit);
+					abac_enc(&ec, t37_context.p0, bit);
 					
 					int hit=bit?t37_context.p0<0x8000:t37_context.p0>0x8000;//
 					hits[kc<<3|kb]+=hit;
@@ -6546,7 +6546,7 @@ int t37_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 			csize_prev=csize;
 		}
 	}
-	abac_enc_flush(&ctx);
+	abac_enc_flush(&ec);
 
 	size_t dststart=dlist_appendtoarray(&list, data);
 	if(loud)
@@ -6625,8 +6625,8 @@ int t37_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 
 	//int debug_index=0;
 
-	ABACDecContext ctx;
-	abac_dec_init(&ctx, data, data+srclen);
+	ABACDecoder ec;
+	abac_dec_init(&ec, data, data+srclen);
 
 	int black=0xFF000000;
 	memfill(buf, &black, res*sizeof(int), sizeof(int));
@@ -6643,7 +6643,7 @@ int t37_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 				{
 					t37_ctx_estimate_p0(&t37_context, kc, kb);
 					
-					int bit=abac_dec(&ctx, t37_context.p0);
+					int bit=abac_dec(&ec, t37_context.p0);
 					buf[(iw*ky+kx)<<2|kc]|=bit<<kb;//unsigned
 
 					t37_ctx_update(&t37_context, kc, kb, bit);
@@ -6688,8 +6688,8 @@ int t38_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	DList list;
 	dlist_init(&list, 1, 1024, 0);
 	
-	ABACEncContext ctx;
-	abac_enc_init(&ctx, &list);
+	ABACEncoder ec;
+	abac_enc_init(&ec, &list);
 	
 	float csizes[24]={0};
 	int hits[24]={0};
@@ -6716,7 +6716,7 @@ int t38_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 					//	printf("");
 
 					int bit=buf2[(iw*ky+kx)<<2|kc]>>kb&1;
-					abac_enc(&ctx, *p0, bit);
+					abac_enc(&ec, *p0, bit);
 					
 					int hit=bit?*p0<0x8000:*p0>0x8000;//
 					hits[kc<<3|kb]+=hit;
@@ -6745,7 +6745,7 @@ int t38_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 			csize_prev=csize;
 		}
 	}
-	abac_enc_flush(&ctx);
+	abac_enc_flush(&ec);
 
 	size_t dststart=dlist_appendtoarray(&list, data);
 	if(loud)
@@ -6788,8 +6788,8 @@ int t38_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 	int res=iw*ih;
 	double t_start=time_sec();
 
-	ABACDecContext ctx;
-	abac_dec_init(&ctx, data, data+srclen);
+	ABACDecoder ec;
+	abac_dec_init(&ec, data, data+srclen);
 
 	int black=0xFF000000;
 	memfill(buf, &black, res*sizeof(int), sizeof(int));
@@ -6809,7 +6809,7 @@ int t38_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 				{
 					unsigned short *p0=prob0[kc]+ctx_idx;
 					
-					int bit=abac_dec(&ctx, *p0);
+					int bit=abac_dec(&ec, *p0);
 					buf[(iw*ky+kx)<<2|kc]|=bit<<kb;
 					
 					if(bit)
@@ -7784,8 +7784,8 @@ int t39_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	DList list;
 	dlist_init(&list, 1, 1024, 0);
 	
-	ABACEncContext ctx;
-	abac_enc_init(&ctx, &list);
+	ABACEncoder ec;
+	abac_enc_init(&ec, &list);
 	
 	float csizes[24]={0};
 	//int hits[24]={0};
@@ -7825,7 +7825,7 @@ int t39_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 							t39_ctx_estimate_p0(t39_ctx, kc, kb);
 
 							int bit=(buf2[(iw*ky+kx)<<2|kc]+128)>>kb&1;//signed -> unsigned
-							abac_enc(&ctx, t39_ctx->p0rev, bit);
+							abac_enc(&ec, t39_ctx->p0rev, bit);
 
 							int prob_ideal=0x10000&-bit;//
 							float prob_error=(float)abs(prob_ideal-t39_ctx->p0rev)*(1.f/0x10000);
@@ -7877,7 +7877,7 @@ int t39_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 #else
 					int bit=buf2[idx]>>kb&1;
 #endif
-					abac_enc(&ctx, t39_ctx->p0, bit);
+					abac_enc(&ec, t39_ctx->p0, bit);
 					
 					int prob=bit?0x10000-t39_ctx->p0:t39_ctx->p0;//
 					float bitsize=-log2f((float)prob*(1.f/0x10000));
@@ -7902,7 +7902,7 @@ int t39_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 		//	t39_ctx_reset(&t39_ctx, 0);
 	}
 #endif
-	abac_enc_flush(&ctx);
+	abac_enc_flush(&ec);
 
 	size_t dststart=dlist_appendtoarray(&list, data);
 	if(loud)
@@ -8024,8 +8024,8 @@ int t39_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 		return 0;
 	}
 
-	ABACDecContext ctx;
-	abac_dec_init(&ctx, data, data+srclen);
+	ABACDecoder ec;
+	abac_dec_init(&ec, data, data+srclen);
 
 	int black=0xFF000000;
 	memfill(buf, &black, res*sizeof(int), sizeof(int));
@@ -8060,7 +8060,7 @@ int t39_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 						{
 							t39_ctx_estimate_p0(t39_ctx, kc, kb);
 					
-							int bit=abac_dec(&ctx, t39_ctx->p0rev);
+							int bit=abac_dec(&ec, t39_ctx->p0rev);
 							buf[(iw*ky+kx)<<2|kc]|=bit<<kb;
 
 							t39_ctx_update(t39_ctx, kc, kb, bit);
@@ -8088,7 +8088,7 @@ int t39_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 				{
 					t39_ctx_estimate_p0(t39_ctx, kc, kb);
 					
-					int bit=abac_dec(&ctx, t39_ctx->p0);
+					int bit=abac_dec(&ec, t39_ctx->p0);
 					buf[idx]|=bit<<kb;
 
 					t39_ctx_update(t39_ctx, kc, kb, bit);

@@ -195,261 +195,121 @@ void debug_dec_update(unsigned state, unsigned cdf, unsigned freq, int kx, int k
 #endif
 
 
-//adaptive binary arithmetic coder
-typedef struct ABACEncContextStruct
-{
-	unsigned lo, hi, cache;
-	int nbits;
-	DList *list;
-} ABACEncContext;
-inline void abac_enc_init(ABACEncContext *ctx, DList *list)
-{
-	ctx->lo=0;
-	ctx->hi=0xFFFFFFFF;
-	ctx->cache=0;
-	ctx->nbits=0;
-	ctx->list=list;
-}
-inline void abac_enc(ABACEncContext *ctx, unsigned short p0, int bit)
-{
-	unsigned mid;
-
-	for(;;)//renorm
-	{
-		mid=(ctx->hi-ctx->lo)>>16;
-		if(ctx->lo+3>ctx->lo&&ctx->lo+3<=ctx->hi&&mid>0)
-			break;
-		if(ctx->nbits>=32)
-		{
-			dlist_push_back(ctx->list, &ctx->cache, 4);
-			ctx->cache=0;
-			ctx->nbits=0;
-		}
-		ctx->cache|=(ctx->lo&0x80000000)>>ctx->nbits;//cache is written MSB -> LSB
-		++ctx->nbits;
-
-		ctx->lo<<=1;//shift out MSB
-		ctx->hi<<=1;
-		ctx->hi|=1;
-	}
-
-	if(!p0)//reject degenerate distribution
-		LOG_ERROR2("ZPS");
-
-	mid=ctx->lo+(int)((unsigned long long)(ctx->hi-ctx->lo)*p0>>16);
-
-	acval_enc(bit, bit?p0:0, bit?0x10000-p0:p0, ctx->lo, ctx->hi, bit?mid:ctx->lo, bit?ctx->hi:mid-1, ctx->cache, ctx->nbits);
-
-	if(bit)
-		ctx->lo=mid;
-	else
-		ctx->hi=mid-1;//OBLIGATORY range leak guard
-}
-inline void abac_enc_flush(ABACEncContext *ctx)
-{
-	int k2=0;
-	do//flush
-	{
-		while(ctx->nbits<32)
-		{
-			ctx->cache|=(ctx->lo&0x80000000)>>ctx->nbits;//cache is written MSB -> LSB
-			++ctx->nbits;
-			++k2;
-
-			ctx->lo<<=1;//shift out MSB
-			ctx->hi<<=1;
-			ctx->hi|=1;
-		}
-		dlist_push_back(ctx->list, &ctx->cache, 4);
-		ctx->cache=0;
-		ctx->nbits=0;
-	}while(k2<32);
-}
-typedef struct ABACDecContextStruct
-{
-	unsigned lo, hi, cache;
-	int nbits;
-	unsigned code;
-	const unsigned char *srcptr, *srcend;
-} ABACDecContext;
-inline void abac_dec_init(ABACDecContext *ctx, const unsigned char *start, unsigned const char *end)
-{
-	ctx->lo=0;
-	ctx->hi=0xFFFFFFFF;
-	ctx->nbits=32;
-	ctx->srcptr=start;
-	ctx->srcend=end;
-
-	if(ctx->srcend-ctx->srcptr<4)
-		LOG_ERROR2("buffer overflow");
-	memcpy(&ctx->code, ctx->srcptr, 4);
-	ctx->srcptr+=4;
-
-	if(ctx->srcend-ctx->srcptr<4)
-		LOG_ERROR2("buffer overflow");
-	memcpy(&ctx->cache, ctx->srcptr, 4);
-	ctx->srcptr+=4;
-}
-inline int abac_dec(ABACDecContext *ctx, unsigned short p0)
-{
-	unsigned mid;
-	for(;;)//renorm
-	{
-		mid=(ctx->hi-ctx->lo)>>16;
-		if(ctx->lo<ctx->hi&&mid>0)
-			break;
-		if(!ctx->nbits)
-		{
-			if(ctx->srcend-ctx->srcptr<4)
-			{
-#ifdef AC_VALIDATE
-				printf("buffer overflow\n");
-				acval_dump();
-#endif
-				LOG_ERROR2("buffer overflow");
-			}
-			memcpy(&ctx->cache, ctx->srcptr, 4);
-			ctx->srcptr+=4;
-
-			ctx->nbits=32;
-		}
-		--ctx->nbits;
-		ctx->code<<=1;//shift out MSB		cache is read MSB -> LSB
-		ctx->code|=(unsigned)(ctx->cache>>ctx->nbits&1);
-
-		ctx->lo<<=1;
-		ctx->hi<<=1;
-		ctx->hi|=1;
-	}
-
-	if(!p0)//reject degenerate distribution
-		LOG_ERROR2("ZPS");
-
-	mid=ctx->lo+(int)((unsigned long long)(ctx->hi-ctx->lo)*p0>>16);
-	int bit=ctx->code>=mid;
-
-	acval_dec(bit, bit?p0:0, bit?0x10000-p0:p0, ctx->lo, ctx->hi, bit?mid:ctx->lo, bit?ctx->hi:mid-1, ctx->cache, ctx->nbits, ctx->code);
-	
-	if(bit)
-		ctx->lo=mid;
-	else
-		ctx->hi=mid-1;//OBLIGATORY range leak guard
-
-	return bit;
-}
-
-
 //arithmetic coder
-typedef struct ACEncContextStruct
+typedef struct ACEncoderStruct
 {
 	unsigned lo, hi, cache;
 	int nbits;
-	unsigned const *CDF2;
 	DList *list;
-} ACEncContext;
-inline void ac_enc_init(ACEncContext *ctx, unsigned const *CDF2, DList *list)
+} ACEncoder;
+static void ac_enc_init(ACEncoder *ec, DList *list)
 {
-	ctx->lo=0;
-	ctx->hi=0xFFFFFFFF;
-	ctx->cache=0;
-	ctx->nbits=0;
-	ctx->CDF2=CDF2;
-	ctx->list=list;
+	ec->lo=0;
+	ec->hi=0xFFFFFFFF;
+	ec->cache=0;
+	ec->nbits=0;
+	ec->list=list;
 }
-inline void ac_enc(ACEncContext *ctx, int sym)
+static void ac_enc(ACEncoder *ec, int sym, unsigned *CDF, int nlevels)
 {
 	unsigned mingap, lo2, hi2;
 	int cdf_curr, cdf_next;
 
 	for(;;)//renorm
 	{
-		mingap=(ctx->hi-ctx->lo)>>16;
-		if(ctx->lo<ctx->hi&&mingap>0)
+		mingap=(ec->hi-ec->lo)>>16;
+		if(ec->lo<ec->hi&&mingap>0)
 			break;
-		if(ctx->nbits>=32)
+		if(ec->nbits>=32)
 		{
-			dlist_push_back(ctx->list, &ctx->cache, 4);
-			ctx->cache=0;
-			ctx->nbits=0;
+			dlist_push_back(ec->list, &ec->cache, 4);
+			ec->cache=0;
+			ec->nbits=0;
 		}
-		ctx->cache|=(ctx->lo&0x80000000)>>ctx->nbits;//cache is written MSB -> LSB
-		++ctx->nbits;
+		ec->cache|=(ec->lo&0x80000000)>>ec->nbits;//cache is written MSB -> LSB
+		++ec->nbits;
 
-		ctx->lo<<=1;//shift out MSB
-		ctx->hi<<=1;
-		ctx->hi|=1;
+		ec->lo<<=1;//shift out MSB
+		ec->hi<<=1;
+		ec->hi|=1;
 	}
-
-	cdf_curr=ctx->CDF2[sym];
-	cdf_next=ctx->CDF2[sym+1];
+	
+	if(CDF)
+	{
+		cdf_curr=CDF[sym];
+		cdf_next=CDF[sym+1];
+	}
+	else//bypass
+	{
+		cdf_curr=(sym<<16)/nlevels;
+		cdf_next=((sym+1)<<16)/nlevels;
+	}
 
 	if(cdf_curr>=cdf_next)
 		LOG_ERROR2("ZPS");
 
-	lo2=ctx->lo+((unsigned long long)(ctx->hi-ctx->lo)*cdf_curr>>16);
-	hi2=ctx->lo+((unsigned long long)(ctx->hi-ctx->lo)*cdf_next>>16);
-	acval_enc(sym, cdf_curr, cdf_next, ctx->lo, ctx->hi, lo2, hi2, ctx->cache, ctx->nbits);//
-	ctx->lo=lo2;
-	ctx->hi=hi2-1;//OBLIGATORY range leak guard
+	lo2=ec->lo+((unsigned long long)(ec->hi-ec->lo)*cdf_curr>>16);
+	hi2=ec->lo+((unsigned long long)(ec->hi-ec->lo)*cdf_next>>16);
+	acval_enc(sym, cdf_curr, cdf_next, ec->lo, ec->hi, lo2, hi2, ec->cache, ec->nbits);//
+	ec->lo=lo2+!CDF;//because of bypass
+	ec->hi=hi2-1;//OBLIGATORY range leak guard
 }
-inline void ac_enc_flush(ACEncContext *ctx)
+static void ac_enc_flush(ACEncoder *ec)
 {
 	int k2=0;
 	do//flush
 	{
-		while(ctx->nbits<32)
+		while(ec->nbits<32)
 		{
-			ctx->cache|=(ctx->lo&0x80000000)>>ctx->nbits;//cache is written MSB -> LSB
-			++ctx->nbits;
+			ec->cache|=(ec->lo&0x80000000)>>ec->nbits;//cache is written MSB -> LSB
+			++ec->nbits;
 			++k2;
 
-			ctx->lo<<=1;//shift out MSB
-			ctx->hi<<=1;
-			ctx->hi|=1;
+			ec->lo<<=1;//shift out MSB
+			ec->hi<<=1;
+			ec->hi|=1;
 		}
-		dlist_push_back(ctx->list, &ctx->cache, 4);
-		ctx->cache=0;
-		ctx->nbits=0;
+		dlist_push_back(ec->list, &ec->cache, 4);
+		ec->cache=0;
+		ec->nbits=0;
 	}while(k2<32);
 }
-typedef struct ACDecContextStruct
+typedef struct ACDecoderStruct
 {
 	unsigned lo, hi, cache;
 	int nbits;
 	unsigned code;
-	const unsigned *CDF2;
 	const unsigned char *srcptr, *srcend;
-} ACDecContext;
-inline void ac_dec_init(ACDecContext *ctx, const unsigned *CDF2, const unsigned char *start, unsigned const char *end)
+} ACDecoder;
+static void ac_dec_init(ACDecoder *ec, const unsigned char *start, unsigned const char *end)
 {
-	ctx->lo=0;
-	ctx->hi=0xFFFFFFFF;
-	ctx->nbits=32;
-	ctx->CDF2=CDF2;
-	ctx->srcptr=start;
-	ctx->srcend=end;
+	ec->lo=0;
+	ec->hi=0xFFFFFFFF;
+	ec->nbits=32;
+	ec->srcptr=start;
+	ec->srcend=end;
 
-	if(ctx->srcend-ctx->srcptr<4)
+	if(ec->srcend-ec->srcptr<4)
 		LOG_ERROR2("buffer overflow");
-	memcpy(&ctx->code, ctx->srcptr, 4);
-	ctx->srcptr+=4;
+	memcpy(&ec->code, ec->srcptr, 4);
+	ec->srcptr+=4;
 
-	if(ctx->srcend-ctx->srcptr<4)
+	if(ec->srcend-ec->srcptr<4)
 		LOG_ERROR2("buffer overflow");
-	memcpy(&ctx->cache, ctx->srcptr, 4);
-	ctx->srcptr+=4;
+	memcpy(&ec->cache, ec->srcptr, 4);
+	ec->srcptr+=4;
 }
-inline int ac_dec(ACDecContext *ctx)
+static int ac_dec(ACDecoder *ec, unsigned *CDF, int nlevels)
 {
 	unsigned mingap;
 	for(;;)//renorm
 	{
-		mingap=(ctx->hi-ctx->lo)>>16;
-		if(ctx->lo<ctx->hi&&mingap>0)
+		mingap=(ec->hi-ec->lo)>>16;
+		if(ec->lo<ec->hi&&mingap>0)
 			break;
-		if(!ctx->nbits)
+		if(!ec->nbits)
 		{
-			if(ctx->srcend-ctx->srcptr<4)
+			if(ec->srcend-ec->srcptr<4)
 			{
 #ifdef AC_VALIDATE
 				printf("buffer overflow\n");
@@ -457,138 +317,305 @@ inline int ac_dec(ACDecContext *ctx)
 #endif
 				LOG_ERROR2("buffer overflow");
 			}
-			memcpy(&ctx->cache, ctx->srcptr, 4);
-			ctx->srcptr+=4;
+			memcpy(&ec->cache, ec->srcptr, 4);
+			ec->srcptr+=4;
 
-			ctx->nbits=32;
+			ec->nbits=32;
 		}
-		--ctx->nbits;
-		ctx->code<<=1;//shift out MSB		cache is read MSB -> LSB
-		ctx->code|=(unsigned)(ctx->cache>>ctx->nbits&1);
+		--ec->nbits;
+		ec->code<<=1;//shift out MSB		cache is read MSB -> LSB
+		ec->code|=(unsigned)(ec->cache>>ec->nbits&1);
 
-		ctx->lo<<=1;
-		ctx->hi<<=1;
-		ctx->hi|=1;
+		ec->lo<<=1;
+		ec->hi<<=1;
+		ec->hi|=1;
 	}
-
+	
 	unsigned lo2, hi2;
 	int sym=0;
-	int L=0, R=256, found=0;
-	unsigned code2;
-	while(L<=R)
+	unsigned cdf_start, cdf_end;
+	if(CDF)
 	{
-		sym=(L+R)>>1;
-		code2=ctx->lo+((unsigned long long)(ctx->hi-ctx->lo)*ctx->CDF2[sym]>>16);
-		if(code2<ctx->code)
-			L=sym+1;
-		else if(code2>ctx->code)
-			R=sym-1;
-		else
+		int L=0, R=nlevels, found=0;
+		unsigned code2;
+		while(L<=R)//binary search
 		{
-			found=1;
-			break;
+			sym=(L+R)>>1;
+			code2=ec->lo+((unsigned long long)(ec->hi-ec->lo)*CDF[sym]>>16);
+			if(code2<ec->code)
+				L=sym+1;
+			else if(code2>ec->code)
+				R=sym-1;
+			else
+			{
+				found=1;
+				break;
+			}
 		}
+		if(found)
+			for(;sym<256-1&&ec->lo+((unsigned long long)(ec->hi-ec->lo)*CDF[sym+1]>>16)==ec->code;++sym);
+		else
+			sym=L+(L<256&&ec->lo+((unsigned long long)(ec->hi-ec->lo)*CDF[sym+1]>>16)<ec->code)-(L!=0);
+		cdf_start=CDF[sym];
+		cdf_end=CDF[sym+1];
 	}
-	if(found)
-		for(;sym<256-1&&ctx->lo+((unsigned long long)(ctx->hi-ctx->lo)*ctx->CDF2[sym+1]>>16)==ctx->code;++sym);
-	else
-		sym=L+(L<256&&ctx->lo+((unsigned long long)(ctx->hi-ctx->lo)*ctx->CDF2[sym+1]>>16)<ctx->code)-(L!=0);
+	else//bypass
+	{
+		cdf_start=(int)(((unsigned long long)(ec->code-ec->lo)<<16)/(ec->hi-ec->lo));
+		sym=cdf_start*nlevels>>16;
+		cdf_start=(sym<<16)/nlevels;
+		cdf_end=((sym+1)<<16)/nlevels;
 
-	//buf[(iw*ky+kx2)<<2|kc]=(unsigned char)sym;
-
-	unsigned cdf_start=ctx->CDF2[sym], cdf_end=ctx->CDF2[sym+1];
+		//sym=(int)(((unsigned long long)(ec->code-ec->lo)*nlevels+((ec->hi-ec->lo)>>1))/(ec->hi-ec->lo));//X
+		//sym=(int)((unsigned long long)(ec->code-ec->lo)*nlevels/(ec->hi-ec->lo));
+		//cdf_start=(sym<<16)/nlevels;
+		//cdf_end=((sym+1)<<16)/nlevels;
+	}
 					
-	lo2=ctx->lo+((unsigned long long)(ctx->hi-ctx->lo)*cdf_start>>16);
-	hi2=ctx->lo+((unsigned long long)(ctx->hi-ctx->lo)*cdf_end  >>16);
-	acval_dec(sym, cdf_start, cdf_end, ctx->lo, ctx->hi, lo2, hi2, ctx->cache, ctx->nbits, ctx->code);//
-	ctx->lo=lo2;
-	ctx->hi=hi2-1;//OBLIGATORY range leak guard
+	lo2=ec->lo+((unsigned long long)(ec->hi-ec->lo)*cdf_start>>16);
+	hi2=ec->lo+((unsigned long long)(ec->hi-ec->lo)*cdf_end  >>16);
+	acval_dec(sym, cdf_start, cdf_end, ec->lo, ec->hi, lo2, hi2, ec->cache, ec->nbits, ec->code);//
+	ec->lo=lo2;
+	ec->hi=hi2-1;//OBLIGATORY range leak guard
 	return sym;
 }
 
 
-//asymmetric numeral systems coder
-typedef struct ANSEncContextStruct
+//adaptive binary arithmetic coder
+typedef struct ABACEncoderStruct
 {
-	unsigned state;
-	const unsigned *CDF2;
+	unsigned lo, hi, cache;
+	int nbits;
 	DList *list;
-} ANSEncContext;
-inline void ans_enc_init(ANSEncContext *ctx, const unsigned *CDF2, DList *list)
+} ABACEncoder;
+static void abac_enc_init(ABACEncoder *ec, DList *list)
 {
-	ctx->state=0x10000;
-	ctx->CDF2=CDF2;
-	ctx->list=list;
+	ec->lo=0;
+	ec->hi=0xFFFFFFFF;
+	ec->cache=0;
+	ec->nbits=0;
+	ec->list=list;
 }
-inline void ans_enc(ANSEncContext *ctx, int sym, int kc)
+static void abac_enc(ABACEncoder *ec, unsigned short p0, int bit)
 {
-	int cdf=ctx->CDF2[sym], freq=ctx->CDF2[sym+1]-cdf;
-	if(ctx->state>=(unsigned)(freq<<16))//renorm
+	unsigned mid;
+
+	for(;;)//renorm
 	{
-		dlist_push_back(ctx->list, &ctx->state, 2);
-		ctx->state>>=16;
+		mid=(ec->hi-ec->lo)>>16;
+		if(ec->lo+3>ec->lo&&ec->lo+3<=ec->hi&&mid>0)
+			break;
+		if(ec->nbits>=32)
+		{
+			dlist_push_back(ec->list, &ec->cache, 4);
+			ec->cache=0;
+			ec->nbits=0;
+		}
+		ec->cache|=(ec->lo&0x80000000)>>ec->nbits;//cache is written MSB -> LSB
+		++ec->nbits;
+
+		ec->lo<<=1;//shift out MSB
+		ec->hi<<=1;
+		ec->hi|=1;
 	}
-	debug_enc_update(ctx->state, cdf, freq, 0, 0, 0, kc, sym);
-	ctx->state=ctx->state/freq<<16|(cdf+ctx->state%freq);//update
+
+	if(!p0)//reject degenerate distribution
+		LOG_ERROR2("ZPS");
+
+	mid=ec->lo+(int)((unsigned long long)(ec->hi-ec->lo)*p0>>16);
+
+	acval_enc(bit, bit?p0:0, bit?0x10000-p0:p0, ec->lo, ec->hi, bit?mid:ec->lo, bit?ec->hi:mid-1, ec->cache, ec->nbits);
+
+	if(bit)
+		ec->lo=mid;
+	else
+		ec->hi=mid-1;//OBLIGATORY range leak guard
 }
-inline void ans_enc_flush(ANSEncContext *ctx)
+static void abac_enc_flush(ABACEncoder *ec)
 {
-	dlist_push_back(ctx->list, &ctx->state, 4);
+	int k2=0;
+	do//flush
+	{
+		while(ec->nbits<32)
+		{
+			ec->cache|=(ec->lo&0x80000000)>>ec->nbits;//cache is written MSB -> LSB
+			++ec->nbits;
+			++k2;
+
+			ec->lo<<=1;//shift out MSB
+			ec->hi<<=1;
+			ec->hi|=1;
+		}
+		dlist_push_back(ec->list, &ec->cache, 4);
+		ec->cache=0;
+		ec->nbits=0;
+	}while(k2<32);
 }
-typedef struct ANSDecContextStruct
+typedef struct ABACDecoderStruct
+{
+	unsigned lo, hi, cache;
+	int nbits;
+	unsigned code;
+	const unsigned char *srcptr, *srcend;
+} ABACDecoder;
+static void abac_dec_init(ABACDecoder *ec, const unsigned char *start, unsigned const char *end)
+{
+	ec->lo=0;
+	ec->hi=0xFFFFFFFF;
+	ec->nbits=32;
+	ec->srcptr=start;
+	ec->srcend=end;
+
+	if(ec->srcend-ec->srcptr<4)
+		LOG_ERROR2("buffer overflow");
+	memcpy(&ec->code, ec->srcptr, 4);
+	ec->srcptr+=4;
+
+	if(ec->srcend-ec->srcptr<4)
+		LOG_ERROR2("buffer overflow");
+	memcpy(&ec->cache, ec->srcptr, 4);
+	ec->srcptr+=4;
+}
+static int abac_dec(ABACDecoder *ec, unsigned short p0)
+{
+	unsigned mid;
+	for(;;)//renorm
+	{
+		mid=(ec->hi-ec->lo)>>16;
+		if(ec->lo<ec->hi&&mid>0)
+			break;
+		if(!ec->nbits)
+		{
+			if(ec->srcend-ec->srcptr<4)
+			{
+#ifdef AC_VALIDATE
+				printf("buffer overflow\n");
+				acval_dump();
+#endif
+				LOG_ERROR2("buffer overflow");
+			}
+			memcpy(&ec->cache, ec->srcptr, 4);
+			ec->srcptr+=4;
+
+			ec->nbits=32;
+		}
+		--ec->nbits;
+		ec->code<<=1;//shift out MSB		cache is read MSB -> LSB
+		ec->code|=(unsigned)(ec->cache>>ec->nbits&1);
+
+		ec->lo<<=1;
+		ec->hi<<=1;
+		ec->hi|=1;
+	}
+
+	if(!p0)//reject degenerate distribution
+		LOG_ERROR2("ZPS");
+
+	mid=ec->lo+(int)((unsigned long long)(ec->hi-ec->lo)*p0>>16);
+	int bit=ec->code>=mid;
+
+	acval_dec(bit, bit?p0:0, bit?0x10000-p0:p0, ec->lo, ec->hi, bit?mid:ec->lo, bit?ec->hi:mid-1, ec->cache, ec->nbits, ec->code);
+	
+	if(bit)
+		ec->lo=mid;
+	else
+		ec->hi=mid-1;//OBLIGATORY range leak guard
+
+	return bit;
+}
+
+
+//asymmetric numeral systems coder
+typedef struct ANSEncoderStruct
 {
 	unsigned state;
-	const unsigned *CDF2;
-	const unsigned char *srcptr, *srcstart;
-} ANSDecContext;
-inline void ans_dec_init(ANSDecContext *ctx, const unsigned *CDF2, const unsigned char *start, const unsigned char *end)
+	DList *list;
+} ANSEncoder;
+static void ans_enc_init(ANSEncoder *ec, DList *list)
 {
-	ctx->CDF2=CDF2;
-	ctx->srcptr=end;
-	ctx->srcstart=start;
-	
-	ctx->srcptr-=4;
-	if(ctx->srcptr<ctx->srcstart)
-		LOG_ERROR2("ANS buffer overflow");
-	memcpy(&ctx->state, ctx->srcptr, 4);
+	ec->state=0x10000;
+	ec->list=list;
 }
-inline int ans_dec(ANSDecContext *ctx, int kc)
+static void ans_enc(ANSEncoder *ec, int sym, const unsigned *CDF, int nlevels)
 {
-	unsigned c=(unsigned short)ctx->state;
-	int sym=0;
-
-	int L=0, R=256, found=0;
-	while(L<=R)
+	int cdf, freq;
+	if(CDF)
+		cdf=CDF[sym], freq=CDF[sym+1]-cdf;
+	else//bypass
+		cdf=(sym<<16)/nlevels, freq=((sym+1)<<16)/nlevels-cdf;
+	if(!freq)
+		LOG_ERROR2("ZPS");
+	if(ec->state>=(unsigned)(freq<<16))//renorm
 	{
-		sym=(L+R)>>1;
-		if(ctx->CDF2[sym]<c)
-			L=sym+1;
-		else if(ctx->CDF2[sym]>c)
-			R=sym-1;
-		else
-		{
-			found=1;
-			break;
-		}
+		dlist_push_back(ec->list, &ec->state, 2);
+		ec->state>>=16;
 	}
-	if(found)
-		for(;sym<256-1&&ctx->CDF2[sym+1]==c;++sym);
-	else
-		sym=L+(L<256&&ctx->CDF2[L]<c)-(L!=0);
-
-	//buf[(iw*ky+kx)<<2|kc]=(unsigned char)sym;
-
-	unsigned cdf=ctx->CDF2[sym], freq=ctx->CDF2[sym+1]-cdf;
-						
-	debug_dec_update(ctx->state, cdf, freq, 0, 0, 0, kc, sym);
-	ctx->state=freq*(ctx->state>>16)+c-cdf;//update
-	if(ctx->state<0x10000)//renorm
+	debug_enc_update(ec->state, cdf, freq, 0, 0, 0, 0, sym);
+	ec->state=ec->state/freq<<16|(cdf+ec->state%freq);//update
+}
+static void ans_enc_flush(ANSEncoder *ec)
+{
+	dlist_push_back(ec->list, &ec->state, 4);
+}
+typedef struct ANSDecoderStruct
+{
+	unsigned state;
+	const unsigned char *srcptr, *srcstart;
+} ANSDecoder;
+static void ans_dec_init(ANSDecoder *ec, const unsigned char *start, const unsigned char *end)
+{
+	ec->srcptr=end;
+	ec->srcstart=start;
+	
+	ec->srcptr-=4;
+	if(ec->srcptr<ec->srcstart)
+		LOG_ERROR2("ANS buffer overflow");
+	memcpy(&ec->state, ec->srcptr, 4);
+}
+static int ans_dec(ANSDecoder *ec, const unsigned *CDF, int nlevels)
+{
+	unsigned c=(unsigned short)ec->state;
+	int sym=0;
+	
+	unsigned cdf, freq;
+	if(CDF)
 	{
-		ctx->state<<=16;
-		if(ctx->srcptr-2>=ctx->srcstart)
+		int L=0, R=nlevels, found=0;
+		while(L<=R)
 		{
-			ctx->srcptr-=2;
-			memcpy(&ctx->state, ctx->srcptr, 2);
+			sym=(L+R)>>1;
+			if(CDF[sym]<c)
+				L=sym+1;
+			else if(CDF[sym]>c)
+				R=sym-1;
+			else
+			{
+				found=1;
+				break;
+			}
+		}
+		if(found)
+			for(;sym<256-1&&CDF[sym+1]==c;++sym);
+		else
+			sym=L+(L<256&&CDF[L]<c)-(L!=0);
+
+		cdf=CDF[sym], freq=CDF[sym+1]-cdf;
+	}
+	else//bypass
+	{
+		sym=c*nlevels>>16;
+		cdf=(sym<<16)/nlevels, freq=((sym+1)<<16)/nlevels-cdf;
+	}
+						
+	debug_dec_update(ec->state, cdf, freq, 0, 0, 0, 0, sym);
+	ec->state=freq*(ec->state>>16)+c-cdf;//update
+	if(ec->state<0x10000)//renorm
+	{
+		ec->state<<=16;
+		if(ec->srcptr-2>=ec->srcstart)
+		{
+			ec->srcptr-=2;
+			memcpy(&ec->state, ec->srcptr, 2);
 		}
 	}
 	return sym;
@@ -596,62 +623,62 @@ inline int ans_dec(ANSDecContext *ctx, int kc)
 
 
 //binary asymmetric numeral systems coder
-typedef struct BANSEncContextStruct
+typedef struct BANSEncoderStruct
 {
 	unsigned state;
 	DList *list;
-} BANSEncContext;
-inline void bans_enc_init(BANSEncContext *ctx, DList *list)
+} BANSEncoder;
+static void bans_enc_init(BANSEncoder *ec, DList *list)
 {
-	ctx->state=0x10000;
-	ctx->list=list;
+	ec->state=0x10000;
+	ec->list=list;
 }
-inline void bans_enc(BANSEncContext *ctx, unsigned short p0, int bit)
+static void bans_enc(BANSEncoder *ec, unsigned short p0, int bit)
 {
 	int cdf=bit?p0:0, freq=bit?0x10000-p0:p0;
-	if(ctx->state>=(unsigned)(freq<<16))//renorm
+	if(ec->state>=(unsigned)(freq<<16))//renorm
 	{
-		dlist_push_back(ctx->list, &ctx->state, 2);
-		ctx->state>>=16;
+		dlist_push_back(ec->list, &ec->state, 2);
+		ec->state>>=16;
 	}
-	debug_enc_update(ctx->state, cdf, freq, 0, 0, 0, 0, bit);
-	ctx->state=ctx->state/freq<<16|(cdf+ctx->state%freq);//update
+	debug_enc_update(ec->state, cdf, freq, 0, 0, 0, 0, bit);
+	ec->state=ec->state/freq<<16|(cdf+ec->state%freq);//update
 }
-inline void bans_enc_flush(BANSEncContext *ctx)
+static void bans_enc_flush(BANSEncoder *ec)
 {
-	dlist_push_back(ctx->list, &ctx->state, 4);
+	dlist_push_back(ec->list, &ec->state, 4);
 }
-typedef struct BANSDecContextStruct
+typedef struct BANSDecoderStruct
 {
 	unsigned state;
 	const unsigned char *srcptr, *srcstart;
-} BANSDecContext;
-inline void bans_dec_init(BANSDecContext *ctx, const unsigned char *start, const unsigned char *end)
+} BANSDecoder;
+static void bans_dec_init(BANSDecoder *ec, const unsigned char *start, const unsigned char *end)
 {
-	ctx->srcptr=end;
-	ctx->srcstart=start;
+	ec->srcptr=end;
+	ec->srcstart=start;
 	
-	ctx->srcptr-=4;
-	if(ctx->srcptr<ctx->srcstart)
+	ec->srcptr-=4;
+	if(ec->srcptr<ec->srcstart)
 		LOG_ERROR2("ANS buffer overflow");
-	memcpy(&ctx->state, ctx->srcptr, 4);
+	memcpy(&ec->state, ec->srcptr, 4);
 }
-inline int bans_dec(BANSDecContext *ctx, unsigned short p0)
+static int bans_dec(BANSDecoder *ec, unsigned short p0)
 {
-	unsigned c=(unsigned short)ctx->state;
+	unsigned c=(unsigned short)ec->state;
 	int bit=c>=p0;
 	
 	int cdf=bit?p0:0, freq=bit?0x10000-p0:p0;
 						
-	debug_dec_update(ctx->state, cdf, freq, 0, 0, 0, 0, bit);
-	ctx->state=freq*(ctx->state>>16)+c-cdf;//update
-	if(ctx->state<0x10000)//renorm
+	debug_dec_update(ec->state, cdf, freq, 0, 0, 0, 0, bit);
+	ec->state=freq*(ec->state>>16)+c-cdf;//update
+	if(ec->state<0x10000)//renorm
 	{
-		ctx->state<<=16;
-		if(ctx->srcptr-2>=ctx->srcstart)
+		ec->state<<=16;
+		if(ec->srcptr-2>=ec->srcstart)
 		{
-			ctx->srcptr-=2;
-			memcpy(&ctx->state, ctx->srcptr, 2);
+			ec->srcptr-=2;
+			memcpy(&ec->state, ec->srcptr, 2);
 		}
 	}
 	return bit;
