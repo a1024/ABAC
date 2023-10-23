@@ -20,8 +20,8 @@ extern "C"
 //	A 14-bit subpixel must be stored like this: 0bXXXX_XXXX_XXXX_XX00
 //ret_dummy_alpha:  Tells if image has redundant alpha channel
 //Don't forget to free returned buffers
-unsigned char* slic2_encode(int iw, int ih, int nch, int depth, const void *src, long long *ret_size);
-void*          slic2_decode(const unsigned char *data, long long len, int *ret_iw, int *ret_ih, int *ret_nch, int *ret_depth, int *ret_dummy_alpha, int force_alpha);
+unsigned char* slic2_encode(int iw, int ih, int nch, int depth, const void *src, int *ret_size);
+void*          slic2_decode(const unsigned char *data, int len, int *ret_iw, int *ret_ih, int *ret_nch, int *ret_depth, int *ret_dummy_alpha, int force_alpha);
 
 //I/O wrappers, return FALSE on error
 int   slic2_save(const char *filename, int iw, int ih, int nch, int depth, const void *src);
@@ -199,7 +199,7 @@ static void slic2_dlist_clear(C2DListHandle list)
 		list->nbytes=list->nnodes=0;
 	}
 }
-static unsigned char* slic2_dlist_appendtoarray(C2DListHandle list, size_t *ret_size)
+static unsigned char* slic2_dlist_toarray(C2DListHandle list, int *ret_size)
 {
 	C2DNodeHandle it;
 	unsigned char *dst=(unsigned char*)malloc(list->nnodes*list->nodebytes);
@@ -606,7 +606,7 @@ typedef struct SLI2HeaderStruct
 	int iw, ih;
 
 	unsigned char nch, depth;//nch: 1, 2, 3 or 4, depth: [1~16]
-	short alpha;
+	short alpha;		//TODO (generalize) if palette is degenerate, skip encoding channel
 
 	unsigned short palettesizes[4];//per channel, nonzero means enabled (depth must be > 8)
 	unsigned short hist[4][SLIC2_HISTLEN];
@@ -618,7 +618,7 @@ static SLI2Header slic2_header;
 	SH=(TEMP>=1<<4)<<2,	LOGN+=SH, TEMP>>=SH,\
 	SH=(TEMP>=1<<2)<<1,	LOGN+=SH, TEMP>>=SH,\
 	SH= TEMP>=1<<1,		LOGN+=SH;
-unsigned char* slic2_encode(int iw, int ih, int nch, int depth, const void *src, long long *ret_size)
+unsigned char* slic2_encode(int iw, int ih, int nch, int depth, const void *src, int *ret_size)
 {
 	if(iw<1||ih<1 || nch<1||nch>4 || depth<1||depth>16 || !src)
 		return 0;
@@ -664,7 +664,7 @@ unsigned char* slic2_encode(int iw, int ih, int nch, int depth, const void *src,
 			memset(hist, 0, histlen*sizeof(int));
 			for(int k=0;k<res;++k)
 			{
-				unsigned short val=src0[nch*k+kc];
+				unsigned short val=src0[nch*k+kc]>>(16-depth);
 				++hist[val];
 			}
 			int palettesize=0;
@@ -672,11 +672,14 @@ unsigned char* slic2_encode(int iw, int ih, int nch, int depth, const void *src,
 				palettesize+=hist[k]!=0;
 			if(palettesize<=(1<<(depth-8)))
 			{
+				if(palettesize>1)
 				{
 					int sh, temp;
 					FLOOR_LOG2_16BIT(truedepth[kc], palettesize-1, sh, temp);//truedepth = number of bits in maximum unsigned symbol
 					++truedepth[kc];
 				}
+				else
+					truedepth[kc]=1;
 				slic2_header.palettesizes[kc]=palettesize;
 				palettes[kc]=(unsigned short*)malloc(palettesize*sizeof(short));
 				for(int k=0, idx=0;k<histlen;++k)
@@ -810,7 +813,7 @@ unsigned char* slic2_encode(int iw, int ih, int nch, int depth, const void *src,
 			}//x-loop
 		}//y-loop
 
-		for(int kt=0, sum=0, overflow=0;kt<SLIC2_HISTLEN;++kt)
+		for(int kt=0, sum=0;kt<SLIC2_HISTLEN;++kt)
 		{
 			unsigned freq=CDF2[kt];
 			CDF2[kt]=(unsigned)((unsigned long long)sum*(0x10000LL-SLIC2_HISTLEN)/res)+kt;
@@ -829,7 +832,7 @@ unsigned char* slic2_encode(int iw, int ih, int nch, int depth, const void *src,
 		}
 	}//channel-loop
 	SLIC2_ENC_FLUSH(&ec);
-	unsigned char *ret=slic2_dlist_appendtoarray(&list, ret_size);
+	unsigned char *ret=slic2_dlist_toarray(&list, ret_size);
 	slic2_dlist_clear(&list);
 	free(buf);
 	for(int kc=0;kc<4;++kc)
@@ -841,7 +844,7 @@ unsigned char* slic2_encode(int iw, int ih, int nch, int depth, const void *src,
 	memcpy(header2->hist, slic2_header.hist, sizeof(header2->hist));
 	return ret;
 }
-void* slic2_decode(const unsigned char *src, long long len, int *ret_iw, int *ret_ih, int *ret_nch, int *ret_depth, int *ret_dummy_alpha, int force_alpha)
+void* slic2_decode(const unsigned char *src, int len, int *ret_iw, int *ret_ih, int *ret_nch, int *ret_depth, int *ret_dummy_alpha, int force_alpha)
 {
 	if(!src||len<sizeof(SLI2Header)||!ret_iw||!ret_ih||!ret_nch||!ret_depth)
 	{
@@ -1032,7 +1035,7 @@ static ptrdiff_t get_filesize(const char *filename)//-1 not found,  0: not a fil
 }
 int slic2_save(const char *filename, int iw, int ih, int nch, int depth, const void *src)
 {
-	long long ret_size=0;
+	int ret_size=0;
 	unsigned char *ret=slic2_encode(iw, ih, 4, depth, src, &ret_size);
 	if(!ret)
 		return 0;
@@ -1111,7 +1114,7 @@ void* load_image(const char *filename, int *iw, int *ih, int *nch0, int *depth, 
 		return udata;
 	}
 	*depth=8;
-	unsigned char *udata8=(unsigned char*)malloc(npx);
+	unsigned char *udata8=(unsigned char*)malloc((int)npx);
 	if(!udata8)
 	{
 		ERROR("Allocaiton error");
@@ -1165,7 +1168,7 @@ int main(int argc, char **argv)
 		
 			printf("Saving \'%s\'...\n", fn2);
 			t=clock();
-			long long ret_size=0;
+			int ret_size=0;
 			if(!slic2_save(fn2, iw, ih, 4, depth, udata))
 				printf("ERROR saving \'%s\'\n", fn2);
 			t=clock()-t;
@@ -1243,7 +1246,7 @@ int main(int argc, char **argv)
 			
 			printf("Test encode...\n");
 			t=clock();
-			long long ret_size=0;
+			int ret_size=0;
 			unsigned char *cdata=slic2_encode(iw, ih, 4, depth, udata, &ret_size);
 			t=clock()-t;
 			printf("Took %lf sec\n", (double)t/CLOCKS_PER_SEC);
