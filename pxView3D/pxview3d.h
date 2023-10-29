@@ -941,6 +941,9 @@ void pred_learned_gpu(char *buf, int iw, int ih, int fwd);
 #endif
 
 
+void pred_c03(char *src, int iw, int ih, int fwd);
+
+
 #ifdef __cplusplus
 }
 #endif
