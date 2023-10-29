@@ -12544,10 +12544,10 @@ void bayes_estimate(unsigned char *src, int iw, int ih, int x1, int x2, int y1, 
 #define C03_USE_FLOAT
 
 #ifdef C03_USE_FLOAT
-#define C03_DATATYPE float
+#define C03_DATATYPE double
 #define C03_CVT_COEFF(X) (C03_DATATYPE)(X)
-#define C03_CVT_PIXEL(X) ((C03_DATATYPE)(X)/128.f)
-#define C03_CVT_PRED(X) (char)(CLAMP(-1, X, 1)*128.f+0.5f)
+#define C03_CVT_PIXEL(X) (C03_DATATYPE)((X)/128.)
+#define C03_CVT_PRED(X) (char)(CLAMP(-1, X, 1)*128.+0.5)
 #else
 #define C03_DATATYPE short
 #define C03_CVT_COEFF(X) (C03_DATATYPE)((X)*0x4000)
@@ -12558,15 +12558,39 @@ void bayes_estimate(unsigned char *src, int iw, int ih, int x1, int x2, int y1, 
 #define C03_REACH 3
 #define C03_NNB (2*(C03_REACH+1)*C03_REACH)
 #define C03_CIN (4*(C03_REACH+1)*C03_REACH)
-static void c03_mul_mv(const C03_DATATYPE *mat, const C03_DATATYPE *vec, C03_DATATYPE *res, int mw, int mh)
+static void c03_dense(const C03_DATATYPE *mat, const C03_DATATYPE *vec, const C03_DATATYPE *bias, C03_DATATYPE *res, int mw, int mh)
 {
 #ifdef C03_USE_FLOAT
+#if 1
+	for(int ky=0;ky<mh;++ky, mat+=mw)
+	{
+		__m256d sum=_mm256_setzero_pd();
+		int kx;
+		for(kx=0;kx<mw-(sizeof(__m256d)/sizeof(C03_DATATYPE)-1);kx+=sizeof(__m256)/sizeof(C03_DATATYPE))
+		{
+			__m256d ra=_mm256_loadu_pd(mat+kx);
+			__m256d rb=_mm256_loadu_pd(vec+kx);
+			ra=_mm256_mul_pd(ra, rb);
+			sum=_mm256_add_pd(sum, ra);
+		}
+		__m128d hi=_mm256_extractf128_pd(sum, 1);
+		__m128d lo=_mm256_extractf128_pd(sum, 0);
+		lo=_mm_add_pd(hi, lo);
+		double s2=lo.m128d_f64[0]+lo.m128d_f64[1];
+		for(;kx<mw;++kx)
+			s2+=mat[kx]*vec[kx];
+
+		s2+=bias[ky];
+		s2=s2<0?s2*0.01:s2;//LeakyReLU
+		res[ky]=s2;
+	}
+#else
 	//memset(res, 0, mh*sizeof(float));
-	for(int ky=0;ky<mh;++ky, mat+=mw*ky)
+	for(int ky=0;ky<mh;++ky, mat+=mw)
 	{
 		__m256 sum=_mm256_setzero_ps();
 		int kx;
-		for(kx=0;kx<mw-7;kx+=8)
+		for(kx=0;kx<mw-(sizeof(__m256)/sizeof(C03_DATATYPE)-1);kx+=sizeof(__m256)/sizeof(C03_DATATYPE))
 		{
 			__m256 ra=_mm256_loadu_ps(mat+kx);
 			__m256 rb=_mm256_loadu_ps(vec+kx);
@@ -12583,8 +12607,11 @@ static void c03_mul_mv(const C03_DATATYPE *mat, const C03_DATATYPE *vec, C03_DAT
 		float s2=_mm_cvtss_f32(lo);
 		for(;kx<mw;++kx)
 			s2+=mat[kx]*vec[kx];
+		s2+=bias[ky];
+		s2=s2<0?s2*0.01:s2;//LeakyReLU
 		res[ky]=s2;
 	}
+#endif
 #if 0
 	int k;
 	__m256 sum=_mm256_setzero_ps();
@@ -12939,6 +12966,8 @@ void pred_c03(char *src, int iw, int ih, int fwd)
 		1,
 	};
 
+	double avpred=0;//
+
 	int idx, idx2, pred;
 	const char *pixels=fwd?src:dst, *errors=fwd?dst:src;
 	memcpy(dst, src, (size_t)res<<2);
@@ -12948,6 +12977,9 @@ void pred_c03(char *src, int iw, int ih, int fwd)
 		{
 			for(int kx=0;kx<iw;++kx)//x loop
 			{
+				//if(kc==0&&kx==10&&ky==10)
+				//	printf("");
+
 				ALIGN(32) C03_DATATYPE nb[C03_CIN], temp[C03_CIN];
 				idx=0;
 				for(int ky2=-C03_REACH;ky2<0;++ky2)//load neighbors
@@ -12960,6 +12992,11 @@ void pred_c03(char *src, int iw, int ih, int fwd)
 							nb[idx]=C03_CVT_PIXEL(pixels[idx2]);
 							nb[idx+C03_NNB]=C03_CVT_PIXEL(errors[idx2]);
 						}
+						else
+						{
+							nb[idx]=0;
+							nb[idx+C03_NNB]=0;
+						}
 					}
 				}
 				for(int kx2=-C03_REACH;kx2<0;++kx2, ++idx)
@@ -12970,18 +13007,26 @@ void pred_c03(char *src, int iw, int ih, int fwd)
 						nb[idx]=C03_CVT_PIXEL(pixels[idx2]);
 						nb[idx+C03_NNB]=C03_CVT_PIXEL(errors[idx2]);
 					}
+					else
+					{
+						nb[idx]=0;
+						nb[idx+C03_NNB]=0;
+					}
 				}
 				
-				float *vi=nb, *vo=temp;
+				C03_DATATYPE *vi=nb, *vo=temp;
 				for(int k=1;k<_countof(nnch);++k)
 				{
 					int ci=nnch[k-1], co=nnch[k];
-					c03_mul_mv(coeffs[k], vi, vo, ci, co);
+					c03_dense(coeffs[(k-1)<<1], vi, coeffs[(k-1)<<1|1], vo, ci, co);
 					
-					float *t2;
+					C03_DATATYPE *t2;
 					SWAPVAR(vi, vo, t2);
 				}
 				pred=C03_CVT_PRED(*vi);
+				//int pred2=(int)(((*vi)>(-1) ? (*vi)<(1) ? (*vi) : (1) : (-1)) * 128.f + 0.5f);
+
+				avpred+=fabs(*vi*128);//
 
 				idx=(iw*ky+kx)<<2|kc;
 				pred^=-fwd;
@@ -12994,4 +13039,6 @@ void pred_c03(char *src, int iw, int ih, int fwd)
 	free(dst);
 	for(int k=0;k<_countof(src_weights);++k)
 		_mm_free(coeffs[k]);
+
+	set_window_title("%lf", avpred/(res*3));//
 }
