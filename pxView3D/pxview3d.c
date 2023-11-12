@@ -134,6 +134,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_GRAD2,		ST_INV_GRAD2,
 	ST_FWD_CTX,		ST_INV_CTX,
 	ST_FWD_C03,		ST_INV_C03,
+	ST_FWD_C10,		ST_INV_C10,
 //	ST_FWD_WU97,		ST_INV_WU97,
 	ST_FWD_SORTNB,		ST_INV_SORTNB,
 //	ST_FWD_BITWISE,		ST_INV_BITWISE,
@@ -383,6 +384,8 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case ST_INV_CTX:			a=" S Inv Ctx";				break;
 	case ST_FWD_C03:			a=" S Fwd C03";				break;
 	case ST_INV_C03:			a=" S Inv C03";				break;
+	case ST_FWD_C10:			a=" S Fwd C10";				break;
+	case ST_INV_C10:			a=" S Inv C10";				break;
 //	case ST_FWD_WU97:			a=" S Fwd Wu 97";			break;
 //	case ST_INV_WU97:			a=" S Inv Wu 97";			break;
 //	case ST_FWD_BITWISE:			a=" S Fwd Bitwise";			break;
@@ -959,6 +962,8 @@ void update_image()
 			case ST_INV_CTX:		pred_ctx((char*)image, iw, ih, 0);			break;
 			case ST_FWD_C03:		pred_c03((char*)image, iw, ih, 1);			break;
 			case ST_INV_C03:		pred_c03((char*)image, iw, ih, 0);			break;
+			case ST_FWD_C10:		pred_c10((char*)image, iw, ih, 1);			break;
+			case ST_INV_C10:		pred_c10((char*)image, iw, ih, 0);			break;
 		//	case ST_FWD_WU97:		pred_wu97((char*)image, iw, ih, 1);			break;
 		//	case ST_INV_WU97:		pred_wu97((char*)image, iw, ih, 0);			break;
 		//	case ST_FWD_BITWISE:		pred_bitwise((char*)image, iw, ih, 1);			break;
