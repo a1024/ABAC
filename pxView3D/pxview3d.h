@@ -830,6 +830,7 @@ void pred_jxl(char *buf, int iw, int ih, int nch, int bytestride, int fwd);
 
 
 void pred_calic(char *buf, int iw, int ih, int fwd);
+void pred_nblic(char *src, int iw, int ih, int fwd);
 
 
 #define SORTNBCASES 8

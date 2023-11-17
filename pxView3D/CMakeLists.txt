@@ -14,6 +14,7 @@ add_executable (pxView3D WIN32
 	"transforms.c"
 	"transforms_avx2.c"
 	"transforms_gpu.c"
+	"transforms_learned.c"
 	"transforms_pt2.c"
 	"util.c"
 	"window.c"

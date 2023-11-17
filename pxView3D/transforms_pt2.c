@@ -968,6 +968,7 @@ void pred_learned(char *buf, int iw, int ih, int fwd)
 #endif
 	array_free(&title);
 }
+#undef  ABS
 
 
 //	#define SHOW_PRED
@@ -1860,6 +1861,7 @@ void pred_learned_v3(char *buf, int iw, int ih, int fwd)
 	free(args);
 	free(ebuf2);
 }
+#undef  LOAD
 
 
 #define V4_NTHREADS 2
@@ -2056,3 +2058,368 @@ void pred_learned_v4(char *buf, int iw, int ih, int fwd)
 	free(g);
 	free(args);
 }
+
+
+
+
+//https://github.com/WangXuan95/NBLIC-Image-Compression
+#define NB_REACH 2
+#define NB_R2_TOP 6
+#define NB_R2_LEFT 5
+#define NB_R2_RIGHT 9
+#define NB_FIX 12
+#define NB_VECN 6
+
+//	#define NB_USE_DOUBLE
+
+#ifdef NB_USE_DOUBLE
+typedef double NBDataType;
+#define ABS fabs
+#define EPSILON(X) (ABS(X)<1e-3)
+#else
+typedef long long NBDataType;
+#define ABS llabs
+#define EPSILON(X) !(X)
+#endif
+
+//#define NB_NNB (2*(NB_REACH+1)*NB_REACH)
+#define NB_NEQ (NB_R2_LEFT+(NB_R2_LEFT+1+NB_R2_RIGHT)*NB_R2_TOP)
+#define NB_MAX 255
+enum
+{
+	NB_NNWW, NB_NNW, NB_NN, NB_NNE, NB_NNEE,
+	NB_NWW,  NB_NW,  NB_N,  NB_NE,  NB_NEE,
+	NB_WW,   NB_W,
+	
+	NB_COUNT,
+};
+static NBDataType
+	nb_nb[NB_NEQ*NB_VECN], nb_targets[NB_NEQ],
+	nb_A[NB_VECN*NB_VECN], nb_results[NB_VECN];
+#define LOAD(BUF, Y, X, V0) ((unsigned)(Y)<(unsigned)ih&&(unsigned)(X)<(unsigned)iw?BUF[(iw*(Y)+X)<<2|kc]:V0)
+static void nblic_matmul_transposed(NBDataType *dst, const NBDataType *m1T, const NBDataType *m2, int h1, int w1h2, int w2)
+{
+	for(int ky=0;ky<h1;++ky)
+	{
+		for(int kx=0;kx<w2;++kx)
+		{
+			NBDataType sum=0;
+			for(int k=0;k<w1h2;++k)
+				sum+=m1T[h1*k+ky]*m2[w2*k+kx];
+			dst[w2*ky+kx]=sum;
+		}
+	}
+#if 0
+	for(int ky=0;ky<h1;++ky)
+	{
+		for(int kx=0;kx<w2;++kx)
+		{
+			NBDataType sum=0;
+			for(int k=0;k<w1h2;++k)
+				sum+=m1[w1h2*ky+k]*m2[w2*k+kx];
+			dst[w2*ky+kx]=sum;
+		}
+	}
+#endif
+}
+static int nb_solve_Ax_b(NBDataType *p_mat_A, NBDataType *p_vec_b, int n)//returns zero on success
+{
+	int k, i, j;
+	NBDataType Akk, Aik, temp;
+
+	for (k=0; k<(n-1); k++)
+	{
+		// find main row number kk -------------------------------------
+		int kk = k;
+		for (i=k+1; i<n; i++)
+		{
+			if (ABS(p_mat_A[n*i+k]) > ABS(p_mat_A[n*kk+k]))
+				kk = i;
+		}
+	
+		// swap row kk and k -------------------------------------
+		if(kk != k)
+		{
+			SWAPVAR(p_vec_b[k], p_vec_b[kk], temp);
+			for (j=k; j<n; j++)
+				SWAPVAR(p_mat_A[n*k+j], p_mat_A[n*kk+j], temp);
+		}
+	
+		// gaussian elimination -------------------------------------
+		Akk = p_mat_A[n*k+k];
+		if (EPSILON(Akk))
+			return 1;
+		for (i=k+1; i<n; i++)
+		{
+			Aik = p_mat_A[n*i+k];
+			p_mat_A[n*i+k] = 0;
+			if (Aik != 0)
+			{
+				for (j=k+1; j<n; j++)
+					p_mat_A[n*i+j] -= p_mat_A[n*k+j]*Aik/Akk;
+				p_vec_b[i] -= p_vec_b[k]*Aik/Akk;
+			}
+		}
+	}
+
+	for (k=(n-1); k>0; k--)
+	{
+		Akk = p_mat_A[n*k+k];
+		if (EPSILON(Akk))
+			return 1;
+		for (i=0; i<k; i++)
+		{
+			Aik = p_mat_A[n*i+k];
+			p_mat_A[n*i+k] = 0;
+			if (Aik != 0)
+				p_vec_b[i] -= p_vec_b[k] * Aik / Akk;
+		}
+	}
+
+	for (k=0; k<n; k++)
+	{
+		Akk = p_mat_A[n*k+k];
+		if (EPSILON(Akk))
+			return 1;
+#ifndef NB_USE_DOUBLE
+		p_vec_b[k] += Akk>>1;
+#endif
+		p_vec_b[k] /= Akk;
+	}
+
+	return 0;
+}
+static void nblic_loadnb(const char *buf, int iw, int ih, int kc, int kx, int ky, char *nb)
+{
+	//load order
+	//NB_NNWW 11,	NB_NNW 8,	NB_NN 6,	NB_NNE 7,	NB_NNEE 10,
+	//NB_NWW 9,	NB_NW 4,	NB_N 2,		NB_NE 5,	NB_NEE 12,
+	//NB_WW 3,	NB_W 1,
+	nb[NB_W]=LOAD(buf, ky+0, kx-1, 0);//1
+	nb[NB_N]=LOAD(buf, ky-1, kx+0, nb[NB_W]);//2
+	if(!kx)
+		nb[NB_W]=nb[NB_N];
+	nb[NB_WW  ]=LOAD(buf, ky+0, kx-2, nb[NB_W]);//3
+	nb[NB_NW  ]=LOAD(buf, ky-1, kx-1, nb[NB_N]);//4
+	nb[NB_NE  ]=LOAD(buf, ky-1, kx+1, nb[NB_N]);//5
+	nb[NB_NN  ]=LOAD(buf, ky-2, kx+0, nb[NB_N]);//6
+	nb[NB_NNE ]=LOAD(buf, ky-2, kx+1, nb[NB_NN]);//7
+	nb[NB_NNW ]=LOAD(buf, ky-2, kx-1, nb[NB_NN]);//8
+	nb[NB_NWW ]=LOAD(buf, ky-1, kx-2, nb[NB_NW]);//9
+	nb[NB_NNEE]=LOAD(buf, ky-2, kx+2, nb[NB_NNE]);//10
+	nb[NB_NNWW]=LOAD(buf, ky-2, kx-2, nb[NB_NNW]);//11
+	nb[NB_NEE ]=LOAD(buf, ky-1, kx+2, nb[NB_NE]);//12
+}
+static void nblic_nb2vec(const char *nb, NBDataType *vec)
+{
+	if(NB_VECN> 0)vec[ 0]=nb[NB_W];
+	if(NB_VECN> 1)vec[ 1]=nb[NB_N];
+	if(NB_VECN> 2)vec[ 2]=nb[NB_NW];
+	if(NB_VECN> 3)vec[ 3]=nb[NB_NE];
+	if(NB_VECN> 4)vec[ 4]=nb[NB_WW];
+	if(NB_VECN> 5)vec[ 5]=nb[NB_NN];
+	if(NB_VECN> 6)vec[ 6]=nb[NB_NNE];
+	if(NB_VECN> 7)vec[ 7]=nb[NB_NWW];
+	if(NB_VECN> 8)vec[ 8]=nb[NB_NNW];
+	if(NB_VECN> 9)vec[ 9]=nb[NB_NNEE];
+	if(NB_VECN>10)vec[10]=nb[NB_NNWW];
+}
+void pred_nblic(char *src, int iw, int ih, int fwd)
+{
+#if 0
+	{
+		double A[]=
+		{
+			1, 1, 1, 1,
+			8, 4, 2, 1,
+			27, 9, 3, 1,
+			64, 16, 4, 1,
+		};
+		double x[]=
+		{
+			1,
+			2,
+			3,
+			4,
+		};
+		double y[]=
+		{
+			 10,
+			 26,
+			 58,
+			112,
+		};
+		nb_solve_Ax_b(A, y, 4);
+
+		LOG_ERROR("");
+	}
+#endif
+	//DisableProcessWindowsGhosting();
+	int res=iw*ih;
+	char *dst=(char*)malloc((size_t)res<<2);
+	if(!dst)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	NBDataType pred;
+	int idx;
+	const char *pixels=fwd?src:dst, *errors=fwd?dst:src;
+	const static int cost_thresholds[]=
+	{
+		  1*(NB_MAX/8),
+		  3*(NB_MAX/8),
+		  9*(NB_MAX/8),
+		 20*(NB_MAX/8),
+		 50*(NB_MAX/8),
+		110*(NB_MAX/8),
+		300*(NB_MAX/8),
+		800*(NB_MAX/8),
+	};
+	memcpy(dst, src, (size_t)res<<2);
+	for(int kc=0;kc<3;++kc)
+	{
+		for(int ky=0;ky<ih;++ky)
+		{
+			int vec_ok=0;
+			for(int kx=0;kx<iw;++kx)
+			{
+				char nb[NB_COUNT];
+				//if(kc==0&&ky==5&&kx==766)//
+				//if(kc==0&&ky==3&&kx==5)//
+				//	printf("");
+#if 1
+				if(!(kx%5))
+				{
+					idx=0;
+					for(int ky2=ky-NB_R2_TOP;ky2<=ky;++ky2)
+					{
+						for(int kx2=kx-NB_R2_LEFT;kx2<=kx+NB_R2_RIGHT;++kx2, ++idx)
+						{
+							//if(idx>=NB_NNB)//
+							//	break;//
+
+							if(ky2==ky&&kx2==kx)
+								break;
+							nblic_loadnb(pixels, iw, ih, kc, kx2, ky2, nb);
+							nblic_nb2vec(nb, nb_nb+NB_VECN*idx);
+							nb_targets[idx]=LOAD(pixels, ky2, kx2, 0);
+						}
+					}
+
+					nblic_matmul_transposed(nb_A, nb_nb, nb_nb, NB_VECN, NB_NEQ, NB_VECN);
+					nblic_matmul_transposed(nb_results, nb_targets, nb_nb, 1, NB_NEQ, NB_VECN);
+#ifndef NB_USE_DOUBLE
+					for(int k=0;k<NB_VECN;++k)
+						nb_results[k]<<=NB_FIX;
+#endif
+					vec_ok=!nb_solve_Ax_b(nb_A, nb_results, NB_VECN);
+
+					//int error=nb_solve_Ax_b(nb_nb, nb_targets, NB_VECN);//
+					//memcpy(nb_results, nb_targets, sizeof(nb_results));//
+				}
+#else
+				int error=1;
+#endif
+				nblic_loadnb(pixels, iw, ih, kc, kx, ky, nb);
+				if(vec_ok)
+				{
+					pred=0;
+					nblic_nb2vec(nb, nb_nb);
+					for(int k=0;k<NB_VECN;++k)
+						pred+=nb_results[k]*nb_nb[k];
+#ifndef NB_USE_DOUBLE
+					pred+=1<<(NB_FIX-1);
+					pred>>=NB_FIX;
+#endif
+				}
+				else
+				{
+					//simple predict
+					NBDataType cost, csum=0, cmin=0xFFFFFF, pred_ang=0;
+					cost=2*(ABS(nb[NB_W]-nb[NB_WW]) + ABS(nb[NB_NW]-nb[NB_NWW]) + ABS(nb[NB_N]-nb[NB_NW]) + ABS(nb[NB_NE]-nb[NB_N]));//180 degrees
+					csum+=cost;
+					if(cmin>cost)
+					{
+						cmin=cost;
+						pred_ang=2*nb[NB_W];
+					}
+
+					cost=2*(ABS(nb[NB_W]-nb[NB_NW]) + ABS(nb[NB_NW]-nb[NB_NNW]) + ABS(nb[NB_N]-nb[NB_NN]) + ABS(nb[NB_NE]-nb[NB_NNE]));//90 degrees
+					csum+=cost;
+					if (cmin>cost)
+					{
+						cmin=cost;
+						pred_ang=2*nb[NB_N];
+					}
+
+					cost=2*(ABS(nb[NB_W]-nb[NB_NWW]) + ABS(nb[NB_NW]-nb[NB_NNWW]) + ABS(nb[NB_N]-nb[NB_NNW]) + ABS(nb[NB_NE]-nb[NB_NN]));//135 degrees
+					csum+=cost;
+					if(cmin>cost)
+					{
+						cmin=cost;
+						pred_ang=2*nb[NB_NW];
+					}
+
+					cost=2*(ABS(nb[NB_W]-nb[NB_N]) + ABS(nb[NB_NW]-nb[NB_NN]) + ABS(nb[NB_N]-nb[NB_NNE]) + ABS(nb[NB_NE]-nb[NB_NNEE]));//45 degrees
+					csum+=cost;
+					if(cmin>cost)
+					{
+						cmin=cost;
+						pred_ang=2*nb[NB_NE];
+					}
+
+					cost=ABS(2*nb[NB_W]-nb[NB_WW]-nb[NB_NWW]) + ABS(2*nb[NB_NW]-nb[NB_NWW]-nb[NB_NNWW]) + ABS(2*nb[NB_N]-nb[NB_NW]-nb[NB_NNW]) + ABS(2*nb[NB_NE]-nb[NB_N]-nb[NB_NN]);//~157.5 degrees
+					csum+=cost;
+					if(cmin>cost)
+					{
+						cmin=cost;
+						pred_ang=nb[NB_W]+nb[NB_NW];
+					}
+
+					cost=ABS(2*nb[NB_W]-nb[NB_NWW]-nb[NB_NW]) + ABS(2*nb[NB_NW]-nb[NB_NNWW]-nb[NB_NNW]) + ABS(2*nb[NB_N]-nb[NB_NNW]-nb[NB_NN]) + ABS(2*nb[NB_NE]-nb[NB_NN]-nb[NB_NNE]);//~112.5 degrees
+					csum+=cost;
+					if(cmin>cost)
+					{
+						cmin=cost;
+						pred_ang=nb[NB_NW]+nb[NB_N];
+					}
+
+					cost=ABS(2*nb[NB_W]-nb[NB_NW]-nb[NB_N]) + ABS(2*nb[NB_NW]-nb[NB_NNW]-nb[NB_NN]) + ABS(2*nb[NB_N]-nb[NB_NN]-nb[NB_NNE]) + ABS(2*nb[NB_NE]-nb[NB_NNE]-nb[NB_NNEE]);//~67.5 degrees
+					csum+=cost;
+					if(cmin>cost)
+					{
+						cmin=cost;
+						pred_ang=nb[NB_N]+nb[NB_NE];
+					}
+
+					int weight;
+					cost-=7*cmin;
+					for(weight=0;weight<8;weight++)
+					{
+						if(cost_thresholds[weight]>csum)
+							break;
+					}
+					NBDataType pred0=CLAMP(-128*16, 9*(nb[NB_W]+nb[NB_N])+2*(nb[NB_NE]-nb[NB_NW])-nb[NB_WW]-nb[NB_NN], 127*16);
+					pred=(8*weight*pred_ang + (8-weight)*pred0 + 63)/128;
+//#ifdef NB_USE_DOUBLE
+//					pred=round(pred);
+//#endif
+					//if(pred<-128||pred>127)
+					//	LOG_ERROR("");
+				}
+				pred=CLAMP(-128, pred, 127);
+
+				idx=(iw*ky+kx)<<2|kc;
+				if(fwd)
+					pred=-pred;
+				//pred^=-fwd;
+				//pred+=fwd;
+				dst[idx]=src[idx]+(int)pred;
+			}
+		}
+	}
+	memcpy(src, dst, (size_t)res<<2);
+	free(dst);
+}
+#undef  LOAD

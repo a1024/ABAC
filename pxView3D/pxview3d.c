@@ -125,6 +125,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_MM,		ST_INV_MM,
 	ST_FWD_JMJ,		ST_INV_JMJ,
 	ST_FWD_CALIC,		ST_INV_CALIC,
+	ST_FWD_NBLIC,		ST_INV_NBLIC,
 //	ST_FWD_MEDIAN,		ST_INV_MEDIAN,
 //	ST_FWD_DCT3PRED,	ST_INV_DCT3PRED,
 //	ST_FWD_PATHPRED,	ST_INV_PATHPRED,
@@ -362,6 +363,8 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 //	case ST_INV_ADAPTIVE:			a=" S Inv Adaptive";			break;
 	case ST_FWD_CALIC:			a=" S Fwd CALIC";			break;
 	case ST_INV_CALIC:			a=" S Inv CALIC";			break;
+	case ST_FWD_NBLIC:			a=" S Fwd NBLIC";			break;
+	case ST_INV_NBLIC:			a=" S Inv NBLIC";			break;
 	case ST_FWD_JXL:			a=" S Fwd JXL";				break;
 	case ST_INV_JXL:			a=" S Inv JXL";				break;
 	case ST_FWD_MM:				a=" S Fwd MM";				break;
@@ -938,6 +941,8 @@ void update_image()
 		//	case ST_INV_ADAPTIVE:		pred_adaptive((char*)image, iw, ih, 3, 4, 0);		break;
 			case ST_FWD_CALIC:		pred_calic((char*)image, iw, ih, 1);			break;
 			case ST_INV_CALIC:		pred_calic((char*)image, iw, ih, 0);			break;
+			case ST_FWD_NBLIC:		pred_nblic((char*)image, iw, ih, 1);			break;
+			case ST_INV_NBLIC:		pred_nblic((char*)image, iw, ih, 0);			break;
 			case ST_FWD_JXL:		pred_jxl_apply((char*)image, iw, ih, jxlparams_i16, 1);	break;
 			case ST_INV_JXL:		pred_jxl_apply((char*)image, iw, ih, jxlparams_i16, 0);	break;
 			case ST_FWD_MM:			pred_w2_apply((char*)image, iw, ih, pw2_params, 1);	break;
@@ -3228,10 +3233,12 @@ void draw_ycocg(float x, float y, float z)
 		p[0]-=x;
 		p[1]-=y;
 		p[2]-=z;
+
 		p[0]-=p[2];
 		p[2]+=p[0]*0.5f;
 		p[1]-=p[2];
 		p[2]+=p[1]*0.5f;
+
 		p[0]+=x;
 		p[1]+=y;
 		p[2]+=z;
