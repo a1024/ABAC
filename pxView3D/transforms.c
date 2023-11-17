@@ -9290,21 +9290,21 @@ void pred_calic(char *buf, int iw, int ih, int fwd)//https://github.com/siddhart
 {
 	int res=iw*ih;
 	char *b2=(char*)malloc((size_t)res<<2);
-	int *arrN=(int*)malloc(1024*sizeof(int));
-	int *arrS=(int*)malloc(1024*sizeof(int));
+	int *arrN=(int*)malloc(2048*sizeof(int));//count
+	int *arrS=(int*)malloc(2048*sizeof(int));//sum
 	if(!b2||!arrN||!arrS)
 	{
 		LOG_ERROR("Allocation error");
 		return;
 	}
 	memcpy(b2, buf, (size_t)res<<2);//copy alpha
-	const int thresholds[]={5, 15, 25, 42, 60, 85, 140};
+	//const int thresholds[]={5, 15, 25, 42, 60, 85, 140};
 	const char *pixels=fwd?buf:b2, *errors=fwd?b2:buf;
+	int idx, pred;
 	for(int kc=0;kc<3;++kc)//process each channel separately
 	{
-		int prev_error=0;
-		memset(arrN, 0, 1024*sizeof(int));
-		memset(arrS, 0, 1024*sizeof(int));
+		memset(arrN, 0, 2048*sizeof(int));
+		memset(arrS, 0, 2048*sizeof(int));
 		for(int ky=0;ky<ih;++ky)
 		{
 			for(int kx=0;kx<iw;++kx)
@@ -9321,16 +9321,52 @@ void pred_calic(char *buf, int iw, int ih, int fwd)//https://github.com/siddhart
 					N   =LOAD(pixels,  0, -1),
 					NE  =LOAD(pixels,  1, -1),
 					WW  =LOAD(pixels, -2,  0),
-					W   =LOAD(pixels, -1,  0);
+					W   =LOAD(pixels, -1,  0),
+
+					eN  =LOAD(errors,  0, -1),
+					eW  =LOAD(errors, -1,  0);
 #undef  LOAD
 				//NNWW NNW NN NNE NNEE
 				//NWW  NW  N  NE
 				//WW   W   ?
-				int dx=abs(W-WW)+abs(N-NW)+abs(N-NE);
+				int dx=abs(W-WW)+abs(N-NW)+abs(NE-N);
 				int dy=abs(W-NW)+abs(N-NN)+abs(NE-NNE);
-				int d45=abs(W-NWW)+abs(NW-NNWW)+abs(N-NNW);
-				int d135=abs(NE-NNEE)+abs(N-NNE)+abs(W-N);
-				int pred;
+				//int d45=abs(W-NWW)+abs(NW-NNWW)+abs(N-NNW);
+				//int d135=abs(NE-NNEE)+abs(N-NNE)+abs(W-N);
+
+				//'CALIC - A context-based adaptive lossless image codec'	https://github.com/play-co/gcif/tree/master/refs/calic
+#if 1
+				int temp=dy-dx;
+				if(temp>80)
+					pred=W;
+				else if(temp<-80)
+					pred=N;
+				else
+				{
+					pred=(W+N)/2+(NE-NW)/4;
+					//pred=((W+N)*3+(NE+NW))/8;
+					//pred=((W+N)*5+(NE+NW)*3)/16;
+					if(temp>32)
+						pred=(pred+W)/2;
+					else if(temp>8)
+						pred=(pred*3+W)/4;
+					else if(temp<-32)
+						pred=(pred+N)/2;
+					else if(temp<-8)
+						pred=(pred*3+N)/4;
+				}
+#endif
+
+				//clamped grad
+#if 0
+				int vmin, vmax;
+				if(N<W)
+					vmin=N, vmax=W;
+				else
+					vmin=W, vmax=N;
+				pred=N+W-NW;
+				pred=CLAMP(vmin, pred, vmax);
+#endif
 
 				//'A context-based adaptive lossless/nearly-lossless coding scheme for continuous-tone images'
 #if 0
@@ -9353,73 +9389,43 @@ void pred_calic(char *buf, int iw, int ih, int fwd)//https://github.com/siddhart
 					pred-=(NE-NW)/16;
 #endif
 
-				//'CALIC - A context-based adaptive lossless image codec'
-#if 1
-				if(dy-dx>80)
-					pred=W;
-				else if(dy-dx<-80)
-					pred=N;
+				int energy=dx+dy+abs(eN)+abs(eW);
+				if(energy<42)//quantization using binary search
+				{
+					if(energy<15)
+						energy=energy<5?0:1;
+					else
+						energy=energy<25?2:3;
+				}
 				else
 				{
-					//pred=((W+N)*5+(NE+NW)*3)/16;
-					//pred=((W+N)*3+(NE+NW))/8;
-					pred=(W+N)/2+(NE-NW)/4;
-					if(dy-dx>32)
-						pred=(pred+W)/2;
-					else if(dy-dx>8)
-						pred=(pred*3+W)/4;
-					else if(dy-dx<-32)
-						pred=(pred+N)/2;
-					else if(dy-dx<-8)
-						pred=(pred*3+N)/4;
+					if(energy<85)
+						energy=energy<60?4:5;
+					else
+						energy=energy<140?6:7;
 				}
-#endif
-#if 0
-				int vmin, vmax;
-				if(N<W)
-					vmin=N, vmax=W;
-				else
-					vmin=W, vmax=N;
-				pred=N+W-NW;
-				pred=CLAMP(vmin, pred, vmax);
-#endif
 
-				int B=((2*W-WW)<pred)<<7|((2*N-NN)<pred)<<6|(WW<pred)<<5|(NN<pred)<<4|(NE<pred)<<3|(NW<pred)<<2|(W<pred)<<1|(N<pred);
+				int pattern=(2*W-WW<pred)<<7|(2*N-NN<pred)<<6|(WW<pred)<<5|(NN<pred)<<4|(NE<pred)<<3|(NW<pred)<<2|(W<pred)<<1|(N<pred);
 
-				int delta=dx+dy+2*abs(prev_error);
-				int Qdelta=7;
-				for(int k=0;k<_countof(thresholds);++k)
+				int context=pattern<<3|energy;
+
+				if(arrN[context]>0)
+					pred+=(arrS[context]+arrN[context]/2)/arrN[context];//sum of encountered errors / number of occurrences
+				pred=CLAMP(-128, pred, 127);
+
+				idx=(iw*ky+kx)<<2|kc;
+				pred^=-fwd;
+				pred+=fwd;
+				b2[idx]=buf[idx]+pred;
+
+				//update
+				++arrN[context];
+				arrS[context]+=errors[idx];
+				if(arrN[context]>255)
 				{
-					if(delta<=thresholds[k])
-					{
-						Qdelta=k;
-						break;
-					}
+					arrN[context]>>=1;
+					arrS[context]>>=1;
 				}
-				int C=B*Qdelta/2;//context (texture identifier)
-				//int C=B<<2|Qdelta>>1;//why not like this?
-
-				++arrN[C];
-				arrS[C]+=prev_error;
-				if(arrN[C]>=255)
-				{
-					arrN[C]/=2;
-					arrS[C]/=2;
-				}
-				int pred2=pred+arrS[C]/arrN[C];//sum of encountered errors / number of occurrences
-
-				//if(kx==(iw>>1)&&ky==(ih>>1))//
-				//	printf("");//
-
-				int idx=(iw*ky+kx)<<2|kc;
-				if(fwd)
-					b2[idx]=buf[idx]-pred2;
-				else
-					b2[idx]=buf[idx]+pred2;
-
-				//context[idx]=C;//store context for entropy coder
-
-				prev_error=errors[idx];
 			}
 		}
 	}

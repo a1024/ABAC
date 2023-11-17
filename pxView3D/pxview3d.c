@@ -3184,20 +3184,24 @@ float print_i16_row(float x, float y, float zoom, const short *row, int count)
 	return print_line_immediate(0, x, y, zoom, g_buf, printed, -1, 0, 0);
 }
 
-void draw_cuboid_i(const float *points)
+void draw_shape_i(const float *points)
 {
+	const float *axes=points+3*8;
 	draw_3d_line(&cam, points+3*0, points+3*1, 0xFF0000FF);
-	draw_3d_line(&cam, points+3*2, points+3*3, 0xFF0000FF);
-	draw_3d_line(&cam, points+3*4, points+3*5, 0xFF0000FF);
-	draw_3d_line(&cam, points+3*6, points+3*7, 0xFF0000FF);
+	draw_3d_line(&cam, points+3*2, points+3*3, 0xFF0000C0);
+	draw_3d_line(&cam, points+3*4, points+3*5, 0xFF000080);
+	draw_3d_line(&cam, points+3*6, points+3*7, 0xFF000040);
 	draw_3d_line(&cam, points+3*0, points+3*2, 0xFF00FF00);
-	draw_3d_line(&cam, points+3*1, points+3*3, 0xFF00FF00);
-	draw_3d_line(&cam, points+3*4, points+3*6, 0xFF00FF00);
-	draw_3d_line(&cam, points+3*5, points+3*7, 0xFF00FF00);
+	draw_3d_line(&cam, points+3*1, points+3*3, 0xFF00C000);
+	draw_3d_line(&cam, points+3*4, points+3*6, 0xFF008000);
+	draw_3d_line(&cam, points+3*5, points+3*7, 0xFF004000);
 	draw_3d_line(&cam, points+3*0, points+3*4, 0xFFFF0000);
-	draw_3d_line(&cam, points+3*1, points+3*5, 0xFFFF0000);
-	draw_3d_line(&cam, points+3*2, points+3*6, 0xFFFF0000);
-	draw_3d_line(&cam, points+3*3, points+3*7, 0xFFFF0000);
+	draw_3d_line(&cam, points+3*1, points+3*5, 0xFFC00000);
+	draw_3d_line(&cam, points+3*2, points+3*6, 0xFF800000);
+	draw_3d_line(&cam, points+3*3, points+3*7, 0xFF400000);
+	draw_3d_line(&cam, axes, axes+3*1, 0xFF0000FF);
+	draw_3d_line(&cam, axes, axes+3*2, 0xFF00FF00);
+	draw_3d_line(&cam, axes, axes+3*3, 0xFFFF0000);
 }
 void draw_ycocg(float x, float y, float z)
 {
@@ -3211,11 +3215,16 @@ void draw_ycocg(float x, float y, float z)
 		x+1, y-1, z+1,
 		x-1, y+1, z+1,
 		x+1, y+1, z+1,
+
+		x, y, z,
+		x+1, y, z,
+		x, y+1, z,
+		x, y, z+1,
 	};
-	draw_cuboid_i(points);
-	for(int k=0;k<8;++k)
+	draw_shape_i(points);
+	for(int k=0;k<_countof(points);k+=3)
 	{
-		float *p=points+3*k;
+		float *p=points+k;
 		p[0]-=x;
 		p[1]-=y;
 		p[2]-=z;
@@ -3227,7 +3236,7 @@ void draw_ycocg(float x, float y, float z)
 		p[1]+=y;
 		p[2]+=z;
 	}
-	draw_cuboid_i(points);
+	draw_shape_i(points);
 }
 void draw_ycmcb(float x, float y, float z)
 {
@@ -3241,23 +3250,30 @@ void draw_ycmcb(float x, float y, float z)
 		x+1, y-1, z+1,
 		x-1, y+1, z+1,
 		x+1, y+1, z+1,
+
+		x, y, z,
+		x+1, y, z,
+		x, y+1, z,
+		x, y, z+1,
 	};
-	draw_cuboid_i(points);
-	for(int k=0;k<8;++k)
+	draw_shape_i(points);
+	for(int k=0;k<_countof(points);k+=3)
 	{
-		float *p=points+3*k;
+		float *p=points+k;
 		p[0]-=x;
 		p[1]-=y;
 		p[2]-=z;
+
 		p[0]-=p[1];
 		p[1]+=p[0]*0.5f;
 		p[2]-=p[1];
 		p[1]+=p[2]*0.5f;
+
 		p[0]+=x;
 		p[1]+=y;
 		p[2]+=z;
 	}
-	draw_cuboid_i(points);
+	draw_shape_i(points);
 }
 
 void io_render()
