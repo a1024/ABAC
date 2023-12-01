@@ -123,7 +123,7 @@ typedef enum TransformTypeEnum
 //	ST_FWD_ADAPTIVE,	ST_INV_ADAPTIVE,
 	ST_FWD_JXL,		ST_INV_JXL,
 	ST_FWD_MM,		ST_INV_MM,
-	ST_FWD_JMJ,		ST_INV_JMJ,
+//	ST_FWD_JMJ,		ST_INV_JMJ,
 	ST_FWD_CALIC,		ST_INV_CALIC,
 	ST_FWD_NBLIC,		ST_INV_NBLIC,
 //	ST_FWD_MEDIAN,		ST_INV_MEDIAN,
@@ -134,8 +134,9 @@ typedef enum TransformTypeEnum
 	ST_FWD_GRADPRED,	ST_INV_GRADPRED,
 	ST_FWD_GRAD2,		ST_INV_GRAD2,
 	ST_FWD_CTX,		ST_INV_CTX,
-	ST_FWD_C03,		ST_INV_C03,
-	ST_FWD_C10,		ST_INV_C10,
+//	ST_FWD_C03,		ST_INV_C03,
+//	ST_FWD_C10,		ST_INV_C10,
+	ST_FWD_C20,		ST_INV_C20,
 //	ST_FWD_WU97,		ST_INV_WU97,
 	ST_FWD_SORTNB,		ST_INV_SORTNB,
 //	ST_FWD_BITWISE,		ST_INV_BITWISE,
@@ -369,8 +370,8 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case ST_INV_JXL:			a=" S Inv JXL";				break;
 	case ST_FWD_MM:				a=" S Fwd MM";				break;
 	case ST_INV_MM:				a=" S Inv MM";				break;
-	case ST_FWD_JMJ:			a=" S Fwd JMJ";				break;
-	case ST_INV_JMJ:			a=" S Inv JMJ";				break;
+//	case ST_FWD_JMJ:			a=" S Fwd JMJ";				break;
+//	case ST_INV_JMJ:			a=" S Inv JMJ";				break;
 	case ST_FWD_SORTNB:			a=" S Fwd Sort Nb";			break;
 	case ST_INV_SORTNB:			a=" S Inv Sort Nb";			break;
 //	case ST_FWD_MEDIAN:			a=" S Fwd Median";			break;
@@ -385,10 +386,12 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case ST_INV_GRAD2:			a=" S Inv Grad2";			break;
 	case ST_FWD_CTX:			a=" S Fwd Ctx";				break;
 	case ST_INV_CTX:			a=" S Inv Ctx";				break;
-	case ST_FWD_C03:			a=" S Fwd C03";				break;
-	case ST_INV_C03:			a=" S Inv C03";				break;
-	case ST_FWD_C10:			a=" S Fwd C10";				break;
-	case ST_INV_C10:			a=" S Inv C10";				break;
+//	case ST_FWD_C03:			a=" S Fwd C03";				break;
+//	case ST_INV_C03:			a=" S Inv C03";				break;
+//	case ST_FWD_C10:			a=" S Fwd C10";				break;
+//	case ST_INV_C10:			a=" S Inv C10";				break;
+	case ST_FWD_C20:			a=" S Fwd C20";				break;
+	case ST_INV_C20:			a=" S Inv C20";				break;
 //	case ST_FWD_WU97:			a=" S Fwd Wu 97";			break;
 //	case ST_INV_WU97:			a=" S Inv Wu 97";			break;
 //	case ST_FWD_BITWISE:			a=" S Fwd Bitwise";			break;
@@ -947,8 +950,8 @@ void update_image()
 			case ST_INV_JXL:		pred_jxl_apply((char*)image, iw, ih, jxlparams_i16, 0);	break;
 			case ST_FWD_MM:			pred_w2_apply((char*)image, iw, ih, pw2_params, 1);	break;
 			case ST_INV_MM:			pred_w2_apply((char*)image, iw, ih, pw2_params, 0);	break;
-			case ST_FWD_JMJ:		pred_jmj_apply((char*)image, iw, ih, 1);		break;
-			case ST_INV_JMJ:		pred_jmj_apply((char*)image, iw, ih, 0);		break;
+		//	case ST_FWD_JMJ:		pred_jmj_apply((char*)image, iw, ih, 1);		break;
+		//	case ST_INV_JMJ:		pred_jmj_apply((char*)image, iw, ih, 0);		break;
 		//	case ST_FWD_JXL:		pred_jxl((char*)image, iw, ih, 3, 4, 1);		break;
 		//	case ST_INV_JXL:		pred_jxl((char*)image, iw, ih, 3, 4, 0);		break;
 			case ST_FWD_SORTNB:		pred_sortnb((char*)image, iw, ih, 3, 4, 1);		break;
@@ -965,10 +968,12 @@ void update_image()
 			case ST_INV_GRAD2:		pred_grad2((char*)image, iw, ih, 0);			break;
 			case ST_FWD_CTX:		pred_ctx((char*)image, iw, ih, 1);			break;
 			case ST_INV_CTX:		pred_ctx((char*)image, iw, ih, 0);			break;
-			case ST_FWD_C03:		pred_c03((char*)image, iw, ih, 1);			break;
-			case ST_INV_C03:		pred_c03((char*)image, iw, ih, 0);			break;
-			case ST_FWD_C10:		pred_c10((char*)image, iw, ih, 1);			break;
-			case ST_INV_C10:		pred_c10((char*)image, iw, ih, 0);			break;
+		//	case ST_FWD_C03:		pred_c03((char*)image, iw, ih, 1);			break;
+		//	case ST_INV_C03:		pred_c03((char*)image, iw, ih, 0);			break;
+		//	case ST_FWD_C10:		pred_c10((char*)image, iw, ih, 1);			break;
+		//	case ST_INV_C10:		pred_c10((char*)image, iw, ih, 0);			break;
+			case ST_FWD_C20:		pred_c20((char*)image, iw, ih, 1);			break;
+			case ST_INV_C20:		pred_c20((char*)image, iw, ih, 0);			break;
 		//	case ST_FWD_WU97:		pred_wu97((char*)image, iw, ih, 1);			break;
 		//	case ST_INV_WU97:		pred_wu97((char*)image, iw, ih, 0);			break;
 		//	case ST_FWD_BITWISE:		pred_bitwise((char*)image, iw, ih, 1);			break;
