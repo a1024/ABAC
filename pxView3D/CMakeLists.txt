@@ -11,9 +11,9 @@ add_executable (pxView3D WIN32
 	graphics.c
 	lodepng.c
 	pxview3d.c
+	transform_c20.c
 	transforms.c
 	transforms_avx2.c
-	transforms_c20.c
 	transforms_gpu.c
 	transforms_learned.c
 	transforms_pt2.c
