@@ -3974,16 +3974,20 @@ static const int pred2c_c3_b[]=
 #endif
 
 
-	#define IBUF_I32
+//	#define IBUF_I32
 //	#define IBUF_HIPREC	//irreversible
 
+#ifdef IBUF_I32
+typedef int IBufType;
+#else
+typedef char IBufType;
+#endif
 #define C20_PREC 24
 #define CVT_PX2VAL(X) ((X)<<(C20_PREC-7))
 #define CVT_VAL2PX(X) (((X)+(1<<(C20_PREC-7)))>>(C20_PREC-7))
 #define REDUCE1(X) ((((X)+128)&0xFF)-128)
 #define REDUCE2(X) ((((X)+(1<<(C20_PREC-1)))&((1<<C20_PREC)-1))-(1<<(C20_PREC-1)))
 #define MEDIAN3(A, B, C) (B<A?B<C?C<A?C:A:B:A<C?C<B?C:B:A)	//https://stackoverflow.com/questions/48799800/median-of-three-values
-//#define UPDATE_MINMAX(VMIN, VMAX, X) VMIN=X<VMIN?X:VMIN, VMAX=X>VMAX?X:VMAX
 
 
 typedef struct ConvWeightStruct
@@ -4060,7 +4064,7 @@ static void load_nb_8_interleaved(const char *buf, int iw, int kx, int ky, int k
 	nb4[2]=kx<iw-1&&ky?CVT_PX2VAL(buf[(idx-iw+1)<<2|kc]):0;
 	nb4[3]=kx         ?CVT_PX2VAL(buf[(idx   -1)<<2|kc]):0;
 }
-static void load_nb_8(const int *buf, int iw, int kx, int ky, int *nb4)
+static void load_nb_8(const IBufType *buf, int iw, int kx, int ky, int *nb4)
 {
 	int idx=iw*ky+kx;
 #ifdef IBUF_HIPREC
@@ -4100,20 +4104,13 @@ static void predict(ConvWeight const *wb, PredictorInfo *info, int src_is_interl
 			load_nb_8_interleaved((const char*)info->src[0], iw, kx, ky, kc, nb);
 		else
 		{
-			load_nb_8((const int*)info->src[0], iw, kx, ky, nb);
+			load_nb_8((const IBufType*)info->src[0], iw, kx, ky, nb);
 			if(info->src[1])
-				load_nb_8((const int*)info->src[1], iw, kx, ky, nb2);
+				load_nb_8((const IBufType*)info->src[1], iw, kx, ky, nb2);
 		}
-		//int *weight=wb->w;
 		for(int ko=0, kfilt=0, kbuf=0;ko<wb->co;++ko, kfilt+=wb->ksize<<(info->src[1]!=0), kbuf+=iw<<1)
 		{
 			long long val=(long long)wb->b[ko]<<C20_PREC;
-
-			//val+=(long long)*weight++*nb[0];
-			//val+=(long long)*weight++*nb[1];
-			//val+=(long long)*weight++*nb[2];
-			//val+=(long long)*weight++*nb[3];
-
 			val+=(long long)wb->w[kfilt+0]*nb[0];
 			val+=(long long)wb->w[kfilt+1]*nb[1];
 			val+=(long long)wb->w[kfilt+2]*nb[2];
@@ -4128,16 +4125,6 @@ static void predict(ConvWeight const *wb, PredictorInfo *info, int src_is_interl
 			if(val<0)
 				val/=100;
 			val>>=C20_PREC;
-
-			//int val=(int)((
-			//	(long long)wb->w[kfilt+0]*nb[0]+
-			//	(long long)wb->w[kfilt+1]*nb[1]+
-			//	(long long)wb->w[kfilt+2]*nb[2]+
-			//	(long long)wb->w[kfilt+3]*nb[3]+
-			//	((long long)wb->b[ko]<<C20_PREC)
-			//)>>C20_PREC);
-			//if(val<0)
-			//	val/=100;
 
 			info->bufs[0][kbuf+(iw&-(ky&1))+kx]=(int)val;
 		}
@@ -4157,12 +4144,6 @@ static void predict(ConvWeight const *wb, PredictorInfo *info, int src_is_interl
 			long long val=(long long)wb->b[ko]<<C20_PREC;
 			for(int ki=0, ksrc=0;ki<wb->ci;++ki, kfilt+=wb->ksize, ksrc+=wb->ksize)
 			{
-				//val+=(long long)wb->w[kfilt+0]*(kx         &&ky?info->bufs[kl][ksrc+(info->iw&-(ky-1))+kx-1]:0);//NW		X src is read 16 times so it's better to load first
-				//val+=(long long)wb->w[kfilt+1]*(             ky?info->bufs[kl][ksrc+(info->iw&-(ky-1))+kx  ]:0);//N
-				//val+=(long long)wb->w[kfilt+2]*(kx<info->iw&&ky?info->bufs[kl][ksrc+(info->iw&-(ky-1))+kx+1]:0);//NE
-				//val+=(long long)wb->w[kfilt+3]*(kx             ?info->bufs[kl][ksrc+(info->iw&-(ky  ))+kx-1]:0);//W
-				//val+=(long long)wb->w[kfilt+4]*(                info->bufs[kl][ksrc+(info->iw&-(ky  ))+kx  ]  );//curr
-
 				val+=(long long)wb->w[kfilt+0]*temp1[ksrc+0];//NW
 				val+=(long long)wb->w[kfilt+1]*temp1[ksrc+1];//N
 				val+=(long long)wb->w[kfilt+2]*temp1[ksrc+2];//NE
@@ -4194,39 +4175,6 @@ static void predict(ConvWeight const *wb, PredictorInfo *info, int src_is_interl
 void pred_c20(char *src, int iw, int ih, int fwd)
 {
 	int res=iw*ih;
-	
-#if 0
-	static int initialized=0;
-	if(!initialized)
-	{
-		//double vmin=0, vmax=0;
-		for(int k=0;k<_countof(weights);++k)
-		{
-			ConvWeight *wk=weights+k;
-			size_t bsize=wk->co;
-			size_t wsize=(size_t)wk->ci*wk->co*wk->ksize;
-			wk->w=(int*)malloc(wsize*sizeof(int));
-			wk->b=(int*)malloc(bsize*sizeof(int));
-			if(wk->wtotal!=wsize||wk->btotal!=bsize)
-			{
-				LOG_ERROR("Size error  IDX %d  WB %d %d != %d %d", k, wk->wtotal, wk->btotal, wsize, bsize);
-				return;
-			}
-			if(!wk->w||!wk->b)
-			{
-				LOG_ERROR("Allocation error");
-				return;
-			}
-			for(int k2=0;k2<wsize;++k2)
-				wk->w[k2]=(int)round(wk->src_w[k2]*(1<<C20_PREC));//, UPDATE_MINMAX(vmin, vmax, wk->src_w[k2]);
-			for(int k2=0;k2<bsize;++k2)
-				wk->b[k2]=(int)round(wk->src_b[k2]*(1<<C20_PREC));//, UPDATE_MINMAX(vmin, vmax, wk->src_b[k2]);
-		}
-		//LOG_ERROR("WB Range  %lf ~ %lf", vmin, vmax);
-		initialized=1;
-	}
-#endif
-
 	ConvBuf b1a, b1b, b1c, b2a, b2b, b2c;
 	cbuf_alloc(&b1a, 16, iw);
 	cbuf_alloc(&b1b, 16, iw);
@@ -4234,36 +4182,20 @@ void pred_c20(char *src, int iw, int ih, int fwd)
 	cbuf_alloc(&b2a, 16, iw);
 	cbuf_alloc(&b2b, 16, iw);
 	cbuf_alloc(&b2c, 16, iw);
-	//char *pbuf=(char*)malloc(res);
-	//char *ebuf=(char*)malloc(res);
-#ifdef IBUF_I32
-	int *ibufA1=(int*)malloc(res*sizeof(int));
-	int *ibufA2=(int*)malloc(res*sizeof(int));
-	int *ibufB1=(int*)malloc(res*sizeof(int));
-	int *ibufB2=(int*)malloc(res*sizeof(int));
-#else
-	char *ibufA1=(char*)malloc(res);
-	char *ibufA2=(char*)malloc(res);
-	char *ibufB1=(char*)malloc(res);
-	char *ibufB2=(char*)malloc(res);
-#endif
+	IBufType *ibufA1=(IBufType*)malloc(res*sizeof(IBufType));
+	IBufType *ibufA2=(IBufType*)malloc(res*sizeof(IBufType));
+	IBufType *ibufB1=(IBufType*)malloc(res*sizeof(IBufType));
+	IBufType *ibufB2=(IBufType*)malloc(res*sizeof(IBufType));
 	char *dst=(char*)malloc((size_t)res<<2);
 	if(!ibufA1||!ibufA2||!ibufB1||!ibufB2||!dst)
 	{
 		LOG_ERROR("Allocation error");
 		return;
 	}
-#ifdef IBUF_I32
-	memset(ibufA1, 0, res*sizeof(int));
-	memset(ibufA2, 0, res*sizeof(int));
-	memset(ibufB1, 0, res*sizeof(int));
-	memset(ibufB2, 0, res*sizeof(int));
-#else
-	memset(ibufA1, 0, res);
-	memset(ibufA2, 0, res);
-	memset(ibufB1, 0, res);
-	memset(ibufB2, 0, res);
-#endif
+	memset(ibufA1, 0, res*sizeof(IBufType));
+	memset(ibufA2, 0, res*sizeof(IBufType));
+	memset(ibufB1, 0, res*sizeof(IBufType));
+	memset(ibufB2, 0, res*sizeof(IBufType));
 	memcpy(dst, src, (size_t)res<<2);//copy alpha
 	char *pixels=fwd?src:dst, *errors=fwd?dst:src;
 	for(int kc=0;kc<3;++kc)
@@ -4277,21 +4209,11 @@ void pred_c20(char *src, int iw, int ih, int fwd)
 			{ibufA1, ibufA2, b2b.buf1, b2b.buf2, b2b.buf3},
 			{ibufA1, ibufA2, b2c.buf1, b2c.buf2, b2c.buf3},
 		};
-		//if(fwd)
-		//{
-		//	for(int k=0;k<res;++k)
-		//		pbuf[k]=src[k<<2|kc]<<16;
-		//}
-		//else
-		//	memset(pbuf, 0, res);
 
 		for(int ky=0;ky<ih;++ky)
 		{
 			for(int kx=0;kx<iw;++kx)
 			{
-				//if(kc==0&&kx==1&&ky==0)
-				//	printf("");
-
 				int result[6];
 				predict(weights+0, info+0, 1, iw, kc, kx, ky, result+0);
 				predict(weights+4, info+1, 1, iw, kc, kx, ky, result+2);
@@ -4453,36 +4375,6 @@ void pred_c20(char *src, int iw, int ih, int fwd)
 #endif
 			}
 		}
-#if 0
-		if(fwd)
-		{
-			for(int ky=0;ky<ih;++ky)
-			{
-				for(int kx=0;kx<iw;++kx)
-				{
-					int idx=iw*ky+kx;
-					int sum1=0, sum2=0;
-					if(ky)
-					{
-						if(kx)
-							sum1+=ibufB1[idx-iw-1], sum2+=ibufB2[idx-iw-1];
-						sum1+=ibufB1[idx-iw], sum2+=ibufB2[idx-iw];
-						if(kx<iw-1)
-							sum1+=ibufB1[idx-iw+1], sum2+=ibufB2[idx-iw+1];
-					}
-					if(kx)
-						sum1+=ibufB1[idx-1], sum2+=ibufB2[idx-1];
-
-					dst[idx<<2|kc]=sum1<sum2?ibufB1[idx]:ibufB2[idx];
-				}
-			}
-		}
-		else
-		{
-			for(int k=0;k<res;++k)
-				dst[k<<2|kc]=ibuf[k];
-		}
-#endif
 	}
 	memcpy(src, dst, (size_t)res<<2);
 
@@ -4492,8 +4384,6 @@ void pred_c20(char *src, int iw, int ih, int fwd)
 	cbuf_free(&b2a);
 	cbuf_free(&b2b);
 	cbuf_free(&b2c);
-	//free(pbuf);
-	//free(ebuf);
 	free(ibufA1);
 	free(ibufA2);
 	free(ibufB1);
