@@ -9769,11 +9769,19 @@ short g2_weights[]=
 	 //0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010,
 	 0x00A2, 0x02E1, 0x00C9,-0x00E0,-0x0068,-0x004E,-0x013E,-0x0012, 0x0001, 0x0000,-0x0046,
 };
+typedef struct SseCellStruct
+{
+	int count, sum;
+} SseCell;
+SseCell g2_SSE0[4096], g2_SSE1[4096], g2_SSE2[4096], g2_SSE3[4096];
+char g2_SSE_debug[768*512*4];
 void pred_grad2(char *buf, int iw, int ih, int fwd)
 {
 	int res=iw*ih;
 	char *b2=(char*)malloc((size_t)res<<2);
 	int *perrors=(int*)malloc(iw*(G2_NPRED+1)*2*sizeof(int));
+	//int *SSE_count=(int*)malloc(256*sizeof(int));
+	//int *SSE_sum=(int*)malloc(256*sizeof(int));
 	if(!b2||!perrors)
 	{
 		LOG_ERROR("Allocation error");
@@ -9787,6 +9795,14 @@ void pred_grad2(char *buf, int iw, int ih, int fwd)
 		short *params=g2_weights+(_countof(g2_weights)/3)*kc;
 		int *hireserror=perrors+iw*2*G2_NPRED;
 		memset(perrors, 0, 2*iw*(G2_NPRED+1)*sizeof(int));
+
+		memset(g2_SSE0, 0, sizeof(g2_SSE0));
+		memset(g2_SSE1, 0, sizeof(g2_SSE1));
+		memset(g2_SSE2, 0, sizeof(g2_SSE2));
+		memset(g2_SSE3, 0, sizeof(g2_SSE3));
+		//memset(SSE_count, 0, 256*sizeof(int));
+		//memset(SSE_sum, 0, 256*sizeof(int));
+
 		//int weights[3]=
 		//{
 		//	0x8000,
@@ -9798,33 +9814,48 @@ void pred_grad2(char *buf, int iw, int ih, int fwd)
 		{
 			for(int kx=0;kx<iw;++kx)
 			{
-#define LOAD(X, Y) (unsigned)(kx+(X))<(unsigned)iw&&(unsigned)(ky+(Y))<(unsigned)ih?pixels[(iw*(ky+(Y))+kx+(X))<<2|kc]<<8:0
+#define LOAD(BUF, X, Y) (unsigned)(kx+(X))<(unsigned)iw&&(unsigned)(ky+(Y))<(unsigned)ih?BUF[(iw*(ky+(Y))+kx+(X))<<2|kc]<<8:0
 				int
-					NNNNNN  =LOAD( 0, -6),
-					NNNNWWWW=LOAD(-4, -4),
-					NNNN    =LOAD( 0, -4),
-					NNNNEEEE=LOAD( 4, -4),
-					NNNWWW  =LOAD(-3, -3),
-					NNN     =LOAD( 0, -3),
-					NNNEEE  =LOAD( 3, -3),
-					NNWW    =LOAD(-2, -2),
-					NNW     =LOAD(-1, -2),
-					NN      =LOAD( 0, -2),
-					NNE     =LOAD( 1, -2),
-					NNEE    =LOAD( 2, -2),
-					NW      =LOAD(-1, -1),
-					N       =LOAD( 0, -1),
-					NE      =LOAD( 1, -1),
-					NEEEE   =LOAD( 4, -1),
-					NEEEEE  =LOAD( 5, -1),
-					NEEEEEE =LOAD( 6, -1),
-					NEEEEEEE=LOAD( 7, -1),
-					NEE     =LOAD( 2, -1),
-					WWWWWW  =LOAD(-6,  0),
-					WWWW    =LOAD(-4,  0),
-					WWW     =LOAD(-3,  0),
-					WW      =LOAD(-2,  0),
-					W       =LOAD(-1,  0);
+					NNNNNN  =LOAD(pixels,  0, -6),
+					NNNNWWWW=LOAD(pixels, -4, -4),
+					NNNN    =LOAD(pixels,  0, -4),
+					NNNNEEEE=LOAD(pixels,  4, -4),
+					NNNWWW  =LOAD(pixels, -3, -3),
+					NNN     =LOAD(pixels,  0, -3),
+					NNNEEE  =LOAD(pixels,  3, -3),
+					NNWW    =LOAD(pixels, -2, -2),
+					NNW     =LOAD(pixels, -1, -2),
+					NN      =LOAD(pixels,  0, -2),
+					NNE     =LOAD(pixels,  1, -2),
+					NNEE    =LOAD(pixels,  2, -2),
+					NW      =LOAD(pixels, -1, -1),
+					N       =LOAD(pixels,  0, -1),
+					NE      =LOAD(pixels,  1, -1),
+					NEEEE   =LOAD(pixels,  4, -1),
+					NEEEEE  =LOAD(pixels,  5, -1),
+					NEEEEEE =LOAD(pixels,  6, -1),
+					NEEEEEEE=LOAD(pixels,  7, -1),
+					NEE     =LOAD(pixels,  2, -1),
+					WWWWWW  =LOAD(pixels, -6,  0),
+					WWWW    =LOAD(pixels, -4,  0),
+					WWW     =LOAD(pixels, -3,  0),
+					WW      =LOAD(pixels, -2,  0),
+					W       =LOAD(pixels, -1,  0);
+#undef  LOAD
+#define LOAD(BUF, X, Y) (unsigned)(kx+(X))<(unsigned)iw&&(unsigned)(ky+(Y))<(unsigned)ih?BUF[(iw*(ky+(Y))+kx+(X))<<2|kc]:0
+				char
+					dNNWW=LOAD(errors, -2, -2),
+					dNNW =LOAD(errors, -1, -2),
+					dNN  =LOAD(errors,  0, -2),
+					dNNE =LOAD(errors,  1, -2),
+					dNNEE=LOAD(errors,  2, -2),
+					dNWW =LOAD(errors, -2, -1),
+					dNW  =LOAD(errors, -1, -1),
+					dN   =LOAD(errors,  0, -1),
+					dNE  =LOAD(errors,  1, -1),
+					dNEE =LOAD(errors,  2, -1),
+					dWW  =LOAD(errors, -2,  0),
+					dW   =LOAD(errors, -1,  0);
 #undef  LOAD
 #define LOAD(X, Y) (unsigned)(kx+(X))<(unsigned)iw&&(unsigned)(ky+(Y))<(unsigned)ih?hireserror[iw*((ky+(Y))&1)+kx+(X)]:0
 				int
@@ -9998,12 +10029,216 @@ void pred_grad2(char *buf, int iw, int ih, int fwd)
 				//pred=CLAMP(-128, pred, 127);
 
 				int idx=(iw*ky+kx)<<2|kc;
-				if(fwd)
-					b2[idx]=buf[idx]-((pred+128)>>8);
-				else
-					b2[idx]=buf[idx]+((pred+128)>>8);
+				//int ipred=((pred+128)>>8);
 
-				//update correction
+				//Secondary Symbol Estimation (SSE)
+#if 1
+				//if(kc==0&&kx==255&&ky==1)//
+				//	printf("");
+
+				SseCell *pc[3];
+				pc[0]=g2_SSE0+((dNW>>7&1)<<6|(dNE>>7&1)<<5|(dN>>7&1)<<4|(dW>>7&1)<<3|pred>>(5+8)&7);
+				pred+=pc[0]->count?(int)((((long long)pc[0]->sum<<8)+(pc[0]->count>>1))/pc[0]->count):0;
+				pred=CLAMP(-(128<<8), pred, 127<<8);
+				
+				pc[1]=g2_SSE1+((dNNWW>>7&1)<<4|(dNNW>>7&1)<<3|(dNWW>>7&1)<<2|(dWW>>7&1)<<1|pred>>(7+8)&1);
+				pred+=pc[1]->count?(int)((((long long)pc[1]->sum<<8)+(pc[1]->count>>1))/pc[1]->count):0;
+				pred=CLAMP(-(128<<8), pred, 127<<8);
+				
+				pc[2]=g2_SSE2+((dNN>>7&1)<<4|(dNNE>>7&1)<<3|(dNNEE>>7&1)<<2|(dNEE>>7&1)<<1|pred>>(7+8)&1);
+				pred+=pc[2]->count?(pc[2]->sum+(pc[2]->count>>1))/pc[2]->count:0;
+				pred=CLAMP(-(128<<8), pred, 127<<8);
+
+				char delta;
+				if(fwd)
+				{
+					delta=buf[idx]-((pred+128)>>8);
+					b2[idx]=delta;
+				}
+				else
+				{
+					delta=buf[idx];
+					b2[idx]=delta+((pred+128)>>8);
+				}
+				for(int k=0;k<3;++k)
+				{
+					if(pc[k]->count+1>640)
+					{
+						pc[k]->count>>=1;
+						pc[k]->sum>>=1;
+					}
+					++pc[k]->count;
+					pc[k]->sum+=delta;
+				}
+#endif
+#if 0
+				SseCell *pc[3];
+				pc[0]=g2_SSE0+((dNW>>7&1)<<6|(dNE>>7&1)<<5|(dN>>7&1)<<4|(dW>>7&1)<<3|pred>>(5+8)&7);
+				pred+=pc[0]->count?(int)((((long long)pc[0]->sum<<8)+(pc[0]->count>>1))/pc[0]->count):0;
+				pred=CLAMP(-(128<<8), pred, 127<<8);
+				
+				pc[1]=g2_SSE1+((dNNWW>>7&1)<<4|(dNNW>>7&1)<<3|(dNWW>>7&1)<<2|(dWW>>7&1)<<1|pred>>(7+8)&1);
+				pred+=pc[1]->count?(int)((((long long)pc[1]->sum<<8)+(pc[1]->count>>1))/pc[1]->count):0;
+				pred=CLAMP(-(128<<8), pred, 127<<8);
+				
+				//pc[2]=g2_SSE2+((dNN>>7&1)<<7|(dNNE>>7&1)<<6|(dNNEE>>7&1)<<5|(dNEE>>7&1)<<4|ipred>>4&15);
+				//ipred+=pc[2]->count?(pc[2]->sum+(pc[2]->count>>1))/pc[2]->count:0;
+				//ipred=CLAMP(-128, ipred, 127);
+
+				char delta;
+				if(fwd)
+				{
+					delta=buf[idx]-((pred+128)>>8);
+					b2[idx]=delta;
+				}
+				else
+				{
+					delta=buf[idx];
+					b2[idx]=delta+((pred+128)>>8);
+				}
+				//if(fwd)//
+				//	g2_SSE_debug[idx]=pixels[idx];
+				//else if((pixels[idx]&0xFF)!=(g2_SSE_debug[idx]&0xFF))//
+				//	LOG_ERROR("SSE error");
+				for(int k=0;k<2;++k)
+				{
+					if(pc[k]->count+1>640)
+					{
+						pc[k]->count>>=1;
+						pc[k]->sum>>=1;
+					}
+					++pc[k]->count;
+					pc[k]->sum+=delta;
+				}
+#endif
+#if 0
+				int ctx=(dNW>>6&3)<<6|(dN>>6&3)<<4|(dNE>>6&3)<<2|(dW>>6&3);
+				//int ctx=(dNNWW>>7&1)<<7|(dNNW>>7&1)<<6|(dNN>>7&1)<<5|(dNNE>>7&1)<<4|(dNNEE>>7&1)<<3|(dNWW>>7&1)<<2|(dNEE>>7&1)<<1|(dWW>>7&1);
+				//int ctx=
+				//	(dNNWW>>7&1)<<11|
+				//	(dNNW >>7&1)<<10|
+				//	(dNN  >>7&1)<<9|
+				//	(dNNE >>7&1)<<8|
+				//	(dNNEE>>7&1)<<7|
+				//	(dNWW >>7&1)<<6|
+				//	(dNW  >>7&1)<<5|
+				//	(dN   >>7&1)<<4|
+				//	(dNE  >>7&1)<<3|
+				//	(dNEE >>7&1)<<2|
+				//	(dWW  >>7&1)<<1|
+				//	(dW   >>7&1);
+				SseCell *pc=g2_SSE0+ctx;
+				int SSE_bias=pc->count?(pc->sum+(pc->count>>1))/pc->count:0;
+				ipred+=SSE_bias;
+				ipred=CLAMP(-128, ipred, 127);
+				char delta;
+				if(fwd)
+				{
+					delta=buf[idx]-ipred;
+					b2[idx]=delta;
+				}
+				else
+				{
+					delta=buf[idx];
+					b2[idx]=delta+ipred;
+				}
+				if(pc->count+1>256)
+				{
+					pc->count>>=1;
+					pc->sum>>=1;
+				}
+				++pc->count;
+				pc->sum+=delta;
+#endif
+#if 0
+				SseCell *pc[4];
+				int ctx, SSE_b[4];
+
+				ipred=0;
+
+				pc[0]=g2_SSE0+(((dW&0xF8)<<2|ipred>>3)&0xFF);
+				SSE_b[0]=pc[0]->count?(pc[0]->sum+(pc[0]->count>>1))/pc[0]->count:0;
+
+				pc[1]=g2_SSE1+(((dN&0xF8)<<2|SSE_b[0]>>3)&0xFF);
+				SSE_b[1]=pc[1]->count?(pc[1]->sum+(pc[1]->count>>1))/pc[1]->count:0;
+
+				pc[2]=g2_SSE2+(((dNW&0xF8)<<2|SSE_b[1]>>3)&0xFF);
+				SSE_b[2]=pc[2]->count?(pc[2]->sum+(pc[2]->count>>1))/pc[2]->count:0;
+
+				pc[3]=g2_SSE3+(((dNE&0xF8)<<2|SSE_b[2]>>3)&0xFF);
+				SSE_b[3]=pc[3]->count?(pc[3]->sum+(pc[3]->count>>1))/pc[3]->count:0;
+
+				ipred+=SSE_b[3];
+				ipred=CLAMP(-128, ipred, 127);
+				char delta;
+				if(fwd)
+				{
+					delta=buf[idx]-ipred;
+					b2[idx]=delta;
+				}
+				else
+				{
+					delta=buf[idx];
+					b2[idx]=delta+ipred;
+				}
+				for(int k=0;k<4;++k)
+				{
+					if(pc[k]->count+1>256)
+					{
+						pc[k]->count>>=1;
+						pc[k]->sum>>=1;
+					}
+					++pc[k]->count;
+					pc[k]->sum+=delta;
+				}
+#endif
+#if 0
+				//if(kc==0&&kx==553&&ky==4)//
+				//if(kc==1&&kx==684&&ky==7)//
+				//	printf("");
+
+				//int ctx=((dNW>>6&3)<<6|(dN>>6&3)<<4|(dNE>>6&3)<<2|(dW>>6&3))+(kx<<4)/iw+(ky<<4)/ih;
+				int ctx=((dNW>>6&3)<<6|(dN>>6&3)<<4|(dNE>>6&3)<<2|(dW>>6&3));
+				int SSE_bias=SSE_count[ctx]?(SSE_sum[ctx]+(SSE_count[ctx]>>1))/SSE_count[ctx]:0;
+
+				//if(SSE_bias)//
+				//	printf("");
+
+				ipred+=SSE_bias;
+				ipred=CLAMP(-128, ipred, 127);
+				
+				char delta;//modular arithmetic
+				if(fwd)
+				{
+					delta=buf[idx]-ipred;
+					b2[idx]=delta;
+				}
+				else
+				{
+					delta=buf[idx];
+					b2[idx]=delta+ipred;
+				}
+
+				//if(fwd)//
+				//	g2_SSE_debug[idx]=SSE_bias;
+				//else if((SSE_bias&0xFF)!=(g2_SSE_debug[idx]&0xFF))//
+				//	LOG_ERROR("SSE error");
+
+				if(SSE_count[ctx]+1>256)
+				{
+					SSE_count[ctx]>>=1;
+					SSE_sum[ctx]>>=1;
+				}
+				++SSE_count[ctx];
+				SSE_sum[ctx]+=delta;
+#endif
+
+				//no SSE
+#if 0
+				ipred^=-fwd;
+				ipred+=fwd;
+				b2[idx]=buf[idx]+ipred;
+#endif
 
 				int curr=pixels[idx]<<8;
 				hireserror[iw*(ky&1)+kx]=curr-pred;
@@ -10047,6 +10282,8 @@ void pred_grad2(char *buf, int iw, int ih, int fwd)
 	memcpy(buf, b2, (size_t)res<<2);
 	free(perrors);
 	free(b2);
+	//free(SSE_count);
+	//free(SSE_sum);
 }
 #endif
 
