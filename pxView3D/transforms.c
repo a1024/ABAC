@@ -9771,7 +9771,7 @@ short g2_weights[]=
 };
 typedef struct SseCellStruct
 {
-	int count, sum;
+	int count, sum;//, sum7, sum8;
 } SseCell;
 SseCell g2_SSE[12][256];
 //SseCell g2_SSE0[128], g2_SSE1[128], g2_SSE2[128], g2_SSE3[128];
@@ -9857,18 +9857,30 @@ void pred_grad2(char *buf, int iw, int ih, int fwd)
 #undef  LOAD
 #define LOAD(BUF, X, Y) (unsigned)(kx+(X))<(unsigned)iw&&(unsigned)(ky+(Y))<(unsigned)ih?BUF[(iw*(ky+(Y))+kx+(X))<<2|kc]:0
 				char
-					dNNWW=LOAD(errors, -2, -2),
-					dNNW =LOAD(errors, -1, -2),
-					dNN  =LOAD(errors,  0, -2),
-					dNNE =LOAD(errors,  1, -2),
-					dNNEE=LOAD(errors,  2, -2),
-					dNWW =LOAD(errors, -2, -1),
-					dNW  =LOAD(errors, -1, -1),
-					dN   =LOAD(errors,  0, -1),
-					dNE  =LOAD(errors,  1, -1),
-					dNEE =LOAD(errors,  2, -1),
-					dWW  =LOAD(errors, -2,  0),
-					dW   =LOAD(errors, -1,  0);
+					dNNNWWW=LOAD(errors, -3, -3),
+					dNNNWW =LOAD(errors, -2, -3),
+					dNNNW  =LOAD(errors, -1, -3),
+					dNNN   =LOAD(errors,  0, -3),
+					dNNNE  =LOAD(errors,  1, -3),
+					dNNNEE =LOAD(errors,  2, -3),
+					dNNNEEE=LOAD(errors,  3, -3),
+					dNNWWW =LOAD(errors, -3, -2),
+					dNNWW  =LOAD(errors, -2, -2),
+					dNNW   =LOAD(errors, -1, -2),
+					dNN    =LOAD(errors,  0, -2),
+					dNNE   =LOAD(errors,  1, -2),
+					dNNEE  =LOAD(errors,  2, -2),
+					dNNEEE =LOAD(errors,  3, -2),
+					dNWWW  =LOAD(errors, -3, -1),
+					dNWW   =LOAD(errors, -2, -1),
+					dNW    =LOAD(errors, -1, -1),
+					dN     =LOAD(errors,  0, -1),
+					dNE    =LOAD(errors,  1, -1),
+					dNEE   =LOAD(errors,  2, -1),
+					dNEEE  =LOAD(errors,  3, -1),
+					dWWW   =LOAD(errors, -3,  0),
+					dWW    =LOAD(errors, -2,  0),
+					dW     =LOAD(errors, -1,  0);
 #undef  LOAD
 #define LOAD(X, Y) (unsigned)(kx+(X))<(unsigned)iw&&(unsigned)(ky+(Y))<(unsigned)ih?hireserror[iw*((ky+(Y))&1)+kx+(X)]:0
 				int
@@ -10017,10 +10029,6 @@ void pred_grad2(char *buf, int iw, int ih, int fwd)
 				pred=CLAMP(vmin, pred, vmax);
 				
 				
-				//if(kc==1&&kx==384&&ky==256)//
-				//if(pred)
-				//	printf("");
-				
 				//int pred0=pred;
 				//int energy=abs(eN)+abs(eW)+abs(eNW)+abs(eNE);
 				//pred-=pred*energy/certainty;//pred=pred0*(1-energy/certainty)
@@ -10042,13 +10050,12 @@ void pred_grad2(char *buf, int iw, int ih, int fwd)
 				//pred=CLAMP(-128, pred, 127);
 
 				int idx=(iw*ky+kx)<<2|kc;
-				//int ipred=((pred+128)>>8);
 
 				//Secondary Symbol Estimation (SSE)
 #if 1
 				int dnb[]=
 				{
-					(unsigned char)dN   ,
+					(unsigned char)dN   ,//order matters slightly
 					(unsigned char)dW   ,
 					(unsigned char)dNW  ,
 					(unsigned char)dNE  ,
@@ -10060,11 +10067,79 @@ void pred_grad2(char *buf, int iw, int ih, int fwd)
 					(unsigned char)dNNEE,
 					(unsigned char)dNWW ,
 					(unsigned char)dNEE ,
+					
+					//(unsigned char)dNNWW,
+					//(unsigned char)dNNW ,
+					//(unsigned char)dNN  ,
+					//(unsigned char)dNNE ,
+					//(unsigned char)dNNEE,
+					//(unsigned char)dNWW ,
+					//(unsigned char)dNW  ,
+					//(unsigned char)dN   ,
+					//(unsigned char)dNE  ,
+					//(unsigned char)dNEE ,
+					//(unsigned char)dWW  ,
+					//(unsigned char)dW   ,
+					
+					//(unsigned char)dN     ,
+					//(unsigned char)dW     ,
+					//(unsigned char)dNW    ,
+					//(unsigned char)dNE    ,
+					//(unsigned char)dNN    ,
+					//(unsigned char)dWW    ,
+					//(unsigned char)dNNW   ,
+					//(unsigned char)dNNE   ,
+					//(unsigned char)dNWW   ,
+					//(unsigned char)dNEE   ,
+					//(unsigned char)dNNN   ,
+					//(unsigned char)dWWW   ,
+					//(unsigned char)dNNNW  ,
+					//(unsigned char)dNNNE  ,
+					//(unsigned char)dNNWW  ,
+					//(unsigned char)dNNEE  ,
+					//(unsigned char)dNEEE  ,
+					//(unsigned char)dNWWW  ,
+					//(unsigned char)dNNNWW ,
+					//(unsigned char)dNNNEE ,
+					//(unsigned char)dNNWWW ,
+					//(unsigned char)dNNEEE ,
+					//(unsigned char)dNNNWWW,
+					//(unsigned char)dNNNEEE,
+					
+					//(unsigned char)dNNNWWW,
+					//(unsigned char)dNNNWW ,
+					//(unsigned char)dNNNW  ,
+					//(unsigned char)dNNN   ,
+					//(unsigned char)dNNNE  ,
+					//(unsigned char)dNNNEE ,
+					//(unsigned char)dNNNEEE,
+					//(unsigned char)dNNWWW ,
+					//(unsigned char)dNNWW  ,
+					//(unsigned char)dNNW   ,
+					//(unsigned char)dNN    ,
+					//(unsigned char)dNNE   ,
+					//(unsigned char)dNNEE  ,
+					//(unsigned char)dNNEEE ,
+					//(unsigned char)dNWWW  ,
+					//(unsigned char)dNWW   ,
+					//(unsigned char)dNW    ,
+					//(unsigned char)dN     ,
+					//(unsigned char)dNE    ,
+					//(unsigned char)dNEE   ,
+					//(unsigned char)dNEEE  ,
+					//(unsigned char)dWWW   ,
+					//(unsigned char)dWW    ,
+					//(unsigned char)dW     ,
+					
+					//eNW,
+					//eN ,
+					//eNE,
+					//eW ,
 				};
 				SseCell *pc[12];
 				unsigned char hashval;
 
-				for(int k2=0;k2<4;++k2)
+				for(int k2=3;k2>=0;--k2)
 				{
 					hashval=(int)((pred+128)*0xFC28)>>(16+8+6)&3;
 					for(int k=0;k<3;++k)
@@ -10074,6 +10149,14 @@ void pred_grad2(char *buf, int iw, int ih, int fwd)
 					}
 
 					pc[k2]=g2_SSE[k2]+hashval;
+
+					//int c=2, d=pc[k2]->sum8+pc[k2]->sum7;
+					//if(pc[k2]->count)
+					//{
+					//	++c;
+					//	d+=(int)((((long long)pc[k2]->sum<<8)+(pc[k2]->count>>1))/pc[k2]->count);
+					//}
+					//pred+=d/c;
 					pred+=pc[k2]->count?(int)((((long long)pc[k2]->sum<<8)+(pc[k2]->count>>1))/pc[k2]->count):0;
 					pred=CLAMP(-(128<<8), pred, 127<<8);
 				}
@@ -10098,6 +10181,8 @@ void pred_grad2(char *buf, int iw, int ih, int fwd)
 					}
 					++pc[k]->count;
 					pc[k]->sum+=delta;
+					//pc[k]->sum8=(pc[k]->sum8*255+(delta<<8))>>8;
+					//pc[k]->sum7=(pc[k]->sum7*127+(delta<<8))>>7;
 				}
 #endif
 #if 0
@@ -10303,9 +10388,10 @@ void pred_grad2(char *buf, int iw, int ih, int fwd)
 
 				//no SSE
 #if 0
-				ipred^=-fwd;
-				ipred+=fwd;
-				b2[idx]=buf[idx]+ipred;
+				int spred=pred;
+				spred^=-fwd;
+				spred+=fwd;
+				b2[idx]=buf[idx]+((spred+128)>>8);
 #endif
 
 				int curr=pixels[idx]<<8;
