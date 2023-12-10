@@ -10141,10 +10141,10 @@ void pred_grad2(char *buf, int iw, int ih, int fwd)
 
 				for(int k2=3;k2>=0;--k2)
 				{
-					hashval=(int)((pred+128)*0xFC28)>>(16+8+6)&3;
+					hashval=(pred+128)>>(8+6)&3;
 					for(int k=0;k<3;++k)
 					{
-						hashval*=37;
+						hashval<<=3;
 						hashval+=(int)(dnb[3*k2+k]*0xFC28)>>(16+6)&3;
 					}
 

@@ -192,6 +192,28 @@ int combCRhist_idx=0;
 int show_full_image=0;
 int space_not_color=0;
 
+int customtransforms_getflag(unsigned char tid)
+{
+	return
+		tid==CT_FWD_CUSTOM||
+		tid==CT_INV_CUSTOM||
+		tid==ST_FWD_CUSTOM||
+		tid==ST_INV_CUSTOM||
+		tid==ST_FWD_EXPDWT||
+		tid==ST_INV_EXPDWT||
+		tid==ST_FWD_GRAD2||
+		tid==ST_INV_GRAD2||
+		tid==ST_FWD_CUSTOM_DWT||
+		tid==ST_INV_CUSTOM_DWT;
+	//	tid==ST_FWD_HYBRID3||
+	//	tid==ST_INV_HYBRID3||
+	//	tid==ST_FWD_ADAPTIVE||
+	//	tid==ST_INV_ADAPTIVE||
+	//	tid==ST_FWD_JXL||
+	//	tid==ST_INV_JXL||
+	//	tid==ST_FWD_SORTNB||
+	//	tid==ST_INV_SORTNB;
+}
 void transforms_update()
 {
 	if(transforms)
@@ -203,25 +225,7 @@ void transforms_update()
 			unsigned char tid2=transforms->data[k];
 			if(tid2<T_COUNT)
 				transforms_mask[tid2]|=1;
-			transforms_customenabled|=
-				tid2==CT_FWD_CUSTOM||
-				tid2==CT_INV_CUSTOM||
-				tid2==ST_FWD_CUSTOM||
-				tid2==ST_INV_CUSTOM||
-				tid2==ST_FWD_EXPDWT||
-				tid2==ST_INV_EXPDWT||
-			//	tid2==ST_FWD_GRAD2||
-			//	tid2==ST_INV_GRAD2||
-				tid2==ST_FWD_CUSTOM_DWT||
-				tid2==ST_INV_CUSTOM_DWT;
-			//	tid2==ST_FWD_HYBRID3||
-			//	tid2==ST_INV_HYBRID3||
-			//	tid2==ST_FWD_ADAPTIVE||
-			//	tid2==ST_INV_ADAPTIVE||
-			//	tid2==ST_FWD_JXL||
-			//	tid2==ST_INV_JXL||
-			//	tid2==ST_FWD_SORTNB||
-			//	tid2==ST_INV_SORTNB;
+			transforms_customenabled|=customtransforms_getflag(tid2);
 		}
 	}
 }
@@ -254,25 +258,7 @@ void transforms_append(unsigned tid)
 		{
 			ARRAY_ALLOC(char, transforms, &tid, 1, 0, 0);
 			transforms_mask[tid]|=1;
-			transforms_customenabled|=
-				tid==CT_FWD_CUSTOM||
-				tid==CT_INV_CUSTOM||
-				tid==ST_FWD_CUSTOM||
-				tid==ST_INV_CUSTOM||
-				tid==ST_FWD_EXPDWT||
-				tid==ST_INV_EXPDWT||
-			//	tid==ST_FWD_GRAD2||
-			//	tid==ST_INV_GRAD2||
-				tid==ST_FWD_CUSTOM_DWT||
-				tid==ST_INV_CUSTOM_DWT;
-			//	tid==ST_FWD_HYBRID3||
-			//	tid==ST_INV_HYBRID3||
-			//	tid==ST_FWD_ADAPTIVE||
-			//	tid==ST_INV_ADAPTIVE||
-			//	tid==ST_FWD_JXL||
-			//	tid==ST_INV_JXL||
-			//	tid==ST_FWD_SORTNB||
-			//	tid==ST_INV_SORTNB;
+			transforms_customenabled|=customtransforms_getflag(tid);
 		}
 		else
 		{
