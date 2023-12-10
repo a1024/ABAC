@@ -9773,8 +9773,19 @@ typedef struct SseCellStruct
 {
 	int count, sum;
 } SseCell;
-SseCell g2_SSE0[4096], g2_SSE1[4096], g2_SSE2[4096], g2_SSE3[4096];
-char g2_SSE_debug[768*512*4];
+SseCell g2_SSE[12][256];
+//SseCell g2_SSE0[128], g2_SSE1[128], g2_SSE2[128], g2_SSE3[128];
+//char g2_SSE_debug[768*512*4];
+static unsigned char g2_hash(unsigned x)//24 -> 7 bit
+{
+	unsigned short *p=(unsigned short*)&x;
+	unsigned char *p2=(unsigned char*)&x;
+	x=(p[0]^p[1])*0x45D9F3B;//https://stackoverflow.com/questions/664014/what-integer-hash-function-are-good-that-accepts-an-integer-hash-key
+	x=(p[0]^p[1])*0x45D9F3B;
+	x=p[0]^p[1];
+	x=p2[0]^p2[1];
+	return x;
+}
 void pred_grad2(char *buf, int iw, int ih, int fwd)
 {
 	int res=iw*ih;
@@ -9796,10 +9807,12 @@ void pred_grad2(char *buf, int iw, int ih, int fwd)
 		int *hireserror=perrors+iw*2*G2_NPRED;
 		memset(perrors, 0, 2*iw*(G2_NPRED+1)*sizeof(int));
 
-		memset(g2_SSE0, 0, sizeof(g2_SSE0));
-		memset(g2_SSE1, 0, sizeof(g2_SSE1));
-		memset(g2_SSE2, 0, sizeof(g2_SSE2));
-		memset(g2_SSE3, 0, sizeof(g2_SSE3));
+		memset(g2_SSE, 0, sizeof(g2_SSE));
+		//memset(g2_SSE0, 0, sizeof(g2_SSE0));
+		//memset(g2_SSE1, 0, sizeof(g2_SSE1));
+		//memset(g2_SSE2, 0, sizeof(g2_SSE2));
+		//memset(g2_SSE3, 0, sizeof(g2_SSE3));
+
 		//memset(SSE_count, 0, 256*sizeof(int));
 		//memset(SSE_sum, 0, 256*sizeof(int));
 
@@ -10033,19 +10046,74 @@ void pred_grad2(char *buf, int iw, int ih, int fwd)
 
 				//Secondary Symbol Estimation (SSE)
 #if 1
+				int dnb[]=
+				{
+					(unsigned char)dN   ,
+					(unsigned char)dW   ,
+					(unsigned char)dNW  ,
+					(unsigned char)dNE  ,
+					(unsigned char)dNN  ,
+					(unsigned char)dWW  ,
+					(unsigned char)dNNWW,
+					(unsigned char)dNNW ,
+					(unsigned char)dNNE ,
+					(unsigned char)dNNEE,
+					(unsigned char)dNWW ,
+					(unsigned char)dNEE ,
+				};
+				SseCell *pc[12];
+				unsigned char hashval;
+
+				for(int k2=0;k2<4;++k2)
+				{
+					hashval=(int)((pred+128)*0xFC28)>>(16+8+6)&3;
+					for(int k=0;k<3;++k)
+					{
+						hashval*=37;
+						hashval+=(int)(dnb[3*k2+k]*0xFC28)>>(16+6)&3;
+					}
+
+					pc[k2]=g2_SSE[k2]+hashval;
+					pred+=pc[k2]->count?(int)((((long long)pc[k2]->sum<<8)+(pc[k2]->count>>1))/pc[k2]->count):0;
+					pred=CLAMP(-(128<<8), pred, 127<<8);
+				}
+
+				char delta;
+				if(fwd)
+				{
+					delta=buf[idx]-((pred+128)>>8);
+					b2[idx]=delta;
+				}
+				else
+				{
+					delta=buf[idx];
+					b2[idx]=delta+((pred+128)>>8);
+				}
+				for(int k=0;k<4;++k)
+				{
+					if(pc[k]->count+1>640)
+					{
+						pc[k]->count>>=1;
+						pc[k]->sum>>=1;
+					}
+					++pc[k]->count;
+					pc[k]->sum+=delta;
+				}
+#endif
+#if 0
 				//if(kc==0&&kx==255&&ky==1)//
 				//	printf("");
 
 				SseCell *pc[3];
-				pc[0]=g2_SSE0+((dNW>>7&1)<<6|(dNE>>7&1)<<5|(dN>>7&1)<<4|(dW>>7&1)<<3|pred>>(5+8)&7);
+				pc[0]=g2_SSE[0]+((dNW>>7&1)<<6|(dNE>>7&1)<<5|(dN>>7&1)<<4|(dW>>7&1)<<3|pred>>(5+8)&7);
 				pred+=pc[0]->count?(int)((((long long)pc[0]->sum<<8)+(pc[0]->count>>1))/pc[0]->count):0;
 				pred=CLAMP(-(128<<8), pred, 127<<8);
 				
-				pc[1]=g2_SSE1+((dNNWW>>7&1)<<4|(dNNW>>7&1)<<3|(dNWW>>7&1)<<2|(dWW>>7&1)<<1|pred>>(7+8)&1);
+				pc[1]=g2_SSE[1]+((dNNWW>>7&1)<<4|(dNNW>>7&1)<<3|(dNWW>>7&1)<<2|(dWW>>7&1)<<1|pred>>(7+8)&1);
 				pred+=pc[1]->count?(int)((((long long)pc[1]->sum<<8)+(pc[1]->count>>1))/pc[1]->count):0;
 				pred=CLAMP(-(128<<8), pred, 127<<8);
 				
-				pc[2]=g2_SSE2+((dNN>>7&1)<<4|(dNNE>>7&1)<<3|(dNNEE>>7&1)<<2|(dNEE>>7&1)<<1|pred>>(7+8)&1);
+				pc[2]=g2_SSE[2]+((dNN>>7&1)<<4|(dNNE>>7&1)<<3|(dNNEE>>7&1)<<2|(dNEE>>7&1)<<1|pred>>(7+8)&1);
 				pred+=pc[2]->count?(pc[2]->sum+(pc[2]->count>>1))/pc[2]->count:0;
 				pred=CLAMP(-(128<<8), pred, 127<<8);
 

@@ -210,6 +210,8 @@ void transforms_update()
 				tid2==ST_INV_CUSTOM||
 				tid2==ST_FWD_EXPDWT||
 				tid2==ST_INV_EXPDWT||
+			//	tid2==ST_FWD_GRAD2||
+			//	tid2==ST_INV_GRAD2||
 				tid2==ST_FWD_CUSTOM_DWT||
 				tid2==ST_INV_CUSTOM_DWT;
 			//	tid2==ST_FWD_HYBRID3||
@@ -259,6 +261,8 @@ void transforms_append(unsigned tid)
 				tid==ST_INV_CUSTOM||
 				tid==ST_FWD_EXPDWT||
 				tid==ST_INV_EXPDWT||
+			//	tid==ST_FWD_GRAD2||
+			//	tid==ST_INV_GRAD2||
 				tid==ST_FWD_CUSTOM_DWT||
 				tid==ST_INV_CUSTOM_DWT;
 			//	tid==ST_FWD_HYBRID3||
