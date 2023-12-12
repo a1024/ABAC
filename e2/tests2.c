@@ -2184,7 +2184,7 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	ABACEncoder ec;
 	abac_enc_init(&ec, &list);
 	
-	float csizes[24]={0};
+	double csizes[24]={0};
 	
 	for(int ky=0, idx;ky<ih;++ky)
 	{
@@ -2203,7 +2203,7 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 					abac_enc(&ec, p0, bit);
 					
 					int prob=bit?0x10000-p0:p0;//
-					float bitsize=-log2f((float)prob*(1.f/0x10000));
+					double bitsize=-log2((double)prob*(1./0x10000));
 					csizes[kc<<3|kb]+=bitsize;//
 
 					t42_ctx_update(ctx, kc, kb, bit);
@@ -2213,8 +2213,8 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 		}
 		if(loud)
 		{
-			static float csize_prev=0;
-			float csize=0;
+			static double csize_prev=0;
+			double csize=0;
 			for(int k=0;k<24;++k)
 				csize+=csizes[k]/8;
 			printf("%5d/%5d  %6.2lf%%  CR%11f  CR_delta%11f\r", ky+1, ih, 100.*(ky+1)/ih, iw*(ky+1)*3/csize, iw*3/(csize-csize_prev));
@@ -2227,12 +2227,12 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	if(loud)
 	{
 		printf("\n");//skip progress line
-		printf("Used %f MB of memory\n", (float)ctx->nnodes*sizeof(T42Node)/(1024*1024));
+		printf("Used %lf MB of memory\n", (double)ctx->nnodes*sizeof(T42Node)/(1024*1024));
 		printf("Encode elapsed ");
 		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 		
-		float chsizes[4]={0};
+		double chsizes[4]={0};
 		printf("\tC0\t\tC1\t\tC2\n\n");
 		for(int kb=7;kb>=0;--kb)
 		{
@@ -2240,16 +2240,16 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 			for(int kc=0;kc<3;++kc)
 			{
 				int idx=kc<<3|kb;
-				float size=csizes[idx];
-				printf(" %15.6f", iw*ih/size);
+				double size=csizes[idx];
+				printf(" %15.6lf", iw*ih/size);
 				chsizes[kc]+=size;
 			}
 			printf("\n");
 		}
 		printf("\n");
 		chsizes[3]=chsizes[0]+chsizes[1]+chsizes[2];
-		printf("Total%15.6f %15.6f %15.6f %15.6f\n", iw*ih*8/chsizes[0], iw*ih*8/chsizes[1], iw*ih*8/chsizes[2], iw*ih*24/chsizes[3]);
-		printf("Total size\t%8d\t\t\t     %15.6f\n", (int)list.nobj, iw*ih*3./list.nobj);
+		printf("Total%15.6lf %15.6lf %15.6lf %15.6lf\n", iw*ih*8/chsizes[0], iw*ih*8/chsizes[1], iw*ih*8/chsizes[2], iw*ih*24/chsizes[3]);
+		printf("Total size\t%8d\t\t\t     %15.6lf\n", (int)list.nobj, iw*ih*3./list.nobj);
 
 		//t42_explore(t42_ctx, csizes);
 
@@ -2375,7 +2375,7 @@ int t42_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 
 
 //T43: Wisdom of the crowd
-#if 1
+#if 0
 //	#define T43_DISABLE_REC
 //	#define T43_DISABLE_COUNTER
 //	#define T43_PRINT_ESTIMATOR_CR

@@ -86,8 +86,8 @@ int t42_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 void t42_explore(void *ctx0);
 void t42_freectx(void **ctx);
 
-int t43_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T43: Wisdom of the crowd
-int t43_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
+//int t43_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T43: Wisdom of the crowd
+//int t43_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
 
 
 //nch:   must be from {1, 2, 3, 4}.
@@ -113,8 +113,11 @@ int   slic2_save(const char *filename, int iw, int ih, int nch, int depth, const
 void* slic2_load(const char *filename, int *ret_iw, int *ret_ih, int *ret_nch, int *ret_depth, int *ret_dummy_alpha, int force_alpha);
 
 
-unsigned char* slic3_encode(int iw, int ih, int nch, int depth, const void *src, int *ret_size);
-void*          slic3_decode(const unsigned char *src, int len, int *ret_iw, int *ret_ih, int *ret_nch, int *ret_depth, int *ret_dummy_alpha, int force_alpha);
+//unsigned char* slic3_encode(int iw, int ih, int nch, int depth, const void *src, int *ret_size);
+//void*          slic3_decode(const unsigned char *src, int len, int *ret_iw, int *ret_ih, int *ret_nch, int *ret_depth, int *ret_dummy_alpha, int force_alpha);
+
+int t44_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T44 Secondary Symbol Estimation from paq8pxd
+int t44_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
 
 
 
@@ -126,10 +129,15 @@ void apply_transforms_inv(unsigned char *buf, int bw, int bh);
 
 void addbuf(unsigned char *buf, int iw, int ih, int nch, int bytestride, int ammount);
 
+void pack3_fwd(char *buf, int res);
+void pack3_inv(char *buf, int res);
+
 void colortransform_ycocg_fwd(char *buf, int iw, int ih);
 void colortransform_ycocg_inv(char *buf, int iw, int ih);
 void colortransform_ycmcb_fwd(char *buf, int iw, int ih);//like YCoCg but with green & blue swapped
 void colortransform_ycmcb_inv(char *buf, int iw, int ih);
+void colortransform_subgreen_fwd(char *buf, int iw, int ih);
+void colortransform_subgreen_inv(char *buf, int iw, int ih);
 
 
 	#define PW2_NPRED 20	//63
