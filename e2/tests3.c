@@ -4,7 +4,6 @@
 #include<stdlib.h>
 #include<string.h>
 #include<math.h>
-//#include<assert.h>
 static const char file[]=__FILE__;
 
 #ifndef assert
@@ -911,6 +910,7 @@ static void t44_update(T44State *state, int bit, char *buf)
 			NWp2=LOAD(2, -1, -1),
 			N   =LOAD(0,  0, -1),
 			Np1 =LOAD(1,  0, -1),
+			Np2 =LOAD(2,  0, -1),
 			NE  =LOAD(0,  1, -1),
 			WW  =LOAD(0, -2,  0),
 			WWp2=LOAD(2, -2,  0),
@@ -941,7 +941,7 @@ static void t44_update(T44State *state, int bit, char *buf)
 		t44_scm_set(state->scm+3, 2*N-NN);
 		t44_scm_set(state->scm+4, 2*NW-NNWW);
 		t44_scm_set(state->scm+5, 2*NE-NNEE);
-		t44_scm_set(state->scm+6, NE+Wp2-Np1);
+		t44_scm_set(state->scm+6, NE+Wp2-Np2);
 		t44_scm_set(state->scm+7, N+NE-NNE);
 		t44_scm_set(state->scm+8, mean>>1|(logvar<<1&0x180));
 	}
@@ -1002,7 +1002,7 @@ int t44_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	}
 	memcpy(buf, src, (size_t)res<<2);
 	addbuf((unsigned char*)buf, iw, ih, 3, 4, 128);
-	//colortransform_ycmcb_fwd(buf, iw, ih);
+	colortransform_ycmcb_fwd(buf, iw, ih);
 	//colortransform_subgreen_fwd(buf, iw, ih);
 	pack3_fwd(buf, res);
 	
@@ -1036,7 +1036,7 @@ int t44_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 					int p0=0x10000-(state.pr<<4);
 					p0=CLAMP(1, p0, 0xFFFF);
 
-					int bit=(buf[idx]-128)>>kb&1;
+					int bit=buf[idx]>>kb&1;
 					abac_enc(&ec, p0, bit);
 					
 					int prob=bit?0x10000-p0:p0;//
@@ -1116,14 +1116,13 @@ int t44_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 					
 					t44_update(&state, bit, buf);
 				}
-				buf[idx]+=128;
 			}
 		}
 		if(loud)
 			printf("%5d/%5d  %6.2lf%%\r", ky+1, ih, 100.*(ky+1)/ih);
 	}
 	pack3_inv(buf, res);
-	//colortransform_ycmcb_inv((char*)buf, iw, ih);
+	colortransform_ycmcb_inv((char*)buf, iw, ih);
 	//colortransform_subgreen_inv(buf, iw, ih);
 	addbuf(buf, iw, ih, 3, 4, 128);
 	if(loud)
