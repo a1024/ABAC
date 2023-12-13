@@ -358,13 +358,13 @@ int		timedelta2str(char *buf, size_t len, double secs)
 	if(buf)
 	{
 		if(ti.days)
-			printed+=snprintf(buf, len, "%dD-", ti.days);
+			printed+=snprintf(buf, len, "%02dD-", ti.days);
 		printed+=snprintf(buf, len, "%02d-%02d-%09.6lf", ti.hours, ti.mins, ti.secs);
 	}
 	else
 	{
 		if(ti.days)
-			printed+=printf("%dD-", ti.days);
+			printed+=printf("%02dD-", ti.days);
 		printed+=printf("%02d-%02d-%09.6lf", ti.hours, ti.mins, ti.secs);
 	}
 	return printed;
@@ -529,7 +529,7 @@ ArrayHandle array_construct(const void *src, size_t esize, size_t count, size_t 
 	cap=dstsize+pad*esize;
 	arr=(ArrayHandle)malloc(sizeof(ArrayHeader)+cap);
 	ASSERT_P(arr);
-	arr->count=count;
+	arr->count=count*rep;
 	arr->esize=esize;
 	arr->cap=cap;
 	arr->destructor=destructor;

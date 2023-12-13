@@ -108,7 +108,7 @@ static unsigned t44_rnd(T44_PRNG *rnd)
 	return rnd->table[rnd->i];
 }
 
-int squash(int d)//1/(1+exp(-p))  (sigmoid)
+int t44_squash(int d)//1/(1+exp(-p))  (sigmoid)
 {
 	static const int t[33]=
 	{
@@ -122,7 +122,7 @@ int squash(int d)//1/(1+exp(-p))  (sigmoid)
 	d=(d>>7)+16;
 	return (t[d]*(128-w)+t[(d+1)]*w+64) >> 7;
 }
-int stretch(int p)//inv_sigmoid
+int t44_stretch(int p)//inv_sigmoid
 {
 	static short t[4096];
 	static int initialized=0;
@@ -133,7 +133,7 @@ int stretch(int p)//inv_sigmoid
 		int pi=0;
 		for(int x=-2047;x<=2047;++x)//invert squash()
 		{
-			int i=squash(x);
+			int i=t44_squash(x);
 			for(int j=pi;j<=i;++j)
 				t[j]=x;
 			pi=i+1;
@@ -142,7 +142,7 @@ int stretch(int p)//inv_sigmoid
 	}
 	return t[p];
 }
-int ilog(unsigned short x)
+int t44_ilog(unsigned short x)
 {
 	static int initialized=0;
 	static unsigned char t[65536];
@@ -159,7 +159,7 @@ int ilog(unsigned short x)
 	}
 	return t[x];
 }
-int dot_product(short *t, short *w, int n)
+int t44_dot_product(short *t, short *w, int n)
 {
 	int sum=0;
 	n=(n+7)&-8;
@@ -181,6 +181,18 @@ static void t44_train(short *t, short *w, int n, int err)
 		wt=CLAMP(-32768, wt, 32767);
 		w[i]=wt;
 	}
+}
+static int t44_dt(int x)//x -> 16K/(x+3)
+{
+	static int initialized=0;
+	static int dt[1024];
+	if(!initialized)
+	{
+		for(int i=0;i<1024;++i)
+			dt[i]=16384/(i+i+3);
+		initialized=1;
+	}
+	return dt[x&1023];
 }
 
 typedef struct T44MixerStruct
@@ -278,13 +290,13 @@ static int t44_mixer_predict(T44Mixer *mixer, int bit)
 		t44_mixer_update(mixer->mp, bit);
 		for (int i=0;i<mixer->ncxt;++i)
 		{
-			pr[i]=squash(dot_product(&tx[0], &wx[cxt[i]*mixer->N], mixer->nx)>>5);
-			t44_mixer_add(mixer->mp, stretch(pr[i]));
+			pr[i]=t44_squash(t44_dot_product(&tx[0], &wx[cxt[i]*mixer->N], mixer->nx)>>5);
+			t44_mixer_add(mixer->mp, t44_stretch(pr[i]));
 		}
 		t44_mixer_set(mixer->mp, 0, 1);
 		return t44_mixer_predict(mixer->mp, bit);
 	}
-	return pr[0]=squash(dot_product(&tx[0], &wx[0], mixer->nx)>>8);//S=1 context
+	return pr[0]=t44_squash(t44_dot_product(&tx[0], &wx[0], mixer->nx)>>8);//S=1 context
 }
 typedef struct T44_APM1Struct
 {
@@ -307,7 +319,7 @@ static void t44_apm1_init(T44_APM1 *apm, int n)
 	for(int ky=0;ky<n;++ky)
 	{
 		for(int kx=0;kx<33;++kx)
-			ptr[33*ky+kx]=!ky?squash((kx-16)<<7)<<4:ptr[kx];
+			ptr[33*ky+kx]=!ky?t44_squash((kx-16)<<7)<<4:ptr[kx];
 	}
 	//return apm;
 }
@@ -319,7 +331,7 @@ static int t44_apm1_predict(T44_APM1 *apm, int pr, int cxt, int rate, int bit)
 {
 	unsigned short *t=(unsigned short*)array_at(&apm->t, 0);
 	assert(pr>=0 && pr<4096 && cxt>=0 && cxt<apm->N && rate>0 && rate<32);
-	pr=stretch(pr);
+	pr=t44_stretch(pr);
 	int g=(bit<<16)+(bit<<rate)-bit-bit;
 	t[apm->index] += (g-t[apm->index]) >> rate;
 	t[apm->index+1] += (g-t[apm->index+1]) >> rate;
@@ -438,9 +450,9 @@ static void t44_scm_set(T44SmallStationaryContextMap *scm, unsigned cx)
 static void t44_scm_mix(T44SmallStationaryContextMap *scm, T44Mixer *m, int rate, int c0, int bit)
 {
 	unsigned short *t=(unsigned short*)array_at(&scm->t, 0);
-	*scm->cp=((bit<<16)-*scm->cp+(1<<(rate-1)))>>rate;
+	*scm->cp+=((bit<<16)-*scm->cp+(1<<(rate-1)))>>rate;
 	scm->cp=t+scm->cxt+c0;
-	t44_mixer_add(m, stretch((*scm->cp)>>4));
+	t44_mixer_add(m, t44_stretch((*scm->cp)>>4));
 }
 typedef struct T44StateMapStruct
 {
@@ -452,7 +464,7 @@ static void t44_sm_init(T44StateMap *sm, int n)
 {
 	sm->N=n;
 	sm->cxt=0;
-	int val=1<<31;
+	unsigned val=1<<31;
 	sm->t=array_construct(&val, sizeof(unsigned), 1, n, 0, 0);
 }
 static void t44_sm_clear(T44StateMap *sm)
@@ -469,8 +481,7 @@ static void t44_sm_update(T44StateMap *sm, int limit, int bit)
 		++p0;
 	else
 		p0=(p0&0xfffffc00)|limit;
-	p0+=(((bit<<22)-pr)>>3)*(16384/(n+n+3))&0xFFFFFC00;
-	//p0+=(((bit<<22)-pr)>>3)*dt[n]&0xFFFFFC00;
+	p0+=(((bit<<22)-pr)>>3)*t44_dt(n)&0xFFFFFC00;
 	p[0]=p0;
 }
 static int t44_sm_predict(T44StateMap *sm, int cx, int limit, int bit)
@@ -489,7 +500,7 @@ typedef struct T44HashElemStruct//hash element, 14+1+49=64 bytes
 	//bh[][0] = 1st bit, bh[][1,2] = 2nd bit, bh[][3..6] = 3rd bit
 	//bh[][0] is also a replacement priority, 0 = empty
 } T44HashElem;
-static unsigned char* t44_hash_get(T44HashElem *h, unsigned short ch)//Find element (0-6) matching checksum. If not found, insert or replace lowest priority (not last).
+static unsigned char* t44_hash_get(T44HashElem *h, unsigned short ch, int n)//Find element (0-6) matching checksum. If not found, insert or replace lowest priority (not last).
 {
 	//Find or create hash element matching checksum ch
 	int b=0xFFFF, bi=0;
@@ -542,7 +553,7 @@ static void t44_cm_init(T44ContextMap *cm, int m, int c)//Construct using m byte
 	ARRAY_ALLOC(T44StateMap, cm->sm, 0, c, 0, 0);
 	T44StateMap *sm=(T44StateMap*)array_at(&cm->sm, 0);
 	for(int k=0;k<c;++k)
-		t44_sm_init(sm+k, c);
+		t44_sm_init(sm+k, 256);
 
 	unsigned char
 		**cp=(unsigned char**)cm->cp->data,
@@ -583,7 +594,7 @@ static int t44_mix2(T44Mixer *m, int s, T44StateMap *sm, int bit)
 	int p1=t44_sm_predict(sm, s, 1023, bit);
 	int n0=-!nex(s, 2);
 	int n1=-!nex(s, 3);
-	int st=stretch(p1)>>2;
+	int st=t44_stretch(p1)>>2;
 	t44_mixer_add(m, st);
 	p1>>=4;
 	int p0=255-p1;
@@ -593,8 +604,11 @@ static int t44_mix2(T44Mixer *m, int s, T44StateMap *sm, int bit)
 	t44_mixer_add(m, (p1&n1)-(p0&n0));
 	return s>0;
 }
-static int t44_cm_mix(T44ContextMap *cm, T44_PRNG *rnd, T44Mixer *m, int kb, int prev, int c0, int bit)
+static int t44_cm_mix(T44ContextMap *cm, T44_PRNG *rnd, T44Mixer *m, int bpos, int prev, int c0, int bit, int debug_idx)
 {
+	//if(debug_idx==9&&kb==7)//
+	//	printf("");
+
 	int result=0;
 	for(int i=0;i<cm->cn;++i)
 	{
@@ -609,7 +623,7 @@ static int t44_cm_mix(T44ContextMap *cm, T44_PRNG *rnd, T44Mixer *m, int kb, int
 		if(cp[i])
 		{
 			assert(cp[i]>=&t[0].bh[0][0] && cp[i]<=&t[tsize_m1].bh[6][6]);
-			assert(((size_t)cp[i]&63)>=15);
+			//assert(((size_t)cp[i]&63)>=15);
 			int ns=nex(*cp[i], bit);
 			if (ns>=204 && t44_rnd(rnd)<<((452-ns)>>3))//probabilistic increment
 				ns-=4;
@@ -617,11 +631,11 @@ static int t44_cm_mix(T44ContextMap *cm, T44_PRNG *rnd, T44Mixer *m, int kb, int
 		}
 
 		//Update context pointers
-		if(kb<6 && runp[i][0]==0)
+		if(bpos>1 && runp[i][0]==0)
 			cp[i]=0;
 		else
 		{
-			switch(7-kb)
+			switch(bpos)
 			{
 			case 1:case 3:case 6:
 				cp[i]=cp0[i]+1+(c0&1);
@@ -630,20 +644,27 @@ static int t44_cm_mix(T44ContextMap *cm, T44_PRNG *rnd, T44Mixer *m, int kb, int
 				cp[i]=cp0[i]+3+(c0&3);
 				break;
 			case 2:case 5:
-				cp0[i]=cp[i]=t44_hash_get(t+((cxt[i]+c0)&tsize_m1), cxt[i]>>16);
+				cp0[i]=cp[i]=t44_hash_get(t+((cxt[i]+c0)&tsize_m1), cxt[i]>>16, 0);
 				break;
 			default:
 				{
-					cp0[i]=cp[i]=t44_hash_get(t+((cxt[i]+c0)&tsize_m1), cxt[i]>>16);
+					//if(debug_idx==9&&kb==7&&i==3)//
+					//	printf("");
+
+					cp0[i]=cp[i]=t44_hash_get(t+((cxt[i]+c0)&tsize_m1), cxt[i]>>16, sm[i].N);
+					
+					if(cp[i]&&*cp[i]>=sm[i].N)//
+						LOG_ERROR("state error");
+
 					//Update pending bit histories for bits 2-7
 					if (cp0[i][3]==2)
 					{
 						const int c=cp0[i][4]+256;
-						unsigned char *p=t44_hash_get(t+((cxt[i]+(c>>6))&tsize_m1), cxt[i]>>16);
+						unsigned char *p=t44_hash_get(t+((cxt[i]+(c>>6))&tsize_m1), cxt[i]>>16, 0);
 						p[0]=1+((c>>5)&1);
 						p[1+((c>>5)&1)]=1+((c>>4)&1);
 						p[3+((c>>4)&3)]=1+((c>>3)&1);
-						p=t44_hash_get(t+((cxt[i]+(c>>3))&tsize_m1), cxt[i]>>16);
+						p=t44_hash_get(t+((cxt[i]+(c>>3))&tsize_m1), cxt[i]>>16, 0);
 						p[0]=1+((c>>2)&1);
 						p[1+((c>>2)&1)]=1+((c>>1)&1);
 						p[3+((c>>1)&3)]=1+(c&1);
@@ -665,11 +686,11 @@ static int t44_cm_mix(T44ContextMap *cm, T44_PRNG *rnd, T44Mixer *m, int kb, int
 		}
 
 		//predict from last byte in context
-		if((runp[i][1]+256)>>(8-(7-kb))==c0)
+		if((runp[i][1]+256)>>(8-bpos)==c0)
 		{
 			int rc=runp[i][0];//count*2, +1 if 2 different bytes seen
-			int b=(runp[i][1]>>kb&1)*2-1;//predicted bit + for 1, - for 0
-			int c=ilog(rc+1)<<(2+(~rc&1));
+			int b=(runp[i][1]>>(7-bpos)&1)*2-1;//predicted bit + for 1, - for 0
+			int c=t44_ilog(rc+1)<<(2+(~rc&1));
 			t44_mixer_add(m, b*c);
 		}
 		else
@@ -677,11 +698,16 @@ static int t44_cm_mix(T44ContextMap *cm, T44_PRNG *rnd, T44Mixer *m, int kb, int
 
 		//predict from bit context
 		if(cp[i])
+		{
+			//if(*cp[i]>=sm[i].N)//
+			//	LOG_ERROR("state error");
+
 			result+=t44_mix2(m, *cp[i], sm+i, bit);
+		}
 		else
 			t44_mix2(m, 0, sm+i, bit);
 	}
-	if(!kb)
+	if(bpos==7)
 		cm->cn=0;
 	return result;
 }
@@ -691,13 +717,13 @@ typedef struct T44StateStruct
 	T44_APM1 a[7];
 
 	//contextModel2()
-	T44ContextMap cm2;
+	//T44ContextMap cm2;
 	//T44RunContextMap rcm[3];
 	T44Mixer *m;
-	unsigned cxt[16];
+	//unsigned cxt[16];
 
 	//matchModel()
-	ArrayHandle t;//hash table of pointers to contexts
+	ArrayHandle t;//<int>		hash table of pointers to contexts
 	int
 		h,//hash of last 7 bytes
 		ptr,//points to next byte of match if any
@@ -710,10 +736,16 @@ typedef struct T44StateStruct
 	T44ContextMap cm;
 	T44_PRNG rnd;
 
+	size_t bitidx;//absolute index of the next bit being predicted
+	int bpos;//bits in c0 (0 to 7)
+	int col;//bit idx (0 to 23)
 	int c0;//partially decoded byte
 	int pr;//next prediction
+
+	int decode;
+	int w3, iw, ih;
 } T44State;
-static void t44_state_init(T44State *state)
+static void t44_state_init(T44State *state, int iw, int ih, int decode)
 {
 	//Predictor::update()
 	t44_apm1_init(state->a+0, 256);
@@ -725,7 +757,7 @@ static void t44_state_init(T44State *state)
 	t44_apm1_init(state->a+6, 0x10000);
 	
 	//contextModel2()
-	t44_cm_init(&state->cm2, T44_MEM*32, 9);
+	//t44_cm_init(&state->cm2, T44_MEM*32, 9);
 	//t44_rcm_init(state->rcm+0, T44_MEM);
 	//t44_rcm_init(state->rcm+1, T44_MEM);
 	//t44_rcm_init(state->rcm+2, T44_MEM);
@@ -752,15 +784,23 @@ static void t44_state_init(T44State *state)
 	t44_scm_init(state->scm+8, SC*2);
 	t44_scm_init(state->scm+9, 512);
 	t44_cm_init(&state->cm, T44_MEM*4, 13);
+	t44_rnd_init(&state->rnd);
+	state->bitidx=0;
+	state->bpos=0;
+	state->col=0;
 	state->c0=1;
 	state->pr=2048;
+	state->decode=decode;
+	state->w3=3*iw;
+	state->iw=iw;
+	state->ih=ih;
 }
 static void t44_state_clear(T44State *state)
 {
 	for(int k=0;k<_countof(state->a);++k)
 		t44_apm1_clear(state->a+k);
 
-	t44_cm_clear(&state->cm2);
+	//t44_cm_clear(&state->cm2);
 	//for(int k=0;k<_countof(state->rcm);++k)
 	//	t44_rcm_clear(state->rcm+k);
 	t44_mixer_free(state->m);
@@ -774,12 +814,14 @@ static void t44_state_clear(T44State *state)
 }
 #define T44_MAXLEN 65534//longest allowed match + 1
 #define LOAD2(IDX) ((IDX)>=0?buf[IDX]:0)
+//#define LOADU(IDX) ((IDX)>=0?buf[IDX]+128:0)
 #define LOADU(IDX) ((IDX)>=0?buf[IDX]&0xFF:0)
-static void t44_matchModel(T44State *state, int idx, int kb, const char *buf, int c0, int bit)//finds the longest matching context and returns its length
+static void t44_matchModel(T44State *state, const char *buf, int c0, int bit)//finds the longest matching context and returns its length
 {
 	int *t=(int*)array_at(&state->t, 0);
 	int tsize_m1=(int)state->t->count-1;
-	if(kb==7)
+	int idx=(int)(state->bitidx>>3);
+	if(!state->bpos)
 	{
 		state->h=(state->h*997*8+LOADU(idx-1)+1)&tsize_m1;//update context hash
 		if(state->len)
@@ -789,7 +831,7 @@ static void t44_matchModel(T44State *state, int idx, int kb, const char *buf, in
 			state->ptr=t[state->h];
 			if(state->ptr && idx-state->ptr<T44_MEM)//just for compatibility with paq8pxd
 			{
-				for(;state->ptr-(state->len+1)>0 && LOADU(idx-(state->len+1))==LOADU(state->ptr-(state->len+1)) && state->len<T44_MAXLEN;++state->len);
+				for(;state->ptr-(state->len+1)>=0 && LOADU(idx-(state->len+1))==LOADU(state->ptr-(state->len+1)) && state->len<T44_MAXLEN;++state->len);
 			}
 		}
 		t[state->h]=idx;
@@ -799,18 +841,18 @@ static void t44_matchModel(T44State *state, int idx, int kb, const char *buf, in
 	}
 	if(state->len)
 	{
-		if(LOADU(idx-1)==LOADU(state->ptr-1) && c0==(LOADU(state->ptr))>>(8-(7-kb)))
+		if(LOADU(idx-1)==LOADU(state->ptr-1) && c0==(LOADU(state->ptr)+256)>>(8-state->bpos))
 		{
 			if(state->len>T44_MAXLEN)
 				state->len=T44_MAXLEN;
-			if(LOADU(state->ptr)>>kb&1)
+			if(LOADU(state->ptr)>>(7-state->bpos)&1)
 			{
-				t44_mixer_add(state->m, ilog(state->len)<<2);
+				t44_mixer_add(state->m, t44_ilog(state->len)<<2);
 				t44_mixer_add(state->m, MINVAR(state->len, 32)<<6);
 			}
 			else
 			{
-				t44_mixer_add(state->m, -(ilog(state->len)<<2));
+				t44_mixer_add(state->m, -(t44_ilog(state->len)<<2));
 				t44_mixer_add(state->m, -(MINVAR(state->len, 32)<<6));
 			}
 		}
@@ -828,48 +870,58 @@ static void t44_matchModel(T44State *state, int idx, int kb, const char *buf, in
 	}
 	t44_scm_mix(&state->scm1, state->m, 7, c0, bit);
 }
-static void t44_update(T44State *state, int iw, int ih, int kx, int ky, short kc, short kb, int bit, const char *buf)
+static void t44_update(T44State *state, int bit, char *buf)
 {
 	//start of Predictor::update()
-	int idx=3*(iw*ky+kx)+kc;
-	if(kb)
+	//int idx=3*(iw*ky+kx)+kc;
+
+	//if(idx==9&&kb==7)//
+	//	printf("");
+	
+	++state->bitidx;
+	++state->bpos;
+	state->bpos&=7;
+	int idx=(int)(state->bitidx>>3), kc=idx%3;
+	state->c0<<=1;
+	state->c0|=bit;
+	if(state->c0>=256)
 	{
-		state->c0<<=1;
-		state->c0|=bit;
-	}
-	else
+		if(state->decode)
+			buf[idx]=state->col&0xFF;
 		state->c0=1;
+	}
 
 	//start of contextModel2()
 	t44_mixer_update(state->m, bit);
 	t44_mixer_add(state->m, 256);
-	t44_matchModel(state, idx, kb, buf, state->c0, bit);
+	t44_matchModel(state, buf, state->c0, bit);
+	//t44_mixer_add(state->m, 0);
+	//t44_mixer_add(state->m, 0);
 
 	//start of im24bitModel()
-	if(kb==7)
+	if(!state->bpos)
 	{
-		int p1=(kc+1)%3, p2=(kc+2)%3;
-#define LOAD(C, X, Y) ((unsigned)(kx+(X))<(unsigned)iw&&(unsigned)(ky+(Y))<(unsigned)ih?buf[3*(iw*(ky+(Y))+kx+(X))+(C)]&0xFF:0)
+#define LOAD(C, X, Y) LOADU(idx+(Y)*state->w3+3*(X)+(C))
 		unsigned char
-			NNWW=LOAD(kc, -2, -2),
-			NN  =LOAD(kc,  0, -2),
-			NNE =LOAD(kc,  1, -2),
-			NNEE=LOAD(kc,  2, -2),
-			NW  =LOAD(kc, -1, -1),
-			NWp2=LOAD(p2, -1, -1),
-			N   =LOAD(kc,  0, -1),
-			Np1 =LOAD(p1,  0, -1),
-			NE  =LOAD(kc,  1, -1),
-			WW  =LOAD(kc, -2,  0),
-			WWp2=LOAD(p2, -2,  0),
-			W   =LOAD(kc, -1,  0),
-			Wp1 =LOAD(p1, -1,  0),
-			Wp2 =LOAD(p2, -1,  0);
+			NNWW=LOAD(0, -2, -2),
+			NN  =LOAD(0,  0, -2),
+			NNE =LOAD(0,  1, -2),
+			NNEE=LOAD(0,  2, -2),
+			NW  =LOAD(0, -1, -1),
+			NWp2=LOAD(2, -1, -1),
+			N   =LOAD(0,  0, -1),
+			Np1 =LOAD(1,  0, -1),
+			NE  =LOAD(0,  1, -1),
+			WW  =LOAD(0, -2,  0),
+			WWp2=LOAD(2, -2,  0),
+			W   =LOAD(0, -1,  0),
+			Wp1 =LOAD(1, -1,  0),
+			Wp2 =LOAD(2, -1,  0);
 #undef  LOAD
 		int mean=W+NE+N+NW;
 		int var=(SQ(W)+SQ(NE)+SQ(N)+SQ(NW)-SQ(mean)/4)>>2;
 		mean>>=2;
-		int logvar=ilog(var), i=(kc+1)%3<<4;
+		int logvar=t44_ilog(var), i=kc%3<<4;
 		t44_cm_set(&state->cm, t44_hash(++i, W, -1, -1, -1));
 		t44_cm_set(&state->cm, t44_hash(++i, W, Wp2, -1, -1));
 		t44_cm_set(&state->cm, t44_hash(++i, W, Wp2, Wp1, -1));
@@ -878,7 +930,7 @@ static void t44_update(T44State *state, int iw, int ih, int kx, int ky, short kc
 		t44_cm_set(&state->cm, t44_hash(++i, N, Wp2, Wp1, -1));
 		t44_cm_set(&state->cm, t44_hash(++i, (W+N)/8, Wp2/16, Wp1/16, -1));
 		t44_cm_set(&state->cm, t44_hash(++i, Wp2, Wp1, -1, -1));
-		t44_cm_set(&state->cm, t44_hash(++i, Wp2-WWp2, -1, -1, -1));
+		t44_cm_set(&state->cm, t44_hash(++i, W, Wp2-WWp2, -1, -1));
 		t44_cm_set(&state->cm, t44_hash(++i, W+Wp2-WWp2, -1, -1, -1));
 		t44_cm_set(&state->cm, t44_hash(++i, N, Wp2-NWp2, -1, -1));
 		t44_cm_set(&state->cm, t44_hash(++i, N+Wp2-NWp2, -1, -1, -1));
@@ -894,6 +946,8 @@ static void t44_update(T44State *state, int iw, int ih, int kx, int ky, short kc
 		t44_scm_set(state->scm+8, mean>>1|(logvar<<1&0x180));
 	}
 	//Predict next bit
+	if(++state->col>=24)
+		state->col=0;
 	t44_scm_mix(state->scm+0, state->m, 7, state->c0, bit);
 	t44_scm_mix(state->scm+1, state->m, 7, state->c0, bit);
 	t44_scm_mix(state->scm+2, state->m, 7, state->c0, bit);
@@ -904,9 +958,9 @@ static void t44_update(T44State *state, int iw, int ih, int kx, int ky, short kc
 	t44_scm_mix(state->scm+7, state->m, 7, state->c0, bit);
 	t44_scm_mix(state->scm+8, state->m, 7, state->c0, bit);
 	t44_scm_mix(state->scm+9, state->m, 7, state->c0, bit);
-	t44_cm_mix(&state->cm, &state->rnd, state->m, kb, LOADU(idx-1), state->c0, bit);
+	t44_cm_mix(&state->cm, &state->rnd, state->m, state->bpos, LOADU(idx-1), state->c0, bit, idx);
 	t44_mixer_set(state->m, 2, 8);
-	t44_mixer_set(state->m, kc<<8|kb, 24);
+	t44_mixer_set(state->m, state->col, 24);
 	t44_mixer_set(state->m, 3*(LOADU(idx-1)>>4)+kc, 48);
 	t44_mixer_set(state->m, state->c0, 256);
 	//end of im24bitModel()
@@ -949,7 +1003,7 @@ int t44_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	memcpy(buf, src, (size_t)res<<2);
 	addbuf((unsigned char*)buf, iw, ih, 3, 4, 128);
 	//colortransform_ycmcb_fwd(buf, iw, ih);
-	colortransform_subgreen_fwd(buf, iw, ih);
+	//colortransform_subgreen_fwd(buf, iw, ih);
 	pack3_fwd(buf, res);
 	
 	DList list;
@@ -960,27 +1014,37 @@ int t44_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	
 	double csizes[24]={0};
 
+	//int debug_p1[24];//
+	//for(int k=0;k<24;++k)//
+	//	debug_p1[k]=0;
+
 	T44State state;
-	t44_state_init(&state);
+	t44_state_init(&state, iw, ih, 0);
 	for(int ky=0, idx=0;ky<ih;++ky)
 	{
 		for(int kx=0;kx<iw;++kx)
 		{
 			for(short kc=0;kc<3;++kc, ++idx)
 			{
+				//if(idx==1)//
+				//	printf("");
+
 				for(short kb=7;kb>=0;--kb)
 				{
+					//debug_p1[kc<<8|kb]=state.pr;//
+
 					int p0=0x10000-(state.pr<<4);
 					p0=CLAMP(1, p0, 0xFFFF);
 
-					int bit=buf[idx]>>kb&1;
+					int bit=(buf[idx]-128)>>kb&1;
 					abac_enc(&ec, p0, bit);
 					
 					int prob=bit?0x10000-p0:p0;//
 					double bitsize=-log2((double)prob*(1./0x10000));
 					csizes[kc<<3|kb]+=bitsize;//
+					//printf("C%d B%d %s 0x%04X, bit %d\n", kc, kb, prob<0x8000?"MISS":" hit", p0, bit);//
 
-					t44_update(&state, iw, ih, kx, ky, kc, kb, bit, buf);
+					t44_update(&state, bit, buf);
 				}
 			}
 		}
@@ -1035,7 +1099,7 @@ int t44_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 	abac_dec_init(&ec, data, data+srclen);
 	
 	T44State state;
-	t44_state_init(&state);
+	t44_state_init(&state, iw, ih, 1);
 	for(int ky=0, idx=0;ky<ih;++ky)
 	{
 		for(int kx=0;kx<iw;++kx)
@@ -1048,10 +1112,11 @@ int t44_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 					p0=CLAMP(1, p0, 0xFFFF);
 					
 					int bit=abac_dec(&ec, p0);
-					buf[idx]|=bit<<kb;
+					//buf[idx]|=bit<<kb;
 					
-					t44_update(&state, iw, ih, kx, ky, kc, kb, bit, buf);
+					t44_update(&state, bit, buf);
 				}
+				buf[idx]+=128;
 			}
 		}
 		if(loud)
@@ -1059,7 +1124,7 @@ int t44_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 	}
 	pack3_inv(buf, res);
 	//colortransform_ycmcb_inv((char*)buf, iw, ih);
-	colortransform_subgreen_inv(buf, iw, ih);
+	//colortransform_subgreen_inv(buf, iw, ih);
 	addbuf(buf, iw, ih, 3, 4, 128);
 	if(loud)
 	{

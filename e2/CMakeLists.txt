@@ -20,18 +20,19 @@ link_directories(
 
 
 add_executable(e2
-	"e2.c"
-	"format.c"
-	"lodepng.c"
-	"slic.c"
-	"slic2.c"
-	"tests.c"
-	"tests2.c"
-	"transforms.c"
-	"transforms_cpu.c"
-	"transforms_ocl.c"
-	"transforms_vk.c"
-	"util.c"
+	e2.c
+	format.c
+	lodepng.c
+	slic.c
+	slic2.c
+	tests.c
+	tests2.c
+	tests3.c
+	transforms.c
+	transforms_cpu.c
+	transforms_ocl.c
+	transforms_vk.c
+	util.c
 )
 #target_link_libraries(e2 OpenCL::OpenCL)
 
