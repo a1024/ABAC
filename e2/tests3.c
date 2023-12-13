@@ -869,7 +869,7 @@ static void t44_matchModel(T44State *state, const char *buf, int c0, int bit)//f
 	}
 	t44_scm_mix(&state->scm1, state->m, 7, c0, bit);
 }
-static void t44_update(T44State *state, int bit, char *buf)
+static void t44_update(T44State *state, int bit, const char *buf)
 {
 	//start of Predictor::update()
 	//int idx=3*(iw*ky+kx)+kc;
@@ -877,18 +877,20 @@ static void t44_update(T44State *state, int bit, char *buf)
 	//if(idx==9&&kb==7)//
 	//	printf("");
 	
-	++state->bitidx;
-	++state->bpos;
-	state->bpos&=7;
-	int idx=(int)(state->bitidx>>3), kc=idx%3;
 	state->c0<<=1;
 	state->c0|=bit;
 	if(state->c0>=256)
 	{
-		if(state->decode)
-			buf[idx]=state->col&0xFF;
+		if((buf[state->bitidx>>3]&0xFF)!=(state->c0&0xFF))
+			LOG_ERROR("Decode error");
+		//if(state->decode)
+		//	buf[state->bitidx>>3]=state->c0&0xFF;
 		state->c0=1;
 	}
+	++state->bitidx;
+	++state->bpos;
+	state->bpos&=7;
+	int idx=(int)(state->bitidx>>3), kc=idx%3;
 
 	//start of contextModel2()
 	t44_mixer_update(state->m, bit);
@@ -985,6 +987,8 @@ static void t44_update(T44State *state, int bit, char *buf)
 }
 #undef  LOAD2
 #undef  LOADU
+
+//#define DEBUG_ENC
 int t44_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud)
 {
 	double t_start=time_sec();
@@ -1017,6 +1021,18 @@ int t44_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	//int debug_p1[24];//
 	//for(int k=0;k<24;++k)//
 	//	debug_p1[k]=0;
+	
+#ifdef DEBUG_ENC
+	T44State state2;//
+	t44_state_init(&state2, iw, ih, 1);//
+	char *debugbuf=(char*)malloc((size_t)res<<4);
+	if(!debugbuf)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	memset(debugbuf, 0, (size_t)res<<4);
+#endif
 
 	T44State state;
 	t44_state_init(&state, iw, ih, 0);
@@ -1031,6 +1047,10 @@ int t44_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 
 				for(short kb=7;kb>=0;--kb)
 				{
+#ifdef DEBUG_ENC
+					if(state.pr!=state2.pr)
+						LOG_ERROR("");
+#endif
 					//debug_p1[kc<<8|kb]=state.pr;//
 
 					int p0=0x10000-(state.pr<<4);
@@ -1045,6 +1065,10 @@ int t44_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 					//printf("C%d B%d %s 0x%04X, bit %d\n", kc, kb, prob<0x8000?"MISS":" hit", p0, bit);//
 
 					t44_update(&state, bit, buf);
+#ifdef DEBUG_ENC
+					debugbuf[idx]|=bit<<kb;
+					t44_update(&state2, bit, debugbuf);
+#endif
 				}
 			}
 		}
@@ -1089,6 +1113,9 @@ int t44_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	t44_state_clear(&state);
 	dlist_clear(&list);
 	free(buf);
+#ifdef DEBUG_ENC
+	free(debugbuf);
+#endif
 	return 1;
 }
 int t44_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud)
@@ -1097,6 +1124,8 @@ int t44_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 	int res=iw*ih;
 	ABACDecoder ec;
 	abac_dec_init(&ec, data, data+srclen);
+
+	memset(buf, 0, (size_t)res<<2);//
 	
 	T44State state;
 	t44_state_init(&state, iw, ih, 1);
@@ -1112,7 +1141,7 @@ int t44_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 					p0=CLAMP(1, p0, 0xFFFF);
 					
 					int bit=abac_dec(&ec, p0);
-					//buf[idx]|=bit<<kb;
+					buf[idx]|=bit<<kb;
 					
 					t44_update(&state, bit, buf);
 				}

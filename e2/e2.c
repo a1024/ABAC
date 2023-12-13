@@ -749,13 +749,14 @@ int main(int argc, char **argv)
 	//fn="C:/Projects/datasets/CLIC11-small4.PNG";
 	//fn="C:/Projects/datasets/dataset-CLIC30/11.png";
 	//fn="C:/Projects/datasets/dataset-kodak";
-	fn="C:/Projects/datasets/dataset-kodak/kodim13.png";
+//	fn="C:/Projects/datasets/dataset-kodak/kodim13.png";
 
 	//fn="D:/ML/dataset-CLIC30";
 	//fn="D:/ML/dataset-kodak";
 	//fn="D:/ML/dataset-CLIC30/16.png";//hardest noiseless CLIC30 image
 	//fn="D:/ML/dataset-CLIC30/17.png";
-//	fn="D:/ML/dataset-kodak/kodim13.png";
+	//fn="D:/ML/dataset-kodak/kodim13.png";
+	fn="D:/ML/dataset-kodak/kodim18.png";
 	//fn="D:/ML/dataset-kodak-small/13.PNG";
 #endif
 	if(fn||argc==2)
@@ -1192,10 +1193,14 @@ int main(int argc, char **argv)
 	//printf("\n");
 	
 #if 1
+	//int res=iw*ih;
+	//memcpy(b2, buf, (size_t)res<<2);
+	//pack3_fwd(b2, res);
+	//pack3_inv(b2, res);
 	t44_encode(buf, iw, ih, &cdata, 1);
 	t44_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 	array_free(&cdata);
-	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T42", 0);
+	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T44", 0);
 	memset(b2, 0, len);
 	printf("\n");
 #endif
