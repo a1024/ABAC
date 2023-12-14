@@ -305,12 +305,6 @@ typedef struct T44_APM1Struct
 } T44_APM1;
 static void t44_apm1_init(T44_APM1 *apm, int n)
 {
-	//T44_APM1 *apm=(T44_APM1*)malloc(sizeof(T44_APM1));
-	//if(!apm)
-	//{
-	//	LOG_ERROR("Allocation error");
-	//	return 0;
-	//}
 	apm->index=0;
 	apm->N=n;
 	ARRAY_ALLOC(unsigned short, apm->t, 0, 33*n, 0, 0);
@@ -320,7 +314,6 @@ static void t44_apm1_init(T44_APM1 *apm, int n)
 		for(int kx=0;kx<33;++kx)
 			ptr[33*ky+kx]=!ky?t44_squash((kx-16)<<7)<<4:ptr[kx];
 	}
-	//return apm;
 }
 static void t44_apm1_clear(T44_APM1 *apm)
 {
@@ -338,93 +331,6 @@ static int t44_apm1_predict(T44_APM1 *apm, int pr, int cxt, int rate, int bit)
 	apm->index=((pr+2048)>>7)+cxt*33;
 	return (t[apm->index]*(128-w)+t[apm->index+1]*w) >> 11;
 }
-#if 0
-#define T44_M 8
-#define T44_B 4
-typedef struct T44_BHStruct
-{
-	ArrayHandle t;//<unsigned char>		elements
-	unsigned n;
-} T44_BH;
-static void t44_bh_init(T44_BH *bh, int i)
-{
-	ARRAY_ALLOC(unsigned char, bh->t, 0, i*T44_B, 0, 0);
-	bh->n=i-1;
-	assert(T44_B>=2 && i>0 && (i&(i-1))==0); // size a power of 2?
-}
-static void t44_bh_clear(T44_BH *bh)
-{
-	array_free(&bh->t);
-}
-static unsigned char* t44_bh_at(T44_BH *bh, unsigned i)
-{
-	unsigned char *t=(unsigned char*)array_at(&bh->t, 0);
-	unsigned short chk=(i>>16^i)&0xFFFF;
-	unsigned char *p;
-	unsigned short *cp;
-	i=i*T44_M&bh->n;
-	int j;
-	for (j=0;j<T44_M;++j)
-	{
-		p=&t[(i+j)*T44_B];
-		cp=(unsigned short*)p;
-		if(p[2]==0)
-		{
-			*cp=chk;
-			break;
-		}
-		if (*cp==chk)
-			break;//found
-	}
-	if(j==0)//front
-		return p+1;
-	static unsigned char tmp[T44_B];//element to move to front
-	if (j==T44_M)
-	{
-		--j;
-		memset(tmp, 0, T44_B);
-		memmove(tmp, &chk, 2);
-		if (T44_M>2 && t[(i+j)*T44_B+2]>t[(i+j-1)*T44_B+2])
-			--j;
-	}
-	else
-		memcpy(tmp, cp, T44_B);
-	memmove(&t[(i+1)*T44_B], &t[i*T44_B], j*T44_B);
-	memcpy(&t[i*T44_B], tmp, T44_B);
-	return &t[i*T44_B+1];
-}
-typedef struct T44RunContextMapStruct
-{
-	T44_BH t;
-	unsigned char *cp;
-} T44RunContextMap;
-static void t44_rcm_init(T44RunContextMap *rcm, int m)
-{
-	t44_bh_init(&rcm->t, m/4);
-	rcm->cp=t44_bh_at(&rcm->t, 0)+1;
-}
-#define t44_rcm_clear(RCM) t44_bh_clear(&(RCM)->t)
-static void t44_rcm_set(T44RunContextMap *rcm, unsigned cx, int prev_Wp2)//update count
-{
-	if(!rcm->cp[0] || rcm->cp[1]!=prev_Wp2)
-		rcm->cp[0]=1, rcm->cp[1]=prev_Wp2;
-	else if(rcm->cp[0]<255)
-		++rcm->cp[0];
-	rcm->cp=t44_bh_at(&rcm->t, cx)+1;
-}
-static int t44_rcm_predict(T44RunContextMap *rcm, int kb, int c0)//predict next bit
-{
-	if ((rcm->cp[1]+256)>>(8-(7-kb))==c0)
-		return ((rcm->cp[1]>>kb&1)*2-1)*ilog(rcm->cp[0]+1)<<3;
-	return 0;
-}
-static int t44_rcm_mix(T44RunContextMap *rcm, T44Mixer *m, int kb, int c0)
-{
-	int p=t44_rcm_predict(rcm, kb, c0);
-	t44_mixer_add(m, p);
-	return rcm->cp[0]!=0;
-}
-#endif
 typedef struct T44SmallStationaryContextMapStruct
 {
 	ArrayHandle t;//<unsigned short>
@@ -536,12 +442,6 @@ typedef struct T44ContextMapStruct
 } T44ContextMap;
 static void t44_cm_init(T44ContextMap *cm, int m, int c)//Construct using m bytes of memory for c contexts
 {
-	//T44ContextMap *cm=(T44ContextMap*)malloc(sizeof(T44ContextMap));
-	//if(!cm)
-	//{
-	//	LOG_ERROR("Allcation error");
-	//	return 0;
-	//}
 	cm->C=c;
 	cm->cn=0;
 	ARRAY_ALLOC(T44HashElem, cm->t, 0, m>>6, 0, 0);
@@ -564,7 +464,6 @@ static void t44_cm_init(T44ContextMap *cm, int m, int c)//Construct using m byte
 		cp0[k]=cp[k]=h->bh[0];
 		runp[k]=cp[k]+3;
 	}
-	//return cm;
 }
 static void t44_cm_clear(T44ContextMap *cm)
 {
@@ -577,7 +476,6 @@ static void t44_cm_clear(T44ContextMap *cm)
 	for(int k=0;k<(int)cm->sm->count;++k)
 		t44_sm_clear(sm+k);
 	array_free(&cm->sm);
-	//free(cm);
 }
 static void t44_cm_set(T44ContextMap *cm, unsigned cx)
 {
@@ -605,9 +503,6 @@ static int t44_mix2(T44Mixer *m, int s, T44StateMap *sm, int bit)
 }
 static int t44_cm_mix(T44ContextMap *cm, T44_PRNG *rnd, T44Mixer *m, int bpos, int prev, int c0, int bit, int debug_idx)
 {
-	//if(debug_idx==9&&kb==7)//
-	//	printf("");
-
 	int result=0;
 	for(int i=0;i<cm->cn;++i)
 	{
@@ -646,40 +541,32 @@ static int t44_cm_mix(T44ContextMap *cm, T44_PRNG *rnd, T44Mixer *m, int bpos, i
 				cp0[i]=cp[i]=t44_hash_get(t+((cxt[i]+c0)&tsize_m1), cxt[i]>>16, 0);
 				break;
 			default:
+				cp0[i]=cp[i]=t44_hash_get(t+((cxt[i]+c0)&tsize_m1), cxt[i]>>16, sm[i].N);
+
+				//Update pending bit histories for bits 2-7
+				if (cp0[i][3]==2)
 				{
-					//if(debug_idx==9&&kb==7&&i==3)//
-					//	printf("");
-
-					cp0[i]=cp[i]=t44_hash_get(t+((cxt[i]+c0)&tsize_m1), cxt[i]>>16, sm[i].N);
-					
-					if(cp[i]&&*cp[i]>=sm[i].N)//
-						LOG_ERROR("state error");
-
-					//Update pending bit histories for bits 2-7
-					if (cp0[i][3]==2)
-					{
-						const int c=cp0[i][4]+256;
-						unsigned char *p=t44_hash_get(t+((cxt[i]+(c>>6))&tsize_m1), cxt[i]>>16, 0);
-						p[0]=1+((c>>5)&1);
-						p[1+((c>>5)&1)]=1+((c>>4)&1);
-						p[3+((c>>4)&3)]=1+((c>>3)&1);
-						p=t44_hash_get(t+((cxt[i]+(c>>3))&tsize_m1), cxt[i]>>16, 0);
-						p[0]=1+((c>>2)&1);
-						p[1+((c>>2)&1)]=1+((c>>1)&1);
-						p[3+((c>>1)&3)]=1+(c&1);
-						cp0[i][6]=0;
-					}
-					//Update run count of previous context
-					if (runp[i][0]==0)  // new context
-						runp[i][0]=2, runp[i][1]=prev;
-					else if (runp[i][1]!=prev)  // different byte in context
-						runp[i][0]=1, runp[i][1]=prev;
-					else if (runp[i][0]<254)  // same byte in context
-						runp[i][0]+=2;
-					else if (runp[i][0]==255)
-						runp[i][0]=128;
-					runp[i]=cp0[i]+3;
+					const int c=cp0[i][4]+256;
+					unsigned char *p=t44_hash_get(t+((cxt[i]+(c>>6))&tsize_m1), cxt[i]>>16, 0);
+					p[0]=1+((c>>5)&1);
+					p[1+((c>>5)&1)]=1+((c>>4)&1);
+					p[3+((c>>4)&3)]=1+((c>>3)&1);
+					p=t44_hash_get(t+((cxt[i]+(c>>3))&tsize_m1), cxt[i]>>16, 0);
+					p[0]=1+((c>>2)&1);
+					p[1+((c>>2)&1)]=1+((c>>1)&1);
+					p[3+((c>>1)&3)]=1+(c&1);
+					cp0[i][6]=0;
 				}
+				//Update run count of previous context
+				if (runp[i][0]==0)  // new context
+					runp[i][0]=2, runp[i][1]=prev;
+				else if (runp[i][1]!=prev)  // different byte in context
+					runp[i][0]=1, runp[i][1]=prev;
+				else if (runp[i][0]<254)  // same byte in context
+					runp[i][0]+=2;
+				else if (runp[i][0]==255)
+					runp[i][0]=128;
+				runp[i]=cp0[i]+3;
 				break;
 			}
 		}
@@ -716,10 +603,7 @@ typedef struct T44StateStruct
 	T44_APM1 a[7];
 
 	//contextModel2()
-	//T44ContextMap cm2;
-	//T44RunContextMap rcm[3];
 	T44Mixer *m;
-	//unsigned cxt[16];
 
 	//matchModel()
 	ArrayHandle t;//<int>		hash table of pointers to contexts
@@ -756,10 +640,6 @@ static void t44_state_init(T44State *state, int iw, int ih, int decode)
 	t44_apm1_init(state->a+6, 0x10000);
 	
 	//contextModel2()
-	//t44_cm_init(&state->cm2, T44_MEM*32, 9);
-	//t44_rcm_init(state->rcm+0, T44_MEM);
-	//t44_rcm_init(state->rcm+1, T44_MEM);
-	//t44_rcm_init(state->rcm+2, T44_MEM);
 	state->m=t44_mixer_alloc(845+80, 3095, 7, 0);
 	
 	//matchModel()
@@ -799,9 +679,6 @@ static void t44_state_clear(T44State *state)
 	for(int k=0;k<_countof(state->a);++k)
 		t44_apm1_clear(state->a+k);
 
-	//t44_cm_clear(&state->cm2);
-	//for(int k=0;k<_countof(state->rcm);++k)
-	//	t44_rcm_clear(state->rcm+k);
 	t44_mixer_free(state->m);
 
 	array_free(&state->t);
@@ -812,8 +689,6 @@ static void t44_state_clear(T44State *state)
 	t44_cm_clear(&state->cm);
 }
 #define T44_MAXLEN 65534//longest allowed match + 1
-#define LOAD2(IDX) ((IDX)>=0?buf[IDX]:0)
-//#define LOADU(IDX) ((IDX)>=0?buf[IDX]+128:0)
 #define LOADU(IDX) ((IDX)>=0?buf[IDX]&0xFF:0)
 static void t44_matchModel(T44State *state, const char *buf, int c0, int bit)//finds the longest matching context and returns its length
 {
@@ -872,11 +747,6 @@ static void t44_matchModel(T44State *state, const char *buf, int c0, int bit)//f
 static void t44_update(T44State *state, int bit, const char *buf)
 {
 	//start of Predictor::update()
-	//int idx=3*(iw*ky+kx)+kc;
-
-	//if(idx==9&&kb==7)//
-	//	printf("");
-	
 	state->c0<<=1;
 	state->c0|=bit;
 	if(state->c0>=256)
@@ -896,8 +766,6 @@ static void t44_update(T44State *state, int bit, const char *buf)
 	t44_mixer_update(state->m, bit);
 	t44_mixer_add(state->m, 256);
 	t44_matchModel(state, buf, state->c0, bit);
-	//t44_mixer_add(state->m, 0);
-	//t44_mixer_add(state->m, 0);
 
 	//start of im24bitModel()
 	if(!state->bpos)
@@ -985,10 +853,7 @@ static void t44_update(T44State *state, int bit, const char *buf)
 	state->pr=(state->pr+pr0+1)>>1;
 	//end of Predictor::update()
 }
-#undef  LOAD2
 #undef  LOADU
-
-//#define DEBUG_ENC
 int t44_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud)
 {
 	double t_start=time_sec();
@@ -1007,7 +872,6 @@ int t44_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	memcpy(buf, src, (size_t)res<<2);
 	addbuf((unsigned char*)buf, iw, ih, 3, 4, 128);
 	colortransform_ycmcb_fwd(buf, iw, ih);
-	//colortransform_subgreen_fwd(buf, iw, ih);
 	pack3_fwd(buf, res);
 	
 	DList list;
@@ -1018,22 +882,6 @@ int t44_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	
 	double csizes[24]={0};
 
-	//int debug_p1[24];//
-	//for(int k=0;k<24;++k)//
-	//	debug_p1[k]=0;
-	
-#ifdef DEBUG_ENC
-	T44State state2;//
-	t44_state_init(&state2, iw, ih, 1);//
-	char *debugbuf=(char*)malloc((size_t)res<<4);
-	if(!debugbuf)
-	{
-		LOG_ERROR("Allocation error");
-		return 0;
-	}
-	memset(debugbuf, 0, (size_t)res<<4);
-#endif
-
 	T44State state;
 	t44_state_init(&state, iw, ih, 0);
 	for(int ky=0, idx=0;ky<ih;++ky)
@@ -1042,17 +890,8 @@ int t44_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 		{
 			for(short kc=0;kc<3;++kc, ++idx)
 			{
-				//if(idx==1)//
-				//	printf("");
-
 				for(short kb=7;kb>=0;--kb)
 				{
-#ifdef DEBUG_ENC
-					if(state.pr!=state2.pr)
-						LOG_ERROR("");
-#endif
-					//debug_p1[kc<<8|kb]=state.pr;//
-
 					int p0=0x10000-(state.pr<<4);
 					p0=CLAMP(1, p0, 0xFFFF);
 
@@ -1062,13 +901,8 @@ int t44_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 					int prob=bit?0x10000-p0:p0;//
 					double bitsize=-log2((double)prob*(1./0x10000));
 					csizes[kc<<3|kb]+=bitsize;//
-					//printf("C%d B%d %s 0x%04X, bit %d\n", kc, kb, prob<0x8000?"MISS":" hit", p0, bit);//
 
 					t44_update(&state, bit, buf);
-#ifdef DEBUG_ENC
-					debugbuf[idx]|=bit<<kb;
-					t44_update(&state2, bit, debugbuf);
-#endif
 				}
 			}
 		}
@@ -1122,10 +956,9 @@ int t44_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 {
 	double t_start=time_sec();
 	int res=iw*ih;
+	memset(buf, 0, (size_t)res<<2);//
 	ABACDecoder ec;
 	abac_dec_init(&ec, data, data+srclen);
-
-	memset(buf, 0, (size_t)res<<2);//
 	
 	T44State state;
 	t44_state_init(&state, iw, ih, 1);
@@ -1152,7 +985,6 @@ int t44_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 	}
 	pack3_inv(buf, res);
 	colortransform_ycmcb_inv((char*)buf, iw, ih);
-	//colortransform_subgreen_inv(buf, iw, ih);
 	addbuf(buf, iw, ih, 3, 4, 128);
 	if(loud)
 	{

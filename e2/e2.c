@@ -441,7 +441,7 @@ void batch_test(const char *path)
 #endif
 
 	//SLIC2
-#if 1
+#if 0
 	{
 		double t_enc=0, t_dec=0;
 
@@ -467,7 +467,7 @@ void batch_test(const char *path)
 #endif
 		
 		//T34+: ABAC + adaptive Bayesian inference
-#if 0
+#if 1
 		{
 			ArrayHandle cdata=0;
 			printf("\n");
@@ -499,11 +499,14 @@ void batch_test(const char *path)
 			//t40_encode(buf, iw, ih, &cdata, 1);
 			//t40_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 
-			t42_encode(buf, iw, ih, &cdata, 1);
-			t42_decode(cdata->data, cdata->count, iw, ih, b2, 1);
+		//	t42_encode(buf, iw, ih, &cdata, 1);//prev record
+		//	t42_decode(cdata->data, cdata->count, iw, ih, b2, 1);//prev record
 
 			//t43_encode(buf, iw, ih, &cdata, 1);
 			//t43_decode(cdata->data, cdata->count, iw, ih, b2, 1);
+
+			t44_encode(buf, iw, ih, &cdata, 1);
+			t44_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 
 			sum_testsize+=cdata->count;
 			if((ptrdiff_t)cdata->count<formatsize)
@@ -749,14 +752,14 @@ int main(int argc, char **argv)
 	//fn="C:/Projects/datasets/CLIC11-small4.PNG";
 	//fn="C:/Projects/datasets/dataset-CLIC30/11.png";
 	//fn="C:/Projects/datasets/dataset-kodak";
-//	fn="C:/Projects/datasets/dataset-kodak/kodim13.png";
+	fn="C:/Projects/datasets/dataset-kodak/kodim13.png";
 
 	//fn="D:/ML/dataset-CLIC30";
 	//fn="D:/ML/dataset-kodak";
 	//fn="D:/ML/dataset-CLIC30/16.png";//hardest noiseless CLIC30 image
 	//fn="D:/ML/dataset-CLIC30/17.png";
 	//fn="D:/ML/dataset-kodak/kodim13.png";
-	fn="D:/ML/dataset-kodak/kodim18.png";
+//	fn="D:/ML/dataset-kodak/kodim18.png";
 	//fn="D:/ML/dataset-kodak-small/13.PNG";
 #endif
 	if(fn||argc==2)
@@ -1177,7 +1180,7 @@ int main(int argc, char **argv)
 	//printf("\n");
 	
 #if 0
-	t42_encode(buf, iw, ih, &cdata, 1);		//current record
+	t42_encode(buf, iw, ih, &cdata, 1);		//prev record
 	t42_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 	array_free(&cdata);
 	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T42", 0);
@@ -1197,7 +1200,7 @@ int main(int argc, char **argv)
 	//memcpy(b2, buf, (size_t)res<<2);
 	//pack3_fwd(b2, res);
 	//pack3_inv(b2, res);
-	t44_encode(buf, iw, ih, &cdata, 1);
+	t44_encode(buf, iw, ih, &cdata, 1);		//current record
 	t44_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 	array_free(&cdata);
 	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T44", 0);

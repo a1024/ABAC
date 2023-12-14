@@ -266,16 +266,21 @@ void colortransform_ycmcb_fwd(char *buf, int iw, int ih)//3 channels, stride 4 b
 		b-=g;   //b-(r+g)/2
 		g+=b>>1;//(r+g)/2+(b-(r+g)/2)/2 = 1/4 r + 1/4 g + 1/2 b
 
-		buf[k  ]=r;//Cm
-		buf[k|1]=g;//Y
-		buf[k|2]=b;//Cb
+		buf[k  ]=g;//Y		hardest to easiest, for CfL effect
+		buf[k|1]=b;//Cb
+		buf[k|2]=r;//Cr
+
+		//buf[k  ]=r;//Cm
+		//buf[k|1]=g;//Y
+		//buf[k|2]=b;//Cb
 	}
 }
 void colortransform_ycmcb_inv(char *buf, int iw, int ih)//3 channels, stride 4 bytes
 {
 	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
 	{
-		char r=buf[k], g=buf[k|1], b=buf[k|2];//Cm Y Cb
+		char g=buf[k], b=buf[k|1], r=buf[k|2];//Y Cb Cr
+		//char r=buf[k], g=buf[k|1], b=buf[k|2];//Cm Y Cb original order
 		
 		g-=b>>1;
 		b+=g;
