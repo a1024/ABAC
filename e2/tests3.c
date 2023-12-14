@@ -150,7 +150,7 @@ int t44_ilog(unsigned short x)
 		initialized=1;
 
 		unsigned x=14155776;
-		for (int i=2;i<65536;++i)
+		for(int i=2;i<65536;++i)
 		{
 			x+=774541002/(i*2-1);//numerator is 2^29/ln 2
 			t[i]=x>>24;
@@ -174,7 +174,7 @@ static unsigned t44_hash(unsigned a, unsigned b, unsigned c, unsigned d, unsigne
 static void t44_train(short *t, short *w, int n, int err)
 {
 	n=(n+7)&-8;
-	for (int i=0;i<n;++i)
+	for(int i=0;i<n;++i)
 	{
 		int wt=w[i]+(((t[i]*err*2>>16)+1)>>1);
 		wt=CLAMP(-32768, wt, 32767);
@@ -287,7 +287,7 @@ static int t44_mixer_predict(T44Mixer *mixer, int bit)
 	if(mixer->mp)//combine outputs
 	{
 		t44_mixer_update(mixer->mp, bit);
-		for (int i=0;i<mixer->ncxt;++i)
+		for(int i=0;i<mixer->ncxt;++i)
 		{
 			pr[i]=t44_squash(t44_dot_product(&tx[0], &wx[cxt[i]*mixer->N], mixer->nx)>>5);
 			t44_mixer_add(mixer->mp, t44_stretch(pr[i]));
@@ -325,8 +325,8 @@ static int t44_apm1_predict(T44_APM1 *apm, int pr, int cxt, int rate, int bit)
 	assert(pr>=0 && pr<4096 && cxt>=0 && cxt<apm->N && rate>0 && rate<32);
 	pr=t44_stretch(pr);
 	int g=(bit<<16)+(bit<<rate)-bit-bit;
-	t[apm->index] += (g-t[apm->index]) >> rate;
-	t[apm->index+1] += (g-t[apm->index+1]) >> rate;
+	t[apm->index]+=(g-t[apm->index])>>rate;
+	t[apm->index+1]+=(g-t[apm->index+1])>>rate;
 	const int w=pr&127;  // interpolation weight (33 points)
 	apm->index=((pr+2048)>>7)+cxt*33;
 	return (t[apm->index]*(128-w)+t[apm->index+1]*w) >> 11;
@@ -382,7 +382,7 @@ static void t44_sm_update(T44StateMap *sm, int limit, int bit)
 	assert(sm->cxt>=0 && sm->cxt<sm->N);
 	unsigned *p=&t[sm->cxt], p0=p[0];
 	int n=p0&1023, pr=p0>>10;//count, prediction
-	if (n<limit)
+	if(n<limit)
 		++p0;
 	else
 		p0=(p0&0xfffffc00)|limit;
@@ -519,7 +519,7 @@ static int t44_cm_mix(T44ContextMap *cm, T44_PRNG *rnd, T44Mixer *m, int bpos, i
 			assert(cp[i]>=&t[0].bh[0][0] && cp[i]<=&t[tsize_m1].bh[6][6]);
 			//assert(((size_t)cp[i]&63)>=15);
 			int ns=nex(*cp[i], bit);
-			if (ns>=204 && t44_rnd(rnd)<<((452-ns)>>3))//probabilistic increment
+			if(ns>=204 && t44_rnd(rnd)<<((452-ns)>>3))//probabilistic increment
 				ns-=4;
 			*cp[i]=ns;
 		}
@@ -544,7 +544,7 @@ static int t44_cm_mix(T44ContextMap *cm, T44_PRNG *rnd, T44Mixer *m, int bpos, i
 				cp0[i]=cp[i]=t44_hash_get(t+((cxt[i]+c0)&tsize_m1), cxt[i]>>16, sm[i].N);
 
 				//Update pending bit histories for bits 2-7
-				if (cp0[i][3]==2)
+				if(cp0[i][3]==2)
 				{
 					const int c=cp0[i][4]+256;
 					unsigned char *p=t44_hash_get(t+((cxt[i]+(c>>6))&tsize_m1), cxt[i]>>16, 0);
@@ -558,13 +558,13 @@ static int t44_cm_mix(T44ContextMap *cm, T44_PRNG *rnd, T44Mixer *m, int bpos, i
 					cp0[i][6]=0;
 				}
 				//Update run count of previous context
-				if (runp[i][0]==0)  // new context
+				if(runp[i][0]==0)  // new context
 					runp[i][0]=2, runp[i][1]=prev;
-				else if (runp[i][1]!=prev)  // different byte in context
+				else if(runp[i][1]!=prev)  // different byte in context
 					runp[i][0]=1, runp[i][1]=prev;
-				else if (runp[i][0]<254)  // same byte in context
+				else if(runp[i][0]<254)  // same byte in context
 					runp[i][0]+=2;
-				else if (runp[i][0]==255)
+				else if(runp[i][0]==255)
 					runp[i][0]=128;
 				runp[i]=cp0[i]+3;
 				break;
@@ -584,12 +584,7 @@ static int t44_cm_mix(T44ContextMap *cm, T44_PRNG *rnd, T44Mixer *m, int bpos, i
 
 		//predict from bit context
 		if(cp[i])
-		{
-			//if(*cp[i]>=sm[i].N)//
-			//	LOG_ERROR("state error");
-
 			result+=t44_mix2(m, *cp[i], sm+i, bit);
-		}
 		else
 			t44_mix2(m, 0, sm+i, bit);
 	}
@@ -614,7 +609,7 @@ typedef struct T44StateStruct
 		result;
 	T44SmallStationaryContextMap scm1;
 
-	//im24bitModel
+	//im24bitModel()
 	T44SmallStationaryContextMap scm[10];
 	T44ContextMap cm;
 	T44_PRNG rnd;
@@ -947,16 +942,13 @@ int t44_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	t44_state_clear(&state);
 	dlist_clear(&list);
 	free(buf);
-#ifdef DEBUG_ENC
-	free(debugbuf);
-#endif
 	return 1;
 }
 int t44_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud)
 {
 	double t_start=time_sec();
 	int res=iw*ih;
-	memset(buf, 0, (size_t)res<<2);//
+	memset(buf, 0, (size_t)res<<2);
 	ABACDecoder ec;
 	abac_dec_init(&ec, data, data+srclen);
 	

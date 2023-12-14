@@ -442,28 +442,28 @@ void batch_test(const char *path)
 
 	//SLIC2
 #if 0
-	{
-		double t_enc=0, t_dec=0;
+		{
+			double t_enc=0, t_dec=0;
 
-		t_enc=time_sec();
-		int retlen=0;
-		unsigned char *data=slic2_encode(iw, ih, 4, 8, buf, &retlen);
-		t_enc=time_sec()-t_enc;
+			t_enc=time_sec();
+			int retlen=0;
+			unsigned char *data=slic2_encode(iw, ih, 4, 8, buf, &retlen);
+			t_enc=time_sec()-t_enc;
 
-		sum_testsize+=retlen;
-		if((ptrdiff_t)retlen<formatsize)
-			printf(" !!!\n");
+			sum_testsize+=retlen;
+			if((ptrdiff_t)retlen<formatsize)
+				printf(" !!!\n");
 
-		int iw2=0, ih2=0, nch2=0, depth2=0;
-		t_dec=time_sec();
-		unsigned char *ret=(unsigned char*)slic2_decode(data, retlen, &iw2, &ih2, &nch2, &depth2, 0, 1);
-		t_dec=time_sec()-t_dec;
+			int iw2=0, ih2=0, nch2=0, depth2=0;
+			t_dec=time_sec();
+			unsigned char *ret=(unsigned char*)slic2_decode(data, retlen, &iw2, &ih2, &nch2, &depth2, 0, 1);
+			t_dec=time_sec()-t_dec;
 
-		printf("\nSLI %8d  CR %lf    Enc %lfsec  Dec %lfsec\n", (int)retlen, iw*ih*3./retlen, t_enc, t_dec);
-		compare_bufs_uint8(ret, buf, iw, ih, 3, 4, "SLI2", 0);
-		free(data);
-		free(ret);
-	}
+			printf("\nSLI %8d  CR %lf    Enc %lfsec  Dec %lfsec\n", (int)retlen, iw*ih*3./retlen, t_enc, t_dec);
+			compare_bufs_uint8(ret, buf, iw, ih, 3, 4, "SLI2", 0);
+			free(data);
+			free(ret);
+		}
 #endif
 		
 		//T34+: ABAC + adaptive Bayesian inference
@@ -493,19 +493,19 @@ void batch_test(const char *path)
 			//t35_encode(buf, iw, ih, &cdata, 1);
 			//t35_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 
-			//t39_encode(buf, iw, ih, &cdata, 1);//prev record
-			//t39_decode(cdata->data, cdata->count, iw, ih, b2, 1);//prev record
+			//t39_encode(buf, iw, ih, &cdata, 1);				//prev record
+			//t39_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 
 			//t40_encode(buf, iw, ih, &cdata, 1);
 			//t40_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 
-		//	t42_encode(buf, iw, ih, &cdata, 1);//prev record
-		//	t42_decode(cdata->data, cdata->count, iw, ih, b2, 1);//prev record
+		//	t42_encode(buf, iw, ih, &cdata, 1);				//prev record
+		//	t42_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 
 			//t43_encode(buf, iw, ih, &cdata, 1);
 			//t43_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 
-			t44_encode(buf, iw, ih, &cdata, 1);
+			t44_encode(buf, iw, ih, &cdata, 1);				//current record
 			t44_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 
 			sum_testsize+=cdata->count;
@@ -752,14 +752,14 @@ int main(int argc, char **argv)
 	//fn="C:/Projects/datasets/CLIC11-small4.PNG";
 	//fn="C:/Projects/datasets/dataset-CLIC30/11.png";
 	//fn="C:/Projects/datasets/dataset-kodak";
-	fn="C:/Projects/datasets/dataset-kodak/kodim13.png";
+//	fn="C:/Projects/datasets/dataset-kodak/kodim13.png";
 
 	//fn="D:/ML/dataset-CLIC30";
 	//fn="D:/ML/dataset-kodak";
 	//fn="D:/ML/dataset-CLIC30/16.png";//hardest noiseless CLIC30 image
 	//fn="D:/ML/dataset-CLIC30/17.png";
 	//fn="D:/ML/dataset-kodak/kodim13.png";
-//	fn="D:/ML/dataset-kodak/kodim18.png";
+	fn="D:/ML/dataset-kodak/kodim18.png";
 	//fn="D:/ML/dataset-kodak-small/13.PNG";
 #endif
 	if(fn||argc==2)
