@@ -87,11 +87,12 @@ typedef enum TransformTypeEnum
 {
 	T_NONE,
 
-	CT_FWD_YCmCb,		CT_INV_YCmCb,
-	CT_FWD_YCoCg,		CT_INV_YCoCg,//HEVC, VVC
-	CT_FWD_SUBG,		CT_INV_SUBG,
-	CT_FWD_YCbCr,		CT_INV_YCbCr,//JPEG
-	CT_FWD_XYB,		CT_INV_XYB,  //JPEG XL
+	CT_FWD_YCbCr_R,		CT_INV_YCbCr_R,
+	CT_FWD_YCoCg_R,		CT_INV_YCoCg_R,	//	(2003) AVC, HEVC, VVC
+	CT_FWD_SUBG,		CT_INV_SUBG,	//	JPEG2000 RCT
+	CT_FWD_YCbCr,		CT_INV_YCbCr,	//LOSSY	JPEG
+	CT_FWD_XYB,		CT_INV_XYB,	//LOSSY	(2021) JPEG XL
+//	CT_FWD_JPEG2000,	CT_INV_JPEG2000,
 //	CT_FWD_XGZ,		CT_INV_XGZ,
 //	CT_FWD_XYZ,		CT_INV_XYZ,
 //	CT_FWD_EXP,		CT_INV_EXP,
@@ -292,16 +293,18 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	switch(tid)
 	{
 	case T_NONE:				a="NONE";				break;
-	case CT_FWD_YCoCg:			a="C  Fwd YCoCg-R";			break;
-	case CT_INV_YCoCg:			a="C  Inv YCoCg-R";			break;
-	case CT_FWD_YCmCb:			a="C  Fwd YCmCb-R";			break;
-	case CT_INV_YCmCb:			a="C  Inv YCmCb-R";			break;
+	case CT_FWD_YCbCr_R:			a="C  Fwd YCbCr-R";			break;
+	case CT_INV_YCbCr_R:			a="C  Inv YCbCr-R";			break;
+	case CT_FWD_YCoCg_R:			a="C  Fwd YCoCg-R";			break;
+	case CT_INV_YCoCg_R:			a="C  Inv YCoCg-R";			break;
 	case CT_FWD_SUBG:			a="C  Fwd SubGreen";			break;
 	case CT_INV_SUBG:			a="C  Inv SubGreen";			break;
 	case CT_FWD_YCbCr:			a="C  Fwd YCbCr";			break;
 	case CT_INV_YCbCr:			a="C  Inv YCbCr";			break;
 	case CT_FWD_XYB:			a="C  Fwd XYB";				break;
 	case CT_INV_XYB:			a="C  Inv XYB";				break;
+//	case CT_FWD_JPEG2000:			a="C  Fwd JPEG2000 RCT";		break;
+//	case CT_INV_JPEG2000:			a="C  Inv JPEG2000 RCT";		break;
 //	case CT_FWD_XGZ:			a="C  Fwd XGZ";				break;
 //	case CT_INV_XGZ:			a="C  Inv XGZ";				break;
 //	case CT_FWD_XYZ:			a="C  Fwd XYZ";				break;
@@ -872,16 +875,18 @@ void update_image()
 			unsigned char tid=transforms->data[k];
 			switch(tid)
 			{
-			case CT_FWD_YCoCg:		colortransform_ycocg_fwd((char*)image, iw, ih);		break;
-			case CT_INV_YCoCg:		colortransform_ycocg_inv((char*)image, iw, ih);		break;
-			case CT_FWD_YCmCb:		colortransform_ycmcb_fwd((char*)image, iw, ih);		break;
-			case CT_INV_YCmCb:		colortransform_ycmcb_inv((char*)image, iw, ih);		break;
+			case CT_FWD_YCoCg_R:		colortransform_YCoCg_R_fwd((char*)image, iw, ih);	break;
+			case CT_INV_YCoCg_R:		colortransform_YCoCg_R_inv((char*)image, iw, ih);	break;
+			case CT_FWD_YCbCr_R:		colortransform_YCbCr_R_fwd((char*)image, iw, ih);	break;
+			case CT_INV_YCbCr_R:		colortransform_YCbCr_R_inv((char*)image, iw, ih);	break;
 			case CT_FWD_SUBG:		colortransform_subg_fwd((char*)image, iw, ih);		break;
 			case CT_INV_SUBG:		colortransform_subg_inv((char*)image, iw, ih);		break;
 			case CT_FWD_YCbCr:		lossy_colortransform_ycbcr((char*)image, iw, ih, 1);	break;
 			case CT_INV_YCbCr:		lossy_colortransform_ycbcr((char*)image, iw, ih, 0);	break;
 			case CT_FWD_XYB:		lossy_colortransform_xyb((char*)image, iw, ih, 1);	break;
 			case CT_INV_XYB:		lossy_colortransform_xyb((char*)image, iw, ih, 0);	break;
+		//	case CT_FWD_JPEG2000:		colortransform_jpeg2000_fwd((char*)image, iw, ih);	break;
+		//	case CT_INV_JPEG2000:		colortransform_jpeg2000_inv((char*)image, iw, ih);	break;
 		//	case CT_FWD_XGZ:		colortransform_xgz_fwd((char*)image, iw, ih);		break;
 		//	case CT_INV_XGZ:		colortransform_xgz_inv((char*)image, iw, ih);		break;
 		//	case CT_FWD_XYZ:		colortransform_xyz_fwd((char*)image, iw, ih);		break;
@@ -1044,8 +1049,11 @@ void update_image()
 	}
 	combCRhist_idx=(combCRhist_idx+1)%combCRhist_SIZE;
 
-	if(!send_image_separate_subpixels(image, iw, ih, image_txid))
-		LOG_ERROR("Failed to send texture to GPU");
+	if(iw<1024&&ih<1024)
+	{
+		if(!send_image_separate_subpixels(image, iw, ih, image_txid))
+			LOG_ERROR("Failed to send texture to GPU");
+	}
 
 	switch(mode)
 	{
@@ -2843,7 +2851,12 @@ toggle_drag:
 			}
 			else
 #endif
-			if(transforms_customenabled)
+			if(transforms_mask[CT_FWD_CUSTOM]||transforms_mask[CT_INV_CUSTOM])
+			{
+				custom_rct_optimize(im0, iw, ih);
+				update_image();
+			}
+			else if(transforms_mask[ST_FWD_CUSTOM]||transforms_mask[ST_INV_CUSTOM])
 			{
 				int res=iw*ih;
 				char *buf2=(char*)malloc((size_t)res<<2);
@@ -2854,7 +2867,7 @@ toggle_drag:
 				}
 				memcpy(buf2, im0, (size_t)res<<2);
 				addhalf((unsigned char*)buf2, iw, ih, 3, 4);
-				colortransform_ycmcb_fwd(buf2, iw, ih);
+				colortransform_YCbCr_R_fwd(buf2, iw, ih);
 				opt_cr2_v2(buf2, iw, ih, customparam_ch_idx/2);
 				free(buf2);
 				update_image();
@@ -2929,7 +2942,7 @@ toggle_drag:
 					}
 					memcpy(buf2, im0, (size_t)res<<2);
 					addhalf((unsigned char*)buf2, iw, ih, 3, 4);
-					colortransform_ycmcb_fwd(buf2, iw, ih);//
+					colortransform_YCbCr_R_fwd(buf2, iw, ih);//
 					//pred_grad_fwd(buf2, iw, ih, 3, 4);//
 //#ifdef ALLOW_OPENCL
 //					if(GET_KEY_STATE(KEY_SHIFT))
@@ -3034,7 +3047,7 @@ toggle_drag:
 					//int idx=press%33;
 					if(jxl)
 					{
-						colortransform_ycmcb_fwd(buf2, iw, ih);
+						colortransform_YCbCr_R_fwd(buf2, iw, ih);
 						pred_jxl_opt_v2(buf2, iw, ih, jxlparams_i16, 0);
 						//for(int idx=0;idx<33;++idx)
 						//{
@@ -3044,7 +3057,7 @@ toggle_drag:
 					}
 					else if(pw2)
 					{
-						colortransform_ycmcb_fwd(buf2, iw, ih);
+						colortransform_YCbCr_R_fwd(buf2, iw, ih);
 						pred_w2_opt_v2(buf2, iw, ih, pw2_params, 0);
 					}
 					else

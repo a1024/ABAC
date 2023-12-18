@@ -41,87 +41,7 @@ void addhalf(unsigned char *buf, int iw, int ih, int nch, int bytestride)
 	}
 }
 
-void colortransform_xgz_fwd(char *buf, int iw, int ih)//3 channels, stride 4 bytes
-{
-	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
-	{
-		char r=buf[k], g=buf[k|1], b=buf[k|2];
-
-		r-=g;
-		b-=g;
-
-		buf[k  ]=r;
-		buf[k|1]=g;
-		buf[k|2]=b;
-	}
-}
-void colortransform_xgz_inv(char *buf, int iw, int ih)//3 channels, stride 4 bytes
-{
-	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
-	{
-		char r=buf[k], g=buf[k|1], b=buf[k|2];
-
-		b+=g;
-		r+=g;
-
-		buf[k  ]=r;
-		buf[k|1]=g;
-		buf[k|2]=b;
-	}
-}
-void colortransform_xyz_fwd(char *buf, int iw, int ih)//3 channels, stride 4 bytes
-{
-	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
-	{
-		char r=buf[k], g=buf[k|1], b=buf[k|2];
-
-		//r-=g;
-		//g+=r>>1;
-		//b-=g;
-		//g+=b>>1;
-
-		r-=b;
-		g-=b;
-		b+=(r+g)>>1;
-
-		buf[k  ]=r;
-		buf[k|1]=g;
-		buf[k|2]=b;
-
-		//buf[k  ]=r-g+128;//XGZ
-		//buf[k|1]=g;
-		//buf[k|2]=b-g+128;
-
-		//buf[k  ]=r;//RYZ
-		//buf[k|1]=g-r+128;
-		//buf[k|2]=b-r+128;
-
-		//buf[k  ]=r-b+128;//XYBdash
-		//buf[k|1]=g-b+128;
-		//buf[k|2]=b;
-	}
-}
-void colortransform_xyz_inv(char *buf, int iw, int ih)//3 channels, stride 4 bytes
-{
-	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
-	{
-		char r=buf[k], g=buf[k|1], b=buf[k|2];
-		
-		//g-=b>>1;
-		//b+=g;
-		//g-=r>>1;
-		//r+=g;
-
-		b-=(r+g)>>1;
-		g+=b;
-		r+=b;
-
-		buf[k  ]=r;
-		buf[k|1]=g;
-		buf[k|2]=b;
-	}
-}
-void colortransform_ycocg_fwd(char *buf, int iw, int ih)//3 channels, stride 4 bytes
+void colortransform_YCoCg_R_fwd(char *buf, int iw, int ih)
 {
 	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
 	{
@@ -137,7 +57,7 @@ void colortransform_ycocg_fwd(char *buf, int iw, int ih)//3 channels, stride 4 b
 		buf[k|2]=b;
 	}
 }
-void colortransform_ycocg_inv(char *buf, int iw, int ih)//3 channels, stride 4 bytes
+void colortransform_YCoCg_R_inv(char *buf, int iw, int ih)
 {
 	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
 	{
@@ -153,23 +73,23 @@ void colortransform_ycocg_inv(char *buf, int iw, int ih)//3 channels, stride 4 b
 		buf[k|2]=b;
 	}
 }
-void colortransform_ycmcb_fwd(char *buf, int iw, int ih)//3 channels, stride 4 bytes
+void colortransform_YCbCr_R_fwd(char *buf, int iw, int ih)//YCbCr-R (originally YCmCb-R)
 {
 	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
 	{
 		char r=buf[k], g=buf[k|1], b=buf[k|2];
 
-		r-=g;       //diff(r, g)            [ 1      -1      0  ].RGB
+		r-=g;		//diff(r, g)            [ 1      -1      0  ].RGB	Cr
 		g+=r>>1;
-		b-=g;       //diff(b, av(r, g))     [-1/2    -1/2    1  ].RGB
-		g+=b>>1;    //av(b, av(r, g))       [ 1/4     1/4    1/2].RGB
+		b-=g;		//diff(b, av(r, g))     [-1/2    -1/2    1  ].RGB	Cb
+		g+=b>>1;	//av(b, av(r, g))       [ 1/4     1/4    1/2].RGB	Y
 
 		buf[k  ]=r;//Cm
 		buf[k|1]=g;//Y
 		buf[k|2]=b;//Cb
 	}
 }
-void colortransform_ycmcb_inv(char *buf, int iw, int ih)//3 channels, stride 4 bytes
+void colortransform_YCbCr_R_inv(char *buf, int iw, int ih)
 {
 	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
 	{
@@ -185,7 +105,7 @@ void colortransform_ycmcb_inv(char *buf, int iw, int ih)//3 channels, stride 4 b
 		buf[k|2]=b;
 	}
 }
-void colortransform_subg_fwd(char *buf, int iw, int ih)
+void colortransform_subg_fwd(char *buf, int iw, int ih)//used in JPEG2000
 {
 	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
 	{
@@ -324,6 +244,142 @@ void lossy_colortransform_xyb(char *buf, int iw, int ih, int fwd)
 				buf[idx|2]=(char)(255*b-128);
 			}
 		}
+	}
+}
+
+void colortransform_jpeg2000_fwd(char *buf, int iw, int ih)//X  ignore
+{
+	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
+	{
+		char r=buf[k], g=buf[k|1], b=buf[k|2];
+		
+		//Y	1/4	1/2	1/4	R
+		//Cb	0	-1	1	G
+		//Cr	1	-1	0	B
+		r-=g;
+		b-=g;
+		g+=(r+b)>>2;
+
+#if 0
+		r-=(g+b+1)>>1;
+
+		b+=g+((r+1)>>1);
+		//b+=((g+r+1)>>1);
+
+		g-=((b+(r>>3)+1)>>1);
+		r-=(g+g+g+2)>>2;
+#endif
+
+		buf[k  ]=r;//Cr
+		buf[k|1]=g;//Y
+		buf[k|2]=b;//Cb
+	}
+}
+void colortransform_jpeg2000_inv(char *buf, int iw, int ih)//X  ignore
+{
+	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
+	{
+		char r=buf[k], g=buf[k|1], b=buf[k|2];//Cr Y Cb
+		
+		//R	1	-1/4	3/4	Y
+		//G	1	-1/4	-1/4	Cb
+		//B	1	3/4	-1/4	Cr
+		g-=(r+b)>>2;
+		b+=g;
+		r+=g;
+#if 0
+		r+=(g+g+g+2)>>2;
+		g+=((b+(r>>3)+1)>>1);
+
+		b-=g+((r+1)>>1);
+		//b-=((g+r+1)>>1);
+
+		r+=(g+b+1)>>1;
+#endif
+
+		buf[k  ]=r;
+		buf[k|1]=g;
+		buf[k|2]=b;
+	}
+}
+void colortransform_xgz_fwd(char *buf, int iw, int ih)//X  ignore
+{
+	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
+	{
+		char r=buf[k], g=buf[k|1], b=buf[k|2];
+
+		r-=g;
+		b-=g;
+
+		buf[k  ]=r;
+		buf[k|1]=g;
+		buf[k|2]=b;
+	}
+}
+void colortransform_xgz_inv(char *buf, int iw, int ih)
+{
+	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
+	{
+		char r=buf[k], g=buf[k|1], b=buf[k|2];
+
+		b+=g;
+		r+=g;
+
+		buf[k  ]=r;
+		buf[k|1]=g;
+		buf[k|2]=b;
+	}
+}
+void colortransform_xyz_fwd(char *buf, int iw, int ih)//X  ignore
+{
+	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
+	{
+		char r=buf[k], g=buf[k|1], b=buf[k|2];
+
+		//r-=g;
+		//g+=r>>1;
+		//b-=g;
+		//g+=b>>1;
+
+		r-=b;
+		g-=b;
+		b+=(r+g)>>1;
+
+		buf[k  ]=r;
+		buf[k|1]=g;
+		buf[k|2]=b;
+
+		//buf[k  ]=r-g+128;//XGZ
+		//buf[k|1]=g;
+		//buf[k|2]=b-g+128;
+
+		//buf[k  ]=r;//RYZ
+		//buf[k|1]=g-r+128;
+		//buf[k|2]=b-r+128;
+
+		//buf[k  ]=r-b+128;//XYBdash
+		//buf[k|1]=g-b+128;
+		//buf[k|2]=b;
+	}
+}
+void colortransform_xyz_inv(char *buf, int iw, int ih)
+{
+	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
+	{
+		char r=buf[k], g=buf[k|1], b=buf[k|2];
+		
+		//g-=b>>1;
+		//b+=g;
+		//g-=r>>1;
+		//r+=g;
+
+		b-=(r+g)>>1;
+		g+=b;
+		r+=b;
+
+		buf[k  ]=r;
+		buf[k|1]=g;
+		buf[k|2]=b;
 	}
 }
 
@@ -1705,7 +1761,15 @@ const double customparam_st0[]=
 	0,  1,
 };*/
 int customparam_sel=12;
-double customparam_ct[12]={0}, customparam_st[12*6]={0};
+double customparam_ct[12]=
+{
+	1, 0,//YCbCr-R
+	-0.5, 0,
+	0, 1,
+	0, 0,
+	0, 0.5,
+	0, 0,
+}, customparam_st[12*6]={0};
 int customparam_ch_idx=0;
 int customparam_clamp[2]={-128, 127};
 void customtransforms_resetparams()
@@ -1758,6 +1822,179 @@ void colortransform_custom_inv(char *buf, int iw, int ih)
 			buf[idx<<2|2]=b;
 		}
 	}
+}
+
+#define CUSTOM_RCT_NPARAMS 12
+#define CUSTOM_RCT_NITER (CUSTOM_RCT_NPARAMS*100)
+#define CUSTOM_RCT_DELTAGROUP 3
+static void custom_rct_calcloss(const char *buf1, char *buf2, int iw, int ih, int *hist, const double *params, double *loss)
+{
+	for(int ky=0;ky<ih;++ky)
+	{
+		for(int kx=0;kx<iw;++kx)
+		{
+			int idx=iw*ky+kx;
+			char r=buf1[idx<<2], g=buf1[idx<<2|1], b=buf1[idx<<2|2];
+			
+			r-=(char)(params[ 0]*g+params[ 1]*b);
+			g-=(char)(params[ 2]*r+params[ 3]*b);
+			b-=(char)(params[ 4]*r+params[ 5]*g);
+			r+=(char)(params[ 6]*g+params[ 7]*b);
+			g+=(char)(params[ 8]*r+params[ 9]*b);
+			b+=(char)(params[10]*r+params[11]*g);
+
+			buf2[idx<<2  ]=r;
+			buf2[idx<<2|1]=g;
+			buf2[idx<<2|2]=b;
+		}
+	}
+	//pred_grad2(buf2, iw, ih, 1);
+	pred_grad_fwd(buf2, iw, ih, 3, 4);
+	
+	int res=iw*ih;
+	for(int kc=0;kc<3;++kc)
+	{
+		double entropy=0;
+		memset(hist, 0, 256*sizeof(int));
+		for(int k=0;k<res;++k)
+		{
+			unsigned char sym=buf2[k<<2|kc];
+			++hist[sym];
+		}
+		for(int sym=0;sym<256;++sym)//Shannon law
+		{
+			int freq=hist[sym];
+			if(freq)
+			{
+				double prob=(double)freq/res;
+				entropy-=prob*log2(prob);
+			}
+		}
+		loss[kc]=entropy/8;
+	}
+	loss[3]=(loss[0]+loss[1]+loss[2])/3;
+}
+void custom_rct_optimize(const char *src, int iw, int ih)
+{
+	static int call_idx=0;
+
+	++call_idx;
+	if(call_idx==1)
+		DisableProcessWindowsGhosting();
+
+	int res=iw*ih;
+	char *buf1=(char*)malloc((size_t)res<<2);
+	char *buf2=(char*)malloc((size_t)res<<2);
+	int *hist=(int*)malloc(256*sizeof(int));
+	if(!buf1||!buf2||!hist)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	memcpy(buf1, src, (size_t)res<<2);
+	addhalf((unsigned char*)buf1, iw, ih, 3, 4);
+
+	double loss_bestsofar[4], loss_prev[4], loss_curr[4];
+	double params2[CUSTOM_RCT_NPARAMS];
+	memcpy(params2, customparam_ct, sizeof(double[CUSTOM_RCT_NPARAMS]));
+
+#define CALC_LOSS(L) custom_rct_calcloss(buf1, buf2, iw, ih, hist, params2, L)
+	srand((unsigned)__rdtsc());//
+	CALC_LOSS(loss_bestsofar);
+	memcpy(loss_prev, loss_bestsofar, sizeof(loss_prev));
+
+	int shakethreshold=CUSTOM_RCT_NPARAMS;
+	for(int it=0, watchdog=0;it<CUSTOM_RCT_NITER;++it)
+	{
+		int idx[CUSTOM_RCT_DELTAGROUP]={0}, stuck=0;
+		double params_original_selected[CUSTOM_RCT_DELTAGROUP]={0};
+		if(watchdog>=shakethreshold)//bump if stuck
+		{
+			memcpy(params2, customparam_ct, sizeof(double[CUSTOM_RCT_NPARAMS]));
+			for(int k=0;k<CUSTOM_RCT_NPARAMS;++k)
+				params2[k]+=(double)(((rand()&1)<<1)-1)*0.001;
+				//info.params[k]+=rand()%3-1;
+			watchdog=0;
+			stuck=1;
+		}
+		else
+		{
+			for(int k=0;k<CUSTOM_RCT_DELTAGROUP;++k)//increment params
+			{
+				int inc=0;
+				idx[k]=rand()%CUSTOM_RCT_NPARAMS;
+				//idx[k]=(it+k)%nd;
+				while(!(inc=rand()-RAND_MAX));//reject zero delta
+
+				//int inc=(rand()&0x1FFF)-0x1000;
+				//int inc=(rand()&0x1FF)-0x100;
+				//int inc=(rand()&0x1F)-0x10;
+				//int inc=((rand()&1)<<1)-1;
+				//int inc=(int)(((rand()<<1)-0x8000)*pow(info.loss, 20));
+		
+				params_original_selected[k]=params2[idx[k]];
+				params2[idx[k]]+=(double)inc/(RAND_MAX<<10);
+			}
+		}
+
+		CALC_LOSS(loss_curr);
+		
+		if(loss_prev[3]<loss_curr[3])//revert if worse
+		{
+			if(stuck)//a bad branch may surpass the local minimum
+				memcpy(loss_prev, loss_curr, sizeof(loss_prev));
+			else
+			{
+				memcpy(loss_curr, loss_prev, sizeof(loss_prev));
+				for(int k=0;k<CUSTOM_RCT_DELTAGROUP;++k)
+					params2[idx[k]]=params_original_selected[k];
+			}
+			++watchdog;
+		}
+		else//save if better
+		{
+			if(loss_curr[3]<loss_bestsofar[3])//publish if record best
+			{
+				memcpy(customparam_ct, params2, sizeof(double[CUSTOM_RCT_NPARAMS]));
+				memcpy(loss_bestsofar, loss_curr, sizeof(loss_bestsofar));
+				--it;//bis
+			}
+			memcpy(loss_prev, loss_curr, sizeof(loss_prev));
+			watchdog=0;
+		}
+
+		set_window_title(
+			"%d %4d/%4d,%d/%d: %lf RGB %lf %lf %lf%s",
+			call_idx,
+			it+1,
+			CUSTOM_RCT_NITER,
+			watchdog,
+			shakethreshold,
+			1/loss_bestsofar[3],
+			1/loss_bestsofar[0],
+			1/loss_bestsofar[1],
+			1/loss_bestsofar[2],
+			it+1<CUSTOM_RCT_NITER?"...":" Done."
+		);
+
+		//preview
+#if 1
+		{
+			ch_cr[0]=(float)(1/loss_bestsofar[0]);
+			ch_cr[1]=(float)(1/loss_bestsofar[1]);
+			ch_cr[2]=(float)(1/loss_bestsofar[2]);
+			//unsigned char *ptr;
+			//addhalf(temp, iw, ih, 3, 4);
+			//SWAPVAR(image, temp, ptr);
+			io_render();
+			//SWAPVAR(image, temp, ptr);
+		}
+#endif
+	}
+#undef  CALC_LOSS
+	free(hist);
+	free(buf1);
+	free(buf2);
 }
 
 
@@ -8542,7 +8779,7 @@ void custom2_opt_batch(Custom2Params *srcparams)
 		if(!buf)
 			continue;
 		addhalf((unsigned char*)buf, iw, ih, 3, 4);
-		colortransform_ycmcb_fwd(buf, iw, ih);//
+		colortransform_YCbCr_R_fwd(buf, iw, ih);//
 		custom2_opt(buf, iw, ih, srcparams, 0, 10, ks+1, 0);
 		free(buf);
 	}
@@ -8940,7 +9177,7 @@ void custom3_opt_batch(Custom3Params *srcparams, int niter, int maskbits, int lo
 	if(bmp->count)
 	{
 		addhalf(bmp->data, iw, ih, 3, 4);
-		colortransform_ycmcb_fwd((char*)bmp->data, iw, ih);//
+		colortransform_YCbCr_R_fwd((char*)bmp->data, iw, ih);//
 		custom3_opt((char*)bmp->data, iw, ih, srcparams, niter, maskbits, loud, 0);
 	}
 	array_free(&bmp);
@@ -8982,7 +9219,7 @@ void custom3_opt_batch2(Custom3Params *srcparams, int niter, int maskbits, int l
 		if(!im2.data)
 			continue;
 		addhalf(im2.data, im2.iw, im2.ih, 3, 4);
-		colortransform_ycmcb_fwd((char*)im2.data, im2.iw, im2.ih);
+		colortransform_YCbCr_R_fwd((char*)im2.data, im2.iw, im2.ih);
 		ARRAY_APPEND(images, &im2, 1, 1, 0);
 	}
 	array_free(&filenames);

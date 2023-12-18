@@ -236,39 +236,39 @@ void swapbuffers();
 
 //OpenGL standard macros & types
 #if 1
-#define GL_FUNC_ADD				0x8006//GL/glew.h
-#define GL_MIN					0x8007
-#define GL_MAX					0x8008
-#define GL_MAJOR_VERSION		0x821B
-#define GL_MINOR_VERSION		0x821C
-#define GL_TEXTURE0				0x84C0
-#define GL_TEXTURE1				0x84C1
-#define GL_TEXTURE2				0x84C2
-#define GL_TEXTURE3				0x84C3
-#define GL_TEXTURE4				0x84C4
-#define GL_TEXTURE5				0x84C5
-#define GL_TEXTURE6				0x84C6
-#define GL_TEXTURE7				0x84C7
-#define GL_TEXTURE8				0x84C8
-#define GL_TEXTURE9				0x84C9
-#define GL_TEXTURE10			0x84CA
-#define GL_TEXTURE11			0x84CB
-#define GL_TEXTURE12			0x84CC
-#define GL_TEXTURE13			0x84CD
-#define GL_TEXTURE14			0x84CE
-#define GL_TEXTURE15			0x84CF
+#define GL_FUNC_ADD		0x8006//GL/glew.h
+#define GL_MIN			0x8007
+#define GL_MAX			0x8008
+#define GL_MAJOR_VERSION	0x821B
+#define GL_MINOR_VERSION	0x821C
+#define GL_TEXTURE0		0x84C0
+#define GL_TEXTURE1		0x84C1
+#define GL_TEXTURE2		0x84C2
+#define GL_TEXTURE3		0x84C3
+#define GL_TEXTURE4		0x84C4
+#define GL_TEXTURE5		0x84C5
+#define GL_TEXTURE6		0x84C6
+#define GL_TEXTURE7		0x84C7
+#define GL_TEXTURE8		0x84C8
+#define GL_TEXTURE9		0x84C9
+#define GL_TEXTURE10		0x84CA
+#define GL_TEXTURE11		0x84CB
+#define GL_TEXTURE12		0x84CC
+#define GL_TEXTURE13		0x84CD
+#define GL_TEXTURE14		0x84CE
+#define GL_TEXTURE15		0x84CF
 #define GL_TEXTURE_RECTANGLE	0x84F5
 #define GL_PROGRAM_POINT_SIZE	0x8642
-#define GL_BUFFER_SIZE			0x8764
-#define GL_ARRAY_BUFFER			0x8892
+#define GL_BUFFER_SIZE		0x8764
+#define GL_ARRAY_BUFFER		0x8892
 #define GL_ELEMENT_ARRAY_BUFFER	0x8893
-#define GL_STATIC_DRAW			0x88E4
-#define GL_FRAGMENT_SHADER		0x8B30
-#define GL_VERTEX_SHADER		0x8B31
-#define GL_COMPILE_STATUS		0x8B81
-#define GL_LINK_STATUS			0x8B82
-#define GL_INFO_LOG_LENGTH		0x8B84
-#define GL_DEBUG_OUTPUT			0x92E0//OpenGL 4.3+
+#define GL_STATIC_DRAW		0x88E4
+#define GL_FRAGMENT_SHADER	0x8B30
+#define GL_VERTEX_SHADER	0x8B31
+#define GL_COMPILE_STATUS	0x8B81
+#define GL_LINK_STATUS		0x8B82
+#define GL_INFO_LOG_LENGTH	0x8B84
+#define GL_DEBUG_OUTPUT		0x92E0//OpenGL 4.3+
 
 #define GLFUNCLIST\
 	GLFUNC(glBlendEquation)\
@@ -638,6 +638,7 @@ extern double customparam_hybrid[(7*3+3)*3*3];
 void customtransforms_resetparams();
 void colortransform_custom_fwd(char *buf, int iw, int ih);
 void colortransform_custom_inv(char *buf, int iw, int ih);
+void custom_rct_optimize(const char *buf, int iw, int ih);
 void pred_custom_apply(char *src, int iw, int ih, int fwd, const double *allparams);
 void pred_custom_prealloc(const char *src, int iw, int ih, int kc, int fwd, const double *ch_params, char *dst);
 //void pred_custom_fwd(char *buf, int iw, int ih, int nch, int bytestride, const double *params);
@@ -705,18 +706,21 @@ void pred_slope_inv(char *buf, int iw, int ih, int nch, int bytestride);
 void addhalf(unsigned char *buf, int iw, int ih, int nch, int bytestride);
 
 //color transforms		3 channels, stride 4 bytes
-void colortransform_xgz_fwd   (char *buf, int iw, int ih);
-void colortransform_xgz_inv   (char *buf, int iw, int ih);
-void colortransform_xyz_fwd   (char *buf, int iw, int ih);
-void colortransform_xyz_inv   (char *buf, int iw, int ih);
-void colortransform_ycocg_fwd (char *buf, int iw, int ih);
-void colortransform_ycocg_inv (char *buf, int iw, int ih);
-void colortransform_ycmcb_fwd(char *buf, int iw, int ih);
-void colortransform_ycmcb_inv(char *buf, int iw, int ih);
+void colortransform_YCoCg_R_fwd(char *buf, int iw, int ih);
+void colortransform_YCoCg_R_inv(char *buf, int iw, int ih);
+void colortransform_YCbCr_R_fwd(char *buf, int iw, int ih);
+void colortransform_YCbCr_R_inv(char *buf, int iw, int ih);
 void colortransform_subg_fwd(char *buf, int iw, int ih);
 void colortransform_subg_inv(char *buf, int iw, int ih);
 void lossy_colortransform_ycbcr(char *buf, int iw, int ih, int fwd);
 void lossy_colortransform_xyb(char *buf, int iw, int ih, int fwd);
+
+//void colortransform_xgz_fwd   (char *buf, int iw, int ih);
+//void colortransform_xgz_inv   (char *buf, int iw, int ih);
+//void colortransform_xyz_fwd   (char *buf, int iw, int ih);
+//void colortransform_xyz_inv   (char *buf, int iw, int ih);
+//void colortransform_jpeg2000_fwd(char *buf, int iw, int ih);
+//void colortransform_jpeg2000_inv(char *buf, int iw, int ih);
 
 //void colortransform_quad(char *buf, int iw, int ih, int fwd);
 
