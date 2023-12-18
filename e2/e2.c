@@ -346,6 +346,9 @@ short jxl_CLIC30_params[]=
 	  0x01CF,  0x09EE,  0x090D,  0x0062,	-0x001D, -0x0101, -0x04FE, -0x029F, -0x013C, -0x065E,  0x02AF,
 };
 
+
+	#define MA_BATCHTEST
+
 const char *g_extensions[]=
 {
 	"png",
@@ -364,6 +367,9 @@ void batch_test(const char *path)
 		printf("No images in \"%s\"\n", path);
 		return;
 	}
+#ifdef MA_BATCHTEST
+	long long ma_sizes[4]={0};//
+#endif
 	long long
 		count_PNG=0, count_JPEG=0,
 		sum_cPNGsize=0, sum_cJPEGsize=0,
@@ -440,6 +446,22 @@ void batch_test(const char *path)
 		memset(b2, 0, len);
 #endif
 
+#ifdef MA_BATCHTEST
+		{
+			size_t bestsize=0;
+			int besttest=0;
+			for(int k=0;k<4;++k)
+			{
+				size_t size=ma_test(buf, iw, ih, k, 0);
+				ma_sizes[k]+=size;
+				if(!k||bestsize>size)
+					bestsize=size, besttest=k;
+			}
+			printf("  best%d\n", besttest);
+			sum_testsize+=bestsize;
+		}
+#endif
+
 	//SLIC2
 #if 0
 		{
@@ -467,7 +489,7 @@ void batch_test(const char *path)
 #endif
 		
 		//T34+: ABAC + adaptive Bayesian inference
-#if 1
+#if 0
 		{
 			ArrayHandle cdata=0;
 			printf("\n");
@@ -704,6 +726,10 @@ void batch_test(const char *path)
 		printf("test    csize %9lld  CR %lf\n", sum_testsize, (double)totalusize/sum_testsize);
 		//printf("test3s  CR %lf\n", (double)totalusize/sum_test3size[0]);
 		//printf("test3sd CR %lf\n", (double)totalusize/sum_test3size[1]);
+#ifdef MA_BATCHTEST
+		for(int k=0;k<4;++k)
+			printf("%d  %lld\n", k, ma_sizes[k]);
+#endif
 	}
 	else
 		printf("\nNo valid images found\n");
@@ -752,14 +778,14 @@ int main(int argc, char **argv)
 	//fn="C:/Projects/datasets/CLIC11-small4.PNG";
 	//fn="C:/Projects/datasets/dataset-CLIC30/11.png";
 	//fn="C:/Projects/datasets/dataset-kodak";
-//	fn="C:/Projects/datasets/dataset-kodak/kodim13.png";
+	fn="C:/Projects/datasets/dataset-kodak/kodim13.png";
 
 	//fn="D:/ML/dataset-CLIC30";
 	//fn="D:/ML/dataset-kodak";
 	//fn="D:/ML/dataset-CLIC30/16.png";//hardest noiseless CLIC30 image
 	//fn="D:/ML/dataset-CLIC30/17.png";
 	//fn="D:/ML/dataset-kodak/kodim13.png";
-	fn="D:/ML/dataset-kodak/kodim18.png";
+//	fn="D:/ML/dataset-kodak/kodim18.png";
 	//fn="D:/ML/dataset-kodak-small/13.PNG";
 #endif
 	if(fn||argc==2)
@@ -872,6 +898,23 @@ int main(int argc, char **argv)
 	
 	int loud=0;
 
+	{
+		size_t bestsize=0, lastsize=0;
+		int besttest=0;
+		for(int k=0;k<4;++k)
+		{
+			size_t size=ma_test(buf, iw, ih, k, 1);
+			if(!k||bestsize>size)
+				bestsize=size, besttest=k;
+			if(k==7)
+				lastsize=size;
+		}
+		printf("\nBest combination  %d  %lld  %lf\n", besttest, bestsize, (double)lastsize/bestsize);
+		print_ma_test(besttest);
+		printf("\n");
+		//pause();
+		exit(0);
+	}
 	//grad_explore(buf, iw, ih);
 
 	//test16

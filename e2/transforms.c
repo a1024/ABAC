@@ -128,7 +128,7 @@ void apply_transforms_fwd(unsigned char *buf, int bw, int bh)
 
 	addbuf(buf, bw, bh, 3, 4, 128);//unsigned char -> signed char
 	
-	colortransform_ycmcb_fwd((char*)buf, bw, bh);
+	colortransform_YCbCr_R_fwd((char*)buf, bw, bh);
 	//colortransform_ycocg_fwd((char*)buf, bw, bh);
 	//colortransform_xgz_fwd((char*)buf, bw, bh);
 	//colortransform_xyz_fwd((char*)buf, bw, bh);
@@ -181,7 +181,7 @@ void apply_transforms_inv(unsigned char *buf, int bw, int bh)
 	//	//dwt2d_cdf53_inv((char*)buf+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, (char*)temp);
 	//	//dwt2d_cdf97_inv((char*)buf+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, (char*)temp);
 	
-	colortransform_ycmcb_inv((char*)buf, bw, bh);
+	colortransform_YCbCr_R_inv((char*)buf, bw, bh);
 	//colortransform_ycocg_inv((char*)buf, bw, bh);
 	//colortransform_xgz_inv((char*)buf, bw, bh);
 	//colortransform_xyz_inv((char*)buf, bw, bh);
@@ -223,7 +223,7 @@ void pack3_inv(char *buf, int res)
 }
 
 
-void colortransform_ycocg_fwd(char *buf, int iw, int ih)//3 channels, stride 4 bytes
+void colortransform_YCoCg_R_fwd(char *buf, int iw, int ih)
 {
 	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
 	{
@@ -239,7 +239,7 @@ void colortransform_ycocg_fwd(char *buf, int iw, int ih)//3 channels, stride 4 b
 		buf[k|2]=b;//Y
 	}
 }
-void colortransform_ycocg_inv(char *buf, int iw, int ih)//3 channels, stride 4 bytes
+void colortransform_YCoCg_R_inv(char *buf, int iw, int ih)
 {
 	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
 	{
@@ -255,7 +255,7 @@ void colortransform_ycocg_inv(char *buf, int iw, int ih)//3 channels, stride 4 b
 		buf[k|2]=b;
 	}
 }
-void colortransform_ycmcb_fwd(char *buf, int iw, int ih)//3 channels, stride 4 bytes
+void colortransform_YCbCr_R_fwd(char *buf, int iw, int ih)
 {
 	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
 	{
@@ -275,7 +275,7 @@ void colortransform_ycmcb_fwd(char *buf, int iw, int ih)//3 channels, stride 4 b
 		//buf[k|2]=b;//Cb
 	}
 }
-void colortransform_ycmcb_inv(char *buf, int iw, int ih)//3 channels, stride 4 bytes
+void colortransform_YCbCr_R_inv(char *buf, int iw, int ih)
 {
 	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
 	{
@@ -298,8 +298,12 @@ void colortransform_subgreen_fwd(char *buf, int iw, int ih)
 	{
 		char r=buf[k], g=buf[k|1], b=buf[k|2];
 
-		r=g-r;
-		b=g-b;
+		r-=g;
+		b-=g;
+		g+=(r+b)>>2;
+
+		//r=g-r;
+		//b=g-b;
 
 		buf[k  ]=g;//luma
 		buf[k|1]=r;
@@ -311,9 +315,13 @@ void colortransform_subgreen_inv(char *buf, int iw, int ih)
 	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
 	{
 		char g=buf[k], r=buf[k|1], b=buf[k|2];
+		
+		g-=(r+b)>>2;
+		b+=g;
+		r+=g;
 
-		r=g+r;
-		b=g+b;
+		//r=g+r;
+		//b=g+b;
 
 		buf[k  ]=r;
 		buf[k|1]=g;

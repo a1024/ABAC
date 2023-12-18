@@ -7777,7 +7777,7 @@ int t39_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);//buffer is signed
 #else
 	addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);
-	colortransform_ycmcb_fwd(buf2, iw, ih);
+	colortransform_YCbCr_R_fwd(buf2, iw, ih);
 	//addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);//X  the buffer is signed
 #endif
 
@@ -8112,7 +8112,7 @@ int t39_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 	apply_transforms_inv(buf, iw, ih);
 #else
 	//addbuf(buf, iw, ih, 3, 4, 128);//X  the buffer is signed
-	colortransform_ycmcb_inv((char*)buf, iw, ih);
+	colortransform_YCbCr_R_inv((char*)buf, iw, ih);
 	addbuf(buf, iw, ih, 3, 4, 128);
 #endif
 	if(loud)
@@ -8123,4 +8123,205 @@ int t39_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 		printf("\n");
 	}
 	return 1;
+}
+
+
+typedef enum MATestTypeEnum
+{
+	//MA_RCT_LUMA=1,
+	MA_RCT_CHROMA=1,
+	MA_PRED=2,
+	//MA_PRED_LUMA=2,
+	//MA_PRED_CHROMA=4,
+} MATestType;
+void print_ma_test(int testtype)
+{
+#define PRINT_TESTTYPE(LABEL) if(testtype&LABEL)printf("[ v] " #LABEL "\n"); else printf("[X ] " #LABEL "\n");
+	//PRINT_TESTTYPE(MA_RCT_LUMA)
+	PRINT_TESTTYPE(MA_RCT_CHROMA)
+	PRINT_TESTTYPE(MA_PRED)
+	//PRINT_TESTTYPE(MA_PRED_LUMA)
+	//PRINT_TESTTYPE(MA_PRED_CHROMA)
+#undef  PRINT_TESTTYPE
+}
+size_t ma_test(const unsigned char *src, int iw, int ih, int testtype, int loud)
+{
+	int res=iw*ih;
+	short *buf1=(short*)malloc((size_t)res*sizeof(short[4]));
+	short *buf2=(short*)malloc((size_t)res*sizeof(short[4]));
+	int *hist=(int*)malloc(1024*sizeof(int));
+	if(!buf1||!buf2||!hist)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
+
+	if(loud)
+	{
+		printf("%d:\n", testtype);
+		print_ma_test(testtype);
+	}
+
+	int nbits_ch[]={9, 10, 10};//8 + number of subtractions
+
+	//luma retains range after YCbCr-RCT
+	if(testtype&MA_RCT_CHROMA)
+	{
+		--nbits_ch[1];
+		--nbits_ch[2];
+	}
+	if(testtype&MA_PRED)
+	{
+		--nbits_ch[0];
+		--nbits_ch[1];
+		--nbits_ch[2];
+	}
+	int vmin[6]={0}, vmax[6]={0};
+#define UPDATE_MINMAX(IDX, COMP) if(vmin[IDX]>COMP)vmin[IDX]=COMP; if(vmax[IDX]<COMP)vmax[IDX]=COMP;
+	for(int k=0;k<res;++k)
+	{
+		int r=src[k<<2|0]-128, g=src[k<<2|1]-128, b=src[k<<2|2]-128;
+		
+		//DCT		X  all channels inflate by 1 bit
+#if 0
+		r-=(g+b+1)>>1;
+		b+=g+((r+1)>>1);
+		g-=((b+(r>>3)+1)>>1);
+		r-=(g+g+g+2)>>2;
+#endif
+
+		//YCbCr-R
+#if 1
+		r-=g;		//diff(r, g)            [ 1      -1      0  ].RGB	Cr
+		g+=r>>1;
+		b-=g;		//diff(b, av(r, g))     [-1/2    -1/2    1  ].RGB	Cb
+		g+=b>>1;	//av(b, av(r, g))       [ 1/4     1/4    1/2].RGB	Y
+#endif
+		
+		//if(g<-128||g>127)//no hit
+		//	LOG_ERROR("");
+
+		//if(testtype&MA_RCT_LUMA)
+		//	buf1[k<<2|0]=((g+128)&0xFF)-128;
+		//else
+		buf1[k<<2|0]=g;//Y	8-bit because the average (luma) can't spill out of input domain
+		if(testtype&MA_RCT_CHROMA)
+		{
+			buf1[k<<2|1]=((b+128)&0xFF)-128;
+			buf1[k<<2|2]=((r+128)&0xFF)-128;
+		}
+		else
+		{
+			buf1[k<<2|1]=b;//Cb	9-bit
+			buf1[k<<2|2]=r;//Cr	9-bit
+		}
+		buf1[k<<2|3]=0xFFFF;
+		UPDATE_MINMAX(0, g)
+		UPDATE_MINMAX(1, b)
+		UPDATE_MINMAX(2, r)
+	}
+	if(loud)
+		printf("RCT  YCbCr [%d %d]  [%d %d]  [%d %d]\n", vmin[0], vmax[0], vmin[1], vmax[1], vmin[2], vmax[2]);
+	memset(buf2, 0, res*sizeof(short[4]));
+	for(int kc=0;kc<3;++kc)//clamped gradient
+	{
+		int nlevels=1<<nbits_ch[kc];
+		int half=nlevels>>1;
+		for(int ky=0;ky<ih;++ky)
+		{
+			for(int kx=0;kx<iw;++kx)
+			{
+#define LOAD(X, Y) ((unsigned)(kx+(X))<(unsigned)iw&&(unsigned)(ky+(Y))<(unsigned)ih?buf1[(iw*(ky+(Y))+kx+(X))<<2|kc]:0)
+				short
+					N =LOAD( 0, -1),
+					W =LOAD(-1,  0),
+					NW=LOAD(-1, -1);
+#undef  LOAD
+				int pred=N+W-NW;
+				pred=MEDIAN3(N, W, pred);
+
+				int idx=(iw*ky+kx)<<2|kc;
+				buf2[idx]=((buf1[idx]-pred+half)&(nlevels-1))-half;
+				UPDATE_MINMAX(kc+3, buf2[idx])
+			}
+		}
+	}
+	if(loud)
+		printf("pred YCbCr [%d %d]  [%d %d]  [%d %d]\n", vmin[3], vmax[3], vmin[4], vmax[4], vmin[5], vmax[5]);
+	double invCR[3];
+	size_t csize_bytes[3]={0};
+	for(int kc=0;kc<3;++kc)
+	{
+		int nlevels=1<<nbits_ch[kc];
+		int half=nlevels>>1;
+		memset(hist, 0, nlevels*sizeof(int));
+		for(int ky=0, idx=0;ky<ih;++ky)
+		{
+			for(int kx=0;kx<iw;++kx, ++idx)
+				++hist[buf2[idx<<2|kc]+half];
+		}
+		double entropy=0;
+		for(int sym=0;sym<nlevels;++sym)//measure entropy using Shannon law
+		{
+			int freq=hist[sym];
+			if(freq)
+			{
+				double p=(double)freq/res;
+				entropy-=p*log2(p);
+			}
+		}
+		invCR[kc]=entropy/8;//invCR = entropy/lg(nlevels) * lg(nlevels)/8	invCR gets amplified by lg(nlevels)/8
+
+		for(int k=0, sum=0;k<nlevels;++k)//accumulate CDF
+		{
+			int freq=hist[k];
+			hist[k]=(int)((long long)sum*(0x10000-nlevels)/res)+k;
+			sum+=freq;
+		}
+		unsigned state=0x10000;
+		for(int k=0;k<res;++k)//measure compressed size using ANS
+		{
+			unsigned short sym=buf2[k<<2|kc]+half;
+			int cdf=hist[sym], freq=(sym==nlevels-1?0x10000:hist[sym+1])-cdf;
+			if(state>((unsigned)freq<<16))//renorm
+			{
+				csize_bytes[kc]+=2;
+				state>>=16;
+			}
+			state=state/freq<<16|(cdf+state%freq);//update
+		}
+		csize_bytes[kc]+=4;
+
+	}
+	if(loud)
+	{
+		printf(
+			"TYCbCr %lf %lf %lf %lf\n",
+			3/(invCR[0]+invCR[1]+invCR[2]),
+			1/invCR[0],
+			1/invCR[1],
+			1/invCR[2]
+		);
+		printf(
+			"TYCbCr %lf %lf %lf %lf\n",
+			(double)(res*3)/(csize_bytes[0]+csize_bytes[1]+csize_bytes[2]),
+			(double)res/csize_bytes[0],
+			(double)res/csize_bytes[1],
+			(double)res/csize_bytes[2]
+		);
+		printf(
+			"TYCbCr %lld %lld %lld %lld\n",
+			csize_bytes[0]+csize_bytes[1]+csize_bytes[2],
+			csize_bytes[0],
+			csize_bytes[1],
+			csize_bytes[2]
+		);
+		printf("Done.\n\n");
+	}
+	
+#undef  UPDATE_MINMAX
+	free(buf1);
+	free(buf2);
+	free(hist);
+	return csize_bytes[0]+csize_bytes[1]+csize_bytes[2];
 }

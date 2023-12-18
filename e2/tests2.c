@@ -2176,7 +2176,7 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	memcpy(buf2, src, (size_t)res<<2);
 	memset(ebuf, 0, (size_t)res<<2);
 	addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);
-	colortransform_ycmcb_fwd(buf2, iw, ih);
+	colortransform_YCbCr_R_fwd(buf2, iw, ih);
 
 	DList list;
 	dlist_init(&list, 1, 1024, 0);
@@ -2360,7 +2360,7 @@ int t42_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 	}
 	t42_ctx_clear(&ctx);
 	
-	colortransform_ycmcb_inv((char*)buf, iw, ih);
+	colortransform_YCbCr_R_inv((char*)buf, iw, ih);
 	addbuf(buf, iw, ih, 3, 4, 128);
 	if(loud)
 	{

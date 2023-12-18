@@ -866,7 +866,7 @@ int t44_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	}
 	memcpy(buf, src, (size_t)res<<2);
 	addbuf((unsigned char*)buf, iw, ih, 3, 4, 128);
-	colortransform_ycmcb_fwd(buf, iw, ih);
+	colortransform_YCbCr_R_fwd(buf, iw, ih);
 	pack3_fwd(buf, res);
 	
 	DList list;
@@ -976,7 +976,7 @@ int t44_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 			printf("%5d/%5d  %6.2lf%%\r", ky+1, ih, 100.*(ky+1)/ih);
 	}
 	pack3_inv(buf, res);
-	colortransform_ycmcb_inv((char*)buf, iw, ih);
+	colortransform_YCbCr_R_inv((char*)buf, iw, ih);
 	addbuf(buf, iw, ih, 3, 4, 128);
 	if(loud)
 	{

@@ -36,6 +36,7 @@ extern "C"
 //#define CLAMP(LO, X, HI)    ((X)<(LO)?(LO):((X)>(HI)?(HI):(X)))
 #define MOVEOBJ(SRC, DST, SIZE) memcpy(DST, SRC, SIZE), memset(SRC, 0, SIZE)
 #define MODVAR(DST, SRC, N) DST=(SRC)%(N), DST+=(N)&-(DST<0)
+#define MEDIAN3(A, B, C) (B<A?B<C?C<A?C:A:B:A<C?C<B?C:B:A)
 
 #ifdef _MSC_VER
 #define	ALIGN(N)	__declspec(align(N))

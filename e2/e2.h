@@ -119,6 +119,9 @@ void* slic2_load(const char *filename, int *ret_iw, int *ret_ih, int *ret_nch, i
 int t44_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T44 Secondary Symbol Estimation from paq8pxd
 int t44_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
 
+void print_ma_test(int testtype);
+size_t ma_test(const unsigned char *src, int iw, int ih, int testtype, int loud);
+
 
 
 
@@ -132,10 +135,10 @@ void addbuf(unsigned char *buf, int iw, int ih, int nch, int bytestride, int amm
 void pack3_fwd(char *buf, int res);
 void pack3_inv(char *buf, int res);
 
-void colortransform_ycocg_fwd(char *buf, int iw, int ih);
-void colortransform_ycocg_inv(char *buf, int iw, int ih);
-void colortransform_ycmcb_fwd(char *buf, int iw, int ih);//like YCoCg but with green & blue swapped
-void colortransform_ycmcb_inv(char *buf, int iw, int ih);
+void colortransform_YCoCg_R_fwd(char *buf, int iw, int ih);
+void colortransform_YCoCg_R_inv(char *buf, int iw, int ih);
+void colortransform_YCbCr_R_fwd(char *buf, int iw, int ih);//like YCoCg but with green & blue swapped
+void colortransform_YCbCr_R_inv(char *buf, int iw, int ih);
 void colortransform_subgreen_fwd(char *buf, int iw, int ih);
 void colortransform_subgreen_inv(char *buf, int iw, int ih);
 
