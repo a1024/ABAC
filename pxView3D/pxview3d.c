@@ -91,10 +91,9 @@ typedef enum TransformTypeEnum
 	CT_FWD_YCbCr_R_v2,	CT_INV_YCbCr_R_v2,
 	CT_FWD_YCbCr_R_v3,	CT_INV_YCbCr_R_v3,
 	CT_FWD_YCoCg_R,		CT_INV_YCoCg_R,	//	(2003) AVC, HEVC, VVC
-	CT_FWD_SUBG,		CT_INV_SUBG,	//	JPEG2000 RCT
+	CT_FWD_JPEG2000,	CT_INV_JPEG2000,//	JPEG2000 RCT
 	CT_FWD_YCbCr,		CT_INV_YCbCr,	//LOSSY	JPEG
 	CT_FWD_XYB,		CT_INV_XYB,	//LOSSY	(2021) JPEG XL
-//	CT_FWD_JPEG2000,	CT_INV_JPEG2000,
 //	CT_FWD_XGZ,		CT_INV_XGZ,
 //	CT_FWD_XYZ,		CT_INV_XYZ,
 //	CT_FWD_EXP,		CT_INV_EXP,
@@ -303,8 +302,8 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case CT_INV_YCbCr_R_v3:			a="C  Inv YCbCr-R v3";			break;
 	case CT_FWD_YCoCg_R:			a="C  Fwd YCoCg-R";			break;
 	case CT_INV_YCoCg_R:			a="C  Inv YCoCg-R";			break;
-	case CT_FWD_SUBG:			a="C  Fwd SubGreen";			break;
-	case CT_INV_SUBG:			a="C  Inv SubGreen";			break;
+	case CT_FWD_JPEG2000:			a="C  Fwd JPEG2000 RCT";		break;
+	case CT_INV_JPEG2000:			a="C  Inv JPEG2000 RCT";		break;
 	case CT_FWD_YCbCr:			a="C  Fwd YCbCr";			break;
 	case CT_INV_YCbCr:			a="C  Inv YCbCr";			break;
 	case CT_FWD_XYB:			a="C  Fwd XYB";				break;
@@ -889,8 +888,8 @@ void update_image()
 			case CT_INV_YCbCr_R_v2:		colortransform_YCbCr_R_v2_inv((char*)image, iw, ih);	break;
 			case CT_FWD_YCbCr_R_v3:		colortransform_YCbCr_R_v3_fwd((char*)image, iw, ih);	break;
 			case CT_INV_YCbCr_R_v3:		colortransform_YCbCr_R_v3_inv((char*)image, iw, ih);	break;
-			case CT_FWD_SUBG:		colortransform_subg_fwd((char*)image, iw, ih);		break;
-			case CT_INV_SUBG:		colortransform_subg_inv((char*)image, iw, ih);		break;
+			case CT_FWD_JPEG2000:		colortransform_subg_fwd((char*)image, iw, ih);		break;
+			case CT_INV_JPEG2000:		colortransform_subg_inv((char*)image, iw, ih);		break;
 			case CT_FWD_YCbCr:		lossy_colortransform_ycbcr((char*)image, iw, ih, 1);	break;
 			case CT_INV_YCbCr:		lossy_colortransform_ycbcr((char*)image, iw, ih, 0);	break;
 			case CT_FWD_XYB:		lossy_colortransform_xyb((char*)image, iw, ih, 1);	break;
