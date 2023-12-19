@@ -9,7 +9,7 @@
 static const char file[]=__FILE__;
 
 
-	#define MA_BATCHTEST
+	#define MA_BATCHTEST 36
 
 #if 0
 void test1()
@@ -368,7 +368,7 @@ void batch_test(const char *path)
 		return;
 	}
 #ifdef MA_BATCHTEST
-	long long ma_sizes[16]={0};//
+	long long ma_sizes[MA_BATCHTEST]={0};//
 #endif
 	long long
 		count_PNG=0, count_JPEG=0,
@@ -419,10 +419,12 @@ void batch_test(const char *path)
 
 		ptrdiff_t res=(ptrdiff_t)iw*ih, len=res*stride, usize=res*nch0;
 		double ratio=(double)usize/formatsize;
+#ifndef MA_BATCHTEST
 #ifdef BATCHTEST_NO_B2
 		printf("%3lld/%3lld  %.2lf%%\r", k+1, filenames->count, (k+1)*100./filenames->count);
 #else
 		printf("%3lld/%3lld  \"%s\"\tCR %lf (%lf BPP) Dec %lf CPB", (long long)(k+1), (long long)filenames->count, fn[0]->data, ratio, 8/ratio, (double)cycles/usize);
+#endif
 #endif
 		if(!acme_stricmp(fn[0]->data+fn[0]->count-3, "PNG"))
 		{
@@ -450,23 +452,42 @@ void batch_test(const char *path)
 		{
 			size_t bestsize=0;
 			int besttest=0;
+			for(int kt=0;kt<9;++kt)//for each RCT
+			{
+				for(int km=0;km<2;++km)//toggle modular arithmetic
+				{
+					for(int kr=0;kr<2;++kr)//toggle rounding
+					{
+						int idx=kt<<2|km<<1|kr;
+						size_t size=ma_test(buf, iw, ih, km, kt, kr, 0);
+						ma_sizes[idx]+=size;
+						if(!idx||bestsize>size)
+							bestsize=size, besttest=idx;
+						printf("%7lld\t", size);
+					}
+				}
+			}
+			printf("best %7lld\n", bestsize);
+#if 0
 			for(int km=0;km<4;++km)
 			{
-				//for(int kt=0;kt<4;++kt)
-				//{
-				//	size_t size=ma_test(buf, iw, ih, km, kt, 0);
-				//	ma_sizes[km<<2|kt]+=size;
-				//	if(!km&&!kt||bestsize>size)
-				//		bestsize=size, besttest=km<<2|kt;
-				//}
-				size_t size=ma_test(buf, iw, ih, km, 5, 0);
-				ma_sizes[km]+=size;
-				if(!km||bestsize>size)
-					bestsize=size, besttest=km;
+				for(int kt=0;kt<4;++kt)
+				{
+					size_t size=ma_test(buf, iw, ih, km, kt, 0);
+					ma_sizes[km<<2|kt]+=size;
+					if(!km&&!kt||bestsize>size)
+						bestsize=size, besttest=km<<2|kt;
+				}
+				//size_t size=ma_test(buf, iw, ih, km, 5, 0);
+				//ma_sizes[km]+=size;
+				//if(!km||bestsize>size)
+				//	bestsize=size, besttest=km;
 			}
-			printf("  best");
-			print_binn(besttest, 4);
-			printf("\n");
+#endif
+			//printf("  best");
+			//print_binn(besttest, 6);
+			//printf("\n");
+
 			//printf("  best%d\n", besttest);
 			sum_testsize+=bestsize;
 		}

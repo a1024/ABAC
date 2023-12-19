@@ -119,8 +119,8 @@ void* slic2_load(const char *filename, int *ret_iw, int *ret_ih, int *ret_nch, i
 int t44_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T44 Secondary Symbol Estimation from paq8pxd
 int t44_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
 
-void print_ma_test(int testtype);
-size_t ma_test(const unsigned char *src, int iw, int ih, int testtype, int RCTtype, int loud);
+//void print_ma_test(int testtype);
+size_t ma_test(const unsigned char *src, int iw, int ih, int enable_RCT_MA, int RCTtype, int enable_rounding, int loud);
 
 
 

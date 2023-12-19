@@ -8126,34 +8126,37 @@ int t39_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 }
 
 
-typedef enum MATestTypeEnum
-{
-	//MA_RCT_LUMA=1,
-	MA_RCT_CHROMA=1,
-	MA_PRED=2,
-	//MA_PRED_LUMA=2,
-	//MA_PRED_CHROMA=4,
-} MATestType;
+//typedef enum MATestTypeEnum
+//{
+//	//MA_RCT_LUMA=1,
+//	MA_RCT_CHROMA=1,
+//	MA_PRED=2,
+//	//MA_PRED_LUMA=2,
+//	//MA_PRED_CHROMA=4,
+//} MATestType;
 typedef enum RCTTypeEnum
 {
+	RCT_SubG,
+	RCT_JPEG2000,
 	RCT_YCoCg_R,
 	RCT_YCbCr_R,
 	RCT_YCbCr_R_v2,
 	RCT_YCbCr_R_v3,
 	RCT_YCbCr_R_v4,
 	RCT_YCbCr_R_v5,
+	RCT_YCbCr_R_v6,
 } RCTType;
-void print_ma_test(int testtype)
-{
-#define PRINT_TESTTYPE(LABEL) if(testtype&LABEL)printf("[ v] " #LABEL "\n"); else printf("[X ] " #LABEL "\n");
-	//PRINT_TESTTYPE(MA_RCT_LUMA)
-	PRINT_TESTTYPE(MA_RCT_CHROMA)
-	PRINT_TESTTYPE(MA_PRED)
-	//PRINT_TESTTYPE(MA_PRED_LUMA)
-	//PRINT_TESTTYPE(MA_PRED_CHROMA)
-#undef  PRINT_TESTTYPE
-}
-size_t ma_test(const unsigned char *src, int iw, int ih, int testtype, int RCTtype, int loud)
+//void print_ma_test(int testtype)
+//{
+//#define PRINT_TESTTYPE(LABEL) if(testtype&LABEL)printf("[ v] " #LABEL "\n"); else printf("[X ] " #LABEL "\n");
+//	//PRINT_TESTTYPE(MA_RCT_LUMA)
+//	PRINT_TESTTYPE(MA_RCT_CHROMA)
+//	PRINT_TESTTYPE(MA_PRED)
+//	//PRINT_TESTTYPE(MA_PRED_LUMA)
+//	//PRINT_TESTTYPE(MA_PRED_CHROMA)
+//#undef  PRINT_TESTTYPE
+//}
+size_t ma_test(const unsigned char *src, int iw, int ih, int enable_RCT_MA, int RCTtype, int enable_rounding, int loud)
 {
 	int res=iw*ih;
 	short *buf1=(short*)malloc((size_t)res*sizeof(short[4]));
@@ -8167,24 +8170,27 @@ size_t ma_test(const unsigned char *src, int iw, int ih, int testtype, int RCTty
 
 	if(loud)
 	{
-		printf("%d:\n", testtype);
-		print_ma_test(testtype);
+		printf("%s\n", enable_RCT_MA?"RCT MA ON":"RCT MA OFF");
+		//printf("%d:\n", testtype);
+		//print_ma_test(testtype);
 	}
 
-	int nbits_ch[]={9, 10, 10};//8 + number of subtractions
+	int nbits_ch[]={8, 9, 9};//8 + number of subtractions
 
 	//luma retains range after YCbCr-RCT
-	if(testtype&MA_RCT_CHROMA)
+
+	//if(testtype&MA_RCT_CHROMA)
+	if(enable_RCT_MA)
 	{
 		--nbits_ch[1];
 		--nbits_ch[2];
 	}
-	if(testtype&MA_PRED)
-	{
-		--nbits_ch[0];
-		--nbits_ch[1];
-		--nbits_ch[2];
-	}
+	//if(testtype&MA_PRED)
+	//{
+	//	--nbits_ch[0];
+	//	--nbits_ch[1];
+	//	--nbits_ch[2];
+	//}
 	int vmin[6]={0}, vmax[6]={0};
 #define UPDATE_MINMAX(IDX, COMP) if(vmin[IDX]>COMP)vmin[IDX]=COMP; if(vmax[IDX]<COMP)vmax[IDX]=COMP;
 	for(int k=0;k<res;++k)
@@ -8208,41 +8214,60 @@ size_t ma_test(const unsigned char *src, int iw, int ih, int testtype, int RCTty
 #endif
 		switch(RCTtype)
 		{
+		case RCT_SubG:
+			r-=g;
+			b-=g;
+			break;
+		case RCT_JPEG2000:
+			r-=g;
+			b-=g;
+			g+=(r+b+(enable_rounding<<1))>>2;
+			break;
 		case RCT_YCoCg_R:
-			r-=b;		//co = r-b			diff(r, b)
-			b+=r>>1;	//(r+b)/2
-			g-=b;		//cg = g-(r+b)/2		diff(g, av(r, b))
-			b+=g>>1;	//Y  = (r+b)/2 + (g-(r+b)/2)/2 = r/4+g/2+b/4		av(g, av(r, b))
+			r-=b;				//co = r-b			diff(r, b)
+			b+=(r+enable_rounding)>>1;	//(r+b)/2
+			g-=b;				//cg = g-(r+b)/2		diff(g, av(r, b))
+			b+=(g+enable_rounding)>>1;	//Y  = (r+b)/2 + (g-(r+b)/2)/2 = r/4+g/2+b/4		av(g, av(r, b))
+			{
+				char temp;
+				SWAPVAR(g, b, temp);//g must contain luma which is always 8-bit
+			}
 			break;
 		case RCT_YCbCr_R:
-			r-=g;		//diff(r, g)            [ 1      -1      0  ].RGB	Cr
-			g+=r>>1;
-			b-=g;		//diff(b, av(r, g))     [-1/2    -1/2    1  ].RGB	Cb
-			g+=b>>1;	//av(b, av(r, g))       [ 1/4     1/4    1/2].RGB	Y
+			r-=g;				//diff(r, g)            [ 1      -1      0  ].RGB	Cr
+			g+=(r+enable_rounding)>>1;
+			b-=g;				//diff(b, av(r, g))     [-1/2    -1/2    1  ].RGB	Cb
+			g+=(b+enable_rounding)>>1;	//av(b, av(r, g))       [ 1/4     1/4    1/2].RGB	Y
 			break;
 		case RCT_YCbCr_R_v2:
-			r-=g;		//Cr =	[1	-1	0].RGB
-			g+=r>>1;	//	[1/2	1/2	0]
-			b-=g;		//Cb =	[-1/2	-1/2	1]
-			g+=(2*b-r)>>3;	//Y  =	[1/4	1/2	1/4]	v2
+			r-=g;					//Cr =	[1	-1	0].RGB
+			g+=(r+enable_rounding)>>1;		//	[1/2	1/2	0]
+			b-=g;					//Cb =	[-1/2	-1/2	1]
+			g+=(2*b-r+(enable_rounding<<2))>>3;	//Y  =	[1/4	1/2	1/4]	v2
 			break;
 		case RCT_YCbCr_R_v3:
-			r-=g;		//Cr =	[1	-1	0].RGB
-			g+=r>>1;	//	[1/2	1/2	0]
-			b-=g;		//Cb =	[-1/2	-1/2	1]
-			g+=(r+2*b)>>3;	//Y  =	[1/2	1/4	1/4]	v3
+			r-=g;					//Cr =	[1	-1	0].RGB
+			g+=(r+enable_rounding)>>1;		//	[1/2	1/2	0]
+			b-=g;					//Cb =	[-1/2	-1/2	1]
+			g+=(r+2*b+(enable_rounding<<2))>>3;	//Y  =	[1/2	1/4	1/4]	v3
 			break;
 		case RCT_YCbCr_R_v4:
-			r-=g;		//Cr =	[1	-1	0].RGB
-			g+=r>>1;	//	[1/2	1/2	0]
-			b-=g;		//Cb =	[-1/2	-1/2	1]
-			g+=b/3;		//Y  =	[1/3	1/3	1/3]	v4
+			r-=g;				//Cr =	[1	-1	0].RGB
+			g+=(r+enable_rounding)>>1;	//	[1/2	1/2	0]
+			b-=g;				//Cb =	[-1/2	-1/2	1]
+			g+=(b+enable_rounding)/3;	//Y  =	[1/3	1/3	1/3]	v4
 			break;
 		case RCT_YCbCr_R_v5:
-			r-=g;		//Cr =	[1	-1	0].RGB
-			g+=r>>1;	//	[1/2	1/2	0]
-			b-=g;		//Cb =	[-1/2	-1/2	1]
-			g+=b*6>>4;	//Y  =	[5/16	5/16	6/16]	v5
+			r-=g;					//Cr =	[1	-1	0].RGB
+			g+=(r+enable_rounding)>>1;		//	[1/2	1/2	0]
+			b-=g;					//Cb =	[-1/2	-1/2	1]
+			g+=(b*6+(enable_rounding<<3))>>4;	//Y  =	[5/16	5/16	6/16]	v5
+			break;
+		case RCT_YCbCr_R_v6:
+			r-=g;					//Cr =	[1	-1	0].RGB
+			g+=(r+enable_rounding)>>1;		//	[1/2	1/2	0]
+			b-=g;					//Cb =	[-1/2	-1/2	1]
+			g+=(b*14+(enable_rounding<<4))>>5;	//Y  =	[9/32	9/32	14/32]	v6
 			break;
 		}
 		
@@ -8250,7 +8275,8 @@ size_t ma_test(const unsigned char *src, int iw, int ih, int testtype, int RCTty
 		//	LOG_ERROR("");
 
 		buf1[k<<2|0]=g;//Y	8-bit because the average (luma) can't spill out of input domain
-		if(testtype&MA_RCT_CHROMA)
+		//if(testtype&MA_RCT_CHROMA)
+		if(enable_RCT_MA)
 		{
 			buf1[k<<2|1]=((b+128)&0xFF)-128;
 			buf1[k<<2|2]=((r+128)&0xFF)-128;
