@@ -120,7 +120,7 @@ int t44_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 int t44_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
 
 void print_ma_test(int testtype);
-size_t ma_test(const unsigned char *src, int iw, int ih, int testtype, int loud);
+size_t ma_test(const unsigned char *src, int iw, int ih, int testtype, int RCTtype, int loud);
 
 
 
@@ -139,6 +139,12 @@ void colortransform_YCoCg_R_fwd(char *buf, int iw, int ih);
 void colortransform_YCoCg_R_inv(char *buf, int iw, int ih);
 void colortransform_YCbCr_R_fwd(char *buf, int iw, int ih);//like YCoCg but with green & blue swapped
 void colortransform_YCbCr_R_inv(char *buf, int iw, int ih);
+void colortransform_YCbCr_R_v2_fwd(char *buf, int iw, int ih);
+void colortransform_YCbCr_R_v2_inv(char *buf, int iw, int ih);
+void colortransform_YCbCr_R_v3_fwd(char *buf, int iw, int ih);
+void colortransform_YCbCr_R_v3_inv(char *buf, int iw, int ih);
+void colortransform_YCbCr_R_v4_fwd(char *buf, int iw, int ih);
+void colortransform_YCbCr_R_v4_inv(char *buf, int iw, int ih);
 void colortransform_subgreen_fwd(char *buf, int iw, int ih);
 void colortransform_subgreen_inv(char *buf, int iw, int ih);
 

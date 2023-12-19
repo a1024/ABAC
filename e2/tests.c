@@ -8134,6 +8134,15 @@ typedef enum MATestTypeEnum
 	//MA_PRED_LUMA=2,
 	//MA_PRED_CHROMA=4,
 } MATestType;
+typedef enum RCTTypeEnum
+{
+	RCT_YCoCg_R,
+	RCT_YCbCr_R,
+	RCT_YCbCr_R_v2,
+	RCT_YCbCr_R_v3,
+	RCT_YCbCr_R_v4,
+	RCT_YCbCr_R_v5,
+} RCTType;
 void print_ma_test(int testtype)
 {
 #define PRINT_TESTTYPE(LABEL) if(testtype&LABEL)printf("[ v] " #LABEL "\n"); else printf("[X ] " #LABEL "\n");
@@ -8144,7 +8153,7 @@ void print_ma_test(int testtype)
 	//PRINT_TESTTYPE(MA_PRED_CHROMA)
 #undef  PRINT_TESTTYPE
 }
-size_t ma_test(const unsigned char *src, int iw, int ih, int testtype, int loud)
+size_t ma_test(const unsigned char *src, int iw, int ih, int testtype, int RCTtype, int loud)
 {
 	int res=iw*ih;
 	short *buf1=(short*)malloc((size_t)res*sizeof(short[4]));
@@ -8191,19 +8200,55 @@ size_t ma_test(const unsigned char *src, int iw, int ih, int testtype, int loud)
 #endif
 
 		//YCbCr-R
-#if 1
+#if 0
 		r-=g;		//diff(r, g)            [ 1      -1      0  ].RGB	Cr
 		g+=r>>1;
 		b-=g;		//diff(b, av(r, g))     [-1/2    -1/2    1  ].RGB	Cb
 		g+=b>>1;	//av(b, av(r, g))       [ 1/4     1/4    1/2].RGB	Y
 #endif
+		switch(RCTtype)
+		{
+		case RCT_YCoCg_R:
+			r-=b;		//co = r-b			diff(r, b)
+			b+=r>>1;	//(r+b)/2
+			g-=b;		//cg = g-(r+b)/2		diff(g, av(r, b))
+			b+=g>>1;	//Y  = (r+b)/2 + (g-(r+b)/2)/2 = r/4+g/2+b/4		av(g, av(r, b))
+			break;
+		case RCT_YCbCr_R:
+			r-=g;		//diff(r, g)            [ 1      -1      0  ].RGB	Cr
+			g+=r>>1;
+			b-=g;		//diff(b, av(r, g))     [-1/2    -1/2    1  ].RGB	Cb
+			g+=b>>1;	//av(b, av(r, g))       [ 1/4     1/4    1/2].RGB	Y
+			break;
+		case RCT_YCbCr_R_v2:
+			r-=g;		//Cr =	[1	-1	0].RGB
+			g+=r>>1;	//	[1/2	1/2	0]
+			b-=g;		//Cb =	[-1/2	-1/2	1]
+			g+=(2*b-r)>>3;	//Y  =	[1/4	1/2	1/4]	v2
+			break;
+		case RCT_YCbCr_R_v3:
+			r-=g;		//Cr =	[1	-1	0].RGB
+			g+=r>>1;	//	[1/2	1/2	0]
+			b-=g;		//Cb =	[-1/2	-1/2	1]
+			g+=(r+2*b)>>3;	//Y  =	[1/2	1/4	1/4]	v3
+			break;
+		case RCT_YCbCr_R_v4:
+			r-=g;		//Cr =	[1	-1	0].RGB
+			g+=r>>1;	//	[1/2	1/2	0]
+			b-=g;		//Cb =	[-1/2	-1/2	1]
+			g+=b/3;		//Y  =	[1/3	1/3	1/3]	v4
+			break;
+		case RCT_YCbCr_R_v5:
+			r-=g;		//Cr =	[1	-1	0].RGB
+			g+=r>>1;	//	[1/2	1/2	0]
+			b-=g;		//Cb =	[-1/2	-1/2	1]
+			g+=b*6>>4;	//Y  =	[5/16	5/16	6/16]	v5
+			break;
+		}
 		
 		//if(g<-128||g>127)//no hit
 		//	LOG_ERROR("");
 
-		//if(testtype&MA_RCT_LUMA)
-		//	buf1[k<<2|0]=((g+128)&0xFF)-128;
-		//else
 		buf1[k<<2|0]=g;//Y	8-bit because the average (luma) can't spill out of input domain
 		if(testtype&MA_RCT_CHROMA)
 		{

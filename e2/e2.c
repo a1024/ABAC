@@ -8,6 +8,9 @@
 #include"qoi.h"
 static const char file[]=__FILE__;
 
+
+	#define MA_BATCHTEST
+
 #if 0
 void test1()
 {
@@ -346,9 +349,6 @@ short jxl_CLIC30_params[]=
 	  0x01CF,  0x09EE,  0x090D,  0x0062,	-0x001D, -0x0101, -0x04FE, -0x029F, -0x013C, -0x065E,  0x02AF,
 };
 
-
-	#define MA_BATCHTEST
-
 const char *g_extensions[]=
 {
 	"png",
@@ -368,7 +368,7 @@ void batch_test(const char *path)
 		return;
 	}
 #ifdef MA_BATCHTEST
-	long long ma_sizes[4]={0};//
+	long long ma_sizes[16]={0};//
 #endif
 	long long
 		count_PNG=0, count_JPEG=0,
@@ -450,14 +450,24 @@ void batch_test(const char *path)
 		{
 			size_t bestsize=0;
 			int besttest=0;
-			for(int k=0;k<4;++k)
+			for(int km=0;km<4;++km)
 			{
-				size_t size=ma_test(buf, iw, ih, k, 0);
-				ma_sizes[k]+=size;
-				if(!k||bestsize>size)
-					bestsize=size, besttest=k;
+				//for(int kt=0;kt<4;++kt)
+				//{
+				//	size_t size=ma_test(buf, iw, ih, km, kt, 0);
+				//	ma_sizes[km<<2|kt]+=size;
+				//	if(!km&&!kt||bestsize>size)
+				//		bestsize=size, besttest=km<<2|kt;
+				//}
+				size_t size=ma_test(buf, iw, ih, km, 5, 0);
+				ma_sizes[km]+=size;
+				if(!km||bestsize>size)
+					bestsize=size, besttest=km;
 			}
-			printf("  best%d\n", besttest);
+			printf("  best");
+			print_binn(besttest, 4);
+			printf("\n");
+			//printf("  best%d\n", besttest);
 			sum_testsize+=bestsize;
 		}
 #endif
@@ -727,7 +737,7 @@ void batch_test(const char *path)
 		//printf("test3s  CR %lf\n", (double)totalusize/sum_test3size[0]);
 		//printf("test3sd CR %lf\n", (double)totalusize/sum_test3size[1]);
 #ifdef MA_BATCHTEST
-		for(int k=0;k<4;++k)
+		for(int k=0;k<_countof(ma_sizes);++k)
 			printf("%d  %lld\n", k, ma_sizes[k]);
 #endif
 	}
@@ -898,23 +908,23 @@ int main(int argc, char **argv)
 	
 	int loud=0;
 
-	{
-		size_t bestsize=0, lastsize=0;
-		int besttest=0;
-		for(int k=0;k<4;++k)
-		{
-			size_t size=ma_test(buf, iw, ih, k, 1);
-			if(!k||bestsize>size)
-				bestsize=size, besttest=k;
-			if(k==7)
-				lastsize=size;
-		}
-		printf("\nBest combination  %d  %lld  %lf\n", besttest, bestsize, (double)lastsize/bestsize);
-		print_ma_test(besttest);
-		printf("\n");
-		//pause();
-		exit(0);
-	}
+	//{
+	//	size_t bestsize=0, lastsize=0;
+	//	int besttest=0;
+	//	for(int k=0;k<4;++k)
+	//	{
+	//		size_t size=ma_test(buf, iw, ih, k, 1, 1);
+	//		if(!k||bestsize>size)
+	//			bestsize=size, besttest=k;
+	//		if(k==7)
+	//			lastsize=size;
+	//	}
+	//	printf("\nBest combination  %d  %lld  %lf\n", besttest, bestsize, (double)lastsize/bestsize);
+	//	print_ma_test(besttest);
+	//	printf("\n");
+	//	//pause();
+	//	exit(0);
+	//}
 	//grad_explore(buf, iw, ih);
 
 	//test16

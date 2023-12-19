@@ -105,30 +105,113 @@ void colortransform_YCbCr_R_inv(char *buf, int iw, int ih)
 		buf[k|2]=b;
 	}
 }
+void colortransform_YCbCr_R_v2_fwd(char *buf, int iw, int ih)
+{
+	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
+	{
+		char r=buf[k], g=buf[k|1], b=buf[k|2];
+
+		r-=g;		//Cr =	[1	-1	0].RGB
+		g+=r>>1;	//	[1/2	1/2	0]
+		b-=g;		//Cb =	[-1/2	-1/2	1]
+		g+=(2*b-r)>>3;	//Y  =	[1/4	1/2	1/4]	v2
+		//g+=(r+2*b)>>3;//Y  =	[1/2	1/4	1/4]	v3
+		
+		buf[k  ]=r;//Cr
+		buf[k|1]=g;//Y
+		buf[k|2]=b;//Cb
+	}
+}
+void colortransform_YCbCr_R_v2_inv(char *buf, int iw, int ih)
+{
+	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
+	{
+		char r=buf[k], g=buf[k|1], b=buf[k|2];//Cr Y Cb
+		
+		g-=(2*b-r)>>3;//v2
+		//g-=(r+2*b)>>3;//v3
+		b+=g;
+		g-=r>>1;
+		r+=g;
+
+		buf[k  ]=r;
+		buf[k|1]=g;
+		buf[k|2]=b;
+	}
+}
+void colortransform_YCbCr_R_v3_fwd(char *buf, int iw, int ih)
+{
+	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
+	{
+		char r=buf[k], g=buf[k|1], b=buf[k|2];
+
+		r-=g;		//Cr =	[1	-1	0].RGB
+		g+=r>>1;	//	[1/2	1/2	0]
+		b-=g;		//Cb =	[-1/2	-1/2	1]
+		//g+=(2*b-r)>>3;//Y  =	[1/4	1/2	1/4]	v2
+		g+=(r+2*b)>>3;	//Y  =	[1/2	1/4	1/4]	v3
+		
+		buf[k  ]=r;//Cr
+		buf[k|1]=g;//Y
+		buf[k|2]=b;//Cb
+	}
+}
+void colortransform_YCbCr_R_v3_inv(char *buf, int iw, int ih)
+{
+	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
+	{
+		char r=buf[k], g=buf[k|1], b=buf[k|2];//Cr Y Cb
+		
+		//g-=(2*b-r)>>3;//v2
+		g-=(r+2*b)>>3;//v3
+		b+=g;
+		g-=r>>1;
+		r+=g;
+
+		buf[k  ]=r;
+		buf[k|1]=g;
+		buf[k|2]=b;
+	}
+}
 void colortransform_subg_fwd(char *buf, int iw, int ih)//used in JPEG2000
 {
 	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
 	{
 		char r=buf[k], g=buf[k|1], b=buf[k|2];
 
-		r-=g;       //r-g							[1     -1     0  ].RGB
-		b-=g;       //b-g							[0     -1     1  ].RGB
+		r-=g;       //r-g				[1     -1     0  ].RGB
+		b-=g;       //b-g				[0     -1     1  ].RGB
 		g+=(r+b)>>2;//g+(r-g+b-g)/4 = r/4+g/2+b/4	[1/4    1/2   1/4].RGB
 
-		buf[k  ]=r;//C?
+		//r-=g;		//Cr =	[1	-1	0].RGB
+		//g+=r>>1;	//	[1/2	1/2	0]
+		//b-=g;		//Cb =	[-1/2	-1/2	1]
+		//g+=(r+2*b)>>3;//Y  =	[1/2	1/4	1/4]	variant 3
+		//g+=(2*b-r)>>3;//Y  =	[1/4	1/2	1/4]	variant 2
+		
+		buf[k  ]=r;//Cr
 		buf[k|1]=g;//Y
-		buf[k|2]=b;//C?
+		buf[k|2]=b;//Cb
+
+		//buf[k  ]=r-g;			//Cr	//better than YCbCr-R, but is it an RCT?
+		//buf[k|1]=((r<<1)+g+b)>>2;	//Y
+		//buf[k|2]=b-((r+g)>>1);	//Cb
 	}
 }
 void colortransform_subg_inv(char *buf, int iw, int ih)
 {
 	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
 	{
-		char r=buf[k], g=buf[k|1], b=buf[k|2];//Cm Y Cb
+		char r=buf[k], g=buf[k|1], b=buf[k|2];//Cr Y Cb
 		
 		g-=(r+b)>>2;
 		b+=g;
 		r+=g;
+		
+		//g-=(r+2*b)>>3;
+		//b+=g;
+		//g-=r>>1;
+		//r+=g;
 
 		buf[k  ]=r;
 		buf[k|1]=g;
