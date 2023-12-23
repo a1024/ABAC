@@ -49,19 +49,19 @@ void colortransform_YCoCg_R_fwd(char *buf, int iw, int ih)
 
 		r-=b;		//co = r-b			diff(r, b)
 		b+=r>>1;	//(r+b)/2
-		g-=b;		//cg = g-(r+b)/2	diff(g, av(r, b))
+		g-=b;		//cg = g-(r+b)/2		diff(g, av(r, b))
 		b+=g>>1;	//Y  = (r+b)/2 + (g-(r+b)/2)/2 = r/4+g/2+b/4	av(g, av(r, b))
 
-		buf[k  ]=r;
-		buf[k|1]=g;
-		buf[k|2]=b;
+		buf[k  ]=r;//Co
+		buf[k|1]=g;//Cg
+		buf[k|2]=b;//Y
 	}
 }
 void colortransform_YCoCg_R_inv(char *buf, int iw, int ih)
 {
 	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
 	{
-		char r=buf[k], g=buf[k|1], b=buf[k|2];
+		char r=buf[k], g=buf[k|1], b=buf[k|2];//Co Cg Y
 		
 		b-=g>>1;
 		g+=b;
@@ -83,8 +83,18 @@ void colortransform_YCbCr_R_fwd(char *buf, int iw, int ih)//YCbCr-R (originally 
 		g+=r>>1;
 		b-=g;		//diff(b, av(r, g))     [-1/2    -1/2    1  ].RGB	Cb
 		g+=b>>1;	//av(b, av(r, g))       [ 1/4     1/4    1/2].RGB	Y
+		
+		//r+=g;		//sum(r, g)			[ 1      1      0  ].RGB	Cr
+		//g-=r>>1;
+		//b+=g;		//sum(b, diff(r, g)/2)		[ 1/2    -1/2    1  ].RGB	Cb
+		//g-=b>>1;	//diff(b, diff(r, g)/2)/2	[-1/4     1/4    1/2].RGB	Y
 
-		buf[k  ]=r;//Cm
+		//g+=r;		//[1	1	0]
+		//r-=g>>1;	//[1/2	-1/2	0]
+		//g+=b;		//[1	1	1]
+		//b-=g/3;	//[-1/2	-1/2	1/2]
+
+		buf[k  ]=r;//Cr
 		buf[k|1]=g;//Y
 		buf[k|2]=b;//Cb
 	}
@@ -93,12 +103,17 @@ void colortransform_YCbCr_R_inv(char *buf, int iw, int ih)
 {
 	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
 	{
-		char r=buf[k], g=buf[k|1], b=buf[k|2];//Cm Y Cb
-		
+		char r=buf[k], g=buf[k|1], b=buf[k|2];//Cr Y Cb
+
 		g-=b>>1;
 		b+=g;
 		g-=r>>1;
 		r+=g;
+		
+		//r-=g;
+		//g+=r>>1;
+		//b-=g;
+		//g+=b>>1;
 
 		buf[k  ]=r;
 		buf[k|1]=g;
@@ -218,6 +233,833 @@ void colortransform_subg_inv(char *buf, int iw, int ih)
 		buf[k|2]=b;
 	}
 }
+
+void c_mul_add(double *dst, const double *a, const double *b)
+{
+	double
+		r=a[0]*b[0]-a[1]*b[1],
+		i=a[0]*b[1]+a[1]*b[0];
+	dst[0]+=r, dst[1]+=i;
+}
+void c_mul_sub(double *dst, const double *a, const double *b)
+{
+	double
+		r=a[0]*b[0]-a[1]*b[1],
+		i=a[0]*b[1]+a[1]*b[0];
+	dst[0]-=r, dst[1]-=i;
+}
+double c_abs2(const double *z)
+{
+	return z[0]*z[0]+z[1]*z[1];
+}
+void c_div(double *dst, double const *a, double const *b)
+{
+	double invabsb2=1/c_abs2(b);
+	double
+		r=(a[0]*b[0]+a[1]*b[1])*invabsb2,
+		i=(a[1]*b[0]-a[0]*b[1])*invabsb2;
+	dst[0]=r, dst[1]=i;
+}
+void c_exp(double *dst, double const *x)
+{
+	double m=exp(x[0]);
+	dst[0]=m*cos(x[1]);
+	dst[1]=m*sin(x[1]);
+}
+void c_ln(double *dst, double const *x)
+{
+	double
+		r=log(sqrt(c_abs2(x))),
+		i=atan2(x[1], x[0]);
+	dst[0]=r, dst[1]=i;
+}
+void c_cbrt(double *dst, const double *x)//sqrt(x)=exp(0.5lnx)
+{
+	double temp[2];
+	if(x[0]||x[1])
+	{
+		c_ln(temp, x);
+		temp[0]*=1./3, temp[1]*=1./3;
+		c_exp(dst, temp);
+	}
+	else
+		dst[0]=x[0], dst[1]=x[1];
+}
+void impl_solve_cubic(const double *coeffs, double *roots)//finds r[0], r[1], & r[2], the solutions of x^3 + c[2]x^2 + c[1]x + c[0] = 0
+{
+	//https://math.stackexchange.com/questions/15865/why-not-write-the-solutions-of-a-cubic-this-way/18873#18873
+	double p=coeffs[2], q=coeffs[1], r=coeffs[0],
+		p2, p3, q2, pq, A[2], B[2];
+	double sqrt27=3*sqrt(3), inv3cbrt2=1./(3*cbrt(2)), ninth=1./9;
+	double cm[]={-0.5, -sqrt(3)*0.5}, cp[]={-0.5, sqrt(3)*0.5};
+
+	if(!p&&!q)
+	{
+		roots[4]=roots[2]=roots[0]=-cbrt(r);
+		roots[5]=roots[3]=roots[1]=0;
+		return;
+	}
+
+	p2=p*p;
+	p3=p2*p;
+	q2=q*q;
+	pq=p*q;
+
+	A[0]=(4*q-p2)*q2+(4*p3-18*pq+27*r)*r;
+	if(A[0]<0)//complex sqrt
+		A[1]=sqrt(fabs(A[0])), A[0]=0;
+	else
+		A[0]=sqrt(A[0]), A[1]=0;
+	A[0]*=sqrt27;
+	A[1]*=sqrt27;
+	A[0]-=27*r;
+	A[0]+=9*pq-2*p3;
+	c_cbrt(A, A);
+	A[0]*=inv3cbrt2;
+	A[1]*=inv3cbrt2;
+	B[0]=3*q-p2;
+	B[1]=0;
+	c_div(B, B, A);
+	B[0]*=ninth;
+	B[1]*=ninth;
+	roots[4]=roots[2]=roots[0]=p*(-1./3);
+	roots[5]=roots[3]=roots[1]=0;
+	roots[0]+=A[0]-B[0];
+	roots[1]+=A[1]-B[1];
+	c_mul_add(roots+2, A, cm);
+	c_mul_sub(roots+2, B, cp);
+	c_mul_add(roots+4, A, cp);
+	c_mul_sub(roots+4, B, cm);
+}
+void impl_rref(double *m, short dx, short dy)
+{
+#ifdef _DEBUG
+	double pivot;
+#endif
+	double coeff;
+	int mindim=dx<dy?dx:dy, it, ky, kx, npivots, kpivot;
+	for(it=0, npivots=0;it<mindim;++it)//iteration
+	{
+		kpivot=-1;
+		for(ky=npivots;ky<dy;++ky)//find pivot
+		{
+			if(fabs(m[dx*ky+it])>1e-10)
+			{
+#ifdef _DEBUG
+				pivot=m[dx*ky+it];
+#endif
+				kpivot=ky;
+				++npivots;
+				break;
+			}
+		}
+		if(kpivot==-1)
+			continue;
+		if(kpivot>npivots-1)
+		{
+			for(kx=0;kx<dx;++kx)//swap rows
+				coeff=m[dx*kpivot+kx], m[dx*kpivot+kx]=m[dx*(npivots-1)+kx], m[dx*(npivots-1)+kx]=coeff;
+			kpivot=npivots-1;
+		}
+		for(ky=0;ky<dy;++ky)
+		{
+			if(ky==kpivot)//normalize pivot row
+			{
+				coeff=1/m[dx*kpivot+it];
+				for(kx=it;kx<dx;++kx)
+					m[dx*kpivot+kx]*=coeff;
+			}
+			else//subtract pivot row from all other rows
+			{
+				coeff=m[dx*ky+it]/m[dx*kpivot+it];
+				for(kx=it;kx<dx;++kx)
+					m[dx*ky+kx]-=coeff*m[dx*kpivot+kx];
+			}
+			//print_matrix_debug(m, dx, dy);//
+		}
+	}
+}
+int impl_nullspace(double *M, int dx, int dy, double *solution, int sstart, char *dep_flags, short *row_idx)
+{
+	//M is rref'ed
+	//solution allocated size dy*dy, pre-memset solution to zero
+	//p_flags & row_idx both size dx
+	//returns number of vectors in solution
+	int kx, kxdst, ky, keq, kfree, idx, idx2, nvec;
+#ifdef DEBUG_NULLSPACE
+	printf("Before RREF:\n");
+	print_matrix_debug(M, dx, dy);
+#endif
+	impl_rref(M, dx, dy);//first, get rref(M)
+#ifdef DEBUG_NULLSPACE
+	printf("After RREF:\n");
+	print_matrix_debug(M, dx, dy);
+#endif
+	memset(dep_flags, 0, dx);
+	memset(row_idx, 0, dx*sizeof(short));
+	for(ky=0;ky<dy;++ky)//find pivots (dependent variables)
+	{
+		for(kx=ky;kx<dx;++kx)//find first nonzero element
+		{
+			idx=dx*ky+kx;
+			if(fabs(M[idx])>1e-10)
+				break;
+		}
+		if(kx<dx)//if found
+			dep_flags[kx]=1, row_idx[ky]=kx;
+		else
+			break;
+	}
+	nvec=dx-ky;
+	for(ky=0, keq=0, kfree=0;ky<dx;++ky)
+	{
+		if(dep_flags[ky])//pivot, dependent variable
+		{
+			for(kx=0, kxdst=0;kx<dx;++kx)
+			{
+				if(dep_flags[kx])
+					continue;
+				idx=dx*ky+kxdst, idx2=dx*keq+kx;
+				if(sstart+idx>=9)
+					LOG_ERROR("");
+				solution[sstart+idx]=-M[idx2];
+				++kxdst;
+			}
+			++keq;
+		}
+		else//free variable
+		{
+			idx=dx*ky;
+			if(sstart+idx+nvec>9)
+				LOG_ERROR("");
+			memset(solution+sstart+idx, 0, nvec*sizeof(double));
+			if(sstart+idx+kfree>=9)
+				LOG_ERROR("");
+			solution[sstart+idx+kfree]=1;
+			++kfree;
+		}
+#ifdef DEBUG_NULLSPACE
+		//printf("Nullspace row %d:\n", ky);
+		print_matrix_debug(solution+dx*ky, nvec, 1);//
+#endif
+	}
+	return nvec;
+}
+int impl_egvec(double const *M, int n, const double *lambdas, double *S)
+{
+	int kv, kx, nvec, size=n*n, again;
+	double *temp=(double*)malloc(size*sizeof(double));
+	char *dep_flags=(char*)malloc(n);
+	short *row_idx=(short*)malloc(n*sizeof(short));
+	if(!temp||!dep_flags||!row_idx)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	memset(S, 0, size*sizeof(double));
+	for(kv=0, nvec=0;kv<n&&nvec<n;++kv)//get eigenvectors
+	{
+		again=0;
+		for(kx=0;kx<kv;++kx)//check for repeated eigenvalues
+		{
+			if(fabs(lambdas[kx]-lambdas[kv])<1e-10)
+			{
+				again=1;
+				break;
+			}
+		}
+		if(again)
+			continue;
+		memcpy(temp, M, size*sizeof(double));
+		for(kx=0;kx<n;++kx)
+			temp[(n+1)*kx]-=lambdas[kv];
+
+		nvec+=impl_nullspace(temp, n, n, S, nvec, dep_flags, row_idx);
+		//if(nvec>6)
+		//	LOG_ERROR("OOB");
+		//print_matrix_debug(S, n, n);//
+		//for(ky=0;ky<n;++ky)
+		//{
+		//	for(kx=ky;kx<n;++kx)
+		//		if(fabs(temp[n*ky+kx].r)>1e-10||fabs(temp[n*ky+kx].i)>1e-10)
+		//			break;
+		//}
+	}
+	free(dep_flags), free(row_idx);
+	free(temp);
+	return nvec;
+}
+void impl_egval3(double const *M, double *lambdas)//finds the complex eigenvalues of a 3x3 matrix
+{
+	double C[3];
+
+	C[2]=-(M[0]+M[4]+M[8]);//-tr(M)
+	C[1]=M[4]*M[8]-M[5]*M[7] + M[0]*M[8]-M[2]*M[6] + M[0]*M[4]-M[1]*M[3];//cof0+cof4+cof8
+	C[0]=-(M[0]*(M[4]*M[8]-M[5]*M[7]) - M[1]*(M[3]*M[8]-M[5]*M[6]) + M[2]*(M[3]*M[7]-M[4]*M[6]));//-det(M)
+
+	impl_solve_cubic(C, lambdas);
+}
+
+#define ARCT_REACH 10
+//#define ARCT_REACH 1
+#define ARCT_NNB (2*(ARCT_REACH+1)*ARCT_REACH)
+#define CROSS(DST, A, B)\
+	DST[0]=A[1]*B[2]-A[2]*B[1],\
+	DST[1]=A[2]*B[0]-A[0]*B[2],\
+	DST[2]=A[0]*B[1]-A[1]*B[0]
+static void default_RCT(const char *src, char *dst, int fwd)
+{
+	char r=src[0], g=src[1], b=src[2];
+	if(fwd)
+	{
+		r-=g;
+		b-=g;
+		g+=(r+b)>>2;
+	}
+	else
+	{
+		g-=(r+b)>>2;
+		b+=g;
+		r+=g;
+	}
+	dst[0]=r;
+	dst[1]=g;
+	dst[2]=b;
+}
+static void rct_adaptive_block(char *src, int iw, int ih, int x, int y, int blocksize, double *axes)
+{
+	int res=iw*ih;
+	double mean[3]={0}, cov[9]={0};
+	for(int ky=0;ky<blocksize&&y+ky<ih;++ky)
+	{
+		for(int kx=0;kx<blocksize&&x+kx<iw;++kx)
+		{
+			int idx=(iw*(y+ky)+x+kx)<<2;
+			char r=src[idx|0], g=src[idx|1], b=src[idx|2];
+			mean[0]+=r;
+			mean[1]+=g;
+			mean[2]+=b;
+		}
+	}
+	mean[0]/=res;
+	mean[1]/=res;
+	mean[2]/=res;
+	for(int ky=0;ky<blocksize&&y+ky<ih;++ky)
+	{
+		for(int kx=0;kx<blocksize&&x+kx<iw;++kx)
+		{
+			int idx=(iw*(y+ky)+x+kx)<<2;
+			double
+				r=(src[idx|0]-mean[0]),
+				g=(src[idx|1]-mean[1]),
+				b=(src[idx|2]-mean[2]);
+			double rr=r*r, gg=g*g, bb=b*b, rg=r*g, gb=g*b, br=b*r;
+			cov[0]+=rr;
+			cov[1]+=rg;
+			cov[2]+=br;
+			//cov[3]+=rg;//cov[1]
+			cov[4]+=gg;
+			cov[5]+=gb;
+			//cov[6]+=br;//cov[2]
+			//cov[7]+=gb;//cov[5]
+			cov[8]+=bb;
+		}
+	}
+	cov[3]=cov[1];
+	cov[6]=cov[2];
+	cov[7]=cov[5];
+	for(int k=0;k<9;++k)
+		cov[k]/=res-1;
+	double lambdas[6];
+	impl_egval3(cov, lambdas);//get eigenvalues
+	lambdas[0]=sqrt(lambdas[0]*lambdas[0]+lambdas[1]*lambdas[1]);
+	lambdas[1]=sqrt(lambdas[2]*lambdas[2]+lambdas[3]*lambdas[3]);
+	lambdas[2]=sqrt(lambdas[4]*lambdas[4]+lambdas[5]*lambdas[5]);
+	double ev[9];
+	int nv=impl_egvec(cov, 3, lambdas, ev);//get eigenvectors
+	if(nv<2)
+		return;
+
+	double d;
+#define NORMALIZE(IDX) d=ev[IDX+0]*ev[IDX+0]+ev[IDX+1]*ev[IDX+1]+ev[IDX+2]*ev[IDX+2], d=d?1/sqrt(d):1, ev[IDX+0]*=d, ev[IDX+1]*=d, ev[IDX+2]*=d
+	NORMALIZE(0);//normalize eigenvectors
+	NORMALIZE(3);
+	NORMALIZE(6);
+#undef  NORMALIZE
+
+	char d1=0, d2=1, d3=2, temp;
+#define COMPARE(A, B) if(fabs(lambdas[A])<fabs(lambdas[B]))SWAPVAR(A, B, temp)
+	COMPARE(d1, d2);//sort eigenvalues
+	COMPARE(d2, d3);
+	COMPARE(d1, d2);
+#undef  COMPARE
+	d1*=3;
+	d2*=3;
+	d3*=3;
+
+	//use only 2 most significant eigenvectors
+	double axis1[3], axis2[3], axis3[3];
+	memcpy(axis1, ev+d1, sizeof(double[3]));
+	memcpy(axis2, ev+d2, sizeof(double[3]));
+	CROSS(axis3, axis2, axis1);
+	CROSS(axis2, axis1, axis3);
+	//#define DOT(A, B) A[0]*B[0]+A[1]*B[1]+A[2]*B[2]
+	//double
+	//	m1=DOT(axis1, axis2),
+	//	m2=DOT(axis2, axis3),
+	//	m3=DOT(axis3, axis1);
+	//if(m1*m1+m2*m2+m3*m3>1e-3)
+	//	LOG_ERROR("");
+#define NORMALIZE(X) d=X[0]*X[0]+X[1]*X[1]+X[2]*X[2], d=d?1/sqrt(d):1, X[0]*=d, X[1]*=d, X[2]*=d
+	NORMALIZE(axis1);
+	NORMALIZE(axis2);
+	NORMALIZE(axis3);
+#undef  NORMALIZE
+	memcpy(axes+0, axis1, sizeof(double[3]));
+	memcpy(axes+3, axis2, sizeof(double[3]));
+	memcpy(axes+6, axis3, sizeof(double[3]));
+	memcpy(axes+9, mean, sizeof(double[3]));
+#if 0
+	for(int ky=0;ky<blocksize&&y+ky<ih;++ky)
+	{
+		for(int kx=0;kx<blocksize&&x+kx<iw;++kx)
+		{
+			int idx=(iw*(y+ky)+x+kx)<<2;
+			double r=src[idx|0], g=src[idx|1], b=src[idx|2];
+			r-=mean[0];
+			g-=mean[1];
+			b-=mean[2];
+			double
+				r2=axis3[0]*r+axis3[1]*g+axis3[2]*b,//Cr
+				g2=axis1[0]*r+axis1[1]*g+axis1[2]*b,//Y
+				b2=axis2[0]*r+axis2[1]*g+axis2[2]*b;//Cb
+			//double
+			//	r2=ev[d3+0]*r+ev[d3+1]*g+ev[d3+2]*b,//Cr
+			//	g2=ev[d1+0]*r+ev[d1+1]*g+ev[d1+2]*b,//Y
+			//	b2=ev[d2+0]*r+ev[d2+1]*g+ev[d2+2]*b;//Cb
+			src[idx|0]=(char)r2;
+			src[idx|1]=(char)g2;
+			src[idx|2]=(char)b2;
+		}
+	}
+#endif
+	//set_window_title("%lf %lf %lf", lambdas[0], lambdas[1], lambdas[2]);
+}
+void rct_adaptive(char *src, int iw, int ih, int fwd)
+{
+	int blocksize=4, margin=16;
+	int bx=(iw+blocksize-1)/blocksize;
+	int by=(ih+blocksize-1)/blocksize;
+	int nblocks=bx*by;
+	double *axes=(double*)malloc(nblocks*sizeof(double[12]));
+	for(int ky=0;ky<by;++ky)
+	{
+		int ky2=blocksize*ky-margin;
+		if(ky2<0)
+			ky2=0;
+		for(int kx=0;kx<bx;++kx)
+		{
+			int kx2=blocksize*kx-margin;
+			if(kx2<0)
+				kx2=0;
+			rct_adaptive_block(src, iw, ih, kx2, ky2, blocksize+margin*2, axes+12*(bx*ky+kx));
+		}
+	}
+	for(int ky=0;ky<ih;++ky)
+	{
+		int kby1=(ky+(blocksize>>1))/blocksize;
+		int kby0=kby1-(kby1>0);
+		kby1-=kby1>=by;
+		int alphay=(ky+(blocksize>>1))%blocksize;
+		for(int kx=0;kx<iw;++kx)
+		{
+			int kbx1=(kx+(blocksize>>1))/blocksize;
+			int kbx0=kbx1-(kbx1>0);
+			kbx1-=kbx1>=bx;
+			int alphax=(kx+(blocksize>>1))%blocksize;
+			double
+				*axesTL=axes+12*(bx*kby0+kbx0),
+				*axesTR=axes+12*(bx*kby0+kbx1),
+				*axesBL=axes+12*(bx*kby1+kbx0),
+				*axesBR=axes+12*(bx*kby1+kbx1);
+			//if(kby0!=kby1&&kbx0!=kbx1)
+			//	printf("");
+			double localaxes[12];
+			for(int k=0;k<12;++k)//alpha blend
+			{
+				double vTL=axesTL[k], vTR=axesTR[k], vBL=axesBL[k], vBR=axesBR[k];
+				double vT=vTL+(vTR-vTL)*alphax/blocksize;
+				double vB=vBL+(vBR-vBL)*alphax/blocksize;
+				double v=vT+(vB-vT)*alphay/blocksize;
+				localaxes[k]=v;
+			}
+			double d;
+#define NORMALIZE(IDX) d=localaxes[IDX+0]*localaxes[IDX+0]+localaxes[IDX+1]*localaxes[IDX+1]+localaxes[IDX+2]*localaxes[IDX+2], d=d?1/sqrt(d):1, localaxes[IDX+0]*=d, localaxes[IDX+1]*=d, localaxes[IDX+2]*=d
+			NORMALIZE(0);//normalize axes
+			NORMALIZE(3);
+			NORMALIZE(6);
+#undef  NORMALIZE
+			int idx=(iw*ky+kx)<<2;
+			double r=src[idx|0], g=src[idx|1], b=src[idx|2];
+			r-=localaxes[ 9];//subtract mean
+			g-=localaxes[10];
+			b-=localaxes[11];
+			double
+				r2=localaxes[6]*r+localaxes[7]*g+localaxes[8]*b,//Cr	project on axes
+				g2=localaxes[0]*r+localaxes[1]*g+localaxes[2]*b,//Y
+				b2=localaxes[3]*r+localaxes[4]*g+localaxes[5]*b;//Cb
+			src[idx|0]=(char)r2;
+			src[idx|1]=(char)g2;
+			src[idx|2]=(char)b2;
+		}
+	}
+#if 0
+	int res=iw*ih;
+	char *dst=(char*)malloc((size_t)res<<2);
+	if(!dst)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memcpy(dst, src, (size_t)res<<2);
+	const char *pixels=fwd?src:dst, *errors=fwd?dst:src;
+	for(int ky=0;ky<ih;++ky)
+	{
+		for(int kx=0;kx<iw;++kx)
+		{
+			int idx=(iw*ky+kx)<<2;
+			//if(kx==20&&ky==20)//
+			//	printf("");
+			int nb[ARCT_NNB*3];
+			for(int ky2=-ARCT_REACH, idx2=0;ky2<=0;++ky2)//fetch causal neighbors
+			{
+				for(int kx2=-ARCT_REACH;kx2<=ARCT_REACH;++kx2, idx2+=3)
+				{
+					if(idx2>=ARCT_NNB*3)
+						break;
+					if((unsigned)(ky+ky2)<(unsigned)ih&&(unsigned)(kx+kx2)<(unsigned)iw)
+					{
+						int idx3=(iw*(ky+ky2)+kx+kx2)<<2;
+						nb[idx2+0]=pixels[idx3|0];
+						nb[idx2+1]=pixels[idx3|1];
+						nb[idx2+2]=pixels[idx3|2];
+					}
+					else
+					{
+						nb[idx2+0]=0;
+						nb[idx2+1]=0;
+						nb[idx2+2]=0;
+					}
+				}
+			}
+			int mean[3]={0};
+			for(int k=0;k<ARCT_NNB*3-2;k+=3)//calculate mean
+			{
+				mean[0]+=nb[k+0];
+				mean[1]+=nb[k+1];
+				mean[2]+=nb[k+2];
+			}
+			mean[0]=(mean[0]+(ARCT_NNB>>1))/ARCT_NNB;
+			mean[1]=(mean[1]+(ARCT_NNB>>1))/ARCT_NNB;
+			mean[2]=(mean[2]+(ARCT_NNB>>1))/ARCT_NNB;
+			default_RCT(src+idx, dst+idx, fwd);
+			continue;
+
+			for(int k=0;k<ARCT_NNB*3-2;k+=3)//subtract mean
+			{
+				nb[k+0]-=mean[0];
+				nb[k+1]-=mean[1];
+				nb[k+2]-=mean[2];
+			}
+#if 1
+			double cov[9]={0};
+			for(int k=0;k<ARCT_NNB*3-2;k+=3)//calculate covariance matrix
+			{
+				double r=nb[k+0], g=nb[k+1], b=nb[k+2];
+				double rr=r*r, gg=g*g, bb=b*b, rg=r*g, gb=g*b, br=b*r;
+				cov[0]+=rr;
+				cov[1]+=rg;
+				cov[2]+=br;
+				//cov[3]+=rg;//cov[1]
+				cov[4]+=gg;
+				cov[5]+=gb;
+				//cov[6]+=br;//cov[2]
+				//cov[7]+=gb;//cov[5]
+				cov[8]+=bb;
+			}
+			cov[3]=cov[1];
+			cov[6]=cov[2];
+			cov[7]=cov[5];
+			for(int k=0;k<9;++k)
+				cov[k]/=ARCT_NNB-1;
+			
+			//double det=cov[0]*(cov[4]*cov[8]-cov[5]*cov[7]) - cov[1]*(cov[3]*cov[8]-cov[5]*cov[6]) + cov[2]*(cov[3]*cov[7]-cov[4]*cov[6]);
+			//if(det<1e-6)
+			//{
+			//	default_RCT(src+idx, dst+idx, fwd);
+			//	continue;
+			//}
+
+			//calculate eigenvectors & eigenvalues
+			double lambdas[6];
+			impl_egval3(cov, lambdas);//get eigenvalues
+			if(fabs(lambdas[1])>1e-6||fabs(lambdas[3])>1e-6||fabs(lambdas[5])>1e-6)//reject complex eigenvalues
+			{
+				default_RCT(src+idx, dst+idx, fwd);
+				continue;
+			}
+			lambdas[0]=sqrt(lambdas[0]*lambdas[0]+lambdas[1]*lambdas[1]);
+			lambdas[1]=sqrt(lambdas[2]*lambdas[2]+lambdas[3]*lambdas[3]);
+			lambdas[2]=sqrt(lambdas[4]*lambdas[4]+lambdas[5]*lambdas[5]);
+			if(fabs(lambdas[0])<1e-6||fabs(lambdas[1])<1e-6||fabs(lambdas[2])<1e-6)//reject zero eigenvalues
+			{
+				default_RCT(src+idx, dst+idx, fwd);
+				continue;
+			}
+			double ev[9];
+			int nv=impl_egvec(cov, 3, lambdas, ev);//get eigenvectors
+			if(nv<2)
+			{
+				default_RCT(src+idx, dst+idx, fwd);
+				continue;
+			}
+			double d;
+#define NORMALIZE(IDX) d=ev[IDX+0]*ev[IDX+0]+ev[IDX+1]*ev[IDX+1]+ev[IDX+2]*ev[IDX+2], d=d?1/sqrt(d):1, ev[IDX+0]*=d, ev[IDX+1]*=d, ev[IDX+2]*=d
+			NORMALIZE(0);//normalize eigenvectors
+			NORMALIZE(3);
+			NORMALIZE(6);
+#undef  NORMALIZE
+			char d1=0, d2=1, d3=2, temp;
+#define COMPARE(A, B) if(fabs(lambdas[A])<fabs(lambdas[B]))SWAPVAR(A, B, temp)
+			COMPARE(d1, d2);//sort eigenvalues
+			COMPARE(d2, d3);
+			COMPARE(d1, d2);
+#undef  COMPARE
+			d1*=3;
+			d2*=3;
+			d3*=3;
+
+			//use only 2 most significant eigenvectors
+			double axis1[3], axis2[3], axis3[3];
+			memcpy(axis1, ev+d1, sizeof(double[3]));
+			memcpy(axis2, ev+d2, sizeof(double[3]));
+			CROSS(axis3, axis2, axis1);
+			CROSS(axis2, axis1, axis3);
+			//#define DOT(A, B) A[0]*B[0]+A[1]*B[1]+A[2]*B[2]
+			//double
+			//	m1=DOT(axis1, axis2),
+			//	m2=DOT(axis2, axis3),
+			//	m3=DOT(axis3, axis1);
+			//if(m1*m1+m2*m2+m3*m3>1e-3)
+			//	LOG_ERROR("");
+#define NORMALIZE(X) d=X[0]*X[0]+X[1]*X[1]+X[2]*X[2], d=d?1/sqrt(d):1, X[0]*=d, X[1]*=d, X[2]*=d
+			NORMALIZE(axis1);
+			NORMALIZE(axis2);
+			NORMALIZE(axis3);
+#undef  NORMALIZE
+			char r=pixels[idx|0], g=pixels[idx|1], b=pixels[idx|2];
+			r-=mean[0];
+			g-=mean[1];
+			b-=mean[2];
+			double
+				r2=ev[d3+0]*r+ev[d3+1]*g+ev[d3+2]*b,//Cr
+				g2=ev[d1+0]*r+ev[d1+1]*g+ev[d1+2]*b,//Y
+				b2=ev[d2+0]*r+ev[d2+1]*g+ev[d2+2]*b;//Cb
+			dst[idx|0]=(char)r2;
+			dst[idx|1]=(char)g2;
+			dst[idx|2]=(char)b2;
+#endif
+#if 0
+			//check for degenerate tetrahedron
+			{
+				double ab_ac[]=
+				{
+					(nb[1*3+0]-nb[0*3+0])*(nb[2*3+0]-nb[0*3+0]),
+					(nb[1*3+1]-nb[0*3+1])*(nb[2*3+1]-nb[0*3+1]),
+					(nb[1*3+2]-nb[0*3+2])*(nb[2*3+2]-nb[0*3+2]),
+				};
+				double ad[]=
+				{
+					nb[3*3+0]-nb[0*3+0],
+					nb[3*3+1]-nb[0*3+1],
+					nb[3*3+2]-nb[0*3+2],
+				};
+				double temp[3];
+				CROSS(temp, ab_ac, ad);
+				double volume=temp[0]*temp[0]+temp[1]*temp[1]+temp[2]*temp[2];
+				if(volume<1e-10)//shortcut for degenerate neighbors	JPEG2000
+				{
+					if(fwd)
+					{
+						r-=g;
+						b-=g;
+						g+=(r+b)>>2;
+					}
+					else
+					{
+						g-=(r+b)>>2;
+						b+=g;
+						r+=g;
+					}
+					dst[idx|0]=r;
+					dst[idx|1]=g;
+					dst[idx|2]=b;
+					continue;
+				}
+			}
+			int dist[ARCT_NNB]={0};
+			for(int k=0, k2=0;k<ARCT_NNB*3-2;k+=3, ++k2)//calculate vertex distances from mean
+			{
+				int r=nb[k+0], g=nb[k+1], b=nb[k+2];
+				dist[k2]=r*r+b*b+g*g;
+			}
+			int d1=0, d2=0;
+			for(int k=1;k<ARCT_NNB;++k)//select farthest vertex
+			{
+				if(dist[d1]<dist[k])
+					d1=k;
+			}
+			for(int k=1;k<ARCT_NNB;++k)//select 2nd farthest vertex
+			{
+				if(k!=d1&&dist[d2]<dist[k])
+					d2=k;
+			}
+
+			//define new axes
+			double
+				inv_d1=dist[d1]?1./sqrt(dist[d1]):1,
+				inv_d2=dist[d2]?1./sqrt(dist[d2]):1;
+			d1*=3;
+			d2*=3;
+			double
+				axis1[]={nb[d1+0]*inv_d1, nb[d1+1]*inv_d1, nb[d1+2]*inv_d1},
+				axis2[]={nb[d2+0]*inv_d2, nb[d2+1]*inv_d2, nb[d2+2]*inv_d2},
+				axis3[3];
+			//int axis1[3], axis2[3], axis3[3];
+			//memcpy(axis1, nb+d1, sizeof(int[3]));
+			//memcpy(axis2, nb+d2, sizeof(int[3]));
+			CROSS(axis3, axis2, axis1);//axis3 = d2 cross d1
+			CROSS(axis2, axis1, axis3);//axis2 = d1 cross axis3
+
+			inv_d1=axis3[0]*axis3[0]+axis3[1]*axis3[1]+axis3[2]*axis3[2];
+			inv_d1=inv_d1?1/sqrt(inv_d1):1;
+			axis3[0]*=inv_d1;
+			axis3[1]*=inv_d1;
+			axis3[2]*=inv_d1;
+
+			inv_d1=axis2[0]*axis2[0]+axis2[1]*axis2[1]+axis2[2]*axis2[2];
+			inv_d1=inv_d1?1/sqrt(inv_d1):1;
+			axis2[0]*=inv_d1;
+			axis2[1]*=inv_d1;
+			axis2[2]*=inv_d1;
+			
+			double
+				r2=axis3[0]*r+axis3[1]*g+axis3[2]*b,
+				g2=axis1[0]*r+axis1[1]*g+axis1[2]*b,
+				b2=axis2[0]*r+axis2[1]*g+axis2[2]*b;
+			dst[idx|0]=(char)r2;
+			dst[idx|1]=(char)g2;
+			dst[idx|2]=(char)b2;
+#endif
+		}
+	}
+	memcpy(src, dst, (size_t)res<<2);
+	free(dst);
+#endif
+	//const int blocksize=4;
+	//for(int ky=0;ky<ih-(blocksize-1);ky+=blocksize)
+	//{
+	//	for(int kx=0;kx<iw-(blocksize-1);kx+=blocksize)
+	//	{
+	//	}
+	//}
+#if 0
+	int A=0x8000, C=0x8000;
+	int LR=(int)(customparam_st[0]*1000);
+	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
+	{
+		char r=src[k], g=src[k|1], b=src[k|2];
+		char r0, g0, b0, Cr, Y, Cb;
+
+		if(fwd)
+		{
+			r0=r, g0=g, b0=b;
+			
+			r-=g;
+			b-=g;
+			g+=(A*r+C*b+0x8000)>>16;//minimize abs(Y) = abs(g+A*(r-g)+C*(b-g))
+
+			Cr=r, Y=g, Cb=b;
+		}
+		else
+		{
+			Cr=r, Y=g, Cb=b;
+
+			g-=(A*r+C*b+0x8000)>>16;
+			b+=g;
+			r+=g;
+
+			r0=r, g0=g, b0=b;
+		}
+		
+		src[k  ]=r;//Cr
+		src[k|1]=g;//Y
+		src[k|2]=b;//Cb
+
+		//backprop	d/dA abs(Y) = sgn(Y)*(r-g)	d/dB abs(Y) = sgn(Y)*(b-g)
+		int sgnY=(Y>0)-(Y<0);
+		A-=sgnY*Cr*LR/1000;
+		C-=sgnY*Cb*LR/1000;
+	}
+#endif
+	//int res=iw*ih;
+	//char *buf=(char*)malloc((size_t)res<<2);
+	//if(!buf)
+	//{
+	//	LOG_ERROR("Alloc error");
+	//	return;
+	//}
+	//memcpy(buf, src, (size_t)res<<2);
+#if 0
+	for(int ky=0, idx=0;ky<ih;++ky)
+	{
+		for(int kx=0;kx<iw;++kx, ++idx)
+		{
+			char r=src[idx<<2|0], g=src[idx<<2|1], b=src[idx<<2|2];
+			char lumas[]=
+			{
+				(r+g+b)/3,
+				(r+r+g+b)>>2,
+				(r+g+g+b)>>2,
+				(r+g+b+b)>>2,
+				(5*r+5*g+6*b)>>4,
+				(9*r*9*g+14*b)>>4,
+			};
+			int kmin=0;
+			for(int k=0;k<_countof(lumas);++k)
+			{
+				if(abs(lumas[kmin])>abs(lumas[k]))
+					kmin=k;
+			}
+			int color=0;
+			switch(kmin)
+			{
+			case 0:color=0x0000FF;break;
+			case 1:color=0x00C0C0;break;
+			case 2:color=0x00FF00;break;
+			case 3:color=0xC0C000;break;
+			case 4:color=0xFF0000;break;
+			case 5:color=0xC000C0;break;
+			}
+			char *p=(char*)&color;
+			src[idx<<2|0]=p[0]-128;
+			src[idx<<2|1]=p[1]-128;
+			src[idx<<2|2]=p[2]-128;
+		}
+	}
+#endif
+}
+
 void lossy_colortransform_ycbcr(char *buf, int iw, int ih, int fwd)
 {
 	for(int ky=0;ky<ih;++ky)//for demonstration purposes only
@@ -561,261 +1403,6 @@ void colortransform_quad(char *src, int iw, int ih, int fwd)
 	}
 	memcpy(src, dst, (size_t)res<<2);
 	free(dst);
-}
-
-void c_mul_add(double *dst, const double *a, const double *b)
-{
-	double
-		r=a[0]*b[0]-a[1]*b[1],
-		i=a[0]*b[1]+a[1]*b[0];
-	dst[0]+=r, dst[1]+=i;
-}
-void c_mul_sub(double *dst, const double *a, const double *b)
-{
-	double
-		r=a[0]*b[0]-a[1]*b[1],
-		i=a[0]*b[1]+a[1]*b[0];
-	dst[0]-=r, dst[1]-=i;
-}
-double c_abs2(const double *z)
-{
-	return z[0]*z[0]+z[1]*z[1];
-}
-void c_div(double *dst, double const *a, double const *b)
-{
-	double invabsb2=1/c_abs2(b);
-	double
-		r=(a[0]*b[0]+a[1]*b[1])*invabsb2,
-		i=(a[1]*b[0]-a[0]*b[1])*invabsb2;
-	dst[0]=r, dst[1]=i;
-}
-void c_exp(double *dst, double const *x)
-{
-	double m=exp(x[0]);
-	dst[0]=m*cos(x[1]);
-	dst[1]=m*sin(x[1]);
-}
-void c_ln(double *dst, double const *x)
-{
-	double
-		r=log(sqrt(c_abs2(x))),
-		i=atan2(x[1], x[0]);
-	dst[0]=r, dst[1]=i;
-}
-void c_cbrt(double *dst, const double *x)//sqrt(x)=exp(0.5lnx)
-{
-	double temp[2];
-	if(x[0]||x[1])
-	{
-		c_ln(temp, x);
-		temp[0]*=1./3, temp[1]*=1./3;
-		c_exp(dst, temp);
-	}
-	else
-		dst[0]=x[0], dst[1]=x[1];
-}
-void impl_solve_cubic(const double *coeffs, double *roots)//finds r[0], r[1], & r[2], the solutions of x^3 + c[2]x^2 + c[1]x + c[0] = 0
-{
-	//https://math.stackexchange.com/questions/15865/why-not-write-the-solutions-of-a-cubic-this-way/18873#18873
-	double p=coeffs[2], q=coeffs[1], r=coeffs[0],
-		p2, p3, q2, pq, A[2], B[2];
-	double sqrt27=3*sqrt(3), inv3cbrt2=1./(3*cbrt(2)), ninth=1./9;
-	double cm[]={-0.5, -sqrt(3)*0.5}, cp[]={-0.5, sqrt(3)*0.5};
-
-	if(!p&&!q)
-	{
-		roots[4]=roots[2]=roots[0]=-cbrt(r);
-		roots[5]=roots[3]=roots[1]=0;
-		return;
-	}
-
-	p2=p*p;
-	p3=p2*p;
-	q2=q*q;
-	pq=p*q;
-
-	A[0]=(4*q-p2)*q2+(4*p3-18*pq+27*r)*r;
-	if(A[0]<0)
-		A[1]=sqrt(fabs(A[0])), A[0]=0;
-	else
-		A[0]=sqrt(A[0]), A[1]=0;
-	A[0]*=sqrt27;
-	A[1]*=sqrt27;
-	A[0]-=27*r;
-	A[0]+=9*pq-2*p3;
-	c_cbrt(A, A);
-	A[0]*=inv3cbrt2;
-	A[1]*=inv3cbrt2;
-	B[0]=3*q-p2;
-	c_div(B, B, A);
-	B[0]*=ninth;
-	B[1]*=ninth;
-	roots[4]=roots[2]=roots[0]=p*(-1./3);
-	roots[5]=roots[3]=roots[1]=0;
-	roots[0]+=A[0]-B[0];
-	roots[1]+=A[1]-B[1];
-	c_mul_add(roots+2, A, cm);
-	c_mul_sub(roots+2, B, cp);
-	c_mul_add(roots+4, A, cp);
-	c_mul_sub(roots+4, B, cm);
-}
-void impl_rref(double *m, short dx, short dy)
-{
-#ifdef _DEBUG
-	double pivot;
-#endif
-	double coeff;
-	int mindim=dx<dy?dx:dy, it, ky, kx, npivots, kpivot;
-	for(it=0, npivots=0;it<mindim;++it)//iteration
-	{
-		kpivot=-1;
-		for(ky=npivots;ky<dy;++ky)//find pivot
-		{
-			if(fabs(m[dx*ky+it])>1e-10)
-			{
-#ifdef _DEBUG
-				pivot=m[dx*ky+it];
-#endif
-				kpivot=ky;
-				++npivots;
-				break;
-			}
-		}
-		if(kpivot==-1)
-			continue;
-		if(kpivot>npivots-1)
-		{
-			for(kx=0;kx<dx;++kx)//swap rows
-				coeff=m[dx*kpivot+kx], m[dx*kpivot+kx]=m[dx*(npivots-1)+kx], m[dx*(npivots-1)+kx]=coeff;
-			kpivot=npivots-1;
-		}
-		for(ky=0;ky<dy;++ky)
-		{
-			if(ky==kpivot)//normalize pivot row
-			{
-				coeff=1/m[dx*kpivot+it];
-				for(kx=it;kx<dx;++kx)
-					m[dx*kpivot+kx]*=coeff;
-			}
-			else//subtract pivot row from all other rows
-			{
-				coeff=m[dx*ky+it]/m[dx*kpivot+it];
-				for(kx=it;kx<dx;++kx)
-					m[dx*ky+kx]-=coeff*m[dx*kpivot+kx];
-			}
-			//print_matrix_debug(m, dx, dy);//
-		}
-	}
-}
-int impl_nullspace(double *M, int dx, int dy, double *solution, int sstart, char *dep_flags, short *row_idx)
-{
-	//M is rref'ed
-	//solution allocated size dy*dy, pre-memset solution to zero
-	//p_flags & row_idx both size dx
-	//returns number of vectors in solution
-	int kx, kxdst, ky, keq, kfree, idx, idx2, nvec;
-#ifdef DEBUG_NULLSPACE
-	printf("Before RREF:\n");
-	print_matrix_debug(M, dx, dy);
-#endif
-	impl_rref(M, dx, dy);//first, get rref(M)
-#ifdef DEBUG_NULLSPACE
-	printf("After RREF:\n");
-	print_matrix_debug(M, dx, dy);
-#endif
-	memset(dep_flags, 0, dx);
-	memset(row_idx, 0, dx*sizeof(short));
-	for(ky=0;ky<dy;++ky)//find pivots (dependent variables)
-	{
-		for(kx=ky;kx<dx;++kx)//find first nonzero element
-		{
-			idx=dx*ky+kx;
-			if(fabs(M[idx])>1e-10)
-				break;
-		}
-		if(kx<dx)//if found
-			dep_flags[kx]=1, row_idx[ky]=kx;
-		else
-			break;
-	}
-	nvec=dx-ky;
-	for(ky=0, keq=0, kfree=0;ky<dx;++ky)
-	{
-		if(dep_flags[ky])//pivot, dependent variable
-		{
-			for(kx=0, kxdst=0;kx<dx;++kx)
-			{
-				if(dep_flags[kx])
-					continue;
-				idx=dx*ky+kxdst, idx2=dx*keq+kx;
-				if(sstart+idx>=9)
-					LOG_ERROR("");
-				solution[sstart+idx]=-M[idx2];
-				++kxdst;
-			}
-			++keq;
-		}
-		else//free variable
-		{
-			idx=dx*ky;
-			if(sstart+idx+nvec>9)
-				LOG_ERROR("");
-			memset(solution+sstart+idx, 0, nvec*sizeof(double));
-			if(sstart+idx+kfree>=9)
-				LOG_ERROR("");
-			solution[sstart+idx+kfree]=1;
-			++kfree;
-		}
-#ifdef DEBUG_NULLSPACE
-		//printf("Nullspace row %d:\n", ky);
-		print_matrix_debug(solution+dx*ky, nvec, 1);//
-#endif
-	}
-	return nvec;
-}
-int impl_egvec(double const *M, int n, const double *lambdas, double *S)
-{
-	int kv, kx, nvec, size=n*n, again;
-	double *temp=(double*)malloc(size*sizeof(double));
-	char *dep_flags=(char*)malloc(n);
-	short *row_idx=(short*)malloc(n*sizeof(short));
-	if(!temp||!dep_flags||!row_idx)
-	{
-		LOG_ERROR("Allocation error");
-		return 0;
-	}
-	memset(S, 0, size*sizeof(double));
-	for(kv=0, nvec=0;kv<n&&nvec<n;++kv)//get eigenvectors
-	{
-		again=0;
-		for(kx=0;kx<kv;++kx)//check for repeated eigenvalues
-		{
-			if(fabs(lambdas[kx]-lambdas[kv])<1e-10)
-			{
-				again=1;
-				break;
-			}
-		}
-		if(again)
-			continue;
-		memcpy(temp, M, size*sizeof(double));
-		for(kx=0;kx<n;++kx)
-			temp[(n+1)*kx]-=lambdas[kv];
-
-		nvec+=impl_nullspace(temp, n, n, S, nvec, dep_flags, row_idx);
-		//if(nvec>6)
-		//	LOG_ERROR("OOB");
-		//print_matrix_debug(S, n, n);//
-		//for(ky=0;ky<n;++ky)
-		//{
-		//	for(kx=ky;kx<n;++kx)
-		//		if(fabs(temp[n*ky+kx].r)>1e-10||fabs(temp[n*ky+kx].i)>1e-10)
-		//			break;
-		//}
-	}
-	free(dep_flags), free(row_idx);
-	free(temp);
-	return nvec;
 }
 
 int pythagoras(int a, int b)

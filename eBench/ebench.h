@@ -35,8 +35,6 @@ extern float
 	NS_x0, NS_x1, NS_y0, NS_y1;
 extern float tdx, tdy;
 
-extern unsigned char *im0, *image;
-
 typedef enum IOKeyEnum
 {
 #if defined _MSC_VER || defined _WINDOWS || defined _WIN32
@@ -596,7 +594,7 @@ void mat4_FPSView(float *dst, const float *campos, float yaw, float pitch);
 void mat4_perspective(float *dst, float tanfov, float w_by_h, float znear, float zfar);
 void mat4_normalmat3(float *dst, float *m4);//inverse transpose of top left 3x3 submatrix
 
-void draw_3D_triangles(Camera const *cam, unsigned vbuf, int nvertices, unsigned txid);
+void draw_3D_triangles(Camera const *cam, unsigned vbuf, size_t offset, int nvertices, unsigned txid);
 
 typedef struct GPUModelStruct
 {
@@ -616,54 +614,91 @@ void draw_contour3d(Camera const *cam, float x1, float x2, float y1, float y2, f
 
 void depth_test(int enable);
 
+unsigned char* stbi_load(char const *filename, int *x, int *y, int *comp, int req_comp);
+unsigned short* stbi_load_16(char const *filename, int *x, int *y, int *comp, int req_comp);
 
 
 
-//pxView3D
+
+//Entropy Benchmark (eBench)
+typedef struct ImageStruct
+{
+	int iw, ih,
+		nch;//{greyscale, greyscale+alpha, RGB, RGB+alpha}	alpha can be ignored for now
+	char depth[4];
+	char src_depth[4];//for entropy calculations
+	int data[];
+} Image;
+Image* image_load(const char *fn);
+int image_save_uint8(const char *fn, Image const *image, int override_alpha);
+Image* image_from_uint8(const unsigned char *src, int iw, int ih, int nch, char rdepth, char gdepth, char bdepth, char adepth);
+Image* image_from_uint16(const unsigned short *src, int iw, int ih, int nch, char *src_depths, char *dst_depths);
+void image_export_uint8(Image const *image, unsigned char **dst, int override_alpha);
+double image_getBMPsize(Image const *image);
+size_t image_getbufsize(Image const *image);
+void image_copy(Image **dst, Image const *src);
+
+
 extern float ch_cr[4];
 void update_image();
 
-//transforms
-void preproc_grad(char *src, int iw, int ih);
-void preproc_x(char *src, int iw, int ih);
-void preproc_x2(char *src, int iw, int ih);
 
-extern int customparam_sel;
-extern int const customparam_ct_w, customparam_ct_h, customparam_st_reach;
-//extern double const customparam_ct0[12], customparam_st0[12];
-extern double customparam_ct[12], customparam_st[12*6], customdwtparams[12];
-extern int    customparam_ch_idx;
-extern int    customparam_clamp[2];
-extern double customparam_hybrid[(7*3+3)*3*3];
-void customtransforms_resetparams();
-void colortransform_custom_fwd(char *buf, int iw, int ih);
-void colortransform_custom_inv(char *buf, int iw, int ih);
-void custom_rct_optimize(const char *buf, int iw, int ih);
-void pred_custom_apply(char *src, int iw, int ih, int fwd, const double *allparams);
-void pred_custom_prealloc(const char *src, int iw, int ih, int kc, int fwd, const double *ch_params, char *dst);
-//void pred_custom_fwd(char *buf, int iw, int ih, int nch, int bytestride, const double *params);
-//void pred_custom_inv(char *buf, int iw, int ih, int nch, int bytestride, const double *params);
-void opt_cr2_v2(const char *buf, int iw, int ih, int kc);
-void opt_cr2_v3(const char *buf, int iw, int ih, int kc);
-
-void kalman_apply(char *src, int iw, int ih, int fwd);
+//aux func
+void calc_histogram(const int *buf, int iw, int ih, int kc, int x1, int x2, int y1, int y2, int depth, int *hist, int *hist8);
+double calc_entropy(const int *hist, int nlevels, int sum);//pass -1 if sum is unknown
+int calc_maxdepth(Image const *image, int *inflation);
 
 
-#define C2_REACH 2	//changing this requires updating the GUI and copy text formatting
-#define C2_NNB (C2_REACH*(C2_REACH+1)*2*6)
-typedef struct Custom2ParamsStruct
-{
-	short c0[C2_NNB];//fixed 1.14 bit
-	short c1[C2_NNB+2];
-	short c2[C2_NNB+4];
-} Custom2Params;
-extern Custom2Params c2_params;
-//void pred_custom2_apply(char *src, int iw, int ih, int fwd);
-void custom2_apply(char *src, int iw, int ih, int fwd, Custom2Params const *params);
-void custom2_opt(const char *src, int iw, int ih, Custom2Params *srcparams, int niter, int maskbits, int loud, double *loss);
-void custom2_opt_blocks(const char *src, int iw, int ih, Custom2Params *srcparams);
-void custom2_opt_batch(Custom2Params *srcparams);
+//color transforms
+void colortransform_YCoCg_R(Image *image, int fwd);
+void colortransform_YCbCr_R_v1(Image *image, int fwd);
+void colortransform_YCbCr_R_v2(Image *image, int fwd);
+void colortransform_YCbCr_R_v3(Image *image, int fwd);
+void colortransform_YCbCr_R_v4(Image *image, int fwd);
+void colortransform_YCbCr_R_v5(Image *image, int fwd);
+void colortransform_YCbCr_R_v6(Image *image, int fwd);
+void colortransform_JPEG2000(Image *image, int fwd);
+void colortransform_subtractgreen(Image *image, int fwd);
 
+void colortransform_lossy_YCbCr(Image *image, int fwd);
+void colortransform_lossy_XYB(Image *image, int fwd);
+
+#define RCT_CUSTOM_NPARAMS 4
+extern int rct_custom_params[RCT_CUSTOM_NPARAMS];
+void rct_custom(Image *image, int fwd, const int *params);
+void rct_custom_optimize(Image const *image, int *params);
+
+void rct_adaptive(Image *src, int fwd);
+
+
+
+
+//chroma from luma (CfL)
+
+//void pred_cfl(char *buf, int iw, int ih, int fwd);
+
+
+//spatial transforms
+void pred_clampedgrad(Image *image, int fwd, int enable_ma);
+
+#define CUSTOM_REACH 2
+#define CUSTOM_NNB (2*(CUSTOM_REACH+1)*CUSTOM_REACH)
+#define CUSTOM_NPARAMS (2*(CUSTOM_REACH+1)*CUSTOM_REACH*6)
+extern int custom_params[CUSTOM_NPARAMS];
+void pred_custom(Image *src, int fwd, int enable_ma, const int *params);
+void pred_custom_optimize(Image const *image, int *params);
+
+#define PW2_NPRED 20	//63
+#define PW2_NPARAM (PW2_NPRED+11)
+extern double pw2_errors[PW2_NPRED];
+extern short pw2_params[PW2_NPARAM*3];
+void pred_w2_opt_v2(Image *src, short *params, int loud);
+void pred_w2_apply(Image *src, int fwd, int enable_ma, short *params);
+
+extern short jxlparams_i16[33];
+void pred_jxl_opt_v2(Image *src, short *params, int loud);
+void pred_jxl_apply(Image *src, int fwd, int enable_ma, short *params);
+void pred_jmj_apply(Image *src, int fwd, int enable_ma);
 
 //CUSTOM3
 #define C3_REACH 3
@@ -676,190 +711,20 @@ typedef struct Custom3ParamsStruct
 	short c20[C3_NNB+2], c21[C3_NNB+2], c22[C3_NNB];
 } Custom3Params;
 extern Custom3Params c3_params;
-void custom3_apply(char *src, int iw, int ih, int fwd, Custom3Params const *params);
-void custom3_opt(const char *src, int iw, int ih, Custom3Params *srcparams, int niter, int maskbits, int loud, double *loss);
-void custom3_opt_batch(Custom3Params *srcparams, int niter, int maskbits, int loud, double *loss);
-//void custom3_opt_gpu(const char *src, int iw, int ih, Custom3Params *srcparams, int niter, int maskbits, int loud);//X  extremely slow
-void custom3_opt_batch2(Custom3Params *srcparams, int niter, int maskbits, int loud, double *loss);
-int fast_dot(const short *a, const short *b, int count);
+void custom3_apply(Image *src, int fwd, int enable_ma, Custom3Params const *params);
+void custom3_opt(Image const *src, Custom3Params *srcparams, int niter, int maskbits, int loud, double *loss);
 
+void pred_calic(Image *src, int fwd, int enable_ma);
+void pred_grad2(Image *src, int fwd, int enable_ma);
 
-//CUSTOM4
-#define C4_REACH 2
-#define C4_HIDDENNODES 12
-#define C4_NNB (C4_REACH*(C4_REACH+1)*4)		//for pixels & errors
-typedef struct Custom4ParamsStruct
-{
-	short c00[C4_HIDDENNODES][C4_NNB*3  ], c01[C4_HIDDENNODES];//fixed 1.14 bit
-	short c10[C4_HIDDENNODES][C4_NNB*3+2], c11[C4_HIDDENNODES];
-	short c20[C4_HIDDENNODES][C4_NNB*3+4], c21[C4_HIDDENNODES];
-} Custom4Params;
-#define C4_NPARAMS (sizeof(Custom4Params)/sizeof(short))
-extern Custom4Params c4_params;
-void custom4_apply(char *src, int iw, int ih, int fwd, Custom4Params const *params);
-void custom4_opt(const char *src, int iw, int ih, Custom4Params *srcparams, int niter, int maskbits, int loud, double *loss);
-
-
-void pred_slope_fwd(char *buf, int iw, int ih, int nch, int bytestride);
-void pred_slope_inv(char *buf, int iw, int ih, int nch, int bytestride);
-
-void addhalf(unsigned char *buf, int iw, int ih, int nch, int bytestride);
-
-//color transforms		3 channels, stride 4 bytes
-void colortransform_YCoCg_R_fwd(char *buf, int iw, int ih);
-void colortransform_YCoCg_R_inv(char *buf, int iw, int ih);
-void colortransform_YCbCr_R_fwd(char *buf, int iw, int ih);
-void colortransform_YCbCr_R_inv(char *buf, int iw, int ih);
-void colortransform_YCbCr_R_v2_fwd(char *buf, int iw, int ih);
-void colortransform_YCbCr_R_v2_inv(char *buf, int iw, int ih);
-void colortransform_YCbCr_R_v3_fwd(char *buf, int iw, int ih);
-void colortransform_YCbCr_R_v3_inv(char *buf, int iw, int ih);
-void colortransform_subg_fwd(char *buf, int iw, int ih);
-void colortransform_subg_inv(char *buf, int iw, int ih);
-void rct_adaptive(char *src, int iw, int ih, int fwd);
-
-void lossy_colortransform_ycbcr(char *buf, int iw, int ih, int fwd);
-void lossy_colortransform_xyb(char *buf, int iw, int ih, int fwd);
-
-//void colortransform_xgz_fwd   (char *buf, int iw, int ih);
-//void colortransform_xgz_inv   (char *buf, int iw, int ih);
-//void colortransform_xyz_fwd   (char *buf, int iw, int ih);
-//void colortransform_xyz_inv   (char *buf, int iw, int ih);
-//void colortransform_jpeg2000_fwd(char *buf, int iw, int ih);
-//void colortransform_jpeg2000_inv(char *buf, int iw, int ih);
-
-//void colortransform_quad(char *buf, int iw, int ih, int fwd);
-
-void colortransform_exp_fwd  (char *buf, int iw, int ih);
-void colortransform_exp_inv  (char *buf, int iw, int ih);
-//void colortransform_learned_fwd(char *buf, int iw, int ih);
-//void colortransform_learned_inv(char *buf, int iw, int ih);
-
-void colortransform_adaptive(char *buf, int iw, int ih, int fwd);
+extern unsigned long long xoroshiro128_state[2];
+#define XOROSHIRO128_RESET() xoroshiro128_state[0]=0xDF900294D8F554A5, xoroshiro128_state[1]=0x170865DF4B3201FC
+unsigned long long xoroshiro128_next(void);
 
 
 
-
-//chroma from luma (CfL)
-void pred_cfl(char *buf, int iw, int ih, int fwd);
-
-
-
-
-//optimizers
-double opt_causal_reach2(unsigned char *buf, int iw, int ih, int kc, double *x, double *bias, double lr, int test);
-double opt_causal_hybrid_r3(unsigned char *buf, int iw, int ih, double lr);
-void pred_hybrid_fwd(char *buf, int iw, int ih);
-void pred_hybrid_inv(char *buf, int iw, int ih);
-
-
-
-
-//spatial transforms
-
-//void pred_bitwise(char *buf, int iw, int ih, int fwd);
-
-#if 1
-#define LOGIC_REACH 2			//do not change
-#define LOGIC_NNB (2*(LOGIC_REACH+1)*LOGIC_REACH)	//number of causal neighbors
-#define LOGIC_NF0 4			//number of predictors
-#define LOGIC_ROWPARAMS (LOGIC_NNB*2)
-#define LOGIC_PARAMS_PER_CH (LOGIC_NF0*LOGIC_NNB*2+LOGIC_NF0)
-#define LOGIC_TOTALPARAMS (3*LOGIC_PARAMS_PER_CH)
-#endif
 #if 0
-#define LOGIC_REACH 2			//do not change
-#define LOGIC_NNB (2*(LOGIC_REACH+1)*LOGIC_REACH)	//number of causal neighbors
-#define LOGIC_NF1 4				//number of output features from smooth_if
-#define LOGIC_NF0 (3*LOGIC_NF1)	//number of inputs to smooth_if
-#define LOGIC_ROWPARAMS (LOGIC_NNB*2+1)
-#define LOGIC_PARAMS_PER_CH (LOGIC_NF0*LOGIC_ROWPARAMS+LOGIC_NF1)
-#define LOGIC_TOTALPARAMS (3*LOGIC_PARAMS_PER_CH)
-#endif
-extern int logic_opt_timeron;
-extern short logic_params[LOGIC_TOTALPARAMS];
-extern HANDLE ghMutex;
-void pred_logic_apply(char *buf, int iw, int ih, const short *allparams, int fwd);
-void logic_opt(char *buf, int iw, int ih, int kc, short *channel_params);//this frees buf at the end of thread
-void logic_opt_checkonthread(float *info);
-void logic_opt_forceclosethread();
-
-void shuffle(char *buf, int iw, int ih, int fwd);
-
-void pred_diff2d_fwd(char *buf, int iw, int ih, int nch, int bytestride);
-void pred_diff2d_inv(char *buf, int iw, int ih, int nch, int bytestride);
-
-void pred_hpf_fwd(char *buf, int iw, int ih, int nch, int bytestride);
-void pred_hpf_inv(char *buf, int iw, int ih, int nch, int bytestride);
-
-void pred_median_fwd(char *buf, int iw, int ih, int nch, int bytestride);
-void pred_median_inv(char *buf, int iw, int ih, int nch, int bytestride);
-
-#define GRAD2PREDCOUNT 8
-extern double grad2_csize[GRAD2PREDCOUNT];
-extern int grad2_hits[GRAD2PREDCOUNT];
-extern int grad2_hist[GRAD2PREDCOUNT*256];
-void pred_grad2_fwd(char *buf, int iw, int ih, int nch, int bytestride);
-void pred_grad2_inv(char *buf, int iw, int ih, int nch, int bytestride);
-
-#define ADAGRADCOUNT 8
-extern int    adagrad_hits[ADAGRADCOUNT];
-extern double adagrad_rmse[ADAGRADCOUNT], adagrad_csize[ADAGRADCOUNT];
-extern double adagrad_abserror[ADAGRADCOUNT], adagrad_signederror[ADAGRADCOUNT];
-void pred_adaptive(char *buf, int iw, int ih, int nch, int bytestride, int fwd);
-
-
-#define PREDJOINT_NPARAMS ((24+4)*3)
-extern int jointpredparams[PREDJOINT_NPARAMS];
-void   pred_joint(const char *src, int iw, int ih, int *params, int fwd, char *dst, int *temp_w24);
-double pred_joint_calcsize(const char *src, int iw, int ih, int *params, int *temp, char *dst, int *hist, int loud, int iter, int itcount);
-void   pred_joint_optimize(const char *src, int iw, int ih, int *params, int step, char *dst, int loud);
-void   pred_joint_apply(char *buf, int iw, int ih, int *allparams, int fwd);
-
-
-//	#define JMJ_USE_KALMAN
-	#define PW2_NPRED 20	//63
-	#define PW2_NPARAM (PW2_NPRED+11)
-//	#define PW2_NPRED 22
-//	#define PW2_NPARAM (PW2_NPRED+8)
-extern double pw2_errors[PW2_NPRED];
-extern short pw2_params[PW2_NPARAM*3];
-void pred_w2_opt_v2(char *buf2, int iw, int ih, short *params, int loud);
-void pred_w2_apply(char *buf, int iw, int ih, short *allparams, int fwd);
-void pred_jmj_apply(char *buf, int iw, int ih, int fwd);
-
-extern short jxlparams_i16[33];
-//extern float jxlparams_ps[33];
-void pred_jxl_prealloc(const char *src, int iw, int ih, int kc, short *params, int fwd, char *dst, int *temp_w10);
-void calc_histogram(unsigned char *buf, ptrdiff_t len, ptrdiff_t stride, int *hist);
-void pred_jxl_opt_v2(char *buf2, int iw, int ih, short *params, int loud);
-//void pred_jxl_optimize(const char *src, int iw, int ih, int kc, short *params, int step, int pidx, char *dst, int loud);
-void pred_jxl_apply(char *buf, int iw, int ih, short *allparams, int fwd);
-
-void pred_jxl(char *buf, int iw, int ih, int nch, int bytestride, int fwd);
-
-
-void pred_calic(char *buf, int iw, int ih, int fwd);
-void pred_nblic(char *src, int iw, int ih, int fwd);
-
-
-#define SORTNBCASES 8
-extern int sortnb_cases[SORTNBCASES];
-extern double sortnb_rmse[SORTNBCASES];
-void pred_sortnb(char *buf, int iw, int ih, int nch, int bytestride, int fwd);
-
-void pred_path_fwd(char *buf, int iw, int ih, int nch, int bytestride);
-void pred_path_inv(char *buf, int iw, int ih, int nch, int bytestride);
-
-void pred_grad_fwd(char *buf, int iw, int ih, int nch, int bytestride);
-void pred_grad_inv(char *buf, int iw, int ih, int nch, int bytestride);
-
-void pred_grad2(char *buf, int iw, int ih, int fwd);
-
-void pred_ctx(char *src, int iw, int ih, int fwd);
-
-void pred_wu97(char *buf, int iw, int ih, int fwd);
-
+//DWTs
 typedef struct DWTSizeStruct
 {
 	unsigned short w, h;
@@ -886,6 +751,11 @@ void dwt2d_custom_inv (char *buffer, DWTSize *sizes, int sizes_start, int sizes_
 
 void dwt2d_dec_fwd(char *buffer, int iw, int ih);
 void dwt2d_dec_inv(char *buffer, int iw, int ih);
+
+void pred_wu97(char *buf, int iw, int ih, int fwd);
+
+
+//DCTs
 
 void image_dct4_fwd(char *image, int iw, int ih);
 void image_dct4_inv(char *image, int iw, int ih);
@@ -932,9 +802,6 @@ void bayes_estimate(unsigned char *image, int iw, int ih, int x1, int x2, int y1
 
 
 //transforms pt2
-extern unsigned long long xoroshiro128_state[2];
-#define XOROSHIRO128_RESET() xoroshiro128_state[0]=0xDF900294D8F554A5, xoroshiro128_state[1]=0x170865DF4B3201FC
-unsigned long long xoroshiro128_next(void);
 
 void pred_learned(char *buf, int iw, int ih, int fwd);
 void pred_learned_v2(char *buf, int iw, int ih, int fwd);
@@ -955,6 +822,7 @@ void pred_learned_gpu(char *buf, int iw, int ih, int fwd);
 void pred_c03(char *src, int iw, int ih, int fwd);
 void pred_c10(char *src, int iw, int ih, int fwd);
 void pred_c20(char *src, int iw, int ih, int fwd);
+#endif
 
 
 #ifdef __cplusplus
