@@ -658,6 +658,7 @@ void colortransform_YCbCr_R_v3(Image *image, int fwd);
 void colortransform_YCbCr_R_v4(Image *image, int fwd);
 void colortransform_YCbCr_R_v5(Image *image, int fwd);
 void colortransform_YCbCr_R_v6(Image *image, int fwd);
+void colortransform_YCbCr_R_v7(Image *image, int fwd);
 void colortransform_JPEG2000(Image *image, int fwd);
 void colortransform_subtractgreen(Image *image, int fwd);
 

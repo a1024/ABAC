@@ -376,6 +376,46 @@ void colortransform_YCbCr_R_v6(Image *image, int fwd)
 		image->depth[2]-=image->depth[2]>image->src_depth[2];
 	}
 }
+void colortransform_YCbCr_R_v7(Image *image, int fwd)
+{
+	char temp;
+	if(fwd)
+	{
+		for(ptrdiff_t k=0, len=(ptrdiff_t)image->iw*image->ih*4;k<len;k+=4)
+		{
+			int r=image->data[k], g=image->data[k|1], b=image->data[k|2];
+			
+			b-=(87*r+169*g+128)>>8;	//Cb = [-87/256  -169/256  1]
+			r-=g;			//Cr = [1  -1  0].RGB
+			g+=(86*r+29*b+128)>>8;	//Y  = [19493/65536  38619/65536  29/256*b]	g+86/256*(r-g)+29/256*(b-87/256*r-169/256*g) = 19493/65536*r + 38619/65536*g + 29/256*b
+
+			image->data[k  ]=g;//Y
+			image->data[k|1]=b;//Cb
+			image->data[k|2]=r;//Cr
+		}
+		ROTATE3(image->depth[0], image->depth[1], image->depth[2], temp);
+		image->depth[1]+=image->depth[1]<24;
+		image->depth[2]+=image->depth[2]<24;
+	}
+	else
+	{
+		image->depth[1]-=image->depth[1]>image->src_depth[1];
+		image->depth[2]-=image->depth[2]>image->src_depth[2];
+		ROTATE3(image->depth[2], image->depth[1], image->depth[0], temp);
+		for(ptrdiff_t k=0, len=(ptrdiff_t)image->iw*image->ih*4;k<len;k+=4)
+		{
+			int Y=image->data[k], Cb=image->data[k|1], Cr=image->data[k|2];
+			
+			Y-=(86*Cr+29*Cb+128)>>8;
+			Cr+=Y;
+			Cb+=(87*Cr+169*Y+128)>>8;
+
+			image->data[k  ]=Cr;
+			image->data[k|1]=Y;
+			image->data[k|2]=Cb;
+		}
+	}
+}
 void colortransform_JPEG2000(Image *image, int fwd)
 {
 	char temp;
@@ -2707,7 +2747,8 @@ static void custom3_calcloss(const int *src, int iw, int ih, const char *depths,
 {
 	ptrdiff_t res=(ptrdiff_t)iw*ih;
 	custom3_prealloc(src, iw, ih, depths, 1, 1, (Custom3Params*)info->params, temp);
-
+	
+	info->invCR[3]=0;
 	for(int kc=0;kc<3;++kc)
 	{
 		calc_histogram(temp, iw, ih, kc, 0, iw, 0, ih, depths[kc], hist, 0);

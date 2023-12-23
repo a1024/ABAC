@@ -23,7 +23,7 @@ ArrayHandle fn=0;
 size_t filesize=0;
 
 Image *im0, *im1;
-int pred_ma_enabled=0;//modular arithmetic for spatial predictors
+int pred_ma_enabled=1;//modular arithmetic for spatial predictors
 int separate_grayscale=1;//separate channels are shown greyscale
 unsigned txid_separate_r=0, txid_separate_g=0, txid_separate_b=0;
 unsigned char *im_export=0, *zimage=0;
@@ -58,8 +58,10 @@ typedef enum TransformTypeEnum
 	CT_FWD_YCbCr_R_v4,	CT_INV_YCbCr_R_v4,
 	CT_FWD_YCbCr_R_v5,	CT_INV_YCbCr_R_v5,
 	CT_FWD_YCbCr_R_v6,	CT_INV_YCbCr_R_v6,
+	CT_FWD_YCbCr_R_v7,	CT_INV_YCbCr_R_v7,
 	CT_FWD_YCoCg_R,		CT_INV_YCoCg_R,	//	(2003) AVC, HEVC, VVC
 	CT_FWD_JPEG2000,	CT_INV_JPEG2000,//	(1997) JPEG2000 RCT
+	CT_FWD_SUBGREEN,	CT_INV_SUBGREEN,
 	CT_FWD_YCbCr,		CT_INV_YCbCr,	//LOSSY	JPEG
 	CT_FWD_XYB,		CT_INV_XYB,	//LOSSY	(2021) JPEG XL
 	CT_FWD_CUSTOM,		CT_INV_CUSTOM,
@@ -236,16 +238,18 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case CT_INV_YCbCr_R_v5:			a="C  Inv YCbCr-R v5";			break;
 	case CT_FWD_YCbCr_R_v6:			a="C  Fwd YCbCr-R v6";			break;
 	case CT_INV_YCbCr_R_v6:			a="C  Inv YCbCr-R v6";			break;
+	case CT_FWD_YCbCr_R_v7:			a="C  Fwd YCbCr-R v7";			break;
+	case CT_INV_YCbCr_R_v7:			a="C  Inv YCbCr-R v7";			break;
 	case CT_FWD_YCoCg_R:			a="C  Fwd YCoCg-R";			break;
 	case CT_INV_YCoCg_R:			a="C  Inv YCoCg-R";			break;
 	case CT_FWD_JPEG2000:			a="C  Fwd JPEG2000 RCT";		break;
 	case CT_INV_JPEG2000:			a="C  Inv JPEG2000 RCT";		break;
+	case CT_FWD_SUBGREEN:			a="C  Fwd SubGreen";			break;
+	case CT_INV_SUBGREEN:			a="C  Inv SubGreen";			break;
 	case CT_FWD_YCbCr:			a="C  Fwd YCbCr";			break;
 	case CT_INV_YCbCr:			a="C  Inv YCbCr";			break;
 	case CT_FWD_XYB:			a="C  Fwd XYB";				break;
 	case CT_INV_XYB:			a="C  Inv XYB";				break;
-//	case CT_FWD_JPEG2000:			a="C  Fwd JPEG2000 RCT";		break;
-//	case CT_INV_JPEG2000:			a="C  Inv JPEG2000 RCT";		break;
 //	case CT_FWD_XGZ:			a="C  Fwd XGZ";				break;
 //	case CT_INV_XGZ:			a="C  Inv XGZ";				break;
 //	case CT_FWD_XYZ:			a="C  Fwd XYZ";				break;
@@ -828,8 +832,12 @@ void update_image()//apply selected operations on original image, calculate CRs,
 			case CT_INV_YCbCr_R_v5:		colortransform_YCbCr_R_v5(im1, 0);			break;
 			case CT_FWD_YCbCr_R_v6:		colortransform_YCbCr_R_v6(im1, 1);			break;
 			case CT_INV_YCbCr_R_v6:		colortransform_YCbCr_R_v6(im1, 0);			break;
-			case CT_FWD_JPEG2000:		colortransform_subtractgreen(im1, 1);			break;
-			case CT_INV_JPEG2000:		colortransform_subtractgreen(im1, 0);			break;
+			case CT_FWD_YCbCr_R_v7:		colortransform_YCbCr_R_v7(im1, 1);			break;
+			case CT_INV_YCbCr_R_v7:		colortransform_YCbCr_R_v7(im1, 0);			break;
+			case CT_FWD_JPEG2000:		colortransform_JPEG2000(im1, 1);			break;
+			case CT_INV_JPEG2000:		colortransform_JPEG2000(im1, 0);			break;
+			case CT_FWD_SUBGREEN:		colortransform_subtractgreen(im1, 1);			break;
+			case CT_INV_SUBGREEN:		colortransform_subtractgreen(im1, 0);			break;
 			case CT_FWD_YCbCr:		colortransform_lossy_YCbCr(im1, 1);			break;
 			case CT_INV_YCbCr:		colortransform_lossy_YCbCr(im1, 1);			break;
 			case CT_FWD_XYB:		colortransform_lossy_XYB(im1, 1);			break;
@@ -1574,14 +1582,14 @@ const int
 	custom_rct_h=2, custom_rct_w=2,
 	custom_pred_reach=2;
 const int
-	gui_custom_rct_w=32, gui_custom_rct_h=4,//characters
+	gui_custom_rct_w=33, gui_custom_rct_h=4,//characters
 	gui_custom_pred_w=103+2, gui_custom_pred_h=3;
 int custom_pred_ch_idx=0;//from {0, 1, 2}
 void io_resize()
 {
 	AABB *p=buttons;
 	float xstep=tdx*guizoom, ystep=tdy*guizoom;
-	p->x1=xstep*2, p->x2=p->x1+xstep*gui_custom_rct_w, p->y1=(float)(h>>2), p->y2=p->y1+ystep*gui_custom_rct_h, ++p;//0: color params - left
+	p->x1=xstep*2, p->x2=p->x1+xstep*gui_custom_rct_w, p->y1=(float)(h>>1), p->y2=p->y1+ystep*gui_custom_rct_h, ++p;//0: color params - left
 	p->x1=(float)(w>>2), p->x2=p->x1+xstep*gui_custom_pred_w, p->y1=(float)((h>>1)+(h>>2)), p->y2=p->y1+ystep*gui_custom_pred_h, ++p;//1: spatial params
 	p->x1=(float)(w-300), p->x2=(float)w, p->y1=tdy*2, p->y2=p->y1+tdy*T_COUNT/2, ++p;//2: transforms list
 	
@@ -1690,24 +1698,28 @@ int io_mousewheel(int forward)
 			switch(objidx)
 			{
 			case 0://color transform params
-				
-				//000000000011111111112222222222333
-				//012345678901234567890123456789012
-				//r-=g
-				//g+=(0x00.0000*r+0x00.0000*b)>>16
-				//b-=g
-				//g+=(0x00.0000*r+0x00.0000*b)>>16
-				if((celly&1)==1&&((unsigned)(ch-6)<7||(unsigned)(ch-18)<7))
 				{
-					int idx=celly&2|((ch-6)/(18-6));
-					//0123456
-					//00.0000
-					int digit=(ch-6)%(18-6);
-					if(digit==2)
-						break;
-					digit-=digit>2;
-					digit=1-digit;
-					rct_custom_params[idx]+=sign<<((digit+4)<<2);//hex digit
+					//0000000000111111111122222222223333
+					//0123456789012345678901234567890123
+					//r-=g
+					//g+=(-0x00.0000*r-0x00.0000*b)>>16
+					//b-=g
+					//g+=(-0x00.0000*r-0x00.0000*b)>>16
+					int
+						col=p?(int)floorf((mx-p->x1)/(guizoom*tdx)):0,
+						line=p?(int)floorf((my-p->y1)/(guizoom*tdy)):0;
+					if((line&1)==1&&((unsigned)(ch-7)<7||(unsigned)(ch-19)<7))
+					{
+						int idx=line&2|((ch-7)/(19-7));
+						int digit=(ch-7)%(19-7);
+						//0123456
+						//00.0000
+						if(digit==2)
+							break;
+						digit-=digit>2;
+						digit=1-digit;
+						rct_custom_params[idx]+=sign<<((digit+4)<<2);//hex digit
+					}
 				}
 #if 0
 				//000000000011111111112222222222
@@ -1989,53 +2001,65 @@ int io_keydn(IOKey key, char c)
 			int objidx=-1, cellx=0, celly=0, cellidx=0;
 			AABB *p=buttons;
 			click_hittest(mx, my, &objidx, &cellx, &celly, &cellidx, &p);
-			int
-				col=p?(int)floorf((mx-p->x1)/tdx):0,
-				line=p?(int)floorf((my-p->y1)/tdy):0;
 			switch(objidx)
 			{
 			case 0://color transform params
-				if(key==KEY_RBUTTON&&(line==1||line==3)&&((unsigned)(col-6)<7||(unsigned)(col-18)<7))
 				{
-					//000000000011111111112222222222333
-					//012345678901234567890123456789012
-					//r-=g
-					//g+=(0x00.0000*r+0x00.0000*b)>>16
-					//b-=g
-					//g+=(0x00.0000*r+0x00.0000*b)>>16
-					int idx=(line>2)<<1|(col>16);
-					rct_custom_params[idx]=0;
-					update_image();
-					return 1;
+					int
+						col=p?(int)floorf((mx-p->x1)/(guizoom*tdx)):0,
+						line=p?(int)floorf((my-p->y1)/(guizoom*tdy)):0;
+					if(key==KEY_RBUTTON&&(line==1||line==3)&&((unsigned)(col-7)<7||(unsigned)(col-19)<7))
+					{
+						//0000000000111111111122222222223333
+						//0123456789012345678901234567890123
+						//r-=g
+						//g+=(-0x00.0000*r-0x00.0000*b)>>16
+						//b-=g
+						//g+=(-0x00.0000*r-0x00.0000*b)>>16
+						int idx=(line>2)<<1|(col>17);
+						rct_custom_params[idx]=0;
+						update_image();
+						return 1;
+					}
 				}
 				break;
 			case 1://spatial transforms params
-				if(key==KEY_RBUTTON&&cellidx<12)
 				{
-					//0000000000111111111122222222223333333333444444444455555555556666666666777777777788888888889999999999000000
-					//0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345
-					//-0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000
-					//-0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000
-					//-0x00.0000-0x00.0000 -0x00.0000-0x00.0000
-					int idx=5*line+col/21;
-					col%=21;
-					idx=idx<<1|(col>=10);
-					custom_params[24*custom_pred_ch_idx+idx]=0;
-					update_image();
-					return 1;
+					int
+						col=p?(int)floorf((mx-p->x1)/(guizoom*tdx)):0,
+						line=p?(int)floorf((my-p->y1)/(guizoom*tdy)):0;
+					if(key==KEY_RBUTTON&&cellidx<12)
+					{
+						//0000000000111111111122222222223333333333444444444455555555556666666666777777777788888888889999999999000000
+						//0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345
+						//-0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000
+						//-0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000
+						//-0x00.0000-0x00.0000 -0x00.0000-0x00.0000
+						int idx=5*line+col/21;
+						col%=21;
+						idx=idx<<1|(col>=10);
+						custom_params[24*custom_pred_ch_idx+idx]=0;
+						update_image();
+						return 1;
+					}
 				}
 				break;
 			case 2://transform list
-				//if(BETWEEN_EXC(0, cellidx, T_COUNT/2))
-				if((unsigned)line<(unsigned)(T_COUNT/2))
 				{
-					int idx=line<<1|(p?(int)floor((mx-p->x1)*2/(p->x2-p->x1)):0);
-					if(key==KEY_LBUTTON)
-						transforms_append(idx);
-					else
-						transforms_removebyid(idx);
-					update_image();
-					return 1;
+					int
+						col=p?(int)floorf((mx-p->x1)/tdx):0,
+						line=p?(int)floorf((my-p->y1)/tdy):0;
+					//if(BETWEEN_EXC(0, cellidx, T_COUNT/2))
+					if((unsigned)line<(unsigned)(T_COUNT/2))
+					{
+						int idx=line<<1|(p?(int)floor((mx-p->x1)*2/(p->x2-p->x1)):0);
+						if(key==KEY_LBUTTON)
+							transforms_append(idx);
+						else
+							transforms_removebyid(idx);
+						update_image();
+						return 1;
+					}
 				}
 				break;
 			//case 3://clamp bounds
@@ -2368,21 +2392,21 @@ int io_keydn(IOKey key, char c)
 					}
 					str_append(&str, "\n");
 				}
-				const int stw=custom_pred_reach<<1|1;
+				const int stw=(custom_pred_reach<<1|1)*2;
 				for(int kc2=0;kc2<3;++kc2)
 				{
-					const int np=_countof(custom_params)/6;
+					const int np=_countof(custom_params)/3;
 					const int *params=custom_params+24*kc2;
 					for(int k=0;k<np;++k)
 					{
 						int x=k%stw, y=k/stw;
 						if(shift)
+							str_append(&str, "%g,%c", (double)params[k]/65536, x<stw-1&&k<np-1?'\t':'\n');
+						else
 						{
 							int val=params[k];
 							str_append(&str, "%c0x%06X,%c", val<0?'-':' ', abs(val), x<stw-1&&k<np-1?'\t':'\n');
 						}
-						else
-							str_append(&str, "%g,%c", (double)params[k]/65536, x<stw-1&&k<np-1?'\t':'\n');
 					}
 				}
 				//for(int k=0;k<_countof(customparam_clamp);++k)
@@ -3297,16 +3321,16 @@ void io_render()
 			//custom color transform params
 			x=buttons[0].x1;
 			y=buttons[0].y1;
-			//000000000011111111112222222222333
-			//012345678901234567890123456789012
+			//0000000000111111111122222222223333
+			//0123456789012345678901234567890123
 			//r-=g
-			//g+=(0x00.0000*r+0x00.0000*b)>>16
+			//g+=(-0x00.0000*r-0x00.0000*b)>>16
 			//b-=g
-			//g+=(0x00.0000*r+0x00.0000*b)>>16
+			//g+=(-0x00.0000*r-0x00.0000*b)>>16
 			GUIPrint(0, x, y+ystep*0, guizoom, "r-=g");//do not change these strings!
-			GUIPrint(0, x, y+ystep*1, guizoom, "g+=(0x%02X.%04X*r+0x%02X.%04X*b)>>16", rct_custom_params[0]>>16, rct_custom_params[0]&0xFFFF, rct_custom_params[1]>>16, rct_custom_params[1]&0xFFFF);
+			GUIPrint(0, x, y+ystep*1, guizoom, "g+=(%c0x%02X.%04X*r%c0x%02X.%04X*b)>>16", rct_custom_params[0]<0?'-':' ', abs(rct_custom_params[0])>>16, abs(rct_custom_params[0])&0xFFFF, rct_custom_params[1]<0?'-':'+', abs(rct_custom_params[1])>>16, abs(rct_custom_params[1])&0xFFFF);
 			GUIPrint(0, x, y+ystep*2, guizoom, "b-=g");
-			GUIPrint(0, x, y+ystep*3, guizoom, "g+=(0x%02X.%04X*r+0x%02X.%04X*b)>>16", rct_custom_params[2]>>16, rct_custom_params[2]&0xFFFF, rct_custom_params[3]>>16, rct_custom_params[3]&0xFFFF);
+			GUIPrint(0, x, y+ystep*3, guizoom, "g+=(%c0x%02X.%04X*r%c0x%02X.%04X*b)>>16", rct_custom_params[2]<0?'-':' ', abs(rct_custom_params[2])>>16, abs(rct_custom_params[2])&0xFFFF, rct_custom_params[3]<0?'-':'+', abs(rct_custom_params[3])>>16, abs(rct_custom_params[3])&0xFFFF);
 
 			//012345678901234567890123456789
 			//r-=(>>nnnN.NNN)g+(  nnnN.NNN)b
@@ -3330,36 +3354,36 @@ void io_render()
 			GUIPrint(0, x, y-tdy, 1, "Ch %d", custom_pred_ch_idx);
 			int *params=custom_params+24*custom_pred_ch_idx;
 			GUIPrint(0, x, y+ystep*0, guizoom, "%c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X ",
-				params[0]<0?'-':' ', abs(params[0])>>16, params[0]&0xFFFF,
-				params[1]<0?'-':' ', abs(params[1])>>16, params[1]&0xFFFF,
-				params[2]<0?'-':' ', abs(params[2])>>16, params[2]&0xFFFF,
-				params[3]<0?'-':' ', abs(params[3])>>16, params[3]&0xFFFF,
-				params[4]<0?'-':' ', abs(params[4])>>16, params[4]&0xFFFF,
-				params[5]<0?'-':' ', abs(params[5])>>16, params[5]&0xFFFF,
-				params[6]<0?'-':' ', abs(params[6])>>16, params[6]&0xFFFF,
-				params[7]<0?'-':' ', abs(params[7])>>16, params[7]&0xFFFF,
-				params[8]<0?'-':' ', abs(params[8])>>16, params[8]&0xFFFF,
-				params[9]<0?'-':' ', abs(params[9])>>16, params[9]&0xFFFF
+				params[0]<0?'-':' ', abs(params[0])>>16, abs(params[0])&0xFFFF,
+				params[1]<0?'-':' ', abs(params[1])>>16, abs(params[1])&0xFFFF,
+				params[2]<0?'-':' ', abs(params[2])>>16, abs(params[2])&0xFFFF,
+				params[3]<0?'-':' ', abs(params[3])>>16, abs(params[3])&0xFFFF,
+				params[4]<0?'-':' ', abs(params[4])>>16, abs(params[4])&0xFFFF,
+				params[5]<0?'-':' ', abs(params[5])>>16, abs(params[5])&0xFFFF,
+				params[6]<0?'-':' ', abs(params[6])>>16, abs(params[6])&0xFFFF,
+				params[7]<0?'-':' ', abs(params[7])>>16, abs(params[7])&0xFFFF,
+				params[8]<0?'-':' ', abs(params[8])>>16, abs(params[8])&0xFFFF,
+				params[9]<0?'-':' ', abs(params[9])>>16, abs(params[9])&0xFFFF
 			);
 			params+=10;
 			GUIPrint(0, x, y+ystep*1, guizoom, "%c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X ",
-				params[0]<0?'-':' ', abs(params[0])>>16, params[0]&0xFFFF,
-				params[1]<0?'-':' ', abs(params[1])>>16, params[1]&0xFFFF,
-				params[2]<0?'-':' ', abs(params[2])>>16, params[2]&0xFFFF,
-				params[3]<0?'-':' ', abs(params[3])>>16, params[3]&0xFFFF,
-				params[4]<0?'-':' ', abs(params[4])>>16, params[4]&0xFFFF,
-				params[5]<0?'-':' ', abs(params[5])>>16, params[5]&0xFFFF,
-				params[6]<0?'-':' ', abs(params[6])>>16, params[6]&0xFFFF,
-				params[7]<0?'-':' ', abs(params[7])>>16, params[7]&0xFFFF,
-				params[8]<0?'-':' ', abs(params[8])>>16, params[8]&0xFFFF,
-				params[9]<0?'-':' ', abs(params[9])>>16, params[9]&0xFFFF
+				params[0]<0?'-':' ', abs(params[0])>>16, abs(params[0])&0xFFFF,
+				params[1]<0?'-':' ', abs(params[1])>>16, abs(params[1])&0xFFFF,
+				params[2]<0?'-':' ', abs(params[2])>>16, abs(params[2])&0xFFFF,
+				params[3]<0?'-':' ', abs(params[3])>>16, abs(params[3])&0xFFFF,
+				params[4]<0?'-':' ', abs(params[4])>>16, abs(params[4])&0xFFFF,
+				params[5]<0?'-':' ', abs(params[5])>>16, abs(params[5])&0xFFFF,
+				params[6]<0?'-':' ', abs(params[6])>>16, abs(params[6])&0xFFFF,
+				params[7]<0?'-':' ', abs(params[7])>>16, abs(params[7])&0xFFFF,
+				params[8]<0?'-':' ', abs(params[8])>>16, abs(params[8])&0xFFFF,
+				params[9]<0?'-':' ', abs(params[9])>>16, abs(params[9])&0xFFFF
 			);
 			params+=10;
 			GUIPrint(0, x, y+ystep*2, guizoom, "%c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X",
-				params[0]<0?'-':' ', abs(params[0])>>16, params[0]&0xFFFF,
-				params[1]<0?'-':' ', abs(params[1])>>16, params[1]&0xFFFF,
-				params[2]<0?'-':' ', abs(params[2])>>16, params[2]&0xFFFF,
-				params[3]<0?'-':' ', abs(params[3])>>16, params[3]&0xFFFF
+				params[0]<0?'-':' ', abs(params[0])>>16, abs(params[0])&0xFFFF,
+				params[1]<0?'-':' ', abs(params[1])>>16, abs(params[1])&0xFFFF,
+				params[2]<0?'-':' ', abs(params[2])>>16, abs(params[2])&0xFFFF,
+				params[3]<0?'-':' ', abs(params[3])>>16, abs(params[3])&0xFFFF
 			);
 
 			//0000000000111111111122222222223333333333444444444455555
