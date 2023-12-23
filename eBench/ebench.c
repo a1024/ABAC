@@ -23,7 +23,7 @@ ArrayHandle fn=0;
 size_t filesize=0;
 
 Image *im0, *im1;
-int pred_ma_enabled=1;//modular arithmetic for spatial predictors
+int pred_ma_enabled=0;//modular arithmetic for spatial predictors
 int separate_grayscale=1;//separate channels are shown greyscale
 unsigned txid_separate_r=0, txid_separate_g=0, txid_separate_b=0;
 unsigned char *im_export=0, *zimage=0;
@@ -82,15 +82,15 @@ typedef enum TransformTypeEnum
 //	ST_FWD_DCT8,		ST_INV_DCT8,
 	ST_FWD_SHUFFLE,		ST_INV_SHUFFLE,
 //	ST_FWD_SPLIT,		ST_INV_SPLIT,
+#endif
 	
-	ST_FWD_LAZY,		ST_INV_LAZY,
+//	ST_FWD_LAZY,		ST_INV_LAZY,
 	ST_FWD_HAAR,		ST_INV_HAAR,
 	ST_FWD_SQUEEZE,		ST_INV_SQUEEZE,
 	ST_FWD_LEGALL53,	ST_INV_LEGALL53,
-//	ST_FWD_CDF97,		ST_INV_CDF97,
-	ST_FWD_EXPDWT,		ST_INV_EXPDWT,
-	ST_FWD_CUSTOM_DWT,	ST_INV_CUSTOM_DWT,
-#endif
+	ST_FWD_CDF97,		ST_INV_CDF97,
+//	ST_FWD_EXPDWT,		ST_INV_EXPDWT,
+//	ST_FWD_CUSTOM_DWT,	ST_INV_CUSTOM_DWT,
 
 	T_COUNT,
 } TransformType;
@@ -348,23 +348,23 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 //	case ST_INV_SPLIT:			a=" S Inv Split";			break;
 	case ST_FWD_LAZY:			a=" S Fwd Lazy DWT";			break;
 	case ST_INV_LAZY:			a=" S Inv Lazy DWT";			break;
+#endif
 	case ST_FWD_HAAR:			a=" S Fwd Haar";			break;
 	case ST_INV_HAAR:			a=" S Inv Haar";			break;
 	case ST_FWD_SQUEEZE:			a=" S Fwd Squeeze";			break;
 	case ST_INV_SQUEEZE:			a=" S Inv Squeeze";			break;
 	case ST_FWD_LEGALL53:			a=" S Fwd LeGall 5/3";			break;
 	case ST_INV_LEGALL53:			a=" S Inv LeGall 5/3";			break;
-//	case ST_FWD_CDF97:			a=" S Fwd CDF 9/7";			break;
-//	case ST_INV_CDF97:			a=" S Inv CDF 9/7";			break;
+	case ST_FWD_CDF97:			a=" S Fwd CDF 9/7";			break;
+	case ST_INV_CDF97:			a=" S Inv CDF 9/7";			break;
 //	case ST_FWD_GRAD_DWT:			a=" S Fwd Gradient DWT";		break;
 //	case ST_INV_GRAD_DWT:			a=" S Inv Gradient DWT";		break;
 //	case ST_FWD_DEC_DWT:			a=" S Fwd Dec. DWT";			break;
 //	case ST_INV_DEC_DWT:			a=" S Inv Dec. DWT";			break;
-	case ST_FWD_EXPDWT:			a=" S Fwd Exp DWT";			break;
-	case ST_INV_EXPDWT:			a=" S Inv Exp DWT";			break;
-	case ST_FWD_CUSTOM_DWT:			a=" S Fwd CUSTOM DWT";			break;
-	case ST_INV_CUSTOM_DWT:			a=" S Inv CUSTOM DWT";			break;
-#endif
+//	case ST_FWD_EXPDWT:			a=" S Fwd Exp DWT";			break;
+//	case ST_INV_EXPDWT:			a=" S Inv Exp DWT";			break;
+//	case ST_FWD_CUSTOM_DWT:			a=" S Fwd CUSTOM DWT";			break;
+//	case ST_INV_CUSTOM_DWT:			a=" S Inv CUSTOM DWT";			break;
 	default:				a="ERROR";				break;
 	}
 	long long c0=0;
@@ -937,53 +937,54 @@ void update_image()//apply selected operations on original image, calculate CRs,
 			case ST_INV_SHUFFLE:		shuffle((char*)image, iw, ih, 0);			break;
 		//	case ST_FWD_SPLIT:		image_split_fwd((char*)image, iw, ih);			break;
 		//	case ST_INV_SPLIT:		image_split_inv((char*)image, iw, ih);			break;
+#endif
 
-			case ST_FWD_LAZY:
-			case ST_INV_LAZY:
+		//	case ST_FWD_LAZY:
+		//	case ST_INV_LAZY:
 			case ST_FWD_HAAR:
 			case ST_INV_HAAR:
 			case ST_FWD_SQUEEZE:
 			case ST_INV_SQUEEZE:
 			case ST_FWD_LEGALL53:
 			case ST_INV_LEGALL53:
-		//	case ST_FWD_CDF97:
-		//	case ST_INV_CDF97:
+			case ST_FWD_CDF97:
+			case ST_INV_CDF97:
 		//	case ST_FWD_GRAD_DWT:
 		//	case ST_INV_GRAD_DWT:
-			case ST_FWD_EXPDWT:
-			case ST_INV_EXPDWT:
-			case ST_FWD_CUSTOM_DWT:
-			case ST_INV_CUSTOM_DWT:
+		//	case ST_FWD_EXPDWT:
+		//	case ST_INV_EXPDWT:
+		//	case ST_FWD_CUSTOM_DWT:
+		//	case ST_INV_CUSTOM_DWT:
 				{
-					ArrayHandle sizes=dwt2d_gensizes(iw, ih, 3, 3, 0);
-					char *temp=(char*)malloc(MAXVAR(iw, ih));
+					ArrayHandle sizes=dwt2d_gensizes(im1->iw, im1->ih, 3, 3, 0);
+					int *temp=(int*)malloc(MAXVAR(im1->iw, im1->ih)*sizeof(int));
 					for(int kc=0;kc<3;++kc)
 					{
 						switch(tid)
 						{
-						case ST_FWD_LAZY:      dwt2d_lazy_fwd   ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-						case ST_INV_LAZY:      dwt2d_lazy_inv   ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-						case ST_FWD_HAAR:      dwt2d_haar_fwd   ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-						case ST_INV_HAAR:      dwt2d_haar_inv   ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-						case ST_FWD_SQUEEZE:   dwt2d_squeeze_fwd((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-						case ST_INV_SQUEEZE:   dwt2d_squeeze_inv((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-						case ST_FWD_LEGALL53:  dwt2d_cdf53_fwd  ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-						case ST_INV_LEGALL53:  dwt2d_cdf53_inv  ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-					//	case ST_FWD_CDF97:     dwt2d_cdf97_fwd  ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-					//	case ST_INV_CDF97:     dwt2d_cdf97_inv  ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-					//	case ST_FWD_GRAD_DWT:  dwt2d_grad_fwd   ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-					//	case ST_INV_GRAD_DWT:  dwt2d_grad_inv   ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-						case ST_FWD_EXPDWT:    dwt2d_exp_fwd    ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, customparam_st);break;//TODO use customdwtparams instead of sharing allcustomparam_st
-						case ST_INV_EXPDWT:    dwt2d_exp_inv    ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, customparam_st);break;
-						case ST_FWD_CUSTOM_DWT:dwt2d_custom_fwd ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, customparam_st);break;
-						case ST_INV_CUSTOM_DWT:dwt2d_custom_inv ((char*)image+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, customparam_st);break;
+					//	case ST_FWD_LAZY:      dwt2d_lazy_fwd   (im1->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+					//	case ST_INV_LAZY:      dwt2d_lazy_inv   (im1->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						case ST_FWD_HAAR:      dwt2d_haar_fwd   (im1->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						case ST_INV_HAAR:      dwt2d_haar_inv   (im1->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						case ST_FWD_SQUEEZE:   dwt2d_squeeze_fwd(im1->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						case ST_INV_SQUEEZE:   dwt2d_squeeze_inv(im1->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						case ST_FWD_LEGALL53:  dwt2d_cdf53_fwd  (im1->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						case ST_INV_LEGALL53:  dwt2d_cdf53_inv  (im1->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						case ST_FWD_CDF97:     dwt2d_cdf97_fwd  (im1->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+						case ST_INV_CDF97:     dwt2d_cdf97_inv  (im1->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+					//	case ST_FWD_GRAD_DWT:  dwt2d_grad_fwd   (im1->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+					//	case ST_INV_GRAD_DWT:  dwt2d_grad_inv   (im1->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+					//	case ST_FWD_EXPDWT:    dwt2d_exp_fwd    (im1->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, customparam_st);break;//TODO use customdwtparams instead of sharing allcustomparam_st
+					//	case ST_INV_EXPDWT:    dwt2d_exp_inv    (im1->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, customparam_st);break;
+					//	case ST_FWD_CUSTOM_DWT:dwt2d_custom_fwd (im1->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, customparam_st);break;
+					//	case ST_INV_CUSTOM_DWT:dwt2d_custom_inv (im1->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, customparam_st);break;
 						}
 					}
+					calc_depthfromdata(im1->data, im1->iw, im1->ih, im1->depth);
 					array_free(&sizes);
 					free(temp);
 				}
 				break;
-#endif
 		//	case ST_FWD_DEC_DWT:   dwt2d_dec_fwd((char*)image, iw, ih);	break;
 		//	case ST_INV_DEC_DWT:   dwt2d_dec_inv((char*)image, iw, ih);	break;
 			}//switch
@@ -3540,6 +3541,7 @@ void io_render()
 			xstart=20, xend=(float)w-210, ystart=(float)(h-tdy*5);
 		
 		float crformat=(float)(image_getBMPsize(im0)/filesize);
+		int RGBspace=1;
 		if(xstart<xend)
 		{
 			float crmax=cr_combined;
@@ -3613,7 +3615,6 @@ void io_render()
 			else
 #endif
 			{
-				int RGBspace=1;
 				for(int k=0;k<CST_FWD_SEPARATOR;++k)
 				{
 					if(transforms_mask[k])
@@ -3633,15 +3634,15 @@ void io_render()
 			draw_line(x, ystart, x+10, ystart-10, 0xFF000000);
 		}
 		int prevtxtcolor, prevbkcolor;
-		xend=(float)w-300;
+		xend=(float)w-200;
 		prevbkcolor=set_bk_color(0xC0C0C0C0);
 		prevtxtcolor=set_text_color(0xFF000000);GUIPrint(xend, xend, ystart-tdy  , 1, "Format        %9f", crformat);
 		set_bk_color(0xE0FFFFFF);
 		prevtxtcolor=set_text_color(0xFF000000);GUIPrint(xend, xend, ystart      , 1, "Combined      %9f", cr_combined);
 		set_bk_color(0xC0C0C0C0);
-		set_text_color(0xFF0000FF);	GUIPrint(xend, xend, ystart+tdy  , 1, "R     %7d %9f", usage[0], ch_cr[0]);
-		set_text_color(0xFF00C000);	GUIPrint(xend, xend, ystart+tdy*2, 1, "G     %7d %9f", usage[1], ch_cr[1]);
-		set_text_color(0xFFFF0000);	GUIPrint(xend, xend, ystart+tdy*3, 1, "B     %7d %9f", usage[2], ch_cr[2]);
+		set_text_color(0xFF0000FF);	GUIPrint(xend, xend, ystart+tdy  , 1, "%c     %7d %9f", RGBspace?'R':'Y', im1->depth[0], ch_cr[0]);
+		set_text_color(0xFF00C000);	GUIPrint(xend, xend, ystart+tdy*2, 1, "%c     %7d %9f", RGBspace?'G':'U', im1->depth[1], ch_cr[1]);
+		set_text_color(0xFFFF0000);	GUIPrint(xend, xend, ystart+tdy*3, 1, "%c     %7d %9f", RGBspace?'B':'V', im1->depth[2], ch_cr[2]);
 		//set_text_color(0xFFFF00FF);	GUIPrint(xend, xend, ystart+tdy*4, 1, "Joint %7d %9f", usage[3], ch_cr[3]);
 		set_text_color(prevtxtcolor);
 		set_bk_color(prevbkcolor);

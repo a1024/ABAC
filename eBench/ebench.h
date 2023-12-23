@@ -647,6 +647,7 @@ void update_image();
 void calc_histogram(const int *buf, int iw, int ih, int kc, int x1, int x2, int y1, int y2, int depth, int *hist, int *hist8);
 double calc_entropy(const int *hist, int nlevels, int sum);//pass -1 if sum is unknown
 int calc_maxdepth(Image const *image, int *inflation);
+void calc_depthfromdata(int *image, int iw, int ih, char *depths);
 
 
 //color transforms
@@ -723,31 +724,30 @@ unsigned long long xoroshiro128_next(void);
 
 
 
-#if 0
-//DWTs
+//DWTs			temp is size max(w, h)
 typedef struct DWTSizeStruct
 {
 	unsigned short w, h;
 } DWTSize;
 ArrayHandle dwt2d_gensizes(int iw, int ih, int wstop, int hstop, int nstages_override);//calculate dimensions of each DWT stage in descending order
 
-//8bit DWTs			temp is size max(w, h)
-void dwt2d_grad_fwd   (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);
-void dwt2d_grad_inv   (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);
-void dwt2d_lazy_fwd   (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);
-void dwt2d_lazy_inv   (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);
-void dwt2d_haar_fwd   (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);
-void dwt2d_haar_inv   (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);
-void dwt2d_squeeze_fwd(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);
-void dwt2d_squeeze_inv(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);
-void dwt2d_cdf53_fwd  (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);
-void dwt2d_cdf53_inv  (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);
-void dwt2d_cdf97_fwd  (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);
-void dwt2d_cdf97_inv  (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp);
-void dwt2d_exp_fwd    (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp, const double *params);
-void dwt2d_exp_inv    (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp, const double *params);
-void dwt2d_custom_fwd (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp, const double *params);
-void dwt2d_custom_inv (char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp, const double *params);
+void dwt2d_haar_fwd   (int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp);
+void dwt2d_haar_inv   (int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp);
+void dwt2d_squeeze_fwd(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp);
+void dwt2d_squeeze_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp);
+void dwt2d_cdf53_fwd  (int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp);
+void dwt2d_cdf53_inv  (int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp);
+void dwt2d_cdf97_fwd  (int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp);
+void dwt2d_cdf97_inv  (int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp);
+#if 0
+void dwt2d_grad_fwd   (int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp);
+void dwt2d_grad_inv   (int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp);
+void dwt2d_lazy_fwd   (int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp);
+void dwt2d_lazy_inv   (int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp);
+void dwt2d_exp_fwd    (int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp, const double *params);
+void dwt2d_exp_inv    (int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp, const double *params);
+void dwt2d_custom_fwd (int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp, const double *params);
+void dwt2d_custom_inv (int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp, const double *params);
 
 void dwt2d_dec_fwd(char *buffer, int iw, int ih);
 void dwt2d_dec_inv(char *buffer, int iw, int ih);
