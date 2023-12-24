@@ -643,6 +643,9 @@ extern float ch_cr[4];
 void update_image();
 
 
+//extern Image *im0, *im1;
+
+
 //aux func
 void calc_histogram(const int *buf, int iw, int ih, int kc, int x1, int x2, int y1, int y2, int depth, int *hist, int *hist8);
 double calc_entropy(const int *hist, int nlevels, int sum);//pass -1 if sum is unknown
@@ -754,16 +757,18 @@ void dwt2d_dec_fwd(char *buffer, int iw, int ih);
 void dwt2d_dec_inv(char *buffer, int iw, int ih);
 
 void pred_wu97(char *buf, int iw, int ih, int fwd);
+#endif
 
 
 //DCTs
 
-void image_dct4_fwd(char *image, int iw, int ih);
-void image_dct4_inv(char *image, int iw, int ih);
+void image_dct4_fwd(Image *image);
+void image_dct4_inv(Image *image);
 
-void image_dct8_fwd(char *image, int iw, int ih);
-void image_dct8_inv(char *image, int iw, int ih);
+void image_dct8_fwd(Image *image);
+void image_dct8_inv(Image *image);
 
+#if 0
 void image_split_fwd(char *image, int iw, int ih);
 void image_split_inv(char *image, int iw, int ih);
 

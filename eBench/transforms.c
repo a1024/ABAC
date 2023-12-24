@@ -3106,6 +3106,8 @@ SseCell g2_SSE[12][256];
 //}
 void pred_grad2(Image *src, int fwd, int enable_ma)
 {
+	//const int *guide=im0->data;
+
 	ptrdiff_t res=(ptrdiff_t)src->iw*src->ih;
 	int *b2=(int*)malloc((size_t)res*sizeof(int[4]));
 	int *perrors=(int*)malloc((size_t)src->iw*(G2_NPRED+1)*2*sizeof(int));
@@ -3374,81 +3376,81 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 #if 1
 				int dnb[]=//error neighbors
 				{
-					(int)dN   ,//order matters slightly
-					(int)dW   ,
-					(int)dNW  ,
-					(int)dNE  ,
-					(int)dNN  ,
-					(int)dWW  ,
-					(int)dNNWW,
-					(int)dNNW ,
-					(int)dNNE ,
-					(int)dNNEE,
-					(int)dNWW ,
-					(int)dNEE ,
+					dN   ,//order matters slightly
+					dW   ,
+					dNW  ,
+					dNE  ,
+					dNN  ,
+					dWW  ,
+					dNNWW,
+					dNNW ,
+					dNNE ,
+					dNNEE,
+					dNWW ,
+					dNEE ,
 					
-					//(unsigned char)dNNWW,
-					//(unsigned char)dNNW ,
-					//(unsigned char)dNN  ,
-					//(unsigned char)dNNE ,
-					//(unsigned char)dNNEE,
-					//(unsigned char)dNWW ,
-					//(unsigned char)dNW  ,
-					//(unsigned char)dN   ,
-					//(unsigned char)dNE  ,
-					//(unsigned char)dNEE ,
-					//(unsigned char)dWW  ,
-					//(unsigned char)dW   ,
+					//dNNWW,
+					//dNNW ,
+					//dNN  ,
+					//dNNE ,
+					//dNNEE,
+					//dNWW ,
+					//dNW  ,
+					//dN   ,
+					//dNE  ,
+					//dNEE ,
+					//dWW  ,
+					//dW   ,
 					
-					//(unsigned char)dN     ,
-					//(unsigned char)dW     ,
-					//(unsigned char)dNW    ,
-					//(unsigned char)dNE    ,
-					//(unsigned char)dNN    ,
-					//(unsigned char)dWW    ,
-					//(unsigned char)dNNW   ,
-					//(unsigned char)dNNE   ,
-					//(unsigned char)dNWW   ,
-					//(unsigned char)dNEE   ,
-					//(unsigned char)dNNN   ,
-					//(unsigned char)dWWW   ,
-					//(unsigned char)dNNNW  ,
-					//(unsigned char)dNNNE  ,
-					//(unsigned char)dNNWW  ,
-					//(unsigned char)dNNEE  ,
-					//(unsigned char)dNEEE  ,
-					//(unsigned char)dNWWW  ,
-					//(unsigned char)dNNNWW ,
-					//(unsigned char)dNNNEE ,
-					//(unsigned char)dNNWWW ,
-					//(unsigned char)dNNEEE ,
-					//(unsigned char)dNNNWWW,
-					//(unsigned char)dNNNEEE,
+					//dN     ,
+					//dW     ,
+					//dNW    ,
+					//dNE    ,
+					//dNN    ,
+					//dWW    ,
+					//dNNW   ,
+					//dNNE   ,
+					//dNWW   ,
+					//dNEE   ,
+					//dNNN   ,
+					//dWWW   ,
+					//dNNNW  ,
+					//dNNNE  ,
+					//dNNWW  ,
+					//dNNEE  ,
+					//dNEEE  ,
+					//dNWWW  ,
+					//dNNNWW ,
+					//dNNNEE ,
+					//dNNWWW ,
+					//dNNEEE ,
+					//dNNNWWW,
+					//dNNNEEE,
 					
-					//(unsigned char)dNNNWWW,
-					//(unsigned char)dNNNWW ,
-					//(unsigned char)dNNNW  ,
-					//(unsigned char)dNNN   ,
-					//(unsigned char)dNNNE  ,
-					//(unsigned char)dNNNEE ,
-					//(unsigned char)dNNNEEE,
-					//(unsigned char)dNNWWW ,
-					//(unsigned char)dNNWW  ,
-					//(unsigned char)dNNW   ,
-					//(unsigned char)dNN    ,
-					//(unsigned char)dNNE   ,
-					//(unsigned char)dNNEE  ,
-					//(unsigned char)dNNEEE ,
-					//(unsigned char)dNWWW  ,
-					//(unsigned char)dNWW   ,
-					//(unsigned char)dNW    ,
-					//(unsigned char)dN     ,
-					//(unsigned char)dNE    ,
-					//(unsigned char)dNEE   ,
-					//(unsigned char)dNEEE  ,
-					//(unsigned char)dWWW   ,
-					//(unsigned char)dWW    ,
-					//(unsigned char)dW     ,
+					//dNNNWWW,
+					//dNNNWW ,
+					//dNNNW  ,
+					//dNNN   ,
+					//dNNNE  ,
+					//dNNNEE ,
+					//dNNNEEE,
+					//dNNWWW ,
+					//dNNWW  ,
+					//dNNW   ,
+					//dNN    ,
+					//dNNE   ,
+					//dNNEE  ,
+					//dNNEEE ,
+					//dNWWW  ,
+					//dNWW   ,
+					//dNW    ,
+					//dN     ,
+					//dNE    ,
+					//dNEE   ,
+					//dNEEE  ,
+					//dWWW   ,
+					//dWW    ,
+					//dW     ,
 					
 					//eNW,
 					//eN ,
@@ -3456,7 +3458,7 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 					//eW ,
 				};
 				SseCell *pc[12];
-				unsigned char hashval;
+				int hashval;
 
 				for(int k2=3;k2>=0;--k2)
 				{
@@ -3480,7 +3482,7 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 					pred=CLAMP(-(nlevels<<7), pred, (nlevels<<7)-1);
 				}
 
-				char delta;
+				int delta;
 				if(fwd)
 				{
 					delta=src->data[idx]-((pred+128)>>8);
@@ -3503,6 +3505,9 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 						pixel-=nlevels>>1;
 					}
 					b2[idx]=pixel;
+
+					//if(b2[idx]!=guide[idx])//
+					//	LOG_ERROR("");
 				}
 				for(int k=0;k<4;++k)
 				{
@@ -3534,7 +3539,7 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 				pred+=pc[2]->count?(pc[2]->sum+(pc[2]->count>>1))/pc[2]->count:0;
 				pred=CLAMP(-(128<<8), pred, 127<<8);
 
-				char delta;
+				int delta;
 				if(fwd)
 				{
 					delta=buf[idx]-((pred+128)>>8);
@@ -3570,7 +3575,7 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 				//ipred+=pc[2]->count?(pc[2]->sum+(pc[2]->count>>1))/pc[2]->count:0;
 				//ipred=CLAMP(-128, ipred, 127);
 
-				char delta;
+				int delta;
 				if(fwd)
 				{
 					delta=buf[idx]-((pred+128)>>8);
@@ -3616,7 +3621,7 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 				int SSE_bias=pc->count?(pc->sum+(pc->count>>1))/pc->count:0;
 				ipred+=SSE_bias;
 				ipred=CLAMP(-128, ipred, 127);
-				char delta;
+				int delta;
 				if(fwd)
 				{
 					delta=buf[idx]-ipred;
@@ -3655,7 +3660,7 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 
 				ipred+=SSE_b[3];
 				ipred=CLAMP(-128, ipred, 127);
-				char delta;
+				int delta;
 				if(fwd)
 				{
 					delta=buf[idx]-ipred;
@@ -3692,7 +3697,7 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 				ipred+=SSE_bias;
 				ipred=CLAMP(-128, ipred, 127);
 				
-				char delta;//modular arithmetic
+				int delta;//modular arithmetic
 				if(fwd)
 				{
 					delta=buf[idx]-ipred;
@@ -3723,7 +3728,7 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 				int spred=pred;
 				spred^=-fwd;
 				spred+=fwd;
-				b2[idx]=buf[idx]+((spred+128)>>8);
+				b2[idx]=src->data[idx]+((spred+128)>>8);
 #endif
 
 				int curr=pixels[idx]<<8;
@@ -3806,7 +3811,7 @@ ArrayHandle dwt2d_gensizes(int iw, int ih, int wstop, int hstop, int nstages_ove
 }
 
 #if 0
-void dwt2d_grad_fwd(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp)
+void dwt2d_grad_fwd(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp)
 {
 	for(int it=sizes_start;it<sizes_end-1;++it)
 	//for(int it=sizes_start;it<1;++it)
@@ -3816,7 +3821,7 @@ void dwt2d_grad_fwd(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end
 			for(int kx=0;kx<sizes[it].w-1;kx+=2)
 			{
 				int idx=sizes->w*ky+kx;
-				char v[]=
+				int v[]=
 				{
 					buffer[ idx            *stride],
 					buffer[(idx         +1)*stride],
@@ -5114,10 +5119,11 @@ void pred_wu97(char *buf, int iw, int ih, int fwd)//'Lossless Compression of Con
 	free(temp);
 	free(b2);
 }
+#endif
 
 
 //DCTs
-static void dct4_fwd_i8(char *x)
+static void dct4_fwd_i8(int *x)
 {
 	x[3]=x[0]-x[3];
 	x[0]-=x[3]>>1;
@@ -5128,7 +5134,7 @@ static void dct4_fwd_i8(char *x)
 	x[2]=(x[3]*13>>5)-x[2];
 	x[3]-=x[2]*11>>5;
 }
-static void dct4_inv_i8(char *x)
+static void dct4_inv_i8(int *x)
 {
 	x[3]+=x[2]*11>>5;
 	x[2]=(x[3]*13>>5)-x[2];
@@ -5139,136 +5145,140 @@ static void dct4_inv_i8(char *x)
 	x[0]+=x[3]>>1;
 	x[3]=x[0]-x[3];
 }
-void image_dct4_fwd(char *image, int iw, int ih)
+void image_dct4_fwd(Image *image)
 {
-	char *temp=(char*)malloc(MAXVAR(iw, ih));
+	int *temp=(int*)malloc(MAXVAR(image->iw, image->ih)*sizeof(int));
 	if(!temp)
 	{
 		LOG_ERROR("Allocation error");
 		return;
 	}
-	memset(temp, 0, MAXVAR(iw, ih));
+	memset(temp, 0, MAXVAR(image->iw, image->ih)*sizeof(int));
 	for(int kc=0;kc<3;++kc)
 	{
 #if 1
-		for(int ky=0;ky<ih;++ky)
+		for(int ky=0;ky<image->ih;++ky)
 		{
-			for(int kx=0;kx<iw-3;kx+=4)
+			for(int kx=0;kx<image->iw-3;kx+=4)
 			{
-				int idx=iw*ky+kx;
-				char x[]=
+				int idx=image->iw*ky+kx;
+				int x[]=
 				{
-					image[ idx   <<2|kc],
-					image[(idx+1)<<2|kc],
-					image[(idx+2)<<2|kc],
-					image[(idx+3)<<2|kc],
+					image->data[ idx   <<2|kc],
+					image->data[(idx+1)<<2|kc],
+					image->data[(idx+2)<<2|kc],
+					image->data[(idx+3)<<2|kc],
 				};
 
 				dct4_fwd_i8(x);
 
-				temp[ kx>>2           ]=x[0];
-				temp[(kx>>2)+(iw>>2)  ]=x[1];
-				temp[(kx>>2)+(iw>>2)*2]=x[2];
-				temp[(kx>>2)+(iw>>2)*3]=x[3];
+				temp[ kx>>2                  ]=x[0];
+				temp[(kx>>2)+(image->iw>>2)  ]=x[1];
+				temp[(kx>>2)+(image->iw>>2)*2]=x[2];
+				temp[(kx>>2)+(image->iw>>2)*3]=x[3];
 			}
-			for(int kx=0;kx<iw;++kx)
-				image[(iw*ky+kx)<<2|kc]=temp[kx];
+			for(int kx=0;kx<image->iw;++kx)
+				image->data[(image->iw*ky+kx)<<2|kc]=temp[kx];
 		}
 #endif
 #if 1
-		for(int kx=0;kx<iw;++kx)
+		for(int kx=0;kx<image->iw;++kx)
 		{
-			for(int ky=0;ky<ih-3;ky+=4)
+			for(int ky=0;ky<image->ih-3;ky+=4)
 			{
-				int idx=iw*ky+kx;
-				char x[]=
+				int idx=image->iw*ky+kx;
+				int x[]=
 				{
-					image[ idx      <<2|kc],
-					image[(idx+iw  )<<2|kc],
-					image[(idx+iw*2)<<2|kc],
-					image[(idx+iw*3)<<2|kc],
+					image->data[ idx             <<2|kc],
+					image->data[(idx+image->iw  )<<2|kc],
+					image->data[(idx+image->iw*2)<<2|kc],
+					image->data[(idx+image->iw*3)<<2|kc],
 				};
 
 				dct4_fwd_i8(x);
 
-				temp[(ky>>2)          ]=x[0];
-				temp[(ky>>2)+(ih>>2)  ]=x[1];
-				temp[(ky>>2)+(ih>>2)*2]=x[2];
-				temp[(ky>>2)+(ih>>2)*3]=x[3];
+				temp[(ky>>2)                 ]=x[0];
+				temp[(ky>>2)+(image->ih>>2)  ]=x[1];
+				temp[(ky>>2)+(image->ih>>2)*2]=x[2];
+				temp[(ky>>2)+(image->ih>>2)*3]=x[3];
 			}
-			for(int ky=0;ky<ih;++ky)
-				image[(iw*ky+kx)<<2|kc]=temp[ky];
+			for(int ky=0;ky<image->ih;++ky)
+				image->data[(image->iw*ky+kx)<<2|kc]=temp[ky];
 		}
 #endif
 	}
 	free(temp);
+	for(int kc=0;kc<3;++kc)
+		image->depth[kc]+=(image->depth[kc]+2<=24)<<1;
 }
-void image_dct4_inv(char *image, int iw, int ih)
+void image_dct4_inv(Image *image)
 {
-	char *temp=(char*)malloc(MAXVAR(iw, ih));
+	int *temp=(int*)malloc(MAXVAR(image->iw, image->ih)*sizeof(int));
 	if(!temp)
 	{
 		LOG_ERROR("Allocation error");
 		return;
 	}
-	memset(temp, 0, MAXVAR(iw, ih));
+	memset(temp, 0, MAXVAR(image->iw, image->ih)*sizeof(int));
 	for(int kc=0;kc<3;++kc)
 	{
 #if 1
-		for(int kx=0;kx<iw;++kx)
+		for(int kx=0;kx<image->iw;++kx)
 		{
-			for(int ky=0;ky<ih;++ky)
-				temp[ky]=image[(iw*ky+kx)<<2|kc];
-			for(int ky=0;ky<ih-3;ky+=4)
+			for(int ky=0;ky<image->ih;++ky)
+				temp[ky]=image->data[(image->iw*ky+kx)<<2|kc];
+			for(int ky=0;ky<image->ih-3;ky+=4)
 			{
-				int idx=iw*ky+kx;
-				char x[]=
+				int idx=image->iw*ky+kx;
+				int x[]=
 				{
-					temp[(ky>>2)          ],
-					temp[(ky>>2)+(ih>>2)  ],
-					temp[(ky>>2)+(ih>>2)*2],
-					temp[(ky>>2)+(ih>>2)*3],
+					temp[(ky>>2)                 ],
+					temp[(ky>>2)+(image->ih>>2)  ],
+					temp[(ky>>2)+(image->ih>>2)*2],
+					temp[(ky>>2)+(image->ih>>2)*3],
 				};
 
 				dct4_inv_i8(x);
 				
-				image[ idx      <<2|kc]=x[0];
-				image[(idx+iw  )<<2|kc]=x[1];
-				image[(idx+iw*2)<<2|kc]=x[2];
-				image[(idx+iw*3)<<2|kc]=x[3];
+				image->data[ idx             <<2|kc]=x[0];
+				image->data[(idx+image->iw  )<<2|kc]=x[1];
+				image->data[(idx+image->iw*2)<<2|kc]=x[2];
+				image->data[(idx+image->iw*3)<<2|kc]=x[3];
 			}
 		}
 #endif
 #if 1
-		for(int ky=0;ky<ih;++ky)
+		for(int ky=0;ky<image->ih;++ky)
 		{
-			for(int kx=0;kx<iw;++kx)
-				temp[kx]=image[(iw*ky+kx)<<2|kc];
-			for(int kx=0;kx<iw-3;kx+=4)
+			for(int kx=0;kx<image->iw;++kx)
+				temp[kx]=image->data[(image->iw*ky+kx)<<2|kc];
+			for(int kx=0;kx<image->iw-3;kx+=4)
 			{
-				int idx=iw*ky+kx;
-				char x[]=
+				int idx=image->iw*ky+kx;
+				int x[]=
 				{
-					temp[(kx>>2)          ],
-					temp[(kx>>2)+(iw>>2)  ],
-					temp[(kx>>2)+(iw>>2)*2],
-					temp[(kx>>2)+(iw>>2)*3],
+					temp[(kx>>2)                 ],
+					temp[(kx>>2)+(image->iw>>2)  ],
+					temp[(kx>>2)+(image->iw>>2)*2],
+					temp[(kx>>2)+(image->iw>>2)*3],
 				};
 
 				dct4_inv_i8(x);
 				
-				image[ idx   <<2|kc]=x[0];
-				image[(idx+1)<<2|kc]=x[1];
-				image[(idx+2)<<2|kc]=x[2];
-				image[(idx+3)<<2|kc]=x[3];
+				image->data[ idx   <<2|kc]=x[0];
+				image->data[(idx+1)<<2|kc]=x[1];
+				image->data[(idx+2)<<2|kc]=x[2];
+				image->data[(idx+3)<<2|kc]=x[3];
 			}
 		}
 #endif
 	}
 	free(temp);
+	for(int kc=0;kc<3;++kc)
+		image->depth[kc]-=(image->depth[kc]-2>=image->src_depth[kc])<<1;
 }
 
-static void dct8_fwd_i8(char *x)
+static void dct8_fwd_i8(int *x)
 {
 	//binDCT-C7
 	x[7]=x[0]-x[7];
@@ -5306,7 +5316,7 @@ static void dct8_fwd_i8(char *x)
 	x[5]+=x[6]*11>>4;
 	x[6]-=x[5]*15>>5;
 }
-static void dct8_inv_i8(char *x)
+static void dct8_inv_i8(int *x)
 {
 	//invBinDCT-C7
 	x[6]+=x[5]*15>>5;
@@ -5344,33 +5354,33 @@ static void dct8_inv_i8(char *x)
 	x[6]=x[1]-x[6];
 	x[7]=x[0]-x[7];
 }
-void image_dct8_fwd(char *image, int iw, int ih)
+void image_dct8_fwd(Image *image)
 {
-	char *temp=(char*)malloc(MAXVAR(iw, ih));
+	int *temp=(int*)malloc(MAXVAR(image->iw, image->ih)*sizeof(int));
 	if(!temp)
 	{
 		LOG_ERROR("Allocation error");
 		return;
 	}
-	memset(temp, 0, MAXVAR(iw, ih));
+	memset(temp, 0, MAXVAR(image->iw, image->ih)*sizeof(int));
 	for(int kc=0;kc<3;++kc)
 	{
 #if 1
-		for(int ky=0;ky<ih;++ky)
+		for(int ky=0;ky<image->ih;++ky)
 		{
-			for(int kx=0;kx<iw-7;kx+=8)
+			for(int kx=0;kx<image->iw-7;kx+=8)
 			{
-				int idx=iw*ky+kx;
-				char x[]=
+				int idx=image->iw*ky+kx;
+				int x[]=
 				{
-					image[ idx   <<2|kc],
-					image[(idx+1)<<2|kc],
-					image[(idx+2)<<2|kc],
-					image[(idx+3)<<2|kc],
-					image[(idx+4)<<2|kc],
-					image[(idx+5)<<2|kc],
-					image[(idx+6)<<2|kc],
-					image[(idx+7)<<2|kc],
+					image->data[ idx   <<2|kc],
+					image->data[(idx+1)<<2|kc],
+					image->data[(idx+2)<<2|kc],
+					image->data[(idx+3)<<2|kc],
+					image->data[(idx+4)<<2|kc],
+					image->data[(idx+5)<<2|kc],
+					image->data[(idx+6)<<2|kc],
+					image->data[(idx+7)<<2|kc],
 				};
 
 				//char y[8];
@@ -5382,137 +5392,142 @@ void image_dct8_fwd(char *image, int iw, int ih)
 
 				dct8_fwd_i8(x);
 
-				temp[ kx>>3           ]=x[0];
-				temp[(kx>>3)+(iw>>3)  ]=x[1];
-				temp[(kx>>3)+(iw>>3)*2]=x[2];
-				temp[(kx>>3)+(iw>>3)*3]=x[3];
-				temp[(kx>>3)+(iw>>3)*4]=x[4];
-				temp[(kx>>3)+(iw>>3)*5]=x[5];
-				temp[(kx>>3)+(iw>>3)*6]=x[6];
-				temp[(kx>>3)+(iw>>3)*7]=x[7];
+				temp[ kx>>3                  ]=x[0];
+				temp[(kx>>3)+(image->iw>>3)  ]=x[1];
+				temp[(kx>>3)+(image->iw>>3)*2]=x[2];
+				temp[(kx>>3)+(image->iw>>3)*3]=x[3];
+				temp[(kx>>3)+(image->iw>>3)*4]=x[4];
+				temp[(kx>>3)+(image->iw>>3)*5]=x[5];
+				temp[(kx>>3)+(image->iw>>3)*6]=x[6];
+				temp[(kx>>3)+(image->iw>>3)*7]=x[7];
 			}
-			for(int kx=0;kx<iw;++kx)
-				image[(iw*ky+kx)<<2|kc]=temp[kx];
+			for(int kx=0;kx<image->iw;++kx)
+				image->data[(image->iw*ky+kx)<<2|kc]=temp[kx];
 		}
 #endif
 #if 1
-		for(int kx=0;kx<iw;++kx)
+		for(int kx=0;kx<image->iw;++kx)
 		{
-			for(int ky=0;ky<ih-7;ky+=8)
+			for(int ky=0;ky<image->ih-7;ky+=8)
 			{
-				int idx=iw*ky+kx;
-				char x[]=
+				int idx=image->iw*ky+kx;
+				int x[]=
 				{
-					image[ idx      <<2|kc],
-					image[(idx+iw  )<<2|kc],
-					image[(idx+iw*2)<<2|kc],
-					image[(idx+iw*3)<<2|kc],
-					image[(idx+iw*4)<<2|kc],
-					image[(idx+iw*5)<<2|kc],
-					image[(idx+iw*6)<<2|kc],
-					image[(idx+iw*7)<<2|kc],
+					image->data[ idx             <<2|kc],
+					image->data[(idx+image->iw  )<<2|kc],
+					image->data[(idx+image->iw*2)<<2|kc],
+					image->data[(idx+image->iw*3)<<2|kc],
+					image->data[(idx+image->iw*4)<<2|kc],
+					image->data[(idx+image->iw*5)<<2|kc],
+					image->data[(idx+image->iw*6)<<2|kc],
+					image->data[(idx+image->iw*7)<<2|kc],
 				};
 
 				dct8_fwd_i8(x);
 
-				temp[(ky>>3)          ]=x[0];
-				temp[(ky>>3)+(ih>>3)  ]=x[1];
-				temp[(ky>>3)+(ih>>3)*2]=x[2];
-				temp[(ky>>3)+(ih>>3)*3]=x[3];
-				temp[(ky>>3)+(ih>>3)*4]=x[4];
-				temp[(ky>>3)+(ih>>3)*5]=x[5];
-				temp[(ky>>3)+(ih>>3)*6]=x[6];
-				temp[(ky>>3)+(ih>>3)*7]=x[7];
+				temp[(ky>>3)                 ]=x[0];
+				temp[(ky>>3)+(image->ih>>3)  ]=x[1];
+				temp[(ky>>3)+(image->ih>>3)*2]=x[2];
+				temp[(ky>>3)+(image->ih>>3)*3]=x[3];
+				temp[(ky>>3)+(image->ih>>3)*4]=x[4];
+				temp[(ky>>3)+(image->ih>>3)*5]=x[5];
+				temp[(ky>>3)+(image->ih>>3)*6]=x[6];
+				temp[(ky>>3)+(image->ih>>3)*7]=x[7];
 			}
-			for(int ky=0;ky<ih;++ky)
-				image[(iw*ky+kx)<<2|kc]=temp[ky];
+			for(int ky=0;ky<image->ih;++ky)
+				image->data[(image->iw*ky+kx)<<2|kc]=temp[ky];
 		}
 #endif
 	}
 	free(temp);
+	for(int kc=0;kc<3;++kc)
+		image->depth[kc]+=(image->depth[kc]+3<=24)*3;
 }
-void image_dct8_inv(char *image, int iw, int ih)
+void image_dct8_inv(Image *image)
 {
-	char *temp=(char*)malloc(MAXVAR(iw, ih));
+	int *temp=(int*)malloc(MAXVAR(image->iw, image->ih)*sizeof(int));
 	if(!temp)
 	{
 		LOG_ERROR("Allocation error");
 		return;
 	}
-	memset(temp, 0, MAXVAR(iw, ih));
+	memset(temp, 0, MAXVAR(image->iw, image->ih)*sizeof(int));
 	for(int kc=0;kc<3;++kc)
 	{
 #if 1
-		for(int kx=0;kx<iw;++kx)
+		for(int kx=0;kx<image->iw;++kx)
 		{
-			for(int ky=0;ky<ih;++ky)
-				temp[ky]=image[(iw*ky+kx)<<2|kc];
-			for(int ky=0;ky<ih-7;ky+=8)
+			for(int ky=0;ky<image->ih;++ky)
+				temp[ky]=image->data[(image->iw*ky+kx)<<2|kc];
+			for(int ky=0;ky<image->ih-7;ky+=8)
 			{
-				int idx=iw*ky+kx;
-				char x[]=
+				int idx=image->iw*ky+kx;
+				int x[]=
 				{
-					temp[(ky>>3)          ],
-					temp[(ky>>3)+(ih>>3)  ],
-					temp[(ky>>3)+(ih>>3)*2],
-					temp[(ky>>3)+(ih>>3)*3],
-					temp[(ky>>3)+(ih>>3)*4],
-					temp[(ky>>3)+(ih>>3)*5],
-					temp[(ky>>3)+(ih>>3)*6],
-					temp[(ky>>3)+(ih>>3)*7],
+					temp[(ky>>3)                 ],
+					temp[(ky>>3)+(image->ih>>3)  ],
+					temp[(ky>>3)+(image->ih>>3)*2],
+					temp[(ky>>3)+(image->ih>>3)*3],
+					temp[(ky>>3)+(image->ih>>3)*4],
+					temp[(ky>>3)+(image->ih>>3)*5],
+					temp[(ky>>3)+(image->ih>>3)*6],
+					temp[(ky>>3)+(image->ih>>3)*7],
 				};
 
 				dct8_inv_i8(x);
 				
-				image[ idx      <<2|kc]=x[0];
-				image[(idx+iw  )<<2|kc]=x[1];
-				image[(idx+iw*2)<<2|kc]=x[2];
-				image[(idx+iw*3)<<2|kc]=x[3];
-				image[(idx+iw*4)<<2|kc]=x[4];
-				image[(idx+iw*5)<<2|kc]=x[5];
-				image[(idx+iw*6)<<2|kc]=x[6];
-				image[(idx+iw*7)<<2|kc]=x[7];
+				image->data[ idx             <<2|kc]=x[0];
+				image->data[(idx+image->iw  )<<2|kc]=x[1];
+				image->data[(idx+image->iw*2)<<2|kc]=x[2];
+				image->data[(idx+image->iw*3)<<2|kc]=x[3];
+				image->data[(idx+image->iw*4)<<2|kc]=x[4];
+				image->data[(idx+image->iw*5)<<2|kc]=x[5];
+				image->data[(idx+image->iw*6)<<2|kc]=x[6];
+				image->data[(idx+image->iw*7)<<2|kc]=x[7];
 			}
 		}
 #endif
 #if 1
-		for(int ky=0;ky<ih;++ky)
+		for(int ky=0;ky<image->ih;++ky)
 		{
-			for(int kx=0;kx<iw;++kx)
-				temp[kx]=image[(iw*ky+kx)<<2|kc];
-			for(int kx=0;kx<iw-7;kx+=8)
+			for(int kx=0;kx<image->iw;++kx)
+				temp[kx]=image->data[(image->iw*ky+kx)<<2|kc];
+			for(int kx=0;kx<image->iw-7;kx+=8)
 			{
-				int idx=iw*ky+kx;
-				char x[]=
+				int idx=image->iw*ky+kx;
+				int x[]=
 				{
-					temp[(kx>>3)          ],
-					temp[(kx>>3)+(iw>>3)  ],
-					temp[(kx>>3)+(iw>>3)*2],
-					temp[(kx>>3)+(iw>>3)*3],
-					temp[(kx>>3)+(iw>>3)*4],
-					temp[(kx>>3)+(iw>>3)*5],
-					temp[(kx>>3)+(iw>>3)*6],
-					temp[(kx>>3)+(iw>>3)*7],
+					temp[(kx>>3)                 ],
+					temp[(kx>>3)+(image->iw>>3)  ],
+					temp[(kx>>3)+(image->iw>>3)*2],
+					temp[(kx>>3)+(image->iw>>3)*3],
+					temp[(kx>>3)+(image->iw>>3)*4],
+					temp[(kx>>3)+(image->iw>>3)*5],
+					temp[(kx>>3)+(image->iw>>3)*6],
+					temp[(kx>>3)+(image->iw>>3)*7],
 				};
 
 				dct8_inv_i8(x);
 				
-				image[ idx   <<2|kc]=x[0];
-				image[(idx+1)<<2|kc]=x[1];
-				image[(idx+2)<<2|kc]=x[2];
-				image[(idx+3)<<2|kc]=x[3];
-				image[(idx+4)<<2|kc]=x[4];
-				image[(idx+5)<<2|kc]=x[5];
-				image[(idx+6)<<2|kc]=x[6];
-				image[(idx+7)<<2|kc]=x[7];
+				image->data[ idx   <<2|kc]=x[0];
+				image->data[(idx+1)<<2|kc]=x[1];
+				image->data[(idx+2)<<2|kc]=x[2];
+				image->data[(idx+3)<<2|kc]=x[3];
+				image->data[(idx+4)<<2|kc]=x[4];
+				image->data[(idx+5)<<2|kc]=x[5];
+				image->data[(idx+6)<<2|kc]=x[6];
+				image->data[(idx+7)<<2|kc]=x[7];
 			}
 		}
 #endif
 	}
 	free(temp);
+	for(int kc=0;kc<3;++kc)
+		image->depth[kc]-=(image->depth[kc]-3>=image->src_depth[kc])*3;
 }
 
 
+#if 0
 void predict_dct3_prep(float *dct3, float *dct4)
 {
 	dct3[0]=2,          dct3[1]= 2, dct3[2]=2;
@@ -5528,7 +5543,7 @@ void predict_dct3_prep(float *dct3, float *dct4)
 	dct4[ 8]=0.5f, dct4[ 9]=-a, dct4[10]=-b, dct4[11]= c;
 	dct4[12]=0.5f, dct4[13]=-a, dct4[14]= b, dct4[15]=-c;
 }
-int  predict_dct3(const char *buf, int iw, int kx, int ky, int idx, int bytestride, int rowlen, const float *dct3, const float *dct4)
+int  predict_dct3(const int *buf, int iw, int kx, int ky, int idx, int bytestride, int rowlen, const float *dct3, const float *dct4)
 {
 	float
 		left[]=
@@ -5569,7 +5584,7 @@ int  predict_dct3(const char *buf, int iw, int kx, int ky, int idx, int bytestri
 	pred=CLAMP(customparam_clamp[0], pred, customparam_clamp[1]);
 	return (int)pred;
 }
-void pred_dct3_fwd(char *buf, int iw, int ih, int nch, int bytestride)
+void pred_dct3_fwd(int *buf, int iw, int ih, int nch, int bytestride)
 {
 	float coeff[25];
 	predict_dct3_prep(coeff, coeff+9);
@@ -5589,7 +5604,7 @@ void pred_dct3_fwd(char *buf, int iw, int ih, int nch, int bytestride)
 		}
 	}
 }
-void pred_dct3_inv(char *buf, int iw, int ih, int nch, int bytestride)
+void pred_dct3_inv(int *buf, int iw, int ih, int nch, int bytestride)
 {
 	float coeff[25];
 	predict_dct3_prep(coeff, coeff+9);

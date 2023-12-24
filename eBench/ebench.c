@@ -80,8 +80,6 @@ typedef enum TransformTypeEnum
 	ST_FWD_CTX,		ST_INV_CTX,
 	ST_FWD_C20,		ST_INV_C20,
 //	ST_FWD_WU97,		ST_INV_WU97,
-	ST_FWD_DCT4,		ST_INV_DCT4,
-//	ST_FWD_DCT8,		ST_INV_DCT8,
 	ST_FWD_SHUFFLE,		ST_INV_SHUFFLE,
 //	ST_FWD_SPLIT,		ST_INV_SPLIT,
 #endif
@@ -93,6 +91,9 @@ typedef enum TransformTypeEnum
 	ST_FWD_CDF97,		ST_INV_CDF97,
 //	ST_FWD_EXPDWT,		ST_INV_EXPDWT,
 //	ST_FWD_CUSTOM_DWT,	ST_INV_CUSTOM_DWT,
+
+	ST_FWD_DCT4,		ST_INV_DCT4,
+	ST_FWD_DCT8,		ST_INV_DCT8,
 
 	T_COUNT,
 } TransformType;
@@ -224,152 +225,156 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	const char *a=0;
 	switch(tid)
 	{
-	case CT_FWD_ADAPTIVE:			a="C  Fwd Adaptive";			break;
-	case CT_INV_ADAPTIVE:			a="C  Inv Adaptive";			break;
-	case CT_FWD_YCbCr_R_v1:			a="C  Fwd YCbCr-R v1";			break;
-	case CT_INV_YCbCr_R_v1:			a="C  Inv YCbCr-R v1";			break;
-	case CT_FWD_YCbCr_R_v2:			a="C  Fwd YCbCr-R v2";			break;
-	case CT_INV_YCbCr_R_v2:			a="C  Inv YCbCr-R v2";			break;
-	case CT_FWD_YCbCr_R_v3:			a="C  Fwd YCbCr-R v3";			break;
-	case CT_INV_YCbCr_R_v3:			a="C  Inv YCbCr-R v3";			break;
-	case CT_FWD_YCbCr_R_v4:			a="C  Fwd YCbCr-R v4";			break;
-	case CT_INV_YCbCr_R_v4:			a="C  Inv YCbCr-R v4";			break;
-	case CT_FWD_YCbCr_R_v5:			a="C  Fwd YCbCr-R v5";			break;
-	case CT_INV_YCbCr_R_v5:			a="C  Inv YCbCr-R v5";			break;
-	case CT_FWD_YCbCr_R_v6:			a="C  Fwd YCbCr-R v6";			break;
-	case CT_INV_YCbCr_R_v6:			a="C  Inv YCbCr-R v6";			break;
-	case CT_FWD_YCbCr_R_v7:			a="C  Fwd YCbCr-R v7";			break;
-	case CT_INV_YCbCr_R_v7:			a="C  Inv YCbCr-R v7";			break;
-	case CT_FWD_YCoCg_R:			a="C  Fwd YCoCg-R";			break;
-	case CT_INV_YCoCg_R:			a="C  Inv YCoCg-R";			break;
-	case CT_FWD_JPEG2000:			a="C  Fwd JPEG2000 RCT";		break;
-	case CT_INV_JPEG2000:			a="C  Inv JPEG2000 RCT";		break;
-	case CT_FWD_SUBGREEN:			a="C  Fwd SubGreen";			break;
-	case CT_INV_SUBGREEN:			a="C  Inv SubGreen";			break;
-	case CT_FWD_YCbCr:			a="C  Fwd YCbCr";			break;
-	case CT_INV_YCbCr:			a="C  Inv YCbCr";			break;
-	case CT_FWD_XYB:			a="C  Fwd XYB";				break;
-	case CT_INV_XYB:			a="C  Inv XYB";				break;
-//	case CT_FWD_XGZ:			a="C  Fwd XGZ";				break;
-//	case CT_INV_XGZ:			a="C  Inv XGZ";				break;
-//	case CT_FWD_XYZ:			a="C  Fwd XYZ";				break;
-//	case CT_INV_XYZ:			a="C  Inv XYZ";				break;
-//	case CT_FWD_EXP:			a="C  Fwd Experimental";		break;
-//	case CT_INV_EXP:			a="C  Inv Experimental";		break;
-//	case CT_FWD_ADAPTIVE:			a="C  Fwd Adaptive";			break;
-//	case CT_INV_ADAPTIVE:			a="C  Inv Adaptive";			break;
-	case CT_FWD_CUSTOM:			a="C  Fwd CUSTOM";			break;
-	case CT_INV_CUSTOM:			a="C  Inv CUSTOM";			break;
-//	case CT_FWD_QUAD:			a="C  Fwd Quad";			break;
-//	case CT_INV_QUAD:			a="C  Inv Quad";			break;
+	case CT_FWD_ADAPTIVE:		a="C  Fwd Adaptive";		break;
+	case CT_INV_ADAPTIVE:		a="C  Inv Adaptive";		break;
+	case CT_FWD_YCbCr_R_v1:		a="C  Fwd YCbCr-R v1";		break;
+	case CT_INV_YCbCr_R_v1:		a="C  Inv YCbCr-R v1";		break;
+	case CT_FWD_YCbCr_R_v2:		a="C  Fwd YCbCr-R v2";		break;
+	case CT_INV_YCbCr_R_v2:		a="C  Inv YCbCr-R v2";		break;
+	case CT_FWD_YCbCr_R_v3:		a="C  Fwd YCbCr-R v3";		break;
+	case CT_INV_YCbCr_R_v3:		a="C  Inv YCbCr-R v3";		break;
+	case CT_FWD_YCbCr_R_v4:		a="C  Fwd YCbCr-R v4";		break;
+	case CT_INV_YCbCr_R_v4:		a="C  Inv YCbCr-R v4";		break;
+	case CT_FWD_YCbCr_R_v5:		a="C  Fwd YCbCr-R v5";		break;
+	case CT_INV_YCbCr_R_v5:		a="C  Inv YCbCr-R v5";		break;
+	case CT_FWD_YCbCr_R_v6:		a="C  Fwd YCbCr-R v6";		break;
+	case CT_INV_YCbCr_R_v6:		a="C  Inv YCbCr-R v6";		break;
+	case CT_FWD_YCbCr_R_v7:		a="C  Fwd YCbCr-R v7";		break;
+	case CT_INV_YCbCr_R_v7:		a="C  Inv YCbCr-R v7";		break;
+	case CT_FWD_YCoCg_R:		a="C  Fwd YCoCg-R";		break;
+	case CT_INV_YCoCg_R:		a="C  Inv YCoCg-R";		break;
+	case CT_FWD_JPEG2000:		a="C  Fwd JPEG2000 RCT";	break;
+	case CT_INV_JPEG2000:		a="C  Inv JPEG2000 RCT";	break;
+	case CT_FWD_SUBGREEN:		a="C  Fwd SubGreen";		break;
+	case CT_INV_SUBGREEN:		a="C  Inv SubGreen";		break;
+	case CT_FWD_YCbCr:		a="C  Fwd YCbCr";		break;
+	case CT_INV_YCbCr:		a="C  Inv YCbCr";		break;
+	case CT_FWD_XYB:		a="C  Fwd XYB";			break;
+	case CT_INV_XYB:		a="C  Inv XYB";			break;
+//	case CT_FWD_XGZ:		a="C  Fwd XGZ";			break;
+//	case CT_INV_XGZ:		a="C  Inv XGZ";			break;
+//	case CT_FWD_XYZ:		a="C  Fwd XYZ";			break;
+//	case CT_INV_XYZ:		a="C  Inv XYZ";			break;
+//	case CT_FWD_EXP:		a="C  Fwd Experimental";	break;
+//	case CT_INV_EXP:		a="C  Inv Experimental";	break;
+//	case CT_FWD_ADAPTIVE:		a="C  Fwd Adaptive";		break;
+//	case CT_INV_ADAPTIVE:		a="C  Inv Adaptive";		break;
+	case CT_FWD_CUSTOM:		a="C  Fwd CUSTOM";		break;
+	case CT_INV_CUSTOM:		a="C  Inv CUSTOM";		break;
+//	case CT_FWD_QUAD:		a="C  Fwd Quad";		break;
+//	case CT_INV_QUAD:		a="C  Inv Quad";		break;
 
-	case CST_FWD_SEPARATOR:			a="";					break;
-	case CST_INV_SEPARATOR:			a="";					break;
+	case CST_FWD_SEPARATOR:		a="";				break;
+	case CST_INV_SEPARATOR:		a="";				break;
 
-//	case ST_PREPROC_GRAD:			a=" S Preproc Grad";			break;
-//	case ST_PREPROC_X:			a=" S Preproc X";			break;
-//	case ST_PREPROC_X2:			a=" S Preproc X2";			break;
+//	case ST_PREPROC_GRAD:		a=" S Preproc Grad";		break;
+//	case ST_PREPROC_X:		a=" S Preproc X";		break;
+//	case ST_PREPROC_X2:		a=" S Preproc X2";		break;
 
-	case ST_FWD_G2:				a=" S Fwd G2";				break;
-	case ST_INV_G2:				a=" S Inv G2";				break;
-	case ST_FWD_CLAMPGRAD:			a=" S Fwd ClampGrad";			break;
-	case ST_INV_CLAMPGRAD:			a=" S Inv ClampGrad";			break;
-	case ST_FWD_CUSTOM3:			a=" S Fwd CUSTOM3";			break;
-	case ST_INV_CUSTOM3:			a=" S Inv CUSTOM3";			break;
-	case ST_FWD_CALIC:			a=" S Fwd CALIC";			break;
-	case ST_INV_CALIC:			a=" S Inv CALIC";			break;
-//	case ST_FWD_NBLIC:			a=" S Fwd NBLIC";			break;
-//	case ST_INV_NBLIC:			a=" S Inv NBLIC";			break;
-	case ST_FWD_JXLPRED:			a=" S Fwd JXL";				break;
-	case ST_INV_JXLPRED:			a=" S Inv JXL";				break;
-	case ST_FWD_MM:				a=" S Fwd MM";				break;
-	case ST_INV_MM:				a=" S Inv MM";				break;
-	case ST_FWD_CUSTOM:			a=" S Fwd CUSTOM";			break;
-	case ST_INV_CUSTOM:			a=" S Inv CUSTOM";			break;
+	case ST_FWD_G2:			a=" S Fwd G2";			break;
+	case ST_INV_G2:			a=" S Inv G2";			break;
+	case ST_FWD_CLAMPGRAD:		a=" S Fwd ClampGrad";		break;
+	case ST_INV_CLAMPGRAD:		a=" S Inv ClampGrad";		break;
+	case ST_FWD_CUSTOM3:		a=" S Fwd CUSTOM3";		break;
+	case ST_INV_CUSTOM3:		a=" S Inv CUSTOM3";		break;
+	case ST_FWD_CALIC:		a=" S Fwd CALIC";		break;
+	case ST_INV_CALIC:		a=" S Inv CALIC";		break;
+//	case ST_FWD_NBLIC:		a=" S Fwd NBLIC";		break;
+//	case ST_INV_NBLIC:		a=" S Inv NBLIC";		break;
+	case ST_FWD_JXLPRED:		a=" S Fwd JXL";			break;
+	case ST_INV_JXLPRED:		a=" S Inv JXL";			break;
+	case ST_FWD_MM:			a=" S Fwd MM";			break;
+	case ST_INV_MM:			a=" S Inv MM";			break;
+	case ST_FWD_CUSTOM:		a=" S Fwd CUSTOM";		break;
+	case ST_INV_CUSTOM:		a=" S Inv CUSTOM";		break;
 #if 0
-//	case ST_FWD_CUSTOM2:			a=" S Fwd CUSTOM2";			break;
-//	case ST_INV_CUSTOM2:			a=" S Inv CUSTOM2";			break;
-//	case ST_FWD_CUSTOM4:			a=" S Fwd CUSTOM4";			break;
-//	case ST_INV_CUSTOM4:			a=" S Inv CUSTOM4";			break;
-//	case ST_FWD_KALMAN:			a=" S Fwd Kalman";			break;
-//	case ST_INV_KALMAN:			a=" S Inv Kalman";			break;
-//	case ST_FWD_LOGIC:			a=" S Fwd Logic";			break;
-//	case ST_INV_LOGIC:			a=" S Inv Logic";			break;
-//	case ST_FWD_LEARNED:			a=" S Fwd Learned";			break;
-//	case ST_INV_LEARNED:			a=" S Inv Learned";			break;
+//	case ST_FWD_CUSTOM2:		a=" S Fwd CUSTOM2";		break;
+//	case ST_INV_CUSTOM2:		a=" S Inv CUSTOM2";		break;
+//	case ST_FWD_CUSTOM4:		a=" S Fwd CUSTOM4";		break;
+//	case ST_INV_CUSTOM4:		a=" S Inv CUSTOM4";		break;
+//	case ST_FWD_KALMAN:		a=" S Fwd Kalman";		break;
+//	case ST_INV_KALMAN:		a=" S Inv Kalman";		break;
+//	case ST_FWD_LOGIC:		a=" S Fwd Logic";		break;
+//	case ST_INV_LOGIC:		a=" S Inv Logic";		break;
+//	case ST_FWD_LEARNED:		a=" S Fwd Learned";		break;
+//	case ST_INV_LEARNED:		a=" S Inv Learned";		break;
 #ifdef ALLOW_OPENCL
-//	case ST_FWD_LEARNED_GPU:		a=" S Fwd Learned GPU";			break;
-//	case ST_INV_LEARNED_GPU:		a=" S Inv Learned GPU";			break;
+//	case ST_FWD_LEARNED_GPU:	a=" S Fwd Learned GPU";		break;
+//	case ST_INV_LEARNED_GPU:	a=" S Inv Learned GPU";		break;
 #endif
-//	case ST_FWD_CFL:			a=" S Fwd CfL";				break;
-//	case ST_INV_CFL:			a=" S Inv CfL";				break;
-//	case ST_FWD_JOINT:			a=" S Fwd Joint";			break;
-//	case ST_INV_JOINT:			a=" S Inv Joint";			break;
-//	case ST_FWD_HYBRID3:			a=" S Fwd Hybrid3";			break;
-//	case ST_INV_HYBRID3:			a=" S Inv Hybrid3";			break;
+//	case ST_FWD_CFL:		a=" S Fwd CfL";			break;
+//	case ST_INV_CFL:		a=" S Inv CfL";			break;
+//	case ST_FWD_JOINT:		a=" S Fwd Joint";		break;
+//	case ST_INV_JOINT:		a=" S Inv Joint";		break;
+//	case ST_FWD_HYBRID3:		a=" S Fwd Hybrid3";		break;
+//	case ST_INV_HYBRID3:		a=" S Inv Hybrid3";		break;
 
-//	case ST_FWD_DIFF2D:			a=" S Fwd 2D derivative";		break;
-//	case ST_INV_DIFF2D:			a=" S Inv 2D derivative";		break;
-//	case ST_FWD_HPF:			a=" S Fwd HPF";				break;
-//	case ST_INV_HPF:			a=" S Inv HPF";				break;
-//	case ST_FWD_GRAD2:			a=" S Fwd Grad2";			break;
-//	case ST_INV_GRAD2:			a=" S Inv Grad2";			break;
-//	case ST_FWD_ADAPTIVE:			a=" S Fwd Adaptive";			break;
-//	case ST_INV_ADAPTIVE:			a=" S Inv Adaptive";			break;
-//	case ST_FWD_JMJ:			a=" S Fwd JMJ";				break;
-//	case ST_INV_JMJ:			a=" S Inv JMJ";				break;
-//	case ST_FWD_SORTNB:			a=" S Fwd Sort Nb";			break;
-//	case ST_INV_SORTNB:			a=" S Inv Sort Nb";			break;
-//	case ST_FWD_MEDIAN:			a=" S Fwd Median";			break;
-//	case ST_INV_MEDIAN:			a=" S Inv Median";			break;
-//	case ST_FWD_DCT3PRED:			a=" S Fwd DCT3 Predictor";		break;
-//	case ST_INV_DCT3PRED:			a=" S Inv DCT3 Predictor";		break;
-//	case ST_FWD_PATHPRED:			a=" S Fwd Path Predictor";		break;
-//	case ST_INV_PATHPRED:			a=" S Inv Path Predictor";		break;
-	case ST_FWD_GRADPRED:			a=" S Fwd Gradient";			break;
-	case ST_INV_GRADPRED:			a=" S Inv Gradient";			break;
-	case ST_FWD_GRAD2:			a=" S Fwd Grad2";			break;
-	case ST_INV_GRAD2:			a=" S Inv Grad2";			break;
-	case ST_FWD_CTX:			a=" S Fwd Ctx";				break;
-	case ST_INV_CTX:			a=" S Inv Ctx";				break;
-//	case ST_FWD_C03:			a=" S Fwd C03";				break;
-//	case ST_INV_C03:			a=" S Inv C03";				break;
-//	case ST_FWD_C10:			a=" S Fwd C10";				break;
-//	case ST_INV_C10:			a=" S Inv C10";				break;
-	case ST_FWD_C20:			a=" S Fwd C20";				break;
-	case ST_INV_C20:			a=" S Inv C20";				break;
-//	case ST_FWD_WU97:			a=" S Fwd Wu 97";			break;
-//	case ST_INV_WU97:			a=" S Inv Wu 97";			break;
-//	case ST_FWD_BITWISE:			a=" S Fwd Bitwise";			break;
-//	case ST_INV_BITWISE:			a=" S Inv Bitwise";			break;
-	case ST_FWD_DCT4:			a=" S Fwd DCT4";			break;
-	case ST_INV_DCT4:			a=" S Inv DCT4";			break;
-//	case ST_FWD_DCT8:			a=" S Fwd DCT8";			break;
-//	case ST_INV_DCT8:			a=" S Inv DCT8";			break;
-	case ST_FWD_SHUFFLE:			a=" S Fwd Shuffle";			break;
-	case ST_INV_SHUFFLE:			a=" S Inv Shuffle";			break;
-//	case ST_FWD_SPLIT:			a=" S Fwd Split";			break;
-//	case ST_INV_SPLIT:			a=" S Inv Split";			break;
-	case ST_FWD_LAZY:			a=" S Fwd Lazy DWT";			break;
-	case ST_INV_LAZY:			a=" S Inv Lazy DWT";			break;
+//	case ST_FWD_DIFF2D:		a=" S Fwd 2D derivative";	break;
+//	case ST_INV_DIFF2D:		a=" S Inv 2D derivative";	break;
+//	case ST_FWD_HPF:		a=" S Fwd HPF";			break;
+//	case ST_INV_HPF:		a=" S Inv HPF";			break;
+//	case ST_FWD_GRAD2:		a=" S Fwd Grad2";		break;
+//	case ST_INV_GRAD2:		a=" S Inv Grad2";		break;
+//	case ST_FWD_ADAPTIVE:		a=" S Fwd Adaptive";		break;
+//	case ST_INV_ADAPTIVE:		a=" S Inv Adaptive";		break;
+//	case ST_FWD_JMJ:		a=" S Fwd JMJ";			break;
+//	case ST_INV_JMJ:		a=" S Inv JMJ";			break;
+//	case ST_FWD_SORTNB:		a=" S Fwd Sort Nb";		break;
+//	case ST_INV_SORTNB:		a=" S Inv Sort Nb";		break;
+//	case ST_FWD_MEDIAN:		a=" S Fwd Median";		break;
+//	case ST_INV_MEDIAN:		a=" S Inv Median";		break;
+//	case ST_FWD_DCT3PRED:		a=" S Fwd DCT3 Predictor";	break;
+//	case ST_INV_DCT3PRED:		a=" S Inv DCT3 Predictor";	break;
+//	case ST_FWD_PATHPRED:		a=" S Fwd Path Predictor";	break;
+//	case ST_INV_PATHPRED:		a=" S Inv Path Predictor";	break;
+	case ST_FWD_GRADPRED:		a=" S Fwd Gradient";		break;
+	case ST_INV_GRADPRED:		a=" S Inv Gradient";		break;
+	case ST_FWD_GRAD2:		a=" S Fwd Grad2";		break;
+	case ST_INV_GRAD2:		a=" S Inv Grad2";		break;
+	case ST_FWD_CTX:		a=" S Fwd Ctx";			break;
+	case ST_INV_CTX:		a=" S Inv Ctx";			break;
+//	case ST_FWD_C03:		a=" S Fwd C03";			break;
+//	case ST_INV_C03:		a=" S Inv C03";			break;
+//	case ST_FWD_C10:		a=" S Fwd C10";			break;
+//	case ST_INV_C10:		a=" S Inv C10";			break;
+	case ST_FWD_C20:		a=" S Fwd C20";			break;
+	case ST_INV_C20:		a=" S Inv C20";			break;
+//	case ST_FWD_WU97:		a=" S Fwd Wu 97";		break;
+//	case ST_INV_WU97:		a=" S Inv Wu 97";		break;
+//	case ST_FWD_BITWISE:		a=" S Fwd Bitwise";		break;
+//	case ST_INV_BITWISE:		a=" S Inv Bitwise";		break;
+	case ST_FWD_DCT4:		a=" S Fwd DCT4";		break;
+	case ST_INV_DCT4:		a=" S Inv DCT4";		break;
+//	case ST_FWD_DCT8:		a=" S Fwd DCT8";		break;
+//	case ST_INV_DCT8:		a=" S Inv DCT8";		break;
+	case ST_FWD_SHUFFLE:		a=" S Fwd Shuffle";		break;
+	case ST_INV_SHUFFLE:		a=" S Inv Shuffle";		break;
+//	case ST_FWD_SPLIT:		a=" S Fwd Split";		break;
+//	case ST_INV_SPLIT:		a=" S Inv Split";		break;
+	case ST_FWD_LAZY:		a=" S Fwd Lazy DWT";		break;
+	case ST_INV_LAZY:		a=" S Inv Lazy DWT";		break;
 #endif
-	case ST_FWD_HAAR:			a=" S Fwd Haar";			break;
-	case ST_INV_HAAR:			a=" S Inv Haar";			break;
-	case ST_FWD_SQUEEZE:			a=" S Fwd Squeeze";			break;
-	case ST_INV_SQUEEZE:			a=" S Inv Squeeze";			break;
-	case ST_FWD_LEGALL53:			a=" S Fwd LeGall 5/3";			break;
-	case ST_INV_LEGALL53:			a=" S Inv LeGall 5/3";			break;
-	case ST_FWD_CDF97:			a=" S Fwd CDF 9/7";			break;
-	case ST_INV_CDF97:			a=" S Inv CDF 9/7";			break;
-//	case ST_FWD_GRAD_DWT:			a=" S Fwd Gradient DWT";		break;
-//	case ST_INV_GRAD_DWT:			a=" S Inv Gradient DWT";		break;
-//	case ST_FWD_DEC_DWT:			a=" S Fwd Dec. DWT";			break;
-//	case ST_INV_DEC_DWT:			a=" S Inv Dec. DWT";			break;
-//	case ST_FWD_EXPDWT:			a=" S Fwd Exp DWT";			break;
-//	case ST_INV_EXPDWT:			a=" S Inv Exp DWT";			break;
-//	case ST_FWD_CUSTOM_DWT:			a=" S Fwd CUSTOM DWT";			break;
-//	case ST_INV_CUSTOM_DWT:			a=" S Inv CUSTOM DWT";			break;
-	default:				a="ERROR";				break;
+	case ST_FWD_HAAR:		a=" S Fwd Haar";		break;
+	case ST_INV_HAAR:		a=" S Inv Haar";		break;
+	case ST_FWD_SQUEEZE:		a=" S Fwd Squeeze";		break;
+	case ST_INV_SQUEEZE:		a=" S Inv Squeeze";		break;
+	case ST_FWD_LEGALL53:		a=" S Fwd LeGall 5/3";		break;
+	case ST_INV_LEGALL53:		a=" S Inv LeGall 5/3";		break;
+	case ST_FWD_CDF97:		a=" S Fwd CDF 9/7";		break;
+	case ST_INV_CDF97:		a=" S Inv CDF 9/7";		break;
+//	case ST_FWD_GRAD_DWT:		a=" S Fwd Gradient DWT";	break;
+//	case ST_INV_GRAD_DWT:		a=" S Inv Gradient DWT";	break;
+//	case ST_FWD_DEC_DWT:		a=" S Fwd Dec. DWT";		break;
+//	case ST_INV_DEC_DWT:		a=" S Inv Dec. DWT";		break;
+//	case ST_FWD_EXPDWT:		a=" S Fwd Exp DWT";		break;
+//	case ST_INV_EXPDWT:		a=" S Inv Exp DWT";		break;
+//	case ST_FWD_CUSTOM_DWT:		a=" S Fwd CUSTOM DWT";		break;
+//	case ST_INV_CUSTOM_DWT:		a=" S Inv CUSTOM DWT";		break;
+	case ST_FWD_DCT4:		a=" S Fwd DCT4";		break;
+	case ST_INV_DCT4:		a=" S Inv DCT4";		break;
+	case ST_FWD_DCT8:		a=" S Fwd DCT8";		break;
+	case ST_INV_DCT8:		a=" S Inv DCT8";		break;
+	default:			a="ERROR";			break;
 	}
 	long long c0=0;
 	if(highlight)
@@ -908,6 +913,10 @@ void update_image()//apply selected operations on original image, calculate CRs,
 			case ST_INV_CLAMPGRAD:		pred_clampedgrad(im1, 0, pred_ma_enabled);		break;
 			case ST_FWD_G2:			pred_grad2(im1, 1, pred_ma_enabled);			break;
 			case ST_INV_G2:			pred_grad2(im1, 0, pred_ma_enabled);			break;
+			case ST_FWD_DCT4:		image_dct4_fwd(im1);					break;
+			case ST_INV_DCT4:		image_dct4_inv(im1);					break;
+			case ST_FWD_DCT8:		image_dct8_fwd(im1);					break;
+			case ST_INV_DCT8:		image_dct8_inv(im1);					break;
 #if 0
 		//	case ST_FWD_JMJ:		pred_jmj_apply((char*)image, iw, ih, 1);		break;
 		//	case ST_INV_JMJ:		pred_jmj_apply((char*)image, iw, ih, 0);		break;
@@ -937,10 +946,6 @@ void update_image()//apply selected operations on original image, calculate CRs,
 		//	case ST_INV_WU97:		pred_wu97((char*)image, iw, ih, 0);			break;
 		//	case ST_FWD_BITWISE:		pred_bitwise((char*)image, iw, ih, 1);			break;
 		//	case ST_INV_BITWISE:		pred_bitwise((char*)image, iw, ih, 0);			break;
-			case ST_FWD_DCT4:		image_dct4_fwd((char*)image, iw, ih);			break;
-			case ST_INV_DCT4:		image_dct4_inv((char*)image, iw, ih);			break;
-		//	case ST_FWD_DCT8:		image_dct8_fwd((char*)image, iw, ih);			break;
-		//	case ST_INV_DCT8:		image_dct8_inv((char*)image, iw, ih);			break;
 			case ST_FWD_SHUFFLE:		shuffle((char*)image, iw, ih, 1);			break;
 			case ST_INV_SHUFFLE:		shuffle((char*)image, iw, ih, 0);			break;
 		//	case ST_FWD_SPLIT:		image_split_fwd((char*)image, iw, ih);			break;
@@ -1567,7 +1572,7 @@ AABB buttons[4]={0};//0: CT,  1: ST,  2: list of transforms,  3: jxl params
 
 int io_init(int argc, char **argv)//return false to abort
 {
-	set_window_title("pxView3D");
+	set_window_title("Entropy Benchmark");
 	glClearColor(1, 1, 1, 1);
 
 	cam_zoomIn(cam, 1);
