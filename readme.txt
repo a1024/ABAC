@@ -3,12 +3,12 @@ I didn't invent the algorithms used here, but tried to improve the implementatio
 
 Each folder here contains a different project.
 The most up-to-date projects are:
-- best:      The most efficient algorithm so far (without speed considerations).
+- eBench:	Like pxView3D, but supports high bit depth images and doesn't use modular arithmetic.
+- pxView3D:	A visualization and benchmarking tool for reversible image transforms.
+- e2:		Experiments on lossless compression. Newer, cleaner project.
+- best:		The most efficient algorithm so far (without speed considerations).
 
-- lossy:     Experiments on lossy compression.
-
-- pxView3D:  A visualization and benchmarking tool for reversible image transforms.
-- e2:        Experiments on lossless compression. Newer, cleaner project.
-- entropy-battle:  Experiments on lossless image compression. Older, messier project, contains more obsolete techniques.
+- lossy:	Experiments on lossy compression.
+- entropy-battle:	Experiments on lossless image compression. Older, messier project, contains more obsolete techniques.
 
 The other folders are outdated.
