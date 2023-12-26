@@ -627,7 +627,7 @@ typedef struct ImageStruct
 		nch;//{greyscale, greyscale+alpha, RGB, RGB+alpha}	alpha can be ignored for now
 	char depth[4];
 	char src_depth[4];//for entropy calculations
-	int data[];
+	int data[];//stride always sizeof(int[4])
 } Image;
 Image* image_load(const char *fn);
 int image_save_uint8(const char *fn, Image const *image, int override_alpha);

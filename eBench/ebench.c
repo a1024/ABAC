@@ -141,6 +141,8 @@ int customtransforms_getflag(unsigned char tid)
 		tid==CT_INV_CUSTOM||
 		tid==ST_FWD_CUSTOM||
 		tid==ST_INV_CUSTOM;
+	//	tid==ST_FWD_JXLPRED||
+	//	tid==ST_INV_JXLPRED;
 	//	tid==ST_FWD_EXPDWT||
 	//	tid==ST_INV_EXPDWT||
 	//	tid==ST_FWD_GRAD2||
@@ -1643,7 +1645,7 @@ void click_hittest(int mx, int my, int *objidx, int *cellx, int *celly, int *cel
 	*objidx=0;
 	for(*objidx=0;*objidx<_countof(buttons);++*objidx, ++*p)
 	{
-		if(!transforms_customenabled&&(*objidx==0||*objidx==1||*objidx==3))//when these buttons are inactive they shouldn't block the click
+		if(!transforms_customenabled&&(*objidx==0||*objidx==1)||!(transforms_mask[ST_FWD_JXLPRED]||transforms_mask[ST_INV_JXLPRED])&&*objidx==3)//when these buttons are inactive they shouldn't block the click
 			continue;
 		if(mx>=p[0]->x1&&mx<p[0]->x2&&my>=p[0]->y1&&my<p[0]->y2)
 			break;
@@ -1827,7 +1829,7 @@ int io_mousewheel(int forward)
 				}
 				break;
 #endif
-			case 5://jxl params
+			case 3://jxl params
 				{
 					int ch2;
 					ch=(int)floorf((mx-p->x1)/tdx);
@@ -3482,8 +3484,8 @@ void io_render()
 	{
 		float x, y;
 
-		x=buttons[5].x1;
-		y=buttons[5].y1;
+		x=buttons[3].x1;
+		y=buttons[3].y1;
 
 		print_i16_row(x, y, 1, jxlparams_i16   , 11);	y+=tdy;
 		print_i16_row(x, y, 1, jxlparams_i16+11, 11);	y+=tdy;
@@ -3494,7 +3496,7 @@ void io_render()
 		float x, y;
 		
 		x=0;
-		y=buttons[5].y1;
+		y=buttons[3].y1;
 		print_i16_row(x, y, 1, pw2_params             , PW2_NPARAM);	y+=tdy;
 		print_i16_row(x, y, 1, pw2_params+PW2_NPARAM  , PW2_NPARAM);	y+=tdy;
 		print_i16_row(x, y, 1, pw2_params+PW2_NPARAM*2, PW2_NPARAM);

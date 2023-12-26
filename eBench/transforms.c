@@ -376,7 +376,7 @@ void colortransform_YCbCr_R_v6(Image *image, int fwd)
 		image->depth[2]-=image->depth[2]>image->src_depth[2];
 	}
 }
-void colortransform_YCbCr_R_v7(Image *image, int fwd)
+void colortransform_YCbCr_R_v7(Image *image, int fwd)//Pei09 RCT
 {
 	char temp;
 	if(fwd)
@@ -2399,7 +2399,7 @@ void pred_jxl_prealloc(const int *src, int iw, int ih, int depth, int kc, short 
 		{
 			int pred, curr;
 			
-			char
+			int
 				ctt      =         ky-2>=0?src2[idx-rowlen*2]:0,
 				ctopleft =kx-1>=0&&ky-1>=0?src2[idx-rowlen-4]:0,
 				ctop     =kx  <iw&&ky-1>=0?src2[idx-rowlen  ]:0,
@@ -4370,9 +4370,9 @@ void dwt2d_haar_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end,
 }
 
 //lifting-based 8bit squeeze DWT
-char smoothtendency(char B, char a, char n)
+int smoothtendency(int B, int a, int n)
 {
-	char diff=0;
+	int diff=0;
 	if(B>=a&&a>=n)
 	{
 		diff=(4*B-3*n-a+6)/12;
@@ -4402,7 +4402,7 @@ void dwt1d_squeeze_fwd(int *buffer, int count, int stride, int *b2)//nOdd <= nEv
 
 	for(int ks=0, kd=0;kd<nodd+extraeven;ks+=stride<<1, ++kd)
 	{
-		char
+		int
 			o1=kd>0?buffer[ks-stride]:0,
 			e =buffer[ks],
 			o =(kd<<1)+1<count?buffer[ks+stride]:0,
@@ -4434,7 +4434,7 @@ void dwt1d_squeeze_inv(int *buffer, int count, int stride, int *b2)
 	
 	for(int ks=0, kd=0;ks<nodd+extraeven;++ks, kd+=stride<<1)
 	{
-		char
+		int
 			o1=ks>0?buffer[kd-stride]:0,
 			e =even[ks],
 			o=ks<nodd?odd[ks]:0,
