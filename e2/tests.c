@@ -8145,6 +8145,7 @@ typedef enum RCTTypeEnum
 	RCT_YCbCr_R_v4,
 	RCT_YCbCr_R_v5,
 	RCT_YCbCr_R_v6,
+	RCT_DCT,
 } RCTType;
 //void print_ma_test(int testtype)
 //{
@@ -8179,9 +8180,13 @@ size_t ma_test(const unsigned char *src, int iw, int ih, int enable_RCT_MA, int 
 
 	//luma retains range after YCbCr-RCT
 
+	if(RCTtype==RCT_DCT)
+		++nbits_ch[0];
 	//if(testtype&MA_RCT_CHROMA)
 	if(enable_RCT_MA)
 	{
+		if(RCTtype==RCT_DCT)
+			--nbits_ch[0];
 		--nbits_ch[1];
 		--nbits_ch[2];
 	}
@@ -8249,7 +8254,7 @@ size_t ma_test(const unsigned char *src, int iw, int ih, int enable_RCT_MA, int 
 			r-=g;					//Cr =	[1	-1	0].RGB
 			g+=(r+enable_rounding)>>1;		//	[1/2	1/2	0]
 			b-=g;					//Cb =	[-1/2	-1/2	1]
-			g+=(r+2*b+(enable_rounding<<2))>>3;	//Y  =	[1/2	1/4	1/4]	v3
+			g+=(2*b+r+(enable_rounding<<2))>>3;	//Y  =	[1/2	1/4	1/4]	v3
 			break;
 		case RCT_YCbCr_R_v4:
 			r-=g;				//Cr =	[1	-1	0].RGB
@@ -8268,6 +8273,16 @@ size_t ma_test(const unsigned char *src, int iw, int ih, int enable_RCT_MA, int 
 			g+=(r+enable_rounding)>>1;		//	[1/2	1/2	0]
 			b-=g;					//Cb =	[-1/2	-1/2	1]
 			g+=(b*14+(enable_rounding<<4))>>5;	//Y  =	[9/32	9/32	14/32]	v6
+			break;
+		case RCT_DCT:
+			r-=(g+b+enable_rounding)>>1;
+			b+=g+((r+enable_rounding)>>1);
+			g-=((b+(r>>3)+enable_rounding)>>1);
+			r-=(g+g+g+(enable_rounding<<1))>>2;
+			{
+				char temp;
+				SWAPVAR(g, b, temp);//g must contain luma which is always 8-bit
+			}
 			break;
 		}
 		

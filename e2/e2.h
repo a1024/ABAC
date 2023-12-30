@@ -145,6 +145,8 @@ void colortransform_YCbCr_R_v3_fwd(char *buf, int iw, int ih);
 void colortransform_YCbCr_R_v3_inv(char *buf, int iw, int ih);
 void colortransform_YCbCr_R_v4_fwd(char *buf, int iw, int ih);
 void colortransform_YCbCr_R_v4_inv(char *buf, int iw, int ih);
+void colortransform_JPEG2000_fwd(char *buf, int iw, int ih);
+void colortransform_JPEG2000_inv(char *buf, int iw, int ih);
 void colortransform_subgreen_fwd(char *buf, int iw, int ih);
 void colortransform_subgreen_inv(char *buf, int iw, int ih);
 

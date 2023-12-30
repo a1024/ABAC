@@ -13,6 +13,34 @@ static const char file[]=__FILE__;
 
 //T44 Secondary Symbol Estimation from paq8pxd
 
+#define T44_RCT 4
+
+#if T44_RCT==0
+	#define T44_RCT_FWD(...)
+	#define T44_RCT_INV(...)
+#elif T44_RCT==1
+	#define T44_RCT_FWD colortransform_YCoCg_R_fwd
+	#define T44_RCT_INV colortransform_YCoCg_R_inv
+#elif T44_RCT==2
+	#define T44_RCT_FWD colortransform_YCbCr_R_fwd
+	#define T44_RCT_INV colortransform_YCbCr_R_inv
+#elif T44_RCT==3
+	#define T44_RCT_FWD colortransform_YCbCr_R_v2_fwd
+	#define T44_RCT_INV colortransform_YCbCr_R_v2_inv
+#elif T44_RCT==4
+	#define T44_RCT_FWD colortransform_YCbCr_R_v3_fwd
+	#define T44_RCT_INV colortransform_YCbCr_R_v3_inv
+#elif T44_RCT==5
+	#define T44_RCT_FWD colortransform_YCbCr_R_v4_fwd
+	#define T44_RCT_INV colortransform_YCbCr_R_v4_inv
+#elif T44_RCT==6
+	#define T44_RCT_FWD colortransform_JPEG2000_fwd
+	#define T44_RCT_INV colortransform_JPEG2000_inv
+#elif T44_RCT==7
+	#define T44_RCT_FWD colortransform_subgreen_fwd
+	#define T44_RCT_INV colortransform_subgreen_inv
+#endif
+
 #define T44_LEVEL 8
 #define T44_MEM (0x10000<<T44_LEVEL)
 #define SQ(X) ((X)*(X))
@@ -866,7 +894,7 @@ int t44_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	}
 	memcpy(buf, src, (size_t)res<<2);
 	addbuf((unsigned char*)buf, iw, ih, 3, 4, 128);
-	colortransform_YCbCr_R_fwd(buf, iw, ih);
+	T44_RCT_FWD(buf, iw, ih);
 	pack3_fwd(buf, res);
 	
 	DList list;
@@ -976,7 +1004,7 @@ int t44_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 			printf("%5d/%5d  %6.2lf%%\r", ky+1, ih, 100.*(ky+1)/ih);
 	}
 	pack3_inv(buf, res);
-	colortransform_YCbCr_R_inv((char*)buf, iw, ih);
+	T44_RCT_INV((char*)buf, iw, ih);
 	addbuf(buf, iw, ih, 3, 4, 128);
 	if(loud)
 	{

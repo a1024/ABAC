@@ -9,7 +9,10 @@
 static const char file[]=__FILE__;
 
 
-	#define MA_BATCHTEST 36
+	#define BATCH_TEXT_PRINTTABLE
+
+//	#define MA_RCT_COUNT 10
+//	#define MA_BATCHTEST (MA_RCT_COUNT<<2)
 
 #if 0
 void test1()
@@ -384,15 +387,18 @@ void batch_test(const char *path)
 		return;
 	}
 #endif
-	{
-		ArrayHandle path2=filter_path(path);
-		if(!acme_stricmp(path2->data, "D:/ML/dataset-CLIC30/"))
-			known_dataset=1;
-		else if(!acme_stricmp(path2->data, "D:/ML/dataset-Kodak/"))
-			known_dataset=2;
-		array_free(&path2);
-	}
-
+	//{
+	//	ArrayHandle path2=filter_path(path);
+	//	if(!acme_stricmp(path2->data, "D:/ML/dataset-CLIC30/"))
+	//		known_dataset=1;
+	//	else if(!acme_stricmp(path2->data, "D:/ML/dataset-Kodak/"))
+	//		known_dataset=2;
+	//	array_free(&path2);
+	//}
+#ifdef BATCH_TEXT_PRINTTABLE
+	ArrayHandle sizes;
+	ARRAY_ALLOC(size_t[3], sizes, 0, 0, filenames->count, 0);
+#endif
 	for(ptrdiff_t k=0;k<(ptrdiff_t)filenames->count;++k)
 	{
 		ArrayHandle *fn=(ArrayHandle*)array_at(&filenames, k);
@@ -452,7 +458,7 @@ void batch_test(const char *path)
 		{
 			size_t bestsize=0;
 			int besttest=0;
-			for(int kt=0;kt<9;++kt)//for each RCT
+			for(int kt=0;kt<MA_RCT_COUNT;++kt)//for each RCT
 			{
 				for(int km=0;km<2;++km)//toggle modular arithmetic
 				{
@@ -520,7 +526,7 @@ void batch_test(const char *path)
 #endif
 		
 		//T34+: ABAC + adaptive Bayesian inference
-#if 0
+#if 1
 		{
 			ArrayHandle cdata=0;
 			printf("\n");
@@ -564,7 +570,10 @@ void batch_test(const char *path)
 			sum_testsize+=cdata->count;
 			if((ptrdiff_t)cdata->count<formatsize)
 				printf(" !!!\n");
-
+#ifdef BATCH_TEXT_PRINTTABLE
+			size_t temp[]={3LL*iw*ih, formatsize, cdata->count};
+			ARRAY_APPEND(sizes, temp, 1, 1, 0);
+#endif
 			array_free(&cdata);
 			compare_bufs_uint8(b2, buf, iw, ih, nch0, 4, "Test", 0);
 
@@ -764,6 +773,21 @@ void batch_test(const char *path)
 	}
 	else
 		printf("\nNo valid images found\n");
+#ifdef BATCH_TEXT_PRINTTABLE
+	if(sizes)
+	{
+		printf("uncompressed, prevsize, newsize, prevBPP, newBPP\n");
+		for(int k=0;k<sizes->count;++k)
+		{
+			size_t *uc=(size_t*)array_at(&sizes, k);
+			double
+				CR1=(double)uc[0]/uc[1],
+				CR2=(double)uc[0]/uc[2];
+			printf("%10lld %10lld %10lld %16lf %16lf\n", uc[0], uc[1], uc[2], 8/CR1, 8/CR2);
+		}
+		array_free(&sizes);
+	}
+#endif
 #endif
 	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H%M%S");
 	printf("Finish %s\n", g_buf);
