@@ -429,8 +429,8 @@ void colortransform_subgreen_fwd(char *buf, int iw, int ih)
 	{
 		char r=buf[k], g=buf[k|1], b=buf[k|2];
 
-		r=r-g;
-		b=b-g;
+		r-=g;
+		b-=g;
 
 		buf[k  ]=g;//luma
 		buf[k|1]=r;
@@ -443,8 +443,8 @@ void colortransform_subgreen_inv(char *buf, int iw, int ih)
 	{
 		char g=buf[k], r=buf[k|1], b=buf[k|2];
 		
-		r=g+r;
-		b=g+b;
+		r+=g;
+		b+=g;
 
 		buf[k  ]=r;
 		buf[k|1]=g;
