@@ -77,7 +77,7 @@ static void print_fbuf(float *buf, int bw, int bh, int nplaces)
 	printf("\n");
 	++call;
 }
-void compare_bufs_uint8(unsigned char *b1, unsigned char *b0, int iw, int ih, int symbytes, int bytestride, const char *name, int backward)
+int compare_bufs_uint8(unsigned char *b1, unsigned char *b0, int iw, int ih, int symbytes, int bytestride, const char *name, int backward, int loud)
 {
 	ptrdiff_t len=(ptrdiff_t)bytestride*iw*ih;
 	int inc=bytestride*(1-(backward<<1));
@@ -90,18 +90,23 @@ void compare_bufs_uint8(unsigned char *b1, unsigned char *b0, int iw, int ih, in
 		//}//
 		if(memcmp(b1+k, b0+k, symbytes))
 		{
-			ptrdiff_t idx=k/bytestride, kx=idx%iw, ky=idx/iw;
-			printf("%s error XY (%5lld, %5lld) / %5d x %5d  b1 != b0\n", name, kx, ky, iw, ih);
-			for(int kc=0;kc<symbytes;++kc)
-				printf("C%d  0x%02X != 0x%02X    %d != %d\n", kc, (unsigned)b1[k+kc], (unsigned)b0[k+kc], (unsigned)b1[k+kc], (unsigned)b0[k+kc]);
+			if(loud)
+			{
+				ptrdiff_t idx=k/bytestride, kx=idx%iw, ky=idx/iw;
+				printf("%s error XY (%5lld, %5lld) / %5d x %5d  b1 != b0\n", name, kx, ky, iw, ih);
+				for(int kc=0;kc<symbytes;++kc)
+					printf("C%d  0x%02X != 0x%02X    %d != %d\n", kc, (unsigned)b1[k+kc], (unsigned)b0[k+kc], (unsigned)b1[k+kc], (unsigned)b0[k+kc]);
+			}
 			//if(backward)
 			//	printf("%s error at %d - %d: 0x%02X != 0x%02X\n", name, (int)len-1, (int)(len-1-k), b1[k], b0[k]);
 			//else
 			//	printf("%s error at %d: 0x%02X != 0x%02X\n", name, (int)k, b1[k], b0[k]);
-			return;
+			return 1;
 		}
 	}
-	printf("%s:\tSUCCESS\n", name);
+	if(loud)
+		printf("%s:\tSUCCESS\n", name);
+	return 0;
 }
 void compare_bufs_ps(float *b1, float *b0, int iw, int ih, const char *name, int backward)
 {
@@ -424,8 +429,8 @@ void colortransform_subgreen_fwd(char *buf, int iw, int ih)
 	{
 		char r=buf[k], g=buf[k|1], b=buf[k|2];
 
-		r=g-r;
-		b=g-b;
+		r=r-g;
+		b=b-g;
 
 		buf[k  ]=g;//luma
 		buf[k|1]=r;

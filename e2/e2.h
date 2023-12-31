@@ -26,7 +26,7 @@ int image_save_png_rgba8(const char *filename, const unsigned char *image, int i
 //	#define ENABLE_GUIDE//debug
 
 //lossless tools
-void compare_bufs_uint8(unsigned char *b1, unsigned char *b0, int iw, int ih, int symbytes, int bytestride, const char *name, int backward);
+int compare_bufs_uint8(unsigned char *b1, unsigned char *b0, int iw, int ih, int symbytes, int bytestride, const char *name, int backward, int loud);
 void compare_bufs_ps(float *b1, float *b0, int iw, int ih, const char *name, int backward);
 
 size_t test16_encode(const unsigned char *src, int bw, int bh, int alpha, int *blockw, int *blockh, int *margin, ArrayHandle *data, int loud, int *csizes);

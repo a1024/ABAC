@@ -4,12 +4,19 @@
 #include<string.h>
 #include<math.h>
 #include<time.h>
+#ifdef _MSC_VER
+#include<Windows.h>
+#include<process.h>
+#else
+#include<pthread.h>
+#error TODO
+#endif
 #define QOI_IMPLEMENTATION
 #include"qoi.h"
 static const char file[]=__FILE__;
 
 
-	#define BATCH_TEXT_PRINTTABLE
+	#define BATCHTEXT_PRINTTABLE
 
 //	#define MA_RCT_COUNT 10
 //	#define MA_BATCHTEST (MA_RCT_COUNT<<2)
@@ -358,6 +365,301 @@ const char *g_extensions[]=
 	"jpg",
 	"jpeg",
 };
+
+typedef struct ThreadCtxStruct
+{
+	int iw, ih;
+	unsigned char *src, *dst;
+	size_t usize, csize1, csize2;
+	double enc, dec;
+	int error;
+	ptrdiff_t idx;
+} ThreadCtx;
+static void free_threadctx(void *p)
+{
+	ThreadCtx *threadctx=(ThreadCtx*)p;
+	free(threadctx->src);
+	free(threadctx->dst);
+}
+static unsigned __stdcall sample_thread(void *param)
+{
+	ThreadCtx *ctx=(ThreadCtx*)param;
+	ArrayHandle cdata=0;
+
+	double t=time_sec();
+	t44_encode(ctx->src, ctx->iw, ctx->ih, &cdata, 0);
+	t=time_sec()-t;
+	ctx->enc=t;
+
+	ctx->csize2=cdata->count;
+	//printf("%lld\n", cdata->count);//
+
+	t=time_sec();
+	t44_decode(cdata->data, cdata->count, ctx->iw, ctx->ih, ctx->dst, 0);
+	t=time_sec()-t;
+	ctx->dec=t;
+
+	array_free(&cdata);
+	ctx->error=compare_bufs_uint8(ctx->src, ctx->dst, ctx->iw, ctx->ih, 3, 4, "T44", 0, 0);
+	return 0;
+}
+typedef struct ResultStruct
+{
+	ptrdiff_t idx;
+	size_t usize, csize1, csize2, error;
+	double enc, dec;
+} Result;
+typedef struct ProcessCtxStruct
+{
+	int nstarted, nfinished;
+	ArrayHandle threadctx;//<ThreadCtx>	*thread_count
+	ArrayHandle results;//<Result>		*nsamples
+} ProcessCtx;
+static void print_result(Result *res, int idx)
+{
+	double
+		CR1=(double)res->usize/res->csize1,
+		CR2=(double)res->usize/res->csize2;
+	printf("%5d %16lf %16lf %16lf %16lf %s\n",
+		idx, CR1, CR2, res->enc, res->dec, res->error?"ERROR":"SUCCESS"
+	);
+	//printf("%10lld %10lld %10lld %16lf %16lf %16lf %16lf\n",
+	//	res->usize,
+	//	res->csize1,
+	//	res->csize2,
+	//	8/CR1,
+	//	8/CR2,
+	//	res->enc,
+	//	res->dec
+	//);
+}
+void print_result2(Result *res)
+{
+	double
+		CR1=(double)res->usize/res->csize1,
+		CR2=(double)res->usize/res->csize2;
+	printf("%10lld %10lld %10lld %16lf %16lf",
+		res->usize,
+		res->csize1,
+		res->csize2,
+		8/CR1,
+		8/CR2
+	);
+
+	printf(" Enc %16lf Dec %16lf", res->enc, res->dec);
+	//printf(" Enc ");
+	//timedelta2str(0, 0, res->enc);
+	//
+	//printf(" Dec ");
+	//timedelta2str(0, 0, res->dec);
+		
+	printf("\n");
+}
+static void process_file(ProcessCtx *ctx, unsigned char *buf, int iw, int ih, size_t csize1, ptrdiff_t idx, int nthreads)
+{
+	if(!ctx->nstarted)
+	{
+		ARRAY_ALLOC(ThreadCtx, ctx->threadctx, 0, 0, nthreads, 0);
+		ARRAY_ALLOC(Result, ctx->results, 0, 0, 0, 0);
+	}
+
+	if(buf)
+	{
+		ThreadCtx *threadctx=(ThreadCtx*)ARRAY_APPEND(ctx->threadctx, 0, 1, 1, 0);
+		size_t res=(size_t)iw*ih;
+		threadctx->iw=iw;
+		threadctx->ih=ih;
+		threadctx->src=buf;
+		threadctx->dst=malloc(res*sizeof(char[4]));
+		if(!threadctx->dst)
+		{
+			LOG_ERROR("Alloc error");
+			return;
+		}
+		memset(threadctx->dst, 0, res*sizeof(char[4]));
+		threadctx->usize=res*3;
+		threadctx->csize1=csize1;
+		threadctx->csize2=0;
+		threadctx->enc=0;
+		threadctx->dec=0;
+		threadctx->error=0;
+		threadctx->idx=idx;
+		++ctx->nstarted;
+	}
+
+	if(ctx->nstarted==1)//first sample initializes memory, can't parallelize
+	{
+		ThreadCtx *threadctx=array_at(&ctx->threadctx, ctx->threadctx->count-1);
+		sample_thread(threadctx);
+		Result result=
+		{
+			threadctx->idx,
+			threadctx->usize,
+			threadctx->csize1,
+			threadctx->csize2,
+			threadctx->error,
+			threadctx->enc,
+			threadctx->dec,
+		};
+		ARRAY_APPEND(ctx->results, &result, 1, 1, 0);
+		print_result(&result, ctx->nfinished+1);
+
+		//if(threadctx->error)//
+		//	printf("ERROR\n");
+
+		array_clear(&ctx->threadctx);
+		ctx->nfinished=ctx->nstarted;
+	}
+	else if(!buf||ctx->nstarted-ctx->nfinished>=nthreads)
+	{
+		int n=ctx->nstarted-ctx->nfinished;
+		ArrayHandle handles;
+		ARRAY_ALLOC(HANDLE, handles, 0, n, 0, 0);
+		for(int k=0;k<n;++k)
+		{
+			HANDLE *h=(HANDLE*)array_at(&handles, k);
+			ThreadCtx *threadctx=(ThreadCtx*)array_at(&ctx->threadctx, k);
+			*h=(void*)_beginthreadex(0, 0, sample_thread, threadctx, 0, 0);
+			if(!*h)
+			{
+				LOG_ERROR("Alloc error");
+				return;
+			}
+		}
+		WaitForMultipleObjects(n, (HANDLE*)handles->data, TRUE, INFINITE);
+		for(int k=0;k<n;++k)
+		{
+			HANDLE *h=(HANDLE*)array_at(&handles, k);
+			CloseHandle(*h);
+
+			ThreadCtx *threadctx=(ThreadCtx*)array_at(&ctx->threadctx, k);
+			Result result=
+			{
+				threadctx->idx,
+				threadctx->usize,
+				threadctx->csize1,
+				threadctx->csize2,
+				threadctx->error,
+				threadctx->enc,
+				threadctx->dec,
+			};
+			ARRAY_APPEND(ctx->results, &result, 1, 1, 0);
+			print_result(&result, ctx->nfinished+k+1);
+
+			//if(threadctx->error)//
+			//	printf("ERROR\n");
+		}
+
+		array_clear(&ctx->threadctx);
+		ctx->nfinished=ctx->nstarted;
+	}
+}
+static int get_ext_from_path(ArrayHandle fn)
+{
+	int kpoint=(int)fn->count-1;
+	for(;kpoint>=0&&fn->data[kpoint]!='.';--kpoint);
+	return kpoint;
+}
+static int get_title_from_path(ArrayHandle fn, int start)
+{
+	int kslash=start>=0?start:(int)fn->count-1;
+	for(;kslash>=0&&fn->data[kslash]!='/'&&fn->data[kslash]!='\\';--kslash);
+	kslash+=kslash>0&&(fn->data[kslash]=='/'||fn->data[kslash]=='\\');
+	return kslash;
+}
+void batch_test_mt(const char *path, int nthreads)
+{
+	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H%M%S");
+	printf("%s\n", g_buf);
+	printf("Multithreaded Batch Test\n");
+	double t_start=time_sec();
+	ArrayHandle filenames=get_filenames(path, g_extensions, COUNTOF(g_extensions), 1);
+	if(!filenames)
+	{
+		printf("No supported images in \"%s\"\n", path);
+		return;
+	}
+	ProcessCtx processctx={0};
+	for(ptrdiff_t k=0;k<(ptrdiff_t)filenames->count;++k)
+	{
+		ArrayHandle *fn=(ArrayHandle*)array_at(&filenames, k);
+
+		if(!fn)
+		{
+			LOG_ERROR("filename read error");
+			continue;
+		}
+
+		ptrdiff_t formatsize=get_filesize(fn[0]->data);
+		if(!formatsize||formatsize==-1)//skip non-images
+			continue;
+
+		int iw=0, ih=0, nch0=3, stride=4;
+		long long cycles=__rdtsc();
+		unsigned char *buf=image_load(fn[0]->data, &iw, &ih);
+		cycles=__rdtsc()-cycles;
+		if(!buf)
+		{
+			printf("Cannot open \"%s\"\n", fn[0]->data);
+			continue;
+		}
+		size_t res=(size_t)iw*ih, usize=3LL*iw*ih;
+		process_file(&processctx, buf, iw, ih, formatsize, k, nthreads);
+	}
+	process_file(&processctx, 0, 0, 0, 0, 0, nthreads);
+	if(processctx.results)
+	{
+		Result total={0};
+		printf("\n");
+		printf("uncompressed, prevsize, newsize, prevBPP, newBPP, enc, dec\n");
+		int maxlen=0;
+		for(int k=0;k<processctx.results->count;++k)
+		{
+			Result *result=(Result*)array_at(&processctx.results, k);
+
+			ArrayHandle *fn=(ArrayHandle*)array_at(&filenames, result->idx);
+			int n=get_ext_from_path(*fn);
+			n=n-get_title_from_path(*fn, n);
+			if(maxlen<n)
+				maxlen=n;
+		}
+		for(int k=0;k<processctx.results->count;++k)
+		{
+			Result *result=(Result*)array_at(&processctx.results, k);
+
+			ArrayHandle *fn=(ArrayHandle*)array_at(&filenames, result->idx);
+			int
+				kpoint=get_ext_from_path(*fn),
+				kslash=get_title_from_path(*fn, kpoint),
+				n=kpoint-kslash;
+			printf("%.*s%*s", n, fn[0]->data+kslash, maxlen+1-n, "");
+			//printf("%5d ", k);
+
+			print_result2(result);
+
+			total.usize+=result->usize;
+			total.csize1+=result->csize1;
+			total.csize2+=result->csize2;
+			total.error+=result->error;
+			total.enc+=result->enc;
+			total.dec+=result->dec;
+		}
+		printf("\nTotal  ");
+		print_result2(&total);
+		array_free(&processctx.results);
+	}
+	printf("Batch elapsed ");
+	timedelta2str(0, 0, time_sec()-t_start);
+	printf("\n");
+	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H%M%S");
+	printf("Finish %s\n", g_buf);
+
+	array_free(&filenames);
+
+	printf("\nDone.\n");
+	pause();
+}
+
 void batch_test(const char *path)
 {
 	int known_dataset=0;
@@ -395,7 +697,7 @@ void batch_test(const char *path)
 	//		known_dataset=2;
 	//	array_free(&path2);
 	//}
-#ifdef BATCH_TEXT_PRINTTABLE
+#ifdef BATCHTEXT_PRINTTABLE
 	ArrayHandle sizes;
 	ARRAY_ALLOC(size_t[3], sizes, 0, 0, filenames->count, 0);
 #endif
@@ -519,7 +821,7 @@ void batch_test(const char *path)
 			t_dec=time_sec()-t_dec;
 
 			printf("\nSLI %8d  CR %lf    Enc %lfsec  Dec %lfsec\n", (int)retlen, iw*ih*3./retlen, t_enc, t_dec);
-			compare_bufs_uint8(ret, buf, iw, ih, 3, 4, "SLI2", 0);
+			compare_bufs_uint8(ret, buf, iw, ih, 3, 4, "SLI2", 0, 1);
 			free(data);
 			free(ret);
 		}
@@ -570,12 +872,12 @@ void batch_test(const char *path)
 			sum_testsize+=cdata->count;
 			if((ptrdiff_t)cdata->count<formatsize)
 				printf(" !!!\n");
-#ifdef BATCH_TEXT_PRINTTABLE
+#ifdef BATCHTEXT_PRINTTABLE
 			size_t temp[]={3LL*iw*ih, formatsize, cdata->count};
 			ARRAY_APPEND(sizes, temp, 1, 1, 0);
 #endif
 			array_free(&cdata);
-			compare_bufs_uint8(b2, buf, iw, ih, nch0, 4, "Test", 0);
+			compare_bufs_uint8(b2, buf, iw, ih, nch0, 4, "Test", 0, 1);
 
 			//printf("\nT34 (ABAC + adaptive Bayesian inference)\n");
 			//t34_encode(buf, iw, ih, &cdata, 1);
@@ -645,7 +947,7 @@ void batch_test(const char *path)
 			printf("\n");
 
 			array_free(&cdata);
-			compare_bufs_uint8(b2, buf, iw, ih, nch0, 4, "T26", 0);
+			compare_bufs_uint8(b2, buf, iw, ih, nch0, 4, "T26", 0, 1);
 			memset(b2, 0, len);
 			printf("\n");
 		}
@@ -683,7 +985,7 @@ void batch_test(const char *path)
 			printf("\n");
 
 			array_free(&cdata);
-			compare_bufs_uint8(b2, buf, iw, ih, nch0, 4, "T25", 0);
+			compare_bufs_uint8(b2, buf, iw, ih, nch0, 4, "T25", 0, 1);
 			memset(b2, 0, len);
 			printf("\n");
 		}
@@ -723,7 +1025,7 @@ void batch_test(const char *path)
 			printf("Dec %lf CPB\n", (double)cycles/usize);
 
 			array_free(&cdata);
-			compare_bufs_uint8(b2, buf, iw, ih, 3, 4, "T16", 0);
+			compare_bufs_uint8(b2, buf, iw, ih, 3, 4, "T16", 0, 1);
 			memset(b2, 0, len);
 
 			printf("\n");
@@ -773,7 +1075,7 @@ void batch_test(const char *path)
 	}
 	else
 		printf("\nNo valid images found\n");
-#ifdef BATCH_TEXT_PRINTTABLE
+#ifdef BATCHTEXT_PRINTTABLE
 	if(sizes)
 	{
 		printf("uncompressed, prevsize, newsize, prevBPP, newBPP\n");
@@ -796,6 +1098,16 @@ void batch_test(const char *path)
 
 	printf("\nDone.\n");
 	pause();
+}
+void print_usage(const char *argv0)
+{
+	printf(
+		"Usage:\n"
+		" %s  <file_or_path>\n"
+		" %s  <path> <nthreads>\n"
+		" %s  \"mse\" <file1> <file2>\n",
+		argv0, argv0, argv0
+	);
 }
 int main(int argc, char **argv)
 {
@@ -828,13 +1140,16 @@ int main(int argc, char **argv)
 	size_t resolution=0, len=0;
 	unsigned char *buf, *b2;
 	const char *fn=0;
+	int nthreads=0;
 #ifdef _DEBUG
+	nthreads=10;
 	//fn="C:/Projects/datasets/CLIC11-crop4-2.PNG";
 	//fn="C:/Projects/datasets/CLIC11-small4.PNG";
 	//fn="C:/Projects/datasets/dataset-CLIC30/11.png";
 	//fn="C:/Projects/datasets/dataset-kodak";
-	fn="C:/Projects/datasets/dataset-kodak/kodim13.png";
+//	fn="C:/Projects/datasets/dataset-kodak/kodim13.png";
 
+	fn="D:/ML/dataset-LPCB";
 	//fn="D:/ML/dataset-CLIC30";
 	//fn="D:/ML/dataset-kodak";
 	//fn="D:/ML/dataset-CLIC30/16.png";//hardest noiseless CLIC30 image
@@ -843,7 +1158,7 @@ int main(int argc, char **argv)
 //	fn="D:/ML/dataset-kodak/kodim18.png";
 	//fn="D:/ML/dataset-kodak-small/13.PNG";
 #endif
-	if(fn||argc==2)
+	if(fn||argc==2||argc==3)
 	{
 		if(!fn)
 			fn=argv[1];
@@ -851,11 +1166,21 @@ int main(int argc, char **argv)
 		if(formatsize==-1)
 		{
 			LOG_ERROR("Cannot open \"%s\"", fn);
+			print_usage(argv[0]);
 			return 0;
 		}
 		if(!formatsize)//path
 		{
-			batch_test(fn);
+			if(!nthreads)
+			{
+				nthreads=1;
+				if(argc==3)
+					nthreads=atoi(argv[2]);
+			}
+			if(nthreads==1)
+				batch_test(fn);
+			else
+				batch_test_mt(fn, nthreads);
 			return 0;
 		}
 		printf("Opening \"%s\"\n", fn);
@@ -874,63 +1199,72 @@ int main(int argc, char **argv)
 
 		printf("Format Dec %lfsec %lf CPB, ratio = %d * %d * %d / %lld = %lf\n", t_dec, (double)cycles/(resolution*nch0), iw, ih, nch0, (long long)formatsize, (double)resolution*nch0/formatsize);
 	}
-	else if(argc==3)
+	else if(argc==4)
 	{
-		const char *fn1=argv[1], *fn2=argv[2];
-		int w2, h2;
-		buf=image_load(fn1, &iw, &ih);
-		b2 =image_load(fn2, &w2, &h2);
-		if(!buf)
+		if(!_stricmp(argv[1], "MSE"))
 		{
-			printf("Couldn't open %s\n", fn1);
-			return 1;
+			const char *fn1=argv[2], *fn2=argv[3];
+			int w2, h2;
+			buf=image_load(fn1, &iw, &ih);
+			b2 =image_load(fn2, &w2, &h2);
+			if(!buf)
+			{
+				printf("Couldn't open %s\n", fn1);
+				return 1;
+			}
+			if(!b2)
+			{
+				printf("Couldn't open %s\n", fn2);
+				return 1;
+			}
+			if(iw!=w2||ih!=h2)
+			{
+				printf("Expected two images of SAME RESOLUTION. %dx%d != %dx%d\n", iw, ih, w2, h2);
+				return 1;
+			}
+			ptrdiff_t formatsize=get_filesize(fn2);
+			int res=iw*ih;
+			long long sum[3]={0};
+			for(int k=0;k<res;++k)
+			{
+				int dr=buf[k<<2  ]-b2[k<<2  ],
+					dg=buf[k<<2|1]-b2[k<<2|1],
+					db=buf[k<<2|2]-b2[k<<2|2];
+				sum[0]+=dr*dr;
+				sum[1]+=dg*dg;
+				sum[2]+=db*db;
+			}
+			double rmse[]=
+			{
+				sqrt((double)sum[0]/res),
+				sqrt((double)sum[1]/res),
+				sqrt((double)sum[2]/res),
+				sqrt((double)(sum[0]+sum[1]+sum[2])/(res*3)),
+			};
+			double psnr[]=
+			{
+				20*log10(255/rmse[0]),
+				20*log10(255/rmse[1]),
+				20*log10(255/rmse[2]),
+				20*log10(255/rmse[3]),
+			};
+			double CR=res*3./formatsize;
+			printf("T RMSE %lf PSNR %lf  CR %d/%d = %lf  BPP %lf\n", rmse[3], psnr[3], res*3, (int)formatsize, CR, 8/CR);
+			printf("R RMSE %lf PSNR %lf\n", rmse[0], psnr[0]);
+			printf("G RMSE %lf PSNR %lf\n", rmse[1], psnr[1]);
+			printf("B RMSE %lf PSNR %lf\n", rmse[2], psnr[2]);
+			return 0;
 		}
-		if(!b2)
+		else
 		{
-			printf("Couldn't open %s\n", fn2);
-			return 1;
+			print_usage(argv[0]);
+			pause();
+			return 0;
 		}
-		if(iw!=w2||ih!=h2)
-		{
-			printf("Expected two images of SAME RESOLUTION. %dx%d != %dx%d\n", iw, ih, w2, h2);
-			return 1;
-		}
-		ptrdiff_t formatsize=get_filesize(fn2);
-		int res=iw*ih;
-		long long sum[3]={0};
-		for(int k=0;k<res;++k)
-		{
-			int dr=buf[k<<2  ]-b2[k<<2  ],
-				dg=buf[k<<2|1]-b2[k<<2|1],
-				db=buf[k<<2|2]-b2[k<<2|2];
-			sum[0]+=dr*dr;
-			sum[1]+=dg*dg;
-			sum[2]+=db*db;
-		}
-		double rmse[]=
-		{
-			sqrt((double)sum[0]/res),
-			sqrt((double)sum[1]/res),
-			sqrt((double)sum[2]/res),
-			sqrt((double)(sum[0]+sum[1]+sum[2])/(res*3)),
-		};
-		double psnr[]=
-		{
-			20*log10(255/rmse[0]),
-			20*log10(255/rmse[1]),
-			20*log10(255/rmse[2]),
-			20*log10(255/rmse[3]),
-		};
-		double CR=res*3./formatsize;
-		printf("T RMSE %lf PSNR %lf  CR %d/%d = %lf  BPP %lf\n", rmse[3], psnr[3], res*3, (int)formatsize, CR, 8/CR);
-		printf("R RMSE %lf PSNR %lf\n", rmse[0], psnr[0]);
-		printf("G RMSE %lf PSNR %lf\n", rmse[1], psnr[1]);
-		printf("B RMSE %lf PSNR %lf\n", rmse[2], psnr[2]);
-		return 0;
 	}
 	else
 	{
-		printf("Usage: e2.exe  file_or_path\n");
+		print_usage(argv[0]);
 		pause();
 		return 0;
 	}
@@ -1002,7 +1336,7 @@ int main(int argc, char **argv)
 					printf("Dec %11lf CPB ", (double)cycles/usize);
 
 					array_free(&cdata);
-					compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T16", 0);
+					compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T16", 0, 1);
 					memset(b2, 0, len);
 				}
 				//printf("\n");
@@ -1098,7 +1432,7 @@ int main(int argc, char **argv)
 				printf("Dec %11lf CPB ", (double)cycles/usize);
 
 				array_free(&cdata);
-				compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T16", 0);
+				compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T16", 0, 1);
 				memset(b2, 0, len);
 				printf("\n");
 				++it;
@@ -1150,7 +1484,7 @@ int main(int argc, char **argv)
 		printf("\n");
 
 		array_free(&cdata);
-		compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T25", 0);
+		compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T25", 0, 1);
 		memset(b2, 0, len);
 		printf("\n");
 	}
@@ -1188,7 +1522,7 @@ int main(int argc, char **argv)
 		printf("\n");
 
 		array_free(&cdata);
-		compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T26", 0);
+		compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T26", 0, 1);
 		memset(b2, 0, len);
 		printf("\n");
 	}
@@ -1223,7 +1557,7 @@ int main(int argc, char **argv)
 	t35_encode(buf, iw, ih, &cdata, 1);
 	t35_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 	array_free(&cdata);
-	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T35", 0);
+	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T35", 0, 1);
 	memset(b2, 0, len);
 	printf("\n");
 #endif
@@ -1232,7 +1566,7 @@ int main(int argc, char **argv)
 	//t36_encode(buf, iw, ih, &cdata, 1);
 	//t36_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 	//array_free(&cdata);
-	//compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T36", 0);
+	//compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T36", 0, 1);
 	//memset(b2, 0, len);
 	//printf("\n");
 	
@@ -1240,7 +1574,7 @@ int main(int argc, char **argv)
 	//t37_encode(buf, iw, ih, &cdata, 1);
 	//t37_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 	//array_free(&cdata);
-	//compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T37", 0);
+	//compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T37", 0, 1);
 	//memset(b2, 0, len);
 	//printf("\n");
 	
@@ -1248,7 +1582,7 @@ int main(int argc, char **argv)
 	//t38_encode(buf, iw, ih, &cdata, 1);
 	//t38_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 	//array_free(&cdata);
-	//compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T38", 0);
+	//compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T38", 0, 1);
 	//memset(b2, 0, len);
 	//printf("\n");
 	
@@ -1258,7 +1592,7 @@ int main(int argc, char **argv)
 	t39_encode(buf, iw, ih, &cdata, 1);
 	t39_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 	array_free(&cdata);
-	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T39", 0);
+	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T39", 0, 1);
 	memset(b2, 0, len);
 	printf("\n");
 #endif
@@ -1266,14 +1600,14 @@ int main(int argc, char **argv)
 	//t40_encode(buf, iw, ih, &cdata, 2);	//X
 	//t40_decode(cdata->data, cdata->count, iw, ih, b2, 2);
 	//array_free(&cdata);
-	//compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T40", 0);
+	//compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T40", 0, 1);
 	//memset(b2, 0, len);
 	//printf("\n");
 	
 	//t41_encode(buf, iw, ih, &cdata, 2);	//X
 	//t41_decode(cdata->data, cdata->count, iw, ih, b2, 2);
 	//array_free(&cdata);
-	//compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T41", 0);
+	//compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T41", 0, 1);
 	//memset(b2, 0, len);
 	//printf("\n");
 	
@@ -1281,7 +1615,7 @@ int main(int argc, char **argv)
 	t42_encode(buf, iw, ih, &cdata, 1);		//prev record
 	t42_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 	array_free(&cdata);
-	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T42", 0);
+	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T42", 0, 1);
 	memset(b2, 0, len);
 	printf("\n");
 #endif
@@ -1289,7 +1623,7 @@ int main(int argc, char **argv)
 	//t43_encode(buf, iw, ih, &cdata, 2);
 	//t43_decode(cdata->data, cdata->count, iw, ih, b2, 2);
 	//array_free(&cdata);
-	//compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T43", 0);
+	//compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T43", 0, 1);
 	//memset(b2, 0, len);
 	//printf("\n");
 	
@@ -1301,7 +1635,7 @@ int main(int argc, char **argv)
 	t44_encode(buf, iw, ih, &cdata, 1);		//current record
 	t44_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 	array_free(&cdata);
-	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T44", 0);
+	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T44", 0, 1);
 	memset(b2, 0, len);
 	printf("\n");
 #endif
@@ -1324,7 +1658,7 @@ int main(int argc, char **argv)
 		printf("\nSLI %8d  CR %lf    Enc %lfsec  Dec %lfsec\n", (int)cdata->count, iw*ih*3./cdata->count, t_enc, t_dec);
 		array_free(&cdata);
 
-		compare_bufs_uint8(ret, buf, iw, ih, 3, 4, "SLIC", 0);
+		compare_bufs_uint8(ret, buf, iw, ih, 3, 4, "SLIC", 0, 1);
 		free(ret);
 	}
 #endif
@@ -1345,7 +1679,7 @@ int main(int argc, char **argv)
 		t_dec=time_sec()-t_dec;
 
 		printf("\nSLI %8d  CR %lf    Enc %lfsec  Dec %lfsec\n", (int)retlen, iw*ih*3./retlen, t_enc, t_dec);
-		compare_bufs_uint8(ret, buf, iw, ih, 3, 4, "SLI2", 0);
+		compare_bufs_uint8(ret, buf, iw, ih, 3, 4, "SLI2", 0, 1);
 		free(data);
 		free(ret);
 	}
@@ -1395,7 +1729,7 @@ int main(int argc, char **argv)
 		//memcpy(b3, buf, iw);
 		//dwt1d_squeeze_fwd(b3, iw, 1, b4);
 		//dwt1d_squeeze_inv(b3, iw, 1, b4);
-		//compare_bufs_uint8((unsigned char*)b3, buf, iw, 1, 1, 1, "squeeze row", 0);
+		//compare_bufs_uint8((unsigned char*)b3, buf, iw, 1, 1, 1, "squeeze row", 0, 1);
 		//free(b3);
 		//free(b4);
 
@@ -1419,7 +1753,7 @@ int main(int argc, char **argv)
 		//	dwt2d_squeeze_fwd((char*)b2+kc, (DWTSize*)sizes->data, 0, 2, 4, temp);
 		//	dwt2d_squeeze_inv((char*)b2+kc, (DWTSize*)sizes->data, 0, 2, 4, temp);
 		//}
-		compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "transform", 0);
+		compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "transform", 0, 1);
 		printf("\n");
 #endif
 		

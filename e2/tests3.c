@@ -13,7 +13,7 @@ static const char file[]=__FILE__;
 
 //T44 Secondary Symbol Estimation from paq8pxd
 
-#define T44_RCT 4
+#define T44_RCT 7
 
 #if T44_RCT==0
 	#define T44_RCT_FWD(...)
