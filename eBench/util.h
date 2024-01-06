@@ -32,11 +32,11 @@ extern "C"
 #define SWAPVAR(A, B, TEMP) TEMP=A, A=B, B=TEMP
 #define SWAPMEM(A, B, TEMP) memcpy(TEMP, A, sizeof(*(TEMP))), memcpy(A, B, sizeof(*(TEMP))), memcpy(B, TEMP, sizeof(*(TEMP)))
 #define ROTATE3(A, B, C, TEMP) TEMP=A, A=B, B=C, C=TEMP
-#define MINVAR(A, B)        ((A)<(B)?(A):(B))
-#define MAXVAR(A, B)        ((A)>(B)?(A):(B))
-#define CLAMP(LO, X, HI)    ((X)>(LO)?(X)<(HI)?(X):(HI):(LO))
-//#define CLAMP(LO, X, HI)    ((X)<(LO)?(LO):((X)>(HI)?(HI):(X)))
-//#define COUNTOF(ARR)        (sizeof(ARR)/sizeof(*(ARR)))		//stdlib defines _countof
+#define MINVAR(A, B) ((A)<(B)?(A):(B))
+#define MAXVAR(A, B) ((A)>(B)?(A):(B))
+#define CLAMP(LO, X, HI) ((X)>(LO)?(X)<(HI)?(X):(HI):(LO))
+//#define CLAMP(LO, X, HI) ((X)<(LO)?(LO):((X)>(HI)?(HI):(X)))
+//#define COUNTOF(ARR) (sizeof(ARR)/sizeof(*(ARR)))		//stdlib defines _countof
 #define MEDIAN3(A, B, C) (B<A?B<C?C<A?C:A:B:A<C?C<B?C:B:A)
 #define MOVEOBJ(SRC, DST, SIZE) memcpy(DST, SRC, SIZE), memset(SRC, 0, SIZE)
 #define MODVAR(DST, SRC, N) DST=(SRC)%(N), DST+=(N)&-(DST<0)
