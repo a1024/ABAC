@@ -19,7 +19,8 @@ add_executable (eBench WIN32
 	#transforms_pt2.c
 	util.c
 	window.c
- "image.c")
+	image.c
+)
 
 if (CMAKE_VERSION VERSION_GREATER 3.12)
   set_property(TARGET eBench PROPERTY CXX_STANDARD 20)

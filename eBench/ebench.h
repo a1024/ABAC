@@ -189,7 +189,7 @@ void io_cleanup();//cleanup
 void   console_start();
 void   console_end();
 void   console_buffer_size(short x, short y);
-void   console_log(const char *format, ...);
+int    console_log(const char *format, ...);
 void   console_pause();
 int    console_scan(char *buf, int len);
 int    console_scan_int();

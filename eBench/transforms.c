@@ -3091,7 +3091,7 @@ typedef struct SseCellStruct
 {
 	int count, sum;//, sum7, sum8;
 } SseCell;
-SseCell g2_SSE[12][256];
+//SseCell g2_SSE[12][256];
 //SseCell g2_SSE0[128], g2_SSE1[128], g2_SSE2[128], g2_SSE3[128];
 //char g2_SSE_debug[768*512*4];
 //static unsigned char g2_hash(unsigned x)//24 -> 7 bit
@@ -3111,9 +3111,10 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 	ptrdiff_t res=(ptrdiff_t)src->iw*src->ih;
 	int *b2=(int*)malloc((size_t)res*sizeof(int[4]));
 	int *perrors=(int*)malloc((size_t)src->iw*(G2_NPRED+1)*2*sizeof(int));
+	SseCell *sse=(SseCell*)malloc(sizeof(SseCell[1024]));
 	//int *SSE_count=(int*)malloc(256*sizeof(int));
 	//int *SSE_sum=(int*)malloc(256*sizeof(int));
-	if(!b2||!perrors)
+	if(!b2||!perrors||!sse)
 	{
 		LOG_ERROR("Allocation error");
 		return;
@@ -3128,7 +3129,7 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 		int *hireserror=perrors+src->iw*2*G2_NPRED;
 		memset(perrors, 0, 2LL*src->iw*(G2_NPRED+1)*sizeof(int));
 
-		memset(g2_SSE, 0, sizeof(g2_SSE));
+		memset(sse, 0, sizeof(SseCell[1024]));
 		//memset(g2_SSE0, 0, sizeof(g2_SSE0));
 		//memset(g2_SSE1, 0, sizeof(g2_SSE1));
 		//memset(g2_SSE2, 0, sizeof(g2_SSE2));
@@ -3468,8 +3469,12 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 						hashval<<=3;
 						hashval+=(int)(dnb[3*k2+k]*0xFC28)>>(16+6)&3;
 					}
+					hashval&=0xFF;
+					//if((unsigned)hashval>=256)//
+					//	LOG_ERROR("SSE ERROR");
 
-					pc[k2]=g2_SSE[k2]+hashval;
+					pc[k2]=sse+(int)(k2<<8)+hashval;
+					//pc[k2]=g2_SSE[k2]+hashval;
 
 					//int c=2, d=pc[k2]->sum8+pc[k2]->sum7;
 					//if(pc[k2]->count)
@@ -3772,6 +3777,7 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 	}
 	memcpy(src->data, b2, res*sizeof(int[4]));
 	free(perrors);
+	free(sse);
 	free(b2);
 	//free(SSE_count);
 	//free(SSE_sum);

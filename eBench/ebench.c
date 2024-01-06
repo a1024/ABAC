@@ -2,6 +2,7 @@
 #include<stdlib.h>
 #define _USE_MATH_DEFINES
 #include<math.h>
+#include<process.h>
 #include"stb_image.h"
 #include"lodepng.h"
 #define DEBUG_MEMORY_IMPLEMENTATION
@@ -132,8 +133,35 @@ int combCRhist_idx=0;
 int show_full_image=0;
 int space_not_color=0;
 
+typedef struct ThreadCtxStruct
+{
+	Image *image;
+	double usize, csize[3];
+	ptrdiff_t idx;
+} ThreadCtx;
+static unsigned __stdcall sample_thread(void *param)
+{
+	ThreadCtx *ctx=(ThreadCtx*)param;
+	ctx->usize=image_getBMPsize(ctx->image);
+	apply_selected_transforms(ctx->image);
+	int maxdepth=calc_maxdepth(ctx->image, 0);
+	int nlevels=1<<maxdepth;
+	int *hist=(int*)malloc(nlevels*sizeof(int));
+	for(int kc=0;kc<3;++kc)
+	{
+		calc_histogram(ctx->image->data, ctx->image->iw, ctx->image->ih, kc, 0, ctx->image->iw, 0, ctx->image->ih, ctx->image->depth[kc], hist, 0);
+		double entropy=calc_entropy(hist, 1<<ctx->image->depth[kc], ctx->image->iw*ctx->image->ih);
+		double invCR=entropy/ctx->image->src_depth[kc];
+		ctx->csize[kc]=invCR*ctx->image->iw*ctx->image->ih*ctx->image->src_depth[kc]/8;
+	}
+	free(hist);
+	free(ctx->image);
+	return 0;
+}
 void batch_test()
 {
+	int nthreads=10;
+
 	ArrayHandle path=dialog_open_folder();
 	if(!path)
 		return;
@@ -144,16 +172,82 @@ void batch_test()
 		"JPEG",
 	};
 	ArrayHandle filenames=get_filenames((char*)path->data, ext, _countof(ext), 1);
-	array_free(&path);
 	if(!filenames)
+	{
+		array_free(&path);
 		return;
+	}
 
+	double t=time_ms();
 	DisableProcessWindowsGhosting();
 	console_start();
-	console_log("Batch Test\n");
+	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H:%M:%S");
+	console_log("Batch Test  %s  %s\n", g_buf, (char*)path->data);
+	array_free(&path);
 	double total_usize=0, total_csize[3]={0};
+	int maxlen=0;
 	for(int k=0;k<(int)filenames->count;++k)
 	{
+		ArrayHandle *fn=(ArrayHandle*)array_at(&filenames, k);
+		if(maxlen<(int)fn[0]->count)
+			maxlen=(int)fn[0]->count;
+	}
+	ArrayHandle q;
+	ARRAY_ALLOC(ThreadCtx, q, 0, 0, nthreads, 0);
+	for(int k=0;k<(int)filenames->count;++k)
+	{
+		//multi-threaded
+#if 1
+		ArrayHandle *fn=(ArrayHandle*)array_at(&filenames, k);
+		Image *image=image_load((char*)fn[0]->data);
+		if(!image)
+			continue;
+		ThreadCtx ctx=
+		{
+			image,
+			0, {0},
+			k,
+		};
+		ARRAY_APPEND(q, &ctx, 1, 1, 0);
+		if(q->count>=nthreads||k+1>=(int)filenames->count)
+		{
+			HANDLE *handles=(HANDLE*)malloc(q->count*sizeof(HANDLE));
+			if(!handles)
+			{
+				LOG_ERROR("Alloc error");
+				return;
+			}
+			memset(handles, 0, q->count*sizeof(HANDLE));
+			for(int k2=0;k2<(int)q->count;++k2)
+			{
+				ThreadCtx *ptr=(ThreadCtx*)array_at(&q, k2);
+				handles[k2]=(void*)_beginthreadex(0, 0, sample_thread, ptr, 0, 0);
+				if(!handles[k2])
+				{
+					LOG_ERROR("Thread alloc error");
+					return;
+				}
+			}
+			WaitForMultipleObjects((int)q->count, handles, TRUE, INFINITE);
+			for(int k2=0;k2<(int)q->count;++k2)
+			{
+				ThreadCtx *ptr=(ThreadCtx*)array_at(&q, k2);
+				fn=(ArrayHandle*)array_at(&filenames, ptr->idx);
+				console_log(
+					"%3d/%3d %s%*sUTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf\n",
+					k+1-q->count+k2+1, (int)filenames->count, (char*)fn[0]->data, maxlen-fn[0]->count+1, "", ptr->usize, ptr->csize[0]+ptr->csize[1]+ptr->csize[2], ptr->csize[0], ptr->csize[1], ptr->csize[2]
+				);
+				total_usize+=ptr->usize;
+				total_csize[0]+=ptr->csize[0];
+				total_csize[1]+=ptr->csize[1];
+				total_csize[2]+=ptr->csize[2];
+			}
+			array_clear(&q);
+		}
+#endif
+
+		//single-threaded
+#if 0
 		ArrayHandle *fn=(ArrayHandle*)array_at(&filenames, k);
 		Image *image=image_load((char*)fn[0]->data);
 		if(!image)
@@ -172,22 +266,27 @@ void batch_test()
 		}
 		free(hist);
 		console_log(
-			"%s\tUTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf\n",
-			(char*)fn[0]->data, usize, csize[0]+csize[1]+csize[2], csize[0], csize[1], csize[2]
+			"%3d/%3d %s%*sUTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf\n",
+			k+1, (int)filenames->count, (char*)fn[0]->data, maxlen-fn[0]->count+1, "", usize, csize[0]+csize[1]+csize[2], csize[0], csize[1], csize[2]
 		);
 		total_usize+=usize;
 		total_csize[0]+=csize[0];
 		total_csize[1]+=csize[1];
 		total_csize[2]+=csize[2];
 		free(image);
+#endif
 	}
 	double ctotal=total_csize[0]+total_csize[1]+total_csize[2];
 	double CR=total_usize/ctotal;
+	t=time_ms()-t;
 	console_log(
 		"Total UTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  CR %lf  BPP %lf\n",
 		total_usize, ctotal, total_csize[0], total_csize[1], total_csize[2], CR, 8/CR
 	);
-	console_log("\nDone.\n");
+	timedelta2str(g_buf, G_BUF_SIZE, t);
+	console_log("Elapsed %s\n", g_buf);
+	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d-%H:%M:%S");
+	console_log("\nDone.  %s\n", g_buf);
 	console_pause();
 	console_end();
 }

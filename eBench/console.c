@@ -25,16 +25,18 @@
 int consoleactive=0;
 #define G_BUF_SIZE	1024
 static char g_buf2[G_BUF_SIZE]={0};
-void console_log(const char *format, ...)
+int console_log(const char *format, ...)
 {
 	va_list args;
+	int printed=0;
 	if(format)
 	{
 		va_start(args, format);
-		unsigned long printed=vsprintf_s(g_buf2, G_BUF_SIZE, format, args);
+		printed=vsnprintf(g_buf2, G_BUF_SIZE, format, args);
 		va_end(args);
 		WriteConsoleA(GetStdHandle(STD_OUTPUT_HANDLE), g_buf2, printed, &printed, 0);
 	}
+	return printed;
 }
 void console_start()//https://stackoverflow.com/questions/191842/how-do-i-get-console-output-in-c-with-a-windows-program
 {

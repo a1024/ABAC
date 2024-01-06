@@ -85,7 +85,7 @@ typedef struct TimeInfoStruct
 	int days, hours, mins;
 	float secs;
 } TimeInfo;
-void parsetimedelta(double delta, TimeInfo *ti);
+void parsetimedelta(double ms, TimeInfo *ti);
 int timedelta2str(char *buf, size_t len, double ms);
 int acme_strftime(char *buf, size_t len, const char *format);//prints current time to string
 
