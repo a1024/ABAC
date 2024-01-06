@@ -139,7 +139,7 @@ double console_scan_float()
 }
 void console_pause()
 {
-	console_log("Enter 0 to continue... ");
+	console_log("Enter 0 to continue: ");
 	int k=console_scan(g_buf2, G_BUF_SIZE);
 	//scanf_s("%d", &k);
 	//system("pause");

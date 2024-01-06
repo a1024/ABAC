@@ -211,7 +211,7 @@ typedef struct FilterStruct
 	const char *comment, *ext;
 } Filter;
 ArrayHandle dialog_open_folder();
-ArrayHandle	dialog_open_file(Filter *filters, int nfilters, int multiple);
+ArrayHandle dialog_open_file(Filter *filters, int nfilters, int multiple);
 char* dialog_save_file(Filter *filters, int nfilters, const char *initialname);
 
 void get_window_title(char *buf, int len);
@@ -643,7 +643,8 @@ extern float ch_cr[4];
 void update_image();
 
 
-//extern Image *im0, *im1;
+//transforms
+void apply_selected_transforms(Image *image);
 
 
 //aux func
@@ -661,7 +662,7 @@ void colortransform_YCbCr_R_v3(Image *image, int fwd);
 void colortransform_YCbCr_R_v4(Image *image, int fwd);
 void colortransform_YCbCr_R_v5(Image *image, int fwd);
 void colortransform_YCbCr_R_v6(Image *image, int fwd);
-void colortransform_YCbCr_R_v7(Image *image, int fwd);
+void colortransform_Pei09(Image *image, int fwd);
 void colortransform_JPEG2000(Image *image, int fwd);
 void colortransform_subtractgreen(Image *image, int fwd);
 

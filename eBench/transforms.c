@@ -48,7 +48,7 @@ double calc_entropy(const int *hist, int nlevels, int sum)//nlevels = 1<<current
 			entropy-=p*log2(p);		//Shannon's law
 		}
 	}
-	return entropy;//invCR = entropy/(1<<original_depth)
+	return entropy;//invCR = entropy/original_depth
 }
 int calc_maxdepth(Image const *image, int *inflation)
 {
@@ -376,7 +376,7 @@ void colortransform_YCbCr_R_v6(Image *image, int fwd)
 		image->depth[2]-=image->depth[2]>image->src_depth[2];
 	}
 }
-void colortransform_YCbCr_R_v7(Image *image, int fwd)//Pei09 RCT
+void colortransform_Pei09(Image *image, int fwd)//Pei09 RCT
 {
 	char temp;
 	if(fwd)
