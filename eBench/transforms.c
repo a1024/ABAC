@@ -376,6 +376,48 @@ void colortransform_YCbCr_R_v6(Image *image, int fwd)
 		image->depth[2]-=image->depth[2]>image->src_depth[2];
 	}
 }
+void colortransform_YCbCr_R_v7(Image *image, int fwd)
+{
+	char temp;
+	if(fwd)
+	{
+		for(ptrdiff_t k=0, len=(ptrdiff_t)image->iw*image->ih*4;k<len;k+=4)
+		{
+			int r=image->data[k], g=image->data[k|1], b=image->data[k|2];
+			
+			r-=g;		//Cr =	[1	-1	0].RGB
+			g+=r>>1;	//	[1/2	1/2	0]
+			b-=g;		//Cb =	[-1/2	-1/2	1]
+			g+=(10*b-r)>>5;	//Y  =	[5/16	 6/16	5/16]	v7
+
+			image->data[k  ]=g;//Y
+			image->data[k|1]=b;//Cb
+			image->data[k|2]=r;//Cr
+		}
+		ROTATE3(image->depth[0], image->depth[1], image->depth[2], temp);
+		image->depth[1]+=image->depth[1]<24;
+		image->depth[2]+=image->depth[2]<24;
+	}
+	else
+	{
+		for(ptrdiff_t k=0, len=(ptrdiff_t)image->iw*image->ih*4;k<len;k+=4)
+		{
+			int Y=image->data[k], Cb=image->data[k|1], Cr=image->data[k|2];
+			
+			Y-=(10*Cb-Cr)>>5;
+			Cb+=Y;
+			Y-=Cr>>1;
+			Cr+=Y;
+
+			image->data[k  ]=Cr;
+			image->data[k|1]=Y;
+			image->data[k|2]=Cb;
+		}
+		ROTATE3(image->depth[2], image->depth[1], image->depth[1], temp);
+		image->depth[1]-=image->depth[1]>image->src_depth[1];
+		image->depth[2]-=image->depth[2]>image->src_depth[2];
+	}
+}
 void colortransform_Pei09(Image *image, int fwd)//Pei09 RCT
 {
 	char temp;
@@ -387,7 +429,7 @@ void colortransform_Pei09(Image *image, int fwd)//Pei09 RCT
 			
 			b-=(87*r+169*g+128)>>8;	//Cb = [-87/256  -169/256  1]
 			r-=g;			//Cr = [1  -1  0].RGB
-			g+=(86*r+29*b+128)>>8;	//Y  = [19493/65536  38619/65536  29/256*b]	g+86/256*(r-g)+29/256*(b-87/256*r-169/256*g) = 19493/65536*r + 38619/65536*g + 29/256*b
+			g+=(86*r+29*b+128)>>8;	//Y  = [19493/65536  38619/65536  29/256]	g+86/256*(r-g)+29/256*(b-87/256*r-169/256*g) = 19493/65536*r + 38619/65536*g + 29/256*b
 
 			image->data[k  ]=g;//Y
 			image->data[k|1]=b;//Cb

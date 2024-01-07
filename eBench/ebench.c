@@ -59,6 +59,7 @@ typedef enum TransformTypeEnum
 	CT_FWD_YCbCr_R_v4,	CT_INV_YCbCr_R_v4,
 	CT_FWD_YCbCr_R_v5,	CT_INV_YCbCr_R_v5,
 	CT_FWD_YCbCr_R_v6,	CT_INV_YCbCr_R_v6,
+	CT_FWD_YCbCr_R_v7,	CT_INV_YCbCr_R_v7,
 	CT_FWD_Pei09,		CT_INV_Pei09,
 	CT_FWD_YCoCg_R,		CT_INV_YCoCg_R,	//	(2003) AVC, HEVC, VVC
 	CT_FWD_JPEG2000,	CT_INV_JPEG2000,//	(1997) JPEG2000 RCT
@@ -234,7 +235,7 @@ void batch_test()
 				ThreadCtx *ptr=(ThreadCtx*)array_at(&q, k2);
 				fn=(ArrayHandle*)array_at(&filenames, ptr->idx);
 				console_log(
-					"%3d/%3d %s%*sUTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf\n",
+					"%5d/%5d %s%*sUTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf\n",
 					k+1-q->count+k2+1, (int)filenames->count, (char*)fn[0]->data, maxlen-fn[0]->count+1, "", ptr->usize, ptr->csize[0]+ptr->csize[1]+ptr->csize[2], ptr->csize[0], ptr->csize[1], ptr->csize[2]
 				);
 				total_usize+=ptr->usize;
@@ -399,6 +400,8 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case CT_INV_YCbCr_R_v5:		a="C  Inv YCbCr-R v5";		break;
 	case CT_FWD_YCbCr_R_v6:		a="C  Fwd YCbCr-R v6";		break;
 	case CT_INV_YCbCr_R_v6:		a="C  Inv YCbCr-R v6";		break;
+	case CT_FWD_YCbCr_R_v7:		a="C  Fwd YCbCr-R v7";		break;
+	case CT_INV_YCbCr_R_v7:		a="C  Inv YCbCr-R v7";		break;
 	case CT_FWD_Pei09:		a="C  Fwd Pei09";		break;
 	case CT_INV_Pei09:		a="C  Inv Pei09";		break;
 	case CT_FWD_YCoCg_R:		a="C  Fwd YCoCg-R";		break;
@@ -994,6 +997,8 @@ void apply_selected_transforms(Image *image)
 		case CT_INV_YCbCr_R_v5:		colortransform_YCbCr_R_v5(image, 0);			break;
 		case CT_FWD_YCbCr_R_v6:		colortransform_YCbCr_R_v6(image, 1);			break;
 		case CT_INV_YCbCr_R_v6:		colortransform_YCbCr_R_v6(image, 0);			break;
+		case CT_FWD_YCbCr_R_v7:		colortransform_YCbCr_R_v7(image, 1);			break;
+		case CT_INV_YCbCr_R_v7:		colortransform_YCbCr_R_v7(image, 0);			break;
 		case CT_FWD_Pei09:		colortransform_Pei09(image, 1);				break;
 		case CT_INV_Pei09:		colortransform_Pei09(image, 0);				break;
 		case CT_FWD_JPEG2000:		colortransform_JPEG2000(image, 1);			break;
