@@ -448,7 +448,9 @@ ArrayHandle dialog_open_folder()
 			CALL_METHOD(pShellItem, GetDisplayName, SIGDN_FILESYSPATH, &fullpath);
 			WCHARTOUTF8(fullpath, (int)wcslen(fullpath), g_buf, G_BUF_SIZE, len);
 
-			STR_COPY(arr, g_buf, len);
+			g_buf[len]=0;
+			arr=filter_path(g_buf, len);
+			//STR_COPY(arr, g_buf, len);
 
 			CoTaskMemFree(fullpath);
 		}

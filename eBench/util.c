@@ -1855,11 +1855,13 @@ ptrdiff_t acme_strrchr(const char *str, ptrdiff_t len, char c)//find last occurr
 			return k;
 	return -1;
 }
-ArrayHandle filter_path(const char *path)//replaces back slashes with slashes, adds trailing slash if missing, as ArrayHandle
+ArrayHandle filter_path(const char *path, int len)//replaces back slashes with slashes, adds trailing slash if missing, as ArrayHandle
 {
 	ArrayHandle path2;
 
-	STR_COPY(path2, path, strlen(path));
+	if(len<0)
+		len=(int)strlen(path);
+	STR_COPY(path2, path, len);
 	for(ptrdiff_t k=0;k<(ptrdiff_t)path2->count;++k)//replace back slashes
 	{
 		if(path2->data[k]=='\\')
@@ -1903,7 +1905,7 @@ ArrayHandle get_filenames(const char *path, const char **extensions, int extCoun
 	int found;
 	
 	//prepare searchpath
-	searchpath=filter_path(path);
+	searchpath=filter_path(path, -1);
 	c='*';
 	STR_APPEND(searchpath, &c, 1, 1);
 

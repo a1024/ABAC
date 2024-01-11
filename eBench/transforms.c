@@ -1777,7 +1777,7 @@ void pred_clampedgrad(Image *src, int fwd, int enable_ma)
 				int
 					NW=kx&&ky?pixels[(idx-src->iw-1)<<2|kc]:0,
 					N =ky    ?pixels[(idx-src->iw  )<<2|kc]:0,
-					W =kx    ?pixels[(idx          -1)<<2|kc]:0;
+					W =kx    ?pixels[(idx        -1)<<2|kc]:0;
 				int pred=N+W-NW;
 				pred=MEDIAN3(N, W, pred);
 				
@@ -1803,6 +1803,92 @@ void pred_clampedgrad(Image *src, int fwd, int enable_ma)
 		++src->depth[2];
 	}
 	free(dst);
+}
+
+void pred_select(Image const *src, Image *dst, int fwd, int enable_ma)
+{
+	const int *pixels=fwd?src->data:dst->data;
+	for(int kc=0;kc<3;++kc)
+	{
+		int nlevels=1<<src->depth[kc];
+		for(int ky=0, idx=0;ky<src->ih;++ky)
+		{
+			for(int kx=0;kx<src->iw;++kx, ++idx)
+			{
+				int
+					N=ky?pixels[(idx-src->iw)<<2|kc]:0,
+					W=kx?pixels[(idx-1)<<2|kc]:0,
+					NW=kx&&ky?pixels[(idx-src->iw-1)<<2|kc]:0;
+				int pred=abs(W-NW)<abs(N-NW)?N:W;
+				
+				pred^=-fwd;
+				pred+=fwd;
+				pred+=src->data[idx<<2|kc];
+				if(enable_ma)
+				{
+					pred+=nlevels>>1;
+					pred&=nlevels-1;
+					pred-=nlevels>>1;
+				}
+				dst->data[idx<<2|kc]=pred;
+			}
+		}
+	}
+	dst->depth[0]=src->depth[0]+!enable_ma;
+	dst->depth[1]=src->depth[1]+!enable_ma;
+	dst->depth[2]=src->depth[2]+!enable_ma;
+}
+
+#define LIN_NNB (2*(LIN_REACH+1)*LIN_REACH)
+void pred_linear(Image const *src, Image *dst, const int *coeffs, int lgden, int fwd, int enable_ma)
+{
+	const int *pixels=fwd?src->data:dst->data;
+	for(int kc=0;kc<3;++kc)
+	{
+		int nlevels=1<<src->depth[kc];
+		for(int ky=0;ky<src->ih;++ky)
+		{
+			for(int kx=0;kx<src->iw;++kx)
+			{
+				int nb[LIN_NNB];
+				int idx=0;
+				for(int ky2=-LIN_REACH;ky2<=0;++ky2)
+				{
+					for(int kx2=-LIN_REACH;kx2<=LIN_REACH;++kx2, ++idx)
+					{
+						if(!ky2&&!kx2)
+							break;
+						if((unsigned)(ky+ky2)<(unsigned)src->ih&&(unsigned)(kx+kx2)<(unsigned)src->iw)
+							nb[idx]=pixels[(src->iw*(ky+ky2)+kx+kx2)<<2|kc];
+						else
+							nb[idx]=0;
+					}
+				}
+				int pred=(1<<lgden)>>1;
+				for(int k=0;k<LIN_NNB;++k)
+					pred+=coeffs[k]*nb[k];
+				pred>>=lgden;
+				idx=(src->iw*ky+kx)<<2|kc;
+				
+				//if(kx==5&&ky==5)//
+				//	printf("");
+
+				pred^=-fwd;
+				pred+=fwd;
+				pred+=src->data[idx];
+				if(enable_ma)
+				{
+					pred+=nlevels>>1;
+					pred&=nlevels-1;
+					pred-=nlevels>>1;
+				}
+				dst->data[idx]=pred;
+			}
+		}
+	}
+	dst->depth[0]=src->depth[0]+!enable_ma;
+	dst->depth[1]=src->depth[1]+!enable_ma;
+	dst->depth[2]=src->depth[2]+!enable_ma;
 }
 
 //CUSTOM reach-2 predictor

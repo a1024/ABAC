@@ -23,7 +23,7 @@ Camera cam=
 ArrayHandle fn=0;
 size_t filesize=0;
 
-Image *im0, *im1;
+Image *im0, *im1;//im0: original image, im1: image with selected transforms
 int pred_ma_enabled=1;//modular arithmetic for spatial predictors
 int separate_grayscale=1;//separate channels are shown greyscale
 unsigned txid_separate_r=0, txid_separate_g=0, txid_separate_b=0;
@@ -52,7 +52,7 @@ int mode=VIS_IMAGE;
 
 typedef enum TransformTypeEnum
 {
-	CT_FWD_ADAPTIVE,	CT_INV_ADAPTIVE,
+	CT_FWD_Pei09,		CT_INV_Pei09,
 	CT_FWD_YCbCr_R_v1,	CT_INV_YCbCr_R_v1,
 	CT_FWD_YCbCr_R_v2,	CT_INV_YCbCr_R_v2,
 	CT_FWD_YCbCr_R_v3,	CT_INV_YCbCr_R_v3,
@@ -60,13 +60,13 @@ typedef enum TransformTypeEnum
 	CT_FWD_YCbCr_R_v5,	CT_INV_YCbCr_R_v5,
 	CT_FWD_YCbCr_R_v6,	CT_INV_YCbCr_R_v6,
 	CT_FWD_YCbCr_R_v7,	CT_INV_YCbCr_R_v7,
-	CT_FWD_Pei09,		CT_INV_Pei09,
 	CT_FWD_YCoCg_R,		CT_INV_YCoCg_R,	//	(2003) AVC, HEVC, VVC
 	CT_FWD_JPEG2000,	CT_INV_JPEG2000,//	(1997) JPEG2000 RCT
 	CT_FWD_SUBGREEN,	CT_INV_SUBGREEN,
 	CT_FWD_YCbCr,		CT_INV_YCbCr,	//LOSSY	JPEG
 	CT_FWD_XYB,		CT_INV_XYB,	//LOSSY	(2021) JPEG XL
 	CT_FWD_CUSTOM,		CT_INV_CUSTOM,
+	CT_FWD_ADAPTIVE,	CT_INV_ADAPTIVE,
 
 	CST_FWD_SEPARATOR,	CST_INV_SEPARATOR,
 	
@@ -133,6 +133,803 @@ int combCRhist_idx=0;
 
 int show_full_image=0;
 int space_not_color=0;
+
+void calc_csize_ans_separate(Image const *image, size_t *csizes)
+{
+	if(!csizes)
+		return;
+	int maxdepth=calc_maxdepth(image, 0), maxlevels=1<<maxdepth;
+	int *hist=(int*)malloc((maxlevels+1)*sizeof(int));
+	if(!hist)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	int res=image->iw*image->ih;
+	unsigned state=0x10000;
+	for(int kc=0;kc<3;++kc)//naive way: one dedicated hist for each channel
+	{
+		int depth=image->depth[kc], nlevels=1<<depth;
+		memset(hist, 0, nlevels*sizeof(int));
+		for(int k=0;k<res;++k)//calc histogram
+		{
+			int sym=image->data[k<<2|kc]+(nlevels>>1);
+			if((unsigned)sym>=(unsigned)nlevels)
+				LOG_ERROR("Symbol OOB");
+			++hist[sym];
+		}
+		int nusedlevels=0;
+		for(int ks=0;ks<nlevels;++ks)
+			nusedlevels+=hist[ks]!=0;
+		int sum=0;
+		for(int ks=0, ks2=0;ks<nlevels;++ks)//quantize & accumulate CDF
+		{
+			int freq=hist[ks];
+			hist[ks]=(int)((long long)sum*(0x10000-nusedlevels)/res)+ks2;
+			ks2+=freq!=0;
+			sum+=freq;
+		}
+		hist[nlevels]=0x10000;
+
+		size_t csize=0;
+		for(int k=0;k<res;++k)//calc csize
+		{
+			int sym=image->data[k<<2|kc]+(nlevels>>1);
+			int cdf=hist[sym], freq=hist[sym+1]-cdf;
+			
+			if(state>=(unsigned)(freq<<16))//renorm
+			{
+				csize+=2;
+				state>>=16;
+			}
+			state=state/freq<<16|(cdf+state%freq);//update
+		}
+		csizes[kc]=csize;
+	}
+	csizes[3]=csizes[0]+csizes[1]+csizes[2]+4;
+	free(hist);
+}
+
+//from libjxl		packsign(pixel) = 0b00001MMBB...BBL	token = offset + 0bGGGGMML,  where G = bits of lg(packsign(pixel)),  bypass = 0bBB...BB
+void hybriduint_encode(int val, int *tbn, const int *config)
+{
+	int exp=config[0], msb=config[1], lsb=config[2];
+	int token, bypass, nbits;
+	val=(val<<1)^-(val<0);//pack sign
+	if(val<(1<<exp))
+	{
+		token=val;//token
+		nbits=0;
+		bypass=0;
+	}
+	else
+	{
+		int lgv=floor_log2((unsigned)val);
+		int mantissa=val-(1<<lgv);
+		token = (1<<exp) + ((lgv-exp)<<(msb+lsb)|(mantissa>>(lgv-msb))<<lsb|mantissa&((1<<lsb)-1));
+		nbits=lgv-(msb+lsb);
+		bypass=val>>lsb&((1LL<<nbits)-1);
+	}
+	tbn[0]=token;
+	tbn[1]=bypass;
+	tbn[2]=nbits;
+}
+#if 0
+#define HYBRIDUINT_EXP 4//exponent threshold for bypass
+#define HYBRIDUINT_MSB 2//number of bits taken by token from left from sign-packed pixel value
+#define HYBRIDUINT_LSB 0//number of bits taken by token from right from sign-packed pixel value
+void hybriduint_encode(int val, int *tbn)
+{
+	int token, bypass, nbits;
+	val=(val<<1)^-(val<0);//pack sign
+	if(val<(1<<HYBRIDUINT_EXP))
+	{
+		token=val;//token
+		nbits=0;
+		bypass=0;
+	}
+	else
+	{
+		int lgv=floor_log2((unsigned)val);
+		int mantissa=val-(1<<lgv);
+		token = (1<<HYBRIDUINT_EXP) + ((lgv-HYBRIDUINT_EXP)<<(HYBRIDUINT_MSB+HYBRIDUINT_LSB)|(mantissa>>(lgv-HYBRIDUINT_MSB))<<HYBRIDUINT_LSB|mantissa&((1<<HYBRIDUINT_LSB)-1));
+		nbits=lgv-(HYBRIDUINT_MSB+HYBRIDUINT_LSB);
+		bypass=val>>HYBRIDUINT_LSB&((1LL<<nbits)-1);
+	}
+	tbn[0]=token;
+	tbn[1]=bypass;
+	tbn[2]=nbits;
+}
+#endif
+typedef struct TempHybridStruct
+{
+	union
+	{
+		struct
+		{
+			unsigned char token, nbits;
+			unsigned short bypass;
+		};
+		int data;
+	};
+} TempHybrid;
+static const int calcsize_ans_qlevels[]=
+{
+	-500, -392, -255, -191, -127, -95, -63, -47, -31,
+	-23,  -15,  -11,  -7,   -4,   -3,  -1,  0,   1,
+	3,    5,    7,    11,   15,   23,  31,  47,  63,
+	95,   127,  191,  255,  392,  500
+};
+static const int calcsize_ans_qlevels_u[]=
+{
+	0,  1,  3,  5,   7,   11,  15,  23, 31,
+	47, 63, 95, 127, 191, 255, 392, 500
+};
+int get_ctx(Image const *image, int kc, int kx, int ky)
+{
+#define CTX_REACH 2
+	int energy=0;
+	//int nb[2*(CTX_REACH+1)*CTX_REACH];
+	for(int ky2=-CTX_REACH;ky2<=0;++ky2)
+	{
+		for(int kx2=-CTX_REACH;kx2<=CTX_REACH;++kx2)
+		{
+			if(!ky2&&!kx2)
+				break;
+			if((unsigned)(ky+ky2)<(unsigned)image->ih&&(unsigned)(kx+kx2)<(unsigned)image->iw)
+				energy+=abs(image->data[(image->iw*(ky+ky2)+kx+kx2)<<2|kc])/(kx2*kx2+ky2*ky2);//r2 opt 2.390132  r2 opt 2.410421  r3 opt 2.414187  r4 opt 2.414871
+				//energy+=abs(image->data[(image->iw*(ky+ky2)+kx+kx2)<<2|kc])/(abs(kx2)+abs(ky2));//r2 opt  2.394843 r4 opt 2.399578
+				//energy+=abs(image->data[(image->iw*(ky+ky2)+kx+kx2)<<2|kc])>>(abs(kx2)+abs(ky2));//r2 opt 2.390961
+				//energy+=abs(image->data[(image->iw*(ky+ky2)+kx+kx2)<<2|kc]);//r3 opt 2.368454
+		}
+	}
+#if 0
+	int
+		idx=image->iw*ky+kx,
+		N=ky?image->data[(idx-image->iw)<<2|kc]:0,
+		W=kx?image->data[(idx-1)<<2|kc]:0,
+		NW=kx&&ky?image->data[(idx-image->iw-1)<<2|kc]:0,
+		NE=kx+1<image->iw&&ky?image->data[(idx-image->iw+1)<<2|kc]:0,
+		
+		NN=ky-2>=0?image->data[(idx-image->iw*2)<<2|kc]:0,
+		WW=kx-2>=0?image->data[(idx-2)<<2|kc]:0,
+		NNWW=kx-2>=0&&ky-2>=0?image->data[(idx-image->iw*2-2)<<2|kc]:0,
+		NNEE=kx+2<image->iw&&ky-2>=0?image->data[(idx-image->iw*2+2)<<2|kc]:0;
+
+	//int g180=abs(W-WW), g135=abs(NW-NNWW), g90=abs(N-NN), g45=abs(NE-NNEE);
+	
+
+	int energy=abs(N)+abs(W)+abs(NW)+abs(NE)+((abs(NN)+abs(WW)+abs(NNWW)+abs(NNEE))>>2);//opt 2.404962
+	
+	//int energy=abs(N)+abs(W)+abs(NW)+abs(NE)+((abs(NN)+abs(WW)+abs(NNWW)+abs(NNEE))>>1);//opt 2.398070
+
+	//int energy=abs(N)+abs(W)+abs(NW)+abs(NE);//opt 2.395828
+
+	//int energy=abs(N)+abs(W)+((abs(NW)+abs(NE))>>1);//opt 2.390142
+	
+	//int energy=abs(N)+abs(W)+abs(NW)+abs(NE)+abs(NN)+abs(WW)+abs(NNWW)+abs(NNEE);//opt 2.388757
+
+	//int energy=N*N+W*W+abs(NW)+abs(NE);//opt 2.365894
+
+	//int energy=g180;//2.236316
+	//if(energy>g135)energy=g135;
+	//if(energy>g90)energy=g90;
+	//if(energy>g45)energy=g45;
+
+	//int energy=g180+g135+g90+g45;//opt 2.333547
+
+	//int energy=N+W+NW+NE;//opt 2.332700
+
+	//int energy;//opt 2.315842
+	//int vmax=N, vmin=N;
+	//if(vmax<W)vmax=W;
+	//if(vmin>W)vmin=W;
+	//if(vmax<NW)vmax=NW;
+	//if(vmin>NW)vmin=NW;
+	//if(vmax<NE)vmax=NE;
+	//if(vmin>NE)vmin=NE;
+	//energy=vmax-vmin;
+
+	//int energy=N;//opt 2.262733
+	//if(abs(energy)>abs(W))
+	//	energy=W;
+	//if(abs(energy)>abs(NW))
+	//	energy=NW;
+	//if(abs(energy)>abs(NE))
+	//	energy=NE;
+#endif
+
+
+	int ctx=0;
+	for(int k=0;k<_countof(calcsize_ans_qlevels_u);++k)//TODO: binary search
+		ctx+=energy>calcsize_ans_qlevels_u[k];
+	return ctx;
+}
+void calc_csize_ans_energy(Image const *image, size_t *csizes)
+{
+	if(!csizes)
+		return;
+	int maxdepth=calc_maxdepth(image, 0);
+	int histsize=1<<maxdepth;//number of possibilities
+	int *stats=(int*)malloc((histsize+1LL)*sizeof(int[_countof(calcsize_ans_qlevels)+1]));
+	if(!stats)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(stats, 0, (histsize+1LL)*sizeof(int[_countof(calcsize_ans_qlevels)+1]));
+
+	int res=image->iw*image->ih;
+	for(int kc=0;kc<3;++kc)			//step 1: fill histograms
+	{
+		int depth=image->depth[kc], nlevels=1<<depth;
+		for(int ky=0, idx=0;ky<image->ih;++ky)
+		{
+			for(int kx=0;kx<image->iw;++kx, ++idx)
+			{
+				int ctx=get_ctx(image, kc, kx, ky);
+				int *hist=stats+(histsize+1)*ctx;
+				int curr=image->data[idx<<2|kc]+(nlevels>>1);
+				if((unsigned)curr>=(unsigned)histsize)
+					LOG_ERROR("Token value OOB");
+				++hist[curr];
+			}
+		}
+	}
+	int npx=res*3;
+	for(int kh=0;kh<_countof(calcsize_ans_qlevels)+1;++kh)		//step 3: accumulate & quantize CDFs
+	{
+		int *hist=stats+(histsize+1)*kh;
+		int sum2=0;
+		int npresent=0;
+		for(int ks=0;ks<histsize;++ks)//3.1: count nonzero freq (present) symbols
+		{
+			sum2+=hist[ks];
+			npresent=hist[ks]!=0;
+		}
+		if(sum2)
+		{
+			int sum=0;
+			for(int ks=0, ks2=0;ks<histsize;++ks)//3.2: accumulate & quantize
+			{
+				int freq=hist[ks];
+				hist[ks]=(int)((long long)sum*(0x10000-npresent)/sum2)+ks2;
+				sum+=freq;
+				ks2+=freq!=0;
+			}
+			hist[histsize]=0x10000;
+		}
+	}
+	unsigned state=0x10000;
+	int ctxhist[34]={0};
+	for(int kc=0;kc<3;++kc)			//step 4: estimate compressed size
+	{
+		int depth=image->depth[kc], nlevels=1<<depth;
+		size_t csize=0;
+		for(int ky=0, idx=0;ky<image->ih;++ky)
+		{
+			for(int kx=0;kx<image->iw;++kx, ++idx)
+			{
+				int ctx=get_ctx(image, kc, kx, ky);
+
+				++ctxhist[ctx];
+
+				int *hist=stats+(histsize+1)*ctx;
+				int curr=image->data[idx<<2|kc]+(nlevels>>1);
+				int cdf=hist[curr], freq=hist[curr+1]-cdf;
+
+				if(!freq)
+					LOG_ERROR("ZPS");
+			
+				if(state>=(unsigned)(freq<<16))//renorm
+				{
+					csize+=2;
+					state>>=16;
+				}
+				state=state/freq<<16|(cdf+state%freq);//update
+			}
+		}
+		csizes[kc]=csize;
+	}
+	csizes[3]=csizes[0]+csizes[1]+csizes[2]+4;
+	free(stats);
+}
+void print_hist_as_hexPDF(const int *hist, int nlevels)
+{
+	int sum=0, vmax=0;
+	for(int k=0;k<nlevels;++k)
+	{
+		sum+=hist[k];
+		if(vmax<hist[k])
+			vmax=hist[k];
+	}
+	if(vmax)
+	{
+		for(int k=0;k<nlevels;++k)
+			console_log("%X", (hist[k]*15+(vmax>>1))/vmax);
+	}
+	else
+	{
+		for(int k=0;k<nlevels;++k)//uniform
+			console_log("0");
+	}
+	console_log(" %10d\n", sum);
+}
+void calc_csize_ans_energy_hybrid(Image const *image, size_t *csizes, const int *config)
+{
+	if(!csizes)
+		return;
+	int maxdepth=calc_maxdepth(image, 0), maxlevels=1<<maxdepth;
+	int tbn[3];
+	hybriduint_encode(-(maxlevels>>1), tbn, config);
+	int histsize=tbn[0]+1;//number of possibilities
+	int *stats=(int*)malloc((histsize+1LL)*sizeof(int[_countof(calcsize_ans_qlevels)+1]));
+	Image *im2=0;
+	image_copy_nodata(&im2, image);
+	if(!stats||!im2)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(stats, 0, (histsize+1LL)*sizeof(int[_countof(calcsize_ans_qlevels)+1]));
+
+	int res=image->iw*image->ih;
+	TempHybrid *data=(TempHybrid*)im2->data;
+	for(int kc=0;kc<3;++kc)			//step 1: encode hybrid uint
+	{
+		int depth=image->depth[kc], nlevels=1<<depth;
+		for(int k=0;k<res;++k)
+		{
+			int pixel=image->data[k<<2|kc];
+			hybriduint_encode(pixel, tbn, config);
+			if((unsigned)tbn[0]>=256||(unsigned)tbn[2]>=256||(unsigned)tbn[1]>=0x10000)
+				LOG_ERROR("Pixel value OOB");
+			TempHybrid *curr=data+(k<<2|kc);
+			curr->token=(unsigned char)tbn[0];
+			curr->nbits=(unsigned char)tbn[2];
+			curr->bypass=(unsigned short)tbn[1];
+		}
+	}
+	for(int kc=0;kc<3;++kc)			//step 2: fill histograms
+	{
+		int depth=image->depth[kc], nlevels=1<<depth;
+		for(int ky=0, idx=0;ky<image->ih;++ky)
+		{
+			for(int kx=0;kx<image->iw;++kx, ++idx)
+			{
+				//if(kc==0&&kx==417&&ky==70)//
+				//	printf("");
+
+				int ctx=get_ctx(image, kc, kx, ky);
+				int *hist=stats+(histsize+1)*ctx;
+				TempHybrid *curr=data+(idx<<2|kc);
+				if((unsigned)curr->token>=(unsigned)histsize)
+					LOG_ERROR("Token value OOB");
+				++hist[curr->token];
+			}
+		}
+	}
+	//console_log("\n");//
+
+	int npx=res*3;
+	for(int kh=0;kh<_countof(calcsize_ans_qlevels)+1;++kh)		//step 3: accumulate & quantize CDFs
+	{
+		int *hist=stats+(histsize+1)*kh;
+
+		//print_hist_as_hexPDF(hist, histsize);//
+
+		int sum2=0;
+		int npresent=0;
+		for(int ks=0;ks<histsize;++ks)//3.1: count nonzero freq (present) symbols
+		{
+			sum2+=hist[ks];
+			npresent+=hist[ks]!=0;
+		}
+		if(sum2)
+		{
+			int sum=0;
+			for(int ks=0, ks2=0;ks<histsize;++ks)//3.2: accumulate & quantize
+			{
+				int freq=hist[ks];
+				hist[ks]=(int)((long long)sum*(0x10000-npresent)/sum2)+ks2;
+				sum+=freq;
+				ks2+=freq!=0;
+			}
+			hist[histsize]=0x10000;
+		}
+	}
+	unsigned state=0x10000;
+	for(int kc=0;kc<3;++kc)			//step 4: estimate compressed size
+	{
+		int depth=image->depth[kc], nlevels=1<<depth;
+		size_t csize=0;
+		for(int ky=0, idx=0;ky<image->ih;++ky)
+		{
+			for(int kx=0;kx<image->iw;++kx, ++idx)
+			{
+				int ctx=get_ctx(image, kc, kx, ky);
+				int *hist=stats+(histsize+1)*ctx;
+				TempHybrid *curr=data+(idx<<2|kc);
+				int cdf, freq;
+
+				if(curr->nbits)
+				{
+					cdf=(curr->bypass<<16)/(1<<curr->nbits);
+					freq=((curr->bypass+1)<<16)/(1<<curr->nbits)-cdf;
+
+					if(state>=(unsigned)(freq<<16))//renorm
+					{
+						csize+=2;
+						state>>=16;
+					}
+					state=state/freq<<16|(cdf+state%freq);//update
+				}
+
+				cdf=hist[curr->token];
+				freq=hist[curr->token+1]-cdf;
+
+				if(!freq)
+					LOG_ERROR("ZPS");
+			
+				if(state>=(unsigned)(freq<<16))//renorm
+				{
+					csize+=2;
+					state>>=16;
+				}
+				state=state/freq<<16|(cdf+state%freq);//update
+			}
+		}
+		csizes[kc]=csize;
+	}
+	csizes[3]=csizes[0]+csizes[1]+csizes[2]+4;
+	free(stats);
+	free(im2);
+}
+void test_predmask(Image const *image)
+{
+	//last value in kernel is lg(den)
+	int hybrid_uint_config[]=
+	{
+		4, 2, 0,
+	};
+	static const int mask_left[]=
+	{
+		0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0,
+		0, 1, 0,
+	};
+	static const int mask_top[]=
+	{
+		0, 0, 0, 0, 0,
+		0, 0, 1, 0, 0,
+		0, 0, 0,
+	};
+	static const int mask_av0[]=
+	{
+		0, 0, 0, 0, 0,
+		0, 0, 1, 0, 0,
+		0, 1, 1,
+	};
+	static const int mask_topright[]=
+	{
+		0, 0, 0, 0, 0,
+		0, 0, 0, 1, 0,
+		0, 0, 0,
+	};
+	static const int mask_topleft[]=
+	{
+		0, 0, 0, 0, 0,
+		0, 1, 0, 0, 0,
+		0, 0, 0,
+	};
+	static const int mask_leftleft[]=
+	{
+		0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0,
+		1, 0, 0,
+	};
+	static const int mask_av1[]=
+	{
+		0, 0, 0, 0, 0,
+		0, 1, 0, 0, 0,
+		0, 1, 1,
+	};
+	static const int mask_av2[]=
+	{
+		0, 0, 0, 0, 0,
+		0, 1, 1, 0, 0,
+		0, 0, 1,
+	};
+	static const int mask_av3[]=
+	{
+		0, 0, 0, 0, 0,
+		0, 0, 1, 1, 0,
+		0, 0, 1,
+	};
+	static const int mask_av4[]=
+	{
+		0, 0, -2, 0, 0,
+		0, 0,  6, 3, 1,
+		1, 7,  4,
+	};
+	Image *residues[13]={0};
+	for(int k=0;k<_countof(residues);++k)
+		image_copy_nodata(residues+k, image);
+
+	//original image == zero predictor
+	pred_linear(image, residues[0], mask_left, mask_left[12], 1, 1);
+	pred_linear(image, residues[1], mask_top, mask_top[12], 1, 1);
+	pred_linear(image, residues[2], mask_av0, mask_av0[12], 1, 1);
+	pred_select(image, residues[3], 1, 1);
+
+	size_t bufsize=image_getbufsize(image);
+	memcpy(residues[4], image, bufsize);
+	pred_clampedgrad(residues[4], 1, 1);
+
+	memcpy(residues[5], image, bufsize);
+	pred_jxl_apply(residues[5], 1, 1, jxlparams_i16);
+	
+	pred_linear(image, residues[6], mask_topright, mask_topright[12], 1, 1);
+	pred_linear(image, residues[7], mask_topleft, mask_topleft[12], 1, 1);
+	pred_linear(image, residues[8], mask_leftleft, mask_leftleft[12], 1, 1);
+	pred_linear(image, residues[9], mask_av1, mask_av1[12], 1, 1);
+	pred_linear(image, residues[10], mask_av2, mask_av2[12], 1, 1);
+	pred_linear(image, residues[11], mask_av3, mask_av3[12], 1, 1);
+	pred_linear(image, residues[12], mask_av4, mask_av4[12], 1, 1);
+	
+	//reused context histogram
+#if 1
+	ptrdiff_t res=(ptrdiff_t)image->iw*image->ih;
+	unsigned char *masks=(unsigned char*)malloc(res*sizeof(int[3]));
+	int maxdepth=calc_maxdepth(residues[0], 0), maxlevels=1<<maxdepth;
+	int *stats=(int*)malloc(maxlevels*sizeof(int[34]));
+	if(!masks||!stats)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(stats, 0, maxlevels*sizeof(int[34]));
+	{
+		int black=0xFF000000;
+		memfill(masks, &black, res*sizeof(int[3]), sizeof(int));
+	}
+	for(int kp=0;kp<14;++kp)		//1: fill histograms
+	{
+		Image const *sample=kp?residues[kp-1]:image;
+		for(int kc=0;kc<3;++kc)
+		{
+			int depth=sample->depth[kc], nlevels=1<<depth;
+			for(int ky=0;ky<image->ih;++ky)
+			{
+				for(int kx=0;kx<image->iw;++kx)
+				{
+					int ctx=get_ctx(sample, kc, kx, ky);
+					int *hist=stats+maxlevels*ctx;
+					int sym=sample->data[(image->iw*ky+kx)<<2|kc]+(nlevels>>1);
+					if(sym<0||sym>=nlevels)
+						LOG_ERROR("Symbol overflow");
+					++hist[sym];
+				}
+			}
+		}
+	}
+	int hweight[34]={0};
+	for(int ctx=0;ctx<_countof(hweight);++ctx)	//2: accumulate histograms
+	{
+		int *hist=stats+maxlevels*ctx;
+		for(int ks=0;ks<maxlevels;++ks)
+			hweight[ctx]+=hist[ks];
+	}
+	double csizes[14][3]={0}, optcsize[3]={0};
+	
+	static const int predcolors[]=
+	{
+		0xFFFFFFFF,//	zero		undefined	white
+		0xFF0000FF,//	left		180		red
+		0xFFFF0000,//	top		90		blue
+		0xFF00D000,//	average0	135		green
+		0xFF009000,//	select		135		green
+		0xFF005000,//	grad		135		green
+		0xFF000000,//	weighted	undefined	black
+		0xFFFF00FF,//	topright	45		pink
+		0xFF00FF00,//	topleft		135		green
+		0xFF000080,//	leftleft	180		red
+		0xFF008080,//	average1	157.5		mustard
+		0xFF808000,//	average2	112.5		marine
+		0xFF800080,//	average3	67.5		violet
+		0xFF808080,//	average4	undefined	grey
+	};
+	for(int kc=0;kc<3;++kc)				//3: calc csizes
+	{
+		for(int ky=0;ky<image->ih;++ky)
+		{
+			for(int kx=0;kx<image->iw;++kx)
+			{
+				double sizes[14];
+				for(int kp=0;kp<14;++kp)
+				{
+					Image const *sample=kp?residues[kp-1]:image;
+					int nlevels=1<<sample->depth[kc];
+					int ctx=get_ctx(sample, kc, kx, ky);
+					int *hist=stats+maxlevels*ctx;
+					int sym=sample->data[(image->iw*ky+kx)<<2|kc]+(nlevels>>1);
+					if((unsigned)sym>=(unsigned)nlevels)
+						LOG_ERROR("Symbol OOB");
+					int freq=hist[sym];
+					sizes[kp]=-log2((double)freq/hweight[ctx])/image->src_depth[kc];
+				}
+				int pbest=0;
+				double minsize=sizes[0];
+				for(int kp=1;kp<14;++kp)//get min size
+				{
+					if(minsize>sizes[kp])
+						minsize=sizes[kp], pbest=kp;
+				}
+				((int*)masks)[res*kc+(image->iw*ky+kx)]=predcolors[pbest];
+				//for(int kp=0;kp<14;++kp)
+				//	masks[(res<<2)*kp+((image->iw*ky+kx)<<2|kc)]=minsize==sizes[kp]?0xFF:0;
+				for(int kp=0;kp<14;++kp)
+					csizes[kp][kc]+=sizes[kp];
+				optcsize[kc]+=minsize;
+			}
+		}
+	}
+#endif
+
+	//dedicated naive histogram
+#if 0
+	ptrdiff_t res=(ptrdiff_t)image->iw*image->ih;
+	unsigned char *masks=(unsigned char*)malloc(res*sizeof(int[14]));
+	int maxdepth=calc_maxdepth(residues[0], 0), maxlevels=1<<maxdepth;
+	int *hist=(int*)malloc(maxlevels*sizeof(int[14*3]));
+	if(!masks||!hist)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(hist, 0, maxlevels*sizeof(int[14*3]));
+	{
+		int black=0xFF000000;
+		memfill(masks, &black, res*sizeof(int[14]), sizeof(int));
+	}
+	for(int kp=0;kp<14;++kp)//calc histograms
+	{
+		Image const *sample=kp?residues[kp-1]:image;
+		for(int kc=0;kc<3;++kc)
+		{
+			int depth=sample->depth[kc], nlevels=1<<depth;
+			int *hk=hist+maxlevels*(3*kp+kc);
+			for(ptrdiff_t k=0;k<res;++k)
+			{
+				int sym=sample->data[k<<2|kc]+(nlevels>>1);
+				if(sym<0||sym>=nlevels)
+					LOG_ERROR("Symbol overflow");
+				++hk[sym];
+			}
+		}
+	}
+	double csizes[14][3]={0}, optcsize[3]={0};
+	for(int kc=0;kc<3;++kc)
+	{
+		for(ptrdiff_t k=0;k<res;++k)//calc csizes
+		{
+			double bytesizes[14];
+			for(int kp=0;kp<14;++kp)
+			{
+				Image const *sample=kp?residues[kp-1]:image;
+				const int *hk=hist+maxlevels*(3*kp+kc);
+				int nlevels=1<<sample->depth[kc];
+				int sym=sample->data[k<<2|kc]+(nlevels>>1);
+				int freq=hk[sym];
+				if(!freq)
+					LOG_ERROR("ZPS");
+				bytesizes[kp]=-log2((double)freq/res)/image->src_depth[kc];
+			}
+			double minbytesize=bytesizes[0];
+			for(int kp=1;kp<14;++kp)
+			{
+				if(minbytesize>bytesizes[kp])
+					minbytesize=bytesizes[kp];
+			}
+			for(int kp=0;kp<14;++kp)
+				masks[(res<<2)*kp+(k<<2|kc)]=minbytesize==bytesizes[kp]?0xFF:0;
+			for(int kp=0;kp<14;++kp)
+				csizes[kp][kc]+=bytesizes[kp];
+			optcsize[kc]+=minbytesize;
+		}
+	}
+#endif
+
+	static const char *predname[]=
+	{
+		"zero",		//00
+		"left",		//01
+		"top",		//02
+		"av0",		//03
+		"sel",		//04
+		"grad",		//05
+		"wp",		//06
+		"topright",	//07
+		"topleft",	//08
+		"leftleft",	//09
+		"av1",		//10
+		"av2",		//11
+		"av3",		//12
+		"av4",		//13
+	};
+	console_start();
+	double usize=image_getBMPsize(image);
+	console_log("%-10s %16lf\n\n", "usize", usize);
+	for(int kp=0;kp<14;++kp)//print csizes
+	{
+		Image const *sample=kp?residues[kp-1]:image;
+		size_t csizes_ans[4]={0};
+		calc_csize_ans_energy_hybrid(sample, csizes_ans, hybrid_uint_config);
+		//calc_csize_ans_energy(sample, csizes_ans);
+		//calc_csize_ans_separate(sample, csizes_ans);//sanity check
+
+		double csize=csizes[kp][0]+csizes[kp][1]+csizes[kp][2];
+		console_log("%-10s TYUV %12.2lf %12.2lf %12.2lf %12.2lf  CR %lf  TYUV %10lld %10lld %10lld %10lld  CR %lf\n",
+			predname[kp], csize, csizes[kp][0], csizes[kp][1], csizes[kp][2], usize/csize,
+			csizes_ans[3], csizes_ans[0], csizes_ans[1], csizes_ans[2], (double)usize/csizes_ans[3]
+		);
+	}
+	double csize2=optcsize[0]+optcsize[1]+optcsize[2];
+	console_log("\n%-10s TRGB %16lf %16lf %16lf %16lf  CR %lf\n", "optsize", csize2, optcsize[0], optcsize[1], optcsize[2], usize/csize2);
+
+	console_log("\nAbout to save predictor masks\n");
+	console_pause();
+	ArrayHandle path=dialog_open_folder();
+	if(path)
+	{
+		const char *title;
+		int titlelen;
+		{//get title without extension from filename
+			int titleend=(int)acme_strrchr(fn->data, fn->count, '.');
+			int titlestart=titleend;
+			for(;titlestart>=0&&fn->data[titlestart]!='/'&&fn->data[titlestart]!='\\';--titlestart);
+			++titlestart;
+
+			title=(char*)fn->data+titlestart;
+			titlelen=titleend-titlestart;
+		}
+
+#if 1
+		static const char chnames[]="YUV";
+		for(int kc=0;kc<3;++kc)
+		{
+			snprintf(g_buf, G_BUF_SIZE, "%s%.*s-%d%c.PNG", (char*)path->data, titlelen, title, kc, chnames[kc]);
+			unsigned char *mask=masks+(res<<2)*kc;
+			lodepng_encode_file(g_buf, mask, image->iw, image->ih, LCT_RGBA, 8);
+		}
+#endif
+
+#if 0
+		for(int kp=0;kp<14;++kp)//save snapshots
+		{
+			snprintf(g_buf, G_BUF_SIZE, "%s%.*s-%02d-%s.PNG", (char*)path->data, titlelen, title, kp, predname[kp]);
+			
+#if 0
+			Image const *sample=kp?residues[kp-1]:image;		//saves residues
+			image_save_uint8(g_buf, sample, 1);
+#else
+			unsigned char *mk=masks+(res<<2)*kp;			//saves pred masks
+			lodepng_encode_file(g_buf, mk, image->iw, image->ih, LCT_RGBA, 8);
+#endif
+		}
+#endif
+		array_free(&path);
+	}
+
+	for(int k=0;k<13;++k)
+		free(residues[k]);
+	free(masks);
+	free(stats);
+
+	console_log("\nDone.\n");
+	console_pause();
+	console_end();
+}
 
 typedef struct ThreadCtxStruct
 {
@@ -291,6 +1088,7 @@ void batch_test()
 	console_pause();
 	console_end();
 }
+
 int customtransforms_getflag(unsigned char tid)
 {
 	return
@@ -2754,8 +3552,13 @@ int io_keydn(IOKey key, char c)
 		break;
 	case 'Z'://TODO show neighbor pixels around cursor
 		break;
+	case 'P':
+		if(GET_KEY_STATE(KEY_CTRL))
+			test_predmask(im1);
+		break;
 	case 'B'://batch test
-		batch_test();
+		if(GET_KEY_STATE(KEY_CTRL))
+			batch_test();
 		break;
 	case KEY_LBRACKET:
 	case KEY_RBRACKET:

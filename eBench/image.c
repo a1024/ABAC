@@ -143,6 +143,17 @@ size_t image_getbufsize(Image const *image)
 		return 0;
 	return sizeof(Image)+(size_t)image->iw*image->ih*sizeof(int[4]);
 }
+void image_copy_nodata(Image **dst, Image const *src)
+{
+	size_t srcsize=image_getbufsize(src);
+	if(!srcsize)
+		return;
+	void *p=realloc(*dst, srcsize);
+	if(!p)
+		return;
+	*dst=(Image*)p;
+	memcpy(*dst, src, sizeof(Image));
+}
 void image_copy(Image **dst, Image const *src)
 {
 	size_t srcsize=image_getbufsize(src);

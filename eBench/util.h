@@ -397,7 +397,7 @@ ptrdiff_t get_filesize(const char *filename);//-1 not found,  0: folder (probabl
 
 int acme_stricmp(const char *a, const char *b);//case insensitive strcmp
 ptrdiff_t acme_strrchr(const char *str, ptrdiff_t len, char c);//find last occurrence, with known length for backward search
-ArrayHandle filter_path(const char *path);//replaces back slashes with slashes, and adds trailing slash if missing, as ArrayHandle
+ArrayHandle filter_path(const char *path, int len);//replaces back slashes with slashes, and adds trailing slash if missing, as ArrayHandle
 ArrayHandle get_filenames(const char *path, const char **extensions, int extCount, int fullyqualified);//returns array of strings, extensions without period '.'
 
 ArrayHandle load_file(const char *filename, int bin, int pad, int erroronfail);

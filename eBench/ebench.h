@@ -636,6 +636,7 @@ Image* image_from_uint16(const unsigned short *src, int iw, int ih, int nch, cha
 void image_export_uint8(Image const *image, unsigned char **dst, int override_alpha);
 double image_getBMPsize(Image const *image);
 size_t image_getbufsize(Image const *image);
+void image_copy_nodata(Image **dst, Image const *src);
 void image_copy(Image **dst, Image const *src);
 
 
@@ -652,6 +653,9 @@ void calc_histogram(const int *buf, int iw, int ih, int kc, int x1, int x2, int 
 double calc_entropy(const int *hist, int nlevels, int sum);//pass -1 if sum is unknown
 int calc_maxdepth(Image const *image, int *inflation);
 void calc_depthfromdata(int *image, int iw, int ih, char *depths);
+void calc_csize_ans_separate(Image const *image, size_t *csizes);
+void calc_csize_ans_energy(Image const *image, size_t *csizes);
+void calc_csize_ans_energy_hybrid(Image const *image, size_t *csizes, const int *config);
 
 
 //color transforms
@@ -687,6 +691,11 @@ void rct_adaptive(Image *src, int fwd);
 
 //spatial transforms
 void pred_clampedgrad(Image *image, int fwd, int enable_ma);
+
+void pred_select(Image const *src, Image *dst, int fwd, int enable_ma);
+
+#define LIN_REACH 2
+void pred_linear(Image const *src, Image *dst, const int *coeffs, int lgden, int fwd, int enable_ma);
 
 #define CUSTOM_REACH 2
 #define CUSTOM_NNB (2*(CUSTOM_REACH+1)*CUSTOM_REACH)
