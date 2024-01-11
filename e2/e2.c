@@ -11,6 +11,8 @@
 #include<pthread.h>
 #error TODO
 #endif
+//#define SIF_IMPLEMENTATION
+//#include"sif.h"
 #define QOI_IMPLEMENTATION
 #include"qoi.h"
 static const char file[]=__FILE__;
@@ -1147,9 +1149,9 @@ int main(int argc, char **argv)
 	//fn="C:/Projects/datasets/CLIC11-small4.PNG";
 	//fn="C:/Projects/datasets/dataset-CLIC30/11.png";
 	//fn="C:/Projects/datasets/dataset-kodak";
-//	fn="C:/Projects/datasets/dataset-kodak/kodim13.png";
+	fn="C:/Projects/datasets/dataset-kodak/kodim13.png";
 
-	fn="D:/ML/dataset-LPCB";
+//	fn="D:/ML/dataset-LPCB";
 	//fn="D:/ML/dataset-CLIC30";
 	//fn="D:/ML/dataset-kodak";
 	//fn="D:/ML/dataset-CLIC30/16.png";//hardest noiseless CLIC30 image
@@ -1682,6 +1684,40 @@ int main(int argc, char **argv)
 		compare_bufs_uint8(ret, buf, iw, ih, 3, 4, "SLI2", 0, 1);
 		free(data);
 		free(ret);
+	}
+#endif
+
+	//SIF by Marcio Pais
+#if 0
+	{
+		SIF_content_descriptor_t info=
+		{
+			iw, ih, 3,//dims, nch
+			0,//flags
+
+			//2<<2,
+		};
+		size_t csize=0;
+		memcpy(b2, buf, (size_t)iw*ih<<2);
+		pack3_fwd(b2, iw*ih);
+
+		double t_enc=time_sec();
+		void *cdata=SIF_compressImage(&info, b2, (size_t)iw*ih<<2, &csize);
+		t_enc=time_sec()-t_enc;
+
+		uint64_t usize=0;
+		double t_dec=time_sec();
+		void *udata=SIF_decompressImage(&info, cdata, csize, &usize);
+		t_dec=time_sec()-t_dec;
+
+		printf("SIF  %lld  CR %lf  enc %lf dec %lf  ", csize, (double)iw*ih*4/csize, t_enc, t_dec);
+
+		compare_bufs_uint8(b2, (unsigned char*)udata, iw, ih, 3, 3, "SIF", 0, 1);
+
+		printf("\n");
+
+		SIF_FREE(cdata);
+		SIF_FREE(udata);
 	}
 #endif
 
