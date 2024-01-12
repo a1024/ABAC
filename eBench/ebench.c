@@ -26,7 +26,7 @@ size_t filesize=0;
 Image *im0, *im1;//im0: original image, im1: image with selected transforms
 int pred_ma_enabled=1;//modular arithmetic for spatial predictors
 int separate_grayscale=1;//separate channels are shown greyscale
-unsigned txid_separate_r=0, txid_separate_g=0, txid_separate_b=0;
+unsigned txid_separate_r=0, txid_separate_g=0, txid_separate_b=0, txid_separate_a=0;
 unsigned char *im_export=0, *zimage=0;
 
 unsigned txid_jointhist[256]={0};
@@ -60,9 +60,13 @@ typedef enum TransformTypeEnum
 	CT_FWD_YCbCr_R_v5,	CT_INV_YCbCr_R_v5,
 	CT_FWD_YCbCr_R_v6,	CT_INV_YCbCr_R_v6,
 	CT_FWD_YCbCr_R_v7,	CT_INV_YCbCr_R_v7,
+	CT_FWD_CrCgCb,		CT_INV_CrCgCb,
 	CT_FWD_YCoCg_R,		CT_INV_YCoCg_R,	//	(2003) AVC, HEVC, VVC
 	CT_FWD_JPEG2000,	CT_INV_JPEG2000,//	(1997) JPEG2000 RCT
 	CT_FWD_SUBGREEN,	CT_INV_SUBGREEN,
+	CT_FWD_YRGB_v1,		CT_INV_YRGB_v1,
+	CT_FWD_YRGB_v2,		CT_INV_YRGB_v2,
+	CT_FWD_CMYK,		CT_INV_CMYK_DUMMY,
 	CT_FWD_YCbCr,		CT_INV_YCbCr,	//LOSSY	JPEG
 	CT_FWD_XYB,		CT_INV_XYB,	//LOSSY	(2021) JPEG XL
 	CT_FWD_CUSTOM,		CT_INV_CUSTOM,
@@ -78,6 +82,7 @@ typedef enum TransformTypeEnum
 //	ST_FWD_NBLIC,		ST_INV_NBLIC,
 	ST_FWD_CALIC,		ST_INV_CALIC,
 	ST_FWD_CLAMPGRAD,	ST_INV_CLAMPGRAD,
+	ST_FWD_DIR,		ST_INV_DIR,
 #if 0
 	ST_FWD_CTX,		ST_INV_CTX,
 	ST_FWD_C20,		ST_INV_C20,
@@ -123,7 +128,7 @@ unsigned gpu_vertices=0;
 ArrayHandle jointhist=0;
 int jointhist_nbits=6;//max
 int jhx=0, jhy=0;
-float ch_cr[4]={0};
+double ch_entropy[4]={0};
 int usage[4]={0};
 
 #define combCRhist_SIZE 128
@@ -265,6 +270,12 @@ static const int calcsize_ans_qlevels_u[]=
 	0,  1,  3,  5,   7,   11,  15,  23, 31,
 	47, 63, 95, 127, 191, 255, 392, 500
 };
+static const int ans_qlevels_u[]=
+{
+	//0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 16, 18, 20, 22, 24, 28, 32, 36, 40, 48, 64, 80, 96, 128, 160, 192, 256, 320, 384, 512		//v1	opt 2.414476
+
+	0, 1, 3, 5, 7, 9, 11, 13, 15, 18, 23, 31, 47, 63, 95, 127, 191, 255, 392, 500		//v2	opt 2.411191
+};
 int get_ctx(Image const *image, int kc, int kx, int ky)
 {
 #define CTX_REACH 2
@@ -341,8 +352,8 @@ int get_ctx(Image const *image, int kc, int kx, int ky)
 
 
 	int ctx=0;
-	for(int k=0;k<_countof(calcsize_ans_qlevels_u);++k)//TODO: binary search
-		ctx+=energy>calcsize_ans_qlevels_u[k];
+	for(int k=0;k<_countof(ans_qlevels_u);++k)//TODO: binary search
+		ctx+=energy>ans_qlevels_u[k];
 	return ctx;
 }
 void calc_csize_ans_energy(Image const *image, size_t *csizes)
@@ -509,14 +520,14 @@ void calc_csize_ans_energy_hybrid(Image const *image, size_t *csizes, const int 
 			}
 		}
 	}
-	//console_log("\n");//
+	console_log("\n");//
 
 	int npx=res*3;
 	for(int kh=0;kh<_countof(calcsize_ans_qlevels)+1;++kh)		//step 3: accumulate & quantize CDFs
 	{
 		int *hist=stats+(histsize+1)*kh;
 
-		//print_hist_as_hexPDF(hist, histsize);//
+		print_hist_as_hexPDF(hist, histsize);//
 
 		int sum2=0;
 		int npresent=0;
@@ -714,7 +725,7 @@ void test_predmask(Image const *image)
 		}
 	}
 	int hweight[34]={0};
-	for(int ctx=0;ctx<_countof(hweight);++ctx)	//2: accumulate histograms
+	for(int ctx=0;ctx<_countof(hweight);++ctx)	//2: get histogram sums
 	{
 		int *hist=stats+maxlevels*ctx;
 		for(int ks=0;ks<maxlevels;++ks)
@@ -1200,6 +1211,8 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case CT_INV_YCbCr_R_v6:		a="C  Inv YCbCr-R v6";		break;
 	case CT_FWD_YCbCr_R_v7:		a="C  Fwd YCbCr-R v7";		break;
 	case CT_INV_YCbCr_R_v7:		a="C  Inv YCbCr-R v7";		break;
+	case CT_FWD_CrCgCb:		a="C  Fwd CrCgCb";		break;
+	case CT_INV_CrCgCb:		a="C  Inv CrCgCb";		break;
 	case CT_FWD_Pei09:		a="C  Fwd Pei09";		break;
 	case CT_INV_Pei09:		a="C  Inv Pei09";		break;
 	case CT_FWD_YCoCg_R:		a="C  Fwd YCoCg-R";		break;
@@ -1208,6 +1221,12 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case CT_INV_JPEG2000:		a="C  Inv JPEG2000 RCT";	break;
 	case CT_FWD_SUBGREEN:		a="C  Fwd SubGreen";		break;
 	case CT_INV_SUBGREEN:		a="C  Inv SubGreen";		break;
+	case CT_FWD_YRGB_v1:		a="C  Fwd YRGB v1";		break;
+	case CT_INV_YRGB_v1:		a="C  Inv YRGB v1";		break;
+	case CT_FWD_YRGB_v2:		a="C  Fwd YRGB v2";		break;
+	case CT_INV_YRGB_v2:		a="C  Inv YRGB v2";		break;
+	case CT_FWD_CMYK:		a="C  Fwd CMYK";		break;
+	case CT_INV_CMYK_DUMMY:		a="";				break;//no inverse
 	case CT_FWD_YCbCr:		a="C  Fwd YCbCr";		break;
 	case CT_INV_YCbCr:		a="C  Inv YCbCr";		break;
 	case CT_FWD_XYB:		a="C  Fwd XYB";			break;
@@ -1236,6 +1255,8 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case ST_INV_G2:			a=" S Inv G2";			break;
 	case ST_FWD_CLAMPGRAD:		a=" S Fwd ClampGrad";		break;
 	case ST_INV_CLAMPGRAD:		a=" S Inv ClampGrad";		break;
+	case ST_FWD_DIR:		a=" S Fwd Dir";			break;
+	case ST_INV_DIR:		a=" S Inv Dir";			break;
 	case ST_FWD_CUSTOM3:		a=" S Fwd CUSTOM3";		break;
 	case ST_INV_CUSTOM3:		a=" S Inv CUSTOM3";		break;
 	case ST_FWD_CALIC:		a=" S Fwd CALIC";		break;
@@ -1348,13 +1369,14 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 		set_text_colors(c0);
 }
 
-int send_image_separate_subpixels(Image const *image, unsigned *txid_r, unsigned *txid_g, unsigned *txid_b)
+int send_image_separate_subpixels(Image const *image, unsigned *txid_r, unsigned *txid_g, unsigned *txid_b, unsigned *txid_a)
 {
 	ptrdiff_t res=(ptrdiff_t)image->iw*image->ih;
 	unsigned char *temp_r=(unsigned char*)malloc(res*sizeof(char[4]));
 	unsigned char *temp_g=(unsigned char*)malloc(res*sizeof(char[4]));
 	unsigned char *temp_b=(unsigned char*)malloc(res*sizeof(char[4]));
-	if(!temp_r||!temp_g||!temp_b)
+	unsigned char *temp_a=(unsigned char*)malloc(res*sizeof(char[4]));
+	if(!temp_r||!temp_g||!temp_b||!temp_a)
 	{
 		LOG_ERROR("Alloc error");
 		return 0;
@@ -1371,7 +1393,8 @@ int send_image_separate_subpixels(Image const *image, unsigned *txid_r, unsigned
 		int
 			r=((image->data[k<<2|0]>>shift[0])+128)&0xFF,
 			g=((image->data[k<<2|1]>>shift[1])+128)&0xFF,
-			b=((image->data[k<<2|2]>>shift[2])+128)&0xFF;
+			b=((image->data[k<<2|2]>>shift[2])+128)&0xFF,
+			a=((image->data[k<<2|3]>>shift[3])+128)&0xFF;
 		if(separate_grayscale)
 		{
 			((int*)temp_r)[k]=0xFF000000|r<<16|r<<8|r;
@@ -1384,21 +1407,25 @@ int send_image_separate_subpixels(Image const *image, unsigned *txid_r, unsigned
 			((int*)temp_g)[k]=0xFF000000|g<<8;
 			((int*)temp_b)[k]=0xFF000000|b<<16;
 		}
+		((int*)temp_a)[k]=0xFF000000|a<<16|a<<8|a;
 	}
 	if(!*txid_r)
 	{
-		int txids[3];
-		glGenTextures(3, txids);
+		int txids[4];
+		glGenTextures(4, txids);
 		*txid_r=txids[0];
 		*txid_g=txids[1];
 		*txid_b=txids[2];
+		*txid_a=txids[3];
 	}
 	send_texture_pot(*txid_r, (int*)temp_r, image->iw, image->ih, 0);
 	send_texture_pot(*txid_g, (int*)temp_g, image->iw, image->ih, 0);
 	send_texture_pot(*txid_b, (int*)temp_b, image->iw, image->ih, 0);
+	send_texture_pot(*txid_a, (int*)temp_a, image->iw, image->ih, 0);
 	free(temp_r);
 	free(temp_g);
 	free(temp_b);
+	free(temp_a);
 	return 1;
 }
 
@@ -1797,12 +1824,20 @@ void apply_selected_transforms(Image *image)
 		case CT_INV_YCbCr_R_v6:		colortransform_YCbCr_R_v6(image, 0);			break;
 		case CT_FWD_YCbCr_R_v7:		colortransform_YCbCr_R_v7(image, 1);			break;
 		case CT_INV_YCbCr_R_v7:		colortransform_YCbCr_R_v7(image, 0);			break;
+		case CT_FWD_CrCgCb:		colortransform_CrCgCb_R(image, 1);			break;
+		case CT_INV_CrCgCb:		colortransform_CrCgCb_R(image, 0);			break;
 		case CT_FWD_Pei09:		colortransform_Pei09(image, 1);				break;
 		case CT_INV_Pei09:		colortransform_Pei09(image, 0);				break;
 		case CT_FWD_JPEG2000:		colortransform_JPEG2000(image, 1);			break;
 		case CT_INV_JPEG2000:		colortransform_JPEG2000(image, 0);			break;
 		case CT_FWD_SUBGREEN:		colortransform_subtractgreen(image, 1);			break;
 		case CT_INV_SUBGREEN:		colortransform_subtractgreen(image, 0);			break;
+		case CT_FWD_YRGB_v1:		rct_yrgb_v1(image, 1);					break;
+		case CT_INV_YRGB_v1:		rct_yrgb_v1(image, 0);					break;
+		case CT_FWD_YRGB_v2:		rct_yrgb_v2(image, 1);					break;
+		case CT_INV_YRGB_v2:		rct_yrgb_v2(image, 0);					break;
+		case CT_FWD_CMYK:		ct_cmyk_fwd(image);					break;
+		case CT_INV_CMYK_DUMMY:									break;
 		case CT_FWD_YCbCr:		colortransform_lossy_YCbCr(image, 1);			break;
 		case CT_INV_YCbCr:		colortransform_lossy_YCbCr(image, 1);			break;
 		case CT_FWD_XYB:		colortransform_lossy_XYB(image, 1);			break;
@@ -1871,6 +1906,8 @@ void apply_selected_transforms(Image *image)
 		case ST_INV_MM:			pred_w2_apply(image, 0, pred_ma_enabled, pw2_params);	break;
 		case ST_FWD_CLAMPGRAD:		pred_clampedgrad(image, 1, pred_ma_enabled);		break;
 		case ST_INV_CLAMPGRAD:		pred_clampedgrad(image, 0, pred_ma_enabled);		break;
+		case ST_FWD_DIR:		pred_dir(image, 1, pred_ma_enabled);			break;
+		case ST_INV_DIR:		pred_dir(image, 0, pred_ma_enabled);			break;
 		case ST_FWD_G2:			pred_grad2(image, 1, pred_ma_enabled);			break;
 		case ST_INV_G2:			pred_grad2(image, 0, pred_ma_enabled);			break;
 		case ST_FWD_DCT4:		image_dct4_fwd(image);					break;
@@ -1931,8 +1968,10 @@ void apply_selected_transforms(Image *image)
 			{
 				ArrayHandle sizes=dwt2d_gensizes(image->iw, image->ih, 3, 3, 0);
 				int *temp=(int*)malloc(MAXVAR(image->iw, image->ih)*sizeof(int));
-				for(int kc=0;kc<3;++kc)
+				for(int kc=0;kc<4;++kc)
 				{
+					if(!im1->depth[kc])
+						continue;
 					switch(tid)
 					{
 				//	case ST_FWD_LAZY:      dwt2d_lazy_fwd   (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
@@ -1953,7 +1992,6 @@ void apply_selected_transforms(Image *image)
 				//	case ST_INV_CUSTOM_DWT:dwt2d_custom_inv (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, customparam_st);break;
 					}
 				}
-				calc_depthfromdata(image->data, image->iw, image->ih, image->depth);
 				array_free(&sizes);
 				free(temp);
 			}
@@ -1961,6 +1999,7 @@ void apply_selected_transforms(Image *image)
 	//	case ST_FWD_DEC_DWT:   dwt2d_dec_fwd((char*)image, iw, ih);	break;
 	//	case ST_INV_DEC_DWT:   dwt2d_dec_inv((char*)image, iw, ih);	break;
 		}//switch
+		calc_depthfromdata(image->data, image->iw, image->ih, image->depth, image->src_depth);
 	}//for
 }
 void update_image()//apply selected operations on original image, calculate CRs, and export
@@ -1987,18 +2026,23 @@ void update_image()//apply selected operations on original image, calculate CRs,
 		hist_full=(int*)p;
 		hist_full_size=nlevels;
 	}
-	for(int kc=0;kc<3;++kc)
+	for(int kc=0;kc<4;++kc)
 	{
-		calc_histogram(im1->data, im1->iw, im1->ih, kc, 0, im1->iw, 0, im1->ih, im1->depth[kc], hist_full, 0);
-		double entropy=calc_entropy(hist_full, 1<<im1->depth[kc], im1->iw*im1->ih);
-		ch_cr[kc]=(float)(im1->src_depth[kc]/entropy);
+		if(im1->depth[kc])
+		{
+			calc_histogram(im1->data, im1->iw, im1->ih, kc, 0, im1->iw, 0, im1->ih, im1->depth[kc], hist_full, 0);
+			double entropy=calc_entropy(hist_full, 1<<im1->depth[kc], im1->iw*im1->ih);
+			ch_entropy[kc]=entropy;
+		}
+		else
+			ch_entropy[kc]=0;
 	}
 	//channel_entropy(image, iw*ih, 3, 4, ch_cr, usage);
 	
-	combCRhist[combCRhist_idx][0]=ch_cr[0];
-	combCRhist[combCRhist_idx][1]=ch_cr[1];
-	combCRhist[combCRhist_idx][2]=ch_cr[2];
-	combCRhist[combCRhist_idx][3]=3/(1/ch_cr[0]+1/ch_cr[1]+1/ch_cr[2]);
+	combCRhist[combCRhist_idx][0]=(float)(im1->src_depth[0]/ch_entropy[0]);
+	combCRhist[combCRhist_idx][1]=(float)(im1->src_depth[0]/ch_entropy[1]);
+	combCRhist[combCRhist_idx][2]=(float)(im1->src_depth[0]/ch_entropy[2]);
+	combCRhist[combCRhist_idx][3]=(float)((im1->src_depth[0]+im1->src_depth[1]+im1->src_depth[2]+im1->src_depth[3])/(ch_entropy[0]+ch_entropy[1]+ch_entropy[2]+ch_entropy[3]));
 	for(int k=0;k<4;++k)
 	{
 		if(combCRhist_max==1||combCRhist_max<combCRhist[combCRhist_idx][k])
@@ -2008,7 +2052,7 @@ void update_image()//apply selected operations on original image, calculate CRs,
 
 	//if(im1->iw<1024&&im1->ih<1024)
 	{
-		if(!send_image_separate_subpixels(im1, &txid_separate_r, &txid_separate_g, &txid_separate_b))
+		if(!send_image_separate_subpixels(im1, &txid_separate_r, &txid_separate_g, &txid_separate_b, &txid_separate_a))
 			LOG_ERROR("Failed to send texture to GPU");
 	}
 
@@ -3200,8 +3244,8 @@ int io_keydn(IOKey key, char c)
 			STR_ALLOC(str, 0);
 			if(mode==VIS_IMAGE||mode==VIS_ZIPF)
 			{
-				float cr_combined=3/(1/ch_cr[0]+1/ch_cr[1]+1/ch_cr[2]);
-				str_append(&str, "T %f\tR %f\tG %f\tB %f", cr_combined, ch_cr[0], ch_cr[1], ch_cr[2]);
+				double cr_combined=(im1->src_depth[0]+im1->src_depth[1]+im1->src_depth[2]+im1->src_depth[3])/(ch_entropy[0]+ch_entropy[1]+ch_entropy[2]+ch_entropy[3]);
+				str_append(&str, "T %lf\tR %lf\tG %lf\tB %lf\tA %lf", cr_combined, im1->src_depth[0]/ch_entropy[0], im1->src_depth[1]/ch_entropy[1], im1->src_depth[2]/ch_entropy[2], im1->src_depth[1]/ch_entropy[3]);
 			}
 #if 0
 			//else if(mode==VIS_IMAGE_E24)
@@ -4290,6 +4334,8 @@ void io_render()
 			display_texture(0,       im1->iw,    0,       im1->ih,    txid_separate_r, 1, 0, 1, 0, 1);
 			display_texture(im1->iw, im1->iw<<1, 0,       im1->ih,    txid_separate_g, 1, 0, 1, 0, 1);
 			display_texture(0,       im1->iw,    im1->ih, im1->ih<<1, txid_separate_b, 1, 0, 1, 0, 1);
+			if(im1->depth[3])
+				display_texture(im1->iw, im1->iw<<1, im1->ih, im1->ih<<1, txid_separate_a, 1, 0, 1, 0, 1);
 			break;
 		}
 	}
@@ -4541,7 +4587,7 @@ void io_render()
 				transforms_printname(x, y, transforms->data[k], k, 0);
 		}
 		float
-			cr_combined=3/(1/ch_cr[0]+1/ch_cr[1]+1/ch_cr[2]),
+			cr_combined=(float)((im1->src_depth[0]+im1->src_depth[1]+im1->src_depth[2]+im1->src_depth[3])/(ch_entropy[0]+ch_entropy[1]+ch_entropy[2]+ch_entropy[3])),
 			scale=400,
 			xstart=20, xend=(float)w-210, ystart=(float)(h-tdy*5);
 		
@@ -4552,8 +4598,9 @@ void io_render()
 			float crmax=cr_combined;
 			for(int k=0;k<4;++k)//get max CR
 			{
-				if(isfinite(ch_cr[k])&&crmax<ch_cr[k])
-					crmax=ch_cr[k];
+				double CR=im1->src_depth[k]/ch_entropy[k];
+				if(isfinite(CR)&&crmax<CR)
+					crmax=(float)CR;
 			}
 			if(!isfinite(crmax))
 				crmax=0;
@@ -4628,10 +4675,12 @@ void io_render()
 						break;
 					}
 				}
-				draw_rect(xend-scale*cr_combined, xend, ystart+tdy*0.5f-barw, ystart+tdy*0.5f+barw+1, 0xFF000000);
-				draw_rect(xend-scale*ch_cr[0]   , xend, ystart+tdy*1.5f-barw, ystart+tdy*1.5f+barw+1, RGBspace?0xFF0000FF:0xFF404040);//r or Y
-				draw_rect(xend-scale*ch_cr[1]   , xend, ystart+tdy*2.5f-barw, ystart+tdy*2.5f+barw+1, RGBspace?0xFF00FF00:0xFFC00000);//g or Cb
-				draw_rect(xend-scale*ch_cr[2]   , xend, ystart+tdy*3.5f-barw, ystart+tdy*3.5f+barw+1, RGBspace?0xFFFF0000:0xFF0000C0);//b or Cr
+				draw_rect(xend-scale*cr_combined,			xend, ystart+tdy*0.5f-barw, ystart+tdy*0.5f+barw+1, 0xFF000000);
+				draw_rect(xend-scale*(float)(im1->src_depth[0]/ch_entropy[0]),	xend, ystart+tdy*1.5f-barw, ystart+tdy*1.5f+barw+1, RGBspace?0xFF0000FF:0xFF404040);//r or Y
+				draw_rect(xend-scale*(float)(im1->src_depth[1]/ch_entropy[1]),	xend, ystart+tdy*2.5f-barw, ystart+tdy*2.5f+barw+1, RGBspace?0xFF00FF00:0xFFC00000);//g or Cb
+				draw_rect(xend-scale*(float)(im1->src_depth[2]/ch_entropy[2]),	xend, ystart+tdy*3.5f-barw, ystart+tdy*3.5f+barw+1, RGBspace?0xFFFF0000:0xFF0000C0);//b or Cr
+				if(im1->depth[3])
+					draw_rect(xend-scale*(float)(im1->src_depth[1]/ch_entropy[3]), xend, ystart+tdy*4.5f-barw, ystart+tdy*4.5f+barw+1, RGBspace?0xFF808080:0xFF00C000);//a or Cg
 			}
 			//draw_rect(xend-scale*ch_cr[3]   , xend, ystart+tdy*4.5f-barw, ystart+tdy*4.5f+barw+1, 0xFFFF00FF);
 			x=xend-crformat*scale;
@@ -4645,9 +4694,13 @@ void io_render()
 		set_bk_color(0xE0FFFFFF);
 		prevtxtcolor=set_text_color(0xFF000000);GUIPrint(xend, xend, ystart      , 1, "Combined      %9f", cr_combined);
 		set_bk_color(0xC0C0C0C0);
-		set_text_color(RGBspace?0xFF0000FF:0xFF404040);	GUIPrint(xend, xend, ystart+tdy  , 1, "%c     %7d %9f", RGBspace?'R':'Y', im1->depth[0], ch_cr[0]);
-		set_text_color(RGBspace?0xFF00C000:0xFFC00000);	GUIPrint(xend, xend, ystart+tdy*2, 1, "%c     %7d %9f", RGBspace?'G':'U', im1->depth[1], ch_cr[1]);
-		set_text_color(RGBspace?0xFFFF0000:0xFF0000C0);	GUIPrint(xend, xend, ystart+tdy*3, 1, "%c     %7d %9f", RGBspace?'B':'V', im1->depth[2], ch_cr[2]);
+		set_text_color(RGBspace?0xFF0000FF:0xFF404040);	GUIPrint(xend, xend, ystart+tdy  , 1, "%c     %7d %9f", RGBspace?'R':'Y', im1->depth[0], im1->src_depth[0]/ch_entropy[0]);
+		set_text_color(RGBspace?0xFF00C000:0xFFC00000);	GUIPrint(xend, xend, ystart+tdy*2, 1, "%c     %7d %9f", RGBspace?'G':'U', im1->depth[1], im1->src_depth[1]/ch_entropy[1]);
+		set_text_color(RGBspace?0xFFFF0000:0xFF0000C0);	GUIPrint(xend, xend, ystart+tdy*3, 1, "%c     %7d %9f", RGBspace?'B':'V', im1->depth[2], im1->src_depth[2]/ch_entropy[2]);
+		if(im1->depth[3])
+		{
+			set_text_color(RGBspace?0xFF404040:0xFF00C000);	GUIPrint(xend, xend, ystart+tdy*4, 1, "%c     %7d %9f", RGBspace?'A':'W', im1->depth[3], im1->src_depth[1]/ch_entropy[3]);//src_depth[3] is zero assuming no alpha
+		}
 		//set_text_color(0xFFFF00FF);	GUIPrint(xend, xend, ystart+tdy*4, 1, "Joint %7d %9f", usage[3], ch_cr[3]);
 		set_text_color(prevtxtcolor);
 		set_bk_color(prevbkcolor);

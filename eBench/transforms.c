@@ -61,7 +61,7 @@ int calc_maxdepth(Image const *image, int *inflation)
 		maxdepth=next;
 	return maxdepth;
 }
-void calc_depthfromdata(int *image, int iw, int ih, char *depths)
+void calc_depthfromdata(int *image, int iw, int ih, char *depths, const char *src_depths)
 {
 	ptrdiff_t res=(ptrdiff_t)iw*ih;
 	for(int kc=0;kc<3;++kc)
@@ -77,6 +77,7 @@ void calc_depthfromdata(int *image, int iw, int ih, char *depths)
 		}
 		int nlevels=vmax-vmin;
 		depths[kc]=nlevels?floor_log2(nlevels)+1:0;
+		depths[kc]=MAXVAR(depths[kc], src_depths[kc]);
 	}
 }
 
@@ -133,6 +134,11 @@ void colortransform_YCbCr_R_v1(Image *image, int fwd)
 		{
 			int r=image->data[k], g=image->data[k|1], b=image->data[k|2];
 			
+			//g+=r;	//r+g		X
+			//r-=g>>1;//r-(r+g)/2 = (r-g)/2
+			//b-=g>>1;
+			//g+=b;
+
 			r-=g;		//diff(r, g)            [ 1      -1      0  ].RGB	Cr
 			g+=r>>1;
 			b-=g;		//diff(b, av(r, g))     [-1/2    -1/2    1  ].RGB	Cb
@@ -418,6 +424,66 @@ void colortransform_YCbCr_R_v7(Image *image, int fwd)
 		image->depth[2]-=image->depth[2]>image->src_depth[2];
 	}
 }
+void colortransform_CrCgCb_R(Image *image, int fwd)
+{
+	if(fwd)
+	{
+		for(ptrdiff_t k=(ptrdiff_t)image->iw*image->ih*4-4;k>=0;k-=4)
+		{
+			//if(k==(ptrdiff_t)image->iw*image->ih*4-4)
+			//	printf("");
+
+			int prev_b=k?image->data[k-2]:0, r=image->data[k], g=image->data[k|1], b=image->data[k|2];
+			
+			//b-=g;
+			//g+=b>>1;
+			//g-=r;
+			//r+=g>>1;
+			//r-=prev_b;
+			//prev_b+=r>>1;
+
+			//b-=g;	//diff	LPF
+			//g+=b>>1;//av	HPF
+
+			b-=g;
+			g-=r;
+			r-=prev_b;
+
+			if(k)
+				image->data[k-2]=prev_b;
+			image->data[k|0]=r;//Cr
+			image->data[k|1]=g;//Cg
+			image->data[k|2]=b;//Cb
+		}
+		image->depth[0]+=image->depth[0]<24;
+		image->depth[1]+=image->depth[1]<24;
+		image->depth[2]+=image->depth[2]<24;
+	}
+	else
+	{
+		for(ptrdiff_t k=0, len=(ptrdiff_t)image->iw*image->ih*4;k<len;k+=4)
+		{
+			//if(k==(ptrdiff_t)image->iw*image->ih*4-4)
+			//	printf("");
+
+			int prev_b=k?image->data[k-2]:0, r=image->data[k], g=image->data[k|1], b=image->data[k|2];
+			
+			//g-=b>>1;
+			//b+=g;
+
+			r+=prev_b;
+			g+=r;
+			b+=g;
+
+			image->data[k|0]=r;
+			image->data[k|1]=g;
+			image->data[k|2]=b;
+		}
+		image->depth[0]-=image->depth[0]>image->src_depth[1];
+		image->depth[1]-=image->depth[1]>image->src_depth[1];
+		image->depth[2]-=image->depth[2]>image->src_depth[2];
+	}
+}
 void colortransform_Pei09(Image *image, int fwd)//Pei09 RCT
 {
 	char temp;
@@ -535,6 +601,159 @@ void colortransform_subtractgreen(Image *image, int fwd)
 			image->data[k|2]=Cb;
 		}
 	}
+}
+void rct_yrgb_v1(Image *image, int fwd)
+{
+	if(fwd)
+	{
+		for(ptrdiff_t k=0, len=(ptrdiff_t)image->iw*image->ih*4;k<len;k+=4)
+		{
+			int r=image->data[k], g=image->data[k|1], b=image->data[k|2];
+
+			//int base=r>>1;
+			//r-=base;
+
+			int base=r;//C={r, g, b}, base=C[argmin(abs(C))]
+			if(abs(base)>abs(g))base=g;
+			if(abs(base)>abs(b))base=b;
+			r-=base;
+			g-=base;
+			b-=base;
+
+			//int base=image->data[k|3];
+			//r>>=1;
+			//g>>=1;
+			//b>>=1;
+
+			image->data[k  ]=r;//Y
+			image->data[k|1]=g;//Cb
+			image->data[k|2]=b;//Cr
+			image->data[k|3]=base;//Cg
+		}
+		int d0=image->depth[0], d1=image->depth[1], d2=image->depth[2];
+		int dbase=MINVAR(d0, d1);
+		dbase=MINVAR(dbase, d2);
+		d0+=d0<24;
+		d1+=d1<24;
+		d2+=d2<24;
+		image->depth[0]=dbase;
+		image->depth[1]=d2;
+		image->depth[2]=d0;
+		image->depth[3]=d1;
+	}
+	else
+	{
+		image->depth[0]-=image->depth[0]>image->src_depth[0];
+		image->depth[1]-=image->depth[1]>image->src_depth[1];
+		image->depth[2]-=image->depth[2]>image->src_depth[2];
+		image->depth[3]=0;
+		for(ptrdiff_t k=0, len=(ptrdiff_t)image->iw*image->ih*4;k<len;k+=4)
+		{
+			int base=image->data[k], b=image->data[k|1], r=image->data[k|2], g=image->data[k|3];
+			
+			r+=base;
+			b+=base;
+			g+=base;
+
+			image->data[k  ]=r;
+			image->data[k|1]=g;
+			image->data[k|2]=b;
+			image->data[k|3]=0xFF;
+		}
+	}
+}
+void rct_yrgb_v2(Image *image, int fwd)
+{
+	if(fwd)
+	{
+		for(ptrdiff_t k=0, len=(ptrdiff_t)image->iw*image->ih*4;k<len;k+=4)
+		{
+			int r=image->data[k], g=image->data[k|1], b=image->data[k|2];
+
+			int base=(r+g+b+1)/3;
+			//int base=(r+g+g+b+2)>>2;
+			r-=base;
+			g-=base;
+			b-=base;
+
+			image->data[k  ]=base;//Y
+			image->data[k|1]=b;//Cb
+			image->data[k|2]=r;//Cr
+			image->data[k|3]=g;//Cg
+		}
+		int d0=image->depth[0], d1=image->depth[1], d2=image->depth[2];
+		int dbase=MINVAR(d0, d1);
+		dbase=MINVAR(dbase, d2);
+		d0+=d0<24;
+		d1+=d1<24;
+		d2+=d2<24;
+		image->depth[0]=dbase;
+		image->depth[1]=d2;
+		image->depth[2]=d0;
+		image->depth[3]=d1;
+	}
+	else
+	{
+		image->depth[0]-=image->depth[0]>image->src_depth[0];
+		image->depth[1]-=image->depth[1]>image->src_depth[1];
+		image->depth[2]-=image->depth[2]>image->src_depth[2];
+		image->depth[3]=0;
+		for(ptrdiff_t k=0, len=(ptrdiff_t)image->iw*image->ih*4;k<len;k+=4)
+		{
+			int base=image->data[k], b=image->data[k|1], r=image->data[k|2], g=image->data[k|3];
+			
+			r+=base;
+			b+=base;
+			g+=base;
+
+			image->data[k  ]=r;
+			image->data[k|1]=g;
+			image->data[k|2]=b;
+			image->data[k|3]=0xFF;
+		}
+	}
+}
+void ct_cmyk_fwd(Image *image)//irreversible
+{
+	int nlevels[]=
+	{
+		1<<image->depth[0],
+		1<<image->depth[1],
+		1<<image->depth[2],
+	};
+	for(ptrdiff_t k=0, len=(ptrdiff_t)image->iw*image->ih*4;k<len;k+=4)
+	{
+		double
+			r=(double)(image->data[k|0]+(nlevels[0]>>1))/(nlevels[0]-1),//[0, 1]
+			g=(double)(image->data[k|1]+(nlevels[1]>>1))/(nlevels[1]-1),
+			b=(double)(image->data[k|2]+(nlevels[2]>>1))/(nlevels[2]-1);
+
+		double luma=MAXVAR(r, g);
+		luma=MAXVAR(luma, b);
+		if(luma)
+		{
+			r=(luma-r)/luma;
+			g=(luma-g)/luma;
+			b=(luma-b)/luma;
+			luma=1-luma;
+		}
+		else
+		{
+			luma=1;
+			r=g=b=0;
+		}
+
+		if((unsigned)(int)(r*255)>255||(unsigned)(int)(g*255)>255||(unsigned)(int)(b*255)>255||(unsigned)(int)(luma*255)>255)
+			LOG_ERROR("");
+		image->data[k|0]=(unsigned char)(255*r)-128;//C
+		image->data[k|1]=(unsigned char)(255*g)-128;//M
+		image->data[k|2]=(unsigned char)(255*b)-128;//Y
+		image->data[k|3]=(unsigned char)(255*luma)-128;//K
+	}
+	image->depth[0]=8;
+	image->depth[1]=8;
+	image->depth[2]=8;
+	image->depth[3]=8;
 }
 
 void colortransform_lossy_YCbCr(Image *image, int fwd)//for demonstration purposes only
@@ -827,9 +1046,10 @@ void rct_custom_optimize(Image const *image, int *params)
 		//preview
 #if 1
 		{
-			ch_cr[0]=(float)(1/loss_bestsofar[0]);
-			ch_cr[1]=(float)(1/loss_bestsofar[1]);
-			ch_cr[2]=(float)(1/loss_bestsofar[2]);
+			ch_entropy[0]=(float)(loss_bestsofar[0]*image->src_depth[0]);
+			ch_entropy[1]=(float)(loss_bestsofar[1]*image->src_depth[1]);
+			ch_entropy[2]=(float)(loss_bestsofar[2]*image->src_depth[2]);
+			ch_entropy[3]=(float)(loss_bestsofar[3]*image->src_depth[1]);
 			//unsigned char *ptr;
 			//addhalf(temp, iw, ih, 3, 4);
 			//SWAPVAR(image, temp, ptr);
@@ -1767,8 +1987,10 @@ void pred_clampedgrad(Image *src, int fwd, int enable_ma)
 	Image *dst=0;
 	image_copy(&dst, src);
 	int *pixels=fwd?src->data:dst->data, *errors=fwd?dst->data:src->data;
-	for(int kc=0;kc<3;++kc)
+	for(int kc=0;kc<4;++kc)
 	{
+		if(!src->depth[kc])
+			continue;
 		int nlevels=1<<src->depth[kc];
 		for(int ky=0, idx=0;ky<src->ih;++ky)
 		{
@@ -1801,6 +2023,163 @@ void pred_clampedgrad(Image *src, int fwd, int enable_ma)
 		++src->depth[0];
 		++src->depth[1];
 		++src->depth[2];
+		src->depth[3]+=src->depth[3]!=0;
+	}
+	free(dst);
+}
+
+void pred_dir(Image *src, int fwd, int enable_ma)
+{
+	Image *dst=0;
+	image_copy(&dst, src);
+	int maxdepth=calc_maxdepth(src, 0), ssesize=(1<<maxdepth)<<1;
+	int *ssearr=(int*)malloc(ssesize*sizeof(int));
+	if(!ssearr||!dst)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	int *pixels=fwd?src->data:dst->data, *errors=fwd?dst->data:src->data;
+	for(int kc=0;kc<4;++kc)
+	{
+		if(!src->depth[kc])
+			continue;
+		memset(ssearr, 0, ssesize*sizeof(int));
+		int nlevels=1<<src->depth[kc];
+		for(int ky=0, idx=0;ky<src->ih;++ky)
+		{
+			for(int kx=0;kx<src->iw;++kx, ++idx)
+			{
+#define LOAD(X, Y) ((unsigned)(ky+(Y))<(unsigned)src->ih&&(unsigned)(kx+(X))<(unsigned)src->iw?pixels[(idx+src->iw*(Y)+(X))<<2|kc]:0)
+				int nb[]=
+				{
+					//LOAD(-2, -2),
+					//LOAD(-1, -2),
+					//LOAD( 0, -2),
+					//LOAD( 1, -2),
+					//LOAD( 2, -2),
+					//LOAD(-2, -1),
+					//LOAD(-1, -1),
+					//LOAD( 0, -1),
+					//LOAD( 1, -1),
+					//LOAD( 2, -1),
+					//LOAD(-2,  0),
+					//LOAD(-1,  0),
+
+					LOAD(-1,  0),//W	180
+					LOAD(-1, -1),//NW	135
+					LOAD( 0, -1),//N	90
+					LOAD( 1, -1),//NE	45
+				};
+#undef  LOAD
+				int curr=pixels[idx<<2|kc];
+				int arg=0;
+				for(int k=1;k<_countof(nb);++k)
+				{
+					if(abs(curr-nb[arg])>abs(curr-nb[k]))
+						arg=k;
+				}
+				int pred=nb[arg];
+				
+				pred^=-fwd;
+				pred+=fwd;
+				pred+=src->data[idx<<2|kc];
+				if(enable_ma)
+				{
+					pred+=nlevels>>1;
+					pred&=nlevels-1;
+					pred-=nlevels>>1;
+				}
+				dst->data[idx<<2|kc]=pred;
+				//dst->data[idx<<2|kc]=127-arg*64;
+#if 0
+				int
+					N =ky    ?pixels[(idx-src->iw  )<<2|kc]:0,
+					W =kx    ?pixels[(idx        -1)<<2|kc]:0,
+					NW=kx&&ky?pixels[(idx-src->iw-1)<<2|kc]:0,
+					NE=kx+1<src->iw&&ky?pixels[(idx-src->iw+1)<<2|kc]:0;
+
+				int
+					eN =ky    ?errors[(idx-src->iw  )<<2|kc]:0,
+					eW =kx    ?errors[(idx        -1)<<2|kc]:0,
+					eNW=kx&&ky?errors[(idx-src->iw-1)<<2|kc]:0,
+					eNE=kx+1<src->iw&&ky?errors[(idx-src->iw-1)<<2|kc]:0;
+
+				//int eprev[]=
+				//{
+				//	kc>0?errors[idx<<2|0]:0,
+				//	kc>1?errors[idx<<2|1]:0,
+				//	kc>2?errors[idx<<2|2]:0,
+				//};
+				long long weights[]=
+				{
+					0x10000LL/(abs(eN)+1),
+					0x10000LL/(abs(eW)+1),
+					0x10000LL/(abs(eNW)+1),
+					0x10000LL/(abs(eNE)+1),
+				};
+				if(kx==100&&ky==100)
+					printf("");
+				long long sum=weights[0]+weights[1]+weights[2]+weights[3];
+				int pred=(int)((weights[0]*N+weights[1]*W+weights[2]*NW+weights[3]*NE+(sum>>1))/sum);
+
+				int *curr_cell=ssearr+(eN+eW+nlevels);
+				//int *curr_cell=ssearr+(((eN+0+(nlevels>>1))<<src->depth[kc]|(eW+0+(nlevels>>1)))&((1<<(src->depth[kc]<<1))-1));
+				int sse_sum=*curr_cell>>12, sse_count=*curr_cell&0xFFF;
+				//int *cell[]=
+				//{
+				//	//ssearr+(((eN-1+(nlevels>>1))<<src->depth[kc]|(eW-1+(nlevels>>1)))&((1<<(src->depth[kc]<<1))-1)),
+				//	ssearr+(((eN-1+(nlevels>>1))<<src->depth[kc]|(eW+0+(nlevels>>1)))&((1<<(src->depth[kc]<<1))-1)),
+				//	//ssearr+(((eN-1+(nlevels>>1))<<src->depth[kc]|(eW+1+(nlevels>>1)))&((1<<(src->depth[kc]<<1))-1)),
+				//	ssearr+(((eN+0+(nlevels>>1))<<src->depth[kc]|(eW-1+(nlevels>>1)))&((1<<(src->depth[kc]<<1))-1)),
+				//	curr_cell,
+				//	ssearr+(((eN+0+(nlevels>>1))<<src->depth[kc]|(eW+1+(nlevels>>1)))&((1<<(src->depth[kc]<<1))-1)),
+				//	//ssearr+(((eN+1+(nlevels>>1))<<src->depth[kc]|(eW-1+(nlevels>>1)))&((1<<(src->depth[kc]<<1))-1)),
+				//	ssearr+(((eN+1+(nlevels>>1))<<src->depth[kc]|(eW+0+(nlevels>>1)))&((1<<(src->depth[kc]<<1))-1)),
+				//	//ssearr+(((eN+1+(nlevels>>1))<<src->depth[kc]|(eW+1+(nlevels>>1)))&((1<<(src->depth[kc]<<1))-1)),
+				//};
+				//int sse_sum=0, sse_count=0;
+				//for(int k=0;k<_countof(cell);++k)
+				//{
+				//	sse_sum+=*cell[k]>>12;
+				//	sse_count+=*cell[k]&0xFFF;
+				//}
+				if(sse_count)
+					pred+=sse_sum/sse_count;
+
+				pred=MEDIAN3(N, W, pred);
+				
+				pred^=-fwd;
+				pred+=fwd;
+				pred+=src->data[idx<<2|kc];
+				if(enable_ma)
+				{
+					pred+=nlevels>>1;
+					pred&=nlevels-1;
+					pred-=nlevels>>1;
+				}
+				dst->data[idx<<2|kc]=pred;
+
+				int error=errors[idx<<2|kc];
+				++sse_count;
+				sse_sum+=error;
+				if(sse_count>640)
+				{
+					sse_count>>=1;
+					sse_sum>>=1;
+				}
+				*curr_cell=sse_sum<<12|sse_count;
+#endif
+			}
+		}
+	}
+	memcpy(src->data, dst->data, (size_t)src->iw*src->ih*sizeof(int[4]));
+	if(!enable_ma)
+	{
+		++src->depth[0];
+		++src->depth[1];
+		++src->depth[2];
+		src->depth[3]+=src->depth[3]!=0;
 	}
 	free(dst);
 }
@@ -1808,8 +2187,10 @@ void pred_clampedgrad(Image *src, int fwd, int enable_ma)
 void pred_select(Image const *src, Image *dst, int fwd, int enable_ma)
 {
 	const int *pixels=fwd?src->data:dst->data;
-	for(int kc=0;kc<3;++kc)
+	for(int kc=0;kc<4;++kc)
 	{
+		if(!src->depth[kc])
+			continue;
 		int nlevels=1<<src->depth[kc];
 		for(int ky=0, idx=0;ky<src->ih;++ky)
 		{
@@ -1837,14 +2218,17 @@ void pred_select(Image const *src, Image *dst, int fwd, int enable_ma)
 	dst->depth[0]=src->depth[0]+!enable_ma;
 	dst->depth[1]=src->depth[1]+!enable_ma;
 	dst->depth[2]=src->depth[2]+!enable_ma;
+	dst->depth[3]=src->depth[3]+(!enable_ma&(src->depth[3]!=0));
 }
 
 #define LIN_NNB (2*(LIN_REACH+1)*LIN_REACH)
 void pred_linear(Image const *src, Image *dst, const int *coeffs, int lgden, int fwd, int enable_ma)
 {
 	const int *pixels=fwd?src->data:dst->data;
-	for(int kc=0;kc<3;++kc)
+	for(int kc=0;kc<4;++kc)
 	{
+		if(!src->depth[kc])
+			continue;
 		int nlevels=1<<src->depth[kc];
 		for(int ky=0;ky<src->ih;++ky)
 		{
@@ -1889,6 +2273,7 @@ void pred_linear(Image const *src, Image *dst, const int *coeffs, int lgden, int
 	dst->depth[0]=src->depth[0]+!enable_ma;
 	dst->depth[1]=src->depth[1]+!enable_ma;
 	dst->depth[2]=src->depth[2]+!enable_ma;
+	dst->depth[3]=src->depth[3]+(!enable_ma&(src->depth[3]!=0));
 }
 
 //CUSTOM reach-2 predictor
@@ -1898,8 +2283,10 @@ void pred_custom(Image *src, int fwd, int enable_ma, const int *params)
 	Image *dst=0;
 	image_copy(&dst, src);
 	int *pixels=fwd?src->data:dst->data, *errors=fwd?dst->data:src->data;
-	for(int kc=0;kc<3;++kc)
+	for(int kc=0;kc<4;++kc)
 	{
+		if(!src->depth[kc])
+			continue;
 		int nlevels=1<<src->depth[kc];
 		for(int ky=0, idx=0;ky<src->ih;++ky)
 		{
@@ -1950,6 +2337,7 @@ void pred_custom(Image *src, int fwd, int enable_ma, const int *params)
 		++src->depth[0];
 		++src->depth[1];
 		++src->depth[2];
+		src->depth[3]+=src->depth[3]!=0;
 	}
 	free(dst);
 }
@@ -2068,9 +2456,10 @@ void pred_custom_optimize(Image const *image, int *params)
 		//preview
 #if 1
 		{
-			ch_cr[0]=(float)(1/loss_bestsofar[0]);
-			ch_cr[1]=(float)(1/loss_bestsofar[1]);
-			ch_cr[2]=(float)(1/loss_bestsofar[2]);
+			ch_entropy[0]=(float)(loss_bestsofar[0]*image->src_depth[0]);
+			ch_entropy[1]=(float)(loss_bestsofar[1]*image->src_depth[1]);
+			ch_entropy[2]=(float)(loss_bestsofar[2]*image->src_depth[2]);
+			ch_entropy[3]=(float)(loss_bestsofar[3]*image->src_depth[1]);
 			//unsigned char *ptr;
 			//addhalf(temp, iw, ih, 3, 4);
 			//SWAPVAR(image, temp, ptr);
@@ -2468,12 +2857,23 @@ void pred_w2_apply(Image *src, int fwd, int enable_ma, short *params)
 	pred_w2_prealloc(src->data, src->iw, src->ih, src->depth[0], 0, params             , fwd, enable_ma, buf2, temp);
 	pred_w2_prealloc(src->data, src->iw, src->ih, src->depth[1], 1, params+PW2_NPARAM  , fwd, enable_ma, buf2, temp);
 	pred_w2_prealloc(src->data, src->iw, src->ih, src->depth[2], 2, params+PW2_NPARAM*2, fwd, enable_ma, buf2, temp);
+	if(src->depth[3])
+		pred_w2_prealloc(src->data, src->iw, src->ih, src->depth[3], 3, params+PW2_NPARAM, fwd, enable_ma, buf2, temp);
 
 	for(ptrdiff_t k=0;k<res;++k)
 	{
 		src->data[k<<2|0]=buf2[k<<2|0];
 		src->data[k<<2|1]=buf2[k<<2|1];
 		src->data[k<<2|2]=buf2[k<<2|2];
+		if(src->depth[3])
+			src->data[k<<2|3]=buf2[k<<2|3];
+	}
+	if(!enable_ma)
+	{
+		++src->depth[0];
+		++src->depth[1];
+		++src->depth[2];
+		src->depth[3]+=src->depth[3]!=0;
 	}
 
 	free(temp);
@@ -2689,12 +3089,16 @@ void pred_jxl_apply(Image *src, int fwd, int enable_ma, short *params)
 	pred_jxl_prealloc(src->data, src->iw, src->ih, src->depth[0], 0, params   , fwd, enable_ma, buf2, temp);
 	pred_jxl_prealloc(src->data, src->iw, src->ih, src->depth[1], 1, params+11, fwd, enable_ma, buf2, temp);
 	pred_jxl_prealloc(src->data, src->iw, src->ih, src->depth[2], 2, params+22, fwd, enable_ma, buf2, temp);
+	if(src->depth[3])
+		pred_jxl_prealloc(src->data, src->iw, src->ih, src->depth[3], 3, params+11, fwd, enable_ma, buf2, temp);
 
 	for(int k=0;k<res;++k)
 	{
 		src->data[k<<2  ]=buf2[k<<2  ];
 		src->data[k<<2|1]=buf2[k<<2|1];
 		src->data[k<<2|2]=buf2[k<<2|2];
+		if(src->depth[3])
+			src->data[k<<2|3]=buf2[k<<2|3];
 	}
 
 	free(temp);
@@ -2715,12 +3119,16 @@ void pred_jmj_apply(Image *src, int fwd, int enable_ma)
 	pred_jxl_prealloc(src->data, src->iw, src->ih, src->depth[0], 0, jxlparams_i16        , fwd, enable_ma, buf2, temp);
 	pred_w2_prealloc (src->data, src->iw, src->ih, src->depth[1], 1, pw2_params+PW2_NPARAM, fwd, enable_ma, buf2, temp);
 	pred_jxl_prealloc(src->data, src->iw, src->ih, src->depth[2], 2, jxlparams_i16+22     , fwd, enable_ma, buf2, temp);
+	if(src->depth[3])
+		pred_jxl_prealloc(src->data, src->iw, src->ih, src->depth[3], 3, jxlparams_i16+22, fwd, enable_ma, buf2, temp);
 
 	for(int k=0;k<res;++k)
 	{
 		src->data[k<<2  ]=buf2[k<<2  ];
 		src->data[k<<2|1]=buf2[k<<2|1];
 		src->data[k<<2|2]=buf2[k<<2|2];
+		if(src->depth[3])
+			src->data[k<<2|3]=buf2[k<<2|3];
 	}
 
 	free(temp);
@@ -2728,7 +3136,7 @@ void pred_jmj_apply(Image *src, int fwd, int enable_ma)
 }
 
 
-//CUSTOM3
+//CUSTOM3		doesn't support RCT_YRGB
 #define C3_OPT_NCOMP (C3_NPARAMS>>5)
 Custom3Params c3_params={0};
 int fast_dot(const short *a, const short *b, int count)
@@ -2970,9 +3378,10 @@ void custom3_opt(Image const *src, Custom3Params *srcparams, int niter, int mask
 #if 1
 		if(loud)
 		{
-			ch_cr[0]=(float)(1/info.invCR[0]);
-			ch_cr[1]=(float)(1/info.invCR[1]);
-			ch_cr[2]=(float)(1/info.invCR[2]);
+			ch_entropy[0]=(float)(info.invCR[0]*src->src_depth[0]);
+			ch_entropy[1]=(float)(info.invCR[1]*src->src_depth[1]);
+			ch_entropy[2]=(float)(info.invCR[2]*src->src_depth[2]);
+			ch_entropy[3]=(float)(info.invCR[3]*src->src_depth[1]);
 			//int *ptr;
 			//SWAPVAR(image, temp, ptr);
 			io_render();
@@ -3249,8 +3658,10 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 	}
 	memcpy(b2, src->data, res*sizeof(int[4]));//copy alpha
 	const int *pixels=fwd?src->data:b2, *errors=fwd?b2:src->data;
-	for(int kc=0;kc<3;++kc)
+	for(int kc=0;kc<4;++kc)
 	{
+		if(!src->depth[kc])
+			continue;
 		int nlevels=1<<src->depth[kc];
 		int maxerror=0;
 		short *params=g2_weights+(_countof(g2_weights)/3)*kc;
@@ -5288,8 +5699,10 @@ void image_dct4_fwd(Image *image)
 		return;
 	}
 	memset(temp, 0, MAXVAR(image->iw, image->ih)*sizeof(int));
-	for(int kc=0;kc<3;++kc)
+	for(int kc=0;kc<4;++kc)
 	{
+		if(!image->depth[kc])
+			continue;
 #if 1
 		for(int ky=0;ky<image->ih;++ky)
 		{
@@ -5354,8 +5767,10 @@ void image_dct4_inv(Image *image)
 		return;
 	}
 	memset(temp, 0, MAXVAR(image->iw, image->ih)*sizeof(int));
-	for(int kc=0;kc<3;++kc)
+	for(int kc=0;kc<4;++kc)
 	{
+		if(!image->depth[kc])
+			continue;
 #if 1
 		for(int kx=0;kx<image->iw;++kx)
 		{
@@ -5497,8 +5912,10 @@ void image_dct8_fwd(Image *image)
 		return;
 	}
 	memset(temp, 0, MAXVAR(image->iw, image->ih)*sizeof(int));
-	for(int kc=0;kc<3;++kc)
+	for(int kc=0;kc<4;++kc)
 	{
+		if(!image->depth[kc])
+			continue;
 #if 1
 		for(int ky=0;ky<image->ih;++ky)
 		{
@@ -5586,8 +6003,10 @@ void image_dct8_inv(Image *image)
 		return;
 	}
 	memset(temp, 0, MAXVAR(image->iw, image->ih)*sizeof(int));
-	for(int kc=0;kc<3;++kc)
+	for(int kc=0;kc<4;++kc)
 	{
+		if(!image->depth[kc])
+			continue;
 #if 1
 		for(int kx=0;kx<image->iw;++kx)
 		{

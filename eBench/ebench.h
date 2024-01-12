@@ -640,7 +640,7 @@ void image_copy_nodata(Image **dst, Image const *src);
 void image_copy(Image **dst, Image const *src);
 
 
-extern float ch_cr[4];
+extern double ch_entropy[4];
 void update_image();
 
 
@@ -652,7 +652,7 @@ void apply_selected_transforms(Image *image);
 void calc_histogram(const int *buf, int iw, int ih, int kc, int x1, int x2, int y1, int y2, int depth, int *hist, int *hist8);
 double calc_entropy(const int *hist, int nlevels, int sum);//pass -1 if sum is unknown
 int calc_maxdepth(Image const *image, int *inflation);
-void calc_depthfromdata(int *image, int iw, int ih, char *depths);
+void calc_depthfromdata(int *image, int iw, int ih, char *depths, const char *src_depths);
 void calc_csize_ans_separate(Image const *image, size_t *csizes);
 void calc_csize_ans_energy(Image const *image, size_t *csizes);
 void calc_csize_ans_energy_hybrid(Image const *image, size_t *csizes, const int *config);
@@ -667,9 +667,13 @@ void colortransform_YCbCr_R_v4(Image *image, int fwd);
 void colortransform_YCbCr_R_v5(Image *image, int fwd);
 void colortransform_YCbCr_R_v6(Image *image, int fwd);
 void colortransform_YCbCr_R_v7(Image *image, int fwd);
+void colortransform_CrCgCb_R(Image *image, int fwd);
 void colortransform_Pei09(Image *image, int fwd);
 void colortransform_JPEG2000(Image *image, int fwd);
 void colortransform_subtractgreen(Image *image, int fwd);
+void rct_yrgb_v1(Image *image, int fwd);
+void rct_yrgb_v2(Image *image, int fwd);
+void ct_cmyk_fwd(Image *image);
 
 void colortransform_lossy_YCbCr(Image *image, int fwd);
 void colortransform_lossy_XYB(Image *image, int fwd);
@@ -691,6 +695,8 @@ void rct_adaptive(Image *src, int fwd);
 
 //spatial transforms
 void pred_clampedgrad(Image *image, int fwd, int enable_ma);
+
+void pred_dir(Image *src, int fwd, int enable_ma);
 
 void pred_select(Image const *src, Image *dst, int fwd, int enable_ma);
 

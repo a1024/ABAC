@@ -19,11 +19,12 @@
 #include<stdlib.h>
 #include<stdarg.h>
 #include<string.h>
-#include<sys/stat.h>
+#include<ctype.h>
 #include<math.h>
+#include<sys/stat.h>
 #include<errno.h>
 #include<time.h>
-#ifdef _MSC_VER
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include<Windows.h>//QueryPerformance...
 #include<conio.h>
@@ -535,7 +536,7 @@ ArrayHandle array_construct(const void *src, size_t esize, size_t count, size_t 
 	cap=dstsize+pad*esize;
 	arr=(ArrayHandle)malloc(sizeof(ArrayHeader)+cap);
 	ASSERT_P(arr);
-	arr->count=count;
+	arr->count=count*rep;
 	arr->esize=esize;
 	arr->cap=cap;
 	arr->destructor=destructor;
@@ -677,9 +678,15 @@ void* array_replace(ArrayHandle *arr, size_t idx, size_t rem_count, const void *
 void* array_at(ArrayHandle *arr, size_t idx)
 {
 	if(!arr[0])
+	{
+		LOG_ERROR("nullptr exception");
 		return 0;
+	}
 	if(idx>=arr[0]->count)
+	{
+		LOG_ERROR("OOB");
 		return 0;
+	}
 	return arr[0]->data+idx*arr[0]->esize;
 }
 void* array_back(ArrayHandle *arr)
@@ -779,20 +786,24 @@ void dlist_clear(DListHandle list)
 		list->nobj=list->nnodes=0;
 	}
 }
-void dlist_appendtoarray(DListHandle list, ArrayHandle *dst)
+size_t dlist_appendtoarray(DListHandle list, ArrayHandle *dst)
 {
 	DNodeHandle it;
-	size_t payloadsize;
+	size_t start, payloadsize;
 
 	if(!*dst)
+	{
+		start=0;
 		*dst=array_construct(0, list->objsize, 0, 0, list->nnodes*list->objpernode, list->destructor);
+	}
 	else
 	{
 		if(dst[0]->esize!=list->objsize)
 		{
 			LOG_ERROR("dlist_appendtoarray(): dst->esize=%d, list->objsize=%d", dst[0]->esize, list->objsize);
-			return;
+			return 0;
 		}
+		start=dst[0]->count;
 		ARRAY_APPEND(*dst, 0, 0, 0, list->nnodes*list->objpernode);
 	}
 	it=list->i;
@@ -804,6 +815,7 @@ void dlist_appendtoarray(DListHandle list, ArrayHandle *dst)
 		it=it->next;
 	}
 	dst[0]->count+=list->nobj;
+	return start;
 }
 
 static void dlist_append_node(DListHandle list)
@@ -1982,12 +1994,13 @@ ArrayHandle load_file(const char *filename, int bin, int pad, int erroronfail)
 	memset(str->data+str->count, 0, str->cap-str->count);
 	return str;
 }
-int save_file_bin(const char *filename, const unsigned char *src, size_t srcSize)
+int save_file(const char *filename, const unsigned char *src, size_t srcSize, int is_bin)
 {
 	FILE *f;
 	size_t bytesRead;
+	char mode[]={'w', is_bin?'b':0, 0};
 
-	fopen_s(&f, filename, "wb");
+	fopen_s(&f, filename, mode);
 	if(!f)
 	{
 		printf("Failed to save %s\n", filename);
@@ -1995,10 +2008,27 @@ int save_file_bin(const char *filename, const unsigned char *src, size_t srcSize
 	}
 	bytesRead=fwrite(src, 1, srcSize, f);
 	fclose(f);
-	if(bytesRead!=srcSize)
+	if(is_bin&&bytesRead!=srcSize)
 	{
 		printf("Failed to save %s\n", filename);
 		return 0;
 	}
 	return 1;
+}
+
+ArrayHandle searchfor_file(const char *searchpath, const char *filetitle)
+{
+	ArrayHandle filename;
+	ptrdiff_t size;
+
+	STR_COPY(filename, filetitle, strlen(filetitle));
+	size=get_filesize((char*)filename->data);
+	if(size==-1)
+	{
+		array_insert(&filename, 0, searchpath, strlen(searchpath), 1, 1);
+		size=get_filesize((char*)filename->data);
+		if(size==-1)
+			array_free(&filename);
+	}
+	return filename;
 }

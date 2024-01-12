@@ -193,7 +193,7 @@ typedef struct DListStruct
 void dlist_init(DListHandle list, size_t objsize, size_t objpernode, void (*destructor)(void*));
 void dlist_copy(DListHandle dst, DListHandle src);
 void dlist_clear(DListHandle list);
-void dlist_appendtoarray(DListHandle list, ArrayHandle *dst);
+size_t dlist_appendtoarray(DListHandle list, ArrayHandle *dst);
 //void dlist_appendtoarrayandclear(DListHandle list, ArrayHandle *dst);
 
 void* dlist_push_back1(DListHandle list, const void *obj);//shallow copy of obj
@@ -275,7 +275,7 @@ typedef struct SListStruct
 		back;	//prev always nullptr, can only append to back
 } SList, *SListHandle;
 
-//API
+//single-linked list API
 void slist_init(SListHandle list, size_t esize, void (*destructor)(void*));
 void slist_clear(SListHandle list);
 void* slist_push_front(SListHandle list, const void *data);
@@ -401,7 +401,9 @@ ArrayHandle filter_path(const char *path, int len);//replaces back slashes with 
 ArrayHandle get_filenames(const char *path, const char **extensions, int extCount, int fullyqualified);//returns array of strings, extensions without period '.'
 
 ArrayHandle load_file(const char *filename, int bin, int pad, int erroronfail);
-int save_file_bin(const char *filename, const unsigned char *src, size_t srcSize);
+int save_file(const char *filename, const unsigned char *src, size_t srcSize, int is_bin);
+
+ArrayHandle searchfor_file(const char *searchpath, const char *filetitle);
 
 	
 #ifdef __cplusplus
