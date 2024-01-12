@@ -226,6 +226,25 @@ void pack3_inv(char *buf, int res)
 		buf[k<<2|3]=0xFF;
 	}
 }
+int get_nch(const char *buf, int res)//returns nch = {0 degenerate, 1 gray, 2 gray_alpha, 3, rgb, 4, rgb_alpha}
+{
+	int has_image=0, gray=1, has_alpha=0;
+	int initial=buf[0];
+	for(int k=0;k<res;++k)
+	{
+		char r=buf[k<<2|0], g=buf[k<<2|1], b=buf[k<<2|2], a=buf[k<<2|3];
+		if(r!=initial)
+			has_image=1;
+		if(r!=g||g!=b)
+			gray=0;
+		if(a!=-1)
+			has_alpha=1;
+	}
+	if(!has_image)
+		return 0;
+	int nch=gray+!gray*3+has_alpha;
+	return nch;
+}
 
 
 void colortransform_YCoCg_R_fwd(char *buf, int iw, int ih)
@@ -988,7 +1007,7 @@ void pred_w2_opt_v2(const char *buf2, int iw, int ih, short *params, int loud)
 	{
 		short *param=params+kc*PW2_NPARAM;
 		double csize0=pred_w2_calcloss(buf2, iw, ih, kc, param, temp, buf3, hist);
-		for(int ks=0;ks<COUNTOF(steps);++ks)
+		for(int ks=0;ks<_countof(steps);++ks)
 		{
 			int step=steps[ks];
 			double bestcsize=csize0;
@@ -1014,7 +1033,7 @@ void pred_w2_opt_v2(const char *buf2, int iw, int ih, short *params, int loud)
 				if(bestcsize>csize)
 					bestcsize=csize, bestidx=idx, beststep=-step;
 
-				//set_window_title("Ch%d csize %lf [%d/%d %d/%d]...", kc, csize0, kc*COUNTOF(steps)+ks+1, COUNTOF(steps)*3, idx+1, PW2_NPARAM);//
+				//set_window_title("Ch%d csize %lf [%d/%d %d/%d]...", kc, csize0, kc*_countof(steps)+ks+1, _countof(steps)*3, idx+1, PW2_NPARAM);//
 			}
 			if(csize0>bestcsize)
 			{
@@ -1024,7 +1043,7 @@ void pred_w2_opt_v2(const char *buf2, int iw, int ih, short *params, int loud)
 				if(bestidx<4&&param[bestidx]<1)
 					param[bestidx]=1;
 			}
-			//set_window_title("Ch%d csize %lf [%d/%d]...", kc, csize0, kc*COUNTOF(steps)+ks+1, COUNTOF(steps)*3);//
+			//set_window_title("Ch%d csize %lf [%d/%d]...", kc, csize0, kc*_countof(steps)+ks+1, _countof(steps)*3);//
 		}
 	}
 	free(hist);
@@ -1205,7 +1224,7 @@ void pred_opt_opt_v6(const char *buf2, int iw, int ih, int loud)//multi-threaded
 		}
 #endif
 		int nthreads=nparam<<1;
-		const int nsteps=COUNTOF(steps), ntrials=nsteps*4;
+		const int nsteps=_countof(steps), ntrials=nsteps*4;
 		for(int ks=0;ks<ntrials;++ks)
 		{
 			int step=steps[ks%nsteps];
@@ -1245,7 +1264,7 @@ void pred_opt_opt_v6(const char *buf2, int iw, int ih, int loud)//multi-threaded
 					params[idx]+=step;
 			}
 			printf("[%d/3 %2d/%2d] C%d csize %14lf CR %9lf\r", kc+1, ks+1, ntrials, kc, bestresult, iw*ih/bestresult);//
-			//set_window_title("Ch%d csize %lf [%d/%d]...", kc, csize0, kc*COUNTOF(steps)+ks+1, COUNTOF(steps)*3);//
+			//set_window_title("Ch%d csize %lf [%d/%d]...", kc, csize0, kc*_countof(steps)+ks+1, _countof(steps)*3);//
 		}
 		if(loud)
 			printf("\n");//
@@ -1445,7 +1464,7 @@ void   pred_jxl_opt_v2(const char *buf2, int iw, int ih, short *params, int loud
 	{
 		short *param=params+kc*11;
 		double csize0=pred_jxl_calcloss(buf2, iw, ih, kc, param, temp, buf3, hist);
-		for(int ks=0;ks<COUNTOF(steps);++ks)
+		for(int ks=0;ks<_countof(steps);++ks)
 		{
 			int step=steps[ks];
 			double bestcsize=csize0;

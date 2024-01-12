@@ -2159,6 +2159,20 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 		acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H-%M-%S");
 		printf("T42 Enc  CUSTOM  %s  WH %dx%d\n", g_buf, iw, ih);
 	}
+	int nch=get_nch(src, iw*ih);//FIXME: differentiate between gray and just alpha
+	if(!nch)
+	{
+		//printf("Skipping image filled with solid 0x%02X\n", src[0]);
+		if(*data)
+		{
+			if(data[0]->esize!=1)
+				return 0;
+			ARRAY_APPEND(*data, src, 1, 1, 0);
+		}
+		else
+			ARRAY_ALLOC(char, *data, src, 1, 0, 0);
+		return 1;
+	}
 	char *buf2=(char*)malloc((size_t)res<<2);
 	char *ebuf=(char*)malloc((size_t)res<<2);
 
@@ -2175,22 +2189,23 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	//*ctx0=t42_ctx_copy(ctx);
 	memcpy(buf2, src, (size_t)res<<2);
 	memset(ebuf, 0, (size_t)res<<2);
-	addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);
+	addbuf((unsigned char*)buf2, iw, ih, nch==1?3:nch, 4, 128);
 	colortransform_YCbCr_R_fwd(buf2, iw, ih);
 
 	DList list;
 	dlist_init(&list, 1, 1024, 0);
+	dlist_push_back1(&list, &nch);
 	
 	ABACEncoder ec;
 	abac_enc_init(&ec, &list);
 	
-	double csizes[24]={0};
+	double csizes[32]={0};
 	
 	for(int ky=0, idx;ky<ih;++ky)
 	{
 		for(int kx=0;kx<iw;++kx)
 		{
-			for(int kc=0;kc<3;++kc)
+			for(int kc=0;kc<nch;++kc)
 			{
 				idx=(iw*ky+kx)<<2|kc;
 				t42_ctx_get_context(ctx, (char*)buf2, ebuf, iw, ih, kc, kx, ky);
@@ -2202,9 +2217,12 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 					int bit=(buf2[idx]+128)>>kb&1;
 					abac_enc(&ec, p0, bit);
 					
-					int prob=bit?0x10000-p0:p0;//
-					double bitsize=-log2((double)prob*(1./0x10000));
-					csizes[kc<<3|kb]+=bitsize;//
+					if(loud)
+					{
+						int prob=bit?0x10000-p0:p0;//
+						double bitsize=-log2((double)prob*(1./0x10000));
+						csizes[kc<<3|kb]+=bitsize;//
+					}
 
 					t42_ctx_update(ctx, kc, kb, bit);
 				}
@@ -2215,9 +2233,9 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 		{
 			static double csize_prev=0;
 			double csize=0;
-			for(int k=0;k<24;++k)
+			for(int k=0;k<32;++k)
 				csize+=csizes[k]/8;
-			printf("%5d/%5d  %6.2lf%%  CR%11f  CR_delta%11f\r", ky+1, ih, 100.*(ky+1)/ih, iw*(ky+1)*3/csize, iw*3/(csize-csize_prev));
+			printf("%5d/%5d  %6.2lf%%  CR%11f  CR_delta%11f\r", ky+1, ih, 100.*(ky+1)/ih, iw*(ky+1)*nch/csize, iw*nch/(csize-csize_prev));
 			csize_prev=csize;
 		}
 	}
@@ -2232,12 +2250,15 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 		
-		double chsizes[4]={0};
-		printf("\tC0\t\tC1\t\tC2\n\n");
+		double chsizes[5]={0};
+		//printf("\tC0\t\tC1\t\tC2\n\n");
+		for(int kc=0;kc<nch;++kc)
+			printf("\t\tC%d", kc);
+		printf("\n");
 		for(int kb=7;kb>=0;--kb)
 		{
 			printf("B%d  ", kb);
-			for(int kc=0;kc<3;++kc)
+			for(int kc=0;kc<nch;++kc)
 			{
 				int idx=kc<<3|kb;
 				double size=csizes[idx];
@@ -2247,9 +2268,13 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 			printf("\n");
 		}
 		printf("\n");
-		chsizes[3]=chsizes[0]+chsizes[1]+chsizes[2];
-		printf("Total%15.6lf %15.6lf %15.6lf %15.6lf\n", iw*ih*8/chsizes[0], iw*ih*8/chsizes[1], iw*ih*8/chsizes[2], iw*ih*24/chsizes[3]);
-		printf("Total size\t%8d\t\t\t     %15.6lf\n", (int)list.nobj, iw*ih*3./list.nobj);
+		chsizes[4]=chsizes[0]+chsizes[1]+chsizes[2]+chsizes[3];
+		//printf("Total%15.6lf %15.6lf %15.6lf %15.6lf\n", iw*ih*8/chsizes[0], iw*ih*8/chsizes[1], iw*ih*8/chsizes[2], iw*ih*24/chsizes[3]);
+		printf("Total");
+		for(int kc=0;kc<nch;++kc)
+			printf("%15.6lf ", iw*ih*8/chsizes[kc]);
+		printf("%15.6lf\n", (double)iw*ih*nch*8/chsizes[4]);
+		printf("Total size\t%8d\t\t\t     %15.6lf\n", (int)list.nobj, (double)iw*ih*nch/list.nobj);
 
 		//t42_explore(t42_ctx, csizes);
 
@@ -2317,6 +2342,18 @@ int t42_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 	int res=iw*ih;
 	double t_start=time_sec();
 
+	if(!srclen)
+		return 0;
+	unsigned char nch=data[0];
+	if(srclen==1)
+	{
+		int color=0xFF000000|nch<<16|nch<<8|nch;
+		memfill(buf, &color, sizeof(int), (size_t)iw*ih<<2);
+		return 1;
+	}
+	++data;//skip tag
+	--srclen;
+
 	char *ebuf=(char*)malloc((size_t)res<<2);
 	//if(!*ctx0)
 	//	*ctx0=t42_ctx_init();
@@ -2338,8 +2375,11 @@ int t42_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 	{
 		for(int kx=0;kx<iw;++kx)
 		{
-			for(int kc=0;kc<3;++kc)
+			for(int kc=0;kc<nch;++kc)
 			{
+				//if(kc==0&&kx==3&&ky==0)//
+				//	printf("");
+
 				idx=(iw*ky+kx)<<2|kc;
 				t42_ctx_get_context(ctx, (char*)buf, ebuf, iw, ih, kc, kx, ky);
 				for(int kb=7;kb>=0;--kb)//MSB -> LSB
@@ -2354,14 +2394,28 @@ int t42_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 				buf[idx]+=128;//unsigned -> signed
 				ebuf[idx]=buf[idx]-ctx->pred14;
 			}
+			if(nch==1)
+				ebuf[idx|2]=ebuf[idx|1]=0;
+				//buf[idx|2]=buf[idx|1]=buf[idx];
 		}
 		if(loud)
 			printf("%5d/%5d  %6.2lf%%\r", ky+1, ih, 100.*(ky+1)/ih);
 	}
 	t42_ctx_clear(&ctx);
+	free(ebuf);
 	
+	//if(nch>=3)
 	colortransform_YCbCr_R_inv((char*)buf, iw, ih);
-	addbuf(buf, iw, ih, 3, 4, 128);
+	//else if(nch==1)
+	//{
+	//	for(int k=0;k<res;++k)
+	//	{
+	//		char luma=buf[k<<2|0];
+	//		buf[k<<2|1]=luma;
+	//		buf[k<<2|2]=luma;
+	//	}
+	//}
+	addbuf(buf, iw, ih, nch==1?3:nch, 4, 128);
 	if(loud)
 	{
 		printf("\n");//skip progress line

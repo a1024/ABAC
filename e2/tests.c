@@ -837,7 +837,7 @@ int t25_incparam(T25Params *param, int pidx, int step)
 	if(T25_PARAM(param, pidx)>T25_PARAM(&t25_limits, pidx))
 		T25_PARAM(param, pidx)=T25_PARAM(&t25_limits, pidx);
 
-	if(!BETWEEN(1, param->gwidth, t25_limits.gwidth)||!BETWEEN(0, param->mleft, t25_limits.mleft)||!BETWEEN(0, param->mtop, t25_limits.mtop)||!BETWEEN(0, param->mright, t25_limits.mright)||!BETWEEN(0, param->alpha, t25_limits.alpha)||!BETWEEN(0, param->maxinc, t25_limits.maxinc))
+	if(!BETWEEN_INC(1, param->gwidth, t25_limits.gwidth)||!BETWEEN_INC(0, param->mleft, t25_limits.mleft)||!BETWEEN_INC(0, param->mtop, t25_limits.mtop)||!BETWEEN_INC(0, param->mright, t25_limits.mright)||!BETWEEN_INC(0, param->alpha, t25_limits.alpha)||!BETWEEN_INC(0, param->maxinc, t25_limits.maxinc))
 		LOG_ERROR("Invalid params INC  W %3d  MLTR %3d %3d %3d  A 0x%02X I %3d", param->gwidth, param->mleft, param->mtop, param->mright, param->alpha, param->maxinc);
 	
 	return prevval;
@@ -967,7 +967,7 @@ int t25_prepblock(const unsigned char *buf2, const unsigned short *CDF0, int iw,
 double t25_calcloss(const unsigned char *buf, int iw, int ih, int kc, Rect const *r, T25Params const *param, const unsigned short *CDF0, unsigned *CDF2, int loud)
 {
 	double chsize=0;
-	if(!BETWEEN(1, param->gwidth, t25_limits.gwidth)||!BETWEEN(0, param->mleft, t25_limits.mleft)||!BETWEEN(0, param->mtop, t25_limits.mtop)||!BETWEEN(0, param->mright, t25_limits.mright)||!BETWEEN(0, param->alpha, t25_limits.alpha)||!BETWEEN(0, param->maxinc, t25_limits.maxinc))
+	if(!BETWEEN_INC(1, param->gwidth, t25_limits.gwidth)||!BETWEEN_INC(0, param->mleft, t25_limits.mleft)||!BETWEEN_INC(0, param->mtop, t25_limits.mtop)||!BETWEEN_INC(0, param->mright, t25_limits.mright)||!BETWEEN_INC(0, param->alpha, t25_limits.alpha)||!BETWEEN_INC(0, param->maxinc, t25_limits.maxinc))
 		LOG_ERROR("Invalid params LOSS W %3d  MLTR %3d %3d %3d  A 0x%02X I %3d", param->gwidth, param->mleft, param->mtop, param->mright, param->alpha, param->maxinc);
 	//if(loud)
 	//	printf("W %3d  MLTR %3d %3d %3d  A 0x%02X I %3d\r",
@@ -1035,7 +1035,7 @@ double t25_optimize(const unsigned char *buf, int iw, int ih, int kc, Rect const
 	int prevval0;
 	int steps[]={16, 8, 4, 2, 1};
 
-	for(int ks=0;ks<COUNTOF(steps);++ks)
+	for(int ks=0;ks<_countof(steps);++ks)
 	{
 		int step=steps[ks];
 		for(int it=0, improve=1;it<64&&improve;++it)
@@ -1072,7 +1072,7 @@ double t25_optimize_v2(const unsigned char *buf, int iw, int ih, int kc, Rect co
 	csize0=t25_calcloss(buf, iw, ih, kc, r, param, CDF0, CDF2, loud);
 	if(!csize0)
 		LOG_ERROR("Start W %3d  MLTR %3d %3d %3d  A 0x%02X I %3d", param->gwidth, param->mleft, param->mtop, param->mright, param->alpha, param->maxinc);
-	for(int ks=0;ks<COUNTOF(steps);++ks)
+	for(int ks=0;ks<_countof(steps);++ks)
 	{
 		int step=steps[ks];
 		int bestpidx=0, beststep=0;
@@ -1149,7 +1149,7 @@ int t25_optimizeall(const unsigned char *buf, int iw, int ih, int x1, int x2, in
 	int usize=(x2-x1)*(y2-y1);
 	for(int kc=0;kc<3;++kc)
 	{
-		for(int ks=0;ks<COUNTOF(steps);++ks)
+		for(int ks=0;ks<_countof(steps);++ks)
 		{
 			for(int it=0, improve=1;it<64&&improve;++it)
 			{

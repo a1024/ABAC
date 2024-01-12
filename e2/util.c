@@ -19,11 +19,12 @@
 #include<stdlib.h>
 #include<stdarg.h>
 #include<string.h>
-#include<sys/stat.h>
+#include<ctype.h>
 #include<math.h>
+#include<sys/stat.h>
 #include<errno.h>
 #include<time.h>
-#ifdef _MSC_VER
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include<Windows.h>//QueryPerformance...
 #include<conio.h>
@@ -267,7 +268,7 @@ int floor_log10(double x)
 	sh= x<nmask[1];      logn-=sh;
 	return logn;
 }
-double	power(double x, int y)
+double power(double x, int y)
 {
 	double mask[]={1, 0}, product=1;
 	if(y<0)
@@ -283,7 +284,7 @@ double	power(double x, int y)
 	}
 	return product;
 }
-double	_10pow(int n)
+double _10pow(int n)
 {
 	static double *mask=0;
 	int k;
@@ -301,21 +302,21 @@ double	_10pow(int n)
 		return _HUGE;
 	return mask[n+308];
 }
-int		minimum(int a, int b){return a<b?a:b;}
-int		maximum(int a, int b){return a>b?a:b;}
-int		acme_isdigit(char c, char base)
+int minimum(int a, int b){return a<b?a:b;}
+int maximum(int a, int b){return a>b?a:b;}
+int acme_isdigit(char c, char base)
 {
 	switch(base)
 	{
-	case 2:		return BETWEEN('0', c, '1');
-	case 8:		return BETWEEN('0', c, '7');
-	case 10:	return BETWEEN('0', c, '9');
-	case 16:	return BETWEEN('0', c, '9')||BETWEEN('A', c&0xDF, 'F');
+	case 2:		return BETWEEN_INC('0', c, '1');
+	case 8:		return BETWEEN_INC('0', c, '7');
+	case 10:	return BETWEEN_INC('0', c, '9');
+	case 16:	return BETWEEN_INC('0', c, '9')||BETWEEN_INC('A', c&0xDF, 'F');
 	}
 	return 0;
 }
 
-double	time_sec()
+double time_sec()
 {
 #ifdef _MSC_VER
 	static long long t0=0;
@@ -347,7 +348,7 @@ void parsetimedelta(double secs, TimeInfo *ti)
 
 	ti->secs=(float)(secs);
 }
-int		timedelta2str(char *buf, size_t len, double secs)
+int timedelta2str(char *buf, size_t len, double secs)
 {
 	int printed;
 	TimeInfo ti;
@@ -687,6 +688,24 @@ void* array_back(ArrayHandle *arr)
 	if(!*arr||!arr[0]->count)
 		return 0;
 	return arr[0]->data+(arr[0]->count-1)*arr[0]->esize;
+}
+
+int str_append(ArrayHandle *str, const char *format, ...)
+{
+	size_t reqlen;
+	va_list args;
+	va_start(args, format);
+	reqlen=vsnprintf(0, 0, format, args);//requires C99
+	if(str[0]->count+reqlen+1>str[0]->cap)
+	{
+		size_t c0=str[0]->count;
+		array_realloc(str, str[0]->count+reqlen, 1);
+		str[0]->count=c0;
+	}
+	reqlen=vsnprintf(str[0]->data+str[0]->count, str[0]->cap-str[0]->count, format, args);
+	str[0]->count+=reqlen;
+	va_end(args);
+	return (int)reqlen;
 }
 #endif
 
@@ -1842,11 +1861,13 @@ ptrdiff_t acme_strrchr(const char *str, ptrdiff_t len, char c)//find last occurr
 			return k;
 	return -1;
 }
-ArrayHandle filter_path(const char *path)//replaces back slashes with slashes, adds trailing slash if missing, as ArrayHandle
+ArrayHandle filter_path(const char *path, int len)//replaces back slashes with slashes, adds trailing slash if missing, as ArrayHandle
 {
 	ArrayHandle path2;
 
-	STR_COPY(path2, path, strlen(path));
+	if(len<0)
+		len=(int)strlen(path);
+	STR_COPY(path2, path, len);
 	for(ptrdiff_t k=0;k<(ptrdiff_t)path2->count;++k)//replace back slashes
 	{
 		if(path2->data[k]=='\\')
@@ -1890,7 +1911,7 @@ ArrayHandle get_filenames(const char *path, const char **extensions, int extCoun
 	int found;
 	
 	//prepare searchpath
-	searchpath=filter_path(path);
+	searchpath=filter_path(path, -1);
 	c='*';
 	STR_APPEND(searchpath, &c, 1, 1);
 
@@ -1931,7 +1952,7 @@ ArrayHandle get_filenames(const char *path, const char **extensions, int extCoun
 	return filenames;
 }
 
-ArrayHandle load_file(const char *filename, int bin, int pad)
+ArrayHandle load_file(const char *filename, int bin, int pad, int erroronfail)
 {
 	struct stat info={0};
 	FILE *f;
@@ -1941,8 +1962,11 @@ ArrayHandle load_file(const char *filename, int bin, int pad)
 	int error=stat(filename, &info);
 	if(error)
 	{
-		strerror_s(g_buf, G_BUF_SIZE, errno);
-		LOG_ERROR("Cannot open %s\n%s", filename, g_buf);
+		if(erroronfail)
+		{
+			strerror_s(g_buf, G_BUF_SIZE, errno);
+			LOG_ERROR("Cannot open %s\n%s", filename, g_buf);
+		}
 		return 0;
 	}
 	fopen_s(&f, filename, mode);
@@ -1950,8 +1974,11 @@ ArrayHandle load_file(const char *filename, int bin, int pad)
 	//f=fopen(filename, "r, ccs=UTF-8");//gets converted to UTF-16 on Windows
 	if(!f)
 	{
-		strerror_s(g_buf, G_BUF_SIZE, errno);
-		LOG_ERROR("Cannot open %s\n%s", filename, g_buf);
+		if(erroronfail)
+		{
+			strerror_s(g_buf, G_BUF_SIZE, errno);
+			LOG_ERROR("Cannot open %s\n%s", filename, g_buf);
+		}
 		return 0;
 	}
 
@@ -1961,12 +1988,13 @@ ArrayHandle load_file(const char *filename, int bin, int pad)
 	memset(str->data+str->count, 0, str->cap-str->count);
 	return str;
 }
-int save_file_bin(const char *filename, const unsigned char *src, size_t srcSize)
+int save_file(const char *filename, const unsigned char *src, size_t srcSize, int is_bin)
 {
 	FILE *f;
 	size_t bytesRead;
+	char mode[]={'w', is_bin?'b':0, 0};
 
-	fopen_s(&f, filename, "wb");
+	fopen_s(&f, filename, mode);
 	if(!f)
 	{
 		printf("Failed to save %s\n", filename);
@@ -1974,7 +2002,7 @@ int save_file_bin(const char *filename, const unsigned char *src, size_t srcSize
 	}
 	bytesRead=fwrite(src, 1, srcSize, f);
 	fclose(f);
-	if(bytesRead!=srcSize)
+	if(is_bin&&bytesRead!=srcSize)
 	{
 		printf("Failed to save %s\n", filename);
 		return 0;

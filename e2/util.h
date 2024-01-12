@@ -27,16 +27,19 @@ extern "C"
 #endif
 
 //utility
-#define COUNTOF(ARR)        (sizeof(ARR)/sizeof(*(ARR)))		//stdlib defines _countof
-#define BETWEEN(LO, X, HI)	((unsigned)((X)-LO)<(unsigned)(HI+1-LO))
-#define SWAPVAR(A, B, TEMP)	TEMP=A, A=B, B=TEMP
-#define MINVAR(A, B)        ((A)<(B)?(A):(B))
-#define MAXVAR(A, B)        ((A)>(B)?(A):(B))
-#define CLAMP(LO, X, HI)    ((X)>(LO)?(X)<(HI)?(X):(HI):(LO))
-//#define CLAMP(LO, X, HI)    ((X)<(LO)?(LO):((X)>(HI)?(HI):(X)))
+#define BETWEEN_INC(LO, X, HI) ((unsigned)((X)-LO)<(unsigned)(HI+1-LO))
+#define BETWEEN_EXC(LO, X, HI) ((unsigned)((X)-LO)<(unsigned)(HI-LO))
+#define SWAPVAR(A, B, TEMP) TEMP=A, A=B, B=TEMP
+#define SWAPMEM(A, B, TEMP) memcpy(TEMP, A, sizeof(*(TEMP))), memcpy(A, B, sizeof(*(TEMP))), memcpy(B, TEMP, sizeof(*(TEMP)))
+#define ROTATE3(A, B, C, TEMP) TEMP=A, A=B, B=C, C=TEMP
+#define MINVAR(A, B) ((A)<(B)?(A):(B))
+#define MAXVAR(A, B) ((A)>(B)?(A):(B))
+#define CLAMP(LO, X, HI) ((X)>(LO)?(X)<(HI)?(X):(HI):(LO))
+//#define CLAMP(LO, X, HI) ((X)<(LO)?(LO):((X)>(HI)?(HI):(X)))
+//#define COUNTOF(ARR) (sizeof(ARR)/sizeof(*(ARR)))		//stdlib defines _countof
+#define MEDIAN3(A, B, C) (B<A?B<C?C<A?C:A:B:A<C?C<B?C:B:A)
 #define MOVEOBJ(SRC, DST, SIZE) memcpy(DST, SRC, SIZE), memset(SRC, 0, SIZE)
 #define MODVAR(DST, SRC, N) DST=(SRC)%(N), DST+=(N)&-(DST<0)
-#define MEDIAN3(A, B, C) (B<A?B<C?C<A?C:A:B:A<C?C<B?C:B:A)
 
 #ifdef _MSC_VER
 #define	ALIGN(N)	__declspec(align(N))
@@ -92,8 +95,8 @@ int print_binn(unsigned long long x, int nbits);
 
 //error handling
 int log_error(const char *file, int line, int quit, const char *format, ...);//doesn't stop execution
-#define LOG_ERROR2(format, ...)  log_error(__FILE__, __LINE__, 1, format, ##__VA_ARGS__)
 #define LOG_ERROR(format, ...)   log_error(file, __LINE__, 1, format, ##__VA_ARGS__)
+#define LOG_ERROR2(format, ...)  log_error(__FILE__, __LINE__, 1, format, ##__VA_ARGS__)
 #define LOG_WARNING(format, ...) log_error(file, __LINE__, 0, format, ##__VA_ARGS__)
 #define ASSERT_MSG(SUCCESS, MSG, ...) ((SUCCESS)!=0||log_error(file, __LINE__, 1, MSG, ##__VA_ARGS__))
 int valid(const void *p);
@@ -393,11 +396,11 @@ ptrdiff_t get_filesize(const char *filename);//-1 not found,  0: folder (probabl
 
 int acme_stricmp(const char *a, const char *b);//case insensitive strcmp
 ptrdiff_t acme_strrchr(const char *str, ptrdiff_t len, char c);//find last occurrence, with known length for backward search
-ArrayHandle filter_path(const char *path);//replaces back slashes with slashes, and adds trailing slash if missing, as ArrayHandle
-ArrayHandle get_filenames(const char *path, const char **extensions, int extCount, int fullyqualified);//returns array of strings
+ArrayHandle filter_path(const char *path, int len);//replaces back slashes with slashes, and adds trailing slash if missing, as ArrayHandle
+ArrayHandle get_filenames(const char *path, const char **extensions, int extCount, int fullyqualified);//returns array of strings, extensions without period '.'
 
-ArrayHandle load_file(const char *filename, int bin, int pad);
-int save_file_bin(const char *filename, const unsigned char *src, size_t srcSize);
+ArrayHandle load_file(const char *filename, int bin, int pad, int erroronfail);
+int save_file(const char *filename, const unsigned char *src, size_t srcSize, int is_bin);
 
 ArrayHandle searchfor_file(const char *searchpath, const char *filetitle);
 

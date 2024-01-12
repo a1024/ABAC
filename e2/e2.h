@@ -116,11 +116,17 @@ void* slic2_load(const char *filename, int *ret_iw, int *ret_ih, int *ret_nch, i
 //unsigned char* slic3_encode(int iw, int ih, int nch, int depth, const void *src, int *ret_size);
 //void*          slic3_decode(const unsigned char *src, int len, int *ret_iw, int *ret_ih, int *ret_nch, int *ret_depth, int *ret_dummy_alpha, int force_alpha);
 
-int t44_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T44 Secondary Symbol Estimation from paq8pxd
+//T44 paq8pxd
+int t44_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);
 int t44_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
 
 //void print_ma_test(int testtype);
 size_t ma_test(const unsigned char *src, int iw, int ih, int enable_RCT_MA, int RCTtype, int enable_rounding, int loud);
+
+//T45 CALIC
+int t45_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);
+int t45_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
+double calc_bitsize(unsigned *CDF, int nlevels, int sym);
 
 
 
@@ -134,6 +140,7 @@ void addbuf(unsigned char *buf, int iw, int ih, int nch, int bytestride, int amm
 
 void pack3_fwd(char *buf, int res);
 void pack3_inv(char *buf, int res);
+int get_nch(const char *buf, int res);//returns nch = {0 degenerate, 1 gray, 2 gray_alpha, 3, rgb, 4, rgb_alpha}
 
 void colortransform_YCoCg_R_fwd(char *buf, int iw, int ih);
 void colortransform_YCoCg_R_inv(char *buf, int iw, int ih);

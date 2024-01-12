@@ -28,6 +28,7 @@ add_executable(e2
 	tests.c
 	tests2.c
 	tests3.c
+	tests4.c
 	transforms.c
 	transforms_cpu.c
 	transforms_ocl.c

@@ -18,7 +18,11 @@
 static const char file[]=__FILE__;
 
 
-	#define BATCHTEXT_PRINTTABLE
+#define ENCODE t45_encode
+#define DECODE t45_decode
+
+
+	#define BATCHTEST_PRINTTABLE
 
 //	#define MA_RCT_COUNT 10
 //	#define MA_BATCHTEST (MA_RCT_COUNT<<2)
@@ -366,6 +370,8 @@ const char *g_extensions[]=
 	"png",
 	"jpg",
 	"jpeg",
+	"ppm",
+	"pgm",
 };
 
 typedef struct ThreadCtxStruct
@@ -389,7 +395,7 @@ static unsigned __stdcall sample_thread(void *param)
 	ArrayHandle cdata=0;
 
 	double t=time_sec();
-	t44_encode(ctx->src, ctx->iw, ctx->ih, &cdata, 0);
+	ENCODE(ctx->src, ctx->iw, ctx->ih, &cdata, 0);
 	t=time_sec()-t;
 	ctx->enc=t;
 
@@ -397,7 +403,7 @@ static unsigned __stdcall sample_thread(void *param)
 	//printf("%lld\n", cdata->count);//
 
 	t=time_sec();
-	t44_decode(cdata->data, cdata->count, ctx->iw, ctx->ih, ctx->dst, 0);
+	DECODE(cdata->data, cdata->count, ctx->iw, ctx->ih, ctx->dst, 0);
 	t=time_sec()-t;
 	ctx->dec=t;
 
@@ -575,7 +581,7 @@ void batch_test_mt(const char *path, int nthreads)
 	printf("%s\n", g_buf);
 	printf("Multithreaded Batch Test\n");
 	double t_start=time_sec();
-	ArrayHandle filenames=get_filenames(path, g_extensions, COUNTOF(g_extensions), 1);
+	ArrayHandle filenames=get_filenames(path, g_extensions, _countof(g_extensions), 1);
 	if(!filenames)
 	{
 		printf("No supported images in \"%s\"\n", path);
@@ -668,7 +674,7 @@ void batch_test(const char *path)
 	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H%M%S");
 	printf("Start %s\n", g_buf);
 	double t_start=time_sec();
-	ArrayHandle filenames=get_filenames(path, g_extensions, COUNTOF(g_extensions), 1);
+	ArrayHandle filenames=get_filenames(path, g_extensions, _countof(g_extensions), 1);
 	if(!filenames)
 	{
 		printf("No images in \"%s\"\n", path);
@@ -699,7 +705,7 @@ void batch_test(const char *path)
 	//		known_dataset=2;
 	//	array_free(&path2);
 	//}
-#ifdef BATCHTEXT_PRINTTABLE
+#ifdef BATCHTEST_PRINTTABLE
 	ArrayHandle sizes;
 	ARRAY_ALLOC(size_t[3], sizes, 0, 0, filenames->count, 0);
 #endif
@@ -868,13 +874,13 @@ void batch_test(const char *path)
 			//t43_encode(buf, iw, ih, &cdata, 1);
 			//t43_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 
-			t44_encode(buf, iw, ih, &cdata, 1);				//current record
-			t44_decode(cdata->data, cdata->count, iw, ih, b2, 1);
+			ENCODE(buf, iw, ih, &cdata, 1);				//current record: paq8pxd
+			DECODE(cdata->data, cdata->count, iw, ih, b2, 1);
 
 			sum_testsize+=cdata->count;
 			if((ptrdiff_t)cdata->count<formatsize)
 				printf(" !!!\n");
-#ifdef BATCHTEXT_PRINTTABLE
+#ifdef BATCHTEST_PRINTTABLE
 			size_t temp[]={3LL*iw*ih, formatsize, cdata->count};
 			ARRAY_APPEND(sizes, temp, 1, 1, 0);
 #endif
@@ -1077,7 +1083,7 @@ void batch_test(const char *path)
 	}
 	else
 		printf("\nNo valid images found\n");
-#ifdef BATCHTEXT_PRINTTABLE
+#ifdef BATCHTEST_PRINTTABLE
 	if(sizes)
 	{
 		printf("uncompressed, prevsize, newsize, prevBPP, newBPP\n");
@@ -1149,6 +1155,8 @@ int main(int argc, char **argv)
 	//fn="C:/Projects/datasets/CLIC11-small4.PNG";
 	//fn="C:/Projects/datasets/dataset-CLIC30/11.png";
 	//fn="C:/Projects/datasets/dataset-kodak";
+	//fn="C:/Projects/datasets/dataset-kodak-pgm/kodim01.pgm";
+	//fn="C:/Projects/datasets/kodim13-small4.PNG";
 	fn="C:/Projects/datasets/dataset-kodak/kodim13.png";
 
 //	fn="D:/ML/dataset-LPCB";
@@ -1551,7 +1559,7 @@ int main(int argc, char **argv)
 	//printf("T34 (ABAC + adaptive Bayesian inference)\n");
 	//t34_encode(buf, iw, ih, &cdata, 1);
 	//array_free(&cdata);
-	
+
 	//old record
 #if 0
 	printf("T35 Entropy coding with context tree\n");
@@ -1563,7 +1571,7 @@ int main(int argc, char **argv)
 	memset(b2, 0, len);
 	printf("\n");
 #endif
-	
+
 	//printf("T36 stretch & squish\n");
 	//t36_encode(buf, iw, ih, &cdata, 1);
 	//t36_decode(cdata->data, cdata->count, iw, ih, b2, 1);
@@ -1571,7 +1579,7 @@ int main(int argc, char **argv)
 	//compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T36", 0, 1);
 	//memset(b2, 0, len);
 	//printf("\n");
-	
+
 	//printf("T37 Fixed array as binary tree predictor\n");
 	//t37_encode(buf, iw, ih, &cdata, 1);
 	//t37_decode(cdata->data, cdata->count, iw, ih, b2, 1);
@@ -1579,7 +1587,7 @@ int main(int argc, char **argv)
 	//compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T37", 0, 1);
 	//memset(b2, 0, len);
 	//printf("\n");
-	
+
 	//printf("T38 Single simple bit predictor\n");
 	//t38_encode(buf, iw, ih, &cdata, 1);
 	//t38_decode(cdata->data, cdata->count, iw, ih, b2, 1);
@@ -1587,7 +1595,7 @@ int main(int argc, char **argv)
 	//compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T38", 0, 1);
 	//memset(b2, 0, len);
 	//printf("\n");
-	
+
 	//old record
 #if 0
 	printf("T39 Multiple estimators for all maps\n");
@@ -1598,21 +1606,21 @@ int main(int argc, char **argv)
 	memset(b2, 0, len);
 	printf("\n");
 #endif
-	
+
 	//t40_encode(buf, iw, ih, &cdata, 2);	//X
 	//t40_decode(cdata->data, cdata->count, iw, ih, b2, 2);
 	//array_free(&cdata);
 	//compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T40", 0, 1);
 	//memset(b2, 0, len);
 	//printf("\n");
-	
+
 	//t41_encode(buf, iw, ih, &cdata, 2);	//X
 	//t41_decode(cdata->data, cdata->count, iw, ih, b2, 2);
 	//array_free(&cdata);
 	//compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T41", 0, 1);
 	//memset(b2, 0, len);
 	//printf("\n");
-	
+
 #if 0
 	t42_encode(buf, iw, ih, &cdata, 1);		//prev record
 	t42_decode(cdata->data, cdata->count, iw, ih, b2, 1);
@@ -1621,24 +1629,29 @@ int main(int argc, char **argv)
 	memset(b2, 0, len);
 	printf("\n");
 #endif
-	
+
 	//t43_encode(buf, iw, ih, &cdata, 2);
 	//t43_decode(cdata->data, cdata->count, iw, ih, b2, 2);
 	//array_free(&cdata);
 	//compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T43", 0, 1);
 	//memset(b2, 0, len);
 	//printf("\n");
-	
-#if 1
-	//int res=iw*ih;
-	//memcpy(b2, buf, (size_t)res<<2);
-	//pack3_fwd(b2, res);
-	//pack3_inv(b2, res);
-	t44_encode(buf, iw, ih, &cdata, 1);		//current record
+
+#if 0
+	t44_encode(buf, iw, ih, &cdata, 1);		//current record: from paq8pxd
 	t44_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 	array_free(&cdata);
 	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T44", 0, 1);
 	memset(b2, 0, len);
+	printf("\n");
+#endif
+
+#if 1
+	t45_encode(buf, iw, ih, &cdata, 1);
+	//t45_decode(cdata->data, cdata->count, iw, ih, b2, 1);
+	array_free(&cdata);
+	//compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T45", 0, 1);
+	//memset(b2, 0, len);
 	printf("\n");
 #endif
 #endif
