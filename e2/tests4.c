@@ -296,7 +296,7 @@ static int calic_ct(CalicState *state, int curr, int enc)//continuous-tone mode
 		else//bypass
 		{
 			CDF=0;
-			nlevels=128;//tune this
+			nlevels=32;//tune this
 		}
 
 		if(enc)
@@ -458,6 +458,8 @@ int t45_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 			{
 				//if(kc==0&&kx==647&&ky==355)//
 				//if(kc==0&&kx==648&&ky==354)//
+				//if(kc==0&&kx==128&&ky==1)//
+				//if(kc==0&&kx==507&&ky==98)//
 				//	printf("");
 
 				int idx=(state.iw*ky+kx)<<2|kc;
@@ -555,7 +557,8 @@ int t45_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 			for(int kx=0;kx<iw;++kx)
 			{
 				//if(kc==0&&kx==647&&ky==355)//
-				//if(kc==0&&kx==648&&ky==354)//
+				//if(kc==0&&kx==2087&&ky==1570)//
+				//if(kc==0&&kx==507&&ky==98)//
 				//	printf("");
 
 				int idx=(state.iw*ky+kx)<<2|kc;

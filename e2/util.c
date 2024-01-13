@@ -24,6 +24,9 @@
 #include<sys/stat.h>
 #include<errno.h>
 #include<time.h>
+#ifdef _MSC_VER
+#include<intrin.h>
+#endif
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include<Windows.h>//QueryPerformance...
@@ -198,7 +201,16 @@ int acme_getopt(int argc, char **argv, int *start, const char **keywords, int kw
 
 int floor_log2(unsigned long long n)
 {
-	int	logn=0;
+#ifdef _MSC_VER
+	unsigned long logn=0;
+	int success=_BitScanReverse64(&logn, n);
+	logn=success?logn:-1;
+	return logn;
+#elif defined __GNUC__
+	int logn=63-__builtin_clz(n);
+	return logn;
+#else
+	int	logn=-!n;
 	int	sh=(n>=1ULL<<32)<<5;	logn+=sh, n>>=sh;
 		sh=(n>=1<<16)<<4;	logn+=sh, n>>=sh;
 		sh=(n>=1<< 8)<<3;	logn+=sh, n>>=sh;
@@ -206,12 +218,13 @@ int floor_log2(unsigned long long n)
 		sh=(n>=1<< 2)<<1;	logn+=sh, n>>=sh;
 		sh= n>=1<< 1;		logn+=sh;
 	return logn;
+#endif
 }
 int ceil_log2(unsigned long long n)
 {
-	int l2=floor_log2(n);
-	l2+=(1ULL<<l2)<n;
-	return l2;
+	int lgn=floor_log2(n);
+	lgn+=(1ULL<<lgn)<n;
+	return lgn;
 }
 int floor_log10(double x)
 {

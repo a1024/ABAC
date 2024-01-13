@@ -1157,6 +1157,7 @@ int main(int argc, char **argv)
 	//fn="C:/Projects/datasets/dataset-kodak";
 	//fn="C:/Projects/datasets/dataset-kodak-pgm/kodim01.pgm";
 	//fn="C:/Projects/datasets/kodim13-small4.PNG";
+	//fn="C:/Projects/datasets/dataset-ic-rgb8bit/big_building.PNG";
 	fn="C:/Projects/datasets/dataset-kodak/kodim13.png";
 
 //	fn="D:/ML/dataset-LPCB";

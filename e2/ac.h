@@ -4,6 +4,9 @@
 #include"util.h"
 #include<stdio.h>
 #include<string.h>
+#ifdef _MSC_VER
+#include<intrin.h>
+#endif
 #ifdef __cplusplus
 extern "C"
 {
@@ -242,11 +245,40 @@ static void ac_dec_init(ArithmeticCoder *ec, const unsigned char *start, unsigne
 }
 static void ac_renorm(ArithmeticCoder *ec)//one-time loopless renorm		this keeps hi & lo as far apart as possible from each other in the ALU
 {
-	unsigned diff=ec->hi^ec->lo;
-	int n_keep=diff?floor_log2(diff)+1:0, n_emit=32-n_keep;
+	//(hi-lo)<<n_emit should be >= 0x10000
+	//floor_log2(hi-lo)+n_emit should be >= 16
+	//clamp	16-floor_log2(hi-lo) <= n_emit <= 32
+	//16-floor_log2(hi-lo) <= 32-n_keep
+	//n_keep <= 16+floor_log2(hi-lo)
+	unsigned lo0=ec->lo, hi0=ec->hi;//
+
+	int n_keep=floor_log2(ec->hi^ec->lo)+1;//floor_log2 now uses intrinsics and was patched to give -1 for zero input
+	unsigned range_guard=floor_log2(ec->lo<ec->hi?ec->hi-ec->lo:1)+16;
+	if(n_keep>range_guard)
+		n_keep=0;
+	int n_emit=32-n_keep;
+#if 0
+#ifdef _MSC_VER
+	if(x)
+	{
+		unsigned long idx=0;
+		_BitScanReverse(&idx, x);
+		n_keep=idx+1;
+	}
+	else
+		n_keep=0;
+	n_emit=32-n_keep;
+#elif defined __GNUC__
+	n_emit=__builtin_clz(x);
+	n_keep=32-n_emit;
+#else
+	n_keep=x?floor_log2(x)+1:0;
+	n_emit=32-n_keep;
+#endif
+#endif
 	if(n_emit)
 	{
-		int emit_mask=(1<<n_emit)-1;
+		unsigned emit_mask=(unsigned)((1LL<<n_emit)-1);
 		ec->nbits-=n_emit;//new nbits
 		if(ec->is_enc)//encoding
 		{
@@ -278,21 +310,36 @@ static void ac_renorm(ArithmeticCoder *ec)//one-time loopless renorm		this keeps
 					LOG_ERROR2("buffer overflow");
 					return;
 				}
-				ec->cache<<=32;
 				ec->nbits+=32;
+				ec->cache<<=32;
 
 				memcpy(&ec->cache, ec->srcptr, 4);
 				ec->srcptr+=4;
 			}
-			ec->code<<=n_emit;
-			ec->code|=(unsigned)(ec->cache>>ec->nbits&emit_mask);
+			if(n_emit==32)
+				ec->code=(unsigned)(ec->cache>>ec->nbits);
+			else
+			{
+				ec->code<<=n_emit;
+				ec->code|=(unsigned)(ec->cache>>ec->nbits&emit_mask);
+			}
 		}
-		ec->lo<<=n_emit;
-		ec->hi<<=n_emit;
-		ec->hi|=emit_mask;
+		if(n_emit==32)//shift left uint32 by 32 is UB, shift ammount is 5 bit (0 ~ 31)
+		{
+			ec->lo=0;
+			ec->hi=0xFFFFFFFF;
+		}
+		else
+		{
+			ec->lo<<=n_emit;
+			ec->hi<<=n_emit;
+			ec->hi|=emit_mask;
+		}
 	}
+	//if(ec->hi<=ec->lo)//
+	//	LOG_ERROR2("Range error");
 }
-static void ac_enc(ArithmeticCoder *ec, int sym, const unsigned *CDF, int nlevels)
+static void ac_enc(ArithmeticCoder *ec, int sym, const unsigned *CDF, int nlevels)//CDF is 16 bit
 {
 	unsigned lo2, hi2;
 	int cdf_curr, cdf_next;
@@ -450,7 +497,7 @@ static int ac_dec(ArithmeticCoder *ec, const unsigned *CDF, int nlevels)
 	lo2=ec->lo+(int)((unsigned long long)(ec->hi-ec->lo)*cdf_start>>16);
 	hi2=ec->lo+(int)((unsigned long long)(ec->hi-ec->lo)*cdf_end  >>16);
 	acval_dec(sym, cdf_start, cdf_end-cdf_start, ec->lo, ec->hi, lo2, hi2, ec->cache, ec->nbits, ec->code);//
-	ec->lo=lo2+!CDF;
+	ec->lo=lo2+!CDF;//because of bypass
 	ec->hi=hi2-1;//OBLIGATORY range leak guard
 	return sym;
 }
