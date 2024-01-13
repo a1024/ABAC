@@ -69,18 +69,18 @@ typedef struct CalicStateStruct
 {
 	char *pixels, *errors;
 	int iw, ih;
-	char nb[NB_COUNT], nb2[6];
-	int dh, dv, d45, d135, energy, delta, beta, sse_correction, pred, error, e2;
+	char nb[NB_COUNT], nb2[6], unb[6];
+	int nunique, dh, dv, d45, d135, energy, delta, beta, sse_correction, pred, error, e2;
 	unsigned CDF[257];
 	int *sse;
 	EntropyTables *tables;
 	unsigned *ct_tables[8], ct_tsizes[8], ct_inc[8], bin_inc[32];
-	ACEncoder ec;
+	ArithmeticCoder ec;
 
 	int loud, kc;
 	double csizes[4];
 } CalicState;
-static void calic_init(CalicState *state, char *pixels, int iw, int ih, DList *list)
+static void calic_init(CalicState *state, char *pixels, int iw, int ih)
 {
 	int res=iw*ih;
 	memset(state, 0, sizeof(*state));
@@ -106,10 +106,8 @@ static void calic_init(CalicState *state, char *pixels, int iw, int ih, DList *l
 	state->ct_tables[5]=state->tables->ctr_ct5, state->ct_tsizes[5]=_countof(state->tables->ctr_ct5);
 	state->ct_tables[6]=state->tables->ctr_ct6, state->ct_tsizes[6]=_countof(state->tables->ctr_ct6);
 	state->ct_tables[7]=state->tables->ctr_ct7, state->ct_tsizes[7]=_countof(state->tables->ctr_ct7);
-
-	ac_enc_init(&state->ec, list);
 }
-static void calic_resetfornextchannel(CalicState *state)
+static void calic_resetfornextchannel(CalicState *state, int kc)
 {
 	int fillval=1;
 	memfill(state->tables, &fillval, sizeof(*state->tables), sizeof(int));
@@ -117,14 +115,15 @@ static void calic_resetfornextchannel(CalicState *state)
 	memfill(state->ct_inc, &fillval, sizeof(state->ct_inc), sizeof(int));
 	memfill(state->bin_inc, &fillval, sizeof(state->bin_inc), sizeof(int));
 	memset(state->sse, 0, sizeof(int[1024]));
+	state->kc=kc;
 }
-static void calic_finish(CalicState *state)
+static void calic_free(CalicState *state)
 {
 	free(state->errors);
 	free(state->sse);
 	free(state->tables);
 }
-static void load_nb(CalicState *state, int kc, int kx, int ky)
+static void calic_prepctx(CalicState *state, int kc, int kx, int ky)
 {
 	int idx=0;
 	for(int ky2=-CALIC_REACH;ky2<=0;++ky2)
@@ -141,9 +140,34 @@ static void load_nb(CalicState *state, int kc, int kx, int ky)
 	}
 	state->nb[idx++]=ky?state->errors[(state->iw*(ky-1)+kx)<<2|kc]:0;
 	state->nb[idx++]=kx?state->errors[(state->iw*ky+kx-1)<<2|kc]:0;
+
+	state->nb2[0]=state->nb[NB_W];
+	state->nb2[1]=state->nb[NB_N];
+	state->nb2[2]=state->nb[NB_NW];
+	state->nb2[3]=state->nb[NB_NE];
+	state->nb2[4]=state->nb[NB_WW];
+	state->nb2[5]=state->nb[NB_NN];
+
+	state->unb[0]=state->nb2[0];
+	state->nunique=1;
+	for(int k=1;k<_countof(state->nb2);++k)
+	{
+		char val=state->nb2[k];
+		int found=0;
+		for(int k2=0;k2<state->nunique;++k2)
+		{
+			if(val==state->unb[k2])
+			{
+				found=1;
+				break;
+			}
+		}
+		if(!found)
+			state->unb[state->nunique++]=val;
+	}
 }
 static const int calic_qlevels[]={5, 15, 25, 42, 60, 85, 140};
-static void calic_enc_ct(CalicState *state, int curr)//continuous-tone mode
+static int calic_ct(CalicState *state, int curr, int enc)//continuous-tone mode
 {
 	state->dh=abs(state->nb[NB_W]-state->nb[NB_WW])+abs(state->nb[NB_N]-state->nb[NB_NW])+abs(state->nb[NB_NE]-state->nb[NB_N]);//dh
 	state->dv=abs(state->nb[NB_W]-state->nb[NB_NW])+abs(state->nb[NB_N]-state->nb[NB_NN])+abs(state->nb[NB_NE]-state->nb[NB_NNE]);//dv
@@ -202,47 +226,36 @@ static void calic_enc_ct(CalicState *state, int curr)//continuous-tone mode
 	state->pred+=state->sse_correction;
 	state->pred=MEDIAN3(state->nb[NB_N], state->nb[NB_W], state->pred);//clamp prediction
 
-	state->error=curr-state->pred;
-
-	sum+=state->error;//update SSE table
-	++count;
-	if(count>640)
+	if(enc)
 	{
-		count>>=1;
-		sum>>=1;
-	}
-	*cell=sum<<12|count;
+		state->error=curr-state->pred;//curr in [-128, 127], error in [-128-pred, 127-pred]
 	
-	state->e2=state->sse_correction<0?-state->error:state->error;//to skew the histogram (predict the sign of error from SSE correction)
+		state->e2=state->sse_correction<0?-state->error:state->error;//to skew the histogram (predict the sign of error from SSE correction)
 
-	if(state->e2)
-	{
-		int abs_err=abs(state->e2), abs_pred=abs(state->pred);
-		if(abs_err<abs_pred)
+		if(state->e2)
+		{
 			//L/JXL permutation:		{0, -1,  1, -2,  2, ...}	(e<<1)^-(e<0)
 			//CALIC/FLIF permutation:	{0,  1, -1,  2, -2, ...}	(e<0?-2*e:2*e-1) == (abs(e)<<1)-(e>0)
-			state->e2=(state->e2<<1)^-(state->e2<0);//this is jxl premutation
-		else
-			state->e2=abs_err+abs_pred;
-		//if(state->pred>0)
-		//{
-		//	if(abs(state->error)<=state->pred)
-		//		state->e2=(abs(state->error)<<1)-(state->error>0);
-		//	else
-		//		state->e2=abs(state->error)+state->pred;
-		//}
-		//else
-		//{
-		//	if(abs(state->error)<=-state->pred)
-		//		state->e2=(abs(state->error)<<1)-(state->error>0);
-		//	else
-		//		state->e2=abs(state->error)-state->pred;
-		//}
+			int upred=state->pred+128;
+			if(upred<128)
+			{
+				if(abs(state->e2)<=upred)
+					state->e2=state->e2<<1^-(state->e2<0);
+				else
+					state->e2+=upred;
+			}
+			else
+			{
+				upred=256-upred;
+				if(abs(state->e2)<=upred)
+					state->e2=state->e2<<1^-(state->e2<0);
+				else
+					state->e2=upred-state->e2;
+			}
+		}
 	}
 	
-	int e2=state->e2, delta=state->delta;
-	//if(e2>=256)
-	//	LOG_ERROR("Symbol OOB");
+	int e2=enc?state->e2:0, delta=state->delta;
 	unsigned *hist, nlevels, *CDF;
 	int sym;
 	do//encode e2
@@ -264,6 +277,7 @@ static void calic_enc_ct(CalicState *state, int curr)//continuous-tone mode
 				c+=freq;
 			}
 			CDF[nlevels]=0x10000;
+
 			//int nused=0, sum=0;		//X  this is designed for static-emitted CDFs
 			//for(int ks=0;ks<tsize;++ks)
 			//{
@@ -278,7 +292,15 @@ static void calic_enc_ct(CalicState *state, int curr)//continuous-tone mode
 			//	ks2+=freq!=0;
 			//}
 			//CDF[nlevels]=0x10000;
+		}
+		else//bypass
+		{
+			CDF=0;
+			nlevels=128;//tune this
+		}
 
+		if(enc)
+		{
 			if(e2>=(int)nlevels-1)
 			{
 				sym=nlevels-1;//escape symbol
@@ -286,36 +308,68 @@ static void calic_enc_ct(CalicState *state, int curr)//continuous-tone mode
 			}
 			else
 				sym=e2;
+
+			ac_enc(&state->ec, sym, CDF, nlevels);
+			if(state->loud)
+				state->csizes[state->kc]+=calc_bitsize(CDF, nlevels, sym);
 		}
 		else
 		{
-			CDF=0;
-			nlevels=256;
-			sym=e2;
+			sym=ac_dec(&state->ec, CDF, nlevels);
+			e2+=sym;
 		}
-		
-		ac_enc(&state->ec, sym, CDF, nlevels);
-		if(state->loud)
-			state->csizes[state->kc]+=calc_bitsize(CDF, nlevels, sym);
 
-		if(!CDF)
-			break;
-#if 1
-		hist[sym]+=state->ct_inc[delta];//update hist
-		sum+=state->ct_inc[delta];
-		if(sum>0x4000)//rescale
+		if(CDF)
 		{
-			for(int ks=0;ks<(int)nlevels;++ks)
-				hist[ks]=(hist[ks]+1)>>1;//ceil_half
-			state->ct_inc[delta]>>=state->ct_inc[delta]>1;
-		}
+#if 1
+			hist[sym]+=state->ct_inc[delta];//update hist
+			sum+=state->ct_inc[delta];
+			if(sum>0x4000)//rescale
+			{
+				for(int ks=0;ks<(int)nlevels;++ks)
+					hist[ks]=(hist[ks]+1)>>1;//ceil_half
+				state->ct_inc[delta]>>=state->ct_inc[delta]>1;
+			}
 #endif
-		//++hist[sym];
+			//++hist[sym];
+		}
 
 		++delta;
 	}while(sym==nlevels-1);
+
+	if(!enc)
+	{
+		int upred=state->pred+128;
+		if(upred<128)
+		{
+			if(e2<=(upred<<1))
+				state->e2=e2>>1^-(e2&1);
+			else
+				state->e2=e2-upred;
+		}
+		else
+		{
+			upred=256-upred;
+			if(e2<=(upred<<1))
+				state->e2=e2>>1^-(e2&1);
+			else
+				state->e2=upred-e2;
+		}
+		state->error=state->sse_correction<0?-state->e2:state->e2;
+		curr=state->error+state->pred;
+	}
+
+	sum+=state->error;//update SSE table
+	++count;
+	if(count>640)
+	{
+		count>>=1;
+		sum>>=1;
+	}
+	*cell=sum<<12|count;
+	return curr;
 }
-static void calic_enc_bin(CalicState *state, int sym)//binary mode: 2 symbols in context (sparse context)
+static int calic_bin(CalicState *state, int sym, int enc)//binary mode: 2 symbols in context (sparse context)
 {
 	state->beta=
 		(state->nb2[5]!=state->nb2[0])<<4|
@@ -330,9 +384,14 @@ static void calic_enc_bin(CalicState *state, int sym)//binary mode: 2 symbols in
 	state->CDF[2]=(int)(c*(0x10000LL-4)/sum)+2, c+=hist[2];
 	state->CDF[3]=0x10000;
 	
-	ac_enc(&state->ec, sym, state->CDF, 3);
-	if(state->loud)
-		state->csizes[state->kc]+=calc_bitsize(state->CDF, 3, sym);
+	if(enc)
+	{
+		ac_enc(&state->ec, sym, state->CDF, 3);
+		if(state->loud)
+			state->csizes[state->kc]+=calc_bitsize(state->CDF, 3, sym);
+	}
+	else
+		sym=ac_dec(&state->ec, state->CDF, 3);
 
 #if 1
 	hist[sym]+=state->bin_inc[state->beta];
@@ -346,59 +405,7 @@ static void calic_enc_bin(CalicState *state, int sym)//binary mode: 2 symbols in
 	}
 #endif
 	//++hist[sym];
-}
-static void calic_enc(CalicState *state, int kc, int kx, int ky)
-{
-	int idx=(state->iw*ky+kx)<<2|kc;
-	char curr=state->pixels[idx];
-	load_nb(state, kc, kx, ky);
-	state->nb2[0]=state->nb[NB_W];
-	state->nb2[1]=state->nb[NB_N];
-	state->nb2[2]=state->nb[NB_NW];
-	state->nb2[3]=state->nb[NB_NE];
-	state->nb2[4]=state->nb[NB_WW];
-	state->nb2[5]=state->nb[NB_NN];
-	char uniquevals[_countof(state->nb2)]={state->nb2[0]};
-	int nunique=1;
-	for(int k=1;k<_countof(state->nb2);++k)
-	{
-		char val=state->nb2[k];
-		int found=0;
-		for(int k2=0;k2<nunique;++k2)
-		{
-			if(val==uniquevals[k2])
-			{
-				found=1;
-				break;
-			}
-		}
-		if(!found)
-			uniquevals[nunique++]=val;
-	}
-	if(nunique<=2)
-	{
-		if(curr==uniquevals[0])
-		{
-			calic_enc_bin(state, 0);
-			state->errors[idx]=0;
-		}
-		else if(curr==uniquevals[1])
-		{
-			calic_enc_bin(state, 1);
-			state->errors[idx]=0;
-		}
-		else
-		{
-			calic_enc_bin(state, 2);
-			calic_enc_ct(state, curr);
-			state->errors[idx]=state->error;
-		}
-	}
-	else
-	{
-		calic_enc_ct(state, curr);
-		state->errors[idx]=state->error;
-	}
+	return sym;
 }
 int t45_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud)
 {
@@ -409,7 +416,7 @@ int t45_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 		acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H-%M-%S");
 		printf("T45 CALIC  Enc %s  WH %dx%d\n", g_buf, iw, ih);
 	}
-	int nch=get_nch(src, iw*ih);//FIXME: differentiate between gray and just alpha
+	int nch=get_nch(src, iw*ih);//FIXME: differentiate between just gray and just alpha
 	if(!nch)
 	{
 		//printf("Skipping image filled with solid 0x%02X\n", src[0]);
@@ -438,21 +445,48 @@ int t45_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	dlist_push_back1(&list, &nch);
 	
 	CalicState state;
-	calic_init(&state, pixels, iw, ih, &list);
+	calic_init(&state, pixels, iw, ih);
+	ac_enc_init(&state.ec, &list);
 	state.loud=loud;
 
 	for(int kc=0;kc<nch;++kc)
 	{
-		calic_resetfornextchannel(&state);
-		state.kc=kc;
+		calic_resetfornextchannel(&state, kc);
 		for(int ky=0;ky<ih;++ky)
 		{
 			for(int kx=0;kx<iw;++kx)
 			{
-				//if(kx==10&&ky==10)//
+				//if(kc==0&&kx==647&&ky==355)//
+				//if(kc==0&&kx==648&&ky==354)//
 				//	printf("");
 
-				calic_enc(&state, kc, kx, ky);
+				int idx=(state.iw*ky+kx)<<2|kc;
+				char curr=state.pixels[idx];
+				calic_prepctx(&state, kc, kx, ky);
+				if(state.nunique<=2)
+				{
+					if(curr==state.unb[0])
+					{
+						calic_bin(&state, 0, 1);
+						state.errors[idx]=0;
+					}
+					else if(state.nunique==2&&curr==state.unb[1])
+					{
+						calic_bin(&state, 1, 1);
+						state.errors[idx]=0;
+					}
+					else
+					{
+						calic_bin(&state, 2, 1);
+						calic_ct(&state, curr, 1);
+						state.errors[idx]=state.error;
+					}
+				}
+				else
+				{
+					calic_ct(&state, curr, 1);
+					state.errors[idx]=state.error;
+				}
 			}
 			if(loud)
 				printf("%5.2lf%%  CR %10.6lf\r", (double)(ky+1)*100/ih, (double)(ky+1)*iw*nch/list.nobj);
@@ -478,11 +512,93 @@ int t45_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 		printf("csize %8d  CR %10.6lf\n", (int)list.nobj, (double)usize/list.nobj);
 	}
 
-	calic_finish(&state);
+	dlist_clear(&list);
+	calic_free(&state);
 	free(pixels);
 	return 1;
 }
-int t45_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud)
+int t45_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *pixels, int loud)
 {
+	int res=iw*ih;
+	double t_start=time_sec();
+
+	if(!srclen)
+		return 0;
+	unsigned char nch=data[0];
+	if(srclen==1)
+	{
+		int color=0xFF000000|nch<<16|nch<<8|nch;
+		memfill(pixels, &color, sizeof(int), (size_t)iw*ih<<2);
+		return 1;
+	}
+	++data;//skip tag
+	--srclen;
+
+	char *errors=(char*)malloc((size_t)res<<2);
+	if(!errors)
+	{
+		LOG_ERROR("Allocation error");
+		return 0;
+	}
+	int black=0xFF000000;
+	memfill(pixels, &black, res*sizeof(int), sizeof(int));
+	
+	CalicState state;
+	calic_init(&state, pixels, iw, ih);
+	ac_dec_init(&state.ec, data, data+srclen);
+
+	for(int kc=0;kc<nch;++kc)
+	{
+		calic_resetfornextchannel(&state, kc);
+		for(int ky=0;ky<ih;++ky)
+		{
+			for(int kx=0;kx<iw;++kx)
+			{
+				//if(kc==0&&kx==647&&ky==355)//
+				//if(kc==0&&kx==648&&ky==354)//
+				//	printf("");
+
+				int idx=(state.iw*ky+kx)<<2|kc;
+				calic_prepctx(&state, kc, kx, ky);
+				if(state.nunique<=2)
+				{
+					int T=calic_bin(&state, 0, 0);
+					switch(T)
+					{
+					case 0:
+						pixels[idx]=state.unb[0];
+						state.errors[idx]=0;
+						break;
+					case 1:
+						if(state.nunique<2)
+							LOG_ERROR("Decode error");
+						pixels[idx]=state.unb[1];
+						state.errors[idx]=0;
+						break;
+					case 2:
+						pixels[idx]=calic_ct(&state, 0, 0);
+						state.errors[idx]=state.error;
+						break;
+					}
+				}
+				else
+				{
+					pixels[idx]=calic_ct(&state, 0, 0);
+					state.errors[idx]=state.error;
+				}
+			}
+		}
+	}
+	colortransform_JPEG2000_inv(pixels, iw, ih);
+	addbuf(pixels, iw, ih, nch==1?3:nch, 4, 128);
+	if(loud)
+	{
+		printf("\n");//skip progress line
+		printf("Decode elapsed ");
+		timedelta2str(0, 0, time_sec()-t_start);
+		printf("\n");
+	}
+	calic_free(&state);
+	free(errors);
 	return 1;
 }

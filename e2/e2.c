@@ -1648,10 +1648,10 @@ int main(int argc, char **argv)
 
 #if 1
 	t45_encode(buf, iw, ih, &cdata, 1);
-	//t45_decode(cdata->data, cdata->count, iw, ih, b2, 1);
+	t45_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 	array_free(&cdata);
-	//compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T45", 0, 1);
-	//memset(b2, 0, len);
+	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T45", 0, 1);
+	memset(b2, 0, len);
 	printf("\n");
 #endif
 #endif

@@ -391,7 +391,7 @@ int print_bin8(int x)
 }
 int print_bin32(unsigned x)
 {
-	printf("0b");
+	//printf("0b");
 	for(int k=31;k>=0;--k)
 	{
 		int bit=x>>k&1;

@@ -1454,7 +1454,7 @@ int t25_encode(const unsigned char *src, int iw, int ih, int *blockw, int *block
 		}
 		else
 		{
-			ACEncoder ec;
+			ArithmeticCoder ec;
 			ac_enc_init(&ec, &list);
 			for(int ky=0;ky<ih;++ky)
 			{
@@ -1699,7 +1699,7 @@ int t25_decode(const unsigned char *data, size_t srclen, int iw, int ih, int *bl
 		}
 		else
 		{
-			ACDecoder ec;
+			ArithmeticCoder ec;
 			ac_dec_init(&ec, srcstart, srcend);
 
 			for(int ky=0;ky<ih;++ky)
@@ -1945,7 +1945,7 @@ int t26_encode(const unsigned char *src, int iw, int ih, T26Params const *params
 		}
 		else
 		{
-			ACEncoder ec;
+			ArithmeticCoder ec;
 			ac_enc_init(&ec, &list);
 
 			//unsigned state_lo=0, state_hi=0xFFFFFFFF;
@@ -2280,7 +2280,7 @@ int t26_decode(const unsigned char *data, size_t srclen, int iw, int ih, T26Para
 		}
 		else
 		{
-			ACDecoder ec;
+			ArithmeticCoder ec;
 			ac_dec_init(&ec, kc?data+bookmarks[kc-1]:data+overhead, data+bookmarks[kc]);
 
 			for(int ky=0;ky<ih;++ky)//for each row
