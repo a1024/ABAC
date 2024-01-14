@@ -250,6 +250,7 @@ static void ac_dec_init(ArithmeticCoder *ec, const unsigned char *start, unsigne
 #else
 	ec->nbits=32;
 #endif
+	ec->is_enc=0;
 	ec->srcptr=start;
 	ec->srcend=end;
 

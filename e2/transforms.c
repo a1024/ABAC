@@ -133,7 +133,7 @@ void apply_transforms_fwd(unsigned char *buf, int bw, int bh)
 
 	addbuf(buf, bw, bh, 3, 4, 128);//unsigned char -> signed char
 	
-	colortransform_YCbCr_R_fwd((char*)buf, bw, bh);
+	colortransform_YCbCr_R_v0_fwd((char*)buf, bw, bh);
 	//colortransform_ycocg_fwd((char*)buf, bw, bh);
 	//colortransform_xgz_fwd((char*)buf, bw, bh);
 	//colortransform_xyz_fwd((char*)buf, bw, bh);
@@ -186,7 +186,7 @@ void apply_transforms_inv(unsigned char *buf, int bw, int bh)
 	//	//dwt2d_cdf53_inv((char*)buf+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, (char*)temp);
 	//	//dwt2d_cdf97_inv((char*)buf+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, (char*)temp);
 	
-	colortransform_YCbCr_R_inv((char*)buf, bw, bh);
+	colortransform_YCbCr_R_v0_inv((char*)buf, bw, bh);
 	//colortransform_ycocg_inv((char*)buf, bw, bh);
 	//colortransform_xgz_inv((char*)buf, bw, bh);
 	//colortransform_xyz_inv((char*)buf, bw, bh);
@@ -279,7 +279,39 @@ void colortransform_YCoCg_R_inv(char *buf, int iw, int ih)
 		buf[k|2]=b;
 	}
 }
-void colortransform_YCbCr_R_fwd(char *buf, int iw, int ih)
+void colortransform_YCbCr_R_v0_fwd(char *buf, int iw, int ih)
+{
+	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
+	{
+		char r=buf[k], g=buf[k|1], b=buf[k|2];
+
+		r-=g;   //r-g
+		g+=r>>1;//g+(r-g)/2 = (r+g)/2
+		b-=g;   //b-(r+g)/2
+		g+=b>>1;//(r+g)/2+(b-(r+g)/2)/2 = 1/4 r + 1/4 g + 1/2 b
+
+		buf[k  ]=r;//Cr
+		buf[k|1]=g;//Y
+		buf[k|2]=b;//Cb
+	}
+}
+void colortransform_YCbCr_R_v0_inv(char *buf, int iw, int ih)
+{
+	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
+	{
+		char r=buf[k], g=buf[k|1], b=buf[k|2];//Cr Y Cb
+		
+		g-=b>>1;
+		b+=g;
+		g-=r>>1;
+		r+=g;
+
+		buf[k  ]=r;
+		buf[k|1]=g;
+		buf[k|2]=b;
+	}
+}
+void colortransform_YCbCr_R_v1_fwd(char *buf, int iw, int ih)
 {
 	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
 	{
@@ -299,7 +331,7 @@ void colortransform_YCbCr_R_fwd(char *buf, int iw, int ih)
 		//buf[k|2]=b;//Cb
 	}
 }
-void colortransform_YCbCr_R_inv(char *buf, int iw, int ih)
+void colortransform_YCbCr_R_v1_inv(char *buf, int iw, int ih)
 {
 	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
 	{

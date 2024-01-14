@@ -7777,7 +7777,7 @@ int t39_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);//buffer is signed
 #else
 	addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);
-	colortransform_YCbCr_R_fwd(buf2, iw, ih);
+	colortransform_YCbCr_R_v0_fwd(buf2, iw, ih);
 	//addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);//X  the buffer is signed
 #endif
 
@@ -8112,7 +8112,7 @@ int t39_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 	apply_transforms_inv(buf, iw, ih);
 #else
 	//addbuf(buf, iw, ih, 3, 4, 128);//X  the buffer is signed
-	colortransform_YCbCr_R_inv((char*)buf, iw, ih);
+	colortransform_YCbCr_R_v0_inv((char*)buf, iw, ih);
 	addbuf(buf, iw, ih, 3, 4, 128);
 #endif
 	if(loud)

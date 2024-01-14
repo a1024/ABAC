@@ -83,8 +83,8 @@ int t39_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 
 int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T42: T39 with 'custom2' filter		NOT GENERALIZED
 int t42_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
-void t42_explore(void *ctx0);
-void t42_freectx(void **ctx);
+//void t42_explore(void *ctx0);
+//void t42_freectx(void **ctx);
 
 //int t43_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);//T43: Wisdom of the crowd
 //int t43_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
@@ -144,8 +144,10 @@ int get_nch(const char *buf, int res);//returns nch = {0 degenerate, 1 gray, 2 g
 
 void colortransform_YCoCg_R_fwd(char *buf, int iw, int ih);
 void colortransform_YCoCg_R_inv(char *buf, int iw, int ih);
-void colortransform_YCbCr_R_fwd(char *buf, int iw, int ih);//like YCoCg but with green & blue swapped
-void colortransform_YCbCr_R_inv(char *buf, int iw, int ih);
+void colortransform_YCbCr_R_v0_fwd(char *buf, int iw, int ih);
+void colortransform_YCbCr_R_v0_inv(char *buf, int iw, int ih);
+void colortransform_YCbCr_R_v1_fwd(char *buf, int iw, int ih);//like YCoCg but with green & blue swapped
+void colortransform_YCbCr_R_v1_inv(char *buf, int iw, int ih);
 void colortransform_YCbCr_R_v2_fwd(char *buf, int iw, int ih);
 void colortransform_YCbCr_R_v2_inv(char *buf, int iw, int ih);
 void colortransform_YCbCr_R_v3_fwd(char *buf, int iw, int ih);

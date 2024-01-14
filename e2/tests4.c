@@ -7,8 +7,6 @@
 static const char file[]=__FILE__;
 
 
-//static double p_sum=0;
-//static int p_count=0;
 double calc_bitsize(unsigned *CDF, int nlevels, int sym)
 {
 	int freq=CDF?CDF[sym+1]-CDF[sym]:0x10000/nlevels;
@@ -16,11 +14,6 @@ double calc_bitsize(unsigned *CDF, int nlevels, int sym)
 	//	LOG_ERROR("ZPS");
 	double prob=(double)freq/0x10000;
 	double bitsize=-log2(prob);
-
-	//p_sum+=prob;
-	//++p_count;
-	//if(!(p_count&0xFF))
-	//	printf("%lf\n", p_sum/p_count);
 
 	return bitsize;
 }
@@ -233,28 +226,28 @@ static int calic_ct(CalicState *state, int curr, int enc)//continuous-tone mode
 	
 		state->e2=state->sse_correction<0?-state->error:state->error;//to skew the histogram (predict the sign of error from SSE correction)
 
-		//if(state->e2)
-		//{
-		//	//L/JXL permutation:		{0, -1,  1, -2,  2, ...}	(e<<1)^-(e<0)
-		//	//CALIC/FLIF permutation:	{0,  1, -1,  2, -2, ...}	(e<0?-2*e:2*e-1) == (abs(e)<<1)-(e>0)
-		//	int upred=state->pred+128;
-		//	if((upred<128)!=(state->sse_correction<0))
-		//	{
-		//		if(abs(state->e2)<=upred)
-		//			state->e2=state->e2<<1^-(state->e2<0);
-		//		else
-		//			state->e2=upred+abs(state->e2);
-		//	}
-		//	else
-		//	{
-		//		upred=256-upred;
-		//		if(abs(state->e2)<=upred)
-		//			state->e2=state->e2<<1^-(state->e2<0);
-		//		else
-		//			state->e2=upred+abs(state->e2);
-		//	}
-		//}
-		state->e2=state->e2<<1^-(state->e2<0);
+		if(state->e2)
+		{
+			//L/JXL permutation:		{0, -1,  1, -2,  2, ...}	(e<<1)^-(e<0)
+			//CALIC/FLIF permutation:	{0,  1, -1,  2, -2, ...}	(e<0?-2*e:2*e-1) == (abs(e)<<1)-(e>0)
+			int upred=state->pred+128;
+			if((upred<128)!=(state->sse_correction<0))
+			{
+				if(abs(state->e2)<=upred)
+					state->e2=state->e2<<1^-(state->e2<0);
+				else
+					state->e2=upred+abs(state->e2);
+			}
+			else
+			{
+				upred=256-upred;
+				if(abs(state->e2)<=upred)
+					state->e2=state->e2<<1^-(state->e2<0);
+				else
+					state->e2=upred+abs(state->e2);
+			}
+		}
+		//state->e2=state->e2<<1^-(state->e2<0);
 	}
 	
 	int e2=enc?state->e2:0, delta=state->delta;
@@ -351,23 +344,23 @@ static int calic_ct(CalicState *state, int curr, int enc)//continuous-tone mode
 
 	if(!enc)
 	{
-		//int upred=state->pred+128;
-		//if((upred<128)!=(state->sse_correction<0))
-		//{
-		//	if(e2<=(upred<<1))
-		//		state->e2=e2>>1^-(e2&1);
-		//	else
-		//		state->e2=e2-upred;
-		//}
-		//else
-		//{
-		//	upred=256-upred;
-		//	if(e2<=(upred<<1))
-		//		state->e2=e2>>1^-(e2&1);
-		//	else
-		//		state->e2=upred-e2;
-		//}
-		state->e2=e2>>1^-(e2&1);
+		int upred=state->pred+128;
+		if((upred<128)!=(state->sse_correction<0))
+		{
+			if(e2<=(upred<<1))
+				state->e2=e2>>1^-(e2&1);
+			else
+				state->e2=e2-upred;
+		}
+		else
+		{
+			upred=256-upred;
+			if(e2<=(upred<<1))
+				state->e2=e2>>1^-(e2&1);
+			else
+				state->e2=upred-e2;
+		}
+		//state->e2=e2>>1^-(e2&1);
 
 		state->error=state->sse_correction<0?-state->e2:state->e2;
 		curr=state->error+state->pred;

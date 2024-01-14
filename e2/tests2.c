@@ -1610,7 +1610,7 @@ typedef struct Custom3ParamsStruct
 	short c10[C3_NNB+2], c11[C3_NNB  ], c12[C3_NNB];
 	short c20[C3_NNB+2], c21[C3_NNB+2], c22[C3_NNB];
 } Custom3Params;
-short filter[]=
+static short filter[]=
 {
 	//CUSTOM3-r2 CLIC16
 #if 0
@@ -1722,7 +1722,7 @@ typedef struct T42CtxStruct
 	float csizes_est[24*T42_NESTIMATORS];
 #endif
 } T42Ctx;
-T42Ctx* t42_ctx_init()
+static T42Ctx* t42_ctx_init()
 {
 	int val=0x8000;
 	T42Node node0={{1, 1}};
@@ -1751,7 +1751,7 @@ T42Ctx* t42_ctx_init()
 	}
 	return ctx;
 }
-T42Ctx* t42_ctx_copy(T42Ctx *ctx)
+static T42Ctx* t42_ctx_copy(T42Ctx *ctx)
 {
 	T42Ctx *ctx2=(T42Ctx*)malloc(sizeof(T42Ctx));
 	if(!ctx2)
@@ -1774,7 +1774,7 @@ T42Ctx* t42_ctx_copy(T42Ctx *ctx)
 	}
 	return ctx2;
 }
-void t42_ctx_clear(T42Ctx **ctx)
+static void t42_ctx_clear(T42Ctx **ctx)
 {
 	for(int k=0;k<24;++k)
 	{
@@ -1840,7 +1840,7 @@ static int custom3_dot(const short *a, const short *b, int count)
 		s3+=a[k]*b[k];
 	return s3;
 }
-void t42_ctx_get_context(T42Ctx *ctx, const char *buf, const char *ebuf, int iw, int ih, int kc, int kx, int ky)
+static void t42_ctx_get_context(T42Ctx *ctx, const char *buf, const char *ebuf, int iw, int ih, int kc, int kx, int ky)
 {
 #define LOAD(BUF, C, X, Y) (unsigned)(kc-C)<3&&(unsigned)(kx-(X))<(unsigned)iw&&(unsigned)(ky-Y)<(unsigned)ih?BUF[(iw*(ky-Y)+kx-(X))<<2|(kc-C)]:0
 	int count_W_N_m1=(kx-1>=0)+(ky-1>=0)+(kc-1>=0);
@@ -1974,7 +1974,7 @@ void t42_ctx_get_context(T42Ctx *ctx, const char *buf, const char *ebuf, int iw,
 		ctx->context[k]=CLAMP(0, ctx->context[k], 255);
 	}
 }
-void t42_ctx_estimate_p0(T42Ctx *ctx, int kc, int kb)
+static void t42_ctx_estimate_p0(T42Ctx *ctx, int kc, int kb)
 {
 	int workidx=kc<<3|kb;
 	int *wk=ctx->weights[workidx];
@@ -2017,7 +2017,7 @@ void t42_ctx_estimate_p0(T42Ctx *ctx, int kc, int kb)
 
 	ctx->p0=CLAMP(1, ctx->p0, 0xFFFF);
 }
-void t42_ctx_update(T42Ctx *ctx, int kc, int kb, int bit)
+static void t42_ctx_update(T42Ctx *ctx, int kc, int kb, int bit)
 {
 	int workidx=kc<<3|kb;
 	
@@ -2069,7 +2069,7 @@ void t42_ctx_update(T42Ctx *ctx, int kc, int kb, int bit)
 		ctx->context[kp]|=bit<<(8+7-kb);
 	}
 }
-void t42_explore(void *ctx0)
+static void t42_explore(void *ctx0)
 {
 #if 1
 	const char *prednames[]=
@@ -2146,7 +2146,7 @@ void t42_explore(void *ctx0)
 	printf("Usage %d/%d\n", total_use, total_count);
 #endif
 }
-void t42_freectx(void **ctx)
+static void t42_freectx(void **ctx)
 {
 	t42_ctx_clear((T42Ctx**)ctx);
 }
@@ -2190,7 +2190,7 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	memcpy(buf2, src, (size_t)res<<2);
 	memset(ebuf, 0, (size_t)res<<2);
 	addbuf((unsigned char*)buf2, iw, ih, nch==1?3:nch, 4, 128);
-	colortransform_YCbCr_R_fwd(buf2, iw, ih);
+	colortransform_YCbCr_R_v0_fwd(buf2, iw, ih);
 
 	DList list;
 	dlist_init(&list, 1, 1024, 0);
@@ -2405,7 +2405,7 @@ int t42_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 	free(ebuf);
 	
 	//if(nch>=3)
-	colortransform_YCbCr_R_inv((char*)buf, iw, ih);
+	colortransform_YCbCr_R_v0_inv((char*)buf, iw, ih);
 	//else if(nch==1)
 	//{
 	//	for(int k=0;k<res;++k)
