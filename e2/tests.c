@@ -1516,7 +1516,7 @@ int t25_encode(const unsigned char *src, int iw, int ih, int *blockw, int *block
 								++counter;
 							}
 #endif
-							ac_enc(&ec, buf2[(iw*ky+kx)<<2|kc], CDF2, 256);
+							ac_enc(&ec, buf2[(iw*ky+kx)<<2|kc], CDF2, 256, 1);
 						}
 					}
 				}
@@ -1721,7 +1721,7 @@ int t25_decode(const unsigned char *data, size_t srclen, int iw, int ih, int *bl
 						if(!success)
 							LOG_ERROR("t25_prepblock error");
 						for(int kx=x1;kx<x2;++kx)
-							buf[(iw*ky+kx)<<2|kc]=ac_dec(&ec, CDF2, 256);
+							buf[(iw*ky+kx)<<2|kc]=ac_dec(&ec, CDF2, 256, 1);
 					}
 				}
 			}
@@ -2009,7 +2009,7 @@ int t26_encode(const unsigned char *src, int iw, int ih, T26Params const *params
 						}
 	#endif
 					
-						ac_enc(&ec, buf2[(iw*ky+kx)<<2|kc], CDF2, 256);
+						ac_enc(&ec, buf2[(iw*ky+kx)<<2|kc], CDF2, 256, 1);
 					}
 				}
 			}
@@ -2292,7 +2292,7 @@ int t26_decode(const unsigned char *data, size_t srclen, int iw, int ih, T26Para
 					if(!success)
 						LOG_ERROR("t26_prepblock error");
 					for(int kx=x1;kx<x2;++kx)//for each pixel
-						buf[(iw*ky+kx)<<2|kc]=ac_dec(&ec, CDF2, 256);
+						buf[(iw*ky+kx)<<2|kc]=ac_dec(&ec, CDF2, 256, 1);
 				}
 			}
 		}

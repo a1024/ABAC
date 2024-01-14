@@ -208,7 +208,7 @@ typedef struct ArithmeticCoderStruct
 {
 	unsigned lo, hi;
 	unsigned long long cache;
-	int nbits;//enc: number of free bits in cache [0 ~ 64], dec: number of ready bits in cache [0 ~ 32]
+	int nbits;//enc: number of free bits in cache [0 ~ 64], dec: number of unread bits in cache [0 ~ 32]
 	int is_enc;
 	union
 	{
@@ -243,20 +243,58 @@ static void ac_dec_init(ArithmeticCoder *ec, const unsigned char *start, unsigne
 	memcpy(&ec->code, ec->srcptr, 4);
 	ec->srcptr+=4;
 }
-static void ac_renorm(ArithmeticCoder *ec)//one-time loopless renorm		this keeps hi & lo as far apart as possible from each other in the ALU
+static void ac_renorm(ArithmeticCoder *ec, unsigned fmin)//one-time loopless renorm		this keeps hi & lo as far apart as possible from each other in the ALU
 {
+	//((hi-lo)<<n_emit)*fmin/0x10000 should be >= 1, where fmin is the current smallest nonzero freq
+	//floor_log2(hi-lo)+n_emit+floor_log2(fmin)-16 >= 1
+	//32-n_keep = n_emit >= 16-floor_log2(fmin)-floor_log2(hi-lo)
+	//n_keep <= 16+floor_log2(fmin)+floor_log2(hi-lo)
+	
+	int n_keep=floor_log2_32(ec->hi^ec->lo)+1, n_emit;
+	int range_guard=floor_log2_32(ec->lo<ec->hi?ec->hi-ec->lo:1)+floor_log2_32(fmin)+16;
+	if(n_keep>range_guard)//a solution for the rare "Schrodinger's half" problem
+	{
+		unsigned lo2, hi2;
+		n_emit=32-range_guard;
+		lo2=ec->lo<<n_emit;
+		hi2=ec->hi<<n_emit|((1<<n_emit)-1);
+		while(hi2<lo2)
+		{
+			lo2<<=1;
+			hi2<<=1;
+			hi2|=1;
+			++n_emit;
+		}
+		n_keep=32-n_emit;
+	}
+	else
+		n_emit=32-n_keep;
+#if 0
 	//(hi-lo)<<n_emit should be >= 0x10000
 	//floor_log2(hi-lo)+n_emit should be >= 16
 	//clamp	16-floor_log2(hi-lo) <= n_emit <= 32
 	//16-floor_log2(hi-lo) <= 32-n_keep
-	//n_keep <= 16+floor_log2(hi-lo)
-	unsigned lo0=ec->lo, hi0=ec->hi;//
+	//n_keep <= floor_log2(hi-lo)+16
 
-	int n_keep=floor_log2(ec->hi^ec->lo)+1;//floor_log2 now uses intrinsics and was patched to give -1 for zero input
-	unsigned range_guard=floor_log2(ec->lo<ec->hi?ec->hi-ec->lo:1)+16;
-	if(n_keep>range_guard)
-		n_keep=0;
+	int n_keep=floor_log2_32(ec->hi^ec->lo)+1;//floor_log2 now uses intrinsics and was patched to give -1 for zero input
 	int n_emit=32-n_keep;
+	unsigned range_guard=floor_log2_32(ec->lo<ec->hi?ec->hi-ec->lo:1)+16;
+	if(n_keep>range_guard)//a solution for the rare "Schrodinger's half" problem
+	{
+		unsigned
+			lo2=ec->lo<<n_emit,
+			hi2=ec->hi<<n_emit|((1<<n_emit)-1);
+		while(hi2<lo2)
+		{
+			lo2<<=1;
+			hi2<<=1;
+			hi2|=1;
+			++n_emit;
+		}
+		n_keep=32-n_emit;
+	}
+	//	n_keep=0;
+#endif
 #if 0
 #ifdef _MSC_VER
 	if(x)
@@ -336,15 +374,13 @@ static void ac_renorm(ArithmeticCoder *ec)//one-time loopless renorm		this keeps
 			ec->hi|=emit_mask;
 		}
 	}
-	//if(ec->hi<=ec->lo)//
-	//	LOG_ERROR2("Range error");
 }
-static void ac_enc(ArithmeticCoder *ec, int sym, const unsigned *CDF, int nlevels)//CDF is 16 bit
+static void ac_enc(ArithmeticCoder *ec, int sym, const unsigned *CDF, int nlevels, unsigned fmin)//CDF is 16 bit
 {
 	unsigned lo2, hi2;
 	int cdf_curr, cdf_next;
 	
-	ac_renorm(ec);
+	ac_renorm(ec, fmin);
 #if 0
 	for(;;)//renorm
 	{
@@ -389,7 +425,7 @@ static void ac_enc(ArithmeticCoder *ec, int sym, const unsigned *CDF, int nlevel
 static void ac_enc_flush(ArithmeticCoder *ec)
 {
 	ec->hi=ec->lo;//this will cause all remaining 32 lo bits to be written to the cache
-	ac_renorm(ec);
+	ac_renorm(ec, 0x10000);
 	//now all remaining bits are in the cache (up to 64)
 	while(64-ec->nbits>0)//loops up to 2 times
 	{
@@ -417,7 +453,7 @@ static void ac_enc_flush(ArithmeticCoder *ec)
 	}while(k2<32);
 #endif
 }
-static int ac_dec(ArithmeticCoder *ec, const unsigned *CDF, int nlevels)
+static int ac_dec(ArithmeticCoder *ec, const unsigned *CDF, int nlevels, unsigned fmin)
 {
 #if 0
 	unsigned mingap;
@@ -455,7 +491,7 @@ static int ac_dec(ArithmeticCoder *ec, const unsigned *CDF, int nlevels)
 	int sym=0;
 	unsigned cdf_start, cdf_end;
 
-	ac_renorm(ec);
+	ac_renorm(ec, fmin);
 	if(CDF)
 	{
 		int L=0, R=nlevels-1, found=0;

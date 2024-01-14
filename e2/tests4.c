@@ -220,11 +220,12 @@ static int calic_ct(CalicState *state, int curr, int enc)//continuous-tone mode
 		(2*state->nb[NB_W]-state->nb[NB_WW]<state->pred);
 	int ctx=(state->delta>>1)<<8|state->beta;
 	int *cell=state->sse+ctx;
-	int count=*cell&0xFFF;
-	sum=*cell>>12;
-	state->sse_correction=count?sum/count:0;
+	int sse_count=*cell&0xFFF;
+	int sse_sum=*cell>>12;
+	state->sse_correction=sse_count?sse_sum/sse_count:0;
 	state->pred+=state->sse_correction;
-	state->pred=MEDIAN3(state->nb[NB_N], state->nb[NB_W], state->pred);//clamp prediction
+	state->pred=CLAMP(-128, state->pred, 127);
+	//state->pred=MEDIAN3(state->nb[NB_N], state->nb[NB_W], state->pred);//clamp prediction
 
 	if(enc)
 	{
@@ -237,12 +238,12 @@ static int calic_ct(CalicState *state, int curr, int enc)//continuous-tone mode
 			//L/JXL permutation:		{0, -1,  1, -2,  2, ...}	(e<<1)^-(e<0)
 			//CALIC/FLIF permutation:	{0,  1, -1,  2, -2, ...}	(e<0?-2*e:2*e-1) == (abs(e)<<1)-(e>0)
 			int upred=state->pred+128;
-			if(upred<128)
+			if((upred<128)!=(state->sse_correction<0))
 			{
 				if(abs(state->e2)<=upred)
 					state->e2=state->e2<<1^-(state->e2<0);
 				else
-					state->e2+=upred;
+					state->e2=upred+abs(state->e2);
 			}
 			else
 			{
@@ -250,13 +251,13 @@ static int calic_ct(CalicState *state, int curr, int enc)//continuous-tone mode
 				if(abs(state->e2)<=upred)
 					state->e2=state->e2<<1^-(state->e2<0);
 				else
-					state->e2=upred-state->e2;
+					state->e2=upred+abs(state->e2);
 			}
 		}
 	}
 	
 	int e2=enc?state->e2:0, delta=state->delta;
-	unsigned *hist, nlevels, *CDF;
+	unsigned *hist, nlevels, *CDF, fmin, f2;
 	int sym;
 	do//encode e2
 	{
@@ -270,13 +271,22 @@ static int calic_ct(CalicState *state, int curr, int enc)//continuous-tone mode
 			sum=0;
 			for(int ks=0;ks<(int)nlevels;++ks)
 				sum+=hist[ks];
-			for(int ks=0, c=0;ks<(int)nlevels;++ks)
+			int c=CDF[0];
+			CDF[0]=0;
+			fmin=0;
+			for(int ks=1;ks<(int)nlevels;++ks)
 			{
 				int freq=hist[ks];
 				CDF[ks]=(unsigned)(c*(0x10000LL-nlevels)/sum)+ks;
+				f2=CDF[ks]-CDF[ks-1];
+				if(!fmin||fmin>f2)
+					fmin=f2;
 				c+=freq;
 			}
 			CDF[nlevels]=0x10000;
+			f2=CDF[nlevels]-CDF[nlevels-1];
+			if(!fmin||fmin>f2)
+				fmin=f2;
 
 			//int nused=0, sum=0;		//X  this is designed for static-emitted CDFs
 			//for(int ks=0;ks<tsize;++ks)
@@ -296,7 +306,8 @@ static int calic_ct(CalicState *state, int curr, int enc)//continuous-tone mode
 		else//bypass
 		{
 			CDF=0;
-			nlevels=32;//tune this
+			nlevels=256;//tune this
+			fmin=0x10000/256;
 		}
 
 		if(enc)
@@ -309,13 +320,13 @@ static int calic_ct(CalicState *state, int curr, int enc)//continuous-tone mode
 			else
 				sym=e2;
 
-			ac_enc(&state->ec, sym, CDF, nlevels);
+			ac_enc(&state->ec, sym, CDF, nlevels, fmin);
 			if(state->loud)
 				state->csizes[state->kc]+=calc_bitsize(CDF, nlevels, sym);
 		}
 		else
 		{
-			sym=ac_dec(&state->ec, CDF, nlevels);
+			sym=ac_dec(&state->ec, CDF, nlevels, fmin);
 			e2+=sym;
 		}
 
@@ -340,7 +351,7 @@ static int calic_ct(CalicState *state, int curr, int enc)//continuous-tone mode
 	if(!enc)
 	{
 		int upred=state->pred+128;
-		if(upred<128)
+		if((upred<128)!=(state->sse_correction<0))
 		{
 			if(e2<=(upred<<1))
 				state->e2=e2>>1^-(e2&1);
@@ -359,14 +370,16 @@ static int calic_ct(CalicState *state, int curr, int enc)//continuous-tone mode
 		curr=state->error+state->pred;
 	}
 
-	sum+=state->error;//update SSE table
-	++count;
-	if(count>640)
+	sse_sum+=state->error;//update SSE table
+	++sse_count;
+	//if(abs(sse_count?sse_sum/sse_count:0)>128)//
+	//	LOG_ERROR("SSE error");
+	if(sse_count>640)
 	{
-		count>>=1;
-		sum>>=1;
+		sse_count>>=1;
+		sse_sum>>=1;
 	}
-	*cell=sum<<12|count;
+	*cell=sse_sum<<12|sse_count;
 	return curr;
 }
 static int calic_bin(CalicState *state, int sym, int enc)//binary mode: 2 symbols in context (sparse context)
@@ -378,20 +391,20 @@ static int calic_bin(CalicState *state, int sym, int enc)//binary mode: 2 symbol
 		(state->nb2[2]!=state->nb2[0])<<1|
 		(state->nb2[1]!=state->nb2[0]);
 	unsigned *hist=state->tables->ctr_bin[state->beta];
-	unsigned sum=hist[0]+hist[1]+hist[2], c=0;
+	unsigned sum=hist[0]+hist[1]+hist[2], c=0, fmin, f2;
 	state->CDF[0]=0, c+=hist[0];
-	state->CDF[1]=(int)(c*(0x10000LL-4)/sum)+1, c+=hist[1];
-	state->CDF[2]=(int)(c*(0x10000LL-4)/sum)+2, c+=hist[2];
-	state->CDF[3]=0x10000;
+	state->CDF[1]=(int)(c*(0x10000LL-4)/sum)+1, c+=hist[1];		fmin=state->CDF[1]-state->CDF[0];
+	state->CDF[2]=(int)(c*(0x10000LL-4)/sum)+2, c+=hist[2];		f2=state->CDF[2]-state->CDF[1];		if(fmin>f2)fmin=f2;
+	state->CDF[3]=0x10000;						f2=state->CDF[3]-state->CDF[2];		if(fmin>f2)fmin=f2;
 	
 	if(enc)
 	{
-		ac_enc(&state->ec, sym, state->CDF, 3);
+		ac_enc(&state->ec, sym, state->CDF, 3, fmin);
 		if(state->loud)
 			state->csizes[state->kc]+=calc_bitsize(state->CDF, 3, sym);
 	}
 	else
-		sym=ac_dec(&state->ec, state->CDF, 3);
+		sym=ac_dec(&state->ec, state->CDF, 3, fmin);
 
 #if 1
 	hist[sym]+=state->bin_inc[state->beta];
@@ -460,6 +473,13 @@ int t45_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 				//if(kc==0&&kx==648&&ky==354)//
 				//if(kc==0&&kx==128&&ky==1)//
 				//if(kc==0&&kx==507&&ky==98)//
+				//if(kc==0&&kx==511&&ky==89)//
+				//if(kc==0&&kx==6&&ky==3)//
+				//if(kc==0&&kx==347&&ky==5)//
+				//if(kc==1&&kx==725&&ky==414)//
+				//if(kc==0&&kx==7&&ky==3)//
+				//if(kc==0&&kx==6&&ky==3)//
+				//if(kc==0&&kx==329&&ky==3)//
 				//	printf("");
 
 				int idx=(state.iw*ky+kx)<<2|kc;
@@ -491,7 +511,7 @@ int t45_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 				}
 			}
 			if(loud)
-				printf("%5.2lf%%  CR %10.6lf\r", (double)(ky+1)*100/ih, (double)(ky+1)*iw*nch/list.nobj);
+				printf("%5.2lf%%  CR %10.6lf\r", (double)(kc*ih+ky+1)*100/(nch*ih), (double)(ky+1)*iw*nch/list.nobj);
 		}
 	}
 	ac_enc_flush(&state.ec);
@@ -559,6 +579,8 @@ int t45_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 				//if(kc==0&&kx==647&&ky==355)//
 				//if(kc==0&&kx==2087&&ky==1570)//
 				//if(kc==0&&kx==507&&ky==98)//
+				//if(kc==0&&kx==7&&ky==3)//
+				//if(kc==0&&kx==6&&ky==3)//
 				//	printf("");
 
 				int idx=(state.iw*ky+kx)<<2|kc;

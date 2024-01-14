@@ -207,12 +207,32 @@ int floor_log2(unsigned long long n)
 	logn=success?logn:-1;
 	return logn;
 #elif defined __GNUC__
-	int logn=63-__builtin_clz(n);
+	int logn=63-__builtin_clzll(n);
 	return logn;
 #else
 	int	logn=-!n;
 	int	sh=(n>=1ULL<<32)<<5;	logn+=sh, n>>=sh;
 		sh=(n>=1<<16)<<4;	logn+=sh, n>>=sh;
+		sh=(n>=1<< 8)<<3;	logn+=sh, n>>=sh;
+		sh=(n>=1<< 4)<<2;	logn+=sh, n>>=sh;
+		sh=(n>=1<< 2)<<1;	logn+=sh, n>>=sh;
+		sh= n>=1<< 1;		logn+=sh;
+	return logn;
+#endif
+}
+int floor_log2_32(unsigned n)
+{
+#ifdef _MSC_VER
+	unsigned long logn=0;
+	int success=_BitScanReverse(&logn, n);
+	logn=success?logn:-1;
+	return logn;
+#elif defined __GNUC__
+	int logn=63-__builtin_clz(n);
+	return logn;
+#else
+	int	logn=-!n;
+	int	sh=(n>=1<<16)<<4;	logn+=sh, n>>=sh;
 		sh=(n>=1<< 8)<<3;	logn+=sh, n>>=sh;
 		sh=(n>=1<< 4)<<2;	logn+=sh, n>>=sh;
 		sh=(n>=1<< 2)<<1;	logn+=sh, n>>=sh;
