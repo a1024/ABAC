@@ -196,8 +196,10 @@ void grad_explore(const unsigned char *buf, int iw, int ih);
 #define CUSTOM_NNB (CUSTOM_REACH*(CUSTOM_REACH+1)*2)
 #define CUSTOM_NNB_E (CUSTOM_REACH_E*(CUSTOM_REACH_E+1)*2)
 #define CUSTOM_NPARAMS (CUSTOM_NNB+CUSTOM_NNB_E)
+#ifndef __GNUC__
 double opt_custom(const char *buf, int iw, int ih, int kc, int niter, short *params, int loud);
 float opt_custom_v2(const char *buf, int iw, int ih, int kc, int niter, short *params, float loss0, int loud);
+#endif
 
 
 #ifdef ALLOW_VULKAN

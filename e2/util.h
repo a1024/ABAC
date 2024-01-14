@@ -108,7 +108,7 @@ int pause1();
 int pause_abort(const char *file, int lineno, const char *extraInfo);
 #define PANIC() pause_abort(file, __LINE__, 0)
 #define ASSERT(SUCCESS)   ((SUCCESS)!=0||pause_abort(file, __LINE__, #SUCCESS))
-#define ASSERT_P(POINTER) (valid(POINTER)||pause_abort(file, __LINE__, #POINTER " == 0"))
+#define ASSERT_P(POINTER) (void)(valid(POINTER)||pause_abort(file, __LINE__, #POINTER " == 0"))
 
 
 //ARRAY

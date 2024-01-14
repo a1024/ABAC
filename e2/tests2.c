@@ -1,6 +1,7 @@
 #include"e2.h"
 #include"ac.h"
-#include"ac_simd.h"
+#include<immintrin.h>
+//#include"ac_simd.h"
 #include<stdio.h>
 #include<stdlib.h>
 #include<string.h>
@@ -707,7 +708,7 @@ int t40_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	}
 	abac_enc_flush(&ctx);
 
-	size_t dststart=dlist_appendtoarray(&list, data);
+	dlist_appendtoarray(&list, data);
 	if(loud)
 	{
 		printf("\n");//skip progress line
@@ -1751,6 +1752,7 @@ static T42Ctx* t42_ctx_init()
 	}
 	return ctx;
 }
+#if 0
 static T42Ctx* t42_ctx_copy(T42Ctx *ctx)
 {
 	T42Ctx *ctx2=(T42Ctx*)malloc(sizeof(T42Ctx));
@@ -1774,6 +1776,7 @@ static T42Ctx* t42_ctx_copy(T42Ctx *ctx)
 	}
 	return ctx2;
 }
+#endif
 static void t42_ctx_clear(T42Ctx **ctx)
 {
 	for(int k=0;k<24;++k)
@@ -1845,28 +1848,28 @@ static void t42_ctx_get_context(T42Ctx *ctx, const char *buf, const char *ebuf, 
 #define LOAD(BUF, C, X, Y) (unsigned)(kc-C)<3&&(unsigned)(kx-(X))<(unsigned)iw&&(unsigned)(ky-Y)<(unsigned)ih?BUF[(iw*(ky-Y)+kx-(X))<<2|(kc-C)]:0
 	int count_W_N_m1=(kx-1>=0)+(ky-1>=0)+(kc-1>=0);
 	int
-		NNWW =LOAD(buf, 0,  2, 2),
-		NNW  =LOAD(buf, 0,  1, 2),
+		//NNWW =LOAD(buf, 0,  2, 2),
+		//NNW  =LOAD(buf, 0,  1, 2),
 		NN   =LOAD(buf, 0,  0, 2),
-		NNE  =LOAD(buf, 0, -1, 2),
-		NNEE =LOAD(buf, 0, -2, 2),
-		NWW  =LOAD(buf, 0,  2, 1),
+		//NNE  =LOAD(buf, 0, -1, 2),
+		//NNEE =LOAD(buf, 0, -2, 2),
+		//NWW  =LOAD(buf, 0,  2, 1),
 		NW   =LOAD(buf, 0,  1, 1),
 		N    =LOAD(buf, 0,  0, 1),
 		NE   =LOAD(buf, 0, -1, 1),
-		NEE  =LOAD(buf, 0, -2, 1),
-		WW   =LOAD(buf, 0,  2, 0),
+		//NEE  =LOAD(buf, 0, -2, 1),
+		//WW   =LOAD(buf, 0,  2, 0),
 		W    =LOAD(buf, 0,  1, 0),
 
 		m1  =LOAD(buf, 1, 0, 0),
 		Nm1 =LOAD(buf, 1, 0, 1),
 		Wm1 =LOAD(buf, 1, 1, 0),
-		NWm1=LOAD(buf, 1, 1, 1),
+		//NWm1=LOAD(buf, 1, 1, 1),
 
-		m2  =LOAD(buf, 2, 0, 0),
-		Nm2 =LOAD(buf, 2, 0, 1),
-		Wm2 =LOAD(buf, 2, 1, 0),
-		NWm2=LOAD(buf, 2, 1, 1);
+		m2  =LOAD(buf, 2, 0, 0);
+		//Nm2 =LOAD(buf, 2, 0, 1),
+		//Wm2 =LOAD(buf, 2, 1, 0),
+		//NWm2=LOAD(buf, 2, 1, 1);
 
 	int j=-1;
 
@@ -2069,6 +2072,7 @@ static void t42_ctx_update(T42Ctx *ctx, int kc, int kb, int bit)
 		ctx->context[kp]|=bit<<(8+7-kb);
 	}
 }
+#if 0
 static void t42_explore(void *ctx0)
 {
 #if 1
@@ -2150,6 +2154,7 @@ static void t42_freectx(void **ctx)
 {
 	t42_ctx_clear((T42Ctx**)ctx);
 }
+#endif
 int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud)
 {
 	int res=iw*ih;
@@ -2159,7 +2164,7 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 		acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H-%M-%S");
 		printf("T42 Enc  CUSTOM  %s  WH %dx%d\n", g_buf, iw, ih);
 	}
-	int nch=get_nch(src, iw*ih);//FIXME: differentiate between gray and just alpha
+	int nch=get_nch((char*)src, iw*ih);//FIXME: differentiate between gray and just alpha
 	if(!nch)
 	{
 		//printf("Skipping image filled with solid 0x%02X\n", src[0]);
@@ -2241,7 +2246,7 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	}
 	ac_enc_flush(&ec);
 
-	size_t dststart=dlist_appendtoarray(&list, data);
+	dlist_appendtoarray(&list, data);
 	if(loud)
 	{
 		printf("\n");//skip progress line
@@ -3524,7 +3529,7 @@ int t43_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	}
 	abac_enc_flush(&ec);
 
-	size_t dststart=dlist_appendtoarray(&list, data);
+	dlist_appendtoarray(&list, data);
 	if(loud)
 	{
 		printf("\n");//skip progress line

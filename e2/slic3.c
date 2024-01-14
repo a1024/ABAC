@@ -237,7 +237,7 @@ int slic3_encode(int iw, int ih, int nch, int depth, const void *src, ArrayHandl
 	}
 	pixels=buf+res*nch;
 	tokens=pixels+res;
-	ANSEncoder ec;
+	ANSCoder ec;
 	ans_enc_init(&ec, &list);
 	for(int kc=nch-1;kc>=0;--kc)//for each channel
 	{
@@ -372,7 +372,7 @@ void* slic3_decode(const unsigned char *src, int len, int *ret_iw, int *ret_ih, 
 	}
 	short *buf=dst+res*nch;
 	unsigned CDF2[SLIC2_HISTLEN+1]={0};
-	ANSDecoder ec;
+	ANSCoder ec;
 	ans_dec_init(&ec, srcstart, src+len);
 	for(int kc=0;kc<nch;++kc)
 	{

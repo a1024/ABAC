@@ -64,6 +64,7 @@ static inline void initialize(DataType *w, int count, DataType sqrt_fan_in)
 }
 #endif
 
+#ifndef __GNUC__
 long long error_func_p32(long long x)
 {
 	//approximation 3 from Wikipedia
@@ -105,6 +106,7 @@ long long error_func_p32(long long x)
 	lo>>=16;
 	return (int)lo;
 }
+#endif
 int error_func_p16(int x)
 {
 	//approximation 1
@@ -210,7 +212,7 @@ void print_rep(int count, char c)
 void print_CDF(const unsigned *CDF, const unsigned char *b2, int bw, int bh, int kc, int x1, int x2, int y1, int y2)
 {
 	const int graphwidth=32;
-	int res=bw*bh;
+	//int res=bw*bh;
 #if 1
 	int *CDF0=(int*)malloc(256*sizeof(int));
 	if(!CDF0)
@@ -261,8 +263,8 @@ void print_CDF(const unsigned *CDF, const unsigned char *b2, int bw, int bh, int
 		int den=eend-estart;
 		int cdf2=(int)(((long long)(e-estart)*0xFF00)/den)+k;//guard
 
-		int x2=(int)((long long)(((k+1)<<16)-mean)*conf>>16);
-		int e2=error_func_p16(x2);
+		//int x2=(int)((long long)(((k+1)<<16)-mean)*conf>>16);
+		//int e2=error_func_p16(x2);
 		int f2=(int)(((long long)(e-estart)*0xFF00)/den)+1;
 		
 #if 1
@@ -1557,7 +1559,8 @@ int t25_encode(const unsigned char *src, int iw, int ih, int *blockw, int *block
 }
 int t25_decode(const unsigned char *data, size_t srclen, int iw, int ih, int *blockw, int *blockh, int use_ans, unsigned char *buf, int loud)
 {
-	const short predidx[]={0, 11, 11+PW2_NPARAM}, predlen[]={11, PW2_NPARAM, 11, 22+PW2_NPARAM};
+	//const short predidx[]={0, 11, 11+PW2_NPARAM};
+	const short predlen[]={11, PW2_NPARAM, 11, 22+PW2_NPARAM};
 	const int cdflen=768LL*sizeof(short), overhead=12LL+predlen[3]*sizeof(short)+cdflen;
 	int res=iw*ih;
 	
@@ -1934,8 +1937,8 @@ int t26_encode(const unsigned char *src, int iw, int ih, T26Params const *params
 					//encode group
 					for(int kx=x2-1;kx>=x1;--kx)//for each pixel
 					{
-						if(kc==0&&ky==0&&bx==0&&kx==0)//
-							printf("");
+						//if(kc==0&&ky==0&&bx==0&&kx==0)//
+						//	printf("");
 
 						ans_enc(&ec, buf2[(iw*ky+kx)<<2|kc], CDF2, 256);
 					}
@@ -2072,7 +2075,8 @@ int t26_encode(const unsigned char *src, int iw, int ih, T26Params const *params
 }
 int t26_decode(const unsigned char *data, size_t srclen, int iw, int ih, T26Params const *params, int use_ans, unsigned char *buf, int loud)
 {
-	const short predidx[]={0, 11, 11+PW2_NPARAM}, predlen[]={11, PW2_NPARAM, 11, 22+PW2_NPARAM};
+	//const short predidx[]={0, 11, 11+PW2_NPARAM};
+	const short predlen[]={11, PW2_NPARAM, 11, 22+PW2_NPARAM};
 	const int cdflen=768LL*sizeof(short), overhead=12LL+predlen[3]*sizeof(short)+cdflen;
 	int res=iw*ih;
 	
@@ -2518,7 +2522,7 @@ int t27_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	}
 	abac_enc_flush(&ctx);
 	
-	size_t dststart=dlist_appendtoarray(&list, data);
+	dlist_appendtoarray(&list, data);
 	if(loud)
 	{
 		printf("Encode elapsed ");
@@ -2701,7 +2705,7 @@ int t28_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	ArithmeticCoder ec;
 	ac_enc_init(&ec, &list);
 
-	float lr=0.001f;
+	//float lr=0.001f;
 	
 	float csizes[24]={0};
 	int hits[24]={0};
@@ -2745,7 +2749,7 @@ int t28_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	}
 	ac_enc_flush(&ec);
 	
-	size_t dststart=dlist_appendtoarray(&list, data);
+	dlist_appendtoarray(&list, data);
 	if(loud)
 	{
 		double csize=0;
@@ -2982,7 +2986,7 @@ int t29_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	}
 	ac_enc_flush(&ec);
 	
-	size_t dststart=dlist_appendtoarray(&list, data);
+	dlist_appendtoarray(&list, data);
 	if(loud)
 	{
 		double csize=0;
@@ -3390,7 +3394,7 @@ int t30_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	}
 	abac_enc_flush(&ctx);
 	
-	size_t dststart=dlist_appendtoarray(&list, data);
+	dlist_appendtoarray(&list, data);
 	if(loud)
 	{
 		double csize=0;
@@ -3552,7 +3556,7 @@ int t31_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 
 					sym<<=1;
 					sym|=bit;
-					tree+=step<<1;
+					tree+=(size_t)step<<1;
 					step<<=1;
 				}
 			}
@@ -3560,7 +3564,7 @@ int t31_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	}
 	ac_enc_flush(&ec);
 	
-	size_t dststart=dlist_appendtoarray(&list, data);
+	dlist_appendtoarray(&list, data);
 	if(loud)
 	{
 		double csize=0;
@@ -3691,7 +3695,7 @@ int t32_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	}
 	abac_enc_flush(&ctx);
 	
-	size_t dststart=dlist_appendtoarray(&list, data);
+	dlist_appendtoarray(&list, data);
 	if(loud)
 	{
 		double csize=0;
@@ -3831,7 +3835,7 @@ int t33_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	}
 	abac_enc_flush(&ctx);
 	
-	size_t dststart=dlist_appendtoarray(&list, data);
+	dlist_appendtoarray(&list, data);
 	if(loud)
 	{
 		double csize=0;
@@ -3939,7 +3943,7 @@ int t34_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 				Node *treek=tree+255*kc;
 				int *wk=t34_weights+8*NESTIMATORS*kc;
 				int step=1;
-				unsigned char sym=0, esym=0;
+				unsigned char sym=0;
 				for(int kb=7;kb>=0;--kb, wk+=NESTIMATORS)//MSB -> LSB
 				{
 					Node *node=treek+sym;
@@ -4154,7 +4158,7 @@ int t34_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 #endif
 	ac_enc_flush(&ec);
 
-	size_t dststart=dlist_appendtoarray(&list, data);
+	dlist_appendtoarray(&list, data);
 	if(loud)
 	{
 		double csize=0;
@@ -4248,6 +4252,7 @@ typedef float DataType;
 #define ABS fabsf
 #define FROMFLOAT(X) X
 #endif
+#if 0
 static void add_vec(DataType *dst, const DataType *a, const DataType *b, int count)
 {
 	for(int k=0;k<count;++k)
@@ -4317,7 +4322,7 @@ static void linear(DataType *dst, const DataType *mat, const DataType *vec, cons
 		dst[ko]=temp;
 	}
 }
-
+#endif
 
 #if 0
 #define T35_PREC 16	//fractional bits
@@ -4588,6 +4593,7 @@ static CmpRes t35_cmp_node(const void *key, const void *candidate)
 	T35CtxNode const *c=(T35CtxNode const*)candidate;
 	return (*k>c->key)-(*k<c->key);
 }
+#if 0
 static void t35_debugprinter(RBNodeHandle *node, int depth)
 {
 	T35CtxNode *p;
@@ -4597,6 +4603,7 @@ static void t35_debugprinter(RBNodeHandle *node, int depth)
 		printf("0x%08X %5d %5d\n", p->key, p->n[0], p->n[1]);
 	}
 }
+#endif
 typedef struct T35CtxStruct
 {
 	Map maps[24][T35_NMAPS];
@@ -4663,12 +4670,13 @@ void t35_ctx_get_context(T35Ctx *ctx, char *buf, int iw, int ih, int kc, int kx,
 		m1  =kc-1>=0                  ?buf[(iw* ky   +kx  )<<2|(kc-1)]+offset:0,
 		Nm1 =kc-1>=0         &&ky-1>=0?buf[(iw*(ky-1)+kx  )<<2|(kc-1)]+offset:0,
 		Wm1 =kc-1>=0&&kx-1>=0         ?buf[(iw* ky   +kx-1)<<2|(kc-1)]+offset:0,
-		NWm1=kc-1>=0&&kx-1>=0&&ky-1>=0?buf[(iw*(ky-1)+kx-1)<<2|(kc-1)]+offset:0,
+	//	NWm1=kc-1>=0&&kx-1>=0&&ky-1>=0?buf[(iw*(ky-1)+kx-1)<<2|(kc-1)]+offset:0,
 
-		m2  =kc-2>=0                  ?buf[(iw* ky   +kx  )<<2|(kc-2)]+offset:0,
-		Nm2 =kc-2>=0         &&ky-1>=0?buf[(iw*(ky-1)+kx  )<<2|(kc-2)]+offset:0,
-		Wm2 =kc-2>=0&&kx-1>=0         ?buf[(iw* ky   +kx-1)<<2|(kc-2)]+offset:0,
-		NWm2=kc-2>=0&&kx-1>=0&&ky-1>=0?buf[(iw*(ky-1)+kx-1)<<2|(kc-2)]+offset:0;
+		m2  =kc-2>=0                  ?buf[(iw* ky   +kx  )<<2|(kc-2)]+offset:0;
+	//	Nm2 =kc-2>=0         &&ky-1>=0?buf[(iw*(ky-1)+kx  )<<2|(kc-2)]+offset:0,
+	//	Wm2 =kc-2>=0&&kx-1>=0         ?buf[(iw* ky   +kx-1)<<2|(kc-2)]+offset:0,
+	//	NWm2=kc-2>=0&&kx-1>=0&&ky-1>=0?buf[(iw*(ky-1)+kx-1)<<2|(kc-2)]+offset:0;
+
 	//int ctxcount3=0;
 	//int NW  =kx-1>=0&&ky-1>=0?(++ctxcount3, (char)buf[(iw*(ky-1)+kx-1)<<2| kc   ]):0,
 	//	NE  =kx+1<iw&&ky-1>=0?(++ctxcount3, (char)buf[(iw*(ky-1)+kx-1)<<2| kc   ]):0,
@@ -5136,7 +5144,7 @@ int t35_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	//colortransform_ycocb_fwd(buf2, iw, ih);
 	//addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);
 
-	apply_transforms_fwd(buf2, iw, ih);
+	apply_transforms_fwd((unsigned char*)buf2, iw, ih);
 	//addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);
 	//addbuf((unsigned char*)buf2, iw, ih, 3, 4, 192);//makes MSB easy
 
@@ -5186,7 +5194,7 @@ int t35_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	}
 	ac_enc_flush(&ec);
 
-	size_t dststart=dlist_appendtoarray(&list, data);
+	dlist_appendtoarray(&list, data);
 	if(loud)
 	{
 		double csize=0;
@@ -6115,7 +6123,7 @@ int t36_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	}
 	abac_enc_flush(&ctx);
 
-	size_t dststart=dlist_appendtoarray(&list, data);
+	dlist_appendtoarray(&list, data);
 	if(loud)
 	{
 		double csize=0;
@@ -6322,12 +6330,12 @@ void t37_ctx_get_context(T37Ctx *ctx, char *buf, int iw, int ih, int kc, int kx,
 		m1  =kc-1>=0                  ?buf[(iw* ky   +kx  )<<2|(kc-1)]:0,
 		Nm1 =kc-1>=0         &&ky-1>=0?buf[(iw*(ky-1)+kx  )<<2|(kc-1)]:0,
 		Wm1 =kc-1>=0&&kx-1>=0         ?buf[(iw* ky   +kx-1)<<2|(kc-1)]:0,
-		NWm1=kc-1>=0&&kx-1>=0&&ky-1>=0?buf[(iw*(ky-1)+kx-1)<<2|(kc-1)]:0,
+	//	NWm1=kc-1>=0&&kx-1>=0&&ky-1>=0?buf[(iw*(ky-1)+kx-1)<<2|(kc-1)]:0,
 
-		m2  =kc-2>=0                  ?buf[(iw* ky   +kx  )<<2|(kc-2)]:0,
-		Nm2 =kc-2>=0         &&ky-1>=0?buf[(iw*(ky-1)+kx  )<<2|(kc-2)]:0,
-		Wm2 =kc-2>=0&&kx-1>=0         ?buf[(iw* ky   +kx-1)<<2|(kc-2)]:0,
-		NWm2=kc-2>=0&&kx-1>=0&&ky-1>=0?buf[(iw*(ky-1)+kx-1)<<2|(kc-2)]:0;
+		m2  =kc-2>=0                  ?buf[(iw* ky   +kx  )<<2|(kc-2)]:0;
+	//	Nm2 =kc-2>=0         &&ky-1>=0?buf[(iw*(ky-1)+kx  )<<2|(kc-2)]:0,
+	//	Wm2 =kc-2>=0&&kx-1>=0         ?buf[(iw* ky   +kx-1)<<2|(kc-2)]:0,
+	//	NWm2=kc-2>=0&&kx-1>=0&&ky-1>=0?buf[(iw*(ky-1)+kx-1)<<2|(kc-2)]:0;
 	
 	int j=-1;
 
@@ -6485,7 +6493,7 @@ int t37_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	//colortransform_ycocb_fwd(buf2, iw, ih);
 	//addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);
 
-	apply_transforms_fwd(buf2, iw, ih);
+	apply_transforms_fwd((unsigned char*)buf2, iw, ih);
 	addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);
 	//addbuf((unsigned char*)buf2, iw, ih, 3, 4, 192);//makes MSB easy
 
@@ -6503,8 +6511,8 @@ int t37_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	{
 		for(int kx=0;kx<iw;++kx)
 		{
-			if(ky==10&&kx==10)//
-				printf("");
+			//if(ky==10&&kx==10)//
+			//	printf("");
 
 			for(int kc=0;kc<3;++kc)
 			{
@@ -6548,7 +6556,7 @@ int t37_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	}
 	ac_enc_flush(&ec);
 
-	size_t dststart=dlist_appendtoarray(&list, data);
+	dlist_appendtoarray(&list, data);
 	if(loud)
 	{
 		double csize=0;
@@ -6596,7 +6604,7 @@ int t37_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 		}
 		for(int ke=0;ke<T37_NESTIMATORS;++ke)
 		{
-			float *sizes=t37_context.csizes+ke;
+			//float *sizes=t37_context.csizes+ke;
 			printf("E%2d ", ke);
 			for(int kb=0;kb<24;++kb)
 			{
@@ -6681,7 +6689,7 @@ int t38_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	//colortransform_ycocb_fwd(buf2, iw, ih);
 	//addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);
 
-	apply_transforms_fwd(buf2, iw, ih);
+	apply_transforms_fwd((unsigned char*)buf2, iw, ih);
 	//addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);
 	//addbuf((unsigned char*)buf2, iw, ih, 3, 4, 192);//makes MSB easy
 
@@ -6702,8 +6710,8 @@ int t38_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	{
 		for(int kx=0;kx<iw;++kx)
 		{
-			if(ky==10&&kx==10)//
-				printf("");
+			//if(ky==10&&kx==10)//
+			//	printf("");
 
 			for(int kc=0;kc<3;++kc)
 			{
@@ -6747,7 +6755,7 @@ int t38_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	}
 	ac_enc_flush(&ec);
 
-	size_t dststart=dlist_appendtoarray(&list, data);
+	dlist_appendtoarray(&list, data);
 	if(loud)
 	{
 		double csize=0;
@@ -6950,8 +6958,8 @@ void t39_explore(T39Ctx *ctx, const char *src, int iw, int ih)
 	//double entropy=0;
 	for(int sym=0;sym<256;++sym)
 	{
-		if(sym==128)//
-			printf("");
+		//if(sym==128)//
+		//	printf("");
 
 		int prob=0x10000;
 		int context=0x80;
@@ -7114,12 +7122,12 @@ void t39_ctx_get_context(T39Ctx *ctx, const char *buf, const char *ebuf, int iw,
 		m1  =LOAD(buf, 1, 0, 0),
 		Nm1 =LOAD(buf, 1, 0, 1),
 		Wm1 =LOAD(buf, 1, 1, 0),
-		NWm1=LOAD(buf, 1, 1, 1),
+		//NWm1=LOAD(buf, 1, 1, 1),
 
-		m2  =LOAD(buf, 2, 0, 0),
-		Nm2 =LOAD(buf, 2, 0, 1),
-		Wm2 =LOAD(buf, 2, 1, 0),
-		NWm2=LOAD(buf, 2, 1, 1);
+		m2  =LOAD(buf, 2, 0, 0);
+		//Nm2 =LOAD(buf, 2, 0, 1),
+		//Wm2 =LOAD(buf, 2, 1, 0),
+		//NWm2=LOAD(buf, 2, 1, 1);
 #if 0
 	int W   =LOAD(buf, 0,  1, 0),
 		NW  =LOAD(buf, 0,  1, 1),
@@ -7680,28 +7688,6 @@ void t39_ctx_update(T39Ctx *ctx, int kc, int kb, int bit)
 	}
 
 	//update
-#ifndef T39_DISABLE_REC
-	static const int shifts[]=
-	{
-		//7, 7, 7, 6, 5, 0, 0, 8,//T39_N_REC_ESTIMATORS 1
-		//8, 7, 7, 6, 6, 6, 7, 7,
-		//7, 7, 7, 5, 4, 4, 2, 7,
-
-		5, 5, 4, 2, 1, 0, 0, 5,//T39_N_REC_ESTIMATORS 6
-		7, 5, 5, 4, 4, 5, 4, 6,
-		5, 5, 5, 2, 1, 1, 1, 5,
-
-		//6, 5, 5, 4, 2, 0, 0, 6,
-		//9, 7, 6, 5, 4, 5, 4, 6,
-		//6, 5, 5, 4, 4, 3, 1, 6,
-	};
-	//static const int bitrating[]=//higher is more compressible
-	//{
-	//	1, 2, 3, 4, 4, 4, 4, 1,
-	//	1, 1, 1, 1, 2, 3, 4, 1,
-	//	1, 2, 3, 4, 4, 4, 4, 1,
-	//};
-#endif
 	T39Node *node;
 	for(int kp=0;kp<T39_NMAPS;++kp)
 	{
@@ -7904,7 +7890,7 @@ int t39_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 #endif
 	ac_enc_flush(&ec);
 
-	size_t dststart=dlist_appendtoarray(&list, data);
+	dlist_appendtoarray(&list, data);
 	if(loud)
 	{
 		printf("\n");//skip progress line

@@ -51,6 +51,7 @@ void print_histogram(const int *hist, int nlevels, int graphwidth)
 		printf("\n");
 	}
 }
+#if 0
 static void print_sbuf(short *buf, int bw, int bh, int kc, int bytestride)
 {
 	static int call=0;
@@ -77,6 +78,7 @@ static void print_fbuf(float *buf, int bw, int bh, int nplaces)
 	printf("\n");
 	++call;
 }
+#endif
 int compare_bufs_uint8(unsigned char *b1, unsigned char *b0, int iw, int ih, int symbytes, int bytestride, const char *name, int backward, int loud)
 {
 	ptrdiff_t len=(ptrdiff_t)bytestride*iw*ih;
@@ -647,6 +649,7 @@ short pw2_params[PW2_NPARAM*3]=
 	// 0x007A, 0x00F9, 0x0165, 0x00C2, 0x0036, 0x0100, 0x0054, 0x0000,-0x0081,-0x0078, 0x0020, 0x004D,-0x0010, 0x0028, 0x00BD, 0x009D, 0x0020,-0x0082,-0x003F, 0x0060, 0x002A, 0x0161,-0x004E,-0x001D, 0x0123,-0x0008,-0x0080, 0x0020, 0x003C,
 	// 0x0010, 0x0039, 0x002E, 0x0037, 0x000E,-0x0010, 0x0014, 0x0008,-0x0007,-0x001C, 0x0074, 0x0019, 0x0010, 0x001B, 0x000D, 0x0047, 0x000A, 0x001C, 0x0008, 0x0004, 0x0023,-0x0012,-0x0156,-0x0074,-0x00A0,-0x0002,-0x0088,-0x0060, 0x0102,
 };
+#if 0
 static int pred_w2_paeth2(int T, int L, int TL, int TR)
 {
 	int p=T+L-TL, closest=T;
@@ -663,7 +666,7 @@ static int pred_w2_select(int T, int L, int TL)
 	int p=T+L-TL, pT=abs(p-T), pL=abs(p-L);
 	return pT<pL?L:T;
 }
-static pred_w2_cgrad(int T, int L, int TL)
+static int pred_w2_cgrad(int T, int L, int TL)
 {
 	int vmin, vmax, grad;
 
@@ -675,6 +678,7 @@ static pred_w2_cgrad(int T, int L, int TL)
 	grad=CLAMP(vmin, grad, vmax);
 	return grad;
 }
+#endif
 static int clamp4(int p, int a, int b, int c, int d)
 {
 	int vmin=a, vmax=a;
@@ -687,11 +691,13 @@ static int clamp4(int p, int a, int b, int c, int d)
 	p=CLAMP(vmin, p, vmax);
 	return p;
 }
+#if 0
 static int clip(int x)
 {
 	x=CLAMP(-128, x, 127);
 	return x;
 }
+#endif
 void pred_w2_prealloc(const char *src, int iw, int ih, int kc, short *params, int fwd, char *dst, int *temp)//temp is (PW2_NPRED+1)*2w
 {
 	int errorbuflen=iw<<1, rowlen=iw<<2;
@@ -715,48 +721,48 @@ void pred_w2_prealloc(const char *src, int iw, int ih, int kc, short *params, in
 			//L3 L2   L  X
 			int
 				cT6  =         ky-6>=0?src2[idx-rowlen*6   ]<<8:0,
-				cT5  =         ky-5>=0?src2[idx-rowlen*5   ]<<8:0,
+			//	cT5  =         ky-5>=0?src2[idx-rowlen*5   ]<<8:0,
 
-				cT4L3=kx-3>=0&&ky-4>=0?src2[idx-rowlen*4-12]<<8:0,
-				cT4  =         ky-4>=0?src2[idx-rowlen*4   ]<<8:0,
-				cT4R3=kx+3<iw&&ky-4>=0?src2[idx-rowlen*4+12]<<8:0,
+			//	cT4L3=kx-3>=0&&ky-4>=0?src2[idx-rowlen*4-12]<<8:0,
+			//	cT4  =         ky-4>=0?src2[idx-rowlen*4   ]<<8:0,
+			//	cT4R3=kx+3<iw&&ky-4>=0?src2[idx-rowlen*4+12]<<8:0,
 				
-				cT3L5=kx-5>=0&&ky-3>=0?src2[idx-rowlen*3-20]<<8:0,
-				cT3L4=kx-4>=0&&ky-3>=0?src2[idx-rowlen*3-16]<<8:0,
-				cT3L2=kx-2>=0&&ky-3>=0?src2[idx-rowlen*3- 8]<<8:0,
-				cT3L =kx-1>=0&&ky-3>=0?src2[idx-rowlen*3- 4]<<8:0,
+			//	cT3L5=kx-5>=0&&ky-3>=0?src2[idx-rowlen*3-20]<<8:0,
+			//	cT3L4=kx-4>=0&&ky-3>=0?src2[idx-rowlen*3-16]<<8:0,
+			//	cT3L2=kx-2>=0&&ky-3>=0?src2[idx-rowlen*3- 8]<<8:0,
+			//	cT3L =kx-1>=0&&ky-3>=0?src2[idx-rowlen*3- 4]<<8:0,
 				cT3  =         ky-3>=0?src2[idx-rowlen*3   ]<<8:0,
-				cT3R =kx+1<iw&&ky-3>=0?src2[idx-rowlen*3+ 4]<<8:0,
-				cT3R2=kx+2<iw&&ky-3>=0?src2[idx-rowlen*3+ 8]<<8:0,
-				cT3R3=kx+3<iw&&ky-3>=0?src2[idx-rowlen*3+12]<<8:0,
-				cT3R4=kx+4<iw&&ky-3>=0?src2[idx-rowlen*3+16]<<8:0,
+			//	cT3R =kx+1<iw&&ky-3>=0?src2[idx-rowlen*3+ 4]<<8:0,
+			//	cT3R2=kx+2<iw&&ky-3>=0?src2[idx-rowlen*3+ 8]<<8:0,
+			//	cT3R3=kx+3<iw&&ky-3>=0?src2[idx-rowlen*3+12]<<8:0,
+			//	cT3R4=kx+4<iw&&ky-3>=0?src2[idx-rowlen*3+16]<<8:0,
 				
-				cT2L3=kx-3>=0&&ky-2>=0?src2[idx-rowlen*2-12]<<8:0,
-				cT2L2=kx-2>=0&&ky-2>=0?src2[idx-rowlen*2- 8]<<8:0,
+			//	cT2L3=kx-3>=0&&ky-2>=0?src2[idx-rowlen*2-12]<<8:0,
+			//	cT2L2=kx-2>=0&&ky-2>=0?src2[idx-rowlen*2- 8]<<8:0,
 				cT2L =kx-1>=0&&ky-2>=0?src2[idx-rowlen*2- 4]<<8:0,
 				cT2  =         ky-2>=0?src2[idx-rowlen*2   ]<<8:0,
 				cT2R =kx+1<iw&&ky-2>=0?src2[idx-rowlen*2+ 4]<<8:0,
-				cT2R2=kx+2<iw&&ky-2>=0?src2[idx-rowlen*2+ 8]<<8:0,
-				cT2R3=kx+3<iw&&ky-2>=0?src2[idx-rowlen*2+12]<<8:0,
-				cT2R4=kx+4<iw&&ky-2>=0?src2[idx-rowlen*2+16]<<8:0,
+			//	cT2R2=kx+2<iw&&ky-2>=0?src2[idx-rowlen*2+ 8]<<8:0,
+			//	cT2R3=kx+3<iw&&ky-2>=0?src2[idx-rowlen*2+12]<<8:0,
+			//	cT2R4=kx+4<iw&&ky-2>=0?src2[idx-rowlen*2+16]<<8:0,
 				
-				cTL3 =kx-3>=0&&ky-1>=0?src2[idx-rowlen  -12]<<8:0,
-				cTL2 =kx-2>=0&&ky-1>=0?src2[idx-rowlen  - 8]<<8:0,
+			//	cTL3 =kx-3>=0&&ky-1>=0?src2[idx-rowlen  -12]<<8:0,
+			//	cTL2 =kx-2>=0&&ky-1>=0?src2[idx-rowlen  - 8]<<8:0,
 				cTL  =kx-1>=0&&ky-1>=0?src2[idx-rowlen  - 4]<<8:0,
 				cT   =kx  <iw&&ky-1>=0?src2[idx-rowlen     ]<<8:0,
 				cTR  =kx+1<iw&&ky-1>=0?src2[idx-rowlen  + 4]<<8:0,
 				cTR2 =kx+2<iw&&ky-1>=0?src2[idx-rowlen  + 8]<<8:0,
-				cTR3 =kx+3<iw&&ky-1>=0?src2[idx-rowlen  +12]<<8:0,
+			//	cTR3 =kx+3<iw&&ky-1>=0?src2[idx-rowlen  +12]<<8:0,
 				cTR4 =kx+4<iw&&ky-1>=0?src2[idx-rowlen  +16]<<8:0,
 				cTR5 =kx+5<iw&&ky-1>=0?src2[idx-rowlen  +20]<<8:0,
 				cTR6 =kx+6<iw&&ky-1>=0?src2[idx-rowlen  +24]<<8:0,
 				cTR7 =kx+7<iw&&ky-1>=0?src2[idx-rowlen  +28]<<8:0,
 
 				cL6  =kx-6>=0         ?src2[idx         -24]<<8:0,
-				cL5  =kx-5>=0         ?src2[idx         -20]<<8:0,
+			//	cL5  =kx-5>=0         ?src2[idx         -20]<<8:0,
 				cL4  =kx-4>=0         ?src2[idx         -16]<<8:0,
-				cL3  =kx-2>=0         ?src2[idx         -12]<<8:0,
-				cL2  =kx-2>=0         ?src2[idx         - 8]<<8:0,
+			//	cL3  =kx-2>=0         ?src2[idx         -12]<<8:0,
+			//	cL2  =kx-2>=0         ?src2[idx         - 8]<<8:0,
 				cL   =kx-1>=0         ?src2[idx         - 4]<<8:0;
 
 			//w0   w1   w2   w3
@@ -1006,7 +1012,7 @@ double pred_w2_calcloss(const char *src, int iw, int ih, int kc, short *params, 
 	int res=iw*ih;
 	pred_w2_prealloc(src, iw, ih, kc, params, 1, dst, temp);
 	//addhalf((unsigned char*)dst+kc, iw, ih, 1, 4);
-	calc_histogram(dst+kc, (ptrdiff_t)res<<2, 4, hist);
+	calc_histogram((unsigned char*)dst+kc, (ptrdiff_t)res<<2, 4, hist);
 
 	double entropy=0;
 	for(int k=0;k<256;++k)
@@ -1104,7 +1110,7 @@ double pred_opt_calcloss(const char *src, int iw, int ih, int kc, short *params,
 	}
 #endif
 	//addhalf((unsigned char*)dst+kc, iw, ih, 1, 4);
-	calc_histogram(dst+kc, (ptrdiff_t)res<<2, 4, hist);
+	calc_histogram((unsigned char*)dst+kc, (ptrdiff_t)res<<2, 4, hist);
 
 	double entropy=0;
 	for(int k=0;k<256;++k)
@@ -1193,7 +1199,7 @@ static unsigned __stdcall o6_thread(void *args)
 void pred_opt_opt_v6(const char *buf2, int iw, int ih, int loud)//multi-threaded
 {
 	double t_start=time_sec();
-	double loss=0;
+	//double loss=0;
 	int res=iw*ih;
 	char *buf3=(char*)malloc((O6_MAXTHREADS+1)*(size_t)res<<2);
 	int *temp=(int*)malloc((O6_MAXTHREADS+1)*(size_t)iw*(PW2_NPRED+1)*2*sizeof(int));
@@ -1358,7 +1364,8 @@ short jxlparams_i16[33]=//signed fixed 7.8 bit
 //};
 void   pred_jxl_prealloc(const char *src, int iw, int ih, int kc, const short *params, int fwd, char *dst, int *temp_w10)
 {
-	int res=iw*ih, errorbuflen=iw*2, rowlen=iw<<2;
+	//int res=iw*ih;
+	int errorbuflen=iw*2, rowlen=iw<<2;
 	int *error=temp_w10, *pred_errors[]=
 	{
 		temp_w10+errorbuflen,
@@ -1458,7 +1465,7 @@ double pred_jxl_calcloss(const char *src, int iw, int ih, int kc, const short *p
 	int res=iw*ih;
 	pred_jxl_prealloc(src, iw, ih, kc, params, 1, dst, temp);
 	//addbuf(dst+kc, iw, ih, 1, 4, 128);//just slows down the optimization
-	calc_histogram(dst+kc, (ptrdiff_t)res<<2, 4, hist);
+	calc_histogram((unsigned char*)dst+kc, (ptrdiff_t)res<<2, 4, hist);
 
 	double entropy=0;
 	int freq;
@@ -1821,7 +1828,7 @@ double opt_custom(const char *buf, int iw, int ih, int kc, int niter, short *par
 }
 
 
-
+#ifndef __GNUC__
 #define LOAD  _mm256_load_si256
 #define STORE _mm256_store_si256
 void print_strided_histogram(int *hist, int stride)
@@ -2226,3 +2233,4 @@ float opt_custom_v2(const char *buf, int iw, int ih, int kc, int niter, short *p
 	_mm_free(hist);
 	return loss0;
 }
+#endif

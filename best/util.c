@@ -23,7 +23,7 @@
 #include<math.h>
 #include<errno.h>
 #include<time.h>
-#ifdef _MSC_VER
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include<Windows.h>//QueryPerformance...
 #include<conio.h>
@@ -556,7 +556,11 @@ ArrayHandle array_construct(const void *src, size_t esize, size_t count, size_t 
 	dstsize=rep*srcsize;
 	cap=dstsize+pad*esize;
 	arr=(ArrayHandle)malloc(sizeof(ArrayHeader)+cap);
-	ASSERT_P(arr);
+	if(!arr)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
 	arr->count=count;
 	arr->esize=esize;
 	arr->cap=cap;
@@ -582,7 +586,11 @@ ArrayHandle array_copy(ArrayHandle *arr)
 		return 0;
 	bytesize=sizeof(ArrayHeader)+arr[0]->cap;
 	a2=(ArrayHandle)malloc(bytesize);
-	ASSERT_P(a2);
+	if(!a2)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
 	memcpy(a2, *arr, bytesize);
 	return a2;
 }
@@ -1256,6 +1264,7 @@ RBNodeHandle* map_insert(MapHandle map, const void *key, int *found)
 	++map->nnodes;
 	return get_node_addr(map, z);
 }
+#if 0
 static void rb_transplant(MapHandle map, RBNodeHandle u, RBNodeHandle v)
 {
 	if(!u->parent)
@@ -1266,6 +1275,7 @@ static void rb_transplant(MapHandle map, RBNodeHandle u, RBNodeHandle v)
 		u->parent->right=v;
 	v->parent=u->parent;
 }
+#endif
 static RBNodeHandle tree_minimum(RBNodeHandle root)
 {
 	if(!root)
@@ -1285,7 +1295,7 @@ static RBNodeHandle tree_maximum(RBNodeHandle root)
 int  map_erase(MapHandle map, const void *data, RBNodeHandle node)
 {
 	//https://github.com/gcc-mirror/gcc/blob/master/libstdc%2B%2B-v3/src/c%2B%2B98/tree.cc		line 286
-	RBNodeHandle *root, *leftmost, *rightmost, x, xp, y, z, *r2;
+	RBNodeHandle *leftmost, *rightmost, x, xp, y, z, *r2;
 	size_t y_is_red;
 
 	if(node)
@@ -1303,7 +1313,7 @@ int  map_erase(MapHandle map, const void *data, RBNodeHandle node)
 		return 0;
 	}
 	
-	root=&map->root->parent;
+	//root=&map->root->parent;
 	leftmost=&map->root->left;
 	rightmost=&map->root->right;
 	y=z;
@@ -1745,8 +1755,8 @@ void        pqueue_buildheap(PQueueHandle *pq)
 	free(temp);
 }
 
-//Array API
-PQueueHandle		pqueue_construct(
+//Priority Queue
+PQueueHandle pqueue_construct(
 	size_t esize,
 	size_t pad,
 	int (*less)(const void*, const void*),
@@ -1758,7 +1768,11 @@ PQueueHandle		pqueue_construct(
 	
 	cap=esize+pad*esize;
 	pq=(PQueueHandle)malloc(sizeof(PQueueHeader)+cap);
-	ASSERT_P(pq);
+	if(!pq)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
 	pq->count=0;
 	pq->esize=esize;
 	pq->byteCap=cap;
@@ -1916,7 +1930,7 @@ ArrayHandle get_filenames(const char *path, const char **extensions, int extCoun
 	c='*';
 	STR_APPEND(searchpath, &c, 1, 1);
 
-	hSearch=FindFirstFileA(searchpath->data, &data);//skip .
+	hSearch=FindFirstFileA((char*)searchpath->data, &data);//skip .
 	if(hSearch==INVALID_HANDLE_VALUE)
 		return 0;
 	success=FindNextFileA(hSearch, &data);//skip ..
@@ -1924,7 +1938,7 @@ ArrayHandle get_filenames(const char *path, const char **extensions, int extCoun
 	STR_POPBACK(searchpath, 1);//pop the '*'
 	ARRAY_ALLOC(ArrayHandle, filenames, 0, 0, 0, free_str);
 
-	for(;success=FindNextFileA(hSearch, &data);)
+	for(;(success=FindNextFileA(hSearch, &data));)
 	{
 		len=strlen(data.cFileName);
 		extension=get_extension(data.cFileName, len);

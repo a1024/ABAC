@@ -7,7 +7,7 @@
 static const char file[]=__FILE__;
 
 #ifndef assert
-#define assert(X) ((X)||LOG_ERROR("%s", #X))
+#define assert(X) (void)((X)||LOG_ERROR("%s", #X))
 #endif
 
 
@@ -802,7 +802,7 @@ static void t44_update(T44State *state, int bit, const char *buf)
 			NW  =LOAD(0, -1, -1),
 			NWp2=LOAD(2, -1, -1),
 			N   =LOAD(0,  0, -1),
-			Np1 =LOAD(1,  0, -1),
+			//Np1 =LOAD(1,  0, -1),
 			Np2 =LOAD(2,  0, -1),
 			NE  =LOAD(0,  1, -1),
 			WW  =LOAD(0, -2,  0),
@@ -940,7 +940,7 @@ int t44_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 		}
 	}
 	ac_enc_flush(&ec);
-	size_t dststart=dlist_appendtoarray(&list, data);
+	dlist_appendtoarray(&list, data);
 	if(loud)
 	{
 		printf("\n");//skip progress line
@@ -996,14 +996,14 @@ int t44_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 					int bit=ac_dec_bin(&ec, p0);
 					buf[idx]|=bit<<kb;
 					
-					t44_update(&state, bit, buf);
+					t44_update(&state, bit, (char*)buf);
 				}
 			}
 		}
 		if(loud)
 			printf("%5d/%5d  %6.2lf%%\r", ky+1, ih, 100.*(ky+1)/ih);
 	}
-	pack3_inv(buf, res);
+	pack3_inv((char*)buf, res);
 	T44_RCT_INV((char*)buf, iw, ih);
 	addbuf(buf, iw, ih, 3, 4, 128);
 	if(loud)

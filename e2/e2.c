@@ -5,11 +5,16 @@
 #include<math.h>
 #include<time.h>
 #ifdef _MSC_VER
+#include<intrin.h>
 #include<Windows.h>
 #include<process.h>
+#define THREAD_CALL __stdcall
+typedef unsigned THREAD_RET;
 #else
+#include<x86intrin.h>
 #include<pthread.h>
-#error TODO
+#define THREAD_CALL
+typedef void *THREAD_RET;
 #endif
 //#define SIF_IMPLEMENTATION
 //#include"sif.h"
@@ -389,7 +394,7 @@ static void free_threadctx(void *p)
 	free(threadctx->src);
 	free(threadctx->dst);
 }
-static unsigned __stdcall sample_thread(void *param)
+static THREAD_RET THREAD_CALL sample_thread(void *param)
 {
 	ThreadCtx *ctx=(ThreadCtx*)param;
 	ArrayHandle cdata=0;
@@ -467,7 +472,7 @@ static void process_file(ProcessCtx *ctx, unsigned char *buf, int iw, int ih, si
 {
 	if(!ctx->nstarted)
 	{
-		ARRAY_ALLOC(ThreadCtx, ctx->threadctx, 0, 0, nthreads, 0);
+		ARRAY_ALLOC(ThreadCtx, ctx->threadctx, 0, 0, nthreads, free_threadctx);
 		ARRAY_ALLOC(Result, ctx->results, 0, 0, 0, 0);
 	}
 
@@ -522,6 +527,7 @@ static void process_file(ProcessCtx *ctx, unsigned char *buf, int iw, int ih, si
 	{
 		int n=ctx->nstarted-ctx->nfinished;
 		ArrayHandle handles;
+#ifdef _MSC_VER
 		ARRAY_ALLOC(HANDLE, handles, 0, n, 0, 0);
 		for(int k=0;k<n;++k)
 		{
@@ -539,7 +545,29 @@ static void process_file(ProcessCtx *ctx, unsigned char *buf, int iw, int ih, si
 		{
 			HANDLE *h=(HANDLE*)array_at(&handles, k);
 			CloseHandle(*h);
-
+		}
+#else
+		ARRAY_ALLOC(pthread_t, handles, 0, n, 0, 0);
+		for(int k=0;k<n;++k)
+		{
+			pthread_t *h=(pthread_t*)array_at(&handles, k);
+			ThreadCtx *threadctx=(ThreadCtx*)array_at(&ctx->threadctx, k);
+			int error=pthread_create(h, 0, sample_thread, threadctx);
+			if(error)
+			{
+				LOG_ERROR("Alloc error");
+				return;
+			}
+		}
+		for(int k=0;k<n;++k)
+		{
+			pthread_t *h=(pthread_t*)array_at(&handles, k);
+			pthread_join(*h, 0);
+		}
+#endif
+		
+		for(int k=0;k<n;++k)
+		{
 			ThreadCtx *threadctx=(ThreadCtx*)array_at(&ctx->threadctx, k);
 			Result result=
 			{
@@ -553,9 +581,6 @@ static void process_file(ProcessCtx *ctx, unsigned char *buf, int iw, int ih, si
 			};
 			ARRAY_APPEND(ctx->results, &result, 1, 1, 0);
 			print_result(&result, ctx->nfinished+k+1);
-
-			//if(threadctx->error)//
-			//	printf("ERROR\n");
 		}
 
 		array_clear(&ctx->threadctx);
@@ -598,20 +623,19 @@ void batch_test_mt(const char *path, int nthreads)
 			continue;
 		}
 
-		ptrdiff_t formatsize=get_filesize(fn[0]->data);
+		ptrdiff_t formatsize=get_filesize((char*)fn[0]->data);
 		if(!formatsize||formatsize==-1)//skip non-images
 			continue;
 
-		int iw=0, ih=0, nch0=3, stride=4;
+		int iw=0, ih=0;
 		long long cycles=__rdtsc();
-		unsigned char *buf=image_load(fn[0]->data, &iw, &ih);
+		unsigned char *buf=image_load((char*)fn[0]->data, &iw, &ih);
 		cycles=__rdtsc()-cycles;
 		if(!buf)
 		{
 			printf("Cannot open \"%s\"\n", fn[0]->data);
 			continue;
 		}
-		size_t res=(size_t)iw*ih, usize=3LL*iw*ih;
 		process_file(&processctx, buf, iw, ih, formatsize, k, nthreads);
 	}
 	process_file(&processctx, 0, 0, 0, 0, 0, nthreads);
@@ -670,7 +694,6 @@ void batch_test_mt(const char *path, int nthreads)
 
 void batch_test(const char *path)
 {
-	int known_dataset=0;
 	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H%M%S");
 	printf("Start %s\n", g_buf);
 	double t_start=time_sec();
@@ -697,14 +720,6 @@ void batch_test(const char *path)
 		return;
 	}
 #endif
-	//{
-	//	ArrayHandle path2=filter_path(path);
-	//	if(!acme_stricmp(path2->data, "D:/ML/dataset-CLIC30/"))
-	//		known_dataset=1;
-	//	else if(!acme_stricmp(path2->data, "D:/ML/dataset-Kodak/"))
-	//		known_dataset=2;
-	//	array_free(&path2);
-	//}
 #ifdef BATCHTEST_PRINTTABLE
 	ArrayHandle sizes;
 	ARRAY_ALLOC(size_t[3], sizes, 0, 0, filenames->count, 0);
@@ -719,13 +734,13 @@ void batch_test(const char *path)
 			continue;
 		}
 
-		ptrdiff_t formatsize=get_filesize(fn[0]->data);
+		ptrdiff_t formatsize=get_filesize((char*)fn[0]->data);
 		if(!formatsize||formatsize==-1)//skip non-images
 			continue;
 
 		int iw=0, ih=0, nch0=3, stride=4;
 		long long cycles=__rdtsc();
-		unsigned char *buf=image_load(fn[0]->data, &iw, &ih);
+		unsigned char *buf=image_load((char*)fn[0]->data, &iw, &ih);
 		cycles=__rdtsc()-cycles;
 		if(!buf)
 		{
@@ -742,7 +757,7 @@ void batch_test(const char *path)
 		printf("%3lld/%3lld  \"%s\"\tCR %lf (%lf BPP) Dec %lf CPB", (long long)(k+1), (long long)filenames->count, fn[0]->data, ratio, 8/ratio, (double)cycles/usize);
 #endif
 #endif
-		if(!acme_stricmp(fn[0]->data+fn[0]->count-3, "PNG"))
+		if(!acme_stricmp((char*)fn[0]->data+fn[0]->count-3, "PNG"))
 		{
 			sum_cPNGsize+=formatsize;
 			sum_uPNGsize+=usize;
@@ -1289,14 +1304,12 @@ int main(int argc, char **argv)
 	b2=(unsigned char*)malloc(len);
 	if(!b2)
 		return 0;
-	size_t usize=len*nch0>>2;
+	//size_t usize=len*nch0>>2;
 
 	printf("\n");
 	
 	ArrayHandle cdata=0;
 	//const void *ptr, *end;
-	
-	int loud=0;
 
 	//{
 	//	size_t bestsize=0, lastsize=0;

@@ -1,5 +1,5 @@
 //util.c - Utilities implementation
-//Copyright (C) 2023  Ayman Wagih Mohsen
+//Copyright (C) 2023  Ayman Wagih Mohsen, unless source link provided
 //
 //This program is free software: you can redistribute it and/or modify
 //it under the terms of the GNU General Public License as published by
@@ -319,12 +319,11 @@ double power(double x, int y)
 }
 double _10pow(int n)
 {
-	static double *mask=0;
-	int k;
+	static double mask[616]={0};
 //	const double _ln10=log(10.);
-	if(!mask)
+	if(!mask[308])
 	{
-		mask=(double*)malloc(616*sizeof(double));
+		int k;
 		for(k=-308;k<308;++k)		//23.0
 			mask[k+308]=power(10., k);
 		//	mask[k+308]=exp(k*_ln10);//inaccurate
@@ -469,7 +468,7 @@ int log_error(const char *file, int line, int quit, const char *format, ...)
 	}
 	return firsttime;
 }
-int valid(const void *p)
+int valid(const void *p)//makes sense only with MSVC debugger
 {
 	size_t val=(size_t)p;
 
@@ -562,7 +561,11 @@ ArrayHandle array_construct(const void *src, size_t esize, size_t count, size_t 
 	dstsize=rep*srcsize;
 	cap=dstsize+pad*esize;
 	arr=(ArrayHandle)malloc(sizeof(ArrayHeader)+cap);
-	ASSERT_P(arr);
+	if(!arr)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
 	arr->count=count*rep;
 	arr->esize=esize;
 	arr->cap=cap;
@@ -588,7 +591,11 @@ ArrayHandle array_copy(ArrayHandle *arr)
 		return 0;
 	bytesize=sizeof(ArrayHeader)+arr[0]->cap;
 	a2=(ArrayHandle)malloc(bytesize);
-	ASSERT_P(a2);
+	if(!a2)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
 	memcpy(a2, *arr, bytesize);
 	return a2;
 }
@@ -735,7 +742,7 @@ int str_append(ArrayHandle *str, const char *format, ...)
 		array_realloc(str, str[0]->count+reqlen, 1);
 		str[0]->count=c0;
 	}
-	reqlen=vsnprintf(str[0]->data+str[0]->count, str[0]->cap-str[0]->count, format, args);
+	reqlen=vsnprintf((char*)str[0]->data+str[0]->count, str[0]->cap-str[0]->count, format, args);
 	str[0]->count+=reqlen;
 	va_end(args);
 	return (int)reqlen;
@@ -1286,6 +1293,7 @@ RBNodeHandle* map_insert(MapHandle map, const void *key, int *found)
 	++map->nnodes;
 	return get_node_addr(map, z);
 }
+#if 0
 static void rb_transplant(MapHandle map, RBNodeHandle u, RBNodeHandle v)
 {
 	if(!u->parent)
@@ -1296,6 +1304,7 @@ static void rb_transplant(MapHandle map, RBNodeHandle u, RBNodeHandle v)
 		u->parent->right=v;
 	v->parent=u->parent;
 }
+#endif
 static RBNodeHandle tree_minimum(RBNodeHandle root)
 {
 	if(!root)
@@ -1315,7 +1324,7 @@ static RBNodeHandle tree_maximum(RBNodeHandle root)
 int  map_erase(MapHandle map, const void *data, RBNodeHandle node)
 {
 	//https://github.com/gcc-mirror/gcc/blob/master/libstdc%2B%2B-v3/src/c%2B%2B98/tree.cc		line 286
-	RBNodeHandle *root, *leftmost, *rightmost, x, xp, y, z, *r2;
+	RBNodeHandle *leftmost, *rightmost, x, xp, y, z, *r2;
 	size_t y_is_red;
 
 	if(node)
@@ -1333,7 +1342,6 @@ int  map_erase(MapHandle map, const void *data, RBNodeHandle node)
 		return 0;
 	}
 	
-	root=&map->root->parent;
 	leftmost=&map->root->left;
 	rightmost=&map->root->right;
 	y=z;
@@ -1775,8 +1783,8 @@ void        pqueue_buildheap(PQueueHandle *pq)
 	free(temp);
 }
 
-//Array API
-PQueueHandle		pqueue_construct(
+//Priority Queue
+PQueueHandle pqueue_construct(
 	size_t esize,
 	size_t pad,
 	int (*less)(const void*, const void*),
@@ -1788,7 +1796,11 @@ PQueueHandle		pqueue_construct(
 	
 	cap=esize+pad*esize;
 	pq=(PQueueHandle)malloc(sizeof(PQueueHeader)+cap);
-	ASSERT_P(pq);
+	if(!pq)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
 	pq->count=0;
 	pq->esize=esize;
 	pq->byteCap=cap;
@@ -1948,7 +1960,7 @@ ArrayHandle get_filenames(const char *path, const char **extensions, int extCoun
 	c='*';
 	STR_APPEND(searchpath, &c, 1, 1);
 
-	hSearch=FindFirstFileA(searchpath->data, &data);//skip .
+	hSearch=FindFirstFileA((char*)searchpath->data, &data);//skip .
 	if(hSearch==INVALID_HANDLE_VALUE)
 		return 0;
 	success=FindNextFileA(hSearch, &data);//skip ..
@@ -1956,7 +1968,7 @@ ArrayHandle get_filenames(const char *path, const char **extensions, int extCoun
 	STR_POPBACK(searchpath, 1);//pop the '*'
 	ARRAY_ALLOC(ArrayHandle, filenames, 0, 0, 0, free_str);
 
-	for(;success=FindNextFileA(hSearch, &data);)
+	for(;(success=FindNextFileA(hSearch, &data));)
 	{
 		len=strlen(data.cFileName);
 		extension=get_extension(data.cFileName, len);

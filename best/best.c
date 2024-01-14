@@ -3,6 +3,11 @@
 #include<stdlib.h>
 #include<string.h>
 #include<math.h>
+#ifdef _MSC_VER
+#include<intrin.h>
+#elif defined __GNUC__
+#include<x86intrin.h>
+#endif
 #define STB_IMAGE_IMPLEMENTATION
 #include"stb_image.h"
 static const char file[]=__FILE__;
@@ -62,13 +67,13 @@ void batch_test(const char *path)
 			continue;
 		}
 
-		ptrdiff_t formatsize=get_filesize(fn[0]->data);
+		ptrdiff_t formatsize=get_filesize((char*)fn[0]->data);
 		if(!formatsize||formatsize==-1)//skip non-images
 			continue;
 
 		int iw=0, ih=0, nch0=3, stride=4;
 		long long cycles=__rdtsc();
-		unsigned char *buf=stbi_load(fn[0]->data, &iw, &ih, 0, 4);
+		unsigned char *buf=stbi_load((char*)fn[0]->data, &iw, &ih, 0, 4);
 		cycles=__rdtsc()-cycles;
 		if(!buf)
 		{
@@ -79,7 +84,7 @@ void batch_test(const char *path)
 		ptrdiff_t res=(ptrdiff_t)iw*ih, len=res*stride, usize=res*nch0;
 		double ratio=(double)usize/formatsize;
 		printf("%3lld/%3lld  \"%s\"\tCR %lf (%lf BPP) Dec %lf CPB", k+1, filenames->count, fn[0]->data, ratio, 8/ratio, (double)cycles/usize);
-		if(!acme_stricmp(fn[0]->data+fn[0]->count-3, "PNG"))
+		if(!acme_stricmp((char*)fn[0]->data+fn[0]->count-3, "PNG"))
 		{
 			sum_cPNGsize+=formatsize;
 			sum_uPNGsize+=usize;
@@ -279,11 +284,9 @@ int main(int argc, char **argv)
 	b2=(unsigned char*)malloc(len);
 	if(!b2)
 		return 0;
-	size_t usize=len*nch0>>2;
+	//size_t usize=len*nch0>>2;
 
 	printf("\n");
-	
-	int loud=0;
 	
 	ArrayHandle cdata=0;
 

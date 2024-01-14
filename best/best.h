@@ -28,4 +28,4 @@ int t45_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 #ifdef __cplusplus
 }
 #endif
-#endif/INC_BEST_H
+#endif//INC_BEST_H

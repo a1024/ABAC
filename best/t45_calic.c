@@ -399,7 +399,7 @@ int t45_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 {
 	int res=iw*ih;
 	double t_start=time_sec();
-	int nch=get_nch(src, iw*ih);
+	int nch=get_nch((char*)src, iw*ih);
 	if(loud)
 	{
 		acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H-%M-%S");
@@ -476,7 +476,7 @@ int t45_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 		}
 	}
 	ac_enc_flush(&state.ec);
-	size_t dststart=dlist_appendtoarray(&list, data);
+	dlist_appendtoarray(&list, data);
 
 	if(loud)
 	{
@@ -525,7 +525,7 @@ int t45_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 	memfill(pixels, &black, res*sizeof(int), sizeof(int));
 	
 	CalicState state;
-	calic_init(&state, pixels, iw, ih);
+	calic_init(&state, (char*)pixels, iw, ih);
 	ac_dec_init(&state.ec, data, data+srclen);
 
 	for(int kc=0;kc<nch;++kc)
@@ -566,7 +566,7 @@ int t45_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 			}
 		}
 	}
-	colortransform_JPEG2000_inv(pixels, iw, ih);
+	colortransform_JPEG2000_inv((char*)pixels, iw, ih);
 	addbuf(pixels, iw, ih, nch==1?3:nch, 4, 128);
 	if(loud)
 	{

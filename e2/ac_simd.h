@@ -55,7 +55,7 @@ inline void abacsimd_enc(ABACSIMDEnc *ctx, __m256i const *p0, __m256i const *bit
 			break;
 		for(int k=0;k<16;++k)
 		{
-			if(!cmp.m256i_u16[k])//GCC won't like this
+			if(!_mm_extract_epi16(cmp, k))
 			{
 				if(ctx->nbits[k]>=(sizeof(short)<<3))
 				{
@@ -63,7 +63,7 @@ inline void abacsimd_enc(ABACSIMDEnc *ctx, __m256i const *p0, __m256i const *bit
 					ctx->cache.m256i_u16[k]=0;
 					ctx->nbits[k]=0;
 				}
-				ctx->cache.m256i_u16[k]|=(ctx->lo.m256i_u16[k]&0x8000)>>ctx->nbits[k];//cache is written MSB -> LSB
+				ctx->cache.m256i_u16[k]|=(ctx->lo.m256i_u16[k]&0x8000)>>ctx->nbits[k];//cache is written MSB -> LSB	//GCC won't like this
 				++ctx->nbits[k];
 
 				ctx->lo.m256i_u16[k]<<=1;//shift out MSB

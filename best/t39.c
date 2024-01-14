@@ -207,12 +207,12 @@ void t39_ctx_get_context(T39Ctx *ctx, const char *buf, const char *ebuf, int iw,
 		m1  =LOAD(buf, 1, 0, 0),
 		Nm1 =LOAD(buf, 1, 0, 1),
 		Wm1 =LOAD(buf, 1, 1, 0),
-		NWm1=LOAD(buf, 1, 1, 1),
+		//NWm1=LOAD(buf, 1, 1, 1),
 
-		m2  =LOAD(buf, 2, 0, 0),
-		Nm2 =LOAD(buf, 2, 0, 1),
-		Wm2 =LOAD(buf, 2, 1, 0),
-		NWm2=LOAD(buf, 2, 1, 1);
+		m2  =LOAD(buf, 2, 0, 0);
+		//Nm2 =LOAD(buf, 2, 0, 1),
+		//Wm2 =LOAD(buf, 2, 1, 0),
+		//NWm2=LOAD(buf, 2, 1, 1);
 #if 0
 	int W   =LOAD(buf, 0,  1, 0),
 		NW  =LOAD(buf, 0,  1, 1),
@@ -536,7 +536,7 @@ int t39_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	}
 	ac_enc_flush(&ctx);
 
-	size_t dststart=dlist_appendtoarray(&list, data);
+	dlist_appendtoarray(&list, data);
 	if(loud)
 	{
 		printf("\n");//skip progress line
