@@ -43,11 +43,13 @@ Not tested yet on GCC.
 
 ### `best`
 Either create an MSVC 2022 CMake project, or:
-gcc -O -mavx2 best.c t39.c t42.c t45_calic.c transforms.c util.c -o best
+
+`gcc -O -mavx2 best.c t39.c t42.c t45_calic.c transforms.c util.c -o best`
 
 ### `e2`
 Either create an MSVC 2022 CMake project, or:
-gcc -O -mavx2 e2.c format.c lodepng.c tests.c tests2.c tests3.c tests4.c transforms.c util.c -o e2
+
+`gcc -O -mavx2 e2.c format.c lodepng.c tests.c tests2.c tests3.c tests4.c transforms.c util.c -o e2`
 
 ### `eBench`
 Can only be compiled through MSVC 2022 for now.
