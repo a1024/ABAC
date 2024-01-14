@@ -197,7 +197,16 @@ int acme_getopt(int argc, char **argv, int *start, const char **keywords, int kw
 
 int floor_log2(unsigned long long n)
 {
-	int	logn=0;
+#ifdef _MSC_VER
+	unsigned long logn=0;
+	int success=_BitScanReverse64(&logn, n);
+	logn=success?logn:-1;
+	return logn;
+#elif defined __GNUC__
+	int logn=63-__builtin_clzll(n);
+	return logn;
+#else
+	int	logn=-!n;
 	int	sh=(n>=1ULL<<32)<<5;	logn+=sh, n>>=sh;
 		sh=(n>=1<<16)<<4;	logn+=sh, n>>=sh;
 		sh=(n>=1<< 8)<<3;	logn+=sh, n>>=sh;
@@ -205,6 +214,27 @@ int floor_log2(unsigned long long n)
 		sh=(n>=1<< 2)<<1;	logn+=sh, n>>=sh;
 		sh= n>=1<< 1;		logn+=sh;
 	return logn;
+#endif
+}
+int floor_log2_32(unsigned n)
+{
+#ifdef _MSC_VER
+	unsigned long logn=0;
+	int success=_BitScanReverse(&logn, n);
+	logn=success?logn:-1;
+	return logn;
+#elif defined __GNUC__
+	int logn=63-__builtin_clz(n);
+	return logn;
+#else
+	int	logn=-!n;
+	int	sh=(n>=1<<16)<<4;	logn+=sh, n>>=sh;
+		sh=(n>=1<< 8)<<3;	logn+=sh, n>>=sh;
+		sh=(n>=1<< 4)<<2;	logn+=sh, n>>=sh;
+		sh=(n>=1<< 2)<<1;	logn+=sh, n>>=sh;
+		sh= n>=1<< 1;		logn+=sh;
+	return logn;
+#endif
 }
 int ceil_log2(unsigned long long n)
 {
@@ -332,18 +362,18 @@ double time_sec()
 	return t.tv_sec*1000+t.tv_nsec*1e-6;
 #endif
 }
-void parsetimedelta(double ms, TimeInfo *ti)
+void parsetimedelta(double sec, TimeInfo *ti)
 {
-	ti->days=(int)floor(ms/(1000*60*60*24));
-	ms-=ti->days*(1000*60*60*24);
+	ti->days=(int)floor(sec/(60*60*24));
+	sec-=ti->days*(60*60*24);
 
-	ti->hours=(int)floor(ms/(1000*60*60));
-	ms-=ti->hours*(1000*60*60);
+	ti->hours=(int)floor(sec/(60*60));
+	sec-=ti->hours*(60*60);
 
-	ti->mins=(int)floor(ms/(1000*60));
-	ms-=ti->mins*(1000*60);
+	ti->mins=(int)floor(sec/(60));
+	sec-=ti->mins*60;
 
-	ti->secs=(float)(ms/1000);
+	ti->secs=(float)sec;
 }
 int		timedelta2str(char *buf, size_t len, double ms)
 {

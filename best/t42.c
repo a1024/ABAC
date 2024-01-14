@@ -511,13 +511,13 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	memcpy(buf2, src, (size_t)res<<2);
 	memset(ebuf, 0, (size_t)res<<2);
 	addbuf((unsigned char*)buf2, iw, ih, 3, 4, 128);
-	colortransform_ycocb_fwd(buf2, iw, ih);
+	colortransform_YCbCr_R_v0_fwd(buf2, iw, ih);
 
 	DList list;
 	dlist_init(&list, 1, 1024, 0);
 	
-	ABACEncContext ctx;
-	abac_enc_init(&ctx, &list);
+	ArithmeticCoder ctx;
+	ac_enc_init(&ctx, &list);
 	
 	float csizes[24]={0};
 	
@@ -533,7 +533,7 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 				{
 					t42_ctx_estimate_p0(t42_ctx, kc, kb);
 					int bit=(buf2[idx]+128)>>kb&1;
-					abac_enc(&ctx, t42_ctx->p0, bit);
+					ac_enc_bin(&ctx, t42_ctx->p0, bit);
 					
 					int prob=bit?0x10000-t42_ctx->p0:t42_ctx->p0;//
 					float bitsize=-log2f((float)prob*(1.f/0x10000));
@@ -555,7 +555,7 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 			csize_prev=csize;
 		}
 	}
-	abac_enc_flush(&ctx);
+	ac_enc_flush(&ctx);
 
 	size_t dststart=dlist_appendtoarray(&list, data);
 	if(loud)
@@ -676,8 +676,8 @@ int t42_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 		return 0;
 	}
 
-	ABACDecContext ctx;
-	abac_dec_init(&ctx, data, data+srclen);
+	ArithmeticCoder ctx;
+	ac_dec_init(&ctx, data, data+srclen);
 
 	int black=0xFF000000;
 	memfill(buf, &black, res*sizeof(int), sizeof(int));
@@ -695,7 +695,7 @@ int t42_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 				{
 					t42_ctx_estimate_p0(t42_ctx, kc, kb);
 					
-					int bit=abac_dec(&ctx, t42_ctx->p0);
+					int bit=ac_dec_bin(&ctx, t42_ctx->p0);
 					buf[idx]|=bit<<kb;
 
 					t42_ctx_update(t42_ctx, kc, kb, bit);
@@ -711,7 +711,7 @@ int t42_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 	}
 	t42_ctx_clear(&t42_ctx);
 	
-	colortransform_ycocb_inv((char*)buf, iw, ih);
+	colortransform_YCbCr_R_v0_inv((char*)buf, iw, ih);
 	addbuf(buf, iw, ih, 3, 4, 128);
 	if(loud)
 	{

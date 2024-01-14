@@ -1,4 +1,4 @@
-#include"e2.h"
+#include"best.h"
 #include"ac.h"
 #include<stdio.h>
 #include<stdlib.h>
@@ -10,57 +10,14 @@ static const char file[]=__FILE__;
 double calc_bitsize(unsigned *CDF, int nlevels, int sym)
 {
 	int freq=CDF?CDF[sym+1]-CDF[sym]:0x10000/nlevels;
-	//if(!freq)
-	//	LOG_ERROR("ZPS");
 	double prob=(double)freq/0x10000;
 	double bitsize=-log2(prob);
 
 	return bitsize;
 }
-double calc_csize_from_hist(int *hist, int nlevels, double *ret_usize)//works only with unit-increment histograms initialized with ones
-{
-	double csize=0;
-	int sum=0;
-	for(int ks=0;ks<nlevels;++ks)
-		sum+=hist[ks];
-	if(!sum)
-	{
-		if(ret_usize)
-			*ret_usize=0;
-		return 0;
-	}
-	for(int ks=0;ks<nlevels;++ks)
-	{
-		int freq=hist[ks];
-		if(freq)
-		{
-			double p=(double)freq/sum;
-			double bitsize=-freq*log2(p);
-			csize+=bitsize;
-		}
-	}
-	if(ret_usize)
-		*ret_usize=(sum-nlevels)*log2(nlevels)/8;
-	return csize/8;
-}
-double calc_csize_rgba8(const char *src, int res, int kc)
-{
-	int hist[256]={0};
-	for(int k=0;k<res;++k)
-	{
-		unsigned char val=src[k<<2|kc]+128;
-		++hist[val];
-	}
-	double csize=calc_csize_from_hist(hist, 256, 0);
-	return csize;
-}
 
 
 //T45 CALIC
-
-//	#define CALIC_HIST_UNIT_INC
-//	#define CALIC_DISABLE_BINMODE
-//	#define CALIC_DISABLE_ERRORSIGNFLIP
 
 #define CALIC_SSE_BITS (2+8)
 #define CALIC_REACH 2
@@ -264,26 +221,17 @@ static int calic_ct(CalicState *state, int curr, int enc)//continuous-tone mode
 	state->sse_correction=sse_count?sse_sum/sse_count:0;
 	state->pred+=state->sse_correction;
 	state->pred=CLAMP(-128, state->pred, 127);
-	//state->pred=MEDIAN3(state->nb[NB_N], state->nb[NB_W], state->pred);//clamp prediction
 
 	if(enc)
 	{
 		state->error=curr-state->pred;//curr in [-128, 127], error in [-128-pred, 127-pred]
-#ifndef CALIC_DISABLE_ERRORSIGNFLIP
 		state->e2=state->sse_correction<0?-state->error:state->error;//to skew the histogram (predict the sign of error from SSE correction)
-#else
-		state->e2=state->error;
-#endif
 		if(state->e2)
 		{
-			//L/JXL permutation:		{0, -1,  1, -2,  2, ...}	(e<<1)^-(e<0)
-			//CALIC/FLIF permutation:	{0,  1, -1,  2, -2, ...}	(e<0?-2*e:2*e-1) == (abs(e)<<1)-(e>0)
+			//L / JPEG XL permutation:	{0, -1,  1, -2,  2, ...}	(e<<1)^-(e<0)
+			//CALIC permutation:		{0,  1, -1,  2, -2, ...}	(e<0?-2*e:2*e-1) == (abs(e)<<1)-(e>0)
 			int upred=state->pred+128;
-			if((upred<128)
-#ifndef CALIC_DISABLE_ERRORSIGNFLIP
-				!=(state->sse_correction<0)
-#endif
-			)
+			if((upred<128)!=(state->sse_correction<0))
 			{
 				if(abs(state->e2)<=upred)
 					state->e2=state->e2<<1^-(state->e2<0);
@@ -366,9 +314,6 @@ static int calic_ct(CalicState *state, int curr, int enc)//continuous-tone mode
 
 		if(CDF)
 		{
-#ifdef CALIC_HIST_UNIT_INC
-			++hist[sym];
-#else
 			hist[sym]+=state->ct_inc[delta];//update hist
 			sum+=state->ct_inc[delta];
 			if(sum>0x4000)//rescale
@@ -377,7 +322,6 @@ static int calic_ct(CalicState *state, int curr, int enc)//continuous-tone mode
 					hist[ks]=(hist[ks]+1)>>1;//ceil_half
 				state->ct_inc[delta]>>=state->ct_inc[delta]>1;
 			}
-#endif
 		}
 
 		++delta;
@@ -386,11 +330,7 @@ static int calic_ct(CalicState *state, int curr, int enc)//continuous-tone mode
 	if(!enc)
 	{
 		int upred=state->pred+128;
-		if((upred<128)
-#ifndef CALIC_DISABLE_ERRORSIGNFLIP
-			!=(state->sse_correction<0)
-#endif
-		)
+		if((upred<128)!=(state->sse_correction<0))
 		{
 			if(e2<=(upred<<1))
 				state->e2=e2>>1^-(e2&1);
@@ -406,11 +346,7 @@ static int calic_ct(CalicState *state, int curr, int enc)//continuous-tone mode
 				state->e2=upred-e2;
 		}
 		
-#ifndef CALIC_DISABLE_ERRORSIGNFLIP
 		state->error=state->sse_correction<0?-state->e2:state->e2;
-#else
-		state->error=state->e2;
-#endif
 		curr=state->error+state->pred;
 	}
 
@@ -448,9 +384,6 @@ static int calic_bin(CalicState *state, int sym, int enc)//binary mode: 2 symbol
 	else
 		sym=ac_dec(&state->ec, state->CDF, 3, fmin);
 	
-#ifdef CALIC_HIST_UNIT_INC
-	++hist[sym];
-#else
 	hist[sym]+=state->bin_inc[state->beta];
 	sum+=state->bin_inc[state->beta];
 	if(sum>0x4000)//rescale
@@ -460,14 +393,13 @@ static int calic_bin(CalicState *state, int sym, int enc)//binary mode: 2 symbol
 		hist[2]=(hist[2]+1)>>1;
 		state->bin_inc[state->beta]>>=state->bin_inc[state->beta]>1;
 	}
-#endif
 	return sym;
 }
 int t45_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud)
 {
 	int res=iw*ih;
 	double t_start=time_sec();
-	int nch=get_nch(src, iw*ih);//FIXME: differentiate between just gray and just alpha
+	int nch=get_nch(src, iw*ih);
 	if(loud)
 	{
 		acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H-%M-%S");
@@ -514,7 +446,6 @@ int t45_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 				int idx=(state.iw*ky+kx)<<2|kc;
 				char curr=state.pixels[idx];
 				calic_prepctx(&state, kc, kx, ky);
-#ifndef CALIC_DISABLE_BINMODE
 				if(state.nunique<=2)
 				{
 					if(curr==state.unb[0])
@@ -535,7 +466,6 @@ int t45_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 					}
 				}
 				else
-#endif
 				{
 					calic_ct(&state, curr, 1);
 					state.errors[idx]=state.error;
@@ -544,32 +474,6 @@ int t45_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 			if(loud)
 				printf("%5.2lf%%  CR %10.6lf\r", (double)(kc*ih+ky+1)*100/(nch*ih), (double)(kc*ih+ky+1)*iw/list.nobj);
 		}
-
-		//doesn't estimate anything correctly
-#if 0
-		if(loud)
-		{
-			double total_usize=state.bypass[kc]/8., total_csize=0;
-			printf("C%d:  bypass %lf bytes\n", kc, state.bypass[kc]/8.);
-			for(int kt=0;kt<_countof(state.ct_tables);++kt)
-			{
-				double usize=0, csize=0;
-				csize=calc_csize_from_hist(state.ct_tables[kt], state.ct_tsizes[kt], &usize);
-				printf("ct  %2d  usize %12.2lf  csize %12.2lf  CR %10.6lf\n", kt, usize, csize, usize/csize);
-				total_usize+=usize;
-				total_csize+=csize;
-			}
-			for(int kt=0;kt<32;++kt)
-			{
-				double usize=0, csize=0;
-				csize=calc_csize_from_hist(state.tables->ctr_bin[kt], 3, &usize);
-				printf("bin %2d  usize %12.2lf  csize %12.2lf  CR %10.6lf\n", kt, usize, csize, usize/csize);
-				total_usize+=usize;
-				total_csize+=csize;
-			}
-			printf("C%d total  %lf/%lf = %lf\n", kc, total_usize, total_csize, total_usize/total_csize);
-		}
-#endif
 	}
 	ac_enc_flush(&state.ec);
 	size_t dststart=dlist_appendtoarray(&list, data);
@@ -593,20 +497,6 @@ int t45_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 		printf("\n");
 
 		printf("csize %8d  CR %10.6lf\n", (int)list.nobj, (double)usize/list.nobj);
-
-#if 0
-		double proper_csizes[]=
-		{
-			calc_csize_rgba8(state.errors, res, 0),
-			calc_csize_rgba8(state.errors, res, 1),
-			calc_csize_rgba8(state.errors, res, 2),
-			calc_csize_rgba8(state.errors, res, 3),
-		};
-		printf("Proper csizes TYUVA %lf %lf %lf %lf %lf\n",
-			proper_csizes[0]+proper_csizes[1]+proper_csizes[2]+proper_csizes[3],
-			proper_csizes[0], proper_csizes[1], proper_csizes[2], proper_csizes[3]
-		);
-#endif
 	}
 
 	dlist_clear(&list);
@@ -647,7 +537,6 @@ int t45_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 			{
 				int idx=(state.iw*ky+kx)<<2|kc;
 				calic_prepctx(&state, kc, kx, ky);
-#ifndef CALIC_DISABLE_BINMODE
 				if(state.nunique<=2)
 				{
 					int T=calic_bin(&state, 0, 0);
@@ -670,7 +559,6 @@ int t45_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 					}
 				}
 				else
-#endif
 				{
 					pixels[idx]=calic_ct(&state, 0, 0);
 					state.errors[idx]=state.error;

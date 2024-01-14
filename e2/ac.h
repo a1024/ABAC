@@ -204,17 +204,10 @@ void debug_dec_update(unsigned state, unsigned cdf, unsigned freq, int kx, int k
 
 
 //arithmetic coder
-
-	#define AC_USE_NEW_RENORM
-
 typedef struct ArithmeticCoderStruct
 {
 	unsigned lo, hi;
-#ifdef AC_USE_NEW_RENORM
 	unsigned long long cache;
-#else
-	unsigned cache;
-#endif
 	int nbits;//enc: number of free bits in cache [0 ~ 64], dec: number of unread bits in cache [0 ~ 32]
 	int is_enc;
 	union
@@ -232,11 +225,7 @@ static void ac_enc_init(ArithmeticCoder *ec, DList *list)
 	ec->lo=0;
 	ec->hi=0xFFFFFFFF;
 	ec->cache=0;
-#ifdef AC_USE_NEW_RENORM
 	ec->nbits=64;
-#else
-	ec->nbits=0;
-#endif
 	ec->is_enc=1;
 	ec->list=list;
 }
@@ -245,11 +234,7 @@ static void ac_dec_init(ArithmeticCoder *ec, const unsigned char *start, unsigne
 	ec->lo=0;
 	ec->hi=0xFFFFFFFF;
 	ec->cache=0;
-#ifdef AC_USE_NEW_RENORM
 	ec->nbits=0;
-#else
-	ec->nbits=32;
-#endif
 	ec->is_enc=0;
 	ec->srcptr=start;
 	ec->srcend=end;
@@ -258,13 +243,6 @@ static void ac_dec_init(ArithmeticCoder *ec, const unsigned char *start, unsigne
 		LOG_ERROR2("buffer overflow");
 	memcpy(&ec->code, ec->srcptr, 4);
 	ec->srcptr+=4;
-
-#ifndef AC_USE_NEW_RENORM
-	if(ec->srcptr+4>ec->srcend)
-		LOG_ERROR2("buffer overflow");
-	memcpy(&ec->cache, ec->srcptr, 4);
-	ec->srcptr+=4;
-#endif
 }
 static void ac_renorm(ArithmeticCoder *ec, unsigned fmin)//one-time loopless renorm		this keeps hi & lo as far apart as possible from each other in the ALU
 {
@@ -292,51 +270,6 @@ static void ac_renorm(ArithmeticCoder *ec, unsigned fmin)//one-time loopless ren
 	}
 	else
 		n_emit=32-n_keep;
-#if 0
-	//(hi-lo)<<n_emit should be >= 0x10000
-	//floor_log2(hi-lo)+n_emit should be >= 16
-	//clamp	16-floor_log2(hi-lo) <= n_emit <= 32
-	//16-floor_log2(hi-lo) <= 32-n_keep
-	//n_keep <= floor_log2(hi-lo)+16
-
-	int n_keep=floor_log2_32(ec->hi^ec->lo)+1;//floor_log2 now uses intrinsics and was patched to give -1 for zero input
-	int n_emit=32-n_keep;
-	unsigned range_guard=floor_log2_32(ec->lo<ec->hi?ec->hi-ec->lo:1)+16;
-	if(n_keep>range_guard)//a solution for the rare "Schrodinger's half" problem
-	{
-		unsigned
-			lo2=ec->lo<<n_emit,
-			hi2=ec->hi<<n_emit|((1<<n_emit)-1);
-		while(hi2<lo2)
-		{
-			lo2<<=1;
-			hi2<<=1;
-			hi2|=1;
-			++n_emit;
-		}
-		n_keep=32-n_emit;
-	}
-	//	n_keep=0;
-#endif
-#if 0
-#ifdef _MSC_VER
-	if(x)
-	{
-		unsigned long idx=0;
-		_BitScanReverse(&idx, x);
-		n_keep=idx+1;
-	}
-	else
-		n_keep=0;
-	n_emit=32-n_keep;
-#elif defined __GNUC__
-	n_emit=__builtin_clz(x);
-	n_keep=32-n_emit;
-#else
-	n_keep=x?floor_log2(x)+1:0;
-	n_emit=32-n_keep;
-#endif
-#endif
 	if(n_emit)
 	{
 		unsigned emit_mask=(unsigned)((1LL<<n_emit)-1);
@@ -403,29 +336,7 @@ static void ac_enc(ArithmeticCoder *ec, int sym, const unsigned *CDF, int nlevel
 	unsigned lo2, hi2;
 	int cdf_curr, cdf_next;
 	
-#ifdef AC_USE_NEW_RENORM
 	ac_renorm(ec, fmin);
-#else
-	for(;;)//renorm
-	{
-		unsigned mingap=(ec->hi-ec->lo)>>16;
-		if(ec->lo<ec->hi&&mingap>0)
-			break;
-		if(ec->nbits>=32)
-		{
-			dlist_push_back(ec->list, &ec->cache, 4);
-			ec->cache=0;
-			ec->nbits=0;
-		}
-		ec->cache|=(ec->lo&0x80000000)>>ec->nbits;//cache is written MSB -> LSB
-		++ec->nbits;
-
-		ec->lo<<=1;//shift out MSB
-		ec->hi<<=1;
-		ec->hi|=1;
-	}
-#endif
-	
 	if(CDF)
 	{
 		cdf_curr=CDF[sym];
@@ -453,39 +364,7 @@ static int ac_dec(ArithmeticCoder *ec, const unsigned *CDF, int nlevels, unsigne
 	int sym=0;
 	unsigned cdf_start, cdf_end;
 	
-#ifdef AC_USE_NEW_RENORM
 	ac_renorm(ec, fmin);
-#else
-	unsigned mingap;
-	for(;;)//renorm		TODO remove this loop and emit all (n=hi^lo, n=31-(n?floor_log2(n):-1)) stabilized MSBs before encoding for maximum efficiency
-	{
-		mingap=(ec->hi-ec->lo)>>16;
-		if(ec->lo<ec->hi&&mingap>0)
-			break;
-		if(!ec->nbits)
-		{
-			if(ec->srcend-ec->srcptr<4)
-			{
-#ifdef AC_VALIDATE
-				printf("buffer overflow\n");
-				acval_dump();
-#endif
-				LOG_ERROR2("buffer overflow");
-			}
-			memcpy(&ec->cache, ec->srcptr, 4);
-			ec->srcptr+=4;
-
-			ec->nbits=32;
-		}
-		--ec->nbits;
-		ec->code<<=1;//shift out MSB		cache is read MSB -> LSB
-		ec->code|=(unsigned)(ec->cache>>ec->nbits&1);
-
-		ec->lo<<=1;
-		ec->hi<<=1;
-		ec->hi|=1;
-	}
-#endif
 	if(CDF)
 	{
 		int L=0, R=nlevels-1, found=0;
@@ -542,28 +421,7 @@ static void ac_enc_bin(ArithmeticCoder *ec, unsigned short p0, int bit)
 {
 	unsigned mid;
 	
-#ifdef AC_USE_NEW_RENORM
 	ac_renorm(ec, p0<0x10000-p0?p0:0x10000-p0);
-#else
-	for(;;)//renorm
-	{
-		mid=(ec->hi-ec->lo)>>16;
-		if(ec->lo+3>ec->lo&&ec->lo+3<=ec->hi&&mid>0)
-			break;
-		if(ec->nbits>=32)
-		{
-			dlist_push_back(ec->list, &ec->cache, 4);
-			ec->cache=0;
-			ec->nbits=0;
-		}
-		ec->cache|=(ec->lo&0x80000000)>>ec->nbits;//cache is written MSB -> LSB
-		++ec->nbits;
-
-		ec->lo<<=1;//shift out MSB
-		ec->hi<<=1;
-		ec->hi|=1;
-	}
-#endif
 
 	if(!p0)//reject degenerate distribution
 		LOG_ERROR2("ZPS");
@@ -580,38 +438,8 @@ static void ac_enc_bin(ArithmeticCoder *ec, unsigned short p0, int bit)
 static int ac_dec_bin(ArithmeticCoder *ec, unsigned short p0)//binary AC decoder doesn't do binary search
 {
 	unsigned mid;
-#ifdef AC_USE_NEW_RENORM
+
 	ac_renorm(ec, p0<0x10000-p0?p0:0x10000-p0);
-#else
-	for(;;)//renorm
-	{
-		mid=(ec->hi-ec->lo)>>16;
-		if(ec->lo<ec->hi&&mid>0)
-			break;
-		if(!ec->nbits)
-		{
-			if(ec->srcend-ec->srcptr<4)
-			{
-#ifdef AC_VALIDATE
-				printf("buffer overflow\n");
-				acval_dump();
-#endif
-				LOG_ERROR2("buffer overflow");
-			}
-			memcpy(&ec->cache, ec->srcptr, 4);
-			ec->srcptr+=4;
-
-			ec->nbits=32;
-		}
-		--ec->nbits;
-		ec->code<<=1;//shift out MSB		cache is read MSB -> LSB
-		ec->code|=(unsigned)(ec->cache>>ec->nbits&1);
-
-		ec->lo<<=1;
-		ec->hi<<=1;
-		ec->hi|=1;
-	}
-#endif
 
 	if(!p0)//reject degenerate distribution
 		LOG_ERROR2("ZPS");
@@ -630,7 +458,6 @@ static int ac_dec_bin(ArithmeticCoder *ec, unsigned short p0)//binary AC decoder
 }
 static void ac_enc_flush(ArithmeticCoder *ec)
 {
-#ifdef AC_USE_NEW_RENORM
 	ec->hi=ec->lo;//this will cause all remaining 32 lo bits to be written to the cache
 	ac_renorm(ec, 0x10000);
 	//now all remaining bits are in the cache (up to 64)
@@ -640,25 +467,6 @@ static void ac_enc_flush(ArithmeticCoder *ec)
 		ec->nbits+=32;
 		ec->cache<<=32;
 	}
-#else
-	int k2=0;
-	do//flush
-	{
-		while(ec->nbits<32)
-		{
-			ec->cache|=(ec->lo&0x80000000)>>ec->nbits;//cache is written MSB -> LSB
-			++ec->nbits;
-			++k2;
-
-			ec->lo<<=1;//shift out MSB
-			ec->hi<<=1;
-			ec->hi|=1;
-		}
-		dlist_push_back(ec->list, &ec->cache, 4);
-		ec->cache=0;
-		ec->nbits=0;
-	}while(k2<32);
-#endif
 }
 
 
