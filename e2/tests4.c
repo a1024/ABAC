@@ -233,27 +233,28 @@ static int calic_ct(CalicState *state, int curr, int enc)//continuous-tone mode
 	
 		state->e2=state->sse_correction<0?-state->error:state->error;//to skew the histogram (predict the sign of error from SSE correction)
 
-		if(state->e2)
-		{
-			//L/JXL permutation:		{0, -1,  1, -2,  2, ...}	(e<<1)^-(e<0)
-			//CALIC/FLIF permutation:	{0,  1, -1,  2, -2, ...}	(e<0?-2*e:2*e-1) == (abs(e)<<1)-(e>0)
-			int upred=state->pred+128;
-			if((upred<128)!=(state->sse_correction<0))
-			{
-				if(abs(state->e2)<=upred)
-					state->e2=state->e2<<1^-(state->e2<0);
-				else
-					state->e2=upred+abs(state->e2);
-			}
-			else
-			{
-				upred=256-upred;
-				if(abs(state->e2)<=upred)
-					state->e2=state->e2<<1^-(state->e2<0);
-				else
-					state->e2=upred+abs(state->e2);
-			}
-		}
+		//if(state->e2)
+		//{
+		//	//L/JXL permutation:		{0, -1,  1, -2,  2, ...}	(e<<1)^-(e<0)
+		//	//CALIC/FLIF permutation:	{0,  1, -1,  2, -2, ...}	(e<0?-2*e:2*e-1) == (abs(e)<<1)-(e>0)
+		//	int upred=state->pred+128;
+		//	if((upred<128)!=(state->sse_correction<0))
+		//	{
+		//		if(abs(state->e2)<=upred)
+		//			state->e2=state->e2<<1^-(state->e2<0);
+		//		else
+		//			state->e2=upred+abs(state->e2);
+		//	}
+		//	else
+		//	{
+		//		upred=256-upred;
+		//		if(abs(state->e2)<=upred)
+		//			state->e2=state->e2<<1^-(state->e2<0);
+		//		else
+		//			state->e2=upred+abs(state->e2);
+		//	}
+		//}
+		state->e2=state->e2<<1^-(state->e2<0);
 	}
 	
 	int e2=enc?state->e2:0, delta=state->delta;
@@ -350,22 +351,24 @@ static int calic_ct(CalicState *state, int curr, int enc)//continuous-tone mode
 
 	if(!enc)
 	{
-		int upred=state->pred+128;
-		if((upred<128)!=(state->sse_correction<0))
-		{
-			if(e2<=(upred<<1))
-				state->e2=e2>>1^-(e2&1);
-			else
-				state->e2=e2-upred;
-		}
-		else
-		{
-			upred=256-upred;
-			if(e2<=(upred<<1))
-				state->e2=e2>>1^-(e2&1);
-			else
-				state->e2=upred-e2;
-		}
+		//int upred=state->pred+128;
+		//if((upred<128)!=(state->sse_correction<0))
+		//{
+		//	if(e2<=(upred<<1))
+		//		state->e2=e2>>1^-(e2&1);
+		//	else
+		//		state->e2=e2-upred;
+		//}
+		//else
+		//{
+		//	upred=256-upred;
+		//	if(e2<=(upred<<1))
+		//		state->e2=e2>>1^-(e2&1);
+		//	else
+		//		state->e2=upred-e2;
+		//}
+		state->e2=e2>>1^-(e2&1);
+
 		state->error=state->sse_correction<0?-state->e2:state->e2;
 		curr=state->error+state->pred;
 	}
@@ -480,6 +483,7 @@ int t45_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 				//if(kc==0&&kx==7&&ky==3)//
 				//if(kc==0&&kx==6&&ky==3)//
 				//if(kc==0&&kx==329&&ky==3)//
+				//if(kc==0&&kx==402&&ky==87)//
 				//	printf("");
 
 				int idx=(state.iw*ky+kx)<<2|kc;
@@ -511,7 +515,7 @@ int t45_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 				}
 			}
 			if(loud)
-				printf("%5.2lf%%  CR %10.6lf\r", (double)(kc*ih+ky+1)*100/(nch*ih), (double)(ky+1)*iw*nch/list.nobj);
+				printf("%5.2lf%%  CR %10.6lf\r", (double)(kc*ih+ky+1)*100/(nch*ih), (double)(kc*ih+ky+1)*iw/list.nobj);
 		}
 	}
 	ac_enc_flush(&state.ec);
@@ -581,6 +585,7 @@ int t45_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 				//if(kc==0&&kx==507&&ky==98)//
 				//if(kc==0&&kx==7&&ky==3)//
 				//if(kc==0&&kx==6&&ky==3)//
+				//if(kc==0&&kx==402&&ky==87)//
 				//	printf("");
 
 				int idx=(state.iw*ky+kx)<<2|kc;

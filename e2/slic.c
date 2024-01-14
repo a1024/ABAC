@@ -205,8 +205,8 @@ int slic_encode(int iw, int ih, int nch, int depth, const void *pixels, ArrayHan
 	BANSEncoder ec;
 	bans_enc_init(&ec, &list);
 #else
-	ABACEncoder ec;
-	abac_enc_init(&ec, &list);
+	ArithmeticCoder ec;
+	ac_enc_init(&ec, &list);
 #endif
 	for(int kc=0;kc<nch;++kc)//for each channel
 	{
@@ -269,7 +269,7 @@ int slic_encode(int iw, int ih, int nch, int depth, const void *pixels, ArrayHan
 					dlist_push_back1(&prob, &ps);
 					//bans_enc(&ec, p0, bit);
 #else
-					abac_enc(&ec, p0, bit);
+					ac_enc_bin(&ec, p0, bit);
 #endif
 
 #ifndef DISABLE_LOUD
@@ -310,7 +310,7 @@ int slic_encode(int iw, int ih, int nch, int depth, const void *pixels, ArrayHan
 					dlist_push_back1(&prob, &ps);
 					//bans_enc(&ec, p0, bit);
 #else
-					abac_enc(&ec, p0, bit);
+					ac_enc_bin(&ec, p0, bit);
 #endif
 					
 #ifndef DISABLE_LOUD
@@ -356,7 +356,7 @@ int slic_encode(int iw, int ih, int nch, int depth, const void *pixels, ArrayHan
 	bans_enc_flush(&ec);
 	array_free(&probarr);
 #else
-	abac_enc_flush(&ec);
+	ac_enc_flush(&ec);
 #endif
 	
 #ifndef DISABLE_LOUD
@@ -423,8 +423,8 @@ void* slic_decode(const void *data, int len, int *ret_iw, int *ret_ih, int *ret_
 	BANSDecoder ec;
 	bans_dec_init(&ec, src+sizeof(header), src+len);
 #else
-	ABACDecoder ec;
-	abac_dec_init(&ec, src+sizeof(header), src+len);
+	ArithmeticCoder ec;
+	ac_dec_init(&ec, src+sizeof(header), src+len);
 #endif
 	for(int kc=0;kc<nch;++kc)
 	{
@@ -469,7 +469,7 @@ void* slic_decode(const void *data, int len, int *ret_iw, int *ret_ih, int *ret_
 #ifdef USE_ANS
 					int bit=bans_dec(&ec, p0);
 #else
-					int bit=abac_dec(&ec, p0);
+					int bit=ac_dec_bin(&ec, p0);
 #endif
 					token|=bit<<kb;
 
@@ -503,7 +503,7 @@ void* slic_decode(const void *data, int len, int *ret_iw, int *ret_ih, int *ret_
 #ifdef USE_ANS
 						int bit=bans_dec(&ec, p0);
 #else
-						int bit=abac_dec(&ec, p0);
+						int bit=ac_dec_bin(&ec, p0);
 #endif
 						bypass|=bit<<kb;
 						

@@ -2196,8 +2196,8 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	dlist_init(&list, 1, 1024, 0);
 	dlist_push_back1(&list, &nch);
 	
-	ABACEncoder ec;
-	abac_enc_init(&ec, &list);
+	ArithmeticCoder ec;
+	ac_enc_init(&ec, &list);
 	
 	double csizes[32]={0};
 	
@@ -2215,7 +2215,7 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 					unsigned short p0=ctx->p0;
 
 					int bit=(buf2[idx]+128)>>kb&1;
-					abac_enc(&ec, p0, bit);
+					ac_enc_bin(&ec, p0, bit);
 					
 					if(loud)
 					{
@@ -2239,7 +2239,7 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 			csize_prev=csize;
 		}
 	}
-	abac_enc_flush(&ec);
+	ac_enc_flush(&ec);
 
 	size_t dststart=dlist_appendtoarray(&list, data);
 	if(loud)
@@ -2365,10 +2365,10 @@ int t42_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 	}
 	//T42Ctx *ctx=(T42Ctx*)*ctx0;
 
-	ABACDecoder ec;
-	abac_dec_init(&ec, data, data+srclen);
+	ArithmeticCoder ec;
+	ac_dec_init(&ec, data, data+srclen);
 
-	int black=0xFF000000;
+	int black=nch==4?0:0xFF000000;
 	memfill(buf, &black, res*sizeof(int), sizeof(int));
 	
 	for(int ky=0, idx;ky<ih;++ky)
@@ -2386,7 +2386,7 @@ int t42_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 				{
 					t42_ctx_estimate_p0(ctx, kc, kb);
 					
-					int bit=abac_dec(&ec, ctx->p0);
+					int bit=ac_dec_bin(&ec, ctx->p0);
 					buf[idx]|=bit<<kb;
 
 					t42_ctx_update(ctx, kc, kb, bit);
@@ -3676,20 +3676,22 @@ void ac_vs_ans()
 	dlist_init(&list_abac, 1, 1024, 0);
 	dlist_init(&list_bans, 1, 1024, 0);
 
-	ABACEncoder abac;
-	abac_enc_init(&abac, &list_abac);
+	ArithmeticCoder ac;
+	ac_enc_init(&ac, &list_abac);
 
-	BANSEncoder bans;
-	bans_enc_init(&bans, &list_bans);
+	ANSCoder ans;
+	ans_enc_init(&ans, &list_bans);
 
 	int p0=0xFFFF;
 	
 	for(int k=0;k<1000000;++k)
 	{
 		p0=rand()|1;
-		abac_enc(&abac, p0, 0);
-		bans_enc(&bans, p0, 0);
+		ac_enc_bin(&ac, p0, 0);
+		ans_enc_bin(&ans, p0, 0);
 	}
+	ac_enc_flush(&ac);
+	ans_enc_flush(&ans);
 
 	//double t_abac=time_sec();
 	//for(int k=0;k<1000000000;++k)

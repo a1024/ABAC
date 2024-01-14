@@ -900,8 +900,8 @@ int t44_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	DList list;
 	dlist_init(&list, 1, 1024, 0);
 	
-	ABACEncoder ec;
-	abac_enc_init(&ec, &list);
+	ArithmeticCoder ec;
+	ac_enc_init(&ec, &list);
 	
 	double csizes[24]={0};
 
@@ -919,7 +919,7 @@ int t44_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 					p0=CLAMP(1, p0, 0xFFFF);
 
 					int bit=buf[idx]>>kb&1;
-					abac_enc(&ec, p0, bit);
+					ac_enc_bin(&ec, p0, bit);
 					
 					int prob=bit?0x10000-p0:p0;//
 					double bitsize=-log2((double)prob*(1./0x10000));
@@ -939,7 +939,7 @@ int t44_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 			csize_prev=csize;
 		}
 	}
-	abac_enc_flush(&ec);
+	ac_enc_flush(&ec);
 	size_t dststart=dlist_appendtoarray(&list, data);
 	if(loud)
 	{
@@ -977,8 +977,8 @@ int t44_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 	double t_start=time_sec();
 	int res=iw*ih;
 	memset(buf, 0, (size_t)res<<2);
-	ABACDecoder ec;
-	abac_dec_init(&ec, data, data+srclen);
+	ArithmeticCoder ec;
+	ac_dec_init(&ec, data, data+srclen);
 	
 	T44State state;
 	t44_state_init(&state, iw, ih, 1);
@@ -993,7 +993,7 @@ int t44_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 					int p0=0x10000-(state.pr<<4);
 					p0=CLAMP(1, p0, 0xFFFF);
 					
-					int bit=abac_dec(&ec, p0);
+					int bit=ac_dec_bin(&ec, p0);
 					buf[idx]|=bit<<kb;
 					
 					t44_update(&state, bit, buf);
