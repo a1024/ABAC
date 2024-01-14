@@ -126,8 +126,10 @@ size_t ma_test(const unsigned char *src, int iw, int ih, int enable_RCT_MA, int 
 //T45 CALIC
 int t45_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);
 int t45_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
+
 double calc_bitsize(unsigned *CDF, int nlevels, int sym);
-double calc_csize(int *hist, int nlevels, double *ret_usize);//works only with unit-increment histograms initialized with ones
+double calc_csize_from_hist(int *hist, int nlevels, double *ret_usize);//works only with unit-increment histograms initialized with ones
+double calc_csize_rgba8(const char *src, int res, int kc);
 
 
 

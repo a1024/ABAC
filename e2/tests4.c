@@ -17,7 +17,7 @@ double calc_bitsize(unsigned *CDF, int nlevels, int sym)
 
 	return bitsize;
 }
-double calc_csize(int *hist, int nlevels, double *ret_usize)//works only with unit-increment histograms initialized with ones
+double calc_csize_from_hist(int *hist, int nlevels, double *ret_usize)//works only with unit-increment histograms initialized with ones
 {
 	double csize=0;
 	int sum=0;
@@ -51,7 +51,7 @@ double calc_csize_rgba8(const char *src, int res, int kc)
 		unsigned char val=src[k<<2|kc]+128;
 		++hist[val];
 	}
-	double csize=calc_csize(hist, 256, 0);
+	double csize=calc_csize_from_hist(hist, 256, 0);
 	return csize;
 }
 
@@ -592,7 +592,7 @@ int t45_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 			for(int kt=0;kt<_countof(state.ct_tables);++kt)
 			{
 				double usize=0, csize=0;
-				csize=calc_csize(state.ct_tables[kt], state.ct_tsizes[kt], &usize);
+				csize=calc_csize_from_hist(state.ct_tables[kt], state.ct_tsizes[kt], &usize);
 				printf("ct  %2d  usize %12.2lf  csize %12.2lf  CR %10.6lf\n", kt, usize, csize, usize/csize);
 				total_usize+=usize;
 				total_csize+=csize;
@@ -600,7 +600,7 @@ int t45_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 			for(int kt=0;kt<32;++kt)
 			{
 				double usize=0, csize=0;
-				csize=calc_csize(state.tables->ctr_bin[kt], 3, &usize);
+				csize=calc_csize_from_hist(state.tables->ctr_bin[kt], 3, &usize);
 				printf("bin %2d  usize %12.2lf  csize %12.2lf  CR %10.6lf\n", kt, usize, csize, usize/csize);
 				total_usize+=usize;
 				total_csize+=csize;
@@ -632,6 +632,7 @@ int t45_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 
 		printf("csize %8d  CR %10.6lf\n", (int)list.nobj, (double)usize/list.nobj);
 
+#if 0
 		double proper_csizes[]=
 		{
 			calc_csize_rgba8(state.errors, res, 0),
@@ -643,6 +644,7 @@ int t45_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 			proper_csizes[0]+proper_csizes[1]+proper_csizes[2]+proper_csizes[3],
 			proper_csizes[0], proper_csizes[1], proper_csizes[2], proper_csizes[3]
 		);
+#endif
 	}
 
 	dlist_clear(&list);
