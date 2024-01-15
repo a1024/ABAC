@@ -28,7 +28,7 @@ static char g_buf2[G_BUF_SIZE]={0};
 int console_log(const char *format, ...)
 {
 	va_list args;
-	int printed=0;
+	unsigned long printed=0;
 	if(format)
 	{
 		va_start(args, format);
@@ -131,18 +131,18 @@ int console_scan(char *buf, int len)
 }
 int console_scan_int()
 {
-	int read=console_scan(g_buf2, G_BUF_SIZE);
+	console_scan(g_buf2, G_BUF_SIZE);
 	return atoi(g_buf2);
 }
 double console_scan_float()
 {
-	int read=console_scan(g_buf2, G_BUF_SIZE);
+	console_scan(g_buf2, G_BUF_SIZE);
 	return atof(g_buf2);
 }
 void console_pause()
 {
 	console_log("Enter 0 to continue: ");
-	int k=console_scan(g_buf2, G_BUF_SIZE);
+	console_scan(g_buf2, G_BUF_SIZE);
 	//scanf_s("%d", &k);
 	//system("pause");
 }

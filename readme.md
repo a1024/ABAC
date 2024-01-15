@@ -38,6 +38,8 @@ Outdated. Only kept in case I need anything from there.
 
 
 # Building
+Currently, building these projects in the current state is supported only on Windows.
+But the main coding algorithms can be easily ported to any platform.
 These projects should compile fine on MSVC 2022.
 Not tested yet on GCC.
 
@@ -46,10 +48,15 @@ Either create an MSVC 2022 CMake project, or:
 
 `gcc -O -mavx2 best.c t39.c t42.c t45_calic.c transforms.c util.c -o best`
 
+Note that it fails to recover the original image with GCC for unknown reasons [TODO].
+
 ### `e2`
 Either create an MSVC 2022 CMake project, or:
 
 `gcc -O -mavx2 e2.c format.c lodepng.c tests.c tests2.c tests3.c tests4.c transforms.c util.c -o e2`
 
+Note that it fails to recover the original image with GCC for unknown reasons [TODO].
+
 ### `eBench`
-Can only be compiled through MSVC 2022 for now.
+Either create an MSVC 2022 CMake project, or:
+`gcc -O -mavx2 console.c ebench.c graphics.c image.c lodepng.c transforms.c util.c window.c -o ebench-gcc -lopengl32 -lgdi32 -lole32 -lcomdlg32 -luuid`

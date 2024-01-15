@@ -80,6 +80,11 @@ void memreverse(void *p, size_t count, size_t esize)
 	size_t totalsize=count*esize;
 	unsigned char *s1=(unsigned char*)p, *s2=s1+totalsize-esize;
 	void *temp=malloc(esize);
+	if(!temp)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
 	while(s1<s2)
 	{
 		memswap(s1, s2, esize, temp);
@@ -139,6 +144,11 @@ void isort(void *base, size_t count, size_t esize, int (*threeway)(const void*, 
 		return;
 
 	temp=malloc((count>>1)*esize);
+	if(!temp)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
 	for(k=1;k<count;++k)
 	{
 		size_t idx=0;
@@ -286,12 +296,11 @@ double power(double x, int y)
 }
 double _10pow(int n)
 {
-	static double *mask=0;
+	static double mask[616]={0};
 	int k;
 //	const double _ln10=log(10.);
-	if(!mask)
+	if(!mask[308])
 	{
-		mask=(double*)malloc(616*sizeof(double));
 		for(k=-308;k<308;++k)		//23.0
 			mask[k+308]=power(10., k);
 		//	mask[k+308]=exp(k*_ln10);//inaccurate
@@ -535,7 +544,11 @@ ArrayHandle array_construct(const void *src, size_t esize, size_t count, size_t 
 	dstsize=rep*srcsize;
 	cap=dstsize+pad*esize;
 	arr=(ArrayHandle)malloc(sizeof(ArrayHeader)+cap);
-	ASSERT_P(arr);
+	if(!arr)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
 	arr->count=count*rep;
 	arr->esize=esize;
 	arr->cap=cap;
@@ -561,7 +574,11 @@ ArrayHandle array_copy(ArrayHandle *arr)
 		return 0;
 	bytesize=sizeof(ArrayHeader)+arr[0]->cap;
 	a2=(ArrayHandle)malloc(bytesize);
-	ASSERT_P(a2);
+	if(!a2)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
 	memcpy(a2, *arr, bytesize);
 	return a2;
 }
@@ -708,7 +725,7 @@ int str_append(ArrayHandle *str, const char *format, ...)
 		array_realloc(str, str[0]->count+reqlen, 1);
 		str[0]->count=c0;
 	}
-	reqlen=vsnprintf(str[0]->data+str[0]->count, str[0]->cap-str[0]->count, format, args);
+	reqlen=vsnprintf((char*)str[0]->data+str[0]->count, str[0]->cap-str[0]->count, format, args);
 	str[0]->count+=reqlen;
 	va_end(args);
 	return (int)reqlen;
@@ -726,10 +743,19 @@ void dlist_init(DListHandle list, size_t objsize, size_t objpernode, void (*dest
 	list->destructor=destructor;
 }
 #define DLIST_COPY_NODE(DST, PREV, NEXT, SRC, PAYLOADSIZE)\
-	DST=(DNodeHandle)malloc(sizeof(DNodeHeader)+(PAYLOADSIZE)),\
-	DST->prev=PREV,\
-	DST->next=NEXT,\
-	memcpy(DST->data, SRC->data, PAYLOADSIZE)
+	do\
+	{\
+		DST=(DNodeHandle)malloc(sizeof(DNodeHeader)+(PAYLOADSIZE));\
+		if(!(DST))\
+		{\
+			LOG_ERROR("Alloc error");\
+			return;\
+		}\
+		DST->prev=PREV;\
+		DST->next=NEXT;\
+		memcpy(DST->data, SRC->data, PAYLOADSIZE);\
+	}\
+	while(0)
 void dlist_copy(DListHandle dst, DListHandle src)
 {
 	DNodeHandle it;
@@ -824,7 +850,10 @@ static void dlist_append_node(DListHandle list)
 
 	temp=(DNodeHandle)malloc(sizeof(DNodeHeader)+list->objpernode*list->objsize);
 	if(!temp)
-		PANIC();
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
 	temp->next=0;
 	if(list->nnodes)
 	{
@@ -1173,6 +1202,11 @@ RBNodeHandle* map_insert(MapHandle map, const void *key, int *found)
 		*found=0;
 
 	z=(RBNodeHandle)malloc(sizeof(RBNodeHeader)+map->esize);
+	if(!z)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
 	z->parent=y;
 	z->left=z->right=0;
 	z->is_red=1;
@@ -1259,16 +1293,16 @@ RBNodeHandle* map_insert(MapHandle map, const void *key, int *found)
 	++map->nnodes;
 	return get_node_addr(map, z);
 }
-static void rb_transplant(MapHandle map, RBNodeHandle u, RBNodeHandle v)
-{
-	if(!u->parent)
-		map->root=v;
-	else if(u==u->parent->left)
-		u->parent->left=v;
-	else
-		u->parent->right=v;
-	v->parent=u->parent;
-}
+//static void rb_transplant(MapHandle map, RBNodeHandle u, RBNodeHandle v)
+//{
+//	if(!u->parent)
+//		map->root=v;
+//	else if(u==u->parent->left)
+//		u->parent->left=v;
+//	else
+//		u->parent->right=v;
+//	v->parent=u->parent;
+//}
 static RBNodeHandle tree_minimum(RBNodeHandle root)
 {
 	if(!root)
@@ -1288,7 +1322,7 @@ static RBNodeHandle tree_maximum(RBNodeHandle root)
 int  map_erase(MapHandle map, const void *data, RBNodeHandle node)
 {
 	//https://github.com/gcc-mirror/gcc/blob/master/libstdc%2B%2B-v3/src/c%2B%2B98/tree.cc		line 286
-	RBNodeHandle *root, *leftmost, *rightmost, x, xp, y, z, *r2;
+	RBNodeHandle *leftmost, *rightmost, x, xp, y, z, *r2;
 	size_t y_is_red;
 
 	if(node)
@@ -1306,7 +1340,7 @@ int  map_erase(MapHandle map, const void *data, RBNodeHandle node)
 		return 0;
 	}
 	
-	root=&map->root->parent;
+	//root=&map->root->parent;
 	leftmost=&map->root->left;
 	rightmost=&map->root->right;
 	y=z;
@@ -1501,6 +1535,11 @@ static SNodeHandle slist_alloc_node(SListHandle list, SNodeHandle prev, const vo
 
 	//allocate new node
 	temp=(SNodeHandle)malloc(sizeof(SNode)+list->esize);
+	if(!temp)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
 	temp->prev=prev;
 	if(data)
 		memcpy(temp->data, data, list->esize);
@@ -1591,6 +1630,11 @@ BitstringHandle bitstring_construct(const void *src, size_t bitCount, size_t bit
 	srcBytes=(bitCount+7)>>3;
 	cap=srcBytes+bytePad;
 	str=(BitstringHandle)malloc(sizeof(BitstringHeader)+cap);
+	if(!str)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
 	str->bitCount=bitCount;
 	str->byteCap=cap;
 
@@ -1742,14 +1786,21 @@ void        pqueue_buildheap(PQueueHandle *pq)
 {
 	void *temp;
 
+	if(pq[0]->count<2)
+		return;
 	temp=malloc(pq[0]->esize);
+	if(!temp)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
 	for(size_t i=pq[0]->count/2-1;i>=0;--i)
 		pqueue_heapifydown(pq, i, temp);
 	free(temp);
 }
 
-//Array API
-PQueueHandle		pqueue_construct(
+//Priority Queue
+PQueueHandle pqueue_construct(
 	size_t esize,
 	size_t pad,
 	int (*less)(const void*, const void*),
@@ -1761,7 +1812,11 @@ PQueueHandle		pqueue_construct(
 	
 	cap=esize+pad*esize;
 	pq=(PQueueHandle)malloc(sizeof(PQueueHeader)+cap);
-	ASSERT_P(pq);
+	if(!pq)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
 	pq->count=0;
 	pq->esize=esize;
 	pq->byteCap=cap;
@@ -1794,6 +1849,11 @@ void  pqueue_enqueue(PQueueHandle *pq, const void *src)//src cannot be nullptr
 	memcpy(pq[0]->data+start, src, pq[0]->esize);
 
 	temp=malloc(pq[0]->esize);
+	if(!temp)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
 	pqueue_heapifyup(pq, pq[0]->count-1, temp);
 	free(temp);
 }
@@ -1816,6 +1876,11 @@ void  pqueue_dequeue(PQueueHandle *pq)
 		pq[0]->destructor(pq[0]->data);
 
 	temp=malloc(pq[0]->esize);
+	if(!temp)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
 	memswap(pq[0]->data, pq[0]->data+(pq[0]->count-1)*pq[0]->esize, pq[0]->esize, temp);
 	--pq[0]->count;
 	pqueue_heapifydown(pq, 0, temp);
@@ -1921,7 +1986,7 @@ ArrayHandle get_filenames(const char *path, const char **extensions, int extCoun
 	c='*';
 	STR_APPEND(searchpath, &c, 1, 1);
 
-	hSearch=FindFirstFileA(searchpath->data, &data);//skip .
+	hSearch=FindFirstFileA((char*)searchpath->data, &data);//skip .
 	if(hSearch==INVALID_HANDLE_VALUE)
 		return 0;
 	success=FindNextFileA(hSearch, &data);//skip ..
@@ -1929,7 +1994,7 @@ ArrayHandle get_filenames(const char *path, const char **extensions, int extCoun
 	STR_POPBACK(searchpath, 1);//pop the '*'
 	ARRAY_ALLOC(ArrayHandle, filenames, 0, 0, 0, free_str);
 
-	for(;success=FindNextFileA(hSearch, &data);)
+	for(;(success=FindNextFileA(hSearch, &data));)
 	{
 		len=strlen(data.cFileName);
 		extension=get_extension(data.cFileName, len);

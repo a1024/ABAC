@@ -211,7 +211,7 @@ void hybriduint_encode(int val, int *tbn, const int *config)
 	{
 		int lgv=floor_log2((unsigned)val);
 		int mantissa=val-(1<<lgv);
-		token = (1<<exp) + ((lgv-exp)<<(msb+lsb)|(mantissa>>(lgv-msb))<<lsb|mantissa&((1<<lsb)-1));
+		token = (1<<exp) + ((lgv-exp)<<(msb+lsb)|(mantissa>>(lgv-msb))<<lsb|(mantissa&((1<<lsb)-1)));
 		nbits=lgv-(msb+lsb);
 		bypass=val>>lsb&((1LL<<nbits)-1);
 	}
@@ -370,7 +370,7 @@ void calc_csize_ans_energy(Image const *image, size_t *csizes)
 	}
 	memset(stats, 0, (histsize+1LL)*sizeof(int[_countof(calcsize_ans_qlevels)+1]));
 
-	int res=image->iw*image->ih;
+	//int res=image->iw*image->ih;
 	for(int kc=0;kc<3;++kc)			//step 1: fill histograms
 	{
 		int depth=image->depth[kc], nlevels=1<<depth;
@@ -387,7 +387,7 @@ void calc_csize_ans_energy(Image const *image, size_t *csizes)
 			}
 		}
 	}
-	int npx=res*3;
+	//int npx=res*3;
 	for(int kh=0;kh<_countof(calcsize_ans_qlevels)+1;++kh)		//step 3: accumulate & quantize CDFs
 	{
 		int *hist=stats+(histsize+1)*kh;
@@ -488,7 +488,6 @@ void calc_csize_ans_energy_hybrid(Image const *image, size_t *csizes, const int 
 	TempHybrid *data=(TempHybrid*)im2->data;
 	for(int kc=0;kc<3;++kc)			//step 1: encode hybrid uint
 	{
-		int depth=image->depth[kc], nlevels=1<<depth;
 		for(int k=0;k<res;++k)
 		{
 			int pixel=image->data[k<<2|kc];
@@ -503,14 +502,10 @@ void calc_csize_ans_energy_hybrid(Image const *image, size_t *csizes, const int 
 	}
 	for(int kc=0;kc<3;++kc)			//step 2: fill histograms
 	{
-		int depth=image->depth[kc], nlevels=1<<depth;
 		for(int ky=0, idx=0;ky<image->ih;++ky)
 		{
 			for(int kx=0;kx<image->iw;++kx, ++idx)
 			{
-				//if(kc==0&&kx==417&&ky==70)//
-				//	printf("");
-
 				int ctx=get_ctx(image, kc, kx, ky);
 				int *hist=stats+(histsize+1)*ctx;
 				TempHybrid *curr=data+(idx<<2|kc);
@@ -522,7 +517,7 @@ void calc_csize_ans_energy_hybrid(Image const *image, size_t *csizes, const int 
 	}
 	console_log("\n");//
 
-	int npx=res*3;
+	//int npx=res*3;
 	for(int kh=0;kh<_countof(calcsize_ans_qlevels)+1;++kh)		//step 3: accumulate & quantize CDFs
 	{
 		int *hist=stats+(histsize+1)*kh;
@@ -552,7 +547,6 @@ void calc_csize_ans_energy_hybrid(Image const *image, size_t *csizes, const int 
 	unsigned state=0x10000;
 	for(int kc=0;kc<3;++kc)			//step 4: estimate compressed size
 	{
-		int depth=image->depth[kc], nlevels=1<<depth;
 		size_t csize=0;
 		for(int ky=0, idx=0;ky<image->ih;++ky)
 		{
@@ -896,7 +890,7 @@ void test_predmask(Image const *image)
 		const char *title;
 		int titlelen;
 		{//get title without extension from filename
-			int titleend=(int)acme_strrchr(fn->data, fn->count, '.');
+			int titleend=(int)acme_strrchr((char*)fn->data, fn->count, '.');
 			int titlestart=titleend;
 			for(;titlestart>=0&&fn->data[titlestart]!='/'&&fn->data[titlestart]!='\\';--titlestart);
 			++titlestart;
@@ -1411,7 +1405,7 @@ int send_image_separate_subpixels(Image const *image, unsigned *txid_r, unsigned
 	}
 	if(!*txid_r)
 	{
-		int txids[4];
+		unsigned txids[4];
 		glGenTextures(4, txids);
 		*txid_r=txids[0];
 		*txid_g=txids[1];
@@ -1606,7 +1600,9 @@ void chart_mesh_sep_update(Image const *image, ArrayHandle *cpuv, unsigned *gpuv
 	glBindBuffer(GL_ARRAY_BUFFER, *gpuv);	GL_CHECK(error);
 	glBufferData(GL_ARRAY_BUFFER, nf*sizeof(float), cpuv[0]->data, GL_STATIC_DRAW);	GL_CHECK(error);
 }
-static int hist[768], histmax[3], hist2[768], histmax2[3], *hist_full=0, hist_full_size=0;
+static int hist[768], histmax[3];
+//static int hist2[768], histmax2[3];
+static int *hist_full=0, hist_full_size=0;
 static float blockCR[3]={0};
 void chart_hist_update(Image const *image, int x1, int x2, int y1, int y2, int *hist, int *histmax, float *CR)
 {
@@ -1657,7 +1653,7 @@ void chart_dwthist_update(Image const *image, int kc, int kband, int x1, int x2,
 }
 void chart_jointhist_update(Image const *image, unsigned *txid)
 {
-	int nlevels=1<<jointhist_nbits, th=nlevels*nlevels, hsize=nlevels*nlevels*nlevels;
+	int nlevels=1<<jointhist_nbits, hsize=nlevels*nlevels*nlevels;
 
 	//jointhistogram(image, iw, ih, jointhist_nbits, &jointhist, space_not_color);
 	if(jointhist)
@@ -2653,7 +2649,11 @@ void click_hittest(int mx, int my, int *objidx, int *cellx, int *celly, int *cel
 	*objidx=0;
 	for(*objidx=0;*objidx<_countof(buttons);++*objidx, ++*p)
 	{
-		if(!transforms_customenabled&&(*objidx==0||*objidx==1)||!(transforms_mask[ST_FWD_JXLPRED]||transforms_mask[ST_INV_JXLPRED])&&*objidx==3)//when these buttons are inactive they shouldn't block the click
+		//when these buttons are inactive they shouldn't block the click
+		if(
+			(!transforms_customenabled&&(*objidx==0||*objidx==1))||
+			(!(transforms_mask[ST_FWD_JXLPRED]||transforms_mask[ST_INV_JXLPRED])&&*objidx==3)
+		)
 			continue;
 		if(mx>=p[0]->x1&&mx<p[0]->x2&&my>=p[0]->y1&&my<p[0]->y2)
 			break;
@@ -2721,11 +2721,11 @@ int io_mousewheel(int forward)
 					//b-=g
 					//g+=(-0x00.0000*r-0x00.0000*b)>>16
 					int
-						col=p?(int)floorf((mx-p->x1)/(guizoom*tdx)):0,
+						//col=p?(int)floorf((mx-p->x1)/(guizoom*tdx)):0,
 						line=p?(int)floorf((my-p->y1)/(guizoom*tdy)):0;
 					if((line&1)==1&&((unsigned)(ch-7)<7||(unsigned)(ch-19)<7))
 					{
-						int idx=line&2|((ch-7)/(19-7));
+						int idx=(line&2)|((ch-7)/(19-7));
 						int digit=(ch-7)%(19-7);
 						//0123456
 						//00.0000
@@ -2938,9 +2938,9 @@ int parse_nvals_i32(ArrayHandle text, int idx, int *params, int count)
 		idx+=neg||text->data[idx]=='+';//skip sign
 		if(text->data[idx]=='0'&&(text->data[idx]&0xDF)=='X')//skip hex prefix
 			idx+=2;
-		char *end=text->data+idx;
-		params[k]=(int)strtol(text->data+idx, &end, 16);
-		idx=(int)(end-text->data);
+		char *end=(char*)text->data+idx;
+		params[k]=(int)strtol((char*)text->data+idx, &end, 16);
+		idx=(int)(end-(char*)text->data);
 		if(neg)
 			params[k]=-params[k];
 
@@ -2966,9 +2966,9 @@ int parse_nvals(ArrayHandle text, int idx, short *params, int count)
 		idx+=neg||text->data[idx]=='+';//skip sign
 		if(text->data[idx]=='0'&&(text->data[idx]&0xDF)=='X')//skip hex prefix
 			idx+=2;
-		char *end=text->data+idx;
-		params[k]=(int)strtol(text->data+idx, &end, 16);
-		idx=(int)(end-text->data);
+		char *end=(char*)text->data+idx;
+		params[k]=(int)strtol((char*)text->data+idx, &end, 16);
+		idx=(int)(end-(char*)text->data);
 		if(neg)
 			params[k]=-params[k];
 
@@ -2992,7 +2992,7 @@ static void append_i16_row(ArrayHandle *str, const short *vals, int count)
 }
 int io_keydn(IOKey key, char c)
 {
-	switch(key)
+	switch(key)//handle shortcuts involving timed keys before the main switch
 	{
 	case 'S':
 		if(keyboard[KEY_CTRL]&&im1&&im_export)
@@ -3005,6 +3005,8 @@ int io_keydn(IOKey key, char c)
 			}
 			return 1;
 		}
+		break;
+	default://to make gcc -Wall happy
 		break;
 	}
 	switch(key)
@@ -3062,7 +3064,7 @@ int io_keydn(IOKey key, char c)
 			case 2://transform list
 				{
 					int
-						col=p?(int)floorf((mx-p->x1)/tdx):0,
+						//col=p?(int)floorf((mx-p->x1)/tdx):0,
 						line=p?(int)floorf((my-p->y1)/tdy):0;
 					//if(BETWEEN_EXC(0, cellidx, T_COUNT/2))
 					if((unsigned)line<(unsigned)(T_COUNT/2))
@@ -3150,21 +3152,23 @@ int io_keydn(IOKey key, char c)
 		//printf("Click at (%d, %d)\n", mx, my);
 		break;
 
-#define		AK(KEY)		case KEY:
+#define AK(KEY) case KEY:
 	ACTIVE_KEY_LIST
-#undef		AK
+#undef  AK
 		timer_start(10, TIMER_ID_KEYBOARD);
 		break;
 		
 	case KEY_F1:
 		messagebox(MBOX_OK, "Controls",
 			"Ctrl O:\t\tOpen image\n"
+			"Ctrl S:\t\tSave preview as 8-bit PNG\n"
 			"Mouse1/Mouse2:\tAdd/remove transforms in the list\n"
 			"Ctrl Mouse1:\tReplace all transforms of this type\n"
 			"Ctrl R:\t\tDisable all transforms\n"
 			//"Ctrl E:\t\tReset custom transform parameters\n"
 			"[ ]:\t\t(Custom transforms) Select coefficient page\n"
 			"Space:\t\t(Custom transforms) Optimize\n"
+			"Ctrl N:\t\tAdd noise to CUSTOM3 params\n"
 			//"Shift space:\t(Custom transforms) Optimize blockwise\n"
 			//"Ctrl Space\t(Custom transforms) Reset params\n"
 			"Ctrl B:\t\tBatch test\n"
@@ -3177,20 +3181,28 @@ int io_keydn(IOKey key, char c)
 			"H:\t\tReset CR history graph\n"
 			"Ctrl C:\t\tCopy data\n"
 			"Ctrl V:\t\tPaste data\n"
+			"Ctrl B:\t\tBatch test\n"
+			"Ctrl P:\t\tTest predictors\n"
 			"C:\t\tToggle joint histogram type / fill screen in image view\n"
 			"\n"
 			"M / Shift M:\tCycles between:\n"
 		//	"\t1: 3D View: Levels\n"
 		//	"\t2: 3D View: Mesh\n"
 		//	"\t3: 3D View: Mesh (separate channels)\n"
-			"\t1: Image tricolor view\n"
-			"\t2: Image view\n"
+			"\t%d: Image tricolor view\n"
+			"\t%d: Image view\n"
 		//	"\t6: Image block histogram\n"
 		//	"\t7: Optimized block compression estimate (E24)\n"
 		//	"\t7: DWT block histogram\n"
-			"\t3: Histogram\n"
-			"\t4: Joint histogram\n"
-			"\t5: Zipf view\n"
+			"\t%d: Histogram\n"
+			"\t%d: Joint histogram\n"
+			"\t%d: Zipf view\n",
+
+			1+VIS_IMAGE_TRICOLOR,
+			1+VIS_IMAGE,
+			1+VIS_HISTOGRAM,
+			1+VIS_JOINT_HISTOGRAM,
+			1+VIS_ZIPF
 		);
 		//prof_on=!prof_on;
 		return 0;
@@ -3416,7 +3428,8 @@ int io_keydn(IOKey key, char c)
 					const int *params=custom_params+24*kc2;
 					for(int k=0;k<np;++k)
 					{
-						int x=k%stw, y=k/stw;
+						int x=k%stw;
+						//int y=k/stw;
 						if(shift)
 							str_append(&str, "%g,%c", (double)params[k]/65536, x<stw-1&&k<np-1?'\t':'\n');
 						else
@@ -3542,7 +3555,7 @@ int io_keydn(IOKey key, char c)
 					{
 						char *end=0;
 						for(;idx<text->count&&isspace(text->data[idx]);++idx);
-						rct_custom_params[k]=(int)strtol(text->data+idx, &end, 16);
+						rct_custom_params[k]=(int)strtol((char*)text->data+idx, &end, 16);
 						for(;idx<text->count&&!isspace(text->data[idx]);++idx);
 						if(idx>=text->count)
 							goto paste_finish;
@@ -3554,7 +3567,7 @@ int io_keydn(IOKey key, char c)
 						for(;k<kend;++k)
 						{
 							for(;idx<text->count&&isspace(text->data[idx]);++idx);
-							custom_params[k]=(int)round(atof(text->data+idx)*65536);
+							custom_params[k]=(int)round(atof((char*)text->data+idx)*65536);
 							for(;idx<text->count&&!isspace(text->data[idx]);++idx);
 							if(idx>=text->count)
 								goto paste_finish;
@@ -3588,14 +3601,14 @@ int io_keydn(IOKey key, char c)
 			return 1;
 		}
 		break;
-	case 'X':
-		{
-			extrainfo=!extrainfo;
-			return 1;
-		}
-		break;
-	case 'Z'://TODO show neighbor pixels around cursor
-		break;
+	//case 'X':
+	//	{
+	//		extrainfo=!extrainfo;
+	//		return 1;
+	//	}
+	//	break;
+	//case 'Z'://TODO show neighbor pixels around cursor
+	//	break;
 	case 'P':
 		if(GET_KEY_STATE(KEY_CTRL))
 			test_predmask(im1);
@@ -3833,15 +3846,15 @@ int io_keydn(IOKey key, char c)
 					if(!im2)
 						return 0;
 
-					int step=256;
-					if(keyboard['1'])step=128;
-					else if(keyboard['2'])step=64;
-					else if(keyboard['3'])step=32;
-					else if(keyboard['4'])step=16;
-					else if(keyboard['5'])step= 8;
-					else if(keyboard['6'])step= 4;
-					else if(keyboard['7'])step= 2;
-					else if(keyboard['8'])step= 1;
+					//int step=256;
+					//if(keyboard['1'])step=128;
+					//else if(keyboard['2'])step=64;
+					//else if(keyboard['3'])step=32;
+					//else if(keyboard['4'])step=16;
+					//else if(keyboard['5'])step= 8;
+					//else if(keyboard['6'])step= 4;
+					//else if(keyboard['7'])step= 2;
+					//else if(keyboard['8'])step= 1;
 
 					if(jxl)
 					{
@@ -3860,6 +3873,8 @@ int io_keydn(IOKey key, char c)
 			return 1;
 		}
 		break;
+	default://to make gcc -Wall happy
+		break;
 	}
 	return 0;
 }
@@ -3874,13 +3889,14 @@ int io_keyup(IOKey key, char c)
 	//	break;
 		
 	case KEY_SPACE:
-#define		AK(KEY)		case KEY:
+#define AK(KEY) case KEY:
 	ACTIVE_KEY_LIST
-#undef		AK
+#undef  AK
 		count_active_keys(key);
 		break;
 
-	//default:
+	default://to make gcc -Wall happy
+		break;
 	//	printf("%02X %02X=%c up\n", key, c, c);
 	//	if(key=='A')
 	//		timer_stop();
@@ -4342,7 +4358,7 @@ void io_render()
 
 	if(transforms_customenabled)
 	{
-		float xstep=tdx*guizoom, ystep=tdy*guizoom, x, y;
+		float ystep=tdy*guizoom, x, y;
 		if(transforms_mask[CT_FWD_CUSTOM]||transforms_mask[CT_INV_CUSTOM])
 		{
 			//custom color transform params

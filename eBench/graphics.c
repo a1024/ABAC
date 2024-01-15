@@ -3,7 +3,9 @@
 #include<tmmintrin.h>
 #define STB_IMAGE_IMPLEMENTATION
 #include"stb_image.h"
+#ifdef _MSC_VER
 #pragma comment(lib, "OpenGL32.lib")
+#endif
 static const char file[]=__FILE__;
 
 #define GLFUNC(X) t_##X X=0;
@@ -57,11 +59,11 @@ typedef struct SDFTextureHeaderStruct
 long long colors_text=0xFFABABABFF000000;//0xBKBKBKBK_TXTXTXTX
 
 //shaders
-#define		SHADER_LIST		SHADER(2D) SHADER(texture) SHADER(text) SHADER(sdftext) SHADER(3D) SHADER(L3D) SHADER(contour3D)
+#define SHADER_LIST SHADER(2D) SHADER(texture) SHADER(text) SHADER(sdftext) SHADER(3D) SHADER(L3D) SHADER(contour3D)
 #if 1
 //shader_2D
-#define		ATTR_2D			ATTR(2D, coords)
-#define		UNIF_2D			UNIF(2D, color)
+#define ATTR_2D ATTR(2D, coords)
+#define UNIF_2D UNIF(2D, color)
 const char
 	src_vert_2D[]=
 		"#version 120\n"
@@ -82,8 +84,8 @@ const char
 		"}";
 
 //shader_texture
-#define		ATTR_texture	ATTR(texture, coords)
-#define		UNIF_texture	UNIF(texture, texture) UNIF(texture, alpha)
+#define ATTR_texture ATTR(texture, coords)
+#define UNIF_texture UNIF(texture, texture) UNIF(texture, alpha)
 const char
 	src_vert_texture[]=
 		"#version 120\n"
@@ -109,8 +111,8 @@ const char
 		"}";
 
 //shader_text
-#define		ATTR_text		ATTR(text, coords)
-#define		UNIF_text		UNIF(text, atlas) UNIF(text, txtColor) UNIF(text, bkColor)
+#define ATTR_text ATTR(text, coords)
+#define UNIF_text UNIF(text, atlas) UNIF(text, txtColor) UNIF(text, bkColor)
 const char
 	src_vert_text[]=
 		"#version 120\n"
@@ -136,8 +138,8 @@ const char
 		"}";
 
 //shader_sdftext
-#define		ATTR_sdftext	ATTR(sdftext, coords)
-#define		UNIF_sdftext	UNIF(sdftext, atlas) UNIF(sdftext, txtColor) UNIF(sdftext, bkColor) UNIF(sdftext, zoom)
+#define ATTR_sdftext ATTR(sdftext, coords)
+#define UNIF_sdftext UNIF(sdftext, atlas) UNIF(sdftext, txtColor) UNIF(sdftext, bkColor) UNIF(sdftext, zoom)
 const char
 	src_vert_sdftext[]=
 		"#version 120\n"
@@ -169,8 +171,8 @@ const char
 		"}";
 
 //shader_3D
-#define		ATTR_3D			ATTR(3D, vertex) ATTR(3D, texcoord)
-#define		UNIF_3D			UNIF(3D, matrix) UNIF(3D, texture)
+#define ATTR_3D ATTR(3D, vertex) ATTR(3D, texcoord)
+#define UNIF_3D UNIF(3D, matrix) UNIF(3D, texture)
 const char
 	src_vert_3D[]=
 		"#version 120\n"
@@ -198,8 +200,8 @@ const char
 		"}";
 
 //shader_L3D
-#define		ATTR_L3D		ATTR(L3D, vertex) ATTR(L3D, normal) ATTR(L3D, texcoord)
-#define		UNIF_L3D		UNIF(L3D, matVP_Model) UNIF(L3D, matNormal) UNIF(L3D, texture) UNIF(L3D, sceneInfo)
+#define ATTR_L3D ATTR(L3D, vertex) ATTR(L3D, normal) ATTR(L3D, texcoord)
+#define UNIF_L3D UNIF(L3D, matVP_Model) UNIF(L3D, matNormal) UNIF(L3D, texture) UNIF(L3D, sceneInfo)
 const char
 	src_vert_L3D[]=
 		"#version 120\n"
@@ -249,8 +251,8 @@ const char
 		"}";
 
 //shader_contour3D
-#define		ATTR_contour3D	ATTR(contour3D, vertex) ATTR(contour3D, texcoord)
-#define		UNIF_contour3D	UNIF(contour3D, matrix) UNIF(contour3D, alpha) UNIF(contour3D, texture)
+#define ATTR_contour3D ATTR(contour3D, vertex) ATTR(contour3D, texcoord)
+#define UNIF_contour3D UNIF(contour3D, matrix) UNIF(contour3D, alpha) UNIF(contour3D, texture)
 const char
 	src_vert_contour3D[]=
 		"#version 120\n"
@@ -282,33 +284,33 @@ const char
 #endif
 
 //shader declarations
-#define		ATTR(NAME, LABEL)	int a_##NAME##_##LABEL=-1;
-#define		SHADER(NAME)		ATTR_##NAME
+#define ATTR(NAME, LABEL) int a_##NAME##_##LABEL=-1;
+#define SHADER(NAME) ATTR_##NAME
 SHADER_LIST
-#undef		SHADER
-#undef		ATTR
+#undef SHADER
+#undef ATTR
 
-#define		UNIF(NAME, LABEL)	int u_##NAME##_##LABEL=-1;
-#define		SHADER(NAME)		UNIF_##NAME
+#define UNIF(NAME, LABEL) int u_##NAME##_##LABEL=-1;
+#define SHADER(NAME) UNIF_##NAME
 SHADER_LIST
-#undef		SHADER
-#undef		UNIF
+#undef SHADER
+#undef UNIF
 
-#define		ATTR(NAME, LABEL)	{&a_##NAME##_##LABEL, "a_" #LABEL},
-#define		SHADER(NAME)		ShaderVar attr_##NAME[]={ATTR_##NAME};
+#define ATTR(NAME, LABEL) {&a_##NAME##_##LABEL, "a_" #LABEL},
+#define SHADER(NAME) ShaderVar attr_##NAME[]={ATTR_##NAME};
 SHADER_LIST
-#undef		SHADER
-#undef		ATTR
+#undef SHADER
+#undef ATTR
 
-#define		UNIF(NAME, LABEL)	{&u_##NAME##_##LABEL, "u_" #LABEL},
-#define		SHADER(NAME)		ShaderVar unif_##NAME[]={UNIF_##NAME};
+#define UNIF(NAME, LABEL) {&u_##NAME##_##LABEL, "u_" #LABEL},
+#define SHADER(NAME) ShaderVar unif_##NAME[]={UNIF_##NAME};
 SHADER_LIST
-#undef		SHADER
-#undef		UNIF
+#undef SHADER
+#undef UNIF
 
-#define		SHADER(NAME)		ShaderProgram shader_##NAME={"shader_" #NAME, src_vert_##NAME, src_frag_##NAME, attr_##NAME, unif_##NAME, _countof(attr_##NAME), _countof(unif_##NAME), 0};
+#define SHADER(NAME) ShaderProgram shader_##NAME={"shader_" #NAME, src_vert_##NAME, src_frag_##NAME, attr_##NAME, unif_##NAME, _countof(attr_##NAME), _countof(unif_##NAME), 0};
 SHADER_LIST
-#undef		SHADER
+#undef SHADER
 
 const char* glerr2str(int error)
 {
@@ -332,7 +334,7 @@ const char* glerr2str(int error)
 #undef				EC
 }
 const char *gl_error_msg="GL %d: %s";
-#define GL_CHECK(E)	((E=glGetError())==0||log_error(file, __LINE__, 1, gl_error_msg, E, glerr2str(E)))
+//#define GL_CHECK(E) (void)((E=glGetError())==0||log_error(file, __LINE__, 1, gl_error_msg, E, glerr2str(E)))
 
 //shader API
 unsigned			CompileShader(const char *src, unsigned type, const char *programname)
@@ -541,13 +543,13 @@ void gl_init()
 	GLversion=(const char*)glGetString(GL_VERSION);
 
 	static const char msg2[]="%s is NULL";
-#define GLFUNC(X)	((X=(t_##X)wglGetProcAddress(#X))!=0||log_error(file, __LINE__, 1, msg2, X));
+#define GLFUNC(X) (void)((X=(t_##X)wglGetProcAddress(#X))!=0||log_error(file, __LINE__, 1, msg2, X));
 	GLFUNCLIST
 #undef  GLFUNC
 		
 	glGenBuffers(1, &vertex_buffer);
-	glEnable(GL_BLEND);									GL_CHECK(error);//vast majority of applications need alpha blend
-	glBlendEquation(GL_FUNC_ADD);						GL_CHECK(error);
+	glEnable(GL_BLEND);					GL_CHECK(error);//vast majority of applications need alpha blend
+	glBlendEquation(GL_FUNC_ADD);				GL_CHECK(error);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);	GL_CHECK(error);
 	//glDisable(GL_BLEND);	GL_CHECK();
 
@@ -573,8 +575,10 @@ void gl_init()
 		exit(1);
 	}
 	for(int k=0, size=iw*ih;k<size;++k)
+	{
 		if(rgb[k]&0x00FFFFFF)
 			rgb[k]=0xFFFFFFFF;
+	}
 	for(int c=32;c<127;++c)
 	{
 		QuadCoords *rect=font_coords+c-32;
@@ -641,11 +645,11 @@ void draw_line(float x1, float y1, float x2, float y2, int color)
 
 	glEnableVertexAttribArray(a_2D_coords);	GL_CHECK(error);
 
-	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);							GL_CHECK(error);
+	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);				GL_CHECK(error);
 	glBufferData(GL_ARRAY_BUFFER, 4*sizeof(float), g_fbuf, GL_STATIC_DRAW);	GL_CHECK(error);
-	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, 0);		GL_CHECK(error);
+	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, 0);	GL_CHECK(error);
 	
-//	glBindBuffer(GL_ARRAY_BUFFER, 0);										GL_CHECK(error);
+//	glBindBuffer(GL_ARRAY_BUFFER, 0);					GL_CHECK(error);
 //	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, g_fbuf);	GL_CHECK(error);
 
 #ifndef NO_3D
@@ -674,11 +678,11 @@ void draw_rect(float x1, float x2, float y1, float y2, int color)
 
 	glEnableVertexAttribArray(a_2D_coords);	GL_CHECK(error);
 
-	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);							GL_CHECK(error);
+	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);				GL_CHECK(error);
 	glBufferData(GL_ARRAY_BUFFER, 10*sizeof(float), g_fbuf, GL_STATIC_DRAW);GL_CHECK(error);
-	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, 0);		GL_CHECK(error);
+	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, 0);	GL_CHECK(error);
 	
-//	glBindBuffer(GL_ARRAY_BUFFER, 0);										GL_CHECK(error);
+//	glBindBuffer(GL_ARRAY_BUFFER, 0);					GL_CHECK(error);
 //	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, g_fbuf);	GL_CHECK(error);
 	
 #ifndef NO_3D
@@ -704,11 +708,11 @@ void draw_rect_hollow(float x1, float x2, float y1, float y2, int color)
 
 	glEnableVertexAttribArray(a_2D_coords);	GL_CHECK(error);
 
-	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);							GL_CHECK(error);
+	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);				GL_CHECK(error);
 	glBufferData(GL_ARRAY_BUFFER, 8*sizeof(float), g_fbuf, GL_STATIC_DRAW);	GL_CHECK(error);
-	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, 0);		GL_CHECK(error);
+	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, 0);	GL_CHECK(error);
 	
-//	glBindBuffer(GL_ARRAY_BUFFER, 0);										GL_CHECK(error);
+//	glBindBuffer(GL_ARRAY_BUFFER, 0);					GL_CHECK(error);
 //	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, g_fbuf);	GL_CHECK(error);
 	
 #ifndef NO_3D
@@ -765,18 +769,18 @@ void draw_2d_flush(ArrayHandle vertices, int color, unsigned primitive)
 
 	glEnableVertexAttribArray(a_2D_coords);	GL_CHECK(error);
 
-	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);							GL_CHECK(error);
+	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);			GL_CHECK(error);
 	glBufferData(GL_ARRAY_BUFFER, (int)(vertices->count*vertices->esize), vertices->data, GL_STATIC_DRAW);GL_CHECK(error);
-	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, 0);		GL_CHECK(error);
+	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, 0);GL_CHECK(error);
 	
-//	glBindBuffer(GL_ARRAY_BUFFER, 0);										GL_CHECK(error);
+//	glBindBuffer(GL_ARRAY_BUFFER, 0);					GL_CHECK(error);
 //	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, g_fbuf);	GL_CHECK(error);
 	
 #ifndef NO_3D
 	glDisable(GL_DEPTH_TEST);
 #endif
 	glDrawArrays(primitive, 0, (int)vertices->count);	GL_CHECK(error);
-	glDisableVertexAttribArray(a_2D_coords);			GL_CHECK(error);
+	glDisableVertexAttribArray(a_2D_coords);		GL_CHECK(error);
 #ifndef NO_3D
 	glEnable(GL_DEPTH_TEST);
 #endif
@@ -843,16 +847,16 @@ void draw_ellipse(float x1, float x2, float y1, float y2, int color)
 		vptr[idx+2]=screen2NDC_x(x0+x+1), vptr[idx+3]=y;
 		++nlines;
 	}
-	setGLProgram(shader_2D.program);		GL_CHECK(error);
-	send_color(u_2D_color, color);			GL_CHECK(error);
+	setGLProgram(shader_2D.program);	GL_CHECK(error);
+	send_color(u_2D_color, color);		GL_CHECK(error);
 
 	glEnableVertexAttribArray(a_2D_coords);	GL_CHECK(error);
 
-	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);								GL_CHECK(error);
-	glBufferData(GL_ARRAY_BUFFER, nlines*4*sizeof(float), vptr, GL_STATIC_DRAW);GL_CHECK(error);
-	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, 0);			GL_CHECK(error);
+	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);					GL_CHECK(error);
+	glBufferData(GL_ARRAY_BUFFER, nlines*4*sizeof(float), vptr, GL_STATIC_DRAW);	GL_CHECK(error);
+	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, 0);		GL_CHECK(error);
 
-//	glBindBuffer(GL_ARRAY_BUFFER, 0);		GL_CHECK();
+//	glBindBuffer(GL_ARRAY_BUFFER, 0);					GL_CHECK(error);
 //	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, vrtx);	GL_CHECK(error);
 	
 #ifndef NO_3D
@@ -1038,11 +1042,11 @@ void print_line_flush(ArrayHandle vertices, float zoom)
 			glUniform1f(u_sdftext_zoom, zoom*16.f/(sdf_txh*sdf_slope));
 			select_texture(sdf_atlas_txid, u_sdftext_atlas);
 
-			glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);							GL_CHECK(error);
+			glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);				GL_CHECK(error);
 			glBufferData(GL_ARRAY_BUFFER, (int)(vertices->count*vertices->esize), vertices->data, GL_STATIC_DRAW);GL_CHECK(error);
 			glVertexAttribPointer(a_sdftext_coords, 4, GL_FLOAT, GL_TRUE, 0, 0);	GL_CHECK(error);
 
-		//	glBindBuffer(GL_ARRAY_BUFFER, 0);										GL_CHECK(error);
+		//	glBindBuffer(GL_ARRAY_BUFFER, 0);					GL_CHECK(error);
 		//	glVertexAttribPointer(a_sdftext_coords, 4, GL_FLOAT, GL_TRUE, 0, vptr);	GL_CHECK(error);
 
 			glEnableVertexAttribArray(a_sdftext_coords);	GL_CHECK(error);
@@ -1054,15 +1058,15 @@ void print_line_flush(ArrayHandle vertices, float zoom)
 			setGLProgram(shader_text.program);
 			select_texture(font_txid, u_text_atlas);
 
-			glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);							GL_CHECK(error);
+			glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);					GL_CHECK(error);
 			glBufferData(GL_ARRAY_BUFFER, (int)(vertices->count*vertices->esize), vertices->data, GL_STATIC_DRAW);GL_CHECK(error);//set vertices & texcoords
 			glVertexAttribPointer(a_text_coords, 4, GL_FLOAT, GL_TRUE, 0, 0);		GL_CHECK(error);
 
-		//	glBindBuffer(GL_ARRAY_BUFFER, 0);									GL_CHECK(error);
-		//	glVertexAttribPointer(a_text_coords, 4, GL_FLOAT, GL_TRUE, 0, vptr);GL_CHECK(error);
+		//	glBindBuffer(GL_ARRAY_BUFFER, 0);					GL_CHECK(error);
+		//	glVertexAttribPointer(a_text_coords, 4, GL_FLOAT, GL_TRUE, 0, vptr);	GL_CHECK(error);
 
 			glEnableVertexAttribArray(a_text_coords);		GL_CHECK(error);
-			glDrawArrays(GL_QUADS, 0, (int)vertices->count);GL_CHECK(error);//draw the quads: 4 vertices per character quad
+			glDrawArrays(GL_QUADS, 0, (int)vertices->count);	GL_CHECK(error);//draw the quads: 4 vertices per character quad
 			glDisableVertexAttribArray(a_text_coords);		GL_CHECK(error);
 		}
 #ifndef NO_3D
@@ -1164,11 +1168,11 @@ float print_line_immediate(float tab_origin, float x, float y, float zoom, const
 				glUniform1f(u_sdftext_zoom, zoom*16.f/(sdf_txh*sdf_slope));
 				select_texture(sdf_atlas_txid, u_sdftext_atlas);
 
-				glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);							GL_CHECK(error);
+				glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);				GL_CHECK(error);
 				glBufferData(GL_ARRAY_BUFFER, printable_count<<6, vptr, GL_STATIC_DRAW);GL_CHECK(error);
 				glVertexAttribPointer(a_sdftext_coords, 4, GL_FLOAT, GL_TRUE, 0, 0);	GL_CHECK(error);
 
-			//	glBindBuffer(GL_ARRAY_BUFFER, 0);										GL_CHECK(error);
+			//	glBindBuffer(GL_ARRAY_BUFFER, 0);					GL_CHECK(error);
 			//	glVertexAttribPointer(a_sdftext_coords, 4, GL_FLOAT, GL_TRUE, 0, vptr);	GL_CHECK(error);
 
 				glEnableVertexAttribArray(a_sdftext_coords);	GL_CHECK(error);
@@ -1180,16 +1184,16 @@ float print_line_immediate(float tab_origin, float x, float y, float zoom, const
 				setGLProgram(shader_text.program);
 				select_texture(font_txid, u_text_atlas);
 
-				glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);							GL_CHECK(error);
+				glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);				GL_CHECK(error);
 				glBufferData(GL_ARRAY_BUFFER, printable_count<<6, vptr, GL_STATIC_DRAW);GL_CHECK(error);//set vertices & texcoords
-				glVertexAttribPointer(a_text_coords, 4, GL_FLOAT, GL_TRUE, 0, 0);		GL_CHECK(error);
+				glVertexAttribPointer(a_text_coords, 4, GL_FLOAT, GL_TRUE, 0, 0);	GL_CHECK(error);
 
-			//	glBindBuffer(GL_ARRAY_BUFFER, 0);									GL_CHECK(error);
-			//	glVertexAttribPointer(a_text_coords, 4, GL_FLOAT, GL_TRUE, 0, vptr);GL_CHECK(error);
+			//	glBindBuffer(GL_ARRAY_BUFFER, 0);					GL_CHECK(error);
+			//	glVertexAttribPointer(a_text_coords, 4, GL_FLOAT, GL_TRUE, 0, vptr);	GL_CHECK(error);
 
-				glEnableVertexAttribArray(a_text_coords);		GL_CHECK(error);
+				glEnableVertexAttribArray(a_text_coords);	GL_CHECK(error);
 				glDrawArrays(GL_QUADS, 0, printable_count<<2);	GL_CHECK(error);//draw the quads: 4 vertices per character quad
-				glDisableVertexAttribArray(a_text_coords);		GL_CHECK(error);
+				glDisableVertexAttribArray(a_text_coords);	GL_CHECK(error);
 			}
 #ifndef NO_3D
 			glEnable(GL_DEPTH_TEST);
@@ -1251,16 +1255,16 @@ void display_texture(int x1, int x2, int y1, int y2, unsigned txid, float alpha,
 	glUniform1f(u_texture_alpha, alpha);	GL_CHECK(error);
 
 	select_texture(txid, u_texture_texture);
-	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);				GL_CHECK(error);
+	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);			GL_CHECK(error);
 	glBufferData(GL_ARRAY_BUFFER, 16<<2, vrtx, GL_STATIC_DRAW);	GL_CHECK(error);//send vertices & texcoords
 
-	glVertexAttribPointer(a_texture_coords, 4, GL_FLOAT, GL_FALSE, sizeof(float[4]), (void*)0);		GL_CHECK(error);//select vertices & texcoord
+	glVertexAttribPointer(a_texture_coords, 4, GL_FLOAT, GL_FALSE, sizeof(float[4]), (void*)0);	GL_CHECK(error);//select vertices & texcoord
 
 #ifndef NO_3D
 	glDisable(GL_DEPTH_TEST);
 #endif
 	glEnableVertexAttribArray(a_texture_coords);	GL_CHECK(error);
-	glDrawArrays(GL_QUADS, 0, 4);					GL_CHECK(error);//draw the quad
+	glDrawArrays(GL_QUADS, 0, 4);			GL_CHECK(error);//draw the quad
 	glDisableVertexAttribArray(a_texture_coords);	GL_CHECK(error);
 #ifndef NO_3D
 	glEnable(GL_DEPTH_TEST);
@@ -1301,7 +1305,7 @@ void display_texture_i(int x1, int x2, int y1, int y2, int *rgb, int txw, int tx
 			GL_CHECK(error);
 		}
 		send_texture_pot(tx_id, rgb2, w2, h2, linear);
-		//glBindTexture(GL_TEXTURE_2D, tx_id);								GL_CHECK(error);
+		//glBindTexture(GL_TEXTURE_2D, tx_id);					GL_CHECK(error);
 		//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);	GL_CHECK(error);
 		//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);	GL_CHECK(error);
 		//glTexImage2D(GL_TEXTURE_2D,			0, GL_RGBA, w2, h2, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgb2);	GL_CHECK(error);//send bitmap to GPU
@@ -1352,10 +1356,10 @@ void mat4_FPSView(float *dst, const float *campos, float yaw, float pitch)
 }
 void mat4_perspective(float *dst, float tanfov, float w_by_h, float znear, float zfar)
 {
-	dst[0]=1/tanfov,	dst[1]=0,				dst[2]=0,							dst[3]=0;
-	dst[4]=0,			dst[5]=w_by_h/tanfov,	dst[6]=0,							dst[7]=0;
-	dst[8]=0,			dst[9]=0,				dst[10]=-(zfar+znear)/(zfar-znear), dst[11]=-1;
-	dst[12]=0,			dst[13]=0,				dst[14]=-2*zfar*znear/(zfar-znear), dst[15]=0;
+	dst[0]=1/tanfov,	dst[1]=0,		dst[2]=0,				dst[3]=0;
+	dst[4]=0,		dst[5]=w_by_h/tanfov,	dst[6]=0,				dst[7]=0;
+	dst[8]=0,		dst[9]=0,		dst[10]=-(zfar+znear)/(zfar-znear),	dst[11]=-1;
+	dst[12]=0,		dst[13]=0,		dst[14]=-2*zfar*znear/(zfar-znear),	dst[15]=0;
 }
 void GetTransformInverseNoScale(float *dst, const float *src)// Requires this matrix to be transform matrix, NoScale version requires this matrix be of scale 1
 {
@@ -1449,9 +1453,9 @@ void gpubuf_send_VNT(GPUModel *dst, const float *VVVNNNTT, int n_floats, const i
 	dst->normals_start=3*sizeof(float);
 	dst->txcoord_start=6*sizeof(float);
 	glGenBuffers(2, &dst->VBO);
-	glBindBuffer(GL_ARRAY_BUFFER, dst->VBO);											GL_CHECK(error);
+	glBindBuffer(GL_ARRAY_BUFFER, dst->VBO);						GL_CHECK(error);
 	glBufferData(GL_ARRAY_BUFFER, n_floats*sizeof(float), VVVNNNTT, GL_STATIC_DRAW);	GL_CHECK(error);
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, dst->EBO);									GL_CHECK(error);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, dst->EBO);					GL_CHECK(error);
 	glBufferData(GL_ELEMENT_ARRAY_BUFFER, n_ints*sizeof(int), indices, GL_STATIC_DRAW);	GL_CHECK(error);
 }
 void draw_L3D(Camera const *cam, GPUModel const *model, const float *modelpos, const float *lightpos, int lightcolor)
@@ -1479,9 +1483,9 @@ void draw_L3D(Camera const *cam, GPUModel const *model, const float *modelpos, c
 	memcpy(sceneInfo+6, &cam->x, 3*sizeof(float));
 	
 	glUniformMatrix4fv(u_L3D_matVP_Model, 2, GL_FALSE, mMVP_Model);	GL_CHECK(error);
-	glUniformMatrix3fv(u_L3D_matNormal, 1, GL_FALSE, mNormal);		GL_CHECK(error);
-	glUniform3fv(u_L3D_sceneInfo, 3, sceneInfo);	GL_CHECK(error);
-//	glBindVertexArray(s_VAO);						GL_CHECK(error);
+	glUniformMatrix3fv(u_L3D_matNormal, 1, GL_FALSE, mNormal);	GL_CHECK(error);
+	glUniform3fv(u_L3D_sceneInfo, 3, sceneInfo);			GL_CHECK(error);
+//	glBindVertexArray(s_VAO);					GL_CHECK(error);
 
 	select_texture(model->txid, u_L3D_texture);
 	
@@ -1495,9 +1499,9 @@ void draw_L3D(Camera const *cam, GPUModel const *model, const float *modelpos, c
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, model->EBO);	GL_CHECK(error);
 
 	glDrawElements(GL_TRIANGLES, model->n_elements, GL_UNSIGNED_INT, 0);	GL_CHECK(error);
-	glDisableVertexAttribArray(a_L3D_vertex);			GL_CHECK(error);
-	glDisableVertexAttribArray(a_L3D_normal);			GL_CHECK(error);
-	glDisableVertexAttribArray(a_L3D_texcoord);			GL_CHECK(error);
+	glDisableVertexAttribArray(a_L3D_vertex);				GL_CHECK(error);
+	glDisableVertexAttribArray(a_L3D_normal);				GL_CHECK(error);
+	glDisableVertexAttribArray(a_L3D_texcoord);				GL_CHECK(error);
 }
 
 void draw_3d_line(Camera const *cam, const float *w1, const float *w2, int color)
@@ -1545,16 +1549,16 @@ void draw_3d_line(Camera const *cam, const float *w1, const float *w2, int color
 	glUniformMatrix4fv(u_3D_matrix, 1, GL_FALSE, mVP);	GL_CHECK(error);
 	
 	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);		GL_CHECK(error);
-	glBufferData(GL_ARRAY_BUFFER, 2*5*sizeof(float), vptr, GL_STATIC_DRAW);	GL_CHECK(error);//send vertices & texcoords
-	glVertexAttribPointer(a_3D_vertex, 3, GL_FLOAT, GL_FALSE, 5*sizeof(float), (void*)0);					GL_CHECK(error);//select vertices & texcoords
+	glBufferData(GL_ARRAY_BUFFER, 2*5*sizeof(float), vptr, GL_STATIC_DRAW);					GL_CHECK(error);//send vertices & texcoords
+	glVertexAttribPointer(a_3D_vertex, 3, GL_FLOAT, GL_FALSE, 5*sizeof(float), (void*)0);			GL_CHECK(error);//select vertices & texcoords
 	glVertexAttribPointer(a_3D_texcoord, 2, GL_FLOAT, GL_FALSE, 5*sizeof(float), (void*)(3*sizeof(float)));	GL_CHECK(error);
-	glEnableVertexAttribArray(a_3D_vertex);		GL_CHECK(error);
-	glEnableVertexAttribArray(a_3D_texcoord);	GL_CHECK(error);
+	glEnableVertexAttribArray(a_3D_vertex);			GL_CHECK(error);
+	glEnableVertexAttribArray(a_3D_texcoord);		GL_CHECK(error);
 
 	glDrawArrays(GL_LINES, 0, 2);				GL_CHECK(error);
 
-	glDisableVertexAttribArray(a_3D_vertex);	GL_CHECK(error);
-	glDisableVertexAttribArray(a_3D_texcoord);	GL_CHECK(error);
+	glDisableVertexAttribArray(a_3D_vertex);		GL_CHECK(error);
+	glDisableVertexAttribArray(a_3D_texcoord);		GL_CHECK(error);
 }
 
 void draw_3d_line_enqueue(ArrayHandle *vertices, float x, float y, float z)
@@ -1598,15 +1602,15 @@ void draw_3d_flush(ArrayHandle vertices, Camera const *cam, int *texture, int tw
 	
 	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);		GL_CHECK(error);
 	glBufferData(GL_ARRAY_BUFFER, (int)(vertices->count*vertices->esize), vertices->data, GL_STATIC_DRAW);		GL_CHECK(error);//send vertices & texcoords
-	glVertexAttribPointer(a_3D_vertex, 3, GL_FLOAT, GL_FALSE, (int)vertices->esize, (void*)0);					GL_CHECK(error);//select vertices & texcoords
-	glVertexAttribPointer(a_3D_texcoord, 2, GL_FLOAT, GL_FALSE, (int)vertices->esize, (void*)(3*sizeof(float)));GL_CHECK(error);
-	glEnableVertexAttribArray(a_3D_vertex);		GL_CHECK(error);
-	glEnableVertexAttribArray(a_3D_texcoord);	GL_CHECK(error);
+	glVertexAttribPointer(a_3D_vertex, 3, GL_FLOAT, GL_FALSE, (int)vertices->esize, (void*)0);			GL_CHECK(error);//select vertices & texcoords
+	glVertexAttribPointer(a_3D_texcoord, 2, GL_FLOAT, GL_FALSE, (int)vertices->esize, (void*)(3*sizeof(float)));	GL_CHECK(error);
+	glEnableVertexAttribArray(a_3D_vertex);			GL_CHECK(error);
+	glEnableVertexAttribArray(a_3D_texcoord);		GL_CHECK(error);
 
-	glDrawArrays(primitive, 0, (int)vertices->count);GL_CHECK(error);
+	glDrawArrays(primitive, 0, (int)vertices->count);	GL_CHECK(error);
 
-	glDisableVertexAttribArray(a_3D_vertex);	GL_CHECK(error);
-	glDisableVertexAttribArray(a_3D_texcoord);	GL_CHECK(error);
+	glDisableVertexAttribArray(a_3D_vertex);		GL_CHECK(error);
+	glDisableVertexAttribArray(a_3D_texcoord);		GL_CHECK(error);
 
 	vertices->count=0;
 }
@@ -1626,15 +1630,15 @@ void draw_contour3d_rect(Camera const *cam, unsigned vbuf, int nvertices, unsign
 	glUniformMatrix4fv(u_contour3D_matrix, 1, GL_FALSE, mVP);	GL_CHECK(error);
 	select_texture(txid, u_contour3D_texture);
 	
-	glBindBuffer(GL_ARRAY_BUFFER, vbuf);			GL_CHECK(error);
-	glEnableVertexAttribArray(a_contour3D_vertex);	GL_CHECK(error);
-	glVertexAttribPointer    (a_contour3D_vertex, 3, GL_FLOAT, GL_FALSE, 5*sizeof(float), (void*)0);	GL_CHECK(error);
-	glEnableVertexAttribArray(a_contour3D_texcoord);GL_CHECK(error);
+	glBindBuffer(GL_ARRAY_BUFFER, vbuf);				GL_CHECK(error);
+	glEnableVertexAttribArray(a_contour3D_vertex);			GL_CHECK(error);
+	glVertexAttribPointer    (a_contour3D_vertex, 3, GL_FLOAT, GL_FALSE, 5*sizeof(float), (void*)0);			GL_CHECK(error);
+	glEnableVertexAttribArray(a_contour3D_texcoord);		GL_CHECK(error);
 	glVertexAttribPointer    (a_contour3D_texcoord, 2, GL_FLOAT, GL_FALSE, 5*sizeof(float), (void*)(3*sizeof(float)));	GL_CHECK(error);
 
-	glDrawArrays(GL_TRIANGLES, 0, nvertices);	GL_CHECK(error);
-	glDisableVertexAttribArray(a_contour3D_vertex);	GL_CHECK(error);
-	glDisableVertexAttribArray(a_contour3D_texcoord);	GL_CHECK(error);
+	glDrawArrays(GL_TRIANGLES, 0, nvertices);			GL_CHECK(error);
+	glDisableVertexAttribArray(a_contour3D_vertex);			GL_CHECK(error);
+	glDisableVertexAttribArray(a_contour3D_texcoord);		GL_CHECK(error);
 }
 
 typedef struct ConVertStruct
@@ -1667,9 +1671,9 @@ void draw_contour3d(Camera const *cam, float x1, float x2, float y1, float y2, f
 		{-x1, -y1, 0, 0, 0},
 	};
 	glBindBuffer(GL_ARRAY_BUFFER, buffer);			GL_CHECK(error);
-	glEnableVertexAttribArray(a_contour3D_vertex);	GL_CHECK(error);
+	glEnableVertexAttribArray(a_contour3D_vertex);		GL_CHECK(error);
 	glVertexAttribPointer    (a_contour3D_vertex, 3, GL_FLOAT, GL_FALSE, sizeof(float[5]), (void*)0);	GL_CHECK(error);//use offsetof
-	glEnableVertexAttribArray(a_contour3D_texcoord);GL_CHECK(error);
+	glEnableVertexAttribArray(a_contour3D_texcoord);	GL_CHECK(error);
 	glVertexAttribPointer    (a_contour3D_texcoord, 2, GL_FLOAT, GL_FALSE, sizeof(float[5]), (void*)(3*sizeof(float)));	GL_CHECK(error);
 	for(int kz=0;kz<count;++kz)
 	{
@@ -1679,9 +1683,9 @@ void draw_contour3d(Camera const *cam, float x1, float x2, float y1, float y2, f
 
 		select_texture(textures[kz], u_contour3D_texture);
 
-		glBufferData(GL_ARRAY_BUFFER, sizeof(v), v, GL_STATIC_DRAW);
-		glDrawArrays(GL_TRIANGLES, 0, 6);	GL_CHECK(error);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(v), v, GL_STATIC_DRAW);	GL_CHECK(error);
+		glDrawArrays(GL_TRIANGLES, 0, 6);				GL_CHECK(error);
 	}
-	glDisableVertexAttribArray(a_contour3D_vertex);	GL_CHECK(error);
+	glDisableVertexAttribArray(a_contour3D_vertex);		GL_CHECK(error);
 	glDisableVertexAttribArray(a_contour3D_texcoord);	GL_CHECK(error);
 }

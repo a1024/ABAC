@@ -361,7 +361,7 @@ int sys_check(const char *file, int line, const char *info)
 	if(error)
 	{
 		char *messageBuffer=0;
-		size_t size=FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER|FORMAT_MESSAGE_FROM_SYSTEM|FORMAT_MESSAGE_IGNORE_INSERTS, NULL, error, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&messageBuffer, 0, NULL);
+		/*size_t size=*/FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER|FORMAT_MESSAGE_FROM_SYSTEM|FORMAT_MESSAGE_IGNORE_INSERTS, NULL, error, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&messageBuffer, 0, NULL);
 		log_error(file, line, 1, "%s%sGetLastError() returned %d: %s", info?info:"", info?"\n":"", error, messageBuffer);
 		LocalFree(messageBuffer);
 	}
@@ -411,12 +411,12 @@ int messagebox(MessageBoxType type, const char *title, const char *format, ...)/
 	return result;
 }
 
-static void free_pchar(void *data)
-{
-	char **str=(char**)data;
-	free(*str);
-	*str=0;
-}
+//static void free_pchar(void *data)
+//{
+//	char **str=(char**)data;
+//	free(*str);
+//	*str=0;
+//}
 ArrayHandle dialog_open_folder()
 {
 	ArrayHandle arr=0;

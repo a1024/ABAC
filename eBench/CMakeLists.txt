@@ -8,9 +8,10 @@
 #)
 add_executable (eBench WIN32
 	console.c
-	graphics.c
-	lodepng.c
 	ebench.c
+	graphics.c
+	image.c
+	lodepng.c
 	#transform_c20.c
 	transforms.c
 	#transforms_avx2.c
@@ -19,7 +20,6 @@ add_executable (eBench WIN32
 	#transforms_pt2.c
 	util.c
 	window.c
-	image.c
 )
 
 if (CMAKE_VERSION VERSION_GREATER 3.12)

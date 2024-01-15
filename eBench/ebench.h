@@ -554,7 +554,7 @@ void gl_init();
 extern int error;
 extern const char *gl_error_msg;
 const char* glerr2str(int error);
-#define GL_CHECK(E)	((E=glGetError())==0||log_error(file, __LINE__, 1, gl_error_msg, E, glerr2str(E)))
+#define GL_CHECK(E) (void)((E=glGetError())==0||log_error(file, __LINE__, 1, gl_error_msg, E, glerr2str(E)))
 
 void set_region_immediate(int x1, int x2, int y1, int y2);//calls glViewport
 

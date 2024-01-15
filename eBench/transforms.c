@@ -1346,6 +1346,7 @@ void impl_egval3(double const *M, double *lambdas)//finds the complex eigenvalue
 	DST[0]=A[1]*B[2]-A[2]*B[1],\
 	DST[1]=A[2]*B[0]-A[0]*B[2],\
 	DST[2]=A[0]*B[1]-A[1]*B[0]
+#if 0
 static void default_RCT(const int *src, int *dst, int fwd)
 {
 	int r=src[0], g=src[1], b=src[2];
@@ -1365,6 +1366,7 @@ static void default_RCT(const int *src, int *dst, int fwd)
 	dst[1]=g;
 	dst[2]=b;
 }
+#endif
 static void rct_adaptive_block(int *src, int iw, int ih, int x, int y, int blocksize, double *axes)
 {
 	int res=iw*ih;
@@ -1427,7 +1429,7 @@ static void rct_adaptive_block(int *src, int iw, int ih, int x, int y, int block
 #undef  NORMALIZE
 
 	char d1=0, d2=1, d3=2, temp;
-#define COMPARE(A, B) if(fabs(lambdas[A])<fabs(lambdas[B]))SWAPVAR(A, B, temp)
+#define COMPARE(A, B) if(fabs(lambdas[(int)A])<fabs(lambdas[(int)B]))SWAPVAR(A, B, temp)
 	COMPARE(d1, d2);//sort eigenvalues
 	COMPARE(d2, d3);
 	COMPARE(d1, d2);
@@ -1986,7 +1988,8 @@ void pred_clampedgrad(Image *src, int fwd, int enable_ma)
 {
 	Image *dst=0;
 	image_copy(&dst, src);
-	int *pixels=fwd?src->data:dst->data, *errors=fwd?dst->data:src->data;
+	const int *pixels=fwd?src->data:dst->data;
+//	const int *errors=fwd?dst->data:src->data;
 	for(int kc=0;kc<4;++kc)
 	{
 		if(!src->depth[kc])
@@ -2039,7 +2042,8 @@ void pred_dir(Image *src, int fwd, int enable_ma)
 		LOG_ERROR("Alloc error");
 		return;
 	}
-	int *pixels=fwd?src->data:dst->data, *errors=fwd?dst->data:src->data;
+	const int *pixels=fwd?src->data:dst->data;
+//	const int *errors=fwd?dst->data:src->data;
 	for(int kc=0;kc<4;++kc)
 	{
 		if(!src->depth[kc])
@@ -2529,11 +2533,11 @@ static int clamp4(int p, int a, int b, int c, int d)
 	p=CLAMP(vmin, p, vmax);
 	return p;
 }
-static int clip(int x, int nlevels)
-{
-	x=CLAMP(-nlevels, x, nlevels-1);
-	return x;
-}
+//static int clip(int x, int nlevels)
+//{
+//	x=CLAMP(-nlevels, x, nlevels-1);
+//	return x;
+//}
 void pred_w2_prealloc(const int *src, int iw, int ih, int depth, int kc, short *params, int fwd, int enable_ma, int *dst, int *temp)//temp is (PW2_NPRED+1)*2w
 {
 	int errorbuflen=iw<<1, rowlen=iw<<2;
@@ -2558,48 +2562,48 @@ void pred_w2_prealloc(const int *src, int iw, int ih, int depth, int kc, short *
 			//L3 L2   L  X
 			int
 				cT6  =         ky-6>=0?src2[idx-rowlen*6   ]<<8:0,
-				cT5  =         ky-5>=0?src2[idx-rowlen*5   ]<<8:0,
+			//	cT5  =         ky-5>=0?src2[idx-rowlen*5   ]<<8:0,
 
-				cT4L3=kx-3>=0&&ky-4>=0?src2[idx-rowlen*4-12]<<8:0,
-				cT4  =         ky-4>=0?src2[idx-rowlen*4   ]<<8:0,
-				cT4R3=kx+3<iw&&ky-4>=0?src2[idx-rowlen*4+12]<<8:0,
+			//	cT4L3=kx-3>=0&&ky-4>=0?src2[idx-rowlen*4-12]<<8:0,
+			//	cT4  =         ky-4>=0?src2[idx-rowlen*4   ]<<8:0,
+			//	cT4R3=kx+3<iw&&ky-4>=0?src2[idx-rowlen*4+12]<<8:0,
 				
-				cT3L5=kx-5>=0&&ky-3>=0?src2[idx-rowlen*3-20]<<8:0,
-				cT3L4=kx-4>=0&&ky-3>=0?src2[idx-rowlen*3-16]<<8:0,
-				cT3L2=kx-2>=0&&ky-3>=0?src2[idx-rowlen*3- 8]<<8:0,
-				cT3L =kx-1>=0&&ky-3>=0?src2[idx-rowlen*3- 4]<<8:0,
+			//	cT3L5=kx-5>=0&&ky-3>=0?src2[idx-rowlen*3-20]<<8:0,
+			//	cT3L4=kx-4>=0&&ky-3>=0?src2[idx-rowlen*3-16]<<8:0,
+			//	cT3L2=kx-2>=0&&ky-3>=0?src2[idx-rowlen*3- 8]<<8:0,
+			//	cT3L =kx-1>=0&&ky-3>=0?src2[idx-rowlen*3- 4]<<8:0,
 				cT3  =         ky-3>=0?src2[idx-rowlen*3   ]<<8:0,
-				cT3R =kx+1<iw&&ky-3>=0?src2[idx-rowlen*3+ 4]<<8:0,
-				cT3R2=kx+2<iw&&ky-3>=0?src2[idx-rowlen*3+ 8]<<8:0,
-				cT3R3=kx+3<iw&&ky-3>=0?src2[idx-rowlen*3+12]<<8:0,
-				cT3R4=kx+4<iw&&ky-3>=0?src2[idx-rowlen*3+16]<<8:0,
+			//	cT3R =kx+1<iw&&ky-3>=0?src2[idx-rowlen*3+ 4]<<8:0,
+			//	cT3R2=kx+2<iw&&ky-3>=0?src2[idx-rowlen*3+ 8]<<8:0,
+			//	cT3R3=kx+3<iw&&ky-3>=0?src2[idx-rowlen*3+12]<<8:0,
+			//	cT3R4=kx+4<iw&&ky-3>=0?src2[idx-rowlen*3+16]<<8:0,
 				
-				cT2L3=kx-3>=0&&ky-2>=0?src2[idx-rowlen*2-12]<<8:0,
-				cT2L2=kx-2>=0&&ky-2>=0?src2[idx-rowlen*2- 8]<<8:0,
+			//	cT2L3=kx-3>=0&&ky-2>=0?src2[idx-rowlen*2-12]<<8:0,
+			//	cT2L2=kx-2>=0&&ky-2>=0?src2[idx-rowlen*2- 8]<<8:0,
 				cT2L =kx-1>=0&&ky-2>=0?src2[idx-rowlen*2- 4]<<8:0,
 				cT2  =         ky-2>=0?src2[idx-rowlen*2   ]<<8:0,
 				cT2R =kx+1<iw&&ky-2>=0?src2[idx-rowlen*2+ 4]<<8:0,
-				cT2R2=kx+2<iw&&ky-2>=0?src2[idx-rowlen*2+ 8]<<8:0,
-				cT2R3=kx+3<iw&&ky-2>=0?src2[idx-rowlen*2+12]<<8:0,
-				cT2R4=kx+4<iw&&ky-2>=0?src2[idx-rowlen*2+16]<<8:0,
+			//	cT2R2=kx+2<iw&&ky-2>=0?src2[idx-rowlen*2+ 8]<<8:0,
+			//	cT2R3=kx+3<iw&&ky-2>=0?src2[idx-rowlen*2+12]<<8:0,
+			//	cT2R4=kx+4<iw&&ky-2>=0?src2[idx-rowlen*2+16]<<8:0,
 				
-				cTL3 =kx-3>=0&&ky-1>=0?src2[idx-rowlen  -12]<<8:0,
-				cTL2 =kx-2>=0&&ky-1>=0?src2[idx-rowlen  - 8]<<8:0,
+			//	cTL3 =kx-3>=0&&ky-1>=0?src2[idx-rowlen  -12]<<8:0,
+			//	cTL2 =kx-2>=0&&ky-1>=0?src2[idx-rowlen  - 8]<<8:0,
 				cTL  =kx-1>=0&&ky-1>=0?src2[idx-rowlen  - 4]<<8:0,
 				cT   =         ky-1>=0?src2[idx-rowlen     ]<<8:0,
 				cTR  =kx+1<iw&&ky-1>=0?src2[idx-rowlen  + 4]<<8:0,
 				cTR2 =kx+2<iw&&ky-1>=0?src2[idx-rowlen  + 8]<<8:0,
-				cTR3 =kx+3<iw&&ky-1>=0?src2[idx-rowlen  +12]<<8:0,
+			//	cTR3 =kx+3<iw&&ky-1>=0?src2[idx-rowlen  +12]<<8:0,
 				cTR4 =kx+4<iw&&ky-1>=0?src2[idx-rowlen  +16]<<8:0,
 				cTR5 =kx+5<iw&&ky-1>=0?src2[idx-rowlen  +20]<<8:0,
 				cTR6 =kx+6<iw&&ky-1>=0?src2[idx-rowlen  +24]<<8:0,
 				cTR7 =kx+7<iw&&ky-1>=0?src2[idx-rowlen  +28]<<8:0,
 
 				cL6  =kx-6>=0         ?src2[idx         -24]<<8:0,
-				cL5  =kx-5>=0         ?src2[idx         -20]<<8:0,
+			//	cL5  =kx-5>=0         ?src2[idx         -20]<<8:0,
 				cL4  =kx-4>=0         ?src2[idx         -16]<<8:0,
-				cL3  =kx-2>=0         ?src2[idx         -12]<<8:0,
-				cL2  =kx-2>=0         ?src2[idx         - 8]<<8:0,
+			//	cL3  =kx-2>=0         ?src2[idx         -12]<<8:0,
+			//	cL2  =kx-2>=0         ?src2[idx         - 8]<<8:0,
 				cL   =kx-1>=0         ?src2[idx         - 4]<<8:0;
 
 			//w0   w1   w2   w3
@@ -3470,12 +3474,12 @@ void pred_calic(Image *src, int fwd, int enable_ma)
 			{
 #define LOAD(BUF, X, Y) ((unsigned)(kx+(X))<(unsigned)src->iw&&(unsigned)(ky+(Y))<(unsigned)src->ih?BUF[(src->iw*(ky+(Y))+kx+(X))<<2|kc]:0)
 				int
-					NNWW=LOAD(pixels, -2, -2),
-					NNW =LOAD(pixels, -1, -2),
+				//	NNWW=LOAD(pixels, -2, -2),
+				//	NNW =LOAD(pixels, -1, -2),
 					NN  =LOAD(pixels,  0, -2),
 					NNE =LOAD(pixels,  1, -2),
-					NNEE=LOAD(pixels,  2, -2),
-					NWW =LOAD(pixels, -2, -1),
+				//	NNEE=LOAD(pixels,  2, -2),
+				//	NWW =LOAD(pixels, -2, -1),
 					NW  =LOAD(pixels, -1, -1),
 					N   =LOAD(pixels,  0, -1),
 					NE  =LOAD(pixels,  1, -1),
@@ -3663,7 +3667,7 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 		if(!src->depth[kc])
 			continue;
 		int nlevels=1<<src->depth[kc];
-		int maxerror=0;
+		//int maxerror=0;
 		short *params=g2_weights+(_countof(g2_weights)/3)*kc;
 		int *hireserror=perrors+src->iw*2*G2_NPRED;
 		memset(perrors, 0, 2LL*src->iw*(G2_NPRED+1)*sizeof(int));
@@ -3691,17 +3695,17 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 #define LOAD(BUF, X, Y) (unsigned)(kx+(X))<(unsigned)src->iw&&(unsigned)(ky+(Y))<(unsigned)src->ih?BUF[(src->iw*(ky+(Y))+kx+(X))<<2|kc]<<8:0
 				int
 					NNNNNN  =LOAD(pixels,  0, -6),
-					NNNNWWWW=LOAD(pixels, -4, -4),
-					NNNN    =LOAD(pixels,  0, -4),
-					NNNNEEEE=LOAD(pixels,  4, -4),
-					NNNWWW  =LOAD(pixels, -3, -3),
+				//	NNNNWWWW=LOAD(pixels, -4, -4),
+				//	NNNN    =LOAD(pixels,  0, -4),
+				//	NNNNEEEE=LOAD(pixels,  4, -4),
+				//	NNNWWW  =LOAD(pixels, -3, -3),
 					NNN     =LOAD(pixels,  0, -3),
-					NNNEEE  =LOAD(pixels,  3, -3),
-					NNWW    =LOAD(pixels, -2, -2),
+				//	NNNEEE  =LOAD(pixels,  3, -3),
+				//	NNWW    =LOAD(pixels, -2, -2),
 					NNW     =LOAD(pixels, -1, -2),
 					NN      =LOAD(pixels,  0, -2),
 					NNE     =LOAD(pixels,  1, -2),
-					NNEE    =LOAD(pixels,  2, -2),
+				//	NNEE    =LOAD(pixels,  2, -2),
 					NW      =LOAD(pixels, -1, -1),
 					N       =LOAD(pixels,  0, -1),
 					NE      =LOAD(pixels,  1, -1),
@@ -3712,34 +3716,34 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 					NEE     =LOAD(pixels,  2, -1),
 					WWWWWW  =LOAD(pixels, -6,  0),
 					WWWW    =LOAD(pixels, -4,  0),
-					WWW     =LOAD(pixels, -3,  0),
-					WW      =LOAD(pixels, -2,  0),
+				//	WWW     =LOAD(pixels, -3,  0),
+				//	WW      =LOAD(pixels, -2,  0),
 					W       =LOAD(pixels, -1,  0);
 #undef  LOAD
 #define LOAD(BUF, X, Y) (unsigned)(kx+(X))<(unsigned)src->iw&&(unsigned)(ky+(Y))<(unsigned)src->ih?BUF[(src->iw*(ky+(Y))+kx+(X))<<2|kc]:0
 				int
-					dNNNWWW=LOAD(errors, -3, -3),
-					dNNNWW =LOAD(errors, -2, -3),
-					dNNNW  =LOAD(errors, -1, -3),
-					dNNN   =LOAD(errors,  0, -3),
-					dNNNE  =LOAD(errors,  1, -3),
-					dNNNEE =LOAD(errors,  2, -3),
-					dNNNEEE=LOAD(errors,  3, -3),
-					dNNWWW =LOAD(errors, -3, -2),
+				//	dNNNWWW=LOAD(errors, -3, -3),
+				//	dNNNWW =LOAD(errors, -2, -3),
+				//	dNNNW  =LOAD(errors, -1, -3),
+				//	dNNN   =LOAD(errors,  0, -3),
+				//	dNNNE  =LOAD(errors,  1, -3),
+				//	dNNNEE =LOAD(errors,  2, -3),
+				//	dNNNEEE=LOAD(errors,  3, -3),
+				//	dNNWWW =LOAD(errors, -3, -2),
 					dNNWW  =LOAD(errors, -2, -2),
 					dNNW   =LOAD(errors, -1, -2),
 					dNN    =LOAD(errors,  0, -2),
 					dNNE   =LOAD(errors,  1, -2),
 					dNNEE  =LOAD(errors,  2, -2),
-					dNNEEE =LOAD(errors,  3, -2),
-					dNWWW  =LOAD(errors, -3, -1),
+				//	dNNEEE =LOAD(errors,  3, -2),
+				//	dNWWW  =LOAD(errors, -3, -1),
 					dNWW   =LOAD(errors, -2, -1),
 					dNW    =LOAD(errors, -1, -1),
 					dN     =LOAD(errors,  0, -1),
 					dNE    =LOAD(errors,  1, -1),
 					dNEE   =LOAD(errors,  2, -1),
-					dNEEE  =LOAD(errors,  3, -1),
-					dWWW   =LOAD(errors, -3,  0),
+				//	dNEEE  =LOAD(errors,  3, -1),
+				//	dWWW   =LOAD(errors, -3,  0),
 					dWW    =LOAD(errors, -2,  0),
 					dW     =LOAD(errors, -1,  0);
 #undef  LOAD
@@ -4551,7 +4555,8 @@ void dwt2d_custom_fwd(char *buffer, DWTSize *sizes, int sizes_start, int sizes_e
 {
 	if(sizes_start>=sizes_end-1)
 		return;
-	int iw=sizes->w, ih=sizes->h, rowlen=stride*iw;
+	int iw=sizes->w, rowlen=stride*iw;
+//	int ih=sizes->h;
 	for(int it=sizes_start;it<sizes_end-1;++it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -4573,7 +4578,8 @@ void dwt2d_custom_inv(char *buffer, DWTSize *sizes, int sizes_start, int sizes_e
 {
 	if(sizes_start>=sizes_end-1)
 		return;
-	int iw=sizes->w, ih=sizes->h, rowlen=stride*iw;
+	int iw=sizes->w, rowlen=stride*iw;
+//	int ih=sizes->h;
 	for(int it=sizes_end-2;it>=sizes_start;--it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -4718,7 +4724,8 @@ void dwt2d_exp_fwd(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end,
 {
 	if(sizes_start>=sizes_end-1)
 		return;
-	int iw=sizes->w, ih=sizes->h, rowlen=stride*iw;
+	int iw=sizes->w, rowlen=stride*iw;
+//	int ih=sizes->h;
 	for(int it=sizes_start;it<sizes_end-1;++it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -4734,7 +4741,8 @@ void dwt2d_exp_inv(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end,
 {
 	if(sizes_start>=sizes_end-1)
 		return;
-	int iw=sizes->w, ih=sizes->h, rowlen=stride*iw;
+	int iw=sizes->w, rowlen=stride*iw;
+//	int ih=sizes->h;
 	for(int it=sizes_end-2;it>=sizes_start;--it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -4786,7 +4794,8 @@ void dwt2d_lazy_fwd(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end
 {
 	if(sizes_start>=sizes_end-1)
 		return;
-	int iw=sizes->w, ih=sizes->h, rowlen=stride*iw;
+	int iw=sizes->w, rowlen=stride*iw;
+//	int ih=sizes->h;
 	for(int it=sizes_start;it<sizes_end-1;++it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -4808,7 +4817,8 @@ void dwt2d_lazy_inv(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end
 {
 	if(sizes_start>=sizes_end-1)
 		return;
-	int iw=sizes->w, ih=sizes->h, rowlen=stride*iw;
+	int iw=sizes->w, rowlen=stride*iw;
+//	int ih=sizes->h;
 	for(int it=sizes_end-2;it>=sizes_start;--it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -4879,7 +4889,8 @@ void dwt2d_haar_fwd(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end,
 {
 	if(sizes_start>=sizes_end-1)
 		return;
-	int iw=sizes->w, ih=sizes->h, rowlen=stride*iw;
+	int iw=sizes->w, rowlen=stride*iw;
+//	int ih=sizes->h;
 	for(int it=sizes_start;it<sizes_end-1;++it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -4901,7 +4912,8 @@ void dwt2d_haar_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end,
 {
 	if(sizes_start>=sizes_end-1)
 		return;
-	int iw=sizes->w, ih=sizes->h, rowlen=stride*iw;
+	int iw=sizes->w, rowlen=stride*iw;
+//	int ih=sizes->h;
 	for(int it=sizes_end-2;it>=sizes_start;--it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -4998,7 +5010,8 @@ void dwt2d_squeeze_fwd(int *buffer, DWTSize *sizes, int sizes_start, int sizes_e
 {
 	if(sizes_start>=sizes_end-1)
 		return;
-	int iw=sizes->w, ih=sizes->h, rowlen=stride*iw;
+	int iw=sizes->w, rowlen=stride*iw;
+//	int ih=sizes->h;
 	for(int it=sizes_start;it<sizes_end-1;++it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -5018,7 +5031,8 @@ void dwt2d_squeeze_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_e
 {
 	if(sizes_start>=sizes_end-1)
 		return;
-	int iw=sizes->w, ih=sizes->h, rowlen=stride*iw;
+	int iw=sizes->w, rowlen=stride*iw;
+//	int ih=sizes->h;
 	for(int it=sizes_end-2;it>=sizes_start;--it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -5191,7 +5205,8 @@ void dwt2d_cdf53_fwd(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end
 {
 	if(sizes_start>=sizes_end-1)
 		return;
-	int iw=sizes->w, ih=sizes->h, rowlen=stride*iw;
+	int iw=sizes->w, rowlen=stride*iw;
+//	int ih=sizes->h;
 	for(int it=sizes_start;it<sizes_end-1;++it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -5213,7 +5228,8 @@ void dwt2d_cdf53_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end
 {
 	if(sizes_start>=sizes_end-1)
 		return;
-	int iw=sizes->w, ih=sizes->h, rowlen=stride*iw;
+	int iw=sizes->w, rowlen=stride*iw;
+//	int ih=sizes->h;
 	for(int it=sizes_end-2;it>=sizes_start;--it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -5268,16 +5284,16 @@ static void dwt1d_u8_unupdate(int *odd, int *even, int nodd, int extraeven, int 
 	if(!extraeven)
 		odd[nodd-1]-=even[nodd-1]*coeff>>15;
 }
-static void dwt1d_u8_scale(int *buf, int count, int coeff)
-{
-	for(int k=0;k<count;++k)
-		buf[k]=buf[k]*coeff>>16;
-}
-static void dwt1d_u8_unscale(int *buf, int count, int coeff)
-{
-	for(int k=0;k<count;++k)
-		buf[k]=(buf[k]<<16)/coeff;
-}
+//static void dwt1d_u8_scale(int *buf, int count, int coeff)
+//{
+//	for(int k=0;k<count;++k)
+//		buf[k]=buf[k]*coeff>>16;
+//}
+//static void dwt1d_u8_unscale(int *buf, int count, int coeff)
+//{
+//	for(int k=0;k<count;++k)
+//		buf[k]=(buf[k]<<16)/coeff;
+//}
 void dwt1d_cdf97_fwd(int *buffer, int count, int stride, int *b2)
 {
 	int nodd=count>>1, extraeven=count&1;
@@ -5326,7 +5342,8 @@ void dwt2d_cdf97_fwd(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end
 {
 	if(sizes_start>=sizes_end-1)
 		return;
-	int iw=sizes->w, ih=sizes->h, rowlen=stride*iw;
+	int iw=sizes->w, rowlen=stride*iw;
+//	int ih=sizes->h;
 	for(int it=sizes_start;it<sizes_end-1;++it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -5346,7 +5363,8 @@ void dwt2d_cdf97_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end
 {
 	if(sizes_start>=sizes_end-1)
 		return;
-	int iw=sizes->w, ih=sizes->h, rowlen=stride*iw;
+	int iw=sizes->w, rowlen=stride*iw;
+//	int ih=sizes->h;
 	for(int it=sizes_end-2;it>=sizes_start;--it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
