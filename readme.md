@@ -59,4 +59,5 @@ Note that it fails to recover the original image with GCC for unknown reasons [T
 
 ### `eBench`
 Either create an MSVC 2022 CMake project, or:
+
 `gcc -O -mavx2 console.c ebench.c graphics.c image.c lodepng.c transforms.c util.c window.c -o ebench-gcc -lopengl32 -lgdi32 -lole32 -lcomdlg32 -luuid`
