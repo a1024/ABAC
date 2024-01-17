@@ -53,7 +53,7 @@ Note that it fails to recover the original image with GCC for unknown reasons [T
 ### `e2`
 Either create an MSVC 2022 CMake project, or:
 
-`gcc -O -mavx2 e2.c format.c lodepng.c tests.c tests2.c tests3.c tests4.c transforms.c util.c -o e2`
+`gcc -O -mavx2 e2.c format.c lodepng.c tests.c tests2.c tests3.c tests4.c tests5.c transforms.c util.c -o e2`
 
 Note that it fails to recover the original image with GCC for unknown reasons [TODO].
 

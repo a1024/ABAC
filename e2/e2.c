@@ -108,8 +108,8 @@ static void print_result(Result *res, const char *title, int width)
 	double
 		CR1=(double)res->usize/res->csize1,
 		CR2=(double)res->usize/res->csize2;
-	printf("%-*s  format %10lld %10.6lf D %12lf sec  test %10lld %10.6lf E %12lf D %12lf sec %s\n",
-		width, title,
+	printf("%-*s  %10lld  format %10lld %10.6lf D %12lf sec  test %10lld %10.6lf E %12lf D %12lf sec %s\n",
+		width, title, res->usize,
 		res->csize1, CR1, res->fdec,
 		res->csize2, CR2, res->enc, res->dec, res->error?"ERROR":"SUCCESS"
 	);

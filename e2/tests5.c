@@ -118,8 +118,10 @@ static void slic4_pred(Image const *im, int kc, int kx, int ky, int scale, int p
 	int vmax=MAXVAR(N, W), vmin=MINVAR(N, W), energy=vmax-vmin;
 	int pred=N+W-NW;
 	pred=CLAMP(vmin, pred, vmax);
+	//int pred=(N+W)/2;
 	int
-		hist_ctx=quantize((abs(W-WW)+abs(N-NN)+abs(prev_error)*2)>>2),
+		hist_ctx=quantize((energy+abs(W-WW)+abs(N-NN)+abs(prev_error)*2)>>(scale+2)),
+		//hist_ctx=quantize((abs(W-WW)+abs(N-NN)+abs(prev_error))>>2),
 		//hist_ctx=quantize(abs(prev_error)),
 		//hist_ctx=quantize(energy>>scale),
 		sse_ctx=quantize((abs(W-WW)+abs(N-NN))>>(scale+2))*quantize(abs(prev_error));//best
