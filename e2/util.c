@@ -26,6 +26,8 @@
 #include<time.h>
 #ifdef _MSC_VER
 #include<intrin.h>
+#else
+#include<unistd.h>
 #endif
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -468,7 +470,7 @@ int log_error(const char *file, int line, int quit, const char *format, ...)
 	}
 	return firsttime;
 }
-int valid(const void *p)//makes sense only with MSVC debugger
+int valid(const void *p)//only makes sense with MSVC debugger
 {
 	size_t val=(size_t)p;
 
@@ -746,6 +748,22 @@ int str_append(ArrayHandle *str, const char *format, ...)
 	str[0]->count+=reqlen;
 	va_end(args);
 	return (int)reqlen;
+}
+
+size_t array_append(ArrayHandle *dst, const void *src, size_t esize, size_t count, size_t rep, size_t pad, void (*destructor)(void*))//arr can be 0, returns original array size
+{
+	size_t dststart=0;
+	if(!*dst)
+		*dst=array_construct(src, esize, count, rep, pad, destructor);
+	else
+	{
+		dststart=dst[0]->count*dst[0]->esize;
+		if(dst[0]->esize!=esize)
+			LOG_ERROR("Array element size mismatch");
+		else
+			ARRAY_APPEND(*dst, src, count, rep, pad);
+	}
+	return dststart;
 }
 #endif
 
@@ -1086,7 +1104,7 @@ int   dlist_it_dec(DListItHandle it)
 }
 #endif
 
-//red-black tree map
+//map/set (red-black tree)
 #if 1
 void map_init(MapHandle map, size_t esize, MapCmpFn comparator, void (*destructor)(void*))
 {
@@ -2070,4 +2088,15 @@ ArrayHandle searchfor_file(const char *searchpath, const char *filetitle)
 			array_free(&filename);
 	}
 	return filename;
+}
+
+int query_cpu_cores()
+{
+#ifdef _WIN32
+	SYSTEM_INFO info;
+	GetNativeSystemInfo(&info);
+	return info.dwNumberOfProcessors;
+#else
+	return sysconf(_SC_NPROCESSORS_ONLN);
+#endif
 }

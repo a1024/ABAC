@@ -25,11 +25,11 @@ add_executable(e2
 	lodepng.c
 	slic.c
 	slic2.c
-	#slic3.c
 	tests.c
 	tests2.c
 	tests3.c
 	tests4.c
+	tests5.c
 	transforms.c
 	transforms_cpu.c
 	transforms_ocl.c

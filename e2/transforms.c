@@ -18,13 +18,12 @@
 #include<process.h>
 static const char file[]=__FILE__;
 
-void calc_histogram(const unsigned char *buf, ptrdiff_t bytesize, ptrdiff_t stride, int *hist)
-{
-	memset(hist, 0, 256*sizeof(int));
-	for(ptrdiff_t k=0, end=bytesize-(stride-1);k<end;k+=stride)
-		++hist[buf[k]];
-}
-
+//void calc_histogram(const unsigned char *buf, ptrdiff_t bytesize, ptrdiff_t stride, int *hist)
+//{
+//	memset(hist, 0, 256*sizeof(int));
+//	for(ptrdiff_t k=0, end=bytesize-(stride-1);k<end;k+=stride)
+//		++hist[buf[k]];
+//}
 void print_histogram(const int *hist, int nlevels, int graphwidth)
 {
 	int vmax=0, count=0;
@@ -79,7 +78,31 @@ static void print_fbuf(float *buf, int bw, int bh, int nplaces)
 	++call;
 }
 #endif
-int compare_bufs_uint8(unsigned char *b1, unsigned char *b0, int iw, int ih, int symbytes, int bytestride, const char *name, int backward, int loud)
+int compare_bufs_32(const int *b1, const int *b0, int iw, int ih, int nch, int chstride, const char *name, int backward, int loud)
+{
+	ptrdiff_t len=(ptrdiff_t)chstride*iw*ih;
+	int inc=chstride*(1-(backward<<1));
+	for(ptrdiff_t k=backward?len-chstride:0;k>=0&&k<len;k+=inc)
+	{
+		if(memcmp(b1+k, b0+k, nch*sizeof(int)))
+		{
+			if(loud)
+			{
+				ptrdiff_t idx=k/chstride, kx=idx%iw, ky=idx/iw;
+				printf("%s error XY (%5lld, %5lld) / %5d x %5d  b1 != b0\n", name, kx, ky, iw, ih);
+				for(int kc=0;kc<nch;++kc)
+					printf("C%d  0x%08X != 0x%08X    %d != %d\n",
+						kc, (unsigned)b1[k+kc], (unsigned)b0[k+kc], (unsigned)b1[k+kc], (unsigned)b0[k+kc]
+					);
+			}
+			return 1;
+		}
+	}
+	if(loud)
+		printf("%s:\tSUCCESS\n", name);
+	return 0;
+}
+int compare_bufs_uint8(const unsigned char *b1, const unsigned char *b0, int iw, int ih, int symbytes, int bytestride, const char *name, int backward, int loud)
 {
 	ptrdiff_t len=(ptrdiff_t)bytestride*iw*ih;
 	int inc=bytestride*(1-(backward<<1));
@@ -110,7 +133,7 @@ int compare_bufs_uint8(unsigned char *b1, unsigned char *b0, int iw, int ih, int
 		printf("%s:\tSUCCESS\n", name);
 	return 0;
 }
-void compare_bufs_ps(float *b1, float *b0, int iw, int ih, const char *name, int backward)
+void compare_bufs_ps(const float *b1, const float *b0, int iw, int ih, const char *name, int backward)
 {
 	ptrdiff_t res=(ptrdiff_t)iw*ih;
 	int inc=1-(backward<<1);
@@ -228,6 +251,25 @@ void pack3_inv(char *buf, int res)
 		buf[k<<2|3]=0xFF;
 	}
 }
+int get_nch32(const int *buf, int res)//returns nch = {0 degenerate, 1 gray, 2 gray_alpha, 3, rgb, 4, rgb_alpha}
+{
+	int has_image=0, gray=1, has_alpha=0;
+	int initial=buf[0];
+	for(int k=0;k<res;++k)
+	{
+		int r=buf[k<<2|0], g=buf[k<<2|1], b=buf[k<<2|2], a=buf[k<<2|3];
+		if(r!=initial)
+			has_image=1;
+		if(r!=g||g!=b)
+			gray=0;
+		if(a)
+			has_alpha=1;
+	}
+	if(!has_image)
+		return 0;
+	int nch=1+!gray*2+has_alpha;
+	return nch;
+}
 int get_nch(const char *buf, int res)//returns nch = {0 degenerate, 1 gray, 2 gray_alpha, 3, rgb, 4, rgb_alpha}
 {
 	int has_image=0, gray=1, has_alpha=0;
@@ -244,11 +286,51 @@ int get_nch(const char *buf, int res)//returns nch = {0 degenerate, 1 gray, 2 gr
 	}
 	if(!has_image)
 		return 0;
-	int nch=gray+!gray*3+has_alpha;
+	int nch=1+!gray*2+has_alpha;
 	return nch;
 }
 
 
+void rct_JPEG2000_32(Image *image, int fwd)
+{
+	//char temp;
+	if(fwd)
+	{
+		for(ptrdiff_t k=0, len=(ptrdiff_t)image->iw*image->ih*4;k<len;k+=4)
+		{
+			int r=image->data[k], g=image->data[k|1], b=image->data[k|2];
+			
+			r-=g;       //r-g				[1     -1     0  ].RGB
+			b-=g;       //b-g				[0     -1     1  ].RGB
+			g+=(r+b)>>2;//g+(r-g+b-g)/4 = r/4+g/2+b/4	[1/4    1/2   1/4].RGB
+
+			image->data[k  ]=g;//Y
+			image->data[k|1]=b;//Cb
+			image->data[k|2]=r;//Cr
+		}
+		//ROTATE3(image->depth[0], image->depth[1], image->depth[2], temp);
+		//image->depth[1]+=image->depth[1]<24;
+		//image->depth[2]+=image->depth[2]<24;
+	}
+	else
+	{
+		//image->depth[1]-=image->depth[1]>image->src_depth[1];
+		//image->depth[2]-=image->depth[2]>image->src_depth[2];
+		//ROTATE3(image->depth[2], image->depth[1], image->depth[0], temp);
+		for(ptrdiff_t k=0, len=(ptrdiff_t)image->iw*image->ih*4;k<len;k+=4)
+		{
+			int Y=image->data[k], Cb=image->data[k|1], Cr=image->data[k|2];
+			
+			Y-=(Cr+Cb)>>2;
+			Cb+=Y;
+			Cr+=Y;
+
+			image->data[k  ]=Cr;
+			image->data[k|1]=Y;
+			image->data[k|2]=Cb;
+		}
+	}
+}
 void colortransform_YCoCg_R_fwd(char *buf, int iw, int ih)
 {
 	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
@@ -1007,6 +1089,7 @@ void pred_opt_apply(char *buf, int iw, int ih, int fwd)
 	free(temp);
 	free(buf2);
 }
+#if 0
 double pred_w2_calcloss(const char *src, int iw, int ih, int kc, short *params, int *temp, char *dst, int *hist)
 {
 	int res=iw*ih;
@@ -1318,6 +1401,7 @@ void pred_opt_opt_v6(const char *buf2, int iw, int ih, int loud)//multi-threaded
 	free(temp);
 	free(buf3);
 }
+#endif
 
 
 short jxlparams_i16[33]=//signed fixed 7.8 bit
@@ -1460,6 +1544,7 @@ void   pred_jxl_prealloc(const char *src, int iw, int ih, int kc, const short *p
 		}
 	}
 }
+#if 0
 double pred_jxl_calcloss(const char *src, int iw, int ih, int kc, const short *params, int *temp, char *dst, int *hist)
 {
 	int res=iw*ih;
@@ -1487,7 +1572,7 @@ double pred_jxl_calcloss(const char *src, int iw, int ih, int kc, const short *p
 	//	printf("%4d %14lf\r", it, csize);
 	return csize;
 }
-void   pred_jxl_opt_v2(const char *buf2, int iw, int ih, short *params, int loud)
+void pred_jxl_opt_v2(const char *buf2, int iw, int ih, short *params, int loud)
 {
 	int res=iw*ih;
 	char *buf3=(char*)malloc((size_t)res<<2);
@@ -1544,7 +1629,8 @@ void   pred_jxl_opt_v2(const char *buf2, int iw, int ih, short *params, int loud
 	free(temp);
 	free(buf3);
 }
-void   pred_jxl_apply(char *buf, int iw, int ih, short *allparams, int fwd)
+#endif
+void pred_jxl_apply(char *buf, int iw, int ih, short *allparams, int fwd)
 {
 	int res=iw*ih;
 	int *temp=(int*)malloc((size_t)iw*10*sizeof(int));

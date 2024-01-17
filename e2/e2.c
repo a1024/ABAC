@@ -18,357 +18,21 @@ typedef void *THREAD_RET;
 #endif
 //#define SIF_IMPLEMENTATION
 //#include"sif.h"
-#define QOI_IMPLEMENTATION
-#include"qoi.h"
+//#define QOI_IMPLEMENTATION
+//#include"qoi.h"
 static const char file[]=__FILE__;
 
 
-#define ENCODE t45_encode
-#define DECODE t45_decode
+#define CODECID     46
+#define CODECNAME "T46"
+#define ENCODE     t46_encode
+#define DECODE     t46_decode
 
 
 	#define BATCHTEST_PRINTTABLE
 
 //	#define MA_RCT_COUNT 10
 //	#define MA_BATCHTEST (MA_RCT_COUNT<<2)
-
-#if 0
-void test1()
-{
-	//double w0=2.95, w1=3.05;
-	double w0=4.5, w1=1;
-	double lr=0.05;
-	for(int it=0;it<100;++it)
-	{
-		double grad_w0=0, grad_w1=0;
-		printf("iter %3d: w0=%g\tw1=%g\tmissed:", it, w0, w1);
-		for(int n=-10;n<0;++n)
-		{
-			double c=w1*n+w0;
-			if(c>0)//check negative integers
-			{
-				printf(" %d", n);
-				++grad_w0;//delta is +ve for -ve numbers
-				grad_w1+=n;
-			}
-		}
-		for(int n=0;n<10;++n)
-		{
-			double c=w1*n+w0;
-			if(c<0)//check positive integers
-			{
-				printf(" %d", n);
-				--grad_w0;//delta is -ve for +ve numbers
-				grad_w1-=n;
-			}
-		}
-		if(!grad_w0)
-			printf(" None");
-		printf("\tgrad_w0=%g\tgrad_w1=%g", grad_w0, grad_w1);
-		printf("\n");
-		w0-=lr*grad_w0;
-		w1-=lr*grad_w1;
-	}
-	printf("Done.\n");
-	pause();
-	exit(0);
-}
-#endif
-#if 0
-int query_weekday(int year, int month, int day)//args start with 1 (eg: 2023-10-13 is 13th October), 0 is Saturday
-{
-	//https://www.efaculty.in/c-programs/find-day-of-week-from-a-given-date-program-in-c/
-	const int dayspermonth[]={31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-	long long absday=day;
-	for(int km=0;km<month-1;++km)
-		absday+=dayspermonth[km];
-	if(month>2)
-		absday+=year%100!=0 && year%4==0 || year%400==0;
-	int f=(year-1)/4, h=(year-1)/100, fh=(year-1)/400;
-	int weekday=(year+absday+f-h+fh)%7;
-	return weekday;
-}
-void test_calendar()
-{
-	const char *daynames[]=
-	{
-		"Sa",
-		"Su",
-		"Mo",
-		"Tu",
-		"We",
-		"Th",
-		"Fr",
-	};
-	const int dayspermonth[]={31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-
-	{
-		time_t now=time(0);
-		struct tm *date=localtime(&now);
-		int wday=query_weekday(1900+date->tm_year, date->tm_mon+1, date->tm_mday);
-		//int wday=query_weekday(2021, 4, 12);//should be 'Monday' 2
-		printf("Today is %04d-%02d-%02d%s\n\n", 1900+date->tm_year, date->tm_mon+1, date->tm_mday, daynames[wday]);
-		if(wday!=(date->tm_wday+1)%7)//tm_wday: 0 is Sunday
-			printf("  Error!\n");
-	}
-
-	int weekhist[31][7]={0};
-	for(int year=1;year<2024;++year)
-	{
-		for(int month=0;month<12;++month)
-		{
-			for(int day=0;day<dayspermonth[month];++day)
-			{
-				int weekday=query_weekday(year, month, day);
-			
-				++weekhist[day][weekday];
-			}
-		}
-	}
-
-	printf("\t");
-	for(int kw=0;kw<7;++kw)
-		printf("\t%s", daynames[kw]);
-	printf("\n");
-
-	for(int km=0;km<31;++km)
-	{
-		printf("%d\t\t", km+1);
-		for(int kw=0;kw<7;++kw)
-			printf("%d\t", weekhist[km][kw]);
-		printf("\n");
-	}
-	//for(int kd=0;kd<7;++kd)
-	//	printf("%s  %d\n", daynames[kd], weekhist[kd]);
-
-	printf("Done.\n");
-	pause();
-	exit(0);
-}
-#endif
-
-int hist[256*4];
-
-short jxl_Kodak_params[]=
-{
-	0x06E3,  0x1287,  0x1192,  0x0C0B,	 0x0007,  0x000E, -0x0180, -0x006B, -0x00DB, -0x0052,  0x0126,//01
-	0x09B9,  0x0E20,  0x185F,  0x0BF3,	-0x0031, -0x004F,  0x003F, -0x003F,  0x009B, -0x0030, -0x0064,
-	0x040B,  0x0F22,  0x0D82,  0x0BF8,	-0x0006,  0x0013, -0x011E, -0x0019, -0x00C6, -0x0027,  0x011A,
-
-	0x04DF,  0x1309,  0x0EF3,  0x0C0B,	-0x000C, -0x0008, -0x00F5, -0x007B, -0x00DB, -0x003A,  0x0124,//02
-	0x0835,  0x0F21,  0x185F,  0x0BF1,	-0x0031, -0x002F,  0x0073, -0x003F,  0x00C7, -0x0004, -0x00E3,
-	0x009B,  0x0F22,  0x0A82,  0x0BA8,	 0x0008,  0x0006, -0x00BE,  0x001C, -0x00C6, -0x000B,  0x011A,
-  
-	0x04C0,  0x1369,  0x0FFB,  0x0B8D,	 0x001F,  0x0003, -0x01F5,  0x0007, -0x0103, -0x0039,  0x0124,//03
-	0x0837,  0x0E21,  0x195F,  0x0BED,	-0x0040, -0x0067,  0x0053,  0x0181,  0x0133, -0x0004, -0x00D9,
-	0x01CB,  0x0EE2,  0x0B96,  0x0981,	 0x0003,  0x0002, -0x015E,  0x006C, -0x00E8, -0x000A,  0x0119,
-  
-	0x04CF,  0x1367,  0x0CB0,  0x0CD1,	-0x0004,  0x0002, -0x00E5, -0x00C9, -0x0089, -0x000F,  0x012C,//04
-	0x0876,  0x0FA5,  0x16E1,  0x0BEE,	-0x0078, -0x003F,  0x0053,  0x0028,  0x0037,  0x0054, -0x00C9,
-	0x0177,  0x0ED2,  0x0A94,  0x0A43,	 0x0002,  0x0002, -0x015C, -0x0034, -0x00E0,  0x001E,  0x0138,
- 
-	0x04CF,  0x1361,  0x0CEA,  0x0AD2,	-0x0002, -0x0002, -0x00E5, -0x0069, -0x0141, -0x000B,  0x012C,//05
-	0x0877,  0x0E65,  0x16E1,  0x0FD3,	-0x0090, -0x005F,  0x0027,  0x002A, -0x0013,  0x015A, -0x0085,
-	0x01F7,  0x0E31,  0x0B94,  0x09AF,	-0x0016,  0x0002, -0x0057, -0x0013, -0x00D7,  0x0020,  0x0106,
-
-	0x04CF,  0x134E,  0x0DAA,  0x0C0B,	 0x001E, -0x0006, -0x016F,  0x0060, -0x0161, -0x000B,  0x016E,//06
-	0x08B7,  0x0E65,  0x1720,  0x0D2F,	-0x00AA, -0x0037,  0x0047,  0x007A,  0x011E, -0x004D,  0x007C,
-	0x01F7,  0x0D31,  0x0C90,  0x09AF,	-0x0008,  0x0002, -0x00C0,  0x0062, -0x00F7,  0x000C,  0x0146,
-
-	0x04CF,  0x134E,  0x0D2A,  0x0C4A,	 0x0002,  0x0002, -0x01AD, -0x0020, -0x0149, -0x001B,  0x016E,//07
-	0x08F4,  0x0F65,  0x15A0,  0x0D2F,	-0x008A, -0x0013, -0x0019,  0x0034, -0x001A,  0x0131, -0x0019,
-	0x0261,  0x0D30,  0x09AC,  0x0B36,	-0x0004,  0x0002, -0x00B7, -0x0004, -0x00B6,  0x000C,  0x0126,
- 
-	0x03CF,  0x1370,  0x0922,  0x0CDA,	 0x0003,  0x0004, -0x00DB, -0x002E, -0x00C9, -0x0043,  0x013F,//08
-	0x07F4,  0x10E7,  0x159F,  0x0D2F,	-0x000A, -0x005B,  0x0081, -0x0104, -0x001A, -0x0062,  0x00F3,
-	0x0260,  0x0E30,  0x07AC,  0x0B36,	-0x0004, -0x000E, -0x0083, -0x000B, -0x0092, -0x0021,  0x0126,
-
-	0x03F2,  0x1370,  0x0913,  0x0C60,	 0x0002,  0x0024, -0x01DC,  0x003A, -0x0109, -0x0043,  0x014B,//09
-	0x0877,  0x0F67,  0x157D,  0x0AD0,	-0x0022, -0x003F,  0x0087, -0x0080, -0x0012, -0x0062, -0x011F,
-	0x02C4,  0x0E20,  0x07A4,  0x09A5,	-0x0004,  0x002A, -0x0181, -0x000F, -0x0112, -0x0021,  0x0155,
-
-	0x0462,  0x1372,  0x07CD,  0x0B1E,	 0x0002,  0x0014, -0x020C,  0x0032, -0x012B, -0x0044,  0x0183,//10
-	0x0A35,  0x0EA7,  0x13BC,  0x0BCF,	-0x0017, -0x003D,  0x0081, -0x002E, -0x0086,  0x00C6, -0x006A,
-	0x03C4,  0x0F39,  0x0646,  0x0995,	-0x000B,  0x002A, -0x017E, -0x000B, -0x00CC, -0x0011,  0x0175,
-
-	0x045C,  0x1336,  0x084E,  0x0C1D,	 0x0002,  0x0003, -0x01EC, -0x004A, -0x012B, -0x0044,  0x0233,//11
-	0x0966,  0x0E9D,  0x147C,  0x084F,	-0x0058, -0x0032,  0x0081,  0x0007,  0x00DA,  0x0004, -0x0042,
-	0x038C,  0x0F3F,  0x08A7,  0x0993,	-0x000B,  0x0002, -0x016A, -0x000B, -0x00D4, -0x000F,  0x0175,
-  
-	0x02EA,  0x1376,  0x099D,  0x0C0C,	 0x0003,  0x0011, -0x02E0,  0x006E, -0x012B, -0x0044,  0x020B,//12
-	0x095B,  0x0E9D,  0x157B,  0x084B,	-0x0058, -0x002A, -0x006F,  0x0027,  0x015A, -0x0008, -0x0002,
-	0x026E,  0x0EFF,  0x08B3,  0x09A0,	 0x0003,  0x001A, -0x01EA,  0x0071, -0x0154, -0x0007,  0x0174,
-
-	0x03AA,  0x1377,  0x0A8F,  0x0A08,	 0x0003,  0x000D, -0x01DF,  0x0026, -0x01B9, -0x0028,  0x01FF,//13
-	0x095B,  0x0E51,  0x157C,  0x0954,	-0x0080, -0x002A,  0x00A7,  0x0039,  0x015A,  0x001D, -0x013A,
-	0x02EE,  0x0E7F,  0x08B4,  0x0693,	-0x001C, -0x0006, -0x012A, -0x0051, -0x00EC, -0x001F,  0x01DF,
-
-	0x03CA,  0x11DB,  0x0A9F,  0x09F8,	 0x0003,  0x0001, -0x01DF,  0x002A, -0x017C, -0x002C,  0x01FE,//14
-	0x0717,  0x0E51,  0x1585,  0x06E4,	-0x009F, -0x004A,  0x0054,  0x0039,  0x011A,  0x006B,  0x0006,
-	0x02D4,  0x0E7F,  0x06E5,  0x09D3,	-0x0004,  0x0002, -0x0120, -0x0021, -0x0028,  0x0023,  0x0261,
-
-	0x03CA,  0x11DB,  0x079D,  0x09F9,	 0x0002,  0x000B, -0x001B, -0x00D3, -0x00AD,  0x0030,  0x0116,//15
-	0x0717,  0x0E53,  0x1543,  0x0A70,	 0x0004, -0x0002,  0x0034, -0x00F3, -0x000A,  0x00EB, -0x003B,
-	0x02E2,  0x0E76,  0x0449,  0x08D3,	 0x0002,  0x0007, -0x0012, -0x0023, -0x007C,  0x0063,  0x0105,
-
-	0x04CA,  0x115B,  0x09DD,  0x09F8,	 0x002E,  0x0002, -0x01A5,  0x0068, -0x014D, -0x0016,  0x0146,//16
-	0x0717,  0x0E53,  0x1543,  0x0A6C,	-0x002C, -0x005E,  0x01B3,  0x0227,  0x0076,  0x007E,  0x014B,
-	0x02E7,  0x0E16,  0x0857,  0x08CC,	-0x0006, -0x0002, -0x0126,  0x00D5, -0x00BD,  0x002F,  0x019D,
- 
-	0x070A,  0x115B,  0x08ED,  0x09F8,	 0x001A,  0x0010, -0x01E6, -0x0016, -0x012D, -0x0046,  0x00D6,//17
-	0x07BD,  0x0E55,  0x12C3,  0x0A6C,	-0x0052, -0x0085,  0x01B2,  0x01E5,  0x006A,  0x0102, -0x01AF,
-	0x036B,  0x0E56,  0x0853,  0x06AA,	-0x0008, -0x0024, -0x0106,  0x0053, -0x013D, -0x000A,  0x010A,
- 
-	0x06C6,  0x115B,  0x08ED,  0x08F4,	-0x000C, -0x0010, -0x0161, -0x0116, -0x00E9, -0x007E,  0x0154,//18
-	0x08B1,  0x11D2,  0x12C0,  0x09EE,	-0x006A, -0x008C,  0x011A,  0x00DD,  0x00DA,  0x007E, -0x019F,
-	0x0419,  0x0F56,  0x0803,  0x06AB,	-0x0026, -0x0020, -0x00EA, -0x0065, -0x00A0, -0x004A,  0x0148,
- 
-	0x0644,  0x1154,  0x08F0,  0x08F0,	 0x0004, -0x0008, -0x0165, -0x0016, -0x00EB, -0x007E,  0x0114,//19
-	0x08AB,  0x1514,  0x12C0,  0x0788,	-0x003E, -0x0041,  0x00D2,  0x00B0,  0x00DA,  0x007C, -0x00CF,
-	0x02FB,  0x0ED4,  0x0810,  0x06E7,	-0x0010, -0x0010, -0x012E,  0x0023, -0x00F0, -0x003A,  0x0144,
-
-	0x05C4,  0x1153,  0x09F1,  0x077C,	 0x0008,  0x0006, -0x0165, -0x0018, -0x00D3, -0x003E,  0x011C,//20
-	0x08AF,  0x1314,  0x141A,  0x08C7,	-0x0037, -0x0001,  0x00E6,  0x01CE,  0x00A2,  0x0136, -0x00B7,
-	0x0501,  0x0DD6,  0x091D,  0x05E9,	 0x001E,  0x0002, -0x009E,  0x002C, -0x00CC,  0x0026,  0x0114,
-
-	0x0584,  0x0E73,  0x09F1,  0x0884,	 0x0012,  0x0012, -0x01C8, -0x0008, -0x0114, -0x003B,  0x0121,//21
-	0x08CF,  0x1310,  0x140A,  0x0437,	-0x0044, -0x0019,  0x00A6,  0x01CF,  0x0081,  0x0122,  0x0050,
-	0x0488,  0x0B57,  0x093F,  0x06E1,	-0x001F, -0x0006, -0x010E, -0x0074, -0x00A4, -0x003A,  0x0128,
-
-	0x0581,  0x0E6B,  0x08CF,  0x07E4,	 0x0003, -0x0012, -0x0146, -0x00E4, -0x00F8, -0x007B,  0x011F,//22
-	0x08CF,  0x1498,  0x109A,  0x045D,	-0x003E, -0x0045,  0x00A6,  0x007F,  0x00A1,  0x0112, -0x00AA,
-	0x0388,  0x0B97,  0x07BC,  0x06E0,	-0x000F, -0x0012, -0x00CE, -0x0081, -0x00A4, -0x003A,  0x0120,
-
-	0x0589,  0x0EED,  0x0687,  0x0765,	 0x0003,  0x0001, -0x012E, -0x00B4, -0x00F8, -0x0035,  0x0119,//23
-	0x08D0,  0x1461,  0x0E8A,  0x077F,	-0x003E, -0x0035,  0x0061,  0x018F,  0x004D,  0x017A, -0x006A,
-	0x03F8,  0x0CCE,  0x06B4,  0x0700,	-0x0005, -0x0002, -0x010B, -0x0081, -0x00B5, -0x0038,  0x011D,
-
-	0x045A,  0x0FF0,  0x0626,  0x0765,	 0x0003,  0x0001, -0x0277, -0x00AC, -0x00FC, -0x008B,  0x0199,//24
-	0x090F,  0x147F,  0x0E8A,  0x063E,	-0x0046, -0x0059,  0x0059,  0x000F,  0x00DF,  0x0142,  0x0006,
-	0x02F8,  0x0CD1,  0x06A4,  0x0700,	-0x0005, -0x0012, -0x010B, -0x007F, -0x00B5, -0x0030,  0x015E,
-};
-short jxl_CLIC30_params[]=
-{
-	  0x0B37,  0x130A,  0x121B,  0x0B7A,	-0x0023, -0x0032, -0x00AE, -0x0093, -0x0099,  0x0038,  0x00BF,//01
-	  0x0D37,  0x1315,  0x181F,  0x0BF4,	-0x005C, -0x0073,  0x00A1, -0x0131,  0x00BD,  0x0026, -0x00BA,
-	  0x06C2,  0x0EF2,  0x0C43,  0x0C14,	-0x0026, -0x001E, -0x0085, -0x0017, -0x0082,  0x0027,  0x00D4,
-
-	  0x0BB6,  0x134A,  0x141B,  0x0AFA,	-0x0002, -0x00EA,  0x00D9, -0x0213, -0x0038,  0x0048,  0x0125,//02
-	  0x0C37,  0x1518,  0x179F,  0x0BF4,	-0x0098, -0x0060,  0x0010,  0x0011,  0x0079,  0x00F0,  0x0001,
-	  0x06C0,  0x0F02,  0x0D43,  0x0A12,	-0x0079, -0x0002, -0x0105, -0x0197,  0x00FF,  0x00A5,  0x013A,
-
-	  0x0BB6,  0x134A,  0x141B,  0x0EFA,	-0x0007, -0x01DE,  0x00D8,  0x008D,  0x0006,  0x0041,  0x011E,//03
-	  0x0BB7,  0x1518,  0x179F,  0x0D54,	-0x0007, -0x0330,  0x0021,  0x0004,  0x0008,  0x000A,  0x0107,
-	  0x06C0,  0x0F04,  0x08BB,  0x0A12,	-0x0034,  0x0002, -0x0085, -0x0197,  0x01B9,  0x00A5,  0x0305,
- 
-	  0x0BB6,  0x13CA,  0x131B,  0x0DBA,	-0x001B, -0x003F,  0x00B0,  0x010D,  0x0010,  0x0021, -0x006B,//04
-	  0x0BB7,  0x1618,  0x179F,  0x0D54,	-0x000F, -0x0033,  0x0070,  0x00B4, -0x0042,  0x000A, -0x007B,
-	  0x06C4,  0x0F04,  0x08BB,  0x03CE,	 0x000F,  0x0006, -0x0085, -0x0197,  0x0176,  0x00A5,  0x0305,
-  
-	  0x0BB6,  0x13CA,  0x131B,  0x0DBA,	-0x001B, -0x003F,  0x00B0,  0x010D,  0x0010,  0x0021, -0x006B,//05
-	  0x09B7,  0x1618,  0x179F,  0x10D4,	 0x0018,  0x0024,  0x0090,  0x016D, -0x001A,  0x0082, -0x007A,
-	  0x06C4,  0x0F04,  0x08BB,  0x03CE,	 0x000F,  0x0006, -0x0085, -0x0197,  0x0176,  0x00A5,  0x0305,
-  
-	  0x0A97,  0x1208,  0x1363,  0x0FBB,	-0x0023, -0x001F,  0x00E8,  0x015D,  0x003F,  0x0080, -0x00EB,//06
-	  0x08A8,  0x1618,  0x179E,  0x0F54,	-0x0020, -0x0012,  0x00A1,  0x016D, -0x0014,  0x00AD, -0x0086,
-	  0x06C4,  0x0EF1,  0x0A3B, -0x00EC,	 0x0018, -0x0001, -0x0099, -0x0196,  0x0178,  0x007D,  0x0407,
-  
-	  0x08D7,  0x1388,  0x13C3,  0x0EBB,	-0x0029, -0x0013,  0x0088,  0x015D,  0x000E,  0x00AD, -0x0037,//07
-	  0x09A8,  0x1618,  0x179E,  0x0C53,	-0x0080, -0x00CD,  0x009F,  0x0158,  0x005E,  0x007D,  0x0027,
-	  0x06D2,  0x0E67,  0x0A17, -0x01AD,	 0x0019, -0x0019, -0x0119, -0x0196,  0x01F8, -0x0153,  0x0287,
-  
-	  0x0CD7,  0x1388,  0x1343,  0x0EBB,	-0x0069, -0x00BF,  0x0033,  0x0089, -0x002F,  0x00AF,  0x0049,//08
-	  0x0A08,  0x1518,  0x179E,  0x0ED3,	-0x003E,  0x0013,  0x00A3,  0x0209,  0x005E,  0x0160, -0x00D9,
-	  0x06DA,  0x0EA7,  0x0A17, -0x02B1,	-0x0040, -0x00BA, -0x0119, -0x0195,  0x01C7, -0x0573,  0x02A7,
- 
-	  0x0CD9,  0x164C,  0x12C3,  0x0EBB,	-0x007B, -0x003F,  0x002C,  0x00EB,  0x0039,  0x0096,  0x0045,//09
-	  0x0980,  0x13F8,  0x17E2,  0x0ED4,	 0x0162, -0x003C, -0x0004,  0x01C1,  0x0017,  0x0160, -0x0339,
-	  0x01CA,  0x0EA7,  0x0A1D, -0x01EF,	 0x0004,  0x0001, -0x011A, -0x0195,  0x0147, -0x0573,  0x02A7,
-  
-	  0x0C19,  0x1A0C,  0x1243,  0x0EBB,	-0x005E, -0x009F, -0x0008,  0x00AF,  0x0031,  0x003D,  0x00B3,//10
-	  0x0980,  0x13F8,  0x17E2,  0x0ED4,	-0x007C, -0x015B,  0x01E8,  0x019C,  0x0098,  0x0117, -0x013D,
-	  0x04C6,  0x0EA7,  0x0A1D,  0x0097,	-0x003D, -0x0080, -0x011A, -0x0195,  0x0147, -0x0573,  0x02A7,
- 
-	  0x0898,  0x1A0C,  0x1246,  0x0EBB,	-0x0060, -0x0025, -0x00AF,  0x003E, -0x002F,  0x003D,  0x012F,//11
-	  0x0981,  0x13F8,  0x17E6,  0x09A9,	-0x005D, -0x008B,  0x0167,  0x019C,  0x0142,  0x0117, -0x0119,
-	  0x0472,  0x0BB8,  0x0B5E,  0x003B,	-0x0058, -0x0051, -0x0122, -0x0195,  0x0147, -0x056D,  0x00E7,
-	  
-	  0x0708,  0x1A0C,  0x1246,  0x1003,	-0x002F, -0x0033, -0x003F, -0x008C,  0x0046,  0x0021,  0x01AF,//12
-	  0x0A04,  0x1458,  0x14A4,  0x0869,	-0x0035, -0x004D,  0x0148,  0x01B8,  0x0032,  0x0109, -0x00E3,
-	  0x0232,  0x0BBC,  0x0B56,  0x0182,	-0x0034, -0x0081, -0x0121, -0x01D5,  0x0145, -0x0515,  0x045F,
-	  
-	  0x0888,  0x1A0C,  0x14C6,  0x0FC2,	-0x0028,  0x0013, -0x007B,  0x0098, -0x004E,  0x002D,  0x00C7,//13
-	  0x0B97,  0x1462,  0x149E,  0x0869,	-0x0015, -0x0023,  0x0168,  0x0228,  0x0033,  0x0107, -0x0127,
-	  0x04D2,  0x0BC0,  0x0B3C, -0x0176,	-0x001E,  0x000E, -0x0019, -0x0259,  0x0155, -0x0514,  0x045F,
-	  
-	  0x087C,  0x1A19,  0x14C5,  0x101F,	-0x0010, -0x0009, -0x007B,  0x0018, -0x00AE,  0x002F,  0x00C6,//14
-	  0x0BD7,  0x1523,  0x1116,  0x0A3C,	-0x0027, -0x000F,  0x0167,  0x0228,  0x0058,  0x00FD, -0x0107,
-	  0x04D3,  0x0C8D,  0x0A3A, -0x015E,	-0x0036, -0x0013,  0x02E7, -0x0239,  0x0364, -0x0526,  0x041D,
-	  
-	  0x08E6,  0x1A1A,  0x15C5,  0x0BF2,	-0x0010, -0x0009, -0x0059,  0x002A, -0x004D,  0x002E,  0x0134,//15
-	  0x0BD5,  0x1522,  0x1116,  0x06AC,	-0x0022, -0x0057,  0x0166,  0x01AC,  0x00F1,  0x00BD,  0x0139,
-	  0x04A7,  0x0C8B,  0x0DAC, -0x0069,	-0x0038, -0x0034,  0x0327, -0x0229,  0x04E8, -0x0520,  0x0447,
-	  
-	  0x09E8,  0x1A1A,  0x15C5,  0x0BF2,	-0x00B3, -0x0026, -0x0055,  0x00AA,  0x00D7,  0x00AA,  0x0006,//16
-	  0x09D5,  0x1522,  0x1217,  0x067C,	-0x0025, -0x00F2,  0x03F6,  0x01AC,  0x00D5,  0x0107,  0x0178,
-	  0x0470,  0x0DD5,  0x0B92, -0x00AA,	-0x004B, -0x00B4,  0x0227, -0x0217,  0x04F0, -0x05A0,  0x04BF,
-	  
-	  0x0D68,  0x199A,  0x15C5,  0x0BF2,	-0x0052, -0x0010,  0x00A0,  0x0126,  0x00D6,  0x00D1, -0x0078,//17
-	  0x09D5,  0x1522,  0x1117,  0x067C,	-0x0015,  0x0004,  0x0296,  0x0124,  0x00D5,  0x046B,  0x0112,
-	  0x0392,  0x0E01,  0x0A72, -0x0026,	-0x002E, -0x001D,  0x0227, -0x0207,  0x0470, -0x0580,  0x044B,
-	  
-	  0x0DA8,  0x1ADA,  0x15DC,  0x0CE2,	-0x0052, -0x0002,  0x0000,  0x0126,  0x01D5,  0x017D, -0x0058,//18
-	  0x09D5,  0x1523,  0x1119,  0x07BC,	-0x003D, -0x0044,  0x02D6,  0x01A4,  0x0218,  0x023D, -0x00BC,
-	  0x02D2,  0x0DFF,  0x0BC2, -0x0225,	-0x0002, -0x000C, -0x0041, -0x0207,  0x0470, -0x0580,  0x03EB,
-	  
-	  0x0F08,  0x1ADA,  0x139C,  0x0C38,	-0x0060,  0x000D,  0x0102,  0x01C6,  0x0131,  0x0169, -0x009A,//19
-	  0x09D3,  0x1525,  0x1118,  0x07CC,	-0x0022,  0x0028,  0x0256,  0x03A9,  0x00D1,  0x023D, -0x0214,
-	  0x045B,  0x0CE7,  0x0B62, -0x01AD,	-0x003B,  0x0006, -0x00C0, -0x0288,  0x0356, -0x0580,  0x051F,
-	  
-	  0x0F08,  0x1BBA,  0x139C,  0x09B8,	-0x0027, -0x0072,  0x0099,  0x0062,  0x0119,  0x0064,  0x0006,//20
-	  0x09CD,  0x163D,  0x0FE9,  0x0577,	-0x001D, -0x0036,  0x024E,  0x03A5,  0x0155,  0x016D, -0x01D3,
-	  0x040D,  0x0C95,  0x0849,  0x0001,	-0x0016, -0x005D, -0x00C0, -0x0288,  0x0355, -0x0580,  0x051F,
-	  
-	  0x0E88,  0x1DBB,  0x129B,  0x09BA,	-0x0063, -0x0048, -0x0089, -0x000E,  0x0099,  0x0102,  0x0042,//21
-	  0x0838,  0x163D,  0x0FE9,  0x03F7,	-0x0033, -0x004E,  0x024E,  0x00C8,  0x0259,  0x016B, -0x01D3,
-	  0x04B3,  0x0D95,  0x086A, -0x00E0,	-0x0041, -0x00DB, -0x00B8, -0x0289,  0x00D5, -0x0620,  0x051F,
-	  
-	  0x0E88,  0x1D9B,  0x172B,  0x09BB,	-0x0047, -0x0022, -0x0087,  0x00B2,  0x0099,  0x003E,  0x00E5,//22
-	  0x0838,  0x15F5,  0x134E,  0x03F7,	-0x0023, -0x008F,  0x00EA,  0x027D,  0x0257,  0x016B, -0x00F3,
-	  0x04F2,  0x0D57,  0x0CE7, -0x0050,	-0x002F, -0x0055, -0x00B8, -0x0289,  0x00D5, -0x0640,  0x051F,
-	  
-	  0x0E8D,  0x1E19,  0x14EB,  0x0ADB,	-0x0005, -0x000C, -0x0061,  0x0098, -0x002B,  0x003E,  0x00F8,//23
-	  0x0838,  0x15F5,  0x134C,  0x06F7,	 0x000D,  0x0049,  0x00EA,  0x027E,  0x0015,  0x00FB, -0x018A,
-	  0x0672,  0x0D97,  0x0B17, -0x013E,	-0x002A, -0x000C, -0x0038, -0x0289,  0x0215, -0x05C0,  0x0563,
-	  
-	  0x0E8D,  0x1CD9,  0x14EB,  0x0E1B,	-0x0039,  0x000E,  0x003F,  0x0198,  0x005F,  0x00A1,  0x0059,//24
-	  0x08FC,  0x15F6,  0x133D,  0x0AB2,	-0x0033, -0x0029,  0x00EF,  0x023E, -0x0033,  0x014B, -0x00FA,
-	  0x064C,  0x0CB4,  0x0B3B, -0x0236,	-0x001B,  0x001C,  0x01CE, -0x048B,  0x01D5, -0x0604,  0x0517,
-	  
-	  0x0D6B,  0x1C99,  0x162B,  0x0C1C,	-0x002E, -0x0022,  0x0082,  0x0184,  0x0037,  0x0076, -0x008B,//25
-	  0x09CD,  0x15F6,  0x129D,  0x0813,	-0x0027, -0x0013,  0x00D5,  0x0226,  0x003A,  0x00CB, -0x00F5,
-	  0x054C,  0x0C94,  0x092B, -0x01F4,	-0x0002, -0x0003,  0x020D, -0x0493,  0x0366, -0x0664,  0x0377,
-	  
-	  0x0E6B,  0x1E19,  0x14AB,  0x0C1C,	-0x0069, -0x0031,  0x0066,  0x0135,  0x0037,  0x0177, -0x002B,//26
-	  0x09CD,  0x15F6,  0x109D,  0x0893,	-0x001A, -0x0101,  0x0091,  0x0142, -0x00B3,  0x0181,  0x0015,
-	  0x058C,  0x0C94,  0x078B, -0x0256,	-0x0046, -0x0035,  0x018D, -0x0412,  0x00E4, -0x0684,  0x0373,
-	  
-	  0x0E7B,  0x1DF0,  0x14AF,  0x0C1E,	-0x0003, -0x0001, -0x00CD, -0x004D, -0x003B,  0x00FB,  0x00E1,//27
-	  0x08C5,  0x15F6,  0x109D,  0x0713,	-0x0001,  0x0000, -0x0040,  0x0116,  0x000F,  0x019C,  0x0097,
-	  0x050D,  0x0CC0,  0x0A6D, -0x01C6,	-0x000B, -0x003D,  0x010D, -0x02D2,  0x0218, -0x0684,  0x0373,
-	  
-	  0x0E7B,  0x1DF0,  0x14AF,  0x0B9E,	-0x005F,  0x0007, -0x000D,  0x0137,  0x00AE,  0x011B,  0x000E,//28
-	  0x08E5,  0x1576,  0x0F9D,  0x0913,	-0x004D,  0x0026, -0x0080,  0x0119,  0x0006,  0x015C,  0x0027,
-	  0x03C3,  0x0CBD,  0x08ED, -0x01E6,	-0x003F, -0x0024, -0x00A3, -0x02D2, -0x0038, -0x0660,  0x0373,
-
-	  0x0D84,  0x1DE7,  0x149F,  0x0B9A,	-0x004F,  0x0003,  0x006C,  0x0154,  0x00BC,  0x011B, -0x0072,//29
-	  0x0B36,  0x1575,  0x0F1C,  0x08EF,	-0x0025,  0x0006,  0x008F,  0x0159,  0x004A,  0x0156, -0x00B9,
-	  0x03E3,  0x0C7D,  0x08FD, -0x01BE,	-0x002F, -0x0017, -0x04FE, -0x029F, -0x013C, -0x065E,  0x02B0,
-	
-	  0x0C7C,  0x1DD7,  0x149D,  0x0D1A,	-0x0025, -0x01DA,  0x010C,  0x014C,  0x00F8,  0x010B,  0x01DF,//30
-	  0x09B6,  0x1575,  0x0F1D,  0x08EF,	-0x0041, -0x00A0,  0x01AF,  0x010A,  0x010E,  0x0116,  0x0173,
-	  0x01CF,  0x09EE,  0x090D,  0x0062,	-0x001D, -0x0101, -0x04FE, -0x029F, -0x013C, -0x065E,  0x02AF,
-};
 
 const char *g_extensions[]=
 {
@@ -379,41 +43,47 @@ const char *g_extensions[]=
 	"pgm",
 };
 
-typedef struct ThreadCtxStruct
+typedef struct ThreadArgsStruct
 {
-	int iw, ih;
-	unsigned char *src, *dst;
+	Image *src, *dst;
+	//int iw, ih;
+	//unsigned char *src, *dst;
 	size_t usize, csize1, csize2;
-	double enc, dec;
-	int error;
+	double enc, dec;//time in secs
+	int error;//whether the image was recovered successfully
 	ptrdiff_t idx;
-} ThreadCtx;
-static void free_threadctx(void *p)
-{
-	ThreadCtx *threadctx=(ThreadCtx*)p;
-	free(threadctx->src);
-	free(threadctx->dst);
-}
+} ThreadArgs;
+//static void free_threadargs(void *p)
+//{
+//	ThreadArgs *args=(ThreadArgs*)p;
+//	free(args->src);
+//	free(args->dst);
+//	args->dst=0;
+//}
 static THREAD_RET THREAD_CALL sample_thread(void *param)
 {
-	ThreadCtx *ctx=(ThreadCtx*)param;
+	ThreadArgs *args=(ThreadArgs*)param;
 	ArrayHandle cdata=0;
 
-	double t=time_sec();
-	ENCODE(ctx->src, ctx->iw, ctx->ih, &cdata, 0);
-	t=time_sec()-t;
-	ctx->enc=t;
+	args->usize=(int)ceil(image_getBMPsize(args->src));
 
-	ctx->csize2=cdata->count;
-	//printf("%lld\n", cdata->count);//
+	double t=time_sec();
+	ENCODE(args->src, &cdata, 0);
+	t=time_sec()-t;
+	args->enc=t;
+
+	args->csize2=cdata->count;
 
 	t=time_sec();
-	DECODE(cdata->data, cdata->count, ctx->iw, ctx->ih, ctx->dst, 0);
+	DECODE(cdata->data, cdata->count, args->dst, 0);
 	t=time_sec()-t;
-	ctx->dec=t;
+	args->dec=t;
 
 	array_free(&cdata);
-	ctx->error=compare_bufs_uint8(ctx->src, ctx->dst, ctx->iw, ctx->ih, 3, 4, "T44", 0, 0);
+	args->error=compare_bufs_32(args->dst->data, args->src->data, args->src->iw, args->src->ih, args->src->nch, 4, CODECNAME, 0, 0);
+	free(args->src);
+	free(args->dst);
+	args->dst=0;
 	return 0;
 }
 typedef struct ResultStruct
@@ -425,7 +95,7 @@ typedef struct ResultStruct
 typedef struct ProcessCtxStruct
 {
 	int nstarted, nfinished;
-	ArrayHandle threadctx;//<ThreadCtx>	*thread_count
+	ArrayHandle threadargs;//<ThreadArgs>	*thread_count
 	ArrayHandle results;//<Result>		*nsamples
 } ProcessCtx;
 static void print_result(Result *res, int idx)
@@ -446,7 +116,7 @@ static void print_result(Result *res, int idx)
 	//	res->dec
 	//);
 }
-void print_result2(Result *res)
+static void print_result2(Result *res)
 {
 	double
 		CR1=(double)res->usize/res->csize1,
@@ -468,62 +138,60 @@ void print_result2(Result *res)
 		
 	printf("\n");
 }
-static void process_file(ProcessCtx *ctx, unsigned char *buf, int iw, int ih, size_t csize1, ptrdiff_t idx, int nthreads)
+static void process_file(ProcessCtx *ctx, Image *image, size_t csize1, ptrdiff_t idx, int nthreads)
 {
 	if(!ctx->nstarted)
 	{
-		ARRAY_ALLOC(ThreadCtx, ctx->threadctx, 0, 0, nthreads, free_threadctx);
+		ARRAY_ALLOC(ThreadArgs, ctx->threadargs, 0, 0, nthreads, 0);
 		ARRAY_ALLOC(Result, ctx->results, 0, 0, 0, 0);
 	}
 
-	if(buf)
+	if(image)
 	{
-		ThreadCtx *threadctx=(ThreadCtx*)ARRAY_APPEND(ctx->threadctx, 0, 1, 1, 0);
-		size_t res=(size_t)iw*ih;
-		threadctx->iw=iw;
-		threadctx->ih=ih;
-		threadctx->src=buf;
-		threadctx->dst=malloc(res*sizeof(char[4]));
-		if(!threadctx->dst)
+		ThreadArgs *threadargs=(ThreadArgs*)ARRAY_APPEND(ctx->threadargs, 0, 1, 1, 0);
+		size_t res=(size_t)image->iw*image->ih;
+		threadargs->src=image;
+		image_copy_nodata(&threadargs->dst, image);
+		if(!threadargs->dst)
 		{
 			LOG_ERROR("Alloc error");
 			return;
 		}
-		memset(threadctx->dst, 0, res*sizeof(char[4]));
-		threadctx->usize=res*3;
-		threadctx->csize1=csize1;
-		threadctx->csize2=0;
-		threadctx->enc=0;
-		threadctx->dec=0;
-		threadctx->error=0;
-		threadctx->idx=idx;
+		memset(threadargs->dst->data, 0, res*sizeof(int[4]));
+		threadargs->usize=0;
+		threadargs->csize1=csize1;
+		threadargs->csize2=0;
+		threadargs->enc=0;
+		threadargs->dec=0;
+		threadargs->error=0;
+		threadargs->idx=idx;
 		++ctx->nstarted;
 	}
 
 	if(ctx->nstarted==1)//first sample initializes memory, can't parallelize
 	{
-		ThreadCtx *threadctx=array_at(&ctx->threadctx, ctx->threadctx->count-1);
-		sample_thread(threadctx);
+		ThreadArgs *threadargs=array_at(&ctx->threadargs, ctx->threadargs->count-1);
+		sample_thread(threadargs);
 		Result result=
 		{
-			threadctx->idx,
-			threadctx->usize,
-			threadctx->csize1,
-			threadctx->csize2,
-			threadctx->error,
-			threadctx->enc,
-			threadctx->dec,
+			threadargs->idx,
+			threadargs->usize,
+			threadargs->csize1,
+			threadargs->csize2,
+			threadargs->error,
+			threadargs->enc,
+			threadargs->dec,
 		};
 		ARRAY_APPEND(ctx->results, &result, 1, 1, 0);
 		print_result(&result, ctx->nfinished+1);
 
-		//if(threadctx->error)//
+		//if(threadargs->error)//
 		//	printf("ERROR\n");
 
-		array_clear(&ctx->threadctx);
+		array_clear(&ctx->threadargs);
 		ctx->nfinished=ctx->nstarted;
 	}
-	else if(!buf||ctx->nstarted-ctx->nfinished>=nthreads)
+	else if(!image||ctx->nstarted-ctx->nfinished>=nthreads)
 	{
 		int n=ctx->nstarted-ctx->nfinished;
 		ArrayHandle handles;
@@ -532,8 +200,8 @@ static void process_file(ProcessCtx *ctx, unsigned char *buf, int iw, int ih, si
 		for(int k=0;k<n;++k)
 		{
 			HANDLE *h=(HANDLE*)array_at(&handles, k);
-			ThreadCtx *threadctx=(ThreadCtx*)array_at(&ctx->threadctx, k);
-			*h=(void*)_beginthreadex(0, 0, sample_thread, threadctx, 0, 0);
+			ThreadArgs *threadargs=(ThreadArgs*)array_at(&ctx->threadargs, k);
+			*h=(void*)_beginthreadex(0, 0, sample_thread, threadargs, 0, 0);
 			if(!*h)
 			{
 				LOG_ERROR("Alloc error");
@@ -551,8 +219,8 @@ static void process_file(ProcessCtx *ctx, unsigned char *buf, int iw, int ih, si
 		for(int k=0;k<n;++k)
 		{
 			pthread_t *h=(pthread_t*)array_at(&handles, k);
-			ThreadCtx *threadctx=(ThreadCtx*)array_at(&ctx->threadctx, k);
-			int error=pthread_create(h, 0, sample_thread, threadctx);
+			ThreadArgs *threadargs=(ThreadArgs*)array_at(&ctx->threadargs, k);
+			int error=pthread_create(h, 0, sample_thread, threadargs);
 			if(error)
 			{
 				LOG_ERROR("Alloc error");
@@ -568,22 +236,22 @@ static void process_file(ProcessCtx *ctx, unsigned char *buf, int iw, int ih, si
 		
 		for(int k=0;k<n;++k)
 		{
-			ThreadCtx *threadctx=(ThreadCtx*)array_at(&ctx->threadctx, k);
+			ThreadArgs *threadargs=(ThreadArgs*)array_at(&ctx->threadargs, k);
 			Result result=
 			{
-				threadctx->idx,
-				threadctx->usize,
-				threadctx->csize1,
-				threadctx->csize2,
-				threadctx->error,
-				threadctx->enc,
-				threadctx->dec,
+				threadargs->idx,
+				threadargs->usize,
+				threadargs->csize1,
+				threadargs->csize2,
+				threadargs->error,
+				threadargs->enc,
+				threadargs->dec,
 			};
 			ARRAY_APPEND(ctx->results, &result, 1, 1, 0);
 			print_result(&result, ctx->nfinished+k+1);
 		}
 
-		array_clear(&ctx->threadctx);
+		array_clear(&ctx->threadargs);
 		ctx->nfinished=ctx->nstarted;
 	}
 }
@@ -616,29 +284,29 @@ void batch_test_mt(const char *path, int nthreads)
 	for(ptrdiff_t k=0;k<(ptrdiff_t)filenames->count;++k)
 	{
 		ArrayHandle *fn=(ArrayHandle*)array_at(&filenames, k);
-
 		if(!fn)
 		{
-			LOG_ERROR("filename read error");
+			printf("Filename error.\n");
 			continue;
 		}
 
 		ptrdiff_t formatsize=get_filesize((char*)fn[0]->data);
-		if(!formatsize||formatsize==-1)//skip non-images
+		if(!formatsize||formatsize==-1)//skip non-images, this check is useless because get_filenames() has already filtered the list
 			continue;
 
-		int iw=0, ih=0;
-		long long cycles=__rdtsc();
-		unsigned char *buf=image_load((char*)fn[0]->data, &iw, &ih);
-		cycles=__rdtsc()-cycles;
-		if(!buf)
+		Image *image=image_load((char*)fn[0]->data);
+		//int iw=0, ih=0;
+		//long long cycles=__rdtsc();
+		//unsigned char *buf=image_load((char*)fn[0]->data, &iw, &ih);
+		//cycles=__rdtsc()-cycles;
+		if(!image)
 		{
 			printf("Cannot open \"%s\"\n", fn[0]->data);
 			continue;
 		}
-		process_file(&processctx, buf, iw, ih, formatsize, k, nthreads);
+		process_file(&processctx, image, formatsize, k, nthreads);
 	}
-	process_file(&processctx, 0, 0, 0, 0, 0, nthreads);
+	process_file(&processctx, 0, 0, 0, nthreads);//flush queued images
 	if(processctx.results)
 	{
 		Result total={0};
@@ -688,10 +356,11 @@ void batch_test_mt(const char *path, int nthreads)
 
 	array_free(&filenames);
 
-	printf("\nDone.\n");
-	pause();
+	//printf("\nDone.\n");
+	//pause();
 }
 
+#if 0
 void batch_test(const char *path)
 {
 	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H%M%S");
@@ -1122,16 +791,269 @@ void batch_test(const char *path)
 	printf("\nDone.\n");
 	pause();
 }
+#endif
 void print_usage(const char *argv0)
 {
+	//skip the full path if present, to print only the program title
+	int len=(int)strlen(argv0), ks;
+	for(ks=len-1;ks>=0&&argv0[ks]!='/'&&argv0[ks]!='\\';--ks);
+	++ks;
+	len-=ks;
+	argv0+=ks;
+
 	printf(
 		"Usage:\n"
-		" %s  <file_or_path>\n"
-		" %s  <path> <nthreads>\n"
-		" %s  \"mse\" <file1> <file2>\n",
-		argv0, argv0, argv0
+		" %s  <srcfn>                       Test the current codec.\n"
+		" %s  <folder>  [<nthreads>]        Test the current codec on all images in the folder.\n"
+		" %*s                                nthreads defaults to 1.\n"
+	//	" %*s                                nthreads defaults to the available number of CPU cores.\n"
+		" %s  c  <srcfn>  <dstfn.LSIM>      Losslessly encode src image to dst.\n"
+		" %s  d  <srcfn.LSIM>  <dstfn.PNG>  Losslessly decode src image to dst as a PNG file.\n"
+		" %s  t  <im1>  <im2>               Measure MSE & PSNR between two images.\n",
+		argv0, argv0, len, "", argv0, argv0, argv0
 	);
+	//printf(
+	//	"Usage:\n"
+	//	" %s  <file_or_path>\n"
+	//	" %s  <path> <nthreads>\n"
+	//	" %s  \"mse\" <file1> <file2>\n",
+	//	argv0, argv0, argv0
+	//);
 }
+typedef enum ProgOpEnum
+{
+	OP_INVALID,
+	OP_TESTFILE,
+	OP_TESTFOLDER,
+	OP_COMPRESS,
+	OP_DECOMPRESS,
+	OP_COMPARE,
+} ProgOp;
+typedef struct ProgArgsStruct
+{
+	ProgOp op;
+	int nthreads;
+	ptrdiff_t formatsize;
+	const char *fn1, *fn2;
+} ProgArgs;
+static int parse_cmdargs(int argc, char **argv, ProgArgs *args)
+{
+	switch(argc)
+	{
+	case 2://file or folder
+		args->formatsize=get_filesize(argv[1]);
+		if(args->formatsize<0)//not file nor folder
+		{
+			args->op=OP_INVALID;
+			return 0;
+		}
+		args->op=args->formatsize?OP_TESTFILE:OP_TESTFOLDER;
+		args->nthreads=1;
+		//args->nthreads=args->formatsize?1:query_cpu_cores();//default to number of available cores
+		args->fn1=argv[1];
+		args->fn2=0;
+		break;
+	case 3://folder nthreads
+		args->formatsize=get_filesize(argv[1]);
+		if(args->formatsize)//not a folder
+		{
+			args->op=OP_INVALID;
+			return 0;
+		}
+		args->op=OP_TESTFOLDER;
+		args->nthreads=atoi(argv[2]);
+		if(args->nthreads<1||args->nthreads>25)
+		{
+			args->op=OP_INVALID;
+			return 0;
+		}
+		args->fn1=argv[1];
+		args->fn2=0;
+		break;
+	case 4://encode/decode/compare
+		if(strlen(argv[1])!=1)
+		{
+			args->op=OP_INVALID;
+			return 0;
+		}
+		switch(argv[1][0]&0xDF)
+		{
+		case 'C':args->op=OP_COMPRESS;break;
+		case 'D':args->op=OP_DECOMPRESS;break;
+		case 'T':args->op=OP_COMPARE;break;
+		}
+		args->nthreads=1;
+		args->fn1=argv[2];
+		args->fn2=argv[3];
+		break;
+	default:
+		args->op=OP_INVALID;
+		return 0;
+	}
+	return 1;//valid
+}
+static void test_one(const char *fn, ptrdiff_t formatsize)
+{
+	if(!formatsize)
+		formatsize=get_filesize(fn);
+	printf("Testing \"%s\"\n", fn);
+	double t=time_sec();
+	Image *src=image_load(fn);
+	t=time_sec()-t;
+	if(!src)
+	{
+		printf("Cannot open \"%s\"\n", fn);
+		return;
+	}
+	double usize=image_getBMPsize(src);
+	printf("Opened in %lf sec  csize %lld  CR %lf\n", t, formatsize, usize/formatsize);
+
+	//encode
+	ArrayHandle cdata=0;
+	ENCODE(src, &cdata, 1);
+	if(!cdata)
+	{
+		printf("Encode error\n");
+		return;
+	}
+#if 1
+	//decode
+	Image *dst=0;
+	image_copy_nodata(&dst, src);
+	if(!dst)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	size_t res=(size_t)dst->iw*dst->ih;
+	memset(dst->data, 0, res*sizeof(int[4]));
+	
+	//rct_JPEG2000_32(src, 1);
+	DECODE(cdata->data, cdata->count, dst, 1);
+
+	//check & cleanup
+	compare_bufs_32(dst->data, src->data, src->iw, src->ih, 3, 4, CODECNAME, 0, 1);
+	//memset(dst->data, 0, res*sizeof(int[4]));
+#endif
+	printf("\n");
+
+	array_free(&cdata);
+	free(src);
+	free(dst);
+}
+static void encode(const char *srcfn, const char *dstfn)
+{
+	printf("Encoding \"%s\"\n", srcfn);
+	Image *src=image_load(srcfn);
+	if(!src)
+	{
+		printf("Cannot open \"%s\"\n", srcfn);
+		return;
+	}
+	ArrayHandle cdata=0;
+	lsim_writeheader(&cdata, src->iw, src->ih, src->nch, src->src_depth, CODECID);
+	ENCODE(src, &cdata, 1);
+
+	int success=save_file(dstfn, cdata->data, cdata->count, 1);
+	printf("%s\n", success?"Saved.":"Failed to save.");
+
+	array_free(&cdata);
+	free(src);
+}
+static void decode(const char *srcfn, const char *dstfn)
+{
+	printf("Decoding \"%s\"\n", srcfn);
+	ArrayHandle cdata=load_file(srcfn, 1, 16, 0);
+	if(!cdata)
+	{
+		printf("Cannot open \'%s\'", srcfn);
+		return;
+	}
+	LSIMHeader header;
+	size_t idx=lsim_readheader(cdata->data, cdata->count, &header);
+	Image *image=0;
+	image_from_lsimheader(&image, &header);
+
+	int success=DECODE(cdata->data+idx, cdata->count-idx, image, 1);
+	array_free(&cdata);
+	if(!success)
+	{
+		printf("Failed to decode \'%s\'", srcfn);
+		return;
+	}
+	success=image_save_native(dstfn, image, !image->depth[3]);
+	printf("%s\n", success?"Saved.":"Failed to save.");
+	free(image);
+}
+static void compare(const char *fn1, const char *fn2)
+{
+	Image *im1=image_load(fn1), *im2=image_load(fn2);
+	if(!im1)
+	{
+		printf("Cannot open %s\n", fn1);
+		return;
+	}
+	if(!im2)
+	{
+		printf("Cannot open %s\n", fn2);
+		return;
+	}
+	if(im2->iw!=im1->iw||im2->ih!=im1->ih)
+	{
+		printf("Dimension mismatch  %dx%d != %dx%d\n", im1->iw, im1->ih, im2->iw, im2->ih);
+		return;
+	}
+	ptrdiff_t formatsize=get_filesize(fn2);
+	int res=im1->iw*im1->ih;
+	long long sum[4]={0};
+	for(int k=0;k<res;++k)
+	{
+		int
+			dr=im1->data[k<<2|0]-im2->data[k<<2|0],
+			dg=im1->data[k<<2|1]-im2->data[k<<2|1],
+			db=im1->data[k<<2|2]-im2->data[k<<2|2],
+			da=im1->data[k<<2|3]-im2->data[k<<2|3];
+		sum[0]+=dr*dr;
+		sum[1]+=dg*dg;
+		sum[2]+=db*db;
+		sum[3]+=da*da;
+	}
+	int nch=get_nch32(im1->data, res);
+	double rmse[]=
+	{
+		sqrt((double)sum[0]/res),
+		sqrt((double)sum[1]/res),
+		sqrt((double)sum[2]/res),
+		sqrt((double)sum[3]/res),
+		sqrt((double)(sum[0]+sum[1]+sum[2]+sum[3])/(res*nch)),
+	};
+	double psnr[]=
+	{
+		20*log10(255/rmse[0]),
+		20*log10(255/rmse[1]),
+		20*log10(255/rmse[2]),
+		20*log10(255/rmse[3]),
+		20*log10(255/rmse[4]),
+	};
+	double CR=res*3./formatsize;
+	printf("T RMSE %lf PSNR %lf  CR %d/%d = %lf  BPP %lf\n", rmse[4], psnr[4], res*nch, (int)formatsize, CR, 8/CR);
+	printf("R RMSE %lf PSNR %lf\n", rmse[0], psnr[0]);
+	printf("G RMSE %lf PSNR %lf\n", rmse[1], psnr[1]);
+	printf("B RMSE %lf PSNR %lf\n", rmse[2], psnr[2]);
+	if(nch==4)
+		printf("A RMSE %lf PSNR %lf\n", rmse[3], psnr[3]);
+	return;
+}
+ProgArgs args=
+{
+	OP_TESTFILE, 1, 0,//op, nthreads, formatsize
+
+//	"C:/Projects/datasets/dataset-kodak/kodim13.png",
+//	"C:/Projects/datasets/dataset-ic-rgb16bit/artificial.png",
+//	"C:/Projects/datasets/dataset-ic-rgb16bit/big_building.png",
+//	"C:/Projects/datasets/dataset-ic-rgb16bit/cathedral.png",
+	"C:/Projects/datasets/dataset-ic-rgb16bit/hdr.png",
+};
 int main(int argc, char **argv)
 {
 	//const int LOL_1=(-1)/2;//0
@@ -1155,11 +1077,35 @@ int main(int argc, char **argv)
 	//ac_vs_ans();
 	//test_calendar();
 
-	printf("Entropy2\n");
-#if 1
+	printf("Entropy2\n\n");
+#ifndef _DEBUG
+	parse_cmdargs(argc, argv, &args);
+#endif
+	switch(args.op)
+	{
+	case OP_INVALID:
+		print_usage(argv[0]);
+		break;
+	case OP_TESTFILE:
+		test_one(args.fn1, args.formatsize);
+		break;
+	case OP_TESTFOLDER:
+		batch_test_mt(args.fn1, args.nthreads);
+		break;
+	case OP_COMPRESS:
+		encode(args.fn1, args.fn2);
+		break;
+	case OP_DECOMPRESS:
+		decode(args.fn1, args.fn2);
+		break;
+	case OP_COMPARE:
+		compare(args.fn1, args.fn2);
+		break;
+	}
+
+#if 0
 	long long cycles;
-	int iw=0, ih=0, nch0=3,
-		nch=4;
+	int iw=0, ih=0, nch0=3, nch=4;
 	size_t resolution=0, len=0;
 	unsigned char *buf, *b2;
 	const char *fn=0;
@@ -1664,7 +1610,7 @@ int main(int argc, char **argv)
 	t45_encode(buf, iw, ih, &cdata, 1);
 	t45_decode(cdata->data, cdata->count, iw, ih, b2, 1);
 	array_free(&cdata);
-	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T45", 0, 1);
+	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, CODECNAME, 0, 1);
 	memset(b2, 0, len);
 	printf("\n");
 #endif

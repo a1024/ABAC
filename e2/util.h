@@ -20,7 +20,7 @@
 #ifdef _MSC_VER
 #define _CRT_SECURE_NO_WARNINGS
 #endif
-#include<stddef.h>//for size_t
+#include<stddef.h>//size_t, ptrdiff_t
 #ifdef __cplusplus
 extern "C"
 {
@@ -35,22 +35,21 @@ extern "C"
 #define MINVAR(A, B) ((A)<(B)?(A):(B))
 #define MAXVAR(A, B) ((A)>(B)?(A):(B))
 #define CLAMP(LO, X, HI) ((X)>(LO)?(X)<(HI)?(X):(HI):(LO))
-//#define CLAMP(LO, X, HI) ((X)<(LO)?(LO):((X)>(HI)?(HI):(X)))
-//#define COUNTOF(ARR) (sizeof(ARR)/sizeof(*(ARR)))		//stdlib defines _countof
 #define MEDIAN3(A, B, C) (B<A?B<C?C<A?C:A:B:A<C?C<B?C:B:A)
 #define MOVEOBJ(SRC, DST, SIZE) memcpy(DST, SRC, SIZE), memset(SRC, 0, SIZE)
 #define MODVAR(DST, SRC, N) DST=(SRC)%(N), DST+=(N)&-(DST<0)
+#define SHIFT_LEFT_SIGNED(X, SH) ((SH)<0?(X)>>-(SH):(X)<<(SH))
 
 #ifdef _MSC_VER
-#define	ALIGN(N)	__declspec(align(N))
+#define	ALIGN(N) __declspec(align(N))
 #else
-#define	ALIGN(N)	__attribute__((aligned(N)))
+#define	ALIGN(N) __attribute__((aligned(N)))
 #endif
 
 #ifndef _MSC_VER
-#define sprintf_s	snprintf
+#define sprintf_s snprintf
 #endif
-#define G_BUF_SIZE	4096
+#define G_BUF_SIZE 4096
 extern char g_buf[G_BUF_SIZE];
 
 void memfill(void *dst, const void *src, size_t dstbytes, size_t srcbytes);
@@ -128,6 +127,7 @@ typedef struct ArrayHeaderStruct//32 bytes on 64 bit system, or 16 bytes on 32 b
 #pragma warning(pop)
 #endif
 ArrayHandle array_construct(const void *src, size_t esize, size_t count, size_t rep, size_t pad, void (*destructor)(void*));
+size_t array_append(ArrayHandle *dst, const void *src, size_t esize, size_t count, size_t rep, size_t pad, void (*destructor)(void*));//arr can be 0, returns original array size
 ArrayHandle array_copy(ArrayHandle *arr);//shallow
 void  array_clear(ArrayHandle *arr);//keeps allocation
 void  array_free(ArrayHandle *arr);
@@ -217,7 +217,7 @@ int   dlist_it_dec(DListItHandle it);
 #endif
 
 
-//ordered MAP (implemented as a (self-balancing) red-black tree)
+//ordered MAP/SET (implemented as a (self-balancing) red-black tree)
 #if 1
 typedef struct RBNodeStruct
 {
@@ -344,7 +344,7 @@ void bitstring_print(BitstringHandle str);
 #endif
 
 
-//Max-heap-based priority queue
+//Priority Queue (Max-heap-based)
 #if 1
 typedef struct PQueueStruct
 {
@@ -404,6 +404,8 @@ ArrayHandle load_file(const char *filename, int bin, int pad, int erroronfail);
 int save_file(const char *filename, const unsigned char *src, size_t srcSize, int is_bin);
 
 ArrayHandle searchfor_file(const char *searchpath, const char *filetitle);
+
+int query_cpu_cores();
 
 	
 #ifdef __cplusplus

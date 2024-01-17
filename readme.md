@@ -21,7 +21,7 @@ A GUI tool that evaluates reversible decorrelating transforms.
 Supports high bit depth images.
 
 
-## Archived Projects (Obsolete)
+## Archived projects (obsolete)
 
 ### `entropy-battle`
 Experiments on lossless image compression. Older, messier project, contains even more obsolete techniques.

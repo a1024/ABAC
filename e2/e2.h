@@ -16,18 +16,51 @@ extern "C"
 //	#define ALLOW_OPENCL
 
 
-void calc_histogram(const unsigned char *buf, ptrdiff_t bytesize, ptrdiff_t stride, int *hist);
+typedef struct ImageStruct
+{
+	int iw, ih,
+		nch;//{greyscale, greyscale+alpha, RGB, RGB+alpha}	alpha can be ignored for now
+	char depth[4];
+	char src_depth[4];//for entropy calculations
+	int data[];//stride always sizeof(int[4])
+} Image;
+Image* image_load(const char *fn);
+int image_save_uint8(const char *fn, Image const *image, int override_alpha);
+int image_save_native(const char *fn, Image const *image, int override_alpha);
+Image* image_from_uint8(const unsigned char *src, int iw, int ih, int nch, char rdepth, char gdepth, char bdepth, char adepth);
+Image* image_from_uint16(const unsigned short *src, int iw, int ih, int nch, char *src_depths, char *dst_depths);
+void image_export_uint8(Image const *image, unsigned char **dst, int override_alpha);
+void image_export_uint16(Image const *image, unsigned short **dst, int override_alpha, int big_endian);
+double image_getBMPsize(Image const *image);
+size_t image_getbufsize(Image const *image);
+void image_copy_nodata(Image **dst, Image const *src);//dst must be 0 or a valid pointed
+void image_copy(Image **dst, Image const *src);//dst must be 0 or a valid pointed
 
 
-unsigned char* image_load(const char *filename, int *iw, int *ih);
+typedef struct LSIMHeaderStruct
+{
+	int iw, ih, nch;
+	char depth[4];
+	int codec_id;
+} LSIMHeader;
+size_t lsim_writeheader(ArrayHandle *dst, int iw, int ih, int nch, const char *depths, int codec_id);//returns number of bytes written
+size_t lsim_readheader(const unsigned char *src, size_t srclen, LSIMHeader *dst);//returns number of bytes read
+void image_from_lsimheader(Image **dst, LSIMHeader const *src);//dst must be 0 or a valid pointed
+
+
+//void calc_histogram(const unsigned char *buf, ptrdiff_t bytesize, ptrdiff_t stride, int *hist);
+
+
+//unsigned char* image_load(const char *filename, int *iw, int *ih);
 int image_save_png_rgba8(const char *filename, const unsigned char *image, int iw, int ih);
 
 
 //	#define ENABLE_GUIDE//debug
 
 //lossless tools
-int compare_bufs_uint8(unsigned char *b1, unsigned char *b0, int iw, int ih, int symbytes, int bytestride, const char *name, int backward, int loud);
-void compare_bufs_ps(float *b1, float *b0, int iw, int ih, const char *name, int backward);
+int compare_bufs_32(const int *b1, const int *b0, int iw, int ih, int nch, int chstride, const char *name, int backward, int loud);
+int compare_bufs_uint8(const unsigned char *b1, const unsigned char *b0, int iw, int ih, int symbytes, int bytestride, const char *name, int backward, int loud);
+void compare_bufs_ps(const float *b1, const float *b0, int iw, int ih, const char *name, int backward);
 
 size_t test16_encode(const unsigned char *src, int bw, int bh, int alpha, int *blockw, int *blockh, int *margin, ArrayHandle *data, int loud, int *csizes);
 int    test16_decode(const unsigned char *data, size_t srclen, int bw, int bh, int alpha, int *blockw, int *blockh, int *margin, unsigned char *buf);
@@ -124,12 +157,20 @@ int t44_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 size_t ma_test(const unsigned char *src, int iw, int ih, int enable_RCT_MA, int RCTtype, int enable_rounding, int loud);
 
 //T45 CALIC
-int t45_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);
-int t45_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
+int t45_encode(Image const *src, ArrayHandle *data, int loud);
+int t45_decode(const unsigned char *data, size_t srclen, Image *dst, int loud);
 
 double calc_bitsize(unsigned *CDF, int nlevels, int sym);
-double calc_csize_from_hist(int *hist, int nlevels, double *ret_usize);//works only with unit-increment histograms initialized with ones
-double calc_csize_rgba8(const char *src, int res, int kc);
+void calc_histogram(const int *buf, int iw, int ih, int kc, int x1, int x2, int y1, int y2, int depth, int *hist, int *hist8);
+double calc_entropy(const int *hist, int nlevels, int sum);
+int calc_maxdepth(Image const *image, int *inflation);
+void calc_depthfromdata(int *image, int iw, int ih, char *depths, const char *src_depths);
+//double calc_csize_from_hist(int *hist, int nlevels, double *ret_usize);//works only with unit-increment histograms initialized with ones
+void calc_csize(Image const *image, double *csizes);
+
+
+int t46_encode(Image const *src, ArrayHandle *data, int loud);
+int t46_decode(const unsigned char *data, size_t srclen, Image *dst, int loud);
 
 
 
@@ -143,8 +184,10 @@ void addbuf(unsigned char *buf, int iw, int ih, int nch, int bytestride, int amm
 
 void pack3_fwd(char *buf, int res);
 void pack3_inv(char *buf, int res);
-int get_nch(const char *buf, int res);//returns nch = {0 degenerate, 1 gray, 2 gray_alpha, 3, rgb, 4, rgb_alpha}
+int get_nch32(const int *buf, int res);//returns nch = {0 degenerate, 1 gray, 2 gray_alpha, 3, rgb, 4, rgb_alpha}
+int get_nch(const char *buf, int res);
 
+void rct_JPEG2000_32(Image *image, int fwd);
 void colortransform_YCoCg_R_fwd(char *buf, int iw, int ih);
 void colortransform_YCoCg_R_inv(char *buf, int iw, int ih);
 void colortransform_YCbCr_R_v0_fwd(char *buf, int iw, int ih);
@@ -169,18 +212,18 @@ void colortransform_subgreen_inv(char *buf, int iw, int ih);
 //	#define PW2_NPARAM (PW2_NPRED+8)
 extern double pw2_errors[PW2_NPRED];
 extern short pw2_params[PW2_NPARAM*3];
-void pred_w2_opt_v2(const char *buf2, int iw, int ih, short *params, int loud);
+//void pred_w2_opt_v2(const char *buf2, int iw, int ih, short *params, int loud);
 void pred_w2_apply(char *buf, int iw, int ih, short *allparams, int fwd);
 
 void pred_opt_printparam();
-void pred_opt_opt_v6(const char *buf2, int iw, int ih, int loud);//multi-threaded grid
+//void pred_opt_opt_v6(const char *buf2, int iw, int ih, int loud);//multi-threaded grid
 void pred_opt_apply(char *buf, int iw, int ih, int fwd);
 
 
 extern short jxlparams_i16[33];
 //extern double jxlpred_params[33];
 void pred_jxl_prealloc(const char *src, int iw, int ih, int kc, const short *params, int fwd, char *dst, int *temp_w10);
-void pred_jxl_opt_v2(const char *buf2, int iw, int ih, short *params, int loud);
+//void pred_jxl_opt_v2(const char *buf2, int iw, int ih, short *params, int loud);
 void pred_jxl_apply(char *buf, int iw, int ih, short *allparams, int fwd);
 
 void pred_grad_fwd(char *buf, int iw, int ih, int nch, int bytestride);

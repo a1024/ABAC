@@ -114,8 +114,8 @@ static void slic_predict(const short *src, short *dst, int iw, int ih, int fwd)/
 		for(int kx=0;kx<iw;++kx, ++idx)
 		{
 			short
-				N =ky?pixels[idx-iw]:0,			//SLIC_LOAD(pixels,  0, -1),
-				W =kx?pixels[idx-1]:0,			//SLIC_LOAD(pixels, -1,  0),
+				N =ky?pixels[idx-iw]:0,		//SLIC_LOAD(pixels,  0, -1),
+				W =kx?pixels[idx-1]:0,		//SLIC_LOAD(pixels, -1,  0),
 				NW=kx&&ky?pixels[idx-iw-1]:0;	//SLIC_LOAD(pixels, -1, -1);
 			short vmin, vmax, pred;
 			if(N<W)
@@ -171,8 +171,8 @@ typedef struct C2DNodeStruct
 typedef struct C2DListStruct
 {
 	C2DNodeHandle i, f;
-	size_t          //objsize == 1 byte
-		nodebytes,  //objpernode
+	size_t			//objsize == 1 byte
+		nodebytes,	//objpernode
 		nnodes,		//node count
 		nbytes;		//nobj: total byte count in list
 } C2DList, *C2DListHandle;
@@ -1168,7 +1168,6 @@ int main(int argc, char **argv)
 		
 			printf("Saving \'%s\'...\n", fn2);
 			t=clock();
-			int ret_size=0;
 			if(!slic2_save(fn2, iw, ih, 4, depth, udata))
 				printf("ERROR saving \'%s\'\n", fn2);
 			t=clock()-t;
