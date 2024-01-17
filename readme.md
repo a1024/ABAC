@@ -7,6 +7,8 @@ Each folder here contains a different project.
 The most up-to-date projects are:
 
 ### `best`
+[Update] Currently not the best. Check `e2.exe`.
+
 The export folder of achievements.
 Reference implementations of the best lossless algorithms that I comprehended.
 This program only prints the efficiency and timing info.
@@ -54,8 +56,6 @@ Note that it fails to recover the original image with GCC for unknown reasons [T
 Either create an MSVC 2022 CMake project, or:
 
 `gcc -O -mavx2 e2.c format.c lodepng.c tests.c tests2.c tests3.c tests4.c tests5.c transforms.c util.c -o e2`
-
-Note that it fails to recover the original image with GCC for unknown reasons [TODO].
 
 ### `eBench`
 Either create an MSVC 2022 CMake project, or:
