@@ -224,7 +224,7 @@ int floor_log2_32(unsigned n)
 	logn=success?logn:-1;
 	return logn;
 #elif defined __GNUC__
-	int logn=63-__builtin_clz(n);
+	int logn=31-__builtin_clz(n);
 	return logn;
 #else
 	int	logn=-!n;
@@ -335,10 +335,10 @@ int		acme_isdigit(char c, char base)
 {
 	switch(base)
 	{
-	case 2:		return BETWEEN('0', c, '1');
-	case 8:		return BETWEEN('0', c, '7');
-	case 10:	return BETWEEN('0', c, '9');
-	case 16:	return BETWEEN('0', c, '9')||BETWEEN('A', c&0xDF, 'F');
+	case 2:		return BETWEEN_INC('0', c, '1');
+	case 8:		return BETWEEN_INC('0', c, '7');
+	case 10:	return BETWEEN_INC('0', c, '9');
+	case 16:	return BETWEEN_INC('0', c, '9')||BETWEEN_INC('A', c&0xDF, 'F');
 	}
 	return 0;
 }
@@ -717,6 +717,40 @@ void* array_back(ArrayHandle *arr)
 	if(!*arr||!arr[0]->count)
 		return 0;
 	return arr[0]->data+(arr[0]->count-1)*arr[0]->esize;
+}
+
+int str_append(ArrayHandle *str, const char *format, ...)
+{
+	size_t reqlen;
+	va_list args;
+	va_start(args, format);
+	reqlen=vsnprintf(0, 0, format, args);//requires C99
+	if(str[0]->count+reqlen+1>str[0]->cap)
+	{
+		size_t c0=str[0]->count;
+		array_realloc(str, str[0]->count+reqlen, 1);
+		str[0]->count=c0;
+	}
+	reqlen=vsnprintf((char*)str[0]->data+str[0]->count, str[0]->cap-str[0]->count, format, args);
+	str[0]->count+=reqlen;
+	va_end(args);
+	return (int)reqlen;
+}
+
+size_t array_append(ArrayHandle *dst, const void *src, size_t esize, size_t count, size_t rep, size_t pad, void (*destructor)(void*))//arr can be 0, returns original array size
+{
+	size_t dststart=0;
+	if(!*dst)
+		*dst=array_construct(src, esize, count, rep, pad, destructor);
+	else
+	{
+		dststart=dst[0]->count*dst[0]->esize;
+		if(dst[0]->esize!=esize)
+			LOG_ERROR("Array element size mismatch");
+		else
+			ARRAY_APPEND(*dst, src, count, rep, pad);
+	}
+	return dststart;
 }
 #endif
 
@@ -1892,6 +1926,20 @@ ArrayHandle filter_path(const char *path)//replaces back slashes with slashes, a
 		STR_APPEND(path2, "/", 1, 1);
 	return path2;
 }
+ArrayHandle get_filetitle(const char *fn, int len)
+{
+	ArrayHandle title;
+	int kpoint, kslash;
+	if(len<0)
+		len=(int)strlen(fn);
+	for(kpoint=(int)len-1;kpoint>=0&&fn[kpoint]!='.';--kpoint);
+	if(kpoint<0)
+		kpoint=len;
+	for(kslash=kpoint-1;kslash>=0&&fn[kslash]!='/'&&fn[kslash]!='\\';--kslash);
+	++kslash;
+	STR_COPY(title, fn+kslash, kpoint-kslash);
+	return title;
+}
 static const char* get_extension(const char *filename, ptrdiff_t len)//excludes the dot
 {
 	ptrdiff_t idx;
@@ -1967,7 +2015,7 @@ ArrayHandle get_filenames(const char *path, const char **extensions, int extCoun
 	return filenames;
 }
 
-ArrayHandle load_file(const char *filename, int bin, int pad)
+ArrayHandle load_file(const char *filename, int bin, int pad, int erroronfail)
 {
 	struct stat info={0};
 	FILE *f;
@@ -1977,8 +2025,11 @@ ArrayHandle load_file(const char *filename, int bin, int pad)
 	int error=stat(filename, &info);
 	if(error)
 	{
-		strerror_s(g_buf, G_BUF_SIZE, errno);
-		LOG_ERROR("Cannot open %s\n%s", filename, g_buf);
+		if(erroronfail)
+		{
+			strerror_s(g_buf, G_BUF_SIZE, errno);
+			LOG_ERROR("Cannot open %s\n%s", filename, g_buf);
+		}
 		return 0;
 	}
 	fopen_s(&f, filename, mode);
@@ -1986,8 +2037,11 @@ ArrayHandle load_file(const char *filename, int bin, int pad)
 	//f=fopen(filename, "r, ccs=UTF-8");//gets converted to UTF-16 on Windows
 	if(!f)
 	{
-		strerror_s(g_buf, G_BUF_SIZE, errno);
-		LOG_ERROR("Cannot open %s\n%s", filename, g_buf);
+		if(erroronfail)
+		{
+			strerror_s(g_buf, G_BUF_SIZE, errno);
+			LOG_ERROR("Cannot open %s\n%s", filename, g_buf);
+		}
 		return 0;
 	}
 
@@ -1997,12 +2051,13 @@ ArrayHandle load_file(const char *filename, int bin, int pad)
 	memset(str->data+str->count, 0, str->cap-str->count);
 	return str;
 }
-int save_file_bin(const char *filename, const unsigned char *src, size_t srcSize)
+int save_file(const char *filename, const unsigned char *src, size_t srcSize, int is_bin)
 {
 	FILE *f;
 	size_t bytesRead;
+	char mode[]={'w', is_bin?'b':0, 0};
 
-	fopen_s(&f, filename, "wb");
+	fopen_s(&f, filename, mode);
 	if(!f)
 	{
 		printf("Failed to save %s\n", filename);
@@ -2010,7 +2065,7 @@ int save_file_bin(const char *filename, const unsigned char *src, size_t srcSize
 	}
 	bytesRead=fwrite(src, 1, srcSize, f);
 	fclose(f);
-	if(bytesRead!=srcSize)
+	if(is_bin&&bytesRead!=srcSize)
 	{
 		printf("Failed to save %s\n", filename);
 		return 0;

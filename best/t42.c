@@ -4,7 +4,9 @@
 #include<stdlib.h>
 #include<string.h>
 #include<math.h>
+#if defined _MSC_VER || defined __AVX2__
 #include<immintrin.h>
+#endif
 static const char file[]=__FILE__;
 
 static int clamp4(int x, int a, int b, int c, int d)
@@ -240,6 +242,7 @@ static int custom3_loadnb(const char *pixels, const char *errors, int iw, int ih
 }
 static int custom3_dot(const short *a, const short *b, int count)
 {
+#if defined _MSC_VER || defined __AVX2__
 	int k;
 	__m256i sum=_mm256_setzero_si256();
 	for(k=0;k<count-15;k+=16)//https://stackoverflow.com/questions/62041400/inner-product-of-two-16bit-integer-vectors-with-avx2-in-c
@@ -257,6 +260,12 @@ static int custom3_dot(const short *a, const short *b, int count)
 	for(;k<count;++k)
 		s3+=a[k]*b[k];
 	return s3;
+#else
+	int sum=0;
+	for(int k=0;k<count;++k)
+		sum+=a[k]*b[k];
+	return sum;
+#endif
 }
 void t42_ctx_get_context(T42Ctx *ctx, const char *buf, const char *ebuf, int iw, int ih, int kc, int kx, int ky)
 {

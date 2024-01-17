@@ -2,9 +2,12 @@
 
 add_executable(best
 	best.c
-	t39.c
-	t42.c
-	t45_calic.c
+	format.c
+	lodepng.c
+	#t39.c
+	#t42.c
+	#t45_calic.c
+	t46_slic4.c
 	transforms.c
 	util.c
 )

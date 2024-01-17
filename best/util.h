@@ -27,26 +27,29 @@ extern "C"
 #endif
 
 //utility
-#define COUNTOF(ARR)        (sizeof(ARR)/sizeof(*(ARR)))		//stdlib defines _countof
-#define BETWEEN(LO, X, HI)	((unsigned)((X)-LO)<(unsigned)(HI+1-LO))
-#define SWAPVAR(A, B, TEMP)	TEMP=A, A=B, B=TEMP
-#define MINVAR(A, B)        ((A)<(B)?(A):(B))
-#define MAXVAR(A, B)        ((A)>(B)?(A):(B))
-#define CLAMP(LO, X, HI)    ((X)>(LO)?(X)<(HI)?(X):(HI):(LO))
-//#define CLAMP(LO, X, HI)    ((X)<(LO)?(LO):((X)>(HI)?(HI):(X)))
-#define MOVEOBJ(SRC, DST, SIZE) memcpy(DST, SRC, SIZE), memset(SRC, 0, SIZE)
+#define BETWEEN_INC(LO, X, HI)	((unsigned)((X)-LO)<(unsigned)(HI+1-LO))
+#define BETWEEN_EXC(LO, X, HI) ((unsigned)((X)-LO)<(unsigned)(HI-LO))
+#define SWAPVAR(A, B, TEMP) TEMP=A, A=B, B=TEMP
+#define SWAPMEM(A, B, TEMP) memcpy(TEMP, A, sizeof(*(TEMP))), memcpy(A, B, sizeof(*(TEMP))), memcpy(B, TEMP, sizeof(*(TEMP)))
+#define ROTATE3(A, B, C, TEMP) TEMP=A, A=B, B=C, C=TEMP
+#define MINVAR(A, B) ((A)<(B)?(A):(B))
+#define MAXVAR(A, B) ((A)>(B)?(A):(B))
+#define CLAMP(LO, X, HI) ((X)>(LO)?(X)<(HI)?(X):(HI):(LO))
+#define MEDIAN3(A, B, C) (B<A?B<C?C<A?C:A:B:A<C?C<B?C:B:A)
+//#define MOVEOBJ(SRC, DST, SIZE) memcpy(DST, SRC, SIZE), memset(SRC, 0, SIZE)
 #define MODVAR(DST, SRC, N) DST=(SRC)%(N), DST+=(N)&-(DST<0)
+#define SHIFT_LEFT_SIGNED(X, SH) ((SH)<0?(X)>>-(SH):(X)<<(SH))
 
 #ifdef _MSC_VER
-#define	ALIGN(N)	__declspec(align(N))
+#define	ALIGN(N) __declspec(align(N))
 #else
-#define	ALIGN(N)	__attribute__((aligned(N)))
+#define	ALIGN(N) __attribute__((aligned(N)))
 #endif
 
 #ifndef _MSC_VER
-#define sprintf_s	snprintf
+#define sprintf_s snprintf
 #endif
-#define G_BUF_SIZE	4096
+#define G_BUF_SIZE 4096
 extern char g_buf[G_BUF_SIZE];
 
 void memfill(void *dst, const void *src, size_t dstbytes, size_t srcbytes);
@@ -122,6 +125,7 @@ typedef struct ArrayHeaderStruct//32 bytes on 64 bit system, or 16 bytes on 32 b
 #pragma warning(pop)
 #endif
 ArrayHandle array_construct(const void *src, size_t esize, size_t count, size_t rep, size_t pad, void (*destructor)(void*));
+size_t array_append(ArrayHandle *dst, const void *src, size_t esize, size_t count, size_t rep, size_t pad, void (*destructor)(void*));//arr can be 0, returns original array size
 ArrayHandle array_copy(ArrayHandle *arr);//shallow
 void  array_clear(ArrayHandle *arr);//keeps allocation
 void  array_free(ArrayHandle *arr);
@@ -133,6 +137,8 @@ void* array_replace(ArrayHandle *arr, size_t idx, size_t rem_count, const void *
 
 void* array_at(ArrayHandle *arr, size_t idx);
 void* array_back(ArrayHandle *arr);
+
+int str_append(ArrayHandle *str, const char *format, ...);
 
 #define ARRAY_ALLOC(ELEM_TYPE, ARR, DATA, COUNT, PAD, DESTRUCTOR) ARR=array_construct(DATA, sizeof(ELEM_TYPE), COUNT, 1, PAD, DESTRUCTOR)
 #define ARRAY_APPEND(ARR, DATA, COUNT, REP, PAD) array_insert(&(ARR), (ARR)->count, DATA, COUNT, REP, PAD)
@@ -337,13 +343,13 @@ void bitstring_print(BitstringHandle str);
 #endif
 
 
-//Max-heap-based priority queue
+//Priority Queue (Max-heap-based)
 #if 1
 typedef struct PQueueStruct
 {
-	size_t count, //number of elements
-	esize, //total element size in bytes
-	byteCap;  //allocated buffer size in bytes
+	size_t count,	//number of elements
+	esize,		//total element size in bytes
+	byteCap;	//allocated buffer size in bytes
 	int (*less)(const void*, const void*);//comparator function pointer
 	void (*destructor)(void*);//element destructor, can be 0
 	unsigned char data[];//each contained object begins with the key
@@ -391,10 +397,11 @@ ptrdiff_t get_filesize(const char *filename);//-1 not found,  0: folder (probabl
 int acme_stricmp(const char *a, const char *b);//case insensitive strcmp
 ptrdiff_t acme_strrchr(const char *str, ptrdiff_t len, char c);//find last occurrence, with known length for backward search
 ArrayHandle filter_path(const char *path);//replaces back slashes with slashes, and adds trailing slash if missing, as ArrayHandle
+ArrayHandle get_filetitle(const char *fn, int len);
 ArrayHandle get_filenames(const char *path, const char **extensions, int extCount, int fullyqualified);//returns array of strings
 
-ArrayHandle load_file(const char *filename, int bin, int pad);
-int save_file_bin(const char *filename, const unsigned char *src, size_t srcSize);
+ArrayHandle load_file(const char *filename, int bin, int pad, int erroronfail);
+int save_file(const char *filename, const unsigned char *src, size_t srcSize, int is_bin);
 
 ArrayHandle searchfor_file(const char *searchpath, const char *filetitle);
 

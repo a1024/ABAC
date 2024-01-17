@@ -7,8 +7,6 @@ Each folder here contains a different project.
 The most up-to-date projects are:
 
 ### `best`
-[Update] Currently not the best. Check `e2.exe`.
-
 The export folder of achievements.
 Reference implementations of the best lossless algorithms that I comprehended.
 This program only prints the efficiency and timing info.
@@ -48,9 +46,7 @@ Not tested yet on GCC.
 ### `best`
 Either create an MSVC 2022 CMake project, or:
 
-`gcc -O -mavx2 best.c t39.c t42.c t45_calic.c transforms.c util.c -o best`
-
-Note that it fails to recover the original image with GCC for unknown reasons [TODO].
+`gcc -O best.c format.c lodepng.c t46_slic4.c transforms.c util.c -o best`
 
 ### `e2`
 Either create an MSVC 2022 CMake project, or:

@@ -240,7 +240,10 @@ static void ac_dec_init(ArithmeticCoder *ec, const unsigned char *start, unsigne
 	ec->srcend=end;
 
 	if(ec->srcptr+4>ec->srcend)
+	{
 		LOG_ERROR2("buffer overflow");
+		return;
+	}
 	memcpy(&ec->code, ec->srcptr, 4);
 	ec->srcptr+=4;
 }
@@ -355,8 +358,7 @@ static void ac_enc(ArithmeticCoder *ec, int sym, const unsigned *CDF, int nlevel
 	hi2=ec->lo+(int)((unsigned long long)(ec->hi-ec->lo)*cdf_next>>16);
 	acval_enc(sym, cdf_curr, cdf_next-cdf_curr, ec->lo, ec->hi, lo2, hi2, ec->cache, ec->nbits);//
 	ec->lo=lo2;
-	//ec->lo=lo2+!CDF;//because bypass decoder used to fail when code == lo2
-	ec->hi=hi2-1;//because decoder fails when code == hi2
+	ec->hi=hi2-1;//must decrement hi because decoder fails when code == hi2
 }
 static int ac_dec(ArithmeticCoder *ec, const unsigned *CDF, int nlevels, unsigned fmin)
 {
@@ -393,7 +395,7 @@ static int ac_dec(ArithmeticCoder *ec, const unsigned *CDF, int nlevels, unsigne
 	else//bypass
 	{
 		cdf_start=(int)(((unsigned long long)(ec->code-ec->lo)<<16)/(ec->hi-ec->lo));
-		sym=(cdf_start*nlevels>>16)+1;
+		sym=(cdf_start*nlevels>>16)+1;//this is to handle the case when code == lo2
 		cdf_start=(sym<<16)/nlevels;
 		lo2=ec->lo+(int)((unsigned long long)(ec->hi-ec->lo)*cdf_start>>16);
 		if(lo2>ec->code)
@@ -402,19 +404,13 @@ static int ac_dec(ArithmeticCoder *ec, const unsigned *CDF, int nlevels, unsigne
 			cdf_start=(sym<<16)/nlevels;
 		}
 		cdf_end=((sym+1)<<16)/nlevels;
-
-		//sym=(int)(((unsigned long long)(ec->code-ec->lo)*nlevels+((ec->hi-ec->lo)>>1))/(ec->hi-ec->lo));//X
-		//sym=(int)((unsigned long long)(ec->code-ec->lo)*nlevels/(ec->hi-ec->lo));
-		//cdf_start=(sym<<16)/nlevels;
-		//cdf_end=((sym+1)<<16)/nlevels;
 	}
 
 	lo2=ec->lo+(int)((unsigned long long)(ec->hi-ec->lo)*cdf_start>>16);
 	hi2=ec->lo+(int)((unsigned long long)(ec->hi-ec->lo)*cdf_end  >>16);
 	acval_dec(sym, cdf_start, cdf_end-cdf_start, ec->lo, ec->hi, lo2, hi2, ec->cache, ec->nbits, ec->code);//
 	ec->lo=lo2;
-	//ec->lo=lo2+!CDF;//because of bypass
-	ec->hi=hi2-1;//OBLIGATORY range leak guard
+	ec->hi=hi2-1;//must decrement hi because decoder fails when code == hi2
 	return sym;
 }
 static void ac_enc_bin(ArithmeticCoder *ec, unsigned short p0, int bit)
@@ -433,7 +429,7 @@ static void ac_enc_bin(ArithmeticCoder *ec, unsigned short p0, int bit)
 	if(bit)
 		ec->lo=mid;
 	else
-		ec->hi=mid-1;//OBLIGATORY range leak guard
+		ec->hi=mid-1;//must decrement hi because decoder fails when code == hi2
 }
 static int ac_dec_bin(ArithmeticCoder *ec, unsigned short p0)//binary AC decoder doesn't do binary search
 {
@@ -452,7 +448,7 @@ static int ac_dec_bin(ArithmeticCoder *ec, unsigned short p0)//binary AC decoder
 	if(bit)
 		ec->lo=mid;
 	else
-		ec->hi=mid-1;//OBLIGATORY range leak guard
+		ec->hi=mid-1;//must decrement hi because decoder fails when code == hi2
 
 	return bit;
 }
@@ -507,7 +503,7 @@ static void ans_enc(ANSCoder *ec, int sym, const unsigned *CDF, int nlevels)
 		cdf=(sym<<16)/nlevels, freq=((sym+1)<<16)/nlevels-cdf;
 	if(!freq)
 		LOG_ERROR2("ZPS");
-	if(ec->state>=(unsigned)(freq<<16))//renorm
+	if((ec->state>>16)>=(unsigned)freq)//renorm
 	{
 		dlist_push_back(ec->list, &ec->state, 2);
 		ec->state>>=16;
@@ -566,7 +562,7 @@ static int ans_dec(ANSCoder *ec, const unsigned *CDF, int nlevels)
 static void ans_enc_bin(ANSCoder *ec, unsigned short p0, int bit)
 {
 	int cdf=bit?p0:0, freq=bit?0x10000-p0:p0;
-	if(ec->state>=(unsigned)(freq<<16))//renorm
+	if((ec->state>>16)>=(unsigned)freq)//renorm
 	{
 		dlist_push_back(ec->list, &ec->state, 2);
 		ec->state>>=16;
