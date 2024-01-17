@@ -157,9 +157,9 @@ int t46_encode(Image const *src, ArrayHandle *data, int loud)
 	double t_start=time_sec();
 	ptrdiff_t res=(ptrdiff_t)src->iw*src->ih;
 	int maxdepth=calc_maxdepth(src, 0), maxlevels=1<<maxdepth;
-	double bpp=
-		((double)src->src_depth[0]+src->src_depth[1]+src->src_depth[2]+src->src_depth[3])/
-		(8*((src->src_depth[0]!=0)+(src->src_depth[1]!=0)+(src->src_depth[2]!=0)+(src->src_depth[3]!=0)));
+	//double bpp=
+	//	((double)src->src_depth[0]+src->src_depth[1]+src->src_depth[2]+src->src_depth[3])/
+	//	(8*((src->src_depth[0]!=0)+(src->src_depth[1]!=0)+(src->src_depth[2]!=0)+(src->src_depth[3]!=0)));
 	double usize=image_getBMPsize(src);
 	int nch=src->nch;
 	//int nch=get_nch32(src->data, res);//FIXME: differentiate between just gray and just alpha

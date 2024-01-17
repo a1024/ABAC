@@ -230,7 +230,7 @@ int floor_log2_32(unsigned n)
 	logn=success?logn:-1;
 	return logn;
 #elif defined __GNUC__
-	int logn=63-__builtin_clz(n);
+	int logn=31-__builtin_clz(n);
 	return logn;
 #else
 	int	logn=-!n;

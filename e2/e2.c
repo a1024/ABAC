@@ -266,6 +266,7 @@ static void process_file(ProcessCtx *ctx, ArrayHandle title, int maxlen, Image *
 		ctx->nfinished=ctx->nstarted;
 	}
 }
+#if 0
 static int get_ext_from_path(ArrayHandle fn)
 {
 	int kpoint=(int)fn->count-1;
@@ -279,6 +280,7 @@ static int get_title_from_path(ArrayHandle fn, int start)
 	kslash+=kslash>0&&(fn->data[kslash]=='/'||fn->data[kslash]=='\\');
 	return kslash;
 }
+#endif
 void batch_test_mt(const char *path, int nthreads)
 {
 	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H%M%S");
@@ -1084,6 +1086,11 @@ ProgArgs args=
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/cathedral.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/hdr.png",
 };
+//{
+//	OP_DECOMPRESS, 1, 0,
+//	"C:/Projects/datasets/kodim13.lsim",
+//	"C:/Projects/datasets/kodim13-dec.png",
+//};
 int main(int argc, char **argv)
 {
 	//const int LOL_1=(-1)/2;//0
