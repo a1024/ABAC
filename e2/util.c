@@ -1940,6 +1940,20 @@ ArrayHandle filter_path(const char *path, int len)//replaces back slashes with s
 		STR_APPEND(path2, "/", 1, 1);
 	return path2;
 }
+ArrayHandle get_filetitle(const char *fn, int len)
+{
+	ArrayHandle title;
+	int kpoint, kslash;
+	if(len<0)
+		len=(int)strlen(fn);
+	for(kpoint=(int)len-1;kpoint>=0&&fn[kpoint]!='.';--kpoint);
+	if(kpoint<0)
+		kpoint=len;
+	for(kslash=kpoint-1;kslash>=0&&fn[kslash]!='/'&&fn[kslash]!='\\';--kslash);
+	++kslash;
+	STR_COPY(title, fn+kslash, kpoint-kslash);
+	return title;
+}
 static const char* get_extension(const char *filename, ptrdiff_t len)//excludes the dot
 {
 	ptrdiff_t idx;

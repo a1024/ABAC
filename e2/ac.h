@@ -503,7 +503,7 @@ static void ans_enc(ANSCoder *ec, int sym, const unsigned *CDF, int nlevels)
 		cdf=(sym<<16)/nlevels, freq=((sym+1)<<16)/nlevels-cdf;
 	if(!freq)
 		LOG_ERROR2("ZPS");
-	if((ec->state>>16)>=freq)//renorm
+	if((ec->state>>16)>=(unsigned)freq)//renorm
 	{
 		dlist_push_back(ec->list, &ec->state, 2);
 		ec->state>>=16;
@@ -562,7 +562,7 @@ static int ans_dec(ANSCoder *ec, const unsigned *CDF, int nlevels)
 static void ans_enc_bin(ANSCoder *ec, unsigned short p0, int bit)
 {
 	int cdf=bit?p0:0, freq=bit?0x10000-p0:p0;
-	if((ec->state>>16)>=freq)//renorm
+	if((ec->state>>16)>=(unsigned)freq)//renorm
 	{
 		dlist_push_back(ec->list, &ec->state, 2);
 		ec->state>>=16;

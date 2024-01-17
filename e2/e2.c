@@ -45,11 +45,12 @@ const char *g_extensions[]=
 
 typedef struct ThreadArgsStruct
 {
+	ArrayHandle title;
 	Image *src, *dst;
 	//int iw, ih;
 	//unsigned char *src, *dst;
 	size_t usize, csize1, csize2;
-	double enc, dec;//time in secs
+	double fdec, enc, dec;//time in secs
 	int error;//whether the image was recovered successfully
 	ptrdiff_t idx;
 } ThreadArgs;
@@ -88,9 +89,9 @@ static THREAD_RET THREAD_CALL sample_thread(void *param)
 }
 typedef struct ResultStruct
 {
-	ptrdiff_t idx;
+	//ptrdiff_t idx;
 	size_t usize, csize1, csize2, error;
-	double enc, dec;
+	double fdec, enc, dec;
 } Result;
 typedef struct ProcessCtxStruct
 {
@@ -98,13 +99,19 @@ typedef struct ProcessCtxStruct
 	ArrayHandle threadargs;//<ThreadArgs>	*thread_count
 	ArrayHandle results;//<Result>		*nsamples
 } ProcessCtx;
-static void print_result(Result *res, int idx)
+static void print_result(Result *res, const char *title, int width)
 {
+	//int kpoint, kslash;
+	//for(kpoint=(int)res->title->count-1;kpoint>=0&&res->fn->data[kpoint]!='.';--kpoint);
+	//for(kslash=kpoint;kslash>=0&&res->fn->data[kslash]!='/'&&res->fn->data[kslash]!='\\';--kslash);
+
 	double
 		CR1=(double)res->usize/res->csize1,
 		CR2=(double)res->usize/res->csize2;
-	printf("%5d %16lf %16lf %16lf %16lf %s\n",
-		idx, CR1, CR2, res->enc, res->dec, res->error?"ERROR":"SUCCESS"
+	printf("%-*s  format %10lld %10.6lf D %12lf sec  test %10lld %10.6lf E %12lf D %12lf sec %s\n",
+		width, title,
+		res->csize1, CR1, res->fdec,
+		res->csize2, CR2, res->enc, res->dec, res->error?"ERROR":"SUCCESS"
 	);
 	//printf("%10lld %10lld %10lld %16lf %16lf %16lf %16lf\n",
 	//	res->usize,
@@ -116,17 +123,16 @@ static void print_result(Result *res, int idx)
 	//	res->dec
 	//);
 }
+#if 0
 static void print_result2(Result *res)
 {
 	double
 		CR1=(double)res->usize/res->csize1,
 		CR2=(double)res->usize/res->csize2;
-	printf("%10lld %10lld %10lld %16lf %16lf",
+	printf("usize %10lld format %10lld %16lf sec %12lf test %10lld %16lf sec %12lf %12lf",
 		res->usize,
-		res->csize1,
-		res->csize2,
-		8/CR1,
-		8/CR2
+		res->csize1, CR1, res->fdec,
+		res->csize2, CR2, res->enc, res->dec
 	);
 
 	printf(" Enc %16lf Dec %16lf", res->enc, res->dec);
@@ -138,7 +144,8 @@ static void print_result2(Result *res)
 		
 	printf("\n");
 }
-static void process_file(ProcessCtx *ctx, Image *image, size_t csize1, ptrdiff_t idx, int nthreads)
+#endif
+static void process_file(ProcessCtx *ctx, ArrayHandle title, int maxlen, Image *image, size_t csize1, double fdec, ptrdiff_t idx, int nthreads)
 {
 	if(!ctx->nstarted)
 	{
@@ -158,9 +165,11 @@ static void process_file(ProcessCtx *ctx, Image *image, size_t csize1, ptrdiff_t
 			return;
 		}
 		memset(threadargs->dst->data, 0, res*sizeof(int[4]));
+		threadargs->title=title;
 		threadargs->usize=0;
 		threadargs->csize1=csize1;
 		threadargs->csize2=0;
+		threadargs->fdec=fdec;
 		threadargs->enc=0;
 		threadargs->dec=0;
 		threadargs->error=0;
@@ -168,22 +177,23 @@ static void process_file(ProcessCtx *ctx, Image *image, size_t csize1, ptrdiff_t
 		++ctx->nstarted;
 	}
 
-	if(ctx->nstarted==1)//first sample initializes memory, can't parallelize
+	if(ctx->nstarted==1)//first sample initializes memory, can't parallelize yet
 	{
 		ThreadArgs *threadargs=array_at(&ctx->threadargs, ctx->threadargs->count-1);
 		sample_thread(threadargs);
 		Result result=
 		{
-			threadargs->idx,
 			threadargs->usize,
 			threadargs->csize1,
 			threadargs->csize2,
 			threadargs->error,
+			threadargs->fdec,
 			threadargs->enc,
 			threadargs->dec,
 		};
 		ARRAY_APPEND(ctx->results, &result, 1, 1, 0);
-		print_result(&result, ctx->nfinished+1);
+		print_result(&result, (char*)threadargs->title->data, maxlen);
+		//print_result(&result, ctx->nfinished+1);
 
 		//if(threadargs->error)//
 		//	printf("ERROR\n");
@@ -191,7 +201,7 @@ static void process_file(ProcessCtx *ctx, Image *image, size_t csize1, ptrdiff_t
 		array_clear(&ctx->threadargs);
 		ctx->nfinished=ctx->nstarted;
 	}
-	else if(!image||ctx->nstarted-ctx->nfinished>=nthreads)
+	else if(ctx->nstarted-ctx->nfinished>=nthreads)
 	{
 		int n=ctx->nstarted-ctx->nfinished;
 		ArrayHandle handles;
@@ -239,16 +249,17 @@ static void process_file(ProcessCtx *ctx, Image *image, size_t csize1, ptrdiff_t
 			ThreadArgs *threadargs=(ThreadArgs*)array_at(&ctx->threadargs, k);
 			Result result=
 			{
-				threadargs->idx,
 				threadargs->usize,
 				threadargs->csize1,
 				threadargs->csize2,
 				threadargs->error,
+				threadargs->fdec,
 				threadargs->enc,
 				threadargs->dec,
 			};
 			ARRAY_APPEND(ctx->results, &result, 1, 1, 0);
-			print_result(&result, ctx->nfinished+k+1);
+			print_result(&result, (char*)threadargs->title->data, maxlen);
+			//print_result(&result, ctx->nfinished+k+1);
 		}
 
 		array_clear(&ctx->threadargs);
@@ -280,21 +291,35 @@ void batch_test_mt(const char *path, int nthreads)
 		printf("No supported images in \"%s\"\n", path);
 		return;
 	}
-	ProcessCtx processctx={0};
-	for(ptrdiff_t k=0;k<(ptrdiff_t)filenames->count;++k)
+	ArrayHandle titles;
+	ARRAY_ALLOC(ArrayHandle, titles, 0, 0, filenames->count, (void(*)(void*))array_free);
+	int width=6;//"Total:"
+	for(int k=0;k<(int)filenames->count;++k)
 	{
 		ArrayHandle *fn=(ArrayHandle*)array_at(&filenames, k);
-		if(!fn)
-		{
-			printf("Filename error.\n");
-			continue;
-		}
+		ArrayHandle title=get_filetitle((char*)fn[0]->data, (int)fn[0]->count);
+		if(width<(int)title->count)
+			width=(int)title->count;
+		ARRAY_APPEND(titles, &title, 1, 1, 0);
+	}
+	ProcessCtx processctx={0};
+	for(int k=0;k<(int)filenames->count;++k)
+	{
+		ArrayHandle *fn=(ArrayHandle*)array_at(&filenames, k);
+		ArrayHandle *title=(ArrayHandle*)array_at(&titles, k);
+		//if(!fn)
+		//{
+		//	printf("Filename error.\n");
+		//	continue;
+		//}
 
 		ptrdiff_t formatsize=get_filesize((char*)fn[0]->data);
 		if(!formatsize||formatsize==-1)//skip non-images, this check is useless because get_filenames() has already filtered the list
 			continue;
 
+		double t=time_sec();
 		Image *image=image_load((char*)fn[0]->data);
+		t=time_sec()-t;
 		//int iw=0, ih=0;
 		//long long cycles=__rdtsc();
 		//unsigned char *buf=image_load((char*)fn[0]->data, &iw, &ih);
@@ -304,15 +329,16 @@ void batch_test_mt(const char *path, int nthreads)
 			printf("Cannot open \"%s\"\n", fn[0]->data);
 			continue;
 		}
-		process_file(&processctx, image, formatsize, k, nthreads);
+		process_file(&processctx, *title, width, image, formatsize, t, k, nthreads);
 	}
-	process_file(&processctx, 0, 0, 0, nthreads);//flush queued images
+	process_file(&processctx, 0, width, 0, 0, 0, 0, 0);//set nthreads=0 to flush queued images
 	if(processctx.results)
 	{
 		Result total={0};
-		printf("\n");
-		printf("uncompressed, prevsize, newsize, prevBPP, newBPP, enc, dec\n");
-		int maxlen=0;
+		//printf("\n");
+		//printf("uncompressed, prevsize, newsize, prevBPP, newBPP, enc, dec\n");
+		//int maxlen=6;//"Total:"
+#if 0
 		for(int k=0;k<processctx.results->count;++k)
 		{
 			Result *result=(Result*)array_at(&processctx.results, k);
@@ -323,10 +349,11 @@ void batch_test_mt(const char *path, int nthreads)
 			if(maxlen<n)
 				maxlen=n;
 		}
+#endif
 		for(int k=0;k<processctx.results->count;++k)
 		{
 			Result *result=(Result*)array_at(&processctx.results, k);
-
+#if 0
 			ArrayHandle *fn=(ArrayHandle*)array_at(&filenames, result->idx);
 			int
 				kpoint=get_ext_from_path(*fn),
@@ -336,16 +363,18 @@ void batch_test_mt(const char *path, int nthreads)
 			//printf("%5d ", k);
 
 			print_result2(result);
+#endif
 
 			total.usize+=result->usize;
 			total.csize1+=result->csize1;
 			total.csize2+=result->csize2;
 			total.error+=result->error;
+			total.fdec+=result->fdec;
 			total.enc+=result->enc;
 			total.dec+=result->dec;
 		}
-		printf("\nTotal  ");
-		print_result2(&total);
+		printf("\n");
+		print_result(&total, "Total:", width);
 		array_free(&processctx.results);
 	}
 	printf("Batch elapsed ");
@@ -1048,11 +1077,12 @@ ProgArgs args=
 {
 	OP_TESTFILE, 1, 0,//op, nthreads, formatsize
 
-//	"C:/Projects/datasets/dataset-kodak/kodim13.png",
+//	"C:/Projects/datasets/dataset-kodak/kodim02.png",
+	"C:/Projects/datasets/dataset-kodak/kodim13.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/artificial.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/big_building.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/cathedral.png",
-	"C:/Projects/datasets/dataset-ic-rgb16bit/hdr.png",
+//	"C:/Projects/datasets/dataset-ic-rgb16bit/hdr.png",
 };
 int main(int argc, char **argv)
 {

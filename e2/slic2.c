@@ -783,7 +783,7 @@ unsigned char* slic2_encode(int iw, int ih, int nch, int depth, const void *src,
 				unsigned short sym=(pixel<<1)^-((unsigned short)pixel>=half);//L-permutation
 				sym&=(1<<truedepth[kc])-1;
 				
-				int token, bypass;//the scheme for high bitdepth from JPEG XL
+				int token, bypass;//the scheme for high bitdepth from JPEG XL	hybrid config 5 2 0
 				int nbits;
 				if(sym)
 				{
