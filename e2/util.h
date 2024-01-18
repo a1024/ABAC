@@ -35,8 +35,8 @@ extern "C"
 #define MINVAR(A, B) ((A)<(B)?(A):(B))
 #define MAXVAR(A, B) ((A)>(B)?(A):(B))
 #define CLAMP(LO, X, HI) ((X)>(LO)?(X)<(HI)?(X):(HI):(LO))
-#define MEDIAN3(A, B, C) (B<A?B<C?C<A?C:A:B:A<C?C<B?C:B:A)
-#define MOVEOBJ(SRC, DST, SIZE) memcpy(DST, SRC, SIZE), memset(SRC, 0, SIZE)
+#define MEDIAN3(A, B, C) (B<A?B<C?C<A?C:A:B:A<C?C<B?C:B:A)//3 branches max
+//#define MOVEOBJ(SRC, DST, SIZE) memcpy(DST, SRC, SIZE), memset(SRC, 0, SIZE)
 #define MODVAR(DST, SRC, N) DST=(SRC)%(N), DST+=(N)&-(DST<0)
 #define SHIFT_LEFT_SIGNED(X, SH) ((SH)<0?(X)>>-(SH):(X)<<(SH))
 
@@ -140,6 +140,8 @@ void* array_replace(ArrayHandle *arr, size_t idx, size_t rem_count, const void *
 #define ARRAY_AT(ETYPE, ARR, IDX) (ETYPE*)((ARR)&&IDX<(ARR)->count?(ARR)->data+(IDX)*(ARR)->esize:LOG_ERROR("OOB"))
 void* array_at(ArrayHandle *arr, size_t idx);
 void* array_back(ArrayHandle *arr);
+
+int str_append(ArrayHandle *str, const char *format, ...);
 
 #define ARRAY_ALLOC(ELEM_TYPE, ARR, DATA, COUNT, PAD, DESTRUCTOR) ARR=array_construct(DATA, sizeof(ELEM_TYPE), COUNT, 1, PAD, DESTRUCTOR)
 #define ARRAY_APPEND(ARR, DATA, COUNT, REP, PAD) array_insert(&(ARR), (ARR)->count, DATA, COUNT, REP, PAD)

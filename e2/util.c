@@ -1969,7 +1969,7 @@ static const char* get_extension(const char *filename, ptrdiff_t len)//excludes 
 	return dot+1;
 #endif
 }
-void	free_str(void *p)
+void free_str(void *p)
 {
 	ArrayHandle *str;
 	

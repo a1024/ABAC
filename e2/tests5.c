@@ -25,10 +25,9 @@ typedef struct TempHybridStruct
 } TempHybrid;
 
 //from libjxl		packsign(pixel) = 0b00001MMBB...BBL	token = offset + 0bGGGGMML,  where G = bits of lg(packsign(pixel)),  bypass = 0bBB...BB
-void hybriduint_encode(int val, TempHybrid *hu)
+void hybriduint_encode(unsigned val, TempHybrid *hu)
 {
 	int token, bypass, nbits;
-	val=(val<<1)^-(val<0);//pack sign
 #ifdef SLIC4_USE_SIMPLE_HYBRID
 	if(val<16)
 	{
@@ -125,6 +124,7 @@ static void slic4_pred(Image const *im, int kc, int kx, int ky, int scale, int p
 		//hist_ctx=quantize(abs(prev_error)),
 		//hist_ctx=quantize(energy>>scale),
 		sse_ctx=quantize((abs(W-WW)+abs(N-NN))>>(scale+2))*quantize(abs(prev_error));//best
+		//sse_ctx=(_countof(qlevels)+1)*quantize((abs(W-WW)+abs(N-NN))>>(scale+2))+quantize(abs(prev_error));
 		//sse_ctx=hist_ctx;
 		//sse_ctx=(_countof(qlevels)+1)*quantize(abs(W-WW)>>(scale+1))+quantize(abs(N-NN)>>(scale+1));
 		//sse_ctx=quantize(abs(W-WW)>>(scale+1))*quantize(abs(N-NN)>>(scale+1));
@@ -136,6 +136,7 @@ static void slic4_pred(Image const *im, int kc, int kx, int ky, int scale, int p
 	pred+=corr;
 	ret[0]=pred;
 	ret[1]=hist_ctx;
+	ret[2]=corr;
 }
 static void slic4_update_sse(long long *cell, int error)
 {
@@ -279,24 +280,64 @@ int t46_encode(Image const *src, ArrayHandle *data, int loud)
 				//if(kc==0&&kx==0&&ky==0)//
 				//if(kc==1&&kx==648&&ky==354)//
 				//if(kc==0&&kx==237&&ky==205)//
+				//if(kc==0&&kx==108&&ky==2)//
+				//if(kc==0&&kx==3&&ky==0)//
+				//if(kc==0&&kx==2&&ky==0)//
+				//if(kc==0&&kx==0&&ky==511)//
 				//	printf("");
 
-				int ctx[2];
+				int ctx[3];
 				long long *cell;
 				slic4_pred(im2, kc, kx, ky, shift, prev_error, sse, ctx, &cell);
 				int curr=im2->data[idx<<2|kc];
-				int error=curr-ctx[0];
-				error+=nlevels>>1;//modular arithmetic
-				error&=nlevels-1;
-				error-=nlevels>>1;
+				int error0=curr-ctx[0], error=error0;
+				int negmask=-(ctx[2]<0);
+				error^=negmask;
+				error-=negmask;
+				//error+=nlevels>>1;//no need for modular arithmetic
+				//error&=nlevels-1;
+				//error-=nlevels>>1;
+				if(error)//sign pack from CALIC
+				{
+					int cond=(ctx[0]<0)==(ctx[2]<0);
+					int upred=ctx[0];
+					upred^=-cond;
+					upred+=cond;
+					upred+=nlevels>>1;//upred = half + ((ctx[0]<0)!=(ctx[2]<0) ? pred : -pred)
+					if(abs(error)<=upred)
+						error=(error<<1)^-(error<0);//pack sign
+					else
+						error=upred+abs(error);//error sign is known
+				}
+#if 0
+				if(error)
+				{
+					if((ctx[0]<0)!=(ctx[2]<0))
+					{
+						int upred=(nlevels>>1)+ctx[0];
+						if(abs(error)<=upred)
+							error=(error<<1)^-(error<0);//pack sign
+						else
+							error=upred+abs(error);//error sign is known
+					}
+					else
+					{
+						int upred=(nlevels>>1)-ctx[0];
+						if(abs(error)<=upred)
+							error=(error<<1)^-(error<0);//pack sign
+						else
+							error=upred+abs(error);
+					}
+				}
+#endif
 				hybriduint_encode(error, &hu);
 				if(hu.token>=cdfsize)
 					LOG_ERROR("Token OOB %d/%d", hu.token, cdfsize);
 				++hist[(cdfsize+1)*ctx[1]+hu.token];
 				im3->data[idx<<2|kc]=hu.token<<16|ctx[1];
 				im4->data[idx<<2|kc]=hu.bypass;
-				slic4_update_sse(cell, error);
-				prev_error=error;
+				slic4_update_sse(cell, error0);
+				prev_error=error0;
 			}
 		}
 	}
@@ -553,9 +594,13 @@ int t46_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 				//if(kc==0&&kx==23&&ky==0)//
 				//if(kc==0&&kx==0&&ky==0)//
 				//if(kc==1&&kx==648&&ky==354)//
+				//if(kc==0&&kx==108&&ky==2)//
+				//if(kc==0&&kx==3&&ky==0)//
+				//if(kc==0&&kx==2&&ky==0)//
+				//if(kc==0&&kx==0&&ky==511)//
 				//	printf("");
 
-				int ctx[2];
+				int ctx[3];
 				long long *cell;
 				slic4_pred(dst, kc, kx, ky, shift, prev_error, sse, ctx, &cell);
 				unsigned *CDF=hist+(cdfsize+1)*ctx[1];
@@ -588,10 +633,45 @@ int t46_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 					sym|=lsb;
 				}
 #endif
-				int error=(sym>>1)^-(sym&1), curr=error+ctx[0];
-				curr+=nlevels>>1;//modular arithmetic
-				curr&=nlevels-1;
-				curr-=nlevels>>1;
+				int error;
+				int cond=(ctx[0]<0)==(ctx[2]<0);
+				int upred=ctx[0];
+				upred^=-cond;
+				upred+=cond;
+				upred+=nlevels>>1;
+				if(sym<=(upred<<1))//sign pack from CALIC
+					error=sym>>1^-(sym&1);//unpack sign
+				else
+				{
+					error=sym-upred;//error sign is known
+					error^=-cond;
+					error+=cond;
+				}
+#if 0
+				if((ctx[0]<0)!=(ctx[2]<0))
+				{
+					int upred=(nlevels>>1)+ctx[0];
+					if(sym<=(upred<<1))
+						error=sym>>1^-(sym&1);
+					else
+						error=sym-upred;
+				}
+				else
+				{
+					int upred=(nlevels>>1)-ctx[0];
+					if(sym<=(upred<<1))
+						error=sym>>1^-(sym&1);
+					else
+						error=upred-sym;
+				}
+#endif
+				int negmask=-(ctx[2]<0);
+				error^=negmask;
+				error-=negmask;
+				int curr=error+ctx[0];
+				//curr+=nlevels>>1;//no need for modular arithmetic
+				//curr&=nlevels-1;
+				//curr-=nlevels>>1;
 				//if(guide&&curr!=guide->data[idx<<2|kc])
 				//	LOG_ERROR("Guide error");
 				dst->data[idx<<2|kc]=curr;

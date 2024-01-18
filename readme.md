@@ -41,7 +41,6 @@ Outdated. Only kept in case I need anything from there.
 Currently, building these projects in the current state is supported only on Windows.
 But the main coding algorithms can be easily ported to any platform.
 These projects should compile fine on MSVC 2022.
-Not tested yet on GCC.
 
 ### `best`
 Either create an MSVC 2022 CMake project, or:
