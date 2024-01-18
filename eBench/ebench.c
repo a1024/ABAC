@@ -246,17 +246,14 @@ void hybriduint_encode(int val, int *tbn)
 	tbn[2]=nbits;
 }
 #endif
-typedef struct TempHybridStruct
+typedef union TempHybridStruct
 {
-	union
+	struct
 	{
-		struct
-		{
-			unsigned char token, nbits;
-			unsigned short bypass;
-		};
-		int data;
+		unsigned char token, nbits;
+		unsigned short bypass;
 	};
+	int data;
 } TempHybrid;
 static const int calcsize_ans_qlevels[]=
 {

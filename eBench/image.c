@@ -60,7 +60,7 @@ Image* image_from_uint16(const unsigned short *src, int iw, int ih, int nch, cha
 		dst_depths[0]-src_depths[0],
 		dst_depths[1]-src_depths[1],
 		dst_depths[2]-src_depths[2],
-		dst_depths[3]-src_depths[3],
+		dst_depths[3]-src_depths[3],//this sets alpha to zero when alpha depth is zero
 	};
 	res<<=2;
 	for(ptrdiff_t k=0;k<res;++k)
@@ -77,23 +77,23 @@ Image* image_load(const char *fn)
 		return 0;
 	}
 	ptrdiff_t res=(ptrdiff_t)iw*ih;
-	char src_depths[]={16, 16, 16, 16};
-	char dst_depth[4]={8, 8, 8, 0};
+	char src_depth[]={16, 16, 16, 16};
+	char dst_depth[]={8, 8, 8, 0};
 	for(ptrdiff_t k=0;k<res;++k)//detect 8-bit
 	{
 		int r=src[k<<2|0], g=src[k<<2|1], b=src[k<<2|2], a=src[k<<2|3];
-		if((r>>8)!=(r&0xFF))dst_depth[0]=16;
-		if((g>>8)!=(g&0xFF))dst_depth[1]=16;
-		if((b>>8)!=(b&0xFF))dst_depth[2]=16;
+		if(dst_depth[0]<16&&(r>>8)!=(r&0xFF))dst_depth[0]=16;
+		if(dst_depth[1]<16&&(g>>8)!=(g&0xFF))dst_depth[1]=16;
+		if(dst_depth[2]<16&&(b>>8)!=(b&0xFF))dst_depth[2]=16;
 		if(a!=0xFFFF)
 		{
-			if((a>>8)!=(a&0xFF))
+			if(dst_depth[3]<16&&(a>>8)!=(a&0xFF))
 				dst_depth[3]=16;
 			else if(!dst_depth[3])
 				dst_depth[3]=8;
 		}
 	}
-	Image *image=image_from_uint16(src, iw, ih, nch, src_depths, dst_depth);
+	Image *image=image_from_uint16(src, iw, ih, nch, src_depth, dst_depth);
 	free(src);
 	return image;
 }
