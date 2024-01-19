@@ -74,7 +74,8 @@ static THREAD_RET THREAD_CALL sample_thread(void *param)
 	args->enc=t;
 
 	args->csize2=cdata->count;
-
+	
+	//rct_JPEG2000_32(args->src, 1);
 	t=time_sec();
 	DECODE(cdata->data, cdata->count, args->dst, 0);
 	t=time_sec()-t;
@@ -1077,6 +1078,7 @@ static void compare(const char *fn1, const char *fn2)
 }
 ProgArgs args=
 {
+#if 1
 	OP_TESTFILE, 1, 0,//op, nthreads, formatsize
 
 //	"C:/Projects/datasets/dataset-kodak/kodim02.png",
@@ -1085,6 +1087,13 @@ ProgArgs args=
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/big_building.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/cathedral.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/hdr.png",
+//	"C:/Projects/datasets/dataset-LPCB/canon_eos_1100d_01.PNG",
+//	"C:/Projects/datasets/dataset-LPCB/canon_eos_1100d_02.PNG",
+//	"C:/Projects/datasets/dataset-LPCB/canon_eos_1100d_03.PNG",
+#else
+	OP_TESTFOLDER, 1, 0,
+	"C:/Projects/datasets/dataset-LPCB",
+#endif
 };
 //{
 //	OP_DECOMPRESS, 1, 0,

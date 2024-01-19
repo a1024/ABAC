@@ -86,14 +86,15 @@ int compare_bufs_32(const int *b1, const int *b0, int iw, int ih, int nch, int c
 	{
 		if(memcmp(b1+k, b0+k, nch*sizeof(int)))
 		{
-			if(loud)
+			//if(loud)
 			{
 				ptrdiff_t idx=k/chstride, kx=idx%iw, ky=idx/iw;
-				printf("%s error XY (%5lld, %5lld) / %5d x %5d  b1 != b0\n", name, kx, ky, iw, ih);
+				printf("\n%s error XY (%5lld, %5lld) / %5d x %5d  b1 != b0\n", name, kx, ky, iw, ih);
 				for(int kc=0;kc<nch;++kc)
 					printf("C%d  0x%08X != 0x%08X    %d != %d\n",
 						kc, (unsigned)b1[k+kc], (unsigned)b0[k+kc], (unsigned)b1[k+kc], (unsigned)b0[k+kc]
 					);
+				LOG_ERROR("");
 			}
 			return 1;
 		}
@@ -1412,9 +1413,11 @@ short jxlparams_i16[33]=//signed fixed 7.8 bit
 	//0x0BB2,  0x186F,  0x1012,  0x0B8F, -0x0053, -0x005F, -0x008B, -0x0085,  0x0006,  0x009D,  0x008C,
 
 	//kodak
-	0x0B37,  0x110B,  0x121B,  0x0BFC, -0x0001,  0x000E, -0x0188, -0x00E7, -0x00BB, -0x004A,  0x00BA,
-	0x0DB8,  0x0E22,  0x181F,  0x0BF3, -0x005C, -0x005B,  0x00DF,  0x0051,  0x00BD,  0x005C, -0x0102,
-	0x064C,  0x0F31,  0x1040,  0x0BF8, -0x0007, -0x000D, -0x0085, -0x0063, -0x00A2, -0x0017,  0x00F2,
+
+	//   0        1        2        3        4        5        6        7        8        9       10
+	0x0DB8,  0x0E22,  0x181F,  0x0BF3, -0x005C, -0x005B,  0x00DF,  0x0051,  0x00BD,  0x005C, -0x0102,//Y
+	0x064C,  0x0F31,  0x1040,  0x0BF8, -0x0007, -0x000D, -0x0085, -0x0063, -0x00A2, -0x0017,  0x00F2,//Cb
+	0x0B37,  0x110B,  0x121B,  0x0BFC, -0x0001,  0x000E, -0x0188, -0x00E7, -0x00BB, -0x004A,  0x00BA,//Cr
 
 	//0x0BD6, 0x10E7, 0x11F9, 0x0BEC,    0x0003,  0x0016, -0x01AC, -0x0127, -0x00C3, -0x0048,  0x00C3,
 	//0x0DB8, 0x0E22, 0x181F, 0x0BF3,   -0x005C, -0x005B,  0x00DF,  0x0051,  0x00BD,  0x005C, -0x0102,
@@ -1483,7 +1486,10 @@ void   pred_jxl_prealloc(const char *src, int iw, int ih, int kc, const short *p
 			int weights[4];//fixed 23.8 bit
 			for(int k=0;k<4;++k)
 			{
-				int w=(ky-1>=0?pred_errors[k][prevrow+kx]:0)+(ky-1>=0&&kx+1<iw?pred_errors[k][prevrow+kx+1]:0)+(ky-1>=0&&kx-1>=0?pred_errors[k][prevrow+kx-1]:0);
+				int w=
+					(ky-1>=0?pred_errors[k][prevrow+kx]:0)+//peN
+					(ky-1>=0&&kx+1<iw?pred_errors[k][prevrow+kx+1]:0)+//peNE
+					(ky-1>=0&&kx-1>=0?pred_errors[k][prevrow+kx-1]:0);//peNW
 				weights[k]=(params[k]<<8)/(w+1);
 			}
 

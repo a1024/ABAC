@@ -15,7 +15,8 @@ static const char file[]=__FILE__;
 
 static const int qlevels[]=
 {
-	1, 3, 5, 7, 11, 15, 23, 31, 47, 63, 95, 127, 191, 255, 392, 500
+	1, 2, 3, 4, 5, 6, 7, 9, 11, 13, 15, 19, 23, 27, 31, 39, 47, 55, 63, 79, 95, 111, 127
+	//1, 3, 5, 7, 11, 15, 23, 31, 47, 63, 95, 127, 191, 255, 392, 500
 };
 
 typedef struct TempHybridStruct
@@ -104,52 +105,544 @@ static int quantize(int x)
 	}
 	return q;
 }
-#define SSE_SIZE ((_countof(qlevels)+1)*(_countof(qlevels)+1))
-static void slic4_pred(Image const *im, int kc, int kx, int ky, int scale, int prev_error, long long *sse, int *ret, long long **cell)
+static int quantize_signed(int x)
 {
-	int
+	int x2=quantize(abs(x));
+	//int x2=quantize(abs(x))>>1;
+	int neg=-(x<0);
+	x2^=neg;
+	x2-=neg;
+	x2<<=1;
+	x2^=neg;
+	//x=quantize(abs(x))<<1|(x<0);
+	//if(x2>_countof(qlevels))
+	//	x2=_countof(qlevels);
+	return x2;
+}
+#define HASH_FUNC(A, B) ((A+B+1)*(A+B)/2+B)
+//#define SSE_SIZE 0x100000
+#define SSE_SIZE ((_countof(qlevels)+1)*(_countof(qlevels)+1)*(_countof(qlevels)+1)*(_countof(qlevels)+1)<<1)
+//#define SSE_SIZE (_countof(qlevels)+1)
+#define NPREDS 4
+#define PRED_PREC 8
+#define PARAM_PREC 8
+#define TAG_HIST_START 7
+#define TAG_HIST_LEN 4
+typedef struct PredictorCtxStruct
+{
+	int iw;
+	int *pred_errors, *errors;
+	long long esum;//sum of abs errors so far in current row
+	int sigma;//average of abs errors from prev row
+	int shift;//depth compensation
+	long long *sse, sse_idx, sse_sum;
+	int sse_count;
+	int preds[NPREDS+1];
+	long long pred;
+	int pred_final;
+	//long long r_weights[NPREDS];
+	int hist_idx;
+	int sse_corr;
+	int depth, nlevels, min_allowed, max_allowed;
+	int kx, ky, ky1;
+} PredictorCtx;
+static int slic4_pred_init(PredictorCtx *pr, int iw)
+{
+	pr->iw=iw;
+	pr->pred_errors=(int*)malloc(iw*sizeof(int[NPREDS*2]));
+	pr->errors=(int*)malloc(iw*sizeof(int[2]));
+	pr->sse=(long long*)malloc(SSE_SIZE*sizeof(long long));
+	if(!pr->pred_errors||!pr->errors||!pr->sse)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
+	return 1;
+}
+static void slic4_pred_free(PredictorCtx *pr)
+{
+	free(pr->errors);
+	free(pr->sse);
+}
+static void slic4_pred_nextchannel(PredictorCtx *pr, int depth)
+{
+	memset(pr->pred_errors, 0, pr->iw*sizeof(int[NPREDS*2]));
+	memset(pr->errors, 0, pr->iw*sizeof(int[2]));
+	memset(pr->sse, 0, SSE_SIZE*sizeof(long long));
+	pr->sigma=0;
+	pr->esum=0;
+	pr->depth=depth;
+	pr->nlevels=1<<depth;
+	pr->min_allowed=-(pr->nlevels>>1);
+	pr->max_allowed=(pr->nlevels>>1)-1;
+}
+static void slic4_pred_nextrow(PredictorCtx *pr, int ky)
+{
+	pr->sigma=(int)(pr->esum/pr->iw);
+	pr->esum=0;
+	//pr->sse_idx=0;
+	if(ky)
+	{
+		pr->shift=floor_log2(pr->sigma)+1-PRED_PREC;
+		pr->shift=MAXVAR(8, pr->shift)-8+PRED_PREC;
+	}
+	else
+		pr->shift=MAXVAR(8, pr->depth)-8+PRED_PREC;
+	pr->ky=ky;
+	pr->ky1=ky&1;
+}
+static const short wp_params[]=
+{
+	//0xd, 0xc, 0xc, 0xb,
+	//8,
+	//8,
+	//4, 0, 3, 23, 2,
+	 0x0DB8,  0x0E22,  0x181F,  0x0BF3,
+	-0x005C,
+	-0x005B,
+	 0x00DF,  0x0051,  0x00BD,  0x005C, -0x0102,
+};
+#if 1
+void pred_jxl(Image *srcim, int fwd, int enable_ma)
+{
+	const short *params=wp_params;
+	ptrdiff_t res=(ptrdiff_t)srcim->iw*srcim->ih;
+	int *temp_w10=(int*)malloc((size_t)srcim->iw*10*sizeof(int));
+	int *dst=(int*)malloc(res*sizeof(int[4]));
+	if(!temp_w10||!dst)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	int errorbuflen=srcim->iw<<1, rowlen=srcim->iw<<2;
+	int *error=temp_w10, *pred_errors[]=
+	{
+		temp_w10+errorbuflen,
+		temp_w10+errorbuflen*2,
+		temp_w10+errorbuflen*3,
+		temp_w10+errorbuflen*4,
+	};
+	int iw=srcim->iw;
+	int *src=srcim->data;
+	for(int kc=0;kc<3;++kc)
+	{
+		int nlevels=1<<srcim->depth[kc];
+		int idx=kc;
+		const int *pixels=fwd?src:dst, *errors=fwd?dst:src;
+		for(int ky=0;ky<srcim->ih;++ky)
+		{
+			int currrow=ky&1?0:iw, prevrow=ky&1?iw:0;
+			for(int kx=0;kx<iw;++kx, idx+=4)
+			{
+				int pred, curr;
+			
+				int
+					ctt      =         ky-2>=0?pixels[idx-rowlen*2]:0,
+					ctopleft =kx-1>=0&&ky-1>=0?pixels[idx-rowlen-4]:0,
+					ctop     =kx  <iw&&ky-1>=0?pixels[idx-rowlen  ]:0,
+					ctopright=kx+1<iw&&ky-1>=0?pixels[idx-rowlen+4]:0,
+					cleft    =kx-1>=0         ?pixels[idx       -4]:0;
+
+				//if(kx==(iw>>1)&&ky==(ih>>1))
+				//	kx=iw>>1;
+
+				//w0   w1   w2   w3
+				//p1C  p2c
+				//p3Ca p3Cb p3Cc p3Cd p3Ce
+			
+				int weights[4];//fixed 23.8 bit
+				for(int k=0;k<4;++k)
+				{
+					int w=
+						(ky-1>=0         ?pred_errors[k][prevrow+kx  ]:0)+//eN
+						(ky-1>=0&&kx+1<iw?pred_errors[k][prevrow+kx+1]:0)+//eNE
+						(ky-1>=0&&kx-1>=0?pred_errors[k][prevrow+kx-1]:0);//eNW
+					weights[k]=(params[k]<<8)/(w+1);
+				}
+
+				int
+					etop=ky-1>=0?error[prevrow+kx]:0,
+					eleft=kx-1>=0?error[currrow+kx-1]:0,
+					etopleft=ky-1>=0&&kx-1>=0?error[prevrow+kx-1]:0,
+					etopright=ky-1>=0&&kx+1<iw?error[prevrow+kx+1]:0,
+					etopplusleft=etop+eleft;
+				long long predictions[]=//fixed 23.8 bit
+				{
+					(cleft+ctopright-ctop)<<8,
+					(ctop<<8)-((etopplusleft+etopright)*params[4]>>8),
+					(cleft<<8)-((etopplusleft+etopleft)*params[5]>>8),
+					(ctop<<8)-((etopleft*params[6]+etop*params[7]+etopright*params[8]+((ctt-ctop)<<8)*params[9]+((ctopleft-cleft)<<8)*params[10])>>8),
+					//(ctop<<8)-(((etopleft*params[6]+etop*params[7]+etopright*params[8])>>8)+(ctt-ctop)*params[9]+(ctopleft-cleft)*params[10]),
+				};
+
+				int sum=weights[0]+weights[1]+weights[2]+weights[3];
+				if(sum)
+					pred=(int)((predictions[0]*weights[0]+predictions[1]*weights[1]+predictions[2]*weights[2]+predictions[3]*weights[3]+(sum>>1)-1)/sum);
+				else
+					pred=(int)predictions[0];
+
+				int vmin=cleft, vmax=cleft;
+				if(vmin>ctopright)vmin=ctopright;
+				if(vmax<ctopright)vmax=ctopright;
+
+				if(vmin>ctop)vmin=ctop;
+				if(vmax<ctop)vmax=ctop;
+
+				vmin<<=8;
+				vmax<<=8;
+
+				//if(kc==0&&kx==0&&ky==1)//
+				//if(kc==0&&kx==256&&ky==256)//
+				//if(kc==0&&kx==1&&ky==0)//
+				//if(kc==0&&kx==4&&ky==2)//
+				//	printf("");
+
+				pred=CLAMP(vmin, pred, vmax);
+
+				int pred_final=(pred+127)>>8;
+				pred_final^=-fwd;
+				pred_final+=fwd;
+				pred_final+=src[idx];
+				if(enable_ma)
+				{
+					pred_final+=nlevels>>1;
+					pred_final&=nlevels-1;
+					pred_final-=nlevels>>1;
+				}
+				dst[idx]=pred_final;
+				curr=pixels[idx]<<8;
+
+				error[currrow+kx]=curr-pred;
+				for(int k=0;k<4;++k)
+				{
+					int e=abs(curr-(int)predictions[k]);
+					pred_errors[k][currrow+kx]=e;
+					if(ky&&kx+1<iw)
+						pred_errors[k][prevrow+kx+1]+=e;
+				}
+			}
+		}
+	}
+	memcpy(src, dst, res*sizeof(int[4]));
+	free(temp_w10);
+	free(dst);
+}
+#endif
+static void slic4_predict(Image const *im, int kc, int kx, int ky, PredictorCtx *pr)
+{
+	pr->kx=kx;
+	long long
 		idx=im->iw*ky+kx,
-		NN=ky>=2 ?im->data[(idx-im->iw*2)<<2|kc]:0,
-		WW=kx>=2 ?im->data[(idx       -2)<<2|kc]:0,
-		N =ky    ?im->data[(idx-im->iw  )<<2|kc]:0,
-		W =kx    ?im->data[(idx       -1)<<2|kc]:0,
-		NW=kx&&ky?im->data[(idx-im->iw-1)<<2|kc]:0;
+		NN=ky>=2 ?im->data[(idx-im->iw*2)<<2|kc]<<PRED_PREC:0,
+		WW=kx>=2 ?im->data[(idx       -2)<<2|kc]<<PRED_PREC:0,
+		N =ky    ?im->data[(idx-im->iw  )<<2|kc]<<PRED_PREC:0,
+		W =kx    ?im->data[(idx       -1)<<2|kc]<<PRED_PREC:0,
+		NW=kx&&ky?im->data[(idx-im->iw-1)<<2|kc]<<PRED_PREC:0,
+		NE=kx+1<im->iw  &&ky   ?im->data[(idx-im->iw  +1)<<2|kc]<<PRED_PREC:0,
+		NWW =kx>=2      &&ky>=1?im->data[(idx-im->iw  -2)<<2|kc]<<PRED_PREC:0,
+		NNW =kx>=1      &&ky>=2?im->data[(idx-im->iw*2-1)<<2|kc]<<PRED_PREC:0,
+		NNE =kx+1<im->iw&&ky>=2?im->data[(idx-im->iw*2+1)<<2|kc]<<PRED_PREC:0,
+		NNWW=kx>=2      &&ky>=2?im->data[(idx-im->iw*2-2)<<2|kc]<<PRED_PREC:0,
+		NNEE=kx+2<im->iw&&ky>=2?im->data[(idx-im->iw*2+2)<<2|kc]<<PRED_PREC:0;
+	
+	long long
+		eN =ky             ?pr->errors[pr->iw*!pr->ky1+kx  ]:0,//error = curr - pred
+		eW =kx             ?pr->errors[pr->iw* pr->ky1+kx-1]:0,
+		eNW=kx&&ky         ?pr->errors[pr->iw*!pr->ky1+kx-1]:0,
+		eNE=kx+1<pr->iw&&ky?pr->errors[pr->iw*!pr->ky1+kx+1]:0;
+
+	pr->preds[0]=(int)(W+NE-N);
+	pr->preds[1]=(int)(N-((eN+eW+eNE)*wp_params[4]>>PARAM_PREC));
+	pr->preds[2]=(int)(W-((eN+eW+eNW)*wp_params[5]>>PARAM_PREC));
+	pr->preds[3]=(int)(N-((eNW*wp_params[6]+eN*wp_params[7]+eNE*wp_params[8]+(NN-N)*wp_params[9]+(NW-W)*wp_params[10])>>PARAM_PREC));
+	
+	pr->preds[4]=(int)(N+W-NW);
+	pr->preds[4]=(int)MEDIAN3(N, W, pr->preds[4]);
+
+#if 0
+	int dx=abs(W-WW)+abs(N-NW)+abs(NE-N);
+	int dy=abs(W-NW)+abs(N-NN)+abs(NE-NNE);
+	int d45=abs(W-NWW)+abs(NW-NNWW)+abs(N-NNW);
+	int d135=abs(NE-NNEE)+abs(N-NNE)+abs(W-N);
+	int sum2=dy+dx, diff=dy-dx, diff2=NE-NW;
+	pr->preds[0]=0;
+	if(sum2>(32<<(PRED_PREC+1)))
+		pr->preds[0]=(dx*N+dy*W)/sum2+diff2/8;
+	else if(diff>(12<<(PRED_PREC+1)))
+		pr->preds[0]=(N+2*W)/3+diff2/8;
+	else if(diff<-(12<<(PRED_PREC+1)))
+		pr->preds[0]=(2*N+W)/3+diff2/8;
+	else
+		pr->preds[0]=(N+W)/2+diff2/8;
+	diff=d45-d135;
+	if(diff>(32<<(PRED_PREC+1)))
+		pr->preds[0]+=diff2/8;
+	else if(diff>(16<<(PRED_PREC+1)))
+		pr->preds[0]+=diff2/16;
+	else if(diff<-(32<<(PRED_PREC+1)))
+		pr->preds[0]-=diff2/8;
+	else if(diff<-(16<<(PRED_PREC+1)))
+		pr->preds[0]-=diff2/16;
+	pr->preds[0]+=(eN+eW)>>4;
+
+	pr->preds[1]=N+W-NW;
+	pr->preds[1]=MEDIAN3(N, W, pr->preds[1]);
+
+	pr->preds[2]=W+NE-N+((eN+eW)>>4);
+
+	pr->preds[3]=N+(eN>>2);
+
+	pr->preds[4]=W+(eW>>2);
+#endif
+
+	long long weights[NPREDS], wsum=0;
+	for(int k=0;k<NPREDS;++k)
+	{
+		weights[k]=
+			(ky             ?pr->pred_errors[NPREDS*(pr->iw*!pr->ky1+kx  )+k]:0)+//peN
+			(ky&&kx+1<pr->iw?pr->pred_errors[NPREDS*(pr->iw*!pr->ky1+kx+1)+k]:0)+//peNE
+			(ky&&kx>=1      ?pr->pred_errors[NPREDS*(pr->iw*!pr->ky1+kx-1)+k]:0);//peNW
+		weights[k]=((long long)wp_params[k]<<8)/(weights[k]+1);
+		wsum+=weights[k];
+	}
+	if(wsum)
+	{
+		pr->pred=0;
+		for(int k=0;k<NPREDS;++k)
+			pr->pred+=weights[k]*pr->preds[k];
+		pr->pred+=(wsum>>1)-1;
+		pr->pred/=wsum;
+	}
+	else
+		pr->pred=pr->preds[0];
+	
+	//int p=abs((int)eN);
+	//if(p>abs((int)eW))p=abs((int)eW);
+	//if(p>abs((int)eNW))p=abs((int)eNW);
+	//if(p>abs((int)eNE))p=abs((int)eNE);
+	//pr->sse_idx=pr->hist_idx=quantize(p);
+	int
+		qx=quantize_signed((int)(W-WW+NE-NW+NN-NNE)>>(pr->shift+2)),
+		qy=quantize_signed((int)(W-NW+N-NN+NE-NNE)>>(pr->shift+2)),
+		q45=quantize_signed((int)(((N-W)<<1)+NN-WW)>>(pr->shift+2)),
+		q135=quantize_signed((int)(N-NNW+NE-NN)>>(pr->shift+2));
+	pr->hist_idx=MAXVAR(qx, qy);
+	pr->hist_idx=MAXVAR(pr->hist_idx, q45);
+	pr->hist_idx=MAXVAR(pr->hist_idx, q135);
+	pr->hist_idx=MINVAR(pr->hist_idx, _countof(qlevels));
+	pr->sse_idx=(_countof(qlevels)+1)*(_countof(qlevels)+1)*qy*qx+q45*q135;
+	pr->sse_idx%=SSE_SIZE;
+
+	//pr->hist_idx=pr->sse_idx=0;
+
+	//GAP
+#if 0
+	int dx=abs(W-WW)+abs(N-NW)+abs(NE-N);
+	int dy=abs(W-NW)+abs(N-NN)+abs(NE-NNE);
+	int d45=abs(W-NWW)+abs(NW-NNWW)+abs(N-NNW);
+	int d135=abs(NE-NNEE)+abs(N-NNE)+abs(W-N);
+	//int sum2=dy+dx, diff=dy-dx, diff2=NE-NW;
+	//int pred=0;
+	//if(sum2>32)
+	//	pred=(dx*N+dy*W)/sum2+diff2/8;
+	//else if(diff>12)
+	//	pred=(N+2*W)/3+diff2/8;
+	//else if(diff<-12)
+	//	pred=(2*N+W)/3+diff2/8;
+	//else
+	//	pred=(N+W)/2+diff2/8;
+	//diff=d45-d135;
+	//if(diff>32)
+	//	pred+=diff2/8;
+	//else if(diff>16)
+	//	pred+=diff2/16;
+	//else if(diff<-32)
+	//	pred-=diff2/8;
+	//else if(diff<-16)
+	//	pred-=diff2/16;
+
+	//int disc=(dy-dx)>>shift;
+	//int pred;
+	//if(disc>80)
+	//	pred=W;
+	//else if(disc<-80)
+	//	pred=N;
+	//else
+	//{
+	//	pred=(N+W)/2+(NE-NW)/4;
+	//	if(disc>32)
+	//		pred=(pred+W)/2;
+	//	else if(disc>8)
+	//		pred=(3*pred+W)/4;
+	//	else if(disc<-32)
+	//		pred=(pred+N)/2;
+	//	else if(disc<-8)
+	//		pred=(3*pred+N)/4;
+	//}
+
+	//int pred=N+W-NW;
+	//pred=MEDIAN3(N, W, pred);
+	//int pred=dy<dx?N:W;
+	int sum2=dx+dy+d45+d135, pred;
+	if(sum2)
+		pred=(dx*N+dy*W+d45*NE+d135*NW)/sum2;
+	else
+	{
+		pred=N+W-NW;
+		pred=MEDIAN3(N, W, pred);
+	}
+
+	int ctx[]=
+	{
+		quantize_signed(prev_error>>shift),
+		quantize_signed(dx>>(shift+2)),
+		quantize_signed(dy>>(shift+2)),
+		quantize_signed((((N-W)<<1)+NN-WW)>>(shift+2)),
+		quantize_signed((N-NNW+NE-NN)>>(shift+2)),
+	};
+	//int hash=HASH_FUNC(ctx[0], ctx[1]);
+	//hash=HASH_FUNC(hash, ctx[2]);
+	//hash=HASH_FUNC(hash, ctx[3]);
+	//hash=HASH_FUNC(hash, ctx[4]);
+	//hash&=SSE_SIZE-1;
+	//int hash=(ctx[4]&15)<<16|(ctx[3]&15)<<12|(ctx[2]&15)<<8|(ctx[1]&15)<<4|(ctx[0]&15);
+	//int hash=ctx[4]+ctx[3]+ctx[2]+ctx[1]+ctx[0];
+	int hist_ctx=ctx[0]>>1;
+	int sse_ctx=0;
+
+	//int qx=quantize_signed((W-WW+NE-NW+NN-NNE)>>shift), qy=quantize_signed((W-NW+N-NN+NE-NNE)>>shift),
+	//	q45=quantize_signed((((N-W)<<1)+NN-WW)>>shift), q135=quantize_signed((N-NNW+NE-NN)>>shift);
+	//int hist_ctx=MAXVAR(qx, qy);
+	//hist_ctx=MAXVAR(hist_ctx, q45);
+	//hist_ctx=MAXVAR(hist_ctx, q135);
+	//hist_ctx=MINVAR(hist_ctx, _countof(qlevels));
+	//int sse_ctx=(_countof(qlevels)+1)*(_countof(qlevels)+1)*qy*qx+q45*q135;
+	//sse_ctx%=SSE_SIZE;
+#endif
+#if 0
+	int pred=N+W-NW;
+	pred=MEDIAN3(N, W, pred);
+	int qx=quantize_signed((W-WW+NE-NW+NN-NNE)>>shift), qy=quantize_signed((W-NW+N-NN+NE-NNE)>>shift),
+		q45=quantize_signed((((N-W)<<1)+NN-WW)>>shift), q135=quantize_signed((N-NNW+NE-NN)>>shift);
+	//int qx=quantize_signed((W-WW+NE-NW)>>shift), qy=quantize_signed((((N-NN)<<1)+W-NW)>>shift), q45=quantize_signed((((N-W)<<1)+NN-WW)>>shift);
+	//int qx=quantize_signed((W-WW+NE-NW)>>shift), qy=quantize_signed((N-NN+W-NW)>>shift), q45=quantize_signed((N-W+NN-WW)>>shift);
+	//int qx=quantize_signed(W-WW+N-((NE+NW)>>1)), qy=quantize_signed(((N-NN)<<1)+W-NW), q45=quantize_signed(((N-W)<<1)+NN-WW);
+	//int gradx=abs(W-WW+NE-NW), grady=abs(((N-NN)<<1)+W-NW), grad45=abs(((N-W)<<1)+NN-WW);
+	//int gradx=abs(W-WW)+abs(N-NW)+abs(NE-N), grady=(abs(N-NN)<<1)+abs(W-NW), grad45=(abs(N-W)<<1)+abs(NN-WW);
+	//int qx=quantize(gradx>>(shift+4)), qy=quantize(grady>>(shift+4)), q45=quantize(grad45>>(shift+4));
+	int hist_ctx=MAXVAR(qx, qy);
+	//int hist_ctx=qx+qy;
+	//int hist_ctx=(qx+qy)>>1;
+	hist_ctx=MAXVAR(hist_ctx, q45);
+	hist_ctx=MAXVAR(hist_ctx, q135);
+	//hist_ctx>>=1;
+	hist_ctx=MINVAR(hist_ctx, _countof(qlevels));
+	int sse_ctx=(_countof(qlevels)+1)*(_countof(qlevels)+1)*qy*qx+q45*q135;
+	//int sse_ctx=qy*qx+q45*q135;
+	//int sse_ctx=(_countof(qlevels)+1)*((_countof(qlevels)+1)*qy+qx)+q45;
+	//int sse_ctx=(_countof(qlevels)+1)*((_countof(qlevels)+1)*qy+qx)+((q45+q135)>>1);
+	//int sse_ctx=((_countof(qlevels)+1)*qy*qx+q45);
+	sse_ctx%=SSE_SIZE;
+#endif
+#if 0
+	int pred=N+W-NW;
+	pred=MEDIAN3(N, W, pred);
+	int
+		qx=quantize_signed((W-WW)>>shift)*quantize_signed((NE-NW)>>shift),
+		qy=quantize_signed((N-NN)>>shift)*quantize_signed((W-NW)>>shift),
+		q45=quantize_signed((N-W)>>shift)*quantize_signed((NN-WW)>>shift);
+	if(qx>_countof(qlevels))qx=_countof(qlevels);
+	if(qy>_countof(qlevels))qy=_countof(qlevels);
+	if(q45>_countof(qlevels))q45=_countof(qlevels);
+	int hist_ctx=MAXVAR(qx, qy);
+	hist_ctx=MAXVAR(hist_ctx, q45);
+	int sse_ctx=((_countof(qlevels)+1)*((_countof(qlevels)+1)*qy+qx)+q45);
+#endif
+#if 0
 	int vmax=MAXVAR(N, W), vmin=MINVAR(N, W), energy=vmax-vmin;
 	int pred=N+W-NW;
 	pred=CLAMP(vmin, pred, vmax);
 	//int pred=(N+W)/2;
 	int
-		hist_ctx=quantize((energy+abs(W-WW)+abs(N-NN)+abs(prev_error)*2)>>(scale+2)),
+		hist_ctx=quantize((energy+abs(W-WW)+abs(N-NN)+abs(prev_error)*2)>>(shift+2)),
 		//hist_ctx=quantize((abs(W-WW)+abs(N-NN)+abs(prev_error))>>2),
 		//hist_ctx=quantize(abs(prev_error)),
-		//hist_ctx=quantize(energy>>scale),
-		sse_ctx=quantize((abs(W-WW)+abs(N-NN))>>(scale+2))*quantize(abs(prev_error));//best
-		//sse_ctx=(_countof(qlevels)+1)*quantize((abs(W-WW)+abs(N-NN))>>(scale+2))+quantize(abs(prev_error));
+		//hist_ctx=quantize(energy>>shift),
+		sse_ctx=(_countof(qlevels)+1)*(_countof(qlevels)+1)*quantize((kc?im->data[idx<<2]:abs(N-W))>>(shift+4))+quantize((abs(W-WW)+abs(N-NN))>>(shift+2))*quantize(abs(prev_error));//added info must be new
+		//sse_ctx=(_countof(qlevels)+1)*(_countof(qlevels)+1)*quantize((kc?im->data[idx<<2]:abs(N-W))>>(shift+4))+quantize((abs(W-WW)+abs(N-NN)+abs(NE-NW))>>(shift+2))*quantize(abs(prev_error));
+		//sse_ctx=(_countof(qlevels)+1)*quantize((abs(W-WW)+abs(N-NN))>>(shift+2))+quantize(abs(prev_error));
 		//sse_ctx=hist_ctx;
-		//sse_ctx=(_countof(qlevels)+1)*quantize(abs(W-WW)>>(scale+1))+quantize(abs(N-NN)>>(scale+1));
-		//sse_ctx=quantize(abs(W-WW)>>(scale+1))*quantize(abs(N-NN)>>(scale+1));
+		//sse_ctx=(_countof(qlevels)+1)*quantize(abs(W-WW)>>(shift+1))+quantize(abs(N-NN)>>(shift+1));
+		//sse_ctx=quantize(abs(W-WW)>>(shift+1))*quantize(abs(N-NN)>>(shift+1));
 		//sse_ctx=0;//X
-	*cell=sse+sse_ctx;
-	int count=(int)(**cell&0xFFF);
-	long long sum=**cell>>12;
-	int corr=count?(int)(sum/count):0;
-	pred+=corr;
-	ret[0]=pred;
-	ret[1]=hist_ctx;
-	ret[2]=corr;
+	//sse_ctx+=(_countof(qlevels)+1)*(_countof(qlevels)+1)*quantize((kc?im->data[idx<<2]:(N+W)>>1)>>(shift+4));//chroma channel: luma is always available, otherwise use neighbor luma
+	//if(kx&&kc)//luma affects context
+	//	sse_ctx+=(_countof(qlevels)+1)*(_countof(qlevels)+1)*quantize(im->data[idx<<2]>>(shift+2));
+		//sse_ctx*=quantize((im->data[(idx-1)<<2|kc]+im->data[(idx-2)<<2|kc]+im->data[(idx-3)<<2|kc]+W)>>2);
+#endif
+
+	long long sse_cell=pr->sse[pr->sse_idx];
+	pr->sse_count=(int)(sse_cell&0xFFF);
+	pr->sse_sum=sse_cell>>12;
+	pr->sse_corr=pr->sse_count?(int)(pr->sse_sum/pr->sse_count):0;
+	pr->pred+=pr->sse_corr;
+
+	//if(kc==0&&kx==0&&ky==0)//
+	//	printf("");
+	//if(kc==0&&kx==1&&ky==1)//
+	//if(kc==0&&kx==4&&ky==2)//
+	//if(kc==0&&kx==256&&ky==256)//
+	//	printf("");
+	
+	long long pred=pr->pred;
+	//if(((eN^eW)|(eN^eNW))<0)//clamp only if signs are different
+	//{
+		int clamp_lo=(int)N, clamp_hi=(int)N;
+		clamp_lo=(int)MINVAR(clamp_lo, W);
+		clamp_hi=(int)MAXVAR(clamp_hi, W);
+		clamp_lo=(int)MINVAR(clamp_lo, NE);
+		clamp_hi=(int)MAXVAR(clamp_hi, NE);
+		pred=CLAMP(clamp_lo, pred, clamp_hi);
+	//}
+	pr->pred=pred;
+	pr->pred_final=(int)((pred+((1<<PRED_PREC)>>1)-1)>>PRED_PREC);
+
+	//if(guide)
+	//{
+	//	int nlevels=1<<guide->depth[kc];
+	//	int error=pixels->data[idx<<2|kc]-pr->pred_final;
+	//	error+=nlevels>>1;
+	//	error&=nlevels-1;
+	//	error-=nlevels>>1;
+	//	if(error!=guide->data[idx<<2|kc])
+	//		LOG_ERROR("Pred error");
+	//}
+	//pred+=corr;
+	//ret[0]=pred;
+	//ret[1]=hist_ctx;
+	//ret[2]=corr;
 }
-static void slic4_update_sse(long long *cell, int error)
+static void slic4_pred_update(PredictorCtx *pr, int curr)
 {
-	int count=(int)(*cell&0xFFF);
-	long long sum=*cell>>12;
-	++count;
-	sum+=error;
-	if(count>640)
+	int error=(curr<<PRED_PREC)-(int)pr->pred;
+	pr->esum+=abs(error);
+	pr->errors[pr->iw*pr->ky1+pr->kx]=error;
+	for(int k=0;k<NPREDS;++k)
 	{
-		count>>=1;
-		sum>>=1;
+		int e=abs((curr<<PRED_PREC)-pr->preds[k]);
+		pr->pred_errors[NPREDS*(pr->iw*pr->ky1+pr->kx)+k]=e;
+		if(pr->ky&&pr->kx+1<pr->iw)
+			pr->pred_errors[NPREDS*(pr->iw*!pr->ky1+pr->kx+1)+k]+=e;
 	}
-	*cell=sum<<12|count;
+
+	++pr->sse_count;
+	pr->sse_sum+=error;
+	if(pr->sse_count>640)
+	{
+		pr->sse_count>>=1;
+		pr->sse_sum>>=1;
+	}
+	pr->sse[pr->sse_idx]=pr->sse_sum<<12|pr->sse_count;
 }
 Image const *guide=0;
 int t46_encode(Image const *src, ArrayHandle *data, int loud)
@@ -170,6 +663,11 @@ int t46_encode(Image const *src, ArrayHandle *data, int loud)
 		printf("T46 SLIC4  Enc %s  CWHD %d*%d*%d*%d/8\n", g_buf, nch, src->iw, src->ih, maxdepth);
 	}
 	Image *im2=0, *im3=0, *im4=0;
+//#ifdef _DEBUG
+//	Image *im5=0, *im6=0, *im7=0;//
+//	image_copy(&im5, src);
+//	image_copy(&im6, src);
+//#endif
 	image_copy(&im2, src);
 	image_copy(&im3, src);
 	image_copy(&im4, src);
@@ -177,9 +675,12 @@ int t46_encode(Image const *src, ArrayHandle *data, int loud)
 	hybriduint_encode(-maxlevels, &hu);//-(half<<1) to make way for chroma inclation
 	int cdfsize=hu.token+1;
 	unsigned *hist=(unsigned*)malloc((cdfsize+1)*sizeof(int[_countof(qlevels)+1]));
-	unsigned short *emit_hist=(unsigned short*)malloc(cdfsize*sizeof(short[_countof(qlevels)+1]));
-	long long *sse=(long long*)malloc(SSE_SIZE*sizeof(long long));
-	if(!im2||!im3||!im4||!hist||!emit_hist||!sse)
+	unsigned short *emit_hist=(unsigned short*)malloc(cdfsize*sizeof(short));
+	//unsigned short *emit_hist=(unsigned short*)malloc(cdfsize*sizeof(short[_countof(qlevels)+1]));
+	//long long *sse=(long long*)malloc(SSE_SIZE*sizeof(long long));
+	PredictorCtx pr;
+	int success=slic4_pred_init(&pr, src->iw);
+	if(!im2||!im3||!im4||!hist||!success)
 	{
 		LOG_ERROR("Alloc error");
 		return 0;
@@ -251,25 +752,32 @@ int t46_encode(Image const *src, ArrayHandle *data, int loud)
 	free(pal_hist);
 #endif
 	rct_JPEG2000_32(im2, 1);
-	int rct_depths[]=
+	unsigned char rct_depths[]=
 	{
-		im2->depth[1],//Y
-		im2->depth[2]+1,//Cb
-		im2->depth[0]+1,//Cr
-		im2->depth[3],//a
+		src->depth[1],	//Y
+		src->depth[2]+1,//Cb
+		src->depth[0]+1,//Cr
+		src->depth[3],	//a
 	};
+//#ifdef _DEBUG
+//	image_copy(&im7, im2);
+//	memcpy(im7->depth, rct_depths, sizeof(rct_depths));
+//	pred_jxl(im7, 1, 1);
+//#endif
 	//memset(header.hist, 0, sizeof(header.hist));
 	memset(hist, 0, (cdfsize+1)*sizeof(int[_countof(qlevels)+1]));
-	memset(emit_hist, 0, cdfsize*sizeof(short[_countof(qlevels)+1]));
+	//memset(emit_hist, 0, cdfsize*sizeof(short[_countof(qlevels)+1]));
 	for(int kc=0;kc<nch;++kc)//for each channel
 	{
 		if(pal_sizes[kc]==1)
 			continue;
 		int nlevels=1<<rct_depths[kc], shift=(MAXVAR(8, rct_depths[kc])-8)>>2;
-		memset(sse, 0, SSE_SIZE*sizeof(long long));
+		slic4_pred_nextchannel(&pr, rct_depths[kc]);
+		//memset(sse, 0, SSE_SIZE*sizeof(long long));
 		for(int ky=0, idx=0;ky<src->ih;++ky)
 		{
-			int prev_error=0;
+			slic4_pred_nextrow(&pr, ky);
+			//int prev_error=0;
 			for(int kx=0;kx<src->iw;++kx, ++idx)
 			{
 				//if(kc==0&&kx==114&&ky==2)//
@@ -284,14 +792,13 @@ int t46_encode(Image const *src, ArrayHandle *data, int loud)
 				//if(kc==0&&kx==3&&ky==0)//
 				//if(kc==0&&kx==2&&ky==0)//
 				//if(kc==0&&kx==0&&ky==511)//
+				//if(kc==0&&kx==1&&ky==0)//
 				//	printf("");
 
-				int ctx[3];
-				long long *cell;
-				slic4_pred(im2, kc, kx, ky, shift, prev_error, sse, ctx, &cell);
+				slic4_predict(im2, kc, kx, ky, &pr);
 				int curr=im2->data[idx<<2|kc];
-				int error0=curr-ctx[0], error=error0;
-				int negmask=-(ctx[2]<0);
+				int error=curr-pr.pred_final;
+				int negmask=-(pr.sse_corr<0);
 				error^=negmask;
 				error-=negmask;
 				//error+=nlevels>>1;//no need for modular arithmetic
@@ -299,11 +806,11 @@ int t46_encode(Image const *src, ArrayHandle *data, int loud)
 				//error-=nlevels>>1;
 				if(error)//sign pack from CALIC
 				{
-					int cond=(ctx[0]<0)==(ctx[2]<0);
-					int upred=ctx[0];
+					int cond=(pr.pred_final<0)==(pr.sse_corr<0);
+					int upred=pr.pred_final;
 					upred^=-cond;
 					upred+=cond;
-					upred+=nlevels>>1;//upred = half + ((ctx[0]<0)!=(ctx[2]<0) ? pred : -pred)
+					upred+=nlevels>>1;//upred = half + ((pred<0)==(corr<0) ? -pred : pred)
 					if(abs(error)<=upred)
 						error=(error<<1)^-(error<0);//pack sign
 					else
@@ -333,11 +840,15 @@ int t46_encode(Image const *src, ArrayHandle *data, int loud)
 				hybriduint_encode(error, &hu);
 				if(hu.token>=cdfsize)
 					LOG_ERROR("Token OOB %d/%d", hu.token, cdfsize);
-				++hist[(cdfsize+1)*ctx[1]+hu.token];
-				im3->data[idx<<2|kc]=hu.token<<16|ctx[1];
+				++hist[(cdfsize+1)*pr.hist_idx+hu.token];
+				im3->data[idx<<2|kc]=hu.token<<16|pr.hist_idx;
 				im4->data[idx<<2|kc]=hu.bypass;
-				slic4_update_sse(cell, error0);
-				prev_error=error0;
+				slic4_pred_update(&pr, curr);
+				//prev_error=error0;
+//#ifdef _DEBUG
+//				im5->data[idx<<2|kc]=((curr-pr.pred_final+(nlevels>>1))&(nlevels-1))-(nlevels>>1);
+//				im6->data[idx<<2|kc]=curr-((pr.preds[4]+((1<<PRED_PREC)>>1)-1)>>PRED_PREC);
+//#endif
 			}
 		}
 	}
@@ -351,27 +862,58 @@ int t46_encode(Image const *src, ArrayHandle *data, int loud)
 				printf("%d ", hist[(cdfsize+1)*kt+ks]);
 			printf("\n");
 		}
-		printf("SSE:\n");
-		for(int k1=0;k1<_countof(qlevels)+1;++k1)
-		{
-			for(int k2=0;k2<_countof(qlevels)+1;++k2)
-			{
-				long long *cell=sse+17*k1+k2;
-				int count=(int)(*cell&0xFFF);
-				long long sum=*cell>>12;
-				int corr=count?(int)(sum/count):0;
-				printf("%3d ", corr);
-			}
-			printf("\n");
-		}
+//#ifdef _DEBUG
+//		double csizes[4]={0};
+//		calc_csize(im7, csizes);
+//		printf("WP0 TYUVA %lf %lf %lf %lf %lf  CR %lf\n",
+//			csizes[0]+csizes[1]+csizes[2]+csizes[3],
+//			csizes[0], csizes[1], csizes[2], csizes[3],
+//			usize/(csizes[0]+csizes[1]+csizes[2]+csizes[3])
+//		);
+//		calc_csize(im5, csizes);
+//		printf("WP  TYUVA %lf %lf %lf %lf %lf  CR %lf\n",
+//			csizes[0]+csizes[1]+csizes[2]+csizes[3],
+//			csizes[0], csizes[1], csizes[2], csizes[3],
+//			usize/(csizes[0]+csizes[1]+csizes[2]+csizes[3])
+//		);
+//		calc_csize(im6, csizes);
+//		printf("CG  TYUVA %lf %lf %lf %lf %lf  CR %lf\n",
+//			csizes[0]+csizes[1]+csizes[2]+csizes[3],
+//			csizes[0], csizes[1], csizes[2], csizes[3],
+//			usize/(csizes[0]+csizes[1]+csizes[2]+csizes[3])
+//		);
+//#endif
+		//printf("SSE:\n");
+		//for(int k1=0;k1<_countof(qlevels)+1;++k1)
+		//{
+		//	for(int k2=0;k2<_countof(qlevels)+1;++k2)
+		//	{
+		//		long long *cell=sse+17*k1+k2;
+		//		int count=(int)(*cell&0xFFF);
+		//		long long sum=*cell>>12;
+		//		int corr=count?(int)(sum/count):0;
+		//		printf("%3d ", corr);
+		//	}
+		//	printf("\n");
+		//}
 	}
-	free(sse);
+//#ifdef _DEBUG
+//	free(im5);
+//	free(im6);
+//	free(im7);
+//#endif
+	slic4_pred_free(&pr);
+	DList list;
+	dlist_init(&list, 1, 1024, 0);
+	dlist_push_back(&list, pal_sizes, sizeof(pal_sizes));
+	//free(sse);
+	size_t overhead=0;
 	for(int kt=0;kt<_countof(qlevels)+1;++kt)
 	{
 		//if(kt==12)
 		//	printf("");
 		unsigned *curr_hist=hist+(cdfsize+1)*kt;
-		unsigned short *curr_emit_hist=emit_hist+cdfsize*kt;
+		//unsigned short *curr_emit_hist=emit_hist+cdfsize*kt;
 		int weight=0, bins_used=0, last_symbol=0;
 		for(int ks=0;ks<cdfsize;++ks)
 		{
@@ -381,37 +923,59 @@ int t46_encode(Image const *src, ArrayHandle *data, int loud)
 			if(freq)
 				last_symbol=ks;
 		}
-		if(bins_used==1)//degenerate histogram
-		{
-			memset(curr_emit_hist, 0, (last_symbol+1)*sizeof(short));
-			curr_hist[last_symbol]=0;
-			if(last_symbol<cdfsize)
-			{
-				int c=0xFFFF;
-				memset(curr_emit_hist+last_symbol+1, -1, (cdfsize-(last_symbol+1))*sizeof(short));
-				memfill(curr_hist+last_symbol+1, &c, (cdfsize-(last_symbol+1))*sizeof(int), sizeof(int));
-			}
-			//for(int ks=last_symbol+1;ks<cdfsize;++ks)
-			//	curr_emit_hist[ks]=curr_hist[ks]=0xFFFF;
-		}
-		else if(bins_used)
+		unsigned short CDFrange[2];
+		if(bins_used>1)
 		{
 			for(int ks=0, ks2=0, c=0;ks<cdfsize;++ks)
 			{
 				unsigned freq=curr_hist[ks];
-				curr_emit_hist[ks]=curr_hist[ks]=(unsigned)((unsigned long long)c*(0x10000LL-bins_used)/weight)+ks2;
+				curr_hist[ks]=(unsigned)((unsigned long long)c*(0x10000LL-bins_used)/weight)+ks2;
 				ks2+=freq!=0;
 				c+=freq;
 			}
+			curr_hist[cdfsize]=0x10000;
+			int start, end;
+			for(start=0;start<cdfsize+1&&!curr_hist[start];++start);
+			for(end=cdfsize;end>=start&&curr_hist[end]==0x10000;--end);
+			++end;
+			int n=end-start;
+			CDFrange[0]=TAG_HIST_START<<12|(start&0xFFF);
+			CDFrange[1]=TAG_HIST_LEN<<12|(n&0xFFF);
+			dlist_push_back(&list, CDFrange, sizeof(CDFrange));
+			if(n>0)
+			{
+				for(int k=0;k<n;++k)
+					emit_hist[k]=curr_hist[start+k];
+				dlist_push_back(&list, emit_hist, n*sizeof(short));
+			}
+			overhead+=sizeof(CDFrange)+n*sizeof(short);
 		}
-		else
-			memset(curr_emit_hist, 0, cdfsize*sizeof(short));
-		curr_hist[cdfsize]=0x10000;
+		else if(bins_used)//degenerate histogram
+		{
+			//memset(curr_emit_hist, 0, (last_symbol+1)*sizeof(short));
+			int c=0x10000;
+			//memset(curr_emit_hist+last_symbol+1, -1, (cdfsize-(last_symbol+1))*sizeof(short));
+			curr_hist[last_symbol]=0;
+			memfill(curr_hist+last_symbol+1, &c, (cdfsize+1-(last_symbol+1))*sizeof(int), sizeof(int));
+			CDFrange[0]=TAG_HIST_START<<12|(last_symbol&0xFFF);
+			CDFrange[1]=TAG_HIST_LEN<<12|1;
+			dlist_push_back(&list, CDFrange, sizeof(CDFrange));
+			//for(int ks=last_symbol+1;ks<cdfsize;++ks)
+			//	curr_emit_hist[ks]=curr_hist[ks]=0xFFFF;
+			overhead+=sizeof(CDFrange);
+		}
+		else//null histogram, no encounters
+		{
+			CDFrange[0]=TAG_HIST_START<<12|0;
+			CDFrange[1]=TAG_HIST_LEN<<12|0;
+			dlist_push_back(&list, CDFrange, sizeof(CDFrange));
+			//memset(curr_emit_hist, 0, cdfsize*sizeof(short));
+			curr_hist[cdfsize]=0x10000;
+			overhead+=sizeof(CDFrange);
+		}
 	}
-	DList list;
-	dlist_init(&list, 1, 1024, 0);
-	dlist_push_back(&list, pal_sizes, sizeof(pal_sizes));
-	dlist_push_back(&list, emit_hist, cdfsize*sizeof(short[_countof(qlevels)+1]));//TODO: histogram end marked with zero
+	free(emit_hist);
+	//dlist_push_back(&list, emit_hist, cdfsize*sizeof(short[_countof(qlevels)+1]));//TODO: histogram end marked with zero
 	for(int kc=0;kc<4;++kc)//insert palettes, if any
 	{
 		if(palettes[kc])
@@ -478,10 +1042,11 @@ int t46_encode(Image const *src, ArrayHandle *data, int loud)
 		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 		printf("csize %8d  CR %10.6lf\n", (int)list.nobj, usize/list.nobj);
+		printf("new overhead   %5d\n", (int)(sizeof(pal_sizes)+overhead));
+		printf("naive overhead %5d\n", (int)(sizeof(pal_sizes)+cdfsize*sizeof(short[_countof(qlevels)+1])));
 	}
 	dlist_clear(&list);
 	free(hist);
-	free(emit_hist);
 	free(im3);
 	free(im4);
 	return 1;
@@ -495,8 +1060,8 @@ int t46_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 	hybriduint_encode(-maxlevels, &hu);//-(half<<1) to make way for chroma inclation
 	int cdfsize=hu.token+1;
 	unsigned short pal_sizes[4];
-	size_t emithistsize=cdfsize*sizeof(short[_countof(qlevels)+1]);
-	if(srclen<sizeof(pal_sizes)+emithistsize)
+	//size_t emithistsize=cdfsize*sizeof(short[_countof(qlevels)+1]);
+	if(srclen<sizeof(pal_sizes))
 	{
 		printf("File smaller than header size\n");
 		return 0;
@@ -506,15 +1071,82 @@ int t46_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 	srclen-=sizeof(pal_sizes);
 
 	unsigned *hist=(unsigned*)malloc((cdfsize+1LL)*sizeof(int[_countof(qlevels)+1]));
-	unsigned short *emit_hist=(unsigned short*)malloc(emithistsize);
-	if(!hist||!emit_hist)
+	//unsigned short *emit_hist=(unsigned short*)malloc(emithistsize);
+	if(!hist)
 	{
 		LOG_ERROR("Alloc error");
 		return 0;
 	}
-	memcpy(emit_hist, data, emithistsize);
-	data+=emithistsize;
-	srclen-=emithistsize;
+	for(int kt=0;kt<_countof(qlevels)+1;++kt)
+	{
+		unsigned short CDFrange[2];
+		if(srclen<sizeof(CDFrange))
+		{
+			LOG_ERROR("Corrupt file");
+			return 0;
+		}
+		memcpy(CDFrange, data, sizeof(CDFrange));
+		data+=sizeof(CDFrange);
+		srclen-=sizeof(CDFrange);
+
+		if((CDFrange[0]>>12)!=TAG_HIST_START||(CDFrange[1]>>12)!=TAG_HIST_LEN)
+		{
+			LOG_ERROR("Corrupt file");
+			return 0;
+		}
+		CDFrange[0]&=0xFFF;
+		CDFrange[1]&=0xFFF;
+
+		CDFrange[1]+=CDFrange[0];//{start, len} -> {start, end}
+
+		if((unsigned)CDFrange[0]>(unsigned)cdfsize+1||(unsigned)CDFrange[1]>(unsigned)cdfsize+1||CDFrange[0]>CDFrange[1])
+		{
+			LOG_ERROR("Corrupt file");
+			return 0;
+		}
+
+		unsigned *curr_hist=hist+(cdfsize+1)*kt;
+		if(CDFrange[0]==CDFrange[1])//null histogram
+		{
+			memset(curr_hist, 0, cdfsize*sizeof(int));
+			curr_hist[cdfsize]=0x10000;
+		}
+		else if(CDFrange[0]+1==CDFrange[1])//degenerate histogram
+		{
+			memset(curr_hist, 0, CDFrange[1]*sizeof(int));
+			if(CDFrange[1]<cdfsize+1)
+			{
+				int fillval=0x10000;
+				memfill(curr_hist+CDFrange[1], &fillval, (cdfsize+1-(CDFrange[1]))*sizeof(int), sizeof(int));
+			}
+		}
+		else
+		{
+			if(CDFrange[0])
+				memset(curr_hist, 0, CDFrange[0]*sizeof(int));
+			for(int ks=CDFrange[0];ks<CDFrange[1];++ks)
+			{
+				unsigned short CDFval;
+				if(srclen<sizeof(CDFval))
+				{
+					LOG_ERROR("Corrupt file");
+					return 0;
+				}
+				memcpy(&CDFval, data, sizeof(CDFval));
+				data+=sizeof(CDFval);
+				srclen-=sizeof(CDFval);
+				curr_hist[ks]=CDFval;
+			}
+			if(CDFrange[1]<cdfsize+1)
+			{
+				int fillval=0x10000;
+				memfill(curr_hist+CDFrange[1], &fillval, (cdfsize+1-CDFrange[1])*sizeof(int), sizeof(int));
+			}
+		}
+	}
+	//memcpy(emit_hist, data, emithistsize);
+	//data+=emithistsize;
+	//srclen-=emithistsize;
 
 	unsigned short *palettes[4]={0};
 	for(int kc=0;kc<dst->nch;++kc)
@@ -538,29 +1170,31 @@ int t46_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 			srclen-=bytesize;
 		}
 	}
-	long long *sse=(long long*)malloc(SSE_SIZE*sizeof(long long));
-	if(!sse)
+	PredictorCtx pr;
+	int success=slic4_pred_init(&pr, dst->iw);
+	//long long *sse=(long long*)malloc(SSE_SIZE*sizeof(long long));
+	if(!success)
 	{
 		LOG_ERROR("Alloc error");
 		return 0;
 	}
-	for(int kt=0;kt<_countof(qlevels)+1;++kt)
-	{
-		for(int ks=0, overflow=0;ks<cdfsize;++ks)
-		{
-			if(overflow)
-				hist[(cdfsize+1)*kt+ks]=0x10000;
-			else
-			{
-				unsigned cdf=emit_hist[cdfsize*kt+ks];
-				hist[(cdfsize+1)*kt+ks]=cdf;
-				if(ks<cdfsize-1)
-					overflow|=cdf>emit_hist[cdfsize*kt+ks+1];
-			}
-		}
-		hist[(cdfsize+1)*kt+cdfsize]=0x10000;
-	}
-	free(emit_hist);
+	//for(int kt=0;kt<_countof(qlevels)+1;++kt)
+	//{
+	//	for(int ks=0, overflow=0;ks<cdfsize;++ks)
+	//	{
+	//		if(overflow)
+	//			hist[(cdfsize+1)*kt+ks]=0x10000;
+	//		else
+	//		{
+	//			unsigned cdf=emit_hist[cdfsize*kt+ks];
+	//			hist[(cdfsize+1)*kt+ks]=cdf;
+	//			if(ks<cdfsize-1)
+	//				overflow|=cdf>emit_hist[cdfsize*kt+ks+1];
+	//		}
+	//	}
+	//	hist[(cdfsize+1)*kt+cdfsize]=0x10000;
+	//}
+	//free(emit_hist);
 	ANSCoder ec;
 	ans_dec_init(&ec, data, data+srclen);
 	int rct_depths[]=
@@ -579,10 +1213,12 @@ int t46_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 			continue;
 		}
 		int nlevels=1<<rct_depths[kc], shift=(MAXVAR(8, rct_depths[kc])-8)>>2;
-		memset(sse, 0, SSE_SIZE*sizeof(long long));
+		slic4_pred_nextchannel(&pr, rct_depths[kc]);
+		//memset(sse, 0, SSE_SIZE*sizeof(long long));
 		for(int ky=0, idx=0;ky<dst->ih;++ky)
 		{
-			int prev_error=0;
+			slic4_pred_nextrow(&pr, ky);
+			//int prev_error=0;
 			for(int kx=0;kx<dst->iw;++kx, ++idx)
 			{
 				//if(kc==0&&kx==114&&ky==2)//
@@ -600,10 +1236,8 @@ int t46_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 				//if(kc==0&&kx==0&&ky==511)//
 				//	printf("");
 
-				int ctx[3];
-				long long *cell;
-				slic4_pred(dst, kc, kx, ky, shift, prev_error, sse, ctx, &cell);
-				unsigned *CDF=hist+(cdfsize+1)*ctx[1];
+				slic4_predict(dst, kc, kx, ky, &pr);
+				unsigned *CDF=hist+(cdfsize+1)*pr.hist_idx;
 				int sym=ans_dec(&ec, CDF, cdfsize);
 #ifdef SLIC4_USE_SIMPLE_HYBRID
 				if(sym>=16)
@@ -634,8 +1268,8 @@ int t46_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 				}
 #endif
 				int error;
-				int cond=(ctx[0]<0)==(ctx[2]<0);
-				int upred=ctx[0];
+				int cond=(pr.pred_final<0)==(pr.sse_corr<0);
+				int upred=pr.pred_final;
 				upred^=-cond;
 				upred+=cond;
 				upred+=nlevels>>1;
@@ -665,23 +1299,24 @@ int t46_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 						error=upred-sym;
 				}
 #endif
-				int negmask=-(ctx[2]<0);
+				int negmask=-(pr.sse_corr<0);
 				error^=negmask;
 				error-=negmask;
-				int curr=error+ctx[0];
+				int curr=error+pr.pred_final;
 				//curr+=nlevels>>1;//no need for modular arithmetic
 				//curr&=nlevels-1;
 				//curr-=nlevels>>1;
 				//if(guide&&curr!=guide->data[idx<<2|kc])
-				//	LOG_ERROR("Guide error");
+				//	LOG_ERROR("Guide error CXY %d %d %d", kc, kx, ky);
 				dst->data[idx<<2|kc]=curr;
-				slic4_update_sse(cell, error);
-				prev_error=error;
+				slic4_pred_update(&pr, curr);
+				//prev_error=error;
 			}
 		}
 	}
-	free(sse);
+	//free(sse);
 	free(hist);
+	slic4_pred_free(&pr);
 	rct_JPEG2000_32(dst, 0);
 	for(int kc=0;kc<dst->nch;++kc)
 	{
