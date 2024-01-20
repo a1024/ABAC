@@ -86,7 +86,7 @@ int compare_bufs_32(const int *b1, const int *b0, int iw, int ih, int nch, int c
 	{
 		if(memcmp(b1+k, b0+k, nch*sizeof(int)))
 		{
-			//if(loud)
+			if(loud)
 			{
 				ptrdiff_t idx=k/chstride, kx=idx%iw, ky=idx/iw;
 				printf("\n%s error XY (%5lld, %5lld) / %5d x %5d  b1 != b0\n", name, kx, ky, iw, ih);
@@ -94,7 +94,7 @@ int compare_bufs_32(const int *b1, const int *b0, int iw, int ih, int nch, int c
 					printf("C%d  0x%08X != 0x%08X    %d != %d\n",
 						kc, (unsigned)b1[k+kc], (unsigned)b0[k+kc], (unsigned)b1[k+kc], (unsigned)b0[k+kc]
 					);
-				LOG_ERROR("");
+				//LOG_ERROR("");
 			}
 			return 1;
 		}

@@ -286,7 +286,7 @@ void batch_test_mt(const char *path, int nthreads)
 {
 	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H%M%S");
 	printf("%s\n", g_buf);
-	printf("Multithreaded Batch Test\n");
+	printf("Multithreaded Batch Test %s\n", CODECNAME);
 	double t_start=time_sec();
 	ArrayHandle filenames=get_filenames(path, g_extensions, _countof(g_extensions), 1);
 	if(!filenames)
@@ -1082,7 +1082,7 @@ ProgArgs args=
 	OP_TESTFILE, 1, 0,//op, nthreads, formatsize
 
 //	"C:/Projects/datasets/dataset-kodak/kodim02.png",
-	"C:/Projects/datasets/dataset-kodak/kodim13.png",
+//	"C:/Projects/datasets/dataset-kodak/kodim13.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/artificial.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/big_building.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/cathedral.png",
@@ -1090,9 +1090,11 @@ ProgArgs args=
 //	"C:/Projects/datasets/dataset-LPCB/canon_eos_1100d_01.PNG",
 //	"C:/Projects/datasets/dataset-LPCB/canon_eos_1100d_02.PNG",
 //	"C:/Projects/datasets/dataset-LPCB/canon_eos_1100d_03.PNG",
+	"C:/Projects/datasets/Screenshots/Screenshot 2023-03-12 181054.png",
 #else
 	OP_TESTFOLDER, 1, 0,
-	"C:/Projects/datasets/dataset-LPCB",
+	//"C:/Projects/datasets/dataset-LPCB",
+	"C:/Projects/datasets/Screenshots",
 #endif
 };
 //{

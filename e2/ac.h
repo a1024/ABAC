@@ -488,7 +488,7 @@ static void ans_dec_init(ANSCoder *ec, const unsigned char *start, const unsigne
 {
 	ec->srcptr=end;
 	ec->srcstart=start;
-	
+
 	ec->srcptr-=4;
 	if(ec->srcptr<ec->srcstart)
 		LOG_ERROR2("ANS buffer overflow");
@@ -515,7 +515,7 @@ static int ans_dec(ANSCoder *ec, const unsigned *CDF, int nlevels)
 {
 	unsigned c=(unsigned short)ec->state;
 	int sym=0;
-	
+
 	unsigned cdf, freq;
 	if(CDF)
 	{
@@ -545,7 +545,8 @@ static int ans_dec(ANSCoder *ec, const unsigned *CDF, int nlevels)
 		sym=c*nlevels>>16;
 		cdf=(sym<<16)/nlevels, freq=((sym+1)<<16)/nlevels-cdf;
 	}
-						
+	if(!freq)
+		LOG_ERROR2("ZPS");
 	debug_dec_update(ec->state, cdf, freq, 0, 0, 0, 0, sym);
 	ec->state=freq*(ec->state>>16)+c-cdf;//update
 	if(ec->state<0x10000)//renorm
@@ -576,7 +577,7 @@ static int ans_dec_bin(ANSCoder *ec, unsigned short p0)
 	int bit=c>=p0;
 	
 	int cdf=bit?p0:0, freq=bit?0x10000-p0:p0;
-						
+
 	debug_dec_update(ec->state, cdf, freq, 0, 0, 0, 0, bit);
 	ec->state=freq*(ec->state>>16)+c-cdf;//update
 	if(ec->state<0x10000)//renorm

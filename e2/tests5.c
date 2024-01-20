@@ -120,12 +120,16 @@ static int quantize_signed(int x)
 	return x2;
 }
 #define HASH_FUNC(A, B) ((A+B+1)*(A+B)/2+B)
-//#define SSE_SIZE 0x100000
-#define SSE_SIZE ((_countof(qlevels)+1)*(_countof(qlevels)+1)*(_countof(qlevels)+1)*(_countof(qlevels)+1)<<1)
-//#define SSE_SIZE (_countof(qlevels)+1)
-#define NPREDS 4
+#define NPREDS 7
 #define PRED_PREC 8
 #define PARAM_PREC 8
+#define SSE_STAGES 8
+//#define SSE_SIZE 0x100000
+//#define SSE_SIZE ((_countof(qlevels)+1)*(_countof(qlevels)+1)*(_countof(qlevels)+1)*(_countof(qlevels)+1)<<1)
+//#define SSE_SIZE 1024
+#define SSE_SIZE ((_countof(qlevels)+1)*(_countof(qlevels)+1)<<2)
+//#define SSE_SIZE (_countof(qlevels)+1)
+
 #define TAG_HIST_START 7
 #define TAG_HIST_LEN 4
 typedef struct PredictorCtxStruct
@@ -135,9 +139,9 @@ typedef struct PredictorCtxStruct
 	long long esum;//sum of abs errors so far in current row
 	int sigma;//average of abs errors from prev row
 	int shift;//depth compensation
-	long long *sse, sse_idx, sse_sum;
-	int sse_count;
-	int preds[NPREDS+1];
+	long long *sse, sse_idx[SSE_STAGES], sse_sum[SSE_STAGES];
+	int sse_count[SSE_STAGES];
+	int preds[NPREDS];
 	long long pred;
 	int pred_final;
 	//long long r_weights[NPREDS];
@@ -151,7 +155,7 @@ static int slic4_pred_init(PredictorCtx *pr, int iw)
 	pr->iw=iw;
 	pr->pred_errors=(int*)malloc(iw*sizeof(int[NPREDS*2]));
 	pr->errors=(int*)malloc(iw*sizeof(int[2]));
-	pr->sse=(long long*)malloc(SSE_SIZE*sizeof(long long));
+	pr->sse=(long long*)malloc(sizeof(long long[SSE_STAGES*SSE_SIZE]));
 	if(!pr->pred_errors||!pr->errors||!pr->sse)
 	{
 		LOG_ERROR("Alloc error");
@@ -168,7 +172,7 @@ static void slic4_pred_nextchannel(PredictorCtx *pr, int depth)
 {
 	memset(pr->pred_errors, 0, pr->iw*sizeof(int[NPREDS*2]));
 	memset(pr->errors, 0, pr->iw*sizeof(int[2]));
-	memset(pr->sse, 0, SSE_SIZE*sizeof(long long));
+	memset(pr->sse, 0, sizeof(long long[SSE_STAGES*SSE_SIZE]));
 	pr->sigma=0;
 	pr->esum=0;
 	pr->depth=depth;
@@ -193,16 +197,20 @@ static void slic4_pred_nextrow(PredictorCtx *pr, int ky)
 }
 static const short wp_params[]=
 {
+	// 0x00EA, 0x01C8, 0x00A2, 0x005E, 0x01F4, 0x0045, 0x0091, 0x0066, 0x003B, 0x0027,-0x0011, 0x001B, 0x00FF, 0x007E, 0x00D1, 0x00F3, 0x008F, 0x0130, 0x018E,-0x00AC, 0x0004,
+	// 0x010C, 0x0008,-0x007E, 0x00A2, 0x000E,-0x0069,-0x0073,-0x0125,-0x0092, 0x0000, 0x0078,
+
+	 0x0DB8,  0x0E22,  0x181F,  0x0BF3,  0x181F,  0x181F,  0x181F,
+	-0x005C,
+	-0x005B,
+	 0x00DF,  0x0051,  0x00BD,  0x005C, -0x0102,
+
 	//0xd, 0xc, 0xc, 0xb,
 	//8,
 	//8,
 	//4, 0, 3, 23, 2,
-	 0x0DB8,  0x0E22,  0x181F,  0x0BF3,
-	-0x005C,
-	-0x005B,
-	 0x00DF,  0x0051,  0x00BD,  0x005C, -0x0102,
 };
-#if 1
+#if 0
 void pred_jxl(Image *srcim, int fwd, int enable_ma)
 {
 	const short *params=wp_params;
@@ -330,20 +338,50 @@ void pred_jxl(Image *srcim, int fwd, int enable_ma)
 #endif
 static void slic4_predict(Image const *im, int kc, int kx, int ky, PredictorCtx *pr)
 {
+	const int *pixels=im->data;
 	pr->kx=kx;
-	long long
-		idx=im->iw*ky+kx,
-		NN=ky>=2 ?im->data[(idx-im->iw*2)<<2|kc]<<PRED_PREC:0,
-		WW=kx>=2 ?im->data[(idx       -2)<<2|kc]<<PRED_PREC:0,
-		N =ky    ?im->data[(idx-im->iw  )<<2|kc]<<PRED_PREC:0,
-		W =kx    ?im->data[(idx       -1)<<2|kc]<<PRED_PREC:0,
-		NW=kx&&ky?im->data[(idx-im->iw-1)<<2|kc]<<PRED_PREC:0,
-		NE=kx+1<im->iw  &&ky   ?im->data[(idx-im->iw  +1)<<2|kc]<<PRED_PREC:0,
-		NWW =kx>=2      &&ky>=1?im->data[(idx-im->iw  -2)<<2|kc]<<PRED_PREC:0,
-		NNW =kx>=1      &&ky>=2?im->data[(idx-im->iw*2-1)<<2|kc]<<PRED_PREC:0,
-		NNE =kx+1<im->iw&&ky>=2?im->data[(idx-im->iw*2+1)<<2|kc]<<PRED_PREC:0,
-		NNWW=kx>=2      &&ky>=2?im->data[(idx-im->iw*2-2)<<2|kc]<<PRED_PREC:0,
-		NNEE=kx+2<im->iw&&ky>=2?im->data[(idx-im->iw*2+2)<<2|kc]<<PRED_PREC:0;
+#define LOAD(BUF, X, Y) (unsigned)(kx+(X))<(unsigned)im->iw&&(unsigned)(ky+(Y))<(unsigned)im->ih?BUF[(im->iw*(ky+(Y))+kx+(X))<<2|kc]<<8:0
+	int
+		NNNNNN  =LOAD(pixels,  0, -6),
+	//	NNNNWWWW=LOAD(pixels, -4, -4),
+	//	NNNN    =LOAD(pixels,  0, -4),
+	//	NNNNEEEE=LOAD(pixels,  4, -4),
+	//	NNNWWW  =LOAD(pixels, -3, -3),
+		NNN     =LOAD(pixels,  0, -3),
+	//	NNNEEE  =LOAD(pixels,  3, -3),
+		NNWW    =LOAD(pixels, -2, -2),
+		NNW     =LOAD(pixels, -1, -2),
+		NN      =LOAD(pixels,  0, -2),
+		NNE     =LOAD(pixels,  1, -2),
+		NNEE    =LOAD(pixels,  2, -2),
+		NWW     =LOAD(pixels, -2, -1),
+		NW      =LOAD(pixels, -1, -1),
+		N       =LOAD(pixels,  0, -1),
+		NE      =LOAD(pixels,  1, -1),
+		NEE     =LOAD(pixels,  2, -1),
+		NEEEE   =LOAD(pixels,  4, -1),
+		NEEEEE  =LOAD(pixels,  5, -1),
+		NEEEEEE =LOAD(pixels,  6, -1),
+		NEEEEEEE=LOAD(pixels,  7, -1),
+		WWWWWW  =LOAD(pixels, -6,  0),
+		WWWW    =LOAD(pixels, -4,  0),
+	//	WWW     =LOAD(pixels, -3,  0),
+		WW      =LOAD(pixels, -2,  0),
+		W       =LOAD(pixels, -1,  0);
+	//long long
+	//	idx=im->iw*ky+kx,
+	//	NN=ky>=2 ?im->data[(idx-im->iw*2)<<2|kc]<<PRED_PREC:0,
+	//	WW=kx>=2 ?im->data[(idx       -2)<<2|kc]<<PRED_PREC:0,
+	//	N =ky    ?im->data[(idx-im->iw  )<<2|kc]<<PRED_PREC:0,
+	//	W =kx    ?im->data[(idx       -1)<<2|kc]<<PRED_PREC:0,
+	//	NW=kx&&ky?im->data[(idx-im->iw-1)<<2|kc]<<PRED_PREC:0,
+	//	NE=kx+1<im->iw  &&ky   ?im->data[(idx-im->iw  +1)<<2|kc]<<PRED_PREC:0,
+	//	NWW =kx>=2      &&ky>=1?im->data[(idx-im->iw  -2)<<2|kc]<<PRED_PREC:0,
+	//	NEE =kx+2<im->iw&&ky>=1?im->data[(idx-im->iw  +2)<<2|kc]<<PRED_PREC:0,
+	//	NNW =kx>=1      &&ky>=2?im->data[(idx-im->iw*2-1)<<2|kc]<<PRED_PREC:0,
+	//	NNE =kx+1<im->iw&&ky>=2?im->data[(idx-im->iw*2+1)<<2|kc]<<PRED_PREC:0,
+	//	NNWW=kx>=2      &&ky>=2?im->data[(idx-im->iw*2-2)<<2|kc]<<PRED_PREC:0,
+	//	NNEE=kx+2<im->iw&&ky>=2?im->data[(idx-im->iw*2+2)<<2|kc]<<PRED_PREC:0;
 	
 	long long
 		eN =ky             ?pr->errors[pr->iw*!pr->ky1+kx  ]:0,//error = curr - pred
@@ -351,14 +389,86 @@ static void slic4_predict(Image const *im, int kc, int kx, int ky, PredictorCtx 
 		eNW=kx&&ky         ?pr->errors[pr->iw*!pr->ky1+kx-1]:0,
 		eNE=kx+1<pr->iw&&ky?pr->errors[pr->iw*!pr->ky1+kx+1]:0;
 
-	pr->preds[0]=(int)(W+NE-N);
-	pr->preds[1]=(int)(N-((eN+eW+eNE)*wp_params[4]>>PARAM_PREC));
-	pr->preds[2]=(int)(W-((eN+eW+eNW)*wp_params[5]>>PARAM_PREC));
-	pr->preds[3]=(int)(N-((eNW*wp_params[6]+eN*wp_params[7]+eNE*wp_params[8]+(NN-N)*wp_params[9]+(NW-W)*wp_params[10])>>PARAM_PREC));
+	int j=-1;
+	pr->preds[++j]=(int)(W+NE-N);
+	pr->preds[++j]=(int)(N-((eN+eW+eNE)*wp_params[NPREDS+0]>>PARAM_PREC));
+	pr->preds[++j]=(int)(W-((eN+eW+eNW)*wp_params[NPREDS+1]>>PARAM_PREC));
+	pr->preds[++j]=(int)(N-((eNW*wp_params[NPREDS+2]+eN*wp_params[NPREDS+3]+eNE*wp_params[NPREDS+4]+(NN-N)*wp_params[NPREDS+5]+(NW-W)*wp_params[NPREDS+6])>>PARAM_PREC));
 	
-	pr->preds[4]=(int)(N+W-NW);
-	pr->preds[4]=(int)MEDIAN3(N, W, pr->preds[4]);
+#if 0
+	//pr->preds[++j]=(((N+W)<<1)+NW+NE+NN+WW+4)>>3;//X
 
+	pr->preds[++j]=(int)(W -(eW *wp_params[NPREDS+ 7]>>8));
+	pr->preds[++j]=(int)(N -(eN *wp_params[NPREDS+ 8]>>8));
+	pr->preds[++j]=(int)(NW-(eNW*wp_params[NPREDS+ 9]>>8));
+	pr->preds[++j]=(int)(NE-(eNE*wp_params[NPREDS+10]>>8));
+
+	int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
+	int vmin2=MINVAR(vmin, NW), vmax2=MAXVAR(vmax, NW);
+	vmin2=MINVAR(vmin2, NE), vmax2=MAXVAR(vmax, NE);
+	++j, pr->preds[j]=N+W-NW, pr->preds[j]=CLAMP(vmin2, pr->preds[j], vmax2);
+	++j, pr->preds[j]=W+NE-N, pr->preds[j]=CLAMP(vmin2, pr->preds[j], vmax2);
+	++j, pr->preds[j]=N+NW-NNW, pr->preds[j]=CLAMP(vmin2, pr->preds[j], vmax2);
+	vmin2=MINVAR(vmin, NE), vmax2=MAXVAR(vmax, NE);
+	vmin2=MINVAR(vmin2, NEE), vmax2=MAXVAR(vmax, NEE);
+	++j, pr->preds[j]=N+NE-NNE, pr->preds[j]=CLAMP(vmin2, pr->preds[j], vmax2);
+	
+	++j, pr->preds[j]=(W+NEE)/2;
+	++j, pr->preds[j]=NNNNNN;
+	++j, pr->preds[j]=(NEEEE+NEEEEEE)/2;
+	++j, pr->preds[j]=(WWWW+WWWWWW)/2;
+	++j, pr->preds[j]=(N+W+NEEEEE+NEEEEEEE)/4;
+	++j, pr->preds[j]=N*2-NN, pr->preds[j]=CLAMP(vmin2, pr->preds[j], vmax2);
+	++j, pr->preds[j]=(N+NNN)/2;
+	++j, pr->preds[j]=((N+W)*3-NW*2)/4;
+	++j, pr->preds[j]=(int)(N+W-NW), pr->preds[j]=(int)CLAMP(vmin, pr->preds[j], vmax);
+#endif
+#if 1
+	++j, pr->preds[j]=(int)(N+W-NW), pr->preds[j]=(int)MEDIAN3(N, W, pr->preds[j]);
+	
+	++j;
+	int dx=abs(W-WW)+abs(N-NW)+abs(NE-N);
+	int dy=abs(W-NW)+abs(N-NN)+abs(NE-NNE);
+	int d45=abs(W-NWW)+abs(NW-NNWW)+abs(N-NNW);
+	int d135=abs(NE-NNEE)+abs(N-NNE)+abs(W-N);
+	int sum2=(dy+dx)>>pr->shift, diff=(dy-dx)>>pr->shift, diff2=NE-NW;
+	if(sum2>(32<<(PRED_PREC+1)))
+		pr->preds[j]=(dx*N+dy*W)/sum2+diff2/8;
+	else if(diff>(12<<(PRED_PREC+1)))
+		pr->preds[j]=(N+2*W)/3+diff2/8;
+	else if(diff<-(12<<(PRED_PREC+1)))
+		pr->preds[j]=(2*N+W)/3+diff2/8;
+	else
+		pr->preds[j]=(N+W)/2+diff2/8;
+	diff=d45-d135;
+	if(diff>(32<<(PRED_PREC+1)))
+		pr->preds[j]+=diff2/8;
+	else if(diff>(16<<(PRED_PREC+1)))
+		pr->preds[j]+=diff2/16;
+	else if(diff<-(32<<(PRED_PREC+1)))
+		pr->preds[j]-=diff2/8;
+	else if(diff<-(16<<(PRED_PREC+1)))
+		pr->preds[j]-=diff2/16;
+	
+	++j;
+	int disc=(dy-dx)>>pr->shift;
+	if(disc>80)
+		pr->preds[j]=W;
+	else if(disc<-80)
+		pr->preds[j]=N;
+	else
+	{
+		pr->preds[j]=(N+W)/2+(NE-NW)/4;
+		if(disc>32)
+			pr->preds[j]=(pr->preds[j]+W)/2;
+		else if(disc>8)
+			pr->preds[j]=(3*pr->preds[j]+W)/4;
+		else if(disc<-32)
+			pr->preds[j]=(pr->preds[j]+N)/2;
+		else if(disc<-8)
+			pr->preds[j]=(3*pr->preds[j]+N)/4;
+	}
+#endif
 #if 0
 	int dx=abs(W-WW)+abs(N-NW)+abs(NE-N);
 	int dy=abs(W-NW)+abs(N-NN)+abs(NE-NNE);
@@ -422,16 +532,43 @@ static void slic4_predict(Image const *im, int kc, int kx, int ky, PredictorCtx 
 	//if(p>abs((int)eNE))p=abs((int)eNE);
 	//pr->sse_idx=pr->hist_idx=quantize(p);
 	int
-		qx=quantize_signed((int)(W-WW+NE-NW+NN-NNE)>>(pr->shift+2)),
-		qy=quantize_signed((int)(W-NW+N-NN+NE-NNE)>>(pr->shift+2)),
-		q45=quantize_signed((int)(((N-W)<<1)+NN-WW)>>(pr->shift+2)),
-		q135=quantize_signed((int)(N-NNW+NE-NN)>>(pr->shift+2));
+		gx=(int)(W-WW+NE-NW+NN-NNE)>>(pr->shift+2), qx=quantize_signed(gx),
+		gy=(int)(W-NW+N-NN+NE-NNE)>>(pr->shift+2), qy=quantize_signed(gy),
+		g45=(int)(((N-W)<<1)+NN-WW)>>(pr->shift+2), q45=quantize_signed(g45),
+		g135=(int)(N-NNW+NE-NN)>>(pr->shift+2), q135=quantize_signed(g135);
 	pr->hist_idx=MAXVAR(qx, qy);
 	pr->hist_idx=MAXVAR(pr->hist_idx, q45);
 	pr->hist_idx=MAXVAR(pr->hist_idx, q135);
 	pr->hist_idx=MINVAR(pr->hist_idx, _countof(qlevels));
-	pr->sse_idx=(_countof(qlevels)+1)*(_countof(qlevels)+1)*qy*qx+q45*q135;
-	pr->sse_idx%=SSE_SIZE;
+	
+	const int g[]=
+	{
+		qx,
+		q45,
+		qy,
+		q135,
+		quantize_signed((int)eW>>pr->shift),
+		quantize_signed((int)eN>>pr->shift),
+		quantize_signed((int)eNW>>pr->shift),
+		quantize_signed((int)eNE>>pr->shift),
+	};
+	pr->sse_corr=0;
+	for(int k=0;k<SSE_STAGES;++k)
+	{
+		pr->pred_final=(int)((pr->pred+((1<<PRED_PREC)>>1)-1)>>PRED_PREC);
+		int qp=quantize_signed(pr->pred_final>>pr->shift);
+		pr->sse_idx[k]=((_countof(qlevels)+1)<<1)*qp+g[k];
+		//pr->sse_idx[k]=CLAMP(0, pr->sse_idx[k], SSE_SIZE-1);
+		long long sse_val=pr->sse[SSE_SIZE*k+pr->sse_idx[k]];
+		pr->sse_count[k]=(int)(sse_val&0xFFF);
+		pr->sse_sum[k]=(int)(sse_val>>12);
+		int sse_corr=pr->sse_count[k]?(int)(pr->sse_sum[k]/pr->sse_count[k]):0;
+		pr->pred+=sse_corr;
+		pr->sse_corr+=sse_corr;
+	}
+
+	//pr->sse_idx=(_countof(qlevels)+1)*(_countof(qlevels)+1)*qy*qx+q45*q135;
+	//pr->sse_idx%=SSE_SIZE;
 
 	//pr->hist_idx=pr->sse_idx=0;
 
@@ -581,11 +718,11 @@ static void slic4_predict(Image const *im, int kc, int kx, int ky, PredictorCtx 
 		//sse_ctx*=quantize((im->data[(idx-1)<<2|kc]+im->data[(idx-2)<<2|kc]+im->data[(idx-3)<<2|kc]+W)>>2);
 #endif
 
-	long long sse_cell=pr->sse[pr->sse_idx];
-	pr->sse_count=(int)(sse_cell&0xFFF);
-	pr->sse_sum=sse_cell>>12;
-	pr->sse_corr=pr->sse_count?(int)(pr->sse_sum/pr->sse_count):0;
-	pr->pred+=pr->sse_corr;
+	//long long sse_cell=pr->sse[pr->sse_idx];
+	//pr->sse_count=(int)(sse_cell&0xFFF);
+	//pr->sse_sum=sse_cell>>12;
+	//pr->sse_corr=pr->sse_count?(int)(pr->sse_sum/pr->sse_count):0;
+	//pr->pred+=pr->sse_corr;
 
 	//if(kc==0&&kx==0&&ky==0)//
 	//	printf("");
@@ -634,15 +771,26 @@ static void slic4_pred_update(PredictorCtx *pr, int curr)
 		if(pr->ky&&pr->kx+1<pr->iw)
 			pr->pred_errors[NPREDS*(pr->iw*!pr->ky1+pr->kx+1)+k]+=e;
 	}
-
-	++pr->sse_count;
-	pr->sse_sum+=error;
-	if(pr->sse_count>640)
+	
+	for(int k=0;k<SSE_STAGES;++k)
 	{
-		pr->sse_count>>=1;
-		pr->sse_sum>>=1;
+		++pr->sse_count[k];
+		pr->sse_sum[k]+=error;
+		if(pr->sse_count[k]>640)
+		{
+			pr->sse_count[k]>>=1;
+			pr->sse_sum[k]>>=1;
+		}
+		pr->sse[SSE_SIZE*k+pr->sse_idx[k]]=pr->sse_sum[k]<<12|pr->sse_count[k];
 	}
-	pr->sse[pr->sse_idx]=pr->sse_sum<<12|pr->sse_count;
+	//++pr->sse_count;
+	//pr->sse_sum+=error;
+	//if(pr->sse_count>640)
+	//{
+	//	pr->sse_count>>=1;
+	//	pr->sse_sum>>=1;
+	//}
+	//pr->sse[pr->sse_idx]=pr->sse_sum<<12|pr->sse_count;
 }
 Image const *guide=0;
 int t46_encode(Image const *src, ArrayHandle *data, int loud)
@@ -793,6 +941,7 @@ int t46_encode(Image const *src, ArrayHandle *data, int loud)
 				//if(kc==0&&kx==2&&ky==0)//
 				//if(kc==0&&kx==0&&ky==511)//
 				//if(kc==0&&kx==1&&ky==0)//
+				//if(kc==0&&kx==405&&ky==39)//
 				//	printf("");
 
 				slic4_predict(im2, kc, kx, ky, &pr);
@@ -910,7 +1059,7 @@ int t46_encode(Image const *src, ArrayHandle *data, int loud)
 	size_t overhead=0;
 	for(int kt=0;kt<_countof(qlevels)+1;++kt)
 	{
-		//if(kt==12)
+		//if(kt==11)
 		//	printf("");
 		unsigned *curr_hist=hist+(cdfsize+1)*kt;
 		//unsigned short *curr_emit_hist=emit_hist+cdfsize*kt;
@@ -958,7 +1107,7 @@ int t46_encode(Image const *src, ArrayHandle *data, int loud)
 			curr_hist[last_symbol]=0;
 			memfill(curr_hist+last_symbol+1, &c, (cdfsize+1-(last_symbol+1))*sizeof(int), sizeof(int));
 			CDFrange[0]=TAG_HIST_START<<12|(last_symbol&0xFFF);
-			CDFrange[1]=TAG_HIST_LEN<<12|1;
+			CDFrange[1]=TAG_HIST_LEN<<12|0;
 			dlist_push_back(&list, CDFrange, sizeof(CDFrange));
 			//for(int ks=last_symbol+1;ks<cdfsize;++ks)
 			//	curr_emit_hist[ks]=curr_hist[ks]=0xFFFF;
@@ -999,6 +1148,7 @@ int t46_encode(Image const *src, ArrayHandle *data, int loud)
 			//if((k<<2|kc)==2306)//
 			//if((k<<2|kc)==92)//
 			//if((k<<2|kc)==0)//
+			//if((k<<2|kc)==215340)//
 			//	printf("");
 
 			int token=im3->data[k<<2|kc]>>16, ctx=im3->data[k<<2|kc]&0xFFFF, bypass=im4->data[k<<2|kc];
@@ -1063,7 +1213,8 @@ int t46_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 	//size_t emithistsize=cdfsize*sizeof(short[_countof(qlevels)+1]);
 	if(srclen<sizeof(pal_sizes))
 	{
-		printf("File smaller than header size\n");
+		LOG_ERROR("Corrupt file\n");
+		//printf("File smaller than header size\n");
 		return 0;
 	}
 	memcpy(pal_sizes, data, sizeof(pal_sizes));
@@ -1079,6 +1230,8 @@ int t46_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 	}
 	for(int kt=0;kt<_countof(qlevels)+1;++kt)
 	{
+		//if(kt==11)
+		//	printf("");
 		unsigned short CDFrange[2];
 		if(srclen<sizeof(CDFrange))
 		{
@@ -1106,18 +1259,18 @@ int t46_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 		}
 
 		unsigned *curr_hist=hist+(cdfsize+1)*kt;
-		if(CDFrange[0]==CDFrange[1])//null histogram
+		//if(CDFrange[0]==CDFrange[1])//null histogram
+		//{
+		//	memset(curr_hist, 0, cdfsize*sizeof(int));
+		//	curr_hist[cdfsize]=0x10000;
+		//}
+		if(CDFrange[0]==CDFrange[1])//degenerate histogram
 		{
-			memset(curr_hist, 0, cdfsize*sizeof(int));
-			curr_hist[cdfsize]=0x10000;
-		}
-		else if(CDFrange[0]+1==CDFrange[1])//degenerate histogram
-		{
-			memset(curr_hist, 0, CDFrange[1]*sizeof(int));
-			if(CDFrange[1]<cdfsize+1)
+			memset(curr_hist, 0, (CDFrange[0]+1)*sizeof(int));
+			if(CDFrange[0]+1<cdfsize+1)
 			{
 				int fillval=0x10000;
-				memfill(curr_hist+CDFrange[1], &fillval, (cdfsize+1-(CDFrange[1]))*sizeof(int), sizeof(int));
+				memfill(curr_hist+CDFrange[0]+1, &fillval, (cdfsize+1-(CDFrange[0]+1))*sizeof(int), sizeof(int));
 			}
 		}
 		else
@@ -1162,7 +1315,7 @@ int t46_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 			}
 			if(bytesize>srclen)
 			{
-				printf("Invalid file\n");
+				LOG_ERROR("Invalid file\n");
 				return 0;
 			}
 			memcpy(palettes[kc], data, bytesize);
@@ -1234,6 +1387,7 @@ int t46_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 				//if(kc==0&&kx==3&&ky==0)//
 				//if(kc==0&&kx==2&&ky==0)//
 				//if(kc==0&&kx==0&&ky==511)//
+				//if(kc==0&&kx==405&&ky==39)//
 				//	printf("");
 
 				slic4_predict(dst, kc, kx, ky, &pr);
