@@ -14,9 +14,9 @@ static const char file[]=__FILE__;
 
 static const int qlevels[]=
 {
-	//1, 2, 3, 4, 5, 6, 7, 9, 11, 13, 15, 19, 23, 27, 31, 39, 47, 55, 63, 79, 95, 111, 127
-	1, 2, 3, 4, 5, 6, 7, 9, 11, 13, 15, 19, 23, 27, 31, 39, 47, 55, 63, 79, 95, 111, 127, 159, 191, 223, 255//, 392, 500
-	//1, 3, 5, 7, 11, 15, 23, 31, 47, 63, 95, 127, 191, 255, 392, 500//from libjxl
+	1, 2, 3, 4, 5, 6, 7, 9, 11, 13, 15, 19, 23, 27, 31, 39, 47, 55, 63, 79, 95, 111, 127, 159, 191, 223, 255,// 323, 392, 446, 500
+	//1, 2, 3, 4, 5, 6, 7, 9, 11, 13, 15, 19, 23, 27, 31, 39, 47, 55, 63, 79, 95, 111, 127,
+	//1, 3, 5, 7, 11, 15, 23, 31, 47, 63, 95, 127, 191, 255, 392, 500,//from libjxl
 };
 
 typedef struct HybridUintStruct
@@ -104,6 +104,7 @@ static int quantize_signed(int x)
 	//	x2=_countof(qlevels);
 	return x2;
 }
+#define CDF_UPDATE_PERIOD 0x1000//number of sub-pixels processed between CDF updates, must be a power-of-two
 #define PAD_SIZE 2
 #define NPREDS 10
 #define PRED_PREC 8
@@ -262,18 +263,18 @@ static void slic5_nextrow(SLIC5Ctx *pr, int ky)
 	if(ky)
 	{
 		//slic5_update_CDFs(pr);
-		for(int kc=0;kc<pr->nch;++kc)
-		{
-			int x=(int)(pr->esum[kc]/pr->iw);
-			x=floor_log2(x)+1-PRED_PREC;
-			pr->shift[kc]=MAXVAR(8, x)-8+PRED_PREC;
-			pr->esum[kc]=0;
-		}
+		//for(int kc=0;kc<pr->nch;++kc)
+		//{
+		//	int x=(int)(pr->esum[kc]/pr->iw);
+		//	x=floor_log2(x)+1-PRED_PREC;
+		//	pr->shift[kc]=MAXVAR(8, x)-8+PRED_PREC - 1;//subtract 1 because qlevels now goes till 255 instead of 127
+		//	pr->esum[kc]=0;
+		//}
 	}
 	else
 	{
 		for(int kc=0;kc<pr->nch;++kc)
-			pr->shift[kc]=MAXVAR(8, pr->depths[kc])-8+PRED_PREC;
+			pr->shift[kc]=MAXVAR(8, pr->depths[kc])-8+PRED_PREC - 1;
 	}
 	pr->ky=ky;
 	pr->kym0=(pr->iw+PAD_SIZE*2)*(ky&3);
@@ -283,7 +284,7 @@ static void slic5_nextrow(SLIC5Ctx *pr, int ky)
 static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 {
 	int idx=(pr->iw*ky+kx)<<2|kc;
-	if(idx<0xFFF||!(idx&0xFFF))
+	if(idx<CDF_UPDATE_PERIOD||!(idx&(CDF_UPDATE_PERIOD-1)))
 	//if(!(idx&idx>>1))
 		slic5_update_CDFs(pr);
 	//XY are flipped, no need to check if indices OOB due to padding
@@ -426,10 +427,10 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		pr->pred=pr->preds[0];
 	
 	int
-		qx  =quantize(dx  >>(pr->shift[kc]+1)),
-		qy  =quantize(dy  >>(pr->shift[kc]+1)),
-		q45 =quantize(d45 >>(pr->shift[kc]+1)),
-		q135=quantize(d135>>(pr->shift[kc]+1));
+		qx  =quantize(dx  >>(pr->shift[kc]+2)),
+		qy  =quantize(dy  >>(pr->shift[kc]+2)),
+		q45 =quantize(d45 >>(pr->shift[kc]+2)),
+		q135=quantize(d135>>(pr->shift[kc]+2));
 	//int
 	//	gx=(int)(W-WW+NE-NW+NN-NNE)>>(pr->shift[kc]+2), qx=quantize_signed(gx),//X
 	//	gy=(int)(W-NW+N -NN+NE-NNE)>>(pr->shift[kc]+2), qy=quantize_signed(gy),
