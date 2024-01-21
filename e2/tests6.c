@@ -14,7 +14,7 @@ static const char file[]=__FILE__;
 
 static const int qlevels[]=
 {
-	1, 2, 3, 4, 5, 6, 7, 9, 11, 13, 15, 19, 23, 27, 31, 39, 47, 55, 63, 79, 95, 111, 127, 159, 191, 223, 255,// 323, 392, 446, 500
+	1, 2, 3, 4, 5, 6, 7, 9, 11, 13, 15, 19, 23, 27, 31, 39, 47, 55, 63, 79, 95, 111, 127, 159, 191, 223, 255, 323, 392, 446, 500,
 	//1, 2, 3, 4, 5, 6, 7, 9, 11, 13, 15, 19, 23, 27, 31, 39, 47, 55, 63, 79, 95, 111, 127,
 	//1, 3, 5, 7, 11, 15, 23, 31, 47, 63, 95, 127, 191, 255, 392, 500,//from libjxl
 };
@@ -267,14 +267,14 @@ static void slic5_nextrow(SLIC5Ctx *pr, int ky)
 		//{
 		//	int x=(int)(pr->esum[kc]/pr->iw);
 		//	x=floor_log2(x)+1-PRED_PREC;
-		//	pr->shift[kc]=MAXVAR(8, x)-8+PRED_PREC - 1;//subtract 1 because qlevels now goes till 255 instead of 127
+		//	pr->shift[kc]=MAXVAR(8, x)-8+PRED_PREC - 2;
 		//	pr->esum[kc]=0;
 		//}
 	}
 	else
 	{
 		for(int kc=0;kc<pr->nch;++kc)
-			pr->shift[kc]=MAXVAR(8, pr->depths[kc])-8+PRED_PREC - 1;
+			pr->shift[kc]=MAXVAR(8, pr->depths[kc])-8+PRED_PREC - 2;//subtract 2 because qlevels now goes till 500 instead of 127
 	}
 	pr->ky=ky;
 	pr->kym0=(pr->iw+PAD_SIZE*2)*(ky&3);
