@@ -107,7 +107,7 @@ static int quantize_signed(int x)
 #define NPREDS 10
 #define PRED_PREC 8
 #define PARAM_PREC 8
-#define SSE_STAGES 8
+#define SSE_STAGES 6
 #define NHIST (_countof(qlevels)+1)
 #define SSE_SIZE (NHIST*NHIST<<2)
 //#define HASH_FUNC(A, B) ((A+B+1)*(A+B)/2+B)
@@ -402,9 +402,10 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	for(int k=0;k<NPREDS;++k)
 	{
 		weights[k]=
+			(long long)pr->pred_errors[(NPREDS*(pr->kym1+kx+2+PAD_SIZE)+k)<<2|kc]+//peNEE [not in jxl]
 			(long long)pr->pred_errors[(NPREDS*(pr->kym1+kx+1+PAD_SIZE)+k)<<2|kc]+//peNE
-			(long long)pr->pred_errors[(NPREDS*(pr->kym1+kx  +PAD_SIZE)+k)<<2|kc]+//peN
-			(long long)pr->pred_errors[(NPREDS*(pr->kym1+kx-1+PAD_SIZE)+k)<<2|kc];//peNW
+			(long long)pr->pred_errors[(NPREDS*(pr->kym1+kx  +PAD_SIZE)+k)<<2|kc]+//peN+peW
+			(long long)pr->pred_errors[(NPREDS*(pr->kym1+kx-1+PAD_SIZE)+k)<<2|kc];//peNW+peWW
 		weights[k]=((long long)pr->params[k]<<8)/(weights[k]+1);
 		wsum+=weights[k];
 	}
@@ -438,12 +439,15 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	{
 		qx,
 		qy,
-		q45,
-		q135,
+	//	q45,
+	//	q135,
 		quantize_signed((int)eW >>pr->shift[kc]),
 		quantize_signed((int)eNW>>pr->shift[kc]),
 		quantize_signed((int)eN >>pr->shift[kc]),
 		quantize_signed((int)eNE>>pr->shift[kc]),
+
+	//	quantize_signed((int)N  >>pr->shift[kc]),
+	//	quantize_signed((int)W  >>pr->shift[kc]),
 	};
 	pr->sse_corr=0;
 	for(int k=0;k<SSE_STAGES;++k)
@@ -490,7 +494,7 @@ static void slic5_update(SLIC5Ctx *pr, int curr, int token)
 		//	LOG_ERROR("");
 		pr->pred_errors[(NPREDS*(pr->kym0+pr->kx+PAD_SIZE)+k)<<2|kc]=errors[k];
 		if(pr->ky&&pr->kx+1<pr->iw)
-			pr->pred_errors[(NPREDS*(pr->kym1+pr->kx+1+PAD_SIZE)+k)<<2|kc]+=errors[k];
+			pr->pred_errors[(NPREDS*(pr->kym1+pr->kx+1+PAD_SIZE)+k)<<2|kc]+=errors[k];//eNE += ecurr
 		if(errors[kbest]>errors[k])
 			kbest=k;
 	}
