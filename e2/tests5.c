@@ -123,7 +123,7 @@ static int quantize_signed(int x)
 #define NPREDS 6
 #define PRED_PREC 8
 #define PARAM_PREC 8
-#define SSE_STAGES 8
+#define SSE_STAGES 6
 //#define SSE_SIZE 0x100000
 //#define SSE_SIZE ((_countof(qlevels)+1)*(_countof(qlevels)+1)*(_countof(qlevels)+1)*(_countof(qlevels)+1)<<1)
 //#define SSE_SIZE 1024
@@ -537,24 +537,31 @@ static void slic4_predict(Image const *im, int kc, int kx, int ky, PredictorCtx 
 	//if(p>abs((int)eNE))p=abs((int)eNE);
 	//pr->sse_idx=pr->hist_idx=quantize(p);
 	int
-		gx=(int)(W-WW+NE-NW+NN-NNE)>>(pr->shift+2), qx=quantize_signed(gx),
-		gy=(int)(W-NW+N-NN+NE-NNE)>>(pr->shift+2), qy=quantize_signed(gy),
-		g45=(int)(((N-W)<<1)+NN-WW)>>(pr->shift+2), q45=quantize_signed(g45),
-		g135=(int)(N-NNW+NE-NN)>>(pr->shift+2), q135=quantize_signed(g135);
+		qx  =quantize_signed(dx  >>(pr->shift+2)),
+		qy  =quantize_signed(dy  >>(pr->shift+2)),
+		q45 =quantize_signed(d45 >>(pr->shift+2)),
+		q135=quantize_signed(d135>>(pr->shift+2));
+	//int
+	//	gx=(int)(W-WW+NE-NW+NN-NNE)>>(pr->shift+2), qx=quantize_signed(gx),
+	//	gy=(int)(W-NW+N-NN+NE-NNE)>>(pr->shift+2), qy=quantize_signed(gy),
+	//	g45=(int)(((N-W)<<1)+NN-WW)>>(pr->shift+2), q45=quantize_signed(g45),
+	//	g135=(int)(N-NNW+NE-NN)>>(pr->shift+2), q135=quantize_signed(g135);
 	pr->hist_idx=MAXVAR(qx, qy);
 	pr->hist_idx=MAXVAR(pr->hist_idx, q45);
 	pr->hist_idx=MAXVAR(pr->hist_idx, q135);
 	pr->hist_idx=MINVAR(pr->hist_idx, _countof(qlevels));
 	
+	qx=(int)(W-WW+NE-NW+NN-NNE)>>(pr->shift+2), qx=quantize_signed(qx);
+	qy=(int)(W-NW+N -NN+NE-NNE)>>(pr->shift+2), qy=quantize_signed(qy);
 	const int g[]=
 	{
 		qx,
-		q45,
+	//	q45,
 		qy,
-		q135,
+	//	q135,
 		quantize_signed((int)eW>>pr->shift),
-		quantize_signed((int)eN>>pr->shift),
 		quantize_signed((int)eNW>>pr->shift),
+		quantize_signed((int)eN>>pr->shift),
 		quantize_signed((int)eNE>>pr->shift),
 	};
 	pr->sse_corr=0;

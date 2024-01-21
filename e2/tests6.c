@@ -160,6 +160,8 @@ typedef struct SLIC5CtxStruct
 	int shift[4];//depth compensation
 	long long *sse, sse_idx[SSE_STAGES], sse_sum[SSE_STAGES];
 	int sse_count[SSE_STAGES];
+	int bias_count[4];
+	long long bias_sum[4];
 	int preds[NPREDS], params[_countof(wp_params)];
 	long long pred;
 	int pred_final;
@@ -435,6 +437,11 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	pr->hist_idx=MAXVAR(pr->hist_idx, q135);
 	pr->hist_idx=MINVAR(pr->hist_idx, _countof(qlevels));
 	
+	qx=(int)(W-WW+NE-NW+NN-NNE)>>(pr->shift[kc]+2), qx=quantize_signed(qx);
+	qy=(int)(W-NW+N -NN+NE-NNE)>>(pr->shift[kc]+2), qy=quantize_signed(qy);
+	//q45=(int)(((N-W)<<1)+NN-WW)>>(pr->shift[kc]+2), q45=quantize_signed(q45);
+	//q135=(int)(N-NNW+NE-NN)>>(pr->shift[kc]+2), q135=quantize_signed(q135);
+
 	const int g[]=
 	{
 		qx,
@@ -463,6 +470,9 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		pr->pred+=sse_corr;
 		pr->sse_corr+=sse_corr;
 	}
+	int final_corr=pr->bias_count[kc]?(int)(pr->bias_sum[kc]/pr->bias_count[kc]):0;
+	pr->pred+=final_corr;
+	pr->sse_corr+=final_corr;
 	
 	long long pred=pr->pred;
 	//if(((eN^eW)|(eN^eNW))<0)//clamp only if signs are different
@@ -518,6 +528,8 @@ static void slic5_update(SLIC5Ctx *pr, int curr, int token)
 		}
 		pr->sse[SSE_SIZE*k+pr->sse_idx[k]]=pr->sse_sum[k]<<12|pr->sse_count[k];
 	}
+	++pr->bias_count[kc];
+	pr->bias_sum[kc]+=error;
 }
 #undef  LOAD
 static void slic5_enc(SLIC5Ctx *pr, int curr, int kc, int kx, int ky)
