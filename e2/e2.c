@@ -100,6 +100,7 @@ typedef struct ProcessCtxStruct
 	ArrayHandle threadargs;//<ThreadArgs>	*thread_count
 	ArrayHandle results;//<Result>		*nsamples
 } ProcessCtx;
+static double g_total_usize=0, g_total_csize=0;
 static void print_result(Result *res, const char *title, int width)
 {
 	//int kpoint, kslash;
@@ -109,10 +110,13 @@ static void print_result(Result *res, const char *title, int width)
 	double
 		CR1=(double)res->usize/res->csize1,
 		CR2=(double)res->usize/res->csize2;
-	printf("%-*s  %10lld  format %10lld %10.6lf D %12lf sec  test %10lld %10.6lf E %12lf D %12lf sec %s\n",
+	g_total_usize+=res->usize;
+	g_total_csize+=res->csize2;
+	printf("%-*s  %10lld  format %10lld %10.6lf D %12lf sec  test %10lld %10.6lf E %12lf D %12lf sec %s  CCR %10.6lf\n",
 		width, title, res->usize,
 		res->csize1, CR1, res->fdec,
-		res->csize2, CR2, res->enc, res->dec, res->error?"ERROR":"SUCCESS"
+		res->csize2, CR2, res->enc, res->dec, res->error?"ERROR":"SUCCESS",
+		g_total_usize/g_total_csize
 	);
 	//printf("%10lld %10lld %10lld %16lf %16lf %16lf %16lf\n",
 	//	res->usize,
@@ -284,6 +288,8 @@ static int get_title_from_path(ArrayHandle fn, int start)
 #endif
 void batch_test_mt(const char *path, int nthreads)
 {
+	g_total_usize=0;
+	g_total_csize=0;
 	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H%M%S");
 	printf("%s\n", g_buf);
 	printf("Multithreaded Batch Test %s\n", CODECNAME);
@@ -647,7 +653,7 @@ void batch_test(const char *path)
 			};
 			printf("\nT26 (%s)\n", use_ans?"ANS":"AC");
 			//printf("\nT26\n");
-		
+
 			elapsed=time_sec();
 			cycles=__rdtsc();
 			t26_encode(buf, iw, ih, params, use_ans, &cdata, 1);
@@ -660,7 +666,7 @@ void batch_test(const char *path)
 			if((ptrdiff_t)cdata->count<formatsize)
 				printf(" !!!");
 			printf("\n");
-		
+
 			elapsed=time_sec();
 			cycles=__rdtsc();
 			t26_decode(cdata->data, cdata->count, iw, ih, params, use_ans, b2, 1);
@@ -1081,8 +1087,10 @@ ProgArgs args=
 #if 1
 	OP_TESTFILE, 1, 0,//op, nthreads, formatsize
 
+	"D:/ML/dataset-ic-rgb16bit/artificial.png",
+
 //	"C:/Projects/datasets/dataset-kodak/kodim02.png",
-	"C:/Projects/datasets/dataset-kodak/kodim13.png",
+//	"C:/Projects/datasets/dataset-kodak/kodim13.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/artificial.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/big_building.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/cathedral.png",

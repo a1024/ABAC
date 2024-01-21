@@ -14,7 +14,8 @@ static const char file[]=__FILE__;
 
 static const int qlevels[]=
 {
-	1, 2, 3, 4, 5, 6, 7, 9, 11, 13, 15, 19, 23, 27, 31, 39, 47, 55, 63, 79, 95, 111, 127
+	//1, 2, 3, 4, 5, 6, 7, 9, 11, 13, 15, 19, 23, 27, 31, 39, 47, 55, 63, 79, 95, 111, 127
+	1, 2, 3, 4, 5, 6, 7, 9, 11, 13, 15, 19, 23, 27, 31, 39, 47, 55, 63, 79, 95, 111, 127, 159, 191, 223, 255//, 392, 500
 	//1, 3, 5, 7, 11, 15, 23, 31, 47, 63, 95, 127, 191, 255, 392, 500//from libjxl
 };
 
@@ -107,7 +108,7 @@ static int quantize_signed(int x)
 #define NPREDS 10
 #define PRED_PREC 8
 #define PARAM_PREC 8
-#define SSE_STAGES 6
+#define SSE_STAGES 10
 #define NHIST (_countof(qlevels)+1)
 #define SSE_SIZE (NHIST*NHIST<<2)
 //#define HASH_FUNC(A, B) ((A+B+1)*(A+B)/2+B)
@@ -304,7 +305,9 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		eN =LOAD(pr->errors,  0, 1),//error = (curr<<8) - pred
 		eW =LOAD(pr->errors,  1, 0),
 		eNW=LOAD(pr->errors,  1, 1),
-		eNE=LOAD(pr->errors, -1, 0);
+		eNE=LOAD(pr->errors, -1, 0),
+		eNN=LOAD(pr->errors,  0, 2),
+		eWW=LOAD(pr->errors, -2, 0);
 
 	int j=-1;
 	pr->preds[++j]=(int)(W+NE-N);
@@ -423,13 +426,13 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		pr->pred=pr->preds[0];
 	
 	int
-		qx  =quantize_signed(dx  >>(pr->shift[kc]+2)),
-		qy  =quantize_signed(dy  >>(pr->shift[kc]+2)),
-		q45 =quantize_signed(d45 >>(pr->shift[kc]+2)),
-		q135=quantize_signed(d135>>(pr->shift[kc]+2));
+		qx  =quantize(dx  >>(pr->shift[kc]+1)),
+		qy  =quantize(dy  >>(pr->shift[kc]+1)),
+		q45 =quantize(d45 >>(pr->shift[kc]+1)),
+		q135=quantize(d135>>(pr->shift[kc]+1));
 	//int
 	//	gx=(int)(W-WW+NE-NW+NN-NNE)>>(pr->shift[kc]+2), qx=quantize_signed(gx),//X
-	//	gy=(int)(W-NW+N-NN+NE-NNE)>>(pr->shift[kc]+2), qy=quantize_signed(gy),
+	//	gy=(int)(W-NW+N -NN+NE-NNE)>>(pr->shift[kc]+2), qy=quantize_signed(gy),
 	//	g45=(int)(((N-W)<<1)+NN-WW)>>(pr->shift[kc]+2), q45=quantize_signed(g45),
 	//	g135=(int)(N-NNW+NE-NN)>>(pr->shift[kc]+2), q135=quantize_signed(g135);
 	pr->hist_idx=MAXVAR(qx, qy);
@@ -446,23 +449,66 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	{
 		qx,
 		qy,
+	//	quantize_signed((int)(dx+W-WW+NE-NW+NN-NNE)>>(pr->shift[kc]+3)),
+	//	quantize_signed((int)(dy+W-NW+N -NN+NE-NNE)>>(pr->shift[kc]+3)),
 	//	q45,
 	//	q135,
 		quantize_signed((int)eW >>pr->shift[kc]),
 		quantize_signed((int)eNW>>pr->shift[kc]),
 		quantize_signed((int)eN >>pr->shift[kc]),
 		quantize_signed((int)eNE>>pr->shift[kc]),
+		quantize_signed((int)eWW>>pr->shift[kc]),
+		quantize_signed((int)eNN>>pr->shift[kc]),
 
 	//	quantize_signed((int)N  >>pr->shift[kc]),
 	//	quantize_signed((int)W  >>pr->shift[kc]),
+
+		//2^5 < 24*2		X
+#if 0
+		(NE<pr->pred)<<4|
+		(WW<pr->pred)<<3|
+		(W <pr->pred)<<2|
+		(NW<pr->pred)<<1|
+		(N <pr->pred),
+
+		((N<W)==(NW<NE))<<4|
+		(N+W-NW<pr->pred)<<3|
+		(NN<pr->pred)<<2|
+		(2*N-NN<pr->pred)<<1|
+		(2*W-WW<pr->pred),
+#endif
+		//2^11 < (24^2<<2)
+#if 1
+		(N<W)<<10|
+		(NW<NE)<<9|
+		(N+W-NW<pr->pred)<<8|
+		(W <pr->pred)<<7|
+		(NW<pr->pred)<<6|
+		(N <pr->pred)<<5|
+		(NE<pr->pred)<<4|
+		(WW<pr->pred)<<3|
+		(NN<pr->pred)<<2|
+		(2*N-NN<pr->pred)<<1|
+		(2*W-WW<pr->pred),
+#endif
 	};
 	pr->sse_corr=0;
 	for(int k=0;k<SSE_STAGES;++k)
 	{
 		pr->pred_final=(int)((pr->pred+((1<<PRED_PREC)>>1)-1)>>PRED_PREC);
-		int qp=quantize_signed(pr->pred_final>>pr->shift[kc]);
-		pr->sse_idx[k]=((_countof(qlevels)+1)<<1)*qp+g[k];
-		//pr->sse_idx[k]=CLAMP(0, pr->sse_idx[k], SSE_SIZE-1);
+		if(k<SSE_STAGES-2)
+		{
+			int qp=quantize_signed(pr->pred_final>>pr->shift[kc]);
+			pr->sse_idx[k]=((_countof(qlevels)+1)<<1)*qp+g[k];
+		}
+		else if(k<SSE_STAGES-1)
+			pr->sse_idx[k]=g[k];
+		else
+		{
+			pr->sse_idx[k]=pr->pred_final>>((pr->depths[kc]-11)&-(pr->depths[kc]>11));
+			pr->sse_idx[k]=pr->sse_idx[k]<<1^-(pr->sse_idx[k]<0);
+		}
+		pr->sse_idx[k]=CLAMP(0, pr->sse_idx[k], SSE_SIZE-1);
 		long long sse_val=pr->sse[SSE_SIZE*k+pr->sse_idx[k]];
 		pr->sse_count[k]=(int)(sse_val&0xFFF);
 		pr->sse_sum[k]=(int)(sse_val>>12);
