@@ -104,13 +104,49 @@ static int quantize_signed(int x)
 	return x2;
 }
 #define PAD_SIZE 2
-#define NPREDS 6
+#define NPREDS 10
 #define PRED_PREC 8
 #define PARAM_PREC 8
 #define SSE_STAGES 8
 #define NHIST (_countof(qlevels)+1)
 #define SSE_SIZE (NHIST*NHIST<<2)
 //#define HASH_FUNC(A, B) ((A+B+1)*(A+B)/2+B)
+static const int wp_params[]=
+{
+	// 0x00EA, 0x01C8, 0x00A2, 0x005E, 0x01F4, 0x0045, 0x0091, 0x0066, 0x003B, 0x0027,-0x0011, 0x001B, 0x00FF, 0x007E, 0x00D1, 0x00F3, 0x008F, 0x0130, 0x018E,-0x00AC, 0x0004,
+	// 0x010C, 0x0008,-0x007E, 0x00A2, 0x000E,-0x0069,-0x0073,-0x0125,-0x0092, 0x0000, 0x0078,
+
+
+	0x0004AB65,//wp1
+	0x0002841C,//wp2
+	0x00034147,//wp3
+	0x00016056,//wp4
+	0x00016056,//wp5
+	0x00016056,//wp6
+	0x00016056,//wp7
+	0x00016056,//clamp grad
+	0x00028F8A,//journal GAP
+	0x00022F58,//CALIC GAP
+
+
+//	0xD000, 0xC000, 0xC000, 0xB000,//wp weights
+//	0xC000,//journal GAP
+//	0xD000,//CALIC GAP
+
+//	 0x0DB8,  0x0E22,  0x181F,  0x0BF3,//wp weights
+//	//0x181F,//clamp grad
+//	 0x181F,//journal GAP
+//	 0x1A1F,//CALIC GAP
+
+	-0x005C,
+	-0x005B,
+	 0x00DF,  0x0051,  0x00BD,  0x005C, -0x0102,
+
+	//0xd, 0xc, 0xc, 0xb,
+	//8,
+	//8,
+	//4, 0, 3, 23, 2,
+};
 typedef struct SLIC5CtxStruct
 {
 	int iw, ih, nch;
@@ -118,14 +154,13 @@ typedef struct SLIC5CtxStruct
 	int nlevels[4], min_allowed[4], max_allowed[4];
 	int cdfsize;
 	int *pred_errors, *errors, *pixels;
-	//short *tokens;
 	long long *hist, histsums[NHIST];
 	unsigned *CDFs;
 	long long esum[4];//sum of abs errors so far in current row
 	int shift[4];//depth compensation
 	long long *sse, sse_idx[SSE_STAGES], sse_sum[SSE_STAGES];
 	int sse_count[SSE_STAGES];
-	int preds[NPREDS];
+	int preds[NPREDS], params[_countof(wp_params)];
 	long long pred;
 	int pred_final;
 	int hist_idx;
@@ -168,27 +203,29 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 	hybriduint_encode(-((1<<maxdepth)>>1), &hu);//encode -half
 	pr->cdfsize=hu.token+1;
 
-	pr->pred_errors=(int*)malloc((iw+PAD_SIZE*2)*sizeof(int[NPREDS*4*4]));//NPREDS * 4 rows * 4 comps
-	pr->errors=(int*)malloc((iw+PAD_SIZE*2)*sizeof(int[4*4]));
-	pr->pixels=(int*)malloc((iw+PAD_SIZE*2)*sizeof(int[4*4]));
+	pr->pred_errors=(int*)malloc((iw+PAD_SIZE*2LL)*sizeof(int[NPREDS*4*4]));//NPREDS * 4 rows * 4 comps
+	pr->errors=(int*)malloc((iw+PAD_SIZE*2LL)*sizeof(int[4*4]));
+	pr->pixels=(int*)malloc((iw+PAD_SIZE*2LL)*sizeof(int[4*4]));
 	pr->hist=(long long*)malloc(pr->cdfsize*sizeof(long long[NHIST]));//WH: cdfsize * NHIST
-	pr->CDFs=(unsigned*)malloc((pr->cdfsize+1)*sizeof(unsigned[NHIST]));
+	pr->CDFs=(unsigned*)malloc((pr->cdfsize+1LL)*sizeof(unsigned[NHIST]));
 	pr->sse=(long long*)malloc(sizeof(long long[SSE_STAGES*SSE_SIZE]));
 	if(!pr->pred_errors||!pr->errors||!pr->pixels||!pr->hist||!pr->CDFs||!pr->sse)
 	{
 		LOG_ERROR("Alloc error");
 		return 0;
 	}
-	memset(pr->pred_errors, 0, (iw+PAD_SIZE*2)*sizeof(int[NPREDS*4*4]));
-	memset(pr->errors, 0, (iw+PAD_SIZE*2)*sizeof(int[4*4]));
-	memset(pr->pixels, 0, (iw+PAD_SIZE*2)*sizeof(int[4*4]));
+	memset(pr->pred_errors, 0, (iw+PAD_SIZE*2LL)*sizeof(int[NPREDS*4*4]));
+	memset(pr->errors, 0, (iw+PAD_SIZE*2LL)*sizeof(int[4*4]));
+	memset(pr->pixels, 0, (iw+PAD_SIZE*2LL)*sizeof(int[4*4]));
 	long long fillval=1;
 	memfill(pr->hist, &fillval, pr->cdfsize*sizeof(long long[NHIST]), sizeof(fillval));
 	fillval=pr->cdfsize;
 	memfill(pr->histsums, &fillval, sizeof(pr->histsums), sizeof(fillval));
-	memset(pr->CDFs, 0, (pr->cdfsize+1)*sizeof(unsigned[NHIST]));
+	memset(pr->CDFs, 0, (pr->cdfsize+1LL)*sizeof(unsigned[NHIST]));
 	memset(pr->sse, 0, sizeof(long long[SSE_STAGES*SSE_SIZE]));
 	pr->ec=ec;
+	for(int k=0;k<_countof(wp_params);++k)
+		pr->params[k]=wp_params[k];
 	return 1;
 }
 static void slic5_free(SLIC5Ctx *pr)
@@ -211,7 +248,7 @@ static void slic5_update_CDFs(SLIC5Ctx *pr)
 		for(int ks=0;ks<pr->cdfsize;++ks)
 		{
 			long long freq=curr_hist[ks];
-			curr_CDF[ks]=(int)(c*(0x10000-pr->cdfsize)/sum)+ks;
+			curr_CDF[ks]=(int)(c*(0x10000LL-pr->cdfsize)/sum)+ks;
 			c+=freq;
 		}
 		curr_CDF[pr->cdfsize]=0x10000;
@@ -240,29 +277,11 @@ static void slic5_nextrow(SLIC5Ctx *pr, int ky)
 	pr->kym1=(pr->iw+PAD_SIZE*2)*((ky-1)&3);
 	pr->kym2=(pr->iw+PAD_SIZE*2)*((ky-2)&3);
 }
-static const short wp_params[]=
-{
-	// 0x00EA, 0x01C8, 0x00A2, 0x005E, 0x01F4, 0x0045, 0x0091, 0x0066, 0x003B, 0x0027,-0x0011, 0x001B, 0x00FF, 0x007E, 0x00D1, 0x00F3, 0x008F, 0x0130, 0x018E,-0x00AC, 0x0004,
-	// 0x010C, 0x0008,-0x007E, 0x00A2, 0x000E,-0x0069,-0x0073,-0x0125,-0x0092, 0x0000, 0x0078,
-
-	 0x0DB8,  0x0E22,  0x181F,  0x0BF3,//wp weights
-	//0x181F,//clamp grad
-	 0x181F,//journal GAP
-	 0x181F,//CALIC GAP
-
-	-0x005C,
-	-0x005B,
-	 0x00DF,  0x0051,  0x00BD,  0x005C, -0x0102,
-
-	//0xd, 0xc, 0xc, 0xb,
-	//8,
-	//8,
-	//4, 0, 3, 23, 2,
-};
 static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 {
 	int idx=(pr->iw*ky+kx)<<2|kc;
-	if(!(idx&0xFFF))
+	if(idx<0xFFF||!(idx&0xFFF))
+	//if(!(idx&idx>>1))
 		slic5_update_CDFs(pr);
 	//XY are flipped, no need to check if indices OOB due to padding
 	int
@@ -287,17 +306,23 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 
 	int j=-1;
 	pr->preds[++j]=(int)(W+NE-N);
-	pr->preds[++j]=(int)(N-((eN+eW+eNE)*wp_params[NPREDS+0]>>PARAM_PREC));
-	pr->preds[++j]=(int)(W-((eN+eW+eNW)*wp_params[NPREDS+1]>>PARAM_PREC));
-	pr->preds[++j]=(int)(N-((eNW*wp_params[NPREDS+2]+eN*wp_params[NPREDS+3]+eNE*wp_params[NPREDS+4]+(NN-N)*wp_params[NPREDS+5]+(NW-W)*wp_params[NPREDS+6])>>PARAM_PREC));
+	pr->preds[++j]=(int)(N-((eN+eW+eNE)*pr->params[NPREDS+0]>>PARAM_PREC));
+	pr->preds[++j]=(int)(W-((eN+eW+eNW)*pr->params[NPREDS+1]>>PARAM_PREC));
+	pr->preds[++j]=(int)(N-((
+		eNW*pr->params[NPREDS+2]+
+		eN*pr->params[NPREDS+3]+
+		eNE*pr->params[NPREDS+4]+
+		((long long)NN-N)*pr->params[NPREDS+5]+
+		((long long)NW-W)*pr->params[NPREDS+6]
+	)>>PARAM_PREC));
 	
 #if 0
 	//pr->preds[++j]=(((N+W)<<1)+NW+NE+NN+WW+4)>>3;//X
 
-	pr->preds[++j]=(int)(W -(eW *wp_params[NPREDS+ 7]>>8));
-	pr->preds[++j]=(int)(N -(eN *wp_params[NPREDS+ 8]>>8));
-	pr->preds[++j]=(int)(NW-(eNW*wp_params[NPREDS+ 9]>>8));
-	pr->preds[++j]=(int)(NE-(eNE*wp_params[NPREDS+10]>>8));
+	pr->preds[++j]=(int)(W -(eW *pr->params[NPREDS+ 7]>>8));
+	pr->preds[++j]=(int)(N -(eN *pr->params[NPREDS+ 8]>>8));
+	pr->preds[++j]=(int)(NW-(eNW*pr->params[NPREDS+ 9]>>8));
+	pr->preds[++j]=(int)(NE-(eNE*pr->params[NPREDS+10]>>8));
 
 	int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
 	int vmin2=MINVAR(vmin, NW), vmax2=MAXVAR(vmax, NW);
@@ -320,7 +345,14 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	++j, pr->preds[j]=(int)(N+W-NW), pr->preds[j]=(int)CLAMP(vmin, pr->preds[j], vmax);
 #endif
 #if 1
-	//++j, pr->preds[j]=(int)(N+W-NW), pr->preds[j]=(int)MEDIAN3(N, W, pr->preds[j]);
+	++j, pr->preds[j]=N>>(abs((int)eN)>=abs(N));//v
+	++j, pr->preds[j]=W>>(abs((int)eW)>=abs(W));//v
+	++j, pr->preds[j]=(int)(N+W+NW+NE+((eN+eW+eNW+eNE)>>2))>>2;//v
+	//++j, pr->preds[j]=(NNWW+NNW+NN+NNE+NNEE+NWW+NW+N+NE+NEE+WW+W)/12;//~
+	//++j, pr->preds[j]=(4*(N+W)+2*(NW+NE)+eN+eW+eNW+eNE)>>3;//X
+	//++j, pr->preds[j]=2*W-WW+(eW>>1), pr->preds[j]=CLAMP(pr->min_allowed, pr->preds[j], pr->max_allowed);//X
+
+	++j, pr->preds[j]=(int)(N+W-NW);//, pr->preds[j]=(int)MEDIAN3(N, W, pr->preds[j]);
 	
 	++j;
 	int dx=abs(W-WW)+abs(N-NW)+abs(NE-N);
@@ -366,14 +398,14 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	}
 #endif
 
-	long long weights[NPREDS], wsum=0;
+	long long weights[NPREDS]={0}, wsum=0;
 	for(int k=0;k<NPREDS;++k)
 	{
 		weights[k]=
-			pr->pred_errors[(NPREDS*(pr->kym1+kx+1+PAD_SIZE)+k)<<2|kc]+//peNE
-			pr->pred_errors[(NPREDS*(pr->kym1+kx  +PAD_SIZE)+k)<<2|kc]+//peN
-			pr->pred_errors[(NPREDS*(pr->kym1+kx-1+PAD_SIZE)+k)<<2|kc];//peNW
-		weights[k]=((long long)wp_params[k]<<8)/(weights[k]+1);
+			(long long)pr->pred_errors[(NPREDS*(pr->kym1+kx+1+PAD_SIZE)+k)<<2|kc]+//peNE
+			(long long)pr->pred_errors[(NPREDS*(pr->kym1+kx  +PAD_SIZE)+k)<<2|kc]+//peN
+			(long long)pr->pred_errors[(NPREDS*(pr->kym1+kx-1+PAD_SIZE)+k)<<2|kc];//peNW
+		weights[k]=((long long)pr->params[k]<<8)/(weights[k]+1);
 		wsum+=weights[k];
 	}
 	if(wsum)
@@ -388,10 +420,15 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		pr->pred=pr->preds[0];
 	
 	int
-		gx=(int)(W-WW+NE-NW+NN-NNE)>>(pr->shift[kc]+2), qx=quantize_signed(gx),
-		gy=(int)(W-NW+N-NN+NE-NNE)>>(pr->shift[kc]+2), qy=quantize_signed(gy),
-		g45=(int)(((N-W)<<1)+NN-WW)>>(pr->shift[kc]+2), q45=quantize_signed(g45),
-		g135=(int)(N-NNW+NE-NN)>>(pr->shift[kc]+2), q135=quantize_signed(g135);
+		qx  =quantize_signed(dx  >>(pr->shift[kc]+2)),
+		qy  =quantize_signed(dy  >>(pr->shift[kc]+2)),
+		q45 =quantize_signed(d45 >>(pr->shift[kc]+2)),
+		q135=quantize_signed(d135>>(pr->shift[kc]+2));
+	//int
+	//	gx=(int)(W-WW+NE-NW+NN-NNE)>>(pr->shift[kc]+2), qx=quantize_signed(gx),//X
+	//	gy=(int)(W-NW+N-NN+NE-NNE)>>(pr->shift[kc]+2), qy=quantize_signed(gy),
+	//	g45=(int)(((N-W)<<1)+NN-WW)>>(pr->shift[kc]+2), q45=quantize_signed(g45),
+	//	g135=(int)(N-NNW+NE-NN)>>(pr->shift[kc]+2), q135=quantize_signed(g135);
 	pr->hist_idx=MAXVAR(qx, qy);
 	pr->hist_idx=MAXVAR(pr->hist_idx, q45);
 	pr->hist_idx=MAXVAR(pr->hist_idx, q135);
@@ -400,12 +437,12 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	const int g[]=
 	{
 		qx,
-		q45,
 		qy,
+		q45,
 		q135,
-		quantize_signed((int)eW>>pr->shift[kc]),
-		quantize_signed((int)eN>>pr->shift[kc]),
+		quantize_signed((int)eW >>pr->shift[kc]),
 		quantize_signed((int)eNW>>pr->shift[kc]),
+		quantize_signed((int)eN >>pr->shift[kc]),
 		quantize_signed((int)eNE>>pr->shift[kc]),
 	};
 	pr->sse_corr=0;
@@ -445,21 +482,24 @@ static void slic5_update(SLIC5Ctx *pr, int curr, int token)
 	int error=(curr<<PRED_PREC)-(int)pr->pred;
 	pr->esum[kc]+=abs(error);
 	LOAD(pr->errors, 0, 0)=error;
+	int errors[NPREDS]={0}, kbest=0;
 	for(int k=0;k<NPREDS;++k)
 	{
-		int e=abs((curr<<PRED_PREC)-pr->preds[k]);
+		errors[k]=abs((curr<<PRED_PREC)-pr->preds[k]);
 		//if(e<0)
 		//	LOG_ERROR("");
-		pr->pred_errors[(NPREDS*(pr->kym0+pr->kx+PAD_SIZE)+k)<<2|kc]=e;
+		pr->pred_errors[(NPREDS*(pr->kym0+pr->kx+PAD_SIZE)+k)<<2|kc]=errors[k];
 		if(pr->ky&&pr->kx+1<pr->iw)
-			pr->pred_errors[(NPREDS*(pr->kym1+pr->kx+1+PAD_SIZE)+k)<<2|kc]+=e;
+			pr->pred_errors[(NPREDS*(pr->kym1+pr->kx+1+PAD_SIZE)+k)<<2|kc]+=errors[k];
+		if(errors[kbest]>errors[k])
+			kbest=k;
 	}
+	++pr->params[kbest];
 
 	//if(pr->hist_idx==23&&token==32)//
 	//	printf("");
 
 	LOAD(pr->pixels, 0, 0)=curr;
-	//LOAD(pr->tokens, 0, 0)=token;
 	++pr->hist[pr->cdfsize*pr->hist_idx+token];
 	++pr->histsums[pr->hist_idx];
 	
