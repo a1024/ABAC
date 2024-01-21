@@ -26,7 +26,7 @@ typedef struct TempHybridStruct
 } TempHybrid;
 
 //from libjxl		packsign(pixel) = 0b00001MMBB...BBL	token = offset + 0bGGGGMML,  where G = bits of lg(packsign(pixel)),  bypass = 0bBB...BB
-void hybriduint_encode(unsigned val, TempHybrid *hu)
+static void hybriduint_encode(unsigned val, TempHybrid *hu)
 {
 	int token, bypass, nbits;
 #ifdef SLIC4_USE_SIMPLE_HYBRID
@@ -120,7 +120,7 @@ static int quantize_signed(int x)
 	return x2;
 }
 #define HASH_FUNC(A, B) ((A+B+1)*(A+B)/2+B)
-#define NPREDS 7
+#define NPREDS 6
 #define PRED_PREC 8
 #define PARAM_PREC 8
 #define SSE_STAGES 8
@@ -165,6 +165,7 @@ static int slic4_pred_init(PredictorCtx *pr, int iw)
 }
 static void slic4_pred_free(PredictorCtx *pr)
 {
+	free(pr->pred_errors);
 	free(pr->errors);
 	free(pr->sse);
 }
@@ -200,7 +201,11 @@ static const short wp_params[]=
 	// 0x00EA, 0x01C8, 0x00A2, 0x005E, 0x01F4, 0x0045, 0x0091, 0x0066, 0x003B, 0x0027,-0x0011, 0x001B, 0x00FF, 0x007E, 0x00D1, 0x00F3, 0x008F, 0x0130, 0x018E,-0x00AC, 0x0004,
 	// 0x010C, 0x0008,-0x007E, 0x00A2, 0x000E,-0x0069,-0x0073,-0x0125,-0x0092, 0x0000, 0x0078,
 
-	 0x0DB8,  0x0E22,  0x181F,  0x0BF3,  0x181F,  0x181F,  0x181F,
+	 0x0DB8,  0x0E22,  0x181F,  0x0BF3,//wp weights
+	//0x181F,//clamp grad
+	 0x181F,//journal GAP
+	 0x181F,//CALIC GAP
+
 	-0x005C,
 	-0x005B,
 	 0x00DF,  0x0051,  0x00BD,  0x005C, -0x0102,
@@ -424,7 +429,7 @@ static void slic4_predict(Image const *im, int kc, int kx, int ky, PredictorCtx 
 	++j, pr->preds[j]=(int)(N+W-NW), pr->preds[j]=(int)CLAMP(vmin, pr->preds[j], vmax);
 #endif
 #if 1
-	++j, pr->preds[j]=(int)(N+W-NW), pr->preds[j]=(int)MEDIAN3(N, W, pr->preds[j]);
+	//++j, pr->preds[j]=(int)(N+W-NW), pr->preds[j]=(int)MEDIAN3(N, W, pr->preds[j]);
 	
 	++j;
 	int dx=abs(W-WW)+abs(N-NW)+abs(NE-N);
@@ -792,7 +797,7 @@ static void slic4_pred_update(PredictorCtx *pr, int curr)
 	//}
 	//pr->sse[pr->sse_idx]=pr->sse_sum<<12|pr->sse_count;
 }
-Image const *guide=0;
+static const Image *guide=0;
 int t46_encode(Image const *src, ArrayHandle *data, int loud)
 {
 	guide=src;
@@ -820,7 +825,7 @@ int t46_encode(Image const *src, ArrayHandle *data, int loud)
 	image_copy(&im3, src);
 	image_copy(&im4, src);
 	TempHybrid hu;
-	hybriduint_encode(-maxlevels, &hu);//-(half<<1) to make way for chroma inclation
+	hybriduint_encode(-maxlevels, &hu);//-(half<<1) to make way for chroma inflation
 	int cdfsize=hu.token+1;
 	unsigned *hist=(unsigned*)malloc((cdfsize+1)*sizeof(int[_countof(qlevels)+1]));
 	unsigned short *emit_hist=(unsigned short*)malloc(cdfsize*sizeof(short));
@@ -1207,7 +1212,7 @@ int t46_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 	int res=dst->iw*dst->ih;
 	int maxdepth=calc_maxdepth(dst, 0), maxlevels=1<<maxdepth;
 	TempHybrid hu;
-	hybriduint_encode(-maxlevels, &hu);//-(half<<1) to make way for chroma inclation
+	hybriduint_encode(-maxlevels, &hu);//-(half<<1) to make way for chroma inflation
 	int cdfsize=hu.token+1;
 	unsigned short pal_sizes[4];
 	//size_t emithistsize=cdfsize*sizeof(short[_countof(qlevels)+1]);

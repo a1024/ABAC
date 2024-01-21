@@ -169,8 +169,13 @@ void calc_depthfromdata(int *image, int iw, int ih, char *depths, const char *sr
 void calc_csize(Image const *image, double *csizes);
 
 
+//SLIC v4
 int t46_encode(Image const *src, ArrayHandle *data, int loud);
 int t46_decode(const unsigned char *data, size_t srclen, Image *dst, int loud);
+
+//SLIC v5
+int t47_encode(Image const *src, ArrayHandle *data, int loud);
+int t47_decode(const unsigned char *data, size_t srclen, Image *dst, int loud);
 
 
 

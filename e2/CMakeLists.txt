@@ -30,10 +30,11 @@ add_executable(e2
 	tests3.c
 	tests4.c
 	tests5.c
+	tests6.c
 	transforms.c
 	transforms_cpu.c
-	transforms_ocl.c
-	transforms_vk.c
+	#transforms_ocl.c
+	#transforms_vk.c
 	util.c
 )
 #target_link_libraries(e2 OpenCL::OpenCL)
