@@ -405,6 +405,8 @@ static int ac_dec(ArithmeticCoder *ec, const unsigned *CDF, int nlevels, unsigne
 		}
 		cdf_end=((sym+1)<<16)/nlevels;
 	}
+	if(cdf_start>=cdf_end)
+		LOG_ERROR2("ZPS");
 
 	lo2=ec->lo+(int)((unsigned long long)(ec->hi-ec->lo)*cdf_start>>16);
 	hi2=ec->lo+(int)((unsigned long long)(ec->hi-ec->lo)*cdf_end  >>16);

@@ -157,7 +157,7 @@ typedef struct SLIC5CtxStruct
 	int cdfsize;
 	int *pred_errors, *errors, *pixels;
 	long long *hist, histsums[NHIST];
-	unsigned *CDFs;
+	unsigned *CDFs, *CDF_bypass;
 	long long esum[4];//sum of abs errors so far in current row
 	int shift[4];//depth compensation
 	long long *sse, sse_idx[SSE_STAGES], sse_sum[SSE_STAGES];
@@ -211,9 +211,10 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 	pr->errors=(int*)malloc((iw+PAD_SIZE*2LL)*sizeof(int[4*4]));
 	pr->pixels=(int*)malloc((iw+PAD_SIZE*2LL)*sizeof(int[4*4]));
 	pr->hist=(long long*)malloc(pr->cdfsize*sizeof(long long[NHIST]));//WH: cdfsize * NHIST
-	pr->CDFs=(unsigned*)malloc((pr->cdfsize+1LL)*sizeof(unsigned[NHIST]));
+	pr->CDFs=(unsigned*)malloc((pr->cdfsize+1LL)*sizeof(int[NHIST]));
+	pr->CDF_bypass=(unsigned*)malloc((pr->cdfsize+1)*sizeof(int));
 	pr->sse=(long long*)malloc(sizeof(long long[SSE_STAGES*SSE_SIZE]));
-	if(!pr->pred_errors||!pr->errors||!pr->pixels||!pr->hist||!pr->CDFs||!pr->sse)
+	if(!pr->pred_errors||!pr->errors||!pr->pixels||!pr->hist||!pr->CDFs||!pr->CDF_bypass||!pr->sse)
 	{
 		LOG_ERROR("Alloc error");
 		return 0;
@@ -221,11 +222,27 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 	memset(pr->pred_errors, 0, (iw+PAD_SIZE*2LL)*sizeof(int[NPREDS*4*4]));
 	memset(pr->errors, 0, (iw+PAD_SIZE*2LL)*sizeof(int[4*4]));
 	memset(pr->pixels, 0, (iw+PAD_SIZE*2LL)*sizeof(int[4*4]));
-	long long fillval=1;
-	memfill(pr->hist, &fillval, pr->cdfsize*sizeof(long long[NHIST]), sizeof(fillval));
-	fillval=pr->cdfsize;
-	memfill(pr->histsums, &fillval, sizeof(pr->histsums), sizeof(fillval));
-	memset(pr->CDFs, 0, (pr->cdfsize+1LL)*sizeof(unsigned[NHIST]));
+
+	memset(pr->hist, 0, pr->cdfsize*sizeof(long long[NHIST]));
+	memset(pr->histsums, 0, sizeof(pr->histsums));
+	//long long fillval=1;
+	//memfill(pr->hist, &fillval, pr->cdfsize*sizeof(long long[NHIST]), sizeof(fillval));
+	//fillval=pr->cdfsize;
+	//memfill(pr->histsums, &fillval, sizeof(pr->histsums), sizeof(fillval));
+
+	memset(pr->CDFs, 0, (pr->cdfsize+1LL)*sizeof(int[NHIST]));
+	int sum=0;
+	for(int ks=0;ks<pr->cdfsize;++ks)
+		sum+=0x10000/(ks+1);
+	for(int ks=0, c=0;ks<pr->cdfsize+1;++ks)
+	{
+		int freq=0x10000/(ks+1);
+		pr->CDF_bypass[ks]=(int)(((long long)c<<16)/sum);
+		c+=freq;
+	}
+	//for(int ks=0;ks<pr->cdfsize+1;++ks)//actual bypass
+	//	pr->CDF_bypass[ks]=(ks<<16)/pr->cdfsize;
+
 	memset(pr->sse, 0, sizeof(long long[SSE_STAGES*SSE_SIZE]));
 	pr->ec=ec;
 	for(int k=0;k<_countof(wp_params);++k)
@@ -248,14 +265,20 @@ static void slic5_update_CDFs(SLIC5Ctx *pr)
 		long long *curr_hist=pr->hist+pr->cdfsize*kt;
 		unsigned *curr_CDF=pr->CDFs+(pr->cdfsize+1)*kt;
 		long long sum=pr->histsums[kt];
-		long long c=0;
-		for(int ks=0;ks<pr->cdfsize;++ks)
+		//if(sum>pr->cdfsize)
+		if(sum)
 		{
-			long long freq=curr_hist[ks];
-			curr_CDF[ks]=(int)(c*(0x10000LL-pr->cdfsize)/sum)+ks;
-			c+=freq;
+			long long c=0;
+			for(int ks=0;ks<pr->cdfsize;++ks)
+			{
+				long long freq=curr_hist[ks];
+				curr_CDF[ks]=(int)(c*(0x10000LL-pr->cdfsize)/sum)+ks;
+				c+=freq;
+			}
+			curr_CDF[pr->cdfsize]=0x10000;
 		}
-		curr_CDF[pr->cdfsize]=0x10000;
+		else//unknown statistics
+			memcpy(curr_CDF, pr->CDF_bypass, (pr->cdfsize+1)*sizeof(int));
 	}
 }
 static void slic5_nextrow(SLIC5Ctx *pr, int ky)
@@ -830,7 +853,6 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 		}
 	}
 	ac_enc_flush(&ec);
-	slic5_free(&pr);
 	dlist_appendtoarray(&list, data);
 	if(loud)
 	{
@@ -840,7 +862,16 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 		printf("csize %8d  CR %10.6lf\n", (int)list.nobj, usize/list.nobj);
+
+		printf("Hist WH %d*%d:\n", pr.cdfsize, (int)NHIST);
+		for(int kt=0;kt<NHIST;++kt)
+		{
+			long long *curr_hist=pr.hist+pr.cdfsize*kt;
+			for(int ks=0;ks<pr.cdfsize;++ks)
+				printf("%lld%c", curr_hist[ks], ks+1<pr.cdfsize?' ':'\n');
+		}
 	}
+	slic5_free(&pr);
 	dlist_clear(&list);
 	return 1;
 }

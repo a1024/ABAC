@@ -1,20 +1,20 @@
 ﻿# CMakeList.txt : CMake project for e2, include source and define project specific logic here.
 
 
-include_directories(
-	"C:/Projects/a/OpenCL-Headers"
-	"C:/Projects/Vulkan-Headers/include"
-
-	"E:/C/OpenCL-Headers"
-	"E:/C/a/Vulkan-Headers/include"
-)
-link_directories(
-	"C:/Projects/a/OpenCL-Headers"
-	"C:/Projects/Vulkan-Headers"
-
-	"E:/C/OpenCL-Headers"
-	"E:/C/a/Vulkan-Headers"
-)
+#include_directories(
+#	"C:/Projects/a/OpenCL-Headers"
+#	"C:/Projects/Vulkan-Headers/include"
+#
+#	"E:/C/OpenCL-Headers"
+#	"E:/C/a/Vulkan-Headers/include"
+#)
+#link_directories(
+#	"C:/Projects/a/OpenCL-Headers"
+#	"C:/Projects/Vulkan-Headers"
+#
+#	"E:/C/OpenCL-Headers"
+#	"E:/C/a/Vulkan-Headers"
+#)
 #find_package(Vulkan REQUIRED)
 #find_package(OpenCL REQUIRED)
 
