@@ -283,12 +283,11 @@ static void slic5_update_CDFs(SLIC5Ctx *pr)
 {
 	for(int kt=0;kt<NHIST;++kt)//update CDFs
 	{
-		long long *curr_hist=pr->hist+pr->cdfsize*kt;
-		unsigned *curr_CDF=pr->CDFs+(pr->cdfsize+1)*kt;
 		long long sum=pr->histsums[kt];
-		if(sum>pr->cdfsize)
-		//if(sum>100)
+		if(sum>pr->cdfsize)//switch to histogram when it matures
 		{
+			long long *curr_hist=pr->hist+pr->cdfsize*kt;
+			unsigned *curr_CDF=pr->CDFs+(pr->cdfsize+1)*kt;
 			long long c=0;
 			for(int ks=0;ks<pr->cdfsize;++ks)
 			{
@@ -335,7 +334,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	int idx=(pr->iw*ky+kx)<<2|kc;
 	//if(!(idx&idx>>1))
 	//if(idx<CDF_UPDATE_PERIOD&&!(idx&idx>>1)||!(idx&(CDF_UPDATE_PERIOD-1)))
-	if(idx<CDF_UPDATE_PERIOD||!(idx&(CDF_UPDATE_PERIOD-1)))
+	if(!(idx&(CDF_UPDATE_PERIOD-1))||idx<CDF_UPDATE_PERIOD&&(idx&15))
 		slic5_update_CDFs(pr);
 	//XY are flipped, no need to check if indices OOB due to padding
 	int
@@ -628,10 +627,14 @@ static void slic5_update(SLIC5Ctx *pr, int curr, int token)
 		//if(errors[kworst]<errors[k])
 		//	kworst=k;
 	}
+
+	//update WP weights
 	++pr->params[kbest];
 	//pr->params[kbest]+=pr->params[kbest]>>4;//pr->params[kbest]=(int)(pr->params[kbest]*0x14000LL>>16);//X  bad
 	//pr->params[kbest]<<=1;//X  bad
-	if(pr->params[kbest]>0x1000000)
+	//if(pr->params[kbest]>0x1000000)
+	//if(pr->params[kbest]>0xC00)//best for Kodak
+	if(pr->params[kbest]>(12<<pr->depths[kc]))
 	{
 		for(int k=0;k<NPREDS;++k)
 			pr->params[k]>>=1;
@@ -642,9 +645,24 @@ static void slic5_update(SLIC5Ctx *pr, int curr, int token)
 	//	printf("");
 
 	LOAD(pr->pixels, 0, 0)=curr;
+
+	//update hist
 	++pr->hist[pr->cdfsize*pr->hist_idx+token];
 	++pr->histsums[pr->hist_idx];
+	//if(pr->histsums[pr->hist_idx]>((long long)pr->cdfsize*96))
+	if(pr->histsums[pr->hist_idx]>((long long)pr->iw*6))//rescale hist
+	{
+		long long *curr_hist=pr->hist+pr->cdfsize*pr->hist_idx;
+		long long sum=0;
+		for(int ks=0;ks<pr->cdfsize;++ks)
+		{
+			curr_hist[ks]=(curr_hist[ks]+1)>>1;
+			sum+=curr_hist[ks];
+		}
+		pr->histsums[pr->hist_idx]=sum;
+	}
 	
+	//update SSE
 	for(int k=0;k<SSE_STAGES+1;++k)
 	{
 		++pr->sse_count[k];
