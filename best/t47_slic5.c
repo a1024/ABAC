@@ -405,11 +405,6 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	pr->hist_idx=MAXVAR(pr->hist_idx, q45);
 	pr->hist_idx=MAXVAR(pr->hist_idx, q135);
 	pr->hist_idx=MINVAR(pr->hist_idx, NHIST-1);
-	
-	//qx=quantize_signed((int)(W-WW+NE-NW+NN-NNE)>>(pr->shift[kc]+2));
-	//qy=quantize_signed((int)(W-NW+N -NN+NE-NNE)>>(pr->shift[kc]+2));
-	//q45=(int)(((N-W)<<1)+NN-WW)>>(pr->shift[kc]+2), q45=quantize_signed(q45);
-	//q135=(int)(N-NNW+NE-NN)>>(pr->shift[kc]+2), q135=quantize_signed(q135);
 
 	int g[]=
 	{
