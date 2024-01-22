@@ -47,15 +47,17 @@ static void hybriduint_encode(unsigned val, HybridUint *hu)
 
 static const int qlevels_hist[]=
 {
+	1, 2, 3, 4, 5, 6, 7, 9, 11, 13, 15, 19, 23, 27, 31, 39, 47, 55, 63, 79, 95, 111, 127, 159, 191, 223, 255, 323, 392, 446, 511, 639, 767, 895, 1023,
 	//1, 2, 3, 4, 5, 6, 7, 9, 11, 13, 15, 19, 23, 27, 31, 39, 47, 55, 63, 79, 95, 111, 127, 159, 191, 223, 255,
+	//1, 3, 5, 7, 11, 15, 23, 31, 47, 63, 95, 127, 191, 255, 392, 511, 767, 1023,
 	//1, 3, 5, 7, 11, 15, 23, 31, 47, 63, 95, 127, 191, 255, 392,
-	1, 3, 5, 7, 11, 15, 23, 31, 47, 63, 95, 127, 191, 255, 392, 511, 767, 1023,
 	//3, 7, 15, 31, 63, 127, 255, 511, 1023,
 };
 static const int qlevels_sse[]=
 {
-	//1, 3, 5, 7, 11, 15, 23, 31, 47, 63, 95, 127, 191, 255, 392, 500,
 	1, 2, 3, 4, 5, 6, 7, 9, 11, 13, 15, 19, 23, 27, 31, 39, 47, 55, 63, 79, 95, 111, 127, 159, 191, 223, 255, 323, 392, 446, 511, 639, 767, 895, 1023,
+	//1, 3, 5, 7, 11, 15, 23, 31, 47, 63, 95, 127, 191, 255, 392, 500,
+	//1, 3, 5, 7, 11, 15, 23, 31, 47, 63, 95, 127, 255, 512, 1023,
 };
 static int quantize_hist(int x)//experimental, bottleneck, should be turned into an unrolled macro on final release
 {
@@ -190,7 +192,9 @@ typedef struct SLIC5CtxStruct
 	unsigned *CDFs, *CDF_bypass;
 	long long esum[4];//sum of abs errors so far in current row
 	int shift[4], shift_prec[4];//depth compensation
-	long long *sse, sse_idx[SSE_STAGES], sse_sum[SSE_STAGES];
+	long long *sse;
+	int sse_idx[SSE_STAGES];
+	long long sse_sum[SSE_STAGES];
 	int sse_count[SSE_STAGES];
 	int bias_count[4];
 	long long bias_sum[4];
@@ -524,47 +528,30 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 
 	//	quantize_signed((int)N  >>pr->shift[kc]),
 	//	quantize_signed((int)W  >>pr->shift[kc]),
-
-		//2^5 < 24*2		X
-#if 0
-		(NE<pr->pred)<<4|
-		(WW<pr->pred)<<3|
-		(W <pr->pred)<<2|
-		(NW<pr->pred)<<1|
-		(N <pr->pred),
-
-		((N<W)==(NW<NE))<<4|
-		(N+W-NW<pr->pred)<<3|
-		(NN<pr->pred)<<2|
-		(2*N-NN<pr->pred)<<1|
-		(2*W-WW<pr->pred),
-#endif
-		//2^11 < (24^2<<2)
-#if 1
-		(N<W)<<10|
-		(NW<NE)<<9|
-		(N+W-NW<pr->pred)<<8|
-		(W <pr->pred)<<7|
-		(NW<pr->pred)<<6|
-		(N <pr->pred)<<5|
-		(NE<pr->pred)<<4|
-		(WW<pr->pred)<<3|
-		(NN<pr->pred)<<2|
-		(2*N-NN<pr->pred)<<1|
-		(2*W-WW<pr->pred),
-#endif
 	};
 	pr->sse_corr=0;
 	for(int k=0;k<SSE_STAGES;++k)
 	{
-		//pr->pred_final=(int)((pr->pred+((1<<PRED_PREC)>>1)-1)>>PRED_PREC);
 		if(k<SSE_STAGES-2)
 		{
 			int qp=quantize_signed((int)(pr->pred>>pr->shift_prec[kc]));
 			pr->sse_idx[k]=((_countof(qlevels_sse)+1)<<1)*qp+g[k];
 		}
 		else if(k<SSE_STAGES-1)
-			pr->sse_idx[k]=g[k];
+			pr->sse_idx[k]=//2^12 < (36^2<<2)
+				//(W<NW)<<11|
+				//(NW<NE)<<10|
+				(N<W)<<9|
+				(N+W-NW<(int)pr->pred)<<8|
+				(W <pr->pred)<<7|
+				(NW<pr->pred)<<6|
+				(N <pr->pred)<<5|
+				(NE<pr->pred)<<4|
+				(WW<pr->pred)<<3|
+				(NN<pr->pred)<<2|
+				(2*N-NN<(int)pr->pred)<<1|
+				(2*W-WW<(int)pr->pred)
+			;
 		else
 		{
 			pr->sse_idx[k]=(int)(pr->pred>>(pr->shift_prec[kc]+2));
