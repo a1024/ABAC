@@ -19,10 +19,10 @@ typedef void *THREAD_RET;
 static const char file[]=__FILE__;
 
 
-#define CODECID     46
-#define CODECNAME "T46"
-#define ENCODE     t46_encode
-#define DECODE     t46_decode
+#define CODECID     47
+#define CODECNAME "T47"
+#define ENCODE     t47_encode
+#define DECODE     t47_decode
 
 
 	#define BATCHTEST_PRINTTABLE
@@ -540,8 +540,10 @@ ProgArgs args=
 {
 	OP_TESTFILE, 1, 0,//op, nthreads, formatsize
 
+	"D:/ML/dataset-kodak/kodim13.png",
+
 //	"C:/Projects/datasets/dataset-kodak/kodim02.png",
-	"C:/Projects/datasets/dataset-kodak/kodim13.png",
+//	"C:/Projects/datasets/dataset-kodak/kodim13.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/artificial.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/big_building.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/cathedral.png",

@@ -67,6 +67,10 @@ int t45_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 int t46_encode(Image const *src, ArrayHandle *data, int loud);
 int t46_decode(const unsigned char *data, size_t srclen, Image *dst, int loud);
 
+//SLICv5
+int t47_encode(Image const *src, ArrayHandle *data, int loud);
+int t47_decode(const unsigned char *data, size_t srclen, Image *dst, int loud);
+
 
 #ifdef __cplusplus
 }
