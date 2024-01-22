@@ -140,13 +140,20 @@ typedef struct SLIC5CtxStruct
 {
 	int iw, ih, nch;
 	char depths[4];
-	int nlevels[4], min_allowed[4], max_allowed[4], min_allowed_prec[4], max_allowed_prec[4];
+	int
+	//	nlevels[4],
+		half[4],
+	//	min_allowed[4], max_allowed[4],//pixel range
+		min_allowed_prec[4], max_allowed_prec[4];//pixel range + prec bits
 	int cdfsize;
 	int *pred_errors, *errors, *pixels;
 	long long *hist, histsums[NHIST];
 	unsigned *CDFs, *CDF_bypass;
 	long long esum[4];//sum of abs errors so far in current row
-	int shift[4], shift_prec[4];//depth compensation
+	int
+	//	shift[4],//shift right to bring value to 8-bit
+		shift_prec[4],//shift right to bring value to 8-bit, removes predictor-added bits
+		shift_error[4];
 	long long *sse, *sse_fr;
 	int sse_idx[SSE_STAGES+1];
 	long long sse_sum[SSE_STAGES+1];
@@ -186,12 +193,13 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 	int maxdepth=0;
 	for(int kc=0;kc<nch;++kc)
 	{
-		int pred_nlevels=1<<(pr->depths[kc]+PRED_PREC);
-		pr->nlevels[kc]=1<<pr->depths[kc];
-		pr->min_allowed[kc]=-(pr->nlevels[kc]>>1);
-		pr->max_allowed[kc]=(pr->nlevels[kc]>>1)-1;
-		pr->min_allowed_prec[kc]=-(pred_nlevels>>1);
-		pr->max_allowed_prec[kc]=(pred_nlevels>>1)-1;
+		int nlevels=1<<pr->depths[kc], pred_half=(1<<pr->depths[kc]+PRED_PREC)>>1;
+		//pr->nlevels[kc]=nlevels;
+		pr->half[kc]=nlevels>>1;
+		//pr->min_allowed[kc]=-(pr->nlevels[kc]>>1);
+		//pr->max_allowed[kc]=(pr->nlevels[kc]>>1)-1;
+		pr->min_allowed_prec[kc]=-pred_half;
+		pr->max_allowed_prec[kc]=pred_half-1;
 		if(maxdepth<pr->depths[kc])
 			maxdepth=pr->depths[kc];
 	}
@@ -293,10 +301,12 @@ static void slic5_nextrow(SLIC5Ctx *pr, int ky)
 	}
 	else
 	{
-		for(int kc=0;kc<pr->nch;++kc)
+		for(int kc=0;kc<pr->nch;++kc)//this code is here in case it's dependent on prev row-average error
 		{
-			pr->shift[kc]=MAXVAR(8, pr->depths[kc])-8;//-((pr->depths[kc]>9)<<1);
-			pr->shift_prec[kc]=pr->shift[kc]+PRED_PREC;
+			pr->shift_prec[kc]=MAXVAR(8, pr->depths[kc])-8+PRED_PREC;
+			//pr->shift[kc]=MAXVAR(8, pr->depths[kc])-8;//-((pr->depths[kc]>9)<<1);
+			//pr->shift_prec[kc]=pr->shift[kc]+PRED_PREC;
+			pr->shift_error[kc]=1+((pr->depths[kc]<=9)<<1);
 		}
 	}
 	pr->ky=ky;
@@ -382,8 +392,12 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 #if 1
 	++j, pr->preds[j]=N>>(abs((int)eN)>=abs(N));//v
 	++j, pr->preds[j]=W>>(abs((int)eW)>=abs(W));//v
-	++j, pr->preds[j]=(int)(N+W+NW+NE+((eN+eW+eNW+eNE)>>2))>>2;//v
+	++j, pr->preds[j]=(int)(N+W+NW+NE+((eN+eW+eNW+eNE)>>pr->shift_error[kc]))>>2;//v
 	//++j, pr->preds[j]=(NNWW+NNW+NN+NNE+NNEE+NWW+NW+N+NE+NEE+WW+W)/12;//~
+	//++j, pr->preds[j]=(int)(
+	//	9*(N+W+((eN+eW)>>(1+(pr->depths[kc]<=9))))+
+	//	7*(NW+NE+((eNW+eNE)>>(1+(pr->depths[kc]<=9))))
+	//)>>5;
 	//++j, pr->preds[j]=(4*(N+W)+2*(NW+NE)+eN+eW+eNW+eNE)>>3;//X
 	//++j, pr->preds[j]=2*W-WW+(eW>>1), pr->preds[j]=CLAMP(pr->min_allowed, pr->preds[j], pr->max_allowed);//X
 
@@ -475,6 +489,18 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	//q45=(int)(((N-W)<<1)+NN-WW)>>(pr->shift[kc]+2), q45=quantize_signed(q45);
 	//q135=(int)(N-NNW+NE-NN)>>(pr->shift[kc]+2), q135=quantize_signed(q135);
 
+	int g[]=
+	{
+		QUANTIZE_SSE((int)(W-WW+NE-NW+NN-NNE)>>(pr->shift_prec[kc]+5)),//gx
+		QUANTIZE_SSE((int)(W-NW+N -NN+NE-NNE)>>(pr->shift_prec[kc]+5)),//gy
+		QUANTIZE_SSE((int)eW >>(pr->shift_prec[kc]+3)),
+		QUANTIZE_SSE((int)eNW>>(pr->shift_prec[kc]+3)),
+		QUANTIZE_SSE((int)eN >>(pr->shift_prec[kc]+3)),
+		QUANTIZE_SSE((int)eNE>>(pr->shift_prec[kc]+3)),
+		QUANTIZE_SSE((int)eWW>>(pr->shift_prec[kc]+3)),
+		QUANTIZE_SSE((int)eNN>>(pr->shift_prec[kc]+3)),
+	};
+#if 0
 	int g[SSE_STAGES];
 	g[0]=QUANTIZE_SSE((int)(W-WW+NE-NW+NN-NNE)>>(pr->shift_prec[kc]+5));//gx
 	g[1]=QUANTIZE_SSE((int)(W-NW+N -NN+NE-NNE)>>(pr->shift_prec[kc]+5));//gy
@@ -484,6 +510,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	g[5]=QUANTIZE_SSE((int)eNE>>(pr->shift_prec[kc]+3));
 	g[6]=QUANTIZE_SSE((int)eWW>>(pr->shift_prec[kc]+3));
 	g[7]=QUANTIZE_SSE((int)eNN>>(pr->shift_prec[kc]+3));
+#endif
 #if 0
 	int g[]=
 	{
@@ -568,7 +595,7 @@ static void slic5_update(SLIC5Ctx *pr, int curr, int token)
 	int error=(curr<<PRED_PREC)-(int)pr->pred;
 	pr->esum[kc]+=abs(error);
 	LOAD(pr->errors, 0, 0)=error;
-	int errors[NPREDS]={0}, kbest=0;
+	int errors[NPREDS]={0}, kbest=0;//, kworst=0;
 	for(int k=0;k<NPREDS;++k)
 	{
 		errors[k]=abs((curr<<PRED_PREC)-pr->preds[k]);
@@ -579,8 +606,18 @@ static void slic5_update(SLIC5Ctx *pr, int curr, int token)
 			pr->pred_errors[(NPREDS*(pr->kym1+pr->kx+1+PAD_SIZE)+k)<<2|kc]+=errors[k];//eNE += ecurr
 		if(errors[kbest]>errors[k])
 			kbest=k;
+		//if(errors[kworst]<errors[k])
+		//	kworst=k;
 	}
 	++pr->params[kbest];
+	//pr->params[kbest]+=pr->params[kbest]>>4;//pr->params[kbest]=(int)(pr->params[kbest]*0x14000LL>>16);//X  bad
+	//pr->params[kbest]<<=1;//X  bad
+	if(pr->params[kbest]>0x1000000)
+	{
+		for(int k=0;k<NPREDS;++k)
+			pr->params[k]>>=1;
+	}
+	//pr->params[kworst]-=pr->params[kworst]>0x10000;//X  bad
 
 	//if(pr->hist_idx==23&&token==32)//
 	//	printf("");
@@ -615,7 +652,7 @@ static void slic5_enc(SLIC5Ctx *pr, int curr, int kc, int kx, int ky)
 
 	int error=curr-pr->pred_final;
 #if 1
-	int upred=(pr->nlevels[kc]>>1)-abs(pr->pred_final);
+	int upred=pr->half[kc]-abs(pr->pred_final);
 	int abs_error=abs(error), negmask;
 	if(abs_error<=upred)
 	{
@@ -704,7 +741,7 @@ static int slic5_dec(SLIC5Ctx *pr, int kc, int kx, int ky)
 		error|=lsb;
 	}
 #if 1
-	int upred=(pr->nlevels[kc]>>1)-abs(pr->pred_final), negmask;
+	int upred=pr->half[kc]-abs(pr->pred_final), negmask;
 	if(error<=(upred<<1))
 	{
 		negmask=-(pr->sse_corr<0);
