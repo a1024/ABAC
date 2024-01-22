@@ -120,7 +120,6 @@ static const int wp_params[]=
 	// 0x00EA, 0x01C8, 0x00A2, 0x005E, 0x01F4, 0x0045, 0x0091, 0x0066, 0x003B, 0x0027,-0x0011, 0x001B, 0x00FF, 0x007E, 0x00D1, 0x00F3, 0x008F, 0x0130, 0x018E,-0x00AC, 0x0004,
 	// 0x010C, 0x0008,-0x007E, 0x00A2, 0x000E,-0x0069,-0x0073,-0x0125,-0x0092, 0x0000, 0x0078,
 
-
 	0x0004AB65,//wp1
 	0x0002841C,//wp2
 	0x00034147,//wp3
@@ -131,7 +130,6 @@ static const int wp_params[]=
 	0x00016056,//clamp grad
 	0x00028F8A,//journal GAP
 	0x00022F58,//CALIC GAP
-
 
 //	0xD000, 0xC000, 0xC000, 0xB000,//wp weights
 //	0xC000,//journal GAP
@@ -264,10 +262,14 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 
 	memset(pr->sse, 0, sizeof(long long[SSE_STAGES*SSE_SIZE]));
 	memset(pr->sse_fr, 0, sizeof(long long[SSE_FR_SIZE]));
-	pr->ec=ec;
+
+	int shift=16-maxdepth;
+	shift=MAXVAR(0, shift);
 	memcpy(pr->params, wp_params, sizeof(pr->params));
-	//for(int k=0;k<_countof(wp_params);++k)
-	//	pr->params[k]=wp_params[k];
+	for(int k=0;k<NPREDS;++k)
+		pr->params[k]=pr->params[k]>>shift;
+
+	pr->ec=ec;
 	return 1;
 }
 static void slic5_free(SLIC5Ctx *pr)
@@ -357,13 +359,13 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		eNE=LOAD(pr->errors, -1, 0),
 		eNN=LOAD(pr->errors,  0, 2),
 		eWW=LOAD(pr->errors, -2, 0);
-	
+
 	int clamp_lo=(int)N, clamp_hi=(int)N;
 	clamp_lo=(int)MINVAR(clamp_lo, W);
 	clamp_hi=(int)MAXVAR(clamp_hi, W);
 	clamp_lo=(int)MINVAR(clamp_lo, NE);
 	clamp_hi=(int)MAXVAR(clamp_hi, NE);
-	
+
 	int j=-1;
 	pr->preds[++j]=(int)(W+NE-N);
 	pr->preds[++j]=(int)(N-((eN+eW+eNE)*pr->params[NPREDS+0]>>PARAM_PREC));
@@ -375,7 +377,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		((long long)NN-N)*pr->params[NPREDS+5]+
 		((long long)NW-W)*pr->params[NPREDS+6]
 	)>>PARAM_PREC));
-	
+
 #if 0
 	//pr->preds[++j]=(((N+W)<<1)+NW+NE+NN+WW+4)>>3;//X
 
@@ -418,7 +420,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	//++j, pr->preds[j]=2*W-WW+(eW>>1), pr->preds[j]=CLAMP(pr->min_allowed, pr->preds[j], pr->max_allowed);//X
 
 	++j, pr->preds[j]=(int)(N+W-NW);//, pr->preds[j]=(int)MEDIAN3(N, W, pr->preds[j]);
-	
+
 	++j;
 	int dx=abs(W-WW)+abs(N-NW)+abs(NE-N);
 	int dy=abs(W-NW)+abs(N-NN)+abs(NE-NNE);
@@ -442,7 +444,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		pr->preds[j]-=diff2;
 	else if(diff<-(16<<(PRED_PREC+1)))
 		pr->preds[j]-=diff2/2;
-	
+
 	++j;
 	int disc=(dy-dx)>>pr->shift_prec[kc];
 	if(disc>80)
@@ -484,7 +486,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	}
 	else
 		pr->pred=pr->preds[0];
-	
+
 	int
 		qx  =QUANTIZE_HIST(dx  >>(pr->shift_prec[kc]-2)),//dx>>shift_pred is in [0 ~ 255*3],  dx>>(shift_pred-2) has quad range
 		qy  =QUANTIZE_HIST(dy  >>(pr->shift_prec[kc]-2)),
@@ -591,7 +593,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	int final_corr=pr->bias_count[kc]?(int)(pr->bias_sum[kc]/pr->bias_count[kc]):0;
 	pr->pred+=final_corr;
 	pr->sse_corr+=final_corr;
-	
+
 	//if(((eN^eW)|(eN^eNW))<0)//clamp only if signs are different		TODO analyze different clamp strategies
 	//{
 		//clamp_lo=(int)MINVAR(clamp_lo, NEE);//X  bad
@@ -650,7 +652,7 @@ static void slic5_update(SLIC5Ctx *pr, int curr, int token)
 	++pr->hist[pr->cdfsize*pr->hist_idx+token];
 	++pr->histsums[pr->hist_idx];
 	//if(pr->histsums[pr->hist_idx]>((long long)pr->cdfsize*96))
-	if(pr->histsums[pr->hist_idx]>((long long)pr->iw*6))//rescale hist
+	if(pr->histsums[pr->hist_idx]>((long long)pr->iw*pr->nch<<1))//rescale hist
 	{
 		long long *curr_hist=pr->hist+pr->cdfsize*pr->hist_idx;
 		long long sum=0;
