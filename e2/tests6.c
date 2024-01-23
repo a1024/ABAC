@@ -61,22 +61,25 @@ static const int qlevels_hist[]=
 };
 static const int qlevels_sse[]=//symmetric to avoid quantized negative zero
 {
-//	-22, -14, -9, -7, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 7, 9, 14, 22,
 	-23, -15, -11, -7, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 7, 11, 15, 23,
-//	-31, -23, -15, -11, -7, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 7, 11, 15, 23, 31,
+//	-23, -15, -7, -3, -1, 0, 1, 3, 7, 15, 23,
+	//-22, -14, -9, -7, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 7, 9, 14, 22,
+	//-31, -23, -15, -11, -7, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 7, 11, 15, 23, 31,
 	//-31, -27, -23, -19, -15, -13, -11, -9, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 9, 11, 13, 15, 19, 23, 27, 31,
 	//-31, -29, -27, -25, -23, -21, -19, -17, -15, -14, -13, -12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 19, 21, 23, 25, 27, 29, 31,
 };
-static const int qlevels_pred[]=
-{
-	//-1023,-895,-767,-639,-511,-446,-392,-323,-255,-223,
-	//-191, -159, -127, -111, -95, -79, -63, -55,
-	-47, -39, -31, -27, -23, -19, -15, -13, -11, -9, -7, -6, -5, -4, -3, -2, -1,
-	0,
-	1, 2, 3, 4, 5, 6, 7, 9, 11, 13, 15, 19, 23, 27, 31, 39, 47,
-	//55, 63, 79, 95, 111, 127, 159, 191,
-	//223, 255, 323, 392, 446, 511, 639, 767, 895, 1023,
-};
+//static const int qlevels_pred[]=
+//{
+//	//-1023,-895,-767,-639,-511,-446,-392,-323,-255,-223,
+//	//-191, -159, -127, -111, -95, -79, -63, -55,
+//	//-47, -39, -31, -27, -23, -19,
+//	-15, -13, -11, -9, -7, -6, -5, -4, -3, -2, -1,
+//	0,
+//	1, 2, 3, 4, 5, 6, 7, 9, 11, 13, 15,
+//	//19, 23, 27, 31, 39, 47,
+//	//55, 63, 79, 95, 111, 127, 159, 191,
+//	//223, 255, 323, 392, 446, 511, 639, 767, 895, 1023,
+//};
 #define CDF_UPDATE_PERIOD 0x400//number of sub-pixels processed between CDF updates, must be a power-of-two
 #define PAD_SIZE 2
 #define NPREDS 10
@@ -86,7 +89,8 @@ static const int qlevels_pred[]=
 #define SSE_FR_SIZE (1<<10)//separate final round
 #define NHIST (_countof(qlevels_hist)+1)
 #define SSE_WIDTH (_countof(qlevels_sse)+1)
-#define SSE_HEIGHT (_countof(qlevels_pred)+1)
+#define SSE_PREDBITS 5
+#define SSE_HEIGHT (1<<SSE_PREDBITS)//(_countof(qlevels_pred)+1)
 #define SSE_SIZE (SSE_WIDTH*SSE_WIDTH*SSE_WIDTH*SSE_HEIGHT)
 //#define HASH_FUNC(A, B) ((A+B+1)*(A+B)/2+B)
 static int quantize(int x, const int *qlevels, int nlevels)//experimental, bottleneck, should be turned into an unrolled macro on final release
@@ -114,9 +118,15 @@ static int quantize(int x, const int *qlevels, int nlevels)//experimental, bottl
 //	x=CLAMP(0, x, SSE_WIDTH-1);
 //	return x;
 //}
+static int QUANTIZE_PRED(int x)
+{
+	x+=SSE_HEIGHT/2;
+	x=CLAMP(0, x, SSE_HEIGHT-1);
+	return x;
+}
 #define QUANTIZE_HIST(X) quantize(X, qlevels_hist, _countof(qlevels_hist))
 #define QUANTIZE_SSE(X) quantize(X, qlevels_sse, _countof(qlevels_sse))
-#define QUANTIZE_PRED(X) quantize(X, qlevels_pred, _countof(qlevels_pred))
+//#define QUANTIZE_PRED(X) quantize(X, qlevels_pred, _countof(qlevels_pred))
 static const int wp_params[]=
 {
 	// 0x00EA, 0x01C8, 0x00A2, 0x005E, 0x01F4, 0x0045, 0x0091, 0x0066, 0x003B, 0x0027,-0x0011, 0x001B, 0x00FF, 0x007E, 0x00D1, 0x00F3, 0x008F, 0x0130, 0x018E,-0x00AC, 0x0004,
@@ -357,12 +367,12 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		WW      =LOAD(pr->pixels,  2, 0)<<PRED_PREC,
 		W       =LOAD(pr->pixels,  1, 0)<<PRED_PREC;
 	long long
-		eN =LOAD(pr->errors,  0, 1),//error = (curr<<8) - pred
-		eW =LOAD(pr->errors,  1, 0),
+		eNN=LOAD(pr->errors,  0, 2),//error = (curr<<8) - pred
 		eNW=LOAD(pr->errors,  1, 1),
+		eN =LOAD(pr->errors,  0, 1),
 		eNE=LOAD(pr->errors, -1, 0),
-		eNN=LOAD(pr->errors,  0, 2),
-		eWW=LOAD(pr->errors, -2, 0);
+		eWW=LOAD(pr->errors, -2, 0),
+		eW =LOAD(pr->errors,  1, 0);
 
 	int clamp_lo=(int)N, clamp_hi=(int)N;
 	clamp_lo=(int)MINVAR(clamp_lo, W);
@@ -511,21 +521,53 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	//q45=(int)(((N-W)<<1)+NN-WW)>>(pr->shift[kc]+2), q45=quantize_signed(q45);
 	//q135=(int)(N-NNW+NE-NN)>>(pr->shift[kc]+2), q135=quantize_signed(q135);
 
-	int shifts[]=//3		4 is best for 8-bit
+	//3		4 is best for 8-bit
+	int shifts[]=
 	{
-		MAXVAR(0, pr->shift_prec[kc]-2),//amplification
-		MAXVAR(0, pr->shift_prec[kc]-1),
-		pr->shift_prec[kc]+5,//attenuation
-		pr->shift_prec[kc]+6,
+		//amplification				attenuation
+		//smaller bins		<- -/+ ->	larger bins
+		//hi-res-Q				lo-res-Q
+		//less likely nonzero			more likely zero
+		MAXVAR(0, pr->shift_prec[kc]-1), MAXVAR(0, pr->shift_prec[kc]-1), pr->shift_prec[kc]+6,
+		MAXVAR(0, pr->shift_prec[kc]-2), MAXVAR(0, pr->shift_prec[kc]-2), pr->shift_prec[kc]+5,
+
+		//MAXVAR(0, pr->shift_prec[kc]-2),
+		//MAXVAR(0, pr->shift_prec[kc]-1),
+		//MAXVAR(0, pr->shift_prec[kc]-2),
+		//MAXVAR(0, pr->shift_prec[kc]-1),
+		//pr->shift_prec[kc]+5,
+		//pr->shift_prec[kc]+6,
 	};
 	int g[]=
 	{
 		//4D SSE
 #if 1
-		SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)(W-WW)>>shifts[1])+QUANTIZE_SSE((int)(N-NW)>>shifts[3]))+QUANTIZE_SSE((int)(NNE-NN)>>shifts[1]),
-		SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)(W-NW)>>shifts[1])+QUANTIZE_SSE((int)(N-NN)>>shifts[3]))+QUANTIZE_SSE((int)(NE-NNE)>>shifts[1]),
-		SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)eN>>shifts[0])+QUANTIZE_SSE((int)eW>>shifts[2]))+QUANTIZE_SSE((int)eNW>>shifts[0]),
-		SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)eNN>>shifts[0])+QUANTIZE_SSE((int)eWW>>shifts[2]))+QUANTIZE_SSE((int)eNE>>shifts[0]),
+		SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)(W-WW)>>shifts[0])+QUANTIZE_SSE((int)(N-NW)>>shifts[1]))+QUANTIZE_SSE((int)(NNE-NN)>>shifts[2]),//gx
+		SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)(W-NW)>>shifts[0])+QUANTIZE_SSE((int)(N-NN)>>shifts[1]))+QUANTIZE_SSE((int)(NE-NNE)>>shifts[2]),//gy
+		//SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)N>>shifts[3])+QUANTIZE_SSE((int)W>>shifts[4]))+QUANTIZE_SSE((int)NW>>shifts[5]),//close
+		SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)eN>>shifts[3])+QUANTIZE_SSE((int)eW>>shifts[4]))+QUANTIZE_SSE((int)eNW>>shifts[5]),//eclose
+		SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)eNN>>shifts[3])+QUANTIZE_SSE((int)eWW>>shifts[4]))+QUANTIZE_SSE((int)eNE>>shifts[5]),//efar
+		//SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)NN>>shifts[3])+QUANTIZE_SSE((int)WW>>shifts[4]))+QUANTIZE_SSE((int)NE>>shifts[5]),//far
+		//SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)(eNW-eNE)>>shifts[3])+QUANTIZE_SSE((int)(eNN-eWW)>>shifts[4]))+QUANTIZE_SSE((int)(eN-eW)>>shifts[5]),//ediff
+		
+		//+-+-+		+-+-+		+++++
+		//-+-+-		+-+--		-----
+		//+-?		+-		+-
+	//	SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)(NNWW-NNW+NN-NNE+NNEE - NWW+NW-N+NE-NEE + WW-W)/12>>shifts[0])+
+	//		QUANTIZE_SSE((int)(NNWW-NNW+NN-NNE+NNEE + NWW-NW+N-NE-NEE + WW-W)/12>>shifts[1]))+
+	//		QUANTIZE_SSE((int)(NNWW+NNW+NN+NNE+NNEE - NWW-NW-N-NE-NEE + WW-W)/12>>shifts[2]),
+
+		//SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)WW>>pr->shift_prec[kc])+QUANTIZE_SSE((int)W>>pr->shift_prec[kc]))+QUANTIZE_SSE((int)NWW>>pr->shift_prec[kc]),
+		//SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)NW>>pr->shift_prec[kc])+QUANTIZE_SSE((int)N>>pr->shift_prec[kc]))+QUANTIZE_SSE((int)NE>>pr->shift_prec[kc]),
+		//SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)NEE>>pr->shift_prec[kc])+QUANTIZE_SSE((int)NNWW>>pr->shift_prec[kc]))+QUANTIZE_SSE((int)NNW>>pr->shift_prec[kc]),
+		//SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)NN>>pr->shift_prec[kc])+QUANTIZE_SSE((int)NNE>>pr->shift_prec[kc]))+QUANTIZE_SSE((int)NNEE>>pr->shift_prec[kc]),
+		//SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)eNN>>pr->shift_prec[kc])+QUANTIZE_SSE((int)eNW>>pr->shift_prec[kc]))+QUANTIZE_SSE((int)eN>>pr->shift_prec[kc]),
+		//SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)eNE>>pr->shift_prec[kc])+QUANTIZE_SSE((int)eWW>>pr->shift_prec[kc]))+QUANTIZE_SSE((int)eW>>pr->shift_prec[kc]),
+
+		//SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)(W-WW)>>shifts[0])+QUANTIZE_SSE((int)(N-NW)>>shifts[1]))+QUANTIZE_SSE((int)(NNE-NN)>>shifts[2]),//gx
+		//SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)(W-NW)>>shifts[0])+QUANTIZE_SSE((int)(N-NN)>>shifts[1]))+QUANTIZE_SSE((int)(NE-NNE)>>shifts[2]),//gy
+		//SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)eN>>shifts[3])+QUANTIZE_SSE((int)eW>>shifts[4]))+QUANTIZE_SSE((int)eNW>>shifts[5]),//eclose
+		//SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)eNN>>shifts[3])+QUANTIZE_SSE((int)eWW>>shifts[4]))+QUANTIZE_SSE((int)eNE>>shifts[5]),//efar
 
 		//SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)(W-WW)>>(pr->shift_prec[kc]+4))+QUANTIZE_SSE((int)(N-NW)>>(pr->shift_prec[kc]+4)))+QUANTIZE_SSE((int)(NNE-NN)>>(pr->shift_prec[kc]+4)),
 		//SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)(W-NW)>>(pr->shift_prec[kc]+4))+QUANTIZE_SSE((int)(N-NN)>>(pr->shift_prec[kc]+4)))+QUANTIZE_SSE((int)(NE-NNE)>>(pr->shift_prec[kc]+4)),
@@ -611,7 +653,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		long long sse_val;
 		if(k<SSE_STAGES)
 		{
-			int qp=QUANTIZE_PRED((int)(pr->pred>>(pr->shift_prec[kc]+4)));
+			int qp=QUANTIZE_PRED((int)(pr->pred>>(pr->shift_prec[kc]+8-(SSE_PREDBITS-1))));
 			pr->sse_idx[k]=SSE_WIDTH*SSE_WIDTH*SSE_WIDTH*qp+g[k];
 			sse_val=pr->sse[SSE_SIZE*k+pr->sse_idx[k]];
 		}
