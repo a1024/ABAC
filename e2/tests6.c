@@ -26,7 +26,7 @@ static const char file[]=__FILE__;
 #define SSE_Y_MSB 1
 #define SSE_Z_EXP 3
 #define SSE_Z_MSB 1
-#define SSE_STAGES 5
+#define SSE_STAGES 10
 #define SSE_FR_SIZE (1<<10)//separate final round
 #define SSE_PREDBITS 5
 #define SSE_PRED_LEVELS (1<<SSE_PREDBITS)//(_countof(qlevels_pred)+1)
@@ -435,14 +435,14 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 
 		QUANTIZE((NNE-NN)/64,			(N-NW)/16,		W-WW),//5
 		QUANTIZE((NE-NNE)/64,			(N-NN)/16,		W-NW),//6
-		//	QUANTIZE((int)(eNNE-eNN)/32,	(int)(eN-eNW)/2,	(int)(eW-eWW)/2),//7
-		//	QUANTIZE((int)(eNE-eNNE)/32,	(int)(eN-eNN)/8,	(int)(eW-eNW)/2),//8
 		QUANTIZE((int)eNW/64,			(int)eW*2,		(int)eN*2),//9
 		QUANTIZE((int)eNE/64,			(int)eWW*2,		(int)eNN*2),//10
-		//	QUANTIZE(NW+3*(NE-N)-NEE,	NE-NNEE,		NNE+NEE+2*W-4*NE),//1
-		//	QUANTIZE(NWW+3*(N-NW)-NE,	N-NN,			W+NW+NE+NN-4*N),//2
-		//	QUANTIZE((3*(N-W)+WW-NN)/128,	(NW-NNWW)/2,		(NNW+NWW+W+N-4*NW)/16),//3 X
 		QUANTIZE((3*(NE-NW)+NNWW-NNEE)/512,	(W-WW)/8,		(NW+2*NE+WW-4*W)/4),//4
+			QUANTIZE((int)(eNE-eNNE)/64,	(int)(eN-eNN)/16,	(int)(eW-eNW)),//8
+			QUANTIZE((int)(eNNE-eNN)/64,	(int)(eN-eNW)/16,	(int)(eW-eWW)),//7
+			QUANTIZE((NW+3*(NE-N)-NEE)/512,	(NE-NNEE)/8,		(NNE+NEE+2*W-4*NE)/4),//1
+			QUANTIZE((NWW+3*(N-NW)-NE)/512,	(N-NN)/8,		(W+NW+NE+NN-4*N)/4),//2
+			QUANTIZE((3*(N-W)+WW-NN)/512,	(NW-NNWW)/8,		(NNW+NWW+W+N-4*NW)/4),//3 (weakest)
 #if 0
 		QUANTIZE((NNE-NN)/32,			(N-NW)/8,		(W-WW)/2),//5
 		QUANTIZE((NE-NNE)/32,			(N-NN)/8,		(W-NW)/2),//6
