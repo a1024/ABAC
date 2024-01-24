@@ -26,7 +26,7 @@ static const char file[]=__FILE__;
 #define SSE_Y_MSB 1
 #define SSE_Z_EXP 3
 #define SSE_Z_MSB 1
-#define SSE_STAGES 6
+#define SSE_STAGES 5
 #define SSE_FR_SIZE (1<<10)//separate final round
 #define SSE_PREDBITS 5
 #define SSE_PRED_LEVELS (1<<SSE_PREDBITS)//(_countof(qlevels_pred)+1)
@@ -433,17 +433,27 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	quantize_signed(Y, sh, SSE_Y_EXP, SSE_Y_MSB, pr->sse_height))+\
 	quantize_signed(X, sh, SSE_X_EXP, SSE_X_MSB, pr->sse_width)
 
-		//QUANTIZE(NW+3*(NE-N)-NEE,	NE-NNEE,	NNE+NEE+2*W-4*NE),
-		//QUANTIZE(NWW+3*(N-NW)-NE,	N-NN,		W+NW+NE+NN-4*N),
-		//QUANTIZE(3*(N-W)+WW-NN,		NW-NNWW,	NNW+NWW+W+N-4*NW),
-		//QUANTIZE(3*(NE-NW)+NNWW-NNEE,	W-WW,		NW+2*NE+WW-4*W),
-#if 1
-		QUANTIZE((NNE-NN)/32,		(N-NW)/2,		(W-WW)/2),
-		QUANTIZE((NE-NNE)/32,		(N-NN)/2,		(W-NW)/2),
-		QUANTIZE((int)(eNNE-eNN)/32,	(int)(eN-eNW)/2,	(int)(eW-eWW)/2),
-		QUANTIZE((int)(eNE-eNNE)/32,	(int)(eN-eNN)/2,	(int)(eW-eNW)/2),
-		QUANTIZE((int)eNW/16,		(int)eW*4,		(int)eN*4),
-		QUANTIZE((int)eNE/16,		(int)eWW*2,		(int)eNN*2),
+		QUANTIZE((NNE-NN)/64,			(N-NW)/16,		W-WW),//5
+		QUANTIZE((NE-NNE)/64,			(N-NN)/16,		W-NW),//6
+		//	QUANTIZE((int)(eNNE-eNN)/32,	(int)(eN-eNW)/2,	(int)(eW-eWW)/2),//7
+		//	QUANTIZE((int)(eNE-eNNE)/32,	(int)(eN-eNN)/8,	(int)(eW-eNW)/2),//8
+		QUANTIZE((int)eNW/64,			(int)eW*2,		(int)eN*2),//9
+		QUANTIZE((int)eNE/64,			(int)eWW*2,		(int)eNN*2),//10
+		//	QUANTIZE(NW+3*(NE-N)-NEE,	NE-NNEE,		NNE+NEE+2*W-4*NE),//1
+		//	QUANTIZE(NWW+3*(N-NW)-NE,	N-NN,			W+NW+NE+NN-4*N),//2
+		//	QUANTIZE((3*(N-W)+WW-NN)/128,	(NW-NNWW)/2,		(NNW+NWW+W+N-4*NW)/16),//3 X
+		QUANTIZE((3*(NE-NW)+NNWW-NNEE)/512,	(W-WW)/8,		(NW+2*NE+WW-4*W)/4),//4
+#if 0
+		QUANTIZE((NNE-NN)/32,			(N-NW)/8,		(W-WW)/2),//5
+		QUANTIZE((NE-NNE)/32,			(N-NN)/8,		(W-NW)/2),//6
+		//	QUANTIZE((int)(eNNE-eNN)/32,	(int)(eN-eNW)/2,	(int)(eW-eWW)/2),//7
+		QUANTIZE((int)eNW/16,			(int)eW*4,		(int)eN*4),//9
+		QUANTIZE((int)eNE/16,			(int)eWW*2,		(int)eNN*2),//10
+		//	QUANTIZE(NW+3*(NE-N)-NEE,	NE-NNEE,		NNE+NEE+2*W-4*NE),//1
+		//	QUANTIZE(NWW+3*(N-NW)-NE,	N-NN,			W+NW+NE+NN-4*N),//2
+		//	QUANTIZE((3*(N-W)+WW-NN)/128,	(NW-NNWW)/2,		(NNW+NWW+W+N-4*NW)/16),//3 X
+		QUANTIZE((3*(NE-NW)+NNWW-NNEE)/128,	(W-WW)/8,		(NW+2*NE+WW-4*W)/16),//4
+		QUANTIZE((int)(eNE-eNNE)/32,		(int)(eN-eNN)/8,	(int)(eW-eNW)/2),//8
 #endif
 #undef  QUANTIZE
 
