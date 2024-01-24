@@ -31,7 +31,7 @@ static const char file[]=__FILE__;
 #define SSE_Y_MSB 1
 #define SSE_Z_EXP 3
 #define SSE_Z_MSB 1
-#define SSE_STAGES 6
+#define SSE_STAGES 4
 #define SSE_FR_SIZE (1<<10)//separate final round
 #define SSE_PREDBITS 5
 #define SSE_PRED_LEVELS (1<<SSE_PREDBITS)//(_countof(qlevels_pred)+1)
@@ -592,8 +592,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	//q45=(int)(((N-W)<<1)+NN-WW)>>(pr->shift[kc]+2), q45=quantize_signed(q45);
 	//q135=(int)(N-NNW+NE-NN)>>(pr->shift[kc]+2), q135=quantize_signed(q135);
 
-	//3		4 is best for 8-bit
-	//int shifts[]=
+	//int shifts[]=//3		4 is best for 8-bit
 	//{
 	//	//amplification				attenuation
 	//	//smaller bins		<- -/+ ->	larger bins
@@ -616,12 +615,45 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	pr->sse_width*(pr->sse_height*quantize_signed(Z, sh, SSE_Z_EXP, SSE_Z_MSB, pr->sse_width)+\
 	quantize_signed(Y, sh, SSE_Y_EXP, SSE_Y_MSB, pr->sse_height))+\
 	quantize_signed(X, sh, SSE_X_EXP, SSE_X_MSB, pr->sse_width)
-		QUANTIZE((NNE-NN)/32,		(N-NW)/2,		(W-WW)/2),
-		QUANTIZE((NE-NNE)/32,		(N-NN)/2,		(W-NW)/2),
-		QUANTIZE((int)(eNNE-eNN)/32,	(int)(eN-eNW)/2,	(int)(eW-eWW)/2),
-		QUANTIZE((int)(eNE-eNNE)/32,	(int)(eN-eNN)/2,	(int)(eW-eNW)/2),
-		QUANTIZE((int)eNW/16,		(int)eW*4,		(int)eN*4),
-		QUANTIZE((int)eNE/16,		(int)eWW*2,		(int)eNN*2),
+		//QUANTIZE(N-W,		W-NW,		NW-N),
+		//QUANTIZE(NE-NW,	N-NN,		W+NW+NE+NN-4*N),
+		//QUANTIZE(NNWW-NWW,	NNW-NNWW,	NNW+NNE+NWW+NE+W-N-4*NW),
+		//QUANTIZE(NWW-WW,	WW-W,		W),
+
+		QUANTIZE(N-W,		W-NW,		NW-N),
+		QUANTIZE(NE-NW,		N-NN,		W+NW+NE+NN-4*N),
+		QUANTIZE(NNWW-NWW,	NNW-NNWW,	NNW+NNE+NWW+NE+W-N-4*NW),
+		QUANTIZE(NWW-WW,	WW-W,		W),
+
+		//QUANTIZE(N-W,		W-NW,				NW-N),
+		//QUANTIZE(NE-NW,	WW-NWW+2*(N-NN)+NEE-NNEE,	W+NW+NE+NN-4*N),
+		//QUANTIZE(NNWW-NWW,	NNW-NNWW,			NNW+NNE+NWW+NE+W-N-4*NW),
+		//QUANTIZE(NWW-WW,	WW-W,				W),
+
+		//QUANTIZE(N-W,		W-NW,		NW-N),
+		//QUANTIZE(NE-NW,	N-NN,		W+NW+NE+NN-4*N),
+		//QUANTIZE(NNWW-NWW,	NNW-NNWW,	NNW+NNE+NWW+NE+W-N-4*NW),
+		//QUANTIZE(NWW-WW,	WW-W,		W),
+
+		//QUANTIZE(N-W,		W-NW,		NW-N),
+		//QUANTIZE(NE-NW,	N-NN,		W+NW+NE+NN-4*N),
+		//QUANTIZE(NNWW-NWW,	NNW-NNWW,	NNW+NWW+NE+W-4*NW),
+		//QUANTIZE(NWW-WW,	WW-W,		W),
+
+		//QUANTIZE(N-W,		W-NW,		NW-N),
+		//QUANTIZE(NN-NW,	N-NN,		W+NW+NE+NN-4*N),
+		//QUANTIZE(NNWW-NWW,	NNW-NNWW,	NW-NNW),
+		//QUANTIZE(NWW-WW,	WW-W,		W),
+
+		//QUANTIZE(NNE,		NNEE,		NEE),
+		//QUANTIZE(NN,		N,		NE),
+		//QUANTIZE(NNWW,	NNW,		NW),
+		//QUANTIZE(NWW,		WW,		W),
+
+		//QUANTIZE(NNE-NE,	NNEE-NNE,	NEE-NNEE),
+		//QUANTIZE(NN-NW,	N-NN,		NE-N),
+		//QUANTIZE(NNWW-NWW,	NNW-NNWW,	NW-NNW),
+		//QUANTIZE(NWW-WW,	WW-W,		W),
 #if 0
 		QUANTIZE((NNE-NN)/32,		(N-NW)/2,		(W-WW)/2),
 		QUANTIZE((NE-NNE)/32,		(N-NN)/2,		(W-NW)/2),
