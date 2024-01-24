@@ -6,23 +6,18 @@
 #include<math.h>
 static const char file[]=__FILE__;
 
-	#define SLIC5_DISABLE_PALETTE//do NOT enable palette, currently not supported, will leak memory
-	#define PRINT_SSE
-
 #define SLIC5_CONFIG_EXP 5
 #define SLIC5_CONFIG_MSB 2
 #define SLIC5_CONFIG_LSB 0
 
 #define CDF_UPDATE_PERIOD 0x400//number of sub-pixels processed between CDF updates, must be a power-of-two
 #define PAD_SIZE 2
-#define NPREDS 10
+#define NPREDS 8
 #define PRED_PREC 8
 #define PARAM_PREC 8
-//#define NHIST 24
 #define SSE_W 20
 #define SSE_H 20
 #define SSE_D 20
-//#define SSE_SIZE (SSE_D*SSE_H*SSE_W*SSE_PRED_LEVELS)
 #define HIST_EXP 2
 #define HIST_MSB 1
 #define SSE_X_EXP 3
@@ -31,12 +26,10 @@ static const char file[]=__FILE__;
 #define SSE_Y_MSB 1
 #define SSE_Z_EXP 3
 #define SSE_Z_MSB 1
-#define SSE_STAGES 4
+#define SSE_STAGES 6
 #define SSE_FR_SIZE (1<<10)//separate final round
 #define SSE_PREDBITS 5
 #define SSE_PRED_LEVELS (1<<SSE_PREDBITS)//(_countof(qlevels_pred)+1)
-
-//#define HASH_FUNC(A, B) ((A+B+1)*(A+B)/2+B)
 typedef struct HybridUintStruct
 {
 	unsigned short token, nbits;
@@ -69,43 +62,6 @@ static void hybriduint_encode(unsigned val, HybridUint *hu)
 	hu->bypass=bypass;
 	hu->nbits=nbits;
 }
-
-#if 0
-static const int qlevels_hist[]=
-{
-	0, 1, 2, 3, 5, 7, 11, 13, 15, 23, 27, 31, 47, 55, 63, 95, 127, 191, 255, 392, 511, 767, 1023,
-
-	//1, 2, 3, 4, 5, 6, 7, 9, 11, 13, 15, 19, 23, 27, 31, 39, 47, 55, 63, 79, 95, 111, 127, 159, 191, 223, 255, 323, 392, 446, 511, 639, 767, 895, 1023,
-	//1, 2, 3, 4, 5, 6, 7, 9, 11, 13, 15, 19, 23, 27, 31, 39, 47, 55, 63, 79, 95, 111, 127, 159, 191, 223, 255,
-//	1, 3, 5, 7, 11, 15, 23, 31, 47, 63, 95, 127, 191, 255, 392, 511, 767, 1023,
-	//1, 3, 5, 7, 11, 15, 23, 31, 47, 63, 95, 127, 191, 255, 392,
-	//3, 7, 15, 31, 63, 127, 255, 511, 1023,
-
-	//1, 3, 5, 7, 11, 15, 23, 31, 47, 63, 95, 127, 191, 255, 392, 500,
-	//1, 3, 5, 7, 11, 15, 23, 31, 47, 63, 95, 127, 255, 512, 1023,
-};
-static const int qlevels_sse[]=//symmetric to avoid quantized negative zero
-{
-	-23, -15, -11, -7, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 7, 11, 15, 23,
-//	-23, -15, -7, -3, -1, 0, 1, 3, 7, 15, 23,
-	//-22, -14, -9, -7, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 7, 9, 14, 22,
-	//-31, -23, -15, -11, -7, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 7, 11, 15, 23, 31,
-	//-31, -27, -23, -19, -15, -13, -11, -9, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 9, 11, 13, 15, 19, 23, 27, 31,
-	//-31, -29, -27, -25, -23, -21, -19, -17, -15, -14, -13, -12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 19, 21, 23, 25, 27, 29, 31,
-};
-//static const int qlevels_pred[]=
-//{
-//	//-1023,-895,-767,-639,-511,-446,-392,-323,-255,-223,
-//	//-191, -159, -127, -111, -95, -79, -63, -55,
-//	//-47, -39, -31, -27, -23, -19,
-//	-15, -13, -11, -9, -7, -6, -5, -4, -3, -2, -1,
-//	0,
-//	1, 2, 3, 4, 5, 6, 7, 9, 11, 13, 15,
-//	//19, 23, 27, 31, 39, 47,
-//	//55, 63, 79, 95, 111, 127, 159, 191,
-//	//223, 255, 323, 392, 446, 511, 639, 767, 895, 1023,
-//};
-#endif
 static int quantize_unsigned(int val, int exp, int msb)
 {
 	if(val<(1<<exp))
@@ -126,80 +82,16 @@ int quantize_signed(int val, int shift, int exp, int msb, int nlevels)
 	return token;
 }
 #define QUANTIZE_HIST(X) quantize_unsigned(X, HIST_EXP, HIST_MSB)
-#if 0
-static int quantize(int x, const int *qlevels, int nlevels)//experimental, bottleneck, should be turned into an unrolled macro on final release
-{
-	//if(qlevels==qlevels_hist&&(x==1||x==3))//NOT HIT
-	//if(qlevels==qlevels_hist&&(x==0||x==2))
-	//	printf("");
-	int L=0, R=nlevels-1;
-	while(L<=R)
-	{
-		int mid=(L+R)>>1;
-		if(x>qlevels[mid])
-			L=mid+1;
-		else if(x<qlevels[mid])
-			R=mid-1;
-		else
-			return mid;
-	}
-	L+=L<nlevels-1&&x>qlevels[L];
-	return L;
-}
-#endif
-#if 0
-static int quantize(int x, const int *qlevels, int nlevels)//slow
-{
-	//int idx0=quantize(x, qlevels, nlevels);
-	int idx=0;
-	for(int k=0;k<nlevels;++k)
-		idx+=x>qlevels[k];
-	//if(idx!=idx0)
-	//	LOG_ERROR("");
-	return idx;
-}
-#endif
-//static int QUANTIZE_SSE(int x)
-//{
-//	x+=SSE_WIDTH/2;
-//	x=CLAMP(0, x, SSE_WIDTH-1);
-//	return x;
-//}
-//static int QUANTIZE_PRED(int x)
-//{
-//	x+=SSE_PRED_LEVELS/2;
-//	x=CLAMP(0, x, SSE_PRED_LEVELS-1);
-//	return x;
-//}
-//#define QUANTIZE_HIST(X) quantize_unsigned(X, 4, 1, 24)
-//#define QUANTIZE_SSE(X) quantize_signed(X, 4, 1, 20)
-//#define QUANTIZE_HIST(X) quantize(X, qlevels_hist, _countof(qlevels_hist))
-//#define QUANTIZE_SSE(X) quantize(X, qlevels_sse, _countof(qlevels_sse))
-//#define QUANTIZE_PRED(X) quantize(X, qlevels_pred, _countof(qlevels_pred))
 static const int wp_params[]=
 {
-	// 0x00EA, 0x01C8, 0x00A2, 0x005E, 0x01F4, 0x0045, 0x0091, 0x0066, 0x003B, 0x0027,-0x0011, 0x001B, 0x00FF, 0x007E, 0x00D1, 0x00F3, 0x008F, 0x0130, 0x018E,-0x00AC, 0x0004,
-	// 0x010C, 0x0008,-0x007E, 0x00A2, 0x000E,-0x0069,-0x0073,-0x0125,-0x0092, 0x0000, 0x0078,
-
 	0x0004AB65,//wp1
 	0x0002841C,//wp2
 	0x00034147,//wp3
 	0x00016056,//wp4
-	0x00016056,//wp5
-	0x00016056,//wp6
-	0x00016056,//wp7
-	0x00016056,//clamp grad
-	0x00028F8A,//journal GAP
+	0x00016056,//av
+	0x00016056,//grad
+	0x00028F8A,//paper GAP
 	0x00022F58,//CALIC GAP
-
-//	0xD000, 0xC000, 0xC000, 0xB000,//wp weights
-//	0xC000,//journal GAP
-//	0xD000,//CALIC GAP
-
-//	 0x0DB8,  0x0E22,  0x181F,  0x0BF3,//wp weights
-//	//0x181F,//clamp grad
-//	 0x181F,//journal GAP
-//	 0x1A1F,//CALIC GAP
 
 	-0x005C,
 	-0x005B,
@@ -215,11 +107,7 @@ typedef struct SLIC5CtxStruct
 	int iw, ih, nch;
 	char depths[4];
 	int
-	//	nlevels[4],
 		half[4],
-	//	min_allowed[4], max_allowed[4],//pixel range
-	//	min_allowed_prec[4], max_allowed_prec[4],//pixel range + prec bits
-	//	shift[4],//shift right to bring value to 8-bit
 		shift_prec[4],//shift right to bring value to 8-bit, removes predictor-added bits
 		shift_error[4];
 	int nhist, cdfsize;
@@ -227,7 +115,6 @@ typedef struct SLIC5CtxStruct
 	int *pred_errors, *errors, *pixels;
 	long long *hist, *histsums;
 	unsigned *CDF_bypass, *CDFs;
-	//long long esum[4];//sum of abs errors so far in current row
 	long long *sse, *sse_fr;
 	int sse_idx[SSE_STAGES+1];
 	long long sse_sum[SSE_STAGES+1];
@@ -268,14 +155,14 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 	for(int kc=0;kc<nch;++kc)
 	{
 		int nlevels=1<<pr->depths[kc], prec_half=(1<<(pr->depths[kc]+PRED_PREC))>>1;
-		//pr->nlevels[kc]=nlevels;
 		pr->half[kc]=nlevels>>1;
-		//pr->min_allowed[kc]=-(pr->nlevels[kc]>>1);
-		//pr->max_allowed[kc]=(pr->nlevels[kc]>>1)-1;
-		//pr->min_allowed_prec[kc]=-prec_half;
-		//pr->max_allowed_prec[kc]=prec_half-1;
 		if(maxdepth<pr->depths[kc])
 			maxdepth=pr->depths[kc];
+	}
+	for(int kc=0;kc<pr->nch;++kc)
+	{
+		pr->shift_prec[kc]=MAXVAR(8, pr->depths[kc])-8+PRED_PREC;
+		pr->shift_error[kc]=1+((pr->depths[kc]<=9)<<1);
 	}
 	HybridUint hu;
 	int extremesym=-((1<<maxdepth)>>1);
@@ -310,25 +197,16 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 
 	memset(pr->hist, 0, pr->nhist*pr->cdfsize*sizeof(long long));
 	memset(pr->histsums, 0, pr->nhist*sizeof(long long));
-	//long long fillval=1;
-	//memfill(pr->hist, &fillval, pr->cdfsize*sizeof(long long[NHIST]), sizeof(fillval));
-	//fillval=pr->cdfsize;
-	//memfill(pr->histsums, &fillval, sizeof(pr->histsums), sizeof(fillval));
 
-	//memset(pr->CDFs, 0, (pr->cdfsize+1LL)*sizeof(int[NHIST]));
 	int sum=0;
 	for(int ks=0;ks<pr->cdfsize;++ks)//TODO tune initial CDFs
 		sum+=0x10000/(ks+1);
-	//	sum+=0x10000/((ks+1)*(ks+1));//X  bad
 	for(int ks=0, c=0;ks<pr->cdfsize+1;++ks)
 	{
 		int freq=0x10000/(ks+1);
-	//	int freq=0x10000/((ks+1)*(ks+1));
 		pr->CDF_bypass[ks]=(int)(((long long)c<<16)/sum);
 		c+=freq;
 	}
-	//for(int ks=0;ks<pr->cdfsize+1;++ks)//actual bypass
-	//	pr->CDF_bypass[ks]=(ks<<16)/pr->cdfsize;
 	memfill(pr->CDFs, pr->CDF_bypass, pr->nhist*(pr->cdfsize+1LL)*sizeof(int), (pr->cdfsize+1LL)*sizeof(int));
 
 	memset(pr->sse, 0, pr->sse_size*sizeof(long long[SSE_STAGES]));
@@ -376,27 +254,6 @@ static void slic5_update_CDFs(SLIC5Ctx *pr)
 }
 static void slic5_nextrow(SLIC5Ctx *pr, int ky)
 {
-	if(ky)
-	{
-		//slic5_update_CDFs(pr);
-		//for(int kc=0;kc<pr->nch;++kc)
-		//{
-		//	int x=(int)(pr->esum[kc]/pr->iw);
-		//	x=floor_log2(x)+1-PRED_PREC;
-		//	pr->shift[kc]=MAXVAR(8, x)-8+PRED_PREC;
-		//	pr->esum[kc]=0;
-		//}
-	}
-	else
-	{
-		for(int kc=0;kc<pr->nch;++kc)//this code is here in case it's dependent on prev row-average error
-		{
-			pr->shift_prec[kc]=MAXVAR(8, pr->depths[kc])-8+PRED_PREC;
-			//pr->shift[kc]=MAXVAR(8, pr->depths[kc])-8;//-((pr->depths[kc]>9)<<1);
-			//pr->shift_prec[kc]=pr->shift[kc]+PRED_PREC;
-			pr->shift_error[kc]=1+((pr->depths[kc]<=9)<<1);
-		}
-	}
 	pr->ky=ky;
 	pr->kym0=(pr->iw+PAD_SIZE*2)*(ky&3);
 	pr->kym1=(pr->iw+PAD_SIZE*2)*((ky-1)&3);
@@ -405,8 +262,6 @@ static void slic5_nextrow(SLIC5Ctx *pr, int ky)
 static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 {
 	int idx=(pr->iw*ky+kx)<<2|kc;
-	//if(!(idx&idx>>1))
-	//if(idx<CDF_UPDATE_PERIOD&&!(idx&idx>>1)||!(idx&(CDF_UPDATE_PERIOD-1)))
 	if(!(idx&(CDF_UPDATE_PERIOD-1))||idx<CDF_UPDATE_PERIOD&&(idx&15))
 		slic5_update_CDFs(pr);
 	//XY are flipped, no need to check if indices OOB due to padding
@@ -436,13 +291,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		eNEE     =LOAD(pr->errors, -2, 1),
 		eWW      =LOAD(pr->errors,  2, 0),
 		eW       =LOAD(pr->errors,  1, 0);
-	//long long
-	//	eNN=LOAD(pr->errors,  0, 2),
-	//	eNW=LOAD(pr->errors,  1, 1),
-	//	eN =LOAD(pr->errors,  0, 1),
-	//	eNE=LOAD(pr->errors, -1, 0),
-	//	eWW=LOAD(pr->errors, -2, 0),
-	//	eW =LOAD(pr->errors,  1, 0);
+	int sh=pr->shift_prec[kc];
 
 	int clamp_lo=(int)N, clamp_hi=(int)N;
 	clamp_lo=(int)MINVAR(clamp_lo, W);
@@ -491,8 +340,6 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	++j, pr->preds[j]=(int)(N+W-NW), pr->preds[j]=(int)CLAMP(vmin, pr->preds[j], vmax);
 #endif
 #if 1
-	++j, pr->preds[j]=N>>(abs((int)eN)>=abs(N));//v
-	++j, pr->preds[j]=W>>(abs((int)eW)>=abs(W));//v
 	//++j, pr->preds[j]=(int)(N+W+NW+NE+((eN+eW+eNW+eNE)>>2))>>2;//v
 	++j, pr->preds[j]=(int)(N+W+NW+NE+((eN+eW+eNW+eNE)>>pr->shift_error[kc]))>>2;
 	//++j, pr->preds[j]=(NNWW+NNW+NN+NNE+NNEE+NWW+NW+N+NE+NEE+WW+W)/12;//~
@@ -505,12 +352,12 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 
 	++j, pr->preds[j]=(int)(N+W-NW);//, pr->preds[j]=(int)MEDIAN3(N, W, pr->preds[j]);
 
-	++j;
 	int dx=abs(W-WW)+abs(N-NW)+abs(NE-N);
 	int dy=abs(W-NW)+abs(N-NN)+abs(NE-NNE);
 	int d45=abs(W-NWW)+abs(NW-NNWW)+abs(N-NNW);
 	int d135=abs(NE-NNEE)+abs(N-NNE)+abs(W-N);
-	int sum2=(dy+dx)>>pr->shift_prec[kc], diff=(dy-dx)>>pr->shift_prec[kc], diff2=(NE-NW)/8;
+	++j;
+	int sum2=(dy+dx)>>sh, diff=(dy-dx)>>sh, diff2=(NE-NW)/8;
 	if(sum2>(32<<(PRED_PREC+1)))
 		pr->preds[j]=(dx*N+dy*W)/sum2+diff2;
 	else if(diff>(12<<(PRED_PREC+1)))
@@ -530,7 +377,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		pr->preds[j]-=diff2/2;
 
 	++j;
-	int disc=(dy-dx)>>pr->shift_prec[kc];
+	int disc=(dy-dx)>>sh;
 	if(disc>80)
 		pr->preds[j]=W;
 	else if(disc<-80)
@@ -571,43 +418,13 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	else
 		pr->pred=pr->preds[0];
 	
-	int sh=pr->shift_prec[kc];
 	int
 		qx  =QUANTIZE_HIST(dx  >>(sh-2)),//dx>>shift_pred is in [0 ~ 255*3],  dx>>(shift_pred-2) has quad range
 		qy  =QUANTIZE_HIST(dy  >>(sh-2)),
 		q45 =QUANTIZE_HIST(d45 >>(sh-2)),
 		q135=QUANTIZE_HIST(d135>>(sh-2));
-	//int
-	//	gx=(int)(W-WW+NE-NW+NN-NNE)>>(pr->shift[kc]+2), qx=quantize_signed(gx),//X
-	//	gy=(int)(W-NW+N -NN+NE-NNE)>>(pr->shift[kc]+2), qy=quantize_signed(gy),
-	//	g45=(int)(((N-W)<<1)+NN-WW)>>(pr->shift[kc]+2), q45=quantize_signed(g45),
-	//	g135=(int)(N-NNW+NE-NN)>>(pr->shift[kc]+2), q135=quantize_signed(g135);
 	pr->hist_idx=MAXVAR(qx, qy);
-	pr->hist_idx=MAXVAR(pr->hist_idx, q45);
-	pr->hist_idx=MAXVAR(pr->hist_idx, q135);
 	pr->hist_idx=MINVAR(pr->hist_idx, pr->nhist-1);
-	
-	//qx=quantize_signed((int)(W-WW+NE-NW+NN-NNE)>>(pr->shift[kc]+2));
-	//qy=quantize_signed((int)(W-NW+N -NN+NE-NNE)>>(pr->shift[kc]+2));
-	//q45=(int)(((N-W)<<1)+NN-WW)>>(pr->shift[kc]+2), q45=quantize_signed(q45);
-	//q135=(int)(N-NNW+NE-NN)>>(pr->shift[kc]+2), q135=quantize_signed(q135);
-
-	//int shifts[]=//3		4 is best for 8-bit
-	//{
-	//	//amplification				attenuation
-	//	//smaller bins		<- -/+ ->	larger bins
-	//	//hi-res-Q				lo-res-Q
-	//	//less likely nonzero			more likely zero
-	//	MAXVAR(0, pr->shift_prec[kc]-1), MAXVAR(0, pr->shift_prec[kc]-1), pr->shift_prec[kc]+6,
-	//	MAXVAR(0, pr->shift_prec[kc]-2), MAXVAR(0, pr->shift_prec[kc]-2), pr->shift_prec[kc]+5,
-	//
-	//	//MAXVAR(0, pr->shift_prec[kc]-2),
-	//	//MAXVAR(0, pr->shift_prec[kc]-1),
-	//	//MAXVAR(0, pr->shift_prec[kc]-2),
-	//	//MAXVAR(0, pr->shift_prec[kc]-1),
-	//	//pr->shift_prec[kc]+5,
-	//	//pr->shift_prec[kc]+6,
-	//};
 	int g[]=
 	{
 		//4D SSE
@@ -615,46 +432,12 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	pr->sse_width*(pr->sse_height*quantize_signed(Z, sh, SSE_Z_EXP, SSE_Z_MSB, pr->sse_width)+\
 	quantize_signed(Y, sh, SSE_Y_EXP, SSE_Y_MSB, pr->sse_height))+\
 	quantize_signed(X, sh, SSE_X_EXP, SSE_X_MSB, pr->sse_width)
-		//QUANTIZE(N-W,		W-NW,		NW-N),
-		//QUANTIZE(NE-NW,	N-NN,		W+NW+NE+NN-4*N),
-		//QUANTIZE(NNWW-NWW,	NNW-NNWW,	NNW+NNE+NWW+NE+W-N-4*NW),
-		//QUANTIZE(NWW-WW,	WW-W,		W),
 
-		QUANTIZE(N-W,		W-NW,		NW-N),
-		QUANTIZE(NE-NW,		N-NN,		W+NW+NE+NN-4*N),
-		QUANTIZE(NNWW-NWW,	NNW-NNWW,	NNW+NNE+NWW+NE+W-N-4*NW),
-		QUANTIZE(NWW-WW,	WW-W,		W),
-
-		//QUANTIZE(N-W,		W-NW,				NW-N),
-		//QUANTIZE(NE-NW,	WW-NWW+2*(N-NN)+NEE-NNEE,	W+NW+NE+NN-4*N),
-		//QUANTIZE(NNWW-NWW,	NNW-NNWW,			NNW+NNE+NWW+NE+W-N-4*NW),
-		//QUANTIZE(NWW-WW,	WW-W,				W),
-
-		//QUANTIZE(N-W,		W-NW,		NW-N),
-		//QUANTIZE(NE-NW,	N-NN,		W+NW+NE+NN-4*N),
-		//QUANTIZE(NNWW-NWW,	NNW-NNWW,	NNW+NNE+NWW+NE+W-N-4*NW),
-		//QUANTIZE(NWW-WW,	WW-W,		W),
-
-		//QUANTIZE(N-W,		W-NW,		NW-N),
-		//QUANTIZE(NE-NW,	N-NN,		W+NW+NE+NN-4*N),
-		//QUANTIZE(NNWW-NWW,	NNW-NNWW,	NNW+NWW+NE+W-4*NW),
-		//QUANTIZE(NWW-WW,	WW-W,		W),
-
-		//QUANTIZE(N-W,		W-NW,		NW-N),
-		//QUANTIZE(NN-NW,	N-NN,		W+NW+NE+NN-4*N),
-		//QUANTIZE(NNWW-NWW,	NNW-NNWW,	NW-NNW),
-		//QUANTIZE(NWW-WW,	WW-W,		W),
-
-		//QUANTIZE(NNE,		NNEE,		NEE),
-		//QUANTIZE(NN,		N,		NE),
-		//QUANTIZE(NNWW,	NNW,		NW),
-		//QUANTIZE(NWW,		WW,		W),
-
-		//QUANTIZE(NNE-NE,	NNEE-NNE,	NEE-NNEE),
-		//QUANTIZE(NN-NW,	N-NN,		NE-N),
-		//QUANTIZE(NNWW-NWW,	NNW-NNWW,	NW-NNW),
-		//QUANTIZE(NWW-WW,	WW-W,		W),
-#if 0
+		//QUANTIZE(NW+3*(NE-N)-NEE,	NE-NNEE,	NNE+NEE+2*W-4*NE),
+		//QUANTIZE(NWW+3*(N-NW)-NE,	N-NN,		W+NW+NE+NN-4*N),
+		//QUANTIZE(3*(N-W)+WW-NN,		NW-NNWW,	NNW+NWW+W+N-4*NW),
+		//QUANTIZE(3*(NE-NW)+NNWW-NNEE,	W-WW,		NW+2*NE+WW-4*W),
+#if 1
 		QUANTIZE((NNE-NN)/32,		(N-NW)/2,		(W-WW)/2),
 		QUANTIZE((NE-NNE)/32,		(N-NN)/2,		(W-NW)/2),
 		QUANTIZE((int)(eNNE-eNN)/32,	(int)(eN-eNW)/2,	(int)(eW-eWW)/2),
@@ -782,6 +565,8 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	//	QUANTIZE_SSE((int)W  >>pr->shift[kc]),
 	};
 #endif
+	if(kx==10&&ky==10)//
+		printf("");
 	pr->sse_corr=0;
 	for(int k=0;k<SSE_STAGES+1;++k)
 	{
@@ -817,9 +602,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		int sse_corr=pr->sse_count[k]?(int)(pr->sse_sum[k]/pr->sse_count[k]):0;
 		long long pred0=pr->pred;
 		pr->pred+=sse_corr;
-		//pr->pred=CLAMP(clamp_lo, pr->pred, clamp_hi);//X  bad
 		pr->sse_corr+=sse_corr;
-		//pr->sse_corr+=(int)(pr->pred-pred0);//X  bad
 
 		pr->pred_sse[k]=pr->pred;
 	}
@@ -827,16 +610,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	pr->pred+=final_corr;
 	pr->sse_corr+=final_corr;
 
-	//if(((eN^eW)|(eN^eNW))<0)//clamp only if signs are different		TODO analyze different clamp strategies
-	//{
-		//clamp_lo=(int)MINVAR(clamp_lo, NEE);//X  bad
-		//clamp_hi=(int)MAXVAR(clamp_hi, NEE);
-		//clamp_lo=(int)MINVAR(clamp_lo, NW);//X  bad
-		//clamp_hi=(int)MAXVAR(clamp_hi, NW);
-		pr->pred=CLAMP(clamp_lo, pr->pred, clamp_hi);
-	//}
-	//pr->pred=MEDIAN3(N, W, pr->pred);//X  bad
-	//pr->pred=CLAMP(pr->min_allowed_prec[kc], pr->pred, pr->max_allowed_prec[kc]);//X  bad
+	pr->pred=CLAMP(clamp_lo, pr->pred, clamp_hi);
 	pr->pred_final=(int)((pr->pred+((1<<PRED_PREC)>>1)-1)>>PRED_PREC);
 	pr->kc=kc;
 	pr->kx=kx;
@@ -846,45 +620,31 @@ static void slic5_update(SLIC5Ctx *pr, int curr, int token)
 	int kc=pr->kc, kx=pr->kx;
 
 	int error=(curr<<PRED_PREC)-(int)pr->pred;
-	//pr->esum[kc]+=abs(error);
 	LOAD(pr->errors, 0, 0)=error;
-	int errors[NPREDS]={0}, kbest=0;//, kworst=0;
+	int errors[NPREDS]={0}, kbest=0;
 	for(int k=0;k<NPREDS;++k)
 	{
 		errors[k]=abs((curr<<PRED_PREC)-pr->preds[k]);
-		//if(e<0)
-		//	LOG_ERROR("");
 		pr->pred_errors[(NPREDS*(pr->kym0+pr->kx+PAD_SIZE)+k)<<2|kc]=errors[k];
 		if(pr->ky&&pr->kx+1<pr->iw)
 			pr->pred_errors[(NPREDS*(pr->kym1+pr->kx+1+PAD_SIZE)+k)<<2|kc]+=errors[k];//eNE += ecurr
 		if(errors[kbest]>errors[k])
 			kbest=k;
-		//if(errors[kworst]<errors[k])
-		//	kworst=k;
 	}
 
 	//update WP weights
 	++pr->params[kbest];
-	//pr->params[kbest]+=pr->params[kbest]>>4;//pr->params[kbest]=(int)(pr->params[kbest]*0x14000LL>>16);//X  bad
-	//pr->params[kbest]<<=1;//X  bad
-	//if(pr->params[kbest]>0x1000000)
-	//if(pr->params[kbest]>0xC00)//best for Kodak
 	if(pr->params[kbest]>(12<<pr->depths[kc]))
 	{
 		for(int k=0;k<NPREDS;++k)
 			pr->params[k]>>=1;
 	}
-	//pr->params[kworst]-=pr->params[kworst]>0x10000;//X  bad
-
-	//if(pr->hist_idx==23&&token==32)//
-	//	printf("");
 
 	LOAD(pr->pixels, 0, 0)=curr;
 
 	//update hist
 	++pr->hist[pr->cdfsize*pr->hist_idx+token];
 	++pr->histsums[pr->hist_idx];
-	//if(pr->histsums[pr->hist_idx]>((long long)pr->cdfsize*96))
 	if(pr->histsums[pr->hist_idx]>((long long)pr->iw*pr->nch<<1))//rescale hist
 	{
 		long long *curr_hist=pr->hist+pr->cdfsize*pr->hist_idx;
@@ -902,12 +662,10 @@ static void slic5_update(SLIC5Ctx *pr, int curr, int token)
 	{
 		++pr->sse_count[k];
 		pr->sse_sum[k]+=error;
-		//pr->sse_sum[k]+=((long long)curr<<PRED_PREC)-pr->pred_sse[k];//X
 		if(pr->sse_count[k]>=640)
 		{
 			pr->sse_count[k]>>=1;
 			pr->sse_sum[k]>>=1;
-			//pr->sse_sum[k]=(pr->sse_sum[k]+1)>>1;//worse
 		}
 		long long sse_val=pr->sse_sum[k]<<12|pr->sse_count[k];
 		if(k<SSE_STAGES)
@@ -1082,84 +840,11 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 		LOG_ERROR("Alloc error");
 		return 0;
 	}
-	
-#ifndef SLIC5_DISABLE_PALETTE
-	unsigned short *palettes[4]={0};
-	unsigned short pal_sizes[4]={0};
-	//memset(header.palettesizes, 0, sizeof(header.palettesizes));
-	int *pal_hist=(int*)malloc(maxlevels*sizeof(int));
-	if(!pal_hist)
-	{
-		LOG_ERROR("Alloc error");
-		return 0;
-	}
-	for(int kc=0;kc<nch;++kc)
-	{
-		int depth=im2->depth[kc], nlevels=1<<depth;
-		memset(hist, 0, nlevels*sizeof(int));
-		for(ptrdiff_t k=0;k<res;++k)
-		{
-			int val=im2->data[k<<2|kc]+(nlevels>>1);
-			val=CLAMP(0, val, nlevels-1);
-			++hist[val];
-		}
-		int palettesize=0;
-		for(int k=0;k<nlevels;++k)
-			palettesize+=hist[k]!=0;
-		if(palettesize>((nlevels+15)>>4))
-			pal_sizes[kc]=0;
-		else
-		{
-			pal_sizes[kc]=palettesize;
-			im2->depth[kc]=floor_log2_32(palettesize-1)+1;
-			palettes[kc]=(unsigned short*)malloc(palettesize*sizeof(short));
-			if(!palettes[kc])
-			{
-				LOG_ERROR("Alloc error");
-				return 0;
-			}
-			for(int k=0, idx=0;k<nlevels;++k)
-			{
-				if(hist[k])
-				{
-					palettes[kc][idx]=k;
-					++idx;
-				}
-			}
-			int half=(palettesize+1)>>1;//ceil_half
-			for(int k=0;k<res;++k)
-			{
-				unsigned short val=im2->data[k<<2|kc];
-				int idx=0;
-				int L=0, R=palettesize-1;
-				while(L<=R)
-				{
-					idx=(L+R)>>1;
-					if(palettes[kc][idx]<val)
-						L=idx+1;
-					else if(palettes[kc][idx]>val)
-						R=idx-1;
-					else
-						break;
-				}
-				im2->data[k<<2|kc]=idx-half;
-			}
-		}
-	}
-	free(pal_hist);
-#endif
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
 		slic5_nextrow(&pr, ky);
 		for(int kx=0;kx<src->iw;++kx, idx+=4)
 		{
-			//if(kx==7&&ky==3)//
-			//if(kx==674&&ky==2)//
-			//if(kx==2759&&ky==1)//
-			//if(kx==1191&&ky==1659)//
-			//if(kx==2475&&ky==0)//
-			//	printf("");
-
 			int kc=0;
 			if(src->nch>=3)
 			{
@@ -1200,61 +885,6 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 			for(int ks=0;ks<pr.cdfsize;++ks)
 				printf("%lld%c", curr_hist[ks], ks<pr.cdfsize-1?' ':'\n');
 		}
-
-#if 0
-		int kr=3;
-		printf("SSE round %d\n", kr+1);
-		long long *curr_sse=pr.sse+SSE_SIZE*kr;
-		for(int kz=0;kz<SSE_PRED_LEVELS;++kz)
-		{
-			for(int ky=0;ky<SSE_WIDTH;++ky)
-			{
-				for(int kx=0;kx<SSE_WIDTH;++kx)
-				{
-					long long val=curr_sse[SSE_WIDTH*(SSE_WIDTH*kz+ky)+kx];
-					long long sum=val>>12;
-					int count=(int)(val&0xFFF);
-					int corr=count?(int)(sum/count):0;
-					printf("%7d%c", corr, kx<SSE_WIDTH-1?' ':'\n');
-				}
-			}
-			printf("\n");
-		}
-#endif
-#if 0
-		int xmin=SSE_WIDTH/2, xmax=SSE_WIDTH/2, ymin=SSE_HEIGHT/2, ymax=SSE_HEIGHT/2;
-		for(int ks=0;ks<SSE_STAGES;++ks)
-		{
-			long long *curr_sse=pr.sse+SSE_SIZE*ks;
-#ifdef PRINT_SSE
-			printf("\nSSE stage %d:\n", ks+1);
-#endif
-			for(int ky=0;ky<SSE_HEIGHT;++ky)
-			{
-				for(int kx=0;kx<SSE_WIDTH;++kx)
-				{
-					long long val=curr_sse[SSE_WIDTH*ky+kx];
-					long long sum=val>>12;
-					int count=(int)(val&0xFFF);
-					int corr=count?(int)(sum/count):0;
-#ifdef PRINT_SSE
-					printf("%7d%c", corr, kx<SSE_WIDTH-1?' ':'\n');
-#endif
-					if(count)
-					{
-						if(xmin>kx)xmin=kx;
-						if(xmax<kx)xmax=kx;
-						if(ymin>ky)ymin=ky;
-						if(ymax<ky)ymax=ky;
-					}
-				}
-			}
-		}
-		int xmaxreach=abs(xmin-SSE_WIDTH/2), ymaxreach=abs(ymin-SSE_HEIGHT/2), reach;
-		reach=abs(xmax-SSE_WIDTH/2), xmaxreach=MAXVAR(xmaxreach, reach);
-		reach=abs(ymax-SSE_HEIGHT/2), ymaxreach=MAXVAR(ymaxreach, reach);
-		printf("SSE coverage XY %d~%d %d~%d  maxreach %d*%d\n", xmin, xmax, ymin, ymax, xmaxreach, ymaxreach);
-#endif
 		printf("Bias\n");
 		for(int kc=0;kc<src->nch;++kc)
 			printf("  %lld/%d = %d\n", pr.bias_sum[kc], pr.bias_count[kc], pr.bias_count[kc]?(int)(pr.bias_sum[kc]/pr.bias_count[kc]):0);
@@ -1266,41 +896,6 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 int t47_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 {
 	double t_start=time_sec();
-#ifndef SLIC5_DISABLE_PALETTE
-	unsigned short pal_sizes[4];
-	//size_t emithistsize=cdfsize*sizeof(short[_countof(qlevels)+1]);
-	if(srclen<sizeof(pal_sizes))
-	{
-		LOG_ERROR("Corrupt file\n");
-		//printf("File smaller than header size\n");
-		return 0;
-	}
-	memcpy(pal_sizes, data, sizeof(pal_sizes));
-	data+=sizeof(pal_sizes);
-	srclen-=sizeof(pal_sizes);
-	unsigned short *palettes[4]={0};
-	for(int kc=0;kc<dst->nch;++kc)
-	{
-		if(pal_sizes[kc]>0)
-		{
-			int bytesize=pal_sizes[kc]*sizeof(short);
-			palettes[kc]=(unsigned short*)malloc(bytesize);
-			if(!palettes[kc])
-			{
-				LOG_ERROR("Alloc error");
-				return 0;
-			}
-			if(bytesize>srclen)
-			{
-				LOG_ERROR("Invalid file\n");
-				return 0;
-			}
-			memcpy(palettes[kc], data, bytesize);
-			data+=bytesize;
-			srclen-=bytesize;
-		}
-	}
-#endif
 	ArithmeticCoder ec;
 	SLIC5Ctx pr;
 	ac_dec_init(&ec, data, data+srclen);
@@ -1315,15 +910,6 @@ int t47_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 		slic5_nextrow(&pr, ky);
 		for(int kx=0;kx<dst->iw;++kx, idx+=4)
 		{
-			//if(kx==7&&ky==3)//
-			//if(kx==674&&ky==2)//
-			//if(kx==1173&&ky==11)//
-			//if(kx==0&&ky==0)//
-			//if(kx==2759&&ky==1)//
-			//if(kx==1191&&ky==1659)//
-			//if(kx==2475&&ky==0)//
-			//	printf("");
-
 			int kc=0;
 			if(dst->nch>=3)
 			{
@@ -1356,26 +942,6 @@ int t47_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 			}
 		}
 	}
-#ifndef SLIC5_DISABLE_PALETTE
-	for(int kc=0;kc<dst->nch;++kc)
-	{
-		if(palettes[kc])
-		{
-			for(int k=0;k<res;++k)
-			{
-				int val=dst->data[k<<2|kc];
-				val+=(pal_sizes[kc]+1)>>1;
-				if((unsigned)val>=pal_sizes[kc])
-				{
-					LOG_ERROR("Palette error");
-					return 0;
-				}
-				dst->data[k<<2|kc]=palettes[kc][val];
-			}
-			free(palettes[kc]);
-		}
-	}
-#endif
 	if(loud)
 	{
 		printf("\n");
