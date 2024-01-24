@@ -575,8 +575,8 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	//	QUANTIZE_SSE((int)W  >>pr->shift[kc]),
 	};
 #endif
-	if(kx==10&&ky==10)//
-		printf("");
+	//if(kx==10&&ky==10)//
+	//	printf("");
 	pr->sse_corr=0;
 	for(int k=0;k<SSE_STAGES+1;++k)
 	{
