@@ -15,9 +15,9 @@ static const char file[]=__FILE__;
 #define NPREDS 8
 #define PRED_PREC 8
 #define PARAM_PREC 8
-#define SSE_W 20
-#define SSE_H 20
-#define SSE_D 20
+//#define SSE_W 20
+//#define SSE_H 20
+//#define SSE_D 20
 #define HIST_EXP 2
 #define HIST_MSB 1
 #define SSE_X_EXP 1
@@ -68,6 +68,13 @@ static int quantize_unsigned(int val, int exp, int msb)
 		return val;
 	int lgv=floor_log2_32(val);
 	int token=(1<<exp)+((lgv-exp)<<msb|(val-(1<<lgv))>>(lgv-msb));
+	return token;
+}
+int quantize_signed_get_range(int num, int den, int exp, int msb)
+{
+	int vmax=(int)((1LL<<24)*num/den>>16);
+	int token=quantize_unsigned(vmax, exp, msb);
+	token<<=1;
 	return token;
 }
 int quantize_signed(int val, int shift, int exp, int msb, int nlevels)
@@ -170,9 +177,13 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 	hybriduint_encode(extremesym, &hu);//encode -half
 	pr->nhist=QUANTIZE_HIST(255);
 	pr->cdfsize=hu.token+1;
-	pr->sse_width=quantize_signed(255, 0, SSE_X_EXP, SSE_X_MSB, SSE_W);
-	pr->sse_height=quantize_signed(255, 0, SSE_Y_EXP, SSE_Y_MSB, SSE_H);
-	pr->sse_depth=quantize_signed(255, 0, SSE_Z_EXP, SSE_Z_MSB, SSE_D);
+	pr->sse_width=pr->sse_height=pr->sse_depth=20;
+	//pr->sse_width=quantize_signed_get_range(2, 64, SSE_X_EXP, SSE_X_MSB);
+	//pr->sse_height=quantize_signed_get_range(2, 1, SSE_Y_EXP, SSE_Y_MSB);
+	//pr->sse_depth=quantize_signed_get_range(2, 1, SSE_Z_EXP, SSE_Z_MSB);
+	//pr->sse_width=quantize_signed(255, 0, SSE_X_EXP, SSE_X_MSB, SSE_W);
+	//pr->sse_height=quantize_signed(255, 0, SSE_Y_EXP, SSE_Y_MSB, SSE_H);
+	//pr->sse_depth=quantize_signed(255, 0, SSE_Z_EXP, SSE_Z_MSB, SSE_D);
 	pr->sse_nplanes=1<<SSE_PREDBITS;
 	pr->sse_planesize=pr->sse_width*pr->sse_height*pr->sse_depth;
 	pr->sse_size=pr->sse_nplanes*pr->sse_planesize;
