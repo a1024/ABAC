@@ -82,8 +82,8 @@ void prof_print()
 //#define SSE_W 20
 //#define SSE_H 20
 //#define SSE_D 20
-#define HIST_EXP 2
-#define HIST_MSB 1
+#define HIST_EXP 5
+#define HIST_MSB 2
 #define SSE_X_EXP 1
 #define SSE_X_MSB 0
 #define SSE_Y_EXP 1
@@ -515,13 +515,21 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	else
 		pr->pred=pr->preds[0];
 	PROF(CALC_WEIGHT_AV);
+	//if(kx==10&&ky==10)
+	//	printf("");
 	
-	int
-		qx  =QUANTIZE_HIST(dx  >>(sh-2)),//dx>>shift_pred is in [0 ~ 255*3],  dx>>(shift_pred-2) has quad range
-		qy  =QUANTIZE_HIST(dy  >>(sh-2)),
-		q45 =QUANTIZE_HIST(d45 >>(sh-2)),
-		q135=QUANTIZE_HIST(d135>>(sh-2));
-	pr->hist_idx=MAXVAR(qx, qy);
+	pr->hist_idx=MAXVAR(dx, dy)>>(sh-2);
+	pr->hist_idx=QUANTIZE_HIST(pr->hist_idx);
+	//if(pr->hist_idx==32)//
+	//	printf("");
+	//int
+	//	qx  =QUANTIZE_HIST(dx  >>(sh-2)),//dx>>shift_pred is in [0 ~ 255*3],  dx>>(shift_pred-2) has quad range
+	//	qy  =QUANTIZE_HIST(dy  >>(sh-2));
+	//	q45 =QUANTIZE_HIST(d45 >>(sh-2)),
+	//	q135=QUANTIZE_HIST(d135>>(sh-2));
+	//pr->hist_idx=MAXVAR(qx, qy);
+	//if(pr->hist_idx>pr->nhist-1)//
+	//	LOG_ERROR("");
 	pr->hist_idx=MINVAR(pr->hist_idx, pr->nhist-1);
 #ifndef DISABLE_SSE
 	int g[]=
@@ -721,16 +729,18 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		}
 		pr->sse_count[k]=(int)(sse_val&0xFFF);
 		pr->sse_sum[k]=(int)(sse_val>>12);
+		//int sse_corr=(int)((pr->sse_sum[k]+(pr->sse_count[k]>>1))/(pr->sse_count[k]+1));
 		int sse_corr=(int)(pr->sse_sum[k]/(pr->sse_count[k]+1));
-		//int sse_corr=pr->sse_count[k]?(int)(pr->sse_sum[k]/pr->sse_count[k]):0;
+		//int sse_corr=pr->sse_count[k]?(int)(pr->sse_sum[k]/pr->sse_count[k]):0;//X
 		pr->pred+=sse_corr;
 		pr->sse_corr+=sse_corr;
 
 		pr->pred_sse[k]=pr->pred;
 	}
 #endif
+	//int final_corr=(int)((pr->bias_sum[kc]+(pr->bias_count[kc]>>1))/(pr->bias_count[kc]+1));
 	int final_corr=(int)(pr->bias_sum[kc]/(pr->bias_count[kc]+1));
-	//int final_corr=pr->bias_count[kc]?(int)(pr->bias_sum[kc]/pr->bias_count[kc]):0;
+	//int final_corr=pr->bias_count[kc]?(int)(pr->bias_sum[kc]/pr->bias_count[kc]):0;//X
 	pr->pred+=final_corr;
 	pr->sse_corr+=final_corr;
 	PROF(SSE_LOOP);
@@ -1022,7 +1032,13 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 		const char labels[]="XYZP";
 		printf("SSE ranges\n");
 		for(int k=0;k<_countof(pr.sse_ranges)-1;k+=2)
-			printf("  %c %4d ~ %4d / %4d\n", labels[k>>1], pr.sse_ranges[k], pr.sse_ranges[k+1], (&pr.sse_width)[k>>1]);
+		{
+			int n=(&pr.sse_width)[k>>1];
+			printf("  %c %4d ~ %4d / %4d  ", labels[k>>1], pr.sse_ranges[k], pr.sse_ranges[k+1], n);
+			for(int k2=0;k2<n;++k2)
+				printf("%c", k2>=pr.sse_ranges[k]&&k2<=pr.sse_ranges[k+1]?'*':'-');
+			printf("\n");
+		}
 #endif
 
 		printf("Bias\n");
