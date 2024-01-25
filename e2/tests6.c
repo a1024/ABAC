@@ -4,7 +4,71 @@
 #include<stdlib.h>
 #include<string.h>
 #include<math.h>
+#ifdef _MSC_VER
+#include<intrin.h>
+#else
+#include<x86intrin.h>
+#endif
 static const char file[]=__FILE__;
+
+	#define PROFILER
+//	#define TRACK_SSE_RANGES//SLOW
+//	#define DISABLE_SSE
+
+#ifdef PROFILER
+#define CHECKPOINTLIST\
+	CHECKPOINT(OUTSIDE)\
+	CHECKPOINT(UPDATE_CDFs)\
+	CHECKPOINT(FETCH_NB)\
+	CHECKPOINT(CALC_SUBPREDS)\
+	CHECKPOINT(CALC_WEIGHT_AV)\
+	CHECKPOINT(CALC_CTX)\
+	CHECKPOINT(SSE_LOOP)\
+	CHECKPOINT(PRED_TILL_UPDATE)\
+	CHECKPOINT(UPDATE_WP)\
+	CHECKPOINT(UPDATE_HIST)\
+	CHECKPOINT(UPDATE_SSE)
+typedef enum ProfilerLabelEnum
+{
+#define CHECKPOINT(X) PROF_##X,
+	CHECKPOINTLIST
+#undef  CHECKPOINT
+	PROF_COUNT,
+} ProfilerLabel;
+static const char *prof_labels[]=
+{
+#define CHECKPOINT(X) #X,
+	CHECKPOINTLIST
+#undef  CHECKPOINT
+};
+static long long prof_timestamp=0, prof_cycles[PROF_COUNT]={0};
+#define PROF_START() memset(prof_cycles, 0, _countof(prof_cycles)), prof_timestamp=__rdtsc()
+#define PROF(X) prof_cycles[PROF_##X]+=__rdtsc()-prof_timestamp, prof_timestamp=__rdtsc()
+void prof_print()
+{
+	long long sum=0;
+	int maxlen=0;
+	for(int k=0;k<_countof(prof_labels);++k)
+	{
+		int len=(int)strlen(prof_labels[k]);
+		UPDATE_MAX(maxlen, len);
+		sum+=prof_cycles[k];
+	}
+	printf("Profiler:\n");
+	for(int k=0;k<_countof(prof_labels);++k)
+	{
+		double percent=100.*prof_cycles[k]/sum;
+		printf("%-*s %16lld %6.2lf%%  ", maxlen, prof_labels[k], prof_cycles[k], percent);
+		for(int k2=0, npoints=(int)percent;k2<npoints;++k2)
+			printf("*");
+		printf("\n");
+	}
+}
+#else
+#define PROF_START()
+#define PROF(...)
+#define prof_print()
+#endif
 
 #define SLIC5_CONFIG_EXP 5
 #define SLIC5_CONFIG_MSB 2
@@ -134,11 +198,15 @@ typedef struct SLIC5CtxStruct
 	int hist_idx;
 	int sse_corr;
 	int kc, kx, ky, kym0, kym1, kym2;
+#ifdef TRACK_SSE_RANGES
+	int sse_ranges[8];
+#endif
 	ArithmeticCoder *ec;
 } SLIC5Ctx;
 #define LOAD(BUF, X, Y) BUF[(pr->kym##Y+kx-(X)+PAD_SIZE)<<2|kc]
 static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths, ArithmeticCoder *ec)
 {
+	PROF_START();
 	if(iw<1||ih<1||nch<1)
 	{
 		LOG_ERROR("Invalid image");
@@ -177,7 +245,12 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 	hybriduint_encode(extremesym, &hu);//encode -half
 	pr->nhist=QUANTIZE_HIST(255);
 	pr->cdfsize=hu.token+1;
-	pr->sse_width=pr->sse_height=pr->sse_depth=20;
+	pr->sse_width=10;
+	pr->sse_height=22;
+	pr->sse_depth=22;
+	//pr->sse_width=7;
+	//pr->sse_height=21;
+	//pr->sse_depth=21;
 	//pr->sse_width=quantize_signed_get_range(2, 64, SSE_X_EXP, SSE_X_MSB);
 	//pr->sse_height=quantize_signed_get_range(2, 1, SSE_Y_EXP, SSE_Y_MSB);
 	//pr->sse_depth=quantize_signed_get_range(2, 1, SSE_Z_EXP, SSE_Z_MSB);
@@ -187,6 +260,17 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 	pr->sse_nplanes=1<<SSE_PREDBITS;
 	pr->sse_planesize=pr->sse_width*pr->sse_height*pr->sse_depth;
 	pr->sse_size=pr->sse_nplanes*pr->sse_planesize;
+	
+#ifdef TRACK_SSE_RANGES
+	pr->sse_ranges[0]=pr->sse_width>>1;
+	pr->sse_ranges[1]=pr->sse_width>>1;
+	pr->sse_ranges[2]=pr->sse_height>>1;
+	pr->sse_ranges[3]=pr->sse_height>>1;
+	pr->sse_ranges[4]=pr->sse_depth>>1;
+	pr->sse_ranges[5]=pr->sse_depth>>1;
+	pr->sse_ranges[6]=pr->sse_nplanes>>1;
+	pr->sse_ranges[7]=pr->sse_nplanes>>1;
+#endif
 
 	pr->pred_errors=(int*)malloc((iw+PAD_SIZE*2LL)*sizeof(int[NPREDS*4*4]));//NPREDS * 4 rows * 4 comps
 	pr->errors=(int*)malloc((iw+PAD_SIZE*2LL)*sizeof(int[4*4]));
@@ -272,9 +356,11 @@ static void slic5_nextrow(SLIC5Ctx *pr, int ky)
 }
 static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 {
+	PROF(OUTSIDE);
 	int idx=(pr->iw*ky+kx)<<2|kc;
 	if(!(idx&(CDF_UPDATE_PERIOD-1))||idx<CDF_UPDATE_PERIOD&&(idx&15))
 		slic5_update_CDFs(pr);
+	PROF(UPDATE_CDFs);
 	//XY are flipped, no need to check if indices OOB due to padding
 	int
 		NNWW    =LOAD(pr->pixels,  2, 2)<<PRED_PREC,
@@ -303,12 +389,12 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		eWW      =LOAD(pr->errors,  2, 0),
 		eW       =LOAD(pr->errors,  1, 0);
 	int sh=pr->shift_prec[kc];
-
 	int clamp_lo=(int)N, clamp_hi=(int)N;
 	clamp_lo=(int)MINVAR(clamp_lo, W);
 	clamp_hi=(int)MAXVAR(clamp_hi, W);
 	clamp_lo=(int)MINVAR(clamp_lo, NE);
 	clamp_hi=(int)MAXVAR(clamp_hi, NE);
+	PROF(FETCH_NB);
 
 	int j=-1;
 	pr->preds[++j]=(int)(W+NE-N);
@@ -406,6 +492,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 			pr->preds[j]=(3*pr->preds[j]+N)/4;
 	}
 #endif
+	PROF(CALC_SUBPREDS);
 
 	long long weights[NPREDS]={0}, wsum=0;
 	for(int k=0;k<NPREDS;++k)
@@ -428,6 +515,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	}
 	else
 		pr->pred=pr->preds[0];
+	PROF(CALC_WEIGHT_AV);
 	
 	int
 		qx  =QUANTIZE_HIST(dx  >>(sh-2)),//dx>>shift_pred is in [0 ~ 255*3],  dx>>(shift_pred-2) has quad range
@@ -436,6 +524,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		q135=QUANTIZE_HIST(d135>>(sh-2));
 	pr->hist_idx=MAXVAR(qx, qy);
 	pr->hist_idx=MINVAR(pr->hist_idx, pr->nhist-1);
+#ifndef DISABLE_SSE
 	int g[]=
 	{
 		//4D SSE
@@ -586,6 +675,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	//	QUANTIZE_SSE((int)W  >>pr->shift[kc]),
 	};
 #endif
+	PROF(CALC_CTX);
 	//if(kx==10&&ky==10)//
 	//	printf("");
 	pr->sse_corr=0;
@@ -599,6 +689,18 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 			qp=CLAMP(0, qp, (1<<SSE_PREDBITS)-1);
 			pr->sse_idx[k]=pr->sse_planesize*qp+g[k];
 			sse_val=pr->sse[pr->sse_size*k+pr->sse_idx[k]];
+			
+#ifdef TRACK_SSE_RANGES
+			int kx=g[k]%pr->sse_width, ky=g[k]/pr->sse_width%pr->sse_height, kz=g[k]/(pr->sse_width*pr->sse_height);
+			UPDATE_MIN(pr->sse_ranges[0], kx);
+			UPDATE_MAX(pr->sse_ranges[1], kx);
+			UPDATE_MIN(pr->sse_ranges[2], ky);
+			UPDATE_MAX(pr->sse_ranges[3], ky);
+			UPDATE_MIN(pr->sse_ranges[4], kz);
+			UPDATE_MAX(pr->sse_ranges[5], kz);
+			UPDATE_MIN(pr->sse_ranges[6], qp);
+			UPDATE_MAX(pr->sse_ranges[7], qp);
+#endif
 		}
 		else
 		{
@@ -621,15 +723,16 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		pr->sse_count[k]=(int)(sse_val&0xFFF);
 		pr->sse_sum[k]=(int)(sse_val>>12);
 		int sse_corr=pr->sse_count[k]?(int)(pr->sse_sum[k]/pr->sse_count[k]):0;
-		long long pred0=pr->pred;
 		pr->pred+=sse_corr;
 		pr->sse_corr+=sse_corr;
 
 		pr->pred_sse[k]=pr->pred;
 	}
+#endif
 	int final_corr=pr->bias_count[kc]?(int)(pr->bias_sum[kc]/pr->bias_count[kc]):0;
 	pr->pred+=final_corr;
 	pr->sse_corr+=final_corr;
+	PROF(SSE_LOOP);
 
 	pr->pred=CLAMP(clamp_lo, pr->pred, clamp_hi);
 	pr->pred_final=(int)((pr->pred+((1<<PRED_PREC)>>1)-1)>>PRED_PREC);
@@ -638,8 +741,10 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 }
 static void slic5_update(SLIC5Ctx *pr, int curr, int token)
 {
+	PROF(PRED_TILL_UPDATE);
 	int kc=pr->kc, kx=pr->kx;
 
+	//update WP errors
 	int error=(curr<<PRED_PREC)-(int)pr->pred;
 	LOAD(pr->errors, 0, 0)=error;
 	int errors[NPREDS]={0}, kbest=0;
@@ -660,6 +765,7 @@ static void slic5_update(SLIC5Ctx *pr, int curr, int token)
 		for(int k=0;k<NPREDS;++k)
 			pr->params[k]>>=1;
 	}
+	PROF(UPDATE_WP);
 
 	LOAD(pr->pixels, 0, 0)=curr;
 
@@ -677,8 +783,10 @@ static void slic5_update(SLIC5Ctx *pr, int curr, int token)
 		}
 		pr->histsums[pr->hist_idx]=sum;
 	}
+	PROF(UPDATE_HIST);
 	
 	//update SSE
+#ifndef DISABLE_SSE
 	for(int k=0;k<SSE_STAGES+1;++k)
 	{
 		++pr->sse_count[k];
@@ -696,6 +804,8 @@ static void slic5_update(SLIC5Ctx *pr, int curr, int token)
 	}
 	++pr->bias_count[kc];
 	pr->bias_sum[kc]+=error;
+	PROF(UPDATE_SSE);
+#endif
 }
 #undef  LOAD
 static void slic5_enc(SLIC5Ctx *pr, int curr, int kc, int kx, int ky)
@@ -906,9 +1016,18 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 			for(int ks=0;ks<pr.cdfsize;++ks)
 				printf("%lld%c", curr_hist[ks], ks<pr.cdfsize-1?' ':'\n');
 		}
+		
+#ifdef TRACK_SSE_RANGES
+		const char labels[]="XYZP";
+		printf("SSE ranges\n");
+		for(int k=0;k<_countof(pr.sse_ranges)-1;k+=2)
+			printf("  %c %4d ~ %4d / %4d\n", labels[k>>1], pr.sse_ranges[k], pr.sse_ranges[k+1], (&pr.sse_width)[k>>1]);
+#endif
+
 		printf("Bias\n");
 		for(int kc=0;kc<src->nch;++kc)
 			printf("  %lld/%d = %d\n", pr.bias_sum[kc], pr.bias_count[kc], pr.bias_count[kc]?(int)(pr.bias_sum[kc]/pr.bias_count[kc]):0);
+		prof_print();
 	}
 	slic5_free(&pr);
 	dlist_clear(&list);
