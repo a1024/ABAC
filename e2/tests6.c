@@ -79,8 +79,8 @@ void prof_print()
 #define NPREDS 8
 #define PRED_PREC 8
 #define PARAM_PREC 8
-#define HIST_EXP 7
-#define HIST_MSB 2
+#define HIST_EXP 2//7
+#define HIST_MSB 1//2
 #define SSE_X_EXP 1
 #define SSE_X_MSB 0
 #define SSE_Y_EXP 1
@@ -96,6 +96,7 @@ void prof_print()
 //#define SSE_FR_SIZE (1<<10)//separate final round
 #define SSE_STAGES 10
 #define SSE_SIZE (SSE_W*SSE_H*SSE_D*SSE_PRED_LEVELS)
+#define HASH_CANTOR(A, B) (((A)+(B)+1)*((A)+(B))/2+(B))
 typedef struct HybridUintStruct
 {
 	unsigned short token, nbits;
@@ -206,7 +207,7 @@ typedef struct SLIC5CtxStruct
 	int bias_count[4];
 	long long bias_sum[4];
 	int preds[NPREDS], params[_countof(wp_params)];
-	long long pred, pred_sse[SSE_STAGES+1];
+	long long pred;
 	int pred_final;
 	int hist_idx;
 	int sse_corr;
@@ -285,10 +286,10 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 	pr->pred_errors=(int*)malloc((iw+PAD_SIZE*2LL)*sizeof(int[NPREDS*4*4]));//NPREDS * 4 rows * 4 comps
 	pr->errors=(int*)malloc((iw+PAD_SIZE*2LL)*sizeof(int[4*4]));
 	pr->pixels=(int*)malloc((iw+PAD_SIZE*2LL)*sizeof(int[4*4]));
-	pr->hist=(long long*)malloc(pr->nhist*pr->cdfsize*sizeof(long long));//WH: cdfsize * NHIST
-	pr->histsums=(long long*)malloc(pr->nhist*sizeof(long long));
+	pr->hist=(long long*)malloc(pr->nhist*pr->nhist*pr->cdfsize*sizeof(long long));//WH: cdfsize * NHIST
+	pr->histsums=(long long*)malloc(pr->nhist*pr->nhist*sizeof(long long));
 	pr->CDF_bypass=(unsigned*)malloc((pr->cdfsize+1LL)*sizeof(int));
-	pr->CDFs=(unsigned*)malloc(pr->nhist*(pr->cdfsize+1LL)*sizeof(int));
+	pr->CDFs=(unsigned*)malloc(pr->nhist*pr->nhist*(pr->cdfsize+1LL)*sizeof(int));
 	pr->sse=(long long*)malloc(sizeof(long long[SSE_SIZE*SSE_STAGES]));
 	pr->sse_fr=(long long*)malloc(sizeof(long long[SSE_FR_SIZE]));
 	if(!pr->pred_errors||!pr->errors||!pr->pixels||!pr->hist||!pr->histsums||!pr->CDFs||!pr->CDF_bypass||!pr->sse||!pr->sse_fr)
@@ -300,8 +301,8 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 	memset(pr->errors, 0, (iw+PAD_SIZE*2LL)*sizeof(int[4*4]));
 	memset(pr->pixels, 0, (iw+PAD_SIZE*2LL)*sizeof(int[4*4]));
 
-	memset(pr->hist, 0, pr->nhist*pr->cdfsize*sizeof(long long));
-	memset(pr->histsums, 0, pr->nhist*sizeof(long long));
+	memset(pr->hist, 0, pr->nhist*pr->nhist*pr->cdfsize*sizeof(long long));
+	memset(pr->histsums, 0, pr->nhist*pr->nhist*sizeof(long long));
 
 	int sum=0;
 	for(int ks=0;ks<pr->cdfsize;++ks)//TODO tune initial CDFs
@@ -312,7 +313,7 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 		pr->CDF_bypass[ks]=(int)(((long long)c<<16)/sum);
 		c+=freq;
 	}
-	memfill(pr->CDFs, pr->CDF_bypass, pr->nhist*(pr->cdfsize+1LL)*sizeof(int), (pr->cdfsize+1LL)*sizeof(int));
+	memfill(pr->CDFs, pr->CDF_bypass, pr->nhist*pr->nhist*(pr->cdfsize+1LL)*sizeof(int), (pr->cdfsize+1LL)*sizeof(int));
 
 	memset(pr->sse, 0, sizeof(long long[SSE_SIZE*SSE_STAGES]));
 	memset(pr->sse_fr, 0, sizeof(long long[SSE_FR_SIZE]));
@@ -337,7 +338,7 @@ static void slic5_free(SLIC5Ctx *pr)
 }
 static void slic5_update_CDFs(SLIC5Ctx *pr)
 {
-	for(int kt=0;kt<pr->nhist;++kt)//update CDFs
+	for(int kt=0;kt<pr->nhist*pr->nhist;++kt)//update CDFs
 	{
 		long long sum=pr->histsums[kt];
 		if(sum>pr->cdfsize)//switch to histogram when it matures
@@ -529,7 +530,12 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	//if(kx==10&&ky==10)
 	//	printf("");
 	
-	pr->hist_idx=QUANTIZE_HIST(MAXVAR(dx, dy)>>(sh-2));
+	//pr->hist_idx=QUANTIZE_HIST(MAXVAR(dx, dy)>>(sh-2));
+	int qx=QUANTIZE_HIST(dx>>(sh-2)), qy=QUANTIZE_HIST(dy>>(sh-2));
+	qx=CLAMP(0, qx, pr->nhist-1);
+	qy=CLAMP(0, qy, pr->nhist-1);
+	pr->hist_idx=pr->nhist*qy+qx;
+
 	//if(pr->hist_idx==32)//
 	//	printf("");
 	//int
@@ -540,7 +546,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	//pr->hist_idx=MAXVAR(qx, qy);
 	//if(pr->hist_idx>pr->nhist-1)//
 	//	LOG_ERROR("");
-	pr->hist_idx=MINVAR(pr->hist_idx, pr->nhist-1);
+	//pr->hist_idx=MINVAR(pr->hist_idx, pr->nhist-1);
 #ifndef DISABLE_SSE
 	int g[]=
 	{
@@ -725,10 +731,25 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		//int sse_corr=pr->sse_count[k]?(int)(pr->sse_sum[k]/pr->sse_count[k]):0;//X
 		pr->pred+=sse_corr;
 		pr->sse_corr+=sse_corr;
-
-		pr->pred_sse[k]=pr->pred;
 	}
 #endif
+	//pr->hist_idx=
+	//	quantize_signed(N-W, 8, 1, 0, 20)<<5|
+	//	(NEE<NE)<<4|
+	//	(NN<N)<<3|
+	//	(WW<W)<<2|
+	//	(NE<N)<<1|
+	//	(NW<W);
+
+	//	(((N+W)>>1)<pr->pred)<<7|
+	//	(N+W-NW<(int)pr->pred)<<6|
+	//	(W <pr->pred)<<5|
+	//	(NW<pr->pred)<<4|
+	//	(N <pr->pred)<<3|
+	//	(NE<pr->pred)<<2|
+	//	(2*N-NN<(int)pr->pred)<<1|
+	//	(2*W-WW<(int)pr->pred);
+
 	//int final_corr=(int)((pr->bias_sum[kc]+(pr->bias_count[kc]>>1))/(pr->bias_count[kc]+1));
 	int final_corr=(int)(pr->bias_sum[kc]/(pr->bias_count[kc]+1));
 	//int final_corr=pr->bias_count[kc]?(int)(pr->bias_sum[kc]/pr->bias_count[kc]):0;//X
@@ -1011,8 +1032,8 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 		printf("\n");
 		printf("csize %8d  CR %10.6lf\n", (int)list.nobj, usize/list.nobj);
 
-		printf("Hist WH %d*%d:\n", pr.cdfsize, pr.nhist);
-		for(int kt=0;kt<pr.nhist;++kt)
+		printf("Hist WH %d*%d:\n", pr.cdfsize, pr.nhist*pr.nhist);
+		for(int kt=0;kt<pr.nhist*pr.nhist;++kt)
 		{
 			long long *curr_hist=pr.hist+pr.cdfsize*kt;
 			for(int ks=0;ks<pr.cdfsize;++ks)
