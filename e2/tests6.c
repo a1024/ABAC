@@ -82,7 +82,7 @@ void prof_print()
 //#define SSE_W 20
 //#define SSE_H 20
 //#define SSE_D 20
-#define HIST_EXP 5
+#define HIST_EXP 7
 #define HIST_MSB 2
 #define SSE_X_EXP 1
 #define SSE_X_MSB 0
