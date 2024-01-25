@@ -1094,6 +1094,7 @@ ProgArgs args=
 //	"D:/ML/dataset-ic-rgb16bit/bridge.png",
 //	"D:/ML/dataset-ic-rgb16bit/cathedral.png",
 //	"D:/ML/dataset-ic-rgb16bit/deer.png",
+//	"D:/ML/dataset-LPCB/canon_eos_1100d_01.PNG",
 
 //	"C:/Projects/datasets/dataset-kodak/kodim02.png",
 //	"C:/Projects/datasets/dataset-kodak/kodim13.png",

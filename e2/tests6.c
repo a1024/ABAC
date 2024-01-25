@@ -156,7 +156,16 @@ int quantize_signed(int val, int shift, int exp, int msb, int nlevels)
 	//token=CLAMP(0, token, nlevels-1);
 	return token;
 }
-#define QUANTIZE_HIST(X) quantize_unsigned(X, HIST_EXP, HIST_MSB)
+static int QUANTIZE_HIST(int x)
+{
+	int token=quantize_unsigned(x, HIST_EXP, HIST_MSB);
+	if(token<128)
+		token>>=1;
+	else
+		token-=64;
+	return token;
+}
+//#define QUANTIZE_HIST(X) quantize_unsigned(X, HIST_EXP, HIST_MSB)
 static const int wp_params[]=
 {
 	0x0004AB65,//wp1
@@ -680,7 +689,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		else
 		{
 			int temp;
-			int idx=(N>W)-(N<W)+1;
+			int idx=THREEWAY(N, W)+1;
 			temp=N+W-NW, idx=3*idx+THREEWAY(temp, (int)pr->pred)+1;
 			idx=3*idx+THREEWAY(W, (int)pr->pred)+1;
 			idx=3*idx+THREEWAY(NW, (int)pr->pred)+1;
@@ -817,7 +826,7 @@ static void slic5_enc(SLIC5Ctx *pr, int curr, int kc, int kx, int ky)
 		error=error<<1^-(error<0);//pack sign
 	}
 	else
-		error=upred+abs_error;
+		error=upred+abs_error;//error sign is known
 #endif
 #if 0
 	int upred=pr->pred_final+(pr->nlevels[kc]>>1), abs_error=abs(error), negmask;
@@ -1026,6 +1035,7 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 		printf("Bias\n");
 		for(int kc=0;kc<src->nch;++kc)
 			printf("  %lld/%d = %d\n", pr.bias_sum[kc], pr.bias_count[kc], pr.bias_count[kc]?(int)(pr.bias_sum[kc]/pr.bias_count[kc]):0);
+
 		prof_print();
 	}
 	slic5_free(&pr);
