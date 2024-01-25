@@ -40,6 +40,7 @@ extern "C"
 #define SHIFT_LEFT_SIGNED(X, SH) ((SH)<0?(X)>>-(SH):(X)<<(SH))
 #define UPDATE_MIN(M, X) if(M>X)M=X
 #define UPDATE_MAX(M, X) if(M<X)M=X
+#define THREEWAY(L, R) (((L)>(R))-((L)<(R)))
 
 #ifdef _MSC_VER
 #define	ALIGN(N) __declspec(align(N))
