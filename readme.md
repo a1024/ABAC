@@ -8,9 +8,7 @@ The most up-to-date projects are:
 
 ### `best`
 The export folder of achievements.
-Reference implementations of the best lossless algorithms that I comprehended.
-This program only prints the efficiency and timing info.
-But it doesn't save anything for security reasons.
+Reference implementations of the best lossless algorithms that I implemented.
 
 ### `e2`
 Experiments on lossless compression.
