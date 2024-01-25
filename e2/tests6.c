@@ -11,7 +11,7 @@
 #endif
 static const char file[]=__FILE__;
 
-	#define PROFILER
+//	#define PROFILER//SLOW
 //	#define TRACK_SSE_RANGES//SLOW
 //	#define DISABLE_SSE
 
@@ -146,10 +146,12 @@ int quantize_signed(int val, int shift, int exp, int msb, int nlevels)
 	val>>=shift;
 	int negmask=-(val<0);
 	int token=quantize_unsigned(abs(val), exp, msb);
+	//if((unsigned)token>=(unsigned)(nlevels>>1))//
+	//	LOG_ERROR("SSE range error");
 	token^=negmask;
 	token-=negmask;
 	token+=nlevels>>1;
-	token=CLAMP(0, token, nlevels-1);
+	//token=CLAMP(0, token, nlevels-1);
 	return token;
 }
 #define QUANTIZE_HIST(X) quantize_unsigned(X, HIST_EXP, HIST_MSB)
@@ -245,12 +247,9 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 	hybriduint_encode(extremesym, &hu);//encode -half
 	pr->nhist=QUANTIZE_HIST(255);
 	pr->cdfsize=hu.token+1;
-	pr->sse_width=10;
-	pr->sse_height=22;
-	pr->sse_depth=22;
-	//pr->sse_width=7;
-	//pr->sse_height=21;
-	//pr->sse_depth=21;
+	pr->sse_width=7;
+	pr->sse_height=21;
+	pr->sse_depth=21;
 	//pr->sse_width=quantize_signed_get_range(2, 64, SSE_X_EXP, SSE_X_MSB);
 	//pr->sse_height=quantize_signed_get_range(2, 1, SSE_Y_EXP, SSE_Y_MSB);
 	//pr->sse_depth=quantize_signed_get_range(2, 1, SSE_Z_EXP, SSE_Z_MSB);
@@ -454,7 +453,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	int d45=abs(W-NWW)+abs(NW-NNWW)+abs(N-NNW);
 	int d135=abs(NE-NNEE)+abs(N-NNE)+abs(W-N);
 	++j;
-	int sum2=(dy+dx)>>sh, diff=(dy-dx)>>sh, diff2=(NE-NW)/8;
+	int sum2=(dy+dx)>>sh, diff=(dy-dx)>>sh, diff2=(NE-NW)>>3;
 	if(sum2>(32<<(PRED_PREC+1)))
 		pr->preds[j]=(dx*N+dy*W)/sum2+diff2;
 	else if(diff>(12<<(PRED_PREC+1)))
@@ -462,16 +461,16 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	else if(diff<-(12<<(PRED_PREC+1)))
 		pr->preds[j]=(2*N+W)/3+diff2;
 	else
-		pr->preds[j]=(N+W)/2+diff2;
+		pr->preds[j]=((N+W)>>1)+diff2;
 	diff=d45-d135;
 	if(diff>(32<<(PRED_PREC+1)))
 		pr->preds[j]+=diff2;
 	else if(diff>(16<<(PRED_PREC+1)))
-		pr->preds[j]+=diff2/2;
+		pr->preds[j]+=diff2>>1;
 	else if(diff<-(32<<(PRED_PREC+1)))
 		pr->preds[j]-=diff2;
 	else if(diff<-(16<<(PRED_PREC+1)))
-		pr->preds[j]-=diff2/2;
+		pr->preds[j]-=diff2>>1;
 
 	++j;
 	int disc=(dy-dx)>>sh;
@@ -481,15 +480,15 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		pr->preds[j]=N;
 	else
 	{
-		pr->preds[j]=(N+W)/2+(NE-NW)/4;
+		pr->preds[j]=(((N+W)<<1)+(NE-NW))>>2;
 		if(disc>32)
-			pr->preds[j]=(pr->preds[j]+W)/2;
+			pr->preds[j]=(pr->preds[j]+W)>>1;
 		else if(disc>8)
-			pr->preds[j]=(3*pr->preds[j]+W)/4;
+			pr->preds[j]=(3*pr->preds[j]+W)>>2;
 		else if(disc<-32)
-			pr->preds[j]=(pr->preds[j]+N)/2;
+			pr->preds[j]=(pr->preds[j]+N)>>1;
 		else if(disc<-8)
-			pr->preds[j]=(3*pr->preds[j]+N)/4;
+			pr->preds[j]=(3*pr->preds[j]+N)>>2;
 	}
 #endif
 	PROF(CALC_SUBPREDS);
@@ -529,20 +528,20 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	{
 		//4D SSE
 #define QUANTIZE(X, Y, Z)\
-	pr->sse_width*(pr->sse_height*quantize_signed(Z, sh, SSE_Z_EXP, SSE_Z_MSB, pr->sse_width)+\
+	pr->sse_width*(pr->sse_height*quantize_signed(Z, sh, SSE_Z_EXP, SSE_Z_MSB, pr->sse_depth)+\
 	quantize_signed(Y, sh, SSE_Y_EXP, SSE_Y_MSB, pr->sse_height))+\
 	quantize_signed(X, sh, SSE_X_EXP, SSE_X_MSB, pr->sse_width)
 
-		QUANTIZE((NNE-NN)/64,			(N-NW)/16,		W-WW),//5
-		QUANTIZE((NE-NNE)/64,			(N-NN)/16,		W-NW),//6
-		QUANTIZE((int)eNW/64,			(int)eW*2,		(int)eN*2),//9
-		QUANTIZE((int)eNE/64,			(int)eWW*2,		(int)eNN*2),//10
-		QUANTIZE((3*(NE-NW)+NNWW-NNEE)/512,	(W-WW)/8,		(NW+2*NE+WW-4*W)/4),//4
-		QUANTIZE((int)(eNE-eNNE)/64,		(int)(eN-eNN)/16,	(int)(eW-eNW)),//8
-		QUANTIZE((int)(eNNE-eNN)/64,		(int)(eN-eNW)/16,	(int)(eW-eWW)),//7
-		QUANTIZE((NW+3*(NE-N)-NEE)/512,		(NE-NNEE)/8,		(NNE+NEE+2*W-4*NE)/4),//1
-		QUANTIZE((NWW+3*(N-NW)-NE)/512,		(N-NN)/8,		(W+NW+NE+NN-4*N)/4),//2
-		QUANTIZE((3*(N-W)+WW-NN)/512,		(NW-NNWW)/8,		(NNW+NWW+W+N-4*NW)/4),//3 (weakest)
+		QUANTIZE((NNE-NN)>>6,			(N-NW)>>4,		W-WW),//5
+		QUANTIZE((NE-NNE)>>6,			(N-NN)>>4,		W-NW),//6
+		QUANTIZE((int)eNW>>6,			(int)eW<<1,		(int)eN<<1),//9
+		QUANTIZE((int)eNE>>6,			(int)eWW<<1,		(int)eNN<<1),//10
+		QUANTIZE((3*(NE-NW)+NNWW-NNEE)>>9,	(W-WW)>>3,		(NW+2*NE+WW-4*W)>>2),//4
+		QUANTIZE((int)(eNE-eNNE)>>6,		(int)(eN-eNN)>>4,	(int)(eW-eNW)),//8
+		QUANTIZE((int)(eNNE-eNN)>>6,		(int)(eN-eNW)>>4,	(int)(eW-eWW)),//7
+		QUANTIZE((NW+3*(NE-N)-NEE)>>9,		(NE-NNEE)>>3,		(NNE+NEE+2*W-4*NE)>>2),//1
+		QUANTIZE((NWW+3*(N-NW)-NE)>>9,		(N-NN)>>3,		(W+NW+NE+NN-4*N)>>2),//2
+		QUANTIZE((3*(N-W)+WW-NN)>>9,		(NW-NNWW)>>3,		(NNW+NWW+W+N-4*NW)>>2),//3 (weakest)
 #if 0
 		QUANTIZE((NNE-NN)/32,			(N-NW)/8,		(W-WW)/2),//5
 		QUANTIZE((NE-NNE)/32,			(N-NN)/8,		(W-NW)/2),//6
@@ -722,14 +721,16 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		}
 		pr->sse_count[k]=(int)(sse_val&0xFFF);
 		pr->sse_sum[k]=(int)(sse_val>>12);
-		int sse_corr=pr->sse_count[k]?(int)(pr->sse_sum[k]/pr->sse_count[k]):0;
+		int sse_corr=(int)(pr->sse_sum[k]/(pr->sse_count[k]+1));
+		//int sse_corr=pr->sse_count[k]?(int)(pr->sse_sum[k]/pr->sse_count[k]):0;
 		pr->pred+=sse_corr;
 		pr->sse_corr+=sse_corr;
 
 		pr->pred_sse[k]=pr->pred;
 	}
 #endif
-	int final_corr=pr->bias_count[kc]?(int)(pr->bias_sum[kc]/pr->bias_count[kc]):0;
+	int final_corr=(int)(pr->bias_sum[kc]/(pr->bias_count[kc]+1));
+	//int final_corr=pr->bias_count[kc]?(int)(pr->bias_sum[kc]/pr->bias_count[kc]):0;
 	pr->pred+=final_corr;
 	pr->sse_corr+=final_corr;
 	PROF(SSE_LOOP);
