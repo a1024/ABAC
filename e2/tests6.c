@@ -11,10 +11,14 @@
 #endif
 static const char file[]=__FILE__;
 
+	#define AVX2
 //	#define PROFILER//SLOW
 //	#define TRACK_SSE_RANGES//SLOW
 //	#define DISABLE_SSE
 
+#ifdef AVX2
+#include<immintrin.h>
+#endif
 #ifdef PROFILER
 #define CHECKPOINTLIST\
 	CHECKPOINT(OUTSIDE)\
@@ -552,6 +556,107 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	//	LOG_ERROR("");
 	//pr->hist_idx=MINVAR(pr->hist_idx, pr->nhist-1);
 #ifndef DISABLE_SSE
+#ifdef AVX2
+	ALIGN(32) int g[]=
+	{
+		//X
+		(NNE-NN)>>6,			//5	2/64
+		(NE-NNE)>>6,			//6	2/64
+		(int)eNW>>6,			//9	1/64
+		(int)eNE>>6,			//10	1/64
+		(3*(NE-NW)+NNWW-NNEE)>>9,	//4	8/512
+		(int)(eNE-eNNE)>>6,		//8	2/64
+		(int)(eNNE-eNN)>>6,		//7	2/64
+		(NW+3*(NE-N)-NEE)>>9,		//1	8/512
+		(NWW+3*(N-NW)-NE)>>9,		//2	8/512
+		(3*(N-W)+WW-NN)>>9,		//3	8/512
+		0,
+		0,
+		0,
+		0,
+		0,
+		0,
+
+		//Y
+		(N-NW)>>4,		//5	2/16
+		(N-NN)>>4,		//6	2/16
+		(int)eW<<1,		//9	2/1
+		(int)eWW<<1,		//10	2/1
+		(W-WW)>>3,		//4	2/8
+		(int)(eN-eNN)>>4,	//8	2/16
+		(int)(eN-eNW)>>4,	//7	2/16
+		(NE-NNEE)>>3,		//1	2/8
+		(N-NN)>>3,		//2	2/8
+		(NW-NNWW)>>3,		//3	2/8
+		0,
+		0,
+		0,
+		0,
+		0,
+		0,
+
+		//Z
+		W-WW,			//5	2/1
+		W-NW,			//6	2/1
+		(int)eN<<1,		//9	2/1
+		(int)eNN<<1,		//10	2/1
+		(NW+2*NE+WW-4*W)>>2,	//4	8/4
+		(int)(eW-eNW),		//8	2/1
+		(int)(eW-eWW),		//7	2/1
+		(NNE+NEE+2*W-4*NE)>>2,	//1	8/4
+		(W+NW+NE+NN-4*N)>>2,	//2	8/4
+		(NNW+NWW+W+N-4*NW)>>2,	//3	8/4
+		0,
+		0,
+		0,
+		0,
+		0,
+		0,
+	};
+	__m128i shift=_mm_set_epi32(0, 0, 0, sh);
+	__m256i thirtytwo=_mm256_set1_epi32(32);
+	__m256i nlevels[]=
+	{
+		_mm256_set1_epi32(SSE_W),
+		_mm256_set1_epi32(SSE_H),
+		_mm256_set1_epi32(SSE_D),
+	};
+	__m256i half[]=
+	{
+		_mm256_set1_epi32(SSE_W>>1),
+		_mm256_set1_epi32(SSE_H>>1),
+		_mm256_set1_epi32(SSE_D>>1),
+	};
+	for(int k=0;k<_countof(g)-(sizeof(__m256i)/sizeof(int)-1);k+=sizeof(__m256i)/sizeof(int))
+	{
+		__m256i val=_mm256_load_si256((__m256i*)(g+k));
+		__m256i neg=_mm256_srai_epi32(val, 31);
+		val=_mm256_sra_epi32(val, shift);
+		val=_mm256_abs_epi32(val);
+		val=_mm256_lzcnt_epi32(val);
+		val=_mm256_sub_epi32(thirtytwo, val);//floor_log2()+1
+		val=_mm256_xor_si256(val, neg);
+		val=_mm256_sub_epi32(val, neg);
+		val=_mm256_add_epi32(val, half[k>>4]);//k>>4 == k/(sizeof(__m256i)/sizeof(int))*sizeof(half)/sizeof(g0)
+		_mm256_store_si256((__m256i*)(g+k), val);
+	}
+	__m256i X0=_mm256_load_si256((__m256i*)g+0);//X
+	__m256i X1=_mm256_load_si256((__m256i*)g+1);
+	__m256i Y0=_mm256_load_si256((__m256i*)g+2);//Y
+	__m256i Y1=_mm256_load_si256((__m256i*)g+3);
+	__m256i Z0=_mm256_load_si256((__m256i*)g+4);//Z
+	__m256i Z1=_mm256_load_si256((__m256i*)g+5);
+	Z0=_mm256_mullo_epi32(Z0, nlevels[1]);
+	Z1=_mm256_mullo_epi32(Z1, nlevels[1]);
+	Y0=_mm256_add_epi32(Z0, Y0);
+	Y1=_mm256_add_epi32(Z1, Y1);
+	Y0=_mm256_mullo_epi32(Y0, nlevels[0]);
+	Y1=_mm256_mullo_epi32(Y1, nlevels[0]);
+	X0=_mm256_add_epi32(Y0, X0);
+	X1=_mm256_add_epi32(Y1, X1);
+	_mm256_store_si256((__m256i*)g+0, X0);
+	_mm256_store_si256((__m256i*)g+1, X1);
+#else
 	int g[]=
 	{
 		//4D SSE
@@ -569,109 +674,12 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		QUANTIZE((int)(eNNE-eNN)>>6,		(int)(eN-eNW)>>4,	(int)(eW-eWW)),//7
 		QUANTIZE((NW+3*(NE-N)-NEE)>>9,		(NE-NNEE)>>3,		(NNE+NEE+2*W-4*NE)>>2),//1
 		QUANTIZE((NWW+3*(N-NW)-NE)>>9,		(N-NN)>>3,		(W+NW+NE+NN-4*N)>>2),//2
-		QUANTIZE((3*(N-W)+WW-NN)>>9,		(NW-NNWW)>>3,		(NNW+NWW+W+N-4*NW)>>2),//3 (weakest)
-#if 0
-		QUANTIZE((NNE-NN)/32,			(N-NW)/8,		(W-WW)/2),//5
-		QUANTIZE((NE-NNE)/32,			(N-NN)/8,		(W-NW)/2),//6
-		//	QUANTIZE((int)(eNNE-eNN)/32,	(int)(eN-eNW)/2,	(int)(eW-eWW)/2),//7
-		QUANTIZE((int)eNW/16,			(int)eW*4,		(int)eN*4),//9
-		QUANTIZE((int)eNE/16,			(int)eWW*2,		(int)eNN*2),//10
-		//	QUANTIZE(NW+3*(NE-N)-NEE,	NE-NNEE,		NNE+NEE+2*W-4*NE),//1
-		//	QUANTIZE(NWW+3*(N-NW)-NE,	N-NN,			W+NW+NE+NN-4*N),//2
-		//	QUANTIZE((3*(N-W)+WW-NN)/128,	(NW-NNWW)/2,		(NNW+NWW+W+N-4*NW)/16),//3 X
-		QUANTIZE((3*(NE-NW)+NNWW-NNEE)/128,	(W-WW)/8,		(NW+2*NE+WW-4*W)/16),//4
-		QUANTIZE((int)(eNE-eNNE)/32,		(int)(eN-eNN)/8,	(int)(eW-eNW)/2),//8
-#endif
+		QUANTIZE((3*(N-W)+WW-NN)>>9,		(NW-NNWW)>>3,		(NNW+NWW+W+N-4*NW)>>2),//3
 #undef  QUANTIZE
-
-#if 0
-		pr->sse_width*(pr->sse_height*quantize_signed((int)(W-WW)/2, sh, 2, 1, pr->sse_depth)+quantize_signed((int)(N-NW)*2, sh, 2, 1, pr->sse_height))+quantize_signed((int)(NNE-NN)/64, sh, 2, 1, pr->sse_width),//gx
-		pr->sse_width*(pr->sse_height*quantize_signed((int)(W-NW)/2, sh, 2, 1, pr->sse_depth)+quantize_signed((int)(N-NN)*2, sh, 2, 1, pr->sse_height))+quantize_signed((int)(NE-NNE)/64, sh, 2, 1, pr->sse_width),//gy
-		pr->sse_width*(pr->sse_height*quantize_signed((int)(eW-eWW)/2, sh, 2, 1, pr->sse_depth)+quantize_signed((int)(eN-eNW)*2, sh, 2, 1, pr->sse_height))+quantize_signed((int)(eNNE-eNN)/64, sh, 2, 1, pr->sse_width),//egx
-		pr->sse_width*(pr->sse_height*quantize_signed((int)(eW-eNW)/2, sh, 2, 1, pr->sse_depth)+quantize_signed((int)(eN-eNN)*2, sh, 2, 1, pr->sse_height))+quantize_signed((int)(eNE-eNNE)/64, sh, 2, 1, pr->sse_width),//egy
-		pr->sse_width*(pr->sse_height*quantize_signed((int) eN*4 , sh, 2, 1, pr->sse_depth)+quantize_signed((int) eW*2   , sh, 2, 1, pr->sse_height))+quantize_signed((int) eNW/32    , sh, 2, 1, pr->sse_width),//eclose
-		pr->sse_width*(pr->sse_height*quantize_signed((int) eNN*4, sh, 2, 1, pr->sse_depth)+quantize_signed((int) eWW*2  , sh, 2, 1, pr->sse_height))+quantize_signed((int) eNE/32    , sh, 2, 1, pr->sse_width),//efar
-
-		//SSE_W*(SSE_H*quantize_signed((int)(W-WW), sh+1, 4, 1, SSE_D)+quantize_signed((int)(N-NW), sh+1, 4, 1, SSE_H))+quantize_signed((int)(NNE-NN), sh+1, 4, 1, SSE_W),//gx		X  bad
-		//SSE_W*(SSE_H*quantize_signed((int)(W-NW), sh+1, 4, 1, SSE_D)+quantize_signed((int)(N-NN), sh+1, 4, 1, SSE_H))+quantize_signed((int)(NE-NNE), sh+1, 4, 1, SSE_W),//gy
-		//SSE_W*(SSE_H*quantize_signed((int) eN   , sh, 4, 1, SSE_D)+quantize_signed((int) eW   , sh, 4, 1, SSE_H))+quantize_signed((int) eNW    , sh, 4, 1, SSE_W),//eclose
-		//SSE_W*(SSE_H*quantize_signed((int) eNN  , sh, 4, 1, SSE_D)+quantize_signed((int) eWW  , sh, 4, 1, SSE_H))+quantize_signed((int) eNE    , sh, 4, 1, SSE_W),//efar
-
-	//	SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)(W-WW)>>shifts[0])+QUANTIZE_SSE((int)(N-NW)>>shifts[1]))+QUANTIZE_SSE((int)(NNE-NN)>>shifts[2]),//gx
-	//	SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)(W-NW)>>shifts[0])+QUANTIZE_SSE((int)(N-NN)>>shifts[1]))+QUANTIZE_SSE((int)(NE-NNE)>>shifts[2]),//gy
-	//	//SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)N>>shifts[3])+QUANTIZE_SSE((int)W>>shifts[4]))+QUANTIZE_SSE((int)NW>>shifts[5]),//close
-	//	SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)eN>>shifts[3])+QUANTIZE_SSE((int)eW>>shifts[4]))+QUANTIZE_SSE((int)eNW>>shifts[5]),//eclose
-	//	SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)eNN>>shifts[3])+QUANTIZE_SSE((int)eWW>>shifts[4]))+QUANTIZE_SSE((int)eNE>>shifts[5]),//efar
-		//SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)NN>>shifts[3])+QUANTIZE_SSE((int)WW>>shifts[4]))+QUANTIZE_SSE((int)NE>>shifts[5]),//far
-		//SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)(eNW-eNE)>>shifts[3])+QUANTIZE_SSE((int)(eNN-eWW)>>shifts[4]))+QUANTIZE_SSE((int)(eN-eW)>>shifts[5]),//ediff
-		
-		//+-+-+		+-+-+		+++++
-		//-+-+-		+-+--		-----
-		//+-?		+-		+-
-	//	SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)(NNWW-NNW+NN-NNE+NNEE - NWW+NW-N+NE-NEE + WW-W)/12>>shifts[0])+
-	//		QUANTIZE_SSE((int)(NNWW-NNW+NN-NNE+NNEE + NWW-NW+N-NE-NEE + WW-W)/12>>shifts[1]))+
-	//		QUANTIZE_SSE((int)(NNWW+NNW+NN+NNE+NNEE - NWW-NW-N-NE-NEE + WW-W)/12>>shifts[2]),
-
-		//SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)WW>>pr->shift_prec[kc])+QUANTIZE_SSE((int)W>>pr->shift_prec[kc]))+QUANTIZE_SSE((int)NWW>>pr->shift_prec[kc]),
-		//SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)NW>>pr->shift_prec[kc])+QUANTIZE_SSE((int)N>>pr->shift_prec[kc]))+QUANTIZE_SSE((int)NE>>pr->shift_prec[kc]),
-		//SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)NEE>>pr->shift_prec[kc])+QUANTIZE_SSE((int)NNWW>>pr->shift_prec[kc]))+QUANTIZE_SSE((int)NNW>>pr->shift_prec[kc]),
-		//SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)NN>>pr->shift_prec[kc])+QUANTIZE_SSE((int)NNE>>pr->shift_prec[kc]))+QUANTIZE_SSE((int)NNEE>>pr->shift_prec[kc]),
-		//SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)eNN>>pr->shift_prec[kc])+QUANTIZE_SSE((int)eNW>>pr->shift_prec[kc]))+QUANTIZE_SSE((int)eN>>pr->shift_prec[kc]),
-		//SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)eNE>>pr->shift_prec[kc])+QUANTIZE_SSE((int)eWW>>pr->shift_prec[kc]))+QUANTIZE_SSE((int)eW>>pr->shift_prec[kc]),
-
-		//SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)(W-WW)>>shifts[0])+QUANTIZE_SSE((int)(N-NW)>>shifts[1]))+QUANTIZE_SSE((int)(NNE-NN)>>shifts[2]),//gx
-		//SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)(W-NW)>>shifts[0])+QUANTIZE_SSE((int)(N-NN)>>shifts[1]))+QUANTIZE_SSE((int)(NE-NNE)>>shifts[2]),//gy
-		//SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)eN>>shifts[3])+QUANTIZE_SSE((int)eW>>shifts[4]))+QUANTIZE_SSE((int)eNW>>shifts[5]),//eclose
-		//SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)eNN>>shifts[3])+QUANTIZE_SSE((int)eWW>>shifts[4]))+QUANTIZE_SSE((int)eNE>>shifts[5]),//efar
-
-		//SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)(W-WW)>>(pr->shift_prec[kc]+4))+QUANTIZE_SSE((int)(N-NW)>>(pr->shift_prec[kc]+4)))+QUANTIZE_SSE((int)(NNE-NN)>>(pr->shift_prec[kc]+4)),
-		//SSE_WIDTH*(SSE_WIDTH*QUANTIZE_SSE((int)(W-NW)>>(pr->shift_prec[kc]+4))+QUANTIZE_SSE((int)(N-NN)>>(pr->shift_prec[kc]+4)))+QUANTIZE_SSE((int)(NE-NNE)>>(pr->shift_prec[kc]+4)),
-		//SSE_WIDTH*(QUANTIZE_SSE((int)eN>>(pr->shift_prec[kc]+3))*QUANTIZE_SSE((int)eW>>(pr->shift_prec[kc]+3)))+QUANTIZE_SSE((int)eNW>>(pr->shift_prec[kc]+3)),
-		//SSE_WIDTH*(QUANTIZE_SSE((int)eNN>>(pr->shift_prec[kc]+3))*QUANTIZE_SSE((int)eWW>>(pr->shift_prec[kc]+3)))+QUANTIZE_SSE((int)eNE>>(pr->shift_prec[kc]+3)),
-
-		//QUANTIZE_SSE((int)(W-WW)>>(pr->shift_prec[kc]+4))*QUANTIZE_SSE((int)(N-NW)>>(pr->shift_prec[kc]+4))*QUANTIZE_SSE((int)(NNE-NN)>>(pr->shift_prec[kc]+4)),//X  bad
-		//QUANTIZE_SSE((int)(W-NW)>>(pr->shift_prec[kc]+4))*QUANTIZE_SSE((int)(N-NN)>>(pr->shift_prec[kc]+4))*QUANTIZE_SSE((int)(NE-NNE)>>(pr->shift_prec[kc]+4)),
-		//QUANTIZE_SSE((int)eN>>(pr->shift_prec[kc]+3))*QUANTIZE_SSE((int)eW>>(pr->shift_prec[kc]+3))*QUANTIZE_SSE((int)eNW>>(pr->shift_prec[kc]+3)),
-		//QUANTIZE_SSE((int)eNN>>(pr->shift_prec[kc]+3))*QUANTIZE_SSE((int)eWW>>(pr->shift_prec[kc]+3))*QUANTIZE_SSE((int)eNE>>(pr->shift_prec[kc]+3)),
-#endif
-
-		//3D SSE
-#if 0
-		QUANTIZE_SSE((int)(W-WW+NE-NW+NN-NNE)>>(pr->shift_prec[kc]+5))*QUANTIZE_SSE((int)(W-NW+N-NN+NE-NNE)>>(pr->shift_prec[kc]+5)),
-
-		//QUANTIZE_SSE((int)(W-WW)>>(pr->shift_prec[kc]+4))*QUANTIZE_SSE((int)(W-NW)>>(pr->shift_prec[kc]+4)),//X  bad
-		//QUANTIZE_SSE((int)(NE-NW)>>(pr->shift_prec[kc]+4))*QUANTIZE_SSE((int)(N-NN)>>(pr->shift_prec[kc]+4)),
-		//QUANTIZE_SSE((int)(NN-NNE)>>(pr->shift_prec[kc]+4))*QUANTIZE_SSE((int)(NE-NNE)>>(pr->shift_prec[kc]+4)),
-		// 
-		//SSE_WIDTH*QUANTIZE_SSE((int)(W-WW+NE-NW+NN-NNE)>>(pr->shift_prec[kc]+5))+QUANTIZE_SSE((int)(W-NW+N-NN+NE-NNE)>>(pr->shift_prec[kc]+5)),//original
-		//SSE_WIDTH*QUANTIZE_SSE((int)(W-WW+NE-N)>>(pr->shift_prec[kc]+4))+QUANTIZE_SSE((int)(W-NW+NE-NNE)>>(pr->shift_prec[kc]+4)),//X bad
-		//SSE_WIDTH*QUANTIZE_SSE((int)(W-WW+N-NW+NNE-NN)>>(pr->shift_prec[kc]+5))+QUANTIZE_SSE((int)(W-NW+N-NN+NE-NNE)>>(pr->shift_prec[kc]+5)),//X  bad
-		//SSE_WIDTH*QUANTIZE_SSE((int)(W-WW+NE-NW+NN-NNE)>>(pr->shift_prec[kc]+5))+QUANTIZE_SSE((int)(W-NNW+N-NN+NNE-NE)>>(pr->shift_prec[kc]+5)),//X  bad
-		SSE_WIDTH*QUANTIZE_SSE((int)eN >>(pr->shift_prec[kc]+3))+QUANTIZE_SSE((int)eW >>(pr->shift_prec[kc]+3)),
-		SSE_WIDTH*QUANTIZE_SSE((int)eNW>>(pr->shift_prec[kc]+3))+QUANTIZE_SSE((int)eNE>>(pr->shift_prec[kc]+3)),
-		SSE_WIDTH*QUANTIZE_SSE((int)eNN>>(pr->shift_prec[kc]+3))+QUANTIZE_SSE((int)eWW>>(pr->shift_prec[kc]+3)),
-
-		//SSE_WIDTH*QUANTIZE_SSE((int)(W-WW+NE-NW+NN-NNE)>>(pr->shift_prec[kc]+5))+QUANTIZE_SSE((int)eW >>(pr->shift_prec[kc]+3)),//X  bad
-		//SSE_WIDTH*QUANTIZE_SSE((int)(W-NW+N -NN+NE-NNE)>>(pr->shift_prec[kc]+5))+QUANTIZE_SSE((int)eN >>(pr->shift_prec[kc]+3)),
-		//SSE_WIDTH*QUANTIZE_SSE((int)eNW>>(pr->shift_prec[kc]+3))+QUANTIZE_SSE((int)eNE>>(pr->shift_prec[kc]+3)),
-		//SSE_WIDTH*QUANTIZE_SSE((int)eNN>>(pr->shift_prec[kc]+3))+QUANTIZE_SSE((int)eWW>>(pr->shift_prec[kc]+3)),
-#endif
-
-		//2D SSE
-#if 0
-		QUANTIZE_SSE((int)(W-WW+NE-NW+NN-NNE)>>(pr->shift_prec[kc]+5)),//gx
-		QUANTIZE_SSE((int)(W-NW+N -NN+NE-NNE)>>(pr->shift_prec[kc]+5)),//gy
-		QUANTIZE_SSE((int)eW >>(pr->shift_prec[kc]+3)),
-		QUANTIZE_SSE((int)eNW>>(pr->shift_prec[kc]+3)),
-		QUANTIZE_SSE((int)eN >>(pr->shift_prec[kc]+3)),
-		QUANTIZE_SSE((int)eNE>>(pr->shift_prec[kc]+3)),
-		QUANTIZE_SSE((int)eWW>>(pr->shift_prec[kc]+3)),
-		QUANTIZE_SSE((int)eNN>>(pr->shift_prec[kc]+3)),
-#endif
 	};
+#endif
 	PROF(CALC_CTX);
-	//if(kx==10&&ky==10)//
-	//	printf("");
+
 	pr->sse_corr=0;
 	for(int k=0;k<SSE_STAGES+1;++k)
 	{
@@ -730,33 +738,13 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		}
 		pr->sse_count[k]=(int)(sse_val&0xFFF);
 		pr->sse_sum[k]=(int)(sse_val>>12);
-		//int sse_corr=(int)((pr->sse_sum[k]+(pr->sse_count[k]>>1))/(pr->sse_count[k]+1));
 		int sse_corr=(int)(pr->sse_sum[k]/(pr->sse_count[k]+1));
-		//int sse_corr=pr->sse_count[k]?(int)(pr->sse_sum[k]/pr->sse_count[k]):0;//X
 		pr->pred+=sse_corr;
 		pr->sse_corr+=sse_corr;
 	}
 #endif
-	//pr->hist_idx=
-	//	quantize_signed(N-W, 8, 1, 0, 20)<<5|
-	//	(NEE<NE)<<4|
-	//	(NN<N)<<3|
-	//	(WW<W)<<2|
-	//	(NE<N)<<1|
-	//	(NW<W);
 
-	//	(((N+W)>>1)<pr->pred)<<7|
-	//	(N+W-NW<(int)pr->pred)<<6|
-	//	(W <pr->pred)<<5|
-	//	(NW<pr->pred)<<4|
-	//	(N <pr->pred)<<3|
-	//	(NE<pr->pred)<<2|
-	//	(2*N-NN<(int)pr->pred)<<1|
-	//	(2*W-WW<(int)pr->pred);
-
-	//int final_corr=(int)((pr->bias_sum[kc]+(pr->bias_count[kc]>>1))/(pr->bias_count[kc]+1));
 	int final_corr=(int)(pr->bias_sum[kc]/(pr->bias_count[kc]+1));
-	//int final_corr=pr->bias_count[kc]?(int)(pr->bias_sum[kc]/pr->bias_count[kc]):0;//X
 	pr->pred+=final_corr;
 	pr->sse_corr+=final_corr;
 	PROF(SSE_LOOP);
