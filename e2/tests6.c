@@ -11,12 +11,13 @@
 #endif
 static const char file[]=__FILE__;
 
+//	#define AVX512
 	#define AVX2
 //	#define PROFILER//SLOW
 //	#define TRACK_SSE_RANGES//SLOW
 //	#define DISABLE_SSE
 
-#ifdef AVX2
+#if defined AVX2 || defined AVX512
 #include<immintrin.h>
 #endif
 #ifdef PROFILER
@@ -170,6 +171,36 @@ static int QUANTIZE_HIST(int x)
 		token-=64;
 	return token;
 }
+#if defined AVX2 || defined AVX512
+static void avx2_floor_log2_p1(__m256i *x)//floor_log2()+1
+{
+	//https://stackoverflow.com/questions/56153183/is-using-avx2-can-implement-a-faster-processing-of-lzcnt-on-a-word-array
+#ifdef AVX512
+	__m256i thirtytwo=_mm256_set1_epi32(32);
+	*x=_mm256_lzcnt_epi32(*x);
+	*x=_mm256_sub_epi32(thirtytwo, *x);
+#else
+	//_mm256_shuffle_epi8 has 4bit range
+	__m256i ramplo=_mm256_set_epi8(
+		//15 14 13  12  11  10   9   8   7   6   5   4   3   2   1   0
+		 4,  4,  4,  4,  4,  4,  4,  4,  3,  3,  3,  3,  2,  2,  1,  0,
+		 4,  4,  4,  4,  4,  4,  4,  4,  3,  3,  3,  3,  2,  2,  1,  0
+	);
+	__m256i ramphi=_mm256_set_epi8(
+		//15 14 13  12  11  10   9   8   7   6   5   4   3   2   1   0
+		 8,  8,  8,  8,  8,  8,  8,  8,  7,  7,  7,  7,  6,  6,  5,  0,
+		 8,  8,  8,  8,  8,  8,  8,  8,  7,  7,  7,  7,  6,  6,  5,  0
+	);
+	__m256i masklo=_mm256_set1_epi32(15);
+
+	__m256i lo=_mm256_and_si256(*x, masklo);
+	__m256i hi=_mm256_srli_epi32(*x, 4);
+	lo=_mm256_shuffle_epi8(ramplo, lo);
+	hi=_mm256_shuffle_epi8(ramphi, hi);
+	*x=_mm256_max_epi32(lo, hi);
+#endif
+}
+#endif
 //#define QUANTIZE_HIST(X) quantize_unsigned(X, HIST_EXP, HIST_MSB)
 static const int wp_params[]=
 {
@@ -333,9 +364,12 @@ static void slic5_free(SLIC5Ctx *pr)
 	free(pr->pred_errors);
 	free(pr->errors);
 	free(pr->pixels);
-	free(pr->sse);
 	free(pr->hist);
+	free(pr->histsums);
+	free(pr->CDF_bypass);
 	free(pr->CDFs);
+	free(pr->sse);
+	free(pr->sse_fr);
 }
 static void slic5_update_CDFs(SLIC5Ctx *pr)
 {
@@ -432,6 +466,8 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	//++j, pr->preds[j]=2*W-WW+(eW>>1), pr->preds[j]=CLAMP(pr->min_allowed, pr->preds[j], pr->max_allowed);//X
 
 	++j, pr->preds[j]=N+W-NW;//, pr->preds[j]=(int)MEDIAN3(N, W, pr->preds[j]);
+	//++j, pr->preds[j]=N+NE-NNE;
+
 #if 0
 	//pr->preds[++j]=(((N+W)<<1)+NW+NE+NN+WW+4)>>3;//X
 
@@ -611,8 +647,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		__m256i neg=_mm256_srai_epi32(val, 31);
 		val=_mm256_sra_epi32(val, shift);
 		val=_mm256_abs_epi32(val);
-		val=_mm256_lzcnt_epi32(val);
-		val=_mm256_sub_epi32(thirtytwo, val);//floor_log2()+1
+		avx2_floor_log2_p1(&val);
 		val=_mm256_xor_si256(val, neg);
 		val=_mm256_sub_epi32(val, neg);
 		val=_mm256_add_epi32(val, half[k>>4]);//k>>4 == k/(sizeof(__m256i)/sizeof(int))*sizeof(half)/sizeof(g0)
