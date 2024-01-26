@@ -79,8 +79,8 @@ void prof_print()
 #define NPREDS 8
 #define PRED_PREC 8
 #define PARAM_PREC 8
-#define HIST_EXP 2//7
-#define HIST_MSB 1//2
+#define HIST_EXP 2
+#define HIST_MSB 1
 #define SSE_X_EXP 1
 #define SSE_X_MSB 0
 #define SSE_Y_EXP 1
@@ -92,11 +92,11 @@ void prof_print()
 #define SSE_D 21
 #define SSE_PREDBITS 5
 #define SSE_PRED_LEVELS (1<<SSE_PREDBITS)//(_countof(qlevels_pred)+1)
-#define SSE_FR_SIZE 59049//separate final round
-//#define SSE_FR_SIZE (1<<10)//separate final round
+#define SSE_FR_SIZE 59049//3^10		separate final round
+//#define SSE_FR_SIZE (1<<10)
 #define SSE_STAGES 10
 #define SSE_SIZE (SSE_W*SSE_H*SSE_D*SSE_PRED_LEVELS)
-#define HASH_CANTOR(A, B) (((A)+(B)+1)*((A)+(B))/2+(B))
+//#define HASH_CANTOR(A, B) (((A)+(B)+1)*((A)+(B))/2+(B))
 typedef struct HybridUintStruct
 {
 	unsigned short token, nbits;
@@ -529,12 +529,16 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	PROF(CALC_WEIGHT_AV);
 	//if(kx==10&&ky==10)
 	//	printf("");
-	
-	//pr->hist_idx=QUANTIZE_HIST(MAXVAR(dx, dy)>>(sh-2));
+
 	int qx=QUANTIZE_HIST(dx>>(sh-2)), qy=QUANTIZE_HIST(dy>>(sh-2));
 	qx=CLAMP(0, qx, pr->nhist-1);
 	qy=CLAMP(0, qy, pr->nhist-1);
 	pr->hist_idx=pr->nhist*qy+qx;
+
+	//pr->hist_idx=QUANTIZE_HIST((dx>>(sh-2))*(dy>>(sh-2)));
+	//pr->hist_idx=CLAMP(0, pr->hist_idx, pr->nhist-1);
+	
+	//pr->hist_idx=QUANTIZE_HIST(MAXVAR(dx, dy)>>(sh-2));
 
 	//if(pr->hist_idx==32)//
 	//	printf("");
