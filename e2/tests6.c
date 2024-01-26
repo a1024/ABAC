@@ -269,9 +269,6 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 	//pr->sse_width=quantize_signed_get_range(2, 64, SSE_X_EXP, SSE_X_MSB);
 	//pr->sse_height=quantize_signed_get_range(2, 1, SSE_Y_EXP, SSE_Y_MSB);
 	//pr->sse_depth=quantize_signed_get_range(2, 1, SSE_Z_EXP, SSE_Z_MSB);
-	//pr->sse_width=quantize_signed(255, 0, SSE_X_EXP, SSE_X_MSB, SSE_W);
-	//pr->sse_height=quantize_signed(255, 0, SSE_Y_EXP, SSE_Y_MSB, SSE_H);
-	//pr->sse_depth=quantize_signed(255, 0, SSE_Z_EXP, SSE_Z_MSB, SSE_D);
 	//pr->sse_nplanes=1<<SSE_PREDBITS;
 	//pr->sse_planesize=pr->sse_width*pr->sse_height*pr->sse_depth;
 	//pr->sse_size=pr->sse_nplanes*pr->sse_planesize;
@@ -423,6 +420,18 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		((long long)NW-W)*pr->params[NPREDS+6]
 	)>>PARAM_PREC));
 
+	++j, pr->preds[j]=(W+NEE)>>1;
+	//++j, pr->preds[j]=(N+W+NW+NE+((int)(eN+eW+eNW+eNE)>>pr->shift_error[kc]))>>2;
+	//++j, pr->preds[j]=(int)(N+W+NW+NE+((eN+eW+eNW+eNE)>>2))>>2;//v
+	//++j, pr->preds[j]=(NNWW+NNW+NN+NNE+NNEE+NWW+NW+N+NE+NEE+WW+W)/12;//~
+	//++j, pr->preds[j]=(int)(
+	//	9*(N+W+((eN+eW)>>(1+(pr->depths[kc]<=9))))+
+	//	7*(NW+NE+((eNW+eNE)>>(1+(pr->depths[kc]<=9))))
+	//)>>5;
+	//++j, pr->preds[j]=(4*(N+W)+2*(NW+NE)+eN+eW+eNW+eNE)>>3;//X
+	//++j, pr->preds[j]=2*W-WW+(eW>>1), pr->preds[j]=CLAMP(pr->min_allowed, pr->preds[j], pr->max_allowed);//X
+
+	++j, pr->preds[j]=N+W-NW;//, pr->preds[j]=(int)MEDIAN3(N, W, pr->preds[j]);
 #if 0
 	//pr->preds[++j]=(((N+W)<<1)+NW+NE+NN+WW+4)>>3;//X
 
@@ -451,18 +460,6 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	++j, pr->preds[j]=((N+W)*3-NW*2)/4;
 	++j, pr->preds[j]=(int)(N+W-NW), pr->preds[j]=(int)CLAMP(vmin, pr->preds[j], vmax);
 #endif
-#if 1
-	//++j, pr->preds[j]=(int)(N+W+NW+NE+((eN+eW+eNW+eNE)>>2))>>2;//v
-	++j, pr->preds[j]=(int)(N+W+NW+NE+((eN+eW+eNW+eNE)>>pr->shift_error[kc]))>>2;
-	//++j, pr->preds[j]=(NNWW+NNW+NN+NNE+NNEE+NWW+NW+N+NE+NEE+WW+W)/12;//~
-	//++j, pr->preds[j]=(int)(
-	//	9*(N+W+((eN+eW)>>(1+(pr->depths[kc]<=9))))+
-	//	7*(NW+NE+((eNW+eNE)>>(1+(pr->depths[kc]<=9))))
-	//)>>5;
-	//++j, pr->preds[j]=(4*(N+W)+2*(NW+NE)+eN+eW+eNW+eNE)>>3;//X
-	//++j, pr->preds[j]=2*W-WW+(eW>>1), pr->preds[j]=CLAMP(pr->min_allowed, pr->preds[j], pr->max_allowed);//X
-
-	++j, pr->preds[j]=(int)(N+W-NW);//, pr->preds[j]=(int)MEDIAN3(N, W, pr->preds[j]);
 
 	int dx=abs(W-WW)+abs(N-NW)+abs(NE-N);
 	int dy=abs(W-NW)+abs(N-NN)+abs(NE-NNE);
@@ -506,7 +503,6 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		else if(disc<-8)
 			pr->preds[j]=(3*pr->preds[j]+N)>>2;
 	}
-#endif
 	PROF(CALC_SUBPREDS);
 
 	long long weights[NPREDS]={0}, wsum=0;
@@ -531,30 +527,12 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	else
 		pr->pred=pr->preds[0];
 	PROF(CALC_WEIGHT_AV);
-	//if(kx==10&&ky==10)
-	//	printf("");
 
 	int qx=QUANTIZE_HIST(dx>>(sh-2)), qy=QUANTIZE_HIST(dy>>(sh-2));
 	qx=CLAMP(0, qx, pr->nhist-1);
 	qy=CLAMP(0, qy, pr->nhist-1);
 	pr->hist_idx=pr->nhist*qy+qx;
 
-	//pr->hist_idx=QUANTIZE_HIST((dx>>(sh-2))*(dy>>(sh-2)));
-	//pr->hist_idx=CLAMP(0, pr->hist_idx, pr->nhist-1);
-	
-	//pr->hist_idx=QUANTIZE_HIST(MAXVAR(dx, dy)>>(sh-2));
-
-	//if(pr->hist_idx==32)//
-	//	printf("");
-	//int
-	//	qx  =QUANTIZE_HIST(dx  >>(sh-2)),//dx>>shift_pred is in [0 ~ 255*3],  dx>>(shift_pred-2) has quad range
-	//	qy  =QUANTIZE_HIST(dy  >>(sh-2));
-	//	q45 =QUANTIZE_HIST(d45 >>(sh-2)),
-	//	q135=QUANTIZE_HIST(d135>>(sh-2));
-	//pr->hist_idx=MAXVAR(qx, qy);
-	//if(pr->hist_idx>pr->nhist-1)//
-	//	LOG_ERROR("");
-	//pr->hist_idx=MINVAR(pr->hist_idx, pr->nhist-1);
 #ifndef DISABLE_SSE
 #ifdef AVX2
 	ALIGN(32) int g[]=
