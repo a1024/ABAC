@@ -81,7 +81,7 @@ void prof_print()
 
 #define CDF_UPDATE_PERIOD 0x400//number of sub-pixels processed between CDF updates, must be a power-of-two
 #define PAD_SIZE 2
-#define NPREDS 10
+#define NPREDS 11
 #define PRED_PREC 8
 #define PARAM_PREC 8
 #define HIST_EXP 2
@@ -213,8 +213,9 @@ static const int wp_params[]=
 	//0x00016056,//N+NW-NNW	X	worst
 	//0x00016056,//W+NW-NWW X	2nd worst	2nd worst	worst
 	//0x00016056,//N+NEE-NNEE X	very bad	worst
-	0x00016056,//(N+W)/2
+	0x00016056,//(N+W)>>1
 	//0x00016056,//NW+NE-NN X
+	0x00016056,//(N+NN)>>1
 	0x00016056,//grad								3rd best
 	0x00028F8A,//paper GAP		bad
 	0x00022F58,//CALIC GAP		bad		3rd worst	3rd worst	3rd worst	2nd worst
@@ -469,6 +470,8 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	pr->preds[++j]=N+NE-NNE;
 	pr->preds[++j]=(N+W)>>1;
 	pr->preds[++j]=N+W-NW;//, pr->preds[j]=(int)MEDIAN3(N, W, pr->preds[j]);
+
+	pr->preds[++j]=2*W-WW;
 	
 	//pr->preds[++j]=NW+NE-NN;//X
 	//pr->preds[++j]=(3*(N+W)-2*NW)>>2;//X
