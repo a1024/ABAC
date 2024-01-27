@@ -14,6 +14,7 @@ static const char file[]=__FILE__;
 
 //	#define AVX512
 	#define AVX2
+//	#define PROBBITS_15
 //	#define PROFILER//SLOW
 //	#define TRACK_SSE_RANGES//SLOW
 //	#define DISABLE_SSE
@@ -103,6 +104,17 @@ void prof_print()
 #define SSE_STAGES 10
 #define SSE_SIZE (SSE_W*SSE_H*SSE_D*SSE_PRED_LEVELS)
 //#define HASH_CANTOR(A, B) (((A)+(B)+1)*((A)+(B))/2+(B))
+#ifdef PROBBITS_15
+#define EC_ENC(EC, X, CDF, NLEVELS, LG_FMIN) ac_enc15(EC, X, CDF, NLEVELS)
+#define EC_DEC(EC, CDF, NLEVELS, LG_FMIN) ac_dec15(EC, CDF, NLEVELS)
+typedef unsigned short CDF_t;
+#define CDF_SHIFT 15
+#else
+#define EC_ENC(EC, X, CDF, NLEVELS, LG_FMIN) ac_enc(EC, X, CDF, NLEVELS, LG_FMIN)
+#define EC_DEC(EC, CDF, NLEVELS, LG_FMIN) ac_dec(EC, CDF, NLEVELS, LG_FMIN)
+typedef unsigned CDF_t;
+#define CDF_SHIFT 16
+#endif
 typedef struct HybridUintStruct
 {
 	unsigned short token, nbits;
@@ -246,7 +258,7 @@ typedef struct SLIC5CtxStruct
 	//int sse_width, sse_height, sse_depth, sse_nplanes, sse_planesize, sse_size;
 	int *pred_errors, *errors, *pixels;
 	long long *hist, *histsums;
-	unsigned *CDF_bypass, *CDFs;
+	CDF_t *CDF_bypass, *CDFs;
 	long long *sse, *sse_fr;
 	int sse_idx[SSE_STAGES+1];
 	long long sse_sum[SSE_STAGES+1];
@@ -332,8 +344,8 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 	pr->pixels=(int*)malloc((iw+PAD_SIZE*2LL)*sizeof(int[4*4]));
 	pr->hist=(long long*)malloc((size_t)pr->nhist*pr->nhist*pr->cdfsize*sizeof(long long));//WH: cdfsize * NHIST
 	pr->histsums=(long long*)malloc((size_t)pr->nhist*pr->nhist*sizeof(long long));
-	pr->CDF_bypass=(unsigned*)malloc((pr->cdfsize+1LL)*sizeof(int));
-	pr->CDFs=(unsigned*)malloc((size_t)pr->nhist*pr->nhist*(pr->cdfsize+1LL)*sizeof(int));
+	pr->CDF_bypass=(CDF_t*)malloc((pr->cdfsize+1LL)*sizeof(CDF_t));
+	pr->CDFs=(CDF_t*)malloc((size_t)pr->nhist*pr->nhist*(pr->cdfsize+1LL)*sizeof(CDF_t));
 	pr->sse=(long long*)malloc(sizeof(long long[SSE_SIZE*SSE_STAGES]));
 	pr->sse_fr=(long long*)malloc(sizeof(long long[SSE_FR_SIZE]));
 	if(!pr->pred_errors||!pr->errors||!pr->pixels||!pr->hist||!pr->histsums||!pr->CDFs||!pr->CDF_bypass||!pr->sse||!pr->sse_fr)
@@ -354,10 +366,10 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 	for(int ks=0, c=0;ks<pr->cdfsize+1;++ks)
 	{
 		int freq=0x10000/(ks+1);
-		pr->CDF_bypass[ks]=(int)(((long long)c<<16)/sum);
+		pr->CDF_bypass[ks]=(int)(((long long)c<<CDF_SHIFT)/sum);
 		c+=freq;
 	}
-	memfill(pr->CDFs, pr->CDF_bypass, (size_t)pr->nhist*pr->nhist*(pr->cdfsize+1LL)*sizeof(int), (pr->cdfsize+1LL)*sizeof(int));
+	memfill(pr->CDFs, pr->CDF_bypass, (size_t)pr->nhist*pr->nhist*(pr->cdfsize+1LL)*sizeof(CDF_t), (pr->cdfsize+1LL)*sizeof(CDF_t));
 
 	memset(pr->sse, 0, sizeof(long long[SSE_SIZE*SSE_STAGES]));
 	memset(pr->sse_fr, 0, sizeof(long long[SSE_FR_SIZE]));
@@ -391,15 +403,15 @@ static void slic5_update_CDFs(SLIC5Ctx *pr)
 		if(sum>pr->cdfsize)//switch to histogram when it matures
 		{
 			long long *curr_hist=pr->hist+pr->cdfsize*kt;
-			unsigned *curr_CDF=pr->CDFs+(pr->cdfsize+1)*kt;
+			CDF_t *curr_CDF=pr->CDFs+(pr->cdfsize+1)*kt;
 			long long c=0;
 			for(int ks=0;ks<pr->cdfsize;++ks)
 			{
 				long long freq=curr_hist[ks];
-				curr_CDF[ks]=(int)(c*(0x10000LL-pr->cdfsize)/sum)+ks;
+				curr_CDF[ks]=(int)(c*((1LL<<CDF_SHIFT)-pr->cdfsize)/sum)+ks;
 				c+=freq;
 			}
-			curr_CDF[pr->cdfsize]=0x10000;
+			curr_CDF[pr->cdfsize]=1<<CDF_SHIFT;
 		}
 		//else//unknown statistics
 		//	memcpy(curr_CDF, pr->CDF_bypass, (pr->cdfsize+1)*sizeof(int));
@@ -908,16 +920,16 @@ static void slic5_enc(SLIC5Ctx *pr, int curr, int kc, int kx, int ky)
 	if(hu.token>=pr->cdfsize)
 		LOG_ERROR("Token OOB %d/%d", hu.token, pr->cdfsize);
 
-	ac_enc(pr->ec, hu.token, pr->CDFs+(pr->cdfsize+1)*pr->hist_idx, pr->cdfsize, 0);
+	EC_ENC(pr->ec, hu.token, pr->CDFs+(pr->cdfsize+1)*pr->hist_idx, pr->cdfsize, 0);
 	if(hu.nbits)
 	{
 		int bypass=hu.bypass, nbits=hu.nbits;
 		while(nbits>8)
 		{
-			ac_enc(pr->ec, bypass>>(nbits-8)&0xFF, 0, 1<<8, 16-8);
+			EC_ENC(pr->ec, bypass>>(nbits-8)&0xFF, 0, 1<<8, 16-8);
 			nbits-=8;
 		}
-		ac_enc(pr->ec, bypass&((1<<nbits)-1), 0, 1<<nbits, 16-nbits);
+		EC_ENC(pr->ec, bypass&((1<<nbits)-1), 0, 1<<nbits, 16-nbits);
 	}
 
 	slic5_update(pr, curr, hu.token);
@@ -926,7 +938,7 @@ static int slic5_dec(SLIC5Ctx *pr, int kc, int kx, int ky)
 {
 	slic5_predict(pr, kc, kx, ky);
 
-	int token=ac_dec(pr->ec, pr->CDFs+(pr->cdfsize+1)*pr->hist_idx, pr->cdfsize, 0);
+	int token=EC_DEC(pr->ec, pr->CDFs+(pr->cdfsize+1)*pr->hist_idx, pr->cdfsize, 0);
 	int error=token;
 	if(error>=(1<<SLIC5_CONFIG_EXP))
 	{
@@ -940,9 +952,9 @@ static int slic5_dec(SLIC5Ctx *pr, int kc, int kx, int ky)
 		while(n>8)
 		{
 			n-=8;
-			bypass|=ac_dec(pr->ec, 0, 1<<8, 16-8)<<n;
+			bypass|=EC_DEC(pr->ec, 0, 1<<8, 16-8)<<n;
 		}
-		bypass|=ac_dec(pr->ec, 0, 1<<n, 16-n);
+		bypass|=EC_DEC(pr->ec, 0, 1<<n, 16-n);
 		error=1;
 		error<<=SLIC5_CONFIG_MSB;
 		error|=msb;
