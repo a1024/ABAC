@@ -1,4 +1,5 @@
 #include"e2.h"
+#define AC_IMPLEMENTATION
 #include"ac.h"
 #include<stdio.h>
 #include<stdlib.h>
@@ -907,16 +908,16 @@ static void slic5_enc(SLIC5Ctx *pr, int curr, int kc, int kx, int ky)
 	if(hu.token>=pr->cdfsize)
 		LOG_ERROR("Token OOB %d/%d", hu.token, pr->cdfsize);
 
-	ac_enc(pr->ec, hu.token, pr->CDFs+(pr->cdfsize+1)*pr->hist_idx, pr->cdfsize, 1);
+	ac_enc(pr->ec, hu.token, pr->CDFs+(pr->cdfsize+1)*pr->hist_idx, pr->cdfsize, 0);
 	if(hu.nbits)
 	{
 		int bypass=hu.bypass, nbits=hu.nbits;
 		while(nbits>8)
 		{
-			ac_enc(pr->ec, bypass>>(nbits-8)&0xFF, 0, 1<<8, 0x10000>>8);
+			ac_enc(pr->ec, bypass>>(nbits-8)&0xFF, 0, 1<<8, 16-8);
 			nbits-=8;
 		}
-		ac_enc(pr->ec, bypass&((1<<nbits)-1), 0, 1<<nbits, 0x10000>>nbits);
+		ac_enc(pr->ec, bypass&((1<<nbits)-1), 0, 1<<nbits, 16-nbits);
 	}
 
 	slic5_update(pr, curr, hu.token);
@@ -925,7 +926,7 @@ static int slic5_dec(SLIC5Ctx *pr, int kc, int kx, int ky)
 {
 	slic5_predict(pr, kc, kx, ky);
 
-	int token=ac_dec(pr->ec, pr->CDFs+(pr->cdfsize+1)*pr->hist_idx, pr->cdfsize, 1);
+	int token=ac_dec(pr->ec, pr->CDFs+(pr->cdfsize+1)*pr->hist_idx, pr->cdfsize, 0);
 	int error=token;
 	if(error>=(1<<SLIC5_CONFIG_EXP))
 	{
@@ -939,9 +940,9 @@ static int slic5_dec(SLIC5Ctx *pr, int kc, int kx, int ky)
 		while(n>8)
 		{
 			n-=8;
-			bypass|=ac_dec(pr->ec, 0, 1<<8, 0x10000>>8)<<n;
+			bypass|=ac_dec(pr->ec, 0, 1<<8, 16-8)<<n;
 		}
-		bypass|=ac_dec(pr->ec, 0, 1<<n, 0x10000>>n);
+		bypass|=ac_dec(pr->ec, 0, 1<<n, 16-n);
 		error=1;
 		error<<=SLIC5_CONFIG_MSB;
 		error|=msb;
