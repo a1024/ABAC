@@ -81,7 +81,7 @@ void prof_print()
 
 #define CDF_UPDATE_PERIOD 0x400//number of sub-pixels processed between CDF updates, must be a power-of-two
 #define PAD_SIZE 2
-#define NPREDS 7
+#define NPREDS 10
 #define PRED_PREC 8
 #define PARAM_PREC 8
 #define HIST_EXP 2
@@ -204,15 +204,17 @@ static void avx2_floor_log2_p1(__m256i *x)//floor_log2()+1
 //#define QUANTIZE_HIST(X) quantize_unsigned(X, HIST_EXP, HIST_MSB)
 static const int wp_params[]=
 {
-	//0x0004AB65,//wp1 X		bad				2nd worst	worst
+	0x0004AB65,//wp1 X		bad				2nd worst	worst
 	0x0002841C,//wp2						3rd best
 	0x00034147,//wp3				best		2nd best	best		2nd best
 	0x00016056,//wp4
 	0x00016056,//(W+NEE)>>1		best				best		2nd best	best
-	0x00016056,//N+NE-NNE		2nd best	2nd best			2nd worst
+	0x00016056,//N+NE-NNE		2nd best	2nd best			2nd worst	worst
 	//0x00016056,//N+NW-NNW	X	worst
 	//0x00016056,//W+NW-NWW X	2nd worst	2nd worst	worst
-	//0x00016056,//N+NEE-NNEE X	very bad	worst						worst
+	//0x00016056,//N+NEE-NNEE X	very bad	worst
+	0x00016056,//(N+W)/2
+	//0x00016056,//NW+NE-NN X
 	0x00016056,//grad								3rd best
 	0x00028F8A,//paper GAP		bad
 	0x00022F58,//CALIC GAP		bad		3rd worst	3rd worst	3rd worst	2nd worst
@@ -220,6 +222,10 @@ static const int wp_params[]=
 	-0x005C,
 	-0x005B,
 	 0x00DF,  0x0051,  0x00BD,  0x005C, -0x0102,
+
+	//0x80,//X
+	//0x80,
+	//0x40, 0x00, 0x30, 0x170, 0x20,
 
 	//0xd, 0xc, 0xc, 0xb,
 	//8,
@@ -447,21 +453,25 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	PROF(FETCH_NB);
 
 	int j=-1;
-	//pr->preds[++j]=(int)(W+NE-N);//X
-	pr->preds[++j]=(int)(N-((eN+eW+eNE)*pr->params[NPREDS+0]>>PARAM_PREC));
-	pr->preds[++j]=(int)(W-((eN+eW+eNW)*pr->params[NPREDS+1]>>PARAM_PREC));
-	pr->preds[++j]=(int)(N-((
+	pr->preds[++j]=W+NE-N-(int)((2*(eN+eW)+eNE-eNW)>>3);
+	//pr->preds[++j]=W+NE-N;//X
+	pr->preds[++j]=N-(int)((eN+eW+eNE)*pr->params[NPREDS+0]>>PARAM_PREC);
+	pr->preds[++j]=W-(int)((eN+eW+eNW)*pr->params[NPREDS+1]>>PARAM_PREC);
+	pr->preds[++j]=N-(int)((
 		eNW*pr->params[NPREDS+2]+
 		eN*pr->params[NPREDS+3]+
 		eNE*pr->params[NPREDS+4]+
 		((long long)NN-N)*pr->params[NPREDS+5]+
 		((long long)NW-W)*pr->params[NPREDS+6]
-	)>>PARAM_PREC));
+	)>>PARAM_PREC);
 
 	pr->preds[++j]=(W+NEE)>>1;
 	pr->preds[++j]=N+NE-NNE;
+	pr->preds[++j]=(N+W)>>1;
 	pr->preds[++j]=N+W-NW;//, pr->preds[j]=(int)MEDIAN3(N, W, pr->preds[j]);
-
+	
+	//pr->preds[++j]=NW+NE-NN;//X
+	//pr->preds[++j]=(3*(N+W)-2*NW)>>2;//X
 	//++j, pr->preds[j]=N+NW-NNW;//worst
 	//++j, pr->preds[j]=W+NW-NWW;//worst 3
 	//++j, pr->preds[j]=N+NEE-NNEE;//worst 2
@@ -529,24 +539,24 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	else if(diff<-(16<<(PRED_PREC+1)))
 		pr->preds[j]-=diff2>>1;
 
-	//++j;
-	//int disc=(dy-dx)>>sh;
-	//if(disc>80)
-	//	pr->preds[j]=W;
-	//else if(disc<-80)
-	//	pr->preds[j]=N;
-	//else
-	//{
-	//	pr->preds[j]=(((N+W)<<1)+(NE-NW))>>2;
-	//	if(disc>32)
-	//		pr->preds[j]=(pr->preds[j]+W)>>1;
-	//	else if(disc>8)
-	//		pr->preds[j]=(3*pr->preds[j]+W)>>2;
-	//	else if(disc<-32)
-	//		pr->preds[j]=(pr->preds[j]+N)>>1;
-	//	else if(disc<-8)
-	//		pr->preds[j]=(3*pr->preds[j]+N)>>2;
-	//}
+	++j;
+	int disc=(dy-dx)>>sh;
+	if(disc>80)
+		pr->preds[j]=W;
+	else if(disc<-80)
+		pr->preds[j]=N;
+	else
+	{
+		pr->preds[j]=(((N+W)<<1)+(NE-NW))>>2;
+		if(disc>32)
+			pr->preds[j]=(pr->preds[j]+W)>>1;
+		else if(disc>8)
+			pr->preds[j]=(3*pr->preds[j]+W)>>2;
+		else if(disc<-32)
+			pr->preds[j]=(pr->preds[j]+N)>>1;
+		else if(disc<-8)
+			pr->preds[j]=(3*pr->preds[j]+N)>>2;
+	}
 	PROF(CALC_SUBPREDS);
 
 	long long weights[NPREDS]={0}, wsum=0;
