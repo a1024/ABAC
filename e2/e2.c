@@ -100,8 +100,9 @@ typedef struct ProcessCtxStruct
 	ArrayHandle threadargs;//<ThreadArgs>	*thread_count
 	ArrayHandle results;//<Result>		*nsamples
 } ProcessCtx;
+static double start_time=0;
 static double g_total_usize=0, g_total_csize=0;
-static void print_result(Result *res, const char *title, int width)
+static void print_result(Result *res, const char *title, int width, int timestamp)
 {
 	//int kpoint, kslash;
 	//for(kpoint=(int)res->title->count-1;kpoint>=0&&res->fn->data[kpoint]!='.';--kpoint);
@@ -112,12 +113,18 @@ static void print_result(Result *res, const char *title, int width)
 		CR2=(double)res->usize/res->csize2;
 	g_total_usize+=res->usize;
 	g_total_csize+=res->csize2;
-	printf("%-*s  %10lld  format %10lld %10.6lf D %12lf sec  test %10lld %10.6lf E %12lf D %12lf sec %s  CCR %10.6lf\n",
+	printf("%-*s  %10lld  format %10lld %10.6lf D %12lf sec  test %10lld %10.6lf E %12lf D %12lf sec %s  CCR %10.6lf",
 		width, title, res->usize,
 		res->csize1, CR1, res->fdec,
 		res->csize2, CR2, res->enc, res->dec, res->error?"ERROR":"SUCCESS",
 		g_total_usize/g_total_csize
 	);
+	if(timestamp)
+	{
+		printf("  ");
+		timedelta2str(0, 0, time_sec()-start_time);
+	}
+	printf("\n");
 	//printf("%10lld %10lld %10lld %16lf %16lf %16lf %16lf\n",
 	//	res->usize,
 	//	res->csize1,
@@ -197,7 +204,7 @@ static void process_file(ProcessCtx *ctx, ArrayHandle title, int maxlen, Image *
 			threadargs->dec,
 		};
 		ARRAY_APPEND(ctx->results, &result, 1, 1, 0);
-		print_result(&result, (char*)threadargs->title->data, maxlen);
+		print_result(&result, (char*)threadargs->title->data, maxlen, 1);
 		//print_result(&result, ctx->nfinished+1);
 
 		//if(threadargs->error)//
@@ -263,7 +270,7 @@ static void process_file(ProcessCtx *ctx, ArrayHandle title, int maxlen, Image *
 				threadargs->dec,
 			};
 			ARRAY_APPEND(ctx->results, &result, 1, 1, 0);
-			print_result(&result, (char*)threadargs->title->data, maxlen);
+			print_result(&result, (char*)threadargs->title->data, maxlen, k>=n-1);
 			//print_result(&result, ctx->nfinished+k+1);
 		}
 
@@ -294,6 +301,7 @@ void batch_test_mt(const char *path, int nthreads)
 	printf("%s\n", g_buf);
 	printf("Multithreaded Batch Test %s\n", CODECNAME);
 	double t_start=time_sec();
+	start_time=t_start;
 	ArrayHandle filenames=get_filenames(path, g_extensions, _countof(g_extensions), 1);
 	if(!filenames)
 	{
@@ -386,12 +394,12 @@ void batch_test_mt(const char *path, int nthreads)
 			total.dec+=result->dec;
 		}
 		printf("\n");
-		print_result(&total, "Total:", width);
+		print_result(&total, "Total:", width, 1);
 		array_free(&processctx.results);
 	}
-	printf("Batch elapsed ");
-	timedelta2str(0, 0, time_sec()-t_start);
-	printf("\n");
+	//printf("Batch elapsed ");
+	//timedelta2str(0, 0, time_sec()-t_start);
+	//printf("\n");
 	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H%M%S");
 	printf("Finish %s\n", g_buf);
 
@@ -833,7 +841,7 @@ void batch_test(const char *path)
 	pause();
 }
 #endif
-void print_usage(const char *argv0)
+static void print_usage(const char *argv0)
 {
 	//skip the full path if present, to print only the program title
 	int len=(int)strlen(argv0), ks;
@@ -1107,7 +1115,7 @@ ProgArgs args=
 #if 1
 	OP_TESTFILE, 1, 0,//op, nthreads, formatsize
 
-//	"D:/ML/dataset-kodak/kodim13.png",
+	"D:/ML/dataset-kodak/kodim13.png",
 //	"D:/ML/dataset-ic-rgb16bit/artificial.png",
 //	"D:/ML/dataset-ic-rgb16bit/big_building.png",
 //	"D:/ML/dataset-ic-rgb16bit/big_tree.png",
@@ -1117,7 +1125,7 @@ ProgArgs args=
 
 //	"C:/Projects/datasets/dataset-kodak/kodim02.png",
 //	"C:/Projects/datasets/dataset-kodak/kodim13.png",
-	"C:/Projects/datasets/dataset-kodak-CLIC30/01.png",
+//	"C:/Projects/datasets/dataset-kodak-CLIC30/01.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/artificial.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/big_building.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/cathedral.png",

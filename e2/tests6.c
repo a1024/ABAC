@@ -52,7 +52,7 @@ static const char *prof_labels[]=
 static long long prof_timestamp=0, prof_cycles[PROF_COUNT]={0};
 #define PROF_START() memset(prof_cycles, 0, _countof(prof_cycles)), prof_timestamp=__rdtsc()
 #define PROF(X) prof_cycles[PROF_##X]+=__rdtsc()-prof_timestamp, prof_timestamp=__rdtsc()
-void prof_print()
+static void prof_print()
 {
 	long long sum=0;
 	int maxlen=0;
@@ -156,14 +156,14 @@ static int quantize_unsigned(int val, int exp, int msb)
 	int token=(1<<exp)+((lgv-exp)<<msb|(val-(1<<lgv))>>(lgv-msb));
 	return token;
 }
-int quantize_signed_get_range(int num, int den, int exp, int msb)
+static int quantize_signed_get_range(int num, int den, int exp, int msb)
 {
 	int vmax=(int)((1LL<<24)*num/den>>16);
 	int token=quantize_unsigned(vmax, exp, msb);
 	token<<=1;
 	return token;
 }
-int quantize_signed(int val, int shift, int exp, int msb, int nlevels)
+static int quantize_signed(int val, int shift, int exp, int msb, int nlevels)
 {
 	val>>=shift;
 	int negmask=-(val<0);
@@ -346,11 +346,11 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 	pr->pred_errors=(int*)malloc((iw+PAD_SIZE*2LL)*sizeof(int[NPREDS*4*4]));//NPREDS * 4 rows * 4 comps
 	pr->errors=(int*)malloc((iw+PAD_SIZE*2LL)*sizeof(int[4*4]));
 	pr->pixels=(int*)malloc((iw+PAD_SIZE*2LL)*sizeof(int[4*4]));
-	pr->hist=(int*)malloc((size_t)pr->nhist*pr->nhist*pr->cdfsize*sizeof(int));//WH: cdfsize * NHIST
-	pr->histsums=(int*)malloc((size_t)pr->nhist*pr->nhist*sizeof(int));
-	pr->CDFs=(CDF_t*)malloc((size_t)pr->nhist*pr->nhist*(pr->cdfsize+1LL)*sizeof(CDF_t));
-	pr->sse=(long long*)malloc(sizeof(long long[SSE_SIZE*SSE_STAGES]));
-	pr->sse_fr=(long long*)malloc(sizeof(long long[SSE_FR_SIZE]));
+	pr->hist=(int*)malloc((size_t)nch*pr->nhist*pr->nhist*pr->cdfsize*sizeof(int));//WH: cdfsize * NHIST
+	pr->histsums=(int*)malloc((size_t)nch*pr->nhist*pr->nhist*sizeof(int));
+	pr->CDFs=(CDF_t*)malloc((size_t)nch*pr->nhist*pr->nhist*(pr->cdfsize+1LL)*sizeof(CDF_t));
+	pr->sse=(long long*)malloc(nch*sizeof(long long[SSE_SIZE*SSE_STAGES]));
+	pr->sse_fr=(long long*)malloc(nch*sizeof(long long[SSE_FR_SIZE]));
 	if(!pr->pred_errors||!pr->errors||!pr->pixels||!pr->hist||!pr->histsums||!pr->CDFs||!pr->sse||!pr->sse_fr)
 	{
 		LOG_ERROR("Alloc error");
@@ -360,8 +360,8 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 	memset(pr->errors, 0, (iw+PAD_SIZE*2LL)*sizeof(int[4*4]));
 	memset(pr->pixels, 0, (iw+PAD_SIZE*2LL)*sizeof(int[4*4]));
 
-	memset(pr->hist, 0, (size_t)pr->nhist*pr->nhist*pr->cdfsize*sizeof(int));
-	memset(pr->histsums, 0, (size_t)pr->nhist*pr->nhist*sizeof(int));
+	memset(pr->hist, 0, (size_t)nch*pr->nhist*pr->nhist*pr->cdfsize*sizeof(int));
+	memset(pr->histsums, 0, (size_t)nch*pr->nhist*pr->nhist*sizeof(int));
 
 #if 0
 	for(int qy=0;qy<pr->nhist;++qy)
@@ -406,10 +406,10 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 		c+=freq;
 	}
 	pr->CDFs[pr->cdfsize]=1<<CDF_SHIFT;
-	memfill(pr->CDFs+pr->cdfsize+1, pr->CDFs, ((size_t)pr->nhist*pr->nhist-1LL)*(pr->cdfsize+1LL)*sizeof(CDF_t), (pr->cdfsize+1LL)*sizeof(CDF_t));
+	memfill(pr->CDFs+pr->cdfsize+1, pr->CDFs, ((size_t)nch*pr->nhist*pr->nhist-1LL)*(pr->cdfsize+1LL)*sizeof(CDF_t), (pr->cdfsize+1LL)*sizeof(CDF_t));
 
-	memset(pr->sse, 0, sizeof(long long[SSE_SIZE*SSE_STAGES]));
-	memset(pr->sse_fr, 0, sizeof(long long[SSE_FR_SIZE]));
+	memset(pr->sse, 0, nch*sizeof(long long[SSE_SIZE*SSE_STAGES]));
+	memset(pr->sse_fr, 0, nch*sizeof(long long[SSE_FR_SIZE]));
 
 	int shift=16-maxdepth;
 	shift=MAXVAR(0, shift);
@@ -433,7 +433,8 @@ static void slic5_free(SLIC5Ctx *pr)
 }
 static void slic5_update_CDFs(SLIC5Ctx *pr)
 {
-	for(int kt=0;kt<pr->nhist*pr->nhist;++kt)//update CDFs (deferred)
+	int nhist=pr->nch*pr->nhist*pr->nhist;
+	for(int kt=0;kt<nhist;++kt)//update CDFs (deferred)
 	{
 		int sum=pr->histsums[kt];
 		if(sum>pr->cdfsize)//only when the CDF is hit enough times
@@ -467,31 +468,31 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	PROF(UPDATE_CDFs);
 	//XY are flipped, no need to check if indices OOB due to padding
 	int
-		NNWW    =LOAD(pr->pixels,  2, 2)<<PRED_PREC,
-		NNW     =LOAD(pr->pixels,  1, 2)<<PRED_PREC,
-		NN      =LOAD(pr->pixels,  0, 2)<<PRED_PREC,
-		NNE     =LOAD(pr->pixels, -1, 2)<<PRED_PREC,
-		NNEE    =LOAD(pr->pixels, -2, 2)<<PRED_PREC,
-		NWW     =LOAD(pr->pixels,  2, 1)<<PRED_PREC,
-		NW      =LOAD(pr->pixels,  1, 1)<<PRED_PREC,
-		N       =LOAD(pr->pixels,  0, 1)<<PRED_PREC,
-		NE      =LOAD(pr->pixels, -1, 1)<<PRED_PREC,
-		NEE     =LOAD(pr->pixels, -2, 1)<<PRED_PREC,
-		WW      =LOAD(pr->pixels,  2, 0)<<PRED_PREC,
-		W       =LOAD(pr->pixels,  1, 0)<<PRED_PREC;
+		NNWW	=LOAD(pr->pixels,  2, 2)<<PRED_PREC,
+		NNW	=LOAD(pr->pixels,  1, 2)<<PRED_PREC,
+		NN	=LOAD(pr->pixels,  0, 2)<<PRED_PREC,
+		NNE	=LOAD(pr->pixels, -1, 2)<<PRED_PREC,
+		NNEE	=LOAD(pr->pixels, -2, 2)<<PRED_PREC,
+		NWW	=LOAD(pr->pixels,  2, 1)<<PRED_PREC,
+		NW	=LOAD(pr->pixels,  1, 1)<<PRED_PREC,
+		N	=LOAD(pr->pixels,  0, 1)<<PRED_PREC,
+		NE	=LOAD(pr->pixels, -1, 1)<<PRED_PREC,
+		NEE	=LOAD(pr->pixels, -2, 1)<<PRED_PREC,
+		WW	=LOAD(pr->pixels,  2, 0)<<PRED_PREC,
+		W	=LOAD(pr->pixels,  1, 0)<<PRED_PREC;
 	int
-		eNNWW    =LOAD(pr->errors,  2, 2),//error = (curr<<8) - pred
-		eNNW     =LOAD(pr->errors,  1, 2),
-		eNN      =LOAD(pr->errors,  0, 2),
-		eNNE     =LOAD(pr->errors, -1, 2),
-		eNNEE    =LOAD(pr->errors, -2, 2),
-		eNWW     =LOAD(pr->errors,  2, 1),
-		eNW      =LOAD(pr->errors,  1, 1),
-		eN       =LOAD(pr->errors,  0, 1),
-		eNE      =LOAD(pr->errors, -1, 1),
-		eNEE     =LOAD(pr->errors, -2, 1),
-		eWW      =LOAD(pr->errors,  2, 0),
-		eW       =LOAD(pr->errors,  1, 0);
+		eNNWW	=LOAD(pr->errors,  2, 2),//error = (curr<<8) - pred
+		eNNW	=LOAD(pr->errors,  1, 2),
+		eNN	=LOAD(pr->errors,  0, 2),
+		eNNE	=LOAD(pr->errors, -1, 2),
+		eNNEE	=LOAD(pr->errors, -2, 2),
+		eNWW	=LOAD(pr->errors,  2, 1),
+		eNW	=LOAD(pr->errors,  1, 1),
+		eN	=LOAD(pr->errors,  0, 1),
+		eNE	=LOAD(pr->errors, -1, 1),
+		eNEE	=LOAD(pr->errors, -2, 1),
+		eWW	=LOAD(pr->errors,  2, 0),
+		eW	=LOAD(pr->errors,  1, 0);
 	int sh=pr->shift_prec[kc];
 	int clamp_lo=(int)N, clamp_hi=(int)N;
 	clamp_lo=(int)MINVAR(clamp_lo, W);
@@ -718,11 +719,11 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		val=_mm256_add_epi32(val, half[k>>4]);//k>>4 == k/(sizeof(__m256i)/sizeof(int))*sizeof(half)/sizeof(g0)
 		_mm256_store_si256((__m256i*)(g+k), val);
 	}
-	__m256i X0=_mm256_load_si256((__m256i*)g+0);//X
+	__m256i X0=_mm256_load_si256((__m256i*)g+0);
 	__m256i X1=_mm256_load_si256((__m256i*)g+1);
-	__m256i Y0=_mm256_load_si256((__m256i*)g+2);//Y
+	__m256i Y0=_mm256_load_si256((__m256i*)g+2);
 	__m256i Y1=_mm256_load_si256((__m256i*)g+3);
-	__m256i Z0=_mm256_load_si256((__m256i*)g+4);//Z
+	__m256i Z0=_mm256_load_si256((__m256i*)g+4);
 	__m256i Z1=_mm256_load_si256((__m256i*)g+5);
 	Z0=_mm256_mullo_epi32(Z0, nlevels[1]);
 	Z1=_mm256_mullo_epi32(Z1, nlevels[1]);
@@ -768,7 +769,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 			qp+=(1<<SSE_PREDBITS)>>1;
 			qp=CLAMP(0, qp, (1<<SSE_PREDBITS)-1);
 			pr->sse_idx[k]=(SSE_W*SSE_H*SSE_D)*qp+g[k];
-			sse_val=pr->sse[SSE_SIZE*k+pr->sse_idx[k]];
+			sse_val=pr->sse[SSE_SIZE*(SSE_STAGES*kc+k)+pr->sse_idx[k]];
 			
 #ifdef TRACK_SSE_RANGES
 			int kx=g[k]%pr->sse_width, ky=g[k]/pr->sse_width%pr->sse_height, kz=g[k]/(pr->sse_width*pr->sse_height);
@@ -812,7 +813,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 			//	(2*N-NN<(int)pr->pred)<<1|
 			//	(2*W-WW<(int)pr->pred)
 			//;
-			sse_val=pr->sse_fr[pr->sse_idx[k]];
+			sse_val=pr->sse_fr[SSE_FR_SIZE*kc+pr->sse_idx[k]];
 		}
 		pr->sse_count[k]=(int)(sse_val&0xFFF);
 		pr->sse_sum[k]=(int)(sse_val>>12);
@@ -863,11 +864,12 @@ static void slic5_update(SLIC5Ctx *pr, int curr, int token)
 	LOAD(pr->pixels, 0, 0)=curr;
 
 	//update hist
-	++pr->hist[pr->cdfsize*pr->hist_idx+token];
-	++pr->histsums[pr->hist_idx];
+	int total_hists=pr->nhist*pr->nhist;
+	++pr->hist[pr->cdfsize*(total_hists*pr->kc+pr->hist_idx)+token];
+	++pr->histsums[total_hists*pr->kc+pr->hist_idx];
 	if(pr->histsums[pr->hist_idx]>(pr->iw*pr->nch<<1))//rescale hist
 	{
-		int *curr_hist=pr->hist+pr->cdfsize*pr->hist_idx;
+		int *curr_hist=pr->hist+pr->cdfsize*(total_hists*pr->kc+pr->hist_idx);
 		int sum=0;
 		for(int ks=0;ks<pr->cdfsize;++ks)
 		{
@@ -891,9 +893,9 @@ static void slic5_update(SLIC5Ctx *pr, int curr, int token)
 		}
 		long long sse_val=pr->sse_sum[k]<<12|pr->sse_count[k];
 		if(k<SSE_STAGES)
-			pr->sse[SSE_SIZE*k+pr->sse_idx[k]]=sse_val;
+			pr->sse[SSE_SIZE*(SSE_STAGES*kc+k)+pr->sse_idx[k]]=sse_val;
 		else
-			pr->sse_fr[pr->sse_idx[k]]=sse_val;
+			pr->sse_fr[SSE_FR_SIZE*kc+pr->sse_idx[k]]=sse_val;
 	}
 	++pr->bias_count[kc];
 	pr->bias_sum[kc]+=error;
@@ -952,7 +954,7 @@ static void slic5_enc(SLIC5Ctx *pr, int curr, int kc, int kx, int ky)
 	if(hu.token>=pr->cdfsize)
 		LOG_ERROR("Token OOB %d/%d", hu.token, pr->cdfsize);
 
-	EC_ENC(pr->ec, hu.token, pr->CDFs+(pr->cdfsize+1)*pr->hist_idx, pr->cdfsize, 0);
+	EC_ENC(pr->ec, hu.token, pr->CDFs+(pr->cdfsize+1)*(pr->nhist*pr->nhist*kc+pr->hist_idx), pr->cdfsize, 0);
 	if(hu.nbits)
 	{
 		int bypass=hu.bypass, nbits=hu.nbits;
@@ -970,7 +972,7 @@ static int slic5_dec(SLIC5Ctx *pr, int kc, int kx, int ky)
 {
 	slic5_predict(pr, kc, kx, ky);
 
-	int token=EC_DEC(pr->ec, pr->CDFs+(pr->cdfsize+1)*pr->hist_idx, pr->cdfsize, 0);
+	int token=EC_DEC(pr->ec, pr->CDFs+(pr->cdfsize+1)*(pr->nhist*pr->nhist*kc+pr->hist_idx), pr->cdfsize, 0);
 	int error=token;
 	if(error>=(1<<SLIC5_CONFIG_EXP))
 	{
@@ -1353,7 +1355,7 @@ int t47_to_ppm(const char *src, const char *dst)
 			r+=g;
 
 			char triplet[]={r+128, g+128, b+128, 0};
-			written=fwrite(triplet, 1, 3, f);
+			written=(int)fwrite(triplet, 1, 3, f);
 			if(!written)
 			{
 				printf("File write error");
