@@ -23,16 +23,16 @@ add_executable(e2
 	e2.c
 	format.c
 	lodepng.c
-	slic.c
-	slic2.c
-	tests.c
-	tests2.c
-	tests3.c
+	#slic.c
+	#slic2.c
+	#tests.c
+	#tests2.c
+	#tests3.c
 	tests4.c
 	tests5.c
 	tests6.c
 	transforms.c
-	transforms_cpu.c
+	#transforms_cpu.c
 	#transforms_ocl.c
 	#transforms_vk.c
 	util.c
