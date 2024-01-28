@@ -257,14 +257,17 @@ typedef struct SLIC5CtxStruct
 	int nhist, cdfsize;
 	//int sse_width, sse_height, sse_depth, sse_nplanes, sse_planesize, sse_size;
 	int *pred_errors, *errors, *pixels;
-	long long *hist, *histsums;
-	CDF_t *CDF_bypass, *CDFs;
+
+	int *hist, *histsums;
+	CDF_t *CDFs;
+
 	long long *sse, *sse_fr;
 	int sse_idx[SSE_STAGES+1];
 	long long sse_sum[SSE_STAGES+1];
 	int sse_count[SSE_STAGES+1];
 	int bias_count[4];
 	long long bias_sum[4];
+
 	int preds[NPREDS], params[_countof(wp_params)];
 	long long pred;
 	int pred_final;
@@ -342,13 +345,12 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 	pr->pred_errors=(int*)malloc((iw+PAD_SIZE*2LL)*sizeof(int[NPREDS*4*4]));//NPREDS * 4 rows * 4 comps
 	pr->errors=(int*)malloc((iw+PAD_SIZE*2LL)*sizeof(int[4*4]));
 	pr->pixels=(int*)malloc((iw+PAD_SIZE*2LL)*sizeof(int[4*4]));
-	pr->hist=(long long*)malloc((size_t)pr->nhist*pr->nhist*pr->cdfsize*sizeof(long long));//WH: cdfsize * NHIST
-	pr->histsums=(long long*)malloc((size_t)pr->nhist*pr->nhist*sizeof(long long));
-	pr->CDF_bypass=(CDF_t*)malloc((pr->cdfsize+1LL)*sizeof(CDF_t));
+	pr->hist=(int*)malloc((size_t)pr->nhist*pr->nhist*pr->cdfsize*sizeof(int));//WH: cdfsize * NHIST
+	pr->histsums=(int*)malloc((size_t)pr->nhist*pr->nhist*sizeof(int));
 	pr->CDFs=(CDF_t*)malloc((size_t)pr->nhist*pr->nhist*(pr->cdfsize+1LL)*sizeof(CDF_t));
 	pr->sse=(long long*)malloc(sizeof(long long[SSE_SIZE*SSE_STAGES]));
 	pr->sse_fr=(long long*)malloc(sizeof(long long[SSE_FR_SIZE]));
-	if(!pr->pred_errors||!pr->errors||!pr->pixels||!pr->hist||!pr->histsums||!pr->CDFs||!pr->CDF_bypass||!pr->sse||!pr->sse_fr)
+	if(!pr->pred_errors||!pr->errors||!pr->pixels||!pr->hist||!pr->histsums||!pr->CDFs||!pr->sse||!pr->sse_fr)
 	{
 		LOG_ERROR("Alloc error");
 		return 0;
@@ -357,19 +359,53 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 	memset(pr->errors, 0, (iw+PAD_SIZE*2LL)*sizeof(int[4*4]));
 	memset(pr->pixels, 0, (iw+PAD_SIZE*2LL)*sizeof(int[4*4]));
 
-	memset(pr->hist, 0, (size_t)pr->nhist*pr->nhist*pr->cdfsize*sizeof(long long));
-	memset(pr->histsums, 0, (size_t)pr->nhist*pr->nhist*sizeof(long long));
+	memset(pr->hist, 0, (size_t)pr->nhist*pr->nhist*pr->cdfsize*sizeof(int));
+	memset(pr->histsums, 0, (size_t)pr->nhist*pr->nhist*sizeof(int));
 
+#if 0
+	for(int qy=0;qy<pr->nhist;++qy)
+	{
+		for(int qx=0;qx<pr->nhist;++qx)
+		{
+			int hist_idx=pr->nhist*qy+qx;
+			CDF_t *curr_CDF=pr->CDFs+(pr->cdfsize+1)*hist_idx;
+			int sum=0, c=0;
+			//int num=16+10*MINVAR(qx, qy);
+			for(int ks=0;ks<pr->cdfsize;++ks)
+			{
+				//int freq=num/(ks+1);
+				int freq=0x10000/(ks+1);
+				curr_CDF[ks]=freq;
+				sum+=freq;
+			}
+			for(int ks=0;ks<pr->cdfsize;++ks)
+			{
+				int freq=curr_CDF[ks];
+				//curr_CDF[ks]=(int)((long long)c*((1LL<<CDF_SHIFT)-pr->cdfsize)/sum)+ks;//guard
+				curr_CDF[ks]=(int)((long long)c*(1LL<<CDF_SHIFT)/sum);//no guard
+				c+=freq;
+			}
+			curr_CDF[pr->cdfsize]=1<<CDF_SHIFT;
+		}
+	}
+#endif
 	int sum=0;
+	//int freq=0xA186;
 	for(int ks=0;ks<pr->cdfsize;++ks)//TODO tune initial CDFs
-		sum+=0x10000/(ks+1);
-	for(int ks=0, c=0;ks<pr->cdfsize+1;++ks)
 	{
 		int freq=0x10000/(ks+1);
-		pr->CDF_bypass[ks]=(int)(((long long)c<<CDF_SHIFT)/sum);
+		pr->CDFs[ks]=freq;
+		sum+=freq;
+		//freq=(int)((long long)freq*freq>>16);
+	}
+	for(int ks=0, c=0;ks<pr->cdfsize;++ks)
+	{
+		int freq=pr->CDFs[ks];
+		pr->CDFs[ks]=(int)((long long)c*((1LL<<CDF_SHIFT)-pr->cdfsize)/sum)+ks;
 		c+=freq;
 	}
-	memfill(pr->CDFs, pr->CDF_bypass, (size_t)pr->nhist*pr->nhist*(pr->cdfsize+1LL)*sizeof(CDF_t), (pr->cdfsize+1LL)*sizeof(CDF_t));
+	pr->CDFs[pr->cdfsize]=1<<CDF_SHIFT;
+	memfill(pr->CDFs+pr->cdfsize+1, pr->CDFs, ((size_t)pr->nhist*pr->nhist-1LL)*(pr->cdfsize+1LL)*sizeof(CDF_t), (pr->cdfsize+1LL)*sizeof(CDF_t));
 
 	memset(pr->sse, 0, sizeof(long long[SSE_SIZE*SSE_STAGES]));
 	memset(pr->sse_fr, 0, sizeof(long long[SSE_FR_SIZE]));
@@ -390,19 +426,18 @@ static void slic5_free(SLIC5Ctx *pr)
 	free(pr->pixels);
 	free(pr->hist);
 	free(pr->histsums);
-	free(pr->CDF_bypass);
 	free(pr->CDFs);
 	free(pr->sse);
 	free(pr->sse_fr);
 }
 static void slic5_update_CDFs(SLIC5Ctx *pr)
 {
-	for(int kt=0;kt<pr->nhist*pr->nhist;++kt)//update CDFs
+	for(int kt=0;kt<pr->nhist*pr->nhist;++kt)//update CDFs (deferred)
 	{
-		long long sum=pr->histsums[kt];
-		if(sum>pr->cdfsize)//switch to histogram when it matures
+		int sum=pr->histsums[kt];
+		if(sum>pr->cdfsize)//only when the CDF is hit enough times
 		{
-			long long *curr_hist=pr->hist+pr->cdfsize*kt;
+			int *curr_hist=pr->hist+pr->cdfsize*kt;
 			CDF_t *curr_CDF=pr->CDFs+(pr->cdfsize+1)*kt;
 			long long c=0;
 			for(int ks=0;ks<pr->cdfsize;++ks)
@@ -413,8 +448,6 @@ static void slic5_update_CDFs(SLIC5Ctx *pr)
 			}
 			curr_CDF[pr->cdfsize]=1<<CDF_SHIFT;
 		}
-		//else//unknown statistics
-		//	memcpy(curr_CDF, pr->CDF_bypass, (pr->cdfsize+1)*sizeof(int));
 	}
 }
 static void slic5_nextrow(SLIC5Ctx *pr, int ky)
@@ -534,43 +567,41 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	int dy=abs(W-NW)+abs(N-NN)+abs(NE-NNE);
 	int d45=abs(W-NWW)+abs(NW-NNWW)+abs(N-NNW);
 	int d135=abs(NE-NNEE)+abs(N-NNE)+abs(W-N);
+	int sum2=(dy+dx)>>sh, diff=(dy-dx)>>sh, diff2=(d45-d135)>>sh, diff3=(NE-NW)>>3;
 	++j;
-	int sum2=(dy+dx)>>sh, diff=(dy-dx)>>sh, diff2=(NE-NW)>>3;
-	if(sum2>(32<<(PRED_PREC+1)))
-		//pr->preds[j]=(int)(((long long)dx*N+(long long)dy*W)/sum2)+diff2;
-		pr->preds[j]=(dx*N+dy*W)/sum2+diff2;
-	else if(diff>(12<<(PRED_PREC+1)))
-		pr->preds[j]=(N+2*W)/3+diff2;
-	else if(diff<-(12<<(PRED_PREC+1)))
-		pr->preds[j]=(2*N+W)/3+diff2;
-	else
-		pr->preds[j]=((N+W)>>1)+diff2;
-	diff=d45-d135;
-	if(diff>(32<<(PRED_PREC+1)))
-		pr->preds[j]+=diff2;
-	else if(diff>(16<<(PRED_PREC+1)))
-		pr->preds[j]+=diff2>>1;
-	else if(diff<-(32<<(PRED_PREC+1)))
-		pr->preds[j]-=diff2;
-	else if(diff<-(16<<(PRED_PREC+1)))
-		pr->preds[j]-=diff2>>1;
+	//if(sum2>32)
+	//	//pr->preds[j]=(int)(((long long)dx*N+(long long)dy*W)/sum2)+diff2;
+	//	pr->preds[j]=(dx*N+dy*W)/sum2+diff2;
+	//else if(diff>12)
+	//	pr->preds[j]=(N+2*W)/3+diff2;
+	//else if(diff<-12)
+	//	pr->preds[j]=(2*N+W)/3+diff2;
+	//else
+		pr->preds[j]=((N+W)>>1)+diff3;
+	if(diff2>32)
+		pr->preds[j]+=diff3;
+	else if(diff2>16)
+		pr->preds[j]+=diff3>>1;
+	else if(diff2<-32)
+		pr->preds[j]-=diff3;
+	else if(diff2<-16)
+		pr->preds[j]-=diff3>>1;
 
 	++j;
-	int disc=(dy-dx)>>sh;
-	if(disc>80)
+	if(diff>80)
 		pr->preds[j]=W;
-	else if(disc<-80)
+	else if(diff<-80)
 		pr->preds[j]=N;
 	else
 	{
 		pr->preds[j]=(((N+W)<<1)+(NE-NW))>>2;
-		if(disc>32)
+		if(diff>32)
 			pr->preds[j]=(pr->preds[j]+W)>>1;
-		else if(disc>8)
+		else if(diff>8)
 			pr->preds[j]=(3*pr->preds[j]+W)>>2;
-		else if(disc<-32)
+		else if(diff<-32)
 			pr->preds[j]=(pr->preds[j]+N)>>1;
-		else if(disc<-8)
+		else if(diff<-8)
 			pr->preds[j]=(3*pr->preds[j]+N)>>2;
 	}
 	PROF(CALC_SUBPREDS);
@@ -732,7 +763,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		long long sse_val;
 		if(k<SSE_STAGES)
 		{
-			int qp=(int)(pr->pred>>(pr->shift_prec[kc]+8-(SSE_PREDBITS-1)));
+			int qp=(int)(pr->pred>>(sh+8-(SSE_PREDBITS-1)));
 			qp+=(1<<SSE_PREDBITS)>>1;
 			qp=CLAMP(0, qp, (1<<SSE_PREDBITS)-1);
 			pr->sse_idx[k]=(SSE_W*SSE_H*SSE_D)*qp+g[k];
@@ -833,10 +864,10 @@ static void slic5_update(SLIC5Ctx *pr, int curr, int token)
 	//update hist
 	++pr->hist[pr->cdfsize*pr->hist_idx+token];
 	++pr->histsums[pr->hist_idx];
-	if(pr->histsums[pr->hist_idx]>((long long)pr->iw*pr->nch<<1))//rescale hist
+	if(pr->histsums[pr->hist_idx]>(pr->iw*pr->nch<<1))//rescale hist
 	{
-		long long *curr_hist=pr->hist+pr->cdfsize*pr->hist_idx;
-		long long sum=0;
+		int *curr_hist=pr->hist+pr->cdfsize*pr->hist_idx;
+		int sum=0;
 		for(int ks=0;ks<pr->cdfsize;++ks)
 		{
 			curr_hist[ks]=(curr_hist[ks]+1)>>1;
@@ -1073,7 +1104,7 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 		printf("Hist WH %d*%d:\n", pr.cdfsize, pr.nhist*pr.nhist);
 		for(int kt=0;kt<pr.nhist*pr.nhist;++kt)
 		{
-			long long *curr_hist=pr.hist+pr.cdfsize*kt;
+			int *curr_hist=pr.hist+pr.cdfsize*kt;
 			for(int ks=0;ks<pr.cdfsize;++ks)
 				printf("%lld%c", curr_hist[ks], ks<pr.cdfsize-1?' ':'\n');
 		}
