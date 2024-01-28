@@ -478,7 +478,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		NEE     =LOAD(pr->pixels, -2, 1)<<PRED_PREC,
 		WW      =LOAD(pr->pixels,  2, 0)<<PRED_PREC,
 		W       =LOAD(pr->pixels,  1, 0)<<PRED_PREC;
-	long long
+	int
 		eNNWW    =LOAD(pr->errors,  2, 2),//error = (curr<<8) - pred
 		eNNW     =LOAD(pr->errors,  1, 2),
 		eNN      =LOAD(pr->errors,  0, 2),
@@ -505,19 +505,19 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	pr->preds[++j]=N-(int)((eN+eW+eNE)*pr->params[NPREDS+0]>>PARAM_PREC);
 	pr->preds[++j]=W-(int)((eN+eW+eNW)*pr->params[NPREDS+1]>>PARAM_PREC);
 	pr->preds[++j]=N-(int)((
-		eNW*pr->params[NPREDS+2]+
-		eN*pr->params[NPREDS+3]+
-		eNE*pr->params[NPREDS+4]+
+		(long long)eNW*pr->params[NPREDS+2]+
+		(long long)eN*pr->params[NPREDS+3]+
+		(long long)eNE*pr->params[NPREDS+4]+
 		((long long)NN-N)*pr->params[NPREDS+5]+
 		((long long)NW-W)*pr->params[NPREDS+6]
 	)>>PARAM_PREC);
 
 	pr->preds[++j]=(W+NEE)>>1;
-	pr->preds[++j]=N+NE-NNE;
+	pr->preds[++j]=N+NE-NNE-eNNE;
 	pr->preds[++j]=(N+W)>>1;
 	pr->preds[++j]=N+W-NW;//, pr->preds[j]=(int)MEDIAN3(N, W, pr->preds[j]);
 
-	pr->preds[++j]=2*W-WW;
+	pr->preds[++j]=2*W-WW+eW;
 	
 	//pr->preds[++j]=NW+NE-NN;//X
 	//pr->preds[++j]=(3*(N+W)-2*NW)>>2;//X
@@ -641,11 +641,11 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		//X
 		(NNE-NN)>>6,			//5	2/64
 		(NE-NNE)>>6,			//6	2/64
-		(int)eNW>>6,			//9	1/64
-		(int)eNE>>6,			//10	1/64
+		eNW>>6,				//9	1/64
+		eNE>>6,				//10	1/64
 		(3*(NE-NW)+NNWW-NNEE)>>9,	//4	8/512
-		(int)(eNE-eNNE)>>6,		//8	2/64
-		(int)(eNNE-eNN)>>6,		//7	2/64
+		(eNE-eNNE)>>6,			//8	2/64
+		(eNNE-eNN)>>6,			//7	2/64
 		(NW+3*(NE-N)-NEE)>>9,		//1	8/512
 		(NWW+3*(N-NW)-NE)>>9,		//2	8/512
 		(3*(N-W)+WW-NN)>>9,		//3	8/512
@@ -659,11 +659,11 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		//Y
 		(N-NW)>>4,		//5	2/16
 		(N-NN)>>4,		//6	2/16
-		(int)eW<<1,		//9	2/1
-		(int)eWW<<1,		//10	2/1
+		eW<<1,			//9	2/1
+		eWW<<1,			//10	2/1
 		(W-WW)>>3,		//4	2/8
-		(int)(eN-eNN)>>4,	//8	2/16
-		(int)(eN-eNW)>>4,	//7	2/16
+		(eN-eNN)>>4,		//8	2/16
+		(eN-eNW)>>4,		//7	2/16
 		(NE-NNEE)>>3,		//1	2/8
 		(N-NN)>>3,		//2	2/8
 		(NW-NNWW)>>3,		//3	2/8
@@ -677,11 +677,11 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		//Z
 		W-WW,			//5	2/1
 		W-NW,			//6	2/1
-		(int)eN<<1,		//9	2/1
-		(int)eNN<<1,		//10	2/1
+		eN<<1,			//9	2/1
+		eNN<<1,			//10	2/1
 		(NW+2*NE+WW-4*W)>>2,	//4	8/4
-		(int)(eW-eNW),		//8	2/1
-		(int)(eW-eWW),		//7	2/1
+		(eW-eNW),		//8	2/1
+		(eW-eWW),		//7	2/1
 		(NNE+NEE+2*W-4*NE)>>2,	//1	8/4
 		(W+NW+NE+NN-4*N)>>2,	//2	8/4
 		(NNW+NWW+W+N-4*NW)>>2,	//3	8/4
