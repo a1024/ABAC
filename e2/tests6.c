@@ -517,7 +517,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	pr->preds[++j]=(N+W)>>1;
 	pr->preds[++j]=N+W-NW;//, pr->preds[j]=(int)MEDIAN3(N, W, pr->preds[j]);
 
-	pr->preds[++j]=2*W-WW+eW;
+	pr->preds[++j]=2*W-WW+eW-eWW;
 	
 	//pr->preds[++j]=NW+NE-NN;//X
 	//pr->preds[++j]=(3*(N+W)-2*NW)>>2;//X
@@ -1106,7 +1106,7 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 		{
 			int *curr_hist=pr.hist+pr.cdfsize*kt;
 			for(int ks=0;ks<pr.cdfsize;++ks)
-				printf("%lld%c", curr_hist[ks], ks<pr.cdfsize-1?' ':'\n');
+				printf("%d%c", curr_hist[ks], ks<pr.cdfsize-1?' ':'\n');
 		}
 		
 #ifdef TRACK_SSE_RANGES
