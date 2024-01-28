@@ -306,7 +306,10 @@ void batch_test_mt(const char *path, int nthreads)
 	for(int k=0;k<(int)filenames->count;++k)
 	{
 		ArrayHandle *fn=(ArrayHandle*)array_at(&filenames, k);
-		ArrayHandle title=get_filetitle((char*)fn[0]->data, (int)fn[0]->count);
+		size_t start=0, end=0;
+		get_filetitle((char*)fn[0]->data, (int)fn[0]->count, &start, &end);
+		ArrayHandle title;
+		STR_COPY(title, (char*)fn[0]->data+start, end-start);
 		if(width<(int)title->count)
 			width=(int)title->count;
 		ARRAY_APPEND(titles, &title, 1, 1, 0);
@@ -982,6 +985,13 @@ static void test_one(const char *fn, ptrdiff_t formatsize)
 static void encode(const char *srcfn, const char *dstfn)
 {
 	printf("Encoding \"%s\"\n", srcfn);
+	size_t start=0, end=0;
+	get_filetitle(srcfn, -1, &start, &end);
+	if(!_stricmp(srcfn+end, ".PPM"))
+	{
+		t47_from_ppm(srcfn, dstfn);
+		return;
+	}
 	Image *src=image_load(srcfn);
 	if(!src)
 	{
@@ -1001,27 +1011,37 @@ static void encode(const char *srcfn, const char *dstfn)
 static void decode(const char *srcfn, const char *dstfn)
 {
 	printf("Decoding \"%s\"\n", srcfn);
-	ArrayHandle cdata=load_file(srcfn, 1, 16, 0);
-	if(!cdata)
+	size_t start=0, end=0;
+	get_filetitle(dstfn, -1, &start, &end);
+	if(!_stricmp(dstfn+end, ".PPM"))
 	{
-		printf("Cannot open \'%s\'", srcfn);
+		t47_to_ppm(srcfn, dstfn);
 		return;
 	}
-	LSIMHeader header;
-	size_t idx=lsim_readheader(cdata->data, cdata->count, &header);
-	Image *image=0;
-	image_from_lsimheader(&image, &header);
+	else if(!_stricmp(dstfn+end, ".PNG"))
+	{
+		ArrayHandle cdata=load_file(srcfn, 1, 16, 0);
+		if(!cdata)
+		{
+			printf("Cannot open \'%s\'", srcfn);
+			return;
+		}
+		LSIMHeader header;
+		size_t idx=lsim_readheader(cdata->data, cdata->count, &header);
+		Image *image=0;
+		image_from_lsimheader(&image, &header);
 
-	int success=DECODE(cdata->data+idx, cdata->count-idx, image, 1);
-	array_free(&cdata);
-	if(!success)
-	{
-		printf("Failed to decode \'%s\'", srcfn);
-		return;
+		int success=DECODE(cdata->data+idx, cdata->count-idx, image, 1);
+		array_free(&cdata);
+		if(!success)
+		{
+			printf("Failed to decode \'%s\'", srcfn);
+			return;
+		}
+		success=image_save_native(dstfn, image, !image->depth[3]);
+		printf("%s\n", success?"Saved.":"Failed to save.");
+		free(image);
 	}
-	success=image_save_native(dstfn, image, !image->depth[3]);
-	printf("%s\n", success?"Saved.":"Failed to save.");
-	free(image);
 }
 static void compare(const char *fn1, const char *fn2)
 {
@@ -1087,17 +1107,17 @@ ProgArgs args=
 #if 1
 	OP_TESTFILE, 1, 0,//op, nthreads, formatsize
 
-	"D:/ML/dataset-kodak/kodim13.png",
+//	"D:/ML/dataset-kodak/kodim13.png",
 //	"D:/ML/dataset-ic-rgb16bit/artificial.png",
 //	"D:/ML/dataset-ic-rgb16bit/big_building.png",
 //	"D:/ML/dataset-ic-rgb16bit/big_tree.png",
 //	"D:/ML/dataset-ic-rgb16bit/bridge.png",
 //	"D:/ML/dataset-ic-rgb16bit/cathedral.png",
 //	"D:/ML/dataset-ic-rgb16bit/deer.png",
-//	"D:/ML/dataset-LPCB/canon_eos_1100d_01.PNG",
 
 //	"C:/Projects/datasets/dataset-kodak/kodim02.png",
 //	"C:/Projects/datasets/dataset-kodak/kodim13.png",
+	"C:/Projects/datasets/dataset-kodak-CLIC30/01.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/artificial.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/big_building.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/cathedral.png",
@@ -1107,9 +1127,17 @@ ProgArgs args=
 //	"C:/Projects/datasets/dataset-LPCB/canon_eos_1100d_03.PNG",
 //	"C:/Projects/datasets/Screenshots/Screenshot 2023-03-12 181054.png",
 #else
-	OP_TESTFOLDER, 1, 0,
-	//"C:/Projects/datasets/dataset-LPCB",
-	"C:/Projects/datasets/Screenshots",
+	OP_COMPRESS, 1, 0,
+	"C:/Projects/datasets/space.ppm",
+	"C:/Projects/datasets/space.lsim",
+
+//	OP_DECOMPRESS, 1, 0,
+//	"C:/Projects/datasets/dataset-kodak-ppm/kodim13.lsim",
+//	"C:/Projects/datasets/dataset-kodak-ppm/kodim13-dec.ppm",
+
+//	OP_TESTFOLDER, 1, 0,
+//	//"C:/Projects/datasets/dataset-LPCB",
+//	"C:/Projects/datasets/Screenshots",
 #endif
 };
 //{
@@ -1119,6 +1147,20 @@ ProgArgs args=
 //};
 int main(int argc, char **argv)
 {
+#if 0
+	{
+		const char
+			*src="C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm",
+			*lsim="C:/Projects/datasets/dataset-kodak-ppm/kodim13.lsim",
+			*dec="C:/Projects/datasets/dataset-kodak-ppm/kodim13-dec.ppm";
+		t47_from_ppm(src, lsim);
+		t47_to_ppm(lsim, dec);
+
+		printf("Done.\n");
+		pause();
+		return 0;
+	}
+#endif
 	//const int LOL_1=(-1)/2;//0
 	//int width=10,
 	//	n=pyramid_getsize(width);

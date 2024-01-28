@@ -1940,9 +1940,8 @@ ArrayHandle filter_path(const char *path, int len)//replaces back slashes with s
 		STR_APPEND(path2, "/", 1, 1);
 	return path2;
 }
-ArrayHandle get_filetitle(const char *fn, int len)
+void get_filetitle(const char *fn, int len, size_t *idx_start, size_t *idx_end)//pass -1 for len if unknown
 {
-	ArrayHandle title;
 	int kpoint, kslash;
 	if(len<0)
 		len=(int)strlen(fn);
@@ -1951,8 +1950,10 @@ ArrayHandle get_filetitle(const char *fn, int len)
 		kpoint=len;
 	for(kslash=kpoint-1;kslash>=0&&fn[kslash]!='/'&&fn[kslash]!='\\';--kslash);
 	++kslash;
-	STR_COPY(title, fn+kslash, kpoint-kslash);
-	return title;
+	if(idx_start)
+		*idx_start=kslash;
+	if(idx_end)
+		*idx_end=kpoint;
 }
 static const char* get_extension(const char *filename, ptrdiff_t len)//excludes the dot
 {

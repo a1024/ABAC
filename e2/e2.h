@@ -176,6 +176,8 @@ int t46_decode(const unsigned char *data, size_t srclen, Image *dst, int loud);
 //SLIC v5
 int t47_encode(Image const *src, ArrayHandle *data, int loud);
 int t47_decode(const unsigned char *data, size_t srclen, Image *dst, int loud);
+int t47_from_ppm(const char *src, const char *dst);
+int t47_to_ppm(const char *src, const char *dst);
 
 
 

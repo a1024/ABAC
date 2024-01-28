@@ -5,6 +5,7 @@
 #include<stdlib.h>
 #include<string.h>
 #include<math.h>
+#include<ctype.h>
 #ifdef _MSC_VER
 #include<intrin.h>
 #else
@@ -1188,5 +1189,186 @@ int t47_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 	}
+	slic5_free(&pr);
+	return 1;
+}
+
+int t47_from_ppm(const char *src, const char *dst)
+{
+	double t=time_sec();
+	FILE *f=fopen(src, "rb");
+	if(!f)
+	{
+		printf("Cannot open \"%s\"\n", src);
+		return 0;
+	}
+	char buf[1024]={0};
+	int len=0, idx=0;
+	int iw, ih, maxval;
+	len=(int)fread(buf, 1, 1024, f);
+	if(memcmp(buf, "P6", 2))
+	{
+		fclose(f);
+		printf("Expected a Binary Portable PixMap (P6 header)\n");
+		return 0;
+	}
+	idx=2;
+	
+	char *end=0;
+	for(;idx<1024&&isspace(buf[idx]);++idx);//skip newline after 'P6'
+	iw=strtol(buf+idx, &end, 10);
+	idx=(int)(end-buf);
+
+	for(;idx<1024&&isspace(buf[idx]);++idx);//skip space after width
+	ih=strtol(buf+idx, &end, 10);
+	idx=(int)(end-buf);
+
+	for(;idx<1024&&isspace(buf[idx]);++idx);//skip newline after height
+	maxval=strtol(buf+idx, &end, 10);
+	idx=(int)(end-buf);
+	if(maxval!=255)
+	{
+		fclose(f);
+		printf("Expected an 8-bit image\n");
+		return 0;
+	}
+	for(;idx<1024&&isspace(buf[idx]);++idx);//skip newline after maxval
+	
+	DList list;
+	ArithmeticCoder ec;
+	SLIC5Ctx pr;
+	dlist_init(&list, 1, 65536, 0);
+	ac_enc_init(&ec, &list);
+	char depths[]={8, 8, 8, 0};
+	int success=slic5_init(&pr, iw, ih, 3, depths, &ec);
+	if(!success)
+	{
+		fclose(f);
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
+	for(int ky=0;ky<ih;++ky)
+	{
+		slic5_nextrow(&pr, ky);
+		for(int kx=0;kx<iw;++kx)
+		{
+			int r, g, b;
+#define CHECK_BUFFER()\
+	if(idx>=len)\
+	{\
+		len=(int)fread(buf, 1, 1024, f);\
+		idx=0;\
+		if(idx>=len)\
+		{\
+			LOG_ERROR("Alloc error");\
+			return 0;\
+		}\
+	}
+			CHECK_BUFFER()
+			r=(unsigned char)buf[idx++]-128;
+			CHECK_BUFFER()
+			g=(unsigned char)buf[idx++]-128;
+			CHECK_BUFFER()
+			b=(unsigned char)buf[idx++]-128;
+
+			r-=g;
+			b-=g;
+			g+=(r+b)>>2;
+
+			slic5_enc(&pr, g, 0, kx, ky);//Y
+			slic5_enc(&pr, b, 1, kx, ky);//Cb
+			slic5_enc(&pr, r, 2, kx, ky);//Cr
+		}
+		printf("%6.2lf%%  CR %10lf  Elapsed %12lf\r", 100.*(ky+1)/ih, 3.*iw*(ky+1)/list.nobj, time_sec()-t);
+	}
+	ac_enc_flush(&ec);
+
+	printf("\n");
+
+	ArrayHandle cdata=0;
+	lsim_writeheader(&cdata, iw, ih, 3, depths, 47);
+	dlist_appendtoarray(&list, &cdata);
+	
+	t=time_sec()-t;
+	printf("Encoded  %lf sec  CR 3*%d*%d/%d = %lf\n", t, iw, ih, (int)list.nobj, 3.*iw*ih/list.nobj);
+	
+	slic5_free(&pr);
+	dlist_clear(&list);
+	fclose(f);
+
+	success=save_file(dst, cdata->data, cdata->count, 1);
+	printf("%s \"%s\"\n", success?"Saved":"Failed to save", dst);
+
+	array_free(&cdata);
+	return 1;
+}
+int t47_to_ppm(const char *src, const char *dst)
+{
+	double t=time_sec();
+	ArrayHandle cdata=load_file(src, 1, 0, 0);
+	const unsigned char *data=cdata->data;
+	size_t srclen=cdata->count;
+	LSIMHeader header;
+	size_t bytesread=lsim_readheader(data, srclen, &header);
+	if(header.iw<1||header.ih<1||header.nch!=3||header.depth[0]!=8||header.depth[1]!=8||header.depth[2]!=8)
+	{
+		printf("Expected an 8-bit RGB image\n");
+		return 0;
+	}
+	data+=bytesread;
+	srclen-=bytesread;
+	FILE *f=fopen(dst, "wb");
+	if(!f)
+	{
+		printf("Failed to save \"%s\"\n", dst);
+		return 0;
+	}
+	int written=snprintf(g_buf, G_BUF_SIZE, "P6\n%d %d\n%d\n", header.iw, header.ih, (1<<header.depth[0])-1);
+	written=(int)fwrite(g_buf, 1, written, f);
+	if(!written)
+	{
+		printf("File write error");
+		return 0;
+	}
+	ArithmeticCoder ec;
+	SLIC5Ctx pr;
+	ac_dec_init(&ec, data, data+srclen);
+	int success=slic5_init(&pr, header.iw, header.ih, header.nch, header.depth, &ec);
+	if(!success)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
+	for(int ky=0;ky<header.ih;++ky)
+	{
+		slic5_nextrow(&pr, ky);
+		for(int kx=0;kx<header.iw;++kx)
+		{
+			int g=slic5_dec(&pr, 0, kx, ky);//Y
+			int b=slic5_dec(&pr, 1, kx, ky);//Cb
+			int r=slic5_dec(&pr, 2, kx, ky);//Cr
+
+			g-=(r+b)>>2;
+			b+=g;
+			r+=g;
+
+			char triplet[]={r+128, g+128, b+128, 0};
+			written=fwrite(triplet, 1, 3, f);
+			if(!written)
+			{
+				printf("File write error");
+				return 0;
+			}
+		}
+		printf("%6.2lf%%  Elapsed %12lf\r", 100.*(ky+1)/header.ih, time_sec()-t);
+	}
+
+	printf("\n");
+
+	t=time_sec()-t;
+	printf("Decoded  %lf sec\n", t);
+	
+	slic5_free(&pr);
+	fclose(f);
 	return 1;
 }
