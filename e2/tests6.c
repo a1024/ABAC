@@ -84,7 +84,7 @@ static void prof_print()
 
 #define CDF_UPDATE_PERIOD 0x400//number of sub-pixels processed between CDF updates, must be a power-of-two
 #define PAD_SIZE 2
-#define NPREDS 12
+#define NPREDS 13
 #define PRED_PREC 8
 #define PARAM_PREC 8
 #define HIST_EXP 2
@@ -228,7 +228,9 @@ static const int wp_params[]=
 	//0x00016056,//W+NW-NWW X	2nd worst	2nd worst	worst
 	//0x00016056,//N+NEE-NNEE X	very bad	worst
 	0x00016056,//(N+W)>>1
-	0x00016056,//(4*(W+NW+N+NE)-(WW+NNWW+NN+NNEE)+12)/24
+	0x00016056,//(4*(W+NW+N+NE)-(WW+NNWW+NN+NNEE)+6)/12
+	0x00016056,//(W+2*NE-NNE)>>1
+	//0x00016056,//(2*(W+N+NE)-(NNW+NNE))>>2 X
 	//0x00016056,//NW+NE-NN X
 	0x00016056,//(N+NN)>>1
 	0x00016056,//grad								3rd best
@@ -278,6 +280,7 @@ typedef struct SLIC5CtxStruct
 	int hist_idx;
 	int sse_corr;
 	int kc, kx, ky, kym0, kym1, kym2;
+	long long pred_error_sums[NPREDS];
 #ifdef TRACK_SSE_RANGES
 	int sse_ranges[8];
 #endif
@@ -528,8 +531,15 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 
 	pr->preds[++j]=(W+NEE)>>1;
 	pr->preds[++j]=N+NE-NNE-eNNE;
+	//pr->preds[++j]=4*NE-(N+NEE+NNEE);
 	pr->preds[++j]=(N+W)>>1;
-	pr->preds[++j]=(4*(W+NW+N+NE)-(WW+NNWW+NN+NNEE)+12)/24;
+	pr->preds[++j]=(4*(N+W+NW+NE)-(NN+WW+NNWW+NNEE)+6)/12;
+	//pr->preds[++j]=(int)((181*(4*((long long)N+W)-((long long)NN+WW))+128*(4*((long long)NW+NE)-((long long)NNWW+NNEE))+1854)/3708);//X
+	
+	pr->preds[++j]=(W+2*NE-NNE+eNE)>>1;
+	//pr->preds[++j]=(2*(W+N+NE)-(NNW+NNE))>>2;//X
+	//pr->preds[++j]=(2*(W+NEE)-NNEE)/3;//X
+	//pr->preds[++j]=(W+2*N-NNW)>>1;//X
 	pr->preds[++j]=N+W-NW;
 
 	pr->preds[++j]=2*W-WW+eW-eWW;
@@ -594,7 +604,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		pr->preds[j]=N;
 	else
 	{
-		pr->preds[j]=(((N+W)<<1)+(NE-NW))>>2;
+		pr->preds[j]=(((N+W)<<1)+NE-NW)>>2;
 		if(diff>32)
 			pr->preds[j]=(pr->preds[j]+W)>>1;
 		else if(diff>8)
@@ -852,6 +862,8 @@ static void slic5_update(SLIC5Ctx *pr, int curr, int token)
 			pr->pred_errors[(NPREDS*(pr->kym1+pr->kx+1+PAD_SIZE)+k)<<2|kc]+=errors[k];//eNE += ecurr
 		if(errors[kbest]>errors[k])
 			kbest=k;
+
+		pr->pred_error_sums[k]+=errors[k];
 	}
 
 	//update WP weights
@@ -1126,6 +1138,12 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 			printf("\n");
 		}
 #endif
+		printf("Pred errors\n");
+		long long sum=0;
+		for(int k=0;k<NPREDS;++k)
+			sum+=pr.pred_error_sums[k];
+		for(int k=0;k<NPREDS;++k)
+			printf("  %2d  %12lld  %6.2lf%%\n", k, pr.pred_error_sums[k], 100.*pr.pred_error_sums[k]/sum);
 
 		printf("Bias\n");
 		for(int kc=0;kc<src->nch;++kc)
