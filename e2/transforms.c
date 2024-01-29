@@ -338,10 +338,10 @@ void colortransform_YCoCg_R_fwd(char *buf, int iw, int ih)
 	{
 		char r=buf[k], g=buf[k|1], b=buf[k|2];
 
-		r-=b;
-		b+=r>>1;
-		g-=b;
-		b+=g>>1;
+		r-=b;		//Co	[1	0	-1]
+		b+=r>>1;	//	[1/2	0	1/2]
+		g-=b;		//Cg	[-1/2	1	-1/2]
+		b+=g>>1;	//Y	[1/4	1/2	1/4]
 
 		buf[k  ]=b;//Y
 		buf[k|1]=g;//Cg

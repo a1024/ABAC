@@ -337,9 +337,10 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 	int extremesym=-((1<<maxdepth)>>1);
 	extremesym=extremesym<<1^-(extremesym<0);//pack sign
 	hybriduint_encode(extremesym, &hu);//encode -half
+	pr->cdfsize=hu.token+1;
 	pr->nhist=QUANTIZE_HIST(767);
 	//pr->nhist=1<<3;//X
-	pr->cdfsize=hu.token+1;
+
 	//pr->sse_width=7;
 	//pr->sse_height=21;
 	//pr->sse_depth=21;
@@ -655,6 +656,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		pr->pred=pr->preds[0];
 	PROF(CALC_WEIGHT_AV);
 
+#if 1
 	int qx=QUANTIZE_HIST((dx+abs(eW+eWW))>>(sh-2)), qy=QUANTIZE_HIST((dy+abs(eN+eNN))>>(sh-2));
 
 	//int qx=dx>>(sh+8-3), qy=dy>>(sh+8-3);//X
@@ -668,6 +670,9 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	qx=CLAMP(0, qx, pr->nhist-1);
 	qy=CLAMP(0, qy, pr->nhist-1);
 	pr->hist_idx=pr->nhist*qy+qx;
+#endif
+	//pr->hist_idx=QUANTIZE_HIST((dx+abs(eW+eWW)+dy+abs(eN+eNN))>>(sh-2));
+	//pr->hist_idx=CLAMP(0, pr->hist_idx, pr->nhist*pr->nhist-1);
 
 #ifndef DISABLE_SSE
 #ifdef AVX2
@@ -1079,6 +1084,142 @@ static int slic5_dec(SLIC5Ctx *pr, int kc, int kx, int ky)
 	slic5_update(pr, curr, token);
 	return curr;
 }
+typedef enum RCTTypeEnum
+{
+	RCT_NONE,
+	RCT_SubGreen,
+	RCT_JPEG2000,
+	RCT_YCoCg_R,
+	RCT_YCbCr_R_v1,
+	RCT_YCbCr_R_v2,
+	RCT_YCbCr_R_v3,
+	RCT_YCbCr_R_v4,
+	RCT_COUNT,
+} RCTType;
+static RCTType select_best_RCT(Image const *src)
+{
+	int inflation[]={1, 1, 1, 0};
+	int maxdepth=calc_maxdepth(src, inflation), maxlevels=1<<maxdepth;
+	int *hist=(int*)malloc(src->nch*maxlevels*sizeof(int[RCT_COUNT]));
+	if(!hist)
+	{
+		LOG_ERROR("Alloc error");
+		return RCT_NONE;
+	}
+	memset(hist, 0, src->nch*maxlevels*sizeof(int[RCT_COUNT]));
+	int res=src->iw*src->ih;
+	int nlevels[]=
+	{
+		1<<src->depth[0],	//0 r
+		1<<src->depth[1],	//1 Y/g
+		1<<src->depth[2],	//2 b
+		1<<(src->depth[2]+1),	//3 Cb
+		1<<(src->depth[0]+1),	//4 Cr
+	};
+	for(int k=0;k<res;++k)
+	{
+		int v[]={src->data[k<<2|0], src->data[k<<2|1], src->data[k<<2|2]}, r, g, b;
+#define CLAMP_PIXEL(IDX, X, CH) maxlevels*IDX+((X+(nlevels[CH]>>1))&(nlevels[CH]-1))
+
+		//RCT_NONE
+		r=v[0], g=v[1], b=v[2];
+		++hist[CLAMP_PIXEL( 0, g, 1)];
+		++hist[CLAMP_PIXEL( 1, b, 2)];
+		++hist[CLAMP_PIXEL( 2, r, 0)];
+		
+		//RCT_SubGreen
+		r=v[0], g=v[1], b=v[2];
+		r-=g;
+		b-=g;
+		++hist[CLAMP_PIXEL( 3, g, 1)];
+		++hist[CLAMP_PIXEL( 4, b, 3)];
+		++hist[CLAMP_PIXEL( 5, r, 4)];
+
+		//RCT_JPEG2000
+		r=v[0], g=v[1], b=v[2];
+		r-=g;
+		b-=g;
+		g+=(r+b)>>1;
+		++hist[CLAMP_PIXEL( 6, g, 1)];
+		++hist[CLAMP_PIXEL( 7, b, 3)];
+		++hist[CLAMP_PIXEL( 8, r, 4)];
+
+		//RCT_YCoCg_R
+		r=v[0], g=v[1], b=v[2];
+		r-=b;
+		b+=r>>1;
+		g-=b;
+		b+=g>>1;
+		++hist[CLAMP_PIXEL( 9, g, 1)];
+		++hist[CLAMP_PIXEL(10, b, 3)];
+		++hist[CLAMP_PIXEL(11, r, 4)];
+
+		//RCT_YCbCr_R_v1
+		r=v[0], g=v[1], b=v[2];
+		r-=g;
+		g+=r>>1;
+		b-=g;
+		g+=b>>1;
+		++hist[CLAMP_PIXEL(12, g, 1)];
+		++hist[CLAMP_PIXEL(13, b, 3)];
+		++hist[CLAMP_PIXEL(14, r, 4)];
+
+		//RCT_YCbCr_R_v2
+		r=v[0], g=v[1], b=v[2];
+		r-=g;
+		g+=r>>1;
+		b-=g;
+		g+=(2*b-r+4)>>3;
+		++hist[CLAMP_PIXEL(15, g, 1)];
+		++hist[CLAMP_PIXEL(16, b, 3)];
+		++hist[CLAMP_PIXEL(17, r, 4)];
+
+		//RCT_YCbCr_R_v3
+		r=v[0], g=v[1], b=v[2];
+		r-=g;
+		g+=r>>1;
+		b-=g;
+		g+=(2*b+r+4)>>3;
+		++hist[CLAMP_PIXEL(18, g, 1)];
+		++hist[CLAMP_PIXEL(19, b, 3)];
+		++hist[CLAMP_PIXEL(20, r, 4)];
+
+		//RCT_YCbCr_R_v4
+		r=v[0], g=v[1], b=v[2];
+		r-=g;
+		g+=r>>1;
+		b-=g;
+		g+=b/3;
+		++hist[CLAMP_PIXEL(21, g, 1)];
+		++hist[CLAMP_PIXEL(22, b, 3)];
+		++hist[CLAMP_PIXEL(23, r, 4)];
+	}
+	int kbest=0;
+	double bestsize=0;
+	for(int kt=0;kt<RCT_COUNT;++kt)
+	{
+		double csizes[3]={0};
+		for(int kc=0;kc<3;++kc)
+		{
+			int *curr_hist=hist+maxlevels*(3*kt+kc);
+			for(int ks=0;ks<maxlevels;++ks)
+			{
+				int freq=curr_hist[ks];
+				if(freq)
+				{
+					double p=(double)freq/res;
+					double bitsize=-log2(p);
+					csizes[kc]+=freq*bitsize;
+				}
+			}
+		}
+		double csize=csizes[0]+csizes[1]+csizes[2];
+		if(!kt||bestsize>csize)
+			kbest=kt, bestsize=csize;
+	}
+	free(hist);
+	return kbest;
+}
 static const Image *guide=0;
 int t47_encode(Image const *src, ArrayHandle *data, int loud)
 {
@@ -1090,6 +1231,8 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 		acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H-%M-%S");
 		printf("T47 SLIC5-AC  Enc %s  CWHD %d*%d*%d*%d/8\n", g_buf, src->nch, src->iw, src->ih, maxdepth);
 	}
+	RCTType best_rct=src->nch>=3?select_best_RCT(src):RCT_NONE;
+	double t_selectRCT=time_sec()-t_start;
 	DList list;
 	ArithmeticCoder ec;
 	SLIC5Ctx pr;
@@ -1101,20 +1244,68 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 		LOG_ERROR("Alloc error");
 		return 0;
 	}
+	if(src->nch>=3)//emit best RCT
+		dlist_push_back1(&list, &best_rct);
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
 		slic5_nextrow(&pr, ky);
 		for(int kx=0;kx<src->iw;++kx, idx+=4)
 		{
+			//if(kx==2656&&ky==1118)//
+			//	printf("");
+
 			int kc=0;
 			if(src->nch>=3)
 			{
 				int r=src->data[idx|0], g=src->data[idx|1], b=src->data[idx|2];
-
-				r-=g;
-				b-=g;
-				g+=(r+b)>>2;
-
+				switch(best_rct)
+				{
+				case RCT_SubGreen:
+					r-=g;
+					b-=g;
+					break;
+				case RCT_JPEG2000:
+					r-=g;
+					b-=g;
+					g+=(r+b)>>2;
+					break;
+				case RCT_YCoCg_R:
+					r-=b;
+					b+=r>>1;
+					g-=b;
+					b+=g>>1;
+					{
+						int temp;
+						SWAPVAR(g, b, temp);//move luma from C2 to C1
+					}
+					break;
+				case RCT_YCbCr_R_v1:
+					r-=g;
+					g+=r>>1;
+					b-=g;
+					g+=b>>1;
+					break;
+				case RCT_YCbCr_R_v2:
+					r-=g;
+					g+=r>>1;
+					b-=g;
+					g+=(2*b-r+4)>>3;
+					break;
+				case RCT_YCbCr_R_v3:
+					r-=g;
+					g+=r>>1;
+					b-=g;
+					g+=(2*b+r+4)>>3;
+					break;
+				case RCT_YCbCr_R_v4:
+					r-=g;
+					g+=r>>1;
+					b-=g;
+					g+=b/3;
+					break;
+				default:
+					break;
+				}
 				slic5_enc(&pr, g, 0, kx, ky);//Y
 				slic5_enc(&pr, b, 1, kx, ky);//Cb
 				slic5_enc(&pr, r, 2, kx, ky);//Cr
@@ -1136,6 +1327,8 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 		printf("\n");
 		printf("Encode elapsed ");
 		timedelta2str(0, 0, time_sec()-t_start);
+		if(src->nch>=3)
+			printf(" (select RCT=%d  %lf sec)", best_rct, t_selectRCT);
 		printf("\n");
 		printf("csize %8d  CR %10.6lf\n", (int)list.nobj, usize/list.nobj);
 
@@ -1193,6 +1386,23 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 int t47_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 {
 	double t_start=time_sec();
+	RCTType best_rct=RCT_NONE;
+	if(dst->nch>=3)
+	{
+		if(srclen<1)
+		{
+			LOG_ERROR("Corrupt file");
+			return 0;
+		}
+		best_rct=*data;
+		if((unsigned)best_rct>=(unsigned)RCT_COUNT)
+		{
+			LOG_ERROR("Corrupt file");
+			return 0;
+		}
+		++data;
+		--srclen;
+	}
 	ArithmeticCoder ec;
 	SLIC5Ctx pr;
 	ac_dec_init(&ec, data, data+srclen);
@@ -1207,23 +1417,66 @@ int t47_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 		slic5_nextrow(&pr, ky);
 		for(int kx=0;kx<dst->iw;++kx, idx+=4)
 		{
+			//if(kx==2656&&ky==1118)//
+			//	printf("");
+
 			int kc=0;
 			if(dst->nch>=3)
 			{
 				int g=slic5_dec(&pr, 0, kx, ky);//Y
 				int b=slic5_dec(&pr, 1, kx, ky);//Cb
 				int r=slic5_dec(&pr, 2, kx, ky);//Cr
+				switch(best_rct)
+				{
+				case RCT_SubGreen:
+					b+=g;
+					r+=g;
+					break;
+				case RCT_JPEG2000:
+					g-=(r+b)>>2;
+					b+=g;
+					r+=g;
+					break;
+				case RCT_YCoCg_R:
+					{
+						int temp;
+						SWAPVAR(g, b, temp);//move luma from C2 to C1
+					}
+					b-=g>>1;
+					g+=b;
+					b-=r>>1;
+					r+=b;
+					break;
+				case RCT_YCbCr_R_v1:
+					g-=b>>1;
+					b+=g;
+					g-=r>>1;
+					r+=g;
+					break;
+				case RCT_YCbCr_R_v2:
+					g-=(2*b-r+4)>>3;
+					b+=g;
+					g-=r>>1;
+					r+=g;
+					break;
+				case RCT_YCbCr_R_v3:
+					g-=(2*b+r+4)>>3;
+					b+=g;
+					g-=r>>1;
+					r+=g;
+					break;
+				case RCT_YCbCr_R_v4:
+					g-=b/3;
+					b+=g;
+					g-=r>>1;
+					r+=g;
+					break;
+				default:
+					break;
+				}
 
-				g-=(r+b)>>2;
-				b+=g;
-				r+=g;
 				//if(guide&&(r!=guide->data[(guide->iw*ky+kx)<<2|0]||g!=guide->data[(guide->iw*ky+kx)<<2|1]||b!=guide->data[(guide->iw*ky+kx)<<2|2]))
-				//{
-				//	r-=g;
-				//	b-=g;
-				//	g+=(r+b)>>2;
 				//	LOG_ERROR("Guide error XY %d %d", kx, ky);
-				//}
 
 				dst->data[idx|0]=r;
 				dst->data[idx|1]=g;
