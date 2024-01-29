@@ -176,15 +176,26 @@ static int quantize_signed(int val, int shift, int exp, int msb, int nlevels)
 	//token=CLAMP(0, token, nlevels-1);
 	return token;
 }
-static int QUANTIZE_HIST(int x)
-{
-	int token=quantize_unsigned(x, HIST_EXP, HIST_MSB);
-	if(token<128)
-		token>>=1;
-	else
-		token-=64;
-	return token;
-}
+#define QUANTIZE_HIST(X) (quantize_unsigned(X, HIST_EXP, HIST_MSB)>>1)
+//static int QUANTIZE_HIST(int x)
+//{
+//	int token=quantize_unsigned(x, HIST_EXP, HIST_MSB);
+//
+//	//if(token<(1<<HIST_EXP))
+//	//	token>>=1;
+//	//else
+//	//	token-=(1<<HIST_EXP)>>1;
+//
+//	token>>=1;
+//	//token-=token!=0;
+//	
+//	//if(token<128)//ORIGINAL
+//	//	token>>=1;
+//	//else
+//	//	token-=64;
+//	//
+//	return token;
+//}
 #if defined AVX2 || defined AVX512
 static void avx2_floor_log2_p1(__m256i *x)//floor_log2()+1
 {
@@ -327,6 +338,7 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 	extremesym=extremesym<<1^-(extremesym<0);//pack sign
 	hybriduint_encode(extremesym, &hu);//encode -half
 	pr->nhist=QUANTIZE_HIST(767);
+	//pr->nhist=1<<3;//X
 	pr->cdfsize=hu.token+1;
 	//pr->sse_width=7;
 	//pr->sse_height=21;
@@ -643,7 +655,16 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		pr->pred=pr->preds[0];
 	PROF(CALC_WEIGHT_AV);
 
-	int qx=QUANTIZE_HIST(dx>>(sh-2)), qy=QUANTIZE_HIST(dy>>(sh-2));
+	int qx=QUANTIZE_HIST((dx+abs(eW+eWW))>>(sh-2)), qy=QUANTIZE_HIST((dy+abs(eN+eNN))>>(sh-2));
+
+	//int qx=dx>>(sh+8-3), qy=dy>>(sh+8-3);//X
+
+	//int hist_sh=sh;
+	//hist_sh-=pr->depths[kc]==9;
+	//hist_sh-=pr->depths[kc]>9;
+	//int qx=quantize_unsigned(dx>>hist_sh, HIST_EXP, HIST_MSB)>>(pr->depths[kc]>9);
+	//int qy=quantize_unsigned(dy>>hist_sh, HIST_EXP, HIST_MSB)>>(pr->depths[kc]>9);
+
 	qx=CLAMP(0, qx, pr->nhist-1);
 	qy=CLAMP(0, qy, pr->nhist-1);
 	pr->hist_idx=pr->nhist*qy+qx;
@@ -1118,36 +1139,50 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 		printf("\n");
 		printf("csize %8d  CR %10.6lf\n", (int)list.nobj, usize/list.nobj);
 
-		printf("Hist WH %d*%d:\n", pr.cdfsize, pr.nhist*pr.nhist);
-		for(int kt=0;kt<pr.nhist*pr.nhist;++kt)
+		const char *ch_labels[]={"Y", "Cb", "Cr", "A"};
+		int ch_nhist=pr.nhist*pr.nhist, total_hist=pr.nch*ch_nhist;
+		printf("Hist CWH %d*%d*%d:\n", pr.nch, pr.cdfsize, ch_nhist);
+		for(int kt=0;kt<total_hist;++kt)
 		{
 			int *curr_hist=pr.hist+pr.cdfsize*kt;
+			if(!(kt%ch_nhist))
+				printf("%s  %d-bit\n", ch_labels[kt/ch_nhist], pr.depths[kt/ch_nhist]);
 			for(int ks=0;ks<pr.cdfsize;++ks)
 				printf("%d%c", curr_hist[ks], ks<pr.cdfsize-1?' ':'\n');
+			if(!((kt+1)%pr.nhist)&&kt+1<total_hist)
+				printf("\n");
 		}
-		
-#ifdef TRACK_SSE_RANGES
-		const char labels[]="XYZP";
-		printf("SSE ranges\n");
-		for(int k=0;k<_countof(pr.sse_ranges)-1;k+=2)
-		{
-			int n=(&pr.sse_width)[k>>1];
-			printf("  %c %4d ~ %4d / %4d  ", labels[k>>1], pr.sse_ranges[k], pr.sse_ranges[k+1], n);
-			for(int k2=0;k2<n;++k2)
-				printf("%c", k2>=pr.sse_ranges[k]&&k2<=pr.sse_ranges[k+1]?'*':'-');
-			printf("\n");
-		}
-#endif
+
 		printf("Pred errors\n");
 		long long sum=0;
 		for(int k=0;k<NPREDS;++k)
 			sum+=pr.pred_error_sums[k];
 		for(int k=0;k<NPREDS;++k)
 			printf("  %2d  %12lld  %6.2lf%%\n", k, pr.pred_error_sums[k], 100.*pr.pred_error_sums[k]/sum);
+		
+#ifdef TRACK_SSE_RANGES
+		const char dim_labels[]="XYZP";
+		printf("SSE ranges\n");
+		for(int k=0;k<_countof(pr.sse_ranges)-1;k+=2)
+		{
+			int n=(&pr.sse_width)[k>>1];
+			printf("  %c %4d ~ %4d / %4d  ", dim_labels[k>>1], pr.sse_ranges[k], pr.sse_ranges[k+1], n);
+			for(int k2=0;k2<n;++k2)
+				printf("%c", k2>=pr.sse_ranges[k]&&k2<=pr.sse_ranges[k+1]?'*':'-');
+			printf("\n");
+		}
+#endif
 
 		printf("Bias\n");
 		for(int kc=0;kc<src->nch;++kc)
 			printf("  %lld/%d = %d\n", pr.bias_sum[kc], pr.bias_count[kc], pr.bias_count[kc]?(int)(pr.bias_sum[kc]/pr.bias_count[kc]):0);
+
+		//for(int k=0;k<768;k+=4)
+		//{
+		//	int q=QUANTIZE_HIST(k);
+		//	int q2=floor_log2_32(k)+1;
+		//	printf("%3d  %3d  %3d\n", k, q, q2);
+		//}
 
 		prof_print();
 	}
