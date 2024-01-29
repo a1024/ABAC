@@ -262,10 +262,12 @@ typedef struct SLIC5CtxStruct
 	int *hist, *histsums;
 	CDF_t *CDFs;
 
+#ifndef DISABLE_SSE
 	long long *sse, *sse_fr;
 	int sse_idx[SSE_STAGES+1];
 	long long sse_sum[SSE_STAGES+1];
 	int sse_count[SSE_STAGES+1];
+#endif
 	int bias_count[4];
 	long long bias_sum[4];
 
@@ -349,9 +351,15 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 	pr->hist=(int*)malloc((size_t)nch*pr->nhist*pr->nhist*pr->cdfsize*sizeof(int));//WH: cdfsize * NHIST
 	pr->histsums=(int*)malloc((size_t)nch*pr->nhist*pr->nhist*sizeof(int));
 	pr->CDFs=(CDF_t*)malloc((size_t)nch*pr->nhist*pr->nhist*(pr->cdfsize+1LL)*sizeof(CDF_t));
+#ifndef DISABLE_SSE
 	pr->sse=(long long*)malloc(nch*sizeof(long long[SSE_SIZE*SSE_STAGES]));
 	pr->sse_fr=(long long*)malloc(nch*sizeof(long long[SSE_FR_SIZE]));
-	if(!pr->pred_errors||!pr->errors||!pr->pixels||!pr->hist||!pr->histsums||!pr->CDFs||!pr->sse||!pr->sse_fr)
+#endif
+	if(!pr->pred_errors||!pr->errors||!pr->pixels||!pr->hist||!pr->histsums||!pr->CDFs
+#ifndef DISABLE_SSE
+		||!pr->sse||!pr->sse_fr
+#endif
+	)
 	{
 		LOG_ERROR("Alloc error");
 		return 0;
@@ -407,9 +415,11 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 	}
 	pr->CDFs[pr->cdfsize]=1<<CDF_SHIFT;
 	memfill(pr->CDFs+pr->cdfsize+1, pr->CDFs, ((size_t)nch*pr->nhist*pr->nhist-1LL)*(pr->cdfsize+1LL)*sizeof(CDF_t), (pr->cdfsize+1LL)*sizeof(CDF_t));
-
+	
+#ifndef DISABLE_SSE
 	memset(pr->sse, 0, nch*sizeof(long long[SSE_SIZE*SSE_STAGES]));
 	memset(pr->sse_fr, 0, nch*sizeof(long long[SSE_FR_SIZE]));
+#endif
 
 	int shift=16-maxdepth;
 	shift=MAXVAR(0, shift);
@@ -428,8 +438,10 @@ static void slic5_free(SLIC5Ctx *pr)
 	free(pr->hist);
 	free(pr->histsums);
 	free(pr->CDFs);
+#ifndef DISABLE_SSE
 	free(pr->sse);
 	free(pr->sse_fr);
+#endif
 }
 static void slic5_update_CDFs(SLIC5Ctx *pr)
 {
@@ -897,10 +909,10 @@ static void slic5_update(SLIC5Ctx *pr, int curr, int token)
 		else
 			pr->sse_fr[SSE_FR_SIZE*kc+pr->sse_idx[k]]=sse_val;
 	}
+#endif
 	++pr->bias_count[kc];
 	pr->bias_sum[kc]+=error;
 	PROF(UPDATE_SSE);
-#endif
 }
 #undef  LOAD
 static void slic5_enc(SLIC5Ctx *pr, int curr, int kc, int kx, int ky)
