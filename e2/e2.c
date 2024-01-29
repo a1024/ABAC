@@ -1116,6 +1116,7 @@ ProgArgs args=
 	OP_TESTFILE, 1, 0,//op, nthreads, formatsize
 
 	"D:/ML/dataset-kodak/kodim13.png",
+//	"D:/ML/temp/sony_a55_10.PNG",
 //	"D:/ML/dataset-ic-rgb16bit/artificial.png",
 //	"D:/ML/dataset-ic-rgb16bit/big_building.png",
 //	"D:/ML/dataset-ic-rgb16bit/big_tree.png",

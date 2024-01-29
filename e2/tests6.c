@@ -1087,115 +1087,147 @@ static int slic5_dec(SLIC5Ctx *pr, int kc, int kx, int ky)
 	slic5_update(pr, curr, token);
 	return curr;
 }
+#define RCTLIST\
+	RCT(NONE)\
+	RCT(SubGreen)\
+	RCT(JPEG2000)\
+	RCT(YCoCg_R)\
+	RCT(YCbCr_R_v1)\
+	RCT(YCbCr_R_v2)\
+	RCT(YCbCr_R_v3)\
+	RCT(YCbCr_R_v4)\
+	RCT(YCbCr_R_v7)
 typedef enum RCTTypeEnum
 {
-	RCT_NONE,
-	RCT_SubGreen,
-	RCT_JPEG2000,
-	RCT_YCoCg_R,
-	RCT_YCbCr_R_v1,
-	RCT_YCbCr_R_v2,
-	RCT_YCbCr_R_v3,
-	RCT_YCbCr_R_v4,
+#define RCT(X) RCT_##X,
+	RCTLIST
+#undef  RCT
 	RCT_COUNT,
 } RCTType;
-static RCTType select_best_RCT(Image const *src)
+static const char *rct_names[]=
+{
+#define RCT(X) #X,
+	RCTLIST
+#undef  RCT
+};
+static RCTType rct_select_best(Image const *src, double *ret_csizes)
 {
 	int inflation[]={1, 1, 1, 0};
 	int maxdepth=calc_maxdepth(src, inflation), maxlevels=1<<maxdepth;
 	int *hist=(int*)malloc(src->nch*maxlevels*sizeof(int[RCT_COUNT]));
-	if(!hist)
+	int *pixels=(int*)malloc((src->iw+2LL)*sizeof(int[4*2*RCT_COUNT]));//(iw + 2 padding) * 4 channels * 2 rows * N_RCT	need 2 rows because of NW
+	if(!hist||!pixels)
 	{
 		LOG_ERROR("Alloc error");
 		return RCT_NONE;
 	}
 	memset(hist, 0, src->nch*maxlevels*sizeof(int[RCT_COUNT]));
+	memset(pixels, 0, src->iw*sizeof(int[4*RCT_COUNT]));
 	int res=src->iw*src->ih;
-	int nlevels[]=
+	int nlevels[][3]=
 	{
-		1<<src->depth[0],	//0 r
-		1<<src->depth[1],	//1 Y/g
-		1<<src->depth[2],	//2 b
-		1<<(src->depth[2]+1),	//3 Cb
-		1<<(src->depth[0]+1),	//4 Cr
+		{1<<src->depth[1], 1<<src->depth[2], 1<<src->depth[0]},//RCT_NONE
+		{1<<src->depth[1], 1<<(src->depth[2]+1), 1<<(src->depth[0]+1)},
 	};
-	for(int k=0;k<res;++k)
+	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
-		int v[]={src->data[k<<2|0], src->data[k<<2|1], src->data[k<<2|2]}, r, g, b;
-#define CLAMP_PIXEL(IDX, X, CH) maxlevels*IDX+((X+(nlevels[CH]>>1))&(nlevels[CH]-1))
+		int row0=ky&1, row1=!row0;
+		for(int kx=0;kx<src->iw;++kx, ++idx)
+		{
+			int v[]={src->data[idx<<2|0], src->data[idx<<2|1], src->data[idx<<2|2]}, r, g, b, N, W, NW, pred;
 
-		//RCT_NONE
-		r=v[0], g=v[1], b=v[2];
-		++hist[CLAMP_PIXEL( 0, g, 1)];
-		++hist[CLAMP_PIXEL( 1, b, 2)];
-		++hist[CLAMP_PIXEL( 2, r, 0)];
-		
-		//RCT_SubGreen
-		r=v[0], g=v[1], b=v[2];
-		r-=g;
-		b-=g;
-		++hist[CLAMP_PIXEL( 3, g, 1)];
-		++hist[CLAMP_PIXEL( 4, b, 3)];
-		++hist[CLAMP_PIXEL( 5, r, 4)];
+#define GET_PIXEL(RCT_IDX, C, X, Y) pixels[(src->iw*(RCT_IDX<<1|row##Y)+kx+1-X)<<2|C]
+#define PROCESS_SUBPIXEL(RCT_IDX, C, X, N_IDX)\
+	GET_PIXEL(RCT_IDX, C, 0, 0)=X,\
+	N=GET_PIXEL(RCT_IDX, C, 0, 1),\
+	W=GET_PIXEL(RCT_IDX, C, 1, 0),\
+	NW=GET_PIXEL(RCT_IDX, C, 1, 1),\
+	pred=N+W-NW, pred=MEDIAN3(N, W, pred), X-=pred,\
+	++hist[maxlevels*(3*RCT_IDX+C)+((X+(nlevels[N_IDX][C]>>1))&(nlevels[N_IDX][C]-1))]
+			
+			//RCT_NONE
+			r=v[0], g=v[1], b=v[2];
+			PROCESS_SUBPIXEL(RCT_NONE, 0, g, 0);
+			PROCESS_SUBPIXEL(RCT_NONE, 1, b, 0);
+			PROCESS_SUBPIXEL(RCT_NONE, 2, r, 0);
 
-		//RCT_JPEG2000
-		r=v[0], g=v[1], b=v[2];
-		r-=g;
-		b-=g;
-		g+=(r+b)>>1;
-		++hist[CLAMP_PIXEL( 6, g, 1)];
-		++hist[CLAMP_PIXEL( 7, b, 3)];
-		++hist[CLAMP_PIXEL( 8, r, 4)];
+			//RCT_SubGreen
+			r=v[0], g=v[1], b=v[2];
+			r-=g;
+			b-=g;
+			PROCESS_SUBPIXEL(RCT_SubGreen, 0, g, 1);
+			PROCESS_SUBPIXEL(RCT_SubGreen, 1, b, 1);
+			PROCESS_SUBPIXEL(RCT_SubGreen, 2, r, 1);
 
-		//RCT_YCoCg_R
-		r=v[0], g=v[1], b=v[2];
-		r-=b;
-		b+=r>>1;
-		g-=b;
-		b+=g>>1;
-		++hist[CLAMP_PIXEL( 9, g, 1)];
-		++hist[CLAMP_PIXEL(10, b, 3)];
-		++hist[CLAMP_PIXEL(11, r, 4)];
+			//RCT_JPEG2000
+			r=v[0], g=v[1], b=v[2];
+			r-=g;
+			b-=g;
+			g+=(r+b)>>1;
+			PROCESS_SUBPIXEL(RCT_JPEG2000, 0, g, 1);
+			PROCESS_SUBPIXEL(RCT_JPEG2000, 1, b, 1);
+			PROCESS_SUBPIXEL(RCT_JPEG2000, 2, r, 1);
 
-		//RCT_YCbCr_R_v1
-		r=v[0], g=v[1], b=v[2];
-		r-=g;
-		g+=r>>1;
-		b-=g;
-		g+=b>>1;
-		++hist[CLAMP_PIXEL(12, g, 1)];
-		++hist[CLAMP_PIXEL(13, b, 3)];
-		++hist[CLAMP_PIXEL(14, r, 4)];
+			//RCT_YCoCg_R
+			r=v[0], g=v[1], b=v[2];
+			r-=b;
+			b+=r>>1;
+			g-=b;
+			b+=g>>1;
+			PROCESS_SUBPIXEL(RCT_YCoCg_R, 0, g, 1);
+			PROCESS_SUBPIXEL(RCT_YCoCg_R, 1, b, 1);
+			PROCESS_SUBPIXEL(RCT_YCoCg_R, 2, r, 1);
 
-		//RCT_YCbCr_R_v2
-		r=v[0], g=v[1], b=v[2];
-		r-=g;
-		g+=r>>1;
-		b-=g;
-		g+=(2*b-r+4)>>3;
-		++hist[CLAMP_PIXEL(15, g, 1)];
-		++hist[CLAMP_PIXEL(16, b, 3)];
-		++hist[CLAMP_PIXEL(17, r, 4)];
+			//RCT_YCbCr_R_v1
+			r=v[0], g=v[1], b=v[2];
+			r-=g;
+			g+=r>>1;
+			b-=g;
+			g+=b>>1;
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v1, 0, g, 1);
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v1, 1, b, 1);
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v1, 2, r, 1);
 
-		//RCT_YCbCr_R_v3
-		r=v[0], g=v[1], b=v[2];
-		r-=g;
-		g+=r>>1;
-		b-=g;
-		g+=(2*b+r+4)>>3;
-		++hist[CLAMP_PIXEL(18, g, 1)];
-		++hist[CLAMP_PIXEL(19, b, 3)];
-		++hist[CLAMP_PIXEL(20, r, 4)];
+			//RCT_YCbCr_R_v2
+			r=v[0], g=v[1], b=v[2];
+			r-=g;
+			g+=r>>1;
+			b-=g;
+			g+=(2*b-r+4)>>3;
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v2, 0, g, 1);
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v2, 1, b, 1);
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v2, 2, r, 1);
 
-		//RCT_YCbCr_R_v4
-		r=v[0], g=v[1], b=v[2];
-		r-=g;
-		g+=r>>1;
-		b-=g;
-		g+=b/3;
-		++hist[CLAMP_PIXEL(21, g, 1)];
-		++hist[CLAMP_PIXEL(22, b, 3)];
-		++hist[CLAMP_PIXEL(23, r, 4)];
+			//RCT_YCbCr_R_v3
+			r=v[0], g=v[1], b=v[2];
+			r-=g;
+			g+=r>>1;
+			b-=g;
+			g+=(2*b+r+4)>>3;
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v3, 0, g, 1);
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v3, 1, b, 1);
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v3, 2, r, 1);
+
+			//RCT_YCbCr_R_v4
+			r=v[0], g=v[1], b=v[2];
+			r-=g;
+			g+=r>>1;
+			b-=g;
+			g+=b/3;
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v4, 0, g, 1);
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v4, 1, b, 1);
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v4, 2, r, 1);
+
+			//RCT_YCbCr_R_v7
+			r=v[0], g=v[1], b=v[2];
+			r-=g;
+			g+=r>>1;
+			b-=g;
+			g+=(10*b-r+16)>>5;
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v7, 0, g, 1);
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v7, 1, b, 1);
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v7, 2, r, 1);
+		}
 	}
 	int kbest=0;
 	double bestsize=0;
@@ -1219,8 +1251,11 @@ static RCTType select_best_RCT(Image const *src)
 		double csize=csizes[0]+csizes[1]+csizes[2];
 		if(!kt||bestsize>csize)
 			kbest=kt, bestsize=csize;
+		if(ret_csizes)
+			ret_csizes[kt]=csize/8;
 	}
 	free(hist);
+	free(pixels);
 	return kbest;
 }
 static const Image *guide=0;
@@ -1237,29 +1272,22 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 	RCTType best_rct=RCT_NONE;
 	if(src->nch>=3)
 	{
+		double csizes[RCT_COUNT];
+		double t1=time_sec();
 		if(loud)
 			printf("Selecting best RCT...\n");
-		best_rct=select_best_RCT(src);
+		best_rct=rct_select_best(src, csizes);
 		if(loud)
 		{
-			const char *a="UNKNOWN";
-			switch(best_rct)
+			for(int kt=0;kt<RCT_COUNT;++kt)
 			{
-#define CASE(X) case X: a=#X;break
-			CASE(RCT_NONE);
-			CASE(RCT_SubGreen);
-			CASE(RCT_JPEG2000);
-			CASE(RCT_YCoCg_R);
-			CASE(RCT_YCbCr_R_v1);
-			CASE(RCT_YCbCr_R_v2);
-			CASE(RCT_YCbCr_R_v3);
-			CASE(RCT_YCbCr_R_v4);
-#undef  CASE
+				printf("%12lf %s", csizes[kt], rct_names[kt]);
+				if(kt==best_rct)
+					printf(" <- %lf sec", time_sec()-t1);
+				printf("\n");
 			}
-			printf("%s selected\n", a);
 		}
 	}
-	double t_selectRCT=time_sec()-t_start;
 	DList list;
 	ArithmeticCoder ec;
 	SLIC5Ctx pr;
@@ -1278,9 +1306,6 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 		slic5_nextrow(&pr, ky);
 		for(int kx=0;kx<src->iw;++kx, idx+=4)
 		{
-			//if(kx==2656&&ky==1118)//
-			//	printf("");
-
 			int kc=0;
 			if(src->nch>=3)
 			{
@@ -1330,6 +1355,12 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 					b-=g;
 					g+=b/3;
 					break;
+				case RCT_YCbCr_R_v7:
+					r-=g;
+					g+=r>>1;
+					b-=g;
+					g+=(10*b-r+16)>>5;
+					break;
 				default:
 					break;
 				}
@@ -1344,10 +1375,8 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 				slic5_enc(&pr, pixel, kc, kx, ky);
 				++kc;
 			}
-		}//x-loop
-		if(loud&&(!(ky&63)||ky+1==src->ih))
-			printf("%6.2lf%%  CR %10lf  Elapsed %12lf\r", 100.*(ky+1)/src->ih, 3.*src->iw*(ky+1)/list.nobj, time_sec()-t_start);
-	}//y-loop
+		}
+	}
 	ac_enc_flush(&ec);
 	dlist_appendtoarray(&list, data);
 	if(loud)
@@ -1356,9 +1385,8 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 		printf("\n");
 		printf("Encode elapsed ");
 		timedelta2str(0, 0, time_sec()-t_start);
-		if(src->nch>=3)
-			printf(" (select RCT=%d  %lf sec)", best_rct, t_selectRCT);
 		printf("\n");
+
 		printf("csize %8d  CR %10.6lf\n", (int)list.nobj, usize/list.nobj);
 
 #ifdef PRINT_HIST
@@ -1448,9 +1476,6 @@ int t47_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 		slic5_nextrow(&pr, ky);
 		for(int kx=0;kx<dst->iw;++kx, idx+=4)
 		{
-			//if(kx==2656&&ky==1118)//
-			//	printf("");
-
 			int kc=0;
 			if(dst->nch>=3)
 			{
@@ -1502,6 +1527,12 @@ int t47_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 					g-=r>>1;
 					r+=g;
 					break;
+				case RCT_YCbCr_R_v7:
+					g-=(10*b-r+16)>>5;
+					b+=g;
+					g-=r>>1;
+					r+=g;
+					break;
 				default:
 					break;
 				}
@@ -1521,10 +1552,8 @@ int t47_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 				dst->data[idx|kc]=pixel;
 				++kc;
 			}
-		}//x-loop
-		if(loud&&(!(ky&63)||ky+1==dst->ih))
-			printf("%6.2lf%%  Elapsed %12lf\r", 100.*(ky+1)/dst->ih, time_sec()-t_start);
-	}//y-loop
+		}
+	}
 	if(loud)
 	{
 		printf("\n");
