@@ -48,7 +48,7 @@ Either create an MSVC 2022 CMake project, or:
 ### `e2`
 Either create an MSVC 2022 CMake project, or:
 
-`gcc -O -mavx2 e2.c format.c lodepng.c tests.c tests2.c tests3.c tests4.c tests5.c transforms.c util.c -o e2`
+`gcc -O -mavx2 e2.c format.c lodepng.c tests4.c tests5.c tests6.c transforms.c util.c -o e2`
 
 ### `eBench`
 Either create an MSVC 2022 CMake project, or:

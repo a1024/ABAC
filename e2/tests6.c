@@ -16,6 +16,7 @@ static const char file[]=__FILE__;
 //	#define AVX512
 	#define AVX2
 //	#define PROBBITS_15
+//	#define PRINT_HIST
 //	#define PROFILER//SLOW
 //	#define TRACK_SSE_RANGES//SLOW
 //	#define DISABLE_SSE
@@ -492,7 +493,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 {
 	PROF(OUTSIDE);
 	int idx=(pr->iw*ky+kx)<<2|kc;
-	if(!(idx&(CDF_UPDATE_PERIOD-1))||idx<CDF_UPDATE_PERIOD&&(idx&15))
+	if(!(idx&(CDF_UPDATE_PERIOD-1))||(idx<CDF_UPDATE_PERIOD&&(idx&15)))
 		slic5_update_CDFs(pr);
 	PROF(UPDATE_CDFs);
 	//XY are flipped, no need to check if indices OOB due to padding
@@ -590,7 +591,9 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	int dy=abs(W-NW)+abs(N-NN)+abs(NE-NNE);
 	int d45=abs(W-NWW)+abs(NW-NNWW)+abs(N-NNW);
 	int d135=abs(NE-NNEE)+abs(N-NNE)+abs(W-N);
-	int sum2=(dy+dx)>>sh, diff=(dy-dx)>>sh, diff2=(d45-d135)>>sh, diff3=(NE-NW)>>3;
+	int
+	//	sum2=(dy+dx)>>sh,
+		diff=(dy-dx)>>sh, diff2=(d45-d135)>>sh, diff3=(NE-NW)>>3;
 	++j;
 	//if(sum2>32)
 	//	//pr->preds[j]=(int)(((long long)dx*N+(long long)dy*W)/sum2)+diff2;
@@ -1231,7 +1234,31 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 		acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H-%M-%S");
 		printf("T47 SLIC5-AC  Enc %s  CWHD %d*%d*%d*%d/8\n", g_buf, src->nch, src->iw, src->ih, maxdepth);
 	}
-	RCTType best_rct=src->nch>=3?select_best_RCT(src):RCT_NONE;
+	RCTType best_rct=RCT_NONE;
+	if(src->nch>=3)
+	{
+		if(loud)
+			printf("Selecting best RCT...\n");
+		best_rct=select_best_RCT(src);
+		if(loud)
+		{
+			const char *a="UNKNOWN";
+			switch(best_rct)
+			{
+#define CASE(X) case X: a=#X;break
+			CASE(RCT_NONE);
+			CASE(RCT_SubGreen);
+			CASE(RCT_JPEG2000);
+			CASE(RCT_YCoCg_R);
+			CASE(RCT_YCbCr_R_v1);
+			CASE(RCT_YCbCr_R_v2);
+			CASE(RCT_YCbCr_R_v3);
+			CASE(RCT_YCbCr_R_v4);
+#undef  CASE
+			}
+			printf("%s selected\n", a);
+		}
+	}
 	double t_selectRCT=time_sec()-t_start;
 	DList list;
 	ArithmeticCoder ec;
@@ -1317,8 +1344,10 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 				slic5_enc(&pr, pixel, kc, kx, ky);
 				++kc;
 			}
-		}
-	}
+		}//x-loop
+		if(loud&&(!(ky&63)||ky+1==src->ih))
+			printf("%6.2lf%%  CR %10lf  Elapsed %12lf\r", 100.*(ky+1)/src->ih, 3.*src->iw*(ky+1)/list.nobj, time_sec()-t_start);
+	}//y-loop
 	ac_enc_flush(&ec);
 	dlist_appendtoarray(&list, data);
 	if(loud)
@@ -1332,6 +1361,7 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 		printf("\n");
 		printf("csize %8d  CR %10.6lf\n", (int)list.nobj, usize/list.nobj);
 
+#ifdef PRINT_HIST
 		const char *ch_labels[]={"Y", "Cb", "Cr", "A"};
 		int ch_nhist=pr.nhist*pr.nhist, total_hist=pr.nch*ch_nhist;
 		printf("Hist CWH %d*%d*%d:\n", pr.nch, pr.cdfsize, ch_nhist);
@@ -1345,6 +1375,7 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 			if(!((kt+1)%pr.nhist)&&kt+1<total_hist)
 				printf("\n");
 		}
+#endif
 
 		printf("Pred errors\n");
 		long long sum=0;
@@ -1490,8 +1521,10 @@ int t47_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 				dst->data[idx|kc]=pixel;
 				++kc;
 			}
-		}
-	}
+		}//x-loop
+		if(loud&&(!(ky&63)||ky+1==dst->ih))
+			printf("%6.2lf%%  Elapsed %12lf\r", 100.*(ky+1)/dst->ih, time_sec()-t_start);
+	}//y-loop
 	if(loud)
 	{
 		printf("\n");
