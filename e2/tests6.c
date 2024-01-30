@@ -85,9 +85,6 @@ static void prof_print()
 
 #define CDF_UPDATE_PERIOD 0x400//number of sub-pixels processed between CDF updates, must be a power-of-two
 #define PAD_SIZE 2
-#define NPREDS 13
-#define PRED_PREC 8
-#define PARAM_PREC 8
 #define HIST_EXP 2
 #define HIST_MSB 1
 #define SSE_X_EXP 1
@@ -100,12 +97,37 @@ static void prof_print()
 #define SSE_H 21
 #define SSE_D 21
 #define SSE_PREDBITS 5
-#define SSE_PRED_LEVELS (1<<SSE_PREDBITS)//(_countof(qlevels_pred)+1)
+#define SSE_PRED_LEVELS (1<<SSE_PREDBITS)
 #define SSE_FR_SIZE 59049//3^10		separate final round
-//#define SSE_FR_SIZE (1<<10)
 #define SSE_STAGES 10
 #define SSE_SIZE (SSE_W*SSE_H*SSE_D*SSE_PRED_LEVELS)
 //#define HASH_CANTOR(A, B) (((A)+(B)+1)*((A)+(B))/2+(B))
+#define PRED_PREC 8
+#define PARAM_PREC 8
+
+#define NPREDS 14
+#define PREDLIST\
+	PRED(W+NE-N-((2*(eN+eW)+eNE-eNW+4)>>3))\
+	PRED(N-(int)(((long long)eN+eW+eNE)*-0x05C>>PARAM_PREC))\
+	PRED(W-(int)(((long long)eN+eW+eNW)*-0x05B>>PARAM_PREC))\
+	PRED(N+(int)((-eNN*0x0DFLL-eN*0x0051LL-eNE*0x0BDLL+((long long)N-NN)*0x05C+((long long)NW-W)*0x0102)>>PARAM_PREC))\
+	PRED((W+NEE)>>1)\
+	PRED(N+NE-NNE-eNNE)\
+	PRED((N+W)>>1)\
+	PRED((4*(N+W+NW+NE)-(NN+WW+NNWW+NNEE)+6)/12)\
+	PRED((W+2*NE-NNE+eNE)>>1)\
+	PRED(N+W+NNWW-NNW-NWW+((eN+eW)>>1))\
+	PRED(N+W-NW)\
+	PRED(2*W-WW+eW-eWW)\
+	PRED(paper_GAP)\
+	PRED(calic_GAP)
+
+const char *prednames[]=
+{
+#define PRED(X) #X,
+	PREDLIST
+#undef  PRED
+};
 #ifdef PROBBITS_15
 #define EC_ENC(EC, X, CDF, NLEVELS, LG_FMIN) ac_enc15(EC, X, CDF, NLEVELS)
 #define EC_DEC(EC, CDF, NLEVELS, LG_FMIN) ac_dec15(EC, CDF, NLEVELS)
@@ -178,25 +200,6 @@ static int quantize_signed(int val, int shift, int exp, int msb, int nlevels)
 	return token;
 }
 #define QUANTIZE_HIST(X) (quantize_unsigned(X, HIST_EXP, HIST_MSB)>>1)
-//static int QUANTIZE_HIST(int x)
-//{
-//	int token=quantize_unsigned(x, HIST_EXP, HIST_MSB);
-//
-//	//if(token<(1<<HIST_EXP))
-//	//	token>>=1;
-//	//else
-//	//	token-=(1<<HIST_EXP)>>1;
-//
-//	token>>=1;
-//	//token-=token!=0;
-//	
-//	//if(token<128)//ORIGINAL
-//	//	token>>=1;
-//	//else
-//	//	token-=64;
-//	//
-//	return token;
-//}
 #if defined AVX2 || defined AVX512
 static void avx2_floor_log2_p1(__m256i *x)//floor_log2()+1
 {
@@ -227,41 +230,6 @@ static void avx2_floor_log2_p1(__m256i *x)//floor_log2()+1
 #endif
 }
 #endif
-//#define QUANTIZE_HIST(X) quantize_unsigned(X, HIST_EXP, HIST_MSB)
-static const int wp_params[]=
-{
-	0x0004AB65,//wp1 X		bad				2nd worst	worst
-	0x0002841C,//wp2						3rd best
-	0x00034147,//wp3				best		2nd best	best		2nd best
-	0x00016056,//wp4
-	0x00016056,//(W+NEE)>>1		best				best		2nd best	best
-	0x00016056,//N+NE-NNE		2nd best	2nd best			2nd worst	worst
-	//0x00016056,//N+NW-NNW	X	worst
-	//0x00016056,//W+NW-NWW X	2nd worst	2nd worst	worst
-	//0x00016056,//N+NEE-NNEE X	very bad	worst
-	0x00016056,//(N+W)>>1
-	0x00016056,//(4*(W+NW+N+NE)-(WW+NNWW+NN+NNEE)+6)/12
-	0x00016056,//(W+2*NE-NNE)>>1
-	//0x00016056,//(2*(W+N+NE)-(NNW+NNE))>>2 X
-	//0x00016056,//NW+NE-NN X
-	0x00016056,//(N+NN)>>1
-	0x00016056,//grad								3rd best
-	0x00028F8A,//paper GAP		bad
-	0x00022F58,//CALIC GAP		bad		3rd worst	3rd worst	3rd worst	2nd worst
-
-	-0x005C,
-	-0x005B,
-	 0x00DF,  0x0051,  0x00BD,  0x005C, -0x0102,
-
-	//0x80,//X
-	//0x80,
-	//0x40, 0x00, 0x30, 0x170, 0x20,
-
-	//0xd, 0xc, 0xc, 0xb,
-	//8,
-	//8,
-	//4, 0, 3, 23, 2,
-};
 typedef struct SLIC5CtxStruct
 {
 	int iw, ih, nch;
@@ -271,7 +239,6 @@ typedef struct SLIC5CtxStruct
 		shift_prec[4],//shift right to bring value to 8-bit, removes predictor-added bits
 		shift_error[4];
 	int nhist, cdfsize;
-	//int sse_width, sse_height, sse_depth, sse_nplanes, sse_planesize, sse_size;
 	int *pred_errors, *errors, *pixels;
 
 	int *hist, *histsums;
@@ -286,7 +253,7 @@ typedef struct SLIC5CtxStruct
 	int bias_count[4];
 	long long bias_sum[4];
 
-	int preds[NPREDS], params[_countof(wp_params)];
+	int preds[NPREDS], params[NPREDS];
 	long long pred;
 	int pred_final;
 	int hist_idx;
@@ -340,7 +307,6 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 	hybriduint_encode(extremesym, &hu);//encode -half
 	pr->cdfsize=hu.token+1;
 	pr->nhist=QUANTIZE_HIST(767);
-	//pr->nhist=1<<3;//X
 
 	//pr->sse_width=7;
 	//pr->sse_height=21;
@@ -439,11 +405,13 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 	memset(pr->sse_fr, 0, nch*sizeof(long long[SSE_FR_SIZE]));
 #endif
 
-	int shift=16-maxdepth;
-	shift=MAXVAR(0, shift);
-	memcpy(pr->params, wp_params, sizeof(pr->params));
 	for(int k=0;k<NPREDS;++k)
-		pr->params[k]=pr->params[k]>>shift;
+		pr->params[k]=12<<maxdepth;
+	//int shift=16-maxdepth;
+	//shift=MAXVAR(0, shift);
+	//memcpy(pr->params, wp_params, sizeof(pr->params));
+	//for(int k=0;k<NPREDS;++k)
+	//	pr->params[k]=pr->params[k]>>shift;
 
 	pr->ec=ec;
 	return 1;
@@ -531,105 +499,49 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 	clamp_hi=(int)MAXVAR(clamp_hi, NE);
 	PROF(FETCH_NB);
 
-	int j=-1;
-	pr->preds[++j]=W+NE-N-(int)((2*(eN+eW)+eNE-eNW+4)>>3);
-	pr->preds[++j]=N-(int)((eN+eW+eNE)*pr->params[NPREDS+0]>>PARAM_PREC);
-	pr->preds[++j]=W-(int)((eN+eW+eNW)*pr->params[NPREDS+1]>>PARAM_PREC);
-	pr->preds[++j]=N-(int)((
-		(long long)eNW*pr->params[NPREDS+2]+
-		(long long)eN*pr->params[NPREDS+3]+
-		(long long)eNE*pr->params[NPREDS+4]+
-		((long long)NN-N)*pr->params[NPREDS+5]+
-		((long long)NW-W)*pr->params[NPREDS+6]
-	)>>PARAM_PREC);
-
-	pr->preds[++j]=(W+NEE)>>1;
-	pr->preds[++j]=N+NE-NNE-eNNE;
-	//pr->preds[++j]=4*NE-(N+NEE+NNEE);
-	pr->preds[++j]=(N+W)>>1;
-	pr->preds[++j]=(4*(N+W+NW+NE)-(NN+WW+NNWW+NNEE)+6)/12;
-	//pr->preds[++j]=(int)((181*(4*((long long)N+W)-((long long)NN+WW))+128*(4*((long long)NW+NE)-((long long)NNWW+NNEE))+1854)/3708);//X
-	
-	pr->preds[++j]=(W+2*NE-NNE+eNE)>>1;
-	//pr->preds[++j]=(2*(W+N+NE)-(NNW+NNE))>>2;//X
-	//pr->preds[++j]=(2*(W+NEE)-NNEE)/3;//X
-	//pr->preds[++j]=(W+2*N-NNW)>>1;//X
-	pr->preds[++j]=N+W-NW;
-
-	pr->preds[++j]=2*W-WW+eW-eWW;
-
-#if 0
-	//pr->preds[++j]=(((N+W)<<1)+NW+NE+NN+WW+4)>>3;//X
-
-	pr->preds[++j]=(int)(W -(eW *pr->params[NPREDS+ 7]>>8));
-	pr->preds[++j]=(int)(N -(eN *pr->params[NPREDS+ 8]>>8));
-	pr->preds[++j]=(int)(NW-(eNW*pr->params[NPREDS+ 9]>>8));
-	pr->preds[++j]=(int)(NE-(eNE*pr->params[NPREDS+10]>>8));
-
-	int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
-	int vmin2=MINVAR(vmin, NW), vmax2=MAXVAR(vmax, NW);
-	vmin2=MINVAR(vmin2, NE), vmax2=MAXVAR(vmax, NE);
-	++j, pr->preds[j]=N+W-NW, pr->preds[j]=CLAMP(vmin2, pr->preds[j], vmax2);
-	++j, pr->preds[j]=W+NE-N, pr->preds[j]=CLAMP(vmin2, pr->preds[j], vmax2);
-	++j, pr->preds[j]=N+NW-NNW, pr->preds[j]=CLAMP(vmin2, pr->preds[j], vmax2);
-	vmin2=MINVAR(vmin, NE), vmax2=MAXVAR(vmax, NE);
-	vmin2=MINVAR(vmin2, NEE), vmax2=MAXVAR(vmax, NEE);
-	++j, pr->preds[j]=N+NE-NNE, pr->preds[j]=CLAMP(vmin2, pr->preds[j], vmax2);
-	
-	++j, pr->preds[j]=(W+NEE)/2;
-	++j, pr->preds[j]=NNNNNN;
-	++j, pr->preds[j]=(NEEEE+NEEEEEE)/2;
-	++j, pr->preds[j]=(WWWW+WWWWWW)/2;
-	++j, pr->preds[j]=(N+W+NEEEEE+NEEEEEEE)/4;
-	++j, pr->preds[j]=N*2-NN, pr->preds[j]=CLAMP(vmin2, pr->preds[j], vmax2);
-	++j, pr->preds[j]=(N+NNN)/2;
-	++j, pr->preds[j]=((N+W)*3-NW*2)/4;
-	++j, pr->preds[j]=(int)(N+W-NW), pr->preds[j]=(int)CLAMP(vmin, pr->preds[j], vmax);
-#endif
-
 	int dx=abs(W-WW)+abs(N-NW)+abs(NE-N);
 	int dy=abs(W-NW)+abs(N-NN)+abs(NE-NNE);
 	int d45=abs(W-NWW)+abs(NW-NNWW)+abs(N-NNW);
 	int d135=abs(NE-NNEE)+abs(N-NNE)+abs(W-N);
-	int
-	//	sum2=(dy+dx)>>sh,
-		diff=(dy-dx)>>sh, diff2=(d45-d135)>>sh, diff3=(NE-NW)>>3;
-	++j;
-	//if(sum2>32)
-	//	//pr->preds[j]=(int)(((long long)dx*N+(long long)dy*W)/sum2)+diff2;
-	//	pr->preds[j]=(dx*N+dy*W)/sum2+diff2;
-	//else if(diff>12)
-	//	pr->preds[j]=(N+2*W)/3+diff2;
-	//else if(diff<-12)
-	//	pr->preds[j]=(2*N+W)/3+diff2;
-	//else
-		pr->preds[j]=((N+W)>>1)+diff3;
-	if(diff2>32)
-		pr->preds[j]+=diff3;
-	else if(diff2>16)
-		pr->preds[j]+=diff3>>1;
-	else if(diff2<-32)
-		pr->preds[j]-=diff3;
-	else if(diff2<-16)
-		pr->preds[j]-=diff3>>1;
-
-	++j;
-	if(diff>80)
-		pr->preds[j]=W;
-	else if(diff<-80)
-		pr->preds[j]=N;
+	int diff=(dy-dx)>>sh, diff2=(d45-d135)>>sh, diff3=NE-NW;
+	int paper_GAP, calic_GAP;
+	if(dy+dx>32)
+		paper_GAP=(int)(((long long)dx*N+(long long)dy*W)/((long long)dy+dx));
+	else if(diff>12)
+		paper_GAP=(N+2*W)/3;
+	else if(diff<-12)
+		paper_GAP=(2*N+W)/3;
 	else
-	{
-		pr->preds[j]=(((N+W)<<1)+NE-NW)>>2;
-		if(diff>32)
-			pr->preds[j]=(pr->preds[j]+W)>>1;
-		else if(diff>8)
-			pr->preds[j]=(3*pr->preds[j]+W)>>2;
-		else if(diff<-32)
-			pr->preds[j]=(pr->preds[j]+N)>>1;
-		else if(diff<-8)
-			pr->preds[j]=(3*pr->preds[j]+N)>>2;
-	}
+	paper_GAP=(N+W)>>1;
+
+	if(diff2>32)
+		paper_GAP+=diff3>>2;
+	else if(diff2>16)
+		paper_GAP+=diff3*3>>4;
+	else if(diff2>=-16)
+		paper_GAP+=diff3>>3;
+	else if(diff2>=-32)
+		paper_GAP+=diff3>>4;
+
+	if(diff>80)
+		calic_GAP=W;
+	else if(diff<-80)
+		calic_GAP=N;
+	else if(diff>32)
+		calic_GAP=(2*N+6*W+NE-NW)>>3;		//c1	[1/4  3/4  1/8  -1/8].[N W NE NW]
+	else if(diff>8)
+		calic_GAP=(6*N+10*W+3*(NE-NW))>>4;	//c2	[3/8  5/8  3/16  -3/16]
+	else if(diff<-32)
+		calic_GAP=(6*N+2*W+NE-NW)>>3;		//c3	[3/4  1/4  1/8  -1/8]
+	else if(diff<-8)
+		calic_GAP=(10*N+6*W+3*(NE-NW))>>4;	//c4	[5/8  3/8  3/16  -3/16]
+	else
+		calic_GAP=(((N+W)<<1)+NE-NW)>>2;	//c5	[1/2  1/2  1/4  -1/4]
+
+	int j=-1;
+#define PRED(X) pr->preds[++j]=X;
+	PREDLIST
+#undef  PRED
 	PROF(CALC_SUBPREDS);
 
 	long long weights[NPREDS]={0}, wsum=0;
@@ -640,7 +552,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 			(long long)pr->pred_errors[(NPREDS*(pr->kym2+kx+1+PAD_SIZE)+k)<<2|kc]+//peNNE
 			(long long)pr->pred_errors[(NPREDS*(pr->kym2+kx  +PAD_SIZE)+k)<<2|kc]+//peNN+peNW
 			(long long)pr->pred_errors[(NPREDS*(pr->kym2+kx-1+PAD_SIZE)+k)<<2|kc]+//peNNW+peNWW
-			(long long)pr->pred_errors[(NPREDS*(pr->kym1+kx+2+PAD_SIZE)+k)<<2|kc]+//peNEE [not in jxl]
+			(long long)pr->pred_errors[(NPREDS*(pr->kym1+kx+2+PAD_SIZE)+k)<<2|kc]+//peNEE
 			(long long)pr->pred_errors[(NPREDS*(pr->kym1+kx+1+PAD_SIZE)+k)<<2|kc]+//peNE
 			(long long)pr->pred_errors[(NPREDS*(pr->kym1+kx  +PAD_SIZE)+k)<<2|kc]*3+//peN+peW
 			(long long)pr->pred_errors[(NPREDS*(pr->kym1+kx-1+PAD_SIZE)+k)<<2|kc];//peNW+peWW
@@ -659,23 +571,10 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		pr->pred=pr->preds[0];
 	PROF(CALC_WEIGHT_AV);
 
-#if 1
 	int qx=QUANTIZE_HIST((dx+abs(eW+eWW))>>(sh-2)), qy=QUANTIZE_HIST((dy+abs(eN+eNN))>>(sh-2));
-
-	//int qx=dx>>(sh+8-3), qy=dy>>(sh+8-3);//X
-
-	//int hist_sh=sh;
-	//hist_sh-=pr->depths[kc]==9;
-	//hist_sh-=pr->depths[kc]>9;
-	//int qx=quantize_unsigned(dx>>hist_sh, HIST_EXP, HIST_MSB)>>(pr->depths[kc]>9);
-	//int qy=quantize_unsigned(dy>>hist_sh, HIST_EXP, HIST_MSB)>>(pr->depths[kc]>9);
-
 	qx=CLAMP(0, qx, pr->nhist-1);
 	qy=CLAMP(0, qy, pr->nhist-1);
 	pr->hist_idx=pr->nhist*qy+qx;
-#endif
-	//pr->hist_idx=QUANTIZE_HIST((dx+abs(eW+eWW)+dy+abs(eN+eNN))>>(sh-2));
-	//pr->hist_idx=CLAMP(0, pr->hist_idx, pr->nhist*pr->nhist-1);
 
 #ifndef DISABLE_SSE
 #ifdef AVX2
@@ -827,14 +726,19 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		else
 		{
 			int temp;
-			int idx=THREEWAY(N, W)+1;
-			temp=N+W-NW, idx=3*idx+THREEWAY(temp, (int)pr->pred)+1;
+			int idx=0;
+		//	idx=3*idx+THREEWAY(eN, eW)+1;//X
+		//	idx=3*idx+THREEWAY(eN, 0)+1;//X
+		//	idx=3*idx+THREEWAY(eW, 0)+1;//X
+		//	idx=3*idx+THREEWAY(N, W)+1;//X
+			idx=3*idx+THREEWAY(N, (int)pr->pred)+1;
 			idx=3*idx+THREEWAY(W, (int)pr->pred)+1;
 			idx=3*idx+THREEWAY(NW, (int)pr->pred)+1;
-			idx=3*idx+THREEWAY(N, (int)pr->pred)+1;
 			idx=3*idx+THREEWAY(NE, (int)pr->pred)+1;
-			idx=3*idx+THREEWAY(WW, (int)pr->pred)+1;
 			idx=3*idx+THREEWAY(NN, (int)pr->pred)+1;
+			idx=3*idx+THREEWAY(WW, (int)pr->pred)+1;
+			temp=N+W-NW, idx=3*idx+THREEWAY(temp, (int)pr->pred)+1;
+			temp=(4*(W+N)-(WW+NN)+6)/12, idx=3*idx+THREEWAY(temp, (int)pr->pred)+1;
 			temp=2*N-NN, idx=3*idx+THREEWAY(temp, (int)pr->pred)+1;
 			temp=2*W-WW, idx=3*idx+THREEWAY(temp, (int)pr->pred)+1;
 			if(idx>=SSE_FR_SIZE)
@@ -1281,7 +1185,7 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 		{
 			for(int kt=0;kt<RCT_COUNT;++kt)
 			{
-				printf("%12lf %s", csizes[kt], rct_names[kt]);
+				printf("%20lf %s", csizes[kt], rct_names[kt]);
 				if(kt==best_rct)
 					printf(" <- %lf sec", time_sec()-t1);
 				printf("\n");
@@ -1410,7 +1314,7 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 		for(int k=0;k<NPREDS;++k)
 			sum+=pr.pred_error_sums[k];
 		for(int k=0;k<NPREDS;++k)
-			printf("  %2d  %12lld  %6.2lf%%\n", k, pr.pred_error_sums[k], 100.*pr.pred_error_sums[k]/sum);
+			printf("  %2d  %12lld  %6.2lf%%  %s\n", k, pr.pred_error_sums[k], 100.*pr.pred_error_sums[k]/sum, prednames[k]);
 		
 #ifdef TRACK_SSE_RANGES
 		const char dim_labels[]="XYZP";
@@ -1425,9 +1329,9 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 		}
 #endif
 
-		printf("Bias\n");
-		for(int kc=0;kc<src->nch;++kc)
-			printf("  %lld/%d = %d\n", pr.bias_sum[kc], pr.bias_count[kc], pr.bias_count[kc]?(int)(pr.bias_sum[kc]/pr.bias_count[kc]):0);
+		//printf("Bias\n");
+		//for(int kc=0;kc<src->nch;++kc)
+		//	printf("  %lld/%d = %d\n", pr.bias_sum[kc], pr.bias_count[kc], pr.bias_count[kc]?(int)(pr.bias_sum[kc]/pr.bias_count[kc]):0);
 
 		//for(int k=0;k<768;k+=4)
 		//{
