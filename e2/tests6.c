@@ -19,7 +19,7 @@ static const char file[]=__FILE__;
 //	#define ENABLE_GUIDE
 
 //	#define AVX512
-	#define AVX2
+//	#define AVX2
 //	#define ENABLE_LZ
 	#define ENABLE_SSE_4D
 //	#define ENABLE_SSE_PAR//inferior
@@ -264,10 +264,10 @@ typedef struct SLIC5CtxStruct
 #endif
 #ifdef ENABLE_SSE_4D
 	int sse_w, sse_h, sse_d, sse_p, sse_size;
-	long long *sse, *sse_fr;
-	int sse_idx[SSE_STAGES+1];
-	long long sse_sum[SSE_STAGES+1];
-	int sse_count[SSE_STAGES+1];
+	long long *sse, *sse_fr, *sse_cfl;
+	int sse_idx[SSE_STAGES+6];
+	long long sse_sum[SSE_STAGES+6];
+	int sse_count[SSE_STAGES+6];
 #endif
 	int bias_count[4];
 	long long bias_sum[4];
@@ -285,6 +285,7 @@ typedef struct SLIC5CtxStruct
 	ArithmeticCoder *ec;
 } SLIC5Ctx;
 #define LOAD(BUF, X, Y) BUF[(pr->kym##Y+kx+PAD_SIZE-(X))<<2|kc]
+#define LOAD_CH(BUF, C, X, Y) BUF[(pr->kym##Y+kx+PAD_SIZE-(X))<<2|C]
 #define LOAD_PRED_ERROR(C, X, Y, P) pr->pred_errors[(NPREDS*(pr->kym##Y+kx+PAD_SIZE-(X))+P)<<2|C]
 static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths, ArithmeticCoder *ec)
 {
@@ -377,6 +378,15 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 #elif defined ENABLE_SSE_4D
 	pr->sse=(long long*)malloc(nch*sizeof(long long[SSE_SIZE*SSE_STAGES]));
 	pr->sse_fr=(long long*)malloc(nch*sizeof(long long[SSE_FR_SIZE]));
+	if(pr->nch>1)
+	{
+		pr->sse_cfl=(long long*)malloc((nch-1LL)*sizeof(long long[SSE_SIZE<<1]));
+		if(!pr->sse_cfl)
+		{
+			LOG_ERROR("Alloc error");
+			return 0;
+		}
+	}
 #endif
 	if(!pr->pred_errors||!pr->errors||!pr->pixels||!pr->hist||!pr->histsums||!pr->CDFs
 #if defined ENABLE_SSE_4D || defined ENABLE_SSE_PAR
@@ -445,6 +455,8 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 #elif defined ENABLE_SSE_4D
 	memset(pr->sse, 0, nch*sizeof(long long[SSE_SIZE*SSE_STAGES]));
 	memset(pr->sse_fr, 0, nch*sizeof(long long[SSE_FR_SIZE]));
+	if(pr->nch>1)
+		memset(pr->sse_cfl, 0, (nch-1LL)*sizeof(long long[SSE_SIZE<<1]));
 #endif
 
 	for(int k=0;k<NPREDS;++k)
@@ -805,6 +817,28 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 		0,
 		0,
 	};
+	for(int k=0;k<(kc<<1);k+=2)
+	{
+		int kc2=k>>1;
+		int
+			NW	=LOAD_CH(pr->pixels, kc2,  0, 1),
+			N	=LOAD_CH(pr->pixels, kc2,  0, 1),
+			NE	=LOAD_CH(pr->pixels, kc2, -1, 1),
+			W	=LOAD_CH(pr->pixels, kc2,  1, 0),
+			curr	=LOAD_CH(pr->pixels, kc2,  0, 0),
+			eNW	=LOAD_CH(pr->errors, kc2,  0, 1),
+			eN	=LOAD_CH(pr->errors, kc2,  0, 1),
+			eNE	=LOAD_CH(pr->errors, kc2, -1, 1),
+			eW	=LOAD_CH(pr->errors, kc2,  1, 0),
+			ecurr	=LOAD_CH(pr->errors, kc2,  0, 0);
+		g[10+k]=(N+W-NW+curr)>>7;	//X 1/32
+		g[20+k]=curr<<1;		//Y 2/1
+		g[30+k]=N+W;			//Z 2/1
+
+		g[10+k+1]=(W+NE-N+curr)>>7;
+		g[20+k+1]=curr+ecurr;
+		g[30+k+1]=eN+eW;
+	}
 	__m128i shift=_mm_set_epi32(0, 0, 0, sh);
 	__m256i nlevels[]=
 	{
@@ -844,16 +878,17 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 	Y1=_mm256_mullo_epi32(Y1, nlevels[0]);
 	X0=_mm256_add_epi32(Y0, X0);
 	X1=_mm256_add_epi32(Y1, X1);
-	_mm256_store_si256((__m256i*)g+0, X0);
-	_mm256_store_si256((__m256i*)g+1, X1);
+	ALIGN(32) int g2[16];
+	_mm256_store_si256((__m256i*)g2+0, X0);
+	_mm256_store_si256((__m256i*)g2+1, X1);
 #else
-	int g[]=
-	{
-		//4D SSE
 #define QUANTIZE(X, Y, Z)\
 	SSE_W*(SSE_H*quantize_signed(Z, sh, SSE_Z_EXP, SSE_Z_MSB, SSE_D)+\
 	quantize_signed(Y, sh, SSE_Y_EXP, SSE_Y_MSB, SSE_H))+\
 	quantize_signed(X, sh, SSE_X_EXP, SSE_X_MSB, SSE_W)
+	int g2[SSE_STAGES+6]=
+	{
+		//4D SSE
 
 		QUANTIZE((NNE-NN)>>6,			(N-NW)>>4,		W-WW),//5
 		QUANTIZE((NE-NNE)>>6,			(N-NN)>>4,		W-NW),//6
@@ -865,26 +900,44 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 		QUANTIZE((NW+3*(NE-N)-NEE)>>9,		(NE-NNEE)>>3,		(NNE+NEE+2*W-4*NE)>>2),//1
 		QUANTIZE((NWW+3*(N-NW)-NE)>>9,		(N-NN)>>3,		(W+NW+NE+NN-4*N)>>2),//2
 		QUANTIZE((3*(N-W)+WW-NN)>>9,		(NW-NNWW)>>3,		(NNW+NWW+W+N-4*NW)>>2),//3
-#undef  QUANTIZE
 	};
+	for(int k=0;k<(kc<<1);k+=2)
+	{
+		int kc2=k>>1;
+		int
+			NW	=LOAD_CH(pr->pixels, kc2,  0, 1),
+			N	=LOAD_CH(pr->pixels, kc2,  0, 1),
+			NE	=LOAD_CH(pr->pixels, kc2, -1, 1),
+			W	=LOAD_CH(pr->pixels, kc2,  1, 0),
+			curr	=LOAD_CH(pr->pixels, kc2,  0, 0),
+			eNW	=LOAD_CH(pr->errors, kc2,  0, 1),
+			eN	=LOAD_CH(pr->errors, kc2,  0, 1),
+			eNE	=LOAD_CH(pr->errors, kc2, -1, 1),
+			eW	=LOAD_CH(pr->errors, kc2,  1, 0),
+			ecurr	=LOAD_CH(pr->errors, kc2,  0, 0);
+
+		g2[SSE_STAGES+k  ]=QUANTIZE((N+W-NW+curr)>>7, curr<<1, N+W);
+		g2[SSE_STAGES+k+1]=QUANTIZE((W+NE-N+curr)>>7, curr+ecurr, eN+eW);
+	}
+#undef  QUANTIZE
 #endif
 	PROF(CALC_CTX);
 
 	pr->sse_corr=0;
-	for(int k=0;k<SSE_STAGES+1;++k)
+	for(int k=0;k<SSE_STAGES+1+(kc<<1);++k)
 	{
 		long long sse_val;
 		if(k<SSE_STAGES)
 		{
-			int qp=quantize_signed(pr->pred, sh+8-(SSE_PREDBITS-1), SSE_P_EXP, SSE_P_MSB, pr->sse_p);
+			int qp=quantize_signed((int)pr->pred, sh+8-(SSE_PREDBITS-1), SSE_P_EXP, SSE_P_MSB, pr->sse_p);
 			//int qp=(int)(pr->pred>>(sh+8-(SSE_PREDBITS-1)));
 			//qp+=(1<<SSE_PREDBITS)>>1;
 			//qp=CLAMP(0, qp, (1<<SSE_PREDBITS)-1);
-			pr->sse_idx[k]=SSE_SIZE*(SSE_STAGES*kc+k)+(SSE_W*SSE_H*SSE_D)*qp+g[k];
+			pr->sse_idx[k]=SSE_SIZE*(SSE_STAGES*kc+k)+(SSE_W*SSE_H*SSE_D)*qp+g2[k];
 			sse_val=pr->sse[pr->sse_idx[k]];
 			
 #ifdef TRACK_SSE_RANGES
-			int kx=g[k]%pr->sse_width, ky=g[k]/pr->sse_width%pr->sse_height, kz=g[k]/(pr->sse_width*pr->sse_height);
+			int kx=g2[k]%pr->sse_width, ky=g2[k]/pr->sse_width%pr->sse_height, kz=g2[k]/(pr->sse_width*pr->sse_height);
 			UPDATE_MIN(pr->sse_ranges[0], kx);
 			UPDATE_MAX(pr->sse_ranges[1], kx);
 			UPDATE_MIN(pr->sse_ranges[2], ky);
@@ -894,6 +947,12 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 			UPDATE_MIN(pr->sse_ranges[6], qp);
 			UPDATE_MAX(pr->sse_ranges[7], qp);
 #endif
+		}
+		else if(k<SSE_STAGES+(kc<<1))
+		{
+			int qp=quantize_signed((int)pr->pred, sh+8-(SSE_PREDBITS-1), SSE_P_EXP, SSE_P_MSB, pr->sse_p);
+			pr->sse_idx[k]=SSE_SIZE*(k-SSE_STAGES)+(SSE_W*SSE_H*SSE_D)*qp+g2[k];
+			sse_val=pr->sse_cfl[pr->sse_idx[k]];
 		}
 		else
 		{
@@ -981,19 +1040,8 @@ static void slic5_update(SLIC5Ctx *pr, int curr, int token)
 	{
 		errors[k]=abs((curr<<PRED_PREC)-pr->preds[k]);
 		LOAD_PRED_ERROR(kc, 0, 0, k)=errors[k];
-
-		//if(LOAD_PRED_ERROR(kc, 0, 0, k)<0)//
-		//	LOG_ERROR("");
-
-		//pr->pred_errors[(NPREDS*(pr->kym0+pr->kx+PAD_SIZE)+k)<<2|kc]=errors[k];
 		if(pr->ky&&pr->kx+1<pr->iw)
-		{
 			LOAD_PRED_ERROR(kc, -1, 1, k)+=errors[k];//eNE += ecurr
-		
-			//if(LOAD_PRED_ERROR(kc, -1, 1, k)<0)//
-			//	LOG_ERROR("");
-		}
-			//pr->pred_errors[(NPREDS*(pr->kym1+pr->kx+PAD_SIZE+1)+k)<<2|kc]+=errors[k];
 		if(errors[kbest]>errors[k])
 			kbest=k;
 
@@ -1015,7 +1063,7 @@ static void slic5_update(SLIC5Ctx *pr, int curr, int token)
 	
 	//update SSE
 #if defined ENABLE_SSE_4D || defined ENABLE_SSE_PAR
-	for(int k=0;k<SSE_STAGES+1;++k)
+	for(int k=0;k<SSE_STAGES+1+(kc<<1);++k)
 	{
 		++pr->sse_count[k];
 		pr->sse_sum[k]+=error;
@@ -1027,6 +1075,8 @@ static void slic5_update(SLIC5Ctx *pr, int curr, int token)
 		long long sse_val=pr->sse_sum[k]<<12|pr->sse_count[k];
 		if(k<SSE_STAGES)
 			pr->sse[pr->sse_idx[k]]=sse_val;
+		else if(k<SSE_STAGES+(kc<<1))
+			pr->sse_cfl[pr->sse_idx[k]]=sse_val;
 		else
 			pr->sse_fr[pr->sse_idx[k]]=sse_val;
 	}
