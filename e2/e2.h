@@ -174,10 +174,33 @@ int t46_encode(Image const *src, ArrayHandle *data, int loud);
 int t46_decode(const unsigned char *data, size_t srclen, Image *dst, int loud);
 
 //SLIC v5
+#define RCTLIST\
+	RCT(NONE)\
+	RCT(SubGreen)\
+	RCT(JPEG2000)\
+	RCT(YCoCg_R)\
+	RCT(YCbCr_R_v1)\
+	RCT(YCbCr_R_v2)\
+	RCT(YCbCr_R_v3)\
+	RCT(YCbCr_R_v4)\
+	RCT(YCbCr_R_v7)
+typedef enum RCTTypeEnum
+{
+#define RCT(X) RCT_##X,
+	RCTLIST
+#undef  RCT
+	RCT_COUNT,
+} RCTType;
+extern const char *rct_names[RCT_COUNT];
 int t47_encode(Image const *src, ArrayHandle *data, int loud);
 int t47_decode(const unsigned char *data, size_t srclen, Image *dst, int loud);
+RCTType rct_select_best(Image const *src, double *ret_csizes);
 int t47_from_ppm(const char *src, const char *dst);
 int t47_to_ppm(const char *src, const char *dst);
+
+//CABAC
+int t48_encode(Image const *src, ArrayHandle *data, int loud);
+int t48_decode(const unsigned char *data, size_t srclen, Image *dst, int loud);
 
 
 

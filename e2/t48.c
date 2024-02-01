@@ -1,5 +1,4 @@
 #include"e2.h"
-#define AC_IMPLEMENTATION
 #include"ac.h"
 #include<stdio.h>
 #include<stdlib.h>
@@ -13,16 +12,20 @@
 #endif
 static const char file[]=__FILE__;
 
-//	#define PRINT_HIST
-//	#define PROFILER//SLOW
-//	#define TRACK_SSE_RANGES//SLOW
+
 //	#define ENABLE_GUIDE
 
-//	#define AVX512
-	#define AVX2
-//	#define ENABLE_LZ
+//	#define BACKPROP
+	#define ENABLE_PROB_BIAS
+//	#define PRINT_AVERAGE_ERROR
+//	#define TRACK_SSE_RANGES//SLOW
 //	#define DISABLE_SSE//less efficient
 //	#define PROBBITS_15//less efficient
+
+//	#define PROFILER//SLOWS DOWN BATCH TEST
+//	#define AVX512
+	#define AVX2
+
 
 #if defined AVX2 || defined AVX512
 #include<immintrin.h>
@@ -82,11 +85,10 @@ static void prof_print()
 #define prof_print()
 #endif
 
-#define SLIC5_CONFIG_EXP 5
-#define SLIC5_CONFIG_MSB 2
-#define SLIC5_CONFIG_LSB 0
-
-#define CDF_UPDATE_PERIOD 0x400//number of sub-pixels processed between CDF updates, must be a power-of-two
+#define LG_SEQ_CTR 4
+#define LG_PAR_CTR 1
+//#define LG_CTR (LG_SEQ_CTR+LG_PAR_CTR)
+//#define NCOUNTERS (1<<LG_CTR)
 #define PAD_SIZE 2
 #define HIST_EXP 2
 #define HIST_MSB 1
@@ -147,32 +149,6 @@ typedef struct HybridUintStruct
 	unsigned bypass;
 } HybridUint;
 
-//from libjxl		packsign(pixel) = 0b00001MMBB...BBL	token = offset + 0bGGGGMML,  where G = bits of lg(packsign(pixel)),  bypass = 0bBB...BB
-static void hybriduint_encode(unsigned val, HybridUint *hu)
-{
-	int token, bypass, nbits;
-	if(val<(1<<SLIC5_CONFIG_EXP))
-	{
-		token=val;//token
-		nbits=0;
-		bypass=0;
-	}
-	else
-	{
-		int lgv=floor_log2_32((unsigned)val);
-		int mantissa=val-(1<<lgv);
-		token = (1<<SLIC5_CONFIG_EXP) + (
-				(lgv-SLIC5_CONFIG_EXP)<<(SLIC5_CONFIG_MSB+SLIC5_CONFIG_LSB)|
-				(mantissa>>(lgv-SLIC5_CONFIG_MSB))<<SLIC5_CONFIG_LSB|
-				(mantissa&((1<<SLIC5_CONFIG_LSB)-1))
-			);
-		nbits=lgv-(SLIC5_CONFIG_MSB+SLIC5_CONFIG_LSB);
-		bypass=val>>SLIC5_CONFIG_LSB&((1LL<<nbits)-1);
-	}
-	hu->token=token;
-	hu->bypass=bypass;
-	hu->nbits=nbits;
-}
 static int quantize_unsigned(int val, int exp, int msb)
 {
 	if(val<(1<<exp))
@@ -232,7 +208,12 @@ static void avx2_floor_log2_p1(__m256i *x)//floor_log2()+1
 #endif
 }
 #endif
-typedef struct SLIC5CtxStruct
+typedef struct ProbCellStruct
+{
+	unsigned short p0[1<<LG_PAR_CTR], weight[1<<LG_PAR_CTR];
+	int sse;//signed 24-bit sum | unsigned 8-bit count
+} ProbCell;
+typedef struct SLIC6CtxStruct
 {
 	int iw, ih, nch;
 	char depths[4];
@@ -240,11 +221,15 @@ typedef struct SLIC5CtxStruct
 		half[4],
 		shift_prec[4],//shift right to bring value to 8-bit, removes predictor-added bits
 		shift_error[4];
-	int nhist, cdfsize;
 	int *pred_errors, *errors, *pixels;
 
-	int *hist, *histsums;
-	CDF_t *CDFs;
+	int nhist, total_hist;
+	ProbCell *counters;
+	long long *prob_sse;
+	//long long prob_sse[1<<LG_SEQ_CTR];
+	//int nhist, cdfsize;
+	//int *hist, *histsums;
+	//CDF_t *CDFs;
 
 #ifndef DISABLE_SSE
 	long long *sse, *sse_fr;
@@ -266,10 +251,13 @@ typedef struct SLIC5CtxStruct
 	int sse_ranges[8];
 #endif
 	ArithmeticCoder *ec;
-} SLIC5Ctx;
+} SLIC6Ctx;
 #define LOAD(BUF, X, Y) BUF[(pr->kym##Y+kx+PAD_SIZE-(X))<<2|kc]
 #define LOAD_PRED_ERROR(C, X, Y, P) pr->pred_errors[(NPREDS*(pr->kym##Y+kx+PAD_SIZE-(X))+P)<<2|C]
-static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths, ArithmeticCoder *ec)
+#ifdef PRINT_AVERAGE_ERROR
+static double av_err[4]={0};
+#endif
+static int slic6_init(SLIC6Ctx *pr, int iw, int ih, int nch, const char *depths, ArithmeticCoder *ec)
 {
 	PROF_START();
 	if(iw<1||ih<1||nch<1)
@@ -304,15 +292,13 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 		pr->shift_prec[kc]=MAXVAR(8, pr->depths[kc])-8+PRED_PREC;
 		pr->shift_error[kc]=1+((pr->depths[kc]<=9)<<1);
 	}
-	HybridUint hu;
-	int extremesym=-((1<<maxdepth)>>1);
-	extremesym=extremesym<<1^-(extremesym<0);//pack sign
-	hybriduint_encode(extremesym, &hu);//encode -half
-	pr->cdfsize=hu.token+1;
-#ifdef ENABLE_LZ
-	++pr->cdfsize;//make way for LZ escape symbol
-#endif
+	//HybridUint hu;
+	//int extremesym=-((1<<maxdepth)>>1);
+	//extremesym=extremesym<<1^-(extremesym<0);//pack sign
+	//hybriduint_encode(extremesym, &hu);//encode -half
+	//pr->cdfsize=hu.token+1;
 	pr->nhist=QUANTIZE_HIST(767);
+	pr->total_hist=pr->nhist*pr->nhist;
 
 	//pr->sse_width=7;
 	//pr->sse_height=21;
@@ -338,15 +324,19 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 	pr->pred_errors=(int*)malloc((iw+PAD_SIZE*2LL)*sizeof(int[NPREDS*4*4]));//NPREDS * 4 rows * 4 comps
 	pr->errors=(int*)malloc((iw+PAD_SIZE*2LL)*sizeof(int[4*4]));
 	pr->pixels=(int*)malloc((iw+PAD_SIZE*2LL)*sizeof(int[4*4]));
-	int total_hist=pr->nhist*pr->nhist;
-	pr->hist=(int*)malloc((size_t)nch*total_hist*pr->cdfsize*sizeof(int));//WH: cdfsize * NHIST
-	pr->histsums=(int*)malloc((size_t)nch*total_hist*sizeof(int));
-	pr->CDFs=(CDF_t*)malloc((size_t)nch*total_hist*(pr->cdfsize+1LL)*sizeof(CDF_t));
+
+	pr->counters=(ProbCell*)malloc((size_t)nch*pr->total_hist*sizeof(ProbCell[1<<LG_SEQ_CTR]));
+	pr->prob_sse=(long long*)malloc(sizeof(long long[256<<LG_SEQ_CTR]));
+	//pr->counters=(unsigned short(*)[2])malloc((size_t)nch*pr->total_hist*sizeof(short[NCOUNTERS][2]));
+	//pr->prob_sse=(long long*)malloc((size_t)nch*pr->total_hist*sizeof(long long));
+	//pr->hist=(int*)malloc((size_t)nch*total_hist*pr->cdfsize*sizeof(int));//WH: cdfsize * NHIST
+	//pr->histsums=(int*)malloc((size_t)nch*total_hist*sizeof(int));
+	//pr->CDFs=(CDF_t*)malloc((size_t)nch*total_hist*(pr->cdfsize+1LL)*sizeof(CDF_t));
 #ifndef DISABLE_SSE
 	pr->sse=(long long*)malloc(nch*sizeof(long long[SSE_SIZE*SSE_STAGES]));
 	pr->sse_fr=(long long*)malloc(nch*sizeof(long long[SSE_FR_SIZE]));
 #endif
-	if(!pr->pred_errors||!pr->errors||!pr->pixels||!pr->hist||!pr->histsums||!pr->CDFs
+	if(!pr->pred_errors||!pr->errors||!pr->pixels||!pr->counters||!pr->prob_sse
 #ifndef DISABLE_SSE
 		||!pr->sse||!pr->sse_fr
 #endif
@@ -359,6 +349,16 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 	memset(pr->errors, 0, (iw+PAD_SIZE*2LL)*sizeof(int[4*4]));
 	memset(pr->pixels, 0, (iw+PAD_SIZE*2LL)*sizeof(int[4*4]));
 
+	ProbCell fillval=
+	{
+		{0x8000, 0x8000},//p0's
+		{0x8000, 0x8000},//weights
+		0,//SSE
+	};
+	memfill(pr->counters, &fillval, (size_t)nch*pr->total_hist*sizeof(ProbCell[1<<LG_SEQ_CTR]), sizeof(ProbCell));
+	//memfill(pr->counters, &fillval, (size_t)nch*pr->total_hist*sizeof(short[NCOUNTERS][2]), sizeof(short));
+	memset(pr->prob_sse, 0, sizeof(long long[256<<LG_SEQ_CTR]));
+#if 0
 	memset(pr->hist, 0, (size_t)nch*total_hist*pr->cdfsize*sizeof(int));
 	memset(pr->histsums, 0, (size_t)nch*total_hist*sizeof(int));
 
@@ -406,7 +406,8 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 	}
 	pr->CDFs[pr->cdfsize]=1<<CDF_SHIFT;
 	memfill(pr->CDFs+pr->cdfsize+1, pr->CDFs, ((size_t)nch*total_hist-1LL)*(pr->cdfsize+1LL)*sizeof(CDF_t), (pr->cdfsize+1LL)*sizeof(CDF_t));
-	
+#endif
+
 #ifndef DISABLE_SSE
 	memset(pr->sse, 0, nch*sizeof(long long[SSE_SIZE*SSE_STAGES]));
 	memset(pr->sse_fr, 0, nch*sizeof(long long[SSE_FR_SIZE]));
@@ -423,55 +424,33 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 	pr->ec=ec;
 	return 1;
 }
-static void slic5_free(SLIC5Ctx *pr)
+static void slic6_free(SLIC6Ctx *pr)
 {
 	free(pr->pred_errors);
 	free(pr->errors);
 	free(pr->pixels);
-	free(pr->hist);
-	free(pr->histsums);
-	free(pr->CDFs);
+	free(pr->counters);
+	//free(pr->hist);
+	//free(pr->histsums);
+	//free(pr->CDFs);
 #ifndef DISABLE_SSE
 	free(pr->sse);
 	free(pr->sse_fr);
 #endif
 }
-static void slic5_update_CDFs(SLIC5Ctx *pr)
-{
-	int nhist=pr->nch*pr->nhist*pr->nhist;
-	for(int kt=0;kt<nhist;++kt)//update CDFs (deferred)
-	{
-		int sum=pr->histsums[kt];
-		if(sum>pr->cdfsize)//only when the CDF is hit enough times
-		{
-			int *curr_hist=pr->hist+pr->cdfsize*kt;
-			CDF_t *curr_CDF=pr->CDFs+(pr->cdfsize+1)*kt;
-			long long c=0;
-			for(int ks=0;ks<pr->cdfsize;++ks)
-			{
-				long long freq=curr_hist[ks];
-				curr_CDF[ks]=(int)(c*((1LL<<CDF_SHIFT)-pr->cdfsize)/sum)+ks;
-				c+=freq;
-			}
-			curr_CDF[pr->cdfsize]=1<<CDF_SHIFT;
-		}
-	}
-}
-static void slic5_nextrow(SLIC5Ctx *pr, int ky)
+static void slic6_nextrow(SLIC6Ctx *pr, int ky)
 {
 	pr->ky=ky;
 	pr->kym0=(pr->iw+PAD_SIZE*2)*(ky&3);
 	pr->kym1=(pr->iw+PAD_SIZE*2)*((ky-1)&3);
 	pr->kym2=(pr->iw+PAD_SIZE*2)*((ky-2)&3);
 }
-static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
+static void slic6_predict(SLIC6Ctx *pr, int kc, int kx)
 {
 	PROF(OUTSIDE);
 	int idx=(pr->iw*pr->ky+kx)<<2|kc;
 	pr->kc=kc;
 	pr->kx=kx;
-	if(!(idx&(CDF_UPDATE_PERIOD-1))||(idx<CDF_UPDATE_PERIOD&&(idx&15)))
-		slic5_update_CDFs(pr);
 	PROF(UPDATE_CDFs);
 	//XY are flipped, no need to check if indices OOB due to padding
 	int
@@ -702,8 +681,9 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 	Y1=_mm256_mullo_epi32(Y1, nlevels[0]);
 	X0=_mm256_add_epi32(Y0, X0);
 	X1=_mm256_add_epi32(Y1, X1);
-	_mm256_store_si256((__m256i*)g+0, X0);
-	_mm256_store_si256((__m256i*)g+1, X1);
+	ALIGN(32) int g2[16];
+	_mm256_store_si256((__m256i*)g2+0, X0);
+	_mm256_store_si256((__m256i*)g2+1, X1);
 #else
 	int g[]=
 	{
@@ -737,11 +717,11 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 			int qp=(int)(pr->pred>>(sh+8-(SSE_PREDBITS-1)));
 			qp+=(1<<SSE_PREDBITS)>>1;
 			qp=CLAMP(0, qp, (1<<SSE_PREDBITS)-1);
-			pr->sse_idx[k]=(SSE_W*SSE_H*SSE_D)*qp+g[k];
+			pr->sse_idx[k]=(SSE_W*SSE_H*SSE_D)*qp+g2[k];
 			sse_val=pr->sse[SSE_SIZE*(SSE_STAGES*kc+k)+pr->sse_idx[k]];
 			
 #ifdef TRACK_SSE_RANGES
-			int kx=g[k]%pr->sse_width, ky=g[k]/pr->sse_width%pr->sse_height, kz=g[k]/(pr->sse_width*pr->sse_height);
+			int kx=g2[k]%pr->sse_width, ky=g2[k]/pr->sse_width%pr->sse_height, kz=g2[k]/(pr->sse_width*pr->sse_height);
 			UPDATE_MIN(pr->sse_ranges[0], kx);
 			UPDATE_MAX(pr->sse_ranges[1], kx);
 			UPDATE_MIN(pr->sse_ranges[2], ky);
@@ -805,25 +785,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 	pr->pred=CLAMP(clamp_lo, pr->pred, clamp_hi);
 	pr->pred_final=(int)((pr->pred+((1<<PRED_PREC)>>1)-1)>>PRED_PREC);
 }
-static void slic5_update_hist(SLIC5Ctx *pr, int token)
-{
-	int total_hists=pr->nhist*pr->nhist;
-	++pr->hist[pr->cdfsize*(total_hists*pr->kc+pr->hist_idx)+token];
-	++pr->histsums[total_hists*pr->kc+pr->hist_idx];
-	if(pr->histsums[pr->hist_idx]>(pr->iw*pr->nch<<1))//rescale hist
-	{
-		int *curr_hist=pr->hist+pr->cdfsize*(total_hists*pr->kc+pr->hist_idx);
-		int sum=0;
-		for(int ks=0;ks<pr->cdfsize;++ks)
-		{
-			curr_hist[ks]=(curr_hist[ks]+1)>>1;
-			sum+=curr_hist[ks];
-		}
-		pr->histsums[pr->hist_idx]=sum;
-	}
-	PROF(UPDATE_HIST);
-}
-static void slic5_update(SLIC5Ctx *pr, int curr, int token)
+static void slic6_update(SLIC6Ctx *pr, int curr)
 {
 	PROF(PRED_TILL_UPDATE);
 	int kc=pr->kc, kx=pr->kx;
@@ -865,10 +827,6 @@ static void slic5_update(SLIC5Ctx *pr, int curr, int token)
 			pr->params[k]>>=1;
 	}
 	PROF(UPDATE_WP);
-
-	//update hist
-	if(token>=0)
-		slic5_update_hist(pr, token);
 	
 	//update SSE
 #ifndef DISABLE_SSE
@@ -892,31 +850,177 @@ static void slic5_update(SLIC5Ctx *pr, int curr, int token)
 	pr->bias_sum[kc]+=error;
 	PROF(UPDATE_SSE);
 }
-static void slic5_skip_lzpixels(SLIC5Ctx *pr, int *lzpixels, int lzlen)
+#undef  LOAD
+static int p0_calc(ProbCell const *cell, const long long *prob_sse, int *ret_wsum, int *ret_p0)
 {
-#if 0
-	int kx0=pr->kx;
-	for(int kx=0;kx<lzlen;++kx)
+	unsigned wsum=0;
+	long long p0_final=0;
+	int sse_count, sse_sum;
+	for(int k=0;k<(1<<LG_PAR_CTR);++k)
 	{
-		for(int kc=0;kc<pr->nch;++kc)
-		{
-			slic5_predict(pr, kc, kx0+kx, pr->ky);
-			slic5_update(pr, lzpixels[kx<<2|kc], -1);
-		}
+		p0_final+=(long long)cell->p0[k]*cell->weight[k];
+		wsum+=cell->weight[k];
 	}
+	p0_final/=(unsigned long long)wsum+1;
+	*ret_wsum=wsum;
+	*ret_p0=(int)p0_final;
+
+	sse_count=cell->sse&0xFF;
+	sse_sum=cell->sse>>8;
+	//p0_final=(p0_final*sse_count + sse_sum*wsum)/(wsum*sse_count+1);//X
+	p0_final+=sse_sum/(sse_count+1);
+#ifdef ENABLE_PROB_BIAS
+	p0_final=CLAMP(1, p0_final, 0xFFFF);
+	long long sseval=prob_sse[p0_final>>8];
+	sse_count=sseval&0xFF;
+	sse_sum=(int)(sseval>>8);
+	p0_final+=sse_sum/(sse_count+1);
 #endif
-#if 1
-	size_t idx=(size_t)pr->kym0+pr->kx+PAD_SIZE;
-	memcpy(pr->pixels+(idx<<2), lzpixels, lzlen*sizeof(int[4]));
-	memset(pr->errors+(idx<<2), 0, lzlen*sizeof(int[4]));
-	for(int k=0;k<NPREDS;++k)
-		memset(pr->pred_errors+((NPREDS*idx+k)<<2), 0, lzlen*sizeof(int[4]));
+	p0_final=CLAMP(1, p0_final, 0xFFFF);
+	return (int)p0_final;
+
+#if 0
+	int sse_count, sse_sum, sse_corr;
+	int p0;
+	unsigned wsum=0;
+	unsigned long long p0_final=0;
+	for(int k=0;k<(1<<LG_PAR_CTR);++k)
+	{
+		sse_count=cell[k].sse&0xFF;
+		sse_sum=cell[k].sse>>8;
+		sse_corr=sse_sum/(sse_count+1);
+		p0=cell[k].p0+sse_corr;
+		p0_final+=(long long)p0*cell[k].weight;
+		wsum+=cell[k].weight;
+	}
+	p0_final/=(unsigned long long)wsum+1;
+	p0_final=CLAMP(1, p0_final, 0xFFFF);
+	return (int)p0_final;
+#endif
+
+#if 0
+	unsigned long long p0_final=0;
+	unsigned wsum=0;
+	p0_final+=(unsigned long long)p0[0][0]*p0[0][1], wsum+=p0[0][1];
+	p0_final+=(unsigned long long)p0[1][0]*p0[1][1], wsum+=p0[1][1];
+	//p0_final+=(unsigned long long)p0[2][0]*p0[2][1], wsum+=p0[2][1];
+	//p0_final+=(unsigned long long)p0[3][0]*p0[3][1], wsum+=p0[3][1];
+	//p0_final+=(unsigned long long)p0[4][0]*p0[0][1], wsum+=p0[4][1];
+	//p0_final+=(unsigned long long)p0[5][0]*p0[1][1], wsum+=p0[5][1];
+	//p0_final+=(unsigned long long)p0[6][0]*p0[2][1], wsum+=p0[6][1];
+	//p0_final+=(unsigned long long)p0[7][0]*p0[3][1], wsum+=p0[7][1];
+	p0_final/=(unsigned long long)wsum+1;
+	return (int)p0_final;
 #endif
 }
-#undef  LOAD
-static void slic5_enc(SLIC5Ctx *pr, int curr, int kc, int kx)
+static void p0_update(ProbCell *cell, long long *prob_sse, int wsum, int p0, int p0_final, int bit)
 {
-	slic5_predict(pr, kc, kx);
+	//small vs large change:  shift right ammount is "resistance", more slows it down, less speeds it up
+	static const int shift_p0[]=
+	{
+		6, 7
+	};
+	static const int shift_weight[]=
+	{
+		5, 10
+	};
+	unsigned sse_count;
+	int sse_sum;
+	int p0_perf=!bit<<16;
+	int error=p0_perf-p0_final;
+
+	sse_count=cell->sse&0xFF;
+	sse_sum=cell->sse>>8;
+	++sse_count;
+	sse_sum+=error/3;
+	if(sse_count>0xFF)
+	{
+		sse_count>>=1;
+		sse_sum>>=1;
+	}
+	cell->sse=sse_sum<<8|sse_count;
+	
+	long long sseval=prob_sse[p0_final>>8];
+	sse_count=sseval&0xFF;
+	sse_sum=(int)(sseval>>8);
+	++sse_count;
+	sse_sum+=error>>5;
+	if(sse_count>0xFF)
+	{
+		sse_count>>=1;
+		sse_sum>>=1;
+	}
+	prob_sse[p0_final>>8]=(long long)sse_sum<<8|sse_count;
+
+	int negmask=-(error<0);
+	for(int k=0;k<(1<<LG_PAR_CTR);++k)
+	{
+#ifdef BACKPROP
+		int update=(((long long)cell->p0[k]-p0)<<16)/wsum;
+		update^=negmask;
+		update-=negmask;
+		update>>=5;//LR = 0.03125
+		update+=cell->weight[k];
+		update=CLAMP(1, update, 0xFFFF);
+		cell->weight[k]=update;
+#else
+		cell->weight[k]+=(((!bit==(cell->p0[k]>0x8000))<<16)-cell->weight[k]+((1<<shift_weight[k])>>1))>>shift_weight[k];
+#endif
+		cell->p0[k]+=((!bit<<16)-cell->p0[k]+((1<<shift_p0[k])>>1))>>shift_p0[k];
+	}
+#if 0
+	const int shift_p0[]=
+	{
+		6, 7
+	};
+	const int shift_weight[]=
+	{
+		5, 10
+	};
+	unsigned sse_count;
+	int sse_sum;
+	int error=(!bit<<16)-p0_final;
+	for(int k=0;k<(1<<LG_PAR_CTR);++k)
+	{
+		sse_count=cell[k].sse&0xFF;
+		sse_sum=cell[k].sse>>8;
+		++sse_count;
+		sse_sum+=error;
+		if(sse_count>0xFF)
+		{
+			sse_count>>=1;
+			sse_sum>>=1;
+		}
+		cell[k].sse=sse_sum<<8|sse_count;
+
+		cell[k].weight+=(((!bit==(cell[k].p0>0x8000))<<16)-cell[k].weight+((1<<shift_weight[k])>>1))>>shift_weight[k];
+
+		cell[k].p0+=((!bit<<16)-cell[k].p0+((1<<shift_p0[k])>>1))>>shift_p0[k];
+	}
+#endif
+#if 0
+	p0[0][1]+=(((!bit==(p0[0][0]>0x8000))<<16)-p0[0][1]+16)>>5;
+	p0[1][1]+=(((!bit==(p0[1][0]>0x8000))<<16)-p0[1][1]+16)>>10;
+	//p0[2][1]+=(((!bit==(p0[2][0]>0x8000))<<16)-p0[2][1]+16)>>9;
+	//p0[3][1]+=(((!bit==(p0[3][0]>0x8000))<<16)-p0[3][1]+16)>>10;
+	//p0[0][1]+=(((!bit==(p0[0][0]>0x8000))<<16)-p0[0][1]+16)>>10;
+	//p0[1][1]+=(((!bit==(p0[1][0]>0x8000))<<16)-p0[1][1]+16)>>10;
+	//p0[2][1]+=(((!bit==(p0[2][0]>0x8000))<<16)-p0[2][1]+16)>>10;
+	//p0[3][1]+=(((!bit==(p0[3][0]>0x8000))<<16)-p0[3][1]+16)>>10;
+
+	p0[0][0]+=((!bit<<16)-p0[0][0]+16)>>6;
+	p0[1][0]+=((!bit<<16)-p0[1][0]+16)>>7;
+	//p0[2][0]+=((!bit<<16)-p0[2][0]+16)>>8;
+	//p0[3][0]+=((!bit<<16)-p0[3][0]+16)>>9;
+	//p0[0][0]+=((!bit<<16)-p0[0][0]+16)>>5;
+	//p0[1][0]+=((!bit<<16)-p0[1][0]+16)>>6;
+	//p0[2][0]+=((!bit<<16)-p0[2][0]+16)>>7;
+	//p0[3][0]+=((!bit<<16)-p0[3][0]+16)>>8;
+#endif
+}
+static void slic6_enc(SLIC6Ctx *pr, int curr, int kc, int kx)
+{
+	slic6_predict(pr, kc, kx);
 
 	int error=curr-pr->pred_final;
 #if 1
@@ -959,63 +1063,62 @@ static void slic5_enc(SLIC5Ctx *pr, int curr, int kc, int kx)
 			error=pr->nlevels[kc]-upred+abs(error);
 	}
 #endif
-
-	HybridUint hu;
-	hybriduint_encode(error, &hu);
-	if(hu.token>=pr->cdfsize
-#ifdef ENABLE_LZ
-		-1//LZ escape symbol is OOB here
+	
+#ifdef PRINT_AVERAGE_ERROR
+	av_err[kc]+=error;
 #endif
-	)
-		LOG_ERROR("Token OOB %d/%d", hu.token, pr->cdfsize-1);
-
-	EC_ENC(pr->ec, hu.token, pr->CDFs+(pr->cdfsize+1)*(pr->nhist*pr->nhist*kc+pr->hist_idx), pr->cdfsize, 0);
-	if(hu.nbits)
+	int ctr_idx=0, p0=0, wsum=0;
+	ProbCell *cells=pr->counters+(((size_t)pr->total_hist*kc+pr->hist_idx)<<LG_SEQ_CTR);
+	//unsigned short *p0=pr->counters;
+	for(int k=0;k<error;++k)
 	{
-		int bypass=hu.bypass, nbits=hu.nbits;
-		while(nbits>8)
-		{
-			EC_ENC(pr->ec, bypass>>(nbits-8)&0xFF, 0, 1<<8, 16-8);
-			nbits-=8;
-		}
-		EC_ENC(pr->ec, bypass&((1<<nbits)-1), 0, 1<<nbits, 16-nbits);
-	}
+		const int bit=1;
+		int p0_final=p0_calc(cells+ctr_idx, pr->prob_sse+((size_t)ctr_idx<<8), &p0, &wsum);
 
-	slic5_update(pr, curr, hu.token);
+		ac_enc_bin(pr->ec, (unsigned short)p0_final, bit);
+
+		p0_update(cells+ctr_idx, pr->prob_sse+((size_t)ctr_idx<<8), p0, wsum, p0_final, bit);
+		ctr_idx+=ctr_idx<(1<<LG_SEQ_CTR)-1;
+
+		//if(ctr_idx==30)//
+		//	printf("");
+	}
+	const int bit=0;
+	int p0_final=p0_calc(cells+ctr_idx, pr->prob_sse+((size_t)ctr_idx<<8), &p0, &wsum);
+	ac_enc_bin(pr->ec, p0_final, bit);
+	p0_update(cells+ctr_idx, pr->prob_sse+((size_t)ctr_idx<<8), p0, wsum, p0_final, bit);
+	//p0[ctr_idx]+=((!bit<<16)-p0[ctr_idx]+16)>>5;
+
+	slic6_update(pr, curr);
 }
-static int slic5_dec(SLIC5Ctx *pr, int kc, int kx)
+static int slic6_dec(SLIC6Ctx *pr, int kc, int kx)
 {
-	slic5_predict(pr, kc, kx);
-
-	int token=EC_DEC(pr->ec, pr->CDFs+(pr->cdfsize+1)*(pr->nhist*pr->nhist*kc+pr->hist_idx), pr->cdfsize, 0);
-#ifdef ENABLE_LZ
-	if(token==pr->cdfsize-1)
-		return 0x80000000;
-#endif
-	int error=token;
-	if(error>=(1<<SLIC5_CONFIG_EXP))
+	slic6_predict(pr, kc, kx);
+	
+	int ctr_idx=0;
+	ProbCell *cells=pr->counters+(((size_t)pr->total_hist*kc+pr->hist_idx)<<LG_SEQ_CTR);
+	//ProbCell *cells=pr->counters+(((size_t)pr->total_hist*kc+pr->hist_idx)<<LG_CTR);
+	//unsigned short (*p0)[2]=pr->counters+(((size_t)pr->total_hist*kc+pr->hist_idx)<<LG_CTR);
+	//unsigned short *p0=pr->counters+NCOUNTERS*(pr->total_hist*kc+pr->hist_idx);
+	//unsigned short *p0=pr->counters;
+	int bit=0, error=0, p0=0, wsum=0;
+	do
 	{
-		error-=1<<SLIC5_CONFIG_EXP;
-		int lsb=error&((1<<SLIC5_CONFIG_LSB)-1);
-		error>>=SLIC5_CONFIG_LSB;
-		int msb=error&((1<<SLIC5_CONFIG_MSB)-1);
-		error>>=SLIC5_CONFIG_MSB;
-		int nbits=error+SLIC5_CONFIG_EXP-(SLIC5_CONFIG_MSB+SLIC5_CONFIG_LSB), n=nbits;
-		int bypass=0;
-		while(n>8)
-		{
-			n-=8;
-			bypass|=EC_DEC(pr->ec, 0, 1<<8, 16-8)<<n;
-		}
-		bypass|=EC_DEC(pr->ec, 0, 1<<n, 16-n);
-		error=1;
-		error<<=SLIC5_CONFIG_MSB;
-		error|=msb;
-		error<<=nbits;
-		error|=bypass;
-		error<<=SLIC5_CONFIG_LSB;
-		error|=lsb;
-	}
+		int p0_final=p0_calc(cells+ctr_idx, pr->prob_sse+((size_t)ctr_idx<<8), &p0, &wsum);
+		//int p0_final=p0_calc(cells+ctr_idx, pr->prob_sse[ctr_idx]);
+
+		bit=ac_dec_bin(pr->ec, p0_final);
+		error+=bit;
+		
+		p0_update(cells+ctr_idx, pr->prob_sse+((size_t)ctr_idx<<8), p0, wsum, p0_final, bit);
+		//p0_update(cells+ctr_idx, pr->prob_sse+ctr_idx, p0_final, bit);
+		ctr_idx+=ctr_idx<(1<<LG_SEQ_CTR)-1;
+		//ctr_idx+=(ctr_idx<(((1<<LG_SEQ_CTR)-1)<<LG_PAR_CTR))<<LG_PAR_CTR;
+
+		//p0[ctr_idx]+=((!bit<<16)-p0[ctr_idx]+16)>>5;
+		//ctr_idx+=ctr_idx<NCOUNTERS-1;
+	}while(bit);
+
 #if 1
 	int upred=pr->half[kc]-abs(pr->pred_final), negmask;
 	if(error<=(upred<<1))
@@ -1060,164 +1163,8 @@ static int slic5_dec(SLIC5Ctx *pr, int kc, int kx)
 	}
 #endif
 	int curr=error+pr->pred_final;
-	slic5_update(pr, curr, token);
+	slic6_update(pr, curr);
 	return curr;
-}
-const char *rct_names[]=
-{
-#define RCT(X) #X,
-	RCTLIST
-#undef  RCT
-};
-RCTType rct_select_best(Image const *src, double *ret_csizes)
-{
-	int inflation[]={1, 1, 1, 0};
-	int maxdepth=calc_maxdepth(src, inflation), maxlevels=1<<maxdepth;
-	int *hist=(int*)malloc(src->nch*maxlevels*sizeof(int[RCT_COUNT]));
-	int *pixels=(int*)malloc((src->iw+2LL)*sizeof(int[4*2*RCT_COUNT]));//(iw + 2 padding) * 4 channels * 2 rows * N_RCT	need 2 rows because of NW
-	if(!hist||!pixels)
-	{
-		LOG_ERROR("Alloc error");
-		return RCT_NONE;
-	}
-	memset(hist, 0, src->nch*maxlevels*sizeof(int[RCT_COUNT]));
-	memset(pixels, 0, src->iw*sizeof(int[4*RCT_COUNT]));
-	int res=src->iw*src->ih;
-	int nlevels[][3]=
-	{
-		{1<<src->depth[1], 1<<src->depth[2], 1<<src->depth[0]},//RCT_NONE
-		{1<<src->depth[1], 1<<(src->depth[2]+1), 1<<(src->depth[0]+1)},
-	};
-	for(int ky=0, idx=0;ky<src->ih;++ky)
-	{
-		int row0=ky&1, row1=!row0;
-		for(int kx=0;kx<src->iw;++kx, ++idx)
-		{
-			int v[]={src->data[idx<<2|0], src->data[idx<<2|1], src->data[idx<<2|2]}, r, g, b, N, W, NW, pred;
-
-#define GET_PIXEL(RCT_IDX, C, X, Y) pixels[(src->iw*(RCT_IDX<<1|row##Y)+kx+1-X)<<2|C]
-#define PROCESS_SUBPIXEL(RCT_IDX, C, X, N_IDX)\
-	GET_PIXEL(RCT_IDX, C, 0, 0)=X,\
-	N=GET_PIXEL(RCT_IDX, C, 0, 1),\
-	W=GET_PIXEL(RCT_IDX, C, 1, 0),\
-	NW=GET_PIXEL(RCT_IDX, C, 1, 1),\
-	pred=N+W-NW, pred=MEDIAN3(N, W, pred), X-=pred,\
-	++hist[maxlevels*(3*RCT_IDX+C)+((X+(nlevels[N_IDX][C]>>1))&(nlevels[N_IDX][C]-1))]
-			
-			//RCT_NONE
-			r=v[0], g=v[1], b=v[2];
-			PROCESS_SUBPIXEL(RCT_NONE, 0, g, 0);
-			PROCESS_SUBPIXEL(RCT_NONE, 1, b, 0);
-			PROCESS_SUBPIXEL(RCT_NONE, 2, r, 0);
-
-			//RCT_SubGreen
-			r=v[0], g=v[1], b=v[2];
-			r-=g;
-			b-=g;
-			PROCESS_SUBPIXEL(RCT_SubGreen, 0, g, 1);
-			PROCESS_SUBPIXEL(RCT_SubGreen, 1, b, 1);
-			PROCESS_SUBPIXEL(RCT_SubGreen, 2, r, 1);
-
-			//RCT_JPEG2000
-			r=v[0], g=v[1], b=v[2];
-			r-=g;
-			b-=g;
-			g+=(r+b)>>1;
-			PROCESS_SUBPIXEL(RCT_JPEG2000, 0, g, 1);
-			PROCESS_SUBPIXEL(RCT_JPEG2000, 1, b, 1);
-			PROCESS_SUBPIXEL(RCT_JPEG2000, 2, r, 1);
-
-			//RCT_YCoCg_R
-			r=v[0], g=v[1], b=v[2];
-			r-=b;
-			b+=r>>1;
-			g-=b;
-			b+=g>>1;
-			PROCESS_SUBPIXEL(RCT_YCoCg_R, 0, g, 1);
-			PROCESS_SUBPIXEL(RCT_YCoCg_R, 1, b, 1);
-			PROCESS_SUBPIXEL(RCT_YCoCg_R, 2, r, 1);
-
-			//RCT_YCbCr_R_v1
-			r=v[0], g=v[1], b=v[2];
-			r-=g;
-			g+=r>>1;
-			b-=g;
-			g+=b>>1;
-			PROCESS_SUBPIXEL(RCT_YCbCr_R_v1, 0, g, 1);
-			PROCESS_SUBPIXEL(RCT_YCbCr_R_v1, 1, b, 1);
-			PROCESS_SUBPIXEL(RCT_YCbCr_R_v1, 2, r, 1);
-
-			//RCT_YCbCr_R_v2
-			r=v[0], g=v[1], b=v[2];
-			r-=g;
-			g+=r>>1;
-			b-=g;
-			g+=(2*b-r+4)>>3;
-			PROCESS_SUBPIXEL(RCT_YCbCr_R_v2, 0, g, 1);
-			PROCESS_SUBPIXEL(RCT_YCbCr_R_v2, 1, b, 1);
-			PROCESS_SUBPIXEL(RCT_YCbCr_R_v2, 2, r, 1);
-
-			//RCT_YCbCr_R_v3
-			r=v[0], g=v[1], b=v[2];
-			r-=g;
-			g+=r>>1;
-			b-=g;
-			g+=(2*b+r+4)>>3;
-			PROCESS_SUBPIXEL(RCT_YCbCr_R_v3, 0, g, 1);
-			PROCESS_SUBPIXEL(RCT_YCbCr_R_v3, 1, b, 1);
-			PROCESS_SUBPIXEL(RCT_YCbCr_R_v3, 2, r, 1);
-
-			//RCT_YCbCr_R_v4
-			r=v[0], g=v[1], b=v[2];
-			r-=g;
-			g+=r>>1;
-			b-=g;
-			g+=b/3;
-			PROCESS_SUBPIXEL(RCT_YCbCr_R_v4, 0, g, 1);
-			PROCESS_SUBPIXEL(RCT_YCbCr_R_v4, 1, b, 1);
-			PROCESS_SUBPIXEL(RCT_YCbCr_R_v4, 2, r, 1);
-
-			//RCT_YCbCr_R_v7
-			r=v[0], g=v[1], b=v[2];
-			r-=g;
-			g+=r>>1;
-			b-=g;
-			g+=(10*b-r+16)>>5;
-			PROCESS_SUBPIXEL(RCT_YCbCr_R_v7, 0, g, 1);
-			PROCESS_SUBPIXEL(RCT_YCbCr_R_v7, 1, b, 1);
-			PROCESS_SUBPIXEL(RCT_YCbCr_R_v7, 2, r, 1);
-		}
-	}
-	int kbest=0;
-	double bestsize=0;
-	for(int kt=0;kt<RCT_COUNT;++kt)
-	{
-		double csizes[3]={0};
-		for(int kc=0;kc<3;++kc)
-		{
-			int *curr_hist=hist+maxlevels*(3*kt+kc);
-			for(int ks=0;ks<maxlevels;++ks)
-			{
-				int freq=curr_hist[ks];
-				if(freq)
-				{
-					double p=(double)freq/res;
-					double bitsize=-log2(p);
-					//if(isinf(bitsize))
-					//	LOG_ERROR("ZPS");
-					csizes[kc]+=freq*bitsize;
-				}
-			}
-		}
-		double csize=csizes[0]+csizes[1]+csizes[2];
-		if(!kt||bestsize>csize)
-			kbest=kt, bestsize=csize;
-		if(ret_csizes)
-			ret_csizes[kt]=csize/8;
-	}
-	free(hist);
-	free(pixels);
-	return kbest;
 }
 #define r p[0]
 #define g p[1]
@@ -1339,23 +1286,16 @@ static void rct_inv(int *p, RCTType rct)
 #undef	r
 #undef	g
 #undef	b
-
-#define LZ_MAP_SIZE 0x100000//must be a power of two
-#define LZ_MIN_EMIT 8
-#define HASH_CANTOR(A, B) (((A)+(B)+1)*((A)+(B))/2+(B))
-//#define LZ_CELLS 16
-//typedef struct LZInfoStruct
-//{
-//	int x0, y0, pixels_saved;
-//} LZInfo;
-
 #ifdef ENABLE_GUIDE
 static const Image *guide=0;
 #endif
-int t47_encode(Image const *src, ArrayHandle *data, int loud)
+int t48_encode(Image const *src, ArrayHandle *data, int loud)
 {
 #ifdef ENABLE_GUIDE
 	guide=src;
+#endif
+#ifdef PRINT_AVERAGE_ERROR
+	memset(av_err, 0, sizeof(av_err));
 #endif
 	double t_start=time_sec();
 	int nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);//TODO
@@ -1365,7 +1305,7 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 	{
 		int maxdepth=calc_maxdepth(src, 0);
 		acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H-%M-%S");
-		printf("T47 SLIC5-AC  Enc %s  CWHD %d*%d*%d*%d/8\n", g_buf, nch, src->iw, src->ih, maxdepth);
+		printf("T48 CABAC  Enc %s  CWHD %d*%d*%d*%d/8\n", g_buf, nch, src->iw, src->ih, maxdepth);
 	}
 	RCTType rct=RCT_NONE;
 	if(nch>=3)
@@ -1388,109 +1328,42 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 	}
 	DList list;
 	ArithmeticCoder ec;
-	SLIC5Ctx pr;
+	SLIC6Ctx pr;
 	dlist_init(&list, 1, 1024, 0);
 	ac_enc_init(&ec, &list);
-	int success=slic5_init(&pr, src->iw, src->ih, nch, src->depth, &ec);
-#ifdef ENABLE_LZ
-	int *lzmap=(int*)malloc(sizeof(int[LZ_MAP_SIZE]));
-#endif
-	if(!success
-#ifdef ENABLE_LZ
-		||!lzmap
-#endif
-	)
+	int success=slic6_init(&pr, src->iw, src->ih, nch, src->depth, &ec);
+	if(!success)
 	{
 		LOG_ERROR("Alloc error");
 		return 0;
 	}
-#ifdef ENABLE_LZ
-	memset(lzmap, -1, sizeof(int[LZ_MAP_SIZE]));
-#endif
 	if(nch>=3)//emit best RCT
 		dlist_push_back1(&list, &rct);
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
-		slic5_nextrow(&pr, ky);
+		slic6_nextrow(&pr, ky);
 		for(int kx=0;kx<src->iw;)
 		{
-#ifdef ENABLE_LZ
-			int hash=-1, lzidx=-1, lzlen=0;
-			if(kx<src->iw-LZ_MIN_EMIT)
-			{
-				const int *srcptr, *dstptr;
-				hash=0;
-				for(int kx2=0;kx2<4;++kx2)
-				{
-					for(int kc=0;kc<nch;++kc)
-						hash=HASH_CANTOR(hash, src->data[idx+(kx2<<2)+kc]);
-				}
-				hash&=LZ_MAP_SIZE-1;
-				lzidx=lzmap[hash];
-				if(lzidx>=0)
-				{
-					srcptr=src->data+(((size_t)lzidx)<<2);
-					dstptr=src->data+idx;
-					for(lzlen=0;kx+lzlen<src->iw&&!memcmp(srcptr+((size_t)lzlen<<2), dstptr+((size_t)lzlen<<2), nch*sizeof(int));++lzlen);
-				}
-				else if(ky)
-				{
-					srcptr=src->data+idx-((size_t)src->iw<<2);
-					dstptr=src->data+idx;
-					for(lzlen=0;kx+lzlen<src->iw&&!memcmp(srcptr+((size_t)lzlen<<2), dstptr+((size_t)lzlen<<2), nch*sizeof(int));++lzlen);
-				}
-			}
-			if(lzlen>4)
-			{
-				int kc=0;
-				//int comp[]={src->data[idx|0], src->data[idx|1], src->data[idx|2]};
-				//if(nch>=3)
-				//	rct_fwd(comp, rct);
-				slic5_predict(&pr, 0, kx, ky);
-				EC_ENC(&ec, pr.cdfsize-1, pr.CDFs+(pr.cdfsize+1)*(pr.nhist*pr.nhist*0+pr.hist_idx), pr.cdfsize, 0);//escape symbol
-				EC_ENC(&ec, lzidx>>24&0xFF, 0, 256, 0);
-				if(lzidx>=0)
-				{
-					EC_ENC(&ec, lzidx>>16&0xFF, 0, 256, 0);
-					EC_ENC(&ec, lzidx>>8&0xFF, 0, 256, 0);
-					EC_ENC(&ec, lzidx&0xFF, 0, 256, 0);
-				}
-				EC_ENC(&ec, lzlen&0xFF, 0, 256, 0);
-				EC_ENC(&ec, lzlen>>8&0xFF, 0, 256, 0);
-				slic5_update_hist(&pr, pr.cdfsize-1);
-				slic5_update_CDFs(&pr);
-				//slic5_update(&pr, nch>=3?comp[1]:comp[0], pr.cdfsize-1);
+			if(kx==158&&ky==571)//
+				printf("");
 
-				slic5_skip_lzpixels(&pr, src->data+idx, lzlen);
-				//lzmap[hash]=idx>>2;
-				kx+=lzlen;
-				idx+=lzlen<<2;
-			}
-			else
+			int kc=0;
+			if(nch>=3)
 			{
-				if(hash>=0&&lzmap[hash]<0)
-					lzmap[hash]=idx>>2;
-#endif
-				int kc=0;
-				if(nch>=3)
-				{
-					int comp[]={src->data[idx|0], src->data[idx|1], src->data[idx|2]};
-					rct_fwd(comp, rct);
-					slic5_enc(&pr, comp[1], 0, kx);//Y		luma is encoded first
-					slic5_enc(&pr, comp[2], 1, kx);//Cb
-					slic5_enc(&pr, comp[0], 2, kx);//Cr
-					kc+=3;
-				}
-				for(;kc<nch;++kc)//gray/alpha
-				{
-					int pixel=src->data[idx|kc];
-					slic5_enc(&pr, pixel, kc, kx);
-				}
-				++kx;
-				idx+=4;
-#ifdef ENABLE_LZ
+				int comp[]={src->data[idx|0], src->data[idx|1], src->data[idx|2]};
+				rct_fwd(comp, rct);
+				slic6_enc(&pr, comp[1], 0, kx);//Y		luma is encoded first
+				slic6_enc(&pr, comp[2], 1, kx);//Cb
+				slic6_enc(&pr, comp[0], 2, kx);//Cr
+				kc+=3;
 			}
-#endif
+			for(;kc<nch;++kc)//gray/alpha
+			{
+				int pixel=src->data[idx|kc];
+				slic6_enc(&pr, pixel, kc, kx);
+			}
+			++kx;
+			idx+=4;
 		}
 	}
 	ac_enc_flush(&ec);
@@ -1505,28 +1378,12 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 
 		printf("csize %8d  CR %10.6lf\n", (int)list.nobj, usize/list.nobj);
 
-#ifdef PRINT_HIST
-		const char *ch_labels[]={"Y", "Cb", "Cr", "A"};
-		int ch_nhist=pr.nhist*pr.nhist, total_hist=nch*ch_nhist;
-		printf("Hist CWH %d*%d*%d:\n", nch, pr.cdfsize, ch_nhist);
-		for(int kt=0;kt<total_hist;++kt)
-		{
-			int *curr_hist=pr.hist+pr.cdfsize*kt;
-			if(!(kt%ch_nhist))
-				printf("%s  %d-bit\n", ch_labels[kt/ch_nhist], pr.depths[kt/ch_nhist]);
-			for(int ks=0;ks<pr.cdfsize;++ks)
-				printf("%d%c", curr_hist[ks], ks<pr.cdfsize-1?' ':'\n');
-			if(!((kt+1)%pr.nhist)&&kt+1<total_hist)
-				printf("\n");
-		}
-#endif
-
 		printf("Pred errors\n");
 		long long sum=0;
 		for(int k=0;k<NPREDS;++k)
 			sum+=pr.pred_error_sums[k];
 		for(int k=0;k<NPREDS;++k)
-			printf("  %2d  %12lld  %6.2lf%%  %s\n", k, pr.pred_error_sums[k], 100.*pr.pred_error_sums[k]/sum, prednames[k]);
+			printf("  %2d  %17lld  %6.2lf%%  %s\n", k, pr.pred_error_sums[k], 100.*pr.pred_error_sums[k]/sum, prednames[k]);
 		
 #ifdef TRACK_SSE_RANGES
 		const char dim_labels[]="XYZP";
@@ -1540,27 +1397,29 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 			printf("\n");
 		}
 #endif
+		//printf("SSE bias:\n");
+		//for(int k=0;k<(1<<LG_SEQ_CTR);++k)
+		//{
+		//	int sse_count=pr.prob_sse[k]&0xFF, sse_sum=(int)(pr.prob_sse[k]>>8);
+		//	printf("  %2d:  %d/%d = %d\n", k, sse_sum, sse_count, sse_sum/(sse_count+1));
+		//}
+#ifdef PRINT_AVERAGE_ERROR
+		printf("Average error\n");
+		for(int kc=0;kc<nch;++kc)
+			printf("  C%d  %16lf\n", kc, av_err[kc]/((double)pr.nch*pr.iw*pr.ih));
+#endif
 
 		//printf("Bias\n");
 		//for(int kc=0;kc<nch;++kc)
 		//	printf("  %lld/%d = %d\n", pr.bias_sum[kc], pr.bias_count[kc], pr.bias_count[kc]?(int)(pr.bias_sum[kc]/pr.bias_count[kc]):0);
-		//for(int k=0;k<768;k+=4)
-		//{
-		//	int q=QUANTIZE_HIST(k);
-		//	int q2=floor_log2_32(k)+1;
-		//	printf("%3d  %3d  %3d\n", k, q, q2);
-		//}
 
 		prof_print();
 	}
-	slic5_free(&pr);
+	slic6_free(&pr);
 	dlist_clear(&list);
-#ifdef ENABLE_LZ
-	free(lzmap);
-#endif
 	return 1;
 }
-int t47_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
+int t48_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 {
 	double t_start=time_sec();
 	RCTType rct=RCT_NONE;
@@ -1583,9 +1442,9 @@ int t47_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 		--srclen;
 	}
 	ArithmeticCoder ec;
-	SLIC5Ctx pr;
+	SLIC6Ctx pr;
 	ac_dec_init(&ec, data, data+srclen);
-	int success=slic5_init(&pr, dst->iw, dst->ih, nch, dst->depth, &ec);
+	int success=slic6_init(&pr, dst->iw, dst->ih, nch, dst->depth, &ec);
 	if(!success)
 	{
 		LOG_ERROR("Alloc error");
@@ -1593,90 +1452,45 @@ int t47_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 	}
 	for(int ky=0, idx=0;ky<dst->ih;++ky)
 	{
-		slic5_nextrow(&pr, ky);
+		slic6_nextrow(&pr, ky);
 		for(int kx=0;kx<dst->iw;)
 		{
 			//if(kx==252&&ky==16)//
 			//if(kx==151&&ky==37)//
 			//if(kx==100&&ky==38)//
-			//	printf("");
+			//if(kx==427&&ky==698)//
+			if(kx==158&&ky==571)//
+				printf("");
 
 			int kc=0;
-			int first=slic5_dec(&pr, 0, kx);
-#ifdef ENABLE_LZ
-			if((unsigned)first==0x80000000)
+			if(nch>=3)
 			{
-				int lzidx, lzlen;
-				lzidx=(EC_DEC(&ec, 0, 256, 0)&0xFF)<<24;
-				if(lzidx<0)
-					lzidx=(idx>>2)-dst->iw;
-				else
-				{
-					lzidx|=(EC_DEC(&ec, 0, 256, 0)&0xFF)<<16;
-					lzidx|=(EC_DEC(&ec, 0, 256, 0)&0xFF)<<8;
-					lzidx|=EC_DEC(&ec, 0, 256, 0)&0xFF;
-				}
-				lzlen=EC_DEC(&ec, 0, 256, 0)&0xFF;
-				lzlen|=(EC_DEC(&ec, 0, 256, 0)&0xFF)<<8;
-				slic5_update_hist(&pr, pr.cdfsize-1);
-				slic5_update_CDFs(&pr);
-				const int *srcptr=dst->data+((size_t)lzidx<<2);
-				int *dstptr=dst->data+idx;
-
-				for(int k=0;k<(lzlen<<2);k+=4)//can't use memcpy/memmove here, to support RLE
-				{
-					dstptr[k|0]=srcptr[k|0];
-					dstptr[k|1]=srcptr[k|1];
-					dstptr[k|2]=srcptr[k|2];
-					dstptr[k|3]=srcptr[k|3];
+				int comp[3];
+				comp[1]=slic6_dec(&pr, 0, kx);//Y
+				comp[2]=slic6_dec(&pr, 1, kx);//Cb
+				comp[0]=slic6_dec(&pr, 2, kx);//Cr
+				rct_inv(comp, rct);
+				dst->data[idx|0]=comp[0];
+				dst->data[idx|1]=comp[1];
+				dst->data[idx|2]=comp[2];
+				kc+=3;
 #ifdef ENABLE_GUIDE
-					if(guide&&(
-						dstptr[k|0]!=guide->data[(guide->iw*ky+kx)*4+k+0]||
-						dstptr[k|1]!=guide->data[(guide->iw*ky+kx)*4+k+1]||
-						dstptr[k|2]!=guide->data[(guide->iw*ky+kx)*4+k+2]||
-						dstptr[k|3]!=guide->data[(guide->iw*ky+kx)*4+k+3]
-					))
-						LOG_ERROR("Guide error XY %d %d", kx, ky);
+				if(guide&&(
+					comp[0]!=guide->data[(guide->iw*ky+kx)<<2|0]||
+					comp[1]!=guide->data[(guide->iw*ky+kx)<<2|1]||
+					comp[2]!=guide->data[(guide->iw*ky+kx)<<2|2]
+				))
+					LOG_ERROR("Guide error XY %d %d", kx, ky);
 #endif
-				}
-				slic5_skip_lzpixels(&pr, dst->data+idx, lzlen);
-				kx+=lzlen;
-				idx+=lzlen<<2;
 			}
-			else
+			while(kc<nch)//gray/alpha
 			{
-#endif
-				if(nch>=3)
-				{
-					int comp[3];
-					comp[1]=first;//Y
-					comp[2]=slic5_dec(&pr, 1, kx);//Cb
-					comp[0]=slic5_dec(&pr, 2, kx);//Cr
-					rct_inv(comp, rct);
-					dst->data[idx|0]=comp[0];
-					dst->data[idx|1]=comp[1];
-					dst->data[idx|2]=comp[2];
-					kc+=3;
-#ifdef ENABLE_GUIDE
-					if(guide&&(
-						comp[0]!=guide->data[(guide->iw*ky+kx)<<2|0]||
-						comp[1]!=guide->data[(guide->iw*ky+kx)<<2|1]||
-						comp[2]!=guide->data[(guide->iw*ky+kx)<<2|2]
-					))
-						LOG_ERROR("Guide error XY %d %d", kx, ky);
-#endif
-				}
-				while(kc<nch)//gray/alpha
-				{
-					int pixel=kc?slic5_dec(&pr, kc, kx):first;
-					dst->data[idx|kc]=pixel;
-					++kc;
-				}
-				++kx;
-				idx+=4;
-#ifdef ENABLE_LZ
+				int pixel=slic6_dec(&pr, kc, kx);
+				dst->data[idx|kc]=pixel;
+				++kc;
 			}
-#endif
+			++kx;
+			idx+=4;
 		}
 	}
 	if(dst_nch>=3&&nch==1)//grayscale fix
@@ -1696,186 +1510,6 @@ int t47_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 	}
-	slic5_free(&pr);
-	return 1;
-}
-
-int t47_from_ppm(const char *src, const char *dst)
-{
-	double t=time_sec();
-	FILE *f=fopen(src, "rb");
-	if(!f)
-	{
-		printf("Cannot open \"%s\"\n", src);
-		return 0;
-	}
-	char buf[1024]={0};
-	int len=0, idx=0;
-	int iw, ih, maxval;
-	len=(int)fread(buf, 1, 1024, f);
-	if(memcmp(buf, "P6", 2))
-	{
-		fclose(f);
-		printf("Expected a Binary Portable PixMap (P6 header)\n");
-		return 0;
-	}
-	idx=2;
-	
-	char *end=0;
-	for(;idx<1024&&isspace(buf[idx]);++idx);//skip newline after 'P6'
-	iw=strtol(buf+idx, &end, 10);
-	idx=(int)(end-buf);
-
-	for(;idx<1024&&isspace(buf[idx]);++idx);//skip space after width
-	ih=strtol(buf+idx, &end, 10);
-	idx=(int)(end-buf);
-
-	for(;idx<1024&&isspace(buf[idx]);++idx);//skip newline after height
-	maxval=strtol(buf+idx, &end, 10);
-	idx=(int)(end-buf);
-	if(maxval!=255)
-	{
-		fclose(f);
-		printf("Expected an 8-bit image\n");
-		return 0;
-	}
-	for(;idx<1024&&isspace(buf[idx]);++idx);//skip newline after maxval
-	
-	DList list;
-	ArithmeticCoder ec;
-	SLIC5Ctx pr;
-	dlist_init(&list, 1, 65536, 0);
-	ac_enc_init(&ec, &list);
-	char depths[]={8, 8, 8, 0};
-	int success=slic5_init(&pr, iw, ih, 3, depths, &ec);
-	if(!success)
-	{
-		fclose(f);
-		LOG_ERROR("Alloc error");
-		return 0;
-	}
-	for(int ky=0;ky<ih;++ky)
-	{
-		slic5_nextrow(&pr, ky);
-		for(int kx=0;kx<iw;++kx)
-		{
-			int r, g, b;
-#define CHECK_BUFFER()\
-	if(idx>=len)\
-	{\
-		len=(int)fread(buf, 1, 1024, f);\
-		idx=0;\
-		if(idx>=len)\
-		{\
-			LOG_ERROR("Alloc error");\
-			return 0;\
-		}\
-	}
-			CHECK_BUFFER()
-			r=(unsigned char)buf[idx++]-128;
-			CHECK_BUFFER()
-			g=(unsigned char)buf[idx++]-128;
-			CHECK_BUFFER()
-			b=(unsigned char)buf[idx++]-128;
-
-			r-=g;
-			b-=g;
-			g+=(r+b)>>2;
-
-			slic5_enc(&pr, g, 0, kx);//Y
-			slic5_enc(&pr, b, 1, kx);//Cb
-			slic5_enc(&pr, r, 2, kx);//Cr
-		}
-		printf("%6.2lf%%  CR %10lf  Elapsed %12lf\r", 100.*(ky+1)/ih, 3.*iw*(ky+1)/list.nobj, time_sec()-t);
-	}
-	ac_enc_flush(&ec);
-
-	printf("\n");
-
-	ArrayHandle cdata=0;
-	lsim_writeheader(&cdata, iw, ih, 3, depths, 47);
-	dlist_appendtoarray(&list, &cdata);
-	
-	t=time_sec()-t;
-	printf("Encoded  %lf sec  CR 3*%d*%d/%d = %lf\n", t, iw, ih, (int)list.nobj, 3.*iw*ih/list.nobj);
-	
-	slic5_free(&pr);
-	dlist_clear(&list);
-	fclose(f);
-
-	success=save_file(dst, cdata->data, cdata->count, 1);
-	printf("%s \"%s\"\n", success?"Saved":"Failed to save", dst);
-
-	array_free(&cdata);
-	return 1;
-}
-int t47_to_ppm(const char *src, const char *dst)
-{
-	double t=time_sec();
-	ArrayHandle cdata=load_file(src, 1, 0, 0);
-	const unsigned char *data=cdata->data;
-	size_t srclen=cdata->count;
-	LSIMHeader header;
-	size_t bytesread=lsim_readheader(data, srclen, &header);
-	if(header.iw<1||header.ih<1||header.nch!=3||header.depth[0]!=8||header.depth[1]!=8||header.depth[2]!=8)
-	{
-		printf("Expected an 8-bit RGB image\n");
-		return 0;
-	}
-	data+=bytesread;
-	srclen-=bytesread;
-	FILE *f=fopen(dst, "wb");
-	if(!f)
-	{
-		printf("Failed to save \"%s\"\n", dst);
-		return 0;
-	}
-	int written=snprintf(g_buf, G_BUF_SIZE, "P6\n%d %d\n%d\n", header.iw, header.ih, (1<<header.depth[0])-1);
-	written=(int)fwrite(g_buf, 1, written, f);
-	if(!written)
-	{
-		printf("File write error");
-		return 0;
-	}
-	ArithmeticCoder ec;
-	SLIC5Ctx pr;
-	ac_dec_init(&ec, data, data+srclen);
-	int success=slic5_init(&pr, header.iw, header.ih, header.nch, header.depth, &ec);
-	if(!success)
-	{
-		LOG_ERROR("Alloc error");
-		return 0;
-	}
-	for(int ky=0;ky<header.ih;++ky)
-	{
-		slic5_nextrow(&pr, ky);
-		for(int kx=0;kx<header.iw;++kx)
-		{
-			int g=slic5_dec(&pr, 0, kx);//Y
-			int b=slic5_dec(&pr, 1, kx);//Cb
-			int r=slic5_dec(&pr, 2, kx);//Cr
-
-			g-=(r+b)>>2;
-			b+=g;
-			r+=g;
-
-			char triplet[]={r+128, g+128, b+128, 0};
-			written=(int)fwrite(triplet, 1, 3, f);
-			if(!written)
-			{
-				printf("File write error");
-				return 0;
-			}
-		}
-		printf("%6.2lf%%  Elapsed %12lf\r", 100.*(ky+1)/header.ih, time_sec()-t);
-	}
-
-	printf("\n");
-
-	t=time_sec()-t;
-	printf("Decoded  %lf sec\n", t);
-	
-	slic5_free(&pr);
-	fclose(f);
+	slic6_free(&pr);
 	return 1;
 }
