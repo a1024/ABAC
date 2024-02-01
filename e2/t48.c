@@ -85,6 +85,7 @@ static void prof_print()
 #define prof_print()
 #endif
 
+//#define CTR_PRED_BITS 2
 #define LG_SEQ_CTR 4
 #define LG_PAR_CTR 1
 //#define LG_CTR (LG_SEQ_CTR+LG_PAR_CTR)
@@ -218,11 +219,13 @@ typedef struct SLIC6CtxStruct
 	int iw, ih, nch;
 	char depths[4];
 	int
+		maxdepth,
 		half[4],
 		shift_prec[4],//shift right to bring value to 8-bit, removes predictor-added bits
 		shift_error[4];
 	int *pred_errors, *errors, *pixels;
 
+	int qpred_range;
 	int nhist, total_hist;
 	ProbCell *counters;
 	long long *prob_sse;
@@ -246,6 +249,8 @@ typedef struct SLIC6CtxStruct
 	int hist_idx;
 	int sse_corr;
 	int kc, kx, ky, kym0, kym1, kym2;
+
+	int *ehist;
 	long long pred_error_sums[NPREDS];
 #ifdef TRACK_SSE_RANGES
 	int sse_ranges[8];
@@ -279,13 +284,13 @@ static int slic6_init(SLIC6Ctx *pr, int iw, int ih, int nch, const char *depths,
 		if(nch==4)
 			pr->depths[3]=depths[3];//a
 	}
-	int maxdepth=0;
+	pr->maxdepth=0;
 	for(int kc=0;kc<nch;++kc)
 	{
 		int nlevels=1<<pr->depths[kc], prec_half=(1<<(pr->depths[kc]+PRED_PREC))>>1;
 		pr->half[kc]=nlevels>>1;
-		if(maxdepth<pr->depths[kc])
-			maxdepth=pr->depths[kc];
+		if(pr->maxdepth<pr->depths[kc])
+			pr->maxdepth=pr->depths[kc];
 	}
 	for(int kc=0;kc<pr->nch;++kc)
 	{
@@ -298,6 +303,11 @@ static int slic6_init(SLIC6Ctx *pr, int iw, int ih, int nch, const char *depths,
 	//hybriduint_encode(extremesym, &hu);//encode -half
 	//pr->cdfsize=hu.token+1;
 	pr->nhist=QUANTIZE_HIST(767);
+
+	pr->qpred_range=quantize_unsigned((1<<pr->maxdepth)>>1, 2, 1)<<1;
+	//pr->qpred_range=quantize_signed(-((1<<maxdepth)>>1), 0, 2, 1, ?);
+	//pr->qpred_range=quantize_signed_get_range(1, 1<<MAXVAR(0, maxdepth-8), 2, 1);
+	//pr->total_hist=pr->qpred_range*pr->nhist*pr->nhist;
 	pr->total_hist=pr->nhist*pr->nhist;
 
 	//pr->sse_width=7;
@@ -336,7 +346,8 @@ static int slic6_init(SLIC6Ctx *pr, int iw, int ih, int nch, const char *depths,
 	pr->sse=(long long*)malloc(nch*sizeof(long long[SSE_SIZE*SSE_STAGES]));
 	pr->sse_fr=(long long*)malloc(nch*sizeof(long long[SSE_FR_SIZE]));
 #endif
-	if(!pr->pred_errors||!pr->errors||!pr->pixels||!pr->counters||!pr->prob_sse
+	pr->ehist=(int*)malloc(sizeof(int)<<pr->maxdepth);
+	if(!pr->pred_errors||!pr->errors||!pr->pixels||!pr->counters||!pr->prob_sse||!pr->ehist
 #ifndef DISABLE_SSE
 		||!pr->sse||!pr->sse_fr
 #endif
@@ -412,9 +423,10 @@ static int slic6_init(SLIC6Ctx *pr, int iw, int ih, int nch, const char *depths,
 	memset(pr->sse, 0, nch*sizeof(long long[SSE_SIZE*SSE_STAGES]));
 	memset(pr->sse_fr, 0, nch*sizeof(long long[SSE_FR_SIZE]));
 #endif
+	memset(pr->ehist, 0, sizeof(int)<<pr->maxdepth);
 
 	for(int k=0;k<NPREDS;++k)
-		pr->params[k]=12<<maxdepth;
+		pr->params[k]=12<<pr->maxdepth;
 	//int shift=16-maxdepth;
 	//shift=MAXVAR(0, shift);
 	//memcpy(pr->params, wp_params, sizeof(pr->params));
@@ -784,6 +796,9 @@ static void slic6_predict(SLIC6Ctx *pr, int kc, int kx)
 
 	pr->pred=CLAMP(clamp_lo, pr->pred, clamp_hi);
 	pr->pred_final=(int)((pr->pred+((1<<PRED_PREC)>>1)-1)>>PRED_PREC);
+	
+	//pr->hist_idx*=pr->qpred_range;
+	//pr->hist_idx+=quantize_signed(pr->pred_final, 0, 2, 1, pr->qpred_range);
 }
 static void slic6_update(SLIC6Ctx *pr, int curr)
 {
@@ -1067,6 +1082,56 @@ static void slic6_enc(SLIC6Ctx *pr, int curr, int kc, int kx)
 #ifdef PRINT_AVERAGE_ERROR
 	av_err[kc]+=error;
 #endif
+	++pr->ehist[error];
+
+#if 0
+	const int threshold=(1<<LG_SEQ_CTR)-1;
+
+	//int token=0, nbits=0;
+	//if(error<threshold)
+	//{
+	//	nbits=error+1;
+	//	token=((1<<error)-1)<<1;
+	//}
+	//else
+	//{
+	//	nbits=threshold+pr->depths[kc];
+	//	token=(1<<threshold)-1;
+	//	token<<=pr->depths[kc];
+	//	token|=error-threshold;
+	//}
+	int ctr_idx=0, p0=0, wsum=0;
+	ProbCell *cells=pr->counters+(((size_t)pr->total_hist*kc+pr->hist_idx)<<LG_SEQ_CTR);
+	for(int kb=0;;++kb)
+	{
+		int bit;
+		if(kb<threshold)
+			bit=kb<error;
+		else
+			bit=(error-threshold)>>(pr->depths[kc]-1-(kb-threshold))&1;
+
+		int p0_final=p0_calc(cells+ctr_idx, pr->prob_sse+((size_t)ctr_idx<<8), &p0, &wsum);
+		ac_enc_bin(pr->ec, (unsigned short)p0_final, bit);
+		p0_update(cells+ctr_idx, pr->prob_sse+((size_t)ctr_idx<<8), p0, wsum, p0_final, bit);
+		ctr_idx+=ctr_idx<(1<<LG_SEQ_CTR)-1;
+		
+		if(kb<threshold&&!bit||kb>=threshold+pr->depths[kc]-1)
+			break;
+		//if(kb<threshold)
+		//{
+		//	if(!bit)
+		//		break;
+		//}
+		//else
+		//{
+		//	if(kb>=threshold+pr->depths[kc]-1)
+		//		break;
+		//}
+	}
+	//const int maxtoken=(1<<LG_SEQ_CTR)-2;
+	//int token=MAXVAR(error, maxtoken), bypass=MAXVAR(0, error-token);
+#endif
+#if 1
 	int ctr_idx=0, p0=0, wsum=0;
 	ProbCell *cells=pr->counters+(((size_t)pr->total_hist*kc+pr->hist_idx)<<LG_SEQ_CTR);
 	//unsigned short *p0=pr->counters;
@@ -1088,6 +1153,7 @@ static void slic6_enc(SLIC6Ctx *pr, int curr, int kc, int kx)
 	ac_enc_bin(pr->ec, p0_final, bit);
 	p0_update(cells+ctr_idx, pr->prob_sse+((size_t)ctr_idx<<8), p0, wsum, p0_final, bit);
 	//p0[ctr_idx]+=((!bit<<16)-p0[ctr_idx]+16)>>5;
+#endif
 
 	slic6_update(pr, curr);
 }
@@ -1095,7 +1161,37 @@ static int slic6_dec(SLIC6Ctx *pr, int kc, int kx)
 {
 	slic6_predict(pr, kc, kx);
 	
+#if 0
+	const int threshold=(1<<LG_SEQ_CTR)-1;
 	int ctr_idx=0;
+	ProbCell *cells=pr->counters+(((size_t)pr->total_hist*kc+pr->hist_idx)<<LG_SEQ_CTR);
+	int bit=0, token=0, bypass=0, p0=0, wsum=0;
+	for(int kb=0;;++kb)
+	{
+		int p0_final=p0_calc(cells+ctr_idx, pr->prob_sse+((size_t)ctr_idx<<8), &p0, &wsum);
+		bit=ac_dec_bin(pr->ec, p0_final);
+		p0_update(cells+ctr_idx, pr->prob_sse+((size_t)ctr_idx<<8), p0, wsum, p0_final, bit);
+		ctr_idx+=ctr_idx<(1<<LG_SEQ_CTR)-1;
+		if(kb<threshold)
+		{
+			token+=bit;
+			if(!bit)
+				break;
+		}
+		else
+		{
+			bypass<<=1;
+			bypass|=bit;
+			if(kb>=threshold+pr->depths[kc]-1)
+				break;
+		}
+	}
+	int error=token+bypass;
+#endif
+#if 1
+	int ctr_idx=0;
+	//int qpred=(pr->pred_final+pr->half[kc])>>MAXVAR(0, pr->depths[kc]-CTR_PRED_BITS);
+	//ProbCell *cells=pr->counters+((((size_t)pr->total_hist*kc+pr->hist_idx)<<CTR_PRED_BITS|qpred)<<LG_SEQ_CTR);
 	ProbCell *cells=pr->counters+(((size_t)pr->total_hist*kc+pr->hist_idx)<<LG_SEQ_CTR);
 	//ProbCell *cells=pr->counters+(((size_t)pr->total_hist*kc+pr->hist_idx)<<LG_CTR);
 	//unsigned short (*p0)[2]=pr->counters+(((size_t)pr->total_hist*kc+pr->hist_idx)<<LG_CTR);
@@ -1118,6 +1214,7 @@ static int slic6_dec(SLIC6Ctx *pr, int kc, int kx)
 		//p0[ctr_idx]+=((!bit<<16)-p0[ctr_idx]+16)>>5;
 		//ctr_idx+=ctr_idx<NCOUNTERS-1;
 	}while(bit);
+#endif
 
 #if 1
 	int upred=pr->half[kc]-abs(pr->pred_final), negmask;
@@ -1344,8 +1441,8 @@ int t48_encode(Image const *src, ArrayHandle *data, int loud)
 		slic6_nextrow(&pr, ky);
 		for(int kx=0;kx<src->iw;)
 		{
-			if(kx==158&&ky==571)//
-				printf("");
+			//if(kx==158&&ky==571)//
+			//	printf("");
 
 			int kc=0;
 			if(nch>=3)
@@ -1385,6 +1482,35 @@ int t48_encode(Image const *src, ArrayHandle *data, int loud)
 		for(int k=0;k<NPREDS;++k)
 			printf("  %2d  %17lld  %6.2lf%%  %s\n", k, pr.pred_error_sums[k], 100.*pr.pred_error_sums[k]/sum, prednames[k]);
 		
+		int max2print=40;//1000
+		printf("Error hist\n");
+		int vmax=0;
+		for(int ks=0, end=MINVAR(max2print, 1<<pr.maxdepth);ks<end;++ks)
+		{
+			UPDATE_MAX(vmax, pr.ehist[ks]);
+		}
+		for(int ks=0, end=MINVAR(max2print, 1<<pr.maxdepth);ks<end;++ks)
+		{
+			int freq=pr.ehist[ks];
+			printf("%3d ", ks);
+			for(int k2=0;k2<max2print;++k2)
+			{
+				char c;
+				if(k2>ks)
+					c=' ';
+				else if(k2<ks)
+					c='1';
+				else
+					c='0';
+				printf("%c", c);
+			}
+			printf(" ");
+			print_binn(ks, pr.maxdepth);
+			printf(" %7d ", freq);
+			for(int k2=0, nstars=freq*64/vmax;k2<nstars;++k2)
+				printf("*");
+			printf("\n");
+		}
 #ifdef TRACK_SSE_RANGES
 		const char dim_labels[]="XYZP";
 		printf("SSE ranges\n");
@@ -1459,8 +1585,8 @@ int t48_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 			//if(kx==151&&ky==37)//
 			//if(kx==100&&ky==38)//
 			//if(kx==427&&ky==698)//
-			if(kx==158&&ky==571)//
-				printf("");
+			//if(kx==158&&ky==571)//
+			//	printf("");
 
 			int kc=0;
 			if(nch>=3)
