@@ -515,7 +515,7 @@ static void ac_enc_bin(ArithmeticCoder *ec, unsigned short p0, int bit)
 {
 	unsigned mid;
 	
-	ac_renorm(ec, p0<0x10000-p0?p0:0x10000-p0);
+	ac_renorm(ec, 0);
 
 	if(!p0)//reject degenerate distribution
 		LOG_ERROR2("ZPS");
@@ -533,7 +533,7 @@ static int ac_dec_bin(ArithmeticCoder *ec, unsigned short p0)//binary AC decoder
 {
 	unsigned mid;
 
-	ac_renorm(ec, p0<0x10000-p0?p0:0x10000-p0);
+	ac_renorm(ec, 0);
 
 	if(!p0)//reject degenerate distribution
 		LOG_ERROR2("ZPS");
