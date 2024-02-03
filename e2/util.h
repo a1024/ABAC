@@ -70,10 +70,12 @@ typedef enum GetOptRetEnum
 } GetOptRet;
 int acme_getopt(int argc, char **argv, int *start, const char **keywords, int kw_count);//keywords[i]: shortform char, followed by longform null-terminated string, returns 
 
+int floor_log2_p1(unsigned long long n);
 int floor_log2(unsigned long long n);//uses intrinsics and was patched to give -1 for zero input
 int floor_log2_32(unsigned n);
 int ceil_log2(unsigned long long n);
 int floor_log10(double x);
+unsigned floor_sqrt(unsigned long long x);
 double power(double x, int y);
 double _10pow(int n);
 int minimum(int a, int b);

@@ -201,6 +201,27 @@ int acme_getopt(int argc, char **argv, int *start, const char **keywords, int kw
 	return OPT_NOMATCH;
 }
 
+int floor_log2_p1(unsigned long long n)
+{
+#ifdef _MSC_VER
+	unsigned long logn=0;
+	int success=_BitScanReverse64(&logn, n);
+	logn=success?logn+1:0;
+	return logn;
+#elif defined __GNUC__
+	int logn=64-__builtin_clzll(n);
+	return logn;
+#else
+	int	logn=-!n;
+	int	sh=(n>=1ULL<<32)<<5;	logn+=sh, n>>=sh;
+		sh=(n>=1<<16)<<4;	logn+=sh, n>>=sh;
+		sh=(n>=1<< 8)<<3;	logn+=sh, n>>=sh;
+		sh=(n>=1<< 4)<<2;	logn+=sh, n>>=sh;
+		sh=(n>=1<< 2)<<1;	logn+=sh, n>>=sh;
+		sh= n>=1<< 1;		logn+=sh;
+	return logn+1;
+#endif
+}
 int floor_log2(unsigned long long n)
 {
 #ifdef _MSC_VER
@@ -303,6 +324,115 @@ int floor_log10(double x)
 	sh= x<nmask[1];      logn-=sh;
 	return logn;
 }
+unsigned floor_sqrt(unsigned long long x)
+{
+	if(x<2)
+		return x;
+	int lg_sqrtx_p1=(floor_log2(x)>>1)+1;
+	unsigned long long
+		U=1ULL<<lg_sqrtx_p1,
+		L=U>>1,
+		temp=x>>(lg_sqrtx_p1-1);
+	--U;
+	U=MINVAR(U, temp);
+	temp>>=1;
+	L=MAXVAR(L, temp);
+	//unsigned long long
+	//	L=(1ULL<<lg_sqrtx_p1)>>1,
+	//	U=(1ULL<<lg_sqrtx_p1)-1,
+	//	L2=x>>lg_sqrtx_p1,	//where is the proof that these are also bounds?
+	//	U2=x>>(lg_sqrtx_p1-1);
+	//L=MAXVAR(L, L2);
+	//U=MINVAR(U, U2);
+	int nmuls=0;//
+	while(L<=U)//binary search
+	{
+		unsigned long long level=(L+U)>>1, sq=level*level;
+		++nmuls;//
+		if(x>sq)
+			L=level+1;
+		else if(x<sq)
+			U=level-1;
+		else
+		{
+			U=level;
+			break;
+		}
+	}
+	printf("%d muls\n", nmuls);//
+	return (unsigned)U;//U <= L, we want floor, so return U
+#if 0
+	//this does floor_log2(sqrt(x)) 64-bit multiplications (up to 31) plus a floor_log2 instruction
+	int lgx=floor_log2(x);//single instruction
+	lgx>>=1;
+	++lgx;//lgx can give -1 so we add 1 then shift back
+	unsigned long long L=(1ULL<<lgx)>>1, R=(L<<1)-1;//the sqrt is bounded between 0b100...00 (lgx/2 zeros) and 0b111...11
+	//int nmuls=0;//
+	while(L<=R)//binary search
+	{
+		unsigned long long level=(L+R)>>1, sq=level*level;
+		//++nmuls;//
+		if(x>sq)
+			L=level+1;
+		else if(x<sq)
+			R=level-1;
+		else
+			break;
+	}
+	//printf("%d muls\n", nmuls);//
+	return R;//R <= L, we want floor, so return R
+#endif
+
+#if 0
+	unsigned res=0x80000000&-(x>=0x80000000LL*0x80000000), temp;
+	temp=res|0x40000000, res|=0x40000000&-(x>=(unsigned long long)temp*temp);//always 31 muls
+	temp=res|0x20000000, res|=0x20000000&-(x>=(unsigned long long)temp*temp);
+	temp=res|0x10000000, res|=0x10000000&-(x>=(unsigned long long)temp*temp);
+	temp=res|0x08000000, res|=0x08000000&-(x>=(unsigned long long)temp*temp);
+	temp=res|0x04000000, res|=0x04000000&-(x>=(unsigned long long)temp*temp);
+	temp=res|0x02000000, res|=0x02000000&-(x>=(unsigned long long)temp*temp);
+	temp=res|0x01000000, res|=0x01000000&-(x>=(unsigned long long)temp*temp);
+	temp=res|0x00800000, res|=0x00800000&-(x>=(unsigned long long)temp*temp);
+	temp=res|0x00400000, res|=0x00400000&-(x>=(unsigned long long)temp*temp);
+	temp=res|0x00200000, res|=0x00200000&-(x>=(unsigned long long)temp*temp);
+	temp=res|0x00100000, res|=0x00100000&-(x>=(unsigned long long)temp*temp);
+	temp=res|0x00080000, res|=0x00080000&-(x>=(unsigned long long)temp*temp);
+	temp=res|0x00040000, res|=0x00040000&-(x>=(unsigned long long)temp*temp);
+	temp=res|0x00020000, res|=0x00020000&-(x>=(unsigned long long)temp*temp);
+	temp=res|0x00010000, res|=0x00010000&-(x>=(unsigned long long)temp*temp);
+	temp=res|0x00008000, res|=0x00008000&-(x>=(unsigned long long)temp*temp);
+	temp=res|0x00004000, res|=0x00004000&-(x>=(unsigned long long)temp*temp);
+	temp=res|0x00002000, res|=0x00002000&-(x>=(unsigned long long)temp*temp);
+	temp=res|0x00001000, res|=0x00001000&-(x>=(unsigned long long)temp*temp);
+	temp=res|0x00000800, res|=0x00000800&-(x>=(unsigned long long)temp*temp);
+	temp=res|0x00000400, res|=0x00000400&-(x>=(unsigned long long)temp*temp);
+	temp=res|0x00000200, res|=0x00000200&-(x>=(unsigned long long)temp*temp);
+	temp=res|0x00000100, res|=0x00000100&-(x>=(unsigned long long)temp*temp);
+	temp=res|0x00000080, res|=0x00000080&-(x>=(unsigned long long)temp*temp);
+	temp=res|0x00000040, res|=0x00000040&-(x>=(unsigned long long)temp*temp);
+	temp=res|0x00000020, res|=0x00000020&-(x>=(unsigned long long)temp*temp);
+	temp=res|0x00000010, res|=0x00000010&-(x>=(unsigned long long)temp*temp);
+	temp=res|0x00000008, res|=0x00000008&-(x>=(unsigned long long)temp*temp);
+	temp=res|0x00000004, res|=0x00000004&-(x>=(unsigned long long)temp*temp);
+	temp=res|0x00000002, res|=0x00000002&-(x>=(unsigned long long)temp*temp);
+	temp=res|0x00000001, res|=0x00000001&-(x>=(unsigned long long)temp*temp);
+	return res;
+#endif
+
+	//https://stackoverflow.com/questions/1100090/looking-for-an-efficient-integer-square-root-algorithm-for-arm-thumb2
+#if 0
+	unsigned res=0, add=0x80000000;
+	int i;
+	for(i=0;i<32;++i)
+	{
+		unsigned temp=res|add;
+		if(x>=(unsigned long long)temp*temp)
+			res=temp;
+		add>>=1;
+	}
+	return res;
+#endif
+}
 double power(double x, int y)
 {
 	double mask[]={1, 0}, product=1;
@@ -404,7 +534,7 @@ int timedelta2str(char *buf, size_t len, double secs)
 	}
 	return printed;
 }
-int		acme_strftime(char *buf, size_t len, const char *format)
+int acme_strftime(char *buf, size_t len, const char *format)
 {
 	time_t tstamp;
 	struct tm tformat;
