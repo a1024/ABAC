@@ -13,18 +13,27 @@
 #endif
 static const char file[]=__FILE__;
 
+//debug
+//	#define ENABLE_GUIDE
+
+//experiments
 //	#define PRINT_HIST
 //	#define PROFILER//SLOW
 //	#define TRACK_SSE_RANGES//SLOW
-//	#define ENABLE_GUIDE
 
+//efficiency
+	#define ENABLE_SSE_4D
+//	#define SSE_UPDATE_NB_CELLS//inferior
+//	#define COMPENSATE_GAMMA//crude method, inferior
+//	#define ENABLE_LZ//currently inferior
+//	#define ENABLE_SSE_PAR//inferior
+
+//memory
+//	#define PROBBITS_15//less efficient
+
+//speed
 //	#define AVX512
 	#define AVX2
-//	#define ENABLE_LZ
-	#define ENABLE_SSE_4D
-//	#define SSE_UPDATE_NB//inferior
-//	#define ENABLE_SSE_PAR//inferior
-//	#define PROBBITS_15//less efficient
 
 #if defined AVX2 || defined AVX512
 #include<immintrin.h>
@@ -107,7 +116,7 @@ static void prof_print()
 #define SSE_PRED_LEVELS (1<<SSE_PREDBITS)
 #define SSE_FR_SIZE 59049//3^10		separate final round
 #define SSE_STAGES 10
-#ifdef SSE_UPDATE_NB
+#ifdef SSE_UPDATE_NB_CELLS
 #define SSE_STEP 5
 #else
 #define SSE_STEP 1
@@ -121,24 +130,24 @@ static void prof_print()
 #define PRED_PREC 8
 #define PARAM_PREC 8
 
-#define NPREDS 16
+#define NPREDS 14
 #define PREDLIST\
 	PRED(W+NE-N-((2*(eN+eW)+eNE-eNW+4)>>3))\
 	PRED(N-(int)(((long long)eN+eW+eNE)*-0x05C>>PARAM_PREC))\
 	PRED(W-(int)(((long long)eN+eW+eNW)*-0x05B>>PARAM_PREC))\
 	PRED(N+(int)((-eNN*0x0DFLL-eN*0x0051LL-eNE*0x0BDLL+((long long)N-NN)*0x05C+((long long)NW-W)*0x0102)>>PARAM_PREC))\
 	PRED((W+NEE)>>1)\
-	PRED((WW+NE)>>1)\
 	PRED((4*N-2*NN+NW+NE)>>2)\
 	PRED(N+NE-NNE-eNNE)\
 	PRED((N+W)>>1)\
 	PRED((4*(N+W+NW+NE)-(NN+WW+NNWW+NNEE)+6)/12)\
-	PRED((W+2*NE-NNE+eNE)>>1)\
 	PRED(N+W+NNWW-NNW-NWW+((eN+eW)>>1))\
 	PRED(N+W-NW)\
 	PRED(2*W-WW+eW-eWW)\
 	PRED(paper_GAP)\
 	PRED(calic_GAP)
+//	PRED((WW+NE)>>1)
+//	PRED((W+2*NE-NNE+eNE)>>1)
 
 static const char *prednames[]=
 {
@@ -253,9 +262,12 @@ typedef struct SLIC5CtxStruct
 	int iw, ih, nch;
 	char depths[4];
 	int
+		maxdepth, maxlevels,
+		nlevels[4],
 		half[4],
 		shift_prec[4],//shift right to bring value to 8-bit, removes predictor-added bits
-		shift_error[4];
+		shift_error[4],
+		full_pixels_processed;
 	int nhist, cdfsize;
 	int *pred_errors, *errors, *pixels;
 
@@ -278,6 +290,10 @@ typedef struct SLIC5CtxStruct
 #endif
 	int bias_count[4];
 	long long bias_sum[4];
+
+#ifdef COMPENSATE_GAMMA
+	int *eq_hist, *equalizer;
+#endif
 
 	int preds[NPREDS], params[NPREDS];
 	long long pred;
@@ -316,21 +332,22 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 		if(nch==4)
 			pr->depths[3]=depths[3];//a
 	}
-	int maxdepth=0;
+	pr->maxdepth=0;
 	for(int kc=0;kc<nch;++kc)
 	{
-		int nlevels=1<<pr->depths[kc], prec_half=(1<<(pr->depths[kc]+PRED_PREC))>>1;
-		pr->half[kc]=nlevels>>1;
-		if(maxdepth<pr->depths[kc])
-			maxdepth=pr->depths[kc];
+		int prec_half=(1<<(pr->depths[kc]+PRED_PREC))>>1;
+		pr->nlevels[kc]=1<<pr->depths[kc];
+		pr->half[kc]=pr->nlevels[kc]>>1;
+		UPDATE_MAX(pr->maxdepth, pr->depths[kc]);
 	}
+	pr->maxlevels=1<<pr->maxdepth;
 	for(int kc=0;kc<pr->nch;++kc)
 	{
 		pr->shift_prec[kc]=MAXVAR(8, pr->depths[kc])-8+PRED_PREC;
 		pr->shift_error[kc]=1+((pr->depths[kc]<=9)<<1);
 	}
 	HybridUint hu;
-	int extremesym=-((1<<maxdepth)>>1);
+	int extremesym=-(pr->maxlevels>>1);
 	extremesym=extremesym<<1^-(extremesym<0);//pack sign
 	hybriduint_encode(extremesym, &hu);//encode -half
 	pr->cdfsize=hu.token+1;
@@ -465,9 +482,53 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 	if(pr->nch>1)
 		memset(pr->sse_cfl, 0, (nch-1LL)*sizeof(long long[SSE_SIZE<<1]));
 #endif
+#ifdef COMPENSATE_GAMMA
+	pr->eq_hist=(int*)malloc((size_t)nch*sizeof(int)<<pr->maxdepth);//1MB for 16-bit RGBA
+	pr->equalizer=(int*)malloc(nch*((size_t)pr->maxlevels+1)*sizeof(int));
+	if(!pr->eq_hist||!pr->equalizer)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
+	memset(pr->eq_hist, 0, (size_t)nch*sizeof(int)<<pr->maxdepth);
+	for(int kc=0;kc<pr->nch;++kc)
+	{
+		int *eq=pr->equalizer+((size_t)pr->maxlevels+1)*kc;
+		for(int ks=0;ks<=pr->nlevels[kc];++ks)
+			eq[ks]=ks<<PRED_PREC;
+	}
+#if 0
+	int res=iw*ih;
+	for(int kc=0;kc<nch;++kc)
+	{
+		int *eq=pr->equalizer+((size_t)pr->maxlevels+1)*kc;
+		for(int k=0;k<res;++k)
+		{
+			int val=preview[k<<2|kc]+pr->half[kc];
+			val=CLAMP(0, val, pr->nlevels[kc]-1);
+			++eq[val];
+		}
+		int sum=0;
+		for(int ks=0;ks<pr->nlevels[kc];++ks)
+		{
+			int freq=eq[ks];
+			eq[ks]=(int)(((long long)sum<<(pr->depths[kc]+PRED_PREC))/res);
+			sum+=freq;
+		}
+		//for(int ks=0;ks<pr->nlevels[kc];++ks)
+		//{
+		//	int curr=CDF_fwd[ks]>>PRED_PREC, next=ks<pr->nlevels[kc]-1?CDF_fwd[ks+1]>>PRED_PREC:pr->nlevels[kc];
+		//	//if(curr<next)
+		//	//	memfill(CDF_inv+curr, &ks, ((size_t)next-curr)*sizeof(int), sizeof(ks));
+		//	for(int kl=curr;kl<next;++kl)
+		//		CDF_inv[kl]=ks;
+		//}
+	}
+#endif
+#endif
 
 	for(int k=0;k<NPREDS;++k)
-		pr->params[k]=12<<maxdepth;
+		pr->params[k]=12<<pr->maxdepth;
 	//int shift=16-maxdepth;
 	//shift=MAXVAR(0, shift);
 	//memcpy(pr->params, wp_params, sizeof(pr->params));
@@ -488,7 +549,10 @@ static void slic5_free(SLIC5Ctx *pr)
 #if defined ENABLE_SSE_4D || defined ENABLE_SSE_PAR
 	free(pr->sse);
 	free(pr->sse_fr);
+	if(pr->nch>1)
+		free(pr->sse_cfl);
 #endif
+	//memset(pr, 0, sizeof(*pr));//init does this already
 }
 static void slic5_update_CDFs(SLIC5Ctx *pr)
 {
@@ -510,6 +574,23 @@ static void slic5_update_CDFs(SLIC5Ctx *pr)
 			curr_CDF[pr->cdfsize]=1<<CDF_SHIFT;
 		}
 	}
+#ifdef COMPENSATE_GAMMA
+	if(pr->full_pixels_processed)
+	{
+		for(int kc=0;kc<pr->nch;++kc)
+		{
+			int *hist=pr->eq_hist+((size_t)kc<<pr->maxdepth);
+			int *eq=pr->equalizer+((size_t)pr->maxlevels+1)*kc;
+			int sum=0;
+			for(int ks=0;ks<pr->nlevels[kc];++ks)
+			{
+				int freq=hist[ks];
+				eq[ks]=(int)(((long long)sum<<(pr->depths[kc]+PRED_PREC))/pr->full_pixels_processed);
+				sum+=freq;
+			}
+		}
+	}
+#endif
 }
 static void slic5_nextrow(SLIC5Ctx *pr, int ky)
 {
@@ -524,10 +605,39 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 	int idx=(pr->iw*pr->ky+kx)<<2|kc;
 	pr->kc=kc;
 	pr->kx=kx;
+	pr->full_pixels_processed+=!kc;
 	if(!(idx&(CDF_UPDATE_PERIOD-1))||(idx<CDF_UPDATE_PERIOD&&(idx&15)))
 		slic5_update_CDFs(pr);
 	PROF(UPDATE_CDFs);
 	//XY are flipped, no need to check if indices OOB due to padding
+#ifdef COMPENSATE_GAMMA
+	const int *eq=pr->equalizer+((size_t)pr->maxlevels+1)*kc;
+	int
+		NNWW	=LOAD(pr->pixels,  2, 2)+pr->half[kc],
+		NNW	=LOAD(pr->pixels,  1, 2)+pr->half[kc],
+		NN	=LOAD(pr->pixels,  0, 2)+pr->half[kc],
+		NNE	=LOAD(pr->pixels, -1, 2)+pr->half[kc],
+		NNEE	=LOAD(pr->pixels, -2, 2)+pr->half[kc],
+		NWW	=LOAD(pr->pixels,  2, 1)+pr->half[kc],
+		NW	=LOAD(pr->pixels,  1, 1)+pr->half[kc],
+		N	=LOAD(pr->pixels,  0, 1)+pr->half[kc],
+		NE	=LOAD(pr->pixels, -1, 1)+pr->half[kc],
+		NEE	=LOAD(pr->pixels, -2, 1)+pr->half[kc],
+		WW	=LOAD(pr->pixels,  2, 0)+pr->half[kc],
+		W	=LOAD(pr->pixels,  1, 0)+pr->half[kc];
+	NNWW	=eq[CLAMP(0, NNWW	, pr->nlevels[kc]-1)];
+	NNW	=eq[CLAMP(0, NNW	, pr->nlevels[kc]-1)];
+	NN	=eq[CLAMP(0, NN		, pr->nlevels[kc]-1)];
+	NNE	=eq[CLAMP(0, NNE	, pr->nlevels[kc]-1)];
+	NNEE	=eq[CLAMP(0, NNEE	, pr->nlevels[kc]-1)];
+	NWW	=eq[CLAMP(0, NWW	, pr->nlevels[kc]-1)];
+	NW	=eq[CLAMP(0, NW		, pr->nlevels[kc]-1)];
+	N	=eq[CLAMP(0, N		, pr->nlevels[kc]-1)];
+	NE	=eq[CLAMP(0, NE		, pr->nlevels[kc]-1)];
+	NEE	=eq[CLAMP(0, NEE	, pr->nlevels[kc]-1)];
+	WW	=eq[CLAMP(0, WW		, pr->nlevels[kc]-1)];
+	W	=eq[CLAMP(0, W		, pr->nlevels[kc]-1)];
+#else
 	int
 		NNWW	=LOAD(pr->pixels,  2, 2)<<PRED_PREC,
 		NNW	=LOAD(pr->pixels,  1, 2)<<PRED_PREC,
@@ -541,6 +651,24 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 		NEE	=LOAD(pr->pixels, -2, 1)<<PRED_PREC,
 		WW	=LOAD(pr->pixels,  2, 0)<<PRED_PREC,
 		W	=LOAD(pr->pixels,  1, 0)<<PRED_PREC;
+#ifdef COMPENSAGE_GAMMA_v2
+	int mean=(2*(N+W+NW+NE)+NNWW+NNW+NN+NNE+NNEE+NWW+NEE+WW+8)>>4;//29-bit max, sign bit included
+	long long temp, var=0;
+	temp=(long long)NNWW	-mean, var+=temp*temp;
+	temp=(long long)NNW	-mean, var+=temp*temp;
+	temp=(long long)NN	-mean, var+=temp*temp;
+	temp=(long long)NNE	-mean, var+=temp*temp;
+	temp=(long long)NNEE	-mean, var+=temp*temp;
+	temp=(long long)NWW	-mean, var+=temp*temp;
+	temp=(long long)NW	-mean, var+=temp*temp<<1;
+	temp=(long long)N	-mean, var+=temp*temp<<1;
+	temp=(long long)NE	-mean, var+=temp*temp<<1;
+	temp=(long long)NEE	-mean, var+=temp*temp;
+	temp=(long long)WW	-mean, var+=temp*temp;
+	temp=(long long)W	-mean, var+=temp*temp<<1;
+	int sdev=floor_sqrt((var<<PRED_PREC)/15);
+#endif
+#endif
 	int
 		eNNWW	=LOAD(pr->errors,  2, 2),//error = (curr<<8) - pred
 		eNNW	=LOAD(pr->errors,  1, 2),
@@ -1012,7 +1140,27 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 	PROF(SSE_LOOP);
 
 	pr->pred=CLAMP(clamp_lo, pr->pred, clamp_hi);
+#ifdef COMPENSATE_GAMMA
+	int L=0, R=pr->nlevels[kc]-1, found=0;
+	while(L<=R)//binary search	O(depth)
+	{
+		int level=eq[pr->pred_final=(L+R)>>1];
+		if(pr->pred>level)
+			L=pr->pred_final+1;
+		else if(pr->pred<level)
+			R=pr->pred_final-1;
+		else
+		{
+			found=1;
+			break;
+		}
+	}
+	pr->pred_final-=pr->half[kc];
+	//pr->pred_final+=(int)((pr->pred+((1<<PRED_PREC)>>1)-1)>>PRED_PREC);
+	//pr->pred_final>>=1;
+#else
 	pr->pred_final=(int)((pr->pred+((1<<PRED_PREC)>>1)-1)>>PRED_PREC);
+#endif
 }
 static void slic5_update_hist(SLIC5Ctx *pr, int token)
 {
@@ -1064,9 +1212,17 @@ static void slic5_update(SLIC5Ctx *pr, int curr, int token)
 	}
 	PROF(UPDATE_WP);
 
-	//update hist
+	//update token hist
 	if(token>=0)
 		slic5_update_hist(pr, token);
+
+#ifdef COMPENSATE_GAMMA
+	//update equalizer hist
+	int *hist=pr->eq_hist+((size_t)kc<<pr->maxdepth);
+	int ucurr=curr+pr->half[kc];
+	ucurr=CLAMP(0, ucurr, pr->nlevels[kc]-1);
+	++hist[ucurr];
+#endif
 	
 	//update SSE
 #if defined ENABLE_SSE_4D || defined ENABLE_SSE_PAR
@@ -1089,7 +1245,7 @@ static void slic5_update(SLIC5Ctx *pr, int curr, int token)
 		long long sse_val=pr->sse_sum[k]<<12|pr->sse_count[k];
 		sse_ptr[pr->sse_idx[k]]=sse_val;
 		
-#ifdef SSE_UPDATE_NB
+#ifdef SSE_UPDATE_NB_CELLS
 		int e2=error/SSE_STEP;
 		if(e2&&k<SSE_STAGES+(kc<<1))
 		{
@@ -1179,6 +1335,7 @@ static void slic5_update(SLIC5Ctx *pr, int curr, int token)
 	pr->bias_sum[kc]+=error;
 	PROF(UPDATE_SSE);
 }
+#ifdef ENABLE_LZ
 static void slic5_skip_lzpixels(SLIC5Ctx *pr, int *lzpixels, int lzlen)
 {
 #if 0
@@ -1200,6 +1357,7 @@ static void slic5_skip_lzpixels(SLIC5Ctx *pr, int *lzpixels, int lzlen)
 		memset(pr->pred_errors+((NPREDS*idx+k)<<2), 0, lzlen*sizeof(int[4]));
 #endif
 }
+#endif
 #undef  LOAD
 static void slic5_enc(SLIC5Ctx *pr, int curr, int kc, int kx)
 {
@@ -1356,211 +1514,78 @@ const char *rct_names[]=
 	RCTLIST
 #undef  RCT
 };
-RCTType rct_select_best(Image const *src, double *ret_csizes)
-{
-	int inflation[]={1, 1, 1, 0};
-	int maxdepth=calc_maxdepth(src, inflation), maxlevels=1<<maxdepth;
-	int *hist=(int*)malloc(src->nch*maxlevels*sizeof(int[RCT_COUNT]));
-	int *pixels=(int*)malloc((src->iw+2LL)*sizeof(int[4*2*RCT_COUNT]));//(iw + 2 padding) * 4 channels * 2 rows * N_RCT	need 2 rows because of NW
-	if(!hist||!pixels)
-	{
-		LOG_ERROR("Alloc error");
-		return RCT_NONE;
-	}
-	memset(hist, 0, src->nch*maxlevels*sizeof(int[RCT_COUNT]));
-	memset(pixels, 0, src->iw*sizeof(int[4*RCT_COUNT]));
-	int res=src->iw*src->ih;
-	int nlevels[][3]=
-	{
-		{1<<src->depth[1], 1<<src->depth[2], 1<<src->depth[0]},//RCT_NONE
-		{1<<src->depth[1], 1<<(src->depth[2]+1), 1<<(src->depth[0]+1)},
-	};
-	for(int ky=0, idx=0;ky<src->ih;++ky)
-	{
-		int row0=ky&1, row1=!row0;
-		for(int kx=0;kx<src->iw;++kx, ++idx)
-		{
-			int v[]={src->data[idx<<2|0], src->data[idx<<2|1], src->data[idx<<2|2]}, r, g, b, N, W, NW, pred;
-
-#define GET_PIXEL(RCT_IDX, C, X, Y) pixels[(src->iw*(RCT_IDX<<1|row##Y)+kx+1-X)<<2|C]
-#define PROCESS_SUBPIXEL(RCT_IDX, C, X, N_IDX)\
-	GET_PIXEL(RCT_IDX, C, 0, 0)=X,\
-	N=GET_PIXEL(RCT_IDX, C, 0, 1),\
-	W=GET_PIXEL(RCT_IDX, C, 1, 0),\
-	NW=GET_PIXEL(RCT_IDX, C, 1, 1),\
-	pred=N+W-NW, pred=MEDIAN3(N, W, pred), X-=pred,\
-	++hist[maxlevels*(3*RCT_IDX+C)+((X+(nlevels[N_IDX][C]>>1))&(nlevels[N_IDX][C]-1))]
-			
-			//RCT_NONE
-			r=v[0], g=v[1], b=v[2];
-			PROCESS_SUBPIXEL(RCT_NONE, 0, g, 0);
-			PROCESS_SUBPIXEL(RCT_NONE, 1, b, 0);
-			PROCESS_SUBPIXEL(RCT_NONE, 2, r, 0);
-
-			//RCT_SubGreen
-			r=v[0], g=v[1], b=v[2];
-			r-=g;
-			b-=g;
-			PROCESS_SUBPIXEL(RCT_SubGreen, 0, g, 1);
-			PROCESS_SUBPIXEL(RCT_SubGreen, 1, b, 1);
-			PROCESS_SUBPIXEL(RCT_SubGreen, 2, r, 1);
-
-			//RCT_JPEG2000
-			r=v[0], g=v[1], b=v[2];
-			r-=g;
-			b-=g;
-			g+=(r+b)>>1;
-			PROCESS_SUBPIXEL(RCT_JPEG2000, 0, g, 1);
-			PROCESS_SUBPIXEL(RCT_JPEG2000, 1, b, 1);
-			PROCESS_SUBPIXEL(RCT_JPEG2000, 2, r, 1);
-
-			//RCT_YCoCg_R
-			r=v[0], g=v[1], b=v[2];
-			r-=b;
-			b+=r>>1;
-			g-=b;
-			b+=g>>1;
-			PROCESS_SUBPIXEL(RCT_YCoCg_R, 0, g, 1);
-			PROCESS_SUBPIXEL(RCT_YCoCg_R, 1, b, 1);
-			PROCESS_SUBPIXEL(RCT_YCoCg_R, 2, r, 1);
-
-			//RCT_YCbCr_R_v1
-			r=v[0], g=v[1], b=v[2];
-			r-=g;
-			g+=r>>1;
-			b-=g;
-			g+=b>>1;
-			PROCESS_SUBPIXEL(RCT_YCbCr_R_v1, 0, g, 1);
-			PROCESS_SUBPIXEL(RCT_YCbCr_R_v1, 1, b, 1);
-			PROCESS_SUBPIXEL(RCT_YCbCr_R_v1, 2, r, 1);
-
-			//RCT_YCbCr_R_v2
-			r=v[0], g=v[1], b=v[2];
-			r-=g;
-			g+=r>>1;
-			b-=g;
-			g+=(2*b-r+4)>>3;
-			PROCESS_SUBPIXEL(RCT_YCbCr_R_v2, 0, g, 1);
-			PROCESS_SUBPIXEL(RCT_YCbCr_R_v2, 1, b, 1);
-			PROCESS_SUBPIXEL(RCT_YCbCr_R_v2, 2, r, 1);
-
-			//RCT_YCbCr_R_v3
-			r=v[0], g=v[1], b=v[2];
-			r-=g;
-			g+=r>>1;
-			b-=g;
-			g+=(2*b+r+4)>>3;
-			PROCESS_SUBPIXEL(RCT_YCbCr_R_v3, 0, g, 1);
-			PROCESS_SUBPIXEL(RCT_YCbCr_R_v3, 1, b, 1);
-			PROCESS_SUBPIXEL(RCT_YCbCr_R_v3, 2, r, 1);
-
-			//RCT_YCbCr_R_v4
-			r=v[0], g=v[1], b=v[2];
-			r-=g;
-			g+=r>>1;
-			b-=g;
-			g+=b/3;
-			PROCESS_SUBPIXEL(RCT_YCbCr_R_v4, 0, g, 1);
-			PROCESS_SUBPIXEL(RCT_YCbCr_R_v4, 1, b, 1);
-			PROCESS_SUBPIXEL(RCT_YCbCr_R_v4, 2, r, 1);
-
-			//RCT_YCbCr_R_v7
-			r=v[0], g=v[1], b=v[2];
-			r-=g;
-			g+=r>>1;
-			b-=g;
-			g+=(10*b-r+16)>>5;
-			PROCESS_SUBPIXEL(RCT_YCbCr_R_v7, 0, g, 1);
-			PROCESS_SUBPIXEL(RCT_YCbCr_R_v7, 1, b, 1);
-			PROCESS_SUBPIXEL(RCT_YCbCr_R_v7, 2, r, 1);
-		}
-	}
-	int kbest=0;
-	double bestsize=0;
-	for(int kt=0;kt<RCT_COUNT;++kt)
-	{
-		double csizes[3]={0};
-		for(int kc=0;kc<3;++kc)
-		{
-			int *curr_hist=hist+maxlevels*(3*kt+kc);
-			for(int ks=0;ks<maxlevels;++ks)
-			{
-				int freq=curr_hist[ks];
-				if(freq)
-				{
-					double p=(double)freq/res;
-					double bitsize=-log2(p);
-					//if(isinf(bitsize))
-					//	LOG_ERROR("ZPS");
-					csizes[kc]+=freq*bitsize;
-				}
-			}
-		}
-		double csize=csizes[0]+csizes[1]+csizes[2];
-		if(!kt||bestsize>csize)
-			kbest=kt, bestsize=csize;
-		if(ret_csizes)
-			ret_csizes[kt]=csize/8;
-	}
-	free(hist);
-	free(pixels);
-	return kbest;
-}
 #define r p[0]
 #define g p[1]
 #define b p[2]
 static void rct_fwd(int *p, RCTType rct)
 {
-	switch(rct)
+	switch(rct)//rounding is to prevent luma from getting OOB
 	{
 	case RCT_SubGreen:
 		r-=g;
 		b-=g;
 		break;
 	case RCT_JPEG2000:
-		r-=g;
-		b-=g;
-		g+=(r+b)>>2;
+		r-=g;		//r-g				[1     -1     0  ].RGB
+		b-=g;		//b-g				[0     -1     1  ].RGB
+		g+=(r+b+2)>>2;	//g+(r-g+b-g)/4 = r/4+g/2+b/4	[1/4    1/2   1/4].RGB
 		break;
 	case RCT_YCoCg_R:
-		r-=b;
-		b+=r>>1;
-		g-=b;
-		b+=g>>1;
+		r-=b;		//co = r-b			diff(r, b)
+		b+=r>>1;	//(r+b)/2
+		g-=b;		//cg = g-(r+b)/2		diff(g, av(r, b))
+		b+=g>>1;	//Y  = (r+b)/2 + (g-(r+b)/2)/2 = r/4+g/2+b/4	av(g, av(r, b))
 		{
 			int temp;
 			SWAPVAR(g, b, temp);//move luma from C2 to C1
 		}
 		break;
 	case RCT_YCbCr_R_v1:
-		r-=g;
+		r-=g;		//diff(r, g)            [ 1      -1      0  ].RGB	Cr
 		g+=r>>1;
-		b-=g;
-		g+=b>>1;
+		b-=g;		//diff(b, av(r, g))     [-1/2    -1/2    1  ].RGB	Cb
+		g+=b>>1;	//av(b, av(r, g))       [ 1/4     1/4    1/2].RGB	Y
 		break;
 	case RCT_YCbCr_R_v2:
-		r-=g;
-		g+=r>>1;
-		b-=g;
-		g+=(2*b-r+4)>>3;
+		r-=g;		//Cr =	[1	-1	0].RGB
+		g+=r>>1;	//	[1/2	1/2	0]
+		b-=g;		//Cb =	[-1/2	-1/2	1]
+		g+=(2*b-r+4)>>3;//Y  =	[1/4	1/2	1/4]	v2
 		break;
 	case RCT_YCbCr_R_v3:
-		r-=g;
-		g+=r>>1;
-		b-=g;
-		g+=(2*b+r+4)>>3;
+		r-=g;		//Cr =	[1	-1	0].RGB
+		g+=r>>1;	//	[1/2	1/2	0]
+		b-=g;		//Cb =	[-1/2	-1/2	1]
+		g+=(2*b+r+4)>>3;//Y  =	[1/2	1/4	1/4]	v3
 		break;
 	case RCT_YCbCr_R_v4:
-		r-=g;
-		g+=r>>1;
-		b-=g;
-		g+=b/3;
+		r-=g;		//Cr =	[1	-1	0].RGB
+		g+=r>>1;	//	[1/2	1/2	0]
+		b-=g;		//Cb =	[-1/2	-1/2	1]
+		g+=b/3;		//Y  =	[1/3	1/3	1/3]	v4
+		break;
+	case RCT_YCbCr_R_v5:
+		r-=g;		//Cr =	[1	-1	0].RGB
+		g+=r>>1;	//	[1/2	1/2	0]
+		b-=g;		//Cb =	[-1/2	-1/2	1]
+		g+=(6*b+8)>>4;	//Y  =	[5/16	5/16	6/16]	v5
+		break;
+	case RCT_YCbCr_R_v6:
+		r-=g;		//Cr =	[1	-1	0].RGB
+		g+=r>>1;	//	[1/2	1/2	0]
+		b-=g;		//Cb =	[-1/2	-1/2	1]
+		g+=(14*b+16)>>5;//Y  =	[9/32	9/32	14/32]	v6
 		break;
 	case RCT_YCbCr_R_v7:
-		r-=g;
-		g+=r>>1;
-		b-=g;
-		g+=(10*b-r+16)>>5;
+		r-=g;			//Cr =	[1	-1	0].RGB
+		g+=r>>1;		//	[1/2	1/2	0]
+		b-=g;			//Cb =	[-1/2	-1/2	1]
+		g+=(10*b-r+16)>>5;	//Y  =	[5/16	 6/16	5/16]	v7
+		break;
+	case RCT_Pei09:
+		b-=(87*r+169*g+128)>>8;	//Cb = [-87/256  -169/256  1]
+		r-=g;			//Cr = [1  -1  0].RGB
+		g+=(86*r+29*b+128)>>8;	//Y  = [19493/65536  38619/65536  29/256]	g+86/256*(r-g)+29/256*(b-87/256*r-169/256*g) = 19493/65536*r + 38619/65536*g + 29/256*b
 		break;
 	default:
 		break;
@@ -1575,7 +1600,7 @@ static void rct_inv(int *p, RCTType rct)
 		r+=g;
 		break;
 	case RCT_JPEG2000:
-		g-=(r+b)>>2;
+		g-=(r+b+2)>>2;
 		b+=g;
 		r+=g;
 		break;
@@ -1613,11 +1638,28 @@ static void rct_inv(int *p, RCTType rct)
 		g-=r>>1;
 		r+=g;
 		break;
+	case RCT_YCbCr_R_v5:
+		g-=(6*b+8)>>4;
+		b+=g;
+		g-=r>>1;
+		r+=g;
+		break;
+	case RCT_YCbCr_R_v6:
+		g-=(14*b+16)>>5;
+		b+=g;
+		g-=r>>1;
+		r+=g;
+		break;
 	case RCT_YCbCr_R_v7:
 		g-=(10*b-r+16)>>5;
 		b+=g;
 		g-=r>>1;
 		r+=g;
+		break;
+	case RCT_Pei09:
+		g-=(86*r+29*b+128)>>8;
+		r+=g;
+		b+=(87*r+169*g+128)>>8;
 		break;
 	default:
 		break;
@@ -1626,6 +1668,156 @@ static void rct_inv(int *p, RCTType rct)
 #undef	r
 #undef	g
 #undef	b
+RCTType rct_select_best(Image const *src, double *ret_csizes)
+{
+	int inflation[]={1, 1, 1, 0};
+	int maxdepth=calc_maxdepth(src, inflation), maxlevels=1<<maxdepth;
+	int *hist=(int*)malloc((size_t)src->nch*maxlevels*sizeof(int[RCT_COUNT]));
+	int *pixels=(int*)malloc((src->iw+2LL)*sizeof(int[4*2*RCT_COUNT]));//(iw + 2 padding) * 4 channels * 2 rows * N_RCT	need 2 rows because of NW
+	if(!hist||!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return RCT_NONE;
+	}
+	memset(hist, 0, (size_t)src->nch*maxlevels*sizeof(int[RCT_COUNT]));
+	memset(pixels, 0, src->iw*sizeof(int[4*RCT_COUNT]));
+	int res=src->iw*src->ih;
+	int nlevels[][3]=
+	{
+		{1<<src->depth[1], 1<<src->depth[2], 1<<src->depth[0]},//RCT_NONE
+		{1<<src->depth[1], 1<<(src->depth[2]+1), 1<<(src->depth[0]+1)},
+	};
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		int row0=ky&1, row1=!row0;
+		for(int kx=0;kx<src->iw;++kx, ++idx)
+		{
+			int v[]={src->data[idx<<2|0], src->data[idx<<2|1], src->data[idx<<2|2]}, v2[3], N, W, NW, pred;
+
+#define GET_PIXEL(RCT_IDX, C, X, Y) pixels[(src->iw*(RCT_IDX<<1|row##Y)+kx+1-X)<<2|C]
+#define PROCESS_SUBPIXEL(RCT_IDX, C, X, N_IDX)\
+	GET_PIXEL(RCT_IDX, C, 0, 0)=X,\
+	N=GET_PIXEL(RCT_IDX, C, 0, 1),\
+	W=GET_PIXEL(RCT_IDX, C, 1, 0),\
+	NW=GET_PIXEL(RCT_IDX, C, 1, 1),\
+	pred=N+W-NW, pred=MEDIAN3(N, W, pred), X-=pred,\
+	++hist[maxlevels*(3*RCT_IDX+C)+((X+(nlevels[N_IDX][C]>>1))&(nlevels[N_IDX][C]-1))]
+			
+			//RCT_NONE
+			memcpy(v2, v, sizeof(v2));
+			PROCESS_SUBPIXEL(RCT_NONE, 0, v2[1], 0);
+			PROCESS_SUBPIXEL(RCT_NONE, 1, v2[2], 0);
+			PROCESS_SUBPIXEL(RCT_NONE, 2, v2[0], 0);
+
+			//RCT_SubGreen
+			memcpy(v2, v, sizeof(v2));
+			rct_fwd(v2, RCT_SubGreen);
+			PROCESS_SUBPIXEL(RCT_SubGreen, 0, v2[1], 1);
+			PROCESS_SUBPIXEL(RCT_SubGreen, 1, v2[2], 1);
+			PROCESS_SUBPIXEL(RCT_SubGreen, 2, v2[0], 1);
+
+			//RCT_JPEG2000
+			memcpy(v2, v, sizeof(v2));
+			rct_fwd(v2, RCT_JPEG2000);
+			PROCESS_SUBPIXEL(RCT_JPEG2000, 0, v2[1], 1);
+			PROCESS_SUBPIXEL(RCT_JPEG2000, 1, v2[2], 1);
+			PROCESS_SUBPIXEL(RCT_JPEG2000, 2, v2[0], 1);
+
+			//RCT_YCoCg_R
+			memcpy(v2, v, sizeof(v2));
+			rct_fwd(v2, RCT_YCoCg_R);
+			PROCESS_SUBPIXEL(RCT_YCoCg_R, 0, v2[1], 1);
+			PROCESS_SUBPIXEL(RCT_YCoCg_R, 1, v2[2], 1);
+			PROCESS_SUBPIXEL(RCT_YCoCg_R, 2, v2[0], 1);
+
+			//RCT_YCbCr_R_v1
+			memcpy(v2, v, sizeof(v2));
+			rct_fwd(v2, RCT_YCbCr_R_v1);
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v1, 0, v2[1], 1);
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v1, 1, v2[2], 1);
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v1, 2, v2[0], 1);
+
+			//RCT_YCbCr_R_v2
+			memcpy(v2, v, sizeof(v2));
+			rct_fwd(v2, RCT_YCbCr_R_v2);
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v2, 0, v2[1], 1);
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v2, 1, v2[2], 1);
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v2, 2, v2[0], 1);
+
+			//RCT_YCbCr_R_v3
+			memcpy(v2, v, sizeof(v2));
+			rct_fwd(v2, RCT_YCbCr_R_v3);
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v3, 0, v2[1], 1);
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v3, 1, v2[2], 1);
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v3, 2, v2[0], 1);
+
+			//RCT_YCbCr_R_v4
+			memcpy(v2, v, sizeof(v2));
+			rct_fwd(v2, RCT_YCbCr_R_v4);
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v4, 0, v2[1], 1);
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v4, 1, v2[2], 1);
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v4, 2, v2[0], 1);
+
+			//RCT_YCbCr_R_v5
+			memcpy(v2, v, sizeof(v2));
+			rct_fwd(v2, RCT_YCbCr_R_v5);
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v5, 0, v2[1], 1);
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v5, 1, v2[2], 1);
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v5, 2, v2[0], 1);
+
+			//RCT_YCbCr_R_v6
+			memcpy(v2, v, sizeof(v2));
+			rct_fwd(v2, RCT_YCbCr_R_v6);
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v6, 0, v2[1], 1);
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v6, 1, v2[2], 1);
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v6, 2, v2[0], 1);
+
+			//RCT_YCbCr_R_v7
+			memcpy(v2, v, sizeof(v2));
+			rct_fwd(v2, RCT_YCbCr_R_v7);
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v7, 0, v2[1], 1);
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v7, 1, v2[2], 1);
+			PROCESS_SUBPIXEL(RCT_YCbCr_R_v7, 2, v2[0], 1);
+
+			//RCT_Pei09
+			memcpy(v2, v, sizeof(v2));
+			rct_fwd(v2, RCT_Pei09);
+			PROCESS_SUBPIXEL(RCT_Pei09, 0, v2[1], 1);
+			PROCESS_SUBPIXEL(RCT_Pei09, 1, v2[2], 1);
+			PROCESS_SUBPIXEL(RCT_Pei09, 2, v2[0], 1);
+		}
+	}
+	int kbest=0;
+	double bestsize=0;
+	for(int kt=0;kt<RCT_COUNT;++kt)
+	{
+		double csizes[3]={0};
+		for(int kc=0;kc<3;++kc)
+		{
+			int *curr_hist=hist+maxlevels*(3*kt+kc);
+			for(int ks=0;ks<maxlevels;++ks)
+			{
+				int freq=curr_hist[ks];
+				if(freq)
+				{
+					double p=(double)freq/res;
+					double bitsize=-log2(p);
+					//if(isinf(bitsize))
+					//	LOG_ERROR("ZPS");
+					csizes[kc]+=freq*bitsize;
+				}
+			}
+		}
+		double csize=csizes[0]+csizes[1]+csizes[2];
+		if(!kt||bestsize>csize)
+			kbest=kt, bestsize=csize;
+		if(ret_csizes)
+			ret_csizes[kt]=csize/8;
+	}
+	free(hist);
+	free(pixels);
+	return kbest;
+}
 
 #define LZ_MAP_SIZE 0x100000//must be a power of two
 #define LZ_MIN_EMIT 8
@@ -1655,6 +1847,7 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 		printf("T47 SLIC5-AC  Enc %s  CWHD %d*%d*%d*%d/8\n", g_buf, nch, src->iw, src->ih, maxdepth);
 	}
 	RCTType rct=RCT_NONE;
+	int *CDF=0;
 	if(nch>=3)
 	{
 		double csizes[RCT_COUNT];
@@ -1701,6 +1894,9 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 		slic5_nextrow(&pr, ky);
 		for(int kx=0;kx<src->iw;)
 		{
+			if(kx==(src->iw>>1)&&ky==(src->ih>>1))//
+				printf("");
+
 #ifdef ENABLE_LZ
 			int hash=-1, lzidx=-1, lzlen=0;
 			if(kx<src->iw-LZ_MIN_EMIT)
@@ -2165,4 +2361,143 @@ int t47_to_ppm(const char *src, const char *dst)
 	slic5_free(&pr);
 	fclose(f);
 	return 1;
+}
+
+#define LG_HIST_SIZE 8
+void t47_analyze_preds(const char *path)
+{
+	double t_start=time_sec();
+	printf("Predictor Analysis\n");
+	static const char *ext[]=
+	{
+		"png",
+		"jpg",
+		"jpeg",
+		"ppm",
+		"pgm",
+	};
+	ArrayHandle filenames=get_filenames(path, ext, _countof(ext), 1);
+	if(!filenames)
+	{
+		printf("No supported images in \"%s\"\n", path);
+		return;
+	}
+	long long *hist=(long long*)malloc(sizeof(long long[NPREDS<<(LG_HIST_SIZE<<1)]));
+	if(!hist)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(hist, 0, sizeof(long long[NPREDS<<(LG_HIST_SIZE<<1)]));
+	int histcount=sizeof(long long[NPREDS<<(LG_HIST_SIZE<<1)])/sizeof(long long);
+	SLIC5Ctx pr;
+#if 0
+	for(int k=0;k<(int)filenames->count;++k)
+	{
+		ArrayHandle *fn=(ArrayHandle*)array_at(&filenames, k);
+		printf("%s\n", (char*)fn[0]->data);
+		const char *p2="C:/Projects/datasets/dataset-LPCB/";
+		if(memcmp(fn[0]->data, p2, strlen(p2)))//
+			LOG_ERROR("%s", fn[0]->data);
+	}
+#endif
+	for(int k=0;k<(int)filenames->count;++k)
+	{
+		ArrayHandle *fn=(ArrayHandle*)array_at(&filenames, k);
+#if 0
+		const char *p2="C:/Projects/datasets/dataset-LPCB/";
+		if(memcmp(fn[0]->data, p2, strlen(p2)))//
+			LOG_ERROR("%s", fn[0]->data);
+#endif
+		printf("%5d/%5d  %6.2lf%%  %12lf  \"%s\"\n", k+1, (int)filenames->count, 100.*(k+1)/filenames->count, time_sec()-t_start, (char*)fn[0]->data);
+		ptrdiff_t formatsize=get_filesize((char*)fn[0]->data);
+		if(formatsize<1)//skip non-images, this check is useless because get_filenames() has already filtered the list
+			continue;
+		Image *src=image_load((char*)fn[0]->data);
+		if(!src)
+		{
+			printf("\nCannot open \"%s\"\n", (char*)fn[0]->data);
+			continue;
+		}
+		int success=slic5_init(&pr, src->iw, src->ih, 1, src->depth, 0);
+		//int ucount=0;
+		for(int ky=0, idx=0;ky<src->ih;++ky)
+		{
+			slic5_nextrow(&pr, ky);
+			for(int kx=0;kx<src->iw;++kx, idx+=4)
+			{
+				//if(kx==src->iw/2&&ky==src->ih/2)//
+				//	printf("");
+				int val=src->data[idx];
+				slic5_predict(&pr, 0, kx);
+
+				int y0=0;
+				for(int kp=0;kp<NPREDS;++kp)
+				{
+					int idx2=(size_t)kp<<(LG_HIST_SIZE<<1);
+
+					if((idx2|((1<<(LG_HIST_SIZE<<1))-1))>=histcount)//
+						LOG_ERROR("IDX %#08X/%#08X", idx2, histcount);
+					
+					long long *curr_hist=hist+idx2;
+					int x=val>>(pr.shift_prec[0]-PRED_PREC+8-LG_HIST_SIZE);
+					int y=pr.preds[kp]>>(pr.shift_prec[0]+8-LG_HIST_SIZE);
+					x+=(1<<LG_HIST_SIZE)>>1;
+					y+=(1<<LG_HIST_SIZE)>>1;
+					x=CLAMP(0, x, (1<<LG_HIST_SIZE)-1);
+					y=CLAMP(0, y, (1<<LG_HIST_SIZE)-1);
+					//if((unsigned)x>=(unsigned)(1<<LG_HIST_SIZE)&&(unsigned)y>=(unsigned)(1<<LG_HIST_SIZE))
+					//	LOG_ERROR("XY %#08X %#08X", x, y);
+					if((unsigned)(y<<LG_HIST_SIZE|x)>=(1<<(LG_HIST_SIZE<<1)))
+						LOG_ERROR("IDX %#08X/%#08X", y<<LG_HIST_SIZE|x, 1<<(LG_HIST_SIZE<<1));
+					//if(!kp)
+					//	y0=y;
+					//else
+					//	ucount+=y!=y0;
+					++curr_hist[y<<LG_HIST_SIZE|x];
+				}
+				slic5_update(&pr, val, -1);
+			}
+		}
+		//printf("%d/15\n", ucount);
+		slic5_free(&pr);
+		free(src);
+	}
+	printf("\nFinished Processing\n");
+#if 1
+	printf("Are histograms identical?\n");
+	for(int kp=1;kp<NPREDS;++kp)
+	{
+		long long *curr_hist=hist+((size_t)kp<<(LG_HIST_SIZE<<1));
+		int result=memcmp(hist, curr_hist, sizeof(long long[1<<(LG_HIST_SIZE<<1)]));
+		printf("memcmp %2d: %d\n", kp, result);
+	}
+#endif
+	printf("Histograms:\n");
+	for(int kp=0;kp<NPREDS;++kp)
+	{
+		long long *curr_hist=hist+((size_t)kp<<(LG_HIST_SIZE<<1));
+		printf("%s\n", prednames[kp]);
+		long long vmax=0;
+		//for(int k=0;k<(1<<(LG_HIST_SIZE<<1));++k)
+		//{
+		//	UPDATE_MAX(vmax, curr_hist[k]);
+		//}
+		for(int ky=0;ky<(1<<LG_HIST_SIZE);++ky)
+		{
+			vmax=0;
+			for(int kx=0;kx<(1<<LG_HIST_SIZE);++kx)
+			{
+				UPDATE_MAX(vmax, curr_hist[ky<<LG_HIST_SIZE|kx]);
+			}
+			for(int kx=0;kx<(1<<LG_HIST_SIZE);++kx)
+				printf("%X", vmax?(int)(curr_hist[ky<<LG_HIST_SIZE|kx]*15/vmax):0);
+			printf("  %16lld\n", vmax);
+		}
+		printf("\n");
+	}
+	printf("Done.\n");
+	array_free(&filenames);
+	free(hist);
+	pause();
 }
