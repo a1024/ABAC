@@ -38,6 +38,7 @@ extern "C"
 #define MEDIAN3(A, B, C) (B<A?B<C?C<A?C:A:B:A<C?C<B?C:B:A)//3 branches max
 #define MODVAR(DST, SRC, N) DST=(SRC)%(N), DST+=(N)&-(DST<0)
 #define SHIFT_LEFT_SIGNED(X, SH) ((SH)<0?(X)>>-(SH):(X)<<(SH))
+#define SHIFT_RIGHT_SIGNED(X, SH) ((SH)<0?(X)<<-(SH):(X)>>(SH))
 #define UPDATE_MIN(M, X) if(M>X)M=X
 #define UPDATE_MAX(M, X) if(M<X)M=X
 #define THREEWAY(L, R) (((L)>(R))-((L)<(R)))
@@ -76,10 +77,11 @@ int floor_log2_32(unsigned n);
 int ceil_log2(unsigned long long n);
 int floor_log10(double x);
 unsigned floor_sqrt(unsigned long long x);
+unsigned long long exp2_fix24(int x);
+int log2_fix24(unsigned long long x);
+#define POW_FIX24(BASE, EXP) exp2_fix24((int)((long long)(EXP)*log2_fix24(BASE)>>24))
 double power(double x, int y);
 double _10pow(int n);
-int minimum(int a, int b);
-int maximum(int a, int b);
 int acme_isdigit(char c, char base);
 
 double time_sec();

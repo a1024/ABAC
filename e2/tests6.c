@@ -24,7 +24,7 @@ static const char file[]=__FILE__;
 //efficiency
 	#define ENABLE_SSE_4D
 //	#define SSE_UPDATE_NB_CELLS//inferior
-//	#define COMPENSATE_GAMMA//crude method, inferior
+//	#define COMPENSATE_sRGB
 //	#define ENABLE_LZ//currently inferior
 //	#define ENABLE_SSE_PAR//inferior
 
@@ -91,6 +91,77 @@ static void prof_print()
 #define PROF_START()
 #define PROF(...)
 #define prof_print()
+#endif
+
+#ifdef COMPENSATE_sRGB
+static int linear2sRGB(int x)
+{
+	x+=0x800000;
+	x=CLAMP(1, x, 0xFFFFFF);
+	if(x<=0xCD2E)
+		x=(int)((long long)x*0xCEB851F>>24);
+	else
+	{
+		x=(int)POW_FIX24(x, 0x6AAAAB);
+		x=(int)((long long)x*0x10E147B>>24)-0xE147B;
+	}
+	x=CLAMP(1, x, 0xFFFFFF);
+	x-=0x800000;
+	return x;
+}
+static int sRGB2linear(int x)
+{
+	x+=0x800000;
+	x=CLAMP(1, x, 0xFFFFFF);
+	if(x<=0xA5AED)
+		x=(int)((long long)x*0x13D072>>24);
+	else
+	{
+		x=(int)((((long long)x+0xE147B)<<24)/0x10E147B);
+		x=(int)POW_FIX24(x, 0x2666666);
+	}
+	x=CLAMP(1, x, 0xFFFFFF);
+	x-=0x800000;
+	return x;
+}
+#endif
+
+#ifdef COMPENSATE_GAMMA
+//these functions expect and return fix24 values
+static int nonlinear2linear(int x, int gamma)
+{
+	x+=0x800000;
+	x=CLAMP(1, x, 0xFFFFFF);
+	x=log2_fix24(x);
+	x=(int)(((long long)x<<24)/gamma);
+	x=(int)exp2_fix24(x);
+	x=CLAMP(1, x, 0xFFFFFF);
+	x-=0x800000;
+	return x;
+}
+static int linear2nonlinear(int x, int gamma)
+{
+	x+=0x800000;
+	x=CLAMP(1, x, 0xFFFFFF);
+	x=log2_fix24(x);
+	x=(int)((long long)x*gamma>>24);
+	x=(int)exp2_fix24(x);
+	x=CLAMP(1, x, 0xFFFFFF);
+	x-=0x800000;
+	return x;
+}
+static int nonlinear2nonlinear(int x, int srcgamma, int dstgamma)
+{
+	//dst_nonlinear = src_nonlinear^(dst_gamma/src_gamma)
+	x+=0x800000;
+	x=CLAMP(1, x, 0xFFFFFF);
+	x=log2_fix24(x);
+	x=(int)((long long)x*dstgamma/srcgamma);
+	x=(int)exp2_fix24(x);
+	x=CLAMP(1, x, 0xFFFFFF);
+	x-=0x800000;
+	return x;
+}
 #endif
 
 #define SLIC5_CONFIG_EXP 5
@@ -291,10 +362,6 @@ typedef struct SLIC5CtxStruct
 	int bias_count[4];
 	long long bias_sum[4];
 
-#ifdef COMPENSATE_GAMMA
-	int *eq_hist, *equalizer;
-#endif
-
 	int preds[NPREDS], params[NPREDS];
 	long long pred;
 	int pred_final;
@@ -326,16 +393,20 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 		memcpy(pr->depths, depths, nch);
 	else
 	{
-		pr->depths[0]=depths[1];  //Y
-		pr->depths[1]=depths[2]+1;//Cb
-		pr->depths[2]=depths[0]+1;//Cr
+#ifdef COMPENSATE_sRGB
+		pr->depths[0]=depths[1]+1;	//Y
+#else
+		pr->depths[0]=depths[1];	//Y
+#endif
+		pr->depths[1]=depths[2]+1;	//Cb
+		pr->depths[2]=depths[0]+1;	//Cr
 		if(nch==4)
 			pr->depths[3]=depths[3];//a
 	}
 	pr->maxdepth=0;
 	for(int kc=0;kc<nch;++kc)
 	{
-		int prec_half=(1<<(pr->depths[kc]+PRED_PREC))>>1;
+		//int prec_half=(1<<(pr->depths[kc]+PRED_PREC))>>1;
 		pr->nlevels[kc]=1<<pr->depths[kc];
 		pr->half[kc]=pr->nlevels[kc]>>1;
 		UPDATE_MAX(pr->maxdepth, pr->depths[kc]);
@@ -482,50 +553,6 @@ static int slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths,
 	if(pr->nch>1)
 		memset(pr->sse_cfl, 0, (nch-1LL)*sizeof(long long[SSE_SIZE<<1]));
 #endif
-#ifdef COMPENSATE_GAMMA
-	pr->eq_hist=(int*)malloc((size_t)nch*sizeof(int)<<pr->maxdepth);//1MB for 16-bit RGBA
-	pr->equalizer=(int*)malloc(nch*((size_t)pr->maxlevels+1)*sizeof(int));
-	if(!pr->eq_hist||!pr->equalizer)
-	{
-		LOG_ERROR("Alloc error");
-		return 0;
-	}
-	memset(pr->eq_hist, 0, (size_t)nch*sizeof(int)<<pr->maxdepth);
-	for(int kc=0;kc<pr->nch;++kc)
-	{
-		int *eq=pr->equalizer+((size_t)pr->maxlevels+1)*kc;
-		for(int ks=0;ks<=pr->nlevels[kc];++ks)
-			eq[ks]=ks<<PRED_PREC;
-	}
-#if 0
-	int res=iw*ih;
-	for(int kc=0;kc<nch;++kc)
-	{
-		int *eq=pr->equalizer+((size_t)pr->maxlevels+1)*kc;
-		for(int k=0;k<res;++k)
-		{
-			int val=preview[k<<2|kc]+pr->half[kc];
-			val=CLAMP(0, val, pr->nlevels[kc]-1);
-			++eq[val];
-		}
-		int sum=0;
-		for(int ks=0;ks<pr->nlevels[kc];++ks)
-		{
-			int freq=eq[ks];
-			eq[ks]=(int)(((long long)sum<<(pr->depths[kc]+PRED_PREC))/res);
-			sum+=freq;
-		}
-		//for(int ks=0;ks<pr->nlevels[kc];++ks)
-		//{
-		//	int curr=CDF_fwd[ks]>>PRED_PREC, next=ks<pr->nlevels[kc]-1?CDF_fwd[ks+1]>>PRED_PREC:pr->nlevels[kc];
-		//	//if(curr<next)
-		//	//	memfill(CDF_inv+curr, &ks, ((size_t)next-curr)*sizeof(int), sizeof(ks));
-		//	for(int kl=curr;kl<next;++kl)
-		//		CDF_inv[kl]=ks;
-		//}
-	}
-#endif
-#endif
 
 	for(int k=0;k<NPREDS;++k)
 		pr->params[k]=12<<pr->maxdepth;
@@ -574,23 +601,6 @@ static void slic5_update_CDFs(SLIC5Ctx *pr)
 			curr_CDF[pr->cdfsize]=1<<CDF_SHIFT;
 		}
 	}
-#ifdef COMPENSATE_GAMMA
-	if(pr->full_pixels_processed)
-	{
-		for(int kc=0;kc<pr->nch;++kc)
-		{
-			int *hist=pr->eq_hist+((size_t)kc<<pr->maxdepth);
-			int *eq=pr->equalizer+((size_t)pr->maxlevels+1)*kc;
-			int sum=0;
-			for(int ks=0;ks<pr->nlevels[kc];++ks)
-			{
-				int freq=hist[ks];
-				eq[ks]=(int)(((long long)sum<<(pr->depths[kc]+PRED_PREC))/pr->full_pixels_processed);
-				sum+=freq;
-			}
-		}
-	}
-#endif
 }
 static void slic5_nextrow(SLIC5Ctx *pr, int ky)
 {
@@ -610,65 +620,19 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 		slic5_update_CDFs(pr);
 	PROF(UPDATE_CDFs);
 	//XY are flipped, no need to check if indices OOB due to padding
-#ifdef COMPENSATE_GAMMA
-	const int *eq=pr->equalizer+((size_t)pr->maxlevels+1)*kc;
 	int
-		NNWW	=LOAD(pr->pixels,  2, 2)+pr->half[kc],
-		NNW	=LOAD(pr->pixels,  1, 2)+pr->half[kc],
-		NN	=LOAD(pr->pixels,  0, 2)+pr->half[kc],
-		NNE	=LOAD(pr->pixels, -1, 2)+pr->half[kc],
-		NNEE	=LOAD(pr->pixels, -2, 2)+pr->half[kc],
-		NWW	=LOAD(pr->pixels,  2, 1)+pr->half[kc],
-		NW	=LOAD(pr->pixels,  1, 1)+pr->half[kc],
-		N	=LOAD(pr->pixels,  0, 1)+pr->half[kc],
-		NE	=LOAD(pr->pixels, -1, 1)+pr->half[kc],
-		NEE	=LOAD(pr->pixels, -2, 1)+pr->half[kc],
-		WW	=LOAD(pr->pixels,  2, 0)+pr->half[kc],
-		W	=LOAD(pr->pixels,  1, 0)+pr->half[kc];
-	NNWW	=eq[CLAMP(0, NNWW	, pr->nlevels[kc]-1)];
-	NNW	=eq[CLAMP(0, NNW	, pr->nlevels[kc]-1)];
-	NN	=eq[CLAMP(0, NN		, pr->nlevels[kc]-1)];
-	NNE	=eq[CLAMP(0, NNE	, pr->nlevels[kc]-1)];
-	NNEE	=eq[CLAMP(0, NNEE	, pr->nlevels[kc]-1)];
-	NWW	=eq[CLAMP(0, NWW	, pr->nlevels[kc]-1)];
-	NW	=eq[CLAMP(0, NW		, pr->nlevels[kc]-1)];
-	N	=eq[CLAMP(0, N		, pr->nlevels[kc]-1)];
-	NE	=eq[CLAMP(0, NE		, pr->nlevels[kc]-1)];
-	NEE	=eq[CLAMP(0, NEE	, pr->nlevels[kc]-1)];
-	WW	=eq[CLAMP(0, WW		, pr->nlevels[kc]-1)];
-	W	=eq[CLAMP(0, W		, pr->nlevels[kc]-1)];
-#else
-	int
-		NNWW	=LOAD(pr->pixels,  2, 2)<<PRED_PREC,
-		NNW	=LOAD(pr->pixels,  1, 2)<<PRED_PREC,
-		NN	=LOAD(pr->pixels,  0, 2)<<PRED_PREC,
-		NNE	=LOAD(pr->pixels, -1, 2)<<PRED_PREC,
-		NNEE	=LOAD(pr->pixels, -2, 2)<<PRED_PREC,
-		NWW	=LOAD(pr->pixels,  2, 1)<<PRED_PREC,
-		NW	=LOAD(pr->pixels,  1, 1)<<PRED_PREC,
-		N	=LOAD(pr->pixels,  0, 1)<<PRED_PREC,
-		NE	=LOAD(pr->pixels, -1, 1)<<PRED_PREC,
-		NEE	=LOAD(pr->pixels, -2, 1)<<PRED_PREC,
-		WW	=LOAD(pr->pixels,  2, 0)<<PRED_PREC,
-		W	=LOAD(pr->pixels,  1, 0)<<PRED_PREC;
-#ifdef COMPENSAGE_GAMMA_v2
-	int mean=(2*(N+W+NW+NE)+NNWW+NNW+NN+NNE+NNEE+NWW+NEE+WW+8)>>4;//29-bit max, sign bit included
-	long long temp, var=0;
-	temp=(long long)NNWW	-mean, var+=temp*temp;
-	temp=(long long)NNW	-mean, var+=temp*temp;
-	temp=(long long)NN	-mean, var+=temp*temp;
-	temp=(long long)NNE	-mean, var+=temp*temp;
-	temp=(long long)NNEE	-mean, var+=temp*temp;
-	temp=(long long)NWW	-mean, var+=temp*temp;
-	temp=(long long)NW	-mean, var+=temp*temp<<1;
-	temp=(long long)N	-mean, var+=temp*temp<<1;
-	temp=(long long)NE	-mean, var+=temp*temp<<1;
-	temp=(long long)NEE	-mean, var+=temp*temp;
-	temp=(long long)WW	-mean, var+=temp*temp;
-	temp=(long long)W	-mean, var+=temp*temp<<1;
-	int sdev=floor_sqrt((var<<PRED_PREC)/15);
-#endif
-#endif
+		NNWW	=LOAD(pr->pixels,  2, 2),
+		NNW	=LOAD(pr->pixels,  1, 2),
+		NN	=LOAD(pr->pixels,  0, 2),
+		NNE	=LOAD(pr->pixels, -1, 2),
+		NNEE	=LOAD(pr->pixels, -2, 2),
+		NWW	=LOAD(pr->pixels,  2, 1),
+		NW	=LOAD(pr->pixels,  1, 1),
+		N	=LOAD(pr->pixels,  0, 1),
+		NE	=LOAD(pr->pixels, -1, 1),
+		NEE	=LOAD(pr->pixels, -2, 1),
+		WW	=LOAD(pr->pixels,  2, 0),
+		W	=LOAD(pr->pixels,  1, 0);
 	int
 		eNNWW	=LOAD(pr->errors,  2, 2),//error = (curr<<8) - pred
 		eNNW	=LOAD(pr->errors,  1, 2),
@@ -682,7 +646,11 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 		eNEE	=LOAD(pr->errors, -2, 1),
 		eWW	=LOAD(pr->errors,  2, 0),
 		eW	=LOAD(pr->errors,  1, 0);
+#ifdef COMPENSATE_sRGB
+	int sh=24-8;//shifting by this will convert from PRED_PREC to 8-bit
+#else
 	int sh=pr->shift_prec[kc];
+#endif
 	int clamp_lo=(int)N, clamp_hi=(int)N;
 	clamp_lo=(int)MINVAR(clamp_lo, W);
 	clamp_hi=(int)MAXVAR(clamp_hi, W);
@@ -758,7 +726,11 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 		//	(long long)LOAD_PRED_ERROR(kc,  0, 1, k)*6+	//peN+peW
 		//	(long long)LOAD_PRED_ERROR(kc,  1, 1, k)*2+	//peNW+peWW
 		//	(long long)LOAD_PRED_ERROR(kc,  2, 1, k);	//peNWW+peWWW
+#ifdef COMPENSATE_sRGB
+		weights[k]=((long long)pr->params[k]<<29)/(weights[k]+1);
+#else
 		weights[k]=((long long)pr->params[k]<<(pr->depths[kc]+PRED_PREC+5))/(weights[k]+1);
+#endif
 		wsum+=weights[k];
 	}
 	if(wsum)
@@ -1064,7 +1036,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 		long long sse_val;
 		if(k<SSE_STAGES)
 		{
-			pr->sse_idx_p[k]=quantize_signed((int)pr->pred, sh+8-(SSE_PREDBITS-1), SSE_P_EXP, SSE_P_MSB, pr->sse_p);
+			pr->sse_idx_p[k]=quantize_signed((int)pr->pred, sh+8-(SSE_PREDBITS-1), SSE_P_EXP, SSE_P_MSB, pr->sse_p);//shift is sh+8-(SSE_PREDBITS-1): remove the 8-bits, and insert up to SSE_PREDBITS
 			//int qp=(int)(pr->pred>>(sh+8-(SSE_PREDBITS-1)));
 			//qp+=(1<<SSE_PREDBITS)>>1;
 			//qp=CLAMP(0, qp, (1<<SSE_PREDBITS)-1);
@@ -1140,24 +1112,11 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 	PROF(SSE_LOOP);
 
 	pr->pred=CLAMP(clamp_lo, pr->pred, clamp_hi);
-#ifdef COMPENSATE_GAMMA
-	int L=0, R=pr->nlevels[kc]-1, found=0;
-	while(L<=R)//binary search	O(depth)
-	{
-		int level=eq[pr->pred_final=(L+R)>>1];
-		if(pr->pred>level)
-			L=pr->pred_final+1;
-		else if(pr->pred<level)
-			R=pr->pred_final-1;
-		else
-		{
-			found=1;
-			break;
-		}
-	}
-	pr->pred_final-=pr->half[kc];
-	//pr->pred_final+=(int)((pr->pred+((1<<PRED_PREC)>>1)-1)>>PRED_PREC);
-	//pr->pred_final>>=1;
+#ifdef COMPENSATE_sRGB
+	sh=24-pr->depths[kc];
+	pr->pred_final=linear2sRGB((int)pr->pred);
+	pr->pred_final+=(1<<sh)>>1;//for rounding
+	pr->pred_final>>=sh;
 #else
 	pr->pred_final=(int)((pr->pred+((1<<PRED_PREC)>>1)-1)>>PRED_PREC);
 #endif
@@ -1185,15 +1144,21 @@ static void slic5_update(SLIC5Ctx *pr, int curr, int token)
 	PROF(PRED_TILL_UPDATE);
 	int kc=pr->kc, kx=pr->kx;
 
+#ifdef COMPENSATE_sRGB
+	curr<<=24-pr->depths[kc];
+	curr=sRGB2linear(curr);
+#else
+	curr<<=PRED_PREC;
+#endif
 	LOAD(pr->pixels, 0, 0)=curr;
 
 	//update WP errors
-	int error=(curr<<PRED_PREC)-(int)pr->pred;
+	int error=curr-(int)pr->pred;
 	LOAD(pr->errors, 0, 0)=error;
 	int errors[NPREDS]={0}, kbest=0;
 	for(int k=0;k<NPREDS;++k)
 	{
-		errors[k]=abs((curr<<PRED_PREC)-pr->preds[k]);
+		errors[k]=abs(curr-pr->preds[k]);
 		LOAD_PRED_ERROR(kc, 0, 0, k)=errors[k];
 		if(pr->ky&&pr->kx+1<pr->iw)
 			LOAD_PRED_ERROR(kc, -1, 1, k)+=errors[k];//eNE += ecurr
@@ -1215,14 +1180,6 @@ static void slic5_update(SLIC5Ctx *pr, int curr, int token)
 	//update token hist
 	if(token>=0)
 		slic5_update_hist(pr, token);
-
-#ifdef COMPENSATE_GAMMA
-	//update equalizer hist
-	int *hist=pr->eq_hist+((size_t)kc<<pr->maxdepth);
-	int ucurr=curr+pr->half[kc];
-	ucurr=CLAMP(0, ucurr, pr->nlevels[kc]-1);
-	++hist[ucurr];
-#endif
 	
 	//update SSE
 #if defined ENABLE_SSE_4D || defined ENABLE_SSE_PAR
@@ -1514,6 +1471,10 @@ const char *rct_names[]=
 	RCTLIST
 #undef  RCT
 };
+#ifdef COMPENSATE_sRGB
+#define N2L(SRC) sRGB2linear(p[SRC]<<(24-depths[SRC]))
+#define L2N(VAL, DST) linear2sRGB(VAL)>>(24-depths[DST])
+#endif
 #define r p[0]
 #define g p[1]
 #define b p[2]
@@ -1668,6 +1629,10 @@ static void rct_inv(int *p, RCTType rct)
 #undef	r
 #undef	g
 #undef	b
+#ifdef COMPENSATE_sRGB
+#undef  N2L
+#undef  L2N
+#endif
 RCTType rct_select_best(Image const *src, double *ret_csizes)
 {
 	int inflation[]={1, 1, 1, 0};
@@ -1695,14 +1660,14 @@ RCTType rct_select_best(Image const *src, double *ret_csizes)
 			int v[]={src->data[idx<<2|0], src->data[idx<<2|1], src->data[idx<<2|2]}, v2[3], N, W, NW, pred;
 
 #define GET_PIXEL(RCT_IDX, C, X, Y) pixels[(src->iw*(RCT_IDX<<1|row##Y)+kx+1-X)<<2|C]
-#define PROCESS_SUBPIXEL(RCT_IDX, C, X, N_IDX)\
-	GET_PIXEL(RCT_IDX, C, 0, 0)=X,\
+#define PROCESS_SUBPIXEL(RCT_IDX, C, PIXEL, N_IDX)\
+	GET_PIXEL(RCT_IDX, C, 0, 0)=PIXEL,\
 	N=GET_PIXEL(RCT_IDX, C, 0, 1),\
 	W=GET_PIXEL(RCT_IDX, C, 1, 0),\
 	NW=GET_PIXEL(RCT_IDX, C, 1, 1),\
-	pred=N+W-NW, pred=MEDIAN3(N, W, pred), X-=pred,\
-	++hist[maxlevels*(3*RCT_IDX+C)+((X+(nlevels[N_IDX][C]>>1))&(nlevels[N_IDX][C]-1))]
-			
+	pred=N+W-NW, pred=MEDIAN3(N, W, pred), PIXEL-=pred,\
+	++hist[maxlevels*(3*RCT_IDX+C)+((PIXEL+(nlevels[N_IDX][C]>>1))&(nlevels[N_IDX][C]-1))]
+
 			//RCT_NONE
 			memcpy(v2, v, sizeof(v2));
 			PROCESS_SUBPIXEL(RCT_NONE, 0, v2[1], 0);
@@ -1847,7 +1812,6 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 		printf("T47 SLIC5-AC  Enc %s  CWHD %d*%d*%d*%d/8\n", g_buf, nch, src->iw, src->ih, maxdepth);
 	}
 	RCTType rct=RCT_NONE;
-	int *CDF=0;
 	if(nch>=3)
 	{
 		double csizes[RCT_COUNT];
@@ -1894,8 +1858,11 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 		slic5_nextrow(&pr, ky);
 		for(int kx=0;kx<src->iw;)
 		{
-			if(kx==(src->iw>>1)&&ky==(src->ih>>1))//
-				printf("");
+			//if(kx==(src->iw>>1)&&ky==(src->ih>>1))//
+			//if(kx==648&&ky==354)//
+			//if(kx==5&&ky==7)//
+			//if(kx==721&&ky==412)//
+			//	printf("");
 
 #ifdef ENABLE_LZ
 			int hash=-1, lzidx=-1, lzlen=0;
@@ -1954,23 +1921,23 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 				if(hash>=0&&lzmap[hash]<0)
 					lzmap[hash]=idx>>2;
 #endif
-				int kc=0;
-				if(nch>=3)
-				{
-					int comp[]={src->data[idx|0], src->data[idx|1], src->data[idx|2]};
-					rct_fwd(comp, rct);
-					slic5_enc(&pr, comp[1], 0, kx);//Y		luma is encoded first
-					slic5_enc(&pr, comp[2], 1, kx);//Cb
-					slic5_enc(&pr, comp[0], 2, kx);//Cr
-					kc+=3;
-				}
-				for(;kc<nch;++kc)//gray/alpha
-				{
-					int pixel=src->data[idx|kc];
-					slic5_enc(&pr, pixel, kc, kx);
-				}
-				++kx;
-				idx+=4;
+			int kc=0;
+			if(nch>=3)
+			{
+				int comp[]={src->data[idx|0], src->data[idx|1], src->data[idx|2]};
+				rct_fwd(comp, rct);
+				slic5_enc(&pr, comp[1], 0, kx);//Y		luma is encoded first
+				slic5_enc(&pr, comp[2], 1, kx);//Cb
+				slic5_enc(&pr, comp[0], 2, kx);//Cr
+				kc+=3;
+			}
+			for(;kc<nch;++kc)//gray/alpha
+			{
+				int pixel=src->data[idx|kc];
+				slic5_enc(&pr, pixel, kc, kx);
+			}
+			++kx;
+			idx+=4;
 #ifdef ENABLE_LZ
 			}
 #endif
@@ -2082,6 +2049,7 @@ int t47_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 			//if(kx==252&&ky==16)//
 			//if(kx==151&&ky==37)//
 			//if(kx==100&&ky==38)//
+			//if(kx==5&&ky==7)//
 			//	printf("");
 
 			int kc=0;
@@ -2183,6 +2151,7 @@ int t47_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 	return 1;
 }
 
+#if 0
 int t47_from_ppm(const char *src, const char *dst)
 {
 	double t=time_sec();
@@ -2501,3 +2470,4 @@ void t47_analyze_preds(const char *path)
 	free(hist);
 	pause();
 }
+#endif

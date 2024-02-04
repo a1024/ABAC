@@ -34,7 +34,7 @@ static const char file[]=__FILE__;
 //	#define MA_RCT_COUNT 10
 //	#define MA_BATCHTEST (MA_RCT_COUNT<<2)
 
-const char *g_extensions[]=
+static const char *g_extensions[]=
 {
 	"png",
 	"jpg",
@@ -995,11 +995,11 @@ static void encode(const char *srcfn, const char *dstfn)
 	printf("Encoding \"%s\"\n", srcfn);
 	size_t start=0, end=0;
 	get_filetitle(srcfn, -1, &start, &end);
-	if(!_stricmp(srcfn+end, ".PPM"))
-	{
-		t47_from_ppm(srcfn, dstfn);
-		return;
-	}
+	//if(!_stricmp(srcfn+end, ".PPM"))
+	//{
+	//	t47_from_ppm(srcfn, dstfn);
+	//	return;
+	//}
 	Image *src=image_load(srcfn);
 	if(!src)
 	{
@@ -1021,12 +1021,13 @@ static void decode(const char *srcfn, const char *dstfn)
 	printf("Decoding \"%s\"\n", srcfn);
 	size_t start=0, end=0;
 	get_filetitle(dstfn, -1, &start, &end);
-	if(!_stricmp(dstfn+end, ".PPM"))
-	{
-		t47_to_ppm(srcfn, dstfn);
-		return;
-	}
-	else if(!_stricmp(dstfn+end, ".PNG"))
+	//if(!_stricmp(dstfn+end, ".PPM"))
+	//{
+	//	t47_to_ppm(srcfn, dstfn);
+	//	return;
+	//}
+	//else
+	if(!_stricmp(dstfn+end, ".PNG"))
 	{
 		ArrayHandle cdata=load_file(srcfn, 1, 16, 0);
 		if(!cdata)
@@ -1115,8 +1116,7 @@ ProgArgs args=
 #if 1
 	OP_TESTFILE, 1, 0,//op, nthreads, formatsize
 
-	"D:/ML/dataset-kodak/kodim13.png",
-//	"D:/ML/temp/sony_a55_10.PNG",
+//	"D:/ML/dataset-kodak/kodim13.png",
 //	"D:/ML/dataset-ic-rgb16bit/artificial.png",
 //	"D:/ML/dataset-ic-rgb16bit/big_building.png",
 //	"D:/ML/dataset-ic-rgb16bit/big_tree.png",
@@ -1125,8 +1125,11 @@ ProgArgs args=
 //	"D:/ML/dataset-ic-rgb16bit/deer.png",
 
 //	"C:/Projects/datasets/dataset-kodak/kodim02.png",
-//	"C:/Projects/datasets/dataset-kodak/kodim13.png",
+	"C:/Projects/datasets/dataset-kodak/kodim13.png",
+//	"C:/Projects/datasets/dataset-kodak/kodim19.png",
+//	"C:/Projects/datasets/dataset-kodak-pgm/kodim02.pgm",
 //	"C:/Projects/datasets/dataset-kodak-CLIC30/01.png",
+//	"C:/Projects/datasets/Screenshots/Screenshot 2023-04-10 153155.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/artificial.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/big_building.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/cathedral.png",
@@ -1134,6 +1137,7 @@ ProgArgs args=
 //	"C:/Projects/datasets/dataset-LPCB/canon_eos_1100d_01.PNG",
 //	"C:/Projects/datasets/dataset-LPCB/canon_eos_1100d_02.PNG",
 //	"C:/Projects/datasets/dataset-LPCB/canon_eos_1100d_03.PNG",
+//	"C:/Projects/datasets/dataset-LPCB/STA13942.PNG",
 //	"C:/Projects/datasets/Screenshots/Screenshot 2023-03-12 181054.png",
 #else
 	OP_COMPRESS, 1, 0,
@@ -1156,6 +1160,74 @@ ProgArgs args=
 //};
 int main(int argc, char **argv)
 {
+#if 0
+	printf("FIXED PREC MATH TEST\n");
+	printf("x\tlgx\texact\tdiff\n");
+	for(int k=1;k<=256;++k)
+	{
+		unsigned long long x=(unsigned long long)k<<24;
+		
+		if(x==0x3000000)//
+			printf("");
+
+		int lgx=log2_fix24(x);
+		double trial=(double)lgx/0x1000000;
+		double truth=log2((double)x/0x1000000);
+		printf("0x%016llX>>24  %16lf  %16lf  %16lf\n", x, trial, truth, truth-trial);
+		//printf("0x%016llX>>24  %c0x%08X>>24  %c0x%08X>>24\n", x, lgx<0?'-':'+', abs(lgx), true_lgx<0?'-':'+', abs(true_lgx));
+	}
+	pause();
+	return 0;
+#endif
+#if 0
+	printf("FIXED PREC MATH TEST\n");
+	for(;;)
+	{
+#define POW_FIX24(B, E) exp2_fix24((int)((long long)E*log2_fix24(B)>>24))
+		int base=0, e=0;
+
+		printf("Enter base (hex fix24 uint32 no prefix): ");
+		while(!scanf("%X", &base));
+		base=abs(base);
+		printf("Enter exponent (hex fix24 int32 no prefix): ");
+		while(!scanf("%X", &e));
+		//base=0x800000, e=0x2000000;
+
+		unsigned long long trial=POW_FIX24(base, e);
+		//int temp=log2_fix24(base);
+		//unsigned long long trial=exp2_fix24((int)((long long)e*temp>>24));
+		unsigned long long truth=(unsigned long long)(pow((double)base/0x1000000, (double)e/0x1000000)*0x1000000);
+		printf("  TRIAL 0x%016llX>>24\n  TRUTH 0x%016llX>>24\n", trial, truth);
+
+
+		//int k=0;
+		//printf("Enter an int32 in fix24 (hex without prefix): ");
+		//while(!scanf("%X", &k));
+		//unsigned long long trial=exp2_fix24(k);
+		//unsigned long long truth=(unsigned long long)(exp2((double)k/0x1000000)*0x1000000);
+		//printf("exp2(%c0x%08X>>24)  TRIAL 0x%016llX>>24  TRUTH 0x%016llX>>24\n", k<0?'-':'+', abs(k), trial, truth);
+
+
+		//unsigned long long k=0;
+		//printf("Enter a uint64 in fix24 (hex without prefix): ");
+		//while(!scanf("%llX", &k));
+		//int trial=log2_fix24(k);
+		//int truth=(int)(log2((double)k/0x1000000)*0x1000000);
+		//printf("log2(0x%016llX>>24)  TRIAL %c0x%08X>>24  TRUTH %c0x%08X>>24\n", k, trial<0?'-':'+', abs(trial), truth<0?'-':'+', abs(truth));
+
+
+		//printf("Enter a uint64: ");
+		//while(!scanf("%llu", &k));
+		//unsigned s=floor_sqrt(k);
+		//printf("SQRT(%llu) = %u\n", k, s);
+	}
+#endif
+#if 0
+	//t47_analyze_preds("C:/Projects/datasets/dataset-LPCB");
+	t47_analyze_preds("C:/Projects/datasets/dataset-CLIC30");
+	//t47_analyze_preds("C:/Projects/datasets/temp");
+	return 0;
+#endif
 #if 0
 	{
 		const char

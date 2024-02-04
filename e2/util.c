@@ -361,63 +361,6 @@ unsigned floor_sqrt(unsigned long long x)
 	}
 	printf("%d muls\n", nmuls);//
 	return (unsigned)U;//U <= L, we want floor, so return U
-#if 0
-	//this does floor_log2(sqrt(x)) 64-bit multiplications (up to 31) plus a floor_log2 instruction
-	int lgx=floor_log2(x);//single instruction
-	lgx>>=1;
-	++lgx;//lgx can give -1 so we add 1 then shift back
-	unsigned long long L=(1ULL<<lgx)>>1, R=(L<<1)-1;//the sqrt is bounded between 0b100...00 (lgx/2 zeros) and 0b111...11
-	//int nmuls=0;//
-	while(L<=R)//binary search
-	{
-		unsigned long long level=(L+R)>>1, sq=level*level;
-		//++nmuls;//
-		if(x>sq)
-			L=level+1;
-		else if(x<sq)
-			R=level-1;
-		else
-			break;
-	}
-	//printf("%d muls\n", nmuls);//
-	return R;//R <= L, we want floor, so return R
-#endif
-
-#if 0
-	unsigned res=0x80000000&-(x>=0x80000000LL*0x80000000), temp;
-	temp=res|0x40000000, res|=0x40000000&-(x>=(unsigned long long)temp*temp);//always 31 muls
-	temp=res|0x20000000, res|=0x20000000&-(x>=(unsigned long long)temp*temp);
-	temp=res|0x10000000, res|=0x10000000&-(x>=(unsigned long long)temp*temp);
-	temp=res|0x08000000, res|=0x08000000&-(x>=(unsigned long long)temp*temp);
-	temp=res|0x04000000, res|=0x04000000&-(x>=(unsigned long long)temp*temp);
-	temp=res|0x02000000, res|=0x02000000&-(x>=(unsigned long long)temp*temp);
-	temp=res|0x01000000, res|=0x01000000&-(x>=(unsigned long long)temp*temp);
-	temp=res|0x00800000, res|=0x00800000&-(x>=(unsigned long long)temp*temp);
-	temp=res|0x00400000, res|=0x00400000&-(x>=(unsigned long long)temp*temp);
-	temp=res|0x00200000, res|=0x00200000&-(x>=(unsigned long long)temp*temp);
-	temp=res|0x00100000, res|=0x00100000&-(x>=(unsigned long long)temp*temp);
-	temp=res|0x00080000, res|=0x00080000&-(x>=(unsigned long long)temp*temp);
-	temp=res|0x00040000, res|=0x00040000&-(x>=(unsigned long long)temp*temp);
-	temp=res|0x00020000, res|=0x00020000&-(x>=(unsigned long long)temp*temp);
-	temp=res|0x00010000, res|=0x00010000&-(x>=(unsigned long long)temp*temp);
-	temp=res|0x00008000, res|=0x00008000&-(x>=(unsigned long long)temp*temp);
-	temp=res|0x00004000, res|=0x00004000&-(x>=(unsigned long long)temp*temp);
-	temp=res|0x00002000, res|=0x00002000&-(x>=(unsigned long long)temp*temp);
-	temp=res|0x00001000, res|=0x00001000&-(x>=(unsigned long long)temp*temp);
-	temp=res|0x00000800, res|=0x00000800&-(x>=(unsigned long long)temp*temp);
-	temp=res|0x00000400, res|=0x00000400&-(x>=(unsigned long long)temp*temp);
-	temp=res|0x00000200, res|=0x00000200&-(x>=(unsigned long long)temp*temp);
-	temp=res|0x00000100, res|=0x00000100&-(x>=(unsigned long long)temp*temp);
-	temp=res|0x00000080, res|=0x00000080&-(x>=(unsigned long long)temp*temp);
-	temp=res|0x00000040, res|=0x00000040&-(x>=(unsigned long long)temp*temp);
-	temp=res|0x00000020, res|=0x00000020&-(x>=(unsigned long long)temp*temp);
-	temp=res|0x00000010, res|=0x00000010&-(x>=(unsigned long long)temp*temp);
-	temp=res|0x00000008, res|=0x00000008&-(x>=(unsigned long long)temp*temp);
-	temp=res|0x00000004, res|=0x00000004&-(x>=(unsigned long long)temp*temp);
-	temp=res|0x00000002, res|=0x00000002&-(x>=(unsigned long long)temp*temp);
-	temp=res|0x00000001, res|=0x00000001&-(x>=(unsigned long long)temp*temp);
-	return res;
-#endif
 
 	//https://stackoverflow.com/questions/1100090/looking-for-an-efficient-integer-square-root-algorithm-for-arm-thumb2
 #if 0
@@ -433,6 +376,77 @@ unsigned floor_sqrt(unsigned long long x)
 	return res;
 #endif
 }
+#define FRAC_BITS 24
+unsigned long long exp2_fix24(int x)
+{
+	static const unsigned long long frac_pots[]=
+	{
+		0x1000000B1,//round(2^(0x000001*2^-24)*2^32)		//extra 8 bits of precision
+		0x100000163,
+		0x1000002C6,
+		0x10000058C,
+		0x100000B17,
+		0x10000162E,
+		0x100002C5D,
+		0x1000058B9,
+		0x10000B172,
+		0x1000162E5,
+		0x10002C5CC,
+		0x100058BA0,
+		0x1000B175F,
+		0x100162F39,
+		0x1002C605E,
+		0x10058C86E,
+		0x100B1AFA6,
+		0x10163DAA0,
+		0x102C9A3E7,
+		0x1059B0D31,
+		0x10B5586D0,
+		0x1172B83C8,
+		0x1306FE0A3,
+		0x16A09E668,//round(2^(0x800000*2^-24)*2^32)
+	};
+	int neg=x<0;
+	x=abs(x);
+	if(x>=0x27000000)
+		return neg?0:0xFFFFFFFFFFFFFFFF;
+	unsigned long long result=0x1000000;
+	for(int k=0;k<FRAC_BITS;++k)//up to 24 muls
+	{
+		if(x&1)
+		{
+			result*=frac_pots[k];
+			//result+=1LL<<31;
+			result>>=32;
+		}
+		x>>=1;
+	}
+	result=SHIFT_LEFT_SIGNED(result, x);
+	if(neg)
+		result=0x1000000000000/result;
+	return result;
+}
+int log2_fix24(unsigned long long x)
+{
+	//https://stackoverflow.com/questions/4657468/fast-fixed-point-pow-log-exp-and-sqrt
+	//and YouChad
+	if(!x)
+		return -((FRAC_BITS+1)<<FRAC_BITS);
+	int lgx=floor_log2(x)-24;
+	x=SHIFT_RIGHT_SIGNED(x, lgx);
+	lgx<<=24;
+	if(!(x&(x-1)))//no need to do 24 muls if x is a power of two
+		return lgx;
+	for(int k=FRAC_BITS-1;k>=0;--k)//constant 24 muls, hopefully will be unrolled
+	{
+		x=x*x>>FRAC_BITS;
+		int cond=x>=(2LL<<FRAC_BITS);
+		x>>=cond;
+		lgx|=cond<<k;
+	}
+	return lgx;
+}
+#undef  FRAC_BITS
 double power(double x, int y)
 {
 	double mask[]={1, 0}, product=1;
@@ -466,8 +480,6 @@ double _10pow(int n)
 		return _HUGE;
 	return mask[n+308];
 }
-int minimum(int a, int b){return a<b?a:b;}
-int maximum(int a, int b){return a>b?a:b;}
 int acme_isdigit(char c, char base)
 {
 	switch(base)

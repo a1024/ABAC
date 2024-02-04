@@ -183,7 +183,10 @@ int t46_decode(const unsigned char *data, size_t srclen, Image *dst, int loud);
 	RCT(YCbCr_R_v2)\
 	RCT(YCbCr_R_v3)\
 	RCT(YCbCr_R_v4)\
-	RCT(YCbCr_R_v7)
+	RCT(YCbCr_R_v5)\
+	RCT(YCbCr_R_v6)\
+	RCT(YCbCr_R_v7)\
+	RCT(Pei09)
 typedef enum RCTTypeEnum
 {
 #define RCT(X) RCT_##X,
@@ -194,9 +197,10 @@ typedef enum RCTTypeEnum
 extern const char *rct_names[RCT_COUNT];
 int t47_encode(Image const *src, ArrayHandle *data, int loud);
 int t47_decode(const unsigned char *data, size_t srclen, Image *dst, int loud);
-RCTType rct_select_best(Image const *src, double *ret_csizes);
-int t47_from_ppm(const char *src, const char *dst);
-int t47_to_ppm(const char *src, const char *dst);
+//RCTType rct_select_best(Image const *src, double *ret_csizes);
+//int t47_from_ppm(const char *src, const char *dst);
+//int t47_to_ppm(const char *src, const char *dst);
+//void t47_analyze_preds(const char *path);
 
 //CABAC
 int t48_encode(Image const *src, ArrayHandle *data, int loud);
