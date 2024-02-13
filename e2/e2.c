@@ -671,6 +671,7 @@ ProgArgs args=
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/artificial.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/big_building.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/cathedral.png",
+//	"C:/Projects/datasets/dataset-ic-rgb16bit/deer.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/hdr.png",
 //	"C:/Projects/datasets/dataset-LPCB/canon_eos_1100d_01.PNG",
 //	"C:/Projects/datasets/dataset-LPCB/canon_eos_1100d_02.PNG",

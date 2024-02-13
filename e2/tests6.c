@@ -44,7 +44,6 @@ static const char file[]=__FILE__;
 #define CHECKPOINTLIST\
 	CHECKPOINT(RCT_OPT)\
 	CHECKPOINT(OUTSIDE)\
-	CHECKPOINT(UPDATE_CDFs)\
 	CHECKPOINT(FETCH_NB)\
 	CHECKPOINT(CALC_SUBPREDS)\
 	CHECKPOINT(CALC_WEIGHT_AV)\
@@ -52,7 +51,6 @@ static const char file[]=__FILE__;
 	CHECKPOINT(SSE_LOOP)\
 	CHECKPOINT(PRED_TILL_UPDATE)\
 	CHECKPOINT(UPDATE_WP)\
-	CHECKPOINT(UPDATE_CUSTOM1)\
 	CHECKPOINT(UPDATE_HIST)\
 	CHECKPOINT(UPDATE_SSE)
 typedef enum ProfilerLabelEnum
@@ -211,6 +209,7 @@ static int nonlinear2nonlinear(int x, int srcgamma, int dstgamma)
 //#define ENABLE_CUSTOM1
 //#define ENABLE_CUSTOM1_v2
 #define ENABLE_CUSTOM1_v3
+//#define ENABLE_CUSTOM1_v4
 
 //don't forget to update SLIC5_NPREDS in e2.h
 #define SLIC5_PREDLIST\
@@ -346,6 +345,21 @@ static void matmul(double *dst, const double *m1, const double *m2, int h1, int 
 		}
 	}
 }
+static void matmul_selftransposed(double *dst, const double *src, int mh, int mw, int dstw)
+{
+	for(int ky=0;ky<mh;++ky)
+	{
+		for(int kx=0;kx<mh;++kx)
+		{
+			double sum=0;
+			for(int j=0;j<mw;++j)
+				sum+=src[mw*ky+j]*src[mw*kx+j];
+			//if((unsigned)(dstw*ky+kx)>=128)
+			//	LOG_ERROR("");
+			dst[dstw*ky+kx]=sum;
+		}
+	}
+}
 #if defined AVX2 || defined AVX512
 static void avx2_floor_log2_p1(__m256i *x)//floor_log2()+1
 {
@@ -435,6 +449,11 @@ typedef struct SLIC5CtxStruct
 #endif
 #ifdef ENABLE_CUSTOM1_v3
 	double c1_params[4*4];
+	int c1_init[4];
+#endif
+#ifdef ENABLE_CUSTOM1_v4
+	double c1_params[8*4];
+	int c1_init[4];
 #endif
 	int bias_count[4];
 	long long bias_sum[4];
@@ -443,16 +462,16 @@ typedef struct SLIC5CtxStruct
 	long long pred;
 	int pred_final;
 	int sse_corr;
-	int kc, kx, ky, kym0, kym1, kym2, kym3;
+	int kc, kx, ky, kym[4];
 	long long pred_error_sums[SLIC5_NPREDS];
 #ifdef TRACK_SSE_RANGES
 	int sse_ranges[8];
 #endif
 	ArithmeticCoder *ec;
 } SLIC5Ctx;
-#define LOAD(BUF, X, Y) BUF[(pr->kym##Y+kx+PAD_SIZE-(X))<<2|kc]
-#define LOAD_CH(BUF, C, X, Y) BUF[(pr->kym##Y+kx+PAD_SIZE-(X))<<2|C]
-#define LOAD_PRED_ERROR(C, X, Y, P) pr->pred_errors[(SLIC5_NPREDS*(pr->kym##Y+kx+PAD_SIZE-(X))+P)<<2|C]
+#define LOAD(BUF, X, Y) BUF[(pr->kym[Y]+kx+PAD_SIZE-(X))<<2|kc]
+#define LOAD_CH(BUF, C, X, Y) BUF[(pr->kym[Y]+kx+PAD_SIZE-(X))<<2|C]
+#define LOAD_PRED_ERROR(C, X, Y, P) pr->pred_errors[(SLIC5_NPREDS*(pr->kym[Y]+kx+PAD_SIZE-(X))+P)<<2|C]
 static ptrdiff_t slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths, ArithmeticCoder *ec)//returns memory usage or 0 on failure
 {
 	if(iw<1||ih<1||nch<1)
@@ -498,10 +517,21 @@ static ptrdiff_t slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *d
 		//pr->shift_prec[kc]=MAXVAR(8, pr->depths[kc])-8+PRED_PREC;
 		pr->shift_error[kc]=1+((pr->depths[kc]<=9)<<1);
 	}
+
+	//suppose	curr == -128	pred > 0	rare but happens
+	//error = -128-pred
+	//abs(error) = 128+pred
+	//upred = 128-pred
+	//since abs(error)>upred:
+	//	sym = abs(error)+upred = 128+pred+128-pred = 256
 	HybridUint hu;
-	int extremesym=-(pr->maxlevels>>1);
-	extremesym=extremesym<<1^-(extremesym<0);//pack sign
-	hybriduint_encode(extremesym, &hu);//encode -half
+	hybriduint_encode(pr->maxlevels, &hu);
+
+	//int extremesym=-(pr->maxlevels>>1);
+	//extremesym=extremesym<<1^-(extremesym<0);//pack sign
+	//++extremesym;
+	//hybriduint_encode(extremesym, &hu);//encode -half
+
 #ifdef USE_ABAC
 	pr->treesize=pr->maxdepth*(pr->maxdepth+1)>>1;
 	//pr->maxtoken=hu.token;
@@ -753,10 +783,13 @@ static void slic5_update_CDFs(SLIC5Ctx *pr)
 static void slic5_nextrow(SLIC5Ctx *pr, int ky)
 {
 	pr->ky=ky;
-	pr->kym0=(pr->iw+PAD_SIZE*2)*(ky&3);
-	pr->kym1=(pr->iw+PAD_SIZE*2)*((ky-1)&3);
-	pr->kym2=(pr->iw+PAD_SIZE*2)*((ky-2)&3);
-	pr->kym3=(pr->iw+PAD_SIZE*2)*((ky-3)&3);
+	pr->kym[0]=(pr->iw+PAD_SIZE*2)*(ky&3);
+	pr->kym[1]=(pr->iw+PAD_SIZE*2)*((ky-1)&3);
+	pr->kym[2]=(pr->iw+PAD_SIZE*2)*((ky-2)&3);
+	pr->kym[3]=(pr->iw+PAD_SIZE*2)*((ky-3)&3);
+#if defined ENABLE_CUSTOM1_v3 || defined ENABLE_CUSTOM1_v4
+	memset(pr->c1_init, 0, sizeof(pr->c1_init));
+#endif
 
 	//int nhist=pr->nch*pr->nhist*pr->nhist;
 	//for(int kt=0;kt<nhist;++kt)//force rescale histograms
@@ -787,7 +820,6 @@ static int custom1_predict(const int *nb, const char *params)
 #ifdef ENABLE_CUSTOM1_v2
 static double g_matrix[16*8];
 #endif
-#ifdef ENABLE_CUSTOM1_v3
 static int invert_matrix(double *matrix, int size, double *temprow)
 {
 	int success=1;
@@ -829,7 +861,6 @@ static int invert_matrix(double *matrix, int size, double *temprow)
 	//_freea(temp);
 	return success;
 }
-#endif
 static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 {
 	PROF(OUTSIDE);
@@ -840,7 +871,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 	//if(!(idx&(CDF_UPDATE_PERIOD-1))||(idx<CDF_UPDATE_PERIOD&&(idx&15)))
 	//if(!(kx&(CDF_UPDATE_PERIOD-1)))
 	//	slic5_update_CDFs(pr);
-	PROF(UPDATE_CDFs);
+	//PROF(UPDATE_CDFs);
 	//XY are flipped, no need to check if indices OOB due to padding
 	int
 #if PAD_SIZE>=4
@@ -949,6 +980,64 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 	geomean=(int)floor_sqrt(aN*aW)-0x800000;
 
 	int ols=0;
+#ifdef ENABLE_CUSTOM1_v4
+	//NNNWWWW NNNWWW NNNWW NNNW NNN  NNNE NNNEE NNNEEE NNNEEEE
+	//NNWWWW  NNWWW  NNWW  NNW  NN   NNE  NNEE  NNEEE  NNEEEE
+	//NWWWW   NWWW   NWW   NW   N    NE   NEE   NEEE   NEEEE
+	//WWWW    WWW    WW    W    curr
+#define OLS_NPARAMS 8
+#define OLS_NSAMPLES 17
+	ALIGN(32) double nb[(OLS_NPARAMS+1)*OLS_NSAMPLES];
+	for(int ky2=-2, idx=0;ky2<=0;++ky2)
+	{
+		for(int kx2=-3;kx2<=3;++kx2)
+		{
+			if(!ky2&&!kx2)
+				break;
+			nb[OLS_NSAMPLES*0+idx]=pr->pixels[(pr->kym[-(ky2-1)]+kx+4-kx2-1)<<2|kc];//NW
+			nb[OLS_NSAMPLES*1+idx]=pr->pixels[(pr->kym[-(ky2-1)]+kx+4-kx2+0)<<2|kc];//N
+			nb[OLS_NSAMPLES*2+idx]=pr->pixels[(pr->kym[-(ky2-1)]+kx+4-kx2+1)<<2|kc];//NE
+			nb[OLS_NSAMPLES*3+idx]=pr->pixels[(pr->kym[-(ky2+0)]+kx+4-kx2-1)<<2|kc];//W
+			nb[OLS_NSAMPLES*4+idx]=pr->errors[(pr->kym[-(ky2-1)]+kx+4-kx2-1)<<2|kc];//eNW
+			nb[OLS_NSAMPLES*5+idx]=pr->errors[(pr->kym[-(ky2-1)]+kx+4-kx2+0)<<2|kc];//eN
+			nb[OLS_NSAMPLES*6+idx]=pr->errors[(pr->kym[-(ky2-1)]+kx+4-kx2+1)<<2|kc];//eNE
+			nb[OLS_NSAMPLES*7+idx]=pr->errors[(pr->kym[-(ky2+0)]+kx+4-kx2-1)<<2|kc];//eW
+			nb[OLS_NSAMPLES*8+idx]=pr->pixels[(pr->kym[-(ky2+0)]+kx+4-kx2+0)<<2|kc];//target
+		}
+	}
+	for(int k=0;k<_countof(nb);++k)
+		nb[k]/=1<<24;
+	ALIGN(32) double sqm[OLS_NPARAMS*(OLS_NPARAMS<<1)]={0}, temp[OLS_NPARAMS<<1];
+	for(int k=0;k<OLS_NPARAMS;++k)//set identity
+		sqm[(OLS_NPARAMS<<1)*k+k+OLS_NPARAMS]=1;
+	matmul_selftransposed(sqm, nb, OLS_NPARAMS, OLS_NSAMPLES, OLS_NPARAMS<<1);//sqm = NB*NBT
+	int success=invert_matrix(sqm, OLS_NPARAMS, temp);//inv(NB*NBT)
+	if(success)
+	{
+		//pred = nb * params,		params += ((inv(NB * NBT) * NB * Y) - params)*lr
+		matmul(temp, nb, nb+OLS_NSAMPLES*OLS_NPARAMS, OLS_NPARAMS, OLS_NSAMPLES, 1);
+		matmul(nb, sqm, temp, OLS_NPARAMS, OLS_NPARAMS, 1);
+		if(pr->c1_init[kc])
+		{
+			for(int k=0;k<OLS_NPARAMS;++k)
+				pr->c1_params[OLS_NPARAMS*kc]+=(nb[k]-pr->c1_params[OLS_NPARAMS*kc])*0.5;
+		}
+		else
+		{
+			memcpy(pr->c1_params+OLS_NPARAMS*kc, nb, sizeof(double[OLS_NPARAMS]));
+			pr->c1_init[kc]=1;
+		}
+		int nb3[]=
+		{
+			NW,	N,	NE,	W,	eNW,	eN,	eNE,	eW,
+		};
+		double fpred=0;
+		for(int k=0;k<OLS_NPARAMS;++k)
+			fpred+=nb3[k]*pr->c1_params[kc<<2|k];
+		ols=(int)fpred;
+	}
+#undef  OLS_NSAMPLES
+#endif
 #ifdef ENABLE_CUSTOM1_v3
 	//NNNWWWW NNNWWW NNNWW NNNW NNN  NNNE NNNEE NNNEEE NNNEEEE
 	//NNWWWW  NNWWW  NNWW  NNW  NN   NNE  NNEE  NNEEE  NNEEEE
@@ -1009,46 +1098,49 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 	}
 	double temp[8];
 	int success=invert_matrix(sqm, 4, temp);
-	int blend=kx!=0;
-	if(success||blend)
+	if(success||pr->c1_init[kc])
 	{
 		//pred = nb * params,		params += ((inv(NB * NBT) * NB * Y) - params)*lr
-		int targets[]=
+		if(success)
 		{
-			NNWWW,
-			NNWW,
-			NNW,
-			NN,
-			NNE,
-			NNEE,
-			NNEEE,
-			NWWW,
-			NWW,
-			NW,
-			N,
-			NE,
-			NEE,
-			NEEE,
-			WWW,
-			WW,
-			W,
-		};
-		for(int ky=0;ky<4;++ky)
-		{
-			double sum=0;
-			for(int kx=0;kx<nsamples;++kx)
-				sum+=priority[kx]*nb2[nsamples*ky+kx]*targets[kx]/(1<<24);
-			temp[ky]=sum;
-		}
-		for(int ky=0;ky<4;++ky)
-		{
-			double sum=0;
-			for(int j=0;j<4;++j)
-				sum+=sqm[ky<<3|(j+4)]*temp[j];
-			if(blend)
-				pr->c1_params[kc<<2|ky]+=(sum-pr->c1_params[kc<<2|ky])*0.1;
-			else
-				pr->c1_params[kc<<2|ky]=sum;
+			int targets[]=
+			{
+				NNWWW,
+				NNWW,
+				NNW,
+				NN,
+				NNE,
+				NNEE,
+				NNEEE,
+				NWWW,
+				NWW,
+				NW,
+				N,
+				NE,
+				NEE,
+				NEEE,
+				WWW,
+				WW,
+				W,
+			};
+			for(int ky=0;ky<4;++ky)
+			{
+				double sum=0;
+				for(int kx=0;kx<nsamples;++kx)
+					sum+=priority[kx]*nb2[nsamples*ky+kx]*targets[kx]/(1<<24);
+				temp[ky]=sum;
+			}
+			for(int ky=0;ky<4;++ky)
+			{
+				double sum=0;
+				for(int j=0;j<4;++j)
+					sum+=sqm[ky<<3|(j+4)]*temp[j];
+				if(pr->c1_init[kc])
+					pr->c1_params[kc<<2|ky]+=(sum-pr->c1_params[kc<<2|ky])*0.2;
+				else
+					pr->c1_params[kc<<2|ky]=sum;
+			}
+			pr->c1_init[kc]=1;
 		}
 		int nb3[]=
 		{
