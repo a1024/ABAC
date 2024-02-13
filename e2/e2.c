@@ -16,11 +16,12 @@ typedef unsigned THREAD_RET;
 #define THREAD_CALL
 typedef void *THREAD_RET;
 #endif
-//#define SIF_IMPLEMENTATION
-//#include"sif.h"
-//#define QOI_IMPLEMENTATION
-//#include"qoi.h"
+#include"lodepng.h"
 static const char file[]=__FILE__;
+
+
+//override program
+//	#define DSP_TEST
 
 
 #define CODECID     47
@@ -28,11 +29,8 @@ static const char file[]=__FILE__;
 #define ENCODE     t47_encode
 #define DECODE     t47_decode
 
+	#define PRINT_RCT//comment when not applicable
 
-	#define BATCHTEST_PRINTTABLE
-
-//	#define MA_RCT_COUNT 10
-//	#define MA_BATCHTEST (MA_RCT_COUNT<<2)
 
 static const char *g_extensions[]=
 {
@@ -42,25 +40,16 @@ static const char *g_extensions[]=
 	"ppm",
 	"pgm",
 };
-
 typedef struct ThreadArgsStruct
 {
 	ArrayHandle title;
 	Image *src, *dst;
-	//int iw, ih;
-	//unsigned char *src, *dst;
 	size_t usize, csize1, csize2;
 	double fdec, enc, dec;//time in secs
+	SLIC5Curiosity curiosity;
 	int error;//whether the image was recovered successfully
 	ptrdiff_t idx;
 } ThreadArgs;
-//static void free_threadargs(void *p)
-//{
-//	ThreadArgs *args=(ThreadArgs*)p;
-//	free(args->src);
-//	free(args->dst);
-//	args->dst=0;
-//}
 static THREAD_RET THREAD_CALL sample_thread(void *param)
 {
 	ThreadArgs *args=(ThreadArgs*)param;
@@ -69,7 +58,11 @@ static THREAD_RET THREAD_CALL sample_thread(void *param)
 	args->usize=(int)ceil(image_getBMPsize(args->src));
 
 	double t=time_sec();
+#ifdef PRINT_RCT
+	ENCODE(args->src, &cdata, &args->curiosity, 0);
+#else
 	ENCODE(args->src, &cdata, 0);
+#endif
 	t=time_sec()-t;
 	args->enc=t;
 
@@ -93,6 +86,7 @@ typedef struct ResultStruct
 	//ptrdiff_t idx;
 	size_t usize, csize1, csize2, error;
 	double fdec, enc, dec;
+	SLIC5Curiosity curiosity;
 } Result;
 typedef struct ProcessCtxStruct
 {
@@ -102,12 +96,32 @@ typedef struct ProcessCtxStruct
 } ProcessCtx;
 static double start_time=0;
 static double g_total_usize=0, g_total_csize=0;
-static void print_result(Result *res, const char *title, int width, int timestamp)
+static void curiosity_add(SLIC5Curiosity *dst, SLIC5Curiosity const *src)
 {
-	//int kpoint, kslash;
-	//for(kpoint=(int)res->title->count-1;kpoint>=0&&res->fn->data[kpoint]!='.';--kpoint);
-	//for(kslash=kpoint;kslash>=0&&res->fn->data[kslash]!='/'&&res->fn->data[kslash]!='\\';--kslash);
+#ifndef SLIC5_OPTIMIZE_RCT
+	for(int k=0;k<RCT_COUNT;++k)
+		dst->rct_sizes[k]+=src->rct_sizes[k];
+#endif
+	for(int k=0;k<SLIC5_NPREDS;++k)
+		dst->pred_errors[k]+=src->pred_errors[k];
+}
+static void curiosity_print(SLIC5Curiosity const *src)
+{
+#ifndef SLIC5_OPTIMIZE_RCT
+	printf("RCT csizes:\n");
+	for(int k=0;k<RCT_COUNT;++k)
+		printf("%20lf %s\n", src->rct_sizes[k], rct_names[k]);
+#endif
 
+	printf("Pred errors:\n");
+	long long sum=0;
+	for(int k=0;k<SLIC5_NPREDS;++k)
+		sum+=src->pred_errors[k];
+	for(int k=0;k<SLIC5_NPREDS;++k)
+		printf("  %2d  %17lld  %6.2lf%%  %s\n", k, src->pred_errors[k], 100.*src->pred_errors[k]/sum, slic5_prednames[k]);
+}
+static void print_result(Result *res, const char *title, int width, int print_timestamp, int print_rct)
+{
 	double
 		CR1=(double)res->usize/res->csize1,
 		CR2=(double)res->usize/res->csize2;
@@ -119,45 +133,41 @@ static void print_result(Result *res, const char *title, int width, int timestam
 		res->csize2, CR2, res->enc, res->dec, res->error?"ERROR":"SUCCESS",
 		g_total_usize/g_total_csize
 	);
-	if(timestamp)
+#ifdef PRINT_RCT
+#ifdef SLIC5_OPTIMIZE_RCT
+	if(print_rct)
 	{
-		printf("  ");
+		printf(" ");
+		orct_print_compact(res->curiosity.rct_params);
+		//printf(" [%s", slic5_orct_permutationnames[res->curiosity.rct_params[ORCT_NPARAMS]]);
+		//for(int k=0;k<ORCT_NPARAMS;++k)
+		//{
+		//	int val=res->curiosity.rct_params[k];
+		//	printf("%c%02X", val<0?'-':'+', abs(val));
+		//}
+		//	//printf("%02X%c", res->curiosity.rct_params[k]&0xFF, k<_countof(res->curiosity.rct_params)-1?' ':']');
+		//printf("]");
+	}
+#else
+	if(print_rct)
+	{
+		const char *a;
+		if((unsigned)res->curiosity.rct<_countof(rct_names))
+			a=rct_names[res->curiosity.rct];
+		else
+			a="ERROR";
+		printf(" %-11s", a);
+	}
+#endif
+#endif
+	if(print_timestamp)
+	{
+		printf(" ");
 		timedelta2str(0, 0, time_sec()-start_time);
 	}
 	printf("\n");
-	//printf("%10lld %10lld %10lld %16lf %16lf %16lf %16lf\n",
-	//	res->usize,
-	//	res->csize1,
-	//	res->csize2,
-	//	8/CR1,
-	//	8/CR2,
-	//	res->enc,
-	//	res->dec
-	//);
 }
-#if 0
-static void print_result2(Result *res)
-{
-	double
-		CR1=(double)res->usize/res->csize1,
-		CR2=(double)res->usize/res->csize2;
-	printf("usize %10lld format %10lld %16lf sec %12lf test %10lld %16lf sec %12lf %12lf",
-		res->usize,
-		res->csize1, CR1, res->fdec,
-		res->csize2, CR2, res->enc, res->dec
-	);
-
-	printf(" Enc %16lf Dec %16lf", res->enc, res->dec);
-	//printf(" Enc ");
-	//timedelta2str(0, 0, res->enc);
-	//
-	//printf(" Dec ");
-	//timedelta2str(0, 0, res->dec);
-		
-	printf("\n");
-}
-#endif
-static void process_file(ProcessCtx *ctx, ArrayHandle title, int maxlen, Image *image, size_t csize1, double fdec, ptrdiff_t idx, int nthreads)
+static void process_file(ProcessCtx *ctx, ArrayHandle title, int maxlen, Image *image, size_t csize1, double fdec, ptrdiff_t idx, int nthreads, SLIC5Curiosity *curiosity)
 {
 	if(!ctx->nstarted)
 	{
@@ -202,13 +212,11 @@ static void process_file(ProcessCtx *ctx, ArrayHandle title, int maxlen, Image *
 			threadargs->fdec,
 			threadargs->enc,
 			threadargs->dec,
+			threadargs->curiosity,
 		};
 		ARRAY_APPEND(ctx->results, &result, 1, 1, 0);
-		print_result(&result, (char*)threadargs->title->data, maxlen, 1);
-		//print_result(&result, ctx->nfinished+1);
-
-		//if(threadargs->error)//
-		//	printf("ERROR\n");
+		print_result(&result, (char*)threadargs->title->data, maxlen, 1, 1);
+		curiosity_add(curiosity, &threadargs->curiosity);
 
 		array_clear(&ctx->threadargs);
 		ctx->nfinished=ctx->nstarted;
@@ -268,32 +276,19 @@ static void process_file(ProcessCtx *ctx, ArrayHandle title, int maxlen, Image *
 				threadargs->fdec,
 				threadargs->enc,
 				threadargs->dec,
+				threadargs->curiosity,
 			};
 			ARRAY_APPEND(ctx->results, &result, 1, 1, 0);
-			print_result(&result, (char*)threadargs->title->data, maxlen, k>=n-1);
+			print_result(&result, (char*)threadargs->title->data, maxlen, k>=n-1, 1);
 			//print_result(&result, ctx->nfinished+k+1);
+			curiosity_add(curiosity, &threadargs->curiosity);
 		}
 
 		array_clear(&ctx->threadargs);
 		ctx->nfinished=ctx->nstarted;
 	}
 }
-#if 0
-static int get_ext_from_path(ArrayHandle fn)
-{
-	int kpoint=(int)fn->count-1;
-	for(;kpoint>=0&&fn->data[kpoint]!='.';--kpoint);
-	return kpoint;
-}
-static int get_title_from_path(ArrayHandle fn, int start)
-{
-	int kslash=start>=0?start:(int)fn->count-1;
-	for(;kslash>=0&&fn->data[kslash]!='/'&&fn->data[kslash]!='\\';--kslash);
-	kslash+=kslash>0&&(fn->data[kslash]=='/'||fn->data[kslash]=='\\');
-	return kslash;
-}
-#endif
-void batch_test_mt(const char *path, int nthreads)
+static void batch_test_mt(const char *path, int nthreads)
 {
 	g_total_usize=0;
 	g_total_csize=0;
@@ -323,15 +318,11 @@ void batch_test_mt(const char *path, int nthreads)
 		ARRAY_APPEND(titles, &title, 1, 1, 0);
 	}
 	ProcessCtx processctx={0};
+	SLIC5Curiosity curiosity={0};
 	for(int k=0;k<(int)filenames->count;++k)
 	{
 		ArrayHandle *fn=(ArrayHandle*)array_at(&filenames, k);
 		ArrayHandle *title=(ArrayHandle*)array_at(&titles, k);
-		//if(!fn)
-		//{
-		//	printf("Filename error.\n");
-		//	continue;
-		//}
 
 		ptrdiff_t formatsize=get_filesize((char*)fn[0]->data);
 		if(!formatsize||formatsize==-1)//skip non-images, this check is useless because get_filenames() has already filtered the list
@@ -340,50 +331,20 @@ void batch_test_mt(const char *path, int nthreads)
 		double t=time_sec();
 		Image *image=image_load((char*)fn[0]->data);
 		t=time_sec()-t;
-		//int iw=0, ih=0;
-		//long long cycles=__rdtsc();
-		//unsigned char *buf=image_load((char*)fn[0]->data, &iw, &ih);
-		//cycles=__rdtsc()-cycles;
 		if(!image)
 		{
 			printf("Cannot open \"%s\"\n", fn[0]->data);
 			continue;
 		}
-		process_file(&processctx, *title, width, image, formatsize, t, k, nthreads);
+		process_file(&processctx, *title, width, image, formatsize, t, k, nthreads, &curiosity);
 	}
-	process_file(&processctx, 0, width, 0, 0, 0, 0, 0);//set nthreads=0 to flush queued images
+	process_file(&processctx, 0, width, 0, 0, 0, 0, 0, &curiosity);//set nthreads=0 to flush queued images
 	if(processctx.results)
 	{
 		Result total={0};
-		//printf("\n");
-		//printf("uncompressed, prevsize, newsize, prevBPP, newBPP, enc, dec\n");
-		//int maxlen=6;//"Total:"
-#if 0
 		for(int k=0;k<processctx.results->count;++k)
 		{
 			Result *result=(Result*)array_at(&processctx.results, k);
-
-			ArrayHandle *fn=(ArrayHandle*)array_at(&filenames, result->idx);
-			int n=get_ext_from_path(*fn);
-			n=n-get_title_from_path(*fn, n);
-			if(maxlen<n)
-				maxlen=n;
-		}
-#endif
-		for(int k=0;k<processctx.results->count;++k)
-		{
-			Result *result=(Result*)array_at(&processctx.results, k);
-#if 0
-			ArrayHandle *fn=(ArrayHandle*)array_at(&filenames, result->idx);
-			int
-				kpoint=get_ext_from_path(*fn),
-				kslash=get_title_from_path(*fn, kpoint),
-				n=kpoint-kslash;
-			printf("%.*s%*s", n, fn[0]->data+kslash, maxlen+1-n, "");
-			//printf("%5d ", k);
-
-			print_result2(result);
-#endif
 
 			total.usize+=result->usize;
 			total.csize1+=result->csize1;
@@ -394,453 +355,16 @@ void batch_test_mt(const char *path, int nthreads)
 			total.dec+=result->dec;
 		}
 		printf("\n");
-		print_result(&total, "Total:", width, 1);
+		print_result(&total, "Total:", width, 1, 0);
 		array_free(&processctx.results);
 	}
-	//printf("Batch elapsed ");
-	//timedelta2str(0, 0, time_sec()-t_start);
-	//printf("\n");
+	curiosity_print(&curiosity);
 	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H%M%S");
 	printf("Finish %s\n", g_buf);
 
 	array_free(&filenames);
-
-	//printf("\nDone.\n");
-	//pause();
 }
 
-#if 0
-void batch_test(const char *path)
-{
-	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H%M%S");
-	printf("Start %s\n", g_buf);
-	double t_start=time_sec();
-	ArrayHandle filenames=get_filenames(path, g_extensions, _countof(g_extensions), 1);
-	if(!filenames)
-	{
-		printf("No images in \"%s\"\n", path);
-		return;
-	}
-#ifdef MA_BATCHTEST
-	long long ma_sizes[MA_BATCHTEST]={0};//
-#endif
-	long long
-		count_PNG=0, count_JPEG=0,
-		sum_cPNGsize=0, sum_cJPEGsize=0,
-		sum_uPNGsize=0, sum_uJPEGsize=0,
-		sum_testsize=0;
-		//sum_test3size[2]={0};
-#if 0	
-	long long *hist=e10_start();//
-	if(!hist)
-	{
-		exit(0);
-		return;
-	}
-#endif
-#ifdef BATCHTEST_PRINTTABLE
-	ArrayHandle sizes;
-	ARRAY_ALLOC(size_t[3], sizes, 0, 0, filenames->count, 0);
-#endif
-	for(ptrdiff_t k=0;k<(ptrdiff_t)filenames->count;++k)
-	{
-		ArrayHandle *fn=(ArrayHandle*)array_at(&filenames, k);
-
-		if(!fn)
-		{
-			LOG_ERROR("filename read error");
-			continue;
-		}
-
-		ptrdiff_t formatsize=get_filesize((char*)fn[0]->data);
-		if(!formatsize||formatsize==-1)//skip non-images
-			continue;
-
-		int iw=0, ih=0, nch0=3, stride=4;
-		long long cycles=__rdtsc();
-		unsigned char *buf=image_load((char*)fn[0]->data, &iw, &ih);
-		cycles=__rdtsc()-cycles;
-		if(!buf)
-		{
-			printf("Cannot open \"%s\"\n", fn[0]->data);
-			continue;
-		}
-
-		ptrdiff_t res=(ptrdiff_t)iw*ih, len=res*stride, usize=res*nch0;
-		double ratio=(double)usize/formatsize;
-#ifndef MA_BATCHTEST
-#ifdef BATCHTEST_NO_B2
-		printf("%3lld/%3lld  %.2lf%%\r", k+1, filenames->count, (k+1)*100./filenames->count);
-#else
-		printf("%3lld/%3lld  \"%s\"\tCR %lf (%lf BPP) Dec %lf CPB", (long long)(k+1), (long long)filenames->count, fn[0]->data, ratio, 8/ratio, (double)cycles/usize);
-#endif
-#endif
-		if(!acme_stricmp((char*)fn[0]->data+fn[0]->count-3, "PNG"))
-		{
-			sum_cPNGsize+=formatsize;
-			sum_uPNGsize+=usize;
-			++count_PNG;
-		}
-		else//assumed
-		{
-			sum_cJPEGsize+=formatsize;
-			sum_uJPEGsize+=usize;
-			++count_JPEG;
-		}
-#ifndef BATCHTEST_NO_B2
-		unsigned char *b2=(unsigned char*)malloc(len);
-		if(!b2)
-		{
-			LOG_ERROR("Allocation error");
-			return;
-		}
-		memset(b2, 0, len);
-#endif
-
-#ifdef MA_BATCHTEST
-		{
-			size_t bestsize=0;
-			int besttest=0;
-			for(int kt=0;kt<MA_RCT_COUNT;++kt)//for each RCT
-			{
-				for(int km=0;km<2;++km)//toggle modular arithmetic
-				{
-					for(int kr=0;kr<2;++kr)//toggle rounding
-					{
-						int idx=kt<<2|km<<1|kr;
-						size_t size=ma_test(buf, iw, ih, km, kt, kr, 0);
-						ma_sizes[idx]+=size;
-						if(!idx||bestsize>size)
-							bestsize=size, besttest=idx;
-						printf("%7lld\t", size);
-					}
-				}
-			}
-			printf("best %7lld\n", bestsize);
-#if 0
-			for(int km=0;km<4;++km)
-			{
-				for(int kt=0;kt<4;++kt)
-				{
-					size_t size=ma_test(buf, iw, ih, km, kt, 0);
-					ma_sizes[km<<2|kt]+=size;
-					if(!km&&!kt||bestsize>size)
-						bestsize=size, besttest=km<<2|kt;
-				}
-				//size_t size=ma_test(buf, iw, ih, km, 5, 0);
-				//ma_sizes[km]+=size;
-				//if(!km||bestsize>size)
-				//	bestsize=size, besttest=km;
-			}
-#endif
-			//printf("  best");
-			//print_binn(besttest, 6);
-			//printf("\n");
-
-			//printf("  best%d\n", besttest);
-			sum_testsize+=bestsize;
-		}
-#endif
-
-	//SLIC2
-#if 0
-		{
-			double t_enc=0, t_dec=0;
-
-			t_enc=time_sec();
-			int retlen=0;
-			unsigned char *data=slic2_encode(iw, ih, 4, 8, buf, &retlen);
-			t_enc=time_sec()-t_enc;
-
-			sum_testsize+=retlen;
-			if((ptrdiff_t)retlen<formatsize)
-				printf(" !!!\n");
-
-			int iw2=0, ih2=0, nch2=0, depth2=0;
-			t_dec=time_sec();
-			unsigned char *ret=(unsigned char*)slic2_decode(data, retlen, &iw2, &ih2, &nch2, &depth2, 0, 1);
-			t_dec=time_sec()-t_dec;
-
-			printf("\nSLI %8d  CR %lf    Enc %lfsec  Dec %lfsec\n", (int)retlen, iw*ih*3./retlen, t_enc, t_dec);
-			compare_bufs_uint8(ret, buf, iw, ih, 3, 4, "SLI2", 0, 1);
-			free(data);
-			free(ret);
-		}
-#endif
-		
-		//T34+: ABAC + adaptive Bayesian inference
-#if 1
-		{
-			ArrayHandle cdata=0;
-			printf("\n");
-#if 0
-			if(known_dataset==1&&k<30)//pre-trained
-				g_param_ptr=jxl_CLIC30_params+33*k;
-			else if(known_dataset==2&&k<24)
-				g_param_ptr=jxl_Kodak_params+33*k;
-			else
-			{
-				memcpy(b2, buf, len);
-				addbuf(b2, iw, ih, 3, 4, 128);
-				colortransform_ycocb_fwd((char*)b2, iw, ih);
-				pred_opt_opt_v6((char*)b2, iw, ih, 1);
-				memset(b2, 0, len);
-				pred_opt_printparam();
-			}
-#endif
-
-			//printf("\nT35 (ABAC + context tree)\n");
-			//printf("\nT39 Multiple estimators for all maps  WH %d*%d\n", iw, ih);
-
-			//t35_encode(buf, iw, ih, &cdata, 1);
-			//t35_decode(cdata->data, cdata->count, iw, ih, b2, 1);
-
-			//t39_encode(buf, iw, ih, &cdata, 1);				//prev record
-			//t39_decode(cdata->data, cdata->count, iw, ih, b2, 1);
-
-			//t40_encode(buf, iw, ih, &cdata, 1);
-			//t40_decode(cdata->data, cdata->count, iw, ih, b2, 1);
-
-		//	t42_encode(buf, iw, ih, &cdata, 1);				//prev record
-		//	t42_decode(cdata->data, cdata->count, iw, ih, b2, 1);
-
-			//t43_encode(buf, iw, ih, &cdata, 1);
-			//t43_decode(cdata->data, cdata->count, iw, ih, b2, 1);
-
-			ENCODE(buf, iw, ih, &cdata, 1);				//current record: paq8pxd
-			DECODE(cdata->data, cdata->count, iw, ih, b2, 1);
-
-			sum_testsize+=cdata->count;
-			if((ptrdiff_t)cdata->count<formatsize)
-				printf(" !!!\n");
-#ifdef BATCHTEST_PRINTTABLE
-			size_t temp[]={3LL*iw*ih, formatsize, cdata->count};
-			ARRAY_APPEND(sizes, temp, 1, 1, 0);
-#endif
-			array_free(&cdata);
-			compare_bufs_uint8(b2, buf, iw, ih, nch0, 4, "Test", 0, 1);
-
-			//printf("\nT34 (ABAC + adaptive Bayesian inference)\n");
-			//t34_encode(buf, iw, ih, &cdata, 1);
-
-			printf("\n");
-		}
-#endif
-
-		//T29
-#if 0
-		{
-			ArrayHandle cdata=0;
-			double elapsed;
-
-			elapsed=time_sec();
-			cycles=__rdtsc();
-			t29_encode(buf, iw, ih, &cdata, 0);
-			cycles=__rdtsc()-cycles;
-			elapsed=time_sec()-elapsed;
-			printf("Enc %11lf CPB  CR %9lf  csize %lld  ", (double)cycles/usize, (double)usize/cdata->count, cdata->count);
-			timedelta2str(0, 0, elapsed);
-
-			sum_testsize+=cdata->count;
-			if((ptrdiff_t)cdata->count<formatsize)
-				printf(" !!!");
-			printf("\n");
-			
-			array_free(&cdata);
-		}
-#endif
-
-		//test26: T16 with range coder
-#if 0
-		{
-			int use_ans=0;
-			ArrayHandle cdata=0;
-			double elapsed;
-			T26Params params[]=
-			{
-				{ 8, 26, 26, 26, 0xD3, 52},
-				{23, 37, 37, 37, 0xD3, 52},
-				{ 8, 26, 26, 26, 0xD3, 52},
-			};
-			printf("\nT26 (%s)\n", use_ans?"ANS":"AC");
-			//printf("\nT26\n");
-
-			elapsed=time_sec();
-			cycles=__rdtsc();
-			t26_encode(buf, iw, ih, params, use_ans, &cdata, 1);
-			cycles=__rdtsc()-cycles;
-			elapsed=time_sec()-elapsed;
-			printf("Enc %11lf CPB  CR %9lf  csize %lld  ", (double)cycles/usize, (double)usize/cdata->count, cdata->count);
-			timedelta2str(0, 0, elapsed);
-
-			sum_testsize+=cdata->count;
-			if((ptrdiff_t)cdata->count<formatsize)
-				printf(" !!!");
-			printf("\n");
-
-			elapsed=time_sec();
-			cycles=__rdtsc();
-			t26_decode(cdata->data, cdata->count, iw, ih, params, use_ans, b2, 1);
-			cycles=__rdtsc()-cycles;
-			elapsed=time_sec()-elapsed;
-			printf("Dec %11lf CPB  ", (double)cycles/usize);
-			timedelta2str(0, 0, elapsed);
-			printf("\n");
-
-			array_free(&cdata);
-			compare_bufs_uint8(b2, buf, iw, ih, nch0, 4, "T26", 0, 1);
-			memset(b2, 0, len);
-			printf("\n");
-		}
-#endif
-
-		//T25: T16 optimizer
-#if 0
-		{
-			int use_ans=0;
-			ArrayHandle cdata=0;
-			//int blockw[]={96, 96, 96}, blockh[]={96, 96, 96};
-			int blockw[]={128, 128, 128}, blockh[]={128, 128, 128};
-			double elapsed;
-			printf("\nT25 (%s)\n", use_ans?"ANS":"AC");
-			elapsed=time_sec();
-			cycles=__rdtsc();
-			t25_encode(buf, iw, ih, blockw, blockh, use_ans, &cdata, 1);
-			cycles=__rdtsc()-cycles;
-			elapsed=time_sec()-elapsed;
-			printf("Enc %11lf CPB  CR %9lf  csize %lld  ", (double)cycles/usize, (double)usize/cdata->count, cdata->count);
-			timedelta2str(0, 0, elapsed);
-			
-			sum_testsize+=cdata->count;
-			if((ptrdiff_t)cdata->count<formatsize)
-				printf(" !!!");
-			printf("\n");
-		
-			elapsed=time_sec();
-			cycles=__rdtsc();
-			t25_decode(cdata->data, cdata->count, iw, ih, blockw, blockh, use_ans, b2, 1);
-			cycles=__rdtsc()-cycles;
-			elapsed=time_sec()-elapsed;
-			printf("Dec %11lf CPB  ", (double)cycles/usize);
-			timedelta2str(0, 0, elapsed);
-			printf("\n");
-
-			array_free(&cdata);
-			compare_bufs_uint8(b2, buf, iw, ih, nch0, 4, "T25", 0, 1);
-			memset(b2, 0, len);
-			printf("\n");
-		}
-#endif
-		
-		//test16
-#if 0
-		{
-			printf("\nT16\n");
-#if 1
-			memcpy(b2, buf, len);
-			addbuf(b2, iw, ih, 3, 4, 128);
-			colortransform_ycocb_fwd((char*)b2, iw, ih);
-			pred_opt_opt_v3((char*)b2, iw, ih, 1);
-			memset(b2, 0, len);
-			pred_opt_printparam();
-#endif
-
-			ArrayHandle cdata=0;
-			int alpha=0xD3E7,
-				blockw[]={ 8, 23,  8},//best block for channels 0 & 2: 1x1
-				blockh[]={ 1,  1,  1},
-				margin[]={26, 37, 26};
-
-			cycles=__rdtsc();
-			test16_encode(buf, iw, ih, alpha, blockw, blockh, margin, &cdata, 1, 0);
-			cycles=__rdtsc()-cycles;
-			printf("Enc %lf CPB  CR %lf  csize %lld", (double)cycles/usize, (double)usize/cdata->count, cdata->count);
-			sum_testsize+=cdata->count;
-			if((ptrdiff_t)cdata->count<formatsize)
-				printf(" !!!");
-			printf("\n");
-
-			cycles=__rdtsc();
-			test16_decode(cdata->data, cdata->count, iw, ih, alpha, blockw, blockh, margin, b2);
-			cycles=__rdtsc()-cycles;
-			printf("Dec %lf CPB\n", (double)cycles/usize);
-
-			array_free(&cdata);
-			compare_bufs_uint8(b2, buf, iw, ih, 3, 4, "T16", 0, 1);
-			memset(b2, 0, len);
-
-			printf("\n");
-		}
-#endif
-
-		//test16 estimate
-#if 0
-		apply_transforms_fwd(buf, iw, ih);
-		double csize=test16_estimate_csize(buf, iw, ih, 32, 0.6f, 0);
-		sum_testsize+=(long long)ceil(csize);
-		printf("\tCR2 %f", usize/csize);
-		if(csize<formatsize)
-			printf(" !!!");
-		printf("\n");
-#endif
-
-		//printf("\n");
-		free(buf);
-#ifndef BATCHTEST_NO_B2
-		free(b2);
-#endif
-	}
-	printf("Batch elapsed ");
-	timedelta2str(0, 0, time_sec()-t_start);
-	printf("\n");
-#if 0
-	e10_print(hist);
-	free(hist);
-#else
-	long long totalusize=sum_uPNGsize+sum_uJPEGsize;
-	if(totalusize)
-	{
-		printf("\nOn average:\n");
-		printf("BMP     csize %9lld\n", (long long)totalusize);
-		if(sum_cPNGsize)
-			printf("PNG     csize %9lld  CR %lf  (%lld images)\n", sum_cPNGsize, (double)sum_uPNGsize/sum_cPNGsize, count_PNG);
-		if(sum_cJPEGsize)
-			printf("JPEG    csize %9lld  CR %lf  (%lld images)\n", sum_cJPEGsize, (double)sum_uJPEGsize/sum_cJPEGsize, count_JPEG);
-		printf("test    csize %9lld  CR %lf\n", sum_testsize, (double)totalusize/sum_testsize);
-		//printf("test3s  CR %lf\n", (double)totalusize/sum_test3size[0]);
-		//printf("test3sd CR %lf\n", (double)totalusize/sum_test3size[1]);
-#ifdef MA_BATCHTEST
-		for(int k=0;k<_countof(ma_sizes);++k)
-			printf("%d  %lld\n", k, ma_sizes[k]);
-#endif
-	}
-	else
-		printf("\nNo valid images found\n");
-#ifdef BATCHTEST_PRINTTABLE
-	if(sizes)
-	{
-		printf("uncompressed, prevsize, newsize, prevBPP, newBPP\n");
-		for(int k=0;k<sizes->count;++k)
-		{
-			size_t *uc=(size_t*)array_at(&sizes, k);
-			double
-				CR1=(double)uc[0]/uc[1],
-				CR2=(double)uc[0]/uc[2];
-			printf("%10lld %10lld %10lld %16lf %16lf\n", uc[0], uc[1], uc[2], 8/CR1, 8/CR2);
-		}
-		array_free(&sizes);
-	}
-#endif
-#endif
-	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H%M%S");
-	printf("Finish %s\n", g_buf);
-
-	array_free(&filenames);
-
-	printf("\nDone.\n");
-	pause();
-}
-#endif
 static void print_usage(const char *argv0)
 {
 	//skip the full path if present, to print only the program title
@@ -959,7 +483,11 @@ static void test_one(const char *fn, ptrdiff_t formatsize)
 
 	//encode
 	ArrayHandle cdata=0;
+#ifdef PRINT_RCT
+	ENCODE(src, &cdata, 0, 1);
+#else
 	ENCODE(src, &cdata, 1);
+#endif
 	if(!cdata)
 	{
 		printf("Encode error\n");
@@ -1008,7 +536,11 @@ static void encode(const char *srcfn, const char *dstfn)
 	}
 	ArrayHandle cdata=0;
 	lsim_writeheader(&cdata, src->iw, src->ih, src->nch, src->src_depth, CODECID);
+#ifdef PRINT_RCT
+	ENCODE(src, &cdata, 0, 1);
+#else
 	ENCODE(src, &cdata, 1);
+#endif
 
 	int success=save_file(dstfn, cdata->data, cdata->count, 1);
 	printf("%s\n", success?"Saved.":"Failed to save.");
@@ -1125,10 +657,16 @@ ProgArgs args=
 //	"D:/ML/dataset-ic-rgb16bit/deer.png",
 
 //	"C:/Projects/datasets/dataset-kodak/kodim02.png",
+//	"C:/Projects/datasets/dataset-kodak/kodim05.png",
 	"C:/Projects/datasets/dataset-kodak/kodim13.png",
+//	"C:/Projects/datasets/dataset-kodak/kodim22.png",
+//	"C:/Projects/datasets/kodim13-small4.PNG",
 //	"C:/Projects/datasets/dataset-kodak/kodim19.png",
+//	"C:/Projects/datasets/dataset-kodak/kodim21.png",
 //	"C:/Projects/datasets/dataset-kodak-pgm/kodim02.pgm",
 //	"C:/Projects/datasets/dataset-kodak-CLIC30/01.png",
+//	"C:/Projects/datasets/dataset-kodak-CLIC30/03.png",//prefers RCT_NONE
+//	"C:/Projects/datasets/dataset-kodak-CLIC30/05.png",
 //	"C:/Projects/datasets/Screenshots/Screenshot 2023-04-10 153155.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/artificial.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/big_building.png",
@@ -1137,6 +675,10 @@ ProgArgs args=
 //	"C:/Projects/datasets/dataset-LPCB/canon_eos_1100d_01.PNG",
 //	"C:/Projects/datasets/dataset-LPCB/canon_eos_1100d_02.PNG",
 //	"C:/Projects/datasets/dataset-LPCB/canon_eos_1100d_03.PNG",
+//	"C:/Projects/datasets/dataset-LPCB/PIA13815.PNG",
+//	"C:/Projects/datasets/dataset-LPCB/PIA13833.PNG",
+//	"C:/Projects/datasets/dataset-LPCB/STA13456.PNG",//prefers RCT_NONE
+//	"C:/Projects/datasets/dataset-LPCB/STA13782.PNG",//prefers RCT_NONE
 //	"C:/Projects/datasets/dataset-LPCB/STA13942.PNG",
 //	"C:/Projects/datasets/Screenshots/Screenshot 2023-03-12 181054.png",
 #else
@@ -1158,8 +700,217 @@ ProgArgs args=
 //	"C:/Projects/datasets/kodim13.lsim",
 //	"C:/Projects/datasets/kodim13-dec.png",
 //};
+
+#ifdef DSP_TEST
+typedef struct ACPStruct
+{
+	double alpha;
+	int x, y;
+} ACP;
+#define DSP_NNWW	-2, -2
+#define DSP_NNW		-1, -2
+#define DSP_NN		 0, -2
+#define DSP_NNE		 1, -2
+#define DSP_NNEE	 2, -2
+#define DSP_NWW		-2, -1
+#define DSP_NW		-1, -1
+#define DSP_N		 0, -1
+#define DSP_NE		 1, -1
+#define DSP_NEE		 2, -1
+#define DSP_NEEE	 3, -1
+#define DSP_WW		-2,  0
+#define DSP_W		-1,  0
+ACP dsp_info[]=
+{//	alpha, x, y
+//	{0.125,		DSP_NN	},
+//	{0.998,		DSP_NW	},
+//	{0.7499,	DSP_N	},
+//	{0.499,		DSP_NE	},
+//	{0.3333,	DSP_NEE	},
+//	{0.25,		DSP_NEEE},
+//	{0.125,		DSP_WW	},
+//	{0.001,		DSP_W	},
+
+	{0.25,		DSP_NEEE},
+	{0.749999,	DSP_W	},
+	
+//	{0.3333,	DSP_NEE	},
+//	{0.6665,	DSP_W	},
+
+//	{0.499,		DSP_NE	},
+//	{0.5,		DSP_W	},
+	
+//	{0.8749,	DSP_N	},//X
+//	{0.125,		DSP_W	},
+};
+#define DSP_GAMMA 1
+//#define DSP_ALPHA1 0		//W
+//#define DSP_ALPHA2 0.331	//N
+//#define DSP_ALPHA3 0.331	//NE
+//#define DSP_ALPHA4 0.331	//NEE
+#define DSP_REACH 256//controls buffer dimensions
+#define DSP_WIDTH (DSP_REACH<<1|1)
+#define DSP_HEIGHT (DSP_REACH+1)
+//#define DSP_NITER 30
+double g_image[DSP_HEIGHT][DSP_WIDTH];
+//char g_mask[DSP_HEIGHT][DSP_WIDTH];
+#endif
 int main(int argc, char **argv)
 {
+#if 0
+	int sum=0;
+	double t=time_sec();
+	for(int k=0;k<1000000000;++k)
+	{
+		unsigned n=rand()<<15|rand();
+		int lgn=floor_log2_32(n);
+		sum+=lgn;
+	}
+	printf("%lf  %d\n", time_sec()-t, sum);
+	pause();
+	return 0;
+#endif
+#ifdef DSP_TEST
+	double asum=0;
+	for(int k=0;k<_countof(dsp_info);++k)
+		asum+=dsp_info[k].alpha;
+	if(asum>1)
+		printf("ALPHA SUM %lf\n", asum);
+	//for(int k=0;k<DSP_HEIGHT*DSP_WIDTH;++k)
+	//	((double*)g_image)[k]=-1;
+	memset(g_image, 0, sizeof(g_image));
+	//memset(g_mask, 0, sizeof(g_mask));
+	g_image[DSP_HEIGHT-1][DSP_REACH]=0x10000;
+	//g_mask[DSP_HEIGHT-1][DSP_REACH]=1;
+	//double sum=0;
+	for(int ky=DSP_HEIGHT-1;ky>=0;--ky)//the kernel is causal, so 1 iteration in reverse is enough
+	{
+		for(int kx=DSP_WIDTH-1;kx>=0;--kx)
+		{
+			double *curr=g_image[ky]+kx;
+//#define LOAD(X, Y) ((unsigned)(kx+(X))<(unsigned)DSP_W&&(unsigned)(ky+(Y))<(unsigned)DSP_H?g_image[ky-(Y)]+kx-(X):0)
+//#define UPDATE_NB(NB, ALPHA) if(NB)*NB=(*NB>=0?*NB:0)+*curr*ALPHA
+			for(int k=0;k<_countof(dsp_info);++k)
+			{
+				int kx2=kx+dsp_info[k].x, ky2=ky+dsp_info[k].y;
+				if((unsigned)kx2<(unsigned)DSP_WIDTH&&(unsigned)ky2<(unsigned)DSP_HEIGHT)
+					g_image[ky2][kx2]+=*curr*dsp_info[k].alpha;
+			}
+			*curr*=1-asum;
+			//double *nb1=LOAD( 1,  0);//W
+			//double *nb2=LOAD( 0,  1);//N
+			//double *nb3=LOAD(-1,  1);//NE
+			//double *nb4=LOAD(-2,  1);//NEE
+			//if(*curr>=0&&(nb1&&*nb1<0||nb2&&*nb2<0||nb3&&*nb3<0||nb4&&*nb4<0))
+			//{
+			//	UPDATE_NB(nb1, DSP_ALPHA1);
+			//	UPDATE_NB(nb2, DSP_ALPHA2);
+			//	UPDATE_NB(nb3, DSP_ALPHA3);
+			//	UPDATE_NB(nb4, DSP_ALPHA4);
+			//	*curr*=1-asum;
+			//	updated=1;
+			//}
+//#undef  LOAD
+//#undef  UPDATE_NB
+		}
+	}
+	//sum=0;
+	//for(int ky=0;ky<DSP_H;++ky)
+	//{
+	//	for(int kx=0;kx<DSP_W;++kx)
+	//	{
+	//		double val=g_image[ky][kx];
+	//		char c=kx<DSP_W-1?' ':'\n';
+	//		if(val<0)
+	//			printf("%s%c", ky==DSP_H-1&&kx==DSP_REACH+1?" [-] ":"  -  ", c);
+	//		else
+	//		{
+	//			printf("%05d%c", (int)round(val*100000/0x10000), c);
+	//			//printf("%5.1lf%c", val, c);
+	//			sum+=val;
+	//		}
+	//	}
+	//}
+	//printf("[NE  W  curr].[%lf  %lf  %lf]  wsum %lf\n\n",
+	//	(double)DSP_ALPHA1, (double)DSP_ALPHA2, 1.-DSP_ALPHA1-DSP_ALPHA2, sum/0x10000
+	//);
+
+	unsigned char *result=(unsigned char*)malloc(DSP_WIDTH*DSP_HEIGHT*sizeof(char[4]));
+	if(!result)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
+	memset(result, 0, DSP_WIDTH*DSP_HEIGHT*sizeof(char[4]));
+	double vmin=INFINITY, vmax=-INFINITY, wsum=0;
+	for(int ky=0;ky<DSP_HEIGHT;++ky)
+	{
+		for(int kx=0;kx<DSP_WIDTH;++kx)
+		{
+			double val=g_image[ky][kx];
+			if(val)
+			{
+				//if(val<1e-6)//this clamp makes sum > 1
+				//	val=1e-6;
+				//double lg_val=log2(val/0x10000);
+				UPDATE_MIN(vmin, val);
+				UPDATE_MAX(vmax, val);
+				wsum+=val;
+			}
+		}
+	}
+	for(int ky=0;ky<DSP_HEIGHT;++ky)
+	{
+		for(int kx=0;kx<DSP_WIDTH;++kx)
+		{
+			double val=g_image[ky][kx];
+			int idx=(DSP_WIDTH*ky+kx)<<2;
+			//if(ky==DSP_HEIGHT-2&&kx==DSP_REACH+5)//
+			//	printf("");
+			if(fabs(val)<1e-9)
+			{
+				if(ky==DSP_HEIGHT-1&&kx==DSP_REACH+1)//mark the target blue
+				{
+					result[idx|0]=0;
+					result[idx|1]=0;
+					result[idx|2]=0xFF;
+				}
+				else//unused is yellow
+				{
+					result[idx|0]=255;
+					result[idx|1]=255;
+					result[idx|2]=0;
+				}
+			}
+			else
+			{
+				val=(val-vmin)/(vmax-vmin);
+				val=pow(val, DSP_GAMMA);
+				val*=255;
+				//if(val<1e-6)//this clamp makes sum > 1
+				//	val=1e-6;
+				//val=255*(log2(val/0x10000)-vmin)/(vmax-vmin);
+				unsigned char level=(unsigned char)val;
+				result[idx|0]=level;
+				result[idx|1]=level;
+				result[idx|2]=level;
+			}
+			result[idx|3]=0xFF;
+		}
+	}
+	int printed=snprintf(g_buf, G_BUF_SIZE, "%s", argv[0]);
+	for(;printed>=0&&g_buf[printed-1]!='/'&&g_buf[printed-1]!='\\';--printed);
+	double west=g_image[DSP_HEIGHT-1][DSP_REACH];
+	printed+=acme_strftime(g_buf+printed, G_BUF_SIZE-printed, "%Y%m%d_%H-%M-%S.PNG");
+	printed+=snprintf(g_buf+printed, G_BUF_SIZE-printed, "_W%.2lfpercent.PNG", 100.*west/wsum);
+	//printed+=snprintf(g_buf+printed, G_BUF_SIZE-printed, "-[%g %g %g %g].PNG",
+	//	(double)DSP_ALPHA1, (double)DSP_ALPHA2, (double)DSP_ALPHA3, (double)DSP_ALPHA4
+	//);
+	printf("wsum  %lf (west %6.2lf%%  rest %6.2lf%%)  About to save \"%s\"\n", wsum/0x10000, 100.*west/wsum, 100.*(wsum-west)/wsum, g_buf);
+	pause();
+	lodepng_encode_file(g_buf, result, DSP_WIDTH, DSP_HEIGHT, LCT_RGBA, 8);
+	return 0;
+#endif
 #if 0
 	printf("FIXED PREC MATH TEST\n");
 	printf("x\tlgx\texact\tdiff\n");

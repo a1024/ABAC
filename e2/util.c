@@ -254,6 +254,8 @@ int floor_log2_32(unsigned n)
 	int logn=31-__builtin_clz(n);
 	return logn;
 #else
+	//binary search
+#if 0
 	int	logn=-!n;
 	int	sh=(n>=1<<16)<<4;	logn+=sh, n>>=sh;
 		sh=(n>=1<< 8)<<3;	logn+=sh, n>>=sh;
@@ -261,6 +263,47 @@ int floor_log2_32(unsigned n)
 		sh=(n>=1<< 2)<<1;	logn+=sh, n>>=sh;
 		sh= n>=1<< 1;		logn+=sh;
 	return logn;
+#endif
+
+	//https://github.com/Cyan4973/FiniteStateEntropy/blob/d41d8be8e7955787ce486b90708d7b8de53137bd/lib/bitstream.h#L187
+#if 1
+	static const int table[]=
+	{
+		 0,  9,  1, 10, 13, 21,  2, 29,
+		11, 14, 16, 18, 22, 25,  3, 30,
+		 8, 12, 20, 28, 15, 17, 24,  7,
+		19, 27, 23,  6, 26,  5,  4, 31,
+	};
+	n|=n>>1;
+	n|=n>>2;
+	n|=n>>4;
+	n|=n>>8;
+	n|=n>>16;
+	n*=0x07C4ACDD;//0b0000_0111_1100_0100_1010_1100_1101_1101
+	n>>=27;
+	n=table[n];
+	return n;
+#endif
+
+	//https://en.wikipedia.org/wiki/De_Bruijn_sequence?useskin=monobook
+	//memory-bound, doesn't return -1 for zero
+#if 0
+	static const int table[]=
+	{
+		 0,  1, 16,  2, 29, 17,  3, 22, 30, 20, 18, 11, 13,  4,  7, 23,
+		31, 15, 28, 21, 19, 10, 12,  6, 14, 27,  9,  5, 26,  8, 25, 24,
+	};
+	n|=n>>1;
+	n|=n>>2;
+	n|=n>>4;
+	n|=n>>8;
+	n|=n>>16;
+	n-=n>>1;
+	n*=0x06EB14F9;//0b0000_0110_1110_1011_0001_0100_1111_1001
+	n>>=27;
+	n=table[n];
+	return n;
+#endif
 #endif
 }
 int ceil_log2(unsigned long long n)
@@ -344,11 +387,11 @@ unsigned floor_sqrt(unsigned long long x)
 	//	U2=x>>(lg_sqrtx_p1-1);
 	//L=MAXVAR(L, L2);
 	//U=MINVAR(U, U2);
-	int nmuls=0;//
+	//int nmuls=0;//
 	while(L<=U)//binary search
 	{
 		unsigned long long level=(L+U)>>1, sq=level*level;
-		++nmuls;//
+		//++nmuls;//
 		if(x>sq)
 			L=level+1;
 		else if(x<sq)
@@ -359,7 +402,7 @@ unsigned floor_sqrt(unsigned long long x)
 			break;
 		}
 	}
-	printf("%d muls\n", nmuls);//
+	//printf("%d muls\n", nmuls);//
 	return (unsigned)U;//U <= L, we want floor, so return U
 
 	//https://stackoverflow.com/questions/1100090/looking-for-an-efficient-integer-square-root-algorithm-for-arm-thumb2

@@ -26,6 +26,7 @@ add_executable(e2
 	#slic.c
 	#slic2.c
 	#t48.c
+	t49.c
 	#tests.c
 	#tests2.c
 	#tests3.c

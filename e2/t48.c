@@ -99,7 +99,7 @@ static void prof_print()
 #define SSE_Y_MSB 0
 #define SSE_Z_EXP 1
 #define SSE_Z_MSB 0
-#define SSE_W 7		//ENABLE SSE INDEX CLAMP WHAN CHANGING CONFIG
+#define SSE_W 7		//ENABLE SSE INDEX CLAMP WHEN CHANGING CONFIG
 #define SSE_H 21
 #define SSE_D 21
 #define SSE_PREDBITS 5

@@ -180,7 +180,7 @@ int t46_decode(const unsigned char *data, size_t srclen, Image *dst, int loud);
 	RCT(JPEG2000)\
 	RCT(YCoCg_R)\
 	RCT(YCbCr_R_v1)\
-	RCT(YCbCr_R_v2)\
+	RCT(A710)\
 	RCT(YCbCr_R_v3)\
 	RCT(YCbCr_R_v4)\
 	RCT(YCbCr_R_v5)\
@@ -195,7 +195,25 @@ typedef enum RCTTypeEnum
 	RCT_COUNT,
 } RCTType;
 extern const char *rct_names[RCT_COUNT];
-int t47_encode(Image const *src, ArrayHandle *data, int loud);
+
+//T47 SLIC5
+#define SLIC5_OPTIMIZE_RCT
+#define SLIC5_NPREDS 15
+typedef struct SLIC5CuriosityStruct
+{
+#ifdef SLIC5_OPTIMIZE_RCT
+#define ORCT_NPARAMS 8//not counting permutation
+	char rct_params[ORCT_NPARAMS+1];
+#else
+	RCTType rct;
+	double rct_sizes[RCT_COUNT];
+#endif
+	long long pred_errors[SLIC5_NPREDS];
+} SLIC5Curiosity;//just for curiosity
+extern const char *slic5_prednames[SLIC5_NPREDS];
+//extern const char *slic5_orct_permutationnames[6];
+void orct_print_compact(const char *params);
+int t47_encode(Image const *src, ArrayHandle *data, SLIC5Curiosity *curiosity, int loud);
 int t47_decode(const unsigned char *data, size_t srclen, Image *dst, int loud);
 //RCTType rct_select_best(Image const *src, double *ret_csizes);
 //int t47_from_ppm(const char *src, const char *dst);
@@ -205,6 +223,9 @@ int t47_decode(const unsigned char *data, size_t srclen, Image *dst, int loud);
 //CABAC
 int t48_encode(Image const *src, ArrayHandle *data, int loud);
 int t48_decode(const unsigned char *data, size_t srclen, Image *dst, int loud);
+
+int t49_encode(Image const *src, ArrayHandle *data, int loud);
+int t49_decode(const unsigned char *data, size_t srclen, Image *dst, int loud);
 
 
 
