@@ -52,7 +52,9 @@ int mode=VIS_IMAGE;
 
 typedef enum TransformTypeEnum
 {
-	CT_FWD_Pei09,		CT_INV_Pei09,
+	CT_FWD_SUBGREEN,	CT_INV_SUBGREEN,
+	CT_FWD_JPEG2000,	CT_INV_JPEG2000,//	(1997) JPEG2000 RCT
+	CT_FWD_YCoCg_R,		CT_INV_YCoCg_R,	//	(2003) AVC, HEVC, VVC
 	CT_FWD_YCbCr_R_v1,	CT_INV_YCbCr_R_v1,
 	CT_FWD_YCbCr_R_v2,	CT_INV_YCbCr_R_v2,
 	CT_FWD_YCbCr_R_v3,	CT_INV_YCbCr_R_v3,
@@ -60,13 +62,11 @@ typedef enum TransformTypeEnum
 	CT_FWD_YCbCr_R_v5,	CT_INV_YCbCr_R_v5,
 	CT_FWD_YCbCr_R_v6,	CT_INV_YCbCr_R_v6,
 	CT_FWD_YCbCr_R_v7,	CT_INV_YCbCr_R_v7,
-	CT_FWD_CrCgCb,		CT_INV_CrCgCb,
-	CT_FWD_YCoCg_R,		CT_INV_YCoCg_R,	//	(2003) AVC, HEVC, VVC
-	CT_FWD_JPEG2000,	CT_INV_JPEG2000,//	(1997) JPEG2000 RCT
-	CT_FWD_SUBGREEN,	CT_INV_SUBGREEN,
-	CT_FWD_YRGB_v1,		CT_INV_YRGB_v1,
-	CT_FWD_YRGB_v2,		CT_INV_YRGB_v2,
-	CT_FWD_CMYK,		CT_INV_CMYK_DUMMY,
+	CT_FWD_Pei09,		CT_INV_Pei09,
+//	CT_FWD_CrCgCb,		CT_INV_CrCgCb,
+//	CT_FWD_YRGB_v1,		CT_INV_YRGB_v1,
+//	CT_FWD_YRGB_v2,		CT_INV_YRGB_v2,
+//	CT_FWD_CMYK,		CT_INV_CMYK_DUMMY,
 	CT_FWD_YCbCr,		CT_INV_YCbCr,	//LOSSY	JPEG
 	CT_FWD_XYB,		CT_INV_XYB,	//LOSSY	(2021) JPEG XL
 	CT_FWD_CUSTOM,		CT_INV_CUSTOM,
@@ -1202,8 +1202,8 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case CT_INV_YCbCr_R_v6:		a="C  Inv YCbCr-R v6";		break;
 	case CT_FWD_YCbCr_R_v7:		a="C  Fwd YCbCr-R v7";		break;
 	case CT_INV_YCbCr_R_v7:		a="C  Inv YCbCr-R v7";		break;
-	case CT_FWD_CrCgCb:		a="C  Fwd CrCgCb";		break;
-	case CT_INV_CrCgCb:		a="C  Inv CrCgCb";		break;
+//	case CT_FWD_CrCgCb:		a="C  Fwd CrCgCb";		break;
+//	case CT_INV_CrCgCb:		a="C  Inv CrCgCb";		break;
 	case CT_FWD_Pei09:		a="C  Fwd Pei09";		break;
 	case CT_INV_Pei09:		a="C  Inv Pei09";		break;
 	case CT_FWD_YCoCg_R:		a="C  Fwd YCoCg-R";		break;
@@ -1212,12 +1212,12 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case CT_INV_JPEG2000:		a="C  Inv JPEG2000 RCT";	break;
 	case CT_FWD_SUBGREEN:		a="C  Fwd SubGreen";		break;
 	case CT_INV_SUBGREEN:		a="C  Inv SubGreen";		break;
-	case CT_FWD_YRGB_v1:		a="C  Fwd YRGB v1";		break;
-	case CT_INV_YRGB_v1:		a="C  Inv YRGB v1";		break;
-	case CT_FWD_YRGB_v2:		a="C  Fwd YRGB v2";		break;
-	case CT_INV_YRGB_v2:		a="C  Inv YRGB v2";		break;
-	case CT_FWD_CMYK:		a="C  Fwd CMYK";		break;
-	case CT_INV_CMYK_DUMMY:		a="";				break;//no inverse
+//	case CT_FWD_YRGB_v1:		a="C  Fwd YRGB v1";		break;
+//	case CT_INV_YRGB_v1:		a="C  Inv YRGB v1";		break;
+//	case CT_FWD_YRGB_v2:		a="C  Fwd YRGB v2";		break;
+//	case CT_INV_YRGB_v2:		a="C  Inv YRGB v2";		break;
+//	case CT_FWD_CMYK:		a="C  Fwd CMYK";		break;
+//	case CT_INV_CMYK_DUMMY:		a="";				break;//no inverse
 	case CT_FWD_YCbCr:		a="C  Fwd YCbCr";		break;
 	case CT_INV_YCbCr:		a="C  Inv YCbCr";		break;
 	case CT_FWD_XYB:		a="C  Fwd XYB";			break;
@@ -1817,20 +1817,20 @@ void apply_selected_transforms(Image *image)
 		case CT_INV_YCbCr_R_v6:		colortransform_YCbCr_R_v6(image, 0);			break;
 		case CT_FWD_YCbCr_R_v7:		colortransform_YCbCr_R_v7(image, 1);			break;
 		case CT_INV_YCbCr_R_v7:		colortransform_YCbCr_R_v7(image, 0);			break;
-		case CT_FWD_CrCgCb:		colortransform_CrCgCb_R(image, 1);			break;
-		case CT_INV_CrCgCb:		colortransform_CrCgCb_R(image, 0);			break;
+	//	case CT_FWD_CrCgCb:		colortransform_CrCgCb_R(image, 1);			break;
+	//	case CT_INV_CrCgCb:		colortransform_CrCgCb_R(image, 0);			break;
 		case CT_FWD_Pei09:		colortransform_Pei09(image, 1);				break;
 		case CT_INV_Pei09:		colortransform_Pei09(image, 0);				break;
 		case CT_FWD_JPEG2000:		colortransform_JPEG2000(image, 1);			break;
 		case CT_INV_JPEG2000:		colortransform_JPEG2000(image, 0);			break;
 		case CT_FWD_SUBGREEN:		colortransform_subtractgreen(image, 1);			break;
 		case CT_INV_SUBGREEN:		colortransform_subtractgreen(image, 0);			break;
-		case CT_FWD_YRGB_v1:		rct_yrgb_v1(image, 1);					break;
-		case CT_INV_YRGB_v1:		rct_yrgb_v1(image, 0);					break;
-		case CT_FWD_YRGB_v2:		rct_yrgb_v2(image, 1);					break;
-		case CT_INV_YRGB_v2:		rct_yrgb_v2(image, 0);					break;
-		case CT_FWD_CMYK:		ct_cmyk_fwd(image);					break;
-		case CT_INV_CMYK_DUMMY:									break;
+	//	case CT_FWD_YRGB_v1:		rct_yrgb_v1(image, 1);					break;
+	//	case CT_INV_YRGB_v1:		rct_yrgb_v1(image, 0);					break;
+	//	case CT_FWD_YRGB_v2:		rct_yrgb_v2(image, 1);					break;
+	//	case CT_INV_YRGB_v2:		rct_yrgb_v2(image, 0);					break;
+	//	case CT_FWD_CMYK:		ct_cmyk_fwd(image);					break;
+	//	case CT_INV_CMYK_DUMMY:									break;
 		case CT_FWD_YCbCr:		colortransform_lossy_YCbCr(image, 1);			break;
 		case CT_INV_YCbCr:		colortransform_lossy_YCbCr(image, 1);			break;
 		case CT_FWD_XYB:		colortransform_lossy_XYB(image, 1);			break;
@@ -3442,8 +3442,11 @@ int io_keydn(IOKey key, char c)
 			copy_to_clipboard((char*)str->data, (int)str->count);
 			array_free(&str);
 		}
-		else if(mode==VIS_IMAGE||mode==VIS_ZIPF)
+		else if(mode==VIS_IMAGE||mode==VIS_ZIPF||mode==VIS_IMAGE_TRICOLOR)
+		{
+			//show_full_image=(show_full_image+1)%3;
 			show_full_image=!show_full_image;
+		}
 		else if(mode==VIS_JOINT_HISTOGRAM)
 		{
 			int shift=GET_KEY_STATE(KEY_SHIFT);
@@ -4344,9 +4347,18 @@ void io_render()
 			break;
 #endif
 		case VIS_IMAGE_TRICOLOR:
-			display_texture(0,       im1->iw,    0,       im1->ih,    txid_separate_r, 1, 0, 1, 0, 1);
-			display_texture(im1->iw, im1->iw<<1, 0,       im1->ih,    txid_separate_g, 1, 0, 1, 0, 1);
-			display_texture(0,       im1->iw,    im1->ih, im1->ih<<1, txid_separate_b, 1, 0, 1, 0, 1);
+			if(show_full_image)
+			{
+				display_texture(0,     w/3,   0, h, txid_separate_r, 1, 0, 1, 0, 1);
+				display_texture(w/3,   w*2/3, 0, h, txid_separate_g, 1, 0, 1, 0, 1);
+				display_texture(w*2/3, w,     0, h, txid_separate_b, 1, 0, 1, 0, 1);
+			}
+			else
+			{
+				display_texture(0,       im1->iw,    0,       im1->ih,    txid_separate_r, 1, 0, 1, 0, 1);
+				display_texture(im1->iw, im1->iw<<1, 0,       im1->ih,    txid_separate_g, 1, 0, 1, 0, 1);
+				display_texture(0,       im1->iw,    im1->ih, im1->ih<<1, txid_separate_b, 1, 0, 1, 0, 1);
+			}
 			if(im1->depth[3])
 				display_texture(im1->iw, im1->iw<<1, im1->ih, im1->ih<<1, txid_separate_a, 1, 0, 1, 0, 1);
 			break;

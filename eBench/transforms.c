@@ -75,8 +75,12 @@ void calc_depthfromdata(int *image, int iw, int ih, char *depths, const char *sr
 			if(vmax<sym)
 				vmax=sym;
 		}
-		int nlevels=vmax-vmin;
-		depths[kc]=nlevels?floor_log2(nlevels)+1:0;
+		++vmax;
+		vmin=abs(vmin);
+		if(vmax<vmin)
+			vmax=vmin;
+		int nlevels=vmax<<1;
+		depths[kc]=ceil_log2_32(nlevels);
 		depths[kc]=MAXVAR(depths[kc], src_depths[kc]);
 	}
 }
@@ -2921,9 +2925,10 @@ void pred_jxl_prealloc(const int *src, int iw, int ih, int depth, int kc, short 
 		temp_w10+errorbuflen*3,
 		temp_w10+errorbuflen*4,
 	};
+	memset(temp_w10, 0, iw*10*sizeof(int));
 	int nlevels=1<<depth;
 	int idx=kc;
-	const int *src2=fwd?src:dst;
+	const int *pixels=fwd?src:dst, *errors=fwd?dst:src;
 	for(int ky=0;ky<ih;++ky)
 	{
 		int currrow=ky&1?0:iw, prevrow=ky&1?iw:0;
@@ -2932,11 +2937,11 @@ void pred_jxl_prealloc(const int *src, int iw, int ih, int depth, int kc, short 
 			int pred, curr;
 			
 			int
-				ctt      =         ky-2>=0?src2[idx-rowlen*2]:0,
-				ctopleft =kx-1>=0&&ky-1>=0?src2[idx-rowlen-4]:0,
-				ctop     =kx  <iw&&ky-1>=0?src2[idx-rowlen  ]:0,
-				ctopright=kx+1<iw&&ky-1>=0?src2[idx-rowlen+4]:0,
-				cleft    =kx-1>=0         ?src2[idx       -4]:0;
+				ctt      =         ky-2>=0?pixels[idx-rowlen*2]:0,
+				ctopleft =kx-1>=0&&ky-1>=0?pixels[idx-rowlen-4]:0,
+				ctop     =kx  <iw&&ky-1>=0?pixels[idx-rowlen  ]:0,
+				ctopright=kx+1<iw&&ky-1>=0?pixels[idx-rowlen+4]:0,
+				cleft    =kx-1>=0         ?pixels[idx       -4]:0;
 
 			//if(kx==(iw>>1)&&ky==(ih>>1))
 			//	kx=iw>>1;
@@ -2958,7 +2963,7 @@ void pred_jxl_prealloc(const int *src, int iw, int ih, int depth, int kc, short 
 				etopleft=ky-1>=0&&kx-1>=0?error[prevrow+kx-1]:0,
 				etopright=ky-1>=0&&kx+1<iw?error[prevrow+kx+1]:0,
 				etopplusleft=etop+eleft;
-			int predictions[]=//fixed 23.8 bit
+			long long predictions[]=//fixed 23.8 bit
 			{
 				(cleft+ctopright-ctop)<<8,
 				(ctop<<8)-((etopplusleft+etopright)*params[4]>>8),
@@ -2968,9 +2973,9 @@ void pred_jxl_prealloc(const int *src, int iw, int ih, int depth, int kc, short 
 
 			int sum=weights[0]+weights[1]+weights[2]+weights[3];
 			if(sum)
-				pred=(predictions[0]*weights[0]+predictions[1]*weights[1]+predictions[2]*weights[2]+predictions[3]*weights[3]+(sum>>1)-1)/sum;
+				pred=(int)((predictions[0]*weights[0]+predictions[1]*weights[1]+predictions[2]*weights[2]+predictions[3]*weights[3]+(sum>>1)-1)/sum);
 			else
-				pred=predictions[0];
+				pred=(int)predictions[0];
 
 			int vmin=cleft, vmax=cleft;
 			if(vmin>ctopright)vmin=ctopright;
@@ -2982,27 +2987,43 @@ void pred_jxl_prealloc(const int *src, int iw, int ih, int depth, int kc, short 
 			vmin<<=8;
 			vmax<<=8;
 
+			//if(kc==0&&kx==0&&ky==1)//
+			if(kc==0&&kx==256&&ky==256)//
+				printf("");
+
 			pred=CLAMP(vmin, pred, vmax);
 
-			if(fwd)
+			int pred_final=(pred+127)>>8;
+			pred_final^=-fwd;
+			pred_final+=fwd;
+			pred_final+=src[idx];
+			if(enable_ma)
 			{
-				curr=src[idx]<<8;
-				dst[idx]=src[idx]-((pred+127)>>8);
-				if(enable_ma)
-					dst[idx]=((dst[idx]+(nlevels>>1))&(nlevels-1))-(nlevels>>1);
+				pred_final+=nlevels>>1;
+				pred_final&=nlevels-1;
+				pred_final-=nlevels>>1;
 			}
-			else
-			{
-				dst[idx]=src[idx]+((pred+127)>>8);
-				if(enable_ma)
-					dst[idx]=((dst[idx]+(nlevels>>1))&(nlevels-1))-(nlevels>>1);
-				curr=dst[idx]<<8;
-			}
+			dst[idx]=pred_final;
+			curr=pixels[idx]<<8;
+			//if(fwd)
+			//{
+			//	dst[idx]=src[idx]-((pred+127)>>8);
+			//	if(enable_ma)
+			//		dst[idx]=((dst[idx]+(nlevels>>1))&(nlevels-1))-(nlevels>>1);
+			//	curr=src[idx]<<8;
+			//}
+			//else
+			//{
+			//	dst[idx]=src[idx]+((pred+127)>>8);
+			//	if(enable_ma)
+			//		dst[idx]=((dst[idx]+(nlevels>>1))&(nlevels-1))-(nlevels>>1);
+			//	curr=dst[idx]<<8;
+			//}
 
 			error[currrow+kx]=curr-pred;
 			for(int k=0;k<4;++k)
 			{
-				int e=abs(curr-predictions[k]);
+				int e=abs(curr-(int)predictions[k]);
 				pred_errors[k][currrow+kx]=e;
 				if(kx+1<iw)
 					pred_errors[k][prevrow+kx+1]+=e;
@@ -3709,11 +3730,11 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 					NW      =LOAD(pixels, -1, -1),
 					N       =LOAD(pixels,  0, -1),
 					NE      =LOAD(pixels,  1, -1),
+					NEE     =LOAD(pixels,  2, -1),
 					NEEEE   =LOAD(pixels,  4, -1),
 					NEEEEE  =LOAD(pixels,  5, -1),
 					NEEEEEE =LOAD(pixels,  6, -1),
 					NEEEEEEE=LOAD(pixels,  7, -1),
-					NEE     =LOAD(pixels,  2, -1),
 					WWWWWW  =LOAD(pixels, -6,  0),
 					WWWW    =LOAD(pixels, -4,  0),
 				//	WWW     =LOAD(pixels, -3,  0),

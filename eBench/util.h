@@ -71,6 +71,7 @@ int acme_getopt(int argc, char **argv, int *start, const char **keywords, int kw
 
 int floor_log2(unsigned long long n);
 int ceil_log2(unsigned long long n);
+int ceil_log2_32(unsigned n);
 int floor_log10(double x);
 double power(double x, int y);
 double _10pow(int n);
