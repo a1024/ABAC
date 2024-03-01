@@ -882,6 +882,51 @@ void colortransform_lossy_XYB(Image *image, int fwd)
 		}
 	}
 }
+void colortransform_lossy_matrix(Image *image, int fwd)//for demonstration purposes only
+{
+	if(fwd)
+	{
+		for(ptrdiff_t k=0, res=image->iw*image->ih;k<res;++k)
+		{
+			int
+				r=image->data[k<<2|0],
+				g=image->data[k<<2|1],
+				b=image->data[k<<2|2];
+
+			double
+				Y=0.299*r+0.587*g+0.114*b,
+				Cb=(-0.168736*r-0.331264*g+0.5*b)/2,
+				Cr=(0.5*r-0.418688*g-0.081312*b)/2;
+
+			image->data[k<<2|0]=(int)Y;
+			image->data[k<<2|1]=(int)Cb;
+			image->data[k<<2|2]=(int)Cr;
+		}
+		//image->depth[1]+=image->depth[1]<24;
+		//image->depth[2]+=image->depth[2]<24;
+	}
+	else
+	{
+		//image->depth[1]-=image->depth[1]>image->src_depth[1];
+		//image->depth[2]-=image->depth[2]>image->src_depth[2];
+		for(ptrdiff_t k=0, res=image->iw*image->ih;k<res;++k)
+		{
+			int
+				Y =image->data[k<<2|0],
+				Cb=image->data[k<<2|1],
+				Cr=image->data[k<<2|2];
+
+			double
+				r=Y+(1.402*Cr)*2,
+				g=Y+(-0.344136*Cb-0.714136*Cr)*2,
+				b=Y+(1.772*Cb)*2;
+
+			image->data[k<<2|0]=(int)r;
+			image->data[k<<2|1]=(int)g;
+			image->data[k<<2|2]=(int)b;
+		}
+	}
+}
 
 #define RCT_CUSTOM_NITER 100
 #define RCT_CUSTOM_DELTAGROUP 2
@@ -2035,6 +2080,53 @@ void pred_clampedgrad(Image *src, int fwd, int enable_ma)
 	free(dst);
 }
 
+void pred_average(Image *src, int fwd, int enable_ma)
+{
+	Image *dst=0;
+	image_copy(&dst, src);
+	const int *pixels=fwd?src->data:dst->data;
+//	const int *errors=fwd?dst->data:src->data;
+	for(int kc=0;kc<4;++kc)
+	{
+		if(!src->depth[kc])
+			continue;
+		int nlevels=1<<src->depth[kc];
+		for(int ky=0, idx=0;ky<src->ih;++ky)
+		{
+			for(int kx=0;kx<src->iw;++kx, ++idx)
+			{
+				int
+					NW=kx&&ky		?pixels[(idx-src->iw-1)<<2|kc]:0,
+					N =ky			?pixels[(idx-src->iw  )<<2|kc]:0,
+					NE=kx<src->iw-1&&ky	?pixels[(idx-src->iw+1)<<2|kc]:0,
+					W =kx			?pixels[(idx        -1)<<2|kc]:0;
+				int pred=(4*(N+W)+NE-NW)>>3;
+				
+				pred^=-fwd;
+				pred+=fwd;
+				pred+=src->data[idx<<2|kc];
+				if(enable_ma)
+				{
+					pred+=nlevels>>1;
+					pred&=nlevels-1;
+					pred-=nlevels>>1;
+				}
+				dst->data[idx<<2|kc]=pred;
+				//dst->data[idx<<2|kc]=((src->data[idx<<2|kc]+pred+(nlevels>>1))&(nlevels-1))-(nlevels>>1);
+			}
+		}
+	}
+	memcpy(src->data, dst->data, (size_t)src->iw*src->ih*sizeof(int[4]));
+	if(!enable_ma)
+	{
+		++src->depth[0];
+		++src->depth[1];
+		++src->depth[2];
+		src->depth[3]+=src->depth[3]!=0;
+	}
+	free(dst);
+}
+
 void pred_dir(Image *src, int fwd, int enable_ma)
 {
 	Image *dst=0;
@@ -2191,6 +2283,363 @@ void pred_dir(Image *src, int fwd, int enable_ma)
 	}
 	free(dst);
 }
+
+static int invert_matrix(double *matrix, int size, double *temprow)
+{
+	int success=1;
+	//double *temp=_malloca(size*sizeof(double[2]));
+	for(int it=0;it<size;++it)
+	{
+		int kp=it;
+		for(;kp<size;++kp)
+		{
+			if(fabs(matrix[((size_t)size<<1)*kp+it])>1e-6)
+				break;
+		}
+		if(kp==size)
+		{
+			success=0;
+			break;
+		}
+		if(kp!=it)
+		{
+			memcpy(temprow, matrix+((size_t)size<<1)*it, size*sizeof(double[2]));
+			memcpy(matrix+((size_t)size<<1)*it, matrix+((size_t)size<<1)*kp, size*sizeof(double[2]));
+			memcpy(matrix+((size_t)size<<1)*kp, temprow, size*sizeof(double[2]));
+		}
+		double pivot=matrix[((size_t)size<<1)*it+it];
+		for(int kx=it;kx<(size<<1);++kx)
+			matrix[((size_t)size<<1)*it+kx]/=pivot;
+		for(int ky=0;ky<size;++ky)
+		{
+			if(ky==it)
+				continue;
+			double factor=matrix[((size_t)size<<1)*ky+it];
+			if(fabs(factor)>1e-6)
+			{
+				for(int kx=it;kx<(size<<1);++kx)
+					matrix[((size_t)size<<1)*ky+kx]-=matrix[((size_t)size<<1)*it+kx]*factor;
+			}
+		}
+	}
+	//_freea(temp);
+	return success;
+}
+#define OLS_NPARAMS 4	//8
+#define OLS_NSAMPLES 17
+void pred_ols(Image *src, int fwd, int enable_ma)
+{
+	int successcount=0;
+	Image *dst=0;
+	image_copy(&dst, src);
+	const int *pixels=fwd?src->data:dst->data, *errors=fwd?dst->data:src->data;
+	int c1_init[4]={0};
+	double c1_params[OLS_NPARAMS*4]={0};
+	for(int kc=0;kc<4;++kc)
+	{
+		if(!src->depth[kc])
+			continue;
+		int nlevels=1<<src->depth[kc];
+		for(int ky=0, idx=0;ky<src->ih;++ky)
+		{
+			for(int kx=0;kx<src->iw;++kx, ++idx)
+			{
+#define LOAD(BUF, X, Y) ((unsigned)(ky-(Y))<(unsigned)src->ih&&(unsigned)(kx-(X))<(unsigned)src->iw?BUF[(src->iw*(ky-(Y))+kx-(X))<<2|kc]:0)
+				int
+					NNNWWWW	=LOAD(pixels,  4, 3),
+					NNNWWW	=LOAD(pixels,  3, 3),
+					NNNWW	=LOAD(pixels,  2, 3),
+					NNNW	=LOAD(pixels,  1, 3),
+					NNN	=LOAD(pixels,  0, 3),
+					NNNE	=LOAD(pixels, -1, 3),
+					NNNEE	=LOAD(pixels, -2, 3),
+					NNNEEE	=LOAD(pixels, -3, 3),
+					NNNEEEE	=LOAD(pixels, -4, 3),
+					NNWWWW	=LOAD(pixels,  4, 2),
+					NNWWW	=LOAD(pixels,  3, 2),
+					NNWW	=LOAD(pixels,  2, 2),
+					NNW	=LOAD(pixels,  1, 2),
+					NN	=LOAD(pixels,  0, 2),
+					NNE	=LOAD(pixels, -1, 2),
+					NNEE	=LOAD(pixels, -2, 2),
+					NNEEE	=LOAD(pixels, -3, 2),
+					NNEEEE	=LOAD(pixels, -4, 2),
+					NWWWW	=LOAD(pixels,  4, 1),
+					NWWW	=LOAD(pixels,  3, 1),
+					NWW	=LOAD(pixels,  2, 1),
+					NW	=LOAD(pixels,  1, 1),
+					N	=LOAD(pixels,  0, 1),
+					NE	=LOAD(pixels, -1, 1),
+					NEE	=LOAD(pixels, -2, 1),
+					NEEE	=LOAD(pixels, -3, 1),
+					NEEEE	=LOAD(pixels, -4, 1),
+					WWWW	=LOAD(pixels,  4, 0),
+					WWW	=LOAD(pixels,  3, 0),
+					WW	=LOAD(pixels,  2, 0),
+					W	=LOAD(pixels,  1, 0);
+				int
+					eNNNWWWW	=LOAD(errors,  4, 3),
+					eNNNWWW		=LOAD(errors,  3, 3),
+					eNNNWW		=LOAD(errors,  2, 3),
+					eNNNW		=LOAD(errors,  1, 3),
+					eNNN		=LOAD(errors,  0, 3),
+					eNNNE		=LOAD(errors, -1, 3),
+					eNNNEE		=LOAD(errors, -2, 3),
+					eNNNEEE		=LOAD(errors, -3, 3),
+					eNNNEEEE	=LOAD(errors, -4, 3),
+					eNNWWWW		=LOAD(errors,  4, 2),
+					eNNWWW		=LOAD(errors,  3, 2),
+					eNNWW		=LOAD(errors,  2, 2),
+					eNNW		=LOAD(errors,  1, 2),
+					eNN		=LOAD(errors,  0, 2),
+					eNNE		=LOAD(errors, -1, 2),
+					eNNEE		=LOAD(errors, -2, 2),
+					eNNEEE		=LOAD(errors, -3, 2),
+					eNNEEEE		=LOAD(errors, -4, 2),
+					eNWWWW		=LOAD(errors,  4, 1),
+					eNWWW		=LOAD(errors,  3, 1),
+					eNWW		=LOAD(errors,  2, 1),
+					eNW		=LOAD(errors,  1, 1),
+					eN		=LOAD(errors,  0, 1),
+					eNE		=LOAD(errors, -1, 1),
+					eNEE		=LOAD(errors, -2, 1),
+					eNEEE		=LOAD(errors, -3, 1),
+					eNEEEE		=LOAD(errors, -4, 1),
+					eWWWW		=LOAD(errors,  4, 0),
+					eWWW		=LOAD(errors,  3, 0),
+					eWW		=LOAD(errors,  2, 0),
+					eW		=LOAD(errors,  1, 0);
+				//int
+				//	eNNWW	=LOAD(errors,  2, 2),//error = (curr<<8) - pred
+				//	eNNW	=LOAD(errors,  1, 2),
+				//	eNN	=LOAD(errors,  0, 2),
+				//	eNNE	=LOAD(errors, -1, 2),
+				//	eNNEE	=LOAD(errors, -2, 2),
+				//	eNWW	=LOAD(errors,  2, 1),
+				//	eNW	=LOAD(errors,  1, 1),
+				//	eN	=LOAD(errors,  0, 1),
+				//	eNE	=LOAD(errors, -1, 1),
+				//	eNEE	=LOAD(errors, -2, 1),
+				//	eWW	=LOAD(errors,  2, 0),
+				//	eW	=LOAD(errors,  1, 0);
+#undef  LOAD
+				//NNNWWWW NNNWWW NNNWW NNNW NNN  NNNE NNNEE NNNEEE NNNEEEE
+				//NNWWWW  NNWWW  NNWW  NNW  NN   NNE  NNEE  NNEEE  NNEEEE
+				//NWWWW   NWWW   NWW   NW   N    NE   NEE   NEEE   NEEEE
+				//WWWW    WWW    WW    W    curr
+				int nb[]=
+				{
+					//slightly better than clampgrad
+#if 1
+					//NW	N	NE	W	curr
+					NNNWWWW,NNNWWW,	NNNWW,	NNWWWW,	//NNWWW
+					NNNWWW,	NNNWW,	NNNW,	NNWWW,	//NNWW
+					NNNWW,	NNNW,	NNN,	NNWW,	//NNW
+					NNNW,	NNN,	NNNE,	NNW,	//NN
+					NNN,	NNNE,	NNNEE,	NN,	//NNE
+					NNNE,	NNNEE,	NNNEEE,	NNE,	//NNEE
+					NNNEE,	NNNEEE,	NNNEEEE,NNEE,	//NNEEE
+					NNWWWW,	NNWWW,	NNWW,	NWWWW,	//NWWW
+					NNWWW,	NNWW,	NNW,	NWWW,	//NWW
+					NNWW,	NNW,	NN,	NWW,	//NW
+					NNW,	NN,	NNE,	NW,	//N
+					NN,	NNE,	NNEE,	N,	//NE
+					NNE,	NNEE,	NNEEE,	NE,	//NEE
+					NNEE,	NNEEE,	NNEEEE,	NEE,	//NEEE
+					NWWWW,	NWWW,	NWW,	WWWW,	//WWW
+					NWWW,	NWW,	NW,	WWW,	//WW
+					NWW,	NW,	N,	WW,	//W
+#endif
+
+					//worse than clampgrad
+#if 0
+					//N+eN,			W+eW,			(N+W)/2,		(4*(N+W)+NW-NW)/8,					curr
+					NNNWWW	+eNNNWWW,	NNWWWW	+eNNWWWW,	(NNNWWW	+NNWWWW	)>>1,	(4*(NNNWWW	+NNWWWW	)+NNNWW		-NNNWWWW)>>3,//NNWWW
+					NNNWW	+eNNNWW,	NNWWW	+eNNWWW,	(NNNWW	+NNWWW	)>>1,	(4*(NNNWW	+NNWWW	)+NNNW		-NNNWWW	)>>3,//NNWW
+					NNNW	+eNNNW,		NNWW	+eNNWW,		(NNNW	+NNWW	)>>1,	(4*(NNNW	+NNWW	)+NNN		-NNNWW	)>>3,//NNW
+					NNN	+eNNN,		NNW	+eNNW,		(NNN	+NNW	)>>1,	(4*(NNN		+NNW	)+NNNE		-NNNW	)>>3,//NN
+					NNNE	+eNNNE,		NN	+eNN,		(NNNE	+NN	)>>1,	(4*(NNNE	+NN	)+NNNEE		-NNN	)>>3,//NNE
+					NNNEE	+eNNNEE,	NNE	+eNNE,		(NNNEE	+NNE	)>>1,	(4*(NNNEE	+NNE	)+NNNEEE	-NNNE	)>>3,//NNEE
+					NNNEEE	+eNNNEEE,	NNEE	+eNNEE,		(NNNEEE	+NNEE	)>>1,	(4*(NNNEEE	+NNEE	)+NNNEEEE	-NNNEE	)>>3,//NNEEE
+					NNWWW	+eNNWWW,	NWWWW	+eNWWWW,	(NNWWW	+NWWWW	)>>1,	(4*(NNWWW	+NWWWW	)+NNWW		-NNWWWW	)>>3,//NWWW
+					NNWW	+eNNWW,		NWWW	+eNWWW,		(NNWW	+NWWW	)>>1,	(4*(NNWW	+NWWW	)+NNW		-NNWWW	)>>3,//NWW
+					NNW	+eNNW,		NWW	+eNWW,		(NNW	+NWW	)>>1,	(4*(NNW		+NWW	)+NN		-NNWW	)>>3,//NW
+					NN	+eNN,		NW	+eNW,		(NN	+NW	)>>1,	(4*(NN		+NW	)+NNE		-NNW	)>>3,//N
+					NNE	+eNNE,		N	+eN,		(NNE	+N	)>>1,	(4*(NNE		+N	)+NNEE		-NN	)>>3,//NE
+					NNEE	+eNNEE,		NE	+eNE,		(NNEE	+NE	)>>1,	(4*(NNEE	+NE	)+NNEEE		-NNE	)>>3,//NEE
+					NNEEE	+eNNEEE,	NEE	+eNEE,		(NNEEE	+NEE	)>>1,	(4*(NNEEE	+NEE	)+NNEEEE	-NNEE	)>>3,//NEEE
+					NWWW	+eNWWW,		WWWW	+eWWWW,		(NWWW	+WWWW	)>>1,	(4*(NWWW	+WWWW	)+NWW		-NWWWW	)>>3,//WWW
+					NWW	+eNWW,		WWW	+eWWW,		(NWW	+WWW	)>>1,	(4*(NWW		+WWW	)+NW		-NWWW	)>>3,//WW
+					NW	+eNW,		WW	+eWW,		(NW	+WW	)>>1,	(4*(NW		+WW	)+N		-NWW	)>>3,//W
+#endif
+
+					//X
+#if 0
+					//NW	N	NE	W		eNW		eN		eNE		eW		curr
+					NNNWWWW,NNNWWW,	NNNWW,	NNWWWW,		eNNNWWWW,	eNNNWWW,	eNNNWW,		eNNWWWW,	//NNWWW
+					NNNWWW,	NNNWW,	NNNW,	NNWWW,		eNNNWWW,	eNNNWW,		eNNNW,		eNNWWW,		//NNWW
+					NNNWW,	NNNW,	NNN,	NNWW,		eNNNWW,		eNNNW,		eNNN,		eNNWW,		//NNW
+					NNNW,	NNN,	NNNE,	NNW,		eNNNW,		eNNN,		eNNNE,		eNNW,		//NN
+					NNN,	NNNE,	NNNEE,	NN,		eNNN,		eNNNE,		eNNNEE,		eNN,		//NNE
+					NNNE,	NNNEE,	NNNEEE,	NNE,		eNNNE,		eNNNEE,		eNNNEEE,	eNNE,		//NNEE
+					NNNEE,	NNNEEE,	NNNEEEE,NNEE,		eNNNEE,		eNNNEEE,	eNNNEEEE,	eNNEE,		//NNEEE
+					NNWWWW,	NNWWW,	NNWW,	NWWWW,		eNNWWWW,	eNNWWW,		eNNWW,		eNWWWW,		//NWWW
+					NNWWW,	NNWW,	NNW,	NWWW,		eNNWWW,		eNNWW,		eNNW,		eNWWW,		//NWW
+					NNWW,	NNW,	NN,	NWW,		eNNWW,		eNNW,		eNN,		eNWW,		//NW
+					NNW,	NN,	NNE,	NW,		eNNW,		eNN,		eNNE,		eNW,		//N
+					NN,	NNE,	NNEE,	N,		eNN,		eNNE,		eNNEE,		eN,		//NE
+					NNE,	NNEE,	NNEEE,	NE,		eNNE,		eNNEE,		eNNEEE,		eNE,		//NEE
+					NNEE,	NNEEE,	NNEEEE,	NEE,		eNNEE,		eNNEEE,		eNNEEEE,	eNEE,		//NEEE
+					NWWWW,	NWWW,	NWW,	WWWW,		eNWWWW,		eNWWW,		eNWW,		eWWWW,		//WWW
+					NWWW,	NWW,	NW,	WWW,		eNWWW,		eNWW,		eNW,		eWWW,		//WW
+					NWW,	NW,	N,	WW,		eNWW,		eNW,		eN,		eWW,		//W
+#endif
+				};
+				const int priority[]=
+				{
+					1, 1, 1, 1, 1, 1, 1,
+					1, 1, 2, 4, 2, 1, 1,
+					1, 1, 4,
+		
+					//1, 1, 1, 1, 1, 1, 1,
+					//1, 1, 1, 3, 1, 1, 1,
+					//1, 1, 3,
+
+					//1, 2, 4,  8, 4, 2, 1,
+					//2, 4, 8, 16, 8, 4, 2,
+					//4, 8, 16,
+				};
+				//for(int k=0;k<OLS_NSAMPLES;++k)//TODO store preds instead of re-calculating
+				//{
+				//	int xNW=nb[k<<2|0], xN=nb[k<<2|1], xNE=nb[k<<2|2], xW=nb[k<<2|3];
+				//	int grad=xN+xW-xNW;
+				//	grad=MEDIAN3(xN, xW, grad);
+				//	nb[k<<2|0]=xN;
+				//	nb[k<<2|1]=xW;
+				//	nb[k<<2|2]=grad;
+				//	nb[k<<2|3]=(4*(xN+xW)+xNE-xNW)>>3;
+				//}
+				double nb2[_countof(nb)];
+				for(int ky=0;ky<4;++ky)
+				{
+					for(int kx=0;kx<OLS_NSAMPLES;++kx)
+						nb2[OLS_NSAMPLES*ky+kx]=(double)nb[kx<<2|ky]/256;///(1<<24);
+				}
+				double sqm[OLS_NPARAMS*(OLS_NPARAMS<<1)]={0};
+				for(int ky=0;ky<OLS_NPARAMS;++ky)
+				{
+					for(int kx=0;kx<OLS_NPARAMS;++kx)
+					{
+						double sum=0;
+						for(int j=0;j<OLS_NSAMPLES;++j)
+							sum+=priority[j]*nb2[OLS_NSAMPLES*ky+j]*nb2[OLS_NSAMPLES*kx+j];
+						sqm[(OLS_NPARAMS<<1)*ky+kx]=sum;
+					}
+					sqm[(OLS_NPARAMS<<1)*ky+ky+OLS_NPARAMS]=1;
+				}
+				double temp[OLS_NPARAMS<<1];
+				int success=invert_matrix(sqm, OLS_NPARAMS, temp);
+				int pred;
+				if(success||c1_init[kc])
+				{
+					//pred = nb * params,		params += ((inv(NB * NBT) * NB * Y) - params)*lr
+					if(success)
+					{
+						int targets[]=
+						{
+							NNWWW,
+							NNWW,
+							NNW,
+							NN,
+							NNE,
+							NNEE,
+							NNEEE,
+							NWWW,
+							NWW,
+							NW,
+							N,
+							NE,
+							NEE,
+							NEEE,
+							WWW,
+							WW,
+							W,
+						};
+						for(int ky=0;ky<OLS_NPARAMS;++ky)
+						{
+							double sum=0;
+							for(int kx=0;kx<OLS_NSAMPLES;++kx)
+								sum+=priority[kx]*nb2[OLS_NSAMPLES*ky+kx]*targets[kx]/256;///(1<<24);
+							temp[ky]=sum;
+						}
+						for(int ky=0;ky<OLS_NPARAMS;++ky)
+						{
+							double sum=0;
+							for(int j=0;j<OLS_NPARAMS;++j)
+								sum+=sqm[(OLS_NPARAMS<<1)*ky+j+OLS_NPARAMS]*temp[j];
+							if(c1_init[kc])
+								c1_params[kc<<2|ky]+=(sum-c1_params[kc<<2|ky])*0.2;
+							else
+								c1_params[kc<<2|ky]=sum;
+						}
+						c1_init[kc]=1;
+					}
+					int nb3[]=
+					{
+						NW,	N,	NE,	W,//slightly better than clampgrad
+
+						//N+eN,	W+eW,	(N+W)>>1,	(4*(N+W)+NW-NW)>>3,//worse than clampgrad
+
+						//NW,	N,	NE,	W,	eNW,	eN,	eNE,	eW,//X
+					};
+					//{
+					//	int xNW=nb3[0], xN=nb3[1], xNE=nb3[2], xW=nb3[3];
+					//	int grad=xN+xW-xNW;
+					//	grad=MEDIAN3(xN, xW, grad);
+					//	nb3[0]=xN;
+					//	nb3[1]=xW;
+					//	nb3[2]=grad;
+					//	nb3[3]=(4*(xN+xW)+xNE-xNW)>>3;
+					//}
+					double fpred=0;
+					for(int k=0;k<OLS_NPARAMS;++k)
+						fpred+=nb3[k]*c1_params[kc<<2|k];
+					pred=(int)fpred;
+					++successcount;
+				}
+				else//singular matrix
+				{
+					pred=N+W-NW;
+					pred=MEDIAN3(N, W, pred);
+				}
+				int idx=(src->iw*ky+kx)<<2|kc;
+				int curr=pred;
+				curr^=-fwd;
+				curr+=fwd;
+				curr+=src->data[idx];
+				if(enable_ma)
+				{
+					curr+=nlevels>>1;
+					curr&=nlevels-1;
+					curr-=nlevels>>1;
+				}
+				dst->data[idx]=curr;
+			}
+		}
+	}
+	memcpy(src->data, dst->data, (size_t)src->iw*src->ih*sizeof(int[4]));
+	set_window_title("OLS %lf%%", 100.*successcount/(src->nch*src->iw*src->ih));
+	if(!enable_ma)
+	{
+		++src->depth[0];
+		++src->depth[1];
+		++src->depth[2];
+		src->depth[3]+=src->depth[3]!=0;
+	}
+	free(dst);
+}
+#undef  OLS_NPARAMS
+#undef  OLS_NSAMPLES
 
 void pred_select(Image const *src, Image *dst, int fwd, int enable_ma)
 {

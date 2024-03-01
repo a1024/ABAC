@@ -677,6 +677,7 @@ void ct_cmyk_fwd(Image *image);
 
 void colortransform_lossy_YCbCr(Image *image, int fwd);
 void colortransform_lossy_XYB(Image *image, int fwd);
+void colortransform_lossy_matrix(Image *image, int fwd);
 
 #define RCT_CUSTOM_NPARAMS 4
 extern int rct_custom_params[RCT_CUSTOM_NPARAMS];
@@ -695,8 +696,11 @@ void rct_adaptive(Image *src, int fwd);
 
 //spatial transforms
 void pred_clampedgrad(Image *image, int fwd, int enable_ma);
+void pred_average(Image *src, int fwd, int enable_ma);
 
 void pred_dir(Image *src, int fwd, int enable_ma);
+
+void pred_ols(Image *src, int fwd, int enable_ma);
 
 void pred_select(Image const *src, Image *dst, int fwd, int enable_ma);
 

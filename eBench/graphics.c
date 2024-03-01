@@ -277,7 +277,7 @@ const char
 		"void main()\n"
 		"{\n"
 		"    float val=texture2D(u_texture, v_texcoord).r;\n"
-		"    gl_FragColor=vec4(0.5+0.5*cos(20*val-4.1887902), 0.5+0.5*cos(20*val-2.0943951), 0.5+0.5*cos(20*val), u_alpha*val);\n"
+		"    gl_FragColor=vec4(0.5+0.5*cos(20*val-4.1887902), 0.5+0.5*cos(20*val-2.0943951), 0.5+0.5*cos(20*val), u_alpha*sqrt(abs(val)));\n"
 	//	"    gl_FragColor=vec4(val, val, u_alpha, 1.);\n"
 		"    gl_FragDepth=(-(1000.+0.1)*(-v_glposition.w)-2.*1000.*0.1)/((1000.-0.1)*v_glposition.w);\n"//USE mProj.znear=0.1f, mProj.zfar=1000.f
 		"}";

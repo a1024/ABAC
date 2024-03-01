@@ -67,6 +67,7 @@ typedef enum TransformTypeEnum
 //	CT_FWD_YRGB_v1,		CT_INV_YRGB_v1,
 //	CT_FWD_YRGB_v2,		CT_INV_YRGB_v2,
 //	CT_FWD_CMYK,		CT_INV_CMYK_DUMMY,
+//	CT_FWD_MATRIX,		CT_INV_MATRIX,
 	CT_FWD_YCbCr,		CT_INV_YCbCr,	//LOSSY	JPEG
 	CT_FWD_XYB,		CT_INV_XYB,	//LOSSY	(2021) JPEG XL
 	CT_FWD_CUSTOM,		CT_INV_CUSTOM,
@@ -81,8 +82,10 @@ typedef enum TransformTypeEnum
 	ST_FWD_CUSTOM,		ST_INV_CUSTOM,
 //	ST_FWD_NBLIC,		ST_INV_NBLIC,
 	ST_FWD_CALIC,		ST_INV_CALIC,
+	ST_FWD_OLS,		ST_INV_OLS,
 	ST_FWD_CLAMPGRAD,	ST_INV_CLAMPGRAD,
-	ST_FWD_DIR,		ST_INV_DIR,
+	ST_FWD_AVERAGE,		ST_INV_AVERAGE,
+//	ST_FWD_DIR,		ST_INV_DIR,
 #if 0
 	ST_FWD_CTX,		ST_INV_CTX,
 	ST_FWD_C20,		ST_INV_C20,
@@ -1222,6 +1225,8 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case CT_INV_YCbCr:		a="C  Inv YCbCr";		break;
 	case CT_FWD_XYB:		a="C  Fwd XYB";			break;
 	case CT_INV_XYB:		a="C  Inv XYB";			break;
+//	case CT_FWD_MATRIX:		a="C  Fwd Matrix";		break;
+//	case CT_INV_MATRIX:		a="C  Inv Matrix";		break;
 //	case CT_FWD_XGZ:		a="C  Fwd XGZ";			break;
 //	case CT_INV_XGZ:		a="C  Inv XGZ";			break;
 //	case CT_FWD_XYZ:		a="C  Fwd XYZ";			break;
@@ -1244,10 +1249,14 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 
 	case ST_FWD_G2:			a=" S Fwd G2";			break;
 	case ST_INV_G2:			a=" S Inv G2";			break;
+	case ST_FWD_OLS:		a=" S Fwd OLS";			break;
+	case ST_INV_OLS:		a=" S Inv OLS";			break;
 	case ST_FWD_CLAMPGRAD:		a=" S Fwd ClampGrad";		break;
 	case ST_INV_CLAMPGRAD:		a=" S Inv ClampGrad";		break;
-	case ST_FWD_DIR:		a=" S Fwd Dir";			break;
-	case ST_INV_DIR:		a=" S Inv Dir";			break;
+	case ST_FWD_AVERAGE:		a=" S Fwd Average";		break;
+	case ST_INV_AVERAGE:		a=" S Inv Average";		break;
+//	case ST_FWD_DIR:		a=" S Fwd Dir";			break;
+//	case ST_INV_DIR:		a=" S Inv Dir";			break;
 	case ST_FWD_CUSTOM3:		a=" S Fwd CUSTOM3";		break;
 	case ST_INV_CUSTOM3:		a=" S Inv CUSTOM3";		break;
 	case ST_FWD_CALIC:		a=" S Fwd CALIC";		break;
@@ -1662,6 +1671,7 @@ void chart_jointhist_update(Image const *image, unsigned *txid)
 		ARRAY_ALLOC(int, jointhist, 0, hsize, 0, 0);
 	ptrdiff_t res=(ptrdiff_t)image->iw*image->ih;
 	int *jh=(int*)jointhist->data;
+	memset(jh, 0, jointhist->esize*jointhist->count);
 	int half[]=
 	{
 		1<<(image->depth[0]-1),
@@ -1674,9 +1684,9 @@ void chart_jointhist_update(Image const *image, unsigned *txid)
 		for(int k=0;k<res;++k)
 		{
 			int
-				r=(image->data[k<<2|0]+half[0])>>(8-jointhist_nbits),
-				g=(image->data[k<<2|1]+half[1])>>(8-jointhist_nbits),
-				b=(image->data[k<<2|2]+half[2])>>(8-jointhist_nbits);
+				r=(image->data[k<<2|0]+half[0])>>(image->depth[0]-jointhist_nbits),
+				g=(image->data[k<<2|1]+half[1])>>(image->depth[1]-jointhist_nbits),
+				b=(image->data[k<<2|2]+half[2])>>(image->depth[2]-jointhist_nbits);
 			r=CLAMP(0, r, (1<<jointhist_nbits)-1);
 			g=CLAMP(0, g, (1<<jointhist_nbits)-1);
 			b=CLAMP(0, b, (1<<jointhist_nbits)-1);
@@ -1691,9 +1701,9 @@ void chart_jointhist_update(Image const *image, unsigned *txid)
 			for(int kx=0;kx<image->iw;++kx)
 			{
 				unsigned char
-					v2=kx-2>=0?(image->data[(image->iw*ky+kx-2)<<2|1]+half[0])>>(8-jointhist_nbits):0,//WW
-					v1=kx-1>=0?(image->data[(image->iw*ky+kx-1)<<2|1]+half[1])>>(8-jointhist_nbits):0,//W
-					v0=kx-0>=0?(image->data[(image->iw*ky+kx-0)<<2|1]+half[2])>>(8-jointhist_nbits):0;//curr
+					v2=kx-2>=0?(image->data[(image->iw*ky+kx-2)<<2|1]+half[0])>>(image->depth[0]-jointhist_nbits):0,//WW
+					v1=kx-1>=0?(image->data[(image->iw*ky+kx-1)<<2|1]+half[1])>>(image->depth[1]-jointhist_nbits):0,//W
+					v0=kx-0>=0?(image->data[(image->iw*ky+kx-0)<<2|1]+half[2])>>(image->depth[2]-jointhist_nbits):0;//curr
 				v0=CLAMP(0, v0, (1<<jointhist_nbits)-1);
 				v1=CLAMP(0, v1, (1<<jointhist_nbits)-1);
 				v2=CLAMP(0, v2, (1<<jointhist_nbits)-1);
@@ -1709,9 +1719,9 @@ void chart_jointhist_update(Image const *image, unsigned *txid)
 			for(int kx=0;kx<image->iw;++kx)
 			{
 				unsigned char
-					v2=ky-2>=0?(image->data[(image->iw*(ky-2)+kx)<<2|1]+half[0])>>(8-jointhist_nbits):0,//NN
-					v1=ky-1>=0?(image->data[(image->iw*(ky-1)+kx)<<2|1]+half[1])>>(8-jointhist_nbits):0,//N
-					v0=ky-0>=0?(image->data[(image->iw*(ky-0)+kx)<<2|1]+half[2])>>(8-jointhist_nbits):0;//curr
+					v2=ky-2>=0?(image->data[(image->iw*(ky-2)+kx)<<2|1]+half[0])>>(image->depth[0]-jointhist_nbits):0,//NN
+					v1=ky-1>=0?(image->data[(image->iw*(ky-1)+kx)<<2|1]+half[1])>>(image->depth[1]-jointhist_nbits):0,//N
+					v0=ky-0>=0?(image->data[(image->iw*(ky-0)+kx)<<2|1]+half[2])>>(image->depth[2]-jointhist_nbits):0;//curr
 				v0=CLAMP(0, v0, (1<<jointhist_nbits)-1);
 				v1=CLAMP(0, v1, (1<<jointhist_nbits)-1);
 				v2=CLAMP(0, v2, (1<<jointhist_nbits)-1);
@@ -1727,9 +1737,9 @@ void chart_jointhist_update(Image const *image, unsigned *txid)
 			for(int kx=0;kx<image->iw;++kx)
 			{
 				unsigned char
-					v2=kx-1>=0?(image->data[(image->iw* ky   +kx-1)<<2|1]+half[0])>>(8-jointhist_nbits):0,//W
-					v1=ky-1>=0?(image->data[(image->iw*(ky-1)+kx  )<<2|1]+half[1])>>(8-jointhist_nbits):0,//N
-					v0=        (image->data[(image->iw* ky   +kx  )<<2|1]+half[2])>>(8-jointhist_nbits)  ;//curr
+					v2=kx-1>=0?(image->data[(image->iw* ky   +kx-1)<<2|1]+half[0])>>(image->depth[0]-jointhist_nbits):0,//W
+					v1=ky-1>=0?(image->data[(image->iw*(ky-1)+kx  )<<2|1]+half[1])>>(image->depth[1]-jointhist_nbits):0,//N
+					v0=        (image->data[(image->iw* ky   +kx  )<<2|1]+half[2])>>(image->depth[2]-jointhist_nbits)  ;//curr
 				v0=CLAMP(0, v0, (1<<jointhist_nbits)-1);
 				v1=CLAMP(0, v1, (1<<jointhist_nbits)-1);
 				v2=CLAMP(0, v2, (1<<jointhist_nbits)-1);
@@ -1756,7 +1766,7 @@ void chart_jointhist_update(Image const *image, unsigned *txid)
 		glGenTextures(nlevels, txid);
 	for(int k=0;k<nlevels;++k)
 	{
-		const unsigned char *hk=jointhist->data+(k<<(jointhist_nbits<<1));//k*(2^nbits)^2
+		const unsigned char *hk=jointhist->data+((size_t)k<<(jointhist_nbits<<1));//k*(2^nbits)^2
 		send_texture_pot_grey(txid[k], hk, nlevels, nlevels, 1);
 		//printf("%d", hk[0]);
 	}
@@ -1832,9 +1842,11 @@ void apply_selected_transforms(Image *image)
 	//	case CT_FWD_CMYK:		ct_cmyk_fwd(image);					break;
 	//	case CT_INV_CMYK_DUMMY:									break;
 		case CT_FWD_YCbCr:		colortransform_lossy_YCbCr(image, 1);			break;
-		case CT_INV_YCbCr:		colortransform_lossy_YCbCr(image, 1);			break;
+		case CT_INV_YCbCr:		colortransform_lossy_YCbCr(image, 0);			break;
 		case CT_FWD_XYB:		colortransform_lossy_XYB(image, 1);			break;
 		case CT_INV_XYB:		colortransform_lossy_XYB(image, 0);			break;
+	//	case CT_FWD_MATRIX:		colortransform_lossy_matrix(image, 1);			break;
+	//	case CT_INV_MATRIX:		colortransform_lossy_matrix(image, 0);			break;
 	//	case CT_FWD_JPEG2000:		colortransform_jpeg2000_fwd((char*)image, iw, ih);	break;
 	//	case CT_INV_JPEG2000:		colortransform_jpeg2000_inv((char*)image, iw, ih);	break;
 	//	case CT_FWD_XGZ:		colortransform_xgz_fwd((char*)image, iw, ih);		break;
@@ -1897,10 +1909,14 @@ void apply_selected_transforms(Image *image)
 		case ST_INV_JXLPRED:		pred_jxl_apply(image, 0, pred_ma_enabled, jxlparams_i16);break;
 		case ST_FWD_MM:			pred_w2_apply(image, 1, pred_ma_enabled, pw2_params);	break;
 		case ST_INV_MM:			pred_w2_apply(image, 0, pred_ma_enabled, pw2_params);	break;
+		case ST_FWD_OLS:		pred_ols(image, 1, pred_ma_enabled);			break;
+		case ST_INV_OLS:		pred_ols(image, 0, pred_ma_enabled);			break;
 		case ST_FWD_CLAMPGRAD:		pred_clampedgrad(image, 1, pred_ma_enabled);		break;
 		case ST_INV_CLAMPGRAD:		pred_clampedgrad(image, 0, pred_ma_enabled);		break;
-		case ST_FWD_DIR:		pred_dir(image, 1, pred_ma_enabled);			break;
-		case ST_INV_DIR:		pred_dir(image, 0, pred_ma_enabled);			break;
+		case ST_FWD_AVERAGE:		pred_average(image, 1, pred_ma_enabled);		break;
+		case ST_INV_AVERAGE:		pred_average(image, 0, pred_ma_enabled);		break;
+	//	case ST_FWD_DIR:		pred_dir(image, 1, pred_ma_enabled);			break;
+	//	case ST_INV_DIR:		pred_dir(image, 0, pred_ma_enabled);			break;
 		case ST_FWD_G2:			pred_grad2(image, 1, pred_ma_enabled);			break;
 		case ST_INV_G2:			pred_grad2(image, 0, pred_ma_enabled);			break;
 		case ST_FWD_DCT4:		image_dct4_fwd(image);					break;
@@ -2520,7 +2536,7 @@ void chart_jointhist_draw()
 	const float cubesize=64, height=1;
 	draw_AAcuboid_wire(0, cubesize, 0, cubesize, 0, height*cubesize, 0xFF000000);
 
-#if 1
+#if 0
 	draw_cloud(jhx, jhy, blocksize, cubesize);
 	GUIPrint(0, (float)(w>>1), tdy*2, 1, "(%d, %d) size %f", jhx, jhy, blocksize);
 	const int hstep=2;
@@ -3949,6 +3965,7 @@ void draw_shape_i(const float *points)
 	draw_3d_line(&cam, axes, axes+3*1, 0xFF0000FF);
 	draw_3d_line(&cam, axes, axes+3*2, 0xFF00FF00);
 	draw_3d_line(&cam, axes, axes+3*3, 0xFFFF0000);
+	draw_3d_line(&cam, axes, axes+3*4, 0xFF000000);
 }
 void draw_YCoCg_R(float x, float y, float z)
 {
@@ -3967,6 +3984,7 @@ void draw_YCoCg_R(float x, float y, float z)
 		x+1, y, z,
 		x, y+1, z,
 		x, y, z+1,
+		x+2, y+2, z+2,
 	};
 	draw_shape_i(points);
 	for(int k=0;k<_countof(points);k+=3)
@@ -4004,6 +4022,7 @@ void draw_YCbCr_R(float x, float y, float z)
 		x+1, y, z,
 		x, y+1, z,
 		x, y, z+1,
+		x+2, y+2, z+2,
 	};
 	draw_shape_i(points);
 	for(int k=0;k<_countof(points);k+=3)
@@ -4017,6 +4036,43 @@ void draw_YCbCr_R(float x, float y, float z)
 		p[1]+=p[0]*0.5f;
 		p[2]-=p[1];
 		p[1]+=p[2]*0.5f;
+
+		p[0]+=x;
+		p[1]+=y;
+		p[2]+=z;
+	}
+	draw_shape_i(points);
+}
+void draw_JPEG2000(float x, float y, float z)
+{
+	float points[]=
+	{
+		x-1, y-1, z-1,
+		x+1, y-1, z-1,
+		x-1, y+1, z-1,
+		x+1, y+1, z-1,
+		x-1, y-1, z+1,
+		x+1, y-1, z+1,
+		x-1, y+1, z+1,
+		x+1, y+1, z+1,
+
+		x, y, z,
+		x+1, y, z,
+		x, y+1, z,
+		x, y, z+1,
+		x+2, y+2, z+2,
+	};
+	draw_shape_i(points);
+	for(int k=0;k<_countof(points);k+=3)
+	{
+		float *p=points+k;
+		p[0]-=x;
+		p[1]-=y;
+		p[2]-=z;
+
+		p[0]-=p[1];
+		p[2]-=p[1];
+		p[1]+=(p[0]+p[2])*0.25f;
 
 		p[0]+=x;
 		p[1]+=y;
@@ -4066,10 +4122,11 @@ void io_render()
 	draw_3d_line(&cam, axes, axes+6, 0xFF00FF00);
 	draw_3d_line(&cam, axes, axes+9, 0xFFFF0000);
 #if 0
-	if(!image)
+	if(!im0)
 	{
 		draw_YCoCg_R(10, 0, 0);
 		draw_YCbCr_R(20, 0, 0);
+		draw_JPEG2000(30, 0, 0);
 		draw_diffav(0, 0, -10);
 	}
 #endif
@@ -5074,7 +5131,13 @@ void io_render()
 #endif
 	//extern double bestslope;
 	//GUIPrint(0, 0, 0, 1, "p(%f, %f, %f) dx %f a(%f, %f) fov %f, bestslope=%lf", cam.x, cam.y, cam.z, cam.move_speed, cam.ax, cam.ay, atan(cam.tanfov)*180/M_PI*2, bestslope);
-	GUIPrint(0, 0, 0, 1, "p(%f, %f, %f) dx %f a(%f, %f) fov %f", cam.x, cam.y, cam.z, cam.move_speed, cam.ax, cam.ay, atan(cam.tanfov)*180/M_PI*2);
+	if(im0&&im1)
+		GUIPrint(0, 0, 0, 1, "WH %dx%d D0[%d %d %d %d] D[%d %d %d %d]",
+			im0->iw, im0->ih,
+			im0->src_depth[0], im0->src_depth[1], im0->src_depth[2], im0->src_depth[3],
+			im1->depth[0], im1->depth[1], im1->depth[2], im1->depth[3]
+		);
+	//GUIPrint(0, 0, 0, 1, "p(%f, %f, %f) dx %f a(%f, %f) fov %f", cam.x, cam.y, cam.z, cam.move_speed, cam.ax, cam.ay, atan(cam.tanfov)*180/M_PI*2);
 	
 	static double t=0;
 	double t2=time_ms();
