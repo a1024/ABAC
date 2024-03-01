@@ -1684,13 +1684,13 @@ void chart_jointhist_update(Image const *image, unsigned *txid)
 		for(int k=0;k<res;++k)
 		{
 			int
-				r=(image->data[k<<2|0]+half[0])>>(image->depth[0]-jointhist_nbits),
-				g=(image->data[k<<2|1]+half[1])>>(image->depth[1]-jointhist_nbits),
-				b=(image->data[k<<2|2]+half[2])>>(image->depth[2]-jointhist_nbits);
+				r=(image->data[k<<2|0]+half[0])<<jointhist_nbits>>image->depth[0],
+				g=(image->data[k<<2|1]+half[1])<<jointhist_nbits>>image->depth[1],
+				b=(image->data[k<<2|2]+half[2])<<jointhist_nbits>>image->depth[2];
 			r=CLAMP(0, r, (1<<jointhist_nbits)-1);
 			g=CLAMP(0, g, (1<<jointhist_nbits)-1);
 			b=CLAMP(0, b, (1<<jointhist_nbits)-1);
-			int color=b<<(jointhist_nbits<<1)|g<<jointhist_nbits|r;
+			int color=(b<<jointhist_nbits|g)<<jointhist_nbits|r;
 
 			++jh[color];
 		}
@@ -1701,13 +1701,13 @@ void chart_jointhist_update(Image const *image, unsigned *txid)
 			for(int kx=0;kx<image->iw;++kx)
 			{
 				unsigned char
-					v2=kx-2>=0?(image->data[(image->iw*ky+kx-2)<<2|1]+half[0])>>(image->depth[0]-jointhist_nbits):0,//WW
-					v1=kx-1>=0?(image->data[(image->iw*ky+kx-1)<<2|1]+half[1])>>(image->depth[1]-jointhist_nbits):0,//W
-					v0=kx-0>=0?(image->data[(image->iw*ky+kx-0)<<2|1]+half[2])>>(image->depth[2]-jointhist_nbits):0;//curr
+					v2=kx-2>=0?(image->data[(image->iw*ky+kx-2)<<2|1]+half[1])<<jointhist_nbits>>image->depth[1]:0,//WW
+					v1=kx-1>=0?(image->data[(image->iw*ky+kx-1)<<2|1]+half[1])<<jointhist_nbits>>image->depth[1]:0,//W
+					v0=kx-0>=0?(image->data[(image->iw*ky+kx-0)<<2|1]+half[1])<<jointhist_nbits>>image->depth[1]:0;//curr
 				v0=CLAMP(0, v0, (1<<jointhist_nbits)-1);
 				v1=CLAMP(0, v1, (1<<jointhist_nbits)-1);
 				v2=CLAMP(0, v2, (1<<jointhist_nbits)-1);
-				int color=v2<<(jointhist_nbits<<1)|v1<<jointhist_nbits|v0;
+				int color=(v2<<jointhist_nbits|v1)<<jointhist_nbits|v0;
 
 				++jh[color];
 			}
@@ -1719,13 +1719,13 @@ void chart_jointhist_update(Image const *image, unsigned *txid)
 			for(int kx=0;kx<image->iw;++kx)
 			{
 				unsigned char
-					v2=ky-2>=0?(image->data[(image->iw*(ky-2)+kx)<<2|1]+half[0])>>(image->depth[0]-jointhist_nbits):0,//NN
-					v1=ky-1>=0?(image->data[(image->iw*(ky-1)+kx)<<2|1]+half[1])>>(image->depth[1]-jointhist_nbits):0,//N
-					v0=ky-0>=0?(image->data[(image->iw*(ky-0)+kx)<<2|1]+half[2])>>(image->depth[2]-jointhist_nbits):0;//curr
+					v2=ky-2>=0?(image->data[(image->iw*(ky-2)+kx)<<2|1]+half[1])<<jointhist_nbits>>image->depth[1]:0,//NN
+					v1=ky-1>=0?(image->data[(image->iw*(ky-1)+kx)<<2|1]+half[1])<<jointhist_nbits>>image->depth[1]:0,//N
+					v0=ky-0>=0?(image->data[(image->iw*(ky-0)+kx)<<2|1]+half[1])<<jointhist_nbits>>image->depth[1]:0;//curr
 				v0=CLAMP(0, v0, (1<<jointhist_nbits)-1);
 				v1=CLAMP(0, v1, (1<<jointhist_nbits)-1);
 				v2=CLAMP(0, v2, (1<<jointhist_nbits)-1);
-				int color=v2<<(jointhist_nbits<<1)|v1<<jointhist_nbits|v0;
+				int color=(v2<<jointhist_nbits|v1)<<jointhist_nbits|v0;
 
 				++jh[color];
 			}
@@ -1737,13 +1737,13 @@ void chart_jointhist_update(Image const *image, unsigned *txid)
 			for(int kx=0;kx<image->iw;++kx)
 			{
 				unsigned char
-					v2=kx-1>=0?(image->data[(image->iw* ky   +kx-1)<<2|1]+half[0])>>(image->depth[0]-jointhist_nbits):0,//W
-					v1=ky-1>=0?(image->data[(image->iw*(ky-1)+kx  )<<2|1]+half[1])>>(image->depth[1]-jointhist_nbits):0,//N
-					v0=        (image->data[(image->iw* ky   +kx  )<<2|1]+half[2])>>(image->depth[2]-jointhist_nbits)  ;//curr
+					v2=kx-1>=0?(image->data[(image->iw* ky   +kx-1)<<2|1]+half[1])<<jointhist_nbits>>image->depth[1]:0,//W
+					v1=ky-1>=0?(image->data[(image->iw*(ky-1)+kx  )<<2|1]+half[1])<<jointhist_nbits>>image->depth[1]:0,//N
+					v0=        (image->data[(image->iw* ky   +kx  )<<2|1]+half[1])<<jointhist_nbits>>image->depth[1]  ;//curr
 				v0=CLAMP(0, v0, (1<<jointhist_nbits)-1);
 				v1=CLAMP(0, v1, (1<<jointhist_nbits)-1);
 				v2=CLAMP(0, v2, (1<<jointhist_nbits)-1);
-				int color=v2<<(jointhist_nbits<<1)|v1<<jointhist_nbits|v0;
+				int color=(v2<<jointhist_nbits|v1)<<jointhist_nbits|v0;
 
 				++jh[color];
 			}
