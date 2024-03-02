@@ -1614,6 +1614,44 @@ void draw_3d_flush(ArrayHandle vertices, Camera const *cam, int *texture, int tw
 
 	vertices->count=0;
 }
+void draw_3d_wireframe_gpu(Camera const *cam, unsigned gpubuf, int nvertices, int color, unsigned primitive)
+{
+	static unsigned txid=0;
+	float mView[16], mProj[16], mVP[16];
+	__m128 temp1;
+	int texture[]=
+	{
+		color,
+		color,
+		color,
+		color,
+	};
+	if(!txid)
+		glGenTextures(1, &txid);
+	send_texture_pot(txid, texture, 2, 2, 0);
+
+	//prepare matrix
+	mat4_FPSView(mView, &cam->x, cam->ax, cam->ay);
+	mat4_perspective(mProj, cam->tanfov, (float)(w)/h, 0.1f, 1000.f);
+	mat4_mul_mat4(mVP, mProj, mView, temp1);
+
+	setGLProgram(shader_3D.program);
+
+	select_texture(txid, u_3D_texture);
+	
+	glUniformMatrix4fv(u_3D_matrix, 1, GL_FALSE, mVP);GL_CHECK(error);
+	
+	glBindBuffer(GL_ARRAY_BUFFER, gpubuf);		GL_CHECK(error);
+	glVertexAttribPointer(a_3D_vertex, 3, GL_FLOAT, GL_FALSE, (int)sizeof(float[5]), (void*)0);			GL_CHECK(error);//select vertices & texcoords
+	glVertexAttribPointer(a_3D_texcoord, 2, GL_FLOAT, GL_FALSE, (int)sizeof(float[5]), (void*)(3*sizeof(float)));	GL_CHECK(error);
+	glEnableVertexAttribArray(a_3D_vertex);		GL_CHECK(error);
+	glEnableVertexAttribArray(a_3D_texcoord);	GL_CHECK(error);
+
+	glDrawArrays(primitive, 0, nvertices);		GL_CHECK(error);
+
+	glDisableVertexAttribArray(a_3D_vertex);	GL_CHECK(error);
+	glDisableVertexAttribArray(a_3D_texcoord);	GL_CHECK(error);
+}
 
 void draw_contour3d_rect(Camera const *cam, unsigned vbuf, int nvertices, unsigned txid, float alpha)
 {

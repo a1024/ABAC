@@ -608,6 +608,7 @@ void draw_3d_line(Camera const *cam, const float *w1, const float *w2, int color
 
 void draw_3d_line_enqueue(ArrayHandle *vertices, float x, float y, float z);
 void draw_3d_flush(ArrayHandle vertices, Camera const *cam, int *texture, int tw, int th, int linear, unsigned primitive);
+void draw_3d_wireframe_gpu(Camera const *cam, unsigned gpubuf, int nvertices, int color, unsigned primitive);
 
 void draw_contour3d_rect(Camera const *cam, unsigned vbuf, int nvertices, unsigned txid, float alpha);
 void draw_contour3d(Camera const *cam, float x1, float x2, float y1, float y2, float z1, float z2, unsigned *textures, int count, float alpha);

@@ -3,6 +3,7 @@
 #define _USE_MATH_DEFINES
 #include<math.h>
 #include<process.h>
+#include<immintrin.h>
 #include"stb_image.h"
 #include"lodepng.h"
 #define DEBUG_MEMORY_IMPLEMENTATION
@@ -141,6 +142,14 @@ int combCRhist_idx=0;
 
 int show_full_image=0;
 int space_not_color=0;
+
+//joint hist box contour
+float jh_cubesize=64;
+int jhc_boxdx=64, jhc_boxdy=64;
+int jhc_xbox=0, jhc_ybox=0;//[0, screen_dim-1]
+ArrayHandle jhc_mesh=0;
+unsigned jhc_gpubuf=0;
+float jhc_level=10.5f;
 
 void calc_csize_ans_separate(Image const *image, size_t *csizes)
 {
@@ -1657,6 +1666,407 @@ void chart_dwthist_update(Image const *image, int kc, int kband, int x1, int x2,
 		blockCR[kband]=(float)(image->src_depth[kc]/entropy);
 	}
 }
+void move_box_in_window(int boxcenter, int boxsize, int wx1, int wx2, int *ret_boxstart, int *ret_boxend)
+{
+	if(wx2-wx1<boxsize)
+	{
+		*ret_boxstart=wx1;
+		*ret_boxend=wx2;
+	}
+	else
+	{
+		wx1+=boxsize>>1;
+		wx2+=(boxsize>>1)-boxsize;
+		boxcenter=CLAMP(wx1, boxcenter, wx2);
+		*ret_boxstart=boxcenter-(boxsize>>1);
+		*ret_boxend=*ret_boxstart+boxsize;
+	}
+}
+void jhc_getboxbounds(int xs, int ys, int dx, int dy, int iw, int ih, int *bounds)//bounds: {x1, x2, y1, y2}
+{
+	int ix=(int)(((long long)xs*iw+(w>>1))/w);
+	int iy=(int)(((long long)ys*ih+(h>>1))/h);
+	move_box_in_window(ix, dx, 0, iw, bounds+0, bounds+1);
+	move_box_in_window(iy, dy, 0, ih, bounds+2, bounds+3);
+}
+void jh_calchist(int *jhist, int nbits, Image const *image, int x1, int x2, int y1, int y2)
+{
+	int half[]=
+	{
+		1<<(image->depth[0]-1),
+		1<<(image->depth[1]-1),
+		1<<(image->depth[2]-1),
+	};
+	x1=CLAMP(0, x1, image->iw);
+	x2=CLAMP(0, x2, image->iw);
+	y1=CLAMP(0, y1, image->ih);
+	y2=CLAMP(0, y2, image->ih);
+	switch(space_not_color)
+	{
+	case 0://show correlation in color
+		for(int ky=y1;ky<y2;++ky)
+		{
+			for(int kx=x1;kx<x2;++kx)
+			{
+				int
+					r=(image->data[(image->iw*ky+kx)<<2|0]+half[0])<<nbits>>image->depth[0],
+					g=(image->data[(image->iw*ky+kx)<<2|1]+half[1])<<nbits>>image->depth[1],
+					b=(image->data[(image->iw*ky+kx)<<2|2]+half[2])<<nbits>>image->depth[2];
+				r=CLAMP(0, r, (1<<nbits)-1);
+				g=CLAMP(0, g, (1<<nbits)-1);
+				b=CLAMP(0, b, (1<<nbits)-1);
+				int idx=(b<<nbits|g)<<nbits|r;
+
+				++jhist[idx];
+			}
+		}
+		break;
+	case 1://show correlation in space x (CURR, W, WW)
+		for(int ky=y1;ky<y2;++ky)
+		{
+			for(int kx=x1;kx<x2;++kx)
+			{
+				unsigned char
+					v2=kx-2>=0?(image->data[(image->iw*ky+kx-2)<<2|1]+half[1])<<nbits>>image->depth[1]:0,//WW
+					v1=kx-1>=0?(image->data[(image->iw*ky+kx-1)<<2|1]+half[1])<<nbits>>image->depth[1]:0,//W
+					v0=kx-0>=0?(image->data[(image->iw*ky+kx-0)<<2|1]+half[1])<<nbits>>image->depth[1]:0;//curr
+				v0=CLAMP(0, v0, (1<<nbits)-1);
+				v1=CLAMP(0, v1, (1<<nbits)-1);
+				v2=CLAMP(0, v2, (1<<nbits)-1);
+				int idx=(v2<<nbits|v1)<<nbits|v0;
+
+				++jhist[idx];
+			}
+		}
+		break;
+	case 2://show correlation in space x (CURR, N, NN)
+		for(int ky=y1;ky<y2;++ky)
+		{
+			for(int kx=x1;kx<x2;++kx)
+			{
+				unsigned char
+					v2=ky-2>=0?(image->data[(image->iw*(ky-2)+kx)<<2|1]+half[1])<<nbits>>image->depth[1]:0,//NN
+					v1=ky-1>=0?(image->data[(image->iw*(ky-1)+kx)<<2|1]+half[1])<<nbits>>image->depth[1]:0,//N
+					v0=ky-0>=0?(image->data[(image->iw*(ky-0)+kx)<<2|1]+half[1])<<nbits>>image->depth[1]:0;//curr
+				v0=CLAMP(0, v0, (1<<nbits)-1);
+				v1=CLAMP(0, v1, (1<<nbits)-1);
+				v2=CLAMP(0, v2, (1<<nbits)-1);
+				int idx=(v2<<nbits|v1)<<nbits|v0;
+
+				++jhist[idx];
+			}
+		}
+		break;
+	case 3://show correlation in space x (CURR, N, W)
+		for(int ky=y1;ky<y2;++ky)
+		{
+			for(int kx=x1;kx<x2;++kx)
+			{
+				unsigned char
+					v2=kx-1>=0?(image->data[(image->iw* ky   +kx-1)<<2|1]+half[1])<<nbits>>image->depth[1]:0,//W
+					v1=ky-1>=0?(image->data[(image->iw*(ky-1)+kx  )<<2|1]+half[1])<<nbits>>image->depth[1]:0,//N
+					v0=        (image->data[(image->iw* ky   +kx  )<<2|1]+half[1])<<nbits>>image->depth[1]  ;//curr
+				v0=CLAMP(0, v0, (1<<nbits)-1);
+				v1=CLAMP(0, v1, (1<<nbits)-1);
+				v2=CLAMP(0, v2, (1<<nbits)-1);
+				int idx=(v2<<nbits|v1)<<nbits|v0;
+
+				++jhist[idx];
+			}
+		}
+		break;
+	}
+}
+void jhc_marchingcubes(ArrayHandle *edges, const int *data, int gx, int gy, int gz, float level, float cubesize)
+{
+#define VERTIDX(Z, Y, X) 3*(3*Z+Y)+X
+	static const char triangles[][3]=
+	{
+		//6 triangles per cell, reduced resolution - SKEWED
+#if 1
+		{VERTIDX(0, 0, 0), VERTIDX(0, 0, 2), VERTIDX(2, 2, 2)},
+		{VERTIDX(0, 0, 0), VERTIDX(0, 2, 2), VERTIDX(2, 2, 2)},
+		{VERTIDX(0, 0, 0), VERTIDX(0, 2, 0), VERTIDX(2, 2, 2)},
+		{VERTIDX(0, 0, 0), VERTIDX(2, 2, 0), VERTIDX(2, 2, 2)},
+		{VERTIDX(0, 0, 0), VERTIDX(2, 0, 0), VERTIDX(2, 2, 2)},
+		{VERTIDX(0, 0, 0), VERTIDX(2, 0, 2), VERTIDX(2, 2, 2)},
+
+		{VERTIDX(0, 0, 0), VERTIDX(0, 0, 2), VERTIDX(0, 2, 2)},
+		{VERTIDX(0, 0, 0), VERTIDX(0, 2, 0), VERTIDX(0, 2, 2)},
+		{VERTIDX(0, 0, 0), VERTIDX(0, 2, 0), VERTIDX(2, 2, 0)},
+		{VERTIDX(0, 0, 0), VERTIDX(2, 0, 0), VERTIDX(2, 2, 0)},
+		{VERTIDX(0, 0, 0), VERTIDX(2, 0, 0), VERTIDX(2, 0, 2)},
+		{VERTIDX(0, 0, 0), VERTIDX(0, 0, 2), VERTIDX(2, 0, 2)},
+#endif
+
+		//96 triangles per cell, full resolution - BUGGY
+#if 0
+		{VERTIDX(1, 1, 0), VERTIDX(0, 1, 0), VERTIDX(0, 0, 0)},//x==0
+		{VERTIDX(1, 1, 0), VERTIDX(0, 1, 0), VERTIDX(0, 2, 0)},
+		{VERTIDX(1, 1, 0), VERTIDX(2, 1, 0), VERTIDX(2, 0, 0)},
+		{VERTIDX(1, 1, 0), VERTIDX(2, 1, 0), VERTIDX(2, 2, 0)},
+		{VERTIDX(1, 1, 0), VERTIDX(1, 0, 0), VERTIDX(0, 0, 0)},
+		{VERTIDX(1, 1, 0), VERTIDX(1, 2, 0), VERTIDX(0, 2, 0)},
+		{VERTIDX(1, 1, 0), VERTIDX(1, 0, 0), VERTIDX(2, 0, 0)},
+		{VERTIDX(1, 1, 0), VERTIDX(1, 2, 0), VERTIDX(2, 2, 0)},
+		{VERTIDX(1, 0, 1), VERTIDX(0, 0, 1), VERTIDX(0, 0, 0)},//y==0
+		{VERTIDX(1, 0, 1), VERTIDX(0, 0, 1), VERTIDX(0, 0, 2)},
+		{VERTIDX(1, 0, 1), VERTIDX(2, 0, 1), VERTIDX(2, 0, 0)},
+		{VERTIDX(1, 0, 1), VERTIDX(2, 0, 1), VERTIDX(2, 0, 2)},
+		{VERTIDX(1, 0, 1), VERTIDX(1, 0, 0), VERTIDX(0, 0, 0)},
+		{VERTIDX(1, 0, 1), VERTIDX(1, 0, 0), VERTIDX(2, 0, 0)},
+		{VERTIDX(1, 0, 1), VERTIDX(1, 0, 2), VERTIDX(0, 0, 2)},
+		{VERTIDX(1, 0, 1), VERTIDX(1, 0, 2), VERTIDX(2, 0, 2)},
+		{VERTIDX(0, 1, 1), VERTIDX(0, 0, 1), VERTIDX(0, 0, 0)},//z==0
+		{VERTIDX(0, 1, 1), VERTIDX(0, 0, 1), VERTIDX(0, 0, 2)},
+		{VERTIDX(0, 1, 1), VERTIDX(0, 2, 1), VERTIDX(0, 2, 0)},
+		{VERTIDX(0, 1, 1), VERTIDX(0, 2, 1), VERTIDX(0, 2, 2)},
+		{VERTIDX(0, 1, 1), VERTIDX(0, 1, 0), VERTIDX(0, 0, 0)},
+		{VERTIDX(0, 1, 1), VERTIDX(0, 1, 0), VERTIDX(0, 2, 0)},
+		{VERTIDX(0, 1, 1), VERTIDX(0, 1, 2), VERTIDX(0, 0, 2)},
+		{VERTIDX(0, 1, 1), VERTIDX(0, 1, 2), VERTIDX(0, 2, 2)},
+
+		{VERTIDX(1, 1, 1), VERTIDX(0, 1, 1), VERTIDX(0, 0, 1)},//x==1
+		{VERTIDX(1, 1, 1), VERTIDX(0, 1, 1), VERTIDX(0, 2, 1)},
+		{VERTIDX(1, 1, 1), VERTIDX(2, 1, 1), VERTIDX(2, 0, 1)},
+		{VERTIDX(1, 1, 1), VERTIDX(2, 1, 1), VERTIDX(2, 2, 1)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 0, 1), VERTIDX(0, 0, 1)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 2, 1), VERTIDX(0, 2, 1)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 0, 1), VERTIDX(2, 0, 1)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 2, 1), VERTIDX(2, 2, 1)},
+		{VERTIDX(1, 1, 1), VERTIDX(0, 1, 1), VERTIDX(0, 1, 0)},//y==1
+		{VERTIDX(1, 1, 1), VERTIDX(0, 1, 1), VERTIDX(0, 1, 2)},
+		{VERTIDX(1, 1, 1), VERTIDX(2, 1, 1), VERTIDX(2, 1, 0)},
+		{VERTIDX(1, 1, 1), VERTIDX(2, 1, 1), VERTIDX(2, 1, 2)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 1, 0), VERTIDX(0, 1, 0)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 1, 0), VERTIDX(2, 1, 0)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 1, 2), VERTIDX(0, 1, 2)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 1, 2), VERTIDX(2, 1, 2)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 0, 1), VERTIDX(1, 0, 0)},//z==1
+		{VERTIDX(1, 1, 1), VERTIDX(1, 0, 1), VERTIDX(1, 0, 2)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 2, 1), VERTIDX(1, 2, 0)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 2, 1), VERTIDX(1, 2, 2)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 1, 0), VERTIDX(1, 0, 0)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 1, 0), VERTIDX(1, 2, 0)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 1, 2), VERTIDX(1, 0, 2)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 1, 2), VERTIDX(1, 2, 2)},
+		
+		{VERTIDX(1, 1, 1), VERTIDX(0, 1, 1), VERTIDX(0, 0, 0)},
+		{VERTIDX(1, 1, 1), VERTIDX(0, 1, 1), VERTIDX(0, 0, 2)},
+		{VERTIDX(1, 1, 1), VERTIDX(0, 1, 1), VERTIDX(0, 2, 0)},
+		{VERTIDX(1, 1, 1), VERTIDX(0, 1, 1), VERTIDX(0, 2, 2)},
+		{VERTIDX(1, 1, 1), VERTIDX(0, 1, 1), VERTIDX(2, 0, 0)},
+		{VERTIDX(1, 1, 1), VERTIDX(0, 1, 1), VERTIDX(2, 0, 2)},
+		{VERTIDX(1, 1, 1), VERTIDX(0, 1, 1), VERTIDX(2, 2, 0)},
+		{VERTIDX(1, 1, 1), VERTIDX(0, 1, 1), VERTIDX(2, 2, 2)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 0, 0), VERTIDX(0, 0, 0)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 0, 0), VERTIDX(0, 0, 2)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 0, 0), VERTIDX(2, 0, 0)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 0, 0), VERTIDX(2, 0, 2)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 2, 0), VERTIDX(0, 2, 0)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 2, 0), VERTIDX(0, 2, 2)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 2, 0), VERTIDX(2, 2, 0)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 2, 0), VERTIDX(2, 2, 2)},
+		
+		{VERTIDX(1, 1, 1), VERTIDX(1, 0, 1), VERTIDX(0, 0, 0)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 0, 1), VERTIDX(0, 0, 2)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 0, 1), VERTIDX(2, 0, 0)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 0, 1), VERTIDX(2, 0, 2)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 0, 1), VERTIDX(0, 2, 0)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 0, 1), VERTIDX(0, 2, 2)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 0, 1), VERTIDX(2, 2, 0)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 0, 1), VERTIDX(2, 2, 2)},
+		{VERTIDX(1, 1, 1), VERTIDX(0, 1, 0), VERTIDX(0, 0, 0)},
+		{VERTIDX(1, 1, 1), VERTIDX(0, 1, 0), VERTIDX(0, 0, 2)},
+		{VERTIDX(1, 1, 1), VERTIDX(0, 1, 0), VERTIDX(0, 2, 0)},
+		{VERTIDX(1, 1, 1), VERTIDX(0, 1, 0), VERTIDX(0, 2, 2)},
+		{VERTIDX(1, 1, 1), VERTIDX(2, 1, 0), VERTIDX(2, 0, 0)},
+		{VERTIDX(1, 1, 1), VERTIDX(2, 1, 0), VERTIDX(2, 0, 2)},
+		{VERTIDX(1, 1, 1), VERTIDX(2, 1, 0), VERTIDX(2, 2, 0)},
+		{VERTIDX(1, 1, 1), VERTIDX(2, 1, 0), VERTIDX(2, 2, 2)},
+		
+		{VERTIDX(1, 1, 1), VERTIDX(1, 1, 0), VERTIDX(0, 0, 0)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 1, 0), VERTIDX(0, 2, 0)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 1, 0), VERTIDX(2, 0, 0)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 1, 0), VERTIDX(2, 2, 0)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 1, 0), VERTIDX(0, 0, 2)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 1, 0), VERTIDX(0, 2, 2)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 1, 0), VERTIDX(2, 0, 2)},
+		{VERTIDX(1, 1, 1), VERTIDX(1, 1, 0), VERTIDX(2, 2, 2)},
+		{VERTIDX(1, 1, 1), VERTIDX(0, 0, 1), VERTIDX(0, 0, 0)},
+		{VERTIDX(1, 1, 1), VERTIDX(0, 0, 1), VERTIDX(0, 2, 0)},
+		{VERTIDX(1, 1, 1), VERTIDX(0, 0, 1), VERTIDX(0, 0, 2)},
+		{VERTIDX(1, 1, 1), VERTIDX(0, 0, 1), VERTIDX(0, 2, 2)},
+		{VERTIDX(1, 1, 1), VERTIDX(2, 0, 1), VERTIDX(2, 0, 0)},
+		{VERTIDX(1, 1, 1), VERTIDX(2, 0, 1), VERTIDX(2, 2, 0)},
+		{VERTIDX(1, 1, 1), VERTIDX(2, 0, 1), VERTIDX(2, 0, 2)},
+		{VERTIDX(1, 1, 1), VERTIDX(2, 0, 1), VERTIDX(2, 2, 2)},
+#endif
+	};
+#undef  VERTIDX
+	if(!*edges)
+		ARRAY_ALLOC(float[10], *edges, 0, 0, 0, 0);
+	edges[0]->count=0;
+	__m256 mlevel=_mm256_set1_ps(level);
+	float gains[]=
+	{
+		-cubesize/gx,
+		-cubesize/gy,
+		cubesize/gz,
+	};
+	int psize=gx*gy;
+	for(int kz=1;kz<gz;++kz)
+	{
+		for(int ky=1;ky<gy;++ky)
+		{
+			for(int kx=1;kx<gx;++kx)
+			{
+				int idx=gx*(gy*kz+ky)+kx;
+				float//	vZYX
+					v000=(float)data[idx-psize-gx-1],//8 vertices
+					v001=(float)data[idx-psize-gx  ],
+					v010=(float)data[idx-psize   -1],
+					v011=(float)data[idx-psize     ],
+					v100=(float)data[idx      -gx-1],
+					v101=(float)data[idx      -gx  ],
+					v110=(float)data[idx         -1],
+					v111=(float)data[idx           ];
+
+				__m256 vec=_mm256_set_ps(v111, v110, v101, v100, v011, v010, v001, v000);
+				int cond=_mm256_movemask_ps(_mm256_cmp_ps(vec, mlevel, _CMP_LT_OQ));
+				if(!cond||cond==0xFF)//skip if all vertices are below/above level
+					continue;
+#if 0
+				float
+					v0mm=(v000+v001+v010+v011)*0.25f,
+					v1mm=(v100+v101+v110+v111)*0.25f,
+					vm0m=(v000+v001+v100+v101)*0.25f,
+					vm1m=(v010+v011+v110+v111)*0.25f,
+					vmm0=(v000+v010+v100+v110)*0.25f,
+					vmm1=(v001+v011+v101+v111)*0.25f,
+					vmmm=(v0mm+v1mm)*0.5f;
+				float comps[][3]=
+				{
+					{(float)(kx-1), (float)kx-0.5f, (float)kx},
+					{(float)(ky-1), (float)ky-0.5f, (float)ky},
+					{(float)(kz-1), (float)kz-0.5f, (float)kz},
+				};
+				float vertices[][4]=
+				{
+					{comps[0][0], comps[1][0], comps[2][0], v000},
+					{comps[0][2], comps[1][0], comps[2][0], v001},
+					{comps[0][1], comps[1][1], comps[2][0], v0mm},
+					{comps[0][0], comps[1][2], comps[2][0], v010},
+					{comps[0][2], comps[1][2], comps[2][0], v011},
+					{comps[0][1], comps[1][0], comps[2][1], vm0m},
+					{comps[0][0], comps[1][1], comps[2][1], vmm0},
+					{comps[0][1], comps[1][1], comps[2][1], vmmm},
+					{comps[0][2], comps[1][1], comps[2][1], vmm1},
+					{comps[0][1], comps[1][2], comps[2][1], vm1m},
+					{comps[0][0], comps[1][0], comps[2][2], v100},
+					{comps[0][2], comps[1][0], comps[2][2], v101},
+					{comps[0][1], comps[1][1], comps[2][2], v1mm},
+					{comps[0][0], comps[1][2], comps[2][2], v110},
+					{comps[0][2], comps[1][2], comps[2][2], v111},
+				};
+#endif
+#if 1
+				float
+					v00m=(v000+v001)*0.5f,//12 edge-bisectors
+					v01m=(v010+v011)*0.5f,
+					v10m=(v100+v101)*0.5f,
+					v11m=(v110+v111)*0.5f,
+					v0m0=(v000+v010)*0.5f,
+					v0m1=(v001+v011)*0.5f,
+					v1m0=(v100+v110)*0.5f,
+					v1m1=(v101+v111)*0.5f,
+					vm00=(v000+v100)*0.5f,
+					vm01=(v001+v101)*0.5f,
+					vm10=(v010+v110)*0.5f,
+					vm11=(v011+v111)*0.5f,
+					
+					v0mm=(v00m+v01m)*0.5f,//6 face-centers
+					v1mm=(v10m+v11m)*0.5f,
+					vmm0=(v0m0+v1m0)*0.5f,
+					vmm1=(v0m1+v1m1)*0.5f,
+					vm0m=(vm00+vm01)*0.5f,
+					vm1m=(vm10+vm11)*0.5f,
+					
+					vmmm=(v0mm+v1mm)*0.5f;//1 cube center
+
+				float comps[][3]=
+				{
+					{(float)(kx-1), (float)kx-0.5f, (float)kx},
+					{(float)(ky-1), (float)ky-0.5f, (float)ky},
+					{(float)(kz-1), (float)kz-0.5f, (float)kz},
+				};
+				float vertices[][4]=
+				{
+					{comps[0][0], comps[1][0], comps[2][0], v000},
+					{comps[0][1], comps[1][0], comps[2][0], v00m},
+					{comps[0][2], comps[1][0], comps[2][0], v001},
+					{comps[0][0], comps[1][1], comps[2][0], v0m0},
+					{comps[0][1], comps[1][1], comps[2][0], v0mm},
+					{comps[0][2], comps[1][1], comps[2][0], v0m1},
+					{comps[0][0], comps[1][2], comps[2][0], v010},
+					{comps[0][1], comps[1][2], comps[2][0], v01m},
+					{comps[0][2], comps[1][2], comps[2][0], v011},
+					{comps[0][0], comps[1][0], comps[2][1], vm00},
+					{comps[0][1], comps[1][0], comps[2][1], vm0m},
+					{comps[0][2], comps[1][0], comps[2][1], vm01},
+					{comps[0][0], comps[1][1], comps[2][1], vmm0},
+					{comps[0][1], comps[1][1], comps[2][1], vmmm},
+					{comps[0][2], comps[1][1], comps[2][1], vmm1},
+					{comps[0][0], comps[1][2], comps[2][1], vm10},
+					{comps[0][1], comps[1][2], comps[2][1], vm1m},
+					{comps[0][2], comps[1][2], comps[2][1], vm11},
+					{comps[0][0], comps[1][0], comps[2][2], v100},
+					{comps[0][1], comps[1][0], comps[2][2], v10m},
+					{comps[0][2], comps[1][0], comps[2][2], v101},
+					{comps[0][0], comps[1][1], comps[2][2], v1m0},
+					{comps[0][1], comps[1][1], comps[2][2], v1mm},
+					{comps[0][2], comps[1][1], comps[2][2], v1m1},
+					{comps[0][0], comps[1][2], comps[2][2], v110},
+					{comps[0][1], comps[1][2], comps[2][2], v11m},
+					{comps[0][2], comps[1][2], comps[2][2], v111},
+				};
+				for(int kt=0;kt<_countof(triangles);++kt)
+				{
+					const char (*tr)[3]=triangles+kt;
+					float (*v[])[4]=
+					{
+						vertices+tr[0][0],
+						vertices+tr[0][1],
+						vertices+tr[0][2],
+						0,
+					};
+					if(v[0][0][3]>v[1][0][3])SWAPVAR(v[0], v[1], v[3]);
+					if(v[0][0][3]>v[2][0][3])SWAPVAR(v[0], v[2], v[3]);
+					if(v[1][0][3]>v[2][0][3])SWAPVAR(v[1], v[2], v[3]);
+					if(v[0][0][3]<level&&level<v[2][0][3])
+					{
+						float *edge=(float*)ARRAY_APPEND(*edges, 0, 1, 1, 0);
+						float t=(level-v[0][0][3])/(v[2][0][3]-v[0][0][3]);
+						*edge++=MIX(v[0][0][0], v[2][0][0], t)*gains[0];
+						*edge++=MIX(v[0][0][1], v[2][0][1], t)*gains[1];
+						*edge++=MIX(v[0][0][2], v[2][0][2], t)*gains[2];
+						*edge++=0;
+						*edge++=0;
+						
+						int mid=level>v[1][0][3];
+						t=(level-v[mid][0][3])/(v[mid+1][0][3]-v[mid][0][3]);
+						*edge++=MIX(v[mid][0][0], v[mid+1][0][0], t)*gains[0];
+						*edge++=MIX(v[mid][0][1], v[mid+1][0][1], t)*gains[1];
+						*edge++=MIX(v[mid][0][2], v[mid+1][0][2], t)*gains[2];
+						*edge++=0;
+						*edge++=0;
+					}
+				}
+#endif
+			}
+		}
+	}
+}
 void chart_jointhist_update(Image const *image, unsigned *txid)
 {
 	int nlevels=1<<jointhist_nbits, hsize=nlevels*nlevels*nlevels;
@@ -1669,97 +2079,34 @@ void chart_jointhist_update(Image const *image, unsigned *txid)
 	}
 	else
 		ARRAY_ALLOC(int, jointhist, 0, hsize, 0, 0);
-	ptrdiff_t res=(ptrdiff_t)image->iw*image->ih;
-	int *jh=(int*)jointhist->data;
-	memset(jh, 0, jointhist->esize*jointhist->count);
-	int half[]=
+	int *jhist=(int*)jointhist->data;
+#if 1
+	memset(jhist, 0, jointhist->esize*jointhist->count);
+	int bounds[4]={0};
+	jhc_getboxbounds(jhc_xbox, jhc_ybox, jhc_boxdx, jhc_boxdy, image->iw, image->ih, bounds);
+	jh_calchist(jhist, jointhist_nbits, image, bounds[0], bounds[1], bounds[2], bounds[3]);
+	jhc_marchingcubes(&jhc_mesh, jhist, 1<<jointhist_nbits, 1<<jointhist_nbits, 1<<jointhist_nbits, jhc_level, jh_cubesize);
+	if(!jhc_gpubuf)
 	{
-		1<<(image->depth[0]-1),
-		1<<(image->depth[1]-1),
-		1<<(image->depth[2]-1),
-	};
-	switch(space_not_color)
-	{
-	case 0://show correlation in color
-		for(int k=0;k<res;++k)
-		{
-			int
-				r=(image->data[k<<2|0]+half[0])<<jointhist_nbits>>image->depth[0],
-				g=(image->data[k<<2|1]+half[1])<<jointhist_nbits>>image->depth[1],
-				b=(image->data[k<<2|2]+half[2])<<jointhist_nbits>>image->depth[2];
-			r=CLAMP(0, r, (1<<jointhist_nbits)-1);
-			g=CLAMP(0, g, (1<<jointhist_nbits)-1);
-			b=CLAMP(0, b, (1<<jointhist_nbits)-1);
-			int color=(b<<jointhist_nbits|g)<<jointhist_nbits|r;
-
-			++jh[color];
-		}
-		break;
-	case 1://show correlation in space x (CURR, W, WW)
-		for(int ky=0;ky<image->ih;++ky)
-		{
-			for(int kx=0;kx<image->iw;++kx)
-			{
-				unsigned char
-					v2=kx-2>=0?(image->data[(image->iw*ky+kx-2)<<2|1]+half[1])<<jointhist_nbits>>image->depth[1]:0,//WW
-					v1=kx-1>=0?(image->data[(image->iw*ky+kx-1)<<2|1]+half[1])<<jointhist_nbits>>image->depth[1]:0,//W
-					v0=kx-0>=0?(image->data[(image->iw*ky+kx-0)<<2|1]+half[1])<<jointhist_nbits>>image->depth[1]:0;//curr
-				v0=CLAMP(0, v0, (1<<jointhist_nbits)-1);
-				v1=CLAMP(0, v1, (1<<jointhist_nbits)-1);
-				v2=CLAMP(0, v2, (1<<jointhist_nbits)-1);
-				int color=(v2<<jointhist_nbits|v1)<<jointhist_nbits|v0;
-
-				++jh[color];
-			}
-		}
-		break;
-	case 2://show correlation in space x (CURR, N, NN)
-		for(int ky=0;ky<image->ih;++ky)
-		{
-			for(int kx=0;kx<image->iw;++kx)
-			{
-				unsigned char
-					v2=ky-2>=0?(image->data[(image->iw*(ky-2)+kx)<<2|1]+half[1])<<jointhist_nbits>>image->depth[1]:0,//NN
-					v1=ky-1>=0?(image->data[(image->iw*(ky-1)+kx)<<2|1]+half[1])<<jointhist_nbits>>image->depth[1]:0,//N
-					v0=ky-0>=0?(image->data[(image->iw*(ky-0)+kx)<<2|1]+half[1])<<jointhist_nbits>>image->depth[1]:0;//curr
-				v0=CLAMP(0, v0, (1<<jointhist_nbits)-1);
-				v1=CLAMP(0, v1, (1<<jointhist_nbits)-1);
-				v2=CLAMP(0, v2, (1<<jointhist_nbits)-1);
-				int color=(v2<<jointhist_nbits|v1)<<jointhist_nbits|v0;
-
-				++jh[color];
-			}
-		}
-		break;
-	case 3://show correlation in space x (CURR, N, W)
-		for(int ky=0;ky<image->ih;++ky)
-		{
-			for(int kx=0;kx<image->iw;++kx)
-			{
-				unsigned char
-					v2=kx-1>=0?(image->data[(image->iw* ky   +kx-1)<<2|1]+half[1])<<jointhist_nbits>>image->depth[1]:0,//W
-					v1=ky-1>=0?(image->data[(image->iw*(ky-1)+kx  )<<2|1]+half[1])<<jointhist_nbits>>image->depth[1]:0,//N
-					v0=        (image->data[(image->iw* ky   +kx  )<<2|1]+half[1])<<jointhist_nbits>>image->depth[1]  ;//curr
-				v0=CLAMP(0, v0, (1<<jointhist_nbits)-1);
-				v1=CLAMP(0, v1, (1<<jointhist_nbits)-1);
-				v2=CLAMP(0, v2, (1<<jointhist_nbits)-1);
-				int color=(v2<<jointhist_nbits|v1)<<jointhist_nbits|v0;
-
-				++jh[color];
-			}
-		}
-		break;
+		glGenBuffers(1, &jhc_gpubuf);
+		if(!jhc_gpubuf)
+			LOG_ERROR("Alloc error");
 	}
+	glBindBuffer(GL_ARRAY_BUFFER, jhc_gpubuf);	GL_CHECK(error);
+	glBufferData(GL_ARRAY_BUFFER, (int)(jhc_mesh->count*jhc_mesh->esize), jhc_mesh->data, GL_STATIC_DRAW);	GL_CHECK(error);
+#endif
+	memset(jhist, 0, jointhist->esize*jointhist->count);
+	jh_calchist(jhist, jointhist_nbits, image, 0, image->iw, 0, image->ih);
 	int histmax=0;
 	for(int k=0;k<hsize;++k)
 	{
-		if(!histmax||histmax<jh[k])
-			histmax=jh[k];
+		if(!histmax||histmax<jhist[k])
+			histmax=jhist[k];
 	}
 	if(histmax)
 	{
 		for(int k=0;k<hsize;++k)
-			jointhist->data[k]=jh[k]*255/histmax;
+			jointhist->data[k]=jhist[k]*255/histmax;
 	}
 	
 	if(!*txid)
@@ -2533,8 +2880,14 @@ static void draw_cloud(int x, int y, int blocksize, float cubesize)
 }
 void chart_jointhist_draw()
 {
-	const float cubesize=64, height=1;
-	draw_AAcuboid_wire(0, cubesize, 0, cubesize, 0, height*cubesize, 0xFF000000);
+	draw_AAcuboid_wire(0, jh_cubesize, 0, jh_cubesize, 0, jh_cubesize, 0xFF000000);
+
+	//for(int k=0;k<(int)jhc_mesh->count;++k)//
+	//{
+	//	float *vertices=(float*)array_at(&jhc_mesh, k);
+	//	draw_3d_line(&cam, vertices, vertices+5, 0x80FF00FF);
+	//}
+	draw_3d_wireframe_gpu(&cam, jhc_gpubuf, (int)(jhc_mesh->count<<1), 0xC0000000, GL_LINES);
 
 #if 0
 	draw_cloud(jhx, jhy, blocksize, cubesize);
@@ -2567,8 +2920,29 @@ void chart_jointhist_draw()
 		draw_3d_flush(vertices, &cam, texture, 2, 2, 0, GL_LINE_STRIP);
 	}
 #endif
-	draw_contour3d(&cam, 0, cubesize, 0, cubesize, 0, height*cubesize, txid_jointhist, 1<<jointhist_nbits, 0.8f);
+	draw_contour3d(&cam, 0, jh_cubesize, 0, jh_cubesize, 0, jh_cubesize, txid_jointhist, 1<<jointhist_nbits, 0.8f);
 	//draw_contour3d_rect(&cam, gpu_vertices, (int)(cpu_vertices->count/5), image_txid[2], 0.8f);
+
+	if(show_full_image)
+	{
+		int bounds[4]={0};//{x1, x2, y1, y2}
+		jhc_getboxbounds(jhc_xbox, jhc_ybox, jhc_boxdx, jhc_boxdy, im1->iw, im1->ih, bounds);
+		display_texture_i(0, w, 0, h, (int*)im_export, im1->iw, im1->ih, 0, 1, 0, 1, 0.5, 0);
+		
+		int crosshaircolor=0xFF000000;
+		float ratios[]={(float)w/im1->iw, (float)h/im1->ih};
+		float sbounds[4];
+		for(int k=0;k<4;++k)
+			sbounds[k]=bounds[k]*ratios[k>>1];
+		float xmid=(sbounds[0]+sbounds[1])*0.5f;
+		float ymid=(sbounds[2]+sbounds[3])*0.5f;
+		draw_line(sbounds[0], sbounds[2], sbounds[0], sbounds[3], crosshaircolor);//{x1, y1, x2, y2}
+		draw_line(sbounds[1], sbounds[2], sbounds[1], sbounds[3], crosshaircolor);
+		draw_line(sbounds[0], sbounds[2], sbounds[1], sbounds[2], crosshaircolor);
+		draw_line(sbounds[0], sbounds[3], sbounds[1], sbounds[3], crosshaircolor);
+		draw_line(xmid, 0, xmid, (float)h, crosshaircolor);
+		draw_line(0, ymid, (float)w, ymid, crosshaircolor);
+	}
 }
 
 
@@ -2649,6 +3023,13 @@ int io_mousemove()//return true to redraw
 #endif
 	if(drag)
 	{
+		if(mode==VIS_JOINT_HISTOGRAM&&show_full_image)
+		{
+			jhc_xbox=mx;
+			jhc_ybox=my;
+			chart_jointhist_update(im1, txid_jointhist);
+			return !timer;
+		}
 		int X0=w>>1, Y0=h>>1;
 		cam_turnMouse(cam, mx-X0, my-Y0, mouse_sensitivity);
 		set_mouse(X0, Y0);
@@ -2915,7 +3296,31 @@ int io_mousewheel(int forward)
 		}
 		else
 #endif
-		if(GET_KEY_STATE(KEY_SHIFT))//shift wheel		change cam speed
+		if(mode==VIS_JOINT_HISTOGRAM&&show_full_image)
+		{
+			if(GET_KEY_STATE(KEY_CTRL))
+			{
+				if(forward>0)
+				{
+					jhc_boxdx<<=1;
+					jhc_boxdy<<=1;
+				}
+				else
+				{
+					jhc_boxdx>>=1;
+					jhc_boxdy>>=1;
+				}
+				jhc_boxdx=CLAMP(0, jhc_boxdx, 256);
+				jhc_boxdy=CLAMP(0, jhc_boxdy, 256);
+			}
+			else
+			{
+				jhc_level+=THREEWAY(forward, 0);
+				UPDATE_MAX(jhc_level, 0.5f);
+			}
+			chart_jointhist_update(im1, txid_jointhist);
+		}
+		else if(GET_KEY_STATE(KEY_SHIFT))//shift wheel		change cam speed
 		{
 			if(forward>0)	cam.move_speed*=2;
 			else		cam.move_speed*=0.5f;
@@ -3127,7 +3532,7 @@ int io_keydn(IOKey key, char c)
 				break;
 			}
 		}
-		else
+		else if(key==KEY_LBUTTON)
 			goto toggle_drag;
 		break;
 	case KEY_ESC:
@@ -3152,6 +3557,13 @@ int io_keydn(IOKey key, char c)
 		{
 			show_mouse(drag);
 			drag=!drag;
+			if(mode==VIS_JOINT_HISTOGRAM&&show_full_image)
+			{
+				jhc_xbox=mx;
+				jhc_ybox=my;
+				chart_jointhist_update(im1, txid_jointhist);
+				return 1;
+			}
 			if(drag)//enter mouse control
 			{
 				mx0=mx, my0=my;
@@ -3458,17 +3870,18 @@ int io_keydn(IOKey key, char c)
 			copy_to_clipboard((char*)str->data, (int)str->count);
 			array_free(&str);
 		}
-		else if(mode==VIS_IMAGE||mode==VIS_ZIPF||mode==VIS_IMAGE_TRICOLOR)
+		else if(mode==VIS_IMAGE||mode==VIS_ZIPF||mode==VIS_IMAGE_TRICOLOR||mode==VIS_JOINT_HISTOGRAM)
 		{
-			//show_full_image=(show_full_image+1)%3;
-			show_full_image=!show_full_image;
-		}
-		else if(mode==VIS_JOINT_HISTOGRAM)
-		{
-			int shift=GET_KEY_STATE(KEY_SHIFT);
-			space_not_color+=1-(shift<<1);
-			MODVAR(space_not_color, space_not_color, 4);
-			update_image();
+			if(mode==VIS_JOINT_HISTOGRAM&&GET_KEY_STATE(KEY_SHIFT))
+			{
+				int shift=GET_KEY_STATE(KEY_SHIFT);
+				space_not_color+=1-(shift<<1);
+				MODVAR(space_not_color, space_not_color, 4);
+				update_image();
+			}
+			else
+				show_full_image=!show_full_image;
+
 		}
 		return 1;
 	case 'V':
@@ -5153,7 +5566,7 @@ void io_render()
 		case 2:mode_str="SPACE Y (CURR, N, NN)";break;
 		case 3:mode_str="SPACE   (CURR, N, W)";break;
 		}
-		GUIPrint(0, 0, tdy*2, 1, "%s", mode_str);
+		GUIPrint(0, 0, tdy*2, 1, "[Shift C] %s  [Ctrl Wheel] box %dx%d  [Wheel] contour %f", mode_str, jhc_boxdx, jhc_boxdy, jhc_level);
 	}
 	t=t2;
 
