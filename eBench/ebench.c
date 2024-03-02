@@ -3023,16 +3023,27 @@ int io_mousemove()//return true to redraw
 #endif
 	if(drag)
 	{
-		if(mode==VIS_JOINT_HISTOGRAM&&show_full_image)
+		if(im1&&mode==VIS_JOINT_HISTOGRAM&&show_full_image)
 		{
 			jhc_xbox=mx;
 			jhc_ybox=my;
+			if(GET_KEY_STATE(KEY_SHIFT))
+			{
+				int step;
+
+				step=jhc_boxdx*w/im1->iw;
+				jhc_xbox-=jhc_xbox%step-(step>>1);
+				step=jhc_boxdy*h/im1->ih;
+				jhc_ybox-=jhc_ybox%step-(step>>1);
+			}
 			chart_jointhist_update(im1, txid_jointhist);
-			return !timer;
 		}
-		int X0=w>>1, Y0=h>>1;
-		cam_turnMouse(cam, mx-X0, my-Y0, mouse_sensitivity);
-		set_mouse(X0, Y0);
+		else
+		{
+			int X0=w>>1, Y0=h>>1;
+			cam_turnMouse(cam, mx-X0, my-Y0, mouse_sensitivity);
+			set_mouse(X0, Y0);
+		}
 		return !timer;
 	}
 	return 0;
