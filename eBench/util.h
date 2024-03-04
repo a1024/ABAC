@@ -76,6 +76,7 @@ typedef enum GetOptRetEnum
 int acme_getopt(int argc, char **argv, int *start, const char **keywords, int kw_count);//keywords[i]: shortform char, followed by longform null-terminated string, returns 
 
 int floor_log2(unsigned long long n);
+int floor_log2_32(unsigned n);
 int ceil_log2(unsigned long long n);
 int ceil_log2_32(unsigned n);
 int floor_log10(double x);

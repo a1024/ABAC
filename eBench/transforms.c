@@ -3437,8 +3437,8 @@ void pred_jxl_prealloc(const int *src, int iw, int ih, int depth, int kc, short 
 			vmax<<=8;
 
 			//if(kc==0&&kx==0&&ky==1)//
-			if(kc==0&&kx==256&&ky==256)//
-				printf("");
+			//if(kc==0&&kx==256&&ky==256)//
+			//	printf("");
 
 			pred=CLAMP(vmin, pred, vmax);
 
@@ -4077,6 +4077,7 @@ void pred_calic(Image *src, int fwd, int enable_ma)
 
 
 #define G2_NPRED 21
+#define G2_SSE_SIZE 1024
 //#define G2_NPRED (21+12)
 short g2_weights[]=
 {
@@ -4098,10 +4099,11 @@ short g2_weights[]=
 	 //0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010,
 	 -0x0100, 0x0001,-0x0086,-0x0041, 0x0051,-0x0080, 0x0004, 0x0002,-0x0003,-0x0003, 0x00D9,
 };
-typedef struct SseCellStruct
-{
-	int count, sum;//, sum7, sum8;
-} SseCell;
+typedef long long SseCell;
+//typedef struct SseCellStruct
+//{
+//	int count, sum;//, sum7, sum8;
+//} SseCell;
 //SseCell g2_SSE[12][256];
 //SseCell g2_SSE0[128], g2_SSE1[128], g2_SSE2[128], g2_SSE3[128];
 //char g2_SSE_debug[768*512*4];
@@ -4122,7 +4124,7 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 	ptrdiff_t res=(ptrdiff_t)src->iw*src->ih;
 	int *b2=(int*)malloc((size_t)res*sizeof(int[4]));
 	int *perrors=(int*)malloc((size_t)src->iw*(G2_NPRED+1)*2*sizeof(int));
-	SseCell *sse=(SseCell*)malloc(sizeof(SseCell[1024]));
+	SseCell *sse=(SseCell*)malloc(sizeof(SseCell[G2_SSE_SIZE]));
 	//int *SSE_count=(int*)malloc(256*sizeof(int));
 	//int *SSE_sum=(int*)malloc(256*sizeof(int));
 	if(!b2||!perrors||!sse)
@@ -4134,7 +4136,8 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 	const int *pixels=fwd?src->data:b2, *errors=fwd?b2:src->data;
 	for(int kc=0;kc<4;++kc)
 	{
-		if(!src->depth[kc])
+		int depth=src->depth[kc];
+		if(!depth)
 			continue;
 		int nlevels=1<<src->depth[kc];
 		//int maxerror=0;
@@ -4142,7 +4145,7 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 		int *hireserror=perrors+src->iw*2*G2_NPRED;
 		memset(perrors, 0, 2LL*src->iw*(G2_NPRED+1)*sizeof(int));
 
-		memset(sse, 0, sizeof(SseCell[1024]));
+		memset(sse, 0, sizeof(SseCell[G2_SSE_SIZE]));
 		//memset(g2_SSE0, 0, sizeof(g2_SSE0));
 		//memset(g2_SSE1, 0, sizeof(g2_SSE1));
 		//memset(g2_SSE2, 0, sizeof(g2_SSE2));
@@ -4171,15 +4174,17 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 				//	NNNWWW  =LOAD(pixels, -3, -3),
 					NNN     =LOAD(pixels,  0, -3),
 				//	NNNEEE  =LOAD(pixels,  3, -3),
-				//	NNWW    =LOAD(pixels, -2, -2),
+					NNWW    =LOAD(pixels, -2, -2),
 					NNW     =LOAD(pixels, -1, -2),
 					NN      =LOAD(pixels,  0, -2),
 					NNE     =LOAD(pixels,  1, -2),
-				//	NNEE    =LOAD(pixels,  2, -2),
+					NNEE    =LOAD(pixels,  2, -2),
+					NWW     =LOAD(pixels, -2, -1),
 					NW      =LOAD(pixels, -1, -1),
 					N       =LOAD(pixels,  0, -1),
 					NE      =LOAD(pixels,  1, -1),
 					NEE     =LOAD(pixels,  2, -1),
+					NEEE    =LOAD(pixels,  3, -1),
 					NEEEE   =LOAD(pixels,  4, -1),
 					NEEEEE  =LOAD(pixels,  5, -1),
 					NEEEEEE =LOAD(pixels,  6, -1),
@@ -4187,7 +4192,7 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 					WWWWWW  =LOAD(pixels, -6,  0),
 					WWWW    =LOAD(pixels, -4,  0),
 				//	WWW     =LOAD(pixels, -3,  0),
-				//	WW      =LOAD(pixels, -2,  0),
+					WW      =LOAD(pixels, -2,  0),
 					W       =LOAD(pixels, -1,  0);
 #undef  LOAD
 #define LOAD(BUF, X, Y) (unsigned)(kx+(X))<(unsigned)src->iw&&(unsigned)(ky+(Y))<(unsigned)src->ih?BUF[(src->iw*(ky+(Y))+kx+(X))<<2|kc]:0
@@ -4235,33 +4240,57 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 						perrors[src->iw*2*k+src->iw*((ky-1)&1)+kx]+
 						((unsigned)(kx+1)<(unsigned)src->iw?perrors[src->iw*2*k+src->iw*((ky-1)&1)+kx+1]:0);
 				}
+				int clamp_min=N, clamp_max=N;
+				UPDATE_MIN(clamp_min, W);
+				UPDATE_MAX(clamp_max, W);
+				UPDATE_MIN(clamp_min, NE);
+				UPDATE_MAX(clamp_max, NE);
 				
-				//const int den2=2;
-				const int correction=0;
-				//int correction=((eN+eW)*5+(eNW+eNE)*3)/(16*4);
+				int dx=abs(W-WW)+abs(N-NW)+abs(NE-N);
+				int dy=abs(W-NW)+abs(N-NN)+abs(NE-NNE);
+				int d45=abs(W-NWW)+abs(NW-NNWW)+abs(N-NNW);
+				int d135=abs(NE-NNEE)+abs(N-NNE)+abs(W-N);
+				int diff=(dy-dx)>>8, diff2=(d45-d135)>>8, diff3=NE-NW;
+				int paper_GAP, calic_GAP;
+				if(dy+dx>32)
+					paper_GAP=(int)(((long long)dx*N+(long long)dy*W)/((long long)dy+dx));
+				else if(diff>12)
+					paper_GAP=(N+2*W)/3;
+				else if(diff<-12)
+					paper_GAP=(2*N+W)/3;
+				else
+					paper_GAP=(N+W)>>1;
+
+				if(diff2>32)
+					paper_GAP+=diff3>>2;
+				else if(diff2>16)
+					paper_GAP+=diff3*3>>4;
+				else if(diff2>=-16)
+					paper_GAP+=diff3>>3;
+				else if(diff2>=-32)
+					paper_GAP+=diff3>>4;
+
+				if(diff>80)
+					calic_GAP=W;
+				else if(diff<-80)
+					calic_GAP=N;
+				else if(diff>32)
+					calic_GAP=(2*N+6*W+NE-NW)>>3;		//c1	[1/4  3/4  1/8  -1/8].[N W NE NW]
+				else if(diff>8)
+					calic_GAP=(6*N+10*W+3*(NE-NW))>>4;	//c2	[3/8  5/8  3/16  -3/16]
+				else if(diff<-32)
+					calic_GAP=(6*N+2*W+NE-NW)>>3;		//c3	[3/4  1/4  1/8  -1/8]
+				else if(diff<-8)
+					calic_GAP=(10*N+6*W+3*(NE-NW))>>4;	//c4	[5/8  3/8  3/16  -3/16]
+				else
+					calic_GAP=(((N+W)<<1)+NE-NW)>>2;	//c5	[1/2  1/2  1/4  -1/4]
+
 				int j=-1;
-				int vmin, vmax;
-#if 1
-#define GRAD(pred, N, W, NW, vmin, vmax)\
-				do\
-				{\
-					if(N<W)\
-						vmin=N, vmax=W;\
-					else\
-						vmin=W, vmax=N;\
-					pred=N+W-NW;\
-					pred=CLAMP(vmin, pred, vmax);\
-				}while(0)
-#endif
-				vmin=N, vmax=N;
-				if(vmin>W)vmin=W;
-				if(vmax<W)vmax=W;
-#if 1
 				//the 4 predictors from JPEG XL:
-				++j, preds[j]=N-((eNW*params[G2_NPRED]+eN*params[G2_NPRED+1]+eNE*params[G2_NPRED+2]+(NN-N)*params[G2_NPRED+3]+(NW-W)*params[G2_NPRED+4])>>8);
-				++j, preds[j]=W-((eN+eW+eNW)*params[G2_NPRED+5]>>8);
-				++j, preds[j]=N-((eN+eW+eNE)*params[G2_NPRED+6]>>8);
 				++j, preds[j]=W+NE-N;
+				++j, preds[j]=N-((eN+eW+eNE)*params[G2_NPRED+6]>>8);
+				++j, preds[j]=W-((eN+eW+eNW)*params[G2_NPRED+5]>>8);
+				++j, preds[j]=N-((eNW*params[G2_NPRED]+eN*params[G2_NPRED+1]+eNE*params[G2_NPRED+2]+(NN-N)*params[G2_NPRED+3]+(NW-W)*params[G2_NPRED+4])>>8);
 				//++j, preds[j]=N+((eN+eW+eNE)*10>>5);
 				//++j, preds[j]=W+((eN+eW+eNW)*10>>5);
 				//++j, preds[j]=N+((eNW*5+eN*5+eNE*5+(NN-N)*12+(NW-W)*4)>>5);
@@ -4283,16 +4312,24 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 				//++j, preds[j]=NW+correction;
 				//++j, preds[j]=NE+correction;
 				
-				++j, preds[j]=clamp4(N+W -NW +correction, N, W, NW, NE);
-				++j, preds[j]=clamp4(W+NE-N  +correction, N, W, NW, NE);
-				++j, preds[j]=clamp4(N+NW-NNW+correction, N, W, NW, NE);
-				++j, preds[j]=clamp4(N+NE-NNE+correction, N, W, NE, NEE);
+				++j, preds[j]=calic_GAP;
+				//++j, preds[j]=(N+W)>>1;
+				++j, preds[j]=(4*(N+W+NW+NE)-(NN+WW+NNWW+NNEE)+6)/12;
+				++j, preds[j]=(3*W+NEEE)>>2;
+				++j, preds[j]=paper_GAP;
+				//++j, preds[j]=N+NE-NNE;
+				//++j, preds[j]=clamp4(N+W -NW , N, W, NW, NE);
+				//++j, preds[j]=clamp4(W+NE-N  , N, W, NW, NE);
+				//++j, preds[j]=clamp4(N+NW-NNW, N, W, NW, NE);
+				//++j, preds[j]=clamp4(N+NE-NNE, N, W, NE, NEE);
 				
-				++j, preds[j]=(W+NEE)/2+correction;
-				++j, preds[j]=NNNNNN+correction;
-				++j, preds[j]=(NEEEE+NEEEEEE)/2+correction;
-				++j, preds[j]=(WWWW+WWWWWW)/2+correction;
-				//++j, preds[j]=W*3-WW*3+WWW;//parabolic
+				++j, preds[j]=(W+NEE)>>1;
+				++j, preds[j]=NNNNNN;			//this predicts N6
+				++j, preds[j]=(NEEEE+NEEEEEE)>>1;	//this predicts NE5
+				++j, preds[j]=(WWWW+WWWWWW)>>1;		//this predicts W5
+				++j, preds[j]=(N+W+NEEEEE+NEEEEEEE)>>2;	//this predicts NE2.75
+
+				//++j, preds[j]=W*3-WW*3+WWW;//parabolic (3rd derivative)
 				//++j, preds[j]=N*3-NN*3+NNN;
 				//++j, preds[j]=NW*3-NNWW*3+NNNWWW;
 				//++j, preds[j]=NE*3-NNEE*3+NNNEEE;
@@ -4305,13 +4342,13 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 				//++j, preds[j]=4*NW-6*NNWW+4*NNNWWW-NNNNWWWW, preds[j]=CLAMP(vmin, preds[j], vmax);
 				//++j, preds[j]=4*NE-6*NNEE+4*NNNEEE-NNNNEEEE, preds[j]=CLAMP(vmin, preds[j], vmax);
 
-				++j, preds[j]=(N+W+NEEEEE+NEEEEEEE)/4+correction;
-				++j, preds[j]=clamp4(N*2-NN+correction, N, W, NE, NEE);
-				++j, preds[j]=(N+NNN)/2+correction;
-				++j, preds[j]=((N+W)*3-NW*2)/4+correction;
-#endif
+				++j, preds[j]=3*(N-NN)+NNN;
+				//++j, preds[j]=clamp4(N*2-NN, N, W, NE, NEE);
+				++j, preds[j]=(N+NNN)>>1;		//this predicts NN
+				++j, preds[j]=((N+W)*3-NW*2)>>2;
 
-				++j; GRAD(preds[j], N, W, NW, vmin, vmax);
+				++j, preds[j]=N+W-NW;//, preds[j]=MEDIAN3(N, W, preds[j]);
+				//++j; GRAD(preds[j], N, W, NW, vmin, vmax);
 				//++j, preds[j]=W+NE-N, preds[j]=CLAMP(vmin, preds[j], vmax);
 
 				//++j;
@@ -4361,7 +4398,7 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 				}
 				pred=den?(int)(num/den):preds[0];
 				
-				pred=CLAMP(vmin, pred, vmax);
+				//pred=CLAMP(vmin, pred, vmax);
 				
 				
 				//int pred0=pred;
@@ -4476,17 +4513,21 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 
 				for(int k2=3;k2>=0;--k2)
 				{
+					//int *dnbk=dnb+((size_t)k2<<2);//X
+					//hashval=pred>>(depth+8-4)<<8;
+					//int temp=dnbk[0]+dnbk[1]+dnbk[2]+dnbk[3];
+					//hashval+=floor_log2_32(abs(temp))<<1|(temp<0);
+					//hashval&=0xFF;
+					//pc[k2]=sse+((size_t)k2<<8)+hashval;
+
 					hashval=(pred+128)>>(8+6)&3;
 					for(int k=0;k<3;++k)
 					{
 						hashval<<=3;
-						hashval+=(int)(dnb[3*k2+k]*0xFC28)>>(16+6)&3;
+						hashval+=(int)(dnb[3*k2+k]*0xFC28>>(16+6)&3);
 					}
 					hashval&=0xFF;
-					//if((unsigned)hashval>=256)//
-					//	LOG_ERROR("SSE ERROR");
-
-					pc[k2]=sse+(int)(k2<<8)+hashval;
+					pc[k2]=sse+((size_t)k2<<8)+hashval;
 					//pc[k2]=g2_SSE[k2]+hashval;
 
 					//int c=2, d=pc[k2]->sum8+pc[k2]->sum7;
@@ -4496,46 +4537,39 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 					//	d+=(int)((((long long)pc[k2]->sum<<8)+(pc[k2]->count>>1))/pc[k2]->count);
 					//}
 					//pred+=d/c;
-					pred+=pc[k2]->count?(int)((((long long)pc[k2]->sum<<8)+(pc[k2]->count>>1))/pc[k2]->count):0;
-					pred=CLAMP(-(nlevels<<7), pred, (nlevels<<7)-1);
+					long long sum=pc[k2][0]>>12;
+					int count=pc[k2][0]&0xFFF;
+					pred+=(int)((sum+(count>>1))/(count+1LL));
+					//pred=CLAMP(-(nlevels<<7), pred, (nlevels<<7)-1);
 				}
+				pred=CLAMP(clamp_min, pred, clamp_max);
 
-				int delta;
-				if(fwd)
+				int val=(pred+128)>>8;
+				val^=-fwd;
+				val+=fwd;
+				val+=src->data[idx];
+				if(enable_ma)
 				{
-					delta=src->data[idx]-((pred+128)>>8);
-					if(enable_ma)
-					{
-						delta+=nlevels>>1;
-						delta&=nlevels-1;
-						delta-=nlevels>>1;
-					}
-					b2[idx]=delta;
+					val+=nlevels>>1;
+					val&=nlevels-1;
+					val-=nlevels>>1;
 				}
-				else
-				{
-					delta=src->data[idx];
-					int pixel=delta+((pred+128)>>8);
-					if(enable_ma)
-					{
-						pixel+=nlevels>>1;
-						pixel&=nlevels-1;
-						pixel-=nlevels>>1;
-					}
-					b2[idx]=pixel;
+				b2[idx]=val;
 
-					//if(b2[idx]!=guide[idx])//
-					//	LOG_ERROR("");
-				}
-				for(int k=0;k<4;++k)
+				int curr=pixels[idx]<<8;
+				int error=curr-pred;
+				for(int k2=0;k2<4;++k2)
 				{
-					if(pc[k]->count+1>640)
+					long long sum=pc[k2][0]>>12;
+					int count=pc[k2][0]&0xFFF;
+					if(count+1>640)
 					{
-						pc[k]->count>>=1;
-						pc[k]->sum>>=1;
+						count>>=1;
+						sum>>=1;
 					}
-					++pc[k]->count;
-					pc[k]->sum+=delta;
+					++count;
+					sum+=error;
+					pc[k2][0]=sum<<12|count;
 					//pc[k]->sum8=(pc[k]->sum8*255+(delta<<8))>>8;
 					//pc[k]->sum7=(pc[k]->sum7*127+(delta<<8))>>7;
 				}
@@ -4749,7 +4783,7 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 				b2[idx]=src->data[idx]+((spred+128)>>8);
 #endif
 
-				int curr=pixels[idx]<<8;
+				//int curr=pixels[idx]<<8;
 				hireserror[src->iw*(ky&1)+kx]=curr-pred;
 				for(int k=0;k<G2_NPRED;++k)
 				{
