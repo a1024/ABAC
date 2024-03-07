@@ -2428,9 +2428,13 @@ static void pred_separate_x(Image const *src, Image *dst, int fwd, int enable_ma
 		{
 			int
 				NNNNN	=LOAD(pixels,  0, -5),
+				NNNNWW	=LOAD(pixels, -2, -4),
 				NNNNW	=LOAD(pixels, -1, -4),
 				NNNN	=LOAD(pixels,  0, -4),
 				NNNNE	=LOAD(pixels,  1, -4),
+				NNNNEE	=LOAD(pixels,  2, -4),
+				NNNNEEE	=LOAD(pixels,  3, -4),
+				NNNNEEEE=LOAD(pixels,  4, -4),
 				NNNWWWW	=LOAD(pixels, -4, -3),
 				NNNWWW	=LOAD(pixels, -3, -3),
 				NNNWW	=LOAD(pixels, -2, -3),
@@ -2449,6 +2453,7 @@ static void pred_separate_x(Image const *src, Image *dst, int fwd, int enable_ma
 				NNEE	=LOAD(pixels,  2, -2),
 				NNEEE	=LOAD(pixels,  3, -2),
 				NNEEEE	=LOAD(pixels,  4, -2),
+				NWWWWW	=LOAD(pixels, -5, -1),
 				NWWWW	=LOAD(pixels, -4, -1),
 				NWWW	=LOAD(pixels, -3, -1),
 				NWW	=LOAD(pixels, -2, -1),
@@ -2462,6 +2467,8 @@ static void pred_separate_x(Image const *src, Image *dst, int fwd, int enable_ma
 				NEEEEEE	=LOAD(pixels,  6, -1),
 				NEEEEEEE	=LOAD(pixels,  7, -1),
 				NEEEEEEEE	=LOAD(pixels,  8, -1),
+				WWWWWWWWW	=LOAD(pixels, -9,  0),
+				WWWWWWWW	=LOAD(pixels, -8,  0),
 				WWWWWWW	=LOAD(pixels, -7,  0),
 				WWWWWW	=LOAD(pixels, -6,  0),
 				WWWWW	=LOAD(pixels, -5,  0),
@@ -2469,31 +2476,65 @@ static void pred_separate_x(Image const *src, Image *dst, int fwd, int enable_ma
 				WWW	=LOAD(pixels, -3,  0),
 				WW	=LOAD(pixels, -2,  0),
 				W	=LOAD(pixels, -1,  0);
-			int cmin=N, cmax=N;
-			UPDATE_MIN(cmin, W);
-			UPDATE_MAX(cmax, W);
+			int cmin=W, cmax=W;
+			UPDATE_MIN(cmin, N);
+			UPDATE_MAX(cmax, N);
 			UPDATE_MIN(cmin, NE);
 			UPDATE_MAX(cmax, NE);
 			int preds[]=
 			{
-				0x3200000, N+W-NW,
-				0x1000000, (4*(N+W)-(NE+NW))>>2,
+				 0x2E00000, N+W-NW,
+				 0x0C00000, 2*(N+W-NW)-(NN+WW-NNWW),
+				 0x0200000, 3*(N+W-NW-(NN+WW-NNWW))+NNN+WWW-NNNWWW,
+				-0x0300000, N+W-NW+NEE-(NE+NNEE-NNE),
+				-0x0800000, (N+W)>>1,
+				-0x0100000, N+W-((NN+WW)>>1),
+				 0x0200000, (4*(N+W)+NE-NW)>>2,//shift right 3?
+				 0x0800000, (4*(N+W)-NE+NW)>>2,//shift right 3?
+				 0x0800000, (4*(N+W)-(NE+NW))>>2,
+				-0x0200000, (4*(N+W)-(NE+NW))/6,
 				-0x0E00000, (W+NE)>>1,
 				-0x0E00000, (2*W+NEE)/3,
-				0x0F00000, (3*W+NEEE)>>2,
-				0x1000000, (4*W+N+NE+NEE+NEEE)>>2,
-				0x0800000, (2*W+NEE-N)>>1,
-				0x0800000, (3*W+NEEE-N)>>1,
-				0x1400000, (3*(3*W+NE+NEE)-10*N)/5,
-				0x1800000, N+NE-NNE,
-				0x0F00000, (2*(N+NE+NEE)-(NNE+NNEE+NNEEE))/3,
-				0x1000000, NE+NEE-(NNEE+NNEEE+NNEEEE)/3,
-				0x1200000, (NEEE+NEEEE)>>1,
-				0x0E00000, (NEEEEE+NEEEEEE)>>1,
-				0x0A00000, (NEEEEEEE+NEEEEEEEE)>>1,
-
-				0x1800000, (4*N-2*NN+NW+NE)>>2,
-				0x0800000, (N+W+2*(NW+NE)-(NNWW+NNEE))>>2,
+				 0x0F00000, (3*W+NEEE)>>2,
+				 0x1000000, 4*W+N+NE+NEE+NEEE,//shift right 3?
+				-0x0500000, (0x289*W+0x080*N+0x06A*NE+0x04F*NEE+0x03E*NEEE)>>10,//proportional to distance
+				-0x0500000, (192*W+33*N+22*NE+11*NEE+6*NEEE)/264,//proportional to square distance
+				 0x0500000, W+NE-N,
+				 0x0200000, 2*(W+NE-N)-(WW+NNEE-NN),
+				 0x0200000, 3*(W+NE-N-(WW+NNEE-NN))+WWW+NNNEEE-NNN,
+				 0x0500000, W+NE-N+NW-(NWW+NN-NNW),
+				-0x0100000, W+NE-((3*N+NW)>>2),
+				 0x0800000, (2*W+NEE-N)>>1,
+				 0x0800000, (3*W+NEEE-N)>>1,
+				 0x1400000, (3*(3*W+NE+NEE)-10*N)/5,
+				 0x0300000, (WWWWWWWWW+WWWWWWWW)>>1,
+				 0x0400000, (WWWWWWW+WWWWWW)>>1,
+				-0x0100000, (WWWWW+WWWW+NWWW+NEEE)>>2,
+				 0x0200000, (NWWWW+NWWW+NEEEE+NEEEEE)>>2,
+				 0x0200000, W+NW-NWW,
+				 0x0700000, NW+NWW-NNWWW,
+				 0x0600000, N+NW-NNW,
+				 0x1800000, N+NE-NNE,
+				-0x0500000, (9*(NW-NNWW)+NNNNWW+NNNWWW+NNWWWW)/3,
+				 0x0300000, (9*(NE-NNEE)+NNNNEE+NNNEEE+NNEEEE)/3,
+				 0x0500000, NN+NNW-(NNNN+NNNNW+NNNNWW)/3,
+				 0x0500000, 2*NN-(NNNNW+NNNN+NNNNE)/3,
+				 0x0500000, NN+NNE-(NNNN+NNNNE+NNNNEE)/3,
+				 0x0B00000, NNEE+NEE-(NNNNEEEE+NNNEEEE+NNEEEE)/3,
+				 0x0500000, 3*NE-(NNE+NEE),
+				-0x0700000, NE+NEE-(NNEE+NNEEE+NNEEEE)/3,
+				-0x0600000, (14*NE-(NNEE+NNNEE+NNEEE))/11,
+				-0x0500000, ((NW+N+W)*10-(NNWW+NNW+NN+NWW+WW)*3)/15,
+				-0x0300000, (75*W+53*NW)>>7,
+				-0x0300000, (75*N+53*NW)>>7,
+				-0x0300000, (75*N+53*NE)>>7,
+				 0x0F00000, (2*(N+NE+NEE)-(NNE+NNEE+NNEEE))/3,
+				 0x1600000, NE+NEE-(NNEE+NNEEE+NNEEEE)/3,
+				 0x1400000, (NEEE+NEEEE)>>1,
+				 0x0E00000, (NEEEEE+NEEEEEE)>>1,
+				 0x0C00000, (NEEEEEEE+NEEEEEEEE)>>1,
+				 0x1800000, (4*N-2*NN+NW+NE)>>2,
+				 0x0800000, (N+W+2*(NW+NE)-(NNWW+NNEE))>>2,
 				
 				0x0F00000, N,
 				0x1400000, 2*N-NN,
@@ -2512,17 +2553,17 @@ static void pred_separate_x(Image const *src, Image *dst, int fwd, int enable_ma
 				0x1200000, (WW+WWW+WWWW+WWWWW)>>2,
 				
 				-0x0800000, NW,
-				0x0400000, 2*NW-NNWW,
-				0x0200000, 3*(NW-NNWW)+NNNWWW,
-				0x0400000, (NW+NNWW)>>1,
-				0x0400000, (NW+NNWW+NNNWWW)>>1,		//why 3/2?
+				 0x0400000, 2*NW-NNWW,
+				 0x0200000, 3*(NW-NNWW)+NNNWWW,
+				 0x0400000, (NW+NNWW)>>1,
+				 0x0400000, (NW+NNWW+NNNWWW)>>1,	//why 3/2?
 				-0x0300000, (NW+NNW+NWW+NNWW)>>1,
 				
 				-0x0800000, NE,
-				0x0400000, 2*NE-NNEE,
-				0x0200000, 3*(NE-NNEE)+NNNEEE,
-				0x0400000, (NE+NNEE)>>1,
-				0x0400000, (NE+NNEE+NNNEEE)>>1,		//why 3/2?
+				 0x0400000, 2*NE-NNEE,
+				 0x0200000, 3*(NE-NNEE)+NNNEEE,
+				 0x0400000, (NE+NNEE)>>1,
+				 0x0400000, (NE+NNEE+NNNEEE)>>1,	//why 3/2?
 				-0x0300000, (NE+NNE+NEE+NNEE)>>1,
 #if 0
 				N+W-NW,
@@ -2532,6 +2573,10 @@ static void pred_separate_x(Image const *src, Image *dst, int fwd, int enable_ma
 				(3*(3*W+NE+NEE)-10*N+2)/5,
 
 				//directional predictors:
+				//-0x0100000, (3*(N+W-(NN+WW))+NNN+WWW)>>1,//X
+				//0x0100000, (14*(NE+NNEE)-3*(NNNNEEE+NNNNEEEE+NNNEEE+NNNEEEE))>>4,//X
+				//0x0100000, (2*(9*W+NW)-(NWWWWW+NWWWW+WWWWW+WWWW))>>4,//X
+				//-0x0100000, W+WW-((NWWWW+NWWW+WWWW+WWW)>>2),//X
 				//2*NE-((NNEE+NNEEE+NNNEE+NNNEEE)>>2),
 				//2*NW-((NNWW+NNWWW+NNNWW+NNNWWW)>>2),
 				//(10*NE-(NNEE+NNEEE+NNNEE+NNNEEE))/6,

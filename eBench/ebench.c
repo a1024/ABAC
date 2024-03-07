@@ -76,6 +76,7 @@ typedef enum TransformTypeEnum
 
 	CST_FWD_SEPARATOR,	CST_INV_SEPARATOR,
 	
+	ST_FWD_P3,		ST_INV_P3,
 	ST_FWD_G2,		ST_INV_G2,
 	ST_FWD_MM,		ST_INV_MM,
 	ST_FWD_JXLPRED,		ST_INV_JXLPRED,
@@ -87,7 +88,6 @@ typedef enum TransformTypeEnum
 	ST_FWD_CLAMPGRAD,	ST_INV_CLAMPGRAD,
 	ST_FWD_AVERAGE,		ST_INV_AVERAGE,
 	ST_FWD_MULTISTAGE,	ST_INV_MULTISTAGE,
-	ST_FWD_SEPARATE,	ST_INV_SEPARATE,
 //	ST_FWD_DIR,		ST_INV_DIR,
 #if 0
 	ST_FWD_CTX,		ST_INV_CTX,
@@ -1260,6 +1260,8 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 //	case ST_PREPROC_X:		a=" S Preproc X";		break;
 //	case ST_PREPROC_X2:		a=" S Preproc X2";		break;
 
+	case ST_FWD_P3:			a=" S Fwd P3";			break;
+	case ST_INV_P3:			a=" S Inv P3";			break;
 	case ST_FWD_G2:			a=" S Fwd G2";			break;
 	case ST_INV_G2:			a=" S Inv G2";			break;
 	case ST_FWD_OLS:		a=" S Fwd OLS";			break;
@@ -1270,8 +1272,6 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case ST_INV_AVERAGE:		a=" S Inv Average";		break;
 	case ST_FWD_MULTISTAGE:		a=" S Fwd Multistage";		break;
 	case ST_INV_MULTISTAGE:		a=" S Inv Multistage";		break;
-	case ST_FWD_SEPARATE:		a=" S Fwd Separate";		break;
-	case ST_INV_SEPARATE:		a=" S Inv Separate";		break;
 //	case ST_FWD_DIR:		a=" S Fwd Dir";			break;
 //	case ST_INV_DIR:		a=" S Inv Dir";			break;
 	case ST_FWD_CUSTOM3:		a=" S Fwd CUSTOM3";		break;
@@ -2272,8 +2272,8 @@ void apply_selected_transforms(Image *image)
 		case ST_INV_AVERAGE:		pred_average(image, 0, pred_ma_enabled);		break;
 		case ST_FWD_MULTISTAGE:		pred_multistage(image, 1, pred_ma_enabled);		break;
 		case ST_INV_MULTISTAGE:		pred_multistage(image, 0, pred_ma_enabled);		break;
-		case ST_FWD_SEPARATE:		pred_separate(image, 1, pred_ma_enabled);		break;
-		case ST_INV_SEPARATE:		pred_separate(image, 0, pred_ma_enabled);		break;
+		case ST_FWD_P3:			pred_separate(image, 1, pred_ma_enabled);		break;
+		case ST_INV_P3:			pred_separate(image, 0, pred_ma_enabled);		break;
 	//	case ST_FWD_DIR:		pred_dir(image, 1, pred_ma_enabled);			break;
 	//	case ST_INV_DIR:		pred_dir(image, 0, pred_ma_enabled);			break;
 		case ST_FWD_G2:			pred_grad2(image, 1, pred_ma_enabled);			break;
