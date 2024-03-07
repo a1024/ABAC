@@ -378,6 +378,129 @@ int floor_log10(double x)
 	sh= x<nmask[1];      logn-=sh;
 	return logn;
 }
+unsigned floor_sqrt(unsigned long long x)
+{
+	if(x<2)
+		return (unsigned)x;
+	int lg_sqrtx_p1=(floor_log2(x)>>1)+1;
+	unsigned long long
+		U=1ULL<<lg_sqrtx_p1,
+		L=U>>1,
+		temp=x>>(lg_sqrtx_p1-1);
+	--U;
+	U=MINVAR(U, temp);
+	temp>>=1;
+	L=MAXVAR(L, temp);
+	//unsigned long long
+	//	L=(1ULL<<lg_sqrtx_p1)>>1,
+	//	U=(1ULL<<lg_sqrtx_p1)-1,
+	//	L2=x>>lg_sqrtx_p1,	//where is the proof that these are also bounds?
+	//	U2=x>>(lg_sqrtx_p1-1);
+	//L=MAXVAR(L, L2);
+	//U=MINVAR(U, U2);
+	//int nmuls=0;//
+	while(L<=U)//binary search
+	{
+		unsigned long long level=(L+U)>>1, sq=level*level;
+		//++nmuls;//
+		if(x>sq)
+			L=level+1;
+		else if(x<sq)
+			U=level-1;
+		else
+		{
+			U=level;
+			break;
+		}
+	}
+	//printf("%d muls\n", nmuls);//
+	return (unsigned)U;//U <= L, we want floor, so return U
+
+	//https://stackoverflow.com/questions/1100090/looking-for-an-efficient-integer-square-root-algorithm-for-arm-thumb2
+#if 0
+	unsigned res=0, add=0x80000000;
+	int i;
+	for(i=0;i<32;++i)
+	{
+		unsigned temp=res|add;
+		if(x>=(unsigned long long)temp*temp)
+			res=temp;
+		add>>=1;
+	}
+	return res;
+#endif
+}
+#define FRAC_BITS 24
+unsigned long long exp2_fix24(int x)
+{
+	static const unsigned long long frac_pots[]=
+	{
+		0x1000000B1,//round(2^(0x000001*2^-24)*2^32)		//extra 8 bits of precision
+		0x100000163,
+		0x1000002C6,
+		0x10000058C,
+		0x100000B17,
+		0x10000162E,
+		0x100002C5D,
+		0x1000058B9,
+		0x10000B172,
+		0x1000162E5,
+		0x10002C5CC,
+		0x100058BA0,
+		0x1000B175F,
+		0x100162F39,
+		0x1002C605E,
+		0x10058C86E,
+		0x100B1AFA6,
+		0x10163DAA0,
+		0x102C9A3E7,
+		0x1059B0D31,
+		0x10B5586D0,
+		0x1172B83C8,
+		0x1306FE0A3,
+		0x16A09E668,//round(2^(0x800000*2^-24)*2^32)
+	};
+	int neg=x<0;
+	x=abs(x);
+	if(x>=0x27000000)
+		return neg?0:0xFFFFFFFFFFFFFFFF;
+	unsigned long long result=0x1000000;
+	for(int k=0;k<FRAC_BITS;++k)//up to 24 muls
+	{
+		if(x&1)
+		{
+			result*=frac_pots[k];
+			//result+=1LL<<31;
+			result>>=32;
+		}
+		x>>=1;
+	}
+	result=SHIFT_LEFT_SIGNED(result, x);
+	if(neg)
+		result=0x1000000000000/result;
+	return result;
+}
+int log2_fix24(unsigned long long x)
+{
+	//https://stackoverflow.com/questions/4657468/fast-fixed-point-pow-log-exp-and-sqrt
+	//and YouChad
+	if(!x)
+		return -((FRAC_BITS+1)<<FRAC_BITS);
+	int lgx=floor_log2(x)-24;
+	x=SHIFT_RIGHT_SIGNED(x, lgx);
+	lgx<<=24;
+	if(!(x&(x-1)))//no need to do 24 muls if x is a power of two
+		return lgx;
+	for(int k=FRAC_BITS-1;k>=0;--k)//constant 24 muls, hopefully will be unrolled
+	{
+		x=x*x>>FRAC_BITS;
+		int cond=x>=(2LL<<FRAC_BITS);
+		x>>=cond;
+		lgx|=cond<<k;
+	}
+	return lgx;
+}
+#undef  FRAC_BITS
 double power(double x, int y)
 {
 	double mask[]={1, 0}, product=1;

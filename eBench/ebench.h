@@ -698,6 +698,8 @@ void rct_adaptive(Image *src, int fwd);
 //spatial transforms
 void pred_clampedgrad(Image *image, int fwd, int enable_ma);
 void pred_average(Image *src, int fwd, int enable_ma);
+void pred_multistage(Image *src, int fwd, int enable_ma);
+void pred_separate(Image *src, int fwd, int enable_ma);
 
 void pred_dir(Image *src, int fwd, int enable_ma);
 

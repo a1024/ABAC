@@ -2095,12 +2095,16 @@ void pred_average(Image *src, int fwd, int enable_ma)
 		{
 			for(int kx=0;kx<src->iw;++kx, ++idx)
 			{
+#define LOAD(BUF, X, Y) ((unsigned)(ky+(Y))<(unsigned)src->ih&&(unsigned)(kx+(X))<(unsigned)src->iw?BUF[(src->iw*(ky+(Y))+kx+(X))<<2|kc]:0)
 				int
-					NW=kx&&ky		?pixels[(idx-src->iw-1)<<2|kc]:0,
-					N =ky			?pixels[(idx-src->iw  )<<2|kc]:0,
-					NE=kx<src->iw-1&&ky	?pixels[(idx-src->iw+1)<<2|kc]:0,
-					W =kx			?pixels[(idx        -1)<<2|kc]:0;
+					//NNE	=LOAD(pixels,  1, -2),
+					NW	=LOAD(pixels, -1, -1),
+					N	=LOAD(pixels,  0, -1),
+					NE	=LOAD(pixels,  1, -1),
+					W	=LOAD(pixels, -1,  0);
+#undef  LOAD
 				int pred=(4*(N+W)+NE-NW)>>3;
+				//int pred=(W+2*NE-NNE+1)>>1;
 				
 				pred^=-fwd;
 				pred+=fwd;
@@ -2115,6 +2119,640 @@ void pred_average(Image *src, int fwd, int enable_ma)
 				//dst->data[idx<<2|kc]=((src->data[idx<<2|kc]+pred+(nlevels>>1))&(nlevels-1))-(nlevels>>1);
 			}
 		}
+	}
+	memcpy(src->data, dst->data, (size_t)src->iw*src->ih*sizeof(int[4]));
+	if(!enable_ma)
+	{
+		++src->depth[0];
+		++src->depth[1];
+		++src->depth[2];
+		src->depth[3]+=src->depth[3]!=0;
+	}
+	free(dst);
+}
+
+#define LOAD(BUF, X, Y) ((unsigned)(ky+(Y))<(unsigned)src->ih&&(unsigned)(kx+(X))<(unsigned)src->iw?BUF[(src->iw*(ky+(Y))+kx+(X))<<2|kc]:0)
+static void pred_multistage_stage1(Image *src, Image *dst, int fwd, int enable_ma, int kc, int *hist)
+{
+	int nlevels=1<<src->depth[kc];
+	const int *pixels=fwd?src->data:dst->data, *errors=fwd?dst->data:src->data;
+	//memset(hist, 0, (nlevels+1)*sizeof(int));//
+	for(int ky=0, idx=0;ky<src->ih;ky+=2)
+	{
+		for(int kx=0;kx<src->iw;kx+=2)
+		{
+			int
+				idx=src->iw*ky+kx,
+				NNWW	=LOAD(pixels, -2, -2),
+				NN	=LOAD(pixels,  0, -2),
+				WW	=LOAD(pixels, -2,  0);
+			int pred=NN+WW-NNWW;
+			pred=MEDIAN3(NN, WW, pred);
+
+			pred^=-fwd;
+			pred+=fwd;
+			pred+=src->data[idx<<2|kc];
+			if(enable_ma)
+			{
+				pred+=nlevels>>1;
+				pred&=nlevels-1;
+				pred-=nlevels>>1;
+				//++hist[pred+(nlevels>>1)+1];//
+				//++hist[0];
+			}
+			dst->data[idx<<2|kc]=pred;
+		}
+	}
+}
+static void pred_multistage_stage2(Image *src, Image *dst, int fwd, int enable_ma, int kc, int *hist)
+{
+	int nlevels=1<<src->depth[kc];
+	const int *pixels=fwd?src->data:dst->data, *errors=fwd?dst->data:src->data;
+	//memset(hist, 0, (nlevels+1)*sizeof(int));//
+	for(int ky=0, idx=0;ky<src->ih;ky+=2)
+	{
+		for(int kx=1;kx<src->iw;kx+=2)
+		{
+			int
+				idx=src->iw*ky+kx,
+				NNWW	=LOAD(pixels, -2, -2),
+				NN	=LOAD(pixels,  0, -2),
+				WW	=LOAD(pixels, -2,  0),
+				W	=LOAD(pixels, -1,  0),
+				E	=LOAD(pixels,  1,  0);
+			//int pred2=NN+WW-NNWW;
+			//pred2=MEDIAN3(NN, WW, pred2);
+			//int pred=(7*(W+E)+2*pred2+8)>>4;
+			int pred=(W+E+1)>>1;
+
+			pred^=-fwd;
+			pred+=fwd;
+			pred+=src->data[idx<<2|kc];
+			if(enable_ma)
+			{
+				pred+=nlevels>>1;
+				pred&=nlevels-1;
+				pred-=nlevels>>1;
+				//++hist[pred+(nlevels>>1)+1];//
+				//++hist[0];
+			}
+			dst->data[idx<<2|kc]=pred;
+		}
+	}
+}
+static void pred_multistage_stage3(Image *src, Image *dst, int fwd, int enable_ma, int kc, int *hist)
+{
+	int nlevels=1<<src->depth[kc];
+	const int *pixels=fwd?src->data:dst->data, *errors=fwd?dst->data:src->data;
+	//memset(hist, 0, (nlevels+1)*sizeof(int));//
+	for(int ky=1, idx=0;ky<src->ih;ky+=2)
+	{
+		for(int kx=0;kx<src->iw;kx+=2)
+		{
+			int
+				idx=src->iw*ky+kx,
+				N	=LOAD(pixels,  0, -1),
+				S	=LOAD(pixels,  0,  1),
+				NW	=LOAD(pixels, -1, -1),
+				SW	=LOAD(pixels, -1,  1),
+				NE	=LOAD(pixels,  1, -1),
+				SE	=LOAD(pixels,  1,  1);
+			int pred=(N+S+1)>>1;
+			//int pred=(30*(N+S)+NW+SW+NE+SE+32)>>6;
+			//int pred=(14*(N+S)+NW+SW+NE+SE+16)>>5;
+			//int pred=(6*(N+S)+NW+SW+NE+SE+8)>>4;
+			//int pred=(34*(N+S)-(NW+SW+NE+SE)+32)>>6;
+
+			pred^=-fwd;
+			pred+=fwd;
+			pred+=src->data[idx<<2|kc];
+			if(enable_ma)
+			{
+				pred+=nlevels>>1;
+				pred&=nlevels-1;
+				pred-=nlevels>>1;
+				//++hist[pred+(nlevels>>1)+1];//
+				//++hist[0];
+			}
+			dst->data[idx<<2|kc]=pred;
+		}
+	}
+}
+static void pred_multistage_stage4(Image *src, Image *dst, int fwd, int enable_ma, int kc, int *hist)
+{
+	int nlevels=1<<src->depth[kc];
+	const int *pixels=fwd?src->data:dst->data, *errors=fwd?dst->data:src->data;
+	//memset(hist, 0, (nlevels+1)*sizeof(int));//
+	for(int ky=1, idx=0;ky<src->ih;ky+=2)
+	{
+		for(int kx=1;kx<src->iw;kx+=2)
+		{
+			int
+				idx=src->iw*ky+kx,
+				N	=LOAD(pixels,  0, -1),
+				S	=LOAD(pixels,  0,  1),
+				W	=LOAD(pixels, -1,  0),
+				E	=LOAD(pixels,  1,  0),
+				NW	=LOAD(pixels, -1, -1),
+				SW	=LOAD(pixels, -1,  1),
+				NE	=LOAD(pixels,  1, -1),
+				SE	=LOAD(pixels,  1,  1);
+			int pred=(7*(N+S+W+E)+NW+SW+NE+SE+16)>>5;
+			//int pred=(3*(N+S+W+E)+NW+SW+NE+SE+8)>>4;
+			//int pred=(N+S+W+E+2)>>2;
+
+			pred^=-fwd;
+			pred+=fwd;
+			pred+=src->data[idx<<2|kc];
+			if(enable_ma)
+			{
+				pred+=nlevels>>1;
+				pred&=nlevels-1;
+				pred-=nlevels>>1;
+				//++hist[pred+(nlevels>>1)+1];//
+				//++hist[0];
+			}
+			dst->data[idx<<2|kc]=pred;
+		}
+	}
+}
+
+static void pred_multistage_stage2c(Image *src, Image *dst, int fwd, int enable_ma, int kc)
+{
+	int nlevels=1<<src->depth[kc];
+	const int *pixels=fwd?src->data:dst->data, *errors=fwd?dst->data:src->data;
+	for(int ky=1, idx=0;ky<src->ih;ky+=2)
+	{
+		for(int kx=1;kx<src->iw;kx+=2)
+		{
+			int
+				idx=src->iw*ky+kx,
+				NW	=LOAD(pixels, -1, -1),
+				SW	=LOAD(pixels, -1,  1),
+				NE	=LOAD(pixels,  1, -1),
+				SE	=LOAD(pixels,  1,  1),
+				NNWW	=LOAD(pixels, -2, -2),
+				NN	=LOAD(pixels,  0, -2),
+				WW	=LOAD(pixels, -2,  0);
+			int pred=(NW+SW+NE+SE+2)>>2;
+			//int grad=NN+WW-NNWW;
+			//grad=MEDIAN3(NN, WW, grad);
+			//int pred=(3*(NW+SW+NE+SE)+4*grad+8)>>4;
+				
+			pred^=-fwd;
+			pred+=fwd;
+			pred+=src->data[idx<<2|kc];
+			if(enable_ma)
+			{
+				pred+=nlevels>>1;
+				pred&=nlevels-1;
+				pred-=nlevels>>1;
+			}
+			dst->data[idx<<2|kc]=pred;
+		}
+	}
+}
+static void pred_multistage_stage3c(Image *src, Image *dst, int fwd, int enable_ma, int kc)
+{
+	int nlevels=1<<src->depth[kc];
+	const int *pixels=fwd?src->data:dst->data, *errors=fwd?dst->data:src->data;
+	for(int ky=1, idx=0;ky<src->ih;ky+=2)
+	{
+		for(int kx=0;kx<src->iw;kx+=2)
+		{
+			int
+				idx=src->iw*ky+kx,
+				N	=LOAD(pixels,  0, -1),
+				S	=LOAD(pixels,  0,  1),
+				W	=LOAD(pixels, -1,  0),
+				E	=LOAD(pixels,  1,  0);
+			int pred=(N+W+S+E+2)>>2;
+				
+			pred^=-fwd;
+			pred+=fwd;
+			pred+=src->data[idx<<2|kc];
+			if(enable_ma)
+			{
+				pred+=nlevels>>1;
+				pred&=nlevels-1;
+				pred-=nlevels>>1;
+			}
+			dst->data[idx<<2|kc]=pred;
+		}
+	}
+}
+static void pred_multistage_stage4c(Image *src, Image *dst, int fwd, int enable_ma, int kc)
+{
+	int nlevels=1<<src->depth[kc];
+	const int *pixels=fwd?src->data:dst->data, *errors=fwd?dst->data:src->data;
+	for(int ky=0, idx=0;ky<src->ih;ky+=2)
+	{
+		for(int kx=1;kx<src->iw;kx+=2)
+		{
+			int
+				idx=src->iw*ky+kx,
+				N	=LOAD(pixels,  0, -1),
+				S	=LOAD(pixels,  0,  1),
+				W	=LOAD(pixels, -1,  0),
+				E	=LOAD(pixels,  1,  0),
+				NW	=LOAD(pixels, -1, -1),
+				SW	=LOAD(pixels, -1,  1),
+				NE	=LOAD(pixels,  1, -1),
+				SE	=LOAD(pixels,  1,  1);
+			int pred=(N+W+S+E+2)>>2;
+			//int pred=(7*(N+S+W+E)+NW+SW+NE+SE+16)>>5;
+				
+			pred^=-fwd;
+			pred+=fwd;
+			pred+=src->data[idx<<2|kc];
+			if(enable_ma)
+			{
+				pred+=nlevels>>1;
+				pred&=nlevels-1;
+				pred-=nlevels>>1;
+			}
+			dst->data[idx<<2|kc]=pred;
+		}
+	}
+}
+void pred_multistage(Image *src, int fwd, int enable_ma)
+{
+	//int maxdepth=calc_maxdepth(src, 0), maxlevels=1<<maxdepth;
+	//int *hist=(int*)malloc((maxlevels+1LL)*sizeof(int));
+	Image *dst=0;
+	image_copy_nodata(&dst, src);
+	if(!dst)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(dst->data, 0, (size_t)src->iw*src->ih*sizeof(int[4]));
+	//double csizes[16]={0};
+	for(int kc=0;kc<4;++kc)
+	{
+		if(!src->depth[kc])
+			continue;
+		pred_multistage_stage1(src, dst, fwd, enable_ma, kc, 0);	//csizes[kc<<2|0]=calc_entropy(hist+1, 1<<src->depth[kc], hist[0]);
+		pred_multistage_stage2(src, dst, fwd, enable_ma, kc, 0);	//csizes[kc<<2|1]=calc_entropy(hist+1, 1<<src->depth[kc], hist[0]);
+		pred_multistage_stage3(src, dst, fwd, enable_ma, kc, 0);	//csizes[kc<<2|2]=calc_entropy(hist+1, 1<<src->depth[kc], hist[0]);
+		pred_multistage_stage4(src, dst, fwd, enable_ma, kc, 0);	//csizes[kc<<2|3]=calc_entropy(hist+1, 1<<src->depth[kc], hist[0]);
+	}
+	//double csize=0;
+	//for(int k=0;k<16;++k)//
+	//{
+	//	csizes[k]*=(src->iw*src->ih>>2)/8;
+	//	csize+=csizes[k];
+	//}
+	memcpy(src->data, dst->data, (size_t)src->iw*src->ih*sizeof(int[4]));
+	if(!enable_ma)
+	{
+		++src->depth[0];
+		++src->depth[1];
+		++src->depth[2];
+		src->depth[3]+=src->depth[3]!=0;
+	}
+	free(dst);
+}
+#undef  LOAD
+
+#define LOAD(BUF, X, Y) ((unsigned)(ky+(Y))<(unsigned)src->ih&&(unsigned)(kx+(X))<(unsigned)src->iw?BUF[(src->iw*(ky+(Y))+kx+(X))<<2|kc]:0)
+static void pred_separate_x(Image const *src, Image *dst, int fwd, int enable_ma, int kc)
+{
+	int nlevels=1<<src->depth[kc], half=nlevels>>1;
+	const int *pixels=fwd?src->data:dst->data, *errors=fwd?dst->data:src->data;
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		long long errors[128]={nlevels<<8};
+		memfill(errors+1, errors, sizeof(errors)-sizeof(long long), sizeof(long long));
+		for(int kx=0;kx<src->iw;++kx, ++idx)
+		{
+			int
+				NNNNN	=LOAD(pixels,  0, -5),
+				NNNNW	=LOAD(pixels, -1, -4),
+				NNNN	=LOAD(pixels,  0, -4),
+				NNNNE	=LOAD(pixels,  1, -4),
+				NNNWWWW	=LOAD(pixels, -4, -3),
+				NNNWWW	=LOAD(pixels, -3, -3),
+				NNNWW	=LOAD(pixels, -2, -3),
+				NNNW	=LOAD(pixels, -1, -3),
+				NNN	=LOAD(pixels,  0, -3),
+				NNNE	=LOAD(pixels,  1, -3),
+				NNNEE	=LOAD(pixels,  2, -3),
+				NNNEEE	=LOAD(pixels,  3, -3),
+				NNNEEEE	=LOAD(pixels,  4, -3),
+				NNWWWW	=LOAD(pixels, -4, -2),
+				NNWWW	=LOAD(pixels, -3, -2),
+				NNWW	=LOAD(pixels, -2, -2),
+				NNW	=LOAD(pixels, -1, -2),
+				NN	=LOAD(pixels,  0, -2),
+				NNE	=LOAD(pixels,  1, -2),
+				NNEE	=LOAD(pixels,  2, -2),
+				NNEEE	=LOAD(pixels,  3, -2),
+				NNEEEE	=LOAD(pixels,  4, -2),
+				NWWWW	=LOAD(pixels, -4, -1),
+				NWWW	=LOAD(pixels, -3, -1),
+				NWW	=LOAD(pixels, -2, -1),
+				NW	=LOAD(pixels, -1, -1),
+				N	=LOAD(pixels,  0, -1),
+				NE	=LOAD(pixels,  1, -1),
+				NEE	=LOAD(pixels,  2, -1),
+				NEEE	=LOAD(pixels,  3, -1),
+				NEEEE	=LOAD(pixels,  4, -1),
+				NEEEEE	=LOAD(pixels,  5, -1),
+				NEEEEEE	=LOAD(pixels,  6, -1),
+				NEEEEEEE	=LOAD(pixels,  7, -1),
+				NEEEEEEEE	=LOAD(pixels,  8, -1),
+				WWWWWWW	=LOAD(pixels, -7,  0),
+				WWWWWW	=LOAD(pixels, -6,  0),
+				WWWWW	=LOAD(pixels, -5,  0),
+				WWWW	=LOAD(pixels, -4,  0),
+				WWW	=LOAD(pixels, -3,  0),
+				WW	=LOAD(pixels, -2,  0),
+				W	=LOAD(pixels, -1,  0);
+			int cmin=N, cmax=N;
+			UPDATE_MIN(cmin, W);
+			UPDATE_MAX(cmax, W);
+			UPDATE_MIN(cmin, NE);
+			UPDATE_MAX(cmax, NE);
+			int preds[]=
+			{
+				0x3200000, N+W-NW,
+				0x1000000, (4*(N+W)-(NE+NW))>>2,
+				-0x0E00000, (W+NE)>>1,
+				-0x0E00000, (2*W+NEE)/3,
+				0x0F00000, (3*W+NEEE)>>2,
+				0x1000000, (4*W+N+NE+NEE+NEEE)>>2,
+				0x0800000, (2*W+NEE-N)>>1,
+				0x0800000, (3*W+NEEE-N)>>1,
+				0x1400000, (3*(3*W+NE+NEE)-10*N)/5,
+				0x1800000, N+NE-NNE,
+				0x0F00000, (2*(N+NE+NEE)-(NNE+NNEE+NNEEE))/3,
+				0x1000000, NE+NEE-(NNEE+NNEEE+NNEEEE)/3,
+				0x1200000, (NEEE+NEEEE)>>1,
+				0x0E00000, (NEEEEE+NEEEEEE)>>1,
+				0x0A00000, (NEEEEEEE+NEEEEEEEE)>>1,
+
+				0x1800000, (4*N-2*NN+NW+NE)>>2,
+				0x0800000, (N+W+2*(NW+NE)-(NNWW+NNEE))>>2,
+				
+				0x0F00000, N,
+				0x1400000, 2*N-NN,
+				0x1000000, 3*(N-NN)+NNN,
+				0x1800000, 4*(N+NNN)-6*NN-(NNNNW+NNNN+NNNNE)/3,
+				0x1000000, (N+NN)>>1,
+				0x0800000, (N+NN+NNN)>>1,		//why 3/2?
+				0x1200000, (NN+NNN+NNNN+NNNNN)>>2,
+				
+				0x0F00000, W,
+				0x1400000, 2*W-WW,
+				0x1000000, 3*(W-WW)+WWW,
+				0x1800000, 4*(W+WWW)-6*WW-(WWWW+NWWWW)/2,
+				0x1000000, (W+WW)>>1,
+				0x0800000, (W+WW+WWW)>>1,		//why 3/2?
+				0x1200000, (WW+WWW+WWWW+WWWWW)>>2,
+				
+				-0x0800000, NW,
+				0x0400000, 2*NW-NNWW,
+				0x0200000, 3*(NW-NNWW)+NNNWWW,
+				0x0400000, (NW+NNWW)>>1,
+				0x0400000, (NW+NNWW+NNNWWW)>>1,		//why 3/2?
+				-0x0300000, (NW+NNW+NWW+NNWW)>>1,
+				
+				-0x0800000, NE,
+				0x0400000, 2*NE-NNEE,
+				0x0200000, 3*(NE-NNEE)+NNNEEE,
+				0x0400000, (NE+NNEE)>>1,
+				0x0400000, (NE+NNEE+NNNEEE)>>1,		//why 3/2?
+				-0x0300000, (NE+NNE+NEE+NNEE)>>1,
+#if 0
+				N+W-NW,
+				(4*(N+W)-(NE+NW))>>2,
+				(2*W+NEE-N)>>1,
+				(3*W+NEEE)>>2,
+				(3*(3*W+NE+NEE)-10*N+2)/5,
+
+				//directional predictors:
+				//2*NE-((NNEE+NNEEE+NNNEE+NNNEEE)>>2),
+				//2*NW-((NNWW+NNWWW+NNNWW+NNNWWW)>>2),
+				//(10*NE-(NNEE+NNEEE+NNNEE+NNNEEE))/6,
+				//WWWWWW,
+				//(W+NW+N)/3,
+				//(N+NE+NEE)/3,
+				//(WWWW+WWWWW+WWWWWW)/3,
+				//(WWWWWWW+WWWWWW)>>1,
+				//W,			//180.00 degrees
+				//((WW+W+NW+NWW)>>1)-NWWW,//165.96 degrees
+				//W+NW-NWW,		//153.43 degrees
+				//NW+NWW-NNWWW,		//123.69 degrees
+				//NW,			//135.00 degrees
+				//N+NW-NNW,		//116.57 degrees
+				//N,			// 90.00 degrees
+				N+NE-NNE,		// 63.43 degrees
+				(2*(N+NE+NEE)-(NNE+NNEE+NNEEE))/3,
+				//N+(N+NE+NEE)/3-(NNNE+NNNEE+NNNEEE+NNE+NNEE+NNEEE+NE+NEE+NEEE)/9,
+				//(10*(N+NE+NEE)-3*(NNE+NNEE+NNEEE+NEE+NNNEE))/15,
+				//NE+NNE-NNNEE,		// 56.31 degrees
+				//NE,			// 45.00 degrees
+				NE+NEE-(NNEE+NNEEE+NNEEEE)/3,
+				//NE+NEE-(NEEE+NNEE+NNEEE+NNEEEE+NNNEEE)/5,//X
+				//NE+NEE-NNEEE,		// 33.69 degrees
+				//NEE,
+				//NEEEE,		// 14.04 degrees
+				(NEEE+NEEEE)>>1,
+				(NEEEEE+NEEEEEE)>>1,
+				//(NEEEEEE+NEEEEEEE)>>1,
+				//(NEEEEEEE+NEEEEEEEE)>>1,
+				//NEEEEEEEE,
+
+				(4*W+N+NE+NEE+NEEE)>>2,
+				(4*N-2*NN+NW+NE)>>2,
+				(N+W+2*(NW+NE)-(NNWW+NNEE))>>2,
+
+				//W,
+				//(75*W+53*NW)>>7,
+				//(75*N+53*NW)>>7,
+				//N,
+				//(75*N+53*NE)>>7,
+
+				//N,
+				2*N-NN,
+				//5*N-(NN+NNN),
+				3*(N-NN)+NNN,
+				//3*(N-NN)+(NNN+NNNE)/2,
+				//3*(N-NN)+(NNNW+NNN+NNNE)/3,
+				//4*(N+NNN)-6*NN-NNNN,
+				4*(N+NNN)-6*NN-(NNNNW+NNNN+NNNNE)/3,
+				(N+NN)>>1,
+				(N+NN+NNN)>>1,		//why 3/2?
+				(NN+NNN+NNNN+NNNNN)>>2,
+
+				//W,
+				2*W-WW,
+				3*(W-WW)+WWW,
+				//3*(W-WW)+(WWW+WWWW)/2,
+				4*(W+WWW)-6*WW-(WWWW+NWWWW)/2,
+				(W+WW)>>1,
+				(W+WW+WWW)>>1,		//why 3/2?
+				(WW+WWW+WWWW+WWWWW)>>2,
+				
+				//NW,
+				//2*NW-NNWW,
+				//3*(NW-NNWW)+NNNWWW,
+				//(NW+NNWW)>>1,
+				//(NW+NNWW+NNNWWW)>>1,		//why 3/2?
+				
+				//NE,
+				//2*NE-NNEE,
+				//3*(NE-NNEE)+NNNEEE,
+				//(NE+NNEE)>>1,
+				//(NE+NNEE+NNNEEE)>>1,		//why 3/2?
+
+				//negative effect:
+				//0,
+				//W+NE-N,		//superseded
+				//(6*(N+W)-(NW+NWW+NNW+NNWW))>>3,
+				//(4*(N+W)+NE-NW)>>3,	//superseded
+				//(N+W)>>1,		//redundant bias
+				//NE+WW-NW,
+				//W+NEE-NE,
+				//(WW+W+NEE-NW)>>1,
+				//(9*W+4*NEE)/13,
+				//(7*W+NEEE+NEEEE)/9,
+				//NW+NWW-NNWWW,
+				//(4*(N+W+NW+NE)-(NN+WW+NNWW+NNEE)+6)/12,
+				//floor_sqrt(((long long)N+half)*((long long)W+half)),
+				//5*(N-NNNN+2*(NNN-NN))+NNNNN,
+				//5*(W-WWWW+2*(WWW-WW))+WWWWW,
+				//(N+NN+NNN+NNNN+NNNNN)/5,
+				//(W+WW+WWW+WWWW+WWWWW)/5,
+#endif
+			};
+			//preds[1]=MEDIAN3(N, W, preds[1]);
+#if 0
+			int preds[]=
+			{
+				-W,
+				0,
+				W,
+				2*W-WW,
+				3*(W-WW)+WWW,
+				//4*(W+WWW)-6*WW-WWWW,
+				(W+WW)>>1,
+				(W+WW+WWW)>>1,
+				//(W+WW+WWW+WWWW)>>2,
+			};
+#endif
+			long long lpred=0, lsum=0;
+			for(int k=0;k<_countof(preds)/2;++k)
+			{
+				long long w=(((long long)ky+1)*preds[k<<1|0])/errors[k];
+				lpred+=w*preds[k<<1|1];
+				lsum+=w;
+			}
+			int pred=(int)(lpred/lsum);
+			pred=CLAMP(cmin, pred, cmax);
+
+			pred^=-fwd;
+			pred+=fwd;
+			pred+=src->data[idx<<2|kc];
+			if(enable_ma)
+			{
+				pred+=nlevels>>1;
+				pred&=nlevels-1;
+				pred-=nlevels>>1;
+			}
+			dst->data[idx<<2|kc]=pred;
+
+			int curr=pixels[idx<<2|kc];
+			for(int k=0;k<_countof(preds)/2;++k)
+			{
+				long long e=errors[k];
+				e+=((abs(curr-preds[k<<1|1])<<8)-e)/3;
+				UPDATE_MAX(e, 1);
+				errors[k]=e;
+			}
+		}
+	}
+}
+static void pred_separate_y(Image const *src, Image *dst, int fwd, int enable_ma, int kc)
+{
+	int nlevels=1<<src->depth[kc];
+	const int *pixels=fwd?src->data:dst->data, *errors=fwd?dst->data:src->data;
+	for(int kx=0, idx=0;kx<src->iw;++kx)
+	{
+		long long errors[64]={1};
+		memfill(errors+1, errors, sizeof(errors)-sizeof(long long), sizeof(long long));
+		for(int ky=0;ky<src->ih;++ky, ++idx)
+		{
+			int
+				WWWW	=LOAD(pixels, 0, -4),
+				WWW	=LOAD(pixels, 0, -3),
+				WW	=LOAD(pixels, 0, -2),
+				W	=LOAD(pixels, 0, -1);
+			int preds[]=
+			{
+				-W,
+				0,
+				W,
+				2*W-WW,
+				3*(W-WW)+WWW,
+				//4*(W+WWW)-6*WW-WWWW,
+				(W+WW)>>1,
+				(W+WW+WWW)>>1,
+				//(W+WW+WWW+WWWW)>>2,
+			};
+			long long lpred=0, lsum=0;
+			for(int k=0;k<_countof(preds);++k)
+			{
+				long long w=(((long long)ky+1)<<16)/errors[k];
+				lpred+=w*preds[k];
+				lsum+=w;
+			}
+			int pred=(int)(lpred/lsum);
+
+			pred^=-fwd;
+			pred+=fwd;
+			pred+=src->data[idx<<2|kc];
+			if(enable_ma)
+			{
+				pred+=nlevels>>1;
+				pred&=nlevels-1;
+				pred-=nlevels>>1;
+			}
+			dst->data[idx<<2|kc]=pred;
+
+			int curr=pixels[idx<<2|kc];
+			for(int k=0;k<_countof(preds);++k)
+				errors[k]+=abs(curr-preds[k]);
+		}
+	}
+}
+#undef  LOAD
+void pred_separate(Image *src, int fwd, int enable_ma)
+{
+	Image *dst=0;
+	image_copy_nodata(&dst, src);
+	if(!dst)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(dst->data, 0, (size_t)src->iw*src->ih*sizeof(int[4]));
+	for(int kc=0;kc<4;++kc)
+	{
+		if(!src->depth[kc])
+			continue;
+		//if(fwd)
+		//{
+		//	pred_separate_x(src, dst, fwd, enable_ma, kc);
+		//	pred_separate_y(dst, src, fwd, enable_ma, kc);
+		//}
+		//else
+		//{
+		//	pred_separate_y(src, dst, fwd, enable_ma, kc);
+		//	pred_separate_x(dst, src, fwd, enable_ma, kc);
+		//}
+		pred_separate_x(src, dst, fwd, enable_ma, kc);
 	}
 	memcpy(src->data, dst->data, (size_t)src->iw*src->ih*sizeof(int[4]));
 	if(!enable_ma)
@@ -4323,7 +4961,7 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 				//++j, preds[j]=clamp4(N+NW-NNW, N, W, NW, NE);
 				//++j, preds[j]=clamp4(N+NE-NNE, N, W, NE, NEE);
 				
-				++j, preds[j]=(W+NEE)>>1;
+				++j, preds[j]=(W+NEE)>>1;		//this predicts E0.5
 				++j, preds[j]=NNNNNN;			//this predicts N6
 				++j, preds[j]=(NEEEE+NEEEEEE)>>1;	//this predicts NE5
 				++j, preds[j]=(WWWW+WWWWWW)>>1;		//this predicts W5
