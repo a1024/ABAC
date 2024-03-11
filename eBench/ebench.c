@@ -24,7 +24,7 @@ Camera cam=
 ArrayHandle fn=0;
 size_t filesize=0;
 
-Image *im0, *im1;//im0: original image, im1: image with selected transforms
+Image *im0=0, *im1=0;//im0: original image, im1: image with selected transforms
 int pred_ma_enabled=1;//modular arithmetic for spatial predictors
 int separate_grayscale=1;//separate channels are shown greyscale
 unsigned txid_separate_r=0, txid_separate_g=0, txid_separate_b=0, txid_separate_a=0;
@@ -85,8 +85,9 @@ typedef enum TransformTypeEnum
 //	ST_FWD_NBLIC,		ST_INV_NBLIC,
 	ST_FWD_CALIC,		ST_INV_CALIC,
 	ST_FWD_OLS,		ST_INV_OLS,
+	ST_FWD_OLS2,		ST_INV_OLS2,
 	ST_FWD_CLAMPGRAD,	ST_INV_CLAMPGRAD,
-	ST_FWD_AVERAGE,		ST_INV_AVERAGE,
+//	ST_FWD_AVERAGE,		ST_INV_AVERAGE,
 	ST_FWD_MULTISTAGE,	ST_INV_MULTISTAGE,
 //	ST_FWD_DIR,		ST_INV_DIR,
 #if 0
@@ -134,7 +135,7 @@ unsigned gpu_vertices=0;
 ArrayHandle jointhist=0;
 int jointhist_nbits=6;//max
 int jhx=0, jhy=0;
-double ch_entropy[4]={0};
+double ch_entropy[4]={0};//RGBA
 int usage[4]={0};
 
 #define combCRhist_SIZE 128
@@ -1266,10 +1267,12 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case ST_INV_G2:			a=" S Inv G2";			break;
 	case ST_FWD_OLS:		a=" S Fwd OLS";			break;
 	case ST_INV_OLS:		a=" S Inv OLS";			break;
+	case ST_FWD_OLS2:		a=" S Fwd OLS-2";		break;
+	case ST_INV_OLS2:		a=" S Inv OLS-2";		break;
 	case ST_FWD_CLAMPGRAD:		a=" S Fwd ClampGrad";		break;
 	case ST_INV_CLAMPGRAD:		a=" S Inv ClampGrad";		break;
-	case ST_FWD_AVERAGE:		a=" S Fwd Average";		break;
-	case ST_INV_AVERAGE:		a=" S Inv Average";		break;
+//	case ST_FWD_AVERAGE:		a=" S Fwd Average";		break;
+//	case ST_INV_AVERAGE:		a=" S Inv Average";		break;
 	case ST_FWD_MULTISTAGE:		a=" S Fwd Multistage";		break;
 	case ST_INV_MULTISTAGE:		a=" S Inv Multistage";		break;
 //	case ST_FWD_DIR:		a=" S Fwd Dir";			break;
@@ -2266,10 +2269,12 @@ void apply_selected_transforms(Image *image)
 		case ST_INV_MM:			pred_w2_apply(image, 0, pred_ma_enabled, pw2_params);	break;
 		case ST_FWD_OLS:		pred_ols(image, 1, pred_ma_enabled);			break;
 		case ST_INV_OLS:		pred_ols(image, 0, pred_ma_enabled);			break;
+		case ST_FWD_OLS2:		pred_ols2(image, 1, pred_ma_enabled);			break;
+		case ST_INV_OLS2:		pred_ols2(image, 0, pred_ma_enabled);			break;
 		case ST_FWD_CLAMPGRAD:		pred_clampedgrad(image, 1, pred_ma_enabled);		break;
 		case ST_INV_CLAMPGRAD:		pred_clampedgrad(image, 0, pred_ma_enabled);		break;
-		case ST_FWD_AVERAGE:		pred_average(image, 1, pred_ma_enabled);		break;
-		case ST_INV_AVERAGE:		pred_average(image, 0, pred_ma_enabled);		break;
+	//	case ST_FWD_AVERAGE:		pred_average(image, 1, pred_ma_enabled);		break;
+	//	case ST_INV_AVERAGE:		pred_average(image, 0, pred_ma_enabled);		break;
 		case ST_FWD_MULTISTAGE:		pred_multistage(image, 1, pred_ma_enabled);		break;
 		case ST_INV_MULTISTAGE:		pred_multistage(image, 0, pred_ma_enabled);		break;
 		case ST_FWD_P3:			pred_separate(image, 1, pred_ma_enabled);		break;
@@ -2367,7 +2372,7 @@ void apply_selected_transforms(Image *image)
 	//	case ST_FWD_DEC_DWT:   dwt2d_dec_fwd((char*)image, iw, ih);	break;
 	//	case ST_INV_DEC_DWT:   dwt2d_dec_inv((char*)image, iw, ih);	break;
 		}//switch
-		calc_depthfromdata(image->data, image->iw, image->ih, image->depth, image->src_depth);
+		//calc_depthfromdata(image->data, image->iw, image->ih, image->depth, image->src_depth);//X  depth must depend only on src_depth and applied RCTs, so that preds can apply MA
 	}//for
 }
 void update_image()//apply selected operations on original image, calculate CRs, and export
@@ -2993,14 +2998,14 @@ const int
 	custom_pred_reach=2;
 const int
 	gui_custom_rct_w=33, gui_custom_rct_h=4,//characters
-	gui_custom_pred_w=103+2, gui_custom_pred_h=3;
+	gui_custom_pred_w=103+2, gui_custom_pred_h=4;
 int custom_pred_ch_idx=0;//from {0, 1, 2}
 void io_resize()
 {
 	AABB *p=buttons;
 	float xstep=tdx*guizoom, ystep=tdy*guizoom;
 	p->x1=xstep*2, p->x2=p->x1+xstep*gui_custom_rct_w, p->y1=(float)(h>>1), p->y2=p->y1+ystep*gui_custom_rct_h, ++p;//0: color params - left
-	p->x1=(float)(w>>2), p->x2=p->x1+xstep*gui_custom_pred_w, p->y1=(float)((h>>1)+(h>>2)), p->y2=p->y1+ystep*gui_custom_pred_h, ++p;//1: spatial params
+	p->x1=(float)(w>>3), p->x2=p->x1+xstep*gui_custom_pred_w, p->y1=(float)((h>>1)+(h>>2))-ystep, p->y2=p->y1+ystep*gui_custom_pred_h, ++p;//1: spatial params
 	p->x1=(float)(w-300), p->x2=(float)w, p->y1=tdy*2, p->y2=p->y1+tdy*T_COUNT/2, ++p;//2: transforms list
 	
 	//p->x1=(float)(w>>1), p->x2=p->x1+xstep*14, p->y1=(float)((h>>1)+(h>>2))+ystep*4, p->y2=p->y1+ystep, ++p;//3: clamp bounds
@@ -3084,8 +3089,8 @@ void click_hittest(int mx, int my, int *objidx, int *cellx, int *celly, int *cel
 		break;
 	case 1://spatial transform params
 		*cellx=(int)floorf((mx-p[0]->x1)*(custom_pred_reach<<1|1)/(p[0]->x2-p[0]->x1));
-		*celly=(int)floorf((my-p[0]->y1)*(custom_pred_reach+1)/(p[0]->y2-p[0]->y1));
-		*cellidx=(custom_pred_reach<<1|1)**celly+*cellx;
+		*celly=(int)floorf((my-p[0]->y1)*gui_custom_pred_h/(p[0]->y2-p[0]->y1));
+		*cellidx=(custom_pred_reach<<1|1)*(*celly-1)+*cellx;
 		break;
 	case 2://list of transforms
 		*cellx=(int)floorf((mx-p[0]->x1)*2/(p[0]->x2-p[0]->x1));
@@ -3171,14 +3176,32 @@ int io_mousewheel(int forward)
 #endif
 				break;
 			case 1://spatial transform params
-				
-				//0000000000111111111122222222223333333333444444444455555555556666666666777777777788888888889999999999000000
-				//0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345
-				//-0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000
-				//-0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000
-				//-0x00.0000-0x00.0000 -0x00.0000-0x00.0000
+				if(!celly)
 				{
-					int col=ch%21, idx=5*celly+(ch/21);
+					//0123456789012345678901234567
+					//Ch 0  Clamp [+W +NW +N +NE]
+					if(ch==3)
+					{
+						custom_pred_ch_idx+=sign;
+						MODVAR(custom_pred_ch_idx, custom_pred_ch_idx, 3);
+					}
+					else if(BETWEEN_EXC(13, ch, 16))//W
+						custom_clamp[0]=!custom_clamp[0];
+					else if(BETWEEN_EXC(16, ch, 20))//NW
+						custom_clamp[1]=!custom_clamp[1];
+					else if(BETWEEN_EXC(20, ch, 23))//N
+						custom_clamp[2]=!custom_clamp[2];
+					else if(BETWEEN_EXC(23, ch, 26))//NE
+						custom_clamp[3]=!custom_clamp[3];
+				}
+				else
+				{
+					//0000000000111111111122222222223333333333444444444455555555556666666666777777777788888888889999999999000000
+					//0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345
+					//-0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000
+					//-0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000
+					//-0x00.0000-0x00.0000 -0x00.0000-0x00.0000
+					int col=ch%21, idx=5*(celly-1)+(ch/21);
 					if(idx<12&&((unsigned)(col-3)<7||(unsigned)(col-13)<7))
 					{
 						idx=idx<<1|(col>=10);
@@ -3465,7 +3488,7 @@ int io_keydn(IOKey key, char c)
 				{
 					int
 						col=p?(int)floorf((mx-p->x1)/(guizoom*tdx)):0,
-						line=p?(int)floorf((my-p->y1)/(guizoom*tdy)):0;
+						line=p?(int)floorf((my-(p->y1+guizoom*tdy))/(guizoom*tdy)):0;
 					if(key==KEY_RBUTTON&&(line==1||line==3)&&((unsigned)(col-7)<7||(unsigned)(col-19)<7))
 					{
 						//0000000000111111111122222222223333
@@ -3485,7 +3508,7 @@ int io_keydn(IOKey key, char c)
 				{
 					int
 						col=p?(int)floorf((mx-p->x1)/(guizoom*tdx)):0,
-						line=p?(int)floorf((my-p->y1)/(guizoom*tdy)):0;
+						line=p?(int)floorf((my-(p->y1+guizoom*tdy))/(guizoom*tdy)):0;
 					if(key==KEY_RBUTTON&&cellidx<12)
 					{
 						//0000000000111111111122222222223333333333444444444455555555556666666666777777777788888888889999999999000000
@@ -4896,21 +4919,15 @@ void io_render()
 			//-0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000
 			//-0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000
 			//-0x00.0000-0x00.0000 -0x00.0000-0x00.0000
-			GUIPrint(0, x, y-tdy, 1, "Ch %d", custom_pred_ch_idx);
-			int *params=custom_params+24*custom_pred_ch_idx;
-			GUIPrint(0, x, y+ystep*0, guizoom, "%c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X ",
-				params[0]<0?'-':' ', abs(params[0])>>16, abs(params[0])&0xFFFF,
-				params[1]<0?'-':' ', abs(params[1])>>16, abs(params[1])&0xFFFF,
-				params[2]<0?'-':' ', abs(params[2])>>16, abs(params[2])&0xFFFF,
-				params[3]<0?'-':' ', abs(params[3])>>16, abs(params[3])&0xFFFF,
-				params[4]<0?'-':' ', abs(params[4])>>16, abs(params[4])&0xFFFF,
-				params[5]<0?'-':' ', abs(params[5])>>16, abs(params[5])&0xFFFF,
-				params[6]<0?'-':' ', abs(params[6])>>16, abs(params[6])&0xFFFF,
-				params[7]<0?'-':' ', abs(params[7])>>16, abs(params[7])&0xFFFF,
-				params[8]<0?'-':' ', abs(params[8])>>16, abs(params[8])&0xFFFF,
-				params[9]<0?'-':' ', abs(params[9])>>16, abs(params[9])&0xFFFF
+			GUIPrint(0, x, y, guizoom, "Ch %d  Clamp [%cW %cNW %cN %cNE]",
+				custom_pred_ch_idx,
+				custom_clamp[0]?'+':'-',
+				custom_clamp[1]?'+':'-',
+				custom_clamp[2]?'+':'-',
+				custom_clamp[3]?'+':'-'
 			);
-			params+=10;
+			//GUIPrint(0, x, y-tdy, 1, "Ch %d", custom_pred_ch_idx);
+			int *params=custom_params+24*custom_pred_ch_idx;
 			GUIPrint(0, x, y+ystep*1, guizoom, "%c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X ",
 				params[0]<0?'-':' ', abs(params[0])>>16, abs(params[0])&0xFFFF,
 				params[1]<0?'-':' ', abs(params[1])>>16, abs(params[1])&0xFFFF,
@@ -4924,7 +4941,20 @@ void io_render()
 				params[9]<0?'-':' ', abs(params[9])>>16, abs(params[9])&0xFFFF
 			);
 			params+=10;
-			GUIPrint(0, x, y+ystep*2, guizoom, "%c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X",
+			GUIPrint(0, x, y+ystep*2, guizoom, "%c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X ",
+				params[0]<0?'-':' ', abs(params[0])>>16, abs(params[0])&0xFFFF,
+				params[1]<0?'-':' ', abs(params[1])>>16, abs(params[1])&0xFFFF,
+				params[2]<0?'-':' ', abs(params[2])>>16, abs(params[2])&0xFFFF,
+				params[3]<0?'-':' ', abs(params[3])>>16, abs(params[3])&0xFFFF,
+				params[4]<0?'-':' ', abs(params[4])>>16, abs(params[4])&0xFFFF,
+				params[5]<0?'-':' ', abs(params[5])>>16, abs(params[5])&0xFFFF,
+				params[6]<0?'-':' ', abs(params[6])>>16, abs(params[6])&0xFFFF,
+				params[7]<0?'-':' ', abs(params[7])>>16, abs(params[7])&0xFFFF,
+				params[8]<0?'-':' ', abs(params[8])>>16, abs(params[8])&0xFFFF,
+				params[9]<0?'-':' ', abs(params[9])>>16, abs(params[9])&0xFFFF
+			);
+			params+=10;
+			GUIPrint(0, x, y+ystep*3, guizoom, "%c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X",
 				params[0]<0?'-':' ', abs(params[0])>>16, abs(params[0])&0xFFFF,
 				params[1]<0?'-':' ', abs(params[1])>>16, abs(params[1])&0xFFFF,
 				params[2]<0?'-':' ', abs(params[2])>>16, abs(params[2])&0xFFFF,

@@ -1,6 +1,7 @@
 #include"ebench.h"
 #include<stdio.h>
 #include<stdlib.h>
+#include<string.h>
 #define _USE_MATH_DEFINES
 #include<math.h>
 #include<process.h>
@@ -2416,6 +2417,7 @@ void pred_multistage(Image *src, int fwd, int enable_ma)
 #undef  LOAD
 
 #define LOAD(BUF, X, Y) ((unsigned)(ky+(Y))<(unsigned)src->ih&&(unsigned)(kx+(X))<(unsigned)src->iw?BUF[(src->iw*(ky+(Y))+kx+(X))<<2|kc]:0)
+//static Image *guide=0;
 static void pred_separate_x(Image const *src, Image *dst, int fwd, int enable_ma, int kc)
 {
 	int nlevels=1<<src->depth[kc], half=nlevels>>1;
@@ -2484,15 +2486,21 @@ static void pred_separate_x(Image const *src, Image *dst, int fwd, int enable_ma
 			int preds[]=
 			{
 				 0x2E00000, N+W-NW,
+				 0x0400000, N+W-((NW+NN+WW+NE)>>2),
+				-0x0300000, ((2*(N+W)-(NW+NN+WW+NE))*9+(WWW+NWW+NNW+NNN+NNE+NEE)*2)/12,
 				 0x0C00000, 2*(N+W-NW)-(NN+WW-NNWW),
 				 0x0200000, 3*(N+W-NW-(NN+WW-NNWW))+NNN+WWW-NNNWWW,
 				-0x0300000, N+W-NW+NEE-(NE+NNEE-NNE),
+				//-0x0100000, N+W-NW+WW-(WWW+NWW-NWWW),//X
+				 0x0100000, N+W-NW+WW+NEE-(WWW+NWW-NWWW+NE+NNEE-NNE),
+				//0x0100000, N+W-NW+((NE-(N+NNE-NN))<<1),//X
 				-0x0800000, (N+W)>>1,
 				-0x0100000, N+W-((NN+WW)>>1),
 				 0x0200000, (4*(N+W)+NE-NW)>>2,//shift right 3?
 				 0x0800000, (4*(N+W)-NE+NW)>>2,//shift right 3?
 				 0x0800000, (4*(N+W)-(NE+NW))>>2,
 				-0x0200000, (4*(N+W)-(NE+NW))/6,
+				-0x0100000, (4*N-(NW+NE))>>2,
 				-0x0E00000, (W+NE)>>1,
 				-0x0E00000, (2*W+NEE)/3,
 				 0x0F00000, (3*W+NEEE)>>2,
@@ -2536,6 +2544,16 @@ static void pred_separate_x(Image const *src, Image *dst, int fwd, int enable_ma
 				 0x1800000, (4*N-2*NN+NW+NE)>>2,
 				 0x0800000, (N+W+2*(NW+NE)-(NNWW+NNEE))>>2,
 				
+				 0x0A00000, 2*N-W,
+				 0x0A00000, 2*W-N,
+				-0x0500000, (2*(NW+2*N+NE)-(NNW+2*NN+NNE))>>2,
+				 0x0500000, 4*(N-W)-NW,
+				 0x0100000, N+W+NW+NE,
+				-0x0400000, 2*NE-NN,
+				-0x0400000, 2*NE-NNE,
+				-0x0600000, (2*(W+NE)-(WW+NNEE))>>1,
+				//0x0100000, 2*NNW-NNNWW,
+
 				0x0F00000, N,
 				0x1400000, 2*N-NN,
 				0x1000000, 3*(N-NN)+NNN,
@@ -2687,10 +2705,12 @@ static void pred_separate_x(Image const *src, Image *dst, int fwd, int enable_ma
 				//(W+WW+WWW+WWWW)>>2,
 			};
 #endif
+			//if(kc==1&&ky==5&&kx==6)
+			//	printf("");
 			long long lpred=0, lsum=0;
 			for(int k=0;k<_countof(preds)/2;++k)
 			{
-				long long w=(((long long)ky+1)*preds[k<<1|0])/errors[k];
+				long long w=((long long)preds[k<<1|0]<<8)/errors[k];
 				lpred+=w*preds[k<<1|1];
 				lsum+=w;
 			}
@@ -2708,6 +2728,12 @@ static void pred_separate_x(Image const *src, Image *dst, int fwd, int enable_ma
 			}
 			dst->data[idx<<2|kc]=pred;
 
+			//if(!fwd&&guide)
+			//{
+			//	if(dst->data[idx<<2|kc]!=guide->data[idx<<2|kc])
+			//		LOG_ERROR("");
+			//}
+
 			int curr=pixels[idx<<2|kc];
 			for(int k=0;k<_countof(preds)/2;++k)
 			{
@@ -2721,11 +2747,66 @@ static void pred_separate_x(Image const *src, Image *dst, int fwd, int enable_ma
 }
 static void pred_separate_y(Image const *src, Image *dst, int fwd, int enable_ma, int kc)
 {
-	int nlevels=1<<src->depth[kc];
+	int nlevels=1<<src->depth[kc], half=nlevels>>1;
 	const int *pixels=fwd?src->data:dst->data, *errors=fwd?dst->data:src->data;
+#if 1
+#define LG_PREDLEVELS 7
+	int preds[1<<LG_PREDLEVELS];
+	for(int k=0;k<_countof(preds);++k)
+		preds[k]=(k*nlevels>>LG_PREDLEVELS)-half;
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		long long errors[1<<LG_PREDLEVELS]={1};
+		memfill(errors+1, errors, sizeof(errors)-sizeof(long long), sizeof(long long));
+		for(int kx=0;kx<src->iw;++kx, ++idx)
+		{
+			int
+				//NW	=LOAD(pixels, -1, -1),
+				N	=LOAD(pixels,  0, -1),
+				NE	=LOAD(pixels,  1, -1),
+				W	=LOAD(pixels, -1,  0);
+			int vmin=W, vmax=W;
+			UPDATE_MIN(vmin, N);
+			UPDATE_MAX(vmax, N);
+			UPDATE_MIN(vmin, NE);
+			UPDATE_MAX(vmax, NE);
+			long long lpred=0, lsum=0;
+			for(int k=0;k<_countof(errors);++k)
+			{
+				//int p=(k*nlevels>>7)-half;
+				long long w=(((long long)kx+1)<<24)/errors[k];
+				lpred+=w*preds[k];
+				lsum+=w;
+			}
+			int pred=(int)(lpred/lsum);
+			pred=CLAMP(vmin, pred, vmax);
+			
+			pred^=-fwd;
+			pred+=fwd;
+			pred+=src->data[idx<<2|kc];
+			if(enable_ma)
+			{
+				pred+=nlevels>>1;
+				pred&=nlevels-1;
+				pred-=nlevels>>1;
+			}
+			dst->data[idx<<2|kc]=pred;
+
+			int curr=pixels[idx<<2|kc];
+			for(int k=0;k<_countof(errors);++k)
+			{
+				long long e=errors[k];
+				e+=((abs(curr-preds[k])<<8)-e)/3;
+				UPDATE_MAX(e, 1);
+				errors[k]=e;
+			}
+		}
+	}
+#endif
+#if 0
 	for(int kx=0, idx=0;kx<src->iw;++kx)
 	{
-		long long errors[64]={1};
+		long long errors[128]={1};
 		memfill(errors+1, errors, sizeof(errors)-sizeof(long long), sizeof(long long));
 		for(int ky=0;ky<src->ih;++ky, ++idx)
 		{
@@ -2771,10 +2852,13 @@ static void pred_separate_y(Image const *src, Image *dst, int fwd, int enable_ma
 				errors[k]+=abs(curr-preds[k]);
 		}
 	}
+#endif
 }
 #undef  LOAD
 void pred_separate(Image *src, int fwd, int enable_ma)
 {
+	//if(fwd)
+	//	image_copy(&guide, src);
 	Image *dst=0;
 	image_copy_nodata(&dst, src);
 	if(!dst)
@@ -3015,6 +3099,11 @@ void pred_ols(Image *src, int fwd, int enable_ma)
 	int successcount=0;
 	Image *dst=0;
 	image_copy(&dst, src);
+	if(!dst)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
 	const int *pixels=fwd?src->data:dst->data, *errors=fwd?dst->data:src->data;
 	int c1_init[4]={0};
 	double c1_params[OLS_NPARAMS*4]={0};
@@ -3060,6 +3149,7 @@ void pred_ols(Image *src, int fwd, int enable_ma)
 					WWW	=LOAD(pixels,  3, 0),
 					WW	=LOAD(pixels,  2, 0),
 					W	=LOAD(pixels,  1, 0);
+#if 0
 				int
 					eNNNWWWW	=LOAD(errors,  4, 3),
 					eNNNWWW		=LOAD(errors,  3, 3),
@@ -3092,6 +3182,7 @@ void pred_ols(Image *src, int fwd, int enable_ma)
 					eWWW		=LOAD(errors,  3, 0),
 					eWW		=LOAD(errors,  2, 0),
 					eW		=LOAD(errors,  1, 0);
+#endif
 				//int
 				//	eNNWW	=LOAD(errors,  2, 2),//error = (curr<<8) - pred
 				//	eNNW	=LOAD(errors,  1, 2),
@@ -3287,7 +3378,7 @@ void pred_ols(Image *src, int fwd, int enable_ma)
 					double fpred=0;
 					for(int k=0;k<OLS_NPARAMS;++k)
 						fpred+=nb3[k]*c1_params[kc<<2|k];
-					pred=(int)fpred;
+					pred=(int)round(fpred);
 					++successcount;
 				}
 				else//singular matrix
@@ -3323,6 +3414,222 @@ void pred_ols(Image *src, int fwd, int enable_ma)
 }
 #undef  OLS_NPARAMS
 #undef  OLS_NSAMPLES
+
+#define OLS2_REACH 2
+#define OLS2_STEP 2	//power-of-two
+#define OLS2_SAMPLEREACH 11
+#define OLS2_NPARAMS (2*(OLS2_REACH+1)*OLS2_REACH+1)
+#define OLS2_NSAMPLES ((2*OLS2_SAMPLEREACH+OLS2_STEP+1)*OLS2_SAMPLEREACH)
+static int ols2_fallbackpred(const int *pixels, int iw, int kc, int kx, int ky, int idx)
+{
+	int
+		N =ky?pixels[(idx-iw)<<2|kc]:0,
+		W =kx?pixels[(idx-1)<<2|kc]:0,
+		NW=ky&&kx?pixels[(idx-iw-1)<<2|kc]:0;
+	int pred=N+W-NW;
+	pred=MEDIAN3(N, W, pred);
+	return pred;
+}
+static void ols2_add_sample(const int *pixels, int depth, int iw, int kc, int kx, int ky, double *sample, double *matrix, int remove)
+{
+	if(remove)
+	{
+		for(int ky3=0;ky3<OLS2_NPARAMS;++ky3)
+		{
+			double vy=sample[ky3];
+			for(int kx3=0;kx3<OLS2_NPARAMS;++kx3)
+			{
+				double vx=sample[kx3];
+				matrix[(OLS2_NPARAMS<<1)*ky3+kx3]-=vy*vx;
+			}
+		}
+	}
+	int half=(1<<depth)>>1;
+	double gain=1./half;
+	sample[0]=1;
+	for(int ky3=-OLS2_REACH, idx2=1;ky3<=0;++ky3)
+	{
+		for(int kx3=-OLS2_REACH;kx3<=OLS2_REACH;++kx3, ++idx2)
+		{
+			//if(idx2>=OLS2_NPARAMS+1)
+			//	LOG_ERROR("");
+			sample[idx2]=(double)pixels[(iw*(ky+ky3)+kx+kx3)<<2|kc]*gain;
+			if(!ky3&&!kx3)//last element is target
+				break;
+		}
+	}
+	if(!remove)
+	{
+		for(int ky3=0;ky3<OLS2_NPARAMS;++ky3)
+		{
+			double vy=sample[ky3];
+			for(int kx3=0;kx3<OLS2_NPARAMS;++kx3)
+			{
+				double vx=sample[kx3];
+				matrix[(OLS2_NPARAMS<<1)*ky3+kx3]+=vy*vx;
+			}
+		}
+	}
+}
+void pred_ols2(Image *src, int fwd, int enable_ma)
+{
+	int successcount=0;
+	Image *dst=0;
+	image_copy(&dst, src);
+	double *samples=(double*)malloc(sizeof(double[OLS2_NSAMPLES*(OLS2_NPARAMS+1)]));
+	double *matrix=(double*)malloc(sizeof(double[OLS2_NPARAMS*OLS2_NPARAMS<<1]));
+	double *matrix2=(double*)malloc(sizeof(double[OLS2_NPARAMS*OLS2_NPARAMS<<1]));
+	double *temp=(double*)malloc(sizeof(double[OLS2_NPARAMS<<1]));
+	if(!dst||!samples||!matrix||!matrix2||!temp)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(samples, 0, sizeof(double[OLS2_NSAMPLES*(OLS2_NPARAMS+1)]));
+	const int *pixels=fwd?src->data:dst->data, *errors=fwd?dst->data:src->data;
+	for(int kc=0;kc<4;++kc)
+	{
+		if(!src->depth[kc])
+			continue;
+		int initialized=0;
+		double params[OLS2_NPARAMS]={0};
+		int nlevels=1<<src->depth[kc], half=nlevels>>1;
+		double gain=1./half;
+		for(int ky=0, idx=0;ky<src->ih;++ky)
+		{
+			for(int kx=0;kx<src->iw;++kx, ++idx)
+			{
+				int pred;
+				if(kx<OLS2_SAMPLEREACH+OLS2_REACH||kx>src->iw-OLS2_SAMPLEREACH-OLS2_REACH-OLS2_STEP||ky<OLS2_SAMPLEREACH+OLS2_REACH)
+					pred=ols2_fallbackpred(pixels, src->iw, kc, kx, ky, idx);
+				else
+				{
+					int success=0;
+					if(kx==OLS2_SAMPLEREACH+OLS2_REACH)//initialize row
+					{
+						memset(matrix, 0, sizeof(double[OLS2_NPARAMS*OLS2_NPARAMS<<1]));
+						for(int k=0;k<OLS2_NPARAMS;++k)
+						{
+							matrix[(OLS2_NPARAMS<<1|1)*k]=0.00005;//add small lambda for regularization
+							matrix[(OLS2_NPARAMS<<1|1)*k+OLS2_NPARAMS]=1;//identity
+						}
+						for(int ky2=-OLS2_SAMPLEREACH, idx2=0;ky2<=0;++ky2)
+						{
+							for(int kx2=-OLS2_SAMPLEREACH;kx2<=OLS2_SAMPLEREACH+OLS2_STEP-1&&(ky2||kx2);++kx2, ++idx2)
+							{
+								//if(idx2>=OLS2_NSAMPLES)
+								//	LOG_ERROR("");
+								ols2_add_sample(pixels, src->depth[kc], src->iw, kc, kx+kx2, ky+ky2, samples+(OLS2_NPARAMS+1)*idx2, matrix, 0);
+							}
+						}
+
+						memcpy(matrix2, matrix, sizeof(double[OLS2_NPARAMS*OLS2_NPARAMS<<1]));
+						success=invert_matrix(matrix2, OLS2_NPARAMS, temp);
+					}
+					else if(!initialized||!(kx%OLS2_STEP))
+					{
+						int idx2;
+						for(int ky2=0;ky2<OLS2_SAMPLEREACH-1;++ky2)
+						{
+							idx2=(2*OLS2_SAMPLEREACH+OLS2_STEP)*ky2+(kx-OLS2_SAMPLEREACH-1)%(2*OLS2_SAMPLEREACH+OLS2_STEP);
+							ols2_add_sample(pixels, src->depth[kc], src->iw, kc, kx-OLS2_SAMPLEREACH-1, ky-OLS2_SAMPLEREACH+ky2, samples+(OLS2_NPARAMS+1)*idx2, matrix, 1);
+							ols2_add_sample(pixels, src->depth[kc], src->iw, kc, kx+OLS2_SAMPLEREACH-1, ky-OLS2_SAMPLEREACH+ky2, samples+(OLS2_NPARAMS+1)*idx2, matrix, 0);
+						}
+						idx2=(2*OLS2_SAMPLEREACH+OLS2_STEP)*(OLS2_SAMPLEREACH-1)+(kx-OLS2_SAMPLEREACH-1)%OLS2_SAMPLEREACH;
+						ols2_add_sample(pixels, src->depth[kc], src->iw, kc, kx-OLS2_SAMPLEREACH, ky, samples+(OLS2_NPARAMS+1)*idx2, matrix, 1);
+						ols2_add_sample(pixels, src->depth[kc], src->iw, kc, kx-1, ky, samples+(OLS2_NPARAMS+1)*idx2, matrix, 0);
+
+						memcpy(matrix2, matrix, sizeof(double[OLS2_NPARAMS*OLS2_NPARAMS<<1]));
+						success=invert_matrix(matrix2, OLS2_NPARAMS, temp);
+					}
+					//NNWW NNW NN NNE NNEE
+					//NWW  NW  N  NE  NEE
+					//WW   W   ?
+					if(!success&&!initialized)
+						pred=ols2_fallbackpred(pixels, src->iw, kc, kx, ky, idx);
+					else
+					{
+						if(success)
+						{
+							//params = ((inv(NB * NBT) * NB * Targets) - params)*lr
+							for(int ky2=0;ky2<OLS2_NPARAMS;++ky2)//temp = NBT * targets
+							{
+								double sum=0;
+								for(int kx2=0;kx2<OLS2_NSAMPLES;++kx2)
+									sum+=samples[(OLS2_NPARAMS+1)*kx2+ky2]*samples[(OLS2_NPARAMS+1)*kx2+OLS2_NPARAMS];
+								temp[ky2]=sum;
+							}
+							for(int ky=0;ky<OLS2_NPARAMS;++ky)
+							{
+								double sum=0;
+								for(int j=0;j<OLS2_NPARAMS;++j)
+									sum+=matrix2[(OLS2_NPARAMS<<1)*ky+j+OLS2_NPARAMS]*temp[j];
+								if(initialized)
+									params[ky]+=(sum-params[ky])*0.2;
+								else
+									params[ky]=sum;
+							}
+							initialized=1;
+						}
+						//pred = nb * params
+						double fpred=params[0]*half;
+						for(int ky3=-OLS2_REACH, idx2=1;ky3<=0;++ky3)
+						{
+							for(int kx3=-OLS2_REACH;kx3<=OLS2_REACH;++kx3, ++idx2)
+							{
+								if(!ky3&&!kx3)//exclude current pixel
+									break;
+								fpred+=pixels[(src->iw*(ky+ky3)+kx+kx3)<<2|kc]*params[idx2];
+							}
+						}
+						int
+							N =pixels[(idx-src->iw)<<2|kc],
+							W =pixels[(idx-1)<<2|kc],
+							NE=pixels[(idx-src->iw+1)<<2|kc];
+						int cmin=W, cmax=W;
+						UPDATE_MIN(cmin, N);
+						UPDATE_MAX(cmax, N);
+						UPDATE_MIN(cmin, NE);
+						UPDATE_MAX(cmax, NE);
+						fpred=CLAMP(cmin, fpred, cmax);
+						pred=(int)round(fpred);
+						++successcount;
+					}
+				}
+				int curr=pred;
+				curr^=-fwd;
+				curr+=fwd;
+				curr+=src->data[idx<<2|kc];
+				if(enable_ma)
+				{
+					curr+=nlevels>>1;
+					curr&=nlevels-1;
+					curr-=nlevels>>1;
+				}
+				dst->data[idx<<2|kc]=curr;
+			}
+		}
+	}
+	memcpy(src->data, dst->data, (size_t)src->iw*src->ih*sizeof(int[4]));
+	set_window_title("OLS2 %lf%%", 100.*successcount/(src->nch*src->iw*src->ih));
+	if(!enable_ma)
+	{
+		++src->depth[0];
+		++src->depth[1];
+		++src->depth[2];
+		src->depth[3]+=src->depth[3]!=0;
+	}
+	free(dst);
+	free(samples);
+	free(matrix);
+	free(matrix2);
+	free(temp);
+}
+#undef  OLS2_REACH
+#undef  OLS2_STEP
+#undef  OLS2_SAMPLEREACH
+#undef  OLS2_NPARAMS
+#undef  OLS2_NSAMPLES
 
 void pred_select(Image const *src, Image *dst, int fwd, int enable_ma)
 {
@@ -3418,6 +3725,7 @@ void pred_linear(Image const *src, Image *dst, const int *coeffs, int lgden, int
 
 //CUSTOM reach-2 predictor
 int custom_params[CUSTOM_NPARAMS]={0};
+int custom_clamp[4]={0};
 void pred_custom(Image *src, int fwd, int enable_ma, const int *params)
 {
 	Image *dst=0;
@@ -3449,13 +3757,33 @@ void pred_custom(Image *src, int fwd, int enable_ma, const int *params)
 						}
 					}
 				}
+				int clamp_idx[]={22, 12, 14, 16};//W NW N NE
+				int vmin=-(nlevels>>1), vmax=(nlevels>>1), uninitialized=1;
+				for(int k=0;k<4;++k)
+				{
+					if(custom_clamp[k])
+					{
+						int val=nb[clamp_idx[k]];
+						if(uninitialized)
+						{
+							vmin=val;
+							vmax=val;
+							uninitialized=0;
+						}
+						else
+						{
+							UPDATE_MIN(vmin, val);
+							UPDATE_MAX(vmax, val);
+						}
+					}
+				}
 
 				long long pred=0;
 				for(int k=0;k<CUSTOM_NNB*2;++k)
 					pred+=(long long)nb[k]*params[k];
 				pred+=1LL<<15;
 				pred>>=16;
-				pred=CLAMP(-(nlevels>>1), pred, (nlevels>>1));
+				pred=CLAMP(vmin, pred, vmax);
 
 				pred^=-fwd;
 				pred+=fwd;
@@ -3599,7 +3927,7 @@ void pred_custom_optimize(Image const *image, int *params)
 			ch_entropy[0]=(float)(loss_bestsofar[0]*image->src_depth[0]);
 			ch_entropy[1]=(float)(loss_bestsofar[1]*image->src_depth[1]);
 			ch_entropy[2]=(float)(loss_bestsofar[2]*image->src_depth[2]);
-			ch_entropy[3]=(float)(loss_bestsofar[3]*image->src_depth[1]);
+			ch_entropy[3]=(float)(loss_bestsofar[3]*image->src_depth[3]);
 			//unsigned char *ptr;
 			//addhalf(temp, iw, ih, 3, 4);
 			//SWAPVAR(image, temp, ptr);

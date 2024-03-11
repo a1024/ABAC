@@ -641,6 +641,7 @@ void image_copy_nodata(Image **dst, Image const *src);
 void image_copy(Image **dst, Image const *src);
 
 
+//extern Image *im0, *im1;
 extern double ch_entropy[4];
 void update_image();
 
@@ -704,6 +705,7 @@ void pred_separate(Image *src, int fwd, int enable_ma);
 void pred_dir(Image *src, int fwd, int enable_ma);
 
 void pred_ols(Image *src, int fwd, int enable_ma);
+void pred_ols2(Image *src, int fwd, int enable_ma);
 
 void pred_select(Image const *src, Image *dst, int fwd, int enable_ma);
 
@@ -714,6 +716,7 @@ void pred_linear(Image const *src, Image *dst, const int *coeffs, int lgden, int
 #define CUSTOM_NNB (2*(CUSTOM_REACH+1)*CUSTOM_REACH)
 #define CUSTOM_NPARAMS (2*(CUSTOM_REACH+1)*CUSTOM_REACH*6)
 extern int custom_params[CUSTOM_NPARAMS];
+extern int custom_clamp[4];//W NW N NE
 void pred_custom(Image *src, int fwd, int enable_ma, const int *params);
 void pred_custom_optimize(Image const *image, int *params);
 
