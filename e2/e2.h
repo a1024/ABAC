@@ -26,7 +26,9 @@ typedef struct ImageStruct
 } Image;
 Image* image_load(const char *fn);
 int image_save_uint8(const char *fn, Image const *image, int override_alpha);
+int image_snapshot(Image const *image);
 int image_save_native(const char *fn, Image const *image, int override_alpha);
+Image* image_alloc(int iw, int ih, int nch, char rdepth, char gdepth, char bdepth, char adepth, int initialize, int initval);
 Image* image_from_uint8(const unsigned char *src, int iw, int ih, int nch, char rdepth, char gdepth, char bdepth, char adepth);
 Image* image_from_uint16(const unsigned short *src, int iw, int ih, int nch, char *src_depths, char *dst_depths);
 void image_export_uint8(Image const *image, unsigned char **dst, int override_alpha);
@@ -35,6 +37,13 @@ double image_getBMPsize(Image const *image);
 size_t image_getbufsize(Image const *image);
 void image_copy_nodata(Image **dst, Image const *src);//dst must be 0 or a valid pointed
 void image_copy(Image **dst, Image const *src);//dst must be 0 or a valid pointed
+void calc_depthfromdata(int *image, int iw, int ih, char *depths, const char *src_depths);
+void calc_histogram(const int *buf, int iw, int ih, int kc, int x1, int x2, int y1, int y2, int depth, int *hist, int *hist8);
+double calc_entropy(const int *hist, int nlevels, int sum);
+int calc_maxdepth(Image const *image, int *inflation);
+void calc_depthfromdata(int *image, int iw, int ih, char *depths, const char *src_depths);
+//double calc_csize_from_hist(int *hist, int nlevels, double *ret_usize);//works only with unit-increment histograms initialized with ones
+void calc_csize(Image const *image, double *csizes);
 
 
 typedef struct LSIMHeaderStruct
@@ -161,12 +170,6 @@ int t45_encode(Image const *src, ArrayHandle *data, int loud);
 int t45_decode(const unsigned char *data, size_t srclen, Image *dst, int loud);
 
 double calc_bitsize(unsigned *CDF, int nlevels, int sym);
-void calc_histogram(const int *buf, int iw, int ih, int kc, int x1, int x2, int y1, int y2, int depth, int *hist, int *hist8);
-double calc_entropy(const int *hist, int nlevels, int sum);
-int calc_maxdepth(Image const *image, int *inflation);
-void calc_depthfromdata(int *image, int iw, int ih, char *depths, const char *src_depths);
-//double calc_csize_from_hist(int *hist, int nlevels, double *ret_usize);//works only with unit-increment histograms initialized with ones
-void calc_csize(Image const *image, double *csizes);
 
 
 //SLIC v4
@@ -197,8 +200,8 @@ typedef enum RCTTypeEnum
 extern const char *rct_names[RCT_COUNT];
 
 //T47 SLIC5
-#define SLIC5_OPTIMIZE_RCT
-#define SLIC5_NPREDS 15
+//#define SLIC5_OPTIMIZE_RCT
+#define SLIC5_NPREDS 33
 typedef struct SLIC5CuriosityStruct
 {
 #ifdef SLIC5_OPTIMIZE_RCT
@@ -209,7 +212,7 @@ typedef struct SLIC5CuriosityStruct
 	double rct_sizes[RCT_COUNT];
 #endif
 	long long pred_errors[SLIC5_NPREDS];
-} SLIC5Curiosity;//just for curiosity
+} SLIC5Curiosity;
 extern const char *slic5_prednames[SLIC5_NPREDS];
 //extern const char *slic5_orct_permutationnames[6];
 void orct_print_compact(const char *params);
@@ -226,6 +229,27 @@ int t48_decode(const unsigned char *data, size_t srclen, Image *dst, int loud);
 
 int t49_encode(Image const *src, ArrayHandle *data, int loud);
 int t49_decode(const unsigned char *data, size_t srclen, Image *dst, int loud);
+
+//T51 ABAC
+int t51_encode(Image const *src, ArrayHandle *data, int loud);
+int t51_decode(const unsigned char *data, size_t srclen, Image *dst, int loud);
+void test_alphaVSbin(Image const *src);
+
+//T52 pseudo-JPEG
+void ct_YCbCr_lossy(Image *src, int fwd);
+void resample_YUV420(Image *src, int down);
+void dct_8x8(Image *dst, Image const *src, int subsampled, int *ymatrix, int *uvmatrix, int fwd);
+//void jpeg_quantize(Image *src, int quality, int fwd);//quality [1, 100]
+int t52_encode(Image const *src, ArrayHandle *data, int loud);
+int t52_decode(const unsigned char *data, size_t srclen, Image *dst, int loud);
+
+//T53 Adaptive block
+int t53_encode(Image const *src, ArrayHandle *data, int loud);
+int t53_decode(const unsigned char *data, size_t srclen, Image *dst, int loud);
+
+//T54 Bitplanes
+int t54_encode(Image const *src, ArrayHandle *data, int loud);
+int t54_decode(const unsigned char *data, size_t srclen, Image *dst, int loud);
 
 
 
@@ -260,6 +284,8 @@ void colortransform_JPEG2000_inv(char *buf, int iw, int ih);
 void colortransform_subgreen_fwd(char *buf, int iw, int ih);
 void colortransform_subgreen_inv(char *buf, int iw, int ih);
 
+
+void pred_clampgrad(Image *src, int fwd, char *depths);
 
 	#define PW2_NPRED 20	//63
 	#define PW2_NPARAM (PW2_NPRED+11)
@@ -298,6 +324,9 @@ void grad_explore(const unsigned char *buf, int iw, int ih);
 double opt_custom(const char *buf, int iw, int ih, int kc, int niter, short *params, int loud);
 float opt_custom_v2(const char *buf, int iw, int ih, int kc, int niter, short *params, float loss0, int loud);
 #endif
+
+void image_dct8_fwd(Image *image);
+void image_dct8_inv(Image *image);
 
 
 #ifdef ALLOW_VULKAN

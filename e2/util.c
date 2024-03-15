@@ -312,6 +312,12 @@ int ceil_log2(unsigned long long n)
 	lgn+=(1ULL<<lgn)<n;
 	return lgn;
 }
+int ceil_log2_32(unsigned n)
+{
+	int l2=floor_log2_32(n);
+	l2+=(1ULL<<l2)<n;
+	return l2;
+}
 int floor_log10(double x)
 {
 	static const double pmask[]=//positive powers
@@ -370,7 +376,7 @@ int floor_log10(double x)
 unsigned floor_sqrt(unsigned long long x)
 {
 	if(x<2)
-		return x;
+		return (unsigned)x;
 	int lg_sqrtx_p1=(floor_log2(x)>>1)+1;
 	unsigned long long
 		U=1ULL<<lg_sqrtx_p1,

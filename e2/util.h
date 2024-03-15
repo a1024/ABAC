@@ -75,6 +75,7 @@ int floor_log2_p1(unsigned long long n);
 int floor_log2(unsigned long long n);//uses intrinsics and was patched to give -1 for zero input
 int floor_log2_32(unsigned n);
 int ceil_log2(unsigned long long n);
+int ceil_log2_32(unsigned n);
 int floor_log10(double x);
 unsigned floor_sqrt(unsigned long long x);
 unsigned long long exp2_fix24(int x);

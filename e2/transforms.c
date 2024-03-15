@@ -332,6 +332,68 @@ void rct_JPEG2000_32(Image *image, int fwd)
 		}
 	}
 }
+#if 0
+void rct_JPEG2000_32(Image *image, int fwd)
+{
+#ifdef ENABLE_RCT_MA
+	int nlevels[4]=
+	{
+		1<<image->depth[0],
+		1<<image->depth[1],
+		1<<image->depth[2],
+		1<<image->depth[3],
+	};
+#define MA(X, NLEVELS) X+=NLEVELS>>1, X&=NLEVELS-1, X-=NLEVELS>>1
+#endif
+	if(fwd)
+	{
+		for(ptrdiff_t k=0, len=(ptrdiff_t)image->iw*image->ih*4;k<len;k+=4)
+		{
+			int r=image->data[k], g=image->data[k|1], b=image->data[k|2];
+#ifdef ENABLE_RCT_MA
+			r-=g;
+			MA(r, nlevels[0]);
+			b-=g;
+			MA(b, nlevels[2]);
+			g+=(r+b)>>2;
+			MA(g, nlevels[1]);
+#else
+			r-=g;       //r-g				[1     -1     0  ].RGB
+			b-=g;       //b-g				[0     -1     1  ].RGB
+			g+=(r+b)>>2;//g+(r-g+b-g)/4 = r/4+g/2+b/4	[1/4    1/2   1/4].RGB
+#endif
+
+			image->data[k  ]=g;//Y
+			image->data[k|1]=b;//Cb
+			image->data[k|2]=r;//Cr
+		}
+	}
+	else
+	{
+		for(ptrdiff_t k=0, len=(ptrdiff_t)image->iw*image->ih*4;k<len;k+=4)
+		{
+			int Y=image->data[k], Cb=image->data[k|1], Cr=image->data[k|2];
+			
+#ifdef ENABLE_RCT_MA
+			Y-=(Cr+Cb)>>2;
+			MA(Y, nlevels[1]);
+			Cb+=Y;
+			MA(Cb, nlevels[2]);
+			Cr+=Y;
+			MA(Cr, nlevels[0]);
+#else
+			Y-=(Cr+Cb)>>2;
+			Cb+=Y;
+			Cr+=Y;
+#endif
+
+			image->data[k  ]=Cr;
+			image->data[k|1]=Y;
+			image->data[k|2]=Cb;
+		}
+	}
+}
+#endif
 void colortransform_YCoCg_R_fwd(char *buf, int iw, int ih)
 {
 	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
@@ -592,6 +654,46 @@ void colortransform_subgreen_inv(char *buf, int iw, int ih)
 
 
 //clamped gradient predictor, aka LOCO-I / Median Edge Detector (MED) predictor from JPEG-LS
+void pred_clampgrad(Image *src, int fwd, char *depths)
+{
+	Image *dst=0;
+	image_copy(&dst, src);
+	if(!dst)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	const int *pixels=fwd?src->data:dst->data;
+	for(int kc=0;kc<src->nch;++kc)
+	{
+		int nlevels=1<<depths[kc];
+		for(int ky=0, idx=0;ky<src->ih;++ky)
+		{
+			for(int kx=0;kx<src->iw;++kx, ++idx)
+			{
+				int
+					NW=kx&&ky	?pixels[(idx-src->iw-1)<<2|kc]:0,
+					N =ky		?pixels[(idx-src->iw)<<2|kc]:0,
+					W =kx		?pixels[(idx-1)<<2|kc]:0;
+				int pred=N+W-NW;
+				pred=MEDIAN3(N, W, pred);
+
+				pred^=-fwd;
+				pred+=fwd;
+
+				pred+=src->data[idx<<2|kc];
+
+				pred+=nlevels>>1;
+				pred&=nlevels-1;
+				pred-=nlevels>>1;
+
+				dst->data[idx<<2|kc]=pred;
+			}
+		}
+	}
+	memcpy(src->data, dst->data, (size_t)src->iw*src->ih*sizeof(int[4]));
+	free(dst);
+}
 void pred_grad_fwd(char *buf, int iw, int ih, int nch, int bytestride)
 {
 	int rowlen=iw*bytestride;
@@ -2326,3 +2428,257 @@ float opt_custom_v2(const char *buf, int iw, int ih, int kc, int niter, short *p
 	return loss0;
 }
 #endif
+
+static void dct8_fwd_i8(int *x)
+{
+	//https://fgiesen.wordpress.com/2013/11/04/bink-2-2-integer-dct-design-part-1/
+	//http://thanglong.ece.jhu.edu/Tran/Pub/binDCT.pdf
+	//Loeffler's factorization
+	x[7]=x[0]-x[7];
+	x[6]=x[1]-x[6];
+	x[5]=x[2]-x[5];
+	x[4]=x[3]-x[4];
+	x[0]-=x[7]>>1;
+	x[1]-=x[6]>>1;
+	x[2]-=x[5]>>1;
+	x[3]-=x[4]>>1;
+
+	x[3]=x[0]-x[3];
+	x[2]=x[1]-x[2];
+	x[0]-=x[3]>>1;
+	x[1]-=x[2]>>1;
+
+	x[1]=x[0]-x[1];
+	x[0]-=x[1]>>1;
+
+	x[2]=(x[3]*13>>5)-x[2];//13 = 8+4+1
+	x[3]-=x[2]*11>>5;//11 = 8+2+1
+
+	x[5]-=x[6]*13>>5;
+	x[6]+=x[5]*11>>4;
+	x[5]=(x[6]*15>>5)-x[5];//15 = 16-1
+
+	x[5]=x[4]-x[5];
+	x[6]=x[7]-x[6];
+	x[4]-=x[5]>>1;
+	x[7]-=x[6]>>1;
+
+	x[4]=(x[7]*3>>4)-x[4];//3 = 2+1
+	x[7]-=x[4]*3>>4;
+
+	x[5]+=x[6]*11>>4;
+	x[6]-=x[5]*15>>5;
+}
+static void dct8_inv_i8(int *x)
+{
+	//invBinDCT-C7
+	x[6]+=x[5]*15>>5;
+	x[5]-=x[6]*11>>4;
+
+	x[7]+=x[4]*3>>4;
+	x[4]=(x[7]*3>>4)-x[4];
+
+	x[7]+=x[6]>>1;
+	x[4]+=x[5]>>1;
+	x[6]=x[7]-x[6];
+	x[5]=x[4]-x[5];
+
+	x[5]=(x[6]*15>>5)-x[5];
+	x[6]-=x[5]*11>>4;
+	x[5]+=x[6]*13>>5;
+
+	x[3]+=x[2]*11>>5;
+	x[2]=(x[3]*13>>5)-x[2];
+
+	x[0]+=x[1]>>1;
+	x[1]=x[0]-x[1];
+
+	x[1]+=x[2]>>1;
+	x[0]+=x[3]>>1;
+	x[2]=x[1]-x[2];
+	x[3]=x[0]-x[3];
+
+	x[3]+=x[4]>>1;
+	x[2]+=x[5]>>1;
+	x[1]+=x[6]>>1;
+	x[0]+=x[7]>>1;
+	x[4]=x[3]-x[4];
+	x[5]=x[2]-x[5];
+	x[6]=x[1]-x[6];
+	x[7]=x[0]-x[7];
+}
+void image_dct8_fwd(Image *image)
+{
+	int *temp=(int*)malloc(MAXVAR(image->iw, image->ih)*sizeof(int));
+	if(!temp)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	memset(temp, 0, MAXVAR(image->iw, image->ih)*sizeof(int));
+	for(int kc=0;kc<4;++kc)
+	{
+		if(!image->depth[kc])
+			continue;
+#if 1
+		for(int ky=0;ky<image->ih;++ky)
+		{
+			for(int kx=0;kx<image->iw-7;kx+=8)
+			{
+				int idx=image->iw*ky+kx;
+				int x[]=
+				{
+					image->data[ idx   <<2|kc],
+					image->data[(idx+1)<<2|kc],
+					image->data[(idx+2)<<2|kc],
+					image->data[(idx+3)<<2|kc],
+					image->data[(idx+4)<<2|kc],
+					image->data[(idx+5)<<2|kc],
+					image->data[(idx+6)<<2|kc],
+					image->data[(idx+7)<<2|kc],
+				};
+
+				//char y[8];
+				//memcpy(y, x, 8);
+				//dct8_fwd_i8(y);
+				//dct8_inv_i8(y);
+				//if(memcmp(x, y, 8))
+				//	x[0]=y[0];
+
+				dct8_fwd_i8(x);
+
+				temp[ kx>>3                  ]=x[0];
+				temp[(kx>>3)+(image->iw>>3)  ]=x[1];
+				temp[(kx>>3)+(image->iw>>3)*2]=x[2];
+				temp[(kx>>3)+(image->iw>>3)*3]=x[3];
+				temp[(kx>>3)+(image->iw>>3)*4]=x[4];
+				temp[(kx>>3)+(image->iw>>3)*5]=x[5];
+				temp[(kx>>3)+(image->iw>>3)*6]=x[6];
+				temp[(kx>>3)+(image->iw>>3)*7]=x[7];
+			}
+			for(int kx=0;kx<image->iw;++kx)
+				image->data[(image->iw*ky+kx)<<2|kc]=temp[kx];
+		}
+#endif
+#if 1
+		for(int kx=0;kx<image->iw;++kx)
+		{
+			for(int ky=0;ky<image->ih-7;ky+=8)
+			{
+				int idx=image->iw*ky+kx;
+				int x[]=
+				{
+					image->data[ idx             <<2|kc],
+					image->data[(idx+image->iw  )<<2|kc],
+					image->data[(idx+image->iw*2)<<2|kc],
+					image->data[(idx+image->iw*3)<<2|kc],
+					image->data[(idx+image->iw*4)<<2|kc],
+					image->data[(idx+image->iw*5)<<2|kc],
+					image->data[(idx+image->iw*6)<<2|kc],
+					image->data[(idx+image->iw*7)<<2|kc],
+				};
+
+				dct8_fwd_i8(x);
+
+				temp[(ky>>3)                 ]=x[0];
+				temp[(ky>>3)+(image->ih>>3)  ]=x[1];
+				temp[(ky>>3)+(image->ih>>3)*2]=x[2];
+				temp[(ky>>3)+(image->ih>>3)*3]=x[3];
+				temp[(ky>>3)+(image->ih>>3)*4]=x[4];
+				temp[(ky>>3)+(image->ih>>3)*5]=x[5];
+				temp[(ky>>3)+(image->ih>>3)*6]=x[6];
+				temp[(ky>>3)+(image->ih>>3)*7]=x[7];
+			}
+			for(int ky=0;ky<image->ih;++ky)
+				image->data[(image->iw*ky+kx)<<2|kc]=temp[ky];
+		}
+#endif
+	}
+	free(temp);
+	for(int kc=0;kc<3;++kc)
+		image->depth[kc]+=(image->depth[kc]+3<=24)*3;
+}
+void image_dct8_inv(Image *image)
+{
+	int *temp=(int*)malloc(MAXVAR(image->iw, image->ih)*sizeof(int));
+	if(!temp)
+	{
+		LOG_ERROR("Allocation error");
+		return;
+	}
+	memset(temp, 0, MAXVAR(image->iw, image->ih)*sizeof(int));
+	for(int kc=0;kc<4;++kc)
+	{
+		if(!image->depth[kc])
+			continue;
+#if 1
+		for(int kx=0;kx<image->iw;++kx)
+		{
+			for(int ky=0;ky<image->ih;++ky)
+				temp[ky]=image->data[(image->iw*ky+kx)<<2|kc];
+			for(int ky=0;ky<image->ih-7;ky+=8)
+			{
+				int idx=image->iw*ky+kx;
+				int x[]=
+				{
+					temp[(ky>>3)                 ],
+					temp[(ky>>3)+(image->ih>>3)  ],
+					temp[(ky>>3)+(image->ih>>3)*2],
+					temp[(ky>>3)+(image->ih>>3)*3],
+					temp[(ky>>3)+(image->ih>>3)*4],
+					temp[(ky>>3)+(image->ih>>3)*5],
+					temp[(ky>>3)+(image->ih>>3)*6],
+					temp[(ky>>3)+(image->ih>>3)*7],
+				};
+
+				dct8_inv_i8(x);
+				
+				image->data[ idx             <<2|kc]=x[0];
+				image->data[(idx+image->iw  )<<2|kc]=x[1];
+				image->data[(idx+image->iw*2)<<2|kc]=x[2];
+				image->data[(idx+image->iw*3)<<2|kc]=x[3];
+				image->data[(idx+image->iw*4)<<2|kc]=x[4];
+				image->data[(idx+image->iw*5)<<2|kc]=x[5];
+				image->data[(idx+image->iw*6)<<2|kc]=x[6];
+				image->data[(idx+image->iw*7)<<2|kc]=x[7];
+			}
+		}
+#endif
+#if 1
+		for(int ky=0;ky<image->ih;++ky)
+		{
+			for(int kx=0;kx<image->iw;++kx)
+				temp[kx]=image->data[(image->iw*ky+kx)<<2|kc];
+			for(int kx=0;kx<image->iw-7;kx+=8)
+			{
+				int idx=image->iw*ky+kx;
+				int x[]=
+				{
+					temp[(kx>>3)                 ],
+					temp[(kx>>3)+(image->iw>>3)  ],
+					temp[(kx>>3)+(image->iw>>3)*2],
+					temp[(kx>>3)+(image->iw>>3)*3],
+					temp[(kx>>3)+(image->iw>>3)*4],
+					temp[(kx>>3)+(image->iw>>3)*5],
+					temp[(kx>>3)+(image->iw>>3)*6],
+					temp[(kx>>3)+(image->iw>>3)*7],
+				};
+
+				dct8_inv_i8(x);
+				
+				image->data[ idx   <<2|kc]=x[0];
+				image->data[(idx+1)<<2|kc]=x[1];
+				image->data[(idx+2)<<2|kc]=x[2];
+				image->data[(idx+3)<<2|kc]=x[3];
+				image->data[(idx+4)<<2|kc]=x[4];
+				image->data[(idx+5)<<2|kc]=x[5];
+				image->data[(idx+6)<<2|kc]=x[6];
+				image->data[(idx+7)<<2|kc]=x[7];
+			}
+		}
+#endif
+	}
+	free(temp);
+	for(int kc=0;kc<3;++kc)
+		image->depth[kc]-=(image->depth[kc]-3>=image->src_depth[kc])*3;
+}

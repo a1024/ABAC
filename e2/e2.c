@@ -16,11 +16,13 @@ typedef unsigned THREAD_RET;
 #define THREAD_CALL
 typedef void *THREAD_RET;
 #endif
-#include"lodepng.h"
 static const char file[]=__FILE__;
 
 
 //override program
+//	#define DIFF_AV
+//	#define BENCHMARK_DIV
+//	#define SORT_TEST
 //	#define DSP_TEST
 
 
@@ -29,7 +31,9 @@ static const char file[]=__FILE__;
 #define ENCODE     t47_encode
 #define DECODE     t47_decode
 
+#if CODECID==47
 	#define PRINT_RCT//comment when not applicable
+#endif
 
 
 static const char *g_extensions[]=
@@ -46,7 +50,9 @@ typedef struct ThreadArgsStruct
 	Image *src, *dst;
 	size_t usize, csize1, csize2;
 	double fdec, enc, dec;//time in secs
+#ifdef PRINT_RCT
 	SLIC5Curiosity curiosity;
+#endif
 	int error;//whether the image was recovered successfully
 	ptrdiff_t idx;
 } ThreadArgs;
@@ -86,7 +92,9 @@ typedef struct ResultStruct
 	//ptrdiff_t idx;
 	size_t usize, csize1, csize2, error;
 	double fdec, enc, dec;
+#ifdef PRINT_RCT
 	SLIC5Curiosity curiosity;
+#endif
 } Result;
 typedef struct ProcessCtxStruct
 {
@@ -96,6 +104,7 @@ typedef struct ProcessCtxStruct
 } ProcessCtx;
 static double start_time=0;
 static double g_total_usize=0, g_total_csize=0;
+#ifdef PRINT_RCT
 static void curiosity_add(SLIC5Curiosity *dst, SLIC5Curiosity const *src)
 {
 #ifndef SLIC5_OPTIMIZE_RCT
@@ -120,6 +129,7 @@ static void curiosity_print(SLIC5Curiosity const *src)
 	for(int k=0;k<SLIC5_NPREDS;++k)
 		printf("  %2d  %17lld  %6.2lf%%  %s\n", k, src->pred_errors[k], 100.*src->pred_errors[k]/sum, slic5_prednames[k]);
 }
+#endif
 static void print_result(Result *res, const char *title, int width, int print_timestamp, int print_rct)
 {
 	double
@@ -127,11 +137,11 @@ static void print_result(Result *res, const char *title, int width, int print_ti
 		CR2=(double)res->usize/res->csize2;
 	g_total_usize+=res->usize;
 	g_total_csize+=res->csize2;
-	printf("%-*s  %10lld  format %10lld %10.6lf D %12lf sec  test %10lld %10.6lf E %12lf D %12lf sec %s  CCR %10.6lf",
+	printf("%-*s  %10lld  format %10lld %10.6lf%% D %12lf sec  test %10lld %10.6lf%% E %12lf D %12lf sec %s  all %10.6lf%%",
 		width, title, res->usize,
-		res->csize1, CR1, res->fdec,
-		res->csize2, CR2, res->enc, res->dec, res->error?"ERROR":"SUCCESS",
-		g_total_usize/g_total_csize
+		res->csize1, 100./CR1, res->fdec,
+		res->csize2, 100./CR2, res->enc, res->dec, res->error?"ERROR":"SUCCESS",
+		100.*g_total_csize/g_total_usize
 	);
 #ifdef PRINT_RCT
 #ifdef SLIC5_OPTIMIZE_RCT
@@ -212,11 +222,15 @@ static void process_file(ProcessCtx *ctx, ArrayHandle title, int maxlen, Image *
 			threadargs->fdec,
 			threadargs->enc,
 			threadargs->dec,
+#ifdef PRINT_RCT
 			threadargs->curiosity,
+#endif
 		};
 		ARRAY_APPEND(ctx->results, &result, 1, 1, 0);
 		print_result(&result, (char*)threadargs->title->data, maxlen, 1, 1);
+#ifdef PRINT_RCT
 		curiosity_add(curiosity, &threadargs->curiosity);
+#endif
 
 		array_clear(&ctx->threadargs);
 		ctx->nfinished=ctx->nstarted;
@@ -276,12 +290,16 @@ static void process_file(ProcessCtx *ctx, ArrayHandle title, int maxlen, Image *
 				threadargs->fdec,
 				threadargs->enc,
 				threadargs->dec,
+#ifdef PRINT_RCT
 				threadargs->curiosity,
+#endif
 			};
 			ARRAY_APPEND(ctx->results, &result, 1, 1, 0);
 			print_result(&result, (char*)threadargs->title->data, maxlen, k>=n-1, 1);
 			//print_result(&result, ctx->nfinished+k+1);
+#ifdef PRINT_RCT
 			curiosity_add(curiosity, &threadargs->curiosity);
+#endif
 		}
 
 		array_clear(&ctx->threadargs);
@@ -358,7 +376,9 @@ static void batch_test_mt(const char *path, int nthreads)
 		print_result(&total, "Total:", width, 1, 0);
 		array_free(&processctx.results);
 	}
+#ifdef PRINT_RCT
 	curiosity_print(&curiosity);
+#endif
 	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H%M%S");
 	printf("Finish %s\n", g_buf);
 
@@ -479,8 +499,10 @@ static void test_one(const char *fn, ptrdiff_t formatsize)
 		return;
 	}
 	double usize=image_getBMPsize(src);
-	printf("Opened in %lf sec  csize %lld  CR %lf\n", t, formatsize, usize/formatsize);
+	printf("Opened in %lf sec  csize %lld  invCR %lf%%\n", t, formatsize, 100.*formatsize/usize);
 
+	//test_alphaVSbin(src);
+#if 1
 	//encode
 	ArrayHandle cdata=0;
 #ifdef PRINT_RCT
@@ -512,11 +534,12 @@ static void test_one(const char *fn, ptrdiff_t formatsize)
 	compare_bufs_32(dst->data, src->data, src->iw, src->ih, 3, 4, CODECNAME, 0, 1);
 	//memset(dst->data, 0, res*sizeof(int[4]));
 #endif
+	array_free(&cdata);
+	free(dst);
+#endif
 	printf("\n");
 
-	array_free(&cdata);
 	free(src);
-	free(dst);
 }
 static void encode(const char *srcfn, const char *dstfn)
 {
@@ -602,7 +625,9 @@ static void compare(const char *fn1, const char *fn2)
 		printf("Dimension mismatch  %dx%d != %dx%d\n", im1->iw, im1->ih, im2->iw, im2->ih);
 		return;
 	}
-	ptrdiff_t formatsize=get_filesize(fn2);
+	ptrdiff_t formatsize1=get_filesize(fn1);
+	ptrdiff_t formatsize2=get_filesize(fn2);
+	double usize=image_getBMPsize(im1);
 	int res=im1->iw*im1->ih;
 	long long sum[4]={0};
 	for(int k=0;k<res;++k)
@@ -634,8 +659,9 @@ static void compare(const char *fn1, const char *fn2)
 		20*log10(255/rmse[3]),
 		20*log10(255/rmse[4]),
 	};
-	double CR=res*3./formatsize;
-	printf("T RMSE %lf PSNR %lf  CR %d/%d = %lf  BPP %lf\n", rmse[4], psnr[4], res*nch, (int)formatsize, CR, 8/CR);
+	double CR1=usize/formatsize1;
+	double CR2=usize/formatsize2;
+	printf("T RMSE %lf PSNR %lf  %lf  L %d %lf%%  R %d %lf%%\n", rmse[4], psnr[4], usize, (int)formatsize1, 100./CR1, (int)formatsize2, 100./CR2);
 	printf("R RMSE %lf PSNR %lf\n", rmse[0], psnr[0]);
 	printf("G RMSE %lf PSNR %lf\n", rmse[1], psnr[1]);
 	printf("B RMSE %lf PSNR %lf\n", rmse[2], psnr[2]);
@@ -659,10 +685,14 @@ ProgArgs args=
 //	"C:/Projects/datasets/dataset-kodak/kodim02.png",
 //	"C:/Projects/datasets/dataset-kodak/kodim05.png",
 	"C:/Projects/datasets/dataset-kodak/kodim13.png",
-//	"C:/Projects/datasets/dataset-kodak/kodim22.png",
-//	"C:/Projects/datasets/kodim13-small4.PNG",
 //	"C:/Projects/datasets/dataset-kodak/kodim19.png",
 //	"C:/Projects/datasets/dataset-kodak/kodim21.png",
+//	"C:/Projects/datasets/dataset-kodak/kodim22.png",
+//	"C:/Projects/datasets/dataset-kodak/kodim23.png",
+//	"C:/Projects/datasets/kodim13-small4.PNG",
+//	"C:/Projects/datasets/xplogo.jpg",
+//	"C:/Projects/datasets/rubberduck.jpg",
+//	"C:/Projects/datasets/dataset-train/AWM/world.jpg",//odd dims
 //	"C:/Projects/datasets/dataset-kodak-pgm/kodim02.pgm",
 //	"C:/Projects/datasets/dataset-kodak-CLIC30/01.png",
 //	"C:/Projects/datasets/dataset-kodak-CLIC30/03.png",//prefers RCT_NONE
@@ -703,6 +733,7 @@ ProgArgs args=
 //};
 
 #ifdef DSP_TEST
+#include"lodepng.h"
 typedef struct ACPStruct
 {
 	double alpha;
@@ -756,8 +787,381 @@ ACP dsp_info[]=
 double g_image[DSP_HEIGHT][DSP_WIDTH];
 //char g_mask[DSP_HEIGHT][DSP_WIDTH];
 #endif
+#ifdef SORT_TEST
+void sort_bitonic(short *data, int lgcount)
+{
+	int count=1<<lgcount;
+	for(int it=0;it<lgcount;++it)
+	{
+		for(int k2=it>>1;k2>0;k2>>=1)
+		{
+			for(int k3=0;k3<count;++k3)
+			{
+				int k4=k3^k2;
+				short temp;
+				if(k4>k3&&!(k3&it)!=(data[k3]<data[k4]))
+					SWAPVAR(data[k3], data[k4], temp);
+			}
+		}
+	}
+}
+static int threeway_short(const void *p1, const void *p2)
+{
+	const short
+		*s1=(const short*)p1,
+		*s2=(const short*)p2;
+	return (*s1>*s2)-(*s1<*s2);
+}
+void init_rand(short *data, int count)
+{
+	for(int k=0;k<count;++k)
+		data[k]=rand();
+}
+void sort_radix_nlsb(short *data, int count, int nsteps, short *temp)
+{
+	if(nsteps<1||nsteps>16||(nsteps&(nsteps-1)))//nsteps in {1, 2, 4, 8, 16}
+		return;
+	int nbits=sizeof(short[8])/nsteps, histsize=1<<nbits, mask=histsize-1;
+	int *hist=(int*)malloc(histsize*sizeof(int));
+	if(!hist)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	for(int kb=0;kb<nsteps;++kb)
+	{
+		int shift=nbits*kb, val;
+		memset(hist, 0, histsize*sizeof(int));
+		for(int k=0;k<count;++k)
+		{
+			val=data[k]>>shift&mask;
+			++hist[val];
+		}
+		for(int k=0, sum=0;k<histsize;++k)
+		{
+			val=hist[k];
+			hist[k]=sum;
+			sum+=val;
+		}
+		for(int k=0;k<count;++k)
+		{
+			val=data[k]>>shift&mask;
+			temp[hist[val]]=data[k];
+			++hist[val];
+		}
+		memcpy(data, temp, count*sizeof(short));
+	}
+	free(hist);
+}
+void sort_radix_lsd(short *data, int count, short *temp)
+{
+	int hist[16];
+	for(int kb=0;kb<16;kb+=4)
+	{
+		memset(hist, 0, sizeof(hist));
+		for(int k=0;k<count;++k)
+		{
+			int val=data[k]>>kb&15;
+			++hist[val];
+		}
+		for(int k=0, sum=0;k<16;++k)
+		{
+			int freq=hist[k];
+			hist[k]=sum;
+			sum+=freq;
+		}
+		for(int k=0;k<count;++k)
+		{
+			int val=data[k]>>kb&15;
+			temp[hist[val]]=data[k];
+			++hist[val];
+		}
+		memcpy(data, temp, count*sizeof(short));
+	}
+}
+void sort_radix_msd(short *data, int count, short *temp, int kb)
+{
+	int hist[16]={0}, hist2[16];
+	for(int k=0;k<count;++k)
+	{
+		int val=data[k]>>(12-kb)&15;
+		++hist[val];
+	}
+	for(int k=0, sum=0;k<16;++k)
+	{
+		int freq=hist[k];
+		hist[k]=sum;
+		sum+=freq;
+	}
+	memcpy(hist2, hist, sizeof(hist2));
+	for(int k=0;k<count;++k)
+	{
+		int val=data[k]>>(12-kb)&15;
+		temp[hist[val]]=data[k];
+		++hist[val];
+	}
+	memcpy(data, temp, count*sizeof(short));
+	if(kb>=12)
+		return;
+	for(int k=0;k<16;++k)
+	{
+		int pos=hist2[k], count2=(k<15?hist2[k+1]:count)-pos;
+		if(count2>0)
+			sort_radix_msd(data+pos, count2, temp, kb+4);
+	}
+}
+#endif
+#ifdef DIFF_AV
+#include"lodepng.h"
+//unsigned char buf[32*32*4];
+#endif
 int main(int argc, char **argv)
 {
+#ifdef DIFF_AV
+	printf("Diff-Av\n");
+	Image *src=image_load("C:/Projects/e2/20240301 6 src.PNG");
+	int srcdim=MINVAR(src->iw, src->ih), dstdim=srcdim<<1, half=srcdim>>1;
+	Image *dst=image_alloc(dstdim, dstdim, 3, 8, 8, 8, 0, 1, -1);
+	int a, b, temp;
+	for(int ky=0;ky<srcdim;++ky)
+	{
+		for(int kx=0;kx<srcdim;++kx)
+		{
+			a=kx-half, b=ky-half;
+
+			SWAPVAR(a, b, temp);
+			b=-b;
+
+			a-=b;
+			b+=a>>1;
+
+			a=-a;
+
+			memcpy(dst->data+((dst->iw*((size_t)b+srcdim)+a+srcdim)<<2), src->data+(((size_t)src->iw*ky+kx)<<2), sizeof(int[4]));
+		}
+	}
+	image_snapshot(dst);
+#if 0
+	memset(buf, -1, sizeof(buf));
+	for(int ky=0;ky<16;++ky)
+	{
+		for(int kx=0;kx<16;++kx)
+		{
+			int a=kx, b=ky;
+			a-=8;
+			b-=8;
+
+			a-=b;
+			b+=a>>1;
+
+			//a-=b;
+			//a=((a+8)&15)-8;
+			//b+=a>>1;
+			//b=((b+8)&15)-8;
+			//
+			//a+=8;
+			//b+=8;
+			//a&=15;
+			//b&=15;
+
+			//a-=8;
+			//b-=8;
+			//
+			//b-=a>>1;
+			//b=((b+8)&15)-8;
+			//a+=b;
+			//a=((a+8)&15)-8;
+			//
+			//a+=8;
+			//b+=8;
+			//a&=15;
+			//b&=15;
+			printf(" %X%X", (a+8)&15, (b+8)&15);
+			buf[((b+16)<<5|(a+16))<<2|0]=kx<<4;
+			buf[((b+16)<<5|(a+16))<<2|1]=ky<<4;
+			buf[((b+16)<<5|(a+16))<<2|2]=0;
+			buf[((b+16)<<5|(a+16))<<2|3]=0xFF;
+		}
+		printf("\n");
+	}
+	lodepng_encode_file("free-dst.PNG", buf, 32, 32, LCT_RGBA, 8);
+#endif
+	printf("Done.\n");
+	pause();
+	return 0;
+#endif
+#ifdef BENCHMARK_DIV
+	{
+#define BENCHMARK_SIZE 0x1000
+#define BENCHMARK_COUNT 0x1000
+		printf("benchmark\n");
+		double *ddata=(double*)malloc(sizeof(double[BENCHMARK_SIZE]));
+		float *fdata=(float*)malloc(sizeof(float[BENCHMARK_SIZE]));
+		long long *ldata=(long long*)malloc(sizeof(long long[BENCHMARK_SIZE]));
+		int *idata=(int*)malloc(sizeof(int[BENCHMARK_SIZE]));
+		if(!ddata||!fdata||!ldata||!idata)
+		{
+			LOG_ERROR("Buy more RAM");
+			return 0;
+		}
+		for(int k=0;k<BENCHMARK_SIZE;++k)
+		{
+			ddata[k]=(double)rand()/256;
+			fdata[k]=(float)rand()/256;
+			ldata[k]=(long long)rand()<<8;
+			idata[k]=rand();
+		}
+		volatile double t[16]={0}, ttemp;
+		volatile long long c[16]={0}, ctemp;
+
+#define BENCHLOOP(IDX, DATA, OP)\
+	ttemp=time_sec();\
+	ctemp=__rdtsc();\
+	for(int k=0;k<BENCHMARK_SIZE-1;++k)\
+		DATA[k] OP (DATA[k+1]);\
+	t[IDX]+=time_sec()-ttemp;\
+	c[IDX]+=__rdtsc()-ctemp;
+		
+		for(int k=0;k<BENCHMARK_COUNT;++k)
+		{
+			BENCHLOOP( 0, idata, =abs)
+			BENCHLOOP( 1, fdata, =fabsf)
+			BENCHLOOP( 2, ldata, =llabs)
+			BENCHLOOP( 3, ddata, =fabs)
+			BENCHLOOP( 4, idata, =1+)
+			BENCHLOOP( 5, fdata, =1+)
+			BENCHLOOP( 6, ldata, =1+)
+			BENCHLOOP( 7, ddata, =1+)
+			BENCHLOOP( 8, idata, /=)
+			BENCHLOOP( 9, fdata, /=)
+			BENCHLOOP(10, ldata, /=)
+			BENCHLOOP(11, ddata, /=)
+			BENCHLOOP(12, idata, *=)
+			BENCHLOOP(13, fdata, *=)
+			BENCHLOOP(14, ldata, *=)
+			BENCHLOOP(15, ddata, *=)
+			printf("%6.2lf%%\r", 100.*(k+1)/BENCHMARK_COUNT);
+		}
+		printf("\n");
+
+		double dsum=0;
+		float fsum=0;
+		int isum=0;
+		long long lsum=0;
+		for(int k=0;k<BENCHMARK_SIZE;++k)
+		{
+			dsum+=ddata[k];
+			fsum+=fdata[k];
+			isum+=idata[k];
+			lsum+=ldata[k];
+		}
+		const char *data_labels[]=
+		{
+			"i32",
+			"f32",
+			"i64",
+			"f64",
+		};
+		const char *op_labels[]=
+		{
+			"abs",
+			"inc",
+			"div",
+			"mul",
+		};
+		double maxtime=0;
+		for(int k=0;k<16;++k)
+		{
+			UPDATE_MAX(maxtime, t[k]);
+		}
+		for(int k=0;k<16;++k)
+		{
+			printf("%s %s %10lf ms  %15lld cycles  ", data_labels[k&3], op_labels[k>>2], t[k]*1000, c[k]);
+			for(int k2=0, nstars=(int)(t[k]*60/maxtime);k2<nstars;++k2)
+				printf("*");
+			printf("\n");
+		}
+		printf("Result  %d %f %lld %lf\n", isum, fsum, lsum, dsum);
+
+		free(ddata);
+		free(fdata);
+		free(ldata);
+		free(idata);
+
+		printf("Done.\n");
+		pause();
+		return 0;
+	}
+#endif
+#ifdef SORT_TEST
+	{
+#define SORT_COUNT 0x10000
+		for(int k=0;k<32;++k)
+			printf("%d\n", rand()&0xFF);
+		short *orig=(short*)malloc(sizeof(short[SORT_COUNT]));
+		short *sort1=(short*)malloc(sizeof(short[SORT_COUNT]));
+		//short *sort2=(short*)malloc(sizeof(short[SORT_COUNT]));
+		short *sort3=(short*)malloc(sizeof(short[SORT_COUNT]));
+		short *temp=(short*)malloc(sizeof(short[SORT_COUNT]));
+		if(!orig||!sort1||!sort3)
+		{
+			LOG_ERROR("Alloc error");
+			return 0;
+		}
+		init_rand(orig, SORT_COUNT);
+		memcpy(sort1, orig, sizeof(short[SORT_COUNT]));
+		//memcpy(sort2, orig, sizeof(short[SORT_COUNT]));
+		memcpy(sort3, orig, sizeof(short[SORT_COUNT]));
+
+		printf("%d elements\n", SORT_COUNT);
+
+		double t=time_sec();
+		long long c=__rdtsc();
+		qsort(sort1, SORT_COUNT, sizeof(short), threeway_short);
+		c=__rdtsc()-c;
+		t=time_sec()-t;
+		printf("qsort  %lf sec  %10lld cycles\n", t, c);
+		
+		//t=time_sec();
+		//sort_radix_lsd(sort2, SORT_COUNT, temp);
+		//t=time_sec()-t;
+		//int success=!memcmp(sort2, sort1, sizeof(short[SORT_COUNT]));
+		//printf("sort_radix_lsd      %lf  %s\n", t, success?"OK":"ERROR");
+
+		//t=time_sec();
+		//sort_radix_msd(sort3, SORT_COUNT, temp, 0);
+		//t=time_sec()-t;
+		//success=!memcmp(sort3, sort1, sizeof(short[SORT_COUNT]));
+		//printf("sort_radix_msd      %lf  %s\n", t, success?"OK":"ERROR");
+
+		for(int k=0;k<=4;++k)
+		{
+			memcpy(sort3, orig, sizeof(short[SORT_COUNT]));
+
+			t=time_sec();
+			c=__rdtsc();
+			sort_radix_nlsb(sort3, SORT_COUNT, 1<<k, temp);
+			c=__rdtsc()-c;
+			t=time_sec()-t;
+			int success=!memcmp(sort3, sort1, sizeof(short[SORT_COUNT]));
+			printf("sort_radix_nlsb(%2d-bit)  %lf sec  %10lld cycles  %s\n", (int)(sizeof(short[8])/(1LL<<k)), t, c, success?"OK":"ERROR");
+			
+			//for(int k=0;k<SORT_COUNT;++k)
+			//	printf("[%4d] 0x%08X 0x%08X\n", k, sort1[k], sort3[k]);
+			//printf("\n");
+		}
+		//for(int k=0;k<SORT_COUNT;++k)
+		//	printf("[%4d] 0x%08X 0x%08X 0x%08X\n", k, sort1[k], sort2[k], sort3[k]);
+
+		free(orig);
+		free(sort1);
+		//free(sort2);
+		free(sort3);
+		free(temp);
+		pause();
+		return 0;
+	}
+#endif
 #if 0
 	int sum=0;
 	double t=time_sec();
@@ -1040,724 +1444,6 @@ int main(int argc, char **argv)
 		compare(args.fn1, args.fn2);
 		break;
 	}
-
-#if 0
-	long long cycles;
-	int iw=0, ih=0, nch0=3, nch=4;
-	size_t resolution=0, len=0;
-	unsigned char *buf, *b2;
-	const char *fn=0;
-	int nthreads=0;
-#ifdef _DEBUG
-	nthreads=10;
-	//fn="C:/Projects/datasets/CLIC11-crop4-2.PNG";
-	//fn="C:/Projects/datasets/CLIC11-small4.PNG";
-	//fn="C:/Projects/datasets/dataset-CLIC30/11.png";
-	//fn="C:/Projects/datasets/dataset-kodak";
-	//fn="C:/Projects/datasets/dataset-kodak-pgm/kodim01.pgm";
-	//fn="C:/Projects/datasets/kodim13-small4.PNG";
-	//fn="C:/Projects/datasets/dataset-ic-rgb8bit/big_building.PNG";
-	fn="C:/Projects/datasets/dataset-kodak/kodim13.png";
-
-//	fn="D:/ML/dataset-LPCB";
-	//fn="D:/ML/dataset-CLIC30";
-	//fn="D:/ML/dataset-kodak";
-	//fn="D:/ML/dataset-CLIC30/16.png";//hardest noiseless CLIC30 image
-	//fn="D:/ML/dataset-CLIC30/17.png";
-	//fn="D:/ML/dataset-kodak/kodim13.png";
-//	fn="D:/ML/dataset-kodak/kodim18.png";
-	//fn="D:/ML/dataset-kodak-small/13.PNG";
-#endif
-	if(fn||argc==2||argc==3)
-	{
-		if(!fn)
-			fn=argv[1];
-		ptrdiff_t formatsize=get_filesize(fn);
-		if(formatsize==-1)
-		{
-			LOG_ERROR("Cannot open \"%s\"", fn);
-			print_usage(argv[0]);
-			return 0;
-		}
-		if(!formatsize)//path
-		{
-			if(!nthreads)
-			{
-				nthreads=1;
-				if(argc==3)
-					nthreads=atoi(argv[2]);
-			}
-			if(nthreads==1)
-				batch_test(fn);
-			else
-				batch_test_mt(fn, nthreads);
-			return 0;
-		}
-		printf("Opening \"%s\"\n", fn);
-		double t_dec=time_sec();
-		cycles=__rdtsc();
-		buf=image_load(fn, &iw, &ih);
-		cycles=__rdtsc()-cycles;
-		t_dec=time_sec()-t_dec;
-		if(!buf)
-		{
-			LOG_ERROR("Couldn't open \"%s\"", fn);
-			return 0;
-		}
-		resolution=(size_t)iw*ih;
-		len=resolution*nch;
-
-		printf("Format Dec %lfsec %lf CPB, ratio = %d * %d * %d / %lld = %lf\n", t_dec, (double)cycles/(resolution*nch0), iw, ih, nch0, (long long)formatsize, (double)resolution*nch0/formatsize);
-	}
-	else if(argc==4)
-	{
-		if(!_stricmp(argv[1], "MSE"))
-		{
-			const char *fn1=argv[2], *fn2=argv[3];
-			int w2, h2;
-			buf=image_load(fn1, &iw, &ih);
-			b2 =image_load(fn2, &w2, &h2);
-			if(!buf)
-			{
-				printf("Couldn't open %s\n", fn1);
-				return 1;
-			}
-			if(!b2)
-			{
-				printf("Couldn't open %s\n", fn2);
-				return 1;
-			}
-			if(iw!=w2||ih!=h2)
-			{
-				printf("Expected two images of SAME RESOLUTION. %dx%d != %dx%d\n", iw, ih, w2, h2);
-				return 1;
-			}
-			ptrdiff_t formatsize=get_filesize(fn2);
-			int res=iw*ih;
-			long long sum[3]={0};
-			for(int k=0;k<res;++k)
-			{
-				int dr=buf[k<<2  ]-b2[k<<2  ],
-					dg=buf[k<<2|1]-b2[k<<2|1],
-					db=buf[k<<2|2]-b2[k<<2|2];
-				sum[0]+=dr*dr;
-				sum[1]+=dg*dg;
-				sum[2]+=db*db;
-			}
-			double rmse[]=
-			{
-				sqrt((double)sum[0]/res),
-				sqrt((double)sum[1]/res),
-				sqrt((double)sum[2]/res),
-				sqrt((double)(sum[0]+sum[1]+sum[2])/(res*3)),
-			};
-			double psnr[]=
-			{
-				20*log10(255/rmse[0]),
-				20*log10(255/rmse[1]),
-				20*log10(255/rmse[2]),
-				20*log10(255/rmse[3]),
-			};
-			double CR=res*3./formatsize;
-			printf("T RMSE %lf PSNR %lf  CR %d/%d = %lf  BPP %lf\n", rmse[3], psnr[3], res*3, (int)formatsize, CR, 8/CR);
-			printf("R RMSE %lf PSNR %lf\n", rmse[0], psnr[0]);
-			printf("G RMSE %lf PSNR %lf\n", rmse[1], psnr[1]);
-			printf("B RMSE %lf PSNR %lf\n", rmse[2], psnr[2]);
-			return 0;
-		}
-		else
-		{
-			print_usage(argv[0]);
-			pause();
-			return 0;
-		}
-	}
-	else
-	{
-		print_usage(argv[0]);
-		pause();
-		return 0;
-	}
-
-	if(nch0==3&&!buf[3])//set alpha
-	{
-		for(int k=3;k<(int)len;k+=nch)
-			buf[k]=0xFF;
-	}
-
-	b2=(unsigned char*)malloc(len);
-	if(!b2)
-		return 0;
-	//size_t usize=len*nch0>>2;
-
-	printf("\n");
-	
-	ArrayHandle cdata=0;
-	//const void *ptr, *end;
-
-	//{
-	//	size_t bestsize=0, lastsize=0;
-	//	int besttest=0;
-	//	for(int k=0;k<4;++k)
-	//	{
-	//		size_t size=ma_test(buf, iw, ih, k, 1, 1);
-	//		if(!k||bestsize>size)
-	//			bestsize=size, besttest=k;
-	//		if(k==7)
-	//			lastsize=size;
-	//	}
-	//	printf("\nBest combination  %d  %lld  %lf\n", besttest, bestsize, (double)lastsize/bestsize);
-	//	print_ma_test(besttest);
-	//	printf("\n");
-	//	//pause();
-	//	exit(0);
-	//}
-	//grad_explore(buf, iw, ih);
-
-	//test16
-#if 0
-	{
-		//debug_ptr=buf;//
-		int besta=0, bestb=0, bestm=0, bestc=0;
-		int it=0;
-		for(int m=30;m<=30;++m)
-		{
-			for(int b=15;b<=15;++b)
-			{
-				for(int a=0xD3E7;a<=0xD3E7;++a, ++it)
-				{
-					int alpha=a,//(60<<16)/100;	0xA51F	0xD3DA	0xD3D6	0xD3EB
-						bsize=b,//32 24 26 20
-						margin=m;
-					printf("T16 a 0x%04X b %3d m %3d ", alpha, bsize, margin);
-					cycles=__rdtsc();
-					test16_encode(buf, iw, ih, alpha, bsize, margin, &cdata, 1);
-					cycles=__rdtsc()-cycles;
-					printf("Enc %11lf CPB  CR %9lf  csize %lld ", (double)cycles/usize, (double)usize/cdata->count, cdata->count);
-
-					if(!it||bestc>(int)cdata->count)
-						besta=alpha, bestb=bsize, bestm=m, bestc=(int)cdata->count;
-
-					cycles=__rdtsc();
-					test16_decode(cdata->data, cdata->count, iw, ih, alpha, bsize, margin, b2);
-					cycles=__rdtsc()-cycles;
-					printf("Dec %11lf CPB ", (double)cycles/usize);
-
-					array_free(&cdata);
-					compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T16", 0, 1);
-					memset(b2, 0, len);
-				}
-				//printf("\n");
-			}
-		}
-		if(it>1)
-			printf("T16 best ABMS 0x%04X %2d %2d %d CR %lf\n", besta, bestb, bestm, bestc, (double)usize/bestc);
-		else
-			printf("\n");
-	}
-#endif
-
-
-	//test16 codec with jxl predictor optimizer
-#if 0
-	{
-		int alpha=0xD3E7,
-			blockw[]={ 8, 23,  8},//best block for channels 0 & 2: 1x1
-			blockh[]={ 1,  1,  1},
-			margin[]={26, 37, 26};
-
-#if 0
-		int res=iw*ih;
-		double step=0.001, CR0=0, CR, csize[3]={0};
-		estimate_csize_from_transforms(buf, b2, iw, ih, csize);
-		CR=res*3/(csize[0]+csize[1]+csize[2]);
-		printf("%4d TRGB %lf [%lf %lf %lf]\n", 0, CR, res/csize[0], res/csize[1], res/csize[2]);
-
-		for(int k=0;k<256;++k)
-		{
-			int idx=k%33;
-			if(!(k+1)%33)
-				step*=0.9;
-			do
-			{
-				CR0=CR;
-				jxlpred_params[idx]+=step;
-				estimate_csize_from_transforms(buf, b2, iw, ih, csize);
-				CR=res*3/(csize[0]+csize[1]+csize[2]);
-				printf("%4d TRGB %lf [%lf %lf %lf]\n", k+1, CR, res/csize[0], res/csize[1], res/csize[2]);
-			}
-			while(CR>CR0);
-
-			do
-			{
-				CR0=CR;
-				jxlpred_params[idx]-=step;
-				estimate_csize_from_transforms(buf, b2, iw, ih, csize);
-				CR=res*3/(csize[0]+csize[1]+csize[2]);
-				printf("%4d TRGB %lf [%lf %lf %lf]\n", k+1, CR, res/csize[0], res/csize[1], res/csize[2]);
-			}
-			while(CR>CR0);
-		}
-#endif
-
-		//for(int k=0;k<3;++k)
-		//	printf("%g\t%g\t%g\t%g\n", jxlpred_params[k<<2], jxlpred_params[k<<2|1], jxlpred_params[k<<2|2], jxlpred_params[k<<2|3]);
-		//for(int k=12;k<33;k+=7)
-		//	printf("%g\t%g\t%g\t%g\t%g\t%g\t%g\n", jxlpred_params[k], jxlpred_params[k+1], jxlpred_params[k+2], jxlpred_params[k+3], jxlpred_params[k+4], jxlpred_params[k+5], jxlpred_params[k+6]);
-		//for(int k=0;k<33;++k)
-		//	printf("%3d  %lf\n", k, jxlpred_params[k]);
-		//printf("\n");
-		
-		printf("T16\n");
-		int bestcsizes[3]={0}, bestw[3]={0}, besth[3]={0}, bestm[3]={0};
-		int it=0;
-		//for(int bw=19;bw<25;++bw)//
-		{
-			//for(int m=31;m<48;++m)
-			{
-				int csizes[3];
-				//blockw[1]=bw, blockh[1]=1, margin[1]=m;
-				//blockw[1]=1+k, blockh[1]=1;
-				//blockw[1]=4+k%10, blockh[1]=1+k/10;
-			
-				//blockw[0]=blockw[2]=blockw[1];
-				//blockh[0]=blockh[2]=blockh[1];
-
-				cycles=__rdtsc();
-				test16_encode(buf, iw, ih, alpha, blockw, blockh, margin, &cdata, 1, csizes);
-				cycles=__rdtsc()-cycles;
-				printf("Enc %11lf CPB  CR %9lf  csize %lld ", (double)cycles/usize, (double)usize/cdata->count, cdata->count);
-
-				for(int kc=0;kc<3;++kc)
-				{
-					if(!it||bestcsizes[kc]>csizes[kc])
-						bestcsizes[kc]=csizes[kc], bestw[kc]=blockw[kc], besth[kc]=blockh[kc], bestm[kc]=margin[kc];
-				}
-
-				cycles=__rdtsc();
-				test16_decode(cdata->data, cdata->count, iw, ih, alpha, blockw, blockh, margin, b2);
-				cycles=__rdtsc()-cycles;
-				printf("Dec %11lf CPB ", (double)cycles/usize);
-
-				array_free(&cdata);
-				compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T16", 0, 1);
-				memset(b2, 0, len);
-				printf("\n");
-				++it;
-			}
-		}
-		int res=iw*ih;
-		printf("R %7d %lf %2dx%d  M %d\n", bestcsizes[0], (double)res/bestcsizes[0], bestw[0], besth[0], bestm[0]);
-		printf("G %7d %lf %2dx%d  M %d\n", bestcsizes[1], (double)res/bestcsizes[1], bestw[1], besth[1], bestm[1]);
-		printf("B %7d %lf %2dx%d  M %d\n", bestcsizes[2], (double)res/bestcsizes[2], bestw[2], besth[2], bestm[2]);
-		printf("\n");
-	}
-#endif
-
-	//test25: T16 optimizer
-#if 0
-	{
-		int use_ans=0;
-		printf("T25 (%s)\n", use_ans?"ANS":"AC");
-		double elapsed;
-		int blockw[]={128, 128, 128}, blockh[]={128, 128, 128};
-		//int lbsizes[]=
-		//{
-		//	32, 32,
-		//	32, 32,
-		//	32, 32,
-		//};
-		//int sbsizes[]=//unused
-		//{
-		//	16, 16,
-		//	16, 16,
-		//	16, 16,
-		//};
-		elapsed=time_sec();
-		cycles=__rdtsc();
-		t25_encode(buf, iw, ih, blockw, blockh, use_ans, &cdata, 1);
-		cycles=__rdtsc()-cycles;
-		elapsed=time_sec()-elapsed;
-		printf("Enc %11lf CPB  CR %9lf  csize %lld  ", (double)cycles/usize, (double)usize/cdata->count, cdata->count);
-		timedelta2str(0, 0, elapsed);
-		printf("\n");
-		
-		elapsed=time_sec();
-		cycles=__rdtsc();
-		t25_decode(cdata->data, cdata->count, iw, ih, blockw, blockh, use_ans, b2, 1);
-		cycles=__rdtsc()-cycles;
-		elapsed=time_sec()-elapsed;
-		printf("Dec %11lf CPB  ", (double)cycles/usize);
-		timedelta2str(0, 0, elapsed);
-		printf("\n");
-
-		array_free(&cdata);
-		compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T25", 0, 1);
-		memset(b2, 0, len);
-		printf("\n");
-	}
-#endif
-
-	//test26: T16 with range coder
-#if 0
-	{
-		int use_ans=0;
-		double elapsed;
-		T26Params params[]=
-		{
-			{ 8, 26, 26, 26, 0xD3, 52},
-			{23, 37, 37, 37, 0xD3, 52},
-			{ 8, 26, 26, 26, 0xD3, 52},
-		};
-		printf("T26 (%s)\n", use_ans?"ANS":"AC");
-		
-		elapsed=time_sec();
-		cycles=__rdtsc();
-		t26_encode(buf, iw, ih, params, use_ans, &cdata, 1);
-		cycles=__rdtsc()-cycles;
-		elapsed=time_sec()-elapsed;
-		printf("Enc %11lf CPB  CR %9lf  csize %lld  ", (double)cycles/usize, (double)usize/cdata->count, cdata->count);
-		timedelta2str(0, 0, elapsed);
-		printf("\n");
-		
-		elapsed=time_sec();
-		cycles=__rdtsc();
-		t26_decode(cdata->data, cdata->count, iw, ih, params, use_ans, b2, 1);
-		cycles=__rdtsc()-cycles;
-		elapsed=time_sec()-elapsed;
-		printf("Dec %11lf CPB  ", (double)cycles/usize);
-		timedelta2str(0, 0, elapsed);
-		printf("\n");
-
-		array_free(&cdata);
-		compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T26", 0, 1);
-		memset(b2, 0, len);
-		printf("\n");
-	}
-#endif
-
-	//T27+: ABAC
-#if 1
-	//printf("T29 (ABAC + Bayesian inference)\n");
-	//t29_encode(buf, iw, ih, &cdata, 1);
-	//array_free(&cdata);
-
-	//printf("T30 (ABAC + Bayesian inference + predictor)\n");	//X
-	//t30_encode(buf, iw, ih, &cdata, 1);
-	//array_free(&cdata);
-
-	//printf("T31 (ABAC + adaptive Bayesian inference)\n");
-	//t31_encode(buf, iw, ih, &cdata, 1);
-	//array_free(&cdata);
-
-	//printf("T33 (ABAC + adaptive Bayesian inference with circular buffer)\n");	//X
-	//t33_encode(buf, iw, ih, &cdata, 1);
-	//array_free(&cdata);
-
-	//printf("T34 (ABAC + adaptive Bayesian inference)\n");
-	//t34_encode(buf, iw, ih, &cdata, 1);
-	//array_free(&cdata);
-
-	//old record
-#if 0
-	printf("T35 Entropy coding with context tree\n");
-	//printf("T35 Combines spatial transform with entropy coding\n");
-	t35_encode(buf, iw, ih, &cdata, 1);
-	t35_decode(cdata->data, cdata->count, iw, ih, b2, 1);
-	array_free(&cdata);
-	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T35", 0, 1);
-	memset(b2, 0, len);
-	printf("\n");
-#endif
-
-	//printf("T36 stretch & squish\n");
-	//t36_encode(buf, iw, ih, &cdata, 1);
-	//t36_decode(cdata->data, cdata->count, iw, ih, b2, 1);
-	//array_free(&cdata);
-	//compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T36", 0, 1);
-	//memset(b2, 0, len);
-	//printf("\n");
-
-	//printf("T37 Fixed array as binary tree predictor\n");
-	//t37_encode(buf, iw, ih, &cdata, 1);
-	//t37_decode(cdata->data, cdata->count, iw, ih, b2, 1);
-	//array_free(&cdata);
-	//compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T37", 0, 1);
-	//memset(b2, 0, len);
-	//printf("\n");
-
-	//printf("T38 Single simple bit predictor\n");
-	//t38_encode(buf, iw, ih, &cdata, 1);
-	//t38_decode(cdata->data, cdata->count, iw, ih, b2, 1);
-	//array_free(&cdata);
-	//compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T38", 0, 1);
-	//memset(b2, 0, len);
-	//printf("\n");
-
-	//old record
-#if 0
-	printf("T39 Multiple estimators for all maps\n");
-	t39_encode(buf, iw, ih, &cdata, 1);
-	t39_decode(cdata->data, cdata->count, iw, ih, b2, 1);
-	array_free(&cdata);
-	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T39", 0, 1);
-	memset(b2, 0, len);
-	printf("\n");
-#endif
-
-	//t40_encode(buf, iw, ih, &cdata, 2);	//X
-	//t40_decode(cdata->data, cdata->count, iw, ih, b2, 2);
-	//array_free(&cdata);
-	//compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T40", 0, 1);
-	//memset(b2, 0, len);
-	//printf("\n");
-
-	//t41_encode(buf, iw, ih, &cdata, 2);	//X
-	//t41_decode(cdata->data, cdata->count, iw, ih, b2, 2);
-	//array_free(&cdata);
-	//compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T41", 0, 1);
-	//memset(b2, 0, len);
-	//printf("\n");
-
-#if 0
-	t42_encode(buf, iw, ih, &cdata, 1);		//prev record
-	t42_decode(cdata->data, cdata->count, iw, ih, b2, 1);
-	array_free(&cdata);
-	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T42", 0, 1);
-	memset(b2, 0, len);
-	printf("\n");
-#endif
-
-	//t43_encode(buf, iw, ih, &cdata, 2);
-	//t43_decode(cdata->data, cdata->count, iw, ih, b2, 2);
-	//array_free(&cdata);
-	//compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T43", 0, 1);
-	//memset(b2, 0, len);
-	//printf("\n");
-
-#if 0
-	t44_encode(buf, iw, ih, &cdata, 1);		//current record: from paq8pxd
-	t44_decode(cdata->data, cdata->count, iw, ih, b2, 1);
-	array_free(&cdata);
-	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "T44", 0, 1);
-	memset(b2, 0, len);
-	printf("\n");
-#endif
-
-#if 1
-	t45_encode(buf, iw, ih, &cdata, 1);
-	t45_decode(cdata->data, cdata->count, iw, ih, b2, 1);
-	array_free(&cdata);
-	compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, CODECNAME, 0, 1);
-	memset(b2, 0, len);
-	printf("\n");
-#endif
-#endif
-
-	//SLIC
-#if 0
-	{
-		double t_enc=0, t_dec=0;
-
-		t_enc=time_sec();
-		slic_encode(iw, ih, 4, 8, buf, &cdata, 1);
-		t_enc=time_sec()-t_enc;
-
-		int iw2=0, ih2=0, nch2=0, depth2=0;
-		t_dec=time_sec();
-		unsigned char *ret=(unsigned char*)slic_decode(cdata->data, (int)cdata->count, &iw2, &ih2, &nch2, &depth2);
-		t_dec=time_sec()-t_dec;
-
-		printf("\nSLI %8d  CR %lf    Enc %lfsec  Dec %lfsec\n", (int)cdata->count, iw*ih*3./cdata->count, t_enc, t_dec);
-		array_free(&cdata);
-
-		compare_bufs_uint8(ret, buf, iw, ih, 3, 4, "SLIC", 0, 1);
-		free(ret);
-	}
-#endif
-
-	//SLIC2
-#if 0
-	{
-		double t_enc=0, t_dec=0;
-
-		t_enc=time_sec();
-		int retlen=0;
-		unsigned char *data=slic2_encode(iw, ih, 4, 8, buf, &retlen);
-		t_enc=time_sec()-t_enc;
-
-		int iw2=0, ih2=0, nch2=0, depth2=0;
-		t_dec=time_sec();
-		unsigned char *ret=(unsigned char*)slic2_decode(data, retlen, &iw2, &ih2, &nch2, &depth2, 0, 1);
-		t_dec=time_sec()-t_dec;
-
-		printf("\nSLI %8d  CR %lf    Enc %lfsec  Dec %lfsec\n", (int)retlen, iw*ih*3./retlen, t_enc, t_dec);
-		compare_bufs_uint8(ret, buf, iw, ih, 3, 4, "SLI2", 0, 1);
-		free(data);
-		free(ret);
-	}
-#endif
-
-	//SIF by Marcio Pais
-#if 0
-	{
-		SIF_content_descriptor_t info=
-		{
-			iw, ih, 3,//dims, nch
-			0,//flags
-
-			//2<<2,
-		};
-		size_t csize=0;
-		memcpy(b2, buf, (size_t)iw*ih<<2);
-		pack3_fwd(b2, iw*ih);
-
-		double t_enc=time_sec();
-		void *cdata=SIF_compressImage(&info, b2, (size_t)iw*ih<<2, &csize);
-		t_enc=time_sec()-t_enc;
-
-		uint64_t usize=0;
-		double t_dec=time_sec();
-		void *udata=SIF_decompressImage(&info, cdata, csize, &usize);
-		t_dec=time_sec()-t_dec;
-
-		printf("SIF  %lld  CR %lf  enc %lf dec %lf  ", csize, (double)iw*ih*4/csize, t_enc, t_dec);
-
-		compare_bufs_uint8(b2, (unsigned char*)udata, iw, ih, 3, 3, "SIF", 0, 1);
-
-		printf("\n");
-
-		SIF_FREE(cdata);
-		SIF_FREE(udata);
-	}
-#endif
-
-	//QOI
-#if 0
-	{
-		for(int k=0, res=iw*ih;k<res;++k)
-		{
-			b2[k*3+0]=buf[k<<2|0];
-			b2[k*3+1]=buf[k<<2|1];
-			b2[k*3+2]=buf[k<<2|2];
-		}
-		qoi_desc desc={iw, ih, 3, QOI_LINEAR};
-		int csize=0;
-		double t0=time_sec();
-		void *cdata_qoi=qoi_encode(b2, &desc, &csize);
-		t0=time_sec()-t0;
-		printf("\nQOI %8d  CR %lf    Enc %lfsec\n\n", csize, iw*ih*3./csize, t0);
-		free(cdata_qoi);
-	}
-#endif
-
-	//predict image
-	apply_transforms_fwd(buf, iw, ih);
-	//lodepng_encode_file("kodim21-YCoCgT-unplane.PNG", buf, iw, ih, LCT_RGBA, 8);//
-	//lodepng_encode_file("kodim21-XGZ-diff2d.PNG", buf, iw, ih, LCT_RGBA, 8);//
-
-	//colortransform_ycocb_fwd(buf, iw, ih);
-	//save_channel(buf+1, iw, ih, 4, 0, "kodim13-YCoCb-jxl-luma.PNG");
-#if 0
-	printf("Predict image...\n");
-	{
-		ArrayHandle sizes=dwt2d_gensizes(iw, ih, 3, 3, 0);
-		char *temp=(char*)malloc(MAXVAR(iw, ih));
-		
-		addbuf(buf, iw, ih, nch0, nch, 128);//unsigned char -> signed char
-		
-		//colortransform_ycocg_fwd((char*)buf, iw, ih);
-		//colortransform_xgz_fwd((char*)buf, iw, ih);
-		//colortransform_xyz_fwd((char*)buf, iw, ih);
-
-		//char *b3=(char*)malloc(iw), *b4=(char*)malloc(iw);
-		//if(!b3||!b4)
-		//	return 0;
-		//memcpy(b3, buf, iw);
-		//dwt1d_squeeze_fwd(b3, iw, 1, b4);
-		//dwt1d_squeeze_inv(b3, iw, 1, b4);
-		//compare_bufs_uint8((unsigned char*)b3, buf, iw, 1, 1, 1, "squeeze row", 0, 1);
-		//free(b3);
-		//free(b4);
-
-#if 1
-		memcpy(b2, buf, len);
-
-		colortransform_ycocb_fwd((char*)b2, iw, ih);
-		float jxlparams[33]=
-		{
-			 0.78f,    0.71f,    0.63f,   0.7f ,		-0.08f,   -0.01f,    0.59f,   0.12f,    -0.11f,   0.28f,    0.67f,
-			 0.63f,    0.51f,    1.33f,   0.79f,		 0.28f,    0.02f,   -0.07f,   0.f  ,     0.01f,   0.39f,    0.15f,
-			 0.7f ,    0.76f,    0.86f,   1.1f ,		-0.08f,   -0.06f,    0.38f,   0.04f,    -0.03f,   0.1f ,    0.91f,
-		};
-		pred_jxl_apply((char*)b2, iw, ih, jxlparams, 1);
-		pred_jxl_apply((char*)b2, iw, ih, jxlparams, 0);
-
-		//colortransform_xyz_fwd(b2, iw, ih);
-		//colortransform_xyz_inv(b2, iw, ih);
-		//for(int kc=0;kc<3;++kc)
-		//{
-		//	dwt2d_squeeze_fwd((char*)b2+kc, (DWTSize*)sizes->data, 0, 2, 4, temp);
-		//	dwt2d_squeeze_inv((char*)b2+kc, (DWTSize*)sizes->data, 0, 2, 4, temp);
-		//}
-		compare_bufs_uint8(b2, buf, iw, ih, nch0, nch, "transform", 0, 1);
-		printf("\n");
-#endif
-		
-		//for(int kc=0;kc<3;++kc)
-		//	//dwt2d_haar_fwd((char*)buf+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, (char*)temp);
-		//	dwt2d_squeeze_fwd((char*)buf+kc, (DWTSize*)sizes->data, 0, 2, 4, (char*)temp);
-		//	//dwt2d_cdf53_fwd((char*)buf+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, (char*)temp);
-		//	//dwt2d_cdf97_fwd((char*)buf+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, (char*)temp);
-
-		addbuf(buf, iw, ih, nch0, nch, 128);
-
-		//save_DWT_int8("kodim21-squeeze-stage", buf, (DWTSize*)sizes->data, 2, 4);//
-		//lodepng_encode_file("kodim21-cubic.PNG", buf, iw, ih, LCT_RGBA, 8);//
-
-		array_free(&sizes);
-		free(temp);
-	}
-	//squeeze_8bit_lossy(buf, iw, ih, nch0, nch);
-//	image_pred(buf, iw, ih, nch0, nch);
-
-	//lodepng_encode_file("kodim21-XGZ-diff2d.PNG", buf, iw, ih, LCT_RGBA, 8);//
-#endif
-
-	for(int kc=0;kc<nch0;++kc)
-		calc_histogram(buf+kc, len, nch, hist+((size_t)kc<<8));
-	//print_histogram(hist, 1);
-
-	double entropy[6]={0};
-	for(int kc=0;kc<nch0;++kc)
-	{
-		int freq;
-		double p;
-		for(int k=0;k<256;++k)
-		{
-			freq=hist[kc<<8|k];
-			if(freq)
-			{
-				p=(double)freq/(len>>2);
-				p*=0x10000-255;
-				++p;
-				p/=0x10000;
-				entropy[kc]+=-p*log2(p);
-			}
-
-			//if(!kc)//
-			//	printf("%3d %6d %lf\n", k, freq, p);//
-		}
-		printf("ch %d E = %lf / 8, optimal ratio = %lf\n", kc, entropy[kc], 8/entropy[kc]);
-		entropy[4]+=entropy[kc];
-	}
-	entropy[4]/=nch0;
-	printf("Av. E = %lf / 8, optimal ratio = %lf <- true limit\n", entropy[4], 8/entropy[4]);
-
-
-	free(buf);
-	free(b2);
-#endif
 	printf("Done.\n");
 	pause();
 	return 0;

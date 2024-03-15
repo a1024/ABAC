@@ -203,6 +203,26 @@ void save_channel(unsigned char *buf, int iw, int ih, int stride, int val_offset
 	free(b2);
 }
 
+Image* image_alloc(int iw, int ih, int nch, char rdepth, char gdepth, char bdepth, char adepth, int initialize, int initval)
+{
+	ptrdiff_t res=(ptrdiff_t)iw*ih;
+	Image *image=(Image*)malloc(sizeof(Image)+res*sizeof(int[4]));
+	if(!image)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
+	image->iw=iw;
+	image->ih=ih;
+	image->nch=nch;
+	image->depth[0]=rdepth;
+	image->depth[1]=gdepth;
+	image->depth[2]=bdepth;
+	image->depth[3]=adepth;
+	if(initialize)
+		memfill(image->data, &initval, res*sizeof(int[4]), sizeof(int));
+	return image;
+}
 Image* image_from_uint8(const unsigned char *src, int iw, int ih, int nch, char rdepth, char gdepth, char bdepth, char adepth)
 {
 	ptrdiff_t res=(ptrdiff_t)iw*ih;
@@ -313,10 +333,15 @@ void image_export_uint8(Image const *image, unsigned char **dst, int override_al
 	};
 	for(ptrdiff_t k=0, res=(ptrdiff_t)image->iw*image->ih*4;k<res;k+=4)
 	{
-		dst[0][k|0]=(image->data[k|0]>>shift[0])+128;
-		dst[0][k|1]=(image->data[k|1]>>shift[1])+128;
-		dst[0][k|2]=(image->data[k|2]>>shift[2])+128;
-		dst[0][k|3]=override_alpha?0xFF:image->data[k|2]>>shift[3];
+		int val;
+		val=(image->data[k|0]>>shift[0])+128, dst[0][k|0]=CLAMP(0, val, 255);
+		val=(image->data[k|1]>>shift[1])+128, dst[0][k|1]=CLAMP(0, val, 255);
+		val=(image->data[k|2]>>shift[2])+128, dst[0][k|2]=CLAMP(0, val, 255);
+		val=(image->data[k|3]>>shift[3])+128, dst[0][k|3]=override_alpha?0xFF:CLAMP(0, val, 255);
+		//dst[0][k|0]=(image->data[k|0]>>shift[0])+128;
+		//dst[0][k|1]=(image->data[k|1]>>shift[1])+128;
+		//dst[0][k|2]=(image->data[k|2]>>shift[2])+128;
+		//dst[0][k|3]=override_alpha?0xFF:image->data[k|2]>>shift[3];
 	}
 }
 void image_export_uint16(Image const *image, unsigned short **dst, int override_alpha, int big_endian)
@@ -365,6 +390,11 @@ int image_save_uint8(const char *fn, Image const *image, int override_alpha)
 	free(dst);
 	return !error;
 }
+int image_snapshot(Image const *image)
+{
+	acme_strftime(g_buf, G_BUF_SIZE, "%Y%m%d_%H-%M-%S.PNG");
+	return image_save_uint8(g_buf, image, 1);
+}
 int image_save_native(const char *fn, Image const *image, int override_alpha)
 {
 	int maxdepth=calc_maxdepth(image, 0);
@@ -410,6 +440,106 @@ void image_copy(Image **dst, Image const *src)
 		return;
 	*dst=(Image*)p;
 	memcpy(*dst, src, srcsize);
+}
+int calc_maxdepth(Image const *image, int *inflation)
+{
+	int maxdepth=image->depth[0]+(inflation?inflation[0]:0);
+	int next=image->depth[1]+(inflation?inflation[1]:0);
+	if(maxdepth<next)
+		maxdepth=next;
+	next=image->depth[2]+(inflation?inflation[2]:0);
+	if(maxdepth<next)
+		maxdepth=next;
+	return maxdepth;
+}
+void calc_depthfromdata(int *image, int iw, int ih, char *depths, const char *src_depths)
+{
+	ptrdiff_t res=(ptrdiff_t)iw*ih;
+	for(int kc=0;kc<3;++kc)
+	{
+		int vmin=image[0<<2|kc], vmax=image[0<<2|kc];
+		for(ptrdiff_t k=1;k<res;++k)
+		{
+			int sym=image[k<<2|kc];
+			if(vmin>sym)
+				vmin=sym;
+			if(vmax<sym)
+				vmax=sym;
+		}
+		int nlevels=vmax-vmin;
+		depths[kc]=nlevels?floor_log2(nlevels)+1:0;
+		depths[kc]=MAXVAR(depths[kc], src_depths[kc]);
+	}
+}
+void calc_histogram(const int *buf, int iw, int ih, int kc, int x1, int x2, int y1, int y2, int depth, int *hist, int *hist8)
+{
+	int nlevels=1<<depth;
+	int shift=MAXVAR(0, depth-8);
+	memset(hist, 0, nlevels*sizeof(int));
+	if(hist8)
+		memset(hist8, 0, 256*sizeof(int));
+	for(int ky=y1;ky<y2;++ky)
+	{
+		for(int kx=x1;kx<x2;++kx)
+		{
+			int sym=buf[(iw*ky+kx)<<2|kc]+(nlevels>>1);
+			sym=CLAMP(0, sym, nlevels-1);
+			++hist[sym];
+			if(hist8)
+				++hist8[sym>>shift];
+		}
+	}
+}
+double calc_entropy(const int *hist, int nlevels, int sum)//nlevels = 1<<current_depth
+{
+	double entropy=0;
+	if(sum<0)
+	{
+		sum=0;
+		for(int k=0;k<nlevels;++k)
+			sum+=hist[k];
+	}
+	if(!sum)
+		return 0;//degenerate distribution
+	for(int k=0;k<nlevels;++k)
+	{
+		int freq=hist[k];
+		if(freq)
+		{
+			double p=(double)freq/sum;
+			entropy-=p*log2(p);		//Shannon's law
+		}
+	}
+	return entropy;//invCR = entropy/original_depth, csize=res*entropy/8
+}
+void calc_csize(Image const *image, double *csizes)
+{
+	int res=image->iw*image->ih;
+	int maxdepth=calc_maxdepth(image, 0), maxlevels=1<<maxdepth;
+	int *hist=(int*)malloc(maxlevels*sizeof(int));
+	if(!hist)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	for(int kc=0;kc<4;++kc)
+	{
+		int depth=image->depth[kc];
+		calc_histogram(image->data, image->iw, image->ih, kc, 0, image->iw, 0, image->ih, depth, hist, 0);
+		double entropy=calc_entropy(hist, 1<<depth, res);
+		csizes[kc]=res*entropy/8;
+		//double invCR=entropy/image->src_depth[kc];
+		//csizes[kc]=res*image->src_depth[kc]*entropy/8;
+	}
+	free(hist);
+	//int hist[256]={0};
+	//for(int k=0;k<res;++k)
+	//{
+	//	unsigned char val=src[k<<2|kc]+128;
+	//	++hist[val];
+	//}
+	//double csize=calc_csize_from_hist(hist, 256, 0);
+	//return csize;
 }
 
 #define LSIM_TAG "LSvA"

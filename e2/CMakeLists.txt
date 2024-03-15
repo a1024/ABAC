@@ -27,6 +27,8 @@ add_executable(e2
 	#slic2.c
 	#t48.c
 	t49.c
+	t51.c
+	t52.c
 	#tests.c
 	#tests2.c
 	#tests3.c
@@ -38,7 +40,7 @@ add_executable(e2
 	#transforms_ocl.c
 	#transforms_vk.c
 	util.c
-)
+ "t53.c" "t54.c")
 #target_link_libraries(e2 OpenCL::OpenCL)
 
 if (CMAKE_VERSION VERSION_GREATER 3.12)

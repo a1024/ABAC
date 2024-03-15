@@ -17,77 +17,6 @@ double calc_bitsize(unsigned *CDF, int nlevels, int sym)
 
 	return bitsize;
 }
-void calc_histogram(const int *buf, int iw, int ih, int kc, int x1, int x2, int y1, int y2, int depth, int *hist, int *hist8)
-{
-	int nlevels=1<<depth;
-	int shift=MAXVAR(0, depth-8);
-	memset(hist, 0, nlevels*sizeof(int));
-	if(hist8)
-		memset(hist8, 0, 256*sizeof(int));
-	for(int ky=y1;ky<y2;++ky)
-	{
-		for(int kx=x1;kx<x2;++kx)
-		{
-			int sym=buf[(iw*ky+kx)<<2|kc]+(nlevels>>1);
-			sym=CLAMP(0, sym, nlevels-1);
-			++hist[sym];
-			if(hist8)
-				++hist8[sym>>shift];
-		}
-	}
-}
-double calc_entropy(const int *hist, int nlevels, int sum)//nlevels = 1<<current_depth
-{
-	double entropy=0;
-	if(sum<0)
-	{
-		sum=0;
-		for(int k=0;k<nlevels;++k)
-			sum+=hist[k];
-	}
-	if(!sum)
-		return 0;//degenerate distribution
-	for(int k=0;k<nlevels;++k)
-	{
-		int freq=hist[k];
-		if(freq)
-		{
-			double p=(double)freq/sum;
-			entropy-=p*log2(p);		//Shannon's law
-		}
-	}
-	return entropy;//invCR = entropy/original_depth, csize=res*entropy/8
-}
-int calc_maxdepth(Image const *image, int *inflation)
-{
-	int maxdepth=image->depth[0]+(inflation?inflation[0]:0);
-	int next=image->depth[1]+(inflation?inflation[1]:0);
-	if(maxdepth<next)
-		maxdepth=next;
-	next=image->depth[2]+(inflation?inflation[2]:0);
-	if(maxdepth<next)
-		maxdepth=next;
-	return maxdepth;
-}
-void calc_depthfromdata(int *image, int iw, int ih, char *depths, const char *src_depths)
-{
-	ptrdiff_t res=(ptrdiff_t)iw*ih;
-	for(int kc=0;kc<3;++kc)
-	{
-		int vmin=image[0<<2|kc], vmax=image[0<<2|kc];
-		for(ptrdiff_t k=1;k<res;++k)
-		{
-			int sym=image[k<<2|kc];
-			if(vmin>sym)
-				vmin=sym;
-			if(vmax<sym)
-				vmax=sym;
-		}
-		int nlevels=vmax-vmin;
-		depths[kc]=nlevels?floor_log2(nlevels)+1:0;
-		depths[kc]=MAXVAR(depths[kc], src_depths[kc]);
-	}
-}
 #if 0
 double calc_csize_from_hist(int *hist, int nlevels, double *ret_usize)//works only with unit-increment histograms initialized with ones
 {
@@ -116,35 +45,6 @@ double calc_csize_from_hist(int *hist, int nlevels, double *ret_usize)//works on
 	return csize/8;
 }
 #endif
-void calc_csize(Image const *image, double *csizes)
-{
-	int res=image->iw*image->ih;
-	int maxdepth=calc_maxdepth(image, 0), maxlevels=1<<maxdepth;
-	int *hist=(int*)malloc(maxlevels*sizeof(int));
-	if(!hist)
-	{
-		LOG_ERROR("Alloc error");
-		return;
-	}
-	for(int kc=0;kc<4;++kc)
-	{
-		int depth=image->depth[kc];
-		calc_histogram(image->data, image->iw, image->ih, kc, 0, image->iw, 0, image->ih, depth, hist, 0);
-		double entropy=calc_entropy(hist, 1<<depth, res);
-		csizes[kc]=res*entropy/8;
-		//double invCR=entropy/image->src_depth[kc];
-		//csizes[kc]=res*image->src_depth[kc]*entropy/8;
-	}
-	free(hist);
-	//int hist[256]={0};
-	//for(int k=0;k<res;++k)
-	//{
-	//	unsigned char val=src[k<<2|kc]+128;
-	//	++hist[val];
-	//}
-	//double csize=calc_csize_from_hist(hist, 256, 0);
-	//return csize;
-}
 
 
 //T45 CALIC

@@ -22,7 +22,7 @@ static const char file[]=__FILE__;
 //	#define TRACK_SSE_RANGES//SLOW
 
 //efficiency
-	#define ENABLE_SSE_4D//3% smaller, but 2x slower
+//	#define ENABLE_SSE_4D//3% smaller, but 2x slower
 //	#define USE_ABAC//inferior
 //	#define USE_ABAC_SSE
 //	#define SSE_UPDATE_NB_CELLS//inferior
@@ -50,6 +50,7 @@ static const char file[]=__FILE__;
 	CHECKPOINT(CALC_CTX)\
 	CHECKPOINT(SSE_LOOP)\
 	CHECKPOINT(PRED_TILL_UPDATE)\
+	CHECKPOINT(UPDATE_ERRORS)\
 	CHECKPOINT(UPDATE_WP)\
 	CHECKPOINT(UPDATE_HIST)\
 	CHECKPOINT(UPDATE_SSE)
@@ -208,10 +209,11 @@ static int nonlinear2nonlinear(int x, int srcgamma, int dstgamma)
 
 //#define ENABLE_CUSTOM1
 //#define ENABLE_CUSTOM1_v2
-#define ENABLE_CUSTOM1_v3
-//#define ENABLE_CUSTOM1_v4
+//#define ENABLE_CUSTOM1_v3//best		0.1% smaller, but 2x slower
+//#define ENABLE_CUSTOM1_v4//incomplete
 
 //don't forget to update SLIC5_NPREDS in e2.h
+#if 0
 #define SLIC5_PREDLIST\
 	SLIC5_PRED(W+NE-N-((2*(eN+eW)+eNE-eNW+4)>>3))\
 	SLIC5_PRED(N-(int)(((long long)eN+eW+eNE)*-0x05C>>PARAM_PREC))\
@@ -228,24 +230,43 @@ static int nonlinear2nonlinear(int x, int srcgamma, int dstgamma)
 	SLIC5_PRED(paper_GAP)\
 	SLIC5_PRED(calic_GAP)\
 	SLIC5_PRED(ols)
-#if 0
+#else
 #define SLIC5_PREDLIST\
 	SLIC5_PRED(W+NE-N-((2*(eN+eW)+eNE-eNW+4)>>3))\
 	SLIC5_PRED(N-(int)(((long long)eN+eW+eNE)*-0x05C>>PARAM_PREC))\
 	SLIC5_PRED(W-(int)(((long long)eN+eW+eNW)*-0x05B>>PARAM_PREC))\
 	SLIC5_PRED(N+(int)((-eNN*0x0DFLL-eN*0x051LL-eNE*0x0BDLL+((long long)N-NN)*0x05C+((long long)NW-W)*0x102)>>PARAM_PREC))\
-	SLIC5_PRED(N+W-NW)\
+	SLIC5_PRED(3*(N-NN)+NNN)\
 	SLIC5_PRED((N+W)>>1)\
+	SLIC5_PRED(N+W-NW)\
 	SLIC5_PRED((W+NEE)>>1)\
 	SLIC5_PRED((3*W+NEEE)>>2)\
+	SLIC5_PRED((3*(3*W+NE+NEE)-10*N+2)/5)\
 	SLIC5_PRED(geomean)\
 	SLIC5_PRED((4*N-2*NN+NW+NE)>>2)\
 	SLIC5_PRED(N+NE-NNE-eNNE)\
 	SLIC5_PRED((4*(N+W+NW+NE)-(NN+WW+NNWW+NNEE)+6)/12)\
-	SLIC5_PRED(N+W+NNWW-NNW-NWW+((eN+eW)>>1))\
 	SLIC5_PRED(W+((eW-eWW)>>1))\
 	SLIC5_PRED(paper_GAP)\
-	SLIC5_PRED(calic_GAP)
+	SLIC5_PRED(calic_GAP)\
+	SLIC5_PRED(N+W-((NW+NN+WW+NE)>>2))\
+	SLIC5_PRED(((2*(N+W)-(NW+NN+WW+NE))*9+(WWW+NWW+NNW+NNN+NNE+NEE)*2)/12)\
+	SLIC5_PRED(3*(N+W-NW-(NN+WW-NNWW))+NNN+WWW-NNNWWW)\
+	SLIC5_PRED(2*(W+NE-N)-(WW+NNEE-NN))\
+	SLIC5_PRED((2*W+NEE-N)>>1)\
+	SLIC5_PRED((3*(3*W+NE+NEE)-10*N)/5)\
+	SLIC5_PRED(NW+NWW-NNWWW)\
+	SLIC5_PRED((9*(NE-NNEE)+NNNNEE+NNNEEE+NNEEEE)/3)\
+	SLIC5_PRED(NN+NNW-(NNNN+NNNNW+NNNNWW)/3)\
+	SLIC5_PRED((14*NE-(NNEE+NNNEE+NNEEE))/11)\
+	SLIC5_PRED((NEEE+NEEEE)>>1)\
+	SLIC5_PRED((NWWW+NWWWW)>>1)\
+	SLIC5_PRED(4*(N+NNN)-6*NN-(NNNNW+NNNN+NNNNE)/3)\
+	SLIC5_PRED((N+NN)>>1)\
+	SLIC5_PRED((NE+NNEE)>>1)\
+	SLIC5_PRED((NE+NNE+NEE+NNEE)>>2)
+//	SLIC5_PRED(ols)
+//	SLIC5_PRED(N+W+NNWW-NNW-NWW+((eN+eW)>>1))
 //	SLIC5_PRED((NNN+WWW+3*(N+W-NN-WW)+1)>>1)
 //	SLIC5_PRED((WW+NE)>>1)
 //	SLIC5_PRED((W+2*NE-NNE+eNE)>>1)
@@ -270,13 +291,13 @@ typedef unsigned short CDF_t;
 typedef unsigned CDF_t;
 #define CDF_SHIFT 16
 #endif
+
+//from libjxl		packsign(pixel) = 0b00001MMBB...BBL	token = offset + 0bGGGGMML,  where G = bits of lg(packsign(pixel)),  bypass = 0bBB...BB
 typedef struct HybridUintStruct
 {
 	unsigned short token, nbits;
 	unsigned bypass;
 } HybridUint;
-
-//from libjxl		packsign(pixel) = 0b00001MMBB...BBL	token = offset + 0bGGGGMML,  where G = bits of lg(packsign(pixel)),  bypass = 0bBB...BB
 static void hybriduint_encode(unsigned val, HybridUint *hu)
 {
 	int token, bypass, nbits;
@@ -462,16 +483,17 @@ typedef struct SLIC5CtxStruct
 	long long pred;
 	int pred_final;
 	int sse_corr;
-	int kc, kx, ky, kym[4];
+	int kc, kx, ky, kym[4*4];
 	long long pred_error_sums[SLIC5_NPREDS];
 #ifdef TRACK_SSE_RANGES
 	int sse_ranges[8];
 #endif
 	ArithmeticCoder *ec;
 } SLIC5Ctx;
-#define LOAD(BUF, X, Y) BUF[(pr->kym[Y]+kx+PAD_SIZE-(X))<<2|kc]
-#define LOAD_CH(BUF, C, X, Y) BUF[(pr->kym[Y]+kx+PAD_SIZE-(X))<<2|C]
-#define LOAD_PRED_ERROR(C, X, Y, P) pr->pred_errors[(SLIC5_NPREDS*(pr->kym[Y]+kx+PAD_SIZE-(X))+P)<<2|C]
+#define LOAD(BUF, X, Y) BUF[pr->kym[kc<<2|Y]+kx+PAD_SIZE-(X)]
+#define LOAD_CH(BUF, C, X, Y) BUF[pr->kym[C<<2|Y]+kx+PAD_SIZE-(X)]
+#define LOAD_PRED_ERROR(C, X, Y, P) pr->pred_errors[SLIC5_NPREDS*(pr->kym[C<<2|Y]+kx+PAD_SIZE-(X))+P]
+//#define LOAD_PRED_ERROR(C, X, Y, P) pr->pred_errors[(SLIC5_NPREDS*(pr->kym[Y]+kx+PAD_SIZE-(X))+P)<<2|C]
 static ptrdiff_t slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *depths, ArithmeticCoder *ec)//returns memory usage or 0 on failure
 {
 	if(iw<1||ih<1||nch<1)
@@ -585,35 +607,38 @@ static ptrdiff_t slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *d
 #endif
 
 	size_t memusage=0, size;
-#define ALLOC(PTR, ETYPE, SIZE) size=SIZE, memusage+=size, PTR=(ETYPE*)malloc(size)
-	ALLOC(pr->pred_errors, int, (iw+PAD_SIZE*2LL)*sizeof(int[SLIC5_NPREDS*4*4]));
-	ALLOC(pr->errors, int, (iw+PAD_SIZE*2LL)*sizeof(int[4*4]));
-	ALLOC(pr->pixels, int, (iw+PAD_SIZE*2LL)*sizeof(int[4*4]));
+#define ALLOC(PTR, PTR_TYPE, SIZE) size=SIZE, memusage+=size, PTR=(PTR_TYPE)malloc(size)
+	ALLOC(pr->pred_errors, int*, (iw+PAD_SIZE*2LL)*sizeof(int[SLIC5_NPREDS*4*4]));
+	ALLOC(pr->errors, int*, (iw+PAD_SIZE*2LL)*sizeof(int[4*4]));
+	ALLOC(pr->pixels, int*, (iw+PAD_SIZE*2LL)*sizeof(int[4*4]));
 	//pr->pred_errors=(int*)malloc((iw+PAD_SIZE*2LL)*sizeof(int[SLIC5_NPREDS*4*4]));//NPREDS * 4 rows * 4 comps
 	//pr->errors=(int*)malloc((iw+PAD_SIZE*2LL)*sizeof(int[4*4]));
 	//pr->pixels=(int*)malloc((iw+PAD_SIZE*2LL)*sizeof(int[4*4]));
 #ifdef USE_ABAC
-	ALLOC(pr->stats, StatNode, (size_t)pr->nch*pr->ntextures*pr->treesize*sizeof(StatNode));
-	//ALLOC(pr->stats, StatNode, (size_t)pr->nch*pr->qplevels*sizeof(StatNode[NPAR_CTX])<<pr->treedepth);
-	//ALLOC(pr->stats, StatNode, (size_t)pr->nch*pr->qplevels*sizeof(StatNode[SLIC5_NPREDS])<<pr->treedepth);
-	//ALLOC(pr->stats, StatNode, (size_t)pr->nch*pr->ntextures*sizeof(StatNode)<<pr->treedepth);
+	ALLOC(pr->stats, StatNode*, (size_t)pr->nch*pr->ntextures*pr->treesize*sizeof(StatNode));
+	//ALLOC(pr->stats, StatNode*, (size_t)pr->nch*pr->qplevels*sizeof(StatNode[NPAR_CTX])<<pr->treedepth);
+	//ALLOC(pr->stats, StatNode*, (size_t)pr->nch*pr->qplevels*sizeof(StatNode[SLIC5_NPREDS])<<pr->treedepth);
+	//ALLOC(pr->stats, StatNode*, (size_t)pr->nch*pr->ntextures*sizeof(StatNode)<<pr->treedepth);
 #else
 	int total_hist=pr->nhist*pr->nhist;
-	pr->hist=(int*)malloc((size_t)nch*total_hist*pr->cdfsize*sizeof(int));//WH: cdfsize * NHIST
-	pr->histsums=(int*)malloc((size_t)nch*total_hist*sizeof(int));
-	pr->CDFs=(CDF_t*)malloc((size_t)nch*total_hist*(pr->cdfsize+1LL)*sizeof(CDF_t));
+	ALLOC(pr->hist, int*, (size_t)nch*total_hist*pr->cdfsize*sizeof(int));
+	ALLOC(pr->histsums, int*, (size_t)nch*total_hist*sizeof(int));
+	ALLOC(pr->CDFs, CDF_t*, (size_t)nch*total_hist*(pr->cdfsize+1LL)*sizeof(CDF_t));
+	//pr->hist=(int*)malloc((size_t)nch*total_hist*pr->cdfsize*sizeof(int));//WH: cdfsize * NHIST
+	//pr->histsums=(int*)malloc((size_t)nch*total_hist*sizeof(int));
+	//pr->CDFs=(CDF_t*)malloc((size_t)nch*total_hist*(pr->cdfsize+1LL)*sizeof(CDF_t));
 #endif
 #ifdef ENABLE_SSE_PAR
 	pr->sse=(long long*)malloc((size_t)nch*pr->sse_size*sizeof(long long[SSE_STAGES]));
 	pr->sse_fr=(long long*)malloc(nch*sizeof(long long[SSE_FR_SIZE]));
 #elif defined ENABLE_SSE_4D
-	ALLOC(pr->sse, long long, nch*sizeof(long long[SSE_SIZE*SSE_STAGES]));
-	ALLOC(pr->sse_fr, long long, nch*sizeof(long long[SSE_FR_SIZE]));
+	ALLOC(pr->sse, long long*, nch*sizeof(long long[SSE_SIZE*SSE_STAGES]));
+	ALLOC(pr->sse_fr, long long*, nch*sizeof(long long[SSE_FR_SIZE]));
 	//pr->sse=(long long*)malloc(nch*sizeof(long long[SSE_SIZE*SSE_STAGES]));
 	//pr->sse_fr=(long long*)malloc(nch*sizeof(long long[SSE_FR_SIZE]));
 	if(pr->nch>1)
 	{
-		ALLOC(pr->sse_cfl, long long, (nch-1LL)*sizeof(long long[SSE_SIZE<<1]));
+		ALLOC(pr->sse_cfl, long long*, (nch-1LL)*sizeof(long long[SSE_SIZE<<1]));
 		//pr->sse_cfl=(long long*)malloc((nch-1LL)*sizeof(long long[SSE_SIZE<<1]));
 		if(!pr->sse_cfl)
 		{
@@ -625,6 +650,7 @@ static ptrdiff_t slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *d
 #ifdef ENABLE_CUSTOM1
 	ALLOC(pr->c1_params, char, (size_t)nch*iw*sizeof(char[8]));
 #endif
+#undef  ALLOC
 	if(!pr->pred_errors||!pr->errors||!pr->pixels
 #ifdef USE_ABAC
 		||!pr->stats
@@ -642,7 +668,6 @@ static ptrdiff_t slic5_init(SLIC5Ctx *pr, int iw, int ih, int nch, const char *d
 		LOG_ERROR("Alloc error");
 		return 0;
 	}
-#undef  ALLOC
 	memset(pr->pred_errors, 0, (iw+PAD_SIZE*2LL)*sizeof(int[SLIC5_NPREDS*4*4]));
 	memset(pr->errors, 0, (iw+PAD_SIZE*2LL)*sizeof(int[4*4]));
 	memset(pr->pixels, 0, (iw+PAD_SIZE*2LL)*sizeof(int[4*4]));
@@ -787,6 +812,8 @@ static void slic5_nextrow(SLIC5Ctx *pr, int ky)
 	pr->kym[1]=(pr->iw+PAD_SIZE*2)*((ky-1)&3);
 	pr->kym[2]=(pr->iw+PAD_SIZE*2)*((ky-2)&3);
 	pr->kym[3]=(pr->iw+PAD_SIZE*2)*((ky-3)&3);
+	for(int k=4;k<16;++k)
+		pr->kym[k]=pr->kym[k-4]+4*(pr->iw+PAD_SIZE*2);
 #if defined ENABLE_CUSTOM1_v3 || defined ENABLE_CUSTOM1_v4
 	memset(pr->c1_init, 0, sizeof(pr->c1_init));
 #endif
@@ -875,6 +902,13 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 	//XY are flipped, no need to check if indices OOB due to padding
 	int
 #if PAD_SIZE>=4
+		NNNNWW	=LOAD(pr->pixels,  2, 4),
+		NNNNW	=LOAD(pr->pixels,  1, 4),
+		NNNN	=LOAD(pr->pixels,  0, 4),
+		NNNNE	=LOAD(pr->pixels,  0, 4),
+		NNNNEE	=LOAD(pr->pixels, -2, 4),
+		NNNNEEEE=LOAD(pr->pixels, -4, 4),
+
 		NNNWWWW	=LOAD(pr->pixels,  4, 3),
 		NNNWWW	=LOAD(pr->pixels,  3, 3),
 		NNNWW	=LOAD(pr->pixels,  2, 3),
@@ -947,7 +981,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 	else if(diff<-12)
 		paper_GAP=(2*N+W)/3;
 	else
-	paper_GAP=(N+W)>>1;
+		paper_GAP=(N+W)>>1;
 
 	if(diff2>32)
 		paper_GAP+=diff3>>2;
@@ -1043,7 +1077,8 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 	//NNWWWW  NNWWW  NNWW  NNW  NN   NNE  NNEE  NNEEE  NNEEEE
 	//NWWWW   NWWW   NWW   NW   N    NE   NEE   NEEE   NEEEE
 	//WWWW    WWW    WW    W    curr
-	const int nsamples=17;
+#define OLS_NPARAMS 4
+#define OLS_NSAMPLES 17
 	int nb[]=
 	{
 		NNNWWWW,NNNWWW,	NNNWW,	NNWWWW,	//NNWWW
@@ -1081,23 +1116,23 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 	double nb2[_countof(nb)];
 	for(int ky=0;ky<4;++ky)
 	{
-		for(int kx=0;kx<nsamples;++kx)
-			nb2[nsamples*ky+kx]=(double)nb[kx<<2|ky]/(1<<24);
+		for(int kx=0;kx<OLS_NSAMPLES;++kx)
+			nb2[OLS_NSAMPLES*ky+kx]=(double)nb[kx<<2|ky]/(1<<24);
 	}
-	double sqm[4*8]={0};
-	for(int ky=0;ky<4;++ky)
+	double sqm[OLS_NPARAMS*(OLS_NPARAMS<<1)]={0};
+	for(int ky=0;ky<OLS_NPARAMS;++ky)
 	{
-		for(int kx=0;kx<4;++kx)
+		for(int kx=0;kx<OLS_NPARAMS;++kx)
 		{
 			double sum=0;
-			for(int j=0;j<nsamples;++j)
-				sum+=priority[j]*nb2[nsamples*ky+j]*nb2[nsamples*kx+j];
-			sqm[ky<<3|kx]=sum;
+			for(int j=0;j<OLS_NSAMPLES;++j)
+				sum+=priority[j]*nb2[OLS_NSAMPLES*ky+j]*nb2[OLS_NSAMPLES*kx+j];
+			sqm[(OLS_NPARAMS<<1)*ky+kx]=sum;
 		}
-		sqm[ky<<3|(ky+4)]=1;
+		sqm[(OLS_NPARAMS<<1)*ky+ky+OLS_NPARAMS]=1;
 	}
-	double temp[8];
-	int success=invert_matrix(sqm, 4, temp);
+	double temp[OLS_NPARAMS<<1];
+	int success=invert_matrix(sqm, OLS_NPARAMS, temp);
 	if(success||pr->c1_init[kc])
 	{
 		//pred = nb * params,		params += ((inv(NB * NBT) * NB * Y) - params)*lr
@@ -1123,18 +1158,18 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 				WW,
 				W,
 			};
-			for(int ky=0;ky<4;++ky)
+			for(int ky=0;ky<OLS_NPARAMS;++ky)
 			{
 				double sum=0;
-				for(int kx=0;kx<nsamples;++kx)
-					sum+=priority[kx]*nb2[nsamples*ky+kx]*targets[kx]/(1<<24);
+				for(int kx=0;kx<OLS_NSAMPLES;++kx)
+					sum+=priority[kx]*nb2[OLS_NSAMPLES*ky+kx]*targets[kx]/(1<<24);
 				temp[ky]=sum;
 			}
-			for(int ky=0;ky<4;++ky)
+			for(int ky=0;ky<OLS_NPARAMS;++ky)
 			{
 				double sum=0;
-				for(int j=0;j<4;++j)
-					sum+=sqm[ky<<3|(j+4)]*temp[j];
+				for(int j=0;j<OLS_NPARAMS;++j)
+					sum+=sqm[(OLS_NPARAMS<<1)*ky+j+OLS_NPARAMS]*temp[j];
 				if(pr->c1_init[kc])
 					pr->c1_params[kc<<2|ky]+=(sum-pr->c1_params[kc<<2|ky])*0.2;
 				else
@@ -1147,7 +1182,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 			NW,	N,	NE,	W,
 		};
 		double fpred=0;
-		for(int k=0;k<4;++k)
+		for(int k=0;k<OLS_NPARAMS;++k)
 			fpred+=nb3[k]*pr->c1_params[kc<<2|k];
 		ols=(int)fpred;
 	}
@@ -2287,7 +2322,7 @@ static void slic5_update_hist(SLIC5Ctx *pr, int token)
 	++curr_hist[token];
 	++*curr_sum;
 	
-	if(*curr_sum>pr->cdfsize&&!(*curr_sum&1))
+	if(*curr_sum>pr->cdfsize&&!(*curr_sum&63))
 	{
 		int sum=*curr_sum;
 		CDF_t *curr_CDF=pr->CDFs+(pr->cdfsize+1)*(total_hists*pr->kc+pr->hist_idx);
@@ -2301,8 +2336,8 @@ static void slic5_update_hist(SLIC5Ctx *pr, int token)
 		curr_CDF[pr->cdfsize]=1<<CDF_SHIFT;
 	}
 
-	if(*curr_sum>=6144)//rescale hist
 	//if(*curr_sum>(pr->iw*pr->nch<<1))
+	if(*curr_sum>=6144)//rescale hist
 	{
 		int sum=0;
 		for(int ks=0;ks<pr->cdfsize;++ks)
@@ -2343,6 +2378,7 @@ static void slic5_update(SLIC5Ctx *pr, int curr, int token)
 
 		pr->pred_error_sums[k]+=errors[k];
 	}
+	PROF(UPDATE_ERRORS);
 
 	//update WP weights
 	++pr->params[kbest<<2|kc];
@@ -3956,6 +3992,13 @@ int t47_encode(Image const *src, ArrayHandle *data, SLIC5Curiosity *curiosity, i
 	char rct_params[ORCT_NPARAMS+1]=
 	{
 		0
+
+		//-ORCT_ONE,	0,//2	RCT_JPEG2000
+		//0,		0,
+		//0,		-ORCT_ONE,
+		//ORCT_ONE>>1,	ORCT_ONE>>1,
+		//0,//rgb
+
 		//0x00, 0xC0, 0x0D, 0xF8, 0x02, 0x02, 0x0E, 0x00, 0x00,
 	};
 	char permutation[3]={0};
@@ -4140,7 +4183,7 @@ int t47_encode(Image const *src, ArrayHandle *data, SLIC5Curiosity *curiosity, i
 		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
 
-		printf("csize %8d  CR %10.6lf  used %lf MB\n", (int)list.nobj, usize/list.nobj, (double)memusage/(1024*1024));
+		printf("csize %8d  invCR %10.6lf%%  used %lf MB\n", (int)list.nobj, 100.*list.nobj/usize, (double)memusage/(1024*1024));
 
 #ifdef PRINT_HIST
 		const char *ch_labels[]={"Y", "Cb", "Cr", "A"};
@@ -4166,12 +4209,11 @@ int t47_encode(Image const *src, ArrayHandle *data, SLIC5Curiosity *curiosity, i
 			printf("  %2d  %17lld  %6.2lf%%  %s\n", k, pr.pred_error_sums[k], 100.*pr.pred_error_sums[k]/sum, slic5_prednames[k]);
 		
 #ifdef TRACK_SSE_RANGES
-		const char dim_labels[]="XYZP";
 		printf("SSE ranges\n");
 		for(int k=0;k<_countof(pr.sse_ranges)-1;k+=2)
 		{
 			int n=(&pr.sse_width)[k>>1];
-			printf("  %c %4d ~ %4d / %4d  ", dim_labels[k>>1], pr.sse_ranges[k], pr.sse_ranges[k+1], n);
+			printf("  %c %4d ~ %4d / %4d  ", "XYZP"[k>>1], pr.sse_ranges[k], pr.sse_ranges[k+1], n);
 			for(int k2=0;k2<n;++k2)
 				printf("%c", k2>=pr.sse_ranges[k]&&k2<=pr.sse_ranges[k+1]?'*':'-');
 			printf("\n");
