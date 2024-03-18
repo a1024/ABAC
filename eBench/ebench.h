@@ -858,6 +858,20 @@ void pred_c20(char *src, int iw, int ih, int fwd);
 #endif
 
 
+typedef enum EContextEnum
+{
+	ECTX_HIST=-1,
+	ECTX_ZERO,
+	ECTX_QNW,
+	ECTX_MIN_QN_QW,
+	ECTX_MAX_QN_QW,
+
+	ECTX_COUNT,
+} EContext;
+const char* ec_method_label(EContext ec_method);
+void calc_csize_ec(Image const *src, EContext method, int adaptive, int expbits, int msb, int lsb, double *entropy);
+
+
 #ifdef __cplusplus
 }
 #endif

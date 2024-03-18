@@ -136,7 +136,9 @@ ArrayHandle jointhist=0;
 int jointhist_nbits=6;//max
 int jhx=0, jhy=0;
 double ch_entropy[4]={0};//RGBA
-int usage[4]={0};
+//int usage[4]={0};
+EContext ec_method=ECTX_MIN_QN_QW;
+int ac_adaptive=0, ec_expbits=5, ec_msb=2, ec_lsb=0;
 
 #define combCRhist_SIZE 128
 #define combCRhist_logDX 2
@@ -2402,18 +2404,23 @@ void update_image()//apply selected operations on original image, calculate CRs,
 		hist_full=(int*)p;
 		hist_full_size=nlevels;
 	}
-	for(int kc=0;kc<4;++kc)
+	if(ec_method==ECTX_HIST)
 	{
-		if(im1->depth[kc])
+		for(int kc=0;kc<4;++kc)
 		{
-			calc_histogram(im1->data, im1->iw, im1->ih, kc, 0, im1->iw, 0, im1->ih, im1->depth[kc], hist_full, 0);
-			double entropy=calc_entropy(hist_full, 1<<im1->depth[kc], im1->iw*im1->ih);
-			ch_entropy[kc]=entropy;
+			if(im1->depth[kc])
+			{
+				calc_histogram(im1->data, im1->iw, im1->ih, kc, 0, im1->iw, 0, im1->ih, im1->depth[kc], hist_full, 0);
+				double entropy=calc_entropy(hist_full, 1<<im1->depth[kc], im1->iw*im1->ih);
+				ch_entropy[kc]=entropy;
+			}
+			else
+				ch_entropy[kc]=0;
 		}
-		else
-			ch_entropy[kc]=0;
+		//channel_entropy(image, iw*ih, 3, 4, ch_cr, usage);
 	}
-	//channel_entropy(image, iw*ih, 3, 4, ch_cr, usage);
+	else
+		calc_csize_ec(im1, ec_method, ac_adaptive, ec_expbits, ec_msb, ec_lsb, ch_entropy);
 	
 	combCRhist[combCRhist_idx][0]=1/(float)(im1->src_depth[0]/ch_entropy[0]);
 	combCRhist[combCRhist_idx][1]=1/(float)(im1->src_depth[0]/ch_entropy[1]);
@@ -3640,6 +3647,7 @@ int io_keydn(IOKey key, char c)
 			"Ctrl Mouse1:\tReplace all transforms of this type\n"
 			"Ctrl R:\t\tDisable all transforms\n"
 			//"Ctrl E:\t\tReset custom transform parameters\n"
+			"Comma/Period:\tSelect context for size estimation\n"
 			"[ ]:\t\t(Custom transforms) Select coefficient page\n"
 			"Space:\t\t(Custom transforms) Optimize\n"
 			"Ctrl N:\t\tAdd noise to CUSTOM3 params\n"
@@ -3688,6 +3696,16 @@ int io_keydn(IOKey key, char c)
 		}
 		else
 			memcpy(&cam, &cam0, sizeof(cam));
+		return 1;
+	case KEY_COMMA:
+	case KEY_PERIOD:
+		{
+			int fwd=key==KEY_PERIOD;
+			fwd-=!fwd;
+			ec_method+=fwd;
+			MODVAR(ec_method, ec_method, ECTX_COUNT);
+			update_image();
+		}
 		return 1;
 	//case 'E':
 	//	if(im1&&GET_KEY_STATE(KEY_CTRL)&&transforms_customenabled)//reset params
@@ -5138,10 +5156,12 @@ void io_render()
 			if(k&1)
 				y+=tdy;
 		}
+		x=(float)(w-450);
+		y=tdy*2;
+		const char *label=ec_method_label(ec_method);
+		GUIPrint(x, x, y-tdy, 1, "%s", label);
 		if(transforms)
 		{
-			x=(float)(w-450);
-			y=tdy*2;
 			for(int k=0;k<(int)transforms->count;++k, y+=tdy)//print applied transforms on left
 				transforms_printname(x, y, transforms->data[k], k, 0);
 		}
@@ -5174,7 +5194,6 @@ void io_render()
 			xstart=xend-scale*ceilf((crmax+1)*2)*0.5f;
 			draw_rect(xstart, xend, ystart, (float)h, 0x80808080);//background
 			int ks;
-			float x;
 			if(scale>20)
 			{
 				ks=1;
@@ -5250,7 +5269,10 @@ void io_render()
 		int prevtxtcolor, prevbkcolor;
 		xend+=10;
 		prevbkcolor=set_bk_color(0xC0C0C0C0);
-		prevtxtcolor=set_text_color(0xFF000000);GUIPrint(xend, xend, ystart-tdy  , 1, "Format        %8.4f%% %9lld", 100./crformat, filesize);
+		prevtxtcolor=set_text_color(0xFF000000);
+		GUIPrint(xend, xend, ystart-tdy*2, 1, "Bitmap Size             %9.0lf", usize);
+		//GUIPrint(xend, xend, ystart-tdy*2, 1, "Uncompressed Size       %9.0lf", usize);
+		GUIPrint(xend, xend, ystart-tdy  , 1, "Format        %8.4f%% %9lld", 100./crformat, filesize);
 		set_bk_color(0xE0FFFFFF);
 		prevtxtcolor=set_text_color(0xFF000000);GUIPrint(xend, xend, ystart      , 1, "Combined      %8.4f%% %12.2lf", 100./cr_combined, usize/cr_combined);
 		set_bk_color(0xC0C0C0C0);
@@ -5534,11 +5556,11 @@ void io_render()
 
 		//extern int testhist[3];//
 		//GUIPrint(0, 0, tdy*2, 1, "%d %d %d", testhist[0], testhist[1], testhist[2]);//
-		GUIPrint(0, 0, 0, 1, "WH %dx%d  D0[%d %d %d %d] D[%d %d %d %d]  usize %lf bytes",
+		//const char *label=ec_method_label(ec_method);
+		GUIPrint(0, 0, 0, 1, "WH %dx%d  D0[%d %d %d %d] D[%d %d %d %d]",
 			im0->iw, im0->ih,
 			im0->src_depth[0], im0->src_depth[1], im0->src_depth[2], im0->src_depth[3],
-			im1->depth[0], im1->depth[1], im1->depth[2], im1->depth[3],
-			usize
+			im1->depth[0], im1->depth[1], im1->depth[2], im1->depth[3]
 		);
 	}
 #if 0

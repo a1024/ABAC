@@ -8369,3 +8369,175 @@ void bayes_estimate(unsigned char *src, int iw, int ih, int x1, int x2, int y1, 
 	}
 }
 #endif
+
+
+typedef struct HybridUintStruct
+{
+	unsigned short token, nbits;
+	unsigned bypass;
+} HybridUint;
+static void quantize_signed(int val, int expbits, int msb, int lsb, HybridUint *hu)
+{
+	int token, bypass, nbits;
+	val=val<<1^-(val<0);
+	if(val<(1<<expbits))
+	{
+		token=val;//token
+		nbits=0;
+		bypass=0;
+	}
+	else
+	{
+		int lgv=floor_log2_32((unsigned)val);
+		int mantissa=val-(1<<lgv);
+		token = (1<<expbits) + (
+				(lgv-expbits)<<(msb+lsb)|
+				(mantissa>>(lgv-msb))<<lsb|
+				(mantissa&((1<<lsb)-1))
+			);
+		nbits=lgv-(msb+lsb);
+		bypass=val>>lsb&((1LL<<nbits)-1);
+	}
+	hu->token=token;
+	hu->bypass=bypass;
+	hu->nbits=nbits;
+}
+const char* ec_method_label(EContext ec_method)
+{
+	const char *label=0;
+	switch(ec_method)
+	{
+#define CASE(L) case L:label=#L;break;
+	CASE(ECTX_HIST)
+	CASE(ECTX_ZERO)
+	CASE(ECTX_QNW)
+	CASE(ECTX_MIN_QN_QW)
+	CASE(ECTX_MAX_QN_QW)
+#undef  CASE
+	}
+	return label;
+}
+typedef enum NBIndexEnum
+{
+	NB_NNWW, NB_NNW, NB_NN, NB_NNE, NB_NNEE,
+	NB_NWW,  NB_NW,  NB_N,  NB_NE,  NB_NEE,
+	NB_WW,   NB_W,
+} NBIndex;
+static void getnb(Image const *src, int kc, int kx, int ky, int *nb)
+{
+	for(int ky2=-2, idx2=0;ky2<=0;++ky2)
+	{
+		for(int kx2=-2;kx2<=2;++kx2, ++idx2)
+		{
+			if(!ky2&&!kx2)
+				break;
+			if((unsigned)(ky+ky2)<(unsigned)src->ih&&(unsigned)(kx+kx2)<(unsigned)src->iw)
+				nb[idx2]=src->data[(src->iw*(ky+ky2)+kx+kx2)<<2|kc];
+			else
+				nb[idx2]=0;
+		}
+	}
+}
+static int getctx_zero(const int *nb, int expbits, int msb, int lsb)
+{
+	return 0;
+}
+int getctx_QNW(const int *nb, int expbits, int msb, int lsb)
+{
+	int ctx=(nb[NB_N]+nb[NB_W])>>1;
+	HybridUint hu;
+	quantize_signed(ctx, expbits, msb, lsb, &hu);
+	return hu.token;
+}
+int getctx_min_QN_QW(const int *nb, int expbits, int msb, int lsb)
+{
+	int dy=(nb[NB_N]-nb[NB_NN])>>1, dx=(nb[NB_W]-nb[NB_WW])>>1;
+	HybridUint hu1, hu2;
+	quantize_signed(dx, expbits, msb, lsb, &hu1);
+	quantize_signed(dy, expbits, msb, lsb, &hu2);
+	return MAXVAR(hu1.token, hu2.token);
+}
+int getctx_max_QN_QW(const int *nb, int expbits, int msb, int lsb)
+{
+	int dy=(nb[NB_N]-nb[NB_NN])>>1, dx=(nb[NB_W]-nb[NB_WW])>>1;
+	HybridUint hu1, hu2;
+	quantize_signed(dx, expbits, msb, lsb, &hu1);
+	quantize_signed(dy, expbits, msb, lsb, &hu2);
+	return MINVAR(hu1.token, hu2.token);
+}
+void calc_csize_ec(Image const *src, EContext method, int adaptive, int expbits, int msb, int lsb, double *entropy)
+{
+	int (*const getctx[])(const int *nb, int expbits, int msb, int lsb)=
+	{
+		getctx_zero,
+		getctx_QNW,
+		getctx_min_QN_QW,
+		getctx_max_QN_QW,
+	};
+	int maxdepth=calc_maxdepth(src, 0);
+	HybridUint hu;
+	quantize_signed(1<<maxdepth, expbits, msb, lsb, &hu);
+	int cdfsize=hu.token+1;
+	int *hist=(int*)malloc(sizeof(int)*cdfsize*cdfsize);
+	int *hsum=(int*)malloc(sizeof(int)*cdfsize);
+	if(!hist||!hsum)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	double bitsizes[4]={0}, bypasssizes[4]={0};
+//#define LOAD(X, Y) ((unsigned)(ky+(Y))<src->ih&&(unsigned)(kx+(X))<src->iw?src->data[(src->iw*(ky+(Y))+kx+(X))<<2|kc]:0)
+	for(int kc=0;kc<4;++kc)
+	{
+		int depth=src->depth[kc], nlevels=1<<depth;
+		if(!depth)
+			continue;
+		memset(hist, 0, sizeof(int)*cdfsize*cdfsize);
+		for(int ky=0, idx=0;ky<src->ih;++ky)
+		{
+			for(int kx=0;kx<src->iw;++kx, ++idx)
+			{
+				int nb[12];
+				getnb(src, kc, kx, ky, nb);
+				int ctx=getctx[method](nb, expbits, msb, lsb);
+
+				int val=src->data[idx<<2|kc];
+				quantize_signed(val, expbits, msb, lsb, &hu);
+				val=hu.token;
+				++hist[cdfsize*ctx+val];
+			}
+		}
+		for(int k=0;k<cdfsize;++k)
+		{
+			int sum=0;
+			for(int ks=0;ks<cdfsize;++ks)
+				sum+=hist[cdfsize*k+ks];
+			hsum[k]=sum;
+		}
+		for(int ky=0, idx=0;ky<src->ih;++ky)
+		{
+			for(int kx=0;kx<src->iw;++kx, ++idx)
+			{
+				int nb[12];
+				getnb(src, kc, kx, ky, nb);
+				int ctx=getctx[method](nb, expbits, msb, lsb);
+
+				int val=src->data[idx<<2|kc];
+				quantize_signed(val, expbits, msb, lsb, &hu);
+				val=hu.token;
+				int freq=hist[cdfsize*ctx+val], sum=hsum[ctx];
+				if(!freq||!sum)
+					LOG_ERROR("ZPS");
+				double p=(double)freq/sum;
+				double bitsize=-log2(p);
+				bitsizes[kc]+=bitsize;
+				bypasssizes[kc]+=hu.nbits;
+			}
+		}
+	}
+//#undef  LOAD
+	int nch=(src->src_depth[0]!=0)+(src->src_depth[1]!=0)+(src->src_depth[2]!=0)+(src->src_depth[3]!=0);
+	double chubitsize=image_getBMPsize(src)*8/nch;
+	for(int kc=0;kc<4;++kc)
+		entropy[kc]=(bitsizes[kc]+bypasssizes[kc])*src->src_depth[kc]/chubitsize;
+}
