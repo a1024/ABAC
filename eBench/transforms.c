@@ -22,7 +22,8 @@ void calc_histogram(const int *buf, int iw, int ih, int kc, int x1, int x2, int 
 		for(int kx=x1;kx<x2;++kx)
 		{
 			int sym=buf[(iw*ky+kx)<<2|kc]+(nlevels>>1);
-			sym=CLAMP(0, sym, nlevels-1);
+			sym&=nlevels-1;
+			//sym=CLAMP(0, sym, nlevels-1);
 			++hist[sym];
 			if(hist8)
 				++hist8[sym>>shift];
@@ -3980,7 +3981,7 @@ void pred_custom(Image *src, int fwd, int enable_ma, const int *params)
 	Image *dst=0;
 	image_copy(&dst, src);
 	int *pixels=fwd?src->data:dst->data, *errors=fwd?dst->data:src->data;
-	for(int kc=0;kc<4;++kc)
+	for(int kc=0;kc<3;++kc)//there are params only for 3 channels in CUSTOM predictor
 	{
 		if(!src->depth[kc])
 			continue;
@@ -4163,10 +4164,10 @@ void pred_custom_optimize(Image const *image, int *params)
 			CUSTOM_NITER,
 			watchdog,
 			shakethreshold,
-			1/loss_bestsofar[3],
-			1/loss_bestsofar[0],
-			1/loss_bestsofar[1],
-			1/loss_bestsofar[2],
+			loss_bestsofar[3],
+			loss_bestsofar[0],
+			loss_bestsofar[1],
+			loss_bestsofar[2],
 			it+1<CUSTOM_NITER?"...":" Done."
 		);
 
@@ -4176,7 +4177,8 @@ void pred_custom_optimize(Image const *image, int *params)
 			ch_entropy[0]=(float)(loss_bestsofar[0]*image->src_depth[0]);
 			ch_entropy[1]=(float)(loss_bestsofar[1]*image->src_depth[1]);
 			ch_entropy[2]=(float)(loss_bestsofar[2]*image->src_depth[2]);
-			ch_entropy[3]=(float)(loss_bestsofar[3]*image->src_depth[3]);
+			ch_entropy[3]=0;
+			//ch_entropy[3]=(float)(loss_bestsofar[3]*image->src_depth[3]);//X
 			//unsigned char *ptr;
 			//addhalf(temp, iw, ih, 3, 4);
 			//SWAPVAR(image, temp, ptr);
@@ -4870,7 +4872,7 @@ void pred_jmj_apply(Image *src, int fwd, int enable_ma)
 }
 
 
-//CUSTOM3		doesn't support RCT_YRGB
+//CUSTOM3
 #define C3_OPT_NCOMP (C3_NPARAMS>>5)
 Custom3Params c3_params={0};
 int fast_dot(const short *a, const short *b, int count)
@@ -4976,6 +4978,13 @@ static void custom3_prealloc(const int *src, int iw, int ih, const char *depths,
 					UPDATE_CLAMPER(pixels[(iw*(ky-1)+kx-1)<<2|2], 4, 5)
 				}
 			}
+#undef  UPDATE_CLAMPER
+			if(clampers[0]>clampers[1])
+				clampers[0]=-(nlevels[0]>>1), clampers[1]=(nlevels[0]>>1)-1;
+			if(clampers[2]>clampers[3])
+				clampers[2]=-(nlevels[1]>>1), clampers[3]=(nlevels[1]>>1)-1;
+			if(clampers[4]>clampers[5])
+				clampers[4]=-(nlevels[2]>>1), clampers[5]=(nlevels[2]>>1)-1;
 			int count[3], idx2;
 			for(int kc=0;kc<3;++kc)
 				count[kc]=custom3_loadnb(pixels, errors, iw, ih, kc, kx, ky, nb[kc]);
@@ -5089,8 +5098,8 @@ void custom3_opt(Image const *src, Custom3Params *srcparams, int niter, int mask
 	for(int it=0, watchdog=0;it<niter;++it)
 	{
 		if(loud)
-			set_window_title("%d-%d %4d/%4d,%d/%d: %.4lf RGB %.4lf %.4lf %.4lf%%",
-				loud, call_idx, it+1, niter, watchdog, shakethreshold,
+			set_window_title("%d %4d/%4d,%d/%d: %.4lf RGB %.4lf %.4lf %.4lf%%",
+				call_idx, it+1, niter, watchdog, shakethreshold,
 				100.*info.invCR[3], 100.*info.invCR[0], 100.*info.invCR[1], 100.*info.invCR[2]
 			);
 		int idx[C3_OPT_NCOMP]={0}, inc[C3_OPT_NCOMP]={0}, stuck=0;
@@ -5145,7 +5154,7 @@ void custom3_opt(Image const *src, Custom3Params *srcparams, int niter, int mask
 			ch_entropy[0]=(float)(info.invCR[0]*src->src_depth[0]);
 			ch_entropy[1]=(float)(info.invCR[1]*src->src_depth[1]);
 			ch_entropy[2]=(float)(info.invCR[2]*src->src_depth[2]);
-			//ch_entropy[3]=(float)(info.invCR[3]*(src->src_depth[0]+src->src_depth[1]+src->src_depth[2])/3);
+			//ch_entropy[3]=(float)(info.invCR[3]*(src->src_depth[0]+src->src_depth[1]+src->src_depth[2])/3);//X
 			//int *ptr;
 			//SWAPVAR(image, temp, ptr);
 			io_render();
@@ -5225,7 +5234,7 @@ void pred_calic(Image *src, int fwd, int enable_ma)
 	memcpy(b2, src->data, (size_t)res*sizeof(int[4]));//copy alpha
 	for(int kc=0;kc<3;++kc)//process each channel separately
 	{
-		int nlevels=1<<src->depth[kc];
+		int depth=src->depth[kc], nlevels=1<<depth, half=nlevels>>1, sh=depth-8;
 		memset(arrN, 0, 2048*sizeof(int));
 		memset(arrS, 0, 2048*sizeof(int));
 		for(int ky=0;ky<src->ih;++ky)
@@ -5260,6 +5269,7 @@ void pred_calic(Image *src, int fwd, int enable_ma)
 				//'CALIC - A context-based adaptive lossless image codec'	https://github.com/play-co/gcif/tree/master/refs/calic
 #if 1
 				int temp=dy-dx;
+				temp=SHIFT_RIGHT_SIGNED(temp, sh);
 				if(temp>80)
 					pred=W;
 				else if(temp<-80)
@@ -5313,6 +5323,7 @@ void pred_calic(Image *src, int fwd, int enable_ma)
 #endif
 
 				int energy=dx+dy+abs(eN)+abs(eW);
+				energy=SHIFT_RIGHT_SIGNED(energy, sh);
 				if(energy<42)//quantization using binary search
 				{
 					if(energy<15)
@@ -5334,7 +5345,7 @@ void pred_calic(Image *src, int fwd, int enable_ma)
 
 				if(arrN[context]>0)
 					pred+=(arrS[context]+arrN[context]/2)/arrN[context];//sum of encountered errors / number of occurrences
-				pred=CLAMP(-128, pred, 127);
+				pred=CLAMP(-half, pred, half-1);
 
 				idx=(src->iw*ky+kx)<<2|kc;
 				pred^=-fwd;
@@ -8413,6 +8424,8 @@ const char* ec_method_label(EContext ec_method)
 	CASE(ECTX_QNW)
 	CASE(ECTX_MIN_QN_QW)
 	CASE(ECTX_MAX_QN_QW)
+	CASE(ECTX_MIN_N_W_NW_NE)
+	CASE(ECTX_ARGMIN_N_W_NW_NE)
 #undef  CASE
 	}
 	return label;
@@ -8465,14 +8478,49 @@ int getctx_max_QN_QW(const int *nb, int expbits, int msb, int lsb)
 	quantize_signed(dy, expbits, msb, lsb, &hu2);
 	return MINVAR(hu1.token, hu2.token);
 }
+int getctx_min_N_W_NW_NE(const int *nb, int expbits, int msb, int lsb)
+{
+	int dy=(nb[NB_N]-nb[NB_NN])>>1, dx=(nb[NB_W]-nb[NB_WW])>>1;
+	int d135=(nb[NB_NW]-nb[NB_NNWW])>>1, d45=(nb[NB_NE]-nb[NB_NNEE])>>1;
+	HybridUint hu[4];
+	quantize_signed(dx, expbits, msb, lsb, &hu[0]);
+	quantize_signed(dy, expbits, msb, lsb, &hu[1]);
+	quantize_signed(d45, expbits, msb, lsb, &hu[2]);
+	quantize_signed(d135, expbits, msb, lsb, &hu[3]);
+	int ctx=hu->token;
+	UPDATE_MIN(ctx, hu[1].token);
+	UPDATE_MIN(ctx, hu[2].token);
+	UPDATE_MIN(ctx, hu[3].token);
+	return ctx;
+}
+int getctx_argmin_N_W_NW_NE(const int *nb, int expbits, int msb, int lsb)
+{
+	int dy=abs(nb[NB_N]-nb[NB_NN]), dx=abs(nb[NB_W]-nb[NB_WW]);
+	int d135=abs(nb[NB_NW]-nb[NB_NNWW]), d45=abs(nb[NB_NE]-nb[NB_NNEE]);
+	int idx=0, bestval=dx;
+	if(bestval>d135)
+		bestval=d135, idx=1;
+	if(bestval>dy)
+		bestval=dy, idx=2;
+	if(bestval>d45)
+		bestval=d45, idx=3;
+	int nb2[]={nb[NB_W], nb[NB_NW], nb[NB_N], nb[NB_NE]};
+	int val=nb2[idx];
+	HybridUint hu;
+	quantize_signed(val, expbits, msb, lsb, &hu);
+	return hu.token;
+}
 void calc_csize_ec(Image const *src, EContext method, int adaptive, int expbits, int msb, int lsb, double *entropy)
 {
 	int (*const getctx[])(const int *nb, int expbits, int msb, int lsb)=
 	{
+		getctx_zero,//unused
 		getctx_zero,
 		getctx_QNW,
 		getctx_min_QN_QW,
 		getctx_max_QN_QW,
+		getctx_min_N_W_NW_NE,
+		getctx_argmin_N_W_NW_NE,
 	};
 	int maxdepth=calc_maxdepth(src, 0);
 	HybridUint hu;
@@ -8487,11 +8535,61 @@ void calc_csize_ec(Image const *src, EContext method, int adaptive, int expbits,
 	}
 	double bitsizes[4]={0}, bypasssizes[4]={0};
 //#define LOAD(X, Y) ((unsigned)(ky+(Y))<src->ih&&(unsigned)(kx+(X))<src->iw?src->data[(src->iw*(ky+(Y))+kx+(X))<<2|kc]:0)
+	int res=src->iw*src->ih;
 	for(int kc=0;kc<4;++kc)
 	{
 		int depth=src->depth[kc], nlevels=1<<depth;
 		if(!depth)
 			continue;
+		int constant=1;
+		for(int k=1;k<res;++k)//check for constant value
+		{
+			if(src->data[k<<2|kc]!=src->data[kc])
+			{
+				constant=0;
+				break;
+			}
+		}
+		if(constant)
+		{
+			bypasssizes[kc]+=depth;
+			continue;
+		}
+		if(adaptive)
+		{
+			int fillval=1;
+			memfill(hist, &fillval, sizeof(int)*cdfsize*cdfsize, sizeof(int));
+			for(int ky=0, idx=0;ky<src->ih;++ky)
+			{
+				for(int kx=0;kx<src->iw;++kx, ++idx)
+				{
+					int nb[12];
+					getnb(src, kc, kx, ky, nb);
+					int ctx=getctx[method](nb, expbits, msb, lsb);
+					int val=src->data[idx<<2|kc];
+					//if(kc==3)
+					//	val-=nb[NB_W];
+					quantize_signed(val, expbits, msb, lsb, &hu);
+
+					int *curr_hist=hist+cdfsize*ctx;
+					int den=0;
+					for(int k=0;k<cdfsize;++k)
+						den+=curr_hist[k];
+					double p=(double)curr_hist[hu.token]/den;
+					double bitsize=-log2(p);
+					bitsizes[kc]+=bitsize;
+					bypasssizes[kc]+=hu.nbits;
+
+					++curr_hist[hu.token];
+					if(curr_hist[hu.token]>=adaptive)
+					{
+						for(int k=0;k<cdfsize;++k)
+							curr_hist[k]=(curr_hist[k]+1)>>1;
+					}
+				}
+			}
+			continue;
+		}
 		memset(hist, 0, sizeof(int)*cdfsize*cdfsize);
 		for(int ky=0, idx=0;ky<src->ih;++ky)
 		{
@@ -8502,6 +8600,8 @@ void calc_csize_ec(Image const *src, EContext method, int adaptive, int expbits,
 				int ctx=getctx[method](nb, expbits, msb, lsb);
 
 				int val=src->data[idx<<2|kc];
+				//if(kc==3)
+				//	val-=nb[NB_W];
 				quantize_signed(val, expbits, msb, lsb, &hu);
 				val=hu.token;
 				++hist[cdfsize*ctx+val];
@@ -8523,6 +8623,8 @@ void calc_csize_ec(Image const *src, EContext method, int adaptive, int expbits,
 				int ctx=getctx[method](nb, expbits, msb, lsb);
 
 				int val=src->data[idx<<2|kc];
+				//if(kc==3)
+				//	val-=nb[NB_W];
 				quantize_signed(val, expbits, msb, lsb, &hu);
 				val=hu.token;
 				int freq=hist[cdfsize*ctx+val], sum=hsum[ctx];

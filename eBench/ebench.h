@@ -860,11 +860,13 @@ void pred_c20(char *src, int iw, int ih, int fwd);
 
 typedef enum EContextEnum
 {
-	ECTX_HIST=-1,
+	ECTX_HIST,
 	ECTX_ZERO,
 	ECTX_QNW,
 	ECTX_MIN_QN_QW,
 	ECTX_MAX_QN_QW,
+	ECTX_MIN_N_W_NW_NE,
+	ECTX_ARGMIN_N_W_NW_NE,
 
 	ECTX_COUNT,
 } EContext;

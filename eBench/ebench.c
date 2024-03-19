@@ -137,8 +137,8 @@ int jointhist_nbits=6;//max
 int jhx=0, jhy=0;
 double ch_entropy[4]={0};//RGBA
 //int usage[4]={0};
-EContext ec_method=ECTX_MIN_QN_QW;
-int ac_adaptive=0, ec_expbits=5, ec_msb=2, ec_lsb=0;
+EContext ec_method=ECTX_HIST;//ECTX_MIN_QN_QW;
+int ec_adaptive=0, ec_adaptive_threshold=3200, ec_expbits=5, ec_msb=2, ec_lsb=0;
 
 #define combCRhist_SIZE 128
 #define combCRhist_logDX 2
@@ -960,7 +960,7 @@ static unsigned __stdcall sample_thread(void *param)
 {
 	ThreadCtx *ctx=(ThreadCtx*)param;
 	ctx->usize=image_getBMPsize(ctx->image);
-	apply_selected_transforms(ctx->image);
+	apply_selected_transforms(ctx->image, 0);
 	int maxdepth=calc_maxdepth(ctx->image, 0);
 	int nlevels=1<<maxdepth;
 	int *hist=(int*)malloc(nlevels*sizeof(int));
@@ -1075,7 +1075,7 @@ void batch_test()
 		if(!image)
 			continue;
 		double usize=image_getBMPsize(image), csize[3]={0};
-		apply_selected_transforms(image);
+		apply_selected_transforms(image, 0);
 		int maxdepth=calc_maxdepth(image, 0);
 		int nlevels=1<<maxdepth;
 		int *hist=(int*)malloc(nlevels*sizeof(int));
@@ -2163,13 +2163,15 @@ void bayes_update()
 }
 #endif
 
-void apply_selected_transforms(Image *image)
+void apply_selected_transforms(Image *image, int rct_only)
 {
 	if(!transforms)
 		return;
 	for(int k=0;k<(int)transforms->count;++k)
 	{
 		unsigned char tid=transforms->data[k];
+		if(rct_only&&tid>CST_INV_SEPARATOR)
+			continue;
 		switch(tid)
 		{
 	//	case CT_FWD_ADAPTIVE:		rct_adaptive((char*)image, iw, ih, 1);			break;
@@ -2369,6 +2371,9 @@ void apply_selected_transforms(Image *image)
 				//	case ST_FWD_CUSTOM_DWT:dwt2d_custom_fwd (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, customparam_st);break;
 				//	case ST_INV_CUSTOM_DWT:dwt2d_custom_inv (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, customparam_st);break;
 					}
+					int inv=tid&1;
+					im1->depth[kc]+=!inv-inv;
+					UPDATE_MAX(im1->depth[kc], im1->src_depth[kc]);
 				}
 				array_free(&sizes);
 				free(temp);
@@ -2385,7 +2390,7 @@ void update_image()//apply selected operations on original image, calculate CRs,
 	if(!im0)
 		return;
 	image_copy(&im1, im0);
-	apply_selected_transforms(im1);
+	apply_selected_transforms(im1, 0);
 
 	//do not modify im1 beyond this point
 
@@ -2411,8 +2416,7 @@ void update_image()//apply selected operations on original image, calculate CRs,
 			if(im1->depth[kc])
 			{
 				calc_histogram(im1->data, im1->iw, im1->ih, kc, 0, im1->iw, 0, im1->ih, im1->depth[kc], hist_full, 0);
-				double entropy=calc_entropy(hist_full, 1<<im1->depth[kc], im1->iw*im1->ih);
-				ch_entropy[kc]=entropy;
+				ch_entropy[kc]=calc_entropy(hist_full, 1<<im1->depth[kc], im1->iw*im1->ih);
 			}
 			else
 				ch_entropy[kc]=0;
@@ -2420,7 +2424,7 @@ void update_image()//apply selected operations on original image, calculate CRs,
 		//channel_entropy(image, iw*ih, 3, 4, ch_cr, usage);
 	}
 	else
-		calc_csize_ec(im1, ec_method, ac_adaptive, ec_expbits, ec_msb, ec_lsb, ch_entropy);
+		calc_csize_ec(im1, ec_method, ec_adaptive?ec_adaptive_threshold:0, ec_expbits, ec_msb, ec_lsb, ch_entropy);
 	
 	combCRhist[combCRhist_idx][0]=1/(float)(im1->src_depth[0]/ch_entropy[0]);
 	combCRhist[combCRhist_idx][1]=1/(float)(im1->src_depth[0]/ch_entropy[1]);
@@ -2988,7 +2992,7 @@ typedef struct AABBStruct
 {
 	float x1, x2, y1, y2;
 } AABB;
-AABB buttons[4]={0};//0: CT,  1: ST,  2: list of transforms,  3: jxl params
+AABB buttons[5]={0};//0: CT,  1: ST,  2: list of transforms,  3: jxl params
 
 int io_init(int argc, char **argv)//return false to abort
 {
@@ -3008,7 +3012,8 @@ const int
 	custom_pred_reach=2;
 const int
 	gui_custom_rct_w=33, gui_custom_rct_h=4,//characters
-	gui_custom_pred_w=103+2, gui_custom_pred_h=4;
+	gui_custom_pred_w=103+2, gui_custom_pred_h=4,
+	gui_ec_width=27;
 int custom_pred_ch_idx=0;//from {0, 1, 2}
 void io_resize()
 {
@@ -3021,7 +3026,9 @@ void io_resize()
 	//p->x1=(float)(w>>1), p->x2=p->x1+xstep*14, p->y1=(float)((h>>1)+(h>>2))+ystep*4, p->y2=p->y1+ystep, ++p;//3: clamp bounds
 	//p->x1=(float)(w>>1), p->x2=p->x1+xstep*21, p->y1=(float)((h>>1)+(h>>2))+ystep*5, p->y2=p->y1+ystep, ++p;//4: learning rate
 
-	p->x1=(float)(w>>2), p->x2=p->x1+tdx*11*6, p->y1=(float)((h>>1)+(h>>2)), p->y2=p->y1+tdy*3;//3: jxl params
+	p->x1=(float)(w>>2), p->x2=p->x1+tdx*11*6, p->y1=(float)((h>>1)+(h>>2)), p->y2=p->y1+tdy*3, ++p;//3: jxl params
+
+	p->x1=(float)(w-450), p->x2=p->x1+tdx*gui_ec_width, p->y1=tdy, p->y2=p->y1+tdy, ++p;//4: EC method	//H.E.M.L..A.0x0000..XXXX_XXX
 }
 int io_mousemove()//return true to redraw
 {
@@ -3122,6 +3129,12 @@ void click_hittest(int mx, int my, int *objidx, int *cellx, int *celly, int *cel
 		*celly=(int)floorf((my-p[0]->y1)* 3/(p[0]->y2-p[0]->y1));
 		*cellidx=11**celly+*cellx;
 		break;
+	case 4:
+		//H.E.M.L..A.0x0000..XXXX_XXX
+		*cellx=(int)floorf((mx-p[0]->x1)*gui_ec_width/(p[0]->x2-p[0]->x1));
+		*celly=0;
+		*cellidx=*cellx;
+		break;
 	default:
 		*objidx=-1;
 		*p=0;
@@ -3133,7 +3146,8 @@ void click_hittest(int mx, int my, int *objidx, int *cellx, int *celly, int *cel
 }
 int io_mousewheel(int forward)
 {
-	if(im1&&(transforms_customenabled||transforms_mask[ST_FWD_JXLPRED]||transforms_mask[ST_INV_JXLPRED]))//change custom transform params
+	//if(im1&&(transforms_customenabled||transforms_mask[ST_FWD_JXLPRED]||transforms_mask[ST_INV_JXLPRED]))//change custom transform params
+	if(im1)
 	{
 		int objidx=0, cellx=0, celly=0, cellidx=0;
 		AABB *p=buttons;
@@ -3145,6 +3159,7 @@ int io_mousewheel(int forward)
 			switch(objidx)
 			{
 			case 0://color transform params
+				if(transforms_mask[CT_FWD_CUSTOM]||transforms_mask[CT_INV_CUSTOM])
 				{
 					//0000000000111111111122222222223333
 					//0123456789012345678901234567890123
@@ -3167,6 +3182,7 @@ int io_mousewheel(int forward)
 						digit=1-digit;
 						rct_custom_params[idx]+=sign<<((digit+4)<<2);//hex digit
 					}
+					update_image();
 				}
 #if 0
 				//000000000011111111112222222222
@@ -3186,6 +3202,8 @@ int io_mousewheel(int forward)
 #endif
 				break;
 			case 1://spatial transform params
+				if(!transforms_mask[ST_FWD_CUSTOM]&&!transforms_mask[ST_INV_CUSTOM])
+					break;
 				if(!celly)
 				{
 					//0123456789012345678901234567
@@ -3225,6 +3243,7 @@ int io_mousewheel(int forward)
 						custom_params[24*custom_pred_ch_idx+idx]+=sign<<((digit+4)<<2);
 					}
 				}
+				update_image();
 #if 0
 				//000000000011111111112222222222333333333344444444445555
 				//012345678901234567890123456789012345678901234567890123
@@ -3288,6 +3307,7 @@ int io_mousewheel(int forward)
 				break;
 #endif
 			case 3://jxl params
+				if(transforms_mask[ST_FWD_JXLPRED]||transforms_mask[ST_INV_JXLPRED])
 				{
 					int ch2;
 					ch=(int)floorf((mx-p->x1)/tdx);
@@ -3299,10 +3319,67 @@ int io_mousewheel(int forward)
 					}
 					else if(cellx>=4)
 						jxlparams_i16[cellidx]=-jxlparams_i16[cellidx];
+					update_image();
 				}
 				break;
+			case 4://EC method
+				switch(cellx)
+				{
+				//0123456789012345678901234567
+				//H.E.M.L..A.0x0000..XXXX_XXX
+				case 2:
+					ec_expbits+=sign;
+					MODVAR(ec_expbits, ec_expbits, 10);
+					break;
+				case 4:
+					ec_msb+=sign;
+					MODVAR(ec_msb, ec_msb, 10);
+					break;
+				case 6:
+					ec_lsb+=sign;
+					MODVAR(ec_lsb, ec_lsb, 10);
+					break;
+				case 9:
+					ec_adaptive=!ec_adaptive;
+					break;
+				case 13:
+					if(ec_adaptive)
+					{
+						ec_adaptive_threshold+=sign<<12;
+						ec_adaptive_threshold&=0xFFFF;
+					}
+					break;
+				case 14:
+					if(ec_adaptive)
+					{
+						ec_adaptive_threshold+=sign<<8;
+						ec_adaptive_threshold&=0xFFFF;
+					}
+					break;
+				case 15:
+					if(ec_adaptive)
+					{
+						ec_adaptive_threshold+=sign<<4;
+						ec_adaptive_threshold&=0xFFFF;
+					}
+					break;
+				case 16:
+					if(ec_adaptive)
+					{
+						ec_adaptive_threshold+=sign;
+						ec_adaptive_threshold&=0xFFFF;
+					}
+					break;
+				case 19:case 20:case 21:case 22:case 23:case 24:case 25:case 26:
+					ec_method+=sign;
+					MODVAR(ec_method, ec_method, ECTX_COUNT);
+					break;
+				}
+				if(ec_expbits<ec_msb+ec_lsb)
+					ec_msb=ec_lsb=0;
+				update_image();
+				break;
 			}//switch
-			update_image();
 		}//if
 		else
 			goto normal_operation;
@@ -3582,6 +3659,42 @@ int io_keydn(IOKey key, char c)
 					return 1;
 				}
 				break;
+			case 4://EC method
+				if(key==KEY_LBUTTON)
+					break;
+				switch(cellx)
+				{
+				//012345678901234567
+				//H.E.M.L..A.0x0000..XXXX_XXX
+				case 0:
+				case 1:
+				case 2:
+				case 3:
+				case 4:
+				case 5:
+				case 6:
+					ec_expbits=5;
+					ec_msb=2;
+					ec_lsb=0;
+					break;
+				case 9:
+					ec_adaptive=0;
+					break;
+				case 13:
+				case 14:
+				case 15:
+				case 16:
+					if(ec_adaptive)
+						ec_adaptive_threshold=3200;
+					break;
+				case 19:case 20:case 21:case 22:case 23:case 24:case 25:case 26:
+					ec_method=ECTX_MIN_QN_QW;
+					break;
+				}
+				if(ec_expbits<ec_msb+ec_lsb)
+					ec_msb=ec_lsb=0;
+				update_image();
+				return 1;
 			default:
 				if(key==KEY_LBUTTON)
 					goto toggle_drag;
@@ -3648,6 +3761,7 @@ int io_keydn(IOKey key, char c)
 			"Ctrl R:\t\tDisable all transforms\n"
 			//"Ctrl E:\t\tReset custom transform parameters\n"
 			"Comma/Period:\tSelect context for size estimation\n"
+			"Slash:\t\tToggle adaptive histogram\n"
 			"[ ]:\t\t(Custom transforms) Select coefficient page\n"
 			"Space:\t\t(Custom transforms) Optimize\n"
 			"Ctrl N:\t\tAdd noise to CUSTOM3 params\n"
@@ -3706,6 +3820,10 @@ int io_keydn(IOKey key, char c)
 			MODVAR(ec_method, ec_method, ECTX_COUNT);
 			update_image();
 		}
+		return 1;
+	case KEY_SLASH:
+		ec_adaptive=!ec_adaptive;
+		update_image();
 		return 1;
 	//case 'E':
 	//	if(im1&&GET_KEY_STATE(KEY_CTRL)&&transforms_customenabled)//reset params
@@ -4111,10 +4229,10 @@ int io_keydn(IOKey key, char c)
 	//	break;
 	//case 'Z'://TODO show neighbor pixels around cursor
 	//	break;
-	case 'P':
-		if(GET_KEY_STATE(KEY_CTRL))
-			test_predmask(im1);
-		break;
+	//case 'P':
+	//	if(GET_KEY_STATE(KEY_CTRL))
+	//		test_predmask(im1);
+	//	break;
 	case 'B'://batch test
 		if(GET_KEY_STATE(KEY_CTRL))
 			batch_test();
@@ -4215,8 +4333,7 @@ int io_keydn(IOKey key, char c)
 				image_copy(&im2, im0);
 				if(!im2)
 					return 0;
-				//if(GET_KEY_STATE(KEY_CTRL))
-				//colortransform_YCbCr_R_v1(im2, 1);
+				apply_selected_transforms(im2, 0);
 				pred_custom_optimize(im2, custom_params);
 				free(im2);
 				update_image();
@@ -4265,8 +4382,9 @@ int io_keydn(IOKey key, char c)
 #endif
 			else if(transforms_mask[ST_FWD_CUSTOM3]||transforms_mask[ST_INV_CUSTOM3])
 			{
-				int maskbits=10;
-					 if(keyboard[KEY_1])maskbits=1;
+				//int maskbits=10;
+				int maskbits=3;
+				if(keyboard[KEY_1])maskbits=1;
 				else if(keyboard[KEY_2])maskbits=2;
 				else if(keyboard[KEY_3])maskbits=3;
 				else if(keyboard[KEY_4])maskbits=4;
@@ -4285,8 +4403,9 @@ int io_keydn(IOKey key, char c)
 					image_copy(&im2, im0);
 					if(!im2)
 						return 0;
-					if(GET_KEY_STATE(KEY_CTRL))
-						colortransform_YCbCr_R_v1(im2, 1);
+					apply_selected_transforms(im2, 0);
+					//if(GET_KEY_STATE(KEY_CTRL))
+					//	colortransform_YCbCr_R_v1(im2, 1);
 					custom3_opt(im2, &c3_params, 0, maskbits, 1, 0);
 					free(im2);
 				}
@@ -5159,7 +5278,10 @@ void io_render()
 		x=(float)(w-450);
 		y=tdy*2;
 		const char *label=ec_method_label(ec_method);
-		GUIPrint(x, x, y-tdy, 1, "%s", label);
+		if(ec_adaptive)//H.E.M.L..A.0x0000..XXXX_XXX
+			GUIPrint(x, x, y-tdy, 1, "H %d %d %d  A 0x%04X  %s", ec_expbits, ec_msb, ec_lsb, ec_adaptive_threshold, label);
+		else
+			GUIPrint(x, x, y-tdy, 1, "H %d %d %d  Static    %s", ec_expbits, ec_msb, ec_lsb, label);
 		if(transforms)
 		{
 			for(int k=0;k<(int)transforms->count;++k, y+=tdy)//print applied transforms on left
@@ -5173,6 +5295,14 @@ void io_render()
 		double usize=image_getBMPsize(im0);
 		float crformat=(float)(usize/filesize);
 		int RGBspace=1;
+		for(int k=0;k<CST_FWD_SEPARATOR;++k)
+		{
+			if(transforms_mask[k])
+			{
+				RGBspace=0;
+				break;
+			}
+		}
 		if(xstart<xend)
 		{
 			float crmax=1/cr_combined;
@@ -5245,22 +5375,12 @@ void io_render()
 			}
 			else
 #endif
-			{
-				for(int k=0;k<CST_FWD_SEPARATOR;++k)
-				{
-					if(transforms_mask[k])
-					{
-						RGBspace=0;
-						break;
-					}
-				}
-				draw_rect(xend-scale/cr_combined,				xend, ystart+tdy*0.5f-barw, ystart+tdy*0.5f+barw+1, 0xFF000000);
-				draw_rect(xend-scale/(float)(im1->src_depth[0]/ch_entropy[0]),	xend, ystart+tdy*1.5f-barw, ystart+tdy*1.5f+barw+1, RGBspace?0xFF0000FF:0xFF404040);//r or Y
-				draw_rect(xend-scale/(float)(im1->src_depth[1]/ch_entropy[1]),	xend, ystart+tdy*2.5f-barw, ystart+tdy*2.5f+barw+1, RGBspace?0xFF00FF00:0xFFC00000);//g or Cb
-				draw_rect(xend-scale/(float)(im1->src_depth[2]/ch_entropy[2]),	xend, ystart+tdy*3.5f-barw, ystart+tdy*3.5f+barw+1, RGBspace?0xFFFF0000:0xFF0000C0);//b or Cr
-				if(im1->depth[3])
-					draw_rect(xend-scale/(float)(im1->src_depth[1]/ch_entropy[3]), xend, ystart+tdy*4.5f-barw, ystart+tdy*4.5f+barw+1, RGBspace?0xFF808080:0xFF00C000);//a or Cg
-			}
+			draw_rect(xend-scale/cr_combined,				xend, ystart+tdy*0.5f-barw, ystart+tdy*0.5f+barw+1, 0xFF000000);
+			draw_rect(xend-scale/(float)(im1->src_depth[0]/ch_entropy[0]),	xend, ystart+tdy*1.5f-barw, ystart+tdy*1.5f+barw+1, RGBspace?0xFF0000FF:0xFF404040);//r or Y
+			draw_rect(xend-scale/(float)(im1->src_depth[1]/ch_entropy[1]),	xend, ystart+tdy*2.5f-barw, ystart+tdy*2.5f+barw+1, RGBspace?0xFF00FF00:0xFFC00000);//g or Cb
+			draw_rect(xend-scale/(float)(im1->src_depth[2]/ch_entropy[2]),	xend, ystart+tdy*3.5f-barw, ystart+tdy*3.5f+barw+1, RGBspace?0xFFFF0000:0xFF0000C0);//b or Cr
+			if(im1->depth[3])
+				draw_rect(xend-scale/(float)(im1->src_depth[1]/ch_entropy[3]), xend, ystart+tdy*4.5f-barw, ystart+tdy*4.5f+barw+1, RGBspace?0xFF808080:0xFF00C000);//a or Cg
 			//draw_rect(xend-scale*ch_cr[3]   , xend, ystart+tdy*4.5f-barw, ystart+tdy*4.5f+barw+1, 0xFFFF00FF);
 			x=xend-scale/crformat;
 			draw_line(x, ystart, x-10, ystart-10, 0xFF000000);
