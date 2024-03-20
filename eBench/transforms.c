@@ -930,11 +930,82 @@ void colortransform_lossy_matrix(Image *image, int fwd)//for demonstration purpo
 	}
 }
 
-#define RCT_CUSTOM_NITER 100
-#define RCT_CUSTOM_DELTAGROUP 2
-int rct_custom_params[RCT_CUSTOM_NPARAMS]={0};
-void rct_custom(Image *image, int fwd, const int *params)//4 params	fixed 15.16
+short rct_custom_params[RCT_CUSTOM_NPARAMS]={0};
+void rct_custom_unpackpermutation(short p, char *permutation)
 {
+	int temp=0;
+	switch(p)
+	{
+	case 0:temp=0x020100;break;//rgb
+	case 1:temp=0x020001;break;//grb
+	case 2:temp=0x000201;break;//gbr
+	case 3:temp=0x010200;break;//rbg
+	case 4:temp=0x000102;break;//bgr
+	case 5:temp=0x010002;break;//brg
+	default:
+		LOG_ERROR("Invalid RGB permutation");
+		return;
+	}
+	memcpy(permutation, &temp, sizeof(char[3]));
+}
+void rct_custom(Image *image, int fwd, const short *params)//4 params	fixed 15.16
+{
+	int temp;
+	char permutation[4]={0};
+	rct_custom_unpackpermutation(params[8], permutation);
+	if(fwd)
+	{
+		for(ptrdiff_t k=0, len=(ptrdiff_t)image->iw*image->ih*4;k<len;k+=4)
+		{
+			int comp[]=
+			{
+				image->data[k|permutation[0]],
+				image->data[k|permutation[1]],
+				image->data[k|permutation[2]],
+			};
+			temp=params[0]*comp[1]+params[1]*comp[2], comp[0]+=(temp>>RCT_CUSTOM_PARAMBITS)+(temp<0);
+			temp=params[2]*comp[0]+params[3]*comp[2], comp[1]+=(temp>>RCT_CUSTOM_PARAMBITS)+(temp<0);
+			temp=params[4]*comp[0]+params[5]*comp[1], comp[2]+=(temp>>RCT_CUSTOM_PARAMBITS)+(temp<0);
+			temp=params[6]*comp[0]+params[7]*comp[2], comp[1]+=(temp>>RCT_CUSTOM_PARAMBITS)+(temp<0);
+			image->data[k|0]=comp[1];//Y
+			image->data[k|1]=comp[2];//Cb
+			image->data[k|2]=comp[0];//Cr
+			//memcpy(image->data+k, comp, sizeof(comp));
+		}
+		image->depth[0]+=image->depth[0]<24;
+		image->depth[1]+=image->depth[1]<24;
+		image->depth[2]+=image->depth[2]<24;
+		//ROTATE3(image->depth[0], image->depth[1], image->depth[2], temp);
+		//image->depth[1]+=image->depth[1]<24;
+		//image->depth[2]+=image->depth[2]<24;
+	}
+	else
+	{
+		image->depth[0]-=image->depth[0]>image->src_depth[0];
+		image->depth[1]-=image->depth[1]>image->src_depth[1];
+		image->depth[2]-=image->depth[2]>image->src_depth[2];
+		//image->depth[1]-=image->depth[1]>image->src_depth[1];
+		//image->depth[2]-=image->depth[2]>image->src_depth[2];
+		//ROTATE3(image->depth[2], image->depth[1], image->depth[0], temp);
+		for(ptrdiff_t k=0, len=(ptrdiff_t)image->iw*image->ih*4;k<len;k+=4)
+		{
+			int comp[]=
+			{
+				image->data[k|2],
+				image->data[k|0],
+				image->data[k|1],
+			};
+			//memcpy(comp, image->data+k, sizeof(comp));
+			temp=params[6]*comp[0]+params[7]*comp[2], comp[1]-=(temp>>RCT_CUSTOM_PARAMBITS)+(temp<0);
+			temp=params[4]*comp[0]+params[5]*comp[1], comp[2]-=(temp>>RCT_CUSTOM_PARAMBITS)+(temp<0);
+			temp=params[2]*comp[0]+params[3]*comp[2], comp[1]-=(temp>>RCT_CUSTOM_PARAMBITS)+(temp<0);
+			temp=params[0]*comp[1]+params[1]*comp[2], comp[0]-=(temp>>RCT_CUSTOM_PARAMBITS)+(temp<0);
+			image->data[k|permutation[0]]=comp[0];
+			image->data[k|permutation[1]]=comp[1];
+			image->data[k|permutation[2]]=comp[2];
+		}
+	}
+#if 0
 	char temp;
 	if(fwd)
 	{
@@ -974,16 +1045,17 @@ void rct_custom(Image *image, int fwd, const int *params)//4 params	fixed 15.16
 			image->data[k|2]=Cb;
 		}
 	}
+#endif
 }
-static void rct_custom_calcloss(Image const *src, Image *dst, int *hist, const int *params, double *loss)
+static void rct_custom_calcloss(Image const *src, Image *dst, int *hist, double *loss)
 {
 	ptrdiff_t res=(ptrdiff_t)src->iw*src->ih;
 	memcpy(dst->data, src->data, res*sizeof(int[4]));
 
-	rct_custom(dst, 1, params);
-
+	apply_selected_transforms(dst, 0);
+	//rct_custom(dst, 1, params);
 	//pred_grad2(dst, 1);
-	pred_clampedgrad(dst, 1, 1);
+	//pred_clampedgrad(dst, 1, 1);
 	
 	int depths[]=
 	{
@@ -999,7 +1071,9 @@ static void rct_custom_calcloss(Image const *src, Image *dst, int *hist, const i
 	}
 	loss[3]=(loss[0]+loss[1]+loss[2])/3;
 }
-void rct_custom_optimize(Image const *image, int *params)
+#define RCT_CUSTOM_NITER 200
+#define RCT_CUSTOM_DELTAGROUP 2
+void rct_custom_optimize(Image const *image, short *params)
 {
 	static int call_idx=0;
 
@@ -1020,11 +1094,13 @@ void rct_custom_optimize(Image const *image, int *params)
 	}
 
 	double loss_bestsofar[4], loss_prev[4], loss_curr[4];
-	int params2[RCT_CUSTOM_NPARAMS];
-	memcpy(params2, params, sizeof(int[RCT_CUSTOM_NPARAMS]));
+	short params2[RCT_CUSTOM_NPARAMS];
+	memcpy(params2, params, sizeof(params2));
 
-#define CALC_LOSS(L) rct_custom_calcloss(image, im2, hist, params2, L)
-	srand((unsigned)__rdtsc());//
+#define CALC_LOSS(L) rct_custom_calcloss(image, im2, hist, L)
+#ifndef _DEBUG
+	srand((unsigned)__rdtsc());
+#endif
 	CALC_LOSS(loss_bestsofar);
 	memcpy(loss_prev, loss_bestsofar, sizeof(loss_prev));
 
@@ -1035,9 +1111,17 @@ void rct_custom_optimize(Image const *image, int *params)
 		int params_original_selected[RCT_CUSTOM_DELTAGROUP]={0};
 		if(watchdog>=shakethreshold)//bump if stuck
 		{
-			memcpy(params2, params, sizeof(params2));
+			memcpy(params, params2, sizeof(params2));
 			for(int k=0;k<RCT_CUSTOM_NPARAMS;++k)
-				params2[k]+=((rand()&1)<<1)-1;
+			{
+				if(k==8)
+				{
+					params[k]+=((rand()&1)<<1)-1;
+					MODVAR(params[8], params[8], 6);
+				}
+				else
+					params[k]+=(rand()&63)-32;
+			}
 			watchdog=0;
 			stuck=1;
 		}
@@ -1045,12 +1129,19 @@ void rct_custom_optimize(Image const *image, int *params)
 		{
 			for(int k=0;k<RCT_CUSTOM_DELTAGROUP;++k)//increment params
 			{
-				int inc=0;
+				//int inc=0;
 				idx[k]=rand()%RCT_CUSTOM_NPARAMS;
-				while(!(inc=rand()-(RAND_MAX>>1)));//reject zero delta
+				//while(!(inc=rand()-(RAND_MAX>>1)));//reject zero delta
 		
-				params_original_selected[k]=params2[idx[k]];
-				params2[idx[k]]+=inc*(16<<1)/RAND_MAX;
+				params_original_selected[k]=params[idx[k]];
+				//params[idx[k]]+=(inc<<2)/RAND_MAX;
+				if(idx[k]==8)
+				{
+					params[8]+=((rand()&1)<<1)-1;
+					MODVAR(params[8], params[8], 6);
+				}
+				else
+					params[idx[k]]+=(rand()&63)-32;
 			}
 		}
 
@@ -1064,7 +1155,7 @@ void rct_custom_optimize(Image const *image, int *params)
 			{
 				memcpy(loss_curr, loss_prev, sizeof(loss_prev));
 				for(int k=0;k<RCT_CUSTOM_DELTAGROUP;++k)
-					params2[idx[k]]=params_original_selected[k];
+					params[idx[k]]=params_original_selected[k];
 			}
 			++watchdog;
 		}
@@ -1072,7 +1163,7 @@ void rct_custom_optimize(Image const *image, int *params)
 		{
 			if(loss_curr[3]<loss_bestsofar[3])//publish if record best
 			{
-				memcpy(params, params2, sizeof(params2));
+				memcpy(params2, params, sizeof(params2));
 				memcpy(loss_bestsofar, loss_curr, sizeof(loss_bestsofar));
 				--it;//bis
 			}
@@ -1081,16 +1172,16 @@ void rct_custom_optimize(Image const *image, int *params)
 		}
 
 		set_window_title(
-			"%d %4d/%4d,%d/%d: %lf RGB %lf %lf %lf%s",
+			"%d %4d/%4d,%d/%d: %lf%% RGB %lf %lf %lf%s",
 			call_idx,
 			it+1,
 			RCT_CUSTOM_NITER,
 			watchdog,
 			shakethreshold,
-			1/loss_bestsofar[3],
-			1/loss_bestsofar[0],
-			1/loss_bestsofar[1],
-			1/loss_bestsofar[2],
+			100.*loss_bestsofar[3],
+			100.*loss_bestsofar[0],
+			100.*loss_bestsofar[1],
+			100.*loss_bestsofar[2],
 			it+1<RCT_CUSTOM_NITER?"...":" Done."
 		);
 
@@ -1100,7 +1191,8 @@ void rct_custom_optimize(Image const *image, int *params)
 			ch_entropy[0]=(float)(loss_bestsofar[0]*image->src_depth[0]);
 			ch_entropy[1]=(float)(loss_bestsofar[1]*image->src_depth[1]);
 			ch_entropy[2]=(float)(loss_bestsofar[2]*image->src_depth[2]);
-			ch_entropy[3]=(float)(loss_bestsofar[3]*image->src_depth[1]);
+			ch_entropy[3]=0;
+			//ch_entropy[3]=(float)(loss_bestsofar[3]*image->src_depth[1]);//X
 			//unsigned char *ptr;
 			//addhalf(temp, iw, ih, 3, 4);
 			//SWAPVAR(image, temp, ptr);
@@ -1109,6 +1201,7 @@ void rct_custom_optimize(Image const *image, int *params)
 		}
 #endif
 	}
+	memcpy(params, params2, sizeof(params2));
 #undef  CALC_LOSS
 	free(hist);
 	free(im2);
@@ -2133,6 +2226,84 @@ void pred_average(Image *src, int fwd, int enable_ma)
 	free(dst);
 }
 
+void pred_zipper(Image **psrc, int fwd, int enable_ma)
+{
+#if 1
+	Image *src=*psrc;
+	int *row=(int*)malloc(src->iw*sizeof(int));
+	//Image *dst=(Image*)malloc(sizeof(Image)+(src->iw+1LL)*(src->ih+1LL)*sizeof(int[4]));
+	if(!row)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	for(int kc=0;kc<4;++kc)
+	{
+		int depth=src->depth[kc], nlevels=1<<depth;
+		if(!depth)
+			continue;
+		for(int ky=0, idx=0;ky<src->ih;++ky)
+		{
+			//int WW=0;
+			int W=0;
+			for(int kx=0;kx<src->iw;++kx, ++idx)
+			{
+				int E=kx<src->iw-1?src->data[(idx+1)<<2|kc]:0;
+				//int EE=kx<src->iw-2?src->data[(idx+2)<<2|kc]:0;
+				int pred=(W+E)>>1;
+				//int pred=W+E-((WW+EE)>>1);
+
+				int curr=src->data[idx<<2|kc];
+				curr-=pred;
+				curr+=nlevels>>1;
+				curr&=nlevels-1;
+				curr-=nlevels>>1;
+				src->data[idx<<2|kc]=curr;
+
+				W+=curr;
+				//WW+=kx?src->data[(idx-1)<<2|kc]:0;
+			}
+		}
+	}
+	free(row);
+	//free(src);
+	//*psrc=dst;
+#else
+	//reference cheating (W+E)/2  (fwd-only)
+	Image *src=*psrc, *dst=0;
+	image_copy(&dst, src);
+	if(!dst)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	for(int kc=0;kc<4;++kc)
+	{
+		int depth=src->depth[kc], nlevels=1<<depth;
+		if(!depth)
+			continue;
+		for(int ky=0, idx=0;ky<src->ih;++ky)
+		{
+			for(int kx=0;kx<src->iw;++kx, ++idx)
+			{
+				int
+					W=kx?dst->data[(idx-1)<<2|kc]:0,
+					E=kx<src->iw-1?dst->data[(idx+1)<<2|kc]:0;
+				int pred=(W+E)>>1;
+
+				int curr=src->data[idx<<2|kc];
+				curr-=pred;
+				curr+=nlevels>>1;
+				curr&=nlevels-1;
+				curr-=nlevels>>1;
+				src->data[idx<<2|kc]=curr;
+			}
+		}
+	}
+	free(dst);
+#endif
+}
+
 #define MULTISTAGE_CALCCSIZE
 #define LOAD(BUF, X, Y) ((unsigned)(ky+(Y))<(unsigned)src->ih&&(unsigned)(kx+(X))<(unsigned)src->iw?BUF[(src->iw*(ky+(Y))+kx+(X))<<2|kc]:0)
 static void pred_multistage_stage1(Image *src, Image *dst, int fwd, int enable_ma, int kc, int *hist)
@@ -2689,6 +2860,7 @@ static void pred_separate_x(Image const *src, Image *dst, int fwd, int enable_ma
 			int preds[]=
 			{
 				 0x2E00000, N+W-NW,
+				//0x0100000, (2*N+W+NE-NW-NNE)>>1,//X
 				 0x0400000, N+W-((NW+NN+WW+NE)>>2),
 				-0x0300000, ((2*(N+W)-(NW+NN+WW+NE))*9+(WWW+NWW+NNW+NNN+NNE+NEE)*2)/12,
 				 0x0C00000, 2*(N+W-NW)-(NN+WW-NNWW),
@@ -4158,16 +4330,16 @@ void pred_custom_optimize(Image const *image, int *params)
 		}
 
 		set_window_title(
-			"%d %4d/%4d,%d/%d: %lf RGB %lf %lf %lf%s",
+			"%d %4d/%4d,%d/%d: %lf%% RGB %lf %lf %lf%s",
 			call_idx,
 			it+1,
 			CUSTOM_NITER,
 			watchdog,
 			shakethreshold,
-			loss_bestsofar[3],
-			loss_bestsofar[0],
-			loss_bestsofar[1],
-			loss_bestsofar[2],
+			100.*loss_bestsofar[3],
+			100.*loss_bestsofar[0],
+			100.*loss_bestsofar[1],
+			100.*loss_bestsofar[2],
 			it+1<CUSTOM_NITER?"...":" Done."
 		);
 
@@ -5098,9 +5270,12 @@ void custom3_opt(Image const *src, Custom3Params *srcparams, int niter, int mask
 	for(int it=0, watchdog=0;it<niter;++it)
 	{
 		if(loud)
-			set_window_title("%d %4d/%4d,%d/%d: %.4lf RGB %.4lf %.4lf %.4lf%%",
+			set_window_title("%d %4d/%4d,%d/%d: %.4lf%% RGB %.4lf %.4lf %.4lf%%",
 				call_idx, it+1, niter, watchdog, shakethreshold,
-				100.*info.invCR[3], 100.*info.invCR[0], 100.*info.invCR[1], 100.*info.invCR[2]
+				100.*info.invCR[3],
+				100.*info.invCR[0],
+				100.*info.invCR[1],
+				100.*info.invCR[2]
 			);
 		int idx[C3_OPT_NCOMP]={0}, inc[C3_OPT_NCOMP]={0}, stuck=0;
 		if(watchdog>=shakethreshold)//bump if stuck

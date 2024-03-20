@@ -89,6 +89,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_CLAMPGRAD,	ST_INV_CLAMPGRAD,
 //	ST_FWD_AVERAGE,		ST_INV_AVERAGE,
 	ST_FWD_MULTISTAGE,	ST_INV_MULTISTAGE,
+//	ST_FWD_ZIPPER,		ST_INV_ZIPPER,
 //	ST_FWD_DIR,		ST_INV_DIR,
 #if 0
 	ST_FWD_CTX,		ST_INV_CTX,
@@ -1280,6 +1281,8 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 //	case ST_INV_AVERAGE:		a=" S Inv Average";		break;
 	case ST_FWD_MULTISTAGE:		a=" S Fwd Multistage";		break;
 	case ST_INV_MULTISTAGE:		a=" S Inv Multistage";		break;
+//	case ST_FWD_ZIPPER:		a=" S Fwd Zipper";		break;
+//	case ST_INV_ZIPPER:		a=" S Inv Zipper";		break;
 //	case ST_FWD_DIR:		a=" S Fwd Dir";			break;
 //	case ST_INV_DIR:		a=" S Inv Dir";			break;
 	case ST_FWD_CUSTOM3:		a=" S Fwd CUSTOM3";		break;
@@ -2223,7 +2226,7 @@ void apply_selected_transforms(Image *image, int rct_only)
 	//	case CT_FWD_ADAPTIVE:		colortransform_adaptive((char*)image, iw, ih, 1);	break;
 	//	case CT_INV_ADAPTIVE:		colortransform_adaptive((char*)image, iw, ih, 0);	break;
 		case CT_FWD_CUSTOM:		rct_custom(image, 1, rct_custom_params);		break;
-		case CT_INV_CUSTOM:		rct_custom(image, 1, rct_custom_params);		break;
+		case CT_INV_CUSTOM:		rct_custom(image, 0, rct_custom_params);		break;
 	//	case CT_FWD_QUAD:		colortransform_quad((char*)image, iw, ih, 1);		break;
 	//	case CT_INV_QUAD:		colortransform_quad((char*)image, iw, ih, 1);		break;
 
@@ -2284,6 +2287,8 @@ void apply_selected_transforms(Image *image, int rct_only)
 	//	case ST_INV_AVERAGE:		pred_average(image, 0, pred_ma_enabled);		break;
 		case ST_FWD_MULTISTAGE:		pred_multistage(image, 1, pred_ma_enabled);		break;
 		case ST_INV_MULTISTAGE:		pred_multistage(image, 0, pred_ma_enabled);		break;
+	//	case ST_FWD_ZIPPER:		pred_zipper(&image, 1, pred_ma_enabled);		break;
+	//	case ST_INV_ZIPPER:		pred_zipper(&image, 0, pred_ma_enabled);		break;
 		case ST_FWD_P3:			pred_separate(image, 1, pred_ma_enabled);		break;
 		case ST_INV_P3:			pred_separate(image, 0, pred_ma_enabled);		break;
 	//	case ST_FWD_DIR:		pred_dir(image, 1, pred_ma_enabled);			break;
@@ -3008,10 +3013,10 @@ int io_init(int argc, char **argv)//return false to abort
 }
 
 const int
-	custom_rct_h=2, custom_rct_w=2,
+//	custom_rct_h=2, custom_rct_w=2,
 	custom_pred_reach=2;
 const int
-	gui_custom_rct_w=33, gui_custom_rct_h=4,//characters
+	gui_custom_rct_w=29, gui_custom_rct_h=5,//characters
 	gui_custom_pred_w=103+2, gui_custom_pred_h=4,
 	gui_ec_width=27;
 int custom_pred_ch_idx=0;//from {0, 1, 2}
@@ -3100,9 +3105,12 @@ void click_hittest(int mx, int my, int *objidx, int *cellx, int *celly, int *cel
 	switch(*objidx)
 	{
 	case 0://color transform params
-		*cellx=mx-p[0]->x1>(p[0]->x2-p[0]->x1)*0.5f;
-		*celly=(int)floorf((my-p[0]->y1)*custom_rct_h/(p[0]->y2-p[0]->y1));
-		*cellidx=custom_rct_w**celly+*cellx;
+		*cellx=(int)floorf((mx-p[0]->x1)*gui_custom_rct_w/(p[0]->x2-p[0]->x1));
+		*celly=(int)floorf((my-p[0]->y1)*gui_custom_rct_h/(p[0]->y2-p[0]->y1));
+		*cellidx=0;
+		//*cellx=mx-p[0]->x1>(p[0]->x2-p[0]->x1)*0.5f;
+		//*celly=(int)floorf((my-p[0]->y1)*custom_rct_h/(p[0]->y2-p[0]->y1));
+		//*cellidx=custom_rct_w**celly+*cellx;
 		break;
 	case 1://spatial transform params
 		*cellx=(int)floorf((mx-p[0]->x1)*(custom_pred_reach<<1|1)/(p[0]->x2-p[0]->x1));
@@ -3161,6 +3169,29 @@ int io_mousewheel(int forward)
 			case 0://color transform params
 				if(transforms_mask[CT_FWD_CUSTOM]||transforms_mask[CT_INV_CUSTOM])
 				{
+					//P0  rgb
+					//r += (-0x0000*g-0x0000*b)>>12
+					//g += (-0x0000*r-0x0000*b)>>12
+					//b += (-0x0000*r-0x0000*g)>>12
+					//g += (-0x0000*r-0x0000*b)>>12
+					//012345678901234567890123456789
+					if(!celly)
+					{
+						int x=rct_custom_params[8];
+						x+=sign;
+						MODVAR(x, x, 6);
+						rct_custom_params[8]=x;
+					}
+					else if((unsigned)(cellx-9)<4||(unsigned)(cellx-18)<4)
+					{
+						int idx;
+						if((unsigned)(cellx-9)<4)
+							idx=(celly-1)<<1|0, cellx-=9;
+						else
+							idx=(celly-1)<<1|1, cellx-=18;
+						rct_custom_params[idx]+=sign<<((3-cellx)<<2);
+					}
+#if 0
 					//0000000000111111111122222222223333
 					//0123456789012345678901234567890123
 					//r-=g
@@ -3182,6 +3213,7 @@ int io_mousewheel(int forward)
 						digit=1-digit;
 						rct_custom_params[idx]+=sign<<((digit+4)<<2);//hex digit
 					}
+#endif
 					update_image();
 				}
 #if 0
@@ -3572,6 +3604,39 @@ int io_keydn(IOKey key, char c)
 			switch(objidx)
 			{
 			case 0://color transform params
+				if(key==KEY_RBUTTON)
+				{
+					//P0  rgb
+					//r += (-0x0000*g-0x0000*b)>>12
+					//g += (-0x0000*r-0x0000*b)>>12
+					//b += (-0x0000*r-0x0000*g)>>12
+					//g += (-0x0000*r-0x0000*b)>>12
+					//012345678901234567890123456789
+					if(GET_KEY_STATE(KEY_CTRL))
+					{
+						memset(rct_custom_params, 0, sizeof(rct_custom_params));
+						update_image();
+						return 1;
+					}
+					else if(!celly)
+					{
+						rct_custom_params[8]=0;
+						update_image();
+						return 1;
+					}
+					else if((unsigned)(cellx-9)<4||(unsigned)(cellx-18)<4)
+					{
+						int idx;
+						if((unsigned)(cellx-9)<4)
+							idx=(celly-1)<<1|0, cellx-=9;
+						else
+							idx=(celly-1)<<1|1, cellx-=18;
+						rct_custom_params[idx]=0;
+						update_image();
+						return 1;
+					}
+				}
+#if 0
 				{
 					int
 						col=p?(int)floorf((mx-p->x1)/(guizoom*tdx)):0,
@@ -3590,6 +3655,7 @@ int io_keydn(IOKey key, char c)
 						return 1;
 					}
 				}
+#endif
 				break;
 			case 1://spatial transforms params
 				{
@@ -4028,15 +4094,21 @@ int io_keydn(IOKey key, char c)
 			else if(transforms_customenabled)
 			{
 				int shift=GET_KEY_STATE(KEY_SHIFT);
-				for(int ky=0;ky<custom_rct_h;++ky)
+				for(int k=0;k<RCT_CUSTOM_NPARAMS;++k)
 				{
-					for(int kx=0;kx<custom_rct_w;++kx)
-					{
-						int val=rct_custom_params[custom_rct_w*ky+kx];
-						str_append(&str, "\t%c0x%06X", val<0?'-':' ', abs(val));
-					}
-					str_append(&str, "\n");
+					int val=rct_custom_params[k];
+					str_append(&str, " %c0x%02X", val<0?'-':' ', abs(val));
 				}
+				str_append(&str, "\n");
+				//for(int ky=0;ky<custom_rct_h;++ky)
+				//{
+				//	for(int kx=0;kx<custom_rct_w;++kx)
+				//	{
+				//		int val=rct_custom_params[custom_rct_w*ky+kx];
+				//		str_append(&str, "\t%c0x%06X", val<0?'-':' ', abs(val));
+				//	}
+				//	str_append(&str, "\n");
+				//}
 				const int stw=(custom_pred_reach<<1|1)*2;
 				for(int kc2=0;kc2<3;++kc2)
 				{
@@ -5037,6 +5109,41 @@ void io_render()
 			//custom color transform params
 			x=buttons[0].x1;
 			y=buttons[0].y1;
+			//P0  rgb
+			//r += (-0x00*g-0x00*b)>>6
+			//g += (-0x00*r-0x00*b)>>6
+			//b += (-0x00*r-0x00*g)>>6
+			//g += (-0x00*r-0x00*b)>>6
+			//0123456789012345678901234
+			const char chnames[]="rgb";
+			char per[4]={0};
+			rct_custom_unpackpermutation(rct_custom_params[8], per);
+			GUIPrint(0, x, y+ystep*0, guizoom, "P%d  %c%c%c", rct_custom_params[8], chnames[per[0]], chnames[per[1]], chnames[per[2]]);
+			GUIPrint(0, x, y+ystep*1, guizoom, "%c += (%c0x%04X*%c%c0x%04X*%c)>>%d",
+				chnames[per[0]],
+				rct_custom_params[0]<0?'-':' ', abs(rct_custom_params[0]), chnames[per[1]],
+				rct_custom_params[1]<0?'-':'+', abs(rct_custom_params[1]), chnames[per[2]],
+				RCT_CUSTOM_PARAMBITS
+			);
+			GUIPrint(0, x, y+ystep*2, guizoom, "%c += (%c0x%04X*%c%c0x%04X*%c)>>%d",
+				chnames[per[1]],
+				rct_custom_params[2]<0?'-':' ', abs(rct_custom_params[2]), chnames[per[0]],
+				rct_custom_params[3]<0?'-':'+', abs(rct_custom_params[3]), chnames[per[2]],
+				RCT_CUSTOM_PARAMBITS
+			);
+			GUIPrint(0, x, y+ystep*3, guizoom, "%c += (%c0x%04X*%c%c0x%04X*%c)>>%d",
+				chnames[per[2]],
+				rct_custom_params[4]<0?'-':' ', abs(rct_custom_params[4]), chnames[per[0]],
+				rct_custom_params[5]<0?'-':'+', abs(rct_custom_params[5]), chnames[per[1]],
+				RCT_CUSTOM_PARAMBITS
+			);
+			GUIPrint(0, x, y+ystep*4, guizoom, "%c += (%c0x%04X*%c%c0x%04X*%c)>>%d",
+				chnames[per[1]],
+				rct_custom_params[6]<0?'-':' ', abs(rct_custom_params[6]), chnames[per[0]],
+				rct_custom_params[7]<0?'-':'+', abs(rct_custom_params[7]), chnames[per[2]],
+				RCT_CUSTOM_PARAMBITS
+			);
+#if 0
 			//0000000000111111111122222222223333
 			//0123456789012345678901234567890123
 			//r-=g
@@ -5047,6 +5154,7 @@ void io_render()
 			GUIPrint(0, x, y+ystep*1, guizoom, "g+=(%c0x%02X.%04X*r%c0x%02X.%04X*b)>>16", rct_custom_params[0]<0?'-':' ', abs(rct_custom_params[0])>>16, abs(rct_custom_params[0])&0xFFFF, rct_custom_params[1]<0?'-':'+', abs(rct_custom_params[1])>>16, abs(rct_custom_params[1])&0xFFFF);
 			GUIPrint(0, x, y+ystep*2, guizoom, "b-=g");
 			GUIPrint(0, x, y+ystep*3, guizoom, "g+=(%c0x%02X.%04X*r%c0x%02X.%04X*b)>>16", rct_custom_params[2]<0?'-':' ', abs(rct_custom_params[2])>>16, abs(rct_custom_params[2])&0xFFFF, rct_custom_params[3]<0?'-':'+', abs(rct_custom_params[3])>>16, abs(rct_custom_params[3])&0xFFFF);
+#endif
 
 			//012345678901234567890123456789
 			//r-=(>>nnnN.NNN)g+(  nnnN.NNN)b

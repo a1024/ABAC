@@ -647,7 +647,7 @@ void update_image();
 
 
 //transforms
-void apply_selected_transforms(Image *image);
+void apply_selected_transforms(Image *image, int rct_only);
 
 
 //aux func
@@ -681,10 +681,12 @@ void colortransform_lossy_YCbCr(Image *image, int fwd);
 void colortransform_lossy_XYB(Image *image, int fwd);
 void colortransform_lossy_matrix(Image *image, int fwd);
 
-#define RCT_CUSTOM_NPARAMS 4
-extern int rct_custom_params[RCT_CUSTOM_NPARAMS];
-void rct_custom(Image *image, int fwd, const int *params);
-void rct_custom_optimize(Image const *image, int *params);
+#define RCT_CUSTOM_NPARAMS 9
+#define RCT_CUSTOM_PARAMBITS 12
+extern short rct_custom_params[RCT_CUSTOM_NPARAMS];
+void rct_custom_unpackpermutation(char p, char *permutation);
+void rct_custom(Image *image, int fwd, const char *params);
+void rct_custom_optimize(Image const *image, char *params);
 
 void rct_adaptive(Image *src, int fwd);
 
@@ -698,6 +700,7 @@ void rct_adaptive(Image *src, int fwd);
 
 //spatial transforms
 void pred_clampedgrad(Image *image, int fwd, int enable_ma);
+void pred_zipper(Image **psrc, int fwd, int enable_ma);
 void pred_average(Image *src, int fwd, int enable_ma);
 void pred_multistage(Image *src, int fwd, int enable_ma);
 void pred_separate(Image *src, int fwd, int enable_ma);
