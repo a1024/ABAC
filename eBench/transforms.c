@@ -1165,7 +1165,7 @@ void rct_custom_optimize(Image const *image, short *params)
 			{
 				memcpy(params2, params, sizeof(params2));
 				memcpy(loss_bestsofar, loss_curr, sizeof(loss_bestsofar));
-				--it;//bis
+				--it;//again
 			}
 			memcpy(loss_prev, loss_curr, sizeof(loss_prev));
 			watchdog=0;
@@ -4231,8 +4231,6 @@ void pred_custom(Image *src, int fwd, int enable_ma, const int *params)
 	}
 	free(dst);
 }
-#define CUSTOM_NITER 100
-#define CUSTOM_DELTAGROUP 4
 static void pred_custom_calcloss(Image const *src, Image *dst, int *hist, const int *params, double *loss)
 {
 	ptrdiff_t res=(ptrdiff_t)src->iw*src->ih;
@@ -4249,6 +4247,8 @@ static void pred_custom_calcloss(Image const *src, Image *dst, int *hist, const 
 	}
 	loss[3]=(loss[0]+loss[1]+loss[2])/3;
 }
+#define CUSTOM_NITER 128
+#define CUSTOM_DELTAGROUP 4
 void pred_custom_optimize(Image const *image, int *params)
 {
 	static int call_idx=0;
@@ -4273,7 +4273,9 @@ void pred_custom_optimize(Image const *image, int *params)
 	memcpy(params2, params, sizeof(params2));
 
 #define CALC_LOSS(L) pred_custom_calcloss(image, im2, hist, params2, L)
-	srand((unsigned)__rdtsc());//
+#ifndef _DEBUG
+	srand((unsigned)__rdtsc());
+#endif
 	CALC_LOSS(loss_bestsofar);
 	memcpy(loss_prev, loss_bestsofar, sizeof(loss_prev));
 
@@ -4299,7 +4301,8 @@ void pred_custom_optimize(Image const *image, int *params)
 				while(!(inc=rand()-(RAND_MAX>>1)));//reject zero delta
 		
 				params_original_selected[k]=params2[idx[k]];
-				params2[idx[k]]+=inc*(16<<1)/RAND_MAX;
+				params2[idx[k]]+=(int)(((long long)inc*CUSTOM_NITER<<8)/((it+1)*RAND_MAX));
+				//params2[idx[k]]+=inc*(16<<1)/RAND_MAX;
 			}
 		}
 
@@ -4323,7 +4326,7 @@ void pred_custom_optimize(Image const *image, int *params)
 			{
 				memcpy(params, params2, sizeof(params2));
 				memcpy(loss_bestsofar, loss_curr, sizeof(loss_bestsofar));
-				--it;//bis
+				--it;//again
 			}
 			memcpy(loss_prev, loss_curr, sizeof(loss_prev));
 			watchdog=0;
@@ -5316,7 +5319,7 @@ void custom3_opt(Image const *src, Custom3Params *srcparams, int niter, int mask
 			{
 				memcpy(srcparams, info.params, sizeof(info.params));
 				loss0=info.invCR[3];
-				--it;//bis
+				--it;//again
 			}
 			memcpy(invCR, info.invCR, sizeof(invCR));
 			watchdog=0;

@@ -4097,7 +4097,7 @@ int io_keydn(IOKey key, char c)
 				for(int k=0;k<RCT_CUSTOM_NPARAMS;++k)
 				{
 					int val=rct_custom_params[k];
-					str_append(&str, " %c0x%02X", val<0?'-':' ', abs(val));
+					str_append(&str, " %c0x%04X", val<0?'-':' ', abs(val));
 				}
 				str_append(&str, "\n");
 				//for(int ky=0;ky<custom_rct_h;++ky)
@@ -4405,7 +4405,7 @@ int io_keydn(IOKey key, char c)
 				image_copy(&im2, im0);
 				if(!im2)
 					return 0;
-				apply_selected_transforms(im2, 0);
+				apply_selected_transforms(im2, 1);
 				pred_custom_optimize(im2, custom_params);
 				free(im2);
 				update_image();
@@ -4475,7 +4475,7 @@ int io_keydn(IOKey key, char c)
 					image_copy(&im2, im0);
 					if(!im2)
 						return 0;
-					apply_selected_transforms(im2, 0);
+					apply_selected_transforms(im2, 1);
 					//if(GET_KEY_STATE(KEY_CTRL))
 					//	colortransform_YCbCr_R_v1(im2, 1);
 					custom3_opt(im2, &c3_params, 0, maskbits, 1, 0);
