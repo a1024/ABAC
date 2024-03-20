@@ -156,6 +156,7 @@ int jhc_xbox=0, jhc_ybox=0;//[0, screen_dim-1]
 ArrayHandle jhc_mesh=0;
 unsigned jhc_gpubuf=0;
 float jhc_level=10.5f;
+int loud_transforms=1;
 
 void calc_csize_ans_separate(Image const *image, size_t *csizes)
 {
@@ -974,12 +975,12 @@ static unsigned __stdcall sample_thread(void *param)
 	}
 	free(hist);
 	free(ctx->image);
+	//_endthreadex(0);
 	return 0;
 }
 void batch_test()
 {
-	int nthreads=10;
-
+	loud_transforms=0;
 	ArrayHandle path=dialog_open_folder();
 	if(!path)
 		return;
@@ -998,12 +999,14 @@ void batch_test()
 		return;
 	}
 
-	double t=time_ms();
 	DisableProcessWindowsGhosting();
 	console_start();
 	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H:%M:%S");
 	console_log("Batch Test  %s  %s\n", g_buf, (char*)path->data);
 	array_free(&path);
+	console_log("Enter number of threads: ");
+	int nthreads=console_scan_int();
+	double t=time_ms();
 	double total_usize=0, total_csize[3]={0};
 	int maxlen=0;
 	for(int k=0;k<(int)filenames->count;++k)
@@ -1112,6 +1115,7 @@ void batch_test()
 	console_log("\nDone.  %s\n", g_buf);
 	console_pause();
 	console_end();
+	loud_transforms=1;
 }
 
 int customtransforms_getflag(unsigned char tid)
@@ -4307,7 +4311,19 @@ int io_keydn(IOKey key, char c)
 	//	break;
 	case 'B'://batch test
 		if(GET_KEY_STATE(KEY_CTRL))
+		{
+			//int nthreads=4;
+			//if(GET_KEY_STATE(KEY_1))nthreads=1;
+			//else if(GET_KEY_STATE(KEY_2))nthreads=2;
+			//else if(GET_KEY_STATE(KEY_3))nthreads=3;
+			//else if(GET_KEY_STATE(KEY_4))nthreads=4;
+			//else if(GET_KEY_STATE(KEY_5))nthreads=5;
+			//else if(GET_KEY_STATE(KEY_6))nthreads=6;
+			//else if(GET_KEY_STATE(KEY_7))nthreads=7;
+			//else if(GET_KEY_STATE(KEY_8))nthreads=8;
+			//else if(GET_KEY_STATE(KEY_9))nthreads=9;
 			batch_test();
+		}
 		break;
 	case KEY_LBRACKET:
 	case KEY_RBRACKET:
@@ -5413,27 +5429,36 @@ void io_render()
 		}
 		if(xstart<xend)
 		{
-			float crmax=1/cr_combined;
+			float maxinvcr=1/cr_combined;
 			for(int k=0;k<4;++k)//get max CR
 			{
 				double invCR=ch_entropy[k]/im1->src_depth[k];
-				if(isfinite(invCR)&&crmax<invCR)
-					crmax=(float)invCR;
+				if(isfinite(invCR)&&maxinvcr<invCR)
+					maxinvcr=(float)invCR;
 			}
-			if(!isfinite(crmax))
-				crmax=0;
-			if(crmax<1/crformat)
-				crmax=1/crformat;
-			if(xend-scale*crmax<xstart)
-				scale=(xend-xstart)/crmax;
+			if(!isfinite(maxinvcr))
+				maxinvcr=0;
+			if(maxinvcr<1/crformat)
+				maxinvcr=1/crformat;
+			if(xend-scale*maxinvcr<xstart)
+				scale=(xend-xstart)/maxinvcr;
 			if(scale<50)
 				scale=50;
 
-			xstart=xend-scale*ceilf((crmax+1)*2)*0.5f;
+			xstart=xend-scale*ceilf((maxinvcr+1)*2)*0.5f;
 			draw_rect(xstart, xend, ystart, (float)h, 0x80808080);//background
 			int ks;
 			if(scale>20)
 			{
+				//double gain=scale/usize;
+				//for(double size=100000;;)
+				//{
+				//	x=(float)(xend-size*gain);
+				//	if(x<xstart)
+				//		break;
+				//	draw_line(x, ystart+1, x, (float)h, 0x70900090);//draw minor scale
+				//	size+=100000;
+				//}
 				ks=1;
 				x=(float)(xend-0.1f*scale*ks);
 				for(;x>xstart;++ks)

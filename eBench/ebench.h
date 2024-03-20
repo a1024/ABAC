@@ -643,6 +643,7 @@ void image_copy(Image **dst, Image const *src);
 
 //extern Image *im0, *im1;
 extern double ch_entropy[4];
+extern int loud_transforms;
 void update_image();
 
 
@@ -684,9 +685,9 @@ void colortransform_lossy_matrix(Image *image, int fwd);
 #define RCT_CUSTOM_NPARAMS 9
 #define RCT_CUSTOM_PARAMBITS 12
 extern short rct_custom_params[RCT_CUSTOM_NPARAMS];
-void rct_custom_unpackpermutation(char p, char *permutation);
-void rct_custom(Image *image, int fwd, const char *params);
-void rct_custom_optimize(Image const *image, char *params);
+void rct_custom_unpackpermutation(short p, char *permutation);
+void rct_custom(Image *image, int fwd, const short *params);
+void rct_custom_optimize(Image const *image, short *params);
 
 void rct_adaptive(Image *src, int fwd);
 

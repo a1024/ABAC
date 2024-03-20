@@ -1112,14 +1112,11 @@ void rct_custom_optimize(Image const *image, short *params)
 		if(watchdog>=shakethreshold)//bump if stuck
 		{
 			memcpy(params, params2, sizeof(params2));
-			for(int k=0;k<RCT_CUSTOM_NPARAMS;++k)
+			for(int k=0;k<RCT_CUSTOM_NPARAMS-1;++k)
 			{
-				if(k==8)
-				{
-					params[k]+=((rand()&1)<<1)-1;
-					MODVAR(params[8], params[8], 6);
-				}
-				else
+				//if(k==8)
+				//	params[8]=rand()%6;
+				//else
 					params[k]+=(rand()&63)-32;
 			}
 			watchdog=0;
@@ -1136,10 +1133,11 @@ void rct_custom_optimize(Image const *image, short *params)
 				params_original_selected[k]=params[idx[k]];
 				//params[idx[k]]+=(inc<<2)/RAND_MAX;
 				if(idx[k]==8)
-				{
-					params[8]+=((rand()&1)<<1)-1;
-					MODVAR(params[8], params[8], 6);
-				}
+					params[8]=rand()%6;
+				//{
+				//	params[8]+=((rand()&1)<<1)-1;
+				//	MODVAR(params[8], params[8], 6);
+				//}
 				else
 					params[idx[k]]+=(rand()&63)-32;
 			}
@@ -1171,19 +1169,20 @@ void rct_custom_optimize(Image const *image, short *params)
 			watchdog=0;
 		}
 
-		set_window_title(
-			"%d %4d/%4d,%d/%d: %lf%% RGB %lf %lf %lf%s",
-			call_idx,
-			it+1,
-			RCT_CUSTOM_NITER,
-			watchdog,
-			shakethreshold,
-			100.*loss_bestsofar[3],
-			100.*loss_bestsofar[0],
-			100.*loss_bestsofar[1],
-			100.*loss_bestsofar[2],
-			it+1<RCT_CUSTOM_NITER?"...":" Done."
-		);
+		if(loud_transforms)
+			set_window_title(
+				"%d %4d/%4d,%d/%d: %lf%% RGB %lf %lf %lf%s",
+				call_idx,
+				it+1,
+				RCT_CUSTOM_NITER,
+				watchdog,
+				shakethreshold,
+				100.*loss_bestsofar[3],
+				100.*loss_bestsofar[0],
+				100.*loss_bestsofar[1],
+				100.*loss_bestsofar[2],
+				it+1<RCT_CUSTOM_NITER?"...":" Done."
+			);
 
 		//preview
 #if 1
@@ -3824,7 +3823,8 @@ void pred_ols(Image *src, int fwd, int enable_ma)
 		}
 	}
 	memcpy(src->data, dst->data, (size_t)src->iw*src->ih*sizeof(int[4]));
-	set_window_title("OLS %lf%%", 100.*successcount/(src->nch*src->iw*src->ih));
+	if(loud_transforms)
+		set_window_title("OLS %lf%%", 100.*successcount/(src->nch*src->iw*src->ih));
 	if(!enable_ma)
 	{
 		++src->depth[0];
@@ -4033,7 +4033,8 @@ void pred_ols2(Image *src, int fwd, int enable_ma)
 		}
 	}
 	memcpy(src->data, dst->data, (size_t)src->iw*src->ih*sizeof(int[4]));
-	set_window_title("OLS2 %lf%%", 100.*successcount/(src->nch*src->iw*src->ih));
+	if(loud_transforms)
+		set_window_title("OLS2 %lf%%", 100.*successcount/(src->nch*src->iw*src->ih));
 	if(!enable_ma)
 	{
 		++src->depth[0];
@@ -4331,20 +4332,20 @@ void pred_custom_optimize(Image const *image, int *params)
 			memcpy(loss_prev, loss_curr, sizeof(loss_prev));
 			watchdog=0;
 		}
-
-		set_window_title(
-			"%d %4d/%4d,%d/%d: %lf%% RGB %lf %lf %lf%s",
-			call_idx,
-			it+1,
-			CUSTOM_NITER,
-			watchdog,
-			shakethreshold,
-			100.*loss_bestsofar[3],
-			100.*loss_bestsofar[0],
-			100.*loss_bestsofar[1],
-			100.*loss_bestsofar[2],
-			it+1<CUSTOM_NITER?"...":" Done."
-		);
+		if(loud_transforms)
+			set_window_title(
+				"%d %4d/%4d,%d/%d: %lf%% RGB %lf %lf %lf%s",
+				call_idx,
+				it+1,
+				CUSTOM_NITER,
+				watchdog,
+				shakethreshold,
+				100.*loss_bestsofar[3],
+				100.*loss_bestsofar[0],
+				100.*loss_bestsofar[1],
+				100.*loss_bestsofar[2],
+				it+1<CUSTOM_NITER?"...":" Done."
+			);
 
 		//preview
 #if 1
@@ -4719,7 +4720,8 @@ void pred_w2_opt_v2(Image *src, short *params, int loud)
 				if(bestcsize>csize)
 					bestcsize=csize, bestidx=idx, beststep=-step;
 
-				set_window_title("Ch%d csize %lf [%d/%d %d/%d]...", kc, csize0, kc*_countof(steps)+ks+1, _countof(steps)*3, idx+1, PW2_NPARAM);//
+				if(loud_transforms)
+					set_window_title("Ch%d csize %lf [%d/%d %d/%d]...", kc, csize0, kc*_countof(steps)+ks+1, _countof(steps)*3, idx+1, PW2_NPARAM);//
 			}
 			if(csize0>bestcsize)
 			{
@@ -4735,7 +4737,8 @@ void pred_w2_opt_v2(Image *src, short *params, int loud)
 	free(hist);
 	free(temp);
 	free(buf3);
-	set_window_title("%s", title0);//
+	if(loud_transforms)
+		set_window_title("%s", title0);//
 }
 void pred_w2_apply(Image *src, int fwd, int enable_ma, short *params)
 {
@@ -5272,7 +5275,7 @@ void custom3_opt(Image const *src, Custom3Params *srcparams, int niter, int mask
 	int shakethreshold=C3_NPARAMS;
 	for(int it=0, watchdog=0;it<niter;++it)
 	{
-		if(loud)
+		if(loud_transforms&&loud)
 			set_window_title("%d %4d/%4d,%d/%d: %.4lf%% RGB %.4lf %.4lf %.4lf%%",
 				call_idx, it+1, niter, watchdog, shakethreshold,
 				100.*info.invCR[3],
