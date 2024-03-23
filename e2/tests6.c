@@ -909,7 +909,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 		NNNNWW	=LOAD(pr->pixels,  2, 4),
 		NNNNW	=LOAD(pr->pixels,  1, 4),
 		NNNN	=LOAD(pr->pixels,  0, 4),
-		NNNNE	=LOAD(pr->pixels,  0, 4),
+		NNNNE	=LOAD(pr->pixels, -1, 4),
 		NNNNEE	=LOAD(pr->pixels, -2, 4),
 		NNNNEEEE=LOAD(pr->pixels, -4, 4),
 

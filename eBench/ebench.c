@@ -76,6 +76,7 @@ typedef enum TransformTypeEnum
 
 	CST_FWD_SEPARATOR,	CST_INV_SEPARATOR,
 	
+	ST_FWD_T47,		ST_INV_T47,
 	ST_FWD_P3,		ST_INV_P3,
 	ST_FWD_G2,		ST_INV_G2,
 	ST_FWD_MM,		ST_INV_MM,
@@ -1275,6 +1276,8 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case ST_INV_P3:			a=" S Inv P3";			break;
 	case ST_FWD_G2:			a=" S Fwd G2";			break;
 	case ST_INV_G2:			a=" S Inv G2";			break;
+	case ST_FWD_T47:		a=" S Fwd T47";			break;
+	case ST_INV_T47:		a=" S Inv T47";			break;
 	case ST_FWD_OLS:		a=" S Fwd OLS";			break;
 	case ST_INV_OLS:		a=" S Inv OLS";			break;
 	case ST_FWD_OLS2:		a=" S Fwd OLS-2";		break;
@@ -2299,6 +2302,8 @@ void apply_selected_transforms(Image *image, int rct_only)
 	//	case ST_INV_DIR:		pred_dir(image, 0, pred_ma_enabled);			break;
 		case ST_FWD_G2:			pred_grad2(image, 1, pred_ma_enabled);			break;
 		case ST_INV_G2:			pred_grad2(image, 0, pred_ma_enabled);			break;
+		case ST_FWD_T47:		pred_t47(image, 1, pred_ma_enabled);			break;
+		case ST_INV_T47:		pred_t47(image, 0, pred_ma_enabled);			break;
 		case ST_FWD_DCT4:		image_dct4_fwd(image);					break;
 		case ST_INV_DCT4:		image_dct4_inv(image);					break;
 		case ST_FWD_DCT8:		image_dct8_fwd(image);					break;

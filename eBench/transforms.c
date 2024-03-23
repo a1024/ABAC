@@ -2131,6 +2131,11 @@ void pred_clampedgrad(Image *src, int fwd, int enable_ma)
 {
 	Image *dst=0;
 	image_copy(&dst, src);
+	if(!dst)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
 	const int *pixels=fwd?src->data:dst->data;
 //	const int *errors=fwd?dst->data:src->data;
 	for(int kc=0;kc<4;++kc)
@@ -3974,14 +3979,14 @@ void pred_ols2(Image *src, int fwd, int enable_ma)
 						if(success)
 						{
 							//params = ((inv(NB * NBT) * NB * Targets) - params)*lr
-							for(int ky2=0;ky2<OLS2_NPARAMS;++ky2)//temp = NBT * targets
+							for(int ky2=0;ky2<OLS2_NPARAMS;++ky2)//temp = NB * Targets
 							{
 								double sum=0;
 								for(int kx2=0;kx2<OLS2_NSAMPLES;++kx2)
 									sum+=samples[(OLS2_NPARAMS+1)*kx2+ky2]*samples[(OLS2_NPARAMS+1)*kx2+OLS2_NPARAMS];
 								temp[ky2]=sum;
 							}
-							for(int ky=0;ky<OLS2_NPARAMS;++ky)
+							for(int ky=0;ky<OLS2_NPARAMS;++ky)//params = matrix * temp
 							{
 								double sum=0;
 								for(int j=0;j<OLS2_NPARAMS;++j)
@@ -4144,6 +4149,252 @@ void pred_linear(Image const *src, Image *dst, const int *coeffs, int lgden, int
 	dst->depth[1]=src->depth[1]+!enable_ma;
 	dst->depth[2]=src->depth[2]+!enable_ma;
 	dst->depth[3]=src->depth[3]+(!enable_ma&(src->depth[3]!=0));
+}
+
+
+#define SLIC5_NPREDS 33
+#define SLIC5_PREDLIST\
+	SLIC5_PRED(W+NE-N-((2*(eN+eW)+eNE-eNW+4)>>3))\
+	SLIC5_PRED(N-(int)(((long long)eN+eW+eNE)*-0x05C>>8))\
+	SLIC5_PRED(W-(int)(((long long)eN+eW+eNW)*-0x05B>>8))\
+	SLIC5_PRED(N+(int)((-eNN*0x0DFLL-eN*0x051LL-eNE*0x0BDLL+((long long)N-NN)*0x05C+((long long)NW-W)*0x102)>>8))\
+	SLIC5_PRED(3*(N-NN)+NNN)\
+	SLIC5_PRED((N+W)>>1)\
+	SLIC5_PRED(geomean)\
+	SLIC5_PRED(N+W-NW)\
+	SLIC5_PRED((W+NEE)>>1)\
+	SLIC5_PRED((3*W+NEEE)>>2)\
+	SLIC5_PRED((3*(3*W+NE+NEE)-10*N+2)/5)\
+	SLIC5_PRED((3*(3*W+NE+NEE)-10*N)/5)\
+	SLIC5_PRED((4*N-2*NN+NW+NE)>>2)\
+	SLIC5_PRED(N+NE-NNE-eNNE)\
+	SLIC5_PRED((4*(N+W+NW+NE)-(NN+WW+NNWW+NNEE)+6)/12)\
+	SLIC5_PRED(W+((eW-eWW)>>1))\
+	SLIC5_PRED(paper_GAP)\
+	SLIC5_PRED(calic_GAP)\
+	SLIC5_PRED(N+W-((NW+NN+WW+NE)>>2))\
+	SLIC5_PRED(((2*(N+W)-(NW+NN+WW+NE))*9+(WWW+NWW+NNW+NNN+NNE+NEE)*2)/12)\
+	SLIC5_PRED(3*(N+W-NW-(NN+WW-NNWW))+NNN+WWW-NNNWWW)\
+	SLIC5_PRED(2*(W+NE-N)-(WW+NNEE-NN))\
+	SLIC5_PRED((2*W+NEE-N)>>1)\
+	SLIC5_PRED(NW+NWW-NNWWW)\
+	SLIC5_PRED((14*NE-(NNEE+NNNEE+NNEEE))/11)\
+	SLIC5_PRED((NEEE+NEEEE)>>1)\
+	SLIC5_PRED((NNNEEEE+NNEEE)>>1)\
+	SLIC5_PRED(NNEEEE)\
+	SLIC5_PRED((NNWWWW+NNNWWWW)>>1)\
+	SLIC5_PRED((WWW+WWWW)>>1)\
+	SLIC5_PRED((N+NN)>>1)\
+	SLIC5_PRED((NE+NNEE)>>1)\
+	SLIC5_PRED((NE+NNE+NEE+NNEE)>>2)
+void pred_t47(Image *src, int fwd, int enable_ma)
+{
+	Image *dst=0;
+	image_copy(&dst, src);
+	int *pred_errors=(int*)malloc((src->iw+4LL)*sizeof(int[SLIC5_NPREDS*4]));//4 padded rows
+	if(!dst||!pred_errors)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	const int *pixels=fwd?dst->data:src->data, *errors=fwd?src->data:dst->data;
+	for(int kc=0;kc<4;++kc)
+	{
+		if(!src->depth[kc])
+			continue;
+		int nlevels=1<<src->depth[kc], sh=src->depth[kc];
+		int params[SLIC5_NPREDS], param0=176;
+		long long bias_sum=0;
+		int bias_count=0;
+		memfill(params, &param0, sizeof(params), sizeof(int));
+		memset(pred_errors, 0, (src->iw+4LL)*sizeof(int[SLIC5_NPREDS*4]));
+		for(int ky=0, idx=0;ky<src->ih;++ky)
+		{
+			int kym[]=
+			{
+				(src->iw+4)*(ky&3),
+				(src->iw+4)*((ky-1)&3),
+				(src->iw+4)*((ky-2)&3),
+				(src->iw+4)*((ky-3)&3),
+			};
+			for(int kx=0;kx<src->iw;++kx, ++idx)
+			{
+#define LOAD(BUF, X, Y) ((unsigned)(ky+(Y))<src->ih&&(unsigned)(kx+(X))<src->iw?BUF[(src->iw*(ky+(Y))+kx+(X))<<2|kc]<<8:0)
+				int
+					NNNNWW	=LOAD(pixels, -2, -4),
+					NNNNW	=LOAD(pixels, -1, -4),
+					NNNN	=LOAD(pixels,  0, -4),
+					NNNNE	=LOAD(pixels,  1, -4),
+					NNNNEE	=LOAD(pixels,  2, -4),
+					NNNNEEEE=LOAD(pixels,  4, -4),
+
+					NNNWWWW	=LOAD(pixels, -4, -3),
+					NNNWWW	=LOAD(pixels, -3, -3),
+					NNNWW	=LOAD(pixels, -2, -3),
+					NNNW	=LOAD(pixels, -1, -3),
+					NNN	=LOAD(pixels,  0, -3),
+					NNNE	=LOAD(pixels,  1, -3),
+					NNNEE	=LOAD(pixels,  2, -3),
+					NNNEEE	=LOAD(pixels,  3, -3),
+					NNNEEEE	=LOAD(pixels,  4, -3),
+		
+					NNWWWW	=LOAD(pixels, -4, -2),
+					NNWWW	=LOAD(pixels, -3, -2),
+					NNWW	=LOAD(pixels, -2, -2),
+					NNW	=LOAD(pixels, -1, -2),
+					NN	=LOAD(pixels,  0, -2),
+					NNE	=LOAD(pixels,  1, -2),
+					NNEE	=LOAD(pixels,  2, -2),
+					NNEEE	=LOAD(pixels,  3, -2),
+					NNEEEE	=LOAD(pixels,  4, -2),
+					NWWWW	=LOAD(pixels, -4, -1),
+					NWWW	=LOAD(pixels, -3, -1),
+					NWW	=LOAD(pixels, -2, -1),
+					NW	=LOAD(pixels, -1, -1),
+					N	=LOAD(pixels,  0, -1),
+					NE	=LOAD(pixels,  1, -1),
+					NEE	=LOAD(pixels,  2, -1),
+					NEEE	=LOAD(pixels,  3, -1),
+					NEEEE	=LOAD(pixels,  4, -1),
+					WWWW	=LOAD(pixels, -4,  0),
+					WWW	=LOAD(pixels, -3,  0),
+					WW	=LOAD(pixels, -2,  0),
+					W	=LOAD(pixels, -1,  0),
+
+					eNNWW	=LOAD(errors, -2, -2),//error = (curr<<8) - pred
+					eNNW	=LOAD(errors, -1, -2),
+					eNN	=LOAD(errors,  0, -2),
+					eNNE	=LOAD(errors,  1, -2),
+					eNNEE	=LOAD(errors,  2, -2),
+					eNWW	=LOAD(errors, -2, -1),
+					eNW	=LOAD(errors, -1, -1),
+					eN	=LOAD(errors,  0, -1),
+					eNE	=LOAD(errors,  1, -1),
+					eNEE	=LOAD(errors,  2, -1),
+					eWW	=LOAD(errors, -2,  0),
+					eW	=LOAD(errors, -1,  0);
+#undef  LOAD
+				int clamp_lo=(int)N, clamp_hi=(int)N;
+				UPDATE_MIN(clamp_lo, W);
+				UPDATE_MAX(clamp_hi, W);
+				UPDATE_MIN(clamp_lo, NE);
+				UPDATE_MAX(clamp_hi, NE);
+				int dx=abs(W-WW)+abs(N-NW)+abs(NE-N);
+				int dy=abs(W-NW)+abs(N-NN)+abs(NE-NNE);
+				int d45=abs(W-NWW)+abs(NW-NNWW)+abs(N-NNW);
+				int d135=abs(NE-NNEE)+abs(N-NNE)+abs(W-N);
+				int diff=(dy-dx)>>sh, diff2=(d45-d135)>>sh, diff3=NE-NW;
+				int paper_GAP, calic_GAP;
+				if(dy+dx>32)
+					paper_GAP=(int)(((long long)dx*N+(long long)dy*W)/((long long)dy+dx));
+				else if(diff>12)
+					paper_GAP=(N+2*W)/3;
+				else if(diff<-12)
+					paper_GAP=(2*N+W)/3;
+				else
+					paper_GAP=(N+W)>>1;
+
+				if(diff2>32)
+					paper_GAP+=diff3>>2;
+				else if(diff2>16)
+					paper_GAP+=diff3*3>>4;
+				else if(diff2>=-16)
+					paper_GAP+=diff3>>3;
+				else if(diff2>=-32)
+					paper_GAP+=diff3>>4;
+
+				if(diff>80)
+					calic_GAP=W;
+				else if(diff<-80)
+					calic_GAP=N;
+				else if(diff>32)
+					calic_GAP=(2*N+6*W+NE-NW)>>3;		//c1	[1/4  3/4  1/8  -1/8].[N W NE NW]
+				else if(diff>8)
+					calic_GAP=(6*N+10*W+3*(NE-NW))>>4;	//c2	[3/8  5/8  3/16  -3/16]
+				else if(diff<-32)
+					calic_GAP=(6*N+2*W+NE-NW)>>3;		//c3	[3/4  1/4  1/8  -1/8]
+				else if(diff<-8)
+					calic_GAP=(10*N+6*W+3*(NE-NW))>>4;	//c4	[5/8  3/8  3/16  -3/16]
+				else
+					calic_GAP=(((N+W)<<1)+NE-NW)>>2;	//c5	[1/2  1/2  1/4  -1/4]
+
+				long long aN=N+0x800000LL, aW=W+0x800000LL;
+				aN=CLAMP(0, aN, 0xFFFFFF);
+				aW=CLAMP(0, aW, 0xFFFFFF);
+				int geomean=(int)floor_sqrt(aN*aW)-0x800000;
+
+				int preds[]=
+				{
+#define SLIC5_PRED(X) X,
+					SLIC5_PREDLIST
+#undef  SLIC5_PRED
+				};
+				long long pred=0, wsum=0;
+#define LOAD(mX, mY) pred_errors[SLIC5_NPREDS*(kym[mY]+kx+2-(mX))+k]
+				for(int k=0;k<_countof(preds);++k)
+				{
+					long long w=1+
+						(long long)LOAD(-2,  2)+
+						(long long)LOAD(-1,  2)+
+						(long long)LOAD( 0,  2)+
+						(long long)LOAD( 1,  2)+
+						(long long)LOAD(-2,  1)+
+						(long long)LOAD(-1,  1)+
+						(long long)LOAD( 0,  1)*3+
+						(long long)LOAD( 1,  1);
+					w=((long long)params[k]<<29)/w;
+					pred+=w*preds[k];
+					wsum+=w;
+				}
+				if(wsum)
+				{
+					pred+=(wsum>>1)-1;
+					pred/=wsum;
+				}
+				else
+					pred=preds[4];
+				pred+=bias_sum/(bias_count+1LL);
+				pred=CLAMP(clamp_lo, pred, clamp_hi);
+				int val=(int)((pred+127)>>8);
+
+				if(!kc&&ky==0&&kx==1)
+					printf("");
+				val^=-fwd;
+				val+=fwd;
+				val+=src->data[idx<<2|kc];
+				if(enable_ma)
+				{
+					val+=nlevels>>1;
+					val&=nlevels-1;
+					val-=nlevels>>1;
+				}
+				src->data[idx<<2|kc]=val;
+
+				int curr=pixels[idx<<2|kc]<<8;
+				int kbest=-1, besterr=0;
+				for(int k=0;k<_countof(preds);++k)
+				{
+					int e=abs(curr-preds[k]);
+					LOAD(0, 0)=e;
+					if(ky&&kx<src->iw-1)
+						LOAD(-1, 1)+=e;
+					if(kbest==-1||besterr>e)
+						kbest=k, besterr=e;
+				}
+				++params[kbest];
+				if(params[kbest]>352)
+				{
+					for(int k=0;k<_countof(preds);++k)
+						params[k]=(params[k]+1)>>1;
+				}
+				++bias_count;
+				bias_sum+=curr-pred;
+#undef  LOAD
+			}
+		}
+	}
+	free(dst);
+	free(pred_errors);
 }
 
 //CUSTOM reach-2 predictor

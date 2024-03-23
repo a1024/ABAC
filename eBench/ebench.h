@@ -716,6 +716,8 @@ void pred_select(Image const *src, Image *dst, int fwd, int enable_ma);
 #define LIN_REACH 2
 void pred_linear(Image const *src, Image *dst, const int *coeffs, int lgden, int fwd, int enable_ma);
 
+void pred_t47(Image *src, int fwd, int enable_ma);
+
 #define CUSTOM_REACH 2
 #define CUSTOM_NNB (2*(CUSTOM_REACH+1)*CUSTOM_REACH)
 #define CUSTOM_NPARAMS (2*(CUSTOM_REACH+1)*CUSTOM_REACH*6)
