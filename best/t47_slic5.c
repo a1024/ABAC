@@ -6,7 +6,7 @@
 #include<math.h>
 static const char file[]=__FILE__;
 
-	#define PRINT_SSE
+//	#define PRINT_SSE
 
 #define SLIC5_CONFIG_EXP 5
 #define SLIC5_CONFIG_MSB 2

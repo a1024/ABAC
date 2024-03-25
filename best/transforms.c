@@ -71,6 +71,37 @@ int compare_bufs_32(const int *b1, const int *b0, int iw, int ih, int nch, int c
 		printf("%s:\tSUCCESS\n", name);
 	return 0;
 }
+int compare_bufs_uint8(const unsigned char *b1, const unsigned char *b0, int iw, int ih, int symbytes, int bytestride, const char *name, int backward, int loud)
+{
+	ptrdiff_t len=(ptrdiff_t)bytestride*iw*ih;
+	int inc=bytestride*(1-(backward<<1));
+	for(ptrdiff_t k=backward?len-bytestride:0;k>=0&&k<len;k+=inc)
+	{
+		//{//
+		//	ptrdiff_t idx=k>>2, kx=idx%1920, ky=idx/1920;
+		//	if(kx==5&&ky==1)
+		//		kx=5;
+		//}//
+		if(memcmp(b1+k, b0+k, symbytes))
+		{
+			if(loud)
+			{
+				ptrdiff_t idx=k/bytestride, kx=idx%iw, ky=idx/iw;
+				printf("%s error XY (%5lld, %5lld) / %5d x %5d  b1 != b0\n", name, kx, ky, iw, ih);
+				for(int kc=0;kc<symbytes;++kc)
+					printf("C%d  0x%02X != 0x%02X    %d != %d\n", kc, (unsigned)b1[k+kc], (unsigned)b0[k+kc], (unsigned)b1[k+kc], (unsigned)b0[k+kc]);
+			}
+			//if(backward)
+			//	printf("%s error at %d - %d: 0x%02X != 0x%02X\n", name, (int)len-1, (int)(len-1-k), b1[k], b0[k]);
+			//else
+			//	printf("%s error at %d: 0x%02X != 0x%02X\n", name, (int)k, b1[k], b0[k]);
+			return 1;
+		}
+	}
+	if(loud)
+		printf("%s:\tSUCCESS\n", name);
+	return 0;
+}
 
 void rct_JPEG2000_32(Image *image, int fwd)
 {

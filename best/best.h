@@ -42,6 +42,7 @@ void image_from_lsimheader(Image **dst, LSIMHeader const *src);//dst must be 0 o
 //auxiliary functions
 int calc_maxdepth(Image const *image, int *inflation);
 int compare_bufs_32(const int *b1, const int *b0, int iw, int ih, int nch, int chstride, const char *name, int backward, int loud);
+int compare_bufs_uint8(const unsigned char *b1, const unsigned char *b0, int iw, int ih, int symbytes, int bytestride, const char *name, int backward, int loud);
 int get_nch(const char *buf, int res);//returns nch = {0 degenerate, 1 gray, 2 gray_alpha, 3, rgb, 4, rgb_alpha}
 int get_nch32(const int *buf, int res);//returns nch = {0 degenerate, 1 gray, 2 gray_alpha, 3, rgb, 4, rgb_alpha}
 
@@ -67,7 +68,7 @@ int t45_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 int t46_encode(Image const *src, ArrayHandle *data, int loud);
 int t46_decode(const unsigned char *data, size_t srclen, Image *dst, int loud);
 
-//SLICv5
+//CLICv5
 int t47_encode(Image const *src, ArrayHandle *data, int loud);
 int t47_decode(const unsigned char *data, size_t srclen, Image *dst, int loud);
 

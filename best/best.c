@@ -389,6 +389,73 @@ static void test_one(const char *fn, ptrdiff_t formatsize)
 	if(!formatsize)
 		formatsize=get_filesize(fn);
 	printf("Testing \"%s\"\n", fn);
+	
+	printf(
+		"Input  Method\n"
+		"  1     T39 (8-bit only): older codec\n"
+		"  2     T42 (8-bit only): more efficient, slower\n"
+		"  3     T45 (8-bit only): CALIC clone, supports color images\n"
+		"  4     T46: supports high bit depth, faster\n"
+		"  5...  T47: supports high bit depth, more efficient\n"
+		"Enter a choice: "
+	);
+	//printf("Enter 0 for T42 (better/slower, 8-bit only), other keys for T46 (faster, supports high bit depth): ");
+	int choice=0;
+	while(!scanf("%d", &choice));
+	switch(choice)
+	{
+	case 1:
+	case 2:
+	case 3:
+		{
+			extern unsigned char* stbi_load(char const *filename, int *x, int *y, int *channels_in_file, int desired_channels);
+			double t=time_sec();
+			int iw=0, ih=0, nch=0;
+			unsigned char *image=stbi_load(fn, &iw, &ih, &nch, 4);
+			t=time_sec()-t;
+			if(!image)
+			{
+				printf("Cannot open \"%s\"\n", fn);
+				return;
+			}
+			size_t usize=(size_t)iw*ih*nch;
+			printf("Opened in %lf sec  csize %lld  CR %lf\n", t, formatsize, (double)usize/formatsize);
+			unsigned char *buf2=(unsigned char*)malloc(sizeof(char[4])*iw*ih);
+			if(!buf2)
+			{
+				LOG_ERROR("Alloc error");
+				return;
+			}
+			memset(buf2, 0, sizeof(char[4])*iw*ih);
+
+			ArrayHandle data=0;
+			switch(choice)
+			{
+			case 1://older binary coder
+				t39_encode(image, iw, ih, &data, 1);
+				t39_decode(data->data, data->count, iw, ih, buf2, 1);
+				compare_bufs_uint8(buf2, image, iw, ih, nch, 4, "T39", 0, 1);
+				break;
+			case 2://efficient but slow binary coder
+				t42_encode(image, iw, ih, &data, 1);
+				t42_decode(data->data, data->count, iw, ih, buf2, 1);
+				compare_bufs_uint8(buf2, image, iw, ih, nch, 4, "T42", 0, 1);
+				break;
+			case 3://CALIC clone
+				t45_encode(image, iw, ih, &data, 1);
+				t45_decode(data->data, data->count, iw, ih, buf2, 1);
+				compare_bufs_uint8(buf2, image, iw, ih, nch, 4, "T45", 0, 1);
+				break;
+			}
+
+
+			array_free(&data);
+			free(buf2);
+			free(image);
+		}
+		return;
+	}
+
 	double t=time_sec();
 	Image *src=image_load(fn);
 	t=time_sec()-t;
@@ -402,7 +469,10 @@ static void test_one(const char *fn, ptrdiff_t formatsize)
 
 	//encode
 	ArrayHandle cdata=0;
-	ENCODE(src, &cdata, 1);
+	if(choice==4)
+		t46_encode(src, &cdata, 1);
+	else
+		t47_encode(src, &cdata, 1);
 	if(!cdata)
 	{
 		printf("Encode error\n");
@@ -421,7 +491,10 @@ static void test_one(const char *fn, ptrdiff_t formatsize)
 	memset(dst->data, 0, res*sizeof(int[4]));
 	
 	//rct_JPEG2000_32(src, 1);
-	DECODE(cdata->data, cdata->count, dst, 1);
+	if(choice==4)
+		t46_decode(cdata->data, cdata->count, dst, 1);
+	else
+		t47_decode(cdata->data, cdata->count, dst, 1);
 
 	//check & cleanup
 	compare_bufs_32(dst->data, src->data, src->iw, src->ih, 3, 4, CODECNAME, 0, 1);
@@ -540,10 +613,8 @@ ProgArgs args=
 {
 	OP_TESTFILE, 1, 0,//op, nthreads, formatsize
 
-	"D:/ML/dataset-kodak/kodim13.png",
-
 //	"C:/Projects/datasets/dataset-kodak/kodim02.png",
-//	"C:/Projects/datasets/dataset-kodak/kodim13.png",
+	"C:/Projects/datasets/dataset-kodak/kodim13.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/artificial.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/big_building.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/cathedral.png",

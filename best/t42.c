@@ -528,7 +528,7 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	ArithmeticCoder ctx;
 	ac_enc_init(&ctx, &list);
 	
-	float csizes[24]={0};
+	double csizes[24]={0};
 	
 	for(int ky=0, idx;ky<ih;++ky)
 	{
@@ -544,9 +544,12 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 					int bit=(buf2[idx]+128)>>kb&1;
 					ac_enc_bin(&ctx, t42_ctx->p0, bit);
 					
-					int prob=bit?0x10000-t42_ctx->p0:t42_ctx->p0;//
-					float bitsize=-log2f((float)prob*(1.f/0x10000));
-					csizes[kc<<3|kb]+=bitsize;//
+					if(loud)
+					{
+						int prob=bit?0x10000-t42_ctx->p0:t42_ctx->p0;//
+						double bitsize=-log2((double)prob*(1.f/0x10000));
+						csizes[kc<<3|kb]+=bitsize;//
+					}
 
 					t42_ctx_update(t42_ctx, kc, kb, bit);
 				}
@@ -555,11 +558,11 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 		}
 		if(loud)
 		{
-			static float csize_prev=0;
-			float csize=0;
+			static double csize_prev=0;
+			double csize=0;
 			for(int k=0;k<24;++k)
 				csize+=csizes[k]/8;
-			printf("%5d/%5d  %6.2lf%%  CR%11f  CR_delta%11f\r", ky+1, ih, 100.*(ky+1)/ih, iw*(ky+1)*3/csize, iw*3/(csize-csize_prev));
+			printf("%5d/%5d  %6.2lf%%  CR%11lf  CR_delta%11lf\r", ky+1, ih, 100.*(ky+1)/ih, iw*(ky+1)*3/csize, iw*3/(csize-csize_prev));
 			//printf("%5d/%5d  %6.2lf%%  CR%11f  CR_delta%11f%c", ky+1, ih, 100.*(ky+1)/ih, iw*(ky+1)*3/csize, iw*3/(csize-csize_prev), loud==2?'\n':'\r');
 			csize_prev=csize;
 		}
@@ -570,7 +573,7 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 	if(loud)
 	{
 		printf("\n");//skip progress line
-		printf("Used %f MB of memory\n", (float)t42_ctx->nnodes*sizeof(T42Node)/(1024*1024));
+		printf("Used %lf MB of memory\n", (double)t42_ctx->nnodes*sizeof(T42Node)/(1024*1024));
 		printf("Encode elapsed ");
 		timedelta2str(0, 0, time_sec()-t_start);
 		printf("\n");
@@ -592,7 +595,7 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 		printf("\n");
 #endif
 		
-		float chsizes[4]={0};
+		double chsizes[4]={0};
 		//printf("\t\tC0\t\t\t\tC1\t\t\t\tC2\n\n");
 		printf("\tC0\t\tC1\t\tC2\n\n");
 		for(int kb=7;kb>=0;--kb)
@@ -601,9 +604,9 @@ int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 			for(int kc=0;kc<3;++kc)
 			{
 				int idx=kc<<3|kb;
-				float size=csizes[idx];
+				double size=csizes[idx];
 				//printf("       %12.3f %12.2f", iw*ih/size, hits[idx]);
-				printf(" %15.6f", iw*ih/size);
+				printf(" %15.6lf", iw*ih/size);
 				chsizes[kc]+=size;
 			}
 			printf("\n");
