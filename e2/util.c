@@ -255,7 +255,7 @@ int floor_log2_32(unsigned n)
 	return logn;
 #else
 	//binary search
-#if 0
+#if 1
 	int	logn=-!n;
 	int	sh=(n>=1<<16)<<4;	logn+=sh, n>>=sh;
 		sh=(n>=1<< 8)<<3;	logn+=sh, n>>=sh;
@@ -266,7 +266,7 @@ int floor_log2_32(unsigned n)
 #endif
 
 	//https://github.com/Cyan4973/FiniteStateEntropy/blob/d41d8be8e7955787ce486b90708d7b8de53137bd/lib/bitstream.h#L187
-#if 1
+#if 0
 	static const int table[]=
 	{
 		 0,  9,  1, 10, 13, 21,  2, 29,

@@ -285,7 +285,7 @@ static void block8_dct_ls_fwd(int *data)
 	__m256i r5=_mm256_load_si256((__m256i*)data+5);
 	__m256i r6=_mm256_load_si256((__m256i*)data+6);
 	__m256i r7=_mm256_load_si256((__m256i*)data+7);
-	__m256i temp;
+	//__m256i temp;
 
 	BUTTERFLY_FWD(r0, r7, temp);
 	BUTTERFLY_FWD(r1, r6, temp);
@@ -430,7 +430,7 @@ static void block8_dct_ls_inv(int *data)
 	__m256i r5=_mm256_load_si256((__m256i*)data+5);
 	__m256i r2=_mm256_load_si256((__m256i*)data+6);
 	__m256i r4=_mm256_load_si256((__m256i*)data+7);
-	__m256i temp;
+	//__m256i temp;
 
 	r7=_mm256_add_epi32(r7, MUL03(r4, 4));//u3 = 0.1913417161 ~= 3/16
 	r4=_mm256_sub_epi32(MUL03(r7, 4), r4);//p3 = 0.1989123673 ~= 3/16

@@ -4219,7 +4219,7 @@ void pred_t47(Image *src, int fwd, int enable_ma)
 			};
 			for(int kx=0;kx<src->iw;++kx, ++idx)
 			{
-#define LOAD(BUF, X, Y) ((unsigned)(ky+(Y))<src->ih&&(unsigned)(kx+(X))<src->iw?BUF[(src->iw*(ky+(Y))+kx+(X))<<2|kc]<<8:0)
+#define LOAD(BUF, X, Y) ((unsigned)(ky+(Y))<(unsigned)src->ih&&(unsigned)(kx+(X))<(unsigned)src->iw?BUF[(src->iw*(ky+(Y))+kx+(X))<<2|kc]<<8:0)
 				int
 					NNNNWW	=LOAD(pixels, -2, -4),
 					NNNNW	=LOAD(pixels, -1, -4),

@@ -3838,6 +3838,7 @@ int io_keydn(IOKey key, char c)
 			"Comma/Period:\tSelect context for size estimation\n"
 			"Slash:\t\tToggle adaptive histogram\n"
 			"[ ]:\t\t(Custom transforms) Select coefficient page\n"
+			"Ctrl 1/2/3:\t(Custom predictor) Populate page from channel N\n"
 			"Space:\t\t(Custom transforms) Optimize\n"
 			"Ctrl N:\t\tAdd noise to CUSTOM3 params\n"
 			//"Shift space:\t(Custom transforms) Optimize blockwise\n"
@@ -4280,6 +4281,20 @@ int io_keydn(IOKey key, char c)
 
 			paste_finish:
 				array_free(&text);
+				update_image();
+				return 1;
+			}
+		}
+		break;
+	case KEY_1:
+	case KEY_2:
+	case KEY_3:
+		if(GET_KEY_STATE(KEY_CTRL)&&transforms_customenabled)
+		{
+			int src=key-KEY_1;
+			if(src!=custom_pred_ch_idx)
+			{
+				memcpy(custom_params+(_countof(custom_params)/3)*custom_pred_ch_idx, custom_params+(_countof(custom_params)/3)*src, sizeof(custom_params)/3);
 				update_image();
 				return 1;
 			}

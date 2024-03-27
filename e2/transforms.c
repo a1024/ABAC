@@ -332,6 +332,60 @@ void rct_JPEG2000_32(Image *image, int fwd)
 		}
 	}
 }
+void rct_JPEG2000_32_ma(int *image, int iw, int ih, char *depths, int fwd)
+{
+	int nlevels[]=
+	{
+		1<<depths[0],
+		1<<depths[1],
+		1<<depths[2],
+	};
+	int ma_params[]=
+	{
+		nlevels[0]>>1, nlevels[0]-1,
+		nlevels[1]>>1, nlevels[1]-1,
+		nlevels[2]>>1, nlevels[2]-1,
+	};
+	ptrdiff_t len=(ptrdiff_t)iw*ih*4;
+#define REDUCE(COMP, IDX) COMP=((COMP+ma_params[IDX<<1|0])&ma_params[IDX<<1|1])-ma_params[IDX<<1|0]
+	if(fwd)
+	{
+		for(ptrdiff_t k=0;k<len;k+=4)
+		{
+			int r=image[k], g=image[k|1], b=image[k|2];
+			
+			r-=g;       //r-g				[1     -1     0  ].RGB
+			REDUCE(r, 0);
+			b-=g;       //b-g				[0     -1     1  ].RGB
+			REDUCE(g, 1);
+			g+=(r+b)>>2;//g+(r-g+b-g)/4 = r/4+g/2+b/4	[1/4    1/2   1/4].RGB
+			REDUCE(g, 2);
+
+			image[k  ]=g;//Y
+			image[k|1]=b;//Cb
+			image[k|2]=r;//Cr
+		}
+	}
+	else
+	{
+		for(ptrdiff_t k=0;k<len;k+=4)
+		{
+			int Y=image[k], Cb=image[k|1], Cr=image[k|2];
+			
+			Y-=(Cr+Cb)>>2;
+			REDUCE(Y, 1);
+			Cb+=Y;
+			REDUCE(Cb, 2);
+			Cr+=Y;
+			REDUCE(Cr, 0);
+
+			image[k  ]=Cr;
+			image[k|1]=Y;
+			image[k|2]=Cb;
+		}
+	}
+#undef  REDUCE
+}
 #if 0
 void rct_JPEG2000_32(Image *image, int fwd)
 {

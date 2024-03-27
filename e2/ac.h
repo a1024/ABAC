@@ -217,17 +217,32 @@ typedef struct ArithmeticCoderStruct
 			const unsigned char *srcptr, *srcend;
 			unsigned code;
 		};
+#ifdef EC_USE_ARRAY
+		ArrayHandle *arr;
+#else
 		DList *list;
+#endif
 	};
 } ArithmeticCoder;
-static void ac_enc_init(ArithmeticCoder *ec, DList *list)
+static void ac_enc_init(ArithmeticCoder *ec,
+#ifdef EC_USE_ARRAY
+	ArrayHandle *arr
+#else
+	DList *list
+#endif
+)
 {
 	ec->lo=0;
 	ec->hi=0xFFFFFFFF;
 	ec->cache=0;
 	ec->nbits=64;
 	ec->is_enc=1;
+#ifdef EC_USE_ARRAY
+	array_append(arr, 0, 1, 0, 0, 0, 0);
+	ec->arr=arr;
+#else
 	ec->list=list;
+#endif
 }
 static void ac_dec_init(ArithmeticCoder *ec, const unsigned char *start, unsigned const char *end)
 {
@@ -284,7 +299,11 @@ static void ac_renorm(ArithmeticCoder *ec, unsigned lg_fmin)//one-time loopless 
 
 			if(ec->nbits<0)//number of free bits in cache will be negative, flush 32 MSBs to buffer
 			{
+#ifdef EC_USE_ARRAY
+				ARRAY_APPEND(*ec->arr, (unsigned*)&ec->cache+1, 4, 1, 0);
+#else
 				dlist_push_back(ec->list, (unsigned*)&ec->cache+1, 4);
+#endif
 				ec->nbits+=32;
 				ec->cache<<=32;
 			}
@@ -341,7 +360,11 @@ static void ac_enc_flush(ArithmeticCoder *ec)
 	//now all remaining bits are in the cache (up to 64)
 	while(64-ec->nbits>0)//loops up to 2 times
 	{
+#ifdef EC_USE_ARRAY
+		ARRAY_APPEND(*ec->arr, (unsigned*)&ec->cache+1, 4, 1, 0);
+#else
 		dlist_push_back(ec->list, (unsigned*)&ec->cache+1, 4);
+#endif
 		ec->nbits+=32;
 		ec->cache<<=32;
 	}
@@ -562,13 +585,27 @@ typedef struct ANSCoderStruct
 		{
 			const unsigned char *srcptr, *srcstart;
 		};
+#ifdef EC_USE_ARRAY
+		ArrayHandle *arr;
+#else
 		DList *list;
+#endif
 	};
 } ANSCoder;
-static void ans_enc_init(ANSCoder *ec, DList *list)
+static void ans_enc_init(ANSCoder *ec,
+#ifdef EC_USE_ARRAY
+	ArrayHandle *arr
+#else
+	DList *list
+#endif
+)
 {
 	ec->state=0x10000;
+#ifdef EC_USE_ARRAY
+	ec->arr=arr;
+#else
 	ec->list=list;
+#endif
 }
 static void ans_dec_init(ANSCoder *ec, const unsigned char *start, const unsigned char *end)
 {
@@ -582,7 +619,11 @@ static void ans_dec_init(ANSCoder *ec, const unsigned char *start, const unsigne
 }
 static void ans_enc_flush(ANSCoder *ec)
 {
+#ifdef EC_USE_ARRAY
+	ARRAY_APPEND(*ec->arr, &ec->state, 4, 1, 0);
+#else
 	dlist_push_back(ec->list, &ec->state, 4);
+#endif
 }
 
 static void ans_enc(ANSCoder *ec, int sym, const unsigned *CDF, int nlevels)
@@ -596,7 +637,11 @@ static void ans_enc(ANSCoder *ec, int sym, const unsigned *CDF, int nlevels)
 		LOG_ERROR2("ZPS");
 	if((ec->state>>16)>=(unsigned)freq)//renorm
 	{
+#ifdef EC_USE_ARRAY
+		ARRAY_APPEND(*ec->arr, &ec->state, 2, 1, 0);
+#else
 		dlist_push_back(ec->list, &ec->state, 2);
+#endif
 		ec->state>>=16;
 	}
 	debug_enc_update(ec->state, cdf, freq, 0, 0, 0, 0, sym);
@@ -663,7 +708,11 @@ static void ans_enc15(ANSCoder *ec, int sym, const unsigned short *CDF, int nlev
 		LOG_ERROR2("ZPS");
 	if((ec->state>>16)>=(unsigned)freq)//renorm
 	{
+#ifdef EC_USE_ARRAY
+		ARRAY_APPEND(*ec->arr, &ec->state, 2, 1, 0);
+#else
 		dlist_push_back(ec->list, &ec->state, 2);
+#endif
 		ec->state>>=16;
 	}
 	debug_enc_update(ec->state, cdf, freq, 0, 0, 0, 0, sym);
@@ -724,7 +773,11 @@ static void ans_enc_bin(ANSCoder *ec, unsigned short p0, int bit)
 	int cdf=bit?p0:0, freq=bit?0x10000-p0:p0;
 	if((ec->state>>16)>=(unsigned)freq)//renorm
 	{
+#ifdef EC_USE_ARRAY
+		ARRAY_APPEND(*ec->arr, &ec->state, 2, 1, 0);
+#else
 		dlist_push_back(ec->list, &ec->state, 2);
+#endif
 		ec->state>>=16;
 	}
 	debug_enc_update(ec->state, cdf, freq, 0, 0, 0, 0, bit);

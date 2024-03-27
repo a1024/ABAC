@@ -247,9 +247,17 @@ int t52_decode(const unsigned char *data, size_t srclen, Image *dst, int loud);
 int t53_encode(Image const *src, ArrayHandle *data, int loud);
 int t53_decode(const unsigned char *data, size_t srclen, Image *dst, int loud);
 
-//T54 Bitplanes
-int t54_encode(Image const *src, ArrayHandle *data, int loud);
-int t54_decode(const unsigned char *data, size_t srclen, Image *dst, int loud);
+//T54 Tries to be fast, slightly sacrificing efficiency
+int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
+#define t54_encode(SRC, DATA, LOUD)		t54_codec(SRC, DATA, 0, 0, 0, LOUD)
+#define t54_decode(CBUF, CSIZE, DST, LOUD)	t54_codec(0, 0, CBUF, CSIZE, DST, LOUD)
+//int t54_encode(Image const *src, ArrayHandle *data, int loud);
+//int t54_decode(const unsigned char *data, size_t srclen, Image *dst, int loud);
+
+//T55 Binary
+int t55_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
+#define t55_encode(SRC, DATA, LOUD)		t55_codec(SRC, DATA, 0, 0, 0, LOUD)
+#define t55_decode(CBUF, CSIZE, DST, LOUD)	t55_codec(0, 0, CBUF, CSIZE, DST, LOUD)
 
 
 
@@ -267,6 +275,7 @@ int get_nch32(const int *buf, int res);//returns nch = {0 degenerate, 1 gray, 2 
 int get_nch(const char *buf, int res);
 
 void rct_JPEG2000_32(Image *image, int fwd);
+void rct_JPEG2000_32_ma(int *image, int iw, int ih, char *depths, int fwd);
 void colortransform_YCoCg_R_fwd(char *buf, int iw, int ih);
 void colortransform_YCoCg_R_inv(char *buf, int iw, int ih);
 void colortransform_YCbCr_R_v0_fwd(char *buf, int iw, int ih);

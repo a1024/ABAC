@@ -1,4 +1,5 @@
 #include"e2.h"
+//#define EC_USE_ARRAY
 #include"ac.h"
 #include<stdio.h>
 #include<stdlib.h>
@@ -12,102 +13,373 @@
 #endif
 static const char file[]=__FILE__;
 
-#if 0
-typedef struct T54CtxStruct
-{
-	int iw, ih, nch;
-	char depths[4];
-	int
-		maxdepth, maxlevels,
-		nlevels[4], half[4],
-#ifdef RECT_BUFFER
-		partialmask,
-#else
-		nqlevels[4], lgdepths[4], maxqlevels, (*quantize[4])(int),
-		//shiftq[4],
-#endif
-		shift8[4];
-	int *pixels;
 
-	int preds[T51_NPREDS], qpreds[T51_NPREDS], npreds;
-#ifdef ENABLE_SSE
-	long long *sse;//nch * npreds * nqlevels
-	long long *sse_cells[T51_NPREDS];
-#endif
-	StatNode *stats;//nch * npreds << maxdepth
-	StatNode *stat_cells[T51_NPREDS];
-	int *mixer;
-#ifdef DYNAMIC_DEN
-	long long csize_approx[128];
-	//double csize_actual[128];
-#endif
-	
-#ifdef ENABLE_SSE
-	long long *p0_bias;
-#endif
-	long long p0;
-	int lglrden;
+//	#define CHECK_OOB
+//	#define PROFILER 1		//0: use __rdtsc()	1: use time_sec()
+//	#define ESTIMATE_CSIZES
+//	#define ENABLE_GUIDE
 
-	int kc, kx, ky, bitidx;
-#ifndef RECT_BUFFER
-	int treeidx;
+
+
+#ifdef PROFILER
+#define CHECKPOINTLIST\
+	CHECKPOINT(INIT)\
+	CHECKPOINT(GETCTX)\
+	CHECKPOINT(QUANTIZE)\
+	CHECKPOINT(ENTROPYCODER)\
+	CHECKPOINT(RESCALE)\
+	CHECKPOINT(UPDATE_CDF)\
+	CHECKPOINT(TOARRAY)
 #endif
-	int partial, kym[4];
-	ArithmeticCoder *ec;
-} T54Ctx;
-int t54_encode(Image const *src, ArrayHandle *data, int loud)
+#include"profiler.h"
+
+
+//from libjxl		packsign(pixel) = 0b00001MMBB...BBL	token = offset + 0bGGGGMML,  where G = bits of lg(packsign(pixel)),  bypass = 0bBB...BB
+#define CONFIG_EXP 5
+#define CONFIG_MSB 2
+#define CONFIG_LSB 0
+#define CLEVELS 9
+#define NCTX (CLEVELS*CLEVELS)
+static void update_CDF(const int *hist, unsigned *CDF, int qlevels)
 {
+	int sum=hist[qlevels], c=0;
+	for(int ks=0;ks<qlevels;++ks)
+	{
+		int freq=hist[ks];
+		CDF[ks]=(int)(c*((1LL<<16)-qlevels)/sum)+ks;
+		c+=freq;
+	}
+	CDF[qlevels]=1<<16;
+}
+int quantize_ctx(int val)
+{
+	int negmask=-(val<0);
+	val=abs(val);
+	val=floor_log2_32(val)+1;//[0~0x10000] -> [0~0x10]
+	val=floor_log2_32(val)+1;//[0~0x10] -> [0~4]
+	val^=negmask;
+	val-=negmask;
+	val+=CLEVELS>>1;
+#ifdef CHECK_OOB
+	if((unsigned)val>=CLEVELS)
+		LOG_ERROR("Context OOB");
+#endif
+	return val;
+}
 #ifdef ENABLE_GUIDE
-	//guide=src;
+static const Image *guide=0;
 #endif
+int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud)
+{
+	PROF_START();
 	double t_start=time_sec();
-	int nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);//TODO
-	UPDATE_MIN(nch, src->nch);
+	int fwd=src!=0;
+	Image const *image=fwd?src:dst;
+
+	//Image *debugbuf=0;//
+	//if(fwd)//
+	//	image_copy(&debugbuf, image);//
+
+#ifdef ENABLE_GUIDE
+	if(fwd)
+		guide=image;
+#endif
+	int nch=(image->depth[0]!=0)+(image->depth[1]!=0)+(image->depth[2]!=0)+(image->depth[3]!=0);
+	UPDATE_MIN(nch, image->nch);
 	if(loud)
 	{
-		int maxdepth=calc_maxdepth(src, 0);
+		int maxdepth=calc_maxdepth(image, 0);
 		acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H-%M-%S");
-		printf("T54 Bitplanes  Enc %s  CWHD %d*%d*%d*%d/8\n", g_buf, nch, src->iw, src->ih, maxdepth);
+		printf("T54  %s  CWHD %d*%d*%d*%d/8\n", g_buf, nch, image->iw, image->ih, maxdepth);
 	}
-	char depths[4]=
-	{
-		src->depth[1],
-		src->depth[2]+1,
-		src->depth[0]+1,
-		src->depth[3],
-	};
-	double csizes[17*4]={0};
-	DList list;
-	ArithmeticCoder ec;
-	T54Ctx pr;
-	dlist_init(&list, 1, 1024, 0);
-	ac_enc_init(&ec, &list);
-	ptrdiff_t memusage=t54_init(&pr, src->iw, src->ih, nch, depths, &ec);
-	Image *im2=0;
-	image_copy(&im2, src);
-	if(!memusage||!im2)
+	int *hist=(int*)malloc(sizeof(int[NCTX*82*4]));
+	unsigned *CDF=(unsigned*)malloc(sizeof(int[NCTX*82*4]));
+	int *pixels=(int*)malloc((image->iw+4LL)*sizeof(int[4*8]));//padded 4 rows * {4 pixels, 4 errors}
+	if(!hist||!CDF||!pixels)
 	{
 		LOG_ERROR("Alloc error");
 		return 0;
 	}
-	rct_JPEG2000_32(im2, 1);
-	pred_clampgrad(im2, 1, depths);
-	for(int kc=0;kc<nch;++kc)
+	memset(pixels, 0, (image->iw+4LL)*sizeof(int[4*8]));
+#ifdef ESTIMATE_CSIZES
+	double csizes[2*4]={0};
+#endif
+#ifndef EC_USE_ARRAY
+	DList list;
+	dlist_init(&list, 1, 256, 0);
+#endif
+	ArithmeticCoder ec;
+	if(fwd)
 	{
-		int depth=depths[kc];
-		for(int kb=depth-1;kb>=0;--kb)
+#ifdef EC_USE_ARRAY
+		ac_enc_init(&ec, data);
+#else
+		ac_enc_init(&ec, &list);
+#endif
+	}
+	else
+		ac_dec_init(&ec, cbuf, cbuf+clen);
+	char depths[4];
+	memcpy(depths, image->depth, sizeof(char[4]));
+	if(nch>=3)
+	{
+		++depths[0];
+		++depths[2];
+		char temp;
+		ROTATE3(depths[0], depths[1], depths[2], temp);
+	}
+	int nlevels[4], qlevels[4];
+	for(int kc=0;kc<4;++kc)
+	{
+		nlevels[kc]=1<<depths[kc];
+		switch(depths[kc])
 		{
-			for(int ky=0, idx=0;ky<src->ih;++ky)
+		case 0:		qlevels[kc]=1;break;
+		case 8:		qlevels[kc]=45;break;
+		case 9:		qlevels[kc]=49;break;
+		case 16:	qlevels[kc]=77;break;
+		case 17:	qlevels[kc]=81;break;
+		default:
+			LOG_ERROR("Unsupported bit depth %d", depths[kc]);
+			return 0;
+		}
+	}
+	for(int kc=0;kc<4;++kc)
+	{
+		int *curr_hist=hist+NCTX*82*kc;
+		unsigned *curr_CDF=CDF+NCTX*82*kc;
+		memset(curr_hist, 0, sizeof(int[82]));
+		memset(curr_CDF, 0, sizeof(int[82]));
+		int sum=0;
+		for(int k=0;k<qlevels[kc];++k)
+		{
+			int val=qlevels[kc]-k;
+			val*=val;
+			sum+=curr_hist[k]=val*val;
+		}
+		curr_hist[qlevels[kc]]=sum;
+		update_CDF(curr_hist, curr_CDF, qlevels[kc]);
+		memfill(curr_hist+82, curr_hist, sizeof(int[82*(NCTX-1)]), sizeof(int[82]));
+		memfill(curr_CDF+82, curr_CDF, sizeof(int[82*(NCTX-1)]), sizeof(int[82]));
+	}
+	PROF(INIT);
+	for(int ky=0, idx=0;ky<image->ih;++ky)
+	{
+		int kym[]=
+		{
+			(image->iw+4)*((ky-0)&3),
+			(image->iw+4)*((ky-1)&3),
+			(image->iw+4)*((ky-2)&3),
+			(image->iw+4)*((ky-3)&3),
+		};
+		for(int kx=0;kx<image->iw;++kx, ++idx)
+		{
+			int *comp=pixels+(((size_t)kym[0]+kx+2+0)<<3);
+			if(fwd)
 			{
-				for(int kx=0;kx<src->iw;++kx, ++idx)
+				int *comp=pixels+(((size_t)kym[0]+kx+2+0)<<3);
+				memcpy(comp, image->data+((size_t)idx<<2), sizeof(int[4]));
+				if(nch>=3)
 				{
-					int bit=im2->data[idx<<2|kc]>>kb&1;
+					comp[0]-=comp[1];
+					comp[2]-=comp[1];
+					comp[1]+=(comp[0]+comp[2])>>2;
+					int temp;
+					ROTATE3(comp[0], comp[1], comp[2], temp);
 				}
+			}
+			for(int kc=0;kc<nch;++kc)
+			{
+				int nlevels_kc=nlevels[kc], qlevels_kc=qlevels[kc];
+				int
+					NW	=pixels[(kym[1]+kx+2-1)<<3|0|kc],
+					N	=pixels[(kym[1]+kx+2+0)<<3|0|kc],
+					W	=pixels[(kym[0]+kx+2-1)<<3|0|kc],
+					eN	=pixels[(kym[1]+kx+2+0)<<3|4|kc],
+					eW	=pixels[(kym[0]+kx+2-1)<<3|4|kc];
+				int pred=N+W-NW;
+				pred=MEDIAN3(N, W, pred);
+				int ctx=CLEVELS*quantize_ctx(eN)+quantize_ctx(eW);
+				ctx=82*(NCTX*kc+ctx);
+				int *curr_hist=hist+ctx;
+				unsigned *curr_CDF=CDF+ctx;
+				PROF(GETCTX);
+				int token=0, delta=0, curr=0;
+				if(fwd)
+				{
+					curr=pixels[(kym[0]+kx+2+0)<<3|0|kc];
+					delta=curr-pred;
+					delta+=nlevels_kc>>1;
+					delta&=nlevels_kc-1;
+					delta-=nlevels_kc>>1;
+
+					int val=delta<<1^-(delta<0);
+
+					int bypass=0, nbits=0;
+					if(val<(1<<CONFIG_EXP))
+					{
+						token=val;//token
+						nbits=0;
+						bypass=0;
+					}
+					else
+					{
+						int lgv=floor_log2_32((unsigned)val);
+						int mantissa=val-(1<<lgv);
+						token = (1<<CONFIG_EXP) + (
+								(lgv-CONFIG_EXP)<<(CONFIG_MSB+CONFIG_LSB)|
+								(mantissa>>(lgv-CONFIG_MSB))<<CONFIG_LSB|
+								(mantissa&((1<<CONFIG_LSB)-1))
+							);
+						nbits=lgv-CONFIG_MSB+CONFIG_LSB;
+						bypass=val>>CONFIG_LSB&((1LL<<nbits)-1);
+					}
+					PROF(QUANTIZE);
+					
+#ifdef ESTIMATE_CSIZES
+					if(loud&&fwd)
+					{
+						double p=(double)(curr_CDF[token+1]-curr_CDF[token])/0x10000;
+						csizes[kc<<1|0]-=log2(p);
+						csizes[kc<<1|1]+=nbits;
+					}
+#endif
+
+					ac_enc(&ec, token, curr_CDF, qlevels_kc, 0);
+					if(nbits)
+					{
+						while(nbits>8)
+						{
+							ac_enc(&ec, bypass>>(nbits-8)&0xFF, 0, 1<<8, 16-8);
+							nbits-=8;
+						}
+						ac_enc(&ec, bypass&((1<<nbits)-1), 0, 1<<nbits, 16-nbits);
+					}
+				}
+				else
+				{
+					token=ac_dec(&ec, curr_CDF, qlevels_kc, 0);
+					delta=token;
+					if(delta>=(1<<CONFIG_EXP))
+					{
+						delta-=1<<CONFIG_EXP;
+						int lsb=delta&((1<<CONFIG_LSB)-1);
+						delta>>=CONFIG_LSB;
+						int msb=delta&((1<<CONFIG_MSB)-1);
+						delta>>=CONFIG_MSB;
+						int nbits=delta+CONFIG_EXP-(CONFIG_MSB+CONFIG_LSB), n=nbits;
+						int bypass=0;
+						while(n>8)
+						{
+							n-=8;
+							bypass|=ac_dec(&ec, 0, 1<<8, 16-8)<<n;
+						}
+						bypass|=ac_dec(&ec, 0, 1<<n, 16-n);
+						delta=1;
+						delta<<=CONFIG_MSB;
+						delta|=msb;
+						delta<<=nbits;
+						delta|=bypass;
+						delta<<=CONFIG_LSB;
+						delta|=lsb;
+					}
+					delta=delta>>1^-(delta&1);
+					curr=delta+pred;
+					curr+=nlevels_kc>>1;
+					curr&=nlevels_kc-1;
+					curr-=nlevels_kc>>1;
+					pixels[(kym[0]+kx+2+0)<<3|0|kc]=curr;
+				}
+				PROF(ENTROPYCODER);
+				
+				//if(fwd)//
+				//	debugbuf->data[idx<<2|kc]=delta;
+				comp[4|kc]=delta;
+				if(curr_hist[qlevels_kc]+1>0x1000)
+				{
+					int sum=0;
+					for(int k=0;k<qlevels_kc;++k)
+						sum+=curr_hist[k]=(curr_hist[k]+1)>>1;
+					curr_hist[qlevels_kc]=sum;
+				}
+				++curr_hist[token];
+				++curr_hist[qlevels_kc];
+				PROF(RESCALE);
+
+				if(!(idx&63))
+					update_CDF(curr_hist, curr_CDF, qlevels_kc);
+				PROF(UPDATE_CDF);
+			}
+			if(!fwd)
+			{
+				int *comp=pixels+(((size_t)kym[0]+kx+2+0)<<3);
+				int *comp2=dst->data+((size_t)idx<<2);
+				memcpy(comp2, comp, sizeof(int[4]));
+				if(nch>=3)
+				{
+					int temp;
+					ROTATE3(comp2[2], comp2[1], comp2[0], temp);
+					comp2[1]-=(comp2[0]+comp2[2])>>2;
+					comp2[2]+=comp2[1];
+					comp2[0]+=comp2[1];
+				}
+#ifdef ENABLE_GUIDE
+				if(guide&&memcmp(comp2, guide->data+((size_t)idx<<2), sizeof(int[4])))
+				{
+					int comp0[4];
+					memcpy(comp0, guide->data+((size_t)idx<<2), sizeof(int[4]));
+					comp2[0]-=comp2[1];
+					comp2[2]-=comp2[1];
+					comp2[1]+=(comp2[0]+comp2[2])>>2;
+					comp0[0]-=comp0[1];
+					comp0[2]-=comp0[1];
+					comp0[1]+=(comp0[0]+comp0[2])>>2;
+					LOG_ERROR("Guide error XY %d %d", kx, ky);
+					printf("");//
+				}
+#endif
 			}
 		}
 	}
-}
-int t54_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
-{
-}
+	if(fwd)
+	{
+		ac_enc_flush(&ec);
+#ifndef EC_USE_ARRAY
+		dlist_appendtoarray(&list, data);
 #endif
+	}
+	if(loud)
+	{
+		t_start=time_sec()-t_start;
+		if(fwd)
+		{
+#ifdef ESTIMATE_CSIZES
+			for(int kc=0;kc<nch;++kc)
+				printf("C%d  %12.2lf  %12.2lf\n", kc, csizes[kc<<1|0]/8, csizes[kc<<1|1]/8);
+#endif
+			printf("csize %12lld  %7.3lf%%\n",
+#ifdef EC_USE_ARRAY
+				data[0]->count,
+#else
+				list.nobj,
+#endif
+				100.*list.nobj/image_getBMPsize(image)
+			);
+		}
+		printf("%c %12.3lf sec\n", 'D'+fwd, t_start);
+		prof_print();
+	}
+	//if(fwd)//
+	//{
+	//	image_snapshot(debugbuf);
+	//	free(debugbuf);
+	//}
+
+#ifndef EC_USE_ARRAY
+	dlist_clear(&list);
+#endif
+	free(hist);
+	free(CDF);
+	free(pixels);
+	return 0;
+}

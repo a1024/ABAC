@@ -68,7 +68,7 @@ static const char *prof_labels[]=
 #undef  CHECKPOINT
 };
 static long long prof_timestamp=0, prof_cycles[PROF_COUNT]={0};
-#define PROF_START() memset(prof_cycles, 0, _countof(prof_cycles)), prof_timestamp=__rdtsc()
+#define PROF_START() memset(prof_cycles, 0, sizeof(prof_cycles)), prof_timestamp=__rdtsc()
 #define PROF(X) prof_cycles[PROF_##X]+=__rdtsc()-prof_timestamp, prof_timestamp=__rdtsc()
 static void prof_print()
 {

@@ -1,5 +1,4 @@
 #include"e2.h"
-#define AC_IMPLEMENTATION
 #include"ac.h"
 #include<stdio.h>
 #include<stdlib.h>

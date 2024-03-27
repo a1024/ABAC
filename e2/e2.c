@@ -26,10 +26,10 @@ static const char file[]=__FILE__;
 //	#define DSP_TEST
 
 
-#define CODECID     47
-#define CODECNAME "T47"
-#define ENCODE     t47_encode
-#define DECODE     t47_decode
+#define CODECID     54
+#define CODECNAME "T54"
+#define ENCODE     t54_encode
+#define DECODE     t54_decode
 
 #if CODECID==47
 	#define PRINT_RCT//comment when not applicable
@@ -102,7 +102,7 @@ typedef struct ProcessCtxStruct
 	ArrayHandle threadargs;//<ThreadArgs>	*thread_count
 	ArrayHandle results;//<Result>		*nsamples
 } ProcessCtx;
-static double start_time=0;
+static double start_time=0, check_time=0;
 static double g_total_usize=0, g_total_csize=0;
 #ifdef PRINT_RCT
 static void curiosity_add(SLIC5Curiosity *dst, SLIC5Curiosity const *src)
@@ -173,7 +173,14 @@ static void print_result(Result *res, const char *title, int width, int print_ti
 	if(print_timestamp)
 	{
 		printf(" ");
-		timedelta2str(0, 0, time_sec()-start_time);
+		double t=time_sec();
+		if(print_timestamp==2)
+			timedelta2str(0, 0, t-start_time);
+		else
+		{
+			timedelta2str(0, 0, t-check_time);
+			check_time=t;
+		}
 	}
 	printf("\n");
 }
@@ -314,7 +321,7 @@ static void batch_test_mt(const char *path, int nthreads)
 	printf("%s\n", g_buf);
 	printf("Multithreaded Batch Test %s\n", CODECNAME);
 	double t_start=time_sec();
-	start_time=t_start;
+	check_time=start_time=t_start;
 	ArrayHandle filenames=get_filenames(path, g_extensions, _countof(g_extensions), 1);
 	if(!filenames)
 	{
@@ -373,7 +380,7 @@ static void batch_test_mt(const char *path, int nthreads)
 			total.dec+=result->dec;
 		}
 		printf("\n");
-		print_result(&total, "Total:", width, 1, 0);
+		print_result(&total, "Total:", width, 2, 0);
 		array_free(&processctx.results);
 	}
 #ifdef PRINT_RCT
@@ -697,6 +704,7 @@ ProgArgs args=
 //	"C:/Projects/datasets/dataset-kodak-CLIC30/01.png",
 //	"C:/Projects/datasets/dataset-kodak-CLIC30/03.png",//prefers RCT_NONE
 //	"C:/Projects/datasets/dataset-kodak-CLIC30/05.png",
+//	"C:/Projects/datasets/space-HUGE.ppm",
 //	"C:/Projects/datasets/Screenshots/Screenshot 2023-04-10 153155.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/artificial.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/big_building.png",
