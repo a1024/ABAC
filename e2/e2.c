@@ -702,6 +702,7 @@ ProgArgs args=
 //	"C:/Projects/datasets/dataset-train/AWM/world.jpg",//odd dims
 //	"C:/Projects/datasets/dataset-kodak-pgm/kodim02.pgm",
 //	"C:/Projects/datasets/dataset-kodak-CLIC30/01.png",
+//	"C:/Projects/datasets/dataset-kodak-CLIC30/02.png",
 //	"C:/Projects/datasets/dataset-kodak-CLIC30/03.png",//prefers RCT_NONE
 //	"C:/Projects/datasets/dataset-kodak-CLIC30/05.png",
 //	"C:/Projects/datasets/space-HUGE.ppm",
