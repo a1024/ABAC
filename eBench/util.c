@@ -568,6 +568,25 @@ double time_ms()
 	return t.tv_sec*1000+t.tv_nsec*1e-6;
 #endif
 }
+double time_sec()
+{
+#ifdef _MSC_VER
+	static long long t0=0;
+	LARGE_INTEGER li;
+	double t;
+	QueryPerformanceCounter(&li);
+	if(!t0)
+		t0=li.QuadPart;
+	t=(double)(li.QuadPart-t0);
+	QueryPerformanceFrequency(&li);
+	t/=(double)li.QuadPart;
+	return t;
+#else
+	struct timespec t;
+	clock_gettime(CLOCK_REALTIME, &t);//<time.h>
+	return t.tv_sec+t.tv_nsec*1e-9;
+#endif
+}
 
 void parsetimedelta(double ms, TimeInfo *ti)
 {

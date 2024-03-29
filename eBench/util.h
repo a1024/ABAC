@@ -35,8 +35,6 @@ extern "C"
 #define MINVAR(A, B) ((A)<(B)?(A):(B))
 #define MAXVAR(A, B) ((A)>(B)?(A):(B))
 #define CLAMP(LO, X, HI) ((X)>(LO)?(X)<(HI)?(X):(HI):(LO))
-//#define CLAMP(LO, X, HI) ((X)<(LO)?(LO):((X)>(HI)?(HI):(X)))
-//#define COUNTOF(ARR) (sizeof(ARR)/sizeof(*(ARR)))		//stdlib defines _countof
 #define MEDIAN3(A, B, C) (B<A?B<C?C<A?C:A:B:A<C?C<B?C:B:A)
 #define MOVEOBJ(SRC, DST, SIZE) memcpy(DST, SRC, SIZE), memset(SRC, 0, SIZE)
 #define MODVAR(DST, SRC, N) DST=(SRC)%(N), DST+=(N)&-(DST<0)
@@ -90,6 +88,7 @@ int maximum(int a, int b);
 int acme_isdigit(char c, char base);
 
 double time_ms();
+double time_sec();
 
 typedef struct TimeInfoStruct
 {

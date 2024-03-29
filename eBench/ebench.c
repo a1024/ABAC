@@ -87,7 +87,9 @@ typedef enum TransformTypeEnum
 	ST_FWD_CALIC,		ST_INV_CALIC,
 	ST_FWD_OLS,		ST_INV_OLS,
 	ST_FWD_OLS2,		ST_INV_OLS2,
+	ST_FWD_OLS3,		ST_INV_OLS3,
 	ST_FWD_CLAMPGRAD,	ST_INV_CLAMPGRAD,
+//	ST_FWD_ECOEFF,		ST_INV_ECOEFF,
 //	ST_FWD_AVERAGE,		ST_INV_AVERAGE,
 	ST_FWD_MULTISTAGE,	ST_INV_MULTISTAGE,
 //	ST_FWD_ZIPPER,		ST_INV_ZIPPER,
@@ -1282,8 +1284,12 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case ST_INV_OLS:		a=" S Inv OLS";			break;
 	case ST_FWD_OLS2:		a=" S Fwd OLS-2";		break;
 	case ST_INV_OLS2:		a=" S Inv OLS-2";		break;
+	case ST_FWD_OLS3:		a=" S Fwd OLS-3";		break;
+	case ST_INV_OLS3:		a=" S Inv OLS-3";		break;
 	case ST_FWD_CLAMPGRAD:		a=" S Fwd ClampGrad";		break;
 	case ST_INV_CLAMPGRAD:		a=" S Inv ClampGrad";		break;
+//	case ST_FWD_ECOEFF:		a=" S Fwd E-Coeff";		break;
+//	case ST_INV_ECOEFF:		a=" S Inv E-Coeff";		break;
 //	case ST_FWD_AVERAGE:		a=" S Fwd Average";		break;
 //	case ST_INV_AVERAGE:		a=" S Inv Average";		break;
 	case ST_FWD_MULTISTAGE:		a=" S Fwd Multistage";		break;
@@ -2288,8 +2294,12 @@ void apply_selected_transforms(Image *image, int rct_only)
 		case ST_INV_OLS:		pred_ols(image, 0, pred_ma_enabled);			break;
 		case ST_FWD_OLS2:		pred_ols2(image, 1, pred_ma_enabled);			break;
 		case ST_INV_OLS2:		pred_ols2(image, 0, pred_ma_enabled);			break;
+		case ST_FWD_OLS3:		pred_ols3(image, 1, pred_ma_enabled);			break;
+		case ST_INV_OLS3:		pred_ols3(image, 0, pred_ma_enabled);			break;
 		case ST_FWD_CLAMPGRAD:		pred_clampedgrad(image, 1, pred_ma_enabled);		break;
 		case ST_INV_CLAMPGRAD:		pred_clampedgrad(image, 0, pred_ma_enabled);		break;
+	//	case ST_FWD_ECOEFF:		pred_ecoeff(image, 1, pred_ma_enabled);			break;
+	//	case ST_INV_ECOEFF:		pred_ecoeff(image, 0, pred_ma_enabled);			break;
 	//	case ST_FWD_AVERAGE:		pred_average(image, 1, pred_ma_enabled);		break;
 	//	case ST_INV_AVERAGE:		pred_average(image, 0, pred_ma_enabled);		break;
 		case ST_FWD_MULTISTAGE:		pred_multistage(image, 1, pred_ma_enabled);		break;

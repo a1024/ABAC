@@ -207,10 +207,10 @@ static int nonlinear2nonlinear(int x, int srcgamma, int dstgamma)
 //#define NPAR_CTX 30
 //#endif
 
-//#define ENABLE_CUSTOM1
-//#define ENABLE_CUSTOM1_v2
-//#define ENABLE_CUSTOM1_v3//best		0.1% smaller, but 2x slower
-//#define ENABLE_CUSTOM1_v4//incomplete
+//	#define ENABLE_CUSTOM1
+//	#define ENABLE_CUSTOM1_v2
+//	#define ENABLE_CUSTOM1_v3//best		0.1% smaller, but 2x slower
+//	#define ENABLE_CUSTOM1_v4//incomplete
 
 //don't forget to update SLIC5_NPREDS in e2.h
 #if 0
@@ -265,6 +265,7 @@ static int nonlinear2nonlinear(int x, int srcgamma, int dstgamma)
 	SLIC5_PRED((N+NN)>>1)\
 	SLIC5_PRED((NE+NNEE)>>1)\
 	SLIC5_PRED((NE+NNE+NEE+NNEE)>>2)
+//	SLIC5_PRED(ols)
 //	SLIC5_PRED((4*(N+W+NE+NW)-(WW+NWW+NNWW+NNW+NN+NNE+NNEE+NEE))>>3)
 //	SLIC5_PRED((9*(NE-NNEE)+NNNNEE+NNNEEE+NNEEEE)/3)
 //	SLIC5_PRED(NN+NNW-(NNNN+NNNNW+NNNNWW)/3)

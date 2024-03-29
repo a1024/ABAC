@@ -14,7 +14,7 @@
 static const char file[]=__FILE__;
 
 
-	#define CLASSIFY_IMAGE
+	#define SELECT_TRANSFORMS
 //	#define CHECK_OOB
 //	#define PROFILER 1		//0: use __rdtsc()	1: use time_sec()
 //	#define ESTIMATE_CSIZES
@@ -39,6 +39,7 @@ static const char file[]=__FILE__;
 #define CONFIG_EXP 5
 #define CONFIG_MSB 2
 #define CONFIG_LSB 0
+//	#define CLEVELS 5
 	#define CLEVELS 9
 //	#define CLEVELS 33
 #define NCTX (CLEVELS*CLEVELS)
@@ -61,7 +62,9 @@ int quantize_ctx(int val)
 	val=floor_log2_32(val)+1;//[0~0x10] -> [0~4]
 	val^=negmask;
 	val-=negmask;
+	//val>>=1;
 	val+=CLEVELS>>1;
+	//val=CLAMP(0, val, CLEVELS-1);
 #ifdef CHECK_OOB
 	if((unsigned)val>=CLEVELS)
 		LOG_ERROR("Context OOB");
@@ -71,7 +74,7 @@ int quantize_ctx(int val)
 #ifdef ENABLE_GUIDE
 static const Image *guide=0;
 #endif
-#ifdef CLASSIFY_IMAGE
+#ifdef SELECT_TRANSFORMS
 typedef enum PredTypeEnum
 {
 	PRED_ZERO,
@@ -110,6 +113,9 @@ static void rct_fwd(int *comp, int krct)
 		U-=Y;
 		V-=Y;
 		Y+=(U+V)>>2;
+		//U-=(87*V+169*Y+128)>>8;//Pei09	//Cb = [-87/256  -169/256  1]
+		//V-=Y;					//Cr = [1  -1  0].RGB
+		//Y+=(86*V+29*U+128)>>8;		//Y  = [19493/65536  38619/65536  29/256]	g+86/256*(r-g)+29/256*(b-87/256*r-169/256*g) = 19493/65536*r + 38619/65536*g + 29/256*b
 		comp[0]=Y;
 		comp[1]=U;
 		comp[2]=V;
@@ -124,6 +130,9 @@ static void rct_inv(int *comp, int krct)
 		Y-=(U+V)>>2;
 		V+=Y;
 		U+=Y;
+		//Y-=(86*V+29*U+128)>>8;//Pei09
+		//V+=Y;
+		//U+=(87*V+169*Y+128)>>8;
 		comp[idx[0]]=Y;
 		comp[idx[1]]=U;
 		comp[idx[2]]=V;
@@ -189,11 +198,6 @@ int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	double t_start=time_sec();
 	int fwd=src!=0;
 	Image const *image=fwd?src:dst;
-
-	//Image *debugbuf=0;//
-	//if(fwd)//
-	//	image_copy(&debugbuf, image);//
-
 #ifdef ENABLE_GUIDE
 	if(fwd)
 		guide=image;
@@ -241,7 +245,7 @@ int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			return 0;
 		}
 	}
-#ifdef CLASSIFY_IMAGE
+#ifdef SELECT_TRANSFORMS
 	PredType config=PRED_ZERO;
 	if(fwd)
 	{
@@ -298,13 +302,11 @@ int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		double entropy[4*PRED_COUNT*4]={0};
 		int res=image->iw*image->ih;
 		double bestsize=0;
-		for(int krct=0;krct<4;++krct)
+		for(int krct=0;krct<=(3&-(nch>=3));++krct)
 		{
 			for(int kp=0;kp<PRED_COUNT;++kp)
 			{
 				int idx=(kp<<2|krct)<<2;
-				//if(loud)
-				//	printf("%-8s %-10s RGBAT:", RCTnames[krct], prednames[kp]);
 				for(int kc=0;kc<4;++kc)
 				{
 					for(int ks=0;ks<maxlevels;++ks)
@@ -314,22 +316,16 @@ int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 							entropy[idx|kc]-=freq*log2((double)freq/res);
 					}
 					entropy[idx|kc]/=8;
-					//if(loud)
-					//	printf("%16.3lf ", entropy[idx|kc]);
 				}
 				double csize=
 					entropy[idx|0]+
 					entropy[idx|1]+
 					entropy[idx|2]+
 					entropy[idx|3];
-				//if(loud)
-				//	printf("%16.3lf\n", csize);
 				if(!idx||bestsize>csize)
 					config=idx>>2, bestsize=csize;
 			}
 		}
-		//if(loud)
-		//	printf("Selected: %-8s %-10s %16.3lf  %lf sec\n", RCTnames[config&3], prednames[config>>2], bestsize, time_sec()-t_start);
 		if(loud)
 		{
 			const char *RCTnames[]=
@@ -358,7 +354,7 @@ int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				"(4*(N+W)+NE-NW)/8",
 				"cgrad",
 			};
-			for(int krct=0;krct<4;++krct)
+			for(int krct=0;krct<=(3&-(nch>=3));++krct)
 			{
 				for(int kp=0;kp<PRED_COUNT;++kp)
 				{
@@ -389,7 +385,7 @@ int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	DList list;
 	dlist_init(&list, 1, 256, 0);
 #endif
-#ifdef CLASSIFY_IMAGE
+#ifdef SELECT_TRANSFORMS
 	if(fwd)
 #ifdef EC_USE_ARRAY
 		array_append(data, &config, 1, 1, 1, 0, 0);
@@ -423,9 +419,10 @@ int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		int sum=0;
 		for(int k=0;k<qlevels[kc];++k)
 		{
-			int val=qlevels[kc]-k;
+			int val=(qlevels[kc]-k)>>1;
+			val+=!val;
 			val*=val;
-			sum+=curr_hist[k]=val*val;
+			sum+=curr_hist[k]=val*val*val;
 		}
 		curr_hist[qlevels[kc]]=sum;
 		update_CDF(curr_hist, curr_CDF, qlevels[kc]);
@@ -449,8 +446,9 @@ int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			{
 				int *comp=pixels+(((size_t)kym[0]+kx+2+0)<<3);
 				memcpy(comp, image->data+((size_t)idx<<2), sizeof(int[4]));
-#ifdef CLASSIFY_IMAGE
-				rct_fwd(comp, config&3);
+#ifdef SELECT_TRANSFORMS
+				if(nch>=3)
+					rct_fwd(comp, config&3);
 #else
 				if(nch>=3)
 				{
@@ -470,12 +468,19 @@ int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					N	=pixels[(kym[1]+kx+2+0)<<3|0|kc],
 					NE	=pixels[(kym[1]+kx+2+1)<<3|0|kc],
 					W	=pixels[(kym[0]+kx+2-1)<<3|0|kc],
+					eNW	=pixels[(kym[1]+kx+2-1)<<3|4|kc],
 					eN	=pixels[(kym[1]+kx+2+0)<<3|4|kc],
+					eNE	=pixels[(kym[1]+kx+2+1)<<3|4|kc],
 					eW	=pixels[(kym[0]+kx+2-1)<<3|4|kc];
-#ifndef CLASSIFY_IMAGE
+#ifndef SELECT_TRANSFORMS
 				int cgrad=N+W-NW-((eW+eN)>>7);
 				cgrad=MEDIAN3(N, W, cgrad);
 #endif
+				//int ctx=0;
+				//ctx=CLEVELS*ctx+quantize_ctx(eNW);
+				//ctx=CLEVELS*ctx+quantize_ctx(eN);
+				//ctx=CLEVELS*ctx+quantize_ctx(eNE);
+				//ctx=CLEVELS*ctx+quantize_ctx(eW);
 				int ctx=CLEVELS*quantize_ctx(eN)+quantize_ctx(eW);
 				ctx=82*(NCTX*kc+ctx);
 				int *curr_hist=hist+ctx;
@@ -486,7 +491,7 @@ int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				{
 					curr=pixels[(kym[0]+kx+2+0)<<3|0|kc];
 					delta=curr;
-#ifdef CLASSIFY_IMAGE
+#ifdef SELECT_TRANSFORMS
 					delta-=predict(N, W, NW, NE, (PredType)(config>>2));
 #else
 					delta-=cgrad;
@@ -567,7 +572,7 @@ int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					}
 					delta=delta>>1^-(delta&1);
 					curr=delta;
-#ifdef CLASSIFY_IMAGE
+#ifdef SELECT_TRANSFORMS
 					curr+=predict(N, W, NW, NE, (PredType)(config>>2));
 #else
 					curr+=cgrad;
@@ -578,9 +583,6 @@ int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					pixels[(kym[0]+kx+2+0)<<3|0|kc]=curr;
 				}
 				PROF(ENTROPYCODER);
-				
-				//if(fwd)//
-				//	debugbuf->data[idx<<2|kc]=delta;
 				comp[4|kc]=delta;
 				if(curr_hist[qlevels_kc]+1>0x1000)
 				{
@@ -602,8 +604,9 @@ int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				int *comp=pixels+(((size_t)kym[0]+kx+2+0)<<3);
 				int *comp2=dst->data+((size_t)idx<<2);
 				memcpy(comp2, comp, sizeof(int[4]));
-#ifdef CLASSIFY_IMAGE
-				rct_inv(comp2, config&3);
+#ifdef SELECT_TRANSFORMS
+				if(nch>=3)
+					rct_inv(comp2, config&3);
 #else
 				if(nch>=3)
 				{
@@ -614,6 +617,8 @@ int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					comp2[0]+=comp2[1];
 				}
 #endif
+				else
+					comp2[2]=comp2[1]=comp[0];
 #ifdef ENABLE_GUIDE
 				if(guide&&memcmp(comp2, guide->data+((size_t)idx<<2), sizeof(int[4])))
 				{
@@ -660,12 +665,6 @@ int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		printf("%c %12.3lf sec\n", 'D'+fwd, t_start);
 		prof_print();
 	}
-	//if(fwd)//
-	//{
-	//	image_snapshot(debugbuf);
-	//	free(debugbuf);
-	//}
-
 #ifndef EC_USE_ARRAY
 	dlist_clear(&list);
 #endif
