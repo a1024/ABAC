@@ -2424,7 +2424,7 @@ void update_image()//apply selected operations on original image, calculate CRs,
 
 	//do not modify im1 beyond this point
 
-	image_export_uint8(im1, &im_export, 1);
+	image_export_uint8(im1, &im_export, 1, 0);
 
 	int maxdepth=calc_maxdepth(im1, 0);
 	int nlevels=1<<maxdepth;
@@ -3954,6 +3954,21 @@ int io_keydn(IOKey key, char c)
 	case 'C':
 		if(im1&&GET_KEY_STATE(KEY_CTRL))//copy custom transform value
 		{
+			if(GET_KEY_STATE(KEY_SHIFT))
+			{
+				unsigned char *buf=0;
+				image_export_uint8(im1, &buf, 1, 1);//swap red & blue for WinAPI
+				if(!buf)
+				{
+					LOG_WARNING("Alloc error");
+					return 0;
+				}
+				int success=copy_bmp_to_clipboard(buf, im1->iw, im1->ih);
+				if(!success)
+					LOG_WARNING("Failed to copy image to clipboard");
+				free(buf);
+				return 0;
+			}
 			ArrayHandle str;
 			STR_ALLOC(str, 0);
 			if(mode==VIS_IMAGE||mode==VIS_ZIPF)
@@ -4297,6 +4312,18 @@ int io_keydn(IOKey key, char c)
 
 			paste_finish:
 				array_free(&text);
+				update_image();
+				return 1;
+			}
+		}
+		if(GET_KEY_STATE(KEY_CTRL))//paste bitmap
+		{
+			Image *im2=paste_bmp_from_clipboard();
+			if(im2)
+			{
+				free(im0);
+				im0=im2;
+				set_window_title("From clipboard - eBench");
 				update_image();
 				return 1;
 			}

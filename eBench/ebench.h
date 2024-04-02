@@ -634,11 +634,13 @@ Image* image_load(const char *fn);
 int image_save_uint8(const char *fn, Image const *image, int override_alpha);
 Image* image_from_uint8(const unsigned char *src, int iw, int ih, int nch, char rdepth, char gdepth, char bdepth, char adepth);
 Image* image_from_uint16(const unsigned short *src, int iw, int ih, int nch, char *src_depths, char *dst_depths);
-void image_export_uint8(Image const *image, unsigned char **dst, int override_alpha);
+void image_export_uint8(Image const *image, unsigned char **dst, int override_alpha, int swap_rb);
 double image_getBMPsize(Image const *image);
 size_t image_getbufsize(Image const *image);
 void image_copy_nodata(Image **dst, Image const *src);
 void image_copy(Image **dst, Image const *src);
+int copy_bmp_to_clipboard(const unsigned char *rgba, int iw, int ih);
+Image* paste_bmp_from_clipboard();//window.c
 
 
 //extern Image *im0, *im1;

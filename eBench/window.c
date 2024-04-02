@@ -631,6 +631,204 @@ ArrayHandle paste_from_clipboard(int loud)
 	return ret;
 }
 
+int copy_bmp_to_clipboard(const unsigned char *rgba, int iw, int ih)
+{
+	int res=iw*ih;
+	ptrdiff_t size=sizeof(BITMAPINFO)+((size_t)res<<2);
+	char *clipboard=(char*)LocalAlloc(LMEM_FIXED, size);
+	if(!clipboard)
+		return 0;
+	BITMAPINFO bmi={{sizeof(BITMAPINFOHEADER), iw, -ih, 1, 32, BI_RGB, res<<2, 0, 0, 0, 0}};
+	memcpy(clipboard, &bmi, sizeof(BITMAPINFOHEADER));
+	memcpy(clipboard+sizeof(BITMAPINFOHEADER), rgba, (size_t)res<<2);
+	int success=OpenClipboard(ghWnd);
+	if(!success)
+		return 0;
+	EmptyClipboard();
+	SetClipboardData(CF_DIB, clipboard);
+	CloseClipboard();
+	return 1;
+}
+Image* paste_bmp_from_clipboard()
+{
+	unsigned clipboardformats[]={CF_DIB, CF_DIBV5, CF_BITMAP, CF_TIFF, CF_METAFILEPICT};
+	int format=GetPriorityClipboardFormat(clipboardformats, sizeof clipboardformats>>2);
+	if(format<=0)
+		return 0;
+	int success=OpenClipboard(ghWnd);
+	if(!success)
+		return 0;
+	Image *image=0;
+	void *hData=0;
+	ptrdiff_t size=0;
+	switch(format)
+	{
+	case CF_BITMAP://20231016
+		{
+			HBITMAP hBm2=(HBITMAP)GetClipboardData(CF_BITMAP);		SYS_ASSERT(hBm2);
+			SIZE s;
+			if(!hBm2)
+				return 0;
+			GetBitmapDimensionEx(hBm2, &s);
+			if(!s.cx||!s.cy)
+				break;
+
+			image=image_from_uint8(0, s.cx, s.cy, 4, 8, 8, 8, 8);
+			BITMAPINFO bmh={{sizeof(BITMAPINFOHEADER), s.cx, -s.cy, 1, 32, BI_RGB, 0}};
+			HDC hDC2=CreateCompatibleDC(0);		SYS_ASSERT(hDC2);
+			if(!hDC2)
+				return 0;
+			hBm2=(HBITMAP)SelectObject(hDC2, hBm2);
+			int copied=GetDIBits(hDC2, hBm2, 0, s.cy, image->data, &bmh, DIB_RGB_COLORS);
+			hBm2=(HBITMAP)SelectObject(hDC2, hBm2);
+			DeleteDC(hDC2);
+			for(ptrdiff_t k=((ptrdiff_t)image->iw*image->ih<<2)-1;k>=0;--k)//untested
+				image->data[k]=((unsigned char*)image->data)[k]-128;
+		}
+		break;
+	case CF_DIBV5://20210402
+		{
+			//hData=GetClipboardData(CF_DIB);		SYS_ASSERT(hData);
+			//size=GlobalSize(hData);
+			//BITMAPV5HEADER *bm5=(BITMAPV5HEADER*)GlobalLock(hData);
+			//GlobalUnlock(hData);
+			LOG_WARNING("Unsupported format CF_DIBV5");
+		}
+		break;
+	case CF_DIB:
+		hData=GetClipboardData(CF_DIB);						SYS_ASSERT(hData);
+		if(hData)
+		{
+			size=GlobalSize(hData);
+			BITMAPINFO *bmi=(BITMAPINFO*)GlobalLock(hData);		SYS_ASSERT(bmi);
+			if(bmi->bmiHeader.biCompression==BI_RGB||bmi->bmiHeader.biCompression==BI_BITFIELDS)//uncompressed
+			{
+				int iw=bmi->bmiHeader.biWidth, ih=abs(bmi->bmiHeader.biHeight);
+				image=image_from_uint8(0, iw, ih, 4, 8, 8, 8, 8);
+				byte *data=(byte*)bmi->bmiColors;
+				int idx_b=0, idx_r=2;
+				if(bmi->bmiHeader.biCompression==BI_BITFIELDS)//first 3 DWORDs are red, green, blue bitfields
+				{
+					if(((int*)data)[0]==0x000000FF)//swap: 0xAABBGGRR -> 0xAARRGGBB
+						idx_b=2, idx_r=0, data+=3*(bmi->bmiHeader.biBitCount>>3);
+					else if(((int*)data)[0]==0x00FF0000)//as it is: 0xAARRGGBB
+						idx_b=0, idx_r=2, data+=3*(bmi->bmiHeader.biBitCount>>3);
+					else
+						LOG_WARNING("Invalid bitmap bitfield");
+				}
+				int data_size;
+				switch(bmi->bmiHeader.biBitCount)
+				{
+				case 24:
+					{
+						int row_bytes=iw*3;
+						row_bytes+=(4-(row_bytes&3))&3;
+						data_size=row_bytes*ih;
+						if(bmi->bmiHeader.biSizeImage)//skip palette bits
+							data+=bmi->bmiHeader.biSizeImage-data_size;
+						for(int ky=0;ky<ih&&row_bytes*(ky+1)<=data_size;++ky)
+						{
+							int *dstrow=image->data+((size_t)iw*ky<<2);
+							byte *srcrow=data+row_bytes*(bmi->bmiHeader.biHeight<0?ky:bmi->bmiHeader.biHeight-1-ky);
+							for(int kx=0;kx<iw;++kx)
+							{
+								byte *src=(byte*)(srcrow+3*kx);
+								dstrow[kx<<2|0]=src[idx_r	]-128;
+								dstrow[kx<<2|1]=src[1		]-128;
+								dstrow[kx<<2|2]=src[idx_b	]-128;
+								dstrow[kx<<2|3]=0;
+							}
+						}
+						//for(int ky=0;ky<ih&&row_bytes*(ky+1)<=data_size;++ky)
+						//{
+						//	int *dstrow=(int*)image->data+iw*ky;
+						//	byte *srcrow=data+row_bytes*(bmi->bmiHeader.biHeight<0?ky:bmi->bmiHeader.biHeight-1-ky);
+						//	for(int kx=0;kx<iw;++kx)
+						//	{
+						//		byte *dst=(byte*)(dstrow+kx), *src=(byte*)(srcrow+3*kx);
+						//		dst[0]=src[idx_r];
+						//		dst[1]=src[1];
+						//		dst[2]=src[idx_b];
+						//		dst[3]=0xFF;
+						//	}
+						//}
+						image->nch=3;
+					}
+					break;
+				case 32://screenshots
+					data_size=iw*ih<<2;
+					if(bmi->bmiHeader.biSizeImage)//skip palette bits
+						data+=bmi->bmiHeader.biSizeImage-data_size;
+					//for(int ky=0;ky<ih&&(iw*(ky+1)<<2)<=data_size;++ky)
+					for(int ky=0;ky<ih;++ky)
+					{
+						int *dst=(int*)image->data+((size_t)iw*ky<<2),
+							*src=(int*)data+iw*(bmi->bmiHeader.biHeight<0?ky:bmi->bmiHeader.biHeight-1-ky);
+						for(int kx=0;kx<iw;++kx)
+						{
+							unsigned char *p=(unsigned char*)(src+kx);
+							dst[kx<<2|0]=p[2]-128;
+							dst[kx<<2|1]=p[1]-128;
+							dst[kx<<2|2]=p[0]-128;
+							dst[kx<<2|3]=p[3]-128;
+						}
+					}
+					//if(idx_r==0)
+					//{
+					//	for(int ky=0;ky<ih&&(iw*(ky+1)<<2)<=data_size;++ky)
+					//		memcpy((int*)image->data+iw*ky, (int*)data+iw*(bmi->bmiHeader.biHeight<0?ky:bmi->bmiHeader.biHeight-1-ky), (size_t)iw<<2);
+					//}
+					//else//swap rb
+					//{
+					//	for(int ky=0;ky<ih&&(iw*(ky+1)<<2)<=data_size;++ky)
+					//	{
+					//		int *dst=(int*)image->data+iw*ky,
+					//			*src=(int*)data+iw*(bmi->bmiHeader.biHeight<0?ky:bmi->bmiHeader.biHeight-1-ky);
+					//		for(int kx=0;kx<iw;++kx)
+					//		{
+					//			unsigned char *p1=(unsigned char*)(src+kx), *p2=(unsigned char*)(dst+kx);
+					//			p2[0]=p1[2];
+					//			p2[1]=p1[1];
+					//			p2[2]=p1[0];
+					//			p2[3]=p1[3];
+					//		}
+					//	}
+					//}
+					image->nch=4;
+					break;
+				}
+			}
+			else
+				LOG_WARNING("Unsupported compression: bmiHeader.biCompression == %d", bmi->bmiHeader.biCompression);
+			GlobalUnlock(hData);
+		}
+		break;
+	case CF_TEXT:
+	case CF_SYLK:
+	case CF_DIF:
+	case CF_OEMTEXT:
+	case CF_PENDATA:
+	case CF_RIFF:
+	case CF_WAVE:
+	case CF_UNICODETEXT:
+	case CF_ENHMETAFILE:
+	case CF_HDROP:
+	case CF_LOCALE:
+		break;
+	case CF_METAFILEPICT:
+		LOG_WARNING("Unsupported format %d CF_METAFILEPICT", format);
+		break;
+	case CF_TIFF:
+		LOG_WARNING("Unsupported format %d CF_TIFF", format);
+		break;
+	case CF_PALETTE:
+		LOG_WARNING("Unsupported format %d CF_PALETTE", format);
+		break;
+	}
+	CloseClipboard();
+	return image;
+}
+
 void update_main_key_states()
 {
 	keyboard[VK_CONTROL]=GET_KEY_STATE(VK_LCONTROL)<<1|GET_KEY_STATE(VK_RCONTROL);
