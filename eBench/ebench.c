@@ -76,6 +76,7 @@ typedef enum TransformTypeEnum
 
 	CST_FWD_SEPARATOR,	CST_INV_SEPARATOR,
 	
+	ST_FWD_PACKSIGN,	ST_INV_PACKSIGN,
 	ST_FWD_T47,		ST_INV_T47,
 	ST_FWD_P3,		ST_INV_P3,
 	ST_FWD_G2,		ST_INV_G2,
@@ -160,6 +161,7 @@ ArrayHandle jhc_mesh=0;
 unsigned jhc_gpubuf=0;
 float jhc_level=10.5f;
 int loud_transforms=1;
+//int crop_enable=0, crop_x=0, crop_y=0, crop_dx=128, crop_dy=128;
 
 void calc_csize_ans_separate(Image const *image, size_t *csizes)
 {
@@ -1273,7 +1275,9 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 //	case ST_PREPROC_GRAD:		a=" S Preproc Grad";		break;
 //	case ST_PREPROC_X:		a=" S Preproc X";		break;
 //	case ST_PREPROC_X2:		a=" S Preproc X2";		break;
-
+		
+	case ST_FWD_PACKSIGN:		a=" S Fwd PackSign";		break;
+	case ST_INV_PACKSIGN:		a=" S Fwd PackSign";		break;
 	case ST_FWD_P3:			a=" S Fwd P3";			break;
 	case ST_INV_P3:			a=" S Inv P3";			break;
 	case ST_FWD_G2:			a=" S Fwd G2";			break;
@@ -2296,6 +2300,8 @@ void apply_selected_transforms(Image *image, int rct_only)
 		case ST_INV_OLS2:		pred_ols2(image, 0, pred_ma_enabled);			break;
 		case ST_FWD_OLS3:		pred_ols3(image, 1, pred_ma_enabled);			break;
 		case ST_INV_OLS3:		pred_ols3(image, 0, pred_ma_enabled);			break;
+		case ST_FWD_PACKSIGN:		packsign(image, 1);					break;
+		case ST_INV_PACKSIGN:		packsign(image, 0);					break;
 		case ST_FWD_CLAMPGRAD:		pred_clampedgrad(image, 1, pred_ma_enabled);		break;
 		case ST_INV_CLAMPGRAD:		pred_clampedgrad(image, 0, pred_ma_enabled);		break;
 	//	case ST_FWD_ECOEFF:		pred_ecoeff(image, 1, pred_ma_enabled);			break;

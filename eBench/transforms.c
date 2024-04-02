@@ -2126,6 +2126,44 @@ void pred_cfl(char *buf, int iw, int ih, int fwd)
 
 //spatial transforms
 
+void packsign(Image *src, int fwd)
+{
+	ptrdiff_t nvals=(ptrdiff_t)src->iw*src->ih<<2;
+	int half[]=
+	{
+		1<<src->depth[0]>>1,
+		1<<src->depth[1]>>1,
+		1<<src->depth[2]>>1,
+		1<<src->depth[3]>>1,
+	};
+	if(fwd)
+	{
+		for(ptrdiff_t k=0;k<nvals;k+=4)
+		{
+			for(int kc=0;kc<src->nch;++kc)
+			{
+				int val=src->data[k|kc];
+				val=val<<1^-(val<0);
+				val-=half[kc];
+				src->data[k|kc]=val;
+			}
+		}
+	}
+	else
+	{
+		for(ptrdiff_t k=0;k<nvals;k+=4)
+		{
+			for(int kc=0;kc<src->nch;++kc)
+			{
+				int val=src->data[k|kc];
+				val+=half[kc];
+				val=val>>1^-(val&1);
+				src->data[k|kc]=val;
+			}
+		}
+	}
+}
+
 //clamped gradient / LOCO-I / Median Edge Detector (MED) predictor from JPEG-LS
 void pred_clampedgrad(Image *src, int fwd, int enable_ma)
 {
