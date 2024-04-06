@@ -116,7 +116,7 @@ void resample_YUV420(Image *src, int down)
 	}
 }
 
-static void block8_dct_lossy_fwd(int *data)//https://github.com/rockcarry/ffjpeg
+INLINE void block8_dct_lossy_fwd(int *data)//https://github.com/rockcarry/ffjpeg
 {
 	__m256i c45=_mm256_set1_epi32(FLOAT2FIX(0.707106781));//cosd45 = 1/sqrt2
 	__m256i c675=_mm256_set1_epi32(FLOAT2FIX(0.382683433));//cosd67.5
@@ -187,7 +187,7 @@ static void block8_dct_lossy_fwd(int *data)//https://github.com/rockcarry/ffjpeg
 	_mm256_store_si256((__m256i*)data+6, f6);
 	_mm256_store_si256((__m256i*)data+7, f7);
 }
-static void block8_dct_lossy_inv(int *data)
+INLINE void block8_dct_lossy_inv(int *data)
 {
 	__m256i sqrt2=_mm256_set1_epi32(FLOAT2FIX(1.414213562));
 	__m256i c2=_mm256_set1_epi32(FLOAT2FIX(1.847759065));
@@ -526,7 +526,7 @@ static void block8_transpose(int *data)//https://stackoverflow.com/questions/739
 	_mm256_store_si256((__m256i*)data+6, a[6]);
 	_mm256_store_si256((__m256i*)data+7, a[7]);
 }
-static void block8_sra3(int *data)
+INLINE void block8_sra3(int *data)
 {
 	__m256i a[8];
 	a[0]=_mm256_load_si256((__m256i*)data+0);

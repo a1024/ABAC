@@ -347,12 +347,12 @@ static void slic4_predict(Image const *im, int kc, int kx, int ky, PredictorCtx 
 	pr->kx=kx;
 #define LOAD(BUF, X, Y) (unsigned)(kx+(X))<(unsigned)im->iw&&(unsigned)(ky+(Y))<(unsigned)im->ih?BUF[(im->iw*(ky+(Y))+kx+(X))<<2|kc]<<8:0
 	int
-		NNNNNN  =LOAD(pixels,  0, -6),
+	//	NNNNNN  =LOAD(pixels,  0, -6),
 	//	NNNNWWWW=LOAD(pixels, -4, -4),
 	//	NNNN    =LOAD(pixels,  0, -4),
 	//	NNNNEEEE=LOAD(pixels,  4, -4),
 	//	NNNWWW  =LOAD(pixels, -3, -3),
-		NNN     =LOAD(pixels,  0, -3),
+	//	NNN     =LOAD(pixels,  0, -3),
 	//	NNNEEE  =LOAD(pixels,  3, -3),
 		NNWW    =LOAD(pixels, -2, -2),
 		NNW     =LOAD(pixels, -1, -2),
@@ -363,13 +363,13 @@ static void slic4_predict(Image const *im, int kc, int kx, int ky, PredictorCtx 
 		NW      =LOAD(pixels, -1, -1),
 		N       =LOAD(pixels,  0, -1),
 		NE      =LOAD(pixels,  1, -1),
-		NEE     =LOAD(pixels,  2, -1),
-		NEEEE   =LOAD(pixels,  4, -1),
-		NEEEEE  =LOAD(pixels,  5, -1),
-		NEEEEEE =LOAD(pixels,  6, -1),
-		NEEEEEEE=LOAD(pixels,  7, -1),
-		WWWWWW  =LOAD(pixels, -6,  0),
-		WWWW    =LOAD(pixels, -4,  0),
+	//	NEE     =LOAD(pixels,  2, -1),
+	//	NEEEE   =LOAD(pixels,  4, -1),
+	//	NEEEEE  =LOAD(pixels,  5, -1),
+	//	NEEEEEE =LOAD(pixels,  6, -1),
+	//	NEEEEEEE=LOAD(pixels,  7, -1),
+	//	WWWWWW  =LOAD(pixels, -6,  0),
+	//	WWWW    =LOAD(pixels, -4,  0),
 	//	WWW     =LOAD(pixels, -3,  0),
 		WW      =LOAD(pixels, -2,  0),
 		W       =LOAD(pixels, -1,  0);
@@ -549,7 +549,7 @@ static void slic4_predict(Image const *im, int kc, int kx, int ky, PredictorCtx 
 	pr->hist_idx=MAXVAR(qx, qy);
 	pr->hist_idx=MAXVAR(pr->hist_idx, q45);
 	pr->hist_idx=MAXVAR(pr->hist_idx, q135);
-	pr->hist_idx=MINVAR(pr->hist_idx, _countof(qlevels));
+	pr->hist_idx=MINVAR(pr->hist_idx, (int)_countof(qlevels));
 	
 	qx=(int)(W-WW+NE-NW+NN-NNE)>>(pr->shift+2), qx=quantize_signed(qx);
 	qy=(int)(W-NW+N -NN+NE-NNE)>>(pr->shift+2), qy=quantize_signed(qy);
@@ -931,7 +931,8 @@ int t46_encode(Image const *src, ArrayHandle *data, int loud)
 	{
 		if(pal_sizes[kc]==1)
 			continue;
-		int nlevels=1<<rct_depths[kc], shift=(MAXVAR(8, rct_depths[kc])-8)>>2;
+		int nlevels=1<<rct_depths[kc];
+		//int shift=(MAXVAR(8, rct_depths[kc])-8)>>2;
 		slic4_pred_nextchannel(&pr, rct_depths[kc]);
 		//memset(sse, 0, SSE_SIZE*sizeof(long long));
 		for(int ky=0, idx=0;ky<src->ih;++ky)
@@ -1017,7 +1018,7 @@ int t46_encode(Image const *src, ArrayHandle *data, int loud)
 	if(loud)
 	{
 		printf("Hist WH %d*%d:\n", cdfsize, (int)_countof(qlevels)+1);
-		for(int kt=0;kt<_countof(qlevels)+1;++kt)
+		for(int kt=0;kt<(int)_countof(qlevels)+1;++kt)
 		{
 			for(int ks=0;ks<cdfsize;++ks)
 				printf("%d ", hist[(cdfsize+1)*kt+ks]);
@@ -1069,7 +1070,7 @@ int t46_encode(Image const *src, ArrayHandle *data, int loud)
 	dlist_push_back(&list, pal_sizes, sizeof(pal_sizes));
 	//free(sse);
 	size_t overhead=0;
-	for(int kt=0;kt<_countof(qlevels)+1;++kt)
+	for(int kt=0;kt<(int)_countof(qlevels)+1;++kt)
 	{
 		//if(kt==11)
 		//	printf("");
@@ -1240,7 +1241,7 @@ int t46_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 		LOG_ERROR("Alloc error");
 		return 0;
 	}
-	for(int kt=0;kt<_countof(qlevels)+1;++kt)
+	for(int kt=0;kt<(int)_countof(qlevels)+1;++kt)
 	{
 		//if(kt==11)
 		//	printf("");
@@ -1325,7 +1326,7 @@ int t46_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 				LOG_ERROR("Alloc error");
 				return 0;
 			}
-			if(bytesize>srclen)
+			if(bytesize>(int)srclen)
 			{
 				LOG_ERROR("Invalid file\n");
 				return 0;
@@ -1377,7 +1378,8 @@ int t46_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 				dst->data[k<<2|kc]=palettes[kc][0];
 			continue;
 		}
-		int nlevels=1<<rct_depths[kc], shift=(MAXVAR(8, rct_depths[kc])-8)>>2;
+		int nlevels=1<<rct_depths[kc];
+		//int shift=(MAXVAR(8, rct_depths[kc])-8)>>2;
 		slic4_pred_nextchannel(&pr, rct_depths[kc]);
 		//memset(sse, 0, SSE_SIZE*sizeof(long long));
 		for(int ky=0, idx=0;ky<dst->ih;++ky)

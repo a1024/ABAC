@@ -9,7 +9,7 @@ static const char file[]=__FILE__;
 //auxiliary functions
 double calc_bitsize(unsigned *CDF, int nlevels, int sym)
 {
-	int freq=CDF?CDF[sym+1]-CDF[sym]:0x10000/nlevels;
+	int freq=CDF?(int)(CDF[sym+1]-CDF[sym]):0x10000/nlevels;
 	//if(!freq)
 	//	LOG_ERROR("ZPS");
 	double prob=(double)freq/0x10000;
@@ -162,7 +162,7 @@ static void calic_nextrow(CalicState *state)
 
 	state->currrow_sum_absE=0;
 
-	for(int kt=0;kt<_countof(state->ct_tsizes);++kt)
+	for(int kt=0;kt<(int)_countof(state->ct_tsizes);++kt)
 	{
 		int nlevels=state->ct_tsizes[kt];
 		if(state->prevrow_av_absE>(nlevels>>1))
@@ -199,7 +199,7 @@ static void calic_prepctx(CalicState *state, int kc, int kx, int ky)
 
 	state->unb[0]=state->nb2[0];
 	state->nunique=1;
-	for(int k=1;k<_countof(state->nb2);++k)
+	for(int k=1;k<(int)_countof(state->nb2);++k)
 	{
 		int val=state->nb2[k];
 		int found=0;
@@ -434,7 +434,7 @@ static int calic_ct(CalicState *state, int curr, int enc)//continuous-tone mode
 		}
 
 		++delta;
-	}while(sym==nlevels-1);
+	}while(sym==(int)nlevels-1);
 
 	if(!enc)
 	{

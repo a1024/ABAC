@@ -328,7 +328,7 @@ static void hybriduint_encode(unsigned val, HybridUint *hu)
 	hu->bypass=bypass;
 	hu->nbits=nbits;
 }
-static int quantize_unsigned(int val, int exp, int msb)
+INLINE int quantize_unsigned(int val, int exp, int msb)
 {
 	if(val<(1<<exp))
 		return val;
@@ -336,14 +336,14 @@ static int quantize_unsigned(int val, int exp, int msb)
 	int token=(1<<exp)+((lgv-exp)<<msb|(val-(1<<lgv))>>(lgv-msb));
 	return token;
 }
-static int quantize_signed_get_range(int num, int den, int exp, int msb)
+INLINE int quantize_signed_get_range(int num, int den, int exp, int msb)
 {
 	int vmax=(int)((1LL<<24)*num/den>>16);
 	int token=quantize_unsigned(vmax, exp, msb);
 	token<<=1;
 	return token;
 }
-static int quantize_signed(int val, int shift, int exp, int msb, int nlevels)
+INLINE int quantize_signed(int val, int shift, int exp, int msb, int nlevels)
 {
 	val>>=shift;
 	int negmask=-(val<0);
@@ -358,7 +358,7 @@ static int quantize_signed(int val, int shift, int exp, int msb, int nlevels)
 }
 #define QUANTIZE_HIST(X) (quantize_unsigned(X, HIST_EXP, HIST_MSB)>>1)
 
-static void matmul(double *dst, const double *m1, const double *m2, int h1, int w1h2, int w2)
+INLINE void matmul(double *dst, const double *m1, const double *m2, int h1, int w1h2, int w2)
 {
 	for(int ky=0;ky<h1;++ky)
 	{
@@ -371,7 +371,7 @@ static void matmul(double *dst, const double *m1, const double *m2, int h1, int 
 		}
 	}
 }
-static void matmul_selftransposed(double *dst, const double *src, int mh, int mw, int dstw)
+INLINE void matmul_selftransposed(double *dst, const double *src, int mh, int mw, int dstw)
 {
 	for(int ky=0;ky<mh;++ky)
 	{
@@ -387,7 +387,7 @@ static void matmul_selftransposed(double *dst, const double *src, int mh, int mw
 	}
 }
 #if defined AVX2 || defined AVX512
-static void avx2_floor_log2_p1(__m256i *x)//floor_log2()+1
+INLINE void avx2_floor_log2_p1(__m256i *x)//floor_log2()+1
 {
 	//https://stackoverflow.com/questions/56153183/is-using-avx2-can-implement-a-faster-processing-of-lzcnt-on-a-word-array
 #ifdef AVX512
@@ -852,7 +852,7 @@ static int custom1_predict(const int *nb, const char *params)
 #ifdef ENABLE_CUSTOM1_v2
 static double g_matrix[16*8];
 #endif
-static int invert_matrix(double *matrix, int size, double *temprow)
+INLINE int invert_matrix(double *matrix, int size, double *temprow)
 {
 	int success=1;
 	//double *temp=_malloca(size*sizeof(double[2]));
@@ -896,7 +896,7 @@ static int invert_matrix(double *matrix, int size, double *temprow)
 static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 {
 	PROF(OUTSIDE);
-	int idx=(pr->iw*pr->ky+kx)<<2|kc;
+	//int idx=(pr->iw*pr->ky+kx)<<2|kc;
 	pr->kc=kc;
 	pr->kx=kx;
 	pr->full_pixels_processed+=!kc;
@@ -907,21 +907,21 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 	//XY are flipped, no need to check if indices OOB due to padding
 	int
 #if PAD_SIZE>=4
-		NNNNWW	=LOAD(pr->pixels,  2, 4),
-		NNNNW	=LOAD(pr->pixels,  1, 4),
-		NNNN	=LOAD(pr->pixels,  0, 4),
-		NNNNE	=LOAD(pr->pixels, -1, 4),
-		NNNNEE	=LOAD(pr->pixels, -2, 4),
-		NNNNEEEE=LOAD(pr->pixels, -4, 4),
+	//	NNNNWW	=LOAD(pr->pixels,  2, 4),
+	//	NNNNW	=LOAD(pr->pixels,  1, 4),
+	//	NNNN	=LOAD(pr->pixels,  0, 4),
+	//	NNNNE	=LOAD(pr->pixels, -1, 4),
+	//	NNNNEE	=LOAD(pr->pixels, -2, 4),
+	//	NNNNEEEE=LOAD(pr->pixels, -4, 4),
 
 		NNNWWWW	=LOAD(pr->pixels,  4, 3),
 		NNNWWW	=LOAD(pr->pixels,  3, 3),
-		NNNWW	=LOAD(pr->pixels,  2, 3),
-		NNNW	=LOAD(pr->pixels,  1, 3),
+	//	NNNWW	=LOAD(pr->pixels,  2, 3),
+	//	NNNW	=LOAD(pr->pixels,  1, 3),
 		NNN	=LOAD(pr->pixels,  0, 3),
-		NNNE	=LOAD(pr->pixels, -1, 3),
+	//	NNNE	=LOAD(pr->pixels, -1, 3),
 		NNNEE	=LOAD(pr->pixels, -2, 3),
-		NNNEEE	=LOAD(pr->pixels, -3, 3),
+	//	NNNEEE	=LOAD(pr->pixels, -3, 3),
 		NNNEEEE	=LOAD(pr->pixels, -4, 3),
 		
 		NNWWWW	=LOAD(pr->pixels,  4, 2),
@@ -935,8 +935,8 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 #if PAD_SIZE>=4
 		NNEEE	=LOAD(pr->pixels, -3, 2),
 		NNEEEE	=LOAD(pr->pixels, -4, 2),
-		NWWWW	=LOAD(pr->pixels,  4, 1),
-		NWWW	=LOAD(pr->pixels,  3, 1),
+	//	NWWWW	=LOAD(pr->pixels,  4, 1),
+	//	NWWW	=LOAD(pr->pixels,  3, 1),
 #endif
 		NWW	=LOAD(pr->pixels,  2, 1),
 		NW	=LOAD(pr->pixels,  1, 1),
@@ -952,16 +952,16 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 		WW	=LOAD(pr->pixels,  2, 0),
 		W	=LOAD(pr->pixels,  1, 0);
 	int
-		eNNWW	=LOAD(pr->errors,  2, 2),//error = (curr<<8) - pred
-		eNNW	=LOAD(pr->errors,  1, 2),
+	//	eNNWW	=LOAD(pr->errors,  2, 2),//error = (curr<<8) - pred
+	//	eNNW	=LOAD(pr->errors,  1, 2),
 		eNN	=LOAD(pr->errors,  0, 2),
 		eNNE	=LOAD(pr->errors, -1, 2),
-		eNNEE	=LOAD(pr->errors, -2, 2),
-		eNWW	=LOAD(pr->errors,  2, 1),
+	//	eNNEE	=LOAD(pr->errors, -2, 2),
+	//	eNWW	=LOAD(pr->errors,  2, 1),
 		eNW	=LOAD(pr->errors,  1, 1),
 		eN	=LOAD(pr->errors,  0, 1),
 		eNE	=LOAD(pr->errors, -1, 1),
-		eNEE	=LOAD(pr->errors, -2, 1),
+	//	eNEE	=LOAD(pr->errors, -2, 1),
 		eWW	=LOAD(pr->errors,  2, 0),
 		eW	=LOAD(pr->errors,  1, 0);
 	int sh=24-8;
@@ -1018,8 +1018,8 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 	aW=CLAMP(0, aW, 0xFFFFFF);
 	geomean=(int)floor_sqrt(aN*aW)-0x800000;
 
-	int ols=0;
 #ifdef ENABLE_CUSTOM1_v4
+	int ols=0;
 	//NNNWWWW NNNWWW NNNWW NNNW NNN  NNNE NNNEE NNNEEE NNNEEEE
 	//NNWWWW  NNWWW  NNWW  NNW  NN   NNE  NNEE  NNEEE  NNEEEE
 	//NWWWW   NWWW   NWW   NW   N    NE   NEE   NEEE   NEEEE
@@ -1078,6 +1078,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 #undef  OLS_NSAMPLES
 #endif
 #ifdef ENABLE_CUSTOM1_v3
+	int ols=0;
 	//NNNWWWW NNNWWW NNNWW NNNW NNN  NNNE NNNEE NNNEEE NNNEEEE
 	//NNWWWW  NNWWW  NNWW  NNW  NN   NNE  NNEE  NNEEE  NNEEEE
 	//NWWWW   NWWW   NWW   NW   N    NE   NEE   NEEE   NEEEE
@@ -1193,6 +1194,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 	}
 #endif
 #ifdef ENABLE_CUSTOM1_v2
+	int ols=0;
 	ALIGN(32) int nb[]=
 	{
 		//NNWWW NNWW NNW NN   NNE NNEE NNEEE
@@ -1799,6 +1801,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 #endif
 #endif
 #ifdef ENABLE_CUSTOM1
+	int ols=0;
 	if(kx&&pr->ky&&kx<pr->iw-1)
 	{
 		ALIGN(32) int nb2[]=
@@ -4029,10 +4032,10 @@ int t47_encode(Image const *src, ArrayHandle *data, SLIC5Curiosity *curiosity, i
 		rct=rct_select_best(src, csizes);
 		if(loud)
 		{
-			for(int kt=0;kt<RCT_COUNT;++kt)
+			for(int kt=0;kt<(int)RCT_COUNT;++kt)
 			{
 				printf("%20lf %s", csizes[kt], rct_names[kt]);
-				if(kt==rct)
+				if(kt==(int)rct)
 					printf(" <- %lf sec", time_sec()-t1);
 				printf("\n");
 			}

@@ -118,18 +118,20 @@ static int get_qlevels(int depth)
 static void pt2(ArithmeticCoder *ec, int *curr, int *buf, char *stats, int *kym, int kc, int kx, int ky, int nlevels, int qlevels, int clevels, int fwd)
 {
 	int
-		NNE	=LOAD_P( 1, -2),
+	//	NNE	=LOAD_P( 1, -2),
 		NW	=LOAD_P(-1, -1),
 		N	=LOAD_P( 0, -1),
 		NE	=LOAD_P( 1, -1),
 		NEE	=LOAD_P( 2, -1),
-		NEEE	=LOAD_P( 3, -1),
-		W	=LOAD_P(-1,  0),
+	//	NEEE	=LOAD_P( 3, -1),
+		W	=LOAD_P(-1,  0);
 
-		eNW	=LOAD_E(-1, -1),
-		eN	=LOAD_E( 0, -1),
-		eNE	=LOAD_E( 1, -1),
-		eW	=LOAD_E(-1,  0);
+	//	eNW	=LOAD_E(-1, -1),
+	//	eN	=LOAD_E( 0, -1),
+	//	eNE	=LOAD_E( 1, -1),
+	//	eW	=LOAD_E(-1,  0);
+
+	(void)qlevels;
 
 	int pred=N+W-NW;
 	pred=MEDIAN3(N, W, pred);
@@ -148,7 +150,7 @@ static void pt2(ArithmeticCoder *ec, int *curr, int *buf, char *stats, int *kym,
 	//int ctx=eN+eW-eNW;
 	//ctx=MEDIAN3(eN, eW, eNW);
 	int qctx[_countof(ctx)], cstart[_countof(ctx)], cend[_countof(ctx)], alpha[_countof(ctx)];
-	for(int k=0;k<_countof(ctx);++k)
+	for(int k=0;k<(int)_countof(ctx);++k)
 	{
 		qctx[k]=ctx_quantize(ctx[k], clevels);
 		cstart[k]=ctx_dequantize_floor(qctx[k]-1, clevels);
@@ -185,7 +187,7 @@ static void pt2(ArithmeticCoder *ec, int *curr, int *buf, char *stats, int *kym,
 	{
 		char *curr_stats=stats+37*NCTX*(4*abac_idx+kc);
 		int p0=0;
-		for(int kp=0;kp<_countof(ctx);++kp)
+		for(int kp=0;kp<(int)_countof(ctx);++kp)
 		{
 			p0+=curr_stats[qctx[kp]]<<8;
 			p0+=((curr_stats[qctx[kp]-1]<<16)+(curr_stats[qctx[kp]+1]-curr_stats[qctx[kp]])*alpha[kp])>>8;
@@ -208,7 +210,7 @@ static void pt2(ArithmeticCoder *ec, int *curr, int *buf, char *stats, int *kym,
 		}
 
 		int p0_perf=(!bit<<8)-128;
-		for(int kp=0;kp<_countof(ctx);++kp)
+		for(int kp=0;kp<(int)_countof(ctx);++kp)
 		{
 			int update=curr_stats[qctx[kp]-1]+((p0_perf-curr_stats[qctx[kp]-1])*(0x10000-alpha[kp])>>20);
 			curr_stats[qctx[kp]-1]=CLAMP(-128, update, 127);
@@ -269,6 +271,7 @@ static void pt2(ArithmeticCoder *ec, int *curr, int *buf, char *stats, int *kym,
 	}
 	LOAD_P(0, 0)=*curr;
 	LOAD_E(0, 0)=error;
+	(void)ky;
 }
 #ifdef ENABLE_GUIDE
 static const Image *guide=0;
@@ -302,7 +305,7 @@ int t55_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	UPDATE_MAX(maxdepth, depths[1]);
 	UPDATE_MAX(maxdepth, depths[2]);
 	UPDATE_MAX(maxdepth, depths[3]);
-	int maxlevels=1<<maxdepth;
+	//int maxlevels=1<<maxdepth;
 	int *buf=(int*)malloc((image->iw+PADSIZE*2LL)*sizeof(int[4*PADSIZE*2*2]));//4 channels * (PARSIZE*2) rows * (pixels + errors)
 	char *stats=(char*)malloc(sizeof(char[4*128*37*NCTX]));//4 channels * 128 max tree size * 82 max qlevels in context * NCTX
 	if(!buf||!stats)
@@ -324,7 +327,7 @@ int t55_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	for(int ky=0, idx=0;ky<image->ih;++ky)
 	{
 		int kym[PADSIZE*2]={0};
-		for(int k=0;k<_countof(kym);++k)
+		for(int k=0;k<(int)_countof(kym);++k)
 		{
 			int y=ky-k;
 			MODVAR(y, y, PADSIZE*2);
@@ -394,7 +397,7 @@ int t55_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		if(fwd)
 		{
 			double usize=image_getBMPsize(image);
-			printf("csize %12lld  %7.3lf%%\n", list.nobj, 100.*list.nobj/usize);
+			printf("csize %12zd  %7.3lf%%\n", list.nobj, 100.*list.nobj/usize);
 		}
 		printf("%c %12.3lf sec\n", 'D'+fwd, t_start);
 	}

@@ -137,7 +137,7 @@ static void print_result(Result *res, const char *title, int width, int print_ti
 		CR2=(double)res->usize/res->csize2;
 	g_total_usize+=res->usize;
 	g_total_csize+=res->csize2;
-	printf("%-*s  %10lld  format %10lld %10.6lf%% D %12lf sec  test %10lld %10.6lf%% E %12lf D %12lf sec %s  all %10.6lf%%",
+	printf("%-*s  %10zd  format %10zd %10.6lf%% D %12lf sec  test %10zd %10.6lf%% E %12lf D %12lf sec %s  all %10.6lf%%",
 		width, title, res->usize,
 		res->csize1, 100./CR1, res->fdec,
 		res->csize2, 100./CR2, res->enc, res->dec, res->error?"ERROR":"SUCCESS",
@@ -169,6 +169,8 @@ static void print_result(Result *res, const char *title, int width, int print_ti
 		printf(" %-11s", a);
 	}
 #endif
+#else
+	(void)print_rct;
 #endif
 	if(print_timestamp)
 	{
@@ -237,6 +239,8 @@ static void process_file(ProcessCtx *ctx, ArrayHandle title, int maxlen, Image *
 		print_result(&result, (char*)threadargs->title->data, maxlen, 1, 1);
 #ifdef PRINT_RCT
 		curiosity_add(curiosity, &threadargs->curiosity);
+#else
+		(void)curiosity;
 #endif
 
 		array_clear(&ctx->threadargs);
@@ -367,7 +371,7 @@ static void batch_test_mt(const char *path, int nthreads)
 	if(processctx.results)
 	{
 		Result total={0};
-		for(int k=0;k<processctx.results->count;++k)
+		for(int k=0;k<(int)processctx.results->count;++k)
 		{
 			Result *result=(Result*)array_at(&processctx.results, k);
 
@@ -506,7 +510,7 @@ static void test_one(const char *fn, ptrdiff_t formatsize)
 		return;
 	}
 	double usize=image_getBMPsize(src);
-	printf("Opened in %lf sec  csize %lld  invCR %lf%%\n", t, formatsize, 100.*formatsize/usize);
+	printf("Opened in %lf sec  csize %zd  invCR %lf%%\n", t, formatsize, 100.*formatsize/usize);
 
 	//test_alphaVSbin(src);
 #if 1
@@ -721,10 +725,16 @@ ProgArgs args=
 //	"C:/Projects/datasets/dataset-LPCB/STA13782.PNG",//prefers RCT_NONE
 //	"C:/Projects/datasets/dataset-LPCB/STA13942.PNG",
 //	"C:/Projects/datasets/Screenshots/Screenshot 2023-03-12 181054.png",
+
+	0,
 #else
-	OP_COMPRESS, 1, 0,
-	"C:/Projects/datasets/space.ppm",
-	"C:/Projects/datasets/space.lsim",
+	OP_TESTFOLDER, 1, 0,
+	"/media/awm/Toshiba/ML/dataset-kodak",
+	0,
+
+//	OP_COMPRESS, 1, 0,
+//	"C:/Projects/datasets/space.ppm",
+//	"C:/Projects/datasets/space.lsim",
 
 //	OP_DECOMPRESS, 1, 0,
 //	"C:/Projects/datasets/dataset-kodak-ppm/kodim13.lsim",

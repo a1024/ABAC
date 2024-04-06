@@ -224,7 +224,7 @@ typedef struct ArithmeticCoderStruct
 #endif
 	};
 } ArithmeticCoder;
-static void ac_enc_init(ArithmeticCoder *ec,
+INLINE void ac_enc_init(ArithmeticCoder *ec,
 #ifdef EC_USE_ARRAY
 	ArrayHandle *arr
 #else
@@ -244,7 +244,7 @@ static void ac_enc_init(ArithmeticCoder *ec,
 	ec->list=list;
 #endif
 }
-static void ac_dec_init(ArithmeticCoder *ec, const unsigned char *start, unsigned const char *end)
+INLINE void ac_dec_init(ArithmeticCoder *ec, const unsigned char *start, unsigned const char *end)
 {
 	ec->lo=0;
 	ec->hi=0xFFFFFFFF;
@@ -262,7 +262,7 @@ static void ac_dec_init(ArithmeticCoder *ec, const unsigned char *start, unsigne
 	memcpy(&ec->code, ec->srcptr, 4);
 	ec->srcptr+=4;
 }
-static void ac_renorm(ArithmeticCoder *ec, unsigned lg_fmin)//one-time loopless renorm		this keeps hi & lo as far apart as possible from each other in the ALU
+INLINE void ac_renorm(ArithmeticCoder *ec, unsigned lg_fmin)//one-time loopless renorm		this keeps hi & lo as far apart as possible from each other in the ALU
 {
 	//((hi-lo)<<n_emit)*fmin/0x10000 should be >= 1, where fmin is the current smallest nonzero freq
 	//floor_log2(hi-lo)+n_emit+floor_log2(fmin)-16 >= 1
@@ -353,7 +353,7 @@ static void ac_renorm(ArithmeticCoder *ec, unsigned lg_fmin)//one-time loopless 
 		}
 	}
 }
-static void ac_enc_flush(ArithmeticCoder *ec)
+INLINE void ac_enc_flush(ArithmeticCoder *ec)
 {
 	ec->hi=ec->lo;//this will cause all remaining 32 lo bits to be written to the cache
 	ac_renorm(ec, 0x10000);
@@ -370,7 +370,7 @@ static void ac_enc_flush(ArithmeticCoder *ec)
 	}
 }
 
-static void ac_enc(ArithmeticCoder *ec, int sym, const unsigned *CDF, int nlevels, unsigned lg_fmin)//CDF is 16 bit
+INLINE void ac_enc(ArithmeticCoder *ec, int sym, const unsigned *CDF, int nlevels, unsigned lg_fmin)//CDF is 16 bit
 {
 	unsigned lo2, hi2;
 	int cdf_curr, cdf_next;
@@ -396,7 +396,7 @@ static void ac_enc(ArithmeticCoder *ec, int sym, const unsigned *CDF, int nlevel
 	ec->lo=lo2;
 	ec->hi=hi2-1;//must decrement hi because decoder fails when code == hi2
 }
-static int ac_dec(ArithmeticCoder *ec, const unsigned *CDF, int nlevels, unsigned lg_fmin)
+INLINE int ac_dec(ArithmeticCoder *ec, const unsigned *CDF, int nlevels, unsigned lg_fmin)
 {
 	unsigned lo2, hi2;
 	int sym=0;
@@ -452,7 +452,7 @@ static int ac_dec(ArithmeticCoder *ec, const unsigned *CDF, int nlevels, unsigne
 	return sym;
 }
 
-static void ac_enc15(ArithmeticCoder *ec, int sym, const unsigned short *CDF, int nlevels)//CDF is 15 bit
+INLINE void ac_enc15(ArithmeticCoder *ec, int sym, const unsigned short *CDF, int nlevels)//CDF is 15 bit
 {
 	unsigned lo2, hi2;
 	int cdf_curr, cdf_next;
@@ -478,7 +478,7 @@ static void ac_enc15(ArithmeticCoder *ec, int sym, const unsigned short *CDF, in
 	ec->lo=lo2;
 	ec->hi=hi2-1;//must decrement hi because decoder fails when code == hi2
 }
-static int ac_dec15(ArithmeticCoder *ec, const unsigned short *CDF, int nlevels)
+INLINE int ac_dec15(ArithmeticCoder *ec, const unsigned short *CDF, int nlevels)
 {
 	unsigned lo2, hi2;
 	int sym=0;
@@ -534,7 +534,7 @@ static int ac_dec15(ArithmeticCoder *ec, const unsigned short *CDF, int nlevels)
 	return sym;
 }
 
-static void ac_enc_bin(ArithmeticCoder *ec, unsigned short p0, int bit)
+INLINE void ac_enc_bin(ArithmeticCoder *ec, unsigned short p0, int bit)
 {
 	unsigned mid;
 	
@@ -552,7 +552,7 @@ static void ac_enc_bin(ArithmeticCoder *ec, unsigned short p0, int bit)
 	else
 		ec->hi=mid-1;//must decrement hi because decoder fails when code == hi2
 }
-static int ac_dec_bin(ArithmeticCoder *ec, unsigned short p0)//binary AC decoder doesn't do binary search
+INLINE int ac_dec_bin(ArithmeticCoder *ec, unsigned short p0)//binary AC decoder doesn't do binary search
 {
 	unsigned mid;
 
@@ -592,7 +592,7 @@ typedef struct ANSCoderStruct
 #endif
 	};
 } ANSCoder;
-static void ans_enc_init(ANSCoder *ec,
+INLINE void ans_enc_init(ANSCoder *ec,
 #ifdef EC_USE_ARRAY
 	ArrayHandle *arr
 #else
@@ -607,7 +607,7 @@ static void ans_enc_init(ANSCoder *ec,
 	ec->list=list;
 #endif
 }
-static void ans_dec_init(ANSCoder *ec, const unsigned char *start, const unsigned char *end)
+INLINE void ans_dec_init(ANSCoder *ec, const unsigned char *start, const unsigned char *end)
 {
 	ec->srcptr=end;
 	ec->srcstart=start;
@@ -617,7 +617,7 @@ static void ans_dec_init(ANSCoder *ec, const unsigned char *start, const unsigne
 		LOG_ERROR2("ANS buffer overflow");
 	memcpy(&ec->state, ec->srcptr, 4);
 }
-static void ans_enc_flush(ANSCoder *ec)
+INLINE void ans_enc_flush(ANSCoder *ec)
 {
 #ifdef EC_USE_ARRAY
 	ARRAY_APPEND(*ec->arr, &ec->state, 4, 1, 0);
@@ -626,7 +626,7 @@ static void ans_enc_flush(ANSCoder *ec)
 #endif
 }
 
-static void ans_enc(ANSCoder *ec, int sym, const unsigned *CDF, int nlevels)
+INLINE void ans_enc(ANSCoder *ec, int sym, const unsigned *CDF, int nlevels)
 {
 	int cdf, freq;
 	if(CDF)
@@ -647,7 +647,7 @@ static void ans_enc(ANSCoder *ec, int sym, const unsigned *CDF, int nlevels)
 	debug_enc_update(ec->state, cdf, freq, 0, 0, 0, 0, sym);
 	ec->state=ec->state/freq<<16|(cdf+ec->state%freq);//update
 }
-static int ans_dec(ANSCoder *ec, const unsigned *CDF, int nlevels)
+INLINE int ans_dec(ANSCoder *ec, const unsigned *CDF, int nlevels)
 {
 	unsigned c=(unsigned short)ec->state;
 	int sym=0;
@@ -697,7 +697,7 @@ static int ans_dec(ANSCoder *ec, const unsigned *CDF, int nlevels)
 	return sym;
 }
 
-static void ans_enc15(ANSCoder *ec, int sym, const unsigned short *CDF, int nlevels)
+INLINE void ans_enc15(ANSCoder *ec, int sym, const unsigned short *CDF, int nlevels)
 {
 	int cdf, freq;
 	if(CDF)
@@ -718,7 +718,7 @@ static void ans_enc15(ANSCoder *ec, int sym, const unsigned short *CDF, int nlev
 	debug_enc_update(ec->state, cdf, freq, 0, 0, 0, 0, sym);
 	ec->state=ec->state/freq<<16|(cdf+ec->state%freq);//update
 }
-static int ans_dec15(ANSCoder *ec, const unsigned short *CDF, int nlevels)
+INLINE int ans_dec15(ANSCoder *ec, const unsigned short *CDF, int nlevels)
 {
 	unsigned c=(unsigned short)ec->state;
 	int sym=0;
@@ -768,7 +768,7 @@ static int ans_dec15(ANSCoder *ec, const unsigned short *CDF, int nlevels)
 	return sym;
 }
 
-static void ans_enc_bin(ANSCoder *ec, unsigned short p0, int bit)
+INLINE void ans_enc_bin(ANSCoder *ec, unsigned short p0, int bit)
 {
 	int cdf=bit?p0:0, freq=bit?0x10000-p0:p0;
 	if((ec->state>>16)>=(unsigned)freq)//renorm
@@ -783,7 +783,7 @@ static void ans_enc_bin(ANSCoder *ec, unsigned short p0, int bit)
 	debug_enc_update(ec->state, cdf, freq, 0, 0, 0, 0, bit);
 	ec->state=ec->state/freq<<16|(cdf+ec->state%freq);//update
 }
-static int ans_dec_bin(ANSCoder *ec, unsigned short p0)
+INLINE int ans_dec_bin(ANSCoder *ec, unsigned short p0)
 {
 	unsigned c=(unsigned short)ec->state;
 	int bit=c>=p0;

@@ -7,6 +7,10 @@
 //#define J40_IMPLEMENTATION
 //#define J40_CONFIRM_THAT_THIS_IS_EXPERIMENTAL_AND_POTENTIALLY_UNSAFE
 //#include"j40.h"
+#ifndef _MSC_VER
+#include<byteswap.h>
+#define _byteswap_ushort bswap_16
+#endif
 #define STB_IMAGE_IMPLEMENTATION
 #include"stb_image.h"
 static const char file[]=__FILE__;
@@ -489,6 +493,7 @@ void calc_histogram(const int *buf, int iw, int ih, int kc, int x1, int x2, int 
 				++hist8[sym>>shift];
 		}
 	}
+	(void)ih;
 }
 double calc_entropy(const int *hist, int nlevels, int sum)//nlevels = 1<<current_depth
 {

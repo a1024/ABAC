@@ -14,8 +14,18 @@
 #else
 #include<tmmintrin.h>
 #endif
-#include<Windows.h>//threads
+#ifdef _MSC_VER
+#include<intrin.h>
+#include<Windows.h>
 #include<process.h>
+#define THREAD_CALL __stdcall
+typedef unsigned THREAD_RET;
+#else
+#include<x86intrin.h>
+#include<pthread.h>
+#define THREAD_CALL
+typedef void *THREAD_RET;
+#endif
 static const char file[]=__FILE__;
 
 //void calc_histogram(const unsigned char *buf, ptrdiff_t bytesize, ptrdiff_t stride, int *hist)
@@ -89,7 +99,7 @@ int compare_bufs_32(const int *b1, const int *b0, int iw, int ih, int nch, int c
 			if(loud)
 			{
 				ptrdiff_t idx=k/chstride, kx=idx%iw, ky=idx/iw;
-				printf("\n%s error XY (%5lld, %5lld) / %5d x %5d  b1 != b0\n", name, kx, ky, iw, ih);
+				printf("\n%s error XY (%5zd, %5zd) / %5d x %5d  b1 != b0\n", name, kx, ky, iw, ih);
 				for(int kc=0;kc<nch;++kc)
 					printf("C%d  0x%08X != 0x%08X    %d != %d\n",
 						kc, (unsigned)b1[k+kc], (unsigned)b0[k+kc], (unsigned)b1[k+kc], (unsigned)b0[k+kc]
@@ -119,7 +129,7 @@ int compare_bufs_uint8(const unsigned char *b1, const unsigned char *b0, int iw,
 			if(loud)
 			{
 				ptrdiff_t idx=k/bytestride, kx=idx%iw, ky=idx/iw;
-				printf("%s error XY (%5lld, %5lld) / %5d x %5d  b1 != b0\n", name, kx, ky, iw, ih);
+				printf("%s error XY (%5zd, %5zd) / %5d x %5d  b1 != b0\n", name, kx, ky, iw, ih);
 				for(int kc=0;kc<symbytes;++kc)
 					printf("C%d  0x%02X != 0x%02X    %d != %d\n", kc, (unsigned)b1[k+kc], (unsigned)b0[k+kc], (unsigned)b1[k+kc], (unsigned)b0[k+kc]);
 			}
@@ -143,7 +153,7 @@ void compare_bufs_ps(const float *b1, const float *b0, int iw, int ih, const cha
 		if(fabsf(b1[k]-b0[k])>1e-6)
 		{
 			ptrdiff_t kx=k%iw, ky=k/iw;
-			printf("%s error XY (%5lld, %5lld) / %5d x %5d  b1 != b0  %f != %f  error=%f\n", name, kx, ky, iw, ih, b1[k], b0[k], b1[k]-b0[k]);
+			printf("%s error XY (%5zd, %5zd) / %5d x %5d  b1 != b0  %f != %f  error=%f\n", name, kx, ky, iw, ih, b1[k], b0[k], b1[k]-b0[k]);
 			return;
 		}
 	}
@@ -249,7 +259,7 @@ void pack3_inv(char *buf, int res)
 		buf[k<<2|0]=r;
 		buf[k<<2|1]=g;
 		buf[k<<2|2]=b;
-		buf[k<<2|3]=0xFF;
+		buf[k<<2|3]=(char)0xFF;
 	}
 }
 int get_nch32(const int *buf, int res)//returns nch = {0 degenerate, 1 gray, 2 gray_alpha, 3, rgb, 4, rgb_alpha}

@@ -45,13 +45,15 @@ extern "C"
 
 #ifdef _MSC_VER
 #define	ALIGN(N) __declspec(align(N))
+#define INLINE static
+//#define sprintf_s snprintf
 #else
 #define	ALIGN(N) __attribute__((aligned(N)))
+#define INLINE static inline
+#define _countof(A) (sizeof(A)/sizeof(*(A)))
+#define _stricmp strcasecmp
 #endif
 
-#ifndef _MSC_VER
-#define sprintf_s snprintf
-#endif
 #define G_BUF_SIZE 4096
 extern char g_buf[G_BUF_SIZE];
 

@@ -13,8 +13,8 @@
 static const char file[]=__FILE__;
 
 
-	#define ENABLE_GUIDE
-	#define ENABLE_PREVIEW
+//	#define ENABLE_GUIDE
+//	#define ENABLE_PREVIEW
 
 
 //T53 Adaptive block
@@ -259,7 +259,7 @@ static void prep_block(Image const *src, int kx, int ky, T53RCTType *ret_rct, T5
 					}
 				}
 			}
-			if(!kt&&!kp||besterror>error)
+			if((!kt&&!kp)||besterror>error)
 				besterror=error, best_rct=kt, best_pred=kp;
 			//errors[T53_PRED_COUNT*kt+kp]=error;
 		}
@@ -342,7 +342,7 @@ int t53_encode(Image const *src, ArrayHandle *data, int loud)
 	double t_start=time_sec();
 	int nblocksx=(src->iw+BLOCKSIZE-1)/BLOCKSIZE;
 	int nblocksy=(src->ih+BLOCKSIZE-1)/BLOCKSIZE;
-	int nblocks=nblocksx*nblocksy;
+	//int nblocks=nblocksx*nblocksy;
 	unsigned short *hist=(unsigned short*)malloc(sizeof(short[(CDFSIZE+1)*4]));//cdfsize=127, last element is histsum
 	unsigned *CDF=(unsigned*)malloc(sizeof(int[(CDFSIZE+1)*4]));
 	//char *RCTs=(char*)malloc(nblocks*sizeof(char));
@@ -418,8 +418,8 @@ int t53_encode(Image const *src, ArrayHandle *data, int loud)
 		}
 	}
 #ifdef ENABLE_PREVIEW
-	save_mono8("preview_rct.PNG", preview_rct, nblocksx, nblocksy, 1);
-	save_mono8("preview_pred.PNG", preview_pred, nblocksx, nblocksy, 1);
+	save_mono8("preview_rct.PNG", (unsigned char*)preview_rct, nblocksx, nblocksy, 1);
+	save_mono8("preview_pred.PNG", (unsigned char*)preview_pred, nblocksx, nblocksy, 1);
 	free(preview_rct);
 	free(preview_pred);
 #endif

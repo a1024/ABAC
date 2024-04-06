@@ -189,6 +189,8 @@ static int predict(int N, int W, int NW, int NE, PredType kp)
 		pred=N+W-NW;
 		pred=MEDIAN3(N, W, pred);
 		break;
+	default:
+		break;
 	}
 	return pred;
 }
@@ -210,7 +212,7 @@ int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H-%M-%S");
 		printf("T54  %s  CWHD %d*%d*%d*%d/8\n", g_buf, nch, image->iw, image->ih, maxdepth);
 	}
-	int use_rct=1, use_pred=1;
+	//int use_rct=1, use_pred=1;
 	int *hist=(int*)malloc(sizeof(int[NCTX*82*4]));
 	unsigned *CDF=(unsigned*)malloc(sizeof(int[NCTX*82*4]));
 	int *pixels=(int*)malloc((image->iw+4LL)*sizeof(int[4*16]));//padded 4 rows * ({4 pixels, 4 errors} OR {RCT0, RCT1, RCT2, RCT3})
@@ -368,7 +370,7 @@ int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					for(int kc=0;kc<4;++kc)
 						printf("%16.3lf ", entropy[idx|kc]);
 					printf("%16.3lf", csize);
-					if(config==(idx>>2))
+					if((int)config==(idx>>2))
 						printf(" <- %lf sec", time_sec()-t_start);
 					printf("\n");
 				}
@@ -468,9 +470,9 @@ int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					N	=pixels[(kym[1]+kx+2+0)<<3|0|kc],
 					NE	=pixels[(kym[1]+kx+2+1)<<3|0|kc],
 					W	=pixels[(kym[0]+kx+2-1)<<3|0|kc],
-					eNW	=pixels[(kym[1]+kx+2-1)<<3|4|kc],
+				//	eNW	=pixels[(kym[1]+kx+2-1)<<3|4|kc],
 					eN	=pixels[(kym[1]+kx+2+0)<<3|4|kc],
-					eNE	=pixels[(kym[1]+kx+2+1)<<3|4|kc],
+				//	eNE	=pixels[(kym[1]+kx+2+1)<<3|4|kc],
 					eW	=pixels[(kym[0]+kx+2-1)<<3|4|kc];
 #ifndef SELECT_TRANSFORMS
 				int cgrad=N+W-NW-((eW+eN)>>7);
@@ -653,7 +655,7 @@ int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			for(int kc=0;kc<nch;++kc)
 				printf("C%d  %12.2lf  %12.2lf\n", kc, csizes[kc<<1|0]/8, csizes[kc<<1|1]/8);
 #endif
-			printf("csize %12lld  %7.3lf%%\n",
+			printf("csize %12zd  %7.3lf%%\n",
 #ifdef EC_USE_ARRAY
 				data[0]->count,
 #else

@@ -34,6 +34,7 @@
 #include<Windows.h>//QueryPerformance...
 #include<conio.h>
 #else
+#include<dirent.h>
 #define sprintf_s	snprintf
 #define vsprintf_s	vsnprintf
 #ifndef _HUGE
@@ -597,12 +598,18 @@ int timedelta2str(char *buf, size_t len, double secs)
 }
 int acme_strftime(char *buf, size_t len, const char *format)
 {
+#ifdef _MSC_VER
 	time_t tstamp;
 	struct tm tformat;
 
 	tstamp=time(0);
 	localtime_s(&tformat, &tstamp);
 	return (int)strftime(buf, len, format, &tformat);
+#elif defined __linux__
+	time_t tstamp=time(0);
+	struct tm *tformat=localtime(&tstamp);
+	return (int)strftime(buf, len, format, tformat);
+#endif
 }
 int print_bin8(int x)
 {
@@ -1987,7 +1994,7 @@ void        pqueue_buildheap(PQueueHandle *pq)
 	void *temp;
 
 	temp=malloc(pq[0]->esize);
-	for(size_t i=pq[0]->count/2-1;i>=0;--i)
+	for(ptrdiff_t i=pq[0]->count/2-1;i>=0;--i)
 		pqueue_heapifydown(pq, i, temp);
 	free(temp);
 }
@@ -2093,7 +2100,11 @@ ptrdiff_t get_filesize(const char *filename)//-1 not found,  0: not a file,  ...
 	int error=stat(filename, &info);
 	if(error)
 		return -1;
+#ifdef _MSC_VER
 	if((info.st_mode&S_IFMT)==S_IFREG)
+#elif defined __linux__
+	if(S_ISREG(info.st_mode))
+#endif
 		return info.st_size;
 	return 0;
 }
@@ -2161,15 +2172,23 @@ static const char* get_extension(const char *filename, ptrdiff_t len)//excludes 
 	return dot+1;
 #endif
 }
-void free_str(void *p)
+static void free_str(void *p)
 {
 	ArrayHandle *str;
 	
 	str=(ArrayHandle*)p;
 	array_free(str);
 }
+static int cmp_str(const void *p1, const void *p2)
+{
+	ArrayHandle const
+		*s1=(ArrayHandle const*)p1,
+		*s2=(ArrayHandle const*)p2;
+	return _stricmp((char*)s1[0]->data, (char*)s2[0]->data);
+}
 ArrayHandle get_filenames(const char *path, const char **extensions, int extCount, int fullyqualified)
 {
+#ifdef _MSC_VER
 	ArrayHandle searchpath, filename, filenames;
 	char c;
 	WIN32_FIND_DATAA data={0};
@@ -2210,8 +2229,9 @@ ArrayHandle get_filenames(const char *path, const char **extensions, int extCoun
 			if(found)
 			{
 				STR_ALLOC(filename, 0);
-				STR_APPEND(filename, searchpath->data, searchpath->count, 1);
-				STR_APPEND(filename, data.cFileName, strlen(data.cFileName), 1);
+				if(fullyqualified)
+					STR_APPEND(filename, searchpath->data, searchpath->count, 1);
+				STR_APPEND(filename, data.cFileName, len, 1);
 				ARRAY_APPEND(filenames, &filename, 1, 1, 0);
 			}
 		}
@@ -2219,6 +2239,45 @@ ArrayHandle get_filenames(const char *path, const char **extensions, int extCoun
 	success=FindClose(hSearch);
 	array_free(&searchpath);
 	return filenames;
+#elif defined __linux__
+	ArrayHandle searchpath, filename, filenames;
+	searchpath=filter_path(path, -1);
+	struct dirent *dir;
+	DIR *d=opendir((char*)searchpath->data);
+	if(!d)
+		return 0;
+	ARRAY_ALLOC(ArrayHandle, filenames, 0, 0, 0, free_str);
+	while((dir=readdir(d)))
+	{
+		if(dir->d_type==DT_REG)//regular file
+		{
+			const char *name=dir->d_name;
+			ptrdiff_t len=strlen(name);
+			const char *extension=get_extension(name, len);
+			int found=0;
+			for(int k=0;k<extCount;++k)
+			{
+				if(!acme_stricmp(extension, extensions[k]))
+				{
+					found=1;
+					break;
+				}
+			}
+			if(found)
+			{
+				STR_ALLOC(filename, 0);
+				if(fullyqualified)
+					STR_APPEND(filename, searchpath->data, searchpath->count, 1);
+				STR_APPEND(filename, name, len, 1);
+				ARRAY_APPEND(filenames, &filename, 1, 1, 0);
+			}
+		}
+	}
+	closedir(d);
+	array_free(&searchpath);
+	qsort(filenames->data, filenames->count, filenames->esize, cmp_str);
+	return filenames;
+#endif
 }
 
 ArrayHandle load_file(const char *filename, int bin, int pad, int erroronfail)
@@ -2233,20 +2292,30 @@ ArrayHandle load_file(const char *filename, int bin, int pad, int erroronfail)
 	{
 		if(erroronfail)
 		{
+#ifdef _MSC_VER
 			strerror_s(g_buf, G_BUF_SIZE, errno);
 			LOG_ERROR("Cannot open %s\n%s", filename, g_buf);
+#elif defined __linux__
+			LOG_ERROR("Cannot open %s\n%s", filename, strerror(errno));
+#endif
 		}
 		return 0;
 	}
+#ifdef _MSC_VER
 	fopen_s(&f, filename, mode);
-	//f=fopen(filename, "r");
-	//f=fopen(filename, "r, ccs=UTF-8");//gets converted to UTF-16 on Windows
+#elif defined __linux__
+	f=fopen(filename, mode);
+#endif
 	if(!f)
 	{
 		if(erroronfail)
 		{
+#ifdef _MSC_VER
 			strerror_s(g_buf, G_BUF_SIZE, errno);
 			LOG_ERROR("Cannot open %s\n%s", filename, g_buf);
+#elif defined __linux__
+			LOG_ERROR("Cannot open %s\n%s", filename, strerror(errno));
+#endif
 		}
 		return 0;
 	}
@@ -2263,17 +2332,21 @@ int save_file(const char *filename, const unsigned char *src, size_t srcSize, in
 	size_t bytesRead;
 	char mode[]={'w', is_bin?'b':0, 0};
 
+#ifdef _MSC_VER
 	fopen_s(&f, filename, mode);
+#elif defined __linux__
+	f=fopen(filename, mode);
+#endif
 	if(!f)
 	{
-		printf("Failed to save %s\n", filename);
+		//printf("Failed to save %s\n", filename);
 		return 0;
 	}
 	bytesRead=fwrite(src, 1, srcSize, f);
 	fclose(f);
 	if(is_bin&&bytesRead!=srcSize)
 	{
-		printf("Failed to save %s\n", filename);
+		//printf("Failed to save %s\n", filename);
 		return 0;
 	}
 	return 1;

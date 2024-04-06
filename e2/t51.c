@@ -290,7 +290,7 @@ static int quantize3(int x)
 	qx-=negmask;
 	return qx;
 }
-static const int (*quantize[])(int)=
+static int (*const quantize[])(int)=
 {
 	quantize0,
 	quantize0,
@@ -299,7 +299,7 @@ static const int (*quantize[])(int)=
 	quantize3,
 };
 #endif
-static ptrdiff_t t51_init(T51Ctx *pr, int iw, int ih, int nch, const char *depths, ArithmeticCoder *ec)//returns memory usage or 0 on failure
+static ptrdiff_t t51_init(T51Ctx *pr, int iw, int ih, int nch, const char *depths)//returns memory usage or 0 on failure
 {
 	PROF_START();
 	if(iw<1||ih<1||nch<1)
@@ -435,7 +435,7 @@ static void t51_nextrow(T51Ctx *pr, int ky)
 static void t51_getctx(T51Ctx *pr, int kc, int kx)
 {
 	PROF(OUTSIDE);
-	int idx=(pr->iw*pr->ky+kx)<<2|kc;
+	//int idx=(pr->iw*pr->ky+kx)<<2|kc;
 	pr->kc=kc;
 	pr->kx=kx;
 	//int NNNrow[9*4], NNrow[9*4], Nrow[9*4], currrow[4*4];
@@ -444,7 +444,7 @@ static void t51_getctx(T51Ctx *pr, int kc, int kx)
 	//memcpy(Nrow,		pr->pixels+((pr->kym[1]+pr->kx)<<2), sizeof(int[9*4]));
 	//memcpy(currrow,	pr->pixels+((pr->kym[0]+pr->kx)<<2), sizeof(int[4*4]));
 	int
-		*NNNrow	=pr->pixels+(((size_t)pr->kym[3]+pr->kx+PAD_SIZE)<<2),
+	//	*NNNrow	=pr->pixels+(((size_t)pr->kym[3]+pr->kx+PAD_SIZE)<<2),
 		*NNrow	=pr->pixels+(((size_t)pr->kym[2]+pr->kx+PAD_SIZE)<<2),
 		*Nrow	=pr->pixels+(((size_t)pr->kym[1]+pr->kx+PAD_SIZE)<<2),
 		*currrow=pr->pixels+(((size_t)pr->kym[0]+pr->kx+PAD_SIZE)<<2);
@@ -799,7 +799,7 @@ int t51_encode(Image const *src, ArrayHandle *data, int loud)
 	T51Ctx pr;
 	dlist_init(&list, 1, 1024, 0);
 	ac_enc_init(&ec, &list);
-	ptrdiff_t memusage=t51_init(&pr, src->iw, src->ih, nch, depths, &ec);
+	ptrdiff_t memusage=t51_init(&pr, src->iw, src->ih, nch, depths);
 	Image *im2=0;
 	image_copy(&im2, src);
 	if(!memusage||!im2)
@@ -906,7 +906,7 @@ int t51_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 	ArithmeticCoder ec;
 	T51Ctx pr;
 	ac_dec_init(&ec, data, data+srclen);
-	ptrdiff_t memusage=t51_init(&pr, dst->iw, dst->ih, nch, depths, &ec);
+	ptrdiff_t memusage=t51_init(&pr, dst->iw, dst->ih, nch, depths);
 	if(!memusage)
 	{
 		LOG_ERROR("Alloc error");
@@ -1167,7 +1167,7 @@ void test_alphaVSbin(Image const *src)
 		elapsed=time_sec()-elapsed;
 
 		double usize=image_getBMPsize(src);
-		printf("ALPHA %10lf sec  %.0lf -> %lld  invCR %6.2lf%%\n", elapsed, usize, list.nobj, 100.*list.nobj/usize);
+		printf("ALPHA %10lf sec  %.0lf -> %zd  invCR %6.2lf%%\n", elapsed, usize, list.nobj, 100.*list.nobj/usize);
 		dlist_clear(&list);
 		free(hist);
 		free(CDF);
@@ -1190,7 +1190,7 @@ void test_alphaVSbin(Image const *src)
 		DList list;
 		dlist_init(&list, 1, 0x10000, 0);
 		ac_enc_init(&ec, &list);
-		int prevW[3]={0};
+		//int prevW[3]={0};
 		for(int ky=0, idx=0;ky<src->ih;++ky)
 		{
 			for(int kx=0;kx<src->iw;++kx, ++idx)
@@ -1205,7 +1205,7 @@ void test_alphaVSbin(Image const *src)
 		elapsed=time_sec()-elapsed;
 
 		double usize=image_getBMPsize(src);
-		printf("BIN   %10lf sec  %.0lf -> %lld  invCR %6.2lf%%\n", elapsed, usize, list.nobj, 100.*list.nobj/usize);
+		printf("BIN   %10lf sec  %.0lf -> %zd  invCR %6.2lf%%\n", elapsed, usize, list.nobj, 100.*list.nobj/usize);
 		dlist_clear(&list);
 		free(stats);
 	}
