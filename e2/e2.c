@@ -26,10 +26,10 @@ static const char file[]=__FILE__;
 //	#define DSP_TEST
 
 
-#define CODECID     54
-#define CODECNAME "T54"
-#define ENCODE     t54_encode
-#define DECODE     t54_decode
+#define CODECID     47
+#define CODECNAME "T47"
+#define ENCODE     t47_encode
+#define DECODE     t47_decode
 
 #if CODECID==47
 	#define PRINT_RCT//comment when not applicable
