@@ -338,7 +338,7 @@ static void batch_test_mt(const char *path, int nthreads)
 	for(int k=0;k<(int)filenames->count;++k)
 	{
 		ArrayHandle *fn=(ArrayHandle*)array_at(&filenames, k);
-		size_t start=0, end=0;
+		int start=0, end=0;
 		get_filetitle((char*)fn[0]->data, (int)fn[0]->count, &start, &end);
 		ArrayHandle title;
 		STR_COPY(title, (char*)fn[0]->data+start, end-start);
@@ -555,7 +555,7 @@ static void test_one(const char *fn, ptrdiff_t formatsize)
 static void encode(const char *srcfn, const char *dstfn)
 {
 	printf("Encoding \"%s\"\n", srcfn);
-	size_t start=0, end=0;
+	int start=0, end=0;
 	get_filetitle(srcfn, -1, &start, &end);
 	//if(!_stricmp(srcfn+end, ".PPM"))
 	//{
@@ -585,7 +585,7 @@ static void encode(const char *srcfn, const char *dstfn)
 static void decode(const char *srcfn, const char *dstfn)
 {
 	printf("Decoding \"%s\"\n", srcfn);
-	size_t start=0, end=0;
+	int start=0, end=0;
 	get_filetitle(dstfn, -1, &start, &end);
 	//if(!_stricmp(dstfn+end, ".PPM"))
 	//{

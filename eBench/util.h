@@ -20,7 +20,7 @@
 #ifdef _MSC_VER
 #define _CRT_SECURE_NO_WARNINGS
 #endif
-#include<stddef.h>//for size_t
+#include<stddef.h>//size_t, ptrdiff_t
 #ifdef __cplusplus
 extern "C"
 {
@@ -35,7 +35,7 @@ extern "C"
 #define MINVAR(A, B) ((A)<(B)?(A):(B))
 #define MAXVAR(A, B) ((A)>(B)?(A):(B))
 #define CLAMP(LO, X, HI) ((X)>(LO)?(X)<(HI)?(X):(HI):(LO))
-#define MEDIAN3(A, B, C) (B<A?B<C?C<A?C:A:B:A<C?C<B?C:B:A)
+#define MEDIAN3(A, B, C) (B<A?B<C?C<A?C:A:B:A<C?C<B?C:B:A)//3 branches max
 #define MOVEOBJ(SRC, DST, SIZE) memcpy(DST, SRC, SIZE), memset(SRC, 0, SIZE)
 #define MODVAR(DST, SRC, N) DST=(SRC)%(N), DST+=(N)&-(DST<0)
 #define SHIFT_LEFT_SIGNED(X, SH) ((SH)<0?(X)>>-(SH):(X)<<(SH))
@@ -46,15 +46,17 @@ extern "C"
 #define MIX(V0, V1, X) ((V0)+((V1)-(V0))*(X))
 
 #ifdef _MSC_VER
-#define	ALIGN(N)	__declspec(align(N))
+#define	ALIGN(N) __declspec(align(N))
+#define INLINE static
+//#define sprintf_s snprintf
 #else
-#define	ALIGN(N)	__attribute__((aligned(N)))
+#define	ALIGN(N) __attribute__((aligned(N)))
+#define INLINE static inline
+#define _countof(A) (sizeof(A)/sizeof(*(A)))
+#define _stricmp strcasecmp
 #endif
 
-#ifndef _MSC_VER
-#define sprintf_s	snprintf
-#endif
-#define G_BUF_SIZE	4096
+#define G_BUF_SIZE 4096
 extern char g_buf[G_BUF_SIZE];
 
 void memfill(void *dst, const void *src, size_t dstbytes, size_t srcbytes);
@@ -73,7 +75,8 @@ typedef enum GetOptRetEnum
 } GetOptRet;
 int acme_getopt(int argc, char **argv, int *start, const char **keywords, int kw_count);//keywords[i]: shortform char, followed by longform null-terminated string, returns 
 
-int floor_log2(unsigned long long n);
+int floor_log2_p1(unsigned long long n);
+int floor_log2(unsigned long long n);//uses intrinsics and was patched to give -1 for zero input
 int floor_log2_32(unsigned n);
 int ceil_log2(unsigned long long n);
 int ceil_log2_32(unsigned n);
@@ -81,10 +84,9 @@ int floor_log10(double x);
 unsigned floor_sqrt(unsigned long long x);
 unsigned long long exp2_fix24(int x);
 int log2_fix24(unsigned long long x);
+#define POW_FIX24(BASE, EXP) exp2_fix24((int)((long long)(EXP)*log2_fix24(BASE)>>24))
 double power(double x, int y);
 double _10pow(int n);
-int minimum(int a, int b);
-int maximum(int a, int b);
 int acme_isdigit(char c, char base);
 
 double time_ms();
@@ -95,8 +97,8 @@ typedef struct TimeInfoStruct
 	int days, hours, mins;
 	float secs;
 } TimeInfo;
-void parsetimedelta(double ms, TimeInfo *ti);
-int timedelta2str(char *buf, size_t len, double ms);
+void parsetimedelta(double secs, TimeInfo *ti);
+int timedelta2str(char *buf, size_t len, double secs);
 int acme_strftime(char *buf, size_t len, const char *format);//prints current time to string
 
 int print_bin8(int x);
@@ -108,6 +110,7 @@ int log_error(const char *file, int line, int quit, const char *format, ...);//d
 #define LOG_ERROR(format, ...)   log_error(file, __LINE__, 1, format, ##__VA_ARGS__)
 #define LOG_ERROR2(format, ...)  log_error(__FILE__, __LINE__, 1, format, ##__VA_ARGS__)
 #define LOG_WARNING(format, ...) log_error(file, __LINE__, 0, format, ##__VA_ARGS__)
+#define ASSERT_MSG(SUCCESS, MSG, ...) ((SUCCESS)!=0||log_error(file, __LINE__, 1, MSG, ##__VA_ARGS__))
 int valid(const void *p);
 int pause();
 #ifdef _MSC_VER
@@ -136,6 +139,7 @@ typedef struct ArrayHeaderStruct//32 bytes on 64 bit system, or 16 bytes on 32 b
 #pragma warning(pop)
 #endif
 ArrayHandle array_construct(const void *src, size_t esize, size_t count, size_t rep, size_t pad, void (*destructor)(void*));
+size_t array_append(ArrayHandle *dst, const void *src, size_t esize, size_t count, size_t rep, size_t pad, void (*destructor)(void*));//arr can be 0, returns original array size
 ArrayHandle array_copy(ArrayHandle *arr);//shallow
 void  array_clear(ArrayHandle *arr);//keeps allocation
 void  array_free(ArrayHandle *arr);
@@ -145,13 +149,14 @@ void* array_insert(ArrayHandle *arr, size_t idx, const void *data, size_t count,
 void* array_erase(ArrayHandle *arr, size_t idx, size_t count);//does not reallocate
 void* array_replace(ArrayHandle *arr, size_t idx, size_t rem_count, const void *data, size_t ins_count, size_t rep, size_t pad);
 
+#define ARRAY_AT(ETYPE, ARR, IDX) (ETYPE*)((ARR)&&IDX<(ARR)->count?(ARR)->data+(IDX)*(ARR)->esize:LOG_ERROR("OOB"))
 void* array_at(ArrayHandle *arr, size_t idx);
 void* array_back(ArrayHandle *arr);
 
-int str_append(ArrayHandle *str, const char *format, ...);//requires C99, prints twice
+int str_append(ArrayHandle *str, const char *format, ...);//requires C99, calls vsnprintf twice
 
 #define ARRAY_ALLOC(ELEM_TYPE, ARR, DATA, COUNT, PAD, DESTRUCTOR) ARR=array_construct(DATA, sizeof(ELEM_TYPE), COUNT, 1, PAD, DESTRUCTOR)
-#define ARRAY_APPEND(ARR, DATA, COUNT, REP, PAD)  array_insert(&(ARR), (ARR)->count, DATA, COUNT, REP, PAD)
+#define ARRAY_APPEND(ARR, DATA, COUNT, REP, PAD) array_insert(&(ARR), (ARR)->count, DATA, COUNT, REP, PAD)
 #define ARRAY_APPEND_OFFSET(ARR, DATA, COUNT, REP, PAD) (((char*)array_insert(&(ARR), (ARR)->count, DATA, COUNT, REP, PAD)-(ARR)->data)/(ARR)->esize)
 //#define ARRAY_DATA(ARR) (ARR)->data
 //#define ARRAY_I(ARR, IDX) *(int*)array_at(&ARR, IDX)
@@ -227,7 +232,7 @@ int   dlist_it_dec(DListItHandle it);
 #endif
 
 
-//ordered MAP (implemented as a (self-balancing) red-black tree)
+//ordered MAP/SET (implemented as a (self-balancing) red-black tree)
 #if 1
 typedef struct RBNodeStruct
 {
@@ -354,7 +359,7 @@ void bitstring_print(BitstringHandle str);
 #endif
 
 
-//Max-heap-based priority queue
+//Priority Queue (Max-heap-based)
 #if 1
 typedef struct PQueueStruct
 {
@@ -408,12 +413,15 @@ ptrdiff_t get_filesize(const char *filename);//-1 not found,  0: folder (probabl
 int acme_stricmp(const char *a, const char *b);//case insensitive strcmp
 ptrdiff_t acme_strrchr(const char *str, ptrdiff_t len, char c);//find last occurrence, with known length for backward search
 ArrayHandle filter_path(const char *path, int len);//replaces back slashes with slashes, and adds trailing slash if missing, as ArrayHandle
+void get_filetitle(const char *fn, int len, int *idx_start, int *idx_end);//pass -1 for len if unknown
 ArrayHandle get_filenames(const char *path, const char **extensions, int extCount, int fullyqualified);//returns array of strings, extensions without period '.'
 
 ArrayHandle load_file(const char *filename, int bin, int pad, int erroronfail);
 int save_file(const char *filename, const unsigned char *src, size_t srcSize, int is_bin);
 
 ArrayHandle searchfor_file(const char *searchpath, const char *filetitle);
+
+int query_cpu_cores();
 
 	
 #ifdef __cplusplus

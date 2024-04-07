@@ -86,6 +86,11 @@ void memreverse(void *p, size_t count, size_t esize)
 	size_t totalsize=count*esize;
 	unsigned char *s1=(unsigned char*)p, *s2=s1+totalsize-esize;
 	void *temp=malloc(esize);
+	if(!temp)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
 	while(s1<s2)
 	{
 		memswap(s1, s2, esize, temp);
@@ -93,7 +98,7 @@ void memreverse(void *p, size_t count, size_t esize)
 	}
 	free(temp);
 }
-void memrotate(void *p, size_t byteoffset, size_t bytesize, void *temp)
+void memrotate(void *p, size_t byteoffset, size_t bytesize, void *temp)//temp buffer is min(byteoffset, bytesize-byteoffset)
 {
 	unsigned char *buf=(unsigned char*)p;
 
@@ -145,6 +150,11 @@ void isort(void *base, size_t count, size_t esize, int (*threeway)(const void*, 
 		return;
 
 	temp=malloc((count>>1)*esize);
+	if(!temp)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
 	for(k=1;k<count;++k)
 	{
 		size_t idx=0;
@@ -256,7 +266,7 @@ int floor_log2_32(unsigned n)
 	return logn;
 #else
 	//binary search
-#if 1
+#if 0
 	int	logn=-!n;
 	int	sh=(n>=1<<16)<<4;	logn+=sh, n>>=sh;
 		sh=(n>=1<< 8)<<3;	logn+=sh, n>>=sh;
@@ -267,7 +277,7 @@ int floor_log2_32(unsigned n)
 #endif
 
 	//https://github.com/Cyan4973/FiniteStateEntropy/blob/d41d8be8e7955787ce486b90708d7b8de53137bd/lib/bitstream.h#L187
-#if 0
+#if 1
 	static const int table[]=
 	{
 		 0,  9,  1, 10, 13, 21,  2, 29,
@@ -542,6 +552,26 @@ int acme_isdigit(char c, char base)
 	return 0;
 }
 
+double time_ms()
+{
+#ifdef _MSC_VER
+	static long long t0=0;
+	LARGE_INTEGER li;
+	double t;
+	QueryPerformanceCounter(&li);
+	if(!t0)
+		t0=li.QuadPart;
+	t=(double)(li.QuadPart-t0);
+	QueryPerformanceFrequency(&li);
+	t/=(double)li.QuadPart;
+	t*=1000;
+	return t;
+#else
+	struct timespec t;
+	clock_gettime(CLOCK_REALTIME, &t);//<time.h>
+	return t.tv_sec*1000+t.tv_nsec*1e-6;
+#endif
+}
 double time_sec()
 {
 #ifdef _MSC_VER
@@ -572,7 +602,7 @@ void parsetimedelta(double secs, TimeInfo *ti)
 	ti->mins=(int)floor(secs/60);
 	secs-=ti->mins*60;
 
-	ti->secs=(float)(secs);
+	ti->secs=(float)secs;
 }
 int timedelta2str(char *buf, size_t len, double secs)
 {
@@ -605,7 +635,7 @@ int acme_strftime(char *buf, size_t len, const char *format)
 	tstamp=time(0);
 	localtime_s(&tformat, &tstamp);
 	return (int)strftime(buf, len, format, &tformat);
-#elif defined __linux__
+#else
 	time_t tstamp=time(0);
 	struct tm *tformat=localtime(&tstamp);
 	return (int)strftime(buf, len, format, tformat);
@@ -976,10 +1006,19 @@ void dlist_init(DListHandle list, size_t objsize, size_t objpernode, void (*dest
 	list->destructor=destructor;
 }
 #define DLIST_COPY_NODE(DST, PREV, NEXT, SRC, PAYLOADSIZE)\
-	DST=(DNodeHandle)malloc(sizeof(DNodeHeader)+(PAYLOADSIZE)),\
-	DST->prev=PREV,\
-	DST->next=NEXT,\
-	memcpy(DST->data, SRC->data, PAYLOADSIZE)
+	do\
+	{\
+		DST=(DNodeHandle)malloc(sizeof(DNodeHeader)+(PAYLOADSIZE));\
+		if(!(DST))\
+		{\
+			LOG_ERROR("Alloc error");\
+			return;\
+		}\
+		DST->prev=PREV;\
+		DST->next=NEXT;\
+		memcpy(DST->data, SRC->data, PAYLOADSIZE);\
+	}\
+	while(0)
 void dlist_copy(DListHandle dst, DListHandle src)
 {
 	DNodeHandle it;
@@ -1074,7 +1113,10 @@ static void dlist_append_node(DListHandle list)
 
 	temp=(DNodeHandle)malloc(sizeof(DNodeHeader)+list->objpernode*list->objsize);
 	if(!temp)
-		PANIC();
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
 	temp->next=0;
 	if(list->nnodes)
 	{
@@ -1423,6 +1465,11 @@ RBNodeHandle* map_insert(MapHandle map, const void *key, int *found)
 		*found=0;
 
 	z=(RBNodeHandle)malloc(sizeof(RBNodeHeader)+map->esize);
+	if(!z)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
 	z->parent=y;
 	z->left=z->right=0;
 	z->is_red=1;
@@ -1509,18 +1556,16 @@ RBNodeHandle* map_insert(MapHandle map, const void *key, int *found)
 	++map->nnodes;
 	return get_node_addr(map, z);
 }
-#if 0
-static void rb_transplant(MapHandle map, RBNodeHandle u, RBNodeHandle v)
-{
-	if(!u->parent)
-		map->root=v;
-	else if(u==u->parent->left)
-		u->parent->left=v;
-	else
-		u->parent->right=v;
-	v->parent=u->parent;
-}
-#endif
+//static void rb_transplant(MapHandle map, RBNodeHandle u, RBNodeHandle v)
+//{
+//	if(!u->parent)
+//		map->root=v;
+//	else if(u==u->parent->left)
+//		u->parent->left=v;
+//	else
+//		u->parent->right=v;
+//	v->parent=u->parent;
+//}
 static RBNodeHandle tree_minimum(RBNodeHandle root)
 {
 	if(!root)
@@ -1557,7 +1602,7 @@ int  map_erase(MapHandle map, const void *data, RBNodeHandle node)
 		LOG_ERROR("map_erase() usage error: nullptr args");
 		return 0;
 	}
-	
+
 	leftmost=&map->root->left;
 	rightmost=&map->root->right;
 	y=z;
@@ -1752,6 +1797,11 @@ static SNodeHandle slist_alloc_node(SListHandle list, SNodeHandle prev, const vo
 
 	//allocate new node
 	temp=(SNodeHandle)malloc(sizeof(SNode)+list->esize);
+	if(!temp)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
 	temp->prev=prev;
 	if(data)
 		memcpy(temp->data, data, list->esize);
@@ -1842,6 +1892,11 @@ BitstringHandle bitstring_construct(const void *src, size_t bitCount, size_t bit
 	srcBytes=(bitCount+7)>>3;
 	cap=srcBytes+bytePad;
 	str=(BitstringHandle)malloc(sizeof(BitstringHeader)+cap);
+	if(!str)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
 	str->bitCount=bitCount;
 	str->byteCap=cap;
 
@@ -1993,7 +2048,14 @@ void        pqueue_buildheap(PQueueHandle *pq)
 {
 	void *temp;
 
+	if(pq[0]->count<2)
+		return;
 	temp=malloc(pq[0]->esize);
+	if(!temp)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
 	for(ptrdiff_t i=pq[0]->count/2-1;i>=0;--i)
 		pqueue_heapifydown(pq, i, temp);
 	free(temp);
@@ -2049,6 +2111,11 @@ void  pqueue_enqueue(PQueueHandle *pq, const void *src)//src cannot be nullptr
 	memcpy(pq[0]->data+start, src, pq[0]->esize);
 
 	temp=malloc(pq[0]->esize);
+	if(!temp)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
 	pqueue_heapifyup(pq, pq[0]->count-1, temp);
 	free(temp);
 }
@@ -2071,6 +2138,11 @@ void  pqueue_dequeue(PQueueHandle *pq)
 		pq[0]->destructor(pq[0]->data);
 
 	temp=malloc(pq[0]->esize);
+	if(!temp)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
 	memswap(pq[0]->data, pq[0]->data+(pq[0]->count-1)*pq[0]->esize, pq[0]->esize, temp);
 	--pq[0]->count;
 	pqueue_heapifydown(pq, 0, temp);
@@ -2100,9 +2172,9 @@ ptrdiff_t get_filesize(const char *filename)//-1 not found,  0: not a file,  ...
 	int error=stat(filename, &info);
 	if(error)
 		return -1;
-#ifdef _MSC_VER
+#if defined _MSC_VER || defined _WIN32
 	if((info.st_mode&S_IFMT)==S_IFREG)
-#elif defined __linux__
+#else
 	if(S_ISREG(info.st_mode))
 #endif
 		return info.st_size;
@@ -2142,7 +2214,7 @@ ArrayHandle filter_path(const char *path, int len)//replaces back slashes with s
 		STR_APPEND(path2, "/", 1, 1);
 	return path2;
 }
-void get_filetitle(const char *fn, int len, size_t *idx_start, size_t *idx_end)//pass -1 for len if unknown
+void get_filetitle(const char *fn, int len, int *idx_start, int *idx_end)//pass -1 for len if unknown
 {
 	int kpoint, kslash;
 	if(len<0)
@@ -2179,6 +2251,7 @@ static void free_str(void *p)
 	str=(ArrayHandle*)p;
 	array_free(str);
 }
+#ifdef __linux__
 static int cmp_str(const void *p1, const void *p2)
 {
 	ArrayHandle const
@@ -2186,9 +2259,10 @@ static int cmp_str(const void *p1, const void *p2)
 		*s2=(ArrayHandle const*)p2;
 	return _stricmp((char*)s1[0]->data, (char*)s2[0]->data);
 }
+#endif
 ArrayHandle get_filenames(const char *path, const char **extensions, int extCount, int fullyqualified)
 {
-#ifdef _MSC_VER
+#if defined _MSC_VER || defined _WIN32
 	ArrayHandle searchpath, filename, filenames;
 	char c;
 	WIN32_FIND_DATAA data={0};
@@ -2295,7 +2369,7 @@ ArrayHandle load_file(const char *filename, int bin, int pad, int erroronfail)
 #ifdef _MSC_VER
 			strerror_s(g_buf, G_BUF_SIZE, errno);
 			LOG_ERROR("Cannot open %s\n%s", filename, g_buf);
-#elif defined __linux__
+#else
 			LOG_ERROR("Cannot open %s\n%s", filename, strerror(errno));
 #endif
 		}
@@ -2303,7 +2377,7 @@ ArrayHandle load_file(const char *filename, int bin, int pad, int erroronfail)
 	}
 #ifdef _MSC_VER
 	fopen_s(&f, filename, mode);
-#elif defined __linux__
+#else
 	f=fopen(filename, mode);
 #endif
 	if(!f)
@@ -2313,7 +2387,7 @@ ArrayHandle load_file(const char *filename, int bin, int pad, int erroronfail)
 #ifdef _MSC_VER
 			strerror_s(g_buf, G_BUF_SIZE, errno);
 			LOG_ERROR("Cannot open %s\n%s", filename, g_buf);
-#elif defined __linux__
+#else
 			LOG_ERROR("Cannot open %s\n%s", filename, strerror(errno));
 #endif
 		}
@@ -2334,7 +2408,7 @@ int save_file(const char *filename, const unsigned char *src, size_t srcSize, in
 
 #ifdef _MSC_VER
 	fopen_s(&f, filename, mode);
-#elif defined __linux__
+#else
 	f=fopen(filename, mode);
 #endif
 	if(!f)

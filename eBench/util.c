@@ -1,5 +1,5 @@
 //util.c - Utilities implementation
-//Copyright (C) 2023  Ayman Wagih Mohsen
+//Copyright (C) 2023  Ayman Wagih Mohsen, unless source link provided
 //
 //This program is free software: you can redistribute it and/or modify
 //it under the terms of the GNU General Public License as published by
@@ -24,11 +24,17 @@
 #include<sys/stat.h>
 #include<errno.h>
 #include<time.h>
+#ifdef _MSC_VER
+#include<intrin.h>
+#else
+#include<unistd.h>
+#endif
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include<Windows.h>//QueryPerformance...
 #include<conio.h>
 #else
+#include<dirent.h>
 #define sprintf_s	snprintf
 #define vsprintf_s	vsnprintf
 #ifndef _HUGE
@@ -520,10 +526,10 @@ double power(double x, int y)
 double _10pow(int n)
 {
 	static double mask[616]={0};
-	int k;
 //	const double _ln10=log(10.);
 	if(!mask[308])
 	{
+		int k;
 		for(k=-308;k<308;++k)		//23.0
 			mask[k+308]=power(10., k);
 		//	mask[k+308]=exp(k*_ln10);//inaccurate
@@ -534,8 +540,6 @@ double _10pow(int n)
 		return _HUGE;
 	return mask[n+308];
 }
-int minimum(int a, int b){return a<b?a:b;}
-int maximum(int a, int b){return a>b?a:b;}
 int acme_isdigit(char c, char base)
 {
 	switch(base)
@@ -587,50 +591,55 @@ double time_sec()
 	return t.tv_sec+t.tv_nsec*1e-9;
 #endif
 }
-
-void parsetimedelta(double ms, TimeInfo *ti)
+void parsetimedelta(double secs, TimeInfo *ti)
 {
-	ti->days=(int)floor(ms/(1000*60*60*24));
-	ms-=ti->days*(1000*60*60*24);
+	ti->days=(int)floor(secs/(60*60*24));
+	secs-=ti->days*(60*60*24);
 
-	ti->hours=(int)floor(ms/(1000*60*60));
-	ms-=ti->hours*(1000*60*60);
+	ti->hours=(int)floor(secs/(60*60));
+	secs-=ti->hours*(60*60);
 
-	ti->mins=(int)floor(ms/(1000*60));
-	ms-=ti->mins*(1000*60);
+	ti->mins=(int)floor(secs/60);
+	secs-=ti->mins*60;
 
-	ti->secs=(float)(ms/1000);
+	ti->secs=(float)secs;
 }
-int timedelta2str(char *buf, size_t len, double ms)
+int timedelta2str(char *buf, size_t len, double secs)
 {
 	int printed;
 	TimeInfo ti;
 
-	parsetimedelta(ms, &ti);
+	parsetimedelta(secs, &ti);
 
 	printed=0;
 	if(buf)
 	{
 		if(ti.days)
-			printed+=snprintf(buf, len, "%dD-", ti.days);
+			printed+=snprintf(buf, len, "%02dD-", ti.days);
 		printed+=snprintf(buf, len, "%02d-%02d-%09.6lf", ti.hours, ti.mins, ti.secs);
 	}
 	else
 	{
 		if(ti.days)
-			printed+=printf("%dD-", ti.days);
+			printed+=printf("%02dD-", ti.days);
 		printed+=printf("%02d-%02d-%09.6lf", ti.hours, ti.mins, ti.secs);
 	}
 	return printed;
 }
 int acme_strftime(char *buf, size_t len, const char *format)
 {
+#ifdef _MSC_VER
 	time_t tstamp;
 	struct tm tformat;
 
 	tstamp=time(0);
 	localtime_s(&tformat, &tstamp);
 	return (int)strftime(buf, len, format, &tformat);
+#else
+	time_t tstamp=time(0);
+	struct tm *tformat=localtime(&tstamp);
+	return (int)strftime(buf, len, format, tformat);
+#endif
 }
 int print_bin8(int x)
 {
@@ -644,7 +653,7 @@ int print_bin8(int x)
 }
 int print_bin32(unsigned x)
 {
-	printf("0b");
+	//printf("0b");
 	for(int k=31;k>=0;--k)
 	{
 		int bit=x>>k&1;
@@ -971,6 +980,22 @@ int str_append(ArrayHandle *str, const char *format, ...)
 	str[0]->count+=reqlen;
 	va_end(args);
 	return (int)reqlen;
+}
+
+size_t array_append(ArrayHandle *dst, const void *src, size_t esize, size_t count, size_t rep, size_t pad, void (*destructor)(void*))//arr can be 0, returns original array size
+{
+	size_t dststart=0;
+	if(!*dst)
+		*dst=array_construct(src, esize, count, rep, pad, destructor);
+	else
+	{
+		dststart=dst[0]->count*dst[0]->esize;
+		if(dst[0]->esize!=esize)
+			LOG_ERROR("Array element size mismatch");
+		else
+			ARRAY_APPEND(*dst, src, count, rep, pad);
+	}
+	return dststart;
 }
 #endif
 
@@ -1323,7 +1348,7 @@ int   dlist_it_dec(DListItHandle it)
 }
 #endif
 
-//red-black tree map
+//map/set (red-black tree)
 #if 1
 void map_init(MapHandle map, size_t esize, MapCmpFn comparator, void (*destructor)(void*))
 {
@@ -1581,8 +1606,7 @@ int  map_erase(MapHandle map, const void *data, RBNodeHandle node)
 		LOG_ERROR("map_erase() usage error: nullptr args");
 		return 0;
 	}
-	
-	//root=&map->root->parent;
+
 	leftmost=&map->root->left;
 	rightmost=&map->root->right;
 	y=z;
@@ -2036,7 +2060,7 @@ void        pqueue_buildheap(PQueueHandle *pq)
 		LOG_ERROR("Alloc error");
 		return;
 	}
-	for(size_t i=pq[0]->count/2-1;i>=0;--i)
+	for(ptrdiff_t i=pq[0]->count/2-1;i>=0;--i)
 		pqueue_heapifydown(pq, i, temp);
 	free(temp);
 }
@@ -2152,7 +2176,11 @@ ptrdiff_t get_filesize(const char *filename)//-1 not found,  0: not a file,  ...
 	int error=stat(filename, &info);
 	if(error)
 		return -1;
+#if defined _MSC_VER || defined _WIN32
 	if((info.st_mode&S_IFMT)==S_IFREG)
+#else
+	if(S_ISREG(info.st_mode))
+#endif
 		return info.st_size;
 	return 0;
 }
@@ -2190,6 +2218,21 @@ ArrayHandle filter_path(const char *path, int len)//replaces back slashes with s
 		STR_APPEND(path2, "/", 1, 1);
 	return path2;
 }
+void get_filetitle(const char *fn, int len, int *idx_start, int *idx_end)//pass -1 for len if unknown
+{
+	int kpoint, kslash;
+	if(len<0)
+		len=(int)strlen(fn);
+	for(kpoint=(int)len-1;kpoint>=0&&fn[kpoint]!='.';--kpoint);
+	if(kpoint<0)
+		kpoint=len;
+	for(kslash=kpoint-1;kslash>=0&&fn[kslash]!='/'&&fn[kslash]!='\\';--kslash);
+	++kslash;
+	if(idx_start)
+		*idx_start=kslash;
+	if(idx_end)
+		*idx_end=kpoint;
+}
 static const char* get_extension(const char *filename, ptrdiff_t len)//excludes the dot
 {
 	ptrdiff_t idx;
@@ -2205,15 +2248,25 @@ static const char* get_extension(const char *filename, ptrdiff_t len)//excludes 
 	return dot+1;
 #endif
 }
-void	free_str(void *p)
+static void free_str(void *p)
 {
 	ArrayHandle *str;
 	
 	str=(ArrayHandle*)p;
 	array_free(str);
 }
+#ifdef __linux__
+static int cmp_str(const void *p1, const void *p2)
+{
+	ArrayHandle const
+		*s1=(ArrayHandle const*)p1,
+		*s2=(ArrayHandle const*)p2;
+	return _stricmp((char*)s1[0]->data, (char*)s2[0]->data);
+}
+#endif
 ArrayHandle get_filenames(const char *path, const char **extensions, int extCount, int fullyqualified)
 {
+#if defined _MSC_VER || defined _WIN32
 	ArrayHandle searchpath, filename, filenames;
 	char c;
 	WIN32_FIND_DATAA data={0};
@@ -2254,8 +2307,9 @@ ArrayHandle get_filenames(const char *path, const char **extensions, int extCoun
 			if(found)
 			{
 				STR_ALLOC(filename, 0);
-				STR_APPEND(filename, searchpath->data, searchpath->count, 1);
-				STR_APPEND(filename, data.cFileName, strlen(data.cFileName), 1);
+				if(fullyqualified)
+					STR_APPEND(filename, searchpath->data, searchpath->count, 1);
+				STR_APPEND(filename, data.cFileName, len, 1);
 				ARRAY_APPEND(filenames, &filename, 1, 1, 0);
 			}
 		}
@@ -2263,6 +2317,45 @@ ArrayHandle get_filenames(const char *path, const char **extensions, int extCoun
 	success=FindClose(hSearch);
 	array_free(&searchpath);
 	return filenames;
+#elif defined __linux__
+	ArrayHandle searchpath, filename, filenames;
+	searchpath=filter_path(path, -1);
+	struct dirent *dir;
+	DIR *d=opendir((char*)searchpath->data);
+	if(!d)
+		return 0;
+	ARRAY_ALLOC(ArrayHandle, filenames, 0, 0, 0, free_str);
+	while((dir=readdir(d)))
+	{
+		if(dir->d_type==DT_REG)//regular file
+		{
+			const char *name=dir->d_name;
+			ptrdiff_t len=strlen(name);
+			const char *extension=get_extension(name, len);
+			int found=0;
+			for(int k=0;k<extCount;++k)
+			{
+				if(!acme_stricmp(extension, extensions[k]))
+				{
+					found=1;
+					break;
+				}
+			}
+			if(found)
+			{
+				STR_ALLOC(filename, 0);
+				if(fullyqualified)
+					STR_APPEND(filename, searchpath->data, searchpath->count, 1);
+				STR_APPEND(filename, name, len, 1);
+				ARRAY_APPEND(filenames, &filename, 1, 1, 0);
+			}
+		}
+	}
+	closedir(d);
+	array_free(&searchpath);
+	qsort(filenames->data, filenames->count, filenames->esize, cmp_str);
+	return filenames;
+#endif
 }
 
 ArrayHandle load_file(const char *filename, int bin, int pad, int erroronfail)
@@ -2277,20 +2370,30 @@ ArrayHandle load_file(const char *filename, int bin, int pad, int erroronfail)
 	{
 		if(erroronfail)
 		{
+#ifdef _MSC_VER
 			strerror_s(g_buf, G_BUF_SIZE, errno);
 			LOG_ERROR("Cannot open %s\n%s", filename, g_buf);
+#else
+			LOG_ERROR("Cannot open %s\n%s", filename, strerror(errno));
+#endif
 		}
 		return 0;
 	}
+#ifdef _MSC_VER
 	fopen_s(&f, filename, mode);
-	//f=fopen(filename, "r");
-	//f=fopen(filename, "r, ccs=UTF-8");//gets converted to UTF-16 on Windows
+#else
+	f=fopen(filename, mode);
+#endif
 	if(!f)
 	{
 		if(erroronfail)
 		{
+#ifdef _MSC_VER
 			strerror_s(g_buf, G_BUF_SIZE, errno);
 			LOG_ERROR("Cannot open %s\n%s", filename, g_buf);
+#else
+			LOG_ERROR("Cannot open %s\n%s", filename, strerror(errno));
+#endif
 		}
 		return 0;
 	}
@@ -2307,17 +2410,21 @@ int save_file(const char *filename, const unsigned char *src, size_t srcSize, in
 	size_t bytesRead;
 	char mode[]={'w', is_bin?'b':0, 0};
 
+#ifdef _MSC_VER
 	fopen_s(&f, filename, mode);
+#else
+	f=fopen(filename, mode);
+#endif
 	if(!f)
 	{
-		printf("Failed to save %s\n", filename);
+		//printf("Failed to save %s\n", filename);
 		return 0;
 	}
 	bytesRead=fwrite(src, 1, srcSize, f);
 	fclose(f);
 	if(is_bin&&bytesRead!=srcSize)
 	{
-		printf("Failed to save %s\n", filename);
+		//printf("Failed to save %s\n", filename);
 		return 0;
 	}
 	return 1;
@@ -2338,4 +2445,15 @@ ArrayHandle searchfor_file(const char *searchpath, const char *filetitle)
 			array_free(&filename);
 	}
 	return filename;
+}
+
+int query_cpu_cores()
+{
+#ifdef _WIN32
+	SYSTEM_INFO info;
+	GetNativeSystemInfo(&info);
+	return info.dwNumberOfProcessors;
+#else
+	return sysconf(_SC_NPROCESSORS_ONLN);
+#endif
 }

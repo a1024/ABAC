@@ -605,7 +605,7 @@ int acme_strftime(char *buf, size_t len, const char *format)
 	tstamp=time(0);
 	localtime_s(&tformat, &tstamp);
 	return (int)strftime(buf, len, format, &tformat);
-#elif defined __linux__
+#else
 	time_t tstamp=time(0);
 	struct tm *tformat=localtime(&tstamp);
 	return (int)strftime(buf, len, format, tformat);
@@ -2100,9 +2100,9 @@ ptrdiff_t get_filesize(const char *filename)//-1 not found,  0: not a file,  ...
 	int error=stat(filename, &info);
 	if(error)
 		return -1;
-#ifdef _MSC_VER
+#if defined _MSC_VER || defined _WIN32
 	if((info.st_mode&S_IFMT)==S_IFREG)
-#elif defined __linux__
+#else
 	if(S_ISREG(info.st_mode))
 #endif
 		return info.st_size;
@@ -2179,6 +2179,7 @@ static void free_str(void *p)
 	str=(ArrayHandle*)p;
 	array_free(str);
 }
+#ifdef __linux__
 static int cmp_str(const void *p1, const void *p2)
 {
 	ArrayHandle const
@@ -2186,9 +2187,10 @@ static int cmp_str(const void *p1, const void *p2)
 		*s2=(ArrayHandle const*)p2;
 	return _stricmp((char*)s1[0]->data, (char*)s2[0]->data);
 }
+#endif
 ArrayHandle get_filenames(const char *path, const char **extensions, int extCount, int fullyqualified)
 {
-#ifdef _MSC_VER
+#if defined _MSC_VER || defined _WIN32
 	ArrayHandle searchpath, filename, filenames;
 	char c;
 	WIN32_FIND_DATAA data={0};
@@ -2295,7 +2297,7 @@ ArrayHandle load_file(const char *filename, int bin, int pad, int erroronfail)
 #ifdef _MSC_VER
 			strerror_s(g_buf, G_BUF_SIZE, errno);
 			LOG_ERROR("Cannot open %s\n%s", filename, g_buf);
-#elif defined __linux__
+#else
 			LOG_ERROR("Cannot open %s\n%s", filename, strerror(errno));
 #endif
 		}
@@ -2303,7 +2305,7 @@ ArrayHandle load_file(const char *filename, int bin, int pad, int erroronfail)
 	}
 #ifdef _MSC_VER
 	fopen_s(&f, filename, mode);
-#elif defined __linux__
+#else
 	f=fopen(filename, mode);
 #endif
 	if(!f)
@@ -2313,7 +2315,7 @@ ArrayHandle load_file(const char *filename, int bin, int pad, int erroronfail)
 #ifdef _MSC_VER
 			strerror_s(g_buf, G_BUF_SIZE, errno);
 			LOG_ERROR("Cannot open %s\n%s", filename, g_buf);
-#elif defined __linux__
+#else
 			LOG_ERROR("Cannot open %s\n%s", filename, strerror(errno));
 #endif
 		}
@@ -2334,7 +2336,7 @@ int save_file(const char *filename, const unsigned char *src, size_t srcSize, in
 
 #ifdef _MSC_VER
 	fopen_s(&f, filename, mode);
-#elif defined __linux__
+#else
 	f=fopen(filename, mode);
 #endif
 	if(!f)
