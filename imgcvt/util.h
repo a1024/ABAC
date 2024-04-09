@@ -36,12 +36,14 @@ extern "C"
 #define MAXVAR(A, B) ((A)>(B)?(A):(B))
 #define CLAMP(LO, X, HI) ((X)>(LO)?(X)<(HI)?(X):(HI):(LO))
 #define MEDIAN3(A, B, C) (B<A?B<C?C<A?C:A:B:A<C?C<B?C:B:A)//3 branches max
+#define MOVEOBJ(SRC, DST, SIZE) memcpy(DST, SRC, SIZE), memset(SRC, 0, SIZE)
 #define MODVAR(DST, SRC, N) DST=(SRC)%(N), DST+=(N)&-(DST<0)
 #define SHIFT_LEFT_SIGNED(X, SH) ((SH)<0?(X)>>-(SH):(X)<<(SH))
 #define SHIFT_RIGHT_SIGNED(X, SH) ((SH)<0?(X)<<-(SH):(X)>>(SH))
 #define UPDATE_MIN(M, X) if(M>X)M=X
 #define UPDATE_MAX(M, X) if(M<X)M=X
 #define THREEWAY(L, R) (((L)>(R))-((L)<(R)))
+#define MIX(V0, V1, X) ((V0)+((V1)-(V0))*(X))
 
 #ifdef _MSC_VER
 #define	ALIGN(N) __declspec(align(N))
@@ -87,6 +89,7 @@ double power(double x, int y);
 double _10pow(int n);
 int acme_isdigit(char c, char base);
 
+double time_ms();
 double time_sec();
 
 typedef struct TimeInfoStruct
@@ -115,7 +118,7 @@ int pause1();
 #endif
 int pause_abort(const char *file, int lineno, const char *extraInfo);
 #define PANIC() pause_abort(file, __LINE__, 0)
-#define ASSERT(SUCCESS)   ((SUCCESS)!=0||pause_abort(file, __LINE__, #SUCCESS))
+#define ASSERT(SUCCESS) ((SUCCESS)!=0||pause_abort(file, __LINE__, #SUCCESS))
 #define ASSERT_P(POINTER) (void)(valid(POINTER)||pause_abort(file, __LINE__, #POINTER " == 0"))
 
 
@@ -150,10 +153,11 @@ void* array_replace(ArrayHandle *arr, size_t idx, size_t rem_count, const void *
 void* array_at(ArrayHandle *arr, size_t idx);
 void* array_back(ArrayHandle *arr);
 
-int str_append(ArrayHandle *str, const char *format, ...);
+int str_append(ArrayHandle *str, const char *format, ...);//requires C99, calls vsnprintf twice
 
 #define ARRAY_ALLOC(ELEM_TYPE, ARR, DATA, COUNT, PAD, DESTRUCTOR) ARR=array_construct(DATA, sizeof(ELEM_TYPE), COUNT, 1, PAD, DESTRUCTOR)
 #define ARRAY_APPEND(ARR, DATA, COUNT, REP, PAD) array_insert(&(ARR), (ARR)->count, DATA, COUNT, REP, PAD)
+#define ARRAY_APPEND_OFFSET(ARR, DATA, COUNT, REP, PAD) (((char*)array_insert(&(ARR), (ARR)->count, DATA, COUNT, REP, PAD)-(ARR)->data)/(ARR)->esize)
 //#define ARRAY_DATA(ARR) (ARR)->data
 //#define ARRAY_I(ARR, IDX) *(int*)array_at(&ARR, IDX)
 //#define ARRAY_U(ARR, IDX) *(unsigned*)array_at(&ARR, IDX)
@@ -163,7 +167,7 @@ int str_append(ArrayHandle *str, const char *format, ...);
 //null terminated array
 #define ESTR_ALLOC(TYPE, STR, DATA, LEN) STR=array_construct(DATA, sizeof(TYPE), LEN, 1, 1, 0)
 #define STR_APPEND(STR, SRC, LEN, REP)   array_insert(&(STR), (STR)->count, SRC, LEN, REP, 1)
-#define STR_POPBACK(STR, COUNT)          array_erase(&(STR), (STR)->count-(COUNT), COUNT)
+#define STR_POPBACK(STR, COUNT)          memset(array_erase(&(STR), (STR)->count-(COUNT), COUNT), 0, (STR)->esize)
 #define STR_FIT(STR) array_fit(&STR, 1)
 #define ESTR_AT(TYPE, STR, IDX) *(TYPE*)array_at(&(STR), IDX)
 
