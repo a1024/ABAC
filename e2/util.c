@@ -262,6 +262,8 @@ int floor_log2_32(unsigned n)
 	logn=success?logn:-1;
 	return logn;
 #elif defined __GNUC__
+	if(!n)
+		return -1;
 	int logn=31-__builtin_clz(n);
 	return logn;
 #else
@@ -684,7 +686,7 @@ int log_error(const char *file, int line, int quit, const char *format, ...)
 	int printed=sprintf_s(latest_error_msg, G_BUF_SIZE, "\n%s(%d): ", file+start, line);
 	va_list args;
 	va_start(args, format);
-	printed+=vsprintf_s(latest_error_msg+printed, G_BUF_SIZE-printed, format, args);
+	printed+=vsprintf_s(latest_error_msg+printed, G_BUF_SIZE-printed-1, format, args);
 	va_end(args);
 
 	if(firsttime)
