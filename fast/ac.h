@@ -13,9 +13,9 @@ extern "C"
 //	#define AC_VALIDATE
 
 #ifdef AC_VALIDATE
-void    acval_enc(int sym, int cdf, int freq, unsigned long long lo1, unsigned long long hi1, unsigned long long lo2, unsigned long long hi2, unsigned long long cache, int nbits);
-void    acval_dec(int sym, int cdf, int freq, unsigned long long lo1, unsigned long long hi1, unsigned long long lo2, unsigned long long hi2, unsigned long long cache, int nbits, unsigned long long code);
-void    acval_dump();
+void acval_enc(int sym, int cdf, int freq, unsigned long long lo1, unsigned long long hi1, unsigned long long lo2, unsigned long long hi2, unsigned long long cache, int nbits);
+void acval_dec(int sym, int cdf, int freq, unsigned long long lo1, unsigned long long hi1, unsigned long long lo2, unsigned long long hi2, unsigned long long cache, int nbits, unsigned long long code);
+void acval_dump();
 #ifdef AC_IMPLEMENTATION
 typedef struct ACVALStruct
 {
@@ -40,19 +40,22 @@ void acval_enc(int sym, int cdf, int freq, unsigned long long lo1, unsigned long
 		nbits,
 		sym, cdf, freq,
 	};
+	if(lo1>>48||hi1>>48||lo2>>48||hi2>>48)
+		LOG_ERROR2("");
 	if(!acval)
 		ARRAY_ALLOC(ACVAL, acval, 0, 0, 0, 0);
 	ARRAY_APPEND(acval, &val, 1, 1, 0);
 }
 void acval_print(int idx, ACVAL const *p, int dec)
 {
-	printf("%4d sym %03X cdf %04X freq %04X range %012llX~%012llX->%012llX~%012llX cache %016llX nbits %2d",
-		idx, p->sym, p->cdf, p->freq, p->lo1, p->hi1, p->lo2, p->hi2, p->cache, p->nbits
+	printf("%9d sym %03X cdf %04X freq %04X range %012llX~%012llX:%012llX->%012llX~%012llX:%012llX cache %016llX nbits %2d",
+		idx, p->sym, p->cdf, p->freq, p->lo1, p->hi1, p->hi1-p->lo1, p->lo2, p->hi2, p->hi2-p->lo2, p->cache, p->nbits
+	//	idx, p->sym, p->cdf, p->freq, p->lo1, p->hi1, p->lo2, p->hi2, p->cache, p->nbits
 	);
 	if(dec)
 	{
 		printf(" code %012llX ", p->code);
-		print_binn(p->code, 48);
+		//print_binn(p->code, 48);
 	}
 	printf("\n");
 }
@@ -97,7 +100,9 @@ void acval_dec(int sym, int cdf, int freq, unsigned long long lo1, unsigned long
 		LOG_ERROR2("AC validation index error");
 
 	val=(ACVAL*)array_at(&acval, acval_idx);
-	if(sym!=val->sym||cdf!=val->cdf||freq!=val->freq||lo1!=val->lo1||hi1!=val->hi1||lo2!=val->lo2||hi1!=val->hi1)
+	if(lo1>>48||hi1>>48||lo2>>48||hi2>>48)
+		LOG_ERROR2("");
+	if(sym!=val->sym||cdf!=val->cdf||freq!=val->freq||lo1!=val->lo1||hi1!=val->hi1||lo2!=val->lo2||hi2!=val->hi2)
 	{
 		acval_dump();
 		LOG_ERROR2("AC validation error");
@@ -190,8 +195,11 @@ void debug_dec_update(unsigned state, unsigned cdf, unsigned freq, int kx, int k
 typedef struct ArithmeticCoderStruct
 {
 	unsigned long long low, range;
+#ifndef DISABLE_CACHE
 	unsigned long long cache;//cache is read/written MSB->LSB
 	int nbits;//enc: number of free bits in cache,  dec: number of unread bits in cache
+	//int cidx;//number of renorms remaining in cache before it gets updated
+#endif
 	int is_enc;
 	union
 	{
@@ -215,10 +223,15 @@ INLINE void ac_enc_init(ArithmeticCoder *ec,
 #endif
 )
 {
+	memset(ec, 0, sizeof(*ec));
 	ec->low=0;
 	ec->range=~0LLU>>PROB_BITS;
+	//ec->range=~0LLU>>(PROB_BITS<<1);
+#ifndef DISABLE_CACHE
 	ec->cache=0;
-	ec->nbits=64;
+	ec->nbits=sizeof(ec->low)<<3;
+	//ec->cidx=4;
+#endif
 	ec->is_enc=1;
 #ifdef EC_USE_ARRAY
 	array_append(arr, 0, 1, 0, 0, 0, 0);
@@ -229,14 +242,20 @@ INLINE void ac_enc_init(ArithmeticCoder *ec,
 }
 INLINE void ac_dec_init(ArithmeticCoder *ec, const unsigned char *start, unsigned const char *end)
 {
+	memset(ec, 0, sizeof(*ec));
 	ec->low=0;
 	ec->range=~0LLU>>PROB_BITS;
+	//ec->range=~0LLU>>(PROB_BITS<<1);
+#ifndef DISABLE_CACHE
 	ec->cache=0;
 	ec->nbits=PROB_BITS;
+	//ec->cidx=1;
+#endif
 	ec->is_enc=0;
 	ec->srcptr=start;
 	ec->srcend=end;
-
+	
+#ifndef DISABLE_CACHE
 	if(ec->srcptr+8>ec->srcend)
 	{
 		LOG_ERROR2("buffer overflow");
@@ -245,10 +264,29 @@ INLINE void ac_dec_init(ArithmeticCoder *ec, const unsigned char *start, unsigne
 	memcpy(&ec->cache, ec->srcptr, 8);
 	ec->srcptr+=8;
 	ec->code=ec->cache>>PROB_BITS;//leave PROB_BITS bits in cache
+#else
+	if(ec->srcptr+6>ec->srcend)
+	{
+		LOG_ERROR2("buffer overflow");
+		return;
+	}
+	memcpy(&ec->code, ec->srcptr, 2);
+	ec->srcptr+=2;
+	ec->code<<=16;
+	memcpy(&ec->code, ec->srcptr, 2);
+	ec->srcptr+=2;
+	ec->code<<=16;
+	memcpy(&ec->code, ec->srcptr, 2);
+	ec->srcptr+=2;
+#endif
 }
 INLINE void ac_enc_renorm(ArithmeticCoder *ec)//fast renorm by F. Rubin 1979
 {
+#ifndef DISABLE_CACHE
 	if(ec->nbits<PROB_BITS)
+	//if(ec->cidx)
+	//	--ec->cidx;
+	//else
 	{
 #ifdef EC_USE_ARRAY
 		array_append(ec->arr, &ec->cache, 1, 8, 1, 0, 0);
@@ -256,25 +294,45 @@ INLINE void ac_enc_renorm(ArithmeticCoder *ec)//fast renorm by F. Rubin 1979
 		dlist_push_back(ec->list, &ec->cache, 8);
 #endif
 		ec->nbits=sizeof(ec->low)<<3;
+		//ec->cidx=3;
 		ec->cache=0;
 	}
+	//((unsigned short*)&ec->cache)[ec->cidx]=((unsigned short*)&ec->low)[2];
+	//((unsigned short*)&ec->range)[1]=((unsigned short*)&ec->range)[0];
+	//((unsigned short*)&ec->low)[2]=((unsigned short*)&ec->low)[1];
+	//((unsigned short*)&ec->range)[0]=~0;
+	//((unsigned short*)&ec->low)[1]=0;
+#if 1
 	ec->nbits-=PROB_BITS;
+	ec->range<<=PROB_BITS;
 	ec->cache|=(ec->low>>((sizeof(ec->low)<<3)-PROB_BITS*2))<<ec->nbits;//append top PROB_BITS bits of 'low' to cache
-
+	ec->low<<=PROB_BITS;
+	ec->range|=(1LL<<PROB_BITS)-1;
+	//ec->range&=~0LLU>>PROB_BITS;//X
+	ec->low&=~0LLU>>PROB_BITS;
+#endif
+#else
+#ifdef EC_USE_ARRAY
+	array_append(ec->arr, (unsigned short*)&ec->low+2, 1, 2, 1, 0, 0);
+#else
+	dlist_push_back(ec->list, (unsigned short*)&ec->low+2, 2);
+#endif
 	ec->range<<=PROB_BITS;
 	ec->low<<=PROB_BITS;
-
 	ec->range|=(1LL<<PROB_BITS)-1;
-
 	ec->low&=~0LLU>>PROB_BITS;
-	ec->range&=~0LLU>>PROB_BITS;
+#endif
 
 	if(ec->low+ec->range>(~0LLU>>PROB_BITS))//clamp hi to register size after renorm
 		ec->range=(~0LLU>>PROB_BITS)-ec->low;
 }
 INLINE void ac_dec_renorm(ArithmeticCoder *ec)//fast renorm by F. Rubin 1979
 {
+#ifndef DISABLE_CACHE
 	if(ec->nbits<PROB_BITS)
+	//if(ec->cidx)
+	//	--ec->cidx;
+	//else
 	{
 		if(ec->srcptr+8>ec->srcend)
 		{
@@ -286,27 +344,52 @@ INLINE void ac_dec_renorm(ArithmeticCoder *ec)//fast renorm by F. Rubin 1979
 			return;
 		}
 		ec->nbits=sizeof(ec->low)<<3;
+		//ec->cidx=3;
 		memcpy(&ec->cache, ec->srcptr, 8);
 		ec->srcptr+=8;
 	}
+	//((unsigned short*)&ec->range)[1]=((unsigned short*)&ec->range)[0];
+	//((unsigned short*)&ec->low)[2]=((unsigned short*)&ec->low)[1];
+	//((unsigned short*)&ec->range)[0]=~0;
+	//((unsigned short*)&ec->code)[0]=((unsigned short*)&ec->cache)[ec->cidx];
+	//((unsigned short*)&ec->low)[1]=0;
+#if 1
 	ec->nbits-=PROB_BITS;
-
 	ec->range<<=PROB_BITS;
 	ec->low<<=PROB_BITS;
 	ec->code<<=PROB_BITS;
-
 	ec->range|=(1LL<<PROB_BITS)-1;
 	ec->code|=ec->cache>>ec->nbits&((1LL<<PROB_BITS)-1);
-
 	ec->low&=~0LLU>>PROB_BITS;
-	ec->range&=~0LLU>>PROB_BITS;
+	//ec->range&=~0LLU>>PROB_BITS;//X
 	ec->code&=~0LLU>>PROB_BITS;
+#endif
+#else
+	if(ec->srcptr+2>ec->srcend)
+	{
+#ifdef AC_VALIDATE
+		printf("buffer overflow\n");
+		acval_dump();
+#endif
+		LOG_ERROR2("buffer overflow");
+		return;
+	}
+	ec->code<<=PROB_BITS;
+	ec->range<<=PROB_BITS;
+	ec->low<<=PROB_BITS;
+	ec->range|=(1LL<<PROB_BITS)-1;
+	memcpy(&ec->code, ec->srcptr, 2);
+	ec->srcptr+=2;
+	ec->low&=~0LLU>>PROB_BITS;
+	ec->code&=~0LLU>>PROB_BITS;
+#endif
 
 	if(ec->low+ec->range>(~0LLU>>PROB_BITS))//clamp hi to register size after renorm
 		ec->range=(~0LLU>>PROB_BITS)-ec->low;
 }
 INLINE void ac_enc_flush(ArithmeticCoder *ec)
 {
+#ifndef DISABLE_CACHE
 	ac_enc_renorm(ec);
 	ac_enc_renorm(ec);
 	ac_enc_renorm(ec);
@@ -315,45 +398,63 @@ INLINE void ac_enc_flush(ArithmeticCoder *ec)
 #else
 	dlist_push_back(ec->list, &ec->cache, 8);
 #endif
+#else
+#ifdef EC_USE_ARRAY
+	array_append(ec->arr, (unsigned short*)&ec->low+2, 1, 2, 1, 0, 0);
+	array_append(ec->arr, (unsigned short*)&ec->low+1, 1, 2, 1, 0, 0);
+	array_append(ec->arr, (unsigned short*)&ec->low+0, 1, 2, 1, 0, 0);
+#else
+	dlist_push_back(ec->list, (unsigned short*)&ec->low+2, 2);
+	dlist_push_back(ec->list, (unsigned short*)&ec->low+1, 2);
+	dlist_push_back(ec->list, (unsigned short*)&ec->low+0, 2);
+#endif
+#endif
 }
 
 INLINE void ac_enc(ArithmeticCoder *ec, int sym, const unsigned *CDF, int nlevels)//CDF is 16 bit
 {
-	unsigned long long lo2, hi2;
-	unsigned cdf_curr, cdf_next;
-	
-	cdf_curr=CDF[sym];
-	cdf_next=CDF[sym+1];
+	unsigned cdf=CDF[sym];
+	int freq=CDF[sym+1]-cdf;
 #ifdef AC_VALIDATE
-	if(cdf_curr>=cdf_next)
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if(freq<=0)
 		LOG_ERROR2("ZPS");
+	if(cdf>0x10000||cdf+freq>0x10000)
+		LOG_ERROR2("");
+	if(ec->range==~0LLU)
+		LOG_ERROR2("");
 #endif
-	//lo2=ec->lo+((ec->hi-ec->lo)>>16)*cdf_curr;//X
-	//hi2=ec->lo+((ec->hi-ec->lo)>>16)*cdf_next;
-	lo2=ec->low+(ec->range*cdf_curr>>16);
-	hi2=ec->low+(ec->range*cdf_next>>16);
-	acval_enc(sym, cdf_curr, cdf_next-cdf_curr, ec->low, ec->low+ec->range, lo2, hi2, ec->cache, ec->nbits);//
-	ec->low=lo2;
-	ec->range=hi2-1-lo2;//must decrement hi because decoder fails when code == hi2
-	
-	if(ec->range<(1LL<<PROB_BITS))
+	ec->low+=ec->range*cdf>>16;
+	ec->range*=freq;
+	ec->range>>=16;
+	--ec->range;//must decrement hi because decoder fails when code == hi2
+	while(ec->range<(1LL<<PROB_BITS))//only when freq=1 -> range=0, this loop runs twice
 		ac_enc_renorm(ec);
+	acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->nbits);//
+	//acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->cidx);//
 }
 INLINE int ac_dec(ArithmeticCoder *ec, const unsigned *CDF, int nlevels)
 {
-	unsigned long long lo2, hi2;
-	unsigned cdf_curr, cdf_next;
+	unsigned cdf;
+	int freq;
 	int sym=0;
 	
+#ifdef LINEAR_SEARCH
+	unsigned long long range=ec->code-ec->low;
+	//range=((range<<16)+(ec->range>>1))/ec->range;
+	//for(;sym<nlevels&&CDF[sym]<=range;++sym);
+	for(;sym<nlevels&&(ec->range*CDF[sym]>>16)<=range;++sym);
+	--sym;
+#else
 	int L=0, R=nlevels-1, found=0;
-	unsigned long long code2;
+	unsigned long long range=ec->code-ec->low, r2;
 	while(L<=R)//binary search		lg(nlevels) multiplications per symbol
 	{
 		sym=(L+R)>>1;
-		code2=ec->low+(ec->range*CDF[sym]>>16);
-		if(code2<ec->code)
+		r2=ec->range*CDF[sym]>>16;
+		if(r2<range)
 			L=sym+1;
-		else if(code2>ec->code)
+		else if(r2>range)
 			R=sym-1;
 		else
 		{
@@ -365,77 +466,73 @@ INLINE int ac_dec(ArithmeticCoder *ec, const unsigned *CDF, int nlevels)
 		for(;sym<nlevels-1&&ec->low+(ec->range*CDF[sym+1]>>16)==ec->code;++sym);
 	else
 		sym=L+(L<nlevels&&ec->low+(ec->range*CDF[sym+1]>>16)<ec->code)-(L!=0);
-	cdf_curr=CDF[sym];
-	cdf_next=CDF[sym+1];
+#endif
+
+	cdf=CDF[sym];
+	freq=CDF[sym+1]-cdf;
 #ifdef AC_VALIDATE
-	if(cdf_curr>=cdf_next)
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
 		LOG_ERROR2("ZPS");
 #endif
-	//lo2=ec->lo+((ec->hi-ec->lo)>>16)*cdf_curr;//X
-	//hi2=ec->lo+((ec->hi-ec->lo)>>16)*cdf_next;
-	lo2=ec->low+(ec->range*cdf_curr>>16);
-	hi2=ec->low+(ec->range*cdf_next>>16);
-	acval_dec(sym, cdf_curr, cdf_next-cdf_curr, ec->low, ec->low+ec->range, lo2, hi2, ec->cache, ec->nbits, ec->code);//
-	ec->low=lo2;
-	ec->range=hi2-1-lo2;//must decrement hi because decoder fails when code == hi2
-	
-	if(ec->range<(1LL<<PROB_BITS))
+	ec->low+=ec->range*cdf>>16;
+	ec->range*=freq;
+	ec->range>>=16;
+	--ec->range;//must decrement hi because decoder fails when code == hi2
+	while(ec->range<(1LL<<PROB_BITS))
 		ac_dec_renorm(ec);
+	acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->nbits, ec->code);//
+	//acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->cidx, ec->code);//
 	return sym;
 }
 
 INLINE void ac_enc_bypass(ArithmeticCoder *ec, int sym, int nlevels)//CDF is 16 bit
 {
-	unsigned long long lo2, hi2;
-	unsigned cdf_curr, cdf_next;
-	
-	cdf_curr=(sym<<16)/nlevels;
-	cdf_next=((sym+1)<<16)/nlevels;
+	unsigned cdf=(sym<<16)/nlevels;
+	int freq=((sym+1)<<16)/nlevels-cdf;
 #ifdef AC_VALIDATE
-	if(cdf_curr>=cdf_next)
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if(freq<=0)
 		LOG_ERROR2("ZPS");
 #endif
-	//lo2=ec->lo+((ec->hi-ec->lo)>>16)*cdf_curr;//X
-	//hi2=ec->lo+((ec->hi-ec->lo)>>16)*cdf_next;
-	lo2=ec->low+(ec->range*cdf_curr>>16);
-	hi2=ec->low+(ec->range*cdf_next>>16);
-	acval_enc(sym, cdf_curr, cdf_next-cdf_curr, ec->low, ec->low+ec->range, lo2, hi2, ec->cache, ec->nbits);//
-	ec->low=lo2;
-	ec->range=hi2-1-lo2;//must decrement hi because decoder fails when code == hi2
-
+	ec->low+=ec->range*cdf>>16;
+	ec->range*=freq;
+	ec->range>>=16;
+	--ec->range;//must decrement hi because decoder fails when code == hi2
 	if(ec->range<(1LL<<PROB_BITS))
 		ac_enc_renorm(ec);
+	acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->nbits);//
+	//acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->cidx);//
 }
 INLINE int ac_dec_bypass(ArithmeticCoder *ec, int nlevels)
 {
-	unsigned long long lo2, hi2;
-	unsigned cdf_curr, cdf_next;
+	unsigned cdf;
+	int freq;
 	int sym;
 	
-	cdf_curr=(int)(((ec->code-ec->low)<<16)/ec->range);
-	sym=(cdf_curr*nlevels>>16)+1;//this is to handle the case when code == lo2
-	cdf_curr=(sym<<16)/nlevels;
-	lo2=ec->low+(ec->range*cdf_curr>>16);
-	if(lo2>ec->code)
+	cdf=(int)(((ec->code-ec->low)<<16)/ec->range);
+	sym=(cdf*nlevels>>16)+1;//this is to handle the case when code == lo2
+	cdf=(sym<<16)/nlevels;
+	if(ec->low+(ec->range*cdf>>16)>ec->code)
 	{
 		--sym;
-		cdf_curr=(sym<<16)/nlevels;
+		cdf=(sym<<16)/nlevels;
 	}
-	cdf_next=((sym+1)<<16)/nlevels;
+
+	freq=((sym+1)<<16)/nlevels-cdf;
 #ifdef AC_VALIDATE
-	if(cdf_curr>=cdf_next)
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if(freq<=0)
 		LOG_ERROR2("ZPS");
 #endif
-	//lo2=ec->lo+((ec->hi-ec->lo)>>16)*cdf_curr;//X
-	//hi2=ec->lo+((ec->hi-ec->lo)>>16)*cdf_next;
-	lo2=ec->low+(ec->range*cdf_curr>>16);
-	hi2=ec->low+(ec->range*cdf_next>>16);
-	acval_dec(sym, cdf_curr, cdf_next-cdf_curr, ec->low, ec->low+ec->range, lo2, hi2, ec->cache, ec->nbits, ec->code);//
-	ec->low=lo2;
-	ec->range=hi2-1-lo2;//must decrement hi because decoder fails when code == hi2
-	
-	if(ec->range<(1LL<<PROB_BITS))
+	ec->low+=ec->range*cdf>>16;
+	ec->range*=freq;
+	ec->range>>=16;
+	--ec->range;//must decrement hi because decoder fails when code == hi2
+	while(ec->range<(1LL<<PROB_BITS))
 		ac_dec_renorm(ec);
+	acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->nbits, ec->code);//
+	//acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->cidx, ec->code);//
 	return sym;
 }
 #if 0
@@ -523,15 +620,11 @@ INLINE int ac_dec15(ArithmeticCoder *ec, const unsigned short *CDF, int nlevels)
 #endif
 INLINE void ac_enc_bin(ArithmeticCoder *ec, unsigned short p0, int bit)
 {
-	unsigned long long r2;
+	unsigned long long r2=ec->range*p0>>16;
 #ifdef AC_VALIDATE
 	if(!p0)//reject degenerate distribution
 		LOG_ERROR2("ZPS");
 #endif
-	r2=ec->range*p0>>16;
-
-	acval_enc(bit, bit?p0:0, bit?0x10000-p0:p0, ec->low, ec->low+ec->range, bit?ec->low+r2:ec->low, bit?ec->low+ec->range:ec->low+r2-1, ec->cache, ec->nbits);
-
 	if(bit)
 	{
 		ec->low+=r2;
@@ -539,22 +632,19 @@ INLINE void ac_enc_bin(ArithmeticCoder *ec, unsigned short p0, int bit)
 	}
 	else
 		ec->range=r2-1;//must decrement hi because decoder fails when code == hi2
-	
-	if(ec->range<(1LL<<PROB_BITS))
+	while(ec->range<(1LL<<PROB_BITS))
 		ac_enc_renorm(ec);
+	acval_enc(bit, bit?p0:0, bit?0x10000-p0:p0, ec->low, ec->low+ec->range, bit?ec->low+r2:ec->low, bit?ec->low+ec->range:ec->low+r2-1, ec->cache, ec->nbits);
+	//acval_enc(bit, bit?p0:0, bit?0x10000-p0:p0, ec->low, ec->low+ec->range, bit?ec->low+r2:ec->low, bit?ec->low+ec->range:ec->low+r2-1, ec->cache, ec->cidx);
 }
 INLINE int ac_dec_bin(ArithmeticCoder *ec, unsigned short p0)//binary AC decoder doesn't do binary search
 {
-	unsigned long long r2;
+	unsigned long long r2=ec->range*p0>>16;
 #ifdef AC_VALIDATE
 	if(!p0)//reject degenerate distribution
 		LOG_ERROR2("ZPS");
 #endif
-	r2=ec->range*p0>>16;
 	int bit=ec->code>=ec->low+r2;
-
-	acval_dec(bit, bit?p0:0, bit?0x10000-p0:p0, ec->low, ec->low+ec->range, bit?ec->low+r2:ec->low, bit?ec->low+ec->range:ec->low+r2-1, ec->cache, ec->nbits, ec->code);
-	
 	if(bit)
 	{
 		ec->low+=r2;
@@ -562,9 +652,10 @@ INLINE int ac_dec_bin(ArithmeticCoder *ec, unsigned short p0)//binary AC decoder
 	}
 	else
 		ec->range=r2-1;//must decrement hi because decoder fails when code == hi2
-	
-	if(ec->range<(1LL<<PROB_BITS))
+	while(ec->range<(1LL<<PROB_BITS))
 		ac_dec_renorm(ec);
+	acval_dec(bit, bit?p0:0, bit?0x10000-p0:p0, ec->low, ec->low+ec->range, bit?ec->low+r2:ec->low, bit?ec->low+ec->range:ec->low+r2-1, ec->cache, ec->nbits, ec->code);
+	//acval_dec(bit, bit?p0:0, bit?0x10000-p0:p0, ec->low, ec->low+ec->range, bit?ec->low+r2:ec->low, bit?ec->low+ec->range:ec->low+r2-1, ec->cache, ec->cidx, ec->code);
 	return bit;
 }
 
