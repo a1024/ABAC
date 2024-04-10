@@ -37,7 +37,7 @@ int compare_bufs_16(const short *b1, const short *b0, int iw, int ih, int nch, i
 }
 int image_load(const char *fn, Image *image)
 {
-	size_t idx_start=0, idx_end=0;
+	int idx_start=0, idx_end=0;
 	get_filetitle(fn, 0, &idx_start, &idx_end);
 	image->data=(short*)stbi_load_16(fn, &image->iw, &image->ih, &image->nch, 0);
 	if(!image->data)

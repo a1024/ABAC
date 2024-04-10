@@ -85,13 +85,14 @@ int f03_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	};
 	for(int kc=0;kc<image->nch;++kc)
 	{
-		int depth=depths[kc], nlevels=1<<depth, half=nlevels>>1;
+		int depth=depths[kc], nlevels=1<<depth;
+		//int half=nlevels>>1;
 		int fillval=0x8000;
 		memfill(stats, &fillval, sizeof(short)<<depth, sizeof(short));
 		//for(int kb=0;kb<depth;++kb)
 		for(int kb=depth-1;kb>=0;--kb)
 		{
-			int MSBoffset=half&-(kb==depth-1);
+			//int MSBoffset=half&-(kb==depth-1);
 			//unsigned
 			//	pmaska=(1<<(kb+1))-1, pmaskb=0,
 			//	fmaska=(1<< kb   )-1, fmaskb=0;

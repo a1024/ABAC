@@ -119,13 +119,13 @@ int f04_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				unsigned *curr_hist=stats+ctxsize*ctx, *curr_CDF=curr_hist+CDFoffset;
 				if(fwd)
 				{
-					ac_enc(&ec, sym, curr_CDF, cdfsize, 0);
+					ac_enc(&ec, sym, curr_CDF, cdfsize);
 #ifdef ESTIMATE_CSIZES
 					csizes[kb]-=log2((double)(curr_CDF[sym+1]-curr_CDF[sym])/0x10000);
 #endif
 				}
 				else
-					sym=ac_dec(&ec, curr_CDF, cdfsize, 0);
+					sym=ac_dec(&ec, curr_CDF, cdfsize);
 
 				++curr_hist[sym];
 				++curr_hist[cdfsize];

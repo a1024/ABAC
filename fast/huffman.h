@@ -43,28 +43,28 @@ void huff_alphabet_gen(HuffInternalNodeHandle root, BitstringHandle *alphabet);/
 void huff_alphabet_free(BitstringHandle *alphabet, int nlevels);
 void huff_alphabet_print(unsigned *hist, BitstringHandle const *alphabet, int nlevels);
 
-static void huff_enc_init(HuffmanCoder *ec, DList *list)
+INLINE void huff_enc_init(HuffmanCoder *ec, DList *list)
 {
 	ec->cache=0;
 	ec->nbits=sizeof(ec->cache)<<3;
 	ec->is_enc=1;
 	ec->list=list;
 }
-static int huff_enc(HuffmanCoder *ec, int sym, BitstringHandle const *alphabet)
+INLINE int huff_enc(HuffmanCoder *ec, int sym, BitstringHandle const *alphabet)
 {
-	BitstringHandle code=alphabet[sym];
-	int bitidx=0;
-	if(code->bitCount>ec->nbits)
-	{
-		//TODO
-	}
+	//BitstringHandle code=alphabet[sym];
+	//int bitidx=0;
+	//if(code->bitCount>ec->nbits)
+	//{
+	//	//TODO
+	//}
 	return 0;
 }
 
 HuffmanNode* huff_dectree_gen(HuffInternalNodeHandle root);
 void huff_dectree_free(HuffmanNode **root);
 void huff_dec_init(HuffmanCoder *ec, const unsigned char *start, const unsigned char *end);
-static int huff_dec(HuffmanCoder *ec, HuffmanNode *root)
+INLINE int huff_dec(HuffmanCoder *ec, HuffmanNode *root)
 {
 	HuffmanNode *node;
 	for(;;)

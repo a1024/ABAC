@@ -3,6 +3,7 @@
 	f02.c
 	f03.c
 	f04.c
+	f05.c
 	fast.c
 	format.c
 	huffman.c

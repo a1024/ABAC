@@ -38,6 +38,7 @@ static const char file[]=__FILE__;
 #define EC_DEC_INIT	ac_dec_init
 #define EC_FLUSH	ac_enc_flush
 #endif
+#ifndef USE_GRCODER
 static int quantize(int val, int clevels)
 {
 	int negmask=-(val<0);
@@ -49,6 +50,7 @@ static int quantize(int val, int clevels)
 	val+=clevels>>1;
 	return val;
 }
+#endif
 #ifdef ENABLE_GUIDE
 static const Image *guide=0;
 #endif
@@ -80,8 +82,9 @@ int f01_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	}
 #endif
 	int nlevels=1<<depth, half=nlevels>>1;
-	int clevels=quantize(half, 0)<<1|1, nctx=clevels*clevels;
 #ifdef USE_ABAC
+	int clevels=quantize(half, 0)<<1|1;
+	int nctx=clevels*clevels;
 	unsigned short *stats=(unsigned short*)malloc(sizeof(short)*image->nch*nctx<<depth);
 #endif
 	size_t rowssize=sizeof(short[2*2*PADSIZE])*image->nch*(image->iw+PADSIZE*2LL);
@@ -218,17 +221,17 @@ int f01_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					NW	=rows[LOADIDX(kc, -1, -1, 0)],
 					N	=rows[LOADIDX(kc,  0, -1, 0)],
 					W	=rows[LOADIDX(kc, -1,  0, 0)],
-					eNNWW	=rows[LOADIDX(kc, -2, -2, 1)],
-					eNNW	=rows[LOADIDX(kc, -1, -2, 1)],
-					eNN	=rows[LOADIDX(kc,  0, -2, 1)],
-					eNNE	=rows[LOADIDX(kc,  1, -2, 1)],
-					eNNEE	=rows[LOADIDX(kc,  2, -2, 1)],
-					eNWW	=rows[LOADIDX(kc, -2, -1, 1)],
+				//	eNNWW	=rows[LOADIDX(kc, -2, -2, 1)],
+				//	eNNW	=rows[LOADIDX(kc, -1, -2, 1)],
+				//	eNN	=rows[LOADIDX(kc,  0, -2, 1)],
+				//	eNNE	=rows[LOADIDX(kc,  1, -2, 1)],
+				//	eNNEE	=rows[LOADIDX(kc,  2, -2, 1)],
+				//	eNWW	=rows[LOADIDX(kc, -2, -1, 1)],
 					eNW	=rows[LOADIDX(kc, -1, -1, 1)],
 					eN	=rows[LOADIDX(kc,  0, -1, 1)],
 					eNE	=rows[LOADIDX(kc,  1, -1, 1)],
-					eNEE	=rows[LOADIDX(kc,  2, -1, 1)],
-					eWW	=rows[LOADIDX(kc, -2,  0, 1)],
+				//	eNEE	=rows[LOADIDX(kc,  2, -1, 1)],
+				//	eWW	=rows[LOADIDX(kc, -2,  0, 1)],
 					eW	=rows[LOADIDX(kc, -1,  0, 1)];
 				int pred=N+W-NW;
 				pred=MEDIAN3(N, W, pred);

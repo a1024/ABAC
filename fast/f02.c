@@ -1,24 +1,25 @@
 #include"fast.h"
 #include<stdlib.h>
+#include<string.h>
 #include<math.h>
 //#define EC_USE_ARRAY
 #include"ac.h"
-static const char file[]=__FILE__;
-//#define CODECTAG 'b'
+//static const char file[]=__FILE__;
 
 
 //	#define ENABLE_GUIDE
 
 //	#define USE_ANS
 //	#define USE_GOLOMB
+//	#define USE_ABAC
 
 
 #ifdef USE_ANS
-const char ecname[]="ANS";
+static const char ecname[]="ANS";
 #elif defined USE_GOLOMB
-const char ecname[]="Golomb-Rice";
+static const char ecname[]="Golomb-Rice";
 #else
-const char ecname[]="AC";
+static const char ecname[]="AC";
 #endif
 #ifdef ENABLE_GUIDE
 static const Image *guide=0;
@@ -81,8 +82,11 @@ int f02_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					gr_enc(&ec, bypass, 1<<nbits>>1);
 #elif defined USE_ANS
 					ans_enc(&ec, bypass, 0, 1<<nbits);//up to 16 bit
+#elif defined USE_ABAC
+					for(int kb=image->depth-1;kb>=0;--kb)
+						ac_enc_bin(&ec, 0x8000, bypass>>kb&1);
 #else
-					ac_enc(&ec, bypass, 0, 1<<nbits, 16-nbits);
+					ac_enc_bypass(&ec, bypass, 1<<nbits);
 					//while(nbits>8)
 					//{
 					//	ac_enc(&ec, bypass>>(nbits-8)&0xFF, 0, 1<<8, 16-8);
@@ -97,8 +101,12 @@ int f02_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					int bypass=gr_dec(&ec, 1<<nbits>>1);
 #elif defined USE_ANS
 					int bypass=ans_dec(&ec, 0, 1<<nbits);
+#elif defined USE_ABAC
+					int bypass=0;
+					for(int kb=image->depth-1;kb>=0;--kb)
+						bypass|=ac_dec_bin(&ec, 0x8000)<<kb;
 #else
-					int bypass=ac_dec(&ec, 0, 1<<nbits, 16-nbits);
+					int bypass=ac_dec_bypass(&ec, 1<<nbits);
 					//int bypass=0;
 					//while(nbits>8)
 					//{

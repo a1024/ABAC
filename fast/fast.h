@@ -53,6 +53,11 @@ int	f04_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #define f04_encode(SRC, DATA, LOUD)		f04_codec(SRC, DATA, 0, 0, 0, LOUD)
 #define f04_decode(CBUF, CSIZE, DST, LOUD)	f04_codec(0, 0, CBUF, CSIZE, DST, LOUD)
 
+//fast
+int	f05_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
+#define f05_encode(SRC, DATA, LOUD)		f05_codec(SRC, DATA, 0, 0, 0, LOUD)
+#define f05_decode(CBUF, CSIZE, DST, LOUD)	f05_codec(0, 0, CBUF, CSIZE, DST, LOUD)
+
 
 #ifdef __cplusplus
 }

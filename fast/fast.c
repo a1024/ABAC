@@ -20,10 +20,10 @@ typedef void *THREAD_RET;
 static const char file[]=__FILE__;
 
 
-#define CODECID      2
-#define CODECNAME "F02"
-#define ENCODE     f02_encode
-#define DECODE     f02_decode
+#define CODECID      5
+#define CODECNAME "F05"
+#define ENCODE     f05_encode
+#define DECODE     f05_decode
 
 
 static const char *g_extensions[]=
@@ -346,7 +346,7 @@ int main(int argc, char **argv)
 	}
 	else
 	{
-		printf("File: \'%s\'\n", fn);
+		printf("File: \"%s\"\n", fn);
 		Image src={0};
 		double t=time_sec();
 		int success=image_load(fn, &src);

@@ -25,6 +25,10 @@ Currently works only on Windows.
 
 `gcc -O3 -mavx2 console.c ebench.c graphics.c image.c lodepng.c transforms.c util.c window.c -o ebench -lopengl32 -lgdi32 -lole32 -lcomdlg32 -luuid`
 
+### `fast`
+Experiments prioritizing speed.
+`gcc -Wall -O3 f01.c f02.c f03.c f04.c f05.c fast.c format.c huffman.c lodepng.c transforms.c util.c -o fast`
+
 ### `imgcvt`
 Batch image converter.
 
