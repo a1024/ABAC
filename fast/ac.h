@@ -48,10 +48,13 @@ void acval_enc(int sym, int cdf, int freq, unsigned long long lo1, unsigned long
 }
 void acval_print(int idx, ACVAL const *p, int dec)
 {
-	printf("%9d sym %03X cdf %04X freq %04X range %012llX~%012llX:%012llX->%012llX~%012llX:%012llX cache %016llX nbits %2d",
-		idx, p->sym, p->cdf, p->freq, p->lo1, p->hi1, p->hi1-p->lo1, p->lo2, p->hi2, p->hi2-p->lo2, p->cache, p->nbits
-	//	idx, p->sym, p->cdf, p->freq, p->lo1, p->hi1, p->lo2, p->hi2, p->cache, p->nbits
+	printf("%9d sym %03X cdf %04X freq %04X range %012llX~%012llX:%012llX->%012llX~%012llX:%012llX",
+		idx, p->sym, p->cdf, p->freq, p->lo1, p->hi1, p->hi1-p->lo1, p->lo2, p->hi2, p->hi2-p->lo2
 	);
+	//printf("%9d sym %03X cdf %04X freq %04X range %012llX~%012llX:%012llX->%012llX~%012llX:%012llX cache %016llX nbits %2d",
+	//	idx, p->sym, p->cdf, p->freq, p->lo1, p->hi1, p->hi1-p->lo1, p->lo2, p->hi2, p->hi2-p->lo2, p->cache, p->nbits
+	////	idx, p->sym, p->cdf, p->freq, p->lo1, p->hi1, p->lo2, p->hi2, p->cache, p->nbits
+	//);
 	if(dec)
 	{
 		printf(" code %012llX ", p->code);
@@ -194,26 +197,17 @@ void debug_dec_update(unsigned state, unsigned cdf, unsigned freq, int kx, int k
 #define PROB_BITS 16
 typedef struct ArithmeticCoderStruct
 {
-	unsigned long long low, range;
-#ifndef DISABLE_CACHE
-	unsigned long long cache;//cache is read/written MSB->LSB
-	int nbits;//enc: number of free bits in cache,  dec: number of unread bits in cache
-	//int cidx;//number of renorms remaining in cache before it gets updated
-#endif
-	int is_enc;
-	union
-	{
-		struct
-		{
-			const unsigned char *srcptr, *srcend;
-			unsigned long long code;
-		};
-#ifdef EC_USE_ARRAY
-		ArrayHandle *arr;
-#else
-		DList *list;
-#endif
-	};
+	unsigned long long low, range;//FIXME range is 32-bit after initial renorm
+//#ifndef DISABLE_CACHE
+//	unsigned long long cache;//cache is read/written MSB->LSB
+//	int nbits;//enc: number of free bits in cache,  dec: number of unread bits in cache
+//	//int cidx;//number of renorms remaining in cache before it gets updated
+//	int is_enc;
+//#endif
+	ArrayHandle *arr;
+	DList *list;
+	const unsigned char *srcptr, *srcend;
+	unsigned long long code;
 } ArithmeticCoder;
 INLINE void ac_enc_init(ArithmeticCoder *ec,
 #ifdef EC_USE_ARRAY
@@ -225,14 +219,14 @@ INLINE void ac_enc_init(ArithmeticCoder *ec,
 {
 	memset(ec, 0, sizeof(*ec));
 	ec->low=0;
-	ec->range=~0LLU>>PROB_BITS;
-	//ec->range=~0LLU>>(PROB_BITS<<1);
-#ifndef DISABLE_CACHE
-	ec->cache=0;
-	ec->nbits=sizeof(ec->low)<<3;
-	//ec->cidx=4;
-#endif
-	ec->is_enc=1;
+	//ec->range=~0LLU>>PROB_BITS;
+	ec->range=~0LLU>>(PROB_BITS<<1);
+//#ifndef DISABLE_CACHE
+//	ec->cache=0;
+//	ec->nbits=sizeof(ec->low)<<3;
+//	//ec->cidx=4;
+//	//ec->is_enc=1;
+//#endif
 #ifdef EC_USE_ARRAY
 	array_append(arr, 0, 1, 0, 0, 0, 0);
 	ec->arr=arr;
@@ -244,127 +238,123 @@ INLINE void ac_dec_init(ArithmeticCoder *ec, const unsigned char *start, unsigne
 {
 	memset(ec, 0, sizeof(*ec));
 	ec->low=0;
-	ec->range=~0LLU>>PROB_BITS;
-	//ec->range=~0LLU>>(PROB_BITS<<1);
-#ifndef DISABLE_CACHE
-	ec->cache=0;
-	ec->nbits=PROB_BITS;
-	//ec->cidx=1;
-#endif
-	ec->is_enc=0;
+	//ec->range=~0LLU>>PROB_BITS;
+	ec->range=~0LLU>>(PROB_BITS<<1);
+//#ifndef DISABLE_CACHE
+//	ec->cache=0;
+//	ec->nbits=PROB_BITS;
+//	//ec->cidx=1;
+//	//ec->is_enc=0;
+//#endif
 	ec->srcptr=start;
 	ec->srcend=end;
 	
-#ifndef DISABLE_CACHE
-	if(ec->srcptr+8>ec->srcend)
-	{
-		LOG_ERROR2("buffer overflow");
-		return;
-	}
-	memcpy(&ec->cache, ec->srcptr, 8);
-	ec->srcptr+=8;
-	ec->code=ec->cache>>PROB_BITS;//leave PROB_BITS bits in cache
-#else
+//#ifndef DISABLE_CACHE
+//	if(ec->srcptr+8>ec->srcend)
+//	{
+//		LOG_ERROR2("buffer overflow");
+//		return;
+//	}
+//	memcpy(&ec->cache, ec->srcptr, 8);
+//	ec->srcptr+=8;
+//	ec->code=ec->cache>>PROB_BITS;//leave PROB_BITS bits in cache
+//#else
 	if(ec->srcptr+6>ec->srcend)
 	{
 		LOG_ERROR2("buffer overflow");
 		return;
 	}
-	memcpy(&ec->code, ec->srcptr, 2);
-	ec->srcptr+=2;
-	ec->code<<=16;
-	memcpy(&ec->code, ec->srcptr, 2);
-	ec->srcptr+=2;
-	ec->code<<=16;
-	memcpy(&ec->code, ec->srcptr, 2);
-	ec->srcptr+=2;
-#endif
+	memcpy((unsigned char*)&ec->code+4, ec->srcptr+0, 2);
+	memcpy((unsigned char*)&ec->code+2, ec->srcptr+2, 2);
+	memcpy((unsigned char*)&ec->code+0, ec->srcptr+4, 2);
+	ec->srcptr+=6;
+//#endif
 }
 INLINE void ac_enc_renorm(ArithmeticCoder *ec)//fast renorm by F. Rubin 1979
 {
-#ifndef DISABLE_CACHE
-	if(ec->nbits<PROB_BITS)
-	//if(ec->cidx)
-	//	--ec->cidx;
-	//else
-	{
+//#ifndef DISABLE_CACHE
+//	if(ec->nbits<PROB_BITS)
+//	//if(ec->cidx)
+//	//	--ec->cidx;
+//	//else
+//	{
+//#ifdef EC_USE_ARRAY
+//		array_append(ec->arr, &ec->cache, 1, 8, 1, 0, 0);
+//#else
+//		dlist_push_back(ec->list, &ec->cache, 8);
+//#endif
+//		ec->nbits=sizeof(ec->low)<<3;
+//		//ec->cidx=3;
+//		ec->cache=0;
+//	}
+//	//((unsigned short*)&ec->cache)[ec->cidx]=((unsigned short*)&ec->low)[2];
+//	//((unsigned short*)&ec->range)[1]=((unsigned short*)&ec->range)[0];
+//	//((unsigned short*)&ec->low)[2]=((unsigned short*)&ec->low)[1];
+//	//((unsigned short*)&ec->range)[0]=~0;
+//	//((unsigned short*)&ec->low)[1]=0;
+//#if 1
+//	ec->nbits-=PROB_BITS;
+//	ec->range<<=PROB_BITS;
+//	ec->cache|=(ec->low>>((sizeof(ec->low)<<3)-PROB_BITS*2))<<ec->nbits;//append top PROB_BITS bits of 'low' to cache
+//	ec->low<<=PROB_BITS;
+//	ec->range|=(1LL<<PROB_BITS)-1;
+//	//ec->range&=~0LLU>>PROB_BITS;//X
+//	ec->low&=~0LLU>>PROB_BITS;
+//#endif
+//#else
 #ifdef EC_USE_ARRAY
-		array_append(ec->arr, &ec->cache, 1, 8, 1, 0, 0);
+	array_append(ec->arr, (unsigned char*)&ec->low+4, 1, 2, 1, 0, 0);
 #else
-		dlist_push_back(ec->list, &ec->cache, 8);
+	dlist_push_back(ec->list, (unsigned char*)&ec->low+4, 2);
 #endif
-		ec->nbits=sizeof(ec->low)<<3;
-		//ec->cidx=3;
-		ec->cache=0;
-	}
-	//((unsigned short*)&ec->cache)[ec->cidx]=((unsigned short*)&ec->low)[2];
-	//((unsigned short*)&ec->range)[1]=((unsigned short*)&ec->range)[0];
-	//((unsigned short*)&ec->low)[2]=((unsigned short*)&ec->low)[1];
-	//((unsigned short*)&ec->range)[0]=~0;
-	//((unsigned short*)&ec->low)[1]=0;
-#if 1
-	ec->nbits-=PROB_BITS;
 	ec->range<<=PROB_BITS;
-	ec->cache|=(ec->low>>((sizeof(ec->low)<<3)-PROB_BITS*2))<<ec->nbits;//append top PROB_BITS bits of 'low' to cache
 	ec->low<<=PROB_BITS;
 	ec->range|=(1LL<<PROB_BITS)-1;
-	//ec->range&=~0LLU>>PROB_BITS;//X
 	ec->low&=~0LLU>>PROB_BITS;
-#endif
-#else
-#ifdef EC_USE_ARRAY
-	array_append(ec->arr, (unsigned short*)&ec->low+2, 1, 2, 1, 0, 0);
-#else
-	dlist_push_back(ec->list, (unsigned short*)&ec->low+2, 2);
-#endif
-	ec->range<<=PROB_BITS;
-	ec->low<<=PROB_BITS;
-	ec->range|=(1LL<<PROB_BITS)-1;
-	ec->low&=~0LLU>>PROB_BITS;
-#endif
+//#endif
 
 	if(ec->low+ec->range>(~0LLU>>PROB_BITS))//clamp hi to register size after renorm
 		ec->range=(~0LLU>>PROB_BITS)-ec->low;
 }
 INLINE void ac_dec_renorm(ArithmeticCoder *ec)//fast renorm by F. Rubin 1979
 {
-#ifndef DISABLE_CACHE
-	if(ec->nbits<PROB_BITS)
-	//if(ec->cidx)
-	//	--ec->cidx;
-	//else
-	{
-		if(ec->srcptr+8>ec->srcend)
-		{
-#ifdef AC_VALIDATE
-			printf("buffer overflow\n");
-			acval_dump();
-#endif
-			LOG_ERROR2("buffer overflow");
-			return;
-		}
-		ec->nbits=sizeof(ec->low)<<3;
-		//ec->cidx=3;
-		memcpy(&ec->cache, ec->srcptr, 8);
-		ec->srcptr+=8;
-	}
-	//((unsigned short*)&ec->range)[1]=((unsigned short*)&ec->range)[0];
-	//((unsigned short*)&ec->low)[2]=((unsigned short*)&ec->low)[1];
-	//((unsigned short*)&ec->range)[0]=~0;
-	//((unsigned short*)&ec->code)[0]=((unsigned short*)&ec->cache)[ec->cidx];
-	//((unsigned short*)&ec->low)[1]=0;
-#if 1
-	ec->nbits-=PROB_BITS;
-	ec->range<<=PROB_BITS;
-	ec->low<<=PROB_BITS;
-	ec->code<<=PROB_BITS;
-	ec->range|=(1LL<<PROB_BITS)-1;
-	ec->code|=ec->cache>>ec->nbits&((1LL<<PROB_BITS)-1);
-	ec->low&=~0LLU>>PROB_BITS;
-	//ec->range&=~0LLU>>PROB_BITS;//X
-	ec->code&=~0LLU>>PROB_BITS;
-#endif
-#else
+//#ifndef DISABLE_CACHE
+//	if(ec->nbits<PROB_BITS)
+//	//if(ec->cidx)
+//	//	--ec->cidx;
+//	//else
+//	{
+//		if(ec->srcptr+8>ec->srcend)
+//		{
+//#ifdef AC_VALIDATE
+//			printf("buffer overflow\n");
+//			acval_dump();
+//#endif
+//			LOG_ERROR2("buffer overflow");
+//			return;
+//		}
+//		ec->nbits=sizeof(ec->low)<<3;
+//		//ec->cidx=3;
+//		memcpy(&ec->cache, ec->srcptr, 8);
+//		ec->srcptr+=8;
+//	}
+//	//((unsigned short*)&ec->range)[1]=((unsigned short*)&ec->range)[0];
+//	//((unsigned short*)&ec->low)[2]=((unsigned short*)&ec->low)[1];
+//	//((unsigned short*)&ec->range)[0]=~0;
+//	//((unsigned short*)&ec->code)[0]=((unsigned short*)&ec->cache)[ec->cidx];
+//	//((unsigned short*)&ec->low)[1]=0;
+//#if 1
+//	ec->nbits-=PROB_BITS;
+//	ec->range<<=PROB_BITS;
+//	ec->low<<=PROB_BITS;
+//	ec->code<<=PROB_BITS;
+//	ec->range|=(1LL<<PROB_BITS)-1;
+//	ec->code|=ec->cache>>ec->nbits&((1LL<<PROB_BITS)-1);
+//	ec->low&=~0LLU>>PROB_BITS;
+//	//ec->range&=~0LLU>>PROB_BITS;//X
+//	ec->code&=~0LLU>>PROB_BITS;
+//#endif
+//#else
 	if(ec->srcptr+2>ec->srcend)
 	{
 #ifdef AC_VALIDATE
@@ -382,36 +372,36 @@ INLINE void ac_dec_renorm(ArithmeticCoder *ec)//fast renorm by F. Rubin 1979
 	ec->srcptr+=2;
 	ec->low&=~0LLU>>PROB_BITS;
 	ec->code&=~0LLU>>PROB_BITS;
-#endif
+//#endif
 
 	if(ec->low+ec->range>(~0LLU>>PROB_BITS))//clamp hi to register size after renorm
 		ec->range=(~0LLU>>PROB_BITS)-ec->low;
 }
 INLINE void ac_enc_flush(ArithmeticCoder *ec)
 {
-#ifndef DISABLE_CACHE
-	ac_enc_renorm(ec);
-	ac_enc_renorm(ec);
-	ac_enc_renorm(ec);
+//#ifndef DISABLE_CACHE
+//	ac_enc_renorm(ec);
+//	ac_enc_renorm(ec);
+//	ac_enc_renorm(ec);
+//#ifdef EC_USE_ARRAY
+//	array_append(ec->arr, &ec->cache, 1, 8, 1, 0, 0);
+//#else
+//	dlist_push_back(ec->list, &ec->cache, 8);
+//#endif
+//#else
 #ifdef EC_USE_ARRAY
-	array_append(ec->arr, &ec->cache, 1, 8, 1, 0, 0);
+	array_append(ec->arr, (unsigned char*)&ec->low+4, 1, 2, 1, 0, 0);
+	array_append(ec->arr, (unsigned char*)&ec->low+2, 1, 2, 1, 0, 0);
+	array_append(ec->arr, (unsigned char*)&ec->low+0, 1, 2, 1, 0, 0);
 #else
-	dlist_push_back(ec->list, &ec->cache, 8);
+	dlist_push_back(ec->list, (unsigned char*)&ec->low+4, 2);
+	dlist_push_back(ec->list, (unsigned char*)&ec->low+2, 2);
+	dlist_push_back(ec->list, (unsigned char*)&ec->low+0, 2);
 #endif
-#else
-#ifdef EC_USE_ARRAY
-	array_append(ec->arr, (unsigned short*)&ec->low+2, 1, 2, 1, 0, 0);
-	array_append(ec->arr, (unsigned short*)&ec->low+1, 1, 2, 1, 0, 0);
-	array_append(ec->arr, (unsigned short*)&ec->low+0, 1, 2, 1, 0, 0);
-#else
-	dlist_push_back(ec->list, (unsigned short*)&ec->low+2, 2);
-	dlist_push_back(ec->list, (unsigned short*)&ec->low+1, 2);
-	dlist_push_back(ec->list, (unsigned short*)&ec->low+0, 2);
-#endif
-#endif
+//#endif
 }
 
-INLINE void ac_enc(ArithmeticCoder *ec, int sym, const unsigned *CDF, int nlevels)//CDF is 16 bit
+INLINE void ac_enc(ArithmeticCoder *ec, int sym, const unsigned *CDF)//CDF is 16 bit
 {
 	unsigned cdf=CDF[sym];
 	int freq=CDF[sym+1]-cdf;
@@ -430,7 +420,7 @@ INLINE void ac_enc(ArithmeticCoder *ec, int sym, const unsigned *CDF, int nlevel
 	--ec->range;//must decrement hi because decoder fails when code == hi2
 	while(ec->range<(1LL<<PROB_BITS))//only when freq=1 -> range=0, this loop runs twice
 		ac_enc_renorm(ec);
-	acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->nbits);//
+	acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);//
 	//acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->cidx);//
 }
 INLINE int ac_dec(ArithmeticCoder *ec, const unsigned *CDF, int nlevels)
@@ -443,29 +433,19 @@ INLINE int ac_dec(ArithmeticCoder *ec, const unsigned *CDF, int nlevels)
 	unsigned long long range=ec->code-ec->low;
 	//range=((range<<16)+(ec->range>>1))/ec->range;
 	//for(;sym<nlevels&&CDF[sym]<=range;++sym);
+	sym=1;
 	for(;sym<nlevels&&(ec->range*CDF[sym]>>16)<=range;++sym);
 	--sym;
 #else
-	int L=0, R=nlevels-1, found=0;
-	unsigned long long range=ec->code-ec->low, r2;
-	while(L<=R)//binary search		lg(nlevels) multiplications per symbol
+	int L=0, R=nlevels;
+	unsigned long long range=ec->code-ec->low;
+	while(R)//binary search		lg(nlevels) multiplications per symbol
 	{
-		sym=(L+R)>>1;
-		r2=ec->range*CDF[sym]>>16;
-		if(r2<range)
-			L=sym+1;
-		else if(r2>range)
-			R=sym-1;
-		else
-		{
-			found=1;
-			break;
-		}
+		int floorhalf=R>>1;
+		sym=L+floorhalf;
+		L+=(R-floorhalf)&-(ec->range*CDF[sym]>>16<=range);
+		R=floorhalf;
 	}
-	if(found)
-		for(;sym<nlevels-1&&ec->low+(ec->range*CDF[sym+1]>>16)==ec->code;++sym);
-	else
-		sym=L+(L<nlevels&&ec->low+(ec->range*CDF[sym+1]>>16)<ec->code)-(L!=0);
 #endif
 
 	cdf=CDF[sym];
@@ -481,8 +461,317 @@ INLINE int ac_dec(ArithmeticCoder *ec, const unsigned *CDF, int nlevels)
 	--ec->range;//must decrement hi because decoder fails when code == hi2
 	while(ec->range<(1LL<<PROB_BITS))
 		ac_dec_renorm(ec);
-	acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->nbits, ec->code);//
+	acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);//
 	//acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->cidx, ec->code);//
+	return sym;
+}
+INLINE int ac_dec_POT(ArithmeticCoder *ec, const unsigned *CDF, int nbits)
+{
+	unsigned cdf;
+	int freq;
+	int sym=0;
+	
+	unsigned long long range=ec->code-ec->low;
+	switch(nbits)
+	{
+	default:
+		LOG_ERROR2("Unsupported bit depth");
+		break;
+	case 9:sym|=(ec->range*CDF[sym|256]>>16<=range)<<8;
+	case 8:sym|=(ec->range*CDF[sym|128]>>16<=range)<<7;
+	case 7:sym|=(ec->range*CDF[sym| 64]>>16<=range)<<6;
+	case 6:sym|=(ec->range*CDF[sym| 32]>>16<=range)<<5;
+	case 5:sym|=(ec->range*CDF[sym| 16]>>16<=range)<<4;
+	case 4:sym|=(ec->range*CDF[sym|  8]>>16<=range)<<3;
+	case 3:sym|=(ec->range*CDF[sym|  4]>>16<=range)<<2;
+	case 2:sym|=(ec->range*CDF[sym|  2]>>16<=range)<<1;
+	case 1:sym|=(ec->range*CDF[sym|  1]>>16<=range);
+		break;
+	}
+	//for(int mask=nlevels>>1;mask;mask>>=1)
+	//	sym|=mask&-(ec->range*CDF[sym|mask]>>16<=range);
+
+	cdf=CDF[sym];
+	freq=CDF[sym+1]-cdf;
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
+		LOG_ERROR2("ZPS");
+#endif
+	ec->low+=ec->range*cdf>>16;
+	ec->range*=freq;
+	ec->range>>=16;
+	--ec->range;//must decrement hi because decoder fails when code == hi2
+	while(ec->range<(1LL<<PROB_BITS))
+		ac_dec_renorm(ec);
+	acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);//
+	//acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->cidx, ec->code);//
+	return sym;
+}
+#ifdef DEDICATED_DECODER
+INLINE int ac_dec_4bit(ArithmeticCoder *ec, const unsigned *CDF)
+{
+	unsigned cdf;
+	int freq;
+	unsigned short sym=0;
+	
+	unsigned long long range=ec->code-ec->low;
+	sym|=8&-(ec->range*CDF[sym|8]>>16<=range);
+	sym|=4&-(ec->range*CDF[sym|4]>>16<=range);
+	sym|=2&-(ec->range*CDF[sym|2]>>16<=range);
+	sym|=1&-(ec->range*CDF[sym|1]>>16<=range);
+#if 0
+	int L=0, R=16;
+	int floorhalf=8;
+	sym=8;
+	L+=8&-(ec->range*CDF[8]>>16<=range);
+	R=8;
+
+	floorhalf=4;
+	sym=L+4;
+	L+=4&-(ec->range*CDF[sym]>>16<=range);
+	R=4;
+
+	floorhalf=2;
+	sym=L+2;
+	L+=2&-(ec->range*CDF[sym]>>16<=range);
+	R=2;
+
+	floorhalf=1;
+	sym=L+1;
+	L+=1&-(ec->range*CDF[sym]>>16<=range);
+	R=1;
+
+	floorhalf=0;
+	sym=L+0;
+	L+=1&-(ec->range*CDF[sym]>>16<=range);
+	R=0;
+#endif
+#if 0
+	__m256i permutation=_mm256_set_epi32(7, 3, 6, 2, 5, 1, 4, 0);
+	__m256i srl32=_mm256_set_epi8(
+		-1, -1, -1, -1, 15, 14, 13, 12, -1, -1, -1, -1,  7,  6,  5,  4,
+		-1, -1, -1, -1, 15, 14, 13, 12, -1, -1, -1, -1,  7,  6,  5,  4
+	);
+	__m256i srl16=_mm256_set_epi8(
+		-1, -1, 15, 14, 13, 12, 11, 10, -1, -1,  7,  6,  5,  4,  3,  2,
+		-1, -1, 15, 14, 13, 12, 11, 10, -1, -1,  7,  6,  5,  4,  3,  2
+	);
+	__m256i range0=_mm256_set1_epi64x(ec->range);
+	__m256i range1=_mm256_set1_epi64x(ec->code-ec->low);
+	__m256i c0=_mm256_loadu_si256((__m256i const*)(CDF+0));
+	__m256i c1=_mm256_loadu_si256((__m256i const*)(CDF+8));
+	c0=_mm256_permutevar8x32_epi32(c0, permutation);
+	c1=_mm256_permutevar8x32_epi32(c1, permutation);
+	//c0=_mm256_permute4x64_epi64(c0, _MM_SHUFFLE(3, 1, 2, 0));//slower but across lanes
+	//c1=_mm256_permute4x64_epi64(c1, _MM_SHUFFLE(3, 1, 2, 0));
+	__m256i p0=_mm256_mul_epu32(range0, c0);
+	__m256i p2=_mm256_mul_epu32(range0, c1);
+	c0=_mm256_shuffle_epi8(c0, srl32);
+	c1=_mm256_shuffle_epi8(c1, srl32);
+	__m256i p1=_mm256_mul_epu32(range0, c0);
+	__m256i p3=_mm256_mul_epu32(range0, c1);
+	p0=_mm256_shuffle_epi8(p0, srl16);
+	p1=_mm256_shuffle_epi8(p1, srl16);
+	p2=_mm256_shuffle_epi8(p2, srl16);
+	p3=_mm256_shuffle_epi8(p3, srl16);
+	p0=_mm256_cmpgt_epi64(p0, range1);
+	p1=_mm256_cmpgt_epi64(p1, range1);
+	p2=_mm256_cmpgt_epi64(p2, range1);
+	p3=_mm256_cmpgt_epi64(p3, range1);
+	sym|=_mm256_movemask_pd(_mm256_castsi256_pd(p3)), sym<<=4;
+	sym|=_mm256_movemask_pd(_mm256_castsi256_pd(p2)), sym<<=4;
+	sym|=_mm256_movemask_pd(_mm256_castsi256_pd(p1)), sym<<=4;
+	sym|=_mm256_movemask_pd(_mm256_castsi256_pd(p0));
+	sym-=sym>>1&0x5555;//sym = Hamming weight of 16-bit mask
+	sym=(sym&0x3333)+(sym>>2&0x3333);
+	sym*=0x1111;
+	sym>>=12;
+	sym=15-sym;
+#endif
+
+	cdf=CDF[sym];
+	freq=CDF[sym+1]-cdf;
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
+		LOG_ERROR2("ZPS");
+#endif
+	ec->low+=ec->range*cdf>>16;
+	ec->range*=freq;
+	ec->range>>=16;
+	--ec->range;//must decrement hi because decoder fails when code == hi2
+	while(ec->range<(1LL<<PROB_BITS))
+		ac_dec_renorm(ec);
+	acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);//
+	//acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->cidx, ec->code);//
+	return sym;
+}
+INLINE int ac_dec_5bit(ArithmeticCoder *ec, const unsigned *CDF)
+{
+	unsigned cdf;
+	int freq;
+	unsigned sym=0;
+	
+	unsigned long long range=ec->code-ec->low;
+	sym|=16&-(ec->range*CDF[sym|16]>>16<=range);
+	sym|= 8&-(ec->range*CDF[sym| 8]>>16<=range);
+	sym|= 4&-(ec->range*CDF[sym| 4]>>16<=range);
+	sym|= 2&-(ec->range*CDF[sym| 2]>>16<=range);
+	sym|= 1&-(ec->range*CDF[sym| 1]>>16<=range);
+#if 0
+	__m256i permutation=_mm256_set_epi32(7, 3, 6, 2, 5, 1, 4, 0);
+	//__m256i swapmid32=_mm256_set_epi8(
+	//	15, 14, 13, 12,		7,  6,  5,  4,		11, 10,  9,  8,		3,  2,  1,  0,
+	//	15, 14, 13, 12,		7,  6,  5,  4,		11, 10,  9,  8,		3,  2,  1,  0
+	//);
+	__m256i srl32=_mm256_set_epi8(
+		-1, -1, -1, -1, 15, 14, 13, 12, -1, -1, -1, -1,  7,  6,  5,  4,
+		-1, -1, -1, -1, 15, 14, 13, 12, -1, -1, -1, -1,  7,  6,  5,  4
+	);
+	__m256i srl16=_mm256_set_epi8(
+		-1, -1, 15, 14, 13, 12, 11, 10, -1, -1,  7,  6,  5,  4,  3,  2,
+		-1, -1, 15, 14, 13, 12, 11, 10, -1, -1,  7,  6,  5,  4,  3,  2
+	);
+	__m256i range0=_mm256_set1_epi64x(ec->range);
+	__m256i range1=_mm256_set1_epi64x(ec->code-ec->low);
+	__m256i c0=_mm256_loadu_si256((__m256i const*)(CDF+ 0));
+	__m256i c1=_mm256_loadu_si256((__m256i const*)(CDF+ 8));
+	__m256i c2=_mm256_loadu_si256((__m256i const*)(CDF+16));
+	__m256i c3=_mm256_loadu_si256((__m256i const*)(CDF+24));
+	c0=_mm256_permutevar8x32_epi32(c0, permutation);
+	c1=_mm256_permutevar8x32_epi32(c1, permutation);
+	c2=_mm256_permutevar8x32_epi32(c2, permutation);
+	c3=_mm256_permutevar8x32_epi32(c3, permutation);
+	//c0=_mm256_shuffle_epi8(c0, swapmid32);//X
+	//c1=_mm256_shuffle_epi8(c1, swapmid32);
+	//c2=_mm256_shuffle_epi8(c2, swapmid32);
+	//c3=_mm256_shuffle_epi8(c3, swapmid32);
+	//c0=_mm256_permute4x64_epi64(c0, _MM_SHUFFLE(3, 1, 2, 0));//slower but across lanes	X
+	//c1=_mm256_permute4x64_epi64(c1, _MM_SHUFFLE(3, 1, 2, 0));
+	//c2=_mm256_permute4x64_epi64(c2, _MM_SHUFFLE(3, 1, 2, 0));
+	//c3=_mm256_permute4x64_epi64(c3, _MM_SHUFFLE(3, 1, 2, 0));
+	__m256i p0=_mm256_mul_epu32(range0, c0);
+	__m256i p2=_mm256_mul_epu32(range0, c1);
+	__m256i p4=_mm256_mul_epu32(range0, c2);
+	__m256i p6=_mm256_mul_epu32(range0, c3);
+	c0=_mm256_shuffle_epi8(c0, srl32);
+	c1=_mm256_shuffle_epi8(c1, srl32);
+	c2=_mm256_shuffle_epi8(c2, srl32);
+	c3=_mm256_shuffle_epi8(c3, srl32);
+	__m256i p1=_mm256_mul_epu32(range0, c0);
+	__m256i p3=_mm256_mul_epu32(range0, c1);
+	__m256i p5=_mm256_mul_epu32(range0, c2);
+	__m256i p7=_mm256_mul_epu32(range0, c3);
+	p0=_mm256_shuffle_epi8(p0, srl16);
+	p1=_mm256_shuffle_epi8(p1, srl16);
+	p2=_mm256_shuffle_epi8(p2, srl16);
+	p3=_mm256_shuffle_epi8(p3, srl16);
+	p4=_mm256_shuffle_epi8(p4, srl16);
+	p5=_mm256_shuffle_epi8(p5, srl16);
+	p6=_mm256_shuffle_epi8(p6, srl16);
+	p7=_mm256_shuffle_epi8(p7, srl16);
+	p0=_mm256_cmpgt_epi64(p0, range1);
+	p1=_mm256_cmpgt_epi64(p1, range1);
+	p2=_mm256_cmpgt_epi64(p2, range1);
+	p3=_mm256_cmpgt_epi64(p3, range1);
+	p4=_mm256_cmpgt_epi64(p4, range1);
+	p5=_mm256_cmpgt_epi64(p5, range1);
+	p6=_mm256_cmpgt_epi64(p6, range1);
+	p7=_mm256_cmpgt_epi64(p7, range1);
+	sym|=_mm256_movemask_pd(_mm256_castsi256_pd(p7)), sym<<=4;
+	sym|=_mm256_movemask_pd(_mm256_castsi256_pd(p6)), sym<<=4;
+	sym|=_mm256_movemask_pd(_mm256_castsi256_pd(p5)), sym<<=4;
+	sym|=_mm256_movemask_pd(_mm256_castsi256_pd(p4)), sym<<=4;
+	sym|=_mm256_movemask_pd(_mm256_castsi256_pd(p3)), sym<<=4;
+	sym|=_mm256_movemask_pd(_mm256_castsi256_pd(p2)), sym<<=4;
+	sym|=_mm256_movemask_pd(_mm256_castsi256_pd(p1)), sym<<=4;
+	sym|=_mm256_movemask_pd(_mm256_castsi256_pd(p0));
+	sym-=sym>>1&0x55555555;//sym = Hamming weight of 32-bit mask
+	sym=(sym&0x33333333)+(sym>>2&0x33333333);
+	sym=(sym&0x0F0F0F0F)+(sym>>4&0x0F0F0F0F);
+	sym*=0x01010101;
+	sym>>=24;
+	sym=31-sym;
+#endif
+	cdf=CDF[sym];
+	freq=CDF[sym+1]-cdf;
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
+		LOG_ERROR2("ZPS");
+#endif
+	ec->low+=ec->range*cdf>>16;
+	ec->range*=freq;
+	ec->range>>=16;
+	--ec->range;//must decrement hi because decoder fails when code == hi2
+	while(ec->range<(1LL<<PROB_BITS))
+		ac_dec_renorm(ec);
+	acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);//
+	//acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->cidx, ec->code);//
+	return sym;
+}
+#endif
+
+INLINE void ac_enc_p16(ArithmeticCoder *ec, int sym, const unsigned short *CDF, int nlevels)//CDF is 16 bit
+{
+	unsigned cdf=CDF[sym];
+	int freq=(sym>=nlevels-1?0x8000:CDF[sym+1])-cdf;
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if(freq<=0)
+		LOG_ERROR2("ZPS");
+	if(cdf>0x10000||cdf+freq>0x10000)
+		LOG_ERROR2("");
+	if(ec->range==~0LLU)
+		LOG_ERROR2("");
+#endif
+	//if(cdf>>15||freq>>15)
+	//	LOG_ERROR2("LOL_1");
+	ec->low+=ec->range*cdf>>16;//FIXME range is 32-bit, use __umul()
+	ec->range=ec->range*freq>>16;
+	--ec->range;//must decrement hi because decoder fails when code == hi2
+	while(ec->range<(1LL<<PROB_BITS))//only when freq=1 -> range=0, this loop runs twice
+		ac_enc_renorm(ec);
+	acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
+}
+INLINE int ac_dec_p16_POT(ArithmeticCoder *ec, const unsigned short *CDF, int nbits)
+{
+	unsigned cdf;
+	int freq;
+	int sym=0;
+	
+	unsigned long long range=ec->code-ec->low;
+	switch(nbits)
+	{
+	default:
+		LOG_ERROR2("Unsupported bit depth");
+		break;
+	case 9:sym|=(ec->range*CDF[sym|256]>>16<=range)<<8;
+	case 8:sym|=(ec->range*CDF[sym|128]>>16<=range)<<7;
+	case 7:sym|=(ec->range*CDF[sym| 64]>>16<=range)<<6;
+	case 6:sym|=(ec->range*CDF[sym| 32]>>16<=range)<<5;
+	case 5:sym|=(ec->range*CDF[sym| 16]>>16<=range)<<4;
+	case 4:sym|=(ec->range*CDF[sym|  8]>>16<=range)<<3;
+	case 3:sym|=(ec->range*CDF[sym|  4]>>16<=range)<<2;
+	case 2:sym|=(ec->range*CDF[sym|  2]>>16<=range)<<1;
+	case 1:sym|=(ec->range*CDF[sym|  1]>>16<=range);
+		break;
+	}
+
+	cdf=CDF[sym];
+	freq=(sym>=(1<<nbits)-1?0x8000:CDF[sym+1])-cdf;
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
+		LOG_ERROR2("ZPS");
+#endif
+	ec->low+=ec->range*cdf>>16;
+	ec->range=ec->range*freq>>16;
+	--ec->range;//must decrement hi because decoder fails when code == hi2
+	while(ec->range<(1LL<<PROB_BITS))
+		ac_dec_renorm(ec);
+	acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
 	return sym;
 }
 
@@ -501,7 +790,7 @@ INLINE void ac_enc_bypass(ArithmeticCoder *ec, int sym, int nlevels)//CDF is 16 
 	--ec->range;//must decrement hi because decoder fails when code == hi2
 	if(ec->range<(1LL<<PROB_BITS))
 		ac_enc_renorm(ec);
-	acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->nbits);//
+	acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);//
 	//acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->cidx);//
 }
 INLINE int ac_dec_bypass(ArithmeticCoder *ec, int nlevels)
@@ -531,93 +820,11 @@ INLINE int ac_dec_bypass(ArithmeticCoder *ec, int nlevels)
 	--ec->range;//must decrement hi because decoder fails when code == hi2
 	while(ec->range<(1LL<<PROB_BITS))
 		ac_dec_renorm(ec);
-	acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->nbits, ec->code);//
+	acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);//
 	//acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->cidx, ec->code);//
 	return sym;
 }
-#if 0
-INLINE void ac_enc15(ArithmeticCoder *ec, int sym, const unsigned short *CDF, int nlevels)//CDF is 15 bit
-{
-	unsigned lo2, hi2;
-	int cdf_curr, cdf_next;
-	
-	if(CDF)
-	{
-		cdf_curr=CDF[sym]<<1;
-		cdf_next=CDF[sym+1]<<1;
-	}
-	else//bypass
-	{
-		cdf_curr=(sym<<16)/nlevels;
-		cdf_next=((sym+1)<<16)/nlevels;
-	}
 
-	if(cdf_curr>=cdf_next)
-		LOG_ERROR2("ZPS");
-
-	lo2=ec->lo+(int)((unsigned long long)ec->range*cdf_curr>>16);
-	hi2=ec->lo+(int)((unsigned long long)ec->range*cdf_next>>16);
-	acval_enc(sym, cdf_curr, cdf_next-cdf_curr, ec->lo, ec->lo+ec->range, lo2, hi2, ec->cache, ec->nbits);//
-	ec->lo=lo2;
-	ec->range=hi2-1-lo2;//must decrement hi because decoder fails when code == hi2
-	ac_renorm(ec, 0);
-}
-INLINE int ac_dec15(ArithmeticCoder *ec, const unsigned short *CDF, int nlevels)
-{
-	unsigned lo2, hi2;
-	int sym=0;
-	unsigned cdf_start, cdf_end;
-	
-	if(CDF)
-	{
-		int L=0, R=nlevels-1, found=0;
-		unsigned code2;
-		while(L<=R)//binary search
-		{
-			sym=(L+R)>>1;
-			code2=ec->lo+(int)(ec->range*((unsigned long long)CDF[sym]<<1)>>16);
-			if(code2<ec->code)
-				L=sym+1;
-			else if(code2>ec->code)
-				R=sym-1;
-			else
-			{
-				found=1;
-				break;
-			}
-		}
-		if(found)
-			for(;sym<nlevels-1&&ec->lo+(int)(ec->range*((unsigned long long)CDF[sym+1]<<1)>>16)==ec->code;++sym);
-		else
-			sym=L+(L<nlevels&&ec->lo+(int)(ec->range*((unsigned long long)CDF[sym+1]<<1)>>16)<ec->code)-(L!=0);
-		cdf_start=CDF[sym]<<1;
-		cdf_end=CDF[sym+1]<<1;
-	}
-	else//bypass
-	{
-		cdf_start=(int)(((unsigned long long)(ec->code-ec->lo)<<16)/ec->range);
-		sym=(cdf_start*nlevels>>16)+1;//this is to handle the case when code == lo2
-		cdf_start=(sym<<16)/nlevels;
-		lo2=ec->lo+(int)((unsigned long long)ec->range*cdf_start>>16);
-		if(lo2>ec->code)
-		{
-			--sym;
-			cdf_start=(sym<<16)/nlevels;
-		}
-		cdf_end=((sym+1)<<16)/nlevels;
-	}
-	if(cdf_start>=cdf_end)
-		LOG_ERROR2("ZPS");
-
-	lo2=ec->lo+(int)((unsigned long long)ec->range*cdf_start>>16);
-	hi2=ec->lo+(int)((unsigned long long)ec->range*cdf_end  >>16);
-	acval_dec(sym, cdf_start, cdf_end-cdf_start, ec->lo, ec->lo+ec->range, lo2, hi2, ec->cache, ec->nbits, ec->code);//
-	ec->lo=lo2;
-	ec->range=hi2-1-lo2;//must decrement hi because decoder fails when code == hi2
-	ac_renorm(ec, 0);
-	return sym;
-}
-#endif
 INLINE void ac_enc_bin(ArithmeticCoder *ec, unsigned short p0, int bit)
 {
 	unsigned long long r2=ec->range*p0>>16;
@@ -634,7 +841,7 @@ INLINE void ac_enc_bin(ArithmeticCoder *ec, unsigned short p0, int bit)
 		ec->range=r2-1;//must decrement hi because decoder fails when code == hi2
 	while(ec->range<(1LL<<PROB_BITS))
 		ac_enc_renorm(ec);
-	acval_enc(bit, bit?p0:0, bit?0x10000-p0:p0, ec->low, ec->low+ec->range, bit?ec->low+r2:ec->low, bit?ec->low+ec->range:ec->low+r2-1, ec->cache, ec->nbits);
+	acval_enc(bit, bit?p0:0, bit?0x10000-p0:p0, ec->low, ec->low+ec->range, bit?ec->low+r2:ec->low, bit?ec->low+ec->range:ec->low+r2-1, 0, 0);
 	//acval_enc(bit, bit?p0:0, bit?0x10000-p0:p0, ec->low, ec->low+ec->range, bit?ec->low+r2:ec->low, bit?ec->low+ec->range:ec->low+r2-1, ec->cache, ec->cidx);
 }
 INLINE int ac_dec_bin(ArithmeticCoder *ec, unsigned short p0)//binary AC decoder doesn't do binary search
@@ -654,7 +861,7 @@ INLINE int ac_dec_bin(ArithmeticCoder *ec, unsigned short p0)//binary AC decoder
 		ec->range=r2-1;//must decrement hi because decoder fails when code == hi2
 	while(ec->range<(1LL<<PROB_BITS))
 		ac_dec_renorm(ec);
-	acval_dec(bit, bit?p0:0, bit?0x10000-p0:p0, ec->low, ec->low+ec->range, bit?ec->low+r2:ec->low, bit?ec->low+ec->range:ec->low+r2-1, ec->cache, ec->nbits, ec->code);
+	acval_dec(bit, bit?p0:0, bit?0x10000-p0:p0, ec->low, ec->low+ec->range, bit?ec->low+r2:ec->low, bit?ec->low+ec->range:ec->low+r2-1, 0, 0, ec->code);
 	//acval_dec(bit, bit?p0:0, bit?0x10000-p0:p0, ec->low, ec->low+ec->range, bit?ec->low+r2:ec->low, bit?ec->low+ec->range:ec->low+r2-1, ec->cache, ec->cidx, ec->code);
 	return bit;
 }
@@ -664,18 +871,9 @@ INLINE int ac_dec_bin(ArithmeticCoder *ec, unsigned short p0)//binary AC decoder
 typedef struct ANSCoderStruct
 {
 	unsigned state;
-	union
-	{
-		struct
-		{
-			const unsigned char *srcptr, *srcstart;
-		};
-#ifdef EC_USE_ARRAY
-		ArrayHandle *arr;
-#else
-		DList *list;
-#endif
-	};
+	ArrayHandle *arr;
+	DList *list;
+	const unsigned char *srcptr, *srcstart;
 } ANSCoder;
 INLINE void ans_enc_init(ANSCoder *ec,
 #ifdef EC_USE_ARRAY
@@ -685,6 +883,7 @@ INLINE void ans_enc_init(ANSCoder *ec,
 #endif
 )
 {
+	memset(ec, 0, sizeof(*ec));
 	ec->state=0x10000;
 #ifdef EC_USE_ARRAY
 	ec->arr=arr;
@@ -694,6 +893,7 @@ INLINE void ans_enc_init(ANSCoder *ec,
 }
 INLINE void ans_dec_init(ANSCoder *ec, const unsigned char *start, const unsigned char *end)
 {
+	memset(ec, 0, sizeof(*ec));
 	ec->srcptr=end;
 	ec->srcstart=start;
 
@@ -740,24 +940,32 @@ INLINE int ans_dec(ANSCoder *ec, const unsigned *CDF, int nlevels)
 	unsigned cdf, freq;
 	if(CDF)
 	{
-		int L=0, R=nlevels, found=0;
-		while(L<=R)
+		int L=0, R=nlevels;
+		while(R)//binary search		lg(nlevels) multiplications per symbol
 		{
-			sym=(L+R)>>1;
-			if(CDF[sym]<c)
-				L=sym+1;
-			else if(CDF[sym]>c)
-				R=sym-1;
-			else
-			{
-				found=1;
-				break;
-			}
+			int floorhalf=R>>1;
+			sym=L+floorhalf;
+			L+=(R-floorhalf)&-(CDF[sym]<=c);
+			R=floorhalf;
 		}
-		if(found)
-			for(;sym<nlevels-1&&CDF[sym+1]==c;++sym);
-		else
-			sym=L+(L<nlevels&&CDF[L]<c)-(L!=0);
+		//int L=0, R=nlevels, found=0;
+		//while(L<=R)
+		//{
+		//	sym=(L+R)>>1;
+		//	if(CDF[sym]<c)
+		//		L=sym+1;
+		//	else if(CDF[sym]>c)
+		//		R=sym-1;
+		//	else
+		//	{
+		//		found=1;
+		//		break;
+		//	}
+		//}
+		//if(found)
+		//	for(;sym<nlevels-1&&CDF[sym+1]==c;++sym);
+		//else
+		//	sym=L+(L<nlevels&&CDF[L]<c)-(L!=0);
 
 		cdf=CDF[sym], freq=CDF[sym+1]-cdf;
 	}
@@ -766,6 +974,45 @@ INLINE int ans_dec(ANSCoder *ec, const unsigned *CDF, int nlevels)
 		sym=c*nlevels>>16;
 		cdf=(sym<<16)/nlevels, freq=((sym+1)<<16)/nlevels-cdf;
 	}
+	if(!freq)
+		LOG_ERROR2("ZPS");
+	debug_dec_update(ec->state, cdf, freq, 0, 0, 0, 0, sym);
+	ec->state=freq*(ec->state>>16)+c-cdf;//update
+	if(ec->state<0x10000)//renorm
+	{
+		ec->state<<=16;
+		if(ec->srcptr-2>=ec->srcstart)
+		{
+			ec->srcptr-=2;
+			memcpy(&ec->state, ec->srcptr, 2);
+		}
+	}
+	return sym;
+}
+INLINE int ans_dec_POT(ANSCoder *ec, const unsigned *CDF, int nbits)
+{
+	unsigned c=(unsigned short)ec->state;
+	int sym=0;
+
+	unsigned cdf, freq;
+	switch(nbits)
+	{
+	default:
+		LOG_ERROR2("Unsupported bit depth");
+		break;
+	case 9:sym|=(CDF[sym|256]<=c)<<8;
+	case 8:sym|=(CDF[sym|128]<=c)<<7;
+	case 7:sym|=(CDF[sym| 64]<=c)<<6;
+	case 6:sym|=(CDF[sym| 32]<=c)<<5;
+	case 5:sym|=(CDF[sym| 16]<=c)<<4;
+	case 4:sym|=(CDF[sym|  8]<=c)<<3;
+	case 3:sym|=(CDF[sym|  4]<=c)<<2;
+	case 2:sym|=(CDF[sym|  2]<=c)<<1;
+	case 1:sym|=(CDF[sym|  1]<=c);
+		break;
+	}
+
+	cdf=CDF[sym], freq=CDF[sym+1]-cdf;
 	if(!freq)
 		LOG_ERROR2("ZPS");
 	debug_dec_update(ec->state, cdf, freq, 0, 0, 0, 0, sym);
@@ -896,21 +1143,9 @@ typedef struct GolombRiceCoderStruct
 	unsigned long long cache;
 	unsigned nbits;//enc: number of free bits in cache, dec: number of unread bits in cache
 	int is_enc;
-	union
-	{
-		struct
-		{
-			const unsigned char *srcptr, *srcend, *srcstart;
-		};
-#ifdef EC_USE_ARRAY
-		struct
-		{
-			unsigned char *dstptr, *dstend, *dststart;
-		};
-#else
-		DList *list;
-#endif
-	};
+	const unsigned char *srcptr, *srcend, *srcstart;
+	unsigned char *dstptr, *dstend, *dststart;
+	DList *list;
 } GolombRiceCoder;
 INLINE void gr_enc_init(GolombRiceCoder *ec,
 #ifdef EC_USE_ARRAY
@@ -920,6 +1155,7 @@ INLINE void gr_enc_init(GolombRiceCoder *ec,
 #endif
 )
 {
+	memset(ec, 0, sizeof(*ec));
 	ec->cache=0;
 	ec->nbits=sizeof(ec->cache)<<3;
 	ec->is_enc=1;
@@ -933,6 +1169,7 @@ INLINE void gr_enc_init(GolombRiceCoder *ec,
 }
 INLINE void gr_dec_init(GolombRiceCoder *ec, const unsigned char *start, const unsigned char *end)
 {
+	memset(ec, 0, sizeof(*ec));
 	ec->cache=0;
 	ec->nbits=0;
 	ec->is_enc=0;

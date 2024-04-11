@@ -4,7 +4,7 @@
 #include<math.h>
 //#define EC_USE_ARRAY
 #include"ac.h"
-//static const char file[]=__FILE__;
+static const char file[]=__FILE__;
 
 
 //	#define ENABLE_GUIDE
@@ -12,6 +12,7 @@
 //	#define USE_ANS
 //	#define USE_GOLOMB
 //	#define USE_ABAC
+	#define USE_STATIC_PROB
 
 
 #ifdef USE_ANS
@@ -32,6 +33,16 @@ int f02_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #ifdef ENABLE_GUIDE
 	if(fwd)
 		guide=image;
+#endif
+#ifdef USE_STATIC_PROB
+	unsigned *CDF=(unsigned*)malloc(sizeof(int[257]));
+	if(!CDF)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
+	for(int k=0;k<257;++k)
+		CDF[k]=k<<8;
 #endif
 	DList list;
 	dlist_init(&list, 1, 256, 0);
@@ -74,19 +85,19 @@ int f02_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			const short *comp=image->data+idx;
 			for(int kc=step<0?image->nch-1:0;(unsigned)kc<(unsigned)image->nch;kc+=step)
 			{
-				int nbits=image->depth;
 				if(fwd)
 				{
 					int bypass=comp[kc]<<1^-(comp[kc]<0);
 #ifdef USE_GOLOMB
-					gr_enc(&ec, bypass, 1<<nbits>>1);
+					gr_enc(&ec, bypass, 1<<image->depth>>1);
 #elif defined USE_ANS
-					ans_enc(&ec, bypass, 0, 1<<nbits);//up to 16 bit
+					ans_enc(&ec, bypass, CDF, 1<<image->depth);//up to 16 bit
 #elif defined USE_ABAC
 					for(int kb=image->depth-1;kb>=0;--kb)
 						ac_enc_bin(&ec, 0x8000, bypass>>kb&1);
 #else
-					ac_enc_bypass(&ec, bypass, 1<<nbits);
+					ac_enc(&ec, bypass, CDF);
+					//ac_enc_bypass(&ec, bypass, 1<<image->depth);
 					//while(nbits>8)
 					//{
 					//	ac_enc(&ec, bypass>>(nbits-8)&0xFF, 0, 1<<8, 16-8);
@@ -98,15 +109,19 @@ int f02_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				else
 				{
 #ifdef USE_GOLOMB
-					int bypass=gr_dec(&ec, 1<<nbits>>1);
+					int bypass=gr_dec(&ec, 1<<image->depth>>1);
 #elif defined USE_ANS
-					int bypass=ans_dec(&ec, 0, 1<<nbits);
+					int bypass=ans_dec_POT(&ec, CDF, image->depth);
+					//int bypass=ans_dec(&ec, 0, 1<<image->depth);
 #elif defined USE_ABAC
 					int bypass=0;
 					for(int kb=image->depth-1;kb>=0;--kb)
 						bypass|=ac_dec_bin(&ec, 0x8000)<<kb;
 #else
-					int bypass=ac_dec_bypass(&ec, 1<<nbits);
+					int bypass=ac_dec_POT(&ec, CDF, 8);
+					//int bypass=ac_dec(&ec, CDF, 256);
+					//int bypass=ac_dec_bypass(&ec, 1<<image->depth);
+
 					//int bypass=0;
 					//while(nbits>8)
 					//{
@@ -168,5 +183,8 @@ int f02_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		printf("F02-%s  %c %15.6lf sec\n", ecname, 'D'+fwd, t0);
 	}
 	dlist_clear(&list);
+#ifdef USE_STATIC_PROB
+	free(CDF);
+#endif
 	return 1;
 }

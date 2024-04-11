@@ -58,10 +58,15 @@ int	f05_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #define f05_encode(SRC, DATA, LOUD)		f05_codec(SRC, DATA, 0, 0, 0, LOUD)
 #define f05_decode(CBUF, CSIZE, DST, LOUD)	f05_codec(0, 0, CBUF, CSIZE, DST, LOUD)
 
-//adaptive 5+4-bit model (8-bit only)
+//adaptive 5+4-bit model (8-bit only, AVX2)
 int	f06_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
 #define f06_encode(SRC, DATA, LOUD)		f06_codec(SRC, DATA, 0, 0, 0, LOUD)
 #define f06_decode(CBUF, CSIZE, DST, LOUD)	f06_codec(0, 0, CBUF, CSIZE, DST, LOUD)
+
+//adaptive 8-bit model, MA, AVX2
+int	f07_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
+#define f07_encode(SRC, DATA, LOUD)		f07_codec(SRC, DATA, 0, 0, 0, LOUD)
+#define f07_decode(CBUF, CSIZE, DST, LOUD)	f07_codec(0, 0, CBUF, CSIZE, DST, LOUD)
 
 
 #ifdef __cplusplus

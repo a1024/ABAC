@@ -223,14 +223,14 @@ int floor_log2_p1(unsigned long long n)
 	int logn=64-__builtin_clzll(n);
 	return logn;
 #else
-	int	logn=-!n;
+	int	logn=n!=0;
 	int	sh=(n>=1ULL<<32)<<5;	logn+=sh, n>>=sh;
 		sh=(n>=1<<16)<<4;	logn+=sh, n>>=sh;
 		sh=(n>=1<< 8)<<3;	logn+=sh, n>>=sh;
 		sh=(n>=1<< 4)<<2;	logn+=sh, n>>=sh;
 		sh=(n>=1<< 2)<<1;	logn+=sh, n>>=sh;
 		sh= n>=1<< 1;		logn+=sh;
-	return logn+1;
+	return logn;
 #endif
 }
 int floor_log2(unsigned long long n)
@@ -262,8 +262,6 @@ int floor_log2_32(unsigned n)
 	logn=success?logn:-1;
 	return logn;
 #elif defined __GNUC__
-	if(!n)
-		return -1;
 	int logn=31-__builtin_clz(n);
 	return logn;
 #else
@@ -774,7 +772,11 @@ static void array_realloc(ArrayHandle *arr, size_t count, size_t pad)//CANNOT be
 	if(newcap>arr[0]->cap)
 	{
 		p2=(ArrayHandle)realloc(*arr, sizeof(ArrayHeader)+newcap);
-		ASSERT_P(p2);
+		if(!p2)
+		{
+			LOG_ERROR("Alloc error");
+			return;
+		}
 		*arr=p2;
 		if(arr[0]->cap<newcap)
 			memset(arr[0]->data+arr[0]->cap, 0, newcap-arr[0]->cap);
@@ -803,10 +805,7 @@ ArrayHandle array_construct(const void *src, size_t esize, size_t count, size_t 
 	arr->cap=cap;
 	arr->destructor=destructor;
 	if(src)
-	{
-		ASSERT_P(src);
 		memfill(arr->data, src, dstsize, srcsize);
-	}
 	else
 		memset(arr->data, 0, dstsize);
 		
@@ -860,7 +859,11 @@ void array_fit(ArrayHandle *arr, size_t pad)//can be nullptr
 		return;
 	arr[0]->cap=(arr[0]->count+pad)*arr[0]->esize;
 	p2=(ArrayHandle)realloc(*arr, sizeof(ArrayHeader)+arr[0]->cap);
-	ASSERT_P(p2);
+	if(!p2)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
 	*arr=p2;
 }
 
@@ -1312,9 +1315,15 @@ void  dlist_last(DListHandle list, DListItHandle it)
 void* dlist_it_deref(DListItHandle it)
 {
 	if(it->obj_idx>=it->list->nobj)
+	{
 		LOG_ERROR("dlist_it_deref() out of bounds");
+		return 0;
+	}
 	if(!it->node)
+	{
 		LOG_ERROR("dlist_it_deref() node == nullptr");
+		return 0;
+	}
 	return it->node->data+it->obj_idx%it->list->objpernode*it->list->objsize;
 }
 int   dlist_it_inc(DListItHandle it)
@@ -1933,7 +1942,10 @@ void bitstring_append(BitstringHandle *str, const void *src, size_t bitCount, si
 	{
 		p=realloc(*str, sizeof(BitstringHeader)+newcap);
 		if(!p)
-			LOG_ERROR("realloc returned nullptr");
+		{
+			LOG_ERROR("Alloc error");
+			return;
+		}
 		*str=p;
 		str[0]->byteCap=newcap;
 	}
@@ -2004,7 +2016,11 @@ static void pqueue_realloc(PQueueHandle *pq, size_t count, size_t pad)//CANNOT b
 		//printf("realloc(%p, %lld)\n", *pq, sizeof(PQueueHeader)+newcap);//
 
 		p2=realloc(*pq, sizeof(PQueueHeader)+newcap);
-		ASSERT_P(p2);
+		if(!p2)
+		{
+			LOG_ERROR("Alloc error");
+			return;
+		}
 		*pq=(PQueueHandle)p2;
 		if(pq[0]->byteCap<newcap)
 			memset(pq[0]->data+pq[0]->byteCap, 0, newcap-pq[0]->byteCap);

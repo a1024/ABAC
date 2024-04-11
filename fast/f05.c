@@ -9,8 +9,6 @@ static const char file[]=__FILE__;
 
 //	#define ENABLE_GUIDE
 //	#define PROFILER 1
-//	#define USE_ANS
-//	#define USE_GOLOMB
 	#define USE_CLAMPGRAD
 	#define ALLOW_SIMD
 
@@ -203,9 +201,9 @@ int f05_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					PROF(PRED);
 #endif
 
-					ac_enc(ec+0, val[1], CDF+513*0, nlevels);
-					ac_enc(ec+1, val[2], CDF+513*1, clevels);
-					ac_enc(ec+2, val[0], CDF+513*2, clevels);
+					ac_enc(ec+0, val[1], CDF+513*0);
+					ac_enc(ec+1, val[2], CDF+513*1);
+					ac_enc(ec+2, val[0], CDF+513*2);
 					PROF(EC);
 
 					update_hist(hist+513*0, nlevels, val[1]);
@@ -241,7 +239,7 @@ int f05_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				for(int kx=0;kx<image->iw;++kx, ++idx)
 				{
 					int val=(image->data[idx]-W+half)&(nlevels-1);
-					ac_enc(ec, val, CDF+513*0, nlevels);
+					ac_enc(ec, val, CDF+513*0);
 					update_hist(hist+513*0, nlevels, val);
 				}
 				update_CDF(CDF+513*0, hist+513*0, nlevels);
