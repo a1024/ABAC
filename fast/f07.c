@@ -25,6 +25,7 @@ static const char file[]=__FILE__;
 #include"ac.h"
 #include"profiler.h"
 #define QLEVELS 15
+#define RATE_SR 8
 #ifdef N_CODER
 #define EC_IDX_MASK ~0
 #else
@@ -100,8 +101,123 @@ static void update_CDFs(unsigned char *val, unsigned short *stats, int *ctx)
 	for(int kc=0;kc<3;++kc)
 	{
 		unsigned short *curr_CDF=stats+ctx[kc];
+#if 0
 		for(int ks=0;ks<256;++ks)
-			curr_CDF[ks]+=((0xFF00&-(ks>val[kc]))+ks-curr_CDF[ks])>>9;
+			curr_CDF[ks]+=((0xFF00&-(ks>val[kc]))+ks-curr_CDF[ks])>>RATE_SR;
+#else
+		__m256i sym=_mm256_set1_epi16(val[kc]);
+		__m256i r0=_mm256_set_epi16(15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0);
+		__m256i r1=_mm256_set_epi16(31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16);
+		__m256i r2=_mm256_set_epi16(47, 46, 45, 44, 43, 42, 41, 40, 39, 38, 37, 36, 35, 34, 33, 32);
+		__m256i r3=_mm256_set_epi16(63, 62, 61, 60, 59, 58, 57, 56, 55, 54, 53, 52, 51, 50, 49, 48);
+		__m256i stride=_mm256_set1_epi16(64);
+		__m256i amplitude=_mm256_set1_epi16(0xFF00);
+		__m256i expandlo=_mm256_set_epi8(
+			-1, -1,  7,  6, -1, -1,  5,  4, -1, -1,  3,  2, -1, -1,  1,  0,
+			-1, -1,  7,  6, -1, -1,  5,  4, -1, -1,  3,  2, -1, -1,  1,  0
+		);
+		__m256i expandhi=_mm256_set_epi8(
+			-1, -1, 15, 14, -1, -1, 13, 12, -1, -1, 11, 10, -1, -1,  9,  8,
+			-1, -1, 15, 14, -1, -1, 13, 12, -1, -1, 11, 10, -1, -1,  9,  8
+		);
+		__m256i compactlo=_mm256_set_epi8(
+			-1, -1, -1, -1, -1, -1, -1, -1, 13, 12,  9,  8,  5,  4,  1,  0,
+			-1, -1, -1, -1, -1, -1, -1, -1, 13, 12,  9,  8,  5,  4,  1,  0
+		);
+		__m256i compacthi=_mm256_set_epi8(
+			13, 12,  9,  8,  5,  4,  1,  0, -1, -1, -1, -1, -1, -1, -1, -1,
+			13, 12,  9,  8,  5,  4,  1,  0, -1, -1, -1, -1, -1, -1, -1, -1
+		);
+		for(int k=0;k<256;k+=64)
+		{
+			__m256i c0=_mm256_load_si256((__m256i*)curr_CDF+0);
+			__m256i c1=_mm256_load_si256((__m256i*)curr_CDF+1);
+			__m256i c2=_mm256_load_si256((__m256i*)curr_CDF+2);
+			__m256i c3=_mm256_load_si256((__m256i*)curr_CDF+3);
+			__m256i t0=_mm256_cmpgt_epi16(r0, sym);
+			__m256i t1=_mm256_cmpgt_epi16(r1, sym);
+			__m256i t2=_mm256_cmpgt_epi16(r2, sym);
+			__m256i t3=_mm256_cmpgt_epi16(r3, sym);
+			t0=_mm256_and_si256(amplitude, t0);
+			t1=_mm256_and_si256(amplitude, t1);
+			t2=_mm256_and_si256(amplitude, t2);
+			t3=_mm256_and_si256(amplitude, t3);
+			t0=_mm256_add_epi16(t0, r0);
+			t1=_mm256_add_epi16(t1, r1);
+			t2=_mm256_add_epi16(t2, r2);
+			t3=_mm256_add_epi16(t3, r3);
+
+			//need 17 bits for this (including sign bit)
+			__m256i tlo, thi, clo, chi;
+			tlo=_mm256_shuffle_epi8(t0, expandlo);
+			thi=_mm256_shuffle_epi8(t0, expandhi);
+			clo=_mm256_shuffle_epi8(c0, expandlo);
+			chi=_mm256_shuffle_epi8(c0, expandhi);
+			clo=_mm256_sub_epi32(tlo, clo);
+			chi=_mm256_sub_epi32(thi, chi);
+			clo=_mm256_srai_epi32(clo, RATE_SR);
+			chi=_mm256_srai_epi32(chi, RATE_SR);
+			clo=_mm256_shuffle_epi8(clo, compactlo);
+			chi=_mm256_shuffle_epi8(chi, compacthi);
+			t0=_mm256_or_si256(clo, chi);
+			
+			tlo=_mm256_shuffle_epi8(t1, expandlo);
+			thi=_mm256_shuffle_epi8(t1, expandhi);
+			clo=_mm256_shuffle_epi8(c1, expandlo);
+			chi=_mm256_shuffle_epi8(c1, expandhi);
+			clo=_mm256_sub_epi32(tlo, clo);
+			chi=_mm256_sub_epi32(thi, chi);
+			clo=_mm256_srai_epi32(clo, RATE_SR);
+			chi=_mm256_srai_epi32(chi, RATE_SR);
+			clo=_mm256_shuffle_epi8(clo, compactlo);
+			chi=_mm256_shuffle_epi8(chi, compacthi);
+			t1=_mm256_or_si256(clo, chi);
+			
+			tlo=_mm256_shuffle_epi8(t2, expandlo);
+			thi=_mm256_shuffle_epi8(t2, expandhi);
+			clo=_mm256_shuffle_epi8(c2, expandlo);
+			chi=_mm256_shuffle_epi8(c2, expandhi);
+			clo=_mm256_sub_epi32(tlo, clo);
+			chi=_mm256_sub_epi32(thi, chi);
+			clo=_mm256_srai_epi32(clo, RATE_SR);
+			chi=_mm256_srai_epi32(chi, RATE_SR);
+			clo=_mm256_shuffle_epi8(clo, compactlo);
+			chi=_mm256_shuffle_epi8(chi, compacthi);
+			t2=_mm256_or_si256(clo, chi);
+			
+			tlo=_mm256_shuffle_epi8(t3, expandlo);
+			thi=_mm256_shuffle_epi8(t3, expandhi);
+			clo=_mm256_shuffle_epi8(c3, expandlo);
+			chi=_mm256_shuffle_epi8(c3, expandhi);
+			clo=_mm256_sub_epi32(tlo, clo);
+			chi=_mm256_sub_epi32(thi, chi);
+			clo=_mm256_srai_epi32(clo, RATE_SR);
+			chi=_mm256_srai_epi32(chi, RATE_SR);
+			clo=_mm256_shuffle_epi8(clo, compactlo);
+			chi=_mm256_shuffle_epi8(chi, compacthi);
+			t3=_mm256_or_si256(clo, chi);
+
+			c0=_mm256_add_epi16(c0, t0);
+			c1=_mm256_add_epi16(c1, t1);
+			c2=_mm256_add_epi16(c2, t2);
+			c3=_mm256_add_epi16(c3, t3);
+			_mm256_store_si256((__m256i*)curr_CDF+0, c0);
+			_mm256_store_si256((__m256i*)curr_CDF+1, c1);
+			_mm256_store_si256((__m256i*)curr_CDF+2, c2);
+			_mm256_store_si256((__m256i*)curr_CDF+3, c3);
+			curr_CDF+=64;
+			r0=_mm256_add_epi16(r0, stride);
+			r1=_mm256_add_epi16(r1, stride);
+			r2=_mm256_add_epi16(r2, stride);
+			r3=_mm256_add_epi16(r3, stride);
+		}
+#endif
+		//curr_CDF=stats+ctx[kc];//
+		//for(int ks=0;ks<255;++ks)
+		//{
+		//	if(curr_CDF[ks]>curr_CDF[ks+1])
+		//		LOG_ERROR("");
+		//}
 	}
 }
 int f07_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud)
@@ -123,7 +239,6 @@ int f07_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	dlist_init(list+1, 1, 1024, 0);
 	dlist_init(list+2, 1, 1024, 0);
 	ArithmeticCoder ec[3];
-	int nlevels=1<<image->depth, clevels=nlevels<<1, half=nlevels>>1, chalf=nlevels;
 	unsigned short *stats=(unsigned short*)_mm_malloc(sizeof(short[256*QLEVELS*QLEVELS*4]), sizeof(__m256i));//(CDFSIZE+1) * nodes_in_tree * 4 channels max
 	char *pixels=(char*)malloc((image->iw+4LL)*sizeof(char[2*4*2]));//2 padded rows * 4 channels max * {pixels, errors}
 	if(!stats||!pixels)
@@ -192,9 +307,13 @@ int f07_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				//if(idx==9621)//
 				//if(idx==7299)//
 				//	printf("");
-				ac_enc_p16(ec+(0&EC_IDX_MASK), val[1], stats+ctx[1], 256);
-				ac_enc_p16(ec+(1&EC_IDX_MASK), val[2], stats+ctx[2], 256);
-				ac_enc_p16(ec+(2&EC_IDX_MASK), val[0], stats+ctx[0], 256);
+#ifdef N_CODER
+				ac_enc_packedCDF_8x3(ec, val, stats+ctx[0], stats+ctx[1], stats+ctx[2]);
+#else
+				ac_enc_packedCDF(ec+(0&EC_IDX_MASK), val[0], stats+ctx[0], 256);
+				ac_enc_packedCDF(ec+(1&EC_IDX_MASK), val[1], stats+ctx[1], 256);
+				ac_enc_packedCDF(ec+(2&EC_IDX_MASK), val[2], stats+ctx[2], 256);
+#endif
 				PROF(EC);
 
 				update_CDFs(val, stats, ctx);
@@ -264,9 +383,13 @@ int f07_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				//	printf("");
 					
 				unsigned char val[3];
-				val[1]=ac_dec_p16_POT(ec+(0&EC_IDX_MASK), stats+ctx[1], 8);
-				val[2]=ac_dec_p16_POT(ec+(1&EC_IDX_MASK), stats+ctx[2], 8);
-				val[0]=ac_dec_p16_POT(ec+(2&EC_IDX_MASK), stats+ctx[0], 8);
+#ifdef N_CODER
+				ac_dec_packedCDF_8x3(ec, stats+ctx[0], stats+ctx[1], stats+ctx[2], val);
+#else
+				val[0]=ac_dec_packedCDF_POT(ec+(0&EC_IDX_MASK), stats+ctx[0], 8);
+				val[1]=ac_dec_packedCDF_POT(ec+(1&EC_IDX_MASK), stats+ctx[1], 8);
+				val[2]=ac_dec_packedCDF_POT(ec+(2&EC_IDX_MASK), stats+ctx[2], 8);
+#endif
 				PROF(EC);
 
 				curr[4]=val[0]-128;
@@ -324,7 +447,7 @@ int f07_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			);
 			printf("csize %12lld  %10.6lf%%  CR %8.6lf\n", csize, 100.*csize/usize, (double)usize/csize);
 		}
-		printf("F05  %c %15.6lf sec\n", 'D'+fwd, t0);
+		printf("F07  %c %15.6lf sec\n", 'D'+fwd, t0);
 		prof_print();
 	}
 	dlist_clear(list+0);

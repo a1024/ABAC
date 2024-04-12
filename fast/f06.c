@@ -490,7 +490,7 @@ int f06_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #endif
 			printf("csize %12lld  %10.6lf%%  CR %8.6lf\n", csize, 100.*csize/usize, (double)usize/csize);
 		}
-		printf("F05  %c %15.6lf sec\n", 'D'+fwd, t0);
+		printf("F06  %c %15.6lf sec\n", 'D'+fwd, t0);
 		prof_print();
 	}
 	dlist_clear(list+0);

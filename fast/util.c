@@ -688,7 +688,7 @@ int log_error(const char *file, int line, int quit, const char *format, ...)
 	va_end(args);
 
 	if(firsttime)
-		memcpy(first_error_msg, latest_error_msg, printed+1);
+		memcpy(first_error_msg, latest_error_msg, printed+1LL);
 	fprintf(stderr, "%s\n", latest_error_msg);
 	//messagebox(MBOX_OK, "Error", latest_error_msg);
 	if(quit)
