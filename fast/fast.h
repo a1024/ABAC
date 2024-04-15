@@ -32,7 +32,7 @@ void rct_JPEG2000_32(Image *image, int fwd);
 void pred_clampgrad(Image *src, int fwd, const char *depths);
 void pred_clampgrad_fast(Image *src, int fwd, const char *depths);
 void pred_wp_deferred(Image *src, int fwd);
-void pred_avx2(Image *src, int fwd, const char *depths);
+void pred_simd(Image *src, int fwd, const char *depths);
 
 
 //entropy estimators

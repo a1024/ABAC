@@ -197,8 +197,6 @@ void pred_clampgrad_fast(Image *src, int fwd, const char *depths)
 		return;
 	}
 	memset(pixels, 0, (src->iw+2LL)*sizeof(short[2*4]));
-	int dy=src->nch*src->iw;
-	int dx=src->nch;
 	int nlevels[]=
 	{
 		1<<(depths?depths[0]:src->depth),
@@ -211,8 +209,8 @@ void pred_clampgrad_fast(Image *src, int fwd, const char *depths)
 	{
 		short *rows[]=
 		{
-			pixels+((src->iw+2LL)*((ky-0)&1)<<2),
-			pixels+((src->iw+2LL)*((ky-1)&1)<<2),
+			pixels+(((src->iw+2LL)*((ky-0)&1)+1LL)<<2),
+			pixels+(((src->iw+2LL)*((ky-1)&1)+1LL)<<2),
 		};
 		for(int kx=0;kx<src->iw;++kx, idx+=src->nch)
 		{
@@ -245,7 +243,7 @@ void pred_clampgrad_fast(Image *src, int fwd, const char *depths)
 	}
 	free(pixels);
 }
-void pred_avx2(Image *src, int fwd, const char *depths)
+void pred_simd(Image *src, int fwd, const char *depths)
 {
 	short *pixels=(short*)malloc((src->iw+4LL)*sizeof(short[2*4]));//2 padded rows * 4 channels max
 	if(!pixels)
@@ -254,8 +252,6 @@ void pred_avx2(Image *src, int fwd, const char *depths)
 		return;
 	}
 	memset(pixels, 0, (src->iw+4LL)*sizeof(short[2*4]));
-	int dy=src->nch*src->iw;
-	int dx=src->nch;
 	int nlevels[]=
 	{
 		1<<(depths?depths[0]:src->depth),
@@ -283,8 +279,8 @@ void pred_avx2(Image *src, int fwd, const char *depths)
 	{
 		short *rows[]=
 		{
-			pixels+((src->iw+4LL)*((ky-0)&1)<<2),
-			pixels+((src->iw+4LL)*((ky-1)&1)<<2),
+			pixels+(((src->iw+2LL)*((ky-0)&1)+1LL)<<2),
+			pixels+(((src->iw+2LL)*((ky-1)&1)+1LL)<<2),
 		};
 		int kx=0;
 		for(;kx<src->iw;++kx, idx+=src->nch)
@@ -706,13 +702,6 @@ void calc_csize_bin(Image const *src, const char *depths, double *ret_csizes)
 		depths?depths[2]:src->depth,
 		depths?depths[3]:src->depth,
 	};
-	int nlevels[]=
-	{
-		1<<bitdepths[0],
-		1<<bitdepths[1],
-		1<<bitdepths[2],
-		1<<bitdepths[3],
-	};
 	int maxdepth=bitdepths[0];
 	UPDATE_MAX(maxdepth, bitdepths[1]);
 	UPDATE_MAX(maxdepth, bitdepths[2]);
@@ -763,13 +752,6 @@ size_t calc_csize_ABAC(Image const *src, const char *depths)
 		depths?depths[2]:src->depth,
 		depths?depths[3]:src->depth,
 	};
-	int nlevels[]=
-	{
-		1<<bitdepths[0],
-		1<<bitdepths[1],
-		1<<bitdepths[2],
-		1<<bitdepths[3],
-	};
 	int maxdepth=bitdepths[0];
 	UPDATE_MAX(maxdepth, bitdepths[1]);
 	UPDATE_MAX(maxdepth, bitdepths[2]);
@@ -778,7 +760,7 @@ size_t calc_csize_ABAC(Image const *src, const char *depths)
 	if(!stats)
 	{
 		LOG_ERROR("Alloc error");
-		return;
+		return 0;
 	}
 	*stats=0x8000;
 	memfill(stats+1, stats, (sizeof(short)*src->nch<<maxdepth)-sizeof(short), sizeof(short));
@@ -789,18 +771,29 @@ size_t calc_csize_ABAC(Image const *src, const char *depths)
 	{
 		for(int kc=0;kc<src->nch;++kc)
 		{
+			int val=src->data[k+kc];
 			unsigned short *curr_stats=stats+((size_t)kc<<maxdepth);
-			int idx2=1;
-			for(int kb=bitdepths[kc]-1;kb>=0;--kb)
+			unsigned long long idx2=1;
+			int kb=bitdepths[kc]-1;
+
+			int p0, update;
+			unsigned long long bit, r2;
+#if 1
+			for(int kb2=0;kb2<8;++kb2)//compiler unrolls this
 			{
-				int p0=curr_stats[idx2];
-
-				int bit=src->data[k+kc]>>kb&1;
-
-				unsigned long long r2=range*p0>>16;
-				int mask=-bit;
-				low+=r2&mask;
-				range=bit?range-r2:r2-1;
+				p0=curr_stats[idx2];
+				bit=(unsigned long long)(val>>kb&1);
+				r2=(unsigned long long)(unsigned)range*p0>>16;
+				//low+=r2&-bit;
+				//range=bit?range-r2:r2-1;
+				if(bit)
+				{
+					low+=r2;
+					range-=r2;
+				}
+				else
+					range=r2-1;
+				bit^=1;
 				if(range<0x10000)
 				{
 					range<<=16;
@@ -808,16 +801,85 @@ size_t calc_csize_ABAC(Image const *src, const char *depths)
 					range|=0xFFFF;
 					csize+=2;
 				}
-				int update=((!bit<<16)-p0);
-				p0+=(update>>7)+(update<0);
-				//if(!(unsigned short)p0)
-				//	LOG_ERROR("");
-				curr_stats[idx2]=p0;
+				update=(bit<<16)-p0;
+				curr_stats[idx2]=p0+(update>>8)+(update>>31);
 				idx2=idx2<<1|bit;
+				--kb;
 			}
+#endif
+			do
+			{
+				p0=curr_stats[idx2];
+				bit=(unsigned long long)(val>>kb&1);
+				r2=(unsigned long long)(unsigned)range*p0>>16;
+				//low+=r2&-bit;
+				//range=bit?range-r2:r2-1;
+				if(bit)
+				{
+					low+=r2;
+					range-=r2;
+				}
+				else
+					range=r2-1;
+				bit^=1;
+				if(range<0x10000)
+				{
+					range<<=16;
+					low<<=16;
+					range|=0xFFFF;
+					csize+=2;
+				}
+				update=(bit<<16)-p0;
+				curr_stats[idx2]=p0+(update>>8)+(update>>31);//rounding towards zero
+				idx2=idx2<<1|bit;
+				--kb;
+			}while(kb>=0);
 		}
 	}
 	csize+=8;
 	free(stats);
 	return csize;
 }
+#if 0
+size_t abac_encode(short *data, unsigned short *stats, int iw, int ih, int nch, const char *depths, char maxdepth)
+{
+	size_t csize=0;
+	ptrdiff_t res=(ptrdiff_t)iw*ih, nvals=res*nch;
+	unsigned long long low=0, range=0xFFFFFFFF;
+	for(ptrdiff_t k=0, idx=1;k<nvals;k+=nch, ++idx)
+	{
+		for(int kc=0;kc<nch;++kc)
+		{
+			int val=data[k+kc];
+			unsigned short *curr_stats=stats+((size_t)kc<<maxdepth);
+			unsigned long long idx2=1;
+			int kb=depths[kc]-1;
+			
+			int p0, update;
+			unsigned long long bit, r2;
+			for(;kb>=0;--kb)
+			{
+				p0=curr_stats[idx2];
+				
+				bit=(unsigned long long)(val>>kb&1);
+
+				r2=range*p0>>16;
+				low+=r2&-bit;
+				range=bit?range-r2:r2-1;
+				bit^=1;
+				if(range<0x10000)
+				{
+					range<<=16;
+					low<<=16;
+					range|=0xFFFF;
+					csize+=2;
+				}
+				update=(bit<<16)-p0;
+				curr_stats[idx2]=p0+(update>>7)+(update>>31);
+				idx2=idx2<<1|bit;
+			}
+		}
+	}
+	return csize+8;
+}
+#endif

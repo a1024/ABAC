@@ -529,8 +529,8 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				//if(ky==1&&kx==1)//
 				//if(ky==1&&kx==386)//
 				//if(idx==3462)//
-				if(kx==256&&ky==256)//
-					printf("");
+				//if(kx==256&&ky==256)//
+				//	printf("");
 
 				int sym[]=
 				{

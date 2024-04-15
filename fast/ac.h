@@ -697,8 +697,7 @@ INLINE void ac_enc_bin(ArithmeticCoder *ec, unsigned short p0, int bit)
 	if(!p0)//reject degenerate distribution
 		LOG_ERROR2("ZPS");
 #endif
-	int mask=-bit;
-	ec->low+=r2&mask;
+	ec->low+=r2&-bit;
 	ec->range=bit?ec->range-r2:r2-1;//must decrement hi because decoder fails when code == hi2
 	//if(bit)
 	//{
@@ -721,8 +720,7 @@ INLINE int ac_dec_bin(ArithmeticCoder *ec, unsigned short p0)//binary AC decoder
 #endif
 	int bit=ec->code>=ec->low+r2;
 
-	int mask=-bit;
-	ec->low+=r2&mask;
+	ec->low+=r2&-bit;
 	ec->range=bit?ec->range-r2:r2-1;
 	//if(bit)
 	//{

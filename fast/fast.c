@@ -380,8 +380,8 @@ int main(int argc, char **argv)
 		//pred_clampgrad(&dst, 0, depths);
 		//rct_JPEG2000_32(&dst, 1);
 		//rct_JPEG2000_32(&dst, 0);
-		//pred_avx2(&dst, 1, 0);
-		//pred_avx2(&dst, 0, 0);
+		//pred_avx2(&dst, 1, depths);
+		//pred_avx2(&dst, 0, depths);
 		
 		compare_bufs_16(dst.data, src.data, src.iw, src.ih, src.nch, src.nch, CODECNAME, 0, 1);
 #endif
@@ -436,17 +436,17 @@ int main(int argc, char **argv)
 		times[0]=time_sec()-times[0];
 		
 		times[1]=time_sec();
-		pred_clampgrad_fast(&src, 1, depths);
-		//pred_avx2(&src, 1, depths);
+		pred_simd(&src, 1, depths);
+		//pred_clampgrad_fast(&src, 1, depths);
 		//pred_clampgrad(&src, 1, depths);
 		times[1]=time_sec()-times[1];
 		
 		times[2]=time_sec();
-		calc_csize(&src, depths, csizes_shannon, 0);
+		//calc_csize(&src, depths, csizes_shannon, 0);
 		times[2]=time_sec()-times[2];
 		
 		times[3]=time_sec();
-		calc_csize_vlc(&src, depths, csizes, csizes_vlc);
+		//calc_csize_vlc(&src, depths, csizes, csizes_vlc);
 		times[3]=time_sec()-times[3];
 		
 		times[4]=time_sec();
@@ -458,7 +458,7 @@ int main(int argc, char **argv)
 		csize_abac=calc_csize_ABAC(&src, depths);
 		times[5]=time_sec()-times[5];
 
-		printf("\nC       Shannon       Ada-Zipf        Ada-VLC           ABAC\tusize%12lld\n", image_getBMPsize(&src));
+		printf("\nC       Shannon       Ada-Zipf        Ada-VLC        Ada-Bin\tusize%12lld\n", image_getBMPsize(&src));
 		for(int k=0;k<src.nch+1;++k)
 			printf("%c%14.2lf %14.2lf %14.2lf %14.2lf\n", "TYUVA"[k], csizes_shannon[k], csizes[k], csizes_vlc[k], csizes_bin[k]);
 		printf("csize_ABAC %14lld\n", csize_abac);
@@ -473,6 +473,9 @@ int main(int argc, char **argv)
 		};
 		for(int k=0;k<_countof(times);++k)
 			printf("%-16s %14.3lf sec\n", oplabels[k], times[k]);
+		//pred_avx2(&src, 0, depths);
+		//rct_JPEG2000_32(&src, 0);
+		//compare_bufs_16(dst.data, src.data, src.iw, src.ih, src.nch, src.nch, CODECNAME, 0, 1);
 #endif
 
 		array_free(&cdata);
