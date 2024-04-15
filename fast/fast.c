@@ -450,7 +450,7 @@ int main(int argc, char **argv)
 		times[3]=time_sec()-times[3];
 		
 		times[4]=time_sec();
-		calc_csize_bin(&src, depths, csizes_bin);
+		//calc_csize_bin(&src, depths, csizes_bin);
 		times[4]=time_sec()-times[4];
 		
 		size_t csize_abac=0;

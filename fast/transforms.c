@@ -276,6 +276,7 @@ void pred_simd(Image *src, int fwd, const char *depths)
 		nlevels[1]-1,
 		nlevels[0]-1
 	);
+	ALIGN(16) short curr[8]={0};
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
 		short *rows[]=
@@ -303,7 +304,15 @@ void pred_simd(Image *src, int fwd, const char *depths)
 				src->data[idx+1],
 				src->data[idx+0]
 			);
-			ALIGN(16) short curr[8]={0};
+			//memcpy(curr, src->data+idx, sizeof(short[3]));
+			//if(fwd)
+			//{
+			//	curr[0]-=curr[1];
+			//	curr[2]-=curr[1];
+			//	curr[1]+=(curr[0]+curr[2])>>2;
+			//}
+			//__m128i mc=_mm_load_si128((__m128i*)curr);
+
 			pred=_mm_xor_si128(pred, mfwd);
 			pred=_mm_sub_epi16(pred, mfwd);
 			pred=_mm_add_epi16(pred, mc);
@@ -311,6 +320,12 @@ void pred_simd(Image *src, int fwd, const char *depths)
 			pred=_mm_and_si128(pred, symmask);
 			pred=_mm_sub_epi16(pred, mhalf);
 			_mm_store_si128((__m128i*)curr, pred);
+			//if(!fwd)
+			//{
+			//	curr[1]-=(curr[0]+curr[2])>>2;
+			//	curr[2]+=curr[1];
+			//	curr[0]+=curr[1];
+			//}
 			src->data[idx+0]=curr[0];
 			src->data[idx+1]=curr[1];
 			src->data[idx+2]=curr[2];
