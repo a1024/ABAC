@@ -133,8 +133,8 @@ typedef struct DebugANSInfoStruct
 } DebugANSInfo;
 extern SList states;
 extern int debug_channel;
-void debug_enc_update(unsigned state, unsigned cdf, unsigned freq, int kx, int ky, int kq, int kc, unsigned char sym);
-void debug_dec_update(unsigned state, unsigned cdf, unsigned freq, int kx, int ky, int kq, int kc, unsigned char sym);
+void debug_enc_update(unsigned state, unsigned cdf, int freq, int kx, int ky, int kq, int kc, unsigned char sym);
+void debug_dec_update(unsigned state, unsigned cdf, int freq, int kx, int ky, int kq, int kc, unsigned char sym);
 #ifdef AC_IMPLEMENTATION
 SList states={0};
 int debug_channel=0;
@@ -153,8 +153,10 @@ void debug_enc_dump(DebugANSInfo *i2)
 		STACK_POP(&states);
 	}
 }
-void debug_enc_update(unsigned state, unsigned cdf, unsigned freq, int kx, int ky, int kq, int kc, unsigned char sym)
+void debug_enc_update(unsigned state, unsigned cdf, int freq, int kx, int ky, int kq, int kc, unsigned char sym)
 {
+	if(freq<=0)
+		LOG_ERROR2("ANS: invalid frequency %d", freq);
 	if(kc==debug_channel)
 	{
 		unsigned s0=state;
@@ -168,8 +170,10 @@ void debug_enc_update(unsigned state, unsigned cdf, unsigned freq, int kx, int k
 		STACK_PUSH(&states, &info);
 	}
 }
-void debug_dec_update(unsigned state, unsigned cdf, unsigned freq, int kx, int ky, int kq, int kc, unsigned char sym)
+void debug_dec_update(unsigned state, unsigned cdf, int freq, int kx, int ky, int kq, int kc, unsigned char sym)
 {
+	if(freq<=0)
+		LOG_ERROR2("ANS: invalid frequency %d", freq);
 	if(kc==debug_channel)
 	{
 		if(!states.count)
@@ -693,13 +697,16 @@ INLINE void ac_enc_bin(ArithmeticCoder *ec, unsigned short p0, int bit)
 	if(!p0)//reject degenerate distribution
 		LOG_ERROR2("ZPS");
 #endif
-	if(bit)
-	{
-		ec->low+=r2;
-		ec->range-=r2;
-	}
-	else
-		ec->range=r2-1;//must decrement hi because decoder fails when code == hi2
+	int mask=-bit;
+	ec->low+=r2&mask;
+	ec->range=bit?ec->range-r2:r2-1;//must decrement hi because decoder fails when code == hi2
+	//if(bit)
+	//{
+	//	ec->low+=r2;
+	//	ec->range-=r2;
+	//}
+	//else
+	//	ec->range=r2-1;
 	while(ec->range<(1LL<<PROB_BITS))
 		ac_enc_renorm(ec);
 	acval_enc(bit, bit?p0:0, bit?0x10000-p0:p0, ec->low, ec->low+ec->range, bit?ec->low+r2:ec->low, bit?ec->low+ec->range:ec->low+r2-1, 0, 0);
@@ -713,13 +720,17 @@ INLINE int ac_dec_bin(ArithmeticCoder *ec, unsigned short p0)//binary AC decoder
 		LOG_ERROR2("ZPS");
 #endif
 	int bit=ec->code>=ec->low+r2;
-	if(bit)
-	{
-		ec->low+=r2;
-		ec->range-=r2;
-	}
-	else
-		ec->range=r2-1;//must decrement hi because decoder fails when code == hi2
+
+	int mask=-bit;
+	ec->low+=r2&mask;
+	ec->range=bit?ec->range-r2:r2-1;
+	//if(bit)
+	//{
+	//	ec->low+=r2;
+	//	ec->range-=r2;
+	//}
+	//else
+	//	ec->range=r2-1;//must decrement hi because decoder fails when code == hi2
 	while(ec->range<(1LL<<PROB_BITS))
 		ac_dec_renorm(ec);
 	acval_dec(bit, bit?p0:0, bit?0x10000-p0:p0, ec->low, ec->low+ec->range, bit?ec->low+r2:ec->low, bit?ec->low+ec->range:ec->low+r2-1, 0, 0, ec->code);
@@ -779,8 +790,8 @@ INLINE void ans_enc(ANSCoder *ec, int sym, const unsigned *CDF, int nlevels)
 		cdf=CDF[sym], freq=CDF[sym+1]-cdf;
 	else//bypass
 		cdf=(sym<<16)/nlevels, freq=((sym+1)<<16)/nlevels-cdf;
-	if(!freq)
-		LOG_ERROR2("ZPS");
+	//if(!freq)
+	//	LOG_ERROR2("ZPS");
 	if((ec->state>>16)>=(unsigned)freq)//renorm
 	{
 #ifdef EC_USE_ARRAY
@@ -835,8 +846,8 @@ INLINE int ans_dec(ANSCoder *ec, const unsigned *CDF, int nlevels)
 		sym=c*nlevels>>16;
 		cdf=(sym<<16)/nlevels, freq=((sym+1)<<16)/nlevels-cdf;
 	}
-	if(!freq)
-		LOG_ERROR2("ZPS");
+	//if(!freq)
+	//	LOG_ERROR2("ZPS");
 	debug_dec_update(ec->state, cdf, freq, 0, 0, 0, 0, sym);
 	ec->state=freq*(ec->state>>16)+c-cdf;//update
 	if(ec->state<0x10000)//renorm
@@ -869,13 +880,13 @@ INLINE int ans_dec_POT(ANSCoder *ec, const unsigned *CDF, int nbits)
 	case 4:sym|=(CDF[sym|  8]<=c)<<3;
 	case 3:sym|=(CDF[sym|  4]<=c)<<2;
 	case 2:sym|=(CDF[sym|  2]<=c)<<1;
-	case 1:sym|=(CDF[sym|  1]<=c);
+	case 1:sym|= CDF[sym|  1]<=c;
 		break;
 	}
 
 	cdf=CDF[sym], freq=CDF[sym+1]-cdf;
-	if(!freq)
-		LOG_ERROR2("ZPS");
+	//if(!freq)
+	//	LOG_ERROR2("ZPS");
 	debug_dec_update(ec->state, cdf, freq, 0, 0, 0, 0, sym);
 	ec->state=freq*(ec->state>>16)+c-cdf;//update
 	if(ec->state<0x10000)//renorm

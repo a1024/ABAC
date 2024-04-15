@@ -25,10 +25,21 @@ size_t image_getBMPsize(Image const *image);
 
 //RCTs
 void rct_JPEG2000_32(Image *image, int fwd);
+//void rct_JPEG2000_32_avx2(Image *image, int fwd);
 
 
 //predictors
-void pred_clampgrad(Image *src, int fwd, char *depths);
+void pred_clampgrad(Image *src, int fwd, const char *depths);
+void pred_clampgrad_fast(Image *src, int fwd, const char *depths);
+void pred_wp_deferred(Image *src, int fwd);
+void pred_avx2(Image *src, int fwd, const char *depths);
+
+
+//entropy estimators
+void calc_csize(Image const *src, const char *depths, double *ret_csizes, double *ret_invCR);//depths[4];  ret[5] TRGBA
+void calc_csize_vlc(Image const *src, const char *depths, double *ret_csizes, double *ret_csizes_vlc);
+void calc_csize_bin(Image const *src, const char *depths, double *ret_csizes);
+size_t calc_csize_ABAC(Image const *src, const char *depths);
 
 
 //codecs
@@ -72,6 +83,11 @@ int	f07_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 int	f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
 #define f08_encode(SRC, DATA, LOUD)		f08_codec(SRC, DATA, 0, 0, 0, LOUD)
 #define f08_decode(CBUF, CSIZE, DST, LOUD)	f08_codec(0, 0, CBUF, CSIZE, DST, LOUD)
+
+//F09 separate decorrelation loop, full-size alphabet deferred summation
+int	f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
+#define f09_encode(SRC, DATA, LOUD)		f09_codec(SRC, DATA, 0, 0, 0, LOUD)
+#define f09_decode(CBUF, CSIZE, DST, LOUD)	f09_codec(0, 0, CBUF, CSIZE, DST, LOUD)
 
 
 #ifdef __cplusplus

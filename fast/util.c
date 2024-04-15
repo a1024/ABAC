@@ -763,7 +763,6 @@ int pause_abort(const char *file, int lineno, const char *extraInfo)
 #if 1
 static void array_realloc(ArrayHandle *arr, size_t count, size_t pad)//CANNOT be nullptr, array must be initialized with array_alloc()
 {
-	ArrayHandle p2;
 	size_t size, newcap;
 
 	ASSERT_P(*arr);
@@ -771,13 +770,13 @@ static void array_realloc(ArrayHandle *arr, size_t count, size_t pad)//CANNOT be
 	for(;newcap<size;newcap<<=1);
 	if(newcap>arr[0]->cap)
 	{
-		p2=(ArrayHandle)realloc(*arr, sizeof(ArrayHeader)+newcap);
+		void *p2=realloc(*arr, sizeof(ArrayHeader)+newcap);
 		if(!p2)
 		{
 			LOG_ERROR("Alloc error");
 			return;
 		}
-		*arr=p2;
+		*arr=(ArrayHandle)p2;
 		if(arr[0]->cap<newcap)
 			memset(arr[0]->data+arr[0]->cap, 0, newcap-arr[0]->cap);
 		arr[0]->cap=newcap;

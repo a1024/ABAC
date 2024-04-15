@@ -320,14 +320,14 @@ int main(int argc, char **argv)
 	const char *fn=argv[1];
 #else
 	const char *fn=
-		"D:/ML/dataset-kodak/kodim13.png"
+	//	"D:/ML/dataset-kodak/kodim13.png"
 	//	"D:/ML/big_building.PPM"
 
 	//	"C:/Projects/datasets/dataset-CLIC30"
 
 	//	"C:/Projects/datasets/dataset-kodak/kodim13.png"
+		"C:/Projects/datasets/big_building.PPM"
 	//	"C:/Projects/datasets/jupiter.PNG"
-	//	"C:/Projects/datasets/big_building.PPM"
 	//	"C:/Projects/datasets/space-8k-CROP.PPM"
 		;
 #endif
@@ -368,14 +368,23 @@ int main(int argc, char **argv)
 		image_copy(&dst, &src);
 
 		ArrayHandle cdata=0;
+#if 0
 		ENCODE(&src, &cdata, 1);
 		
 		DECODE(cdata->data, cdata->count, &dst, 1);
-		
+
+		//pred_wp_deferred(&dst, 1);
+		//pred_wp_deferred(&dst, 0);
+		//char depths[]={dst.depth, dst.depth, dst.depth};
+		//pred_clampgrad(&dst, 1, depths);
+		//pred_clampgrad(&dst, 0, depths);
 		//rct_JPEG2000_32(&dst, 1);
 		//rct_JPEG2000_32(&dst, 0);
-
+		//pred_avx2(&dst, 1, 0);
+		//pred_avx2(&dst, 0, 0);
+		
 		compare_bufs_16(dst.data, src.data, src.iw, src.ih, src.nch, src.nch, CODECNAME, 0, 1);
+#endif
 #if 0
 		ptrdiff_t nvals=(ptrdiff_t)src.nch*src.iw*src.ih;
 		success=1;
@@ -408,8 +417,62 @@ int main(int argc, char **argv)
 			printf("%s: SUCCESS\n", CODECNAME);
 #endif
 
-#if 0
-		huff_test(&src);
+		//huff_test(&src);
+
+		//analysis
+#if 1
+		char depths[]=
+		{
+			src.depth,
+			src.depth+1,
+			src.depth+1,
+			0,
+		};
+		double csizes[5]={0}, csizes_vlc[5]={0}, csizes_shannon[5]={0}, csizes_bin[5]={0};
+		double times[6]={0};
+
+		times[0]=time_sec();
+		rct_JPEG2000_32(&src, 1);
+		times[0]=time_sec()-times[0];
+		
+		times[1]=time_sec();
+		pred_clampgrad_fast(&src, 1, depths);
+		//pred_avx2(&src, 1, depths);
+		//pred_clampgrad(&src, 1, depths);
+		times[1]=time_sec()-times[1];
+		
+		times[2]=time_sec();
+		calc_csize(&src, depths, csizes_shannon, 0);
+		times[2]=time_sec()-times[2];
+		
+		times[3]=time_sec();
+		calc_csize_vlc(&src, depths, csizes, csizes_vlc);
+		times[3]=time_sec()-times[3];
+		
+		times[4]=time_sec();
+		//calc_csize_bin(&src, depths, csizes_bin);
+		times[4]=time_sec()-times[4];
+		
+		size_t csize_abac=0;
+		times[5]=time_sec();
+		csize_abac=calc_csize_ABAC(&src, depths);
+		times[5]=time_sec()-times[5];
+
+		printf("\nC       Shannon       Ada-Zipf        Ada-VLC           ABAC\tusize%12lld\n", image_getBMPsize(&src));
+		for(int k=0;k<src.nch+1;++k)
+			printf("%c%14.2lf %14.2lf %14.2lf %14.2lf\n", "TYUVA"[k], csizes_shannon[k], csizes[k], csizes_vlc[k], csizes_bin[k]);
+		printf("csize_ABAC %14lld\n", csize_abac);
+		const char *oplabels[]=
+		{
+			"RCT_JPEG2000",
+			"clampgrad",
+			"Shannon",
+			"Ada-Zipf/VLC",
+			"Ada-Bin",
+			"ABAC",
+		};
+		for(int k=0;k<_countof(times);++k)
+			printf("%-16s %14.3lf sec\n", oplabels[k], times[k]);
 #endif
 
 		array_free(&cdata);

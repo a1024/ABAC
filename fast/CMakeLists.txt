@@ -7,6 +7,7 @@
 	f06.c
 	f07.c
 	f08.c
+	f09.c
 	fast.c
 	format.c
 	huffman.c
