@@ -703,8 +703,9 @@ void rct_adaptive(Image *src, int fwd);
 
 //spatial transforms
 void packsign(Image *src, int fwd);
-void pred_clampedgrad(Image *image, int fwd, int enable_ma);
+void pred_clampgrad(Image *image, int fwd, int enable_ma);
 void pred_average(Image *src, int fwd, int enable_ma);
+void pred_wp_deferred(Image *src, int fwd);
 void pred_ecoeff(Image *src, int fwd, int enable_ma);
 void pred_zipper(Image **psrc, int fwd, int enable_ma);
 void pred_multistage(Image *src, int fwd, int enable_ma);

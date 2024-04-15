@@ -2165,8 +2165,146 @@ void packsign(Image *src, int fwd)
 }
 
 //clamped gradient / LOCO-I / Median Edge Detector (MED) predictor from JPEG-LS
-void pred_clampedgrad(Image *src, int fwd, int enable_ma)
+void pred_clampgrad(Image *src, int fwd, int enable_ma)
 {
+#if 1
+	short *pixels=(short*)malloc((src->iw+4LL)*sizeof(short[2*4]));//2 padded rows * 4 channels max
+	if(!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(pixels, 0, (src->iw+4LL)*sizeof(short[2*4]));
+	int nlevels[]=
+	{
+		1<<src->depth[0],
+		1<<src->depth[1],
+		1<<src->depth[2],
+		1<<src->depth[3],
+	};
+	int fwdmask=-fwd;
+	__m128i mfwd=_mm_set1_epi16(fwdmask);
+	__m128i mhalf=_mm_set_epi16(
+		0, 0, 0, 0,
+		0,
+		nlevels[2]>>1,
+		nlevels[1]>>1,
+		nlevels[0]>>1
+	);
+	__m128i symmask=_mm_set_epi16(
+		0, 0, 0, 0,
+		0,
+		nlevels[2]-1,
+		nlevels[1]-1,
+		nlevels[0]-1
+	);
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		short *rows[]=
+		{
+			pixels+((src->iw+4LL)*((ky-0)&1)<<2),
+			pixels+((src->iw+4LL)*((ky-1)&1)<<2),
+		};
+		int kx=0;
+		for(;kx<src->iw;++kx, idx+=4)
+		{
+			//if(ky==100&&kx==100)//
+			//	printf("");
+
+			__m128i NW	=_mm_loadu_si128((__m128i*)(rows[1]-4));
+			__m128i N	=_mm_loadu_si128((__m128i*)(rows[1]+0));
+			__m128i W	=_mm_loadu_si128((__m128i*)(rows[0]-4));
+			__m128i pred=_mm_add_epi16(N, W);
+			pred=_mm_sub_epi16(pred, NW);
+			__m128i vmin=_mm_min_epi16(N, W);
+			__m128i vmax=_mm_max_epi16(N, W);
+			pred=_mm_min_epi16(pred, vmax);
+			pred=_mm_max_epi16(pred, vmin);
+
+			__m128i mc=_mm_set_epi16(
+				0, 0, 0, 0,
+				0,
+				src->data[idx+2],
+				src->data[idx+1],
+				src->data[idx+0]
+			);
+			ALIGN(16) short curr[8]={0};
+			pred=_mm_xor_si128(pred, mfwd);
+			pred=_mm_sub_epi16(pred, mfwd);
+			pred=_mm_add_epi16(pred, mc);
+			pred=_mm_add_epi16(pred, mhalf);
+			pred=_mm_and_si128(pred, symmask);
+			pred=_mm_sub_epi16(pred, mhalf);
+			_mm_store_si128((__m128i*)curr, pred);
+			src->data[idx+0]=curr[0];
+			src->data[idx+1]=curr[1];
+			src->data[idx+2]=curr[2];
+			_mm_store_si128((__m128i*)(rows[0]+0), fwd?mc:pred);
+
+			rows[0]+=4;
+			rows[1]+=4;
+		}
+	}
+	free(pixels);
+#endif
+#if 0
+	short *pixels=(short*)malloc((src->iw+2LL)*sizeof(short[2*4]));//2 padded rows * 4 channels max
+	if(!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(pixels, 0, (src->iw+2LL)*sizeof(short[2*4]));
+	int nlevels[]=
+	{
+		1<<src->depth[0],
+		1<<src->depth[1],
+		1<<src->depth[2],
+		1<<src->depth[3],
+	};
+	int fwdmask=-fwd;
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		short *rows[]=
+		{
+			pixels+((src->iw+2LL)*((ky-0)&1)<<2),
+			pixels+((src->iw+2LL)*((ky-1)&1)<<2),
+		};
+		for(int kx=0;kx<src->iw;++kx, idx+=4)
+		{
+			for(int kc=0;kc<src->nch;++kc)
+			{
+				//if(ky==100&&kx==100)//
+				//	printf("");
+
+				int
+					NW	=rows[1][kc-4],
+					N	=rows[1][kc+0],
+					W	=rows[0][kc-4];
+				int pred=N+W-NW;
+				int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
+				pred=CLAMP(vmin, pred, vmax);
+
+				int curr=src->data[idx+kc];
+				pred^=fwdmask;
+				pred-=fwdmask;
+				pred+=curr;
+
+				pred+=nlevels[kc]>>1;
+				pred&=nlevels[kc]-1;
+				pred-=nlevels[kc]>>1;
+
+				src->data[idx+kc]=pred;
+				rows[0][kc]=fwd?curr:pred;
+			}
+
+			rows[0]+=4;
+			rows[1]+=4;
+		}
+	}
+	free(pixels);
+#endif
+#if 0
 	Image *dst=0;
 	image_copy(&dst, src);
 	if(!dst)
@@ -2185,6 +2323,9 @@ void pred_clampedgrad(Image *src, int fwd, int enable_ma)
 		{
 			for(int kx=0;kx<src->iw;++kx, ++idx)
 			{
+				//if(ky==100&&kx==100)//
+				//	printf("");
+
 				int
 					NW=kx&&ky?pixels[(idx-src->iw-1)<<2|kc]:0,
 					N =ky    ?pixels[(idx-src->iw  )<<2|kc]:0,
@@ -2217,7 +2358,6 @@ void pred_clampedgrad(Image *src, int fwd, int enable_ma)
 					pred-=nlevels>>1;
 				}
 				dst->data[idx<<2|kc]=pred;
-				//dst->data[idx<<2|kc]=((src->data[idx<<2|kc]+pred+(nlevels>>1))&(nlevels-1))-(nlevels>>1);
 			}
 		}
 	}
@@ -2230,6 +2370,349 @@ void pred_clampedgrad(Image *src, int fwd, int enable_ma)
 		src->depth[3]+=src->depth[3]!=0;
 	}
 	free(dst);
+#endif
+}
+
+
+	#define WP_RCT
+	#define ETOTAL_MBOX
+
+#define NWP 8LL		//multiple of 4
+#define LGBLOCKSIZE 0
+#define BLOCKSIZE (1<<LGBLOCKSIZE)
+#define WP_PBITS 5
+#define WP_WBITS 10
+void pred_wp_deferred(Image *src, int fwd)
+{
+#ifdef ETOTAL_MBOX
+	long long etotal[4*NWP]={0};
+#endif
+	//if(src->nch!=3)
+	//{
+	//	LOG_ERROR("Expected 3 channels, got %d", src->nch);
+	//	return;
+	//}
+	int nblocks=(src->iw+BLOCKSIZE-1)>>LGBLOCKSIZE;
+	int *weights=(int*)_mm_malloc((nblocks+NWP)*sizeof(int[4*NWP]), sizeof(__m256i));//interleaved channels
+	int *pixels=(int*)malloc((src->iw+16LL)*sizeof(int[4*4*2]));//4 padded rows * 4 channels max * {pixel, error}		int, to accelerate _mullo_epi32
+	if(!weights||!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	weights[0]=(int)((1LL<<WP_WBITS)/NWP);
+	memfill(weights+1, weights, (nblocks+NWP)*sizeof(int[4*NWP])-sizeof(*weights), sizeof(*weights));
+	//memset(weights, 0, (nblocks+NWP)*sizeof(int[4*NWP]));
+	memset(pixels, 0, (src->iw+16LL)*sizeof(int[4*4*2]));
+#ifdef WP_RCT
+	src->depth[0]+=fwd;
+	src->depth[2]+=fwd;
+#endif
+	int nlevels[]=
+	{
+		1<<src->depth[0],
+		1<<src->depth[1],
+		1<<src->depth[2],
+	};
+	__m128i pixelmask=_mm_set_epi32(0, nlevels[2]-1, nlevels[1]-1, nlevels[0]-1);
+	__m128i pixelhalf=_mm_set_epi32(0, nlevels[2]>>1, nlevels[1]>>1, nlevels[0]>>1);
+	__m128i roundoffset=_mm_set1_epi32(1<<WP_PBITS>>1);
+	__m128i fwdmask=_mm_set1_epi32(-fwd);
+	__m128i invmask=_mm_set1_epi32(-!fwd);
+	ALIGN(16) int pred_errors[4*NWP]={0};//interleaved channels
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		int *wp=weights;
+		int *rows[]=
+		{
+			pixels+(((src->iw+16LL)*((ky-0LL)&3)+4LL)<<3),
+			pixels+(((src->iw+16LL)*((ky-1LL)&3)+4LL)<<3),
+			pixels+(((src->iw+16LL)*((ky-2LL)&3)+4LL)<<3),
+			pixels+(((src->iw+16LL)*((ky-3LL)&3)+4LL)<<3),
+		};
+		for(int kx=0;kx<src->iw;++kx, idx+=4)
+		{
+			__m128i NN	=_mm_loadu_si128((__m128i*)(rows[2]+0*8+0));
+			__m128i NNE	=_mm_loadu_si128((__m128i*)(rows[2]+1*8+0));
+			__m128i NW	=_mm_loadu_si128((__m128i*)(rows[1]-1*8+0));
+			__m128i N	=_mm_loadu_si128((__m128i*)(rows[1]+0*8+0));
+			__m128i NE	=_mm_loadu_si128((__m128i*)(rows[1]+1*8+0));
+			__m128i NEE	=_mm_loadu_si128((__m128i*)(rows[1]+2*8+0));
+			__m128i NEEE	=_mm_loadu_si128((__m128i*)(rows[1]+3*8+0));
+			__m128i W	=_mm_loadu_si128((__m128i*)(rows[0]-1*8+0));
+			__m128i eNN	=_mm_loadu_si128((__m128i*)(rows[2]+0*8+4));
+			__m128i eNW	=_mm_loadu_si128((__m128i*)(rows[1]-1*8+4));
+			__m128i eN	=_mm_loadu_si128((__m128i*)(rows[1]+0*8+4));
+			__m128i eNE	=_mm_loadu_si128((__m128i*)(rows[1]+1*8+4));
+			__m128i eW	=_mm_loadu_si128((__m128i*)(rows[0]-1*8+4));
+			
+			__m128i vmin=_mm_min_epi32(N, W);
+			__m128i vmax=_mm_max_epi32(N, W);
+			vmin=_mm_min_epi32(vmin, NE);
+			vmax=_mm_max_epi32(vmax, NE);
+			//wp0 = W+NE-N
+			//wp1 = W		//W+((eN+eW+eNW)*5>>4)
+			//wp2 = N		//N+((eN+eW+eNE)*5>>4)
+			//wp3 = (N+W)>>1	//N+NW-W+((-eNN*13-eN*5-eNE*11+(N-NN)*5)>>4)
+			//wp4 = N+NE-NNE	//(N+W)>>1
+			//wp5 = N+W-NW
+			//wp6 = (W+NEE)>>1
+			//wp7 = (3*W+NEEE)>>2
+#if 0
+			ALIGN(16) int spred[16]={0};
+			for(int kc=0;kc<4;++kc)
+			{
+				spred[kc|0*4]=W.m128i_i32[kc]+NE.m128i_i32[kc]-N.m128i_i32[kc];
+				spred[kc|1*4]=W.m128i_i32[kc]+((eN.m128i_i32[kc]+eW.m128i_i32[kc]+eNW.m128i_i32[kc])*5>>4);
+				spred[kc|2*4]=N.m128i_i32[kc]+((eN.m128i_i32[kc]+eW.m128i_i32[kc]+eNE.m128i_i32[kc])*5>>4);
+				spred[kc|3*4]=N.m128i_i32[kc]+NW.m128i_i32[kc]-W.m128i_i32[kc]
+					+((-eNN.m128i_i32[kc]*13-eN.m128i_i32[kc]*5-eNE.m128i_i32[kc]*11+(N.m128i_i32[kc]-NN.m128i_i32[kc])*5)>>4);
+			}
+#endif
+			__m128i e=_mm_add_epi32(eN, eW);
+			__m128i wp0=_mm_sub_epi32(_mm_add_epi32(W, NE), N);
+			__m128i wp1=_mm_add_epi32(e, eNW);
+			__m128i wp2=_mm_add_epi32(e, eNE);
+			__m128i wp3=_mm_sub_epi32(_mm_add_epi32(N, NW), W);
+			__m128i wp4=_mm_sub_epi32(_mm_add_epi32(N, NE), NNE);
+			__m128i wp5=_mm_sub_epi32(_mm_add_epi32(N, W), NW);
+			__m128i wp6=_mm_add_epi32(W, NEE);
+			__m128i wp7=_mm_add_epi32(W, _mm_slli_epi32(W, 1));
+			wp6=_mm_srai_epi32(wp6, 1);
+			wp7=_mm_srai_epi32(_mm_add_epi32(wp7, NEEE), 2);
+			__m128i e2=_mm_add_epi32(eNE, _mm_add_epi32(_mm_slli_epi32(eNE, 1), _mm_slli_epi32(eNE, 3)));
+			e=_mm_add_epi32(eNN, _mm_add_epi32(_mm_slli_epi32(eNN, 2), _mm_slli_epi32(eNN, 3)));
+			e=_mm_add_epi32(e, _mm_add_epi32(eN, _mm_slli_epi32(eN, 2)));
+			e=_mm_add_epi32(e, e2);
+			e2=_mm_sub_epi32(N, NN);
+			e2=_mm_add_epi32(e2, _mm_slli_epi32(e2, 2));
+			e2=_mm_sub_epi32(e2, e);
+			e2=_mm_srai_epi32(e2, 4);
+
+			//wp1=_mm_add_epi32(W, _mm_srai_epi32(_mm_add_epi32(wp1, _mm_slli_epi32(wp1, 2)), 4));
+			//wp2=_mm_add_epi32(N, _mm_srai_epi32(_mm_add_epi32(wp2, _mm_slli_epi32(wp2, 2)), 4));
+			//wp3=_mm_add_epi32(wp3, e2);
+			wp1=W;
+			//wp1=_mm_srai_epi32(_mm_add_epi32(_mm_slli_epi32(W, 2), _mm_add_epi32(_mm_add_epi32(N, NE), _mm_add_epi32(NEE, NEEE))), 3);
+			wp2=N;
+			wp3=_mm_srai_epi32(_mm_add_epi32(N, W), 1);
+			//wp3=_mm_slli_epi32(_mm_add_epi32(N, W), 2);
+			//wp3=_mm_add_epi32(wp3, _mm_sub_epi32(NE, NW));
+			//wp3=_mm_srai_epi32(wp3, 3);
+#if 0
+			//for(int kc=0;kc<4;++kc)
+			//{
+			//	if(wp1.m128i_i32[kc]!=spred[kc|0*4])
+			//		LOG_ERROR("");
+			//	if(wp2.m128i_i32[kc]!=spred[kc|1*4])
+			//		LOG_ERROR("");
+			//	if(wp3.m128i_i32[kc]!=spred[kc|2*4])
+			//		LOG_ERROR("");
+			//	if(wp4.m128i_i32[kc]!=spred[kc|3*4])
+			//		LOG_ERROR("");
+			//}
+			wp1=_mm_load_si128((__m128i*)spred+0);//
+			wp2=_mm_load_si128((__m128i*)spred+1);//
+			wp3=_mm_load_si128((__m128i*)spred+2);//
+			wp4=_mm_load_si128((__m128i*)spred+3);//
+#endif
+
+			__m128i w0=_mm_load_si128((__m128i*)wp+0);
+			__m128i w1=_mm_load_si128((__m128i*)wp+1);
+			__m128i w2=_mm_load_si128((__m128i*)wp+2);
+			__m128i w3=_mm_load_si128((__m128i*)wp+3);
+			__m128i w4=_mm_load_si128((__m128i*)wp+4);
+			__m128i w5=_mm_load_si128((__m128i*)wp+5);
+			__m128i w6=_mm_load_si128((__m128i*)wp+6);
+			__m128i w7=_mm_load_si128((__m128i*)wp+7);
+			w0=_mm_mullo_epi32(w0, wp0);//FIXME use AVX2
+			w1=_mm_mullo_epi32(w1, wp1);
+			w2=_mm_mullo_epi32(w2, wp2);
+			w3=_mm_mullo_epi32(w3, wp3);
+			w4=_mm_mullo_epi32(w4, wp4);
+			w5=_mm_mullo_epi32(w5, wp5);
+			w6=_mm_mullo_epi32(w6, wp6);
+			w7=_mm_mullo_epi32(w7, wp7);
+			w0=_mm_add_epi32(w0, w1);
+			w0=_mm_add_epi32(w0, w2);
+			w0=_mm_add_epi32(w0, w3);
+			w0=_mm_add_epi32(w0, w4);
+			w0=_mm_add_epi32(w0, w5);
+			w0=_mm_add_epi32(w0, w6);
+			w0=_mm_add_epi32(w0, w7);
+			w0=_mm_srai_epi32(w0, WP_WBITS);
+			w0=_mm_min_epi32(w0, vmax);
+			w0=_mm_max_epi32(w0, vmin);
+
+			ALIGN(16) int curr[]=
+			{
+				src->data[idx+0],
+				src->data[idx+1],
+				src->data[idx+2],
+				//src->data[idx+1],//g		X  can't permute VYU -> YUV
+				//src->data[idx+2],//b
+				//src->data[idx+0],//r
+				0,
+			};
+#ifdef WP_RCT
+			if(fwd)
+			{
+				curr[0]-=curr[1];			//curr[0]=((curr[0]+(nlevels[0]>>1))&(nlevels[0]-1))-(nlevels[0]>>1);
+				curr[2]-=curr[1];			//curr[1]=((curr[1]+(nlevels[1]>>1))&(nlevels[1]-1))-(nlevels[1]>>1);
+				curr[1]+=(curr[0]+curr[2])>>2;		//curr[2]=((curr[2]+(nlevels[2]>>1))&(nlevels[2]-1))-(nlevels[2]>>1);
+
+				//curr[2]-=curr[0];//Cr
+				//curr[1]-=curr[0];//Cb
+				//curr[0]+=(curr[2]+curr[1])>>2;//Y
+			}
+#endif
+			__m128i mc=_mm_load_si128((__m128i*)curr);
+			__m128i pixel=_mm_and_si128(mc, fwdmask);
+			__m128i crisppred=_mm_add_epi32(w0, roundoffset);
+			crisppred=_mm_srai_epi32(crisppred, WP_PBITS);
+
+			crisppred=_mm_xor_si128(crisppred, fwdmask);
+			crisppred=_mm_sub_epi32(crisppred, fwdmask);
+			crisppred=_mm_add_epi32(crisppred, mc);//error = curr - pred
+
+			crisppred=_mm_add_epi32(crisppred, pixelhalf);
+			crisppred=_mm_and_si128(crisppred, pixelmask);
+			crisppred=_mm_sub_epi32(crisppred, pixelhalf);
+			_mm_store_si128((__m128i*)curr, crisppred);
+#ifdef WP_RCT
+			if(!fwd)
+			{
+				curr[1]-=(curr[0]+curr[2])>>2;		//curr[2]=((curr[2]+(nlevels[2]>>1))&(nlevels[2]-1))-(nlevels[2]>>1);
+				curr[2]+=curr[1];			//curr[1]=((curr[1]+(nlevels[1]>>1))&(nlevels[1]-1))-(nlevels[1]>>1);
+				curr[0]+=curr[1];			//curr[0]=((curr[0]+(nlevels[0]>>1))&(nlevels[0]-1))-(nlevels[0]>>1);
+
+				//curr[0]-=(curr[2]+curr[1])>>2;//g
+				//curr[1]+=curr[0];//b
+				//curr[2]+=curr[0];//r
+			}
+#endif
+			src->data[idx+0]=curr[0];
+			src->data[idx+1]=curr[1];
+			src->data[idx+2]=curr[2];
+			//src->data[idx+0]=curr[2];//r
+			//src->data[idx+1]=curr[0];//g
+			//src->data[idx+2]=curr[1];//b
+			pixel=_mm_or_si128(pixel, _mm_and_si128(crisppred, invmask));
+			pixel=_mm_slli_epi32(pixel, WP_PBITS);
+			w1=_mm_sub_epi32(pixel, w1);
+			_mm_storeu_si128((__m128i*)(rows[0]+8*0+4), w1);
+			_mm_storeu_si128((__m128i*)(rows[0]+8*0+0), pixel);
+
+			__m128i pe0=_mm_load_si128((__m128i*)pred_errors+0);
+			__m128i pe1=_mm_load_si128((__m128i*)pred_errors+1);
+			__m128i pe2=_mm_load_si128((__m128i*)pred_errors+2);
+			__m128i pe3=_mm_load_si128((__m128i*)pred_errors+3);
+			__m128i pe4=_mm_load_si128((__m128i*)pred_errors+4);
+			__m128i pe5=_mm_load_si128((__m128i*)pred_errors+5);
+			__m128i pe6=_mm_load_si128((__m128i*)pred_errors+6);
+			__m128i pe7=_mm_load_si128((__m128i*)pred_errors+7);
+			wp0=_mm_sub_epi32(pixel, wp0);
+			wp1=_mm_sub_epi32(pixel, wp1);
+			wp2=_mm_sub_epi32(pixel, wp2);
+			wp3=_mm_sub_epi32(pixel, wp3);
+			wp4=_mm_sub_epi32(pixel, wp4);
+			wp5=_mm_sub_epi32(pixel, wp5);
+			wp6=_mm_sub_epi32(pixel, wp6);
+			wp7=_mm_sub_epi32(pixel, wp7);
+			wp0=_mm_abs_epi32(wp0);
+			wp1=_mm_abs_epi32(wp1);
+			wp2=_mm_abs_epi32(wp2);
+			wp3=_mm_abs_epi32(wp3);
+			wp4=_mm_abs_epi32(wp4);
+			wp5=_mm_abs_epi32(wp5);
+			wp6=_mm_abs_epi32(wp6);
+			wp7=_mm_abs_epi32(wp7);
+			pe0=_mm_add_epi32(pe0, wp0);
+			pe1=_mm_add_epi32(pe1, wp1);
+			pe2=_mm_add_epi32(pe2, wp2);
+			pe3=_mm_add_epi32(pe3, wp3);
+			pe4=_mm_add_epi32(pe4, wp4);
+			pe5=_mm_add_epi32(pe5, wp5);
+			pe6=_mm_add_epi32(pe6, wp6);
+			pe7=_mm_add_epi32(pe7, wp7);
+			_mm_store_si128((__m128i*)pred_errors+0, pe0);
+			_mm_store_si128((__m128i*)pred_errors+1, pe1);
+			_mm_store_si128((__m128i*)pred_errors+2, pe2);
+			_mm_store_si128((__m128i*)pred_errors+3, pe3);
+			_mm_store_si128((__m128i*)pred_errors+4, pe4);
+			_mm_store_si128((__m128i*)pred_errors+5, pe5);
+			_mm_store_si128((__m128i*)pred_errors+6, pe6);
+			_mm_store_si128((__m128i*)pred_errors+7, pe7);
+
+			if(kx&&!(kx&(BLOCKSIZE-1)))//update WP
+			{
+				for(int kc=0;kc<3;++kc)
+				{
+					long long
+						w0=0x100000000/((long long)pred_errors[kc+0*4]+1),
+						w1=0x100000000/((long long)pred_errors[kc+1*4]+1),
+						w2=0x100000000/((long long)pred_errors[kc+2*4]+1),
+						w3=0x100000000/((long long)pred_errors[kc+3*4]+1),
+						w4=0x100000000/((long long)pred_errors[kc+4*4]+1),
+						w5=0x100000000/((long long)pred_errors[kc+5*4]+1),
+						w6=0x100000000/((long long)pred_errors[kc+6*4]+1),
+						w7=0x100000000/((long long)pred_errors[kc+7*4]+1),
+						sum=w0+w1+w2+w3+w4+w5+w6+w7+1;
+					wp[kc+0*4]=(int)((w0<<WP_WBITS)/sum);
+					wp[kc+1*4]=(int)((w1<<WP_WBITS)/sum);
+					wp[kc+2*4]=(int)((w2<<WP_WBITS)/sum);
+					wp[kc+3*4]=(int)((w3<<WP_WBITS)/sum);
+					wp[kc+4*4]=(int)((w4<<WP_WBITS)/sum);
+					wp[kc+5*4]=(int)((w5<<WP_WBITS)/sum);
+					wp[kc+6*4]=(int)((w6<<WP_WBITS)/sum);
+					wp[kc+7*4]=(int)((w7<<WP_WBITS)/sum);
+#ifdef ETOTAL_MBOX
+					etotal[kc+0*4]+=(long long)pred_errors[kc+0*4];
+					etotal[kc+1*4]+=(long long)pred_errors[kc+1*4];
+					etotal[kc+2*4]+=(long long)pred_errors[kc+2*4];
+					etotal[kc+3*4]+=(long long)pred_errors[kc+3*4];
+					etotal[kc+4*4]+=(long long)pred_errors[kc+4*4];
+					etotal[kc+5*4]+=(long long)pred_errors[kc+5*4];
+					etotal[kc+6*4]+=(long long)pred_errors[kc+6*4];
+					etotal[kc+7*4]+=(long long)pred_errors[kc+7*4];
+#endif
+				}
+				memset(pred_errors, 0, sizeof(pred_errors));
+				wp+=4*NWP;
+			}
+			rows[0]+=8;
+			rows[1]+=8;
+			rows[2]+=8;
+			rows[3]+=8;
+		}
+	}
+#ifdef WP_RCT
+	src->depth[0]-=!fwd;
+	src->depth[2]-=!fwd;
+#endif
+#ifdef ETOTAL_MBOX
+#define BUFSIZE 1024
+	char buf[1024]={0};
+	int printed=0;
+	long long esum[3]={0};
+	for(int kp=0;kp<NWP;++kp)
+	{
+		esum[0]+=etotal[kp<<2|0];
+		esum[1]+=etotal[kp<<2|1];
+		esum[2]+=etotal[kp<<2|2];
+	}
+	for(int kp=0;kp<NWP;++kp)
+	{
+		for(int kc=0;kc<3;++kc)
+			printed+=snprintf(buf+printed, BUFSIZE-printed-1, " %6.2lf", 100.*etotal[kp<<2|kc]/esum[kc]);
+		printed+=snprintf(buf+printed, BUFSIZE-printed-1, "\n");
+	}
+	copy_to_clipboard(buf, printed);
+	messagebox(MBOX_OK, "Copied to clipboard", "%s", buf);
+#undef BUFSIZE
+#endif
+	_mm_free(weights);
+	free(pixels);
 }
 
 void pred_average(Image *src, int fwd, int enable_ma)

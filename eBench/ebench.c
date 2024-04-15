@@ -82,6 +82,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_G2,		ST_INV_G2,
 	ST_FWD_MM,		ST_INV_MM,
 	ST_FWD_JXLPRED,		ST_INV_JXLPRED,
+	ST_FWD_DWP,		ST_INV_DWP,
 	ST_FWD_CUSTOM3,		ST_INV_CUSTOM3,
 	ST_FWD_CUSTOM,		ST_INV_CUSTOM,
 //	ST_FWD_NBLIC,		ST_INV_NBLIC,
@@ -690,7 +691,7 @@ void test_predmask(Image const *image)
 
 	size_t bufsize=image_getbufsize(image);
 	memcpy(residues[4], image, bufsize);
-	pred_clampedgrad(residues[4], 1, 1);
+	pred_clampgrad(residues[4], 1, 1);
 
 	memcpy(residues[5], image, bufsize);
 	pred_jxl_apply(residues[5], 1, 1, jxlparams_i16);
@@ -1310,6 +1311,8 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 //	case ST_INV_NBLIC:		a=" S Inv NBLIC";		break;
 	case ST_FWD_JXLPRED:		a=" S Fwd JXL";			break;
 	case ST_INV_JXLPRED:		a=" S Inv JXL";			break;
+	case ST_FWD_DWP:		a=" S Fwd DWP";			break;
+	case ST_INV_DWP:		a=" S Inv DWP";			break;
 	case ST_FWD_MM:			a=" S Fwd MM";			break;
 	case ST_INV_MM:			a=" S Inv MM";			break;
 	case ST_FWD_CUSTOM:		a=" S Fwd CUSTOM";		break;
@@ -2292,6 +2295,8 @@ void apply_selected_transforms(Image *image, int rct_only)
 	//	case ST_INV_NBLIC:		pred_nblic((char*)image, iw, ih, 0);			break;
 		case ST_FWD_JXLPRED:		pred_jxl_apply(image, 1, pred_ma_enabled, jxlparams_i16);break;
 		case ST_INV_JXLPRED:		pred_jxl_apply(image, 0, pred_ma_enabled, jxlparams_i16);break;
+		case ST_FWD_DWP:		pred_wp_deferred(image, 1);				break;
+		case ST_INV_DWP:		pred_wp_deferred(image, 0);				break;
 		case ST_FWD_MM:			pred_w2_apply(image, 1, pred_ma_enabled, pw2_params);	break;
 		case ST_INV_MM:			pred_w2_apply(image, 0, pred_ma_enabled, pw2_params);	break;
 		case ST_FWD_OLS:		pred_ols(image, 1, pred_ma_enabled);			break;
@@ -2302,8 +2307,8 @@ void apply_selected_transforms(Image *image, int rct_only)
 		case ST_INV_OLS3:		pred_ols3(image, 0, pred_ma_enabled);			break;
 		case ST_FWD_PACKSIGN:		packsign(image, 1);					break;
 		case ST_INV_PACKSIGN:		packsign(image, 0);					break;
-		case ST_FWD_CLAMPGRAD:		pred_clampedgrad(image, 1, pred_ma_enabled);		break;
-		case ST_INV_CLAMPGRAD:		pred_clampedgrad(image, 0, pred_ma_enabled);		break;
+		case ST_FWD_CLAMPGRAD:		pred_clampgrad(image, 1, pred_ma_enabled);		break;
+		case ST_INV_CLAMPGRAD:		pred_clampgrad(image, 0, pred_ma_enabled);		break;
 	//	case ST_FWD_ECOEFF:		pred_ecoeff(image, 1, pred_ma_enabled);			break;
 	//	case ST_INV_ECOEFF:		pred_ecoeff(image, 0, pred_ma_enabled);			break;
 	//	case ST_FWD_AVERAGE:		pred_average(image, 1, pred_ma_enabled);		break;
@@ -5246,6 +5251,7 @@ void io_render()
 		}
 		if(transforms_mask[ST_FWD_CUSTOM]||transforms_mask[ST_INV_CUSTOM])
 		{
+			int c0=set_bk_color(0x80FFFFFF);
 			//custom spatial transform params
 			x=buttons[1].x1;
 			y=buttons[1].y1;
@@ -5295,6 +5301,7 @@ void io_render()
 				params[2]<0?'-':' ', abs(params[2])>>16, abs(params[2])&0xFFFF,
 				params[3]<0?'-':' ', abs(params[3])>>16, abs(params[3])&0xFFFF
 			);
+			set_bk_color(c0);
 
 			//0000000000111111111122222222223333333333444444444455555
 			//0123456789012345678901234567890123456789012345678901234
