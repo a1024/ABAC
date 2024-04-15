@@ -368,7 +368,7 @@ int main(int argc, char **argv)
 		image_copy(&dst, &src);
 
 		ArrayHandle cdata=0;
-#if 0
+#if 1
 		ENCODE(&src, &cdata, 1);
 		
 		DECODE(cdata->data, cdata->count, &dst, 1);
@@ -442,15 +442,15 @@ int main(int argc, char **argv)
 		times[1]=time_sec()-times[1];
 		
 		times[2]=time_sec();
-		//calc_csize(&src, depths, csizes_shannon, 0);
+		calc_csize(&src, depths, csizes_shannon, 0);
 		times[2]=time_sec()-times[2];
 		
 		times[3]=time_sec();
-		//calc_csize_vlc(&src, depths, csizes, csizes_vlc);
+		calc_csize_vlc(&src, depths, csizes, csizes_vlc);
 		times[3]=time_sec()-times[3];
 		
 		times[4]=time_sec();
-		//calc_csize_bin(&src, depths, csizes_bin);
+		calc_csize_bin(&src, depths, csizes_bin);
 		times[4]=time_sec()-times[4];
 		
 		size_t csize_abac=0;

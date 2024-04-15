@@ -2,6 +2,7 @@
 #include<stdlib.h>
 #include<string.h>
 #include<math.h>
+#include<intrin.h>
 #include<immintrin.h>
 static const char file[]=__FILE__;
 
@@ -766,7 +767,8 @@ size_t calc_csize_ABAC(Image const *src, const char *depths)
 	memfill(stats+1, stats, (sizeof(short)*src->nch<<maxdepth)-sizeof(short), sizeof(short));
 	ptrdiff_t res=(ptrdiff_t)src->iw*src->ih, nvals=res*src->nch;
 	size_t csize=0;
-	unsigned long long low=0, range=0xFFFFFFFF;
+	//unsigned long long low=0, range=0xFFFFFFFF;
+	unsigned range=0xFFFFFFFF;
 	for(ptrdiff_t k=0, idx=1;k<nvals;k+=src->nch, ++idx)
 	{
 		for(int kc=0;kc<src->nch;++kc)
@@ -776,19 +778,20 @@ size_t calc_csize_ABAC(Image const *src, const char *depths)
 			unsigned long long idx2=1;
 			int kb=bitdepths[kc]-1;
 
-			int p0, update;
+			unsigned short p0;
+			int update;
 			unsigned long long bit, r2;
 #if 1
 			for(int kb2=0;kb2<8;++kb2)//compiler unrolls this
 			{
 				p0=curr_stats[idx2];
 				bit=(unsigned long long)(val>>kb&1);
-				r2=(unsigned long long)(unsigned)range*p0>>16;
+				r2=(unsigned long long)range*p0>>16;
 				//low+=r2&-bit;
 				//range=bit?range-r2:r2-1;
 				if(bit)
 				{
-					low+=r2;
+					//low+=r2;
 					range-=r2;
 				}
 				else
@@ -797,12 +800,12 @@ size_t calc_csize_ABAC(Image const *src, const char *depths)
 				if(range<0x10000)
 				{
 					range<<=16;
-					low<<=16;
+					//low<<=16;
 					range|=0xFFFF;
 					csize+=2;
 				}
 				update=(bit<<16)-p0;
-				curr_stats[idx2]=p0+(update>>8)+(update>>31);
+				curr_stats[idx2]=(unsigned short)(p0+(update>>8)+(update>>31));
 				idx2=idx2<<1|bit;
 				--kb;
 			}
@@ -811,12 +814,12 @@ size_t calc_csize_ABAC(Image const *src, const char *depths)
 			{
 				p0=curr_stats[idx2];
 				bit=(unsigned long long)(val>>kb&1);
-				r2=(unsigned long long)(unsigned)range*p0>>16;
+				r2=(unsigned long long)range*p0>>16;
 				//low+=r2&-bit;
 				//range=bit?range-r2:r2-1;
 				if(bit)
 				{
-					low+=r2;
+					//low+=r2;
 					range-=r2;
 				}
 				else
@@ -825,12 +828,12 @@ size_t calc_csize_ABAC(Image const *src, const char *depths)
 				if(range<0x10000)
 				{
 					range<<=16;
-					low<<=16;
+					//low<<=16;
 					range|=0xFFFF;
 					csize+=2;
 				}
 				update=(bit<<16)-p0;
-				curr_stats[idx2]=p0+(update>>8)+(update>>31);//rounding towards zero
+				curr_stats[idx2]=(unsigned short)(p0+(update>>8)+(update>>31));//rounding towards zero
 				idx2=idx2<<1|bit;
 				--kb;
 			}while(kb>=0);
@@ -840,46 +843,3 @@ size_t calc_csize_ABAC(Image const *src, const char *depths)
 	free(stats);
 	return csize;
 }
-#if 0
-size_t abac_encode(short *data, unsigned short *stats, int iw, int ih, int nch, const char *depths, char maxdepth)
-{
-	size_t csize=0;
-	ptrdiff_t res=(ptrdiff_t)iw*ih, nvals=res*nch;
-	unsigned long long low=0, range=0xFFFFFFFF;
-	for(ptrdiff_t k=0, idx=1;k<nvals;k+=nch, ++idx)
-	{
-		for(int kc=0;kc<nch;++kc)
-		{
-			int val=data[k+kc];
-			unsigned short *curr_stats=stats+((size_t)kc<<maxdepth);
-			unsigned long long idx2=1;
-			int kb=depths[kc]-1;
-			
-			int p0, update;
-			unsigned long long bit, r2;
-			for(;kb>=0;--kb)
-			{
-				p0=curr_stats[idx2];
-				
-				bit=(unsigned long long)(val>>kb&1);
-
-				r2=range*p0>>16;
-				low+=r2&-bit;
-				range=bit?range-r2:r2-1;
-				bit^=1;
-				if(range<0x10000)
-				{
-					range<<=16;
-					low<<=16;
-					range|=0xFFFF;
-					csize+=2;
-				}
-				update=(bit<<16)-p0;
-				curr_stats[idx2]=p0+(update>>7)+(update>>31);
-				idx2=idx2<<1|bit;
-			}
-		}
-	}
-	return csize+8;
-}
-#endif
