@@ -332,6 +332,7 @@ int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					long long p0=0;//curr_mixer[F09_NCTX];
 					for(int k=0;k<F09_NCTX;++k)
 						p0+=(long long)curr_mixer[k]*curr_stats[k][idx2];
+					p0+=(1LL<<20)-1;
 					p0>>=21;
 					p0+=0x8000;
 #ifdef ENABLE_SSE
@@ -374,8 +375,8 @@ int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						int s=curr_stats[k][idx2];
 						long long mupdate=(long long)error*s;
 						long long supdate=(long long)error*m;
-						mupdate=(mupdate>>19)+(mupdate>>63);
-						supdate=(supdate>>24)+(supdate>>63);
+						mupdate=(mupdate+(1LL<<18)-1)>>19;
+						supdate=(supdate+(1LL<<23)-1)>>24;
 						m-=(int)mupdate;
 						s-=(int)supdate;
 						curr_mixer[k]=m;
