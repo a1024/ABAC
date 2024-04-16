@@ -795,13 +795,13 @@ size_t calc_csize_ABAC(Image const *src, const char *depths)
 
 			unsigned short p0;
 			int update;
-			unsigned long long bit, r2;
+			unsigned bit, r2;
 #if 1
 			for(int kb2=0;kb2<8;++kb2)//compiler unrolls this
 			{
 				p0=curr_stats[idx2];
-				bit=(unsigned long long)(val>>kb&1);
-				r2=(unsigned long long)range*p0>>16;
+				bit=val>>kb&1;
+				r2=(unsigned)((unsigned long long)range*p0>>16);
 				//low+=r2&-bit;
 				//range=bit?range-r2:r2-1;
 				if(bit)
@@ -828,7 +828,7 @@ size_t calc_csize_ABAC(Image const *src, const char *depths)
 			do
 			{
 				p0=curr_stats[idx2];
-				bit=(unsigned long long)(val>>kb&1);
+				bit=val>>kb&1;
 				r2=(unsigned long long)range*p0>>16;
 				//low+=r2&-bit;
 				//range=bit?range-r2:r2-1;

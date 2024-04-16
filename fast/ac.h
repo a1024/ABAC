@@ -696,6 +696,8 @@ INLINE void ac_enc_bin(ArithmeticCoder *ec, unsigned short p0, int bit)
 #ifdef AC_VALIDATE
 	if(!p0)//reject degenerate distribution
 		LOG_ERROR2("ZPS");
+	acval_enc(bit, bit?p0:0, bit?0x10000-p0:p0, ec->low, ec->low+ec->range, bit?ec->low+r2:ec->low, bit?ec->low+ec->range:ec->low+r2-1, 0, 0);
+	//acval_enc(bit, bit?p0:0, bit?0x10000-p0:p0, ec->low, ec->low+ec->range, bit?ec->low+r2:ec->low, bit?ec->low+ec->range:ec->low+r2-1, ec->cache, ec->cidx);
 #endif
 	ec->low+=r2&-bit;
 	ec->range=bit?ec->range-r2:r2-1;//must decrement hi because decoder fails when code == hi2
@@ -708,18 +710,17 @@ INLINE void ac_enc_bin(ArithmeticCoder *ec, unsigned short p0, int bit)
 	//	ec->range=r2-1;
 	while(ec->range<(1LL<<PROB_BITS))
 		ac_enc_renorm(ec);
-	acval_enc(bit, bit?p0:0, bit?0x10000-p0:p0, ec->low, ec->low+ec->range, bit?ec->low+r2:ec->low, bit?ec->low+ec->range:ec->low+r2-1, 0, 0);
-	//acval_enc(bit, bit?p0:0, bit?0x10000-p0:p0, ec->low, ec->low+ec->range, bit?ec->low+r2:ec->low, bit?ec->low+ec->range:ec->low+r2-1, ec->cache, ec->cidx);
 }
 INLINE int ac_dec_bin(ArithmeticCoder *ec, unsigned short p0)//binary AC decoder doesn't do binary search
 {
 	unsigned long long r2=ec->range*p0>>16;
+	int bit=ec->code>=ec->low+r2;
 #ifdef AC_VALIDATE
 	if(!p0)//reject degenerate distribution
 		LOG_ERROR2("ZPS");
+	acval_dec(bit, bit?p0:0, bit?0x10000-p0:p0, ec->low, ec->low+ec->range, bit?ec->low+r2:ec->low, bit?ec->low+ec->range:ec->low+r2-1, 0, 0, ec->code);
+	//acval_dec(bit, bit?p0:0, bit?0x10000-p0:p0, ec->low, ec->low+ec->range, bit?ec->low+r2:ec->low, bit?ec->low+ec->range:ec->low+r2-1, ec->cache, ec->cidx, ec->code);
 #endif
-	int bit=ec->code>=ec->low+r2;
-
 	ec->low+=r2&-bit;
 	ec->range=bit?ec->range-r2:r2-1;
 	//if(bit)
@@ -731,8 +732,6 @@ INLINE int ac_dec_bin(ArithmeticCoder *ec, unsigned short p0)//binary AC decoder
 	//	ec->range=r2-1;//must decrement hi because decoder fails when code == hi2
 	while(ec->range<(1LL<<PROB_BITS))
 		ac_dec_renorm(ec);
-	acval_dec(bit, bit?p0:0, bit?0x10000-p0:p0, ec->low, ec->low+ec->range, bit?ec->low+r2:ec->low, bit?ec->low+ec->range:ec->low+r2-1, 0, 0, ec->code);
-	//acval_dec(bit, bit?p0:0, bit?0x10000-p0:p0, ec->low, ec->low+ec->range, bit?ec->low+r2:ec->low, bit?ec->low+ec->range:ec->low+r2-1, ec->cache, ec->cidx, ec->code);
 	return bit;
 }
 
@@ -788,8 +787,10 @@ INLINE void ans_enc(ANSCoder *ec, int sym, const unsigned *CDF, int nlevels)
 		cdf=CDF[sym], freq=CDF[sym+1]-cdf;
 	else//bypass
 		cdf=(sym<<16)/nlevels, freq=((sym+1)<<16)/nlevels-cdf;
-	//if(!freq)
-	//	LOG_ERROR2("ZPS");
+#ifdef DEBUG_ANS
+	if(!freq)
+		LOG_ERROR2("ZPS");
+#endif
 	if((ec->state>>16)>=(unsigned)freq)//renorm
 	{
 #ifdef EC_USE_ARRAY
@@ -844,8 +845,10 @@ INLINE int ans_dec(ANSCoder *ec, const unsigned *CDF, int nlevels)
 		sym=c*nlevels>>16;
 		cdf=(sym<<16)/nlevels, freq=((sym+1)<<16)/nlevels-cdf;
 	}
-	//if(!freq)
-	//	LOG_ERROR2("ZPS");
+#ifdef DEBUG_ANS
+	if(!freq)
+		LOG_ERROR2("ZPS");
+#endif
 	debug_dec_update(ec->state, cdf, freq, 0, 0, 0, 0, sym);
 	ec->state=freq*(ec->state>>16)+c-cdf;//update
 	if(ec->state<0x10000)//renorm
@@ -883,9 +886,11 @@ INLINE int ans_dec_POT(ANSCoder *ec, const unsigned *CDF, int nbits)
 	}
 
 	cdf=CDF[sym], freq=CDF[sym+1]-cdf;
-	//if(!freq)
-	//	LOG_ERROR2("ZPS");
+#ifdef DEBUG_ANS
+	if(!freq)
+		LOG_ERROR2("ZPS");
 	debug_dec_update(ec->state, cdf, freq, 0, 0, 0, 0, sym);
+#endif
 	ec->state=freq*(ec->state>>16)+c-cdf;//update
 	if(ec->state<0x10000)//renorm
 	{

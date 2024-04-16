@@ -262,6 +262,8 @@ int floor_log2_32(unsigned n)
 	logn=success?logn:-1;
 	return logn;
 #elif defined __GNUC__
+	if(!n)
+		return -1;
 	int logn=31-__builtin_clz(n);
 	return logn;
 #else

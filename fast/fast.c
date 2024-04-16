@@ -20,10 +20,10 @@ typedef void *THREAD_RET;
 static const char file[]=__FILE__;
 
 
-#define CODECID      8
-#define CODECNAME "F08"
-#define ENCODE     f08_encode
-#define DECODE     f08_decode
+#define CODECID      9
+#define CODECNAME "F09"
+#define ENCODE     f09_encode
+#define DECODE     f09_decode
 
 
 static const char *g_extensions[]=
@@ -320,15 +320,14 @@ int main(int argc, char **argv)
 	const char *fn=argv[1];
 #else
 	const char *fn=
-	//	"D:/ML/dataset-kodak/kodim13.png"
+		"D:/ML/dataset-kodak/kodim13.png"
 	//	"D:/ML/big_building.PPM"
 
-	//	"C:/Projects/datasets/dataset-CLIC30"
-
 	//	"C:/Projects/datasets/dataset-kodak/kodim13.png"
-		"C:/Projects/datasets/big_building.PPM"
+	//	"C:/Projects/datasets/big_building.PPM"
 	//	"C:/Projects/datasets/jupiter.PNG"
 	//	"C:/Projects/datasets/space-8k-CROP.PPM"
+	//	"C:/Projects/datasets/dataset-CLIC30"
 		;
 #endif
 	ptrdiff_t formatsize=get_filesize(fn);
@@ -369,6 +368,23 @@ int main(int argc, char **argv)
 
 		ArrayHandle cdata=0;
 #if 1
+		extern int f09_disable_ctx;
+		ptrdiff_t basesize=0;
+		for(f09_disable_ctx=-1;f09_disable_ctx<F09_NCTX;++f09_disable_ctx)
+		{
+			ENCODE(&src, &cdata, 0);
+			DECODE(cdata->data, cdata->count, &dst, 0);
+			if(f09_disable_ctx==-1)
+				basesize=cdata->count;
+			int error=compare_bufs_16(dst.data, src.data, src.iw, src.ih, src.nch, src.nch, CODECNAME, 0, 0);
+			ptrdiff_t dispsize=f09_disable_ctx==-1?basesize:cdata->count-basesize;
+			printf("Disable CTX %2d  %12lld  %s\n", f09_disable_ctx, dispsize, f09_disable_ctx>=0?f09_prednames[f09_disable_ctx]:"");
+			if(error)
+				LOG_ERROR("ERROR");
+			array_free(&cdata);
+		}
+#endif
+#if 0
 		ENCODE(&src, &cdata, 1);
 		
 		DECODE(cdata->data, cdata->count, &dst, 1);
@@ -419,8 +435,7 @@ int main(int argc, char **argv)
 
 		//huff_test(&src);
 
-		//analysis
-#if 1
+#if 0
 		char depths[]=
 		{
 			src.depth,
