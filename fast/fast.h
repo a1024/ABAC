@@ -84,7 +84,7 @@ int	f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #define f08_encode(SRC, DATA, LOUD)		f08_codec(SRC, DATA, 0, 0, 0, LOUD)
 #define f08_decode(CBUF, CSIZE, DST, LOUD)	f08_codec(0, 0, CBUF, CSIZE, DST, LOUD)
 
-//F09 separate decorrelation loop, full-size alphabet deferred summation
+//F09 ABAC
 #define F09_NCTX 21
 extern const char *f09_prednames[F09_NCTX];
 int	f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);

@@ -6,20 +6,18 @@
 static const char file[]=__FILE__;
 
 
-//	#define ENABLE_GUIDE
 //	#define PROFILER 1
-	#define TRACK_MIXER
+//	#define TRACK_MIXER
+//	#define FULL_TREE
 
 
 #ifdef PROFILER
 #define CHECKPOINTLIST\
 	CHECKPOINT(INIT)\
-	CHECKPOINT(WP)\
 	CHECKPOINT(CTX)\
+	CHECKPOINT(P0)\
 	CHECKPOINT(EC)\
-	CHECKPOINT(DUMMY)\
-	CHECKPOINT(HIST)\
-	CHECKPOINT(CDF)\
+	CHECKPOINT(UPDATE)\
 	CHECKPOINT(FINISH)
 #endif
 #include"ac.h"
@@ -27,6 +25,8 @@ static const char file[]=__FILE__;
 #define PADX 4
 #define PADY 4
 int f09_disable_ctx=-1;
+#if 1
+//21 predictors
 #define PREDLIST\
 	PRED(pred)\
 	PRED(eN+eW)\
@@ -49,6 +49,19 @@ int f09_disable_ctx=-1;
 	PRED(eNEEE)\
 	PRED(eN+eW-((eNW+eNE)>>1))\
 	PRED((eN+eW)>>1)
+#endif
+#if 0
+//8 predictors
+#define PREDLIST\
+	PRED((eW+kx*nlevels/image->iw-half)>>1)\
+	PRED(pred)\
+	PRED(eNW)\
+	PRED((eN+eNE)>>1)\
+	PRED(eNEEE)\
+	PRED(eN+eW-((eNW+eNE)>>1))\
+	PRED(eNE)\
+	PRED((eN+eW)>>1)
+#endif
 const char *f09_prednames[]=
 {
 #define PRED(X) #X,
@@ -64,27 +77,26 @@ static int quantize_ctx(int x)//signed
 	return x;
 }
 #define QUANTIZE(X) quantize_ctx(X)+qhalf
-#ifdef ENABLE_GUIDE
-static const Image *guide=0;
-#endif
 int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud)
 {
 	PROF_START();
 	double t0=time_sec();
 	int fwd=src!=0;
 	Image const *image=fwd?src:dst;
-#ifdef ENABLE_GUIDE
-	if(fwd)
-		guide=image;
-#endif
 	int depth=image->depth, nlevels=1<<depth, half=nlevels>>1, mask=nlevels-1, qhalf=depth, qlevels=qhalf<<1|1;
 
 	size_t bufsize=(image->iw+PADX*2LL)*sizeof(short[PADY*4*2]);//PADY padded rows * 4 channels max * {pixels, errors}
 	short *pixels=(short*)malloc(bufsize);
 
+#ifdef FULL_TREE
+	//8 bit -> 256*(8*2+1)*4*8*2 = 278528 bytes
+	//16 bit -> 65536*(16*2+1)*4*8*2 = 132 MB
+	int treesize=1<<depth;
+#else
 	//8 bit -> 8*(8+1)/2*(8*2+1)*4*8*2 = 39168 bytes
-	//16 bit -> 16*(16+1)/2*(16*2+1)*4*8*2 = 287232
+	//16 bit -> 16*(16+1)/2*(16*2+1)*4*8*2 = 280.5 KB
 	int treesize=depth*(depth+1)>>1;
+#endif
 	size_t statssize=sizeof(short[4*F09_NCTX])*qlevels*treesize;
 	short *stats=(short*)malloc(statssize);
 
@@ -97,41 +109,34 @@ int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	}
 	memset(pixels, 0, bufsize);
 	memset(stats, 0, statssize);
-	for(int ks=0;ks<nlevels;++ks)
+	for(int ks=0, w0=0;ks<nlevels;++ks)
 	{
+		int sh=depth+depth+7;
+		int weight=nlevels-1-ks;
+		weight*=weight;
+#ifdef FULL_TREE
+		for(int kb=depth-1, idx2=1;kb>=0;--kb)
+		{
+			int bit=ks>>kb&1;
+			short *ctr=stats+idx2;
+			*ctr+=(0x8000-*ctr)*(nlevels-1-ks)>>(depth+7);
+			idx2=idx2<<1|bit;
+		}
+#else
 		for(int kb=0, MSBidx=0;kb<depth;++kb)
 		{
 			int bit=ks>>(depth-1-kb)&1;
 			short *ctr=stats+(kb*(kb+1LL)>>1)+kb-MSBidx;
-			*ctr+=(0x8000-*ctr)*(nlevels-1-ks)>>(depth+7);
-			//++stats[(kb*(kb+1LL)>>1)+kb-MSBidx];
+
+			int val=*ctr+0x8000;
+			val+=(int)((0x10000LL-val)*weight>>sh);
+			*ctr=CLAMP(1, val, 0xFFFF)-0x8000;
+
 			MSBidx+=(!bit)&-(MSBidx==kb);
 		}
+#endif
 	}
 	memfill(stats+treesize, stats, statssize-treesize*sizeof(short), treesize*sizeof(short));
-	//for(int kt=1;kt<qlevels;++kt)
-	//{
-	//	short *curr_stats=stats+treesize*kt;
-	//	const short *prev_stats=curr_stats-treesize;
-	//	int gain=(qlevels>>1)-abs(kt-(qlevels>>1))+1;
-	//	for(int k=0;k<treesize;++k)
-	//	{
-	//		int ctr=prev_stats[k]*gain;
-	//		ctr=CLAMP(-0x8000, ctr, 0x7FFF);
-	//		curr_stats[k]=ctr;
-	//	}
-	//}
-	//for(int kt=0;kt<qlevels;++kt)//tree loop
-	//{
-	//	int update=(qlevels>>1)-abs(kt-(qlevels>>1));
-	//	update*=update;
-	//	for(int kb=0, MSBidx=0;kb<depth;++kb)
-	//	{
-	//		int bit=ks>>kb&1;
-	//		int ctr=stats[];
-	//		MSBidx+=
-	//	}
-	//}
 	*mixer=0x8000;
 	memfill(mixer+1, mixer, mixersize-sizeof(*mixer), sizeof(*mixer));
 	PROF(INIT);
@@ -222,16 +227,16 @@ int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					//eNE,//6
 					//(eN+eW)>>1,//7
 				};
-				//if(kc)
-				//{
-				//	ctx[1]=(ctx[1]+rows[0][0])>>1;
-				//	ctx[5]=rows[0][4];
-				//	if(kc==2)
-				//	{
-				//		ctx[1]=(ctx[1]+rows[0][0+1])>>1;
-				//		ctx[7]=rows[0][4+1];
-				//	}
-				//}
+				if(kc)
+				{
+					ctx[1]=(ctx[1]+rows[0][0])>>1;
+					ctx[5]=rows[0][4];
+					if(kc==2)
+					{
+						ctx[1]=(ctx[1]+rows[0][0+1])>>1;
+						ctx[7]=rows[0][4+1];
+					}
+				}
 				for(int k=0;k<F09_NCTX;++k)
 				{
 					int x=ctx[k];
@@ -271,6 +276,7 @@ int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				for(int k=0;k<F09_NCTX;++k)
 					curr_stats[k]=stats+treesize*(qlevels*(F09_NCTX*kc+k)+ctx[k]);
 				int *curr_mixer=mixer+(F09_NCTX+1LL)*kc;
+				PROF(CTX);
 
 				int sym=0;
 				if(fwd)
@@ -282,15 +288,24 @@ int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					curr[kc+4]=sym;
 					sym=sym<<1^(sym>>31);
 				}
-				for(int kb=0, MSBidx=0;kb<depth;++kb)
+				int tidx=0;
+#ifdef FULL_TREE
+				++tidx;
+#endif
+				for(int kb=0;kb<depth;++kb)
 				{
-					int idx2=(kb*(kb+1LL)>>1)+kb-MSBidx;
+#ifdef FULL_TREE
+					int idx2=tidx;
+#else
+					int idx2=(kb*(kb+1LL)>>1)+kb-tidx;
+#endif
 					long long p0=0;//curr_mixer[F09_NCTX];
 					for(int k=0;k<F09_NCTX;++k)
 						p0+=(long long)curr_mixer[k]*curr_stats[k][idx2];
 					p0>>=21;
 					p0+=0x8000;
 					p0=CLAMP(1, p0, 0xFFFF);
+					PROF(P0);
 					
 					//if(idx==6132&&kc==1&&kb==5)//
 					//if(idx==3&&kc==0&&kb==0)//
@@ -307,18 +322,17 @@ int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						bit=ac_dec_bin(&ec, (unsigned short)p0);
 						sym|=bit<<(depth-1-kb);
 					}
+					PROF(EC);
 					
-					//L = (1/2)sq(p0_correct-p0)		p0 = sum: m[k]*s[k] + bias
+					//L = (1/2)sq(p0_correct-p0)		p0 = sum: m[k]*s[k]
 					//dL/dbias = p0-p0_correct
 					//dL/ds[k] = (p0-p0_correct)*m[k]
 					//dL/dm[k] = (p0-p0_correct)*s[k]
 					int error=(int)p0-(!bit<<16);
-
 					//int bupdate=(error>>6)+(error>>31);
 					//bupdate=CLAMP(-128, bupdate, 128);
 					//bupdate-=curr_mixer[F09_NCTX];
 					//curr_mixer[F09_NCTX]=CLAMP(-0x1000, bupdate, 0x1000);
-
 					for(int k=0;k<F09_NCTX;++k)
 					{
 						int m=curr_mixer[k];
@@ -327,14 +341,17 @@ int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						long long supdate=(long long)error*m;
 						mupdate=(mupdate>>19)+(mupdate>>63);
 						supdate=(supdate>>24)+(supdate>>63);
-						//mupdate=CLAMP(-128, mupdate, 128);
-						//supdate=CLAMP(-128, supdate, 128);
 						m-=(int)mupdate;
 						s-=(int)supdate;
-						curr_mixer[k]=m;//CLAMP(-0x7FFF, m, 0x7FFF);
+						curr_mixer[k]=m;
 						curr_stats[k][idx2]=CLAMP(-0x7FFF, s, 0x7FFF);
 					}
-					MSBidx+=(!bit)&-(MSBidx==kb);
+#ifdef FULL_TREE
+					tidx=tidx<<1|bit;
+#else
+					tidx+=(!bit)&-(tidx==kb);
+					PROF(UPDATE);
+#endif
 				}
 				if(!fwd)
 				{
@@ -363,43 +380,16 @@ int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			rows[2]+=8;
 			rows[3]+=8;
 		}
+#ifdef TRACK_MIXER
 		for(int k=0;k<_countof(av_mixer);++k)
 			av_mixer[k]+=(long long)mixer[k];
-		//if(loud)
-		//	printf("%8d %8d %8d %8d %8d %8d %8d %8d\n",
-		//		mixer[ 9],
-		//		mixer[10],
-		//		mixer[11],
-		//		mixer[12],
-		//		mixer[13],
-		//		mixer[14],
-		//		mixer[15],
-		//		mixer[16]
-		//	);
-#if 0
-		for(int kc=0;kc<image->nch;++kc)
-		{
-			int *curr_mixer=mixer+(F09_NCTX+1LL)*kc;
-			long long sum=0;
-			for(int k=0;k<F09_NCTX;++k)
-				sum+=curr_mixer[k];
-			if(!sum)
-			{
-				sum=0x8000;
-				memfill(curr_mixer, &sum, sizeof(int[F09_NCTX]), sizeof(int));
-			}
-			else
-			{
-				for(int k=0;k<F09_NCTX;++k)
-					curr_mixer[k]=(int)(((long long)curr_mixer[k]<<16)/sum);
-			}
-		}
 #endif
 	}
 	if(fwd)
 	{
 		ac_enc_flush(&ec);
 		dlist_appendtoarray(&list, data);
+		PROF(FINISH);
 	}
 	if(loud)
 	{
@@ -414,6 +404,7 @@ int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				(double)usize/csize,
 				((double)bufsize+statssize+mixersize)/1024.
 			);
+#ifdef TRACK_MIXER
 			printf("mixer\n");
 			for(int kc=0;kc<image->nch;++kc)
 			{
@@ -421,6 +412,7 @@ int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					printf("%2d  %12lld  %s\n", k, av_mixer[(F09_NCTX+1LL)*kc+k], f09_prednames[k]);
 				printf("\n");
 			}
+#endif
 		}
 		printf("F09  %c %15.6lf sec\n", 'D'+fwd, t0);
 		prof_print();

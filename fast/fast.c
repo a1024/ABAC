@@ -320,11 +320,12 @@ int main(int argc, char **argv)
 	const char *fn=argv[1];
 #else
 	const char *fn=
-		"D:/ML/dataset-kodak/kodim13.png"
+	//	"D:/ML/dataset-kodak/kodim13.png"
 	//	"D:/ML/big_building.PPM"
 
-	//	"C:/Projects/datasets/dataset-kodak/kodim13.png"
+		"C:/Projects/datasets/dataset-kodak/kodim13.png"
 	//	"C:/Projects/datasets/big_building.PPM"
+	//	"C:/Projects/datasets/dataset-ic-rgb16bit/deer.png"
 	//	"C:/Projects/datasets/jupiter.PNG"
 	//	"C:/Projects/datasets/space-8k-CROP.PPM"
 	//	"C:/Projects/datasets/dataset-CLIC30"
@@ -367,7 +368,7 @@ int main(int argc, char **argv)
 		image_copy(&dst, &src);
 
 		ArrayHandle cdata=0;
-#if 1
+#if 0
 		extern int f09_disable_ctx;
 		ptrdiff_t basesize=0;
 		for(f09_disable_ctx=-1;f09_disable_ctx<F09_NCTX;++f09_disable_ctx)
@@ -384,7 +385,7 @@ int main(int argc, char **argv)
 			array_free(&cdata);
 		}
 #endif
-#if 0
+#if 1
 		ENCODE(&src, &cdata, 1);
 		
 		DECODE(cdata->data, cdata->count, &dst, 1);
