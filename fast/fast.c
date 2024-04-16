@@ -385,6 +385,8 @@ int main(int argc, char **argv)
 			array_free(&cdata);
 		}
 #endif
+
+		//single test
 #if 1
 		ENCODE(&src, &cdata, 1);
 		

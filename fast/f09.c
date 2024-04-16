@@ -9,6 +9,7 @@ static const char file[]=__FILE__;
 //	#define PROFILER 1
 //	#define TRACK_MIXER
 //	#define FULL_TREE
+//	#define ENABLE_SSE
 
 
 #ifdef PROFILER
@@ -22,33 +23,38 @@ static const char file[]=__FILE__;
 #endif
 #include"ac.h"
 #include"profiler.h"
-#define PADX 4
-#define PADY 4
+#define PADX 8
+#define PADY 8
 int f09_disable_ctx=-1;
 #if 1
-//21 predictors
+//21 predictors		first 4 are overwritten at chroma
 #define PREDLIST\
+	PRED(eNNN)\
+	PRED(eWWW)\
+	PRED(eNN)\
+	PRED(eWW)\
+	PRED(rows[1][4+0*8])\
+	PRED(rows[0][4-1*8])\
+	PRED(rows[1][0+0*8])\
+	PRED(rows[0][0-1*8])\
 	PRED(pred)\
 	PRED(eN+eW)\
 	PRED(eNW)\
 	PRED(eNE)\
 	PRED(eW+eNE-eN)\
-	PRED((4*(N+W+NW+NE)-eWW-eNWW-eNNWW-eNNW-eNN-eNNE-eNNEE-eNEE)>>3)\
 	PRED(eN+eNE-eNNE)\
 	PRED((eWWW+eWW+eW+eN+eNE+eNEE+eNEEE)/7)\
-	PRED((N+W+NW+NE+eN+eW+eNW+eNE)>>3)\
-	PRED(2*eN-eNN)\
-	PRED(2*eW-eWW)\
+	PRED((3*(N+W+NW+NE)+eN+eW+eNW+eNE)>>4)\
+	PRED(3*(eN-eNN)+eNNN)\
+	PRED(3*(eW-eWW)+eWWW)\
 	PRED(2*eNE-eNEE)\
-	PRED(2*eNE-eNNEE)\
-	PRED(2*N-NN)\
-	PRED(2*W-WW)\
-	PRED((N+W)>>1)\
+	PRED(4*(N+NNN)-6*NN-NNNN)\
+	PRED(4*(W+WWW)-6*WW-WWWW)\
+	PRED((4*(N+W)+NE-NW)>>3)\
 	PRED((eW+kx*nlevels/image->iw-half)>>1)\
 	PRED((eN+eNE)>>1)\
 	PRED(eNEEE)\
-	PRED(eN+eW-((eNW+eNE)>>1))\
-	PRED((eN+eW)>>1)
+	PRED(eN+eW-((eNW+eNE)>>1))
 #endif
 #if 0
 //8 predictors
@@ -100,16 +106,25 @@ int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	size_t statssize=sizeof(short[4*F09_NCTX])*qlevels*treesize;
 	short *stats=(short*)malloc(statssize);
 
-	size_t mixersize=sizeof(int[4*(F09_NCTX+1LL)]);
+	size_t mixersize=depth*sizeof(int[4*(F09_NCTX+1LL)]);
 	int *mixer=(int*)malloc(mixersize);
-	if(!pixels||!stats||!mixer)
+#ifdef ENABLE_SSE
+	int ssebits=7, sselevels=1<<ssebits;
+	size_t ssesize=sizeof(long long[4])*depth*sselevels;
+	long long *sse=(long long*)malloc(ssesize);
+#endif
+	if(!pixels||!stats||!mixer
+#ifdef ENABLE_SSE
+		||!sse
+#endif
+	)
 	{
 		LOG_ERROR("Alloc error");
 		return 0;
 	}
 	memset(pixels, 0, bufsize);
 	memset(stats, 0, statssize);
-	for(int ks=0, w0=0;ks<nlevels;++ks)
+	for(int ks=0;ks<nlevels;++ks)
 	{
 		int sh=depth+depth+7;
 		int weight=nlevels-1-ks;
@@ -139,6 +154,9 @@ int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	memfill(stats+treesize, stats, statssize-treesize*sizeof(short), treesize*sizeof(short));
 	*mixer=0x8000;
 	memfill(mixer+1, mixer, mixersize-sizeof(*mixer), sizeof(*mixer));
+#ifdef ENABLE_SSE
+	memset(sse, 0, ssesize);
+#endif
 	PROF(INIT);
 #ifdef TRACK_MIXER
 	long long av_mixer[4*(F09_NCTX+1LL)]={0};
@@ -150,16 +168,11 @@ int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		ac_enc_init(&ec, &list);
 	else
 		ac_dec_init(&ec, cbuf, cbuf+clen);
-	int fwdmask=-fwd;
 	for(int ky=0, idx=0;ky<image->ih;++ky)
 	{
-		short *rows[]=
-		{
-			pixels+(((image->iw+PADX*2LL)*((ky-0)&3)+PADX)<<3),
-			pixels+(((image->iw+PADX*2LL)*((ky-1)&3)+PADX)<<3),
-			pixels+(((image->iw+PADX*2LL)*((ky-2)&3)+PADX)<<3),
-			pixels+(((image->iw+PADX*2LL)*((ky-3)&3)+PADX)<<3),
-		};
+		short *rows[PADY];
+		for(int k=0;k<PADY;++k)
+			rows[k]=pixels+(((image->iw+PADX*2LL)*(((size_t)ky-k)&(PADY-1))+PADX)<<3);
 		for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
 		{
 			short *curr=rows[0];
@@ -180,6 +193,8 @@ int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				//if(idx==6&&kc==1)//
 				//	printf("");
 				int
+					NNNN	=rows[4][kc+0*8+0],
+					NNN	=rows[3][kc+0*8+0],
 					NNWW	=rows[2][kc-2*8+0],
 					NNW	=rows[2][kc-1*8+0],
 					NN	=rows[2][kc+0*8+0],
@@ -191,9 +206,13 @@ int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					NE	=rows[1][kc+1*8+0],
 					NEE	=rows[1][kc+2*8+0],
 					NEEE	=rows[1][kc+3*8+0],
+					WWWW	=rows[0][kc-4*8+0],
 					WWW	=rows[0][kc-3*8+0],
 					WW	=rows[0][kc-2*8+0],
 					W	=rows[0][kc-1*8+0],
+					eNNNN	=rows[4][kc+0*8+4],
+					eNNN	=rows[3][kc+0*8+4],
+					eNNNEEE	=rows[3][kc+3*8+4],
 					eNNWW	=rows[2][kc-2*8+4],
 					eNNW	=rows[2][kc-1*8+4],
 					eNN	=rows[2][kc+0*8+4],
@@ -205,6 +224,10 @@ int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					eNE	=rows[1][kc+1*8+4],
 					eNEE	=rows[1][kc+2*8+4],
 					eNEEE	=rows[1][kc+3*8+4],
+					eNEEEE	=rows[1][kc+4*8+4],
+					eNEEEEE	=rows[1][kc+5*8+4],
+					eWWWWW	=rows[0][kc-5*8+4],
+					eWWWW	=rows[0][kc-4*8+4],
 					eWWW	=rows[0][kc-3*8+4],
 					eWW	=rows[0][kc-2*8+4],
 					eW	=rows[0][kc-1*8+4];
@@ -229,12 +252,12 @@ int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				};
 				if(kc)
 				{
-					ctx[1]=(ctx[1]+rows[0][0])>>1;
-					ctx[5]=rows[0][4];
+					ctx[0]=rows[0][4];//luma error (strong)
+					ctx[1]=rows[0][0];//luma pixel
 					if(kc==2)
 					{
-						ctx[1]=(ctx[1]+rows[0][0+1])>>1;
-						ctx[7]=rows[0][4+1];
+						ctx[2]=rows[0][4+1];//cb error
+						ctx[3]=rows[0][0+1];//cb pixel
 					}
 				}
 				for(int k=0;k<F09_NCTX;++k)
@@ -275,7 +298,7 @@ int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				short *curr_stats[F09_NCTX];
 				for(int k=0;k<F09_NCTX;++k)
 					curr_stats[k]=stats+treesize*(qlevels*(F09_NCTX*kc+k)+ctx[k]);
-				int *curr_mixer=mixer+(F09_NCTX+1LL)*kc;
+				int *curr_mixer=mixer+depth*(F09_NCTX+1LL)*kc;
 				PROF(CTX);
 
 				int sym=0;
@@ -292,6 +315,13 @@ int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #ifdef FULL_TREE
 				++tidx;
 #endif
+#ifdef ENABLE_SSE
+				int sse_idx=((kc?rows[0][4]:(eN+eW)>>1)+half)>>(depth-ssebits);
+				//int sse_idx=QUANTIZE(kc?rows[0][4]:(eN+eW)>>1);
+				//if(((size_t)kc*depth*sselevels+sse_idx)*sizeof(long long)>=ssesize)
+				//	LOG_ERROR("");
+				long long *curr_sse=sse+((size_t)kc*depth*sselevels+sse_idx);
+#endif
 				for(int kb=0;kb<depth;++kb)
 				{
 #ifdef FULL_TREE
@@ -304,6 +334,11 @@ int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						p0+=(long long)curr_mixer[k]*curr_stats[k][idx2];
 					p0>>=21;
 					p0+=0x8000;
+#ifdef ENABLE_SSE
+					long long sse_sum=*curr_sse>>12;
+					int sse_count=*curr_sse&0xFFF;
+					p0+=sse_sum/(sse_count+1LL);
+#endif
 					p0=CLAMP(1, p0, 0xFFFF);
 					PROF(P0);
 					
@@ -346,12 +381,24 @@ int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						curr_mixer[k]=m;
 						curr_stats[k][idx2]=CLAMP(-0x7FFF, s, 0x7FFF);
 					}
+					curr_mixer+=F09_NCTX+1LL;
+#ifdef ENABLE_SSE
+					++sse_count;
+					sse_sum-=error;
+					if(sse_count>640)
+					{
+						sse_count>>=1;
+						sse_sum=(sse_sum>>1)+(sse_sum>>63);
+					}
+					*curr_sse=sse_sum<<12|sse_count;
+					++curr_sse;
+#endif
 #ifdef FULL_TREE
 					tidx=tidx<<1|bit;
 #else
 					tidx+=(!bit)&-(tidx==kb);
-					PROF(UPDATE);
 #endif
+					PROF(UPDATE);
 				}
 				if(!fwd)
 				{
@@ -375,10 +422,8 @@ int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					rgb[0]+=rgb[1];			rgb[0]=((rgb[0]+half)&mask)-half;
 				}
 			}
-			rows[0]+=8;
-			rows[1]+=8;
-			rows[2]+=8;
-			rows[3]+=8;
+			for(int k=0;k<PADY;++k)
+				rows[k]+=8;
 		}
 #ifdef TRACK_MIXER
 		for(int k=0;k<_countof(av_mixer);++k)
@@ -398,11 +443,15 @@ int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		{
 			ptrdiff_t usize=image_getBMPsize(image);
 			ptrdiff_t csize=list.nobj;
+			ptrdiff_t usedsize=bufsize+statssize+mixersize;
+#ifdef ENABLE_SSE
+			usedsize+=ssesize;
+#endif
 			printf("csize %12lld  %10.6lf%%  CR %8.6lf  used %.2lf KB\n",
 				csize,
 				100.*csize/usize,
 				(double)usize/csize,
-				((double)bufsize+statssize+mixersize)/1024.
+				(double)usedsize/1024
 			);
 #ifdef TRACK_MIXER
 			printf("mixer\n");
@@ -421,5 +470,8 @@ int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	free(pixels);
 	free(stats);
 	free(mixer);
+#ifdef ENABLE_SSE
+	free(sse);
+#endif
 	return 1;
 }
