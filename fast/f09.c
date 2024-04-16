@@ -26,9 +26,6 @@ static const char file[]=__FILE__;
 #include"profiler.h"
 #define PADX 4
 #define PADY 4
-#ifdef ENABLE_GUIDE
-static const Image *guide=0;
-#endif
 int f09_disable_ctx=-1;
 #define PREDLIST\
 	PRED(pred)\
@@ -67,21 +64,22 @@ static int quantize_ctx(int x)//signed
 	return x;
 }
 #define QUANTIZE(X) quantize_ctx(X)+qhalf
+#ifdef ENABLE_GUIDE
+static const Image *guide=0;
+#endif
 int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud)
 {
 	PROF_START();
 	double t0=time_sec();
 	int fwd=src!=0;
 	Image const *image=fwd?src:dst;
-	if(image->nch!=3)
-		LOG_ERROR("Unsupported number of channels %d", image->nch);
 #ifdef ENABLE_GUIDE
 	if(fwd)
 		guide=image;
 #endif
 	int depth=image->depth, nlevels=1<<depth, half=nlevels>>1, mask=nlevels-1, qhalf=depth, qlevels=qhalf<<1|1;
 
-	size_t bufsize=(image->iw+PADX*2LL)*sizeof(short[PADY*4*2]);//PADSIZE padded rows * 4 channels max * {pixels, errors}
+	size_t bufsize=(image->iw+PADX*2LL)*sizeof(short[PADY*4*2]);//PADY padded rows * 4 channels max * {pixels, errors}
 	short *pixels=(short*)malloc(bufsize);
 
 	//8 bit -> 8*(8+1)/2*(8*2+1)*4*8*2 = 39168 bytes
