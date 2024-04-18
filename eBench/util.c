@@ -212,6 +212,30 @@ int acme_getopt(int argc, char **argv, int *start, const char **keywords, int kw
 	return OPT_NOMATCH;
 }
 
+int hammingweight16(unsigned short x)
+{
+#ifdef _MSC_VER
+	return __popcnt16(x);
+#else
+	return __builtin_popcount(x);
+#endif
+}
+int hammingweight32(unsigned x)
+{
+#ifdef _MSC_VER
+	return __popcnt(x);
+#else
+	return __builtin_popcount(x);
+#endif
+}
+int hammingweight64(unsigned long long x)
+{
+#ifdef _MSC_VER
+	return (int)__popcnt64(x);
+#else
+	return __builtin_popcountll(x);
+#endif
+}
 int floor_log2_p1(unsigned long long n)
 {
 #ifdef _MSC_VER

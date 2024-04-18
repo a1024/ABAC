@@ -90,6 +90,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_OLS,		ST_INV_OLS,
 	ST_FWD_OLS2,		ST_INV_OLS2,
 	ST_FWD_OLS3,		ST_INV_OLS3,
+	ST_FWD_OLS4,		ST_INV_OLS4,
 	ST_FWD_CLAMPGRAD,	ST_INV_CLAMPGRAD,
 //	ST_FWD_ECOEFF,		ST_INV_ECOEFF,
 //	ST_FWD_AVERAGE,		ST_INV_AVERAGE,
@@ -1012,7 +1013,7 @@ void batch_test()
 	array_free(&path);
 	console_log("Enter number of threads: ");
 	int nthreads=console_scan_int();
-	double t=time_ms();
+	double t=time_sec();
 	double total_usize=0, total_csize[3]={0};
 	int maxlen=0;
 	for(int k=0;k<(int)filenames->count;++k)
@@ -1110,7 +1111,7 @@ void batch_test()
 	}
 	double ctotal=total_csize[0]+total_csize[1]+total_csize[2];
 	double CR=total_usize/ctotal;
-	t=time_ms()-t;
+	t=time_sec()-t;
 	console_log(
 		"Total UTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  invCR %8.4lf%%\n",
 		total_usize, ctotal, total_csize[0], total_csize[1], total_csize[2], 100./CR
@@ -1291,6 +1292,8 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case ST_INV_OLS2:		a=" S Inv OLS-2";		break;
 	case ST_FWD_OLS3:		a=" S Fwd OLS-3";		break;
 	case ST_INV_OLS3:		a=" S Inv OLS-3";		break;
+	case ST_FWD_OLS4:		a=" S Fwd OLS-4";		break;
+	case ST_INV_OLS4:		a=" S Inv OLS-4";		break;
 	case ST_FWD_CLAMPGRAD:		a=" S Fwd ClampGrad";		break;
 	case ST_INV_CLAMPGRAD:		a=" S Inv ClampGrad";		break;
 //	case ST_FWD_ECOEFF:		a=" S Fwd E-Coeff";		break;
@@ -2305,6 +2308,8 @@ void apply_selected_transforms(Image *image, int rct_only)
 		case ST_INV_OLS2:		pred_ols2(image, 0, pred_ma_enabled);			break;
 		case ST_FWD_OLS3:		pred_ols3(image, 1, pred_ma_enabled);			break;
 		case ST_INV_OLS3:		pred_ols3(image, 0, pred_ma_enabled);			break;
+		case ST_FWD_OLS4:		pred_ols4(image, ols4_period, ols4_lr, ols4_mask[0], ols4_mask[1], ols4_mask[2], ols4_mask[3], 1);break;
+		case ST_INV_OLS4:		pred_ols4(image, ols4_period, ols4_lr, ols4_mask[0], ols4_mask[1], ols4_mask[2], ols4_mask[3], 0);break;
 		case ST_FWD_PACKSIGN:		packsign(image, 1);					break;
 		case ST_INV_PACKSIGN:		packsign(image, 0);					break;
 		case ST_FWD_CLAMPGRAD:		pred_clampgrad(image, 1, pred_ma_enabled);		break;

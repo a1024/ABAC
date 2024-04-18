@@ -716,6 +716,12 @@ void pred_dir(Image *src, int fwd, int enable_ma);
 void pred_ols(Image *src, int fwd, int enable_ma);
 void pred_ols2(Image *src, int fwd, int enable_ma);
 void pred_ols3(Image *src, int fwd, int enable_ma);
+#define OLS4_RMAX 4
+#define OLS4_CTXSIZE (2*(OLS4_RMAX+1)*OLS4_RMAX)
+extern int ols4_period;
+extern double ols4_lr[4];
+extern unsigned char ols4_mask[4][OLS4_CTXSIZE+1];
+void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsigned char *mask1, unsigned char *mask2, unsigned char *mask3, int fwd);
 
 void pred_select(Image const *src, Image *dst, int fwd, int enable_ma);
 
