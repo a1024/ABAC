@@ -688,7 +688,7 @@ void colortransform_lossy_matrix(Image *image, int fwd);
 #define RCT_CUSTOM_NPARAMS 9
 #define RCT_CUSTOM_PARAMBITS 12
 extern short rct_custom_params[RCT_CUSTOM_NPARAMS];
-void rct_custom_unpackpermutation(short p, char *permutation);
+void rct_custom_unpackpermutation(short p, unsigned char *permutation);
 void rct_custom(Image *image, int fwd, const short *params);
 void rct_custom_optimize(Image const *image, short *params);
 

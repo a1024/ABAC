@@ -23,7 +23,7 @@ A GUI tool that evaluates reversible decorrelating transforms.
 Supports high bit depth images.
 Currently works only on Windows.
 
-`gcc -O3 -mavx2 console.c ebench.c graphics.c image.c lodepng.c transforms.c util.c window.c -o ebench -lopengl32 -lgdi32 -lole32 -lcomdlg32 -luuid`
+`gcc -O3 -mavx2 console.c ebench.c graphics.c image.c lodepng.c ols4.c transforms.c util.c window.c -o ebench -lopengl32 -lgdi32 -lole32 -lcomdlg32 -luuid`
 
 ### `fast`
 Experiments prioritizing speed.

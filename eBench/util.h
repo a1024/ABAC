@@ -52,7 +52,9 @@ extern "C"
 #else
 #define	ALIGN(N) __attribute__((aligned(N)))
 #define INLINE static inline
+#ifndef _countof
 #define _countof(A) (sizeof(A)/sizeof(*(A)))
+#endif
 #define _stricmp strcasecmp
 #endif
 

@@ -680,6 +680,7 @@ Image* paste_bmp_from_clipboard()
 				return 0;
 			hBm2=(HBITMAP)SelectObject(hDC2, hBm2);
 			int copied=GetDIBits(hDC2, hBm2, 0, s.cy, image->data, &bmh, DIB_RGB_COLORS);
+			(void)copied;
 			hBm2=(HBITMAP)SelectObject(hDC2, hBm2);
 			DeleteDC(hDC2);
 			for(ptrdiff_t k=((ptrdiff_t)image->iw*image->ih<<2)-1;k>=0;--k)//untested
@@ -700,6 +701,7 @@ Image* paste_bmp_from_clipboard()
 		if(hData)
 		{
 			size=GlobalSize(hData);
+			(void)size;
 			BITMAPINFO *bmi=(BITMAPINFO*)GlobalLock(hData);		SYS_ASSERT(bmi);
 			if(bmi->bmiHeader.biCompression==BI_RGB||bmi->bmiHeader.biCompression==BI_BITFIELDS)//uncompressed
 			{

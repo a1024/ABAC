@@ -288,11 +288,11 @@ static const int calcsize_ans_qlevels[]=
 	3,    5,    7,    11,   15,   23,  31,  47,  63,
 	95,   127,  191,  255,  392,  500
 };
-static const int calcsize_ans_qlevels_u[]=
-{
-	0,  1,  3,  5,   7,   11,  15,  23, 31,
-	47, 63, 95, 127, 191, 255, 392, 500
-};
+//static const int calcsize_ans_qlevels_u[]=
+//{
+//	0,  1,  3,  5,   7,   11,  15,  23, 31,
+//	47, 63, 95, 127, 191, 255, 392, 500
+//};
 static const int ans_qlevels_u[]=
 {
 	//0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 16, 18, 20, 22, 24, 28, 32, 36, 40, 48, 64, 80, 96, 128, 160, 192, 256, 320, 384, 512		//v1	opt 2.414476
@@ -2908,6 +2908,7 @@ void chart_hist_draw2(float x1, float x2, float y1, float y2, int color, int *hi
 	for(int k=0;k<256;++k)
 		draw_rect(x1+k*(x2-x1)/256, x1+(k+1)*(x2-x1)/256, y2-hist[k]*histpx, y2, color);
 }
+#if 0
 static void draw_cloud(int x, int y, int blocksize, float cubesize)
 {
 	static ArrayHandle vertices=0;
@@ -2949,6 +2950,7 @@ static void draw_cloud(int x, int y, int blocksize, float cubesize)
 		draw_3d_flush(vertices, &cam, texture, 2, 2, 0, GL_LINE_STRIP);
 	}
 }
+#endif
 void chart_jointhist_draw()
 {
 	draw_AAcuboid_wire(0, jh_cubesize, 0, jh_cubesize, 0, jh_cubesize, 0xFF000000);
@@ -3647,7 +3649,7 @@ static int parse_nvals_f64(ArrayHandle text, int idx, double *params, int count)
 		//if(text->data[idx]=='0'&&(text->data[idx]&0xDF)=='X')//skip hex prefix
 		//	idx+=2;
 		char *end=(char*)text->data+idx;
-		params[k]=strtod((char*)text->data+idx, &end, 10);
+		params[k]=strtod((char*)text->data+idx, &end);
 		idx=(int)(end-(char*)text->data);
 		if(neg)
 			params[k]=-params[k];
@@ -4420,7 +4422,7 @@ int io_keydn(IOKey key, char c)
 				{
 					idx=parse_nvals_i32(text, idx, &ols4_period, 1);
 					idx=parse_nvals_f64(text, idx, ols4_lr, _countof(ols4_lr));
-					idx=parse_nvals_i8(text, idx, (char*)ols4_mask, sizeof(ols4_mask)/sizeof(char));
+					idx=parse_nvals_i8(text, idx, (unsigned char*)ols4_mask, sizeof(ols4_mask)/sizeof(char));
 				}
 				if(transforms_mask[ST_FWD_CUSTOM3]||transforms_mask[ST_INV_CUSTOM3])
 				{
@@ -5386,7 +5388,7 @@ void io_render()
 			//g += (-0x00*r-0x00*b)>>6
 			//0123456789012345678901234
 			const char chnames[]="rgb";
-			char per[4]={0};
+			unsigned char per[4]={0};
 			rct_custom_unpackpermutation(rct_custom_params[8], per);
 			GUIPrint(0, x, y+ystep*0, guizoom, "P%d  %c%c%c", rct_custom_params[8], chnames[per[0]], chnames[per[1]], chnames[per[2]]);
 			GUIPrint(0, x, y+ystep*1, guizoom, "%c += (%c0x%04X*%c%c0x%04X*%c)>>%d",

@@ -268,7 +268,6 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 		nlevels[2]>>1,
 		nlevels[3]>>1,
 	};
-	int fwdmask=-fwd;
 	int successcount=0;
 	for(int ky=0, idx=0, olsidx=1;ky<src->ih;++ky)
 	{
@@ -384,8 +383,8 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 
 				double lr=lrs[kc];
 #ifdef ALLOW_AVX2
-				if((nparams>>1<<1)!=nparams)
-					printf("");
+				//if((nparams>>1<<1)!=nparams)
+				//	printf("");
 				__m256d mlr=_mm256_set1_pd(lr);
 				for(int ky2=0, midx=0;ky2<nparams;++ky2)
 				{

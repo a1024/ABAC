@@ -931,7 +931,7 @@ void colortransform_lossy_matrix(Image *image, int fwd)//for demonstration purpo
 }
 
 short rct_custom_params[RCT_CUSTOM_NPARAMS]={0};
-void rct_custom_unpackpermutation(short p, char *permutation)
+void rct_custom_unpackpermutation(short p, unsigned char *permutation)
 {
 	int temp=0;
 	switch(p)
@@ -951,7 +951,7 @@ void rct_custom_unpackpermutation(short p, char *permutation)
 void rct_custom(Image *image, int fwd, const short *params)//4 params	fixed 15.16
 {
 	int temp;
-	char permutation[4]={0};
+	unsigned char permutation[4]={0};
 	rct_custom_unpackpermutation(params[8], permutation);
 	if(fwd)
 	{
@@ -2822,8 +2822,8 @@ void pred_ecoeff(Image *src, int fwd, int enable_ma)
 				correction+=12*256/2-1;
 				correction/=12*256;
 
-				if(correction)
-					printf("");
+				//if(correction)
+				//	printf("");
 
 				int pred=N+W-NW;
 				pred=MEDIAN3(N, W, pred);
@@ -2954,11 +2954,12 @@ void pred_zipper(Image **psrc, int fwd, int enable_ma)
 static void pred_multistage_stage1(Image *src, Image *dst, int fwd, int enable_ma, int kc, int *hist)
 {
 	int nlevels=1<<src->depth[kc];
-	const int *pixels=fwd?src->data:dst->data, *errors=fwd?dst->data:src->data;
+	const int *pixels=fwd?src->data:dst->data;
+//	const int *errors=fwd?dst->data:src->data;
 #ifdef MULTISTAGE_CALCCSIZE
 	memset(hist, 0, (nlevels+1LL)*sizeof(int));//
 #endif
-	for(int ky=0, idx=0;ky<src->ih;ky+=2)
+	for(int ky=0;ky<src->ih;ky+=2)
 	{
 		for(int kx=0;kx<src->iw;kx+=2)
 		{
@@ -2987,22 +2988,24 @@ static void pred_multistage_stage1(Image *src, Image *dst, int fwd, int enable_m
 		}
 	}
 }
+#if 0
 static void pred_multistage_stage2(Image *src, Image *dst, int fwd, int enable_ma, int kc, int *hist)
 {
 	int nlevels=1<<src->depth[kc];
-	const int *pixels=fwd?src->data:dst->data, *errors=fwd?dst->data:src->data;
+	const int *pixels=fwd?src->data:dst->data;
+//	const int *errors=fwd?dst->data:src->data;
 #ifdef MULTISTAGE_CALCCSIZE
 	memset(hist, 0, (nlevels+1LL)*sizeof(int));//
 #endif
-	for(int ky=0, idx=0;ky<src->ih;ky+=2)
+	for(int ky=0;ky<src->ih;ky+=2)
 	{
 		for(int kx=1;kx<src->iw;kx+=2)
 		{
 			int
 				idx=src->iw*ky+kx,
-				NNWW	=LOAD(pixels, -2, -2),
-				NN	=LOAD(pixels,  0, -2),
-				WW	=LOAD(pixels, -2,  0),
+			//	NNWW	=LOAD(pixels, -2, -2),
+			//	NN	=LOAD(pixels,  0, -2),
+			//	WW	=LOAD(pixels, -2,  0),
 				W	=LOAD(pixels, -1,  0),
 				E	=LOAD(pixels,  1,  0);
 			//int pred2=NN+WW-NNWW;
@@ -3030,22 +3033,23 @@ static void pred_multistage_stage2(Image *src, Image *dst, int fwd, int enable_m
 static void pred_multistage_stage3(Image *src, Image *dst, int fwd, int enable_ma, int kc, int *hist)
 {
 	int nlevels=1<<src->depth[kc];
-	const int *pixels=fwd?src->data:dst->data, *errors=fwd?dst->data:src->data;
+	const int *pixels=fwd?src->data:dst->data;
+//	const int *errors=fwd?dst->data:src->data;
 #ifdef MULTISTAGE_CALCCSIZE
 	memset(hist, 0, (nlevels+1LL)*sizeof(int));//
 #endif
-	for(int ky=1, idx=0;ky<src->ih;ky+=2)
+	for(int ky=1;ky<src->ih;ky+=2)
 	{
 		for(int kx=0;kx<src->iw;kx+=2)
 		{
 			int
 				idx=src->iw*ky+kx,
 				N	=LOAD(pixels,  0, -1),
-				S	=LOAD(pixels,  0,  1),
-				NW	=LOAD(pixels, -1, -1),
-				SW	=LOAD(pixels, -1,  1),
-				NE	=LOAD(pixels,  1, -1),
-				SE	=LOAD(pixels,  1,  1);
+				S	=LOAD(pixels,  0,  1);
+			//	NW	=LOAD(pixels, -1, -1),
+			//	SW	=LOAD(pixels, -1,  1),
+			//	NE	=LOAD(pixels,  1, -1),
+			//	SE	=LOAD(pixels,  1,  1);
 			int pred=(N+S+1)>>1;
 			//int pred=(4*(N+S)-(NW+NE+SW+SE)+2)>>2;
 			//int pred=(30*(N+S)+NW+SW+NE+SE+32)>>6;
@@ -3073,11 +3077,12 @@ static void pred_multistage_stage3(Image *src, Image *dst, int fwd, int enable_m
 static void pred_multistage_stage4(Image *src, Image *dst, int fwd, int enable_ma, int kc, int *hist)
 {
 	int nlevels=1<<src->depth[kc];
-	const int *pixels=fwd?src->data:dst->data, *errors=fwd?dst->data:src->data;
+	const int *pixels=fwd?src->data:dst->data;
+//	const int *errors=fwd?dst->data:src->data;
 #ifdef MULTISTAGE_CALCCSIZE
 	memset(hist, 0, (nlevels+1LL)*sizeof(int));//
 #endif
-	for(int ky=1, idx=0;ky<src->ih;ky+=2)
+	for(int ky=1;ky<src->ih;ky+=2)
 	{
 		for(int kx=1;kx<src->iw;kx+=2)
 		{
@@ -3112,15 +3117,17 @@ static void pred_multistage_stage4(Image *src, Image *dst, int fwd, int enable_m
 		}
 	}
 }
+#endif
 
 static void pred_multistage_stage2c(Image *src, Image *dst, int fwd, int enable_ma, int kc, int *hist)
 {
 	int nlevels=1<<src->depth[kc], half=nlevels>>1;
-	const int *pixels=fwd?src->data:dst->data, *errors=fwd?dst->data:src->data;
+	const int *pixels=fwd?src->data:dst->data;
+//	const int *errors=fwd?dst->data:src->data;
 #ifdef MULTISTAGE_CALCCSIZE
 	memset(hist, 0, (nlevels+1LL)*sizeof(int));//
 #endif
-	for(int ky=1, idx=0;ky<src->ih;ky+=2)
+	for(int ky=1;ky<src->ih;ky+=2)
 	{
 		for(int kx=1;kx<src->iw;kx+=2)
 		{
@@ -3130,22 +3137,22 @@ static void pred_multistage_stage2c(Image *src, Image *dst, int fwd, int enable_
 				SW	=LOAD(pixels, -1,  1),
 				NE	=LOAD(pixels,  1, -1),
 				SE	=LOAD(pixels,  1,  1),
-				NWWW	=LOAD(pixels, -3, -1),
-				NEEE	=LOAD(pixels,  3, -1),
-				SWWW	=LOAD(pixels, -3,  1),
-				SEEE	=LOAD(pixels,  3,  1),
-				NNNW	=LOAD(pixels, -1, -3),
-				NNNE	=LOAD(pixels,  1, -3),
-				SSSW	=LOAD(pixels, -1,  3),
-				SSSE	=LOAD(pixels,  1,  3),
+			//	NWWW	=LOAD(pixels, -3, -1),
+			//	NEEE	=LOAD(pixels,  3, -1),
+			//	SWWW	=LOAD(pixels, -3,  1),
+			//	SEEE	=LOAD(pixels,  3,  1),
+			//	NNNW	=LOAD(pixels, -1, -3),
+			//	NNNE	=LOAD(pixels,  1, -3),
+			//	SSSW	=LOAD(pixels, -1,  3),
+			//	SSSE	=LOAD(pixels,  1,  3),
 				NNNWWW	=LOAD(pixels, -3, -3),
 				SSSWWW	=LOAD(pixels, -3,  3),
 				NNNEEE	=LOAD(pixels,  3, -3),
-				SSSEEE	=LOAD(pixels,  3,  3),
-				NNWW	=LOAD(pixels, -2, -2),
-				NNEE	=LOAD(pixels,  2, -2),
-				NN	=LOAD(pixels,  0, -2),
-				WW	=LOAD(pixels, -2,  0);
+				SSSEEE	=LOAD(pixels,  3,  3);
+			//	NNWW	=LOAD(pixels, -2, -2),
+			//	NNEE	=LOAD(pixels,  2, -2),
+			//	NN	=LOAD(pixels,  0, -2),
+			//	WW	=LOAD(pixels, -2,  0);
 
 			int pred=(9*(NW+NE+SW+SE)-(NNNWWW+NNNEEE+SSSWWW+SSSEEE)+16)>>5;
 #if 0
@@ -3236,11 +3243,12 @@ static void pred_multistage_stage2c(Image *src, Image *dst, int fwd, int enable_
 static void pred_multistage_stage3c(Image *src, Image *dst, int fwd, int enable_ma, int kc, int *hist)
 {
 	int nlevels=1<<src->depth[kc], half=nlevels>>1;
-	const int *pixels=fwd?src->data:dst->data, *errors=fwd?dst->data:src->data;
+	const int *pixels=fwd?src->data:dst->data;
+//	const int *errors=fwd?dst->data:src->data;
 #ifdef MULTISTAGE_CALCCSIZE
 	memset(hist, 0, (nlevels+1LL)*sizeof(int));//
 #endif
-	for(int ky=1, idx=0;ky<src->ih;ky+=2)
+	for(int ky=1;ky<src->ih;ky+=2)
 	{
 		for(int kx=0;kx<src->iw;kx+=2)
 		{
@@ -3286,11 +3294,12 @@ static void pred_multistage_stage3c(Image *src, Image *dst, int fwd, int enable_
 static void pred_multistage_stage4c(Image *src, Image *dst, int fwd, int enable_ma, int kc, int *hist)
 {
 	int nlevels=1<<src->depth[kc], half=nlevels>>1;
-	const int *pixels=fwd?src->data:dst->data, *errors=fwd?dst->data:src->data;
+	const int *pixels=fwd?src->data:dst->data;
+//	const int *errors=fwd?dst->data:src->data;
 #ifdef MULTISTAGE_CALCCSIZE
 	memset(hist, 0, (nlevels+1LL)*sizeof(int));//
 #endif
-	for(int ky=0, idx=0;ky<src->ih;ky+=2)
+	for(int ky=0;ky<src->ih;ky+=2)
 	{
 		for(int kx=1;kx<src->iw;kx+=2)
 		{
@@ -3300,10 +3309,10 @@ static void pred_multistage_stage4c(Image *src, Image *dst, int fwd, int enable_
 				S	=LOAD(pixels,  0,  1),
 				W	=LOAD(pixels, -1,  0),
 				E	=LOAD(pixels,  1,  0),
-				NW	=LOAD(pixels, -1, -1),
-				SW	=LOAD(pixels, -1,  1),
-				NE	=LOAD(pixels,  1, -1),
-				SE	=LOAD(pixels,  1,  1),
+			//	NW	=LOAD(pixels, -1, -1),
+			//	SW	=LOAD(pixels, -1,  1),
+			//	NE	=LOAD(pixels,  1, -1),
+			//	SE	=LOAD(pixels,  1,  1),
 				NNW	=LOAD(pixels, -1, -2),
 				NNE	=LOAD(pixels,  1, -2),
 				SSW	=LOAD(pixels, -1,  2),
@@ -3315,11 +3324,11 @@ static void pred_multistage_stage4c(Image *src, Image *dst, int fwd, int enable_
 				WWW	=LOAD(pixels, -3,  0),
 				EEE	=LOAD(pixels,  3,  0),
 				NNN	=LOAD(pixels,  0, -3),
-				SSS	=LOAD(pixels,  0,  3),
-				NNNWWW	=LOAD(pixels, -3, -3),
-				NNNEEE	=LOAD(pixels,  3, -3),
-				SSSWWW	=LOAD(pixels, -3,  3),
-				SSSEEE	=LOAD(pixels,  3,  3);
+				SSS	=LOAD(pixels,  0,  3);
+			//	NNNWWW	=LOAD(pixels, -3, -3),
+			//	NNNEEE	=LOAD(pixels,  3, -3),
+			//	SSSWWW	=LOAD(pixels, -3,  3),
+			//	SSSEEE	=LOAD(pixels,  3,  3);
 			int pred=(27*(N+W+S+E)-(WWW+EEE+NNN+SSS+NNW+SEE+NWW+SSE+NNE+SWW+SSW+NEE))/96;
 			//int pred=(9*(N+W+S+E+NW+NE+SW+SE)-(NNN+WWW+SSS+EEE+NNNWWW+NNNEEE+SSSWWW+SSSEEE))>>6;
 			//int pred=(N+W+S+E+2)>>2;
@@ -3436,8 +3445,10 @@ void pred_multistage(Image *src, int fwd, int enable_ma)
 //static Image *guide=0;
 static void pred_separate_x(Image const *src, Image *dst, int fwd, int enable_ma, int kc, int *hist, double *csizes)
 {
-	int nlevels=1<<src->depth[kc], half=nlevels>>1;
-	const int *pixels=fwd?src->data:dst->data, *errors=fwd?dst->data:src->data;
+	int nlevels=1<<src->depth[kc];
+//	int half=nlevels>>1;
+	const int *pixels=fwd?src->data:dst->data;
+//	const int *errors=fwd?dst->data:src->data;
 #ifdef P3_CALCCSIZE
 	memset(hist, 0, nlevels*sizeof(int[P3_MAXPREDS]));
 #endif
@@ -3454,14 +3465,14 @@ static void pred_separate_x(Image const *src, Image *dst, int fwd, int enable_ma
 				NNNN	=LOAD(pixels,  0, -4),
 				NNNNE	=LOAD(pixels,  1, -4),
 				NNNNEE	=LOAD(pixels,  2, -4),
-				NNNNEEE	=LOAD(pixels,  3, -4),
+			//	NNNNEEE	=LOAD(pixels,  3, -4),
 				NNNNEEEE=LOAD(pixels,  4, -4),
-				NNNWWWW	=LOAD(pixels, -4, -3),
+			//	NNNWWWW	=LOAD(pixels, -4, -3),
 				NNNWWW	=LOAD(pixels, -3, -3),
-				NNNWW	=LOAD(pixels, -2, -3),
-				NNNW	=LOAD(pixels, -1, -3),
+			//	NNNWW	=LOAD(pixels, -2, -3),
+			//	NNNW	=LOAD(pixels, -1, -3),
 				NNN	=LOAD(pixels,  0, -3),
-				NNNE	=LOAD(pixels,  1, -3),
+			//	NNNE	=LOAD(pixels,  1, -3),
 				NNNEE	=LOAD(pixels,  2, -3),
 				NNNEEE	=LOAD(pixels,  3, -3),
 				NNNEEEE	=LOAD(pixels,  4, -3),
@@ -3474,7 +3485,7 @@ static void pred_separate_x(Image const *src, Image *dst, int fwd, int enable_ma
 				NNEE	=LOAD(pixels,  2, -2),
 				NNEEE	=LOAD(pixels,  3, -2),
 				NNEEEE	=LOAD(pixels,  4, -2),
-				NWWWWW	=LOAD(pixels, -5, -1),
+			//	NWWWWW	=LOAD(pixels, -5, -1),
 				NWWWW	=LOAD(pixels, -4, -1),
 				NWWW	=LOAD(pixels, -3, -1),
 				NWW	=LOAD(pixels, -2, -1),
@@ -3759,7 +3770,7 @@ static void pred_separate_x(Image const *src, Image *dst, int fwd, int enable_ma
 			for(int k=0;k<_countof(preds)/2;++k)
 			{
 				long long e=errors[k];
-				e+=((abs(curr-preds[k<<1|1])<<8)-e)/3;
+				e+=(((long long)abs(curr-preds[k<<1|1])<<8)-e)/3;
 				UPDATE_MAX(e, 1);
 				errors[k]=e;
 #ifdef P3_CALCCSIZE
@@ -3776,10 +3787,12 @@ static void pred_separate_x(Image const *src, Image *dst, int fwd, int enable_ma
 		csizes[k<<2|kc]=calc_entropy(hist+((size_t)k<<src->depth[kc]), nlevels, src->iw*src->ih)*100./8;
 #endif
 }
+#if 0
 static void pred_separate_y(Image const *src, Image *dst, int fwd, int enable_ma, int kc)
 {
 	int nlevels=1<<src->depth[kc], half=nlevels>>1;
-	const int *pixels=fwd?src->data:dst->data, *errors=fwd?dst->data:src->data;
+	const int *pixels=fwd?src->data:dst->data;
+//	const int *errors=fwd?dst->data:src->data;
 #if 1
 #define LG_PREDLEVELS 7
 	int preds[1<<LG_PREDLEVELS];
@@ -3885,6 +3898,7 @@ static void pred_separate_y(Image const *src, Image *dst, int fwd, int enable_ma
 	}
 #endif
 }
+#endif
 #undef  LOAD
 void pred_separate(Image *src, int fwd, int enable_ma)
 {
@@ -4171,7 +4185,8 @@ void pred_ols(Image *src, int fwd, int enable_ma)
 		LOG_ERROR("Alloc error");
 		return;
 	}
-	const int *pixels=fwd?src->data:dst->data, *errors=fwd?dst->data:src->data;
+	const int *pixels=fwd?src->data:dst->data;
+//	const int *errors=fwd?dst->data:src->data;
 	int c1_init[4]={0};
 	double c1_params[OLS_NPARAMS*4]={0};
 	for(int kc=0;kc<4;++kc)
@@ -4211,7 +4226,7 @@ void pred_ols(Image *src, int fwd, int enable_ma)
 					NE	=LOAD(pixels, -1, 1),
 					NEE	=LOAD(pixels, -2, 1),
 					NEEE	=LOAD(pixels, -3, 1),
-					NEEEE	=LOAD(pixels, -4, 1),
+				//	NEEEE	=LOAD(pixels, -4, 1),
 					WWWW	=LOAD(pixels,  4, 0),
 					WWW	=LOAD(pixels,  3, 0),
 					WW	=LOAD(pixels,  2, 0),
@@ -4554,7 +4569,8 @@ void pred_ols2(Image *src, int fwd, int enable_ma)
 		return;
 	}
 	memset(samples, 0, sizeof(double[OLS2_NSAMPLES*(OLS2_NPARAMS+1)]));
-	const int *pixels=fwd?src->data:dst->data, *errors=fwd?dst->data:src->data;
+	const int *pixels=fwd?src->data:dst->data;
+//	const int *errors=fwd?dst->data:src->data;
 	for(int kc=0;kc<4;++kc)
 	{
 		if(!src->depth[kc])
@@ -4562,7 +4578,6 @@ void pred_ols2(Image *src, int fwd, int enable_ma)
 		int initialized=0;
 		double params[OLS2_NPARAMS]={0};
 		int nlevels=1<<src->depth[kc], half=nlevels>>1;
-		double gain=1./half;
 		for(int ky=0, idx=0;ky<src->ih;++ky)
 		{
 			for(int kx=0;kx<src->iw;++kx, ++idx)
@@ -4780,7 +4795,8 @@ void pred_ols3(Image *src, int fwd, int enable_ma)
 		return;
 	}
 	memset(samples, 0, sizeof(double[OLS3_NSAMPLES*(OLS3_NPARAMS2+1)*3]));
-	const int *pixels=fwd?dst->data:src->data, *errors=fwd?src->data:dst->data;
+	const int *pixels=fwd?dst->data:src->data;
+//	const int *errors=fwd?src->data:dst->data;
 	double params[OLS3_NPARAMS2*3]={0};
 	int nlevels[]=
 	{
@@ -4815,7 +4831,7 @@ void pred_ols3(Image *src, int fwd, int enable_ma)
 				int nparams=OLS3_NPARAMS0+kc;
 				int pred;
 				if(kx<OLS3_SAMPLEREACH+OLS3_REACH||kx>src->iw-OLS3_SAMPLEREACH-OLS3_REACH-OLS3_STEP||ky<OLS3_SAMPLEREACH+OLS3_REACH)
-					pred=ols2_fallbackpred(pixels, src->iw, kc, kx, ky, idx);
+					pred=ols3_fallbackpred(pixels, src->iw, kc, kx, ky, idx);
 				else
 				{
 					int success=0;
@@ -4862,7 +4878,7 @@ void pred_ols3(Image *src, int fwd, int enable_ma)
 					//NWW  NW  N  NE  NEE
 					//WW   W   ?
 					if(!success&&!initialized[kc])
-						pred=ols2_fallbackpred(pixels, src->iw, kc, kx, ky, idx);
+						pred=ols3_fallbackpred(pixels, src->iw, kc, kx, ky, idx);
 					else
 					{
 						if(success)
@@ -5116,21 +5132,21 @@ void pred_t47(Image *src, int fwd, int enable_ma)
 			{
 #define LOAD(BUF, X, Y) ((unsigned)(ky+(Y))<(unsigned)src->ih&&(unsigned)(kx+(X))<(unsigned)src->iw?BUF[(src->iw*(ky+(Y))+kx+(X))<<2|kc]<<8:0)
 				int
-					NNNNWW	=LOAD(pixels, -2, -4),
-					NNNNW	=LOAD(pixels, -1, -4),
-					NNNN	=LOAD(pixels,  0, -4),
-					NNNNE	=LOAD(pixels,  1, -4),
-					NNNNEE	=LOAD(pixels,  2, -4),
-					NNNNEEEE=LOAD(pixels,  4, -4),
+				//	NNNNWW	=LOAD(pixels, -2, -4),
+				//	NNNNW	=LOAD(pixels, -1, -4),
+				//	NNNN	=LOAD(pixels,  0, -4),
+				//	NNNNE	=LOAD(pixels,  1, -4),
+				//	NNNNEE	=LOAD(pixels,  2, -4),
+				//	NNNNEEEE=LOAD(pixels,  4, -4),
 
 					NNNWWWW	=LOAD(pixels, -4, -3),
 					NNNWWW	=LOAD(pixels, -3, -3),
-					NNNWW	=LOAD(pixels, -2, -3),
-					NNNW	=LOAD(pixels, -1, -3),
+				//	NNNWW	=LOAD(pixels, -2, -3),
+				//	NNNW	=LOAD(pixels, -1, -3),
 					NNN	=LOAD(pixels,  0, -3),
-					NNNE	=LOAD(pixels,  1, -3),
+				//	NNNE	=LOAD(pixels,  1, -3),
 					NNNEE	=LOAD(pixels,  2, -3),
-					NNNEEE	=LOAD(pixels,  3, -3),
+				//	NNNEEE	=LOAD(pixels,  3, -3),
 					NNNEEEE	=LOAD(pixels,  4, -3),
 		
 					NNWWWW	=LOAD(pixels, -4, -2),
@@ -5142,8 +5158,8 @@ void pred_t47(Image *src, int fwd, int enable_ma)
 					NNEE	=LOAD(pixels,  2, -2),
 					NNEEE	=LOAD(pixels,  3, -2),
 					NNEEEE	=LOAD(pixels,  4, -2),
-					NWWWW	=LOAD(pixels, -4, -1),
-					NWWW	=LOAD(pixels, -3, -1),
+				//	NWWWW	=LOAD(pixels, -4, -1),
+				//	NWWW	=LOAD(pixels, -3, -1),
 					NWW	=LOAD(pixels, -2, -1),
 					NW	=LOAD(pixels, -1, -1),
 					N	=LOAD(pixels,  0, -1),
@@ -5156,16 +5172,16 @@ void pred_t47(Image *src, int fwd, int enable_ma)
 					WW	=LOAD(pixels, -2,  0),
 					W	=LOAD(pixels, -1,  0),
 
-					eNNWW	=LOAD(errors, -2, -2),//error = (curr<<8) - pred
-					eNNW	=LOAD(errors, -1, -2),
+				//	eNNWW	=LOAD(errors, -2, -2),//error = (curr<<8) - pred
+				//	eNNW	=LOAD(errors, -1, -2),
 					eNN	=LOAD(errors,  0, -2),
 					eNNE	=LOAD(errors,  1, -2),
-					eNNEE	=LOAD(errors,  2, -2),
-					eNWW	=LOAD(errors, -2, -1),
+				//	eNNEE	=LOAD(errors,  2, -2),
+				//	eNWW	=LOAD(errors, -2, -1),
 					eNW	=LOAD(errors, -1, -1),
 					eN	=LOAD(errors,  0, -1),
 					eNE	=LOAD(errors,  1, -1),
-					eNEE	=LOAD(errors,  2, -1),
+				//	eNEE	=LOAD(errors,  2, -1),
 					eWW	=LOAD(errors, -2,  0),
 					eW	=LOAD(errors, -1,  0);
 #undef  LOAD
@@ -5252,8 +5268,8 @@ void pred_t47(Image *src, int fwd, int enable_ma)
 				pred=CLAMP(clamp_lo, pred, clamp_hi);
 				int val=(int)((pred+127)>>8);
 
-				if(!kc&&ky==0&&kx==1)
-					printf("");
+				//if(!kc&&ky==0&&kx==1)
+				//	printf("");
 				val^=-fwd;
 				val+=fwd;
 				val+=src->data[idx<<2|kc];
@@ -5963,7 +5979,8 @@ void pred_jxl_prealloc(const int *src, int iw, int ih, int depth, int kc, short 
 	memset(temp_w10, 0, iw*10*sizeof(int));
 	int nlevels=1<<depth;
 	int idx=kc;
-	const int *pixels=fwd?src:dst, *errors=fwd?dst:src;
+	const int *pixels=fwd?src:dst;
+//	const int *errors=fwd?dst:src;
 	for(int ky=0;ky<ih;++ky)
 	{
 		int currrow=ky&1?0:iw, prevrow=ky&1?iw:0;
@@ -9754,6 +9771,8 @@ const char* ec_method_label(EContext ec_method)
 	CASE(ECTX_MIN_N_W_NW_NE)
 	CASE(ECTX_ARGMIN_N_W_NW_NE)
 #undef  CASE
+	default:
+		break;
 	}
 	return label;
 }
@@ -9865,7 +9884,7 @@ void calc_csize_ec(Image const *src, EContext method, int adaptive, int expbits,
 	int res=src->iw*src->ih;
 	for(int kc=0;kc<4;++kc)
 	{
-		int depth=src->depth[kc], nlevels=1<<depth;
+		int depth=src->depth[kc];
 		if(!depth)
 			continue;
 		int constant=1;
