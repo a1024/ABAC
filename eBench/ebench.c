@@ -3071,7 +3071,7 @@ void io_resize()
 
 	p->x1=(float)(w-450), p->x2=p->x1+tdx*gui_ec_width, p->y1=tdy, p->y2=p->y1+tdy, ++p;//4: EC method	//H.E.M.L..A.0x0000..XXXX_XXX
 
-	p->x1=(float)(w>>2), p->x2=p->x1+xstep*(OLS4_RMAX<<1|1)*gui_ols4_elementchars, p->y1=(float)(h>>1), p->y2=p->y1+ystep*(OLS4_RMAX+1)*3, ++p;//5: OLS-4		DON'T USE p->y2
+	p->x1=(float)(w>>2), p->x2=p->x1+xstep*(OLS4_RMAX<<1|1)*gui_ols4_elementchars, p->y1=(float)(h>>1)+10, p->y2=p->y1+ystep*(OLS4_RMAX+1)*(im1?im1->nch:4), ++p;//5: OLS-4		DON'T USE p->y2
 }
 int io_mousemove()//return true to redraw
 {
@@ -3134,7 +3134,8 @@ void click_hittest(int mx, int my, int *objidx, int *cellx, int *celly, int *cel
 		//when these buttons are inactive they shouldn't block the click
 		if(
 			(!transforms_customenabled&&(*objidx==0||*objidx==1))||
-			(!(transforms_mask[ST_FWD_JXLPRED]||transforms_mask[ST_INV_JXLPRED])&&*objidx==3)
+			(!(transforms_mask[ST_FWD_JXLPRED]||transforms_mask[ST_INV_JXLPRED])&&*objidx==3)||
+			(!(transforms_mask[ST_FWD_OLS4]||transforms_mask[ST_INV_OLS4])&&*objidx==5)
 		)
 			continue;
 		if(mx>=p[0]->x1&&mx<p[0]->x2&&my>=p[0]->y1&&my<p[0]->y2)
@@ -3182,8 +3183,8 @@ void click_hittest(int mx, int my, int *objidx, int *cellx, int *celly, int *cel
 		*cellidx=*cellx;
 		break;
 	case 5:
-		*cellx=(int)floorf((mx-p[0]->x1)*(OLS4_RMAX<<1|1)*gui_ols4_elementchars/(p[0]->x2-p[0]->x1));
-		*celly=(int)floorf((my-p[0]->y1)*(OLS4_RMAX+1)*(im1?im1->nch:1)/(tdy*guizoom*(OLS4_RMAX+1)*(im1?im1->nch:1)));
+		*cellx=(int)floorf((mx-p[0]->x1)/(tdx*guizoom));
+		*celly=(int)floorf((my-p[0]->y1)/(tdy*guizoom));
 		*cellidx=0;
 		break;
 	default:
@@ -3457,18 +3458,53 @@ int io_mousewheel(int forward)
 			case 5://OLS-4
 				if(transforms_mask[ST_FWD_OLS4]||transforms_mask[ST_INV_OLS4])
 				{
-					int kx=cellx/gui_ols4_elementchars, kchar=7-cellx%gui_ols4_elementchars, kc=celly/(OLS4_RMAX+1), ky=celly%(OLS4_RMAX+1);
-					int idx=(OLS4_RMAX<<1|1)*ky+kx;
-					if(idx<OLS4_CTXSIZE+1&&kchar>=0)
+					if(celly)
 					{
-						ols4_mask[kc][idx]^=1<<kchar;
-						if(idx==OLS4_CTXSIZE)//causality mask
+						--celly;
+						int kx=cellx/gui_ols4_elementchars, kchar=7-cellx%gui_ols4_elementchars, kc=celly/(OLS4_RMAX+1), ky=celly%(OLS4_RMAX+1);
+						int idx=(OLS4_RMAX<<1|1)*ky+kx;
+						if(idx<OLS4_CTXSIZE+1&&kchar>=0)
 						{
-							int cmask=((1<<(kc<<1))-1);
-							ols4_mask[kc][idx]&=cmask<<4|cmask;
+							ols4_mask[kc][idx]^=1<<kchar;
+							if(idx==OLS4_CTXSIZE)//causality mask
+							{
+								int cmask=((1<<(kc<<1))-1);
+								ols4_mask[kc][idx]&=cmask<<4|cmask;
+							}
+							if(!GET_KEY_STATE(KEY_CTRL))
+								update_image();
 						}
-						if(!GET_KEY_STATE(KEY_CTRL))
-							update_image();
+					}
+					else
+					{
+						int kx=cellx/gui_ols4_elementchars;
+						switch(kx)
+						{
+						case 0:
+							ols4_period=SHIFT_LEFT_SIGNED(ols4_period, sign);
+							if(!GET_KEY_STATE(KEY_CTRL))
+								update_image();
+							break;
+						case 1:
+						case 2:
+						case 3:
+						case 4:
+							{
+								//	0	X	2	3	4	...
+								//	0	.	-1	-2	-3	...
+								int digit=-(cellx%gui_ols4_elementchars);
+								if(digit!=-1)
+								{
+									digit+=digit<=-1;
+									double val=ols4_lr[kx-1];
+									val+=sign*_10pow(digit);
+									ols4_lr[kx-1]=CLAMP(0, val, 1);
+									if(!GET_KEY_STATE(KEY_CTRL))
+										update_image();
+								}
+							}
+							break;
+						}
 					}
 				}
 				break;
@@ -3825,14 +3861,38 @@ int io_keydn(IOKey key, char c)
 			case 5://OLS-4
 				if(transforms_mask[ST_FWD_OLS4]||transforms_mask[ST_INV_OLS4])
 				{
-					int kx=cellx/gui_ols4_elementchars, kchar=7-cellx%gui_ols4_elementchars, kc=celly/(OLS4_RMAX+1), ky=celly%(OLS4_RMAX+1);
-					int idx=(OLS4_RMAX<<1|1)*ky+kx;
-					if(idx<OLS4_CTXSIZE+1&&kchar>=0)
+					if(celly)
 					{
-						ols4_mask[kc][idx]=0;
-						if(!GET_KEY_STATE(KEY_CTRL))
-							update_image();
-						return 1;
+						--celly;
+						int kx=cellx/gui_ols4_elementchars, kchar=7-cellx%gui_ols4_elementchars, kc=celly/(OLS4_RMAX+1), ky=celly%(OLS4_RMAX+1);
+						int idx=(OLS4_RMAX<<1|1)*ky+kx;
+						if(idx<OLS4_CTXSIZE+1&&kchar>=0)
+						{
+							ols4_mask[kc][idx]=0;
+							if(!GET_KEY_STATE(KEY_CTRL))
+								update_image();
+							return 1;
+						}
+					}
+					else
+					{
+						int kx=cellx/gui_ols4_elementchars;
+						switch(kx)
+						{
+						case 0:
+							ols4_period=64;
+							if(!GET_KEY_STATE(KEY_CTRL))
+								update_image();
+							return 1;
+						case 1:
+						case 2:
+						case 3:
+						case 4:
+							ols4_lr[kx-1]=0.0005;
+							if(!GET_KEY_STATE(KEY_CTRL))
+								update_image();
+							return 1;
+						}
 					}
 				}
 				break;
@@ -5384,6 +5444,7 @@ void io_render()
 		float ystep=tdy*guizoom, x, y;
 		x=buttons[5].x1;
 		y=buttons[5].y1;
+		GUIPrint(0, x, y, guizoom, "%8d%9.6lf%9.6lf%9.6lf%9.6lf", ols4_period, ols4_lr[0], ols4_lr[1], ols4_lr[2], ols4_lr[3]);
 		for(int kc=0;kc<im1->nch;++kc)
 		{
 			for(int ky=0;ky<=OLS4_RMAX;++ky)
@@ -5396,22 +5457,22 @@ void io_render()
 						switch(kc)
 						{
 						case 0:
-							GUIPrint_append(0, 0, 0, 0, 0, "   ?   ? ");
+							GUIPrint_append(0, 0, 0, 0, 0, "   ?   ?");
 							break;
 						case 1:
-							GUIPrint_append(0, 0, 0, 0, 0, "  ?%d  ?%d ",
+							GUIPrint_append(0, 0, 0, 0, 0, "  ?%d  ?%d",
 								val>>4&1,
 								val>>0&1
 							);
 							break;
 						case 2:
-							GUIPrint_append(0, 0, 0, 0, 0, " ?%d%d ?%d%d ",
+							GUIPrint_append(0, 0, 0, 0, 0, " ?%d%d ?%d%d",
 								val>>5&1, val>>4&1,
 								val>>1&1, val>>0&1
 							);
 							break;
 						case 3:
-							GUIPrint_append(0, 0, 0, 0, 0, " %d%d%d?%d%d%d ",
+							GUIPrint_append(0, 0, 0, 0, 0, " %d%d%d?%d%d%d",
 								val>>6&1, val>>5&1, val>>4&1,
 								val>>2&1, val>>1&1, val>>0&1
 							);
@@ -5432,7 +5493,7 @@ void io_render()
 						val>>0&1
 					);
 				}
-				GUIPrint_append(0, x, y+ystep*((OLS4_RMAX+1)*kc+ky), guizoom, 1, 0);
+				GUIPrint_append(0, x, y+ystep*((OLS4_RMAX+1)*kc+ky+1), guizoom, 1, 0);
 			}
 		}
 	}
@@ -5727,10 +5788,23 @@ void io_render()
 		xstart=(float)(w-(combCRhist_SIZE<<combCRhist_logDX)-300);
 		float cx=xstart+(float)(idx<<combCRhist_logDX), cy=h-combCRhist[idx][3]*g2;
 		draw_rect_hollow(cx-10, cx+10, cy-10, cy+10, 0xC0C0C0C0);
-		if(combCRhist[idx][3]<combCRhist[idx2][3])
-			draw_rect(cx-5, cx+5, cy, cy+5, 0xC0C0C0C0);
-		else
-			draw_rect(cx-5, cx+5, cy-5, cy, 0xC0C0C0C0);
+		if(combCRhist[idx][3]<combCRhist[idx2][3])//ratio improved
+		{
+			draw_triangle(cx-9, cy, cx+9, cy, cx, cy+9, 0xC0404040);
+			draw_triangle(cx-5, cy, cx+5, cy, cx, cy+5, 0xC0FFFFFF);
+		}
+			//draw_rect(cx-5, cx+5, cy, cy+5, 0xC0C0C0C0);
+		else if(combCRhist[idx][3]>combCRhist[idx2][3])//ratio worsened
+		{
+			draw_triangle(cx-9, cy, cx+9, cy, cx, cy-9, 0xC0404040);
+			draw_triangle(cx-5, cy, cx+5, cy, cx, cy-5, 0xC0FFFFFF);
+		}
+			//draw_rect(cx-5, cx+5, cy-5, cy, 0xC0C0C0C0);
+		else//exact same ratio
+		{
+			draw_line(cx-5, cy-5, cx+5, cy+5, 0xC0808080);
+			draw_line(cx-5, cy+5, cx+5, cy-5, 0xC0808080);
+		}
 		//draw_ellipse(cx-10, cx+10, cy-5, cy+5, 0xC0C0C0C0);
 		for(int k=0;k<combCRhist_SIZE-1;++k)
 		{

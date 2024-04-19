@@ -563,10 +563,11 @@ void send_texture_pot_grey(unsigned gl_texture, const unsigned char *bmp, int tx
 void send_texture_pot_int16x1(unsigned gl_texture, const unsigned *texture, int txw, int txh, int linear);
 void select_texture(unsigned tx_id, int u_location);
 
-void draw_line       (float x1, float y1, float x2, float y2, int color);
-void draw_rect       (float x1, float x2, float y1, float y2, int color);
-void draw_rect_hollow(float x1, float x2, float y1, float y2, int color);
-void draw_ellipse    (float x1, float x2, float y1, float y2, int color);
+void draw_line		(float x1, float y1, float x2, float y2, int color);
+void draw_rect		(float x1, float x2, float y1, float y2, int color);
+void draw_rect_hollow	(float x1, float x2, float y1, float y2, int color);
+void draw_ellipse	(float x1, float x2, float y1, float y2, int color);
+void draw_triangle	(float x1, float y1, float x2, float y2, float x3, float y3, int color);
 #define        DRAW_LINEI(X1, Y1, X2, Y2, COLOR)        draw_line((float)(X1), (float)Y1, (float)X2, (float)Y2, COLOR)
 #define        DRAW_RECTI(X1, X2, Y1, Y2, COLOR)        draw_rect((float)(X1), (float)X2, (float)Y1, (float)Y2, COLOR)
 #define DRAW_RECT_HOLLOWI(X1, X2, Y1, Y2, COLOR) draw_rect_hollow((float)(X1), (float)X2, (float)Y1, (float)Y2, COLOR)

@@ -640,8 +640,8 @@ void draw_line(float x1, float y1, float x2, float y2, int color)
 {
 	g_fbuf[0]=screen2NDC_x(x1), g_fbuf[1]=screen2NDC_y(y1);
 	g_fbuf[2]=screen2NDC_x(x2), g_fbuf[3]=screen2NDC_y(y2);
-	setGLProgram(shader_2D.program);		GL_CHECK(error);
-	send_color(u_2D_color, color);			GL_CHECK(error);
+	setGLProgram(shader_2D.program);	GL_CHECK(error);
+	send_color(u_2D_color, color);		GL_CHECK(error);
 
 	glEnableVertexAttribArray(a_2D_coords);	GL_CHECK(error);
 
@@ -655,7 +655,7 @@ void draw_line(float x1, float y1, float x2, float y2, int color)
 #ifndef NO_3D
 	glDisable(GL_DEPTH_TEST);
 #endif
-	glDrawArrays(GL_LINES, 0, 2);			GL_CHECK(error);
+	glDrawArrays(GL_LINES, 0, 2);		GL_CHECK(error);
 	glDisableVertexAttribArray(a_2D_coords);GL_CHECK(error);
 #ifndef NO_3D
 	glEnable(GL_DEPTH_TEST);
@@ -673,8 +673,8 @@ void draw_rect(float x1, float x2, float y1, float y2, int color)
 	g_fbuf[4]=X2, g_fbuf[5]=Y2;
 	g_fbuf[6]=X1, g_fbuf[7]=Y2;
 	g_fbuf[8]=X1, g_fbuf[9]=Y1;
-	setGLProgram(shader_2D.program);		GL_CHECK(error);
-	send_color(u_2D_color, color);			GL_CHECK(error);
+	setGLProgram(shader_2D.program);	GL_CHECK(error);
+	send_color(u_2D_color, color);		GL_CHECK(error);
 
 	glEnableVertexAttribArray(a_2D_coords);	GL_CHECK(error);
 
@@ -703,8 +703,8 @@ void draw_rect_hollow(float x1, float x2, float y1, float y2, int color)
 	g_fbuf[2]=X1, g_fbuf[3]=Y2;
 	g_fbuf[4]=X2, g_fbuf[5]=Y2;
 	g_fbuf[6]=X2, g_fbuf[7]=Y1;
-	setGLProgram(shader_2D.program);		GL_CHECK(error);
-	send_color(u_2D_color, color);			GL_CHECK(error);
+	setGLProgram(shader_2D.program);	GL_CHECK(error);
+	send_color(u_2D_color, color);		GL_CHECK(error);
 
 	glEnableVertexAttribArray(a_2D_coords);	GL_CHECK(error);
 
@@ -718,7 +718,37 @@ void draw_rect_hollow(float x1, float x2, float y1, float y2, int color)
 #ifndef NO_3D
 	glDisable(GL_DEPTH_TEST);
 #endif
-	glDrawArrays(GL_LINE_LOOP, 0, 4);		GL_CHECK(error);
+	glDrawArrays(GL_LINE_LOOP, 0, 4);	GL_CHECK(error);
+	glDisableVertexAttribArray(a_2D_coords);GL_CHECK(error);
+#ifndef NO_3D
+	glEnable(GL_DEPTH_TEST);
+#endif
+}
+void draw_triangle(float x1, float y1, float x2, float y2, float x3, float y3, int color)
+{
+	float
+		X1=screen2NDC_x(x1), Y1=screen2NDC_y(y1),
+		X2=screen2NDC_x(x2), Y2=screen2NDC_y(y2),
+		X3=screen2NDC_x(x3), Y3=screen2NDC_y(y3);
+	g_fbuf[0]=X1, g_fbuf[1]=Y1;
+	g_fbuf[2]=X2, g_fbuf[3]=Y2;
+	g_fbuf[4]=X3, g_fbuf[5]=Y3;
+	setGLProgram(shader_2D.program);	GL_CHECK(error);
+	send_color(u_2D_color, color);		GL_CHECK(error);
+
+	glEnableVertexAttribArray(a_2D_coords);	GL_CHECK(error);
+
+	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);				GL_CHECK(error);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(float[6]), g_fbuf, GL_STATIC_DRAW);GL_CHECK(error);
+	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, 0);	GL_CHECK(error);
+	
+//	glBindBuffer(GL_ARRAY_BUFFER, 0);					GL_CHECK(error);
+//	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, g_fbuf);	GL_CHECK(error);
+	
+#ifndef NO_3D
+	glDisable(GL_DEPTH_TEST);
+#endif
+	glDrawArrays(GL_TRIANGLES, 0, 3);	GL_CHECK(error);
 	glDisableVertexAttribArray(a_2D_coords);GL_CHECK(error);
 #ifndef NO_3D
 	glEnable(GL_DEPTH_TEST);
