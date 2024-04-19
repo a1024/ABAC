@@ -3032,7 +3032,7 @@ typedef struct AABBStruct
 {
 	float x1, x2, y1, y2;
 } AABB;
-AABB buttons[5]={0};//0: CT,  1: ST,  2: list of transforms,  3: jxl params
+AABB buttons[6]={0};//0: CT,  1: ST,  2: list of transforms,  3: jxl params,  4: EC,  5: OLS-4
 
 int io_init(int argc, char **argv)//return false to abort
 {
@@ -3053,14 +3053,15 @@ const int
 const int
 	gui_custom_rct_w=29, gui_custom_rct_h=5,//characters
 	gui_custom_pred_w=103+2, gui_custom_pred_h=4,
-	gui_ec_width=27;
+	gui_ec_width=27,
+	gui_ols4_elementchars=9;
 int custom_pred_ch_idx=0;//from {0, 1, 2}
 void io_resize()
 {
 	AABB *p=buttons;
 	float xstep=tdx*guizoom, ystep=tdy*guizoom;
 	p->x1=xstep*2, p->x2=p->x1+xstep*gui_custom_rct_w, p->y1=(float)(h>>1), p->y2=p->y1+ystep*gui_custom_rct_h, ++p;//0: color params - left
-	p->x1=(float)(w>>3), p->x2=p->x1+xstep*gui_custom_pred_w, p->y1=(float)((h>>1)+(h>>2))-ystep, p->y2=p->y1+ystep*gui_custom_pred_h, ++p;//1: spatial params
+	p->x1=(float)(w>>3), p->x2=p->x1+xstep*gui_custom_pred_w, p->y1=(float)((h>>1)+(h>>2))-ystep, p->y2=p->y1+ystep*gui_custom_pred_h, ++p;//1: spatial params - bottom
 	p->x1=(float)(w-300), p->x2=(float)w, p->y1=tdy*2, p->y2=p->y1+tdy*T_COUNT/2, ++p;//2: transforms list
 	
 	//p->x1=(float)(w>>1), p->x2=p->x1+xstep*14, p->y1=(float)((h>>1)+(h>>2))+ystep*4, p->y2=p->y1+ystep, ++p;//3: clamp bounds
@@ -3069,6 +3070,8 @@ void io_resize()
 	p->x1=(float)(w>>2), p->x2=p->x1+tdx*11*6, p->y1=(float)((h>>1)+(h>>2)), p->y2=p->y1+tdy*3, ++p;//3: jxl params
 
 	p->x1=(float)(w-450), p->x2=p->x1+tdx*gui_ec_width, p->y1=tdy, p->y2=p->y1+tdy, ++p;//4: EC method	//H.E.M.L..A.0x0000..XXXX_XXX
+
+	p->x1=(float)(w>>2), p->x2=p->x1+xstep*(OLS4_RMAX<<1|1)*gui_ols4_elementchars, p->y1=(float)(h>>1), p->y2=p->y1+ystep*(OLS4_RMAX+1)*3, ++p;//5: OLS-4		DON'T USE p->y2
 }
 int io_mousemove()//return true to redraw
 {
@@ -3177,6 +3180,11 @@ void click_hittest(int mx, int my, int *objidx, int *cellx, int *celly, int *cel
 		*cellx=(int)floorf((mx-p[0]->x1)*gui_ec_width/(p[0]->x2-p[0]->x1));
 		*celly=0;
 		*cellidx=*cellx;
+		break;
+	case 5:
+		*cellx=(int)floorf((mx-p[0]->x1)*(OLS4_RMAX<<1|1)*gui_ols4_elementchars/(p[0]->x2-p[0]->x1));
+		*celly=(int)floorf((my-p[0]->y1)*(OLS4_RMAX+1)*(im1?im1->nch:1)/(tdy*guizoom*(OLS4_RMAX+1)*(im1?im1->nch:1)));
+		*cellidx=0;
 		break;
 	default:
 		*objidx=-1;
@@ -3445,6 +3453,24 @@ int io_mousewheel(int forward)
 				if(ec_expbits<ec_msb+ec_lsb)
 					ec_msb=ec_lsb=0;
 				update_image();
+				break;
+			case 5://OLS-4
+				if(transforms_mask[ST_FWD_OLS4]||transforms_mask[ST_INV_OLS4])
+				{
+					int kx=cellx/gui_ols4_elementchars, kchar=7-cellx%gui_ols4_elementchars, kc=celly/(OLS4_RMAX+1), ky=celly%(OLS4_RMAX+1);
+					int idx=(OLS4_RMAX<<1|1)*ky+kx;
+					if(idx<OLS4_CTXSIZE+1&&kchar>=0)
+					{
+						ols4_mask[kc][idx]^=1<<kchar;
+						if(idx==OLS4_CTXSIZE)//causality mask
+						{
+							int cmask=((1<<(kc<<1))-1);
+							ols4_mask[kc][idx]&=cmask<<4|cmask;
+						}
+						if(!GET_KEY_STATE(KEY_CTRL))
+							update_image();
+					}
+				}
 				break;
 			}//switch
 		}//if
@@ -3796,6 +3822,20 @@ int io_keydn(IOKey key, char c)
 					ec_msb=ec_lsb=0;
 				update_image();
 				return 1;
+			case 5://OLS-4
+				if(transforms_mask[ST_FWD_OLS4]||transforms_mask[ST_INV_OLS4])
+				{
+					int kx=cellx/gui_ols4_elementchars, kchar=7-cellx%gui_ols4_elementchars, kc=celly/(OLS4_RMAX+1), ky=celly%(OLS4_RMAX+1);
+					int idx=(OLS4_RMAX<<1|1)*ky+kx;
+					if(idx<OLS4_CTXSIZE+1&&kchar>=0)
+					{
+						ols4_mask[kc][idx]=0;
+						if(!GET_KEY_STATE(KEY_CTRL))
+							update_image();
+						return 1;
+					}
+				}
+				break;
 			default:
 				if(key==KEY_LBUTTON)
 					goto toggle_drag;
@@ -5338,6 +5378,63 @@ void io_render()
 		y=buttons[4].y1;
 		GUIPrint(0, x, y, guizoom, "lr %18.15lf", g_lr);
 #endif
+	}
+	else if(im1&&(transforms_mask[ST_FWD_OLS4]||transforms_mask[ST_INV_OLS4]))
+	{
+		float ystep=tdy*guizoom, x, y;
+		x=buttons[5].x1;
+		y=buttons[5].y1;
+		for(int kc=0;kc<im1->nch;++kc)
+		{
+			for(int ky=0;ky<=OLS4_RMAX;++ky)
+			{
+				for(int kx=0;kx<(OLS4_RMAX<<1|1);++kx)
+				{
+					int val=ols4_mask[kc][(OLS4_RMAX<<1|1)*ky+kx];
+					if(ky==OLS4_RMAX&&kx==OLS4_RMAX)
+					{
+						switch(kc)
+						{
+						case 0:
+							GUIPrint_append(0, 0, 0, 0, 0, "   ?   ? ");
+							break;
+						case 1:
+							GUIPrint_append(0, 0, 0, 0, 0, "  ?%d  ?%d ",
+								val>>4&1,
+								val>>0&1
+							);
+							break;
+						case 2:
+							GUIPrint_append(0, 0, 0, 0, 0, " ?%d%d ?%d%d ",
+								val>>5&1, val>>4&1,
+								val>>1&1, val>>0&1
+							);
+							break;
+						case 3:
+							GUIPrint_append(0, 0, 0, 0, 0, " %d%d%d?%d%d%d ",
+								val>>6&1, val>>5&1, val>>4&1,
+								val>>2&1, val>>1&1, val>>0&1
+							);
+							break;
+						}
+						//for(int k=kc-1;k>=0;--k)
+						//	GUIPrint_append(0, 0, 0, 0, 0, "%d", val>>k&1);
+						break;
+					}
+					GUIPrint_append(0, 0, 0, 0, 0, "%d%d%d%d%d%d%d%d ",
+						val>>7&1,
+						val>>6&1,
+						val>>5&1,
+						val>>4&1,
+						val>>3&1,
+						val>>2&1,
+						val>>1&1,
+						val>>0&1
+					);
+				}
+				GUIPrint_append(0, x, y+ystep*((OLS4_RMAX+1)*kc+ky), guizoom, 1, 0);
+			}
+		}
 	}
 #if 0
 	else if(transforms_mask[ST_FWD_LOGIC]||transforms_mask[ST_INV_LOGIC])

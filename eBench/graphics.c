@@ -1219,18 +1219,18 @@ float GUIPrint(float tab_origin, float x, float y, float zoom, const char *forma
 int g_printed=0;
 float GUIPrint_append(float tab_origin, float x, float y, float zoom, int show, const char *format, ...)
 {
-	int len;
-	va_list args;
 	float width=0;
 
-	va_start(args, format);
-	len=vsnprintf(g_buf+g_printed, G_BUF_SIZE-g_printed, format, args);
-	va_end(args);
-	
-	g_printed+=len;
+	if(format)
+	{
+		va_list args;
+		va_start(args, format);
+		g_printed+=vsnprintf(g_buf+g_printed, G_BUF_SIZE-g_printed, format, args);
+		va_end(args);
+	}
 	if(show)
 	{
-		width=print_line_immediate(0, x, y, 1, g_buf, g_printed, -1, 0, 0);
+		width=print_line_immediate(0, x, y, zoom, g_buf, g_printed, -1, 0, 0);
 		g_printed=0;
 	}
 	return width;
