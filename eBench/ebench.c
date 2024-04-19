@@ -3071,7 +3071,7 @@ void io_resize()
 
 	p->x1=(float)(w-450), p->x2=p->x1+tdx*gui_ec_width, p->y1=tdy, p->y2=p->y1+tdy, ++p;//4: EC method	//H.E.M.L..A.0x0000..XXXX_XXX
 
-	p->x1=(float)(w>>2), p->x2=p->x1+xstep*(OLS4_RMAX<<1|1)*gui_ols4_elementchars, p->y1=(float)(h>>1)+10, p->y2=p->y1+ystep*(OLS4_RMAX+1)*(im1?im1->nch:4), ++p;//5: OLS-4		DON'T USE p->y2
+	p->x1=(float)(w>>2), p->x2=p->x1+xstep*(OLS4_RMAX<<1|1)*gui_ols4_elementchars, p->y1=(float)(h>>1)+10, p->y2=p->y1+ystep*(1+(OLS4_RMAX+1)*(im1?im1->nch:4)), ++p;//5: OLS-4		DON'T USE p->y2
 }
 int io_mousemove()//return true to redraw
 {
@@ -3605,7 +3605,63 @@ static void count_active_keys(IOKey upkey)
 	if(!active_keys_pressed)
 		timer_stop(TIMER_ID_KEYBOARD);
 }
-int parse_nvals_i32(ArrayHandle text, int idx, int *params, int count)
+static int parse_nvals_i8(ArrayHandle text, int idx, unsigned char *params, int count)
+{
+	int k;
+
+	k=0;
+	while(k<count)
+	{
+		for(;idx<text->count&&isspace(text->data[idx]);++idx);
+
+		int neg=text->data[idx]=='-';
+		idx+=neg||text->data[idx]=='+';//skip sign
+		if(text->data[idx]=='0'&&(text->data[idx]&0xDF)=='X')//skip hex prefix
+			idx+=2;
+		char *end=(char*)text->data+idx;
+		params[k]=(unsigned char)strtol((char*)text->data+idx, &end, 16);
+		idx=(int)(end-(char*)text->data);
+		if(neg)
+			params[k]=-params[k];
+
+		for(;idx<text->count&&!isspace(text->data[idx])&&text->data[idx]!='-'&&!isdigit(text->data[idx]);++idx);//skip comma
+
+		++k;
+
+		if(idx>=text->count&&k<count)
+			return idx;
+	}
+	return idx;
+}
+static int parse_nvals_f64(ArrayHandle text, int idx, double *params, int count)
+{
+	int k;
+
+	k=0;
+	while(k<count)
+	{
+		for(;idx<text->count&&isspace(text->data[idx]);++idx);
+
+		int neg=text->data[idx]=='-';
+		idx+=neg||text->data[idx]=='+';//skip sign
+		//if(text->data[idx]=='0'&&(text->data[idx]&0xDF)=='X')//skip hex prefix
+		//	idx+=2;
+		char *end=(char*)text->data+idx;
+		params[k]=strtod((char*)text->data+idx, &end, 10);
+		idx=(int)(end-(char*)text->data);
+		if(neg)
+			params[k]=-params[k];
+
+		for(;idx<text->count&&!isspace(text->data[idx])&&text->data[idx]!='-'&&!isdigit(text->data[idx]);++idx);//skip comma
+
+		++k;
+
+		if(idx>=text->count&&k<count)
+			return idx;
+	}
+	return idx;
+}
+static int parse_nvals_i32(ArrayHandle text, int idx, int *params, int count)
 {
 	int k;
 
@@ -3633,7 +3689,7 @@ int parse_nvals_i32(ArrayHandle text, int idx, int *params, int count)
 	}
 	return idx;
 }
-int parse_nvals(ArrayHandle text, int idx, short *params, int count)
+static int parse_nvals(ArrayHandle text, int idx, short *params, int count)
 {
 	int k;
 
@@ -4081,6 +4137,25 @@ int io_keydn(IOKey key, char c)
 			}
 			ArrayHandle str;
 			STR_ALLOC(str, 0);
+			if(transforms_mask[ST_FWD_OLS4]||transforms_mask[ST_INV_OLS4])
+			{
+				str_append(&str, "%8d %8.6lf %8.6lf %8.6lf %8.6lf\n", ols4_period, ols4_lr[0], ols4_lr[1], ols4_lr[2], ols4_lr[3]);
+				for(int kc=0;kc<4;++kc)
+				{
+					for(int ky=0;ky<OLS4_RMAX+1;++ky)
+					{
+						for(int kx=0;kx<(OLS4_RMAX<<1|1);++kx)
+						{
+							str_append(&str, "0x%02X,", ols4_mask[kc][(OLS4_RMAX<<1|1)*ky+kx]);
+							if(ky==OLS4_RMAX&&kx==OLS4_RMAX)
+								goto next_channel;
+						}
+						str_append(&str, "\n");
+					}
+				next_channel:
+					str_append(&str, "\n");
+				}
+			}
 			if(mode==VIS_IMAGE||mode==VIS_ZIPF)
 			{
 				double cr_combined=(im1->src_depth[0]+im1->src_depth[1]+im1->src_depth[2]+im1->src_depth[3])/(ch_entropy[0]+ch_entropy[1]+ch_entropy[2]+ch_entropy[3]);
@@ -4341,6 +4416,12 @@ int io_keydn(IOKey key, char c)
 				}
 				else
 #endif
+				if(transforms_mask[ST_FWD_OLS4]||transforms_mask[ST_INV_OLS4])
+				{
+					idx=parse_nvals_i32(text, idx, &ols4_period, 1);
+					idx=parse_nvals_f64(text, idx, ols4_lr, _countof(ols4_lr));
+					idx=parse_nvals_i8(text, idx, (char*)ols4_mask, sizeof(ols4_mask)/sizeof(char));
+				}
 				if(transforms_mask[ST_FWD_CUSTOM3]||transforms_mask[ST_INV_CUSTOM3])
 				{
 					parse_nvals(text, idx, (short*)&c3_params, sizeof(c3_params)/sizeof(short));
@@ -5441,6 +5522,7 @@ void io_render()
 	}
 	else if(im1&&(transforms_mask[ST_FWD_OLS4]||transforms_mask[ST_INV_OLS4]))
 	{
+		int c0=set_bk_color(0x80FFFFFF);
 		float ystep=tdy*guizoom, x, y;
 		x=buttons[5].x1;
 		y=buttons[5].y1;
@@ -5496,6 +5578,7 @@ void io_render()
 				GUIPrint_append(0, x, y+ystep*((OLS4_RMAX+1)*kc+ky+1), guizoom, 1, 0);
 			}
 		}
+		set_bk_color(c0);
 	}
 #if 0
 	else if(transforms_mask[ST_FWD_LOGIC]||transforms_mask[ST_INV_LOGIC])
@@ -5790,22 +5873,19 @@ void io_render()
 		draw_rect_hollow(cx-10, cx+10, cy-10, cy+10, 0xC0C0C0C0);
 		if(combCRhist[idx][3]<combCRhist[idx2][3])//ratio improved
 		{
-			draw_triangle(cx-9, cy, cx+9, cy, cx, cy+9, 0xC0404040);
-			draw_triangle(cx-5, cy, cx+5, cy, cx, cy+5, 0xC0FFFFFF);
+			draw_triangle(cx-9, cy, cx+9, cy, cx, cy+9, 0xC080FF80);
+			draw_triangle(cx-5, cy, cx+5, cy, cx, cy+5, 0xC0006000);
 		}
-			//draw_rect(cx-5, cx+5, cy, cy+5, 0xC0C0C0C0);
 		else if(combCRhist[idx][3]>combCRhist[idx2][3])//ratio worsened
 		{
-			draw_triangle(cx-9, cy, cx+9, cy, cx, cy-9, 0xC0404040);
-			draw_triangle(cx-5, cy, cx+5, cy, cx, cy-5, 0xC0FFFFFF);
+			draw_triangle(cx-9, cy, cx+9, cy, cx, cy-9, 0xC08080FF);
+			draw_triangle(cx-5, cy, cx+5, cy, cx, cy-5, 0xC0000060);
 		}
-			//draw_rect(cx-5, cx+5, cy-5, cy, 0xC0C0C0C0);
 		else//exact same ratio
 		{
 			draw_line(cx-5, cy-5, cx+5, cy+5, 0xC0808080);
 			draw_line(cx-5, cy+5, cx+5, cy-5, 0xC0808080);
 		}
-		//draw_ellipse(cx-10, cx+10, cy-5, cy+5, 0xC0C0C0C0);
 		for(int k=0;k<combCRhist_SIZE-1;++k)
 		{
 			if(k!=combCRhist_idx-1)
