@@ -29,6 +29,7 @@ static const char file[]=__FILE__;
 #define PADY 8	//power of two
 int ols4_period=OLS4_DEFAULT_PERIOD;
 double ols4_lr[4]={0.0018, 0.003, 0.003, 0.003};
+//double ols4_lr[4]={0.0003, 0.0003, 0.0003, 0.0003};
 unsigned char ols4_mask[4][OLS4_CTXSIZE+1]=//MSB {E3 E2 E1 E0  P3 P2 P1 P0} LSB,  last element can't exceed 1<<(kc<<1) for causality
 {
 #if 1
