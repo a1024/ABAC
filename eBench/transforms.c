@@ -2373,6 +2373,112 @@ void pred_clampgrad(Image *src, int fwd, int enable_ma)
 #endif
 }
 
+//(N+W)>>1
+void pred_av2(Image *src, int fwd)
+{
+	short *pixels=(short*)malloc((src->iw+4LL)*sizeof(short[2*4]));//2 padded rows * 4 channels max
+	if(!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(pixels, 0, (src->iw+4LL)*sizeof(short[2*4]));
+	int nlevels[]=
+	{
+		1<<src->depth[0],
+		1<<src->depth[1],
+		1<<src->depth[2],
+		1<<src->depth[3],
+	};
+	int fwdmask=-fwd;
+	__m128i mfwd=_mm_set1_epi16(fwdmask);
+	__m128i mhalf=_mm_set_epi16(
+		0, 0, 0, 0,
+		0,
+		nlevels[2]>>1,
+		nlevels[1]>>1,
+		nlevels[0]>>1
+	);
+	__m128i symmask=_mm_set_epi16(
+		0, 0, 0, 0,
+		0,
+		nlevels[2]-1,
+		nlevels[1]-1,
+		nlevels[0]-1
+	);
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		short *rows[]=
+		{
+			pixels+((src->iw+4LL)*((ky-0)&1)<<2),
+			pixels+((src->iw+4LL)*((ky-1)&1)<<2),
+		};
+		int kx=0;
+		ALIGN(16) short curr[8]={0};
+		if(fwd)
+		{
+			for(;kx<src->iw;++kx, idx+=4)
+			{
+				__m128i N	=_mm_loadu_si128((__m128i*)(rows[1]+0));
+				__m128i W	=_mm_loadu_si128((__m128i*)(rows[0]-4));
+				__m128i pred=_mm_add_epi16(N, W);
+				pred=_mm_srai_epi16(pred, 1);
+
+				__m128i mc=_mm_set_epi16(
+					0, 0, 0, 0,
+					0,
+					src->data[idx+2],
+					src->data[idx+1],
+					src->data[idx+0]
+				);
+				pred=_mm_sub_epi16(mc, pred);//error
+				pred=_mm_add_epi16(pred, mhalf);
+				pred=_mm_and_si128(pred, symmask);
+				pred=_mm_sub_epi16(pred, mhalf);
+				_mm_store_si128((__m128i*)curr, pred);
+				_mm_store_si128((__m128i*)(rows[0]+0), mc);
+				src->data[idx+0]=curr[0];
+				src->data[idx+1]=curr[1];
+				src->data[idx+2]=curr[2];
+
+				rows[0]+=4;
+				rows[1]+=4;
+			}
+		}
+		else
+		{
+			for(;kx<src->iw;++kx, idx+=4)
+			{
+				__m128i N	=_mm_loadu_si128((__m128i*)(rows[1]+0));
+				__m128i W	=_mm_loadu_si128((__m128i*)(rows[0]-4));
+				__m128i pred=_mm_add_epi16(N, W);
+				pred=_mm_srai_epi16(pred, 1);
+
+				__m128i mc=_mm_set_epi16(
+					0, 0, 0, 0,
+					0,
+					src->data[idx+2],
+					src->data[idx+1],
+					src->data[idx+0]
+				);
+				mc=_mm_add_epi16(mc, pred);//pixel
+				mc=_mm_add_epi16(mc, mhalf);
+				mc=_mm_and_si128(mc, symmask);
+				mc=_mm_sub_epi16(mc, mhalf);
+				_mm_store_si128((__m128i*)curr, mc);
+				_mm_store_si128((__m128i*)(rows[0]+0), mc);
+				src->data[idx+0]=curr[0];
+				src->data[idx+1]=curr[1];
+				src->data[idx+2]=curr[2];
+
+				rows[0]+=4;
+				rows[1]+=4;
+			}
+		}
+	}
+	free(pixels);
+}
+
 
 	#define WP_RCT
 	#define ETOTAL_MBOX

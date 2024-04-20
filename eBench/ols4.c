@@ -26,9 +26,9 @@ static const char file[]=__FILE__;
 //#define OLS4_RMAX 4
 //#define OLS4_CTXSIZE (2*(OLS4_RMAX+1)*OLS4_RMAX)
 #define PADX 8
-#define PADY 8
-int ols4_period=64;
-double ols4_lr[4]={0.0005, 0.0005, 0.0005, 0.0005};
+#define PADY 8	//power of two
+int ols4_period=OLS4_DEFAULT_PERIOD;
+double ols4_lr[4]={OLS4_DEFAULT_LR, OLS4_DEFAULT_LR, OLS4_DEFAULT_LR, OLS4_DEFAULT_LR};
 unsigned char ols4_mask[4][OLS4_CTXSIZE+1]=//MSB {E3 E2 E1 E0  P3 P2 P1 P0} LSB,  last element can't exceed 1<<(kc<<1) for causality
 {
 #if 1
@@ -269,6 +269,22 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 		nlevels[3]>>1,
 	};
 	int successcount=0;
+#ifdef ALLOW_AVX2
+	__m256d mlr[]=
+	{
+		_mm256_set1_pd(lrs[0]),
+		_mm256_set1_pd(lrs[1]),
+		_mm256_set1_pd(lrs[2]),
+		_mm256_set1_pd(lrs[3]),
+	};
+	__m256d mlr_comp[]=
+	{
+		_mm256_set1_pd(1-lrs[0]),
+		_mm256_set1_pd(1-lrs[1]),
+		_mm256_set1_pd(1-lrs[2]),
+		_mm256_set1_pd(1-lrs[3]),
+	};
+#endif
 	for(int ky=0, idx=0, olsidx=1;ky<src->ih;++ky)
 	{
 		double *rows[PADY];
@@ -344,6 +360,9 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 				for(int k=0;k<nparams;++k)
 				{
 					ctxtemp[k]=*curr_ctx[k];
+				}
+				for(int k=0;k<nparams;++k)
+				{
 					fpred+=curr_params[k]*ctxtemp[k];
 				}
 #ifdef OLS4_DEBUG
@@ -385,7 +404,6 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 #ifdef ALLOW_AVX2
 				//if((nparams>>1<<1)!=nparams)
 				//	printf("");
-				__m256d mlr=_mm256_set1_pd(lr);
 				for(int ky2=0, midx=0;ky2<nparams;++ky2)
 				{
 					__m256d yctx=_mm256_set1_pd(ctxtemp[ky2]);
@@ -396,7 +414,7 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 						__m256d xctx=_mm256_load_pd(ctxtemp+kx2);
 						xctx=_mm256_mul_pd(xctx, yctx);
 						xctx=_mm256_sub_pd(xctx, mcov);
-						xctx=_mm256_mul_pd(xctx, mlr);
+						xctx=_mm256_mul_pd(xctx, mlr[kc]);
 						xctx=_mm256_add_pd(xctx, mcov);
 						_mm256_store_pd(curr_cov+midx, xctx);
 						//curr_cov[midx+0]+=(ctxtemp[kx2+0]*ctxtemp[ky2]-curr_cov[midx+0])*lr;
@@ -421,7 +439,6 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 #endif
 #if 1
 #ifdef ALLOW_AVX2
-				__m256d mlr_comp=_mm256_set1_pd(1-lr);
 				__m256d mval=_mm256_set1_pd(rows[0][kc+0]*lr);
 				double lval=rows[0][kc+0]*lr, lr_comp=1-lr;//
 				{
@@ -431,7 +448,7 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 						__m256d mvec=_mm256_load_pd(curr_vec+k);
 						__m256d mtmp=_mm256_load_pd(ctxtemp+k);
 						mtmp=_mm256_mul_pd(mval, mtmp);
-						mvec=_mm256_mul_pd(mvec, mlr_comp);
+						mvec=_mm256_mul_pd(mvec, mlr_comp[kc]);
 						mvec=_mm256_add_pd(mvec, mtmp);
 						_mm256_store_pd(curr_vec+k, mvec);
 						//curr_vec[k+0]=lval*ctxtemp[k+0]+lr_comp*curr_vec[k+0];
@@ -510,7 +527,11 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 				rows[k]+=8;
 		}
 		if(loud_transforms&&(ky&15))
-			set_window_title("%d/%d = %7.3lf%%  OLS4 rate %lf%%  %lf sec", ky+1, src->ih, 100.*(ky+1)/src->ih, 100.*successcount*period/(src->nch*src->iw*(ky+1)), time_sec()-t_start);
+		{
+			double elapsed=time_sec()-t_start;
+			if(elapsed>1)
+				set_window_title("%d/%d = %7.3lf%%  OLS4 rate %lf%%  %lf sec", ky+1, src->ih, 100.*(ky+1)/src->ih, 100.*successcount*period/(src->nch*src->iw*(ky+1)), elapsed);
+		}
 	}
 	if(loud_transforms)
 		set_window_title("OLS4 %lf%%  %lf sec {%d %d %d %d} params",

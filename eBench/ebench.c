@@ -81,8 +81,8 @@ typedef enum TransformTypeEnum
 	ST_FWD_P3,		ST_INV_P3,
 	ST_FWD_G2,		ST_INV_G2,
 	ST_FWD_MM,		ST_INV_MM,
-	ST_FWD_JXLPRED,		ST_INV_JXLPRED,
-	ST_FWD_DWP,		ST_INV_DWP,
+	ST_FWD_WP,		ST_INV_WP,
+	ST_FWD_DEFERRED,	ST_INV_DEFERRED,
 	ST_FWD_CUSTOM3,		ST_INV_CUSTOM3,
 	ST_FWD_CUSTOM,		ST_INV_CUSTOM,
 //	ST_FWD_NBLIC,		ST_INV_NBLIC,
@@ -92,6 +92,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_OLS3,		ST_INV_OLS3,
 	ST_FWD_OLS4,		ST_INV_OLS4,
 	ST_FWD_CLAMPGRAD,	ST_INV_CLAMPGRAD,
+	ST_FWD_AV2,		ST_INV_AV2,
 //	ST_FWD_ECOEFF,		ST_INV_ECOEFF,
 //	ST_FWD_AVERAGE,		ST_INV_AVERAGE,
 	ST_FWD_MULTISTAGE,	ST_INV_MULTISTAGE,
@@ -1029,7 +1030,7 @@ void batch_test()
 		//multi-threaded
 #if 1
 		ArrayHandle *fn=(ArrayHandle*)array_at(&filenames, k);
-		Image *image=image_load((char*)fn[0]->data);
+		Image *image=image_load((char*)fn[0]->data, (int)fn[0]->count);
 		if(!image)
 			continue;
 		ThreadCtx ctx=
@@ -1134,8 +1135,8 @@ int customtransforms_getflag(unsigned char tid)
 		tid==CT_INV_CUSTOM||
 		tid==ST_FWD_CUSTOM||
 		tid==ST_INV_CUSTOM;
-	//	tid==ST_FWD_JXLPRED||
-	//	tid==ST_INV_JXLPRED;
+	//	tid==ST_FWD_WP||
+	//	tid==ST_INV_WP;
 	//	tid==ST_FWD_EXPDWT||
 	//	tid==ST_INV_EXPDWT||
 	//	tid==ST_FWD_GRAD2||
@@ -1296,6 +1297,8 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case ST_INV_OLS4:		a=" S Inv OLS-4";		break;
 	case ST_FWD_CLAMPGRAD:		a=" S Fwd ClampGrad";		break;
 	case ST_INV_CLAMPGRAD:		a=" S Inv ClampGrad";		break;
+	case ST_FWD_AV2:		a=" S Fwd (N+W)>>1";		break;
+	case ST_INV_AV2:		a=" S Inv (N+W)>>1";		break;
 //	case ST_FWD_ECOEFF:		a=" S Fwd E-Coeff";		break;
 //	case ST_INV_ECOEFF:		a=" S Inv E-Coeff";		break;
 //	case ST_FWD_AVERAGE:		a=" S Fwd Average";		break;
@@ -1312,10 +1315,10 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case ST_INV_CALIC:		a=" S Inv CALIC";		break;
 //	case ST_FWD_NBLIC:		a=" S Fwd NBLIC";		break;
 //	case ST_INV_NBLIC:		a=" S Inv NBLIC";		break;
-	case ST_FWD_JXLPRED:		a=" S Fwd JXL";			break;
-	case ST_INV_JXLPRED:		a=" S Inv JXL";			break;
-	case ST_FWD_DWP:		a=" S Fwd DWP";			break;
-	case ST_INV_DWP:		a=" S Inv DWP";			break;
+	case ST_FWD_WP:			a=" S Fwd JXL WP";		break;
+	case ST_INV_WP:			a=" S Inv JXL WP";		break;
+	case ST_FWD_DEFERRED:		a=" S Fwd DEFERRED";		break;
+	case ST_INV_DEFERRED:		a=" S Inv DEFERRED";		break;
 	case ST_FWD_MM:			a=" S Fwd MM";			break;
 	case ST_INV_MM:			a=" S Inv MM";			break;
 	case ST_FWD_CUSTOM:		a=" S Fwd CUSTOM";		break;
@@ -2296,10 +2299,10 @@ void apply_selected_transforms(Image *image, int rct_only)
 		case ST_INV_CALIC:		pred_calic(image, 0, pred_ma_enabled);			break;
 	//	case ST_FWD_NBLIC:		pred_nblic((char*)image, iw, ih, 1);			break;
 	//	case ST_INV_NBLIC:		pred_nblic((char*)image, iw, ih, 0);			break;
-		case ST_FWD_JXLPRED:		pred_jxl_apply(image, 1, pred_ma_enabled, jxlparams_i16);break;
-		case ST_INV_JXLPRED:		pred_jxl_apply(image, 0, pred_ma_enabled, jxlparams_i16);break;
-		case ST_FWD_DWP:		pred_wp_deferred(image, 1);				break;
-		case ST_INV_DWP:		pred_wp_deferred(image, 0);				break;
+		case ST_FWD_WP:			pred_jxl_apply(image, 1, pred_ma_enabled, jxlparams_i16);break;
+		case ST_INV_WP:			pred_jxl_apply(image, 0, pred_ma_enabled, jxlparams_i16);break;
+		case ST_FWD_DEFERRED:		pred_wp_deferred(image, 1);				break;
+		case ST_INV_DEFERRED:		pred_wp_deferred(image, 0);				break;
 		case ST_FWD_MM:			pred_w2_apply(image, 1, pred_ma_enabled, pw2_params);	break;
 		case ST_INV_MM:			pred_w2_apply(image, 0, pred_ma_enabled, pw2_params);	break;
 		case ST_FWD_OLS:		pred_ols(image, 1, pred_ma_enabled);			break;
@@ -2314,6 +2317,8 @@ void apply_selected_transforms(Image *image, int rct_only)
 		case ST_INV_PACKSIGN:		packsign(image, 0);					break;
 		case ST_FWD_CLAMPGRAD:		pred_clampgrad(image, 1, pred_ma_enabled);		break;
 		case ST_INV_CLAMPGRAD:		pred_clampgrad(image, 0, pred_ma_enabled);		break;
+		case ST_FWD_AV2:		pred_av2(image, 1);					break;
+		case ST_INV_AV2:		pred_av2(image, 0);					break;
 	//	case ST_FWD_ECOEFF:		pred_ecoeff(image, 1, pred_ma_enabled);			break;
 	//	case ST_INV_ECOEFF:		pred_ecoeff(image, 0, pred_ma_enabled);			break;
 	//	case ST_FWD_AVERAGE:		pred_average(image, 1, pred_ma_enabled);		break;
@@ -3136,7 +3141,7 @@ void click_hittest(int mx, int my, int *objidx, int *cellx, int *celly, int *cel
 		//when these buttons are inactive they shouldn't block the click
 		if(
 			(!transforms_customenabled&&(*objidx==0||*objidx==1))||
-			(!(transforms_mask[ST_FWD_JXLPRED]||transforms_mask[ST_INV_JXLPRED])&&*objidx==3)||
+			(!(transforms_mask[ST_FWD_WP]||transforms_mask[ST_INV_WP])&&*objidx==3)||
 			(!(transforms_mask[ST_FWD_OLS4]||transforms_mask[ST_INV_OLS4])&&*objidx==5)
 		)
 			continue;
@@ -3200,7 +3205,7 @@ void click_hittest(int mx, int my, int *objidx, int *cellx, int *celly, int *cel
 }
 int io_mousewheel(int forward)
 {
-	//if(im1&&(transforms_customenabled||transforms_mask[ST_FWD_JXLPRED]||transforms_mask[ST_INV_JXLPRED]))//change custom transform params
+	//if(im1&&(transforms_customenabled||transforms_mask[ST_FWD_WP]||transforms_mask[ST_INV_WP]))//change custom transform params
 	if(im1)
 	{
 		int objidx=0, cellx=0, celly=0, cellidx=0;
@@ -3385,7 +3390,7 @@ int io_mousewheel(int forward)
 				break;
 #endif
 			case 3://jxl params
-				if(transforms_mask[ST_FWD_JXLPRED]||transforms_mask[ST_INV_JXLPRED])
+				if(transforms_mask[ST_FWD_WP]||transforms_mask[ST_INV_WP])
 				{
 					int ch2;
 					ch=(int)floorf((mx-p->x1)/tdx);
@@ -3484,6 +3489,7 @@ int io_mousewheel(int forward)
 						{
 						case 0:
 							ols4_period=SHIFT_LEFT_SIGNED(ols4_period, sign);
+							ols4_period=CLAMP(1, ols4_period, 1024);
 							if(!GET_KEY_STATE(KEY_CTRL))
 								update_image();
 							break;
@@ -3938,7 +3944,7 @@ int io_keydn(IOKey key, char c)
 						switch(kx)
 						{
 						case 0:
-							ols4_period=64;
+							ols4_period=OLS4_DEFAULT_PERIOD;
 							if(!GET_KEY_STATE(KEY_CTRL))
 								update_image();
 							return 1;
@@ -3946,7 +3952,7 @@ int io_keydn(IOKey key, char c)
 						case 2:
 						case 3:
 						case 4:
-							ols4_lr[kx-1]=0.0005;
+							ols4_lr[kx-1]=OLS4_DEFAULT_LR;
 							if(!GET_KEY_STATE(KEY_CTRL))
 								update_image();
 							return 1;
@@ -4100,7 +4106,7 @@ int io_keydn(IOKey key, char c)
 			ArrayHandle fn2=dialog_open_file(0, 0, 0);
 			if(fn2)
 			{
-				Image *im2=image_load((char*)fn2->data);
+				Image *im2=image_load((char*)fn2->data, (int)fn2->count);
 				if(im2)
 				{
 					if(fn)
@@ -4260,7 +4266,7 @@ int io_keydn(IOKey key, char c)
 						str_append(&str, "\n");
 				}
 			}
-			else if(transforms_mask[ST_FWD_JXLPRED]||transforms_mask[ST_INV_JXLPRED])
+			else if(transforms_mask[ST_FWD_WP]||transforms_mask[ST_INV_WP])
 			{
 				for(int ky=0;ky<3;++ky)
 				{
@@ -4428,7 +4434,7 @@ int io_keydn(IOKey key, char c)
 				{
 					parse_nvals(text, idx, (short*)&c3_params, sizeof(c3_params)/sizeof(short));
 				}
-				else if(transforms_mask[ST_FWD_JXLPRED]||transforms_mask[ST_INV_JXLPRED])
+				else if(transforms_mask[ST_FWD_WP]||transforms_mask[ST_INV_WP])
 				{
 					parse_nvals(text, idx, jxlparams_i16, _countof(jxlparams_i16));
 				}
@@ -4792,9 +4798,9 @@ int io_keydn(IOKey key, char c)
 				update_image();
 			}
 #endif
-			else if(transforms_mask[ST_FWD_JXLPRED]||transforms_mask[ST_INV_JXLPRED]||transforms_mask[ST_FWD_MM]||transforms_mask[ST_INV_MM])
+			else if(transforms_mask[ST_FWD_WP]||transforms_mask[ST_INV_WP]||transforms_mask[ST_FWD_MM]||transforms_mask[ST_INV_MM])
 			{
-				int jxl=transforms_mask[ST_FWD_JXLPRED]||transforms_mask[ST_INV_JXLPRED];
+				int jxl=transforms_mask[ST_FWD_WP]||transforms_mask[ST_INV_WP];
 				int pw2=transforms_mask[ST_FWD_MM]||transforms_mask[ST_INV_MM];
 				if(GET_KEY_STATE(KEY_CTRL))
 				{
@@ -5638,7 +5644,7 @@ void io_render()
 		}
 	}
 #endif
-	else if(transforms_mask[ST_FWD_JXLPRED]||transforms_mask[ST_INV_JXLPRED])
+	else if(transforms_mask[ST_FWD_WP]||transforms_mask[ST_INV_WP])
 	{
 		float x, y;
 

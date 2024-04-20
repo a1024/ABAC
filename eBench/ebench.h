@@ -631,7 +631,7 @@ typedef struct ImageStruct
 	char src_depth[4];//for entropy calculations
 	int data[];//stride always sizeof(int[4])
 } Image;
-Image* image_load(const char *fn);
+Image* image_load(const char *fn, int fnlen);
 int image_save_uint8(const char *fn, Image const *image, int override_alpha);
 Image* image_from_uint8(const unsigned char *src, int iw, int ih, int nch, char rdepth, char gdepth, char bdepth, char adepth);
 Image* image_from_uint16(const unsigned short *src, int iw, int ih, int nch, char *src_depths, char *dst_depths);
@@ -705,6 +705,7 @@ void rct_adaptive(Image *src, int fwd);
 //spatial transforms
 void packsign(Image *src, int fwd);
 void pred_clampgrad(Image *image, int fwd, int enable_ma);
+void pred_av2(Image *src, int fwd);
 void pred_average(Image *src, int fwd, int enable_ma);
 void pred_wp_deferred(Image *src, int fwd);
 void pred_ecoeff(Image *src, int fwd, int enable_ma);
@@ -717,6 +718,8 @@ void pred_dir(Image *src, int fwd, int enable_ma);
 void pred_ols(Image *src, int fwd, int enable_ma);
 void pred_ols2(Image *src, int fwd, int enable_ma);
 void pred_ols3(Image *src, int fwd, int enable_ma);
+#define OLS4_DEFAULT_PERIOD 32
+#define OLS4_DEFAULT_LR 0.0003
 #define OLS4_RMAX 4
 #define OLS4_CTXSIZE (2*(OLS4_RMAX+1)*OLS4_RMAX)
 extern int ols4_period;
