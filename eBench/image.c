@@ -103,7 +103,7 @@ Image* image_load(const char *fn, int fnlen)
 		ih=(int)strtol(ptr, &ptr, 10);
 		++ptr;//skip newline
 		for(;ptr!=end&&*ptr!='\n';++ptr);
-		++*ptr;//skip newline
+		++ptr;//skip newline
 
 		//start of binary data
 		ptrdiff_t res=(ptrdiff_t)iw*ih;
@@ -119,11 +119,11 @@ Image* image_load(const char *fn, int fnlen)
 		image->depth[0]=8;
 		image->depth[1]=8;
 		image->depth[2]=8;
-		image->depth[3]=8;
+		image->depth[3]=0;
 		image->src_depth[0]=8;
 		image->src_depth[1]=8;
 		image->src_depth[2]=8;
-		image->src_depth[3]=8;
+		image->src_depth[3]=0;
 
 		__m128i extract0=_mm_set_epi8(
 		//	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0
@@ -172,9 +172,9 @@ Image* image_load(const char *fn, int fnlen)
 		int *dst2=(int*)dst;
 		for(;k<res;++k)
 		{
-			dst2[0]=ptr[0]-128;
-			dst2[1]=ptr[1]-128;
-			dst2[2]=ptr[2]-128;
+			dst2[0]=(unsigned char)ptr[0]-128;
+			dst2[1]=(unsigned char)ptr[1]-128;
+			dst2[2]=(unsigned char)ptr[2]-128;
 			dst2[3]=0;
 			dst2+=4;
 			ptr+=3;

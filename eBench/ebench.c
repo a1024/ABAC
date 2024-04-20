@@ -4044,7 +4044,8 @@ int io_keydn(IOKey key, char c)
 			"Ctrl C:\t\tCopy data\n"
 			"Ctrl V:\t\tPaste data\n"
 			"Ctrl B:\t\tBatch test\n"
-			"Ctrl P:\t\tTest predictors\n"
+			"Ctrl SPACE:\tCheck integrity\n"
+		//	"Ctrl P:\t\tTest predictors\n"
 			"C:\t\tToggle joint histogram type / fill screen in image view\n"
 			"\n"
 			"M / Shift M:\tCycles between:\n"
@@ -4672,7 +4673,49 @@ int io_keydn(IOKey key, char c)
 			}
 			else
 #endif
-			if(transforms_mask[CT_FWD_CUSTOM]||transforms_mask[CT_INV_CUSTOM])
+			if(GET_KEY_STATE(KEY_CTRL))
+			{
+				int success=1;
+				if(im0->iw!=im1->iw||im0->ih!=im1->ih||im0->nch!=im1->nch)
+				{
+					messagebox(MBOX_OK, "Dimension Error",
+						"Image dimensions changed:\n"
+						"\tim0\tCWH %d*%d*%d\n"
+						"\tim1\tCWH %d*%d*%d",
+						im0->nch, im0->iw, im0->ih,
+						im1->nch, im1->iw, im1->ih
+					);
+					success=0;
+				}
+				else
+				{
+					for(ptrdiff_t k=0, res=(ptrdiff_t)im0->iw*im0->ih;k<res;++k)
+					{
+						if(memcmp(im1->data+(k<<2), im0->data+(k<<2), sizeof(int[4])))
+						{
+							int kx=(int)(k%im0->iw), ky=(int)(k/im0->iw);
+							messagebox(MBOX_OK, "Pixel Error",
+								"Difference at XY %d %d:\n"
+								"\terror\toriginal\n"
+								"C0\t0x%04X\t0x%04X\n"
+								"C1\t0x%04X\t0x%04X\n"
+								"C2\t0x%04X\t0x%04X\n"
+								"C3\t0x%04X\t0x%04X",
+								kx, ky,
+								(unsigned short)im1->data[k<<2|0], (unsigned short)im0->data[k<<2|0],
+								(unsigned short)im1->data[k<<2|1], (unsigned short)im0->data[k<<2|1],
+								(unsigned short)im1->data[k<<2|2], (unsigned short)im0->data[k<<2|2],
+								(unsigned short)im1->data[k<<2|3], (unsigned short)im0->data[k<<2|3]
+							);
+							success=0;
+							break;
+						}
+					}
+				}
+				if(success)
+					messagebox(MBOX_OK, "SUCCESS", "The image is bit-exact.");
+			}
+			else if(transforms_mask[CT_FWD_CUSTOM]||transforms_mask[CT_INV_CUSTOM])
 			{
 				rct_custom_optimize(im0, rct_custom_params);
 				update_image();

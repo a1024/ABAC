@@ -28,10 +28,40 @@ static const char file[]=__FILE__;
 #define PADX 8
 #define PADY 8	//power of two
 int ols4_period=OLS4_DEFAULT_PERIOD;
-double ols4_lr[4]={OLS4_DEFAULT_LR, OLS4_DEFAULT_LR, OLS4_DEFAULT_LR, OLS4_DEFAULT_LR};
+double ols4_lr[4]={0.0018, 0.003, 0.003, 0.003};
 unsigned char ols4_mask[4][OLS4_CTXSIZE+1]=//MSB {E3 E2 E1 E0  P3 P2 P1 P0} LSB,  last element can't exceed 1<<(kc<<1) for causality
 {
 #if 1
+	{
+		0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+		0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+		0x00,0x00,0x01,0x01,0x01,0x01,0x01,0x01,0x00,
+		0x00,0x01,0x01,0x01,0x01,0x01,0x01,0x01,0x00,
+		0x00,0x01,0x01,0x01,0x00,
+	},
+	{
+		0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+		0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+		0x00,0x00,0x00,0x02,0x02,0x02,0x02,0x00,0x00,
+		0x00,0x00,0x02,0x03,0x03,0x03,0x02,0x00,0x00,
+		0x00,0x00,0x02,0x03,0x01,
+	},
+	{
+		0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+		0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+		0x00,0x00,0x00,0x04,0x04,0x04,0x04,0x00,0x00,
+		0x00,0x00,0x04,0x05,0x05,0x05,0x04,0x00,0x00,
+		0x00,0x00,0x04,0x05,0x01,
+	},
+	{
+		0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+		0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+		0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+		0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+		0x00,0x00,0x00,0x00,0x00,
+	},
+#endif
+#if 0
 	{
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -237,7 +267,7 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 			vec[kc]=(double*)_mm_malloc(sizeof(double)*(ctxsize[kc]+4LL), sizeof(__m256d));
 			cov[kc]=(double*)_mm_malloc(sizeof(double)*(matsize[kc]+4LL), sizeof(__m256d));
 			cholesky[kc]=(double*)malloc(sizeof(double)*matsize[kc]);
-			params[kc]=(double*)malloc(sizeof(double)*ctxsize[kc]);
+			params[kc]=(double*)_mm_malloc(sizeof(double)*ctxsize[kc], sizeof(__m256d));
 			ALLOCASSERT(!ctx[kc]||!vec[kc]||!cov[kc]||!cholesky[kc]||!params[kc]);
 			memset(ctx[kc], 0, sizeof(double*)*ctxsize[kc]);
 			memset(vec[kc], 0, sizeof(double)*(ctxsize[kc]+4LL));
@@ -357,14 +387,61 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 				UPDATE_MAX(cmax, temp);
 #endif
 				fpred=0;
+#if 0
+				//THIS IS SLOWER
 				for(int k=0;k<nparams;++k)
-				{
 					ctxtemp[k]=*curr_ctx[k];
+				//if(ky==src->ih/2&&kx==src->iw/2)//
+				//	printf("");
+				{
+					int k=0;
+					__m256d msum=_mm256_setzero_pd();
+					for(;k<nparams-3;k+=4)
+					{
+						__m256d mp=_mm256_load_pd(curr_params+k);
+						__m256d mc=_mm256_load_pd(ctxtemp+k);
+						mp=_mm256_mul_pd(mp, mc);
+						msum=_mm256_add_pd(msum, mp);
+					}
+					ALIGN(32) double asum[4];
+					msum=_mm256_hadd_pd(msum, _mm256_setzero_pd());
+					_mm256_store_pd(asum, msum);
+					for(;k<nparams;++k)
+						fpred+=curr_params[k]*ctxtemp[k];
+					fpred+=asum[0]+asum[2];
 				}
+#elif 1
+				//FASTEST
+				{
+					int k=0, n=nparams-1;
+					double **p1=curr_ctx+k;
+					double *p2=curr_params+k;
+					double *p3=ctxtemp+k;
+					for(;k<n;k+=2)
+					{
+						double nb0=*p1[0], nb1=*p1[1];
+						fpred+=nb0*p2[0]+nb1*p2[1];
+						p3[0]=nb0;
+						p3[1]=nb1;
+						p1+=2;
+						p2+=2;
+						p3+=2;
+					}
+					if(k<n)
+					{
+						double nb0=*p1[0];
+						fpred+=nb0*p2[0];
+						p3[0]=nb0;
+					}
+				}
+#else
 				for(int k=0;k<nparams;++k)
 				{
-					fpred+=curr_params[k]*ctxtemp[k];
+					double nb=*curr_ctx[k];
+					fpred+=curr_params[k]*nb;
+					ctxtemp[k]=nb;
 				}
+#endif
 #ifdef OLS4_DEBUG
 				double fpred0=fpred;//
 #endif
@@ -526,7 +603,7 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 			for(int k=0;k<PADY;++k)
 				rows[k]+=8;
 		}
-		if(loud_transforms&&(ky&15))
+		if(loud_transforms&&(ky&63))
 		{
 			double elapsed=time_sec()-t_start;
 			if(elapsed>1)
@@ -550,7 +627,7 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 			_mm_free(vec[kc]);
 			_mm_free(cov[kc]);
 			free(cholesky[kc]);
-			free(params[kc]);
+			_mm_free(params[kc]);
 		}
 	}
 	_mm_free(ctxtemp);
