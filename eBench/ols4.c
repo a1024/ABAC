@@ -12,6 +12,7 @@ static const char file[]=__FILE__;
 	#define ALLOW_AVX2
 	#define OLS4_OPTIMAL_CLAMP
 //	#define OLS4_DEBUG
+	#define BASE_OFFSET_ADDRESSING	//faster
 
 
 #define ALLOCASSERT(C)\
@@ -26,8 +27,8 @@ static const char file[]=__FILE__;
 //#define OLS4_RMAX 4
 //#define OLS4_CTXSIZE (2*(OLS4_RMAX+1)*OLS4_RMAX)
 #define PADX 8
-#define PADY 8	//power of two
-int ols4_period=OLS4_DEFAULT_PERIOD;
+#define PADY 8	//must be a power of two
+int ols4_period=512;
 double ols4_lr[4]={0.0018, 0.003, 0.003, 0.003};
 //double ols4_lr[4]={0.0003, 0.0003, 0.0003, 0.0003};
 unsigned char ols4_mask[4][OLS4_CTXSIZE+1]=//MSB {E3 E2 E1 E0  P3 P2 P1 P0} LSB,  last element can't exceed 1<<(kc<<1) for causality
@@ -264,7 +265,7 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 		if(ctxsize[kc])
 		{
 			matsize[kc]=ctxsize[kc]*ctxsize[kc];
-			ctx[kc]=(double**)malloc(sizeof(double*)*ctxsize[kc]);
+			ctx[kc]=(double**)_mm_malloc(sizeof(double*)*ctxsize[kc], sizeof(__m256i));
 			vec[kc]=(double*)_mm_malloc(sizeof(double)*(ctxsize[kc]+4LL), sizeof(__m256d));
 			cov[kc]=(double*)_mm_malloc(sizeof(double)*(matsize[kc]+4LL), sizeof(__m256d));
 			cholesky[kc]=(double*)malloc(sizeof(double)*matsize[kc]);
@@ -315,7 +316,12 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 		_mm256_set1_pd(1-lrs[2]),
 		_mm256_set1_pd(1-lrs[3]),
 	};
+#ifndef BASE_OFFSET_ADDRESSING
+	__m256i stride=_mm256_set1_epi64x(sizeof(double[8]));
 #endif
+#endif
+	ALIGN(16) int ipred[4]={0};
+	int olsnextpoint=1;
 	for(int ky=0, idx=0, olsidx=1;ky<src->ih;++ky)
 	{
 		double *rows[PADY];
@@ -414,26 +420,40 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 #elif 1
 				//FASTEST
 				{
-					int k=0, n=nparams-1;
-					double **p1=curr_ctx+k;
-					double *p2=curr_params+k;
-					double *p3=ctxtemp+k;
-					for(;k<n;k+=2)
+					int k=nparams-1;
+					//int k=0, n=nparams-1;
+					double **p1=curr_ctx;
+					double *p2=curr_params;
+					double *p3=ctxtemp;
+					double fpred2=0;
+					for(;k>=1;k-=2)
+					//for(;k<n;k+=2)
 					{
+#ifdef BASE_OFFSET_ADDRESSING
+						double nb0=p1[0][kx<<3], nb1=p1[1][kx<<3];
+#else
 						double nb0=*p1[0], nb1=*p1[1];
-						fpred+=nb0*p2[0]+nb1*p2[1];
+#endif
+						fpred+=nb0*p2[0];
+						fpred2+=nb1*p2[1];
 						p3[0]=nb0;
 						p3[1]=nb1;
 						p1+=2;
 						p2+=2;
 						p3+=2;
 					}
-					if(k<n)
+					if(k>=0)
+					//if(k<nparams)
 					{
+#ifdef BASE_OFFSET_ADDRESSING
+						double nb0=p1[0][kx<<3];
+#else
 						double nb0=*p1[0];
+#endif
 						fpred+=nb0*p2[0];
 						p3[0]=nb0;
 					}
+					fpred+=fpred2;
 				}
 #else
 				for(int k=0;k<nparams;++k)
@@ -451,7 +471,11 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 #else
 				fpred=CLAMP(-half[kc], fpred, half[kc]-1);
 #endif
-				int pred=(int)round(fpred);
+				__m128d fp=_mm_set_sd(fpred);
+				__m128i ip=_mm_cvtpd_epi32(fp);
+				_mm_store_si128((__m128i*)ipred, ip);
+				int pred=ipred[0];
+				//int pred=(int)round(fpred);
 
 				int val=src->data[idx];
 #ifdef OLS4_DEBUG
@@ -477,7 +501,9 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 				}
 				src->data[idx]=val;
 				rows[0][kc+4]=rows[0][kc+0]-fpred;//high-res error
-
+				if(olsidx==olsnextpoint)
+				//if(!(olsidx&63))
+				{
 				double lr=lrs[kc];
 #ifdef ALLOW_AVX2
 				//if((nparams>>1<<1)!=nparams)
@@ -547,7 +573,7 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 				for(int k=0;k<nparams;++k)
 					curr_vec[k]+=(lval*ctxtemp[k]-curr_vec[k])*lr;
 #endif
-				if(olsidx==period)//OLS solver by Cholesky decomposition from paq8px
+				//if(olsidx==period)//OLS solver by Cholesky decomposition from paq8px
 				{
 					int success=1;
 					double sum;
@@ -595,10 +621,98 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 						++successcount;
 					}
 				}
+				}
+#ifndef BASE_OFFSET_ADDRESSING
+#ifdef ALLOW_AVX2
+				{
+					int k=nparams;
+					while(k>=32)
+					{
+						__m256i mp0=_mm256_load_si256((__m256i*)curr_ctx+0);
+						__m256i mp1=_mm256_load_si256((__m256i*)curr_ctx+1);
+						__m256i mp2=_mm256_load_si256((__m256i*)curr_ctx+2);
+						__m256i mp3=_mm256_load_si256((__m256i*)curr_ctx+3);
+						__m256i mp4=_mm256_load_si256((__m256i*)curr_ctx+4);
+						__m256i mp5=_mm256_load_si256((__m256i*)curr_ctx+5);
+						__m256i mp6=_mm256_load_si256((__m256i*)curr_ctx+6);
+						__m256i mp7=_mm256_load_si256((__m256i*)curr_ctx+7);
+						mp0=_mm256_add_epi64(mp0, stride);
+						mp1=_mm256_add_epi64(mp1, stride);
+						mp2=_mm256_add_epi64(mp2, stride);
+						mp3=_mm256_add_epi64(mp3, stride);
+						mp4=_mm256_add_epi64(mp4, stride);
+						mp5=_mm256_add_epi64(mp5, stride);
+						mp6=_mm256_add_epi64(mp6, stride);
+						mp7=_mm256_add_epi64(mp7, stride);
+						_mm256_store_si256((__m256i*)curr_ctx+0, mp0);
+						_mm256_store_si256((__m256i*)curr_ctx+1, mp1);
+						_mm256_store_si256((__m256i*)curr_ctx+2, mp2);
+						_mm256_store_si256((__m256i*)curr_ctx+3, mp3);
+						_mm256_store_si256((__m256i*)curr_ctx+4, mp4);
+						_mm256_store_si256((__m256i*)curr_ctx+5, mp5);
+						_mm256_store_si256((__m256i*)curr_ctx+6, mp6);
+						_mm256_store_si256((__m256i*)curr_ctx+7, mp7);
+						k-=32;
+						curr_ctx+=32;
+					}
+					if(k>=16)
+					{
+						__m256i mp0=_mm256_load_si256((__m256i*)curr_ctx+0);
+						__m256i mp1=_mm256_load_si256((__m256i*)curr_ctx+1);
+						__m256i mp2=_mm256_load_si256((__m256i*)curr_ctx+2);
+						__m256i mp3=_mm256_load_si256((__m256i*)curr_ctx+3);
+						mp0=_mm256_add_epi64(mp0, stride);
+						mp1=_mm256_add_epi64(mp1, stride);
+						mp2=_mm256_add_epi64(mp2, stride);
+						mp3=_mm256_add_epi64(mp3, stride);
+						_mm256_store_si256((__m256i*)curr_ctx+0, mp0);
+						_mm256_store_si256((__m256i*)curr_ctx+1, mp1);
+						_mm256_store_si256((__m256i*)curr_ctx+2, mp2);
+						_mm256_store_si256((__m256i*)curr_ctx+3, mp3);
+						k-=16;
+						curr_ctx+=16;
+					}
+					if(k>=8)
+					{
+						__m256i mp0=_mm256_load_si256((__m256i*)curr_ctx+0);
+						__m256i mp1=_mm256_load_si256((__m256i*)curr_ctx+1);
+						mp0=_mm256_add_epi64(mp0, stride);
+						mp1=_mm256_add_epi64(mp1, stride);
+						_mm256_store_si256((__m256i*)curr_ctx+0, mp0);
+						_mm256_store_si256((__m256i*)curr_ctx+1, mp1);
+						k-=8;
+						curr_ctx+=8;
+					}
+					if(k>=4)
+					{
+						__m256i mp0=_mm256_load_si256((__m256i*)curr_ctx+0);
+						mp0=_mm256_add_epi64(mp0, stride);
+						_mm256_store_si256((__m256i*)curr_ctx+0, mp0);
+						k-=4;
+						curr_ctx+=4;
+					}
+					if(k>=2)
+					{
+						curr_ctx[0]+=8;
+						curr_ctx[1]+=8;
+						k-=2;
+						curr_ctx+=2;
+					}
+					if(k>=1)
+						*curr_ctx+=8;
+				}
+#else
 				for(int k=0;k<nparams;++k)
 					curr_ctx[k]+=8;
+#endif
+#endif
 			}
-			olsidx&=-(olsidx<period);
+			if(olsidx==olsnextpoint)
+			{
+				olsnextpoint<<=olsnextpoint<period;
+				olsidx=0;
+			}
+			//olsidx&=-(olsidx<period);
 			//if(olsidx==period)
 			//	olsidx=0;
 			for(int k=0;k<PADY;++k)
@@ -624,7 +738,7 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 	{
 		if(ctxsize[kc])
 		{
-			free(ctx[kc]);
+			_mm_free(ctx[kc]);
 			_mm_free(vec[kc]);
 			_mm_free(cov[kc]);
 			free(cholesky[kc]);

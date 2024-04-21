@@ -3489,7 +3489,7 @@ int io_mousewheel(int forward)
 						{
 						case 0:
 							ols4_period=SHIFT_LEFT_SIGNED(ols4_period, sign);
-							ols4_period=CLAMP(1, ols4_period, 1024);
+							ols4_period=CLAMP(1, ols4_period, 8192);
 							if(!GET_KEY_STATE(KEY_CTRL))
 								update_image();
 							break;
