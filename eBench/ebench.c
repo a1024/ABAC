@@ -92,6 +92,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_OLS3,		ST_INV_OLS3,
 	ST_FWD_OLS4,		ST_INV_OLS4,
 	ST_FWD_CLAMPGRAD,	ST_INV_CLAMPGRAD,
+	ST_FWD_CG3D,		ST_INV_CG3D,
 	ST_FWD_AV2,		ST_INV_AV2,
 //	ST_FWD_ECOEFF,		ST_INV_ECOEFF,
 //	ST_FWD_AVERAGE,		ST_INV_AVERAGE,
@@ -1297,6 +1298,8 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 	case ST_INV_OLS4:		a=" S Inv OLS-4";		break;
 	case ST_FWD_CLAMPGRAD:		a=" S Fwd ClampGrad";		break;
 	case ST_INV_CLAMPGRAD:		a=" S Inv ClampGrad";		break;
+	case ST_FWD_CG3D:		a=" S Fwd CG3D";		break;
+	case ST_INV_CG3D:		a=" S Inv CG3D";		break;
 	case ST_FWD_AV2:		a=" S Fwd (N+W)>>1";		break;
 	case ST_INV_AV2:		a=" S Inv (N+W)>>1";		break;
 //	case ST_FWD_ECOEFF:		a=" S Fwd E-Coeff";		break;
@@ -2317,6 +2320,8 @@ void apply_selected_transforms(Image *image, int rct_only)
 		case ST_INV_PACKSIGN:		packsign(image, 0);					break;
 		case ST_FWD_CLAMPGRAD:		pred_clampgrad(image, 1, pred_ma_enabled);		break;
 		case ST_INV_CLAMPGRAD:		pred_clampgrad(image, 0, pred_ma_enabled);		break;
+		case ST_FWD_CG3D:		pred_CG3D(image, 1, pred_ma_enabled);			break;
+		case ST_INV_CG3D:		pred_CG3D(image, 0, pred_ma_enabled);			break;
 		case ST_FWD_AV2:		pred_av2(image, 1);					break;
 		case ST_INV_AV2:		pred_av2(image, 0);					break;
 	//	case ST_FWD_ECOEFF:		pred_ecoeff(image, 1, pred_ma_enabled);			break;
@@ -3915,7 +3920,8 @@ int io_keydn(IOKey key, char c)
 						ec_adaptive_threshold=3200;
 					break;
 				case 19:case 20:case 21:case 22:case 23:case 24:case 25:case 26:
-					ec_method=ECTX_MIN_QN_QW;
+					ec_method=ECTX_HIST;
+					//ec_method=ECTX_MIN_QN_QW;
 					break;
 				}
 				if(ec_expbits<ec_msb+ec_lsb)
