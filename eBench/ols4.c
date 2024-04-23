@@ -11,6 +11,7 @@ static const char file[]=__FILE__;
 
 	#define ALLOW_AVX2
 	#define OLS4_OPTIMAL_CLAMP
+	#define CLAMPGRAD
 //	#define OLS4_DEBUG
 	#define BASE_OFFSET_ADDRESSING	//faster
 
@@ -31,6 +32,7 @@ static const char file[]=__FILE__;
 int ols4_period=512;
 double ols4_lr[4]={0.0018, 0.003, 0.003, 0.003};
 //double ols4_lr[4]={0.0003, 0.0003, 0.0003, 0.0003};
+unsigned char ols4_cache=0;
 unsigned char ols4_mask[4][OLS4_CTXSIZE+1]=//MSB {E3 E2 E1 E0  P3 P2 P1 P0} LSB,  last element can't exceed 1<<(kc<<1) for causality
 {
 #if 1
@@ -254,6 +256,9 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 			ctxsize[kc]+=val;
 			//ctxsize[kc]+=hammingweight16(masks[kc][km]);
 		}
+#ifdef CLAMPGRAD
+		ctxsize[kc]+=src->depth[kc]!=0;
+#endif
 		UPDATE_MAX(maxcount, ctxsize[kc]);
 	}
 	double **ctx[4]={0}, *vec[4]={0};
@@ -383,6 +388,18 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 				double *curr_cholesky=cholesky[kc];
 				double *curr_params=params[kc];
 				double fpred;
+#ifdef CLAMPGRAD
+				double cgrad=rows[1][kc]+rows[0][kc-8]-rows[1][kc-8], cmin, cmax;
+				if(rows[1][kc]<rows[0][kc-8])
+					cmin=rows[1][kc], cmax=rows[0][kc-8];//N, W
+				else
+					cmin=rows[0][kc-8], cmax=rows[1][kc];
+				cgrad=CLAMP(cmin, cgrad, cmax);
+				//double temp=rows[1][kc+8];//NE
+				//UPDATE_MIN(cmin, temp);
+				//UPDATE_MAX(cmax, temp);
+				--nparams;
+#else
 #ifdef OLS4_OPTIMAL_CLAMP
 				double temp=rows[0][kc-8];//W
 				double cmin=temp, cmax=temp;
@@ -392,6 +409,7 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 				temp=rows[1][kc+8];//NE
 				UPDATE_MIN(cmin, temp);
 				UPDATE_MAX(cmax, temp);
+#endif
 #endif
 				fpred=0;
 #if 0
@@ -462,6 +480,13 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 					fpred+=curr_params[k]*nb;
 					ctxtemp[k]=nb;
 				}
+#endif
+#ifdef CLAMPGRAD
+				ctxtemp[nparams]=cgrad;
+				fpred+=cgrad*curr_params[nparams];
+				++nparams;
+				//if(ky==100&&kx==100&&!kc)//
+				//	printf("");
 #endif
 #ifdef OLS4_DEBUG
 				double fpred0=fpred;//

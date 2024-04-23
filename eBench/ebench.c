@@ -3920,8 +3920,7 @@ int io_keydn(IOKey key, char c)
 						ec_adaptive_threshold=3200;
 					break;
 				case 19:case 20:case 21:case 22:case 23:case 24:case 25:case 26:
-					ec_method=ECTX_HIST;
-					//ec_method=ECTX_MIN_QN_QW;
+					ec_method=ECTX_MIN_QN_QW;
 					break;
 				}
 				if(ec_expbits<ec_msb+ec_lsb)
@@ -3938,9 +3937,14 @@ int io_keydn(IOKey key, char c)
 						int idx=(OLS4_RMAX<<1|1)*ky+kx;
 						if(idx<OLS4_CTXSIZE+1&&kchar>=0)
 						{
-							ols4_mask[kc][idx]=0;
-							if(!GET_KEY_STATE(KEY_CTRL))
-								update_image();
+							if(key==KEY_LBUTTON)
+							{
+								ols4_mask[kc][idx]=ols4_cache;
+								if(!GET_KEY_STATE(KEY_CTRL))
+									update_image();
+							}
+							else
+								ols4_cache=ols4_mask[kc][idx];
 							return 1;
 						}
 					}
@@ -5583,6 +5587,17 @@ void io_render()
 		float ystep=tdy*guizoom, x, y;
 		x=buttons[5].x1;
 		y=buttons[5].y1;
+		if(ols4_cache)
+			GUIPrint(0, x, y-ystep, guizoom, "M %d%d%d%d%d%d%d%d",
+				ols4_cache>>7&1,
+				ols4_cache>>6&1,
+				ols4_cache>>5&1,
+				ols4_cache>>4&1,
+				ols4_cache>>3&1,
+				ols4_cache>>2&1,
+				ols4_cache>>1&1,
+				ols4_cache>>0&1
+			);
 		GUIPrint(0, x, y, guizoom, "%8d%9.6lf%9.6lf%9.6lf%9.6lf", ols4_period, ols4_lr[0], ols4_lr[1], ols4_lr[2], ols4_lr[3]);
 		for(int kc=0;kc<im1->nch;++kc)
 		{

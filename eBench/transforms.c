@@ -836,9 +836,9 @@ void colortransform_lossy_XYB(Image *image, int fwd)
 			g=(L+M)*0.5;	//Y
 			b=S-g;		//B-Y
 
-			r*=(int)(4096LL*(nlevels[0]<<(nlevels[0]<0x1000000))/512);//customparam_ct[0]*1000
-			g*=(int)(144LL*nlevels[1]/256);
-			b*=(int)(1024*(nlevels[2]<<(nlevels[2]<0x1000000))/512);
+			r*=(int)(4096.*((long long)nlevels[0]<<(nlevels[0]<0x1000000))/512);//customparam_ct[0]*1000
+			g*=(int)(144.*nlevels[1]/256);
+			b*=(int)(1024.*((long long)nlevels[2]<<(nlevels[2]<0x1000000))/512);
 			r=CLAMP(-nlevels[0], r, nlevels[0]-1);
 			g=CLAMP(-(nlevels[1]>>1), g, (nlevels[1]>>1)-1);
 			b=CLAMP(-nlevels[2], b, nlevels[2]-1);
@@ -862,9 +862,9 @@ void colortransform_lossy_XYB(Image *image, int fwd)
 		for(ptrdiff_t k=0, res=(ptrdiff_t)image->iw*image->ih;k<res;++k)
 		{
 			double
-				Y =(double)image->data[k<<2|0]/(144LL*nlevels[1]/256),
-				Cb=(double)image->data[k<<2|1]/(1024LL*(nlevels[2]<<(nlevels[2]<0x1000000))/512),
-				Cr=(double)image->data[k<<2|2]/(4096LL*(nlevels[0]<<(nlevels[0]<0x1000000))/512);
+				Y =(double)image->data[k<<2|0]/(144.*nlevels[1]/256),
+				Cb=(double)image->data[k<<2|1]/(1024.*((long long)nlevels[2]<<(nlevels[2]<0x1000000))/512),
+				Cr=(double)image->data[k<<2|2]/(4096.*((long long)nlevels[0]<<(nlevels[0]<0x1000000))/512);
 
 			double
 				L=Y+Cr,
@@ -888,7 +888,7 @@ void colortransform_lossy_matrix(Image *image, int fwd)//for demonstration purpo
 {
 	if(fwd)
 	{
-		for(ptrdiff_t k=0, res=image->iw*image->ih;k<res;++k)
+		for(ptrdiff_t k=0, res=(ptrdiff_t)image->iw*image->ih;k<res;++k)
 		{
 			int
 				r=image->data[k<<2|0],
@@ -2424,6 +2424,9 @@ void pred_clampgrad(Image *src, int fwd, int enable_ma)
 #endif
 }
 
+
+//	#define CG3D_ENABLE_MA
+
 void pred_CG3D(Image *src, int fwd, int enable_ma)
 {
 	int *pixels=(int*)malloc((src->iw+2LL)*sizeof(int[2*4]));//2 padded rows * 4 channels max
@@ -2433,6 +2436,13 @@ void pred_CG3D(Image *src, int fwd, int enable_ma)
 		return;
 	}
 	memset(pixels, 0, (src->iw+2LL)*sizeof(int[2*4]));
+#ifdef CG3D_ENABLE_MA
+	for(int kc=0;kc<4;++kc)
+	{
+		if(src->depth[kc])
+			src->depth[kc]+=fwd;
+	}
+#endif
 	int nlevels[]=
 	{
 		1<<src->depth[0],
@@ -2692,6 +2702,13 @@ void pred_CG3D(Image *src, int fwd, int enable_ma)
 			rows[1]+=4;
 		}
 	}
+#ifdef CG3D_ENABLE_MA
+	for(int kc=0;kc<4;++kc)
+	{
+		if(src->depth[kc])
+			src->depth[kc]-=!fwd;
+	}
+#endif
 	free(pixels);
 }
 
