@@ -2450,6 +2450,13 @@ void pred_CG3D(Image *src, int fwd, int enable_ma)
 		1<<src->depth[2],
 		1<<src->depth[3],
 	};
+	int halfs[]=
+	{
+		nlevels[0]>>1,
+		nlevels[1]>>1,
+		nlevels[2]>>1,
+		nlevels[3]>>1,
+	};
 	int nlumas=1;
 	for(int kc=1;kc<src->nch;++kc)
 		nlumas+=src->depth[kc]==src->depth[0];
@@ -2472,59 +2479,30 @@ void pred_CG3D(Image *src, int fwd, int enable_ma)
 					int
 						NW	=rows[1][kc-4],
 						N	=rows[1][kc+0],
-						W	=rows[0][kc-4];
-					if(kc==chpoints[kk])
+						W	=rows[0][kc-4],
+						offset	=0;
+					if(kc>chpoints[kk])
 					{
-						pred=N+W-NW;
-						vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
-						pred=CLAMP(vmin, pred, vmax);
-					}
-					else
-					{
-						int
-							NWp1	=rows[1][kc-4-1],
-							Np1	=rows[1][kc+0-1],
-							Wp1	=rows[0][kc-4-1],
-							p1	=rows[0][kc+0-1];
-						if(kc==chpoints[kk]+1)
+						if(kc>chpoints[kk]+1)
 						{
-
-							pred=N+W+p1-(Np1+Wp1+NW)+NWp1;
-							vmin=MINVAR(N, W);
-							vmax=MAXVAR(N, W);
-							UPDATE_MIN(vmin, p1);
-							UPDATE_MAX(vmax, p1);
-							pred=CLAMP(vmin, pred, vmax);
+							NW	-=(rows[1][kc-4-1]+rows[1][kc-4-2])>>1;
+							N	-=(rows[1][kc+0-1]+rows[1][kc+0-2])>>1;
+							W	-=(rows[0][kc-4-1]+rows[0][kc-4-2])>>1;
+							offset	+=(rows[0][kc+0-1]+rows[0][kc+0-2])>>1;
 						}
 						else
 						{
-							int
-								NWp2	=rows[1][kc-4-2],
-								Np2	=rows[1][kc+0-2],
-								Wp2	=rows[0][kc-4-2],
-								p2	=rows[0][kc+0-2];
-
-							int w1, w2;
-							w1=0x10000/(abs(Np1-N)+abs(Wp1-W)+1);
-							w2=0x10000/(abs(Np2-N)+abs(Wp2-W)+1);
-
-							int pred1=N+W+p1-(Np1+Wp1+NW)+NWp1;
-							vmin=MINVAR(N, W);
-							vmax=MAXVAR(N, W);
-							UPDATE_MIN(vmin, p1);
-							UPDATE_MAX(vmax, p1);
-							pred1=CLAMP(vmin, pred1, vmax);
-
-							int pred2=N+W+p2-(Np2+Wp2+NW)+NWp2;
-							vmin=MINVAR(N, W);
-							vmax=MAXVAR(N, W);
-							UPDATE_MIN(vmin, p2);
-							UPDATE_MAX(vmax, p2);
-							pred1=CLAMP(vmin, pred1, vmax);
-
-							pred=(w1*pred1+w2*pred2)/(w1+w2+1);
+							NW	-=rows[1][kc-4-1];
+							N	-=rows[1][kc+0-1];
+							W	-=rows[0][kc-4-1];
+							offset	+=rows[0][kc+0-1];
 						}
 					}
+					pred=N+W-NW;
+					vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
+					pred=CLAMP(vmin, pred, vmax)+offset;
+					pred=CLAMP(-halfs[kc], pred, halfs[kc]-1);
+
 					int curr=src->data[idx+kc];
 					pred^=fwdmask;
 					pred-=fwdmask;
@@ -2538,166 +2516,6 @@ void pred_CG3D(Image *src, int fwd, int enable_ma)
 					rows[0][kc]=fwd?curr:pred;
 				}
 			}
-#if 0
-			//for(kc=1;kc<src->nch;++kc)
-			//kc=1;
-			if(kc<src->nch)
-			{
-				int
-					NWp1	=rows[1][kc-4-1],
-					Np1	=rows[1][kc+0-1],
-					Wp1	=rows[0][kc-4-1],
-					p1	=rows[0][kc+0-1],
-					NW	=rows[1][kc-4],
-					N	=rows[1][kc+0],
-					W	=rows[0][kc-4];
-
-				//if(ky==100&&kx==100)//
-				//	printf("");
-
-#if 1
-				pred=N+W+p1-(Np1+Wp1+NW)+NWp1;
-				bounds[0]=MINVAR(N, W);
-				bounds[1]=MAXVAR(N, W);
-				UPDATE_MIN(bounds[0], p1);
-				UPDATE_MAX(bounds[1], p1);
-				pred=CLAMP(bounds[0], pred, bounds[1]);
-#endif
-#if 0
-				nb=0;
-				den=(W<<1)-(N+p1);
-				if(den)
-					bounds[nb++]=(W*W-N*p1)/den;
-				den=(p1<<1)-(N+W);
-				if(den)
-					bounds[nb++]=(p1*p1-N*W)/den;
-				den=(N<<1)-(W+p1);
-				if(den)
-					bounds[nb++]=(N*N-W*p1)/den;
-				if(nb==2)
-				{
-					pred=N+W+p1-(Np1+Wp1+NW)+NWp1;
-					pred=MEDIAN3(bounds[0], bounds[1], pred);
-				}
-				else
-					pred=MEDIAN3(N, W, p1);
-#endif
-#if 0
-				int pred=N+W-NW;
-				int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
-				pred=CLAMP(vmin, pred, vmax);
-#endif
-
-				int curr=src->data[idx+kc];
-				pred^=fwdmask;
-				pred-=fwdmask;
-				pred+=curr;
-
-				pred+=nlevels[kc]>>1;
-				pred&=nlevels[kc]-1;
-				pred-=nlevels[kc]>>1;
-
-				src->data[idx+kc]=pred;
-				rows[0][kc]=fwd?curr:pred;
-
-				++kc;
-			}
-			//kc=2;
-			if(kc<src->nch)
-			{
-				int
-					NWp2	=rows[1][kc-4-2],
-					Np2	=rows[1][kc+0-2],
-					Wp2	=rows[0][kc-4-2],
-					p2	=rows[0][kc+0-2],
-					NWp1	=rows[1][kc-4-1],
-					Np1	=rows[1][kc+0-1],
-					Wp1	=rows[0][kc-4-1],
-					p1	=rows[0][kc+0-1],
-					NW	=rows[1][kc-4],
-					N	=rows[1][kc+0],
-					W	=rows[0][kc-4];
-
-				//if(ky==100&&kx==100)//
-				//	printf("");
-
-#if 1
-				int w1, w2;
-				w1=0x10000/(abs(Np1-N)+abs(Wp1-W)+1);
-				w2=0x10000/(abs(Np2-N)+abs(Wp2-W)+1);
-
-				int pred1=N+W+p1-(Np1+Wp1+NW)+NWp1;
-				bounds[0]=MINVAR(N, W);
-				bounds[1]=MAXVAR(N, W);
-				UPDATE_MIN(bounds[0], p1);
-				UPDATE_MAX(bounds[1], p1);
-				pred1=CLAMP(bounds[0], pred1, bounds[1]);
-
-				int pred2=N+W+p2-(Np2+Wp2+NW)+NWp2;
-				bounds[0]=MINVAR(N, W);
-				bounds[1]=MAXVAR(N, W);
-				UPDATE_MIN(bounds[0], p2);
-				UPDATE_MAX(bounds[1], p2);
-				pred1=CLAMP(bounds[0], pred1, bounds[1]);
-
-				pred=(w1*pred1+w2*pred2)/(w1+w2+1);
-#endif
-#if 0
-				//pred=(p1+p2)>>1;
-				int sum, w1, w2;
-				sum=Np1+Np2+Wp1+Wp2;
-				//sum=N+Np1+Np2+W+Wp1+Wp2;
-				if(sum)
-				{
-					w1=((Np2+Wp2)<<16)/sum;
-					w2=((Np1+Wp1)<<16)/sum;
-					//w1=((N+Np2+W+Wp2)<<16)/sum;
-					//w2=((N+Np1+W+Wp1)<<16)/sum;
-				}
-				else
-					w2=w1=0x8000;
-				int t0=(w1*p1+w2*p2)>>16;
-				int t1=(w1*Np1+w2*Np2)>>16;
-				int t2=(w1*Wp1+w2*Wp2)>>16;
-				int t3=(w1*NWp1+w2*NWp2)>>16;
-				//int t0=(3*p1+p2)>>2;
-				//int t1=(3*Np1+Np2)>>2;
-				//int t2=(3*Wp1+Wp2)>>2;
-				//int t3=(3*NWp1+NWp2)>>2;
-				bounds[0]=MINVAR(N, W);
-				bounds[1]=MAXVAR(N, W);
-				UPDATE_MIN(bounds[0], t0);
-				UPDATE_MAX(bounds[1], t0);
-				pred=N+W+t0-(t1+t2+NW)+t3;
-				//pred=N+W+p1+p2-(Np1+Wp1+Np2+Wp2+NW)+NWp1+NWp2;
-				pred=CLAMP(bounds[0], pred, bounds[1]);
-#endif
-#if 0
-				pred=N+W+p1+p2-(Np1+Wp1+Np2+Wp2+NW)+NWp1+NWp2;
-				bounds[0]=MINVAR(N, W);
-				bounds[1]=MAXVAR(N, W);
-				UPDATE_MIN(bounds[0], p1);
-				UPDATE_MAX(bounds[1], p1);
-				UPDATE_MIN(bounds[0], p2);
-				UPDATE_MAX(bounds[1], p2);
-				pred=CLAMP(bounds[0], pred, bounds[1]);
-#endif
-				
-				int curr=src->data[idx+kc];
-				pred^=fwdmask;
-				pred-=fwdmask;
-				pred+=curr;
-
-				pred+=nlevels[kc]>>1;
-				pred&=nlevels[kc]-1;
-				pred-=nlevels[kc]>>1;
-
-				src->data[idx+kc]=pred;
-				rows[0][kc]=fwd?curr:pred;
-
-				++kc;
-			}
-#endif
 			rows[0]+=4;
 			rows[1]+=4;
 		}
