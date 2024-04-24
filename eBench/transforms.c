@@ -2461,6 +2461,12 @@ void pred_CG3D(Image *src, int fwd, int enable_ma)
 	for(int kc=1;kc<src->nch;++kc)
 		nlumas+=src->depth[kc]==src->depth[0];
 	int chpoints[]={0, nlumas, src->nch};
+	int chpermutations[]=
+	{
+		0, 1, 2, 3,//subR
+		1, 2, 0, 3,//subG
+	};
+	int *perm=nlumas==src->nch?chpermutations+4:chpermutations;//permute channels RGB->GBR if no RCT was applied earlier
 	int fwdmask=-fwd;
 	int pred, vmin, vmax;
 	for(int ky=0, idx=0;ky<src->ih;++ky)
@@ -2474,33 +2480,43 @@ void pred_CG3D(Image *src, int fwd, int enable_ma)
 		{
 			for(int kk=0;kk<2;++kk)
 			{
-				for(int kc=chpoints[kk];kc<chpoints[kk+1];++kc)
+				for(int kc0=chpoints[kk];kc0<chpoints[kk+1];++kc0)
 				{
+					int kc=perm[kc0];
 					int
 						NW	=rows[1][kc-4],
 						N	=rows[1][kc+0],
 						W	=rows[0][kc-4],
 						offset	=0;
-					if(kc>chpoints[kk])
+					if(kc0>chpoints[kk])
 					{
-						if(kc>chpoints[kk]+1)
-						{
-							NW	-=(rows[1][kc-4-1]+rows[1][kc-4-2])>>1;
-							N	-=(rows[1][kc+0-1]+rows[1][kc+0-2])>>1;
-							W	-=(rows[0][kc-4-1]+rows[0][kc-4-2])>>1;
-							offset	+=(rows[0][kc+0-1]+rows[0][kc+0-2])>>1;
-						}
-						else
-						{
-							NW	-=rows[1][kc-4-1];
-							N	-=rows[1][kc+0-1];
-							W	-=rows[0][kc-4-1];
-							offset	+=rows[0][kc+0-1];
-						}
+						int kc1=perm[chpoints[kk]];
+						NW	-=rows[1][kc1-4];
+						N	-=rows[1][kc1+0];
+						W	-=rows[0][kc1-4];
+						offset	+=rows[0][kc1+0];
+						//if(kc0>chpoints[kk]+1)
+						//{
+						//	int kc1=perm[kc0-1], kc2=perm[kc0-2];
+						//	NW	-=(rows[1][kc1-4]+rows[1][kc2-4])>>1;
+						//	N	-=(rows[1][kc1+0]+rows[1][kc2+0])>>1;
+						//	W	-=(rows[0][kc1-4]+rows[0][kc2-4])>>1;
+						//	offset	+=(rows[0][kc1+0]+rows[0][kc2+0])>>1;
+						//}
+						//else
+						//{
+						//	int kc1=perm[kc0-1];
+						//	NW	-=rows[1][kc1-4];
+						//	N	-=rows[1][kc1+0];
+						//	W	-=rows[0][kc1-4];
+						//	offset	+=rows[0][kc1+0];
+						//}
 					}
 					pred=N+W-NW;
 					vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
-					pred=CLAMP(vmin, pred, vmax)+offset;
+					pred=CLAMP(vmin, pred, vmax);
+					//pred=(N+W)>>1;
+					pred+=offset;
 					pred=CLAMP(-halfs[kc], pred, halfs[kc]-1);
 
 					int curr=src->data[idx+kc];
@@ -6461,6 +6477,9 @@ void pred_jmj_apply(Image *src, int fwd, int enable_ma)
 
 
 //CUSTOM3
+
+//	#define C3_3D
+
 #define C3_OPT_NCOMP (C3_NPARAMS>>5)
 Custom3Params c3_params={0};
 int fast_dot(const short *a, const short *b, int count)
@@ -6551,19 +6570,19 @@ static void custom3_prealloc(const int *src, int iw, int ih, const char *depths,
 			if(kx)
 			{
 				UPDATE_CLAMPER(pixels[(iw*ky+kx-1)<<2|0], 0, 1)
-				UPDATE_CLAMPER(pixels[(iw*ky+kx-1)<<2|1], 2, 3)
-				UPDATE_CLAMPER(pixels[(iw*ky+kx-1)<<2|2], 4, 5)
+				UPDATE_CLAMPER(pixels[(iw*ky+kx-1)<<2|1]-pixels[(iw*ky+kx-1)<<2|0], 2, 3)
+				UPDATE_CLAMPER(pixels[(iw*ky+kx-1)<<2|2]-pixels[(iw*ky+kx-1)<<2|0], 4, 5)
 			}
 			if(ky)
 			{
 				UPDATE_CLAMPER(pixels[(iw*(ky-1)+kx)<<2|0], 0, 1)
-				UPDATE_CLAMPER(pixels[(iw*(ky-1)+kx)<<2|1], 2, 3)
-				UPDATE_CLAMPER(pixels[(iw*(ky-1)+kx)<<2|2], 4, 5)
+				UPDATE_CLAMPER(pixels[(iw*(ky-1)+kx)<<2|1]-pixels[(iw*(ky-1)+kx)<<2|0], 2, 3)
+				UPDATE_CLAMPER(pixels[(iw*(ky-1)+kx)<<2|2]-pixels[(iw*(ky-1)+kx)<<2|0], 4, 5)
 				if(kx)
 				{
 					UPDATE_CLAMPER(pixels[(iw*(ky-1)+kx-1)<<2|0], 0, 1)
-					UPDATE_CLAMPER(pixels[(iw*(ky-1)+kx-1)<<2|1], 2, 3)
-					UPDATE_CLAMPER(pixels[(iw*(ky-1)+kx-1)<<2|2], 4, 5)
+					UPDATE_CLAMPER(pixels[(iw*(ky-1)+kx-1)<<2|1]-pixels[(iw*(ky-1)+kx-1)<<2|0], 2, 3)
+					UPDATE_CLAMPER(pixels[(iw*(ky-1)+kx-1)<<2|2]-pixels[(iw*(ky-1)+kx-1)<<2|0], 4, 5)
 				}
 			}
 #undef  UPDATE_CLAMPER
@@ -6576,7 +6595,13 @@ static void custom3_prealloc(const int *src, int iw, int ih, const char *depths,
 			int count[3], idx2;
 			for(int kc=0;kc<3;++kc)
 				count[kc]=custom3_loadnb(pixels, errors, iw, ih, kc, kx, ky, nb[kc]);
-			
+#ifdef C3_3D
+			for(int kc=1;kc<3;++kc)
+			{
+				for(int kn=0;kn<count[0];++kn)
+					nb[kc][kn]-=nb[0][kn];
+			}
+#endif
 			idx=(iw*ky+kx)<<2;
 			idx2=0;
 			
@@ -6588,7 +6613,13 @@ static void custom3_prealloc(const int *src, int iw, int ih, const char *depths,
 				pred+=1<<13;
 				pred>>=14;
 				pred=CLAMP(clampers[kdst<<1|0], pred, clampers[kdst<<1|1]);
-				//pred=CLAMP(-(nlevels[kdst]>>1), pred, (nlevels[kdst]>>1)-1);
+#ifdef C3_3D
+				if(kdst)
+				{
+					pred+=nb[kdst-1][C3_NNB];
+					pred=CLAMP(-(nlevels[kdst]>>1), pred, (nlevels[kdst]>>1)-1);
+				}
+#endif
 
 				pred^=-fwd;
 				pred+=fwd;
