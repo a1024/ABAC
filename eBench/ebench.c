@@ -3920,7 +3920,8 @@ int io_keydn(IOKey key, char c)
 						ec_adaptive_threshold=3200;
 					break;
 				case 19:case 20:case 21:case 22:case 23:case 24:case 25:case 26:
-					ec_method=ECTX_MIN_QN_QW;
+					ec_method=ECTX_HIST;
+					//ec_method=ECTX_MIN_QN_QW;
 					break;
 				}
 				if(ec_expbits<ec_msb+ec_lsb)
