@@ -8,9 +8,11 @@
 	f07.c
 	f08.c
 	f09.c
+	f10.c
 	fast.c
 	format.c
 	huffman.c
+	load_dng.cpp
 	lodepng.c
 	transforms.c
 	util.c

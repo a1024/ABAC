@@ -210,8 +210,8 @@ void pred_clampgrad_fast(Image *src, int fwd, const char *depths)
 	{
 		short *rows[]=
 		{
-			pixels+(((src->iw+2LL)*((ky-0)&1)+1LL)<<2),
-			pixels+(((src->iw+2LL)*((ky-1)&1)+1LL)<<2),
+			pixels+(((src->iw+2LL)*((ky-0LL)&1)+1LL)<<2),
+			pixels+(((src->iw+2LL)*((ky-1LL)&1)+1LL)<<2),
 		};
 		for(int kx=0;kx<src->iw;++kx, idx+=src->nch)
 		{
@@ -281,8 +281,8 @@ void pred_simd(Image *src, int fwd, const char *depths)
 	{
 		short *rows[]=
 		{
-			pixels+(((src->iw+2LL)*((ky-0)&1)+1LL)<<2),
-			pixels+(((src->iw+2LL)*((ky-1)&1)+1LL)<<2),
+			pixels+(((src->iw+2LL)*((ky-0LL)&1)+1LL)<<2),
+			pixels+(((src->iw+2LL)*((ky-1LL)&1)+1LL)<<2),
 		};
 		int kx=0;
 		for(;kx<src->iw;++kx, idx+=src->nch)

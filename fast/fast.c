@@ -305,6 +305,11 @@ static void batch_test_mt(const char *path, int nthreads)
 
 int main(int argc, char **argv)
 {
+	{
+		f10_mptest("D:/ML/dataset-sintel-ppm");
+		pause();
+		return 0;
+	}
 	printf("FastEntropy\n\n");
 #ifndef _DEBUG
 	if((unsigned)(argc-2)>1)
@@ -320,10 +325,10 @@ int main(int argc, char **argv)
 	const char *fn=argv[1];
 #else
 	const char *fn=
-	//	"D:/ML/dataset-kodak/kodim13.png"
+		"D:/ML/dataset-kodak/kodim13.png"
 	//	"D:/ML/big_building.PPM"
 
-		"C:/Projects/datasets/dataset-kodak/kodim13.png"
+	//	"C:/Projects/datasets/dataset-kodak/kodim13.png"
 	//	"C:/Projects/datasets/big_building.PPM"
 	//	"C:/Projects/datasets/dataset-ic-rgb16bit/deer.png"
 	//	"C:/Projects/datasets/jupiter.PNG"

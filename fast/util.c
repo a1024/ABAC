@@ -672,6 +672,32 @@ int print_binn(unsigned long long x, int nbits)
 	}
 	return nbits;
 }
+double convert_size(double bytesize, int *log1024)
+{
+	int k=0;
+	double p=1024;
+	for(;k<4&&bytesize<p;++k, p*=1024);
+	*log1024=k;
+	return bytesize*1024/p;
+}
+int print_size(double bytesize, int ndigits, int pdigits, char *str, int len)
+{
+	static const char *labels[]=
+	{
+		"bytes",
+		"KB",
+		"MB",
+		"GB",
+		"TB",
+		"PB",
+		"EB",
+	};
+	int idx=0;
+	bytesize=convert_size(bytesize, &idx);
+	if(str)
+		return snprintf(str, len-1LL, "%*.*lf %s", ndigits, pdigits, bytesize, labels[idx]);
+	return printf("%*.*lf %s", ndigits, pdigits, bytesize, labels[idx]);
+}
 
 //error handling
 char first_error_msg[G_BUF_SIZE]={0}, latest_error_msg[G_BUF_SIZE]={0};
@@ -700,6 +726,7 @@ int log_error(const char *file, int line, int quit, const char *format, ...)
 	}
 	return firsttime;
 }
+#if 0
 int valid(const void *p)//only makes sense with MSVC debugger
 {
 	size_t val=(size_t)p;
@@ -736,6 +763,7 @@ int valid(const void *p)//only makes sense with MSVC debugger
 	}
 	return 1;
 }
+#endif
 int pause()
 {
 	int k;
@@ -767,7 +795,7 @@ static void array_realloc(ArrayHandle *arr, size_t count, size_t pad)//CANNOT be
 {
 	size_t size, newcap;
 
-	ASSERT_P(*arr);
+	//ASSERT_P(*arr);
 	size=(count+pad)*arr[0]->esize, newcap=arr[0]->esize;
 	for(;newcap<size;newcap<<=1);
 	if(newcap>arr[0]->cap)
@@ -872,7 +900,7 @@ void* array_insert(ArrayHandle *arr, size_t idx, const void *data, size_t count,
 {
 	size_t start, srcsize, dstsize, movesize;
 	
-	ASSERT_P(*arr);
+	//ASSERT_P(*arr);
 	start=idx*arr[0]->esize;
 	srcsize=count*arr[0]->esize;
 	dstsize=rep*srcsize;
@@ -889,7 +917,7 @@ void* array_erase(ArrayHandle *arr, size_t idx, size_t count)//does not realloca
 {
 	size_t k;
 
-	ASSERT_P(*arr);
+	//ASSERT_P(*arr);
 	if(arr[0]->count<idx+count)
 	{
 		LOG_ERROR("array_erase() out of bounds: idx=%lld count=%lld size=%lld", (long long)idx, (long long)count, (long long)arr[0]->count);
@@ -910,7 +938,7 @@ void* array_replace(ArrayHandle *arr, size_t idx, size_t rem_count, const void *
 {
 	size_t k, c0, c1, start, srcsize, dstsize;
 
-	ASSERT_P(*arr);
+	//ASSERT_P(*arr);
 	if(arr[0]->count<idx+rem_count)
 	{
 		LOG_ERROR("array_replace() out of bounds: idx=%lld rem_count=%lld size=%lld ins_count=%lld", (long long)idx, (long long)rem_count, (long long)arr[0]->count, (long long)ins_count);
@@ -2009,7 +2037,7 @@ static void pqueue_realloc(PQueueHandle *pq, size_t count, size_t pad)//CANNOT b
 	void *p2;
 	size_t size, newcap;
 
-	ASSERT_P(*pq);
+	//ASSERT_P(*pq);
 	size=(count+pad)*pq[0]->esize, newcap=pq[0]->esize;
 	for(;newcap<size;newcap<<=1);
 	if(newcap>pq[0]->byteCap)
@@ -2123,7 +2151,7 @@ void  pqueue_enqueue(PQueueHandle *pq, const void *src)//src cannot be nullptr
 	size_t start;
 	void *temp;
 	
-	ASSERT_P(*pq);
+	//ASSERT_P(*pq);
 	start=pq[0]->count*pq[0]->esize;
 	pqueue_realloc(pq, pq[0]->count+1, 0);
 
@@ -2146,7 +2174,7 @@ void  pqueue_dequeue(PQueueHandle *pq)
 {
 	void *temp;
 
-	ASSERT_P(*pq);
+	//ASSERT_P(*pq);
 	if(!pq[0]->count)
 	{
 		LOG_ERROR("pqueue_erase() out of bounds: size=%lld", (long long)pq[0]->count);

@@ -37,6 +37,12 @@ int compare_bufs_16(const short *b1, const short *b0, int iw, int ih, int nch, i
 }
 int image_load(const char *fn, Image *image)
 {
+	int fnlen=(int)strlen(fn);
+	if(!_stricmp(fn+fnlen-4, ".DNG"))
+	{
+		load_dng(fn, image);
+		return 1;
+	}
 	int idx_start=0, idx_end=0;
 	get_filetitle(fn, 0, &idx_start, &idx_end);
 	image->data=(short*)stbi_load_16(fn, &image->iw, &image->ih, &image->nch, 0);

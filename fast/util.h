@@ -105,13 +105,16 @@ int print_bin8(int x);
 int print_bin32(unsigned x);
 int print_binn(unsigned long long x, int nbits);
 
+double convert_size(double bytesize, int *log1024);
+int print_size(double bytesize, int ndigits, int pdigits, char *str, int len);
+
 //error handling
 int log_error(const char *file, int line, int quit, const char *format, ...);//doesn't stop execution
 #define LOG_ERROR(format, ...)   log_error(file, __LINE__, 1, format, ##__VA_ARGS__)
 #define LOG_ERROR2(format, ...)  log_error(__FILE__, __LINE__, 1, format, ##__VA_ARGS__)
 #define LOG_WARNING(format, ...) log_error(file, __LINE__, 0, format, ##__VA_ARGS__)
 #define ASSERT_MSG(SUCCESS, MSG, ...) ((SUCCESS)!=0||log_error(file, __LINE__, 1, MSG, ##__VA_ARGS__))
-int valid(const void *p);
+//int valid(const void *p);
 int pause();
 #ifdef _MSC_VER
 int pause1();
@@ -119,7 +122,7 @@ int pause1();
 int pause_abort(const char *file, int lineno, const char *extraInfo);
 #define PANIC() pause_abort(file, __LINE__, 0)
 #define ASSERT(SUCCESS) ((SUCCESS)!=0||pause_abort(file, __LINE__, #SUCCESS))
-#define ASSERT_P(POINTER) (void)(valid(POINTER)||pause_abort(file, __LINE__, #POINTER " == 0"))
+//#define ASSERT_P(POINTER) (void)(valid(POINTER)||pause_abort(file, __LINE__, #POINTER " == 0"))
 
 
 //ARRAY
