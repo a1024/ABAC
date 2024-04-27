@@ -71,18 +71,25 @@ int image_load(const char *fn, Image *image)
 	}
 	return 1;
 }
-int image_save8(const char *fn, Image const *image)
+unsigned char* image_export8(Image const *src)
 {
-	ptrdiff_t nvals=(ptrdiff_t)image->iw*image->ih*image->nch;
-	unsigned char *buf=(unsigned char*)malloc(nvals*sizeof(char));
-	if(!buf)
+	ptrdiff_t nvals=(ptrdiff_t)src->iw*src->ih*src->nch;
+	unsigned char *dst=(unsigned char*)malloc(nvals*sizeof(char));
+	if(!dst)
 	{
 		LOG_ERROR("Alloc error");
 		return 0;
 	}
-	int nlevels=1<<image->depth, half=nlevels>>1, mask=nlevels-1;
+	int nlevels=1<<src->depth, half=nlevels>>1, mask=nlevels-1;
 	for(ptrdiff_t k=0;k<nvals;++k)
-		buf[k]=(image->data[k]+half)>>(image->depth-8)&mask;
+		dst[k]=(src->data[k]+half)>>(src->depth-8)&mask;
+	return dst;
+}
+int image_save8(const char *fn, Image const *image)
+{
+	unsigned char *buf=image_export8(image);
+	if(!buf)
+		return 0;
 	LodePNGColorType type=LCT_GREY;
 	switch(image->nch)
 	{

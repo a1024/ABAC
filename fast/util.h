@@ -237,12 +237,15 @@ int   dlist_it_dec(DListItHandle it);
 
 //ordered MAP/SET (implemented as a (self-balancing) red-black tree)
 #if 1
+#pragma warning(push)
+#pragma warning(disable:4200)
 typedef struct RBNodeStruct
 {
 	struct RBNodeStruct *parent, *left, *right;
 	size_t is_red;
 	unsigned char data[];//key then value
 } RBNodeHeader, *RBNodeHandle;
+#pragma warning(pop)
 typedef enum CmpResEnum
 {
 	RESULT_LESS=-1,
@@ -278,11 +281,14 @@ void map_debugprint_r(RBNodeHandle *node, int depth, void (*printer)(RBNodeHandl
 
 //single-linked list, queue and stack
 #if 1
+#pragma warning(push)
+#pragma warning(disable:4200)
 typedef struct SNodeStruct
 {
 	struct SNodeStruct *prev;
 	unsigned char data[];//4-byte aligned on 32-bit, not suitable for double on 32-bit
 } SNode, *SNodeHandle;
+#pragma warning(pop)
 typedef struct SListStruct
 {
 	//[front] -> ... -> [back] -> nullptr
@@ -317,12 +323,15 @@ void slist_print(SListHandle list, void (*printer)(const void*));
 
 //bit-string
 #if 1
+#pragma warning(push)
+#pragma warning(disable:4200)
 typedef struct BitstringStruct
 {
 	size_t bitCount, byteCap;
 	unsigned char data[];//8bits/element
 	//unsigned data[];//32bits/element
 } BitstringHeader, *BitstringHandle;
+#pragma warning(pop)
 //-> [bitCount], [byteCap], data...
 //arr->data		((char*)arr+sizeof(Header))
 
@@ -364,6 +373,8 @@ void bitstring_print(BitstringHandle str);
 
 //Priority Queue (Max-heap-based)
 #if 1
+#pragma warning(push)
+#pragma warning(disable:4200)
 typedef struct PQueueStruct
 {
 	size_t count, //number of elements
@@ -373,6 +384,7 @@ typedef struct PQueueStruct
 	void (*destructor)(void*);//element destructor, can be 0
 	unsigned char data[];//each contained object begins with the key
 } PQueueHeader, *PQueueHandle;
+#pragma warning(pop)
 
 //pqueue_construct: allocates a new bit-string
 //src:		If 0, initialize elements with 0

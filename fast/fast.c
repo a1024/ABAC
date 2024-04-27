@@ -20,10 +20,10 @@ typedef void *THREAD_RET;
 static const char file[]=__FILE__;
 
 
-#define CODECID      9
-#define CODECNAME "F09"
-#define ENCODE     f09_encode
-#define DECODE     f09_decode
+#define CODECID     11
+#define CODECNAME "F11"
+#define ENCODE     f11_encode
+#define DECODE     f11_decode
 
 
 static const char *g_extensions[]=
@@ -305,11 +305,11 @@ static void batch_test_mt(const char *path, int nthreads)
 
 int main(int argc, char **argv)
 {
-	{
-		f10_mptest("D:/ML/dataset-sintel-ppm");
-		pause();
-		return 0;
-	}
+	//{
+	//	f10_mptest("D:/ML/dataset-sintel-ppm");
+	//	pause();
+	//	return 0;
+	//}
 	printf("FastEntropy\n\n");
 #ifndef _DEBUG
 	if((unsigned)(argc-2)>1)
@@ -327,6 +327,9 @@ int main(int argc, char **argv)
 	const char *fn=
 		"D:/ML/dataset-kodak/kodim13.png"
 	//	"D:/ML/big_building.PPM"
+	//	"C:/dataset-LPCB-ppm/STA13456.ppm"	//uncorrelated channels
+	//	"C:/dataset-LPCB-ppm/PIA13799.ppm"
+	//	"D:/ML/dataset-RAW/a0001-jmac_DSC1459.dng"
 
 	//	"C:/Projects/datasets/dataset-kodak/kodim13.png"
 	//	"C:/Projects/datasets/big_building.PPM"

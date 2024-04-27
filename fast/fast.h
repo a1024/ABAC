@@ -16,6 +16,7 @@ typedef struct ImageStruct
 int compare_bufs_16(const short *b1, const short *b0, int iw, int ih, int nch, int chstride, const char *name, int backward, int loud);
 int image_load(const char *fn, Image *image);
 int load_dng(const char *fn, Image *image);
+unsigned char* image_export8(Image const *src);
 int image_save8(const char *fn, Image const *image);
 int image_copy(Image *dst, Image const *src);//dst must be initialized to zero, or another image
 int image_copy_nodata(Image *dst, Image const *src);//dst must be initialized to zero, or another image
@@ -94,6 +95,11 @@ int	f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 
 //F10 video test
 int f10_mptest(const char *path);
+
+//F11 RAW compression
+int	f11_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
+#define f11_encode(SRC, DATA, LOUD)		f11_codec(SRC, DATA, 0, 0, 0, LOUD)
+#define f11_decode(CBUF, CSIZE, DST, LOUD)	f11_codec(0, 0, CBUF, CSIZE, DST, LOUD)
 
 
 #ifdef __cplusplus

@@ -11,7 +11,16 @@ extern "C" int load_dng(const char *fn, Image *dst)
 	bool success=tinydng::LoadDNG(fn, custom_fields, &images, &warnings, &errors);
 	if(!success||!images.size())
 		return 0;
-	auto &src=images[0];
+	int klargest=0;
+	size_t maxres=0;
+	for(int ki=0;ki<images.size();++ki)
+	{
+		auto &im=images[ki];
+		size_t res=(size_t)im.width*im.height;
+		if(!maxres||maxres<res)
+			maxres=res, klargest=ki;
+	}
+	auto &src=images[klargest];
 	memset(dst, 0, sizeof(*dst));
 	dst->iw=src.width;
 	dst->ih=src.height;
@@ -26,6 +35,7 @@ extern "C" int load_dng(const char *fn, Image *dst)
 	}
 	memset(dst->data, 0, bufsize);
 	const unsigned char *data=src.data.data();
+	int nlevels=1<<src.bits_per_sample, half=nlevels>>1;
 	for(int ky=0, idx=0, kb2=0;ky<dst->ih;++ky)
 	{
 		for(int kx=0;kx<dst->iw;++kx, ++idx)
@@ -36,7 +46,7 @@ extern "C" int load_dng(const char *fn, Image *dst)
 				int bit=data[kb2>>3]>>(kb2&7)&1;
 				val|=bit<<kb;
 			}
-			dst->data[idx]=val;
+			dst->data[idx]=val-half;
 		}
 	}
 	return 1;
