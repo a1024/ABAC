@@ -2468,7 +2468,7 @@ void pred_CG3D(Image *src, int fwd, int enable_ma)
 	};
 	int *perm=nlumas==src->nch?chpermutations+4:chpermutations;//permute channels RGB->GBR if no RCT was applied earlier
 	int fwdmask=-fwd;
-	int pred, vmin, vmax;
+	//int pred[3]={0}, vmin[3]={0}, vmax[3]={0};
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
 		int *rows[]=
@@ -2478,6 +2478,7 @@ void pred_CG3D(Image *src, int fwd, int enable_ma)
 		};
 		for(int kx=0;kx<src->iw;++kx, idx+=4)
 		{
+#if 1
 			for(int kk=0;kk<2;++kk)
 			{
 				for(int kc0=chpoints[kk];kc0<chpoints[kk+1];++kc0)
@@ -2489,31 +2490,9 @@ void pred_CG3D(Image *src, int fwd, int enable_ma)
 						W	=rows[0][kc-4],
 						offset	=0;
 					if(kc0>chpoints[kk])
-					{
-						int kc1=perm[chpoints[kk]];
-						NW	-=rows[1][kc1-4];
-						N	-=rows[1][kc1+0];
-						W	-=rows[0][kc1-4];
-						offset	+=rows[0][kc1+0];
-						//if(kc0>chpoints[kk]+1)
-						//{
-						//	int kc1=perm[kc0-1], kc2=perm[kc0-2];
-						//	NW	-=(rows[1][kc1-4]+rows[1][kc2-4])>>1;
-						//	N	-=(rows[1][kc1+0]+rows[1][kc2+0])>>1;
-						//	W	-=(rows[0][kc1-4]+rows[0][kc2-4])>>1;
-						//	offset	+=(rows[0][kc1+0]+rows[0][kc2+0])>>1;
-						//}
-						//else
-						//{
-						//	int kc1=perm[kc0-1];
-						//	NW	-=rows[1][kc1-4];
-						//	N	-=rows[1][kc1+0];
-						//	W	-=rows[0][kc1-4];
-						//	offset	+=rows[0][kc1+0];
-						//}
-					}
-					pred=N+W-NW;
-					vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
+						offset+=rows[0][perm[chpoints[kk]]];
+					int pred=N+W-NW;
+					int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
 					pred=CLAMP(vmin, pred, vmax);
 					//pred=(N+W)>>1;
 					pred+=offset;
@@ -2529,9 +2508,117 @@ void pred_CG3D(Image *src, int fwd, int enable_ma)
 					pred-=nlevels[kc]>>1;
 
 					src->data[idx+kc]=pred;
-					rows[0][kc]=fwd?curr:pred;
+					rows[0][kc]=(fwd?curr:pred)-offset;
 				}
 			}
+#endif
+#if 0
+			if(ky==100&&kx==100)
+				printf("");
+			int kc=0;
+			if(src->nch>=3)
+			{
+				int
+					vNW	=rows[1][0-4],
+					vN	=rows[1][0+0],
+					vW	=rows[0][0-4];
+				int
+					yNW	=rows[1][1-4],
+					yN	=rows[1][1+0],
+					yW	=rows[0][1-4];
+				int
+					uNW	=rows[1][2-4],
+					uN	=rows[1][2+0],
+					uW	=rows[0][2-4];
+				pred[0]=vN+vW-vNW;
+				vmin[0]=MINVAR(vN, vW), vmax[0]=MAXVAR(vN, vW);
+				pred[0]=CLAMP(vmin[0], pred[0], vmax[0]);
+
+				pred[1]=yN+yW-yNW;
+				vmin[1]=MINVAR(yN, yW), vmax[1]=MAXVAR(yN, yW);
+				pred[1]=CLAMP(vmin[1], pred[1], vmax[1]);
+
+				pred[2]=uN+uW-uNW;
+				vmin[2]=MINVAR(uN, uW), vmax[2]=MAXVAR(uN, uW);
+				pred[2]=CLAMP(vmin[2], pred[2], vmax[2]);
+				
+				//pred[1]-=(pred[0]+pred[2])>>2;
+				pred[2]+=pred[1];
+				pred[0]+=pred[1];//X  adding pred, not prev
+				pred[0]=CLAMP(-halfs[kc], pred[0], halfs[kc]-1);
+				pred[1]=CLAMP(-halfs[kc], pred[1], halfs[kc]-1);
+				pred[2]=CLAMP(-halfs[kc], pred[2], halfs[kc]-1);
+				int curr[]=
+				{
+					src->data[idx+0],
+					src->data[idx+1],
+					src->data[idx+2],
+				};
+				pred[0]^=fwdmask;
+				pred[1]^=fwdmask;
+				pred[2]^=fwdmask;
+				pred[0]-=fwdmask;
+				pred[1]-=fwdmask;
+				pred[2]-=fwdmask;
+				pred[0]+=curr[0];
+				pred[1]+=curr[1];
+				pred[2]+=curr[2];
+				pred[0]+=nlevels[0]>>1;
+				pred[1]+=nlevels[1]>>1;
+				pred[2]+=nlevels[2]>>1;
+				pred[0]&=nlevels[0]-1;
+				pred[1]&=nlevels[1]-1;
+				pred[2]&=nlevels[2]-1;
+				pred[0]-=nlevels[0]>>1;
+				pred[1]-=nlevels[1]>>1;
+				pred[2]-=nlevels[2]>>1;
+				src->data[idx+0]=pred[0];
+				src->data[idx+1]=pred[1];
+				src->data[idx+2]=pred[2];
+				if(fwd)
+				{
+					curr[0]-=curr[1];
+					curr[2]-=curr[1];
+					//curr[1]+=(curr[0]+curr[2])>>2;
+					rows[0][0]=curr[0];
+					rows[0][1]=curr[1];
+					rows[0][2]=curr[2];
+				}
+				else
+				{
+					pred[0]-=pred[1];
+					pred[2]-=pred[1];
+					//pred[1]+=(pred[0]+pred[2])>>2;
+					rows[0][0]=pred[0];
+					rows[0][1]=pred[1];
+					rows[0][2]=pred[2];
+				}
+				kc=3;
+			}
+			while(kc<src->nch)
+			{
+				int
+					NW	=rows[1][kc-4],
+					N	=rows[1][kc+0],
+					W	=rows[0][kc-4];
+				int pred=N+W-NW;
+				int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
+				pred=CLAMP(vmin, pred, vmax);
+
+				int curr=src->data[idx+kc];
+				pred^=fwdmask;
+				pred-=fwdmask;
+				pred+=curr;
+
+				pred+=nlevels[kc]>>1;
+				pred&=nlevels[kc]-1;
+				pred-=nlevels[kc]>>1;
+
+				src->data[idx+kc]=pred;
+				rows[0][kc]=fwd?curr:pred;
+				++kc;
+			}
+#endif
 			rows[0]+=4;
 			rows[1]+=4;
 		}

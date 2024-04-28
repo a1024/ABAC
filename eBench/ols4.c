@@ -327,9 +327,9 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 #endif
 	ALIGN(16) int ipred[4]={0};
 	int olsnextpoint=1;
+	double *rows[PADY]={0};
 	for(int ky=0, idx=0, olsidx=1;ky<src->ih;++ky)
 	{
-		double *rows[PADY];
 		for(int k=0;k<PADY;++k)
 			rows[k]=pixels+(((src->iw+PADX*2LL)*(((size_t)ky-k)&(PADY-1))+PADX)<<3);
 		for(int kc=0;kc<4;++kc)
