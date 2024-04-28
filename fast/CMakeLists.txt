@@ -10,6 +10,7 @@
 	f09.c
 	f10.c
 	f11.c
+	f12.c
 	fast.c
 	format.c
 	huffman.c

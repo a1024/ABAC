@@ -10,19 +10,6 @@ static const char file[]=__FILE__;
 #include"profiler.h"
 
 
-#if 0
-#define PADX 8
-#define PADY 8
-static int quantize_ctx(int x)//signed
-{
-	int negmask=x>>31;
-	x=floor_log2_32(abs(x))+1;
-	x^=negmask;
-	x-=negmask;
-	return x;
-}
-#define QUANTIZE(X) quantize_ctx(X)+qhalf
-#endif
 static int CG(int N, int W, int NW)
 {
 	int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
@@ -82,22 +69,6 @@ int f11_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	int fwd=src!=0;
 	Image const *image=fwd?src:dst;
 
-#if 0
-	int depth=image->depth, nlevels=1<<depth, half=nlevels>>1, mask=nlevels-1;
-	int qhalf=quantize_ctx(1<<depth>>1), qlevels=qhalf<<1|1;
-
-	size_t bufsize=(image->iw+PADX*2LL)*sizeof(short[PADY*4*2]);//PADY padded rows * 4 channels max * {pixels, errors}
-	short *pixels=(short*)malloc(bufsize);
-	size_t cdfsize=;
-	if(!pixels||!stats||!mixer)
-	{
-		LOG_ERROR("Alloc error");
-		return 0;
-	}
-	memset(pixels, 0, bufsize);
-
-	free(pixels);
-#endif
 	if(image->nch!=3)
 	{
 		LOG_ERROR("Expected 3 channels, got %d", image->nch);
@@ -197,6 +168,6 @@ int f11_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	printf("Analysis %14.6lf sec\n", t2-t);
 
 	free(hist);
-	LOG_ERROR("This isn't a codec yet");
+	LOG_ERROR("This isn't a codec");
 	return 1;
 }

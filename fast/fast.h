@@ -96,10 +96,13 @@ int	f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 //F10 video test
 int f10_mptest(const char *path);
 
-//F11 RAW compression
+//F11 selects 3 out of 30 channels
 int	f11_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
 #define f11_encode(SRC, DATA, LOUD)		f11_codec(SRC, DATA, 0, 0, 0, LOUD)
 #define f11_decode(CBUF, CSIZE, DST, LOUD)	f11_codec(0, 0, CBUF, CSIZE, DST, LOUD)
+
+//F11 conditional histogram
+int f12_statstest(const char *path);
 
 
 #ifdef __cplusplus

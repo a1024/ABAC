@@ -305,11 +305,23 @@ static void batch_test_mt(const char *path, int nthreads)
 
 int main(int argc, char **argv)
 {
-	//{
-	//	f10_mptest("D:/ML/dataset-sintel-ppm");
-	//	pause();
-	//	return 0;
-	//}
+	{
+#ifdef _DEBUG
+		const char *path=
+			"D:/ML/dataset-CLIC"
+		//	"D:/ML/dataset-CLIC30"
+		//	"D:/ML/dataset-kodak-ppm"
+			;
+#else
+		if(argc!=2)
+			return 0;
+		const char *path=argv[1];
+#endif
+		f12_statstest(path);
+		//f10_mptest("D:/ML/dataset-sintel-ppm");
+		pause();
+		return 0;
+	}
 	printf("FastEntropy\n\n");
 #ifndef _DEBUG
 	if((unsigned)(argc-2)>1)
