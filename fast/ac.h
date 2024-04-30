@@ -413,6 +413,31 @@ INLINE int ac_dec_POT_permuted(ArithmeticCoder *ec, const unsigned *pCDF, const 
 	unsigned sym=1;
 	
 	unsigned long long range=ec->code-ec->low;
+	unsigned c=(unsigned)((range<<16|0xFFFF)/ec->range);
+	switch(nbits)
+	{
+	default:
+		LOG_ERROR2("Unsupported bit depth");
+		break;
+	case 16:sym=sym<<1|(c>=pCDF[sym]);
+	case 15:sym=sym<<1|(c>=pCDF[sym]);
+	case 14:sym=sym<<1|(c>=pCDF[sym]);
+	case 13:sym=sym<<1|(c>=pCDF[sym]);
+	case 12:sym=sym<<1|(c>=pCDF[sym]);
+	case 11:sym=sym<<1|(c>=pCDF[sym]);
+	case 10:sym=sym<<1|(c>=pCDF[sym]);
+	case  9:sym=sym<<1|(c>=pCDF[sym]);
+	case  8:sym=sym<<1|(c>=pCDF[sym]);
+	case  7:sym=sym<<1|(c>=pCDF[sym]);
+	case  6:sym=sym<<1|(c>=pCDF[sym]);
+	case  5:sym=sym<<1|(c>=pCDF[sym]);
+	case  4:sym=sym<<1|(c>=pCDF[sym]);
+	case  3:sym=sym<<1|(c>=pCDF[sym]);
+	case  2:sym=sym<<1|(c>=pCDF[sym]);
+	case  1:sym=sym<<1|(c>=pCDF[sym]);
+		break;
+	}
+#if 0
 	switch(nbits)
 	{
 	default:
@@ -436,7 +461,8 @@ INLINE int ac_dec_POT_permuted(ArithmeticCoder *ec, const unsigned *pCDF, const 
 	case  1:sym=sym<<1|((ec->range*pCDF[sym]>>16)<=range);
 		break;
 	}
-	//for(int kb=0;kb<nbits;++kb)
+#endif
+	//for(int kb=0;kb<nbits;++kb)//slower than contiguous CDF
 	//	sym=sym<<1|((ec->range*pCDF[sym]>>16)<=range);
 	sym-=1<<nbits;
 	//sym&=(1<<nbits)-1;

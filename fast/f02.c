@@ -97,6 +97,8 @@ int f02_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			const short *comp=image->data+idx;
 			for(int kc=step<0?image->nch-1:0;(unsigned)kc<(unsigned)image->nch;kc+=step)
 			{
+				//if(ky==50&&kx==395&&kc==2)
+				//	printf("");
 				if(fwd)
 				{
 					int bypass=comp[kc]<<1^-(comp[kc]<0);
