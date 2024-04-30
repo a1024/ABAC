@@ -13,6 +13,7 @@ static const char file[]=__FILE__;
 //	#define USE_GOLOMB
 //	#define USE_ABAC
 	#define USE_STATIC_PROB
+	#define USE_CDF2SYM
 
 
 #ifdef USE_ANS
@@ -37,7 +38,14 @@ int f02_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #ifdef USE_STATIC_PROB
 	unsigned *CDF=(unsigned*)malloc(sizeof(int[257]));
 	unsigned *pCDF=(unsigned*)malloc(sizeof(int[257]));
-	if(!CDF||!pCDF)
+#ifdef USE_CDF2SYM
+	unsigned char *CDF2sym=(unsigned char*)malloc(sizeof(char[0x10000]));
+#endif
+	if(!CDF||!pCDF
+#ifdef USE_CDF2SYM
+		||!CDF2sym
+#endif
+	)
 	{
 		LOG_ERROR("Alloc error");
 		return 0;
@@ -54,6 +62,14 @@ int f02_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		}
 		pCDF[0]=CDF[0];
 		pCDF[nlevels]=CDF[nlevels];
+#ifdef USE_CDF2SYM
+		int ks=0;
+		for(int c=0;c<0x10000;++c)
+		{
+			ks+=c>=CDF[ks+1];
+			CDF2sym[c]=ks;
+		}
+#endif
 	}
 #endif
 	DList list;
@@ -98,6 +114,7 @@ int f02_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			for(int kc=step<0?image->nch-1:0;(unsigned)kc<(unsigned)image->nch;kc+=step)
 			{
 				//if(ky==50&&kx==395&&kc==2)
+				//if(ky==2&&kx==506&&kc==0)
 				//	printf("");
 				if(fwd)
 				{
@@ -132,9 +149,13 @@ int f02_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					for(int kb=image->depth-1;kb>=0;--kb)
 						bypass|=ac_dec_bin(&ec, 0x8000)<<kb;
 #else
+#ifdef USE_CDF2SYM
+					int bypass=ac_dec_CDF2sym(&ec, CDF, CDF2sym, 8);
+#else
 					int bypass=ac_dec_POT_permuted(&ec, pCDF, CDF, 8);
 					//int bypass=ac_dec_POT(&ec, CDF, 8);
 					//int bypass=ac_dec(&ec, CDF, 256);
+#endif
 					//int bypass=ac_dec_bypass(&ec, 1<<image->depth);
 
 					//int bypass=0;

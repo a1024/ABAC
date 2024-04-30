@@ -315,7 +315,7 @@ INLINE void ac_enc(ArithmeticCoder *ec, int sym, const unsigned *CDF)//CDF is 16
 	ec->low+=ec->range*cdf>>16;
 	ec->range*=freq;
 	ec->range>>=16;
-	--ec->range;//must decrement hi because decoder fails when code == hi2
+	//--ec->range;//must decrement hi because decoder fails when code == hi2
 	while(ec->range<(1LL<<PROB_BITS))//only when freq=1 -> range=0, this loop runs twice
 		ac_enc_renorm(ec);
 	acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);//
@@ -437,33 +437,6 @@ INLINE int ac_dec_POT_permuted(ArithmeticCoder *ec, const unsigned *pCDF, const 
 	case  1:sym=sym<<1|(c>=pCDF[sym]);
 		break;
 	}
-#if 0
-	switch(nbits)
-	{
-	default:
-		LOG_ERROR2("Unsupported bit depth");
-		break;
-	case 16:sym=sym<<1|((ec->range*pCDF[sym]>>16)<=range);
-	case 15:sym=sym<<1|((ec->range*pCDF[sym]>>16)<=range);
-	case 14:sym=sym<<1|((ec->range*pCDF[sym]>>16)<=range);
-	case 13:sym=sym<<1|((ec->range*pCDF[sym]>>16)<=range);
-	case 12:sym=sym<<1|((ec->range*pCDF[sym]>>16)<=range);
-	case 11:sym=sym<<1|((ec->range*pCDF[sym]>>16)<=range);
-	case 10:sym=sym<<1|((ec->range*pCDF[sym]>>16)<=range);
-	case  9:sym=sym<<1|((ec->range*pCDF[sym]>>16)<=range);
-	case  8:sym=sym<<1|((ec->range*pCDF[sym]>>16)<=range);
-	case  7:sym=sym<<1|((ec->range*pCDF[sym]>>16)<=range);
-	case  6:sym=sym<<1|((ec->range*pCDF[sym]>>16)<=range);
-	case  5:sym=sym<<1|((ec->range*pCDF[sym]>>16)<=range);
-	case  4:sym=sym<<1|((ec->range*pCDF[sym]>>16)<=range);
-	case  3:sym=sym<<1|((ec->range*pCDF[sym]>>16)<=range);
-	case  2:sym=sym<<1|((ec->range*pCDF[sym]>>16)<=range);
-	case  1:sym=sym<<1|((ec->range*pCDF[sym]>>16)<=range);
-		break;
-	}
-#endif
-	//for(int kb=0;kb<nbits;++kb)//slower than contiguous CDF
-	//	sym=sym<<1|((ec->range*pCDF[sym]>>16)<=range);
 	sym-=1<<nbits;
 	//sym&=(1<<nbits)-1;
 
@@ -478,6 +451,33 @@ INLINE int ac_dec_POT_permuted(ArithmeticCoder *ec, const unsigned *pCDF, const 
 	ec->range*=freq;
 	ec->range>>=16;
 	--ec->range;//must decrement hi because decoder fails when code == hi2
+	while(ec->range<(1LL<<PROB_BITS))
+		ac_dec_renorm(ec);
+	acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);//
+	//acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->cidx, ec->code);//
+	return sym;
+}
+INLINE int ac_dec_CDF2sym(ArithmeticCoder *ec, const unsigned *CDF, const unsigned char *CDF2sym, int nbits)//more cache-friendly,  pCDF[0] & pCDF[1<<nbits] are not accessed
+{
+	unsigned cdf;
+	int freq;
+	unsigned sym;
+	
+	unsigned long long range=ec->code-ec->low;
+	unsigned c=(unsigned)((range<<16|0xFFFF)/ec->range);
+	sym=CDF2sym[c];
+
+	cdf=CDF[sym];
+	freq=CDF[sym+1]-cdf;
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
+		LOG_ERROR2("ZPS");
+#endif
+	ec->low+=ec->range*cdf>>16;
+	ec->range*=freq;
+	ec->range>>=16;
+	//--ec->range;//must decrement hi because decoder fails when code == hi2
 	while(ec->range<(1LL<<PROB_BITS))
 		ac_dec_renorm(ec);
 	acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);//

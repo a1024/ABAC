@@ -339,8 +339,8 @@ int main(int argc, char **argv)
 	const char *fn=argv[1];
 #else
 	const char *fn=
-	//	"D:/ML/dataset-kodak/kodim13.png"
-		"D:/ML/big_building.PPM"
+		"D:/ML/dataset-kodak/kodim13.png"
+	//	"D:/ML/big_building.PPM"
 	//	"C:/dataset-LPCB-ppm/STA13456.ppm"	//uncorrelated channels
 	//	"C:/dataset-LPCB-ppm/PIA13799.ppm"
 	//	"D:/ML/dataset-RAW/a0001-jmac_DSC1459.dng"
