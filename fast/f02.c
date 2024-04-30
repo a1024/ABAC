@@ -36,13 +36,25 @@ int f02_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #endif
 #ifdef USE_STATIC_PROB
 	unsigned *CDF=(unsigned*)malloc(sizeof(int[257]));
-	if(!CDF)
+	unsigned *pCDF=(unsigned*)malloc(sizeof(int[257]));
+	if(!CDF||!pCDF)
 	{
 		LOG_ERROR("Alloc error");
 		return 0;
 	}
 	for(int k=0;k<257;++k)
 		CDF[k]=k<<8;
+	if(!fwd)
+	{
+		int nlevels=256;
+		for(int step=nlevels, ks2=1;step>1;step>>=1)
+		{
+			for(int ks=0;ks<nlevels;ks+=step, ++ks2)
+				pCDF[ks2]=CDF[ks|step>>1];
+		}
+		pCDF[0]=CDF[0];
+		pCDF[nlevels]=CDF[nlevels];
+	}
 #endif
 	DList list;
 	dlist_init(&list, 1, 256, 0);
@@ -118,7 +130,8 @@ int f02_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					for(int kb=image->depth-1;kb>=0;--kb)
 						bypass|=ac_dec_bin(&ec, 0x8000)<<kb;
 #else
-					int bypass=ac_dec_POT(&ec, CDF, 8);
+					int bypass=ac_dec_POT_permuted(&ec, pCDF, CDF, 8);
+					//int bypass=ac_dec_POT(&ec, CDF, 8);
 					//int bypass=ac_dec(&ec, CDF, 256);
 					//int bypass=ac_dec_bypass(&ec, 1<<image->depth);
 
