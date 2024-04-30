@@ -10358,6 +10358,7 @@ void calc_csize_ec(Image const *src, EContext method, int adaptive, int expbits,
 	free(hist);
 	free(hsum);
 }
+
 static void calc_qlevels(Image const *src, int kc, int *qdivs, int nqlevels)
 {
 	int depth=src->depth[kc], nlevels=1<<depth, half=nlevels>>1;
@@ -10430,10 +10431,12 @@ static int abac_quantize(int x, int *qdivs, int ndivs)
 	return sym;
 }
 #define ABAC_NCTX 4
+#define ABAC_NCTRS 1
 #define ABAC_QLEVELS 8
 #define ABAC_PROBSHIFT 21
-#define ABAC_STATSSHIFT 24
-#define ABAC_MIXERSHIFT 19
+#define ABAC_STATSSHIFT 25
+#define ABAC_MIXERSHIFT 21
+#define MINABS(A, B) (abs(A)<abs(B)?(A):(B))
 void calc_csize_abac(Image const *src, int expbits, int msb, int lsb, double *entropy)
 {
 	int maxdepth=calc_maxdepth(src, 0);
@@ -10443,9 +10446,9 @@ void calc_csize_abac(Image const *src, int expbits, int msb, int lsb, double *en
 	//int qlevels=hu.token+1;
 	int qdivs[ABAC_QLEVELS-1]={0};
 	int treesize=maxdepth*(maxdepth+1)>>1;
-	size_t statssize=sizeof(short[ABAC_QLEVELS*ABAC_NCTX])*treesize;
+	size_t statssize=sizeof(short[ABAC_QLEVELS*ABAC_NCTX*ABAC_NCTRS])*treesize;
 	short *stats=(short*)malloc(statssize);
-	int *mixer=(int*)malloc(sizeof(int[ABAC_NCTX])*maxdepth);
+	int *mixer=(int*)malloc(sizeof(int[ABAC_NCTX*ABAC_NCTRS])*maxdepth);
 	if(!stats||!mixer)
 	{
 		LOG_ERROR("Alloc error");
@@ -10481,7 +10484,7 @@ void calc_csize_abac(Image const *src, int expbits, int msb, int lsb, double *en
 		//*stats=0x8000;
 		//memfill(stats+1, stats, sizeof(short[ABAC_QLEVELS*ABAC_NCTX])*treesize-sizeof(short), sizeof(short));
 		*mixer=0x80000;
-		memfill(mixer+1, mixer, sizeof(int[ABAC_NCTX])*maxdepth-sizeof(int), sizeof(int));
+		memfill(mixer+1, mixer, sizeof(int[ABAC_NCTX*ABAC_NCTRS])*maxdepth-sizeof(int), sizeof(int));
 		for(int ky=0, idx=0;ky<src->ih;++ky)
 		{
 			for(int kx=0;kx<src->iw;++kx, ++idx)
@@ -10491,10 +10494,13 @@ void calc_csize_abac(Image const *src, int expbits, int msb, int lsb, double *en
 #if 1
 				int preds[]=
 				{
-					nb[NB_N]*11,
-					nb[NB_W]*11,
-					nb[NB_NW]*11,
-					nb[NB_NE]*11,
+					nb[NB_N]>>1,
+					nb[NB_W]>>1,
+					nb[NB_NW]>>1,
+					nb[NB_NE]>>1,
+					//nb[NB_N]-nb[NB_W],
+					//MINABS(nb[NB_N], nb[NB_W]),
+					//MINABS(nb[NB_NW], nb[NB_NE]),
 					//MINVAR(abs(nb[NB_WW]), abs(nb[NB_NWW]))*3,
 					//MINVAR(abs(nb[NB_NNWW]), abs(nb[NB_NNW]))*3,
 					//MINVAR(abs(nb[NB_NN]), abs(nb[NB_NNE]))*3,
@@ -10539,17 +10545,27 @@ void calc_csize_abac(Image const *src, int expbits, int msb, int lsb, double *en
 				int tidx=0;
 				short *curr_stats[ABAC_NCTX]={0}, *p0a[ABAC_NCTX]={0};
 				for(int kt=0;kt<ABAC_NCTX;++kt)
-					curr_stats[kt]=stats+treesize*abac_quantize(CLAMP(-half, preds[kt], half-1), qdivs, ABAC_QLEVELS-1);
+				{
+					int val=preds[kt];
+					//val=(val>1)-(val<-1)+1;
+					val=THREEWAY(val, 0)+1;
+					curr_stats[kt]=stats+treesize*ABAC_NCTRS*val;
+				}
+					//curr_stats[kt]=stats+treesize*abac_quantize(CLAMP(-half, preds[kt], half-1), qdivs, ABAC_QLEVELS-1);
 				int *curr_mixer=mixer;
 				for(int kb=0;kb<depth;++kb)
 				{
-					int idx2=(kb*(kb+1LL)>>1)+kb-tidx;
+					int idx2=ABAC_NCTRS*((kb*(kb+1LL)>>1)+kb-tidx);
 					long long p0=0;
 					for(int kt=0;kt<ABAC_NCTX;++kt)
 					{
-						p0a[kt]=curr_stats[kt]+idx2;
-						p0+=(long long)curr_mixer[kt]**p0a[kt];
+						for(int k2=0;k2<ABAC_NCTRS;++k2)
+						{
+							p0a[kt]=curr_stats[kt]+idx2;
+							p0+=(long long)curr_mixer[ABAC_NCTRS*kt+k2]*p0a[kt][k2];
+						}
 					}
+					p0+=p0>>3;
 					p0+=(1LL<<ABAC_PROBSHIFT>>1)-1;
 					p0>>=ABAC_PROBSHIFT;
 					//p0/=ABAC_NCTX;
@@ -10572,16 +10588,19 @@ void calc_csize_abac(Image const *src, int expbits, int msb, int lsb, double *en
 					int error=collapse-(int)p0;
 					for(int kt=0;kt<ABAC_NCTX;++kt)
 					{
-						int temp=curr_mixer[kt];
-						curr_mixer[kt]+=(int)((((long long)error**p0a[kt])+(1LL<<ABAC_MIXERSHIFT>>1)-1)>>ABAC_MIXERSHIFT);
-						temp=*p0a[kt]+(int)((((long long)error*temp)+(1LL<<ABAC_STATSSHIFT>>1)-1)>>ABAC_STATSSHIFT);
-						*p0a[kt]=CLAMP(-0x7FFF, temp, 0x7FFF);
-						//*p0a[kt]+=(collapse-*p0a[kt])>>8;
+						for(int k2=0;k2<ABAC_NCTRS;++k2)
+						{
+							int temp=curr_mixer[ABAC_NCTRS*kt+k2];
+							curr_mixer[ABAC_NCTRS*kt+k2]+=(int)((((long long)error*p0a[kt][k2])+(1LL<<ABAC_MIXERSHIFT>>1)-1)>>ABAC_MIXERSHIFT);
+							temp=p0a[kt][k2]+(int)((((long long)error*temp)+(1LL<<(ABAC_STATSSHIFT-k2)>>1)-1)>>(ABAC_STATSSHIFT-k2));
+							p0a[kt][k2]=CLAMP(-0x7FFF, temp, 0x7FFF);
+							//*p0a[kt]+=(collapse-*p0a[kt])>>8;
+						}
 					}
 					//p0+=((!bit<<16)-p0)>>8;
 					//curr_stats[idx2]=CLAMP(1, p0, 0xFFFF);
 
-					curr_mixer+=ABAC_NCTX;
+					curr_mixer+=ABAC_NCTX*ABAC_NCTRS;
 					tidx+=(!bit)&-(tidx==kb);
 				}
 			}

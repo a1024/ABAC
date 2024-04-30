@@ -144,7 +144,7 @@ unsigned gpu_vertices=0;
 ArrayHandle jointhist=0;
 int jointhist_nbits=6;//max
 int jhx=0, jhy=0;
-double ch_entropy[4]={0};//RGBA
+double ch_entropy[4]={0};//RGBA/YUVA
 //int usage[4]={0};
 EContext ec_method=ECTX_HIST;//ECTX_MIN_QN_QW;
 int ec_adaptive=0, ec_adaptive_threshold=3200, ec_expbits=5, ec_msb=2, ec_lsb=0;
@@ -961,10 +961,41 @@ void test_predmask(Image const *image)
 	console_end();
 }
 
+static void calc_csize_stateful(Image const *image, int *hist_full, double *ch_entropy)
+{
+	if(ec_method==ECTX_HIST)
+	{
+		int allocated=0;
+		if(!hist_full)
+		{
+			int maxdepth=calc_maxdepth(im1, 0);
+			hist_full=(int*)malloc(sizeof(int)<<maxdepth);
+			allocated=1;
+		}
+		for(int kc=0;kc<4;++kc)
+		{
+			if(image->depth[kc])
+			{
+				calc_histogram(image->data, image->iw, image->ih, kc, 0, image->iw, 0, image->ih, image->depth[kc], hist_full, 0);
+				ch_entropy[kc]=calc_entropy(hist_full, 1<<image->depth[kc], image->iw*image->ih);
+			}
+			else
+				ch_entropy[kc]=0;
+		}
+		if(allocated)
+			free(hist_full);
+		//channel_entropy(image, iw*ih, 3, 4, ch_cr, usage);
+	}
+	else if(ec_method==ECTX_ABAC)
+		calc_csize_abac(image, ec_expbits, ec_msb, ec_lsb, ch_entropy);
+	else
+		calc_csize_ec(image, ec_method, ec_adaptive?ec_adaptive_threshold:0, ec_expbits, ec_msb, ec_lsb, ch_entropy);
+}
+
 typedef struct ThreadCtxStruct
 {
 	Image *image;
-	double usize, csize[3];
+	double usize, csize[4];
 	ptrdiff_t idx;
 } ThreadCtx;
 static unsigned __stdcall sample_thread(void *param)
@@ -975,13 +1006,21 @@ static unsigned __stdcall sample_thread(void *param)
 	int maxdepth=calc_maxdepth(ctx->image, 0);
 	int nlevels=1<<maxdepth;
 	int *hist=(int*)malloc(nlevels*sizeof(int));
-	for(int kc=0;kc<3;++kc)
+	double entropy[4]={0};
+	calc_csize_stateful(ctx->image, 0, entropy);
+	for(int kc=0;kc<4;++kc)
 	{
-		calc_histogram(ctx->image->data, ctx->image->iw, ctx->image->ih, kc, 0, ctx->image->iw, 0, ctx->image->ih, ctx->image->depth[kc], hist, 0);
-		double entropy=calc_entropy(hist, 1<<ctx->image->depth[kc], ctx->image->iw*ctx->image->ih);
-		double invCR=entropy/ctx->image->src_depth[kc];
+		int depth=ctx->image->src_depth[kc];
+		double invCR=depth?entropy[kc]/depth:0;
 		ctx->csize[kc]=invCR*ctx->image->iw*ctx->image->ih*ctx->image->src_depth[kc]/8;
 	}
+	//for(int kc=0;kc<3;++kc)
+	//{
+	//	calc_histogram(ctx->image->data, ctx->image->iw, ctx->image->ih, kc, 0, ctx->image->iw, 0, ctx->image->ih, ctx->image->depth[kc], hist, 0);
+	//	double entropy=calc_entropy(hist, 1<<ctx->image->depth[kc], ctx->image->iw*ctx->image->ih);
+	//	double invCR=entropy/ctx->image->src_depth[kc];
+	//	ctx->csize[kc]=invCR*ctx->image->iw*ctx->image->ih*ctx->image->src_depth[kc]/8;
+	//}
 	free(hist);
 	free(ctx->image);
 	//_endthreadex(0);
@@ -1016,7 +1055,7 @@ void batch_test()
 	console_log("Enter number of threads: ");
 	int nthreads=console_scan_int();
 	double t=time_sec();
-	double total_usize=0, total_csize[3]={0};
+	double total_usize=0, total_csize[4]={0};
 	int maxlen=0;
 	for(int k=0;k<(int)filenames->count;++k)
 	{
@@ -1065,10 +1104,10 @@ void batch_test()
 			{
 				ThreadCtx *ptr=(ThreadCtx*)array_at(&q, k2);
 				fn=(ArrayHandle*)array_at(&filenames, ptr->idx);
-				double csize=ptr->csize[0]+ptr->csize[1]+ptr->csize[2];
+				double csize=ptr->csize[0]+ptr->csize[1]+ptr->csize[2]+ptr->csize[3];
 				console_log(
 					"%5d/%5d %s%*sUTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  invCR %8.4lf%%\n",
-					(int)(k+1-q->count+k2+1), (int)filenames->count, (char*)fn[0]->data, (int)(maxlen-fn[0]->count+1), "",
+					(int)(k+1-(int)q->count+k2+1), (int)filenames->count, (char*)fn[0]->data, (int)(maxlen-fn[0]->count+1), "",
 					ptr->usize, csize, ptr->csize[0], ptr->csize[1], ptr->csize[2],
 					100.*csize/ptr->usize
 				);
@@ -1076,6 +1115,7 @@ void batch_test()
 				total_csize[0]+=ptr->csize[0];
 				total_csize[1]+=ptr->csize[1];
 				total_csize[2]+=ptr->csize[2];
+				total_csize[3]+=ptr->csize[3];
 			}
 			array_clear(&q);
 		}
@@ -1102,16 +1142,19 @@ void batch_test()
 		free(hist);
 		console_log(
 			"%3d/%3d %s%*sUTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf\n",
-			k+1, (int)filenames->count, (char*)fn[0]->data, maxlen-fn[0]->count+1, "", usize, csize[0]+csize[1]+csize[2], csize[0], csize[1], csize[2]
+			k+1, (int)filenames->count, (char*)fn[0]->data, maxlen-fn[0]->count+1, "",
+			usize, csize[0]+csize[1]+csize[2]+csize[3],
+			csize[0], csize[1], csize[2]
 		);
 		total_usize+=usize;
 		total_csize[0]+=csize[0];
 		total_csize[1]+=csize[1];
 		total_csize[2]+=csize[2];
+		total_csize[3]+=csize[3];
 		free(image);
 #endif
 	}
-	double ctotal=total_csize[0]+total_csize[1]+total_csize[2];
+	double ctotal=total_csize[0]+total_csize[1]+total_csize[2]+total_csize[3];
 	double CR=total_usize/ctotal;
 	t=time_sec()-t;
 	console_log(
@@ -2459,6 +2502,8 @@ void update_image()//apply selected operations on original image, calculate CRs,
 		hist_full=(int*)p;
 		hist_full_size=nlevels;
 	}
+	calc_csize_stateful(im1, hist_full, ch_entropy);
+#if 0
 	if(ec_method==ECTX_HIST)
 	{
 		for(int kc=0;kc<4;++kc)
@@ -2477,6 +2522,7 @@ void update_image()//apply selected operations on original image, calculate CRs,
 		calc_csize_abac(im1, ec_expbits, ec_msb, ec_lsb, ch_entropy);
 	else
 		calc_csize_ec(im1, ec_method, ec_adaptive?ec_adaptive_threshold:0, ec_expbits, ec_msb, ec_lsb, ch_entropy);
+#endif
 	
 	combCRhist[combCRhist_idx][0]=1/(float)(im1->src_depth[0]/ch_entropy[0]);
 	combCRhist[combCRhist_idx][1]=1/(float)(im1->src_depth[0]/ch_entropy[1]);
