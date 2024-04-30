@@ -2436,6 +2436,8 @@ void pred_CG3D(Image *src, int fwd, int enable_ma)
 		return;
 	}
 	memset(pixels, 0, (src->iw+2LL)*sizeof(int[2*4]));
+	int nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
+	UPDATE_MAX(nch, src->nch);
 #ifdef CG3D_ENABLE_MA
 	for(int kc=0;kc<4;++kc)
 	{
@@ -2458,15 +2460,15 @@ void pred_CG3D(Image *src, int fwd, int enable_ma)
 		nlevels[3]>>1,
 	};
 	int nlumas=1;
-	for(int kc=1;kc<src->nch;++kc)
+	for(int kc=1;kc<nch;++kc)
 		nlumas+=src->depth[kc]==src->depth[0];
-	int chpoints[]={0, nlumas, src->nch};
+	int chpoints[]={0, nlumas, nch};
 	int chpermutations[]=
 	{
 		0, 1, 2, 3,//subR
 		1, 2, 0, 3,//subG
 	};
-	int *perm=nlumas==src->nch?chpermutations+4:chpermutations;//permute channels RGB->GBR if no RCT was applied earlier
+	int *perm=nlumas==nch?chpermutations+4:chpermutations;//permute channels RGB->GBR if no RCT was applied earlier
 	int fwdmask=-fwd;
 	//int pred[3]={0}, vmin[3]={0}, vmax[3]={0};
 	for(int ky=0, idx=0;ky<src->ih;++ky)
@@ -2516,7 +2518,7 @@ void pred_CG3D(Image *src, int fwd, int enable_ma)
 			if(ky==100&&kx==100)
 				printf("");
 			int kc=0;
-			if(src->nch>=3)
+			if(nch>=3)
 			{
 				int
 					vNW	=rows[1][0-4],
@@ -2595,7 +2597,7 @@ void pred_CG3D(Image *src, int fwd, int enable_ma)
 				}
 				kc=3;
 			}
-			while(kc<src->nch)
+			while(kc<nch)
 			{
 				int
 					NW	=rows[1][kc-4],
@@ -10129,6 +10131,7 @@ const char* ec_method_label(EContext ec_method)
 	{
 #define CASE(L) case L:label=#L;break;
 	CASE(ECTX_HIST)
+	CASE(ECTX_ABAC)
 	CASE(ECTX_ZERO)
 	CASE(ECTX_QNW)
 	CASE(ECTX_MIN_QN_QW)
@@ -10226,6 +10229,7 @@ void calc_csize_ec(Image const *src, EContext method, int adaptive, int expbits,
 	int (*const getctx[])(const int *nb, int expbits, int msb, int lsb)=
 	{
 		getctx_zero,//unused
+		getctx_zero,//unused
 		getctx_zero,
 		getctx_QNW,
 		getctx_min_QN_QW,
@@ -10278,8 +10282,6 @@ void calc_csize_ec(Image const *src, EContext method, int adaptive, int expbits,
 					getnb(src, kc, kx, ky, nb);
 					int ctx=getctx[method](nb, expbits, msb, lsb);
 					int val=src->data[idx<<2|kc];
-					//if(kc==3)
-					//	val-=nb[NB_W];
 					quantize_signed(val, expbits, msb, lsb, &hu);
 
 					int *curr_hist=hist+cdfsize*ctx;
@@ -10353,4 +10355,268 @@ void calc_csize_ec(Image const *src, EContext method, int adaptive, int expbits,
 	double chubitsize=image_getBMPsize(src)*8/nch;
 	for(int kc=0;kc<4;++kc)
 		entropy[kc]=(bitsizes[kc]+bypasssizes[kc])*src->src_depth[kc]/chubitsize;
+	free(hist);
+	free(hsum);
+}
+static void calc_qlevels(Image const *src, int kc, int *qdivs, int nqlevels)
+{
+	int depth=src->depth[kc], nlevels=1<<depth, half=nlevels>>1;
+	int *hist=(int*)malloc((nlevels+1LL)*sizeof(int));
+	if(!hist)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(hist, 0, (nlevels+1LL)*sizeof(int));
+	ptrdiff_t res=(ptrdiff_t)src->iw*src->ih;
+	for(ptrdiff_t k=0;k<res;++k)
+	{
+		int val=src->data[k<<2|kc];
+		val+=half;
+		val&=nlevels-1;
+		++hist[val];
+	}
+	int sum=0;
+	for(int ks=0;ks<nlevels;++ks)
+	{
+		int freq=hist[ks];
+		hist[ks]=sum;
+		sum+=freq;
+	}
+	hist[nlevels]=sum;
+	for(int kq=1, ks=0;kq<nqlevels;++kq)
+	{
+		int div=kq*sum/nqlevels;
+		for(;hist[ks]<div;++ks);
+		div=(ks-half)<<1;
+		qdivs[kq-1]=CLAMP(-half, div, half-1);
+	}
+#if 0
+	for(int kq=1;kq<nqlevels-1;++kq)
+	{
+		if(qdivs[kq]==qdivs[kq-1])
+		{
+			if(qdivs[kq-1]<=0)
+			{
+				for(int kq2=0;kq2<kq;++kq2)
+					--qdivs[kq2];
+			}
+			else
+			{
+				for(int kq2=kq;kq2<nqlevels-1;++kq2)
+					++qdivs[kq2];
+			}
+		}
+	}
+#endif
+	free(hist);
+}
+static int abac_quantize(int x, int *qdivs, int ndivs)
+{
+	int sym=0;
+#if 0
+	int L=0, R=qlevels-1;
+	while(R)//binary search		lg(nlevels) memory accesses per symbol
+	{
+		int floorhalf=R>>1;
+		sym=L+floorhalf;
+		L+=(R-floorhalf)&-(qdivs[sym]<x);
+		R=floorhalf;
+	}
+#endif
+#if 1
+	for(;sym<ndivs-1&&x<=qdivs[sym];++sym);//linear search
+#endif
+	return sym;
+}
+#define ABAC_NCTX 4
+#define ABAC_QLEVELS 8
+#define ABAC_PROBSHIFT 21
+#define ABAC_STATSSHIFT 24
+#define ABAC_MIXERSHIFT 19
+void calc_csize_abac(Image const *src, int expbits, int msb, int lsb, double *entropy)
+{
+	int maxdepth=calc_maxdepth(src, 0);
+	//HybridUint hu;
+	//quantize_signed(1<<maxdepth, expbits, msb, lsb, &hu);
+	//int qlevels=floor_log2_32(hu.token)+2;
+	//int qlevels=hu.token+1;
+	int qdivs[ABAC_QLEVELS-1]={0};
+	int treesize=maxdepth*(maxdepth+1)>>1;
+	size_t statssize=sizeof(short[ABAC_QLEVELS*ABAC_NCTX])*treesize;
+	short *stats=(short*)malloc(statssize);
+	int *mixer=(int*)malloc(sizeof(int[ABAC_NCTX])*maxdepth);
+	if(!stats||!mixer)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	double bitsizes[4]={0};
+	for(int kc=0;kc<4;++kc)
+	{
+		int depth=src->depth[kc], nlevels=1<<depth, half=nlevels>>1;
+		if(!depth)
+			continue;
+		calc_qlevels(src, kc, qdivs, ABAC_QLEVELS);
+		memset(stats, 0, statssize);
+		for(int ks=0;ks<nlevels;++ks)
+		{
+			int sh=depth+depth+7;
+			int weight=nlevels-1-ks;
+			weight*=weight;
+			for(int kb=0, MSBidx=0;kb<depth;++kb)
+			{
+				int bit=ks>>(depth-1-kb)&1;
+				short *ctr=stats+(kb*(kb+1LL)>>1)+kb-MSBidx;
+
+				int val=*ctr+0x8000;
+				val+=(int)((0x10000LL-val)*weight>>sh);
+				*ctr=CLAMP(1, val, 0xFFFF)-0x8000;
+
+				MSBidx+=(!bit)&-(MSBidx==kb);
+			}
+		}
+		memfill(stats+treesize, stats, statssize-treesize*sizeof(short), treesize*sizeof(short));
+		//memset(stats, 0, sizeof(short[ABAC_QLEVELS*ABAC_NCTX])*treesize);
+		//*stats=0x8000;
+		//memfill(stats+1, stats, sizeof(short[ABAC_QLEVELS*ABAC_NCTX])*treesize-sizeof(short), sizeof(short));
+		*mixer=0x80000;
+		memfill(mixer+1, mixer, sizeof(int[ABAC_NCTX])*maxdepth-sizeof(int), sizeof(int));
+		for(int ky=0, idx=0;ky<src->ih;++ky)
+		{
+			for(int kx=0;kx<src->iw;++kx, ++idx)
+			{
+				int nb[12];
+				getnb(src, kc, kx, ky, nb);
+#if 1
+				int preds[]=
+				{
+					nb[NB_N]*11,
+					nb[NB_W]*11,
+					nb[NB_NW]*11,
+					nb[NB_NE]*11,
+					//MINVAR(abs(nb[NB_WW]), abs(nb[NB_NWW]))*3,
+					//MINVAR(abs(nb[NB_NNWW]), abs(nb[NB_NNW]))*3,
+					//MINVAR(abs(nb[NB_NN]), abs(nb[NB_NNE]))*3,
+					//MINVAR(abs(nb[NB_NNEE]), abs(nb[NB_NEE]))*3,
+
+					//nb[NB_N],
+					//nb[NB_W],
+					//nb[NB_NW]*3,
+					//nb[NB_NE]*3,
+					//nb[NB_NEE]*3,
+					//nb[NB_NNE]*3,
+					//nb[NB_NWW]*3,
+
+					//2*nb[NB_N]-nb[NB_NN],
+					//2*nb[NB_W]-nb[NB_WW],
+					//nb[NB_N]+nb[NB_W]-nb[NB_NW],
+					//nb[NB_N]+nb[NB_W]-(nb[NB_NW]+nb[NB_NE]),
+					//nb[NB_N]+nb[NB_W]-nb[NB_NW],
+					//(nb[NB_W]+nb[NB_N]+nb[NB_NE]+nb[NB_NEE])>>2,
+					//(nb[NB_W]+nb[NB_NE])>>1,
+
+					//abac_quantize(nb[NB_N	], qdivs, ABAC_QLEVELS-1),
+					//abac_quantize(nb[NB_W	], qdivs, ABAC_QLEVELS-1),
+					//abac_quantize(nb[NB_NW	], qdivs, ABAC_QLEVELS-1),
+					//abac_quantize(nb[NB_NE	], qdivs, ABAC_QLEVELS-1),
+					//abac_quantize(nb[NB_NN	], qdivs, ABAC_QLEVELS-1),
+					//abac_quantize(nb[NB_WW	], qdivs, ABAC_QLEVELS-1),
+					//abac_quantize(nb[NB_NEE	], qdivs, ABAC_QLEVELS-1),
+				};
+#endif
+				//ctx=ABAC_QLEVELS*ctx+abac_quantize(nb[NB_W], qdivs, ABAC_QLEVELS-1);
+				//int ctx=getctx[method](nb, expbits, msb, lsb);
+				//ctx=floor_log2(ctx)+1;
+				//if(ctx>=qlevels)
+				//	LOG_ERROR("");
+				//if(kx==5&&ky==5)
+				//	printf("");
+
+				int val=src->data[idx<<2|kc];
+				val=val<<1^-(val<0);
+				
+				int tidx=0;
+				short *curr_stats[ABAC_NCTX]={0}, *p0a[ABAC_NCTX]={0};
+				for(int kt=0;kt<ABAC_NCTX;++kt)
+					curr_stats[kt]=stats+treesize*abac_quantize(CLAMP(-half, preds[kt], half-1), qdivs, ABAC_QLEVELS-1);
+				int *curr_mixer=mixer;
+				for(int kb=0;kb<depth;++kb)
+				{
+					int idx2=(kb*(kb+1LL)>>1)+kb-tidx;
+					long long p0=0;
+					for(int kt=0;kt<ABAC_NCTX;++kt)
+					{
+						p0a[kt]=curr_stats[kt]+idx2;
+						p0+=(long long)curr_mixer[kt]**p0a[kt];
+					}
+					p0+=(1LL<<ABAC_PROBSHIFT>>1)-1;
+					p0>>=ABAC_PROBSHIFT;
+					//p0/=ABAC_NCTX;
+					p0+=0x8000;
+					p0=CLAMP(1, p0, 0xFFFF);
+					//int p0=curr_stats[idx2];
+
+					int bit=val>>(depth-1-kb)&1;
+					int prob=(int)p0;
+					prob^=-bit;
+					prob+=0x10001&-bit;
+					//if(!prob)
+					//	LOG_ERROR("");
+					bitsizes[kc]-=log2((double)prob/0x10000);
+					
+					//L = (1/2)sq(p0_collapse-p0)		p0 = sum: m[k]*s[k]
+					//dL/ds[k] = (p0-p0_collapse)*m[k]
+					//dL/dm[k] = (p0-p0_collapse)*s[k]
+					int collapse=!bit<<16;
+					int error=collapse-(int)p0;
+					for(int kt=0;kt<ABAC_NCTX;++kt)
+					{
+						int temp=curr_mixer[kt];
+						curr_mixer[kt]+=(int)((((long long)error**p0a[kt])+(1LL<<ABAC_MIXERSHIFT>>1)-1)>>ABAC_MIXERSHIFT);
+						temp=*p0a[kt]+(int)((((long long)error*temp)+(1LL<<ABAC_STATSSHIFT>>1)-1)>>ABAC_STATSSHIFT);
+						*p0a[kt]=CLAMP(-0x7FFF, temp, 0x7FFF);
+						//*p0a[kt]+=(collapse-*p0a[kt])>>8;
+					}
+					//p0+=((!bit<<16)-p0)>>8;
+					//curr_stats[idx2]=CLAMP(1, p0, 0xFFFF);
+
+					curr_mixer+=ABAC_NCTX;
+					tidx+=(!bit)&-(tidx==kb);
+				}
+			}
+		}
+	}
+#if 0
+	const size_t strsize=0x10000;
+	char *str=(char*)malloc(strsize);
+	if(!str)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(str, 0, strsize);
+	int printed=0;
+	int *curr_mixer=mixer;
+	for(int kb=0;kb<maxdepth;++kb)
+	{
+		for(int kt=0;kt<ABAC_NCTX;++kt)
+		{
+			int val=curr_mixer[kt];
+			//printed+=snprintf(str+printed, strsize-printed-1, " %c0x%08X,", val<0?'-':' ', abs(val));
+			printed+=snprintf(str+printed, strsize-printed-1, " %8d,", val);
+		}
+		printed+=snprintf(str+printed, strsize-printed-1, "\n");
+		curr_mixer+=ABAC_NCTX;
+	}
+	copy_to_clipboard(str, printed);
+	messagebox(MBOX_OK, "Copied to clipboard", "Paste into a text editor");
+	free(str);
+#endif
+	int nch=(src->src_depth[0]!=0)+(src->src_depth[1]!=0)+(src->src_depth[2]!=0)+(src->src_depth[3]!=0);
+	double chubitsize=image_getBMPsize(src)*8/nch;
+	for(int kc=0;kc<4;++kc)
+		entropy[kc]=bitsizes[kc]*src->src_depth[kc]/chubitsize;
+	free(stats);
+	free(mixer);
 }

@@ -5,6 +5,8 @@
 #include<math.h>
 static const char file[]=__FILE__;
 
+	#define BITCTR
+
 #define HISTBITS 8
 #define HISTSIZE (1<<HISTBITS)
 #define HISTHALF (1<<HISTBITS>>1)
@@ -29,12 +31,24 @@ int f12_statstest(const char *path)
 		return 0;
 	}
 	size_t *hist=(size_t*)malloc(sizeof(size_t[4<<HISTBITS]));
-	if(!hist)
+#ifdef BITCTR
+	size_t *ctr=(size_t*)malloc(sizeof(size_t[4*2<<HISTBITS]));
+	double *hist2=(double*)malloc(sizeof(double[4<<HISTBITS]));
+#endif
+	if(!hist
+#ifdef BITCTR
+		||!ctr||!hist2
+#endif
+	)
 	{
 		LOG_ERROR("Alloc error");
 		return 0;
 	}
 	memset(hist, 0, sizeof(size_t[4<<HISTBITS]));
+#ifdef BITCTR
+	memset(ctr, 0, sizeof(size_t[4*2<<HISTBITS]));
+	memset(hist2, 0, sizeof(double[4<<HISTBITS]));
+#endif
 
 	Image image={0};
 	size_t ctr_total[4]={0}, ctr_hit[4]={0};
@@ -103,19 +117,53 @@ int f12_statstest(const char *path)
 					//if(kx==100&&ky==100)//
 					//	printf("");
 
-					int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
-					if(BETWEEN_EXC(64, vmin, 65)&&BETWEEN_EXC(192, vmax, 193))
+					//int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
+					//if(BETWEEN_EXC(64, vmin, 65)&&BETWEEN_EXC(192, vmax, 193))
 					{
 						++hist[kc<<HISTBITS|curr];
 						++ctr_hit[kc];
 					}
 					++ctr_total[kc];
+#ifdef BITCTR
+					size_t *currctr=ctr+((size_t)kc<<(HISTBITS+1));
+					int idx2=1;
+					for(int kb=HISTBITS-1;kb>=0;--kb)
+					{
+						int bit=curr>>kb&1;
+						idx2=idx2<<1|bit;
+						++currctr[idx2];
+					}
+#endif
 				}
 			}
 		}
 		image_clear(&image);
 	}
 	printf("\n");
+#ifdef BITCTR
+	for(int kc=0;kc<4;++kc)
+	{
+		size_t *currctr=ctr+((size_t)kc<<(HISTBITS+1));
+		if(!ctr_total[kc])
+			continue;
+		for(int ks=0;ks<HISTSIZE;++ks)
+		{
+			double prob=1;
+			int idx2=1;
+			for(int kb=HISTBITS-1;kb>=0;--kb)
+			{
+				int bit=ks>>kb&1;
+				idx2<<=1;
+				double sum=currctr[idx2|0]+currctr[idx2|1];
+				idx2|=bit;
+				if(sum)
+					prob*=currctr[idx2]/sum;
+			}
+			hist2[kc<<HISTBITS|ks]=prob;
+		}
+	}
+#endif
+	printf("ks  freq  freq%%  binctr->freq%%\n");
 	for(int kc=0;kc<4;++kc)
 	{
 		if(!ctr_total[kc])
@@ -126,11 +174,19 @@ int f12_statstest(const char *path)
 		for(int ks=0;ks<HISTSIZE;++ks)
 		{
 			size_t freq=hist[kc<<HISTBITS|ks];
-			printf("%3d  %8lld  %8.4lf%%\n", ks, freq, (double)freq/ctr_hit[kc]);
+			printf("%3d  %8lld  %8.4lf%%", ks, freq, 100.*freq/ctr_hit[kc]);
+#ifdef BITCTR
+			printf("  %8.4lf%%", 100.*hist2[kc<<HISTBITS|ks]);
+#endif
+			printf("\n");
 		}
 		break;
 	}
 	printf("\nDone.\n");
+#ifdef BITCTR
+	free(ctr);
+	free(hist2);
+#endif
 	free(hist);
 	array_free(&filenames);
 

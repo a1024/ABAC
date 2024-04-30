@@ -308,9 +308,9 @@ int main(int argc, char **argv)
 	{
 #ifdef _DEBUG
 		const char *path=
-			"D:/ML/dataset-CLIC"
+		//	"D:/ML/dataset-CLIC"
 		//	"D:/ML/dataset-CLIC30"
-		//	"D:/ML/dataset-kodak-ppm"
+			"D:/ML/dataset-kodak-ppm"
 			;
 #else
 		if(argc!=2)

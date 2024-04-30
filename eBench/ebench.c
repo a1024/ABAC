@@ -2473,6 +2473,8 @@ void update_image()//apply selected operations on original image, calculate CRs,
 		}
 		//channel_entropy(image, iw*ih, 3, 4, ch_cr, usage);
 	}
+	else if(ec_method==ECTX_ABAC)
+		calc_csize_abac(im1, ec_expbits, ec_msb, ec_lsb, ch_entropy);
 	else
 		calc_csize_ec(im1, ec_method, ec_adaptive?ec_adaptive_threshold:0, ec_expbits, ec_msb, ec_lsb, ch_entropy);
 	
@@ -3429,6 +3431,8 @@ int io_mousewheel(int forward)
 					break;
 				case 9:
 					ec_adaptive=!ec_adaptive;
+					//ec_adaptive+=sign;
+					//MODVAR(ec_adaptive, ec_adaptive, 3);
 					break;
 				case 13:
 					if(ec_adaptive)
@@ -4101,6 +4105,7 @@ int io_keydn(IOKey key, char c)
 		return 1;
 	case KEY_SLASH:
 		ec_adaptive=!ec_adaptive;
+		//ec_adaptive=(ec_adaptive+1)%3;
 		update_image();
 		return 1;
 	//case 'E':
@@ -5791,7 +5796,9 @@ void io_render()
 		x=(float)(w-450);
 		y=tdy*2;
 		const char *label=ec_method_label(ec_method);
-		if(ec_adaptive)//H.E.M.L..A.0x0000..XXXX_XXX
+		if(ec_method==ECTX_ABAC)
+			GUIPrint(x, x, y-tdy, 1, "H - - -  -         %s", label);
+		else if(ec_adaptive)//H.E.M.L..A.0x0000..XXXX_XXX
 			GUIPrint(x, x, y-tdy, 1, "H %d %d %d  A 0x%04X  %s", ec_expbits, ec_msb, ec_lsb, ec_adaptive_threshold, label);
 		else
 			GUIPrint(x, x, y-tdy, 1, "H %d %d %d  Static    %s", ec_expbits, ec_msb, ec_lsb, label);

@@ -337,7 +337,7 @@ INLINE int ac_dec(ArithmeticCoder *ec, const unsigned *CDF, int nlevels)
 #else
 	int L=0, R=nlevels;
 	unsigned long long range=ec->code-ec->low;
-	while(R)//binary search		lg(nlevels) multiplications per symbol
+	while(R)//binary search		lg(nlevels) memory accesses per symbol
 	{
 		int floorhalf=R>>1;
 		sym=L+floorhalf;
@@ -812,7 +812,7 @@ INLINE int ans_dec(ANSCoder *ec, const unsigned *CDF, int nlevels)
 	if(CDF)
 	{
 		int L=0, R=nlevels;
-		while(R)//binary search		lg(nlevels) multiplications per symbol
+		while(R)//binary search		lg(nlevels) memory accesses per symbol
 		{
 			int floorhalf=R>>1;
 			sym=L+floorhalf;
