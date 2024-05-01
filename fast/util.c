@@ -253,10 +253,12 @@ int hammingweight64(unsigned long long x)
 int floor_log2_p1(unsigned long long n)
 {
 #ifdef _MSC_VER
-	unsigned long logn=0;
-	int success=_BitScanReverse64(&logn, n);
-	logn=success?logn+1:0;
-	return logn;
+	return (sizeof(n)<<3)-(int)__lzcnt64(n);
+
+	//unsigned long logn=0;
+	//int success=_BitScanReverse64(&logn, n);
+	//logn=success?logn+1:0;
+	//return logn;
 #elif defined __GNUC__
 	int logn=64-__builtin_clzll(n);
 	return logn;
@@ -274,10 +276,12 @@ int floor_log2_p1(unsigned long long n)
 int floor_log2(unsigned long long n)
 {
 #ifdef _MSC_VER
-	unsigned long logn=0;
-	int success=_BitScanReverse64(&logn, n);
-	logn=success?logn:-1;
-	return logn;
+	return (sizeof(n)<<3)-1-(int)__lzcnt64(n);//since Haswell
+
+	//unsigned long logn=0;
+	//int success=_BitScanReverse64(&logn, n);
+	//logn=success?logn:-1;
+	//return logn;
 #elif defined __GNUC__
 	int logn=63-__builtin_clzll(n);
 	return logn;
@@ -295,10 +299,12 @@ int floor_log2(unsigned long long n)
 int floor_log2_32(unsigned n)
 {
 #ifdef _MSC_VER
-	unsigned long logn=0;
-	int success=_BitScanReverse(&logn, n);
-	logn=success?logn:-1;
-	return logn;
+	return (sizeof(n)<<3)-1-(int)__lzcnt(n);//SSE4
+
+	//unsigned long logn=0;
+	//int success=_BitScanReverse(&logn, n);
+	//logn=success?logn:-1;
+	//return logn;
 #elif defined __GNUC__
 	if(!n)
 		return -1;
@@ -365,23 +371,25 @@ int ceil_log2(unsigned long long n)
 }
 int ceil_log2_32(unsigned n)
 {
-	int l2=floor_log2_32(n);
-	l2+=(1ULL<<l2)<n;
-	return l2;
+	int lgn=floor_log2_32(n);
+	lgn+=(1U<<lgn)<n;
+	return lgn;
 }
 int get_lsb_index(unsigned long long n)
 {
-	if(!n)
-		return sizeof(n)<<3;
 #ifdef _MSC_VER
-	unsigned long idx;
-	_BitScanForward64(&idx, n);
-	return idx;
+	return (int)_tzcnt_u64(n);//BMI1 (2013)
+
+	//unsigned long idx;
+	//_BitScanForward64(&idx, n);
+	//return idx;
 #elif defined __GNUC__
 	return __builtin_ctzll(n);
 	//return __builtin_ffsll(n)-1;
 #else
 	int cond, lsb;
+	if(!n)
+		return sizeof(n)<<3;
 	lsb=0;
 	cond=(n>>32<<32==n)<<5, lsb+=cond, n>>=cond;
 	cond=(n>>16<<16==n)<<4, lsb+=cond, n>>=cond;
@@ -394,17 +402,19 @@ int get_lsb_index(unsigned long long n)
 }
 int get_lsb_index32(unsigned n)
 {
-	if(!n)
-		return sizeof(n)<<3;
 #ifdef _MSC_VER
-	unsigned long idx;
-	_BitScanForward(&idx, n);
-	return idx;
+	return (int)_tzcnt_u32(n);
+
+	//unsigned long idx;
+	//_BitScanForward(&idx, n);
+	//return idx;
 #elif defined __GNUC__
 	return __builtin_ctz(n);
 	//return __builtin_ffs(n)-1;
 #else
 	int cond, lsb;
+	if(!n)
+		return sizeof(n)<<3;
 	lsb=0;
 	cond=(n>>16<<16==n)<<4, lsb+=cond, n>>=cond;
 	cond=(n>> 8<< 8==n)<<3, lsb+=cond, n>>=cond;
