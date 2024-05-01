@@ -218,8 +218,7 @@ INLINE void ac_enc_init(ArithmeticCoder *ec, EC_DSTStructure *dst)
 {
 	memset(ec, 0, sizeof(*ec));
 	ec->low=0;
-	//ec->range=~0LLU>>PROB_BITS;
-	ec->range=~0LLU>>(PROB_BITS<<1);
+	ec->range=~0LLU>>PROB_BITS;
 #ifdef EC_USE_ARRAY
 	array_append(dst, 0, 1, 0, 0, 0, 0);
 #endif
@@ -229,8 +228,7 @@ INLINE void ac_dec_init(ArithmeticCoder *ec, const unsigned char *start, unsigne
 {
 	memset(ec, 0, sizeof(*ec));
 	ec->low=0;
-	//ec->range=~0LLU>>PROB_BITS;
-	ec->range=~0LLU>>(PROB_BITS<<1);
+	ec->range=~0LLU>>PROB_BITS;
 	ec->srcptr=start;
 	ec->srcend=end;
 	
@@ -247,7 +245,7 @@ INLINE void ac_dec_init(ArithmeticCoder *ec, const unsigned char *start, unsigne
 INLINE void ac_enc_renorm(ArithmeticCoder *ec)//fast renorm by F. Rubin 1979
 {
 #ifdef EC_USE_ARRAY
-	array_append(ec->arr, (unsigned char*)&ec->low+4, 1, 2, 1, 0, 0);
+	array_append(ec->dst, (unsigned char*)&ec->low+4, 1, 2, 1, 0, 0);
 #else
 	dlist_push_back(ec->dst, (unsigned char*)&ec->low+4, 2);
 #endif
@@ -256,8 +254,9 @@ INLINE void ac_enc_renorm(ArithmeticCoder *ec)//fast renorm by F. Rubin 1979
 	ec->range|=(1LL<<PROB_BITS)-1;
 	ec->low&=~0LLU>>PROB_BITS;
 
-	if(ec->low+ec->range>(~0LLU>>PROB_BITS))//clamp hi to register size after renorm
-		ec->range=(~0LLU>>PROB_BITS)-ec->low;
+	unsigned long long rmax=ec->low^(~0LLU>>PROB_BITS);
+	if(ec->range>rmax)//clamp hi to register size after renorm
+		ec->range=rmax;
 }
 INLINE void ac_dec_renorm(ArithmeticCoder *ec)//fast renorm by F. Rubin 1979
 {
@@ -280,8 +279,9 @@ INLINE void ac_dec_renorm(ArithmeticCoder *ec)//fast renorm by F. Rubin 1979
 	ec->low&=~0LLU>>PROB_BITS;
 	ec->code&=~0LLU>>PROB_BITS;
 
-	if(ec->low+ec->range>(~0LLU>>PROB_BITS))//clamp hi to register size after renorm
-		ec->range=(~0LLU>>PROB_BITS)-ec->low;
+	unsigned long long rmax=ec->low^(~0LLU>>PROB_BITS);
+	if(ec->range>rmax)
+		ec->range=rmax;
 }
 INLINE void ac_enc_flush(ArithmeticCoder *ec)
 {
@@ -293,19 +293,16 @@ INLINE void ac_enc_flush(ArithmeticCoder *ec)
 #if 0
 	int flushbits=get_lsb_index(code);//FIXME tail-chaining parallel decoders
 #endif
+	for(int k=4;k>=0&&code;k-=2)
+	{
 #ifdef EC_USE_ARRAY
-	for(int k=4;k>=0&&code;k-=2)
-	{
-		array_append(ec->dst, (unsigned char*)&code+k, 1, 2, 1, 0, 0);
-		code&=0xFFFFFFFFFFFF>>(48-(k<<3));
-	}
+		array_append(ec->dst, (unsigned char*)&code+4, 1, 2, 1, 0, 0);
 #else
-	for(int k=4;k>=0&&code;k-=2)
-	{
-		dlist_push_back(ec->dst, (unsigned char*)&code+k, 2);
-		code&=0xFFFFFFFFFFFF>>(48-(k<<3));
-	}
+		dlist_push_back(ec->dst, (unsigned char*)&code+4, 2);
 #endif
+		code<<=16;
+		code&=(~0LLU>>PROB_BITS);
+	}
 }
 
 INLINE void ac_enc(ArithmeticCoder *ec, int sym, const unsigned *CDF)//CDF is 16 bit
@@ -786,13 +783,6 @@ INLINE void ac_enc_bin(ArithmeticCoder *ec, unsigned short p0, int bit)
 #endif
 	ec->low+=r2&-bit;
 	ec->range=bit?ec->range-r2:r2-1;//must decrement hi because decoder fails when code == hi2
-	//if(bit)
-	//{
-	//	ec->low+=r2;
-	//	ec->range-=r2;
-	//}
-	//else
-	//	ec->range=r2-1;
 	while(ec->range<(1LL<<PROB_BITS))
 		ac_enc_renorm(ec);
 }
@@ -990,9 +980,9 @@ INLINE void ans_enc15(ANSCoder *ec, int sym, const unsigned short *CDF, int nlev
 	if((ec->state>>16)>=(unsigned)freq)//renorm
 	{
 #ifdef EC_USE_ARRAY
-		ARRAY_APPEND(*ec->arr, &ec->state, 2, 1, 0);
+		ARRAY_APPEND(*ec->dst, &ec->state, 2, 1, 0);
 #else
-		dlist_push_back(ec->list, &ec->state, 2);
+		dlist_push_back(ec->dst, &ec->state, 2);
 #endif
 		ec->state>>=16;
 	}
@@ -1055,9 +1045,9 @@ INLINE void ans_enc_bin(ANSCoder *ec, unsigned short p0, int bit)
 	if((ec->state>>16)>=(unsigned)freq)//renorm
 	{
 #ifdef EC_USE_ARRAY
-		ARRAY_APPEND(*ec->arr, &ec->state, 2, 1, 0);
+		ARRAY_APPEND(*ec->dst, &ec->state, 2, 1, 0);
 #else
-		dlist_push_back(ec->list, &ec->state, 2);
+		dlist_push_back(ec->dst, &ec->state, 2);
 #endif
 		ec->state>>=16;
 	}
@@ -1094,13 +1084,13 @@ typedef struct GolombRiceCoderStruct
 	int is_enc;
 	const unsigned char *srcptr, *srcend, *srcstart;
 	unsigned char *dstptr, *dstend, *dststart;
-	DList *list;
+	DList *dst;
 } GolombRiceCoder;
 INLINE void gr_enc_init(GolombRiceCoder *ec,
 #ifdef EC_USE_ARRAY
 	unsigned char *start, unsigned char *end
 #else
-	DList *list
+	DList *dst
 #endif
 )
 {
@@ -1113,7 +1103,7 @@ INLINE void gr_enc_init(GolombRiceCoder *ec,
 	ec->dstend=end;
 	ec->dststart=start;
 #else
-	ec->list=list;
+	ec->dst=dst;
 #endif
 }
 INLINE void gr_dec_init(GolombRiceCoder *ec, const unsigned char *start, const unsigned char *end)
@@ -1147,12 +1137,12 @@ INLINE size_t gr_enc_flush(GolombRiceCoder *ec)
 	ec->dstptr+=sizeof(ec->cache);
 	return 1;
 #else
-	dlist_push_back(ec->list, &ec->cache, sizeof(ec->cache));//size is qword-aligned
+	dlist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));//size is qword-aligned
 	return 1;
 #endif
 	//while(ec->nbits<(sizeof(ec->cache)<<3))//loops up to 2 times
 	//{
-	//	dlist_push_back(ec->list, (unsigned*)&ec->cache+1, 4);
+	//	dlist_push_back(ec->dst, (unsigned*)&ec->cache+1, 4);
 	//	ec->nbits+=32;
 	//	ec->cache<<=32;
 	//}
@@ -1170,7 +1160,7 @@ INLINE int gr_enc(GolombRiceCoder *ec, unsigned sym, unsigned magnitude)
 		nzeros-=ec->nbits;
 		if(!gr_enc_flush(ec))
 			return 0;
-		//dlist_push_back(ec->list, &ec->cache, sizeof(ec->cache));
+		//dlist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));
 		if(nzeros>=(sizeof(ec->cache)<<3))//just flush zeros
 		{
 			ec->cache=0;
@@ -1179,7 +1169,7 @@ INLINE int gr_enc(GolombRiceCoder *ec, unsigned sym, unsigned magnitude)
 				nzeros-=(sizeof(ec->cache)<<3);
 				if(!gr_enc_flush(ec))
 					return 0;
-				//dlist_push_back(ec->list, &ec->cache, sizeof(ec->cache));
+				//dlist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));
 			}
 			while(nzeros>(sizeof(ec->cache)<<3));
 		}
@@ -1205,7 +1195,7 @@ INLINE int gr_enc(GolombRiceCoder *ec, unsigned sym, unsigned magnitude)
 		bypass&=(1<<nbypass)-1;
 		if(!gr_enc_flush(ec))
 			return 0;
-		//dlist_push_back(ec->list, &ec->cache, sizeof(ec->cache));
+		//dlist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));
 		ec->cache=0;
 		ec->nbits=(sizeof(ec->cache)<<3);
 	}

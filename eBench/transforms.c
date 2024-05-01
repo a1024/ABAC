@@ -8,6 +8,11 @@
 #include"intercept_malloc.h"
 #include"lodepng.h"//
 #include<immintrin.h>
+#ifdef _MSC_VER
+#include<intrin.h>
+#elif defined __GNUC__
+#include<x86intrin.h>
+#endif
 static const char file[]=__FILE__;
 
 void calc_histogram(const int *buf, int iw, int ih, int kc, int x1, int x2, int y1, int y2, int depth, int *hist, int *hist8)
@@ -10381,6 +10386,10 @@ void calc_csize_ec(Image const *src, EContext method, int adaptive, int expbits,
 	free(hsum);
 }
 
+
+	#define ABAC_DUMMY_EC 48
+//	#define ABAC_DUMMY_EC 32
+
 static void calc_qlevels(Image const *src, int kc, int *qdivs, int nqlevels)
 {
 	int depth=src->depth[kc], nlevels=1<<depth, half=nlevels>>1;
@@ -10479,6 +10488,13 @@ void calc_csize_abac(Image const *src, double *entropy)
 	double bitsizes[4]={0};
 	for(int kc=0;kc<4;++kc)
 	{
+#ifdef ABAC_DUMMY_EC
+#if ABAC_DUMMY_EC==48
+		unsigned long long low=0, range=0xFFFFFFFFFFFF;
+#else
+		unsigned low=0, range=0xFFFFFFFF;
+#endif
+#endif
 		int depth=src->depth[kc], nlevels=1<<depth;
 		//int half=nlevels>>1;
 		if(!depth)
@@ -10597,12 +10613,52 @@ void calc_csize_abac(Image const *src, double *entropy)
 					//int p0=curr_stats[idx2];
 
 					int bit=val>>(depth-1-kb)&1;
+					
+#ifdef ABAC_DUMMY_EC
+#if ABAC_DUMMY_EC==48
+					unsigned long long r2=range*p0>>16;
+					low+=r2&-bit;
+					range=bit?range-r2:r2-1;
+					while(range<0x10000)
+					{
+						bitsizes[kc]+=16;
+
+						range<<=16;
+						low<<=16;
+						range|=0xFFFF;
+						low&=0xFFFFFFFFFFFF;
+						unsigned long long rmax=0xFFFFFFFFFFFF-low;
+						if(range>rmax)//clamp range
+							range=rmax;
+					}
+#else
+#ifdef _MSC_VER
+					unsigned r2=(unsigned)(__emulu(range, p0)>>16);
+#else
+					unsigned r2=(int)((unsigned long long)range*p0>>16);
+#endif
+					low+=r2&-bit;
+					range=bit?range-r2:r2-1;
+					while(range<0x10000)
+					{
+						bitsizes[kc]+=16;
+
+						range<<=16;
+						low<<=16;
+						range|=0xFFFF;
+						unsigned rmax=~low;
+						if(range>rmax)//clamp range
+							range=rmax;
+					}
+#endif
+#else
 					int prob=(int)p0;
 					prob^=-bit;
 					prob+=0x10001&-bit;
 					//if(!prob)
 					//	LOG_ERROR("");
 					bitsizes[kc]-=log2((double)prob/0x10000);
+#endif
 					
 					//L = (1/2)sq(p0_collapse-p0)		p0 = sum: m[k]*s[k]
 					//dL/ds[k] = (p0-p0_collapse)*m[k]
@@ -10628,6 +10684,23 @@ void calc_csize_abac(Image const *src, double *entropy)
 				}
 			}
 		}
+#ifdef ABAC_DUMMY_EC
+#if ABAC_DUMMY_EC==48
+		unsigned long long code=low+range;
+		int nzeros=floor_log2(low^code)-1;
+		if(nzeros<0)
+			nzeros=0;
+		code&=~((1LL<<nzeros)-1);
+		bitsizes[kc]+=get_lsb_index(code);
+#else
+		unsigned code=low+range;//coming from renorm, cannot overflow
+		int nzeros=floor_log2_32(low^code)-1;
+		if(nzeros<0)
+			nzeros=0;
+		code&=~((1LL<<nzeros)-1);
+		bitsizes[kc]+=get_lsb_index32(code);
+#endif
+#endif
 	}
 #if 0
 	const size_t strsize=0x10000;

@@ -20,10 +20,10 @@ typedef void *THREAD_RET;
 static const char file[]=__FILE__;
 
 
-#define CODECID      2
-#define CODECNAME "F02"
-#define ENCODE     f02_encode
-#define DECODE     f02_decode
+#define CODECID      8
+#define CODECNAME "F08"
+#define ENCODE     f08_encode
+#define DECODE     f08_decode
 
 
 static const char *g_extensions[]=
@@ -358,14 +358,14 @@ int main(int argc, char **argv)
 #else
 	const char *fn=
 	//	"D:/ML/dataset-kodak/kodim13.png"
-		"D:/ML/dataset-kodak-ppm/kodim13.ppm"
+	//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
 	//	"D:/ML/big_building.PPM"
 	//	"C:/dataset-LPCB-ppm/STA13456.ppm"	//uncorrelated channels
 	//	"C:/dataset-LPCB-ppm/PIA13799.ppm"
 	//	"D:/ML/dataset-RAW/a0001-jmac_DSC1459.dng"
 
 	//	"C:/Projects/datasets/dataset-kodak/kodim13.png"
-	//	"C:/Projects/datasets/big_building.PPM"
+		"C:/Projects/datasets/big_building.PPM"
 	//	"C:/Projects/datasets/dataset-ic-rgb16bit/deer.png"
 	//	"C:/Projects/datasets/jupiter.PNG"
 	//	"C:/Projects/datasets/space-8k-CROP.PPM"
