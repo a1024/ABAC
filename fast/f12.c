@@ -23,7 +23,6 @@ static const char *ext[]=
 int f12_statstest(const char *path)
 {
 	printf("F12 stats\n");
-	double t0=time_sec();
 	ArrayHandle filenames=get_filenames(path, ext, _countof(ext), 1);
 	if(!filenames||!filenames->count)
 	{
@@ -79,27 +78,12 @@ int f12_statstest(const char *path)
 		}
 		char cdepths[]=
 		{
-			depths[0],
-			depths[1],
-			depths[2],
-			depths[3],
+			(char)depths[0],
+			(char)depths[1],
+			(char)depths[2],
+			(char)depths[3],
 		};
 		pred_simd(&image, 1, cdepths);
-		//int nlevels[]=
-		//{
-		//	1<<depths[0],
-		//	1<<depths[1],
-		//	1<<depths[2],
-		//	1<<depths[3],
-		//};
-		//int halfs[]=
-		//{
-		//	nlevels[0]>>1,
-		//	nlevels[1]>>1,
-		//	nlevels[2]>>1,
-		//	nlevels[3]>>1,
-		//};
-		int rowstride=image.iw*image.nch;
 		for(int ky=0, idx=0;ky<image.ih;++ky)
 		{
 			for(int kx=0;kx<image.iw;++kx, idx+=image.nch)
@@ -113,9 +97,11 @@ int f12_statstest(const char *path)
 						NE	=LOAD( 1, -1),
 						W	=LOAD(-1,  0),
 						curr	=LOAD( 0,  0);
-
-					//if(kx==100&&ky==100)//
-					//	printf("");
+					(void)NW;
+					(void)N;
+					(void)NE;
+					(void)W;
+					(void)curr;
 
 					//int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
 					//if(BETWEEN_EXC(64, vmin, 65)&&BETWEEN_EXC(192, vmax, 193))
@@ -168,13 +154,13 @@ int f12_statstest(const char *path)
 	{
 		if(!ctr_total[kc])
 			continue;
-		printf("C%d  %lld/%lld = %8.4lf%%\n", kc, ctr_hit[kc], ctr_total[kc], 100.*ctr_hit[kc]/ctr_total[kc]);
+		printf("C%d  %zd/%zd = %8.4lf%%\n", kc, ctr_hit[kc], ctr_total[kc], 100.*ctr_hit[kc]/ctr_total[kc]);
 		if(!ctr_hit[kc])
 			continue;
 		for(int ks=0;ks<HISTSIZE;++ks)
 		{
 			size_t freq=hist[kc<<HISTBITS|ks];
-			printf("%3d  %8lld  %8.4lf%%", ks, freq, 100.*freq/ctr_hit[kc]);
+			printf("%3d  %8zd  %8.4lf%%", ks, freq, 100.*freq/ctr_hit[kc]);
 #ifdef BITCTR
 			printf("  %8.4lf%%", 100.*hist2[kc<<HISTBITS|ks]);
 #endif

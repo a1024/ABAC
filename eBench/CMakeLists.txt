@@ -23,6 +23,12 @@ add_executable (eBench WIN32
 	window.c
 )
 
+#if(MSVC)
+#	target_compile_options(eBench PRIVATE /W4)
+#else()
+#	target_compile_options(eBench PRIVATE -Wall -Wextra -Wpedantic)
+#endif()
+
 if (CMAKE_VERSION VERSION_GREATER 3.12)
   set_property(TARGET eBench PROPERTY CXX_STANDARD 20)
 endif()

@@ -67,7 +67,7 @@ int f02_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		for(unsigned c=0;c<0x10000;++c)
 		{
 			ks+=c>=CDF[ks+1];
-			CDF2sym[c]=ks;
+			CDF2sym[c]=(unsigned char)ks;
 		}
 #endif
 	}
@@ -106,6 +106,7 @@ int f02_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		ac_dec_init(&ec, cbuf, cbuf+clen);
 	const int step=1;
 #endif
+	int bypass;
 	for(ptrdiff_t ky=step<0?(ptrdiff_t)image->ih-1:0, cstep=(ptrdiff_t)image->nch*step, idx=cstep<0?((size_t)image->iw*image->ih-1LL)*image->nch:0;(size_t)ky<(size_t)image->ih;ky+=step)
 	{
 		for(ptrdiff_t kx=step<0?(ptrdiff_t)image->iw-1:0;(size_t)kx<(size_t)image->iw;kx+=step, idx+=cstep)
@@ -118,7 +119,7 @@ int f02_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				//	printf("");
 				if(fwd)
 				{
-					int bypass=comp[kc]<<1^-(comp[kc]<0);
+					bypass=comp[kc]<<1^-(comp[kc]<0);
 #ifdef USE_GOLOMB
 					gr_enc(&ec, bypass, 1<<image->depth>>1);
 #elif defined USE_ANS
@@ -140,25 +141,25 @@ int f02_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				else
 				{
 #ifdef USE_GOLOMB
-					int bypass=gr_dec(&ec, 1<<image->depth>>1);
+					bypass=gr_dec(&ec, 1<<image->depth>>1);
 #elif defined USE_ANS
-					int bypass=ans_dec_POT(&ec, CDF, image->depth);
-					//int bypass=ans_dec(&ec, 0, 1<<image->depth);
+					bypass=ans_dec_POT(&ec, CDF, image->depth);
+					//bypass=ans_dec(&ec, 0, 1<<image->depth);
 #elif defined USE_ABAC
-					int bypass=0;
+					bypass=0;
 					for(int kb=image->depth-1;kb>=0;--kb)
 						bypass|=ac_dec_bin(&ec, 0x8000)<<kb;
 #else
 #ifdef USE_CDF2SYM
-					int bypass=ac_dec_CDF2sym(&ec, CDF, CDF2sym, 8);
+					bypass=ac_dec_CDF2sym(&ec, CDF, CDF2sym);
 #else
-					int bypass=ac_dec_POT_permuted(&ec, pCDF, CDF, 8);
-					//int bypass=ac_dec_POT(&ec, CDF, 8);
-					//int bypass=ac_dec(&ec, CDF, 256);
+					bypass=ac_dec_POT_permuted(&ec, pCDF, CDF, 8);
+					//bypass=ac_dec_POT(&ec, CDF, 8);
+					//bypass=ac_dec(&ec, CDF, 256);
 #endif
-					//int bypass=ac_dec_bypass(&ec, 1<<image->depth);
+					//bypass=ac_dec_bypass(&ec, 1<<image->depth);
 
-					//int bypass=0;
+					//bypass=0;
 					//while(nbits>8)
 					//{
 					//	nbits-=8;
@@ -166,7 +167,7 @@ int f02_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					//}
 					//bypass|=ac_dec(&ec, 0, 1<<nbits, 16-nbits);
 #endif
-					dst->data[idx+kc]=bypass>>1^-(bypass&1);
+					dst->data[idx+kc]=(short)(bypass>>1^-(bypass&1));
 				}
 			}
 #ifdef ENABLE_GUIDE
@@ -214,7 +215,7 @@ int f02_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #else
 			ptrdiff_t csize=list.nobj;
 #endif
-			printf("csize %12lld  %10.6lf%%  CR %8.6lf\n", csize, 100.*csize/usize, (double)usize/csize);
+			printf("csize %12td  %10.6lf%%  CR %8.6lf\n", csize, 100.*csize/usize, (double)usize/csize);
 		}
 		printf("F02-%s  %c %15.6lf sec\n", ecname, 'D'+fwd, t0);
 	}

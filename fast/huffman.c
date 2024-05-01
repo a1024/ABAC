@@ -5,6 +5,7 @@
 #include<string.h>
 static const char file[]=__FILE__;
 
+#if 0
 static int huffnode_less(const void *left, const void *right)
 {
 	HuffInternalNodeHandle L=*(HuffInternalNodeHandle*)left, R=*(HuffInternalNodeHandle*)right;
@@ -227,3 +228,4 @@ void huff_test(Image const *image)
 	free(hist);
 	free(alphabet);
 }
+#endif

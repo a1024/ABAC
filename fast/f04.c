@@ -154,7 +154,7 @@ int f04_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						int val=im2.data[idx+kc];
 						val|=bit<<kb;
 						val-=MSBoffset;
-						im2.data[idx+kc]=val;
+						im2.data[idx+kc]=(short)val;
 //#ifdef ENABLE_GUIDE
 //						if(guide&&(image->data[idx+kc]>>kb&1)!=(guide->data[idx+kc]>>kb&1))
 //							LOG_ERROR("Guide error CXYB %d %d %d %d", kc, kx, ky, kb);
@@ -184,19 +184,19 @@ int f04_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			ptrdiff_t csize=list.nobj;
 #ifdef ESTIMATE_CSIZES
 			double uchsize=(double)image->iw*image->ih*3/8;
-			double ctotal=0;
+			double etotal=0;
 			printf("Bx        %12.3lf\n", uchsize);
 			for(int kb=0;kb<depth;++kb)
 			{
-				double csize=csizes[kb]/8.;
-				printf("B%d        %12.3lf  %15.6lf%%  %9.6lf\n", kb, csize, 100.*csize/uchsize, uchsize/csize);
-				ctotal+=csizes[kb];
+				double esize=csizes[kb]/8.;
+				printf("B%d        %12.3lf  %15.6lf%%  %9.6lf\n", kb, esize, 100.*esize/uchsize, uchsize/esize);
+				etotal+=csizes[kb];
 			}
 			uchsize*=image->depth;
-			ctotal/=8;
-			printf("Estimated %12.3lf  %15.6lf%%  %9.6lf\n\n", ctotal, 100.*ctotal/uchsize, uchsize/ctotal);
+			etotal/=8;
+			printf("Estimated %12.3lf  %15.6lf%%  %9.6lf\n\n", etotal, 100.*etotal/uchsize, uchsize/etotal);
 #endif
-			printf("csize %12lld      %15.6lf%%  %9.6lf  stats %lld bytes\n",
+			printf("csize %12td      %15.6lf%%  %9.6lf  stats %zd bytes\n",
 				csize, 100.*csize/usize, (double)usize/csize, sizeof(int)*ctxsize*nctx
 			);
 		}

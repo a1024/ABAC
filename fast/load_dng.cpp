@@ -1,4 +1,5 @@
 #include"fast.h"
+#include<stdint.h>
 #define TINY_DNG_LOADER_IMPLEMENTATION
 #include"tiny_dng_loader.h"
 static const char file[]=__FILE__;
@@ -13,7 +14,7 @@ extern "C" int load_dng(const char *fn, Image *dst)
 		return 0;
 	int klargest=0;
 	size_t maxres=0;
-	for(int ki=0;ki<images.size();++ki)
+	for(int ki=0;ki<(int)images.size();++ki)
 	{
 		auto &im=images[ki];
 		size_t res=(size_t)im.width*im.height;
@@ -46,7 +47,7 @@ extern "C" int load_dng(const char *fn, Image *dst)
 				int bit=data[kb2>>3]>>(kb2&7)&1;
 				val|=bit<<kb;
 			}
-			dst->data[idx]=val-half;
+			dst->data[idx]=(short)(val-half);
 		}
 	}
 	return 1;

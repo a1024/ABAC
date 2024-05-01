@@ -94,10 +94,10 @@ int f10_mptest(const char *path)
 		{
 			short *rows[]=
 			{
-				pixels+(((curr.iw+2LL)*((kf-0LL)<<1&2|(ky-0LL)&1)+1LL)<<2),
-				pixels+(((curr.iw+2LL)*((kf-0LL)<<1&2|(ky-1LL)&1)+1LL)<<2),
-				pixels+(((curr.iw+2LL)*((kf-1LL)<<1&2|(ky-0LL)&1)+1LL)<<2),
-				pixels+(((curr.iw+2LL)*((kf-1LL)<<1&2|(ky-1LL)&1)+1LL)<<2),
+				pixels+(((curr.iw+2LL)*(((kf-0LL)&1)<<1|((ky-0LL)&1))+1LL)<<2),
+				pixels+(((curr.iw+2LL)*(((kf-0LL)&1)<<1|((ky-1LL)&1))+1LL)<<2),
+				pixels+(((curr.iw+2LL)*(((kf-1LL)&1)<<1|((ky-0LL)&1))+1LL)<<2),
+				pixels+(((curr.iw+2LL)*(((kf-1LL)&1)<<1|((ky-1LL)&1))+1LL)<<2),
 			};
 			for(int kx=0;kx<curr.iw;++kx, idx+=curr.nch)
 			{
@@ -127,7 +127,7 @@ int f10_mptest(const char *path)
 					pred&=nlevels-1;
 					//pred-=half;
 					++hist[kc<<curr.depth|pred];
-					rows[0][kc]=curr.data[idx+kc]-offset;
+					rows[0][kc]=(short)(curr.data[idx+kc]-offset);
 				}
 				for(int k=0;k<4;++k)
 					rows[k]+=4;
@@ -156,7 +156,7 @@ int f10_mptest(const char *path)
 		elapsed+=time_sec()-t;
 		size_t usizesofar=((size_t)curr.iw*curr.ih*curr.nch*(kf+1LL)*curr.depth)>>3;
 		double csizesofar=(csizes[0]+csizes[1]+csizes[2]+csizes[3])/8;
-		printf("Progress %7d/%7d = %6.2lf%%  %16.2lf/%14lld = %10.6lf  CR %16.6lf\r",
+		printf("Progress %7d/%7d = %6.2lf%%  %16.2lf/%14zd = %10.6lf  CR %16.6lf\r",
 			kf+1, (int)filenames->count, 100.*(kf+1)/filenames->count,
 			csizesofar, usizesofar, csizesofar/usizesofar, usizesofar/csizesofar
 		);
@@ -180,7 +180,7 @@ int f10_mptest(const char *path)
 		csize_total+=csize;
 	}
 	printf("\n");
-	printf("Total %16.2lf/%14lld = %10.6lf  CR %16.6lf\n", csize_total, usize_total, csize_total/usize_total, usize_total/csize_total);
+	printf("Total %16.2lf/%14zd = %10.6lf  CR %16.6lf\n", csize_total, usize_total, csize_total/usize_total, usize_total/csize_total);
 	printf("Loop    %14lf sec\n", elapsed);
 	printf("Elapsed %14lf sec\n", t0);
 	free(pixels);

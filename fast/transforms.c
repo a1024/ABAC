@@ -183,7 +183,7 @@ void pred_clampgrad(Image *src, int fwd, const char *depths)
 				pred&=nlevels-1;
 				pred-=nlevels>>1;
 
-				src->data[idx]=pred;
+				src->data[idx]=(short)pred;
 			}
 		}
 	}
@@ -234,8 +234,8 @@ void pred_clampgrad_fast(Image *src, int fwd, const char *depths)
 				pred&=nlevels[kc]-1;
 				pred-=nlevels[kc]>>1;
 
-				src->data[idx+kc]=pred;
-				rows[0][kc]=fwd?curr:pred;
+				src->data[idx+kc]=(short)pred;
+				rows[0][kc]=(short)(fwd?curr:pred);
 			}
 
 			rows[0]+=4;
@@ -261,20 +261,20 @@ void pred_simd(Image *src, int fwd, const char *depths)
 		1<<(depths?depths[3]:src->depth),
 	};
 	int fwdmask=-fwd;
-	__m128i mfwd=_mm_set1_epi16(fwdmask);
+	__m128i mfwd=_mm_set1_epi16((short)fwdmask);
 	__m128i mhalf=_mm_set_epi16(
 		0, 0, 0, 0,
 		0,
-		nlevels[2]>>1,
-		nlevels[1]>>1,
-		nlevels[0]>>1
+		(short)(nlevels[2]>>1),
+		(short)(nlevels[1]>>1),
+		(short)(nlevels[0]>>1)
 	);
 	__m128i symmask=_mm_set_epi16(
 		0, 0, 0, 0,
 		0,
-		nlevels[2]-1,
-		nlevels[1]-1,
-		nlevels[0]-1
+		(short)(nlevels[2]-1),
+		(short)(nlevels[1]-1),
+		(short)(nlevels[0]-1)
 	);
 	ALIGN(16) short curr[8]={0};
 	for(int ky=0, idx=0;ky<src->ih;++ky)
@@ -519,9 +519,9 @@ void pred_wp_deferred(Image *src, int fwd)
 				//curr[2]+=curr[0];//r
 			}
 #endif
-			src->data[idx+0]=curr[0];
-			src->data[idx+1]=curr[1];
-			src->data[idx+2]=curr[2];
+			src->data[idx+0]=(short)curr[0];
+			src->data[idx+1]=(short)curr[1];
+			src->data[idx+2]=(short)curr[2];
 			//src->data[idx+0]=curr[2];//r
 			//src->data[idx+1]=curr[0];//g
 			//src->data[idx+2]=curr[1];//b
@@ -557,15 +557,15 @@ void pred_wp_deferred(Image *src, int fwd)
 				for(int kc=0;kc<3;++kc)
 				{
 					long long
-						w0=0x100000000/((long long)pred_errors[kc+0*4]+1),
-						w1=0x100000000/((long long)pred_errors[kc+1*4]+1),
-						w2=0x100000000/((long long)pred_errors[kc+2*4]+1),
-						w3=0x100000000/((long long)pred_errors[kc+3*4]+1),
-						sum=w0+w1+w2+w3+1;
-					wp[kc+0*4]=(int)((w0<<WP_WBITS)/sum);
-					wp[kc+1*4]=(int)((w1<<WP_WBITS)/sum);
-					wp[kc+2*4]=(int)((w2<<WP_WBITS)/sum);
-					wp[kc+3*4]=(int)((w3<<WP_WBITS)/sum);
+						weight0=0x100000000/((long long)pred_errors[kc+0*4]+1),
+						weight1=0x100000000/((long long)pred_errors[kc+1*4]+1),
+						weight2=0x100000000/((long long)pred_errors[kc+2*4]+1),
+						weight3=0x100000000/((long long)pred_errors[kc+3*4]+1),
+						sum=weight0+weight1+weight2+weight3+1;
+					wp[kc+0*4]=(int)((weight0<<WP_WBITS)/sum);
+					wp[kc+1*4]=(int)((weight1<<WP_WBITS)/sum);
+					wp[kc+2*4]=(int)((weight2<<WP_WBITS)/sum);
+					wp[kc+3*4]=(int)((weight3<<WP_WBITS)/sum);
 				}
 				memset(pred_errors, 0, sizeof(pred_errors));
 				wp+=4*NWP;
@@ -584,10 +584,10 @@ void calc_csize(Image const *src, const char *depths, double *ret_csizes, double
 {
 	char bitdepths[]=
 	{
-		depths?depths[0]:src->depth,
-		depths?depths[1]:src->depth,
-		depths?depths[2]:src->depth,
-		depths?depths[3]:src->depth,
+		depths?depths[0]:(char)src->depth,
+		depths?depths[1]:(char)src->depth,
+		depths?depths[2]:(char)src->depth,
+		depths?depths[3]:(char)src->depth,
 	};
 	int nlevels[]=
 	{
@@ -651,10 +651,10 @@ void calc_csize_vlc(Image const *src, const char *depths, double *ret_csizes, do
 {
 	char bitdepths[]=
 	{
-		depths?depths[0]:src->depth,
-		depths?depths[1]:src->depth,
-		depths?depths[2]:src->depth,
-		depths?depths[3]:src->depth,
+		depths?depths[0]:(char)src->depth,
+		depths?depths[1]:(char)src->depth,
+		depths?depths[2]:(char)src->depth,
+		depths?depths[3]:(char)src->depth,
 	};
 	int nlevels[]=
 	{
@@ -713,10 +713,10 @@ void calc_csize_bin(Image const *src, const char *depths, double *ret_csizes)
 {
 	char bitdepths[]=
 	{
-		depths?depths[0]:src->depth,
-		depths?depths[1]:src->depth,
-		depths?depths[2]:src->depth,
-		depths?depths[3]:src->depth,
+		depths?depths[0]:(char)src->depth,
+		depths?depths[1]:(char)src->depth,
+		depths?depths[2]:(char)src->depth,
+		depths?depths[3]:(char)src->depth,
 	};
 	int maxdepth=bitdepths[0];
 	UPDATE_MAX(maxdepth, bitdepths[1]);
@@ -748,7 +748,7 @@ void calc_csize_bin(Image const *src, const char *depths, double *ret_csizes)
 				p0+=(update>>7)+(update<0);
 				//if(!(unsigned short)p0)
 				//	LOG_ERROR("");
-				curr_stats[idx2]=p0;
+				curr_stats[idx2]=(unsigned short)p0;
 				idx2=idx2<<1|bit;
 			}
 		}
@@ -763,10 +763,10 @@ size_t calc_csize_ABAC(Image const *src, const char *depths)
 {
 	char bitdepths[]=
 	{
-		depths?depths[0]:src->depth,
-		depths?depths[1]:src->depth,
-		depths?depths[2]:src->depth,
-		depths?depths[3]:src->depth,
+		depths?depths[0]:(char)src->depth,
+		depths?depths[1]:(char)src->depth,
+		depths?depths[2]:(char)src->depth,
+		depths?depths[3]:(char)src->depth,
 	};
 	int maxdepth=bitdepths[0];
 	UPDATE_MAX(maxdepth, bitdepths[1]);

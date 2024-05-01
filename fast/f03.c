@@ -46,7 +46,7 @@ int f03_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			//	printf("");
 			int val=im2.data[k];
 			val=val<<1^-(val<0);
-			im2.data[k]=val;
+			im2.data[k]=(short)val;
 		}
 #endif
 	}
@@ -201,7 +201,7 @@ int f03_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #else
 						bit=(*val+half)>>kb&1;
 #endif
-						ac_enc_bin(&ec, p0, bit);
+						ac_enc_bin(&ec, (unsigned short)p0, bit);
 #ifdef ESTIMATE_CSIZES
 						int p=bit?0x10000-p0:p0;
 						csizes[kc<<4|kb]-=log2((double)p/0x10000);
@@ -209,7 +209,7 @@ int f03_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					}
 					else
 					{
-						bit=ac_dec_bin(&ec, p0);
+						bit=ac_dec_bin(&ec, (unsigned short)p0);
 						*val|=bit<<kb;
 #ifndef PACK_SIGNBIT
 						*val-=MSBoffset;
@@ -217,7 +217,7 @@ int f03_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					}
 					p0+=((!bit<<16)-p0)>>sh[kb];
 					p0=CLAMP(1, p0, 0xFFFF);
-					stats[pred]=p0;
+					stats[pred]=(unsigned short)p0;
 				}
 			}
 		}
@@ -265,7 +265,7 @@ int f03_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			ptrdiff_t usize=image_getBMPsize(image);
 			ptrdiff_t csize=list.nobj;
 #ifdef ESTIMATE_CSIZES
-			double ctotal=0;
+			double etotal=0;
 			ptrdiff_t res=(ptrdiff_t)image->iw*image->ih;
 			int maxdepth=MAXVAR(depths[0], depths[1]);
 			printf("Bx   %14.2lf\n", res/8.);
@@ -274,24 +274,24 @@ int f03_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				printf("B%2d ", kb);
 				for(int kc=0;kc<image->nch;++kc)
 				{
-					double csize=csizes[kc<<4|kb];
+					double esize=csizes[kc<<4|kb];
 					printf(" %14.2lf %6.2lf%% %12.6lf%c",
-						csize/8,
-						csize/res*100,
-						res/csize,
+						esize/8,
+						esize/res*100,
+						res/esize,
 						kc==image->nch-1?'\n':' '
 					);
-					ctotal+=csize;
+					etotal+=esize;
 				}
 			}
-			ctotal/=8;
+			etotal/=8;
 			printf("T    %14.2lf %6.2lf%% %12.6lf\n",
-				ctotal,
-				ctotal/usize*100,
-				usize/ctotal
+				etotal,
+				etotal/usize*100,
+				usize/etotal
 			);
 #endif
-			printf("csize %14lld  %10.6lf%%  %8.6lf\n", csize, 100.*csize/usize, (double)usize/csize);
+			printf("csize %14td  %10.6lf%%  %8.6lf\n", csize, 100.*csize/usize, (double)usize/csize);
 		}
 		printf("%c %15.6lf sec\n", 'D'+fwd, t0);
 	}

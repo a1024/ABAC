@@ -40,7 +40,7 @@ typedef struct ThreadArgsStruct
 	Image src, dst;
 	size_t usize, csize1, csize2;
 	double fdec, enc, dec;//time in secs
-	int error;//whether the image was recovered successfully
+	int error, unused;//whether the image was recovered successfully
 	ptrdiff_t idx;
 } ThreadArgs;
 static THREAD_RET THREAD_CALL sample_thread(void *param)
@@ -82,14 +82,14 @@ typedef struct ProcessCtxStruct
 } ProcessCtx;
 static double start_time=0, check_time=0;
 static double g_total_usize=0, g_total_csize=0;
-static void print_result(Result *res, const char *title, int width, int print_timestamp, int print_rct)
+static void print_result(Result *res, const char *title, int width, int print_timestamp)
 {
 	double
 		CR1=(double)res->usize/res->csize1,
 		CR2=(double)res->usize/res->csize2;
 	g_total_usize+=res->usize;
 	g_total_csize+=res->csize2;
-	printf("%-*s  %10lld  format %10lld %10.6lf%% D %12lf sec  test %10lld %10.6lf%% E %12lf D %12lf sec %s  all %10.6lf%%",
+	printf("%-*s  %10zd  format %10zd %10.6lf%% D %12lf sec  test %10zd %10.6lf%% E %12lf D %12lf sec %s  all %10.6lf%%",
 		width, title, res->usize,
 		res->csize1, 100./CR1, res->fdec,
 		res->csize2, 100./CR2, res->enc, res->dec, res->error?"ERROR":"SUCCESS",
@@ -151,13 +151,13 @@ static void process_file(ProcessCtx *ctx, ArrayHandle title, int maxlen, Image *
 			threadargs->usize,
 			threadargs->csize1,
 			threadargs->csize2,
-			threadargs->error,
+			(size_t)threadargs->error,
 			threadargs->fdec,
 			threadargs->enc,
 			threadargs->dec,
 		};
 		ARRAY_APPEND(ctx->results, &result, 1, 1, 0);
-		print_result(&result, (char*)threadargs->title->data, maxlen, 1, 1);
+		print_result(&result, (char*)threadargs->title->data, maxlen, 1);
 
 		array_clear(&ctx->threadargs);
 		ctx->nfinished=ctx->nstarted;
@@ -213,13 +213,13 @@ static void process_file(ProcessCtx *ctx, ArrayHandle title, int maxlen, Image *
 				threadargs->usize,
 				threadargs->csize1,
 				threadargs->csize2,
-				threadargs->error,
+				(size_t)threadargs->error,
 				threadargs->fdec,
 				threadargs->enc,
 				threadargs->dec,
 			};
 			ARRAY_APPEND(ctx->results, &result, 1, 1, 0);
-			print_result(&result, (char*)threadargs->title->data, maxlen, k>=n-1, 1);
+			print_result(&result, (char*)threadargs->title->data, maxlen, k>=n-1);
 		}
 
 		array_clear(&ctx->threadargs);
@@ -281,7 +281,7 @@ static void batch_test_mt(const char *path, int nthreads)
 	if(processctx.results)
 	{
 		Result total={0};
-		for(int k=0;k<processctx.results->count;++k)
+		for(int k=0;k<(int)processctx.results->count;++k)
 		{
 			Result *result=(Result*)array_at(&processctx.results, k);
 
@@ -294,7 +294,7 @@ static void batch_test_mt(const char *path, int nthreads)
 			total.dec+=result->dec;
 		}
 		printf("\n");
-		print_result(&total, "Total:", width, 2, 0);
+		print_result(&total, "Total:", width, 2);
 		array_free(&processctx.results);
 	}
 	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H%M%S");
@@ -357,7 +357,8 @@ int main(int argc, char **argv)
 	const char *fn=argv[1];
 #else
 	const char *fn=
-		"D:/ML/dataset-kodak/kodim13.png"
+	//	"D:/ML/dataset-kodak/kodim13.png"
+		"D:/ML/dataset-kodak-ppm/kodim13.ppm"
 	//	"D:/ML/big_building.PPM"
 	//	"C:/dataset-LPCB-ppm/STA13456.ppm"	//uncorrelated channels
 	//	"C:/dataset-LPCB-ppm/PIA13799.ppm"
@@ -397,7 +398,7 @@ int main(int argc, char **argv)
 			return 1;
 		}
 		size_t usize=image_getBMPsize(&src);
-		printf("CWHD %d*%d*%d*%d/8 = %lld bytes  format %lld bytes %10.6lf%% CR %lf  D %lf sec\n",
+		printf("CWHD %d*%d*%d*%d/8 = %zd bytes  format %td bytes %10.6lf%% CR %lf  D %lf sec\n",
 			src.nch, src.iw, src.ih, src.depth,
 			usize,
 			formatsize, 100.*formatsize/usize, (double)usize/formatsize,

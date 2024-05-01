@@ -312,11 +312,11 @@ SHADER_LIST
 SHADER_LIST
 #undef SHADER
 
-const char* glerr2str(int error)
+const char* glerr2str(int _error)
 {
 #define 			EC(x)	case x:a=(const char*)#x;break
 	const char *a=0;
-	switch(error)
+	switch(_error)
 	{
 	case 0:a="SUCCESS";break;
 	EC(GL_INVALID_ENUM);
@@ -362,7 +362,6 @@ unsigned			CompileShader(const char *src, unsigned type, const char *programname
 }
 unsigned			make_gl_program_impl(const char *vertSrc, const char *fragSrc, const char *programname)
 {
-	int error=0;
 	unsigned
 		vertShaderID=CompileShader(vertSrc, GL_VERTEX_SHADER, programname),
 		fragShaderID=CompileShader(fragSrc, GL_FRAGMENT_SHADER, programname);
@@ -500,32 +499,31 @@ void set_texture_params(int linear)
 }
 void send_texture_pot(unsigned gl_texture, const int *rgba, int txw, int txh, int linear)
 {
-	glBindTexture(GL_TEXTURE_2D, gl_texture);		GL_CHECK(error);
+	glBindTexture(GL_TEXTURE_2D, gl_texture);	GL_CHECK(error);
 	set_texture_params(linear);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, txw, txh, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);		GL_CHECK(error);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, txw, txh, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);	GL_CHECK(error);
 }
 void send_texture_pot_int16x1(unsigned gl_texture, const unsigned *texture, int txw, int txh, int linear)
 {
-	glBindTexture(GL_TEXTURE_2D, gl_texture);		GL_CHECK(error);
+	glBindTexture(GL_TEXTURE_2D, gl_texture);	GL_CHECK(error);
 	set_texture_params(linear);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, txw, txh, 0, GL_RED, GL_UNSIGNED_INT, texture);		GL_CHECK(error);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, txw, txh, 0, GL_RED, GL_UNSIGNED_INT, texture);	GL_CHECK(error);
 }
 void send_texture_pot_grey(unsigned gl_texture, const unsigned char *bmp, int txw, int txh, int linear)
 {
-	glBindTexture(GL_TEXTURE_2D, gl_texture);		GL_CHECK(error);
+	glBindTexture(GL_TEXTURE_2D, gl_texture);	GL_CHECK(error);
 	set_texture_params(linear);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, txw, txh, 0, GL_RED, GL_UNSIGNED_BYTE, bmp);		GL_CHECK(error);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, txw, txh, 0, GL_RED, GL_UNSIGNED_BYTE, bmp);	GL_CHECK(error);
 }
 void select_texture(unsigned tx_id, int u_location)
 {
 	glActiveTexture(GL_TEXTURE0);			GL_CHECK(error);
-	glBindTexture(GL_TEXTURE_2D, tx_id);	GL_CHECK(error);//select texture
-	glUniform1i(u_location, 0);				GL_CHECK(error);
+	glBindTexture(GL_TEXTURE_2D, tx_id);		GL_CHECK(error);//select texture
+	glUniform1i(u_location, 0);			GL_CHECK(error);
 }
 
-void gl_init()
+void gl_init(void)
 {
-	int error=0;
 	PIXELFORMATDESCRIPTOR pfd=
 	{
 		sizeof(PIXELFORMATDESCRIPTOR), 1,
@@ -797,11 +795,11 @@ void draw_2d_flush(ArrayHandle vertices, int color, unsigned primitive)
 	setGLProgram(shader_2D.program);		GL_CHECK(error);
 	send_color(u_2D_color, color);			GL_CHECK(error);
 
-	glEnableVertexAttribArray(a_2D_coords);	GL_CHECK(error);
+	glEnableVertexAttribArray(a_2D_coords);		GL_CHECK(error);
 
-	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);			GL_CHECK(error);
-	glBufferData(GL_ARRAY_BUFFER, (int)(vertices->count*vertices->esize), vertices->data, GL_STATIC_DRAW);GL_CHECK(error);
-	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, 0);GL_CHECK(error);
+	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);	GL_CHECK(error);
+	glBufferData(GL_ARRAY_BUFFER, (int)(vertices->count*vertices->esize), vertices->data, GL_STATIC_DRAW);	GL_CHECK(error);
+	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, 0);	GL_CHECK(error);
 	
 //	glBindBuffer(GL_ARRAY_BUFFER, 0);					GL_CHECK(error);
 //	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, g_fbuf);	GL_CHECK(error);
@@ -900,7 +898,7 @@ void draw_ellipse(float x1, float x2, float y1, float y2, int color)
 }
 
 //text API
-int toggle_sdftext()
+int toggle_sdftext(void)
 {
 	if(sdf_available)
 	{
@@ -1260,7 +1258,7 @@ float GUIPrint_append(float tab_origin, float x, float y, float zoom, int show, 
 	}
 	if(show)
 	{
-		width=print_line_immediate(0, x, y, zoom, g_buf, g_printed, -1, 0, 0);
+		width=print_line_immediate(tab_origin, x, y, zoom, g_buf, g_printed, -1, 0, 0);
 		g_printed=0;
 	}
 	return width;
@@ -1274,7 +1272,7 @@ void display_texture(int x1, int x2, int y1, int y2, unsigned txid, float alpha,
 		x1*_2_w-1, 1-y1*_2_h,
 		x2*_2_w-1, 1-y2*_2_h//y2<y1
 	};
-	float vrtx[]=
+	float _vrtx[]=
 	{
 		rect[0], rect[1],		tx1, ty1,//top left
 		rect[0], rect[3],		tx1, ty2,//bottom left
@@ -1286,7 +1284,7 @@ void display_texture(int x1, int x2, int y1, int y2, unsigned txid, float alpha,
 
 	select_texture(txid, u_texture_texture);
 	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);			GL_CHECK(error);
-	glBufferData(GL_ARRAY_BUFFER, 16<<2, vrtx, GL_STATIC_DRAW);	GL_CHECK(error);//send vertices & texcoords
+	glBufferData(GL_ARRAY_BUFFER, 16<<2, _vrtx, GL_STATIC_DRAW);	GL_CHECK(error);//send vertices & texcoords
 
 	glVertexAttribPointer(a_texture_coords, 4, GL_FLOAT, GL_FALSE, sizeof(float[4]), (void*)0);	GL_CHECK(error);//select vertices & texcoord
 
@@ -1526,7 +1524,7 @@ void draw_L3D(Camera const *cam, GPUModel const *model, const float *modelpos, c
 	glVertexAttribPointer(a_L3D_normal, 3, GL_FLOAT, GL_FALSE, model->stride, (void*)(long long)model->normals_start);	GL_CHECK(error);
 	glEnableVertexAttribArray(a_L3D_texcoord);			GL_CHECK(error);
 	glVertexAttribPointer(a_L3D_texcoord, 2, GL_FLOAT, GL_FALSE, model->stride, (void*)(long long)model->txcoord_start);GL_CHECK(error);
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, model->EBO);	GL_CHECK(error);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, model->EBO);		GL_CHECK(error);
 
 	glDrawElements(GL_TRIANGLES, model->n_elements, GL_UNSIGNED_INT, 0);	GL_CHECK(error);
 	glDisableVertexAttribArray(a_L3D_vertex);				GL_CHECK(error);
@@ -1669,18 +1667,18 @@ void draw_3d_wireframe_gpu(Camera const *cam, unsigned gpubuf, int nvertices, in
 
 	select_texture(txid, u_3D_texture);
 	
-	glUniformMatrix4fv(u_3D_matrix, 1, GL_FALSE, mVP);GL_CHECK(error);
+	glUniformMatrix4fv(u_3D_matrix, 1, GL_FALSE, mVP);	GL_CHECK(error);
 	
-	glBindBuffer(GL_ARRAY_BUFFER, gpubuf);		GL_CHECK(error);
+	glBindBuffer(GL_ARRAY_BUFFER, gpubuf);			GL_CHECK(error);
 	glVertexAttribPointer(a_3D_vertex, 3, GL_FLOAT, GL_FALSE, (int)sizeof(float[5]), (void*)0);			GL_CHECK(error);//select vertices & texcoords
 	glVertexAttribPointer(a_3D_texcoord, 2, GL_FLOAT, GL_FALSE, (int)sizeof(float[5]), (void*)(3*sizeof(float)));	GL_CHECK(error);
-	glEnableVertexAttribArray(a_3D_vertex);		GL_CHECK(error);
-	glEnableVertexAttribArray(a_3D_texcoord);	GL_CHECK(error);
+	glEnableVertexAttribArray(a_3D_vertex);			GL_CHECK(error);
+	glEnableVertexAttribArray(a_3D_texcoord);		GL_CHECK(error);
 
-	glDrawArrays(primitive, 0, nvertices);		GL_CHECK(error);
+	glDrawArrays(primitive, 0, nvertices);			GL_CHECK(error);
 
-	glDisableVertexAttribArray(a_3D_vertex);	GL_CHECK(error);
-	glDisableVertexAttribArray(a_3D_texcoord);	GL_CHECK(error);
+	glDisableVertexAttribArray(a_3D_vertex);		GL_CHECK(error);
+	glDisableVertexAttribArray(a_3D_texcoord);		GL_CHECK(error);
 }
 
 void draw_contour3d_rect(Camera const *cam, unsigned vbuf, int nvertices, unsigned txid, float alpha)
@@ -1740,7 +1738,7 @@ void draw_contour3d(Camera const *cam, float x1, float x2, float y1, float y2, f
 	};
 	glBindBuffer(GL_ARRAY_BUFFER, buffer);			GL_CHECK(error);
 	glEnableVertexAttribArray(a_contour3D_vertex);		GL_CHECK(error);
-	glVertexAttribPointer    (a_contour3D_vertex, 3, GL_FLOAT, GL_FALSE, sizeof(float[5]), (void*)0);	GL_CHECK(error);//use offsetof
+	glVertexAttribPointer    (a_contour3D_vertex, 3, GL_FLOAT, GL_FALSE, sizeof(float[5]), (void*)0);			GL_CHECK(error);//use offsetof
 	glEnableVertexAttribArray(a_contour3D_texcoord);	GL_CHECK(error);
 	glVertexAttribPointer    (a_contour3D_texcoord, 2, GL_FLOAT, GL_FALSE, sizeof(float[5]), (void*)(3*sizeof(float)));	GL_CHECK(error);
 	for(int kz=0;kz<count;++kz)

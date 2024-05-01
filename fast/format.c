@@ -1,8 +1,12 @@
 #include"fast.h"
 #include<string.h>
+#include<ctype.h>
 #include"lodepng.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include"stb_image.h"
+#ifdef __GNUC__
+#define _stricmp strcasecmp
+#endif
 static const char file[]=__FILE__;
 
 int compare_bufs_16(const short *b1, const short *b0, int iw, int ih, int nch, int chstride, const char *name, int backward, int loud)
@@ -16,7 +20,7 @@ int compare_bufs_16(const short *b1, const short *b0, int iw, int ih, int nch, i
 			if(loud)
 			{
 				ptrdiff_t idx=k/chstride, kx=idx%iw, ky=idx/iw;
-				printf("\n%s error IDX %lld  XY (%5lld, %5lld) / %5d x %5d  b1 != b0\n", name, k, kx, ky, iw, ih);
+				printf("\n%s error IDX %td  XY (%5td, %5td) / %5d x %5d  b1 != b0\n", name, k, kx, ky, iw, ih);
 				for(int kc=0;kc<nch;++kc)
 				{
 					char c=(unsigned short)b1[k+kc]==(unsigned short)b0[k+kc]?'=':'!';
@@ -38,11 +42,110 @@ int compare_bufs_16(const short *b1, const short *b0, int iw, int ih, int nch, i
 int image_load(const char *fn, Image *image)
 {
 	int fnlen=(int)strlen(fn);
-	if(!_stricmp(fn+fnlen-4, ".DNG"))
+	if(!_stricmp(fn+fnlen-4, ".PPM"))//shortcut to load PPMs fast
 	{
-		load_dng(fn, image);
+		int iw, ih;
+		ArrayHandle src=load_file(fn, 1, 16, 0);
+		if(!src)
+			return 0;
+		char *ptr=(char*)src->data, *end=(char*)src->data+src->count;
+		if(memcmp(ptr, "P6\n", sizeof(char[3])))
+			goto load_other;
+		ptr+=3;
+		if(*ptr=='#')//skip comments
+		{
+			++*ptr;
+			for(;ptr!=end&&*ptr!='\n';++ptr);
+			++*ptr;//skip newline
+		}
+		iw=(int)strtol(ptr, &ptr, 10);
+		for(;ptr!=end&&isspace(*ptr);++ptr);
+		ih=(int)strtol(ptr, &ptr, 10);
+		++ptr;//skip newline
+		for(;ptr!=end&&*ptr!='\n';++ptr);
+		++ptr;//skip newline
+
+		//start of binary data
+		ptrdiff_t res=(ptrdiff_t)iw*ih;
+		image->data=(short*)malloc(res*sizeof(short[3]));
+		if(!image->data)
+		{
+			LOG_ERROR("Alloc error");
+			return 0;
+		}
+		image->iw=iw;
+		image->ih=ih;
+		image->nch=3;
+		image->depth=8;
+
+		//serial 16-bit depth code
+		res*=3;
+		for(ptrdiff_t k=0;k<res;++k)
+			image->data[k]=(short)((int)(unsigned char)ptr[k]-128);
+
+		//this is from 32-bit depth code
+#if 0
+		__m128i extract0=_mm_set_epi8(
+		//	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0
+			-1, -1, -1, -1, -1, -1, -1,  2, -1, -1, -1,  1, -1, -1, -1,  0
+		);
+		__m128i extract1=_mm_set_epi8(
+		//	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0
+			-1, -1, -1, -1, -1, -1, -1,  5, -1, -1, -1,  4, -1, -1, -1,  3
+		);
+		__m128i extract2=_mm_set_epi8(
+		//	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0
+			-1, -1, -1, -1, -1, -1, -1,  8, -1, -1, -1,  7, -1, -1, -1,  6
+		);
+		__m128i extract3=_mm_set_epi8(
+		//	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0
+			-1, -1, -1, -1, -1, -1, -1, 11, -1, -1, -1, 10, -1, -1, -1,  9
+		);
+		__m128i extract4=_mm_set_epi8(
+		//	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0
+			-1, -1, -1, -1, -1, -1, -1, 14, -1, -1, -1, 13, -1, -1, -1, 12
+		);
+		__m128i half=_mm_set1_epi32(128);
+		__m128i *dst=(__m128i*)image->data;
+		ptrdiff_t k=0;
+		for(;k<res-4;k+=5)
+		{
+			__m128i packed5=_mm_loadu_si128((__m128i*)ptr);
+			__m128i e0=_mm_shuffle_epi8(packed5, extract0);
+			__m128i e1=_mm_shuffle_epi8(packed5, extract1);
+			__m128i e2=_mm_shuffle_epi8(packed5, extract2);
+			__m128i e3=_mm_shuffle_epi8(packed5, extract3);
+			__m128i e4=_mm_shuffle_epi8(packed5, extract4);
+			e0=_mm_sub_epi32(e0, half);
+			e1=_mm_sub_epi32(e1, half);
+			e2=_mm_sub_epi32(e2, half);
+			e3=_mm_sub_epi32(e3, half);
+			e4=_mm_sub_epi32(e4, half);
+			_mm_storeu_si128(dst+0, e0);
+			_mm_storeu_si128(dst+1, e1);
+			_mm_storeu_si128(dst+2, e2);
+			_mm_storeu_si128(dst+3, e3);
+			_mm_storeu_si128(dst+4, e4);
+			dst+=5;
+			ptr+=3*5;
+		}
+		short *dst2=(short*)dst;
+		for(;k<res;++k)
+		{
+			dst2[0]=(unsigned char)(ptr[0]-128);
+			dst2[1]=(unsigned char)(ptr[1]-128);
+			dst2[2]=(unsigned char)(ptr[2]-128);
+			dst2[3]=0;
+			dst2+=4;
+			ptr+=3;
+		}
+#endif
+		array_free(&src);
 		return 1;
 	}
+load_other:
+	if(!_stricmp(fn+fnlen-4, ".DNG"))
+		return load_dng(fn, image);
 	int idx_start=0, idx_end=0;
 	get_filetitle(fn, 0, &idx_start, &idx_end);
 	image->data=(short*)stbi_load_16(fn, &image->iw, &image->ih, &image->nch, 0);
@@ -82,7 +185,7 @@ unsigned char* image_export8(Image const *src)
 	}
 	int nlevels=1<<src->depth, half=nlevels>>1, mask=nlevels-1;
 	for(ptrdiff_t k=0;k<nvals;++k)
-		dst[k]=(src->data[k]+half)>>(src->depth-8)&mask;
+		dst[k]=(unsigned char)((src->data[k]+half)>>(src->depth-8)&mask);
 	return dst;
 }
 int image_save8(const char *fn, Image const *image)

@@ -1,5 +1,5 @@
 //h_console.cpp - allocates and controls the console window
-//Copyright (C) 2022  Ayman Wagih Mohsen
+//Copyright (C) 2022  Ayman Wagih Mohsen, unless source link provided
 //
 //This program is free software: you can redistribute it and/or modify
 //it under the terms of the GNU General Public License as published by
@@ -38,7 +38,7 @@ int console_log(const char *format, ...)
 	}
 	return printed;
 }
-void console_start()//https://stackoverflow.com/questions/191842/how-do-i-get-console-output-in-c-with-a-windows-program
+void console_start(void)//https://stackoverflow.com/questions/191842/how-do-i-get-console-output-in-c-with-a-windows-program
 {
 	if(!consoleactive)
 	{
@@ -86,7 +86,7 @@ void console_start()//https://stackoverflow.com/questions/191842/how-do-i-get-co
 		console_log("\n\tWARNING: CLOSING THIS WINDOW WILL CLOSE THE PROGRAM\n\n");
 	}
 }
-void console_end()
+void console_end(void)
 {
 	if(consoleactive)
 	{
@@ -103,7 +103,7 @@ void console_buffer_size(short x, short y)
     SetConsoleScreenBufferSize(Handle, coord);
     SetConsoleWindowInfo(Handle, TRUE, &Rect);
 }
-//void			console_start(int cx, int cy)
+//void console_start(int cx, int cy)
 //{
 //	int was_active=consoleactive;
 //	console_start();
@@ -129,17 +129,17 @@ int console_scan(char *buf, int len)
 	}
 	return ret_len;
 }
-int console_scan_int()
+int console_scan_int(void)
 {
 	console_scan(g_buf2, G_BUF_SIZE);
 	return atoi(g_buf2);
 }
-double console_scan_float()
+double console_scan_float(void)
 {
 	console_scan(g_buf2, G_BUF_SIZE);
 	return atof(g_buf2);
 }
-void console_pause()
+void console_pause(void)
 {
 	console_log("Enter 0 to continue: ");
 	console_scan(g_buf2, G_BUF_SIZE);

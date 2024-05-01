@@ -14,6 +14,9 @@ void calc_histogram(const int *buf, int iw, int ih, int kc, int x1, int x2, int 
 {
 	int nlevels=1<<depth;
 	int shift=MAXVAR(0, depth-8);
+
+	(void)ih;
+
 	memset(hist, 0, nlevels*sizeof(int));
 	if(hist8)
 		memset(hist8, 0, 256*sizeof(int));
@@ -82,7 +85,7 @@ void calc_depthfromdata(int *image, int iw, int ih, char *depths, const char *sr
 		if(vmax<vmin)
 			vmax=vmin;
 		int nlevels=vmax<<1;
-		depths[kc]=ceil_log2_32(nlevels);
+		depths[kc]=(char)ceil_log2_32(nlevels);
 		depths[kc]=MAXVAR(depths[kc], src_depths[kc]);
 	}
 }
@@ -642,10 +645,10 @@ void rct_yrgb_v1(Image *image, int fwd)
 		d0+=d0<24;
 		d1+=d1<24;
 		d2+=d2<24;
-		image->depth[0]=dbase;
-		image->depth[1]=d2;
-		image->depth[2]=d0;
-		image->depth[3]=d1;
+		image->depth[0]=(char)dbase;
+		image->depth[1]=(char)d2;
+		image->depth[2]=(char)d0;
+		image->depth[3]=(char)d1;
 	}
 	else
 	{
@@ -693,10 +696,10 @@ void rct_yrgb_v2(Image *image, int fwd)
 		d0+=d0<24;
 		d1+=d1<24;
 		d2+=d2<24;
-		image->depth[0]=dbase;
-		image->depth[1]=d2;
-		image->depth[2]=d0;
-		image->depth[3]=d1;
+		image->depth[0]=(char)dbase;
+		image->depth[1]=(char)d2;
+		image->depth[2]=(char)d0;
+		image->depth[3]=(char)d1;
 	}
 	else
 	{
@@ -1108,7 +1111,7 @@ void rct_custom_optimize(Image const *image, short *params)
 	for(int it=0, watchdog=0;it<RCT_CUSTOM_NITER;++it)
 	{
 		int idx[RCT_CUSTOM_DELTAGROUP]={0}, stuck=0;
-		int params_original_selected[RCT_CUSTOM_DELTAGROUP]={0};
+		short params_original_selected[RCT_CUSTOM_DELTAGROUP]={0};
 		if(watchdog>=shakethreshold)//bump if stuck
 		{
 			memcpy(params, params2, sizeof(params2));
@@ -1372,7 +1375,7 @@ int impl_nullspace(double *M, int dx, int dy, double *solution, int sstart, char
 	printf("Before RREF:\n");
 	print_matrix_debug(M, dx, dy);
 #endif
-	impl_rref(M, dx, dy);//first, get rref(M)
+	impl_rref(M, (short)dx, (short)dy);//first, get rref(M)
 #ifdef DEBUG_NULLSPACE
 	printf("After RREF:\n");
 	print_matrix_debug(M, dx, dy);
@@ -1388,7 +1391,7 @@ int impl_nullspace(double *M, int dx, int dy, double *solution, int sstart, char
 				break;
 		}
 		if(kx<dx)//if found
-			dep_flags[kx]=1, row_idx[ky]=kx;
+			dep_flags[kx]=1, row_idx[ky]=(short)kx;
 		else
 			break;
 	}
@@ -1435,7 +1438,7 @@ int impl_egvec(double const *M, int n, const double *lambdas, double *S)
 	short *row_idx=(short*)malloc(n*sizeof(short));
 	if(!temp||!dep_flags||!row_idx)
 	{
-		LOG_ERROR("Allocation error");
+		LOG_ERROR("Alloc error");
 		return 0;
 	}
 	memset(S, 0, size*sizeof(double));
@@ -2169,6 +2172,9 @@ void pred_clampgrad(Image *src, int fwd, int enable_ma)
 {
 #if 1
 	int *pixels=(int*)_mm_malloc((src->iw+4LL)*sizeof(int[2*4]), sizeof(__m128i));//2 padded rows * 4 channels max
+
+	(void)enable_ma;
+
 	if(!pixels)
 	{
 		LOG_ERROR("Alloc error");
@@ -2430,6 +2436,9 @@ void pred_clampgrad(Image *src, int fwd, int enable_ma)
 void pred_CG3D(Image *src, int fwd, int enable_ma)
 {
 	int *pixels=(int*)malloc((src->iw+2LL)*sizeof(int[2*4]));//2 padded rows * 4 channels max
+
+	(void)enable_ma;
+
 	if(!pixels)
 	{
 		LOG_ERROR("Alloc error");
@@ -2757,8 +2766,8 @@ void pred_wp_deferred(Image *src, int fwd)
 	//memset(weights, 0, (nblocks+NWP)*sizeof(int[4*NWP]));
 	memset(pixels, 0, (src->iw+16LL)*sizeof(int[4*4*2]));
 #ifdef WP_RCT
-	src->depth[0]+=fwd;
-	src->depth[2]+=fwd;
+	src->depth[0]+=(char)fwd;
+	src->depth[2]+=(char)fwd;
 #endif
 	int nlevels[]=
 	{
@@ -3001,23 +3010,23 @@ void pred_wp_deferred(Image *src, int fwd)
 				for(int kc=0;kc<3;++kc)
 				{
 					long long
-						w0=0x100000000/((long long)pred_errors[kc+0*4]+1),
-						w1=0x100000000/((long long)pred_errors[kc+1*4]+1),
-						w2=0x100000000/((long long)pred_errors[kc+2*4]+1),
-						w3=0x100000000/((long long)pred_errors[kc+3*4]+1),
-						w4=0x100000000/((long long)pred_errors[kc+4*4]+1),
-						w5=0x100000000/((long long)pred_errors[kc+5*4]+1),
-						w6=0x100000000/((long long)pred_errors[kc+6*4]+1),
-						w7=0x100000000/((long long)pred_errors[kc+7*4]+1),
-						sum=w0+w1+w2+w3+w4+w5+w6+w7+1;
-					wp[kc+0*4]=(int)((w0<<WP_WBITS)/sum);
-					wp[kc+1*4]=(int)((w1<<WP_WBITS)/sum);
-					wp[kc+2*4]=(int)((w2<<WP_WBITS)/sum);
-					wp[kc+3*4]=(int)((w3<<WP_WBITS)/sum);
-					wp[kc+4*4]=(int)((w4<<WP_WBITS)/sum);
-					wp[kc+5*4]=(int)((w5<<WP_WBITS)/sum);
-					wp[kc+6*4]=(int)((w6<<WP_WBITS)/sum);
-					wp[kc+7*4]=(int)((w7<<WP_WBITS)/sum);
+						weight0=0x100000000/((long long)pred_errors[kc+0*4]+1),
+						weight1=0x100000000/((long long)pred_errors[kc+1*4]+1),
+						weight2=0x100000000/((long long)pred_errors[kc+2*4]+1),
+						weight3=0x100000000/((long long)pred_errors[kc+3*4]+1),
+						weight4=0x100000000/((long long)pred_errors[kc+4*4]+1),
+						weight5=0x100000000/((long long)pred_errors[kc+5*4]+1),
+						weight6=0x100000000/((long long)pred_errors[kc+6*4]+1),
+						weight7=0x100000000/((long long)pred_errors[kc+7*4]+1),
+						sum=weight0+weight1+weight2+weight3+weight4+weight5+weight6+weight7+1;
+					wp[kc+0*4]=(int)((weight0<<WP_WBITS)/sum);
+					wp[kc+1*4]=(int)((weight1<<WP_WBITS)/sum);
+					wp[kc+2*4]=(int)((weight2<<WP_WBITS)/sum);
+					wp[kc+3*4]=(int)((weight3<<WP_WBITS)/sum);
+					wp[kc+4*4]=(int)((weight4<<WP_WBITS)/sum);
+					wp[kc+5*4]=(int)((weight5<<WP_WBITS)/sum);
+					wp[kc+6*4]=(int)((weight6<<WP_WBITS)/sum);
+					wp[kc+7*4]=(int)((weight7<<WP_WBITS)/sum);
 #ifdef ETOTAL_MBOX
 					etotal[kc+0*4]+=(long long)pred_errors[kc+0*4];
 					etotal[kc+1*4]+=(long long)pred_errors[kc+1*4];
@@ -3229,6 +3238,10 @@ void pred_zipper(Image **psrc, int fwd, int enable_ma)
 	Image *src=*psrc;
 	int *row=(int*)malloc(src->iw*sizeof(int));
 	//Image *dst=(Image*)malloc(sizeof(Image)+(src->iw+1LL)*(src->ih+1LL)*sizeof(int[4]));
+
+	(void)fwd;//WIP
+	(void)enable_ma;
+
 	if(!row)
 	{
 		LOG_ERROR("Alloc error");
@@ -4093,9 +4106,9 @@ static void pred_separate_x(Image const *src, Image *dst, int fwd, int enable_ma
 			long long lpred=0, lsum=0;
 			for(int k=0;k<_countof(preds)/2;++k)
 			{
-				long long w=((long long)preds[k<<1|0]<<8)/errors[k];
-				lpred+=w*preds[k<<1|1];
-				lsum+=w;
+				long long weight=((long long)preds[k<<1|0]<<8)/errors[k];
+				lpred+=weight*preds[k<<1|1];
+				lsum+=weight;
 			}
 			int pred=(int)(lpred/lsum);
 			pred=CLAMP(cmin, pred, cmax);
@@ -4728,22 +4741,22 @@ void pred_ols(Image *src, int fwd, int enable_ma)
 				//	nb[k<<2|3]=(4*(xN+xW)+xNE-xNW)>>3;
 				//}
 				double nb2[_countof(nb)];
-				for(int ky=0;ky<4;++ky)
+				for(int ky2=0;ky2<4;++ky2)
 				{
-					for(int kx=0;kx<OLS_NSAMPLES;++kx)
-						nb2[OLS_NSAMPLES*ky+kx]=(double)nb[kx<<2|ky]/256;///(1<<24);
+					for(int kx2=0;kx2<OLS_NSAMPLES;++kx2)
+						nb2[OLS_NSAMPLES*ky2+kx2]=(double)nb[kx2<<2|ky2]/256;///(1<<24);
 				}
 				double sqm[OLS_NPARAMS*(OLS_NPARAMS<<1)]={0};
-				for(int ky=0;ky<OLS_NPARAMS;++ky)
+				for(int ky2=0;ky2<OLS_NPARAMS;++ky2)
 				{
-					for(int kx=0;kx<OLS_NPARAMS;++kx)
+					for(int kx2=0;kx2<OLS_NPARAMS;++kx2)
 					{
 						double sum=0;
 						for(int j=0;j<OLS_NSAMPLES;++j)
-							sum+=priority[j]*nb2[OLS_NSAMPLES*ky+j]*nb2[OLS_NSAMPLES*kx+j];
-						sqm[(OLS_NPARAMS<<1)*ky+kx]=sum;
+							sum+=priority[j]*nb2[OLS_NSAMPLES*ky2+j]*nb2[OLS_NSAMPLES*kx2+j];
+						sqm[(OLS_NPARAMS<<1)*ky2+kx2]=sum;
 					}
-					sqm[(OLS_NPARAMS<<1)*ky+ky+OLS_NPARAMS]=1;
+					sqm[((OLS_NPARAMS<<1)+1)*ky2+OLS_NPARAMS]=1;
 				}
 				double temp[OLS_NPARAMS<<1];
 				int success=invert_matrix(sqm, OLS_NPARAMS, temp);
@@ -4773,22 +4786,22 @@ void pred_ols(Image *src, int fwd, int enable_ma)
 							WW,
 							W,
 						};
-						for(int ky=0;ky<OLS_NPARAMS;++ky)
+						for(int ky2=0;ky2<OLS_NPARAMS;++ky2)
 						{
 							double sum=0;
-							for(int kx=0;kx<OLS_NSAMPLES;++kx)
-								sum+=priority[kx]*nb2[OLS_NSAMPLES*ky+kx]*targets[kx]/256;///(1<<24);
-							temp[ky]=sum;
+							for(int kx2=0;kx2<OLS_NSAMPLES;++kx2)
+								sum+=priority[kx2]*nb2[OLS_NSAMPLES*ky2+kx2]*targets[kx2]/256;///(1<<24);
+							temp[ky2]=sum;
 						}
-						for(int ky=0;ky<OLS_NPARAMS;++ky)
+						for(int ky2=0;ky2<OLS_NPARAMS;++ky2)
 						{
 							double sum=0;
 							for(int j=0;j<OLS_NPARAMS;++j)
-								sum+=sqm[(OLS_NPARAMS<<1)*ky+j+OLS_NPARAMS]*temp[j];
+								sum+=sqm[(OLS_NPARAMS<<1)*ky2+j+OLS_NPARAMS]*temp[j];
 							if(c1_init[kc])
-								c1_params[kc<<2|ky]+=(sum-c1_params[kc<<2|ky])*0.2;
+								c1_params[kc<<2|ky2]+=(sum-c1_params[kc<<2|ky2])*0.2;
 							else
-								c1_params[kc<<2|ky]=sum;
+								c1_params[kc<<2|ky2]=sum;
 						}
 						c1_init[kc]=1;
 					}
@@ -4820,18 +4833,17 @@ void pred_ols(Image *src, int fwd, int enable_ma)
 					pred=N+W-NW;
 					pred=MEDIAN3(N, W, pred);
 				}
-				int idx=(src->iw*ky+kx)<<2|kc;
 				int curr=pred;
 				curr^=-fwd;
 				curr+=fwd;
-				curr+=src->data[idx];
+				curr+=src->data[idx<<2|kc];
 				if(enable_ma)
 				{
 					curr+=nlevels>>1;
 					curr&=nlevels-1;
 					curr-=nlevels>>1;
 				}
-				dst->data[idx]=curr;
+				dst->data[idx<<2|kc]=curr;
 			}
 		}
 	}
@@ -4994,15 +5006,15 @@ void pred_ols2(Image *src, int fwd, int enable_ma)
 									sum+=samples[(OLS2_NPARAMS+1)*kx2+ky2]*samples[(OLS2_NPARAMS+1)*kx2+OLS2_NPARAMS];
 								temp[ky2]=sum;
 							}
-							for(int ky=0;ky<OLS2_NPARAMS;++ky)//params = matrix * temp
+							for(int ky2=0;ky2<OLS2_NPARAMS;++ky2)//params = matrix * temp
 							{
 								double sum=0;
 								for(int j=0;j<OLS2_NPARAMS;++j)
-									sum+=matrix2[(OLS2_NPARAMS<<1)*ky+j+OLS2_NPARAMS]*temp[j];
+									sum+=matrix2[(OLS2_NPARAMS<<1)*ky2+j+OLS2_NPARAMS]*temp[j];
 								if(initialized)
-									params[ky]+=(sum-params[ky])*0.2;
+									params[ky2]+=(sum-params[ky2])*0.2;
 								else
-									params[ky]=sum;
+									params[ky2]=sum;
 							}
 							initialized=1;
 						}
@@ -5243,15 +5255,15 @@ void pred_ols3(Image *src, int fwd, int enable_ma)
 									sum+=csamples[(OLS3_NPARAMS2+1)*kx2+ky2]*csamples[(OLS3_NPARAMS2+1)*kx2+nparams];
 								temp[ky2]=sum;
 							}
-							for(int ky=0;ky<nparams;++ky)//params = matrix * temp
+							for(int ky2=0;ky2<nparams;++ky2)//params = matrix * temp
 							{
 								double sum=0;
 								for(int j=0;j<nparams;++j)
-									sum+=mat2[(nparams<<1)*ky+j+nparams]*temp[j];
+									sum+=mat2[(nparams<<1)*ky2+j+nparams]*temp[j];
 								if(initialized[kc])
-									cparams[ky]+=(sum-cparams[ky])*0.2;
+									cparams[ky2]+=(sum-cparams[ky2])*0.2;
 								else
-									cparams[ky]=sum;
+									cparams[ky2]=sum;
 							}
 							initialized[kc]=1;
 						}
@@ -5596,7 +5608,7 @@ void pred_t47(Image *src, int fwd, int enable_ma)
 #define LOAD(mX, mY) pred_errors[SLIC5_NPREDS*(kym[mY]+kx+2-(mX))+k]
 				for(int k=0;k<_countof(preds);++k)
 				{
-					long long w=1+
+					long long weight=1+
 						(long long)LOAD(-2,  2)+
 						(long long)LOAD(-1,  2)+
 						(long long)LOAD( 0,  2)+
@@ -5605,9 +5617,9 @@ void pred_t47(Image *src, int fwd, int enable_ma)
 						(long long)LOAD(-1,  1)+
 						(long long)LOAD( 0,  1)*3+
 						(long long)LOAD( 1,  1);
-					w=((long long)params[k]<<29)/w;
-					pred+=w*preds[k];
-					wsum+=w;
+					weight=((long long)params[k]<<29)/w;
+					pred+=weight*preds[k];
+					wsum+=weight;
 				}
 				if(wsum)
 				{
@@ -5946,7 +5958,7 @@ static int clamp4(int p, int a, int b, int c, int d)
 void pred_w2_prealloc(const int *src, int iw, int ih, int depth, int kc, short *params, int fwd, int enable_ma, int *dst, int *temp)//temp is (PW2_NPRED+1)*2w
 {
 	int errorbuflen=iw<<1, rowlen=iw<<2;
-	int *error=temp, *pred_errors[PW2_NPRED];
+	int *hireserror=temp, *pred_errors[PW2_NPRED];
 	for(int k=0;k<PW2_NPRED;++k)
 		pred_errors[k]=temp+errorbuflen*(k+1);
 	int idx=kc;
@@ -6022,20 +6034,20 @@ void pred_w2_prealloc(const int *src, int iw, int ih, int depth, int kc, short *
 			for(int k=0;k<PW2_NPRED;++k)
 			{
 				//eNW + eN + eNE
-				int w=
+				int e2=
 					 (ky-1>=0&&kx-1>=0?pred_errors[k][prevrow+kx-1]:0)
 					+(ky-1>=0?pred_errors[k][prevrow+kx]:0)
 					+(ky-1>=0&&kx+1<iw?pred_errors[k][prevrow+kx+1]:0);
-				weights[k]=(params[k]<<8)/(w+1);
+				weights[k]=(params[k]<<8)/(e2+1);
 			}
 
 			//TL T TR
 			//L  X
 			int
-				eT=ky-1>=0?error[prevrow+kx]:0,
-				eL=kx-1>=0?error[currrow+kx-1]:0,
-				eTL=ky-1>=0&&kx-1>=0?error[prevrow+kx-1]:0,
-				eTR=ky-1>=0&&kx+1<iw?error[prevrow+kx+1]:0,
+				eT=ky-1>=0?hireserror[prevrow+kx]:0,
+				eL=kx-1>=0?hireserror[currrow+kx-1]:0,
+				eTL=ky-1>=0&&kx-1>=0?hireserror[prevrow+kx-1]:0,
+				eTR=ky-1>=0&&kx+1<iw?hireserror[prevrow+kx+1]:0,
 				eT_L=eT+eL;
 
 			//pred_left=pred_left+((cL-pred_left)*params[PW2_NPRED+11]>>8);
@@ -6164,7 +6176,7 @@ void pred_w2_prealloc(const int *src, int iw, int ih, int depth, int kc, short *
 				curr=dst[idx]<<8;
 			}
 
-			error[currrow+kx]=curr-(int)pred;
+			hireserror[currrow+kx]=curr-(int)pred;
 			for(int k=0;k<PW2_NPRED;++k)
 			{
 				int e=abs(curr-predictions[k]);
@@ -6196,9 +6208,12 @@ void pred_w2_opt_v2(Image *src, short *params, int loud)
 	int maxdepth=calc_maxdepth(src, 0);
 	int nlevels=1<<maxdepth;
 	int *hist=(int*)malloc(nlevels*sizeof(int));
+
+	(void)loud;
+
 	if(!buf3||!temp||!hist)
 	{
-		LOG_ERROR("Allocation error");
+		LOG_ERROR("Alloc error");
 		return;
 	}
 	char title0[256];
@@ -6219,14 +6234,14 @@ void pred_w2_opt_v2(Image *src, short *params, int loud)
 				short prev;
 
 				prev=param[idx];
-				param[idx]+=step;
+				param[idx]+=(short)step;
 				csize=pred_w2_calcloss(src->data, src->iw, src->ih, src->depth[kc], src->src_depth[kc], kc, param, temp, buf3, hist);
 				param[idx]=prev;
 				if(bestcsize>csize)
 					bestcsize=csize, bestidx=idx, beststep=step;
 
 				prev=param[idx];
-				param[idx]-=step;
+				param[idx]-=(short)step;
 				if(idx<4&&param[idx]<1)
 					param[idx]=1;
 				csize=pred_w2_calcloss(src->data, src->iw, src->ih, src->depth[kc], src->src_depth[kc], kc, param, temp, buf3, hist);
@@ -6241,7 +6256,7 @@ void pred_w2_opt_v2(Image *src, short *params, int loud)
 			{
 				csize0=bestcsize;
 
-				param[bestidx]+=beststep;
+				param[bestidx]+=(short)beststep;
 				if(bestidx<4&&param[bestidx]<1)
 					param[bestidx]=1;
 			}
@@ -6261,7 +6276,7 @@ void pred_w2_apply(Image *src, int fwd, int enable_ma, short *params)
 	int *buf2=(int*)malloc(res*sizeof(int[4]));
 	if(!temp||!buf2)
 	{
-		LOG_ERROR("Allocation error");
+		LOG_ERROR("Alloc error");
 		return;
 	}
 	
@@ -6321,7 +6336,7 @@ short jxlparams_i16[33]=//signed fixed 7.8 bit
 void pred_jxl_prealloc(const int *src, int iw, int ih, int depth, int kc, short *params, int fwd, int enable_ma, int *dst, int *temp_w10)
 {
 	int errorbuflen=iw<<1, rowlen=iw<<2;
-	int *error=temp_w10, *pred_errors[]=
+	int *hireserror=temp_w10, *pred_errors[]=
 	{
 		temp_w10+errorbuflen,
 		temp_w10+errorbuflen*2,
@@ -6357,15 +6372,15 @@ void pred_jxl_prealloc(const int *src, int iw, int ih, int depth, int kc, short 
 			int weights[4];//fixed 23.8 bit
 			for(int k=0;k<4;++k)
 			{
-				int w=(ky-1>=0?pred_errors[k][prevrow+kx]:0)+(ky-1>=0&&kx+1<iw?pred_errors[k][prevrow+kx+1]:0)+(ky-1>=0&&kx-1>=0?pred_errors[k][prevrow+kx-1]:0);
-				weights[k]=(params[k]<<8)/(w+1);
+				int e2=(ky-1>=0?pred_errors[k][prevrow+kx]:0)+(ky-1>=0&&kx+1<iw?pred_errors[k][prevrow+kx+1]:0)+(ky-1>=0&&kx-1>=0?pred_errors[k][prevrow+kx-1]:0);
+				weights[k]=(params[k]<<8)/(e2+1);
 			}
 
 			int
-				etop=ky-1>=0?error[prevrow+kx]:0,
-				eleft=kx-1>=0?error[currrow+kx-1]:0,
-				etopleft=ky-1>=0&&kx-1>=0?error[prevrow+kx-1]:0,
-				etopright=ky-1>=0&&kx+1<iw?error[prevrow+kx+1]:0,
+				etop=ky-1>=0?hireserror[prevrow+kx]:0,
+				eleft=kx-1>=0?hireserror[currrow+kx-1]:0,
+				etopleft=ky-1>=0&&kx-1>=0?hireserror[prevrow+kx-1]:0,
+				etopright=ky-1>=0&&kx+1<iw?hireserror[prevrow+kx+1]:0,
 				etopplusleft=etop+eleft;
 			long long predictions[]=//fixed 23.8 bit
 			{
@@ -6424,7 +6439,7 @@ void pred_jxl_prealloc(const int *src, int iw, int ih, int depth, int kc, short 
 			//	curr=dst[idx]<<8;
 			//}
 
-			error[currrow+kx]=curr-pred;
+			hireserror[currrow+kx]=curr-pred;
 			for(int k=0;k<4;++k)
 			{
 				int e=abs(curr-(int)predictions[k]);
@@ -6453,9 +6468,12 @@ void pred_jxl_opt_v2(Image *src, short *params, int loud)
 	int maxdepth=calc_maxdepth(src, 0);
 	int nlevels=1<<maxdepth;
 	int *hist=(int*)malloc(nlevels*sizeof(int));
+
+	(void)loud;
+
 	if(!buf3||!temp||!hist)
 	{
-		LOG_ERROR("Allocation error");
+		LOG_ERROR("Alloc error");
 		return;
 	}
 	int steps[]={256, 128, 64, 32, 16, 8, 4, 2, 1};
@@ -6474,14 +6492,14 @@ void pred_jxl_opt_v2(Image *src, short *params, int loud)
 				short prev;
 
 				prev=param[idx];
-				param[idx]+=step;
+				param[idx]+=(short)step;
 				csize=pred_jxl_calcloss(src->data, src->iw, src->ih, src->depth[kc], src->src_depth[kc], kc, param, temp, buf3, hist);
 				param[idx]=prev;
 				if(bestcsize>csize)
 					bestcsize=csize, bestidx=idx, beststep=step;
 
 				prev=param[idx];
-				param[idx]-=step;
+				param[idx]-=(short)step;
 				if(idx<4&&param[idx]<1)
 					param[idx]=1;
 				csize=pred_jxl_calcloss(src->data, src->iw, src->ih, src->depth[kc], src->src_depth[kc], kc, param, temp, buf3, hist);
@@ -6493,7 +6511,7 @@ void pred_jxl_opt_v2(Image *src, short *params, int loud)
 			{
 				csize0=bestcsize;
 
-				param[bestidx]+=beststep;
+				param[bestidx]+=(short)beststep;
 				if(bestidx<4&&param[bestidx]<1)
 					param[bestidx]=1;
 			}
@@ -6511,7 +6529,7 @@ void pred_jxl_apply(Image *src, int fwd, int enable_ma, short *params)
 	int *buf2=(int*)malloc(res*sizeof(int[4]));
 	if(!temp||!buf2)
 	{
-		LOG_ERROR("Allocation error");
+		LOG_ERROR("Alloc error");
 		return;
 	}
 	
@@ -6541,7 +6559,7 @@ void pred_jmj_apply(Image *src, int fwd, int enable_ma)
 	int *buf2=(int*)malloc(res*sizeof(int[4]));
 	if(!temp||!buf2)
 	{
-		LOG_ERROR("Allocation error");
+		LOG_ERROR("Alloc error");
 		return;
 	}
 	
@@ -6601,8 +6619,8 @@ static int custom3_loadnb(const int *pixels, const int *errors, int iw, int ih, 
 			if((unsigned)(kx+kx2)<(unsigned)iw&&(unsigned)(ky+ky2)<(unsigned)ih)
 			{
 				int idx2=(iw*(ky+ky2)+kx+kx2)<<2|kc;
-				nb[++idx]=pixels[idx2];
-				nb[++idx]=errors[idx2];
+				nb[++idx]=(short)pixels[idx2];
+				nb[++idx]=(short)errors[idx2];
 			}
 			else
 			{
@@ -6616,8 +6634,8 @@ static int custom3_loadnb(const int *pixels, const int *errors, int iw, int ih, 
 		if((unsigned)(kx+kx2)<(unsigned)iw)
 		{
 			int idx2=(iw*ky+kx+kx2)<<2|kc;
-			nb[++idx]=pixels[idx2];
-			nb[++idx]=errors[idx2];
+			nb[++idx]=(short)pixels[idx2];
+			nb[++idx]=(short)errors[idx2];
 		}
 		else
 		{
@@ -6725,8 +6743,8 @@ static void custom3_prealloc(const int *src, int iw, int ih, const char *depths,
 				//else
 				//	dst[idx]=src[idx]+pred;
 
-				nb[kdst][C3_NNB  ]=pixels[idx];
-				nb[kdst][C3_NNB+1]=errors[idx];
+				nb[kdst][C3_NNB  ]=(short)pixels[idx];
+				nb[kdst][C3_NNB+1]=(short)errors[idx];
 				count[kdst]+=2;
 				++idx;
 				idx2+=3;
@@ -6741,7 +6759,7 @@ void custom3_apply(Image *src, int fwd, int enable_ma, Custom3Params const *para
 	int *temp=(int*)malloc(res*sizeof(int[4]));
 	if(!temp)
 	{
-		LOG_ERROR("Allocation error");
+		LOG_ERROR("Alloc error");
 		return;
 	}
 	memcpy(temp, src->data, res*sizeof(int[4]));//copy alpha
@@ -6786,7 +6804,7 @@ void custom3_opt(Image const *src, Custom3Params *srcparams, int niter, int mask
 	int *hist=(int*)malloc(maxlevels*sizeof(int));
 	if(!temp||!hist)
 	{
-		LOG_ERROR("Allocation error");
+		LOG_ERROR("Alloc error");
 		return;
 	}
 	memset(temp, 0xFF, res*sizeof(int[4]));//set alpha for preview
@@ -6828,7 +6846,7 @@ void custom3_opt(Image const *src, Custom3Params *srcparams, int niter, int mask
 			{
 				idx[k]=rand()%C3_NPARAMS;
 				while(!(inc[k]=(rand()&((1<<maskbits)-1))-(1<<(maskbits-1))));//reject zero delta
-				info.params[idx[k]]+=inc[k];
+				info.params[idx[k]]+=(short)inc[k];
 			}
 		}
 
@@ -6842,7 +6860,7 @@ void custom3_opt(Image const *src, Custom3Params *srcparams, int niter, int mask
 			{
 				memcpy(info.invCR, invCR, sizeof(info.invCR));
 				for(int k=0;k<C3_OPT_NCOMP;++k)
-					info.params[idx[k]]-=inc[k];
+					info.params[idx[k]]-=(short)inc[k];
 			}
 			++watchdog;
 		}
@@ -6936,7 +6954,7 @@ void pred_calic(Image *src, int fwd, int enable_ma)
 	int *arrS=(int*)malloc(2048*sizeof(int));//sum
 	if(!b2||!arrN||!arrS)
 	{
-		LOG_ERROR("Allocation error");
+		LOG_ERROR("Alloc error");
 		return;
 	}
 	//const int thresholds[]={5, 15, 25, 42, 60, 85, 140};
@@ -7141,7 +7159,7 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 	//int *SSE_sum=(int*)malloc(256*sizeof(int));
 	if(!b2||!perrors||!sse)
 	{
-		LOG_ERROR("Allocation error");
+		LOG_ERROR("Alloc error");
 		return;
 	}
 	memcpy(b2, src->data, res*sizeof(int[4]));//copy alpha
@@ -7569,7 +7587,7 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 				b2[idx]=val;
 
 				int curr=pixels[idx]<<8;
-				int error=curr-pred;
+				int delta=curr-pred;
 				for(int k2=0;k2<4;++k2)
 				{
 					long long sum=pc[k2][0]>>12;
@@ -7580,7 +7598,7 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 						sum>>=1;
 					}
 					++count;
-					sum+=error;
+					sum+=delta;
 					pc[k2][0]=sum<<12|count;
 					//pc[k]->sum8=(pc[k]->sum8*255+(delta<<8))>>8;
 					//pc[k]->sum7=(pc[k]->sum7*127+(delta<<8))>>7;
@@ -7858,8 +7876,8 @@ ArrayHandle dwt2d_gensizes(int iw, int ih, int wstop, int hstop, int nstages_ove
 		hstop=3;
 	int nstages=0;
 	DWTSize *p=(DWTSize*)ARRAY_APPEND(sizes, 0, 1, 1, 0);
-	p->w=iw;
-	p->h=ih;
+	p->w=(unsigned short)iw;
+	p->h=(unsigned short)ih;
 	for(int w2=iw, h2=ih;w2>=wstop&&h2>=hstop&&(!nstages_override||nstages<nstages_override);++nstages)
 	{
 		p=(DWTSize*)ARRAY_APPEND(sizes, 0, 1, 1, 0);
@@ -7869,8 +7887,8 @@ ArrayHandle dwt2d_gensizes(int iw, int ih, int wstop, int hstop, int nstages_ove
 		//w2-=w2>>1;//w=ceil(w/2)
 		//h2-=h2>>1;//h=ceil(h/2)
 
-		p->w=w2;
-		p->h=h2;
+		p->w=(unsigned short)w2;
+		p->h=(unsigned short)h2;
 	}
 	return sizes;
 }
@@ -8899,7 +8917,7 @@ void dwt2d_dec_fwd(char *buffer, int iw, int ih)
 	char *temp=(char*)malloc(MAXVAR(iw, ih));
 	if(!temp)
 	{
-		LOG_ERROR("Allocation error");
+		LOG_ERROR("Alloc error");
 		return;
 	}
 	int w2=iw, h2=ih;
@@ -8934,7 +8952,7 @@ void dwt2d_dec_inv(char *buffer, int iw, int ih)
 	char *temp=(char*)malloc(MAXVAR(iw, ih));
 	if(!temp)
 	{
-		LOG_ERROR("Allocation error");
+		LOG_ERROR("Alloc error");
 		return;
 	}
 	DWTSize *psizes=(DWTSize*)sizes->data;
@@ -9169,7 +9187,7 @@ void pred_wu97(char *buf, int iw, int ih, int fwd)//'Lossless Compression of Con
 	char *temp=(char*)malloc(MAXVAR(iw, ih));
 	if(!b2||!temp)
 	{
-		LOG_ERROR("Allocation error");
+		LOG_ERROR("Alloc error");
 		return;
 	}
 	//int black=0xFF000000;
@@ -9229,7 +9247,7 @@ void image_dct4_fwd(Image *image)
 	int *temp=(int*)malloc(MAXVAR(image->iw, image->ih)*sizeof(int));
 	if(!temp)
 	{
-		LOG_ERROR("Allocation error");
+		LOG_ERROR("Alloc error");
 		return;
 	}
 	memset(temp, 0, MAXVAR(image->iw, image->ih)*sizeof(int));
@@ -9297,7 +9315,7 @@ void image_dct4_inv(Image *image)
 	int *temp=(int*)malloc(MAXVAR(image->iw, image->ih)*sizeof(int));
 	if(!temp)
 	{
-		LOG_ERROR("Allocation error");
+		LOG_ERROR("Alloc error");
 		return;
 	}
 	memset(temp, 0, MAXVAR(image->iw, image->ih)*sizeof(int));
@@ -9442,7 +9460,7 @@ void image_dct8_fwd(Image *image)
 	int *temp=(int*)malloc(MAXVAR(image->iw, image->ih)*sizeof(int));
 	if(!temp)
 	{
-		LOG_ERROR("Allocation error");
+		LOG_ERROR("Alloc error");
 		return;
 	}
 	memset(temp, 0, MAXVAR(image->iw, image->ih)*sizeof(int));
@@ -9533,7 +9551,7 @@ void image_dct8_inv(Image *image)
 	int *temp=(int*)malloc(MAXVAR(image->iw, image->ih)*sizeof(int));
 	if(!temp)
 	{
-		LOG_ERROR("Allocation error");
+		LOG_ERROR("Alloc error");
 		return;
 	}
 	memset(temp, 0, MAXVAR(image->iw, image->ih)*sizeof(int));
@@ -9719,7 +9737,7 @@ void image_split_fwd(char *image, int iw, int ih)
 	char *b2=(char*)malloc((size_t)iw*ih<<2);
 	if(!b2)
 	{
-		LOG_ERROR("Allocation error");
+		LOG_ERROR("Alloc error");
 		return;
 	}
 	memcpy(b2, image, (size_t)iw*ih<<2);
@@ -9727,7 +9745,7 @@ void image_split_fwd(char *image, int iw, int ih)
 	//char *temp=(char*)malloc(maxdim);
 	//if(!temp)
 	//{
-	//	LOG_ERROR("Allocation error");
+	//	LOG_ERROR("Alloc error");
 	//	return;
 	//}
 	//memset(temp, 0, maxdim);
@@ -9828,7 +9846,7 @@ void image_split_inv(char *image, int iw, int ih)
 	char *b2=(char*)malloc((size_t)iw*ih<<2);
 	if(!b2)
 	{
-		LOG_ERROR("Allocation error");
+		LOG_ERROR("Alloc error");
 		return;
 	}
 	memcpy(b2, image, (size_t)iw*ih<<2);
@@ -9927,7 +9945,7 @@ void channel_entropy(unsigned char *buf, int resolution, int nch, int bytestride
 	unsigned *h2=(unsigned*)malloc(0x1000000*sizeof(unsigned));
 	if(!h2)
 	{
-		LOG_ERROR("Allocation error");
+		LOG_ERROR("Alloc error");
 		return;
 	}
 	memset(h2, 0, 0x1000000*sizeof(unsigned));
@@ -9961,7 +9979,7 @@ void jointhistogram(unsigned char *buf, int iw, int ih, int nbits, ArrayHandle *
 	unsigned *htemp=(unsigned*)malloc(hsize*sizeof(unsigned));
 	if(!htemp)
 	{
-		LOG_ERROR("Allocation error");
+		LOG_ERROR("Alloc error");
 		return;
 	}
 	memset(htemp, 0, hsize*sizeof(unsigned));
@@ -10120,9 +10138,9 @@ static void quantize_signed(int val, int expbits, int msb, int lsb, HybridUint *
 		nbits=lgv-(msb+lsb);
 		bypass=val>>lsb&((1LL<<nbits)-1);
 	}
-	hu->token=token;
+	hu->token=(unsigned short)token;
+	hu->nbits=(unsigned short)nbits;
 	hu->bypass=bypass;
-	hu->nbits=nbits;
 }
 const char* ec_method_label(EContext ec_method)
 {
@@ -10167,6 +10185,10 @@ static void getnb(Image const *src, int kc, int kx, int ky, int *nb)
 }
 static int getctx_zero(const int *nb, int expbits, int msb, int lsb)
 {
+	(void)nb;
+	(void)expbits;
+	(void)msb;
+	(void)lsb;
 	return 0;
 }
 int getctx_QNW(const int *nb, int expbits, int msb, int lsb)
@@ -10437,7 +10459,7 @@ static int abac_quantize(int x, int *qdivs, int ndivs)
 #define ABAC_STATSSHIFT 25
 #define ABAC_MIXERSHIFT 21
 #define MINABS(A, B) (abs(A)<abs(B)?(A):(B))
-void calc_csize_abac(Image const *src, int expbits, int msb, int lsb, double *entropy)
+void calc_csize_abac(Image const *src, double *entropy)
 {
 	int maxdepth=calc_maxdepth(src, 0);
 	//HybridUint hu;
@@ -10457,7 +10479,8 @@ void calc_csize_abac(Image const *src, int expbits, int msb, int lsb, double *en
 	double bitsizes[4]={0};
 	for(int kc=0;kc<4;++kc)
 	{
-		int depth=src->depth[kc], nlevels=1<<depth, half=nlevels>>1;
+		int depth=src->depth[kc], nlevels=1<<depth;
+		//int half=nlevels>>1;
 		if(!depth)
 			continue;
 		calc_qlevels(src, kc, qdivs, ABAC_QLEVELS);
@@ -10474,7 +10497,7 @@ void calc_csize_abac(Image const *src, int expbits, int msb, int lsb, double *en
 
 				int val=*ctr+0x8000;
 				val+=(int)((0x10000LL-val)*weight>>sh);
-				*ctr=CLAMP(1, val, 0xFFFF)-0x8000;
+				*ctr=(short)(CLAMP(1, val, 0xFFFF)-0x8000);
 
 				MSBidx+=(!bit)&-(MSBidx==kb);
 			}
@@ -10546,10 +10569,10 @@ void calc_csize_abac(Image const *src, int expbits, int msb, int lsb, double *en
 				short *curr_stats[ABAC_NCTX]={0}, *p0a[ABAC_NCTX]={0};
 				for(int kt=0;kt<ABAC_NCTX;++kt)
 				{
-					int val=preds[kt];
-					//val=(val>1)-(val<-1)+1;
-					val=THREEWAY(val, 0)+1;
-					curr_stats[kt]=stats+treesize*ABAC_NCTRS*val;
+					int v2=preds[kt];
+					//v2=(v2>1)-(v2<-1)+1;
+					v2=THREEWAY(v2, 0)+1;
+					curr_stats[kt]=stats+treesize*ABAC_NCTRS*v2;
 				}
 					//curr_stats[kt]=stats+treesize*abac_quantize(CLAMP(-half, preds[kt], half-1), qdivs, ABAC_QLEVELS-1);
 				int *curr_mixer=mixer;
@@ -10585,15 +10608,15 @@ void calc_csize_abac(Image const *src, int expbits, int msb, int lsb, double *en
 					//dL/ds[k] = (p0-p0_collapse)*m[k]
 					//dL/dm[k] = (p0-p0_collapse)*s[k]
 					int collapse=!bit<<16;
-					int error=collapse-(int)p0;
+					int diff=collapse-(int)p0;
 					for(int kt=0;kt<ABAC_NCTX;++kt)
 					{
 						for(int k2=0;k2<ABAC_NCTRS;++k2)
 						{
 							int temp=curr_mixer[ABAC_NCTRS*kt+k2];
-							curr_mixer[ABAC_NCTRS*kt+k2]+=(int)((((long long)error*p0a[kt][k2])+(1LL<<ABAC_MIXERSHIFT>>1)-1)>>ABAC_MIXERSHIFT);
-							temp=p0a[kt][k2]+(int)((((long long)error*temp)+(1LL<<(ABAC_STATSSHIFT-k2)>>1)-1)>>(ABAC_STATSSHIFT-k2));
-							p0a[kt][k2]=CLAMP(-0x7FFF, temp, 0x7FFF);
+							curr_mixer[ABAC_NCTRS*kt+k2]+=(int)((((long long)diff*p0a[kt][k2])+(1LL<<ABAC_MIXERSHIFT>>1)-1)>>ABAC_MIXERSHIFT);
+							temp=p0a[kt][k2]+(int)((((long long)diff*temp)+(1LL<<(ABAC_STATSSHIFT-k2)>>1)-1)>>(ABAC_STATSSHIFT-k2));
+							p0a[kt][k2]=(short)CLAMP(-0x7FFF, temp, 0x7FFF);
 							//*p0a[kt]+=(collapse-*p0a[kt])>>8;
 						}
 					}

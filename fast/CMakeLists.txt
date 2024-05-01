@@ -19,6 +19,11 @@
 	transforms.c
 	util.c
 )
+#if(MSVC)
+#	target_compile_options(fast PRIVATE /W4)
+#else()
+#	target_compile_options(fast PRIVATE -Wall -Wextra -Wpedantic)
+#endif()
 
 #if (CMAKE_VERSION VERSION_GREATER 3.12)
 #  set_property(TARGET fast PROPERTY CXX_STANDARD 20)

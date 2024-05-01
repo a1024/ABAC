@@ -53,7 +53,7 @@ static void update_hist(unsigned short *hist, int nlevels, int sym)
 		int sum=0;
 		for(int ks=0;ks<nlevels;++ks)
 			sum+=hist[ks]=(hist[ks]+1)>>1;
-		hist[nlevels]=sum;
+		hist[nlevels]=(short)sum;
 	}
 }
 int f05_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud)
@@ -90,9 +90,9 @@ int f05_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		return 0;
 	}
 	memfill(hist, &fillval, sizeof(short[513*3]), sizeof(short));
-	hist[513*0+nlevels]=nlevels;
-	hist[513*1+clevels]=clevels;
-	hist[513*2+clevels]=clevels;
+	hist[513*0+nlevels]=(short)nlevels;
+	hist[513*1+clevels]=(short)clevels;
+	hist[513*2+clevels]=(short)clevels;
 	update_CDF(CDF+513*0, hist+513*0, 256);
 	update_CDF(CDF+513*1, hist+513*1, 512);
 	update_CDF(CDF+513*2, hist+513*2, 512);
@@ -180,9 +180,9 @@ int f05_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 
 					short val[]=
 					{
-						(curr[0]-pred[0]+chalf)&(clevels-1),
-						(curr[1]-pred[1]+ half)&(nlevels-1),
-						(curr[2]-pred[2]+chalf)&(clevels-1),
+						(short)((curr[0]-pred[0]+chalf)&(clevels-1)),
+						(short)((curr[1]-pred[1]+ half)&(nlevels-1)),
+						(short)((curr[2]-pred[2]+chalf)&(clevels-1)),
 					};
 					PROF(RCT);
 #else
@@ -334,15 +334,15 @@ int f05_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					short curr[3], val[3];
 #endif
 					
-					val[1]=ac_dec(ec+0, CDF+513*0, nlevels);
-					val[2]=ac_dec(ec+1, CDF+513*1, clevels);
-					val[0]=ac_dec(ec+2, CDF+513*2, clevels);
+					val[1]=(short)ac_dec(ec+0, CDF+513*0, nlevels);
+					val[2]=(short)ac_dec(ec+1, CDF+513*1, clevels);
+					val[0]=(short)ac_dec(ec+2, CDF+513*2, clevels);
 					PROF(EC);
 
 #ifdef USE_CLAMPGRAD
-					curr[0]=((val[0]+pred[0])&(clevels-1))-chalf;
-					curr[1]=((val[1]+pred[1])&(nlevels-1))- half;
-					curr[2]=((val[2]+pred[2])&(clevels-1))-chalf;
+					curr[0]=(short)(((val[0]+pred[0])&(clevels-1))-chalf);
+					curr[1]=(short)(((val[1]+pred[1])&(nlevels-1))- half);
+					curr[2]=(short)(((val[2]+pred[2])&(clevels-1))-chalf);
 					
 					short *rgb=dst->data+idx;
 					memcpy(rgb, curr, sizeof(short[3]));
@@ -402,7 +402,7 @@ int f05_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				for(int kx=0;kx<image->iw;++kx, ++idx)
 				{
 					int val=ac_dec(ec, CDF+513*0, nlevels);
-					dst->data[idx]=((val+W)&(nlevels-1))-half;
+					dst->data[idx]=(short)(((val+W)&(nlevels-1))-half);
 					update_hist(hist+513*0, nlevels, val);
 				}
 				update_CDF(CDF+513*0, hist+513*0, nlevels);
@@ -421,13 +421,13 @@ int f05_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			ptrdiff_t csize=ec.srcptr-ec.srcstart;
 #else
 			ptrdiff_t csize=list[0].nobj+list[1].nobj+list[2].nobj;
-			printf("YUV %12lld %12lld %12lld\n",
+			printf("YUV %12zd %12zd %12zd\n",
 				list[0].nobj,
 				list[1].nobj,
 				list[2].nobj
 			);
 #endif
-			printf("csize %12lld  %10.6lf%%  CR %8.6lf\n", csize, 100.*csize/usize, (double)usize/csize);
+			printf("csize %12td  %10.6lf%%  CR %8.6lf\n", csize, 100.*csize/usize, (double)usize/csize);
 		}
 		printf("F05  %c %15.6lf sec\n", 'D'+fwd, t0);
 		prof_print();

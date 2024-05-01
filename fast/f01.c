@@ -121,7 +121,7 @@ int f01_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			//if((size_t)(image->nch*(k<<1|1)+kc)>=rowssize)
 			//	LOG_ERROR("");
 			rows[image->nch*(k<<1|0)+kc]=0;
-			rows[image->nch*(k<<1|1)+kc]=half>>1;
+			rows[image->nch*(k<<1|1)+kc]=(short)(half>>1);
 		}
 	}
 	//memset(rows, 0, sizeof(short[2*2])*image->nch*(image->iw+2LL));
@@ -329,7 +329,7 @@ int f01_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					curr+=half;
 					curr&=nlevels-1;
 					curr-=half;
-					comp[kc]=curr;
+					comp[kc]=(short)curr;
 				}
 #else
 				int delta=0;
@@ -385,7 +385,7 @@ int f01_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				}
 				delta-=half;
 #endif
-				rows[LOADIDX(0, 0, 0, 1)]=abs(delta);
+				rows[LOADIDX(0, 0, 0, 1)]=(short)abs(delta);
 #ifdef ENABLE_SSE
 				sum+=delta;
 				++count;
@@ -433,7 +433,6 @@ int f01_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				);
 		finish_enc_bypass:
 			ec.dststart[-1]=0;
-			ptrdiff_t nvals=(ptrdiff_t)image->iw*image->ih*image->nch;
 			if(image->depth<=8)
 			{
 				for(ptrdiff_t k=0;k<nvals;++k)
@@ -469,7 +468,7 @@ finish_dec_bypass:
 #endif
 			ptrdiff_t usize=((ptrdiff_t)image->iw*image->ih*image->nch*image->depth+7)/8;
 			ptrdiff_t csize=data[0]->count-startidx;
-			printf("csize %12lld  %10.6lf%%  %8.6lf\n", csize, 100.*csize/usize, (double)usize/csize);
+			printf("csize %12td  %10.6lf%%  %8.6lf\n", csize, 100.*csize/usize, (double)usize/csize);
 		}
 		printf("%c %15.6lf sec\n", 'D'+fwd, t_start);
 		//prof_print();

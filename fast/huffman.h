@@ -4,6 +4,8 @@
 #include"util.h"
 #include<string.h>
 
+//WIP
+#if 0
 #define HUFF_DEC_BITS 4
 typedef struct HuffmanCoderStruct
 {
@@ -52,6 +54,9 @@ INLINE void huff_enc_init(HuffmanCoder *ec, DList *list)
 }
 INLINE int huff_enc(HuffmanCoder *ec, int sym, BitstringHandle const *alphabet)
 {
+	(void)ec;
+	(void)sym;
+	(void)alphabet;
 	//BitstringHandle code=alphabet[sym];
 	//int bitidx=0;
 	//if(code->bitCount>ec->nbits)
@@ -92,6 +97,7 @@ INLINE int huff_dec(HuffmanCoder *ec, HuffmanNode *root)
 }
 
 void huff_test(Image const *image);
+#endif
 
 
 #endif

@@ -243,10 +243,10 @@ void image_export_uint8(Image const *image, unsigned char **dst, int override_al
 		r=0, b=2;
 	for(ptrdiff_t k=0, res=(ptrdiff_t)image->iw*image->ih*4;k<res;k+=4)
 	{
-		dst[0][k|r]=(image->data[k|0]>>shift[0])+128;
-		dst[0][k|1]=(image->data[k|1]>>shift[1])+128;
-		dst[0][k|b]=(image->data[k|2]>>shift[2])+128;
-		dst[0][k|3]=override_alpha?0xFF:image->data[k|2]>>shift[3];
+		dst[0][k|r]=(unsigned char)((image->data[k|0]>>shift[0])+128);
+		dst[0][k|1]=(unsigned char)((image->data[k|1]>>shift[1])+128);
+		dst[0][k|b]=(unsigned char)((image->data[k|2]>>shift[2])+128);
+		dst[0][k|3]=override_alpha?0xFF:(unsigned char)(image->data[k|2]>>shift[3]);
 	}
 }
 double image_getBMPsize(Image const *image)

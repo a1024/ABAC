@@ -102,7 +102,7 @@ void acval_dec(int sym, int cdf, int freq, unsigned long long lo1, unsigned long
 
 	acval_cbuf[acval_idx%ACVAL_CBUFSIZE]=val2;
 
-	if(acval_idx>=acval->count)
+	if(acval_idx>=(int)acval->count)
 		LOG_ERROR2("AC validation index error");
 
 	val=(ACVAL*)array_at(&acval, acval_idx);
@@ -488,14 +488,13 @@ INLINE int ac_dec_POT_permuted(ArithmeticCoder *ec, const unsigned *pCDF, const 
 	//acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->cidx, ec->code);//
 	return sym;
 }
-INLINE int ac_dec_CDF2sym(ArithmeticCoder *ec, const unsigned *CDF, const unsigned char *CDF2sym, int nbits)//more cache-friendly,  pCDF[0] & pCDF[1<<nbits] are not accessed
+INLINE int ac_dec_CDF2sym(ArithmeticCoder *ec, const unsigned *CDF, const unsigned char *CDF2sym)
 {
 	unsigned cdf;
 	int freq;
 	unsigned sym;
 	
-	unsigned long long range=ec->code-ec->low;
-	unsigned c=(unsigned)((range<<16|0xFFFF)/ec->range);
+	unsigned c=(unsigned)(((ec->code-ec->low)<<16|0xFFFF)/ec->range);
 	sym=CDF2sym[c];
 
 	cdf=CDF[sym];
@@ -642,9 +641,9 @@ INLINE void ac_enc_packedCDF_8x3(ArithmeticCoder *ec, const unsigned char *sym, 
 	unsigned cdf[]={CDF0[sym[0]], CDF1[sym[1]], CDF2[sym[2]]};
 	int freq[]=
 	{
-		(sym[0]==255?0x10000:CDF0[sym[0]+1])-cdf[0],
-		(sym[1]==255?0x10000:CDF1[sym[1]+1])-cdf[1],
-		(sym[2]==255?0x10000:CDF2[sym[2]+1])-cdf[2],
+		(int)((sym[0]==255?0x10000:CDF0[sym[0]+1])-cdf[0]),
+		(int)((sym[1]==255?0x10000:CDF1[sym[1]+1])-cdf[1]),
+		(int)((sym[2]==255?0x10000:CDF2[sym[2]+1])-cdf[2]),
 	};
 #ifdef AC_VALIDATE
 	unsigned long long
@@ -848,7 +847,7 @@ INLINE int ac_dec_bin(ArithmeticCoder *ec, unsigned short p0)//binary AC decoder
 //asymmetric numeral systems coder
 typedef struct ANSCoderStruct
 {
-	unsigned state;
+	unsigned state, unused;
 	ArrayHandle *arr;
 	DList *list;
 	const unsigned char *srcptr, *srcstart;

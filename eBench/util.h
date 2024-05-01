@@ -55,7 +55,7 @@ extern "C"
 #ifndef _countof
 #define _countof(A) (sizeof(A)/sizeof(*(A)))
 #endif
-#define _stricmp strcasecmp
+//#define _stricmp strcasecmp		//moved to source		because this interferes with later includes
 #endif
 
 #define G_BUF_SIZE 4096
@@ -85,6 +85,8 @@ int floor_log2(unsigned long long n);//uses intrinsics and was patched to give -
 int floor_log2_32(unsigned n);
 int ceil_log2(unsigned long long n);
 int ceil_log2_32(unsigned n);
+int get_lsb_index(unsigned long long n);//returns lsb position + 1,  returns register bit count if n is zero
+int get_lsb_index32(unsigned n);
 int floor_log10(double x);
 unsigned floor_sqrt(unsigned long long x);
 unsigned long long exp2_fix24(int x);
@@ -94,8 +96,8 @@ double power(double x, int y);
 double _10pow(int n);
 int acme_isdigit(char c, char base);
 
-double time_ms();
-double time_sec();
+double time_ms(void);
+double time_sec(void);
 
 typedef struct TimeInfoStruct
 {
@@ -110,21 +112,24 @@ int print_bin8(int x);
 int print_bin32(unsigned x);
 int print_binn(unsigned long long x, int nbits);
 
+double convert_size(double bytesize, int *log1024);
+int print_size(double bytesize, int ndigits, int pdigits, char *str, int len);
+
 //error handling
 int log_error(const char *file, int line, int quit, const char *format, ...);//doesn't stop execution
 #define LOG_ERROR(format, ...)   log_error(file, __LINE__, 1, format, ##__VA_ARGS__)
 #define LOG_ERROR2(format, ...)  log_error(__FILE__, __LINE__, 1, format, ##__VA_ARGS__)
 #define LOG_WARNING(format, ...) log_error(file, __LINE__, 0, format, ##__VA_ARGS__)
 #define ASSERT_MSG(SUCCESS, MSG, ...) ((SUCCESS)!=0||log_error(file, __LINE__, 1, MSG, ##__VA_ARGS__))
-int valid(const void *p);
-int pause();
+//int valid(const void *p);
+int pause(void);
 #ifdef _MSC_VER
-int pause1();
+int pause1(void);
 #endif
 int pause_abort(const char *file, int lineno, const char *extraInfo);
 #define PANIC() pause_abort(file, __LINE__, 0)
 #define ASSERT(SUCCESS) ((SUCCESS)!=0||pause_abort(file, __LINE__, #SUCCESS))
-#define ASSERT_P(POINTER) (void)(valid(POINTER)||pause_abort(file, __LINE__, #POINTER " == 0"))
+//#define ASSERT_P(POINTER) (void)(valid(POINTER)||pause_abort(file, __LINE__, #POINTER " == 0"))
 
 
 //ARRAY
@@ -239,12 +244,19 @@ int   dlist_it_dec(DListItHandle it);
 
 //ordered MAP/SET (implemented as a (self-balancing) red-black tree)
 #if 1
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable:4200)
+#endif
 typedef struct RBNodeStruct
 {
 	struct RBNodeStruct *parent, *left, *right;
 	size_t is_red;
 	unsigned char data[];//key then value
 } RBNodeHeader, *RBNodeHandle;
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 typedef enum CmpResEnum
 {
 	RESULT_LESS=-1,
@@ -280,11 +292,18 @@ void map_debugprint_r(RBNodeHandle *node, int depth, void (*printer)(RBNodeHandl
 
 //single-linked list, queue and stack
 #if 1
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable:4200)
+#endif
 typedef struct SNodeStruct
 {
 	struct SNodeStruct *prev;
 	unsigned char data[];//4-byte aligned on 32-bit, not suitable for double on 32-bit
 } SNode, *SNodeHandle;
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 typedef struct SListStruct
 {
 	//[front] -> ... -> [back] -> nullptr
@@ -319,12 +338,19 @@ void slist_print(SListHandle list, void (*printer)(const void*));
 
 //bit-string
 #if 1
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable:4200)
+#endif
 typedef struct BitstringStruct
 {
 	size_t bitCount, byteCap;
 	unsigned char data[];//8bits/element
 	//unsigned data[];//32bits/element
 } BitstringHeader, *BitstringHandle;
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 //-> [bitCount], [byteCap], data...
 //arr->data		((char*)arr+sizeof(Header))
 
@@ -366,6 +392,10 @@ void bitstring_print(BitstringHandle str);
 
 //Priority Queue (Max-heap-based)
 #if 1
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable:4200)
+#endif
 typedef struct PQueueStruct
 {
 	size_t count, //number of elements
@@ -375,6 +405,9 @@ typedef struct PQueueStruct
 	void (*destructor)(void*);//element destructor, can be 0
 	unsigned char data[];//each contained object begins with the key
 } PQueueHeader, *PQueueHandle;
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 
 //pqueue_construct: allocates a new bit-string
 //src:		If 0, initialize elements with 0
@@ -426,7 +459,7 @@ int save_file(const char *filename, const unsigned char *src, size_t srcSize, in
 
 ArrayHandle searchfor_file(const char *searchpath, const char *filetitle);
 
-int query_cpu_cores();
+int query_cpu_cores(void);
 
 	
 #ifdef __cplusplus

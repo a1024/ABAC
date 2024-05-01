@@ -224,7 +224,7 @@ void calc_csize_ans_separate(Image const *image, size_t *csizes)
 }
 
 //from libjxl		packsign(pixel) = 0b00001MMBB...BBL	token = offset + 0bGGGGMML,  where G = bits of lg(packsign(pixel)),  bypass = 0bBB...BB
-void hybriduint_encode(int val, int *tbn, const int *config)
+static void hybriduint_encode(int val, int *tbn, const int *config)
 {
 	int exp=config[0], msb=config[1], lsb=config[2];
 	int token, bypass, nbits;
@@ -301,7 +301,7 @@ static const int ans_qlevels_u[]=
 
 	0, 1, 3, 5, 7, 9, 11, 13, 15, 18, 23, 31, 47, 63, 95, 127, 191, 255, 392, 500		//v2	opt 2.411191
 };
-int get_ctx(Image const *image, int kc, int kx, int ky)
+static int get_ctx(Image const *image, int kc, int kx, int ky)
 {
 #define CTX_REACH 2
 	int energy=0;
@@ -470,7 +470,7 @@ void calc_csize_ans_energy(Image const *image, size_t *csizes)
 	csizes[3]=csizes[0]+csizes[1]+csizes[2]+4;
 	free(stats);
 }
-void print_hist_as_hexPDF(const int *hist, int nlevels)
+static void print_hist_as_hexPDF(const int *hist, int nlevels)
 {
 	int sum=0, vmax=0;
 	for(int k=0;k<nlevels;++k)
@@ -615,7 +615,7 @@ void calc_csize_ans_energy_hybrid(Image const *image, size_t *csizes, const int 
 	free(stats);
 	free(im2);
 }
-void test_predmask(Image const *image)
+static void test_predmask(Image const *image)
 {
 	//last value in kernel is lg(den)
 	int hybrid_uint_config[]=
@@ -961,7 +961,7 @@ void test_predmask(Image const *image)
 	console_end();
 }
 
-static void calc_csize_stateful(Image const *image, int *hist_full, double *ch_entropy)
+static void calc_csize_stateful(Image const *image, int *hist_full, double *entropy)
 {
 	if(ec_method==ECTX_HIST)
 	{
@@ -977,19 +977,19 @@ static void calc_csize_stateful(Image const *image, int *hist_full, double *ch_e
 			if(image->depth[kc])
 			{
 				calc_histogram(image->data, image->iw, image->ih, kc, 0, image->iw, 0, image->ih, image->depth[kc], hist_full, 0);
-				ch_entropy[kc]=calc_entropy(hist_full, 1<<image->depth[kc], image->iw*image->ih);
+				entropy[kc]=calc_entropy(hist_full, 1<<image->depth[kc], image->iw*image->ih);
 			}
 			else
-				ch_entropy[kc]=0;
+				entropy[kc]=0;
 		}
 		if(allocated)
 			free(hist_full);
 		//channel_entropy(image, iw*ih, 3, 4, ch_cr, usage);
 	}
 	else if(ec_method==ECTX_ABAC)
-		calc_csize_abac(image, ec_expbits, ec_msb, ec_lsb, ch_entropy);
+		calc_csize_abac(image, entropy);
 	else
-		calc_csize_ec(image, ec_method, ec_adaptive?ec_adaptive_threshold:0, ec_expbits, ec_msb, ec_lsb, ch_entropy);
+		calc_csize_ec(image, ec_method, ec_adaptive?ec_adaptive_threshold:0, ec_expbits, ec_msb, ec_lsb, entropy);
 }
 
 typedef struct ThreadCtxStruct
@@ -1026,7 +1026,7 @@ static unsigned __stdcall sample_thread(void *param)
 	//_endthreadex(0);
 	return 0;
 }
-void batch_test()
+static void batch_test(void)
 {
 	loud_transforms=0;
 	ArrayHandle path=dialog_open_folder();
@@ -1059,9 +1059,9 @@ void batch_test()
 	int maxlen=0;
 	for(int k=0;k<(int)filenames->count;++k)
 	{
-		ArrayHandle *fn=(ArrayHandle*)array_at(&filenames, k);
-		if(maxlen<(int)fn[0]->count)
-			maxlen=(int)fn[0]->count;
+		ArrayHandle *fn2=(ArrayHandle*)array_at(&filenames, k);
+		if(maxlen<(int)fn2[0]->count)
+			maxlen=(int)fn2[0]->count;
 	}
 	ArrayHandle q;
 	ARRAY_ALLOC(ThreadCtx, q, 0, 0, nthreads, 0);
@@ -1069,8 +1069,8 @@ void batch_test()
 	{
 		//multi-threaded
 #if 1
-		ArrayHandle *fn=(ArrayHandle*)array_at(&filenames, k);
-		Image *image=image_load((char*)fn[0]->data, (int)fn[0]->count);
+		ArrayHandle *fn2=(ArrayHandle*)array_at(&filenames, k);
+		Image *image=image_load((char*)fn2[0]->data, (int)fn2[0]->count);
 		if(!image)
 			continue;
 		ThreadCtx ctx=
@@ -1080,7 +1080,7 @@ void batch_test()
 			k,
 		};
 		ARRAY_APPEND(q, &ctx, 1, 1, 0);
-		if(q->count>=nthreads||k+1>=(int)filenames->count)
+		if((int)q->count>=nthreads||k+1>=(int)filenames->count)
 		{
 			HANDLE *handles=(HANDLE*)malloc(q->count*sizeof(HANDLE));
 			if(!handles)
@@ -1103,11 +1103,11 @@ void batch_test()
 			for(int k2=0;k2<(int)q->count;++k2)
 			{
 				ThreadCtx *ptr=(ThreadCtx*)array_at(&q, k2);
-				fn=(ArrayHandle*)array_at(&filenames, ptr->idx);
+				fn2=(ArrayHandle*)array_at(&filenames, ptr->idx);
 				double csize=ptr->csize[0]+ptr->csize[1]+ptr->csize[2]+ptr->csize[3];
 				console_log(
 					"%5d/%5d %s%*sUTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  invCR %8.4lf%%\n",
-					(int)(k+1-(int)q->count+k2+1), (int)filenames->count, (char*)fn[0]->data, (int)(maxlen-fn[0]->count+1), "",
+					(int)(k+1-(int)q->count+k2+1), (int)filenames->count, (char*)fn2[0]->data, (int)(maxlen-fn2[0]->count+1), "",
 					ptr->usize, csize, ptr->csize[0], ptr->csize[1], ptr->csize[2],
 					100.*csize/ptr->usize
 				);
@@ -1123,8 +1123,8 @@ void batch_test()
 
 		//single-threaded
 #if 0
-		ArrayHandle *fn=(ArrayHandle*)array_at(&filenames, k);
-		Image *image=image_load((char*)fn[0]->data);
+		ArrayHandle *fn2=(ArrayHandle*)array_at(&filenames, k);
+		Image *image=image_load((char*)fn2[0]->data);
 		if(!image)
 			continue;
 		double usize=image_getBMPsize(image), csize[3]={0};
@@ -1142,7 +1142,7 @@ void batch_test()
 		free(hist);
 		console_log(
 			"%3d/%3d %s%*sUTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf\n",
-			k+1, (int)filenames->count, (char*)fn[0]->data, maxlen-fn[0]->count+1, "",
+			k+1, (int)filenames->count, (char*)fn2[0]->data, maxlen-fn2[0]->count+1, "",
 			usize, csize[0]+csize[1]+csize[2]+csize[3],
 			csize[0], csize[1], csize[2]
 		);
@@ -1170,7 +1170,7 @@ void batch_test()
 	loud_transforms=1;
 }
 
-int customtransforms_getflag(unsigned char tid)
+static int customtransforms_getflag(unsigned char tid)
 {
 	return
 		tid==CT_FWD_ADAPTIVE||
@@ -1188,7 +1188,7 @@ int customtransforms_getflag(unsigned char tid)
 	//	tid==ST_FWD_CUSTOM_DWT||
 	//	tid==ST_INV_CUSTOM_DWT;
 }
-void transforms_update()
+static void transforms_update(void)
 {
 	if(transforms)
 	{
@@ -1203,7 +1203,7 @@ void transforms_update()
 		}
 	}
 }
-void transforms_removebyid(unsigned tid)
+static void transforms_removebyid(unsigned tid)
 {
 	if(transforms)
 	{
@@ -1218,13 +1218,13 @@ void transforms_removebyid(unsigned tid)
 		transforms_update();
 	}
 }
-void transforms_removeall()
+static void transforms_removeall(void)
 {
 	array_free(&transforms);
 	transforms_customenabled=0;
 	memset(transforms_mask, 0, T_COUNT);
 }
-void transforms_append(unsigned tid)
+static void transforms_append(unsigned tid)
 {
 	if(tid<T_COUNT&&tid!=CST_FWD_SEPARATOR&&tid!=CST_INV_SEPARATOR)
 	{
@@ -1232,14 +1232,14 @@ void transforms_append(unsigned tid)
 		{
 			ARRAY_ALLOC(char, transforms, &tid, 1, 0, 0);
 			transforms_mask[tid]|=1;
-			transforms_customenabled|=customtransforms_getflag(tid);
+			transforms_customenabled|=customtransforms_getflag((unsigned char)tid);
 		}
 		else
 		{
 			int idx=-1;//first idx of a transform of this type
 			if(GET_KEY_STATE(KEY_CTRL))//replace all transforms of this type
 			{
-				for(int k=0;k<transforms->count;)
+				for(int k=0;k<(int)transforms->count;)
 				{
 					if((tid<CST_FWD_SEPARATOR)==(transforms->data[k]<CST_FWD_SEPARATOR))
 					{
@@ -1260,7 +1260,7 @@ void transforms_append(unsigned tid)
 		}
 	}
 }
-void transforms_printname(float x, float y, unsigned tid, int place, long long highlight)
+static void transforms_printname(float x, float y, unsigned tid, int place, long long highlight)
 {
 	const char *a=0;
 	switch(tid)
@@ -1469,7 +1469,7 @@ void transforms_printname(float x, float y, unsigned tid, int place, long long h
 		set_text_colors(c0);
 }
 
-int send_image_separate_subpixels(Image const *image, unsigned *txid_r, unsigned *txid_g, unsigned *txid_b, unsigned *txid_a)
+static int send_image_separate_subpixels(Image const *image, unsigned *txid_r, unsigned *txid_g, unsigned *txid_b, unsigned *txid_a)
 {
 	ptrdiff_t res=(ptrdiff_t)image->iw*image->ih;
 	unsigned char *temp_r=(unsigned char*)malloc(res*sizeof(char[4]));
@@ -1529,12 +1529,12 @@ int send_image_separate_subpixels(Image const *image, unsigned *txid_r, unsigned
 	return 1;
 }
 
-void chart_planes_update(Image const *image, ArrayHandle *cpuv, unsigned *gpuv)
+static void chart_planes_update(Image const *image, ArrayHandle *cpuv, unsigned *gpuv)
 {
 	if(image->iw*image->ih>1024*1024)
 		return;
 	int nv=image->iw*image->ih*3*6, nf=nv*5;//subpixel count * 6 vertices
-	if(!*cpuv||cpuv[0]->count!=nf)
+	if(!*cpuv||(int)cpuv[0]->count!=nf)
 	{
 		if(*cpuv)
 			array_free(cpuv);
@@ -1584,12 +1584,12 @@ void chart_planes_update(Image const *image, ArrayHandle *cpuv, unsigned *gpuv)
 	glBindBuffer(GL_ARRAY_BUFFER, *gpuv);	GL_CHECK(error);
 	glBufferData(GL_ARRAY_BUFFER, nf*sizeof(float), cpuv[0]->data, GL_STATIC_DRAW);	GL_CHECK(error);
 }
-void chart_mesh_update(Image const *image, ArrayHandle *cpuv, unsigned *gpuv)
+static void chart_mesh_update(Image const *image, ArrayHandle *cpuv, unsigned *gpuv)
 {
 	if(image->iw*image->ih>1024*1024)
 		return;
 	int nv=(image->iw-1)*(image->ih-1)*3*6, nf=nv*5;//pixel count * 3 colors * 6 vertices * 5 floats
-	if(!*cpuv||cpuv[0]->count!=nf)
+	if(!*cpuv||(int)cpuv[0]->count!=nf)
 	{
 		if(*cpuv)
 			array_free(cpuv);
@@ -1652,12 +1652,12 @@ void chart_mesh_update(Image const *image, ArrayHandle *cpuv, unsigned *gpuv)
 	glBindBuffer(GL_ARRAY_BUFFER, *gpuv);	GL_CHECK(error);
 	glBufferData(GL_ARRAY_BUFFER, nf*sizeof(float), cpuv[0]->data, GL_STATIC_DRAW);	GL_CHECK(error);
 }
-void chart_mesh_sep_update(Image const *image, ArrayHandle *cpuv, unsigned *gpuv)
+static void chart_mesh_sep_update(Image const *image, ArrayHandle *cpuv, unsigned *gpuv)
 {
 	if(image->iw*image->ih>1024*1024)
 		return;
 	int nv=(image->iw-1)*(image->ih-1)*3*6, nf=nv*5;//pixel count * 3 colors * 2 triangles * 3 vertices * 5 floats
-	if(!*cpuv||cpuv[0]->count!=nf)
+	if(!*cpuv||(int)cpuv[0]->count!=nf)
 	{
 		if(*cpuv)
 			array_free(cpuv);
@@ -1710,7 +1710,7 @@ static int hist[768], histmax[3];
 //static int hist2[768], histmax2[3];
 static int *hist_full=0, hist_full_size=0;
 static float blockCR[3]={0};
-void chart_hist_update(Image const *image, int x1, int x2, int y1, int y2, int *hist, int *histmax, float *CR)
+static void chart_hist_update(Image const *image, int x1, int x2, int y1, int y2, int *_hist, int *_histmax, float *CR)
 {
 	x1=MAXVAR(x1, 0);
 	x2=MINVAR(x2, image->iw);
@@ -1722,11 +1722,11 @@ void chart_hist_update(Image const *image, int x1, int x2, int y1, int y2, int *
 	{
 		for(int kc=0;kc<3;++kc)
 		{
-			calc_histogram(image->data, image->iw, image->ih, kc, x1, x2, y1, y2, image->depth[kc], hist_full, hist+(kc<<8));
+			calc_histogram(image->data, image->iw, image->ih, kc, x1, x2, y1, y2, image->depth[kc], hist_full, _hist+(kc<<8));
 			for(int k=0;k<256;++k)
 			{
-				if(histmax[kc]<hist[kc<<8|k])
-					histmax[kc]=hist[kc<<8|k];
+				if(_histmax[kc]<_hist[kc<<8|k])
+					_histmax[kc]=_hist[kc<<8|k];
 			}
 			if(CR)
 			{
@@ -1736,7 +1736,7 @@ void chart_hist_update(Image const *image, int x1, int x2, int y1, int y2, int *
 		}
 	}
 }
-void chart_dwthist_update(Image const *image, int kc, int kband, int x1, int x2, int y1, int y2)
+static void chart_dwthist_update(Image const *image, int kc, int kband, int x1, int x2, int y1, int y2)
 {
 	memset(hist+((size_t)kband<<8), 0, 256LL*sizeof(int));
 	x1=MAXVAR(x1, 0);
@@ -1757,7 +1757,7 @@ void chart_dwthist_update(Image const *image, int kc, int kband, int x1, int x2,
 		blockCR[kband]=(float)(image->src_depth[kc]/entropy);
 	}
 }
-void move_box_in_window(int boxcenter, int boxsize, int wx1, int wx2, int *ret_boxstart, int *ret_boxend)
+static void move_box_in_window(int boxcenter, int boxsize, int wx1, int wx2, int *ret_boxstart, int *ret_boxend)
 {
 	if(wx2-wx1<boxsize)
 	{
@@ -1773,14 +1773,14 @@ void move_box_in_window(int boxcenter, int boxsize, int wx1, int wx2, int *ret_b
 		*ret_boxend=*ret_boxstart+boxsize;
 	}
 }
-void jhc_getboxbounds(int xs, int ys, int dx, int dy, int iw, int ih, int *bounds)//bounds: {x1, x2, y1, y2}
+static void jhc_getboxbounds(int xs, int ys, int dx, int dy, int iw, int ih, int *bounds)//bounds: {x1, x2, y1, y2}
 {
 	int ix=(int)(((long long)xs*iw+(w>>1))/w);
 	int iy=(int)(((long long)ys*ih+(h>>1))/h);
 	move_box_in_window(ix, dx, 0, iw, bounds+0, bounds+1);
 	move_box_in_window(iy, dy, 0, ih, bounds+2, bounds+3);
 }
-void jh_calchist(int *jhist, int nbits, Image const *image, int x1, int x2, int y1, int y2)
+static void jh_calchist(int *jhist, int nbits, Image const *image, int x1, int x2, int y1, int y2)
 {
 	int half[]=
 	{
@@ -1818,9 +1818,9 @@ void jh_calchist(int *jhist, int nbits, Image const *image, int x1, int x2, int 
 			for(int kx=x1;kx<x2;++kx)
 			{
 				unsigned char
-					v2=kx-2>=0?(image->data[(image->iw*ky+kx-2)<<2|1]+half[1])<<nbits>>image->depth[1]:0,//WW
-					v1=kx-1>=0?(image->data[(image->iw*ky+kx-1)<<2|1]+half[1])<<nbits>>image->depth[1]:0,//W
-					v0=kx-0>=0?(image->data[(image->iw*ky+kx-0)<<2|1]+half[1])<<nbits>>image->depth[1]:0;//curr
+					v2=kx-2>=0?(unsigned char)((image->data[(image->iw*ky+kx-2)<<2|1]+half[1])<<nbits>>image->depth[1]):0,//WW
+					v1=kx-1>=0?(unsigned char)((image->data[(image->iw*ky+kx-1)<<2|1]+half[1])<<nbits>>image->depth[1]):0,//W
+					v0=kx-0>=0?(unsigned char)((image->data[(image->iw*ky+kx-0)<<2|1]+half[1])<<nbits>>image->depth[1]):0;//curr
 				v0=CLAMP(0, v0, (1<<nbits)-1);
 				v1=CLAMP(0, v1, (1<<nbits)-1);
 				v2=CLAMP(0, v2, (1<<nbits)-1);
@@ -1836,9 +1836,9 @@ void jh_calchist(int *jhist, int nbits, Image const *image, int x1, int x2, int 
 			for(int kx=x1;kx<x2;++kx)
 			{
 				unsigned char
-					v2=ky-2>=0?(image->data[(image->iw*(ky-2)+kx)<<2|1]+half[1])<<nbits>>image->depth[1]:0,//NN
-					v1=ky-1>=0?(image->data[(image->iw*(ky-1)+kx)<<2|1]+half[1])<<nbits>>image->depth[1]:0,//N
-					v0=ky-0>=0?(image->data[(image->iw*(ky-0)+kx)<<2|1]+half[1])<<nbits>>image->depth[1]:0;//curr
+					v2=ky-2>=0?(unsigned char)((image->data[(image->iw*(ky-2)+kx)<<2|1]+half[1])<<nbits>>image->depth[1]):0,//NN
+					v1=ky-1>=0?(unsigned char)((image->data[(image->iw*(ky-1)+kx)<<2|1]+half[1])<<nbits>>image->depth[1]):0,//N
+					v0=ky-0>=0?(unsigned char)((image->data[(image->iw*(ky-0)+kx)<<2|1]+half[1])<<nbits>>image->depth[1]):0;//curr
 				v0=CLAMP(0, v0, (1<<nbits)-1);
 				v1=CLAMP(0, v1, (1<<nbits)-1);
 				v2=CLAMP(0, v2, (1<<nbits)-1);
@@ -1854,9 +1854,9 @@ void jh_calchist(int *jhist, int nbits, Image const *image, int x1, int x2, int 
 			for(int kx=x1;kx<x2;++kx)
 			{
 				unsigned char
-					v2=kx-1>=0?(image->data[(image->iw* ky   +kx-1)<<2|1]+half[1])<<nbits>>image->depth[1]:0,//W
-					v1=ky-1>=0?(image->data[(image->iw*(ky-1)+kx  )<<2|1]+half[1])<<nbits>>image->depth[1]:0,//N
-					v0=        (image->data[(image->iw* ky   +kx  )<<2|1]+half[1])<<nbits>>image->depth[1]  ;//curr
+					v2=kx-1>=0?(unsigned char)((image->data[(image->iw* ky   +kx-1)<<2|1]+half[1])<<nbits>>image->depth[1]):0,//W
+					v1=ky-1>=0?(unsigned char)((image->data[(image->iw*(ky-1)+kx  )<<2|1]+half[1])<<nbits>>image->depth[1]):0,//N
+					v0=        (unsigned char)((image->data[(image->iw* ky   +kx  )<<2|1]+half[1])<<nbits>>image->depth[1])  ;//curr
 				v0=CLAMP(0, v0, (1<<nbits)-1);
 				v1=CLAMP(0, v1, (1<<nbits)-1);
 				v2=CLAMP(0, v2, (1<<nbits)-1);
@@ -1868,7 +1868,7 @@ void jh_calchist(int *jhist, int nbits, Image const *image, int x1, int x2, int 
 		break;
 	}
 }
-void jhc_marchingcubes(ArrayHandle *edges, const int *data, int gx, int gy, int gz, float level, float cubesize)
+static void jhc_marchingcubes(ArrayHandle *edges, const int *data, int gx, int gy, int gz, float level, float cubesize)
 {
 #define VERTIDX(Z, Y, X) 3*(3*Z+Y)+X
 	static const char triangles[][3]=
@@ -2158,14 +2158,14 @@ void jhc_marchingcubes(ArrayHandle *edges, const int *data, int gx, int gy, int 
 		}
 	}
 }
-void chart_jointhist_update(Image const *image, unsigned *txid)
+static void chart_jointhist_update(Image const *image, unsigned *txid)
 {
 	int nlevels=1<<jointhist_nbits, hsize=nlevels*nlevels*nlevels;
 
 	//jointhistogram(image, iw, ih, jointhist_nbits, &jointhist, space_not_color);
 	if(jointhist)
 	{
-		if(jointhist->count<hsize)
+		if((int)jointhist->count<hsize)
 			ARRAY_APPEND(jointhist, 0, hsize-jointhist->count, 1, 0);
 	}
 	else
@@ -2188,16 +2188,16 @@ void chart_jointhist_update(Image const *image, unsigned *txid)
 #endif
 	memset(jhist, 0, jointhist->esize*jointhist->count);
 	jh_calchist(jhist, jointhist_nbits, image, 0, image->iw, 0, image->ih);
-	int histmax=0;
+	int _histmax=0;
 	for(int k=0;k<hsize;++k)
 	{
-		if(!histmax||histmax<jhist[k])
-			histmax=jhist[k];
+		if(!_histmax||_histmax<jhist[k])
+			_histmax=jhist[k];
 	}
-	if(histmax)
+	if(_histmax)
 	{
 		for(int k=0;k<hsize;++k)
-			jointhist->data[k]=jhist[k]*255/histmax;
+			jointhist->data[k]=(unsigned char)(jhist[k]*255/_histmax);
 	}
 	
 	if(!*txid)
@@ -2465,7 +2465,7 @@ void apply_selected_transforms(Image *image, int rct_only)
 				//	case ST_INV_CUSTOM_DWT:dwt2d_custom_inv (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, customparam_st);break;
 					}
 					int inv=tid&1;
-					im1->depth[kc]+=!inv-inv;
+					im1->depth[kc]+=(char)(!inv-inv);
 					UPDATE_MAX(im1->depth[kc], im1->src_depth[kc]);
 				}
 				array_free(&sizes);
@@ -2478,7 +2478,7 @@ void apply_selected_transforms(Image *image, int rct_only)
 		//calc_depthfromdata(image->data, image->iw, image->ih, image->depth, image->src_depth);//X  depth must depend only on src_depth and applied RCTs, so that preds can apply MA
 	}//for
 }
-void update_image()//apply selected operations on original image, calculate CRs, and export
+void update_image(void)//apply selected operations on original image, calculate CRs, and export
 {
 	if(!im0)
 		return;
@@ -2490,17 +2490,17 @@ void update_image()//apply selected operations on original image, calculate CRs,
 	image_export_uint8(im1, &im_export, 1, 0);
 
 	int maxdepth=calc_maxdepth(im1, 0);
-	int nlevels=1<<maxdepth;
-	if(hist_full_size<nlevels)
+	int maxlevels=1<<maxdepth;
+	if(hist_full_size<maxlevels)
 	{
-		void *p=realloc(hist_full, nlevels*sizeof(int));
+		void *p=realloc(hist_full, maxlevels*sizeof(int));
 		if(!p)
 		{
 			LOG_ERROR("Alloc error");
 			return;
 		}
 		hist_full=(int*)p;
-		hist_full_size=nlevels;
+		hist_full_size=maxlevels;
 	}
 	calc_csize_stateful(im1, hist_full, ch_entropy);
 #if 0
@@ -2519,7 +2519,7 @@ void update_image()//apply selected operations on original image, calculate CRs,
 		//channel_entropy(image, iw*ih, 3, 4, ch_cr, usage);
 	}
 	else if(ec_method==ECTX_ABAC)
-		calc_csize_abac(im1, ec_expbits, ec_msb, ec_lsb, ch_entropy);
+		calc_csize_abac(im1, ch_entropy);
 	else
 		calc_csize_ec(im1, ec_method, ec_adaptive?ec_adaptive_threshold:0, ec_expbits, ec_msb, ec_lsb, ch_entropy);
 #endif
@@ -2634,7 +2634,7 @@ void update_image()//apply selected operations on original image, calculate CRs,
 	}
 }
 
-void draw_AAcuboid_wire(float x1, float x2, float y1, float y2, float z1, float z2, int color)
+static void draw_AAcuboid_wire(float x1, float x2, float y1, float y2, float z1, float z2, int color)
 {
 	float cuboid[]=
 	{
@@ -2923,13 +2923,13 @@ void chart_mesh_sep_draw()
 	}
 }
 #endif
-void chart_hist_draw(float x1, float x2, float y1, float y2, int cstart, int cend, int color, unsigned char alpha, int *hist, int *histmax)
+static void chart_hist_draw(float x1, float x2, float y1, float y2, int cstart, int cend, int color, unsigned char alpha, int *_hist, int *_histmax)
 {
 	for(int kc=cstart;kc<cend;++kc)
 	{
-		if(histmax[kc])
+		if(_histmax[kc])
 		{
-			float dy=(y2-y1)/3.f, histpx=dy/histmax[kc];
+			float dy=(y2-y1)/3.f, histpx=dy/_histmax[kc];
 			int k=1;
 			float y=k*histpx*10000;
 			for(;y<dy;++k)
@@ -2937,25 +2937,25 @@ void chart_hist_draw(float x1, float x2, float y1, float y2, int cstart, int cen
 				draw_line(x1, y1+(kc+1)*dy-y, x2, y1+(kc+1)*dy-y, color?color:alpha<<24|0xFF<<(kc<<3));//0x40
 				y=k*histpx*10000;
 			}
-			for(int k=0;k<256;++k)
-				draw_rect(x1+k*(x2-x1)/256, x1+(k+1)*(x2-x1)/256, y1+(kc+1)*dy-hist[kc<<8|k]*histpx, y1+(kc+1)*dy, color?color:alpha<<24|0xFF<<(kc<<3));//0x80
+			for(int k2=0;k2<256;++k2)
+				draw_rect(x1+k2*(x2-x1)/256, x1+(k2+1)*(x2-x1)/256, y1+(kc+1)*dy-_hist[kc<<8|k2]*histpx, y1+(kc+1)*dy, color?color:alpha<<24|0xFF<<(kc<<3));//0x80
 		}
 	}
 }
-void chart_hist_draw2(float x1, float x2, float y1, float y2, int color, int *hist, int histmax)
+static void chart_hist_draw2(float x1, float x2, float y1, float y2, int color, int *_hist, int _histmax)
 {
-	if(histmax==-1)
+	if(_histmax==-1)
 	{
-		histmax=0;
+		_histmax=0;
 		for(int sym=0;sym<256;++sym)
 		{
-			if(histmax<hist[sym])
-				histmax=hist[sym];
+			if(_histmax<_hist[sym])
+				_histmax=_hist[sym];
 		}
 	}
-	if(!histmax)
+	if(!_histmax)
 		return;
-	float dy=y2-y1, histpx=dy/histmax;
+	float dy=y2-y1, histpx=dy/_histmax;
 	int k=1;
 	float y=k*histpx*10000;
 	for(;y<dy;++k)
@@ -2963,8 +2963,8 @@ void chart_hist_draw2(float x1, float x2, float y1, float y2, int color, int *hi
 		draw_line(x1, y2-y, x2, y2-y, color);
 		y=k*histpx*10000;
 	}
-	for(int k=0;k<256;++k)
-		draw_rect(x1+k*(x2-x1)/256, x1+(k+1)*(x2-x1)/256, y2-hist[k]*histpx, y2, color);
+	for(int k2=0;k2<256;++k2)
+		draw_rect(x1+k2*(x2-x1)/256, x1+(k2+1)*(x2-x1)/256, y2-_hist[k2]*histpx, y2, color);
 }
 #if 0
 static void draw_cloud(int x, int y, int blocksize, float cubesize)
@@ -3009,7 +3009,7 @@ static void draw_cloud(int x, int y, int blocksize, float cubesize)
 	}
 }
 #endif
-void chart_jointhist_draw()
+static void chart_jointhist_draw(void)
 {
 	draw_AAcuboid_wire(0, jh_cubesize, 0, jh_cubesize, 0, jh_cubesize, 0xFF000000);
 
@@ -3096,6 +3096,9 @@ AABB buttons[6]={0};//0: CT,  1: ST,  2: list of transforms,  3: jxl params,  4:
 
 int io_init(int argc, char **argv)//return false to abort
 {
+	(void)argc;//FIXME open 1 command argument
+	(void)argv;
+
 	set_window_title("Entropy Benchmark");
 	glClearColor(1, 1, 1, 1);
 
@@ -3116,7 +3119,7 @@ const int
 	gui_ec_width=27,
 	gui_ols4_elementchars=9;
 int custom_pred_ch_idx=0;//from {0, 1, 2}
-void io_resize()
+void io_resize(void)
 {
 	AABB *p=buttons;
 	float xstep=tdx*guizoom, ystep=tdy*guizoom;
@@ -3133,7 +3136,7 @@ void io_resize()
 
 	p->x1=(float)(w>>2), p->x2=p->x1+xstep*(OLS4_RMAX<<1|1)*gui_ols4_elementchars, p->y1=(float)(h>>1)+10, p->y2=p->y1+ystep*(1+(OLS4_RMAX+1)*(im1?im1->nch:4)), ++p;//5: OLS-4		DON'T USE p->y2
 }
-int io_mousemove()//return true to redraw
+int io_mousemove(void)//return true to redraw
 {
 #if 0
 	if(
@@ -3185,7 +3188,7 @@ int io_mousemove()//return true to redraw
 	}
 	return 0;
 }
-void click_hittest(int mx, int my, int *objidx, int *cellx, int *celly, int *cellidx, AABB **p)
+static void click_hittest(int _mx, int _my, int *objidx, int *cellx, int *celly, int *cellidx, AABB **p)
 {
 	*p=buttons;
 	*objidx=0;
@@ -3198,27 +3201,27 @@ void click_hittest(int mx, int my, int *objidx, int *cellx, int *celly, int *cel
 			(!(transforms_mask[ST_FWD_OLS4]||transforms_mask[ST_INV_OLS4])&&*objidx==5)
 		)
 			continue;
-		if(mx>=p[0]->x1&&mx<p[0]->x2&&my>=p[0]->y1&&my<p[0]->y2)
+		if(_mx>=p[0]->x1&&_mx<p[0]->x2&&_my>=p[0]->y1&&_my<p[0]->y2)
 			break;
 	}
 	switch(*objidx)
 	{
 	case 0://color transform params
-		*cellx=(int)floorf((mx-p[0]->x1)*gui_custom_rct_w/(p[0]->x2-p[0]->x1));
-		*celly=(int)floorf((my-p[0]->y1)*gui_custom_rct_h/(p[0]->y2-p[0]->y1));
+		*cellx=(int)floorf((_mx-p[0]->x1)*gui_custom_rct_w/(p[0]->x2-p[0]->x1));
+		*celly=(int)floorf((_my-p[0]->y1)*gui_custom_rct_h/(p[0]->y2-p[0]->y1));
 		*cellidx=0;
 		//*cellx=mx-p[0]->x1>(p[0]->x2-p[0]->x1)*0.5f;
 		//*celly=(int)floorf((my-p[0]->y1)*custom_rct_h/(p[0]->y2-p[0]->y1));
 		//*cellidx=custom_rct_w**celly+*cellx;
 		break;
 	case 1://spatial transform params
-		*cellx=(int)floorf((mx-p[0]->x1)*(custom_pred_reach<<1|1)/(p[0]->x2-p[0]->x1));
-		*celly=(int)floorf((my-p[0]->y1)*gui_custom_pred_h/(p[0]->y2-p[0]->y1));
+		*cellx=(int)floorf((_mx-p[0]->x1)*(custom_pred_reach<<1|1)/(p[0]->x2-p[0]->x1));
+		*celly=(int)floorf((_my-p[0]->y1)*gui_custom_pred_h/(p[0]->y2-p[0]->y1));
 		*cellidx=(custom_pred_reach<<1|1)*(*celly-1)+*cellx;
 		break;
 	case 2://list of transforms
-		*cellx=(int)floorf((mx-p[0]->x1)*2/(p[0]->x2-p[0]->x1));
-		*celly=(int)floorf((my-p[0]->y1)*(T_COUNT/2)/(p[0]->y2-p[0]->y1));
+		*cellx=(int)floorf((_mx-p[0]->x1)*2/(p[0]->x2-p[0]->x1));
+		*celly=(int)floorf((_my-p[0]->y1)*(T_COUNT/2)/(p[0]->y2-p[0]->y1));
 		*cellidx=*celly;
 		break;
 	//case 3://clamp bounds
@@ -3232,19 +3235,19 @@ void click_hittest(int mx, int my, int *objidx, int *cellx, int *celly, int *cel
 	//	*cellidx=*cellx;
 	//	break;
 	case 3://jxl params
-		*cellx=(int)floorf((mx-p[0]->x1)*11/(p[0]->x2-p[0]->x1));
-		*celly=(int)floorf((my-p[0]->y1)* 3/(p[0]->y2-p[0]->y1));
+		*cellx=(int)floorf((_mx-p[0]->x1)*11/(p[0]->x2-p[0]->x1));
+		*celly=(int)floorf((_my-p[0]->y1)* 3/(p[0]->y2-p[0]->y1));
 		*cellidx=11**celly+*cellx;
 		break;
 	case 4:
 		//H.E.M.L..A.0x0000..XXXX_XXX
-		*cellx=(int)floorf((mx-p[0]->x1)*gui_ec_width/(p[0]->x2-p[0]->x1));
+		*cellx=(int)floorf((_mx-p[0]->x1)*gui_ec_width/(p[0]->x2-p[0]->x1));
 		*celly=0;
 		*cellidx=*cellx;
 		break;
 	case 5:
-		*cellx=(int)floorf((mx-p[0]->x1)/(tdx*guizoom));
-		*celly=(int)floorf((my-p[0]->y1)/(tdy*guizoom));
+		*cellx=(int)floorf((_mx-p[0]->x1)/(tdx*guizoom));
+		*celly=(int)floorf((_my-p[0]->y1)/(tdy*guizoom));
 		*cellidx=0;
 		break;
 	default:
@@ -3284,7 +3287,7 @@ int io_mousewheel(int forward)
 						int x=rct_custom_params[8];
 						x+=sign;
 						MODVAR(x, x, 6);
-						rct_custom_params[8]=x;
+						rct_custom_params[8]=(short)x;
 					}
 					else if((unsigned)(cellx-9)<4||(unsigned)(cellx-18)<4)
 					{
@@ -3293,7 +3296,7 @@ int io_mousewheel(int forward)
 							idx=(celly-1)<<1|0, cellx-=9;
 						else
 							idx=(celly-1)<<1|1, cellx-=18;
-						rct_custom_params[idx]+=sign<<((3-cellx)<<2);
+						rct_custom_params[idx]+=(short)(sign<<((3-cellx)<<2));
 					}
 #if 0
 					//0000000000111111111122222222223333
@@ -3451,7 +3454,7 @@ int io_mousewheel(int forward)
 					if(ch2>=2&&ch2<6)
 					{
 						int delta=sign<<((5-ch2)<<2);
-						jxlparams_i16[cellidx]+=delta;
+						jxlparams_i16[cellidx]+=(short)delta;
 					}
 					else if(cellx>=4)
 						jxlparams_i16[cellidx]=-jxlparams_i16[cellidx];
@@ -3675,7 +3678,7 @@ static int parse_nvals_i8(ArrayHandle text, int idx, unsigned char *params, int 
 	k=0;
 	while(k<count)
 	{
-		for(;idx<text->count&&isspace(text->data[idx]);++idx);
+		for(;idx<(int)text->count&&isspace(text->data[idx]);++idx);
 
 		int neg=text->data[idx]=='-';
 		idx+=neg||text->data[idx]=='+';//skip sign
@@ -3687,11 +3690,11 @@ static int parse_nvals_i8(ArrayHandle text, int idx, unsigned char *params, int 
 		if(neg)
 			params[k]=-params[k];
 
-		for(;idx<text->count&&!isspace(text->data[idx])&&text->data[idx]!='-'&&!isdigit(text->data[idx]);++idx);//skip comma
+		for(;idx<(int)text->count&&!isspace(text->data[idx])&&text->data[idx]!='-'&&!isdigit(text->data[idx]);++idx);//skip comma
 
 		++k;
 
-		if(idx>=text->count&&k<count)
+		if(idx>=(int)text->count&&k<count)
 			return idx;
 	}
 	return idx;
@@ -3703,7 +3706,7 @@ static int parse_nvals_f64(ArrayHandle text, int idx, double *params, int count)
 	k=0;
 	while(k<count)
 	{
-		for(;idx<text->count&&isspace(text->data[idx]);++idx);
+		for(;idx<(int)text->count&&isspace(text->data[idx]);++idx);
 
 		int neg=text->data[idx]=='-';
 		idx+=neg||text->data[idx]=='+';//skip sign
@@ -3715,11 +3718,11 @@ static int parse_nvals_f64(ArrayHandle text, int idx, double *params, int count)
 		if(neg)
 			params[k]=-params[k];
 
-		for(;idx<text->count&&!isspace(text->data[idx])&&text->data[idx]!='-'&&!isdigit(text->data[idx]);++idx);//skip comma
+		for(;idx<(int)text->count&&!isspace(text->data[idx])&&text->data[idx]!='-'&&!isdigit(text->data[idx]);++idx);//skip comma
 
 		++k;
 
-		if(idx>=text->count&&k<count)
+		if(idx>=(int)text->count&&k<count)
 			return idx;
 	}
 	return idx;
@@ -3731,7 +3734,7 @@ static int parse_nvals_i32(ArrayHandle text, int idx, int *params, int count)
 	k=0;
 	while(k<count)
 	{
-		for(;idx<text->count&&isspace(text->data[idx]);++idx);
+		for(;idx<(int)text->count&&isspace(text->data[idx]);++idx);
 
 		int neg=text->data[idx]=='-';
 		idx+=neg||text->data[idx]=='+';//skip sign
@@ -3743,11 +3746,11 @@ static int parse_nvals_i32(ArrayHandle text, int idx, int *params, int count)
 		if(neg)
 			params[k]=-params[k];
 
-		for(;idx<text->count&&!isspace(text->data[idx])&&text->data[idx]!='-'&&!isdigit(text->data[idx]);++idx);//skip comma
+		for(;idx<(int)text->count&&!isspace(text->data[idx])&&text->data[idx]!='-'&&!isdigit(text->data[idx]);++idx);//skip comma
 
 		++k;
 
-		if(idx>=text->count&&k<count)
+		if(idx>=(int)text->count&&k<count)
 			return idx;
 	}
 	return idx;
@@ -3759,23 +3762,23 @@ static int parse_nvals(ArrayHandle text, int idx, short *params, int count)
 	k=0;
 	while(k<count)
 	{
-		for(;idx<text->count&&isspace(text->data[idx]);++idx);
+		for(;idx<(int)text->count&&isspace(text->data[idx]);++idx);
 
 		int neg=text->data[idx]=='-';
 		idx+=neg||text->data[idx]=='+';//skip sign
 		if(text->data[idx]=='0'&&(text->data[idx]&0xDF)=='X')//skip hex prefix
 			idx+=2;
 		char *end=(char*)text->data+idx;
-		params[k]=(int)strtol((char*)text->data+idx, &end, 16);
+		params[k]=(short)strtol((char*)text->data+idx, &end, 16);
 		idx=(int)(end-(char*)text->data);
 		if(neg)
 			params[k]=-params[k];
 
-		for(;idx<text->count&&!isspace(text->data[idx])&&text->data[idx]!='-'&&!isdigit(text->data[idx]);++idx);//skip comma
+		for(;idx<(int)text->count&&!isspace(text->data[idx])&&text->data[idx]!='-'&&!isdigit(text->data[idx]);++idx);//skip comma
 
 		++k;
 
-		if(idx>=text->count&&k<count)
+		if(idx>=(int)text->count&&k<count)
 			return idx;
 	}
 	return idx;
@@ -3791,6 +3794,8 @@ static void append_i16_row(ArrayHandle *str, const short *vals, int count)
 }
 int io_keydn(IOKey key, char c)
 {
+	(void)c;
+
 	switch(key)//handle shortcuts involving timed keys before the main switch
 	{
 	case 'S':
@@ -4549,10 +4554,10 @@ int io_keydn(IOKey key, char c)
 					for(;k<kend;++k)
 					{
 						char *end=0;
-						for(;idx<text->count&&isspace(text->data[idx]);++idx);
-						rct_custom_params[k]=(int)strtol((char*)text->data+idx, &end, 16);
-						for(;idx<text->count&&!isspace(text->data[idx]);++idx);
-						if(idx>=text->count)
+						for(;idx<(int)text->count&&isspace(text->data[idx]);++idx);
+						rct_custom_params[k]=(short)strtol((char*)text->data+idx, &end, 16);
+						for(;idx<(int)text->count&&!isspace(text->data[idx]);++idx);
+						if(idx>=(int)text->count)
 							goto paste_finish;
 					}
 					k=0;
@@ -4561,10 +4566,10 @@ int io_keydn(IOKey key, char c)
 					{
 						for(;k<kend;++k)
 						{
-							for(;idx<text->count&&isspace(text->data[idx]);++idx);
+							for(;idx<(int)text->count&&isspace(text->data[idx]);++idx);
 							custom_params[k]=(int)round(atof((char*)text->data+idx)*65536);
-							for(;idx<text->count&&!isspace(text->data[idx]);++idx);
-							if(idx>=text->count)
+							for(;idx<(int)text->count&&!isspace(text->data[idx]);++idx);
+							if(idx>=(int)text->count)
 								goto paste_finish;
 						}
 					}
@@ -4958,6 +4963,8 @@ int io_keydn(IOKey key, char c)
 }
 int io_keyup(IOKey key, char c)
 {
+	(void)c;
+
 	switch(key)
 	{
 	//case KEY_LBUTTON:
@@ -4982,7 +4989,7 @@ int io_keyup(IOKey key, char c)
 	}
 	return 0;
 }
-void io_timer()
+void io_timer(void)
 {
 	float move_speed=keyboard[KEY_SHIFT]?10*cam.move_speed:cam.move_speed;
 	if(keyboard['W'])	cam_moveForward(cam, move_speed);
@@ -4998,7 +5005,7 @@ void io_timer()
 	if(keyboard[KEY_ENTER])	cam_zoomIn(cam, 1.1f);
 	if(keyboard[KEY_BKSP])	cam_zoomOut(cam, 1.1f);
 }
-float print_i16_row(float x, float y, float zoom, const short *row, int count)
+static float print_i16_row(float x, float y, float zoom, const short *row, int count)
 {
 	int printed=0;
 	for(int k=0;k<count;++k)
@@ -5009,7 +5016,7 @@ float print_i16_row(float x, float y, float zoom, const short *row, int count)
 	return print_line_immediate(0, x, y, zoom, g_buf, printed, -1, 0, 0);
 }
 
-void draw_shape_i(const float *points)
+static void draw_shape_i(const float *points)
 {
 	const float *axes=points+3*8;
 	draw_3d_line(&cam, points+3*0, points+3*1, 0xFF0000FF);
@@ -5029,7 +5036,7 @@ void draw_shape_i(const float *points)
 	draw_3d_line(&cam, axes, axes+3*3, 0xFFFF0000);
 	draw_3d_line(&cam, axes, axes+3*4, 0xFF000000);
 }
-void draw_YCoCg_R(float x, float y, float z)
+static void draw_YCoCg_R(float x, float y, float z)
 {
 	float points[]=
 	{
@@ -5067,7 +5074,7 @@ void draw_YCoCg_R(float x, float y, float z)
 	}
 	draw_shape_i(points);
 }
-void draw_YCbCr_R(float x, float y, float z)
+static void draw_YCbCr_R(float x, float y, float z)
 {
 	float points[]=
 	{
@@ -5105,7 +5112,7 @@ void draw_YCbCr_R(float x, float y, float z)
 	}
 	draw_shape_i(points);
 }
-void draw_JPEG2000(float x, float y, float z)
+static void draw_JPEG2000(float x, float y, float z)
 {
 	float points[]=
 	{
@@ -5142,7 +5149,7 @@ void draw_JPEG2000(float x, float y, float z)
 	}
 	draw_shape_i(points);
 }
-void draw_diffav(float x, float y, float z)
+static void draw_diffav(float x, float y, float z)
 {
 	float points[]=
 	{
@@ -5166,7 +5173,7 @@ void draw_diffav(float x, float y, float z)
 	draw_3d_line(&cam, points+3*3, points+3*0, 0xFFFF0000);
 }
 
-void io_render()
+void io_render(void)
 {
 	glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
 
@@ -5911,10 +5918,10 @@ void io_render()
 			}
 			ks=1;
 			x=(float)(xend-scale*ks);
-			for(int ks=1;x>xstart;++ks)
+			for(int ks2=1;x>xstart;++ks2)
 			{
 				draw_rect(x-1, x+2, ystart, (float)h, 0x70800080);//draw major scale
-				x=(float)(xend-scale*ks);
+				x=(float)(xend-scale*ks2);
 			}
 			float barw=4;
 #if 0
@@ -6088,9 +6095,9 @@ void io_render()
 				(C3_REACH<<1)+2,  C3_REACH<<1,    C3_REACH<<1,
 				(C3_REACH<<1)+2, (C3_REACH<<1)+2, C3_REACH<<1,
 			};
-			float zoom=0.75, ystart=tdy*zoom*4;
+			float zoom=0.75;
 			x=(float)(w>>1);
-			y=ystart;
+			y=tdy*zoom*4;
 			for(int kc=0;kc<9;++kc)
 			{
 				for(int k=0;k<C3_REACH;++k)
@@ -6367,7 +6374,7 @@ void io_render()
 
 	swapbuffers();
 }
-int io_quit_request()//return 1 to exit
+int io_quit_request(void)//return 1 to exit
 {
 	//logic_opt_forceclosethread();
 	//g_repaint=0;
@@ -6376,7 +6383,7 @@ int io_quit_request()//return 1 to exit
 
 	return 1;
 }
-void io_cleanup()//cleanup
+void io_cleanup(void)//cleanup
 {
 	free(im0);
 	free(im1);

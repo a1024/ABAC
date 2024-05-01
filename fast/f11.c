@@ -65,9 +65,13 @@ static const char *chnames[]=
 };
 int f11_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud)
 {
-	double t0=time_sec();
 	int fwd=src!=0;
 	Image const *image=fwd?src:dst;
+	
+	(void)data;
+	(void)cbuf;
+	(void)clen;
+	(void)loud;
 
 	if(image->nch!=3)
 	{
@@ -152,7 +156,7 @@ int f11_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			ridx=kt;
 	}
 	ptrdiff_t usize=field*depth>>3;
-	printf("U   %11lld\n", usize);
+	printf("U   %11td\n", usize);
 	for(int kt=0;kt<NRCH+NGCH+NBCH;++kt)
 	{
 		char c=' ';

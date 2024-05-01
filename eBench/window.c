@@ -355,14 +355,14 @@ const char* wm2str(int message)
 	}
 	return a;
 }
-int sys_check(const char *file, int line, const char *info)
+int sys_check(const char *fn, int line, const char *info)
 {
-	int error=GetLastError();
-	if(error)
+	int e2=GetLastError();
+	if(e2)
 	{
 		char *messageBuffer=0;
-		/*size_t size=*/FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER|FORMAT_MESSAGE_FROM_SYSTEM|FORMAT_MESSAGE_IGNORE_INSERTS, NULL, error, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&messageBuffer, 0, NULL);
-		log_error(file, line, 1, "%s%sGetLastError() returned %d: %s", info?info:"", info?"\n":"", error, messageBuffer);
+		/*size_t size=*/FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER|FORMAT_MESSAGE_FROM_SYSTEM|FORMAT_MESSAGE_IGNORE_INSERTS, NULL, e2, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&messageBuffer, 0, NULL);
+		log_error(fn, line, 1, "%s%sGetLastError() returned %d: %s", info?info:"", info?"\n":"", e2, messageBuffer);
 		LocalFree(messageBuffer);
 	}
 	return 0;
@@ -417,7 +417,7 @@ int messagebox(MessageBoxType type, const char *title, const char *format, ...)/
 //	free(*str);
 //	*str=0;
 //}
-ArrayHandle dialog_open_folder()
+ArrayHandle dialog_open_folder(void)
 {
 	ArrayHandle arr=0;
 	IFileOpenDialog *pFileOpenDialog=0;
@@ -553,7 +553,7 @@ char* dialog_save_file(Filter *filters, int nfilters, const char *initialname)
 		0,
 		0,//dialog title
 		OFN_NOTESTFILECREATE|OFN_PATHMUSTEXIST|OFN_EXTENSIONDIFFERENT|OFN_OVERWRITEPROMPT,
-		0, ext_offset,					//<- file offset & extension offset
+		0, (unsigned short)ext_offset,				//<- file offset & extension offset
 		def_ext,						//<- default extension (if user didn't type one)
 		0, 0,//data & hook
 		0,//template name
@@ -649,7 +649,7 @@ int copy_bmp_to_clipboard(const unsigned char *rgba, int iw, int ih)
 	CloseClipboard();
 	return 1;
 }
-Image* paste_bmp_from_clipboard()
+Image* paste_bmp_from_clipboard(void)
 {
 	unsigned clipboardformats[]={CF_DIB, CF_DIBV5, CF_BITMAP, CF_TIFF, CF_METAFILEPICT};
 	int format=GetPriorityClipboardFormat(clipboardformats, sizeof clipboardformats>>2);
@@ -831,7 +831,7 @@ Image* paste_bmp_from_clipboard()
 	return image;
 }
 
-void update_main_key_states()
+static void update_main_key_states(void)
 {
 	keyboard[VK_CONTROL]=GET_KEY_STATE(VK_LCONTROL)<<1|GET_KEY_STATE(VK_RCONTROL);
 	keyboard[VK_SHIFT]=GET_KEY_STATE(VK_LSHIFT)<<1|GET_KEY_STATE(VK_RSHIFT);
@@ -868,7 +868,7 @@ void show_mouse(int show)
 	ShowCursor(show);
 }
 
-void swapbuffers()
+void swapbuffers(void)
 {
 	SwapBuffers(ghDC);
 }
@@ -994,6 +994,9 @@ int __stdcall WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrev, _In_ c
 		0, "New format", 0
 	};
 	MSG msg;
+
+	(void)hPrev;
+	(void)pCmdLine;
 
 	int len=GetModuleFileNameW(0, g_wbuf, G_BUF_SIZE);
 	int len2=WideCharToMultiByte(CP_UTF8, 0, g_wbuf, len, g_buf, G_BUF_SIZE, 0, 0);

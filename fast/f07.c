@@ -247,7 +247,7 @@ int f07_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		return 0;
 	}
 	for(int ks=0;ks<256;++ks)
-		stats[ks]=ks<<8;
+		stats[ks]=(short)(ks<<8);
 	memfill(stats+256, stats, sizeof(short[256*QLEVELS*QLEVELS*4])-sizeof(short[256]), sizeof(short[256]));
 	memset(pixels, 0, (image->iw+4LL)*sizeof(char[2*4*2]));
 	PROF(INIT);
@@ -289,15 +289,15 @@ int f07_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				curr[2]-=curr[1];
 				curr[1]+=(curr[0]+curr[2])>>2;
 #endif
-				curr[4]=curr[0]-pred[0];
-				curr[5]=curr[1]-pred[1];
-				curr[6]=curr[2]-pred[2];
+				curr[4]=(char)(curr[0]-pred[0]);
+				curr[5]=(char)(curr[1]-pred[1]);
+				curr[6]=(char)(curr[2]-pred[2]);
 
 				unsigned char val[]=
 				{
-					curr[4]+128,
-					curr[5]+128,
-					curr[6]+128,
+					(unsigned char)(curr[4]+128),
+					(unsigned char)(curr[5]+128),
+					(unsigned char)(curr[6]+128),
 				};
 				PROF(RCT);
 				//if(!ky&&kx==42)//
@@ -398,9 +398,9 @@ int f07_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 
 				char c2[]=
 				{
-					curr[0]=curr[4]+pred[0],
-					curr[1]=curr[5]+pred[1],
-					curr[2]=curr[6]+pred[2],
+					curr[0]=(char)(curr[4]+pred[0]),
+					curr[1]=(char)(curr[5]+pred[1]),
+					curr[2]=(char)(curr[6]+pred[2]),
 				};
 #ifndef DISABLE_RCT
 				c2[1]-=(c2[0]+c2[2])>>2;
@@ -440,12 +440,12 @@ int f07_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		{
 			ptrdiff_t usize=image_getBMPsize(image);
 			ptrdiff_t csize=list[0].nobj+list[1].nobj+list[2].nobj;
-			printf("YUV %12lld %12lld %12lld\n",
+			printf("YUV %12zd %12zd %12zd\n",
 				list[0].nobj,
 				list[1].nobj,
 				list[2].nobj
 			);
-			printf("csize %12lld  %10.6lf%%  CR %8.6lf\n", csize, 100.*csize/usize, (double)usize/csize);
+			printf("csize %12td  %10.6lf%%  CR %8.6lf\n", csize, 100.*csize/usize, (double)usize/csize);
 		}
 		printf("F07  %c %15.6lf sec\n", 'D'+fwd, t0);
 		prof_print();

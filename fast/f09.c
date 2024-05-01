@@ -172,7 +172,7 @@ int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 
 			int val=*ctr+0x8000;
 			val+=(int)((0x10000LL-val)*weight>>sh);
-			*ctr=CLAMP(1, val, 0xFFFF)-0x8000;
+			*ctr=(short)(CLAMP(1, val, 0xFFFF)-0x8000);
 
 			MSBidx+=(!bit)&-(MSBidx==kb);
 		}
@@ -211,16 +211,16 @@ int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					curr[0]=image->data[idx+1];//Y
 					curr[1]=image->data[idx+2];//U/Cb
 					curr[2]=image->data[idx+0];//V/Cr
-					curr[2]-=curr[0];		curr[2]=((curr[2]+half)&mask)-half;
-					curr[1]-=curr[0];		curr[1]=((curr[1]+half)&mask)-half;
-					curr[0]+=(curr[1]+curr[2])>>2;	curr[0]=((curr[0]+half)&mask)-half;
+					curr[2]-=curr[0];		curr[2]=(short)(((curr[2]+half)&mask)-half);
+					curr[1]-=curr[0];		curr[1]=(short)(((curr[1]+half)&mask)-half);
+					curr[0]+=(curr[1]+curr[2])>>2;	curr[0]=(short)(((curr[0]+half)&mask)-half);
 #else
 					curr[0]=image->data[idx+0];
 					curr[1]=image->data[idx+1];
 					curr[2]=image->data[idx+2];
-					curr[0]-=curr[1];		curr[0]=((curr[0]+half)&mask)-half;
-					curr[2]-=curr[1];		curr[2]=((curr[2]+half)&mask)-half;
-					curr[1]+=(curr[0]+curr[2])>>2;	curr[1]=((curr[1]+half)&mask)-half;
+					curr[0]-=curr[1];		curr[0]=(short)(((curr[0]+half)&mask)-half);
+					curr[2]-=curr[1];		curr[2]=(short)(((curr[2]+half)&mask)-half);
+					curr[1]+=(curr[0]+curr[2])>>2;	curr[1]=(short)(((curr[1]+half)&mask)-half);
 #endif
 				}
 				else
@@ -295,6 +295,67 @@ int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					eWWW		=rows[0][kc-3*8+4],
 					eWW		=rows[0][kc-2*8+4],
 					eW		=rows[0][kc-1*8+4];
+				(void)NNNN;
+				(void)NNN;
+				(void)NNNE;
+				(void)NNWWW;
+				(void)NNWW;
+				(void)NNW;
+				(void)NN;
+				(void)NNE;
+				(void)NNEE;
+				(void)NWW;
+				(void)NW;
+				(void)N;
+				(void)NE;
+				(void)NEE;
+				(void)NEEE;
+				(void)WWWWWW;
+				(void)WWWWW;
+				(void)WWWW;
+				(void)WWW;
+				(void)WW;
+				(void)W;
+				(void)eNNNNNNN;
+				(void)eNNNNNN;
+				(void)eNNNNN;
+				(void)eNNNN;
+				(void)eNNNNE;
+				(void)eNNN;
+				(void)eNNNE;
+				(void)eNNNEE;
+				(void)eNNNEEE;
+				(void)eNNNEEEEEE;
+				(void)eNNWWW;
+				(void)eNNWW;
+				(void)eNNW;
+				(void)eNN;
+				(void)eNNE;
+				(void)eNNEE;
+				(void)eNNEEE;
+				(void)eNNEEEE;
+				(void)eNNEEEEE;
+				(void)eNNEEEEEE;
+				(void)eNNEEEEEEE;
+				(void)eNWWW;
+				(void)eNWW;
+				(void)eNW;
+				(void)eN;
+				(void)eNE;
+				(void)eNEE;
+				(void)eNEEE;
+				(void)eNEEEE;
+				(void)eNEEEEE;
+				(void)eNEEEEEE;
+				(void)eNEEEEEEE;
+				(void)eWWWWWWW;
+				(void)eWWWWWW;
+				(void)eWWWWW;
+				(void)eWWWW;
+				(void)eWWW;
+				(void)eWW;
+				(void)eW;
+
 				int pred=N+W-NW;
 				int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
 				pred=CLAMP(vmin, pred, vmax);
@@ -375,11 +436,13 @@ int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				int sym=0;
 				if(fwd)
 				{
+					//if((unsigned)(curr[kc]+half)>=nlevels)
+					//	LOG_ERROR("");
 					sym=curr[kc]-pred;
 					sym+=half;
 					sym&=mask;
 					sym-=half;
-					curr[kc+4]=sym;
+					curr[kc+4]=(short)sym;
 					sym=sym<<1^(sym>>31);
 				}
 				int tidx=0;
@@ -489,7 +552,7 @@ int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						m-=(int)mupdate;
 						s-=(int)supdate;
 						curr_mixer[k]=m;
-						curr_stats[k][idx2]=CLAMP(-0x7FFF, s, 0x7FFF);
+						curr_stats[k][idx2]=(short)CLAMP(-0x7FFF, s, 0x7FFF);
 					}
 #endif
 					curr_mixer+=F09_NCTX+1LL;
@@ -514,12 +577,12 @@ int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				if(!fwd)
 				{
 					sym=sym>>1^-(sym&1);
-					curr[kc+4]=sym;
+					curr[kc+4]=(short)sym;
 					sym+=pred;
 					sym+=half;
 					sym&=mask;
 					sym-=half;
-					curr[kc]=sym;
+					curr[kc]=(short)sym;
 				}
 			}
 			if(!fwd)
@@ -536,9 +599,9 @@ int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					rgb[1]=curr[1];
 					rgb[2]=curr[2];
 #endif
-					rgb[1]-=(rgb[0]+rgb[2])>>2;	rgb[1]=((rgb[1]+half)&mask)-half;
-					rgb[2]+=rgb[1];			rgb[2]=((rgb[2]+half)&mask)-half;
-					rgb[0]+=rgb[1];			rgb[0]=((rgb[0]+half)&mask)-half;
+					rgb[1]-=(rgb[0]+rgb[2])>>2;	rgb[1]=(short)(((rgb[1]+half)&mask)-half);
+					rgb[2]+=rgb[1];			rgb[2]=(short)(((rgb[2]+half)&mask)-half);
+					rgb[0]+=rgb[1];			rgb[0]=(short)(((rgb[0]+half)&mask)-half);
 				}
 				else
 					memcpy(rgb, curr, image->nch*sizeof(short));
@@ -547,7 +610,7 @@ int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				rows[k]+=8;
 		}
 #ifdef TRACK_MIXER
-		for(int k=0;k<_countof(av_mixer);++k)
+		for(int k=0;k<(int)_countof(av_mixer);++k)
 			av_mixer[k]+=(long long)mixer[k];
 #endif
 	}
@@ -568,7 +631,7 @@ int f09_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #ifdef ENABLE_SSE
 			usedsize+=ssesize;
 #endif
-			printf("csize %12lld  %10.6lf%%  CR %8.6lf  used %.2lf KB\n",
+			printf("csize %12td  %10.6lf%%  CR %8.6lf  used %.2lf KB\n",
 				csize,
 				100.*csize/usize,
 				(double)usize/csize,

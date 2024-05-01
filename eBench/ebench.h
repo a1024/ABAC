@@ -9,6 +9,10 @@
 extern "C"
 {
 #endif
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable:4200)
+#endif
 
 
 //	#define ALLOW_OPENCL
@@ -175,25 +179,25 @@ IOKEY(0xFF, 0x90, NUMLOCK)
 
 //callbacks - implement these in your application:
 int io_init(int argc, char **argv);//return false to abort
-void io_resize();
-int io_mousemove();//return true to redraw
+void io_resize(void);
+int io_mousemove(void);//return true to redraw
 int io_mousewheel(int forward);
 int io_keydn(IOKey key, char c);
 int io_keyup(IOKey key, char c);
-void io_timer();
-void io_render();
-int io_quit_request();//return 1 to exit
-void io_cleanup();//cleanup
+void io_timer(void);
+void io_render(void);
+int io_quit_request(void);//return 1 to exit
+void io_cleanup(void);//cleanup
 
 
-void   console_start();
-void   console_end();
+void   console_start(void);
+void   console_end(void);
 void   console_buffer_size(short x, short y);
 int    console_log(const char *format, ...);
-void   console_pause();
+void   console_pause(void);
 int    console_scan(char *buf, int len);
-int    console_scan_int();
-double console_scan_float();
+int    console_scan_int(void);
+double console_scan_float(void);
 
 int sys_check(const char *file, int line, const char *info);
 #define SYS_ASSERT(SUCCESS)	((void)((SUCCESS)!=0||sys_check(file, __LINE__, 0)))
@@ -210,7 +214,7 @@ typedef struct FilterStruct
 {
 	const char *comment, *ext;
 } Filter;
-ArrayHandle dialog_open_folder();
+ArrayHandle dialog_open_folder(void);
 ArrayHandle dialog_open_file(Filter *filters, int nfilters, int multiple);
 char* dialog_save_file(Filter *filters, int nfilters, const char *initialname);
 
@@ -229,7 +233,7 @@ void set_mouse(int x, int y);
 void get_mouse(int *px, int *py);
 void show_mouse(int show);
 
-void swapbuffers();
+void swapbuffers(void);
 
 
 //OpenGL standard macros & types
@@ -323,7 +327,7 @@ typedef void     (__stdcall *t_glShaderSource)(unsigned shader, int count, const
 typedef void     (__stdcall *t_glCompileShader)(unsigned shader);
 typedef void     (__stdcall *t_glGetShaderiv)(unsigned shader, unsigned pname, int *params);
 typedef void     (__stdcall *t_glGetShaderInfoLog)(unsigned shader, int maxLength, int *length, char *infoLog);
-typedef unsigned (__stdcall *t_glCreateProgram)();
+typedef unsigned (__stdcall *t_glCreateProgram)(void);
 typedef void     (__stdcall *t_glAttachShader)(unsigned program, unsigned shader);
 typedef void     (__stdcall *t_glLinkProgram)(unsigned program);
 typedef void     (__stdcall *t_glGetProgramiv)(unsigned program, unsigned pname, int *params);
@@ -549,7 +553,7 @@ typedef struct CameraStruct
 
 
 //The Graphics API
-void gl_init();
+void gl_init(void);
 
 extern int error;
 extern const char *gl_error_msg;
@@ -573,7 +577,7 @@ void draw_triangle	(float x1, float y1, float x2, float y2, float x3, float y3, 
 #define DRAW_RECT_HOLLOWI(X1, X2, Y1, Y2, COLOR) draw_rect_hollow((float)(X1), (float)X2, (float)Y1, (float)Y2, COLOR)
 #define     DRAW_ELLIPSEI(X1, X2, Y1, Y2, COLOR)     draw_ellipse((float)(X1), (float)X2, (float)Y1, (float)Y2, COLOR)
 
-int toggle_sdftext();
+int toggle_sdftext(void);
 int set_text_color(int color_txt);
 int set_bk_color(int color_bk);
 long long set_text_colors(long long colors);//0xBKBKBKBK_TXTXTXTX
@@ -641,13 +645,13 @@ size_t image_getbufsize(Image const *image);
 void image_copy_nodata(Image **dst, Image const *src);
 void image_copy(Image **dst, Image const *src);
 int copy_bmp_to_clipboard(const unsigned char *rgba, int iw, int ih);
-Image* paste_bmp_from_clipboard();//window.c
+Image* paste_bmp_from_clipboard(void);//window.c
 
 
 //extern Image *im0, *im1;
 extern double ch_entropy[4];
 extern int loud_transforms;
-void update_image();
+void update_image(void);
 
 
 //transforms
@@ -899,9 +903,12 @@ typedef enum EContextEnum
 } EContext;
 const char* ec_method_label(EContext ec_method);
 void calc_csize_ec(Image const *src, EContext method, int adaptive, int expbits, int msb, int lsb, double *entropy);
-void calc_csize_abac(Image const *src, int expbits, int msb, int lsb, double *entropy);
+void calc_csize_abac(Image const *src, double *entropy);
 
 
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 #ifdef __cplusplus
 }
 #endif

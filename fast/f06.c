@@ -310,13 +310,13 @@ int f06_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 
 					short val[]=
 					{
-						(curr[0]-pred[0]+chalf)&(clevels-1),
-						(curr[1]-pred[1]+ half)&(nlevels-1),
-						(curr[2]-pred[2]+chalf)&(clevels-1),
+						(short)((curr[0]-pred[0]+chalf)&(clevels-1)),
+						(short)((curr[1]-pred[1]+ half)&(nlevels-1)),
+						(short)((curr[2]-pred[2]+chalf)&(clevels-1)),
 					};
-					curr[4]=val[0]-chalf;
-					curr[5]=val[1]- half;
-					curr[6]=val[2]-chalf;
+					curr[4]=(short)(val[0]-chalf);
+					curr[5]=(short)(val[1]- half);
+					curr[6]=(short)(val[2]-chalf);
 					PROF(RCT);
 					//if(!ky&&kx==42)//
 					//if(idx==84945-3)//
@@ -417,12 +417,12 @@ int f06_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					
 					short val[3];
 #ifdef DEDICATED_DECODER
-					val[1]=ac_dec_5bit(ec+(0&EC_IDX_MASK), stats+ctx[1]);
-					val[2]=ac_dec_5bit(ec+(1&EC_IDX_MASK), stats+ctx[2]);
-					val[0]=ac_dec_5bit(ec+(2&EC_IDX_MASK), stats+ctx[0]);
-					val[1]=val[1]<<4|ac_dec_4bit(ec+(0&EC_IDX_MASK), stats+ctx[1]+33+17*val[1]);
-					val[2]=val[2]<<4|ac_dec_4bit(ec+(1&EC_IDX_MASK), stats+ctx[2]+33+17*val[2]);
-					val[0]=val[0]<<4|ac_dec_4bit(ec+(2&EC_IDX_MASK), stats+ctx[0]+33+17*val[0]);
+					val[1]=(short)ac_dec_5bit(ec+(0&EC_IDX_MASK), stats+ctx[1]);
+					val[2]=(short)ac_dec_5bit(ec+(1&EC_IDX_MASK), stats+ctx[2]);
+					val[0]=(short)ac_dec_5bit(ec+(2&EC_IDX_MASK), stats+ctx[0]);
+					val[1]=(short)(val[1]<<4|ac_dec_4bit(ec+(0&EC_IDX_MASK), stats+ctx[1]+33+17*val[1]));
+					val[2]=(short)(val[2]<<4|ac_dec_4bit(ec+(1&EC_IDX_MASK), stats+ctx[2]+33+17*val[2]));
+					val[0]=(short)(val[0]<<4|ac_dec_4bit(ec+(2&EC_IDX_MASK), stats+ctx[0]+33+17*val[0]));
 #else
 					val[1]=ac_dec(ec+(0&EC_IDX_MASK), stats+ctx[1], 32);
 					val[2]=ac_dec(ec+(1&EC_IDX_MASK), stats+ctx[2], 32);
@@ -433,13 +433,13 @@ int f06_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #endif
 					PROF(EC);
 
-					curr[4]=val[0]-chalf;
-					curr[5]=val[1]- half;
-					curr[6]=val[2]-chalf;
+					curr[4]=(short)(val[0]-chalf);
+					curr[5]=(short)(val[1]- half);
+					curr[6]=(short)(val[2]-chalf);
 
-					curr[0]=((val[0]+pred[0])&(clevels-1))-chalf;
-					curr[1]=((val[1]+pred[1])&(nlevels-1))- half;
-					curr[2]=((val[2]+pred[2])&(clevels-1))-chalf;
+					curr[0]=(short)(((val[0]+pred[0])&(clevels-1))-chalf);
+					curr[1]=(short)(((val[1]+pred[1])&(nlevels-1))- half);
+					curr[2]=(short)(((val[2]+pred[2])&(clevels-1))-chalf);
 					
 					short *rgb=dst->data+idx;
 					memcpy(rgb, curr, sizeof(short[3]));
@@ -482,13 +482,13 @@ int f06_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			ptrdiff_t csize=ec.srcptr-ec.srcstart;
 #else
 			ptrdiff_t csize=list[0].nobj+list[1].nobj+list[2].nobj;
-			printf("YUV %12lld %12lld %12lld\n",
+			printf("YUV %12zd %12zd %12zd\n",
 				list[0].nobj,
 				list[1].nobj,
 				list[2].nobj
 			);
 #endif
-			printf("csize %12lld  %10.6lf%%  CR %8.6lf\n", csize, 100.*csize/usize, (double)usize/csize);
+			printf("csize %12td  %10.6lf%%  CR %8.6lf\n", csize, 100.*csize/usize, (double)usize/csize);
 		}
 		printf("F06  %c %15.6lf sec\n", 'D'+fwd, t0);
 		prof_print();

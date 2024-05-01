@@ -352,8 +352,8 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	GolombRiceCoder ec[3];
 #else
 	ArithmeticCoder ec[3];
-	__m128i mhalf=_mm_set_epi16(0, 0, 0, 0, 0, chalf, half, chalf);
-	__m128i pxmask=_mm_set_epi16(0, 0, 0, 0, 0, clevels-1, nlevels-1, clevels-1);
+	__m128i mhalf=_mm_set_epi16(0, 0, 0, 0, 0, (short)chalf, (short)half, (short)chalf);
+	__m128i pxmask=_mm_set_epi16(0, 0, 0, 0, 0, (short)(clevels-1), (short)(nlevels-1), (short)(clevels-1));
 #endif
 	__m128i mhalf32=_mm_set_epi32(0, chalf, half, chalf);
 	__m128i pxmask32=_mm_set_epi32(0, clevels-1, nlevels-1, clevels-1);
@@ -561,12 +561,12 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				};
 				int freq[]=
 				{
-					CDFs[0][sym[0]+1]-cdf[0],
-					CDFs[1][sym[1]+1]-cdf[1],
-					CDFs[2][sym[2]+1]-cdf[2],
-					CDFs[3][sym[3]+1]-cdf[3],
-					CDFs[4][sym[4]+1]-cdf[4],
-					CDFs[5][sym[5]+1]-cdf[5],
+					(int)(CDFs[0][sym[0]+1]-cdf[0]),
+					(int)(CDFs[1][sym[1]+1]-cdf[1]),
+					(int)(CDFs[2][sym[2]+1]-cdf[2]),
+					(int)(CDFs[3][sym[3]+1]-cdf[3]),
+					(int)(CDFs[4][sym[4]+1]-cdf[4]),
+					(int)(CDFs[5][sym[5]+1]-cdf[5]),
 				};
 				ec[0].low+=ec[0].range*cdf[0]>>16;
 				ec[1].low+=ec[1].range*cdf[1]>>16;
@@ -832,9 +832,9 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					};
 					int freq[]=
 					{
-						CDFs[0][sym[0]+1]-cdf[0],
-						CDFs[1][sym[1]+1]-cdf[1],
-						CDFs[2][sym[2]+1]-cdf[2],
+						(int)(CDFs[0][sym[0]+1]-cdf[0]),
+						(int)(CDFs[1][sym[1]+1]-cdf[1]),
+						(int)(CDFs[2][sym[2]+1]-cdf[2]),
 					};
 					ec[0].low+=ec[0].range*cdf[0]>>16;
 					ec[1].low+=ec[1].range*cdf[1]>>16;
@@ -859,9 +859,9 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					CDFs[0]+=33+17*sym[0];
 					CDFs[1]+=33+17*sym[1];
 					CDFs[2]+=33+17*sym[2];
-					val[0]=sym[0]<<4;
-					val[1]=sym[1]<<4;
-					val[2]=sym[2]<<4;
+					val[0]=(short)(sym[0]<<4);
+					val[1]=(short)(sym[1]<<4);
+					val[2]=(short)(sym[2]<<4);
 					sym[0] =(c[0]>=CDFs[0][       8])<<3;
 					sym[1] =(c[1]>=CDFs[1][       8])<<3;
 					sym[2] =(c[2]>=CDFs[2][       8])<<3;
@@ -882,9 +882,9 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					};
 					int freq[]=
 					{
-						CDFs[0][sym[0]+1]-cdf[0],
-						CDFs[1][sym[1]+1]-cdf[1],
-						CDFs[2][sym[2]+1]-cdf[2],
+						(int)(CDFs[0][sym[0]+1]-cdf[0]),
+						(int)(CDFs[1][sym[1]+1]-cdf[1]),
+						(int)(CDFs[2][sym[2]+1]-cdf[2]),
 					};
 					ec[0].low+=ec[0].range*cdf[0]>>16;
 					ec[1].low+=ec[1].range*cdf[1]>>16;
@@ -1033,17 +1033,17 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		if(fwd)
 		{
 #ifdef SHOW_PRED_ERRORS
-			for(int k=0;k<_countof(errors);++k)
+			for(int k=0;k<(int)_countof(errors);++k)
 				printf("%2d  %12lld\n", k, total_errors[k]);
 #endif
 			ptrdiff_t usize=image_getBMPsize(image);
 			ptrdiff_t csize=list[0].nobj+list[1].nobj+list[2].nobj;
-			printf("YUV %12lld %12lld %12lld\n",
+			printf("YUV %12zd %12zd %12zd\n",
 				list[1].nobj,
 				list[2].nobj,
 				list[0].nobj
 			);
-			printf("csize %12lld  %10.6lf%%  CR %8.6lf\n", csize, 100.*csize/usize, (double)usize/csize);
+			printf("csize %12td  %10.6lf%%  CR %8.6lf\n", csize, 100.*csize/usize, (double)usize/csize);
 		}
 		printf("F08  %c %15.6lf sec\n", 'D'+fwd, t0);
 		prof_print();
