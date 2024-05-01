@@ -201,33 +201,29 @@ void debug_dec_update(unsigned state, unsigned cdf, int freq, int kx, int ky, in
 
 
 //arithmetic coder
-#define PROB_BITS 16
+#define PROB_BITS 16//can't be changed
+#ifdef EC_USE_ARRAY
+typedef ArrayHandle EC_DSTStructure;
+#else
+typedef DList EC_DSTStructure;
+#endif
 typedef struct ArithmeticCoderStruct
 {
 	unsigned long long low, range;
-	ArrayHandle *arr;
-	DList *list;
+	EC_DSTStructure *dst;
 	const unsigned char *srcptr, *srcend;
 	unsigned long long code;
 } ArithmeticCoder;
-INLINE void ac_enc_init(ArithmeticCoder *ec,
-#ifdef EC_USE_ARRAY
-	ArrayHandle *arr
-#else
-	DList *list
-#endif
-)
+INLINE void ac_enc_init(ArithmeticCoder *ec, EC_DSTStructure *dst)
 {
 	memset(ec, 0, sizeof(*ec));
 	ec->low=0;
 	//ec->range=~0LLU>>PROB_BITS;
 	ec->range=~0LLU>>(PROB_BITS<<1);
 #ifdef EC_USE_ARRAY
-	array_append(arr, 0, 1, 0, 0, 0, 0);
-	ec->arr=arr;
-#else
-	ec->list=list;
+	array_append(dst, 0, 1, 0, 0, 0, 0);
 #endif
+	ec->dst=dst;
 }
 INLINE void ac_dec_init(ArithmeticCoder *ec, const unsigned char *start, unsigned const char *end)
 {
@@ -253,7 +249,7 @@ INLINE void ac_enc_renorm(ArithmeticCoder *ec)//fast renorm by F. Rubin 1979
 #ifdef EC_USE_ARRAY
 	array_append(ec->arr, (unsigned char*)&ec->low+4, 1, 2, 1, 0, 0);
 #else
-	dlist_push_back(ec->list, (unsigned char*)&ec->low+4, 2);
+	dlist_push_back(ec->dst, (unsigned char*)&ec->low+4, 2);
 #endif
 	ec->range<<=PROB_BITS;
 	ec->low<<=PROB_BITS;
@@ -300,13 +296,13 @@ INLINE void ac_enc_flush(ArithmeticCoder *ec)
 #ifdef EC_USE_ARRAY
 	for(int k=4;k>=0&&code;k-=2)
 	{
-		array_append(ec->arr, (unsigned char*)&code+k, 1, 2, 1, 0, 0);
+		array_append(ec->dst, (unsigned char*)&code+k, 1, 2, 1, 0, 0);
 		code&=0xFFFFFFFFFFFF>>(48-(k<<3));
 	}
 #else
 	for(int k=4;k>=0&&code;k-=2)
 	{
-		dlist_push_back(ec->list, (unsigned char*)&code+k, 2);
+		dlist_push_back(ec->dst, (unsigned char*)&code+k, 2);
 		code&=0xFFFFFFFFFFFF>>(48-(k<<3));
 	}
 #endif
@@ -349,33 +345,14 @@ INLINE int ac_dec(ArithmeticCoder *ec, const unsigned *CDF, int nlevels)
 	--sym;
 #else
 	unsigned c=(unsigned)(((ec->code-ec->low)<<16|0xFFFF)/ec->range);
-	//unsigned long long range=ec->code-ec->low;
-#if 0
-	__asm
-	{
-		xor rax, rax		; A = L
-		mov rbx, nlevels	; B = R
-		mov rcx, c		; C = c
-		xor r8, r8		; R8 = sym
-	loop:
-		mov rdx, rbx
-		shr rdx, 1
-		mov r9, rbx
-		add r8, rdx
-		sub r9, rdx
-
-	}
-#else
 	int L=0, R=nlevels;
 	while(R)//binary search		lg(nlevels) memory accesses per symbol
 	{
 		int floorhalf=R>>1;
 		sym=L+floorhalf;
 		L+=(R-floorhalf)&-(c>=CDF[sym]);
-		//L+=(R-floorhalf)&-(ec->range*CDF[sym]>>16<=range);
 		R=floorhalf;
 	}
-#endif
 #endif
 
 	cdf=CDF[sym];
@@ -848,25 +825,14 @@ INLINE int ac_dec_bin(ArithmeticCoder *ec, unsigned short p0)//binary AC decoder
 typedef struct ANSCoderStruct
 {
 	unsigned state, unused;
-	ArrayHandle *arr;
-	DList *list;
+	EC_DSTStructure *dst;
 	const unsigned char *srcptr, *srcstart;
 } ANSCoder;
-INLINE void ans_enc_init(ANSCoder *ec,
-#ifdef EC_USE_ARRAY
-	ArrayHandle *arr
-#else
-	DList *list
-#endif
-)
+INLINE void ans_enc_init(ANSCoder *ec, EC_DSTStructure *dst)
 {
 	memset(ec, 0, sizeof(*ec));
 	ec->state=0x10000;
-#ifdef EC_USE_ARRAY
-	ec->arr=arr;
-#else
-	ec->list=list;
-#endif
+	ec->dst=dst;
 }
 INLINE void ans_dec_init(ANSCoder *ec, const unsigned char *start, const unsigned char *end)
 {
@@ -882,9 +848,9 @@ INLINE void ans_dec_init(ANSCoder *ec, const unsigned char *start, const unsigne
 INLINE void ans_enc_flush(ANSCoder *ec)
 {
 #ifdef EC_USE_ARRAY
-	ARRAY_APPEND(*ec->arr, &ec->state, 4, 1, 0);
+	ARRAY_APPEND(*ec->dst, &ec->state, 4, 1, 0);
 #else
-	dlist_push_back(ec->list, &ec->state, 4);
+	dlist_push_back(ec->dst, &ec->state, 4);
 #endif
 }
 
@@ -902,9 +868,9 @@ INLINE void ans_enc(ANSCoder *ec, int sym, const unsigned *CDF, int nlevels)
 	if((ec->state>>16)>=(unsigned)freq)//renorm
 	{
 #ifdef EC_USE_ARRAY
-		ARRAY_APPEND(*ec->arr, &ec->state, 2, 1, 0);
+		ARRAY_APPEND(*ec->dst, &ec->state, 2, 1, 0);
 #else
-		dlist_push_back(ec->list, &ec->state, 2);
+		dlist_push_back(ec->dst, &ec->state, 2);
 #endif
 		ec->state>>=16;
 	}
