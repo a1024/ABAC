@@ -584,9 +584,12 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				ec[0].low+=ec[0].range*cdf[3]>>16;
 				ec[1].low+=ec[1].range*cdf[4]>>16;
 				ec[2].low+=ec[2].range*cdf[5]>>16;
-				ec[0].range=(ec[0].range*freq[3]>>16)-1;
-				ec[1].range=(ec[1].range*freq[4]>>16)-1;
-				ec[2].range=(ec[2].range*freq[5]>>16)-1;
+				ec[0].range=ec[0].range*freq[3]>>16;
+				ec[1].range=ec[1].range*freq[4]>>16;
+				ec[2].range=ec[2].range*freq[5]>>16;
+				--ec[0].range;
+				--ec[1].range;
+				--ec[2].range;
 				while(ec[0].range<(1LL<<PROB_BITS))
 					ac_enc_renorm(ec+0);
 				while(ec[1].range<(1LL<<PROB_BITS))
@@ -800,27 +803,27 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				};
 				int sym[3];
 				{
-					unsigned long long range[]=
+					unsigned long long c[]=
 					{
-						ec[0].code-ec[0].low,
-						ec[1].code-ec[1].low,
-						ec[2].code-ec[2].low,
+						((ec[0].code-ec[0].low)<<16|0xFFFF)/ec[0].range,
+						((ec[1].code-ec[1].low)<<16|0xFFFF)/ec[1].range,
+						((ec[2].code-ec[2].low)<<16|0xFFFF)/ec[2].range,
 					};
-					sym[0] =(ec[0].range*CDFs[0][16]>>16<=range[0])<<4;
-					sym[1] =(ec[1].range*CDFs[1][16]>>16<=range[1])<<4;
-					sym[2] =(ec[2].range*CDFs[2][16]>>16<=range[2])<<4;
-					sym[0]|=(ec[0].range*CDFs[0][sym[0]|8]>>16<=range[0])<<3;
-					sym[1]|=(ec[1].range*CDFs[1][sym[1]|8]>>16<=range[1])<<3;
-					sym[2]|=(ec[2].range*CDFs[2][sym[2]|8]>>16<=range[2])<<3;
-					sym[0]|=(ec[0].range*CDFs[0][sym[0]|4]>>16<=range[0])<<2;
-					sym[1]|=(ec[1].range*CDFs[1][sym[1]|4]>>16<=range[1])<<2;
-					sym[2]|=(ec[2].range*CDFs[2][sym[2]|4]>>16<=range[2])<<2;
-					sym[0]|=(ec[0].range*CDFs[0][sym[0]|2]>>16<=range[0])<<1;
-					sym[1]|=(ec[1].range*CDFs[1][sym[1]|2]>>16<=range[1])<<1;
-					sym[2]|=(ec[2].range*CDFs[2][sym[2]|2]>>16<=range[2])<<1;
-					sym[0]|= ec[0].range*CDFs[0][sym[0]|1]>>16<=range[0];
-					sym[1]|= ec[1].range*CDFs[1][sym[1]|1]>>16<=range[1];
-					sym[2]|= ec[2].range*CDFs[2][sym[2]|1]>>16<=range[2];
+					sym[0] =(c[0]>=CDFs[0][      16])<<4;
+					sym[1] =(c[1]>=CDFs[1][      16])<<4;
+					sym[2] =(c[2]>=CDFs[2][      16])<<4;
+					sym[0]|=(c[0]>=CDFs[0][sym[0]|8])<<3;
+					sym[1]|=(c[1]>=CDFs[1][sym[1]|8])<<3;
+					sym[2]|=(c[2]>=CDFs[2][sym[2]|8])<<3;
+					sym[0]|=(c[0]>=CDFs[0][sym[0]|4])<<2;
+					sym[1]|=(c[1]>=CDFs[1][sym[1]|4])<<2;
+					sym[2]|=(c[2]>=CDFs[2][sym[2]|4])<<2;
+					sym[0]|=(c[0]>=CDFs[0][sym[0]|2])<<1;
+					sym[1]|=(c[1]>=CDFs[1][sym[1]|2])<<1;
+					sym[2]|=(c[2]>=CDFs[2][sym[2]|2])<<1;
+					sym[0]|= c[0]>=CDFs[0][sym[0]|1];
+					sym[1]|= c[1]>=CDFs[1][sym[1]|1];
+					sym[2]|= c[2]>=CDFs[2][sym[2]|1];
 					unsigned cdf[]=
 					{
 						CDFs[0][sym[0]],
@@ -847,11 +850,11 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						ac_dec_renorm(ec+2);
 				}
 				{
-					unsigned long long range[]=
+					unsigned long long c[]=
 					{
-						ec[0].code-ec[0].low,
-						ec[1].code-ec[1].low,
-						ec[2].code-ec[2].low,
+						((ec[0].code-ec[0].low)<<16|0xFFFF)/ec[0].range,
+						((ec[1].code-ec[1].low)<<16|0xFFFF)/ec[1].range,
+						((ec[2].code-ec[2].low)<<16|0xFFFF)/ec[2].range,
 					};
 					CDFs[0]+=33+17*sym[0];
 					CDFs[1]+=33+17*sym[1];
@@ -859,18 +862,18 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					val[0]=sym[0]<<4;
 					val[1]=sym[1]<<4;
 					val[2]=sym[2]<<4;
-					sym[0] =(ec[0].range*CDFs[0][8]>>16<=range[0])<<3;
-					sym[1] =(ec[1].range*CDFs[1][8]>>16<=range[1])<<3;
-					sym[2] =(ec[2].range*CDFs[2][8]>>16<=range[2])<<3;
-					sym[0]|=(ec[0].range*CDFs[0][sym[0]|4]>>16<=range[0])<<2;
-					sym[1]|=(ec[1].range*CDFs[1][sym[1]|4]>>16<=range[1])<<2;
-					sym[2]|=(ec[2].range*CDFs[2][sym[2]|4]>>16<=range[2])<<2;
-					sym[0]|=(ec[0].range*CDFs[0][sym[0]|2]>>16<=range[0])<<1;
-					sym[1]|=(ec[1].range*CDFs[1][sym[1]|2]>>16<=range[1])<<1;
-					sym[2]|=(ec[2].range*CDFs[2][sym[2]|2]>>16<=range[2])<<1;
-					sym[0]|= ec[0].range*CDFs[0][sym[0]|1]>>16<=range[0];
-					sym[1]|= ec[1].range*CDFs[1][sym[1]|1]>>16<=range[1];
-					sym[2]|= ec[2].range*CDFs[2][sym[2]|1]>>16<=range[2];
+					sym[0] =(c[0]>=CDFs[0][       8])<<3;
+					sym[1] =(c[1]>=CDFs[1][       8])<<3;
+					sym[2] =(c[2]>=CDFs[2][       8])<<3;
+					sym[0]|=(c[0]>=CDFs[0][sym[0]|4])<<2;
+					sym[1]|=(c[1]>=CDFs[1][sym[1]|4])<<2;
+					sym[2]|=(c[2]>=CDFs[2][sym[2]|4])<<2;
+					sym[0]|=(c[0]>=CDFs[0][sym[0]|2])<<1;
+					sym[1]|=(c[1]>=CDFs[1][sym[1]|2])<<1;
+					sym[2]|=(c[2]>=CDFs[2][sym[2]|2])<<1;
+					sym[0]|= c[0]>=CDFs[0][sym[0]|1];
+					sym[1]|= c[1]>=CDFs[1][sym[1]|1];
+					sym[2]|= c[2]>=CDFs[2][sym[2]|1];
 					unsigned cdf[]=
 					{
 						CDFs[0][sym[0]],
@@ -886,9 +889,12 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					ec[0].low+=ec[0].range*cdf[0]>>16;
 					ec[1].low+=ec[1].range*cdf[1]>>16;
 					ec[2].low+=ec[2].range*cdf[2]>>16;
-					ec[0].range=(ec[0].range*freq[0]>>16)-1;
-					ec[1].range=(ec[1].range*freq[1]>>16)-1;
-					ec[2].range=(ec[2].range*freq[2]>>16)-1;
+					ec[0].range=ec[0].range*freq[0]>>16;
+					ec[1].range=ec[1].range*freq[1]>>16;
+					ec[2].range=ec[2].range*freq[2]>>16;
+					--ec[0].range;
+					--ec[1].range;
+					--ec[2].range;
 					while(ec[0].range<(1LL<<PROB_BITS))
 						ac_dec_renorm(ec+0);
 					while(ec[1].range<(1LL<<PROB_BITS))

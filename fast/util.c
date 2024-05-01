@@ -331,6 +331,51 @@ int ceil_log2_32(unsigned n)
 	l2+=(1ULL<<l2)<n;
 	return l2;
 }
+int get_lsb_index(unsigned long long n)
+{
+	if(!n)
+		return sizeof(n)<<3;
+#ifdef _MSC_VER
+	unsigned long idx;
+	_BitScanForward64(&idx, n);
+	return idx;
+#elif defined __GNUC__
+	return __builtin_ctzll(n);
+	//return __builtin_ffsll(n)-1;
+#else
+	int cond, lsb;
+	lsb=0;
+	cond=(n>>32<<32==n)<<5, lsb+=cond, n>>=cond;
+	cond=(n>>16<<16==n)<<4, lsb+=cond, n>>=cond;
+	cond=(n>> 8<< 8==n)<<3, lsb+=cond, n>>=cond;
+	cond=(n>> 4<< 4==n)<<2, lsb+=cond, n>>=cond;
+	cond=(n>> 2<< 2==n)<<1, lsb+=cond, n>>=cond;
+	cond= n>> 1<< 1==n    , lsb+=cond;
+	return lsb;
+#endif
+}
+int get_lsb_index32(unsigned n)
+{
+	if(!n)
+		return sizeof(n)<<3;
+#ifdef _MSC_VER
+	unsigned long idx;
+	_BitScanForward(&idx, n);
+	return idx;
+#elif defined __GNUC__
+	return __builtin_ctz(n);
+	//return __builtin_ffs(n)-1;
+#else
+	int cond, lsb;
+	lsb=0;
+	cond=(n>>16<<16==n)<<4, lsb+=cond, n>>=cond;
+	cond=(n>> 8<< 8==n)<<3, lsb+=cond, n>>=cond;
+	cond=(n>> 4<< 4==n)<<2, lsb+=cond, n>>=cond;
+	cond=(n>> 2<< 2==n)<<1, lsb+=cond, n>>=cond;
+	cond= n>> 1<< 1==n    , lsb+=cond;
+	return lsb;
+#endif
+}
 int floor_log10(double x)
 {
 	static const double pmask[]=//positive powers

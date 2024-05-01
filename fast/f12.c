@@ -154,7 +154,7 @@ int f12_statstest(const char *path)
 			{
 				int bit=ks>>kb&1;
 				idx2<<=1;
-				double sum=currctr[idx2|0]+currctr[idx2|1];
+				double sum=(double)(currctr[idx2|0]+currctr[idx2|1]);
 				idx2|=bit;
 				if(sum)
 					prob*=currctr[idx2]/sum;

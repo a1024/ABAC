@@ -265,20 +265,21 @@ INLINE void ac_enc_renorm(ArithmeticCoder *ec)//fast renorm by F. Rubin 1979
 }
 INLINE void ac_dec_renorm(ArithmeticCoder *ec)//fast renorm by F. Rubin 1979
 {
-	if(ec->srcptr+2>ec->srcend)
-	{
-#ifdef AC_VALIDATE
-		printf("buffer overflow\n");
-		acval_dump();
-#endif
-		LOG_ERROR2("buffer overflow");
-		return;
-	}
+//	if(ec->srcptr+2>ec->srcend)
+//	{
+//#ifdef AC_VALIDATE
+//		printf("buffer overflow\n");
+//		acval_dump();
+//#endif
+//		LOG_ERROR2("buffer overflow");
+//		return;
+//	}
 	ec->code<<=PROB_BITS;
 	ec->range<<=PROB_BITS;
 	ec->low<<=PROB_BITS;
 	ec->range|=(1LL<<PROB_BITS)-1;
-	memcpy(&ec->code, ec->srcptr, 2);
+	if(ec->srcptr+2<=ec->srcend)
+		memcpy(&ec->code, ec->srcptr, 2);
 	ec->srcptr+=2;
 	ec->low&=~0LLU>>PROB_BITS;
 	ec->code&=~0LLU>>PROB_BITS;
@@ -288,14 +289,26 @@ INLINE void ac_dec_renorm(ArithmeticCoder *ec)//fast renorm by F. Rubin 1979
 }
 INLINE void ac_enc_flush(ArithmeticCoder *ec)
 {
+	unsigned long long code=ec->low+ec->range;
+	int n=floor_log2(ec->low^code)-1;
+	if(n<0)
+		n=0;
+	code&=~((1LL<<n)-1);		//minimize final code
+#if 0
+	int flushbits=get_lsb_index(code);//FIXME tail-chaining parallel decoders
+#endif
 #ifdef EC_USE_ARRAY
-	array_append(ec->arr, (unsigned char*)&ec->low+4, 1, 2, 1, 0, 0);
-	array_append(ec->arr, (unsigned char*)&ec->low+2, 1, 2, 1, 0, 0);
-	array_append(ec->arr, (unsigned char*)&ec->low+0, 1, 2, 1, 0, 0);
+	for(int k=4;k>=0&&code;k-=2)
+	{
+		array_append(ec->arr, (unsigned char*)&code+k, 1, 2, 1, 0, 0);
+		code&=0xFFFFFFFFFFFF>>(48-(k<<3));
+	}
 #else
-	dlist_push_back(ec->list, (unsigned char*)&ec->low+4, 2);
-	dlist_push_back(ec->list, (unsigned char*)&ec->low+2, 2);
-	dlist_push_back(ec->list, (unsigned char*)&ec->low+0, 2);
+	for(int k=4;k>=0&&code;k-=2)
+	{
+		dlist_push_back(ec->list, (unsigned char*)&code+k, 2);
+		code&=0xFFFFFFFFFFFF>>(48-(k<<3));
+	}
 #endif
 }
 
@@ -315,7 +328,7 @@ INLINE void ac_enc(ArithmeticCoder *ec, int sym, const unsigned *CDF)//CDF is 16
 	ec->low+=ec->range*cdf>>16;
 	ec->range*=freq;
 	ec->range>>=16;
-	//--ec->range;//must decrement hi because decoder fails when code == hi2
+	--ec->range;//must decrement hi because decoder fails when code == hi2
 	while(ec->range<(1LL<<PROB_BITS))//only when freq=1 -> range=0, this loop runs twice
 		ac_enc_renorm(ec);
 	acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);//
@@ -335,15 +348,34 @@ INLINE int ac_dec(ArithmeticCoder *ec, const unsigned *CDF, int nlevels)
 	for(;sym<nlevels&&(ec->range*CDF[sym]>>16)<=range;++sym);
 	--sym;
 #else
+	unsigned c=(unsigned)(((ec->code-ec->low)<<16|0xFFFF)/ec->range);
+	//unsigned long long range=ec->code-ec->low;
+#if 0
+	__asm
+	{
+		xor rax, rax		; A = L
+		mov rbx, nlevels	; B = R
+		mov rcx, c		; C = c
+		xor r8, r8		; R8 = sym
+	loop:
+		mov rdx, rbx
+		shr rdx, 1
+		mov r9, rbx
+		add r8, rdx
+		sub r9, rdx
+
+	}
+#else
 	int L=0, R=nlevels;
-	unsigned long long range=ec->code-ec->low;
 	while(R)//binary search		lg(nlevels) memory accesses per symbol
 	{
 		int floorhalf=R>>1;
 		sym=L+floorhalf;
-		L+=(R-floorhalf)&-(ec->range*CDF[sym]>>16<=range);
+		L+=(R-floorhalf)&-(c>=CDF[sym]);
+		//L+=(R-floorhalf)&-(ec->range*CDF[sym]>>16<=range);
 		R=floorhalf;
 	}
+#endif
 #endif
 
 	cdf=CDF[sym];
@@ -369,21 +401,21 @@ INLINE int ac_dec_POT(ArithmeticCoder *ec, const unsigned *CDF, int nbits)
 	int freq;
 	int sym=0;
 	
-	unsigned long long range=ec->code-ec->low;
+	unsigned c=(unsigned)(((ec->code-ec->low)<<16|0xFFFF)/ec->range);
 	switch(nbits)
 	{
 	default:
 		LOG_ERROR2("Unsupported bit depth");
 		break;
-	case 9:sym|=(ec->range*CDF[sym|256]>>16<=range)<<8;
-	case 8:sym|=(ec->range*CDF[sym|128]>>16<=range)<<7;
-	case 7:sym|=(ec->range*CDF[sym| 64]>>16<=range)<<6;
-	case 6:sym|=(ec->range*CDF[sym| 32]>>16<=range)<<5;
-	case 5:sym|=(ec->range*CDF[sym| 16]>>16<=range)<<4;
-	case 4:sym|=(ec->range*CDF[sym|  8]>>16<=range)<<3;
-	case 3:sym|=(ec->range*CDF[sym|  4]>>16<=range)<<2;
-	case 2:sym|=(ec->range*CDF[sym|  2]>>16<=range)<<1;
-	case 1:sym|= ec->range*CDF[sym|  1]>>16<=range;
+	case 9:sym|=(c>=CDF[sym|256])<<8;
+	case 8:sym|=(c>=CDF[sym|128])<<7;
+	case 7:sym|=(c>=CDF[sym| 64])<<6;
+	case 6:sym|=(c>=CDF[sym| 32])<<5;
+	case 5:sym|=(c>=CDF[sym| 16])<<4;
+	case 4:sym|=(c>=CDF[sym|  8])<<3;
+	case 3:sym|=(c>=CDF[sym|  4])<<2;
+	case 2:sym|=(c>=CDF[sym|  2])<<1;
+	case 1:sym|= c>=CDF[sym|  1];
 		break;
 	}
 	//for(int mask=nlevels>>1;mask;mask>>=1)
@@ -406,14 +438,13 @@ INLINE int ac_dec_POT(ArithmeticCoder *ec, const unsigned *CDF, int nbits)
 	//acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->cidx, ec->code);//
 	return sym;
 }
-INLINE int ac_dec_POT_permuted(ArithmeticCoder *ec, const unsigned *pCDF, const unsigned *CDF, int nbits)//more cache-friendly,  pCDF[0] & pCDF[1<<nbits] are not accessed
+INLINE int ac_dec_POT_permuted(ArithmeticCoder *ec, const unsigned *pCDF, const unsigned *CDF, int nbits)//~5% faster because more cache-friendly,  pCDF[0] & pCDF[1<<nbits] are not accessed
 {
 	unsigned cdf;
 	int freq;
 	unsigned sym=1;
 	
-	unsigned long long range=ec->code-ec->low;
-	unsigned c=(unsigned)((range<<16|0xFFFF)/ec->range);
+	unsigned c=(unsigned)(((ec->code-ec->low)<<16|0xFFFF)/ec->range);
 	switch(nbits)
 	{
 	default:
@@ -477,7 +508,7 @@ INLINE int ac_dec_CDF2sym(ArithmeticCoder *ec, const unsigned *CDF, const unsign
 	ec->low+=ec->range*cdf>>16;
 	ec->range*=freq;
 	ec->range>>=16;
-	//--ec->range;//must decrement hi because decoder fails when code == hi2
+	--ec->range;//must decrement hi because decoder fails when code == hi2
 	while(ec->range<(1LL<<PROB_BITS))
 		ac_dec_renorm(ec);
 	acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);//
@@ -490,11 +521,11 @@ INLINE int ac_dec_4bit(ArithmeticCoder *ec, const unsigned *CDF)
 	int freq;
 	unsigned short sym=0;
 	
-	unsigned long long range=ec->code-ec->low;
-	sym|=8&-(ec->range*CDF[sym|8]>>16<=range);
-	sym|=4&-(ec->range*CDF[sym|4]>>16<=range);
-	sym|=2&-(ec->range*CDF[sym|2]>>16<=range);
-	sym|=1&-(ec->range*CDF[sym|1]>>16<=range);
+	unsigned long long c=((ec->code-ec->low)<<16|0xFFFF)/ec->range;
+	sym|=8&-(c>=CDF[sym|8]);
+	sym|=4&-(c>=CDF[sym|4]);
+	sym|=2&-(c>=CDF[sym|2]);
+	sym|=1&-(c>=CDF[sym|1]);
 
 	cdf=CDF[sym];
 	freq=CDF[sym+1]-cdf;
@@ -519,12 +550,12 @@ INLINE int ac_dec_5bit(ArithmeticCoder *ec, const unsigned *CDF)
 	int freq;
 	unsigned sym=0;
 	
-	unsigned long long range=ec->code-ec->low;
-	sym|=16&-(ec->range*CDF[sym|16]>>16<=range);
-	sym|= 8&-(ec->range*CDF[sym| 8]>>16<=range);
-	sym|= 4&-(ec->range*CDF[sym| 4]>>16<=range);
-	sym|= 2&-(ec->range*CDF[sym| 2]>>16<=range);
-	sym|= 1&-(ec->range*CDF[sym| 1]>>16<=range);
+	unsigned long long c=((ec->code-ec->low)<<16|0xFFFF)/ec->range;
+	sym|=16&-(c>=CDF[sym|16]);
+	sym|= 8&-(c>=CDF[sym| 8]);
+	sym|= 4&-(c>=CDF[sym| 4]);
+	sym|= 2&-(c>=CDF[sym| 2]);
+	sym|= 1&-(c>=CDF[sym| 1]);
 
 	cdf=CDF[sym];
 	freq=CDF[sym+1]-cdf;
@@ -572,21 +603,21 @@ INLINE int ac_dec_packedCDF_POT(ArithmeticCoder *ec, const unsigned short *CDF, 
 	int freq;
 	int sym=0;
 	
-	unsigned long long range=ec->code-ec->low;
+	unsigned long long c=((ec->code-ec->low)<<16|0xFFFF)/ec->range;
 	switch(nbits)
 	{
 	default:
 		LOG_ERROR2("Unsupported bit depth");
 		break;
-	case 9:sym|=(ec->range*CDF[sym|256]>>16<=range)<<8;
-	case 8:sym|=(ec->range*CDF[sym|128]>>16<=range)<<7;
-	case 7:sym|=(ec->range*CDF[sym| 64]>>16<=range)<<6;
-	case 6:sym|=(ec->range*CDF[sym| 32]>>16<=range)<<5;
-	case 5:sym|=(ec->range*CDF[sym| 16]>>16<=range)<<4;
-	case 4:sym|=(ec->range*CDF[sym|  8]>>16<=range)<<3;
-	case 3:sym|=(ec->range*CDF[sym|  4]>>16<=range)<<2;
-	case 2:sym|=(ec->range*CDF[sym|  2]>>16<=range)<<1;
-	case 1:sym|= ec->range*CDF[sym|  1]>>16<=range;
+	case 9:sym|=(c>=CDF[sym|256])<<8;
+	case 8:sym|=(c>=CDF[sym|128])<<7;
+	case 7:sym|=(c>=CDF[sym| 64])<<6;
+	case 6:sym|=(c>=CDF[sym| 32])<<5;
+	case 5:sym|=(c>=CDF[sym| 16])<<4;
+	case 4:sym|=(c>=CDF[sym|  8])<<3;
+	case 3:sym|=(c>=CDF[sym|  4])<<2;
+	case 2:sym|=(c>=CDF[sym|  2])<<1;
+	case 1:sym|= c>=CDF[sym|  1];
 		break;
 	}
 
@@ -650,36 +681,36 @@ INLINE void ac_dec_packedCDF_8x3(ArithmeticCoder *ec, const unsigned short *CDF0
 	unsigned cdf[3];
 	int freq[3];
 	
-	unsigned long long range[]=
+	unsigned long long c[]=
 	{
-		ec[0].code-ec[0].low,
-		ec[1].code-ec[1].low,
-		ec[2].code-ec[2].low,
+		((ec[0].code-ec[0].low)<<16|0xFFFF)/ec[0].range,
+		((ec[1].code-ec[1].low)<<16|0xFFFF)/ec[1].range,
+		((ec[2].code-ec[2].low)<<16|0xFFFF)/ec[2].range,
 	};
-	ret_sym[0] =(ec[0].range*CDF0[          128]>>16<=range[0])<<7;
-	ret_sym[1] =(ec[1].range*CDF1[          128]>>16<=range[1])<<7;
-	ret_sym[2] =(ec[2].range*CDF2[          128]>>16<=range[2])<<7;
-	ret_sym[0]|=(ec[0].range*CDF0[ret_sym[0]|64]>>16<=range[0])<<6;
-	ret_sym[1]|=(ec[1].range*CDF1[ret_sym[1]|64]>>16<=range[1])<<6;
-	ret_sym[2]|=(ec[2].range*CDF2[ret_sym[2]|64]>>16<=range[2])<<6;
-	ret_sym[0]|=(ec[0].range*CDF0[ret_sym[0]|32]>>16<=range[0])<<5;
-	ret_sym[1]|=(ec[1].range*CDF1[ret_sym[1]|32]>>16<=range[1])<<5;
-	ret_sym[2]|=(ec[2].range*CDF2[ret_sym[2]|32]>>16<=range[2])<<5;
-	ret_sym[0]|=(ec[0].range*CDF0[ret_sym[0]|16]>>16<=range[0])<<4;
-	ret_sym[1]|=(ec[1].range*CDF1[ret_sym[1]|16]>>16<=range[1])<<4;
-	ret_sym[2]|=(ec[2].range*CDF2[ret_sym[2]|16]>>16<=range[2])<<4;
-	ret_sym[0]|=(ec[0].range*CDF0[ret_sym[0]| 8]>>16<=range[0])<<3;
-	ret_sym[1]|=(ec[1].range*CDF1[ret_sym[1]| 8]>>16<=range[1])<<3;
-	ret_sym[2]|=(ec[2].range*CDF2[ret_sym[2]| 8]>>16<=range[2])<<3;
-	ret_sym[0]|=(ec[0].range*CDF0[ret_sym[0]| 4]>>16<=range[0])<<2;
-	ret_sym[1]|=(ec[1].range*CDF1[ret_sym[1]| 4]>>16<=range[1])<<2;
-	ret_sym[2]|=(ec[2].range*CDF2[ret_sym[2]| 4]>>16<=range[2])<<2;
-	ret_sym[0]|=(ec[0].range*CDF0[ret_sym[0]| 2]>>16<=range[0])<<1;
-	ret_sym[1]|=(ec[1].range*CDF1[ret_sym[1]| 2]>>16<=range[1])<<1;
-	ret_sym[2]|=(ec[2].range*CDF2[ret_sym[2]| 2]>>16<=range[2])<<1;
-	ret_sym[0]|= ec[0].range*CDF0[ret_sym[0]| 1]>>16<=range[0];
-	ret_sym[1]|= ec[1].range*CDF1[ret_sym[1]| 1]>>16<=range[1];
-	ret_sym[2]|= ec[2].range*CDF2[ret_sym[2]| 1]>>16<=range[2];
+	ret_sym[0] =(c[0]>=CDF0[          128])<<7;
+	ret_sym[1] =(c[1]>=CDF1[          128])<<7;
+	ret_sym[2] =(c[2]>=CDF2[          128])<<7;
+	ret_sym[0]|=(c[0]>=CDF0[ret_sym[0]|64])<<6;
+	ret_sym[1]|=(c[1]>=CDF1[ret_sym[1]|64])<<6;
+	ret_sym[2]|=(c[2]>=CDF2[ret_sym[2]|64])<<6;
+	ret_sym[0]|=(c[0]>=CDF0[ret_sym[0]|32])<<5;
+	ret_sym[1]|=(c[1]>=CDF1[ret_sym[1]|32])<<5;
+	ret_sym[2]|=(c[2]>=CDF2[ret_sym[2]|32])<<5;
+	ret_sym[0]|=(c[0]>=CDF0[ret_sym[0]|16])<<4;
+	ret_sym[1]|=(c[1]>=CDF1[ret_sym[1]|16])<<4;
+	ret_sym[2]|=(c[2]>=CDF2[ret_sym[2]|16])<<4;
+	ret_sym[0]|=(c[0]>=CDF0[ret_sym[0]| 8])<<3;
+	ret_sym[1]|=(c[1]>=CDF1[ret_sym[1]| 8])<<3;
+	ret_sym[2]|=(c[2]>=CDF2[ret_sym[2]| 8])<<3;
+	ret_sym[0]|=(c[0]>=CDF0[ret_sym[0]| 4])<<2;
+	ret_sym[1]|=(c[1]>=CDF1[ret_sym[1]| 4])<<2;
+	ret_sym[2]|=(c[2]>=CDF2[ret_sym[2]| 4])<<2;
+	ret_sym[0]|=(c[0]>=CDF0[ret_sym[0]| 2])<<1;
+	ret_sym[1]|=(c[1]>=CDF1[ret_sym[1]| 2])<<1;
+	ret_sym[2]|=(c[2]>=CDF2[ret_sym[2]| 2])<<1;
+	ret_sym[0]|= c[0]>=CDF0[ret_sym[0]| 1];
+	ret_sym[1]|= c[1]>=CDF1[ret_sym[1]| 1];
+	ret_sym[2]|= c[2]>=CDF2[ret_sym[2]| 1];
 
 	cdf[0]=CDF0[ret_sym[0]];
 	cdf[1]=CDF1[ret_sym[1]];

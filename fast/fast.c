@@ -20,10 +20,10 @@ typedef void *THREAD_RET;
 static const char file[]=__FILE__;
 
 
-#define CODECID      2
-#define CODECNAME "F02"
-#define ENCODE     f02_encode
-#define DECODE     f02_decode
+#define CODECID      8
+#define CODECNAME "F08"
+#define ENCODE     f08_encode
+#define DECODE     f08_decode
 
 
 static const char *g_extensions[]=
@@ -305,6 +305,24 @@ static void batch_test_mt(const char *path, int nthreads)
 
 int main(int argc, char **argv)
 {
+#if 0
+	for(int k=0;k<1000000;++k)
+	{
+		unsigned long long n=0;
+		n=n<<15|rand();
+		n=n<<15|rand();
+		n=n<<15|rand();
+		n=n<<15|rand();
+		unsigned long idx=0;
+		int success=_BitScanForward64(&idx, n);
+		if(!success)
+			idx=0;
+		int idx2=bitscanfwd(n);
+		if(idx2!=idx)
+			LOG_ERROR("E: %d != %d", idx2, idx);
+	}
+	LOG_ERROR("SUCCESS");
+#endif
 #if 0
 	{
 #ifdef _DEBUG

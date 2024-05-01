@@ -64,7 +64,7 @@ int f02_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		pCDF[nlevels]=CDF[nlevels];
 #ifdef USE_CDF2SYM
 		int ks=0;
-		for(int c=0;c<0x10000;++c)
+		for(unsigned c=0;c<0x10000;++c)
 		{
 			ks+=c>=CDF[ks+1];
 			CDF2sym[c]=ks;

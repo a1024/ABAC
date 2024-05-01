@@ -184,5 +184,7 @@ int f10_mptest(const char *path)
 	printf("Loop    %14lf sec\n", elapsed);
 	printf("Elapsed %14lf sec\n", t0);
 	free(pixels);
+
+	LOG_ERROR("This isn't a codec.");
 	return 1;
 }

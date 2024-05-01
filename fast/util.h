@@ -80,6 +80,8 @@ int floor_log2(unsigned long long n);//uses intrinsics and was patched to give -
 int floor_log2_32(unsigned n);
 int ceil_log2(unsigned long long n);
 int ceil_log2_32(unsigned n);
+int get_lsb_index(unsigned long long n);//returns lsb position + 1,  returns register bit count if n is zero
+int get_lsb_index32(unsigned n);
 int floor_log10(double x);
 unsigned floor_sqrt(unsigned long long x);
 unsigned long long exp2_fix24(int x);
