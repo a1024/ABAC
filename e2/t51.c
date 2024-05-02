@@ -832,7 +832,7 @@ int t51_encode(Image const *src, ArrayHandle *data, int loud)
 					int p0=t51_predict(&pr);
 
 					int bit=im2->data[idx<<2|kc]>>kb&1;
-					ac_enc_bin(&ec, p0, bit);
+					ac_enc_bin(&ec, (unsigned short)p0, bit);
 
 					if(loud)
 					{
@@ -929,7 +929,7 @@ int t51_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 				{
 					int p0=t51_predict(&pr);
 
-					int bit=ac_dec_bin(&ec, p0);
+					int bit=ac_dec_bin(&ec, (unsigned short)p0);
 					sp|=bit<<kb;
 
 					t51_update(&pr, bit);
@@ -965,11 +965,11 @@ static void enc_bin(ArithmeticCoder *ec, int x, int depth, unsigned short *stats
 		int p0=stats[treeidx];
 
 		int bit=x>>kb&1;
-		ac_enc_bin(ec, p0, bit);
+		ac_enc_bin(ec, (unsigned short)p0, bit);
 
 		p0+=((!bit<<16)-p0)>>5;
 		p0=CLAMP(1, p0, 0xFFFF);
-		stats[treeidx]=p0;
+		stats[treeidx]=(unsigned short)p0;
 		treeidx=treeidx<<1|bit;
 	}
 }
@@ -1002,9 +1002,9 @@ static void test_quantize(unsigned val, HybridUint *hu)
 		nbits=lgv-(SLIC5_CONFIG_MSB+SLIC5_CONFIG_LSB);
 		bypass=val>>SLIC5_CONFIG_LSB&((1LL<<nbits)-1);
 	}
-	hu->token=token;
+	hu->token=(unsigned short)token;
+	hu->nbits=(unsigned short)nbits;
 	hu->bypass=bypass;
-	hu->nbits=nbits;
 }
 #if 0
 static void enc_alpha(ArithmeticCoder *ec, int x, unsigned short *hist, int *hcount, unsigned *CDF, int cdfsize)
@@ -1077,7 +1077,7 @@ void test_alphaVSbin(Image const *src)
 	//alphabetic coding
 	{
 		elapsed=time_sec();
-		HybridUint hu;
+		HybridUint hu={0};
 		test_quantize(1<<maxdepth, &hu);
 		int cdfsize=hu.token+1;
 		unsigned short *hist=(unsigned short*)malloc(cdfsize*sizeof(short[3]));
@@ -1119,24 +1119,23 @@ void test_alphaVSbin(Image const *src)
 					unsigned *curr_CDF=CDF+kc*(cdfsize+1);
 					int x=im2->data[idx<<2|kc];
 					x=x<<1^-(x<0);//pack sign
-					HybridUint hu={0};
 					test_quantize(x, &hu);
-					ac_enc(&ec, hu.token, curr_CDF, cdfsize, 0);
+					ac_enc(&ec, hu.token, curr_CDF);
 					if(hu.nbits)
 					{
 						int bypass=hu.bypass, nbits=hu.nbits;
 						while(nbits>8)
 						{
-							ac_enc(&ec, bypass>>(nbits-8)&0xFF, 0, 1<<8, 16-8);
+							ac_enc_bypass(&ec, bypass>>(nbits-8)&0xFF, 1<<8);
 							nbits-=8;
 						}
-						ac_enc(&ec, bypass&((1<<nbits)-1), 0, 1<<nbits, 16-nbits);
+						ac_enc_bypass(&ec, bypass&((1<<nbits)-1), 1<<nbits);
 					}
 					++hcount[kc];
 					++curr_hist[hu.token];
 					if(hcount[kc]>cdfsize&&!(hcount[kc]&63))//update CDF
 					{
-						int sum=hcount[kc];
+						sum=hcount[kc];
 						long long c=0;
 						for(int ks=0;ks<cdfsize;++ks)
 						{
@@ -1148,7 +1147,7 @@ void test_alphaVSbin(Image const *src)
 					}
 					if(hcount[kc]>=0x1800)//rescale hist
 					{
-						int sum=0;
+						sum=0;
 						for(int k=0;k<cdfsize;++k)
 						{
 							curr_hist[k]=(curr_hist[k]+1)>>1;

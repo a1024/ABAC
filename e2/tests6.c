@@ -35,7 +35,7 @@ static const char file[]=__FILE__;
 
 //speed
 //	#define AVX512
-	#define AVX2
+//	#define AVX2
 
 #if defined AVX2 || defined AVX512
 #include<immintrin.h>
@@ -286,13 +286,13 @@ const char *slic5_prednames[]=
 #undef  SLIC5_PRED
 };
 #ifdef PROBBITS_15
-#define EC_ENC(EC, X, CDF, NLEVELS, LG_FMIN) ac_enc15(EC, X, CDF, NLEVELS)
-#define EC_DEC(EC, CDF, NLEVELS, LG_FMIN) ac_dec15(EC, CDF, NLEVELS)
+#define EC_ENC(EC, X, CDF) ac_enc15(EC, X, CDF)
+#define EC_DEC(EC, CDF, NLEVELS) ac_dec15(EC, CDF, NLEVELS)
 typedef unsigned short CDF_t;
 #define CDF_SHIFT 15
 #else
-#define EC_ENC(EC, X, CDF, NLEVELS, LG_FMIN) ac_enc(EC, X, CDF, NLEVELS, LG_FMIN)
-#define EC_DEC(EC, CDF, NLEVELS, LG_FMIN) ac_dec(EC, CDF, NLEVELS, LG_FMIN)
+#define EC_ENC(EC, X, CDF) ac_enc(EC, X, CDF)
+#define EC_DEC(EC, CDF, NLEVELS) ac_dec(EC, CDF, NLEVELS)
 typedef unsigned CDF_t;
 #define CDF_SHIFT 16
 #endif
@@ -324,9 +324,9 @@ static void hybriduint_encode(unsigned val, HybridUint *hu)
 		nbits=lgv-(SLIC5_CONFIG_MSB+SLIC5_CONFIG_LSB);
 		bypass=val>>SLIC5_CONFIG_LSB&((1LL<<nbits)-1);
 	}
-	hu->token=token;
+	hu->token=(unsigned short)token;
+	hu->nbits=(unsigned short)nbits;
 	hu->bypass=bypass;
-	hu->nbits=nbits;
 }
 INLINE int quantize_unsigned(int val, int exp, int msb)
 {
@@ -2767,16 +2767,16 @@ static void slic5_enc(SLIC5Ctx *pr, int curr, int kc, int kx)
 	)
 		LOG_ERROR("Token OOB %d/%d", hu.token, pr->cdfsize);
 
-	EC_ENC(pr->ec, hu.token, pr->CDFs+(pr->cdfsize+1)*(pr->nhist*pr->nhist*kc+pr->hist_idx), pr->cdfsize, 0);
+	EC_ENC(pr->ec, hu.token, pr->CDFs+(pr->cdfsize+1)*(pr->nhist*pr->nhist*kc+pr->hist_idx));
 	if(hu.nbits)
 	{
 		int bypass=hu.bypass, nbits=hu.nbits;
 		while(nbits>8)
 		{
-			EC_ENC(pr->ec, bypass>>(nbits-8)&0xFF, 0, 1<<8, 16-8);
+			ac_enc_bypass(pr->ec, bypass>>(nbits-8)&0xFF, 1<<8);
 			nbits-=8;
 		}
-		EC_ENC(pr->ec, bypass&((1<<nbits)-1), 0, 1<<nbits, 16-nbits);
+		ac_enc_bypass(pr->ec, bypass&((1<<nbits)-1), 1<<nbits);
 	}
 
 	slic5_update(pr, curr, hu.token);
@@ -2847,7 +2847,7 @@ static int slic5_dec(SLIC5Ctx *pr, int kc, int kx)
 	}
 #endif
 #else
-	int token=EC_DEC(pr->ec, pr->CDFs+(pr->cdfsize+1)*(pr->nhist*pr->nhist*kc+pr->hist_idx), pr->cdfsize, 0);
+	int token=EC_DEC(pr->ec, pr->CDFs+(pr->cdfsize+1)*(pr->nhist*pr->nhist*kc+pr->hist_idx), pr->cdfsize);
 #ifdef ENABLE_LZ
 	if(token==pr->cdfsize-1)
 		return 0x80000000;
@@ -2865,9 +2865,9 @@ static int slic5_dec(SLIC5Ctx *pr, int kc, int kx)
 		while(n>8)
 		{
 			n-=8;
-			bypass|=EC_DEC(pr->ec, 0, 1<<8, 16-8)<<n;
+			bypass|=ac_dec_bypass(pr->ec, 1<<8)<<n;
 		}
-		bypass|=EC_DEC(pr->ec, 0, 1<<n, 16-n);
+		bypass|=ac_dec_bypass(pr->ec, 1<<n);
 		error=1;
 		error<<=SLIC5_CONFIG_MSB;
 		error|=msb;

@@ -327,30 +327,21 @@ INLINE void ac_enc(ArithmeticCoder *ec, int sym, const unsigned *CDF)//CDF is 16
 	acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);//
 	//acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->cidx);//
 }
-INLINE int ac_dec(ArithmeticCoder *ec, const unsigned *CDF, int nlevels)
+INLINE int ac_dec_uniform(ArithmeticCoder *ec, const unsigned *CDF, int nlevels)
 {
-	unsigned cdf;
+	unsigned cdf=(unsigned)(((ec->code-ec->low)<<16|0xFFFF)/ec->range);
 	int freq;
-	int sym=0;
+	int sym;
 	
-#ifdef LINEAR_SEARCH
-	unsigned long long range=ec->code-ec->low;
-	//range=((range<<16)+(ec->range>>1))/ec->range;
-	//for(;sym<nlevels&&CDF[sym]<=range;++sym);
-	sym=1;
-	for(;sym<nlevels&&(ec->range*CDF[sym]>>16)<=range;++sym);
-	--sym;
-#else
-	unsigned c=(unsigned)(((ec->code-ec->low)<<16|0xFFFF)/ec->range);
-	int L=0, R=nlevels;
-	while(R)//binary search		lg(nlevels) memory accesses per symbol
+	int range=nlevels;
+	sym=0;
+	while(range)
 	{
-		int floorhalf=R>>1;
-		sym=L+floorhalf;
-		L+=(R-floorhalf)&-(c>=CDF[sym]);
-		R=floorhalf;
+		int floorhalf=range>>1;
+		if(cdf>=CDF[sym+floorhalf+1])
+			sym+=range-floorhalf;
+		range=floorhalf;
 	}
-#endif
 
 	cdf=CDF[sym];
 	freq=CDF[sym+1]-cdf;
@@ -367,6 +358,86 @@ INLINE int ac_dec(ArithmeticCoder *ec, const unsigned *CDF, int nlevels)
 		ac_dec_renorm(ec);
 	acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);//
 	//acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->cidx, ec->code);//
+	return sym;
+}
+INLINE int ac_dec(ArithmeticCoder *ec, const unsigned *CDF, int nlevels)//preferred for skewed distributions as with 'pack sign'
+{
+	unsigned cdf=(unsigned)(((ec->code-ec->low)<<16|0xFFFF)/ec->range);
+	int freq;
+	int sym=0;
+	
+	int range=nlevels;
+#ifdef UNIFORM_DIST
+	sym=0;
+#else
+	for(range=1;;)//exponential search
+	{
+		if(range>nlevels)
+		{
+			sym=range>>1;
+			range=nlevels;
+			break;
+		}
+		if(cdf<CDF[range])
+		{
+			range>>=1;
+			sym=range;
+			break;
+		}
+		range<<=1;
+	}
+#endif
+	while(range)//binary search		lg(nlevels) memory accesses per symbol
+	{
+		int floorhalf=range>>1;
+		if(cdf>=CDF[sym+floorhalf+1])
+			sym+=range-floorhalf;
+		range=floorhalf;
+	}
+
+	cdf=CDF[sym];
+	freq=CDF[sym+1]-cdf;
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
+		LOG_ERROR2("ZPS");
+#endif
+	ec->low+=ec->range*cdf>>16;
+	ec->range*=freq;
+	ec->range>>=16;
+	--ec->range;//must decrement hi because decoder fails when code == hi2
+	while(ec->range<(1LL<<PROB_BITS))
+		ac_dec_renorm(ec);
+	acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
+	return sym;
+}
+INLINE int ac_dec_packedsign(ArithmeticCoder *ec, const unsigned *CDF, int nlevels)//preferred for skewed distributions as with 'pack sign'
+{
+	unsigned cdf=(unsigned)(((ec->code-ec->low)<<16|0xFFFF)/ec->range);
+	int freq;
+	int sym;
+
+	_mm_prefetch((char*)CDF, _MM_HINT_T0);
+
+	for(sym=0;cdf>=CDF[sym+2];sym+=2);
+	sym+=cdf>=CDF[sym+1];
+	
+	//for(sym=0;cdf>=CDF[sym+1];++sym);
+
+	cdf=CDF[sym];
+	freq=CDF[sym+1]-cdf;
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
+		LOG_ERROR2("ZPS");
+#endif
+	ec->low+=ec->range*cdf>>16;
+	ec->range*=freq;
+	ec->range>>=16;
+	--ec->range;//must decrement hi because decoder fails when code == hi2
+	while(ec->range<(1LL<<PROB_BITS))
+		ac_dec_renorm(ec);
+	acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
 	return sym;
 }
 INLINE int ac_dec_POT(ArithmeticCoder *ec, const unsigned *CDF, int nbits)

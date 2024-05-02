@@ -334,7 +334,7 @@ static int calic_ct(CalicState *state, int curr, int enc)//continuous-tone mode
 	}
 	
 	int bypass=0, e2=enc?state->e2:0, delta=state->delta;
-	unsigned *hist, nlevels, *CDF, fmin, f2;
+	unsigned *hist=0, nlevels, *CDF, fmin, f2;
 	int sym;
 	if(state->nbypass[delta])
 	{
@@ -347,19 +347,19 @@ static int calic_ct(CalicState *state, int curr, int enc)//continuous-tone mode
 			e2>>=nbits;
 			while(nbits>8)
 			{
-				ac_enc(&state->ec, bypass>>(nbits-8)&0xFF, 0, 1<<8, 0x10000>>8);
+				ac_enc_bypass(&state->ec, bypass>>(nbits-8)&0xFF, 1<<8);
 				nbits-=8;
 			}
-			ac_enc(&state->ec, bypass&((1<<nbits)-1), 0, 1<<nbits, 0x10000>>nbits);
+			ac_enc_bypass(&state->ec, bypass&((1<<nbits)-1), 1<<nbits);
 		}
 		else
 		{
 			while(nbits>8)
 			{
 				nbits-=8;
-				bypass|=ac_dec(&state->ec, 0, 1<<8, 0x10000>>8)<<nbits;
+				bypass|=ac_dec_bypass(&state->ec, 1<<8)<<nbits;
 			}
-			bypass|=ac_dec(&state->ec, 0, 1<<nbits, 0x10000>>nbits);
+			bypass|=ac_dec_bypass(&state->ec, 1<<nbits);
 		}
 	}
 	do//encode e2
@@ -411,13 +411,13 @@ static int calic_ct(CalicState *state, int curr, int enc)//continuous-tone mode
 			if((unsigned)sym>(unsigned)nlevels)//
 				LOG_ERROR("Symbol OOB");
 
-			ac_enc(&state->ec, sym, CDF, nlevels, fmin);
+			ac_enc(&state->ec, sym, CDF);
 			if(state->loud==2)
 				state->csizes[state->kc]+=calc_bitsize(CDF, nlevels, sym);
 		}
 		else
 		{
-			sym=ac_dec(&state->ec, CDF, nlevels, fmin);
+			sym=ac_dec(&state->ec, CDF, nlevels);
 			e2+=sym;
 		}
 
@@ -488,12 +488,12 @@ static int calic_bin(CalicState *state, int sym, int enc)//binary mode: 2 symbol
 	
 	if(enc)
 	{
-		ac_enc(&state->ec, sym, state->CDF, 3, fmin);
+		ac_enc(&state->ec, sym, state->CDF);
 		if(state->loud==2)
 			state->csizes[state->kc]+=calc_bitsize(state->CDF, 3, sym);
 	}
 	else
-		sym=ac_dec(&state->ec, state->CDF, 3, fmin);
+		sym=ac_dec(&state->ec, state->CDF, 3);
 	
 	hist[sym]+=state->bin_inc[state->beta];
 	sum+=state->bin_inc[state->beta];

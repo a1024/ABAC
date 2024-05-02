@@ -11,6 +11,7 @@ static const char file[]=__FILE__;
 //	#define PROFILER 1
 	#define USE_CLAMPGRAD
 	#define ALLOW_SIMD
+	#define PACK_SIGN
 
 
 #ifdef PROFILER
@@ -123,6 +124,7 @@ int f05_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					//if(idx==2319)//
 					//if(idx==2304)//
 					//if(idx==0x06fbb434-3)//
+					//if(idx==1263321)//
 					//	printf("");
 #ifdef USE_CLAMPGRAD
 					__m128i mNW	=_mm_loadu_si128((const __m128i*)(rows[1]-4));
@@ -178,12 +180,24 @@ int f05_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					curr[2]-=curr[1];
 					curr[1]+=(curr[0]+curr[2])>>2;
 
+#ifdef PACK_SIGN
+					short val[]=
+					{
+						(short)(((curr[0]-pred[0]+chalf)&(clevels-1))-chalf),
+						(short)(((curr[1]-pred[1]+ half)&(nlevels-1))- half),
+						(short)(((curr[2]-pred[2]+chalf)&(clevels-1))-chalf),
+					};
+					val[0]=val[0]<<1^-(val[0]<0);
+					val[1]=val[1]<<1^-(val[1]<0);
+					val[2]=val[2]<<1^-(val[2]<0);
+#else
 					short val[]=
 					{
 						(short)((curr[0]-pred[0]+chalf)&(clevels-1)),
 						(short)((curr[1]-pred[1]+ half)&(nlevels-1)),
 						(short)((curr[2]-pred[2]+chalf)&(clevels-1)),
 					};
+#endif
 					PROF(RCT);
 #else
 					short curr[3], val[3];
@@ -278,6 +292,7 @@ int f05_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					//if(idx==2319)//
 					//if(idx==2304)//
 					//if(idx==0x06fbb434-3)//
+					//if(idx==1263321)//
 					//	printf("");
 					
 #ifdef USE_CLAMPGRAD
@@ -340,9 +355,18 @@ int f05_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					PROF(EC);
 
 #ifdef USE_CLAMPGRAD
+#ifdef PACK_SIGN
+					curr[0]=val[0]>>1^-(val[0]&1);
+					curr[1]=val[1]>>1^-(val[1]&1);
+					curr[2]=val[2]>>1^-(val[2]&1);
+					curr[0]=(short)(((curr[0]+pred[0]+chalf)&(clevels-1))-chalf);
+					curr[1]=(short)(((curr[1]+pred[1]+ half)&(nlevels-1))- half);
+					curr[2]=(short)(((curr[2]+pred[2]+chalf)&(clevels-1))-chalf);
+#else
 					curr[0]=(short)(((val[0]+pred[0])&(clevels-1))-chalf);
 					curr[1]=(short)(((val[1]+pred[1])&(nlevels-1))- half);
 					curr[2]=(short)(((val[2]+pred[2])&(clevels-1))-chalf);
+#endif
 					
 					short *rgb=dst->data+idx;
 					memcpy(rgb, curr, sizeof(short[3]));

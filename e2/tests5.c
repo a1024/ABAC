@@ -62,9 +62,9 @@ static void hybriduint_encode(unsigned val, TempHybrid *hu)
 		bypass=val>>SLIC4_CONFIG_LSB&((1LL<<nbits)-1);
 	}
 #endif
-	hu->token=token;
+	hu->token=(unsigned short)token;
+	hu->nbits=(unsigned short)nbits;
 	hu->bypass=bypass;
-	hu->nbits=nbits;
 }
 static int quantize(int x)
 {
@@ -1107,7 +1107,7 @@ int t46_encode(Image const *src, ArrayHandle *data, int loud)
 			if(n>0)
 			{
 				for(int k=0;k<n;++k)
-					emit_hist[k]=curr_hist[start+k];
+					emit_hist[k]=(unsigned short)curr_hist[start+k];
 				dlist_push_back(&list, emit_hist, n*sizeof(short));
 			}
 			overhead+=sizeof(CDFrange)+n*sizeof(short);

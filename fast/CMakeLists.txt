@@ -19,11 +19,11 @@
 	transforms.c
 	util.c
 )
-if(MSVC)
-	add_compile_options(fast /Zi)
-else()
-	add_compile_options(fast -g)
-endif()
+#if(MSVC)
+#	add_compile_options(fast /Zi)
+#else()
+#	add_compile_options(fast -g)
+#endif()
 
 #if(MSVC)
 #	target_compile_options(fast PRIVATE /W4)

@@ -16,7 +16,7 @@ static const char file[]=__FILE__;
 
 	#define SELECT_TRANSFORMS
 //	#define CHECK_OOB
-//	#define PROFILER 1		//0: use __rdtsc()	1: use time_sec()
+//	#define PROFILER 0		//0: use __rdtsc()	1: use time_sec()
 //	#define ESTIMATE_CSIZES
 //	#define ENABLE_GUIDE
 
@@ -25,11 +25,14 @@ static const char file[]=__FILE__;
 #ifdef PROFILER
 #define CHECKPOINTLIST\
 	CHECKPOINT(INIT)\
+	CHECKPOINT(RCT_FWD)\
+	CHECKPOINT(LOAD)\
 	CHECKPOINT(GETCTX)\
 	CHECKPOINT(QUANTIZE)\
 	CHECKPOINT(ENTROPYCODER)\
 	CHECKPOINT(RESCALE)\
 	CHECKPOINT(UPDATE_CDF)\
+	CHECKPOINT(RCT_INV)\
 	CHECKPOINT(TOARRAY)
 #endif
 #include"profiler.h"
@@ -248,9 +251,10 @@ int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		}
 	}
 #ifdef SELECT_TRANSFORMS
-	PredType config=PRED_ZERO;
+	int config=PRED_ZERO;
 	if(fwd)
 	{
+#if 1
 		int maxdepth=depths[0];
 		UPDATE_MAX(maxdepth, depths[1]);
 		UPDATE_MAX(maxdepth, depths[2]);
@@ -377,6 +381,9 @@ int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			}
 		}
 		free(hist2);
+#else
+		config=PRED_CGRAD<<2|1;
+#endif
 	}
 #endif
 	memset(pixels, 0, (image->iw+4LL)*sizeof(int[4*16]));
@@ -443,10 +450,13 @@ int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		};
 		for(int kx=0;kx<image->iw;++kx, ++idx)
 		{
+			//if(kx==937&&ky==0)//
+			//if(kx==114&&ky==3)//
+			//	printf("");
+
 			int *comp=pixels+(((size_t)kym[0]+kx+2+0)<<3);
 			if(fwd)
 			{
-				int *comp=pixels+(((size_t)kym[0]+kx+2+0)<<3);
 				memcpy(comp, image->data+((size_t)idx<<2), sizeof(int[4]));
 #ifdef SELECT_TRANSFORMS
 				if(nch>=3)
@@ -462,6 +472,7 @@ int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				}
 #endif
 			}
+			PROF(RCT_FWD);
 			for(int kc=0;kc<nch;++kc)
 			{
 				int nlevels_kc=nlevels[kc], qlevels_kc=qlevels[kc];
@@ -474,6 +485,7 @@ int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					eN	=pixels[(kym[1]+kx+2+0)<<3|4|kc],
 				//	eNE	=pixels[(kym[1]+kx+2+1)<<3|4|kc],
 					eW	=pixels[(kym[0]+kx+2-1)<<3|4|kc];
+				PROF(LOAD);
 #ifndef SELECT_TRANSFORMS
 				int cgrad=N+W-NW-((eW+eN)>>7);
 				cgrad=MEDIAN3(N, W, cgrad);
@@ -534,20 +546,21 @@ int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					}
 #endif
 
-					ac_enc(&ec, token, curr_CDF, qlevels_kc, 0);
+					ac_enc(&ec, token, curr_CDF);
 					if(nbits)
 					{
 						while(nbits>8)
 						{
-							ac_enc(&ec, bypass>>(nbits-8)&0xFF, 0, 1<<8, 16-8);
+							ac_enc_bypass(&ec, bypass>>(nbits-8)&0xFF, 1<<8);
 							nbits-=8;
 						}
-						ac_enc(&ec, bypass&((1<<nbits)-1), 0, 1<<nbits, 16-nbits);
+						ac_enc_bypass(&ec, bypass&((1<<nbits)-1), 1<<nbits);
 					}
 				}
 				else
 				{
-					token=ac_dec(&ec, curr_CDF, qlevels_kc, 0);
+					token=ac_dec_packedsign(&ec, curr_CDF, qlevels_kc);
+					//token=ac_dec(&ec, curr_CDF, qlevels_kc);
 					delta=token;
 					if(delta>=(1<<CONFIG_EXP))
 					{
@@ -561,9 +574,9 @@ int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						while(n>8)
 						{
 							n-=8;
-							bypass|=ac_dec(&ec, 0, 1<<8, 16-8)<<n;
+							bypass|=ac_dec_bypass(&ec, 1<<8)<<n;
 						}
-						bypass|=ac_dec(&ec, 0, 1<<n, 16-n);
+						bypass|=ac_dec_bypass(&ec, 1<<n);
 						delta=1;
 						delta<<=CONFIG_MSB;
 						delta|=msb;
@@ -603,7 +616,6 @@ int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			}
 			if(!fwd)
 			{
-				int *comp=pixels+(((size_t)kym[0]+kx+2+0)<<3);
 				int *comp2=dst->data+((size_t)idx<<2);
 				memcpy(comp2, comp, sizeof(int[4]));
 #ifdef SELECT_TRANSFORMS
@@ -637,6 +649,7 @@ int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				}
 #endif
 			}
+			PROF(RCT_INV);
 		}
 	}
 	if(fwd)

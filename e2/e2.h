@@ -9,6 +9,10 @@
 extern "C"
 {
 #endif
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable:4200)//no default-constructor for struct with zero-length array
+#endif
 
 
 //	#define ALLOW_SRAND
@@ -349,13 +353,16 @@ int init_cl(const char *searchpath);
 
 
 
-
 void save_32bit(const char *filename, const int *buf, int iw, int ih, int nch, int saveas8bit);
 void save_16bit(const char *filename, const short *buf, const short *sub_b2, int iw, int ih, int nch, int val_offset, int val_shift, int saveas8bit);
 void save_mono8(const char *filename, unsigned char *buf, int iw, int ih, int stride);
 void save_channel(unsigned char *buf, int iw, int ih, int stride, int val_offset, const char *format, ...);
 
 
+
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 #ifdef __cplusplus
 }
 #endif

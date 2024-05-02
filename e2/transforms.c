@@ -237,7 +237,7 @@ void addbuf(unsigned char *buf, int iw, int ih, int nch, int bytestride, int amm
 	for(int kp=0, len=iw*ih*bytestride;kp<len;kp+=bytestride)
 	{
 		for(int kc=0;kc<nch;++kc)
-			buf[kp+kc]+=ammount;
+			buf[kp+kc]=(unsigned char)(buf[kp+kc]+ammount);
 	}
 }
 
@@ -259,7 +259,7 @@ void pack3_inv(char *buf, int res)
 		buf[k<<2|0]=r;
 		buf[k<<2|1]=g;
 		buf[k<<2|2]=b;
-		buf[k<<2|3]=(char)0xFF;
+		buf[k<<2|3]=(char)-1;
 	}
 }
 int get_nch32(const int *buf, int res)//returns nch = {0 degenerate, 1 gray, 2 gray_alpha, 3, rgb, 4, rgb_alpha}
@@ -1184,11 +1184,11 @@ void pred_w2_prealloc(const char *src, int iw, int ih, int kc, short *params, in
 			if(fwd)
 			{
 				curr=src[idx]<<8;
-				dst[idx]=src[idx]-(int)((pred+127)>>8);
+				dst[idx]=(char)(src[idx]-(int)((pred+127)>>8));
 			}
 			else
 			{
-				dst[idx]=src[idx]+(int)((pred+127)>>8);
+				dst[idx]=(char)(src[idx]+(int)((pred+127)>>8));
 				curr=dst[idx]<<8;
 			}
 
@@ -1697,11 +1697,11 @@ void   pred_jxl_prealloc(const char *src, int iw, int ih, int kc, const short *p
 			if(fwd)
 			{
 				curr=src[idx]<<8;
-				dst[idx]=src[idx]-((pred+127)>>8);
+				dst[idx]=(char)(src[idx]-((pred+127)>>8));
 			}
 			else
 			{
-				dst[idx]=src[idx]+((pred+127)>>8);
+				dst[idx]=(char)(src[idx]+((pred+127)>>8));
 				curr=dst[idx]<<8;
 			}
 
@@ -1892,9 +1892,9 @@ void pred_custom_prealloc_ch(const char *src, int iw, int ih, int kc, int fwd, c
 			idx=(iw*ky+kx)<<2|kc;
 
 			if(fwd)
-				dst[idx]=src[idx]-pred;
+				dst[idx]=(char)(src[idx]-pred);
 			else
-				dst[idx]=src[idx]+pred;
+				dst[idx]=(char)(src[idx]+pred);
 		}
 	}
 }
@@ -1973,7 +1973,7 @@ double opt_custom(const char *buf, int iw, int ih, int kc, int niter, short *par
 #ifdef CUSTOM_TRAIN_ON_DOUBLES
 			x->params[k2]=(ParamType)val/0x1000;
 #else
-			x->params[k2]=val;
+			x->params[k2]=(ParamType)val;
 #endif
 		}
 		CALC_LOSS(x);
@@ -2004,7 +2004,7 @@ double opt_custom(const char *buf, int iw, int ih, int kc, int niter, short *par
 				x0->params[k3]+=x->params[k3];
 		}
 		for(int k2=0;k2<nv;++k2)
-			x0->params[k2]/=nv;
+			x0->params[k2]=(ParamType)(x0->params[k2]/nv);
 
 		//3  reflection
 		for(int k2=0;k2<nv;++k2)
@@ -2313,7 +2313,7 @@ static void opt_custom_v2_calcloss(const short *src, int iw, int ih, const short
 	for(int k=0;k<(res<<4);++k)
 	{
 		int ch=k&15;
-		unsigned char sym=dst[k]>>4;
+		unsigned char sym=(unsigned char)(dst[k]>>4);
 		//if(k==(res>>2))
 		//	printf("");
 		++hist[sym<<4|ch];
@@ -2378,6 +2378,9 @@ float opt_custom_v2(const char *buf, int iw, int ih, int kc, int niter, short *p
 	short *buf2=(short*)_mm_malloc(res*sizeof(short), 32);
 	short *temp=(short*)_mm_malloc((size_t)res*16*sizeof(short), 32);
 	int *hist=_mm_malloc(256LL*16*sizeof(int), 32);
+
+	(void)loud;
+
 	if(!buf2||!temp||!hist)
 	{
 		LOG_ERROR("Allocation error");
@@ -2409,7 +2412,7 @@ float opt_custom_v2(const char *buf, int iw, int ih, int kc, int niter, short *p
 		{
 			delta[k]=(rand()%(amplitude<<1|1))-amplitude;
 			//delta[k]=(rand()%3)-1;
-			curr[k]+=delta[k];
+			curr[k]+=(short)delta[k];
 		}
 		CALC_LOSS();
 		best=0;
@@ -2438,7 +2441,7 @@ float opt_custom_v2(const char *buf, int iw, int ih, int kc, int niter, short *p
 				for(int kx=0;kx<8;++kx)
 				{
 					int idx=ky<<4|kx;
-					curr[idx]-=delta[idx];
+					curr[idx]-=(short)delta[idx];
 				}
 			}
 			//for(int k=0;k<CUSTOM_NPARAMS*16;++k)

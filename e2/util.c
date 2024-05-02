@@ -118,9 +118,27 @@ void memrotate(void *p, size_t byteoffset, size_t bytesize, void *temp)//temp bu
 int binary_search(const void *base, size_t count, size_t esize, int (*threeway)(const void*, const void*), const void *val, size_t *idx)
 {
 	const unsigned char *buf=(const unsigned char*)base;
+#if 1
+	ptrdiff_t low=0, range=count;
+	while(range)//binary search		lg(nlevels) memory accesses per symbol
+	{
+		ptrdiff_t floorhalf=range>>1;
+		if(threeway(buf+(low+floorhalf)*esize, val)<0)//gcc -O3:  13 instructions
+			low+=range-floorhalf;
+		range=floorhalf;
+		
+		//int odd=(int)(range&1);
+		//range>>=1;
+		//if(threeway(buf+(low+range)*esize, val)<0)//gcc generates a branch (gcc -O3:  14 instructions)
+		//	low+=range+odd;
+	}
+	if(idx)
+		*idx=low;
+	return !threeway(buf+low*esize, val);
+#endif
+#if 0
 	ptrdiff_t L=0, R=(ptrdiff_t)count-1, mid;
 	int ret;
-
 	while(L<=R)
 	{
 		mid=(L+R)>>1;
@@ -139,6 +157,7 @@ int binary_search(const void *base, size_t count, size_t esize, int (*threeway)(
 	if(idx)
 		*idx=L+(L<(ptrdiff_t)count&&threeway(buf+L*esize, val)<0);
 	return 0;
+#endif
 }
 void isort(void *base, size_t count, size_t esize, int (*threeway)(const void*, const void*))
 {
@@ -212,34 +231,62 @@ int acme_getopt(int argc, char **argv, int *start, const char **keywords, int kw
 	return OPT_NOMATCH;
 }
 
+int hammingweight16(unsigned short x)
+{
+#ifdef _MSC_VER
+	return __popcnt16(x);
+#else
+	return __builtin_popcount(x);
+#endif
+}
+int hammingweight32(unsigned x)
+{
+#ifdef _MSC_VER
+	return __popcnt(x);
+#else
+	return __builtin_popcount(x);
+#endif
+}
+int hammingweight64(unsigned long long x)
+{
+#ifdef _MSC_VER
+	return (int)__popcnt64(x);
+#else
+	return __builtin_popcountll(x);
+#endif
+}
 int floor_log2_p1(unsigned long long n)
 {
 #ifdef _MSC_VER
-	unsigned long logn=0;
-	int success=_BitScanReverse64(&logn, n);
-	logn=success?logn+1:0;
-	return logn;
+	return (sizeof(n)<<3)-(int)__lzcnt64(n);
+
+	//unsigned long logn=0;
+	//int success=_BitScanReverse64(&logn, n);
+	//logn=success?logn+1:0;
+	//return logn;
 #elif defined __GNUC__
 	int logn=64-__builtin_clzll(n);
 	return logn;
 #else
-	int	logn=-!n;
+	int	logn=n!=0;
 	int	sh=(n>=1ULL<<32)<<5;	logn+=sh, n>>=sh;
 		sh=(n>=1<<16)<<4;	logn+=sh, n>>=sh;
 		sh=(n>=1<< 8)<<3;	logn+=sh, n>>=sh;
 		sh=(n>=1<< 4)<<2;	logn+=sh, n>>=sh;
 		sh=(n>=1<< 2)<<1;	logn+=sh, n>>=sh;
 		sh= n>=1<< 1;		logn+=sh;
-	return logn+1;
+	return logn;
 #endif
 }
 int floor_log2(unsigned long long n)
 {
 #ifdef _MSC_VER
-	unsigned long logn=0;
-	int success=_BitScanReverse64(&logn, n);
-	logn=success?logn:-1;
-	return logn;
+	return (sizeof(n)<<3)-1-(int)__lzcnt64(n);//since Haswell
+
+	//unsigned long logn=0;
+	//int success=_BitScanReverse64(&logn, n);
+	//logn=success?logn:-1;
+	//return logn;
 #elif defined __GNUC__
 	int logn=63-__builtin_clzll(n);
 	return logn;
@@ -257,10 +304,12 @@ int floor_log2(unsigned long long n)
 int floor_log2_32(unsigned n)
 {
 #ifdef _MSC_VER
-	unsigned long logn=0;
-	int success=_BitScanReverse(&logn, n);
-	logn=success?logn:-1;
-	return logn;
+	return (sizeof(n)<<3)-1-(int)__lzcnt(n);//SSE4
+
+	//unsigned long logn=0;
+	//int success=_BitScanReverse(&logn, n);
+	//logn=success?logn:-1;
+	//return logn;
 #elif defined __GNUC__
 	if(!n)
 		return -1;
@@ -327,9 +376,58 @@ int ceil_log2(unsigned long long n)
 }
 int ceil_log2_32(unsigned n)
 {
-	int l2=floor_log2_32(n);
-	l2+=(1ULL<<l2)<n;
-	return l2;
+	int lgn=floor_log2_32(n);
+	lgn+=(1U<<lgn)<n;
+	return lgn;
+}
+int get_lsb_index(unsigned long long n)
+{
+#ifdef _MSC_VER
+	return (int)_tzcnt_u64(n);//BMI1 (2013)
+
+	//unsigned long idx;
+	//_BitScanForward64(&idx, n);
+	//return idx;
+#elif defined __GNUC__
+	return __builtin_ctzll(n);
+	//return __builtin_ffsll(n)-1;
+#else
+	int cond, lsb;
+	if(!n)
+		return sizeof(n)<<3;
+	lsb=0;
+	cond=(n>>32<<32==n)<<5, lsb+=cond, n>>=cond;
+	cond=(n>>16<<16==n)<<4, lsb+=cond, n>>=cond;
+	cond=(n>> 8<< 8==n)<<3, lsb+=cond, n>>=cond;
+	cond=(n>> 4<< 4==n)<<2, lsb+=cond, n>>=cond;
+	cond=(n>> 2<< 2==n)<<1, lsb+=cond, n>>=cond;
+	cond= n>> 1<< 1==n    , lsb+=cond;
+	return lsb;
+#endif
+}
+int get_lsb_index32(unsigned n)
+{
+#ifdef _MSC_VER
+	return (int)_tzcnt_u32(n);
+
+	//unsigned long idx;
+	//_BitScanForward(&idx, n);
+	//return idx;
+#elif defined __GNUC__
+	return __builtin_ctz(n);
+	//return __builtin_ffs(n)-1;
+#else
+	int cond, lsb;
+	if(!n)
+		return sizeof(n)<<3;
+	lsb=0;
+	cond=(n>>16<<16==n)<<4, lsb+=cond, n>>=cond;
+	cond=(n>> 8<< 8==n)<<3, lsb+=cond, n>>=cond;
+	cond=(n>> 4<< 4==n)<<2, lsb+=cond, n>>=cond;
+	cond=(n>> 2<< 2==n)<<1, lsb+=cond, n>>=cond;
+	cond= n>> 1<< 1==n    , lsb+=cond;
+	return lsb;
+#endif
 }
 int floor_log10(double x)
 {
@@ -523,7 +621,7 @@ double power(double x, int y)
 			return product;
 		mask[1]*=mask[1];
 	}
-	return product;
+	//return product;
 }
 double _10pow(int n)
 {
@@ -554,7 +652,7 @@ int acme_isdigit(char c, char base)
 	return 0;
 }
 
-double time_ms()
+double time_ms(void)
 {
 #ifdef _MSC_VER
 	static long long t0=0;
@@ -574,7 +672,7 @@ double time_ms()
 	return t.tv_sec*1000+t.tv_nsec*1e-6;
 #endif
 }
-double time_sec()
+double time_sec(void)
 {
 #ifdef _MSC_VER
 	static long long t0=0;
@@ -672,25 +770,51 @@ int print_binn(unsigned long long x, int nbits)
 	}
 	return nbits;
 }
+double convert_size(double bytesize, int *log1024)
+{
+	int k=0;
+	double p=1024;
+	for(;k<4&&bytesize<p;++k, p*=1024);
+	*log1024=k;
+	return bytesize*1024/p;
+}
+int print_size(double bytesize, int ndigits, int pdigits, char *str, int len)
+{
+	static const char *labels[]=
+	{
+		"bytes",
+		"KB",
+		"MB",
+		"GB",
+		"TB",
+		"PB",
+		"EB",
+	};
+	int idx=0;
+	bytesize=convert_size(bytesize, &idx);
+	if(str)
+		return snprintf(str, len-1LL, "%*.*lf %s", ndigits, pdigits, bytesize, labels[idx]);
+	return printf("%*.*lf %s", ndigits, pdigits, bytesize, labels[idx]);
+}
 
 //error handling
 char first_error_msg[G_BUF_SIZE]={0}, latest_error_msg[G_BUF_SIZE]={0};
-int log_error(const char *file, int line, int quit, const char *format, ...)
+int log_error(const char *fn, int line, int quit, const char *format, ...)
 {
 	int firsttime=first_error_msg[0]=='\0';
 
-	ptrdiff_t size=strlen(file), start=size-1;
-	for(;start>=0&&file[start]!='/'&&file[start]!='\\';--start);
-	start+=start==-1||file[start]=='/'||file[start]=='\\';
+	ptrdiff_t size=strlen(fn), start=size-1;
+	for(;start>=0&&fn[start]!='/'&&fn[start]!='\\';--start);
+	start+=start==-1||fn[start]=='/'||fn[start]=='\\';
 
-	int printed=sprintf_s(latest_error_msg, G_BUF_SIZE, "\n%s(%d): ", file+start, line);
+	int printed=sprintf_s(latest_error_msg, G_BUF_SIZE, "\n%s(%d): ", fn+start, line);
 	va_list args;
 	va_start(args, format);
 	printed+=vsprintf_s(latest_error_msg+printed, G_BUF_SIZE-printed-1, format, args);
 	va_end(args);
 
 	if(firsttime)
-		memcpy(first_error_msg, latest_error_msg, printed+1);
+		memcpy(first_error_msg, latest_error_msg, printed+1LL);
 	fprintf(stderr, "%s\n", latest_error_msg);
 	//messagebox(MBOX_OK, "Error", latest_error_msg);
 	if(quit)
@@ -700,6 +824,7 @@ int log_error(const char *file, int line, int quit, const char *format, ...)
 	}
 	return firsttime;
 }
+#if 0
 int valid(const void *p)//only makes sense with MSVC debugger
 {
 	size_t val=(size_t)p;
@@ -736,7 +861,8 @@ int valid(const void *p)//only makes sense with MSVC debugger
 	}
 	return 1;
 }
-int pause()
+#endif
+int pause(void)
 {
 	int k;
 
@@ -745,19 +871,19 @@ int pause()
 	return k;
 }
 #ifdef _MSC_VER
-int pause1()
+int pause1(void)
 {
 	return _getch();
 }
 #endif
-int pause_abort(const char *file, int lineno, const char *extraInfo)
+int pause_abort(const char *fn, int lineno, const char *extraInfo)
 {
-	printf("INTERNAL ERROR %s(%d)\nABORTING\n", file, lineno);
+	printf("INTERNAL ERROR %s(%d)\nABORTING\n", fn, lineno);
 	if(extraInfo)
 		printf("%s\n\n", extraInfo);
 	pause();
-	abort();
-	return 0;
+	exit(1);
+	//return 0;
 }
 
 
@@ -765,17 +891,19 @@ int pause_abort(const char *file, int lineno, const char *extraInfo)
 #if 1
 static void array_realloc(ArrayHandle *arr, size_t count, size_t pad)//CANNOT be nullptr, array must be initialized with array_alloc()
 {
-	ArrayHandle p2;
 	size_t size, newcap;
 
-	ASSERT_P(*arr);
 	size=(count+pad)*arr[0]->esize, newcap=arr[0]->esize;
 	for(;newcap<size;newcap<<=1);
 	if(newcap>arr[0]->cap)
 	{
-		p2=(ArrayHandle)realloc(*arr, sizeof(ArrayHeader)+newcap);
-		ASSERT_P(p2);
-		*arr=p2;
+		void *p2=realloc(*arr, sizeof(ArrayHeader)+newcap);
+		if(!p2)
+		{
+			LOG_ERROR("Alloc error");
+			return;
+		}
+		*arr=(ArrayHandle)p2;
 		if(arr[0]->cap<newcap)
 			memset(arr[0]->data+arr[0]->cap, 0, newcap-arr[0]->cap);
 		arr[0]->cap=newcap;
@@ -803,10 +931,7 @@ ArrayHandle array_construct(const void *src, size_t esize, size_t count, size_t 
 	arr->cap=cap;
 	arr->destructor=destructor;
 	if(src)
-	{
-		ASSERT_P(src);
 		memfill(arr->data, src, dstsize, srcsize);
-	}
 	else
 		memset(arr->data, 0, dstsize);
 		
@@ -855,20 +980,24 @@ void array_free(ArrayHandle *arr)//can be nullptr
 }
 void array_fit(ArrayHandle *arr, size_t pad)//can be nullptr
 {
-	ArrayHandle p2;
+	void *p2;
+
 	if(!*arr)
 		return;
 	arr[0]->cap=(arr[0]->count+pad)*arr[0]->esize;
-	p2=(ArrayHandle)realloc(*arr, sizeof(ArrayHeader)+arr[0]->cap);
-	ASSERT_P(p2);
-	*arr=p2;
+	p2=realloc(*arr, sizeof(ArrayHeader)+arr[0]->cap);
+	if(!p2)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	*arr=(ArrayHandle)p2;
 }
 
 void* array_insert(ArrayHandle *arr, size_t idx, const void *data, size_t count, size_t rep, size_t pad)//cannot be nullptr
 {
 	size_t start, srcsize, dstsize, movesize;
 	
-	ASSERT_P(*arr);
 	start=idx*arr[0]->esize;
 	srcsize=count*arr[0]->esize;
 	dstsize=rep*srcsize;
@@ -885,7 +1014,6 @@ void* array_erase(ArrayHandle *arr, size_t idx, size_t count)//does not realloca
 {
 	size_t k;
 
-	ASSERT_P(*arr);
 	if(arr[0]->count<idx+count)
 	{
 		LOG_ERROR("array_erase() out of bounds: idx=%lld count=%lld size=%lld", (long long)idx, (long long)count, (long long)arr[0]->count);
@@ -906,7 +1034,6 @@ void* array_replace(ArrayHandle *arr, size_t idx, size_t rem_count, const void *
 {
 	size_t k, c0, c1, start, srcsize, dstsize;
 
-	ASSERT_P(*arr);
 	if(arr[0]->count<idx+rem_count)
 	{
 		LOG_ERROR("array_replace() out of bounds: idx=%lld rem_count=%lld size=%lld ins_count=%lld", (long long)idx, (long long)rem_count, (long long)arr[0]->count, (long long)ins_count);
@@ -1312,9 +1439,15 @@ void  dlist_last(DListHandle list, DListItHandle it)
 void* dlist_it_deref(DListItHandle it)
 {
 	if(it->obj_idx>=it->list->nobj)
+	{
 		LOG_ERROR("dlist_it_deref() out of bounds");
+		return 0;
+	}
 	if(!it->node)
+	{
 		LOG_ERROR("dlist_it_deref() node == nullptr");
+		return 0;
+	}
 	return it->node->data+it->obj_idx%it->list->objpernode*it->list->objsize;
 }
 int   dlist_it_inc(DListItHandle it)
@@ -1492,6 +1625,7 @@ RBNodeHandle* map_insert(MapHandle map, const void *key, int *found)
 		case RESULT_GREATER:
 			y->right=z;
 			break;
+		case RESULT_EQUAL:
 		default:
 			free(z);
 			return 0;
@@ -1921,7 +2055,6 @@ void bitstring_free(BitstringHandle *str)
 void bitstring_append(BitstringHandle *str, const void *src, size_t bitCount, size_t bitOffset)
 {
 	size_t reqcap, newcap;
-	void *p;
 	size_t byteIdx;
 	unsigned char *srcbytes=(unsigned char*)src;
 
@@ -1931,10 +2064,13 @@ void bitstring_append(BitstringHandle *str, const void *src, size_t bitCount, si
 	for(;newcap<reqcap;newcap<<=1);
 	if(str[0]->byteCap<newcap)
 	{
-		p=realloc(*str, sizeof(BitstringHeader)+newcap);
+		void *p=realloc(*str, sizeof(BitstringHeader)+newcap);
 		if(!p)
-			LOG_ERROR("realloc returned nullptr");
-		*str=p;
+		{
+			LOG_ERROR("Alloc error");
+			return;
+		}
+		*str=(BitstringHandle)p;
 		str[0]->byteCap=newcap;
 	}
 	byteIdx=(str[0]->bitCount+7)/8;
@@ -1993,18 +2129,20 @@ void bitstring_print(BitstringHandle str)
 #if 1
 static void pqueue_realloc(PQueueHandle *pq, size_t count, size_t pad)//CANNOT be nullptr, array must be initialized with array_alloc()
 {
-	void *p2;
 	size_t size, newcap;
 
-	ASSERT_P(*pq);
 	size=(count+pad)*pq[0]->esize, newcap=pq[0]->esize;
 	for(;newcap<size;newcap<<=1);
 	if(newcap>pq[0]->byteCap)
 	{
 		//printf("realloc(%p, %lld)\n", *pq, sizeof(PQueueHeader)+newcap);//
 
-		p2=realloc(*pq, sizeof(PQueueHeader)+newcap);
-		ASSERT_P(p2);
+		void *p2=realloc(*pq, sizeof(PQueueHeader)+newcap);
+		if(!p2)
+		{
+			LOG_ERROR("Alloc error");
+			return;
+		}
 		*pq=(PQueueHandle)p2;
 		if(pq[0]->byteCap<newcap)
 			memset(pq[0]->data+pq[0]->byteCap, 0, newcap-pq[0]->byteCap);
@@ -2012,7 +2150,7 @@ static void pqueue_realloc(PQueueHandle *pq, size_t count, size_t pad)//CANNOT b
 	}
 	pq[0]->count=count;
 }
-void        pqueue_heapifyup(PQueueHandle *pq, size_t idx, void *temp)
+static void pqueue_heapifyup(PQueueHandle *pq, size_t idx, void *temp)
 {
 	for(;idx!=0;)
 	{
@@ -2106,7 +2244,6 @@ void  pqueue_enqueue(PQueueHandle *pq, const void *src)//src cannot be nullptr
 	size_t start;
 	void *temp;
 	
-	ASSERT_P(*pq);
 	start=pq[0]->count*pq[0]->esize;
 	pqueue_realloc(pq, pq[0]->count+1, 0);
 
@@ -2129,7 +2266,6 @@ void  pqueue_dequeue(PQueueHandle *pq)
 {
 	void *temp;
 
-	ASSERT_P(*pq);
 	if(!pq[0]->count)
 	{
 		LOG_ERROR("pqueue_erase() out of bounds: size=%lld", (long long)pq[0]->count);
@@ -2171,8 +2307,8 @@ void  pqueue_print_heap(PQueueHandle *pq, void (*printer)(const void*))
 ptrdiff_t get_filesize(const char *filename)//-1 not found,  0: not a file,  ...: regular file size
 {
 	struct stat info={0};
-	int error=stat(filename, &info);
-	if(error)
+	int e2=stat(filename, &info);
+	if(e2)
 		return -1;
 #if defined _MSC_VER || defined _WIN32
 	if((info.st_mode&S_IFMT)==S_IFREG)
@@ -2287,8 +2423,11 @@ ArrayHandle get_filenames(const char *path, const char **extensions, int extCoun
 	STR_POPBACK(searchpath, 1);//pop the '*'
 	ARRAY_ALLOC(ArrayHandle, filenames, 0, 0, 0, free_str);
 
-	for(;(success=FindNextFileA(hSearch, &data));)
+	for(;;)
 	{
+		success=FindNextFileA(hSearch, &data);
+		if(!success)
+			break;
 		len=strlen(data.cFileName);
 		extension=get_extension(data.cFileName, len);
 		if(!(data.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY))
@@ -2361,10 +2500,10 @@ ArrayHandle load_file(const char *filename, int bin, int pad, int erroronfail)
 	struct stat info={0};
 	FILE *f;
 	ArrayHandle str;
-	char mode[3]={'r', bin?'b':0, 0};
+	char mode[3]={'r', bin?'b':'\0', 0};
 
-	int error=stat(filename, &info);
-	if(error)
+	int e2=stat(filename, &info);
+	if(e2)
 	{
 		if(erroronfail)
 		{
@@ -2406,7 +2545,7 @@ int save_file(const char *filename, const unsigned char *src, size_t srcSize, in
 {
 	FILE *f;
 	size_t bytesRead;
-	char mode[]={'w', is_bin?'b':0, 0};
+	char mode[]={'w', is_bin?'b':'\0', 0};
 
 #ifdef _MSC_VER
 	fopen_s(&f, filename, mode);
@@ -2445,7 +2584,7 @@ ArrayHandle searchfor_file(const char *searchpath, const char *filetitle)
 	return filename;
 }
 
-int query_cpu_cores()
+int query_cpu_cores(void)
 {
 #ifdef _WIN32
 	SYSTEM_INFO info;

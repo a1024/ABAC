@@ -201,11 +201,11 @@ static void pt2(ArithmeticCoder *ec, int *curr, int *buf, char *stats, int *kym,
 		if(fwd)
 		{
 			bit=token>>kb&1;
-			ac_enc_bin(ec, p0, bit);
+			ac_enc_bin(ec, (unsigned short)p0, bit);
 		}
 		else
 		{
-			bit=ac_dec_bin(ec, p0);
+			bit=ac_dec_bin(ec, (unsigned short)p0);
 			token|=bit<<kb;
 		}
 
@@ -213,13 +213,13 @@ static void pt2(ArithmeticCoder *ec, int *curr, int *buf, char *stats, int *kym,
 		for(int kp=0;kp<(int)_countof(ctx);++kp)
 		{
 			int update=curr_stats[qctx[kp]-1]+((p0_perf-curr_stats[qctx[kp]-1])*(0x10000-alpha[kp])>>20);
-			curr_stats[qctx[kp]-1]=CLAMP(-128, update, 127);
+			curr_stats[qctx[kp]-1]=(char)CLAMP(-128, update, 127);
 
 			update=curr_stats[qctx[kp]]+((p0_perf-curr_stats[qctx[kp]])>>3);
-			curr_stats[qctx[kp]]=CLAMP(-128, update, 127);
+			curr_stats[qctx[kp]]=(char)CLAMP(-128, update, 127);
 
 			update=curr_stats[qctx[kp]+1]+((p0_perf-curr_stats[qctx[kp]+1])*alpha[kp]>>20);
-			curr_stats[qctx[kp]+1]=CLAMP(-128, update, 127);
+			curr_stats[qctx[kp]+1]=(char)CLAMP(-128, update, 127);
 		}
 
 		abac_idx<<=1;
@@ -231,10 +231,10 @@ static void pt2(ArithmeticCoder *ec, int *curr, int *buf, char *stats, int *kym,
 		{
 			while(nbits>8)
 			{
-				ac_enc(ec, bypass>>(nbits-8)&0xFF, 0, 1<<8, 16-8);
+				ac_enc_bypass(ec, bypass>>(nbits-8)&0xFF, 1<<8);
 				nbits-=8;
 			}
-			ac_enc(ec, bypass&((1<<nbits)-1), 0, 1<<nbits, 16-nbits);
+			ac_enc_bypass(ec, bypass&((1<<nbits)-1), 1<<nbits);
 		}
 	}
 	else
@@ -247,14 +247,15 @@ static void pt2(ArithmeticCoder *ec, int *curr, int *buf, char *stats, int *kym,
 			error>>=CONFIG_LSB;
 			int msb=error&((1<<CONFIG_MSB)-1);
 			error>>=CONFIG_MSB;
-			int nbits=error+CONFIG_EXP-(CONFIG_MSB+CONFIG_LSB), n=nbits;
-			int bypass=0;
+			nbits=error+CONFIG_EXP-(CONFIG_MSB+CONFIG_LSB);
+			int n=nbits;
+			bypass=0;
 			while(n>8)
 			{
 				n-=8;
-				bypass|=ac_dec(ec, 0, 1<<8, 16-8)<<n;
+				bypass|=ac_dec_bypass(ec, 1<<8)<<n;
 			}
-			bypass|=ac_dec(ec, 0, 1<<n, 16-n);
+			bypass|=ac_dec_bypass(ec, 1<<n);
 			error=1;
 			error<<=CONFIG_MSB;
 			error|=msb;
@@ -301,10 +302,10 @@ int t55_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		get_qlevels(depths[2]),
 		get_qlevels(depths[3]),
 	};
-	char maxdepth=depths[0];
-	UPDATE_MAX(maxdepth, depths[1]);
-	UPDATE_MAX(maxdepth, depths[2]);
-	UPDATE_MAX(maxdepth, depths[3]);
+	char maxdepth=(char)depths[0];
+	UPDATE_MAX(maxdepth, (char)depths[1]);
+	UPDATE_MAX(maxdepth, (char)depths[2]);
+	UPDATE_MAX(maxdepth, (char)depths[3]);
 	//int maxlevels=1<<maxdepth;
 	int *buf=(int*)malloc((image->iw+PADSIZE*2LL)*sizeof(int[4*PADSIZE*2*2]));//4 channels * (PARSIZE*2) rows * (pixels + errors)
 	char *stats=(char*)malloc(sizeof(char[4*128*37*NCTX]));//4 channels * 128 max tree size * 82 max qlevels in context * NCTX

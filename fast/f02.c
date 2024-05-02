@@ -13,7 +13,7 @@ static const char file[]=__FILE__;
 //	#define USE_GOLOMB
 //	#define USE_ABAC
 	#define USE_STATIC_PROB
-	#define USE_CDF2SYM
+//	#define USE_CDF2SYM
 
 
 #ifdef USE_ANS

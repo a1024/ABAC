@@ -147,7 +147,7 @@ void save_16bit(const char *filename, const short *buf, const short *sub_b2, int
 		}
 		for(int k=0;k<n;++k)
 		{
-			unsigned short val=buf[k]+val_offset;
+			unsigned short val=(unsigned short)(buf[k]+val_offset);
 			if(sub_b2)
 				val-=sub_b2[k];
 			val<<=val_shift;
@@ -166,7 +166,7 @@ void save_16bit(const char *filename, const short *buf, const short *sub_b2, int
 		}
 		for(int k=0;k<n;++k)
 		{
-			unsigned short val=buf[k]+val_offset;
+			unsigned short val=(unsigned short)(buf[k]+val_offset);
 			if(sub_b2)
 				val-=sub_b2[k];
 			val<<=val_shift;
@@ -201,7 +201,7 @@ void save_channel(unsigned char *buf, int iw, int ih, int stride, int val_offset
 	if(!b2)
 		return;
 	for(int ks=0, kd=0, res=iw*ih;kd<res;ks+=stride, ++kd)
-		b2[kd]=buf[ks]+val_offset;
+		b2[kd]=(unsigned char)(buf[ks]+val_offset);
 	
 	lodepng_encode_file(g_buf, b2, iw, ih, LCT_GREY, 8);
 	free(b2);
@@ -338,10 +338,10 @@ void image_export_uint8(Image const *image, unsigned char **dst, int override_al
 	for(ptrdiff_t k=0, res=(ptrdiff_t)image->iw*image->ih*4;k<res;k+=4)
 	{
 		int val;
-		val=(image->data[k|0]>>shift[0])+128, dst[0][k|0]=CLAMP(0, val, 255);
-		val=(image->data[k|1]>>shift[1])+128, dst[0][k|1]=CLAMP(0, val, 255);
-		val=(image->data[k|2]>>shift[2])+128, dst[0][k|2]=CLAMP(0, val, 255);
-		val=(image->data[k|3]>>shift[3])+128, dst[0][k|3]=override_alpha?0xFF:CLAMP(0, val, 255);
+		val=(image->data[k|0]>>shift[0])+128, dst[0][k|0]=(unsigned char)CLAMP(0, val, 255);
+		val=(image->data[k|1]>>shift[1])+128, dst[0][k|1]=(unsigned char)CLAMP(0, val, 255);
+		val=(image->data[k|2]>>shift[2])+128, dst[0][k|2]=(unsigned char)CLAMP(0, val, 255);
+		val=(image->data[k|3]>>shift[3])+128, dst[0][k|3]=override_alpha?0xFF:(unsigned char)CLAMP(0, val, 255);
 		//dst[0][k|0]=(image->data[k|0]>>shift[0])+128;
 		//dst[0][k|1]=(image->data[k|1]>>shift[1])+128;
 		//dst[0][k|2]=(image->data[k|2]>>shift[2])+128;
@@ -366,13 +366,13 @@ void image_export_uint16(Image const *image, unsigned short **dst, int override_
 	for(ptrdiff_t k=0, res=(ptrdiff_t)image->iw*image->ih*4;k<res;k+=4)
 	{
 		int val;
-		val=SHIFT_LEFT_SIGNED(image->data[k|0], shift[0])+0x8000, dst[0][k|0]=CLAMP(-0x8000, val, 0x7FFF);
-		val=SHIFT_LEFT_SIGNED(image->data[k|1], shift[1])+0x8000, dst[0][k|1]=CLAMP(-0x8000, val, 0x7FFF);
-		val=SHIFT_LEFT_SIGNED(image->data[k|2], shift[2])+0x8000, dst[0][k|2]=CLAMP(-0x8000, val, 0x7FFF);
+		val=SHIFT_LEFT_SIGNED(image->data[k|0], shift[0])+0x8000, dst[0][k|0]=(unsigned short)CLAMP(-0x8000, val, 0x7FFF);
+		val=SHIFT_LEFT_SIGNED(image->data[k|1], shift[1])+0x8000, dst[0][k|1]=(unsigned short)CLAMP(-0x8000, val, 0x7FFF);
+		val=SHIFT_LEFT_SIGNED(image->data[k|2], shift[2])+0x8000, dst[0][k|2]=(unsigned short)CLAMP(-0x8000, val, 0x7FFF);
 		if(override_alpha)
 			dst[0][k|3]=0xFFFF;
 		else
-			val=SHIFT_LEFT_SIGNED(image->data[k|3], shift[3])+0x8000, dst[0][k|3]=CLAMP(-0x8000, val, 0x7FFF);
+			val=SHIFT_LEFT_SIGNED(image->data[k|3], shift[3])+0x8000, dst[0][k|3]=(unsigned short)CLAMP(-0x8000, val, 0x7FFF);
 	}
 	if(big_endian)
 	{
@@ -471,7 +471,7 @@ void calc_depthfromdata(int *image, int iw, int ih, char *depths, const char *sr
 				vmax=sym;
 		}
 		int nlevels=vmax-vmin;
-		depths[kc]=nlevels?floor_log2(nlevels)+1:0;
+		depths[kc]=nlevels?(char)(floor_log2_32(nlevels)+1):0;
 		depths[kc]=MAXVAR(depths[kc], src_depths[kc]);
 	}
 }

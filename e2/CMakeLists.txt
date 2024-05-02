@@ -44,6 +44,13 @@ add_executable(e2
 	#transforms_vk.c
 	util.c
 )
+
+#if(MSVC)
+#	target_compile_options(e2 PRIVATE /W4)
+#else()
+#	target_compile_options(e2 PRIVATE -Wall -Wextra -Wpedantic)
+#endif()
+
 if(!MSVC)
 	target_link_libraries(e2 m)
 endif()
