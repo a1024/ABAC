@@ -7,7 +7,7 @@
 static const char file[]=__FILE__;
 
 #include"ac.h"
-#include"profiler.h"
+//#include"profiler.h"
 
 
 static int CG(int N, int W, int NW)
@@ -79,7 +79,7 @@ int f11_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		return 0;
 	}
 	int depth=image->depth, nlevels=1<<depth, half=nlevels>>1;
-	size_t histsize=sizeof(int[30])<<image->depth;
+	size_t histsize=sizeof(int[NRCH+NGCH+NBCH])<<image->depth;
 	int *hist=(int*)malloc(histsize);
 	if(!hist)
 	{

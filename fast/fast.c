@@ -20,10 +20,10 @@ typedef void *THREAD_RET;
 static const char file[]=__FILE__;
 
 
-#define CODECID     11
-#define CODECNAME "F11"
-#define ENCODE     f11_encode
-#define DECODE     f11_decode
+#define CODECID      8
+#define CODECNAME "F08"
+#define ENCODE     f08_encode
+#define DECODE     f08_decode
 
 
 static const char *g_extensions[]=
@@ -344,6 +344,7 @@ int main(int argc, char **argv)
 #endif
 	printf("FastEntropy\n\n");
 #ifndef _DEBUG
+//#if 0
 	if((unsigned)(argc-2)>1)
 	{
 		printf(
@@ -360,16 +361,19 @@ int main(int argc, char **argv)
 	//	"D:/ML/dataset-kodak/kodim13.png"
 	//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
 	//	"D:/ML/big_building.PPM"
-		"C:/dataset-LPCB-ppm/STA13456.ppm"	//uncorrelated channels
+	//	"C:/dataset-LPCB-ppm/STA13456.ppm"	//uncorrelated channels
 	//	"C:/dataset-LPCB-ppm/PIA13799.ppm"
 	//	"D:/ML/dataset-RAW/a0001-jmac_DSC1459.dng"
 
 	//	"C:/Projects/datasets/dataset-kodak/kodim13.png"
+		"C:/Projects/datasets/kodim13-small4.PNG"
 	//	"C:/Projects/datasets/big_building.PPM"
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/Projects/datasets/dataset-ic-rgb16bit/deer.png"
 	//	"C:/Projects/datasets/jupiter.PNG"
 	//	"C:/Projects/datasets/space-8k-CROP.PPM"
 	//	"C:/Projects/datasets/dataset-CLIC30"
+	//	"C:/Projects/datasets/dataset-LPCB-ppm"
 		;
 #endif
 	ptrdiff_t formatsize=get_filesize(fn);
@@ -406,7 +410,7 @@ int main(int argc, char **argv)
 		);
 		printf("%s:\n", CODECNAME);
 		Image dst={0};
-		image_copy(&dst, &src);
+		image_copy_nodata(&dst, &src);
 
 		ArrayHandle cdata=0;
 #if 0

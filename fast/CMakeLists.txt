@@ -11,6 +11,7 @@
 	f10.c
 	f11.c
 	f12.c
+	f13.c
 	fast.c
 	format.c
 	huffman.c
@@ -19,14 +20,9 @@
 	transforms.c
 	util.c
 )
-#if(MSVC)
-#	add_compile_options(fast /Zi)
-#else()
-#	add_compile_options(fast -g)
-#endif()
 
 #if(MSVC)
-#	target_compile_options(fast PRIVATE /W4)
+#	target_compile_options(fast PRIVATE /Wall)
 #else()
 #	target_compile_options(fast PRIVATE -Wall -Wextra -Wpedantic)
 #endif()

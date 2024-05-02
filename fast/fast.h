@@ -101,8 +101,12 @@ int	f11_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #define f11_encode(SRC, DATA, LOUD)		f11_codec(SRC, DATA, 0, 0, 0, LOUD)
 #define f11_decode(CBUF, CSIZE, DST, LOUD)	f11_codec(0, 0, CBUF, CSIZE, DST, LOUD)
 
-//F11 conditional histogram
+//F12 conditional histogram
 int f12_statstest(const char *path);
+
+//F13
+int f13_encode(Image const *src, ArrayHandle *data, int loud);
+int f13_decode(const unsigned char *data, size_t len, Image *dst, int loud);
 
 
 #ifdef __cplusplus

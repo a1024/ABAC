@@ -239,6 +239,7 @@ int image_copy_nodata(Image *dst, Image const *src)//dst must be initialized to 
 	}
 	memcpy(dst, src, sizeof(*dst));
 	dst->data=(short*)p;
+	memset(dst->data, 0, nvals*sizeof(short));
 	//memcpy(dst->data, src->data, nvals*sizeof(short));
 	return 1;
 }

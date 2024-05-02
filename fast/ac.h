@@ -417,7 +417,9 @@ INLINE int ac_dec_packedsign(ArithmeticCoder *ec, const unsigned *CDF, int nleve
 	int freq;
 	int sym;
 
-	_mm_prefetch((char*)CDF, _MM_HINT_T0);
+	(void)nlevels;
+
+	//_mm_prefetch((char*)CDF, _MM_HINT_T0);
 
 	for(sym=0;cdf>=CDF[sym+2];sym+=2);
 	sym+=cdf>=CDF[sym+1];
