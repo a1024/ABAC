@@ -20,10 +20,10 @@ typedef void *THREAD_RET;
 static const char file[]=__FILE__;
 
 
-#define CODECID      8
-#define CODECNAME "F08"
-#define ENCODE     f08_encode
-#define DECODE     f08_decode
+#define CODECID     11
+#define CODECNAME "F11"
+#define ENCODE     f11_encode
+#define DECODE     f11_decode
 
 
 static const char *g_extensions[]=

@@ -21,7 +21,7 @@ static int clamp(int x, int half)
 {
 	return CLAMP(-half, x, half-1);
 }
-#define NPREDS 3
+#define NPREDS 3	//preds {0, (N+W)/2, CG} * {0, subtract previous channel}
 #define NRCH (NPREDS*3)
 #define NGCH NPREDS
 #define NBCH (NPREDS*2)
@@ -168,8 +168,9 @@ int f11_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			c='b';
 		printf("%2d  %14.2lf  %6.2lf%%  %14.6lf  %c  %s\n", kt, csizes[kt], 100.*csizes[kt]/usize, usize/csizes[kt], c, chnames[kt]);
 	}
+	printf("Estimated size %.2lf bytes\n", csizes[ridx]+csizes[gidx]+csizes[bidx]);
 	printf("Sampling %14.6lf sec  %lf B/s\n", t1-t, usize/(t1-t));
-	printf("Analysis %14.6lf sec\n", t2-t);
+	printf("Analysis %14.6lf sec\n", t2-t1);
 
 	free(hist);
 	LOG_ERROR("This isn't a codec");
