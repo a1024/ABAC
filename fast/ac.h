@@ -305,16 +305,10 @@ INLINE void ac_enc_flush(ArithmeticCoder *ec)
 	}
 }
 
-#define MIX2(X1, X2, ALPHA) (unsigned)(X1+((int)(X2-X1)*(ALPHA)>>15))
 INLINE void ac_enc_av2(ArithmeticCoder *ec, int sym, const unsigned *CDF1, const unsigned *CDF2, int alpha)//CDF is 16 bit
 {
-#ifdef MIX2
-	unsigned cdf=MIX2(CDF1[sym], CDF2[sym], alpha);
-	int freq=MIX2(CDF1[sym+1], CDF2[sym+1], alpha)-cdf;
-#else
 	unsigned cdf=(CDF1[sym]+CDF2[sym])>>1;
 	int freq=((CDF1[sym+1]+CDF2[sym+1])>>1)-cdf;
-#endif
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
 	if(freq<=0)
@@ -343,17 +337,10 @@ INLINE int ac_dec_packedsign_av2(ArithmeticCoder *ec, const unsigned *CDF1, cons
 
 	//_mm_prefetch((char*)CDF, _MM_HINT_T0);
 	
-#ifdef MIX2
-	for(sym=0;cdf>=MIX2(CDF1[sym+2], CDF2[sym+2], alpha);sym+=2);
-	sym+=cdf>=MIX2(CDF1[sym+1], CDF2[sym+1], alpha);
-	cdf=MIX2(CDF1[sym], CDF2[sym], alpha);
-	freq=MIX2(CDF1[sym+1], CDF2[sym+1], alpha)-cdf;
-#else
 	for(sym=0;cdf>=((CDF1[sym+2]+CDF2[sym+2])>>1);sym+=2);//must shift right to remove LSB which can corrupt decoded symbol
 	sym+=cdf>=((CDF1[sym+1]+CDF2[sym+1])>>1);
 	cdf=(CDF1[sym]+CDF2[sym])>>1;
 	freq=((CDF1[sym+1]+CDF2[sym+1])>>1)-cdf;
-#endif
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
 	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
@@ -369,7 +356,111 @@ INLINE int ac_dec_packedsign_av2(ArithmeticCoder *ec, const unsigned *CDF1, cons
 	return sym;
 }
 
-INLINE int mix4(int x0, int x1, int x2, int x3, int alpha, int beta)
+#define AV4_CDFs(IDX) ((CDF1[IDX]+CDF2[IDX]+CDF3[IDX]+CDF4[IDX])>>2)
+INLINE void ac_enc_av4(ArithmeticCoder *ec, int sym, const unsigned *CDF1, const unsigned *CDF2, const unsigned *CDF3, const unsigned *CDF4, int alpha, int beta)//CDF is 16 bit
+{
+	unsigned cdf=AV4_CDFs(sym);
+	int freq=AV4_CDFs(sym+1)-cdf;
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if(freq<=0)
+		LOG_ERROR2("ZPS");
+	if(cdf>0x10000||cdf+freq>0x10000)
+		LOG_ERROR2("");
+	if(ec->range==~0LLU)
+		LOG_ERROR2("");
+#endif
+	ec->low+=ec->range*cdf>>16;
+	ec->range*=freq;
+	ec->range>>=16;
+	--ec->range;//must decrement hi because decoder fails when code == hi2
+	while(ec->range<(1LL<<PROB_BITS))//only when freq=1 -> range=0, this loop runs twice
+		ac_enc_renorm(ec);
+	acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);//
+	//acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->cidx);//
+}
+INLINE int ac_dec_packedsign_av4(ArithmeticCoder *ec, const unsigned *CDF1, const unsigned *CDF2, const unsigned *CDF3, const unsigned *CDF4, int alpha, int beta, int nlevels)//preferred for skewed distributions as with 'pack sign'
+{
+	unsigned cdf=(unsigned)(((ec->code-ec->low)<<16|0xFFFF)/ec->range);
+	int freq;
+	int sym;
+
+	(void)nlevels;
+
+	//_mm_prefetch((char*)CDF, _MM_HINT_T0);
+	
+	for(sym=0;cdf>=AV4_CDFs(sym+2);sym+=2);
+	sym+=cdf>=AV4_CDFs(sym+1);
+	cdf=AV4_CDFs(sym);
+	freq=AV4_CDFs(sym+1)-cdf;
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
+		LOG_ERROR2("ZPS");
+#endif
+	ec->low+=ec->range*cdf>>16;
+	ec->range*=freq;
+	ec->range>>=16;
+	--ec->range;//must decrement hi because decoder fails when code == hi2
+	while(ec->range<(1LL<<PROB_BITS))
+		ac_dec_renorm(ec);
+	acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
+	return sym;
+}
+
+#define MIX2(X1, X2, ALPHA) (unsigned)(X1+((int)(X2-X1)*(ALPHA)>>15))
+INLINE void ac_enc_mix2(ArithmeticCoder *ec, int sym, const unsigned *CDF1, const unsigned *CDF2, int alpha)//CDF is 16 bit
+{
+	unsigned cdf=MIX2(CDF1[sym], CDF2[sym], alpha);
+	int freq=MIX2(CDF1[sym+1], CDF2[sym+1], alpha)-cdf;
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if(freq<=0)
+		LOG_ERROR2("ZPS");
+	if(cdf>0x10000||cdf+freq>0x10000)
+		LOG_ERROR2("");
+	if(ec->range==~0LLU)
+		LOG_ERROR2("");
+#endif
+	ec->low+=ec->range*cdf>>16;
+	ec->range*=freq;
+	ec->range>>=16;
+	--ec->range;//must decrement hi because decoder fails when code == hi2
+	while(ec->range<(1LL<<PROB_BITS))//only when freq=1 -> range=0, this loop runs twice
+		ac_enc_renorm(ec);
+	acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);//
+	//acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->cidx);//
+}
+INLINE int ac_dec_packedsign_mix2(ArithmeticCoder *ec, const unsigned *CDF1, const unsigned *CDF2, int alpha, int nlevels)//preferred for skewed distributions as with 'pack sign'
+{
+	unsigned cdf=(unsigned)(((ec->code-ec->low)<<16|0xFFFF)/ec->range);
+	int freq;
+	int sym;
+
+	(void)nlevels;
+
+	//_mm_prefetch((char*)CDF, _MM_HINT_T0);
+	
+	for(sym=0;cdf>=MIX2(CDF1[sym+2], CDF2[sym+2], alpha);sym+=2);
+	sym+=cdf>=MIX2(CDF1[sym+1], CDF2[sym+1], alpha);
+	cdf=MIX2(CDF1[sym], CDF2[sym], alpha);
+	freq=MIX2(CDF1[sym+1], CDF2[sym+1], alpha)-cdf;
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
+		LOG_ERROR2("ZPS");
+#endif
+	ec->low+=ec->range*cdf>>16;
+	ec->range*=freq;
+	ec->range>>=16;
+	--ec->range;//must decrement hi because decoder fails when code == hi2
+	while(ec->range<(1LL<<PROB_BITS))
+		ac_dec_renorm(ec);
+	acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
+	return sym;
+}
+
+INLINE unsigned mix4(unsigned x0, unsigned x1, unsigned x2, unsigned x3, int alpha, int beta)
 {
 	x0=MIX2(x0, x1, alpha);
 	x2=MIX2(x2, x3, alpha);

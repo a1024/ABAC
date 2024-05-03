@@ -11,7 +11,6 @@ static const char file[]=__FILE__;
 	#define N_CODER
 	#define DEDICATED_AC
 //	#define SHOW_PRED_ERRORS
-//	#define USE_GRCODER
 
 
 #ifdef PROFILER
@@ -64,7 +63,6 @@ static void get_ctx(__m128i const *nb, const int *weights, int *pred, int *ctx)/
 		_mm_set1_epi32(0x0F0F0F0F),
 		_mm_set1_epi32(0x00FF00FF),
 	};
-#ifndef USE_GRCODER
 	__m128i qhalf=_mm_set1_epi16(QLEVELS>>1);
 	__m128i qmax=_mm_set1_epi16(QLEVELS-1);
 	__m128i factor=_mm_set_epi16(QLEVELS, QLEVELS, QLEVELS, QLEVELS, 1, 1, 1, 1);
@@ -78,8 +76,6 @@ static void get_ctx(__m128i const *nb, const int *weights, int *pred, int *ctx)/
 		(33+17*32)*QLEVELS*QLEVELS*1,
 		(33+17*32)*QLEVELS*QLEVELS*0
 	);
-	//__m128i three=_mm_set1_epi16(3);
-#endif
 	
 	__m128i eN=_mm_shuffle_epi32(nb[NB_N], _MM_SHUFFLE(1, 0, 3, 2));
 	__m128i eW=_mm_shuffle_epi32(nb[NB_W], _MM_SHUFFLE(1, 0, 3, 2));
@@ -183,12 +179,6 @@ static void get_ctx(__m128i const *nb, const int *weights, int *pred, int *ctx)/
 #endif
 
 	//get ctx
-	
-#ifdef USE_GRCODER
-	__m128i errors=_mm_add_epi16(nb[NB_N], nb[NB_W]);//hi halves contain errors
-	errors=_mm_abs_epi16(errors);//remove sign bit (9 -> 8-bit)
-	errors=_mm_cvtepi16_epi32(errors);
-#else
 	__m128i errors=_mm_castps_si128(_mm_shuffle_ps(_mm_castsi128_ps(nb[NB_N]), _mm_castsi128_ps(nb[NB_W]), _MM_SHUFFLE(3, 2, 3, 2)));//hi halves contain errors
 	__m128i negmask=_mm_cmplt_epi16(errors, _mm_setzero_si128());
 	errors=_mm_abs_epi16(errors);//remove sign bit (9 -> 8-bit)
@@ -216,7 +206,6 @@ static void get_ctx(__m128i const *nb, const int *weights, int *pred, int *ctx)/
 	errors=_mm_cvtepi16_epi32(errors);
 	errors=_mm_mullo_epi32(errors, stride);
 	errors=_mm_add_epi32(errors, offset);
-#endif
 	_mm_store_si128((__m128i*)ctx, errors);
 }
 static void update_CDFs(short *val, unsigned *stats, int *ctx, const unsigned *mixin_CDFs)
@@ -228,7 +217,7 @@ static void update_CDFs(short *val, unsigned *stats, int *ctx, const unsigned *m
 		curr_CDF=stats+ctx[kc];
 		sym=val[kc]>>4;
 		mcdf=mixin_CDFs+32*sym;
-		__m256i c0=_mm256_loadu_si256((__m256i*)curr_CDF+0);
+		__m256i c0=_mm256_loadu_si256((__m256i*)curr_CDF+0);//8 int32's * 4 registers = 2^5
 		__m256i c1=_mm256_loadu_si256((__m256i*)curr_CDF+1);
 		__m256i c2=_mm256_loadu_si256((__m256i*)curr_CDF+2);
 		__m256i c3=_mm256_loadu_si256((__m256i*)curr_CDF+3);
@@ -264,7 +253,7 @@ static void update_CDFs(short *val, unsigned *stats, int *ctx, const unsigned *m
 		sym=val[kc]&15;
 		mcdf=mixin_CDFs+1024+16*sym;
 		//mcdf=mixin_CDFs+32*sym;
-		c0=_mm256_loadu_si256((__m256i*)curr_CDF+0);
+		c0=_mm256_loadu_si256((__m256i*)curr_CDF+0);//8 int32's * 2 registers = 2^4
 		c1=_mm256_loadu_si256((__m256i*)curr_CDF+1);
 		m0=_mm256_load_si256((__m256i*)mcdf+0);
 		m1=_mm256_load_si256((__m256i*)mcdf+1);
@@ -331,7 +320,7 @@ static void update_wp(int *weights, int *errors)
 	}
 	memset(errors, 0, sizeof(int[4*NWP]));
 }
-int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud)
+int f14_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud)
 {
 	PROF_START();
 	double t0=time_sec();
@@ -350,36 +339,24 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	dlist_init(list+1, 1, 1024, 0);
 	dlist_init(list+2, 1, 1024, 0);
 	int nlevels=1<<image->depth, clevels=nlevels<<1, half=nlevels>>1, chalf=nlevels;
-#ifdef USE_GRCODER
-	GolombRiceCoder ec[3];
-#else
 	ArithmeticCoder ec[3];
 	__m128i mhalf=_mm_set_epi16(0, 0, 0, 0, 0, (short)chalf, (short)half, (short)chalf);
 	__m128i pxmask=_mm_set_epi16(0, 0, 0, 0, 0, (short)(clevels-1), (short)(nlevels-1), (short)(clevels-1));
-#endif
 	__m128i mhalf32=_mm_set_epi32(0, chalf, half, chalf);
 	__m128i pxmask32=_mm_set_epi32(0, clevels-1, nlevels-1, clevels-1);
 	__m128i pack16=_mm_set_epi8(
 		-1, -1, -1, -1, -1, -1, -1, -1, 13, 12,  9,  8,  5,  4,  1,  0
 	);
-#ifndef USE_GRCODER
 	unsigned *mixin_CDFs=(unsigned*)_mm_malloc(sizeof(int[32*32+16*16]), sizeof(__m256i));
 	unsigned *stats=(unsigned*)malloc(sizeof(int[(33+17*32)*QLEVELS*QLEVELS*4]));//(CDFSIZE+1) * nodes_in_tree * 4 channels max
-#endif
 	short *pixels=(short*)malloc((image->iw+16LL)*sizeof(short[4*4*2]));//4 padded rows * 4 channels max * {pixels, errors}
 	int nblocks=(image->iw+BLOCKSIZE-1)>>LGBLOCKSIZE;
 	int *weights=(int*)_mm_malloc(nblocks*sizeof(__m128i[NWP]), sizeof(__m128i));
-	if(
-#ifndef USE_GRCODER
-		!mixin_CDFs||!stats||
-#endif
-		!pixels||!weights
-	)
+	if(!mixin_CDFs||!stats||!pixels||!weights)
 	{
 		LOG_ERROR("Alloc error");
 		return 0;
 	}
-#ifndef USE_GRCODER
 	//initialize mixin_CDFs
 	for(int kt=0;kt<32;++kt)
 	{
@@ -393,7 +370,7 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		for(int ks=0;ks<16;++ks)
 			curr_CDF[ks]=(ks>kt)*(0x10000-16)+ks;
 	}
-	//initialize to bypass
+	//initialize to BYPASS
 	for(int ks=0;ks<33;++ks)
 		stats[ks]=(ks<<16)/32;
 	for(int k=0;k<32;++k)
@@ -403,7 +380,6 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			curr_CDF[ks]=(ks<<16)/16;
 	}
 	memfill(stats+33+17*32, stats, sizeof(int[(33+17*32)*QLEVELS*QLEVELS*4])-sizeof(int[33+17*32]), sizeof(int[33+17*32]));
-#endif
 	memset(pixels, 0, (image->iw+16LL)*sizeof(short[4*4*2]));
 	weights[0]=(1<<WP_BITS)/NWP;
 	memfill(weights+1, weights, nblocks*sizeof(__m128i[NWP])-sizeof(*weights), sizeof(*weights));
@@ -411,11 +387,7 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	ALIGN(32) int errors[4*NWP]={0};
 	ALIGN(32) int pred[4*(1+NWP)];
 	ALIGN(32) int ctx[4];
-#ifdef USE_GRCODER
-	ALIGN(16) int val[4]={0};
-#else
 	ALIGN(16) short val[8]={0};
-#endif
 #ifdef SHOW_PRED_ERRORS
 	long long total_errors[_countof(errors)]={0};
 #endif
@@ -430,15 +402,9 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	//};
 	if(fwd)
 	{
-#ifdef USE_GRCODER
-		gr_enc_init(ec+0, list+0);
-		gr_enc_init(ec+1, list+1);
-		gr_enc_init(ec+2, list+2);
-#else
 		ac_enc_init(ec+0, list+0);
 		ac_enc_init(ec+1, list+1);
 		ac_enc_init(ec+2, list+2);
-#endif
 		for(int ky=0, idx=0;ky<image->ih;++ky)
 		{
 			int updatewp=!(ky&WP_UPDATE_MASK);
@@ -482,24 +448,7 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				curr[0]-=curr[1];
 				curr[2]-=curr[1];
 				curr[1]+=(curr[0]+curr[2])>>2;
-				
-#ifdef USE_GRCODER
-				__m128i mc=_mm_loadu_si128((__m128i*)curr);
-				mc=_mm_cvtepi16_epi32(mc);
-				__m128i wp0=_mm_load_si128((__m128i*)pred+0);
-				wp0=_mm_sub_epi32(mc, wp0);
-				
-				//pack sign	x=x<<1^-(x<0)
-				__m128i msym=_mm_xor_si128(_mm_slli_epi32(wp0, 1), _mm_srai_epi32(wp0, 31));
-				
-				wp0=_mm_shuffle_epi8(wp0, pack16);
-				_mm_store_si128((__m128i*)val, msym);
-				_mm_storeu_si128((__m128i*)(curr+4), wp0);
 
-				gr_enc(ec+0, val[0], ctx[0]);
-				gr_enc(ec+1, val[1], ctx[1]);
-				gr_enc(ec+2, val[2], ctx[2]);
-#else
 #ifdef DEDICATED_AC
 				__m128i mc=_mm_loadu_si128((__m128i*)curr);
 				mc=_mm_cvtepi16_epi32(mc);
@@ -606,63 +555,60 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				ac_enc(ec+(1&EC_IDX_MASK), val[1]&15, stats+ctx[1]+33+17*(val[1]>>4));
 				ac_enc(ec+(2&EC_IDX_MASK), val[2]&15, stats+ctx[2]+33+17*(val[2]>>4));
 #endif
-#endif
 				PROF(EC);
-#ifndef USE_GRCODER
 				update_CDFs(val, stats, ctx, mixin_CDFs);
 				PROF(CDF);
-#endif
 				if(updatewp)
 				{
-				__m128i p0=_mm_load_si128((__m128i*)pred+1);//calculate pred errors
-				__m128i p1=_mm_load_si128((__m128i*)pred+2);
-				__m128i p2=_mm_load_si128((__m128i*)pred+3);
-				__m128i p3=_mm_load_si128((__m128i*)pred+4);
-				__m128i p4=_mm_load_si128((__m128i*)pred+5);
-				__m128i p5=_mm_load_si128((__m128i*)pred+6);
-				__m128i p6=_mm_load_si128((__m128i*)pred+7);
-				__m128i p7=_mm_load_si128((__m128i*)pred+8);
-				__m128i e0=_mm_load_si128((__m128i*)errors+0);
-				__m128i e1=_mm_load_si128((__m128i*)errors+1);
-				__m128i e2=_mm_load_si128((__m128i*)errors+2);
-				__m128i e3=_mm_load_si128((__m128i*)errors+3);
-				__m128i e4=_mm_load_si128((__m128i*)errors+4);
-				__m128i e5=_mm_load_si128((__m128i*)errors+5);
-				__m128i e6=_mm_load_si128((__m128i*)errors+6);
-				__m128i e7=_mm_load_si128((__m128i*)errors+7);
-				p0=_mm_sub_epi32(mc, p0);
-				p1=_mm_sub_epi32(mc, p1);
-				p2=_mm_sub_epi32(mc, p2);
-				p3=_mm_sub_epi32(mc, p3);
-				p4=_mm_sub_epi32(mc, p4);
-				p5=_mm_sub_epi32(mc, p5);
-				p6=_mm_sub_epi32(mc, p6);
-				p7=_mm_sub_epi32(mc, p7);
-				p0=_mm_abs_epi32(p0);
-				p1=_mm_abs_epi32(p1);
-				p2=_mm_abs_epi32(p2);
-				p3=_mm_abs_epi32(p3);
-				p4=_mm_abs_epi32(p4);
-				p5=_mm_abs_epi32(p5);
-				p6=_mm_abs_epi32(p6);
-				p7=_mm_abs_epi32(p7);
-				e0=_mm_add_epi32(e0, p0);
-				e1=_mm_add_epi32(e1, p1);
-				e2=_mm_add_epi32(e2, p2);
-				e3=_mm_add_epi32(e3, p3);
-				e4=_mm_add_epi32(e4, p4);
-				e5=_mm_add_epi32(e5, p5);
-				e6=_mm_add_epi32(e6, p6);
-				e7=_mm_add_epi32(e7, p7);
-				_mm_store_si128((__m128i*)errors+0, e0);
-				_mm_store_si128((__m128i*)errors+1, e1);
-				_mm_store_si128((__m128i*)errors+2, e2);
-				_mm_store_si128((__m128i*)errors+3, e3);
-				_mm_store_si128((__m128i*)errors+4, e4);
-				_mm_store_si128((__m128i*)errors+5, e5);
-				_mm_store_si128((__m128i*)errors+6, e6);
-				_mm_store_si128((__m128i*)errors+7, e7);
-				PROF(WP_ADD);
+					__m128i p0=_mm_load_si128((__m128i*)pred+1);//calculate pred errors
+					__m128i p1=_mm_load_si128((__m128i*)pred+2);
+					__m128i p2=_mm_load_si128((__m128i*)pred+3);
+					__m128i p3=_mm_load_si128((__m128i*)pred+4);
+					__m128i p4=_mm_load_si128((__m128i*)pred+5);
+					__m128i p5=_mm_load_si128((__m128i*)pred+6);
+					__m128i p6=_mm_load_si128((__m128i*)pred+7);
+					__m128i p7=_mm_load_si128((__m128i*)pred+8);
+					__m128i e0=_mm_load_si128((__m128i*)errors+0);
+					__m128i e1=_mm_load_si128((__m128i*)errors+1);
+					__m128i e2=_mm_load_si128((__m128i*)errors+2);
+					__m128i e3=_mm_load_si128((__m128i*)errors+3);
+					__m128i e4=_mm_load_si128((__m128i*)errors+4);
+					__m128i e5=_mm_load_si128((__m128i*)errors+5);
+					__m128i e6=_mm_load_si128((__m128i*)errors+6);
+					__m128i e7=_mm_load_si128((__m128i*)errors+7);
+					p0=_mm_sub_epi32(mc, p0);
+					p1=_mm_sub_epi32(mc, p1);
+					p2=_mm_sub_epi32(mc, p2);
+					p3=_mm_sub_epi32(mc, p3);
+					p4=_mm_sub_epi32(mc, p4);
+					p5=_mm_sub_epi32(mc, p5);
+					p6=_mm_sub_epi32(mc, p6);
+					p7=_mm_sub_epi32(mc, p7);
+					p0=_mm_abs_epi32(p0);
+					p1=_mm_abs_epi32(p1);
+					p2=_mm_abs_epi32(p2);
+					p3=_mm_abs_epi32(p3);
+					p4=_mm_abs_epi32(p4);
+					p5=_mm_abs_epi32(p5);
+					p6=_mm_abs_epi32(p6);
+					p7=_mm_abs_epi32(p7);
+					e0=_mm_add_epi32(e0, p0);
+					e1=_mm_add_epi32(e1, p1);
+					e2=_mm_add_epi32(e2, p2);
+					e3=_mm_add_epi32(e3, p3);
+					e4=_mm_add_epi32(e4, p4);
+					e5=_mm_add_epi32(e5, p5);
+					e6=_mm_add_epi32(e6, p6);
+					e7=_mm_add_epi32(e7, p7);
+					_mm_store_si128((__m128i*)errors+0, e0);
+					_mm_store_si128((__m128i*)errors+1, e1);
+					_mm_store_si128((__m128i*)errors+2, e2);
+					_mm_store_si128((__m128i*)errors+3, e3);
+					_mm_store_si128((__m128i*)errors+4, e4);
+					_mm_store_si128((__m128i*)errors+5, e5);
+					_mm_store_si128((__m128i*)errors+6, e6);
+					_mm_store_si128((__m128i*)errors+7, e7);
+					PROF(WP_ADD);
 				}
 				rows[0]+=8;
 				rows[1]+=8;
@@ -680,18 +626,10 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				}
 			}
 		}
-#ifdef USE_GRCODER
-		gr_enc_flush(ec+0);
-#ifdef N_CODER
-		gr_enc_flush(ec+1);
-		gr_enc_flush(ec+2);
-#endif
-#else
 		ac_enc_flush(ec+0);
 #ifdef N_CODER
 		ac_enc_flush(ec+1);
 		ac_enc_flush(ec+2);
-#endif
 #endif
 		unsigned bm[]=
 		{
@@ -712,18 +650,10 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		cbuf+=sizeof(bm);
 		clen-=sizeof(bm);
 		const unsigned char *ptr=cbuf;
-#ifdef USE_GRCODER
-		gr_dec_init(ec+0, ptr, ptr+bm[0]);	ptr+=bm[0];
-#ifdef N_CODER
-		gr_dec_init(ec+1, ptr, ptr+bm[1]);	ptr+=bm[1];
-		gr_dec_init(ec+2, ptr, ptr+bm[2]);	ptr+=bm[2];
-#endif
-#else
 		ac_dec_init(ec+0, ptr, ptr+bm[0]);	ptr+=bm[0];
 #ifdef N_CODER
 		ac_dec_init(ec+1, ptr, ptr+bm[1]);	ptr+=bm[1];
 		ac_dec_init(ec+2, ptr, ptr+bm[2]);	ptr+=bm[2];
-#endif
 #endif
 		for(int ky=0, idx=0;ky<image->ih;++ky)
 		{
@@ -772,27 +702,6 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				//if(ky==1&&kx==386)//
 				//if(idx==3462)//
 				//	printf("");
-#ifdef USE_GRCODER
-				val[0]=gr_dec(ec+0, ctx[0]);
-				val[1]=gr_dec(ec+1, ctx[1]);
-				val[2]=gr_dec(ec+2, ctx[2]);
-				__m128i msym=_mm_load_si128((__m128i*)val);
-
-				//unpack sign		x = x>>1^-(x&1)
-				__m128i one=_mm_set1_epi32(1);
-				msym=_mm_xor_si128(_mm_srli_epi32(msym, 1), _mm_cmpeq_epi32(_mm_and_si128(msym, one), one));
-				
-				__m128i wp0=_mm_load_si128((__m128i*)pred+0);
-				__m128i mpixel=_mm_add_epi32(msym, wp0);
-				mpixel=_mm_add_epi32(mpixel, mhalf32);
-				mpixel=_mm_and_si128(mpixel, pxmask32);
-				mpixel=_mm_sub_epi32(mpixel, mhalf32);
-				__m128i mc=mpixel;
-				mpixel=_mm_shuffle_epi8(mpixel, pack16);
-				msym=_mm_shuffle_epi8(msym, pack16);
-				_mm_storeu_si128((__m128i*)curr, mpixel);
-				_mm_storeu_si128((__m128i*)(curr+4), msym);
-#else
 #ifdef DEDICATED_AC
 				unsigned *CDFs[]=
 				{
@@ -934,7 +843,6 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				//curr[0]=((val[0]+pred[0])&(clevels-1))-chalf;
 				//curr[1]=((val[1]+pred[1])&(nlevels-1))- half;
 				//curr[2]=((val[2]+pred[2])&(clevels-1))-chalf;
-#endif
 					
 				short *rgb=dst->data+idx;
 				memcpy(rgb, curr, sizeof(short[3]));
@@ -943,61 +851,59 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				rgb[0]+=rgb[1];
 				PROF(RCT);
 
-#ifndef USE_GRCODER
 				update_CDFs(val, stats, ctx, mixin_CDFs);
 				PROF(CDF);
-#endif
 				if(updatewp)
 				{
-				__m128i p0=_mm_load_si128((__m128i*)pred+1);//calculate pred errors
-				__m128i p1=_mm_load_si128((__m128i*)pred+2);
-				__m128i p2=_mm_load_si128((__m128i*)pred+3);
-				__m128i p3=_mm_load_si128((__m128i*)pred+4);
-				__m128i p4=_mm_load_si128((__m128i*)pred+5);
-				__m128i p5=_mm_load_si128((__m128i*)pred+6);
-				__m128i p6=_mm_load_si128((__m128i*)pred+7);
-				__m128i p7=_mm_load_si128((__m128i*)pred+8);
-				__m128i e0=_mm_load_si128((__m128i*)errors+0);
-				__m128i e1=_mm_load_si128((__m128i*)errors+1);
-				__m128i e2=_mm_load_si128((__m128i*)errors+2);
-				__m128i e3=_mm_load_si128((__m128i*)errors+3);
-				__m128i e4=_mm_load_si128((__m128i*)errors+4);
-				__m128i e5=_mm_load_si128((__m128i*)errors+5);
-				__m128i e6=_mm_load_si128((__m128i*)errors+6);
-				__m128i e7=_mm_load_si128((__m128i*)errors+7);
-				p0=_mm_sub_epi32(mc, p0);
-				p1=_mm_sub_epi32(mc, p1);
-				p2=_mm_sub_epi32(mc, p2);
-				p3=_mm_sub_epi32(mc, p3);
-				p4=_mm_sub_epi32(mc, p4);
-				p5=_mm_sub_epi32(mc, p5);
-				p6=_mm_sub_epi32(mc, p6);
-				p7=_mm_sub_epi32(mc, p7);
-				p0=_mm_abs_epi32(p0);
-				p1=_mm_abs_epi32(p1);
-				p2=_mm_abs_epi32(p2);
-				p3=_mm_abs_epi32(p3);
-				p4=_mm_abs_epi32(p4);
-				p5=_mm_abs_epi32(p5);
-				p6=_mm_abs_epi32(p6);
-				p7=_mm_abs_epi32(p7);
-				e0=_mm_add_epi32(e0, p0);
-				e1=_mm_add_epi32(e1, p1);
-				e2=_mm_add_epi32(e2, p2);
-				e3=_mm_add_epi32(e3, p3);
-				e4=_mm_add_epi32(e4, p4);
-				e5=_mm_add_epi32(e5, p5);
-				e6=_mm_add_epi32(e6, p6);
-				e7=_mm_add_epi32(e7, p7);
-				_mm_store_si128((__m128i*)errors+0, e0);
-				_mm_store_si128((__m128i*)errors+1, e1);
-				_mm_store_si128((__m128i*)errors+2, e2);
-				_mm_store_si128((__m128i*)errors+3, e3);
-				_mm_store_si128((__m128i*)errors+4, e4);
-				_mm_store_si128((__m128i*)errors+5, e5);
-				_mm_store_si128((__m128i*)errors+6, e6);
-				_mm_store_si128((__m128i*)errors+7, e7);
-				PROF(WP_ADD);
+					__m128i p0=_mm_load_si128((__m128i*)pred+1);//calculate pred errors
+					__m128i p1=_mm_load_si128((__m128i*)pred+2);
+					__m128i p2=_mm_load_si128((__m128i*)pred+3);
+					__m128i p3=_mm_load_si128((__m128i*)pred+4);
+					__m128i p4=_mm_load_si128((__m128i*)pred+5);
+					__m128i p5=_mm_load_si128((__m128i*)pred+6);
+					__m128i p6=_mm_load_si128((__m128i*)pred+7);
+					__m128i p7=_mm_load_si128((__m128i*)pred+8);
+					__m128i e0=_mm_load_si128((__m128i*)errors+0);
+					__m128i e1=_mm_load_si128((__m128i*)errors+1);
+					__m128i e2=_mm_load_si128((__m128i*)errors+2);
+					__m128i e3=_mm_load_si128((__m128i*)errors+3);
+					__m128i e4=_mm_load_si128((__m128i*)errors+4);
+					__m128i e5=_mm_load_si128((__m128i*)errors+5);
+					__m128i e6=_mm_load_si128((__m128i*)errors+6);
+					__m128i e7=_mm_load_si128((__m128i*)errors+7);
+					p0=_mm_sub_epi32(mc, p0);
+					p1=_mm_sub_epi32(mc, p1);
+					p2=_mm_sub_epi32(mc, p2);
+					p3=_mm_sub_epi32(mc, p3);
+					p4=_mm_sub_epi32(mc, p4);
+					p5=_mm_sub_epi32(mc, p5);
+					p6=_mm_sub_epi32(mc, p6);
+					p7=_mm_sub_epi32(mc, p7);
+					p0=_mm_abs_epi32(p0);
+					p1=_mm_abs_epi32(p1);
+					p2=_mm_abs_epi32(p2);
+					p3=_mm_abs_epi32(p3);
+					p4=_mm_abs_epi32(p4);
+					p5=_mm_abs_epi32(p5);
+					p6=_mm_abs_epi32(p6);
+					p7=_mm_abs_epi32(p7);
+					e0=_mm_add_epi32(e0, p0);
+					e1=_mm_add_epi32(e1, p1);
+					e2=_mm_add_epi32(e2, p2);
+					e3=_mm_add_epi32(e3, p3);
+					e4=_mm_add_epi32(e4, p4);
+					e5=_mm_add_epi32(e5, p5);
+					e6=_mm_add_epi32(e6, p6);
+					e7=_mm_add_epi32(e7, p7);
+					_mm_store_si128((__m128i*)errors+0, e0);
+					_mm_store_si128((__m128i*)errors+1, e1);
+					_mm_store_si128((__m128i*)errors+2, e2);
+					_mm_store_si128((__m128i*)errors+3, e3);
+					_mm_store_si128((__m128i*)errors+4, e4);
+					_mm_store_si128((__m128i*)errors+5, e5);
+					_mm_store_si128((__m128i*)errors+6, e6);
+					_mm_store_si128((__m128i*)errors+7, e7);
+					PROF(WP_ADD);
 				}
 				rows[0]+=8;
 				rows[1]+=8;
@@ -1047,16 +953,14 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			);
 			printf("csize %12td  %10.6lf%%  CR %8.6lf\n", csize, 100.*csize/usize, (double)usize/csize);
 		}
-		printf("F08  %c %15.6lf sec\n", 'D'+fwd, t0);
+		printf("F14  %c %15.6lf sec\n", 'D'+fwd, t0);
 		prof_print();
 	}
 	dlist_clear(list+0);
 	dlist_clear(list+1);
 	dlist_clear(list+2);
-#ifndef USE_GRCODER
 	_mm_free(mixin_CDFs);
 	free(stats);
-#endif
 	free(pixels);
 	_mm_free(weights);
 	return 1;
