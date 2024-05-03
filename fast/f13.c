@@ -7,6 +7,7 @@
 static const char file[]=__FILE__;
 
 
+	#define NCTX 2
 	#define RESCALE_PERIOD	0x1000
 //	#define DEBUG_CHECKS
 //	#define PROFILER 1
@@ -46,23 +47,23 @@ static int clamp(int x, int half)
 #define NCH (NRCH+NGCH+NBCH)
 #define CHLIST\
 	CHANNEL(g)\
-	CHANNEL(g-(gN+gW)/2)\
+	CHANNEL(g-((gN+gW)>>1))\
 	CHANNEL(g-CG(gN, gW, gNW))\
 	CHANNEL(b)\
-	CHANNEL(b-(bN+bW)/2)\
+	CHANNEL(b-((bN+bW)>>1))\
 	CHANNEL(b-CG(bN, bW, bNW))\
 	CHANNEL(b-g)\
-	CHANNEL(b-clamp((bN-gN+bW-gW)/2+g, half))\
+	CHANNEL(b-clamp(((bN-gN+bW-gW)>>1)+g, half))\
 	CHANNEL(b-clamp(CG(bN-gN, bW-gW, bNW-gNW)+g, half))\
 	CHANNEL(r)\
-	CHANNEL(r-(rN+rW)/2)\
+	CHANNEL(r-((rN+rW)>>1))\
 	CHANNEL(r-CG(rN, rW, rNW))\
 	CHANNEL(r-g)\
-	CHANNEL(r-clamp((rN-gN+rW-gW)/2+g, half))\
+	CHANNEL(r-clamp(((rN-gN+rW-gW)>>1)+g, half))\
 	CHANNEL(r-clamp(CG(rN-gN, rW-gW, rNW-gNW)+g, half))\
-	CHANNEL(r-b)\
-	CHANNEL(r-clamp((rN-bN+rW-bW)/2+b, half))\
-	CHANNEL(r-clamp(CG(rN-bN, rW-bW, rNW-bNW)+b, half))
+	CHANNEL(r-((g+b)>>1))\
+	CHANNEL(r-clamp(((2*(rN+rW)-(gN+gW+bN+bW))>>2)+((g+b)>>1), half))\
+	CHANNEL(r-clamp((CG(2*rN-(gN+bN), 2*rW-(gW+bW), 2*rNW-(gNW+bNW))+g+b)>>1, half))
 static const char *chnames[]=
 {
 #define CHANNEL(X) #X,
@@ -107,7 +108,7 @@ static void update_stats(const int *hist, unsigned *CDF, int nqlevels)
 		c+=freq;
 	}
 }
-static void init_stats(int *hist, unsigned *CDF, int nqlevels)
+static void init_stats(int *hist, unsigned *CDF, int nclevels, int nqlevels)
 {
 	int sum=0;
 	for(int ks=0;ks<nqlevels;++ks)
@@ -118,8 +119,10 @@ static void init_stats(int *hist, unsigned *CDF, int nqlevels)
 	hist[nqlevels]=sum;
 	update_stats(hist, CDF, nqlevels);
 	CDF[nqlevels]=0x10000;
-	memfill(hist+nqlevels+1, hist, (sizeof(int[3*3*3*3])-sizeof(int))*(nqlevels+1LL), sizeof(int)*(nqlevels+1LL));
-	memfill(CDF +nqlevels+1, CDF , (sizeof(int[3*3*3*3])-sizeof(int))*(nqlevels+1LL), sizeof(int)*(nqlevels+1LL));
+	memfill(hist+nqlevels+1, hist, sizeof(int)*((size_t)nclevels*NCTX-1LL)*(nqlevels+1LL), sizeof(int)*(nqlevels+1LL));
+	memfill(CDF +nqlevels+1, CDF , sizeof(int)*((size_t)nclevels*NCTX-1LL)*(nqlevels+1LL), sizeof(int)*(nqlevels+1LL));
+	//*alpha=0x4000;
+	//memfill(alpha+1, alpha, (nclevels-1LL)*sizeof(short), sizeof(short));
 
 	//*hist=1;
 	//memfill(hist+1, hist, sizeof(int)*(nqlevels-1LL), sizeof(int));
@@ -134,12 +137,28 @@ static void restale_hist(int *hist, int nqlevels)
 		sum+=hist[ks]=(hist[ks]+1)>>1;
 	hist[nqlevels]=sum;
 }
-#define QUANTIZE(X) (THREEWAY(X, 0)+1)
+#if 1
+static int quantize_ctx(int x)
+{
+	int negmask=-(x<0);
+	x=abs(x);
+	x=floor_log2_32(x)+1;
+	//x=floor_log2_32(x)+1;
+	//x=floor_log2_32(x)+1;
+	x^=negmask;
+	x-=negmask;
+	return x;
+}
+#define QUANTIZE(X) quantize_ctx(X)+(nclevels>>1)
+//#define QUANTIZE(X) (((X)>4)-((X)<-4)+1)
+//#define QUANTIZE(X) (THREEWAY(X, 0)+1)	//X  inefficient
+#endif
 static void init_rows(short **rows, short *errors, int iw, int ky)
 {
 	for(int k=0;k<4;++k)
 		rows[k]=errors+((iw+2LL)*(((size_t)ky-k)&(4-1LL))+1);
 }
+#if 0
 static void enc2(int pixel, int pred, int nlevels, short **rows, ArithmeticCoder *ec, int *hist, unsigned *CDF, int nqlevels)
 {
 #ifdef DEBUG_CHECKS
@@ -215,15 +234,20 @@ static void enc2(int pixel, int pred, int nlevels, short **rows, ArithmeticCoder
 	}
 	PROF(STATS);
 }
-static void enc_self0(Image const *src, int kc, short *errors, ArithmeticCoder *ec, int *hist, unsigned *CDF, int nlevels, int nqlevels)
+#endif
+#define F13_ENC2
+static void enc_self0(Image const *src, int kc, short *errors, ArithmeticCoder *ec, int *hist, unsigned *CDF, int nlevels, int nclevels, int nqlevels)
 {
 	short *rows[4]={0};
 	for(int ky=0, idx=kc;ky<src->ih;++ky)
 	{
+		int alpha=0x4000;
 		init_rows(rows, errors, src->iw, ky);
 		for(int kx=0;kx<src->iw;++kx, idx+=3)
 		{
-			enc2(src->data[idx], 0, nlevels, rows, ec, hist, CDF, nqlevels);
+			const int pred=0;
+#include"f13.h"
+			//enc2(src->data[idx], 0, nlevels, rows, ec, hist, CDF, nqlevels);
 
 			++rows[0];
 			++rows[1];
@@ -232,12 +256,13 @@ static void enc_self0(Image const *src, int kc, short *errors, ArithmeticCoder *
 		}
 	}
 }
-static void enc_self2(Image const *src, int kc, short *errors, ArithmeticCoder *ec, int *hist, unsigned *CDF, int nlevels, int nqlevels)
+static void enc_self2(Image const *src, int kc, short *errors, ArithmeticCoder *ec, int *hist, unsigned *CDF, int nlevels, int nclevels, int nqlevels)
 {
 	short *rows[4]={0};
 	int rowstride=src->iw*3;
 	for(int ky=0, idx=kc;ky<src->ih;++ky)
 	{
+		int alpha=0x4000;
 		init_rows(rows, errors, src->iw, ky);
 		for(int kx=0;kx<src->iw;++kx, idx+=3)
 		{
@@ -245,15 +270,18 @@ static void enc_self2(Image const *src, int kc, short *errors, ArithmeticCoder *
 			//if(ky==5&&kx==671)//
 			//if(ky==4&&kx==671)//
 			//if(ky==10&&kx==164)//
+			//if(ky==1&&kx==77)//
 			//	printf("");
 
 			int
 				N	=ky?src->data[idx-rowstride]:0,
 				W	=kx?src->data[idx-3]:0;
-			enc2(src->data[idx], (N+W)>>1, nlevels, rows, ec, hist, CDF, nqlevels);
+			int pred=(N+W)>>1;
+#include"f13.h"
+			//enc2(src->data[idx], (N+W)>>1, nlevels, rows, ec, hist, CDF, nqlevels);
 #ifdef DEBUG_CHECKS
-	if(global_idx<0x10000)
-		gbuf[global_idx++]=src->data[idx];
+			if(global_idx<0x10000)
+				gbuf[global_idx++]=src->data[idx];
 #endif
 
 			++rows[0];
@@ -263,12 +291,13 @@ static void enc_self2(Image const *src, int kc, short *errors, ArithmeticCoder *
 		}
 	}
 }
-static void enc_self3(Image const *src, int kc, short *errors, ArithmeticCoder *ec, int *hist, unsigned *CDF, int nlevels, int nqlevels)
+static void enc_self3(Image const *src, int kc, short *errors, ArithmeticCoder *ec, int *hist, unsigned *CDF, int nlevels, int nclevels, int nqlevels)
 {
 	short *rows[4]={0};
 	int rowstride=src->iw*3;
 	for(int ky=0, idx=kc;ky<src->ih;++ky)
 	{
+		int alpha=0x4000;
 		init_rows(rows, errors, src->iw, ky);
 		for(int kx=0;kx<src->iw;++kx, idx+=3)
 		{
@@ -276,7 +305,9 @@ static void enc_self3(Image const *src, int kc, short *errors, ArithmeticCoder *
 				NW	=kx&ky?src->data[idx-rowstride-3]:0,
 				N	=ky?src->data[idx-rowstride]:0,
 				W	=kx?src->data[idx-3]:0;
-			enc2(src->data[idx], CG(N, W, NW), nlevels, rows, ec, hist, CDF, nqlevels);
+			int pred=CG(N, W, NW);
+#include"f13.h"
+			//enc2(src->data[idx], CG(N, W, NW), nlevels, rows, ec, hist, CDF, nqlevels);
 
 			++rows[0];
 			++rows[1];
@@ -285,15 +316,18 @@ static void enc_self3(Image const *src, int kc, short *errors, ArithmeticCoder *
 		}
 	}
 }
-static void enc_aux0(Image const *src, int kc, short *errors, ArithmeticCoder *ec, int *hist, unsigned *CDF, int nlevels, int nqlevels, int kc_offset)
+static void enc_aux0 (Image const *src, int kc, short *errors, ArithmeticCoder *ec, int *hist, unsigned *CDF, int nlevels, int nclevels, int nqlevels, int kc_offset)
 {
 	short *rows[4]={0};
 	for(int ky=0, idx=kc;ky<src->ih;++ky)
 	{
+		int alpha=0x4000;
 		init_rows(rows, errors, src->iw, ky);
 		for(int kx=0;kx<src->iw;++kx, idx+=3)
 		{
-			enc2(src->data[idx], src->data[idx+kc_offset], nlevels, rows, ec, hist, CDF, nqlevels);
+			int pred=src->data[idx+kc_offset];
+#include"f13.h"
+			//enc2(src->data[idx], src->data[idx+kc_offset], nlevels, rows, ec, hist, CDF, nqlevels);
 
 			++rows[0];
 			++rows[1];
@@ -302,12 +336,13 @@ static void enc_aux0(Image const *src, int kc, short *errors, ArithmeticCoder *e
 		}
 	}
 }
-static void enc_aux2(Image const *src, int kc, short *errors, ArithmeticCoder *ec, int *hist, unsigned *CDF, int nlevels, int nqlevels, int kc_offset)
+static void enc_aux2 (Image const *src, int kc, short *errors, ArithmeticCoder *ec, int *hist, unsigned *CDF, int nlevels, int nclevels, int nqlevels, int kc_offset)
 {
 	short *rows[4]={0};
 	int rowstride=src->iw*3, half=nlevels>>1;
 	for(int ky=0, idx=kc;ky<src->ih;++ky)
 	{
+		int alpha=0x4000;
 		init_rows(rows, errors, src->iw, ky);
 		for(int kx=0;kx<src->iw;++kx, idx+=3)
 		{
@@ -317,7 +352,9 @@ static void enc_aux2(Image const *src, int kc, short *errors, ArithmeticCoder *e
 				cW	=kx?src->data[idx-3]:0,
 				pW	=kx?src->data[idx-3+kc_offset]:0,
 				p	=src->data[idx+kc_offset];
-			enc2(src->data[idx], clamp(((cN-pN+cW-pW)>>1)+p, half), nlevels, rows, ec, hist, CDF, nqlevels);
+			int pred=clamp(((cN-pN+cW-pW)>>1)+p, half);
+#include"f13.h"
+			//enc2(src->data[idx], clamp(((cN-pN+cW-pW)>>1)+p, half), nlevels, rows, ec, hist, CDF, nqlevels);
 
 			++rows[0];
 			++rows[1];
@@ -326,12 +363,13 @@ static void enc_aux2(Image const *src, int kc, short *errors, ArithmeticCoder *e
 		}
 	}
 }
-static void enc_aux3(Image const *src, int kc, short *errors, ArithmeticCoder *ec, int *hist, unsigned *CDF, int nlevels, int nqlevels, int kc_offset)
+static void enc_aux3 (Image const *src, int kc, short *errors, ArithmeticCoder *ec, int *hist, unsigned *CDF, int nlevels, int nclevels, int nqlevels, int kc_offset)
 {
 	short *rows[4]={0};
 	int rowstride=src->iw*3, half=nlevels>>1;
 	for(int ky=0, idx=kc;ky<src->ih;++ky)
 	{
+		int alpha=0x4000;
 		init_rows(rows, errors, src->iw, ky);
 		for(int kx=0;kx<src->iw;++kx, idx+=3)
 		{
@@ -343,7 +381,9 @@ static void enc_aux3(Image const *src, int kc, short *errors, ArithmeticCoder *e
 				cW	=kx?src->data[idx-3]:0,
 				pW	=kx?src->data[idx-3+kc_offset]:0,
 				p	=src->data[idx+kc_offset];
-			enc2(src->data[idx], clamp(CG(cN-pN, cW-pW, cNW-pNW)+p, half), nlevels, rows, ec, hist, CDF, nqlevels);
+			int pred=clamp(CG(cN-pN, cW-pW, cNW-pNW)+p, half);
+#include"f13.h"
+			//enc2(src->data[idx], clamp(CG(cN-pN, cW-pW, cNW-pNW)+p, half), nlevels, rows, ec, hist, CDF, nqlevels);
 
 			++rows[0];
 			++rows[1];
@@ -352,6 +392,91 @@ static void enc_aux3(Image const *src, int kc, short *errors, ArithmeticCoder *e
 		}
 	}
 }
+static void enc_red0 (Image const *src, int kc, short *errors, ArithmeticCoder *ec, int *hist, unsigned *CDF, int nlevels, int nclevels, int nqlevels, int g_offset, int b_offset)
+{
+	short *rows[4]={0};
+	for(int ky=0, idx=kc;ky<src->ih;++ky)
+	{
+		int alpha=0x4000;
+		init_rows(rows, errors, src->iw, ky);
+		for(int kx=0;kx<src->iw;++kx, idx+=3)
+		{
+			int pred=(src->data[idx+g_offset]+src->data[idx+b_offset])>>1;
+#include"f13.h"
+			//enc2(src->data[idx], src->data[idx+kc_offset], nlevels, rows, ec, hist, CDF, nqlevels);
+
+			++rows[0];
+			++rows[1];
+			++rows[2];
+			++rows[3];
+		}
+	}
+}
+static void enc_red2 (Image const *src, int kc, short *errors, ArithmeticCoder *ec, int *hist, unsigned *CDF, int nlevels, int nclevels, int nqlevels, int g_offset, int b_offset)
+{
+	short *rows[4]={0};
+	int rowstride=src->iw*3, half=nlevels>>1;
+	for(int ky=0, idx=kc;ky<src->ih;++ky)
+	{
+		int alpha=0x4000;
+		init_rows(rows, errors, src->iw, ky);
+		for(int kx=0;kx<src->iw;++kx, idx+=3)
+		{
+			int
+				rN	=ky?src->data[idx-rowstride]:0,
+				gN	=ky?src->data[idx-rowstride+g_offset]:0,
+				bN	=ky?src->data[idx-rowstride+b_offset]:0,
+				rW	=kx?src->data[idx-3]:0,
+				gW	=kx?src->data[idx-3+g_offset]:0,
+				bW	=kx?src->data[idx-3+b_offset]:0,
+				g	=src->data[idx+g_offset],
+				b	=src->data[idx+b_offset];
+			int pred=clamp(((2*(rN+rW)-(gN+gW+bN+bW))>>2)+((g+b)>>1), half);
+#include"f13.h"
+			//enc2(src->data[idx], clamp(((cN-pN+cW-pW)>>1)+p, half), nlevels, rows, ec, hist, CDF, nqlevels);
+
+			++rows[0];
+			++rows[1];
+			++rows[2];
+			++rows[3];
+		}
+	}
+}
+static void enc_red3 (Image const *src, int kc, short *errors, ArithmeticCoder *ec, int *hist, unsigned *CDF, int nlevels, int nclevels, int nqlevels, int g_offset, int b_offset)
+{
+	short *rows[4]={0};
+	int rowstride=src->iw*3, half=nlevels>>1;
+	for(int ky=0, idx=kc;ky<src->ih;++ky)
+	{
+		int alpha=0x4000;
+		init_rows(rows, errors, src->iw, ky);
+		for(int kx=0;kx<src->iw;++kx, idx+=3)
+		{
+			int
+				rNW	=ky&kx?src->data[idx-rowstride-3]:0,
+				gNW	=ky&kx?src->data[idx-rowstride-3+g_offset]:0,
+				bNW	=ky&kx?src->data[idx-rowstride-3+b_offset]:0,
+				rN	=ky?src->data[idx-rowstride]:0,
+				gN	=ky?src->data[idx-rowstride+g_offset]:0,
+				bN	=ky?src->data[idx-rowstride+b_offset]:0,
+				rW	=kx?src->data[idx-3]:0,
+				gW	=kx?src->data[idx-3+g_offset]:0,
+				bW	=kx?src->data[idx-3+b_offset]:0,
+				g	=src->data[idx+g_offset],
+				b	=src->data[idx+b_offset];
+			int pred=clamp((CG(2*rN-(gN+bN), 2*rW-(gW+bW), 2*rNW-(gNW+bNW))+g+b)>>1, half);
+#include"f13.h"
+			//enc2(src->data[idx], clamp(CG(cN-pN, cW-pW, cNW-pNW)+p, half), nlevels, rows, ec, hist, CDF, nqlevels);
+
+			++rows[0];
+			++rows[1];
+			++rows[2];
+			++rows[3];
+		}
+	}
+}
+#undef  F13_ENC2
+#if 0
 static int dec2(int pred, int nlevels, short **rows, ArithmeticCoder *ec, int *hist, unsigned *CDF, int nqlevels)
 {
 #ifdef DEBUG_CHECKS
@@ -418,15 +543,21 @@ static int dec2(int pred, int nlevels, short **rows, ArithmeticCoder *ec, int *h
 	PROF(STATS);
 	return delta;
 }
-static void dec_self0(Image *dst, int kc, short *errors, ArithmeticCoder *ec, int *hist, unsigned *CDF, int nlevels, int nqlevels)
+#endif
+#define F13_DEC2
+static void dec_self0(Image *dst, int kc, short *errors, ArithmeticCoder *ec, int *hist, unsigned *CDF, int nlevels, int nclevels, int nqlevels)
 {
 	short *rows[4]={0};
 	for(int ky=0, idx=kc;ky<dst->ih;++ky)
 	{
+		int alpha=0x4000;
 		init_rows(rows, errors, dst->iw, ky);
 		for(int kx=0;kx<dst->iw;++kx, idx+=3)
 		{
-			dst->data[idx]=(short)dec2(0, nlevels, rows, ec, hist, CDF, nqlevels);
+			const int pred=0;
+#include"f13.h"
+			dst->data[idx]=(short)delta;
+			//dst->data[idx]=(short)dec2(0, nlevels, rows, ec, hist, CDF, nqlevels);
 
 			++rows[0];
 			++rows[1];
@@ -435,12 +566,13 @@ static void dec_self0(Image *dst, int kc, short *errors, ArithmeticCoder *ec, in
 		}
 	}
 }
-static void dec_self2(Image *dst, int kc, short *errors, ArithmeticCoder *ec, int *hist, unsigned *CDF, int nlevels, int nqlevels)
+static void dec_self2(Image *dst, int kc, short *errors, ArithmeticCoder *ec, int *hist, unsigned *CDF, int nlevels, int nclevels, int nqlevels)
 {
 	short *rows[4]={0};
 	int rowstride=dst->iw*3;
 	for(int ky=0, idx=kc;ky<dst->ih;++ky)
 	{
+		int alpha=0x4000;
 		init_rows(rows, errors, dst->iw, ky);
 		for(int kx=0;kx<dst->iw;++kx, idx+=3)
 		{
@@ -448,12 +580,16 @@ static void dec_self2(Image *dst, int kc, short *errors, ArithmeticCoder *ec, in
 			//if(ky==5&&kx==671)//
 			//if(ky==4&&kx==671)//
 			//if(ky==10&&kx==164)//
+			//if(ky==1&&kx==77)//
 			//	printf("");
 
 			int
 				N	=ky?dst->data[idx-rowstride]:0,
 				W	=kx?dst->data[idx-3]:0;
-			dst->data[idx]=(short)dec2((N+W)>>1, nlevels, rows, ec, hist, CDF, nqlevels);
+			int pred=(N+W)>>1;
+#include"f13.h"
+			dst->data[idx]=(short)delta;
+			//dst->data[idx]=(short)dec2((N+W)>>1, nlevels, rows, ec, hist, CDF, nqlevels);
 #ifdef DEBUG_CHECKS
 	if(global_idx<0x10000)
 	{
@@ -470,12 +606,13 @@ static void dec_self2(Image *dst, int kc, short *errors, ArithmeticCoder *ec, in
 		}
 	}
 }
-static void dec_self3(Image *dst, int kc, short *errors, ArithmeticCoder *ec, int *hist, unsigned *CDF, int nlevels, int nqlevels)
+static void dec_self3(Image *dst, int kc, short *errors, ArithmeticCoder *ec, int *hist, unsigned *CDF, int nlevels, int nclevels, int nqlevels)
 {
 	short *rows[4]={0};
 	int rowstride=dst->iw*3;
 	for(int ky=0, idx=kc;ky<dst->ih;++ky)
 	{
+		int alpha=0x4000;
 		init_rows(rows, errors, dst->iw, ky);
 		for(int kx=0;kx<dst->iw;++kx, idx+=3)
 		{
@@ -483,7 +620,10 @@ static void dec_self3(Image *dst, int kc, short *errors, ArithmeticCoder *ec, in
 				NW	=kx&ky?dst->data[idx-rowstride-3]:0,
 				N	=ky?dst->data[idx-rowstride]:0,
 				W	=kx?dst->data[idx-3]:0;
-			dst->data[idx]=(short)dec2(CG(N, W, NW), nlevels, rows, ec, hist, CDF, nqlevels);
+			int pred=CG(N, W, NW);
+#include"f13.h"
+			dst->data[idx]=(short)delta;
+			//dst->data[idx]=(short)dec2(CG(N, W, NW), nlevels, rows, ec, hist, CDF, nqlevels);
 
 			++rows[0];
 			++rows[1];
@@ -492,15 +632,19 @@ static void dec_self3(Image *dst, int kc, short *errors, ArithmeticCoder *ec, in
 		}
 	}
 }
-static void dec_aux0(Image *dst, int kc, short *errors, ArithmeticCoder *ec, int *hist, unsigned *CDF, int nlevels, int nqlevels, int kc_offset)
+static void dec_aux0 (Image *dst, int kc, short *errors, ArithmeticCoder *ec, int *hist, unsigned *CDF, int nlevels, int nclevels, int nqlevels, int kc_offset)
 {
 	short *rows[4]={0};
 	for(int ky=0, idx=kc;ky<dst->ih;++ky)
 	{
+		int alpha=0x4000;
 		init_rows(rows, errors, dst->iw, ky);
 		for(int kx=0;kx<dst->iw;++kx, idx+=3)
 		{
-			dst->data[idx]=(short)dec2(dst->data[idx+kc_offset], nlevels, rows, ec, hist, CDF, nqlevels);
+			int pred=dst->data[idx+kc_offset];
+#include"f13.h"
+			dst->data[idx]=(short)delta;
+			//dst->data[idx]=(short)dec2(dst->data[idx+kc_offset], nlevels, rows, ec, hist, CDF, nqlevels);
 
 			++rows[0];
 			++rows[1];
@@ -509,12 +653,13 @@ static void dec_aux0(Image *dst, int kc, short *errors, ArithmeticCoder *ec, int
 		}
 	}
 }
-static void dec_aux2(Image *dst, int kc, short *errors, ArithmeticCoder *ec, int *hist, unsigned *CDF, int nlevels, int nqlevels, int kc_offset)
+static void dec_aux2 (Image *dst, int kc, short *errors, ArithmeticCoder *ec, int *hist, unsigned *CDF, int nlevels, int nclevels, int nqlevels, int kc_offset)
 {
 	short *rows[4]={0};
 	int rowstride=dst->iw*3, half=nlevels>>1;
 	for(int ky=0, idx=kc;ky<dst->ih;++ky)
 	{
+		int alpha=0x4000;
 		init_rows(rows, errors, dst->iw, ky);
 		for(int kx=0;kx<dst->iw;++kx, idx+=3)
 		{
@@ -524,7 +669,10 @@ static void dec_aux2(Image *dst, int kc, short *errors, ArithmeticCoder *ec, int
 				cW	=kx?dst->data[idx-3]:0,
 				pW	=kx?dst->data[idx-3+kc_offset]:0,
 				p	=dst->data[idx+kc_offset];
-			dst->data[idx]=(short)dec2(clamp(((cN-pN+cW-pW)>>1)+p, half), nlevels, rows, ec, hist, CDF, nqlevels);
+			int pred=clamp(((cN-pN+cW-pW)>>1)+p, half);
+#include"f13.h"
+			dst->data[idx]=(short)delta;
+			//dst->data[idx]=(short)dec2(clamp(((cN-pN+cW-pW)>>1)+p, half), nlevels, rows, ec, hist, CDF, nqlevels);
 
 			++rows[0];
 			++rows[1];
@@ -533,12 +681,13 @@ static void dec_aux2(Image *dst, int kc, short *errors, ArithmeticCoder *ec, int
 		}
 	}
 }
-static void dec_aux3(Image *dst, int kc, short *errors, ArithmeticCoder *ec, int *hist, unsigned *CDF, int nlevels, int nqlevels, int kc_offset)
+static void dec_aux3 (Image *dst, int kc, short *errors, ArithmeticCoder *ec, int *hist, unsigned *CDF, int nlevels, int nclevels, int nqlevels, int kc_offset)
 {
 	short *rows[4]={0};
 	int rowstride=dst->iw*3, half=nlevels>>1;
 	for(int ky=0, idx=kc;ky<dst->ih;++ky)
 	{
+		int alpha=0x4000;
 		init_rows(rows, errors, dst->iw, ky);
 		for(int kx=0;kx<dst->iw;++kx, idx+=3)
 		{
@@ -550,7 +699,10 @@ static void dec_aux3(Image *dst, int kc, short *errors, ArithmeticCoder *ec, int
 				cW	=kx?dst->data[idx-3]:0,
 				pW	=kx?dst->data[idx-3+kc_offset]:0,
 				p	=dst->data[idx+kc_offset];
-			dst->data[idx]=(short)dec2(clamp(CG(cN-pN, cW-pW, cNW-pNW)+p, half), nlevels, rows, ec, hist, CDF, nqlevels);
+			int pred=clamp(CG(cN-pN, cW-pW, cNW-pNW)+p, half);
+#include"f13.h"
+			dst->data[idx]=(short)delta;
+			//dst->data[idx]=(short)dec2(clamp(CG(cN-pN, cW-pW, cNW-pNW)+p, half), nlevels, rows, ec, hist, CDF, nqlevels);
 
 			++rows[0];
 			++rows[1];
@@ -559,6 +711,93 @@ static void dec_aux3(Image *dst, int kc, short *errors, ArithmeticCoder *ec, int
 		}
 	}
 }
+static void dec_red0 (Image *dst, int kc, short *errors, ArithmeticCoder *ec, int *hist, unsigned *CDF, int nlevels, int nclevels, int nqlevels, int g_offset, int b_offset)
+{
+	short *rows[4]={0};
+	for(int ky=0, idx=kc;ky<dst->ih;++ky)
+	{
+		int alpha=0x4000;
+		init_rows(rows, errors, dst->iw, ky);
+		for(int kx=0;kx<dst->iw;++kx, idx+=3)
+		{
+			int pred=(dst->data[idx+g_offset]+dst->data[idx+b_offset])>>1;
+#include"f13.h"
+			dst->data[idx]=(short)delta;
+			//dst->data[idx]=(short)dec2(dst->data[idx+kc_offset], nlevels, rows, ec, hist, CDF, nqlevels);
+
+			++rows[0];
+			++rows[1];
+			++rows[2];
+			++rows[3];
+		}
+	}
+}
+static void dec_red2 (Image *dst, int kc, short *errors, ArithmeticCoder *ec, int *hist, unsigned *CDF, int nlevels, int nclevels, int nqlevels, int g_offset, int b_offset)
+{
+	short *rows[4]={0};
+	int rowstride=dst->iw*3, half=nlevels>>1;
+	for(int ky=0, idx=kc;ky<dst->ih;++ky)
+	{
+		int alpha=0x4000;
+		init_rows(rows, errors, dst->iw, ky);
+		for(int kx=0;kx<dst->iw;++kx, idx+=3)
+		{
+			int
+				rN	=ky?dst->data[idx-rowstride]:0,
+				gN	=ky?dst->data[idx-rowstride+g_offset]:0,
+				bN	=ky?dst->data[idx-rowstride+b_offset]:0,
+				rW	=kx?dst->data[idx-3]:0,
+				gW	=kx?dst->data[idx-3+g_offset]:0,
+				bW	=kx?dst->data[idx-3+b_offset]:0,
+				g	=dst->data[idx+g_offset],
+				b	=dst->data[idx+b_offset];
+			int pred=clamp(((2*(rN+rW)-(gN+gW+bN+bW))>>2)+((g+b)>>1), half);
+#include"f13.h"
+			dst->data[idx]=(short)delta;
+			//dst->data[idx]=(short)dec2(clamp(((cN-pN+cW-pW)>>1)+p, half), nlevels, rows, ec, hist, CDF, nqlevels);
+
+			++rows[0];
+			++rows[1];
+			++rows[2];
+			++rows[3];
+		}
+	}
+}
+static void dec_red3 (Image *dst, int kc, short *errors, ArithmeticCoder *ec, int *hist, unsigned *CDF, int nlevels, int nclevels, int nqlevels, int g_offset, int b_offset)
+{
+	short *rows[4]={0};
+	int rowstride=dst->iw*3, half=nlevels>>1;
+	for(int ky=0, idx=kc;ky<dst->ih;++ky)
+	{
+		int alpha=0x4000;
+		init_rows(rows, errors, dst->iw, ky);
+		for(int kx=0;kx<dst->iw;++kx, idx+=3)
+		{
+			int
+				rNW	=ky&kx?dst->data[idx-rowstride-3]:0,
+				gNW	=ky&kx?dst->data[idx-rowstride-3+g_offset]:0,
+				bNW	=ky&kx?dst->data[idx-rowstride-3+b_offset]:0,
+				rN	=ky?dst->data[idx-rowstride]:0,
+				gN	=ky?dst->data[idx-rowstride+g_offset]:0,
+				bN	=ky?dst->data[idx-rowstride+b_offset]:0,
+				rW	=kx?dst->data[idx-3]:0,
+				gW	=kx?dst->data[idx-3+g_offset]:0,
+				bW	=kx?dst->data[idx-3+b_offset]:0,
+				g	=dst->data[idx+g_offset],
+				b	=dst->data[idx+b_offset];
+			int pred=clamp((CG(2*rN-(gN+bN), 2*rW-(gW+bW), 2*rNW-(gNW+bNW))+g+b)>>1, half);
+#include"f13.h"
+			dst->data[idx]=(short)delta;
+			//dst->data[idx]=(short)dec2(clamp(CG(cN-pN, cW-pW, cNW-pNW)+p, half), nlevels, rows, ec, hist, CDF, nqlevels);
+
+			++rows[0];
+			++rows[1];
+			++rows[2];
+			++rows[3];
+		}
+	}
+}
+#undef  F13_DEC2
 int f13_encode(Image const *src, ArrayHandle *data, int loud)
 {
 	PROF_START();
@@ -657,7 +896,8 @@ int f13_encode(Image const *src, ArrayHandle *data, int loud)
 				c='b';
 			printf("%2d  %14.2lf  %6.2lf%%  %14.6lf  %c  %s\n", kt, esizes[kt], 100.*esizes[kt]/usize, usize/esizes[kt], c, chnames[kt]);
 		}
-		printf("Estimated size %.2lf bytes\n", esizes[ridx]+esizes[gidx]+esizes[bidx]);
+		double esize=esizes[ridx]+esizes[gidx]+esizes[bidx];
+		printf("Estimated size %.2lf bytes  CR %lf\n", esize, 3*usize/esize);
 		printf("Sampling\t%16.6lf sec  %lf B/s\n", t1-t0, usize/(t1-t0));
 		printf("Analysis\t%16.6lf sec\n", t2-t1);
 	}
@@ -668,9 +908,12 @@ int f13_encode(Image const *src, ArrayHandle *data, int loud)
 	int token, bypass, nbits;
 	token=quantize_pixel(nlevels, &bypass, &nbits);
 	int nqlevels=token+1;
-	histsize=sizeof(int[3*3*3*3])*(nqlevels+1LL);//3 ctxlevels ^ 4 NBs * ntokenlevels
+	//int nclevels=1;
+	int nclevels=quantize_ctx(nlevels)<<1|1;
+	histsize=sizeof(int[NCTX])*(nqlevels+1LL)*nclevels;//nclevels ^ NCTX * ntokenlevels
 	hist=(int*)malloc(histsize);
 	unsigned *CDF=(unsigned*)malloc(histsize);
+	//unsigned short *alpha=(unsigned short*)malloc(nclevels*sizeof(short));
 
 	size_t bufsize=sizeof(short[4])*(src->iw+2LL);//4 padded rows * {errors}
 	short *errors=(short*)malloc(bufsize);
@@ -691,73 +934,37 @@ int f13_encode(Image const *src, ArrayHandle *data, int loud)
 	ac_enc_init(&ec, &list);
 	
 	ptrdiff_t csizes[3]={0};//YUV
-	init_stats(hist, CDF, nqlevels);
+	init_stats(hist, CDF, nclevels, nqlevels);
 	switch(gidx)
 	{
-	case 0:
-		enc_self0(src, 1, errors, &ec, hist, CDF, nlevels, nqlevels);
-		break;
-	case 1:
-		enc_self2(src, 1, errors, &ec, hist, CDF, nlevels, nqlevels);
-		break;
-	case 2:
-		enc_self3(src, 1, errors, &ec, hist, CDF, nlevels, nqlevels);
-		break;
+	case 0:enc_self0(src, 1, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels);break;
+	case 1:enc_self2(src, 1, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels);break;
+	case 2:enc_self3(src, 1, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels);break;
 	}
 	csizes[0]=list.nobj;
-	init_stats(hist, CDF, nqlevels);
+	init_stats(hist, CDF, nclevels, nqlevels);
 	switch(bidx)
 	{
-	case 3:
-		enc_self0(src, 2, errors, &ec, hist, CDF, nlevels, nqlevels);
-		break;
-	case 4:
-		enc_self2(src, 2, errors, &ec, hist, CDF, nlevels, nqlevels);
-		break;
-	case 5:
-		enc_self3(src, 2, errors, &ec, hist, CDF, nlevels, nqlevels);
-		break;
-	case 6:
-		enc_aux0(src, 2, errors, &ec, hist, CDF, nlevels, nqlevels, -1);
-		break;
-	case 7:
-		enc_aux2(src, 2, errors, &ec, hist, CDF, nlevels, nqlevels, -1);
-		break;
-	case 8:
-		enc_aux3(src, 2, errors, &ec, hist, CDF, nlevels, nqlevels, -1);
-		break;
+	case 3:enc_self0(src, 2, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels);		break;
+	case 4:enc_self2(src, 2, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels);		break;
+	case 5:enc_self3(src, 2, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels);		break;
+	case 6:enc_aux0 (src, 2, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels, -1);	break;
+	case 7:enc_aux2 (src, 2, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels, -1);	break;
+	case 8:enc_aux3 (src, 2, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels, -1);	break;
 	}
 	csizes[1]=list.nobj-csizes[0];
-	init_stats(hist, CDF, nqlevels);
+	init_stats(hist, CDF, nclevels, nqlevels);
 	switch(ridx)
 	{
-	case 9:
-		enc_self0(src, 0, errors, &ec, hist, CDF, nlevels, nqlevels);
-		break;
-	case 10:
-		enc_self2(src, 0, errors, &ec, hist, CDF, nlevels, nqlevels);
-		break;
-	case 11:
-		enc_self3(src, 0, errors, &ec, hist, CDF, nlevels, nqlevels);
-		break;
-	case 12:
-		enc_aux0(src, 0, errors, &ec, hist, CDF, nlevels, nqlevels, 1);
-		break;
-	case 13:
-		enc_aux2(src, 0, errors, &ec, hist, CDF, nlevels, nqlevels, 1);
-		break;
-	case 14:
-		enc_aux3(src, 0, errors, &ec, hist, CDF, nlevels, nqlevels, 1);
-		break;
-	case 15:
-		enc_aux0(src, 0, errors, &ec, hist, CDF, nlevels, nqlevels, 2);
-		break;
-	case 16:
-		enc_aux2(src, 0, errors, &ec, hist, CDF, nlevels, nqlevels, 2);
-		break;
-	case 17:
-		enc_aux3(src, 0, errors, &ec, hist, CDF, nlevels, nqlevels, 2);
-		break;
+	case  9:enc_self0(src, 0, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels);		break;
+	case 10:enc_self2(src, 0, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels);		break;
+	case 11:enc_self3(src, 0, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels);		break;
+	case 12:enc_aux0 (src, 0, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels, 1);	break;
+	case 13:enc_aux2 (src, 0, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels, 1);	break;
+	case 14:enc_aux3 (src, 0, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels, 1);	break;
+	case 15:enc_red0 (src, 0, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels, 1, 2);	break;
+	case 16:enc_red2 (src, 0, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels, 1, 2);	break;
+	case 17:enc_red3 (src, 0, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels, 1, 2);	break;
 	}
 	ac_enc_flush(&ec);
 	dlist_appendtoarray(&list, data);
@@ -804,9 +1011,12 @@ int f13_decode(const unsigned char *data, size_t len, Image *dst, int loud)
 	int token, bypass, nbits;
 	token=quantize_pixel(nlevels, &bypass, &nbits);
 	int nqlevels=token+1;
-	size_t histsize=sizeof(int[3*3*3*3])*(nqlevels+1LL);//3 ctxlevels ^ 4 NBs * ntokenlevels
+	//int nclevels=1;
+	int nclevels=quantize_ctx(nlevels)<<1|1;
+	size_t histsize=sizeof(int[NCTX])*(nqlevels+1LL)*nclevels;//nclevels ^ NCTX * ntokenlevels
 	int *hist=(int*)malloc(histsize);
 	unsigned *CDF=(unsigned*)malloc(histsize);
+	//unsigned short *alpha=(unsigned short*)malloc(nclevels*sizeof(short));
 
 	size_t bufsize=sizeof(short[4])*(dst->iw+2LL);//4 padded rows * {errors}
 	short *errors=(short*)malloc(bufsize);
@@ -821,71 +1031,35 @@ int f13_decode(const unsigned char *data, size_t len, Image *dst, int loud)
 	global_idx=0;//
 #endif
 
-	init_stats(hist, CDF, nqlevels);
+	init_stats(hist, CDF, nclevels, nqlevels);
 	switch(gidx)
 	{
-	case 0:
-		dec_self0(dst, 1, errors, &ec, hist, CDF, nlevels, nqlevels);
-		break;
-	case 1:
-		dec_self2(dst, 1, errors, &ec, hist, CDF, nlevels, nqlevels);
-		break;
-	case 2:
-		dec_self3(dst, 1, errors, &ec, hist, CDF, nlevels, nqlevels);
-		break;
+	case 0:dec_self0(dst, 1, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels);break;
+	case 1:dec_self2(dst, 1, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels);break;
+	case 2:dec_self3(dst, 1, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels);break;
 	}
-	init_stats(hist, CDF, nqlevels);
+	init_stats(hist, CDF, nclevels, nqlevels);
 	switch(bidx)
 	{
-	case 3:
-		dec_self0(dst, 2, errors, &ec, hist, CDF, nlevels, nqlevels);
-		break;
-	case 4:
-		dec_self2(dst, 2, errors, &ec, hist, CDF, nlevels, nqlevels);
-		break;
-	case 5:
-		dec_self3(dst, 2, errors, &ec, hist, CDF, nlevels, nqlevels);
-		break;
-	case 6:
-		dec_aux0(dst, 2, errors, &ec, hist, CDF, nlevels, nqlevels, -1);
-		break;
-	case 7:
-		dec_aux2(dst, 2, errors, &ec, hist, CDF, nlevels, nqlevels, -1);
-		break;
-	case 8:
-		dec_aux3(dst, 2, errors, &ec, hist, CDF, nlevels, nqlevels, -1);
-		break;
+	case 3:dec_self0(dst, 2, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels);		break;
+	case 4:dec_self2(dst, 2, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels);		break;
+	case 5:dec_self3(dst, 2, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels);		break;
+	case 6:dec_aux0 (dst, 2, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels, -1);	break;
+	case 7:dec_aux2 (dst, 2, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels, -1);	break;
+	case 8:dec_aux3 (dst, 2, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels, -1);	break;
 	}
-	init_stats(hist, CDF, nqlevels);
+	init_stats(hist, CDF, nclevels, nqlevels);
 	switch(ridx)
 	{
-	case 9:
-		dec_self0(dst, 0, errors, &ec, hist, CDF, nlevels, nqlevels);
-		break;
-	case 10:
-		dec_self2(dst, 0, errors, &ec, hist, CDF, nlevels, nqlevels);
-		break;
-	case 11:
-		dec_self3(dst, 0, errors, &ec, hist, CDF, nlevels, nqlevels);
-		break;
-	case 12:
-		dec_aux0(dst, 0, errors, &ec, hist, CDF, nlevels, nqlevels, 1);
-		break;
-	case 13:
-		dec_aux2(dst, 0, errors, &ec, hist, CDF, nlevels, nqlevels, 1);
-		break;
-	case 14:
-		dec_aux3(dst, 0, errors, &ec, hist, CDF, nlevels, nqlevels, 1);
-		break;
-	case 15:
-		dec_aux0(dst, 0, errors, &ec, hist, CDF, nlevels, nqlevels, 2);
-		break;
-	case 16:
-		dec_aux2(dst, 0, errors, &ec, hist, CDF, nlevels, nqlevels, 2);
-		break;
-	case 17:
-		dec_aux3(dst, 0, errors, &ec, hist, CDF, nlevels, nqlevels, 2);
-		break;
+	case  9:dec_self0(dst, 0, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels);		break;
+	case 10:dec_self2(dst, 0, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels);		break;
+	case 11:dec_self3(dst, 0, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels);		break;
+	case 12:dec_aux0 (dst, 0, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels, 1);	break;
+	case 13:dec_aux2 (dst, 0, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels, 1);	break;
+	case 14:dec_aux3 (dst, 0, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels, 1);	break;
+	case 15:dec_red0 (dst, 0, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels, 1, 2);	break;
+	case 16:dec_red2 (dst, 0, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels, 1, 2);	break;
+	case 17:dec_red3 (dst, 0, errors, &ec, hist, CDF, nlevels, nclevels, nqlevels, 1, 2);	break;
 	}
 	if(loud)
 	{
