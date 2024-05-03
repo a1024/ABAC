@@ -2649,6 +2649,128 @@ void pred_CG3D(Image *src, int fwd, int enable_ma)
 	free(pixels);
 }
 
+
+void pred_PU(Image *src, int fwd)
+{
+	int *pixels=(int*)malloc((src->iw+4LL)*sizeof(int[4*4]));//2 padded rows * 4 channels max
+	if(!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(pixels, 0, (src->iw+4LL)*sizeof(int[4*4]));
+	int nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
+	UPDATE_MAX(nch, src->nch);
+	int nlevels[]=
+	{
+		1<<src->depth[0],
+		1<<src->depth[1],
+		1<<src->depth[2],
+		1<<src->depth[3],
+	};
+	int halfs[]=
+	{
+		nlevels[0]>>1,
+		nlevels[1]>>1,
+		nlevels[2]>>1,
+		nlevels[3]>>1,
+	};
+	int perm[]={1, 2, 0, 3};
+	int fwdmask=-fwd;
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		int *rows[]=
+		{
+			pixels+(((src->iw+4LL)*((ky-0LL)&3)+2)<<2),
+			pixels+(((src->iw+4LL)*((ky-1LL)&3)+2)<<2),
+			pixels+(((src->iw+4LL)*((ky-2LL)&3)+2)<<2),
+			pixels+(((src->iw+4LL)*((ky-3LL)&3)+2)<<2),
+		};
+		for(int kx=0;kx<src->iw;++kx, idx+=4)
+		{
+			if(!fwd)
+			{
+				int
+					NN	=rows[2][1+0*4],
+					NW	=rows[1][1-1*4],
+					N	=rows[1][1+0*4],
+					NE	=rows[1][1+1*4],
+					WW	=rows[0][1-2*4],
+					W	=rows[0][1-1*4],
+					cb	=src->data[idx+2],
+					cr	=src->data[idx+0];
+				int update=(2*(NN+WW)-(N+W+NW+NE)+4*(cb+cr))>>4;
+				update=CLAMP(-halfs[1], update, halfs[1]-1);
+				int luma=src->data[idx+1]-update;//subtract update
+				luma+=nlevels[1]>>1;
+				luma&=nlevels[1]-1;
+				luma-=nlevels[1]>>1;
+				src->data[idx+1]=luma;
+			}
+			for(int kc0=0;kc0<src->nch;++kc0)
+			{
+				int kc=perm[kc0];
+				int
+					NW	=rows[1][kc-1*4],
+					N	=rows[1][kc+0*4],
+					W	=rows[0][kc-1*4],
+					offset	=0;
+				if(kc0>0)
+					offset+=rows[0][perm[0]];
+				int pred=N+W-NW;
+				int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
+				pred=CLAMP(vmin, pred, vmax);
+				//pred=(N+W)>>1;
+				pred+=offset;
+				pred=CLAMP(-halfs[kc], pred, halfs[kc]-1);
+
+				int curr=src->data[idx+kc];
+				pred^=fwdmask;
+				pred-=fwdmask;
+				pred+=curr;
+
+				pred+=nlevels[kc]>>1;
+				pred&=nlevels[kc]-1;
+				pred-=nlevels[kc]>>1;
+
+				src->data[idx+kc]=pred;
+				rows[0][kc]=(fwd?curr:pred)-offset;
+			}
+			if(fwd)
+			{
+				int
+					NN	=rows[2][1+0*4],
+					NW	=rows[1][1-1*4],
+					N	=rows[1][1+0*4],
+					NE	=rows[1][1+1*4],
+					WW	=rows[0][1-2*4],
+					W	=rows[0][1-1*4],
+					cb	=src->data[idx+2],
+					cr	=src->data[idx+0];
+				int update=(2*(NN+WW)-(N+W+NW+NE)+4*(cb+cr))>>4;
+				update=CLAMP(-halfs[1], update, halfs[1]-1);
+				int luma=src->data[idx+1]+update;//add update
+				luma+=nlevels[1]>>1;
+				luma&=nlevels[1]-1;
+				luma-=nlevels[1]>>1;
+				src->data[idx+1]=luma;
+			}
+			rows[0]+=4;
+			rows[1]+=4;
+			rows[2]+=4;
+			rows[3]+=4;
+		}
+	}
+#ifdef CG3D_ENABLE_MA
+	for(int kc=0;kc<4;++kc)
+	{
+		if(src->depth[kc])
+			src->depth[kc]-=!fwd;
+	}
+#endif
+	free(pixels);
+}
+
 //(N+W)>>1
 void pred_av2(Image *src, int fwd)
 {
@@ -10586,8 +10708,8 @@ void calc_csize_abac(Image const *src, double *entropy)
 				for(int kt=0;kt<ABAC_NCTX;++kt)
 				{
 					int v2=preds[kt];
-					//v2=(v2>1)-(v2<-1)+1;
 					v2=THREEWAY(v2, 0)+1;
+					//v2=(v2>1)-(v2<-1)+1;//less efficient
 					curr_stats[kt]=stats+treesize*ABAC_NCTRS*v2;
 				}
 					//curr_stats[kt]=stats+treesize*abac_quantize(CLAMP(-half, preds[kt], half-1), qdivs, ABAC_QLEVELS-1);

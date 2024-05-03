@@ -91,8 +91,9 @@ typedef enum TransformTypeEnum
 	ST_FWD_OLS2,		ST_INV_OLS2,
 	ST_FWD_OLS3,		ST_INV_OLS3,
 	ST_FWD_OLS4,		ST_INV_OLS4,
-	ST_FWD_CLAMPGRAD,	ST_INV_CLAMPGRAD,
+	ST_FWD_PU,		ST_INV_PU,
 	ST_FWD_CG3D,		ST_INV_CG3D,
+	ST_FWD_CLAMPGRAD,	ST_INV_CLAMPGRAD,
 	ST_FWD_AV2,		ST_INV_AV2,
 //	ST_FWD_ECOEFF,		ST_INV_ECOEFF,
 //	ST_FWD_AVERAGE,		ST_INV_AVERAGE,
@@ -1339,10 +1340,12 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_OLS3:		a=" S Inv OLS-3";		break;
 	case ST_FWD_OLS4:		a=" S Fwd OLS-4";		break;
 	case ST_INV_OLS4:		a=" S Inv OLS-4";		break;
-	case ST_FWD_CLAMPGRAD:		a=" S Fwd ClampGrad";		break;
-	case ST_INV_CLAMPGRAD:		a=" S Inv ClampGrad";		break;
+	case ST_FWD_PU:			a=" S Fwd PU";			break;
+	case ST_INV_PU:			a=" S Inv PU";			break;
 	case ST_FWD_CG3D:		a=" S Fwd CG3D";		break;
 	case ST_INV_CG3D:		a=" S Inv CG3D";		break;
+	case ST_FWD_CLAMPGRAD:		a=" S Fwd ClampGrad";		break;
+	case ST_INV_CLAMPGRAD:		a=" S Inv ClampGrad";		break;
 	case ST_FWD_AV2:		a=" S Fwd (N+W)>>1";		break;
 	case ST_INV_AV2:		a=" S Inv (N+W)>>1";		break;
 //	case ST_FWD_ECOEFF:		a=" S Fwd E-Coeff";		break;
@@ -2361,10 +2364,12 @@ void apply_selected_transforms(Image *image, int rct_only)
 		case ST_INV_OLS4:		pred_ols4(image, ols4_period, ols4_lr, ols4_mask[0], ols4_mask[1], ols4_mask[2], ols4_mask[3], 0);break;
 		case ST_FWD_PACKSIGN:		packsign(image, 1);					break;
 		case ST_INV_PACKSIGN:		packsign(image, 0);					break;
-		case ST_FWD_CLAMPGRAD:		pred_clampgrad(image, 1, pred_ma_enabled);		break;
-		case ST_INV_CLAMPGRAD:		pred_clampgrad(image, 0, pred_ma_enabled);		break;
+		case ST_FWD_PU:			pred_PU(image, 1);					break;
+		case ST_INV_PU:			pred_PU(image, 0);					break;
 		case ST_FWD_CG3D:		pred_CG3D(image, 1, pred_ma_enabled);			break;
 		case ST_INV_CG3D:		pred_CG3D(image, 0, pred_ma_enabled);			break;
+		case ST_FWD_CLAMPGRAD:		pred_clampgrad(image, 1, pred_ma_enabled);		break;
+		case ST_INV_CLAMPGRAD:		pred_clampgrad(image, 0, pred_ma_enabled);		break;
 		case ST_FWD_AV2:		pred_av2(image, 1);					break;
 		case ST_INV_AV2:		pred_av2(image, 0);					break;
 	//	case ST_FWD_ECOEFF:		pred_ecoeff(image, 1, pred_ma_enabled);			break;
