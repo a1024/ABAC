@@ -29,6 +29,7 @@ static int clamp(int vmin, int x, int vmax)
 }
 #define NBITS 4		//{1, 2, 4, 8}
 #define NCTX 4
+#define UPDATE_SHIFT 8
 
 #define NGCH 8
 #define NBCH 6
@@ -79,7 +80,7 @@ static int find_min(double *arr, int count)
 	}
 	return idx;
 }
-#if NBITS==8 || NBITS==4
+#if NBITS==8
 ALIGN(32) static const unsigned short gramp[]=
 {
 	  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15,
@@ -104,7 +105,7 @@ static void update_CDF(int sym, unsigned short *CDF)
 {
 #if 0
 	for(int ks=1;ks<(1<<NBITS);++ks)
-		CDF[ks]+=(int)(((0x10000-(1<<NBITS))&-(ks>sym))+ks-CDF[ks])>>7;
+		CDF[ks]+=(int)(((0x10000-(1<<NBITS))&-(ks>sym))+ks-CDF[ks])>>UPDATE_SHIFT;
 #elif NBITS==8
 	__m256i mamp=_mm256_set1_epi16((1<<14)-(1<<NBITS)/4);
 
@@ -123,8 +124,8 @@ static void update_CDF(int sym, unsigned short *CDF)
 		//update1=_mm256_add_epi16(update1, ramp1);
 		update0=_mm256_sub_epi16(update0, mcdf0);
 		update1=_mm256_sub_epi16(update1, mcdf1);
-		update0=_mm256_srai_epi16(update0, 8);
-		update1=_mm256_srai_epi16(update1, 8);
+		update0=_mm256_srai_epi16(update0, UPDATE_SHIFT);
+		update1=_mm256_srai_epi16(update1, UPDATE_SHIFT);
 		mcdf0=_mm256_add_epi16(mcdf0, update0);
 		mcdf1=_mm256_add_epi16(mcdf1, update1);
 		_mm256_store_si256((__m256i*)CDF+k+0, mcdf0);
@@ -140,27 +141,15 @@ static void update_CDF(int sym, unsigned short *CDF)
 	update=_mm256_and_si256(update, mamp);
 	//update=_mm256_add_epi16(update, ramp);
 	update=_mm256_sub_epi16(update, mcdf);
-	update=_mm256_srai_epi16(update, 7);
+	update=_mm256_srai_epi16(update, UPDATE_SHIFT);
 	mcdf=_mm256_add_epi16(mcdf, update);
 	_mm256_store_si256((__m256i*)CDF, mcdf);
 #elif NBITS==2
-	CDF[1]+=(int)((((1<<14)-(1<<NBITS)/4)&-(1>sym))-CDF[1])>>8;
-	CDF[2]+=(int)((((1<<14)-(1<<NBITS)/4)&-(2>sym))-CDF[2])>>8;
-	CDF[3]+=(int)((((1<<14)-(1<<NBITS)/4)&-(3>sym))-CDF[3])>>8;
-	//__m128i ramp=_mm_set_epi32(3, 2, 1, 0);
-	//__m128i mamp=_mm_set1_epi32(0x10000-(1<<NBITS));
-	//
-	//__m128i msym=_mm_set1_epi32(sym);
-	//__m128i mcdf=_mm_load_si128((__m128i*)CDF);
-	//__m128i update=_mm_cmpgt_epi32(ramp, msym);
-	//update=_mm_and_si128(update, mamp);
-	//update=_mm_add_epi32(update, ramp);
-	//update=_mm_sub_epi32(update, mcdf);
-	//update=_mm_srai_epi32(update, 8);
-	//mcdf=_mm_add_epi32(mcdf, update);
-	//_mm_store_si128((__m128i*)CDF, mcdf);
+	CDF[1]+=(int)((((1<<14)-(1<<NBITS)/4)&-(1>sym))-CDF[1])>>UPDATE_SHIFT;
+	CDF[2]+=(int)((((1<<14)-(1<<NBITS)/4)&-(2>sym))-CDF[2])>>UPDATE_SHIFT;
+	CDF[3]+=(int)((((1<<14)-(1<<NBITS)/4)&-(3>sym))-CDF[3])>>UPDATE_SHIFT;
 #elif NBITS==1
-	CDF[1]+=(int)((((1<<14)-(1<<NBITS)/4)&-(1>sym))-CDF[1])>>8;
+	CDF[1]+=(int)((((1<<14)-(1<<NBITS)/4)&-(1>sym))-CDF[1])>>UPDATE_SHIFT;
 #endif
 
 #if 0
@@ -285,12 +274,12 @@ int f16_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	}
 	int ridx=0, gidx=0, bidx=0;
 	int depth=image->depth, nlevels=1<<depth, half=nlevels>>1;
-	int rowstride=image->iw*3;
 	ArithmeticCoder ec;
 	DList list;
 	dlist_init(&list, 1, 256, 0);
 	if(fwd)
 	{
+		int rowstride=image->iw*3;
 		size_t histsize=sizeof(int[NCH])<<image->depth;
 		int *hist=(int*)malloc(histsize);
 		if(!hist)
@@ -369,11 +358,11 @@ int f16_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			{
 				char c=' ';
 				if(kt==ridx)
-					c='r';
+					c='V';
 				if(kt==gidx)
-					c='g';
+					c='Y';
 				if(kt==bidx)
-					c='b';
+					c='U';
 				printf("%2d  %14.2lf  %6.2lf%%  %14.6lf  %c  %s\n", kt, esizes[kt], 100.*esizes[kt]/usize, usize/esizes[kt], c, chnames[kt]);
 			}
 			double esize=esizes[ridx]+esizes[gidx]+esizes[bidx];
@@ -456,7 +445,6 @@ int f16_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				*NE	=rows[1]+1*8,
 				*W	=rows[0]-1*8,
 				*curr	=rows[0]+0*8;
-			int offset=0;
 			int ctx1, ctx2, ctx3, ctx4;
 			int tidx, token, sym, cdf, freq;
 			unsigned short *tree1, *CDF1;
@@ -576,14 +564,13 @@ int f16_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						__m256i mcdfB=_mm256_load_si256((__m256i*)CDF2);
 						__m256i mcdfC=_mm256_load_si256((__m256i*)CDF3);
 						__m256i mcdfD=_mm256_load_si256((__m256i*)CDF4);
-						mcdfA=_mm256_add_epi16(mcdfA, mcdfB);
-						mcdfA=_mm256_add_epi16(mcdfA, mcdfC);
-						mcdfA=_mm256_add_epi16(mcdfA, mcdfD);
-						//mcdfA=_mm256_srai_epi16(mcdfA, 2);
-						mcdfA=_mm256_add_epi16(mcdfA, ramp);
-						mcdfA=_mm256_subs_epu16(mcdfA, mlevel);
-						mcdfA=_mm256_cmpeq_epi16(mcdfA, _mm256_setzero_si256());
-						unsigned mask=_mm256_movemask_epi8(mcdfA);
+						__m256i mcdf=_mm256_add_epi16(mcdfA, mcdfB);
+						mcdf=_mm256_add_epi16(mcdf, mcdfC);
+						mcdf=_mm256_add_epi16(mcdf, mcdfD);
+						mcdf=_mm256_add_epi16(mcdf, ramp);
+						mcdf=_mm256_subs_epu16(mcdf, mlevel);
+						mcdf=_mm256_cmpeq_epi16(mcdf, _mm256_setzero_si256());
+						unsigned mask=_mm256_movemask_epi8(mcdf);
 						sym=floor_log2_32(mask)>>1;
 #elif NBITS==2
 						sym =cdf>=CDF1[1]+CDF2[1]+CDF3[1]+CDF4[1]+1;
@@ -609,10 +596,34 @@ int f16_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						freq=(sym>=(1<<NBITS)-1?0x10000:CDF1[sym+1]+CDF2[sym+1]+CDF3[sym+1]+CDF4[sym+1]+sym+1)-cdf;
 						ac_dec_update(&ec, cdf, freq);
 						token|=sym<<kb;
+#if NBITS==4
+						__m256i mamp=_mm256_set1_epi16((1<<14)-(1<<NBITS)/4);
+
+						__m256i msym=_mm256_set1_epi16(sym);
+						__m256i update=_mm256_cmpgt_epi16(ramp, msym);
+						update=_mm256_and_si256(update, mamp);
+						__m256i updateA=_mm256_sub_epi16(update, mcdfA);
+						__m256i updateB=_mm256_sub_epi16(update, mcdfB);
+						__m256i updateC=_mm256_sub_epi16(update, mcdfC);
+						__m256i updateD=_mm256_sub_epi16(update, mcdfD);
+						updateA=_mm256_srai_epi16(updateA, UPDATE_SHIFT);
+						updateB=_mm256_srai_epi16(updateB, UPDATE_SHIFT);
+						updateC=_mm256_srai_epi16(updateC, UPDATE_SHIFT);
+						updateD=_mm256_srai_epi16(updateD, UPDATE_SHIFT);
+						mcdfA=_mm256_add_epi16(mcdfA, updateA);
+						mcdfB=_mm256_add_epi16(mcdfB, updateB);
+						mcdfC=_mm256_add_epi16(mcdfC, updateC);
+						mcdfD=_mm256_add_epi16(mcdfD, updateD);
+						_mm256_store_si256((__m256i*)CDF1, mcdfA);
+						_mm256_store_si256((__m256i*)CDF2, mcdfB);
+						_mm256_store_si256((__m256i*)CDF3, mcdfC);
+						_mm256_store_si256((__m256i*)CDF4, mcdfD);
+#else
 						update_CDF(sym, CDF1);
 						update_CDF(sym, CDF2);
 						update_CDF(sym, CDF3);
 						update_CDF(sym, CDF4);
+#endif
 						tidx=(tidx<<NBITS)+sym+1;
 					}
 					token=token>>1^-(token&1);

@@ -68,12 +68,12 @@ int	f04_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #define f04_encode(SRC, DATA, LOUD)		f04_codec(SRC, DATA, 0, 0, 0, LOUD)
 #define f04_decode(CBUF, CSIZE, DST, LOUD)	f04_codec(0, 0, CBUF, CSIZE, DST, LOUD)
 
-//deferred summation (8-bit only)
+//F05 deferred summation (8-bit only)
 int	f05_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
 #define f05_encode(SRC, DATA, LOUD)		f05_codec(SRC, DATA, 0, 0, 0, LOUD)
 #define f05_decode(CBUF, CSIZE, DST, LOUD)	f05_codec(0, 0, CBUF, CSIZE, DST, LOUD)
 
-//adaptive 5+4-bit model (8-bit only, AVX2)
+//F06 adaptive 5+4-bit model (8-bit only, AVX2)
 int	f06_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
 #define f06_encode(SRC, DATA, LOUD)		f06_codec(SRC, DATA, 0, 0, 0, LOUD)
 #define f06_decode(CBUF, CSIZE, DST, LOUD)	f06_codec(0, 0, CBUF, CSIZE, DST, LOUD)
@@ -124,6 +124,11 @@ int	f15_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 int	f16_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
 #define f16_encode(SRC, DATA, LOUD)		f16_codec(SRC, DATA, 0, 0, 0, LOUD)
 #define f16_decode(CBUF, CSIZE, DST, LOUD)	f16_codec(0, 0, CBUF, CSIZE, DST, LOUD)
+
+//	F17 faster, with minimum regard for efficiency
+int	f17_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
+#define f17_encode(SRC, DATA, LOUD)		f17_codec(SRC, DATA, 0, 0, 0, LOUD)
+#define f17_decode(CBUF, CSIZE, DST, LOUD)	f17_codec(0, 0, CBUF, CSIZE, DST, LOUD)
 
 
 #ifdef __cplusplus

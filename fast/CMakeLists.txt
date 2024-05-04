@@ -22,7 +22,7 @@
 	lodepng.c
 	transforms.c
 	util.c
-)
+ "f17.c")
 
 #if(MSVC)
 #	target_compile_options(fast PRIVATE /Wall)
