@@ -305,7 +305,48 @@ INLINE void ac_enc_flush(ArithmeticCoder *ec)
 	}
 }
 
-INLINE void ac_enc_av2(ArithmeticCoder *ec, int sym, const unsigned *CDF1, const unsigned *CDF2, int alpha)//CDF is 16 bit
+INLINE void ac_enc_update(ArithmeticCoder *ec, int cdf, int freq)//CDF is 16 bit
+{
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if(freq<=0)
+		LOG_ERROR2("ZPS");
+	if(cdf>0x10000||cdf+freq>0x10000)
+		LOG_ERROR2("");
+	if(ec->range==~0LLU)
+		LOG_ERROR2("");
+#endif
+	ec->low+=ec->range*cdf>>16;
+	ec->range*=freq;
+	ec->range>>=16;
+	--ec->range;//must decrement hi because decoder fails when code == hi2
+	while(ec->range<(1LL<<PROB_BITS))//only when freq=1 -> range=0, this loop runs twice
+		ac_enc_renorm(ec);
+	acval_enc(0, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);//
+	//acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->cidx);//
+}
+INLINE unsigned ac_dec_getcdf(ArithmeticCoder *ec)//preferred for skewed distributions as with 'pack sign'
+{
+	unsigned cdf=(unsigned)(((ec->code-ec->low)<<16|0xFFFF)/ec->range);
+	return cdf;
+}
+INLINE void ac_dec_update(ArithmeticCoder *ec, int cdf, int freq)//preferred for skewed distributions as with 'pack sign'
+{
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
+		LOG_ERROR2("ZPS");
+#endif
+	ec->low+=ec->range*cdf>>16;
+	ec->range*=freq;
+	ec->range>>=16;
+	--ec->range;//must decrement hi because decoder fails when code == hi2
+	while(ec->range<(1LL<<PROB_BITS))
+		ac_dec_renorm(ec);
+	acval_dec(0, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
+}
+
+INLINE void ac_enc_av2(ArithmeticCoder *ec, int sym, const unsigned *CDF1, const unsigned *CDF2, int nlevels)//CDF is 16 bit
 {
 	unsigned cdf=(CDF1[sym]+CDF2[sym])>>1;
 	int freq=((CDF1[sym+1]+CDF2[sym+1])>>1)-cdf;
@@ -327,7 +368,7 @@ INLINE void ac_enc_av2(ArithmeticCoder *ec, int sym, const unsigned *CDF1, const
 	acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);//
 	//acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->cidx);//
 }
-INLINE int ac_dec_packedsign_av2(ArithmeticCoder *ec, const unsigned *CDF1, const unsigned *CDF2, int alpha, int nlevels)//preferred for skewed distributions as with 'pack sign'
+INLINE int ac_dec_packedsign_av2(ArithmeticCoder *ec, const unsigned *CDF1, const unsigned *CDF2, int nlevels)//preferred for skewed distributions as with 'pack sign'
 {
 	unsigned cdf=(unsigned)(((ec->code-ec->low)<<16|0xFFFF)/ec->range);
 	int freq;
@@ -357,7 +398,7 @@ INLINE int ac_dec_packedsign_av2(ArithmeticCoder *ec, const unsigned *CDF1, cons
 }
 
 #define AV4_CDFs(IDX) ((CDF1[IDX]+CDF2[IDX]+CDF3[IDX]+CDF4[IDX])>>2)
-INLINE void ac_enc_av4(ArithmeticCoder *ec, int sym, const unsigned *CDF1, const unsigned *CDF2, const unsigned *CDF3, const unsigned *CDF4, int alpha, int beta)//CDF is 16 bit
+INLINE void ac_enc_av4(ArithmeticCoder *ec, int sym, const unsigned *CDF1, const unsigned *CDF2, const unsigned *CDF3, const unsigned *CDF4)//CDF is 16 bit
 {
 	unsigned cdf=AV4_CDFs(sym);
 	int freq=AV4_CDFs(sym+1)-cdf;
@@ -379,7 +420,7 @@ INLINE void ac_enc_av4(ArithmeticCoder *ec, int sym, const unsigned *CDF1, const
 	acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);//
 	//acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->cidx);//
 }
-INLINE int ac_dec_packedsign_av4(ArithmeticCoder *ec, const unsigned *CDF1, const unsigned *CDF2, const unsigned *CDF3, const unsigned *CDF4, int alpha, int beta, int nlevels)//preferred for skewed distributions as with 'pack sign'
+INLINE int ac_dec_packedsign_av4(ArithmeticCoder *ec, const unsigned *CDF1, const unsigned *CDF2, const unsigned *CDF3, const unsigned *CDF4, int nlevels)//preferred for skewed distributions as with 'pack sign'
 {
 	unsigned cdf=(unsigned)(((ec->code-ec->low)<<16|0xFFFF)/ec->range);
 	int freq;

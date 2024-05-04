@@ -36,6 +36,8 @@ void pred_clampgrad_fast(Image *src, int fwd, const char *depths);
 void pred_wp_deferred(Image *src, int fwd);
 void pred_simd(Image *src, int fwd, const char *depths);
 
+void pred_PU(Image *src, int fwd);
+
 
 //entropy estimators
 void calc_csize(Image const *src, const char *depths, double *ret_csizes, double *ret_invCR);//depths[4];  ret[5] TRGBA
@@ -104,11 +106,11 @@ int	f11_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 //F12 conditional histogram
 int f12_statstest(const char *path);
 
-//F13
+//F13 select 3 from 18 channels, dedicated loops, deferred summation, average of 4 quantized CDFs
 int f13_encode(Image const *src, ArrayHandle *data, int loud);
 int f13_decode(const unsigned char *data, size_t len, Image *dst, int loud);
 
-//F14-adaptive-5+4-deferred-wp	AV4-CDFs	8-bit only, AVX2
+//F14 select 3 from 20 channels, code 4-bit symbols, average of 2 CDFs, AVX2
 int	f14_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
 #define f14_encode(SRC, DATA, LOUD)		f14_codec(SRC, DATA, 0, 0, 0, LOUD)
 #define f14_decode(CBUF, CSIZE, DST, LOUD)	f14_codec(0, 0, CBUF, CSIZE, DST, LOUD)

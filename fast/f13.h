@@ -59,7 +59,7 @@
 	token=quantize_pixel(delta, &bypass, &nbits);
 	PROF(TOKEN);
 
-	ac_enc_av4(ec, token, curr_CDF1, curr_CDF2, curr_CDF3, curr_CDF4, alpha, beta);
+	ac_enc_av4(ec, token, curr_CDF1, curr_CDF2, curr_CDF3, curr_CDF4);
 	//ac_enc_av2(ec, token, curr_CDF1, curr_CDF2, alpha);
 	if(nbits)
 		ac_enc_bypass(ec, bypass, 1<<nbits);
@@ -161,7 +161,7 @@
 	int     *curr_hist4=hist+ctx4;
 	PROF(CTX);
 
-	int token=ac_dec_packedsign_av4(ec, curr_CDF1, curr_CDF2, curr_CDF3, curr_CDF4, alpha, beta, nqlevels);
+	int token=ac_dec_packedsign_av4(ec, curr_CDF1, curr_CDF2, curr_CDF3, curr_CDF4, nqlevels);
 	//int token=ac_dec_packedsign_av2(ec, curr_CDF1, curr_CDF2, alpha, nqlevels);
 	int bypass, nbits;
 	PROF(CODE);

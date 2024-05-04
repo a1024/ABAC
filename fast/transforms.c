@@ -338,6 +338,105 @@ void pred_simd(Image *src, int fwd, const char *depths)
 	free(pixels);
 }
 
+void pred_PU(Image *src, int fwd)
+{
+	int *pixels=(int*)malloc((src->iw+4LL)*sizeof(int[4*4]));//2 padded rows * 4 channels max
+	if(!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(pixels, 0, (src->iw+4LL)*sizeof(int[4*4]));
+	int depth=src->depth, nlevels=1<<depth, half=nlevels>>1;
+	int perm[]={1, 2, 0, 3};
+	int fwdmask=-fwd;
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		int *rows[]=
+		{
+			pixels+(((src->iw+4LL)*((ky-0LL)&3)+2)<<2),
+			pixels+(((src->iw+4LL)*((ky-1LL)&3)+2)<<2),
+			pixels+(((src->iw+4LL)*((ky-2LL)&3)+2)<<2),
+			pixels+(((src->iw+4LL)*((ky-3LL)&3)+2)<<2),
+		};
+		for(int kx=0;kx<src->iw;++kx, idx+=src->nch)
+		{
+			if(!fwd&&src->nch>=3)
+			{
+				int
+					NN	=rows[2][1+0*4],
+					NW	=rows[1][1-1*4],
+					N	=rows[1][1+0*4],
+					NE	=rows[1][1+1*4],
+					WW	=rows[0][1-2*4],
+					W	=rows[0][1-1*4],
+					cb	=src->data[idx+2],
+					cr	=src->data[idx+0];
+				int update=(2*(NN+WW)-(N+W+NW+NE)+4*(cb+cr))>>4;
+				update=CLAMP(-half, update, half-1);
+				int luma=src->data[idx+1]-update;//subtract update
+				luma+=half;
+				luma&=nlevels-1;
+				luma-=half;
+				src->data[idx+1]=luma;
+			}
+			for(int kc0=0;kc0<src->nch;++kc0)
+			{
+				int kc=perm[kc0];
+				int
+					NW	=rows[1][kc-1*4],
+					N	=rows[1][kc+0*4],
+					W	=rows[0][kc-1*4],
+					offset	=0;
+				if(kc0>0)
+					offset+=rows[0][perm[0]];
+				int pred=N+W-NW;
+				int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
+				pred=CLAMP(vmin, pred, vmax);
+				//pred=(N+W)>>1;
+				pred+=offset;
+				pred=CLAMP(-half, pred, half-1);
+
+				int curr=src->data[idx+kc];
+				pred^=fwdmask;
+				pred-=fwdmask;
+				pred+=curr;
+
+				pred+=nlevels>>1;
+				pred&=nlevels-1;
+				pred-=nlevels>>1;
+
+				src->data[idx+kc]=pred;
+				rows[0][kc]=(fwd?curr:pred)-offset;
+			}
+			if(fwd&&src->nch>=3)
+			{
+				int
+					NN	=rows[2][1+0*4],
+					NW	=rows[1][1-1*4],
+					N	=rows[1][1+0*4],
+					NE	=rows[1][1+1*4],
+					WW	=rows[0][1-2*4],
+					W	=rows[0][1-1*4],
+					cb	=src->data[idx+2],
+					cr	=src->data[idx+0];
+				int update=(2*(NN+WW)-(N+W+NW+NE)+4*(cb+cr))>>4;
+				update=CLAMP(-half, update, half-1);
+				int luma=src->data[idx+1]+update;//add update
+				luma+=half;
+				luma&=nlevels-1;
+				luma-=half;
+				src->data[idx+1]=luma;
+			}
+			rows[0]+=4;
+			rows[1]+=4;
+			rows[2]+=4;
+			rows[3]+=4;
+		}
+	}
+	free(pixels);
+}
+
 
 	#define WP_RCT
 
