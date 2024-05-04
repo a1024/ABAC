@@ -20,10 +20,10 @@ typedef void *THREAD_RET;
 static const char file[]=__FILE__;
 
 
-#define CODECID     14
-#define CODECNAME "F14"
-#define ENCODE     f14_encode
-#define DECODE     f14_decode
+#define CODECID     15
+#define CODECNAME "F15"
+#define ENCODE     f15_encode
+#define DECODE     f15_decode
 
 
 static const char *g_extensions[]=
@@ -306,6 +306,15 @@ static void batch_test_mt(const char *path, int nthreads)
 int main(int argc, char **argv)
 {
 #if 0
+	for(int ky=0;ky<16;++ky)
+	{
+		for(int kx=0;kx<16;++kx)
+			printf("%3d,", ky<<4|kx);
+		printf("\n");
+	}
+	pause();
+#endif
+#if 0
 	for(int k=0;k<1000000;++k)
 	{
 		unsigned long long n=0;
@@ -358,10 +367,10 @@ int main(int argc, char **argv)
 	const char *fn=argv[1];
 #else
 	const char *fn=
-	//	"D:/ML/dataset-kodak/kodim13.png"
+		"D:/ML/dataset-kodak/kodim13.png"
 	//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
 	//	"D:/ML/big_building.PPM"
-		"C:/dataset-LPCB-ppm/PIA13785.ppm"
+	//	"C:/dataset-LPCB-ppm/PIA13785.ppm"
 	//	"C:/dataset-LPCB-ppm/STA13456.ppm"	//uncorrelated channels
 	//	"C:/dataset-LPCB-ppm/PIA13799.ppm"
 	//	"D:/ML/dataset-RAW/a0001-jmac_DSC1459.dng"

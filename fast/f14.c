@@ -306,7 +306,7 @@ int f14_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			}
 		}
 		double t1=time_sec();
-		ptrdiff_t field=(image->iw-1LL)*(image->ih-1LL);
+		ptrdiff_t field=(image->iw-3LL)*(image->ih-2LL);
 		double esizes[NRCH+NGCH+NBCH]={0};
 		for(int kt=0;kt<NRCH+NGCH+NBCH;++kt)
 		{
@@ -383,7 +383,6 @@ int f14_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 
 		errorimage=dst;
 	}
-	//unsigned *mixin_CDFs=(unsigned*)malloc(sizeof(int[16*16]));
 	int ctxsize=quantize_ctx(nlevels>>1)+1;
 	int treesize=0;
 	for(int k=0, p=1;k<depth;k+=4, p<<=4)
@@ -400,8 +399,6 @@ int f14_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	//prepare stats
 	for(int ks=0;ks<16;++ks)
 		stats[ks]=ks<<12;
-	//for(int ks=0;ks<16;++ks)
-	//	stats[ks+16]=0x10000;
 	memfill(stats+16, stats, sizeof(int[16])*(treesize-1LL), sizeof(int[16]));
 	for(int ks=0;ks<nlevels;++ks)
 	{
@@ -533,15 +530,14 @@ int f14_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		{
 			ptrdiff_t usize=((ptrdiff_t)src->iw*src->ih*src->nch*src->depth+7)>>3;
 			ptrdiff_t csize=list.nobj;
-			printf("%14td/%14td = %10.6lf%%  CR %lf\n", csize, usize, 100.*csize/usize, (double)usize/csize);
-			printf("  Encode\t%16.6lf sec\n", t4-t3);
-			printf("  Append\t%16.6lf sec\n", t5-t4);
-
-			printf("Memory usage:\n");
+			printf("Memory usage:      %17.2lf MB\n", (statssize+bufsize+usize)/(1024.*1024));
 			printf("  Stats:           %14zd bytes\n", statssize);
 			printf("  Circular buffer: %14zd bytes\n", bufsize);
 			printf("  Temporary image: %14zd bytes\n", usize);
-			printf("  Total:           %17.2lf MB\n", (statssize+bufsize+usize)/(1024.*1024));
+
+			printf("%14td/%14td = %10.6lf%%  CR %lf\n", csize, usize, 100.*csize/usize, (double)usize/csize);
+			printf("  Encode\t%16.6lf sec\n", t4-t3);
+			printf("  Append\t%16.6lf sec\n", t5-t4);
 		}
 		else
 		{
@@ -549,6 +545,8 @@ int f14_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			printf("  Unpred\t%16.6lf sec\n", t5-t4);
 		}
 		printf("%c       \t%16.6lf sec\n", 'D'+fwd, t5-t0);
+		if(fwd)
+			printf("\n");
 		//prof_print();
 	}
 	if(fwd)

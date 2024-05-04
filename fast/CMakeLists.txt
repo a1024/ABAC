@@ -13,6 +13,7 @@
 	f12.c
 	f13.c
 	f14.c
+	f15.c
 	fast.c
 	format.c
 	huffman.c

@@ -385,13 +385,13 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	{
 		unsigned *curr_CDF=mixin_CDFs+32*kt;
 		for(int ks=0;ks<32;++ks)
-			curr_CDF[ks]=(ks>kt)*(0x10000-32)+ks;
+			curr_CDF[ks]=((0x10000-32)&-(ks>kt))+ks;
 	}
 	for(int kt=0;kt<16;++kt)
 	{
 		unsigned *curr_CDF=mixin_CDFs+1024+16*kt;
 		for(int ks=0;ks<16;++ks)
-			curr_CDF[ks]=(ks>kt)*(0x10000-16)+ks;
+			curr_CDF[ks]=((0x10000-16)&-(ks>kt))+ks;
 	}
 	//initialize to bypass
 	for(int ks=0;ks<33;++ks)

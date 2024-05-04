@@ -115,6 +115,11 @@ int	f14_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #define f14_encode(SRC, DATA, LOUD)		f14_codec(SRC, DATA, 0, 0, 0, LOUD)
 #define f14_decode(CBUF, CSIZE, DST, LOUD)	f14_codec(0, 0, CBUF, CSIZE, DST, LOUD)
 
+//F15 select 3 from 23 channels, code 4-bit symbols, average of 2 CDFs, AVX2, single-pass decoder
+int	f15_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
+#define f15_encode(SRC, DATA, LOUD)		f15_codec(SRC, DATA, 0, 0, 0, LOUD)
+#define f15_decode(CBUF, CSIZE, DST, LOUD)	f15_codec(0, 0, CBUF, CSIZE, DST, LOUD)
+
 
 #ifdef __cplusplus
 }
