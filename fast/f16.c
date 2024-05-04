@@ -163,7 +163,7 @@ static void update_CDF(int sym, unsigned short *CDF)
 	CDF[1]+=(int)((((1<<14)-(1<<NBITS)/4)&-(1>sym))-CDF[1])>>8;
 #endif
 
-#if 1
+#if 0
 	for(int ks=0;ks<(1<<NBITS)-1;++ks)
 	{
 		if(CDF[ks]>CDF[ks+1])
@@ -451,11 +451,9 @@ int f16_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		for(int kx=0;kx<image->iw;++kx, idx+=3)
 		{
 			short
-			//	*NN	=rows[2]+0*8,
 				*NW	=rows[1]-1*8,
 				*N	=rows[1]+0*8,
 				*NE	=rows[1]+1*8,
-			//	*WW	=rows[0]-2*8,
 				*W	=rows[0]-1*8,
 				*curr	=rows[0]+0*8;
 			int offset=0;
