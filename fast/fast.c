@@ -375,10 +375,10 @@ int main(int argc, char **argv)
 	//	"C:/dataset-LPCB-ppm/PIA13799.ppm"
 	//	"D:/ML/dataset-RAW/a0001-jmac_DSC1459.dng"
 
-		"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
+	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
 	//	"C:/Projects/datasets/dataset-kodak/kodim13.png"
 	//	"C:/Projects/datasets/kodim13-small4.PNG"
-	//	"C:/Projects/datasets/big_building.PPM"
+		"C:/Projects/datasets/big_building.PPM"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/Projects/datasets/dataset-ic-rgb16bit/deer.png"
 	//	"C:/Projects/datasets/jupiter.PNG"

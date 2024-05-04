@@ -6,16 +6,23 @@
 static const char file[]=__FILE__;
 
 
+//	#define UPDATE_LUMA
+
+
 #include"ac.h"
 //#include"profiler.h"
 
 static int quantize_ctx(int x)
 {
+	int negmask=-(x<0);
 	x=abs(x);
 	x=floor_log2_32(x)+1;
 	//x=floor_log2_32(x)+1;
+	x^=negmask;
+	x-=negmask;
 	return x;
 }
+#define QUANTIZE(X) quantize_ctx(X)+(ctxsize>>1)
 static int CG(int N, int W, int NW)
 {
 	int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
@@ -29,7 +36,9 @@ static int clamp(int vmin, int x, int vmax)
 }
 #define NBITS 4		//{1, 2, 4, 8}
 #define NCTX 4
-#define UPDATE_SHIFT 8
+#define SAMPLE_STRIDE 8
+#define UPDATE_SHIFT 7
+#define CDF_MASK 7
 
 #define NGCH 8
 #define NBCH 6
@@ -171,6 +180,21 @@ static void predict(short **rows, int *predictors, short *dst, int half)
 		*WW	=rows[0]-2*8,
 		*W	=rows[0]-1*8,
 		*curr	=rows[0]+0*8;
+	ALIGN(16) short cgrad[8], cmin[8], cmax[8];
+	__m128i mN=_mm_load_si128((__m128i*)N);
+	__m128i mW=_mm_load_si128((__m128i*)W);
+	__m128i mNW=_mm_load_si128((__m128i*)NW);
+	__m128i mNE=_mm_load_si128((__m128i*)NE);
+	mNW=_mm_sub_epi16(_mm_add_epi16(mN, mW), mNW);
+	__m128i mmin=_mm_min_epi16(mN, mW);
+	__m128i mmax=_mm_max_epi16(mN, mW);
+	__m128i mgrad=_mm_min_epi16(mmax, mNW);
+	mgrad=_mm_max_epi16(mgrad, mmin);
+	mmin=_mm_min_epi16(mmin, mNE);
+	mmax=_mm_max_epi16(mmax, mNE);
+	_mm_store_si128((__m128i*)cgrad, mgrad);
+	_mm_store_si128((__m128i*)cmin, mmin);
+	_mm_store_si128((__m128i*)cmax, mmax);
 	for(int kc0=0;kc0<3;++kc0)
 	{
 		int kc=perm[kc0], pidx=predictors[kc];
@@ -181,7 +205,7 @@ static void predict(short **rows, int *predictors, short *dst, int half)
 			if((unsigned)(pidx-(NGCH+NBCH+6))<3)
 				offset=(2*offset+curr[2])>>1;//(2*g+[b-g])/2 = (g+b)/2
 		}
-		int pred=0, vmin, vmax, val;
+		int pred=0, val;
 		switch(pidx)
 		{
 		case 0:
@@ -197,45 +221,35 @@ static void predict(short **rows, int *predictors, short *dst, int half)
 		case 2:
 		case NGCH+2:case NGCH+5:
 		case NGCH+NBCH+2:case NGCH+NBCH+5:case NGCH+NBCH+8:
-			pred=N[kc]+W[kc]-NW[kc];
-			vmin=MINVAR(N[kc], W[kc]);
-			vmax=MAXVAR(N[kc], W[kc]);
-			pred=CLAMP(vmin, pred, vmax);
+			pred=cgrad[kc];
+			//pred=N[kc]+W[kc]-NW[kc];
+			//vmin=MINVAR(N[kc], W[kc]);
+			//vmax=MAXVAR(N[kc], W[kc]);
+			//pred=CLAMP(vmin, pred, vmax);
 			break;
 		case 3:
-			pred=N[kc]+W[kc]-NW[kc];
-			vmin=MINVAR(N[kc], W[kc]);
-			vmax=MAXVAR(N[kc], W[kc]);
-			pred=CLAMP(vmin, pred, vmax);
+			pred=cgrad[kc];
+			//pred=N[kc]+W[kc]-NW[kc];
+			//vmin=MINVAR(N[kc], W[kc]);
+			//vmax=MAXVAR(N[kc], W[kc]);
+			//pred=CLAMP(vmin, pred, vmax);
 			pred=(16*pred+N[kc]+W[kc]+NW[kc]+NE[kc]-2*(NN[kc]+WW[kc]))>>4;
 			break;
 		case 4:
-			vmin=MINVAR(N[kc], W[kc]);
-			vmax=MAXVAR(N[kc], W[kc]);
-			UPDATE_MIN(vmin, NE[kc]);
-			UPDATE_MAX(vmax, NE[kc]);
-			pred=clamp(vmin, (3*(N[kc]+2*W[kc]-NW[kc])+2*NE[kc])>>3, vmax);
+			pred=(3*(N[kc]+2*W[kc]-NW[kc])+2*NE[kc])>>3;
+			pred=CLAMP(cmin[kc], pred, cmax[kc]);
 			break;
 		case 5:
-			vmin=MINVAR(N[kc], W[kc]);
-			vmax=MAXVAR(N[kc], W[kc]);
-			UPDATE_MIN(vmin, NE[kc]);
-			UPDATE_MAX(vmax, NE[kc]);
-			pred=clamp(vmin, (4*(N[kc]+W[kc])+W[kc]-2*NW[kc]+NE[kc])>>3, vmax);
+			pred=(4*(N[kc]+W[kc])+W[kc]-2*NW[kc]+NE[kc])>>3;
+			pred=CLAMP(cmin[kc], pred, cmax[kc]);
 			break;
 		case 6:
-			vmin=MINVAR(N[kc], W[kc]);
-			vmax=MAXVAR(N[kc], W[kc]);
-			UPDATE_MIN(vmin, NE[kc]);
-			UPDATE_MAX(vmax, NE[kc]);
-			pred=clamp(vmin, (3*(N[kc]+W[kc])-2*NW[kc])>>2, vmax);
+			pred=(3*(N[kc]+W[kc])-2*NW[kc])>>2;
+			pred=CLAMP(cmin[kc], pred, cmax[kc]);
 			break;
 		case 7:
-			vmin=MINVAR(N[kc], W[kc]);
-			vmax=MAXVAR(N[kc], W[kc]);
-			UPDATE_MIN(vmin, NE[kc]);
-			UPDATE_MAX(vmax, NE[kc]);
-			pred=clamp(vmin, (4*(N[kc]+W[kc])+NE[kc]-NW[kc])>>3, vmax);
+			pred=(4*(N[kc]+W[kc])+NE[kc]-NW[kc])>>3;
+			pred=CLAMP(cmin[kc], pred, cmax[kc]);
 			break;
 		}
 		pred+=offset;
@@ -276,7 +290,7 @@ int f16_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	int depth=image->depth, nlevels=1<<depth, half=nlevels>>1;
 	ArithmeticCoder ec;
 	DList list;
-	dlist_init(&list, 1, 256, 0);
+	dlist_init(&list, 1, 0x10000, 0);
 	if(fwd)
 	{
 		int rowstride=image->iw*3;
@@ -288,9 +302,9 @@ int f16_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			return 1;
 		}
 		memset(hist, 0, histsize);
-		for(int ky=2;ky<image->ih;++ky)
+		for(int ky=2;ky<image->ih-(SAMPLE_STRIDE-1);ky+=SAMPLE_STRIDE)
 		{
-			for(int kx=2;kx<image->iw-1;++kx)
+			for(int kx=2;kx<image->iw-1-(SAMPLE_STRIDE-1);kx+=SAMPLE_STRIDE)
 			{
 #define LOAD(C, X, Y) image->data[idx+rowstride*(Y)+3*(X)+C]
 				int
@@ -333,7 +347,7 @@ int f16_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			}
 		}
 		double t1=time_sec();
-		ptrdiff_t field=(image->iw-3LL)*(image->ih-2LL);
+		ptrdiff_t field=((image->iw-3LL)/SAMPLE_STRIDE)*((image->ih-2LL)/SAMPLE_STRIDE);
 		double esizes[NRCH+NGCH+NBCH]={0};
 		for(int kt=0;kt<NRCH+NGCH+NBCH;++kt)
 		{
@@ -357,16 +371,17 @@ int f16_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			for(int kt=0;kt<NCH;++kt)
 			{
 				char c=' ';
-				if(kt==ridx)
-					c='V';
 				if(kt==gidx)
 					c='Y';
 				if(kt==bidx)
 					c='U';
+				if(kt==ridx)
+					c='V';
 				printf("%2d  %14.2lf  %6.2lf%%  %14.6lf  %c  %s\n", kt, esizes[kt], 100.*esizes[kt]/usize, usize/esizes[kt], c, chnames[kt]);
 			}
 			double esize=esizes[ridx]+esizes[gidx]+esizes[bidx];
-			printf("Estimated size %.2lf bytes  CR %lf\n", esize, 3*usize/esize);
+			usize*=3;
+			printf("Estimated size %.2lf/%td bytes  CR %lf\n", esize, usize, usize/esize);
 			printf("Sampling\t%16.6lf sec  %lf B/s\n", t1-t0, usize/(t1-t0));
 			printf("Analysis\t%16.6lf sec\n", t2-t1);
 		}
@@ -393,14 +408,17 @@ int f16_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		clen-=2;
 		ac_dec_init(&ec, cbuf, cbuf+clen);
 	}
-	int ctxsize=quantize_ctx(nlevels>>1)+1;
+	int ctxsize=quantize_ctx(nlevels*7>>1)<<1|1;
+	//int ctxsize=quantize_ctx(nlevels>>1)+1;//Q(x) = log2(abs(x))
 	int nnodes=0;
 	for(int k=0, p=1;k<depth;k+=NBITS, p<<=NBITS)
 		nnodes+=p;
 	size_t statssize=sizeof(short[NCTX<<NBITS])*nnodes*ctxsize*image->nch;
 	unsigned short *stats=(unsigned short*)_mm_malloc(statssize, sizeof(__m256i));
 	size_t bufsize=sizeof(short[4*4*2])*(image->iw+4LL);//4 padded rows * 4 channels max * {pixels, errors}
-	short *pixels=(short*)malloc(bufsize);
+	short *pixels=(short*)_mm_malloc(bufsize, sizeof(__m128i));
+	//size_t squeuesize=sizeof(char[(CDF_MASK+1)*4])*image->depth/NBITS;
+	//unsigned char *symq=(unsigned char*)malloc(squeuesize);
 	if(!stats||!pixels)
 	{
 		LOG_ERROR("Alloc error");
@@ -424,11 +442,13 @@ int f16_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	memfill(stats+((size_t)nnodes<<NBITS), stats, statssize-sizeof(short[1LL<<NBITS])*nnodes, sizeof(short[1LL<<NBITS])*nnodes);
 
 	memset(pixels, 0, bufsize);
+	//memset(symq, 0, squeuesize);
+	//int qidx=0;
 	int perm[]={1, 2, 0, 3};
 	double t3=time_sec();
 	//PROF(PREP);
 	int predictors[]={ridx, gidx, bidx};
-	for(int ky=0, idx=0;ky<image->ih;++ky)
+	for(int ky=0, idx=0, idx2=0;ky<image->ih;++ky)
 	{
 		short *rows[]=
 		{
@@ -437,12 +457,16 @@ int f16_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			pixels+(((image->iw+4LL)*((ky-2LL)&3)+2)<<3),
 			pixels+(((image->iw+4LL)*((ky-3LL)&3)+2)<<3),
 		};
-		for(int kx=0;kx<image->iw;++kx, idx+=3)
+		for(int kx=0;kx<image->iw;++kx, idx+=3, ++idx2)
 		{
 			short
+				*NNWW	=rows[2]-2*8,
+				*NN	=rows[2]+0*8,
+				*NNEE	=rows[2]+2*8,
 				*NW	=rows[1]-1*8,
 				*N	=rows[1]+0*8,
 				*NE	=rows[1]+1*8,
+				*WW	=rows[0]-2*8,
 				*W	=rows[0]-1*8,
 				*curr	=rows[0]+0*8;
 			int ctx1, ctx2, ctx3, ctx4;
@@ -459,13 +483,13 @@ int f16_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			{
 				memcpy(curr, image->data+idx, sizeof(short[3]));
 				predict(rows, predictors, 0, half);
+#ifdef UPDATE_LUMA
 				int luma=curr[4+1]+((curr[4+0]+curr[4+2])>>2);//update
 				luma+=half;
 				luma&=nlevels-1;
 				luma-=half;
-				//if((curr[0]+curr[2])>>2)//
-				//	printf("");
 				curr[4+1]=luma;
+#endif
 			}
 			for(int kc0=0;kc0<3;++kc0)
 			{
@@ -481,10 +505,18 @@ int f16_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 
 				int kc=perm[kc0];
 
-				ctx1=quantize_ctx(N [kc+4]);
-				ctx2=quantize_ctx(W [kc+4]);
-				ctx3=quantize_ctx(NW[kc+4]);
-				ctx4=quantize_ctx(NE[kc+4]);
+				ctx1=QUANTIZE(N [kc+4]*7);
+				ctx2=QUANTIZE(W [kc+4]*7);
+				ctx3=QUANTIZE(NW[kc+4]*7);
+				ctx4=QUANTIZE(NE[kc+4]*7);
+				ctx1=CLAMP(0, ctx1, ctxsize-1);
+				ctx2=CLAMP(0, ctx2, ctxsize-1);
+				ctx3=CLAMP(0, ctx3, ctxsize-1);
+				ctx4=CLAMP(0, ctx4, ctxsize-1);
+				//ctx1=QUANTIZE(N [kc+4]*7-NN  [kc+4]*2);
+				//ctx2=QUANTIZE(W [kc+4]*7-WW  [kc+4]*2);
+				//ctx3=QUANTIZE(NW[kc+4]*7-NNWW[kc+4]*2);
+				//ctx4=QUANTIZE(NE[kc+4]*7-NNEE[kc+4]*2);
 				tree1=stats+(nnodes*((size_t)ctxsize*NCTX*kc+ctx1+ctxsize*0LL)<<NBITS);
 				tree2=stats+(nnodes*((size_t)ctxsize*NCTX*kc+ctx2+ctxsize*1LL)<<NBITS);
 				tree3=stats+(nnodes*((size_t)ctxsize*NCTX*kc+ctx3+ctxsize*2LL)<<NBITS);
@@ -504,10 +536,44 @@ int f16_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						cdf=CDF1[sym]+CDF2[sym]+CDF3[sym]+CDF4[sym]+sym;
 						freq=(sym>=(1<<NBITS)-1?0x10000:CDF1[sym+1]+CDF2[sym+1]+CDF3[sym+1]+CDF4[sym+1]+sym+1)-cdf;
 						ac_enc_update(&ec, cdf, freq);
-						update_CDF(sym, CDF1);
-						update_CDF(sym, CDF2);
-						update_CDF(sym, CDF3);
-						update_CDF(sym, CDF4);
+
+						if(!(idx2&CDF_MASK))
+						{
+#if NBITS==4
+							__m256i ramp=_mm256_set_epi16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
+							__m256i mamp=_mm256_set1_epi16((1<<14)-(1<<NBITS)/4);
+							
+							__m256i msym=_mm256_set1_epi16(sym);
+							__m256i update=_mm256_cmpgt_epi16(ramp, msym);
+							update=_mm256_and_si256(update, mamp);
+
+							__m256i mcdfA=_mm256_load_si256((__m256i*)CDF1);
+							__m256i mcdfB=_mm256_load_si256((__m256i*)CDF2);
+							__m256i mcdfC=_mm256_load_si256((__m256i*)CDF3);
+							__m256i mcdfD=_mm256_load_si256((__m256i*)CDF4);
+							__m256i updateA=_mm256_sub_epi16(update, mcdfA);
+							__m256i updateB=_mm256_sub_epi16(update, mcdfB);
+							__m256i updateC=_mm256_sub_epi16(update, mcdfC);
+							__m256i updateD=_mm256_sub_epi16(update, mcdfD);
+							updateA=_mm256_srai_epi16(updateA, UPDATE_SHIFT);
+							updateB=_mm256_srai_epi16(updateB, UPDATE_SHIFT);
+							updateC=_mm256_srai_epi16(updateC, UPDATE_SHIFT);
+							updateD=_mm256_srai_epi16(updateD, UPDATE_SHIFT);
+							mcdfA=_mm256_add_epi16(mcdfA, updateA);
+							mcdfB=_mm256_add_epi16(mcdfB, updateB);
+							mcdfC=_mm256_add_epi16(mcdfC, updateC);
+							mcdfD=_mm256_add_epi16(mcdfD, updateD);
+							_mm256_store_si256((__m256i*)CDF1, mcdfA);
+							_mm256_store_si256((__m256i*)CDF2, mcdfB);
+							_mm256_store_si256((__m256i*)CDF3, mcdfC);
+							_mm256_store_si256((__m256i*)CDF4, mcdfD);
+#else
+							update_CDF(sym, CDF1);
+							update_CDF(sym, CDF2);
+							update_CDF(sym, CDF3);
+							update_CDF(sym, CDF4);
+#endif
+						}
 						tidx=(tidx<<NBITS)+sym+1;
 					}
 				}
@@ -596,48 +662,56 @@ int f16_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						freq=(sym>=(1<<NBITS)-1?0x10000:CDF1[sym+1]+CDF2[sym+1]+CDF3[sym+1]+CDF4[sym+1]+sym+1)-cdf;
 						ac_dec_update(&ec, cdf, freq);
 						token|=sym<<kb;
-#if NBITS==4
-						__m256i mamp=_mm256_set1_epi16((1<<14)-(1<<NBITS)/4);
 
-						__m256i msym=_mm256_set1_epi16(sym);
-						__m256i update=_mm256_cmpgt_epi16(ramp, msym);
-						update=_mm256_and_si256(update, mamp);
-						__m256i updateA=_mm256_sub_epi16(update, mcdfA);
-						__m256i updateB=_mm256_sub_epi16(update, mcdfB);
-						__m256i updateC=_mm256_sub_epi16(update, mcdfC);
-						__m256i updateD=_mm256_sub_epi16(update, mcdfD);
-						updateA=_mm256_srai_epi16(updateA, UPDATE_SHIFT);
-						updateB=_mm256_srai_epi16(updateB, UPDATE_SHIFT);
-						updateC=_mm256_srai_epi16(updateC, UPDATE_SHIFT);
-						updateD=_mm256_srai_epi16(updateD, UPDATE_SHIFT);
-						mcdfA=_mm256_add_epi16(mcdfA, updateA);
-						mcdfB=_mm256_add_epi16(mcdfB, updateB);
-						mcdfC=_mm256_add_epi16(mcdfC, updateC);
-						mcdfD=_mm256_add_epi16(mcdfD, updateD);
-						_mm256_store_si256((__m256i*)CDF1, mcdfA);
-						_mm256_store_si256((__m256i*)CDF2, mcdfB);
-						_mm256_store_si256((__m256i*)CDF3, mcdfC);
-						_mm256_store_si256((__m256i*)CDF4, mcdfD);
+						if(!(idx2&CDF_MASK))
+						{
+#if NBITS==4
+							__m256i mamp=_mm256_set1_epi16((1<<14)-(1<<NBITS)/4);
+
+							__m256i msym=_mm256_set1_epi16(sym);
+							__m256i update=_mm256_cmpgt_epi16(ramp, msym);
+							update=_mm256_and_si256(update, mamp);
+
+							__m256i updateA=_mm256_sub_epi16(update, mcdfA);
+							__m256i updateB=_mm256_sub_epi16(update, mcdfB);
+							__m256i updateC=_mm256_sub_epi16(update, mcdfC);
+							__m256i updateD=_mm256_sub_epi16(update, mcdfD);
+							updateA=_mm256_srai_epi16(updateA, UPDATE_SHIFT);
+							updateB=_mm256_srai_epi16(updateB, UPDATE_SHIFT);
+							updateC=_mm256_srai_epi16(updateC, UPDATE_SHIFT);
+							updateD=_mm256_srai_epi16(updateD, UPDATE_SHIFT);
+							mcdfA=_mm256_add_epi16(mcdfA, updateA);
+							mcdfB=_mm256_add_epi16(mcdfB, updateB);
+							mcdfC=_mm256_add_epi16(mcdfC, updateC);
+							mcdfD=_mm256_add_epi16(mcdfD, updateD);
+							_mm256_store_si256((__m256i*)CDF1, mcdfA);
+							_mm256_store_si256((__m256i*)CDF2, mcdfB);
+							_mm256_store_si256((__m256i*)CDF3, mcdfC);
+							_mm256_store_si256((__m256i*)CDF4, mcdfD);
 #else
-						update_CDF(sym, CDF1);
-						update_CDF(sym, CDF2);
-						update_CDF(sym, CDF3);
-						update_CDF(sym, CDF4);
+							update_CDF(sym, CDF1);
+							update_CDF(sym, CDF2);
+							update_CDF(sym, CDF3);
+							update_CDF(sym, CDF4);
 #endif
+						}
 						tidx=(tidx<<NBITS)+sym+1;
 					}
 					token=token>>1^-(token&1);
 					curr[kc+4]=token;
 				}
 			}
+			//++qidx;
 			if(!fwd&&image->nch>=3)
 			{
 				memcpy(dst->data+idx, curr+4, sizeof(short[3]));
+#ifdef UPDATE_LUMA
 				int luma=dst->data[idx+1]-((dst->data[idx+0]+dst->data[idx+2])>>2);//unupdate
 				luma+=half;
 				luma&=nlevels-1;
 				luma-=half;
 				dst->data[idx+1]=luma;
+#endif
 				predict(rows, predictors, dst->data+idx, half);
 			}
 			rows[0]+=8;
@@ -655,9 +729,9 @@ int f16_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	if(loud)
 	{
 		double t5=time_sec();
+		ptrdiff_t usize=((ptrdiff_t)image->iw*image->ih*image->nch*image->depth+7)>>3;
 		if(fwd)
 		{
-			ptrdiff_t usize=((ptrdiff_t)src->iw*src->ih*src->nch*src->depth+7)>>3;
 			ptrdiff_t csize=list.nobj;
 			printf("Memory usage:      %17.2lf MB\n", (statssize+bufsize+usize)/(1024.*1024));
 			printf("  Stats:           %14zd bytes\n", statssize);
@@ -670,7 +744,8 @@ int f16_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		}
 		else
 			printf("  Decode\t%16.6lf sec\n", t4-t3);
-		printf("%c       \t%16.6lf sec\n", 'D'+fwd, t5-t0);
+		t5-=t0;
+		printf("%c       \t%16.6lf sec  %16.6lf MB/s\n", 'D'+fwd, t5, usize/(t5*1024*1024));
 		if(fwd)
 			printf("\n");
 		//prof_print();
@@ -678,6 +753,7 @@ int f16_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	if(fwd)
 		dlist_clear(&list);
 	_mm_free(stats);
-	free(pixels);
+	_mm_free(pixels);
+	//free(symq);
 	return 0;
 }
