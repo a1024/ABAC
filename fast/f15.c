@@ -512,7 +512,7 @@ int f15_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 							mcdfA0=_mm256_cmpgt_epi32(mcdfA0, mlevel);
 							mcdfA1=_mm256_cmpgt_epi32(mcdfA1, mlevel);
 							unsigned short mask=_mm256_movemask_ps(_mm256_castsi256_ps(mcdfA1))<<8|_mm256_movemask_ps(_mm256_castsi256_ps(mcdfA0));
-							sym+=_tzcnt_u16(mask);
+							sym+=get_lsb_index16(mask);
 						}
 						--sym;
 #elif NBITS==4
@@ -536,7 +536,7 @@ int f15_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						mcdfA0=_mm256_cmpgt_epi32(mcdfA0, mlevel);
 						mcdfA1=_mm256_cmpgt_epi32(mcdfA1, mlevel);
 						unsigned short mask=_mm256_movemask_ps(_mm256_castsi256_ps(mcdfA1))<<8|_mm256_movemask_ps(_mm256_castsi256_ps(mcdfA0));
-						sym=_tzcnt_u16(mask)-1;
+						sym=get_lsb_index16(mask)-1;
 #elif NBITS==2
 						__m128i mlevel=_mm_set1_epi32(cdf);
 						__m128i mcdfA=_mm_load_si128((__m128i*)CDF1);
@@ -549,7 +549,7 @@ int f15_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						mcdfA=_mm_srai_epi32(mcdfA, 2);
 						mcdfA=_mm_cmpgt_epi32(mcdfA, mlevel);
 						unsigned short mask=_mm_movemask_ps(_mm_castsi128_ps(mcdfA));
-						sym=_tzcnt_u16(mask|0xFFF0)-1;
+						sym=get_lsb_index16(mask|0xFFF0)-1;
 #elif NBITS==1
 						sym=cdf>=((CDF1[1]+CDF2[1]+CDF3[1]+CDF4[1])>>2);
 #endif

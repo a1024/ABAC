@@ -145,8 +145,8 @@ static void update_CDF(int sym, unsigned short *CDF)
 	_mm256_store_si256((__m256i*)CDF, mcdf);
 #elif NBITS==2
 	CDF[1]+=(int)((((1<<14)-(1<<NBITS)/4)&-(1>sym))-CDF[1])>>8;
-	CDF[2]+=(int)((((1<<14)-(1<<NBITS)/4)&-(2>sym))-CDF[1])>>8;
-	CDF[3]+=(int)((((1<<14)-(1<<NBITS)/4)&-(3>sym))-CDF[1])>>8;
+	CDF[2]+=(int)((((1<<14)-(1<<NBITS)/4)&-(2>sym))-CDF[2])>>8;
+	CDF[3]+=(int)((((1<<14)-(1<<NBITS)/4)&-(3>sym))-CDF[3])>>8;
 	//__m128i ramp=_mm_set_epi32(3, 2, 1, 0);
 	//__m128i mamp=_mm_set1_epi32(0x10000-(1<<NBITS));
 	//
@@ -167,9 +167,110 @@ static void update_CDF(int sym, unsigned short *CDF)
 	for(int ks=0;ks<(1<<NBITS)-1;++ks)
 	{
 		if(CDF[ks]>CDF[ks+1])
-			LOG_ERROR("CDF[%d]=0x%08X\nCDF[%d]=0x%08X", ks, CDF[ks], ks+1, CDF[ks+1]);
+			LOG_ERROR("\nCDF[%d]=0x%08X\nCDF[%d]=0x%08X", ks, CDF[ks], ks+1, CDF[ks+1]);
 	}
 #endif
+}
+static void predict(short **rows, int *predictors, short *dst, int half)
+{
+	static const int perm[]={1, 2, 0, 3};
+	short
+		*NN	=rows[2]+0*8,
+		*NW	=rows[1]-1*8,
+		*N	=rows[1]+0*8,
+		*NE	=rows[1]+1*8,
+		*WW	=rows[0]-2*8,
+		*W	=rows[0]-1*8,
+		*curr	=rows[0]+0*8;
+	for(int kc0=0;kc0<3;++kc0)
+	{
+		int kc=perm[kc0], pidx=predictors[kc];
+		int offset=0;
+		if((unsigned)(pidx-(NGCH+3))<3||(unsigned)(pidx-(NGCH+NBCH+3))<6)
+		{
+			offset+=curr[1];
+			if((unsigned)(pidx-(NGCH+NBCH+6))<3)
+				offset=(2*offset+curr[2])>>1;//(2*g+[b-g])/2 = (g+b)/2
+		}
+		int pred=0, vmin, vmax, val;
+		switch(pidx)
+		{
+		case 0:
+		case NGCH+0:case NGCH+3:
+		case NGCH+NBCH+0:case NGCH+NBCH+3:case NGCH+NBCH+6:
+			pred=0;
+			break;
+		case 1:
+		case NGCH+1:case NGCH+4:
+		case NGCH+NBCH+1:case NGCH+NBCH+4:case NGCH+NBCH+7:
+			pred=(N[kc]+W[kc])>>1;
+			break;
+		case 2:
+		case NGCH+2:case NGCH+5:
+		case NGCH+NBCH+2:case NGCH+NBCH+5:case NGCH+NBCH+8:
+			pred=N[kc]+W[kc]-NW[kc];
+			vmin=MINVAR(N[kc], W[kc]);
+			vmax=MAXVAR(N[kc], W[kc]);
+			pred=CLAMP(vmin, pred, vmax);
+			break;
+		case 3:
+			pred=N[kc]+W[kc]-NW[kc];
+			vmin=MINVAR(N[kc], W[kc]);
+			vmax=MAXVAR(N[kc], W[kc]);
+			pred=CLAMP(vmin, pred, vmax);
+			pred=(16*pred+N[kc]+W[kc]+NW[kc]+NE[kc]-2*(NN[kc]+WW[kc]))>>4;
+			break;
+		case 4:
+			vmin=MINVAR(N[kc], W[kc]);
+			vmax=MAXVAR(N[kc], W[kc]);
+			UPDATE_MIN(vmin, NE[kc]);
+			UPDATE_MAX(vmax, NE[kc]);
+			pred=clamp(vmin, (3*(N[kc]+2*W[kc]-NW[kc])+2*NE[kc])>>3, vmax);
+			break;
+		case 5:
+			vmin=MINVAR(N[kc], W[kc]);
+			vmax=MAXVAR(N[kc], W[kc]);
+			UPDATE_MIN(vmin, NE[kc]);
+			UPDATE_MAX(vmax, NE[kc]);
+			pred=clamp(vmin, (4*(N[kc]+W[kc])+W[kc]-2*NW[kc]+NE[kc])>>3, vmax);
+			break;
+		case 6:
+			vmin=MINVAR(N[kc], W[kc]);
+			vmax=MAXVAR(N[kc], W[kc]);
+			UPDATE_MIN(vmin, NE[kc]);
+			UPDATE_MAX(vmax, NE[kc]);
+			pred=clamp(vmin, (3*(N[kc]+W[kc])-2*NW[kc])>>2, vmax);
+			break;
+		case 7:
+			vmin=MINVAR(N[kc], W[kc]);
+			vmax=MAXVAR(N[kc], W[kc]);
+			UPDATE_MIN(vmin, NE[kc]);
+			UPDATE_MAX(vmax, NE[kc]);
+			pred=clamp(vmin, (4*(N[kc]+W[kc])+NE[kc]-NW[kc])>>3, vmax);
+			break;
+		}
+		pred+=offset;
+		pred=CLAMP(-half, pred, half-1);
+
+		if(dst)//decoding
+		{
+			val=dst[kc]+pred;
+			val+=half;
+			val&=(half<<1)-1;
+			val-=half;
+			dst[kc]=val;
+			curr[kc]=val-offset;
+		}
+		else//encoding
+		{
+			val=curr[kc]-pred;
+			val+=half;
+			val&=(half<<1)-1;
+			val-=half;
+			curr[kc+4]=val;
+			curr[kc]-=offset;
+		}
+	}
 }
 int f16_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud)
 {
@@ -350,11 +451,11 @@ int f16_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		for(int kx=0;kx<image->iw;++kx, idx+=3)
 		{
 			short
-				*NN	=rows[2]+0*8,
+			//	*NN	=rows[2]+0*8,
 				*NW	=rows[1]-1*8,
 				*N	=rows[1]+0*8,
 				*NE	=rows[1]+1*8,
-				*WW	=rows[0]-2*8,
+			//	*WW	=rows[0]-2*8,
 				*W	=rows[0]-1*8,
 				*curr	=rows[0]+0*8;
 			int offset=0;
@@ -365,80 +466,34 @@ int f16_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			unsigned short *tree3, *CDF3;
 			unsigned short *tree4, *CDF4;
 
+			//if(ky==1&&kx==6)//
+			//	printf("");
+
+			if(fwd&&image->nch>=3)
+			{
+				memcpy(curr, image->data+idx, sizeof(short[3]));
+				predict(rows, predictors, 0, half);
+				int luma=curr[4+1]+((curr[4+0]+curr[4+2])>>2);//update
+				luma+=half;
+				luma&=nlevels-1;
+				luma-=half;
+				//if((curr[0]+curr[2])>>2)//
+				//	printf("");
+				curr[4+1]=luma;
+			}
 			for(int kc0=0;kc0<3;++kc0)
 			{
 				//if(ky==0&&kx==517)//
 				//if(ky==2&&kx==649&&kc0==1)//
 				//if(ky==1&&kx==1)//
-				if(ky==0&&kx==17)//
-					printf("");
+				//if(ky==0&&kx==17)//
+				//if(ky==0&&kx==1)//
+				//if(ky==30&&kx==332)//
+				//if(ky==2&&kx==501&&kc0==1)//
+				//if(ky==1&&kx==127&&kc0==0)//
+				//	printf("");
 
-				int kc=perm[kc0], pidx=predictors[kc];
-				if((unsigned)(pidx-(NGCH+3))<3||(unsigned)(pidx-(NGCH+NBCH+3))<6)
-				{
-					offset+=rows[0][1];
-					if((unsigned)(pidx-(NGCH+NBCH+6))<3)
-						offset=(offset+rows[0][0])>>1;
-				}
-				int pred=0, vmin, vmax;
-				switch(pidx)
-				{
-				case 0:
-				case NGCH+0:case NGCH+3:
-				case NGCH+NBCH+0:case NGCH+NBCH+3:case NGCH+NBCH+6:
-					pred=0;
-					break;
-				case 1:
-				case NGCH+1:case NGCH+4:
-				case NGCH+NBCH+1:case NGCH+NBCH+4:case NGCH+NBCH+7:
-					pred=(N[kc]+W[kc])>>1;
-					break;
-				case 2:
-				case NGCH+2:case NGCH+5:
-				case NGCH+NBCH+2:case NGCH+NBCH+5:case NGCH+NBCH+8:
-					pred=N[kc]+W[kc]-NW[kc];
-					vmin=MINVAR(N[kc], W[kc]);
-					vmax=MAXVAR(N[kc], W[kc]);
-					pred=CLAMP(vmin, pred, vmax);
-					break;
-				case 3:
-					pred=N[kc]+W[kc]-NW[kc];
-					vmin=MINVAR(N[kc], W[kc]);
-					vmax=MAXVAR(N[kc], W[kc]);
-					pred=CLAMP(vmin, pred, vmax);
-					pred=(16*pred+N[kc]+W[kc]+NW[kc]+NE[kc]-2*(NN[kc]+WW[kc]))>>4;
-					break;
-				case 4:
-					vmin=MINVAR(N[kc], W[kc]);
-					vmax=MAXVAR(N[kc], W[kc]);
-					UPDATE_MIN(vmin, NE[kc]);
-					UPDATE_MAX(vmax, NE[kc]);
-					pred=clamp(vmin, (3*(N[kc]+2*W[kc]-NW[kc])+2*NE[kc])>>3, vmax);
-					break;
-				case 5:
-					vmin=MINVAR(N[kc], W[kc]);
-					vmax=MAXVAR(N[kc], W[kc]);
-					UPDATE_MIN(vmin, NE[kc]);
-					UPDATE_MAX(vmax, NE[kc]);
-					pred=clamp(vmin, (4*(N[kc]+W[kc])+W[kc]-2*NW[kc]+NE[kc])>>3, vmax);
-					break;
-				case 6:
-					vmin=MINVAR(N[kc], W[kc]);
-					vmax=MAXVAR(N[kc], W[kc]);
-					UPDATE_MIN(vmin, NE[kc]);
-					UPDATE_MAX(vmax, NE[kc]);
-					pred=clamp(vmin, (3*(N[kc]+W[kc])-2*NW[kc])>>2, vmax);
-					break;
-				case 7:
-					vmin=MINVAR(N[kc], W[kc]);
-					vmax=MAXVAR(N[kc], W[kc]);
-					UPDATE_MIN(vmin, NE[kc]);
-					UPDATE_MAX(vmax, NE[kc]);
-					pred=clamp(vmin, (4*(N[kc]+W[kc])+NE[kc]-NW[kc])>>3, vmax);
-					break;
-				}
-				pred+=offset;
-				pred=CLAMP(-half, pred, half-1);
+				int kc=perm[kc0];
 
 				ctx1=quantize_ctx(N [kc+4]);
 				ctx2=quantize_ctx(W [kc+4]);
@@ -451,10 +506,8 @@ int f16_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				tidx=0;
 				if(fwd)
 				{
-					curr[kc]=image->data[idx+kc];
-					token=curr[kc+4]=curr[kc]-pred;
-					token+=half;
-					token&=nlevels-1;//error distribution is irrelevant due to movemask/tzcnt
+					token=curr[kc+4];
+					token=token<<1^-(token<0);
 					for(int kb=depth-NBITS;kb>=0;kb-=NBITS)
 					{
 						CDF1=tree1+((size_t)tidx<<NBITS);
@@ -508,10 +561,14 @@ int f16_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 							//mcdfA1=_mm256_srai_epi32(mcdfA1, 2);
 							mcdfA0=_mm256_add_epi16(mcdfA0, ramp0);
 							mcdfA1=_mm256_add_epi16(mcdfA1, ramp1);
-							mcdfA0=_mm256_cmpgt_epi32(mcdfA0, mlevel);
-							mcdfA1=_mm256_cmpgt_epi32(mcdfA1, mlevel);
-							unsigned long long mask=(unsigned long long)_mm256_movemask_epi8(mcdfA1)<<32|_mm256_movemask_epi8(mcdfA0);
-							sym+=get_lsb_index64(mask);
+							mcdfA0=_mm256_subs_epu16(mcdfA0, mlevel);
+							mcdfA1=_mm256_subs_epu16(mcdfA1, mlevel);
+							mcdfA0=_mm256_cmpeq_epi16(mcdfA0, _mm256_setzero_si256());
+							mcdfA1=_mm256_cmpeq_epi16(mcdfA1, _mm256_setzero_si256());
+							//mcdfA0=_mm256_cmpgt_epi32(mcdfA0, mlevel);//X  need unsigned compare
+							//mcdfA1=_mm256_cmpgt_epi32(mcdfA1, mlevel);
+							unsigned long long mask=(unsigned long long)_mm256_movemask_epi8(mcdfA1)<<32|(unsigned)_mm256_movemask_epi8(mcdfA0);
+							sym+=floor_log2(mask)+1;
 						}
 						sym>>=1;
 #elif NBITS==4
@@ -526,9 +583,10 @@ int f16_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						mcdfA=_mm256_add_epi16(mcdfA, mcdfD);
 						//mcdfA=_mm256_srai_epi16(mcdfA, 2);
 						mcdfA=_mm256_add_epi16(mcdfA, ramp);
-						mcdfA=_mm256_cmpgt_epi16(mcdfA, mlevel);
+						mcdfA=_mm256_subs_epu16(mcdfA, mlevel);
+						mcdfA=_mm256_cmpeq_epi16(mcdfA, _mm256_setzero_si256());
 						unsigned mask=_mm256_movemask_epi8(mcdfA);
-						sym=(get_lsb_index32(mask)>>1)-1;
+						sym=floor_log2_32(mask)>>1;
 #elif NBITS==2
 						sym =cdf>=CDF1[1]+CDF2[1]+CDF3[1]+CDF4[1]+1;
 						sym+=cdf>=CDF1[2]+CDF2[2]+CDF3[2]+CDF4[2]+2;
@@ -546,7 +604,7 @@ int f16_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						//unsigned short mask=_mm_movemask_ps(_mm_castsi128_ps(mcdfA));
 						//sym=_tzcnt_u16(mask|0xFFF0)-1;
 #elif NBITS==1
-						sym=cdf>=CDF1[1]+CDF2[1]+CDF3[1]+CDF4[1];
+						sym=cdf>=CDF1[1]+CDF2[1]+CDF3[1]+CDF4[1]+1;
 #endif
 						
 						cdf=CDF1[sym]+CDF2[sym]+CDF3[sym]+CDF4[sym]+sym;
@@ -559,13 +617,19 @@ int f16_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						update_CDF(sym, CDF4);
 						tidx=(tidx<<NBITS)+sym+1;
 					}
-					token+=pred;
-					token&=nlevels-1;
-					token-=half;
-					dst->data[idx+kc]=curr[kc]=token;
-					curr[kc+4]=token-pred;
+					token=token>>1^-(token&1);
+					curr[kc+4]=token;
 				}
-				curr[kc]-=offset;
+			}
+			if(!fwd&&image->nch>=3)
+			{
+				memcpy(dst->data+idx, curr+4, sizeof(short[3]));
+				int luma=dst->data[idx+1]-((dst->data[idx+0]+dst->data[idx+2])>>2);//unupdate
+				luma+=half;
+				luma&=nlevels-1;
+				luma-=half;
+				dst->data[idx+1]=luma;
+				predict(rows, predictors, dst->data+idx, half);
 			}
 			rows[0]+=8;
 			rows[1]+=8;

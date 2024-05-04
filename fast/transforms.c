@@ -389,7 +389,7 @@ void pred_PU(Image *src, int fwd)
 					W	=rows[0][kc-1*4],
 					offset	=0;
 				if(kc0>0)
-					offset+=rows[0][perm[0]];
+					offset+=rows[0][1];//add green
 				int pred=N+W-NW;
 				int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
 				pred=CLAMP(vmin, pred, vmax);
@@ -402,9 +402,9 @@ void pred_PU(Image *src, int fwd)
 				pred-=fwdmask;
 				pred+=curr;
 
-				pred+=nlevels>>1;
+				pred+=half;
 				pred&=nlevels-1;
-				pred-=nlevels>>1;
+				pred-=half;
 
 				src->data[idx+kc]=pred;
 				rows[0][kc]=(fwd?curr:pred)-offset;

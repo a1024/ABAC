@@ -424,6 +424,24 @@ int get_lsb_index32(unsigned n)
 	return lsb;
 #endif
 }
+int get_lsb_index16(unsigned short n)
+{
+#ifdef _MSC_VER
+	return (int)_tzcnt_u16(n);
+#elif defined __GNUC__
+	return __builtin_ctzs(n);
+#else
+	int cond, lsb;
+	if(!n)
+		return sizeof(n)<<3;
+	lsb=0;
+	cond=(n>> 8<< 8==n)<<3, lsb+=cond, n>>=cond;
+	cond=(n>> 4<< 4==n)<<2, lsb+=cond, n>>=cond;
+	cond=(n>> 2<< 2==n)<<1, lsb+=cond, n>>=cond;
+	cond= n>> 1<< 1==n    , lsb+=cond;
+	return lsb;
+#endif
+}
 int floor_log10(double x)
 {
 	static const double pmask[]=//positive powers

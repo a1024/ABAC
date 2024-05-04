@@ -242,7 +242,7 @@ static void enc_self0(Image const *src, int kc, short *errors, ArithmeticCoder *
 	short *rows[4]={0};
 	for(int ky=0, idx=kc;ky<src->ih;++ky)
 	{
-		int alpha=0x4000, beta=0x4000;
+		//int alpha=0x4000, beta=0x4000;
 		init_rows(rows, errors, src->iw, ky);
 		for(int kx=0;kx<src->iw;++kx, idx+=3)
 		{
@@ -263,7 +263,7 @@ static void enc_self2(Image const *src, int kc, short *errors, ArithmeticCoder *
 	int rowstride=src->iw*3;
 	for(int ky=0, idx=kc;ky<src->ih;++ky)
 	{
-		int alpha=0x4000, beta=0x4000;
+		//int alpha=0x4000, beta=0x4000;
 		init_rows(rows, errors, src->iw, ky);
 		for(int kx=0;kx<src->iw;++kx, idx+=3)
 		{
@@ -298,7 +298,7 @@ static void enc_self3(Image const *src, int kc, short *errors, ArithmeticCoder *
 	int rowstride=src->iw*3;
 	for(int ky=0, idx=kc;ky<src->ih;++ky)
 	{
-		int alpha=0x4000, beta=0x4000;
+		//int alpha=0x4000, beta=0x4000;
 		init_rows(rows, errors, src->iw, ky);
 		for(int kx=0;kx<src->iw;++kx, idx+=3)
 		{
@@ -322,7 +322,7 @@ static void enc_aux0 (Image const *src, int kc, short *errors, ArithmeticCoder *
 	short *rows[4]={0};
 	for(int ky=0, idx=kc;ky<src->ih;++ky)
 	{
-		int alpha=0x4000, beta=0x4000;
+		//int alpha=0x4000, beta=0x4000;
 		init_rows(rows, errors, src->iw, ky);
 		for(int kx=0;kx<src->iw;++kx, idx+=3)
 		{
@@ -343,7 +343,7 @@ static void enc_aux2 (Image const *src, int kc, short *errors, ArithmeticCoder *
 	int rowstride=src->iw*3, half=nlevels>>1;
 	for(int ky=0, idx=kc;ky<src->ih;++ky)
 	{
-		int alpha=0x4000, beta=0x4000;
+		//int alpha=0x4000, beta=0x4000;
 		init_rows(rows, errors, src->iw, ky);
 		for(int kx=0;kx<src->iw;++kx, idx+=3)
 		{
@@ -370,7 +370,7 @@ static void enc_aux3 (Image const *src, int kc, short *errors, ArithmeticCoder *
 	int rowstride=src->iw*3, half=nlevels>>1;
 	for(int ky=0, idx=kc;ky<src->ih;++ky)
 	{
-		int alpha=0x4000, beta=0x4000;
+		//int alpha=0x4000, beta=0x4000;
 		init_rows(rows, errors, src->iw, ky);
 		for(int kx=0;kx<src->iw;++kx, idx+=3)
 		{
@@ -398,7 +398,7 @@ static void enc_red0 (Image const *src, int kc, short *errors, ArithmeticCoder *
 	short *rows[4]={0};
 	for(int ky=0, idx=kc;ky<src->ih;++ky)
 	{
-		int alpha=0x4000, beta=0x4000;
+		//int alpha=0x4000, beta=0x4000;
 		init_rows(rows, errors, src->iw, ky);
 		for(int kx=0;kx<src->iw;++kx, idx+=3)
 		{
@@ -419,7 +419,7 @@ static void enc_red2 (Image const *src, int kc, short *errors, ArithmeticCoder *
 	int rowstride=src->iw*3, half=nlevels>>1;
 	for(int ky=0, idx=kc;ky<src->ih;++ky)
 	{
-		int alpha=0x4000, beta=0x4000;
+		//int alpha=0x4000, beta=0x4000;
 		init_rows(rows, errors, src->iw, ky);
 		for(int kx=0;kx<src->iw;++kx, idx+=3)
 		{
@@ -449,7 +449,7 @@ static void enc_red3 (Image const *src, int kc, short *errors, ArithmeticCoder *
 	int rowstride=src->iw*3, half=nlevels>>1;
 	for(int ky=0, idx=kc;ky<src->ih;++ky)
 	{
-		int alpha=0x4000, beta=0x4000;
+		//int alpha=0x4000, beta=0x4000;
 		init_rows(rows, errors, src->iw, ky);
 		for(int kx=0;kx<src->iw;++kx, idx+=3)
 		{
@@ -551,7 +551,7 @@ static void dec_self0(Image *dst, int kc, short *errors, ArithmeticCoder *ec, in
 	short *rows[4]={0};
 	for(int ky=0, idx=kc;ky<dst->ih;++ky)
 	{
-		int alpha=0x4000, beta=0x4000;
+		//int alpha=0x4000, beta=0x4000;
 		init_rows(rows, errors, dst->iw, ky);
 		for(int kx=0;kx<dst->iw;++kx, idx+=3)
 		{
@@ -573,7 +573,7 @@ static void dec_self2(Image *dst, int kc, short *errors, ArithmeticCoder *ec, in
 	int rowstride=dst->iw*3;
 	for(int ky=0, idx=kc;ky<dst->ih;++ky)
 	{
-		int alpha=0x4000, beta=0x4000;
+		//int alpha=0x4000, beta=0x4000;
 		init_rows(rows, errors, dst->iw, ky);
 		for(int kx=0;kx<dst->iw;++kx, idx+=3)
 		{
@@ -613,7 +613,7 @@ static void dec_self3(Image *dst, int kc, short *errors, ArithmeticCoder *ec, in
 	int rowstride=dst->iw*3;
 	for(int ky=0, idx=kc;ky<dst->ih;++ky)
 	{
-		int alpha=0x4000, beta=0x4000;
+		//int alpha=0x4000, beta=0x4000;
 		init_rows(rows, errors, dst->iw, ky);
 		for(int kx=0;kx<dst->iw;++kx, idx+=3)
 		{
@@ -638,7 +638,7 @@ static void dec_aux0 (Image *dst, int kc, short *errors, ArithmeticCoder *ec, in
 	short *rows[4]={0};
 	for(int ky=0, idx=kc;ky<dst->ih;++ky)
 	{
-		int alpha=0x4000, beta=0x4000;
+		//int alpha=0x4000, beta=0x4000;
 		init_rows(rows, errors, dst->iw, ky);
 		for(int kx=0;kx<dst->iw;++kx, idx+=3)
 		{
@@ -660,7 +660,7 @@ static void dec_aux2 (Image *dst, int kc, short *errors, ArithmeticCoder *ec, in
 	int rowstride=dst->iw*3, half=nlevels>>1;
 	for(int ky=0, idx=kc;ky<dst->ih;++ky)
 	{
-		int alpha=0x4000, beta=0x4000;
+		//int alpha=0x4000, beta=0x4000;
 		init_rows(rows, errors, dst->iw, ky);
 		for(int kx=0;kx<dst->iw;++kx, idx+=3)
 		{
@@ -688,7 +688,7 @@ static void dec_aux3 (Image *dst, int kc, short *errors, ArithmeticCoder *ec, in
 	int rowstride=dst->iw*3, half=nlevels>>1;
 	for(int ky=0, idx=kc;ky<dst->ih;++ky)
 	{
-		int alpha=0x4000, beta=0x4000;
+		//int alpha=0x4000, beta=0x4000;
 		init_rows(rows, errors, dst->iw, ky);
 		for(int kx=0;kx<dst->iw;++kx, idx+=3)
 		{
@@ -717,7 +717,7 @@ static void dec_red0 (Image *dst, int kc, short *errors, ArithmeticCoder *ec, in
 	short *rows[4]={0};
 	for(int ky=0, idx=kc;ky<dst->ih;++ky)
 	{
-		int alpha=0x4000, beta=0x4000;
+		//int alpha=0x4000, beta=0x4000;
 		init_rows(rows, errors, dst->iw, ky);
 		for(int kx=0;kx<dst->iw;++kx, idx+=3)
 		{
@@ -739,7 +739,7 @@ static void dec_red2 (Image *dst, int kc, short *errors, ArithmeticCoder *ec, in
 	int rowstride=dst->iw*3, half=nlevels>>1;
 	for(int ky=0, idx=kc;ky<dst->ih;++ky)
 	{
-		int alpha=0x4000, beta=0x4000;
+		//int alpha=0x4000, beta=0x4000;
 		init_rows(rows, errors, dst->iw, ky);
 		for(int kx=0;kx<dst->iw;++kx, idx+=3)
 		{
@@ -770,7 +770,7 @@ static void dec_red3 (Image *dst, int kc, short *errors, ArithmeticCoder *ec, in
 	int rowstride=dst->iw*3, half=nlevels>>1;
 	for(int ky=0, idx=kc;ky<dst->ih;++ky)
 	{
-		int alpha=0x4000, beta=0x4000;
+		//int alpha=0x4000, beta=0x4000;
 		init_rows(rows, errors, dst->iw, ky);
 		for(int kx=0;kx<dst->iw;++kx, idx+=3)
 		{
