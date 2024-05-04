@@ -110,15 +110,20 @@ int f12_statstest(const char *path);
 int f13_encode(Image const *src, ArrayHandle *data, int loud);
 int f13_decode(const unsigned char *data, size_t len, Image *dst, int loud);
 
-//F14 select 3 from 20 channels, code 4-bit symbols, average of 2 CDFs, AVX2
+//	F14 select 3 from 20 channels, code 4-bit symbols, average of 2 CDFs, AVX2
 int	f14_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
 #define f14_encode(SRC, DATA, LOUD)		f14_codec(SRC, DATA, 0, 0, 0, LOUD)
 #define f14_decode(CBUF, CSIZE, DST, LOUD)	f14_codec(0, 0, CBUF, CSIZE, DST, LOUD)
 
-//F15 select 3 from 23 channels, code 4-bit symbols, average of 2 CDFs, AVX2, single-pass decoder
+//	F15 select 3 from 23 channels, code 4-bit symbols, average of 2 CDFs, AVX2, single-pass decoder
 int	f15_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
 #define f15_encode(SRC, DATA, LOUD)		f15_codec(SRC, DATA, 0, 0, 0, LOUD)
 #define f15_decode(CBUF, CSIZE, DST, LOUD)	f15_codec(0, 0, CBUF, CSIZE, DST, LOUD)
+
+//	F16 select 3 from 23 channels, code 4-bit symbols, average of 2 CDFs, AVX2, single-pass decoder, uint16 CDFs
+int	f16_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
+#define f16_encode(SRC, DATA, LOUD)		f16_codec(SRC, DATA, 0, 0, 0, LOUD)
+#define f16_decode(CBUF, CSIZE, DST, LOUD)	f16_codec(0, 0, CBUF, CSIZE, DST, LOUD)
 
 
 #ifdef __cplusplus
