@@ -332,12 +332,12 @@ int main(int argc, char **argv)
 	}
 	LOG_ERROR("SUCCESS");
 #endif
-#if 0
+#if 1
 	{
 #ifdef _DEBUG
 		const char *path=
+		//	"D:/ML/dataset-CLIC30-ppm"
 		//	"D:/ML/dataset-CLIC"
-		//	"D:/ML/dataset-CLIC30"
 			"D:/ML/dataset-kodak-ppm"
 			;
 #else

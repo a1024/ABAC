@@ -82,6 +82,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_G2,		ST_INV_G2,
 	ST_FWD_MM,		ST_INV_MM,
 	ST_FWD_WP,		ST_INV_WP,
+	ST_FWD_WPU,		ST_INV_WPU,
 	ST_FWD_DEFERRED,	ST_INV_DEFERRED,
 	ST_FWD_CUSTOM3,		ST_INV_CUSTOM3,
 	ST_FWD_CUSTOM,		ST_INV_CUSTOM,
@@ -1366,6 +1367,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 //	case ST_INV_NBLIC:		a=" S Inv NBLIC";		break;
 	case ST_FWD_WP:			a=" S Fwd JXL WP";		break;
 	case ST_INV_WP:			a=" S Inv JXL WP";		break;
+	case ST_FWD_WPU:		a=" S Fwd WPU";			break;
+	case ST_INV_WPU:		a=" S Inv WPU";			break;
 	case ST_FWD_DEFERRED:		a=" S Fwd DEFERRED";		break;
 	case ST_INV_DEFERRED:		a=" S Inv DEFERRED";		break;
 	case ST_FWD_MM:			a=" S Fwd MM";			break;
@@ -2350,6 +2353,8 @@ void apply_selected_transforms(Image *image, int rct_only)
 	//	case ST_INV_NBLIC:		pred_nblic((char*)image, iw, ih, 0);			break;
 		case ST_FWD_WP:			pred_jxl_apply(image, 1, pred_ma_enabled, jxlparams_i16);break;
 		case ST_INV_WP:			pred_jxl_apply(image, 0, pred_ma_enabled, jxlparams_i16);break;
+		case ST_FWD_WPU:		pred_WPU(image, 1);					break;
+		case ST_INV_WPU:		pred_WPU(image, 0);					break;
 		case ST_FWD_DEFERRED:		pred_wp_deferred(image, 1);				break;
 		case ST_INV_DEFERRED:		pred_wp_deferred(image, 0);				break;
 		case ST_FWD_MM:			pred_w2_apply(image, 1, pred_ma_enabled, pw2_params);	break;

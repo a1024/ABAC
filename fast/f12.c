@@ -3,9 +3,12 @@
 #include<stdlib.h>
 #include<string.h>
 #include<math.h>
+#include"lodepng.h"
 static const char file[]=__FILE__;
 
-	#define BITCTR
+	#define RELATION
+	#define DISABLE_DECORRELATION
+//	#define BITCTR
 
 #define HISTBITS 8
 #define HISTSIZE (1<<HISTBITS)
@@ -20,6 +23,54 @@ static const char *ext[]=
 	"JPG",
 	"JPEG",
 };
+static void hist_snapshot(size_t *hist, unsigned char *result, int idx)
+{
+	//static const char *rnames[]=
+	//{
+	//	"xW-yN",
+	//	"xW-yNW",
+	//	"xN-yNE",
+	//	"xNW-yNE",
+	//};
+	//for(int ks=0;ks<HISTSIZE;++ks)
+	//	printf("%3d  %8zd\n", ks, hist[((0<<HISTBITS|HISTHALF)<<HISTBITS|HISTHALF)<<HISTBITS|ks]);
+	for(int kc=0;kc<4;++kc)
+	{
+		int x=(kc&1)<<HISTBITS, y=(kc>>1&1)<<HISTBITS;
+		for(int kN=0;kN<HISTSIZE;++kN)
+		{
+			for(int kW=0;kW<HISTSIZE;++kW)
+			{
+				double mean=0, wsum=0;
+				for(int ks=0;ks<HISTSIZE;++ks)
+				{
+					double freq=(double)hist[((kc<<HISTBITS|kN)<<HISTBITS|kW)<<HISTBITS|ks];
+					mean+=freq*ks;
+					wsum+=freq;
+				}
+				if(wsum)
+					mean/=wsum;
+				else
+					mean=HISTHALF;
+				int kmean=(int)round(255*mean/(HISTSIZE-1));
+#if 1
+				kmean-=(kN+kW)>>1;
+				kmean+=128;
+				kmean&=255;
+				if(!wsum)
+					kmean=128;
+#endif
+				result[(y|kN)<<(HISTBITS+1)|x|kW]=(unsigned char)kmean;
+				//result[kN<<HISTBITS|kW]=(int)round(255*mean/(HISTSIZE-1));
+				//printf(" %X", (int)round(15*mean/(HISTSIZE-1)));
+			}
+			//printf("\n");
+		}
+	}
+	snprintf(g_buf, G_BUF_SIZE, "sample_%03d.PNG", idx+1);
+	//snprintf(g_buf, G_BUF_SIZE, "%s_%03d.PNG", rnames[kc], idx+1);
+	lodepng_encode_file(g_buf, result, HISTSIZE<<1, HISTSIZE<<1, LCT_GREY, 8);
+}
 int f12_statstest(const char *path)
 {
 	printf("F12 stats\n");
@@ -27,9 +78,14 @@ int f12_statstest(const char *path)
 	if(!filenames||!filenames->count)
 	{
 		LOG_ERROR("No media in \"%s\"", path);
-		return 0;
+		return 1;
 	}
-	size_t *hist=(size_t*)malloc(sizeof(size_t[4<<HISTBITS]));
+#ifdef RELATION
+	size_t histsize=sizeof(size_t[4<<HISTBITS*3]);
+#else
+	size_t histsize=sizeof(size_t[4<<HISTBITS]);
+#endif
+	size_t *hist=(size_t*)malloc(histsize);
 #ifdef BITCTR
 	size_t *ctr=(size_t*)malloc(sizeof(size_t[4*2<<HISTBITS]));
 	double *hist2=(double*)malloc(sizeof(double[4<<HISTBITS]));
@@ -41,9 +97,19 @@ int f12_statstest(const char *path)
 	)
 	{
 		LOG_ERROR("Alloc error");
-		return 0;
+		return 1;
 	}
-	memset(hist, 0, sizeof(size_t[4<<HISTBITS]));
+	memset(hist, 0, histsize);
+#ifdef RELATION
+	size_t rsize=sizeof(char[4*HISTSIZE*HISTSIZE]);
+	unsigned char *result=(unsigned char*)malloc(rsize);
+	if(!result)
+	{
+		LOG_ERROR("Alloc error");
+		return 1;
+	}
+	memset(result, 0, rsize);
+#endif
 #ifdef BITCTR
 	memset(ctr, 0, sizeof(size_t[4*2<<HISTBITS]));
 	memset(hist2, 0, sizeof(double[4<<HISTBITS]));
@@ -66,16 +132,18 @@ int f12_statstest(const char *path)
 		if(!image.data)
 		{
 			LOG_ERROR("Cannot load \"%s\"", (char*)fn[0]->data);
-			return 0;
+			return 1;
 		}
 		int depths[4]={0};
 		memfill(depths, &image.depth, sizeof(depths), sizeof(image.depth));
+#ifndef DISABLE_DECORRELATION
 		if(image.nch>=3)
 		{
 			rct_JPEG2000_32(&image, 1);
 			++depths[1];
 			++depths[2];
 		}
+#endif
 		char cdepths[]=
 		{
 			(char)depths[0],
@@ -83,12 +151,15 @@ int f12_statstest(const char *path)
 			(char)depths[2],
 			(char)depths[3],
 		};
+#ifndef DISABLE_DECORRELATION
 		pred_simd(&image, 1, cdepths);
+#endif
 		for(int ky=0, idx=0;ky<image.ih;++ky)
 		{
 			for(int kx=0;kx<image.iw;++kx, idx+=image.nch)
 			{
-				for(int kc=0;kc<image.nch;++kc)
+				int kc=1;
+				//for(int kc=0;kc<image.nch;++kc)
 				{
 #define LOAD(X, Y) (((unsigned)(ky+(Y))<(unsigned)image.ih&&(unsigned)(kx+(X))<(unsigned)image.iw?image.data[(image.iw*(ky+(Y))+kx+(X))*image.nch+kc]>>(depths[kc]-HISTBITS):0)+HISTHALF)&HISTMASK
 					int
@@ -102,13 +173,37 @@ int f12_statstest(const char *path)
 					(void)NE;
 					(void)W;
 					(void)curr;
+					if(!kx)
+						NW=N, W=N;
+					if(!ky)
+						NW=W, N=W;
+					if(kx==image.iw-1)
+						NE=N;
+					
+					int cgrad=N+W-NW;
+					int vmin=W, vmax=N;
+					if(N<W)
+						vmin=N, vmax=W;
+					cgrad=CLAMP(vmin, cgrad, vmax);
+					int av2=(N+W)>>1;
+#ifdef RELATION
+					//++hist[((kc<<HISTBITS|N)<<HISTBITS|W)<<HISTBITS|curr];
 
-					//int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
-					//if(BETWEEN_EXC(64, vmin, 65)&&BETWEEN_EXC(192, vmax, 193))
-					{
-						++hist[kc<<HISTBITS|curr];
-						++ctr_hit[kc];
-					}
+					//X-Y:
+					//- |	- \
+					//| /	\ /	loss?
+
+					//W-N	W-NW
+					//N-NE	NW-NE
+					++hist[((0<<HISTBITS|N )<<HISTBITS|W )<<HISTBITS|curr];//XY 0 0    X-Y W-N
+					++hist[((1<<HISTBITS|av2)<<HISTBITS|cgrad)<<HISTBITS|curr];
+				//	++hist[((1<<HISTBITS|NW)<<HISTBITS|W )<<HISTBITS|curr];//XY 1 0    X-Y W-NW
+					++hist[((2<<HISTBITS|NE)<<HISTBITS|N )<<HISTBITS|curr];//XY 0 1    X-Y N-NE
+					++hist[((3<<HISTBITS|NE)<<HISTBITS|NW)<<HISTBITS|curr];//XY 1 1    X-Y NW-NE
+#else
+					++hist[kc<<HISTBITS|curr];
+#endif
+					++ctr_hit[kc];
 					++ctr_total[kc];
 #ifdef BITCTR
 					size_t *currctr=ctr+((size_t)kc<<(HISTBITS+1));
@@ -123,9 +218,19 @@ int f12_statstest(const char *path)
 				}
 			}
 		}
+#ifdef RELATION
+		hist_snapshot(hist, result, kf);
+		memset(hist, 0, histsize);
+#endif
 		image_clear(&image);
 	}
 	printf("\n");
+
+#ifdef RELATION
+	//hist_snapshot(hist, result, 0);
+#endif
+
+#ifndef RELATION
 #ifdef BITCTR
 	for(int kc=0;kc<4;++kc)
 	{
@@ -168,7 +273,11 @@ int f12_statstest(const char *path)
 		}
 		break;
 	}
+#endif
 	printf("\nDone.\n");
+#ifdef RELATION
+	free(result);
+#endif
 #ifdef BITCTR
 	free(ctr);
 	free(hist2);

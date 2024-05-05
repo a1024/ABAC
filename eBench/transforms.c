@@ -2650,9 +2650,11 @@ void pred_CG3D(Image *src, int fwd, int enable_ma)
 }
 
 
+	#define PU_UPDATE_LUMA
+
 void pred_PU(Image *src, int fwd)
 {
-	int *pixels=(int*)malloc((src->iw+4LL)*sizeof(int[4*4]));//2 padded rows * 4 channels max
+	int *pixels=(int*)malloc((src->iw+4LL)*sizeof(int[4*4]));//4 padded rows * 4 channels max
 	if(!pixels)
 	{
 		LOG_ERROR("Alloc error");
@@ -2688,6 +2690,7 @@ void pred_PU(Image *src, int fwd)
 		};
 		for(int kx=0;kx<src->iw;++kx, idx+=4)
 		{
+#ifdef PU_UPDATE_LUMA
 			if(!fwd)
 			{
 				int
@@ -2707,20 +2710,38 @@ void pred_PU(Image *src, int fwd)
 				luma-=nlevels[1]>>1;
 				src->data[idx+1]=luma;
 			}
+#endif
 			for(int kc0=0;kc0<src->nch;++kc0)
 			{
 				int kc=perm[kc0];
 				int
+					NNWW	=rows[2][kc-2*4],
+					NNW	=rows[2][kc-1*4],
+					NN	=rows[2][kc+0*4],
+					NNE	=rows[2][kc+1*4],
+					NNEE	=rows[2][kc+2*4],
+					NWW	=rows[1][kc-2*4],
 					NW	=rows[1][kc-1*4],
 					N	=rows[1][kc+0*4],
+					NE	=rows[1][kc+1*4],
+					NEE	=rows[1][kc+2*4],
+					WW	=rows[0][kc-2*4],
 					W	=rows[0][kc-1*4],
 					offset	=0;
 				if(kc0>0)
-					offset+=rows[0][perm[0]];
-				int pred=N+W-NW;
+				{
+					offset+=rows[0][1];
+					if(kc0>1)
+						offset=(2*offset+rows[0][2])>>1;
+				}
 				int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
+				int pred=N+W-NW;
 				pred=CLAMP(vmin, pred, vmax);
-				//pred=(N+W)>>1;
+
+				pred=((512-4)*pred+N+W+NW+NE)>>9;
+				//pred=(252*pred+N+W+NW+NE)>>8;
+				//pred=((512-48)*pred+16*(N+W)+3*(NW+NE+NN+WW)+2*(NNW+NNE+NWW+NEE+NNWW+NNEE))>>9;
+
 				pred+=offset;
 				pred=CLAMP(-halfs[kc], pred, halfs[kc]-1);
 
@@ -2736,6 +2757,7 @@ void pred_PU(Image *src, int fwd)
 				src->data[idx+kc]=pred;
 				rows[0][kc]=(fwd?curr:pred)-offset;
 			}
+#ifdef PU_UPDATE_LUMA
 			if(fwd)
 			{
 				int
@@ -2755,19 +2777,217 @@ void pred_PU(Image *src, int fwd)
 				luma-=nlevels[1]>>1;
 				src->data[idx+1]=luma;
 			}
+#endif
 			rows[0]+=4;
 			rows[1]+=4;
 			rows[2]+=4;
 			rows[3]+=4;
 		}
 	}
-#ifdef CG3D_ENABLE_MA
-	for(int kc=0;kc<4;++kc)
+	free(pixels);
+}
+
+#define WPU_NPREDS 4
+#define WPU_PIXEL_STRIDE (4*(WPU_NPREDS+2LL))
+#define WPU_NBITS 8
+void pred_WPU(Image *src, int fwd)
+{
+	int eprev[WPU_NPREDS]={0};
+	int weights[WPU_NPREDS<<2]={0};
+	for(int k=0;k<(WPU_NPREDS<<2);++k)
+		weights[k]=180;
+	size_t bufsize=(src->iw+8LL)*sizeof(int[4*WPU_PIXEL_STRIDE]);
+	int *pixels=(int*)malloc(bufsize);//4 padded rows * 4 channels max * {pixels, errors, pred_errors...}
+	if(!pixels)
 	{
-		if(src->depth[kc])
-			src->depth[kc]-=!fwd;
+		LOG_ERROR("Alloc error");
+		return;
 	}
+	memset(pixels, 0, bufsize);//{...padding    Y U V A  eY eU eV eA  a0Y a0U a0V a0A  a1Y a1U a1V a1A ...} * 4 rows
+	int nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
+	UPDATE_MAX(nch, src->nch);
+	int nlevels[]=
+	{
+		1<<src->depth[0],
+		1<<src->depth[1],
+		1<<src->depth[2],
+		1<<src->depth[3],
+	};
+	int halfs[]=
+	{
+		nlevels[0]>>1,
+		nlevels[1]>>1,
+		nlevels[2]>>1,
+		nlevels[3]>>1,
+	};
+	int perm[]={1, 2, 0, 3};
+	int fwdmask=-fwd;
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		int *rows[]=
+		{
+			pixels+((src->iw+4LL)*((ky-0LL)&3)+4)*WPU_PIXEL_STRIDE,
+			pixels+((src->iw+4LL)*((ky-1LL)&3)+4)*WPU_PIXEL_STRIDE,
+			pixels+((src->iw+4LL)*((ky-2LL)&3)+4)*WPU_PIXEL_STRIDE,
+			pixels+((src->iw+4LL)*((ky-3LL)&3)+4)*WPU_PIXEL_STRIDE,
+		};
+		for(int kx=0;kx<src->iw;++kx, idx+=4)
+		{
+#ifdef PU_UPDATE_LUMA
+			if(!fwd)
+			{
+				int
+					NN	=rows[2][1+0*WPU_PIXEL_STRIDE],
+					NW	=rows[1][1-1*WPU_PIXEL_STRIDE],
+					N	=rows[1][1+0*WPU_PIXEL_STRIDE],
+					NE	=rows[1][1+1*WPU_PIXEL_STRIDE],
+					WW	=rows[0][1-2*WPU_PIXEL_STRIDE],
+					W	=rows[0][1-1*WPU_PIXEL_STRIDE],
+					cb	=src->data[idx+2]<<WPU_NBITS,
+					cr	=src->data[idx+0]<<WPU_NBITS;
+				int update=(2*(NN+WW)-(N+W+NW+NE)+4*(cb+cr))>>4;
+				update+=1<<WPU_NBITS>>1;
+				update>>=WPU_NBITS;
+				update=CLAMP(-halfs[1], update, halfs[1]-1);
+				int luma=src->data[idx+1]-update;//subtract update
+				luma+=halfs[1];
+				luma&=nlevels[1]-1;
+				luma-=halfs[1];
+				src->data[idx+1]=luma;
+			}
 #endif
+			for(int kc0=0;kc0<src->nch;++kc0)
+			{
+				int kc=perm[kc0];
+				int
+					NNWW	=rows[2][kc-2*WPU_PIXEL_STRIDE],
+					NNW	=rows[2][kc-1*WPU_PIXEL_STRIDE],
+					NN	=rows[2][kc+0*WPU_PIXEL_STRIDE],
+					NNE	=rows[2][kc+1*WPU_PIXEL_STRIDE],
+					NNEE	=rows[2][kc+2*WPU_PIXEL_STRIDE],
+					NWW	=rows[1][kc-2*WPU_PIXEL_STRIDE],
+					NW	=rows[1][kc-1*WPU_PIXEL_STRIDE],
+					N	=rows[1][kc+0*WPU_PIXEL_STRIDE],
+					NE	=rows[1][kc+1*WPU_PIXEL_STRIDE],
+					NEE	=rows[1][kc+2*WPU_PIXEL_STRIDE],
+					WW	=rows[0][kc-2*WPU_PIXEL_STRIDE],
+					W	=rows[0][kc-1*WPU_PIXEL_STRIDE],
+					
+					eNN	=rows[2][kc+0*WPU_PIXEL_STRIDE+4],
+					eNW	=rows[1][kc-1*WPU_PIXEL_STRIDE+4],
+					eN	=rows[1][kc+0*WPU_PIXEL_STRIDE+4],
+					eNE	=rows[1][kc+1*WPU_PIXEL_STRIDE+4],
+					eW	=rows[0][kc-1*WPU_PIXEL_STRIDE+4],
+					offset	=0;
+				if(kc0>0)
+				{
+					offset+=rows[0][1];
+					if(kc0>1)
+						offset=(2*offset+rows[0][2])>>1;
+				}
+				int vmin=MINVAR(N, W), vmax=MAXVAR(N, W), pred;
+				UPDATE_MIN(vmin, NE);
+				UPDATE_MAX(vmax, NE);
+
+				int preds[]=
+				{
+					W+NE-N,
+					W-(int)(-0x05B*((long long)eN+eW+eNW)>>8),
+					N-(int)(-0x05C*((long long)eN+eW+eNE)>>8),
+					N+(int)((-0x0DFLL*eNN-0x051LL*eN-0x0BDLL*eNE+0x05C*((long long)N-NN)+0x102*((long long)NW-W))>>8),
+				};
+				if(ky==1&&kx==230)//
+					printf("");
+
+				long long llpred=0, wsum=1;
+				for(int k=0;k<WPU_NPREDS;++k)
+				{
+					long long weight=1;
+					weight+=(long long)rows[1][kc-1*WPU_PIXEL_STRIDE+4+((size_t)k<<2)];
+					weight+=(long long)rows[1][kc+0*WPU_PIXEL_STRIDE+4+((size_t)k<<2)];
+					weight+=(long long)rows[1][kc+1*WPU_PIXEL_STRIDE+4+((size_t)k<<2)];
+					weight=((long long)weights[k<<2|kc]<<29)/weight;
+					llpred+=weight*preds[k];
+					wsum+=weight;
+				}
+				llpred+=(wsum>>1)-1;
+				llpred/=wsum;
+				pred=(int)llpred;
+				pred=CLAMP(vmin, pred, vmax);
+
+				pred+=offset;
+				pred=CLAMP(-halfs[kc], pred, halfs[kc]-1);
+
+				int curr, val;
+				if(fwd)
+				{
+					val=src->data[idx+kc];
+					curr=val;
+					val-=(pred+(1<<WPU_NBITS>>1))>>WPU_NBITS;
+					val+=halfs[kc];
+					val&=nlevels[kc]-1;
+					val-=halfs[kc];
+					src->data[idx+kc]=val;
+				}
+				else
+				{
+					val=src->data[idx+kc];
+					val+=(pred+(1<<WPU_NBITS>>1))>>WPU_NBITS;
+					val+=halfs[kc];
+					val&=nlevels[kc]-1;
+					val-=halfs[kc];
+					src->data[idx+kc]=val;
+					curr=val;
+				}
+				curr<<=WPU_NBITS;
+				rows[0][kc+0]=curr-offset;
+				rows[0][kc+4]=curr-pred;
+				int kbest=0;
+				for(int k=0;k<WPU_NPREDS;++k)
+				{
+					int e2=abs(curr-preds[k]);
+					eprev[k]=e2;
+					rows[0][kc+0*WPU_PIXEL_STRIDE+4+((size_t)k<<2)]=e2;
+					rows[1][kc+1*WPU_PIXEL_STRIDE+4+((size_t)k<<2)]+=e2;
+					if(eprev[kbest]>eprev[k])
+						kbest=k;
+				}
+				++weights[kbest<<2|kc];
+				if(weights[kbest<<2|kc]>352)
+				{
+					for(int k=0;k<WPU_NPREDS;++k)
+						weights[k<<2|kc]>>=1;
+				}
+			}
+#ifdef PU_UPDATE_LUMA
+			if(fwd)
+			{
+				int
+					NN	=rows[2][1+0*WPU_PIXEL_STRIDE],
+					NW	=rows[1][1-1*WPU_PIXEL_STRIDE],
+					N	=rows[1][1+0*WPU_PIXEL_STRIDE],
+					NE	=rows[1][1+1*WPU_PIXEL_STRIDE],
+					WW	=rows[0][1-2*WPU_PIXEL_STRIDE],
+					W	=rows[0][1-1*WPU_PIXEL_STRIDE],
+					cb	=src->data[idx+2]<<WPU_NBITS,
+					cr	=src->data[idx+0]<<WPU_NBITS;
+				int update=(2*(NN+WW)-(N+W+NW+NE)+4*(cb+cr))>>4;
+				update+=1<<WPU_NBITS>>1;
+				update>>=WPU_NBITS;
+				update=CLAMP(-halfs[1], update, halfs[1]-1);
+				int luma=src->data[idx+1]+update;//add update
+				luma+=halfs[1];
+				luma&=nlevels[1]-1;
+				luma-=halfs[1];
+				src->data[idx+1]=luma;
+			}
+#endif
+			rows[0]+=4;
+			rows[1]+=4;
+			rows[2]+=4;
+			rows[3]+=4;
+		}
+	}
 	free(pixels);
 }
 
