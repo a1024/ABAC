@@ -711,6 +711,7 @@ void packsign(Image *src, int fwd);
 void pred_clampgrad(Image *image, int fwd, int enable_ma);
 void pred_CG3D(Image *src, int fwd, int enable_ma);
 void pred_PU(Image *src, int fwd);
+void pred_median(Image *src, int fwd);
 void pred_WPU(Image *src, int fwd);
 void pred_av2(Image *src, int fwd);
 void pred_average(Image *src, int fwd, int enable_ma);

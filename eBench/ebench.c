@@ -96,6 +96,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_CG3D,		ST_INV_CG3D,
 	ST_FWD_CLAMPGRAD,	ST_INV_CLAMPGRAD,
 	ST_FWD_AV2,		ST_INV_AV2,
+	ST_FWD_MEDIAN,		ST_INV_MEDIAN,
 //	ST_FWD_ECOEFF,		ST_INV_ECOEFF,
 //	ST_FWD_AVERAGE,		ST_INV_AVERAGE,
 	ST_FWD_MULTISTAGE,	ST_INV_MULTISTAGE,
@@ -1349,6 +1350,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_CLAMPGRAD:		a=" S Inv ClampGrad";		break;
 	case ST_FWD_AV2:		a=" S Fwd (N+W)>>1";		break;
 	case ST_INV_AV2:		a=" S Inv (N+W)>>1";		break;
+	case ST_FWD_MEDIAN:		a=" S Fwd Median";		break;
+	case ST_INV_MEDIAN:		a=" S Inv Median";		break;
 //	case ST_FWD_ECOEFF:		a=" S Fwd E-Coeff";		break;
 //	case ST_INV_ECOEFF:		a=" S Inv E-Coeff";		break;
 //	case ST_FWD_AVERAGE:		a=" S Fwd Average";		break;
@@ -2377,6 +2380,8 @@ void apply_selected_transforms(Image *image, int rct_only)
 		case ST_INV_CLAMPGRAD:		pred_clampgrad(image, 0, pred_ma_enabled);		break;
 		case ST_FWD_AV2:		pred_av2(image, 1);					break;
 		case ST_INV_AV2:		pred_av2(image, 0);					break;
+		case ST_FWD_MEDIAN:		pred_median(image, 1);					break;
+		case ST_INV_MEDIAN:		pred_median(image, 0);					break;
 	//	case ST_FWD_ECOEFF:		pred_ecoeff(image, 1, pred_ma_enabled);			break;
 	//	case ST_INV_ECOEFF:		pred_ecoeff(image, 0, pred_ma_enabled);			break;
 	//	case ST_FWD_AVERAGE:		pred_average(image, 1, pred_ma_enabled);		break;
