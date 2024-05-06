@@ -2788,10 +2788,141 @@ void pred_PU(Image *src, int fwd)
 }
 
 
-	#define WPU_TRACE
+static void sort_int32(int *data, int count)
+{
+	int temp=0;
+	for(int k=0;k<count-1;++k)
+	{
+		for(int k2=k+1;k2<count;++k2)
+		{
+			if(data[k2]<data[k])
+				SWAPVAR(data[k], data[k2], temp);
+		}
+	}
+}
+void pred_median(Image *src, int fwd)
+{
+	int *pixels=(int*)malloc((src->iw+4LL)*sizeof(int[4*4]));//4 padded rows * 4 channels max
+	if(!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(pixels, 0, (src->iw+4LL)*sizeof(int[4*4]));
+	int nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
+	UPDATE_MAX(nch, src->nch);
+	int nlevels[]=
+	{
+		1<<src->depth[0],
+		1<<src->depth[1],
+		1<<src->depth[2],
+		1<<src->depth[3],
+	};
+	int halfs[]=
+	{
+		nlevels[0]>>1,
+		nlevels[1]>>1,
+		nlevels[2]>>1,
+		nlevels[3]>>1,
+	};
+	int perm[]={1, 2, 0, 3};
+	int fwdmask=-fwd;
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		int *rows[]=
+		{
+			pixels+(((src->iw+4LL)*((ky-0LL)&3)+2)<<2),
+			pixels+(((src->iw+4LL)*((ky-1LL)&3)+2)<<2),
+			pixels+(((src->iw+4LL)*((ky-2LL)&3)+2)<<2),
+			pixels+(((src->iw+4LL)*((ky-3LL)&3)+2)<<2),
+		};
+		for(int kx=0;kx<src->iw;++kx, idx+=4)
+		{
+			for(int kc0=0;kc0<src->nch;++kc0)
+			{
+				int kc=perm[kc0];
+				int
+					NNN	=rows[3][kc+0*4],
+					NNWW	=rows[2][kc-2*4],
+					NNW	=rows[2][kc-1*4],
+					NN	=rows[2][kc+0*4],
+					NNE	=rows[2][kc+1*4],
+					NNEE	=rows[2][kc+2*4],
+					NWW	=rows[1][kc-2*4],
+					NW	=rows[1][kc-1*4],
+					N	=rows[1][kc+0*4],
+					NE	=rows[1][kc+1*4],
+					NEE	=rows[1][kc+2*4],
+					WW	=rows[0][kc-2*4],
+					W	=rows[0][kc-1*4],
+					offset	=0;
+				if(kc0>0)
+				{
+					offset+=rows[0][1];
+					if(kc0>1)
+						offset=(2*offset+rows[0][2])>>1;
+				}
+				//int nb[]={N, W, NW, NE, NEE};
+				//sort_int32(nb, _countof(nb));
+				//int pred=nb[_countof(nb)>>1];
+				//pred=(pred+N+W-NW)>>1;
+
+				int
+					gx=abs(W-WW)+abs(N-NW)+abs(NE-N)+1,
+					gy=abs(W-NW)+abs(N-NN)+abs(NE-NNE)+1,
+					g135=abs(W-NWW)+abs(NW-NNWW)+abs(N-NNW)+abs(NE-NN)+1,
+					g45=abs(W-N)+abs(N-NNE)+abs(NE-NNEE)+abs(WW-NW)+1;
+				//int gx=abs(W-WW)+1, gy=abs(N-NN)+1;
+
+				int pred=(3*(N+W)-2*(NN+WW))>>1;
+				//int pred=(gx*N+gy*W)/(gx+gy);		//<- good
+
+				//pred=(pred+NE+NEE+NNE-NW+NWW+WW)/5;
+				//int pred=(gx*N+gy*W+g135*((3*NW+NNWW)>>2)+g45*((3*NE+NNEE)>>2))/(gx+gy+g45+g135);
+
+				//int
+				//	w45=0x10000/g45,
+				//	w90=0x10000/gy,
+				//	w135=0x10000/g135,
+				//	w180=0x10000/gx,
+				//	wsum=w45+w90+w135+w180;
+				//wsum+=!wsum;
+				//int pred=(w45*NE+w90*N+w135*NW+w180*W)/wsum;
+				//int pred=(gx*(2*N-NN)+gy*(2*W-WW))/(gx+gy);
+				
+				//int pred=(W+WW+NEE-NW+3*(N-NN)+NNN+NE)>>2;
+
+				//int pred=MEDIAN3(N, W, NW);
+
+				pred+=offset;
+				pred=CLAMP(-halfs[kc], pred, halfs[kc]-1);
+
+				int curr=src->data[idx+kc];
+				pred^=fwdmask;
+				pred-=fwdmask;
+				pred+=curr;
+
+				pred+=nlevels[kc]>>1;
+				pred&=nlevels[kc]-1;
+				pred-=nlevels[kc]>>1;
+
+				src->data[idx+kc]=pred;
+				rows[0][kc]=(fwd?curr:pred)-offset;
+			}
+			rows[0]+=4;
+			rows[1]+=4;
+			rows[2]+=4;
+			rows[3]+=4;
+		}
+	}
+	free(pixels);
+}
+
+
+//	#define WPU_TRACE
 	#define WPU_UPDATE_LUMA
 
-#define WPU_NPREDS 10
+#define WPU_NPREDS 8
 #define WPU_PREDLIST\
 	WPU_PRED((N+W+NE-NW)>>1)\
 	WPU_PRED(W+(eW>>1))\
@@ -2799,10 +2930,13 @@ void pred_PU(Image *src, int fwd)
 	WPU_PRED(W+NW-NWW)\
 	WPU_PRED(W+NE-N)\
 	WPU_PRED((3*N+W-(NNW+NNE))>>1)\
-	WPU_PRED((W+NEE)>>1)\
-	WPU_PRED((3*W+NEEE)>>2)\
 	WPU_PRED(N+W-NW+((eN+eW-eNW)>>1))\
 	WPU_PRED(N+NE-NNE)
+//	WPU_PRED(grad)
+//	WPU_PRED((W+NEE)>>1)
+//	WPU_PRED((3*W+NEEE)>>2)
+//	WPU_PRED(((abs(eW)+1)*N+(abs(eN)+1)*W)/(abs(eN)+abs(eW)+2))
+//	WPU_PRED(((abs(eNW)+1)*NE+(abs(eNE)+1)*NW)/(abs(eNE)+abs(eNW)+2))
 //	WPU_PRED(median1)
 //	WPU_PRED(median2)
 //	WPU_PRED(cgrad)
@@ -2908,12 +3042,23 @@ void pred_WPU(Image *src, int fwd)
 					if(kc0>1)
 						offset=(2*offset+rows[0][2])>>1;//(2*g+[b-g])/2 = (g+b)/2
 				}
+
+				//int
+				//	gx=abs(W-WW)+abs(N-NW)+abs(NE-N)+1,
+				//	gy=abs(W-NW)+abs(N-NN)+abs(NE-NNE)+1,
+				//	g135=abs(W-NWW)+abs(NW-NNWW)+abs(N-NNW)+abs(NE-NN)+1,
+				//	g45=abs(W-N)+abs(N-NNE)+abs(NE-NNEE)+abs(WW-NW)+1;
+				//int grad=(gx*N+gy*W)/(gx+gy);
+				
+				int vmin=MINVAR(N, W), vmax=MAXVAR(N, W), pred, curr, val;
+				UPDATE_MIN(vmin, NE);
+				UPDATE_MAX(vmax, NE);
+#if 0
 				int vmin=MINVAR(N, W), vmax=MAXVAR(N, W), pred, curr, val;
 				int cgrad=N+W-NW;
 				cgrad=CLAMP(vmin, cgrad, vmax);
 				UPDATE_MIN(vmin, NE);
 				UPDATE_MAX(vmax, NE);
-
 				int nb[]=
 				{
 					N,
@@ -2929,7 +3074,7 @@ void pred_WPU(Image *src, int fwd)
 				if(nb[1]>nb[2])SWAPVAR(nb[1], nb[2], temp);
 				int median1=(nb[1]+nb[2])>>1;
 				int median2=(nb[0]+nb[3])>>1;
-
+#endif
 				int preds[]=
 				{
 #define WPU_PRED(X) X,
