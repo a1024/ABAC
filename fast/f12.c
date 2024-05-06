@@ -6,9 +6,10 @@
 #include"lodepng.h"
 static const char file[]=__FILE__;
 
-	#define RELATION
+//	#define RELATION
 	#define DISABLE_DECORRELATION
 //	#define BITCTR
+//	#define ABACHIST	//X
 
 #define HISTBITS 8
 #define HISTSIZE (1<<HISTBITS)
@@ -100,6 +101,10 @@ int f12_statstest(const char *path)
 		return 1;
 	}
 	memset(hist, 0, histsize);
+#ifdef BITCTR
+	memset(ctr, 0, sizeof(size_t[4*2<<HISTBITS]));
+	memset(hist2, 0, sizeof(double[4<<HISTBITS]));
+#endif
 #ifdef RELATION
 	size_t rsize=sizeof(char[4*HISTSIZE*HISTSIZE]);
 	unsigned char *result=(unsigned char*)malloc(rsize);
@@ -110,9 +115,15 @@ int f12_statstest(const char *path)
 	}
 	memset(result, 0, rsize);
 #endif
-#ifdef BITCTR
-	memset(ctr, 0, sizeof(size_t[4*2<<HISTBITS]));
-	memset(hist2, 0, sizeof(double[4<<HISTBITS]));
+#ifdef ABACHIST
+	size_t abachistsize=sizeof(size_t[HISTSIZE]);
+	size_t *abachist=(size_t*)malloc(abachistsize);
+	if(!abachist)
+	{
+		LOG_ERROR("Alloc error");
+		return 1;
+	}
+	memset(abachist, 0, abachistsize);
 #endif
 
 	Image image={0};
@@ -180,13 +191,30 @@ int f12_statstest(const char *path)
 					if(kx==image.iw-1)
 						NE=N;
 					
+#ifdef ABACHIST
+					if(kc==1)
+					{
+						int low=0, range=HISTSIZE;
+						for(int kb=HISTBITS-1;kb>=0;--kb)
+						{
+							int bit=curr>>kb&1;
+						
+							int floorhalf=range>>1;
+							if(bit)
+								low+=floorhalf;
+							range=floorhalf;
+							for(int k2=0;k2<range;++k2)	//X  should increment once at the end, leading to same multisymbol histogram
+								++abachist[low+k2];
+						}
+					}
+#endif
+#ifdef RELATION
 					int cgrad=N+W-NW;
 					int vmin=W, vmax=N;
 					if(N<W)
 						vmin=N, vmax=W;
 					cgrad=CLAMP(vmin, cgrad, vmax);
 					int av2=(N+W)>>1;
-#ifdef RELATION
 					//++hist[((kc<<HISTBITS|N)<<HISTBITS|W)<<HISTBITS|curr];
 
 					//X-Y:
@@ -266,6 +294,13 @@ int f12_statstest(const char *path)
 		{
 			size_t freq=hist[kc<<HISTBITS|ks];
 			printf("%3d  %8zd  %8.4lf%%", ks, freq, 100.*freq/ctr_hit[kc]);
+#ifdef ABACHIST
+			if(kc==1)
+			{
+				freq=abachist[ks];
+				printf("  %16lld%%", freq);
+			}
+#endif
 #ifdef BITCTR
 			printf("  %8.4lf%%", 100.*hist2[kc<<HISTBITS|ks]);
 #endif

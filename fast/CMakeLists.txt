@@ -15,6 +15,8 @@
 	f14.c
 	f15.c
 	f16.c
+	f17.c
+	f18.c
 	fast.c
 	format.c
 	huffman.c
@@ -22,7 +24,7 @@
 	lodepng.c
 	transforms.c
 	util.c
- "f17.c")
+)
 
 #if(MSVC)
 #	target_compile_options(fast PRIVATE /Wall)

@@ -1359,8 +1359,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 //	case ST_INV_ZIPPER:		a=" S Inv Zipper";		break;
 //	case ST_FWD_DIR:		a=" S Fwd Dir";			break;
 //	case ST_INV_DIR:		a=" S Inv Dir";			break;
-	case ST_FWD_CUSTOM3:		a=" S Fwd CUSTOM3";		break;
-	case ST_INV_CUSTOM3:		a=" S Inv CUSTOM3";		break;
+	case ST_FWD_CUSTOM3:		a="CS Fwd CUSTOM3";		break;
+	case ST_INV_CUSTOM3:		a="CS Inv CUSTOM3";		break;
 	case ST_FWD_CALIC:		a=" S Fwd CALIC";		break;
 	case ST_INV_CALIC:		a=" S Inv CALIC";		break;
 //	case ST_FWD_NBLIC:		a=" S Fwd NBLIC";		break;

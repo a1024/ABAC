@@ -7112,7 +7112,7 @@ static void custom3_prealloc(const int *src, int iw, int ih, const char *depths,
 	{
 		for(int kx=0;kx<iw;++kx)
 		{
-#if 0
+#if 1
 			int clampers[6]=
 			{
 				(nlevels[0]>>1)-1, -(nlevels[0]>>1),
@@ -7167,7 +7167,7 @@ static void custom3_prealloc(const int *src, int iw, int ih, const char *depths,
 					pred+=fast_dot(coeffs[idx2+kc], nb[kc], count[kc]);
 				pred+=1<<13;
 				pred>>=14;
-			//	pred=CLAMP(clampers[kdst<<1|0], pred, clampers[kdst<<1|1]);
+				pred=CLAMP(clampers[kdst<<1|0], pred, clampers[kdst<<1|1]);
 #ifdef C3_3D
 				if(kdst)
 					pred+=nb[0][C3_NNB];

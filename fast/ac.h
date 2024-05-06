@@ -13,7 +13,7 @@ extern "C"
 #endif
 
 
-//	#define AC_VALIDATE
+	#define AC_VALIDATE
 
 #ifdef AC_VALIDATE
 void acval_enc(int sym, int cdf, int freq, unsigned long long lo1, unsigned long long hi1, unsigned long long lo2, unsigned long long hi2, unsigned long long cache, int nbits);

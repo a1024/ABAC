@@ -130,6 +130,10 @@ int	f17_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #define f17_encode(SRC, DATA, LOUD)		f17_codec(SRC, DATA, 0, 0, 0, LOUD)
 #define f17_decode(CBUF, CSIZE, DST, LOUD)	f17_codec(0, 0, CBUF, CSIZE, DST, LOUD)
 
+int	f18_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
+#define f18_encode(SRC, DATA, LOUD)		f18_codec(SRC, DATA, 0, 0, 0, LOUD)
+#define f18_decode(CBUF, CSIZE, DST, LOUD)	f18_codec(0, 0, CBUF, CSIZE, DST, LOUD)
+
 
 #ifdef __cplusplus
 }
