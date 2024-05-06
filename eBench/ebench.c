@@ -1341,10 +1341,10 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_OLS3:		a=" S Inv OLS-3";		break;
 	case ST_FWD_OLS4:		a=" S Fwd OLS-4";		break;
 	case ST_INV_OLS4:		a=" S Inv OLS-4";		break;
-	case ST_FWD_PU:			a=" S Fwd PU";			break;
-	case ST_INV_PU:			a=" S Inv PU";			break;
-	case ST_FWD_CG3D:		a=" S Fwd CG3D";		break;
-	case ST_INV_CG3D:		a=" S Inv CG3D";		break;
+	case ST_FWD_PU:			a="CS Fwd PU";			break;
+	case ST_INV_PU:			a="CS Inv PU";			break;
+	case ST_FWD_CG3D:		a="CS Fwd CG3D";		break;
+	case ST_INV_CG3D:		a="CS Inv CG3D";		break;
 	case ST_FWD_CLAMPGRAD:		a=" S Fwd ClampGrad";		break;
 	case ST_INV_CLAMPGRAD:		a=" S Inv ClampGrad";		break;
 	case ST_FWD_AV2:		a=" S Fwd (N+W)>>1";		break;
@@ -1367,8 +1367,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 //	case ST_INV_NBLIC:		a=" S Inv NBLIC";		break;
 	case ST_FWD_WP:			a=" S Fwd JXL WP";		break;
 	case ST_INV_WP:			a=" S Inv JXL WP";		break;
-	case ST_FWD_WPU:		a=" S Fwd WPU";			break;
-	case ST_INV_WPU:		a=" S Inv WPU";			break;
+	case ST_FWD_WPU:		a="CS Fwd WPU";			break;
+	case ST_INV_WPU:		a="CS Inv WPU";			break;
 	case ST_FWD_DEFERRED:		a=" S Fwd DEFERRED";		break;
 	case ST_INV_DEFERRED:		a=" S Inv DEFERRED";		break;
 	case ST_FWD_MM:			a=" S Fwd MM";			break;
@@ -4113,14 +4113,14 @@ int io_keydn(IOKey key, char c)
 			"\n"
 			"WASDTG:\tMove cam\n"
 			"Arrow keys:\tTurn cam\n"
-			"Mouse1:\t\tToggle mouse look\n"
+			"Mouse1/Esc:\tToggle mouse look\n"
 			"R:\t\tReset cam\n"
 			"\n"
 			"H:\t\tReset CR history graph\n"
 			"Ctrl C:\t\tCopy data\n"
 			"Ctrl V:\t\tPaste data\n"
 			"Ctrl B:\t\tBatch test\n"
-			"Ctrl SPACE:\tCheck integrity\n"
+			"Ctrl SPACE:\tCheck integrity (if restored bit-exact)\n"
 		//	"Ctrl P:\t\tTest predictors\n"
 			"C:\t\tToggle joint histogram type / fill screen in image view\n"
 			"\n"

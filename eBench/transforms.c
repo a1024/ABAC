@@ -2794,15 +2794,18 @@ void pred_PU(Image *src, int fwd)
 #define WPU_NPREDS 10
 #define WPU_PREDLIST\
 	WPU_PRED((N+W+NE-NW)>>1)\
-	WPU_PRED(N+W-NW+((eN+eW-eNW)>>1))\
 	WPU_PRED(W+(eW>>1))\
 	WPU_PRED(N+(eN>>1))\
 	WPU_PRED(W+NW-NWW)\
 	WPU_PRED(W+NE-N)\
 	WPU_PRED((3*N+W-(NNW+NNE))>>1)\
-	WPU_PRED(N+NE-NNE)\
 	WPU_PRED((W+NEE)>>1)\
-	WPU_PRED((3*W+NEEE)>>2)
+	WPU_PRED((3*W+NEEE)>>2)\
+	WPU_PRED(N+W-NW+((eN+eW-eNW)>>1))\
+	WPU_PRED(N+NE-NNE)
+//	WPU_PRED(median1)
+//	WPU_PRED(median2)
+//	WPU_PRED(cgrad)
 #define WPU_NBITS 8
 #define WPU_PIXEL_STRIDE (4*(WPU_NPREDS+2LL))
 void pred_WPU(Image *src, int fwd)
@@ -2906,8 +2909,26 @@ void pred_WPU(Image *src, int fwd)
 						offset=(2*offset+rows[0][2])>>1;//(2*g+[b-g])/2 = (g+b)/2
 				}
 				int vmin=MINVAR(N, W), vmax=MAXVAR(N, W), pred, curr, val;
+				int cgrad=N+W-NW;
+				cgrad=CLAMP(vmin, cgrad, vmax);
 				UPDATE_MIN(vmin, NE);
 				UPDATE_MAX(vmax, NE);
+
+				int nb[]=
+				{
+					N,
+					W,
+					NE,
+					NW,
+				};
+				int temp;
+				if(nb[0]>nb[1])SWAPVAR(nb[0], nb[1], temp);
+				if(nb[2]>nb[3])SWAPVAR(nb[2], nb[3], temp);
+				if(nb[0]>nb[2])SWAPVAR(nb[0], nb[2], temp);
+				if(nb[1]>nb[3])SWAPVAR(nb[1], nb[3], temp);
+				if(nb[1]>nb[2])SWAPVAR(nb[1], nb[2], temp);
+				int median1=(nb[1]+nb[2])>>1;
+				int median2=(nb[0]+nb[3])>>1;
 
 				int preds[]=
 				{
@@ -2956,13 +2977,13 @@ void pred_WPU(Image *src, int fwd)
 				for(int k=0;k<WPU_NPREDS;++k)
 				{
 					long long weight=0;
-					weight+=(long long)rows[1][kc-1*WPU_PIXEL_STRIDE+8+((size_t)k<<2)];
 					weight+=(long long)rows[1][kc+0*WPU_PIXEL_STRIDE+8+((size_t)k<<2)];
-					weight+=(long long)rows[1][kc+1*WPU_PIXEL_STRIDE+8+((size_t)k<<2)];
 #ifdef WPU_TRACE
 					if(kc==1)
-						trace[k]+=weight;
+						trace[k]+=weight*weight;
 #endif
+					weight+=(long long)rows[1][kc-1*WPU_PIXEL_STRIDE+8+((size_t)k<<2)];
+					weight+=(long long)rows[1][kc+1*WPU_PIXEL_STRIDE+8+((size_t)k<<2)];
 					weight+=!weight;
 					weight=((long long)weights[k<<2|kc]<<16)/weight;
 					llpred+=weight*preds[k];
@@ -2973,7 +2994,7 @@ void pred_WPU(Image *src, int fwd)
 				llpred/=wsum;
 				pred=(int)llpred;
 				pred=CLAMP(vmin, pred, vmax);
-				//pred=((64-4)*pred+N+W+NW+NE)>>6;
+				pred=((64-4)*pred+N+W+NW+NE)>>6;
 
 				pred+=offset;
 				pred=CLAMP(-boosthalfs[kc], pred, boosthalfs[kc]-1);
@@ -3060,7 +3081,7 @@ void pred_WPU(Image *src, int fwd)
 		char buf[2048]={0};
 		int printed=0;
 		for(int k=0;k<WPU_NPREDS;++k)
-			printed+=snprintf(buf+printed, 1024LL-printed-1, "%16lld  %s\n", trace[k], prednames[k]);
+			printed+=snprintf(buf+printed, 1024LL-printed-1, "%20lld  %s\n", trace[k], prednames[k]);
 			//printed+=snprintf(buf+printed, 1024LL-printed-1, "0x%016llX  %s\n", trace[k], prednames[k]);
 		copy_to_clipboard(buf, printed);
 		messagebox(MBOX_OK, "Copied to clipboard", buf);
@@ -7010,7 +7031,7 @@ void pred_jmj_apply(Image *src, int fwd, int enable_ma)
 
 //CUSTOM3
 
-//	#define C3_3D
+	#define C3_3D
 
 #define C3_OPT_NCOMP (C3_NPARAMS>>5)
 Custom3Params c3_params={0};
@@ -7091,6 +7112,7 @@ static void custom3_prealloc(const int *src, int iw, int ih, const char *depths,
 	{
 		for(int kx=0;kx<iw;++kx)
 		{
+#if 0
 			int clampers[6]=
 			{
 				(nlevels[0]>>1)-1, -(nlevels[0]>>1),
@@ -7124,6 +7146,7 @@ static void custom3_prealloc(const int *src, int iw, int ih, const char *depths,
 				clampers[2]=-(nlevels[1]>>1), clampers[3]=(nlevels[1]>>1)-1;
 			if(clampers[4]>clampers[5])
 				clampers[4]=-(nlevels[2]>>1), clampers[5]=(nlevels[2]>>1)-1;
+#endif
 			int count[3], idx2;
 			for(int kc=0;kc<3;++kc)
 				count[kc]=custom3_loadnb(pixels, errors, iw, ih, kc, kx, ky, nb[kc]);
@@ -7144,13 +7167,11 @@ static void custom3_prealloc(const int *src, int iw, int ih, const char *depths,
 					pred+=fast_dot(coeffs[idx2+kc], nb[kc], count[kc]);
 				pred+=1<<13;
 				pred>>=14;
-				pred=CLAMP(clampers[kdst<<1|0], pred, clampers[kdst<<1|1]);
+			//	pred=CLAMP(clampers[kdst<<1|0], pred, clampers[kdst<<1|1]);
 #ifdef C3_3D
 				if(kdst)
-				{
-					pred+=nb[kdst-1][C3_NNB];
-					pred=CLAMP(-(nlevels[kdst]>>1), pred, (nlevels[kdst]>>1)-1);
-				}
+					pred+=nb[0][C3_NNB];
+				pred=CLAMP(-(nlevels[kdst]>>1), pred, (nlevels[kdst]>>1)-1);
 #endif
 
 				pred^=-fwd;
@@ -7163,10 +7184,6 @@ static void custom3_prealloc(const int *src, int iw, int ih, const char *depths,
 					pred-=nlevels[kdst]>>1;
 				}
 				dst[idx]=pred;
-				//if(fwd)
-				//	dst[idx]=src[idx]-pred;
-				//else
-				//	dst[idx]=src[idx]+pred;
 
 				nb[kdst][C3_NNB  ]=(short)pixels[idx];
 				nb[kdst][C3_NNB+1]=(short)errors[idx];
