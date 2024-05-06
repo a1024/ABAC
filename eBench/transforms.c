@@ -2788,13 +2788,28 @@ void pred_PU(Image *src, int fwd)
 }
 
 
+	#define WPU_TRACE
 	#define WPU_UPDATE_LUMA
 
-#define WPU_NPREDS 4
-#define WPU_PIXEL_STRIDE (4*(WPU_NPREDS+2LL))
+#define WPU_NPREDS 10
+#define WPU_PREDLIST\
+	WPU_PRED((N+W+NE-NW)>>1)\
+	WPU_PRED(N+W-NW+((eN+eW-eNW)>>1))\
+	WPU_PRED(W+(eW>>1))\
+	WPU_PRED(N+(eN>>1))\
+	WPU_PRED(W+NW-NWW)\
+	WPU_PRED(W+NE-N)\
+	WPU_PRED((3*N+W-(NNW+NNE))>>1)\
+	WPU_PRED(N+NE-NNE)\
+	WPU_PRED((W+NEE)>>1)\
+	WPU_PRED((3*W+NEEE)>>2)
 #define WPU_NBITS 8
+#define WPU_PIXEL_STRIDE (4*(WPU_NPREDS+2LL))
 void pred_WPU(Image *src, int fwd)
 {
+#ifdef WPU_TRACE
+	long long trace[WPU_NPREDS]={0};
+#endif
 	int eprev[WPU_NPREDS]={0};
 	int weights[WPU_NPREDS<<2]={0};
 	for(int k=0;k<(WPU_NPREDS<<2);++k)
@@ -2861,16 +2876,20 @@ void pred_WPU(Image *src, int fwd)
 			{
 				int kc=perm[kc0];
 				int
+					NNN	=rows[3][kc+0*WPU_PIXEL_STRIDE+0],
 					NNWW	=rows[2][kc-2*WPU_PIXEL_STRIDE+0],
 					NNW	=rows[2][kc-1*WPU_PIXEL_STRIDE+0],
 					NN	=rows[2][kc+0*WPU_PIXEL_STRIDE+0],
 					NNE	=rows[2][kc+1*WPU_PIXEL_STRIDE+0],
 					NNEE	=rows[2][kc+2*WPU_PIXEL_STRIDE+0],
+					NNEEE	=rows[2][kc+3*WPU_PIXEL_STRIDE+0],
 					NWW	=rows[1][kc-2*WPU_PIXEL_STRIDE+0],
 					NW	=rows[1][kc-1*WPU_PIXEL_STRIDE+0],
 					N	=rows[1][kc+0*WPU_PIXEL_STRIDE+0],
 					NE	=rows[1][kc+1*WPU_PIXEL_STRIDE+0],
 					NEE	=rows[1][kc+2*WPU_PIXEL_STRIDE+0],
+					NEEE	=rows[1][kc+3*WPU_PIXEL_STRIDE+0],
+					WWW	=rows[0][kc-3*WPU_PIXEL_STRIDE+0],
 					WW	=rows[0][kc-2*WPU_PIXEL_STRIDE+0],
 					W	=rows[0][kc-1*WPU_PIXEL_STRIDE+0],
 					
@@ -2892,10 +2911,26 @@ void pred_WPU(Image *src, int fwd)
 
 				int preds[]=
 				{
-					W+NE-N,
-					W+((eN+eW+eNW)>>2),
-					N+((eN+eW+eNE)>>2),
-					N+((4*eNW+0*eN+3*eNE+23*(N-NN)+2*(NW-W))>>5),
+#define WPU_PRED(X) X,
+					WPU_PREDLIST
+#undef  WPU_PRED
+					//(N+W+NE-NW)>>1,
+					//(3*N+W-(NNW+NNE))>>1,
+					//N+W-NW,
+					//W+(eW>>1),
+					//N+(eN>>1),
+					//W+NW-NWW,
+					//W+NE-N,
+					//N+NE-NNE,
+
+					//(3*(N+W-NW)+((N+W)>>1))>>2,
+					//(4*(N+W)+NE-NW)>>3,
+					//NE+NEE-NEEE,
+
+					//W+NE-N,
+					//W+((eN+eW+eNW)>>2),
+					//N+((eN+eW+eNE)>>2),
+					//N+((4*eNW+0*eN+3*eNE-23*(NN-N)+2*(NW-W))>>5),
 
 					//lib/jxl/modular/encoding/context_predict.h:	default lossless8
 					//prediction[0] = W + NE - N;
@@ -2914,24 +2949,31 @@ void pred_WPU(Image *src, int fwd)
 				};
 				//if(ky==1&&kx==230)//
 				//if(ky==0&&kx==141)//
+				//if(ky==100&&kx==100)//
 				//	printf("");
 
 				long long llpred=0, wsum=1;
 				for(int k=0;k<WPU_NPREDS;++k)
 				{
-					long long weight=1;
+					long long weight=0;
 					weight+=(long long)rows[1][kc-1*WPU_PIXEL_STRIDE+8+((size_t)k<<2)];
 					weight+=(long long)rows[1][kc+0*WPU_PIXEL_STRIDE+8+((size_t)k<<2)];
 					weight+=(long long)rows[1][kc+1*WPU_PIXEL_STRIDE+8+((size_t)k<<2)];
+#ifdef WPU_TRACE
+					if(kc==1)
+						trace[k]+=weight;
+#endif
+					weight+=!weight;
 					weight=((long long)weights[k<<2|kc]<<16)/weight;
 					llpred+=weight*preds[k];
 					wsum+=weight;
 				}
 				llpred+=(wsum>>1)-1;
+				wsum+=!wsum;
 				llpred/=wsum;
 				pred=(int)llpred;
 				pred=CLAMP(vmin, pred, vmax);
-				pred=((64-4)*pred+N+W+NW+NE)>>6;
+				//pred=((64-4)*pred+N+W+NW+NE)>>6;
 
 				pred+=offset;
 				pred=CLAMP(-boosthalfs[kc], pred, boosthalfs[kc]-1);
@@ -3006,6 +3048,24 @@ void pred_WPU(Image *src, int fwd)
 			rows[3]+=WPU_PIXEL_STRIDE;
 		}
 	}
+#ifdef WPU_TRACE
+	if(loud_transforms)
+	{
+		const char *prednames[]=
+		{
+#define WPU_PRED(X) #X,
+			WPU_PREDLIST
+#undef  WPU_PRED
+		};
+		char buf[2048]={0};
+		int printed=0;
+		for(int k=0;k<WPU_NPREDS;++k)
+			printed+=snprintf(buf+printed, 1024LL-printed-1, "%16lld  %s\n", trace[k], prednames[k]);
+			//printed+=snprintf(buf+printed, 1024LL-printed-1, "0x%016llX  %s\n", trace[k], prednames[k]);
+		copy_to_clipboard(buf, printed);
+		messagebox(MBOX_OK, "Copied to clipboard", buf);
+	}
+#endif
 	free(pixels);
 }
 
