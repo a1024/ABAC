@@ -311,10 +311,10 @@ INLINE void ac_enc_update(ArithmeticCoder *ec, int cdf, int freq)//CDF is 16 bit
 	unsigned long long lo0=ec->low, r0=ec->range;
 	if(freq<=0)
 		LOG_ERROR2("ZPS");
-	if(cdf>0x10000||cdf+freq>0x10000)
-		LOG_ERROR2("");
+	if(cdf>=0x10000||cdf+freq>0x10000)
+		LOG_ERROR2("Invalid CDF");
 	if(ec->range==~0LLU)
-		LOG_ERROR2("");
+		LOG_ERROR2("Invalid AC range");
 #endif
 	ec->low+=ec->range*cdf>>16;
 	ec->range*=freq;
@@ -334,7 +334,7 @@ INLINE void ac_dec_update(ArithmeticCoder *ec, int cdf, int freq)//preferred for
 {
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
-	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
+	if(freq<=0||cdf>=0x10000||cdf+freq>0x10000)
 		LOG_ERROR2("ZPS");
 #endif
 	ec->low+=ec->range*cdf>>16;
@@ -354,10 +354,10 @@ INLINE void ac_enc_av2(ArithmeticCoder *ec, int sym, const unsigned *CDF1, const
 	unsigned long long lo0=ec->low, r0=ec->range;
 	if(freq<=0)
 		LOG_ERROR2("ZPS");
-	if(cdf>0x10000||cdf+freq>0x10000)
-		LOG_ERROR2("");
+	if(cdf>=0x10000||cdf+freq>0x10000)
+		LOG_ERROR2("Invalid CDF");
 	if(ec->range==~0LLU)
-		LOG_ERROR2("");
+		LOG_ERROR2("Invalid AC range");
 #endif
 	ec->low+=ec->range*cdf>>16;
 	ec->range*=freq;
@@ -384,7 +384,7 @@ INLINE int ac_dec_packedsign_av2(ArithmeticCoder *ec, const unsigned *CDF1, cons
 	freq=((CDF1[sym+1]+CDF2[sym+1])>>1)-cdf;
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
-	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
+	if(freq<=0||cdf>=0x10000||cdf+freq>0x10000)
 		LOG_ERROR2("ZPS");
 #endif
 	ec->low+=ec->range*cdf>>16;
@@ -406,10 +406,10 @@ INLINE void ac_enc_av4(ArithmeticCoder *ec, int sym, const unsigned *CDF1, const
 	unsigned long long lo0=ec->low, r0=ec->range;
 	if(freq<=0)
 		LOG_ERROR2("ZPS");
-	if(cdf>0x10000||cdf+freq>0x10000)
-		LOG_ERROR2("");
+	if(cdf>=0x10000||cdf+freq>0x10000)
+		LOG_ERROR2("Invalid CDF");
 	if(ec->range==~0LLU)
-		LOG_ERROR2("");
+		LOG_ERROR2("Invalid AC range");
 #endif
 	ec->low+=ec->range*cdf>>16;
 	ec->range*=freq;
@@ -436,7 +436,7 @@ INLINE int ac_dec_packedsign_av4(ArithmeticCoder *ec, const unsigned *CDF1, cons
 	freq=AV4_CDFs(sym+1)-cdf;
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
-	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
+	if(freq<=0||cdf>=0x10000||cdf+freq>0x10000)
 		LOG_ERROR2("ZPS");
 #endif
 	ec->low+=ec->range*cdf>>16;
@@ -458,10 +458,10 @@ INLINE void ac_enc_mix2(ArithmeticCoder *ec, int sym, const unsigned *CDF1, cons
 	unsigned long long lo0=ec->low, r0=ec->range;
 	if(freq<=0)
 		LOG_ERROR2("ZPS");
-	if(cdf>0x10000||cdf+freq>0x10000)
-		LOG_ERROR2("");
+	if(cdf>=0x10000||cdf+freq>0x10000)
+		LOG_ERROR2("Invalid CDF");
 	if(ec->range==~0LLU)
-		LOG_ERROR2("");
+		LOG_ERROR2("Invalid AC range");
 #endif
 	ec->low+=ec->range*cdf>>16;
 	ec->range*=freq;
@@ -488,7 +488,7 @@ INLINE int ac_dec_packedsign_mix2(ArithmeticCoder *ec, const unsigned *CDF1, con
 	freq=MIX2(CDF1[sym+1], CDF2[sym+1], alpha)-cdf;
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
-	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
+	if(freq<=0||cdf>=0x10000||cdf+freq>0x10000)
 		LOG_ERROR2("ZPS");
 #endif
 	ec->low+=ec->range*cdf>>16;
@@ -517,10 +517,10 @@ INLINE void ac_enc_mix4(ArithmeticCoder *ec, int sym, const unsigned *CDF1, cons
 	unsigned long long lo0=ec->low, r0=ec->range;
 	if(freq<=0)
 		LOG_ERROR2("ZPS");
-	if(cdf>0x10000||cdf+freq>0x10000)
-		LOG_ERROR2("");
+	if(cdf>=0x10000||cdf+freq>0x10000)
+		LOG_ERROR2("Invalid CDF");
 	if(ec->range==~0LLU)
-		LOG_ERROR2("");
+		LOG_ERROR2("Invalid AC range");
 #endif
 	ec->low+=ec->range*cdf>>16;
 	ec->range*=freq;
@@ -547,7 +547,7 @@ INLINE int ac_dec_packedsign_mix4(ArithmeticCoder *ec, const unsigned *CDF1, con
 	freq=MIX4_CDFs(sym+1)-cdf;
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
-	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
+	if(freq<=0||cdf>=0x10000||cdf+freq>0x10000)
 		LOG_ERROR2("ZPS");
 #endif
 	ec->low+=ec->range*cdf>>16;
@@ -568,10 +568,10 @@ INLINE void ac_enc(ArithmeticCoder *ec, int sym, const unsigned *CDF)//CDF is 16
 	unsigned long long lo0=ec->low, r0=ec->range;
 	if(freq<=0)
 		LOG_ERROR2("ZPS");
-	if(cdf>0x10000||cdf+freq>0x10000)
-		LOG_ERROR2("");
+	if(cdf>=0x10000||cdf+freq>0x10000)
+		LOG_ERROR2("Invalid CDF");
 	if(ec->range==~0LLU)
-		LOG_ERROR2("");
+		LOG_ERROR2("Invalid AC range");
 #endif
 	ec->low+=ec->range*cdf>>16;
 	ec->range*=freq;
@@ -602,7 +602,7 @@ INLINE int ac_dec_uniform(ArithmeticCoder *ec, const unsigned *CDF, int nlevels)
 	freq=CDF[sym+1]-cdf;
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
-	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
+	if(freq<=0||cdf>=0x10000||cdf+freq>0x10000)
 		LOG_ERROR2("ZPS");
 #endif
 	ec->low+=ec->range*cdf>>16;
@@ -654,7 +654,7 @@ INLINE int ac_dec(ArithmeticCoder *ec, const unsigned *CDF, int nlevels)//prefer
 	freq=CDF[sym+1]-cdf;
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
-	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
+	if(freq<=0||cdf>=0x10000||cdf+freq>0x10000)
 		LOG_ERROR2("ZPS");
 #endif
 	ec->low+=ec->range*cdf>>16;
@@ -685,7 +685,7 @@ INLINE int ac_dec_packedsign(ArithmeticCoder *ec, const unsigned *CDF, int nleve
 	freq=CDF[sym+1]-cdf;
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
-	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
+	if(freq<=0||cdf>=0x10000||cdf+freq>0x10000)
 		LOG_ERROR2("ZPS");
 #endif
 	ec->low+=ec->range*cdf>>16;
@@ -727,7 +727,7 @@ INLINE int ac_dec_POT(ArithmeticCoder *ec, const unsigned *CDF, int nbits)
 	freq=CDF[sym+1]-cdf;
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
-	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
+	if(freq<=0||cdf>=0x10000||cdf+freq>0x10000)
 		LOG_ERROR2("ZPS");
 #endif
 	ec->low+=ec->range*cdf>>16;
@@ -777,7 +777,7 @@ INLINE int ac_dec_POT_permuted(ArithmeticCoder *ec, const unsigned *pCDF, const 
 	freq=CDF[sym+1]-cdf;
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
-	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
+	if(freq<=0||cdf>=0x10000||cdf+freq>0x10000)
 		LOG_ERROR2("ZPS");
 #endif
 	ec->low+=ec->range*cdf>>16;
@@ -803,7 +803,7 @@ INLINE int ac_dec_CDF2sym(ArithmeticCoder *ec, const unsigned *CDF, const unsign
 	freq=CDF[sym+1]-cdf;
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
-	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
+	if(freq<=0||cdf>=0x10000||cdf+freq>0x10000)
 		LOG_ERROR2("ZPS");
 #endif
 	ec->low+=ec->range*cdf>>16;
@@ -832,7 +832,7 @@ INLINE int ac_dec_4bit(ArithmeticCoder *ec, const unsigned *CDF)
 	freq=CDF[sym+1]-cdf;
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
-	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
+	if(freq<=0||cdf>=0x10000||cdf+freq>0x10000)
 		LOG_ERROR2("ZPS");
 #endif
 	ec->low+=ec->range*cdf>>16;
@@ -862,7 +862,7 @@ INLINE int ac_dec_5bit(ArithmeticCoder *ec, const unsigned *CDF)
 	freq=CDF[sym+1]-cdf;
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
-	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
+	if(freq<=0||cdf>=0x10000||cdf+freq>0x10000)
 		LOG_ERROR2("ZPS");
 #endif
 	ec->low+=ec->range*cdf>>16;
@@ -884,10 +884,10 @@ INLINE void ac_enc_packedCDF(ArithmeticCoder *ec, int sym, const unsigned short 
 	unsigned long long lo0=ec->low, r0=ec->range;
 	if(freq<=0)
 		LOG_ERROR2("ZPS");
-	if(cdf>0x10000||cdf+freq>0x10000)
-		LOG_ERROR2("");
+	if(cdf>=0x10000||cdf+freq>0x10000)
+		LOG_ERROR2("Invalid CDF");
 	if(ec->range==~0LLU)
-		LOG_ERROR2("");
+		LOG_ERROR2("Invalid AC range");
 	//if(cdf>>15||freq>>15)
 	//	LOG_ERROR2("LOL_1");
 #endif
@@ -926,7 +926,7 @@ INLINE int ac_dec_packedCDF_POT(ArithmeticCoder *ec, const unsigned short *CDF, 
 	freq=(sym>=(1<<nbits)-1?0x10000:CDF[sym+1])-cdf;
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
-	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
+	if(freq<=0||cdf>=0x10000||cdf+freq>0x10000)
 		LOG_ERROR2("ZPS");
 #endif
 	ec->low+=ec->range*cdf>>16;

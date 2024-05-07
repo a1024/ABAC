@@ -9,20 +9,25 @@ static const char file[]=__FILE__;
 
 static long long calc_cdf_continuous(int x, long long mad)
 {
-	//MAD range
-	//	re(2^-abs(x/half*256))<<15	^ sharp
-	//	re(2^-abs(x/half/64))<<15	v bypass, stretch it as much as you want, irrelevant under 1/64
 	if(!x)//this should be hit frequently
 		return 0x800000;
 	long long pos=x>0, posmask=-pos;
 	long long xn=((long long)abs(x)<<48)/mad;
-	long long e=exp2_fix24((int)xn);
+	long long e=exp2_fix24(-(int)CLAMP(-0x7FFFFFFF, xn, 0x7FFFFFFF));
 	e^=posmask;//negate then add 1 if x > mean
 	e-=posmask;
+	e>>=1;
 	e+=pos<<24;
-	return e>>1;
+	return e;
 }
-#define CALC_CDF(X) (((calc_cdf_continuous(X, mad)-cdf_start)*(0x10000-nlevels[kc]))/cdf_den+(X))
+static unsigned long long calc_cdf_u(int sym, int half, int nlevels, long long mad, long long cdf_start, long long cdf_den)
+{
+	long long num=calc_cdf_continuous(sym-half, mad)-cdf_start;
+	num=CLAMP(-0xFFFFFFFFFFFF, num, 0xFFFFFFFFFFFF)*(0x10000LL-nlevels)/cdf_den+sym;
+	return num;
+}
+#define CALC_CDF(X) calc_cdf_u(X, halfs[kc], nlevels[kc], mad, cdf_start, cdf_den)
+//#define CALC_CDF(X) (((calc_cdf_continuous((X)-halfs[kc], mad)-cdf_start)*(0x10000-nlevels[kc]))/cdf_den+(X))
 int f18_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud)
 {
 	double t0=time_sec();
@@ -47,8 +52,8 @@ int f18_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	memfill(depths, &image->depth, image->nch, sizeof(char));
 	if(image->depth>=3)
 	{
-		++depths[0];
-		++depths[2];
+		depths[0]+=image->depth<16;
+		depths[2]+=image->depth<16;
 	}
 	int nlevels[]=
 	{
@@ -72,6 +77,8 @@ int f18_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	//	0x1000000LL<<3>>(depths[3]>>1), 0x1000000LL<<3<<(depths[3]>>1),
 	//};
 	int perm[]={1, 2, 0, 3};
+	long long mads[]={1, 1, 1, 1};
+	int counts[]={1, 1, 1, 1};
 	for(int ky=0, idx=0, idx2=0;ky<image->ih;++ky)
 	{
 		short *rows[]=
@@ -112,36 +119,44 @@ int f18_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				pred=CLAMP(vmin, pred, vmax);
 				long long mad, cdf_start, cdf_den, cdf, freq;
 
+				mad=CLAMP(-0x7FFFFFFFFFFF, mads[kc], 0x7FFFFFFFFFFF);
+				mad=(mad<<24)/counts[kc];
+#if 0
 				mad=1;//this offset decides the ratio between min & max values that the final MAD can take		([0~255]+offset)*59 = [1/256 ~ 255/256]
 				int count=1;
 				for(int k=-8;k<=8;++k)//(8<<1|1)*3+8 = 59
 				{
-					int a=abs(NNN[kc+(k<<3)]);
+					int a=abs(NNN[kc+(k<<3)+4]);
 					count+=a!=0;
 					mad+=(long long)a;
 				}
 				for(int k=-8;k<=8;++k)
 				{
-					int a=abs(NN[kc+(k<<3)]);
+					int a=abs(NN[kc+(k<<3)+4]);
 					count+=a!=0;
 					mad+=(long long)a;
 				}
 				for(int k=-8;k<=8;++k)
 				{
-					int a=abs(N[kc+(k<<3)]);
+					int a=abs(N[kc+(k<<3)+4]);
 					count+=a!=0;
 					mad+=(long long)a;
 				}
 				for(int k=-8+1;k<=0;++k)
 				{
-					int a=abs(W[kc+(k<<3)]);
+					int a=abs(W[kc+(k<<3)+4]);
 					count+=a!=0;
 					mad+=(long long)a;
 				}
-				mad<<=27;
+				mad<<=24+depths[kc];
 				mad+=count>>1;
 				mad/=count;
+#endif
 				//mad=CLAMP(mad_clampers[kc<<1|0], mad, mad_clampers[kc<<1|1]);
+
+				//if(ky==4&&kx==545)
+				//if(ky==0&&kx==2&&kc==2)//
+				//	printf("");
 
 				cdf_start=calc_cdf_continuous(-halfs[kc], mad);
 				cdf_den=calc_cdf_continuous(halfs[kc], mad)-cdf_start;
@@ -150,49 +165,73 @@ int f18_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					delta=curr[kc]-pred;
 					delta+=halfs[kc];
 					delta&=nlevels[kc]-1;
+					
+					if(!cdf_den)
+						ac_enc_bypass(&ec, delta, nlevels[kc]);
+					else
+					{
+						//if(ky==0&&kx==2&&kc==2)//
+						//{
+						//	for(int k=0;k<nlevels[kc];++k)
+						//	{
+						//		printf("%3d  %16lld\n", k, CALC_CDF(k));
+						//	}
+						//}
+						cdf=CALC_CDF(delta);
+						freq=CALC_CDF(delta+1)-cdf;
+
+						ac_enc_update(&ec, (int)cdf, (int)freq);
+					}
 					delta-=halfs[kc];
 					curr[kc+4]=delta;
-
-					cdf=CALC_CDF(delta);
-					freq=CALC_CDF(delta+1)-cdf;
-					ac_enc_update(&ec, (int)cdf, (int)freq);
 				}
 				else
 				{
 					unsigned code=ac_dec_getcdf(&ec);
 					int range=nlevels[kc];
 					delta=0;
-					while(range)
+					if(!cdf_den)
+						delta=ac_dec_bypass(&ec, nlevels[kc]);
+					else
 					{
-						int floorhalf=range>>1;
+						while(range>1)
+						{
+							int floorhalf=range>>1;
 						
-						long long c2=CALC_CDF(delta+floorhalf);
-						if(code>=c2)
-							delta+=range-floorhalf;
-						range=floorhalf;
+							long long c2=CALC_CDF(delta+floorhalf);
+							if(code>=c2)
+								delta+=range-floorhalf;
+							range=floorhalf;
+						}
+					
+						cdf=CALC_CDF(delta);
+						freq=CALC_CDF(delta+1)-cdf;
+						ac_dec_update(&ec, (int)cdf, (int)freq);
 					}
 					
-					cdf=CALC_CDF(delta);
-					freq=CALC_CDF(delta+1)-cdf;
-					ac_dec_update(&ec, (int)cdf, (int)freq);
-
 					curr[kc+4]=delta-halfs[kc];
 					delta+=pred;
 					delta&=nlevels[kc]-1;
 					delta-=halfs[kc];
 					curr[kc]=delta;
 				}
+				mads[kc]+=(long long)abs(curr[kc+4]);
+				++counts[kc];
 			}
 			if(!fwd)
 			{
 				memcpy(dst->data+idx, curr, sizeof(short[3]));
 				if(image->nch>=3)
 				{
-					curr[1]-=(curr[0]+curr[2])>>2;
-					curr[2]+=curr[1];
-					curr[0]+=curr[1];
+					dst->data[idx+1]-=(dst->data[idx+0]+dst->data[idx+2])>>2;
+					dst->data[idx+2]+=dst->data[idx+1];
+					dst->data[idx+0]+=dst->data[idx+1];
 				}
 			}
+			rows[0]+=8;
+			rows[1]+=8;
+			rows[2]+=8;
+			rows[3]+=8;
 		}
 	}
 	if(fwd)
