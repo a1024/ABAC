@@ -499,6 +499,17 @@ int floor_log10(double x)
 }
 unsigned floor_sqrt(unsigned long long x)
 {
+	unsigned long long low=0, range=x;
+	while(range)
+	{
+		unsigned long long floorhalf=range>>1;
+		unsigned long long level=low+floorhalf+1;
+		if(level*level<=x)
+			low+=range-floorhalf;
+		range=floorhalf;
+	}
+	return (unsigned)low;
+#if 0
 	if(x<2)
 		return (unsigned)x;
 	int lg_sqrtx_p1=(floor_log2(x)>>1)+1;
@@ -534,6 +545,7 @@ unsigned floor_sqrt(unsigned long long x)
 	}
 	//printf("%d muls\n", nmuls);//
 	return (unsigned)U;//U <= L, we want floor, so return U
+#endif
 
 	//https://stackoverflow.com/questions/1100090/looking-for-an-efficient-integer-square-root-algorithm-for-arm-thumb2
 #if 0
@@ -553,7 +565,7 @@ unsigned floor_sqrt(unsigned long long x)
 unsigned long long exp2_fix24(int x)
 {
 	/*
-	transcedental fractional powers of two
+	transcendental fractional powers of two
 	x					inv(x)
 	2^-0x0.000001 = 0x0.FFFFFF4F...		0x1.000000B1... = 2^0x0.000001
 	2^-0x0.000002 = 0x0.FFFFFE9D...		0x1.00000163... = 2^0x0.000002

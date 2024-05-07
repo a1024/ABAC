@@ -306,33 +306,6 @@ static void batch_test_mt(const char *path, int nthreads)
 int main(int argc, char **argv)
 {
 #if 0
-	for(int ky=0;ky<16;++ky)
-	{
-		for(int kx=0;kx<16;++kx)
-			printf("%3d,", ky<<4|kx);
-		printf("\n");
-	}
-	pause();
-#endif
-#if 0
-	for(int k=0;k<1000000;++k)
-	{
-		unsigned long long n=0;
-		n=n<<15|rand();
-		n=n<<15|rand();
-		n=n<<15|rand();
-		n=n<<15|rand();
-		unsigned long idx=0;
-		int success=_BitScanForward64(&idx, n);
-		if(!success)
-			idx=0;
-		int idx2=bitscanfwd(n);
-		if(idx2!=idx)
-			LOG_ERROR("E: %d != %d", idx2, idx);
-	}
-	LOG_ERROR("SUCCESS");
-#endif
-#if 0
 	{
 #ifdef _DEBUG
 		const char *path=
@@ -367,7 +340,7 @@ int main(int argc, char **argv)
 	const char *fn=argv[1];
 #else
 	const char *fn=
-		"D:/ML/dataset-kodak/kodim13.png"
+	//	"D:/ML/dataset-kodak/kodim13.png"
 	//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
 	//	"D:/ML/big_building.PPM"
 	//	"C:/dataset-LPCB-ppm/PIA13785.ppm"
@@ -375,7 +348,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-LPCB-ppm/PIA13799.ppm"
 	//	"D:/ML/dataset-RAW/a0001-jmac_DSC1459.dng"
 
-	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
+		"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
 	//	"C:/Projects/datasets/dataset-kodak/kodim13.png"
 	//	"C:/Projects/datasets/kodim13-small4.PNG"
 	//	"C:/Projects/datasets/big_building.PPM"
