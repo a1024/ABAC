@@ -80,9 +80,8 @@ static unsigned exp2_fix24_neg(unsigned x)
 }
 static unsigned calc_cdf_continuous(int x, int depth, long long mad)
 {
-	long long pos=x>0, posmask=-pos;
-	long long xn=((long long)x<<(48-depth))/mad;
-	xn=llabs(xn);
+	int pos=x>0, posmask=-pos;
+	long long xn=((long long)abs(x)<<(48-depth))/mad;
 	if(xn>0x18000000)
 		xn=0x18000000;
 	int e=exp2_fix24_neg((unsigned)xn);
