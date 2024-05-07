@@ -3,6 +3,11 @@
 #include<string.h>
 #include<math.h>
 #include<immintrin.h>
+#ifdef _MSC_VER
+#include<intrin.h>
+#else
+#include<x86intrin.h>
+#endif
 static const char file[]=__FILE__;
 
 #include"ac.h"
@@ -11,7 +16,6 @@ static const char file[]=__FILE__;
 static unsigned exp2_fix24_neg(unsigned x)
 {
 	//return (unsigned)(exp2(-(x/16777216.))*0x1000000);//53% slower
-#if 1
 	/*
 	transcendental fractional powers of two
 	x					inv(x)
@@ -40,42 +44,82 @@ static unsigned exp2_fix24_neg(unsigned x)
 	2^-0x0.400000 = 0x0.D744FCCB...		0x1.306FE0A3... = 2^0x0.400000
 	2^-0x0.800000 = 0x0.B504F334...		0x1.6A09E667... = 2^0x0.800000
 	*/
-	static const unsigned frac_pots[]=
+	static const unsigned long long frac_pots[]=
 	{
-		0xFFFFFF4F,//extra 8 bits of precision
-		0xFFFFFE9D,
-		0xFFFFFD3A,
-		0xFFFFFA74,
-		0xFFFFF4E9,
-		0xFFFFE9D2,
-		0xFFFFD3A3,
-		0xFFFFA747,
-		0xFFFF4E8E,
-		0xFFFE9D1D,
-		0xFFFD3A3B,
-		0xFFFA747F,
-		0xFFF4E91C,
-		0xFFE9D2B3,
-		0xFFD3A752,
-		0xFFA75652,
-		0xFF4ECB59,
-		0xFE9E115C,
-		0xFD3E0C0D,
-		0xFA83B2DB,
-		0xF5257D15,
-		0xEAC0C6E8,
-		0xD744FCCB,
-		0xB504F334,
+		0x100000000,
+		0x0FFFFFF4F,//extra 8 bits of precision
+		0x0FFFFFE9D,
+		0x0FFFFFD3A,
+		0x0FFFFFA74,
+		0x0FFFFF4E9,
+		0x0FFFFE9D2,
+		0x0FFFFD3A3,
+		0x0FFFFA747,
+		0x0FFFF4E8E,
+		0x0FFFE9D1D,
+		0x0FFFD3A3B,
+		0x0FFFA747F,
+		0x0FFF4E91C,
+		0x0FFE9D2B3,
+		0x0FFD3A752,
+		0x0FFA75652,
+		0x0FF4ECB59,
+		0x0FE9E115C,
+		0x0FD3E0C0D,
+		0x0FA83B2DB,
+		0x0F5257D15,
+		0x0EAC0C6E8,
+		0x0D744FCCB,
+		0x0B504F334,
 	};
-	unsigned result=0x1000000;
-	for(int k=0;k<FRAC_BITS;++k)//up to 24 muls
+#if 0
+	unsigned long long x2=(unsigned long long)x<<1;
+	unsigned long long r0=0x1000000, r1=0x1000000, r2=0x1000000, r3=0x1000000;
+	for(int k=1;k<=FRAC_BITS;k+=8)
 	{
-		if(x&1)
-			result=(unsigned)((unsigned long long)result*frac_pots[k]>>32);
-		x>>=1;
+		r0=r0*frac_pots[(k+0)&-(int)(x2>>(k+0)&1)]>>32;
+		r1=r1*frac_pots[(k+1)&-(int)(x2>>(k+1)&1)]>>32;
+		r2=r2*frac_pots[(k+2)&-(int)(x2>>(k+2)&1)]>>32;
+		r3=r3*frac_pots[(k+3)&-(int)(x2>>(k+3)&1)]>>32;
+		r0=r0*frac_pots[(k+4)&-(int)(x2>>(k+4)&1)]>>32;
+		r1=r1*frac_pots[(k+5)&-(int)(x2>>(k+5)&1)]>>32;
+		r2=r2*frac_pots[(k+6)&-(int)(x2>>(k+6)&1)]>>32;
+		r3=r3*frac_pots[(k+7)&-(int)(x2>>(k+7)&1)]>>32;
 	}
-	result=SHIFT_RIGHT_SIGNED(result, x);
-	return result;
+	r2=r2*r3>>24;
+	r0=r0*r1>>24;
+	r0=r0*r2>>24;
+	r0>>=x>>FRAC_BITS;
+	return (unsigned)r0;
+#endif
+#if 1
+	unsigned long long x2=(unsigned long long)x<<1;
+	unsigned long long r0=0x1000000, r1=0x1000000;
+	for(int k=1;k<=FRAC_BITS;k+=2)
+	{
+		r0=r0*frac_pots[(k+0)&-(int)(x2>>(k+0)&1)]>>32;
+		r1=r1*frac_pots[(k+1)&-(int)(x2>>(k+1)&1)]>>32;
+		//r0=r0*frac_pots[(k+2)&-(int)(x2>>(k+2)&1)]>>32;
+		//r1=r1*frac_pots[(k+3)&-(int)(x2>>(k+3)&1)]>>32;
+		//r0=r0*frac_pots[(k+4)&-(int)(x2>>(k+4)&1)]>>32;
+		//r1=r1*frac_pots[(k+5)&-(int)(x2>>(k+5)&1)]>>32;
+		//r0=r0*frac_pots[(k+6)&-(int)(x2>>(k+6)&1)]>>32;
+		//r1=r1*frac_pots[(k+7)&-(int)(x2>>(k+7)&1)]>>32;
+	}
+	r0*=r1;
+	r0>>=(x>>FRAC_BITS)+24;
+	return (unsigned)r0;
+#endif
+#if 0
+	unsigned long long result=0x1000000;
+	for(int k=0;k<FRAC_BITS;)//up to 24 muls
+	{
+		int bit=x>>k&1;
+		++k;
+		result=result*frac_pots[k&-bit]>>32;
+	}
+	result>>=x>>FRAC_BITS;
+	return (unsigned)result;
 #endif
 }
 static unsigned calc_cdf_continuous(int x, int depth, long long mad)

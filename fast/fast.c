@@ -335,12 +335,13 @@ int main(int argc, char **argv)
 			"  %s  folder [nthreads]\n",
 			argv[0], argv[0]
 		);
+		pause();
 		return 1;
 	}
 	const char *fn=argv[1];
 #else
 	const char *fn=
-	//	"D:/ML/dataset-kodak/kodim13.png"
+		"D:/ML/dataset-kodak/kodim13.png"
 	//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
 	//	"D:/ML/big_building.PPM"
 	//	"C:/dataset-LPCB-ppm/PIA13785.ppm"
@@ -348,7 +349,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-LPCB-ppm/PIA13799.ppm"
 	//	"D:/ML/dataset-RAW/a0001-jmac_DSC1459.dng"
 
-		"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
+	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
 	//	"C:/Projects/datasets/dataset-kodak/kodim13.png"
 	//	"C:/Projects/datasets/kodim13-small4.PNG"
 	//	"C:/Projects/datasets/big_building.PPM"
@@ -364,6 +365,7 @@ int main(int argc, char **argv)
 	if(formatsize<0)
 	{
 		printf("Not a file or directory:  \'%s\'\n", fn);
+		pause();
 		return 1;
 	}
 	if(!formatsize)
