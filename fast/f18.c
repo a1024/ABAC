@@ -12,6 +12,33 @@ static const char file[]=__FILE__;
 
 #include"ac.h"
 
+static unsigned calc_cdf_continuous_v2(long long xn)
+{
+	int pos=xn>0, posmask=-pos;
+	xn=llabs(xn);
+	if(xn>0x18000000)
+		xn=0x18000000;
+	int e=exp2_neg_fix24_avx2((unsigned)xn);
+	e^=posmask;//negate then add 1 if x > mean
+	e-=posmask;
+	e>>=1;//signed shift
+	e+=pos<<24;
+	//if(e<0)
+	//	LOG_ERROR("");
+	return (unsigned)e;
+}
+static unsigned calc_cdf_v2(int isym, unsigned usym, unsigned invmad, unsigned cdf_start, unsigned long long scale)
+{
+	long long xn=(long long)isym*invmad;
+	unsigned cdf=calc_cdf_continuous_v2(xn);
+	cdf-=cdf_start;
+	cdf=(unsigned)((unsigned long long)cdf*scale>>24);
+	cdf+=usym;
+	if(cdf>0x10000)
+		LOG_ERROR("Invalid CDF");
+	return cdf;
+}
+#if 0
 static unsigned calc_cdf_continuous(int x, int depth, long long mad)
 {
 	int pos=x>0, posmask=-pos;
@@ -36,6 +63,7 @@ static unsigned long long calc_cdf_u(unsigned sym, unsigned depth, unsigned half
 	return num;
 }
 #define CALC_CDF(X) calc_cdf_u(X, depths[kc], halfs[kc], nlevels[kc], mad, cdf_start, cdf_den)
+#endif
 int f18_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud)
 {
 	double t0=time_sec();
@@ -78,7 +106,7 @@ int f18_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		nlevels[3]>>1,
 	};
 	int perm[]={1, 2, 0, 3};
-	for(int ky=0, idx=0, idx2=0;ky<image->ih;++ky)
+	for(int ky=0, idx=0;ky<image->ih;++ky)
 	{
 		short *rows[]=
 		{
@@ -87,7 +115,7 @@ int f18_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			pixels+(((image->iw+16LL)*((ky-2LL)&3)+8)<<3),
 			pixels+(((image->iw+16LL)*((ky-3LL)&3)+8)<<3),
 		};
-		for(int kx=0;kx<image->iw;++kx, idx+=3, ++idx2)
+		for(int kx=0;kx<image->iw;++kx, idx+=3)
 		{
 			short
 				*NNN	=rows[3]+0*8,
@@ -116,44 +144,132 @@ int f18_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				int vmin=MINVAR(N[kc], W[kc]), vmax=MAXVAR(N[kc], W[kc]);
 				int pred=N[kc]+W[kc]-NW[kc], delta;
 				pred=CLAMP(vmin, pred, vmax);
-				long long mad, cdf_start, cdf_den, cdf, freq;
+				unsigned mad, cdf_start, cdf_den, cdf, freq;
 				
 				//mad=(((long long)abs(N[kc+4])+(long long)abs(W[kc+4])+(long long)abs(NW[kc+4])+(long long)abs(NE[kc+4]))<<(24-2-depths[kc]))+1;
 				//mad=(((long long)abs(N[kc+4])+(long long)abs(W[kc+4]))<<(24-1-depths[kc]))+1;
 				//mad=(((long long)abs(NW[kc]-W[kc])+(long long)abs(N[kc]-NW[kc])+(long long)abs(NE[kc]-N[kc])+(long long)abs(W[kc]-NE[kc]))<<(24-3-depths[kc]))+1;
 #if 1
 				mad=1;
-				int count=1;
+				int count=0;
 				const int reach=5;
 				for(int k=-reach;k<=reach;++k)
 				{
-					int weight=0x10000/(k*k+9);
-					mad+=(long long)abs(NNN[(k<<3)+kc+4])*weight;
-					count+=weight;
+					count+=(halfs[kc]<<16)/(k*k+3*3)+1;
+					mad+=(abs(NNN[(k<<3)+kc+4])<<16)/(k*k+3*3)+1;
 				}
+				//{
+				//	int weight=0x10000/(k*k+9);
+				//	mad+=(abs(NNN[(k<<3)+kc+4])+1)*weight;
+				//	//count+=weight;
+				//}
 				for(int k=-reach;k<=reach;++k)
 				{
-					int weight=0x10000/(k*k+4);
-					mad+=(long long)abs(NN[(k<<3)+kc+4])*weight;
-					count+=weight;
+					count+=(halfs[kc]<<16)/(k*k+2*2)+1;
+					mad+=(abs(NN[(k<<3)+kc+4])<<16)/(k*k+2*2)+1;
 				}
+				//{
+				//	int weight=0x10000/(k*k+4);
+				//	mad+=(abs(NN[(k<<3)+kc+4])+1)*weight;
+				//	//count+=weight;
+				//}
 				for(int k=-reach;k<=reach+1;++k)
 				{
-					int weight=0x10000/(k*k+1);
-					mad+=(long long)abs(N[(k<<3)+kc+4])*weight;
-					count+=weight;
+					count+=(halfs[kc]<<16)/(k*k+1*1)+1;
+					mad+=(abs(N[(k<<3)+kc+4])<<16)/(k*k+1*1)+1;
 				}
+				//{
+				//	int weight=0x10000/(k*k+1);
+				//	mad+=(abs(N[(k<<3)+kc+4])+1)*weight;
+				//	//count+=weight;
+				//}
 				for(int k=-reach-1;k<0;++k)
 				{
-					int weight=0x10000/(k*k+0);
-					mad+=(long long)abs(curr[(k<<3)+kc+4])*weight;
-					count+=weight;
+					count+=(halfs[kc]<<16)/(k*k+0*0)+1;
+					mad+=(abs(W[(k<<3)+kc+4])<<16)/(k*k+0*0)+1;
 				}
+				//{
+				//	int weight=0x10000/(k*k+0);
+				//	mad+=(abs(curr[(k<<3)+kc+4])+1)*weight;
+				//	//count+=weight;
+				//}
+#endif
+				//if(idx==0x0001D850)//
+				//if(idx==0x000256a7)//
+				//if(kx==image->iw/2&&ky==image->ih/2)//
+				//	printf("");
+				unsigned long long invmad=((unsigned long long)count<<8)/mad;
+				//unsigned invmad=(unsigned)((0x6401F0000ULL<<depths[kc])/mad);
+				unsigned long long scale;
+				long long limit=(long long)halfs[kc]*invmad;
+				cdf_start=calc_cdf_continuous_v2(-limit);
+				cdf_den=(0x800000-cdf_start)<<1;
+				if(cdf_den)
+				{
+					scale=0xFFFFFFFF/cdf_den;
+					if(fwd)
+					{
+						delta=curr[kc]-pred;
+						delta+=halfs[kc];
+						delta&=nlevels[kc]-1;
+						int isym=delta-halfs[kc];
+						cdf=calc_cdf_v2(isym, delta, invmad, cdf_start, scale);
+						freq=calc_cdf_v2(isym+1, delta+1, invmad, cdf_start, scale)-cdf;
+						ac_enc_update(&ec, cdf, freq);
+						curr[kc+4]=isym;
+					}
+					else
+					{
+						unsigned code=ac_dec_getcdf(&ec);
+						int range=nlevels[kc];
+						delta=0;
+						while(range>1)
+						{
+							int floorhalf=range>>1;
+
+							unsigned c2=delta+floorhalf;
+							c2=calc_cdf_v2(c2-halfs[kc], c2, invmad, cdf_start, scale);
+							if(code>=c2)
+								delta+=range-floorhalf;
+							range=floorhalf;
+						}
+
+						int isym=delta-halfs[kc];
+						cdf=calc_cdf_v2(isym, delta, invmad, cdf_start, scale);
+						freq=calc_cdf_v2(isym+1, delta+1, invmad, cdf_start, scale)-cdf;
+						ac_dec_update(&ec, cdf, freq);
+						curr[kc+4]=isym;
+						delta+=pred;
+						delta&=nlevels[kc]-1;
+						delta-=halfs[kc];
+						curr[kc]=delta;
+					}
+				}
+				else
+				{
+					if(fwd)
+					{
+						delta=curr[kc]-pred;
+						delta+=halfs[kc];
+						delta&=nlevels[kc]-1;
+						ac_enc_bypass(&ec, delta, nlevels[kc]);
+						delta-=halfs[kc];
+						curr[kc+4]=delta;
+					}
+					else
+					{
+						delta=ac_dec_bypass(&ec, nlevels[kc]);
+						curr[kc+4]=delta-halfs[kc];
+						delta+=pred;
+						delta&=nlevels[kc]-1;
+						delta-=halfs[kc];
+						curr[kc]=delta;
+					}
+				}
+#if 0
 				mad<<=24-depths[kc];
 				mad+=count-1LL;
 				mad/=count;
-#endif
-
 				cdf_start=calc_cdf_continuous(-halfs[kc], depths[kc], mad);
 				cdf_den=calc_cdf_continuous(halfs[kc], depths[kc], mad)-cdf_start;
 				if(fwd)
@@ -176,13 +292,13 @@ int f18_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				}
 				else
 				{
-					unsigned code=ac_dec_getcdf(&ec);
-					int range=nlevels[kc];
-					delta=0;
 					if(!cdf_den)
 						delta=ac_dec_bypass(&ec, nlevels[kc]);
 					else
 					{
+						unsigned code=ac_dec_getcdf(&ec);
+						int range=nlevels[kc];
+						delta=0;
 						while(range>1)
 						{
 							int floorhalf=range>>1;
@@ -204,6 +320,7 @@ int f18_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					delta-=halfs[kc];
 					curr[kc]=delta;
 				}
+#endif
 			}
 			if(!fwd)
 			{

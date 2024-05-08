@@ -779,6 +779,8 @@ unsigned exp2_neg_fix24_avx2(unsigned x)
 	r0=_mm_mul_epu32(r0, r1);
 	r0=_mm_shuffle_epi8(r0, sr24);
 	unsigned sh=(x>>FRAC_BITS)+24;
+	//if(sh>63)
+	//	sh=63;
 	unsigned res=(unsigned)((unsigned long long)_mm_extract_epi64(r0, 0)*(unsigned long long)_mm_extract_epi64(r0, 1)>>sh);
 	return res;
 }
