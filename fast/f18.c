@@ -12,135 +12,27 @@ static const char file[]=__FILE__;
 
 #include"ac.h"
 
-#define FRAC_BITS 24
-static unsigned exp2_fix24_neg(unsigned x)
-{
-	//return (unsigned)(exp2(-(x/16777216.))*0x1000000);//53% slower
-	/*
-	transcendental fractional powers of two
-	x					inv(x)
-	2^-0x0.000001 = 0x0.FFFFFF4F...		0x1.000000B1... = 2^0x0.000001
-	2^-0x0.000002 = 0x0.FFFFFE9D...		0x1.00000163... = 2^0x0.000002
-	2^-0x0.000004 = 0x0.FFFFFD3A...		0x1.000002C6... = 2^0x0.000004
-	2^-0x0.000008 = 0x0.FFFFFA74...		0x1.0000058C... = 2^0x0.000008
-	2^-0x0.000010 = 0x0.FFFFF4E9...		0x1.00000B17... = 2^0x0.000010
-	2^-0x0.000020 = 0x0.FFFFE9D2...		0x1.0000162E... = 2^0x0.000020
-	2^-0x0.000040 = 0x0.FFFFD3A3...		0x1.00002C5D... = 2^0x0.000040
-	2^-0x0.000080 = 0x0.FFFFA747...		0x1.000058B9... = 2^0x0.000080
-	2^-0x0.000100 = 0x0.FFFF4E8E...		0x1.0000B172... = 2^0x0.000100
-	2^-0x0.000200 = 0x0.FFFE9D1D...		0x1.000162E5... = 2^0x0.000200
-	2^-0x0.000400 = 0x0.FFFD3A3B...		0x1.0002C5CD... = 2^0x0.000400
-	2^-0x0.000800 = 0x0.FFFA747F...		0x1.00058BA0... = 2^0x0.000800
-	2^-0x0.001000 = 0x0.FFF4E91C...		0x1.000B175F... = 2^0x0.001000
-	2^-0x0.002000 = 0x0.FFE9D2B3...		0x1.00162F39... = 2^0x0.002000
-	2^-0x0.004000 = 0x0.FFD3A752...		0x1.002C605E... = 2^0x0.004000
-	2^-0x0.008000 = 0x0.FFA75652...		0x1.0058C86E... = 2^0x0.008000
-	2^-0x0.010000 = 0x0.FF4ECB59...		0x1.00B1AFA6... = 2^0x0.010000
-	2^-0x0.020000 = 0x0.FE9E115C...		0x1.0163DAA0... = 2^0x0.020000
-	2^-0x0.040000 = 0x0.FD3E0C0D...		0x1.02C9A3E7... = 2^0x0.040000
-	2^-0x0.080000 = 0x0.FA83B2DB...		0x1.059B0D32... = 2^0x0.080000
-	2^-0x0.100000 = 0x0.F5257D15...		0x1.0B5586D0... = 2^0x0.100000
-	2^-0x0.200000 = 0x0.EAC0C6E8...		0x1.172B83C8... = 2^0x0.200000
-	2^-0x0.400000 = 0x0.D744FCCB...		0x1.306FE0A3... = 2^0x0.400000
-	2^-0x0.800000 = 0x0.B504F334...		0x1.6A09E667... = 2^0x0.800000
-	*/
-	static const unsigned long long frac_pots[]=
-	{
-		0x100000000,
-		0x0FFFFFF4F,//extra 8 bits of precision
-		0x0FFFFFE9D,
-		0x0FFFFFD3A,
-		0x0FFFFFA74,
-		0x0FFFFF4E9,
-		0x0FFFFE9D2,
-		0x0FFFFD3A3,
-		0x0FFFFA747,
-		0x0FFFF4E8E,
-		0x0FFFE9D1D,
-		0x0FFFD3A3B,
-		0x0FFFA747F,
-		0x0FFF4E91C,
-		0x0FFE9D2B3,
-		0x0FFD3A752,
-		0x0FFA75652,
-		0x0FF4ECB59,
-		0x0FE9E115C,
-		0x0FD3E0C0D,
-		0x0FA83B2DB,
-		0x0F5257D15,
-		0x0EAC0C6E8,
-		0x0D744FCCB,
-		0x0B504F334,
-	};
-#if 0
-	unsigned long long x2=(unsigned long long)x<<1;
-	unsigned long long r0=0x1000000, r1=0x1000000, r2=0x1000000, r3=0x1000000;
-	for(int k=1;k<=FRAC_BITS;k+=8)
-	{
-		r0=r0*frac_pots[(k+0)&-(int)(x2>>(k+0)&1)]>>32;
-		r1=r1*frac_pots[(k+1)&-(int)(x2>>(k+1)&1)]>>32;
-		r2=r2*frac_pots[(k+2)&-(int)(x2>>(k+2)&1)]>>32;
-		r3=r3*frac_pots[(k+3)&-(int)(x2>>(k+3)&1)]>>32;
-		r0=r0*frac_pots[(k+4)&-(int)(x2>>(k+4)&1)]>>32;
-		r1=r1*frac_pots[(k+5)&-(int)(x2>>(k+5)&1)]>>32;
-		r2=r2*frac_pots[(k+6)&-(int)(x2>>(k+6)&1)]>>32;
-		r3=r3*frac_pots[(k+7)&-(int)(x2>>(k+7)&1)]>>32;
-	}
-	r2=r2*r3>>24;
-	r0=r0*r1>>24;
-	r0=r0*r2>>24;
-	r0>>=x>>FRAC_BITS;
-	return (unsigned)r0;
-#endif
-#if 1
-	unsigned long long x2=(unsigned long long)x<<1;
-	unsigned long long r0=0x1000000, r1=0x1000000;
-	for(int k=1;k<=FRAC_BITS;k+=2)
-	{
-		r0=r0*frac_pots[(k+0)&-(int)(x2>>(k+0)&1)]>>32;
-		r1=r1*frac_pots[(k+1)&-(int)(x2>>(k+1)&1)]>>32;
-		//r0=r0*frac_pots[(k+2)&-(int)(x2>>(k+2)&1)]>>32;
-		//r1=r1*frac_pots[(k+3)&-(int)(x2>>(k+3)&1)]>>32;
-		//r0=r0*frac_pots[(k+4)&-(int)(x2>>(k+4)&1)]>>32;
-		//r1=r1*frac_pots[(k+5)&-(int)(x2>>(k+5)&1)]>>32;
-		//r0=r0*frac_pots[(k+6)&-(int)(x2>>(k+6)&1)]>>32;
-		//r1=r1*frac_pots[(k+7)&-(int)(x2>>(k+7)&1)]>>32;
-	}
-	r0*=r1;
-	r0>>=(x>>FRAC_BITS)+24;
-	return (unsigned)r0;
-#endif
-#if 0
-	unsigned long long result=0x1000000;
-	for(int k=0;k<FRAC_BITS;)//up to 24 muls
-	{
-		int bit=x>>k&1;
-		++k;
-		result=result*frac_pots[k&-bit]>>32;
-	}
-	result>>=x>>FRAC_BITS;
-	return (unsigned)result;
-#endif
-}
 static unsigned calc_cdf_continuous(int x, int depth, long long mad)
 {
 	int pos=x>0, posmask=-pos;
 	long long xn=((long long)abs(x)<<(48-depth))/mad;
 	if(xn>0x18000000)
 		xn=0x18000000;
-	int e=exp2_fix24_neg((unsigned)xn);
+	int e=exp2_neg_fix24_avx2((unsigned)xn);
 	e^=posmask;//negate then add 1 if x > mean
 	e-=posmask;
-	e>>=1;
+	e>>=1;//signed shift
 	e+=pos<<24;
 	//if(e<0)
 	//	LOG_ERROR("");
 	return (unsigned)e;
 }
-static unsigned long long calc_cdf_u(int sym, int depth, int half, int nlevels, long long mad, long long cdf_start, long long cdf_den)
+static unsigned long long calc_cdf_u(unsigned sym, unsigned depth, unsigned half, unsigned nlevels, unsigned long long mad, unsigned long long cdf_start, unsigned long long cdf_den)
 {
-	long long num=calc_cdf_continuous(sym-half, depth, mad)-cdf_start;
-	num=CLAMP(-0xFFFFFFFFFFFF, num, 0xFFFFFFFFFFFF)*(0x10000LL-nlevels)/cdf_den+sym;
+	unsigned long long num=(unsigned long long)calc_cdf_continuous(sym-half, depth, mad)-cdf_start;
+	if(num>0xFFFFFFFFFFFF)
+		num=0xFFFFFFFFFFFF;
+	num=num*(0x10000LL-nlevels)/cdf_den+sym;
 	return num;
 }
 #define CALC_CDF(X) calc_cdf_u(X, depths[kc], halfs[kc], nlevels[kc], mad, cdf_start, cdf_den)
