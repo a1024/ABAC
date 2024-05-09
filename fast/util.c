@@ -562,7 +562,7 @@ unsigned floor_sqrt(unsigned long long x)
 #endif
 }
 #define FRAC_BITS 24
-static unsigned exp2_fix24_neg(unsigned x)
+unsigned exp2_fix24_neg(unsigned x)
 {
 	//return (unsigned)(exp2(-(x/16777216.))*0x1000000);//53% slower
 	/*
@@ -641,7 +641,7 @@ static unsigned exp2_fix24_neg(unsigned x)
 	r0>>=x>>FRAC_BITS;
 	return (unsigned)r0;
 #endif
-#if 1
+#if 0
 	unsigned long long x2=(unsigned long long)x<<1;
 	unsigned long long r0=0x1000000, r1=0x1000000;
 	for(int k=1;k<=FRAC_BITS;k+=2)
@@ -663,7 +663,7 @@ static unsigned exp2_fix24_neg(unsigned x)
 	r0>>=(x>>FRAC_BITS)+24;
 	return (unsigned)r0;
 #endif
-#if 0
+#if 1
 	unsigned long long result=0x1000000;
 	for(int k=0;k<FRAC_BITS;)//up to 24 muls
 	{
@@ -707,10 +707,10 @@ unsigned exp2_neg_fix24_avx2(unsigned x)
 	*/
 	ALIGN(32) static const unsigned long long frac_pots[]=
 	{
-		0xFFFFFF,//4F,//bit  0
-		0xFFFFD3,//A3,//bit  6
-		0xFFF4E9,//1C,//bit 12
-		0xFD3E0C,//0D,//bit 18
+		(0xFFFFFF4F+128)>>8,//bit  0
+		(0xFFFFD3A3+128)>>8,//bit  6
+		(0xFFF4E91C+128)>>8,//bit 12
+		(0xFD3E0C0D+128)>>8,//bit 18
 		
 		0xFFFFFE9D,//bit  1
 		0xFFFFA747,//bit  7
@@ -779,8 +779,6 @@ unsigned exp2_neg_fix24_avx2(unsigned x)
 	r0=_mm_mul_epu32(r0, r1);
 	r0=_mm_shuffle_epi8(r0, sr24);
 	unsigned sh=(x>>FRAC_BITS)+24;
-	//if(sh>63)
-	//	sh=63;
 	unsigned res=(unsigned)((unsigned long long)_mm_extract_epi64(r0, 0)*(unsigned long long)_mm_extract_epi64(r0, 1)>>sh);
 	return res;
 }

@@ -94,6 +94,7 @@ int get_lsb_index32(unsigned n);
 int get_lsb_index16(unsigned short n);
 int floor_log10(double x);
 unsigned floor_sqrt(unsigned long long x);
+unsigned exp2_fix24_neg(unsigned x);
 unsigned exp2_neg_fix24_avx2(unsigned x);
 unsigned long long exp2_fix24(int x);
 int log2_fix24(unsigned long long x);

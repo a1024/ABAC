@@ -19,6 +19,7 @@ static unsigned calc_cdf_continuous_v2(long long xn)
 	if(xn>0x18000000)
 		xn=0x18000000;
 	int e=exp2_neg_fix24_avx2((unsigned)xn);
+	//int e=exp2_fix24_neg((unsigned)xn);
 	e^=posmask;//negate then add 1 if x > mean
 	e-=posmask;
 	e>>=1;//signed shift
@@ -31,11 +32,11 @@ static unsigned calc_cdf_v2(int isym, unsigned usym, unsigned invmad, unsigned c
 {
 	long long xn=(long long)isym*invmad;
 	unsigned cdf=calc_cdf_continuous_v2(xn);
+	if(cdf<=cdf_start)
+		return usym;
 	cdf-=cdf_start;
-	cdf=(unsigned)((unsigned long long)cdf*scale>>24);
+	cdf=(unsigned)((unsigned long long)cdf*scale>>16);
 	cdf+=usym;
-	if(cdf>0x10000)
-		LOG_ERROR("Invalid CDF");
 	return cdf;
 }
 #if 0
@@ -144,18 +145,19 @@ int f18_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				int vmin=MINVAR(N[kc], W[kc]), vmax=MAXVAR(N[kc], W[kc]);
 				int pred=N[kc]+W[kc]-NW[kc], delta;
 				pred=CLAMP(vmin, pred, vmax);
-				unsigned mad, cdf_start, cdf_den, cdf, freq;
+				unsigned mad, cdf_start, cdf_den, cdf;
+				int freq;
 				
 				//mad=(((long long)abs(N[kc+4])+(long long)abs(W[kc+4])+(long long)abs(NW[kc+4])+(long long)abs(NE[kc+4]))<<(24-2-depths[kc]))+1;
 				//mad=(((long long)abs(N[kc+4])+(long long)abs(W[kc+4]))<<(24-1-depths[kc]))+1;
 				//mad=(((long long)abs(NW[kc]-W[kc])+(long long)abs(N[kc]-NW[kc])+(long long)abs(NE[kc]-N[kc])+(long long)abs(W[kc]-NE[kc]))<<(24-3-depths[kc]))+1;
 #if 1
 				mad=1;
-				int count=0;
+				//int count=0;
 				const int reach=5;
 				for(int k=-reach;k<=reach;++k)
 				{
-					count+=(halfs[kc]<<16)/(k*k+3*3)+1;
+					//count+=(1<<16)/(k*k+3*3)+1;
 					mad+=(abs(NNN[(k<<3)+kc+4])<<16)/(k*k+3*3)+1;
 				}
 				//{
@@ -165,7 +167,7 @@ int f18_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				//}
 				for(int k=-reach;k<=reach;++k)
 				{
-					count+=(halfs[kc]<<16)/(k*k+2*2)+1;
+					//count+=(1<<16)/(k*k+2*2)+1;
 					mad+=(abs(NN[(k<<3)+kc+4])<<16)/(k*k+2*2)+1;
 				}
 				//{
@@ -175,7 +177,7 @@ int f18_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				//}
 				for(int k=-reach;k<=reach+1;++k)
 				{
-					count+=(halfs[kc]<<16)/(k*k+1*1)+1;
+					//count+=(1<<16)/(k*k+1*1)+1;
 					mad+=(abs(N[(k<<3)+kc+4])<<16)/(k*k+1*1)+1;
 				}
 				//{
@@ -185,7 +187,7 @@ int f18_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				//}
 				for(int k=-reach-1;k<0;++k)
 				{
-					count+=(halfs[kc]<<16)/(k*k+0*0)+1;
+					//count+=(1<<16)/(k*k+0*0)+1;
 					mad+=(abs(W[(k<<3)+kc+4])<<16)/(k*k+0*0)+1;
 				}
 				//{
@@ -197,8 +199,11 @@ int f18_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				//if(idx==0x0001D850)//
 				//if(idx==0x000256a7)//
 				//if(kx==image->iw/2&&ky==image->ih/2)//
+				//if(idx==0x232AD)//
 				//	printf("");
-				unsigned long long invmad=((unsigned long long)count<<8)/mad;
+				unsigned long long invmad=(0x64046LL<<24)/mad;
+				//unsigned long long invmad=((unsigned long long)count<<(48-depths[kc]))/mad;
+				//unsigned long long invmad=((unsigned long long)count)/mad;
 				//unsigned invmad=(unsigned)((0x6401F0000ULL<<depths[kc])/mad);
 				unsigned long long scale;
 				long long limit=(long long)halfs[kc]*invmad;
@@ -206,7 +211,19 @@ int f18_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				cdf_den=(0x800000-cdf_start)<<1;
 				if(cdf_den)
 				{
-					scale=0xFFFFFFFF/cdf_den;
+					scale=((0x10000LL-nlevels[kc])<<16)/cdf_den;
+					//scale=0xFFFFFFFF/cdf_den;
+
+					//if(idx==0x232AD)//
+					//{
+					//	for(int ks=-halfs[kc];ks<halfs[kc];++ks)
+					//	{
+					//		unsigned cdf2=calc_cdf_v2(ks, ks+halfs[kc], invmad, cdf_start, scale);
+					//		printf("%4d  %d\n", ks, cdf2);
+					//	}
+					//	LOG_ERROR("pause");
+					//}
+
 					if(fwd)
 					{
 						delta=curr[kc]-pred;
@@ -215,6 +232,8 @@ int f18_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						int isym=delta-halfs[kc];
 						cdf=calc_cdf_v2(isym, delta, invmad, cdf_start, scale);
 						freq=calc_cdf_v2(isym+1, delta+1, invmad, cdf_start, scale)-cdf;
+						//if(cdf>0x10000||freq<=0)
+						//	LOG_ERROR("Invalid CDF");
 						ac_enc_update(&ec, cdf, freq);
 						curr[kc+4]=isym;
 					}
