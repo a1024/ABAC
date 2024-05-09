@@ -408,6 +408,7 @@ void pred_ols5(Image *src, int fwd)
 	if(loud_transforms)
 		set_window_title("OLS5 4/4  %lf sec", time_sec()-t_start);
 #ifdef OLS5_POPUP
+	if(loud_transforms)
 	{
 		int maxdepth=MAXVAR(src->depth[0], src->depth[1]);
 		UPDATE_MAX(maxdepth, src->depth[2]);
