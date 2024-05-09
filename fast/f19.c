@@ -10,6 +10,10 @@
 #endif
 static const char file[]=__FILE__;
 
+
+	#define JPEG2000_RCT
+
+
 #include"ac.h"
 
 typedef struct SymbolStruct
@@ -46,7 +50,8 @@ static int quantize_ctx(int x)
 {
 	int negmask=-(x<0);
 	x=abs(x);
-	x=floor_log2_32(x);
+	x=floor_log2_32(x)+1;
+	//x=floor_log2_32(x)+1;
 	x^=negmask;
 	x-=negmask;
 	return x;
@@ -62,7 +67,9 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	ANSCoder ec;
 	DList list;
 	dlist_init(&list, 1, 0x10000, 0);
-	int depth=image->depth, nlevels=1<<depth, half=nlevels>>1;
+	int depth=image->depth+2;
+	UPDATE_MIN(depth, 16);
+	int nlevels=1<<depth, half=nlevels>>1;
 	int clevels=quantize_ctx(half)<<1|1;
 	int token, bypass, nbits;
 	quantize_pixel(nlevels, &token, &bypass, &nbits);
@@ -81,7 +88,7 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	memset(pixels, 0, ebufsize);
 	unsigned *CDFs=(unsigned*)hist;
 	int perm[]={1, 2, 0, 3};
-	//short curr[4]={0};
+	short curr[4]={0};
 	int ctx;
 	unsigned *curr_CDF;
 	unsigned cdf;
@@ -109,7 +116,15 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			};
 			for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
 			{
-				//memcpy(curr, image->data+idx, sizeof(short)*image->nch);
+				memcpy(curr, image->data+idx, sizeof(short)*image->nch);
+#ifdef JPEG2000_RCT
+				if(image->nch>=3)
+				{
+					curr[0]-=curr[1];		//curr[0]=((curr[0]+half)&(nlevels-1))-half;
+					curr[2]-=curr[1];		//curr[2]=((curr[2]+half)&(nlevels-1))-half;
+					curr[1]+=(curr[0]+curr[2])>>2;	//curr[1]=((curr[1]+half)&(nlevels-1))-half;
+				}
+#endif
 				for(int kc0=0;kc0<image->nch;++kc0)
 				{
 					int
@@ -123,6 +138,9 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					int pred=N+W-NW;
 					int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
 					pred=CLAMP(vmin, pred, vmax);
+					pred=((pred<<2)-pred+((N+W)>>1))>>2;
+					//pred=(6*pred+N+W)>>3;
+#ifndef JPEG2000_RCT
 					if(kc0)
 					{
 						offset=rows[0][1];
@@ -131,21 +149,19 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						pred+=offset;
 						pred=CLAMP(-half, pred, half-1);
 					}
-					//int
-					//	eN	=errors[eidx+image->nch],
-					//	eW	=errors[eidx];
-					//Symbol
-					//	*sN	=ptr+image->nch*((image->iw+1LL)*(ky-1LL)+kx+0LL)+kc,
-					//	*sW	=ptr+image->nch*((image->iw+1LL)*(ky+0LL)+kx-1LL)+kc;
-					ctx=abs(eN)<abs(eW)?eN:eW;
+#endif
+					ctx=abs(eN)>abs(eW)?eN:eW;	//52283528
+					//ctx=MAXVAR(abs(eN), abs(eW));	//52358926
+					//ctx=(abs(eN)+abs(eW))>>1;	//52391324
 					ctx=QUANTIZE(ctx);
 
-					int val=image->data[idx+kc];
+					int val=curr[kc];
+					//int val=image->data[idx+kc];
 					rows[0][kc]=val-offset;
 					val-=pred;
-					val+=half;
-					val&=nlevels-1;
-					val-=half;
+					//val+=half;
+					//val&=nlevels-1;
+					//val-=half;
 					rows[0][kc+4]=val;
 					val=val<<1^-(val<0);
 					quantize_pixel(val, &token, &bypass, &nbits);
@@ -225,7 +241,6 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	{
 		unsigned short c;
 		unsigned char *curr_CDF2sym;
-		const unsigned char *cbuf0=cbuf;
 		size_t CDF2symsize=sizeof(char[0x10000])*ncdfs;
 		unsigned char *CDF2sym=(unsigned char*)malloc(CDF2symsize);
 		for(int kt=0;kt<ncdfs;++kt)
@@ -283,6 +298,9 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					int pred=N+W-NW;
 					int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
 					pred=CLAMP(vmin, pred, vmax);
+					pred=((pred<<2)-pred+((N+W)>>1))>>2;
+					//pred=(6*pred+N+W)>>3;
+#ifndef JPEG2000_RCT
 					if(kc0)
 					{
 						offset=rows[0][1];
@@ -291,7 +309,10 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						pred+=offset;
 						pred=CLAMP(-half, pred, half-1);
 					}
-					ctx=abs(eN)<abs(eW)?eN:eW;
+#endif
+					ctx=abs(eN)>abs(eW)?eN:eW;
+					//ctx=MAXVAR(abs(eN), abs(eW));
+					//ctx=(abs(eN)+abs(eW))>>1;
 					ctx=QUANTIZE(ctx);
 
 					c=(unsigned short)ec.state;
@@ -328,12 +349,22 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					delta=delta>>1^-(delta&1);
 					rows[0][kc+4]=delta;
 					delta+=pred;
-					delta+=half;
-					delta&=nlevels-1;
-					delta-=half;
-					image->data[idx+kc]=delta;
+					//delta+=half;
+					//delta&=nlevels-1;
+					//delta-=half;
+					curr[kc]=delta;
+					//image->data[idx+kc]=delta;
 					rows[0][kc]=delta-offset;
 				}
+#ifdef JPEG2000_RCT
+				if(image->nch>=3)
+				{
+					curr[1]-=(curr[0]+curr[2])>>2;	//curr[1]=((curr[1]+half)&(nlevels-1))-half;
+					curr[2]+=curr[1];		//curr[2]=((curr[2]+half)&(nlevels-1))-half;
+					curr[0]+=curr[1];		//curr[0]=((curr[0]+half)&(nlevels-1))-half;
+				}
+#endif
+				memcpy(image->data+idx, curr, sizeof(short)*image->nch);
 				rows[0]+=8;
 				rows[1]+=8;
 			}
