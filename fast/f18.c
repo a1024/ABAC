@@ -28,7 +28,7 @@ static unsigned calc_cdf_continuous_v2(long long xn)
 	//	LOG_ERROR("");
 	return (unsigned)e;
 }
-static unsigned calc_cdf_v2(int isym, unsigned usym, unsigned invmad, unsigned cdf_start, unsigned long long scale)
+static unsigned calc_cdf_v2(int isym, unsigned usym, unsigned long long invmad, unsigned cdf_start, unsigned long long scale)
 {
 	long long xn=(long long)isym*invmad;
 	unsigned cdf=calc_cdf_continuous_v2(xn);
