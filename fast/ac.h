@@ -1168,6 +1168,43 @@ INLINE void ans_enc_flush(ANSCoder *ec)
 	dlist_push_back(ec->dst, &ec->state, 4);
 #endif
 }
+INLINE void ans_enc_update(ANSCoder *ec, unsigned cdf, int freq)
+{
+#ifdef DEBUG_ANS
+	if(!freq)
+		LOG_ERROR2("ZPS");
+#endif
+	if((ec->state>>16)>=(unsigned)freq)//renorm
+	{
+#ifdef EC_USE_ARRAY
+		ARRAY_APPEND(*ec->dst, &ec->state, 2, 1, 0);
+#else
+		dlist_push_back(ec->dst, &ec->state, 2);
+#endif
+		ec->state>>=16;
+	}
+	debug_enc_update(ec->state, cdf, freq, 0, 0, 0, 0, 0);
+	ec->state=ec->state/freq<<16|(cdf+ec->state%freq);//update
+}
+INLINE void ans_dec_update(ANSCoder *ec, unsigned cdf, int freq)
+{
+	unsigned c=(unsigned short)ec->state;
+#ifdef DEBUG_ANS
+	if(!freq)
+		LOG_ERROR2("ZPS");
+#endif
+	debug_dec_update(ec->state, cdf, freq, 0, 0, 0, 0, 0);
+	ec->state=freq*(ec->state>>16)+c-cdf;//update
+	if(ec->state<0x10000)//renorm
+	{
+		ec->state<<=16;
+		if(ec->srcptr-2>=ec->srcstart)
+		{
+			ec->srcptr-=2;
+			memcpy(&ec->state, ec->srcptr, 2);
+		}
+	}
+}
 
 INLINE void ans_enc(ANSCoder *ec, int sym, const unsigned *CDF, int nlevels)
 {
@@ -1273,6 +1310,32 @@ INLINE int ans_dec_POT(ANSCoder *ec, const unsigned *CDF, int nbits)
 	case 1:sym|= CDF[sym|  1]<=c;
 		break;
 	}
+
+	cdf=CDF[sym], freq=CDF[sym+1]-cdf;
+#ifdef DEBUG_ANS
+	if(!freq)
+		LOG_ERROR2("ZPS");
+	debug_dec_update(ec->state, cdf, freq, 0, 0, 0, 0, sym);
+#endif
+	ec->state=freq*(ec->state>>16)+c-cdf;//update
+	if(ec->state<0x10000)//renorm
+	{
+		ec->state<<=16;
+		if(ec->srcptr-2>=ec->srcstart)
+		{
+			ec->srcptr-=2;
+			memcpy(&ec->state, ec->srcptr, 2);
+		}
+	}
+	return sym;
+}
+INLINE int ans_dec_CDF2sym(ANSCoder *ec, const unsigned *CDF, const unsigned char *CDF2sym)
+{
+	unsigned c=(unsigned short)ec->state;
+	int sym=0;
+
+	unsigned cdf, freq;
+	sym=CDF2sym[c];
 
 	cdf=CDF[sym], freq=CDF[sym+1]-cdf;
 #ifdef DEBUG_ANS

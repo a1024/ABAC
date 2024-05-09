@@ -9,7 +9,7 @@ static const char file[]=__FILE__;
 
 //	#define ENABLE_GUIDE
 
-//	#define USE_ANS
+	#define USE_ANS
 //	#define USE_GOLOMB
 //	#define USE_ABAC
 	#define USE_STATIC_PROB
@@ -143,8 +143,12 @@ int f02_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #ifdef USE_GOLOMB
 					bypass=gr_dec(&ec, 1<<image->depth>>1);
 #elif defined USE_ANS
+#ifdef USE_CDF2SYM
+					bypass=ans_dec_CDF2sym(&ec, CDF, CDF2sym);
+#else
 					bypass=ans_dec_POT(&ec, CDF, image->depth);
 					//bypass=ans_dec(&ec, 0, 1<<image->depth);
+#endif
 #elif defined USE_ABAC
 					bypass=0;
 					for(int kb=image->depth-1;kb>=0;--kb)
@@ -207,9 +211,9 @@ int f02_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	if(loud)
 	{
 		t0=time_sec()-t0;
+		ptrdiff_t usize=image_getBMPsize(image);
 		if(fwd)
 		{
-			ptrdiff_t usize=image_getBMPsize(image);
 #ifdef EC_USE_ARRAY
 			ptrdiff_t csize=ec.srcptr-ec.srcstart;
 #else
@@ -217,7 +221,7 @@ int f02_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #endif
 			printf("csize %12td  %10.6lf%%  CR %8.6lf\n", csize, 100.*csize/usize, (double)usize/csize);
 		}
-		printf("F02-%s  %c %15.6lf sec\n", ecname, 'D'+fwd, t0);
+		printf("F02-%s  %c %15.6lf sec  %15.6lf MB/s\n", ecname, 'D'+fwd, t0, usize/(1024.*1024.*t0));
 	}
 	dlist_clear(&list);
 #ifdef USE_STATIC_PROB

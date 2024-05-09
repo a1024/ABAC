@@ -120,7 +120,7 @@ int binary_search(const void *base, size_t count, size_t esize, int (*threeway)(
 	const unsigned char *buf=(const unsigned char*)base;
 #if 1
 	ptrdiff_t low=0, range=count, mid;
-	while(range)//binary search		lg(nlevels) memory accesses per symbol
+	while(range)//binary search		log2(nlevels) memory accesses per symbol
 	{
 		ptrdiff_t floorhalf=range>>1;
 		mid=low+floorhalf;

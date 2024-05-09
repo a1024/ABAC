@@ -17,6 +17,7 @@
 	f16.c
 	f17.c
 	f18.c
+	f19.c
 	fast.c
 	format.c
 	huffman.c
