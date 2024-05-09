@@ -92,6 +92,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_OLS2,		ST_INV_OLS2,
 	ST_FWD_OLS3,		ST_INV_OLS3,
 	ST_FWD_OLS4,		ST_INV_OLS4,
+	ST_FWD_OLS5,		ST_INV_OLS5,
 	ST_FWD_PU,		ST_INV_PU,
 	ST_FWD_CG3D,		ST_INV_CG3D,
 	ST_FWD_CLAMPGRAD,	ST_INV_CLAMPGRAD,
@@ -1342,6 +1343,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_OLS3:		a=" S Inv OLS-3";		break;
 	case ST_FWD_OLS4:		a=" S Fwd OLS-4";		break;
 	case ST_INV_OLS4:		a=" S Inv OLS-4";		break;
+	case ST_FWD_OLS5:		a=" S Fwd OLS-5";		break;
+	case ST_INV_OLS5:		a=" S Inv OLS-5";		break;
 	case ST_FWD_PU:			a="CS Fwd PU";			break;
 	case ST_INV_PU:			a="CS Inv PU";			break;
 	case ST_FWD_CG3D:		a="CS Fwd CG3D";		break;
@@ -2370,6 +2373,8 @@ void apply_selected_transforms(Image *image, int rct_only)
 		case ST_INV_OLS3:		pred_ols3(image, 0, pred_ma_enabled);			break;
 		case ST_FWD_OLS4:		pred_ols4(image, ols4_period, ols4_lr, ols4_mask[0], ols4_mask[1], ols4_mask[2], ols4_mask[3], 1);break;
 		case ST_INV_OLS4:		pred_ols4(image, ols4_period, ols4_lr, ols4_mask[0], ols4_mask[1], ols4_mask[2], ols4_mask[3], 0);break;
+		case ST_FWD_OLS5:		pred_ols5(image, 1);					break;
+		case ST_INV_OLS5:		pred_ols5(image, 0);					break;
 		case ST_FWD_PACKSIGN:		packsign(image, 1);					break;
 		case ST_INV_PACKSIGN:		packsign(image, 0);					break;
 		case ST_FWD_PU:			pred_PU(image, 1);					break;

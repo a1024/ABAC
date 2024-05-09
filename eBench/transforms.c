@@ -2874,9 +2874,9 @@ void pred_median(Image *src, int fwd)
 					g45=abs(W-N)+abs(N-NNE)+abs(NE-NNEE)+abs(WW-NW)+1;
 				//int gx=abs(W-WW)+1, gy=abs(N-NN)+1;
 
-				int pred=(3*(N+W)-2*(NN+WW))>>1;
-				//int pred=(gx*N+gy*W)/(gx+gy);		//<- good
+				int pred=(gx*N+gy*W)/(gx+gy);		//<- good
 
+				//int pred=(3*(N+W)-2*(NN+WW))>>1;
 				//pred=(pred+NE+NEE+NNE-NW+NWW+WW)/5;
 				//int pred=(gx*N+gy*W+g135*((3*NW+NNWW)>>2)+g45*((3*NE+NNEE)>>2))/(gx+gy+g45+g135);
 
