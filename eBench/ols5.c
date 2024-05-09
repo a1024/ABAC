@@ -137,9 +137,11 @@ void pred_ols5(Image *src, int fwd)
 	{
 		ols5_init(ols+kc+ 0, 12);
 		ols5_init(ols+kc+ 4, 16);
+
 		ols5_init(ols+kc+ 8, 6+6);
 		//ols5_init(ols+kc+ 8, 12+12);
-		ols5_init(ols+kc+12, 8);
+
+		ols5_init(ols+kc+12, 8+8);
 		//ols5_init(ols+kc+12, 16+12+12);
 	}
 
@@ -342,6 +344,15 @@ void pred_ols5(Image *src, int fwd)
 					LOAD(pixels, kc, -1,  1),
 					LOAD(pixels, kc,  0,  1),//6
 					LOAD(pixels, kc,  1,  1),
+					
+					LOAD(pixels, kc, -1, -2),
+					LOAD(pixels, kc,  1, -2),
+					LOAD(pixels, kc, -2, -1),
+					LOAD(pixels, kc,  2, -1),
+					LOAD(pixels, kc, -2,  1),
+					LOAD(pixels, kc,  2,  1),
+					LOAD(pixels, kc, -1,  2),
+					LOAD(pixels, kc,  1,  2),
 #endif
 #if 0
 					LOAD(pixels, kc, -2, -3),
@@ -422,14 +433,14 @@ void pred_ols5(Image *src, int fwd)
 			{
 				for(int kc=0;kc<4;++kc)
 				{
-					int v00=(src->data[(src->iw*(ky+0)+kx+0)<<2|kc]+half[kc])&(nlevels[kc]-1);
-					int v01=(src->data[(src->iw*(ky+0)+kx+1)<<2|kc]+half[kc])&(nlevels[kc]-1);
-					int v10=(src->data[(src->iw*(ky+1)+kx+0)<<2|kc]+half[kc])&(nlevels[kc]-1);
-					int v11=(src->data[(src->iw*(ky+1)+kx+1)<<2|kc]+half[kc])&(nlevels[kc]-1);
-					++hist[(kc+ 0)<<maxdepth|v00];
-					++hist[(kc+ 4)<<maxdepth|v01];
-					++hist[(kc+ 8)<<maxdepth|v10];
-					++hist[(kc+12)<<maxdepth|v11];
+					int v0=(src->data[(src->iw*(ky+0)+kx+0)<<2|kc]+half[kc])&(nlevels[kc]-1);
+					int v1=(src->data[(src->iw*(ky+1)+kx+1)<<2|kc]+half[kc])&(nlevels[kc]-1);
+					int v2=(src->data[(src->iw*(ky+0)+kx+1)<<2|kc]+half[kc])&(nlevels[kc]-1);
+					int v3=(src->data[(src->iw*(ky+1)+kx+0)<<2|kc]+half[kc])&(nlevels[kc]-1);
+					++hist[(kc+ 0)<<maxdepth|v0];
+					++hist[(kc+ 4)<<maxdepth|v1];
+					++hist[(kc+ 8)<<maxdepth|v2];
+					++hist[(kc+12)<<maxdepth|v3];
 				}
 			}
 		}
