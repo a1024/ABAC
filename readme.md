@@ -16,7 +16,7 @@ Reference implementations of the best open-source lossless algorithms that I imp
 ### `e2`
 Contains most of my latest experiments on lossless image compression, and other older/obsolete algorithms.
 
-`gcc -O3 -mavx2 e2.c format.c lodepng.c t51.c t54.c t55.c tests4.c tests5.c tests6.c transforms.c util.c -o e2`
+`gcc -O3 -mavx2 -mbmi e2.c format.c lodepng.c t51.c t54.c t55.c tests4.c tests5.c tests6.c transforms.c util.c -o e2`
 
 ### `eBench`
 A GUI tool that evaluates reversible decorrelating transforms.
@@ -27,7 +27,8 @@ Currently works only on Windows.
 
 ### `fast`
 Experiments prioritizing speed.
-`gcc -O3 -mavx2 f01.c f02.c f03.c f04.c f05.c f06.c f07.c f08.c f09.c f10.c f11.c f12.c f13.c f14.c f15.c f16.c f17.c fast.c format.c huffman.c lodepng.c transforms.c util.c load_dng.cpp -o fast`
+
+`gcc -O3 -mavx2 -mbmi f01.c f02.c f03.c f04.c f05.c f06.c f07.c f08.c f09.c f10.c f11.c f12.c f13.c f14.c f15.c f16.c f17.c f18.c fast.c format.c huffman.c lodepng.c transforms.c util.c load_dng.cpp -o fast`
 
 ### `imgcvt`
 Batch image converter.

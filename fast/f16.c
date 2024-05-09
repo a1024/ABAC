@@ -469,6 +469,10 @@ int f16_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				*WW	=rows[0]-2*8,
 				*W	=rows[0]-1*8,
 				*curr	=rows[0]+0*8;
+			(void)NNWW;
+			(void)NN;
+			(void)NNEE;
+			(void)WW;
 			int ctx1, ctx2, ctx3, ctx4;
 			int tidx, token, sym, cdf, freq;
 			unsigned short *tree1, *CDF1;

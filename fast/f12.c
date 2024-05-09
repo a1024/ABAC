@@ -24,6 +24,7 @@ static const char *ext[]=
 	"JPG",
 	"JPEG",
 };
+#ifdef RELATION
 static void hist_snapshot(size_t *hist, unsigned char *result, int idx)
 {
 	//static const char *rnames[]=
@@ -72,6 +73,7 @@ static void hist_snapshot(size_t *hist, unsigned char *result, int idx)
 	//snprintf(g_buf, G_BUF_SIZE, "%s_%03d.PNG", rnames[kc], idx+1);
 	lodepng_encode_file(g_buf, result, HISTSIZE<<1, HISTSIZE<<1, LCT_GREY, 8);
 }
+#endif
 int f12_statstest(const char *path)
 {
 	printf("F12 stats\n");
@@ -155,6 +157,7 @@ int f12_statstest(const char *path)
 			++depths[2];
 		}
 #endif
+#ifndef DISABLE_DECORRELATION
 		char cdepths[]=
 		{
 			(char)depths[0],
@@ -162,7 +165,6 @@ int f12_statstest(const char *path)
 			(char)depths[2],
 			(char)depths[3],
 		};
-#ifndef DISABLE_DECORRELATION
 		pred_simd(&image, 1, cdepths);
 #endif
 		for(int ky=0, idx=0;ky<image.ih;++ky)
@@ -218,8 +220,8 @@ int f12_statstest(const char *path)
 					//++hist[((kc<<HISTBITS|N)<<HISTBITS|W)<<HISTBITS|curr];
 
 					//X-Y:
-					//- |	- \
-					//| /	\ /	loss?
+					//- |	- \	//
+					//| /	\ /	//loss?
 
 					//W-N	W-NW
 					//N-NE	NW-NE

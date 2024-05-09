@@ -120,13 +120,13 @@ int f18_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		{
 			short
 				*NNN	=rows[3]+0*8,
-				*NNWW	=rows[2]-2*8,
+			//	*NNWW	=rows[2]-2*8,
 				*NN	=rows[2]+0*8,
-				*NNEE	=rows[2]+2*8,
+			//	*NNEE	=rows[2]+2*8,
 				*NW	=rows[1]-1*8,
 				*N	=rows[1]+0*8,
-				*NE	=rows[1]+1*8,
-				*WW	=rows[0]-2*8,
+			//	*NE	=rows[1]+1*8,
+			//	*WW	=rows[0]-2*8,
 				*W	=rows[0]-1*8,
 				*curr	=rows[0]+0*8;
 			if(fwd)
