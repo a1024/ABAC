@@ -12,12 +12,14 @@ static const char file[]=__FILE__;
 
 
 	#define JPEG2000_RCT
+	#define DWP
 
 
 #include"ac.h"
 
 typedef struct SymbolStruct
 {
+	//unsigned short cdf, freq;
 	char token, nbits;
 	short bypass, ctx;
 } Symbol;
@@ -56,6 +58,66 @@ static int quantize_ctx(int x)
 	x-=negmask;
 	return x;
 }
+#ifdef DWP
+#define DWP_NBITS 12
+#define DWP_LGBLOCKSIZE 4
+#define DWP_BLOCKSIZE (1<<DWP_LGBLOCKSIZE)
+#define DWP_NPREDS 8
+#define DWP_PREDLIST\
+	DWP_PRED(N+W-NW)\
+	DWP_PRED(N+W-NW)\
+	DWP_PRED((N+W+NE-NW)>>1)\
+	DWP_PRED((7*W+5*(N-NW)+NE)>>3)\
+	DWP_PRED((N+W)>>1)\
+	DWP_PRED((W+NEE)>>1)\
+	DWP_PRED((8*(N+W)+3*(NE-NW))>>4)\
+	DWP_PRED((3*(N+W)-2*NW)>>2)
+
+//	DWP_PRED((N+W+NE-NW)>>1)
+//	DWP_PRED(W+(eW>>1))
+//	DWP_PRED(N+(eN>>1))
+//	DWP_PRED(W+NW-NWW)
+//	DWP_PRED(W+NE-N)
+//	DWP_PRED((3*N+W-(NNW+NNE))>>1)
+//	DWP_PRED(N+W-NW+((eN+eW-eNW)>>1))
+//	DWP_PRED(N+NE-NNE
+
+//	DWP_PRED((7*W+5*(N-NW)+NE)>>3)
+static void update_wp(int *weights, int *errors)
+{
+	for(int kc=0;kc<3;++kc)
+	{
+		long long
+			w0=0x400000LL/((long long)errors[kc+4*0]+1LL),
+			w1=0x400000LL/((long long)errors[kc+4*1]+1LL),
+			w2=0x400000LL/((long long)errors[kc+4*2]+1LL),
+			w3=0x400000LL/((long long)errors[kc+4*3]+1LL),
+			w4=0x400000LL/((long long)errors[kc+4*4]+1LL),
+			w5=0x400000LL/((long long)errors[kc+4*5]+1LL),
+			w6=0x400000LL/((long long)errors[kc+4*6]+1LL),
+			w7=0x400000LL/((long long)errors[kc+4*7]+1LL),
+			sum=w0+w1+w2+w3+w4+w5+w6+w7;
+		sum+=!sum;
+		w0=((w0<<DWP_NBITS)+(sum>>1))/sum;
+		w1=((w1<<DWP_NBITS)+(sum>>1))/sum;
+		w2=((w2<<DWP_NBITS)+(sum>>1))/sum;
+		w3=((w3<<DWP_NBITS)+(sum>>1))/sum;
+		w4=((w4<<DWP_NBITS)+(sum>>1))/sum;
+		w5=((w5<<DWP_NBITS)+(sum>>1))/sum;
+		w6=((w6<<DWP_NBITS)+(sum>>1))/sum;
+		w7=((w7<<DWP_NBITS)+(sum>>1))/sum;
+		weights[kc+4*0]=(int)w0;
+		weights[kc+4*1]=(int)w1;
+		weights[kc+4*2]=(int)w2;
+		weights[kc+4*3]=(int)w3;
+		weights[kc+4*4]=(int)w4;
+		weights[kc+4*5]=(int)w5;
+		weights[kc+4*6]=(int)w6;
+		weights[kc+4*7]=(int)w7;
+	}
+	memset(errors, 0, sizeof(int[4*DWP_NPREDS]));
+}
+#endif
 #define QUANTIZE(X) (quantize_ctx(X)+(clevels>>1))
 #define LOAD(BUF, C, X, Y) ((unsigned)(ky+(Y))<(unsigned)image->ih&&(unsigned)(kx+(X))<(unsigned)image->iw?BUF[(image->iw*(ky+(Y))+kx+(X))*image->nch+C]:0)
 int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud)
@@ -77,8 +139,20 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	int ncdfs=image->nch*clevels;
 	size_t cdfsize=sizeof(int)*ncdfs*(qlevels+1LL);
 	int *hist=(int*)malloc(cdfsize);
-	size_t ebufsize=sizeof(short[2*8])*(image->iw+1LL);//2 padded rows * 4 channels max * {pixels, errors}
+	size_t ebufsize=sizeof(short[4*8])*(image->iw+8LL);//4 padded rows * 4 channels max * {pixels, errors}
 	short *pixels=(short*)malloc(ebufsize);
+#ifdef DWP
+	int prederrors[4*DWP_NPREDS]={0};
+	int nblocks=(image->iw+DWP_BLOCKSIZE-1)>>DWP_LGBLOCKSIZE;
+	int *weights=(int*)malloc(sizeof(int[4*DWP_NPREDS])*nblocks);
+	if(!weights)
+	{
+		LOG_ERROR("Alloc error");
+		return 1;
+	}
+	*weights=(1<<DWP_NBITS)/DWP_NPREDS;
+	memfill(weights+1, weights, sizeof(int[4*DWP_NPREDS])*nblocks-sizeof(int), sizeof(int));
+#endif
 	if(!hist||!pixels)
 	{
 		LOG_ERROR("Alloc error");
@@ -109,10 +183,15 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		memset(buf, 0, bufsize);
 		for(int ky=0, idx=0;ky<image->ih;++ky)
 		{
+#ifdef DWP
+			int *wk=weights;
+#endif
 			short *rows[]=
 			{
-				pixels+(((image->iw+1LL)*((ky-0LL)&1)+1)<<3),
-				pixels+(((image->iw+1LL)*((ky-1LL)&1)+1)<<3),
+				pixels+(((image->iw+8LL)*((ky-0LL)&3)+4)<<3),
+				pixels+(((image->iw+8LL)*((ky-1LL)&3)+4)<<3),
+				pixels+(((image->iw+8LL)*((ky-2LL)&3)+4)<<3),
+				pixels+(((image->iw+8LL)*((ky-3LL)&3)+4)<<3),
 			};
 			for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
 			{
@@ -129,17 +208,42 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				{
 					int
 						kc	=perm[kc0],
+						NNW	=rows[2][kc-2*8+0],
+						NNE	=rows[2][kc+2*8+0],
+						NWW	=rows[1][kc-2*8+0],
 						NW	=rows[1][kc-1*8+0],
 						N	=rows[1][kc+0*8+0],
+						NE	=rows[1][kc+1*8+0],
+						NEE	=rows[1][kc+2*8+0],
 						W	=rows[0][kc-1*8+0],
+						eNW	=rows[1][kc-1*8+4],
 						eN	=rows[1][kc+0*8+4],
+						eNE	=rows[1][kc+1*8+4],
 						eW	=rows[0][kc-1*8+4],
 						offset	=0;
+#ifdef DWP
+					int preds[]=
+					{
+#define DWP_PRED(X) X,
+						DWP_PREDLIST
+#undef  DWP_PRED
+					};
+					int pred=0;
+					for(int k=0;k<DWP_NPREDS;++k)
+						pred+=wk[k<<2|kc]*preds[k];
+					pred+=1<<DWP_NBITS>>1;
+					pred>>=DWP_NBITS;
+					int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
+					UPDATE_MIN(vmin, NE);
+					UPDATE_MAX(vmax, NE);
+					pred=CLAMP(vmin, pred, vmax);
+#else
 					int pred=N+W-NW;
 					int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
 					pred=CLAMP(vmin, pred, vmax);
 					pred=((pred<<2)-pred+((N+W)>>1))>>2;
 					//pred=(6*pred+N+W)>>3;
+#endif
 #ifndef JPEG2000_RCT
 					if(kc0)
 					{
@@ -156,6 +260,10 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					ctx=QUANTIZE(ctx);
 
 					int val=curr[kc];
+#ifdef DWP
+					for(int k=0;k<DWP_NPREDS;++k)
+						prederrors[k]+=abs(preds[k]-val);
+#endif
 					//int val=image->data[idx+kc];
 					rows[0][kc]=val-offset;
 					val-=pred;
@@ -176,6 +284,15 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				}
 				rows[0]+=8;
 				rows[1]+=8;
+				rows[2]+=8;
+				rows[3]+=8;
+#ifdef DWP
+				if(kx&&!(kx&(DWP_BLOCKSIZE-1)))
+				{
+					update_wp(wk, prederrors);
+					wk+=4*DWP_NPREDS;
+				}
+#endif
 			}
 		}
 		for(int kt=0;kt<ncdfs;++kt)
@@ -228,7 +345,7 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			ptrdiff_t usize=((ptrdiff_t)image->iw*image->ih*image->nch*image->depth+7)>>3;
 			ptrdiff_t csize=list.nobj;
 			printf("Overhead %d CDFs = %zd bytes\n", ncdfs, cdfsize);
-			printf("Memory usage:  %17.2lf MB\n", (cdfsize+ebufsize+bufsize)/(1024.*1024.));
+			printf("Memory usage: %17.2lf MB\n", (cdfsize+ebufsize+bufsize)/(1024.*1024.));
 
 			printf("%14td/%14td = %10.6lf%%  CR %lf\n", csize, usize, 100.*csize/usize, (double)usize/csize);
 			printf("E %16.6lf sec  %16.6lf MB/s\n", t0, usize/(t0*1024*1024));
@@ -278,10 +395,15 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		ans_dec_init(&ec, cbuf, cbuf+clen);
 		for(int ky=0, idx=0;ky<image->ih;++ky)
 		{
+#ifdef DWP
+			int *wk=weights;
+#endif
 			short *rows[]=
 			{
-				pixels+(((image->iw+1LL)*((ky-0LL)&1)+1)<<3),
-				pixels+(((image->iw+1LL)*((ky-1LL)&1)+1)<<3),
+				pixels+(((image->iw+8LL)*((ky-0LL)&3)+4)<<3),
+				pixels+(((image->iw+8LL)*((ky-1LL)&3)+4)<<3),
+				pixels+(((image->iw+8LL)*((ky-2LL)&3)+4)<<3),
+				pixels+(((image->iw+8LL)*((ky-3LL)&3)+4)<<3),
 			};
 			for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
 			{
@@ -289,17 +411,42 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				{
 					int
 						kc	=perm[kc0],
+						NNW	=rows[2][kc-2*8+0],
+						NNE	=rows[2][kc+2*8+0],
+						NWW	=rows[1][kc-2*8+0],
 						NW	=rows[1][kc-1*8+0],
 						N	=rows[1][kc+0*8+0],
+						NE	=rows[1][kc+1*8+0],
+						NEE	=rows[1][kc+2*8+0],
 						W	=rows[0][kc-1*8+0],
+						eNW	=rows[1][kc-1*8+4],
 						eN	=rows[1][kc+0*8+4],
+						eNE	=rows[1][kc+1*8+4],
 						eW	=rows[0][kc-1*8+4],
 						offset	=0;
+#ifdef DWP
+					int preds[]=
+					{
+#define DWP_PRED(X) X,
+						DWP_PREDLIST
+#undef  DWP_PRED
+					};
+					int pred=0;
+					for(int k=0;k<DWP_NPREDS;++k)
+						pred+=wk[k<<2|kc]*preds[k];
+					pred+=1<<DWP_NBITS>>1;
+					pred>>=DWP_NBITS;
+					int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
+					UPDATE_MIN(vmin, NE);
+					UPDATE_MAX(vmax, NE);
+					pred=CLAMP(vmin, pred, vmax);
+#else
 					int pred=N+W-NW;
 					int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
 					pred=CLAMP(vmin, pred, vmax);
 					pred=((pred<<2)-pred+((N+W)>>1))>>2;
 					//pred=(6*pred+N+W)>>3;
+#endif
 #ifndef JPEG2000_RCT
 					if(kc0)
 					{
@@ -355,6 +502,10 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					curr[kc]=delta;
 					//image->data[idx+kc]=delta;
 					rows[0][kc]=delta-offset;
+#ifdef DWP
+					for(int k=0;k<DWP_NPREDS;++k)
+						prederrors[k]+=abs(preds[k]-delta);
+#endif
 				}
 #ifdef JPEG2000_RCT
 				if(image->nch>=3)
@@ -367,13 +518,22 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				memcpy(image->data+idx, curr, sizeof(short)*image->nch);
 				rows[0]+=8;
 				rows[1]+=8;
+				rows[2]+=8;
+				rows[3]+=8;
+#ifdef DWP
+				if(kx&&!(kx&(DWP_BLOCKSIZE-1)))
+				{
+					update_wp(wk, prederrors);
+					wk+=4*DWP_NPREDS;
+				}
+#endif
 			}
 		}
 		if(loud)
 		{
 			t0=time_sec()-t0;
 			ptrdiff_t usize=((ptrdiff_t)image->iw*image->ih*image->nch*image->depth+7)>>3;
-			printf("Memory usage:  %17.2lf MB\n", (cdfsize+ebufsize+CDF2symsize)/(1024.*1024.));
+			printf("Memory usage: %17.2lf MB\n", (cdfsize+ebufsize+CDF2symsize)/(1024.*1024.));
 			printf("D %16.6lf sec  %16.6lf MB/s\n", t0, usize/(t0*1024*1024));
 		}
 		free(CDF2sym);
