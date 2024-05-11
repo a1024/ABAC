@@ -261,7 +261,7 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						NNW	=rows[2][kc-1*8+0],
 						NN	=rows[2][kc+0*8+0],
 						NNE	=rows[2][kc+1*8+0],
-						NNEE	=rows[2][kc+2*8+0],
+					//	NNEE	=rows[2][kc+2*8+0],
 						NWW	=rows[1][kc-2*8+0],
 						NW	=rows[1][kc-1*8+0],
 						N	=rows[1][kc+0*8+0],
@@ -272,7 +272,7 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						W	=rows[0][kc-1*8+0],
 						eNW	=rows[1][kc-1*8+4],
 						eN	=rows[1][kc+0*8+4],
-						eNE	=rows[1][kc+1*8+4],
+					//	eNE	=rows[1][kc+1*8+4],
 						eW	=rows[0][kc-1*8+4],
 						offset	=0;
 #ifdef DWP
@@ -484,7 +484,7 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						NNW	=rows[2][kc-1*8+0],
 						NN	=rows[2][kc+0*8+0],
 						NNE	=rows[2][kc+1*8+0],
-						NNEE	=rows[2][kc+2*8+0],
+					//	NNEE	=rows[2][kc+2*8+0],
 						NWW	=rows[1][kc-2*8+0],
 						NW	=rows[1][kc-1*8+0],
 						N	=rows[1][kc+0*8+0],
@@ -495,7 +495,7 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						W	=rows[0][kc-1*8+0],
 						eNW	=rows[1][kc-1*8+4],
 						eN	=rows[1][kc+0*8+4],
-						eNE	=rows[1][kc+1*8+4],
+					//	eNE	=rows[1][kc+1*8+4],
 						eW	=rows[0][kc-1*8+4],
 						offset	=0;
 #ifdef DWP
@@ -561,7 +561,7 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						delta>>=CONFIG_LSB;
 						int msb=delta&((1<<CONFIG_MSB)-1);
 						delta>>=CONFIG_MSB;
-						int nbits=delta+CONFIG_EXP-(CONFIG_MSB+CONFIG_LSB), n=nbits;
+						int nbits=delta+CONFIG_EXP-(CONFIG_MSB+CONFIG_LSB);
 						c=(unsigned short)ec.state;
 						bypass=c>>(16-nbits);
 						cdf=(bypass<<16)>>nbits;

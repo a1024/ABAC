@@ -1558,7 +1558,7 @@ INLINE size_t gr_enc_flush(GolombRiceCoder *ec)
 INLINE int gr_enc(GolombRiceCoder *ec, unsigned sym, unsigned magnitude)
 {
 	//buffer: {c,c,c,b,b,a,a,a, f,f,f,e,e,e,d,c}, cache: MSB gg[hhh]000 LSB	nbits 6->3, code h is about to be emitted
-	//written 64-bit words are byte-reversed because the CPU is big-endian
+	//written 64-bit words are byte-reversed because the CPU is little-endian
 	magnitude+=!magnitude;
 	unsigned nbypass=floor_log2_32(magnitude)+1;
 	unsigned nzeros=sym/magnitude, bypass=sym%magnitude;
@@ -1584,8 +1584,7 @@ INLINE int gr_enc(GolombRiceCoder *ec, unsigned sym, unsigned magnitude)
 		ec->nbits=(sizeof(ec->cache)<<3);
 	}
 	//now there is room for zeros:  0 <= nzeros < nbits <= 64
-	if(nzeros)//emit remaining zeros to cache
-		ec->nbits-=nzeros;
+	ec->nbits-=nzeros;//emit remaining zeros to cache
 
 	unsigned nunused=(1<<nbypass)-magnitude;//truncated binary code
 	if(bypass<nunused)	//emit(bypass, nbypass-1)
@@ -1607,11 +1606,8 @@ INLINE int gr_enc(GolombRiceCoder *ec, unsigned sym, unsigned magnitude)
 		ec->nbits=(sizeof(ec->cache)<<3);
 	}
 	//now there is room for bypass:  0 <= nbypass < nbits <= 64
-	if(nbypass)//emit remaining bypass to cache
-	{
-		ec->nbits-=nbypass;
-		ec->cache|=(unsigned long long)bypass<<ec->nbits;
-	}
+	ec->nbits-=nbypass;//emit remaining bypass to cache
+	ec->cache|=(unsigned long long)bypass<<ec->nbits;
 	return 1;
 }
 INLINE unsigned gr_dec(GolombRiceCoder *ec, unsigned magnitude)

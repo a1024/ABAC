@@ -12,7 +12,7 @@
 static const char file[]=__FILE__;
 
 
-	#define PROFILE_CSIZE
+//	#define PROFILE_CSIZE
 //	#define ENABLE_GUIDE
 
 
@@ -20,7 +20,7 @@ static const char file[]=__FILE__;
 #ifdef ENABLE_GUIDE
 static Image *guide=0;
 #endif
-#define CTX_PRED (8*(eN+eW)+eNE-eNW)>>4
+#define CTX_PRED (eN+eW)>>1
 #define CTX_UPDATE (eN+eW+eNEEE+val)>>2
 int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud)
 {
@@ -48,7 +48,7 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	pixels[5]=minmag;
 	pixels[6]=minmag;
 	pixels[7]=minmag;
-	minmag>>=image->depth==8;
+	minmag>>=(image->depth==8)<<1;
 	//minmag>>=image->depth==16;//X
 	memfill(pixels+8, pixels, ebufsize-sizeof(short[8]), sizeof(short[8]));
 	//memset(pixels, 0, ebufsize);
@@ -88,16 +88,16 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						kc	=perm[kc0],
 						NW	=rows[1][kc-1*8+0],
 						N	=rows[1][kc+0*8+0],
-						NE	=rows[1][kc+1*8+0],
-						WW	=rows[0][kc-2*8+0],
+					//	NE	=rows[1][kc+1*8+0],
+					//	WW	=rows[0][kc-2*8+0],
 						W	=rows[0][kc-1*8+0],
 						eNW	=rows[1][kc-1*8+4],
 						eN	=rows[1][kc+0*8+4],
 						eNE	=rows[1][kc+1*8+4],
-						eNEE	=rows[1][kc+2*8+4],
+					//	eNEE	=rows[1][kc+2*8+4],
 						eNEEE	=rows[1][kc+3*8+4],
-						eNEEEE	=rows[1][kc+4*8+4],
-						eWW	=rows[0][kc-2*8+4],
+					//	eNEEEE	=rows[1][kc+4*8+4],
+					//	eWW	=rows[0][kc-2*8+4],
 						eW	=rows[0][kc-1*8+4];
 					int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
 					//UPDATE_MIN(vmin, NE);
@@ -109,8 +109,8 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					//pred=(62*pred+N+W)>>6;
 					int magnitude=CTX_PRED;
 					//int magnitude=!ky?eW:(!kx?eN:CTX_PRED);
-					if(kc0>1)
-						magnitude=(magnitude+rows[0][0+0*8+4])>>1;
+					//if(kc0>1)
+					//	magnitude=(magnitude+rows[0][0+0*8+4])>>1;
 					UPDATE_MAX(magnitude, minmag);
 					//int magnitude=!kx||!ky?depth-2:(eN+eW)>>1;
 					//int magnitude=MAXVAR(eN, eW);
@@ -186,16 +186,16 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						kc	=perm[kc0],
 						NW	=rows[1][kc-1*8+0],
 						N	=rows[1][kc+0*8+0],
-						NE	=rows[1][kc+1*8+0],
-						WW	=rows[0][kc-2*8+0],
+					//	NE	=rows[1][kc+1*8+0],
+					//	WW	=rows[0][kc-2*8+0],
 						W	=rows[0][kc-1*8+0],
 						eNW	=rows[1][kc-1*8+4],
 						eN	=rows[1][kc+0*8+4],
 						eNE	=rows[1][kc+1*8+4],
-						eNEE	=rows[1][kc+2*8+4],
+					//	eNEE	=rows[1][kc+2*8+4],
 						eNEEE	=rows[1][kc+3*8+4],
-						eNEEEE	=rows[1][kc+4*8+4],
-						eWW	=rows[0][kc-2*8+4],
+					//	eNEEEE	=rows[1][kc+4*8+4],
+					//	eWW	=rows[0][kc-2*8+4],
 						eW	=rows[0][kc-1*8+4];
 					int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
 					//UPDATE_MIN(vmin, NE);
@@ -209,8 +209,8 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					//int magnitude=!ky?eW:(!kx?eN:CTX_PRED);
 					//int magnitude=!kx||!ky?depth-2:(eN+eW)>>1;
 					//int magnitude=MAXVAR(eN, eW);
-					if(kc0>1)
-						magnitude=(magnitude+rows[0][0+0*8+4])>>1;
+					//if(kc0>1)
+					//	magnitude=(magnitude+rows[0][0+0*8+4])>>1;
 					UPDATE_MAX(magnitude, minmag);
 
 					int val=gr_dec(&ec, magnitude+1);
