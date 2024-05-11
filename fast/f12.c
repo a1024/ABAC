@@ -6,7 +6,7 @@
 #include"lodepng.h"
 static const char file[]=__FILE__;
 
-//	#define RELATION
+	#define RELATION
 	#define DISABLE_DECORRELATION
 //	#define BITCTR
 //	#define ABACHIST	//X

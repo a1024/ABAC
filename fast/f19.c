@@ -65,7 +65,7 @@ static int quantize_ctx(int x)
 #define DWP_NPREDS 8
 #define DWP_PREDLIST\
 	DWP_PRED(N+W-NW)\
-	DWP_PRED(N+W-NW)\
+	DWP_PRED(W+((5*(N-NW)+NE-WW)>>3))\
 	DWP_PRED((N+W+NE-NW)>>1)\
 	DWP_PRED((7*W+5*(N-NW)+NE)>>3)\
 	DWP_PRED((N+W)>>1)\
@@ -215,6 +215,7 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						N	=rows[1][kc+0*8+0],
 						NE	=rows[1][kc+1*8+0],
 						NEE	=rows[1][kc+2*8+0],
+						WW	=rows[0][kc-2*8+0],
 						W	=rows[0][kc-1*8+0],
 						eNW	=rows[1][kc-1*8+4],
 						eN	=rows[1][kc+0*8+4],
@@ -418,6 +419,7 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						N	=rows[1][kc+0*8+0],
 						NE	=rows[1][kc+1*8+0],
 						NEE	=rows[1][kc+2*8+0],
+						WW	=rows[0][kc-2*8+0],
 						W	=rows[0][kc-1*8+0],
 						eNW	=rows[1][kc-1*8+4],
 						eN	=rows[1][kc+0*8+4],
