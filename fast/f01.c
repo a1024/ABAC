@@ -1,6 +1,7 @@
 #include"fast.h"
 #include<stdlib.h>
 #include<math.h>
+#include<smmintrin.h>
 #define EC_USE_ARRAY
 #define AC_IMPLEMENTATION
 #include"ac.h"
@@ -233,8 +234,8 @@ int f01_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				//	eNEE	=rows[LOADIDX(kc,  2, -1, 1)],
 				//	eWW	=rows[LOADIDX(kc, -2,  0, 1)],
 					eW	=rows[LOADIDX(kc, -1,  0, 1)];
-				int pred=N+W-NW;
-				pred=MEDIAN3(N, W, pred);
+				int pred;
+				MEDIAN3_32(pred, N, W, N+W-NW);
 #ifdef USE_GRCODER
 				int ctx;
 				//ctx=abs(N-W)+((eN+eW)>>8);//best so far

@@ -275,16 +275,8 @@ int floor_log2_p1(unsigned long long n)
 }
 int floor_log2(unsigned long long n)
 {
-#ifdef _MSC_VER
-	return (sizeof(n)<<3)-1-(int)__lzcnt64(n);//since Haswell
-
-	//unsigned long logn=0;
-	//int success=_BitScanReverse64(&logn, n);
-	//logn=success?logn:-1;
-	//return logn;
-#elif defined __GNUC__
-	int logn=63-__builtin_clzll(n);
-	return logn;
+#if defined _MSC_VER || defined __GNUC__
+	return (sizeof(n)<<3)-1-(int)_lzcnt_u64(n);//since Haswell
 #else
 	int	logn=-!n;
 	int	sh=(n>=1ULL<<32)<<5;	logn+=sh, n>>=sh;
@@ -298,18 +290,8 @@ int floor_log2(unsigned long long n)
 }
 int floor_log2_32(unsigned n)
 {
-#ifdef _MSC_VER
-	return (sizeof(n)<<3)-1-(int)__lzcnt(n);//SSE4
-
-	//unsigned long logn=0;
-	//int success=_BitScanReverse(&logn, n);
-	//logn=success?logn:-1;
-	//return logn;
-#elif defined __GNUC__
-	if(!n)
-		return -1;
-	int logn=31-__builtin_clz(n);
-	return logn;
+#if defined _MSC_VER || defined __GNUC__
+	return (sizeof(n)<<3)-1-(int)_lzcnt_u32(n);//SSE4
 #else
 	//binary search
 #if 0

@@ -350,6 +350,7 @@ int main(int argc, char **argv)
 	//	"D:/ML/dataset-RAW/a0001-jmac_DSC1459.dng"
 
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
+	//	"C:/Projects/datasets/dataset-kodak-pgm/kodim13.pgm"
 	//	"C:/Projects/datasets/dataset-kodak/kodim13.png"
 	//	"C:/Projects/datasets/kodim13-small4.PNG"
 	//	"C:/Projects/datasets/big_building.PPM"

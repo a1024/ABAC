@@ -39,7 +39,39 @@ extern "C"
 #define MINVAR(A, B) ((A)<(B)?(A):(B))
 #define MAXVAR(A, B) ((A)>(B)?(A):(B))
 #define CLAMP(LO, X, HI) ((X)>(LO)?(X)<(HI)?(X):(HI):(LO))
-#define MEDIAN3(A, B, C) (B<A?B<C?C<A?C:A:B:A<C?C<B?C:B:A)//3 branches max
+
+//include<smmintrin.h>	SSE4.1
+#define MEDIAN3_32(DST, A, B, C)\
+	do\
+	{\
+		ALIGN(16) int arr[4];\
+		__m128i va=_mm_set_epi32(0, 0, 0, A);\
+		__m128i vb=_mm_set_epi32(0, 0, 0, B);\
+		__m128i vc=_mm_set_epi32(0, 0, 0, C);\
+		__m128i vmin=_mm_min_epi32(va, vb);\
+		__m128i vmax=_mm_max_epi32(va, vb);\
+		vc=_mm_max_epi32(vc, vmin);\
+		vc=_mm_min_epi32(vc, vmax);\
+		_mm_store_si128((__m128i*)arr, vc);\
+		DST=arr[0];\
+	}while(0)
+
+//include<emmintrin.h>	SSE2
+#define MEDIAN3_16(DST, A, B, C)\
+	do\
+	{\
+		ALIGN(16) short arr[8];\
+		__m128i va=_mm_set_epi16(0, 0, 0, 0, 0, 0, 0, A);\
+		__m128i vb=_mm_set_epi16(0, 0, 0, 0, 0, 0, 0, B);\
+		__m128i vc=_mm_set_epi16(0, 0, 0, 0, 0, 0, 0, C);\
+		__m128i vmin=_mm_min_epi16(va, vb);\
+		__m128i vmax=_mm_max_epi16(va, vb);\
+		vc=_mm_max_epi16(vc, vmin);\
+		vc=_mm_min_epi16(vc, vmax);\
+		_mm_store_si128((__m128i*)arr, vc);\
+		DST=arr[0];\
+	}while(0)
+#define MEDIAN3(A, B, C) (B<A?B<C?C<A?C:A:B:A<C?C<B?C:B:A)//SLOW
 #define MOVEOBJ(SRC, DST, SIZE) memcpy(DST, SRC, SIZE), memset(SRC, 0, SIZE)
 #define MODVAR(DST, SRC, N) DST=(SRC)%(N), DST+=(N)&-(DST<0)
 #define SHIFT_LEFT_SIGNED(X, SH) ((SH)<0?(X)>>-(SH):(X)<<(SH))

@@ -33,7 +33,7 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #endif
 
 	size_t ebufsize=sizeof(short[4*8])*(image->iw+8LL);//4 padded rows * 4 channels max * {pixels, errors}
-	short *pixels=(short*)malloc(ebufsize);
+	short *pixels=(short*)_mm_malloc(ebufsize, sizeof(__m128i));
 	if(!pixels)
 	{
 		LOG_ERROR("Alloc error");
@@ -48,12 +48,19 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	pixels[5]=minmag;
 	pixels[6]=minmag;
 	pixels[7]=minmag;
-	minmag>>=(image->depth==8)<<1;
-	//minmag>>=image->depth==16;//X
 	memfill(pixels+8, pixels, ebufsize-sizeof(short[8]), sizeof(short[8]));
+	__m128i mone=_mm_set1_epi16(1);
+	__m128i mminmag=_mm_load_si128((__m128i*)pixels);
+	if(image->depth==8)
+	{
+		mminmag=_mm_srli_epi16(mminmag, 2);
+		minmag>>=2;
+	}
+	//minmag>>=image->depth==16;//X
 	//memset(pixels, 0, ebufsize);
-	int perm[]={1, 2, 0, 3};
+	int perm[]={image->nch!=1, 2, 0, 3};
 	ptrdiff_t usize=(ptrdiff_t)image->iw*image->ih*image->nch*image->depth>>3;
+	ALIGN(16) short pred[8]={0}, mag[8]={0};
 	if(fwd)
 	{
 #ifdef PROFILE_CSIZE
@@ -76,6 +83,20 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			{
 				short *curr=rows[0];
 				memcpy(curr, image->data+idx, sizeof(short)*image->nch);
+				__m128i mNW	=_mm_load_si128((__m128i*)rows[1]-1);
+				__m128i mN	=_mm_load_si128((__m128i*)rows[1]+0);
+				__m128i mW	=_mm_load_si128((__m128i*)rows[0]-1);
+				__m128i mp=_mm_add_epi16(mN, mW);
+				__m128i mmin=_mm_min_epi16(mN, mW);
+				__m128i mmax=_mm_max_epi16(mN, mW);
+				__m128i mpc=_mm_srai_epi16(mp, 1);
+				mp=_mm_sub_epi16(mp, mNW);
+				mpc=_mm_max_epi16(mpc, mminmag);
+				mp=_mm_max_epi16(mp, mmin);
+				mp=_mm_min_epi16(mp, mmax);
+				mpc=_mm_add_epi16(mpc, mone);
+				_mm_store_si128((__m128i*)pred, mp);
+				_mm_store_si128((__m128i*)mag, mpc);
 				if(image->nch>=3)
 				{
 					curr[0]-=curr[1];
@@ -86,19 +107,22 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				{
 					int
 						kc	=perm[kc0],
-						NW	=rows[1][kc-1*8+0],
-						N	=rows[1][kc+0*8+0],
+					//	NW	=rows[1][kc-1*8+0],
+					//	N	=rows[1][kc+0*8+0],
 					//	NE	=rows[1][kc+1*8+0],
 					//	WW	=rows[0][kc-2*8+0],
-						W	=rows[0][kc-1*8+0],
-						eNW	=rows[1][kc-1*8+4],
+					//	W	=rows[0][kc-1*8+0],
+					//	eNW	=rows[1][kc-1*8+4],
 						eN	=rows[1][kc+0*8+4],
-						eNE	=rows[1][kc+1*8+4],
+					//	eNE	=rows[1][kc+1*8+4],
 					//	eNEE	=rows[1][kc+2*8+4],
 						eNEEE	=rows[1][kc+3*8+4],
 					//	eNEEEE	=rows[1][kc+4*8+4],
 					//	eWW	=rows[0][kc-2*8+4],
 						eW	=rows[0][kc-1*8+4];
+					//int pred;
+					//MEDIAN3_32(pred, N, W, N+W-NW);
+#if 0
 					int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
 					//UPDATE_MIN(vmin, NE);
 					//UPDATE_MAX(vmax, NE);
@@ -107,11 +131,12 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					int pred=N+W-NW;
 					pred=CLAMP(vmin, pred, vmax);
 					//pred=(62*pred+N+W)>>6;
-					int magnitude=CTX_PRED;
+#endif
+					//int magnitude=CTX_PRED;
 					//int magnitude=!ky?eW:(!kx?eN:CTX_PRED);
 					//if(kc0>1)
 					//	magnitude=(magnitude+rows[0][0+0*8+4])>>1;
-					UPDATE_MAX(magnitude, minmag);
+					//UPDATE_MAX(magnitude, minmag);
 					//int magnitude=!kx||!ky?depth-2:(eN+eW)>>1;
 					//int magnitude=MAXVAR(eN, eW);
 					//magnitude-=magnitude>0;//X
@@ -120,7 +145,7 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					//if(ky==10&&kx==10)//
 					//	printf("");
 
-					int val=curr[kc]-pred;
+					int val=curr[kc]-pred[kc];
 					val=val<<1^-(val<0);
 					curr[kc+4]=CTX_UPDATE;
 #ifdef PROFILE_CSIZE
@@ -132,7 +157,7 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					csizes[2<<2|kc]+=nbypass-(bypass<(1<<nbypass)-magnitude);
 					--magnitude;
 #endif
-					gr_enc(&ec, val, magnitude+1);
+					gr_enc(&ec, val, mag[kc+4]);
 				}
 				rows[0]+=8;
 				rows[1]+=8;
@@ -180,23 +205,50 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
 			{
 				short *curr=rows[0];
+				__m128i mNW	=_mm_load_si128((__m128i*)rows[1]-1);
+				__m128i mN	=_mm_load_si128((__m128i*)rows[1]+0);
+				__m128i mW	=_mm_load_si128((__m128i*)rows[0]-1);
+				__m128i mp=_mm_add_epi16(mN, mW);
+				__m128i mmin=_mm_min_epi16(mN, mW);
+				__m128i mmax=_mm_max_epi16(mN, mW);
+				__m128i mpc=_mm_srai_epi16(mp, 1);
+				mp=_mm_sub_epi16(mp, mNW);
+				mpc=_mm_max_epi16(mpc, mminmag);
+				mp=_mm_max_epi16(mp, mmin);
+				mp=_mm_min_epi16(mp, mmax);
+				mpc=_mm_add_epi16(mpc, mone);
+				_mm_store_si128((__m128i*)pred, mp);
+				_mm_store_si128((__m128i*)mag, mpc);
+				//__m128i mNW	=_mm_load_si128((__m128i*)rows[1]-1);
+				//__m128i mN	=_mm_load_si128((__m128i*)rows[1]+0);
+				//__m128i mW	=_mm_load_si128((__m128i*)rows[0]-1);
+				//__m128i mp=_mm_add_epi16(mN, mW);
+				//__m128i mmin=_mm_min_epi16(mN, mW);
+				//__m128i mmax=_mm_max_epi16(mN, mW);
+				//mp=_mm_sub_epi16(mp, mNW);
+				//mp=_mm_max_epi16(mp, mmin);
+				//mp=_mm_min_epi16(mp, mmax);
+				//_mm_store_si128((__m128i*)pred, mp);
 				for(int kc0=0;kc0<image->nch;++kc0)
 				{
 					int
 						kc	=perm[kc0],
-						NW	=rows[1][kc-1*8+0],
-						N	=rows[1][kc+0*8+0],
+					//	NW	=rows[1][kc-1*8+0],
+					//	N	=rows[1][kc+0*8+0],
 					//	NE	=rows[1][kc+1*8+0],
 					//	WW	=rows[0][kc-2*8+0],
-						W	=rows[0][kc-1*8+0],
-						eNW	=rows[1][kc-1*8+4],
+					//	W	=rows[0][kc-1*8+0],
+					//	eNW	=rows[1][kc-1*8+4],
 						eN	=rows[1][kc+0*8+4],
-						eNE	=rows[1][kc+1*8+4],
+					//	eNE	=rows[1][kc+1*8+4],
 					//	eNEE	=rows[1][kc+2*8+4],
 						eNEEE	=rows[1][kc+3*8+4],
 					//	eNEEEE	=rows[1][kc+4*8+4],
 					//	eWW	=rows[0][kc-2*8+4],
 						eW	=rows[0][kc-1*8+4];
+					//int pred;
+					//MEDIAN3_32(pred, N, W, N+W-NW);
+#if 0
 					int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
 					//UPDATE_MIN(vmin, NE);
 					//UPDATE_MAX(vmax, NE);
@@ -205,18 +257,19 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					int pred=N+W-NW;
 					pred=CLAMP(vmin, pred, vmax);
 					//pred=(62*pred+N+W)>>6;
-					int magnitude=CTX_PRED;
+#endif
+					//int magnitude=CTX_PRED;
 					//int magnitude=!ky?eW:(!kx?eN:CTX_PRED);
 					//int magnitude=!kx||!ky?depth-2:(eN+eW)>>1;
 					//int magnitude=MAXVAR(eN, eW);
 					//if(kc0>1)
 					//	magnitude=(magnitude+rows[0][0+0*8+4])>>1;
-					UPDATE_MAX(magnitude, minmag);
+					//UPDATE_MAX(magnitude, minmag);
 
-					int val=gr_dec(&ec, magnitude+1);
+					int val=gr_dec(&ec, mag[kc+4]);
 					curr[kc+4]=CTX_UPDATE;
 					val=val>>1^-(val&1);
-					curr[kc]=val+pred;
+					curr[kc]=val+pred[kc];
 				}
 				short *c2=image->data+idx;
 				memcpy(c2, curr, sizeof(short)*image->nch);
@@ -253,6 +306,6 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			printf("D  %16.6lf sec  %16.6lf MB/s\n", t0, usize/(t0*1024*1024));
 		}
 	}
-	free(pixels);
+	_mm_free(pixels);
 	return 0;
 }
