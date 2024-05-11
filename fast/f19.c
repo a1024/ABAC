@@ -59,19 +59,22 @@ static int quantize_ctx(int x)
 	return x;
 }
 #ifdef DWP
-#define DWP_NBITS 12
+#define DWP_NBITS 14
 #define DWP_LGBLOCKSIZE 4
 #define DWP_BLOCKSIZE (1<<DWP_LGBLOCKSIZE)
-#define DWP_NPREDS 8
+#define DWP_NPREDS 7
 #define DWP_PREDLIST\
 	DWP_PRED(N+W-NW)\
 	DWP_PRED(W+((5*(N-NW)+NE-WW)>>3))\
-	DWP_PRED((N+W+NE-NW)>>1)\
 	DWP_PRED((7*W+5*(N-NW)+NE)>>3)\
 	DWP_PRED((N+W)>>1)\
 	DWP_PRED((W+NEE)>>1)\
 	DWP_PRED((8*(N+W)+3*(NE-NW))>>4)\
 	DWP_PRED((3*(N+W)-2*NW)>>2)
+
+
+
+//	DWP_PRED((N+W+NE-NW)>>1)
 
 //	DWP_PRED((N+W+NE-NW)>>1)
 //	DWP_PRED(W+(eW>>1))
@@ -85,8 +88,19 @@ static int quantize_ctx(int x)
 //	DWP_PRED((7*W+5*(N-NW)+NE)>>3)
 static void update_wp(int *weights, int *errors)
 {
+	int w2[DWP_NPREDS];
 	for(int kc=0;kc<3;++kc)
 	{
+		int wsum=1;
+		for(int k=0;k<DWP_NPREDS;++k)
+		{
+			int w=0x400000/(errors[k<<2|kc]+1);
+			w2[k]=w;
+			wsum+=w;
+		}
+		for(int k=0;k<DWP_NPREDS;++k)
+			weights[k<<2|kc]=(int)((((long long)w2[k]<<DWP_NBITS)+(wsum>>1))/wsum);
+#if 0
 		long long
 			w0=0x400000LL/((long long)errors[kc+4*0]+1LL),
 			w1=0x400000LL/((long long)errors[kc+4*1]+1LL),
@@ -114,6 +128,7 @@ static void update_wp(int *weights, int *errors)
 		weights[kc+4*5]=(int)w5;
 		weights[kc+4*6]=(int)w6;
 		weights[kc+4*7]=(int)w7;
+#endif
 	}
 	memset(errors, 0, sizeof(int[4*DWP_NPREDS]));
 }
