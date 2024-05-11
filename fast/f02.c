@@ -9,11 +9,11 @@ static const char file[]=__FILE__;
 
 //	#define ENABLE_GUIDE
 
-	#define USE_ANS
-//	#define USE_GOLOMB
+//	#define USE_ANS
+	#define USE_GOLOMB
 //	#define USE_ABAC
-	#define USE_STATIC_PROB
-	#define USE_CDF2SYM
+//	#define USE_STATIC_PROB
+//	#define USE_CDF2SYM
 
 
 #ifdef USE_ANS
@@ -121,7 +121,7 @@ int f02_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				{
 					bypass=comp[kc]<<1^-(comp[kc]<0);
 #ifdef USE_GOLOMB
-					gr_enc(&ec, bypass, 1<<image->depth>>1);
+					gr_enc(&ec, bypass, 1<<image->depth>>2);
 #elif defined USE_ANS
 					ans_enc(&ec, bypass, CDF, 1<<image->depth);//up to 16 bit
 #elif defined USE_ABAC
@@ -141,7 +141,7 @@ int f02_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				else
 				{
 #ifdef USE_GOLOMB
-					bypass=gr_dec(&ec, 1<<image->depth>>1);
+					bypass=gr_dec(&ec, 1<<image->depth>>2);
 #elif defined USE_ANS
 #ifdef USE_CDF2SYM
 					bypass=ans_dec_CDF2sym(&ec, CDF, CDF2sym);

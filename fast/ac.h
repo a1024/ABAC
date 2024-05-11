@@ -1209,10 +1209,8 @@ INLINE void ans_dec_update(ANSCoder *ec, unsigned cdf, int freq)
 INLINE void ans_enc(ANSCoder *ec, int sym, const unsigned *CDF, int nlevels)
 {
 	int cdf, freq;
-	if(CDF)
-		cdf=CDF[sym], freq=CDF[sym+1]-cdf;
-	else//bypass
-		cdf=(sym<<16)/nlevels, freq=((sym+1)<<16)/nlevels-cdf;
+
+	cdf=CDF[sym], freq=CDF[sym+1]-cdf;
 #ifdef DEBUG_ANS
 	if(!freq)
 		LOG_ERROR2("ZPS");
@@ -1235,42 +1233,63 @@ INLINE int ans_dec(ANSCoder *ec, const unsigned *CDF, int nlevels)
 	int sym=0;
 
 	unsigned cdf, freq;
-	if(CDF)
-	{
-		int L=0, R=nlevels;
-		while(R)//binary search		lg(nlevels) memory accesses per symbol
-		{
-			int floorhalf=R>>1;
-			sym=L+floorhalf;
-			L+=(R-floorhalf)&-(CDF[sym]<=c);
-			R=floorhalf;
-		}
-		//int L=0, R=nlevels, found=0;
-		//while(L<=R)
-		//{
-		//	sym=(L+R)>>1;
-		//	if(CDF[sym]<c)
-		//		L=sym+1;
-		//	else if(CDF[sym]>c)
-		//		R=sym-1;
-		//	else
-		//	{
-		//		found=1;
-		//		break;
-		//	}
-		//}
-		//if(found)
-		//	for(;sym<nlevels-1&&CDF[sym+1]==c;++sym);
-		//else
-		//	sym=L+(L<nlevels&&CDF[L]<c)-(L!=0);
 
-		cdf=CDF[sym], freq=CDF[sym+1]-cdf;
-	}
-	else//bypass
+	int range=nlevels;
+	while(range)//binary search		lg(nlevels) memory accesses per symbol
 	{
-		sym=c*nlevels>>16;
-		cdf=(sym<<16)/nlevels, freq=((sym+1)<<16)/nlevels-cdf;
+		int floorhalf=range>>1;
+		sym+=(range-floorhalf)&-(CDF[sym+floorhalf+1]<=c);
+		range=floorhalf;
 	}
+
+	cdf=CDF[sym], freq=CDF[sym+1]-cdf;
+#ifdef DEBUG_ANS
+	if(!freq)
+		LOG_ERROR2("ZPS");
+#endif
+	debug_dec_update(ec->state, cdf, freq, 0, 0, 0, 0, sym);
+	ec->state=freq*(ec->state>>16)+c-cdf;//update
+	if(ec->state<0x10000)//renorm
+	{
+		ec->state<<=16;
+		if(ec->srcptr-2>=ec->srcstart)
+		{
+			ec->srcptr-=2;
+			memcpy(&ec->state, ec->srcptr, 2);
+		}
+	}
+	return sym;
+}
+INLINE void ans_enc_bypass(ANSCoder *ec, int sym, int nbits)//nbits [1 ~ 16]
+{
+	int cdf, freq;
+
+	cdf=sym<<16>>nbits, freq=0x10000>>nbits;
+#ifdef DEBUG_ANS
+	if(!freq)
+		LOG_ERROR2("ZPS");
+#endif
+	if((ec->state>>16)>=(unsigned)freq)//renorm
+	{
+#ifdef EC_USE_ARRAY
+		ARRAY_APPEND(*ec->dst, &ec->state, 2, 1, 0);
+#else
+		dlist_push_back(ec->dst, &ec->state, 2);
+#endif
+		ec->state>>=16;
+	}
+	debug_enc_update(ec->state, cdf, freq, 0, 0, 0, 0, sym);
+	ec->state=ec->state/freq<<16|(cdf+ec->state%freq);//update
+}
+INLINE int ans_dec_bypass(ANSCoder *ec, int nbits)
+{
+	unsigned c=(unsigned short)ec->state;
+	int sym=0;
+
+	unsigned cdf, freq;
+
+	sym=c<<nbits>>16;
+	cdf=sym<<16>>nbits, freq=0x10000>>nbits;
 #ifdef DEBUG_ANS
 	if(!freq)
 		LOG_ERROR2("ZPS");

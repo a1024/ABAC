@@ -13,6 +13,8 @@ static const char file[]=__FILE__;
 
 	#define JPEG2000_RCT
 	#define DWP
+	#define SQUARE_CTX
+	#define DISABLE_CDF2sym
 
 
 #include"ac.h"
@@ -53,16 +55,27 @@ static int quantize_ctx(int x)
 	int negmask=-(x<0);
 	x=abs(x);
 	x=floor_log2_32(x)+1;
+#ifdef SQUARE_CTX
 	//x=floor_log2_32(x)+1;
+#endif
 	x^=negmask;
 	x-=negmask;
 	return x;
 }
+static int median3(int a, int b, int c)
+{
+	int vmin=MINVAR(a, b), vmax=MAXVAR(a, b);
+	if(c<vmin)
+		c=vmin;
+	if(c>vmax)
+		c=vmax;
+	return c;
+}
 #ifdef DWP
 #define DWP_NBITS 14
-#define DWP_LGBLOCKSIZE 4
+#define DWP_LGBLOCKSIZE 11
 #define DWP_BLOCKSIZE (1<<DWP_LGBLOCKSIZE)
-#define DWP_NPREDS 7
+#define DWP_NPREDS 40
 #define DWP_PREDLIST\
 	DWP_PRED(N+W-NW)\
 	DWP_PRED(W+((5*(N-NW)+NE-WW)>>3))\
@@ -70,22 +83,40 @@ static int quantize_ctx(int x)
 	DWP_PRED((N+W)>>1)\
 	DWP_PRED((W+NEE)>>1)\
 	DWP_PRED((8*(N+W)+3*(NE-NW))>>4)\
-	DWP_PRED((3*(N+W)-2*NW)>>2)
-
-
-
-//	DWP_PRED((N+W+NE-NW)>>1)
-
-//	DWP_PRED((N+W+NE-NW)>>1)
-//	DWP_PRED(W+(eW>>1))
-//	DWP_PRED(N+(eN>>1))
-//	DWP_PRED(W+NW-NWW)
-//	DWP_PRED(W+NE-N)
-//	DWP_PRED((3*N+W-(NNW+NNE))>>1)
-//	DWP_PRED(N+W-NW+((eN+eW-eNW)>>1))
-//	DWP_PRED(N+NE-NNE
-
-//	DWP_PRED((7*W+5*(N-NW)+NE)>>3)
+	DWP_PRED((3*(N+W)-2*NW)>>2)\
+	DWP_PRED(median3(N, W, N+W-NW))\
+	DWP_PRED((N+W)>>1)\
+	DWP_PRED((W+NEE)>>1)\
+	DWP_PRED(W+NE-N)\
+	DWP_PRED(2*N-NN)\
+	DWP_PRED((4*W+N+NE+NEE+NEEE)>>3)\
+	DWP_PRED((N+NN)>>1)\
+	DWP_PRED((N+NE)>>1)\
+	DWP_PRED(W)\
+	DWP_PRED(W+NW-NWW)\
+	DWP_PRED(N+W-NW)\
+	DWP_PRED(N+NW-NNW)\
+	DWP_PRED(N)\
+	DWP_PRED(N+NE-NNE)\
+	DWP_PRED((W+NE+NEE+NEEE)>>2)\
+	DWP_PRED((W+N)>>1)\
+	DWP_PRED(N+W-NW)\
+	DWP_PRED(W+((5*(N-NW)+NE-WW)>>3))\
+	DWP_PRED((7*W+5*(N-NW)+NE)>>3)\
+	DWP_PRED((N+W)>>1)\
+	DWP_PRED((W+NEE)>>1)\
+	DWP_PRED((8*(N+W)+3*(NE-NW))>>4)\
+	DWP_PRED((3*(N+W)-2*NW)>>2)\
+	DWP_PRED((N+W+NE-NW)>>1)\
+	DWP_PRED((N+W+NE-NW)>>1)\
+	DWP_PRED(W+(eW>>1))\
+	DWP_PRED(N+(eN>>1))\
+	DWP_PRED(W+NW-NWW)\
+	DWP_PRED(W+NE-N)\
+	DWP_PRED((3*N+W-(NNW+NNE))>>1)\
+	DWP_PRED(N+W-NW+((eN+eW-eNW)>>1))\
+	DWP_PRED(N+NE-NNE)\
+	DWP_PRED((7*W+5*(N-NW)+NE)>>3)
 static void update_wp(int *weights, int *errors)
 {
 	int w2[DWP_NPREDS];
@@ -147,11 +178,14 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	int depth=image->depth+2;
 	UPDATE_MIN(depth, 16);
 	int nlevels=1<<depth, half=nlevels>>1;
-	int clevels=quantize_ctx(half)<<1|1;
+	int clevels=quantize_ctx(half)<<1|1, cvolume=clevels;
+#ifdef SQUARE_CTX
+	cvolume*=clevels;
+#endif
 	int token, bypass, nbits;
 	quantize_pixel(nlevels, &token, &bypass, &nbits);
 	int qlevels=token+1;
-	int ncdfs=image->nch*clevels;
+	int ncdfs=image->nch*cvolume;
 	size_t cdfsize=sizeof(int)*ncdfs*(qlevels+1LL);
 	int *hist=(int*)malloc(cdfsize);
 	size_t ebufsize=sizeof(short[4*8])*(image->iw+8LL);//4 padded rows * 4 channels max * {pixels, errors}
@@ -184,6 +218,7 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	int freq;
 	if(fwd)
 	{
+		size_t overhead=0;
 		Symbol *sym;
 		int nvals=image->nch*image->iw*image->ih;
 		size_t bufsize=sizeof(Symbol)*nvals;
@@ -223,13 +258,16 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				{
 					int
 						kc	=perm[kc0],
-						NNW	=rows[2][kc-2*8+0],
-						NNE	=rows[2][kc+2*8+0],
+						NNW	=rows[2][kc-1*8+0],
+						NN	=rows[2][kc+0*8+0],
+						NNE	=rows[2][kc+1*8+0],
+						NNEE	=rows[2][kc+2*8+0],
 						NWW	=rows[1][kc-2*8+0],
 						NW	=rows[1][kc-1*8+0],
 						N	=rows[1][kc+0*8+0],
 						NE	=rows[1][kc+1*8+0],
 						NEE	=rows[1][kc+2*8+0],
+						NEEE	=rows[1][kc+3*8+0],
 						WW	=rows[0][kc-2*8+0],
 						W	=rows[0][kc-1*8+0],
 						eNW	=rows[1][kc-1*8+4],
@@ -238,6 +276,7 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						eW	=rows[0][kc-1*8+4],
 						offset	=0;
 #ifdef DWP
+					int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
 					int preds[]=
 					{
 #define DWP_PRED(X) X,
@@ -249,7 +288,6 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						pred+=wk[k<<2|kc]*preds[k];
 					pred+=1<<DWP_NBITS>>1;
 					pred>>=DWP_NBITS;
-					int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
 					UPDATE_MIN(vmin, NE);
 					UPDATE_MAX(vmax, NE);
 					pred=CLAMP(vmin, pred, vmax);
@@ -270,10 +308,15 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						pred=CLAMP(-half, pred, half-1);
 					}
 #endif
+#ifdef SQUARE_CTX
+					ctx=clevels*QUANTIZE(eN)+QUANTIZE(eW);
+#else
 					ctx=abs(eN)>abs(eW)?eN:eW;	//52283528
 					//ctx=MAXVAR(abs(eN), abs(eW));	//52358926
 					//ctx=(abs(eN)+abs(eW))>>1;	//52391324
+					//ctx=eN-eW;
 					ctx=QUANTIZE(ctx);
+#endif
 
 					int val=curr[kc];
 #ifdef DWP
@@ -292,7 +335,7 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					//if(token>=qlevels)//
 					//	LOG_ERROR("Token OOB %d/%d", token, qlevels);
 
-					++hist[(clevels*kc0+ctx)*(qlevels+1)+token];
+					++hist[(cvolume*kc0+ctx)*(qlevels+1)+token];
 					buf[idx+kc0].token=token;
 					buf[idx+kc0].nbits=nbits;
 					buf[idx+kc0].bypass=bypass;
@@ -327,6 +370,7 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					curr_CDF[ks]=c*(0x10000LL-qlevels)/sum+ks;
 					c+=freq;
 					dlist_push_back(&list, curr_CDF+ks, sizeof(short));
+					overhead+=sizeof(short);
 				}
 				curr_CDF[qlevels]=0x10000;
 				//dlist_push_back(&list, curr_CDF, sizeof(short)*qlevels);
@@ -336,6 +380,7 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				//memset(curr_CDF, 0, sizeof(short)*(qlevels+1LL));
 				curr_CDF[0]=0xFFFF;
 				dlist_push_back(&list, curr_CDF, sizeof(short));
+				overhead+=sizeof(short);
 			}
 		}
 		ans_enc_init(&ec, &list);
@@ -348,7 +393,7 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				cdf=(sym->bypass<<16)>>sym->nbits, freq=0x10000>>sym->nbits;
 				ans_enc_update(&ec, cdf, freq);
 			}
-			curr_CDF=CDFs+(clevels*kc0+sym->ctx)*(qlevels+1)+sym->token;
+			curr_CDF=CDFs+(cvolume*kc0+sym->ctx)*(qlevels+1)+sym->token;
 			cdf=curr_CDF[0];
 			freq=curr_CDF[1]-cdf;
 			ans_enc_update(&ec, cdf, freq);
@@ -360,7 +405,7 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			t0=time_sec()-t0;
 			ptrdiff_t usize=((ptrdiff_t)image->iw*image->ih*image->nch*image->depth+7)>>3;
 			ptrdiff_t csize=list.nobj;
-			printf("Overhead %d CDFs = %zd bytes\n", ncdfs, cdfsize);
+			printf("Overhead %d CDFs = %zd (%zd) bytes\n", ncdfs, cdfsize, overhead);
 			printf("Memory usage: %17.2lf MB\n", (cdfsize+ebufsize+bufsize)/(1024.*1024.));
 
 			printf("%14td/%14td = %10.6lf%%  CR %lf\n", csize, usize, 100.*csize/usize, (double)usize/csize);
@@ -373,9 +418,16 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	else//decode
 	{
 		unsigned short c;
-		unsigned char *curr_CDF2sym;
 		size_t CDF2symsize=sizeof(char[0x10000])*ncdfs;
+#ifndef DISABLE_CDF2sym
+		unsigned char *curr_CDF2sym;
 		unsigned char *CDF2sym=(unsigned char*)malloc(CDF2symsize);
+		if(!CDF2sym)
+		{
+			LOG_ERROR("Alloc error");
+			return 1;
+		}
+#endif
 		for(int kt=0;kt<ncdfs;++kt)
 		{
 			unsigned short start=0;
@@ -400,6 +452,7 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				clen-=sizeof(short);
 			}
 			curr_CDF[qlevels]=0x10000;
+#ifndef DISABLE_CDF2sym
 			curr_CDF2sym=CDF2sym+((size_t)kt<<16);
 			int ks=0;
 			for(unsigned c=0;c<0x10000;++c)
@@ -407,6 +460,7 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				ks+=c>=curr_CDF[ks+1];
 				curr_CDF2sym[c]=(unsigned char)ks;
 			}
+#endif
 		}
 		ans_dec_init(&ec, cbuf, cbuf+clen);
 		for(int ky=0, idx=0;ky<image->ih;++ky)
@@ -427,13 +481,16 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				{
 					int
 						kc	=perm[kc0],
-						NNW	=rows[2][kc-2*8+0],
-						NNE	=rows[2][kc+2*8+0],
+						NNW	=rows[2][kc-1*8+0],
+						NN	=rows[2][kc+0*8+0],
+						NNE	=rows[2][kc+1*8+0],
+						NNEE	=rows[2][kc+2*8+0],
 						NWW	=rows[1][kc-2*8+0],
 						NW	=rows[1][kc-1*8+0],
 						N	=rows[1][kc+0*8+0],
 						NE	=rows[1][kc+1*8+0],
 						NEE	=rows[1][kc+2*8+0],
+						NEEE	=rows[1][kc+3*8+0],
 						WW	=rows[0][kc-2*8+0],
 						W	=rows[0][kc-1*8+0],
 						eNW	=rows[1][kc-1*8+4],
@@ -442,6 +499,7 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						eW	=rows[0][kc-1*8+4],
 						offset	=0;
 #ifdef DWP
+					int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
 					int preds[]=
 					{
 #define DWP_PRED(X) X,
@@ -453,7 +511,6 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						pred+=wk[k<<2|kc]*preds[k];
 					pred+=1<<DWP_NBITS>>1;
 					pred>>=DWP_NBITS;
-					int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
 					UPDATE_MIN(vmin, NE);
 					UPDATE_MAX(vmax, NE);
 					pred=CLAMP(vmin, pred, vmax);
@@ -474,19 +531,27 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						pred=CLAMP(-half, pred, half-1);
 					}
 #endif
+#ifdef SQUARE_CTX
+					ctx=clevels*QUANTIZE(eN)+QUANTIZE(eW);
+#else
 					ctx=abs(eN)>abs(eW)?eN:eW;
 					//ctx=MAXVAR(abs(eN), abs(eW));
 					//ctx=(abs(eN)+abs(eW))>>1;
+					//ctx=eN-eW;
 					ctx=QUANTIZE(ctx);
-
+#endif
+#ifdef DISABLE_CDF2sym
+					token=ans_dec(&ec, CDFs+(cvolume*kc0+ctx)*(qlevels+1), qlevels);
+#else
 					c=(unsigned short)ec.state;
-					curr_CDF2sym=CDF2sym+(((size_t)clevels*kc0+ctx)<<16);
+					curr_CDF2sym=CDF2sym+(((size_t)cvolume*kc0+ctx)<<16);
 					token=curr_CDF2sym[c];
 
-					curr_CDF=CDFs+(clevels*kc0+ctx)*(qlevels+1)+token;
+					curr_CDF=CDFs+(cvolume*kc0+ctx)*(qlevels+1)+token;
 					cdf=curr_CDF[0];
 					freq=curr_CDF[1]-cdf;
 					ans_dec_update(&ec, cdf, freq);
+#endif
 					
 					int delta=token, bypass;
 					if(delta>=(1<<CONFIG_EXP))
@@ -553,8 +618,11 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			printf("Memory usage: %17.2lf MB\n", (cdfsize+ebufsize+CDF2symsize)/(1024.*1024.));
 			printf("D %16.6lf sec  %16.6lf MB/s\n", t0, usize/(t0*1024*1024));
 		}
+#ifndef DISABLE_CDF2sym
 		free(CDF2sym);
+#endif
 	}
+	free(weights);
 	free(pixels);
 	free(hist);
 	return 0;

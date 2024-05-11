@@ -140,6 +140,11 @@ int	f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #define f19_encode(SRC, DATA, LOUD)		f19_codec(SRC, DATA, 0, 0, 0, LOUD)
 #define f19_decode(CBUF, CSIZE, DST, LOUD)	f19_codec(0, 0, CBUF, CSIZE, DST, LOUD)
 
+//	F20 Golomb-Rice
+int	f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
+#define f20_encode(SRC, DATA, LOUD)		f20_codec(SRC, DATA, 0, 0, 0, LOUD)
+#define f20_decode(CBUF, CSIZE, DST, LOUD)	f20_codec(0, 0, CBUF, CSIZE, DST, LOUD)
+
 
 #ifdef __cplusplus
 }

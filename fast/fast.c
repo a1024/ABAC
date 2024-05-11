@@ -20,10 +20,10 @@ typedef void *THREAD_RET;
 static const char file[]=__FILE__;
 
 
-#define CODECID     19
-#define CODECNAME "F19"
-#define ENCODE     f19_encode
-#define DECODE     f19_decode
+#define CODECID     20
+#define CODECNAME "F20"
+#define ENCODE     f20_encode
+#define DECODE     f20_decode
 
 
 static const char *g_extensions[]=
@@ -341,7 +341,7 @@ int main(int argc, char **argv)
 	const char *fn=argv[1];
 #else
 	const char *fn=
-		"D:/ML/dataset-kodak/kodim13.png"
+	//	"D:/ML/dataset-kodak/kodim13.png"
 	//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
 	//	"D:/ML/big_building.PPM"
 	//	"C:/dataset-LPCB-ppm/PIA13785.ppm"
@@ -353,9 +353,10 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/dataset-kodak/kodim13.png"
 	//	"C:/Projects/datasets/kodim13-small4.PNG"
 	//	"C:/Projects/datasets/big_building.PPM"
-	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
+		"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
+	//	"C:/Projects/datasets/dataset-ic-rgb16bit/flower_foveon.png"	//smallest 16-bit image
 	//	"C:/Projects/datasets/dataset-ic-rgb16bit/deer.png"
-	//	"C:/Projects/datasets/jupiter.PNG"
+	//	"C:/Projects/datasets/jupiter.PNG"		//actually 8-bit
 	//	"C:/Projects/datasets/space-8k-CROP.PPM"
 	//	"C:/Projects/datasets/dataset-CLIC30"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm"
