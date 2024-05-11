@@ -1328,7 +1328,7 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 //	case ST_PREPROC_X2:		a=" S Preproc X2";		break;
 		
 	case ST_FWD_PACKSIGN:		a=" S Fwd PackSign";		break;
-	case ST_INV_PACKSIGN:		a=" S Fwd PackSign";		break;
+	case ST_INV_PACKSIGN:		a=" S Inv PackSign";		break;
 	case ST_FWD_P3:			a=" S Fwd P3";			break;
 	case ST_INV_P3:			a=" S Inv P3";			break;
 	case ST_FWD_G2:			a=" S Fwd G2";			break;
