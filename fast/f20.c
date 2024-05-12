@@ -15,20 +15,26 @@ static const char file[]=__FILE__;
 //	#define PROFILE_CSIZE
 //	#define ENABLE_GUIDE
 //	#define ALLOW_IDIV
+//	#define SAVE_K
 
 
 #include"ac.h"
 #ifdef ENABLE_GUIDE
 static Image *guide=0;
 #endif
-static void calc_ctx(const __m128i *N, const __m128i *W, const __m128i *NW, const __m128i *eN, const __m128i *eW, const __m128i *mminmag, __m128i *pred, __m128i *mag)
+static void calc_ctx(const __m128i *N, const __m128i *W, const __m128i *NW, const __m128i *eN, const __m128i *eW, const __m128i *eNE, const __m128i *eNW, const __m128i *mminmag, __m128i *pred, __m128i *mag)
 {
+	//pred = median3(N, W, N+W-NW)
+	//mag = eW
 	__m128i mmin=_mm_min_epi32(*N, *W);
 	__m128i mmax=_mm_max_epi32(*N, *W);
 	*pred=_mm_add_epi32(*N, *W);
-	*mag=_mm_add_epi32(*eN, *eW);
+	*mag=*eW;
+	//*mag=_mm_add_epi32(*eN, *eW);
+	//*mag=_mm_add_epi32(*mag, *eNE);
+	//*mag=_mm_add_epi32(*mag, *eNW);
 	*pred=_mm_sub_epi32(*pred, *NW);
-	*mag=_mm_srai_epi32(*mag, 1);//mag = (eN+eW)>>1		//mag = (4*(eN+eW)+eNE-eNW)>>2
+	//*mag=_mm_srai_epi32(*mag, 2);//mag = (eN+eW)>>1		//mag = (4*(eN+eW)+eNE-eNW)>>2
 	*pred=_mm_max_epi32(*pred, mmin);
 	*mag=_mm_max_epi32(*mag, *mminmag);
 	*pred=_mm_min_epi32(*pred, mmax);
@@ -51,11 +57,32 @@ static void unpack_sign(__m128i *curr)
 }
 static void calc_update(const __m128i *eN, const __m128i *eW, const __m128i *eNEEE, __m128i *ecurr)//writes to hi64 bits
 {
-	//x = (eN+eW+eNEEE+ecurr)>>2
-	*ecurr=_mm_add_epi32(*ecurr, *eN);
-	*ecurr=_mm_add_epi32(*ecurr, *eW);
+	//x = (2*eW+eNEEE+ecurr)>>2
+	*ecurr=_mm_add_epi32(*ecurr, _mm_slli_epi32(*eW, 1));
 	*ecurr=_mm_add_epi32(*ecurr, *eNEEE);
-	*ecurr=_mm_srli_epi32(*ecurr, 2);
+	*ecurr=_mm_srai_epi32(*ecurr, 2);//doesn't matter logic or arithmetic shift
+
+	//x = (eN+eW+eNEEE+ecurr)>>2
+	//*ecurr=_mm_add_epi32(*ecurr, *eN);
+	//*ecurr=_mm_add_epi32(*ecurr, *eW);
+	//*ecurr=_mm_add_epi32(*ecurr, *eNEEE);
+	//*ecurr=_mm_srai_epi32(*ecurr, 2);
+	
+	//x = (2*eW-eN+eNEEE+ecurr)/3		X
+	//*ecurr=_mm_sub_epi32(*ecurr, *eN);
+	//*ecurr=_mm_add_epi32(*ecurr, _mm_slli_epi32(*eW, 1));
+	//*ecurr=_mm_add_epi32(*ecurr, *eNEEE);
+	//*ecurr=_mm_add_epi32(*ecurr, _mm_slli_epi32(*ecurr, 2));//x/3 ~= x*0x55>>8 = x*5*17>>8
+	//*ecurr=_mm_add_epi32(*ecurr, _mm_slli_epi32(*ecurr, 4));
+	//*ecurr=_mm_srai_epi32(*ecurr, 8);//need arithmetic shift because of subtraction
+
+	//x = (eN+2*eW+eNEEE+ecurr)/5		X
+	//*ecurr=_mm_add_epi32(*ecurr, *eN);
+	//*ecurr=_mm_add_epi32(*ecurr, _mm_slli_epi32(*eW, 1));
+	//*ecurr=_mm_add_epi32(*ecurr, *eNEEE);
+	//*ecurr=_mm_add_epi32(*ecurr, _mm_slli_epi32(*ecurr, 1));//x/5 ~= x*0x33>>8 = x*3*17>>8
+	//*ecurr=_mm_add_epi32(*ecurr, _mm_slli_epi32(*ecurr, 4));
+	//*ecurr=_mm_srai_epi32(*ecurr, 8);
 }
 int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud)
 {
@@ -63,7 +90,7 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	int fwd=src!=0;
 	Image const *image=fwd?src:dst;
 
-	size_t ebufsize=sizeof(int[4*8])*(image->iw+8LL);//4 padded rows * 4 channels max * {pixels, errors}
+	size_t ebufsize=sizeof(int[4*8])*(image->iw+16LL);//4 padded rows * 4 channels max * {pixels, errors}
 	int *pixels=(int*)_mm_malloc(ebufsize, sizeof(__m128i));
 	if(!pixels)
 	{
@@ -95,6 +122,19 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #ifdef PROFILE_CSIZE
 		ptrdiff_t csizes[4*3]={0};//{unary, bypass}
 #endif
+#ifdef SAVE_K
+		int half=1<<image->depth>>1;
+		Image kimage={0};
+		if(loud)
+		{
+			image_copy(&kimage, image);
+			if(!kimage.data)
+			{
+				LOG_ERROR("Alloc error");
+				return 1;
+			}
+		}
+#endif
 		GolombRiceCoder ec;
 		DList list;
 		dlist_init(&list, 1, 1024, 0);
@@ -103,10 +143,10 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		{
 			int *rows[]=
 			{
-				pixels+(((image->iw+8LL)*((ky-0LL)&3)+4)<<3),
-				pixels+(((image->iw+8LL)*((ky-1LL)&3)+4)<<3),
-				pixels+(((image->iw+8LL)*((ky-2LL)&3)+4)<<3),
-				pixels+(((image->iw+8LL)*((ky-3LL)&3)+4)<<3),
+				pixels+(((image->iw+16LL)*((ky-0LL)&3)+8)<<3),
+				pixels+(((image->iw+16LL)*((ky-1LL)&3)+8)<<3),
+				pixels+(((image->iw+16LL)*((ky-2LL)&3)+8)<<3),
+				pixels+(((image->iw+16LL)*((ky-3LL)&3)+8)<<3),
 			};
 			for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
 			{
@@ -114,15 +154,19 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					NW	=_mm_load_si128((__m128i*)rows[1]-1*2+0),
 					N	=_mm_load_si128((__m128i*)rows[1]+0*2+0),
 					W	=_mm_load_si128((__m128i*)rows[0]-1*2+0),
+					eNW	=_mm_load_si128((__m128i*)rows[1]-1*2+1),
 					eN	=_mm_load_si128((__m128i*)rows[1]+0*2+1),
+					eNE	=_mm_load_si128((__m128i*)rows[1]+1*2+1),
 					eNEEE	=_mm_load_si128((__m128i*)rows[1]+3*2+1),
 					eW	=_mm_load_si128((__m128i*)rows[0]-1*2+1);
 				int	*curr	=rows[0]+0*8;
 				__m128i mcurr, mpred, mmag;
-				calc_ctx(&N, &W, &NW, &eN, &eW, &mminmag, &mpred, &mmag);
+				calc_ctx(&N, &W, &NW, &eN, &eW, &eNE, &eNW, &mminmag, &mpred, &mmag);
 				//if(ky==1&&kx==5)//
 				//if(idx==1170)//
 				//if(idx==6936)//
+				//if(idx==4722)//
+				//if(idx==4731)//
 				//	printf("");
 				ALIGN(16) int mag[4];
 				ALIGN(16) short c2[8];
@@ -156,6 +200,15 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #endif
 					break;
 				}
+#ifdef SAVE_K
+				if(loud)
+				{
+					int temp;
+					temp=1<<FLOOR_LOG2(mag[0]+1), kimage.data[idx+0]=CLAMP(-half, temp, half-1)-half;
+					temp=1<<FLOOR_LOG2(mag[1]+1), kimage.data[idx+1]=CLAMP(-half, temp, half-1)-half;
+					temp=1<<FLOOR_LOG2(mag[2]+1), kimage.data[idx+2]=CLAMP(-half, temp, half-1)-half;
+				}
+#endif
 #ifdef PROFILE_CSIZE
 				for(int kc=image->nch-1;kc>=0;--kc)
 				{
@@ -170,8 +223,6 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #endif
 				calc_update(&eN, &eW, &eNEEE, &delta);
 				_mm_store_si128((__m128i*)curr+1, delta);
-				//if(curr[4+1]>=(4<<image->depth))
-				//	LOG_ERROR("");
 				rows[0]+=8;
 				rows[1]+=8;
 				rows[2]+=8;
@@ -182,6 +233,10 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		dlist_appendtoarray(&list, data);
 		if(loud)
 		{
+#ifdef SAVE_K
+			image_snapshot8(&kimage);
+			image_clear(&kimage);
+#endif
 			ptrdiff_t csize=list.nobj;
 			t0=time_sec()-t0;
 			printf("%14td/%14td = %10.6lf%%  CR %lf\n", csize, usize, 100.*csize/usize, (double)usize/csize);
@@ -214,10 +269,10 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		{
 			int *rows[]=
 			{
-				pixels+(((image->iw+8LL)*((ky-0LL)&3)+4)<<3),
-				pixels+(((image->iw+8LL)*((ky-1LL)&3)+4)<<3),
-				pixels+(((image->iw+8LL)*((ky-2LL)&3)+4)<<3),
-				pixels+(((image->iw+8LL)*((ky-3LL)&3)+4)<<3),
+				pixels+(((image->iw+16LL)*((ky-0LL)&3)+8)<<3),
+				pixels+(((image->iw+16LL)*((ky-1LL)&3)+8)<<3),
+				pixels+(((image->iw+16LL)*((ky-2LL)&3)+8)<<3),
+				pixels+(((image->iw+16LL)*((ky-3LL)&3)+8)<<3),
 			};
 			for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
 			{
@@ -225,15 +280,18 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					NW	=_mm_load_si128((__m128i*)rows[1]-1*2+0),
 					N	=_mm_load_si128((__m128i*)rows[1]+0*2+0),
 					W	=_mm_load_si128((__m128i*)rows[0]-1*2+0),
+					eNW	=_mm_load_si128((__m128i*)rows[1]-1*2+1),
 					eN	=_mm_load_si128((__m128i*)rows[1]+0*2+1),
+					eNE	=_mm_load_si128((__m128i*)rows[1]+1*2+1),
 					eNEEE	=_mm_load_si128((__m128i*)rows[1]+3*2+1),
 					eW	=_mm_load_si128((__m128i*)rows[0]-1*2+1);
 				int	*curr	=rows[0]+0*8;
 				__m128i mpred, mmag;
-				calc_ctx(&N, &W, &NW, &eN, &eW, &mminmag, &mpred, &mmag);
+				calc_ctx(&N, &W, &NW, &eN, &eW, &eNE, &eNW, &mminmag, &mpred, &mmag);
 				//if(ky==1&&kx==5)//
 				//if(idx==1161)//
 				//if(idx==6936)//
+				//if(idx==4722)//
 				//	printf("");
 				ALIGN(16) int mag[4];
 				_mm_store_si128((__m128i*)mag, mmag);
@@ -280,9 +338,9 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					c0[0]-=c0[1];
 					c0[2]-=c0[1];
 					c0[1]+=(c0[0]+c0[2])>>2;
-					curr[0]-=curr[1];
-					curr[2]-=curr[1];
-					curr[1]+=(curr[0]+curr[2])>>2;
+					c2[0]-=c2[1];
+					c2[2]-=c2[1];
+					c2[1]+=(c2[0]+c2[2])>>2;
 					LOG_ERROR("Guide error IDX %d/%d", idx, image->nch*image->iw*image->ih);
 					printf("");//
 				}

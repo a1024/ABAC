@@ -1487,9 +1487,9 @@ INLINE int ans_dec_bin(ANSCoder *ec, unsigned short p0)
 //Golomb-Rice Coder
 typedef struct GolombRiceCoderStruct
 {
-	unsigned cache;
+	unsigned long long cache;
 	int nbits;//enc: number of free bits in cache, dec: number of unread bits in cache
-	int is_enc;
+	int is_enc;//for padding
 	const unsigned char *srcptr, *srcend, *srcstart;
 	unsigned char *dstptr, *dstend, *dststart;
 	DList *dst;
