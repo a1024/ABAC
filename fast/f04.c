@@ -15,7 +15,7 @@ static int quantize(int val, int clevels)
 {
 	int negmask=-(val<0);
 	val=abs(val);
-	val=floor_log2_32(val)+1;
+	val=FLOOR_LOG2_P1(val);
 	val>>=1;
 	val^=negmask;
 	val-=negmask;

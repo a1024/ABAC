@@ -39,7 +39,7 @@ static void quantize_pixel(int x, int *token, int *bypass, int *nbits)
 	}
 	else
 	{
-		int lgv=floor_log2_32((unsigned)x);
+		int lgv=FLOOR_LOG2(x);
 		int mantissa=x-(1<<lgv);
 		*token = (1<<CONFIG_EXP) + (
 				(lgv-CONFIG_EXP)<<(CONFIG_MSB+CONFIG_LSB)|
@@ -54,9 +54,9 @@ static int quantize_ctx(int x)
 {
 	int negmask=-(x<0);
 	x=abs(x);
-	x=floor_log2_32(x)+1;
+	x=FLOOR_LOG2_P1(x);
 #ifdef SQUARE_CTX
-	//x=floor_log2_32(x)+1;
+	//x=FLOOR_LOG2_P1(x);
 #endif
 	x^=negmask;
 	x-=negmask;

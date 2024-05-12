@@ -97,7 +97,8 @@ const char *f09_prednames[]=
 static int quantize_ctx(int x)//signed
 {
 	int negmask=x>>31;
-	x=floor_log2_32(abs(x))+1;
+	x=abs(x);
+	x=FLOOR_LOG2_P1(x)+1;
 	x^=negmask;
 	x-=negmask;
 	return x;

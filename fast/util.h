@@ -80,6 +80,15 @@ extern "C"
 #define UPDATE_MAX(M, X) if(M<X)M=X
 #define THREEWAY(L, R) (((L)>(R))-((L)<(R)))
 #define MIX(V0, V1, X) ((V0)+((V1)-(V0))*(X))
+#define FLOOR_LOG2(X)		(sizeof(X)==64?63-(int)_lzcnt_u64((unsigned long long)(X)):31-(int)_lzcnt_u32((unsigned)(X)))
+#define FLOOR_LOG2_P1(X)	(sizeof(X)==64?64-(int)_lzcnt_u64((unsigned long long)(X)):32-(int)_lzcnt_u32((unsigned)(X)))
+//#define FLOOR_LOG2_64(X)	(63-(int)_lzcnt_u64(X))
+//#define FLOOR_LOG2_P1_64(X)	(64-(int)_lzcnt_u64(X))
+//#define FLOOR_LOG2_32(X)	(31-(int)_lzcnt_u32(X))
+//#define FLOOR_LOG2_P1_32(X)	(32-(int)_lzcnt_u32(X))
+#define LSB_IDX_64(X)	(int)_tzcnt_u64(X)
+#define LSB_IDX_32(X)	(int)_tzcnt_u32(X)
+#define LSB_IDX_16(X)	(int)_tzcnt_u16(X)
 
 #ifdef _MSC_VER
 #define	ALIGN(N) __declspec(align(N))
@@ -116,14 +125,14 @@ int acme_getopt(int argc, char **argv, int *start, const char **keywords, int kw
 int hammingweight16(unsigned short x);
 int hammingweight32(unsigned x);
 int hammingweight64(unsigned long long x);
-int floor_log2_p1(unsigned long long n);
-int floor_log2(unsigned long long n);//uses intrinsics and was patched to give -1 for zero input
-int floor_log2_32(unsigned n);
+//int floor_log2_p1(unsigned long long n);
+//int floor_log2(unsigned long long n);		//use (31-_lzcnt_u64(n)) instead
+//int floor_log2_32(unsigned n);		//use (31-_lzcnt_u32(n)) instead
 int ceil_log2(unsigned long long n);
 int ceil_log2_32(unsigned n);
-int get_lsb_index(unsigned long long n);//returns lsb position + 1,  returns register bit count if n is zero
-int get_lsb_index32(unsigned n);
-int get_lsb_index16(unsigned short n);
+//int get_lsb_index(unsigned long long n);//returns lsb position + 1,  returns register bit count if n is zero
+//int get_lsb_index32(unsigned n);
+//int get_lsb_index16(unsigned short n);
 int floor_log10(double x);
 unsigned floor_sqrt(unsigned long long x);
 unsigned exp2_fix24_neg(unsigned x);

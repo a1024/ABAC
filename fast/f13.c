@@ -86,7 +86,7 @@ static int quantize_pixel(int pixel, int *bypass, int *nbits)
 	}
 	else
 	{
-		int lgv=floor_log2_32((unsigned)pixel);
+		int lgv=FLOOR_LOG2(pixel);
 		int mantissa=pixel-(1<<lgv);
 		token = (1<<CONFIG_EXP) + (
 				(lgv-CONFIG_EXP)<<(CONFIG_MSB+CONFIG_LSB)|
@@ -143,9 +143,9 @@ static int quantize_ctx(int x)
 {
 	int negmask=-(x<0);
 	x=abs(x);
-	x=floor_log2_32(x)+1;
-	//x=floor_log2_32(x)+1;
-	//x=floor_log2_32(x)+1;
+	x=FLOOR_LOG2_P1(x);
+	//x=FLOOR_LOG2_P1(x);
+	//x=FLOOR_LOG2_P1(x);
 	x^=negmask;
 	x-=negmask;
 	return x;

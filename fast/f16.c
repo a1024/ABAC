@@ -16,8 +16,8 @@ static int quantize_ctx(int x)
 {
 	int negmask=-(x<0);
 	x=abs(x);
-	x=floor_log2_32(x)+1;
-	//x=floor_log2_32(x)+1;
+	x=FLOOR_LOG2_P1(x);
+	//x=FLOOR_LOG2_P1(x);
 	x^=negmask;
 	x-=negmask;
 	return x;
@@ -641,7 +641,7 @@ int f16_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						mcdf=_mm256_subs_epu16(mcdf, mlevel);
 						mcdf=_mm256_cmpeq_epi16(mcdf, _mm256_setzero_si256());
 						unsigned mask=_mm256_movemask_epi8(mcdf);
-						sym=floor_log2_32(mask)>>1;
+						sym=FLOOR_LOG2(mask)>>1;
 #elif NBITS==2
 						sym =cdf>=CDF1[1]+CDF2[1]+CDF3[1]+CDF4[1]+1;
 						sym+=cdf>=CDF1[2]+CDF2[2]+CDF3[2]+CDF4[2]+2;

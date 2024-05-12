@@ -12,8 +12,8 @@ static const char file[]=__FILE__;
 static int quantize_ctx(int x)
 {
 	x=abs(x);
-	x=floor_log2_32(x)+1;
-	//x=floor_log2_32(x)+1;
+	x=FLOOR_LOG2_P1(x);
+	//x=FLOOR_LOG2_P1(x);
 	return x;
 }
 static int CG(int N, int W, int NW)
@@ -536,7 +536,7 @@ int f15_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						mcdfA0=_mm256_cmpgt_epi32(mcdfA0, mlevel);
 						mcdfA1=_mm256_cmpgt_epi32(mcdfA1, mlevel);
 						unsigned short mask=_mm256_movemask_ps(_mm256_castsi256_ps(mcdfA1))<<8|_mm256_movemask_ps(_mm256_castsi256_ps(mcdfA0));
-						sym=get_lsb_index16(mask)-1;
+						sym=LSB_IDX_16(mask)-1;
 #elif NBITS==2
 						__m128i mlevel=_mm_set1_epi32(cdf);
 						__m128i mcdfA=_mm_load_si128((__m128i*)CDF1);

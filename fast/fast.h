@@ -145,6 +145,11 @@ int	f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #define f20_encode(SRC, DATA, LOUD)		f20_codec(SRC, DATA, 0, 0, 0, LOUD)
 #define f20_decode(CBUF, CSIZE, DST, LOUD)	f20_codec(0, 0, CBUF, CSIZE, DST, LOUD)
 
+//	F21 Golomb-Rice, adaptively selects 3 among N channels
+int	f21_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
+#define f21_encode(SRC, DATA, LOUD)		f21_codec(SRC, DATA, 0, 0, 0, LOUD)
+#define f21_decode(CBUF, CSIZE, DST, LOUD)	f21_codec(0, 0, CBUF, CSIZE, DST, LOUD)
+
 
 #ifdef __cplusplus
 }

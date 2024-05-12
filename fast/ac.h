@@ -4,6 +4,7 @@
 #include"util.h"
 #include<stdio.h>
 #include<string.h>
+#include<immintrin.h>
 #ifdef __cplusplus
 extern "C"
 {
@@ -283,7 +284,7 @@ INLINE void ac_dec_renorm(ArithmeticCoder *ec)//fast renorm by F. Rubin 1979
 INLINE void ac_enc_flush(ArithmeticCoder *ec)
 {
 	unsigned long long code=ec->low+ec->range;
-	int n=floor_log2(ec->low^code)-1;
+	int n=FLOOR_LOG2_P1(ec->low^code);
 	if(n<0)
 		n=0;
 	code&=~((1LL<<n)-1);		//minimize final code
@@ -1486,13 +1487,38 @@ INLINE int ans_dec_bin(ANSCoder *ec, unsigned short p0)
 //Golomb-Rice Coder
 typedef struct GolombRiceCoderStruct
 {
-	unsigned long long cache;
-	unsigned nbits;//enc: number of free bits in cache, dec: number of unread bits in cache
+	unsigned cache;
+	int nbits;//enc: number of free bits in cache, dec: number of unread bits in cache
 	int is_enc;
 	const unsigned char *srcptr, *srcend, *srcstart;
 	unsigned char *dstptr, *dstend, *dststart;
 	DList *dst;
 } GolombRiceCoder;
+INLINE size_t gr_enc_flush(GolombRiceCoder *ec)
+{
+#ifdef EC_USE_ARRAY
+	if(ec->dstptr+sizeof(ec->cache)>ec->dstend)//compression failed
+		return 0;
+	memcpy(ec->dstptr, &ec->cache, sizeof(ec->cache));
+	ec->dstptr+=sizeof(ec->cache);
+	return 1;
+#else
+	dlist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));//size is qword-aligned
+	return 1;
+#endif
+}
+INLINE int gr_dec_impl_read(GolombRiceCoder *ec)
+{
+	if(ec->srcptr+sizeof(ec->cache)>ec->srcend)
+	{
+		LOG_ERROR2("buffer overflow");
+		return 1;
+	}
+	ec->nbits=sizeof(ec->cache)<<3;
+	memcpy(&ec->cache, ec->srcptr, sizeof(ec->cache));
+	ec->srcptr+=sizeof(ec->cache);
+	return 0;
+}
 INLINE void gr_enc_init(GolombRiceCoder *ec,
 #ifdef EC_USE_ARRAY
 	unsigned char *start, unsigned char *end
@@ -1523,52 +1549,22 @@ INLINE void gr_dec_init(GolombRiceCoder *ec, const unsigned char *start, const u
 	ec->srcend=end;
 	ec->srcstart=start;
 }
-INLINE int gr_dec_impl_read(GolombRiceCoder *ec)
-{
-	if(ec->srcptr+sizeof(ec->cache)>ec->srcend)
-	{
-		LOG_ERROR2("buffer overflow");
-		return 1;
-	}
-	ec->nbits=sizeof(ec->cache)<<3;
-	memcpy(&ec->cache, ec->srcptr, sizeof(ec->cache));
-	ec->srcptr+=sizeof(ec->cache);
-	return 0;
-}
-INLINE size_t gr_enc_flush(GolombRiceCoder *ec)
-{
-#ifdef EC_USE_ARRAY
-	if(ec->dstptr+sizeof(ec->cache)>ec->dstend)//compression failed
-		return 0;
-	memcpy(ec->dstptr, &ec->cache, sizeof(ec->cache));
-	ec->dstptr+=sizeof(ec->cache);
-	return 1;
-#else
-	dlist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));//size is qword-aligned
-	return 1;
-#endif
-	//while(ec->nbits<(sizeof(ec->cache)<<3))//loops up to 2 times
-	//{
-	//	dlist_push_back(ec->dst, (unsigned*)&ec->cache+1, 4);
-	//	ec->nbits+=32;
-	//	ec->cache<<=32;
-	//}
-}
 
 INLINE int gr_enc(GolombRiceCoder *ec, unsigned sym, unsigned magnitude)
 {
 	//buffer: {c,c,c,b,b,a,a,a, f,f,f,e,e,e,d,c}, cache: MSB gg[hhh]000 LSB	nbits 6->3, code h is about to be emitted
 	//written 64-bit words are byte-reversed because the CPU is little-endian
-	magnitude+=!magnitude;
-	unsigned nbypass=floor_log2_32(magnitude)+1;
-	unsigned nzeros=sym/magnitude, bypass=sym%magnitude;
+
+	//magnitude+=!magnitude;
+	int nbypass=32-_lzcnt_u32(magnitude);
+	int nzeros=sym/magnitude, bypass=sym%magnitude;
 	if(nzeros>=ec->nbits)//fill the rest of cache with zeros, and flush
 	{
 		nzeros-=ec->nbits;
 		if(!gr_enc_flush(ec))
 			return 0;
 		//dlist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));
-		if(nzeros>=(sizeof(ec->cache)<<3))//just flush zeros
+		if(nzeros>=(int)(sizeof(ec->cache)<<3))//just flush zeros
 		{
 			ec->cache=0;
 			do
@@ -1578,7 +1574,7 @@ INLINE int gr_enc(GolombRiceCoder *ec, unsigned sym, unsigned magnitude)
 					return 0;
 				//dlist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));
 			}
-			while(nzeros>(sizeof(ec->cache)<<3));
+			while(nzeros>(int)(sizeof(ec->cache)<<3));
 		}
 		ec->cache=0;
 		ec->nbits=(sizeof(ec->cache)<<3);
@@ -1586,7 +1582,7 @@ INLINE int gr_enc(GolombRiceCoder *ec, unsigned sym, unsigned magnitude)
 	//now there is room for zeros:  0 <= nzeros < nbits <= 64
 	ec->nbits-=nzeros;//emit remaining zeros to cache
 
-	unsigned nunused=(1<<nbypass)-magnitude;//truncated binary code
+	int nunused=(1<<nbypass)-magnitude;//truncated binary code
 	if(bypass<nunused)	//emit(bypass, nbypass-1)
 		--nbypass;
 	else			//emit(bypass+nunused, nbypass)
@@ -1603,7 +1599,7 @@ INLINE int gr_enc(GolombRiceCoder *ec, unsigned sym, unsigned magnitude)
 			return 0;
 		//dlist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));
 		ec->cache=0;
-		ec->nbits=(sizeof(ec->cache)<<3);
+		ec->nbits=sizeof(ec->cache)<<3;
 	}
 	//now there is room for bypass:  0 <= nbypass < nbits <= 64
 	ec->nbits-=nbypass;//emit remaining bypass to cache
@@ -1614,14 +1610,14 @@ INLINE unsigned gr_dec(GolombRiceCoder *ec, unsigned magnitude)
 {
 	//cache: MSB 00[hhh]ijj LSB		nbits 6->3, h is about to be read (past codes must be cleared from cache)
 	
-	magnitude+=!magnitude;
-	unsigned nbypass=floor_log2_32(magnitude);
+	//magnitude+=!magnitude;
+	int nbypass=FLOOR_LOG2(magnitude);
 	int sym=0, nleadingzeros=0;
 	if(!ec->nbits)//cache is empty
 		goto read;
 	for(;;)//cache reading loop
 	{
-		nleadingzeros=ec->nbits-1-floor_log2(ec->cache);//count leading zeros
+		nleadingzeros=ec->nbits-FLOOR_LOG2_P1(ec->cache);//count leading zeros
 		ec->nbits-=nleadingzeros;//remove accessed zeros
 		sym+=nleadingzeros;
 
@@ -1634,7 +1630,12 @@ INLINE unsigned gr_dec(GolombRiceCoder *ec, unsigned magnitude)
 	//now  0 < nbits <= 64
 	--ec->nbits;
 	//now  0 <= nbits < 64
-	ec->cache&=(1ULL<<ec->nbits)-1;//remove stop bit
+	ec->cache-=1ULL<<ec->nbits;//remove stop bit
+	//ec->cache&=(1ULL<<ec->nbits)-1;
+
+	//nleadingzeros=(sizeof(ec->cache)<<3)-ec->nbits;//X  won't work when removed bit is LSB
+	//ec->cache<<=nleadingzeros;
+	//ec->cache>>=nleadingzeros;
 
 	sym*=magnitude;
 	unsigned bypass=0, nunused=(1<<(nbypass+1))-magnitude;
@@ -1661,6 +1662,219 @@ INLINE unsigned gr_dec(GolombRiceCoder *ec, unsigned magnitude)
 		--ec->nbits;
 		bypass=(bypass<<1|(int)(ec->cache>>ec->nbits))-nunused;
 		ec->cache&=(1ULL<<ec->nbits)-1;
+	}
+	sym+=bypass;
+	return sym;
+}
+
+INLINE int gr_enc_POT(GolombRiceCoder *ec, int sym, int nbypass)
+{
+	//buffer: {c,c,c,b,b,a,a,a, f,f,f,e,e,e,d,c}, cache: MSB gg[hhh]000 LSB	nbits 6->3, code h is about to be emitted
+	//written 64-bit words are byte-reversed because the CPU is little-endian
+
+	int nzeros=sym>>nbypass, bypass=sym&((1<<nbypass)-1);
+	if(nzeros>=ec->nbits)//fill the rest of cache with zeros, and flush
+	{
+		nzeros-=ec->nbits;
+		if(!gr_enc_flush(ec))
+			return 0;
+		//dlist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));
+		if(nzeros>=(int)(sizeof(ec->cache)<<3))//just flush zeros
+		{
+			ec->cache=0;
+			do
+			{
+				nzeros-=(sizeof(ec->cache)<<3);
+				if(!gr_enc_flush(ec))
+					return 0;
+				//dlist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));
+			}
+			while(nzeros>(int)(sizeof(ec->cache)<<3));
+		}
+		ec->cache=0;
+		ec->nbits=(sizeof(ec->cache)<<3);
+	}
+	//now there is room for zeros:  0 <= nzeros < nbits <= 64
+	ec->nbits-=nzeros;//emit remaining zeros to cache
+
+	bypass|=1<<nbypass;//append 1 stop bit
+	++nbypass;
+	if(nbypass>=ec->nbits)//not enough free bits in cache:  fill cache, write to list, and repeat
+	{
+		nbypass-=ec->nbits;
+		ec->cache|=(unsigned long long)bypass>>nbypass;
+		bypass&=(1<<nbypass)-1;
+		if(!gr_enc_flush(ec))
+			return 0;
+		//dlist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));
+		ec->cache=0;
+		ec->nbits=sizeof(ec->cache)<<3;
+	}
+	//now there is room for bypass:  0 <= nbypass < nbits <= 64
+	ec->nbits-=nbypass;//emit remaining bypass to cache
+	ec->cache|=(unsigned long long)bypass<<ec->nbits;
+	return 1;
+}
+INLINE unsigned gr_dec_POT(GolombRiceCoder *ec, int nbypass)
+{
+	//cache: MSB 00[hhh]ijj LSB		nbits 6->3, h is about to be read (past codes must be cleared from cache)
+	
+	//magnitude+=!magnitude;
+	int sym=0, nleadingzeros=0;
+	if(!ec->nbits)//cache is empty
+		goto read;
+	for(;;)//cache reading loop
+	{
+		nleadingzeros=ec->nbits-FLOOR_LOG2_P1(ec->cache);//count leading zeros
+		ec->nbits-=nleadingzeros;//remove accessed zeros
+		sym+=nleadingzeros;
+
+		if(ec->nbits)
+			break;
+	read://cache is empty
+		if(gr_dec_impl_read(ec))
+			return 0;
+	}
+	//now  0 < nbits <= 64
+	--ec->nbits;
+	//now  0 <= nbits < 64
+	ec->cache-=1ULL<<ec->nbits;//remove stop bit
+
+	unsigned bypass=0;
+	sym<<=nbypass;
+	if(ec->nbits<nbypass)
+	{
+		nbypass-=ec->nbits;
+		bypass|=(int)(ec->cache<<nbypass);
+		if(gr_dec_impl_read(ec))
+			return 0;
+	}
+	if(nbypass)
+	{
+		ec->nbits-=nbypass;
+		bypass|=(int)(ec->cache>>ec->nbits);
+		ec->cache&=(1ULL<<ec->nbits)-1;
+	}
+	return sym|bypass;
+}
+
+INLINE int gr_enc_track(GolombRiceCoder *ec, unsigned sym, unsigned magnitude, unsigned *count_zeros, unsigned *count_bypass)
+{
+	//buffer: {c,c,c,b,b,a,a,a, f,f,f,e,e,e,d,c}, cache: MSB gg[hhh]000 LSB	nbits 6->3, code h is about to be emitted
+	//written 64-bit words are byte-reversed because the CPU is little-endian
+
+	//magnitude+=!magnitude;
+	int nbypass=FLOOR_LOG2(magnitude)+1;
+	int nzeros=sym/magnitude, bypass=sym%magnitude;
+	*count_zeros+=nzeros;
+	if(nzeros>=ec->nbits)//fill the rest of cache with zeros, and flush
+	{
+		nzeros-=ec->nbits;
+		if(!gr_enc_flush(ec))
+			return 0;
+		//dlist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));
+		if(nzeros>=(int)(sizeof(ec->cache)<<3))//just flush zeros
+		{
+			ec->cache=0;
+			do
+			{
+				nzeros-=(sizeof(ec->cache)<<3);
+				if(!gr_enc_flush(ec))
+					return 0;
+				//dlist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));
+			}
+			while(nzeros>(int)(sizeof(ec->cache)<<3));
+		}
+		ec->cache=0;
+		ec->nbits=(sizeof(ec->cache)<<3);
+	}
+	//now there is room for zeros:  0 <= nzeros < nbits <= 64
+	ec->nbits-=nzeros;//emit remaining zeros to cache
+
+	int nunused=(1<<nbypass)-magnitude;//truncated binary code
+	if(bypass<nunused)	//emit(bypass, nbypass-1)
+		--nbypass;
+	else			//emit(bypass+nunused, nbypass)
+		bypass+=nunused;
+
+	bypass|=1<<nbypass;//append 1 stop bit
+	++nbypass;
+	*count_bypass+=nbypass;
+	if(nbypass>=ec->nbits)//not enough free bits in cache:  fill cache, write to list, and repeat
+	{
+		nbypass-=ec->nbits;
+		ec->cache|=(unsigned long long)bypass>>nbypass;
+		bypass&=(1<<nbypass)-1;
+		if(!gr_enc_flush(ec))
+			return 0;
+		//dlist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));
+		ec->cache=0;
+		ec->nbits=(sizeof(ec->cache)<<3);
+	}
+	//now there is room for bypass:  0 <= nbypass < nbits <= 64
+	ec->nbits-=nbypass;//emit remaining bypass to cache
+	ec->cache|=(unsigned long long)bypass<<ec->nbits;
+	return 1;
+}
+INLINE unsigned gr_dec_track(GolombRiceCoder *ec, unsigned magnitude, unsigned *count_zeros, unsigned *count_bypass)
+{
+	//cache: MSB 00[hhh]ijj LSB		nbits 6->3, h is about to be read (past codes must be cleared from cache)
+	
+	//magnitude+=!magnitude;
+	int nbypass=FLOOR_LOG2(magnitude);
+	int sym=0, nleadingzeros=0;
+	if(!ec->nbits)//cache is empty
+		goto read;
+	for(;;)//cache reading loop
+	{
+		nleadingzeros=ec->nbits-FLOOR_LOG2_P1(ec->cache);
+		ec->nbits-=nleadingzeros;//remove accessed zeros
+		sym+=nleadingzeros;
+
+		if(ec->nbits)
+			break;
+	read://cache is empty
+		if(gr_dec_impl_read(ec))
+			return 0;
+	}
+	*count_zeros+=sym;
+	//now  0 < nbits <= 64
+	--ec->nbits;
+	//now  0 <= nbits < 64
+	ec->cache-=1ULL<<ec->nbits;//remove stop bit
+	//ec->cache&=(1ULL<<ec->nbits)-1;
+
+	//nleadingzeros=(sizeof(ec->cache)<<3)-ec->nbits;//X  won't work when removed bit is LSB
+	//ec->cache<<=nleadingzeros;
+	//ec->cache>>=nleadingzeros;
+	*count_bypass+=nbypass+1;
+
+	sym*=magnitude;
+	unsigned bypass=0, nunused=(1<<(nbypass+1))-magnitude;
+	if(ec->nbits<nbypass)
+	{
+		nbypass-=ec->nbits;
+		bypass|=(int)(ec->cache<<nbypass);
+		if(gr_dec_impl_read(ec))
+			return 0;
+	}
+	if(nbypass)
+	{
+		ec->nbits-=nbypass;
+		bypass|=(int)(ec->cache>>ec->nbits);
+		ec->cache&=(1ULL<<ec->nbits)-1;
+	}
+	if(bypass>=nunused)
+	{
+		if(ec->nbits<1)
+		{
+			if(gr_dec_impl_read(ec))
+				return 0;
+		}
+		--ec->nbits;
+		bypass=(bypass<<1|(int)(ec->cache>>ec->nbits))-nunused;
+		ec->cache&=(1ULL<<ec->nbits)-1;
+		++*count_bypass;
 	}
 	sym+=bypass;
 	return sym;

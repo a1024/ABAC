@@ -12,8 +12,8 @@ static const char file[]=__FILE__;
 static int quantize_ctx(int x)
 {
 	x=abs(x);
-	x=floor_log2_32(x)+1;
-	//x=floor_log2_32(x)+1;
+	x=FLOOR_LOG2_P1(x);
+	//x=FLOOR_LOG2_P1(x);
 	return x;
 }
 #define NBITS 4
@@ -236,7 +236,7 @@ int f17_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						mcdf=_mm256_subs_epu16(mcdf, mlevel);
 						mcdf=_mm256_cmpeq_epi16(mcdf, _mm256_setzero_si256());
 						unsigned mask=_mm256_movemask_epi8(mcdf);
-						sym=floor_log2_32(mask)>>1;
+						sym=FLOOR_LOG2(mask)>>1;
 						
 						cdf=CDF1[sym]+CDF2[sym]+CDF3[sym]+CDF4[sym]+sym;
 						freq=(sym>=(1<<NBITS)-1?0x10000:CDF1[sym+1]+CDF2[sym+1]+CDF3[sym+1]+CDF4[sym+1]+sym+1)-cdf;
