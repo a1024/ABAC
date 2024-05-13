@@ -14,6 +14,7 @@ typedef struct ImageStruct
 	short *data;
 } Image;
 int compare_bufs_16(const short *b1, const short *b0, int iw, int ih, int nch, int chstride, const char *name, int backward, int loud);
+int compare_bufs_8(const unsigned char *b1, const unsigned char *b0, int iw, int ih, int nch, int chstride, const char *name, int backward, int loud);
 int image_load(const char *fn, Image *image);
 int load_dng(const char *fn, Image *image);
 unsigned char* image_export8(Image const *src);
@@ -149,6 +150,8 @@ int	f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 int	f21_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
 #define f21_encode(SRC, DATA, LOUD)		f21_codec(SRC, DATA, 0, 0, 0, LOUD)
 #define f21_decode(CBUF, CSIZE, DST, LOUD)	f21_codec(0, 0, CBUF, CSIZE, DST, LOUD)
+
+void qoi_test(Image const *src, size_t *csize2, double *enc, double *dec, int *error, int loud);
 
 
 #ifdef __cplusplus

@@ -20,6 +20,8 @@ typedef void *THREAD_RET;
 static const char file[]=__FILE__;
 
 
+//	#define BENCH_QOI
+
 #define CODECID     20
 #define CODECNAME "F20"
 #define ENCODE     f20_encode
@@ -46,6 +48,10 @@ typedef struct ThreadArgsStruct
 static THREAD_RET THREAD_CALL sample_thread(void *param)
 {
 	ThreadArgs *args=(ThreadArgs*)param;
+#ifdef BENCH_QOI
+	args->usize=image_getBMPsize(&args->src);
+	qoi_test(&args->src, &args->csize2, &args->enc, &args->dec, &args->error, 0);
+#else
 	ArrayHandle cdata=0;
 
 	args->usize=image_getBMPsize(&args->src);
@@ -64,6 +70,7 @@ static THREAD_RET THREAD_CALL sample_thread(void *param)
 
 	array_free(&cdata);
 	args->error=compare_bufs_16(args->dst.data, args->src.data, args->src.iw, args->src.ih, args->src.nch, args->src.nch, CODECNAME, 0, 0);
+#endif
 	image_clear(&args->src);
 	image_clear(&args->dst);
 	return 0;
@@ -436,6 +443,8 @@ int main(int argc, char **argv)
 		//pred_avx2(&dst, 0, depths);
 		
 		compare_bufs_16(dst.data, src.data, src.iw, src.ih, src.nch, src.nch, CODECNAME, 0, 1);
+
+		qoi_test(&src, 0, 0, 0, 0, 1);
 #endif
 #if 0
 		ptrdiff_t nvals=(ptrdiff_t)src.nch*src.iw*src.ih;

@@ -28,7 +28,7 @@ Currently works only on Windows.
 ### `fast`
 Experiments prioritizing speed.
 
-`gcc -O3 -mavx2 -mbmi -mlzcnt  f02.c f08.c f16.c f18.c f19.c f20.c fast.c format.c lodepng.c transforms.c util.c load_dng.cpp  -o fast`
+`gcc -O3 -mavx2 -mbmi -mlzcnt  f02.c f08.c f16.c f18.c f19.c f20.c fast.c format.c lodepng.c qoi.c transforms.c util.c load_dng.cpp  -o fast`
 
 ### `imgcvt`
 Batch image converter.

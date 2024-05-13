@@ -139,6 +139,7 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		DList list;
 		dlist_init(&list, 1, 1024, 0);
 		gr_enc_init(&ec, &list);
+		ALIGN(16) short c2[8]={0};
 		for(int ky=0, idx=0;ky<image->ih;++ky)
 		{
 			int *rows[]=
@@ -169,9 +170,15 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				//if(idx==4731)//
 				//	printf("");
 				ALIGN(16) int mag[4];
-				ALIGN(16) short c2[8];
 				_mm_store_si128((__m128i*)mag, mmag);
-				memcpy(c2, image->data+idx, sizeof(short)*image->nch);
+				switch(image->nch)
+				{
+				case 4:c2[3]=image->data[idx+3];
+				case 3:c2[2]=image->data[idx+2];
+				case 2:c2[1]=image->data[idx+1];
+				case 1:c2[0]=image->data[idx+0];
+					break;
+				}
 				if(image->nch>=3)
 				{
 					//JPEG2000 RCT
@@ -322,7 +329,14 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				short *c2=image->data+idx;
 				ALIGN(16) short c3[8];
 				_mm_store_si128((__m128i*)c3, mcurr);
-				memcpy(c2, c3, sizeof(short)*image->nch);
+				switch(image->nch)
+				{
+				case 4:c2[3]=c3[3];
+				case 3:c2[2]=c3[2];
+				case 2:c2[1]=c3[1];
+				case 1:c2[0]=c3[0];
+					break;
+				}
 				if(image->nch>=3)
 				{
 					//JPEG2000 RCT

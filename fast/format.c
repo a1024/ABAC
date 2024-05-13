@@ -39,6 +39,36 @@ int compare_bufs_16(const short *b1, const short *b0, int iw, int ih, int nch, i
 		printf("%s:\tSUCCESS\n", name);
 	return 0;
 }
+int compare_bufs_8(const unsigned char *b1, const unsigned char *b0, int iw, int ih, int nch, int chstride, const char *name, int backward, int loud)
+{
+	ptrdiff_t len=(ptrdiff_t)chstride*iw*ih;
+	int inc=chstride*(1-(backward<<1));
+	for(ptrdiff_t k=backward?len-chstride:0;k>=0&&k<len;k+=inc)
+	{
+		if(memcmp(b1+k, b0+k, nch*sizeof(char)))
+		{
+			if(loud)
+			{
+				ptrdiff_t idx=k/chstride, kx=idx%iw, ky=idx/iw;
+				printf("\n%s error IDX %td  XY (%5td, %5td) / %5d x %5d  b1 != b0\n", name, k, kx, ky, iw, ih);
+				for(int kc=0;kc<nch;++kc)
+				{
+					char c=(unsigned char)b1[k+kc]==(unsigned char)b0[k+kc]?'=':'!';
+					printf("C%d  0x%04X %c= 0x%04X    %d %c= %d\n",
+						kc,
+						(unsigned char)b1[k+kc], c, (unsigned char)b0[k+kc],
+						b1[k+kc], c, b0[k+kc]
+					);
+				}
+				LOG_ERROR("");
+			}
+			return 1;
+		}
+	}
+	if(loud)
+		printf("%s:\tSUCCESS\n", name);
+	return 0;
+}
 int image_load(const char *fn, Image *image)
 {
 	int fnlen=(int)strlen(fn);
@@ -250,5 +280,5 @@ void image_clear(Image *image)
 }
 size_t image_getBMPsize(Image const *image)
 {
-	return ((size_t)image->iw*image->ih*image->nch*image->depth+7)/8;
+	return ((size_t)image->iw*image->ih*image->nch*image->depth+7)>>3;
 }

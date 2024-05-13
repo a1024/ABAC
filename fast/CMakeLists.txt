@@ -25,6 +25,7 @@
 #	huffman.c
 	load_dng.cpp
 	lodepng.c
+	qoi.c
 	transforms.c
 	util.c
 )
