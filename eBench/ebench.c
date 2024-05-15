@@ -3117,7 +3117,7 @@ typedef struct AABBStruct
 {
 	float x1, x2, y1, y2;
 } AABB;
-AABB buttons[6]={0};//0: CT,  1: ST,  2: list of transforms,  3: jxl params,  4: EC,  5: OLS-4
+AABB buttons[7]={0};//0: CT,  1: ST,  2: list of transforms,  3: jxl params,  4: EC,  5: OLS-4
 
 int io_init(int argc, char **argv)//return false to abort
 {
@@ -3161,7 +3161,7 @@ void io_resize(void)
 
 	p->x1=(float)(w>>2), p->x2=p->x1+xstep*(OLS4_RMAX<<1|1)*gui_ols4_elementchars, p->y1=(float)(h>>1)+10, p->y2=p->y1+ystep*(1+(OLS4_RMAX+1)*(im1?im1->nch:4)), ++p;//5: OLS-4		DON'T USE p->y2
 
-	p->x1=(float)(w>>2), p->x2=p->x1+xstep*35, p->y1=(float)(h>>1)+10, p->y2=p->y1+ystep*6, ++p;//6: CUSTOM4
+	p->x1=(float)(w>>2), p->x2=p->x1+xstep*35, p->y1=(float)(h>>1)+10, p->y2=p->y1+ystep*8, ++p;//6: CUSTOM4
 }
 int io_mousemove(void)//return true to redraw
 {
@@ -3225,7 +3225,8 @@ static void click_hittest(int _mx, int _my, int *objidx, int *cellx, int *celly,
 		if(
 			(!transforms_customenabled&&(*objidx==0||*objidx==1))||
 			(!(transforms_mask[ST_FWD_WP]||transforms_mask[ST_INV_WP])&&*objidx==3)||
-			(!(transforms_mask[ST_FWD_OLS4]||transforms_mask[ST_INV_OLS4])&&*objidx==5)
+			(!(transforms_mask[ST_FWD_OLS4]||transforms_mask[ST_INV_OLS4])&&*objidx==5)||
+			(!(transforms_mask[ST_FWD_CUSTOM4]||transforms_mask[ST_INV_CUSTOM4])&&*objidx==6)
 		)
 			continue;
 		if(_mx>=p[0]->x1&&_mx<p[0]->x2&&_my>=p[0]->y1&&_my<p[0]->y2)
@@ -3613,20 +3614,79 @@ int io_mousewheel(int forward)
 					{
 						lossyconv_page+=sign<<2;
 						lossyconv_page&=15;
+						update_image();
 					}
-					else if(cellx==14)//change channel, stay in same layer
+					else if(cellx==13)//change channel, stay in same layer
+					{
 						lossyconv_page=(lossyconv_page&12)|((lossyconv_page+sign)&3);
+						update_image();
+					}
+				}
+				else if(celly==6)
+				{
+					char *p;
+					if((unsigned)(cellx-11)<3)
+					{
+						p=lossyconv_offset+((size_t)lossyconv_page<<1|0);
+						*p+=sign;
+						update_image();
+					}
+					else if((unsigned)(cellx-15)<3)
+					{
+						p=lossyconv_offset+((size_t)lossyconv_page<<1|1);
+						*p+=sign;
+						update_image();
+					}
+				}
+				else if(celly==7)
+				{
+					char *p;
+					if((unsigned)(cellx-11)<3)
+					{
+						p=lossyconv_stride+((size_t)lossyconv_page<<1|0);
+						*p+=sign;
+						update_image();
+					}
+					else if((unsigned)(cellx-15)<3)
+					{
+						p=lossyconv_stride+((size_t)lossyconv_page<<1|1);
+						*p+=sign;
+						update_image();
+					}
 				}
 				else
 				{
 					//    000000000011111111112222222222333333
 					//    012345678901234567890123456789012345
-					//0  "Layer 1/4  Ch 1/3"
+					//0  "Layer 1/4  C 1/3"
 					//1  " +0.0C  +0.0C  +0.0C  +0.0C  +0.0C "
 					//2  " +0.0C  +0.0C  +0.0C  +0.0C  +0.0C "
 					//3  " +0.0C  +0.0C [+0.0C] +0.0C  +0.0C "
 					//4  " +0.0C  +0.0C  +0.0C  +0.0C  +0.0C "
 					//5  " +0.0C  +0.0C  +0.0C  +0.0C  +0.0C "
+					//6  "XY  Offset XXX YYY"
+					//7  "    Stride XXX YYY"
+					int c=cellx%7, x=cellx/7;
+					char *p=lossyconv_params+5*5*lossyconv_page+5*(celly-1)+x;
+					switch(c)
+					{
+					case 1:
+						*p^=0x80;
+						update_image();
+						break;
+					case 2:
+						*p+=sign<<5;
+						update_image();
+						break;
+					case 4:
+						*p+=sign<<1;
+						update_image();
+						break;
+					case 5:
+						*p^=1;
+						update_image();
+						break;
+					}
 				}
 				break;
 			}//switch
@@ -4078,6 +4138,61 @@ int io_keydn(IOKey key, char c)
 								update_image();
 							return 1;
 						}
+					}
+				}
+				break;
+			case 6://CUSTOM4
+				if((unsigned)(celly-1)<5)
+				{
+					//    000000000011111111112222222222333333
+					//    012345678901234567890123456789012345
+					//0  "Layer 1/4  Ch 1/3"
+					//1  " +0.0C  +0.0C  +0.0C  +0.0C  +0.0C "
+					//2  " +0.0C  +0.0C  +0.0C  +0.0C  +0.0C "
+					//3  " +0.0C  +0.0C [+0.0C] +0.0C  +0.0C "
+					//4  " +0.0C  +0.0C  +0.0C  +0.0C  +0.0C "
+					//5  " +0.0C  +0.0C  +0.0C  +0.0C  +0.0C "
+					//6  "XY  Offset XXX YYY"
+					//7  "    Stride XXX YYY"
+					char *p=lossyconv_params+5*5*lossyconv_page+5*(celly-1)+cellx/7;
+					if(key==KEY_LBUTTON)
+					{
+						*p=lossyconv_clipboard;
+						if(!GET_KEY_STATE(KEY_CTRL))
+							update_image();
+					}
+					else
+						lossyconv_clipboard=*p;
+					return 1;
+				}
+				else if(celly==6)
+				{
+					if((unsigned)(cellx-11)<3)
+					{
+						lossyconv_offset[lossyconv_page>>2<<1|0]=0;
+						update_image();
+						return 1;
+					}
+					if((unsigned)(cellx-15)<3)
+					{
+						lossyconv_offset[lossyconv_page>>2<<1|1]=0;
+						update_image();
+						return 1;
+					}
+				}
+				else if(celly==7)
+				{
+					if((unsigned)(cellx-11)<3)
+					{
+						lossyconv_stride[lossyconv_page>>2<<1|0]=0;
+						update_image();
+						return 1;
+					}
+					if((unsigned)(cellx-15)<3)
+					{
+						lossyconv_stride[lossyconv_page>>2<<1|1]=0;
+						update_image();
+						return 1;
 					}
 				}
 				break;
@@ -4717,6 +4832,19 @@ int io_keydn(IOKey key, char c)
 			custom_pred_ch_idx+=((key==KEY_RBRACKET)<<1)-1;
 			MODVAR(custom_pred_ch_idx, custom_pred_ch_idx, 3);
 			return 1;
+		}
+		else if(transforms_mask[ST_FWD_CUSTOM4]||transforms_mask[ST_INV_CUSTOM4])
+		{
+			int sign=((key==KEY_RBRACKET)<<1)-1;
+			if(GET_KEY_STATE(KEY_SHIFT))//change layer
+			{
+				lossyconv_page+=sign<<2;
+				lossyconv_page&=15;
+			}
+			else//change channel
+				lossyconv_page=(lossyconv_page&12)|((lossyconv_page+sign)&3);
+			return 1;
+
 		}
 		break;
 	case 'N':
@@ -5768,24 +5896,60 @@ void io_render(void)
 	}
 	else if(transforms_mask[ST_FWD_CUSTOM4]||transforms_mask[ST_INV_CUSTOM4])
 	{
+		int c0=set_bk_color(0x80FFFFFF);
 		float x=0, y=0, ystep=tdy*guizoom;//
 		const char *layer=lossyconv_params+5*5*lossyconv_page;
+		x=buttons[6].x1;
+		y=buttons[6].y1;
 		//Layer 1/4  Ch 1/3
-		GUIPrint(x, x, y+0*ystep, guizoom, "Layer %d/4  %c %d/%d", (lossyconv_page>>2)+1, "RGBA"[lossyconv_page&3], (lossyconv_page&3)+1, im0->nch);
+		GUIPrint_append(0, 0, 0, 0, 0, "Layer %d/4  %c %d/%d",
+			(lossyconv_page>>2)+1,
+			"RGBA"[lossyconv_page&3],
+			(lossyconv_page&3)+1,
+			im0->nch
+		);
+		if(lossyconv_clipboard)
+		{
+			char clamp=lossyconv_clipboard&1, val=abs(lossyconv_clipboard>>1);
+			GUIPrint_append(0, 0, 0, 0, 0, "  buffer %c%X.%X%c",
+				lossyconv_clipboard>>7?'-':' ',
+				val>>4&15,
+				val&15,
+				clamp?'C':' '
+			);
+		}
+		GUIPrint_append(x, x, y+0*ystep, guizoom, 1, 0);
+		
+		//    000000000011111111112222222222333333
+		//    012345678901234567890123456789012345
+		//0  "Layer 1/4  Ch 1/3"
+		//1  " +0.0C  +0.0C  +0.0C  +0.0C  +0.0C "
+		//2  " +0.0C  +0.0C  +0.0C  +0.0C  +0.0C "
+		//3  " +0.0C  +0.0C [+0.0C] +0.0C  +0.0C "
+		//4  " +0.0C  +0.0C  +0.0C  +0.0C  +0.0C "
+		//5  " +0.0C  +0.0C  +0.0C  +0.0C  +0.0C "
+		//6  "XY  Offset XXX YYY"
+		//7  "    Stride XXX YYY"
 		for(int ky=0;ky<5;++ky)
 		{
 			g_printed=0;
 			for(int kx=0;kx<5;++kx)
 			{
+				const char *p=layer+5*ky+kx;
+				char clamp=*p&1, val=abs(*p>>1);
 				char lbr, rbr;
 				if(kx==2&&ky==2)
 					lbr='[', rbr=']';
 				else
 					lbr=' ', rbr=' ';
-				GUIPrint_append(0, 0, 0, 0, "%c%c%d.%d%c%c", lbr, layer[0]>>7&1?'-':' ', layer[0]>>5&3, layer[0]>>1&15, layer[0]&1?'C':' ', rbr);
+				GUIPrint_append(0, 0, 0, 0, 0, "%c%c%X.%X%c%c", lbr, p[0]>>7?'-':' ', val>>4&15, val&15, clamp?'C':' ', rbr);
 			}
-			GUIPrint_append(x, x, y+(ky+1)*ystep, guizoom, 1, "");
+			GUIPrint_append(x, x, y+(ky+1)*ystep, guizoom, 1, 0);
 		}
+
+		GUIPrint(x, x, y+6*ystep, guizoom, "XY  Offset %3d %3d", lossyconv_offset[lossyconv_page>>2<<1|0], lossyconv_offset[lossyconv_page>>2<<1|1]);
+		GUIPrint(x, x, y+7*ystep, guizoom, "    Stride %3d %3d", lossyconv_stride[lossyconv_page>>2<<1|0]+1, lossyconv_stride[lossyconv_page>>2<<1|1]+1);
+		set_bk_color(c0);
 	}
 #if 0
 	else if(transforms_mask[ST_FWD_LOGIC]||transforms_mask[ST_INV_LOGIC])

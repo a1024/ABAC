@@ -8,6 +8,7 @@
 #include<immintrin.h>
 static const char file[]=__FILE__;
 
+char lossyconv_clipboard=0;
 int lossyconv_page=0;//[0~15]: 4 channels max * 4 stages
 char lossyconv_params[5*5*4*4]={0};//(r2 = 5*5) * 4 channels max * 4 stages		precision: sign_bit.2.4.clamp_bit
 unsigned char lossyconv_stride[2*4]={0}, lossyconv_offset[2*4]={0};//2 dimensions * 4 stages
@@ -27,73 +28,84 @@ void pred_lossyconv(Image *src)
 		int
 			xstart=lossyconv_offset[kb<<1|0], xstride=lossyconv_stride[kb<<1|0]+1,
 			ystart=lossyconv_offset[kb<<1|1], ystride=lossyconv_stride[kb<<1|1]+1;
-		for(int kc=0;kc<4;++kc)
+		int skip_layer=1;
+		for(int k=0;k<5*5*4;++k)
 		{
-			int depth=src->depth[kc], half=1<<depth>>1;
-			if(!depth)
-				continue;
-			char *curr_filt=lossyconv_params+5*5*(4*kb+kc);
-			int clampsize=0;
-			for(int k=0;k<5*5;++k)
-				clampsize+=curr_filt[k]&1;
-			for(int ky=ystart, idx=0;ky<src->ih;ky+=ystride)
+			if(lossyconv_params[5*5*4*kb+k])
+				skip_layer=0;
+		}
+		if(skip_layer)
+			memcpy(p2, p1, sizeof(int[4])*src->iw*src->ih);
+		else
+		{
+			for(int kc=0;kc<4;++kc)
 			{
-				for(int kx=xstart;kx<src->iw;kx+=xstride)
+				int depth=src->depth[kc], half=1<<depth>>1;
+				if(!depth)
+					continue;
+				char *curr_filt=lossyconv_params+5*5*(4*kb+kc);
+				int clampsize=0;
+				for(int k=0;k<5*5;++k)
+					clampsize+=curr_filt[k]&1;
+				for(int ky=ystart, idx=0;ky<src->ih;ky+=ystride)
 				{
-					int idx=src->iw*ky+kx;
-					int nb[]=
+					for(int kx=xstart;kx<src->iw;kx+=xstride)
 					{
-						LOAD(p1, -2, -2),
-						LOAD(p1, -1, -2),
-						LOAD(p1,  0, -2),
-						LOAD(p1,  1, -2),
-						LOAD(p1,  2, -2),
-						LOAD(p1, -2, -1),
-						LOAD(p1, -1, -1),
-						LOAD(p1,  0, -1),
-						LOAD(p1,  1, -1),
-						LOAD(p1,  2, -1),
-						LOAD(p1, -2,  0),
-						LOAD(p1, -1,  0),
-						LOAD(p1,  0,  0),
-						LOAD(p1,  1,  0),
-						LOAD(p1,  2,  0),
-						LOAD(p1, -2,  1),
-						LOAD(p1, -1,  1),
-						LOAD(p1,  0,  1),
-						LOAD(p1,  1,  1),
-						LOAD(p1,  2,  1),
-						LOAD(p1, -2,  2),
-						LOAD(p1, -1,  2),
-						LOAD(p1,  0,  2),
-						LOAD(p1,  1,  2),
-						LOAD(p1,  2,  2),
-					};
-					int pred=0;
-					int vmin=-half, vmax=half-1, uninit=0;
-					for(int k=0;k<5*5;++k)
-					{
-						pred+=curr_filt[k]*(nb[k]>>1);
-						if(curr_filt[k]&1)
+						int idx=src->iw*ky+kx;
+						int nb[]=
 						{
-							if(uninit)
-								vmin=nb[k], vmax=nb[k];
-							else
+							LOAD(p1, -2, -2),
+							LOAD(p1, -1, -2),
+							LOAD(p1,  0, -2),
+							LOAD(p1,  1, -2),
+							LOAD(p1,  2, -2),
+							LOAD(p1, -2, -1),
+							LOAD(p1, -1, -1),
+							LOAD(p1,  0, -1),
+							LOAD(p1,  1, -1),
+							LOAD(p1,  2, -1),
+							LOAD(p1, -2,  0),
+							LOAD(p1, -1,  0),
+							LOAD(p1,  0,  0),
+							LOAD(p1,  1,  0),
+							LOAD(p1,  2,  0),
+							LOAD(p1, -2,  1),
+							LOAD(p1, -1,  1),
+							LOAD(p1,  0,  1),
+							LOAD(p1,  1,  1),
+							LOAD(p1,  2,  1),
+							LOAD(p1, -2,  2),
+							LOAD(p1, -1,  2),
+							LOAD(p1,  0,  2),
+							LOAD(p1,  1,  2),
+							LOAD(p1,  2,  2),
+						};
+						int pred=0;
+						int vmin=-half, vmax=half-1, uninit=0;
+						for(int k=0;k<5*5;++k)
+						{
+							pred+=curr_filt[k]*(nb[k]>>1);
+							if(curr_filt[k]&1)
 							{
-								UPDATE_MIN(vmin, nb[k]);
-								UPDATE_MAX(vmax, nb[k]);
+								if(uninit)
+									vmin=nb[k], vmax=nb[k];
+								else
+								{
+									UPDATE_MIN(vmin, nb[k]);
+									UPDATE_MAX(vmax, nb[k]);
+								}
 							}
 						}
-					}
-					pred+=8;
-					pred>>=4;
-					pred=CLAMP(vmin, pred, vmax);
+						pred+=8;
+						pred>>=4;
+						pred=CLAMP(vmin, pred, vmax);
 
-					int curr=p2[idx<<2|kc];
-					curr-=pred;
-					curr<<=32-depth;//signed-MA
-					curr>>=32-depth;
-					p2[idx<<2|kc]=curr;
+						int curr=p1[idx<<2|kc];
+						curr-=pred;
+						curr<<=32-depth;//signed-MA
+						curr>>=32-depth;
+						p2[idx<<2|kc]=curr;
+					}
 				}
 			}
 		}
