@@ -84,6 +84,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_WP,		ST_INV_WP,
 	ST_FWD_WPU,		ST_INV_WPU,
 	ST_FWD_DEFERRED,	ST_INV_DEFERRED,
+	ST_FWD_CUSTOM4,		ST_INV_CUSTOM4,	//irreversible conv
 	ST_FWD_CUSTOM3,		ST_INV_CUSTOM3,
 	ST_FWD_CUSTOM,		ST_INV_CUSTOM,
 //	ST_FWD_NBLIC,		ST_INV_NBLIC,
@@ -1365,6 +1366,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 //	case ST_INV_ZIPPER:		a=" S Inv Zipper";		break;
 //	case ST_FWD_DIR:		a=" S Fwd Dir";			break;
 //	case ST_INV_DIR:		a=" S Inv Dir";			break;
+	case ST_FWD_CUSTOM4:		a=" S Fwd CUSTOM4";		break;
+	case ST_INV_CUSTOM4:		a=" S Inv CUSTOM4";		break;
 	case ST_FWD_CUSTOM3:		a="CS Fwd CUSTOM3";		break;
 	case ST_INV_CUSTOM3:		a="CS Inv CUSTOM3";		break;
 	case ST_FWD_CALIC:		a=" S Fwd CALIC";		break;
@@ -2327,6 +2330,8 @@ void apply_selected_transforms(Image *image, int rct_only)
 				
 	//	case ST_FWD_CUSTOM2:		custom2_apply((char*)image, iw, ih, 1, &c2_params);	break;
 	//	case ST_INV_CUSTOM2:		custom2_apply((char*)image, iw, ih, 0, &c2_params);	break;
+		case ST_FWD_CUSTOM4:		pred_lossyconv(image);					break;
+		case ST_INV_CUSTOM4:		pred_lossyconv(image);					break;
 		case ST_FWD_CUSTOM3:		custom3_apply(image, 1, pred_ma_enabled, &c3_params);	break;
 		case ST_INV_CUSTOM3:		custom3_apply(image, 0, pred_ma_enabled, &c3_params);	break;
 		case ST_FWD_CUSTOM:		pred_custom(image, 1, pred_ma_enabled, custom_params);	break;
@@ -3141,7 +3146,7 @@ const int
 int custom_pred_ch_idx=0;//from {0, 1, 2}
 void io_resize(void)
 {
-	AABB *p=buttons;
+	AABB *p=buttons;//TODO use enum
 	float xstep=tdx*guizoom, ystep=tdy*guizoom;
 	p->x1=xstep*2, p->x2=p->x1+xstep*gui_custom_rct_w, p->y1=(float)(h>>1), p->y2=p->y1+ystep*gui_custom_rct_h, ++p;//0: color params - left
 	p->x1=(float)(w>>3), p->x2=p->x1+xstep*gui_custom_pred_w, p->y1=(float)((h>>1)+(h>>2))-ystep, p->y2=p->y1+ystep*gui_custom_pred_h, ++p;//1: spatial params - bottom
@@ -3155,6 +3160,8 @@ void io_resize(void)
 	p->x1=(float)(w-450), p->x2=p->x1+tdx*gui_ec_width, p->y1=tdy, p->y2=p->y1+tdy, ++p;//4: EC method	//H.E.M.L..A.0x0000..XXXX_XXX
 
 	p->x1=(float)(w>>2), p->x2=p->x1+xstep*(OLS4_RMAX<<1|1)*gui_ols4_elementchars, p->y1=(float)(h>>1)+10, p->y2=p->y1+ystep*(1+(OLS4_RMAX+1)*(im1?im1->nch:4)), ++p;//5: OLS-4		DON'T USE p->y2
+
+	p->x1=(float)(w>>2), p->x2=p->x1+xstep*35, p->y1=(float)(h>>1)+10, p->y2=p->y1+ystep*6, ++p;//6: CUSTOM4
 }
 int io_mousemove(void)//return true to redraw
 {
@@ -3266,6 +3273,11 @@ static void click_hittest(int _mx, int _my, int *objidx, int *cellx, int *celly,
 		*cellidx=*cellx;
 		break;
 	case 5:
+		*cellx=(int)floorf((_mx-p[0]->x1)/(tdx*guizoom));
+		*celly=(int)floorf((_my-p[0]->y1)/(tdy*guizoom));
+		*cellidx=0;
+		break;
+	case 6:
 		*cellx=(int)floorf((_mx-p[0]->x1)/(tdx*guizoom));
 		*celly=(int)floorf((_my-p[0]->y1)/(tdy*guizoom));
 		*cellidx=0;
@@ -3592,6 +3604,29 @@ int io_mousewheel(int forward)
 							break;
 						}
 					}
+				}
+				break;
+			case 6://CUSTOM4
+				if(!celly&&(unsigned)cellx<17)
+				{
+					if(cellx==6)//change layer, stay in same channel
+					{
+						lossyconv_page+=sign<<2;
+						lossyconv_page&=15;
+					}
+					else if(cellx==14)//change channel, stay in same layer
+						lossyconv_page=(lossyconv_page&12)|((lossyconv_page+sign)&3);
+				}
+				else
+				{
+					//    000000000011111111112222222222333333
+					//    012345678901234567890123456789012345
+					//0  "Layer 1/4  Ch 1/3"
+					//1  " +0.0C  +0.0C  +0.0C  +0.0C  +0.0C "
+					//2  " +0.0C  +0.0C  +0.0C  +0.0C  +0.0C "
+					//3  " +0.0C  +0.0C [+0.0C] +0.0C  +0.0C "
+					//4  " +0.0C  +0.0C  +0.0C  +0.0C  +0.0C "
+					//5  " +0.0C  +0.0C  +0.0C  +0.0C  +0.0C "
 				}
 				break;
 			}//switch
@@ -5730,6 +5765,27 @@ void io_render(void)
 			}
 		}
 		set_bk_color(c0);
+	}
+	else if(transforms_mask[ST_FWD_CUSTOM4]||transforms_mask[ST_INV_CUSTOM4])
+	{
+		float x=0, y=0, ystep=tdy*guizoom;//
+		const char *layer=lossyconv_params+5*5*lossyconv_page;
+		//Layer 1/4  Ch 1/3
+		GUIPrint(x, x, y+0*ystep, guizoom, "Layer %d/4  %c %d/%d", (lossyconv_page>>2)+1, "RGBA"[lossyconv_page&3], (lossyconv_page&3)+1, im0->nch);
+		for(int ky=0;ky<5;++ky)
+		{
+			g_printed=0;
+			for(int kx=0;kx<5;++kx)
+			{
+				char lbr, rbr;
+				if(kx==2&&ky==2)
+					lbr='[', rbr=']';
+				else
+					lbr=' ', rbr=' ';
+				GUIPrint_append(0, 0, 0, 0, "%c%c%d.%d%c%c", lbr, layer[0]>>7&1?'-':' ', layer[0]>>5&3, layer[0]>>1&15, layer[0]&1?'C':' ', rbr);
+			}
+			GUIPrint_append(x, x, y+(ky+1)*ystep, guizoom, 1, "");
+		}
 	}
 #if 0
 	else if(transforms_mask[ST_FWD_LOGIC]||transforms_mask[ST_INV_LOGIC])

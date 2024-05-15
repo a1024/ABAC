@@ -780,6 +780,12 @@ extern Custom3Params c3_params;
 void custom3_apply(Image *src, int fwd, int enable_ma, Custom3Params const *params);
 void custom3_opt(Image const *src, Custom3Params *srcparams, int niter, int maskbits, int loud, double *loss);
 
+//CUSTOM4
+extern int lossyconv_page;
+extern char lossyconv_params[5*5*4*4];//(r2 = 5*5) * 4 channels max * 4 banks
+extern unsigned char lossyconv_stride[2*4], lossyconv_offset[2*4];//2 dimensions * 4 stages
+void pred_lossyconv(Image *src);//irreversible conv
+
 void pred_calic(Image *src, int fwd, int enable_ma);
 void pred_grad2(Image *src, int fwd, int enable_ma);
 
