@@ -16,11 +16,13 @@ static const char file[]=__FILE__;
 //	#define ENABLE_GUIDE
 //	#define ALLOW_IDIV
 //	#define SAVE_K
+//	#define MEASURE_GR_PENALTY	//it's ~1.1%
+//	#define INSTRUCTION_SPEED
 
 
 #include"ac.h"
 #ifdef ENABLE_GUIDE
-static Image *guide=0;
+static const Image *guide=0;
 #endif
 static void calc_ctx(const __m128i *N, const __m128i *W, const __m128i *NW, const __m128i *eN, const __m128i *eW, const __m128i *eNE, const __m128i *eNW, const __m128i *mminmag, __m128i *pred, __m128i *mag)
 {
@@ -116,6 +118,127 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	ptrdiff_t usize=(ptrdiff_t)image->iw*image->ih*image->nch*image->depth>>3;
 	if(fwd)
 	{
+#ifdef INSTRUCTION_SPEED
+		if(loud)
+		{
+			Image im2={0};
+			image_copy(&im2, image);
+			if(!im2.data)
+			{
+				LOG_ERROR("Alloc error");
+				return 1;
+			}
+			ptrdiff_t nvals=(ptrdiff_t)image->iw*image->ih*image->nch;
+			size_t result=0;
+			volatile double t1=time_sec();
+			for(ptrdiff_t k=0;k<nvals-1;++k)
+				result+=im2.data[k]=im2.data[k]*im2.data[k+1]>>im2.depth;
+			t1=time_sec()-t1;
+			printf("MUL>>d       %16lf sec %16lf MB/s  result %16zd\n", t1, usize/(t1*1024*1024), result);
+			
+			t1=time_sec();
+			memcpy(im2.data, image->data, usize);
+			t1=time_sec()-t1;
+			printf("memcpy       %16lf sec %16lf MB/s\n", t1, usize/(t1*1024*1024));
+			
+			t1=time_sec();
+			result=0;
+			for(ptrdiff_t k=0;k<nvals-1;++k)
+				result+=(int)(im2.data[k]<<im2.depth)/(abs(im2.data[k+1])+1);
+			t1=time_sec()-t1;
+			printf("DIV<<d       %16lf sec %16lf MB/s  result %16zd\n", t1, usize/(t1*1024*1024), result);
+			
+			//t1=time_sec();
+			//memcpy(im2.data, image->data, usize);
+			//t1=time_sec()-t1;
+			//printf("memcpy  %16lf sec %16lf MB/s", t1, usize/(t1*1024*1024));
+			
+			t1=time_sec();
+			result=0;
+			for(ptrdiff_t k=0;k<nvals-1;++k)
+				result+=FLOOR_LOG2_P1(im2.data[k]);
+			t1=time_sec()-t1;
+			printf("LZCNT        %16lf sec %16lf MB/s  result %16zd\n", t1, usize/(t1*1024*1024), result);
+			
+			t1=time_sec();
+			result=0;
+			for(ptrdiff_t k=0;k<nvals-1;++k)
+				result^=im2.data[k]-=im2.data[k+1];
+			t1=time_sec()-t1;
+			printf("SUB          %16lf sec %16lf MB/s  result %16zd\n", t1, usize/(t1*1024*1024), result);
+			
+			{
+				t1=time_sec();
+				__m128i mres=_mm_setzero_si128();
+				for(ptrdiff_t k=0;k<nvals-(ptrdiff_t)(2*sizeof(__m128i)/sizeof(short)-1);k+=sizeof(__m128i)/sizeof(short))
+				{
+					__m128i v0=_mm_loadu_si128((__m128i*)(im2.data+k));
+					__m128i v1=_mm_loadu_si128((__m128i*)(im2.data+k+sizeof(__m128i)/sizeof(short)));
+					v0=_mm_mullo_epi16(v0, v1);
+					mres=_mm_add_epi16(mres, v0);
+				}
+				ALIGN(16) short r2[sizeof(__m128i)/sizeof(short)]={0};
+				_mm_store_si128((__m128i*)r2, mres);
+				t1=time_sec()-t1;
+				printf("MULLO16_128  %16lf sec %16lf MB/s  result %16zd %16zd\n",
+					t1, usize/(t1*1024*1024),
+					((long long*)&r2)[0],
+					((long long*)&r2)[1]
+				);
+			}
+			
+			{
+				t1=time_sec();
+				__m256i mres=_mm256_setzero_si256();
+				for(ptrdiff_t k=0;k<nvals-(ptrdiff_t)(2*sizeof(__m256i)/sizeof(short)-1);k+=sizeof(__m256i)/sizeof(short))
+				{
+					__m256i v0=_mm256_loadu_si256((__m256i*)(im2.data+k));
+					__m256i v1=_mm256_loadu_si256((__m256i*)(im2.data+k+sizeof(__m256i)/sizeof(short)));
+					v0=_mm256_mullo_epi16(v0, v1);
+					mres=_mm256_add_epi16(mres, v0);
+				}
+				ALIGN(16) short r2[sizeof(__m256i)/sizeof(short)]={0};
+				_mm256_store_si256((__m256i*)r2, mres);
+				t1=time_sec()-t1;
+				printf("MULLO16_256  %16lf sec %16lf MB/s  result %16zd %16zd %16zd %16zd\n",
+					t1, usize/(t1*1024*1024),
+					((long long*)&r2)[0],
+					((long long*)&r2)[1],
+					((long long*)&r2)[2],
+					((long long*)&r2)[3]
+				);
+			}
+			
+			int cpu_features=get_cpu_features();
+			if(cpu_features>>1)
+			{
+				t1=time_sec();
+				__m512i mres=_mm512_setzero_si512();
+				for(ptrdiff_t k=0;k<nvals-(ptrdiff_t)(2*sizeof(__m512i)/sizeof(short)-1);k+=sizeof(__m512i)/sizeof(short))
+				{
+					__m512i v0=_mm512_loadu_si512((__m512i*)(im2.data+k));
+					__m512i v1=_mm512_loadu_si512((__m512i*)(im2.data+k+sizeof(__m512i)/sizeof(short)));
+					v0=_mm512_mullo_epi16(v0, v1);
+					mres=_mm512_add_epi16(mres, v0);
+				}
+				ALIGN(16) short r2[sizeof(__m512i)/sizeof(short)]={0};
+				_mm512_store_si512((__m512i*)r2, mres);
+				t1=time_sec()-t1;
+				printf("MULLO16_512  %16lf sec %16lf MB/s  result %16zd %16zd %16zd %16zd %16zd %16zd %16zd %16zd\n",
+					t1, usize/(t1*1024*1024),
+					((long long*)&r2)[0],
+					((long long*)&r2)[1],
+					((long long*)&r2)[2],
+					((long long*)&r2)[3],
+					((long long*)&r2)[4],
+					((long long*)&r2)[5],
+					((long long*)&r2)[6],
+					((long long*)&r2)[7]
+				);
+			}
+			image_clear(&im2);
+		}
+#endif
 #ifdef ENABLE_GUIDE
 		guide=image;
 #endif
@@ -134,6 +257,19 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				return 1;
 			}
 		}
+#endif
+#ifdef MEASURE_GR_PENALTY
+		size_t statssize=sizeof(short)*image->nch<<image->depth;
+		unsigned short *stats=(unsigned short*)malloc(statssize);
+		if(!stats)
+		{
+			LOG_ERROR("Alloc error");
+			return 1;
+		}
+		*stats=0x8000;
+		memfill(stats+1, stats, statssize-sizeof(short), sizeof(short));
+		unsigned long long low=0, range=0xFFFFFFFFFFFF;
+		size_t abacsize=0;
 #endif
 		GolombRiceCoder ec;
 		DList list;
@@ -216,6 +352,38 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					temp=1<<FLOOR_LOG2(mag[2]+1), kimage.data[idx+2]=CLAMP(-half, temp, half-1)-half;
 				}
 #endif
+#ifdef MEASURE_GR_PENALTY
+				for(int kc=0;kc<image->nch;++kc)
+				{
+					int tidx=1;
+					unsigned short *curr_stats=stats+((size_t)kc<<image->depth);
+					for(int kb=image->depth-1;kb>=0;--kb)
+					{
+						int p0=curr_stats[tidx];
+						int bit=curr[kc+4]>>kb&1;
+
+						unsigned long long r2=range*p0>>16;
+						low+=r2&-bit;
+						range=bit?range-r2:r2-1;
+						while(range<0x10000)
+						{
+							abacsize+=2;
+
+							range<<=16;
+							low<<=16;
+							range|=0xFFFF;
+							low&=0xFFFFFFFFFFFF;
+							unsigned long long rmax=low^0xFFFFFFFFFFFF;
+							if(range>rmax)//clamp hi to register size after renorm
+								range=rmax;
+						}
+
+						p0+=((!bit<<16)-p0)>>7;
+						curr_stats[tidx]=CLAMP(1, p0, 0xFFFF);
+						tidx=tidx<<1|bit;
+					}
+				}
+#endif
 #ifdef PROFILE_CSIZE
 				for(int kc=image->nch-1;kc>=0;--kc)
 				{
@@ -238,6 +406,14 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		}
 		gr_enc_flush(&ec);
 		dlist_appendtoarray(&list, data);
+#ifdef MEASURE_GR_PENALTY
+		unsigned long long code=low+range;
+		int n=FLOOR_LOG2_P1(low^code);
+		code&=~((1LL<<n)-1);		//minimize final code
+		int flushbits=LSB_IDX_64(code);
+		abacsize+=(flushbits+7LL)>>3;
+		free(stats);
+#endif
 		if(loud)
 		{
 #ifdef SAVE_K
@@ -247,6 +423,9 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			ptrdiff_t csize=list.nobj;
 			t0=time_sec()-t0;
 			printf("%14td/%14td = %10.6lf%%  CR %lf\n", csize, usize, 100.*csize/usize, (double)usize/csize);
+#ifdef MEASURE_GR_PENALTY
+			printf("%14td/%14td = %10.6lf%%  CR %lf  ABAC\n", abacsize, usize, 100.*abacsize/usize, (double)usize/abacsize);
+#endif
 #ifdef PROFILE_CSIZE
 			printf("C         unary         stop_bit          bypass\n");
 			double total_unary=0, total_stop=0, total_bypass=0;

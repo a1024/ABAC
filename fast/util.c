@@ -32,6 +32,7 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include<Windows.h>//QueryPerformance...
+#include<processthreadsapi.h>
 #include<conio.h>
 #else
 #include<dirent.h>
@@ -97,6 +98,39 @@ void memreverse(void *p, size_t count, size_t esize)
 		s1+=esize, s2-=esize;
 	}
 	free(temp);
+}
+void reverse16(void *start, void *end)
+{
+	__m256i reverse=_mm256_set_epi8(
+		 1,  0,  3,  2,  5,  4,  7,  6,  9,  8, 11, 10, 13, 12, 15, 14,
+		 1,  0,  3,  2,  5,  4,  7,  6,  9,  8, 11, 10, 13, 12, 15, 14
+		// 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15,
+		// 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15
+	);
+	unsigned short
+		*p1=(unsigned short*)start,
+		*p2=(unsigned short*)end;
+	while(p1<p2-(sizeof(__m256i)/sizeof(short)-1))
+	{
+		p2-=sizeof(__m256i)/sizeof(short);
+		__m256i v1=_mm256_loadu_si256((__m256i*)p1);
+		__m256i v2=_mm256_loadu_si256((__m256i*)p2);
+		v1=_mm256_shuffle_epi8(v1, reverse);
+		v2=_mm256_shuffle_epi8(v2, reverse);
+		v1=_mm256_permute2x128_si256(v1, v1, 1);
+		v2=_mm256_permute2x128_si256(v2, v2, 1);
+		_mm256_store_si256((__m256i*)p1, v2);
+		_mm256_store_si256((__m256i*)p2, v1);
+		p1+=sizeof(__m256i)/sizeof(short);
+	}
+	while(p1<p2-1)
+	{
+		--p2;
+		unsigned short temp=*p1;
+		*p1=*p2;
+		*p2=temp;
+		++p1;
+	}
 }
 void memrotate(void *p, size_t byteoffset, size_t bytesize, void *temp)//temp buffer is min(byteoffset, bytesize-byteoffset)
 {
@@ -2838,6 +2872,18 @@ ArrayHandle searchfor_file(const char *searchpath, const char *filetitle)
 	return filename;
 }
 
+int get_cpu_features(void)//returns  0: old CPU,  1: AVX2,  3: AVX-512
+{
+#ifdef _MSC_VER
+	int avx2=IsProcessorFeaturePresent(PF_AVX2_INSTRUCTIONS_AVAILABLE)!=0;
+	int avx512=IsProcessorFeaturePresent(PF_AVX512F_INSTRUCTIONS_AVAILABLE)!=0;
+#else
+	__builtin_cpu_init();
+	int avx2=__builtin_cpu_supports("avx2")!=0;
+	int avx512=__builtin_cpu_supports("avx512f")!=0;
+#endif
+	return avx512<<1|avx2;
+}
 int query_cpu_cores(void)
 {
 #ifdef _WIN32

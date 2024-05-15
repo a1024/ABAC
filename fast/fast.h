@@ -153,6 +153,11 @@ int	f21_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 
 void qoi_test(Image const *src, size_t *csize2, double *enc, double *dec, int *error, int loud);
 
+//	F22 Golomb-Rice, adaptively selects 3 among N channels, 2 interleaved coders
+int	f22_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
+#define f22_encode(SRC, DATA, LOUD)		f22_codec(SRC, DATA, 0, 0, 0, LOUD)
+#define f22_decode(CBUF, CSIZE, DST, LOUD)	f22_codec(0, 0, CBUF, CSIZE, DST, LOUD)
+
 
 #ifdef __cplusplus
 }

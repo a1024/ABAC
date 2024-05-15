@@ -285,8 +285,6 @@ INLINE void ac_enc_flush(ArithmeticCoder *ec)
 {
 	unsigned long long code=ec->low+ec->range;
 	int n=FLOOR_LOG2_P1(ec->low^code);
-	if(n<0)
-		n=0;
 	code&=~((1LL<<n)-1);		//minimize final code
 #if 0
 	int flushbits=get_lsb_index(code);//FIXME tail-chaining parallel decoders
@@ -1153,13 +1151,20 @@ INLINE void ans_enc_init(ANSCoder *ec, EC_DSTStructure *dst)
 INLINE void ans_dec_init(ANSCoder *ec, const unsigned char *start, const unsigned char *end)
 {
 	memset(ec, 0, sizeof(*ec));
+#ifdef ANS_DEC_FWD
+	ec->srcptr=start;
+	ec->srcstart=end;
+	memcpy((unsigned char*)&ec->state+2, ec->srcptr+0, 2);
+	memcpy((unsigned char*)&ec->state+0, ec->srcptr+2, 2);
+	ec->srcptr+=2;
+#else
 	ec->srcptr=end;
 	ec->srcstart=start;
-
 	ec->srcptr-=4;
 	if(ec->srcptr<ec->srcstart)
 		LOG_ERROR2("ANS buffer overflow");
 	memcpy(&ec->state, ec->srcptr, 4);
+#endif
 }
 INLINE void ans_enc_flush(ANSCoder *ec)
 {
@@ -1196,6 +1201,12 @@ INLINE void ans_dec_update(ANSCoder *ec, unsigned cdf, int freq)
 #endif
 	debug_dec_update(ec->state, cdf, freq, 0, 0, 0, 0, 0);
 	ec->state=freq*(ec->state>>16)+c-cdf;//update
+#ifdef ANS_DEC_FWD
+	int renorm=ec->state<0x10000;
+	ec->srcptr+=(size_t)renorm<<1;
+	unsigned newstate=ec->state<<16|*(unsigned short*)ec->srcptr;
+	ec->state=renorm?newstate:ec->state;
+#else
 	if(ec->state<0x10000)//renorm
 	{
 		ec->state<<=16;
@@ -1205,6 +1216,7 @@ INLINE void ans_dec_update(ANSCoder *ec, unsigned cdf, int freq)
 			memcpy(&ec->state, ec->srcptr, 2);
 		}
 	}
+#endif
 }
 
 INLINE void ans_enc(ANSCoder *ec, int sym, const unsigned *CDF, int nlevels)
@@ -1250,6 +1262,12 @@ INLINE int ans_dec(ANSCoder *ec, const unsigned *CDF, int nlevels)
 #endif
 	debug_dec_update(ec->state, cdf, freq, 0, 0, 0, 0, sym);
 	ec->state=freq*(ec->state>>16)+c-cdf;//update
+#ifdef ANS_DEC_FWD
+	int renorm=ec->state<0x10000;
+	ec->srcptr+=(size_t)renorm<<1;
+	unsigned newstate=ec->state<<16|*(unsigned short*)ec->srcptr;
+	ec->state=renorm?newstate:ec->state;
+#else
 	if(ec->state<0x10000)//renorm
 	{
 		ec->state<<=16;
@@ -1259,6 +1277,7 @@ INLINE int ans_dec(ANSCoder *ec, const unsigned *CDF, int nlevels)
 			memcpy(&ec->state, ec->srcptr, 2);
 		}
 	}
+#endif
 	return sym;
 }
 INLINE void ans_enc_bypass(ANSCoder *ec, int sym, int nbits)//nbits [1 ~ 16]
@@ -1297,6 +1316,12 @@ INLINE int ans_dec_bypass(ANSCoder *ec, int nbits)
 #endif
 	debug_dec_update(ec->state, cdf, freq, 0, 0, 0, 0, sym);
 	ec->state=freq*(ec->state>>16)+c-cdf;//update
+#ifdef ANS_DEC_FWD
+	int renorm=ec->state<0x10000;
+	ec->srcptr+=(size_t)renorm<<1;
+	unsigned newstate=ec->state<<16|*(unsigned short*)ec->srcptr;
+	ec->state=renorm?newstate:ec->state;
+#else
 	if(ec->state<0x10000)//renorm
 	{
 		ec->state<<=16;
@@ -1306,6 +1331,7 @@ INLINE int ans_dec_bypass(ANSCoder *ec, int nbits)
 			memcpy(&ec->state, ec->srcptr, 2);
 		}
 	}
+#endif
 	return sym;
 }
 INLINE int ans_dec_POT(ANSCoder *ec, const unsigned *CDF, int nbits)
@@ -1338,6 +1364,12 @@ INLINE int ans_dec_POT(ANSCoder *ec, const unsigned *CDF, int nbits)
 	debug_dec_update(ec->state, cdf, freq, 0, 0, 0, 0, sym);
 #endif
 	ec->state=freq*(ec->state>>16)+c-cdf;//update
+#ifdef ANS_DEC_FWD
+	int renorm=ec->state<0x10000;
+	ec->srcptr+=(size_t)renorm<<1;
+	unsigned newstate=ec->state<<16|*(unsigned short*)ec->srcptr;
+	ec->state=renorm?newstate:ec->state;
+#else
 	if(ec->state<0x10000)//renorm
 	{
 		ec->state<<=16;
@@ -1347,6 +1379,7 @@ INLINE int ans_dec_POT(ANSCoder *ec, const unsigned *CDF, int nbits)
 			memcpy(&ec->state, ec->srcptr, 2);
 		}
 	}
+#endif
 	return sym;
 }
 INLINE int ans_dec_CDF2sym(ANSCoder *ec, const unsigned *CDF, const unsigned char *CDF2sym)
@@ -1364,6 +1397,12 @@ INLINE int ans_dec_CDF2sym(ANSCoder *ec, const unsigned *CDF, const unsigned cha
 	debug_dec_update(ec->state, cdf, freq, 0, 0, 0, 0, sym);
 #endif
 	ec->state=freq*(ec->state>>16)+c-cdf;//update
+#ifdef ANS_DEC_FWD
+	int renorm=ec->state<0x10000;
+	ec->srcptr+=(size_t)renorm<<1;
+	unsigned newstate=ec->state<<16|*(unsigned short*)ec->srcptr;
+	ec->state=renorm?newstate:ec->state;
+#else
 	if(ec->state<0x10000)//renorm
 	{
 		ec->state<<=16;
@@ -1373,6 +1412,7 @@ INLINE int ans_dec_CDF2sym(ANSCoder *ec, const unsigned *CDF, const unsigned cha
 			memcpy(&ec->state, ec->srcptr, 2);
 		}
 	}
+#endif
 	return sym;
 }
 
@@ -1435,6 +1475,12 @@ INLINE int ans_dec15(ANSCoder *ec, const unsigned short *CDF, int nlevels)
 		LOG_ERROR2("ZPS");
 	debug_dec_update(ec->state, cdf, freq, 0, 0, 0, 0, sym);
 	ec->state=freq*(ec->state>>16)+c-cdf;//update
+#ifdef ANS_DEC_FWD
+	int renorm=ec->state<0x10000;
+	ec->srcptr+=(size_t)renorm<<1;
+	unsigned newstate=ec->state<<16|*(unsigned short*)ec->srcptr;
+	ec->state=renorm?newstate:ec->state;
+#else
 	if(ec->state<0x10000)//renorm
 	{
 		ec->state<<=16;
@@ -1444,6 +1490,7 @@ INLINE int ans_dec15(ANSCoder *ec, const unsigned short *CDF, int nlevels)
 			memcpy(&ec->state, ec->srcptr, 2);
 		}
 	}
+#endif
 	return sym;
 }
 
@@ -1471,6 +1518,12 @@ INLINE int ans_dec_bin(ANSCoder *ec, unsigned short p0)
 
 	debug_dec_update(ec->state, cdf, freq, 0, 0, 0, 0, bit);
 	ec->state=freq*(ec->state>>16)+c-cdf;//update
+#ifdef ANS_DEC_FWD
+	int renorm=ec->state<0x10000;
+	ec->srcptr+=(size_t)renorm<<1;
+	unsigned newstate=ec->state<<16|*(unsigned short*)ec->srcptr;
+	ec->state=renorm?newstate:ec->state;
+#else
 	if(ec->state<0x10000)//renorm
 	{
 		ec->state<<=16;
@@ -1480,6 +1533,7 @@ INLINE int ans_dec_bin(ANSCoder *ec, unsigned short p0)
 			memcpy(&ec->state, ec->srcptr, 2);
 		}
 	}
+#endif
 	return bit;
 }
 
@@ -1719,7 +1773,6 @@ INLINE unsigned gr_dec_POT(GolombRiceCoder *ec, int nbypass)
 {
 	//cache: MSB 00[hhh]ijj LSB		nbits 6->3, h is about to be read (past codes must be cleared from cache)
 	
-	//magnitude+=!magnitude;
 	int sym=0, nleadingzeros=0;
 	if(!ec->nbits)//cache is empty
 		goto read;
@@ -1763,7 +1816,6 @@ INLINE int gr_enc_track(GolombRiceCoder *ec, unsigned sym, unsigned magnitude, u
 	//buffer: {c,c,c,b,b,a,a,a, f,f,f,e,e,e,d,c}, cache: MSB gg[hhh]000 LSB	nbits 6->3, code h is about to be emitted
 	//written 64-bit words are byte-reversed because the CPU is little-endian
 
-	//magnitude+=!magnitude;
 	int nbypass=FLOOR_LOG2(magnitude)+1;
 	int nzeros=sym/magnitude, bypass=sym%magnitude;
 	*count_zeros+=nzeros;
@@ -1820,7 +1872,6 @@ INLINE unsigned gr_dec_track(GolombRiceCoder *ec, unsigned magnitude, unsigned *
 {
 	//cache: MSB 00[hhh]ijj LSB		nbits 6->3, h is about to be read (past codes must be cleared from cache)
 	
-	//magnitude+=!magnitude;
 	int nbypass=FLOOR_LOG2(magnitude);
 	int sym=0, nleadingzeros=0;
 	if(!ec->nbits)//cache is empty

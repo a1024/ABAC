@@ -110,6 +110,7 @@ void memfill(void *dst, const void *src, size_t dstbytes, size_t srcbytes);
 void memswap_slow(void *p1, void *p2, size_t size);
 void memswap(void *p1, void *p2, size_t size, void *temp);
 void memreverse(void *p, size_t count, size_t esize);//calls memswap
+void reverse16(void *start, void *end);
 void memrotate(void *p, size_t byteoffset, size_t bytesize, void *temp);//temp buffer is min(byteoffset, bytesize-byteoffset)
 int binary_search(const void *base, size_t count, size_t esize, int (*threeway)(const void*, const void*), const void *val, size_t *idx);//returns true if found, otherwise the idx is where val should be inserted, standard bsearch doesn't do this
 void isort(void *base, size_t count, size_t esize, int (*threeway)(const void*, const void*));//binary insertion sort
@@ -465,6 +466,7 @@ int save_file(const char *filename, const unsigned char *src, size_t srcSize, in
 
 ArrayHandle searchfor_file(const char *searchpath, const char *filetitle);
 
+int get_cpu_features(void);//returns  0: old CPU,  1: AVX2,  3: AVX-512
 int query_cpu_cores(void);
 
 

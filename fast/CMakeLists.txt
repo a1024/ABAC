@@ -28,7 +28,7 @@
 	qoi.c
 	transforms.c
 	util.c
-)
+ "f22.c")
 
 #if(MSVC)
 #	target_compile_options(fast PRIVATE /Wall)

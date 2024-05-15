@@ -3,18 +3,21 @@
 #include<string.h>
 #include<math.h>
 //#define EC_USE_ARRAY
-#include"ac.h"
 static const char file[]=__FILE__;
 
 
 //	#define ENABLE_GUIDE
 
 //	#define USE_ANS
+//	#define ANS_DEC_FWD
 	#define USE_GOLOMB
 //	#define USE_ABAC
-//	#define USE_STATIC_PROB
-//	#define USE_CDF2SYM
+	#define USE_STATIC_PROB
+	#define USE_CDF2SYM
 
+
+#define AC_IMPLEMENTATION
+#include"ac.h"
 
 #ifdef USE_ANS
 static const char ecname[]="ANS";
@@ -116,12 +119,13 @@ int f02_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			{
 				//if(ky==50&&kx==395&&kc==2)
 				//if(ky==2&&kx==506&&kc==0)
+				//if(idx==2316&&kc==2)//
 				//	printf("");
 				if(fwd)
 				{
 					bypass=comp[kc]<<1^-(comp[kc]<0);
 #ifdef USE_GOLOMB
-					gr_enc(&ec, bypass, 1<<image->depth>>2);
+					gr_enc_POT(&ec, bypass, image->depth-2);
 #elif defined USE_ANS
 					ans_enc(&ec, bypass, CDF, 1<<image->depth);//up to 16 bit
 #elif defined USE_ABAC
@@ -141,7 +145,7 @@ int f02_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				else
 				{
 #ifdef USE_GOLOMB
-					bypass=gr_dec(&ec, 1<<image->depth>>2);
+					bypass=gr_dec_POT(&ec, image->depth-2);
 #elif defined USE_ANS
 #ifdef USE_CDF2SYM
 					bypass=ans_dec_CDF2sym(&ec, CDF, CDF2sym);
@@ -193,6 +197,9 @@ int f02_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #endif
 		}
 	}
+#ifdef USE_ANS
+	volatile double tr=0;
+#endif
 	if(fwd)
 	{
 #ifdef USE_ANS
@@ -205,7 +212,32 @@ int f02_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #ifdef EC_USE_ARRAY
 		data[0]->count=dststart+ec.srcptr-ec.srcstart;
 #else
+#if defined USE_ANS && defined ANS_DEC_FWD
+		size_t dststart=dlist_appendtoarray(&list, data);
+#if 0
+		{
+			unsigned short xdata[]=
+			{
+				 0,  1,  2,  3,  4,  5,  6,  7,
+				 8,  9, 10, 11, 12, 13, 14, 15,
+				16, 17, 18, 19, 20, 21, 22, 23,
+				24, 25, 26, 27, 28, 29, 30, 31,
+				32, 33, 34, 35, 36, 37, 38, 39,
+				40,
+			};
+			reverse16(xdata, xdata+_countof(xdata));
+			printf("idx  reversed\n");
+			for(int k=0;k<_countof(xdata);++k)
+				printf("%2d %2d\n", k, xdata[k]);
+			LOG_ERROR("Test");
+		}
+#endif
+		tr=time_sec();
+		reverse16(data[0]->data+dststart, data[0]->data+data[0]->count);
+		tr=time_sec()-tr;
+#else
 		dlist_appendtoarray(&list, data);
+#endif
 #endif
 	}
 	if(loud)
@@ -220,6 +252,9 @@ int f02_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			ptrdiff_t csize=list.nobj;
 #endif
 			printf("csize %12td  %10.6lf%%  CR %8.6lf\n", csize, 100.*csize/usize, (double)usize/csize);
+#if defined USE_ANS && defined ANS_DEC_FWD
+			printf("reverse %15.6lf sec  %15.6lf MB/s\n", tr, usize/(1024.*1024.*tr));
+#endif
 		}
 		printf("F02-%s  %c %15.6lf sec  %15.6lf MB/s\n", ecname, 'D'+fwd, t0, usize/(1024.*1024.*t0));
 	}

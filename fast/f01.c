@@ -3,7 +3,6 @@
 #include<math.h>
 #include<smmintrin.h>
 #define EC_USE_ARRAY
-#define AC_IMPLEMENTATION
 #include"ac.h"
 static const char file[]=__FILE__;
 #define CODECTAG 'a'
