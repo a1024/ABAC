@@ -87,8 +87,8 @@ void pred_lossyconv(Image *src)
 						}
 						if(kc!=1&&lossyconv_causalRCT[kb])
 							offset+=p1[idx<<2|1];
-						pred+=8;
-						pred>>=4;
+						pred+=16;
+						pred>>=5;
 						pred=CLAMP(vmin, pred, vmax);
 						pred+=offset;
 						pred=CLAMP(-half, pred, half);
