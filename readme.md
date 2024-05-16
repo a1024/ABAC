@@ -23,12 +23,12 @@ A GUI tool that evaluates reversible decorrelating transforms.
 Supports high bit depth images.
 Currently works only on Windows.
 
-`gcc -O3 -mavx2  console.c ebench.c graphics.c image.c lodepng.c ols4.c transforms.c util.c window.c  -o ebench -lopengl32 -lgdi32 -lole32 -lcomdlg32 -luuid`
+`gcc -O3 -mavx2  console.c custom4.c ebench.c graphics.c image.c lodepng.c ols4.c ols5.c transforms.c util.c window.c  -o ebench -lopengl32 -lgdi32 -lole32 -lcomdlg32 -luuid`
 
 ### `fast`
 Experiments prioritizing speed.
 
-`gcc -O3 -mavx2 -mbmi -mlzcnt  f02.c f08.c f16.c f18.c f19.c f20.c fast.c format.c lodepng.c qoi.c transforms.c util.c load_dng.cpp  -o fast`
+`gcc -O3 -mavx2 -mbmi -mlzcnt  f02.c f08.c f16.c f18.c f19.c f20.c f22.c fast.c format.c lodepng.c qoi.c transforms.c util.c load_dng.cpp  -o fast`
 
 ### `imgcvt`
 Batch image converter.
