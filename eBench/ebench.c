@@ -242,7 +242,7 @@ static void hybriduint_encode(int val, int *tbn, const int *config)
 	}
 	else
 	{
-		int lgv=floor_log2((unsigned)val);
+		int lgv=FLOOR_LOG2((unsigned)val);
 		int mantissa=val-(1<<lgv);
 		token = (1<<exp) + ((lgv-exp)<<(msb+lsb)|(mantissa>>(lgv-msb))<<lsb|(mantissa&((1<<lsb)-1)));
 		nbits=lgv-(msb+lsb);

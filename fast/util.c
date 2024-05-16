@@ -166,16 +166,16 @@ int binary_search(const void *base, size_t count, size_t esize, int (*threeway)(
 	return !threeway(buf+low*esize, val);
 #endif
 #if 0
-	ptrdiff_t L=0, R=(ptrdiff_t)count-1, mid;
+	ptrdiff_t left=0, right=(ptrdiff_t)count-1, mid;
 	int ret;
-	while(L<=R)
+	while(left<=right)
 	{
-		mid=(L+R)>>1;
+		mid=(left+right)>>1;
 		ret=threeway(buf+mid*esize, val);
 		if(ret<0)
-			L=mid+1;
+			left=mid+1;
 		else if(ret>0)
-			R=mid-1;
+			right=mid-1;
 		else
 		{
 			if(idx)
@@ -184,7 +184,7 @@ int binary_search(const void *base, size_t count, size_t esize, int (*threeway)(
 		}
 	}
 	if(idx)
-		*idx=L+(L<(ptrdiff_t)count&&threeway(buf+L*esize, val)<0);
+		*idx=left+(left<(ptrdiff_t)count&&threeway(buf+left*esize, val)<0);
 	return 0;
 #endif
 }
@@ -2101,72 +2101,72 @@ int  map_erase(MapHandle map, const void *data, RBNodeHandle node)
 	}
 	if(!y->is_red)
 	{
-		RBNodeHandle w;
+		RBNodeHandle wnode;
 
 		while(x!=map->root&&(!x||!x->is_red))
 		{
 			if(x==xp->left)
 			{
-				w=xp->right;
-				if(w->is_red)
+				wnode=xp->right;
+				if(wnode->is_red)
 				{
-					w->is_red=0;
+					wnode->is_red=0;
 					xp->is_red=1;
 					rb_rotateleft(map, xp);
-					w=xp->right;
+					wnode=xp->right;
 				}
-				if((!w->left||!w->left->is_red)&&(!w->right||!w->right->is_red))
+				if((!wnode->left||!wnode->left->is_red)&&(!wnode->right||!wnode->right->is_red))
 				{
-					w->is_red=1;
+					wnode->is_red=1;
 					x=xp;
 					xp=xp->parent;
 				}
 				else
 				{
-					if(!w->right||!w->right->is_red)
+					if(!wnode->right||!wnode->right->is_red)
 					{
-						w->left->is_red=0;
-						w->is_red=1;
-						rb_rotateright(map, w);
-						w=xp->right;
+						wnode->left->is_red=0;
+						wnode->is_red=1;
+						rb_rotateright(map, wnode);
+						wnode=xp->right;
 					}
-					w->is_red=xp->is_red;
+					wnode->is_red=xp->is_red;
 					xp->is_red=0;
-					if(w->right)
-						w->right->is_red=0;
+					if(wnode->right)
+						wnode->right->is_red=0;
 					rb_rotateleft(map, xp);
 					break;
 				}
 			}
 			else//same as above with right <-> left
 			{
-				w=xp->left;
-				if(w->is_red)
+				wnode=xp->left;
+				if(wnode->is_red)
 				{
-					w->is_red=0;
+					wnode->is_red=0;
 					xp->is_red=1;
 					rb_rotateright(map, xp);
-					w=xp->left;
+					wnode=xp->left;
 				}
-				if((!w->right||!w->right->is_red)&&(!w->left||!w->left->is_red))
+				if((!wnode->right||!wnode->right->is_red)&&(!wnode->left||!wnode->left->is_red))
 				{
-					w->is_red=1;
+					wnode->is_red=1;
 					x=xp;
 					xp=xp->parent;
 				}
 				else
 				{
-					if(!w->left||!w->left->is_red)
+					if(!wnode->left||!wnode->left->is_red)
 					{
-						w->right->is_red=0;
-						w->is_red=1;
-						rb_rotateleft(map, w);
-						w=xp->left;
+						wnode->right->is_red=0;
+						wnode->is_red=1;
+						rb_rotateleft(map, wnode);
+						wnode=xp->left;
 					}
-					w->is_red=xp->is_red;
+					wnode->is_red=xp->is_red;
 					xp->is_red=0;
-					if(w->left)
-						w->left->is_red=0;
+					if(wnode->left)
+						wnode->left->is_red=0;
 					rb_rotateright(map, xp);
 					break;
 				}
@@ -2452,19 +2452,19 @@ static void pqueue_heapifyup(PQueueHandle *pq, size_t idx, void *temp)
 }
 void        pqueue_heapifydown(PQueueHandle *pq, size_t idx, void *temp)
 {
-	size_t L, R, largest;
+	size_t left, right, largest;
 
 	for(;idx<pq[0]->count;)
 	{
-		L=(idx<<1)+1, R=L+1;
+		left=(idx<<1)+1, right=left+1;
 
-		if(L<pq[0]->count&&pq[0]->less(pq[0]->data+idx*pq[0]->esize, pq[0]->data+L*pq[0]->esize))//if [idx] < [L]
-			largest=L;
+		if(left<pq[0]->count&&pq[0]->less(pq[0]->data+idx*pq[0]->esize, pq[0]->data+left*pq[0]->esize))//if [idx] < [left]
+			largest=left;
 		else
 			largest=idx;
 
-		if(R<pq[0]->count&&pq[0]->less(pq[0]->data+largest*pq[0]->esize, pq[0]->data+R*pq[0]->esize))//if [largest] < [R]
-			largest=R;
+		if(right<pq[0]->count&&pq[0]->less(pq[0]->data+largest*pq[0]->esize, pq[0]->data+right*pq[0]->esize))//if [largest] < [right]
+			largest=right;
 
 		if(largest==idx)
 			break;

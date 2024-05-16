@@ -32,6 +32,7 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include<Windows.h>//QueryPerformance...
+#include<processthreadsapi.h>
 #include<conio.h>
 #else
 #include<dirent.h>
@@ -98,6 +99,39 @@ void memreverse(void *p, size_t count, size_t esize)
 	}
 	free(temp);
 }
+void reverse16(void *start, void *end)
+{
+	__m256i reverse=_mm256_set_epi8(
+		 1,  0,  3,  2,  5,  4,  7,  6,  9,  8, 11, 10, 13, 12, 15, 14,
+		 1,  0,  3,  2,  5,  4,  7,  6,  9,  8, 11, 10, 13, 12, 15, 14
+		// 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15,
+		// 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15
+	);
+	unsigned short
+		*p1=(unsigned short*)start,
+		*p2=(unsigned short*)end;
+	while(p1<p2-(sizeof(__m256i)/sizeof(short)-1))
+	{
+		p2-=sizeof(__m256i)/sizeof(short);
+		__m256i v1=_mm256_loadu_si256((__m256i*)p1);
+		__m256i v2=_mm256_loadu_si256((__m256i*)p2);
+		v1=_mm256_shuffle_epi8(v1, reverse);
+		v2=_mm256_shuffle_epi8(v2, reverse);
+		v1=_mm256_permute2x128_si256(v1, v1, 1);
+		v2=_mm256_permute2x128_si256(v2, v2, 1);
+		_mm256_store_si256((__m256i*)p1, v2);
+		_mm256_store_si256((__m256i*)p2, v1);
+		p1+=sizeof(__m256i)/sizeof(short);
+	}
+	while(p1<p2-1)
+	{
+		--p2;
+		unsigned short temp=*p1;
+		*p1=*p2;
+		*p2=temp;
+		++p1;
+	}
+}
 void memrotate(void *p, size_t byteoffset, size_t bytesize, void *temp)//temp buffer is min(byteoffset, bytesize-byteoffset)
 {
 	unsigned char *buf=(unsigned char*)p;
@@ -120,7 +154,7 @@ int binary_search(const void *base, size_t count, size_t esize, int (*threeway)(
 	const unsigned char *buf=(const unsigned char*)base;
 #if 1
 	ptrdiff_t low=0, range=count, mid;
-	while(range)//binary search		lg(nlevels) memory accesses per symbol
+	while(range)//binary search		log2(nlevels) memory accesses per symbol
 	{
 		ptrdiff_t floorhalf=range>>1;
 		mid=low+floorhalf;
@@ -132,16 +166,16 @@ int binary_search(const void *base, size_t count, size_t esize, int (*threeway)(
 	return !threeway(buf+low*esize, val);
 #endif
 #if 0
-	ptrdiff_t L=0, R=(ptrdiff_t)count-1, mid;
+	ptrdiff_t left=0, right=(ptrdiff_t)count-1, mid;
 	int ret;
-	while(L<=R)
+	while(left<=right)
 	{
-		mid=(L+R)>>1;
+		mid=(left+right)>>1;
 		ret=threeway(buf+mid*esize, val);
 		if(ret<0)
-			L=mid+1;
+			left=mid+1;
 		else if(ret>0)
-			R=mid-1;
+			right=mid-1;
 		else
 		{
 			if(idx)
@@ -150,7 +184,7 @@ int binary_search(const void *base, size_t count, size_t esize, int (*threeway)(
 		}
 	}
 	if(idx)
-		*idx=L+(L<(ptrdiff_t)count&&threeway(buf+L*esize, val)<0);
+		*idx=left+(left<(ptrdiff_t)count&&threeway(buf+left*esize, val)<0);
 	return 0;
 #endif
 }
@@ -275,16 +309,8 @@ int floor_log2_p1(unsigned long long n)
 }
 int floor_log2(unsigned long long n)
 {
-#ifdef _MSC_VER
-	return (sizeof(n)<<3)-1-(int)__lzcnt64(n);//since Haswell
-
-	//unsigned long logn=0;
-	//int success=_BitScanReverse64(&logn, n);
-	//logn=success?logn:-1;
-	//return logn;
-#elif defined __GNUC__
-	int logn=63-__builtin_clzll(n);
-	return logn;
+#if defined _MSC_VER || defined __GNUC__
+	return (sizeof(n)<<3)-1-(int)_lzcnt_u64(n);//since Haswell
 #else
 	int	logn=-!n;
 	int	sh=(n>=1ULL<<32)<<5;	logn+=sh, n>>=sh;
@@ -298,18 +324,8 @@ int floor_log2(unsigned long long n)
 }
 int floor_log2_32(unsigned n)
 {
-#ifdef _MSC_VER
-	return (sizeof(n)<<3)-1-(int)__lzcnt(n);//SSE4
-
-	//unsigned long logn=0;
-	//int success=_BitScanReverse(&logn, n);
-	//logn=success?logn:-1;
-	//return logn;
-#elif defined __GNUC__
-	if(!n)
-		return -1;
-	int logn=31-__builtin_clz(n);
-	return logn;
+#if defined _MSC_VER || defined __GNUC__
+	return (sizeof(n)<<3)-1-(int)_lzcnt_u32(n);//SSE4
 #else
 	//binary search
 #if 0
@@ -424,6 +440,24 @@ int get_lsb_index32(unsigned n)
 	return lsb;
 #endif
 }
+int get_lsb_index16(unsigned short n)
+{
+#ifdef _MSC_VER
+	return (int)_tzcnt_u16(n);
+#elif defined __GNUC__
+	return __builtin_ctzs(n);
+#else
+	int cond, lsb;
+	if(!n)
+		return sizeof(n)<<3;
+	lsb=0;
+	cond=(n>> 8<< 8==n)<<3, lsb+=cond, n>>=cond;
+	cond=(n>> 4<< 4==n)<<2, lsb+=cond, n>>=cond;
+	cond=(n>> 2<< 2==n)<<1, lsb+=cond, n>>=cond;
+	cond= n>> 1<< 1==n    , lsb+=cond;
+	return lsb;
+#endif
+}
 int floor_log10(double x)
 {
 	static const double pmask[]=//positive powers
@@ -481,6 +515,17 @@ int floor_log10(double x)
 }
 unsigned floor_sqrt(unsigned long long x)
 {
+	unsigned long long low=0, range=x;
+	while(range)
+	{
+		unsigned long long floorhalf=range>>1;
+		unsigned long long level=low+floorhalf+1;
+		if(level*level<=x)
+			low+=range-floorhalf;
+		range=floorhalf;
+	}
+	return (unsigned)low;
+#if 0
 	if(x<2)
 		return (unsigned)x;
 	int lg_sqrtx_p1=(floor_log2(x)>>1)+1;
@@ -516,6 +561,7 @@ unsigned floor_sqrt(unsigned long long x)
 	}
 	//printf("%d muls\n", nmuls);//
 	return (unsigned)U;//U <= L, we want floor, so return U
+#endif
 
 	//https://stackoverflow.com/questions/1100090/looking-for-an-efficient-integer-square-root-algorithm-for-arm-thumb2
 #if 0
@@ -532,8 +578,256 @@ unsigned floor_sqrt(unsigned long long x)
 #endif
 }
 #define FRAC_BITS 24
+unsigned exp2_fix24_neg(unsigned x)
+{
+	//return (unsigned)(exp2(-(x/16777216.))*0x1000000);//53% slower
+	/*
+	transcendental fractional powers of two
+	x					inv(x)
+	2^-0x0.000001 = 0x0.FFFFFF4F...		0x1.000000B1... = 2^0x0.000001
+	2^-0x0.000002 = 0x0.FFFFFE9D...		0x1.00000163... = 2^0x0.000002
+	2^-0x0.000004 = 0x0.FFFFFD3A...		0x1.000002C6... = 2^0x0.000004
+	2^-0x0.000008 = 0x0.FFFFFA74...		0x1.0000058C... = 2^0x0.000008
+	2^-0x0.000010 = 0x0.FFFFF4E9...		0x1.00000B17... = 2^0x0.000010
+	2^-0x0.000020 = 0x0.FFFFE9D2...		0x1.0000162E... = 2^0x0.000020
+	2^-0x0.000040 = 0x0.FFFFD3A3...		0x1.00002C5D... = 2^0x0.000040
+	2^-0x0.000080 = 0x0.FFFFA747...		0x1.000058B9... = 2^0x0.000080
+	2^-0x0.000100 = 0x0.FFFF4E8E...		0x1.0000B172... = 2^0x0.000100
+	2^-0x0.000200 = 0x0.FFFE9D1D...		0x1.000162E5... = 2^0x0.000200
+	2^-0x0.000400 = 0x0.FFFD3A3B...		0x1.0002C5CD... = 2^0x0.000400
+	2^-0x0.000800 = 0x0.FFFA747F...		0x1.00058BA0... = 2^0x0.000800
+	2^-0x0.001000 = 0x0.FFF4E91C...		0x1.000B175F... = 2^0x0.001000
+	2^-0x0.002000 = 0x0.FFE9D2B3...		0x1.00162F39... = 2^0x0.002000
+	2^-0x0.004000 = 0x0.FFD3A752...		0x1.002C605E... = 2^0x0.004000
+	2^-0x0.008000 = 0x0.FFA75652...		0x1.0058C86E... = 2^0x0.008000
+	2^-0x0.010000 = 0x0.FF4ECB59...		0x1.00B1AFA6... = 2^0x0.010000
+	2^-0x0.020000 = 0x0.FE9E115C...		0x1.0163DAA0... = 2^0x0.020000
+	2^-0x0.040000 = 0x0.FD3E0C0D...		0x1.02C9A3E7... = 2^0x0.040000
+	2^-0x0.080000 = 0x0.FA83B2DB...		0x1.059B0D32... = 2^0x0.080000
+	2^-0x0.100000 = 0x0.F5257D15...		0x1.0B5586D0... = 2^0x0.100000
+	2^-0x0.200000 = 0x0.EAC0C6E8...		0x1.172B83C8... = 2^0x0.200000
+	2^-0x0.400000 = 0x0.D744FCCB...		0x1.306FE0A3... = 2^0x0.400000
+	2^-0x0.800000 = 0x0.B504F334...		0x1.6A09E667... = 2^0x0.800000
+	*/
+	static const unsigned long long frac_pots[]=
+	{
+		0x100000000,
+		0x0FFFFFF4F,//extra 8 bits of precision
+		0x0FFFFFE9D,
+		0x0FFFFFD3A,
+		0x0FFFFFA74,
+		0x0FFFFF4E9,
+		0x0FFFFE9D2,
+		0x0FFFFD3A3,
+		0x0FFFFA747,
+		0x0FFFF4E8E,
+		0x0FFFE9D1D,
+		0x0FFFD3A3B,
+		0x0FFFA747F,
+		0x0FFF4E91C,
+		0x0FFE9D2B3,
+		0x0FFD3A752,
+		0x0FFA75652,
+		0x0FF4ECB59,
+		0x0FE9E115C,
+		0x0FD3E0C0D,
+		0x0FA83B2DB,
+		0x0F5257D15,
+		0x0EAC0C6E8,
+		0x0D744FCCB,
+		0x0B504F334,
+	};
+#if 0
+	unsigned long long x2=(unsigned long long)x<<1;
+	unsigned long long r0=0x1000000, r1=0x1000000, r2=0x1000000, r3=0x1000000;
+	for(int k=1;k<=FRAC_BITS;k+=8)
+	{
+		r0=r0*frac_pots[(k+0)&-(int)(x2>>(k+0)&1)]>>32;
+		r1=r1*frac_pots[(k+1)&-(int)(x2>>(k+1)&1)]>>32;
+		r2=r2*frac_pots[(k+2)&-(int)(x2>>(k+2)&1)]>>32;
+		r3=r3*frac_pots[(k+3)&-(int)(x2>>(k+3)&1)]>>32;
+		r0=r0*frac_pots[(k+4)&-(int)(x2>>(k+4)&1)]>>32;
+		r1=r1*frac_pots[(k+5)&-(int)(x2>>(k+5)&1)]>>32;
+		r2=r2*frac_pots[(k+6)&-(int)(x2>>(k+6)&1)]>>32;
+		r3=r3*frac_pots[(k+7)&-(int)(x2>>(k+7)&1)]>>32;
+	}
+	r2=r2*r3>>24;
+	r0=r0*r1>>24;
+	r0=r0*r2>>24;
+	r0>>=x>>FRAC_BITS;
+	return (unsigned)r0;
+#endif
+#if 0
+	unsigned long long x2=(unsigned long long)x<<1;
+	unsigned long long r0=0x1000000, r1=0x1000000;
+	for(int k=1;k<=FRAC_BITS;k+=2)
+	{
+		//unsigned long long t0=r0*frac_pots[k+0], t1=r1*frac_pots[k+1];//continuous access
+		//t0>>=32;
+		//t1>>=32;
+		//if(x2>>(k+0)&1)
+		r0=r0*frac_pots[(k+0)&-(int)(x2>>(k+0)&1)]>>32;
+		r1=r1*frac_pots[(k+1)&-(int)(x2>>(k+1)&1)]>>32;
+		//r0=r0*frac_pots[(k+2)&-(int)(x2>>(k+2)&1)]>>32;
+		//r1=r1*frac_pots[(k+3)&-(int)(x2>>(k+3)&1)]>>32;
+		//r0=r0*frac_pots[(k+4)&-(int)(x2>>(k+4)&1)]>>32;
+		//r1=r1*frac_pots[(k+5)&-(int)(x2>>(k+5)&1)]>>32;
+		//r0=r0*frac_pots[(k+6)&-(int)(x2>>(k+6)&1)]>>32;
+		//r1=r1*frac_pots[(k+7)&-(int)(x2>>(k+7)&1)]>>32;
+	}
+	r0*=r1;
+	r0>>=(x>>FRAC_BITS)+24;
+	return (unsigned)r0;
+#endif
+#if 1
+	unsigned long long result=0x1000000;
+	for(int k=0;k<FRAC_BITS;)//up to 24 muls
+	{
+		int bit=x>>k&1;
+		++k;
+		result=result*frac_pots[k&-bit]>>32;
+	}
+	result>>=x>>FRAC_BITS;
+	return (unsigned)result;
+#endif
+}
+unsigned exp2_neg_fix24_avx2(unsigned x)
+{
+	/*
+	transcendental fractional powers of two
+	x					inv(x)
+	2^-0x0.000001 = 0x0.FFFFFF4F...		0x1.000000B1... = 2^0x0.000001
+	2^-0x0.000002 = 0x0.FFFFFE9D...		0x1.00000163... = 2^0x0.000002
+	2^-0x0.000004 = 0x0.FFFFFD3A...		0x1.000002C6... = 2^0x0.000004
+	2^-0x0.000008 = 0x0.FFFFFA74...		0x1.0000058C... = 2^0x0.000008
+	2^-0x0.000010 = 0x0.FFFFF4E9...		0x1.00000B17... = 2^0x0.000010
+	2^-0x0.000020 = 0x0.FFFFE9D2...		0x1.0000162E... = 2^0x0.000020
+	2^-0x0.000040 = 0x0.FFFFD3A3...		0x1.00002C5D... = 2^0x0.000040
+	2^-0x0.000080 = 0x0.FFFFA747...		0x1.000058B9... = 2^0x0.000080
+	2^-0x0.000100 = 0x0.FFFF4E8E...		0x1.0000B172... = 2^0x0.000100
+	2^-0x0.000200 = 0x0.FFFE9D1D...		0x1.000162E5... = 2^0x0.000200
+	2^-0x0.000400 = 0x0.FFFD3A3B...		0x1.0002C5CD... = 2^0x0.000400
+	2^-0x0.000800 = 0x0.FFFA747F...		0x1.00058BA0... = 2^0x0.000800
+	2^-0x0.001000 = 0x0.FFF4E91C...		0x1.000B175F... = 2^0x0.001000
+	2^-0x0.002000 = 0x0.FFE9D2B3...		0x1.00162F39... = 2^0x0.002000
+	2^-0x0.004000 = 0x0.FFD3A752...		0x1.002C605E... = 2^0x0.004000
+	2^-0x0.008000 = 0x0.FFA75652...		0x1.0058C86E... = 2^0x0.008000
+	2^-0x0.010000 = 0x0.FF4ECB59...		0x1.00B1AFA6... = 2^0x0.010000
+	2^-0x0.020000 = 0x0.FE9E115C...		0x1.0163DAA0... = 2^0x0.020000
+	2^-0x0.040000 = 0x0.FD3E0C0D...		0x1.02C9A3E7... = 2^0x0.040000
+	2^-0x0.080000 = 0x0.FA83B2DB...		0x1.059B0D32... = 2^0x0.080000
+	2^-0x0.100000 = 0x0.F5257D15...		0x1.0B5586D0... = 2^0x0.100000
+	2^-0x0.200000 = 0x0.EAC0C6E8...		0x1.172B83C8... = 2^0x0.200000
+	2^-0x0.400000 = 0x0.D744FCCB...		0x1.306FE0A3... = 2^0x0.400000
+	2^-0x0.800000 = 0x0.B504F334...		0x1.6A09E667... = 2^0x0.800000
+	*/
+	ALIGN(32) static const unsigned long long frac_pots[]=
+	{
+		(0xFFFFFF4F+128)>>8,//bit  0
+		(0xFFFFD3A3+128)>>8,//bit  6
+		(0xFFF4E91C+128)>>8,//bit 12
+		(0xFD3E0C0D+128)>>8,//bit 18
+		
+		0xFFFFFE9D,//bit  1
+		0xFFFFA747,//bit  7
+		0xFFE9D2B3,//bit 13
+		0xFA83B2DB,//bit 19
+		
+		0xFFFFFD3A,//bit  2
+		0xFFFF4E8E,//bit  8
+		0xFFD3A752,//bit 14
+		0xF5257D15,//bit 20
+		
+		0xFFFFFA74,//bit  3
+		0xFFFE9D1D,//bit  9
+		0xFFA75652,//bit 15
+		0xEAC0C6E8,//bit 21
+		
+		0xFFFFF4E9,//bit  4
+		0xFFFD3A3B,//bit 10
+		0xFF4ECB59,//bit 16
+		0xD744FCCB,//bit 22
+		
+		0xFFFFE9D2,//bit  5
+		0xFFFA747F,//bit 11
+		0xFE9E115C,//bit 17
+		0xB504F334,//bit 23
+
+		0x1000000,//initialization
+		0x1000000,
+		0x1000000,
+		0x1000000,
+	};
+	__m256i sr32=_mm256_set_epi8(
+		-1, -1, -1, -1, 15, 14, 13, 12,
+		-1, -1, -1, -1,  7,  6,  5,  4,
+		-1, -1, -1, -1, 15, 14, 13, 12,
+		-1, -1, -1, -1,  7,  6,  5,  4
+		//15, 14, 13, 12, 11, 10,  9,  8,
+		// 7,  6,  5,  4,  3,  2,  1,  0
+	);
+	__m128i sr24=_mm_set_epi8(
+		-1, -1, -1, 15, 14, 13, 12, 11,
+		-1, -1, -1,  7,  6,  5,  4,  3
+	);
+	__m256i ones=_mm256_set_epi32(0, 1, 0, 1, 0, 1, 0, 1);
+
+	__m256i x2=_mm256_set_epi32(0, x>>18&63, 0, x>>12&63, 0, x>>6&63, 0, x&63);
+	__m256i result=_mm256_load_si256((__m256i*)frac_pots+6);
+
+	__m256i factor=_mm256_load_si256((__m256i*)frac_pots+0);
+	__m256i mask=_mm256_and_si256(x2, ones);
+	x2=_mm256_srli_epi32(x2, 1);
+	mask=_mm256_cmpeq_epi64(mask, ones);
+	result=_mm256_castpd_si256(_mm256_blendv_pd(_mm256_castsi256_pd(result), _mm256_castsi256_pd(factor), _mm256_castsi256_pd(mask)));
+	for(int k=1;k<FRAC_BITS/4;++k)
+	{
+		factor=_mm256_load_si256((__m256i*)frac_pots+k);
+		factor=_mm256_mul_epu32(factor, result);
+		mask=_mm256_and_si256(x2, ones);
+		x2=_mm256_srli_epi32(x2, 1);
+		factor=_mm256_shuffle_epi8(factor, sr32);
+		mask=_mm256_cmpeq_epi64(mask, ones);
+		result=_mm256_castpd_si256(_mm256_blendv_pd(_mm256_castsi256_pd(result), _mm256_castsi256_pd(factor), _mm256_castsi256_pd(mask)));
+	}
+	__m128i r0=_mm256_extracti128_si256(result, 0);
+	__m128i r1=_mm256_extracti128_si256(result, 1);
+	r0=_mm_mul_epu32(r0, r1);
+	r0=_mm_shuffle_epi8(r0, sr24);
+	unsigned sh=(x>>FRAC_BITS)+24;
+	unsigned res=(unsigned)((unsigned long long)_mm_extract_epi64(r0, 0)*(unsigned long long)_mm_extract_epi64(r0, 1)>>sh);
+	return res;
+}
 unsigned long long exp2_fix24(int x)
 {
+	/*
+	transcendental fractional powers of two
+	x					inv(x)
+	2^-0x0.000001 = 0x0.FFFFFF4F...		0x1.000000B1... = 2^0x0.000001
+	2^-0x0.000002 = 0x0.FFFFFE9D...		0x1.00000163... = 2^0x0.000002
+	2^-0x0.000004 = 0x0.FFFFFD3A...		0x1.000002C6... = 2^0x0.000004
+	2^-0x0.000008 = 0x0.FFFFFA74...		0x1.0000058C... = 2^0x0.000008
+	2^-0x0.000010 = 0x0.FFFFF4E9...		0x1.00000B17... = 2^0x0.000010
+	2^-0x0.000020 = 0x0.FFFFE9D2...		0x1.0000162E... = 2^0x0.000020
+	2^-0x0.000040 = 0x0.FFFFD3A3...		0x1.00002C5D... = 2^0x0.000040
+	2^-0x0.000080 = 0x0.FFFFA747...		0x1.000058B9... = 2^0x0.000080
+	2^-0x0.000100 = 0x0.FFFF4E8E...		0x1.0000B172... = 2^0x0.000100
+	2^-0x0.000200 = 0x0.FFFE9D1D...		0x1.000162E5... = 2^0x0.000200
+	2^-0x0.000400 = 0x0.FFFD3A3B...		0x1.0002C5CD... = 2^0x0.000400
+	2^-0x0.000800 = 0x0.FFFA747F...		0x1.00058BA0... = 2^0x0.000800
+	2^-0x0.001000 = 0x0.FFF4E91C...		0x1.000B175F... = 2^0x0.001000
+	2^-0x0.002000 = 0x0.FFE9D2B3...		0x1.00162F39... = 2^0x0.002000
+	2^-0x0.004000 = 0x0.FFD3A752...		0x1.002C605E... = 2^0x0.004000
+	2^-0x0.008000 = 0x0.FFA75652...		0x1.0058C86E... = 2^0x0.008000
+	2^-0x0.010000 = 0x0.FF4ECB59...		0x1.00B1AFA6... = 2^0x0.010000
+	2^-0x0.020000 = 0x0.FE9E115C...		0x1.0163DAA0... = 2^0x0.020000
+	2^-0x0.040000 = 0x0.FD3E0C0D...		0x1.02C9A3E7... = 2^0x0.040000
+	2^-0x0.080000 = 0x0.FA83B2DB...		0x1.059B0D32... = 2^0x0.080000
+	2^-0x0.100000 = 0x0.F5257D15...		0x1.0B5586D0... = 2^0x0.100000
+	2^-0x0.200000 = 0x0.EAC0C6E8...		0x1.172B83C8... = 2^0x0.200000
+	2^-0x0.400000 = 0x0.D744FCCB...		0x1.306FE0A3... = 2^0x0.400000
+	2^-0x0.800000 = 0x0.B504F334...		0x1.6A09E667... = 2^0x0.800000
+	*/
 	static const unsigned long long frac_pots[]=
 	{
 		0x1000000B1,//round(2^(0x000001*2^-24)*2^32)		//extra 8 bits of precision
@@ -571,7 +865,6 @@ unsigned long long exp2_fix24(int x)
 		if(x&1)
 		{
 			result*=frac_pots[k];
-			//result+=1LL<<31;
 			result>>=32;
 		}
 		x>>=1;
@@ -822,7 +1115,7 @@ int log_error(const char *fn, int line, int quit, const char *format, ...)
 	return firsttime;
 }
 #if 0
-int valid(const void *p)
+int valid(const void *p)//only makes sense with MSVC debugger
 {
 	size_t val=(size_t)p;
 
@@ -2583,6 +2876,18 @@ ArrayHandle searchfor_file(const char *searchpath, const char *filetitle)
 	return filename;
 }
 
+int get_cpu_features(void)//returns  0: old CPU,  1: AVX2,  3: AVX-512
+{
+#ifdef _MSC_VER
+	int avx2=IsProcessorFeaturePresent(PF_AVX2_INSTRUCTIONS_AVAILABLE)!=0;
+	int avx512=IsProcessorFeaturePresent(PF_AVX512F_INSTRUCTIONS_AVAILABLE)!=0;
+#else
+	__builtin_cpu_init();
+	int avx2=__builtin_cpu_supports("avx2")!=0;
+	int avx512=__builtin_cpu_supports("avx512f")!=0;
+#endif
+	return avx512<<1|avx2;
+}
 int query_cpu_cores(void)
 {
 #ifdef _WIN32

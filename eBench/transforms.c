@@ -8502,7 +8502,7 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 ArrayHandle dwt2d_gensizes(int iw, int ih, int wstop, int hstop, int nstages_override)//calculate dimensions of each DWT stage in descending order
 {
 	ArrayHandle sizes;
-	int lw=floor_log2(iw), lh=floor_log2(ih), lmin=MINVAR(lw, lh);
+	int lw=FLOOR_LOG2(iw), lh=FLOOR_LOG2(ih), lmin=MINVAR(lw, lh);
 	ARRAY_ALLOC(DWTSize, sizes, 0, 0, lmin, 0);
 	if(wstop<3)
 		wstop=3;
@@ -10762,7 +10762,7 @@ static void quantize_signed(int val, int expbits, int msb, int lsb, HybridUint *
 	}
 	else
 	{
-		int lgv=floor_log2_32((unsigned)val);
+		int lgv=FLOOR_LOG2((unsigned)val);
 		int mantissa=val-(1<<lgv);
 		token = (1<<expbits) + (
 				(lgv-expbits)<<(msb+lsb)|
@@ -11318,18 +11318,18 @@ void calc_csize_abac(Image const *src, double *entropy)
 #ifdef ABAC_DUMMY_EC
 #if ABAC_DUMMY_EC==48
 		unsigned long long code=low+range;
-		int nzeros=floor_log2(low^code)-1;
+		int nzeros=FLOOR_LOG2(low^code)-1;
 		if(nzeros<0)
 			nzeros=0;
 		code&=~((1LL<<nzeros)-1);
-		bitsizes[kc]+=get_lsb_index(code);
+		bitsizes[kc]+=LSB_IDX_64(code);
 #else
 		unsigned code=low+range;//coming from renorm, cannot overflow
-		int nzeros=floor_log2_32(low^code)-1;
+		int nzeros=FLOOR_LOG2(low^code)-1;
 		if(nzeros<0)
 			nzeros=0;
 		code&=~((1LL<<nzeros)-1);
-		bitsizes[kc]+=get_lsb_index32(code);
+		bitsizes[kc]+=LSB_IDX_32(code);
 #endif
 #endif
 	}

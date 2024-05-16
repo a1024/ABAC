@@ -25,6 +25,10 @@
 extern "C"
 {
 #endif
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable:4200)//no default-constructor for struct with zero-length array
+#endif
 
 //utility
 #define BETWEEN_INC(LO, X, HI) ((unsigned)((X)-LO)<(unsigned)(HI+1-LO))
@@ -35,7 +39,39 @@ extern "C"
 #define MINVAR(A, B) ((A)<(B)?(A):(B))
 #define MAXVAR(A, B) ((A)>(B)?(A):(B))
 #define CLAMP(LO, X, HI) ((X)>(LO)?(X)<(HI)?(X):(HI):(LO))
-#define MEDIAN3(A, B, C) (B<A?B<C?C<A?C:A:B:A<C?C<B?C:B:A)//3 branches max
+
+//include<smmintrin.h>	SSE4.1
+#define MEDIAN3_32(DST, A, B, C)\
+	do\
+	{\
+		ALIGN(16) int arr[4];\
+		__m128i va=_mm_set_epi32(0, 0, 0, A);\
+		__m128i vb=_mm_set_epi32(0, 0, 0, B);\
+		__m128i vc=_mm_set_epi32(0, 0, 0, C);\
+		__m128i vmin=_mm_min_epi32(va, vb);\
+		__m128i vmax=_mm_max_epi32(va, vb);\
+		vc=_mm_max_epi32(vc, vmin);\
+		vc=_mm_min_epi32(vc, vmax);\
+		_mm_store_si128((__m128i*)arr, vc);\
+		DST=arr[0];\
+	}while(0)
+
+//include<emmintrin.h>	SSE2
+#define MEDIAN3_16(DST, A, B, C)\
+	do\
+	{\
+		ALIGN(16) short arr[8];\
+		__m128i va=_mm_set_epi16(0, 0, 0, 0, 0, 0, 0, A);\
+		__m128i vb=_mm_set_epi16(0, 0, 0, 0, 0, 0, 0, B);\
+		__m128i vc=_mm_set_epi16(0, 0, 0, 0, 0, 0, 0, C);\
+		__m128i vmin=_mm_min_epi16(va, vb);\
+		__m128i vmax=_mm_max_epi16(va, vb);\
+		vc=_mm_max_epi16(vc, vmin);\
+		vc=_mm_min_epi16(vc, vmax);\
+		_mm_store_si128((__m128i*)arr, vc);\
+		DST=arr[0];\
+	}while(0)
+#define MEDIAN3(A, B, C) (B<A?B<C?C<A?C:A:B:A<C?C<B?C:B:A)//SLOW
 #define MOVEOBJ(SRC, DST, SIZE) memcpy(DST, SRC, SIZE), memset(SRC, 0, SIZE)
 #define MODVAR(DST, SRC, N) DST=(SRC)%(N), DST+=(N)&-(DST<0)
 #define SHIFT_LEFT_SIGNED(X, SH) ((SH)<0?(X)>>-(SH):(X)<<(SH))
@@ -44,6 +80,15 @@ extern "C"
 #define UPDATE_MAX(M, X) if(M<X)M=X
 #define THREEWAY(L, R) (((L)>(R))-((L)<(R)))
 #define MIX(V0, V1, X) ((V0)+((V1)-(V0))*(X))
+#define FLOOR_LOG2(X)		(sizeof(X)==8?63-(int)_lzcnt_u64((unsigned long long)(X)):31-(int)_lzcnt_u32((unsigned)(X)))
+#define FLOOR_LOG2_P1(X)	(sizeof(X)==8?64-(int)_lzcnt_u64((unsigned long long)(X)):32-(int)_lzcnt_u32((unsigned)(X)))
+//#define FLOOR_LOG2_64(X)	(63-(int)_lzcnt_u64(X))
+//#define FLOOR_LOG2_P1_64(X)	(64-(int)_lzcnt_u64(X))
+//#define FLOOR_LOG2_32(X)	(31-(int)_lzcnt_u32(X))
+//#define FLOOR_LOG2_P1_32(X)	(32-(int)_lzcnt_u32(X))
+#define LSB_IDX_64(X)	(int)_tzcnt_u64(X)
+#define LSB_IDX_32(X)	(int)_tzcnt_u32(X)
+#define LSB_IDX_16(X)	(int)_tzcnt_u16(X)
 
 #ifdef _MSC_VER
 #define	ALIGN(N) __declspec(align(N))
@@ -65,6 +110,7 @@ void memfill(void *dst, const void *src, size_t dstbytes, size_t srcbytes);
 void memswap_slow(void *p1, void *p2, size_t size);
 void memswap(void *p1, void *p2, size_t size, void *temp);
 void memreverse(void *p, size_t count, size_t esize);//calls memswap
+void reverse16(void *start, void *end);
 void memrotate(void *p, size_t byteoffset, size_t bytesize, void *temp);//temp buffer is min(byteoffset, bytesize-byteoffset)
 int binary_search(const void *base, size_t count, size_t esize, int (*threeway)(const void*, const void*), const void *val, size_t *idx);//returns true if found, otherwise the idx is where val should be inserted, standard bsearch doesn't do this
 void isort(void *base, size_t count, size_t esize, int (*threeway)(const void*, const void*));//binary insertion sort
@@ -80,15 +126,18 @@ int acme_getopt(int argc, char **argv, int *start, const char **keywords, int kw
 int hammingweight16(unsigned short x);
 int hammingweight32(unsigned x);
 int hammingweight64(unsigned long long x);
-int floor_log2_p1(unsigned long long n);
-int floor_log2(unsigned long long n);//uses intrinsics and was patched to give -1 for zero input
-int floor_log2_32(unsigned n);
+//int floor_log2_p1(unsigned long long n);
+//int floor_log2(unsigned long long n);		//use (31-_lzcnt_u64(n)) instead
+//int floor_log2_32(unsigned n);		//use (31-_lzcnt_u32(n)) instead
 int ceil_log2(unsigned long long n);
 int ceil_log2_32(unsigned n);
-int get_lsb_index(unsigned long long n);//returns lsb position + 1,  returns register bit count if n is zero
-int get_lsb_index32(unsigned n);
+//int get_lsb_index(unsigned long long n);//returns lsb position + 1,  returns register bit count if n is zero
+//int get_lsb_index32(unsigned n);
+//int get_lsb_index16(unsigned short n);
 int floor_log10(double x);
 unsigned floor_sqrt(unsigned long long x);
+unsigned exp2_fix24_neg(unsigned x);
+unsigned exp2_neg_fix24_avx2(unsigned x);
 unsigned long long exp2_fix24(int x);
 int log2_fix24(unsigned long long x);
 #define POW_FIX24(BASE, EXP) exp2_fix24((int)((long long)(EXP)*log2_fix24(BASE)>>24))
@@ -134,10 +183,6 @@ int pause_abort(const char *file, int lineno, const char *extraInfo);
 
 //ARRAY
 #if 1
-#ifdef _MSC_VER
-#pragma warning(push)
-#pragma warning(disable:4200)//no default-constructor for struct with zero-length array
-#endif
 typedef struct ArrayHeaderStruct//32 bytes on 64 bit system, or 16 bytes on 32 bit system
 {
 	size_t count,
@@ -145,9 +190,6 @@ typedef struct ArrayHeaderStruct//32 bytes on 64 bit system, or 16 bytes on 32 b
 	void (*destructor)(void*);
 	unsigned char data[];
 } ArrayHeader, *ArrayHandle;
-#ifdef _MSC_VER
-#pragma warning(pop)
-#endif
 ArrayHandle array_construct(const void *src, size_t esize, size_t count, size_t rep, size_t pad, void (*destructor)(void*));
 size_t array_append(ArrayHandle *dst, const void *src, size_t esize, size_t count, size_t rep, size_t pad, void (*destructor)(void*));//arr can be 0, returns original array size
 ArrayHandle array_copy(ArrayHandle *arr);//shallow
@@ -193,18 +235,11 @@ int str_append(ArrayHandle *str, const char *format, ...);//requires C99, calls 
 
 //double-linked LIST of identical size arrays,		append-only, no mid-insertion
 #if 1
-#ifdef _MSC_VER
-#pragma warning(push)
-#pragma warning(disable:4200)//no default-constructor for struct with zero-length array
-#endif
 typedef struct DNodeStruct
 {
 	struct DNodeStruct *prev, *next;
 	unsigned char data[];
 } DNodeHeader, *DNodeHandle;
-#ifdef _MSC_VER
-#pragma warning(pop)
-#endif
 typedef struct DListStruct
 {
 	DNodeHandle i, f;
@@ -244,19 +279,12 @@ int   dlist_it_dec(DListItHandle it);
 
 //ordered MAP/SET (implemented as a (self-balancing) red-black tree)
 #if 1
-#ifdef _MSC_VER
-#pragma warning(push)
-#pragma warning(disable:4200)
-#endif
 typedef struct RBNodeStruct
 {
 	struct RBNodeStruct *parent, *left, *right;
 	size_t is_red;
 	unsigned char data[];//key then value
 } RBNodeHeader, *RBNodeHandle;
-#ifdef _MSC_VER
-#pragma warning(pop)
-#endif
 typedef enum CmpResEnum
 {
 	RESULT_LESS=-1,
@@ -292,18 +320,11 @@ void map_debugprint_r(RBNodeHandle *node, int depth, void (*printer)(RBNodeHandl
 
 //single-linked list, queue and stack
 #if 1
-#ifdef _MSC_VER
-#pragma warning(push)
-#pragma warning(disable:4200)
-#endif
 typedef struct SNodeStruct
 {
 	struct SNodeStruct *prev;
 	unsigned char data[];//4-byte aligned on 32-bit, not suitable for double on 32-bit
 } SNode, *SNodeHandle;
-#ifdef _MSC_VER
-#pragma warning(pop)
-#endif
 typedef struct SListStruct
 {
 	//[front] -> ... -> [back] -> nullptr
@@ -338,19 +359,12 @@ void slist_print(SListHandle list, void (*printer)(const void*));
 
 //bit-string
 #if 1
-#ifdef _MSC_VER
-#pragma warning(push)
-#pragma warning(disable:4200)
-#endif
 typedef struct BitstringStruct
 {
 	size_t bitCount, byteCap;
 	unsigned char data[];//8bits/element
 	//unsigned data[];//32bits/element
 } BitstringHeader, *BitstringHandle;
-#ifdef _MSC_VER
-#pragma warning(pop)
-#endif
 //-> [bitCount], [byteCap], data...
 //arr->data		((char*)arr+sizeof(Header))
 
@@ -392,10 +406,6 @@ void bitstring_print(BitstringHandle str);
 
 //Priority Queue (Max-heap-based)
 #if 1
-#ifdef _MSC_VER
-#pragma warning(push)
-#pragma warning(disable:4200)
-#endif
 typedef struct PQueueStruct
 {
 	size_t count, //number of elements
@@ -405,9 +415,6 @@ typedef struct PQueueStruct
 	void (*destructor)(void*);//element destructor, can be 0
 	unsigned char data[];//each contained object begins with the key
 } PQueueHeader, *PQueueHandle;
-#ifdef _MSC_VER
-#pragma warning(pop)
-#endif
 
 //pqueue_construct: allocates a new bit-string
 //src:		If 0, initialize elements with 0
@@ -459,9 +466,13 @@ int save_file(const char *filename, const unsigned char *src, size_t srcSize, in
 
 ArrayHandle searchfor_file(const char *searchpath, const char *filetitle);
 
+int get_cpu_features(void);//returns  0: old CPU,  1: AVX2,  3: AVX-512
 int query_cpu_cores(void);
 
-	
+
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 #ifdef __cplusplus
 }
 #endif
