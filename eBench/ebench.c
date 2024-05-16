@@ -5922,13 +5922,25 @@ void io_render(void)
 		);
 		if(lossyconv_clipboard)
 		{
-			char clamp=lossyconv_clipboard&1, val=abs(lossyconv_clipboard>>1);
-			GUIPrint_append(0, 0, 0, 0, 0, "  buffer %c%X.%X%c",
-				lossyconv_clipboard>>7?'-':' ',
-				val>>4&15,
-				val&15,
-				clamp?'C':' '
+			short val=lossyconv_clipboard, aval=(short)abs(val);
+			GUIPrint_append(0, 0, 0, 0, 0, "  M %c%c%c.%c%c%c%c%c%c",
+				val<0?'-':' ',
+				'0'+(aval>>7&1),
+				'0'+(aval>>6&1),
+				'0'+(aval>>5&1),
+				'0'+(aval>>4&1),
+				'0'+(aval>>3&1),
+				'0'+(aval>>2&1),
+				'0'+(aval>>1&1),
+				val&1?'C':' '
 			);
+			//char clamp=lossyconv_clipboard&1, val=abs(lossyconv_clipboard>>1);
+			//GUIPrint_append(0, 0, 0, 0, 0, "  buffer %c%X.%X%c",
+			//	lossyconv_clipboard>>7?'-':' ',
+			//	val>>4&15,
+			//	val&15,
+			//	clamp?'C':' '
+			//);
 		}
 		GUIPrint_append(x, x, y+0*ystep, guizoom, 1, 0);
 		
