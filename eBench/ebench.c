@@ -3161,7 +3161,7 @@ void io_resize(void)
 
 	p->x1=(float)(w>>2), p->x2=p->x1+xstep*(OLS4_RMAX<<1|1)*gui_ols4_elementchars, p->y1=(float)(h>>1)+10, p->y2=p->y1+ystep*(1+(OLS4_RMAX+1)*(im1?im1->nch:4)), ++p;//5: OLS-4		DON'T USE p->y2
 
-	p->x1=(float)(w>>2), p->x2=p->x1+xstep*35, p->y1=(float)(h>>1)+10, p->y2=p->y1+ystep*8, ++p;//6: CUSTOM4
+	p->x1=(float)(w>>2), p->x2=p->x1+xstep*55, p->y1=(float)(h>>1)+10, p->y2=p->y1+ystep*8, ++p;//6: CUSTOM4
 }
 int io_mousemove(void)//return true to redraw
 {
