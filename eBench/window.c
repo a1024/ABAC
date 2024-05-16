@@ -428,7 +428,7 @@ ArrayHandle dialog_open_folder(void)
 		return 0;
 	}
 	IID fileOpenDialogIID={0xD57C7288, 0xD4AD, 0x4768, {0xBE, 0x02, 0x9D, 0x96, 0x95, 0x32, 0xD9, 0x60}};//IFileOpenDialog
-	hr=CoCreateInstance(&CLSID_FileOpenDialog, 0, CLSCTX_INPROC_SERVER, &fileOpenDialogIID, (void*)&pFileOpenDialog);
+	hr=CoCreateInstance((const IID*)&CLSID_FileOpenDialog, 0, CLSCTX_INPROC_SERVER, &fileOpenDialogIID, (void*)&pFileOpenDialog);
 	if(SUCCEEDED(hr))
 	{
 		int success=0, len=0;
@@ -638,7 +638,7 @@ int copy_bmp_to_clipboard(const unsigned char *rgba, int iw, int ih)
 	char *clipboard=(char*)LocalAlloc(LMEM_FIXED, size);
 	if(!clipboard)
 		return 0;
-	BITMAPINFO bmi={{sizeof(BITMAPINFOHEADER), iw, -ih, 1, 32, BI_RGB, res<<2, 0, 0, 0, 0}};
+	BITMAPINFO bmi={{sizeof(BITMAPINFOHEADER), iw, -ih, 1, 32, BI_RGB, (DWORD)(res<<2), 0, 0, 0, 0}};
 	memcpy(clipboard, &bmi, sizeof(BITMAPINFOHEADER));
 	memcpy(clipboard+sizeof(BITMAPINFOHEADER), rgba, (size_t)res<<2);
 	int success=OpenClipboard(ghWnd);
@@ -959,13 +959,13 @@ LRESULT __stdcall WndProc(HWND hWnd, unsigned message, WPARAM wParam, LPARAM lPa
 				return 0;
 			PostQuitMessage(0);
 		}
-		else if(io_keydn(wParam, 0))
+		else if(io_keydn((IOKey)wParam, 0))
 			InvalidateRect(hWnd, 0, 0);
 		keyboard[wParam]=GET_KEY_STATE((int)wParam);
 		break;
 	case WM_KEYUP:
 	case WM_SYSKEYUP:
-		if(io_keyup(wParam, 0))
+		if(io_keyup((IOKey)wParam, 0))
 			InvalidateRect(hWnd, 0, 0);
 		keyboard[wParam]=0;
 		update_main_key_states();

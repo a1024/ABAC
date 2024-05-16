@@ -2042,7 +2042,7 @@ void rct_adaptive(Image *src, int fwd)
 				(9*r*9*g+14*b)>>4,
 			};
 			int kmin=0;
-			for(int k=0;k<_countof(lumas);++k)
+			for(int k=0;k<(int)_countof(lumas);++k)
 			{
 				if(abs(lumas[kmin])>abs(lumas[k]))
 					kmin=k;
@@ -2702,6 +2702,7 @@ void pred_PU(Image *src, int fwd)
 					W	=rows[0][1-1*4],
 					cb	=src->data[idx+2],
 					cr	=src->data[idx+0];
+
 				int update=(2*(NN+WW)-(N+W+NW+NE)+4*(cb+cr))>>4;
 				update=CLAMP(-halfs[1], update, halfs[1]-1);
 				int luma=src->data[idx+1]-update;//subtract update
@@ -2728,6 +2729,18 @@ void pred_PU(Image *src, int fwd)
 					WW	=rows[0][kc-2*4],
 					W	=rows[0][kc-1*4],
 					offset	=0;
+				(void)NNWW;
+				(void)NNW;
+				(void)NN;
+				(void)NNE;
+				(void)NNEE;
+				(void)NWW;
+				(void)NW;
+				(void)N;
+				(void)NE;
+				(void)NEE;
+				(void)WW;
+				(void)W;
 				if(kc0>0)
 				{
 					offset+=rows[0][1];
@@ -2856,6 +2869,19 @@ void pred_median(Image *src, int fwd)
 					WW	=rows[0][kc-2*4],
 					W	=rows[0][kc-1*4],
 					offset	=0;
+				(void)NNN;
+				(void)NNWW;
+				(void)NNW;
+				(void)NN;
+				(void)NNE;
+				(void)NNEE;
+				(void)NWW;
+				(void)NW;
+				(void)N;
+				(void)NE;
+				(void)NEE;
+				(void)WW;
+				(void)W;
 				if(kc0>0)
 				{
 					offset+=rows[0][1];
@@ -2863,7 +2889,7 @@ void pred_median(Image *src, int fwd)
 						offset=(2*offset+rows[0][2])>>1;
 				}
 				//int nb[]={N, W, NW, NE, NEE};
-				//sort_int32(nb, _countof(nb));
+				//sort_int32(nb, (int)_countof(nb));
 				//int pred=nb[_countof(nb)>>1];
 				//pred=(pred+N+W-NW)>>1;
 
@@ -3029,13 +3055,34 @@ void pred_WPU(Image *src, int fwd)
 					WWW	=rows[0][kc-3*WPU_PIXEL_STRIDE+0],
 					WW	=rows[0][kc-2*WPU_PIXEL_STRIDE+0],
 					W	=rows[0][kc-1*WPU_PIXEL_STRIDE+0],
-					
+
 					eNN	=rows[2][kc+0*WPU_PIXEL_STRIDE+4],
 					eNW	=rows[1][kc-1*WPU_PIXEL_STRIDE+4],
 					eN	=rows[1][kc+0*WPU_PIXEL_STRIDE+4],
 					eNE	=rows[1][kc+1*WPU_PIXEL_STRIDE+4],
 					eW	=rows[0][kc-1*WPU_PIXEL_STRIDE+4],
 					offset	=0;
+				(void)NNN;
+				(void)NNWW;
+				(void)NNW;
+				(void)NN;
+				(void)NNE;
+				(void)NNEE;
+				(void)NNEEE;
+				(void)NWW;
+				(void)NW;
+				(void)N;
+				(void)NE;
+				(void)NEE;
+				(void)NEEE;
+				(void)WWW;
+				(void)WW;
+				(void)W;
+				(void)eNN;
+				(void)eNW;
+				(void)eN;
+				(void)eNE;
+				(void)eW;
 				if(kc0>0)
 				{
 					offset+=rows[0][1];
@@ -3767,7 +3814,7 @@ void pred_ecoeff(Image *src, int fwd, int enable_ma)
 				};
 #undef  LOAD
 				int correction=0;
-				for(int k=0;k<_countof(enb);++k)
+				for(int k=0;k<(int)_countof(enb);++k)
 					correction+=enb[k]*ecoeffs[k];
 				//correction+=((1<<8)>>1)-1;
 				//correction>>=8;
@@ -3802,7 +3849,7 @@ void pred_ecoeff(Image *src, int fwd, int enable_ma)
 				//coeff -= dL/dcoeff * lr
 				//coeff += (curr-pred)*srcval*lr
 				int e=errors[idx<<2|kc];
-				for(int k=0;k<_countof(enb);++k)
+				for(int k=0;k<(int)_countof(enb);++k)
 				{
 					int c=ecoeffs[k];
 					int update=e*enb[k];
@@ -4695,7 +4742,7 @@ static void pred_separate_x(Image const *src, Image *dst, int fwd, int enable_ma
 			//if(kc==1&&ky==5&&kx==6)
 			//	printf("");
 			long long lpred=0, lsum=0;
-			for(int k=0;k<_countof(preds)/2;++k)
+			for(int k=0;k<(int)_countof(preds)/2;++k)
 			{
 				long long weight=((long long)preds[k<<1|0]<<8)/errors[k];
 				lpred+=weight*preds[k<<1|1];
@@ -4720,10 +4767,10 @@ static void pred_separate_x(Image const *src, Image *dst, int fwd, int enable_ma
 			//	if(dst->data[idx<<2|kc]!=guide->data[idx<<2|kc])
 			//		LOG_ERROR("");
 			//}
-			//const int count=_countof(preds)/2;//
+			//const int count=(int)_countof(preds)/2;//
 
 			int curr=pixels[idx<<2|kc];
-			for(int k=0;k<_countof(preds)/2;++k)
+			for(int k=0;k<(int)_countof(preds)/2;++k)
 			{
 				long long e=errors[k];
 				e+=(((long long)abs(curr-preds[k<<1|1])<<8)-e)/3;
@@ -4752,7 +4799,7 @@ static void pred_separate_y(Image const *src, Image *dst, int fwd, int enable_ma
 #if 1
 #define LG_PREDLEVELS 7
 	int preds[1<<LG_PREDLEVELS];
-	for(int k=0;k<_countof(preds);++k)
+	for(int k=0;k<(int)_countof(preds);++k)
 		preds[k]=(k*nlevels>>LG_PREDLEVELS)-half;
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
@@ -4771,7 +4818,7 @@ static void pred_separate_y(Image const *src, Image *dst, int fwd, int enable_ma
 			UPDATE_MIN(vmin, NE);
 			UPDATE_MAX(vmax, NE);
 			long long lpred=0, lsum=0;
-			for(int k=0;k<_countof(errors);++k)
+			for(int k=0;k<(int)_countof(errors);++k)
 			{
 				//int p=(k*nlevels>>7)-half;
 				long long w=(((long long)kx+1)<<24)/errors[k];
@@ -4793,7 +4840,7 @@ static void pred_separate_y(Image const *src, Image *dst, int fwd, int enable_ma
 			dst->data[idx<<2|kc]=pred;
 
 			int curr=pixels[idx<<2|kc];
-			for(int k=0;k<_countof(errors);++k)
+			for(int k=0;k<(int)_countof(errors);++k)
 			{
 				long long e=errors[k];
 				e+=((abs(curr-preds[k])<<8)-e)/3;
@@ -4828,7 +4875,7 @@ static void pred_separate_y(Image const *src, Image *dst, int fwd, int enable_ma
 				//(W+WW+WWW+WWWW)>>2,
 			};
 			long long lpred=0, lsum=0;
-			for(int k=0;k<_countof(preds);++k)
+			for(int k=0;k<(int)_countof(preds);++k)
 			{
 				long long w=(((long long)ky+1)<<16)/errors[k];
 				lpred+=w*preds[k];
@@ -4848,7 +4895,7 @@ static void pred_separate_y(Image const *src, Image *dst, int fwd, int enable_ma
 			dst->data[idx<<2|kc]=pred;
 
 			int curr=pixels[idx<<2|kc];
-			for(int k=0;k<_countof(preds);++k)
+			for(int k=0;k<(int)_countof(preds);++k)
 				errors[k]+=abs(curr-preds[k]);
 		}
 	}
@@ -4978,7 +5025,7 @@ void pred_dir(Image *src, int fwd, int enable_ma)
 #undef  LOAD
 				int curr=pixels[idx<<2|kc];
 				int arg=0;
-				for(int k=1;k<_countof(nb);++k)
+				for(int k=1;k<(int)_countof(nb);++k)
 				{
 					if(abs(curr-nb[arg])>abs(curr-nb[k]))
 						arg=k;
@@ -5043,7 +5090,7 @@ void pred_dir(Image *src, int fwd, int enable_ma)
 				//	//ssearr+(((eN+1+(nlevels>>1))<<src->depth[kc]|(eW+1+(nlevels>>1)))&((1<<(src->depth[kc]<<1))-1)),
 				//};
 				//int sse_sum=0, sse_count=0;
-				//for(int k=0;k<_countof(cell);++k)
+				//for(int k=0;k<(int)_countof(cell);++k)
 				//{
 				//	sse_sum+=*cell[k]>>12;
 				//	sse_count+=*cell[k]&0xFFF;
@@ -6197,7 +6244,7 @@ void pred_t47(Image *src, int fwd, int enable_ma)
 				};
 				long long pred=0, wsum=0;
 #define LOAD(mX, mY) pred_errors[SLIC5_NPREDS*(kym[mY]+kx+2-(mX))+k]
-				for(int k=0;k<_countof(preds);++k)
+				for(int k=0;k<(int)_countof(preds);++k)
 				{
 					long long weight=1+
 						(long long)LOAD(-2,  2)+
@@ -6238,7 +6285,7 @@ void pred_t47(Image *src, int fwd, int enable_ma)
 
 				int curr=pixels[idx<<2|kc]<<8;
 				int kbest=-1, besterr=0;
-				for(int k=0;k<_countof(preds);++k)
+				for(int k=0;k<(int)_countof(preds);++k)
 				{
 					int e=abs(curr-preds[k]);
 					LOAD(0, 0)=e;
@@ -6250,7 +6297,7 @@ void pred_t47(Image *src, int fwd, int enable_ma)
 				++params[kbest];
 				if(params[kbest]>352)
 				{
-					for(int k=0;k<_countof(preds);++k)
+					for(int k=0;k<(int)_countof(preds);++k)
 						params[k]=(params[k]+1)>>1;
 				}
 				++bias_count;
@@ -6814,7 +6861,7 @@ void pred_w2_opt_v2(Image *src, short *params, int loud)
 	{
 		short *param=params+kc*PW2_NPARAM;
 		double csize0=pred_w2_calcloss(src->data, src->iw, src->ih, src->depth[kc], src->src_depth[kc], kc, param, temp, buf3, hist);
-		for(int ks=0;ks<_countof(steps);++ks)
+		for(int ks=0;ks<(int)_countof(steps);++ks)
 		{
 			int step=steps[ks];
 			double bestcsize=csize0;
@@ -6841,7 +6888,7 @@ void pred_w2_opt_v2(Image *src, short *params, int loud)
 					bestcsize=csize, bestidx=idx, beststep=-step;
 
 				if(loud_transforms)
-					set_window_title("Ch%d csize %lf [%d/%d %d/%d]...", kc, csize0, kc*_countof(steps)+ks+1, _countof(steps)*3, idx+1, PW2_NPARAM);//
+					set_window_title("Ch%d csize %lf [%d/%d %d/%d]...", kc, csize0, (int)(kc*_countof(steps)+ks+1), (int)(_countof(steps)*3), idx+1, PW2_NPARAM);//
 			}
 			if(csize0>bestcsize)
 			{
@@ -6851,7 +6898,7 @@ void pred_w2_opt_v2(Image *src, short *params, int loud)
 				if(bestidx<4&&param[bestidx]<1)
 					param[bestidx]=1;
 			}
-			//set_window_title("Ch%d csize %lf [%d/%d]...", kc, csize0, kc*_countof(steps)+ks+1, _countof(steps)*3);//
+			//set_window_title("Ch%d csize %lf [%d/%d]...", kc, csize0, (int)(kc*_countof(steps)+ks+1), (int)(_countof(steps)*3));//
 		}
 	}
 	free(hist);
@@ -7072,7 +7119,7 @@ void pred_jxl_opt_v2(Image *src, short *params, int loud)
 	{
 		short *param=params+kc*11;
 		double csize0=pred_jxl_calcloss(src->data, src->iw, src->ih, src->depth[kc], src->src_depth[kc], kc, param, temp, buf3, hist);
-		for(int ks=0;ks<_countof(steps);++ks)
+		for(int ks=0;ks<(int)_countof(steps);++ks)
 		{
 			int step=steps[ks];
 			double bestcsize=csize0;
@@ -11025,6 +11072,7 @@ static void calc_qlevels(Image const *src, int kc, int *qdivs, int nqlevels)
 #endif
 	free(hist);
 }
+#if 0
 static int abac_quantize(int x, int *qdivs, int ndivs)
 {
 	int sym=0;
@@ -11043,6 +11091,7 @@ static int abac_quantize(int x, int *qdivs, int ndivs)
 #endif
 	return sym;
 }
+#endif
 #define ABAC_NCTX 4
 #define ABAC_NCTRS 1
 #define ABAC_QLEVELS 8

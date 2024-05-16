@@ -821,7 +821,7 @@ void vrtx_resize(int vcount, int floatspervertex)
 	int nfloats=vcount*floatspervertex;
 	if(!vrtx)
 		ARRAY_ALLOC(float, vrtx, 0, nfloats, 0, 0);
-	else if(nfloats>vrtx->count)
+	else if(nfloats>(int)vrtx->count)
 		ARRAY_APPEND(vrtx, 0, nfloats-vrtx->count, 1, 0);
 }
 #if 0

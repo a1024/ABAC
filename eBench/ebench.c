@@ -382,7 +382,7 @@ static int get_ctx(Image const *image, int kc, int kx, int ky)
 
 
 	int ctx=0;
-	for(int k=0;k<_countof(ans_qlevels_u);++k)//TODO: binary search
+	for(int k=0;k<(int)_countof(ans_qlevels_u);++k)//TODO: binary search
 		ctx+=energy>ans_qlevels_u[k];
 	return ctx;
 }
@@ -548,7 +548,7 @@ void calc_csize_ans_energy_hybrid(Image const *image, size_t *csizes, const int 
 	console_log("\n");//
 
 	//int npx=res*3;
-	for(int kh=0;kh<_countof(calcsize_ans_qlevels)+1;++kh)		//step 3: accumulate & quantize CDFs
+	for(int kh=0;kh<(int)_countof(calcsize_ans_qlevels)+1;++kh)		//step 3: accumulate & quantize CDFs
 	{
 		int *hist=stats+(histsize+1)*kh;
 
@@ -688,7 +688,7 @@ static void test_predmask(Image const *image)
 		1, 7,  4,
 	};
 	Image *residues[13]={0};
-	for(int k=0;k<_countof(residues);++k)
+	for(int k=0;k<(int)_countof(residues);++k)
 		image_copy_nodata(residues+k, image);
 
 	//original image == zero predictor
@@ -749,7 +749,7 @@ static void test_predmask(Image const *image)
 		}
 	}
 	int hweight[34]={0};
-	for(int ctx=0;ctx<_countof(hweight);++ctx)	//2: get histogram sums
+	for(int ctx=0;ctx<(int)_countof(hweight);++ctx)	//2: get histogram sums
 	{
 		int *hist=stats+maxlevels*ctx;
 		for(int ks=0;ks<maxlevels;++ks)
@@ -759,20 +759,20 @@ static void test_predmask(Image const *image)
 	
 	static const int predcolors[]=
 	{
-		0xFFFFFFFF,//	zero		undefined	white
-		0xFF0000FF,//	left		180		red
-		0xFFFF0000,//	top		90		blue
-		0xFF00D000,//	average0	135		green
-		0xFF009000,//	select		135		green
-		0xFF005000,//	grad		135		green
-		0xFF000000,//	weighted	undefined	black
-		0xFFFF00FF,//	topright	45		pink
-		0xFF00FF00,//	topleft		135		green
-		0xFF000080,//	leftleft	180		red
-		0xFF008080,//	average1	157.5		mustard
-		0xFF808000,//	average2	112.5		marine
-		0xFF800080,//	average3	67.5		violet
-		0xFF808080,//	average4	undefined	grey
+		(int)0xFFFFFFFF,//	zero		undefined	white
+		(int)0xFF0000FF,//	left		180		red
+		(int)0xFFFF0000,//	top		90		blue
+		(int)0xFF00D000,//	average0	135		green
+		(int)0xFF009000,//	select		135		green
+		(int)0xFF005000,//	grad		135		green
+		(int)0xFF000000,//	weighted	undefined	black
+		(int)0xFFFF00FF,//	topright	45		pink
+		(int)0xFF00FF00,//	topleft		135		green
+		(int)0xFF000080,//	leftleft	180		red
+		(int)0xFF008080,//	average1	157.5		mustard
+		(int)0xFF808000,//	average2	112.5		marine
+		(int)0xFF800080,//	average3	67.5		violet
+		(int)0xFF808080,//	average4	undefined	grey
 	};
 	for(int kc=0;kc<3;++kc)				//3: calc csizes
 	{
@@ -2136,7 +2136,7 @@ static void jhc_marchingcubes(ArrayHandle *edges, const int *data, int gx, int g
 					{comps[0][1], comps[1][2], comps[2][2], v11m},
 					{comps[0][2], comps[1][2], comps[2][2], v111},
 				};
-				for(int kt=0;kt<_countof(triangles);++kt)
+				for(int kt=0;kt<(int)_countof(triangles);++kt)
 				{
 					const char (*tr)[3]=triangles+kt;
 					float (*v[])[4]=
@@ -3219,7 +3219,7 @@ static void click_hittest(int _mx, int _my, int *objidx, int *cellx, int *celly,
 {
 	*p=buttons;
 	*objidx=0;
-	for(*objidx=0;*objidx<_countof(buttons);++*objidx, ++*p)
+	for(*objidx=0;*objidx<(int)_countof(buttons);++*objidx, ++*p)
 	{
 		//when these buttons are inactive they shouldn't block the click
 		if(
@@ -3545,8 +3545,11 @@ int io_mousewheel(int forward)
 					}
 					break;
 				case 19:case 20:case 21:case 22:case 23:case 24:case 25:case 26:
-					ec_method+=sign;
-					MODVAR(ec_method, ec_method, ECTX_COUNT);
+					{
+						int *gcc_happy=(int*)&ec_method;
+						*gcc_happy+=sign;
+						MODVAR(*gcc_happy, *gcc_happy, ECTX_COUNT);
+					}
 					break;
 				}
 				if(ec_expbits<ec_msb+ec_lsb)
@@ -3608,7 +3611,7 @@ int io_mousewheel(int forward)
 				}
 				break;
 			case 6://CUSTOM4
-				if(!celly&&(unsigned)cellx<17)
+				if(!celly)
 				{
 					if(cellx==6)//change layer, stay in same channel
 					{
@@ -3621,35 +3624,41 @@ int io_mousewheel(int forward)
 						lossyconv_page=(lossyconv_page&12)|((lossyconv_page+sign)&3);
 						update_image();
 					}
+					else if(cellx==23)
+					{
+						char *p=lossyconv_causalRCT+lossyconv_page;
+						*p=!*p;
+						update_image();
+					}
 				}
 				else if(celly==6)
 				{
-					char *p;
+					unsigned char *p;
 					if((unsigned)(cellx-11)<3)
 					{
-						p=lossyconv_offset+((size_t)lossyconv_page<<1|0);
+						p=lossyconv_offset+((size_t)lossyconv_page>>2<<1|0);
 						*p+=sign;
 						update_image();
 					}
 					else if((unsigned)(cellx-15)<3)
 					{
-						p=lossyconv_offset+((size_t)lossyconv_page<<1|1);
+						p=lossyconv_offset+((size_t)lossyconv_page>>2<<1|1);
 						*p+=sign;
 						update_image();
 					}
 				}
 				else if(celly==7)
 				{
-					char *p;
+					unsigned char *p;
 					if((unsigned)(cellx-11)<3)
 					{
-						p=lossyconv_stride+((size_t)lossyconv_page<<1|0);
+						p=lossyconv_stride+((size_t)lossyconv_page>>2<<1|0);
 						*p+=sign;
 						update_image();
 					}
 					else if((unsigned)(cellx-15)<3)
 					{
-						p=lossyconv_stride+((size_t)lossyconv_page<<1|1);
+						p=lossyconv_stride+((size_t)lossyconv_page>>2<<1|1);
 						*p+=sign;
 						update_image();
 					}
@@ -3658,7 +3667,7 @@ int io_mousewheel(int forward)
 				{
 					//    000000000011111111112222222222333333
 					//    012345678901234567890123456789012345
-					//0  "Layer 1/4  C 1/3"
+					//0  "Layer 1/4  C 1/3  cRCT 1"
 					//1  " +0.0C  +0.0C  +0.0C  +0.0C  +0.0C "
 					//2  " +0.0C  +0.0C  +0.0C  +0.0C  +0.0C "
 					//3  " +0.0C  +0.0C [+0.0C] +0.0C  +0.0C "
@@ -3671,15 +3680,15 @@ int io_mousewheel(int forward)
 					switch(c)
 					{
 					case 1:
-						*p^=0x80;
+						*p=((unsigned char)(-*p)&0xFE)|(*p&1);
 						update_image();
 						break;
 					case 2:
-						*p+=sign<<5;
+						*p=((*p+(sign<<5))&0xFE)|(*p&1);
 						update_image();
 						break;
 					case 4:
-						*p+=sign<<1;
+						*p=((*p+(sign<<1))&0xFE)|(*p&1);
 						update_image();
 						break;
 					case 5:
@@ -4146,7 +4155,7 @@ int io_keydn(IOKey key, char c)
 				{
 					//    000000000011111111112222222222333333
 					//    012345678901234567890123456789012345
-					//0  "Layer 1/4  Ch 1/3"
+					//0  "Layer 1/4  Ch 1/3  cRCT 1"
 					//1  " +0.0C  +0.0C  +0.0C  +0.0C  +0.0C "
 					//2  " +0.0C  +0.0C  +0.0C  +0.0C  +0.0C "
 					//3  " +0.0C  +0.0C [+0.0C] +0.0C  +0.0C "
@@ -4319,8 +4328,9 @@ int io_keydn(IOKey key, char c)
 		{
 			int fwd=key==KEY_PERIOD;
 			fwd-=!fwd;
-			ec_method+=fwd;
-			MODVAR(ec_method, ec_method, ECTX_COUNT);
+			int *gcc_happy=(int*)&ec_method;
+			*gcc_happy+=fwd;
+			MODVAR(*gcc_happy, *gcc_happy, ECTX_COUNT);
 			update_image();
 		}
 		return 1;
@@ -4584,7 +4594,7 @@ int io_keydn(IOKey key, char c)
 				const int stw=(custom_pred_reach<<1|1)*2;
 				for(int kc2=0;kc2<3;++kc2)
 				{
-					const int np=_countof(custom_params)/3;
+					const int np=(int)(_countof(custom_params)/3);
 					const int *params=custom_params+24*kc2;
 					for(int k=0;k<np;++k)
 					{
@@ -4599,8 +4609,8 @@ int io_keydn(IOKey key, char c)
 						}
 					}
 				}
-				//for(int k=0;k<_countof(customparam_clamp);++k)
-				//	str_append(&str, "%d%c", customparam_clamp[k], k<_countof(customparam_clamp)-1?'\t':'\n');
+				//for(int k=0;k<(int)_countof(customparam_clamp);++k)
+				//	str_append(&str, "%d%c", customparam_clamp[k], k<(int)_countof(customparam_clamp)-1?'\t':'\n');
 			}
 			copy_to_clipboard((char*)str->data, (int)str->count);
 			array_free(&str);
@@ -4654,7 +4664,7 @@ int io_keydn(IOKey key, char c)
 				}
 				else if(transforms_mask[ST_FWD_LOGIC]||transforms_mask[ST_INV_LOGIC])
 				{
-					parse_nvals(text, idx, logic_params, _countof(logic_params));
+					parse_nvals(text, idx, logic_params, (int)_countof(logic_params));
 				}
 				else if(transforms_mask[ST_FWD_CUSTOM2]||transforms_mask[ST_INV_CUSTOM2])
 				{
@@ -4665,7 +4675,7 @@ int io_keydn(IOKey key, char c)
 				if(transforms_mask[ST_FWD_OLS4]||transforms_mask[ST_INV_OLS4])
 				{
 					idx=parse_nvals_i32(text, idx, &ols4_period, 1);
-					idx=parse_nvals_f64(text, idx, ols4_lr, _countof(ols4_lr));
+					idx=parse_nvals_f64(text, idx, ols4_lr, (int)_countof(ols4_lr));
 					idx=parse_nvals_i8(text, idx, (unsigned char*)ols4_mask, sizeof(ols4_mask)/sizeof(char));
 				}
 				if(transforms_mask[ST_FWD_CUSTOM3]||transforms_mask[ST_INV_CUSTOM3])
@@ -4674,11 +4684,11 @@ int io_keydn(IOKey key, char c)
 				}
 				else if(transforms_mask[ST_FWD_WP]||transforms_mask[ST_INV_WP])
 				{
-					parse_nvals(text, idx, jxlparams_i16, _countof(jxlparams_i16));
+					parse_nvals(text, idx, jxlparams_i16, (int)_countof(jxlparams_i16));
 				}
 				else if(transforms_mask[ST_FWD_MM]||transforms_mask[ST_INV_MM])
 				{
-					parse_nvals(text, idx, pw2_params, _countof(pw2_params));
+					parse_nvals(text, idx, pw2_params, (int)_countof(pw2_params));
 				}
 #if 0
 				else if(transforms_mask[ST_FWD_JOINT]||transforms_mask[ST_INV_JOINT])
@@ -4720,7 +4730,7 @@ int io_keydn(IOKey key, char c)
 				else if(transforms_customenabled)
 				{
 					int shift=GET_KEY_STATE(KEY_SHIFT);
-					k=0, kend=_countof(rct_custom_params);
+					k=0, kend=(int)_countof(rct_custom_params);
 					for(;k<kend;++k)
 					{
 						char *end=0;
@@ -4731,7 +4741,7 @@ int io_keydn(IOKey key, char c)
 							goto paste_finish;
 					}
 					k=0;
-					kend=_countof(custom_params);
+					kend=(int)_countof(custom_params);
 					if(shift)
 					{
 						for(;k<kend;++k)
@@ -4744,7 +4754,7 @@ int io_keydn(IOKey key, char c)
 						}
 					}
 					else
-						idx=parse_nvals_i32(text, idx, custom_params, _countof(custom_params));
+						idx=parse_nvals_i32(text, idx, custom_params, (int)_countof(custom_params));
 				}
 
 			paste_finish:
@@ -5239,7 +5249,7 @@ static void draw_YCoCg_R(float x, float y, float z)
 		x+2, y+2, z+2,
 	};
 	draw_shape_i(points);
-	for(int k=0;k<_countof(points);k+=3)
+	for(int k=0;k<(int)_countof(points);k+=3)
 	{
 		float *p=points+k;
 		p[0]-=x;
@@ -5277,7 +5287,7 @@ static void draw_YCbCr_R(float x, float y, float z)
 		x+2, y+2, z+2,
 	};
 	draw_shape_i(points);
-	for(int k=0;k<_countof(points);k+=3)
+	for(int k=0;k<(int)_countof(points);k+=3)
 	{
 		float *p=points+k;
 		p[0]-=x;
@@ -5315,7 +5325,7 @@ static void draw_JPEG2000(float x, float y, float z)
 		x+2, y+2, z+2,
 	};
 	draw_shape_i(points);
-	for(int k=0;k<_countof(points);k+=3)
+	for(int k=0;k<(int)_countof(points);k+=3)
 	{
 		float *p=points+k;
 		p[0]-=x;
@@ -5345,7 +5355,7 @@ static void draw_diffav(float x, float y, float z)
 	draw_3d_line(&cam, points+3*1, points+3*2, 0xFF0000FF);
 	draw_3d_line(&cam, points+3*2, points+3*3, 0xFF00FF00);
 	draw_3d_line(&cam, points+3*3, points+3*0, 0xFFFF0000);
-	for(int k=0;k<_countof(points)-2;k+=3)
+	for(int k=0;k<(int)_countof(points)-2;k+=3)
 	{
 		points[k+0]-=points[k+1];
 		points[k+1]+=points[k+0]/2;
@@ -5902,11 +5912,12 @@ void io_render(void)
 		x=buttons[6].x1;
 		y=buttons[6].y1;
 		//Layer 1/4  Ch 1/3
-		GUIPrint_append(0, 0, 0, 0, 0, "Layer %d/4  %c %d/%d",
+		GUIPrint_append(0, 0, 0, 0, 0, "Layer %d/4  %c %d/%d  cRCT %d",
 			(lossyconv_page>>2)+1,
 			"RGBA"[lossyconv_page&3],
 			(lossyconv_page&3)+1,
-			im0->nch
+			im0->nch,
+			lossyconv_causalRCT[lossyconv_page>>2]
 		);
 		if(lossyconv_clipboard)
 		{
@@ -5922,7 +5933,7 @@ void io_render(void)
 		
 		//    000000000011111111112222222222333333
 		//    012345678901234567890123456789012345
-		//0  "Layer 1/4  Ch 1/3"
+		//0  "Layer 1/4  Ch 1/3  cRCT 1"
 		//1  " +0.0C  +0.0C  +0.0C  +0.0C  +0.0C "
 		//2  " +0.0C  +0.0C  +0.0C  +0.0C  +0.0C "
 		//3  " +0.0C  +0.0C [+0.0C] +0.0C  +0.0C "

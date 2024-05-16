@@ -97,7 +97,7 @@ void console_end(void)
 void console_buffer_size(short x, short y)
 {
 	COORD coord={x, y};
-	SMALL_RECT Rect={0, 0, x-1, y-1};
+	SMALL_RECT Rect={0, 0, (short)(x-1), (short)(y-1)};
 
     HANDLE Handle=GetStdHandle(STD_OUTPUT_HANDLE);
     SetConsoleScreenBufferSize(Handle, coord);

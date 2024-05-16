@@ -31,11 +31,11 @@ static void ols5_init(OLS5 *p, int n)
 	int msize=n*n;
 	memset(p, 0, sizeof(*p));
 	p->n=n;
-	p->nb=_mm_malloc(sizeof(double)*n, sizeof(__m256d));
-	p->vec=_mm_malloc(sizeof(double)*n, sizeof(__m256d));
-	p->cov=_mm_malloc(sizeof(double)*msize, sizeof(__m256d));
-	p->cholesky=_mm_malloc(sizeof(double)*msize, sizeof(__m256d));
-	p->params=_mm_malloc(sizeof(double)*n, sizeof(__m256d));
+	p->nb=(double*)_mm_malloc(sizeof(double)*n, sizeof(__m256d));
+	p->vec=(double*)_mm_malloc(sizeof(double)*n, sizeof(__m256d));
+	p->cov=(double*)_mm_malloc(sizeof(double)*msize, sizeof(__m256d));
+	p->cholesky=(double*)_mm_malloc(sizeof(double)*msize, sizeof(__m256d));
+	p->params=(double*)_mm_malloc(sizeof(double)*n, sizeof(__m256d));
 	ALLOCASSERT(!p->nb||!p->vec||!p->cov||!p->cholesky||!p->params);
 	memset(p->nb, 0, sizeof(double)*n);
 	memset(p->vec, 0, sizeof(double)*n);
@@ -123,7 +123,7 @@ static int ols5_clamp4(double fpred, double a, double b, double c, double d)
 	int pred=(int)round(fpred);
 	return pred;
 }
-#define LOAD(BUF, C, X, Y) ((unsigned)(ky+(Y))<(unsigned)src->ih&&(unsigned)(kx+(X))<(unsigned)src->iw?BUF[(src->iw*(ky+(Y))+kx+(X))<<2|C]:0)
+#define LOAD(BUF, C, X, Y) ((unsigned)(ky+(Y))<(unsigned)src->ih&&(unsigned)(kx+(X))<(unsigned)src->iw?(double)BUF[(src->iw*(ky+(Y))+kx+(X))<<2|C]:0)
 void pred_ols5(Image *src, int fwd)
 {
 	double t_start=time_sec();

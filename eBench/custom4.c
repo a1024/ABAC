@@ -12,6 +12,7 @@ char lossyconv_clipboard=0;
 int lossyconv_page=0;//[0~15]: 4 channels max * 4 stages
 char lossyconv_params[5*5*4*4]={0};//(r2 = 5*5) * 4 channels max * 4 stages		precision: sign_bit.2.4.clamp_bit
 unsigned char lossyconv_stride[2*4]={0}, lossyconv_offset[2*4]={0};//2 dimensions * 4 stages
+unsigned char lossyconv_causalRCT[4]={0};
 #define LOAD(BUF, X, Y) ((unsigned)(ky+(Y))<(unsigned)src->ih&&(unsigned)(kx+(X))<(unsigned)src->iw?BUF[(src->iw*(ky+(Y))+kx+(X))<<2|kc]:0)
 void pred_lossyconv(Image *src)
 {
@@ -44,14 +45,54 @@ void pred_lossyconv(Image *src)
 				if(!depth)
 					continue;
 				char *curr_filt=lossyconv_params+5*5*(4*kb+kc);
-				int clampsize=0;
-				for(int k=0;k<5*5;++k)
-					clampsize+=curr_filt[k]&1;
-				for(int ky=ystart, idx=0;ky<src->ih;ky+=ystride)
+				//int clampsize=0;
+				//for(int k=0;k<5*5;++k)
+				//	clampsize+=curr_filt[k]&1;
+				for(int ky=ystart;ky<src->ih-(ystride-1);ky+=ystride)
 				{
-					for(int kx=xstart;kx<src->iw;kx+=xstride)
+					for(int kx=xstart;kx<src->iw-(xstride-1);kx+=xstride)
 					{
 						int idx=src->iw*ky+kx;
+						int offset=0, pred=0, vmin=-half, vmax=half-1, uninit=1;
+						//if(kc==1&&lossyconv_causalRCT[kb]&&ky==10&&kx==10)//
+						//	printf("");
+						for(int ky2=-2, idx2=0;ky2<=2;++ky2)
+						{
+							for(int kx2=-2;kx2<=2;++kx2, ++idx2)
+							{
+								if((unsigned)(ky+ky2)<(unsigned)src->ih&&(unsigned)(kx+kx2)<(unsigned)src->iw)
+								{
+									char param=curr_filt[idx2];
+									int idx3=src->iw*(ky+ky2)+kx+kx2;
+									int nb=p1[idx3<<2|kc];
+									if(kc!=1&&lossyconv_causalRCT[kb])
+										nb-=p1[idx3<<2|1];
+									
+									pred+=(param>>1)*nb;
+									if(param&1)
+									{
+										if(uninit)
+										{
+											uninit=0;
+											vmin=nb, vmax=nb;
+										}
+										else
+										{
+											UPDATE_MIN(vmin, nb);
+											UPDATE_MAX(vmax, nb);
+										}
+									}
+								}
+							}
+						}
+						if(kc!=1&&lossyconv_causalRCT[kb])
+							offset+=p1[idx<<2|1];
+						pred+=8;
+						pred>>=4;
+						pred=CLAMP(vmin, pred, vmax);
+						pred+=offset;
+						pred=CLAMP(-half, pred, half);
+#if 0
 						int nb[]=
 						{
 							LOAD(p1, -2, -2),
@@ -80,15 +121,20 @@ void pred_lossyconv(Image *src)
 							LOAD(p1,  1,  2),
 							LOAD(p1,  2,  2),
 						};
+						//if(ky==10&&kx==10)//
+						//	printf("");
 						int pred=0;
-						int vmin=-half, vmax=half-1, uninit=0;
+						int vmin=-half, vmax=half-1, uninit=1;
 						for(int k=0;k<5*5;++k)
 						{
-							pred+=curr_filt[k]*(nb[k]>>1);
+							pred+=(curr_filt[k]>>1)*nb[k];
 							if(curr_filt[k]&1)
 							{
 								if(uninit)
+								{
+									uninit=0;
 									vmin=nb[k], vmax=nb[k];
+								}
 								else
 								{
 									UPDATE_MIN(vmin, nb[k]);
@@ -99,6 +145,7 @@ void pred_lossyconv(Image *src)
 						pred+=8;
 						pred>>=4;
 						pred=CLAMP(vmin, pred, vmax);
+#endif
 
 						int curr=p1[idx<<2|kc];
 						curr-=pred;
