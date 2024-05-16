@@ -10,7 +10,7 @@ static const char file[]=__FILE__;
 
 char lossyconv_clipboard=0;
 int lossyconv_page=0;//[0~15]: 4 channels max * 4 stages
-char lossyconv_params[5*5*4*4]={0};//(r2 = 5*5) * 4 channels max * 4 stages		precision: sign_bit.2.4.clamp_bit
+short lossyconv_params[5*5*4*4]={0};//(r2 = 5*5) * 4 channels max * 4 stages		precision: sign_bit.2.4.clamp_bit
 unsigned char lossyconv_stride[2*4]={0}, lossyconv_offset[2*4]={0};//2 dimensions * 4 stages
 unsigned char lossyconv_causalRCT[4]={0};
 #define LOAD(BUF, X, Y) ((unsigned)(ky+(Y))<(unsigned)src->ih&&(unsigned)(kx+(X))<(unsigned)src->iw?BUF[(src->iw*(ky+(Y))+kx+(X))<<2|kc]:0)
@@ -44,7 +44,7 @@ void pred_lossyconv(Image *src)
 				int depth=src->depth[kc], half=1<<depth>>1;
 				if(!depth)
 					continue;
-				char *curr_filt=lossyconv_params+5*5*(4*kb+kc);
+				short *curr_filt=lossyconv_params+5*5*(4*kb+kc);
 				//int clampsize=0;
 				//for(int k=0;k<5*5;++k)
 				//	clampsize+=curr_filt[k]&1;

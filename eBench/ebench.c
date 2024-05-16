@@ -3663,34 +3663,36 @@ int io_mousewheel(int forward)
 						update_image();
 					}
 				}
-				else
+				else if((unsigned)(celly-1)<5)
 				{
 					//    000000000011111111112222222222333333
 					//    012345678901234567890123456789012345
 					//0  "Layer 1/4  C 1/3  cRCT 1"
-					//    00000000001111111111222222222233333333334444444444555555
-					//    01234567890123456789012345678901234567890123456789012345
-					//1  " +I.FFFFFC  +I.FFFFFC  +I.FFFFFC  +I.FFFFFC  +I.FFFFFC "
-					//2  " +I.FFFFFC  +I.FFFFFC  +I.FFFFFC  +I.FFFFFC  +I.FFFFFC "
-					//3  " +I.FFFFFC  +I.FFFFFC [+I.FFFFFC] +I.FFFFFC  +I.FFFFFC "
-					//4  " +I.FFFFFC  +I.FFFFFC  +I.FFFFFC  +I.FFFFFC  +I.FFFFFC "
-					//5  " +I.FFFFFC  +I.FFFFFC  +I.FFFFFC  +I.FFFFFC  +I.FFFFFC "
+					//    0000000000111111111122222222223333333333444444444455555555556
+					//    0123456789012345678901234567890123456789012345678901234567890
+					//1  " +II.FFFFFC  +II.FFFFFC  +II.FFFFFC  +II.FFFFFC  +II.FFFFFC "
+					//2  " +II.FFFFFC  +II.FFFFFC  +II.FFFFFC  +II.FFFFFC  +II.FFFFFC "
+					//3  " +II.FFFFFC  +II.FFFFFC [+II.FFFFFC] +II.FFFFFC  +II.FFFFFC "
+					//4  " +II.FFFFFC  +II.FFFFFC  +II.FFFFFC  +II.FFFFFC  +II.FFFFFC "
+					//5  " +II.FFFFFC  +II.FFFFFC  +II.FFFFFC  +II.FFFFFC  +II.FFFFFC "
 					//6  "XY  Offset XXX YYY"
 					//7  "    Stride XXX YYY"
-					int c=cellx%11, x=cellx/11;
-					char *p=lossyconv_params+5*5*lossyconv_page+5*(celly-1)+x;
-					if(c==9)
+					int c=cellx%12, x=cellx/12;
+					short *p=lossyconv_params+5*5*lossyconv_page+5*(celly-1)+x;
+					if(c==10)//toggle clamp mask
 					{
 						*p^=1;
 						update_image();
 					}
-					else if((unsigned)(c-1)<8)
+					else if((unsigned)(c-1)<9)
 					{
-						//12345678
-						//76.54321
-						int bitidx=8-c;
+						//123456789
+						//876.54321
+						int bitidx=9-c;
 						bitidx+=bitidx<6;
-						*p=((unsigned char)(*p+(sign<<bitidx))&0xFE)|(*p&1);
+						*p=((unsigned short)(*p+(sign<<bitidx))&~1)|(*p&1);
+						*p<<=16-9;//9-bit params
+						*p>>=16-9;
 						update_image();
 					}
 				}
@@ -4153,16 +4155,16 @@ int io_keydn(IOKey key, char c)
 					//    000000000011111111112222222222333333
 					//    012345678901234567890123456789012345
 					//0  "Layer 1/4  C 1/3  cRCT 1"
-					//    00000000001111111111222222222233333333334444444444555555
-					//    01234567890123456789012345678901234567890123456789012345
-					//1  " +I.FFFFFC  +I.FFFFFC  +I.FFFFFC  +I.FFFFFC  +I.FFFFFC "
-					//2  " +I.FFFFFC  +I.FFFFFC  +I.FFFFFC  +I.FFFFFC  +I.FFFFFC "
-					//3  " +I.FFFFFC  +I.FFFFFC [+I.FFFFFC] +I.FFFFFC  +I.FFFFFC "
-					//4  " +I.FFFFFC  +I.FFFFFC  +I.FFFFFC  +I.FFFFFC  +I.FFFFFC "
-					//5  " +I.FFFFFC  +I.FFFFFC  +I.FFFFFC  +I.FFFFFC  +I.FFFFFC "
+					//    0000000000111111111122222222223333333333444444444455555555556
+					//    0123456789012345678901234567890123456789012345678901234567890
+					//1  " +II.FFFFFC  +II.FFFFFC  +II.FFFFFC  +II.FFFFFC  +II.FFFFFC "
+					//2  " +II.FFFFFC  +II.FFFFFC  +II.FFFFFC  +II.FFFFFC  +II.FFFFFC "
+					//3  " +II.FFFFFC  +II.FFFFFC [+II.FFFFFC] +II.FFFFFC  +II.FFFFFC "
+					//4  " +II.FFFFFC  +II.FFFFFC  +II.FFFFFC  +II.FFFFFC  +II.FFFFFC "
+					//5  " +II.FFFFFC  +II.FFFFFC  +II.FFFFFC  +II.FFFFFC  +II.FFFFFC "
 					//6  "XY  Offset XXX YYY"
 					//7  "    Stride XXX YYY"
-					char *p=lossyconv_params+5*5*lossyconv_page+5*(celly-1)+cellx/11;
+					short *p=lossyconv_params+5*5*lossyconv_page+5*(celly-1)+cellx/12;
 					if(key==KEY_LBUTTON)
 					{
 						*p=lossyconv_clipboard;
@@ -5907,7 +5909,7 @@ void io_render(void)
 	{
 		int c0=set_bk_color(0x80FFFFFF);
 		float x=0, y=0, ystep=tdy*guizoom;//
-		const char *layer=lossyconv_params+5*5*lossyconv_page;
+		const short *layer=lossyconv_params+5*5*lossyconv_page;
 		x=buttons[6].x1;
 		y=buttons[6].y1;
 		//Layer 1/4  Ch 1/3
@@ -5933,13 +5935,13 @@ void io_render(void)
 		//    000000000011111111112222222222333333
 		//    012345678901234567890123456789012345
 		//0  "Layer 1/4  C 1/3  cRCT 1"
-		//    00000000001111111111222222222233333333334444444444555555
-		//    01234567890123456789012345678901234567890123456789012345
-		//1  " +I.FFFFFC  +I.FFFFFC  +I.FFFFFC  +I.FFFFFC  +I.FFFFFC "
-		//2  " +I.FFFFFC  +I.FFFFFC  +I.FFFFFC  +I.FFFFFC  +I.FFFFFC "
-		//3  " +I.FFFFFC  +I.FFFFFC [+I.FFFFFC] +I.FFFFFC  +I.FFFFFC "
-		//4  " +I.FFFFFC  +I.FFFFFC  +I.FFFFFC  +I.FFFFFC  +I.FFFFFC "
-		//5  " +I.FFFFFC  +I.FFFFFC  +I.FFFFFC  +I.FFFFFC  +I.FFFFFC "
+		//    0000000000111111111122222222223333333333444444444455555555556
+		//    0123456789012345678901234567890123456789012345678901234567890
+		//1  " +II.FFFFFC  +II.FFFFFC  +II.FFFFFC  +II.FFFFFC  +II.FFFFFC "
+		//2  " +II.FFFFFC  +II.FFFFFC  +II.FFFFFC  +II.FFFFFC  +II.FFFFFC "
+		//3  " +II.FFFFFC  +II.FFFFFC [+II.FFFFFC] +II.FFFFFC  +II.FFFFFC "
+		//4  " +II.FFFFFC  +II.FFFFFC  +II.FFFFFC  +II.FFFFFC  +II.FFFFFC "
+		//5  " +II.FFFFFC  +II.FFFFFC  +II.FFFFFC  +II.FFFFFC  +II.FFFFFC "
 		//6  "XY  Offset XXX YYY"
 		//7  "    Stride XXX YYY"
 		for(int ky=0;ky<5;++ky)
@@ -5947,6 +5949,23 @@ void io_render(void)
 			g_printed=0;
 			for(int kx=0;kx<5;++kx)
 			{
+				short val=layer[5*ky+kx], aval=(short)abs(val);
+				char lbr=' ', rbr=' ';
+				if(kx==2&&ky==2)
+					lbr='[', rbr=']';
+				GUIPrint_append(0, 0, 0, 0, 0, "%c%c%c%c.%c%c%c%c%c%c%c",
+					lbr,
+					val<0?'-':' ',
+					'0'+(aval>>7&1),
+					'0'+(aval>>6&1),
+					'0'+(aval>>5&1),
+					'0'+(aval>>4&1),
+					'0'+(aval>>3&1),
+					'0'+(aval>>2&1),
+					'0'+(aval>>1&1),
+					val&1?'C':' ',
+					rbr
+				);
 #if 0
 				const char *p=layer+5*ky+kx;
 				char clamp=*p&1, val=abs(*p>>1);
@@ -5957,21 +5976,6 @@ void io_render(void)
 					lbr=' ', rbr=' ';
 				GUIPrint_append(0, 0, 0, 0, 0, "%c%c%X.%X%c%c", lbr, p[0]>>7?'-':' ', val>>4&15, val&15, clamp?'C':' ', rbr);
 #endif
-				char val=layer[5*ky+kx], aval=abs(val);
-				char lbr=' ', rbr=' ';
-				if(kx==2&&ky==2)
-					lbr='[', rbr=']';
-				GUIPrint_append(0, 0, 0, 0, 0, "%c%c%c.%c%c%c%c%c%c%c",
-					lbr,
-					val<0?'-':' ',
-					'0'+(aval>>6&1),
-					'0'+(aval>>5&1),
-					'0'+(aval>>4&1),
-					'0'+(aval>>3&1),
-					'0'+(aval>>2&1),
-					'0'+(aval>>1&1),
-					val&1?'C':' ',
-					rbr);
 			}
 			GUIPrint_append(x, x, y+(ky+1)*ystep, guizoom, 1, 0);
 		}
