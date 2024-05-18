@@ -96,9 +96,9 @@ typedef enum TransformTypeEnum
 	ST_FWD_OLS5,		ST_INV_OLS5,
 	ST_FWD_PU,		ST_INV_PU,
 	ST_FWD_CG3D,		ST_INV_CG3D,
+	ST_FWD_WGRAD,		ST_INV_WGRAD,
 	ST_FWD_CLAMPGRAD,	ST_INV_CLAMPGRAD,
 	ST_FWD_AV2,		ST_INV_AV2,
-	ST_FWD_MEDIAN,		ST_INV_MEDIAN,
 //	ST_FWD_ECOEFF,		ST_INV_ECOEFF,
 //	ST_FWD_AVERAGE,		ST_INV_AVERAGE,
 	ST_FWD_MULTISTAGE,	ST_INV_MULTISTAGE,
@@ -159,6 +159,27 @@ int ec_adaptive=0, ec_adaptive_threshold=3200, ec_expbits=5, ec_msb=2, ec_lsb=0;
 float combCRhist[combCRhist_SIZE][4]={0}, combCRhist_max=1;
 int combCRhist_idx=0;
 
+int imagecentered=0;
+double
+	imzoom=1,//image pixel size in screen pixels
+	wpx=0, wpy=0;//window position (top-left corner) in image coordinates
+#define screen2image_x(SX)             (wpx+(SX)/imzoom)
+#define screen2image_y(SY)             (wpy+(SY)/imzoom)
+#define screen2image_x_int(SX)         (int)floor(screen2image_x(SX))
+#define screen2image_y_int(SY)         (int)floor(screen2image_y(SY))
+#define screen2image_x_int_rounded(SX) (int)floor(screen2image_x(SX)+0.5)
+#define screen2image_y_int_rounded(SY) (int)floor(screen2image_y(SY)+0.5)
+#define image2screen_x(IX)             (((IX)-wpx)*imzoom)
+#define image2screen_y(IY)             (((IY)-wpy)*imzoom)
+#define image2screen_x_int(IX)         (int)floor(image2screen_x(IX))
+#define image2screen_y_int(IY)         (int)floor(image2screen_y(IY))
+typedef enum ProfilePlotModeEnum
+{
+	PROFILE_OFF,
+	PROFILE_X,
+	PROFILE_Y,
+} ProfilePlotMode;
+ProfilePlotMode profileplotmode=PROFILE_OFF;
 int show_full_image=0;
 int space_not_color=0;
 
@@ -172,6 +193,33 @@ float jhc_level=10.5f;
 int loud_transforms=1;
 //int crop_enable=0, crop_x=0, crop_y=0, crop_dx=128, crop_dy=128;
 
+static void center_image()
+{
+	if(!im1)
+		return;
+	int wndw=w, wndh=h-17;
+	if((double)wndw/wndh>=(double)im1->iw/im1->ih)//window AR > image AR: fit height
+	{
+		if(wndh>0)
+			imzoom=(double)wndh/im1->ih;
+	}
+	else//window AR < image AR: fit width
+		imzoom=(double)wndw/im1->iw;
+	wpx=(im1->iw-wndw/imzoom)*0.5;//center image
+	wpy=(im1->ih-wndh/imzoom)*0.5;
+	imagecentered=1;
+}
+static void zoom_at(int xs, int ys, double factor)
+{
+	const double tolerance=1e-2;
+	wpx+=xs/imzoom*(1-1/factor);
+	wpy+=ys/imzoom*(1-1/factor);
+	imzoom*=factor;
+	if(fabs(imzoom-1)<tolerance)
+		imzoom=1;
+
+	imagecentered=0;
+}
 void calc_csize_ans_separate(Image const *image, size_t *csizes)
 {
 	if(!csizes)
@@ -1354,8 +1402,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_CLAMPGRAD:		a=" S Inv ClampGrad";		break;
 	case ST_FWD_AV2:		a=" S Fwd (N+W)>>1";		break;
 	case ST_INV_AV2:		a=" S Inv (N+W)>>1";		break;
-	case ST_FWD_MEDIAN:		a="CS Fwd Median";		break;
-	case ST_INV_MEDIAN:		a="CS Inv Median";		break;
+	case ST_FWD_WGRAD:		a="CS Fwd dx*N+dy*W";		break;
+	case ST_INV_WGRAD:		a="CS Inv dx*N+dy*W";		break;
 //	case ST_FWD_ECOEFF:		a=" S Fwd E-Coeff";		break;
 //	case ST_INV_ECOEFF:		a=" S Inv E-Coeff";		break;
 //	case ST_FWD_AVERAGE:		a=" S Fwd Average";		break;
@@ -2390,8 +2438,8 @@ void apply_selected_transforms(Image *image, int rct_only)
 		case ST_INV_CLAMPGRAD:		pred_clampgrad(image, 0, pred_ma_enabled);		break;
 		case ST_FWD_AV2:		pred_av2(image, 1);					break;
 		case ST_INV_AV2:		pred_av2(image, 0);					break;
-		case ST_FWD_MEDIAN:		pred_median(image, 1);					break;
-		case ST_INV_MEDIAN:		pred_median(image, 0);					break;
+		case ST_FWD_WGRAD:		pred_wgrad(image, 1);					break;
+		case ST_INV_WGRAD:		pred_wgrad(image, 0);					break;
 	//	case ST_FWD_ECOEFF:		pred_ecoeff(image, 1, pred_ma_enabled);			break;
 	//	case ST_INV_ECOEFF:		pred_ecoeff(image, 0, pred_ma_enabled);			break;
 	//	case ST_FWD_AVERAGE:		pred_average(image, 1, pred_ma_enabled);		break;
@@ -3161,7 +3209,10 @@ void io_resize(void)
 
 	p->x1=(float)(w>>2), p->x2=p->x1+xstep*(OLS4_RMAX<<1|1)*gui_ols4_elementchars, p->y1=(float)(h>>1)+10, p->y2=p->y1+ystep*(1+(OLS4_RMAX+1)*(im1?im1->nch:4)), ++p;//5: OLS-4		DON'T USE p->y2
 
-	p->x1=(float)(w>>2), p->x2=p->x1+xstep*55, p->y1=(float)(h>>1)+10, p->y2=p->y1+ystep*8, ++p;//6: CUSTOM4
+	p->x1=(float)(w>>2), p->x2=p->x1+xstep*60, p->y1=(float)(h>>1)+10, p->y2=p->y1+ystep*8, ++p;//6: CUSTOM4
+	
+	if(im1&&im1->iw&&im1->ih&&imagecentered)
+		center_image();
 }
 int io_mousemove(void)//return true to redraw
 {
@@ -3205,10 +3256,17 @@ int io_mousemove(void)//return true to redraw
 			}
 			chart_jointhist_update(im1, txid_jointhist);
 		}
-		else
+		else if(mode==VIS_JOINT_HISTOGRAM)
 		{
 			int X0=w>>1, Y0=h>>1;
 			cam_turnMouse(cam, mx-X0, my-Y0, mouse_sensitivity);
+			set_mouse(X0, Y0);
+		}
+		else
+		{
+			int X0=w>>1, Y0=h>>1;
+			wpx-=(mx-X0)/imzoom;
+			wpy-=(my-Y0)/imzoom;
 			set_mouse(X0, Y0);
 		}
 		return !timer;
@@ -3617,16 +3675,14 @@ int io_mousewheel(int forward)
 					{
 						lossyconv_page+=sign<<2;
 						lossyconv_page&=15;
-						update_image();
 					}
 					else if(cellx==13)//change channel, stay in same layer
 					{
 						lossyconv_page=(lossyconv_page&12)|((lossyconv_page+sign)&3);
-						update_image();
 					}
 					else if(cellx==23)
 					{
-						char *p=lossyconv_causalRCT+lossyconv_page;
+						char *p=lossyconv_causalRCT+(lossyconv_page>>2);
 						*p=!*p;
 						update_image();
 					}
@@ -3747,39 +3803,47 @@ int io_mousewheel(int forward)
 		}
 		else
 #endif
-		if(mode==VIS_JOINT_HISTOGRAM&&show_full_image)
+		if(mode==VIS_JOINT_HISTOGRAM)
 		{
-			if(GET_KEY_STATE(KEY_CTRL))
+			if(show_full_image)
 			{
-				if(forward>0)
+				if(GET_KEY_STATE(KEY_CTRL))
 				{
-					jhc_boxdx<<=1;
-					jhc_boxdy<<=1;
+					if(forward>0)
+					{
+						jhc_boxdx<<=1;
+						jhc_boxdy<<=1;
+					}
+					else
+					{
+						jhc_boxdx>>=1;
+						jhc_boxdy>>=1;
+					}
+					jhc_boxdx=CLAMP(0, jhc_boxdx, 256);
+					jhc_boxdy=CLAMP(0, jhc_boxdy, 256);
 				}
 				else
 				{
-					jhc_boxdx>>=1;
-					jhc_boxdy>>=1;
+					jhc_level+=THREEWAY(forward, 0);
+					UPDATE_MAX(jhc_level, 0.5f);
 				}
-				jhc_boxdx=CLAMP(0, jhc_boxdx, 256);
-				jhc_boxdy=CLAMP(0, jhc_boxdy, 256);
+				chart_jointhist_update(im1, txid_jointhist);
+			}
+			else if(GET_KEY_STATE(KEY_SHIFT))//shift wheel		change cam speed
+			{
+				if(forward>0)	cam.move_speed*=2;
+				else		cam.move_speed*=0.5f;
 			}
 			else
 			{
-				jhc_level+=THREEWAY(forward, 0);
-				UPDATE_MAX(jhc_level, 0.5f);
+				if(forward>0)	cam_zoomIn(cam, 1.1f);
+				else		cam_zoomOut(cam, 1.1f);
 			}
-			chart_jointhist_update(im1, txid_jointhist);
-		}
-		else if(GET_KEY_STATE(KEY_SHIFT))//shift wheel		change cam speed
-		{
-			if(forward>0)	cam.move_speed*=2;
-			else		cam.move_speed*=0.5f;
 		}
 		else
 		{
-			if(forward>0)	cam_zoomIn(cam, 1.1f);
-			else		cam_zoomOut(cam, 1.1f);
+			int mw_fwd=forward>0;
+			zoom_at(mx, my, mw_fwd?2:1/2.);//fwd zooms in
 		}
 	}
 	return !timer;
@@ -4269,6 +4333,8 @@ int io_keydn(IOKey key, char c)
 			"Ctrl S:\t\tSave preview as 8-bit PNG\n"
 			"Mouse1/Mouse2:\tAdd/remove transforms in the list\n"
 			"Ctrl Mouse1:\tReplace all transforms of this type\n"
+			"E:\t\tShow image at 1:1 scale\n"
+			"C:\t\tCenter image\n"
 			"Ctrl R:\t\tDisable all transforms\n"
 			//"Ctrl E:\t\tReset custom transform parameters\n"
 			"Comma/Period:\tSelect context for size estimation\n"
@@ -4292,7 +4358,7 @@ int io_keydn(IOKey key, char c)
 			"Ctrl B:\t\tBatch test\n"
 			"Ctrl SPACE:\tCheck integrity (if restored bit-exact)\n"
 		//	"Ctrl P:\t\tTest predictors\n"
-			"C:\t\tToggle joint histogram type / fill screen in image view\n"
+		//	"C:\t\tToggle joint histogram type / fill screen in image view\n"
 			"\n"
 			"M / Shift M:\tCycles between:\n"
 		//	"\t1: 3D View: Levels\n"
@@ -4340,15 +4406,6 @@ int io_keydn(IOKey key, char c)
 		//ec_adaptive=(ec_adaptive+1)%3;
 		update_image();
 		return 1;
-	//case 'E':
-	//	if(im1&&GET_KEY_STATE(KEY_CTRL)&&transforms_customenabled)//reset params
-	//	{
-	//		customtransforms_resetparams();
-	//		update_image();
-	//		return 1;
-	//	}
-	//	wireframe=!wireframe;
-	//	break;
 	case 'O':
 		if(GET_KEY_STATE(KEY_CTRL))
 		{
@@ -4373,6 +4430,19 @@ int io_keydn(IOKey key, char c)
 					array_free(&fn2);
 			}
 		}
+		return 1;
+	//case 'E':
+	//	if(im1&&GET_KEY_STATE(KEY_CTRL)&&transforms_customenabled)//reset params
+	//	{
+	//		customtransforms_resetparams();
+	//		update_image();
+	//		return 1;
+	//	}
+	//	wireframe=!wireframe;
+	//	break;
+	case 'E':
+		wpx=0, wpy=0, imzoom=1;
+		imagecentered=0;
 		return 1;
 	case 'C':
 		if(im1&&GET_KEY_STATE(KEY_CTRL))//copy custom transform value
@@ -4626,7 +4696,10 @@ int io_keydn(IOKey key, char c)
 				update_image();
 			}
 			else
+			{
+				center_image();
 				show_full_image=!show_full_image;
+			}
 
 		}
 		return 1;
@@ -4780,14 +4853,28 @@ int io_keydn(IOKey key, char c)
 	case KEY_1:
 	case KEY_2:
 	case KEY_3:
-		if(GET_KEY_STATE(KEY_CTRL)&&transforms_customenabled)
+	case KEY_4:
+		if(GET_KEY_STATE(KEY_CTRL))
 		{
-			int src=key-KEY_1;
-			if(src!=custom_pred_ch_idx)
+			if(transforms_customenabled)
 			{
-				memcpy(custom_params+(_countof(custom_params)/3)*custom_pred_ch_idx, custom_params+(_countof(custom_params)/3)*src, sizeof(custom_params)/3);
-				update_image();
-				return 1;
+				int srcidx=key-KEY_1;
+				if(srcidx<3&&srcidx!=custom_pred_ch_idx)
+				{
+					memcpy(custom_params+(_countof(custom_params)/3)*custom_pred_ch_idx, custom_params+(_countof(custom_params)/3)*srcidx, sizeof(custom_params)/3);
+					update_image();
+					return 1;
+				}
+			}
+			else if(transforms_mask[ST_FWD_CUSTOM4]||transforms_mask[ST_INV_CUSTOM4])
+			{
+				int srcidx=lossyconv_page&0xF0|(key-KEY_1)&15;
+				if(srcidx!=lossyconv_page)
+				{
+					memcpy(lossyconv_params+5*5*lossyconv_page, lossyconv_params+5*5*srcidx, sizeof(short[25]));
+					update_image();
+					return 1;
+				}
 			}
 		}
 		break;
@@ -4808,6 +4895,18 @@ int io_keydn(IOKey key, char c)
 			return 1;
 		}
 		break;
+	case 'X'://toggle horizontal profile plot
+		if(profileplotmode!=PROFILE_X)
+			profileplotmode=PROFILE_X;
+		else
+			profileplotmode=PROFILE_OFF;
+		return 1;
+	case 'Y'://toggle vertical profile plot
+		if(profileplotmode!=PROFILE_Y)
+			profileplotmode=PROFILE_Y;
+		else
+			profileplotmode=PROFILE_OFF;
+		return 1;
 	//case 'X':
 	//	{
 	//		extrainfo=!extrainfo;
@@ -5185,19 +5284,32 @@ int io_keyup(IOKey key, char c)
 }
 void io_timer(void)
 {
-	float move_speed=keyboard[KEY_SHIFT]?10*cam.move_speed:cam.move_speed;
-	if(keyboard['W'])	cam_moveForward(cam, move_speed);
-	if(keyboard['A'])	cam_moveLeft(cam, move_speed);
-	if(keyboard['S'])	cam_moveBack(cam, move_speed);
-	if(keyboard['D'])	cam_moveRight(cam, move_speed);
-	if(keyboard['T'])	cam_moveUp(cam, move_speed);
-	if(keyboard['G'])	cam_moveDown(cam, move_speed);
-	if(keyboard[KEY_UP])	cam_turnUp(cam, key_turn_speed);
-	if(keyboard[KEY_DOWN])	cam_turnDown(cam, key_turn_speed);
-	if(keyboard[KEY_LEFT])	cam_turnLeft(cam, key_turn_speed);
-	if(keyboard[KEY_RIGHT])	cam_turnRight(cam, key_turn_speed);
-	if(keyboard[KEY_ENTER])	cam_zoomIn(cam, 1.1f);
-	if(keyboard[KEY_BKSP])	cam_zoomOut(cam, 1.1f);
+	if(mode==VIS_JOINT_HISTOGRAM)
+	{
+		float move_speed=keyboard[KEY_SHIFT]?10*cam.move_speed:cam.move_speed;
+		if(keyboard['W'])	cam_moveForward(cam, move_speed);
+		if(keyboard['A'])	cam_moveLeft(cam, move_speed);
+		if(keyboard['S'])	cam_moveBack(cam, move_speed);
+		if(keyboard['D'])	cam_moveRight(cam, move_speed);
+		if(keyboard['T'])	cam_moveUp(cam, move_speed);
+		if(keyboard['G'])	cam_moveDown(cam, move_speed);
+		if(keyboard[KEY_UP])	cam_turnUp(cam, key_turn_speed);
+		if(keyboard[KEY_DOWN])	cam_turnDown(cam, key_turn_speed);
+		if(keyboard[KEY_LEFT])	cam_turnLeft(cam, key_turn_speed);
+		if(keyboard[KEY_RIGHT])	cam_turnRight(cam, key_turn_speed);
+		if(keyboard[KEY_ENTER])	cam_zoomIn(cam, 1.1f);
+		if(keyboard[KEY_BKSP])	cam_zoomOut(cam, 1.1f);
+	}
+	else
+	{
+		const int delta=10;//screen pixels per frame
+		if(keyboard[KEY_ENTER])	zoom_at(w>>1, h>>1, 1.02);
+		if(keyboard[KEY_BKSP])	zoom_at(w>>1, h>>1, 1/1.02);
+		if(keyboard['W'])	wpy-=delta/imzoom;//move window up
+		if(keyboard['A'])	wpx-=delta/imzoom;//move window left
+		if(keyboard['S'])	wpy+=delta/imzoom;//move window down
+		if(keyboard['D'])	wpx+=delta/imzoom;//move window right
+	}
 }
 static float print_i16_row(float x, float y, float zoom, const short *row, int count)
 {
@@ -5367,6 +5479,51 @@ static void draw_diffav(float x, float y, float z)
 	draw_3d_line(&cam, points+3*3, points+3*0, 0xFFFF0000);
 }
 
+ArrayHandle vertices_2d=0;
+static void draw_profile_x(int comp, int color)//horizontal cross-section profile		to see the color/spatial correlation
+{
+	int iy=screen2image_y_int(my);
+	if((unsigned)iy<(unsigned)im1->ih)
+	{
+		int *row=im1->data+(im1->iw*iy<<2|comp);
+		int ix;
+		float y2;
+		float gain=(float)(h>>1)/((1<<im1->depth[comp])-1);
+		for(int kx=0;kx<w;++kx)
+		{
+			ix=screen2image_x_int(kx);
+			if((unsigned)ix<(unsigned)im1->iw)
+				y2=h-tdy-row[ix<<2]*gain;
+			else
+				y2=h-tdy;
+			draw_curve_enqueue(&vertices_2d, (float)kx, y2);
+		}
+		draw_2d_flush(vertices_2d, color, GL_LINE_STRIP);
+	}
+}
+static void draw_profile_y(int comp, int color)//vertical cross-section profile
+{
+	int ix=screen2image_x_int(mx);
+	if((unsigned)ix<(unsigned)im1->iw)
+	{
+		int *col=im1->data+(ix<<2|comp);
+		
+		float x2;
+		int iy;
+		float gain=(float)(w>>1)/((1<<im1->depth[comp])-1);
+		int stride=im1->iw<<2;
+		for(int ky=0;ky<h;++ky)
+		{
+			iy=screen2image_y_int(ky);
+			if((unsigned)iy<(unsigned)im1->ih)
+				x2=col[iy*stride]*gain;
+			else
+				x2=0;
+			draw_curve_enqueue(&vertices_2d, x2, (float)ky);
+		}
+		draw_2d_flush(vertices_2d, color, GL_LINE_STRIP);
+	}
+}
 void io_render(void)
 {
 	glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
@@ -5396,6 +5553,9 @@ void io_render(void)
 
 	if(im1)
 	{
+		int
+			sx1=image2screen_x_int(0), sx2=image2screen_x_int(im1->iw),
+			sy1=image2screen_y_int(0), sy2=image2screen_y_int(im1->ih);
 		switch(mode)
 		{
 		//case VIS_PLANES:		chart_planes_draw();	break;
@@ -5412,6 +5572,8 @@ void io_render(void)
 		case VIS_IMAGE:
 		case VIS_ZIPF:
 			{
+				display_texture_i(sx1, sx2, sy1, sy2, (int*)(mode==VIS_ZIPF?zimage:im_export), im1->iw, im1->ih, 0, 1, 0, 1, 1, 0);
+#if 0
 				//int waitstatus=0;
 				//if(ghMutex)
 				//	waitstatus=WaitForSingleObject(ghMutex, INFINITE);
@@ -5422,6 +5584,7 @@ void io_render(void)
 					display_texture_i(0, im1->iw, (int)yoffset, (int)yoffset+im1->ih, (int*)(mode==VIS_ZIPF?zimage:im_export), im1->iw, im1->ih, 0, 1, 0, 1, 1, 0);
 				//if(waitstatus==WAIT_OBJECT_0)
 				//	ReleaseMutex(ghMutex);
+#endif
 			}
 			break;
 #if 0
@@ -5682,6 +5845,14 @@ void io_render(void)
 					display_texture(im1->iw, im1->iw<<1, im1->ih, im1->ih<<1, txid_separate_a, 1, 0, 1, 0, 1);
 			}
 			break;
+		}
+		if(profileplotmode>PROFILE_OFF)
+		{
+			void (*draw_profile)(int comp, int color)=profileplotmode==PROFILE_X?draw_profile_x:draw_profile_y;
+			draw_profile(0, 0xFF0000FF);
+			draw_profile(1, 0xFF00FF00);
+			draw_profile(2, 0xFFFF0000);
+			draw_profile(3, 0xFF000000);
 		}
 	}
 

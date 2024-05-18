@@ -565,7 +565,10 @@ void gl_init(void)
 	snprintf(g_buf, G_BUF_SIZE, "%sfont.PNG", exedir->data);
 	int *rgb=(int*)stbi_load(g_buf, &iw, &ih, &bytespp, 4);
 	if(!rgb)
+	{
 		LOG_ERROR("Font texture not found.\nPlace a \'font.PNG\' file with the program.\n");
+		return;
+	}
 	tdx=(float)(rgb[0]&0xFF), tdy=(float)(rgb[1]&0xFF);
 	if(!tdx||!tdy)
 	{

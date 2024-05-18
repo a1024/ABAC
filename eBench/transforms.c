@@ -2818,8 +2818,27 @@ static void sort_int32(int *data, int count)
 		}
 	}
 }
-void pred_median(Image *src, int fwd)
+
+	#define WGRAD_UPDATE_LUMA
+//	#define WGRAD_SSE
+static int quantize_nb(int x)
 {
+	int ax=abs(x), negmask=x<0;
+	x=FLOOR_LOG2(ax);
+	x^=negmask;
+	x-=negmask;
+	return x;
+}
+#define QUANTIZE_NB(X) quantize_nb(X)+maxdepth
+void pred_wgrad(Image *src, int fwd)
+{
+	//static int sh=8;
+	//if(fwd)
+	//{
+	//	--sh;
+	//	if(sh<0)
+	//		sh=8;
+	//}
 	int *pixels=(int*)malloc((src->iw+4LL)*sizeof(int[4*4]));//4 padded rows * 4 channels max
 	if(!pixels)
 	{
@@ -2827,6 +2846,20 @@ void pred_median(Image *src, int fwd)
 		return;
 	}
 	memset(pixels, 0, (src->iw+4LL)*sizeof(int[4*4]));
+#ifdef WGRAD_SSE
+	int maxdepth=MAXVAR(src->depth[0], src->depth[1]);
+	UPDATE_MAX(maxdepth, src->depth[2]);
+	UPDATE_MAX(maxdepth, src->depth[3]);
+	int clevels=maxdepth<<1|1;
+	size_t ssesize=sizeof(int[4*2])*clevels*clevels;//4 channels max * {sum, count} * clevels^2
+	int *sse=(int*)malloc(ssesize);
+	if(!sse)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(sse, 0, ssesize);
+#endif
 	int nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
 	UPDATE_MAX(nch, src->nch);
 	int nlevels[]=
@@ -2856,6 +2889,20 @@ void pred_median(Image *src, int fwd)
 		};
 		for(int kx=0;kx<src->iw;++kx, idx+=4)
 		{
+#ifdef WGRAD_UPDATE_LUMA
+			if(!fwd)
+			{
+				int
+					cb	=src->data[idx+2],
+					cr	=src->data[idx+0];
+				int update=(cb+cr)>>3;
+				update=CLAMP(-halfs[1], update, halfs[1]-1);
+				int luma=src->data[idx+1]-update;//subtract update
+				luma<<=32-src->depth[1];
+				luma>>=32-src->depth[1];
+				src->data[idx+1]=luma;
+			}
+#endif
 			for(int kc0=0;kc0<src->nch;++kc0)
 			{
 				int kc=perm[kc0];
@@ -2903,14 +2950,63 @@ void pred_median(Image *src, int fwd)
 					gy=abs(W-NW)+abs(N-NN)+abs(NE-NNE)+1,
 					g135=abs(W-NWW)+abs(NW-NNWW)+abs(N-NNW)+abs(NE-NN)+1,
 					g45=abs(W-N)+abs(N-NNE)+abs(NE-NNEE)+abs(WW-NW)+1;
-				//int gx=abs(W-WW)+1, gy=abs(N-NN)+1;
+				//int gx=abs(W-WW)+1, gy=abs(N-NN)+1;//X
 
-				int pred=(gx*N+gy*W)/(gx+gy);		//<- good
+				//NW, N, NE, W
+				//if(NW>N)
+				//{
+				//	if(N>NE)
+				//	{
+				//		if(W>N)
+				//	}
+				//	else
+				//	{
+				//	}
+				//}
+				//else
+				//{
+				//	if(NW>NE)
+				//	{
+				//	}
+				//	else
+				//	{
+				//	}
+				//}
 
+				int pred=(int)(((long long)gx*N+(long long)gy*W)/(gx+gy));		//<- NOT better than CG: LPCB, DSLR2
+
+				//const int sh=8;
+				//int grad=N+W-NW, pred;
+				//MEDIAN3_32(pred, N, W, grad);
+				//pred=(pred<<sh)-pred+grad;
+				//pred=(pred>>sh)+(pred<0);
+				
+#if 0
+				int sh=src->depth[kc]-8;
+				int diff=(gy-gx)>>sh, diff2=(g45-g135)>>sh, diff3=NE-NW;
+				int paper_GAP;
+				if(gy+gx>32)
+					paper_GAP=(int)(((long long)gx*N+(long long)gy*W)/((long long)gy+gx));
+				else if(diff>12)
+					paper_GAP=(N+2*W)/3;
+				else if(diff<-12)
+					paper_GAP=(2*N+W)/3;
+				else
+					paper_GAP=(N+W)>>1;
+
+				if(diff2>32)
+					paper_GAP+=diff3>>2;
+				else if(diff2>16)
+					paper_GAP+=diff3*3>>4;
+				else if(diff2>=-16)
+					paper_GAP+=diff3>>3;
+				else if(diff2>=-32)
+					paper_GAP+=diff3>>4;
+				int pred=paper_GAP;
+#endif
 				//int pred=(3*(N+W)-2*(NN+WW))>>1;
 				//pred=(pred+NE+NEE+NNE-NW+NWW+WW)/5;
 				//int pred=(gx*N+gy*W+g135*((3*NW+NNWW)>>2)+g45*((3*NE+NNEE)>>2))/(gx+gy+g45+g135);
-
 				//int
 				//	w45=0x10000/g45,
 				//	w90=0x10000/gy,
@@ -2920,10 +3016,33 @@ void pred_median(Image *src, int fwd)
 				//wsum+=!wsum;
 				//int pred=(w45*NE+w90*N+w135*NW+w180*W)/wsum;
 				//int pred=(gx*(2*N-NN)+gy*(2*W-WW))/(gx+gy);
-				
 				//int pred=(W+WW+NEE-NW+3*(N-NN)+NNN+NE)>>2;
-
 				//int pred=MEDIAN3(N, W, NW);
+#ifdef WGRAD_SSE
+				int sse_idx=kc;
+				{
+					int x=N;
+					int ax=abs(x), negmask=x<0;
+					x=FLOOR_LOG2(ax);
+					x^=negmask;
+					x-=negmask;
+					x+=maxdepth;
+					sse_idx*=clevels;
+					sse_idx+=x;
+				}
+				{
+					int x=W;
+					int ax=abs(x), negmask=x<0;
+					x=FLOOR_LOG2(ax);
+					x^=negmask;
+					x-=negmask;
+					x+=maxdepth;
+					sse_idx*=clevels;
+					sse_idx+=x;
+				}
+				int *curr_sse=sse+((size_t)sse_idx<<1);
+				pred+=curr_sse[0]/(curr_sse[1]+1);
+#endif
 
 				pred+=offset;
 				pred=CLAMP(-halfs[kc], pred, halfs[kc]-1);
@@ -2933,13 +3052,36 @@ void pred_median(Image *src, int fwd)
 				pred-=fwdmask;
 				pred+=curr;
 
-				pred+=nlevels[kc]>>1;
-				pred&=nlevels[kc]-1;
-				pred-=nlevels[kc]>>1;
+				pred<<=32-src->depth[kc];
+				pred>>=32-src->depth[kc];
 
 				src->data[idx+kc]=pred;
 				rows[0][kc]=(fwd?curr:pred)-offset;
+#ifdef WGRAD_SSE
+				int error=fwd?pred:curr;
+				curr_sse[0]+=error;
+				++curr_sse[1];
+				if(curr_sse[1]>=640)
+				{
+					curr_sse[0]>>=1;
+					curr_sse[1]>>=1;
+				}
+#endif
 			}
+#ifdef WGRAD_UPDATE_LUMA
+			if(fwd)
+			{
+				int
+					cb	=src->data[idx+2],
+					cr	=src->data[idx+0];
+				int update=(cb+cr)>>3;
+				update=CLAMP(-halfs[1], update, halfs[1]-1);
+				int luma=src->data[idx+1]+update;//add update
+				luma<<=32-src->depth[1];
+				luma>>=32-src->depth[1];
+				src->data[idx+1]=luma;
+			}
+#endif
 			rows[0]+=4;
 			rows[1]+=4;
 			rows[2]+=4;
@@ -2947,6 +3089,7 @@ void pred_median(Image *src, int fwd)
 		}
 	}
 	free(pixels);
+	//set_window_title("sh=%d", sh);
 }
 
 
@@ -3034,9 +3177,8 @@ void pred_WPU(Image *src, int fwd)
 				int update=(cb+cr)>>3;
 				update=CLAMP(-halfs[1], update, halfs[1]-1);
 				int luma=src->data[idx+1]-update;//subtract update
-				luma+=halfs[1];
-				luma&=nlevels[1]-1;
-				luma-=halfs[1];
+				luma<<=32-src->depth[1];
+				luma>>=32-src->depth[1];
 				src->data[idx+1]=luma;
 			}
 #endif
@@ -3254,9 +3396,8 @@ void pred_WPU(Image *src, int fwd)
 				int update=(cb+cr)>>3;
 				update=CLAMP(-halfs[1], update, halfs[1]-1);
 				int luma=src->data[idx+1]+update;//add update
-				luma+=halfs[1];
-				luma&=nlevels[1]-1;
-				luma-=halfs[1];
+				luma<<=32-src->depth[1];
+				luma>>=32-src->depth[1];
 				src->data[idx+1]=luma;
 			}
 #endif

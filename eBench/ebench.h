@@ -577,6 +577,10 @@ void draw_triangle	(float x1, float y1, float x2, float y2, float x3, float y3, 
 #define DRAW_RECT_HOLLOWI(X1, X2, Y1, Y2, COLOR) draw_rect_hollow((float)(X1), (float)X2, (float)Y1, (float)Y2, COLOR)
 #define     DRAW_ELLIPSEI(X1, X2, Y1, Y2, COLOR)     draw_ellipse((float)(X1), (float)X2, (float)Y1, (float)Y2, COLOR)
 
+void draw_rect_enqueue(ArrayHandle *vertices, float x1, float x2, float y1, float y2);
+void draw_curve_enqueue(ArrayHandle *vertices, float x, float y);
+void draw_2d_flush(ArrayHandle vertices, int color, unsigned primitive);
+
 int toggle_sdftext(void);
 int set_text_color(int color_txt);
 int set_bk_color(int color_bk);
@@ -709,11 +713,13 @@ void rct_adaptive(Image *src, int fwd);
 //spatial transforms
 void packsign(Image *src, int fwd);
 void pred_clampgrad(Image *image, int fwd, int enable_ma);
+void pred_av2(Image *src, int fwd);
+
 void pred_CG3D(Image *src, int fwd, int enable_ma);
 void pred_PU(Image *src, int fwd);
-void pred_median(Image *src, int fwd);
+void pred_wgrad(Image *src, int fwd);
 void pred_WPU(Image *src, int fwd);
-void pred_av2(Image *src, int fwd);
+
 void pred_average(Image *src, int fwd, int enable_ma);
 void pred_wp_deferred(Image *src, int fwd);
 void pred_ecoeff(Image *src, int fwd, int enable_ma);
