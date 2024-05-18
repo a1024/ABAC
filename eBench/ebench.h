@@ -781,7 +781,7 @@ void custom3_apply(Image *src, int fwd, int enable_ma, Custom3Params const *para
 void custom3_opt(Image const *src, Custom3Params *srcparams, int niter, int maskbits, int loud, double *loss);
 
 //CUSTOM4
-extern char lossyconv_clipboard;
+extern short lossyconv_clipboard;
 extern int lossyconv_page;
 extern short lossyconv_params[5*5*4*4];//(r2 = 5*5) * 4 channels max * 4 banks
 extern unsigned char lossyconv_stride[2*4], lossyconv_offset[2*4];//2 dimensions * 4 stages

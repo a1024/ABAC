@@ -8,7 +8,7 @@
 #include<immintrin.h>
 static const char file[]=__FILE__;
 
-char lossyconv_clipboard=0;
+short lossyconv_clipboard=0;
 int lossyconv_page=0;//[0~15]: 4 channels max * 4 stages
 short lossyconv_params[5*5*4*4]={0};//(r2 = 5*5) * 4 channels max * 4 stages		precision: sign_bit.2.4.clamp_bit
 unsigned char lossyconv_stride[2*4]={0}, lossyconv_offset[2*4]={0};//2 dimensions * 4 stages
@@ -62,7 +62,7 @@ void pred_lossyconv(Image *src)
 							{
 								if((unsigned)(ky+ky2)<(unsigned)src->ih&&(unsigned)(kx+kx2)<(unsigned)src->iw)
 								{
-									char param=curr_filt[idx2];
+									short param=curr_filt[idx2];
 									int idx3=src->iw*(ky+ky2)+kx+kx2;
 									int nb=p1[idx3<<2|kc];
 									if(kc!=1&&lossyconv_causalRCT[kb])

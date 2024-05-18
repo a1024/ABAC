@@ -2747,11 +2747,16 @@ void pred_PU(Image *src, int fwd)
 					if(kc0>1)
 						offset=(2*offset+rows[0][2])>>1;
 				}
-				int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
-				int pred=N+W-NW;
-				pred=CLAMP(vmin, pred, vmax);
+				int pred;
+				//if(kc==1)//luma
+				//	pred=(4*(N+W)+NE-NW)>>3;
+				//else
+				{
+					pred=N+W-NW;
+					MEDIAN3_32(pred, N, W, pred);
+					pred=((512-4)*pred+N+W+NW+NE)>>9;
+				}
 
-				pred=((512-4)*pred+N+W+NW+NE)>>9;
 				//pred=(252*pred+N+W+NW+NE)>>8;
 				//pred=((512-48)*pred+16*(N+W)+3*(NW+NE+NN+WW)+2*(NNW+NNE+NWW+NEE+NNWW+NNEE))>>9;
 

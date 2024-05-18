@@ -312,7 +312,7 @@ static void batch_test_mt(const char *path, int nthreads)
 
 int main(int argc, char **argv)
 {
-#if 0
+#if 1
 	{
 #ifdef _DEBUG
 		const char *path=

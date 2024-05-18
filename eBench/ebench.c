@@ -1354,8 +1354,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_CLAMPGRAD:		a=" S Inv ClampGrad";		break;
 	case ST_FWD_AV2:		a=" S Fwd (N+W)>>1";		break;
 	case ST_INV_AV2:		a=" S Inv (N+W)>>1";		break;
-	case ST_FWD_MEDIAN:		a=" S Fwd Median";		break;
-	case ST_INV_MEDIAN:		a=" S Inv Median";		break;
+	case ST_FWD_MEDIAN:		a="CS Fwd Median";		break;
+	case ST_INV_MEDIAN:		a="CS Inv Median";		break;
 //	case ST_FWD_ECOEFF:		a=" S Fwd E-Coeff";		break;
 //	case ST_INV_ECOEFF:		a=" S Inv E-Coeff";		break;
 //	case ST_FWD_AVERAGE:		a=" S Fwd Average";		break;

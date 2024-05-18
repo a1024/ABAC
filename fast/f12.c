@@ -6,12 +6,13 @@
 #include"lodepng.h"
 static const char file[]=__FILE__;
 
-	#define RELATION
+	#define RELATION2
+//	#define RELATION
 	#define DISABLE_DECORRELATION
 //	#define BITCTR
 //	#define ABACHIST	//X
 
-#define HISTBITS 8
+#define HISTBITS 4
 #define HISTSIZE (1<<HISTBITS)
 #define HISTHALF (1<<HISTBITS>>1)
 #define HISTMASK ((1<<HISTBITS)-1)
@@ -83,7 +84,9 @@ int f12_statstest(const char *path)
 		LOG_ERROR("No media in \"%s\"", path);
 		return 1;
 	}
-#ifdef RELATION
+#ifdef RELATION2
+	size_t histsize=sizeof(size_t[1<<HISTBITS*5]);
+#elif defined RELATION
 	size_t histsize=sizeof(size_t[4<<HISTBITS*3]);
 #else
 	size_t histsize=sizeof(size_t[4<<HISTBITS]);
@@ -181,17 +184,17 @@ int f12_statstest(const char *path)
 						NE	=LOAD( 1, -1),
 						W	=LOAD(-1,  0),
 						curr	=LOAD( 0,  0);
-					(void)NW;
-					(void)N;
-					(void)NE;
-					(void)W;
-					(void)curr;
 					if(!kx)
 						NW=N, W=N;
 					if(!ky)
 						NW=W, N=W;
 					if(kx==image.iw-1)
 						NE=N;
+					(void)NW;
+					(void)N;
+					(void)NE;
+					(void)W;
+					(void)curr;
 					
 #ifdef ABACHIST
 					if(kc==1)
@@ -210,7 +213,15 @@ int f12_statstest(const char *path)
 						}
 					}
 #endif
-#ifdef RELATION
+#ifdef RELATION2
+					int idx=0;
+					idx=idx<<HISTBITS|NW;
+					idx=idx<<HISTBITS|N;
+					idx=idx<<HISTBITS|NE;
+					idx=idx<<HISTBITS|W;
+					idx=idx<<HISTBITS|curr;
+					++hist[idx];
+#elif defined RELATION
 					int cgrad=N+W-NW;
 					int vmin=W, vmax=N;
 					if(N<W)
@@ -260,7 +271,63 @@ int f12_statstest(const char *path)
 	//hist_snapshot(hist, result, 0);
 #endif
 
-#ifndef RELATION
+#ifdef RELATION2
+	for(;;)
+	{
+		int NW, N, NE, W;
+		printf("Enter NW: ");	while(!scanf("%d", &NW));
+		printf("Enter N : ");	while(!scanf("%d", &N ));
+		printf("Enter NE: ");	while(!scanf("%d", &NE));
+		printf("Enter W : ");	while(!scanf("%d", &W ));
+		int idx=0;
+		idx=idx<<HISTBITS|NW;
+		idx=idx<<HISTBITS|N;
+		idx=idx<<HISTBITS|NE;
+		idx=idx<<HISTBITS|W;
+		idx=idx<<HISTBITS|0;
+		size_t sum=0;
+		for(int ks=0;ks<HISTSIZE;++ks)
+			sum+=hist[idx+ks];
+		if(sum)
+		{
+			for(int ks=0;ks<HISTSIZE;++ks)
+			{
+				int count=(int)(hist[idx+ks]*64/sum);
+				printf("%3d %16zd %8.4lf%% ", ks, hist[idx+ks], 100.*hist[idx+ks]/sum);
+				for(int k2=0;k2<count;++k2)
+					printf("*");
+				printf("\n");
+			}
+		}
+		else
+			printf("no hits\n");
+	}
+	//int kc=1;
+	//for(int kN=0;kN<HISTSIZE;++kN)
+	//{
+	//	for(int kW=0;kW<HISTSIZE;++kW)
+	//	{
+	//		for(int kNW=0;kNW<HISTSIZE;++kNW)
+	//		{
+	//			printf("NW,N,W %3d %3d %3d ", kNW, kN, kW);
+	//			for(int kcurr=0;kcurr<HISTSIZE;++kcurr)
+	//			{
+	//				int idx=kc;
+	//				idx=idx<<HISTBITS|kNW;
+	//				idx=idx<<HISTBITS|kN;
+	//				idx=idx<<HISTBITS|kW;
+	//				idx=idx<<HISTBITS|kcurr;
+	//				size_t freq=hist[idx];
+	//				printf(" %11zd", freq);
+	//			}
+	//			printf("\n");
+	//		}
+	//		printf("\n");
+	//	}
+	//	printf("\n");
+	//}
+#endif
+#if !defined RELATION && !defined RELATION2
 #ifdef BITCTR
 	for(int kc=0;kc<4;++kc)
 	{
