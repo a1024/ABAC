@@ -449,7 +449,7 @@ ArrayHandle dialog_open_folder(void)
 			WCHARTOUTF8(fullpath, (int)wcslen(fullpath), g_buf, G_BUF_SIZE, len);
 
 			g_buf[len]=0;
-			arr=filter_path(g_buf, len);
+			arr=filter_path(g_buf, len, 1);
 			//STR_COPY(arr, g_buf, len);
 
 			CoTaskMemFree(fullpath);

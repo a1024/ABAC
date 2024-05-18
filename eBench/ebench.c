@@ -3997,6 +3997,79 @@ int io_keydn(IOKey key, char c)
 			return 1;
 		}
 		break;
+	case KEY_LEFT:
+	case KEY_RIGHT:
+		if(mode!=VIS_JOINT_HISTOGRAM)
+		{
+			if(fn)
+			{
+				ArrayHandle path;
+				STR_COPY(path, fn->data, fn->count);
+				//acme_strrchr((char*)path->data, path->count, '/');//X  what about backslash?
+				for(int k=(int)path->count-1;k>=0;--k)
+				{
+					if(path->data[k]=='/'||path->data[k]=='\\')
+					{
+						path->data[k+1]=0;
+						path->count=k+1;
+						break;
+					}
+				}
+				const char *ext[]=
+				{
+					"PPM",
+					"PGM",
+					"PNG",
+					"JPG",
+					"JPEG",
+					"BMP",
+					"TIF",
+					"TIFF",
+				};
+				ArrayHandle filenames=get_filenames(path->data, ext, _countof(ext), 1), *fn2;
+				ArrayHandle filteredfn=filter_path((char*)fn->data, (int)fn->count, 0);
+				if(filenames&&filenames->count)
+				{
+					int currentidx=-1;
+					for(int k=0;k<(int)filenames->count;++k)
+					{
+						fn2=array_at(&filenames, k);
+						if(!_stricmp((char*)fn2[0]->data, (char*)filteredfn->data))
+						{
+							currentidx=k;
+							break;
+						}
+					}
+					Image *im2=0;
+					int step=key==KEY_RIGHT?1:-1;
+					for(int k=currentidx+step;MODVAR(k, k, (int)filenames->count), k!=currentidx;k+=step)
+					{
+						fn2=array_at(&filenames, k);
+						im2=image_load((char*)fn2[0]->data, (int)fn2[0]->count);
+						//if(!load_media(fn2[0]->data, &im2, 0))
+						if(im2)
+						{
+							currentidx=k;
+							break;
+						}
+					}
+					if(im2)
+					{
+						free(im0);
+						im0=im2;
+						array_free(&fn);
+						fn=filter_path((char*)fn2[0]->data, (int)fn2[0]->count, 0);
+						update_image();
+						set_window_title("%s - eBench", (char*)fn->data);
+					}
+					array_free(&filenames);
+				}
+				array_free(&filteredfn);
+				array_free(&path);
+			}
+			return 1;
+		}
+		break;
 	default://to make gcc -Wall happy
 		break;
 	}

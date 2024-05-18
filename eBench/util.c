@@ -2628,7 +2628,7 @@ ptrdiff_t acme_strrchr(const char *str, ptrdiff_t len, char c)//find last occurr
 			return k;
 	return -1;
 }
-ArrayHandle filter_path(const char *path, int len)//replaces back slashes with slashes, adds trailing slash if missing, as ArrayHandle
+ArrayHandle filter_path(const char *path, int len, int appendslash)//replaces back slashes with slashes, adds trailing slash if missing, as ArrayHandle
 {
 	ArrayHandle path2;
 
@@ -2640,7 +2640,7 @@ ArrayHandle filter_path(const char *path, int len)//replaces back slashes with s
 		if(path2->data[k]=='\\')
 			path2->data[k]='/';
 	}
-	if(path2->data[path2->count-1]!='/')//ensure trailing slash
+	if(appendslash&&path2->data[path2->count-1]!='/')//ensure trailing slash
 		STR_APPEND(path2, "/", 1, 1);
 	return path2;
 }
@@ -2703,7 +2703,7 @@ ArrayHandle get_filenames(const char *path, const char **extensions, int extCoun
 	int found;
 	
 	//prepare searchpath
-	searchpath=filter_path(path, -1);
+	searchpath=filter_path(path, -1, 1);
 	c='*';
 	STR_APPEND(searchpath, &c, 1, 1);
 
@@ -2748,7 +2748,7 @@ ArrayHandle get_filenames(const char *path, const char **extensions, int extCoun
 	return filenames;
 #elif defined __linux__
 	ArrayHandle searchpath, filename, filenames;
-	searchpath=filter_path(path, -1);
+	searchpath=filter_path(path, -1, 1);
 	struct dirent *dir;
 	DIR *d=opendir((char*)searchpath->data);
 	if(!d)
