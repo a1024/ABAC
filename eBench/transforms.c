@@ -89,8 +89,10 @@ void calc_depthfromdata(int *image, int iw, int ih, char *depths, const char *sr
 		vmin=abs(vmin);
 		if(vmax<vmin)
 			vmax=vmin;
-		int nlevels=vmax<<1;
-		depths[kc]=(char)ceil_log2_32(nlevels);
+		{
+			int nlevels=vmax<<1;
+			depths[kc]=(char)ceil_log2_32(nlevels);
+		}
 		depths[kc]=MAXVAR(depths[kc], src_depths[kc]);
 	}
 }
@@ -644,16 +646,18 @@ void rct_yrgb_v1(Image *image, int fwd)
 			image->data[k|2]=b;//Cr
 			image->data[k|3]=base;//Cg
 		}
-		int d0=image->depth[0], d1=image->depth[1], d2=image->depth[2];
-		int dbase=MINVAR(d0, d1);
-		dbase=MINVAR(dbase, d2);
-		d0+=d0<24;
-		d1+=d1<24;
-		d2+=d2<24;
-		image->depth[0]=(char)dbase;
-		image->depth[1]=(char)d2;
-		image->depth[2]=(char)d0;
-		image->depth[3]=(char)d1;
+		{
+			int d0=image->depth[0], d1=image->depth[1], d2=image->depth[2];
+			int dbase=MINVAR(d0, d1);
+			dbase=MINVAR(dbase, d2);
+			d0+=d0<24;
+			d1+=d1<24;
+			d2+=d2<24;
+			image->depth[0]=(char)dbase;
+			image->depth[1]=(char)d2;
+			image->depth[2]=(char)d0;
+			image->depth[3]=(char)d1;
+		}
 	}
 	else
 	{
@@ -695,16 +699,18 @@ void rct_yrgb_v2(Image *image, int fwd)
 			image->data[k|2]=r;//Cr
 			image->data[k|3]=g;//Cg
 		}
-		int d0=image->depth[0], d1=image->depth[1], d2=image->depth[2];
-		int dbase=MINVAR(d0, d1);
-		dbase=MINVAR(dbase, d2);
-		d0+=d0<24;
-		d1+=d1<24;
-		d2+=d2<24;
-		image->depth[0]=(char)dbase;
-		image->depth[1]=(char)d2;
-		image->depth[2]=(char)d0;
-		image->depth[3]=(char)d1;
+		{
+			int d0=image->depth[0], d1=image->depth[1], d2=image->depth[2];
+			int dbase=MINVAR(d0, d1);
+			dbase=MINVAR(dbase, d2);
+			d0+=d0<24;
+			d1+=d1<24;
+			d2+=d2<24;
+			image->depth[0]=(char)dbase;
+			image->depth[1]=(char)d2;
+			image->depth[2]=(char)d0;
+			image->depth[3]=(char)d1;
+		}
 	}
 	else
 	{
@@ -744,7 +750,7 @@ void ct_cmyk_fwd(Image *image)//irreversible
 
 		double luma=MAXVAR(r, g);
 		luma=MAXVAR(luma, b);
-		if(luma)
+		if(fabs(luma)<1e-9)
 		{
 			r=(luma-r)/luma;
 			g=(luma-g)/luma;
@@ -881,14 +887,16 @@ void colortransform_lossy_XYB(Image *image, int fwd)
 			L+=cbrt_bias, L*=L*L, L-=bias;
 			M+=cbrt_bias, M*=M*M, M-=bias;
 			S+=cbrt_bias, S*=S*S, S-=bias;
-			double
-				r=11.03160*L-9.86694*M-0.164623*S,
-				g=-3.25415*L+4.41877*M-0.164623*S,
-				b=-3.65885*L+2.71292*M+1.945930*S;
+			{
+				double
+					r=11.03160*L-9.86694*M-0.164623*S,
+					g=-3.25415*L+4.41877*M-0.164623*S,
+					b=-3.65885*L+2.71292*M+1.945930*S;
 
-			image->data[k<<2|0]=(int)((r-0.5)*nlevels[0]);//output: RGB in [0, 1]
-			image->data[k<<2|1]=(int)((g-0.5)*nlevels[1]);
-			image->data[k<<2|2]=(int)((b-0.5)*nlevels[2]);
+				image->data[k<<2|0]=(int)((r-0.5)*nlevels[0]);//output: RGB in [0, 1]
+				image->data[k<<2|1]=(int)((g-0.5)*nlevels[1]);
+				image->data[k<<2|2]=(int)((b-0.5)*nlevels[2]);
+			}
 		}
 	}
 }
@@ -1057,6 +1065,12 @@ void rct_custom(Image *image, int fwd, const short *params)//4 params	fixed 15.1
 }
 static void rct_custom_calcloss(Image const *src, Image *dst, int *hist, double *loss)
 {
+	int depths[]=
+	{
+		src->depth[1],
+		src->depth[2]+1,
+		src->depth[0]+1,
+	};
 	ptrdiff_t res=(ptrdiff_t)src->iw*src->ih;
 	memcpy(dst->data, src->data, res*sizeof(int[4]));
 
@@ -1065,17 +1079,13 @@ static void rct_custom_calcloss(Image const *src, Image *dst, int *hist, double 
 	//pred_grad2(dst, 1);
 	//pred_clampedgrad(dst, 1, 1);
 	
-	int depths[]=
-	{
-		src->depth[1],
-		(src->depth[2]+1),
-		(src->depth[0]+1),
-	};
 	for(int kc=0;kc<3;++kc)
 	{
 		calc_histogram(dst->data, dst->iw, dst->ih, kc, 0, dst->iw, 0, dst->ih, depths[kc], hist, 0);
-		double entropy=calc_entropy(hist, 1<<depths[kc], (int)res);
-		loss[kc]=entropy/src->src_depth[(kc+1)%3];
+		{
+			double entropy=calc_entropy(hist, 1<<depths[kc], (int)res);
+			loss[kc]=entropy/src->src_depth[(kc+1)%3];
+		}
 	}
 	loss[3]=(loss[0]+loss[1]+loss[2])/3;
 }
@@ -1085,24 +1095,28 @@ void rct_custom_optimize(Image const *image, short *params)
 {
 	static int call_idx=0;
 
+	int inflation[]={1, 0, 1};//original image is expected, RCT permutes depths {r+1, g, b+1} -> {Y:g:+0, Cb:b:+1, Cr:r:+1}
+	int maxdepth=calc_maxdepth(image, inflation);
+	int maxlevels=1<<maxdepth;
+	int *hist;
+	double loss_bestsofar[4], loss_prev[4], loss_curr[4];
+	short params2[RCT_CUSTOM_NPARAMS];
+	int shakethreshold=RCT_CUSTOM_NPARAMS;
+	Image *im2;
+
 	++call_idx;
 	if(call_idx==1)
 		DisableProcessWindowsGhosting();
 
-	Image *im2=0;
+	im2=0;
 	image_copy(&im2, image);
-	int inflation[]={1, 0, 1};//original image is expected, RCT permutes depths {r+1, g, b+1} -> {Y:g:+0, Cb:b:+1, Cr:r:+1}
-	int maxdepth=calc_maxdepth(image, inflation);
-	int maxlevels=1<<maxdepth;
-	int *hist=(int*)malloc(maxlevels*sizeof(int));
+	hist=(int*)malloc(maxlevels*sizeof(int));
 	if(!im2||!hist)
 	{
 		LOG_ERROR("Alloc error");
 		return;
 	}
 
-	double loss_bestsofar[4], loss_prev[4], loss_curr[4];
-	short params2[RCT_CUSTOM_NPARAMS];
 	memcpy(params2, params, sizeof(params2));
 
 #define CALC_LOSS(L) rct_custom_calcloss(image, im2, hist, L)
@@ -1112,11 +1126,11 @@ void rct_custom_optimize(Image const *image, short *params)
 	CALC_LOSS(loss_bestsofar);
 	memcpy(loss_prev, loss_bestsofar, sizeof(loss_prev));
 
-	int shakethreshold=RCT_CUSTOM_NPARAMS;
 	for(int it=0, watchdog=0;it<RCT_CUSTOM_NITER;++it)
 	{
 		int idx[RCT_CUSTOM_DELTAGROUP]={0}, stuck=0;
 		short params_original_selected[RCT_CUSTOM_DELTAGROUP]={0};
+
 		if(watchdog>=shakethreshold)//bump if stuck
 		{
 			memcpy(params, params2, sizeof(params2));
@@ -1224,25 +1238,25 @@ void rct_custom_optimize(Image const *image, short *params)
 //			buf[kp+kc]+=128;
 //	}
 //}
-void c_mul_add(double *dst, const double *a, const double *b)
+static void c_mul_add(double *dst, const double *a, const double *b)
 {
 	double
 		r=a[0]*b[0]-a[1]*b[1],
 		i=a[0]*b[1]+a[1]*b[0];
 	dst[0]+=r, dst[1]+=i;
 }
-void c_mul_sub(double *dst, const double *a, const double *b)
+static void c_mul_sub(double *dst, const double *a, const double *b)
 {
 	double
 		r=a[0]*b[0]-a[1]*b[1],
 		i=a[0]*b[1]+a[1]*b[0];
 	dst[0]-=r, dst[1]-=i;
 }
-double c_abs2(const double *z)
+static double c_abs2(const double *z)
 {
 	return z[0]*z[0]+z[1]*z[1];
 }
-void c_div(double *dst, double const *a, double const *b)
+static void c_div(double *dst, double const *a, double const *b)
 {
 	double invabsb2=1/c_abs2(b);
 	double
@@ -1250,24 +1264,25 @@ void c_div(double *dst, double const *a, double const *b)
 		i=(a[1]*b[0]-a[0]*b[1])*invabsb2;
 	dst[0]=r, dst[1]=i;
 }
-void c_exp(double *dst, double const *x)
+static void c_exp(double *dst, double const *x)
 {
 	double m=exp(x[0]);
 	dst[0]=m*cos(x[1]);
 	dst[1]=m*sin(x[1]);
 }
-void c_ln(double *dst, double const *x)
+static void c_ln(double *dst, double const *x)
 {
 	double
 		r=log(sqrt(c_abs2(x))),
 		i=atan2(x[1], x[0]);
 	dst[0]=r, dst[1]=i;
 }
-void c_cbrt(double *dst, const double *x)//sqrt(x)=exp(0.5lnx)
+static void c_cbrt(double *dst, const double *x)//sqrt(x)=exp(0.5lnx)
 {
-	double temp[2];
-	if(x[0]||x[1])
+	if(fabs(x[0])<1e-9||fabs(x[1])<1e-9)
 	{
+		double temp[2];
+
 		c_ln(temp, x);
 		temp[0]*=1./3, temp[1]*=1./3;
 		c_exp(dst, temp);
@@ -1275,7 +1290,7 @@ void c_cbrt(double *dst, const double *x)//sqrt(x)=exp(0.5lnx)
 	else
 		dst[0]=x[0], dst[1]=x[1];
 }
-void impl_solve_cubic(const double *coeffs, double *roots)//finds r[0], r[1], & r[2], the solutions of x^3 + c[2]x^2 + c[1]x + c[0] = 0
+static void impl_solve_cubic(const double *coeffs, double *roots)//finds r[0], r[1], & r[2], the solutions of x^3 + c[2]x^2 + c[1]x + c[0] = 0
 {
 	//https://math.stackexchange.com/questions/15865/why-not-write-the-solutions-of-a-cubic-this-way/18873#18873
 	double p=coeffs[2], q=coeffs[1], r=coeffs[0],
@@ -1283,7 +1298,7 @@ void impl_solve_cubic(const double *coeffs, double *roots)//finds r[0], r[1], & 
 	double sqrt27=3*sqrt(3), inv3cbrt2=1./(3*cbrt(2)), ninth=1./9;
 	double cm[]={-0.5, -sqrt(3)*0.5}, cp[]={-0.5, sqrt(3)*0.5};
 
-	if(!p&&!q)
+	if(fabs(p)<1e-9&&fabs(q)<1e-9)
 	{
 		roots[4]=roots[2]=roots[0]=-cbrt(r);
 		roots[5]=roots[3]=roots[1]=0;
@@ -1321,13 +1336,14 @@ void impl_solve_cubic(const double *coeffs, double *roots)//finds r[0], r[1], & 
 	c_mul_add(roots+4, A, cp);
 	c_mul_sub(roots+4, B, cm);
 }
-void impl_rref(double *m, short dx, short dy)
+static void impl_rref(double *m, short dx, short dy)
 {
 #ifdef _DEBUG
 	double pivot;
 #endif
 	double coeff;
 	int mindim=dx<dy?dx:dy, it, ky, kx, npivots, kpivot;
+
 	for(it=0, npivots=0;it<mindim;++it)//iteration
 	{
 		kpivot=-1;
@@ -1369,7 +1385,7 @@ void impl_rref(double *m, short dx, short dy)
 		}
 	}
 }
-int impl_nullspace(double *M, int dx, int dy, double *solution, int sstart, char *dep_flags, short *row_idx)
+static int impl_nullspace(double *M, int dx, int dy, double *solution, int sstart, char *dep_flags, short *row_idx)
 {
 	//M is rref'ed
 	//solution allocated size dy*dy, pre-memset solution to zero
@@ -1435,7 +1451,7 @@ int impl_nullspace(double *M, int dx, int dy, double *solution, int sstart, char
 	}
 	return nvec;
 }
-int impl_egvec(double const *M, int n, const double *lambdas, double *S)
+static int impl_egvec(double const *M, int n, const double *lambdas, double *S)
 {
 	int kv, kx, nvec, size=n*n, again;
 	double *temp=(double*)malloc(size*sizeof(double));
@@ -1479,7 +1495,7 @@ int impl_egvec(double const *M, int n, const double *lambdas, double *S)
 	free(temp);
 	return nvec;
 }
-void impl_egval3(double const *M, double *lambdas)//finds the complex eigenvalues of a 3x3 matrix
+static void impl_egval3(double const *M, double *lambdas)//finds the complex eigenvalues of a 3x3 matrix
 {
 	double C[3];
 
@@ -1520,8 +1536,16 @@ static void default_RCT(const int *src, int *dst, int fwd)
 #endif
 static void rct_adaptive_block(int *src, int iw, int ih, int x, int y, int blocksize, double *axes)
 {
-	int res=iw*ih;
-	double mean[3]={0}, cov[9]={0};
+	double
+		mean[3]={0}, cov[9]={0},
+		lambdas[6],
+		axis1[3], axis2[3], axis3[3],
+		ev[9],
+		d;
+	int res, nv;
+	char d1=0, d2=1, d3=2, temp;
+
+	res=iw*ih;
 	for(int ky=0;ky<blocksize&&y+ky<ih;++ky)
 	{
 		for(int kx=0;kx<blocksize&&x+kx<iw;++kx)
@@ -1562,24 +1586,20 @@ static void rct_adaptive_block(int *src, int iw, int ih, int x, int y, int block
 	cov[7]=cov[5];
 	for(int k=0;k<9;++k)
 		cov[k]/=res-1;
-	double lambdas[6];
 	impl_egval3(cov, lambdas);//get eigenvalues
 	lambdas[0]=sqrt(lambdas[0]*lambdas[0]+lambdas[1]*lambdas[1]);
 	lambdas[1]=sqrt(lambdas[2]*lambdas[2]+lambdas[3]*lambdas[3]);
 	lambdas[2]=sqrt(lambdas[4]*lambdas[4]+lambdas[5]*lambdas[5]);
-	double ev[9];
-	int nv=impl_egvec(cov, 3, lambdas, ev);//get eigenvectors
+	nv=impl_egvec(cov, 3, lambdas, ev);//get eigenvectors
 	if(nv<2)
 		return;
 
-	double d;
-#define NORMALIZE(IDX) d=ev[IDX+0]*ev[IDX+0]+ev[IDX+1]*ev[IDX+1]+ev[IDX+2]*ev[IDX+2], d=d?1/sqrt(d):1, ev[IDX+0]*=d, ev[IDX+1]*=d, ev[IDX+2]*=d
+#define NORMALIZE(IDX) d=ev[IDX+0]*ev[IDX+0]+ev[IDX+1]*ev[IDX+1]+ev[IDX+2]*ev[IDX+2], d=fabs(d)>1e-9?1/sqrt(d):1, ev[IDX+0]*=d, ev[IDX+1]*=d, ev[IDX+2]*=d
 	NORMALIZE(0);//normalize eigenvectors
 	NORMALIZE(3);
 	NORMALIZE(6);
 #undef  NORMALIZE
 
-	char d1=0, d2=1, d3=2, temp;
 #define COMPARE(A, B) if(fabs(lambdas[(int)A])<fabs(lambdas[(int)B]))SWAPVAR(A, B, temp)
 	COMPARE(d1, d2);//sort eigenvalues
 	COMPARE(d2, d3);
@@ -1590,7 +1610,6 @@ static void rct_adaptive_block(int *src, int iw, int ih, int x, int y, int block
 	d3*=3;
 
 	//use only 2 most significant eigenvectors
-	double axis1[3], axis2[3], axis3[3];
 	memcpy(axis1, ev+d1, sizeof(double[3]));
 	memcpy(axis2, ev+d2, sizeof(double[3]));
 	CROSS(axis3, axis2, axis1);
@@ -1602,7 +1621,7 @@ static void rct_adaptive_block(int *src, int iw, int ih, int x, int y, int block
 	//	m3=DOT(axis3, axis1);
 	//if(m1*m1+m2*m2+m3*m3>1e-3)
 	//	LOG_ERROR("");
-#define NORMALIZE(X) d=X[0]*X[0]+X[1]*X[1]+X[2]*X[2], d=d?1/sqrt(d):1, X[0]*=d, X[1]*=d, X[2]*=d
+#define NORMALIZE(X) d=X[0]*X[0]+X[1]*X[1]+X[2]*X[2], d=fabs(d)<1e-9?1/sqrt(d):1, X[0]*=d, X[1]*=d, X[2]*=d
 	NORMALIZE(axis1);
 	NORMALIZE(axis2);
 	NORMALIZE(axis3);
@@ -1644,6 +1663,12 @@ void rct_adaptive(Image *src, int fwd)
 	int by=(src->ih+blocksize-1)/blocksize;
 	int nblocks=bx*by;
 	double *axes=(double*)malloc(nblocks*sizeof(double[12]));
+
+	if(!axes)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
 	for(int ky=0;ky<by;++ky)
 	{
 		int ky2=blocksize*ky-margin;
@@ -1659,24 +1684,29 @@ void rct_adaptive(Image *src, int fwd)
 	}
 	for(int ky=0;ky<src->ih;++ky)
 	{
-		int kby1=(ky+(blocksize>>1))/blocksize;
-		int kby0=kby1-(kby1>0);
+		int
+			kby1, kby0,
+			alphay;
+
+		kby1=(ky+(blocksize>>1))/blocksize;
+		kby0=kby1-(kby1>0);
 		kby1-=kby1>=by;
-		int alphay=(ky+(blocksize>>1))%blocksize;
+		alphay=(ky+(blocksize>>1))%blocksize;
 		for(int kx=0;kx<src->iw;++kx)
 		{
-			int kbx1=(kx+(blocksize>>1))/blocksize;
-			int kbx0=kbx1-(kbx1>0);
+			int kbx1, kbx0, alphax, idx;
+			double *axesTL, *axesTR, *axesBL, *axesBR, localaxes[12], d, r, g, b, r2, g2, b2;
+
+			kbx1=(kx+(blocksize>>1))/blocksize;
+			kbx0=kbx1-(kbx1>0);
 			kbx1-=kbx1>=bx;
-			int alphax=(kx+(blocksize>>1))%blocksize;
-			double
-				*axesTL=axes+12*(bx*kby0+kbx0),
-				*axesTR=axes+12*(bx*kby0+kbx1),
-				*axesBL=axes+12*(bx*kby1+kbx0),
-				*axesBR=axes+12*(bx*kby1+kbx1);
+			alphax=(kx+(blocksize>>1))%blocksize;
+			axesTL=axes+12*(bx*kby0+kbx0);
+			axesTR=axes+12*(bx*kby0+kbx1);
+			axesBL=axes+12*(bx*kby1+kbx0);
+			axesBR=axes+12*(bx*kby1+kbx1);
 			//if(kby0!=kby1&&kbx0!=kbx1)
 			//	printf("");
-			double localaxes[12];
 			for(int k=0;k<12;++k)//alpha blend
 			{
 				double vTL=axesTL[k], vTR=axesTR[k], vBL=axesBL[k], vBR=axesBR[k];
@@ -1685,38 +1715,38 @@ void rct_adaptive(Image *src, int fwd)
 				double v=vT+(vB-vT)*alphay/blocksize;
 				localaxes[k]=v;
 			}
-			double d;
-#define NORMALIZE(IDX) d=localaxes[IDX+0]*localaxes[IDX+0]+localaxes[IDX+1]*localaxes[IDX+1]+localaxes[IDX+2]*localaxes[IDX+2], d=d?1/sqrt(d):1, localaxes[IDX+0]*=d, localaxes[IDX+1]*=d, localaxes[IDX+2]*=d
+#define NORMALIZE(IDX) d=localaxes[IDX+0]*localaxes[IDX+0]+localaxes[IDX+1]*localaxes[IDX+1]+localaxes[IDX+2]*localaxes[IDX+2], d=fabs(d)<1e-9?1/sqrt(d):1, localaxes[IDX+0]*=d, localaxes[IDX+1]*=d, localaxes[IDX+2]*=d
 			NORMALIZE(0);//normalize axes
 			NORMALIZE(3);
 			NORMALIZE(6);
 #undef  NORMALIZE
-			int idx=(src->iw*ky+kx)<<2;
-			double r=src->data[idx|0], g=src->data[idx|1], b=src->data[idx|2];
+			idx=(src->iw*ky+kx)<<2;
+			r=src->data[idx|0], g=src->data[idx|1], b=src->data[idx|2];
 			r-=localaxes[ 9];//subtract mean
 			g-=localaxes[10];
 			b-=localaxes[11];
-			double
-				r2=localaxes[6]*r+localaxes[7]*g+localaxes[8]*b,//Cr	project on axes
-				g2=localaxes[0]*r+localaxes[1]*g+localaxes[2]*b,//Y
-				b2=localaxes[3]*r+localaxes[4]*g+localaxes[5]*b;//Cb
+			r2=localaxes[6]*r+localaxes[7]*g+localaxes[8]*b;//Cr	project on axes
+			g2=localaxes[0]*r+localaxes[1]*g+localaxes[2]*b;//Y
+			b2=localaxes[3]*r+localaxes[4]*g+localaxes[5]*b;//Cb
 			src->data[idx|0]=(int)g2;
 			src->data[idx|1]=(int)b2;
 			src->data[idx|2]=(int)r2;
 		}
 	}
-	char temp;
-	if(fwd)
 	{
-		ROTATE3(src->depth[0], src->depth[1], src->depth[2], temp);
-		src->depth[1]+=src->depth[1]<24;
-		src->depth[2]+=src->depth[2]<24;
-	}
-	else
-	{
-		src->depth[1]-=src->depth[1]>src->src_depth[1];
-		src->depth[2]-=src->depth[2]>src->src_depth[2];
-		ROTATE3(src->depth[2], src->depth[1], src->depth[0], temp);
+		char temp;
+		if(fwd)
+		{
+			ROTATE3(src->depth[0], src->depth[1], src->depth[2], temp);
+			src->depth[1]+=src->depth[1]<24;
+			src->depth[2]+=src->depth[2]<24;
+		}
+		else
+		{
+			src->depth[1]-=src->depth[1]>src->src_depth[1];
+			src->depth[2]-=src->depth[2]>src->src_depth[2];
+			ROTATE3(src->depth[2], src->depth[1], src->depth[0], temp);
+		}
 	}
 	free(axes);
 #if 0
@@ -1830,7 +1860,7 @@ void rct_adaptive(Image *src, int fwd)
 				continue;
 			}
 			double d;
-#define NORMALIZE(IDX) d=ev[IDX+0]*ev[IDX+0]+ev[IDX+1]*ev[IDX+1]+ev[IDX+2]*ev[IDX+2], d=d?1/sqrt(d):1, ev[IDX+0]*=d, ev[IDX+1]*=d, ev[IDX+2]*=d
+#define NORMALIZE(IDX) d=ev[IDX+0]*ev[IDX+0]+ev[IDX+1]*ev[IDX+1]+ev[IDX+2]*ev[IDX+2], d=fabs(d)<1e-9?1/sqrt(d):1, ev[IDX+0]*=d, ev[IDX+1]*=d, ev[IDX+2]*=d
 			NORMALIZE(0);//normalize eigenvectors
 			NORMALIZE(3);
 			NORMALIZE(6);
@@ -1858,7 +1888,7 @@ void rct_adaptive(Image *src, int fwd)
 			//	m3=DOT(axis3, axis1);
 			//if(m1*m1+m2*m2+m3*m3>1e-3)
 			//	LOG_ERROR("");
-#define NORMALIZE(X) d=X[0]*X[0]+X[1]*X[1]+X[2]*X[2], d=d?1/sqrt(d):1, X[0]*=d, X[1]*=d, X[2]*=d
+#define NORMALIZE(X) d=X[0]*X[0]+X[1]*X[1]+X[2]*X[2], d=fabs(d)<1e-9?1/sqrt(d):1, X[0]*=d, X[1]*=d, X[2]*=d
 			NORMALIZE(axis1);
 			NORMALIZE(axis2);
 			NORMALIZE(axis3);
@@ -2176,16 +2206,6 @@ void packsign(Image *src, int fwd)
 void pred_clampgrad(Image *src, int fwd, int enable_ma)
 {
 #if 1
-	int *pixels=(int*)_mm_malloc((src->iw+4LL)*sizeof(int[2*4]), sizeof(__m128i));//2 padded rows * 4 channels max
-
-	(void)enable_ma;
-
-	if(!pixels)
-	{
-		LOG_ERROR("Alloc error");
-		return;
-	}
-	memset(pixels, 0, (src->iw+4LL)*sizeof(int[2*4]));
 	int nlevels[]=
 	{
 		1<<src->depth[0],
@@ -2193,8 +2213,6 @@ void pred_clampgrad(Image *src, int fwd, int enable_ma)
 		1<<src->depth[2],
 		1<<src->depth[3],
 	};
-	//int fwdmask=-fwd;
-	//__m128i mfwd=_mm_set1_epi32(fwdmask);
 	__m128i mhalf=_mm_set_epi32(
 		nlevels[3]>>1,
 		nlevels[2]>>1,
@@ -2208,6 +2226,16 @@ void pred_clampgrad(Image *src, int fwd, int enable_ma)
 		nlevels[0]-1
 	);
 	ALIGN(16) int curr[4]={0};
+	int *pixels=(int*)_mm_malloc((src->iw+4LL)*sizeof(int[2*4]), sizeof(__m128i));//2 padded rows * 4 channels max
+
+	(void)enable_ma;
+
+	if(!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(pixels, 0, (src->iw+4LL)*sizeof(int[2*4]));
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
 		int *rows[]=
@@ -2224,22 +2252,24 @@ void pred_clampgrad(Image *src, int fwd, int enable_ma)
 				__m128i W	=_mm_load_si128((__m128i*)rows[0]-1);
 				__m128i pred=_mm_add_epi32(N, W);
 				pred=_mm_sub_epi32(pred, NW);
-				__m128i vmin=_mm_min_epi32(N, W);
-				__m128i vmax=_mm_max_epi32(N, W);
-				pred=_mm_min_epi32(pred, vmax);
-				pred=_mm_max_epi32(pred, vmin);
-
-				__m128i mc=_mm_loadu_si128((__m128i*)(src->data+idx));
-				pred=_mm_sub_epi32(mc, pred);
-				pred=_mm_add_epi32(pred, mhalf);
-				pred=_mm_and_si128(pred, symmask);
-				pred=_mm_sub_epi32(pred, mhalf);
-				_mm_store_si128((__m128i*)curr, pred);
-				src->data[idx|0]=curr[0];
-				src->data[idx|1]=curr[1];
-				src->data[idx|2]=curr[2];
-				_mm_store_si128((__m128i*)rows[0], mc);
-
+				{
+					__m128i vmin=_mm_min_epi32(N, W);
+					__m128i vmax=_mm_max_epi32(N, W);
+					pred=_mm_min_epi32(pred, vmax);
+					pred=_mm_max_epi32(pred, vmin);
+				}
+				{
+					__m128i mc=_mm_loadu_si128((__m128i*)(src->data+idx));
+					pred=_mm_sub_epi32(mc, pred);
+					pred=_mm_add_epi32(pred, mhalf);
+					pred=_mm_and_si128(pred, symmask);
+					pred=_mm_sub_epi32(pred, mhalf);
+					_mm_store_si128((__m128i*)curr, pred);
+					src->data[idx|0]=curr[0];
+					src->data[idx|1]=curr[1];
+					src->data[idx|2]=curr[2];
+					_mm_store_si128((__m128i*)rows[0], mc);
+				}
 				rows[0]+=4;
 				rows[1]+=4;
 			}
@@ -2253,22 +2283,24 @@ void pred_clampgrad(Image *src, int fwd, int enable_ma)
 				__m128i W	=_mm_load_si128((__m128i*)rows[0]-1);
 				__m128i pred=_mm_add_epi32(N, W);
 				pred=_mm_sub_epi32(pred, NW);
-				__m128i vmin=_mm_min_epi32(N, W);
-				__m128i vmax=_mm_max_epi32(N, W);
-				pred=_mm_min_epi32(pred, vmax);
-				pred=_mm_max_epi32(pred, vmin);
-
-				__m128i mc=_mm_loadu_si128((__m128i*)(src->data+idx));
-				pred=_mm_add_epi32(mc, pred);
-				pred=_mm_add_epi32(pred, mhalf);
-				pred=_mm_and_si128(pred, symmask);
-				pred=_mm_sub_epi32(pred, mhalf);
-				_mm_store_si128((__m128i*)curr, pred);
-				src->data[idx|0]=curr[0];
-				src->data[idx|1]=curr[1];
-				src->data[idx|2]=curr[2];
-				_mm_store_si128((__m128i*)rows[0], pred);
-
+				{
+					__m128i vmin=_mm_min_epi32(N, W);
+					__m128i vmax=_mm_max_epi32(N, W);
+					pred=_mm_min_epi32(pred, vmax);
+					pred=_mm_max_epi32(pred, vmin);
+				}
+				{
+					__m128i mc=_mm_loadu_si128((__m128i*)(src->data+idx));
+					pred=_mm_add_epi32(mc, pred);
+					pred=_mm_add_epi32(pred, mhalf);
+					pred=_mm_and_si128(pred, symmask);
+					pred=_mm_sub_epi32(pred, mhalf);
+					_mm_store_si128((__m128i*)curr, pred);
+					src->data[idx|0]=curr[0];
+					src->data[idx|1]=curr[1];
+					src->data[idx|2]=curr[2];
+					_mm_store_si128((__m128i*)rows[0], pred);
+				}
 				rows[0]+=4;
 				rows[1]+=4;
 			}
@@ -2440,6 +2472,31 @@ void pred_clampgrad(Image *src, int fwd, int enable_ma)
 
 void pred_CG3D(Image *src, int fwd, int enable_ma)
 {
+	int nlevels[]=
+	{
+		1<<src->depth[0],
+		1<<src->depth[1],
+		1<<src->depth[2],
+		1<<src->depth[3],
+	};
+	int halfs[]=
+	{
+		nlevels[0]>>1,
+		nlevels[1]>>1,
+		nlevels[2]>>1,
+		nlevels[3]>>1,
+	};
+	int chpermutations[]=
+	{
+		0, 1, 2, 3,//subR
+		1, 2, 0, 3,//subG
+	};
+	int
+		nlumas=1,
+		chpoints[3]={0},
+		*perm,
+		fwdmask=-fwd;
+
 	int *pixels=(int*)malloc((src->iw+2LL)*sizeof(int[2*4]));//2 padded rows * 4 channels max
 
 	(void)enable_ma;
@@ -2459,31 +2516,11 @@ void pred_CG3D(Image *src, int fwd, int enable_ma)
 			src->depth[kc]+=fwd;
 	}
 #endif
-	int nlevels[]=
-	{
-		1<<src->depth[0],
-		1<<src->depth[1],
-		1<<src->depth[2],
-		1<<src->depth[3],
-	};
-	int halfs[]=
-	{
-		nlevels[0]>>1,
-		nlevels[1]>>1,
-		nlevels[2]>>1,
-		nlevels[3]>>1,
-	};
-	int nlumas=1;
 	for(int kc=1;kc<nch;++kc)
 		nlumas+=src->depth[kc]==src->depth[0];
-	int chpoints[]={0, nlumas, nch};
-	int chpermutations[]=
-	{
-		0, 1, 2, 3,//subR
-		1, 2, 0, 3,//subG
-	};
-	int *perm=nlumas==nch?chpermutations+4:chpermutations;//permute channels RGB->GBR if no RCT was applied earlier
-	int fwdmask=-fwd;
+	chpoints[1]=nlumas;
+	chpoints[2]=nch;
+	perm=nlumas==nch?chpermutations+4:chpermutations;//permute channels RGB->GBR if no RCT was applied earlier
 	//int pred[3]={0}, vmin[3]={0}, vmax[3]={0};
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
@@ -2499,7 +2536,7 @@ void pred_CG3D(Image *src, int fwd, int enable_ma)
 			{
 				for(int kc0=chpoints[kk];kc0<chpoints[kk+1];++kc0)
 				{
-					int kc=perm[kc0];
+					int kc=perm[kc0], pred;
 					int
 						NW	=rows[1][kc-4],
 						N	=rows[1][kc+0],
@@ -2507,9 +2544,8 @@ void pred_CG3D(Image *src, int fwd, int enable_ma)
 						offset	=0;
 					if(kc0>chpoints[kk])
 						offset+=rows[0][perm[chpoints[kk]]];
-					int pred=N+W-NW;
-					int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
-					pred=CLAMP(vmin, pred, vmax);
+					pred=N+W-NW;
+					MEDIAN3_32(pred, N, W, pred);
 					//pred=(N+W)>>1;
 					pred+=offset;
 					pred=CLAMP(-halfs[kc], pred, halfs[kc]-1);
@@ -2654,15 +2690,7 @@ void pred_CG3D(Image *src, int fwd, int enable_ma)
 
 void pred_PU(Image *src, int fwd)
 {
-	int *pixels=(int*)malloc((src->iw+4LL)*sizeof(int[4*4]));//4 padded rows * 4 channels max
-	if(!pixels)
-	{
-		LOG_ERROR("Alloc error");
-		return;
-	}
-	memset(pixels, 0, (src->iw+4LL)*sizeof(int[4*4]));
-	int nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
-	UPDATE_MAX(nch, src->nch);
+	int nch;
 	int nlevels[]=
 	{
 		1<<src->depth[0],
@@ -2679,6 +2707,16 @@ void pred_PU(Image *src, int fwd)
 	};
 	int perm[]={1, 2, 0, 3};
 	int fwdmask=-fwd;
+
+	int *pixels=(int*)malloc((src->iw+4LL)*sizeof(int[4*4]));//4 padded rows * 4 channels max
+	if(!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(pixels, 0, (src->iw+4LL)*sizeof(int[4*4]));
+	nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
+	UPDATE_MAX(nch, src->nch);
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
 		int *rows[]=
@@ -2705,16 +2743,17 @@ void pred_PU(Image *src, int fwd)
 
 				int update=(2*(NN+WW)-(N+W+NW+NE)+4*(cb+cr))>>4;
 				update=CLAMP(-halfs[1], update, halfs[1]-1);
-				int luma=src->data[idx+1]-update;//subtract update
-				luma+=nlevels[1]>>1;
-				luma&=nlevels[1]-1;
-				luma-=nlevels[1]>>1;
-				src->data[idx+1]=luma;
+				{
+					int luma=src->data[idx+1]-update;//subtract update
+					luma<<=32-src->depth[1];
+					luma>>=32-src->depth[1];
+					src->data[idx+1]=luma;
+				}
 			}
 #endif
 			for(int kc0=0;kc0<src->nch;++kc0)
 			{
-				int kc=perm[kc0];
+				int kc=perm[kc0], pred;
 				int
 					NNWW	=rows[2][kc-2*4],
 					NNW	=rows[2][kc-1*4],
@@ -2747,7 +2786,6 @@ void pred_PU(Image *src, int fwd)
 					if(kc0>1)
 						offset=(2*offset+rows[0][2])>>1;
 				}
-				int pred;
 				//if(kc==1)//luma
 				//	pred=(4*(N+W)+NE-NW)>>3;
 				//else
@@ -2762,18 +2800,18 @@ void pred_PU(Image *src, int fwd)
 
 				pred+=offset;
 				pred=CLAMP(-halfs[kc], pred, halfs[kc]-1);
+				{
+					int curr=src->data[idx+kc];
+					pred^=fwdmask;
+					pred-=fwdmask;
+					pred+=curr;
+				
+					pred<<=32-src->depth[kc];
+					pred>>=32-src->depth[kc];
 
-				int curr=src->data[idx+kc];
-				pred^=fwdmask;
-				pred-=fwdmask;
-				pred+=curr;
-
-				pred+=nlevels[kc]>>1;
-				pred&=nlevels[kc]-1;
-				pred-=nlevels[kc]>>1;
-
-				src->data[idx+kc]=pred;
-				rows[0][kc]=(fwd?curr:pred)-offset;
+					src->data[idx+kc]=pred;
+					rows[0][kc]=(fwd?curr:pred)-offset;
+				}
 			}
 #ifdef PU_UPDATE_LUMA
 			if(fwd)
@@ -2789,11 +2827,12 @@ void pred_PU(Image *src, int fwd)
 					cr	=src->data[idx+0];
 				int update=(2*(NN+WW)-(N+W+NW+NE)+4*(cb+cr))>>4;
 				update=CLAMP(-halfs[1], update, halfs[1]-1);
-				int luma=src->data[idx+1]+update;//add update
-				luma+=nlevels[1]>>1;
-				luma&=nlevels[1]-1;
-				luma-=nlevels[1]>>1;
-				src->data[idx+1]=luma;
+				{
+					int luma=src->data[idx+1]+update;//add update
+					luma<<=32-src->depth[1];
+					luma>>=32-src->depth[1];
+					src->data[idx+1]=luma;
+				}
 			}
 #endif
 			rows[0]+=4;
@@ -2839,6 +2878,24 @@ void pred_wgrad(Image *src, int fwd)
 	//	if(sh<0)
 	//		sh=8;
 	//}
+	int nch;
+	int nlevels[]=
+	{
+		1<<src->depth[0],
+		1<<src->depth[1],
+		1<<src->depth[2],
+		1<<src->depth[3],
+	};
+	int halfs[]=
+	{
+		nlevels[0]>>1,
+		nlevels[1]>>1,
+		nlevels[2]>>1,
+		nlevels[3]>>1,
+	};
+	int perm[]={1, 2, 0, 3};
+	int fwdmask=-fwd;
+
 	int *pixels=(int*)malloc((src->iw+4LL)*sizeof(int[4*4]));//4 padded rows * 4 channels max
 	if(!pixels)
 	{
@@ -2860,24 +2917,8 @@ void pred_wgrad(Image *src, int fwd)
 	}
 	memset(sse, 0, ssesize);
 #endif
-	int nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
+	nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
 	UPDATE_MAX(nch, src->nch);
-	int nlevels[]=
-	{
-		1<<src->depth[0],
-		1<<src->depth[1],
-		1<<src->depth[2],
-		1<<src->depth[3],
-	};
-	int halfs[]=
-	{
-		nlevels[0]>>1,
-		nlevels[1]>>1,
-		nlevels[2]>>1,
-		nlevels[3]>>1,
-	};
-	int perm[]={1, 2, 0, 3};
-	int fwdmask=-fwd;
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
 		int *rows[]=
@@ -2897,15 +2938,17 @@ void pred_wgrad(Image *src, int fwd)
 					cr	=src->data[idx+0];
 				int update=(cb+cr)>>3;
 				update=CLAMP(-halfs[1], update, halfs[1]-1);
-				int luma=src->data[idx+1]-update;//subtract update
-				luma<<=32-src->depth[1];
-				luma>>=32-src->depth[1];
-				src->data[idx+1]=luma;
+				{
+					int luma=src->data[idx+1]-update;//subtract update
+					luma<<=32-src->depth[1];
+					luma>>=32-src->depth[1];
+					src->data[idx+1]=luma;
+				}
 			}
 #endif
 			for(int kc0=0;kc0<src->nch;++kc0)
 			{
-				int kc=perm[kc0];
+				int kc=perm[kc0], pred;
 				int
 					NNN	=rows[3][kc+0*4],
 					NNWW	=rows[2][kc-2*4],
@@ -2944,37 +2987,41 @@ void pred_wgrad(Image *src, int fwd)
 				//sort_int32(nb, (int)_countof(nb));
 				//int pred=nb[_countof(nb)>>1];
 				//pred=(pred+N+W-NW)>>1;
+				{
+					int
+						gx=abs(W-WW)+abs(N-NW)+abs(NE-N)+1,
+						gy=abs(W-NW)+abs(N-NN)+abs(NE-NNE)+1,
+						g135=abs(W-NWW)+abs(NW-NNWW)+abs(N-NNW)+abs(NE-NN)+1,
+						g45=abs(W-N)+abs(N-NNE)+abs(NE-NNEE)+abs(WW-NW)+1;
+					//int gx=abs(W-WW)+1, gy=abs(N-NN)+1;//X
+					(void)gx;
+					(void)gy;
+					(void)g135;
+					(void)g45;
 
-				int
-					gx=abs(W-WW)+abs(N-NW)+abs(NE-N)+1,
-					gy=abs(W-NW)+abs(N-NN)+abs(NE-NNE)+1,
-					g135=abs(W-NWW)+abs(NW-NNWW)+abs(N-NNW)+abs(NE-NN)+1,
-					g45=abs(W-N)+abs(N-NNE)+abs(NE-NNEE)+abs(WW-NW)+1;
-				//int gx=abs(W-WW)+1, gy=abs(N-NN)+1;//X
+					//NW, N, NE, W
+					//if(NW>N)
+					//{
+					//	if(N>NE)
+					//	{
+					//		if(W>N)
+					//	}
+					//	else
+					//	{
+					//	}
+					//}
+					//else
+					//{
+					//	if(NW>NE)
+					//	{
+					//	}
+					//	else
+					//	{
+					//	}
+					//}
 
-				//NW, N, NE, W
-				//if(NW>N)
-				//{
-				//	if(N>NE)
-				//	{
-				//		if(W>N)
-				//	}
-				//	else
-				//	{
-				//	}
-				//}
-				//else
-				//{
-				//	if(NW>NE)
-				//	{
-				//	}
-				//	else
-				//	{
-				//	}
-				//}
-
-				int pred=(int)(((long long)gx*N+(long long)gy*W)/(gx+gy));		//<- NOT better than CG: LPCB, DSLR2
-
+					pred=(int)(((long long)gx*N+(long long)gy*W)/(gx+gy));		//<- NOT better than CG: LPCB, DSLR2
+				}
 				//const int sh=8;
 				//int grad=N+W-NW, pred;
 				//MEDIAN3_32(pred, N, W, grad);
@@ -3046,27 +3093,28 @@ void pred_wgrad(Image *src, int fwd)
 
 				pred+=offset;
 				pred=CLAMP(-halfs[kc], pred, halfs[kc]-1);
-
-				int curr=src->data[idx+kc];
-				pred^=fwdmask;
-				pred-=fwdmask;
-				pred+=curr;
-
-				pred<<=32-src->depth[kc];
-				pred>>=32-src->depth[kc];
-
-				src->data[idx+kc]=pred;
-				rows[0][kc]=(fwd?curr:pred)-offset;
-#ifdef WGRAD_SSE
-				int error=fwd?pred:curr;
-				curr_sse[0]+=error;
-				++curr_sse[1];
-				if(curr_sse[1]>=640)
 				{
-					curr_sse[0]>>=1;
-					curr_sse[1]>>=1;
-				}
+					int curr=src->data[idx+kc];
+					pred^=fwdmask;
+					pred-=fwdmask;
+					pred+=curr;
+
+					pred<<=32-src->depth[kc];
+					pred>>=32-src->depth[kc];
+
+					src->data[idx+kc]=pred;
+					rows[0][kc]=(fwd?curr:pred)-offset;
+#ifdef WGRAD_SSE
+					int error=fwd?pred:curr;
+					curr_sse[0]+=error;
+					++curr_sse[1];
+					if(curr_sse[1]>=640)
+					{
+						curr_sse[0]>>=1;
+						curr_sse[1]>>=1;
+					}
 #endif
+				}
 			}
 #ifdef WGRAD_UPDATE_LUMA
 			if(fwd)
@@ -3076,10 +3124,12 @@ void pred_wgrad(Image *src, int fwd)
 					cr	=src->data[idx+0];
 				int update=(cb+cr)>>3;
 				update=CLAMP(-halfs[1], update, halfs[1]-1);
-				int luma=src->data[idx+1]+update;//add update
-				luma<<=32-src->depth[1];
-				luma>>=32-src->depth[1];
-				src->data[idx+1]=luma;
+				{
+					int luma=src->data[idx+1]+update;//add update
+					luma<<=32-src->depth[1];
+					luma>>=32-src->depth[1];
+					src->data[idx+1]=luma;
+				}
 			}
 #endif
 			rows[0]+=4;
@@ -3118,23 +3168,7 @@ void pred_wgrad(Image *src, int fwd)
 #define WPU_PIXEL_STRIDE (4*(WPU_NPREDS+2LL))
 void pred_WPU(Image *src, int fwd)
 {
-#ifdef WPU_TRACE
-	long long trace[WPU_NPREDS]={0};
-#endif
-	int eprev[WPU_NPREDS]={0};
-	int weights[WPU_NPREDS<<2]={0};
-	for(int k=0;k<(WPU_NPREDS<<2);++k)
-		weights[k]=0x8000;
-	size_t bufsize=(src->iw+8LL)*sizeof(int[4*WPU_PIXEL_STRIDE]);
-	int *pixels=(int*)malloc(bufsize);//4 padded rows * 4 channels max * {pixels, errors, pred_errors...}
-	if(!pixels)
-	{
-		LOG_ERROR("Alloc error");
-		return;
-	}
-	memset(pixels, 0, bufsize);//{...padding    Y U V A  eY eU eV eA  a0Y a0U a0V a0A  a1Y a1U a1V a1A ...} * 4 rows
-	int nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
-	UPDATE_MAX(nch, src->nch);
+	int nch;
 	int nlevels[]=
 	{
 		1<<src->depth[0],
@@ -3157,6 +3191,26 @@ void pred_WPU(Image *src, int fwd)
 		nlevels[3]<<WPU_NBITS>>1,
 	};
 	int perm[]={1, 2, 0, 3};
+#ifdef WPU_TRACE
+	long long trace[WPU_NPREDS]={0};
+#endif
+	int eprev[WPU_NPREDS]={0};
+	int weights[WPU_NPREDS<<2]={0};
+	size_t bufsize;
+	int *pixels;
+
+	for(int k=0;k<(WPU_NPREDS<<2);++k)
+		weights[k]=0x8000;
+	bufsize=(src->iw+8LL)*sizeof(int[4*WPU_PIXEL_STRIDE]);
+	pixels=(int*)malloc(bufsize);//4 padded rows * 4 channels max * {pixels, errors, pred_errors...}
+	if(!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(pixels, 0, bufsize);//{...padding    Y U V A  eY eU eV eA  a0Y a0U a0V a0A  a1Y a1U a1V a1A ...} * 4 rows
+	nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
+	UPDATE_MAX(nch, src->nch);
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
 		int *rows[]=
@@ -3176,15 +3230,17 @@ void pred_WPU(Image *src, int fwd)
 					cr	=src->data[idx+0];
 				int update=(cb+cr)>>3;
 				update=CLAMP(-halfs[1], update, halfs[1]-1);
-				int luma=src->data[idx+1]-update;//subtract update
-				luma<<=32-src->depth[1];
-				luma>>=32-src->depth[1];
-				src->data[idx+1]=luma;
+				{
+					int luma=src->data[idx+1]-update;//subtract update
+					luma<<=32-src->depth[1];
+					luma>>=32-src->depth[1];
+					src->data[idx+1]=luma;
+				}
 			}
 #endif
 			for(int kc0=0;kc0<src->nch;++kc0)
 			{
-				int kc=perm[kc0];
+				int kc=perm[kc0], pred, vmin, vmax, curr, val;
 				int
 					NNN	=rows[3][kc+0*WPU_PIXEL_STRIDE+0],
 					NNWW	=rows[2][kc-2*WPU_PIXEL_STRIDE+0],
@@ -3244,7 +3300,7 @@ void pred_WPU(Image *src, int fwd)
 				//	g45=abs(W-N)+abs(N-NNE)+abs(NE-NNEE)+abs(WW-NW)+1;
 				//int grad=(gx*N+gy*W)/(gx+gy);
 				
-				int vmin=MINVAR(N, W), vmax=MAXVAR(N, W), pred, curr, val;
+				vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
 				UPDATE_MIN(vmin, NE);
 				UPDATE_MAX(vmax, NE);
 #if 0
@@ -3269,123 +3325,128 @@ void pred_WPU(Image *src, int fwd)
 				int median1=(nb[1]+nb[2])>>1;
 				int median2=(nb[0]+nb[3])>>1;
 #endif
-				int preds[]=
 				{
+					int preds[]=
+					{
 #define WPU_PRED(X) X,
-					WPU_PREDLIST
+						WPU_PREDLIST
 #undef  WPU_PRED
-					//(N+W+NE-NW)>>1,
-					//(3*N+W-(NNW+NNE))>>1,
-					//N+W-NW,
-					//W+(eW>>1),
-					//N+(eN>>1),
-					//W+NW-NWW,
-					//W+NE-N,
-					//N+NE-NNE,
+						//(N+W+NE-NW)>>1,
+						//(3*N+W-(NNW+NNE))>>1,
+						//N+W-NW,
+						//W+(eW>>1),
+						//N+(eN>>1),
+						//W+NW-NWW,
+						//W+NE-N,
+						//N+NE-NNE,
 
-					//(3*(N+W-NW)+((N+W)>>1))>>2,
-					//(4*(N+W)+NE-NW)>>3,
-					//NE+NEE-NEEE,
+						//(3*(N+W-NW)+((N+W)>>1))>>2,
+						//(4*(N+W)+NE-NW)>>3,
+						//NE+NEE-NEEE,
 
-					//W+NE-N,
-					//W+((eN+eW+eNW)>>2),
-					//N+((eN+eW+eNE)>>2),
-					//N+((4*eNW+0*eN+3*eNE-23*(NN-N)+2*(NW-W))>>5),
+						//W+NE-N,
+						//W+((eN+eW+eNW)>>2),
+						//N+((eN+eW+eNE)>>2),
+						//N+((4*eNW+0*eN+3*eNE-23*(NN-N)+2*(NW-W))>>5),
 
-					//lib/jxl/modular/encoding/context_predict.h:	default lossless8
-					//prediction[0] = W + NE - N;
-					//prediction[1] = N - (((sumWN + teNE) * 8) >> 5);
-					//prediction[2] = W - (((sumWN + teNW) * 8) >> 5);
-					//prediction[3] = N - ((teNW * 4 + teN * 0 + teNE * 3 + (NN - N) * 23 + (NW - W) * 2) >> 5);
-					//W+NE-N,
-					//W-((eN+eW+eNW)>>2),
-					//N-((eN+eW+eNE)>>2),
-					//N-((4*eNW+0*eN+3*eNE+23*(N-NN)+2*(NW-W))>>5),
+						//lib/jxl/modular/encoding/context_predict.h:	default lossless8
+						//prediction[0] = W + NE - N;
+						//prediction[1] = N - (((sumWN + teNE) * 8) >> 5);
+						//prediction[2] = W - (((sumWN + teNW) * 8) >> 5);
+						//prediction[3] = N - ((teNW * 4 + teN * 0 + teNE * 3 + (NN - N) * 23 + (NW - W) * 2) >> 5);
+						//W+NE-N,
+						//W-((eN+eW+eNW)>>2),
+						//N-((eN+eW+eNE)>>2),
+						//N-((4*eNW+0*eN+3*eNE+23*(N-NN)+2*(NW-W))>>5),
 
-					//W+NE-N,
-					//W-(int)(-13*((long long)eN+eW+eNW)>>8),
-					//N+(int)(-7*((long long)eN+eW+eNE)>>8),
-					//N-(int)((-0x85LL*eNW-0x63LL*eN-0xA2LL*eNE+0x17*((long long)N-NN)+0xF2*((long long)NW-W))>>8),
-				};
-				//if(ky==1&&kx==230)//
-				//if(ky==0&&kx==141)//
-				//if(ky==100&&kx==100)//
-				//	printf("");
+						//W+NE-N,
+						//W-(int)(-13*((long long)eN+eW+eNW)>>8),
+						//N+(int)(-7*((long long)eN+eW+eNE)>>8),
+						//N-(int)((-0x85LL*eNW-0x63LL*eN-0xA2LL*eNE+0x17*((long long)N-NN)+0xF2*((long long)NW-W))>>8),
+					};
+					//if(ky==1&&kx==230)//
+					//if(ky==0&&kx==141)//
+					//if(ky==100&&kx==100)//
+					//	printf("");
 
-				long long llpred=0, wsum=1;
-				for(int k=0;k<WPU_NPREDS;++k)
-				{
-					long long weight=0;
-					weight+=(long long)rows[1][kc+0*WPU_PIXEL_STRIDE+8+((size_t)k<<2)];
-#ifdef WPU_TRACE
-					if(kc==1)
-						trace[k]+=weight*weight;
-#endif
-					weight+=(long long)rows[1][kc-1*WPU_PIXEL_STRIDE+8+((size_t)k<<2)];
-					weight+=(long long)rows[1][kc+1*WPU_PIXEL_STRIDE+8+((size_t)k<<2)];
-					weight+=!weight;
-					weight=((long long)weights[k<<2|kc]<<16)/weight;
-					llpred+=weight*preds[k];
-					wsum+=weight;
-				}
-				llpred+=(wsum>>1)-1;
-				wsum+=!wsum;
-				llpred/=wsum;
-				pred=(int)llpred;
-				pred=CLAMP(vmin, pred, vmax);
-				pred=((64-4)*pred+N+W+NW+NE)>>6;
-
-				pred+=offset;
-				pred=CLAMP(-boosthalfs[kc], pred, boosthalfs[kc]-1);
-
-				val=src->data[idx+kc];
-				if(fwd)
-				{
-					curr=val;
-					val-=(pred+(1<<WPU_NBITS>>1))>>WPU_NBITS;
-					val+=halfs[kc];
-					val&=nlevels[kc]-1;
-					val-=halfs[kc];
-				}
-				else
-				{
-					val+=(pred+(1<<WPU_NBITS>>1))>>WPU_NBITS;
-					val+=halfs[kc];
-					val&=nlevels[kc]-1;
-					val-=halfs[kc];
-					curr=val;
-				}
-				src->data[idx+kc]=val;
-				curr<<=WPU_NBITS;
-				rows[0][kc+0]=curr-offset;
-				rows[0][kc+4]=curr-pred;
-				int kbest=0;
-				for(int k=0;k<WPU_NPREDS;++k)
-				{
-					int e2=abs(curr-preds[k]);
-					eprev[k]=e2;
-					rows[0][kc+0*WPU_PIXEL_STRIDE+8+((size_t)k<<2)]=e2;
-					rows[1][kc+1*WPU_PIXEL_STRIDE+8+((size_t)k<<2)]+=e2;
-					if(eprev[kbest]>eprev[k])
-						kbest=k;
-				}
-				int rescale=0;
-				for(int k=0;k<WPU_NPREDS;++k)
-				{
-					weights[k<<2|kc]-=eprev[k];
-					rescale|=weights[k<<2|kc]<0x800;
-				}
-				if(rescale)
-				{
+					long long llpred=0, wsum=1;
 					for(int k=0;k<WPU_NPREDS;++k)
-						weights[k<<2|kc]<<=1;
+					{
+						long long weight=0;
+						weight+=(long long)rows[1][kc+0*WPU_PIXEL_STRIDE+8+((size_t)k<<2)];
+#ifdef WPU_TRACE
+						if(kc==1)
+							trace[k]+=weight*weight;
+#endif
+						weight+=(long long)rows[1][kc-1*WPU_PIXEL_STRIDE+8+((size_t)k<<2)];
+						weight+=(long long)rows[1][kc+1*WPU_PIXEL_STRIDE+8+((size_t)k<<2)];
+						weight+=!weight;
+						weight=((long long)weights[k<<2|kc]<<16)/weight;
+						llpred+=weight*preds[k];
+						wsum+=weight;
+					}
+					llpred+=(wsum>>1)-1;
+					wsum+=!wsum;
+					llpred/=wsum;
+					pred=(int)llpred;
+					pred=CLAMP(vmin, pred, vmax);
+					pred=((64-4)*pred+N+W+NW+NE)>>6;
+
+					pred+=offset;
+					pred=CLAMP(-boosthalfs[kc], pred, boosthalfs[kc]-1);
+
+					val=src->data[idx+kc];
+					if(fwd)
+					{
+						curr=val;
+						val-=(pred+(1<<WPU_NBITS>>1))>>WPU_NBITS;
+						val+=halfs[kc];
+						val&=nlevels[kc]-1;
+						val-=halfs[kc];
+					}
+					else
+					{
+						val+=(pred+(1<<WPU_NBITS>>1))>>WPU_NBITS;
+						val+=halfs[kc];
+						val&=nlevels[kc]-1;
+						val-=halfs[kc];
+						curr=val;
+					}
+					src->data[idx+kc]=val;
+					curr<<=WPU_NBITS;
+					rows[0][kc+0]=curr-offset;
+					rows[0][kc+4]=curr-pred;
+					int kbest=0;
+					for(int k=0;k<WPU_NPREDS;++k)
+					{
+						int e2=abs(curr-preds[k]);
+						eprev[k]=e2;
+						rows[0][kc+0*WPU_PIXEL_STRIDE+8+((size_t)k<<2)]=e2;
+						rows[1][kc+1*WPU_PIXEL_STRIDE+8+((size_t)k<<2)]+=e2;
+						if(eprev[kbest]>eprev[k])
+							kbest=k;
+					}
+					(void)kbest;
+					//++weights[kbest<<2|kc];
+					//if(weights[kbest<<2|kc]>0x8000)
+					//{
+					//	for(int k=0;k<WPU_NPREDS;++k)
+					//		weights[k<<2|kc]>>=1;
+					//}
+					{
+						int rescale=0;
+						for(int k=0;k<WPU_NPREDS;++k)
+						{
+							weights[k<<2|kc]-=eprev[k];
+							rescale|=weights[k<<2|kc]<0x800;
+						}
+						if(rescale)
+						{
+							for(int k=0;k<WPU_NPREDS;++k)
+								weights[k<<2|kc]<<=1;
+						}
+					}
 				}
-				//++weights[kbest<<2|kc];
-				//if(weights[kbest<<2|kc]>0x8000)
-				//{
-				//	for(int k=0;k<WPU_NPREDS;++k)
-				//		weights[k<<2|kc]>>=1;
-				//}
 			}
 #ifdef WPU_UPDATE_LUMA
 			if(fwd)
@@ -3395,10 +3456,12 @@ void pred_WPU(Image *src, int fwd)
 					cr	=src->data[idx+0];
 				int update=(cb+cr)>>3;
 				update=CLAMP(-halfs[1], update, halfs[1]-1);
-				int luma=src->data[idx+1]+update;//add update
-				luma<<=32-src->depth[1];
-				luma>>=32-src->depth[1];
-				src->data[idx+1]=luma;
+				{
+					int luma=src->data[idx+1]+update;//add update
+					luma<<=32-src->depth[1];
+					luma>>=32-src->depth[1];
+					src->data[idx+1]=luma;
+				}
 			}
 #endif
 			rows[0]+=WPU_PIXEL_STRIDE;
@@ -3457,6 +3520,7 @@ void pred_av2(Image *src, int fwd)
 		nlevels[1]-1,
 		nlevels[0]-1
 	);
+	ALIGN(16) int curr[4]={0};
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
 		int *rows[]=
@@ -3465,7 +3529,6 @@ void pred_av2(Image *src, int fwd)
 			pixels+(((src->iw+4LL)*((ky-1LL)&1)+1)<<2),
 		};
 		int kx=0;
-		ALIGN(16) int curr[4]={0};
 		if(fwd)
 		{
 			for(;kx<src->iw;++kx, idx+=4)
@@ -3474,14 +3537,15 @@ void pred_av2(Image *src, int fwd)
 				__m128i W	=_mm_load_si128((__m128i*)rows[0]-1);
 				__m128i pred=_mm_add_epi32(N, W);
 				pred=_mm_srai_epi32(pred, 1);
-
-				__m128i mc=_mm_loadu_si128((__m128i*)(src->data+idx));
-				pred=_mm_sub_epi32(mc, pred);
-				pred=_mm_add_epi32(pred, mhalf);
-				pred=_mm_and_si128(pred, symmask);
-				pred=_mm_sub_epi32(pred, mhalf);
-				_mm_store_si128((__m128i*)curr, pred);//error
-				_mm_store_si128((__m128i*)rows[0], mc);//pixel
+				{
+					__m128i mc=_mm_loadu_si128((__m128i*)(src->data+idx));
+					pred=_mm_sub_epi32(mc, pred);
+					pred=_mm_add_epi32(pred, mhalf);
+					pred=_mm_and_si128(pred, symmask);
+					pred=_mm_sub_epi32(pred, mhalf);
+					_mm_store_si128((__m128i*)curr, pred);//error
+					_mm_store_si128((__m128i*)rows[0], mc);//pixel
+				}
 				src->data[idx|0]=curr[0];
 				src->data[idx|1]=curr[1];
 				src->data[idx|2]=curr[2];
@@ -3498,14 +3562,15 @@ void pred_av2(Image *src, int fwd)
 				__m128i W	=_mm_load_si128((__m128i*)rows[0]-1);
 				__m128i pred=_mm_add_epi32(N, W);
 				pred=_mm_srai_epi32(pred, 1);
-
-				__m128i mc=_mm_loadu_si128((__m128i*)(src->data+idx));
-				pred=_mm_add_epi32(mc, pred);
-				pred=_mm_add_epi32(pred, mhalf);
-				pred=_mm_and_si128(pred, symmask);
-				pred=_mm_sub_epi32(pred, mhalf);
-				_mm_store_si128((__m128i*)curr, pred);//pixel
-				_mm_store_si128((__m128i*)rows[0], pred);//pixel
+				{
+					__m128i mc=_mm_loadu_si128((__m128i*)(src->data+idx));
+					pred=_mm_add_epi32(mc, pred);
+					pred=_mm_add_epi32(pred, mhalf);
+					pred=_mm_and_si128(pred, symmask);
+					pred=_mm_sub_epi32(pred, mhalf);
+					_mm_store_si128((__m128i*)curr, pred);//pixel
+					_mm_store_si128((__m128i*)rows[0], pred);//pixel
+				}
 				src->data[idx|0]=curr[0];
 				src->data[idx|1]=curr[1];
 				src->data[idx|2]=curr[2];
@@ -3529,6 +3594,18 @@ void pred_av2(Image *src, int fwd)
 #define WP_WBITS 10
 void pred_wp_deferred(Image *src, int fwd)
 {
+	int nlevels[]=
+	{
+		1<<src->depth[0],
+		1<<src->depth[1],
+		1<<src->depth[2],
+	};
+	__m128i pixelmask=_mm_set_epi32(0, nlevels[2]-1, nlevels[1]-1, nlevels[0]-1);
+	__m128i pixelhalf=_mm_set_epi32(0, nlevels[2]>>1, nlevels[1]>>1, nlevels[0]>>1);
+	__m128i roundoffset=_mm_set1_epi32(1<<WP_PBITS>>1);
+	__m128i fwdmask=_mm_set1_epi32(-fwd);
+	__m128i invmask=_mm_set1_epi32(-!fwd);
+	ALIGN(16) int pred_errors[4*NWP]={0};//interleaved channels
 #ifdef ETOTAL_MBOX
 	long long etotal[4*NWP]={0};
 #endif
@@ -3553,18 +3630,6 @@ void pred_wp_deferred(Image *src, int fwd)
 	src->depth[0]+=(char)fwd;
 	src->depth[2]+=(char)fwd;
 #endif
-	int nlevels[]=
-	{
-		1<<src->depth[0],
-		1<<src->depth[1],
-		1<<src->depth[2],
-	};
-	__m128i pixelmask=_mm_set_epi32(0, nlevels[2]-1, nlevels[1]-1, nlevels[0]-1);
-	__m128i pixelhalf=_mm_set_epi32(0, nlevels[2]>>1, nlevels[1]>>1, nlevels[0]>>1);
-	__m128i roundoffset=_mm_set1_epi32(1<<WP_PBITS>>1);
-	__m128i fwdmask=_mm_set1_epi32(-fwd);
-	__m128i invmask=_mm_set1_epi32(-!fwd);
-	ALIGN(16) int pred_errors[4*NWP]={0};//interleaved channels
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
 		int *wp=weights;
@@ -3614,181 +3679,190 @@ void pred_wp_deferred(Image *src, int fwd)
 					+((-eNN.m128i_i32[kc]*13-eN.m128i_i32[kc]*5-eNE.m128i_i32[kc]*11+(N.m128i_i32[kc]-NN.m128i_i32[kc])*5)>>4);
 			}
 #endif
-			__m128i e=_mm_add_epi32(eN, eW);
-			__m128i wp0=_mm_sub_epi32(_mm_add_epi32(W, NE), N);
-			__m128i wp1=_mm_add_epi32(e, eNW);
-			__m128i wp2=_mm_add_epi32(e, eNE);
-			__m128i wp3=_mm_sub_epi32(_mm_add_epi32(N, NW), W);
-			__m128i wp4=_mm_sub_epi32(_mm_add_epi32(N, NE), NNE);
-			__m128i wp5=_mm_sub_epi32(_mm_add_epi32(N, W), NW);
-			__m128i wp6=_mm_add_epi32(W, NEE);
-			__m128i wp7=_mm_add_epi32(W, _mm_slli_epi32(W, 1));
-			wp6=_mm_srai_epi32(wp6, 1);
-			wp7=_mm_srai_epi32(_mm_add_epi32(wp7, NEEE), 2);
-			__m128i e2=_mm_add_epi32(eNE, _mm_add_epi32(_mm_slli_epi32(eNE, 1), _mm_slli_epi32(eNE, 3)));
-			e=_mm_add_epi32(eNN, _mm_add_epi32(_mm_slli_epi32(eNN, 2), _mm_slli_epi32(eNN, 3)));
-			e=_mm_add_epi32(e, _mm_add_epi32(eN, _mm_slli_epi32(eN, 2)));
-			e=_mm_add_epi32(e, e2);
-			e2=_mm_sub_epi32(N, NN);
-			e2=_mm_add_epi32(e2, _mm_slli_epi32(e2, 2));
-			e2=_mm_sub_epi32(e2, e);
-			e2=_mm_srai_epi32(e2, 4);
+			{
+				__m128i e=_mm_add_epi32(eN, eW);
+				__m128i wp0=_mm_sub_epi32(_mm_add_epi32(W, NE), N);
+				__m128i wp1=_mm_add_epi32(e, eNW);
+				__m128i wp2=_mm_add_epi32(e, eNE);
+				__m128i wp3=_mm_sub_epi32(_mm_add_epi32(N, NW), W);
+				__m128i wp4=_mm_sub_epi32(_mm_add_epi32(N, NE), NNE);
+				__m128i wp5=_mm_sub_epi32(_mm_add_epi32(N, W), NW);
+				__m128i wp6=_mm_add_epi32(W, NEE);
+				__m128i wp7=_mm_add_epi32(W, _mm_slli_epi32(W, 1));
+				wp6=_mm_srai_epi32(wp6, 1);
+				wp7=_mm_srai_epi32(_mm_add_epi32(wp7, NEEE), 2);
+				{
+					__m128i e2=_mm_add_epi32(eNE, _mm_add_epi32(_mm_slli_epi32(eNE, 1), _mm_slli_epi32(eNE, 3)));
+					e=_mm_add_epi32(eNN, _mm_add_epi32(_mm_slli_epi32(eNN, 2), _mm_slli_epi32(eNN, 3)));
+					e=_mm_add_epi32(e, _mm_add_epi32(eN, _mm_slli_epi32(eN, 2)));
+					e=_mm_add_epi32(e, e2);
+					e2=_mm_sub_epi32(N, NN);
+					e2=_mm_add_epi32(e2, _mm_slli_epi32(e2, 2));
+					e2=_mm_sub_epi32(e2, e);
+					e2=_mm_srai_epi32(e2, 4);
+				}
 
-			//wp1=_mm_add_epi32(W, _mm_srai_epi32(_mm_add_epi32(wp1, _mm_slli_epi32(wp1, 2)), 4));
+				//wp1=_mm_add_epi32(W, _mm_srai_epi32(_mm_add_epi32(wp1, _mm_slli_epi32(wp1, 2)), 4));
 			//wp2=_mm_add_epi32(N, _mm_srai_epi32(_mm_add_epi32(wp2, _mm_slli_epi32(wp2, 2)), 4));
 			//wp3=_mm_add_epi32(wp3, e2);
-			wp1=W;
-			//wp1=_mm_srai_epi32(_mm_add_epi32(_mm_slli_epi32(W, 2), _mm_add_epi32(_mm_add_epi32(N, NE), _mm_add_epi32(NEE, NEEE))), 3);
-			wp2=N;
-			wp3=_mm_srai_epi32(_mm_add_epi32(N, W), 1);
-			//wp3=_mm_slli_epi32(_mm_add_epi32(N, W), 2);
+				wp1=W;
+				//wp1=_mm_srai_epi32(_mm_add_epi32(_mm_slli_epi32(W, 2), _mm_add_epi32(_mm_add_epi32(N, NE), _mm_add_epi32(NEE, NEEE))), 3);
+				wp2=N;
+				wp3=_mm_srai_epi32(_mm_add_epi32(N, W), 1);
+				//wp3=_mm_slli_epi32(_mm_add_epi32(N, W), 2);
 			//wp3=_mm_add_epi32(wp3, _mm_sub_epi32(NE, NW));
 			//wp3=_mm_srai_epi32(wp3, 3);
 #if 0
-			//for(int kc=0;kc<4;++kc)
-			//{
-			//	if(wp1.m128i_i32[kc]!=spred[kc|0*4])
-			//		LOG_ERROR("");
-			//	if(wp2.m128i_i32[kc]!=spred[kc|1*4])
-			//		LOG_ERROR("");
-			//	if(wp3.m128i_i32[kc]!=spred[kc|2*4])
-			//		LOG_ERROR("");
-			//	if(wp4.m128i_i32[kc]!=spred[kc|3*4])
-			//		LOG_ERROR("");
-			//}
-			wp1=_mm_load_si128((__m128i*)spred+0);//
-			wp2=_mm_load_si128((__m128i*)spred+1);//
-			wp3=_mm_load_si128((__m128i*)spred+2);//
-			wp4=_mm_load_si128((__m128i*)spred+3);//
+				//for(int kc=0;kc<4;++kc)
+				//{
+				//	if(wp1.m128i_i32[kc]!=spred[kc|0*4])
+				//		LOG_ERROR("");
+				//	if(wp2.m128i_i32[kc]!=spred[kc|1*4])
+				//		LOG_ERROR("");
+				//	if(wp3.m128i_i32[kc]!=spred[kc|2*4])
+				//		LOG_ERROR("");
+				//	if(wp4.m128i_i32[kc]!=spred[kc|3*4])
+				//		LOG_ERROR("");
+				//}
+				wp1=_mm_load_si128((__m128i*)spred+0);//
+				wp2=_mm_load_si128((__m128i*)spred+1);//
+				wp3=_mm_load_si128((__m128i*)spred+2);//
+				wp4=_mm_load_si128((__m128i*)spred+3);//
 #endif
+				{
+					ALIGN(16) int curr[]=
+					{
+						src->data[idx+0],
+						src->data[idx+1],
+						src->data[idx+2],
+						//src->data[idx+1],//g		X  can't permute VYU -> YUV
+						//src->data[idx+2],//b
+						//src->data[idx+0],//r
+						0,
+					};
 
-			__m128i w0=_mm_load_si128((__m128i*)wp+0);
-			__m128i w1=_mm_load_si128((__m128i*)wp+1);
-			__m128i w2=_mm_load_si128((__m128i*)wp+2);
-			__m128i w3=_mm_load_si128((__m128i*)wp+3);
-			__m128i w4=_mm_load_si128((__m128i*)wp+4);
-			__m128i w5=_mm_load_si128((__m128i*)wp+5);
-			__m128i w6=_mm_load_si128((__m128i*)wp+6);
-			__m128i w7=_mm_load_si128((__m128i*)wp+7);
-			w0=_mm_mullo_epi32(w0, wp0);//FIXME use AVX2
-			w1=_mm_mullo_epi32(w1, wp1);
-			w2=_mm_mullo_epi32(w2, wp2);
-			w3=_mm_mullo_epi32(w3, wp3);
-			w4=_mm_mullo_epi32(w4, wp4);
-			w5=_mm_mullo_epi32(w5, wp5);
-			w6=_mm_mullo_epi32(w6, wp6);
-			w7=_mm_mullo_epi32(w7, wp7);
-			w0=_mm_add_epi32(w0, w1);
-			w0=_mm_add_epi32(w0, w2);
-			w0=_mm_add_epi32(w0, w3);
-			w0=_mm_add_epi32(w0, w4);
-			w0=_mm_add_epi32(w0, w5);
-			w0=_mm_add_epi32(w0, w6);
-			w0=_mm_add_epi32(w0, w7);
-			w0=_mm_srai_epi32(w0, WP_WBITS);
-			w0=_mm_min_epi32(w0, vmax);
-			w0=_mm_max_epi32(w0, vmin);
-
-			ALIGN(16) int curr[]=
-			{
-				src->data[idx+0],
-				src->data[idx+1],
-				src->data[idx+2],
-				//src->data[idx+1],//g		X  can't permute VYU -> YUV
-				//src->data[idx+2],//b
-				//src->data[idx+0],//r
-				0,
-			};
+					__m128i w0=_mm_load_si128((__m128i*)wp+0);
+					__m128i w1=_mm_load_si128((__m128i*)wp+1);
+					__m128i w2=_mm_load_si128((__m128i*)wp+2);
+					__m128i w3=_mm_load_si128((__m128i*)wp+3);
+					__m128i w4=_mm_load_si128((__m128i*)wp+4);
+					__m128i w5=_mm_load_si128((__m128i*)wp+5);
+					__m128i w6=_mm_load_si128((__m128i*)wp+6);
+					__m128i w7=_mm_load_si128((__m128i*)wp+7);
+					w0=_mm_mullo_epi32(w0, wp0);//FIXME use AVX2
+					w1=_mm_mullo_epi32(w1, wp1);
+					w2=_mm_mullo_epi32(w2, wp2);
+					w3=_mm_mullo_epi32(w3, wp3);
+					w4=_mm_mullo_epi32(w4, wp4);
+					w5=_mm_mullo_epi32(w5, wp5);
+					w6=_mm_mullo_epi32(w6, wp6);
+					w7=_mm_mullo_epi32(w7, wp7);
+					w0=_mm_add_epi32(w0, w1);
+					w0=_mm_add_epi32(w0, w2);
+					w0=_mm_add_epi32(w0, w3);
+					w0=_mm_add_epi32(w0, w4);
+					w0=_mm_add_epi32(w0, w5);
+					w0=_mm_add_epi32(w0, w6);
+					w0=_mm_add_epi32(w0, w7);
+					w0=_mm_srai_epi32(w0, WP_WBITS);
+					w0=_mm_min_epi32(w0, vmax);
+					w0=_mm_max_epi32(w0, vmin);
 #ifdef WP_RCT
-			if(fwd)
-			{
-				curr[0]-=curr[1];			//curr[0]=((curr[0]+(nlevels[0]>>1))&(nlevels[0]-1))-(nlevels[0]>>1);
-				curr[2]-=curr[1];			//curr[1]=((curr[1]+(nlevels[1]>>1))&(nlevels[1]-1))-(nlevels[1]>>1);
-				curr[1]+=(curr[0]+curr[2])>>2;		//curr[2]=((curr[2]+(nlevels[2]>>1))&(nlevels[2]-1))-(nlevels[2]>>1);
+					if(fwd)
+					{
+						curr[0]-=curr[1];			//curr[0]=((curr[0]+(nlevels[0]>>1))&(nlevels[0]-1))-(nlevels[0]>>1);
+						curr[2]-=curr[1];			//curr[1]=((curr[1]+(nlevels[1]>>1))&(nlevels[1]-1))-(nlevels[1]>>1);
+						curr[1]+=(curr[0]+curr[2])>>2;		//curr[2]=((curr[2]+(nlevels[2]>>1))&(nlevels[2]-1))-(nlevels[2]>>1);
 
-				//curr[2]-=curr[0];//Cr
-				//curr[1]-=curr[0];//Cb
-				//curr[0]+=(curr[2]+curr[1])>>2;//Y
-			}
+						//curr[2]-=curr[0];//Cr
+						//curr[1]-=curr[0];//Cb
+						//curr[0]+=(curr[2]+curr[1])>>2;//Y
+					}
 #endif
-			__m128i mc=_mm_load_si128((__m128i*)curr);
-			__m128i pixel=_mm_and_si128(mc, fwdmask);
-			__m128i crisppred=_mm_add_epi32(w0, roundoffset);
-			crisppred=_mm_srai_epi32(crisppred, WP_PBITS);
+					{
+						__m128i mc=_mm_load_si128((__m128i*)curr);
+						__m128i pixel=_mm_and_si128(mc, fwdmask);
+						__m128i crisppred=_mm_add_epi32(w0, roundoffset);
+						crisppred=_mm_srai_epi32(crisppred, WP_PBITS);
 
-			crisppred=_mm_xor_si128(crisppred, fwdmask);
-			crisppred=_mm_sub_epi32(crisppred, fwdmask);
-			crisppred=_mm_add_epi32(crisppred, mc);//error = curr - pred
+						crisppred=_mm_xor_si128(crisppred, fwdmask);
+						crisppred=_mm_sub_epi32(crisppred, fwdmask);
+						crisppred=_mm_add_epi32(crisppred, mc);//error = curr - pred
 
-			crisppred=_mm_add_epi32(crisppred, pixelhalf);
-			crisppred=_mm_and_si128(crisppred, pixelmask);
-			crisppred=_mm_sub_epi32(crisppred, pixelhalf);
-			_mm_store_si128((__m128i*)curr, crisppred);
+						crisppred=_mm_add_epi32(crisppred, pixelhalf);
+						crisppred=_mm_and_si128(crisppred, pixelmask);
+						crisppred=_mm_sub_epi32(crisppred, pixelhalf);
+						_mm_store_si128((__m128i*)curr, crisppred);
 #ifdef WP_RCT
-			if(!fwd)
-			{
-				curr[1]-=(curr[0]+curr[2])>>2;		//curr[2]=((curr[2]+(nlevels[2]>>1))&(nlevels[2]-1))-(nlevels[2]>>1);
-				curr[2]+=curr[1];			//curr[1]=((curr[1]+(nlevels[1]>>1))&(nlevels[1]-1))-(nlevels[1]>>1);
-				curr[0]+=curr[1];			//curr[0]=((curr[0]+(nlevels[0]>>1))&(nlevels[0]-1))-(nlevels[0]>>1);
+						if(!fwd)
+						{
+							curr[1]-=(curr[0]+curr[2])>>2;		//curr[2]=((curr[2]+(nlevels[2]>>1))&(nlevels[2]-1))-(nlevels[2]>>1);
+							curr[2]+=curr[1];			//curr[1]=((curr[1]+(nlevels[1]>>1))&(nlevels[1]-1))-(nlevels[1]>>1);
+							curr[0]+=curr[1];			//curr[0]=((curr[0]+(nlevels[0]>>1))&(nlevels[0]-1))-(nlevels[0]>>1);
 
-				//curr[0]-=(curr[2]+curr[1])>>2;//g
-				//curr[1]+=curr[0];//b
-				//curr[2]+=curr[0];//r
-			}
+							//curr[0]-=(curr[2]+curr[1])>>2;//g
+							//curr[1]+=curr[0];//b
+							//curr[2]+=curr[0];//r
+						}
 #endif
-			src->data[idx+0]=curr[0];
-			src->data[idx+1]=curr[1];
-			src->data[idx+2]=curr[2];
-			//src->data[idx+0]=curr[2];//r
-			//src->data[idx+1]=curr[0];//g
-			//src->data[idx+2]=curr[1];//b
-			pixel=_mm_or_si128(pixel, _mm_and_si128(crisppred, invmask));
-			pixel=_mm_slli_epi32(pixel, WP_PBITS);
-			w1=_mm_sub_epi32(pixel, w1);
-			_mm_storeu_si128((__m128i*)(rows[0]+8*0+4), w1);
-			_mm_storeu_si128((__m128i*)(rows[0]+8*0+0), pixel);
+						src->data[idx+0]=curr[0];
+						src->data[idx+1]=curr[1];
+						src->data[idx+2]=curr[2];
+						//src->data[idx+0]=curr[2];//r
+						//src->data[idx+1]=curr[0];//g
+						//src->data[idx+2]=curr[1];//b
+						pixel=_mm_or_si128(pixel, _mm_and_si128(crisppred, invmask));
+						pixel=_mm_slli_epi32(pixel, WP_PBITS);
+						w1=_mm_sub_epi32(pixel, w1);
+						_mm_storeu_si128((__m128i*)(rows[0]+8*0+4), w1);
+						_mm_storeu_si128((__m128i*)(rows[0]+8*0+0), pixel);
 
-			__m128i pe0=_mm_load_si128((__m128i*)pred_errors+0);
-			__m128i pe1=_mm_load_si128((__m128i*)pred_errors+1);
-			__m128i pe2=_mm_load_si128((__m128i*)pred_errors+2);
-			__m128i pe3=_mm_load_si128((__m128i*)pred_errors+3);
-			__m128i pe4=_mm_load_si128((__m128i*)pred_errors+4);
-			__m128i pe5=_mm_load_si128((__m128i*)pred_errors+5);
-			__m128i pe6=_mm_load_si128((__m128i*)pred_errors+6);
-			__m128i pe7=_mm_load_si128((__m128i*)pred_errors+7);
-			wp0=_mm_sub_epi32(pixel, wp0);
-			wp1=_mm_sub_epi32(pixel, wp1);
-			wp2=_mm_sub_epi32(pixel, wp2);
-			wp3=_mm_sub_epi32(pixel, wp3);
-			wp4=_mm_sub_epi32(pixel, wp4);
-			wp5=_mm_sub_epi32(pixel, wp5);
-			wp6=_mm_sub_epi32(pixel, wp6);
-			wp7=_mm_sub_epi32(pixel, wp7);
-			wp0=_mm_abs_epi32(wp0);
-			wp1=_mm_abs_epi32(wp1);
-			wp2=_mm_abs_epi32(wp2);
-			wp3=_mm_abs_epi32(wp3);
-			wp4=_mm_abs_epi32(wp4);
-			wp5=_mm_abs_epi32(wp5);
-			wp6=_mm_abs_epi32(wp6);
-			wp7=_mm_abs_epi32(wp7);
-			pe0=_mm_add_epi32(pe0, wp0);
-			pe1=_mm_add_epi32(pe1, wp1);
-			pe2=_mm_add_epi32(pe2, wp2);
-			pe3=_mm_add_epi32(pe3, wp3);
-			pe4=_mm_add_epi32(pe4, wp4);
-			pe5=_mm_add_epi32(pe5, wp5);
-			pe6=_mm_add_epi32(pe6, wp6);
-			pe7=_mm_add_epi32(pe7, wp7);
-			_mm_store_si128((__m128i*)pred_errors+0, pe0);
-			_mm_store_si128((__m128i*)pred_errors+1, pe1);
-			_mm_store_si128((__m128i*)pred_errors+2, pe2);
-			_mm_store_si128((__m128i*)pred_errors+3, pe3);
-			_mm_store_si128((__m128i*)pred_errors+4, pe4);
-			_mm_store_si128((__m128i*)pred_errors+5, pe5);
-			_mm_store_si128((__m128i*)pred_errors+6, pe6);
-			_mm_store_si128((__m128i*)pred_errors+7, pe7);
-
+						{
+							__m128i pe0=_mm_load_si128((__m128i*)pred_errors+0);
+							__m128i pe1=_mm_load_si128((__m128i*)pred_errors+1);
+							__m128i pe2=_mm_load_si128((__m128i*)pred_errors+2);
+							__m128i pe3=_mm_load_si128((__m128i*)pred_errors+3);
+							__m128i pe4=_mm_load_si128((__m128i*)pred_errors+4);
+							__m128i pe5=_mm_load_si128((__m128i*)pred_errors+5);
+							__m128i pe6=_mm_load_si128((__m128i*)pred_errors+6);
+							__m128i pe7=_mm_load_si128((__m128i*)pred_errors+7);
+							wp0=_mm_sub_epi32(pixel, wp0);
+							wp1=_mm_sub_epi32(pixel, wp1);
+							wp2=_mm_sub_epi32(pixel, wp2);
+							wp3=_mm_sub_epi32(pixel, wp3);
+							wp4=_mm_sub_epi32(pixel, wp4);
+							wp5=_mm_sub_epi32(pixel, wp5);
+							wp6=_mm_sub_epi32(pixel, wp6);
+							wp7=_mm_sub_epi32(pixel, wp7);
+							wp0=_mm_abs_epi32(wp0);
+							wp1=_mm_abs_epi32(wp1);
+							wp2=_mm_abs_epi32(wp2);
+							wp3=_mm_abs_epi32(wp3);
+							wp4=_mm_abs_epi32(wp4);
+							wp5=_mm_abs_epi32(wp5);
+							wp6=_mm_abs_epi32(wp6);
+							wp7=_mm_abs_epi32(wp7);
+							pe0=_mm_add_epi32(pe0, wp0);
+							pe1=_mm_add_epi32(pe1, wp1);
+							pe2=_mm_add_epi32(pe2, wp2);
+							pe3=_mm_add_epi32(pe3, wp3);
+							pe4=_mm_add_epi32(pe4, wp4);
+							pe5=_mm_add_epi32(pe5, wp5);
+							pe6=_mm_add_epi32(pe6, wp6);
+							pe7=_mm_add_epi32(pe7, wp7);
+							_mm_store_si128((__m128i*)pred_errors+0, pe0);
+							_mm_store_si128((__m128i*)pred_errors+1, pe1);
+							_mm_store_si128((__m128i*)pred_errors+2, pe2);
+							_mm_store_si128((__m128i*)pred_errors+3, pe3);
+							_mm_store_si128((__m128i*)pred_errors+4, pe4);
+							_mm_store_si128((__m128i*)pred_errors+5, pe5);
+							_mm_store_si128((__m128i*)pred_errors+6, pe6);
+							_mm_store_si128((__m128i*)pred_errors+7, pe7);
+						}
+					}
+				}
+			}
+			
 			if(kx&&!(kx&(BLOCKSIZE-1)))//update WP
 			{
 				for(int kc=0;kc<3;++kc)
@@ -3836,25 +3910,27 @@ void pred_wp_deferred(Image *src, int fwd)
 	src->depth[2]-=!fwd;
 #endif
 #ifdef ETOTAL_MBOX
+	{
 #define BUFSIZE 1024
-	char buf[1024]={0};
-	int printed=0;
-	long long esum[3]={0};
-	for(int kp=0;kp<NWP;++kp)
-	{
-		esum[0]+=etotal[kp<<2|0];
-		esum[1]+=etotal[kp<<2|1];
-		esum[2]+=etotal[kp<<2|2];
-	}
-	for(int kp=0;kp<NWP;++kp)
-	{
-		for(int kc=0;kc<3;++kc)
-			printed+=snprintf(buf+printed, BUFSIZE-printed-1, " %6.2lf", 100.*etotal[kp<<2|kc]/esum[kc]);
-		printed+=snprintf(buf+printed, BUFSIZE-printed-1, "\n");
-	}
-	copy_to_clipboard(buf, printed);
-	messagebox(MBOX_OK, "Copied to clipboard", "%s", buf);
+		char buf[1024]={0};
+		int printed=0;
+		long long esum[3]={0};
+		for(int kp=0;kp<NWP;++kp)
+		{
+			esum[0]+=etotal[kp<<2|0];
+			esum[1]+=etotal[kp<<2|1];
+			esum[2]+=etotal[kp<<2|2];
+		}
+		for(int kp=0;kp<NWP;++kp)
+		{
+			for(int kc=0;kc<3;++kc)
+				printed+=snprintf(buf+printed, BUFSIZE-printed-1, " %6.2lf", 100.*etotal[kp<<2|kc]/esum[kc]);
+			printed+=snprintf(buf+printed, BUFSIZE-printed-1, "\n");
+		}
+		copy_to_clipboard(buf, printed);
+		messagebox(MBOX_OK, "Copied to clipboard", "%s", buf);
 #undef BUFSIZE
+	}
 #endif
 	_mm_free(weights);
 	free(pixels);
@@ -3863,14 +3939,16 @@ void pred_wp_deferred(Image *src, int fwd)
 void pred_average(Image *src, int fwd, int enable_ma)
 {
 	Image *dst=0;
+	const int *pixels;
+//	const int *errors;
 	image_copy(&dst, src);
 	if(!dst)
 	{
 		LOG_ERROR("Alloc error");
 		return;
 	}
-	const int *pixels=fwd?src->data:dst->data;
-//	const int *errors=fwd?dst->data:src->data;
+	pixels=fwd?src->data:dst->data;
+//	errors=fwd?dst->data:src->data;
 	for(int kc=0;kc<4;++kc)
 	{
 		if(!src->depth[kc])
@@ -3882,14 +3960,14 @@ void pred_average(Image *src, int fwd, int enable_ma)
 			{
 #define LOAD(BUF, X, Y) ((unsigned)(ky+(Y))<(unsigned)src->ih&&(unsigned)(kx+(X))<(unsigned)src->iw?BUF[(src->iw*(ky+(Y))+kx+(X))<<2|kc]:0)
 				int
-					//NNE	=LOAD(pixels,  1, -2),
+				//	NNE	=LOAD(pixels,  1, -2),
 					NW	=LOAD(pixels, -1, -1),
 					N	=LOAD(pixels,  0, -1),
 					NE	=LOAD(pixels,  1, -1),
 					W	=LOAD(pixels, -1,  0);
 #undef  LOAD
 				int pred=(4*(N+W)+NE-NW)>>3;
-				//int pred=(W+2*NE-NNE+1)>>1;
+			//	int pred=(W+2*NE-NNE+1)>>1;
 				
 				pred^=-fwd;
 				pred+=fwd;
@@ -3918,19 +3996,26 @@ void pred_average(Image *src, int fwd, int enable_ma)
 
 void pred_ecoeff(Image *src, int fwd, int enable_ma)
 {
-	Image *dst=0;
+	const int *pixels, *errors;
+	Image *dst;
+
+	dst=0;
 	image_copy(&dst, src);
 	if(!dst)
 	{
 		LOG_ERROR("Alloc error");
 		return;
 	}
-	const int *pixels=fwd?dst->data:src->data, *errors=fwd?src->data:dst->data;
+	pixels=fwd?dst->data:src->data;
+	errors=fwd?src->data:dst->data;
 	for(int kc=0;kc<4;++kc)
 	{
+		int nlevels, half;
+
 		if(!src->depth[kc])
 			continue;
-		int nlevels=1<<src->depth[kc], half=nlevels>>1;
+		nlevels=1<<src->depth[kc];
+		half=nlevels>>1;
 		for(int ky=0, idx=0;ky<src->ih;++ky)
 		{
 			int ecoeffs[12]={0};
@@ -3938,10 +4023,10 @@ void pred_ecoeff(Image *src, int fwd, int enable_ma)
 			{
 #define LOAD(BUF, X, Y) ((unsigned)(ky+(Y))<(unsigned)src->ih&&(unsigned)(kx+(X))<(unsigned)src->iw?BUF[(src->iw*(ky+(Y))+kx+(X))<<2|kc]:0)
 				int
-					//NNE	=LOAD(pixels,  1, -2),
+				//	NNE	=LOAD(pixels,  1, -2),
 					NW	=LOAD(pixels, -1, -1),
 					N	=LOAD(pixels,  0, -1),
-					//NE	=LOAD(pixels,  1, -1),
+				//	NE	=LOAD(pixels,  1, -1),
 					W	=LOAD(pixels, -1,  0),
 					enb[]=
 				{
@@ -3958,8 +4043,9 @@ void pred_ecoeff(Image *src, int fwd, int enable_ma)
 					LOAD(errors, -2,  0),
 					LOAD(errors, -1,  0),
 				};
+				int pred, correction, e;
 #undef  LOAD
-				int correction=0;
+				correction=0;
 				for(int k=0;k<(int)_countof(enb);++k)
 					correction+=enb[k]*ecoeffs[k];
 				//correction+=((1<<8)>>1)-1;
@@ -3970,7 +4056,7 @@ void pred_ecoeff(Image *src, int fwd, int enable_ma)
 				//if(correction)
 				//	printf("");
 
-				int pred=N+W-NW;
+				pred=N+W-NW;
 				pred=MEDIAN3(N, W, pred);
 				//int pred=(4*(N+W)+NE-NW)>>3;
 				//int pred=(W+2*NE-NNE+1)>>1;
@@ -3994,7 +4080,7 @@ void pred_ecoeff(Image *src, int fwd, int enable_ma)
 				//	= (pred - curr)*srcval
 				//coeff -= dL/dcoeff * lr
 				//coeff += (curr-pred)*srcval*lr
-				int e=errors[idx<<2|kc];
+				e=errors[idx<<2|kc];
 				for(int k=0;k<(int)_countof(enb);++k)
 				{
 					int c=ecoeffs[k];
@@ -6401,7 +6487,7 @@ void pred_t47(Image *src, int fwd, int enable_ma)
 						(long long)LOAD(-1,  1)+
 						(long long)LOAD( 0,  1)*3+
 						(long long)LOAD( 1,  1);
-					weight=((long long)params[k]<<29)/w;
+					weight=((long long)params[k]<<29)/wndw;
 					pred+=weight*preds[k];
 					wsum+=weight;
 				}
@@ -6564,23 +6650,27 @@ void pred_custom_optimize(Image const *image, int *params)
 {
 	static int call_idx=0;
 
+	Image *im2;
+	int maxdepth, maxlevels, *hist;
+	double loss_bestsofar[4], loss_prev[4], loss_curr[4];
+	int params2[CUSTOM_NPARAMS];
+	int shakethreshold;
+
 	++call_idx;
 	if(call_idx==1)
 		DisableProcessWindowsGhosting();
 
-	Image *im2=0;
+	im2=0;
 	image_copy(&im2, image);
-	int maxdepth=calc_maxdepth(image, 0);
-	int maxlevels=1<<maxdepth;
-	int *hist=(int*)malloc(maxlevels*sizeof(int));
+	maxdepth=calc_maxdepth(image, 0);
+	maxlevels=1<<maxdepth;
+	hist=(int*)malloc(maxlevels*sizeof(int));
 	if(!im2||!hist)
 	{
 		LOG_ERROR("Alloc error");
 		return;
 	}
 
-	double loss_bestsofar[4], loss_prev[4], loss_curr[4];
-	int params2[CUSTOM_NPARAMS];
 	memcpy(params2, params, sizeof(params2));
 
 #define CALC_LOSS(L) pred_custom_calcloss(image, im2, hist, params2, L)
@@ -6590,11 +6680,12 @@ void pred_custom_optimize(Image const *image, int *params)
 	CALC_LOSS(loss_bestsofar);
 	memcpy(loss_prev, loss_bestsofar, sizeof(loss_prev));
 
-	int shakethreshold=CUSTOM_NPARAMS;
+	shakethreshold=CUSTOM_NPARAMS;
 	for(int it=0, watchdog=0;it<CUSTOM_NITER;++it)
 	{
 		int idx[CUSTOM_DELTAGROUP]={0}, stuck=0;
 		int params_original_selected[CUSTOM_DELTAGROUP]={0};
+
 		if(watchdog>=shakethreshold)//bump if stuck
 		{
 			memcpy(params2, params, sizeof(params2));

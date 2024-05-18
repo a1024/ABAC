@@ -18,7 +18,7 @@
 #include"ebench.h"
 static const char file[]=__FILE__;
 
-int w=0, h=0,
+int wndw=0, wndh=0,
 	mx=0, my=0, mouse_bypass=0;
 HWND ghWnd=0;
 HDC ghDC=0;
@@ -878,8 +878,8 @@ LRESULT __stdcall WndProc(HWND hWnd, unsigned message, WPARAM wParam, LPARAM lPa
 	{
 	case WM_SIZE:
 		GetClientRect(ghWnd, &R);
-		w=R.right-R.left, h=R.bottom-R.top;
-		set_region_immediate(0, w, 0, h);
+		wndw=R.right-R.left, wndh=R.bottom-R.top;
+		set_region_immediate(0, wndw, 0, wndh);
 		//InvalidateRect(hWnd, 0, 0);
 		io_resize();
 		break;
@@ -1017,7 +1017,7 @@ int __stdcall WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrev, _In_ c
 		return 0;
 
 	GetClientRect(ghWnd, &R);
-	w=R.right-R.left, h=R.bottom-R.top;
+	wndw=R.right-R.left, wndh=R.bottom-R.top;
 	ghDC=GetDC(ghWnd);
 	gl_init();
 	glClearColor(1, 1, 1, 1);

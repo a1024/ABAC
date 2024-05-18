@@ -82,12 +82,17 @@ Image* image_load(const char *fn, int fnlen)
 {
 	Image *image;
 	int iw=0, ih=0, nch=0;
+	ptrdiff_t res;
 	if(!_stricmp(fn+fnlen-4, ".PPM"))//shortcut to load PPMs fast
 	{
-		ArrayHandle src=load_file(fn, 1, 16, 0);
+		ArrayHandle src;
+		char *ptr, *end;
+
+		src=load_file(fn, 1, 16, 0);
 		if(!src)
 			return 0;
-		char *ptr=(char*)src->data, *end=(char*)src->data+src->count;
+		ptr=(char*)src->data;
+		end=(char*)src->data+src->count;
 		if(memcmp(ptr, "P6\n", sizeof(char[3])))
 			goto load_other;
 		nch=3;
@@ -106,7 +111,7 @@ Image* image_load(const char *fn, int fnlen)
 		++ptr;//skip newline
 
 		//start of binary data
-		ptrdiff_t res=(ptrdiff_t)iw*ih;
+		res=(ptrdiff_t)iw*ih;
 		image=(Image*)malloc(sizeof(Image)+res*sizeof(int[4]));
 		if(!image)
 		{
@@ -125,95 +130,103 @@ Image* image_load(const char *fn, int fnlen)
 		image->src_depth[2]=8;
 		image->src_depth[3]=0;
 
-		__m128i extract0=_mm_set_epi8(
-		//	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0
-			-1, -1, -1, -1, -1, -1, -1,  2, -1, -1, -1,  1, -1, -1, -1,  0
-		);
-		__m128i extract1=_mm_set_epi8(
-		//	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0
-			-1, -1, -1, -1, -1, -1, -1,  5, -1, -1, -1,  4, -1, -1, -1,  3
-		);
-		__m128i extract2=_mm_set_epi8(
-		//	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0
-			-1, -1, -1, -1, -1, -1, -1,  8, -1, -1, -1,  7, -1, -1, -1,  6
-		);
-		__m128i extract3=_mm_set_epi8(
-		//	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0
-			-1, -1, -1, -1, -1, -1, -1, 11, -1, -1, -1, 10, -1, -1, -1,  9
-		);
-		__m128i extract4=_mm_set_epi8(
-		//	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0
-			-1, -1, -1, -1, -1, -1, -1, 14, -1, -1, -1, 13, -1, -1, -1, 12
-		);
-		__m128i half=_mm_set1_epi32(128);
-		__m128i *dst=(__m128i*)image->data;
-		ptrdiff_t k=0;
-		for(;k<res-4;k+=5)
 		{
-			__m128i packed5=_mm_loadu_si128((__m128i*)ptr);
-			__m128i e0=_mm_shuffle_epi8(packed5, extract0);
-			__m128i e1=_mm_shuffle_epi8(packed5, extract1);
-			__m128i e2=_mm_shuffle_epi8(packed5, extract2);
-			__m128i e3=_mm_shuffle_epi8(packed5, extract3);
-			__m128i e4=_mm_shuffle_epi8(packed5, extract4);
-			e0=_mm_sub_epi32(e0, half);
-			e1=_mm_sub_epi32(e1, half);
-			e2=_mm_sub_epi32(e2, half);
-			e3=_mm_sub_epi32(e3, half);
-			e4=_mm_sub_epi32(e4, half);
-			_mm_storeu_si128(dst+0, e0);
-			_mm_storeu_si128(dst+1, e1);
-			_mm_storeu_si128(dst+2, e2);
-			_mm_storeu_si128(dst+3, e3);
-			_mm_storeu_si128(dst+4, e4);
-			dst+=5;
-			ptr+=3*5;
-		}
-		int *dst2=(int*)dst;
-		for(;k<res;++k)
-		{
-			dst2[0]=(unsigned char)ptr[0]-128;
-			dst2[1]=(unsigned char)ptr[1]-128;
-			dst2[2]=(unsigned char)ptr[2]-128;
-			dst2[3]=0;
-			dst2+=4;
-			ptr+=3;
+			__m128i extract0=_mm_set_epi8(
+			//	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0
+				-1, -1, -1, -1, -1, -1, -1,  2, -1, -1, -1,  1, -1, -1, -1,  0
+			);
+			__m128i extract1=_mm_set_epi8(
+			//	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0
+				-1, -1, -1, -1, -1, -1, -1,  5, -1, -1, -1,  4, -1, -1, -1,  3
+			);
+			__m128i extract2=_mm_set_epi8(
+			//	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0
+				-1, -1, -1, -1, -1, -1, -1,  8, -1, -1, -1,  7, -1, -1, -1,  6
+			);
+			__m128i extract3=_mm_set_epi8(
+			//	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0
+				-1, -1, -1, -1, -1, -1, -1, 11, -1, -1, -1, 10, -1, -1, -1,  9
+			);
+			__m128i extract4=_mm_set_epi8(
+			//	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0
+				-1, -1, -1, -1, -1, -1, -1, 14, -1, -1, -1, 13, -1, -1, -1, 12
+			);
+			__m128i half=_mm_set1_epi32(128);
+			__m128i *dst=(__m128i*)image->data;
+			ptrdiff_t k=0;
+			int *dst2;
+
+			for(;k<res-4;k+=5)
+			{
+				__m128i packed5=_mm_loadu_si128((__m128i*)ptr);
+				__m128i e0=_mm_shuffle_epi8(packed5, extract0);
+				__m128i e1=_mm_shuffle_epi8(packed5, extract1);
+				__m128i e2=_mm_shuffle_epi8(packed5, extract2);
+				__m128i e3=_mm_shuffle_epi8(packed5, extract3);
+				__m128i e4=_mm_shuffle_epi8(packed5, extract4);
+				e0=_mm_sub_epi32(e0, half);
+				e1=_mm_sub_epi32(e1, half);
+				e2=_mm_sub_epi32(e2, half);
+				e3=_mm_sub_epi32(e3, half);
+				e4=_mm_sub_epi32(e4, half);
+				_mm_storeu_si128(dst+0, e0);
+				_mm_storeu_si128(dst+1, e1);
+				_mm_storeu_si128(dst+2, e2);
+				_mm_storeu_si128(dst+3, e3);
+				_mm_storeu_si128(dst+4, e4);
+				dst+=5;
+				ptr+=3*5;
+			}
+			dst2=(int*)dst;
+			for(;k<res;++k)
+			{
+				dst2[0]=(unsigned char)ptr[0]-128;
+				dst2[1]=(unsigned char)ptr[1]-128;
+				dst2[2]=(unsigned char)ptr[2]-128;
+				dst2[3]=0;
+				dst2+=4;
+				ptr+=3;
+			}
 		}
 		array_free(&src);
 		return image;
 	}
 load_other:
-	;
-	unsigned short *src=stbi_load_16(fn, &iw, &ih, &nch, 4);
-	if(!src)
 	{
-		//LOG_ERROR("Cannot open %s", fn);
-		return 0;
-	}
-	ptrdiff_t res=(ptrdiff_t)iw*ih;
-	char src_depth[]={16, 16, 16, 16};
-	char dst_depth[]={8, 8, 8, 0};
-	for(ptrdiff_t k=0;k<res;++k)//detect 8-bit
-	{
-		int r=src[k<<2|0], g=src[k<<2|1], b=src[k<<2|2], a=src[k<<2|3];
-		if(dst_depth[0]<16&&(r>>8)!=(r&0xFF))dst_depth[0]=16;
-		if(dst_depth[1]<16&&(g>>8)!=(g&0xFF))dst_depth[1]=16;
-		if(dst_depth[2]<16&&(b>>8)!=(b&0xFF))dst_depth[2]=16;
-		if(a!=0xFFFF)
+		unsigned short *src;
+		char src_depth[]={16, 16, 16, 16};
+		char dst_depth[]={8, 8, 8, 0};
+
+		src=stbi_load_16(fn, &iw, &ih, &nch, 4);
+		if(!src)
 		{
-			if(dst_depth[3]<16&&(a>>8)!=(a&0xFF))
-				dst_depth[3]=16;
-			else if(!dst_depth[3])
-				dst_depth[3]=8;
+			//LOG_ERROR("Cannot open %s", fn);
+			return 0;
 		}
+		res=(ptrdiff_t)iw*ih;
+		for(ptrdiff_t k=0;k<res;++k)//detect 8-bit
+		{
+			int r=src[k<<2|0], g=src[k<<2|1], b=src[k<<2|2], a=src[k<<2|3];
+			if(dst_depth[0]<16&&(r>>8)!=(r&0xFF))dst_depth[0]=16;
+			if(dst_depth[1]<16&&(g>>8)!=(g&0xFF))dst_depth[1]=16;
+			if(dst_depth[2]<16&&(b>>8)!=(b&0xFF))dst_depth[2]=16;
+			if(a!=0xFFFF)
+			{
+				if(dst_depth[3]<16&&(a>>8)!=(a&0xFF))
+					dst_depth[3]=16;
+				else if(!dst_depth[3])
+					dst_depth[3]=8;
+			}
+		}
+		image=image_from_uint16(src, iw, ih, nch, src_depth, dst_depth);
+		free(src);
+		return image;
 	}
-	image=image_from_uint16(src, iw, ih, nch, src_depth, dst_depth);
-	free(src);
-	return image;
 }
 int image_save_uint8(const char *fn, Image const *image, int override_alpha)
 {
 	unsigned char *dst=0;
+
 	image_export_uint8(image, &dst, override_alpha, 0);
 	if(!dst)
 		return 0;
@@ -225,28 +238,32 @@ void image_export_uint8(Image const *image, unsigned char **dst, int override_al
 {
 	if(!image)
 		return;
-	void *p=realloc(*dst, image->iw*image->ih*sizeof(char[4]));
-	if(!p)
-		return;
-	*dst=(unsigned char*)p;
-	int shift[]=
 	{
-		MAXVAR(0, image->depth[0]-8),
-		MAXVAR(0, image->depth[1]-8),
-		MAXVAR(0, image->depth[2]-8),
-		MAXVAR(0, image->depth[3]-8),
-	};
-	int r, b;
-	if(swap_rb)
-		r=2, b=0;
-	else
-		r=0, b=2;
-	for(ptrdiff_t k=0, res=(ptrdiff_t)image->iw*image->ih*4;k<res;k+=4)
+		void *ptr=realloc(*dst, image->iw*image->ih*sizeof(char[4]));
+		if(!ptr)
+			return;
+		*dst=(unsigned char*)ptr;
+	}
 	{
-		dst[0][k|r]=(unsigned char)((image->data[k|0]>>shift[0])+128);
-		dst[0][k|1]=(unsigned char)((image->data[k|1]>>shift[1])+128);
-		dst[0][k|b]=(unsigned char)((image->data[k|2]>>shift[2])+128);
-		dst[0][k|3]=override_alpha?0xFF:(unsigned char)(image->data[k|2]>>shift[3]);
+		int shift[]=
+		{
+			MAXVAR(0, image->depth[0]-8),
+			MAXVAR(0, image->depth[1]-8),
+			MAXVAR(0, image->depth[2]-8),
+			MAXVAR(0, image->depth[3]-8),
+		};
+		int r, b;
+		if(swap_rb)
+			r=2, b=0;
+		else
+			r=0, b=2;
+		for(ptrdiff_t k=0, res=(ptrdiff_t)image->iw*image->ih*4;k<res;k+=4)
+		{
+			dst[0][k|r]=(unsigned char)((image->data[k|0]>>shift[0])+128);
+			dst[0][k|1]=(unsigned char)((image->data[k|1]>>shift[1])+128);
+			dst[0][k|b]=(unsigned char)((image->data[k|2]>>shift[2])+128);
+			dst[0][k|3]=override_alpha?0xFF:(unsigned char)(image->data[k|2]>>shift[3]);
+		}
 	}
 }
 double image_getBMPsize(Image const *image)
@@ -267,10 +284,12 @@ void image_copy_nodata(Image **dst, Image const *src)
 	size_t srcsize=image_getbufsize(src);
 	if(!srcsize)
 		return;
-	void *p=realloc(*dst, srcsize);
-	if(!p)
-		return;
-	*dst=(Image*)p;
+	{
+		void *ptr=realloc(*dst, srcsize);
+		if(!ptr)
+			return;
+		*dst=(Image*)ptr;
+	}
 	memcpy(*dst, src, sizeof(Image));
 }
 void image_copy(Image **dst, Image const *src)
@@ -278,9 +297,11 @@ void image_copy(Image **dst, Image const *src)
 	size_t srcsize=image_getbufsize(src);
 	if(!srcsize)
 		return;
-	void *p=realloc(*dst, srcsize);
-	if(!p)
-		return;
-	*dst=(Image*)p;
+	{
+		void *ptr=realloc(*dst, srcsize);
+		if(!ptr)
+			return;
+		*dst=(Image*)ptr;
+	}
 	memcpy(*dst, src, srcsize);
 }

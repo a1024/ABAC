@@ -6,7 +6,7 @@
 #include<math.h>
 #include<process.h>
 #include<immintrin.h>
-static const char file[]=__FILE__;
+//static const char file[]=__FILE__;
 
 short lossyconv_clipboard=0;
 int lossyconv_page=0;//[0~15]: 4 channels max * 4 layers	layer<<2|ch
@@ -18,14 +18,14 @@ void pred_lossyconv(Image *src)
 {
 	Image *dst=0;
 	image_copy(&dst, src);
-	if(!dst->data)
-	{
-		LOG_ERROR("Alloc error");
-		return;
-	}
-	int *p1=src->data, *p2=dst->data;
+	//if(!dst->data)
+	//{
+	//	LOG_ERROR("Alloc error");
+	//	return;
+	//}
 	for(int kb=0;kb<4;++kb)//no need for memcpy due to even number of stages:  src->dst->src
 	{
+		int *p1=src->data, *p2=dst->data;
 		int
 			xstart=lossyconv_offset[kb<<1|0], xstride=lossyconv_stride[kb<<1|0]+1,
 			ystart=lossyconv_offset[kb<<1|1], ystride=lossyconv_stride[kb<<1|1]+1;
@@ -41,21 +41,20 @@ void pred_lossyconv(Image *src)
 		{
 			for(int kc=0;kc<4;++kc)
 			{
-				int depth=src->depth[kc], half=1<<depth>>1;
+				int depth, half;
+				short *curr_filt;
+
+				depth=src->depth[kc];
 				if(!depth)
 					continue;
-				short *curr_filt=lossyconv_params+5*5*(4*kb+kc);
-				//int clampsize=0;
-				//for(int k=0;k<5*5;++k)
-				//	clampsize+=curr_filt[k]&1;
+				half=1<<depth>>1;
+				curr_filt=lossyconv_params+5*5*(4*kb+kc);
 				for(int ky=ystart;ky<src->ih-(ystride-1);ky+=ystride)
 				{
 					for(int kx=xstart;kx<src->iw-(xstride-1);kx+=xstride)
 					{
 						int idx=src->iw*ky+kx;
 						int offset=0, pred=0, vmin=-half, vmax=half-1, uninit=1;
-						//if(kc==1&&lossyconv_causalRCT[kb]&&ky==10&&kx==10)//
-						//	printf("");
 						for(int ky2=-2, idx2=0;ky2<=2;++ky2)
 						{
 							for(int kx2=-2;kx2<=2;++kx2, ++idx2)
@@ -146,18 +145,21 @@ void pred_lossyconv(Image *src)
 						pred>>=4;
 						pred=CLAMP(vmin, pred, vmax);
 #endif
-
-						int curr=p1[idx<<2|kc];
-						curr-=pred;
-						curr<<=32-depth;//signed-MA
-						curr>>=32-depth;
-						p2[idx<<2|kc]=curr;
+						{
+							int curr=p1[idx<<2|kc];
+							curr-=pred;
+							curr<<=32-depth;//signed-MA
+							curr>>=32-depth;
+							p2[idx<<2|kc]=curr;
+						}
 					}
 				}
 			}
 		}
-		int *temp;
-		SWAPVAR(p1, p2, temp);
+		{
+			int *temp;
+			SWAPVAR(p1, p2, temp);
+		}
 	}
 	free(dst);
 }

@@ -19,6 +19,7 @@ Camera cam=
 	(float)(225*M_PI/180), (float)(324.7356103172454f*M_PI/180),
 	1,
 	0.04f, (float)(2*M_PI/180),
+	0, 0, 0, 0,
 }, cam0;
 
 ArrayHandle fn=0;
@@ -195,18 +196,20 @@ int loud_transforms=1;
 
 static void center_image()
 {
+	int wndw2, wndh2;
+
 	if(!im1)
 		return;
-	int wndw=w, wndh=h-17;
-	if((double)wndw/wndh>=(double)im1->iw/im1->ih)//window AR > image AR: fit height
+	wndw2=wndw, wndh2=wndh-17;
+	if((double)wndw2/wndh2>=(double)im1->iw/im1->ih)//window AR > image AR: fit height
 	{
-		if(wndh>0)
-			imzoom=(double)wndh/im1->ih;
+		if(wndh2>0)
+			imzoom=(double)wndh2/im1->ih;
 	}
 	else//window AR < image AR: fit width
-		imzoom=(double)wndw/im1->iw;
-	wpx=(im1->iw-wndw/imzoom)*0.5;//center image
-	wpy=(im1->ih-wndh/imzoom)*0.5;
+		imzoom=(double)wndw2/im1->iw;
+	wpx=(im1->iw-wndw2/imzoom)*0.5;//center image
+	wpy=(im1->ih-wndh2/imzoom)*0.5;
 	imagecentered=1;
 }
 static void zoom_at(int xs, int ys, double factor)
@@ -220,22 +223,29 @@ static void zoom_at(int xs, int ys, double factor)
 
 	imagecentered=0;
 }
-void calc_csize_ans_separate(Image const *image, size_t *csizes)
+#if 0
+static void calc_csize_ans_separate(Image const *image, size_t *csizes)
 {
+	int maxdepth, maxlevels, *hist, res;
+	unsigned state;
+
 	if(!csizes)
 		return;
-	int maxdepth=calc_maxdepth(image, 0), maxlevels=1<<maxdepth;
-	int *hist=(int*)malloc((maxlevels+1)*sizeof(int));
+	maxdepth=calc_maxdepth(image, 0), maxlevels=1<<maxdepth;
+	hist=(int*)malloc((maxlevels+1)*sizeof(int));
 	if(!hist)
 	{
 		LOG_ERROR("Alloc error");
 		return;
 	}
-	int res=image->iw*image->ih;
-	unsigned state=0x10000;
+	res=image->iw*image->ih;
+	state=0x10000;
 	for(int kc=0;kc<3;++kc)//naive way: one dedicated hist for each channel
 	{
-		int depth=image->depth[kc], nlevels=1<<depth;
+		int depth, nlevels, nusedlevels, sum;
+		size_t csize;
+
+		depth=image->depth[kc], nlevels=1<<depth;
 		memset(hist, 0, nlevels*sizeof(int));
 		for(int k=0;k<res;++k)//calc histogram
 		{
@@ -244,10 +254,10 @@ void calc_csize_ans_separate(Image const *image, size_t *csizes)
 				LOG_ERROR("Symbol OOB");
 			++hist[sym];
 		}
-		int nusedlevels=0;
+		nusedlevels=0;
 		for(int ks=0;ks<nlevels;++ks)
 			nusedlevels+=hist[ks]!=0;
-		int sum=0;
+		sum=0;
 		for(int ks=0, ks2=0;ks<nlevels;++ks)//quantize & accumulate CDF
 		{
 			int freq=hist[ks];
@@ -257,7 +267,7 @@ void calc_csize_ans_separate(Image const *image, size_t *csizes)
 		}
 		hist[nlevels]=0x10000;
 
-		size_t csize=0;
+		csize=0;
 		for(int k=0;k<res;++k)//calc csize
 		{
 			int sym=image->data[k<<2|kc]+(nlevels>>1);
@@ -275,7 +285,6 @@ void calc_csize_ans_separate(Image const *image, size_t *csizes)
 	csizes[3]=csizes[0]+csizes[1]+csizes[2]+4;
 	free(hist);
 }
-
 //from libjxl		packsign(pixel) = 0b00001MMBB...BBL	token = offset + 0bGGGGMML,  where G = bits of lg(packsign(pixel)),  bypass = 0bBB...BB
 static void hybriduint_encode(int val, int *tbn, const int *config)
 {
@@ -428,19 +437,23 @@ static int get_ctx(Image const *image, int kc, int kx, int ky)
 	//	energy=NE;
 #endif
 
-
-	int ctx=0;
-	for(int k=0;k<(int)_countof(ans_qlevels_u);++k)//TODO: binary search
-		ctx+=energy>ans_qlevels_u[k];
-	return ctx;
+	{
+		int ctx=0;
+		for(int k=0;k<(int)_countof(ans_qlevels_u);++k)//TODO: binary search
+			ctx+=energy>ans_qlevels_u[k];
+		return ctx;
+	}
 }
 void calc_csize_ans_energy(Image const *image, size_t *csizes)
 {
+	int maxdepth, histsize, *stats, ctxhist;
+	unsigned state;
+
 	if(!csizes)
 		return;
-	int maxdepth=calc_maxdepth(image, 0);
-	int histsize=1<<maxdepth;//number of possibilities
-	int *stats=(int*)malloc((histsize+1LL)*sizeof(int[_countof(calcsize_ans_qlevels)+1]));
+	maxdepth=calc_maxdepth(image, 0);
+	histsize=1<<maxdepth;//number of possibilities
+	stats=(int*)malloc((histsize+1LL)*sizeof(int[_countof(calcsize_ans_qlevels)+1]));
 	if(!stats)
 	{
 		LOG_ERROR("Alloc error");
@@ -489,10 +502,10 @@ void calc_csize_ans_energy(Image const *image, size_t *csizes)
 			hist[histsize]=0x10000;
 		}
 	}
-	unsigned state=0x10000;
-	int ctxhist[34]={0};
+	state=0x10000;
 	for(int kc=0;kc<3;++kc)			//step 4: estimate compressed size
 	{
+		int ctxhist[34]={0};
 		int depth=image->depth[kc], nlevels=1<<depth;
 		size_t csize=0;
 		for(int ky=0, idx=0;ky<image->ih;++ky)
@@ -766,6 +779,25 @@ static void test_predmask(Image const *image)
 	unsigned char *masks=(unsigned char*)malloc(res*sizeof(int[3]));
 	int maxdepth=calc_maxdepth(residues[0], 0), maxlevels=1<<maxdepth;
 	int *stats=(int*)malloc(maxlevels*sizeof(int[34]));
+	int hweight[34]={0};
+	double csizes[14][3]={0}, optcsize[3]={0};
+	static const int predcolors[]=
+	{
+		(int)0xFFFFFFFF,//	zero		undefined	white
+		(int)0xFF0000FF,//	left		180		red
+		(int)0xFFFF0000,//	top		90		blue
+		(int)0xFF00D000,//	average0	135		green
+		(int)0xFF009000,//	select		135		green
+		(int)0xFF005000,//	grad		135		green
+		(int)0xFF000000,//	weighted	undefined	black
+		(int)0xFFFF00FF,//	topright	45		pink
+		(int)0xFF00FF00,//	topleft		135		green
+		(int)0xFF000080,//	leftleft	180		red
+		(int)0xFF008080,//	average1	157.5		mustard
+		(int)0xFF808000,//	average2	112.5		marine
+		(int)0xFF800080,//	average3	67.5		violet
+		(int)0xFF808080,//	average4	undefined	grey
+	};
 	if(!masks||!stats)
 	{
 		LOG_ERROR("Alloc error");
@@ -796,32 +828,13 @@ static void test_predmask(Image const *image)
 			}
 		}
 	}
-	int hweight[34]={0};
 	for(int ctx=0;ctx<(int)_countof(hweight);++ctx)	//2: get histogram sums
 	{
 		int *hist=stats+maxlevels*ctx;
 		for(int ks=0;ks<maxlevels;++ks)
 			hweight[ctx]+=hist[ks];
 	}
-	double csizes[14][3]={0}, optcsize[3]={0};
 	
-	static const int predcolors[]=
-	{
-		(int)0xFFFFFFFF,//	zero		undefined	white
-		(int)0xFF0000FF,//	left		180		red
-		(int)0xFFFF0000,//	top		90		blue
-		(int)0xFF00D000,//	average0	135		green
-		(int)0xFF009000,//	select		135		green
-		(int)0xFF005000,//	grad		135		green
-		(int)0xFF000000,//	weighted	undefined	black
-		(int)0xFFFF00FF,//	topright	45		pink
-		(int)0xFF00FF00,//	topleft		135		green
-		(int)0xFF000080,//	leftleft	180		red
-		(int)0xFF008080,//	average1	157.5		mustard
-		(int)0xFF808000,//	average2	112.5		marine
-		(int)0xFF800080,//	average3	67.5		violet
-		(int)0xFF808080,//	average4	undefined	grey
-	};
 	for(int kc=0;kc<3;++kc)				//3: calc csizes
 	{
 		for(int ky=0;ky<image->ih;++ky)
@@ -1013,7 +1026,7 @@ static void test_predmask(Image const *image)
 	console_pause();
 	console_end();
 }
-
+#endif
 static void calc_csize_stateful(Image const *image, int *hist_full, double *entropy)
 {
 	if(ec_method==ECTX_HIST)
@@ -1053,13 +1066,20 @@ typedef struct ThreadCtxStruct
 } ThreadCtx;
 static unsigned __stdcall sample_thread(void *param)
 {
+	int maxdepth, nlevels, *hist;
+	double entropy[4]={0};
 	ThreadCtx *ctx=(ThreadCtx*)param;
+
 	ctx->usize=image_getBMPsize(ctx->image);
 	apply_selected_transforms(ctx->image, 0);
-	int maxdepth=calc_maxdepth(ctx->image, 0);
-	int nlevels=1<<maxdepth;
-	int *hist=(int*)malloc(nlevels*sizeof(int));
-	double entropy[4]={0};
+	maxdepth=calc_maxdepth(ctx->image, 0);
+	nlevels=1<<maxdepth;
+	hist=(int*)malloc(nlevels*sizeof(int));
+	if(!hist)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
 	calc_csize_stateful(ctx->image, 0, entropy);
 	for(int kc=0;kc<4;++kc)
 	{
@@ -1081,10 +1101,6 @@ static unsigned __stdcall sample_thread(void *param)
 }
 static void batch_test(void)
 {
-	loud_transforms=0;
-	ArrayHandle path=dialog_open_folder();
-	if(!path)
-		return;
 	const char *ext[]=
 	{
 		"PNG",
@@ -1093,7 +1109,16 @@ static void batch_test(void)
 		"PPM",
 		"PGM",
 	};
-	ArrayHandle filenames=get_filenames((char*)path->data, ext, _countof(ext), 1);
+	ArrayHandle path, filenames, q;
+	int nthreads, maxlen;
+	double t, total_usize=0, total_csize[4]={0};
+
+
+	loud_transforms=0;
+	path=dialog_open_folder();
+	if(!path)
+		return;
+	filenames=get_filenames((char*)path->data, ext, _countof(ext), 1);
 	if(!filenames)
 	{
 		array_free(&path);
@@ -1106,17 +1131,16 @@ static void batch_test(void)
 	console_log("Batch Test  %s  %s\n", g_buf, (char*)path->data);
 	array_free(&path);
 	console_log("Enter number of threads: ");
-	int nthreads=console_scan_int();
-	double t=time_sec();
-	double total_usize=0, total_csize[4]={0};
-	int maxlen=0;
+	nthreads=console_scan_int();
+	t=time_sec();
+	total_usize=0;
+	maxlen=0;
 	for(int k=0;k<(int)filenames->count;++k)
 	{
 		ArrayHandle *fn2=(ArrayHandle*)array_at(&filenames, k);
 		if(maxlen<(int)fn2[0]->count)
 			maxlen=(int)fn2[0]->count;
 	}
-	ArrayHandle q;
 	ARRAY_ALLOC(ThreadCtx, q, 0, 0, nthreads, 0);
 	for(int k=0;k<(int)filenames->count;++k)
 	{
@@ -1124,14 +1148,14 @@ static void batch_test(void)
 #if 1
 		ArrayHandle *fn2=(ArrayHandle*)array_at(&filenames, k);
 		Image *image=image_load((char*)fn2[0]->data, (int)fn2[0]->count);
-		if(!image)
-			continue;
 		ThreadCtx ctx=
 		{
 			image,
 			0, {0},
 			k,
 		};
+		if(!image)
+			continue;
 		ARRAY_APPEND(q, &ctx, 1, 1, 0);
 		if((int)q->count>=nthreads||k+1>=(int)filenames->count)
 		{
@@ -1156,8 +1180,8 @@ static void batch_test(void)
 			for(int k2=0;k2<(int)q->count;++k2)
 			{
 				ThreadCtx *ptr=(ThreadCtx*)array_at(&q, k2);
-				fn2=(ArrayHandle*)array_at(&filenames, ptr->idx);
 				double csize=ptr->csize[0]+ptr->csize[1]+ptr->csize[2]+ptr->csize[3];
+				fn2=(ArrayHandle*)array_at(&filenames, ptr->idx);
 				console_log(
 					"%5d/%5d %s%*sUTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  invCR %8.4lf%%\n",
 					(int)(k+1-(int)q->count+k2+1), (int)filenames->count, (char*)fn2[0]->data, (int)(maxlen-fn2[0]->count+1), "",
@@ -1178,18 +1202,22 @@ static void batch_test(void)
 #if 0
 		ArrayHandle *fn2=(ArrayHandle*)array_at(&filenames, k);
 		Image *image=image_load((char*)fn2[0]->data);
+		double usize;
+		int maxdepth, maxlevels;
 		if(!image)
 			continue;
-		double usize=image_getBMPsize(image), csize[3]={0};
+		usize=image_getBMPsize(image), csize[3]={0};
 		apply_selected_transforms(image, 0);
-		int maxdepth=calc_maxdepth(image, 0);
-		int nlevels=1<<maxdepth;
-		int *hist=(int*)malloc(nlevels*sizeof(int));
+		maxdepth=calc_maxdepth(image, 0);
+		maxlevels=1<<maxdepth;
+		int *hist=(int*)malloc(maxlevels*sizeof(int));
 		for(int kc=0;kc<3;++kc)
 		{
+			double entropy, invCR;
+
 			calc_histogram(image->data, image->iw, image->ih, kc, 0, image->iw, 0, image->ih, image->depth[kc], hist, 0);
-			double entropy=calc_entropy(hist, 1<<image->depth[kc], image->iw*image->ih);
-			double invCR=entropy/image->src_depth[kc];
+			entropy=calc_entropy(hist, 1<<image->depth[kc], image->iw*image->ih);
+			invCR=entropy/image->src_depth[kc];
 			csize[kc]=invCR*image->iw*image->ih*image->src_depth[kc]/8;
 		}
 		free(hist);
@@ -1207,20 +1235,22 @@ static void batch_test(void)
 		free(image);
 #endif
 	}
-	double ctotal=total_csize[0]+total_csize[1]+total_csize[2]+total_csize[3];
-	double CR=total_usize/ctotal;
-	t=time_sec()-t;
-	console_log(
-		"Total UTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  invCR %8.4lf%%\n",
-		total_usize, ctotal, total_csize[0], total_csize[1], total_csize[2], 100./CR
-	);
-	timedelta2str(g_buf, G_BUF_SIZE, t);
-	console_log("Elapsed %s\n", g_buf);
-	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d-%H:%M:%S");
-	console_log("\nDone.  %s\n", g_buf);
-	console_pause();
-	console_end();
-	loud_transforms=1;
+	{
+		double ctotal=total_csize[0]+total_csize[1]+total_csize[2]+total_csize[3];
+		double CR=total_usize/ctotal;
+		t=time_sec()-t;
+		console_log(
+			"Total UTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  invCR %8.4lf%%\n",
+			total_usize, ctotal, total_csize[0], total_csize[1], total_csize[2], 100./CR
+		);
+		timedelta2str(g_buf, G_BUF_SIZE, t);
+		console_log("Elapsed %s\n", g_buf);
+		acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d-%H:%M:%S");
+		console_log("\nDone.  %s\n", g_buf);
+		console_pause();
+		console_end();
+		loud_transforms=1;
+	}
 }
 
 static int customtransforms_getflag(unsigned char tid)
@@ -1521,20 +1551,29 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_DCT8:		a=" S Inv DCT8";		break;
 	default:			a="ERROR";			break;
 	}
-	long long c0=0;
-	if(highlight)
-		c0=set_text_colors(highlight);
-	if(place<0)
-		GUIPrint(0, x, y, 1, "%s", a);
-	else
-		GUIPrint(0, x, y, 1, "%d: %s", place, a);
-	if(highlight)
-		set_text_colors(c0);
+	{
+		long long c0=0;
+		if(highlight)
+			c0=set_text_colors(highlight);
+		if(place<0)
+			GUIPrint(0, x, y, 1, "%s", a);
+		else
+			GUIPrint(0, x, y, 1, "%d: %s", place, a);
+		if(highlight)
+			set_text_colors(c0);
+	}
 }
 
 static int send_image_separate_subpixels(Image const *image, unsigned *txid_r, unsigned *txid_g, unsigned *txid_b, unsigned *txid_a)
 {
 	ptrdiff_t res=(ptrdiff_t)image->iw*image->ih;
+	int shift[]=
+	{
+		MAXVAR(0, image->depth[0]-8),
+		MAXVAR(0, image->depth[1]-8),
+		MAXVAR(0, image->depth[2]-8),
+		MAXVAR(0, image->depth[3]-8),
+	};
 	unsigned char *temp_r=(unsigned char*)malloc(res*sizeof(char[4]));
 	unsigned char *temp_g=(unsigned char*)malloc(res*sizeof(char[4]));
 	unsigned char *temp_b=(unsigned char*)malloc(res*sizeof(char[4]));
@@ -1544,13 +1583,6 @@ static int send_image_separate_subpixels(Image const *image, unsigned *txid_r, u
 		LOG_ERROR("Alloc error");
 		return 0;
 	}
-	int shift[]=
-	{
-		MAXVAR(0, image->depth[0]-8),
-		MAXVAR(0, image->depth[1]-8),
-		MAXVAR(0, image->depth[2]-8),
-		MAXVAR(0, image->depth[3]-8),
-	};
 	for(ptrdiff_t k=0;k<res;++k)
 	{
 		int
@@ -1594,22 +1626,25 @@ static int send_image_separate_subpixels(Image const *image, unsigned *txid_r, u
 
 static void chart_planes_update(Image const *image, ArrayHandle *cpuv, unsigned *gpuv)
 {
-	if(image->iw*image->ih>1024*1024)
-		return;
-	int nv=image->iw*image->ih*3*6, nf=nv*5;//subpixel count * 6 vertices
-	if(!*cpuv||(int)cpuv[0]->count!=nf)
-	{
-		if(*cpuv)
-			array_free(cpuv);
-		ARRAY_ALLOC(float, *cpuv, 0, nf, 0, 0);
-	}
-	float *vertices=(float*)cpuv[0]->data;
+	int nv, nf;
+	float *vertices;
 	int nlevels[]=
 	{
 		1<<image->depth[0],
 		1<<image->depth[1],
 		1<<image->depth[2],
 	};
+
+	if(image->iw*image->ih>1024*1024)
+		return;
+	nv=image->iw*image->ih*3*6, nf=nv*5;//subpixel count * 6 vertices
+	if(!*cpuv||(int)cpuv[0]->count!=nf)
+	{
+		if(*cpuv)
+			array_free(cpuv);
+		ARRAY_ALLOC(float, *cpuv, 0, nf, 0, 0);
+	}
+	vertices=(float*)cpuv[0]->data;
 	for(int ky=0, kv=0;ky<image->ih;++ky)
 	{
 		for(int kx=0;kx<image->iw;++kx)
@@ -1649,22 +1684,25 @@ static void chart_planes_update(Image const *image, ArrayHandle *cpuv, unsigned 
 }
 static void chart_mesh_update(Image const *image, ArrayHandle *cpuv, unsigned *gpuv)
 {
-	if(image->iw*image->ih>1024*1024)
-		return;
-	int nv=(image->iw-1)*(image->ih-1)*3*6, nf=nv*5;//pixel count * 3 colors * 6 vertices * 5 floats
-	if(!*cpuv||(int)cpuv[0]->count!=nf)
-	{
-		if(*cpuv)
-			array_free(cpuv);
-		ARRAY_ALLOC(float, *cpuv, 0, nf, 0, 0);
-	}
-	float *vertices=(float*)cpuv[0]->data;
+	int nv, nf;
+	float *vertices;
 	int nlevels[]=
 	{
 		1<<image->depth[0],
 		1<<image->depth[1],
 		1<<image->depth[2],
 	};
+
+	if(image->iw*image->ih>1024*1024)
+		return;
+	nv=(image->iw-1)*(image->ih-1)*3*6, nf=nv*5;//pixel count * 3 colors * 6 vertices * 5 floats
+	if(!*cpuv||(int)cpuv[0]->count!=nf)
+	{
+		if(*cpuv)
+			array_free(cpuv);
+		ARRAY_ALLOC(float, *cpuv, 0, nf, 0, 0);
+	}
+	vertices=(float*)cpuv[0]->data;
 	for(int ky=0, kv=0;ky<image->ih-1;++ky)
 	{
 		for(int kx=0;kx<image->iw-1;++kx)
@@ -1717,22 +1755,25 @@ static void chart_mesh_update(Image const *image, ArrayHandle *cpuv, unsigned *g
 }
 static void chart_mesh_sep_update(Image const *image, ArrayHandle *cpuv, unsigned *gpuv)
 {
-	if(image->iw*image->ih>1024*1024)
-		return;
-	int nv=(image->iw-1)*(image->ih-1)*3*6, nf=nv*5;//pixel count * 3 colors * 2 triangles * 3 vertices * 5 floats
-	if(!*cpuv||(int)cpuv[0]->count!=nf)
-	{
-		if(*cpuv)
-			array_free(cpuv);
-		ARRAY_ALLOC(float, *cpuv, 0, nf, 0, 0);
-	}
-	float *vertices=(float*)cpuv[0]->data;
+	int nv, nf;
+	float *vertices;
 	int nlevels[]=
 	{
 		1<<image->depth[0],
 		1<<image->depth[1],
 		1<<image->depth[2],
 	};
+
+	if(image->iw*image->ih>1024*1024)
+		return;
+	nv=(image->iw-1)*(image->ih-1)*3*6, nf=nv*5;//pixel count * 3 colors * 2 triangles * 3 vertices * 5 floats
+	if(!*cpuv||(int)cpuv[0]->count!=nf)
+	{
+		if(*cpuv)
+			array_free(cpuv);
+		ARRAY_ALLOC(float, *cpuv, 0, nf, 0, 0);
+	}
+	vertices=(float*)cpuv[0]->data;
 	for(int ky=0, kv=0;ky<image->ih-1;++ky)
 	{
 		for(int kx=0;kx<image->iw-1;++kx)
@@ -1779,22 +1820,24 @@ static void chart_hist_update(Image const *image, int x1, int x2, int y1, int y2
 	x2=MINVAR(x2, image->iw);
 	y1=MAXVAR(y1, 0);
 	y2=MINVAR(y2, image->ih);
-	int xcount=x2-x1, ycount=y2-y1, count=xcount*ycount;
-	double entropy;
-	if(count)
 	{
-		for(int kc=0;kc<3;++kc)
+		int xcount=x2-x1, ycount=y2-y1, count=xcount*ycount;
+		double entropy;
+		if(count)
 		{
-			calc_histogram(image->data, image->iw, image->ih, kc, x1, x2, y1, y2, image->depth[kc], hist_full, _hist+(kc<<8));
-			for(int k=0;k<256;++k)
+			for(int kc=0;kc<3;++kc)
 			{
-				if(_histmax[kc]<_hist[kc<<8|k])
-					_histmax[kc]=_hist[kc<<8|k];
-			}
-			if(CR)
-			{
-				entropy=calc_entropy(hist_full, 1<<image->depth[kc], count);
-				CR[kc]=(float)(image->src_depth[kc]/entropy);
+				calc_histogram(image->data, image->iw, image->ih, kc, x1, x2, y1, y2, image->depth[kc], hist_full, _hist+(kc<<8));
+				for(int k=0;k<256;++k)
+				{
+					if(_histmax[kc]<_hist[kc<<8|k])
+						_histmax[kc]=_hist[kc<<8|k];
+				}
+				if(CR)
+				{
+					entropy=calc_entropy(hist_full, 1<<image->depth[kc], count);
+					CR[kc]=(float)(image->src_depth[kc]/entropy);
+				}
 			}
 		}
 	}
@@ -1806,18 +1849,22 @@ static void chart_dwthist_update(Image const *image, int kc, int kband, int x1, 
 	x2=MINVAR(x2, image->iw);
 	y1=MAXVAR(y1, 0);
 	y2=MINVAR(y2, image->ih);
-	int xcount=x2-x1, ycount=y2-y1, count=xcount*ycount;
-	if(count)
 	{
-		calc_histogram(image->data, image->iw, image->ih, kc, x1, x2, y1, y2, image->depth[kc], hist_full, hist+(kc<<8));
-		histmax[kband]=0;
-		for(int k=0;k<256;++k)
+		int xcount=x2-x1, ycount=y2-y1, count=xcount*ycount;
+		if(count)
 		{
-			if(histmax[kband]<hist[kband<<8|k])
-				histmax[kband]=hist[kband<<8|k];
+			calc_histogram(image->data, image->iw, image->ih, kc, x1, x2, y1, y2, image->depth[kc], hist_full, hist+(kc<<8));
+			histmax[kband]=0;
+			for(int k=0;k<256;++k)
+			{
+				if(histmax[kband]<hist[kband<<8|k])
+					histmax[kband]=hist[kband<<8|k];
+			}
+			{
+				double entropy=calc_entropy(hist_full, image->depth[kc], count);
+				blockCR[kband]=(float)(image->src_depth[kc]/entropy);
+			}
 		}
-		double entropy=calc_entropy(hist_full, image->depth[kc], count);
-		blockCR[kband]=(float)(image->src_depth[kc]/entropy);
 	}
 }
 static void move_box_in_window(int boxcenter, int boxsize, int wx1, int wx2, int *ret_boxstart, int *ret_boxend)
@@ -1838,13 +1885,14 @@ static void move_box_in_window(int boxcenter, int boxsize, int wx1, int wx2, int
 }
 static void jhc_getboxbounds(int xs, int ys, int dx, int dy, int iw, int ih, int *bounds)//bounds: {x1, x2, y1, y2}
 {
-	int ix=(int)(((long long)xs*iw+(w>>1))/w);
-	int iy=(int)(((long long)ys*ih+(h>>1))/h);
+	int ix=(int)(((long long)xs*iw+(wndw>>1))/wndw);
+	int iy=(int)(((long long)ys*ih+(wndh>>1))/wndh);
 	move_box_in_window(ix, dx, 0, iw, bounds+0, bounds+1);
 	move_box_in_window(iy, dy, 0, ih, bounds+2, bounds+3);
 }
 static void jh_calchist(int *jhist, int nbits, Image const *image, int x1, int x2, int y1, int y2)
 {
+	int idx;
 	int half[]=
 	{
 		1<<(image->depth[0]-1),
@@ -1869,7 +1917,7 @@ static void jh_calchist(int *jhist, int nbits, Image const *image, int x1, int x
 				r=CLAMP(0, r, (1<<nbits)-1);
 				g=CLAMP(0, g, (1<<nbits)-1);
 				b=CLAMP(0, b, (1<<nbits)-1);
-				int idx=(b<<nbits|g)<<nbits|r;
+				idx=(b<<nbits|g)<<nbits|r;
 
 				++jhist[idx];
 			}
@@ -1887,7 +1935,7 @@ static void jh_calchist(int *jhist, int nbits, Image const *image, int x1, int x
 				v0=CLAMP(0, v0, (1<<nbits)-1);
 				v1=CLAMP(0, v1, (1<<nbits)-1);
 				v2=CLAMP(0, v2, (1<<nbits)-1);
-				int idx=(v2<<nbits|v1)<<nbits|v0;
+				idx=(v2<<nbits|v1)<<nbits|v0;
 
 				++jhist[idx];
 			}
@@ -1905,7 +1953,7 @@ static void jh_calchist(int *jhist, int nbits, Image const *image, int x1, int x
 				v0=CLAMP(0, v0, (1<<nbits)-1);
 				v1=CLAMP(0, v1, (1<<nbits)-1);
 				v2=CLAMP(0, v2, (1<<nbits)-1);
-				int idx=(v2<<nbits|v1)<<nbits|v0;
+				idx=(v2<<nbits|v1)<<nbits|v0;
 
 				++jhist[idx];
 			}
@@ -1923,7 +1971,7 @@ static void jh_calchist(int *jhist, int nbits, Image const *image, int x1, int x
 				v0=CLAMP(0, v0, (1<<nbits)-1);
 				v1=CLAMP(0, v1, (1<<nbits)-1);
 				v2=CLAMP(0, v2, (1<<nbits)-1);
-				int idx=(v2<<nbits|v1)<<nbits|v0;
+				idx=(v2<<nbits|v1)<<nbits|v0;
 
 				++jhist[idx];
 			}
@@ -2061,162 +2109,169 @@ static void jhc_marchingcubes(ArrayHandle *edges, const int *data, int gx, int g
 	if(!*edges)
 		ARRAY_ALLOC(float[10], *edges, 0, 0, 0, 0);
 	edges[0]->count=0;
-	__m256 mlevel=_mm256_set1_ps(level);
-	float gains[]=
 	{
-		-cubesize/gx,
-		-cubesize/gy,
-		cubesize/gz,
-	};
-	int psize=gx*gy;
-	for(int kz=1;kz<gz;++kz)
-	{
-		for(int ky=1;ky<gy;++ky)
+		__m256 mlevel=_mm256_set1_ps(level);
+		float gains[]=
 		{
-			for(int kx=1;kx<gx;++kx)
+			-cubesize/gx,
+			-cubesize/gy,
+			cubesize/gz,
+		};
+		int psize=gx*gy;
+		for(int kz=1;kz<gz;++kz)
+		{
+			for(int ky=1;ky<gy;++ky)
 			{
-				int idx=gx*(gy*kz+ky)+kx;
-				float//	vZYX
-					v000=(float)data[idx-psize-gx-1],//8 vertices
-					v001=(float)data[idx-psize-gx  ],
-					v010=(float)data[idx-psize   -1],
-					v011=(float)data[idx-psize     ],
-					v100=(float)data[idx      -gx-1],
-					v101=(float)data[idx      -gx  ],
-					v110=(float)data[idx         -1],
-					v111=(float)data[idx           ];
+				for(int kx=1;kx<gx;++kx)
+				{
+					int idx=gx*(gy*kz+ky)+kx;
+					float//	vZYX
+						v000=(float)data[idx-psize-gx-1],//8 vertices
+						v001=(float)data[idx-psize-gx  ],
+						v010=(float)data[idx-psize   -1],
+						v011=(float)data[idx-psize     ],
+						v100=(float)data[idx      -gx-1],
+						v101=(float)data[idx      -gx  ],
+						v110=(float)data[idx         -1],
+						v111=(float)data[idx           ];
 
-				__m256 vec=_mm256_set_ps(v111, v110, v101, v100, v011, v010, v001, v000);
-				int cond=_mm256_movemask_ps(_mm256_cmp_ps(vec, mlevel, _CMP_LT_OQ));
-				if(!cond||cond==0xFF)//skip if all vertices are below/above level
-					continue;
+					__m256 vec=_mm256_set_ps(v111, v110, v101, v100, v011, v010, v001, v000);
+					int cond=_mm256_movemask_ps(_mm256_cmp_ps(vec, mlevel, _CMP_LT_OQ));
+					if(!cond||cond==0xFF)//skip if all vertices are below/above level
+						continue;
+					{
 #if 0
-				float
-					v0mm=(v000+v001+v010+v011)*0.25f,
-					v1mm=(v100+v101+v110+v111)*0.25f,
-					vm0m=(v000+v001+v100+v101)*0.25f,
-					vm1m=(v010+v011+v110+v111)*0.25f,
-					vmm0=(v000+v010+v100+v110)*0.25f,
-					vmm1=(v001+v011+v101+v111)*0.25f,
-					vmmm=(v0mm+v1mm)*0.5f;
-				float comps[][3]=
-				{
-					{(float)(kx-1), (float)kx-0.5f, (float)kx},
-					{(float)(ky-1), (float)ky-0.5f, (float)ky},
-					{(float)(kz-1), (float)kz-0.5f, (float)kz},
-				};
-				float vertices[][4]=
-				{
-					{comps[0][0], comps[1][0], comps[2][0], v000},
-					{comps[0][2], comps[1][0], comps[2][0], v001},
-					{comps[0][1], comps[1][1], comps[2][0], v0mm},
-					{comps[0][0], comps[1][2], comps[2][0], v010},
-					{comps[0][2], comps[1][2], comps[2][0], v011},
-					{comps[0][1], comps[1][0], comps[2][1], vm0m},
-					{comps[0][0], comps[1][1], comps[2][1], vmm0},
-					{comps[0][1], comps[1][1], comps[2][1], vmmm},
-					{comps[0][2], comps[1][1], comps[2][1], vmm1},
-					{comps[0][1], comps[1][2], comps[2][1], vm1m},
-					{comps[0][0], comps[1][0], comps[2][2], v100},
-					{comps[0][2], comps[1][0], comps[2][2], v101},
-					{comps[0][1], comps[1][1], comps[2][2], v1mm},
-					{comps[0][0], comps[1][2], comps[2][2], v110},
-					{comps[0][2], comps[1][2], comps[2][2], v111},
-				};
+						float
+							v0mm=(v000+v001+v010+v011)*0.25f,
+							v1mm=(v100+v101+v110+v111)*0.25f,
+							vm0m=(v000+v001+v100+v101)*0.25f,
+							vm1m=(v010+v011+v110+v111)*0.25f,
+							vmm0=(v000+v010+v100+v110)*0.25f,
+							vmm1=(v001+v011+v101+v111)*0.25f,
+							vmmm=(v0mm+v1mm)*0.5f;
+						float comps[][3]=
+						{
+							{(float)(kx-1), (float)kx-0.5f, (float)kx},
+							{(float)(ky-1), (float)ky-0.5f, (float)ky},
+							{(float)(kz-1), (float)kz-0.5f, (float)kz},
+						};
+						float vertices[][4]=
+						{
+							{comps[0][0], comps[1][0], comps[2][0], v000},
+							{comps[0][2], comps[1][0], comps[2][0], v001},
+							{comps[0][1], comps[1][1], comps[2][0], v0mm},
+							{comps[0][0], comps[1][2], comps[2][0], v010},
+							{comps[0][2], comps[1][2], comps[2][0], v011},
+							{comps[0][1], comps[1][0], comps[2][1], vm0m},
+							{comps[0][0], comps[1][1], comps[2][1], vmm0},
+							{comps[0][1], comps[1][1], comps[2][1], vmmm},
+							{comps[0][2], comps[1][1], comps[2][1], vmm1},
+							{comps[0][1], comps[1][2], comps[2][1], vm1m},
+							{comps[0][0], comps[1][0], comps[2][2], v100},
+							{comps[0][2], comps[1][0], comps[2][2], v101},
+							{comps[0][1], comps[1][1], comps[2][2], v1mm},
+							{comps[0][0], comps[1][2], comps[2][2], v110},
+							{comps[0][2], comps[1][2], comps[2][2], v111},
+						};
 #endif
 #if 1
-				float
-					v00m=(v000+v001)*0.5f,//12 edge-bisectors
-					v01m=(v010+v011)*0.5f,
-					v10m=(v100+v101)*0.5f,
-					v11m=(v110+v111)*0.5f,
-					v0m0=(v000+v010)*0.5f,
-					v0m1=(v001+v011)*0.5f,
-					v1m0=(v100+v110)*0.5f,
-					v1m1=(v101+v111)*0.5f,
-					vm00=(v000+v100)*0.5f,
-					vm01=(v001+v101)*0.5f,
-					vm10=(v010+v110)*0.5f,
-					vm11=(v011+v111)*0.5f,
+						float
+							v00m=(v000+v001)*0.5f,//12 edge-bisectors
+							v01m=(v010+v011)*0.5f,
+							v10m=(v100+v101)*0.5f,
+							v11m=(v110+v111)*0.5f,
+							v0m0=(v000+v010)*0.5f,
+							v0m1=(v001+v011)*0.5f,
+							v1m0=(v100+v110)*0.5f,
+							v1m1=(v101+v111)*0.5f,
+							vm00=(v000+v100)*0.5f,
+							vm01=(v001+v101)*0.5f,
+							vm10=(v010+v110)*0.5f,
+							vm11=(v011+v111)*0.5f,
 					
-					v0mm=(v00m+v01m)*0.5f,//6 face-centers
-					v1mm=(v10m+v11m)*0.5f,
-					vmm0=(v0m0+v1m0)*0.5f,
-					vmm1=(v0m1+v1m1)*0.5f,
-					vm0m=(vm00+vm01)*0.5f,
-					vm1m=(vm10+vm11)*0.5f,
+							v0mm=(v00m+v01m)*0.5f,//6 face-centers
+							v1mm=(v10m+v11m)*0.5f,
+							vmm0=(v0m0+v1m0)*0.5f,
+							vmm1=(v0m1+v1m1)*0.5f,
+							vm0m=(vm00+vm01)*0.5f,
+							vm1m=(vm10+vm11)*0.5f,
 					
-					vmmm=(v0mm+v1mm)*0.5f;//1 cube center
+							vmmm=(v0mm+v1mm)*0.5f;//1 cube center
 
-				float comps[][3]=
-				{
-					{(float)(kx-1), (float)kx-0.5f, (float)kx},
-					{(float)(ky-1), (float)ky-0.5f, (float)ky},
-					{(float)(kz-1), (float)kz-0.5f, (float)kz},
-				};
-				float vertices[][4]=
-				{
-					{comps[0][0], comps[1][0], comps[2][0], v000},
-					{comps[0][1], comps[1][0], comps[2][0], v00m},
-					{comps[0][2], comps[1][0], comps[2][0], v001},
-					{comps[0][0], comps[1][1], comps[2][0], v0m0},
-					{comps[0][1], comps[1][1], comps[2][0], v0mm},
-					{comps[0][2], comps[1][1], comps[2][0], v0m1},
-					{comps[0][0], comps[1][2], comps[2][0], v010},
-					{comps[0][1], comps[1][2], comps[2][0], v01m},
-					{comps[0][2], comps[1][2], comps[2][0], v011},
-					{comps[0][0], comps[1][0], comps[2][1], vm00},
-					{comps[0][1], comps[1][0], comps[2][1], vm0m},
-					{comps[0][2], comps[1][0], comps[2][1], vm01},
-					{comps[0][0], comps[1][1], comps[2][1], vmm0},
-					{comps[0][1], comps[1][1], comps[2][1], vmmm},
-					{comps[0][2], comps[1][1], comps[2][1], vmm1},
-					{comps[0][0], comps[1][2], comps[2][1], vm10},
-					{comps[0][1], comps[1][2], comps[2][1], vm1m},
-					{comps[0][2], comps[1][2], comps[2][1], vm11},
-					{comps[0][0], comps[1][0], comps[2][2], v100},
-					{comps[0][1], comps[1][0], comps[2][2], v10m},
-					{comps[0][2], comps[1][0], comps[2][2], v101},
-					{comps[0][0], comps[1][1], comps[2][2], v1m0},
-					{comps[0][1], comps[1][1], comps[2][2], v1mm},
-					{comps[0][2], comps[1][1], comps[2][2], v1m1},
-					{comps[0][0], comps[1][2], comps[2][2], v110},
-					{comps[0][1], comps[1][2], comps[2][2], v11m},
-					{comps[0][2], comps[1][2], comps[2][2], v111},
-				};
-				for(int kt=0;kt<(int)_countof(triangles);++kt)
-				{
-					const char (*tr)[3]=triangles+kt;
-					float (*v[])[4]=
-					{
-						vertices+tr[0][0],
-						vertices+tr[0][1],
-						vertices+tr[0][2],
-						0,
-					};
-					if(v[0][0][3]>v[1][0][3])SWAPVAR(v[0], v[1], v[3]);
-					if(v[0][0][3]>v[2][0][3])SWAPVAR(v[0], v[2], v[3]);
-					if(v[1][0][3]>v[2][0][3])SWAPVAR(v[1], v[2], v[3]);
-					if(v[0][0][3]<level&&level<v[2][0][3])
-					{
-						float *edge=(float*)ARRAY_APPEND(*edges, 0, 1, 1, 0);
-						float t=(level-v[0][0][3])/(v[2][0][3]-v[0][0][3]);
-						*edge++=MIX(v[0][0][0], v[2][0][0], t)*gains[0];
-						*edge++=MIX(v[0][0][1], v[2][0][1], t)*gains[1];
-						*edge++=MIX(v[0][0][2], v[2][0][2], t)*gains[2];
-						*edge++=0;
-						*edge++=0;
+						float comps[][3]=
+						{
+							{(float)(kx-1), (float)kx-0.5f, (float)kx},
+							{(float)(ky-1), (float)ky-0.5f, (float)ky},
+							{(float)(kz-1), (float)kz-0.5f, (float)kz},
+						};
+						float vertices[][4]=
+						{
+							{comps[0][0], comps[1][0], comps[2][0], v000},
+							{comps[0][1], comps[1][0], comps[2][0], v00m},
+							{comps[0][2], comps[1][0], comps[2][0], v001},
+							{comps[0][0], comps[1][1], comps[2][0], v0m0},
+							{comps[0][1], comps[1][1], comps[2][0], v0mm},
+							{comps[0][2], comps[1][1], comps[2][0], v0m1},
+							{comps[0][0], comps[1][2], comps[2][0], v010},
+							{comps[0][1], comps[1][2], comps[2][0], v01m},
+							{comps[0][2], comps[1][2], comps[2][0], v011},
+							{comps[0][0], comps[1][0], comps[2][1], vm00},
+							{comps[0][1], comps[1][0], comps[2][1], vm0m},
+							{comps[0][2], comps[1][0], comps[2][1], vm01},
+							{comps[0][0], comps[1][1], comps[2][1], vmm0},
+							{comps[0][1], comps[1][1], comps[2][1], vmmm},
+							{comps[0][2], comps[1][1], comps[2][1], vmm1},
+							{comps[0][0], comps[1][2], comps[2][1], vm10},
+							{comps[0][1], comps[1][2], comps[2][1], vm1m},
+							{comps[0][2], comps[1][2], comps[2][1], vm11},
+							{comps[0][0], comps[1][0], comps[2][2], v100},
+							{comps[0][1], comps[1][0], comps[2][2], v10m},
+							{comps[0][2], comps[1][0], comps[2][2], v101},
+							{comps[0][0], comps[1][1], comps[2][2], v1m0},
+							{comps[0][1], comps[1][1], comps[2][2], v1mm},
+							{comps[0][2], comps[1][1], comps[2][2], v1m1},
+							{comps[0][0], comps[1][2], comps[2][2], v110},
+							{comps[0][1], comps[1][2], comps[2][2], v11m},
+							{comps[0][2], comps[1][2], comps[2][2], v111},
+						};
+						for(int kt=0;kt<(int)_countof(triangles);++kt)
+						{
+							const char (*tr)[3]=triangles+kt;
+							float (*v[])[4]=
+							{
+								vertices+tr[0][0],
+								vertices+tr[0][1],
+								vertices+tr[0][2],
+								0,
+							};
+							if(v[0][0][3]>v[1][0][3])SWAPVAR(v[0], v[1], v[3]);
+							if(v[0][0][3]>v[2][0][3])SWAPVAR(v[0], v[2], v[3]);
+							if(v[1][0][3]>v[2][0][3])SWAPVAR(v[1], v[2], v[3]);
+							if(v[0][0][3]<level&&level<v[2][0][3])
+							{
+								float *edge, t;
+								int mid;
+
+								edge=(float*)ARRAY_APPEND(*edges, 0, 1, 1, 0);
+								t=(level-v[0][0][3])/(v[2][0][3]-v[0][0][3]);
+								*edge++=MIX(v[0][0][0], v[2][0][0], t)*gains[0];
+								*edge++=MIX(v[0][0][1], v[2][0][1], t)*gains[1];
+								*edge++=MIX(v[0][0][2], v[2][0][2], t)*gains[2];
+								*edge++=0;
+								*edge++=0;
 						
-						int mid=level>v[1][0][3];
-						t=(level-v[mid][0][3])/(v[mid+1][0][3]-v[mid][0][3]);
-						*edge++=MIX(v[mid][0][0], v[mid+1][0][0], t)*gains[0];
-						*edge++=MIX(v[mid][0][1], v[mid+1][0][1], t)*gains[1];
-						*edge++=MIX(v[mid][0][2], v[mid+1][0][2], t)*gains[2];
-						*edge++=0;
-						*edge++=0;
+								mid=level>v[1][0][3];
+								t=(level-v[mid][0][3])/(v[mid+1][0][3]-v[mid][0][3]);
+								*edge++=MIX(v[mid][0][0], v[mid+1][0][0], t)*gains[0];
+								*edge++=MIX(v[mid][0][1], v[mid+1][0][1], t)*gains[1];
+								*edge++=MIX(v[mid][0][2], v[mid+1][0][2], t)*gains[2];
+								*edge++=0;
+								*edge++=0;
+							}
+						}
+#endif
 					}
 				}
-#endif
 			}
 		}
 	}
@@ -2224,6 +2279,8 @@ static void jhc_marchingcubes(ArrayHandle *edges, const int *data, int gx, int g
 static void chart_jointhist_update(Image const *image, unsigned *txid)
 {
 	int nlevels=1<<jointhist_nbits, hsize=nlevels*nlevels*nlevels;
+	int *jhist;
+	int bounds[4]={0};
 
 	//jointhistogram(image, iw, ih, jointhist_nbits, &jointhist, space_not_color);
 	if(jointhist)
@@ -2233,10 +2290,9 @@ static void chart_jointhist_update(Image const *image, unsigned *txid)
 	}
 	else
 		ARRAY_ALLOC(int, jointhist, 0, hsize, 0, 0);
-	int *jhist=(int*)jointhist->data;
+	jhist=(int*)jointhist->data;
 #if 1
 	memset(jhist, 0, jointhist->esize*jointhist->count);
-	int bounds[4]={0};
 	jhc_getboxbounds(jhc_xbox, jhc_ybox, jhc_boxdx, jhc_boxdy, image->iw, image->ih, bounds);
 	jh_calchist(jhist, jointhist_nbits, image, bounds[0], bounds[1], bounds[2], bounds[3]);
 	jhc_marchingcubes(&jhc_mesh, jhist, 1<<jointhist_nbits, 1<<jointhist_nbits, 1<<jointhist_nbits, jhc_level, jh_cubesize);
@@ -2251,16 +2307,18 @@ static void chart_jointhist_update(Image const *image, unsigned *txid)
 #endif
 	memset(jhist, 0, jointhist->esize*jointhist->count);
 	jh_calchist(jhist, jointhist_nbits, image, 0, image->iw, 0, image->ih);
-	int _histmax=0;
-	for(int k=0;k<hsize;++k)
 	{
-		if(!_histmax||_histmax<jhist[k])
-			_histmax=jhist[k];
-	}
-	if(_histmax)
-	{
+		int _histmax=0;
 		for(int k=0;k<hsize;++k)
-			jointhist->data[k]=(unsigned char)(jhist[k]*255/_histmax);
+		{
+			if(!_histmax||_histmax<jhist[k])
+				_histmax=jhist[k];
+		}
+		if(_histmax)
+		{
+			for(int k=0;k<hsize;++k)
+				jointhist->data[k]=(unsigned char)(jhist[k]*255/_histmax);
+		}
 	}
 	
 	if(!*txid)
@@ -2537,9 +2595,11 @@ void apply_selected_transforms(Image *image, int rct_only)
 				//	case ST_FWD_CUSTOM_DWT:dwt2d_custom_fwd (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, customparam_st);break;
 				//	case ST_INV_CUSTOM_DWT:dwt2d_custom_inv (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, customparam_st);break;
 					}
-					int inv=tid&1;
-					im1->depth[kc]+=(char)(!inv-inv);
-					UPDATE_MAX(im1->depth[kc], im1->src_depth[kc]);
+					{
+						int inv=tid&1;
+						im1->depth[kc]+=(char)(!inv-inv);
+						UPDATE_MAX(im1->depth[kc], im1->src_depth[kc]);
+					}
 				}
 				array_free(&sizes);
 				free(temp);
@@ -2562,18 +2622,19 @@ void update_image(void)//apply selected operations on original image, calculate 
 
 	image_export_uint8(im1, &im_export, 1, 0);
 
-	int maxdepth=calc_maxdepth(im1, 0);
-	int maxlevels=1<<maxdepth;
-	if(hist_full_size<maxlevels)
 	{
-		void *p=realloc(hist_full, maxlevels*sizeof(int));
-		if(!p)
+		int maxdepth=calc_maxdepth(im1, 0), maxlevels=1<<maxdepth;
+		if(hist_full_size<maxlevels)
 		{
-			LOG_ERROR("Alloc error");
-			return;
+			void *p=realloc(hist_full, maxlevels*sizeof(int));
+			if(!p)
+			{
+				LOG_ERROR("Alloc error");
+				return;
+			}
+			hist_full=(int*)p;
+			hist_full_size=maxlevels;
 		}
-		hist_full=(int*)p;
-		hist_full_size=maxlevels;
 	}
 	calc_csize_stateful(im1, hist_full, ch_entropy);
 #if 0
@@ -2603,7 +2664,8 @@ void update_image(void)//apply selected operations on original image, calculate 
 	combCRhist[combCRhist_idx][3]=1/(float)((im1->src_depth[0]+im1->src_depth[1]+im1->src_depth[2]+im1->src_depth[3])/(ch_entropy[0]+ch_entropy[1]+ch_entropy[2]+ch_entropy[3]));
 	for(int k=0;k<4;++k)
 	{
-		if(combCRhist_max==1||combCRhist_max<combCRhist[combCRhist_idx][k])
+		//if(combCRhist_max==1||combCRhist_max<combCRhist[combCRhist_idx][k])
+		if(fabsf(combCRhist_max-1)<1e-7||combCRhist_max<combCRhist[combCRhist_idx][k])
 			combCRhist_max=combCRhist[combCRhist_idx][k];
 	}
 	combCRhist_idx=(combCRhist_idx+1)%combCRhist_SIZE;
@@ -2663,34 +2725,36 @@ void update_image(void)//apply selected operations on original image, calculate 
 						fbuf[k<<2|kc]=0;
 				}
 			}
-			float vmax=0;
-			for(ptrdiff_t k=0;k<res;++k)
 			{
-				if(!vmax||vmax<fbuf[k<<2|0])
-					vmax=fbuf[k<<2|0];
-				if(vmax<fbuf[k<<2|1])
-					vmax=fbuf[k<<2|1];
-				if(vmax<fbuf[k<<2|2])
-					vmax=fbuf[k<<2|2];
-			}
-			if(vmax)
-			{
+				float vmax=0;
 				for(ptrdiff_t k=0;k<res;++k)
 				{
-					for(int kc=0;kc<3;++kc)
+					if(!vmax||vmax<fbuf[k<<2|0])
+						vmax=fbuf[k<<2|0];
+					if(vmax<fbuf[k<<2|1])
+						vmax=fbuf[k<<2|1];
+					if(vmax<fbuf[k<<2|2])
+						vmax=fbuf[k<<2|2];
+				}
+				if(vmax)
+				{
+					for(ptrdiff_t k=0;k<res;++k)
 					{
-						float val=fbuf[k<<2|kc]*255/vmax;
-						zimage[k<<2|kc]=(unsigned char)CLAMP(0, val, 255);
+						for(int kc=0;kc<3;++kc)
+						{
+							float val=fbuf[k<<2|kc]*255/vmax;
+							zimage[k<<2|kc]=(unsigned char)CLAMP(0, val, 255);
+						}
 					}
 				}
-			}
-			else
-			{
-				for(ptrdiff_t k=0;k<res;++k)
+				else
 				{
-					zimage[k<<2|0]=0;
-					zimage[k<<2|1]=0;
-					zimage[k<<2|2]=0;
+					for(ptrdiff_t k=0;k<res;++k)
+					{
+						zimage[k<<2|0]=0;
+						zimage[k<<2|1]=0;
+						zimage[k<<2|2]=0;
+					}
 				}
 			}
 			free(fbuf);
@@ -3028,16 +3092,18 @@ static void chart_hist_draw2(float x1, float x2, float y1, float y2, int color, 
 	}
 	if(!_histmax)
 		return;
-	float dy=y2-y1, histpx=dy/_histmax;
-	int k=1;
-	float y=k*histpx*10000;
-	for(;y<dy;++k)
 	{
-		draw_line(x1, y2-y, x2, y2-y, color);
-		y=k*histpx*10000;
+		float dy=y2-y1, histpx=dy/_histmax;
+		int k=1;
+		float y=k*histpx*10000;
+		for(;y<dy;++k)
+		{
+			draw_line(x1, y2-y, x2, y2-y, color);
+			y=k*histpx*10000;
+		}
+		for(int k2=0;k2<256;++k2)
+			draw_rect(x1+k2*(x2-x1)/256, x1+(k2+1)*(x2-x1)/256, y2-_hist[k2]*histpx, y2, color);
 	}
-	for(int k2=0;k2<256;++k2)
-		draw_rect(x1+k2*(x2-x1)/256, x1+(k2+1)*(x2-x1)/256, y2-_hist[k2]*histpx, y2, color);
 }
 #if 0
 static void draw_cloud(int x, int y, int blocksize, float cubesize)
@@ -3131,21 +3197,25 @@ static void chart_jointhist_draw(void)
 	{
 		int bounds[4]={0};//{x1, x2, y1, y2}
 		jhc_getboxbounds(jhc_xbox, jhc_ybox, jhc_boxdx, jhc_boxdy, im1->iw, im1->ih, bounds);
-		display_texture_i(0, w, 0, h, (int*)im_export, im1->iw, im1->ih, 0, 1, 0, 1, 0.5, 0);
+		display_texture_i(0, wndw, 0, wndh, (int*)im_export, im1->iw, im1->ih, 0, 1, 0, 1, 0.5, 0);
 		
-		int crosshaircolor=0xFF000000;
-		float ratios[]={(float)w/im1->iw, (float)h/im1->ih};
-		float sbounds[4];
-		for(int k=0;k<4;++k)
-			sbounds[k]=bounds[k]*ratios[k>>1];
-		float xmid=(sbounds[0]+sbounds[1])*0.5f;
-		float ymid=(sbounds[2]+sbounds[3])*0.5f;
-		draw_line(sbounds[0], sbounds[2], sbounds[0], sbounds[3], crosshaircolor);//{x1, y1, x2, y2}
-		draw_line(sbounds[1], sbounds[2], sbounds[1], sbounds[3], crosshaircolor);
-		draw_line(sbounds[0], sbounds[2], sbounds[1], sbounds[2], crosshaircolor);
-		draw_line(sbounds[0], sbounds[3], sbounds[1], sbounds[3], crosshaircolor);
-		draw_line(xmid, 0, xmid, (float)h, crosshaircolor);
-		draw_line(0, ymid, (float)w, ymid, crosshaircolor);
+		{
+			int crosshaircolor=0xFF000000;
+			float ratios[]={(float)wndw/im1->iw, (float)wndh/im1->ih};
+			float sbounds[4];
+			for(int k=0;k<4;++k)
+				sbounds[k]=bounds[k]*ratios[k>>1];
+			{
+				float xmid=(sbounds[0]+sbounds[1])*0.5f;
+				float ymid=(sbounds[2]+sbounds[3])*0.5f;
+				draw_line(sbounds[0], sbounds[2], sbounds[0], sbounds[3], crosshaircolor);//{x1, y1, x2, y2}
+				draw_line(sbounds[1], sbounds[2], sbounds[1], sbounds[3], crosshaircolor);
+				draw_line(sbounds[0], sbounds[2], sbounds[1], sbounds[2], crosshaircolor);
+				draw_line(sbounds[0], sbounds[3], sbounds[1], sbounds[3], crosshaircolor);
+				draw_line(xmid, 0, xmid, (float)wndh, crosshaircolor);
+				draw_line(0, ymid, (float)wndw, ymid, crosshaircolor);
+			}
+		}
 	}
 }
 
@@ -3196,20 +3266,20 @@ void io_resize(void)
 {
 	AABB *p=buttons;//TODO use enum
 	float xstep=tdx*guizoom, ystep=tdy*guizoom;
-	p->x1=xstep*2, p->x2=p->x1+xstep*gui_custom_rct_w, p->y1=(float)(h>>1), p->y2=p->y1+ystep*gui_custom_rct_h, ++p;//0: color params - left
-	p->x1=(float)(w>>3), p->x2=p->x1+xstep*gui_custom_pred_w, p->y1=(float)((h>>1)+(h>>2))-ystep, p->y2=p->y1+ystep*gui_custom_pred_h, ++p;//1: spatial params - bottom
-	p->x1=(float)(w-300), p->x2=(float)w, p->y1=tdy*2, p->y2=p->y1+tdy*T_COUNT/2, ++p;//2: transforms list
+	p->x1=xstep*2, p->x2=p->x1+xstep*gui_custom_rct_w, p->y1=(float)(wndh>>1), p->y2=p->y1+ystep*gui_custom_rct_h, ++p;//0: color params - left
+	p->x1=(float)(wndw>>3), p->x2=p->x1+xstep*gui_custom_pred_w, p->y1=(float)((wndh>>1)+(wndh>>2))-ystep, p->y2=p->y1+ystep*gui_custom_pred_h, ++p;//1: spatial params - bottom
+	p->x1=(float)(wndw-300), p->x2=(float)wndw, p->y1=tdy*2, p->y2=p->y1+tdy*T_COUNT/2, ++p;//2: transforms list
 	
 	//p->x1=(float)(w>>1), p->x2=p->x1+xstep*14, p->y1=(float)((h>>1)+(h>>2))+ystep*4, p->y2=p->y1+ystep, ++p;//3: clamp bounds
 	//p->x1=(float)(w>>1), p->x2=p->x1+xstep*21, p->y1=(float)((h>>1)+(h>>2))+ystep*5, p->y2=p->y1+ystep, ++p;//4: learning rate
 
-	p->x1=(float)(w>>2), p->x2=p->x1+tdx*11*6, p->y1=(float)((h>>1)+(h>>2)), p->y2=p->y1+tdy*3, ++p;//3: jxl params
+	p->x1=(float)(wndw>>2), p->x2=p->x1+tdx*11*6, p->y1=(float)((wndh>>1)+(wndh>>2)), p->y2=p->y1+tdy*3, ++p;//3: jxl params
 
-	p->x1=(float)(w-450), p->x2=p->x1+tdx*gui_ec_width, p->y1=tdy, p->y2=p->y1+tdy, ++p;//4: EC method	//H.E.M.L..A.0x0000..XXXX_XXX
+	p->x1=(float)(wndw-450), p->x2=p->x1+tdx*gui_ec_width, p->y1=tdy, p->y2=p->y1+tdy, ++p;//4: EC method	//H.E.M.L..A.0x0000..XXXX_XXX
 
-	p->x1=(float)(w>>2), p->x2=p->x1+xstep*(OLS4_RMAX<<1|1)*gui_ols4_elementchars, p->y1=(float)(h>>1)+10, p->y2=p->y1+ystep*(1+(OLS4_RMAX+1)*(im1?im1->nch:4)), ++p;//5: OLS-4		DON'T USE p->y2
+	p->x1=(float)(wndw>>2), p->x2=p->x1+xstep*(OLS4_RMAX<<1|1)*gui_ols4_elementchars, p->y1=(float)(wndh>>1)+10, p->y2=p->y1+ystep*(1+(OLS4_RMAX+1)*(im1?im1->nch:4)), ++p;//5: OLS-4		DON'T USE p->y2
 
-	p->x1=(float)(w>>2), p->x2=p->x1+xstep*60, p->y1=(float)(h>>1)+10, p->y2=p->y1+ystep*8, ++p;//6: CUSTOM4
+	p->x1=(float)(wndw>>2), p->x2=p->x1+xstep*60, p->y1=(float)(wndh>>1)+10, p->y2=p->y1+ystep*8, ++p;//6: CUSTOM4
 	
 	if(im1&&im1->iw&&im1->ih&&imagecentered)
 		center_image();
@@ -3249,28 +3319,32 @@ int io_mousemove(void)//return true to redraw
 			{
 				int step;
 
-				step=jhc_boxdx*w/im1->iw;
+				step=jhc_boxdx*wndw/im1->iw;
 				jhc_xbox-=jhc_xbox%step-(step>>1);
-				step=jhc_boxdy*h/im1->ih;
+				step=jhc_boxdy*wndh/im1->ih;
 				jhc_ybox-=jhc_ybox%step-(step>>1);
 			}
 			chart_jointhist_update(im1, txid_jointhist);
 		}
-		else if(mode==VIS_JOINT_HISTOGRAM)
-		{
-			int X0=w>>1, Y0=h>>1;
-			cam_turnMouse(cam, mx-X0, my-Y0, mouse_sensitivity);
-			set_mouse(X0, Y0);
-		}
 		else
 		{
-			int X0=w>>1, Y0=h>>1;
-			wpx-=(mx-X0)/imzoom;
-			wpy-=(my-Y0)/imzoom;
-			set_mouse(X0, Y0);
+			int X0=wndw>>1, Y0=wndh>>1;
+			if(mode==VIS_JOINT_HISTOGRAM)
+			{
+				cam_turnMouse(cam, mx-X0, my-Y0, mouse_sensitivity);
+				set_mouse(X0, Y0);
+			}
+			else
+			{
+				wpx-=(mx-X0)/imzoom;
+				wpy-=(my-Y0)/imzoom;
+				set_mouse(X0, Y0);
+			}
 		}
 		return !timer;
 	}
+	else if(profileplotmode>PROFILE_OFF)
+		return 1;
 	return 0;
 }
 static void click_hittest(int _mx, int _my, int *objidx, int *cellx, int *celly, int *cellidx, AABB **p)
@@ -3356,12 +3430,12 @@ int io_mousewheel(int forward)
 	if(im1)
 	{
 		int objidx=0, cellx=0, celly=0, cellidx=0;
-		AABB *p=buttons;
-		click_hittest(mx, my, &objidx, &cellx, &celly, &cellidx, &p);
+		AABB *gui_cell=buttons;
+		click_hittest(mx, my, &objidx, &cellx, &celly, &cellidx, &gui_cell);
 		if(objidx!=-1)
 		{
 			int sign=(forward>0)-(forward<0);//abs(forward) is 120
-			int ch=(int)floorf((mx-p->x1)/(guizoom*tdx));
+			int ch=(int)floorf((mx-gui_cell->x1)/(guizoom*tdx));
 			switch(objidx)
 			{
 			case 0://color transform params
@@ -3397,8 +3471,8 @@ int io_mousewheel(int forward)
 					//b-=g
 					//g+=(-0x00.0000*r-0x00.0000*b)>>16
 					int
-						//col=p?(int)floorf((mx-p->x1)/(guizoom*tdx)):0,
-						line=p?(int)floorf((my-p->y1)/(guizoom*tdy)):0;
+						//col=gui_cell?(int)floorf((mx-gui_cell->x1)/(guizoom*tdx)):0,
+						line=gui_cell?(int)floorf((my-gui_cell->y1)/(guizoom*tdy)):0;
 					if((line&1)==1&&((unsigned)(ch-7)<7||(unsigned)(ch-19)<7))
 					{
 						int idx=(line&2)|((ch-7)/(19-7));
@@ -3463,14 +3537,16 @@ int io_mousewheel(int forward)
 					if(idx<12&&((unsigned)(col-3)<7||(unsigned)(col-13)<7))
 					{
 						idx=idx<<1|(col>=10);
-						//0123456
-						//00.0000
-						int digit=col%10-3;
-						if(digit==2)
-							break;
-						digit-=digit>2;
-						digit=1-digit;
-						custom_params[24*custom_pred_ch_idx+idx]+=sign<<((digit+4)<<2);
+						{
+							//0123456
+							//00.0000
+							int digit=col%10-3;
+							if(digit==2)
+								break;
+							digit-=digit>2;
+							digit=1-digit;
+							custom_params[24*custom_pred_ch_idx+idx]+=sign<<((digit+4)<<2);
+						}
 					}
 				}
 				update_image();
@@ -3540,7 +3616,7 @@ int io_mousewheel(int forward)
 				if(transforms_mask[ST_FWD_WP]||transforms_mask[ST_INV_WP])
 				{
 					int ch2;
-					ch=(int)floorf((mx-p->x1)/tdx);
+					ch=(int)floorf((mx-gui_cell->x1)/tdx);
 					MODVAR(ch2, ch, 6);
 					if(ch2>=2&&ch2<6)
 					{
@@ -3620,18 +3696,20 @@ int io_mousewheel(int forward)
 					if(celly)
 					{
 						--celly;
-						int kx=cellx/gui_ols4_elementchars, kchar=7-cellx%gui_ols4_elementchars, kc=celly/(OLS4_RMAX+1), ky=celly%(OLS4_RMAX+1);
-						int idx=(OLS4_RMAX<<1|1)*ky+kx;
-						if(idx<OLS4_CTXSIZE+1&&kchar>=0)
 						{
-							ols4_mask[kc][idx]^=1<<kchar;
-							if(idx==OLS4_CTXSIZE)//causality mask
+							int kx=cellx/gui_ols4_elementchars, kchar=7-cellx%gui_ols4_elementchars, kc=celly/(OLS4_RMAX+1), ky=celly%(OLS4_RMAX+1);
+							int idx=(OLS4_RMAX<<1|1)*ky+kx;
+							if(idx<OLS4_CTXSIZE+1&&kchar>=0)
 							{
-								int cmask=((1<<(kc<<1))-1);
-								ols4_mask[kc][idx]&=cmask<<4|cmask;
+								ols4_mask[kc][idx]^=1<<kchar;
+								if(idx==OLS4_CTXSIZE)//causality mask
+								{
+									int cmask=((1<<(kc<<1))-1);
+									ols4_mask[kc][idx]&=cmask<<4|cmask;
+								}
+								if(!GET_KEY_STATE(KEY_CTRL))
+									update_image();
 							}
-							if(!GET_KEY_STATE(KEY_CTRL))
-								update_image();
 						}
 					}
 					else
@@ -3655,8 +3733,10 @@ int io_mousewheel(int forward)
 								int digit=-(cellx%gui_ols4_elementchars);
 								if(digit!=-1)
 								{
+									double val;
+
 									digit+=digit<=-1;
-									double val=ols4_lr[kx-1];
+									val=ols4_lr[kx-1];
 									val+=sign*_10pow(digit);
 									ols4_lr[kx-1]=CLAMP(0, val, 1);
 									if(!GET_KEY_STATE(KEY_CTRL))
@@ -3682,40 +3762,40 @@ int io_mousewheel(int forward)
 					}
 					else if(cellx==23)
 					{
-						char *p=lossyconv_causalRCT+(lossyconv_page>>2);
-						*p=!*p;
+						unsigned char *cell=lossyconv_causalRCT+(lossyconv_page>>2);
+						*cell=!*cell;
 						update_image();
 					}
 				}
 				else if(celly==6)
 				{
-					unsigned char *p;
+					unsigned char *cell;
 					if((unsigned)(cellx-11)<3)
 					{
-						p=lossyconv_offset+((size_t)lossyconv_page>>2<<1|0);
-						*p+=sign;
+						cell=lossyconv_offset+((size_t)lossyconv_page>>2<<1|0);
+						*cell+=sign;
 						update_image();
 					}
 					else if((unsigned)(cellx-15)<3)
 					{
-						p=lossyconv_offset+((size_t)lossyconv_page>>2<<1|1);
-						*p+=sign;
+						cell=lossyconv_offset+((size_t)lossyconv_page>>2<<1|1);
+						*cell+=sign;
 						update_image();
 					}
 				}
 				else if(celly==7)
 				{
-					unsigned char *p;
+					unsigned char *cell;
 					if((unsigned)(cellx-11)<3)
 					{
-						p=lossyconv_stride+((size_t)lossyconv_page>>2<<1|0);
-						*p+=sign;
+						cell=lossyconv_stride+((size_t)lossyconv_page>>2<<1|0);
+						*cell+=sign;
 						update_image();
 					}
 					else if((unsigned)(cellx-15)<3)
 					{
-						p=lossyconv_stride+((size_t)lossyconv_page>>2<<1|1);
-						*p+=sign;
+						cell=lossyconv_stride+((size_t)lossyconv_page>>2<<1|1);
+						*cell+=sign;
 						update_image();
 					}
 				}
@@ -3734,10 +3814,10 @@ int io_mousewheel(int forward)
 					//6  "XY  Offset XXX YYY"
 					//7  "    Stride XXX YYY"
 					int c=cellx%12, x=cellx/12;
-					short *p=lossyconv_params+5*5*lossyconv_page+5*(celly-1)+x;
+					short *cell=lossyconv_params+5*5*lossyconv_page+5*(celly-1)+x;
 					if(c==10)//toggle clamp mask
 					{
-						*p^=1;
+						*cell^=1;
 						update_image();
 					}
 					else if((unsigned)(c-1)<9)
@@ -3746,9 +3826,9 @@ int io_mousewheel(int forward)
 						//876.54321
 						int bitidx=9-c;
 						bitidx+=bitidx<6;
-						*p=((unsigned short)(*p+(sign<<bitidx))&~1)|(*p&1);
-						*p<<=16-9;//9-bit params
-						*p>>=16-9;
+						*cell=((unsigned short)(*cell+(sign<<bitidx))&~1)|(*cell&1);
+						*cell<<=16-9;//9-bit params
+						*cell>>=16-9;
 						update_image();
 					}
 				}
@@ -3865,13 +3945,16 @@ static int parse_nvals_i8(ArrayHandle text, int idx, unsigned char *params, int 
 	k=0;
 	while(k<count)
 	{
+		int neg;
+		char *end;
+
 		for(;idx<(int)text->count&&isspace(text->data[idx]);++idx);
 
-		int neg=text->data[idx]=='-';
+		neg=text->data[idx]=='-';
 		idx+=neg||text->data[idx]=='+';//skip sign
 		if(text->data[idx]=='0'&&(text->data[idx]&0xDF)=='X')//skip hex prefix
 			idx+=2;
-		char *end=(char*)text->data+idx;
+		end=(char*)text->data+idx;
 		params[k]=(unsigned char)strtol((char*)text->data+idx, &end, 16);
 		idx=(int)(end-(char*)text->data);
 		if(neg)
@@ -3893,13 +3976,16 @@ static int parse_nvals_f64(ArrayHandle text, int idx, double *params, int count)
 	k=0;
 	while(k<count)
 	{
+		int neg;
+		char *end;
+
 		for(;idx<(int)text->count&&isspace(text->data[idx]);++idx);
 
-		int neg=text->data[idx]=='-';
+		neg=text->data[idx]=='-';
 		idx+=neg||text->data[idx]=='+';//skip sign
 		//if(text->data[idx]=='0'&&(text->data[idx]&0xDF)=='X')//skip hex prefix
 		//	idx+=2;
-		char *end=(char*)text->data+idx;
+		end=(char*)text->data+idx;
 		params[k]=strtod((char*)text->data+idx, &end);
 		idx=(int)(end-(char*)text->data);
 		if(neg)
@@ -3921,13 +4007,16 @@ static int parse_nvals_i32(ArrayHandle text, int idx, int *params, int count)
 	k=0;
 	while(k<count)
 	{
+		int neg;
+		char *end;
+
 		for(;idx<(int)text->count&&isspace(text->data[idx]);++idx);
 
-		int neg=text->data[idx]=='-';
+		neg=text->data[idx]=='-';
 		idx+=neg||text->data[idx]=='+';//skip sign
 		if(text->data[idx]=='0'&&(text->data[idx]&0xDF)=='X')//skip hex prefix
 			idx+=2;
-		char *end=(char*)text->data+idx;
+		end=(char*)text->data+idx;
 		params[k]=(int)strtol((char*)text->data+idx, &end, 16);
 		idx=(int)(end-(char*)text->data);
 		if(neg)
@@ -3942,20 +4031,23 @@ static int parse_nvals_i32(ArrayHandle text, int idx, int *params, int count)
 	}
 	return idx;
 }
-static int parse_nvals(ArrayHandle text, int idx, short *params, int count)
+static int parse_nvals_i16(ArrayHandle text, int idx, short *params, int count)
 {
 	int k;
 
 	k=0;
 	while(k<count)
 	{
+		int neg;
+		char *end;
+
 		for(;idx<(int)text->count&&isspace(text->data[idx]);++idx);
 
-		int neg=text->data[idx]=='-';
+		neg=text->data[idx]=='-';
 		idx+=neg||text->data[idx]=='+';//skip sign
 		if(text->data[idx]=='0'&&(text->data[idx]&0xDF)=='X')//skip hex prefix
 			idx+=2;
-		char *end=(char*)text->data+idx;
+		end=(char*)text->data+idx;
 		params[k]=(short)strtol((char*)text->data+idx, &end, 16);
 		idx=(int)(end-(char*)text->data);
 		if(neg)
@@ -4003,18 +4095,6 @@ int io_keydn(IOKey key, char c)
 		{
 			if(fn)
 			{
-				ArrayHandle path;
-				STR_COPY(path, fn->data, fn->count);
-				//acme_strrchr((char*)path->data, path->count, '/');//X  what about backslash?
-				for(int k=(int)path->count-1;k>=0;--k)
-				{
-					if(path->data[k]=='/'||path->data[k]=='\\')
-					{
-						path->data[k+1]=0;
-						path->count=k+1;
-						break;
-					}
-				}
 				const char *ext[]=
 				{
 					"PPM",
@@ -4026,41 +4106,56 @@ int io_keydn(IOKey key, char c)
 					"TIF",
 					"TIFF",
 				};
-				ArrayHandle filenames=get_filenames(path->data, ext, _countof(ext), 1), *fn2;
-				ArrayHandle filteredfn=filter_path((char*)fn->data, (int)fn->count, 0);
+				ArrayHandle path, filenames, filteredfn, *fn2;
+
+				STR_COPY(path, fn->data, fn->count);
+				//acme_strrchr((char*)path->data, path->count, '/');//X  what about backslash?
+				for(int k=(int)path->count-1;k>=0;--k)
+				{
+					if(path->data[k]=='/'||path->data[k]=='\\')
+					{
+						path->data[k+1]=0;
+						path->count=k+1;
+						break;
+					}
+				}
+				filenames=get_filenames((char*)path->data, ext, _countof(ext), 1);
+				filteredfn=filter_path((char*)fn->data, (int)fn->count, 0);
 				if(filenames&&filenames->count)
 				{
 					int currentidx=-1;
 					for(int k=0;k<(int)filenames->count;++k)
 					{
-						fn2=array_at(&filenames, k);
+						fn2=(ArrayHandle*)array_at(&filenames, k);
 						if(!_stricmp((char*)fn2[0]->data, (char*)filteredfn->data))
 						{
 							currentidx=k;
 							break;
 						}
 					}
-					Image *im2=0;
-					int step=key==KEY_RIGHT?1:-1;
-					for(int k=currentidx+step;MODVAR(k, k, (int)filenames->count), k!=currentidx;k+=step)
 					{
-						fn2=array_at(&filenames, k);
-						im2=image_load((char*)fn2[0]->data, (int)fn2[0]->count);
-						//if(!load_media(fn2[0]->data, &im2, 0))
+						Image *im2=0;
+						int step=key==KEY_RIGHT?1:-1;
+						for(int k=currentidx+step;MODVAR(k, k, (int)filenames->count), k!=currentidx;k+=step)
+						{
+							fn2=(ArrayHandle*)array_at(&filenames, k);
+							im2=image_load((char*)fn2[0]->data, (int)fn2[0]->count);
+							//if(!load_media(fn2[0]->data, &im2, 0))
+							if(im2)
+							{
+								currentidx=k;
+								break;
+							}
+						}
 						if(im2)
 						{
-							currentidx=k;
-							break;
+							free(im0);
+							im0=im2;
+							array_free(&fn);
+							fn=filter_path((char*)fn2[0]->data, (int)fn2[0]->count, 0);
+							update_image();
+							set_window_title("%s - eBench", (char*)fn->data);
 						}
-					}
-					if(im2)
-					{
-						free(im0);
-						im0=im2;
-						array_free(&fn);
-						fn=filter_path((char*)fn2[0]->data, (int)fn2[0]->count, 0);
-						update_image();
-						set_window_title("%s - eBench", (char*)fn->data);
 					}
 					array_free(&filenames);
 				}
@@ -4080,8 +4175,8 @@ int io_keydn(IOKey key, char c)
 		if(im1)
 		{
 			int objidx=-1, cellx=0, celly=0, cellidx=0;
-			AABB *p=buttons;
-			click_hittest(mx, my, &objidx, &cellx, &celly, &cellidx, &p);
+			AABB *guicell=buttons;
+			click_hittest(mx, my, &objidx, &cellx, &celly, &cellidx, &guicell);
 			switch(objidx)
 			{
 			case 0://color transform params
@@ -4120,8 +4215,8 @@ int io_keydn(IOKey key, char c)
 #if 0
 				{
 					int
-						col=p?(int)floorf((mx-p->x1)/(guizoom*tdx)):0,
-						line=p?(int)floorf((my-(p->y1+guizoom*tdy))/(guizoom*tdy)):0;
+						col=guicell?(int)floorf((mx-guicell->x1)/(guizoom*tdx)):0,
+						line=guicell?(int)floorf((my-(guicell->y1+guizoom*tdy))/(guizoom*tdy)):0;
 					if(key==KEY_RBUTTON&&(line==1||line==3)&&((unsigned)(col-7)<7||(unsigned)(col-19)<7))
 					{
 						//0000000000111111111122222222223333
@@ -4141,8 +4236,8 @@ int io_keydn(IOKey key, char c)
 			case 1://spatial transforms params
 				{
 					int
-						col=p?(int)floorf((mx-p->x1)/(guizoom*tdx)):0,
-						line=p?(int)floorf((my-(p->y1+guizoom*tdy))/(guizoom*tdy)):0;
+						col=guicell?(int)floorf((mx-guicell->x1)/(guizoom*tdx)):0,
+						line=guicell?(int)floorf((my-(guicell->y1+guizoom*tdy))/(guizoom*tdy)):0;
 					if(key==KEY_RBUTTON&&cellidx<12)
 					{
 						//0000000000111111111122222222223333333333444444444455555555556666666666777777777788888888889999999999000000
@@ -4162,12 +4257,12 @@ int io_keydn(IOKey key, char c)
 			case 2://transform list
 				{
 					int
-						//col=p?(int)floorf((mx-p->x1)/tdx):0,
-						line=p?(int)floorf((my-p->y1)/tdy):0;
+						//col=guicell?(int)floorf((mx-guicell->x1)/tdx):0,
+						line=guicell?(int)floorf((my-guicell->y1)/tdy):0;
 					//if(BETWEEN_EXC(0, cellidx, T_COUNT/2))
 					if((unsigned)line<(unsigned)(T_COUNT/2))
 					{
-						int idx=line<<1|(p?(int)floor((mx-p->x1)*2/(p->x2-p->x1)):0);
+						int idx=line<<1|(guicell?(int)floor((mx-guicell->x1)*2/(guicell->x2-guicell->x1)):0);
 						if(key==KEY_LBUTTON)
 							transforms_append(idx);
 						else
@@ -4249,19 +4344,21 @@ int io_keydn(IOKey key, char c)
 					if(celly)
 					{
 						--celly;
-						int kx=cellx/gui_ols4_elementchars, kchar=7-cellx%gui_ols4_elementchars, kc=celly/(OLS4_RMAX+1), ky=celly%(OLS4_RMAX+1);
-						int idx=(OLS4_RMAX<<1|1)*ky+kx;
-						if(idx<OLS4_CTXSIZE+1&&kchar>=0)
 						{
-							if(key==KEY_LBUTTON)
+							int kx=cellx/gui_ols4_elementchars, kchar=7-cellx%gui_ols4_elementchars, kc=celly/(OLS4_RMAX+1), ky=celly%(OLS4_RMAX+1);
+							int idx=(OLS4_RMAX<<1|1)*ky+kx;
+							if(idx<OLS4_CTXSIZE+1&&kchar>=0)
 							{
-								ols4_mask[kc][idx]=ols4_cache;
-								if(!GET_KEY_STATE(KEY_CTRL))
-									update_image();
+								if(key==KEY_LBUTTON)
+								{
+									ols4_mask[kc][idx]=ols4_cache;
+									if(!GET_KEY_STATE(KEY_CTRL))
+										update_image();
+								}
+								else
+									ols4_cache=ols4_mask[kc][idx];
+								return 1;
 							}
-							else
-								ols4_cache=ols4_mask[kc][idx];
-							return 1;
 						}
 					}
 					else
@@ -4301,15 +4398,15 @@ int io_keydn(IOKey key, char c)
 					//5  " +II.FFFFFC  +II.FFFFFC  +II.FFFFFC  +II.FFFFFC  +II.FFFFFC "
 					//6  "XY  Offset XXX YYY"
 					//7  "    Stride XXX YYY"
-					short *p=lossyconv_params+5*5*lossyconv_page+5*(celly-1)+cellx/12;
+					short *ptr=lossyconv_params+5*5*lossyconv_page+5*(celly-1)+cellx/12;
 					if(key==KEY_LBUTTON)
 					{
-						*p=lossyconv_clipboard;
+						*ptr=lossyconv_clipboard;
 						if(!GET_KEY_STATE(KEY_CTRL))
 							update_image();
 					}
 					else
-						lossyconv_clipboard=*p;
+						lossyconv_clipboard=*ptr;
 					return 1;
 				}
 				else if(celly==6)
@@ -4384,7 +4481,7 @@ int io_keydn(IOKey key, char c)
 			if(drag)//enter mouse control
 			{
 				mx0=mx, my0=my;
-				set_mouse(w>>1, h>>1);
+				set_mouse(wndw>>1, wndh>>1);
 			}
 			else//leave mouse control
 				set_mouse(mx0, my0);
@@ -4468,10 +4565,12 @@ int io_keydn(IOKey key, char c)
 		{
 			int fwd=key==KEY_PERIOD;
 			fwd-=!fwd;
-			int *gcc_happy=(int*)&ec_method;
-			*gcc_happy+=fwd;
-			MODVAR(*gcc_happy, *gcc_happy, ECTX_COUNT);
-			update_image();
+			{
+				int *gcc_happy=(int*)&ec_method;
+				*gcc_happy+=fwd;
+				MODVAR(*gcc_happy, *gcc_happy, ECTX_COUNT);
+				update_image();
+			}
 		}
 		return 1;
 	case KEY_SLASH:
@@ -4520,6 +4619,8 @@ int io_keydn(IOKey key, char c)
 	case 'C':
 		if(im1&&GET_KEY_STATE(KEY_CTRL))//copy custom transform value
 		{
+			ArrayHandle str;
+
 			if(GET_KEY_STATE(KEY_SHIFT))
 			{
 				unsigned char *buf=0;
@@ -4535,7 +4636,6 @@ int io_keydn(IOKey key, char c)
 				free(buf);
 				return 0;
 			}
-			ArrayHandle str;
 			STR_ALLOC(str, 0);
 			if(transforms_mask[ST_FWD_OLS4]||transforms_mask[ST_INV_OLS4])
 			{
@@ -4572,8 +4672,8 @@ int io_keydn(IOKey key, char c)
 			//{
 			//	for(int kc=0;kc<3;++kc)
 			//	{
-			//		E24Params const *p=e24_params+kc;
-			//		str_append(&str, "%3d  %3d %3d %3d  %3d %3d\n", p->gwidth, p->mleft, p->mtop, p->mright, p->alpha, p->maxinc);
+			//		E24Params const *ptr=e24_params+kc;
+			//		str_append(&str, "%3d  %3d %3d %3d  %3d %3d\n", ptr->gwidth, ptr->mleft, ptr->mtop, ptr->mright, ptr->alpha, ptr->maxinc);
 			//	}
 			//}
 			else if(transforms_mask[ST_FWD_LOGIC]||transforms_mask[ST_INV_LOGIC])
@@ -4719,7 +4819,9 @@ int io_keydn(IOKey key, char c)
 #endif
 			else if(transforms_customenabled)
 			{
+				const int stw=(custom_pred_reach<<1|1)*2;
 				int shift=GET_KEY_STATE(KEY_SHIFT);
+
 				for(int k=0;k<RCT_CUSTOM_NPARAMS;++k)
 				{
 					int val=rct_custom_params[k];
@@ -4735,7 +4837,6 @@ int io_keydn(IOKey key, char c)
 				//	}
 				//	str_append(&str, "\n");
 				//}
-				const int stw=(custom_pred_reach<<1|1)*2;
 				for(int kc2=0;kc2<3;++kc2)
 				{
 					const int np=(int)(_countof(custom_params)/3);
@@ -4811,11 +4912,11 @@ int io_keydn(IOKey key, char c)
 				}
 				else if(transforms_mask[ST_FWD_LOGIC]||transforms_mask[ST_INV_LOGIC])
 				{
-					parse_nvals(text, idx, logic_params, (int)_countof(logic_params));
+					parse_nvals_i16(text, idx, logic_params, (int)_countof(logic_params));
 				}
 				else if(transforms_mask[ST_FWD_CUSTOM2]||transforms_mask[ST_INV_CUSTOM2])
 				{
-					parse_nvals(text, idx, (short*)&c2_params, sizeof(c2_params)/sizeof(short));
+					parse_nvals_i16(text, idx, (short*)&c2_params, sizeof(c2_params)/sizeof(short));
 				}
 				else
 #endif
@@ -4827,15 +4928,15 @@ int io_keydn(IOKey key, char c)
 				}
 				if(transforms_mask[ST_FWD_CUSTOM3]||transforms_mask[ST_INV_CUSTOM3])
 				{
-					parse_nvals(text, idx, (short*)&c3_params, sizeof(c3_params)/sizeof(short));
+					parse_nvals_i16(text, idx, (short*)&c3_params, sizeof(c3_params)/sizeof(short));
 				}
 				else if(transforms_mask[ST_FWD_WP]||transforms_mask[ST_INV_WP])
 				{
-					parse_nvals(text, idx, jxlparams_i16, (int)_countof(jxlparams_i16));
+					parse_nvals_i16(text, idx, jxlparams_i16, (int)_countof(jxlparams_i16));
 				}
 				else if(transforms_mask[ST_FWD_MM]||transforms_mask[ST_INV_MM])
 				{
-					parse_nvals(text, idx, pw2_params, (int)_countof(pw2_params));
+					parse_nvals_i16(text, idx, pw2_params, (int)_countof(pw2_params));
 				}
 #if 0
 				else if(transforms_mask[ST_FWD_JOINT]||transforms_mask[ST_INV_JOINT])
@@ -5036,9 +5137,11 @@ int io_keydn(IOKey key, char c)
 			if(transforms_mask[ST_FWD_CUSTOM3]||transforms_mask[ST_INV_CUSTOM3])
 			{
 				srand((unsigned)__rdtsc());
-				short *p=(short*)&c3_params;
-				for(int k=0;k<C3_NPARAMS;++k)
-					p[k]+=rand()%3-1;
+				{
+					short *ptr=(short*)&c3_params;
+					for(int k=0;k<C3_NPARAMS;++k)
+						ptr[k]+=rand()%3-1;
+				}
 				update_image();
 			}
 			return 1;
@@ -5376,8 +5479,8 @@ void io_timer(void)
 	else
 	{
 		const int delta=10;//screen pixels per frame
-		if(keyboard[KEY_ENTER])	zoom_at(w>>1, h>>1, 1.02);
-		if(keyboard[KEY_BKSP])	zoom_at(w>>1, h>>1, 1/1.02);
+		if(keyboard[KEY_ENTER])	zoom_at(wndw>>1, wndh>>1, 1.02);
+		if(keyboard[KEY_BKSP])	zoom_at(wndw>>1, wndh>>1, 1/1.02);
 		if(keyboard['W'])	wpy-=delta/imzoom;//move window up
 		if(keyboard['A'])	wpx-=delta/imzoom;//move window left
 		if(keyboard['S'])	wpy+=delta/imzoom;//move window down
@@ -5561,14 +5664,15 @@ static void draw_profile_x(int comp, int color)//horizontal cross-section profil
 		int *row=im1->data+(im1->iw*iy<<2|comp);
 		int ix;
 		float y2;
-		float gain=(float)(h>>1)/((1<<im1->depth[comp])-1);
-		for(int kx=0;kx<w;++kx)
+		float gain=(float)(wndh>>1)/((1<<im1->depth[comp])-1);
+		int offset=1<<im1->depth[comp]>>1;
+		for(int kx=0;kx<wndw;++kx)
 		{
 			ix=screen2image_x_int(kx);
 			if((unsigned)ix<(unsigned)im1->iw)
-				y2=h-tdy-row[ix<<2]*gain;
+				y2=wndh-tdy-(row[ix<<2]+offset)*gain;
 			else
-				y2=h-tdy;
+				y2=wndh-tdy;
 			draw_curve_enqueue(&vertices_2d, (float)kx, y2);
 		}
 		draw_2d_flush(vertices_2d, color, GL_LINE_STRIP);
@@ -5583,13 +5687,14 @@ static void draw_profile_y(int comp, int color)//vertical cross-section profile
 		
 		float x2;
 		int iy;
-		float gain=(float)(w>>1)/((1<<im1->depth[comp])-1);
+		float gain=(float)(wndw>>1)/((1<<im1->depth[comp])-1);
+		int offset=1<<im1->depth[comp]>>1;
 		int stride=im1->iw<<2;
-		for(int ky=0;ky<h;++ky)
+		for(int ky=0;ky<wndh;++ky)
 		{
 			iy=screen2image_y_int(ky);
 			if((unsigned)iy<(unsigned)im1->ih)
-				x2=col[iy*stride]*gain;
+				x2=(col[iy*stride]+offset)*gain;
 			else
 				x2=0;
 			draw_curve_enqueue(&vertices_2d, x2, (float)ky);
@@ -5601,19 +5706,21 @@ void io_render(void)
 {
 	glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
 
-	if(!h)
+	if(!wndh)
 		return;
 
-	float axes[]=
 	{
-		0, 0, 0,
-		1, 0, 0,
-		0, 1, 0,
-		0, 0, 1,
-	};
-	draw_3d_line(&cam, axes, axes+3, 0xFF0000FF);
-	draw_3d_line(&cam, axes, axes+6, 0xFF00FF00);
-	draw_3d_line(&cam, axes, axes+9, 0xFFFF0000);
+		float axes[]=
+		{
+			0, 0, 0,
+			1, 0, 0,
+			0, 1, 0,
+			0, 0, 1,
+		};
+		draw_3d_line(&cam, axes, axes+3, 0xFF0000FF);
+		draw_3d_line(&cam, axes, axes+6, 0xFF00FF00);
+		draw_3d_line(&cam, axes, axes+9, 0xFFFF0000);
+	}
 #if 0
 	if(!im0)
 	{
@@ -5638,7 +5745,7 @@ void io_render(void)
 			{
 				float yoffset=tdy*3;
 				display_texture_i(0, im1->iw, (int)yoffset, (int)yoffset+im1->ih, (int*)im_export, im1->iw, im1->ih, 0, 1, 0, 1, 1, 0);
-				chart_hist_draw(0, (float)w, 0, (float)h, 0, 3, 0, 0x60, hist, histmax);
+				chart_hist_draw(0, (float)wndw, 0, (float)wndh, 0, 3, 0, 0x60, hist, histmax);
 			}
 			break;
 		case VIS_JOINT_HISTOGRAM:	chart_jointhist_draw();	break;
@@ -5905,9 +6012,9 @@ void io_render(void)
 		case VIS_IMAGE_TRICOLOR:
 			if(show_full_image)
 			{
-				display_texture(0,     w/3,   0, h, txid_separate_r, 1, 0, 1, 0, 1);
-				display_texture(w/3,   w*2/3, 0, h, txid_separate_g, 1, 0, 1, 0, 1);
-				display_texture(w*2/3, w,     0, h, txid_separate_b, 1, 0, 1, 0, 1);
+				display_texture(0,		wndw/3,   0, wndh, txid_separate_r, 1, 0, 1, 0, 1);
+				display_texture(wndw/3,		wndw*2/3, 0, wndh, txid_separate_g, 1, 0, 1, 0, 1);
+				display_texture(wndw*2/3,	wndw,     0, wndh, txid_separate_b, 1, 0, 1, 0, 1);
 			}
 			else
 			{
@@ -5934,6 +6041,9 @@ void io_render(void)
 		float ystep=tdy*guizoom, x, y;
 		if(transforms_mask[CT_FWD_CUSTOM]||transforms_mask[CT_INV_CUSTOM])
 		{
+			const char chnames[]="rgb";
+			unsigned char per[4]={0};
+
 			//custom color transform params
 			x=buttons[0].x1;
 			y=buttons[0].y1;
@@ -5943,8 +6053,6 @@ void io_render(void)
 			//b += (-0x00*r-0x00*g)>>6
 			//g += (-0x00*r-0x00*b)>>6
 			//0123456789012345678901234
-			const char chnames[]="rgb";
-			unsigned char per[4]={0};
 			rct_custom_unpackpermutation(rct_custom_params[8], per);
 			GUIPrint(0, x, y+ystep*0, guizoom, "P%d  %c%c%c", rct_custom_params[8], chnames[per[0]], chnames[per[1]], chnames[per[2]]);
 			GUIPrint(0, x, y+ystep*1, guizoom, "%c += (%c0x%04X*%c%c0x%04X*%c)>>%d",
@@ -6012,41 +6120,42 @@ void io_render(void)
 				custom_clamp[3]?'+':'-'
 			);
 			//GUIPrint(0, x, y-tdy, 1, "Ch %d", custom_pred_ch_idx);
-			int *params=custom_params+24*custom_pred_ch_idx;
-			GUIPrint(0, x, y+ystep*1, guizoom, "%c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X ",
-				params[0]<0?'-':' ', abs(params[0])>>16, abs(params[0])&0xFFFF,
-				params[1]<0?'-':' ', abs(params[1])>>16, abs(params[1])&0xFFFF,
-				params[2]<0?'-':' ', abs(params[2])>>16, abs(params[2])&0xFFFF,
-				params[3]<0?'-':' ', abs(params[3])>>16, abs(params[3])&0xFFFF,
-				params[4]<0?'-':' ', abs(params[4])>>16, abs(params[4])&0xFFFF,
-				params[5]<0?'-':' ', abs(params[5])>>16, abs(params[5])&0xFFFF,
-				params[6]<0?'-':' ', abs(params[6])>>16, abs(params[6])&0xFFFF,
-				params[7]<0?'-':' ', abs(params[7])>>16, abs(params[7])&0xFFFF,
-				params[8]<0?'-':' ', abs(params[8])>>16, abs(params[8])&0xFFFF,
-				params[9]<0?'-':' ', abs(params[9])>>16, abs(params[9])&0xFFFF
-			);
-			params+=10;
-			GUIPrint(0, x, y+ystep*2, guizoom, "%c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X ",
-				params[0]<0?'-':' ', abs(params[0])>>16, abs(params[0])&0xFFFF,
-				params[1]<0?'-':' ', abs(params[1])>>16, abs(params[1])&0xFFFF,
-				params[2]<0?'-':' ', abs(params[2])>>16, abs(params[2])&0xFFFF,
-				params[3]<0?'-':' ', abs(params[3])>>16, abs(params[3])&0xFFFF,
-				params[4]<0?'-':' ', abs(params[4])>>16, abs(params[4])&0xFFFF,
-				params[5]<0?'-':' ', abs(params[5])>>16, abs(params[5])&0xFFFF,
-				params[6]<0?'-':' ', abs(params[6])>>16, abs(params[6])&0xFFFF,
-				params[7]<0?'-':' ', abs(params[7])>>16, abs(params[7])&0xFFFF,
-				params[8]<0?'-':' ', abs(params[8])>>16, abs(params[8])&0xFFFF,
-				params[9]<0?'-':' ', abs(params[9])>>16, abs(params[9])&0xFFFF
-			);
-			params+=10;
-			GUIPrint(0, x, y+ystep*3, guizoom, "%c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X",
-				params[0]<0?'-':' ', abs(params[0])>>16, abs(params[0])&0xFFFF,
-				params[1]<0?'-':' ', abs(params[1])>>16, abs(params[1])&0xFFFF,
-				params[2]<0?'-':' ', abs(params[2])>>16, abs(params[2])&0xFFFF,
-				params[3]<0?'-':' ', abs(params[3])>>16, abs(params[3])&0xFFFF
-			);
-			set_bk_color(c0);
-
+			{
+				int *params=custom_params+24*custom_pred_ch_idx;
+				GUIPrint(0, x, y+ystep*1, guizoom, "%c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X ",
+					params[0]<0?'-':' ', abs(params[0])>>16, abs(params[0])&0xFFFF,
+					params[1]<0?'-':' ', abs(params[1])>>16, abs(params[1])&0xFFFF,
+					params[2]<0?'-':' ', abs(params[2])>>16, abs(params[2])&0xFFFF,
+					params[3]<0?'-':' ', abs(params[3])>>16, abs(params[3])&0xFFFF,
+					params[4]<0?'-':' ', abs(params[4])>>16, abs(params[4])&0xFFFF,
+					params[5]<0?'-':' ', abs(params[5])>>16, abs(params[5])&0xFFFF,
+					params[6]<0?'-':' ', abs(params[6])>>16, abs(params[6])&0xFFFF,
+					params[7]<0?'-':' ', abs(params[7])>>16, abs(params[7])&0xFFFF,
+					params[8]<0?'-':' ', abs(params[8])>>16, abs(params[8])&0xFFFF,
+					params[9]<0?'-':' ', abs(params[9])>>16, abs(params[9])&0xFFFF
+				);
+				params+=10;
+				GUIPrint(0, x, y+ystep*2, guizoom, "%c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X ",
+					params[0]<0?'-':' ', abs(params[0])>>16, abs(params[0])&0xFFFF,
+					params[1]<0?'-':' ', abs(params[1])>>16, abs(params[1])&0xFFFF,
+					params[2]<0?'-':' ', abs(params[2])>>16, abs(params[2])&0xFFFF,
+					params[3]<0?'-':' ', abs(params[3])>>16, abs(params[3])&0xFFFF,
+					params[4]<0?'-':' ', abs(params[4])>>16, abs(params[4])&0xFFFF,
+					params[5]<0?'-':' ', abs(params[5])>>16, abs(params[5])&0xFFFF,
+					params[6]<0?'-':' ', abs(params[6])>>16, abs(params[6])&0xFFFF,
+					params[7]<0?'-':' ', abs(params[7])>>16, abs(params[7])&0xFFFF,
+					params[8]<0?'-':' ', abs(params[8])>>16, abs(params[8])&0xFFFF,
+					params[9]<0?'-':' ', abs(params[9])>>16, abs(params[9])&0xFFFF
+				);
+				params+=10;
+				GUIPrint(0, x, y+ystep*3, guizoom, "%c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X",
+					params[0]<0?'-':' ', abs(params[0])>>16, abs(params[0])&0xFFFF,
+					params[1]<0?'-':' ', abs(params[1])>>16, abs(params[1])&0xFFFF,
+					params[2]<0?'-':' ', abs(params[2])>>16, abs(params[2])&0xFFFF,
+					params[3]<0?'-':' ', abs(params[3])>>16, abs(params[3])&0xFFFF
+				);
+				set_bk_color(c0);
+			}
 			//0000000000111111111122222222223333333333444444444455555
 			//0123456789012345678901234567890123456789012345678901234
 			//>>nnnN.NNN >>nnnN.NNN >>nnnN.NNN >>nnnN.NNN >>nnnN.NNN
@@ -6349,25 +6458,9 @@ void io_render(void)
 		}
 	}
 #endif
-	const char *mode_str=0;
-	switch(mode)
-	{
-//	case VIS_PLANES:		mode_str="Planes";		break;
-//	case VIS_MESH:			mode_str="Combined Mesh";	break;
-//	case VIS_MESH_SEPARATE:		mode_str="Separate Mesh";	break;
-	case VIS_HISTOGRAM:		mode_str="Histogram";		break;
-	case VIS_JOINT_HISTOGRAM:	mode_str="Joint Histogram";	break;
-	case VIS_IMAGE:			mode_str="Image View";		break;
-//	case VIS_BAYES:			mode_str="Bayes";		break;
-	case VIS_ZIPF:			mode_str="Zipf View";		break;
-//	case VIS_IMAGE_BLOCK:		mode_str="Image Block";		break;
-//	case VIS_IMAGE_E24:		mode_str="Image Exp24";		break;
-//	case VIS_DWT_BLOCK:		mode_str="DWT Block";		break;
-	case VIS_IMAGE_TRICOLOR:	mode_str="Tricolor";		break;
-	}
 	if(im1)
 	{
-		float x=(float)(w-300), y=tdy*2, x2=x;
+		float x=(float)(wndw-300), y=tdy*2, x2=x;
 		for(int k=0;k<T_COUNT;++k)//print available transforms on right
 		{
 			transforms_printname(x2, y, k, -1, transforms_mask[k]?0xA0FF0000FFFFFFFF:0);
@@ -6375,15 +6468,17 @@ void io_render(void)
 			if(k&1)
 				y+=tdy;
 		}
-		x=(float)(w-450);
+		x=(float)(wndw-450);
 		y=tdy*2;
-		const char *label=ec_method_label(ec_method);
-		if(ec_method==ECTX_ABAC)
-			GUIPrint(x, x, y-tdy, 1, "H - - -  -         %s", label);
-		else if(ec_adaptive)//H.E.M.L..A.0x0000..XXXX_XXX
-			GUIPrint(x, x, y-tdy, 1, "H %d %d %d  A 0x%04X  %s", ec_expbits, ec_msb, ec_lsb, ec_adaptive_threshold, label);
-		else
-			GUIPrint(x, x, y-tdy, 1, "H %d %d %d  Static    %s", ec_expbits, ec_msb, ec_lsb, label);
+		{
+			const char *label=ec_method_label(ec_method);
+			if(ec_method==ECTX_ABAC)
+				GUIPrint(x, x, y-tdy, 1, "H - - -  -         %s", label);
+			else if(ec_adaptive)//H.E.M.L..A.0x0000..XXXX_XXX
+				GUIPrint(x, x, y-tdy, 1, "H %d %d %d  A 0x%04X  %s", ec_expbits, ec_msb, ec_lsb, ec_adaptive_threshold, label);
+			else
+				GUIPrint(x, x, y-tdy, 1, "H %d %d %d  Static    %s", ec_expbits, ec_msb, ec_lsb, label);
+		}
 		if(transforms)
 		{
 			for(int k=0;k<(int)transforms->count;++k, y+=tdy)//print applied transforms on left
@@ -6391,7 +6486,7 @@ void io_render(void)
 		}
 		float
 			cr_combined=(float)((im1->src_depth[0]+im1->src_depth[1]+im1->src_depth[2]+im1->src_depth[3])/(ch_entropy[0]+ch_entropy[1]+ch_entropy[2]+ch_entropy[3])),
-			xstart=20, xend=(float)w-330, ystart=(float)(h-tdy*5),
+			xstart=20, xend=(float)wndw-330, ystart=(float)(wndh-tdy*5),
 			scale=xend-xstart;
 		
 		double usize=image_getBMPsize(im0);
@@ -6424,99 +6519,105 @@ void io_render(void)
 				scale=50;
 
 			xstart=xend-scale*ceilf((maxinvcr+1)*2)*0.5f;
-			draw_rect(xstart, xend, ystart, (float)h, 0x80808080);//background
-			int ks;
-			if(scale>20)
+			draw_rect(xstart, xend, ystart, (float)wndh, 0x80808080);//background
 			{
-				//double gain=scale/usize;
-				//for(double size=100000;;)
-				//{
-				//	x=(float)(xend-size*gain);
-				//	if(x<xstart)
-				//		break;
-				//	draw_line(x, ystart+1, x, (float)h, 0x70900090);//draw minor scale
-				//	size+=100000;
-				//}
-				ks=1;
-				x=(float)(xend-0.1f*scale*ks);
-				for(;x>xstart;++ks)
+				int ks;
+				if(scale>20)
 				{
-					draw_line(x, ystart+1, x, (float)h, 0x70900090);//draw minor scale
+					//double gain=scale/usize;
+					//for(double size=100000;;)
+					//{
+					//	x=(float)(xend-size*gain);
+					//	if(x<xstart)
+					//		break;
+					//	draw_line(x, ystart+1, x, (float)h, 0x70900090);//draw minor scale
+					//	size+=100000;
+					//}
+					ks=1;
 					x=(float)(xend-0.1f*scale*ks);
+					for(;x>xstart;++ks)
+					{
+						draw_line(x, ystart+1, x, (float)wndh, 0x70900090);//draw minor scale
+						x=(float)(xend-0.1f*scale*ks);
+					}
 				}
-			}
-			ks=1;
-			x=(float)(xend-scale*ks);
-			for(int ks2=1;x>xstart;++ks2)
-			{
-				draw_rect(x-1, x+2, ystart, (float)h, 0x70800080);//draw major scale
-				x=(float)(xend-scale*ks2);
-			}
-			float barw=4;
-#if 0
-			if(
-				mode==VIS_IMAGE_BLOCK||
-			//	mode==VIS_IMAGE_E24||
-				mode==VIS_DWT_BLOCK
-			)
-			{
-				float cr[4];
-				//if(mode==VIS_IMAGE_E24)
-				//{
-				//	cr[0]=(float)e24_cr[0];
-				//	cr[1]=(float)e24_cr[1];
-				//	cr[2]=(float)e24_cr[2];
-				//	cr[3]=3/(1/cr[0]+1/cr[1]+1/cr[2]);
-				//}
-				//else
+				ks=1;
+				x=(float)(xend-scale*ks);
+				for(int ks2=1;x>xstart;++ks2)
 				{
-					cr[0]=blockCR[0];
-					cr[1]=blockCR[1];
-					cr[2]=blockCR[2];
-					cr[3]=3/(1/blockCR[0]+1/blockCR[1]+1/blockCR[2]);
+					draw_rect(x-1, x+2, ystart, (float)wndh, 0x70800080);//draw major scale
+					x=(float)(xend-scale*ks2);
 				}
-				draw_rect(xend-scale*cr[3]      , xend, ystart+tdy*0.5f-barw, ystart+tdy*0.5f  , 0xFF404040);
-				draw_rect(xend-scale*cr[0]      , xend, ystart+tdy*1.5f-barw, ystart+tdy*1.5f  , 0xFF0000B0);
-				draw_rect(xend-scale*cr[1]      , xend, ystart+tdy*2.5f-barw, ystart+tdy*2.5f  , 0xFF00B000);
-				draw_rect(xend-scale*cr[2]      , xend, ystart+tdy*3.5f-barw, ystart+tdy*3.5f  , 0xFFB00000);
-				draw_rect(xend-scale*cr_combined, xend, ystart+tdy*0.5f, ystart+tdy*0.5f+barw+1, 0xFF000000);
-				draw_rect(xend-scale*ch_cr[0]   , xend, ystart+tdy*1.5f, ystart+tdy*1.5f+barw+1, 0xFF0000FF);
-				draw_rect(xend-scale*ch_cr[1]   , xend, ystart+tdy*2.5f, ystart+tdy*2.5f+barw+1, 0xFF00FF00);
-				draw_rect(xend-scale*ch_cr[2]   , xend, ystart+tdy*3.5f, ystart+tdy*3.5f+barw+1, 0xFFFF0000);
 			}
-			else
+			{
+				float barw=4;
+#if 0
+				if(
+					mode==VIS_IMAGE_BLOCK||
+				//	mode==VIS_IMAGE_E24||
+					mode==VIS_DWT_BLOCK
+				)
+				{
+					float cr[4];
+					//if(mode==VIS_IMAGE_E24)
+					//{
+					//	cr[0]=(float)e24_cr[0];
+					//	cr[1]=(float)e24_cr[1];
+					//	cr[2]=(float)e24_cr[2];
+					//	cr[3]=3/(1/cr[0]+1/cr[1]+1/cr[2]);
+					//}
+					//else
+					{
+						cr[0]=blockCR[0];
+						cr[1]=blockCR[1];
+						cr[2]=blockCR[2];
+						cr[3]=3/(1/blockCR[0]+1/blockCR[1]+1/blockCR[2]);
+					}
+					draw_rect(xend-scale*cr[3]      , xend, ystart+tdy*0.5f-barw, ystart+tdy*0.5f  , 0xFF404040);
+					draw_rect(xend-scale*cr[0]      , xend, ystart+tdy*1.5f-barw, ystart+tdy*1.5f  , 0xFF0000B0);
+					draw_rect(xend-scale*cr[1]      , xend, ystart+tdy*2.5f-barw, ystart+tdy*2.5f  , 0xFF00B000);
+					draw_rect(xend-scale*cr[2]      , xend, ystart+tdy*3.5f-barw, ystart+tdy*3.5f  , 0xFFB00000);
+					draw_rect(xend-scale*cr_combined, xend, ystart+tdy*0.5f, ystart+tdy*0.5f+barw+1, 0xFF000000);
+					draw_rect(xend-scale*ch_cr[0]   , xend, ystart+tdy*1.5f, ystart+tdy*1.5f+barw+1, 0xFF0000FF);
+					draw_rect(xend-scale*ch_cr[1]   , xend, ystart+tdy*2.5f, ystart+tdy*2.5f+barw+1, 0xFF00FF00);
+					draw_rect(xend-scale*ch_cr[2]   , xend, ystart+tdy*3.5f, ystart+tdy*3.5f+barw+1, 0xFFFF0000);
+				}
+				else
 #endif
-			draw_rect(xend-scale/cr_combined,				xend, ystart+tdy*0.5f-barw, ystart+tdy*0.5f+barw+1, 0xFF000000);
-			draw_rect(xend-scale/(float)(im1->src_depth[0]/ch_entropy[0]),	xend, ystart+tdy*1.5f-barw, ystart+tdy*1.5f+barw+1, RGBspace?0xFF0000FF:0xFF404040);//r or Y
-			draw_rect(xend-scale/(float)(im1->src_depth[1]/ch_entropy[1]),	xend, ystart+tdy*2.5f-barw, ystart+tdy*2.5f+barw+1, RGBspace?0xFF00FF00:0xFFC00000);//g or Cb
-			draw_rect(xend-scale/(float)(im1->src_depth[2]/ch_entropy[2]),	xend, ystart+tdy*3.5f-barw, ystart+tdy*3.5f+barw+1, RGBspace?0xFFFF0000:0xFF0000C0);//b or Cr
-			if(im1->depth[3])
-				draw_rect(xend-scale/(float)(im1->src_depth[1]/ch_entropy[3]), xend, ystart+tdy*4.5f-barw, ystart+tdy*4.5f+barw+1, RGBspace?0xFF808080:0xFF00C000);//a or Cg
-			//draw_rect(xend-scale*ch_cr[3]   , xend, ystart+tdy*4.5f-barw, ystart+tdy*4.5f+barw+1, 0xFFFF00FF);
+				draw_rect(xend-scale/cr_combined,				xend, ystart+tdy*0.5f-barw, ystart+tdy*0.5f+barw+1, 0xFF000000);
+				draw_rect(xend-scale/(float)(im1->src_depth[0]/ch_entropy[0]),	xend, ystart+tdy*1.5f-barw, ystart+tdy*1.5f+barw+1, RGBspace?0xFF0000FF:0xFF404040);//r or Y
+				draw_rect(xend-scale/(float)(im1->src_depth[1]/ch_entropy[1]),	xend, ystart+tdy*2.5f-barw, ystart+tdy*2.5f+barw+1, RGBspace?0xFF00FF00:0xFFC00000);//g or Cb
+				draw_rect(xend-scale/(float)(im1->src_depth[2]/ch_entropy[2]),	xend, ystart+tdy*3.5f-barw, ystart+tdy*3.5f+barw+1, RGBspace?0xFFFF0000:0xFF0000C0);//b or Cr
+				if(im1->depth[3])
+					draw_rect(xend-scale/(float)(im1->src_depth[1]/ch_entropy[3]), xend, ystart+tdy*4.5f-barw, ystart+tdy*4.5f+barw+1, RGBspace?0xFF808080:0xFF00C000);//a or Cg
+				//draw_rect(xend-scale*ch_cr[3]   , xend, ystart+tdy*4.5f-barw, ystart+tdy*4.5f+barw+1, 0xFFFF00FF);
+			}
 			x=xend-scale/crformat;
 			draw_line(x, ystart, x-10, ystart-10, 0xFF000000);
 			draw_line(x, ystart, x+10, ystart-10, 0xFF000000);
 		}
-		int prevtxtcolor, prevbkcolor;
-		xend+=10;
-		prevbkcolor=set_bk_color(0xC0C0C0C0);
-		prevtxtcolor=set_text_color(0xFF000000);
-		GUIPrint(xend, xend, ystart-tdy*2, 1, "Bitmap Size             %9.0lf", usize);
-		//GUIPrint(xend, xend, ystart-tdy*2, 1, "Uncompressed Size       %9.0lf", usize);
-		GUIPrint(xend, xend, ystart-tdy  , 1, "Format        %8.4f%% %9lld", 100./crformat, filesize);
-		set_bk_color(0xE0FFFFFF);
-		prevtxtcolor=set_text_color(0xFF000000);GUIPrint(xend, xend, ystart      , 1, "Combined      %8.4f%% %12.2lf", 100./cr_combined, usize/cr_combined);
-		set_bk_color(0xC0C0C0C0);
-		set_text_color(RGBspace?0xFF0000FF:0xFF404040);	GUIPrint(xend, xend, ystart+tdy  , 1, "%c     %7d %8.4lf%% %12.2lf", RGBspace?'R':'Y', im1->depth[0], 100.*ch_entropy[0]/im1->src_depth[0], (double)im1->iw*im1->ih*ch_entropy[0]/8);
-		set_text_color(RGBspace?0xFF00C000:0xFFC00000);	GUIPrint(xend, xend, ystart+tdy*2, 1, "%c     %7d %8.4lf%% %12.2lf", RGBspace?'G':'U', im1->depth[1], 100.*ch_entropy[1]/im1->src_depth[1], (double)im1->iw*im1->ih*ch_entropy[1]/8);
-		set_text_color(RGBspace?0xFFFF0000:0xFF0000C0);	GUIPrint(xend, xend, ystart+tdy*3, 1, "%c     %7d %8.4lf%% %12.2lf", RGBspace?'B':'V', im1->depth[2], 100.*ch_entropy[2]/im1->src_depth[2], (double)im1->iw*im1->ih*ch_entropy[2]/8);
-		if(im1->depth[3])
 		{
-			set_text_color(RGBspace?0xFF404040:0xFF00C000);	GUIPrint(xend, xend, ystart+tdy*4, 1, "%c     %7d %8.4lf%% %12.2lf", RGBspace?'A':'W', im1->depth[3], 100.*ch_entropy[3]/im1->src_depth[1], (double)im1->iw*im1->ih*ch_entropy[3]/8);//src_depth[3] is zero assuming no alpha
+			int prevtxtcolor, prevbkcolor;
+			xend+=10;
+			prevbkcolor=set_bk_color(0xC0C0C0C0);
+			prevtxtcolor=set_text_color(0xFF000000);
+			GUIPrint(xend, xend, ystart-tdy*2, 1, "Bitmap Size             %9.0lf", usize);
+			//GUIPrint(xend, xend, ystart-tdy*2, 1, "Uncompressed Size       %9.0lf", usize);
+			GUIPrint(xend, xend, ystart-tdy  , 1, "Format        %8.4f%% %9lld", 100./crformat, filesize);
+			set_bk_color(0xE0FFFFFF);
+			prevtxtcolor=set_text_color(0xFF000000);GUIPrint(xend, xend, ystart      , 1, "Combined      %8.4f%% %12.2lf", 100./cr_combined, usize/cr_combined);
+			set_bk_color(0xC0C0C0C0);
+			set_text_color(RGBspace?0xFF0000FF:0xFF404040);	GUIPrint(xend, xend, ystart+tdy  , 1, "%c     %7d %8.4lf%% %12.2lf", RGBspace?'R':'Y', im1->depth[0], 100.*ch_entropy[0]/im1->src_depth[0], (double)im1->iw*im1->ih*ch_entropy[0]/8);
+			set_text_color(RGBspace?0xFF00C000:0xFFC00000);	GUIPrint(xend, xend, ystart+tdy*2, 1, "%c     %7d %8.4lf%% %12.2lf", RGBspace?'G':'U', im1->depth[1], 100.*ch_entropy[1]/im1->src_depth[1], (double)im1->iw*im1->ih*ch_entropy[1]/8);
+			set_text_color(RGBspace?0xFFFF0000:0xFF0000C0);	GUIPrint(xend, xend, ystart+tdy*3, 1, "%c     %7d %8.4lf%% %12.2lf", RGBspace?'B':'V', im1->depth[2], 100.*ch_entropy[2]/im1->src_depth[2], (double)im1->iw*im1->ih*ch_entropy[2]/8);
+			if(im1->depth[3])
+			{
+				set_text_color(RGBspace?0xFF404040:0xFF00C000);	GUIPrint(xend, xend, ystart+tdy*4, 1, "%c     %7d %8.4lf%% %12.2lf", RGBspace?'A':'W', im1->depth[3], 100.*ch_entropy[3]/im1->src_depth[1], (double)im1->iw*im1->ih*ch_entropy[3]/8);//src_depth[3] is zero assuming no alpha
+			}
+			//set_text_color(0xFFFF00FF);	GUIPrint(xend, xend, ystart+tdy*4, 1, "Joint %7d %9f", usage[3], ch_cr[3]);
+			set_text_color(prevtxtcolor);
+			set_bk_color(prevbkcolor);
 		}
-		//set_text_color(0xFFFF00FF);	GUIPrint(xend, xend, ystart+tdy*4, 1, "Joint %7d %9f", usage[3], ch_cr[3]);
-		set_text_color(prevtxtcolor);
-		set_bk_color(prevbkcolor);
 
 		//if(transforms_customenabled)
 		//{
@@ -6525,41 +6626,44 @@ void io_render(void)
 		//	if(minloss<maxloss)
 		//		GUIPrint(0, 200, tdy*3, 1, "[%lf~%lf]", minloss, maxloss);
 		//}
+		{
+			float g2, cx, cy;
 
-		float g2=h/combCRhist_max;
-		int idx=combCRhist_idx-1, idx2=combCRhist_idx-2;
-		idx+=combCRhist_SIZE&-(idx<0);
-		idx2+=combCRhist_SIZE&-(idx2<0);
-		xstart=(float)(w-(combCRhist_SIZE<<combCRhist_logDX)-300);
-		float cx=xstart+(float)(idx<<combCRhist_logDX), cy=h-combCRhist[idx][3]*g2;
-		draw_rect_hollow(cx-10, cx+10, cy-10, cy+10, 0xC0C0C0C0);
-		if(combCRhist[idx][3]<combCRhist[idx2][3])//ratio improved
-		{
-			draw_triangle(cx-9, cy, cx+9, cy, cx, cy+9, 0xC080FF80);
-			draw_triangle(cx-5, cy, cx+5, cy, cx, cy+5, 0xC0006000);
-		}
-		else if(combCRhist[idx][3]>combCRhist[idx2][3])//ratio worsened
-		{
-			draw_triangle(cx-9, cy, cx+9, cy, cx, cy-9, 0xC08080FF);
-			draw_triangle(cx-5, cy, cx+5, cy, cx, cy-5, 0xC0000060);
-		}
-		else//exact same ratio
-		{
-			draw_line(cx-5, cy-5, cx+5, cy+5, 0xC0808080);
-			draw_line(cx-5, cy+5, cx+5, cy-5, 0xC0808080);
-		}
-		for(int k=0;k<combCRhist_SIZE-1;++k)
-		{
-			if(k!=combCRhist_idx-1)
+			g2=wndh/combCRhist_max;
+			int idx=combCRhist_idx-1, idx2=combCRhist_idx-2;
+			idx+=combCRhist_SIZE&-(idx<0);
+			idx2+=combCRhist_SIZE&-(idx2<0);
+			xstart=(float)(wndw-(combCRhist_SIZE<<combCRhist_logDX)-300);
+			cx=xstart+(float)(idx<<combCRhist_logDX);
+			cy=wndh-combCRhist[idx][3]*g2;
+			draw_rect_hollow(cx-10, cx+10, cy-10, cy+10, 0xC0C0C0C0);
+			if(combCRhist[idx][3]<combCRhist[idx2][3])//ratio improved
 			{
-				draw_line(xstart+(float)(k<<combCRhist_logDX), h-(float)(combCRhist[k][0]*g2), xstart+(float)((k+1)<<combCRhist_logDX), h-(float)(combCRhist[k+1][0]*g2), RGBspace?0xFF0000FF:0xFF404040);//r or Y
-				draw_line(xstart+(float)(k<<combCRhist_logDX), h-(float)(combCRhist[k][1]*g2), xstart+(float)((k+1)<<combCRhist_logDX), h-(float)(combCRhist[k+1][1]*g2), RGBspace?0xFF00FF00:0xFFC00000);//g or Cb
-				draw_line(xstart+(float)(k<<combCRhist_logDX), h-(float)(combCRhist[k][2]*g2), xstart+(float)((k+1)<<combCRhist_logDX), h-(float)(combCRhist[k+1][2]*g2), RGBspace?0xFFFF0000:0xFF0000C0);//b or Cr
-				draw_line(xstart+(float)(k<<combCRhist_logDX), h-(float)(combCRhist[k][3]*g2), xstart+(float)((k+1)<<combCRhist_logDX), h-(float)(combCRhist[k+1][3]*g2), 0xC0000000);
+				draw_triangle(cx-9, cy, cx+9, cy, cx, cy+9, 0xC080FF80);
+				draw_triangle(cx-5, cy, cx+5, cy, cx, cy+5, 0xC0006000);
 			}
+			else if(combCRhist[idx][3]>combCRhist[idx2][3])//ratio worsened
+			{
+				draw_triangle(cx-9, cy, cx+9, cy, cx, cy-9, 0xC08080FF);
+				draw_triangle(cx-5, cy, cx+5, cy, cx, cy-5, 0xC0000060);
+			}
+			else//exact same ratio
+			{
+				draw_line(cx-5, cy-5, cx+5, cy+5, 0xC0808080);
+				draw_line(cx-5, cy+5, cx+5, cy-5, 0xC0808080);
+			}
+			for(int k=0;k<combCRhist_SIZE-1;++k)
+			{
+				if(k!=combCRhist_idx-1)
+				{
+					draw_line(xstart+(float)(k<<combCRhist_logDX), wndh-(float)(combCRhist[k][0]*g2), xstart+(float)((k+1)<<combCRhist_logDX), wndh-(float)(combCRhist[k+1][0]*g2), RGBspace?0xFF0000FF:0xFF404040);//r or Y
+					draw_line(xstart+(float)(k<<combCRhist_logDX), wndh-(float)(combCRhist[k][1]*g2), xstart+(float)((k+1)<<combCRhist_logDX), wndh-(float)(combCRhist[k+1][1]*g2), RGBspace?0xFF00FF00:0xFFC00000);//g or Cb
+					draw_line(xstart+(float)(k<<combCRhist_logDX), wndh-(float)(combCRhist[k][2]*g2), xstart+(float)((k+1)<<combCRhist_logDX), wndh-(float)(combCRhist[k+1][2]*g2), RGBspace?0xFFFF0000:0xFF0000C0);//b or Cr
+					draw_line(xstart+(float)(k<<combCRhist_logDX), wndh-(float)(combCRhist[k][3]*g2), xstart+(float)((k+1)<<combCRhist_logDX), wndh-(float)(combCRhist[k+1][3]*g2), 0xC0000000);
+				}
+			}
+			draw_line(xstart, wndh-g2, xstart+(combCRhist_SIZE<<combCRhist_logDX), wndh-g2, 0xC0000000);
 		}
-		draw_line(xstart, h-g2, xstart+(combCRhist_SIZE<<combCRhist_logDX), h-g2, 0xC0000000);
-
 		//grad2 info
 #if 1
 #if 0
@@ -6625,7 +6729,8 @@ void io_render(void)
 				(C3_REACH<<1)+2, (C3_REACH<<1)+2, C3_REACH<<1,
 			};
 			float zoom=0.75;
-			x=(float)(w>>1);
+
+			x=(float)(wndw>>1);
 			y=tdy*zoom*4;
 			for(int kc=0;kc<9;++kc)
 			{
@@ -6640,7 +6745,7 @@ void io_render(void)
 		}
 		else if(transforms_mask[ST_FWD_MM]||transforms_mask[ST_INV_MM])
 		{
-			x=(float)(w>>1);
+			x=(float)(wndw>>1);
 			y=0;
 			for(int k=0;k<PW2_NPRED;++k)
 			{
@@ -6882,25 +6987,42 @@ void io_render(void)
 	//{
 	//}
 	//GUIPrint(0, 0, 0, 1, "p(%f, %f, %f) dx %f a(%f, %f) fov %f", cam.x, cam.y, cam.z, cam.move_speed, cam.ax, cam.ay, atan(cam.tanfov)*180/M_PI*2);
-	
-	static double t=0;
-	double t2=time_ms();
-	GUIPrint(0, 0, tdy, 1, "timer %d, fps%11lf, [%2d/%2d] %s", timer, 1000./(t2-t), mode+1, VIS_COUNT, mode_str);
-	if(mode==VIS_IMAGE||mode==VIS_ZIPF)
-		GUIPrint(0, 0, tdy*2, 1, "%s", show_full_image?"FILL SCREEN":"1:1");
-	else if(mode==VIS_JOINT_HISTOGRAM)
 	{
-		switch(space_not_color)
-		{
-		case 0:mode_str="COLOR   (R, G, B)";break;
-		case 1:mode_str="SPACE X (CURR, W, WW)";break;
-		case 2:mode_str="SPACE Y (CURR, N, NN)";break;
-		case 3:mode_str="SPACE   (CURR, N, W)";break;
-		}
-		GUIPrint(0, 0, tdy*2, 1, "[Shift C] %s  [Ctrl Wheel] box %dx%d  [Wheel] contour %f", mode_str, jhc_boxdx, jhc_boxdy, jhc_level);
-	}
-	t=t2;
+		const char *mode_str=0;
+		static double t=0;
+		double t2=time_ms();
 
+		switch(mode)
+		{
+	//	case VIS_PLANES:		mode_str="Planes";		break;
+	//	case VIS_MESH:			mode_str="Combined Mesh";	break;
+	//	case VIS_MESH_SEPARATE:		mode_str="Separate Mesh";	break;
+		case VIS_HISTOGRAM:		mode_str="Histogram";		break;
+		case VIS_JOINT_HISTOGRAM:	mode_str="Joint Histogram";	break;
+		case VIS_IMAGE:			mode_str="Image View";		break;
+	//	case VIS_BAYES:			mode_str="Bayes";		break;
+		case VIS_ZIPF:			mode_str="Zipf View";		break;
+	//	case VIS_IMAGE_BLOCK:		mode_str="Image Block";		break;
+	//	case VIS_IMAGE_E24:		mode_str="Image Exp24";		break;
+	//	case VIS_DWT_BLOCK:		mode_str="DWT Block";		break;
+		case VIS_IMAGE_TRICOLOR:	mode_str="Tricolor";		break;
+		}
+		GUIPrint(0, 0, tdy, 1, "timer %d, fps%11lf, [%2d/%2d] %s", timer, 1000./(t2-t), mode+1, VIS_COUNT, mode_str);
+		if(mode==VIS_IMAGE||mode==VIS_ZIPF)
+			GUIPrint(0, 0, tdy*2, 1, "%s", show_full_image?"FILL SCREEN":"1:1");
+		else if(mode==VIS_JOINT_HISTOGRAM)
+		{
+			switch(space_not_color)
+			{
+			case 0:mode_str="COLOR   (R, G, B)";break;
+			case 1:mode_str="SPACE X (CURR, W, WW)";break;
+			case 2:mode_str="SPACE Y (CURR, N, NN)";break;
+			case 3:mode_str="SPACE   (CURR, N, W)";break;
+			}
+			GUIPrint(0, 0, tdy*2, 1, "[Shift C] %s  [Ctrl Wheel] box %dx%d  [Wheel] contour %f", mode_str, jhc_boxdx, jhc_boxdy, jhc_level);
+		}
+		t=t2;
+	}
 	swapbuffers();
 }
 int io_quit_request(void)//return 1 to exit

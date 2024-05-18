@@ -337,30 +337,40 @@ const char *gl_error_msg="GL %d: %s";
 //#define GL_CHECK(E) (void)((E=glGetError())==0||log_error(file, __LINE__, 1, gl_error_msg, E, glerr2str(E)))
 
 //shader API
-unsigned			CompileShader(const char *src, unsigned type, const char *programname)
+static unsigned CompileShader(const char *src, unsigned type, const char *programname)
 {
+	int success=0;
 	unsigned shaderID=glCreateShader(type);
 	glShaderSource(shaderID, 1, &src, 0);
 	glCompileShader(shaderID);
-	int success=0;
 	glGetShaderiv(shaderID, GL_COMPILE_STATUS, &success);
 	if(!success)
 	{
 		int infoLogLength;
+		char *errorMessage;
+
 		glGetShaderiv(shaderID, GL_INFO_LOG_LENGTH, &infoLogLength);
-		char *errorMessage=(char*)malloc(infoLogLength+1);
-		glGetShaderInfoLog(shaderID, infoLogLength, 0, errorMessage);
-		copy_to_clipboard(errorMessage, infoLogLength);
-		if(programname)
-			LOG_ERROR("%s shader compilation failed. Output copied to cipboard.", programname);
+		errorMessage=(char*)malloc(infoLogLength+1);
+		if(errorMessage)
+		{
+			glGetShaderInfoLog(shaderID, infoLogLength, 0, errorMessage);
+			copy_to_clipboard(errorMessage, infoLogLength);
+			free(errorMessage);
+		}
 		else
-			LOG_ERROR("Shader compilation failed. Output copied to cipboard.");
-		free(errorMessage);
+		{
+			glGetShaderInfoLog(shaderID, G_BUF_SIZE, 0, g_buf);
+			copy_to_clipboard(g_buf, MINVAR(G_BUF_SIZE, infoLogLength));
+		}
+		if(programname)
+			LOG_ERROR("%s shader compilation failed. Output copied to clipboard.", programname);
+		else
+			LOG_ERROR("Shader compilation failed. Output copied to clipboard.");
 		return 0;
 	}
 	return shaderID;
 }
-unsigned			make_gl_program_impl(const char *vertSrc, const char *fragSrc, const char *programname)
+static unsigned make_gl_program_impl(const char *vertSrc, const char *fragSrc, const char *programname)
 {
 	unsigned
 		vertShaderID=CompileShader(vertSrc, GL_VERTEX_SHADER, programname),
@@ -397,7 +407,7 @@ unsigned			make_gl_program_impl(const char *vertSrc, const char *fragSrc, const 
 	GL_CHECK(error);
 	return ProgramID;
 }
-int					make_gl_program(ShaderProgram *p)
+static int make_gl_program(ShaderProgram *p)
 {
 	p->program=make_gl_program_impl(p->vsrc, p->fsrc, p->name);
 	if(!p->program)
@@ -426,7 +436,7 @@ int					make_gl_program(ShaderProgram *p)
 void set_region_immediate(int x1, int x2, int y1, int y2)
 {
 	rx0=x1, ry0=y1, rdx=x2-x1, rdy=y2-y1;
-	glViewport(rx0, h-y2, rdx, rdy);
+	glViewport(rx0, wndh-y2, rdx, rdy);
 
 	SN_x1=2.f/rdx, SN_x0=(float)(-2*rx0-(rdx-1))/rdx;//frac bias
 	SN_y1=-2.f/rdy, SN_y0=(float)(rdy-1+2*ry0)/rdy;
@@ -444,7 +454,7 @@ void set_region_immediate(int x1, int x2, int y1, int y2)
 	NS_x1=rdx/2.f, NS_x0=rx0+NS_x1;
 	NS_y1=-rdy/2.f, NS_y0=ry0-NS_x1;
 }
-void setGLProgram(unsigned program)
+static void setGLProgram(unsigned program)
 {
 	if(current_program!=program)
 	{
@@ -453,7 +463,7 @@ void setGLProgram(unsigned program)
 	}
 }
 static const float inv255=1.f/255;
-void send_color(unsigned location, int color)
+static void send_color(unsigned location, int color)
 {
 	unsigned char *p=(unsigned char*)&color;
 	__m128 m_255=_mm_set1_ps(inv255);
@@ -461,40 +471,44 @@ void send_color(unsigned location, int color)
 	__m128 c=_mm_castsi128_ps(_mm_set_epi32(p[3], p[2], p[1], p[0]));
 	c=_mm_cvtepi32_ps(_mm_castps_si128(c));
 	c=_mm_mul_ps(c, m_255);
-	ALIGN(16) float comp[4];
-	_mm_store_ps(comp, c);
-	glUniform4fv(location, 1, comp);
-
+	{
+		ALIGN(16) float comp[4];
+		_mm_store_ps(comp, c);
+		glUniform4fv(location, 1, comp);
+	}
 	//glUniform4f(location, p[0]*inv255, p[1]*inv255, p[2]*inv255, p[3]*inv255);
 	
 	GL_CHECK(error);
 }
-void send_color_rgb(unsigned location, int color)
+static void send_color_rgb(unsigned location, int color)
 {
-	unsigned char *p=(unsigned char*)&color;
 	__m128 m_255=_mm_set1_ps(inv255);
 
+	unsigned char *p=(unsigned char*)&color;
 	__m128 c=_mm_castsi128_ps(_mm_set_epi32(p[3], p[2], p[1], p[0]));
+
 	c=_mm_cvtepi32_ps(_mm_castps_si128(c));
 	c=_mm_mul_ps(c, m_255);
-	ALIGN(16) float comp[4];
-	_mm_store_ps(comp, c);
-	glUniform3fv(location, 1, comp);
+	{
+		ALIGN(16) float comp[4];
+		_mm_store_ps(comp, c);
+		glUniform3fv(location, 1, comp);
+	}
 	//glUniform3f(location, p[0]*inv255, p[1]*inv255, p[2]*inv255);
 
 	GL_CHECK(error);
 }
-void set_texture_params(int linear)
+static void set_texture_params(int linear)
 {
 	if(linear)
 	{
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);		GL_CHECK(error);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);		GL_CHECK(error);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);	GL_CHECK(error);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);	GL_CHECK(error);
 	}
 	else
 	{
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);		GL_CHECK(error);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);		GL_CHECK(error);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);	GL_CHECK(error);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);	GL_CHECK(error);
 	}
 }
 void send_texture_pot(unsigned gl_texture, const int *rgba, int txw, int txh, int linear)
@@ -517,9 +531,9 @@ void send_texture_pot_grey(unsigned gl_texture, const unsigned char *bmp, int tx
 }
 void select_texture(unsigned tx_id, int u_location)
 {
-	glActiveTexture(GL_TEXTURE0);			GL_CHECK(error);
-	glBindTexture(GL_TEXTURE_2D, tx_id);		GL_CHECK(error);//select texture
-	glUniform1i(u_location, 0);			GL_CHECK(error);
+	glActiveTexture(GL_TEXTURE0);		GL_CHECK(error);
+	glBindTexture(GL_TEXTURE_2D, tx_id);	GL_CHECK(error);//select texture
+	glUniform1i(u_location, 0);		GL_CHECK(error);
 }
 
 void gl_init(void)
@@ -540,10 +554,12 @@ void gl_init(void)
 
 	GLversion=(const char*)glGetString(GL_VERSION);
 
-	static const char msg2[]="%s is NULL";
+	{
+		static const char msg2[]="%s is NULL";
 #define GLFUNC(X) (void)((X=(t_##X)wglGetProcAddress(#X))!=0||log_error(file, __LINE__, 1, msg2, X));
-	GLFUNCLIST
+		GLFUNCLIST
 #undef  GLFUNC
+	}
 		
 	glGenBuffers(1, &vertex_buffer);
 	glEnable(GL_BLEND);					GL_CHECK(error);//vast majority of applications need alpha blend
@@ -561,70 +577,76 @@ void gl_init(void)
 	
 	//load fonts
 #if 1
-	int iw=0, ih=0, bytespp=0;
-	snprintf(g_buf, G_BUF_SIZE, "%sfont.PNG", exedir->data);
-	int *rgb=(int*)stbi_load(g_buf, &iw, &ih, &bytespp, 4);
-	if(!rgb)
 	{
-		LOG_ERROR("Font texture not found.\nPlace a \'font.PNG\' file with the program.\n");
-		return;
-	}
-	tdx=(float)(rgb[0]&0xFF), tdy=(float)(rgb[1]&0xFF);
-	if(!tdx||!tdy)
-	{
-		LOG_ERROR("Invalid font texture character dimensions: dx=%d, dy=%d", tdx, tdy);
-		exit(1);
-	}
-	for(int k=0, size=iw*ih;k<size;++k)
-	{
-		if(rgb[k]&0x00FFFFFF)
-			rgb[k]=0xFFFFFFFF;
-	}
-	for(int c=32;c<127;++c)
-	{
-		QuadCoords *rect=font_coords+c-32;
-		int px=(iw>>3)*(c&7), py=(ih>>4)*(c>>3);
-		rect->x1=(float)px/iw, rect->x2=(float)(px+tdx)/iw;
-		rect->y1=(float)py/ih, rect->y2=(float)(py+tdy)/ih;
-	}
-	glGenTextures(1, &font_txid);
-	send_texture_pot(font_txid, rgb, iw, ih, 0);
-	stbi_image_free(rgb);
-	
-	snprintf(g_buf, G_BUF_SIZE, "%sfont_sdf.PNG", exedir->data);
-	unsigned char *bmp=(unsigned char*)stbi_load(g_buf, &iw, &ih, &bytespp, 1);
-	if(bmp)
-	{
-		sdf_available=1;
-		SDFTextureHeader header;
-		memcpy(&header, bmp, sizeof(header));
-		sdf_dx=header.csize_x;
-		sdf_dy=header.csize_y;
+		int iw, ih, bytespp, *rgb;
+		unsigned char *bmp;
 
-		sdf_slope=(float)header.slope;
+		iw=0, ih=0, bytespp=0;
+		snprintf(g_buf, G_BUF_SIZE, "%sfont.PNG", exedir->data);
+		rgb=(int*)stbi_load(g_buf, &iw, &ih, &bytespp, 4);
+		if(!rgb)
+		{
+			LOG_ERROR("Font texture not found.\nPlace a \'font.PNG\' file with the program.\n");
+			return;
+		}
+		tdx=(float)(rgb[0]&0xFF), tdy=(float)(rgb[1]&0xFF);
+		if(fabs(tdx)<1e-9||fabs(tdy)<1e-9)
+		{
+			LOG_ERROR("Invalid font texture character dimensions: dx=%d, dy=%d", tdx, tdy);
+			exit(1);
+		}
+		for(int k=0, size=iw*ih;k<size;++k)
+		{
+			if(rgb[k]&0x00FFFFFF)
+				rgb[k]=0xFFFFFFFF;
+		}
 		for(int c=32;c<127;++c)
 		{
-			QuadCoords *rect=sdf_glyph_coords+c-32;
-			int px=header.grid_start_x+header.cell_size_x*(c&7),
-				py=header.grid_start_y+header.cell_size_y*((c>>3)-4);
-			rect->x1=(float)px/iw;
-			rect->x2=(float)(px+sdf_dx)/iw;
-			rect->y1=(float)py/ih;
-			rect->y2=(float)(py+sdf_dy)/ih;
+			QuadCoords *rect=font_coords+c-32;
+			int px=(iw>>3)*(c&7), py=(ih>>4)*(c>>3);
+			rect->x1=(float)px/iw, rect->x2=(float)(px+tdx)/iw;
+			rect->y1=(float)py/ih, rect->y2=(float)(py+tdy)/ih;
 		}
-		sdf_txh=sdf_dy;
-		sdf_dx*=16.f/sdf_dy;
-		sdf_dy=16;
+		glGenTextures(1, &font_txid);
+		send_texture_pot(font_txid, rgb, iw, ih, 0);
+		stbi_image_free(rgb);
+	
+		snprintf(g_buf, G_BUF_SIZE, "%sfont_sdf.PNG", exedir->data);
+		bmp=(unsigned char*)stbi_load(g_buf, &iw, &ih, &bytespp, 1);
+		if(bmp)
+		{
+			SDFTextureHeader header;
 
-		glGenTextures(1, &sdf_atlas_txid);
-		send_texture_pot_grey(sdf_atlas_txid, bmp, iw, ih, 1);
-		stbi_image_free(bmp);
-		sdf_active=1;
+			sdf_available=1;
+			memcpy(&header, bmp, sizeof(header));
+			sdf_dx=header.csize_x;
+			sdf_dy=header.csize_y;
+
+			sdf_slope=(float)header.slope;
+			for(int c=32;c<127;++c)
+			{
+				QuadCoords *rect=sdf_glyph_coords+c-32;
+				int px=header.grid_start_x+header.cell_size_x*(c&7),
+					py=header.grid_start_y+header.cell_size_y*((c>>3)-4);
+				rect->x1=(float)px/iw;
+				rect->x2=(float)(px+sdf_dx)/iw;
+				rect->y1=(float)py/ih;
+				rect->y2=(float)(py+sdf_dy)/ih;
+			}
+			sdf_txh=sdf_dy;
+			sdf_dx*=16.f/sdf_dy;
+			sdf_dy=16;
+
+			glGenTextures(1, &sdf_atlas_txid);
+			send_texture_pot_grey(sdf_atlas_txid, bmp, iw, ih, 1);
+			stbi_image_free(bmp);
+			sdf_active=1;
+			set_text_colors(colors_text);
+			sdf_active=0;
+		}
 		set_text_colors(colors_text);
-		sdf_active=0;
+		toggle_sdftext();
 	}
-	set_text_colors(colors_text);
-	toggle_sdftext();
 #endif
 }
 void depth_test(int enable)
@@ -818,8 +840,8 @@ void draw_2d_flush(ArrayHandle vertices, int color, unsigned primitive)
 	vertices->count=0;
 }
 
-ArrayHandle vrtx=0;
-void vrtx_resize(int vcount, int floatspervertex)
+static ArrayHandle vrtx=0;
+static void vrtx_resize(int vcount, int floatspervertex)
 {
 	int nfloats=vcount*floatspervertex;
 	if(!vrtx)
@@ -850,17 +872,24 @@ int vrtx_resize(int vcount, int floatspervertex)
 #endif
 void draw_ellipse(float x1, float x2, float y1, float y2, int color)
 {
-	float ya, yb;
+	float
+		ya, yb,
+		x0, y0, rx, ry,
+		ygain, *vptr;
+	int
+		line_count,
+		nlines;
+
 	if(y1<y2)
 		ya=y1, yb=y2;
 	else
 		ya=y2, yb=y1;
-	int line_count=(int)ceil(yb)-(int)floor(ya);
+	line_count=(int)ceil(yb)-(int)floor(ya);
 	vrtx_resize(line_count*2, 2);
-	float x0=(x1+x2)*0.5f, y0=(y1+y2)*0.5f, rx=fabsf(x2-x0), ry=yb-y0;
-	int nlines=0;
-	float ygain=2.f/line_count;
-	float *vptr=(float*)vrtx->data;
+	x0=(x1+x2)*0.5f, y0=(y1+y2)*0.5f, rx=fabsf(x2-x0), ry=yb-y0;
+	nlines=0;
+	ygain=2.f/line_count;
+	vptr=(float*)vrtx->data;
 	for(int kl=0;kl<line_count;++kl)//pixel-perfect ellipse (no anti-aliasing) drawn as horizontal lines
 	{
 		//ellipse equation: sq[(x-x0)/rx] + sq[(y-y0)/ry] = 1	->	x0 +- rx*sqrt(1 - sq[(y-y0)/ry])
@@ -872,10 +901,9 @@ void draw_ellipse(float x1, float x2, float y1, float y2, int color)
 		x=rx*sqrtf(x);
 		y=y*ry+y0;
 
-		int idx=nlines<<2;
 		y=screen2NDC_y(y);
-		vptr[idx  ]=screen2NDC_x(x0-x  ), vptr[idx+1]=y;
-		vptr[idx+2]=screen2NDC_x(x0+x+1), vptr[idx+3]=y;
+		*vptr++=screen2NDC_x(x0-x  ), *vptr++=y;
+		*vptr++=screen2NDC_x(x0+x+1), *vptr++=y;
 		++nlines;
 	}
 	setGLProgram(shader_2D.program);	GL_CHECK(error);
@@ -883,9 +911,9 @@ void draw_ellipse(float x1, float x2, float y1, float y2, int color)
 
 	glEnableVertexAttribArray(a_2D_coords);	GL_CHECK(error);
 
-	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);					GL_CHECK(error);
-	glBufferData(GL_ARRAY_BUFFER, nlines*4*sizeof(float), vptr, GL_STATIC_DRAW);	GL_CHECK(error);
-	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, 0);		GL_CHECK(error);
+	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);						GL_CHECK(error);
+	glBufferData(GL_ARRAY_BUFFER, nlines*sizeof(float[4]), vrtx->data, GL_STATIC_DRAW);	GL_CHECK(error);
+	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, 0);			GL_CHECK(error);
 
 //	glBindBuffer(GL_ARRAY_BUFFER, 0);					GL_CHECK(error);
 //	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, vrtx);	GL_CHECK(error);
@@ -906,9 +934,11 @@ int toggle_sdftext(void)
 	if(sdf_available)
 	{
 		sdf_active=!sdf_active;
-		float temp;
-		SWAPVAR(tdx, sdf_dx, temp);
-		SWAPVAR(tdy, sdf_dy, temp);
+		{
+			float temp;
+			SWAPVAR(tdx, sdf_dx, temp);
+			SWAPVAR(tdy, sdf_dy, temp);
+		}
 		if(sdf_active)
 			font_zoom_min=0.25, font_zoom_max=64;
 		else
@@ -934,10 +964,12 @@ int set_text_color(int color_txt)
 		setGLProgram(shader_text.program);
 		send_color(u_text_txtColor, color_txt);
 	}
-	int *comp=(int*)&colors_text;
-	int prev=comp[0];
-	comp[0]=color_txt;
-	return prev;
+	{
+		int *comp=(int*)&colors_text;
+		int prev=comp[0];
+		comp[0]=color_txt;
+		return prev;
+	}
 }
 int set_bk_color(int color_bk)
 {
@@ -951,17 +983,20 @@ int set_bk_color(int color_bk)
 		setGLProgram(shader_text.program);
 		send_color(u_text_bkColor, color_bk);
 	}
-	int *comp=(int*)&colors_text;
-	int prev=comp[1];
-	comp[1]=color_bk;
-	return prev;
+	{
+		int *comp=(int*)&colors_text;
+		int prev=comp[1];
+		comp[1]=color_bk;
+		return prev;
+	}
 }
 long long set_text_colors(long long colors)//0xBKBKBKBK_TXTXTXTX
 {
-	long long temp;
-	SWAPVAR(colors_text, colors, temp);
-
 	int *comp=(int*)&colors_text;
+	{
+		long long temp;
+		SWAPVAR(colors_text, colors, temp);
+	}
 	if(sdf_active)
 	{
 		setGLProgram(shader_sdftext.program);
@@ -978,25 +1013,36 @@ long long set_text_colors(long long colors)//0xBKBKBKBK_TXTXTXTX
 }
 float print_line_enqueue(ArrayHandle *vertices, float tab_origin, float x, float y, float zoom, const char *msg, int msg_length, int req_cols, int *ret_idx, int *ret_cols)
 {
+	QuadCoords *txc, *atlas;
+	float
+		width, height,
+		rect[4]={0},//{x1, y1, x2, y2}
+		CX1, CX0;
+	int tab_origin_cols, printable_count, cursor_cols, advance_cols;
+
 	if(msg_length<1)
 		return 0;
-	float rect[4]={0};//{x1, y1, x2, y2}
-	QuadCoords *txc=0, *atlas=sdf_active?sdf_glyph_coords:font_coords;
+	txc=0;
+	atlas=sdf_active?sdf_glyph_coords:font_coords;
 	//if(sdf_active)
 	//	zoom*=16.f/sdf_txh;
-	float width=tdx*zoom, height=tdy*zoom;
-	int tab_origin_cols=(int)(tab_origin/width), idx, printable_count=0, cursor_cols=ret_cols?*ret_cols:0, advance_cols;
+	width=tdx*zoom;
+	height=tdy*zoom;
+	tab_origin_cols=(int)(tab_origin/width);
+	printable_count=0;
+	cursor_cols=ret_cols?*ret_cols:0;
 	if(y+height<ry0||y>=ry0+rdy)//off-screen optimization
 		return 0;//no need to do anything, this line is outside the screen
 	//	return idx2col(msg, msg_length, (int)(tab_origin/width))*width;
-	float CX1=2.f/rdx, CX0=CX1*(x-rx0)-1;//delta optimization
+	CX1=2.f/rdx;
+	CX0=CX1*(x-rx0)-1;//delta optimization
 	rect[1]=1-(y       -ry0)*2.f/rdy;//y1
 	rect[3]=1-(y+height-ry0)*2.f/rdy;//y2
 
 	if(!*vertices)
-		ARRAY_ALLOC(float[4], *vertices, 0, 0, msg_length<<2, 0);//vx, vy, txx, txy		x4 vertices/char
+		ARRAY_ALLOC(float[4], *vertices, 0, 0, (size_t)msg_length<<2, 0);//vx, vy, txx, txy		x4 vertices/char
 	else
-		ARRAY_APPEND(*vertices, 0, 0, 1, msg_length<<2);
+		ARRAY_APPEND(*vertices, 0, 0, 1, (size_t)msg_length<<2);
 	//vrtx_resize(msg_length<<2, 4);
 
 	int k=ret_idx?*ret_idx:0;
@@ -1033,14 +1079,14 @@ float print_line_enqueue(ArrayHandle *vertices, float tab_origin, float x, float
 					//toNDC_nobias(float(x+msg_width		), float(y			), rect[0], rect[1]);
 					//toNDC_nobias(float(x+msg_width+width	), float(y+height	), rect[2], rect[3]);//y2<y1
 
-					//idx=printable_count<<4;
-					idx=0;
 					txc=atlas+c-32;
-					float *vptr=(float*)ARRAY_APPEND(*vertices, 0, 4, 1, 0);
-					vptr[idx++]=rect[0], vptr[idx++]=rect[1],	vptr[idx++]=txc->x1, vptr[idx++]=txc->y1;//top left
-					vptr[idx++]=rect[0], vptr[idx++]=rect[3],	vptr[idx++]=txc->x1, vptr[idx++]=txc->y2;//bottom left
-					vptr[idx++]=rect[2], vptr[idx++]=rect[3],	vptr[idx++]=txc->x2, vptr[idx++]=txc->y2;//bottom right
-					vptr[idx++]=rect[2], vptr[idx++]=rect[1],	vptr[idx++]=txc->x2, vptr[idx++]=txc->y1;//top right
+					{
+						float *vptr=(float*)ARRAY_APPEND(*vertices, 0, 4, 1, 0);
+						*vptr++=rect[0], *vptr++=rect[1], *vptr++=txc->x1, *vptr++=txc->y1;//top left
+						*vptr++=rect[0], *vptr++=rect[3], *vptr++=txc->x1, *vptr++=txc->y2;//bottom left
+						*vptr++=rect[2], *vptr++=rect[3], *vptr++=txc->x2, *vptr++=txc->y2;//bottom right
+						*vptr++=rect[2], *vptr++=rect[1], *vptr++=txc->x2, *vptr++=txc->y1;//top right
+					}
 
 					++printable_count;
 				}
@@ -1119,26 +1165,36 @@ float GUIPrint_enqueue(ArrayHandle *vertices, float tab_origin, float x, float y
 
 float print_line_immediate(float tab_origin, float x, float y, float zoom, const char *msg, int msg_length, int req_cols, int *ret_idx, int *ret_cols)
 {
+	QuadCoords *txc, *atlas;
+	float
+		width, height,
+		rect[4]={0},//{x1, y1, x2, y2}
+		CX1, CX0,
+		*vptr;
+	int tab_origin_cols, printable_count, cursor_cols, advance_cols, k;
+
 	if(msg_length<1)
 		return 0;
-	float rect[4]={0};//{x1, y1, x2, y2}
-	QuadCoords *txc=0, *atlas=sdf_active?sdf_glyph_coords:font_coords;
+	txc=0;
+	atlas=sdf_active?sdf_glyph_coords:font_coords;
 	//if(sdf_active)
 	//	zoom*=16.f/sdf_txh;
-	float width=tdx*zoom, height=tdy*zoom;
-	int tab_origin_cols=(int)(tab_origin/width), idx, printable_count=0, cursor_cols=ret_cols?*ret_cols:0, advance_cols;
+	width=tdx*zoom;
+	height=tdy*zoom;
+	tab_origin_cols=(int)(tab_origin/width);
+	printable_count=0;
+	cursor_cols=ret_cols?*ret_cols:0;
 	if(y+height<ry0||y>=ry0+rdy)//off-screen optimization
 		return 0;//no need to do anything, this line is outside the screen
 	//	return idx2col(msg, msg_length, (int)(tab_origin/width))*width;
-	float CX1=2.f/rdx, CX0=CX1*(x-rx0)-1;//delta optimization
+	CX1=2.f/rdx, CX0=CX1*(x-rx0)-1;//delta optimization
 	rect[1]=1-(y       -ry0)*2.f/rdy;//y1
 	rect[3]=1-(y+height-ry0)*2.f/rdy;//y2
 	vrtx_resize(msg_length<<2, 4);//vx, vy, txx, txy		x4 vertices/char
-	int k=ret_idx?*ret_idx:0;
-	float *vptr=(float*)vrtx->data;
+	k=ret_idx?*ret_idx:0;
+	vptr=(float*)vrtx->data;
 	if(req_cols<0||cursor_cols<req_cols)
 	{
-		idx=0;
 		CX1*=width;
 		for(;k<msg_length;++k)
 		{
@@ -1170,12 +1226,11 @@ float print_line_immediate(float tab_origin, float x, float y, float zoom, const
 					//toNDC_nobias(float(x+msg_width		), float(y			), rect[0], rect[1]);
 					//toNDC_nobias(float(x+msg_width+width	), float(y+height	), rect[2], rect[3]);//y2<y1
 
-					//idx=printable_count<<4;
 					txc=atlas+c-32;
-					vptr[idx++]=rect[0], vptr[idx++]=rect[1],	vptr[idx++]=txc->x1, vptr[idx++]=txc->y1;//top left
-					vptr[idx++]=rect[0], vptr[idx++]=rect[3],	vptr[idx++]=txc->x1, vptr[idx++]=txc->y2;//bottom left
-					vptr[idx++]=rect[2], vptr[idx++]=rect[3],	vptr[idx++]=txc->x2, vptr[idx++]=txc->y2;//bottom right
-					vptr[idx++]=rect[2], vptr[idx++]=rect[1],	vptr[idx++]=txc->x2, vptr[idx++]=txc->y1;//top right
+					*vptr++=rect[0], *vptr++=rect[1],	*vptr++=txc->x1, *vptr++=txc->y1;//top left
+					*vptr++=rect[0], *vptr++=rect[3],	*vptr++=txc->x1, *vptr++=txc->y2;//bottom left
+					*vptr++=rect[2], *vptr++=rect[3],	*vptr++=txc->x2, *vptr++=txc->y2;//bottom right
+					*vptr++=rect[2], *vptr++=rect[1],	*vptr++=txc->x2, *vptr++=txc->y1;//top right
 
 					++printable_count;
 				}
@@ -1199,9 +1254,9 @@ float print_line_immediate(float tab_origin, float x, float y, float zoom, const
 				glUniform1f(u_sdftext_zoom, zoom*16.f/(sdf_txh*sdf_slope));
 				select_texture(sdf_atlas_txid, u_sdftext_atlas);
 
-				glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);				GL_CHECK(error);
-				glBufferData(GL_ARRAY_BUFFER, printable_count<<6, vptr, GL_STATIC_DRAW);GL_CHECK(error);
-				glVertexAttribPointer(a_sdftext_coords, 4, GL_FLOAT, GL_TRUE, 0, 0);	GL_CHECK(error);
+				glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);					GL_CHECK(error);
+				glBufferData(GL_ARRAY_BUFFER, printable_count<<6, vrtx->data, GL_STATIC_DRAW);	GL_CHECK(error);
+				glVertexAttribPointer(a_sdftext_coords, 4, GL_FLOAT, GL_TRUE, 0, 0);		GL_CHECK(error);
 
 			//	glBindBuffer(GL_ARRAY_BUFFER, 0);					GL_CHECK(error);
 			//	glVertexAttribPointer(a_sdftext_coords, 4, GL_FLOAT, GL_TRUE, 0, vptr);	GL_CHECK(error);
@@ -1215,9 +1270,9 @@ float print_line_immediate(float tab_origin, float x, float y, float zoom, const
 				setGLProgram(shader_text.program);
 				select_texture(font_txid, u_text_atlas);
 
-				glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);				GL_CHECK(error);
-				glBufferData(GL_ARRAY_BUFFER, printable_count<<6, vptr, GL_STATIC_DRAW);GL_CHECK(error);//set vertices & texcoords
-				glVertexAttribPointer(a_text_coords, 4, GL_FLOAT, GL_TRUE, 0, 0);	GL_CHECK(error);
+				glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);					GL_CHECK(error);
+				glBufferData(GL_ARRAY_BUFFER, printable_count<<6, vrtx->data, GL_STATIC_DRAW);	GL_CHECK(error);//set vertices & texcoords
+				glVertexAttribPointer(a_text_coords, 4, GL_FLOAT, GL_TRUE, 0, 0);		GL_CHECK(error);
 
 			//	glBindBuffer(GL_ARRAY_BUFFER, 0);					GL_CHECK(error);
 			//	glVertexAttribPointer(a_text_coords, 4, GL_FLOAT, GL_TRUE, 0, vptr);	GL_CHECK(error);
@@ -1269,7 +1324,7 @@ float GUIPrint_append(float tab_origin, float x, float y, float zoom, int show, 
 
 void display_texture(int x1, int x2, int y1, int y2, unsigned txid, float alpha, float tx1, float tx2, float ty1, float ty2)
 {
-	float _2_w=2.f/w, _2_h=2.f/h;
+	float _2_w=2.f/wndw, _2_h=2.f/wndh;
 	float rect[]=
 	{
 		x1*_2_w-1, 1-y1*_2_h,
@@ -1392,7 +1447,7 @@ void mat4_perspective(float *dst, float tanfov, float w_by_h, float znear, float
 	dst[8]=0,		dst[9]=0,		dst[10]=-(zfar+znear)/(zfar-znear),	dst[11]=-1;
 	dst[12]=0,		dst[13]=0,		dst[14]=-2*zfar*znear/(zfar-znear),	dst[15]=0;
 }
-void GetTransformInverseNoScale(float *dst, const float *src)// Requires this matrix to be transform matrix, NoScale version requires this matrix be of scale 1
+static void GetTransformInverseNoScale(float *dst, const float *src)// Requires this matrix to be transform matrix, NoScale version requires this matrix be of scale 1
 {
 	//https://lxjk.github.io/2017/09/03/Fast-4x4-Matrix-Inverse-with-SSE-SIMD-Explained.html
 #define MakeShuffleMask(x,y,z,w)           (x | (y<<2) | (z<<4) | (w<<6))
@@ -1418,17 +1473,19 @@ void GetTransformInverseNoScale(float *dst, const float *src)// Requires this ma
 	inM[3]=_mm_loadu_ps(src+12);
 
 	// transpose 3x3, we know m03 = m13 = m23 = 0
-	__m128 t0 = VecShuffle_0101(inM[0], inM[1]); // 00, 01, 10, 11
-	__m128 t1 = VecShuffle_2323(inM[0], inM[1]); // 02, 03, 12, 13
-	ret[0] = VecShuffle(t0, inM[2], 0,2,0,3); // 00, 10, 20, 23(=0)
-	ret[1] = VecShuffle(t0, inM[2], 1,3,1,3); // 01, 11, 21, 23(=0)
-	ret[2] = VecShuffle(t1, inM[2], 0,2,2,3); // 02, 12, 22, 23(=0)
+	{
+		__m128 t0 = VecShuffle_0101(inM[0], inM[1]); // 00, 01, 10, 11
+		__m128 t1 = VecShuffle_2323(inM[0], inM[1]); // 02, 03, 12, 13
+		ret[0] = VecShuffle(t0, inM[2], 0,2,0,3); // 00, 10, 20, 23(=0)
+		ret[1] = VecShuffle(t0, inM[2], 1,3,1,3); // 01, 11, 21, 23(=0)
+		ret[2] = VecShuffle(t1, inM[2], 0,2,2,3); // 02, 12, 22, 23(=0)
 
-	// last line
-	ret[3] =                    _mm_mul_ps(ret[0], VecSwizzle1(inM[3], 0));
-	ret[3] = _mm_add_ps(ret[3], _mm_mul_ps(ret[1], VecSwizzle1(inM[3], 1)));
-	ret[3] = _mm_add_ps(ret[3], _mm_mul_ps(ret[2], VecSwizzle1(inM[3], 2)));
-	ret[3] = _mm_sub_ps(_mm_setr_ps(0.f, 0.f, 0.f, 1.f), ret[3]);
+		// last line
+		ret[3] =                    _mm_mul_ps(ret[0], VecSwizzle1(inM[3], 0));
+		ret[3] = _mm_add_ps(ret[3], _mm_mul_ps(ret[1], VecSwizzle1(inM[3], 1)));
+		ret[3] = _mm_add_ps(ret[3], _mm_mul_ps(ret[2], VecSwizzle1(inM[3], 2)));
+		ret[3] = _mm_sub_ps(_mm_setr_ps(0.f, 0.f, 0.f, 1.f), ret[3]);
+	}
 
 	_mm_storeu_ps(dst, ret[0]);
 	_mm_storeu_ps(dst+4, ret[1]);
@@ -1457,10 +1514,11 @@ void draw_3D_triangles(Camera const *cam, unsigned vbuf, size_t offset, int nver
 {
 	float mView[16], mProj[16], mVP[16];
 	__m128 temp1;
+
 	setGLProgram(shader_3D.program);
 
 	mat4_FPSView(mView, &cam->x, cam->ax, cam->ay);
-	mat4_perspective(mProj, cam->tanfov, (float)(w)/h, 0.1f, 1000.f);
+	mat4_perspective(mProj, cam->tanfov, (float)(wndw)/wndh, 0.1f, 1000.f);
 	mat4_mul_mat4(mVP, mProj, mView, temp1);
 	
 	glUniformMatrix4fv(u_3D_matrix, 1, GL_FALSE, mVP);	GL_CHECK(error);
@@ -1491,26 +1549,30 @@ void gpubuf_send_VNT(GPUModel *dst, const float *VVVNNNTT, int n_floats, const i
 }
 void draw_L3D(Camera const *cam, GPUModel const *model, const float *modelpos, const float *lightpos, int lightcolor)
 {
-	float mView[16], mProj[16], mVP[16], mMVP_Model[32], mNormal[9], sceneInfo[9];
+	float
+		mView[16], mProj[16], mVP[16], mMVP_Model[32], mNormal[9], sceneInfo[9],
+		*mMVP, *mModel;
 	__m128 temp1;
+	unsigned char *ptr;
 
 	setGLProgram(shader_L3D.program);
 
 	mat4_FPSView(mView, &cam->x, cam->ax, cam->ay);
-	mat4_perspective(mProj, cam->tanfov, (float)(w)/h, 0.1f, 1000.f);
+	mat4_perspective(mProj, cam->tanfov, (float)(wndw)/wndh, 0.1f, 1000.f);
 	mat4_mul_mat4(mVP, mProj, mView, temp1);
 
-	float *mMVP=mMVP_Model, *mModel=mMVP_Model+16;
+	mMVP=mMVP_Model;
+	mModel=mMVP_Model+16;
 	mat4_identity(mModel, 1);
 	mat4_translate(mModel, modelpos, temp1);
 	mat4_normalmat3(mNormal, mModel);
 	mat4_mul_mat4(mMVP, mVP, mModel, temp1);
 
-	unsigned char *p=(unsigned char*)&lightcolor;
+	ptr=(unsigned char*)&lightcolor;
 	memcpy(sceneInfo, lightpos, 3*sizeof(float));
-	sceneInfo[3]=p[0]*inv255;
-	sceneInfo[4]=p[1]*inv255;
-	sceneInfo[5]=p[2]*inv255;
+	sceneInfo[3]=ptr[0]*inv255;
+	sceneInfo[4]=ptr[1]*inv255;
+	sceneInfo[5]=ptr[2]*inv255;
 	memcpy(sceneInfo+6, &cam->x, 3*sizeof(float));
 	
 	glUniformMatrix4fv(u_L3D_matVP_Model, 2, GL_FALSE, mMVP_Model);	GL_CHECK(error);
@@ -1538,12 +1600,15 @@ void draw_L3D(Camera const *cam, GPUModel const *model, const float *modelpos, c
 void draw_3d_line(Camera const *cam, const float *w1, const float *w2, int color)
 {
 	static unsigned txid=0;
+
 	int bitmap[4]=
 	{
 		color, color,
 		color, color,
 	};
-	float mView[16], mProj[16], mVP[16];
+	float
+		mView[16], mProj[16], mVP[16],
+		*vptr;
 	__m128 temp1;
 
 	//prepare texture
@@ -1553,7 +1618,7 @@ void draw_3d_line(Camera const *cam, const float *w1, const float *w2, int color
 	
 	//prepare coords
 	vrtx_resize(2, 5);
-	float *vptr=(float*)vrtx->data;
+	vptr=(float*)vrtx->data;
 	vptr[0]=-w1[0];
 	vptr[1]=-w1[1];
 	vptr[2]=w1[2];
@@ -1570,7 +1635,7 @@ void draw_3d_line(Camera const *cam, const float *w1, const float *w2, int color
 	
 	//prepare matrix
 	mat4_FPSView(mView, &cam->x, cam->ax, cam->ay);
-	mat4_perspective(mProj, cam->tanfov, (float)(w)/h, 0.1f, 1000.f);
+	mat4_perspective(mProj, cam->tanfov, (float)(wndw)/wndh, 0.1f, 1000.f);
 	mat4_mul_mat4(mVP, mProj, mView, temp1);
 
 	setGLProgram(shader_3D.program);
@@ -1612,6 +1677,7 @@ void draw_3d_line_enqueue(ArrayHandle *vertices, float x, float y, float z)
 void draw_3d_flush(ArrayHandle vertices, Camera const *cam, int *texture, int tw, int th, int linear, unsigned primitive)
 {
 	static unsigned txid=0;
+
 	float mView[16], mProj[16], mVP[16];
 	__m128 temp1;
 
@@ -1622,7 +1688,7 @@ void draw_3d_flush(ArrayHandle vertices, Camera const *cam, int *texture, int tw
 	
 	//prepare matrix
 	mat4_FPSView(mView, &cam->x, cam->ax, cam->ay);
-	mat4_perspective(mProj, cam->tanfov, (float)(w)/h, 0.1f, 1000.f);
+	mat4_perspective(mProj, cam->tanfov, (float)(wndw)/wndh, 0.1f, 1000.f);
 	mat4_mul_mat4(mVP, mProj, mView, temp1);
 
 	setGLProgram(shader_3D.program);
@@ -1648,6 +1714,7 @@ void draw_3d_flush(ArrayHandle vertices, Camera const *cam, int *texture, int tw
 void draw_3d_wireframe_gpu(Camera const *cam, unsigned gpubuf, int nvertices, int color, unsigned primitive)
 {
 	static unsigned txid=0;
+
 	float mView[16], mProj[16], mVP[16];
 	__m128 temp1;
 	int texture[]=
@@ -1657,13 +1724,14 @@ void draw_3d_wireframe_gpu(Camera const *cam, unsigned gpubuf, int nvertices, in
 		color,
 		color,
 	};
+
 	if(!txid)
 		glGenTextures(1, &txid);
 	send_texture_pot(txid, texture, 2, 2, 0);
 
 	//prepare matrix
 	mat4_FPSView(mView, &cam->x, cam->ax, cam->ay);
-	mat4_perspective(mProj, cam->tanfov, (float)(w)/h, 0.1f, 1000.f);
+	mat4_perspective(mProj, cam->tanfov, (float)(wndw)/wndh, 0.1f, 1000.f);
 	mat4_mul_mat4(mVP, mProj, mView, temp1);
 
 	setGLProgram(shader_3D.program);
@@ -1688,10 +1756,11 @@ void draw_contour3d_rect(Camera const *cam, unsigned vbuf, int nvertices, unsign
 {
 	float mView[16], mProj[16], mVP[16];
 	__m128 temp1;
+
 	setGLProgram(shader_contour3D.program);
 
 	mat4_FPSView(mView, &cam->x, cam->ax, cam->ay);
-	mat4_perspective(mProj, cam->tanfov, (float)(w)/h, 0.1f, 1000.f);
+	mat4_perspective(mProj, cam->tanfov, (float)(wndw)/wndh, 0.1f, 1000.f);
 	mat4_mul_mat4(mVP, mProj, mView, temp1);
 	
 	glUniform1f(u_contour3D_alpha, alpha);
@@ -1716,15 +1785,17 @@ typedef struct ConVertStruct
 } ConVert;
 void draw_contour3d(Camera const *cam, float x1, float x2, float y1, float y2, float z1, float z2, unsigned *textures, int count, float alpha)
 {
+	static unsigned buffer=0;
+
 	float mView[16], mProj[16], mVP[16];
 	__m128 temp1;
-	static unsigned buffer=0;
+
 	if(!buffer)
 		glGenBuffers(1, &buffer);
 
 	setGLProgram(shader_contour3D.program);
 	mat4_FPSView(mView, &cam->x, cam->ax, cam->ay);
-	mat4_perspective(mProj, cam->tanfov, (float)(w)/h, 0.1f, 1000.f);
+	mat4_perspective(mProj, cam->tanfov, (float)(wndw)/wndh, 0.1f, 1000.f);
 	mat4_mul_mat4(mVP, mProj, mView, temp1);
 	glUniformMatrix4fv(u_contour3D_matrix, 1, GL_FALSE, mVP);	GL_CHECK(error);
 	

@@ -25,6 +25,18 @@
 int consoleactive=0;
 #define G_BUF_SIZE	1024
 static char g_buf2[G_BUF_SIZE]={0};
+
+
+void   console_start(void);
+void   console_end(void);
+void   console_buffer_size(short x, short y);
+int    console_log(const char *format, ...);
+void   console_pause(void);
+int    console_scan(char *buf, int len);
+int    console_scan_int(void);
+double console_scan_float(void);
+
+
 int console_log(const char *format, ...)
 {
 	va_list args;
@@ -42,11 +54,12 @@ void console_start(void)//https://stackoverflow.com/questions/191842/how-do-i-ge
 {
 	if(!consoleactive)
 	{
-		consoleactive=1;
 		int hConHandle;
 		size_t lStdHandle;
-		//CONSOLE_SCREEN_BUFFER_INFO coninfo;
 		FILE *fp;
+		//CONSOLE_SCREEN_BUFFER_INFO coninfo;
+
+		consoleactive=1;
 
 		// allocate a console for this app
 		AllocConsole();

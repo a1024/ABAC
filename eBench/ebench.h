@@ -24,7 +24,7 @@ extern "C"
 #define TIMER_ID_MONITOR 2
 #define TIMER_MONITOR_MS 100
 
-extern int w, h, mx, my, mouse_bypass;
+extern int wndw, wndh, mx, my, mouse_bypass;
 extern HWND ghWnd;
 extern HDC ghDC;
 extern HGLRC hRC;
@@ -493,11 +493,6 @@ GLFUNCLIST
 		_mm_storeu_ps(M4, _mm_mul_ps(_mm_loadu_ps(M4), _mm_set1_ps((AMMOUNT)[0]))),\
 		_mm_storeu_ps(M4+4, _mm_mul_ps(_mm_loadu_ps(M4+4), _mm_set1_ps((AMMOUNT)[1]))),\
 		_mm_storeu_ps(M4+8, _mm_mul_ps(_mm_loadu_ps(M4+8), _mm_set1_ps((AMMOUNT)[2]))),\
-
-void	mat4_lookAt(float *dst, const float *cam, const float *center, const float *up);
-void	mat4_FPSView(float *dst, const float *campos, float yaw, float pitch);
-void	mat4_perspective(float *dst, float tanfov, float w_by_h, float znear, float zfar);
-void	mat4_normalmat3(float *dst, float *m4);//inverse transpose of top left 3x3 submatrix
 
 typedef struct CameraStruct
 {
