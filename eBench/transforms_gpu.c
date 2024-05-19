@@ -500,7 +500,7 @@ void pred_learned_gpu(char *buf, int iw, int ih, int fwd)
 }
 #ifdef ENABLE_CONSOLE_MAIN_TEST
 #include"lodepng.h"
-#include"stb_image.h"
+//#include"stb_image.h"
 int main(int argc, char **argv)
 {
 	//int arr[]={1, 0, 0, 0, 0};

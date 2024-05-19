@@ -372,6 +372,7 @@ static unsigned CompileShader(const char *src, unsigned type, const char *progra
 }
 static unsigned make_gl_program_impl(const char *vertSrc, const char *fragSrc, const char *programname)
 {
+	int success=0;
 	unsigned
 		vertShaderID=CompileShader(vertSrc, GL_VERTEX_SHADER, programname),
 		fragShaderID=CompileShader(fragSrc, GL_FRAGMENT_SHADER, programname);
@@ -383,13 +384,14 @@ static unsigned make_gl_program_impl(const char *vertSrc, const char *fragSrc, c
 	glAttachShader(ProgramID, fragShaderID);
 	glLinkProgram(ProgramID);
 
-	int success=0;
 	glGetProgramiv(ProgramID, GL_LINK_STATUS, &success);
 	if(!success)
 	{
 		int infoLogLength;
+		char *errorMessage;
+
 		glGetProgramiv(ProgramID, GL_INFO_LOG_LENGTH, &infoLogLength);
-		char *errorMessage=(char*)malloc(infoLogLength+1);
+		errorMessage=(char*)malloc(infoLogLength+1LL);
 		glGetProgramInfoLog(ProgramID, infoLogLength, 0, errorMessage);
 		copy_to_clipboard(errorMessage, infoLogLength);
 		if(programname)

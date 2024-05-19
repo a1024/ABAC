@@ -112,9 +112,11 @@ void reverse16(void *start, void *end)
 		*p2=(unsigned short*)end;
 	while(p1<p2-(sizeof(__m256i)/sizeof(short)-1))
 	{
+		__m256i v1, v2;
+
 		p2-=sizeof(__m256i)/sizeof(short);
-		__m256i v1=_mm256_loadu_si256((__m256i*)p1);
-		__m256i v2=_mm256_loadu_si256((__m256i*)p2);
+		v1=_mm256_loadu_si256((__m256i*)p1);
+		v2=_mm256_loadu_si256((__m256i*)p2);
 		v1=_mm256_shuffle_epi8(v1, reverse);
 		v2=_mm256_shuffle_epi8(v2, reverse);
 		v1=_mm256_permute2x128_si256(v1, v1, 1);
@@ -125,8 +127,10 @@ void reverse16(void *start, void *end)
 	}
 	while(p1<p2-1)
 	{
+		unsigned short temp;
+
 		--p2;
-		unsigned short temp=*p1;
+		temp=*p1;
 		*p1=*p2;
 		*p2=temp;
 		++p1;
@@ -284,7 +288,8 @@ int hammingweight64(unsigned long long x)
 	return __builtin_popcountll(x);
 #endif
 }
-int floor_log2_p1(unsigned long long n)
+#if 0
+static int floor_log2_p1(unsigned long long n)
 {
 #ifdef _MSC_VER
 	return (sizeof(n)<<3)-(int)__lzcnt64(n);
@@ -307,7 +312,7 @@ int floor_log2_p1(unsigned long long n)
 	return logn;
 #endif
 }
-int floor_log2(unsigned long long n)
+static int floor_log2(unsigned long long n)
 {
 #if defined _MSC_VER || defined __GNUC__
 	return (sizeof(n)<<3)-1-(int)_lzcnt_u64(n);//since Haswell
@@ -322,7 +327,7 @@ int floor_log2(unsigned long long n)
 	return logn;
 #endif
 }
-int floor_log2_32(unsigned n)
+static int floor_log2_32(unsigned n)
 {
 #if defined _MSC_VER || defined __GNUC__
 	return (sizeof(n)<<3)-1-(int)_lzcnt_u32(n);//SSE4
@@ -379,19 +384,21 @@ int floor_log2_32(unsigned n)
 #endif
 #endif
 }
+#endif
 int ceil_log2(unsigned long long n)
 {
-	int lgn=floor_log2(n);
+	int lgn=FLOOR_LOG2(n);
 	lgn+=(1ULL<<lgn)<n;
 	return lgn;
 }
 int ceil_log2_32(unsigned n)
 {
-	int lgn=floor_log2_32(n);
+	int lgn=FLOOR_LOG2(n);
 	lgn+=(1U<<lgn)<n;
 	return lgn;
 }
-int get_lsb_index(unsigned long long n)
+#if 0
+static int get_lsb_index(unsigned long long n)
 {
 #ifdef _MSC_VER
 	return (int)_tzcnt_u64(n);//BMI1 (2013)
@@ -416,7 +423,7 @@ int get_lsb_index(unsigned long long n)
 	return lsb;
 #endif
 }
-int get_lsb_index32(unsigned n)
+static int get_lsb_index32(unsigned n)
 {
 #ifdef _MSC_VER
 	return (int)_tzcnt_u32(n);
@@ -440,7 +447,7 @@ int get_lsb_index32(unsigned n)
 	return lsb;
 #endif
 }
-int get_lsb_index16(unsigned short n)
+static int get_lsb_index16(unsigned short n)
 {
 #ifdef _MSC_VER
 	return (int)_tzcnt_u16(n);
@@ -458,6 +465,7 @@ int get_lsb_index16(unsigned short n)
 	return lsb;
 #endif
 }
+#endif
 int floor_log10(double x)
 {
 	static const double pmask[]=//positive powers
@@ -773,16 +781,16 @@ unsigned exp2_neg_fix24_avx2(unsigned x)
 	__m256i ones=_mm256_set_epi32(0, 1, 0, 1, 0, 1, 0, 1);
 
 	__m256i x2=_mm256_set_epi32(0, x>>18&63, 0, x>>12&63, 0, x>>6&63, 0, x&63);
-	__m256i result=_mm256_load_si256((__m256i*)frac_pots+6);
+	__m256i result=_mm256_load_si256((const __m256i*)frac_pots+6);
 
-	__m256i factor=_mm256_load_si256((__m256i*)frac_pots+0);
+	__m256i factor=_mm256_load_si256((const __m256i*)frac_pots+0);
 	__m256i mask=_mm256_and_si256(x2, ones);
 	x2=_mm256_srli_epi32(x2, 1);
 	mask=_mm256_cmpeq_epi64(mask, ones);
 	result=_mm256_castpd_si256(_mm256_blendv_pd(_mm256_castsi256_pd(result), _mm256_castsi256_pd(factor), _mm256_castsi256_pd(mask)));
 	for(int k=1;k<FRAC_BITS/4;++k)
 	{
-		factor=_mm256_load_si256((__m256i*)frac_pots+k);
+		factor=_mm256_load_si256((const __m256i*)frac_pots+k);
 		factor=_mm256_mul_epu32(factor, result);
 		mask=_mm256_and_si256(x2, ones);
 		x2=_mm256_srli_epi32(x2, 1);
@@ -790,13 +798,18 @@ unsigned exp2_neg_fix24_avx2(unsigned x)
 		mask=_mm256_cmpeq_epi64(mask, ones);
 		result=_mm256_castpd_si256(_mm256_blendv_pd(_mm256_castsi256_pd(result), _mm256_castsi256_pd(factor), _mm256_castsi256_pd(mask)));
 	}
-	__m128i r0=_mm256_extracti128_si256(result, 0);
-	__m128i r1=_mm256_extracti128_si256(result, 1);
-	r0=_mm_mul_epu32(r0, r1);
-	r0=_mm_shuffle_epi8(r0, sr24);
-	unsigned sh=(x>>FRAC_BITS)+24;
-	unsigned res=(unsigned)((unsigned long long)_mm_extract_epi64(r0, 0)*(unsigned long long)_mm_extract_epi64(r0, 1)>>sh);
-	return res;
+	{
+		__m128i r0, r1;
+		unsigned sh, res;
+
+		r0=_mm256_extracti128_si256(result, 0);
+		r1=_mm256_extracti128_si256(result, 1);
+		r0=_mm_mul_epu32(r0, r1);
+		r0=_mm_shuffle_epi8(r0, sr24);
+		sh=(x>>FRAC_BITS)+24;
+		res=(unsigned)((unsigned long long)_mm_extract_epi64(r0, 0)*(unsigned long long)_mm_extract_epi64(r0, 1)>>sh);
+		return res;
+	}
 }
 unsigned long long exp2_fix24(int x)
 {
@@ -855,11 +868,12 @@ unsigned long long exp2_fix24(int x)
 		0x1306FE0A3,
 		0x16A09E668,//round(2^(0x800000*2^-24)*2^32)
 	};
+	unsigned long long result;
 	int neg=x<0;
 	x=abs(x);
 	if(x>=0x27000000)
 		return neg?0:0xFFFFFFFFFFFFFFFF;
-	unsigned long long result=0x1000000;
+	result=0x1000000;
 	for(int k=0;k<FRAC_BITS;++k)//up to 24 muls
 	{
 		if(x&1)
@@ -878,17 +892,22 @@ int log2_fix24(unsigned long long x)
 {
 	//https://stackoverflow.com/questions/4657468/fast-fixed-point-pow-log-exp-and-sqrt
 	//and YouChad
+	
+	int lgx;
+
 	if(!x)
 		return -((FRAC_BITS+1)<<FRAC_BITS);
-	int lgx=floor_log2(x)-24;
+	lgx=FLOOR_LOG2(x)-24;
 	x=SHIFT_RIGHT_SIGNED(x, lgx);
 	lgx<<=24;
 	if(!(x&(x-1)))//no need to do 24 muls if x is a power of two
 		return lgx;
 	for(int k=FRAC_BITS-1;k>=0;--k)//constant 24 muls, hopefully will be unrolled
 	{
+		int cond;
+
 		x=x*x>>FRAC_BITS;
-		int cond=x>=(2LL<<FRAC_BITS);
+		cond=x>=(2LL<<FRAC_BITS);
 		x>>=cond;
 		lgx|=cond<<k;
 	}
@@ -915,7 +934,7 @@ double _10pow(int n)
 {
 	static double mask[616]={0};
 //	const double _ln10=log(10.);
-	if(!mask[308])
+	if(fabs(mask[308])<1e-9)
 	{
 		int k;
 		for(k=-308;k<308;++k)		//23.0
@@ -1089,17 +1108,20 @@ int print_size(double bytesize, int ndigits, int pdigits, char *str, int len)
 char first_error_msg[G_BUF_SIZE]={0}, latest_error_msg[G_BUF_SIZE]={0};
 int log_error(const char *fn, int line, int quit, const char *format, ...)
 {
+	int printed;
 	int firsttime=first_error_msg[0]=='\0';
 
 	ptrdiff_t size=strlen(fn), start=size-1;
 	for(;start>=0&&fn[start]!='/'&&fn[start]!='\\';--start);
 	start+=start==-1||fn[start]=='/'||fn[start]=='\\';
 
-	int printed=sprintf_s(latest_error_msg, G_BUF_SIZE, "%s(%d): ", fn+start, line);
-	va_list args;
-	va_start(args, format);
-	printed+=vsprintf_s(latest_error_msg+printed, G_BUF_SIZE-printed-1, format, args);
-	va_end(args);
+	printed=sprintf_s(latest_error_msg, G_BUF_SIZE, "%s(%d): ", fn+start, line);
+	{
+		va_list args;
+		va_start(args, format);
+		printed+=vsprintf_s(latest_error_msg+printed, G_BUF_SIZE-printed-1, format, args);
+		va_end(args);
+	}
 
 	if(firsttime)
 		memcpy(first_error_msg, latest_error_msg, printed+1LL);
@@ -1162,12 +1184,12 @@ int pause(void)
 	//while(!scanf("%d", &k));
 	return k;
 }
-#ifdef _MSC_VER
-int pause1(void)
-{
-	return _getch();
-}
-#endif
+//#ifdef _MSC_VER
+//int pause1(void)
+//{
+//	return _getch();
+//}
+//#endif
 int pause_abort(const char *fn, int lineno, const char *extraInfo)
 {
 	printf("INTERNAL ERROR %s(%d)\nABORTING\n", fn, lineno);
@@ -1561,7 +1583,7 @@ static void dlist_append_node(DListHandle list)
 	else\
 		memset(DST, 0, COPYSIZE);
 #else
-static void dlist_fill_node(DListHandle list, size_t copysize, char **src, void *dst)
+static void dlist_fill_node(DListHandle list, size_t copysize, const char **src, void *dst)
 {
 	list->nobj+=copysize;
 	copysize*=list->objsize;
@@ -1588,21 +1610,23 @@ void* dlist_push_back1(DListHandle list, const void *obj)
 	size_t obj_idx=list->nobj%list->objpernode;//index of next object
 	if(!obj_idx)//need a new node
 		dlist_append_node(list);
-	void *p=list->f->data+obj_idx*list->objsize;
-	if(obj)
-		memcpy(p, obj, list->objsize);
-	else
-		memset(p, 0, list->objsize);
-	++list->nobj;
-	return p;
+	{
+		void *p=list->f->data+obj_idx*list->objsize;
+		if(obj)
+			memcpy(p, obj, list->objsize);
+		else
+			memset(p, 0, list->objsize);
+		++list->nobj;
+		return p;
+	}
 }
 void* dlist_push_back(DListHandle list, const void *data, size_t count)
 {
 	size_t obj_idx, copysize;
-	char *buffer;
+	const char *buffer;
 	void *ret;
 	
-	buffer=(char*)data;
+	buffer=(const char*)data;
 	ret=0;
 	obj_idx=list->nobj%list->objpernode;
 	if(obj_idx)
@@ -2315,7 +2339,6 @@ BitstringHandle bitstring_construct(const void *src, size_t bitCount, size_t bit
 {
 	BitstringHandle str;
 	size_t srcBytes, cap;
-	unsigned char *srcbytes=(unsigned char*)src;
 
 	srcBytes=(bitCount+7)>>3;
 	cap=srcBytes+bytePad;
@@ -2331,6 +2354,7 @@ BitstringHandle bitstring_construct(const void *src, size_t bitCount, size_t bit
 	memset(str->data, 0, cap);
 	if(src)
 	{
+		const unsigned char *srcbytes=(const unsigned char*)src;
 		for(size_t b=0;b<bitCount;++b)
 		{
 			int bit=srcbytes[(bitOffset+b)>>3]>>((bitOffset+b)&7)&1;
@@ -2348,7 +2372,6 @@ void bitstring_append(BitstringHandle *str, const void *src, size_t bitCount, si
 {
 	size_t reqcap, newcap;
 	size_t byteIdx;
-	unsigned char *srcbytes=(unsigned char*)src;
 
 	newcap=str[0]->byteCap;
 	newcap+=!newcap;
@@ -2369,6 +2392,7 @@ void bitstring_append(BitstringHandle *str, const void *src, size_t bitCount, si
 	memset(str[0]->data+byteIdx, 0, newcap-byteIdx);
 	if(src)
 	{
+		const unsigned char *srcbytes=(const unsigned char*)src;
 		for(size_t b=0;b<bitCount;++b)
 		{
 			int bit=srcbytes[(bitOffset+b)>>3]>>((bitOffset+b)&7)&1;
@@ -2454,7 +2478,7 @@ static void pqueue_heapifyup(PQueueHandle *pq, size_t idx, void *temp)
 		idx=parent;
 	}
 }
-void        pqueue_heapifydown(PQueueHandle *pq, size_t idx, void *temp)
+static void pqueue_heapifydown(PQueueHandle *pq, size_t idx, void *temp)
 {
 	size_t left, right, largest;
 
@@ -2476,7 +2500,7 @@ void        pqueue_heapifydown(PQueueHandle *pq, size_t idx, void *temp)
 		idx=largest;
 	}
 }
-void        pqueue_buildheap(PQueueHandle *pq)
+static void pqueue_buildheap(PQueueHandle *pq)
 {
 	void *temp;
 
@@ -2878,13 +2902,14 @@ ArrayHandle searchfor_file(const char *searchpath, const char *filetitle)
 
 int get_cpu_features(void)//returns  0: old CPU,  1: AVX2,  3: AVX-512
 {
+	int avx2, avx512;
 #ifdef _MSC_VER
-	int avx2=IsProcessorFeaturePresent(PF_AVX2_INSTRUCTIONS_AVAILABLE)!=0;
-	int avx512=IsProcessorFeaturePresent(PF_AVX512F_INSTRUCTIONS_AVAILABLE)!=0;
+	avx2=IsProcessorFeaturePresent(PF_AVX2_INSTRUCTIONS_AVAILABLE)!=0;
+	avx512=IsProcessorFeaturePresent(PF_AVX512F_INSTRUCTIONS_AVAILABLE)!=0;
 #else
 	__builtin_cpu_init();
-	int avx2=__builtin_cpu_supports("avx2")!=0;
-	int avx512=__builtin_cpu_supports("avx512f")!=0;
+	avx2=__builtin_cpu_supports("avx2")!=0;
+	avx512=__builtin_cpu_supports("avx512f")!=0;
 #endif
 	return avx512<<1|avx2;
 }

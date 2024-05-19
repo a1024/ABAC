@@ -1,10 +1,11 @@
 #include"ebench.h"
+#include<stdio.h>//snpirntf
 #include<stdlib.h>
 #define _USE_MATH_DEFINES
 #include<math.h>
 #include<process.h>
 #include<immintrin.h>
-#include"stb_image.h"
+//#include"stb_image.h"
 #include"lodepng.h"
 #define DEBUG_MEMORY_IMPLEMENTATION
 #include"intercept_malloc.h"
@@ -5046,7 +5047,7 @@ int io_keydn(IOKey key, char c)
 			}
 			else if(transforms_mask[ST_FWD_CUSTOM4]||transforms_mask[ST_INV_CUSTOM4])
 			{
-				int srcidx=lossyconv_page&0xF0|(key-KEY_1)&15;
+				int srcidx=(lossyconv_page&0xF0)|((key-KEY_1)&15);
 				if(srcidx!=lossyconv_page)
 				{
 					memcpy(lossyconv_params+5*5*lossyconv_page, lossyconv_params+5*5*srcidx, sizeof(short[25]));

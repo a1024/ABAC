@@ -192,9 +192,9 @@ int log_error(const char *file, int line, int quit, const char *format, ...);//d
 #define ASSERT_MSG(SUCCESS, MSG, ...) ((SUCCESS)!=0||log_error(file, __LINE__, 1, MSG, ##__VA_ARGS__))
 //int valid(const void *p);
 int pause(void);
-#ifdef _MSC_VER
-int pause1(void);
-#endif
+//#ifdef _MSC_VER
+//int pause1(void);
+//#endif
 int pause_abort(const char *file, int lineno, const char *extraInfo);
 #define PANIC() pause_abort(file, __LINE__, 0)
 #define ASSERT(SUCCESS) ((SUCCESS)!=0||pause_abort(file, __LINE__, #SUCCESS))

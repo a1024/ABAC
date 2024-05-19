@@ -5988,8 +5988,8 @@ void pred_ols2(Image *src, int fwd, int enable_ma)
 						{
 							__m128i mpred=_mm_cvtpd_epi32(_mm_set_sd(fpred));
 							__m128i mN	=_mm_set_epi32(0, 0, 0, N);
-							__m128i mW	=_mm_set_epi32(0, 0, 0, N);
-							__m128i mNE	=_mm_set_epi32(0, 0, 0, N);
+							__m128i mW	=_mm_set_epi32(0, 0, 0, W);
+							__m128i mNE	=_mm_set_epi32(0, 0, 0, NE);
 							__m128i vmin=_mm_min_epi32(mN, mW);
 							__m128i vmax=_mm_max_epi32(mN, mW);
 							vmin=_mm_min_epi32(vmin, mNE);
@@ -6472,14 +6472,14 @@ void pred_t47(Image *src, int fwd, int enable_ma)
 	errors=fwd?src->data:dst->data;
 	for(int kc=0;kc<4;++kc)
 	{
-		int nlevels, sh;
+		int sh;
 		int params[SLIC5_NPREDS], param0=176;
 		long long bias_sum=0;
 		int bias_count=0;
 
 		if(!src->depth[kc])
 			continue;
-		nlevels=1<<src->depth[kc], sh=src->depth[kc];
+		sh=src->depth[kc];
 		memfill(params, &param0, sizeof(params), sizeof(int));
 		memset(pred_errors, 0, (src->iw+4LL)*sizeof(int[SLIC5_NPREDS*4]));
 		for(int ky=0, idx=0;ky<src->ih;++ky)
@@ -6646,8 +6646,8 @@ void pred_t47(Image *src, int fwd, int enable_ma)
 					val+=src->data[idx<<2|kc];
 					if(enable_ma)
 					{
-						val<<=32-src->depth[kc];
-						val>>=32-src->depth[kc];
+						val<<=32-sh;
+						val>>=32-sh;
 					}
 					src->data[idx<<2|kc]=val;
 
@@ -6704,6 +6704,7 @@ void pred_custom(Image *src, int fwd, int enable_ma, const int *params)
 			{
 				int nb[CUSTOM_NNB*2], clamp_idx[]={22, 12, 14, 16};//W NW N NE
 				int vmin, vmax, uninitialized;
+				long long pred;
 
 				for(int ky2=-CUSTOM_REACH, idx2=0;ky2<=0;++ky2)
 				{
@@ -6743,7 +6744,7 @@ void pred_custom(Image *src, int fwd, int enable_ma, const int *params)
 					}
 				}
 
-				long long pred=0;
+				pred=0;
 				for(int k=0;k<CUSTOM_NNB*2;++k)
 					pred+=(long long)nb[k]*params[k];
 				pred+=1LL<<15;
@@ -7368,21 +7369,21 @@ short jxlparams_i16[33]=//signed fixed 7.8 bit
 	//0x50, 0x41, 0xA9, 0x64,     0x24,  0x03, -0x09,    0,  0x01,  0x32, 0x13,
 	//0x59, 0x61, 0x6D, 0x8C,    -0x0A, -0x08,  0x30, 0x05, -0x04,  0x0D, 0x74,
 };
-void pred_jxl_prealloc(const int *src, int iw, int ih, int depth, int kc, short *params, int fwd, int enable_ma, int *dst, int *temp_w10)
+static void pred_jxl_prealloc(const int *src, int iw, int ih, int depth, int kc, short *params, int fwd, int enable_ma, int *dst, int *temp_w10)
 {
 	int errorbuflen=iw<<1, rowlen=iw<<2;
 	int *hireserror=temp_w10, *pred_errors[]=
 	{
-		temp_w10+errorbuflen,
+		temp_w10+errorbuflen*1,
 		temp_w10+errorbuflen*2,
 		temp_w10+errorbuflen*3,
 		temp_w10+errorbuflen*4,
 	};
-	memset(temp_w10, 0, iw*10*sizeof(int));
-	int nlevels=1<<depth;
 	int idx=kc;
 	const int *pixels=fwd?src:dst;
 //	const int *errors=fwd?dst:src;
+
+	memset(temp_w10, 0, iw*sizeof(int[10]));
 	for(int ky=0;ky<ih;++ky)
 	{
 		int currrow=ky&1?0:iw, prevrow=ky&1?iw:0;
@@ -7410,90 +7411,92 @@ void pred_jxl_prealloc(const int *src, int iw, int ih, int depth, int kc, short 
 				int e2=(ky-1>=0?pred_errors[k][prevrow+kx]:0)+(ky-1>=0&&kx+1<iw?pred_errors[k][prevrow+kx+1]:0)+(ky-1>=0&&kx-1>=0?pred_errors[k][prevrow+kx-1]:0);
 				weights[k]=(params[k]<<8)/(e2+1);
 			}
-
-			int
-				etop=ky-1>=0?hireserror[prevrow+kx]:0,
-				eleft=kx-1>=0?hireserror[currrow+kx-1]:0,
-				etopleft=ky-1>=0&&kx-1>=0?hireserror[prevrow+kx-1]:0,
-				etopright=ky-1>=0&&kx+1<iw?hireserror[prevrow+kx+1]:0,
-				etopplusleft=etop+eleft;
-			long long predictions[]=//fixed 23.8 bit
 			{
-				(cleft+ctopright-ctop)<<8,
-				(ctop<<8)-((etopplusleft+etopright)*params[4]>>8),
-				(cleft<<8)-((etopplusleft+etopleft)*params[5]>>8),
-				(ctop<<8)-(((etopleft*params[6]+etop*params[7]+etopright*params[8])>>8)+(ctt-ctop)*params[9]+(ctopleft-cleft)*params[10]),
-			};
+				int
+					etop=ky-1>=0?hireserror[prevrow+kx]:0,
+					eleft=kx-1>=0?hireserror[currrow+kx-1]:0,
+					etopleft=ky-1>=0&&kx-1>=0?hireserror[prevrow+kx-1]:0,
+					etopright=ky-1>=0&&kx+1<iw?hireserror[prevrow+kx+1]:0,
+					etopplusleft=etop+eleft;
+				long long predictions[]=//fixed 23.8 bit
+				{
+					(cleft+ctopright-ctop)<<8,
+					(ctop<<8)-((etopplusleft+etopright)*params[4]>>8),
+					(cleft<<8)-((etopplusleft+etopleft)*params[5]>>8),
+					(ctop<<8)-(((etopleft*params[6]+etop*params[7]+etopright*params[8])>>8)+(ctt-ctop)*params[9]+(ctopleft-cleft)*params[10]),
+				};
 
-			int sum=weights[0]+weights[1]+weights[2]+weights[3];
-			if(sum)
-				pred=(int)((predictions[0]*weights[0]+predictions[1]*weights[1]+predictions[2]*weights[2]+predictions[3]*weights[3]+(sum>>1)-1)/sum);
-			else
-				pred=(int)predictions[0];
+				int sum=weights[0]+weights[1]+weights[2]+weights[3];
+				if(sum)
+					pred=(int)((predictions[0]*weights[0]+predictions[1]*weights[1]+predictions[2]*weights[2]+predictions[3]*weights[3]+(sum>>1)-1)/sum);
+				else
+					pred=(int)predictions[0];
 
-			int vmin=cleft, vmax=cleft;
-			if(vmin>ctopright)vmin=ctopright;
-			if(vmax<ctopright)vmax=ctopright;
+				//int vmin=cleft, vmax=cleft;
+				//if(vmin>ctopright)vmin=ctopright;
+				//if(vmax<ctopright)vmax=ctopright;
+				//if(vmin>ctop)vmin=ctop;
+				//if(vmax<ctop)vmax=ctop;
+				//vmin<<=8;
+				//vmax<<=8;
 
-			if(vmin>ctop)vmin=ctop;
-			if(vmax<ctop)vmax=ctop;
+				//if(kc==0&&kx==0&&ky==1)//
+				//if(kc==0&&kx==256&&ky==256)//
+				//	printf("");
 
-			vmin<<=8;
-			vmax<<=8;
+				//pred=CLAMP(vmin, pred, vmax);
+				CLAMP3_32(pred, pred, ctop<<8, cleft<<8, ctopleft<<8);
+				{
+					int pred_final=(pred+127)>>8;
+					pred_final^=-fwd;
+					pred_final+=fwd;
+					pred_final+=src[idx];
+					if(enable_ma)
+					{
+						pred_final<<=32-depth;
+						pred_final>>=32-depth;
+					}
+					dst[idx]=pred_final;
+					curr=pixels[idx]<<8;
+					//if(fwd)
+					//{
+					//	dst[idx]=src[idx]-((pred+127)>>8);
+					//	if(enable_ma)
+					//		dst[idx]=((dst[idx]+(nlevels>>1))&(nlevels-1))-(nlevels>>1);
+					//	curr=src[idx]<<8;
+					//}
+					//else
+					//{
+					//	dst[idx]=src[idx]+((pred+127)>>8);
+					//	if(enable_ma)
+					//		dst[idx]=((dst[idx]+(nlevels>>1))&(nlevels-1))-(nlevels>>1);
+					//	curr=dst[idx]<<8;
+					//}
 
-			//if(kc==0&&kx==0&&ky==1)//
-			//if(kc==0&&kx==256&&ky==256)//
-			//	printf("");
-
-			pred=CLAMP(vmin, pred, vmax);
-
-			int pred_final=(pred+127)>>8;
-			pred_final^=-fwd;
-			pred_final+=fwd;
-			pred_final+=src[idx];
-			if(enable_ma)
-			{
-				pred_final+=nlevels>>1;
-				pred_final&=nlevels-1;
-				pred_final-=nlevels>>1;
-			}
-			dst[idx]=pred_final;
-			curr=pixels[idx]<<8;
-			//if(fwd)
-			//{
-			//	dst[idx]=src[idx]-((pred+127)>>8);
-			//	if(enable_ma)
-			//		dst[idx]=((dst[idx]+(nlevels>>1))&(nlevels-1))-(nlevels>>1);
-			//	curr=src[idx]<<8;
-			//}
-			//else
-			//{
-			//	dst[idx]=src[idx]+((pred+127)>>8);
-			//	if(enable_ma)
-			//		dst[idx]=((dst[idx]+(nlevels>>1))&(nlevels-1))-(nlevels>>1);
-			//	curr=dst[idx]<<8;
-			//}
-
-			hireserror[currrow+kx]=curr-pred;
-			for(int k=0;k<4;++k)
-			{
-				int e=abs(curr-(int)predictions[k]);
-				pred_errors[k][currrow+kx]=e;
-				if(kx+1<iw)
-					pred_errors[k][prevrow+kx+1]+=e;
+					hireserror[currrow+kx]=curr-pred;
+					for(int k=0;k<4;++k)
+					{
+						int e=abs(curr-(int)predictions[k]);
+						pred_errors[k][currrow+kx]=e;
+						if(kx+1<iw)
+							pred_errors[k][prevrow+kx+1]+=e;
+					}
+				}
 			}
 		}
 	}
 }
-double pred_jxl_calcloss(const int *src, int iw, int ih, int depth, int src_depth, int kc, short *params, int *temp, int *dst, int *hist)
+static double pred_jxl_calcloss(const int *src, int iw, int ih, int depth, int src_depth, int kc, short *params, int *temp, int *dst, int *hist)
 {
 	ptrdiff_t res=(ptrdiff_t)iw*ih;
 	pred_jxl_prealloc(src, iw, ih, depth, kc, params, 1, 1, dst, temp);
 	//addhalf((unsigned char*)dst+kc, iw, ih, 1, 4);
 	calc_histogram(dst, iw, ih, kc, 0, iw, 0, ih, depth, hist, 0);
-	double entropy=calc_entropy(hist, 1<<depth, (int)res);
-	double invCR=entropy/src_depth, csize=res*invCR;
-	return csize;
+	{
+		double entropy=calc_entropy(hist, 1<<depth, (int)res);
+		double invCR=entropy/src_depth, csize=res*invCR;
+		return csize;
+	}
 }
 void pred_jxl_opt_v2(Image *src, short *params, int loud)
 {
@@ -7503,6 +7506,7 @@ void pred_jxl_opt_v2(Image *src, short *params, int loud)
 	int maxdepth=calc_maxdepth(src, 0);
 	int nlevels=1<<maxdepth;
 	int *hist=(int*)malloc(nlevels*sizeof(int));
+	int steps[]={256, 128, 64, 32, 16, 8, 4, 2, 1};
 
 	(void)loud;
 
@@ -7511,7 +7515,6 @@ void pred_jxl_opt_v2(Image *src, short *params, int loud)
 		LOG_ERROR("Alloc error");
 		return;
 	}
-	int steps[]={256, 128, 64, 32, 16, 8, 4, 2, 1};
 	for(int kc=0;kc<3;++kc)
 	{
 		short *param=params+kc*11;
@@ -7624,25 +7627,29 @@ void pred_jmj_apply(Image *src, int fwd, int enable_ma)
 
 #define C3_OPT_NCOMP (C3_NPARAMS>>5)
 Custom3Params c3_params={0};
-int fast_dot(const short *a, const short *b, int count)
+static int fast_dot(const short *a, const short *b, int count)
 {
 	int k;
 	__m256i sum=_mm256_setzero_si256();
 	for(k=0;k<count-31;k+=16)//https://stackoverflow.com/questions/62041400/inner-product-of-two-16bit-integer-vectors-with-avx2-in-c
 	{
-		__m256i va=_mm256_loadu_si256((__m256i*)(a+k));
-		__m256i vb=_mm256_loadu_si256((__m256i*)(b+k));
+		__m256i va=_mm256_loadu_si256((const __m256i*)(a+k));
+		__m256i vb=_mm256_loadu_si256((const __m256i*)(b+k));
 		va=_mm256_madd_epi16(va, vb);
 		sum=_mm256_add_epi32(sum, va);
 	}
-	__m128i s2=_mm_add_epi32(_mm256_extracti128_si256(sum, 1), _mm256_castsi256_si128(sum));
-	__m128i hi=_mm_shuffle_epi32(s2, _MM_SHUFFLE(2, 1, 3, 2));
-	s2=_mm_add_epi32(s2, hi);
-	s2=_mm_hadd_epi32(s2, s2);
-	int s3=_mm_extract_epi32(s2, 0);
-	for(;k<count;++k)
-		s3+=a[k]*b[k];
-	return s3;
+	{
+		__m128i s2=_mm_add_epi32(_mm256_extracti128_si256(sum, 1), _mm256_castsi256_si128(sum));
+		__m128i hi=_mm_shuffle_epi32(s2, _MM_SHUFFLE(2, 1, 3, 2));
+		s2=_mm_add_epi32(s2, hi);
+		s2=_mm_hadd_epi32(s2, s2);
+		{
+			int s3=_mm_extract_epi32(s2, 0);
+			for(;k<count;++k)
+				s3+=a[k]*b[k];
+			return s3;
+		}
+	}
 }
 static int custom3_loadnb(const int *pixels, const int *errors, int iw, int ih, int kc, int kx, int ky, short *nb)
 {
@@ -7709,6 +7716,7 @@ static void custom3_prealloc(const int *src, int iw, int ih, const char *depths,
 				(nlevels[2]>>1)-1, -(nlevels[2]>>1),
 			};
 			int val;
+			int count[3], idx2;
 #define UPDATE_CLAMPER(X, A, B) val=X; UPDATE_MIN(clampers[A], val); UPDATE_MAX(clampers[B], val);
 			if(kx)
 			{
@@ -7736,7 +7744,6 @@ static void custom3_prealloc(const int *src, int iw, int ih, const char *depths,
 			if(clampers[4]>clampers[5])
 				clampers[4]=-(nlevels[2]>>1), clampers[5]=(nlevels[2]>>1)-1;
 #endif
-			int count[3], idx2;
 			for(int kc=0;kc<3;++kc)
 				count[kc]=custom3_loadnb(pixels, errors, iw, ih, kc, kx, ky, nb[kc]);
 #ifdef C3_3D
@@ -7815,9 +7822,11 @@ static void custom3_calcloss(const int *src, int iw, int ih, const char *depths,
 	for(int kc=0;kc<3;++kc)
 	{
 		calc_histogram(temp, iw, ih, kc, 0, iw, 0, ih, depths[kc], hist, 0);
-		double entropy=calc_entropy(hist, 1<<depths[kc], (int)res);
-		info->invCR[kc]=entropy/src_depths[kc];
-		info->invCR[3]+=info->invCR[kc];
+		{
+			double entropy=calc_entropy(hist, 1<<depths[kc], (int)res);
+			info->invCR[kc]=entropy/src_depths[kc];
+			info->invCR[3]+=info->invCR[kc];
+		}
 	}
 	info->invCR[3]/=3;
 }
@@ -7825,35 +7834,36 @@ void custom3_opt(Image const *src, Custom3Params *srcparams, int niter, int mask
 {
 	static int call_idx=0;
 
-	++call_idx;
-	if(call_idx==1)
-		DisableProcessWindowsGhosting();
-
 	ptrdiff_t res=(ptrdiff_t)src->iw*src->ih;
 	int maxdepth=calc_maxdepth(src, 0), maxlevels=1<<maxdepth;
 	int *temp=(int*)malloc(res*sizeof(int[4]));
 	int *hist=(int*)malloc(maxlevels*sizeof(int));
+	Custom3OptInfo info;
+	double invCR[4], loss0;
+	int shakethreshold=C3_NPARAMS;
+
+	++call_idx;
+	if(call_idx==1)
+		DisableProcessWindowsGhosting();
 	if(!temp||!hist)
 	{
 		LOG_ERROR("Alloc error");
 		return;
 	}
 	memset(temp, 0xFF, res*sizeof(int[4]));//set alpha for preview
-	Custom3OptInfo info;
 	memcpy(info.params, srcparams, sizeof(info.params));
 #define CALC_LOSS() custom3_calcloss(src->data, src->iw, src->ih, src->depth, src->src_depth, &info, temp, hist)
 	if(loud)
 		srand((unsigned)__rdtsc());//
 
 	CALC_LOSS();
-	double invCR[4], loss0;
 	memcpy(invCR, info.invCR, sizeof(invCR));
 	loss0=info.invCR[3];
 	if(!niter)
 		niter=C3_NPARAMS*10;
-	int shakethreshold=C3_NPARAMS;
 	for(int it=0, watchdog=0;it<niter;++it)
 	{
+		int idx[C3_OPT_NCOMP]={0}, inc[C3_OPT_NCOMP]={0}, stuck=0;
 		if(loud_transforms&&loud)
 			set_window_title("%d %4d/%4d,%d/%d: %.4lf%% RGB %.4lf %.4lf %.4lf%%",
 				call_idx, it+1, niter, watchdog, shakethreshold,
@@ -7862,7 +7872,6 @@ void custom3_opt(Image const *src, Custom3Params *srcparams, int niter, int mask
 				100.*info.invCR[1],
 				100.*info.invCR[2]
 			);
-		int idx[C3_OPT_NCOMP]={0}, inc[C3_OPT_NCOMP]={0}, stuck=0;
 		if(watchdog>=shakethreshold)//bump if stuck
 		{
 			memcpy(info.params, srcparams, sizeof(info.params));
@@ -7980,17 +7989,17 @@ void custom3_opt_batch(Custom3Params *srcparams, int niter, int maskbits, int lo
 void pred_calic(Image *src, int fwd, int enable_ma)
 {
 	ptrdiff_t res=(ptrdiff_t)src->iw*src->ih;
+	//const int thresholds[]={5, 15, 25, 42, 60, 85, 140};
+	int idx, pred;
 	int *b2=(int*)malloc(res*sizeof(int[4]));
 	int *arrN=(int*)malloc(2048*sizeof(int));//count
 	int *arrS=(int*)malloc(2048*sizeof(int));//sum
+	const int *pixels=fwd?src->data:b2, *errors=fwd?b2:src->data;
 	if(!b2||!arrN||!arrS)
 	{
 		LOG_ERROR("Alloc error");
 		return;
 	}
-	//const int thresholds[]={5, 15, 25, 42, 60, 85, 140};
-	const int *pixels=fwd?src->data:b2, *errors=fwd?b2:src->data;
-	int idx, pred;
 	memcpy(b2, src->data, (size_t)res*sizeof(int[4]));//copy alpha
 	for(int kc=0;kc<3;++kc)//process each channel separately
 	{
@@ -8001,6 +8010,7 @@ void pred_calic(Image *src, int fwd, int enable_ma)
 		{
 			for(int kx=0;kx<src->iw;++kx)
 			{
+				int energy, pattern, context;
 #define LOAD(BUF, X, Y) ((unsigned)(kx+(X))<(unsigned)src->iw&&(unsigned)(ky+(Y))<(unsigned)src->ih?BUF[(src->iw*(ky+(Y))+kx+(X))<<2|kc]:0)
 				int
 				//	NNWW=LOAD(pixels, -2, -2),
@@ -8082,7 +8092,7 @@ void pred_calic(Image *src, int fwd, int enable_ma)
 					pred-=(NE-NW)/16;
 #endif
 
-				int energy=dx+dy+abs(eN)+abs(eW);
+				energy=dx+dy+abs(eN)+abs(eW);
 				energy=SHIFT_RIGHT_SIGNED(energy, sh);
 				if(energy<42)//quantization using binary search
 				{
@@ -8099,9 +8109,9 @@ void pred_calic(Image *src, int fwd, int enable_ma)
 						energy=energy<140?6:7;
 				}
 
-				int pattern=(2*W-WW<pred)<<7|(2*N-NN<pred)<<6|(WW<pred)<<5|(NN<pred)<<4|(NE<pred)<<3|(NW<pred)<<2|(W<pred)<<1|(N<pred);
+				pattern=(2*W-WW<pred)<<7|(2*N-NN<pred)<<6|(WW<pred)<<5|(NN<pred)<<4|(NE<pred)<<3|(NW<pred)<<2|(W<pred)<<1|(N<pred);
 
-				int context=pattern<<3|energy;
+				context=pattern<<3|energy;
 
 				if(arrN[context]>0)
 					pred+=(arrS[context]+arrN[context]/2)/arrN[context];//sum of encountered errors / number of occurrences
@@ -8188,22 +8198,25 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 	SseCell *sse=(SseCell*)malloc(sizeof(SseCell[G2_SSE_SIZE]));
 	//int *SSE_count=(int*)malloc(256*sizeof(int));
 	//int *SSE_sum=(int*)malloc(256*sizeof(int));
+	const int *pixels=fwd?src->data:b2, *errors=fwd?b2:src->data;
 	if(!b2||!perrors||!sse)
 	{
 		LOG_ERROR("Alloc error");
 		return;
 	}
 	memcpy(b2, src->data, res*sizeof(int[4]));//copy alpha
-	const int *pixels=fwd?src->data:b2, *errors=fwd?b2:src->data;
 	for(int kc=0;kc<4;++kc)
 	{
-		int depth=src->depth[kc];
+		int depth;
+		short *params;
+		int *hireserror;
+		//int maxerror=0;
+
+		depth=src->depth[kc];
 		if(!depth)
 			continue;
-		int nlevels=1<<src->depth[kc];
-		//int maxerror=0;
-		short *params=g2_weights+(_countof(g2_weights)/3)*kc;
-		int *hireserror=perrors+src->iw*2*G2_NPRED;
+		params=g2_weights+(_countof(g2_weights)/3)*kc;
+		hireserror=perrors+src->iw*2*G2_NPRED;
 		memset(perrors, 0, 2LL*src->iw*(G2_NPRED+1)*sizeof(int));
 
 		memset(sse, 0, sizeof(SseCell[G2_SSE_SIZE]));
@@ -8292,6 +8305,11 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 #undef  LOAD
 				int preds[G2_NPRED], pred;
 				int prederrs[G2_NPRED];
+				int paper_GAP, calic_GAP;
+				int j;
+				long long num;
+				int weights[G2_NPRED], den;
+				int idx;
 
 				for(int k=0;k<G2_NPRED;++k)
 				{
@@ -8301,52 +8319,51 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 						perrors[src->iw*2*k+src->iw*((ky-1)&1)+kx]+
 						((unsigned)(kx+1)<(unsigned)src->iw?perrors[src->iw*2*k+src->iw*((ky-1)&1)+kx+1]:0);
 				}
-				int clamp_min=N, clamp_max=N;
-				UPDATE_MIN(clamp_min, W);
-				UPDATE_MAX(clamp_max, W);
-				UPDATE_MIN(clamp_min, NE);
-				UPDATE_MAX(clamp_max, NE);
-				
-				int dx=abs(W-WW)+abs(N-NW)+abs(NE-N);
-				int dy=abs(W-NW)+abs(N-NN)+abs(NE-NNE);
-				int d45=abs(W-NWW)+abs(NW-NNWW)+abs(N-NNW);
-				int d135=abs(NE-NNEE)+abs(N-NNE)+abs(W-N);
-				int diff=(dy-dx)>>8, diff2=(d45-d135)>>8, diff3=NE-NW;
-				int paper_GAP, calic_GAP;
-				if(dy+dx>32)
-					paper_GAP=(int)(((long long)dx*N+(long long)dy*W)/((long long)dy+dx));
-				else if(diff>12)
-					paper_GAP=(N+2*W)/3;
-				else if(diff<-12)
-					paper_GAP=(2*N+W)/3;
-				else
-					paper_GAP=(N+W)>>1;
+				//int clamp_min=N, clamp_max=N;
+				//UPDATE_MIN(clamp_min, W);
+				//UPDATE_MAX(clamp_max, W);
+				//UPDATE_MIN(clamp_min, NE);
+				//UPDATE_MAX(clamp_max, NE);
+				{
+					int dx=abs(W-WW)+abs(N-NW)+abs(NE-N);
+					int dy=abs(W-NW)+abs(N-NN)+abs(NE-NNE);
+					int d45=abs(W-NWW)+abs(NW-NNWW)+abs(N-NNW);
+					int d135=abs(NE-NNEE)+abs(N-NNE)+abs(W-N);
+					int diff=(dy-dx)>>8, diff2=(d45-d135)>>8, diff3=NE-NW;
+					if(dy+dx>32)
+						paper_GAP=(int)(((long long)dx*N+(long long)dy*W)/((long long)dy+dx));
+					else if(diff>12)
+						paper_GAP=(N+2*W)/3;
+					else if(diff<-12)
+						paper_GAP=(2*N+W)/3;
+					else
+						paper_GAP=(N+W)>>1;
 
-				if(diff2>32)
-					paper_GAP+=diff3>>2;
-				else if(diff2>16)
-					paper_GAP+=diff3*3>>4;
-				else if(diff2>=-16)
-					paper_GAP+=diff3>>3;
-				else if(diff2>=-32)
-					paper_GAP+=diff3>>4;
+					if(diff2>32)
+						paper_GAP+=diff3>>2;
+					else if(diff2>16)
+						paper_GAP+=diff3*3>>4;
+					else if(diff2>=-16)
+						paper_GAP+=diff3>>3;
+					else if(diff2>=-32)
+						paper_GAP+=diff3>>4;
 
-				if(diff>80)
-					calic_GAP=W;
-				else if(diff<-80)
-					calic_GAP=N;
-				else if(diff>32)
-					calic_GAP=(2*N+6*W+NE-NW)>>3;		//c1	[1/4  3/4  1/8  -1/8].[N W NE NW]
-				else if(diff>8)
-					calic_GAP=(6*N+10*W+3*(NE-NW))>>4;	//c2	[3/8  5/8  3/16  -3/16]
-				else if(diff<-32)
-					calic_GAP=(6*N+2*W+NE-NW)>>3;		//c3	[3/4  1/4  1/8  -1/8]
-				else if(diff<-8)
-					calic_GAP=(10*N+6*W+3*(NE-NW))>>4;	//c4	[5/8  3/8  3/16  -3/16]
-				else
-					calic_GAP=(((N+W)<<1)+NE-NW)>>2;	//c5	[1/2  1/2  1/4  -1/4]
-
-				int j=-1;
+					if(diff>80)
+						calic_GAP=W;
+					else if(diff<-80)
+						calic_GAP=N;
+					else if(diff>32)
+						calic_GAP=(2*N+6*W+NE-NW)>>3;		//c1	[1/4  3/4  1/8  -1/8].[N W NE NW]
+					else if(diff>8)
+						calic_GAP=(6*N+10*W+3*(NE-NW))>>4;	//c2	[3/8  5/8  3/16  -3/16]
+					else if(diff<-32)
+						calic_GAP=(6*N+2*W+NE-NW)>>3;		//c3	[3/4  1/4  1/8  -1/8]
+					else if(diff<-8)
+						calic_GAP=(10*N+6*W+3*(NE-NW))>>4;	//c4	[5/8  3/8  3/16  -3/16]
+					else
+						calic_GAP=(((N+W)<<1)+NE-NW)>>2;	//c5	[1/2  1/2  1/4  -1/4]
+				}
+				j=-1;
 				//the 4 predictors from JPEG XL:
 				++j, preds[j]=W+NE-N;
 				++j, preds[j]=N-((eN+eW+eNE)*params[G2_NPRED+6]>>8);
@@ -8444,9 +8461,9 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 				++j, preds[j]=4*NW-6*NNWW-4*NNNWWW+NNNNWWWW, preds[j]=CLAMP(-(128<<8), preds[j], 127<<8);
 				++j, preds[j]=4*NE-6*NNEE-4*NNNEEE+NNNNEEEE, preds[j]=CLAMP(-(128<<8), preds[j], 127<<8);
 #endif
-
-				long long num=0;
-				int weights[G2_NPRED], den=0;
+				
+				num=0;
+				den=0;
 				for(int k=0;k<G2_NPRED;++k)
 				{
 					weights[k]=(params[k]<<8)/(prederrs[k]+1);
@@ -8482,8 +8499,9 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 
 				//pred=CLAMP(-128, pred, 127);
 
-				int idx=(src->iw*ky+kx)<<2|kc;
-
+				idx=(src->iw*ky+kx)<<2|kc;
+				{
+					int val, curr, delta;
 				//Secondary Symbol Estimation (SSE)
 #if 1
 				int dnb[]=//error neighbors
@@ -8598,27 +8616,29 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 					//	d+=(int)((((long long)pc[k2]->sum<<8)+(pc[k2]->count>>1))/pc[k2]->count);
 					//}
 					//pred+=d/c;
-					long long sum=pc[k2][0]>>12;
-					int count=pc[k2][0]&0xFFF;
-					pred+=(int)((sum+(count>>1))/(count+1LL));
-					//pred=CLAMP(-(nlevels<<7), pred, (nlevels<<7)-1);
+					{
+						long long sum=pc[k2][0]>>12;
+						int count=pc[k2][0]&0xFFF;
+						pred+=(int)((sum+(count>>1))/(count+1LL));
+						//pred=CLAMP(-(nlevels<<7), pred, (nlevels<<7)-1);
+					}
 				}
-				pred=CLAMP(clamp_min, pred, clamp_max);
+				CLAMP3_32(pred, pred, N, W, NE);
+				//pred=CLAMP(clamp_min, pred, clamp_max);
 
-				int val=(pred+128)>>8;
+				val=(pred+128)>>8;
 				val^=-fwd;
 				val+=fwd;
 				val+=src->data[idx];
 				if(enable_ma)
 				{
-					val+=nlevels>>1;
-					val&=nlevels-1;
-					val-=nlevels>>1;
+					val<<=32-depth;
+					val>>=32-depth;
 				}
 				b2[idx]=val;
 
-				int curr=pixels[idx]<<8;
-				int delta=curr-pred;
+				curr=pixels[idx]<<8;
+				delta=curr-pred;
 				for(int k2=0;k2<4;++k2)
 				{
 					long long sum=pc[k2][0]>>12;
@@ -8880,6 +8900,7 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 				//if(num&&den&&abs(num)>abs(den))
 				//	temperature=abs(num/den);
 #endif
+				}
 			}
 		}
 	}
@@ -8898,15 +8919,18 @@ void pred_grad2(Image *src, int fwd, int enable_ma)
 
 ArrayHandle dwt2d_gensizes(int iw, int ih, int wstop, int hstop, int nstages_override)//calculate dimensions of each DWT stage in descending order
 {
+	int nstages;
+	DWTSize *p;
 	ArrayHandle sizes;
+
 	int lw=FLOOR_LOG2(iw), lh=FLOOR_LOG2(ih), lmin=MINVAR(lw, lh);
 	ARRAY_ALLOC(DWTSize, sizes, 0, 0, lmin, 0);
 	if(wstop<3)
 		wstop=3;
 	if(hstop<3)
 		hstop=3;
-	int nstages=0;
-	DWTSize *p=(DWTSize*)ARRAY_APPEND(sizes, 0, 1, 1, 0);
+	nstages=0;
+	p=(DWTSize*)ARRAY_APPEND(sizes, 0, 1, 1, 0);
 	p->w=(unsigned short)iw;
 	p->h=(unsigned short)ih;
 	for(int w2=iw, h2=ih;w2>=wstop&&h2>=hstop&&(!nstages_override||nstages<nstages_override);++nstages)
@@ -9398,7 +9422,7 @@ void dwt2d_lazy_inv(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end
 #endif
 
 //lifting-based 8bit Haar DWT
-void dwt1d_haar_fwd(int *buffer, int count, int stride, int *b2)
+static void dwt1d_haar_fwd(int *buffer, int count, int stride, int *b2)
 {
 	int nodd=count>>1, extraeven=count&1;
 	int *odd=b2, *even=b2+nodd;
@@ -9424,7 +9448,7 @@ void dwt1d_haar_fwd(int *buffer, int count, int stride, int *b2)
 	for(int k=0, ks=0;k<count;++k, ks+=stride)
 		buffer[ks]=b2[k];
 }
-void dwt1d_haar_inv(int *buffer, int count, int stride, int *b2)
+static void dwt1d_haar_inv(int *buffer, int count, int stride, int *b2)
 {
 	int nodd=count>>1, extraeven=count&1;
 	int *odd=b2, *even=b2+nodd;
@@ -9452,10 +9476,10 @@ void dwt1d_haar_inv(int *buffer, int count, int stride, int *b2)
 }
 void dwt2d_haar_fwd(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp)
 {
-	if(sizes_start>=sizes_end-1)
-		return;
 	int iw=sizes->w, rowlen=stride*iw;
 //	int ih=sizes->h;
+	if(sizes_start>=sizes_end-1)
+		return;
 	for(int it=sizes_start;it<sizes_end-1;++it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -9475,10 +9499,10 @@ void dwt2d_haar_fwd(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end,
 }
 void dwt2d_haar_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp)
 {
-	if(sizes_start>=sizes_end-1)
-		return;
 	int iw=sizes->w, rowlen=stride*iw;
 //	int ih=sizes->h;
+	if(sizes_start>=sizes_end-1)
+		return;
 	for(int it=sizes_end-2;it>=sizes_start;--it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -9491,8 +9515,8 @@ void dwt2d_haar_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end,
 	}
 }
 
-//lifting-based 8bit squeeze DWT
-int smoothtendency(int B, int a, int n)
+//lifting-based 8bit squeeze DWT  from JPEG XL
+static int smoothtendency(int B, int a, int n)
 {
 	int diff=0;
 	if(B>=a&&a>=n)
@@ -9517,7 +9541,7 @@ int smoothtendency(int B, int a, int n)
 	}
 	return diff;
 }
-void dwt1d_squeeze_fwd(int *buffer, int count, int stride, int *b2)//nOdd <= nEven			nOdd = nEven - (count&1)
+static void dwt1d_squeeze_fwd(int *buffer, int count, int stride, int *b2)//nOdd <= nEven			nOdd = nEven - (count&1)
 {
 	int nodd=count>>1, extraeven=count&1;
 	int *odd=b2, *even=b2+nodd;
@@ -9546,7 +9570,7 @@ void dwt1d_squeeze_fwd(int *buffer, int count, int stride, int *b2)//nOdd <= nEv
 	for(int k=0, ks=0;k<count;++k, ks+=stride)
 		buffer[ks]=b2[k];
 }
-void dwt1d_squeeze_inv(int *buffer, int count, int stride, int *b2)
+static void dwt1d_squeeze_inv(int *buffer, int count, int stride, int *b2)
 {
 	int nodd=count>>1, extraeven=count&1;
 	int *odd=b2, *even=b2+nodd;
@@ -9573,10 +9597,10 @@ void dwt1d_squeeze_inv(int *buffer, int count, int stride, int *b2)
 }
 void dwt2d_squeeze_fwd(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp)
 {
-	if(sizes_start>=sizes_end-1)
-		return;
 	int iw=sizes->w, rowlen=stride*iw;
 //	int ih=sizes->h;
+	if(sizes_start>=sizes_end-1)
+		return;
 	for(int it=sizes_start;it<sizes_end-1;++it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -9594,10 +9618,10 @@ void dwt2d_squeeze_fwd(int *buffer, DWTSize *sizes, int sizes_start, int sizes_e
 }
 void dwt2d_squeeze_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp)
 {
-	if(sizes_start>=sizes_end-1)
-		return;
 	int iw=sizes->w, rowlen=stride*iw;
 //	int ih=sizes->h;
+	if(sizes_start>=sizes_end-1)
+		return;
 	for(int it=sizes_end-2;it>=sizes_start;--it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -9611,7 +9635,7 @@ void dwt2d_squeeze_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_e
 }
 
 //lifting-based 8bit CDF 5/3 DWT
-void dwt1d_cdf53_fwd(int *buffer, int count, int stride, int *b2)
+static void dwt1d_cdf53_fwd(int *buffer, int count, int stride, int *b2)
 {
 	int nodd=count>>1, extraeven=count&1;
 	int *odd=b2, *even=b2+nodd;
@@ -9737,7 +9761,7 @@ void dwt1d_cdf53_fwd(int *buffer, int count, int stride, int *b2)
 	for(int k=0, ks=0;k<count;++k, ks+=stride)
 		buffer[ks]=b2[k];
 }
-void dwt1d_cdf53_inv(int *buffer, int count, int stride, int *b2)
+static void dwt1d_cdf53_inv(int *buffer, int count, int stride, int *b2)
 {
 	int nodd=count>>1, extraeven=count&1;
 	int *odd=b2, *even=b2+nodd;
@@ -9768,10 +9792,10 @@ void dwt1d_cdf53_inv(int *buffer, int count, int stride, int *b2)
 }
 void dwt2d_cdf53_fwd(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp)
 {
-	if(sizes_start>=sizes_end-1)
-		return;
 	int iw=sizes->w, rowlen=stride*iw;
 //	int ih=sizes->h;
+	if(sizes_start>=sizes_end-1)
+		return;
 	for(int it=sizes_start;it<sizes_end-1;++it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -9791,10 +9815,10 @@ void dwt2d_cdf53_fwd(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end
 }
 void dwt2d_cdf53_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp)
 {
-	if(sizes_start>=sizes_end-1)
-		return;
 	int iw=sizes->w, rowlen=stride*iw;
 //	int ih=sizes->h;
+	if(sizes_start>=sizes_end-1)
+		return;
 	for(int it=sizes_end-2;it>=sizes_start;--it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -9859,7 +9883,7 @@ static void dwt1d_u8_unupdate(int *odd, int *even, int nodd, int extraeven, int 
 //	for(int k=0;k<count;++k)
 //		buf[k]=(buf[k]<<16)/coeff;
 //}
-void dwt1d_cdf97_fwd(int *buffer, int count, int stride, int *b2)
+static void dwt1d_cdf97_fwd(int *buffer, int count, int stride, int *b2)
 {
 	int nodd=count>>1, extraeven=count&1;
 	int *odd=b2, *even=b2+nodd;
@@ -9881,7 +9905,7 @@ void dwt1d_cdf97_fwd(int *buffer, int count, int stride, int *b2)
 	for(int k=0, ks=0;k<count;++k, ks+=stride)
 		buffer[ks]=b2[k];
 }
-void dwt1d_cdf97_inv(int *buffer, int count, int stride, int *b2)
+static void dwt1d_cdf97_inv(int *buffer, int count, int stride, int *b2)
 {
 	int nodd=count>>1, extraeven=count&1;
 	int *odd=b2, *even=b2+nodd;
@@ -9905,10 +9929,10 @@ void dwt1d_cdf97_inv(int *buffer, int count, int stride, int *b2)
 }
 void dwt2d_cdf97_fwd(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp)
 {
-	if(sizes_start>=sizes_end-1)
-		return;
 	int iw=sizes->w, rowlen=stride*iw;
 //	int ih=sizes->h;
+	if(sizes_start>=sizes_end-1)
+		return;
 	for(int it=sizes_start;it<sizes_end-1;++it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -9926,10 +9950,10 @@ void dwt2d_cdf97_fwd(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end
 }
 void dwt2d_cdf97_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp)
 {
-	if(sizes_start>=sizes_end-1)
-		return;
 	int iw=sizes->w, rowlen=stride*iw;
 //	int ih=sizes->h;
+	if(sizes_start>=sizes_end-1)
+		return;
 	for(int it=sizes_end-2;it>=sizes_start;--it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -11222,14 +11246,14 @@ static int getctx_zero(const int *nb, int expbits, int msb, int lsb)
 	(void)lsb;
 	return 0;
 }
-int getctx_QNW(const int *nb, int expbits, int msb, int lsb)
+static int getctx_QNW(const int *nb, int expbits, int msb, int lsb)
 {
 	int ctx=(nb[NB_N]+nb[NB_W])>>1;
 	HybridUint hu;
 	quantize_signed(ctx, expbits, msb, lsb, &hu);
 	return hu.token;
 }
-int getctx_min_QN_QW(const int *nb, int expbits, int msb, int lsb)
+static int getctx_min_QN_QW(const int *nb, int expbits, int msb, int lsb)
 {
 	int dy=(nb[NB_N]-nb[NB_NN])>>1, dx=(nb[NB_W]-nb[NB_WW])>>1;
 	HybridUint hu1, hu2;
@@ -11237,7 +11261,7 @@ int getctx_min_QN_QW(const int *nb, int expbits, int msb, int lsb)
 	quantize_signed(dy, expbits, msb, lsb, &hu2);
 	return MAXVAR(hu1.token, hu2.token);
 }
-int getctx_max_QN_QW(const int *nb, int expbits, int msb, int lsb)
+static int getctx_max_QN_QW(const int *nb, int expbits, int msb, int lsb)
 {
 	int dy=(nb[NB_N]-nb[NB_NN])>>1, dx=(nb[NB_W]-nb[NB_WW])>>1;
 	HybridUint hu1, hu2;
@@ -11245,7 +11269,7 @@ int getctx_max_QN_QW(const int *nb, int expbits, int msb, int lsb)
 	quantize_signed(dy, expbits, msb, lsb, &hu2);
 	return MINVAR(hu1.token, hu2.token);
 }
-int getctx_min_N_W_NW_NE(const int *nb, int expbits, int msb, int lsb)
+static int getctx_min_N_W_NW_NE(const int *nb, int expbits, int msb, int lsb)
 {
 	int dy=(nb[NB_N]-nb[NB_NN])>>1, dx=(nb[NB_W]-nb[NB_WW])>>1;
 	int d135=(nb[NB_NW]-nb[NB_NNWW])>>1, d45=(nb[NB_NE]-nb[NB_NNEE])>>1;
@@ -11254,13 +11278,15 @@ int getctx_min_N_W_NW_NE(const int *nb, int expbits, int msb, int lsb)
 	quantize_signed(dy, expbits, msb, lsb, &hu[1]);
 	quantize_signed(d45, expbits, msb, lsb, &hu[2]);
 	quantize_signed(d135, expbits, msb, lsb, &hu[3]);
-	int ctx=hu->token;
-	UPDATE_MIN(ctx, hu[1].token);
-	UPDATE_MIN(ctx, hu[2].token);
-	UPDATE_MIN(ctx, hu[3].token);
-	return ctx;
+	{
+		int ctx=hu->token;
+		UPDATE_MIN(ctx, hu[1].token);
+		UPDATE_MIN(ctx, hu[2].token);
+		UPDATE_MIN(ctx, hu[3].token);
+		return ctx;
+	}
 }
-int getctx_argmin_N_W_NW_NE(const int *nb, int expbits, int msb, int lsb)
+static int getctx_argmin_N_W_NW_NE(const int *nb, int expbits, int msb, int lsb)
 {
 	int dy=abs(nb[NB_N]-nb[NB_NN]), dx=abs(nb[NB_W]-nb[NB_WW]);
 	int d135=abs(nb[NB_NW]-nb[NB_NNWW]), d45=abs(nb[NB_NE]-nb[NB_NNEE]);
@@ -11271,11 +11297,13 @@ int getctx_argmin_N_W_NW_NE(const int *nb, int expbits, int msb, int lsb)
 		bestval=dy, idx=2;
 	if(bestval>d45)
 		bestval=d45, idx=3;
-	int nb2[]={nb[NB_W], nb[NB_NW], nb[NB_N], nb[NB_NE]};
-	int val=nb2[idx];
-	HybridUint hu;
-	quantize_signed(val, expbits, msb, lsb, &hu);
-	return hu.token;
+	{
+		int nb2[]={nb[NB_W], nb[NB_NW], nb[NB_N], nb[NB_NE]};
+		int val=nb2[idx];
+		HybridUint hu;
+		quantize_signed(val, expbits, msb, lsb, &hu);
+		return hu.token;
+	}
 }
 void calc_csize_ec(Image const *src, EContext method, int adaptive, int expbits, int msb, int lsb, double *entropy)
 {
@@ -11290,26 +11318,30 @@ void calc_csize_ec(Image const *src, EContext method, int adaptive, int expbits,
 		getctx_min_N_W_NW_NE,
 		getctx_argmin_N_W_NW_NE,
 	};
-	int maxdepth=calc_maxdepth(src, 0);
+	int maxdepth;
 	HybridUint hu;
+	int cdfsize;
+	int *hist, *hsum;
+	double bitsizes[4]={0}, bypasssizes[4]={0};
+	int res=src->iw*src->ih;
+
+	maxdepth=calc_maxdepth(src, 0);
 	quantize_signed(1<<maxdepth, expbits, msb, lsb, &hu);
-	int cdfsize=hu.token+1;
-	int *hist=(int*)malloc(sizeof(int)*cdfsize*cdfsize);
-	int *hsum=(int*)malloc(sizeof(int)*cdfsize);
+	cdfsize=hu.token+1;
+	hist=(int*)malloc(sizeof(int)*cdfsize*cdfsize);
+	hsum=(int*)malloc(sizeof(int)*cdfsize);
 	if(!hist||!hsum)
 	{
 		LOG_ERROR("Alloc error");
 		return;
 	}
-	double bitsizes[4]={0}, bypasssizes[4]={0};
 //#define LOAD(X, Y) ((unsigned)(ky+(Y))<src->ih&&(unsigned)(kx+(X))<src->iw?src->data[(src->iw*(ky+(Y))+kx+(X))<<2|kc]:0)
-	int res=src->iw*src->ih;
 	for(int kc=0;kc<4;++kc)
 	{
 		int depth=src->depth[kc];
+		int constant=1;
 		if(!depth)
 			continue;
-		int constant=1;
 		for(int k=1;k<res;++k)//check for constant value
 		{
 			if(src->data[k<<2|kc]!=src->data[kc])
@@ -11331,20 +11363,23 @@ void calc_csize_ec(Image const *src, EContext method, int adaptive, int expbits,
 			{
 				for(int kx=0;kx<src->iw;++kx, ++idx)
 				{
-					int nb[12];
+					int nb[12], ctx, val, *curr_hist, den;
+
 					getnb(src, kc, kx, ky, nb);
-					int ctx=getctx[method](nb, expbits, msb, lsb);
-					int val=src->data[idx<<2|kc];
+					ctx=getctx[method](nb, expbits, msb, lsb);
+					val=src->data[idx<<2|kc];
 					quantize_signed(val, expbits, msb, lsb, &hu);
 
-					int *curr_hist=hist+cdfsize*ctx;
-					int den=0;
+					curr_hist=hist+cdfsize*ctx;
+					den=0;
 					for(int k=0;k<cdfsize;++k)
 						den+=curr_hist[k];
-					double p=(double)curr_hist[hu.token]/den;
-					double bitsize=-log2(p);
-					bitsizes[kc]+=bitsize;
-					bypasssizes[kc]+=hu.nbits;
+					{
+						double p=(double)curr_hist[hu.token]/den;
+						double bitsize=-log2(p);
+						bitsizes[kc]+=bitsize;
+						bypasssizes[kc]+=hu.nbits;
+					}
 
 					++curr_hist[hu.token];
 					if(curr_hist[hu.token]>=adaptive)
@@ -11361,11 +11396,12 @@ void calc_csize_ec(Image const *src, EContext method, int adaptive, int expbits,
 		{
 			for(int kx=0;kx<src->iw;++kx, ++idx)
 			{
-				int nb[12];
-				getnb(src, kc, kx, ky, nb);
-				int ctx=getctx[method](nb, expbits, msb, lsb);
+				int nb[12], ctx, val;
 
-				int val=src->data[idx<<2|kc];
+				getnb(src, kc, kx, ky, nb);
+				ctx=getctx[method](nb, expbits, msb, lsb);
+
+				val=src->data[idx<<2|kc];
 				//if(kc==3)
 				//	val-=nb[NB_W];
 				quantize_signed(val, expbits, msb, lsb, &hu);
@@ -11384,30 +11420,37 @@ void calc_csize_ec(Image const *src, EContext method, int adaptive, int expbits,
 		{
 			for(int kx=0;kx<src->iw;++kx, ++idx)
 			{
-				int nb[12];
-				getnb(src, kc, kx, ky, nb);
-				int ctx=getctx[method](nb, expbits, msb, lsb);
+				int nb[12], ctx, val;
 
-				int val=src->data[idx<<2|kc];
+				getnb(src, kc, kx, ky, nb);
+				ctx=getctx[method](nb, expbits, msb, lsb);
+
+				val=src->data[idx<<2|kc];
 				//if(kc==3)
 				//	val-=nb[NB_W];
 				quantize_signed(val, expbits, msb, lsb, &hu);
 				val=hu.token;
-				int freq=hist[cdfsize*ctx+val], sum=hsum[ctx];
-				if(!freq||!sum)
-					LOG_ERROR("ZPS");
-				double p=(double)freq/sum;
-				double bitsize=-log2(p);
-				bitsizes[kc]+=bitsize;
-				bypasssizes[kc]+=hu.nbits;
+				{
+					int freq=hist[cdfsize*ctx+val], sum=hsum[ctx];
+					if(!freq||!sum)
+						LOG_ERROR("ZPS");
+					{
+						double p=(double)freq/sum;
+						double bitsize=-log2(p);
+						bitsizes[kc]+=bitsize;
+						bypasssizes[kc]+=hu.nbits;
+					}
+				}
 			}
 		}
 	}
 //#undef  LOAD
-	int nch=(src->src_depth[0]!=0)+(src->src_depth[1]!=0)+(src->src_depth[2]!=0)+(src->src_depth[3]!=0);
-	double chubitsize=image_getBMPsize(src)*8/nch;
-	for(int kc=0;kc<4;++kc)
-		entropy[kc]=(bitsizes[kc]+bypasssizes[kc])*src->src_depth[kc]/chubitsize;
+	{
+		int nch=(src->src_depth[0]!=0)+(src->src_depth[1]!=0)+(src->src_depth[2]!=0)+(src->src_depth[3]!=0);
+		double chubitsize=image_getBMPsize(src)*8/nch;
+		for(int kc=0;kc<4;++kc)
+			entropy[kc]=(bitsizes[kc]+bypasssizes[kc])*src->src_depth[kc]/chubitsize;
+	}
 	free(hist);
 	free(hsum);
 }
@@ -11420,13 +11463,14 @@ static void calc_qlevels(Image const *src, int kc, int *qdivs, int nqlevels)
 {
 	int depth=src->depth[kc], nlevels=1<<depth, half=nlevels>>1;
 	int *hist=(int*)malloc((nlevels+1LL)*sizeof(int));
+	ptrdiff_t res=(ptrdiff_t)src->iw*src->ih;
+	int sum=0;
 	if(!hist)
 	{
 		LOG_ERROR("Alloc error");
 		return;
 	}
 	memset(hist, 0, (nlevels+1LL)*sizeof(int));
-	ptrdiff_t res=(ptrdiff_t)src->iw*src->ih;
 	for(ptrdiff_t k=0;k<res;++k)
 	{
 		int val=src->data[k<<2|kc];
@@ -11434,7 +11478,6 @@ static void calc_qlevels(Image const *src, int kc, int *qdivs, int nqlevels)
 		val&=nlevels-1;
 		++hist[val];
 	}
-	int sum=0;
 	for(int ks=0;ks<nlevels;++ks)
 	{
 		int freq=hist[ks];
@@ -11508,12 +11551,12 @@ void calc_csize_abac(Image const *src, double *entropy)
 	size_t statssize=sizeof(short[ABAC_QLEVELS*ABAC_NCTX*ABAC_NCTRS])*treesize;
 	short *stats=(short*)malloc(statssize);
 	int *mixer=(int*)malloc(sizeof(int[ABAC_NCTX*ABAC_NCTRS])*maxdepth);
+	double bitsizes[4]={0};
 	if(!stats||!mixer)
 	{
 		LOG_ERROR("Alloc error");
 		return;
 	}
-	double bitsizes[4]={0};
 	for(int kc=0;kc<4;++kc)
 	{
 #ifdef ABAC_DUMMY_EC
@@ -11558,175 +11601,194 @@ void calc_csize_abac(Image const *src, double *entropy)
 			{
 				int nb[12];
 				getnb(src, kc, kx, ky, nb);
+				{
+					int val, tidx;
+					short *curr_stats[ABAC_NCTX]={0}, *p0a[ABAC_NCTX]={0};
+					int *curr_mixer;
 #if 1
-				int preds[]=
-				{
-					nb[NB_N]>>1,
-					nb[NB_W]>>1,
-					nb[NB_NW]>>1,
-					nb[NB_NE]>>1,
-					//nb[NB_N]-nb[NB_W],
-					//MINABS(nb[NB_N], nb[NB_W]),
-					//MINABS(nb[NB_NW], nb[NB_NE]),
-					//MINVAR(abs(nb[NB_WW]), abs(nb[NB_NWW]))*3,
-					//MINVAR(abs(nb[NB_NNWW]), abs(nb[NB_NNW]))*3,
-					//MINVAR(abs(nb[NB_NN]), abs(nb[NB_NNE]))*3,
-					//MINVAR(abs(nb[NB_NNEE]), abs(nb[NB_NEE]))*3,
+					int preds[]=
+					{
+						nb[NB_N]>>1,
+						nb[NB_W]>>1,
+						nb[NB_NW]>>1,
+						nb[NB_NE]>>1,
+						//nb[NB_N]-nb[NB_W],
+						//MINABS(nb[NB_N], nb[NB_W]),
+						//MINABS(nb[NB_NW], nb[NB_NE]),
+						//MINVAR(abs(nb[NB_WW]), abs(nb[NB_NWW]))*3,
+						//MINVAR(abs(nb[NB_NNWW]), abs(nb[NB_NNW]))*3,
+						//MINVAR(abs(nb[NB_NN]), abs(nb[NB_NNE]))*3,
+						//MINVAR(abs(nb[NB_NNEE]), abs(nb[NB_NEE]))*3,
 
-					//nb[NB_N],
-					//nb[NB_W],
-					//nb[NB_NW]*3,
-					//nb[NB_NE]*3,
-					//nb[NB_NEE]*3,
-					//nb[NB_NNE]*3,
-					//nb[NB_NWW]*3,
+						//nb[NB_N],
+						//nb[NB_W],
+						//nb[NB_NW]*3,
+						//nb[NB_NE]*3,
+						//nb[NB_NEE]*3,
+						//nb[NB_NNE]*3,
+						//nb[NB_NWW]*3,
 
-					//2*nb[NB_N]-nb[NB_NN],
-					//2*nb[NB_W]-nb[NB_WW],
-					//nb[NB_N]+nb[NB_W]-nb[NB_NW],
-					//nb[NB_N]+nb[NB_W]-(nb[NB_NW]+nb[NB_NE]),
-					//nb[NB_N]+nb[NB_W]-nb[NB_NW],
-					//(nb[NB_W]+nb[NB_N]+nb[NB_NE]+nb[NB_NEE])>>2,
-					//(nb[NB_W]+nb[NB_NE])>>1,
+						//2*nb[NB_N]-nb[NB_NN],
+						//2*nb[NB_W]-nb[NB_WW],
+						//nb[NB_N]+nb[NB_W]-nb[NB_NW],
+						//nb[NB_N]+nb[NB_W]-(nb[NB_NW]+nb[NB_NE]),
+						//nb[NB_N]+nb[NB_W]-nb[NB_NW],
+						//(nb[NB_W]+nb[NB_N]+nb[NB_NE]+nb[NB_NEE])>>2,
+						//(nb[NB_W]+nb[NB_NE])>>1,
 
-					//abac_quantize(nb[NB_N	], qdivs, ABAC_QLEVELS-1),
-					//abac_quantize(nb[NB_W	], qdivs, ABAC_QLEVELS-1),
-					//abac_quantize(nb[NB_NW	], qdivs, ABAC_QLEVELS-1),
-					//abac_quantize(nb[NB_NE	], qdivs, ABAC_QLEVELS-1),
-					//abac_quantize(nb[NB_NN	], qdivs, ABAC_QLEVELS-1),
-					//abac_quantize(nb[NB_WW	], qdivs, ABAC_QLEVELS-1),
-					//abac_quantize(nb[NB_NEE	], qdivs, ABAC_QLEVELS-1),
-				};
+						//abac_quantize(nb[NB_N	], qdivs, ABAC_QLEVELS-1),
+						//abac_quantize(nb[NB_W	], qdivs, ABAC_QLEVELS-1),
+						//abac_quantize(nb[NB_NW	], qdivs, ABAC_QLEVELS-1),
+						//abac_quantize(nb[NB_NE	], qdivs, ABAC_QLEVELS-1),
+						//abac_quantize(nb[NB_NN	], qdivs, ABAC_QLEVELS-1),
+						//abac_quantize(nb[NB_WW	], qdivs, ABAC_QLEVELS-1),
+						//abac_quantize(nb[NB_NEE	], qdivs, ABAC_QLEVELS-1),
+					};
 #endif
-				//ctx=ABAC_QLEVELS*ctx+abac_quantize(nb[NB_W], qdivs, ABAC_QLEVELS-1);
-				//int ctx=getctx[method](nb, expbits, msb, lsb);
-				//ctx=floor_log2(ctx)+1;
-				//if(ctx>=qlevels)
-				//	LOG_ERROR("");
-				//if(kx==5&&ky==5)
-				//	printf("");
+					//ctx=ABAC_QLEVELS*ctx+abac_quantize(nb[NB_W], qdivs, ABAC_QLEVELS-1);
+					//int ctx=getctx[method](nb, expbits, msb, lsb);
+					//ctx=floor_log2(ctx)+1;
+					//if(ctx>=qlevels)
+					//	LOG_ERROR("");
+					//if(kx==5&&ky==5)
+					//	printf("");
 
-				int val=src->data[idx<<2|kc];
-				val=val<<1^-(val<0);
+					val=src->data[idx<<2|kc];
+					val=val<<1^-(val<0);
 				
-				int tidx=0;
-				short *curr_stats[ABAC_NCTX]={0}, *p0a[ABAC_NCTX]={0};
-				for(int kt=0;kt<ABAC_NCTX;++kt)
-				{
-					int v2=preds[kt];
-					v2=THREEWAY(v2, 0)+1;
-					//v2=(v2>1)-(v2<-1)+1;//less efficient
-					curr_stats[kt]=stats+treesize*ABAC_NCTRS*v2;
-				}
-					//curr_stats[kt]=stats+treesize*abac_quantize(CLAMP(-half, preds[kt], half-1), qdivs, ABAC_QLEVELS-1);
-				int *curr_mixer=mixer;
-				for(int kb=0;kb<depth;++kb)
-				{
-					int idx2=ABAC_NCTRS*((kb*(kb+1LL)>>1)+kb-tidx);
-					long long p0=0;
+					tidx=0;
 					for(int kt=0;kt<ABAC_NCTX;++kt)
 					{
-						for(int k2=0;k2<ABAC_NCTRS;++k2)
-						{
-							p0a[kt]=curr_stats[kt]+idx2;
-							p0+=(long long)curr_mixer[ABAC_NCTRS*kt+k2]*p0a[kt][k2];
-						}
+						int v2=preds[kt];
+						v2=THREEWAY(v2, 0)+1;
+						//v2=(v2>1)-(v2<-1)+1;//less efficient
+						curr_stats[kt]=stats+treesize*ABAC_NCTRS*v2;
 					}
-					p0+=p0>>3;
-					p0+=(1LL<<ABAC_PROBSHIFT>>1)-1;
-					p0>>=ABAC_PROBSHIFT;
-					//p0/=ABAC_NCTX;
-					p0+=0x8000;
-					p0=CLAMP(1, p0, 0xFFFF);
-					//int p0=curr_stats[idx2];
+						//curr_stats[kt]=stats+treesize*abac_quantize(CLAMP(-half, preds[kt], half-1), qdivs, ABAC_QLEVELS-1);
+					curr_mixer=mixer;
+					for(int kb=0;kb<depth;++kb)
+					{
+						int bit;
 
-					int bit=val>>(depth-1-kb)&1;
+						int idx2=ABAC_NCTRS*((kb*(kb+1LL)>>1)+kb-tidx);
+						long long p0=0;
+						for(int kt=0;kt<ABAC_NCTX;++kt)
+						{
+							for(int k2=0;k2<ABAC_NCTRS;++k2)
+							{
+								p0a[kt]=curr_stats[kt]+idx2;
+								p0+=(long long)curr_mixer[ABAC_NCTRS*kt+k2]*p0a[kt][k2];
+							}
+						}
+						p0+=p0>>3;
+						p0+=(1LL<<ABAC_PROBSHIFT>>1)-1;
+						p0>>=ABAC_PROBSHIFT;
+						//p0/=ABAC_NCTX;
+						p0+=0x8000;
+						p0=CLAMP(1, p0, 0xFFFF);
+						//int p0=curr_stats[idx2];
+
+						bit=val>>(depth-1-kb)&1;
 					
 #ifdef ABAC_DUMMY_EC
 #if ABAC_DUMMY_EC==48
-					unsigned long long r2=range*p0>>16;
-					low+=r2&-bit;
-					range=bit?range-r2:r2-1;
-					while(range<0x10000)
-					{
-						bitsizes[kc]+=16;
-
-						range<<=16;
-						low<<=16;
-						range|=0xFFFF;
-						low&=0xFFFFFFFFFFFF;
-						unsigned long long rmax=0xFFFFFFFFFFFF-low;
-						if(range>rmax)//clamp range
-							range=rmax;
-					}
-#else
-#ifdef _MSC_VER
-					unsigned r2=(unsigned)(__emulu(range, p0)>>16);
-#else
-					unsigned r2=(int)((unsigned long long)range*p0>>16);
-#endif
-					low+=r2&-bit;
-					range=bit?range-r2:r2-1;
-					while(range<0x10000)
-					{
-						bitsizes[kc]+=16;
-
-						range<<=16;
-						low<<=16;
-						range|=0xFFFF;
-						unsigned rmax=~low;
-						if(range>rmax)//clamp range
-							range=rmax;
-					}
-#endif
-#else
-					int prob=(int)p0;
-					prob^=-bit;
-					prob+=0x10001&-bit;
-					//if(!prob)
-					//	LOG_ERROR("");
-					bitsizes[kc]-=log2((double)prob/0x10000);
-#endif
-					
-					//L = (1/2)sq(p0_collapse-p0)		p0 = sum: m[k]*s[k]
-					//dL/ds[k] = (p0-p0_collapse)*m[k]
-					//dL/dm[k] = (p0-p0_collapse)*s[k]
-					int collapse=!bit<<16;
-					int diff=collapse-(int)p0;
-					for(int kt=0;kt<ABAC_NCTX;++kt)
-					{
-						for(int k2=0;k2<ABAC_NCTRS;++k2)
 						{
-							int temp=curr_mixer[ABAC_NCTRS*kt+k2];
-							curr_mixer[ABAC_NCTRS*kt+k2]+=(int)((((long long)diff*p0a[kt][k2])+(1LL<<ABAC_MIXERSHIFT>>1)-1)>>ABAC_MIXERSHIFT);
-							temp=p0a[kt][k2]+(int)((((long long)diff*temp)+(1LL<<(ABAC_STATSSHIFT-k2)>>1)-1)>>(ABAC_STATSSHIFT-k2));
-							p0a[kt][k2]=(short)CLAMP(-0x7FFF, temp, 0x7FFF);
-							//*p0a[kt]+=(collapse-*p0a[kt])>>8;
+							unsigned long long r2=range*p0>>16;
+							low+=r2&-bit;
+							range=bit?range-r2:r2-1;
+						}
+						while(range<0x10000)
+						{
+							bitsizes[kc]+=16;
+
+							range<<=16;
+							low<<=16;
+							range|=0xFFFF;
+							low&=0xFFFFFFFFFFFF;
+							{
+								unsigned long long rmax=0xFFFFFFFFFFFF-low;
+								if(range>rmax)//clamp range
+									range=rmax;
+							}
+						}
+#else
+						{
+#ifdef _MSC_VER
+							unsigned r2=(unsigned)(__emulu(range, p0)>>16);
+#else
+							unsigned r2=(int)((unsigned long long)range*p0>>16);
+#endif
+							low+=r2&-bit;
+							range=bit?range-r2:r2-1;
+							while(range<0x10000)
+							{
+								bitsizes[kc]+=16;
+
+								range<<=16;
+								low<<=16;
+								range|=0xFFFF;
+								unsigned rmax=~low;
+								if(range>rmax)//clamp range
+									range=rmax;
+							}
+						}
+#endif
+#else
+						{
+							int prob=(int)p0;
+							prob^=-bit;
+							prob+=0x10001&-bit;
+							//if(!prob)
+							//	LOG_ERROR("");
+							bitsizes[kc]-=log2((double)prob/0x10000);
+						}
+#endif
+						{
+							//L = (1/2)sq(p0_collapse-p0)		p0 = sum: m[k]*s[k]
+							//dL/ds[k] = (p0-p0_collapse)*m[k]
+							//dL/dm[k] = (p0-p0_collapse)*s[k]
+							int collapse=!bit<<16;
+							int diff=collapse-(int)p0;
+							for(int kt=0;kt<ABAC_NCTX;++kt)
+							{
+								for(int k2=0;k2<ABAC_NCTRS;++k2)
+								{
+									int temp=curr_mixer[ABAC_NCTRS*kt+k2];
+									curr_mixer[ABAC_NCTRS*kt+k2]+=(int)((((long long)diff*p0a[kt][k2])+(1LL<<ABAC_MIXERSHIFT>>1)-1)>>ABAC_MIXERSHIFT);
+									temp=p0a[kt][k2]+(int)((((long long)diff*temp)+(1LL<<(ABAC_STATSSHIFT-k2)>>1)-1)>>(ABAC_STATSSHIFT-k2));
+									p0a[kt][k2]=(short)CLAMP(-0x7FFF, temp, 0x7FFF);
+									//*p0a[kt]+=(collapse-*p0a[kt])>>8;
+								}
+							}
+							//p0+=((!bit<<16)-p0)>>8;
+							//curr_stats[idx2]=CLAMP(1, p0, 0xFFFF);
+
+							curr_mixer+=ABAC_NCTX*ABAC_NCTRS;
+							tidx+=(!bit)&-(tidx==kb);
 						}
 					}
-					//p0+=((!bit<<16)-p0)>>8;
-					//curr_stats[idx2]=CLAMP(1, p0, 0xFFFF);
-
-					curr_mixer+=ABAC_NCTX*ABAC_NCTRS;
-					tidx+=(!bit)&-(tidx==kb);
 				}
 			}
 		}
 #ifdef ABAC_DUMMY_EC
 #if ABAC_DUMMY_EC==48
-		unsigned long long code=low+range;
-		int nzeros=FLOOR_LOG2(low^code)-1;
-		if(nzeros<0)
-			nzeros=0;
-		code&=~((1LL<<nzeros)-1);
-		bitsizes[kc]+=LSB_IDX_64(code);
+		{
+			unsigned long long code=low+range;
+			int nzeros=FLOOR_LOG2(low^code)-1;
+			if(nzeros<0)
+				nzeros=0;
+			code&=~((1LL<<nzeros)-1);
+			bitsizes[kc]+=LSB_IDX_64(code);
+		}
 #else
-		unsigned code=low+range;//coming from renorm, cannot overflow
-		int nzeros=FLOOR_LOG2(low^code)-1;
-		if(nzeros<0)
-			nzeros=0;
-		code&=~((1LL<<nzeros)-1);
-		bitsizes[kc]+=LSB_IDX_32(code);
+		{
+			unsigned code=low+range;//coming from renorm, cannot overflow
+			int nzeros=FLOOR_LOG2(low^code)-1;
+			if(nzeros<0)
+				nzeros=0;
+			code&=~((1LL<<nzeros)-1);
+			bitsizes[kc]+=LSB_IDX_32(code);
+		}
 #endif
 #endif
 	}
@@ -11756,10 +11818,12 @@ void calc_csize_abac(Image const *src, double *entropy)
 	messagebox(MBOX_OK, "Copied to clipboard", "Paste into a text editor");
 	free(str);
 #endif
-	int nch=(src->src_depth[0]!=0)+(src->src_depth[1]!=0)+(src->src_depth[2]!=0)+(src->src_depth[3]!=0);
-	double chubitsize=image_getBMPsize(src)*8/nch;
-	for(int kc=0;kc<4;++kc)
-		entropy[kc]=bitsizes[kc]*src->src_depth[kc]/chubitsize;
+	{
+		int nch=(src->src_depth[0]!=0)+(src->src_depth[1]!=0)+(src->src_depth[2]!=0)+(src->src_depth[3]!=0);
+		double chubitsize=image_getBMPsize(src)*8/nch;
+		for(int kc=0;kc<4;++kc)
+			entropy[kc]=bitsizes[kc]*src->src_depth[kc]/chubitsize;
+	}
 	free(stats);
 	free(mixer);
 }
