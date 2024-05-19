@@ -512,13 +512,17 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 #else
 				fpred=CLAMP(-half[kc], fpred, half[kc]-1);
 #endif
-				__m128d fp=_mm_set_sd(fpred);
-				__m128i ip=_mm_cvtpd_epi32(fp);
-				_mm_store_si128((__m128i*)ipred, ip);
-				//int pred=(int)round(fpred);
 				{
-					int pred=ipred[0];
-					int val=src->data[idx];
+					__m128d fp;
+					__m128i ip;
+					int pred, val;
+
+					fp=_mm_set_sd(fpred);
+					ip=_mm_cvtpd_epi32(fp);
+					_mm_store_si128((__m128i*)ipred, ip);
+					//pred=(int)round(fpred);
+					pred=ipred[0];
+					val=src->data[idx];
 #ifdef OLS4_DEBUG
 					if(!kc&&kx==4&&ky==4)//
 						printf("");

@@ -118,14 +118,34 @@ static int ols5_update(OLS5 *p, double *nb, double curr, double lr)//OLS solver 
 }
 static int ols5_clamp4(double fpred, double a, double b, double c, double d)
 {
-	double vmin=MINVAR(a, b), vmax=MAXVAR(a, b);
-	UPDATE_MIN(vmin, c);
-	UPDATE_MAX(vmax, c);
-	UPDATE_MIN(vmin, d);
-	UPDATE_MAX(vmax, d);
-	fpred=CLAMP(vmin, fpred, vmax);
-	int pred=(int)round(fpred);
-	return pred;
+	__m128d mpred=_mm_set_sd(fpred);
+	__m128d ma=_mm_set_sd(a);
+	__m128d mb=_mm_set_sd(b);
+	__m128d mc=_mm_set_sd(c);
+	__m128d md=_mm_set_sd(d);
+	__m128d vmin=_mm_min_pd(ma, mb);
+	__m128d vmax=_mm_max_pd(ma, mb);
+	vmin=_mm_min_pd(vmin, mc);
+	vmax=_mm_max_pd(vmax, mc);
+	vmin=_mm_min_pd(vmin, md);
+	vmax=_mm_max_pd(vmax, md);
+	mpred=_mm_max_pd(mpred, vmin);
+	mpred=_mm_min_pd(mpred, vmax);
+	{
+		__m128i ipred=_mm_cvtpd_epi32(mpred);
+		ALIGN(16) int pred[4];
+		_mm_store_si128((__m128i*)pred, ipred);
+		return pred[0];
+	}
+
+	//double vmin=MINVAR(a, b), vmax=MAXVAR(a, b);
+	//UPDATE_MIN(vmin, c);
+	//UPDATE_MAX(vmax, c);
+	//UPDATE_MIN(vmin, d);
+	//UPDATE_MAX(vmax, d);
+	//fpred=CLAMP(vmin, fpred, vmax);
+	//int pred=(int)round(fpred);
+	//return pred;
 }
 #define LOAD(BUF, C, X, Y) ((unsigned)(ky+(Y))<(unsigned)src->ih&&(unsigned)(kx+(X))<(unsigned)src->iw?(double)BUF[(src->iw*(ky+(Y))+kx+(X))<<2|C]:0)
 void pred_ols5(Image *src, int fwd)

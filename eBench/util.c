@@ -1115,7 +1115,7 @@ int log_error(const char *fn, int line, int quit, const char *format, ...)
 	return firsttime;
 }
 #if 0
-int valid(const void *p)//only makes sense with MSVC debugger
+static int valid(const void *p)//only makes sense with MSVC debugger
 {
 	size_t val=(size_t)p;
 

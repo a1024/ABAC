@@ -194,7 +194,7 @@ float jhc_level=10.5f;
 int loud_transforms=1;
 //int crop_enable=0, crop_x=0, crop_y=0, crop_dx=128, crop_dy=128;
 
-static void center_image()
+static void center_image(void)
 {
 	int wndw2, wndh2;
 
@@ -2711,9 +2711,11 @@ void update_image(void)//apply selected operations on original image, calculate 
 				calc_histogram(im1->data, im1->iw, im1->ih, kc, 0, im1->iw, 0, im1->ih, im1->depth[kc], hist_full, 0);
 				for(ptrdiff_t k=0;k<res;++k)
 				{
-					int sym=im1->data[k<<2|kc]+(nlevels>>1);
+					int sym, freq;
+
+					sym=im1->data[k<<2|kc]+(nlevels>>1);
 					sym=CLAMP(0, sym, nlevels-1);
-					int freq=hist_full[sym];
+					freq=hist_full[sym];
 					if(freq)
 					{
 						float bitsize=-log2f((float)freq/res);
@@ -2729,14 +2731,14 @@ void update_image(void)//apply selected operations on original image, calculate 
 				float vmax=0;
 				for(ptrdiff_t k=0;k<res;++k)
 				{
-					if(!vmax||vmax<fbuf[k<<2|0])
+					if(fabsf(vmax)<1e-9||vmax<fbuf[k<<2|0])
 						vmax=fbuf[k<<2|0];
 					if(vmax<fbuf[k<<2|1])
 						vmax=fbuf[k<<2|1];
 					if(vmax<fbuf[k<<2|2])
 						vmax=fbuf[k<<2|2];
 				}
-				if(vmax)
+				if(fabsf(vmax)>1e-9)
 				{
 					for(ptrdiff_t k=0;k<res;++k)
 					{
@@ -4630,9 +4632,11 @@ int io_keydn(IOKey key, char c)
 					LOG_WARNING("Alloc error");
 					return 0;
 				}
-				int success=copy_bmp_to_clipboard(buf, im1->iw, im1->ih);
-				if(!success)
-					LOG_WARNING("Failed to copy image to clipboard");
+				{
+					int success=copy_bmp_to_clipboard(buf, im1->iw, im1->ih);
+					if(!success)
+						LOG_WARNING("Failed to copy image to clipboard");
+				}
 				free(buf);
 				return 0;
 			}
@@ -6460,7 +6464,13 @@ void io_render(void)
 #endif
 	if(im1)
 	{
-		float x=(float)(wndw-300), y=tdy*2, x2=x;
+		double usize;
+		float
+			x, y, x2, xstart, xend, ystart, scale,
+			crformat, cr_combined;
+		int RGBspace;
+
+		x=(float)(wndw-300), y=tdy*2, x2=x;
 		for(int k=0;k<T_COUNT;++k)//print available transforms on right
 		{
 			transforms_printname(x2, y, k, -1, transforms_mask[k]?0xA0FF0000FFFFFFFF:0);
@@ -6484,14 +6494,13 @@ void io_render(void)
 			for(int k=0;k<(int)transforms->count;++k, y+=tdy)//print applied transforms on left
 				transforms_printname(x, y, transforms->data[k], k, 0);
 		}
-		float
-			cr_combined=(float)((im1->src_depth[0]+im1->src_depth[1]+im1->src_depth[2]+im1->src_depth[3])/(ch_entropy[0]+ch_entropy[1]+ch_entropy[2]+ch_entropy[3])),
-			xstart=20, xend=(float)wndw-330, ystart=(float)(wndh-tdy*5),
-			scale=xend-xstart;
+		cr_combined=(float)((im1->src_depth[0]+im1->src_depth[1]+im1->src_depth[2]+im1->src_depth[3])/(ch_entropy[0]+ch_entropy[1]+ch_entropy[2]+ch_entropy[3]));
+		xstart=20, xend=(float)wndw-330, ystart=(float)(wndh-tdy*5);
+		scale=xend-xstart;
 		
-		double usize=image_getBMPsize(im0);
-		float crformat=(float)(usize/filesize);
-		int RGBspace=1;
+		usize=image_getBMPsize(im0);
+		crformat=(float)(usize/filesize);
+		RGBspace=1;
 		for(int k=0;k<CST_FWD_SEPARATOR;++k)
 		{
 			if(transforms_mask[k])
@@ -6628,9 +6637,11 @@ void io_render(void)
 		//}
 		{
 			float g2, cx, cy;
+			int idx, idx2;
 
 			g2=wndh/combCRhist_max;
-			int idx=combCRhist_idx-1, idx2=combCRhist_idx-2;
+			idx=combCRhist_idx-1;
+			idx2=combCRhist_idx-2;
 			idx+=combCRhist_SIZE&-(idx<0);
 			idx2+=combCRhist_SIZE&-(idx2<0);
 			xstart=(float)(wndw-(combCRhist_SIZE<<combCRhist_logDX)-300);

@@ -1018,7 +1018,7 @@ float print_line_enqueue(ArrayHandle *vertices, float tab_origin, float x, float
 		width, height,
 		rect[4]={0},//{x1, y1, x2, y2}
 		CX1, CX0;
-	int tab_origin_cols, printable_count, cursor_cols, advance_cols;
+	int tab_origin_cols, printable_count, cursor_cols, advance_cols, k;
 
 	if(msg_length<1)
 		return 0;
@@ -1045,14 +1045,14 @@ float print_line_enqueue(ArrayHandle *vertices, float tab_origin, float x, float
 		ARRAY_APPEND(*vertices, 0, 0, 1, (size_t)msg_length<<2);
 	//vrtx_resize(msg_length<<2, 4);
 
-	int k=ret_idx?*ret_idx:0;
+	k=ret_idx?*ret_idx:0;
 	if(req_cols<0||cursor_cols<req_cols)
 	{
 		CX1*=width;
 		for(;k<msg_length;++k)
 		{
 			char c=msg[k];
-			if(c>=32&&c<0xFF)
+			if(c>=' '&&c<='~')
 				advance_cols=1;
 			else if(c=='\t')
 			{
@@ -1199,7 +1199,7 @@ float print_line_immediate(float tab_origin, float x, float y, float zoom, const
 		for(;k<msg_length;++k)
 		{
 			char c=msg[k];
-			if(c>=32&&c<0xFF)
+			if(c>=' '&&c<='~')
 				advance_cols=1;
 			else if(c=='\t')
 			{
@@ -1789,6 +1789,15 @@ void draw_contour3d(Camera const *cam, float x1, float x2, float y1, float y2, f
 
 	float mView[16], mProj[16], mVP[16];
 	__m128 temp1;
+	ConVert v[]=
+	{
+		{-x1, -y1, 0, 0, 0},
+		{-x2, -y1, 0, 1, 0},
+		{-x2, -y2, 0, 1, 1},
+		{-x2, -y2, 0, 1, 1},
+		{-x1, -y2, 0, 0, 1},
+		{-x1, -y1, 0, 0, 0},
+	};
 
 	if(!buffer)
 		glGenBuffers(1, &buffer);
@@ -1801,15 +1810,6 @@ void draw_contour3d(Camera const *cam, float x1, float x2, float y1, float y2, f
 	
 	glUniform1f(u_contour3D_alpha, alpha);
 
-	ConVert v[]=
-	{
-		{-x1, -y1, 0, 0, 0},
-		{-x2, -y1, 0, 1, 0},
-		{-x2, -y2, 0, 1, 1},
-		{-x2, -y2, 0, 1, 1},
-		{-x1, -y2, 0, 0, 1},
-		{-x1, -y1, 0, 0, 0},
-	};
 	glBindBuffer(GL_ARRAY_BUFFER, buffer);			GL_CHECK(error);
 	glEnableVertexAttribArray(a_contour3D_vertex);		GL_CHECK(error);
 	glVertexAttribPointer    (a_contour3D_vertex, 3, GL_FLOAT, GL_FALSE, sizeof(float[5]), (void*)0);			GL_CHECK(error);//use offsetof
