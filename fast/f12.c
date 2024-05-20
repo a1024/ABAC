@@ -170,9 +170,9 @@ int f12_statstest(const char *path)
 		};
 		pred_simd(&image, 1, cdepths);
 #endif
-		for(int ky=0, idx=0;ky<image.ih;++ky)
+		for(int ky=0;ky<image.ih;++ky)
 		{
-			for(int kx=0;kx<image.iw;++kx, idx+=image.nch)
+			for(int kx=0;kx<image.iw;++kx)
 			{
 				int kc=1;
 				//for(int kc=0;kc<image.nch;++kc)

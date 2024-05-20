@@ -232,10 +232,10 @@ static void update_CDFs(short *val, unsigned *stats, int *ctx, const unsigned *m
 		__m256i c1=_mm256_loadu_si256((__m256i*)curr_CDF+1);
 		__m256i c2=_mm256_loadu_si256((__m256i*)curr_CDF+2);
 		__m256i c3=_mm256_loadu_si256((__m256i*)curr_CDF+3);
-		__m256i m0=_mm256_load_si256((__m256i const*)mcdf+0);
-		__m256i m1=_mm256_load_si256((__m256i const*)mcdf+1);
-		__m256i m2=_mm256_load_si256((__m256i const*)mcdf+2);
-		__m256i m3=_mm256_load_si256((__m256i const*)mcdf+3);
+		__m256i m0=_mm256_load_si256((const __m256i*)mcdf+0);
+		__m256i m1=_mm256_load_si256((const __m256i*)mcdf+1);
+		__m256i m2=_mm256_load_si256((const __m256i*)mcdf+2);
+		__m256i m3=_mm256_load_si256((const __m256i*)mcdf+3);
 		__m256i d0=_mm256_sub_epi32(m0, c0);
 		__m256i d1=_mm256_sub_epi32(m1, c1);
 		__m256i d2=_mm256_sub_epi32(m2, c2);
@@ -266,8 +266,8 @@ static void update_CDFs(short *val, unsigned *stats, int *ctx, const unsigned *m
 		//mcdf=mixin_CDFs+32*sym;
 		c0=_mm256_loadu_si256((__m256i*)curr_CDF+0);
 		c1=_mm256_loadu_si256((__m256i*)curr_CDF+1);
-		m0=_mm256_load_si256((__m256i*)mcdf+0);
-		m1=_mm256_load_si256((__m256i*)mcdf+1);
+		m0=_mm256_load_si256((const __m256i*)mcdf+0);
+		m1=_mm256_load_si256((const __m256i*)mcdf+1);
 		d0=_mm256_sub_epi32(m0, c0);
 		d1=_mm256_sub_epi32(m1, c1);
 		d0=_mm256_srai_epi32(d0, 8);

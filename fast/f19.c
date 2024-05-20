@@ -366,7 +366,7 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				int c=0;
 				for(int ks=0;ks<qlevels;++ks)
 				{
-					int freq=curr_hist[ks];
+					freq=curr_hist[ks];
 					curr_CDF[ks]=c*(0x10000LL-qlevels)/sum+ks;
 					c+=freq;
 					dlist_push_back(&list, curr_CDF+ks, sizeof(short));
@@ -553,7 +553,7 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					ans_dec_update(&ec, cdf, freq);
 #endif
 					
-					int delta=token, bypass;
+					int delta=token;
 					if(delta>=(1<<CONFIG_EXP))
 					{
 						delta-=1<<CONFIG_EXP;
@@ -561,7 +561,7 @@ int f19_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						delta>>=CONFIG_LSB;
 						int msb=delta&((1<<CONFIG_MSB)-1);
 						delta>>=CONFIG_MSB;
-						int nbits=delta+CONFIG_EXP-(CONFIG_MSB+CONFIG_LSB);
+						nbits=delta+CONFIG_EXP-(CONFIG_MSB+CONFIG_LSB);
 						c=(unsigned short)ec.state;
 						bypass=c>>(16-nbits);
 						cdf=(bypass<<16)>>nbits;

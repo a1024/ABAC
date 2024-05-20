@@ -773,16 +773,16 @@ unsigned exp2_neg_fix24_avx2(unsigned x)
 	__m256i ones=_mm256_set_epi32(0, 1, 0, 1, 0, 1, 0, 1);
 
 	__m256i x2=_mm256_set_epi32(0, x>>18&63, 0, x>>12&63, 0, x>>6&63, 0, x&63);
-	__m256i result=_mm256_load_si256((__m256i*)frac_pots+6);
+	__m256i result=_mm256_load_si256((const __m256i*)frac_pots+6);
 
-	__m256i factor=_mm256_load_si256((__m256i*)frac_pots+0);
+	__m256i factor=_mm256_load_si256((const __m256i*)frac_pots+0);
 	__m256i mask=_mm256_and_si256(x2, ones);
 	x2=_mm256_srli_epi32(x2, 1);
 	mask=_mm256_cmpeq_epi64(mask, ones);
 	result=_mm256_castpd_si256(_mm256_blendv_pd(_mm256_castsi256_pd(result), _mm256_castsi256_pd(factor), _mm256_castsi256_pd(mask)));
 	for(int k=1;k<FRAC_BITS/4;++k)
 	{
-		factor=_mm256_load_si256((__m256i*)frac_pots+k);
+		factor=_mm256_load_si256((const __m256i*)frac_pots+k);
 		factor=_mm256_mul_epu32(factor, result);
 		mask=_mm256_and_si256(x2, ones);
 		x2=_mm256_srli_epi32(x2, 1);
@@ -1557,7 +1557,7 @@ static void dlist_append_node(DListHandle list)
 	else\
 		memset(DST, 0, COPYSIZE);
 #else
-static void dlist_fill_node(DListHandle list, size_t copysize, char **src, void *dst)
+static void dlist_fill_node(DListHandle list, size_t copysize, const char **src, void *dst)
 {
 	list->nobj+=copysize;
 	copysize*=list->objsize;
@@ -1595,10 +1595,10 @@ void* dlist_push_back1(DListHandle list, const void *obj)
 void* dlist_push_back(DListHandle list, const void *data, size_t count)
 {
 	size_t obj_idx, copysize;
-	char *buffer;
+	const char *buffer;
 	void *ret;
 	
-	buffer=(char*)data;
+	buffer=(const char*)data;
 	ret=0;
 	obj_idx=list->nobj%list->objpernode;
 	if(obj_idx)
@@ -2311,7 +2311,6 @@ BitstringHandle bitstring_construct(const void *src, size_t bitCount, size_t bit
 {
 	BitstringHandle str;
 	size_t srcBytes, cap;
-	unsigned char *srcbytes=(unsigned char*)src;
 
 	srcBytes=(bitCount+7)>>3;
 	cap=srcBytes+bytePad;
@@ -2327,6 +2326,7 @@ BitstringHandle bitstring_construct(const void *src, size_t bitCount, size_t bit
 	memset(str->data, 0, cap);
 	if(src)
 	{
+		const unsigned char *srcbytes=(const unsigned char*)src;
 		for(size_t b=0;b<bitCount;++b)
 		{
 			int bit=srcbytes[(bitOffset+b)>>3]>>((bitOffset+b)&7)&1;
@@ -2344,7 +2344,6 @@ void bitstring_append(BitstringHandle *str, const void *src, size_t bitCount, si
 {
 	size_t reqcap, newcap;
 	size_t byteIdx;
-	unsigned char *srcbytes=(unsigned char*)src;
 
 	newcap=str[0]->byteCap;
 	newcap+=!newcap;
@@ -2365,6 +2364,7 @@ void bitstring_append(BitstringHandle *str, const void *src, size_t bitCount, si
 	memset(str[0]->data+byteIdx, 0, newcap-byteIdx);
 	if(src)
 	{
+		const unsigned char *srcbytes=(const unsigned char*)src;
 		for(size_t b=0;b<bitCount;++b)
 		{
 			int bit=srcbytes[(bitOffset+b)>>3]>>((bitOffset+b)&7)&1;

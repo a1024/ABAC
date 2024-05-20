@@ -590,7 +590,7 @@ int f16_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						CDF2=tree2+((size_t)tidx<<NBITS);
 						CDF3=tree3+((size_t)tidx<<NBITS);
 						CDF4=tree4+((size_t)tidx<<NBITS);
-						int cdf=ac_dec_getcdf(&ec);
+						cdf=ac_dec_getcdf(&ec);
 
 #if NBITS==8
 						__m256i mlevel=_mm256_set1_epi16(cdf);

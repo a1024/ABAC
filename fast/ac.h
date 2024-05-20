@@ -355,6 +355,8 @@ INLINE void ac_enc_av2(ArithmeticCoder *ec, int sym, const unsigned *CDF1, const
 	if(ec->range==~0LLU)
 		LOG_ERROR2("Invalid AC range");
 #endif
+	(void)nlevels;
+
 	ec->low+=ec->range*cdf>>PROB_BITS;
 	ec->range*=freq;
 	ec->range>>=PROB_BITS;
@@ -369,6 +371,9 @@ INLINE int ac_dec_packedsign_av2(ArithmeticCoder *ec, const unsigned *CDF1, cons
 	unsigned cdf=(unsigned)(((ec->code-ec->low)<<PROB_BITS|0xFFFF)/ec->range);
 	int freq;
 	int sym;
+#ifdef AC_VALIDATE
+	unsigned long long lo0, r0;
+#endif
 
 	(void)nlevels;
 
@@ -379,7 +384,7 @@ INLINE int ac_dec_packedsign_av2(ArithmeticCoder *ec, const unsigned *CDF1, cons
 	cdf=(CDF1[sym]+CDF2[sym])>>1;
 	freq=((CDF1[sym+1]+CDF2[sym+1])>>1)-cdf;
 #ifdef AC_VALIDATE
-	unsigned long long lo0=ec->low, r0=ec->range;
+	lo0=ec->low, r0=ec->range;
 	if(freq<=0||cdf>=0x10000||cdf+freq>0x10000)
 		LOG_ERROR2("ZPS");
 #endif
@@ -1239,6 +1244,8 @@ INLINE void ans_enc(ANSCoder *ec, int sym, const unsigned *CDF, int nlevels)
 	}
 	debug_enc_update(ec->state, cdf, freq, 0, 0, 0, 0, sym);
 	ec->state=ec->state/freq<<16|(cdf+ec->state%freq);//update
+
+	(void)nlevels;
 }
 INLINE int ans_dec(ANSCoder *ec, const unsigned *CDF, int nlevels)
 {

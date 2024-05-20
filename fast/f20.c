@@ -40,6 +40,10 @@ static void calc_ctx(const __m128i *N, const __m128i *W, const __m128i *NW, cons
 	*pred=_mm_max_epi32(*pred, mmin);
 	*mag=_mm_max_epi32(*mag, *mminmag);
 	*pred=_mm_min_epi32(*pred, mmax);
+
+	(void)eN;
+	(void)eNE;
+	(void)eNW;
 }
 static void pack_sign(__m128i *data)
 {
@@ -85,6 +89,8 @@ static void calc_update(const __m128i *eN, const __m128i *eW, const __m128i *eNE
 	//*ecurr=_mm_add_epi32(*ecurr, _mm_slli_epi32(*ecurr, 1));//x/5 ~= x*0x33>>8 = x*3*17>>8
 	//*ecurr=_mm_add_epi32(*ecurr, _mm_slli_epi32(*ecurr, 4));
 	//*ecurr=_mm_srai_epi32(*ecurr, 8);
+
+	(void)eN;
 }
 int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud)
 {
