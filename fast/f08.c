@@ -711,6 +711,7 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		memcpy(bm, cbuf, sizeof(bm));
 		cbuf+=sizeof(bm);
 		clen-=sizeof(bm);
+		(void)clen;
 		const unsigned char *ptr=cbuf;
 #ifdef USE_GRCODER
 		gr_dec_init(ec+0, ptr, ptr+bm[0]);	ptr+=bm[0];

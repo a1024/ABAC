@@ -284,6 +284,7 @@ int hammingweight64(unsigned long long x)
 	return __builtin_popcountll(x);
 #endif
 }
+#if 0
 int floor_log2_p1(unsigned long long n)
 {
 #ifdef _MSC_VER
@@ -379,18 +380,20 @@ int floor_log2_32(unsigned n)
 #endif
 #endif
 }
+#endif
 int ceil_log2(unsigned long long n)
 {
-	int lgn=floor_log2(n);
+	int lgn=FLOOR_LOG2(n);
 	lgn+=(1ULL<<lgn)<n;
 	return lgn;
 }
 int ceil_log2_32(unsigned n)
 {
-	int lgn=floor_log2_32(n);
+	int lgn=FLOOR_LOG2(n);
 	lgn+=(1U<<lgn)<n;
 	return lgn;
 }
+#if 0
 int get_lsb_index(unsigned long long n)
 {
 #ifdef _MSC_VER
@@ -458,6 +461,7 @@ int get_lsb_index16(unsigned short n)
 	return lsb;
 #endif
 }
+#endif
 int floor_log10(double x)
 {
 	static const double pmask[]=//positive powers
@@ -1113,7 +1117,7 @@ int log_error(const char *fn, int line, int quit, const char *format, ...)
 	return firsttime;
 }
 #if 0
-int valid(const void *p)//only makes sense with MSVC debugger
+static int valid(const void *p)//only makes sense with MSVC debugger
 {
 	size_t val=(size_t)p;
 
@@ -1158,12 +1162,12 @@ int pause(void)
 	while(!scanf("%d", &k));
 	return k;
 }
-#ifdef _MSC_VER
-int pause1(void)
-{
-	return _getch();
-}
-#endif
+//#ifdef _MSC_VER
+//int pause1(void)
+//{
+//	return _getch();
+//}
+//#endif
 int pause_abort(const char *fn, int lineno, const char *extraInfo)
 {
 	printf("INTERNAL ERROR %s(%d)\nABORTING\n", fn, lineno);

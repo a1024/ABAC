@@ -16,16 +16,20 @@ unsigned char lossyconv_causalRCT[4]={0};
 #define LOAD(BUF, X, Y) ((unsigned)(ky+(Y))<(unsigned)src->ih&&(unsigned)(kx+(X))<(unsigned)src->iw?BUF[(src->iw*(ky+(Y))+kx+(X))<<2|kc]:0)
 void pred_lossyconv(Image *src)
 {
-	Image *dst=0;
+	Image *dst;
+	int *p1, *p2;
+
+	dst=0;
 	image_copy(&dst, src);
 	//if(!dst->data)
 	//{
 	//	LOG_ERROR("Alloc error");
 	//	return;
 	//}
+	p1=src->data;
+	p2=dst->data;
 	for(int kb=0;kb<4;++kb)//no need for memcpy due to even number of stages:  src->dst->src
 	{
-		int *p1=src->data, *p2=dst->data;
 		int
 			xstart=lossyconv_offset[kb<<1|0], xstride=lossyconv_stride[kb<<1|0]+1,
 			ystart=lossyconv_offset[kb<<1|1], ystride=lossyconv_stride[kb<<1|1]+1;

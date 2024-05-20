@@ -5669,7 +5669,8 @@ static void draw_profile_x(int comp, int color)//horizontal cross-section profil
 		int *row=im1->data+(im1->iw*iy<<2|comp);
 		int ix;
 		float y2;
-		float gain=(float)(wndh>>1)/((1<<im1->depth[comp])-1);
+		float gain=(float)wndh/((1<<im1->depth[comp])-1);
+	//	float gain=(float)(wndh>>1)/((1<<im1->depth[comp])-1);
 		int offset=1<<im1->depth[comp]>>1;
 		for(int kx=0;kx<wndw;++kx)
 		{
@@ -5692,7 +5693,8 @@ static void draw_profile_y(int comp, int color)//vertical cross-section profile
 		
 		float x2;
 		int iy;
-		float gain=(float)(wndw>>1)/((1<<im1->depth[comp])-1);
+		float gain=(float)wndw/((1<<im1->depth[comp])-1);
+	//	float gain=(float)(wndw>>1)/((1<<im1->depth[comp])-1);
 		int offset=1<<im1->depth[comp]>>1;
 		int stride=im1->iw<<2;
 		for(int ky=0;ky<wndh;++ky)
@@ -6915,10 +6917,11 @@ void io_render(void)
 		//extern int testhist[3];//
 		//GUIPrint(0, 0, tdy*2, 1, "%d %d %d", testhist[0], testhist[1], testhist[2]);//
 		//const char *label=ec_method_label(ec_method);
-		GUIPrint(0, 0, 0, 1, "WH %dx%d  D0[%d %d %d %d] D[%d %d %d %d]",
+		GUIPrint(0, 0, 0, 1, "WH %dx%d  D0[%d %d %d %d] D[%d %d %d %d]  Z %13.6lf",
 			im0->iw, im0->ih,
 			im0->src_depth[0], im0->src_depth[1], im0->src_depth[2], im0->src_depth[3],
-			im1->depth[0], im1->depth[1], im1->depth[2], im1->depth[3]
+			im1->depth[0], im1->depth[1], im1->depth[2], im1->depth[3],
+			imzoom
 		);
 	}
 #if 0

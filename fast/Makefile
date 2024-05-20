@@ -5,9 +5,15 @@ WARN = -Wall -Wextra -Wcast-qual -Wcast-align -Wstrict-aliasing -Wpointer-arith 
 	-Wstrict-prototypes -Wmissing-prototypes -Wredundant-decls -Wformat=2 -Wfloat-equal -Wundef\
 	-Wvla -Wdeclaration-after-statement -Wc++-compat\
 	-Wno-cast-function-type -Wno-redundant-decls -Wno-unused-function -Wno-implicit-fallthrough -Wno-misleading-indentation -Wno-missing-field-initializers
+
+WARN_CLANG = -Wno-cast-align
+
 build:
 	g++ -O3 $(WARN) -mavx2 -mbmi -mlzcnt $(SRC) -o fast
 debug:
 	g++ -g $(WARN) -mavx2 -mbmi -mlzcnt $(SRC) -o fast-debug
 avx512:
 	g++ -O3 $(WARN) -mavx512f -mavx512cd -mbmi -mlzcnt $(SRC) -o fast
+
+use-clang-avx512:
+	clang++ -O3 $(WARN) $(WARN_CLANG) -mavx512f -mavx512cd -mbmi -mlzcnt $(SRC) -o fast

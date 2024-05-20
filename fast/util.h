@@ -31,6 +31,18 @@ extern "C"
 #endif
 
 //utility
+#ifdef _MSC_VER
+#define	ALIGN(N) __declspec(align(N))
+#define INLINE static
+//#define sprintf_s snprintf
+#else
+#define	ALIGN(N) __attribute__((aligned(N)))
+#define INLINE static inline
+#ifndef _countof
+#define _countof(A) (sizeof(A)/sizeof(*(A)))
+#endif
+//#define _stricmp strcasecmp		//moved to source		because this interferes with later includes
+#endif
 #define BETWEEN_INC(LO, X, HI) ((unsigned)((X)-LO)<(unsigned)(HI+1-LO))
 #define BETWEEN_EXC(LO, X, HI) ((unsigned)((X)-LO)<(unsigned)(HI-LO))
 #define SWAPVAR(A, B, TEMP) TEMP=A, A=B, B=TEMP
@@ -89,19 +101,6 @@ extern "C"
 #define LSB_IDX_64(X)	(int)_tzcnt_u64(X)
 #define LSB_IDX_32(X)	(int)_tzcnt_u32(X)
 #define LSB_IDX_16(X)	(int)_tzcnt_u16(X)
-
-#ifdef _MSC_VER
-#define	ALIGN(N) __declspec(align(N))
-#define INLINE static
-//#define sprintf_s snprintf
-#else
-#define	ALIGN(N) __attribute__((aligned(N)))
-#define INLINE static inline
-#ifndef _countof
-#define _countof(A) (sizeof(A)/sizeof(*(A)))
-#endif
-//#define _stricmp strcasecmp		//moved to source		because this interferes with later includes
-#endif
 
 #define G_BUF_SIZE 4096
 extern char g_buf[G_BUF_SIZE];
@@ -172,9 +171,9 @@ int log_error(const char *file, int line, int quit, const char *format, ...);//d
 #define ASSERT_MSG(SUCCESS, MSG, ...) ((SUCCESS)!=0||log_error(file, __LINE__, 1, MSG, ##__VA_ARGS__))
 //int valid(const void *p);
 int pause(void);
-#ifdef _MSC_VER
-int pause1(void);
-#endif
+//#ifdef _MSC_VER
+//int pause1(void);
+//#endif
 int pause_abort(const char *file, int lineno, const char *extraInfo);
 #define PANIC() pause_abort(file, __LINE__, 0)
 #define ASSERT(SUCCESS) ((SUCCESS)!=0||pause_abort(file, __LINE__, #SUCCESS))
