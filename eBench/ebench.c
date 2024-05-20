@@ -74,7 +74,7 @@ typedef enum TransformTypeEnum
 	CT_FWD_YCbCr,		CT_INV_YCbCr,	//LOSSY	JPEG
 	CT_FWD_XYB,		CT_INV_XYB,	//LOSSY	(2021) JPEG XL
 	CT_FWD_CUSTOM,		CT_INV_CUSTOM,
-	CT_FWD_ADAPTIVE,	CT_INV_ADAPTIVE,
+//	CT_FWD_ADAPTIVE,	CT_INV_ADAPTIVE,
 
 	CST_FWD_SEPARATOR,	CST_INV_SEPARATOR,
 	
@@ -1257,8 +1257,8 @@ static void batch_test(void)
 static int customtransforms_getflag(unsigned char tid)
 {
 	return
-		tid==CT_FWD_ADAPTIVE||
-		tid==CT_INV_ADAPTIVE||
+	//	tid==CT_FWD_ADAPTIVE||
+	//	tid==CT_INV_ADAPTIVE||
 		tid==CT_FWD_CUSTOM||
 		tid==CT_INV_CUSTOM||
 		tid==ST_FWD_CUSTOM||
@@ -1349,8 +1349,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	const char *a=0;
 	switch(tid)
 	{
-	case CT_FWD_ADAPTIVE:		a="C  Fwd Adaptive";		break;
-	case CT_INV_ADAPTIVE:		a="C  Inv Adaptive";		break;
+//	case CT_FWD_ADAPTIVE:		a="C  Fwd Adaptive";		break;
+//	case CT_INV_ADAPTIVE:		a="C  Inv Adaptive";		break;
 	case CT_FWD_YCbCr_R_v1:		a="C  Fwd YCbCr-R v1";		break;
 	case CT_INV_YCbCr_R_v1:		a="C  Inv YCbCr-R v1";		break;
 	case CT_FWD_YCbCr_R_v2:		a="C  Fwd YCbCr-R v2";		break;
