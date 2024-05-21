@@ -185,6 +185,9 @@ typedef enum ProfilePlotModeEnum
 ProfilePlotMode profileplotmode=PROFILE_OFF;
 int show_full_image=0;
 int space_not_color=0;
+#define ZOOM_LIMIT_LABEL 48
+#define ZOOM_LIMIT_ALPHA 96
+int pxlabels_hex=0;
 
 //joint hist box contour
 float jh_cubesize=64;
@@ -1436,8 +1439,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_CLAMPGRAD:		a=" S Inv ClampGrad";		break;
 	case ST_FWD_AV2:		a=" S Fwd (N+W)>>1";		break;
 	case ST_INV_AV2:		a=" S Inv (N+W)>>1";		break;
-	case ST_FWD_WGRAD:		a="CS Fwd dx*N+dy*W";		break;
-	case ST_INV_WGRAD:		a="CS Inv dx*N+dy*W";		break;
+	case ST_FWD_WGRAD:		a="CS Fwd WGrad";		break;
+	case ST_INV_WGRAD:		a="CS Inv WGrad";		break;
 //	case ST_FWD_ECOEFF:		a=" S Fwd E-Coeff";		break;
 //	case ST_INV_ECOEFF:		a=" S Inv E-Coeff";		break;
 //	case ST_FWD_AVERAGE:		a=" S Fwd Average";		break;
@@ -3077,11 +3080,11 @@ static void chart_hist_draw(float x1, float x2, float y1, float y2, int cstart, 
 			float dy=(y2-y1)/3.f, histpx=dy/_histmax[kc];
 			int k=1;
 			float y=k*histpx*10000;
-			for(;y<dy;++k)
-			{
-				draw_line(x1, y1+(kc+1)*dy-y, x2, y1+(kc+1)*dy-y, color?color:alpha<<24|0xFF<<(kc<<3));//0x40
-				y=k*histpx*10000;
-			}
+			//for(;y<dy;++k)
+			//{
+			//	draw_line(x1, y1+(kc+1)*dy-y, x2, y1+(kc+1)*dy-y, color?color:alpha<<24|0xFF<<(kc<<3));//0x40
+			//	y=k*histpx*10000;
+			//}
 			for(int k2=0;k2<256;++k2)
 				draw_rect(x1+k2*(x2-x1)/256, x1+(k2+1)*(x2-x1)/256, y1+(kc+1)*dy-_hist[kc<<8|k2]*histpx, y1+(kc+1)*dy, color?color:alpha<<24|0xFF<<(kc<<3));//0x80
 		}
@@ -5665,7 +5668,7 @@ static void draw_diffav(float x, float y, float z)
 	draw_3d_line(&cam, points+3*3, points+3*0, 0xFFFF0000);
 }
 
-ArrayHandle vertices_2d=0;
+static ArrayHandle vertices_2d=0;
 static void draw_profile_x(int comp, int color)//horizontal cross-section profile		to see the color/spatial correlation
 {
 	int iy=screen2image_y_int(my);
@@ -5714,6 +5717,46 @@ static void draw_profile_y(int comp, int color)//vertical cross-section profile
 		draw_2d_flush(vertices_2d, color, GL_LINE_STRIP);
 	}
 }
+
+static ArrayHandle vertices_text=0;
+static void print_pixellabels(int ix1, int ix2, int iy1, int iy2, int component, char label, long long txtcolors, int depth)
+{
+	const char *format;
+	int nlevels=1<<depth, half=nlevels>>1, mask=nlevels-1;
+	if(pxlabels_hex)
+	{
+		if(depth<=4)
+			format="%c %01X";
+		else if(depth<=8)
+			format="%c %02X";
+		else if(depth<=12)
+			format="%c %03X";
+		else
+			format="%c%04X";
+	}
+	else
+	{
+		format="%c%5d";
+		half=0;
+		mask=~0;
+	}
+	txtcolors=set_text_colors(txtcolors);
+	int iy=MAXVAR(iy1, 0);
+	float fontsize=1, labeloffset=tdy*fontsize*component;
+	for(int yend=MINVAR(iy2+2, im1->ih);iy<yend;++iy)
+	{
+		int ky=image2screen_y_int(iy);
+		int ix=MAXVAR(ix1, 0);
+		for(int xend=MINVAR(ix2+2, im1->iw);ix<xend;++ix)
+		{
+			int kx=image2screen_x_int(ix);
+			int idx=(im1->iw*iy+ix)<<2;
+			GUIPrint_enqueue(&vertices_text, 0, (float)kx, (float)ky+labeloffset, fontsize, format, label, (im1->data[idx+component]+half)&mask);
+		}
+	}
+	print_line_flush(vertices_text, fontsize);
+	txtcolors=set_text_colors(txtcolors);
+}
 void io_render(void)
 {
 	glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
@@ -5753,14 +5796,16 @@ void io_render(void)
 		//case VIS_PLANES:		chart_planes_draw();	break;
 		//case VIS_MESH:		chart_mesh_draw();	break;
 		//case VIS_MESH_SEPARATE:	chart_mesh_sep_draw();	break;
-		case VIS_HISTOGRAM:
-			{
-				float yoffset=tdy*3;
-				display_texture_i(0, im1->iw, (int)yoffset, (int)yoffset+im1->ih, (int*)im_export, im1->iw, im1->ih, 0, 1, 0, 1, 1, 0);
-				chart_hist_draw(0, (float)wndw, 0, (float)wndh, 0, 3, 0, 0x60, hist, histmax);
-			}
+		//	{
+		//		float yoffset=tdy*3;
+		//		display_texture_i(0, im1->iw, (int)yoffset, (int)yoffset+im1->ih, (int*)im_export, im1->iw, im1->ih, 0, 1, 0, 1, 1, 0);
+		//		chart_hist_draw(0, (float)wndw, 0, (float)wndh, 0, 3, 0, 0x60, hist, histmax);
+		//	}
+		//	break;
+		case VIS_JOINT_HISTOGRAM:
+			chart_jointhist_draw();
 			break;
-		case VIS_JOINT_HISTOGRAM:	chart_jointhist_draw();	break;
+		case VIS_HISTOGRAM:
 		case VIS_IMAGE:
 		case VIS_ZIPF:
 			{
@@ -5777,6 +5822,33 @@ void io_render(void)
 				//if(waitstatus==WAIT_OBJECT_0)
 				//	ReleaseMutex(ghMutex);
 #endif
+				if(imzoom>=ZOOM_LIMIT_LABEL)
+				{
+					int
+						csx1=CLAMP(0, sx1, wndw),
+						csx2=CLAMP(0, sx2, wndw),
+						csy1=CLAMP(0, sy1, wndh),
+						csy2=CLAMP(0, sy2, wndh);
+					int
+						ix1=screen2image_x_int(csx1),
+						ix2=screen2image_x_int(csx2),
+						iy1=screen2image_y_int(csy1),
+						iy2=screen2image_y_int(csy2);
+					long long theme[]=
+					{
+						0xC00000FF80000000,
+						0xC000FF0080000000,
+						0xC0FF000080FFFFFF,
+						0xC0FFFFFF80000000,
+					};
+					print_pixellabels(ix1, ix2, iy1, iy2, 0, 'r', theme[0], im1->depth[0]);
+					print_pixellabels(ix1, ix2, iy1, iy2, 1, 'g', theme[1], im1->depth[1]);
+					print_pixellabels(ix1, ix2, iy1, iy2, 2, 'b', theme[2], im1->depth[2]);
+					if(imzoom>=ZOOM_LIMIT_ALPHA&&im1->depth[3])
+						print_pixellabels(ix1, ix2, iy1, iy2, 3, 'a', theme[3], im1->depth[3]);
+				}
+				if(mode==VIS_HISTOGRAM)
+					chart_hist_draw(0, (float)wndw, 0, (float)wndh, 0, 3, 0, 0x60, hist, histmax);
 			}
 			break;
 #if 0

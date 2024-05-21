@@ -3108,6 +3108,14 @@ void pred_wgrad(Image *src, int fwd)
 					//}
 
 					pred=(int)(((long long)gx*N+(long long)gy*W)/(gx+gy));		//<- NOT better than CG: LPCB, DSLR2
+					
+					//if(kx==10&&ky==10)
+					//	printf("");
+					//pred=(NW+((2*N-NW)*gy+(2*W-NW)*gx)/(gx+gy))>>1;
+					//pred=NW+((N-NW)*gy+(W-NW)*gx)/(gx+gy);
+					//MEDIAN3_32(pred, N, W, pred);
+
+					//MEDIAN3_32(pred, N, W, N+W-NW);
 				}
 				//const int sh=8;
 				//int grad=N+W-NW, pred;
