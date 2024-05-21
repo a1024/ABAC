@@ -104,6 +104,7 @@ typedef enum TransformTypeEnum
 //	ST_FWD_ECOEFF,		ST_INV_ECOEFF,
 //	ST_FWD_AVERAGE,		ST_INV_AVERAGE,
 	ST_FWD_MULTISTAGE,	ST_INV_MULTISTAGE,
+	ST_FWD_MTF,		ST_INV_MTF,
 //	ST_FWD_ZIPPER,		ST_INV_ZIPPER,
 //	ST_FWD_DIR,		ST_INV_DIR,
 #if 0
@@ -1441,6 +1442,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 //	case ST_INV_AVERAGE:		a=" S Inv Average";		break;
 	case ST_FWD_MULTISTAGE:		a=" S Fwd Multistage";		break;
 	case ST_INV_MULTISTAGE:		a=" S Inv Multistage";		break;
+	case ST_FWD_MTF:		a=" S Fwd MTF";			break;
+	case ST_INV_MTF:		a=" S Inv MTF";			break;
 //	case ST_FWD_ZIPPER:		a=" S Fwd Zipper";		break;
 //	case ST_INV_ZIPPER:		a=" S Inv Zipper";		break;
 //	case ST_FWD_DIR:		a=" S Fwd Dir";			break;
@@ -2505,6 +2508,8 @@ void apply_selected_transforms(Image *image, int rct_only)
 	//	case ST_INV_AVERAGE:		pred_average(image, 0, pred_ma_enabled);		break;
 		case ST_FWD_MULTISTAGE:		pred_multistage(image, 1, pred_ma_enabled);		break;
 		case ST_INV_MULTISTAGE:		pred_multistage(image, 0, pred_ma_enabled);		break;
+		case ST_FWD_MTF:		pred_MTF(image, 1);					break;
+		case ST_INV_MTF:		pred_MTF(image, 0);					break;
 	//	case ST_FWD_ZIPPER:		pred_zipper(&image, 1, pred_ma_enabled);		break;
 	//	case ST_INV_ZIPPER:		pred_zipper(&image, 0, pred_ma_enabled);		break;
 		case ST_FWD_P3:			pred_separate(image, 1, pred_ma_enabled);		break;

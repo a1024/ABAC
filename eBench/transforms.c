@@ -3588,6 +3588,94 @@ void pred_av2(Image *src, int fwd)
 }
 
 
+void pred_MTF(Image *src, int fwd)
+{
+	int maxdepth, *dict;
+
+	maxdepth=MAXVAR(src->depth[0], src->depth[1]);
+	UPDATE_MAX(maxdepth, src->depth[2]);
+	UPDATE_MAX(maxdepth, src->depth[3]);
+	dict=(int*)malloc(sizeof(int[4])<<maxdepth);
+	if(!dict)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	for(int kc=0;kc<4;++kc)
+	{
+		int depth, *curr_dict, nlevels;
+
+		depth=src->depth[kc];
+		if(!depth)
+			continue;
+		curr_dict=dict+((size_t)kc<<maxdepth);
+		nlevels=1<<src->depth[kc];
+		for(int ks=0;ks<nlevels;++ks)
+			curr_dict[ks]=ks;
+	}
+	if(fwd)
+	{
+		for(int ky=0, idx=0;ky<src->ih;++ky)
+		{
+			for(int kx=0;kx<src->iw;++kx, idx+=4)
+			{
+				for(int kc=0;kc<4;++kc)
+				{
+					int depth, nlevels, half, *curr_dict, curr, ks;
+
+					depth=src->depth[kc];
+					if(!depth)
+						continue;
+					nlevels=1<<depth;
+					half=nlevels>>1;
+					curr_dict=dict+((size_t)kc<<maxdepth);
+					curr=src->data[idx|kc]+half;
+					ks=0;
+					for(;ks<nlevels&&curr_dict[ks]!=curr;++ks);
+					//if(ks>=nlevels)
+					//	LOG_ERROR("");
+					src->data[idx|kc]=ks-half;
+					if(ks)
+					{
+						memmove(curr_dict+1, curr_dict, ks*sizeof(int));
+						curr_dict[0]=curr;
+					}
+				}
+			}
+		}
+	}
+	else
+	{
+		for(int ky=0, idx=0;ky<src->ih;++ky)
+		{
+			for(int kx=0;kx<src->iw;++kx, idx+=4)
+			{
+				for(int kc=0;kc<4;++kc)
+				{
+					int depth, nlevels, half, *curr_dict, curr, ks;
+
+					depth=src->depth[kc];
+					if(!depth)
+						continue;
+					nlevels=1<<depth;
+					half=nlevels>>1;
+					curr_dict=dict+((size_t)kc<<maxdepth);
+					ks=src->data[idx|kc]+half;
+					curr=curr_dict[ks];
+					src->data[idx|kc]=curr-half;
+					if(ks)
+					{
+						memmove(curr_dict+1, curr_dict, ks*sizeof(int));
+						curr_dict[0]=curr;
+					}
+				}
+			}
+		}
+	}
+	free(dict);
+}
+
+
 	#define WP_RCT
 	#define ETOTAL_MBOX
 

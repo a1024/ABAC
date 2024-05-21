@@ -709,6 +709,7 @@ void rct_adaptive(Image *src, int fwd);
 void packsign(Image *src, int fwd);
 void pred_clampgrad(Image *image, int fwd, int enable_ma);
 void pred_av2(Image *src, int fwd);
+void pred_MTF(Image *src, int fwd);
 
 void pred_CG3D(Image *src, int fwd, int enable_ma);
 void pred_PU(Image *src, int fwd);
