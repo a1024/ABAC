@@ -11,7 +11,7 @@ static const char file[]=__FILE__;
 	#define N_CODER
 	#define DEDICATED_AC
 //	#define SHOW_PRED_ERRORS
-//	#define USE_GRCODER
+	#define USE_GRCODER
 
 
 #ifdef PROFILER
@@ -185,9 +185,13 @@ static void get_ctx(__m128i const *nb, const int *weights, int *pred, int *ctx)/
 	//get ctx
 	
 #ifdef USE_GRCODER
-	__m128i errors=_mm_add_epi16(nb[NB_N], nb[NB_W]);//hi halves contain errors
-	errors=_mm_abs_epi16(errors);//remove sign bit (9 -> 8-bit)
+	__m128i errors=_mm_castps_si128(_mm_shuffle_ps(_mm_castsi128_ps(nb[NB_W]), _mm_castsi128_ps(nb[NB_W]), _MM_SHUFFLE(3, 2, 3, 2)));//hi halves contain errors
 	errors=_mm_cvtepi16_epi32(errors);
+	errors=_mm_xor_si128(_mm_slli_epi32(errors, 1), _mm_srai_epi32(errors, 31));
+
+	//__m128i errors=_mm_add_epi16(nb[NB_N], nb[NB_W]);//hi halves contain errors
+	//errors=_mm_abs_epi16(errors);//remove sign bit (9 -> 8-bit)
+	//errors=_mm_cvtepi16_epi32(errors);
 #else
 	__m128i errors=_mm_castps_si128(_mm_shuffle_ps(_mm_castsi128_ps(nb[NB_N]), _mm_castsi128_ps(nb[NB_W]), _MM_SHUFFLE(3, 2, 3, 2)));//hi halves contain errors
 	__m128i negmask=_mm_cmplt_epi16(errors, _mm_setzero_si128());
@@ -441,7 +445,7 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #endif
 		for(int ky=0, idx=0;ky<image->ih;++ky)
 		{
-			int updatewp=!(ky&WP_UPDATE_MASK);
+			int updatewp=(ky&WP_UPDATE_MASK)==WP_UPDATE_MASK;
 			int *wp=weights;
 			short *rows[]=
 			{
@@ -483,6 +487,8 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				curr[2]-=curr[1];
 				curr[1]+=(curr[0]+curr[2])>>2;
 				
+				//if(ky==10&&kx==10)//
+				//	printf("");
 #ifdef USE_GRCODER
 				__m128i mc=_mm_loadu_si128((__m128i*)curr);
 				mc=_mm_cvtepi16_epi32(mc);
@@ -496,9 +502,9 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				_mm_store_si128((__m128i*)val, msym);
 				_mm_storeu_si128((__m128i*)(curr+4), wp0);
 
-				gr_enc(ec+0, val[0], ctx[0]);
-				gr_enc(ec+1, val[1], ctx[1]);
-				gr_enc(ec+2, val[2], ctx[2]);
+				gr_enc_POT(ec+0, val[0], FLOOR_LOG2(ctx[0]+1));
+				gr_enc_POT(ec+1, val[1], FLOOR_LOG2(ctx[1]+1));
+				gr_enc_POT(ec+2, val[2], FLOOR_LOG2(ctx[2]+1));
 #else
 #ifdef DEDICATED_AC
 				__m128i mc=_mm_loadu_si128((__m128i*)curr);
@@ -728,7 +734,7 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #endif
 		for(int ky=0, idx=0;ky<image->ih;++ky)
 		{
-			int updatewp=!(ky&WP_UPDATE_MASK);
+			int updatewp=(ky&WP_UPDATE_MASK)==WP_UPDATE_MASK;
 			int *wp=weights;
 			short *rows[]=
 			{
@@ -772,11 +778,12 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				//if(ky==1&&kx==1)//
 				//if(ky==1&&kx==386)//
 				//if(idx==3462)//
+				//if(ky==10&&kx==10)//
 				//	printf("");
 #ifdef USE_GRCODER
-				val[0]=gr_dec(ec+0, ctx[0]);
-				val[1]=gr_dec(ec+1, ctx[1]);
-				val[2]=gr_dec(ec+2, ctx[2]);
+				val[0]=gr_dec_POT(ec+0, FLOOR_LOG2(ctx[0]+1));
+				val[1]=gr_dec_POT(ec+1, FLOOR_LOG2(ctx[1]+1));
+				val[2]=gr_dec_POT(ec+2, FLOOR_LOG2(ctx[2]+1));
 				__m128i msym=_mm_load_si128((__m128i*)val);
 
 				//unpack sign		x = x>>1^-(x&1)

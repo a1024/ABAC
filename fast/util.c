@@ -884,7 +884,7 @@ int log2_fix24(unsigned long long x)
 	//and YouChad
 	if(!x)
 		return -((FRAC_BITS+1)<<FRAC_BITS);
-	int lgx=floor_log2(x)-24;
+	int lgx=FLOOR_LOG2(x)-24;
 	x=SHIFT_RIGHT_SIGNED(x, lgx);
 	lgx<<=24;
 	if(!(x&(x-1)))//no need to do 24 muls if x is a power of two

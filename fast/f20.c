@@ -61,18 +61,30 @@ static void unpack_sign(__m128i *curr)
 	*curr=_mm_srai_epi32(*curr, 1);
 	*curr=_mm_xor_si128(*curr, negmask);
 }
-static void calc_update(const __m128i *eN, const __m128i *eW, const __m128i *eNEEE, __m128i *ecurr)//writes to hi64 bits
+static void calc_update(const __m128i *eWW, const __m128i *eW, const __m128i *eNEEE, __m128i *ecurr)//writes to hi64 bits
 {
 	//x = (2*eW+eNEEE+ecurr)>>2
 	*ecurr=_mm_add_epi32(*ecurr, _mm_slli_epi32(*eW, 1));
 	*ecurr=_mm_add_epi32(*ecurr, *eNEEE);
-	*ecurr=_mm_srai_epi32(*ecurr, 2);//doesn't matter logic or arithmetic shift
+	*ecurr=_mm_srli_epi32(*ecurr, 2);
+
+	//x = (eWW+eW+eNEEE+ecurr)>>2
+	//*ecurr=_mm_add_epi32(*ecurr, *eW);
+	//*ecurr=_mm_add_epi32(*ecurr, *eWW);
+	//*ecurr=_mm_add_epi32(*ecurr, *eNEEE);
+	//*ecurr=_mm_srli_epi32(*ecurr, 2);
+	
+	//x = (eW+eNEEE+2*ecurr)>>2
+	//*ecurr=_mm_slli_epi32(*ecurr, 1);
+	//*ecurr=_mm_add_epi32(*ecurr, *eW);
+	//*ecurr=_mm_add_epi32(*ecurr, *eNEEE);
+	//*ecurr=_mm_srli_epi32(*ecurr, 2);
 
 	//x = (eN+eW+eNEEE+ecurr)>>2
 	//*ecurr=_mm_add_epi32(*ecurr, *eN);
 	//*ecurr=_mm_add_epi32(*ecurr, *eW);
 	//*ecurr=_mm_add_epi32(*ecurr, *eNEEE);
-	//*ecurr=_mm_srai_epi32(*ecurr, 2);
+	//*ecurr=_mm_srli_epi32(*ecurr, 2);
 	
 	//x = (2*eW-eN+eNEEE+ecurr)/3		X
 	//*ecurr=_mm_sub_epi32(*ecurr, *eN);
@@ -88,9 +100,9 @@ static void calc_update(const __m128i *eN, const __m128i *eW, const __m128i *eNE
 	//*ecurr=_mm_add_epi32(*ecurr, *eNEEE);
 	//*ecurr=_mm_add_epi32(*ecurr, _mm_slli_epi32(*ecurr, 1));//x/5 ~= x*0x33>>8 = x*3*17>>8
 	//*ecurr=_mm_add_epi32(*ecurr, _mm_slli_epi32(*ecurr, 4));
-	//*ecurr=_mm_srai_epi32(*ecurr, 8);
+	//*ecurr=_mm_srli_epi32(*ecurr, 8);
 
-	(void)eN;
+	//(void)eN;
 }
 int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud)
 {
@@ -301,6 +313,7 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					eN	=_mm_load_si128((__m128i*)rows[1]+0*2+1),
 					eNE	=_mm_load_si128((__m128i*)rows[1]+1*2+1),
 					eNEEE	=_mm_load_si128((__m128i*)rows[1]+3*2+1),
+					eWW	=_mm_load_si128((__m128i*)rows[0]-2*2+1),
 					eW	=_mm_load_si128((__m128i*)rows[0]-1*2+1);
 				int	*curr	=rows[0]+0*8;
 				__m128i mcurr, mpred, mmag;
@@ -402,7 +415,7 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					csizes[2<<2|kc]+=nbypass-(bypass<(1<<nbypass)-magnitude);
 				}
 #endif
-				calc_update(&eN, &eW, &eNEEE, &delta);
+				calc_update(&eWW, &eW, &eNEEE, &delta);
 				_mm_store_si128((__m128i*)curr+1, delta);
 				rows[0]+=8;
 				rows[1]+=8;
@@ -476,6 +489,7 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					eN	=_mm_load_si128((__m128i*)rows[1]+0*2+1),
 					eNE	=_mm_load_si128((__m128i*)rows[1]+1*2+1),
 					eNEEE	=_mm_load_si128((__m128i*)rows[1]+3*2+1),
+					eWW	=_mm_load_si128((__m128i*)rows[0]-2*2+1),
 					eW	=_mm_load_si128((__m128i*)rows[0]-1*2+1);
 				int	*curr	=rows[0]+0*8;
 				__m128i mpred, mmag;
@@ -505,7 +519,7 @@ int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				__m128i delta=_mm_load_si128((__m128i*)curr+1);
 				__m128i mcurr=delta;
 				unpack_sign(&mcurr);
-				calc_update(&eN, &eW, &eNEEE, &delta);
+				calc_update(&eWW, &eW, &eNEEE, &delta);
 				mcurr=_mm_add_epi32(mcurr, mpred);
 				_mm_store_si128((__m128i*)curr+0, mcurr);
 				_mm_store_si128((__m128i*)curr+1, delta);

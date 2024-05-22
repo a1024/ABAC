@@ -22,10 +22,10 @@ static const char file[]=__FILE__;
 
 //	#define BENCH_QOI
 
-#define CODECID     22
-#define CODECNAME "F22"
-#define ENCODE     f22_encode
-#define DECODE     f22_decode
+#define CODECID      8
+#define CODECNAME "F08"
+#define ENCODE     f08_encode
+#define DECODE     f08_decode
 
 
 static const char *g_extensions[]=
@@ -312,7 +312,7 @@ static void batch_test_mt(const char *path, int nthreads)
 
 int main(int argc, char **argv)
 {
-#if 1
+#if 0
 	{
 #ifdef _DEBUG
 		const char *path=

@@ -313,20 +313,18 @@ INLINE void ac_enc_update(ArithmeticCoder *ec, int cdf, int freq)//CDF is 16 bit
 		LOG_ERROR2("Invalid AC range");
 #endif
 	ec->low+=ec->range*cdf>>PROB_BITS;
-	ec->range*=freq;
-	ec->range>>=PROB_BITS;
-	--ec->range;//must decrement hi because decoder fails when code == hi2
+	ec->range=(ec->range*freq>>PROB_BITS)-1;//must decrement hi because decoder fails when code == hi2
 	while(ec->range<(1LL<<PROB_BITS))//only when freq=1 -> range=0, this loop runs twice
 		ac_enc_renorm(ec);
 	acval_enc(0, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);//
 	//acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->cidx);//
 }
-INLINE unsigned ac_dec_getcdf(ArithmeticCoder *ec)//preferred for skewed distributions as with 'pack sign'
+INLINE unsigned ac_dec_getcdf(ArithmeticCoder *ec)
 {
 	unsigned cdf=(unsigned)(((ec->code-ec->low)<<PROB_BITS|0xFFFF)/ec->range);
 	return cdf;
 }
-INLINE void ac_dec_update(ArithmeticCoder *ec, int cdf, int freq)//preferred for skewed distributions as with 'pack sign'
+INLINE void ac_dec_update(ArithmeticCoder *ec, int cdf, int freq)
 {
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
@@ -334,9 +332,7 @@ INLINE void ac_dec_update(ArithmeticCoder *ec, int cdf, int freq)//preferred for
 		LOG_ERROR2("ZPS");
 #endif
 	ec->low+=ec->range*cdf>>PROB_BITS;
-	ec->range*=freq;
-	ec->range>>=PROB_BITS;
-	--ec->range;//must decrement hi because decoder fails when code == hi2
+	ec->range=(ec->range*freq>>PROB_BITS)-1;//must decrement hi because decoder fails when code == hi2
 	while(ec->range<(1LL<<PROB_BITS))
 		ac_dec_renorm(ec);
 	acval_dec(0, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
