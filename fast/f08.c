@@ -6,12 +6,12 @@
 static const char file[]=__FILE__;
 
 
-//	#define ENABLE_GUIDE
+	#define ENABLE_GUIDE
 //	#define PROFILER 1
 	#define N_CODER
 	#define DEDICATED_AC
 //	#define SHOW_PRED_ERRORS
-	#define USE_GRCODER
+//	#define USE_GRCODER
 
 
 #ifdef PROFILER
@@ -445,7 +445,7 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #endif
 		for(int ky=0, idx=0;ky<image->ih;++ky)
 		{
-			int updatewp=(ky&WP_UPDATE_MASK)==WP_UPDATE_MASK;
+			int updatewp=!(ky&WP_UPDATE_MASK);
 			int *wp=weights;
 			short *rows[]=
 			{
@@ -462,6 +462,7 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				//if(idx==29889)//
 				//if(idx==2115)//
 				//if(idx==48321)//
+				//if(ky==511&&kx==761)//
 				//	printf("");
 				__m128i nb[]=
 				{
@@ -734,7 +735,7 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #endif
 		for(int ky=0, idx=0;ky<image->ih;++ky)
 		{
-			int updatewp=(ky&WP_UPDATE_MASK)==WP_UPDATE_MASK;
+			int updatewp=!(ky&WP_UPDATE_MASK);
 			int *wp=weights;
 			short *rows[]=
 			{
@@ -750,6 +751,7 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				//if(idx==29889)//
 				//if(idx==2115)//
 				//if(idx==48321)//
+				//if(ky==511&&kx==761)//
 				//	printf("");
 				__m128i nb[]=
 				{
@@ -807,9 +809,6 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					stats+ctx[0],
 					stats+ctx[1],
 					stats+ctx[2],
-					//stats+ctx[0]+33+17*(val[0]>>4),
-					//stats+ctx[1]+33+17*(val[1]>>4),
-					//stats+ctx[2]+33+17*(val[2]>>4),
 				};
 				int sym[3];
 				{

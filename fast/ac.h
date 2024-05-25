@@ -284,8 +284,9 @@ INLINE void ac_dec_renorm(ArithmeticCoder *ec)//fast renorm by F. Rubin 1979
 INLINE void ac_enc_flush(ArithmeticCoder *ec)
 {
 	unsigned long long code=ec->low+ec->range;
-	int n=FLOOR_LOG2_P1(ec->low^code);
-	code&=~((1LL<<n)-1);		//minimize final code
+	int n=FLOOR_LOG2(ec->low^code);
+	if(n>0)
+		code&=~((1LL<<n)-1);	//minimize final code
 #if 0
 	int flushbits=get_lsb_index(code);//FIXME tail-chaining parallel decoders
 #endif
