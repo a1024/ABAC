@@ -5,6 +5,10 @@
 #include<math.h>
 #include<time.h>
 #include<stdarg.h>
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include<Windows.h>
+#endif
 //#ifdef _MSC_VER
 //#include<intrin.h>
 //#include<Windows.h>
@@ -260,6 +264,7 @@ static int convert1(int loud, const char *srcfn, const char *dstfn, CvtResult *r
 	const char *cmd[CMD_MAX]={0}, *dst[CMD_MAX]={0};
 	int ncmd=0, printed=0;
 #ifdef _WIN32
+	int justcopy=0;
 #define CMD_APPEND(STR, ...) cmd[ncmd]=buf+printed, printed+=snprintf(buf+printed, BUFLEN-printed-1, "\"" STR "\"", __VA_ARGS__)+1
 #else
 #define CMD_APPEND(STR, ...) cmd[ncmd]=buf+printed, printed+=snprintf(buf+printed, BUFLEN-printed-1, STR, __VA_ARGS__)+1
@@ -268,7 +273,8 @@ static int convert1(int loud, const char *srcfn, const char *dstfn, CvtResult *r
 	if(srcfmt==dstfmt)
 	{
 #ifdef _WIN32
-		CMD_APPEND("copy /b \"%s\" \"%s\"", srcfn, dstfn), DST_APPEND("%s", dstfn), ++ncmd;
+		justcopy=1;
+		//CMD_APPEND("copy /b \"%s\" \"%s\"", srcfn, dstfn), DST_APPEND("%s", dstfn), ++ncmd;
 #else
 		CMD_APPEND("cp \"%s\" \"%s\"", srcfn, dstfn), DST_APPEND("%s", dstfn), ++ncmd;
 #endif
@@ -1059,16 +1065,54 @@ static int convert1(int loud, const char *srcfn, const char *dstfn, CvtResult *r
 	}
 
 	result->srcsize+=srcsize;
+#ifdef _WIN32
+	if(justcopy)
+	{
+		int success;
+		double t;
+		
+		t=time_sec();
+		success=CopyFileA(srcfn, dstfn, 1);
+		t=time_sec()-t;
+
+		if(success)
+		{
+			ptrdiff_t size2=get_filesize(dstfn);
+			result->dstsize[0]+=size2;
+			result->elapsed[0]+=t;
+		}
+		else
+		{
+			unsigned e=GetLastError();
+			printf("Error %d copying  \"%s\"\n", e, srcfn);
+		}
+	}
+	else
+#endif
 	for(int k=0;k<ncmd;++k)
 	{
+#ifdef CMD_EXEC
+		double t;
+		ptrdiff_t size2;
+#endif
 		if(loud)
 			printf("%s\n", cmd[k]);
 #ifdef CMD_EXEC
-		double t=time_sec();
+		t=time_sec();
 		system(cmd[k]);
 		t=time_sec()-t;
-		result->dstsize[k]+=get_filesize(dst[k]);
-		result->elapsed[k]+=t;
+
+		size2=get_filesize(dst[k]);
+		if(size2>0)
+		{
+			result->dstsize[k]+=size2;
+			result->elapsed[k]+=t;
+		}
+		else
+		{
+			printf("Failed to convert  \"%s\"\n", srcfn);
+			system("echo %errorlevel%");
+		}
 #endif
 	}
 #endif
@@ -1178,9 +1222,13 @@ int main(int argc, char **argv)
 	int loud=1;
 #ifdef _DEBUG
 	const char
-		*srcarg="D:/ML/dataset-LPCB-halic",
-		*dstarg="D:/ML/dataset-LPCB-jxl",
+		*srcarg="D:/ML/dataset-CLIC30-ppm",
+		*dstarg="D:/ML/dataset-CLIC30-temp",
 		*fmtarg="ppm";
+
+	//	*srcarg="D:/ML/dataset-LPCB-halic",
+	//	*dstarg="D:/ML/dataset-LPCB-jxl",
+	//	*fmtarg="ppm";
 
 	//	*srcarg="D:/ML/dataset-LPCB-lea",
 	//	*dstarg="D:/ML/dataset-LPCB-ppm",
