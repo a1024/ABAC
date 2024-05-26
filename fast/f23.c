@@ -14,6 +14,7 @@ static const char file[]=__FILE__;
 
 //	#define ENABLE_GUIDE
 //	#define DISABLE_MT
+	#define DISABLE_WGRAD
 
 
 #include"ac.h"
@@ -28,9 +29,13 @@ static int cgrad(int N, int W, int NW)
 	MEDIAN3_32(pred, N, W, N+W-NW);
 	return pred;
 }
-static int wgrad(int N, int W, int X, int Y)//(X*N+Y*W)/(X+Y)
+static int wgrad(int N, int W, int X, int Y)
 {
+#ifdef DISABLE_WGRAD
 	return (N+W)>>1;
+	//return (4*(N+W)+Y-X)>>3;
+#else
+	//(X*N+Y*W)/(X+Y)
 #ifdef _MSC_VER
 	double pred=((double)X*N+(double)Y*W)/((double)X+Y);
 	return _cvt_dtoi_fast(pred);
@@ -51,6 +56,7 @@ static int wgrad(int N, int W, int X, int Y)//(X*N+Y*W)/(X+Y)
 		_mm_store_si128((__m128i*)result, res2);
 		return result[0];
 	}
+#endif
 #endif
 }
 static int clamp(int vmin, int x, int vmax)
@@ -608,7 +614,9 @@ static void block_thread(void *param)
 				args->pixels+(((image->iw+16LL)*((ky-2LL)&3)+8)<<3),
 				args->pixels+(((image->iw+16LL)*((ky-3LL)&3)+8)<<3),
 			};
+#ifndef DISABLE_WGRAD
 			ALIGN(16) int X[4]={0}, Y[4]={0};
+#endif
 			int preds[MAXPREDS]={0}, j;
 			for(int kx=0;kx<image->iw;++kx)
 			{
@@ -618,15 +626,17 @@ static void block_thread(void *param)
 				//	*NNE	=rows[2]+1*8,
 					*NW	=rows[1]-1*8,
 					*N	=rows[1]+0*8,
-				//	*NE	=rows[1]+1*8,
+					*NE	=rows[1]+1*8,
 				//	*WW	=rows[0]-2*8,
 					*W	=rows[0]-1*8,
 					*curr	=rows[0]+0*8;
-
+#ifdef DISABLE_WGRAD
+				int *X=NW;//
+				int *Y=NE;//
+#endif
 				for(int kc=0;kc<image->nch;++kc)
 					curr[kc]=image->data[idx+kc];
-#if 0
-
+#ifndef DISABLE_WGRAD
 				{
 					__m128i mX=_mm_set1_epi32(1);
 					__m128i mY=mX;
@@ -749,27 +759,6 @@ static void block_thread(void *param)
 				printf("%s\n", prednames[combination[k]]);
 			printf("\n");
 		}
-		
-#if 0
-		for(int kc=0;kc<image->nch;++kc)
-			best_lumas[kc]=argmin_permuted(csizes, combination_idx+kc*8+0, 2);
-		if(image->nch>1)
-		{
-			for(int kc=0;kc<image->nch;++kc)
-				best_chromas[kc]=argmin_permuted(csizes, combination_idx+kc*8+2, (image->nch-1)*2);
-			int best_luma=argmin_permuted(csizes, best_lumas, image->nch);
-			for(int kc=0;kc<image->nch;++kc)
-			{
-				if(best_luma==best_lumas[kc])
-					combination[kc]=best_luma;
-				else
-					combination[kc]=csizes[best_lumas[kc]]<csizes[best_chromas[kc]]?best_lumas[kc]:best_chromas[kc];
-			}
-		}
-		else
-			combination[0]=best_lumas[0];
-		//generate a permutation to resolve dependencies:	X  no need
-#endif
 
 		dlist_init(&args->list, 1, 1024, 0);
 		dlist_push_back(&args->list, &flag, 1LL+(image->nch==4));
@@ -788,7 +777,9 @@ static void block_thread(void *param)
 				args->pixels+(((image->iw+16LL)*((ky-2LL)&3)+8)<<3),
 				args->pixels+(((image->iw+16LL)*((ky-3LL)&3)+8)<<3),
 			};
+#ifndef DISABLE_WGRAD
 			ALIGN(16) int X[4]={0}, Y[4]={0};
+#endif
 			int val[4]={0};
 			for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
 			{
@@ -797,12 +788,16 @@ static void block_thread(void *param)
 				//	*NNE	=rows[2]+1*8,
 					*NW	=rows[1]-1*8,
 					*N	=rows[1]+0*8,
-				//	*NE	=rows[1]+1*8,
+					*NE	=rows[1]+1*8,
 					*NEEE	=rows[1]+3*8,
 				//	*WW	=rows[0]-2*8,
 					*W	=rows[0]-1*8,
 					*curr	=rows[0]+0*8;
-#if 0
+#ifdef DISABLE_WGRAD
+				int *X=NW;//
+				int *Y=NE;//
+#endif
+#ifndef DISABLE_WGRAD
 				{
 					__m128i mX=_mm_set1_epi32(1);
 					__m128i mY=mX;
@@ -901,25 +896,32 @@ static void block_thread(void *param)
 				args->pixels+(((image->iw+16LL)*((ky-2LL)&3)+8)<<3),
 				args->pixels+(((image->iw+16LL)*((ky-3LL)&3)+8)<<3),
 			};
+#ifndef DISABLE_WGRAD
 			ALIGN(16) int X[4]={0}, Y[4]={0};
+#endif
 			int val[4]={0};
 
 			for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
 			{
 				int
-					*NN	=rows[2]+0*8,
-					*NNE	=rows[2]+1*8,
+				//	*NN	=rows[2]+0*8,
+				//	*NNE	=rows[2]+1*8,
 					*NW	=rows[1]-1*8,
 					*N	=rows[1]+0*8,
 					*NE	=rows[1]+1*8,
 					*NEEE	=rows[1]+3*8,
-					*WW	=rows[0]-2*8,
+				//	*WW	=rows[0]-2*8,
 					*W	=rows[0]-1*8,
 					*curr	=rows[0]+0*8;
+#ifdef DISABLE_WGRAD
+				int *X=NW;//
+				int *Y=NE;//
+#endif
+#ifndef DISABLE_WGRAD
 				{
 					__m128i mX=_mm_set1_epi32(1);
 					__m128i mY=mX;
-
+				
 					__m128i mNN	=_mm_load_si128((__m128i*)NN);
 					__m128i mNNE	=_mm_load_si128((__m128i*)NNE);
 					__m128i mNW	=_mm_load_si128((__m128i*)NW);
@@ -940,6 +942,7 @@ static void block_thread(void *param)
 					_mm_store_si128((__m128i*)X, mX);
 					_mm_store_si128((__m128i*)Y, mY);
 				}
+#endif
 				for(int kc=0;kc<image->nch;++kc)
 				{
 					val[kc]=gr_dec_POT(&ec, FLOOR_LOG2(W[kc+4]+1));
