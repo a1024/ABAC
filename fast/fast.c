@@ -16,16 +16,16 @@ typedef unsigned THREAD_RET;
 #define THREAD_CALL
 typedef void *THREAD_RET;
 #endif
-#include"huffman.h"
+//#include"huffman.h"
 static const char file[]=__FILE__;
 
 
 //	#define BENCH_QOI
 
-#define CODECID      8
-#define CODECNAME "F08"
-#define ENCODE     f08_encode
-#define DECODE     f08_decode
+#define CODECID     23
+#define CODECNAME "F23"
+#define ENCODE     f23_encode
+#define DECODE     f23_decode
 
 
 static const char *g_extensions[]=
@@ -348,7 +348,7 @@ int main(int argc, char **argv)
 	const char *fn=argv[1];
 #else
 	const char *fn=
-		"D:/ML/dataset-kodak/kodim13.png"
+	//	"D:/ML/dataset-kodak/kodim13.png"
 	//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
 	//	"D:/ML/big_building.PPM"
 	//	"C:/dataset-LPCB-ppm/PIA13785.ppm"
@@ -356,7 +356,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-LPCB-ppm/PIA13799.ppm"
 	//	"D:/ML/dataset-RAW/a0001-jmac_DSC1459.dng"
 
-	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
+		"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim24.ppm"	//borderless
 	//	"C:/Projects/datasets/dataset-kodak-pgm/kodim13.pgm"
 	//	"C:/Projects/datasets/dataset-kodak/kodim13.png"

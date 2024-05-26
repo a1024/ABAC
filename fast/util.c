@@ -27,6 +27,7 @@
 #ifdef _MSC_VER
 #include<intrin.h>
 #else
+#include<x86intrin.h>
 #include<unistd.h>
 #endif
 #ifdef _WIN32
@@ -41,6 +42,15 @@
 #ifndef _HUGE
 #define _HUGE	HUGE_VAL
 #endif
+#endif
+#if defined _MSC_VER && defined _WIN32
+#include<process.h>
+#define THREAD_CALL __stdcall
+typedef unsigned THREAD_RET;
+#else
+#include<pthread.h>
+#define THREAD_CALL
+typedef void *THREAD_RET;
 #endif
 static const char file[]=__FILE__;
 
@@ -2897,4 +2907,87 @@ int query_cpu_cores(void)
 #else
 	return sysconf(_SC_NPROCESSORS_ONLN);
 #endif
+}
+
+typedef struct _ThreadParam
+{
+	void (*func)(void*);
+	void *args;
+	void *handle;
+} ThreadParam;
+static THREAD_RET THREAD_CALL thread_caller(void *param)
+{
+	ThreadParam *args=(ThreadParam*)param;
+
+	args->func(args->args);
+	
+	return 0;
+}
+void* mt_exec(void (*func)(void*), void *args, int argbytes, int nthreads)
+{
+	ArrayHandle handles;
+
+	ARRAY_ALLOC(ThreadParam, handles, 0, nthreads, 0, 0);
+	if(!handles)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
+	for(int k=0;k<nthreads;++k)
+	{
+		ThreadParam *h;
+		int error;
+		
+		h=(ThreadParam*)array_at(&handles, k);
+		h->func=func;
+		h->args=(char*)args+argbytes*k;
+#ifdef _MSC_VER
+		h->handle=(void*)_beginthreadex(0, 0, thread_caller, h, 0, 0);
+		error=!h->handle;
+#else
+		error=pthread_create((pthread_t*)&h->handle, 0, thread_caller, h);
+#endif
+		if(error)
+		{
+			LOG_ERROR("Alloc error");
+			return 0;
+		}
+	}
+	return handles;
+}
+void mt_finish(void *ctx)
+{
+	ArrayHandle handles=(ArrayHandle)ctx;
+#ifdef _MSC_VER
+	ArrayHandle h2;
+	ARRAY_ALLOC(HANDLE, h2, 0, handles->count, 0, 0);
+	if(!h2)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	for(int k=0;k<(int)handles->count;++k)
+	{
+		ThreadParam *src;
+		HANDLE *dst;
+		
+		src=(ThreadParam*)array_at(&handles, k);
+		dst=(HANDLE*)array_at(&h2, k);
+		*dst=src->handle;
+	}
+	WaitForMultipleObjects((int)h2->count, (HANDLE*)h2->data, TRUE, INFINITE);
+	for(int k=0;k<(int)handles->count;++k)
+	{
+		HANDLE *h=(HANDLE*)array_at(&h2, k);
+		CloseHandle(*h);
+	}
+	array_free(&h2);
+#else
+	for(int k=0;k<nthreads;++k)
+	{
+		ThreadParam *h=(ThreadParam*)array_at(&handles, k);
+		pthread_join((pthread_t)h->handle, 0);
+	}
+#endif
+	array_free(&handles);
 }

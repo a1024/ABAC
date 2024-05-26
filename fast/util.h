@@ -468,6 +468,9 @@ ArrayHandle searchfor_file(const char *searchpath, const char *filetitle);
 int get_cpu_features(void);//returns  0: old CPU,  1: AVX2,  3: AVX-512
 int query_cpu_cores(void);
 
+void* mt_exec(void (*func)(void*), void *args, int argbytes, int nthreads);
+void  mt_finish(void *ctx);
+
 
 #ifdef _MSC_VER
 #pragma warning(pop)
