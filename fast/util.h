@@ -60,10 +60,10 @@ extern "C"
 		__m128i va=_mm_set_epi32(0, 0, 0, A);\
 		__m128i vb=_mm_set_epi32(0, 0, 0, B);\
 		__m128i vc=_mm_set_epi32(0, 0, 0, C);\
-		__m128i vmin=_mm_min_epi32(va, vb);\
-		__m128i vmax=_mm_max_epi32(va, vb);\
-		vc=_mm_max_epi32(vc, vmin);\
-		vc=_mm_min_epi32(vc, vmax);\
+		__m128i _vmin=_mm_min_epi32(va, vb);\
+		__m128i _vmax=_mm_max_epi32(va, vb);\
+		vc=_mm_max_epi32(vc, _vmin);\
+		vc=_mm_min_epi32(vc, _vmax);\
 		_mm_store_si128((__m128i*)arr, vc);\
 		DST=arr[0];\
 	}while(0)

@@ -2983,7 +2983,7 @@ void mt_finish(void *ctx)
 	}
 	array_free(&h2);
 #else
-	for(int k=0;k<nthreads;++k)
+	for(int k=0;k<(int)handles->count;++k)
 	{
 		ThreadParam *h=(ThreadParam*)array_at(&handles, k);
 		pthread_join((pthread_t)h->handle, 0);

@@ -231,13 +231,87 @@ int image_save8(const char *fn, Image const *image)
 	case 3:type=LCT_RGB;break;
 	case 4:type=LCT_RGBA;break;
 	}
-	if(!type)
-	{
-		LOG_ERROR("Invalid number of channels %d", image->nch);
-		return 0;
-	}
+	//if(!type)
+	//{
+	//	LOG_ERROR("Invalid number of channels %d", image->nch);
+	//	return 0;
+	//}
 	lodepng_encode_file(fn, buf, image->iw, image->ih, type, 8);
 	return 1;
+}
+int image_save_native(const char *fn, Image const *image)
+{
+	if(image->depth<=8)
+		return image_save8(fn, image);
+	{
+		Image dst={0};
+		image_copy(&dst, image);
+		if(!dst.data)
+		{
+			LOG_ERROR("Alloc error");
+			return 0;
+		}
+		for(ptrdiff_t k=0, nvals=(ptrdiff_t)image->iw*image->ih*image->nch;k<nvals;++k)
+		{
+			unsigned short val=dst.data[k];
+			val=val>>8|val<<8;
+			dst.data[k]=val;
+		}
+		{
+			LodePNGColorType type=LCT_GREY;
+			switch(image->nch)
+			{
+			case 1:type=LCT_GREY;break;
+			case 2:type=LCT_GREY_ALPHA;break;
+			case 3:type=LCT_RGB;break;
+			case 4:type=LCT_RGBA;break;
+			}
+			lodepng_encode_file(fn, (unsigned char*)dst.data, image->iw, image->ih, type, 16);
+		}
+		image_clear(&dst);
+	}
+	return 1;
+}
+int image_save_ppm(const char *fn, Image const *image)
+{
+	int headerlen;
+	char ppmheader[128]={0};
+	ptrdiff_t size;
+	unsigned char *dst, *dstptr;
+	const char *tag=0;
+
+	switch(image->nch)
+	{
+	case 1:tag="P5";break;
+	case 3:tag="P6";break;
+	default:
+		LOG_ERROR("PGM/PPM require 1 or 3 channels, got %d", image->nch);
+		return 0;
+	}
+	headerlen=snprintf(ppmheader, 127, "%s\n%d %d\n255\n", tag, image->iw, image->ih);
+	size=headerlen+(ptrdiff_t)image->iw*image->ih*image->nch;
+	dst=(unsigned char*)malloc(size);
+	if(!dst)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
+	memcpy(dst, ppmheader, headerlen);
+	dstptr=dst+headerlen;
+	{
+		int half=1<<image->depth>>1;
+		for(ptrdiff_t k=0, nvals=(ptrdiff_t)image->iw*image->ih*image->nch;k<nvals;++k)
+		{
+			unsigned short val=image->data[k]+half;
+			val>>=8-image->depth;
+			*dstptr++=(unsigned char)val;
+		}
+	}
+	{
+		int success=save_file(fn, dst, size, 1);
+		free(dst);
+		return success;
+	}
 }
 int image_snapshot8(Image const *image)
 {
@@ -281,4 +355,72 @@ void image_clear(Image *image)
 size_t image_getBMPsize(Image const *image)
 {
 	return ((size_t)image->iw*image->ih*image->nch*image->depth+7)>>3;
+}
+
+#define LSIM_TAG "LSvB"
+size_t lsim_writeheader(ArrayHandle *dst, int iw, int ih, int nch, char depth, int codec_id)//returns number of bytes written
+{
+	int len=snprintf(g_buf, G_BUF_SIZE, LSIM_TAG " %d %d %d %d c%d\n", iw, ih, nch, depth, codec_id);
+	//for(int k=0;k<nch;++k)
+	//	len+=snprintf(g_buf+len, G_BUF_SIZE-len, " %d", depths[k]);
+	//len+=snprintf(g_buf+len, G_BUF_SIZE-len, " c%d\n", codec_id);
+	array_append(dst, g_buf, 1, len, 1, 1, 0);
+	return len;
+}
+size_t lsim_readheader(const unsigned char *src, size_t len, LSIMHeader *dst)//returns number of bytes read
+{
+	const unsigned char *ptr=src, *end=src+len;
+#define SKIP_SPACE() for(;ptr<end&&isspace(*ptr);++ptr)
+#define GET_INT() strtol((char*)ptr, (char**)&ptr, 10)
+	memset(dst, 0, sizeof(*dst));
+	if(ptr+4>end||memcmp(ptr, LSIM_TAG, 4))
+		return 0;
+	ptr+=4;
+	SKIP_SPACE();
+
+	dst->iw=GET_INT();
+	SKIP_SPACE();
+
+	dst->ih=GET_INT();
+	SKIP_SPACE();
+
+	dst->nch=GET_INT();
+	SKIP_SPACE();
+	
+	dst->depth=(char)GET_INT();
+	SKIP_SPACE();
+	//for(int kc=0;kc<dst->nch;++kc)
+	//{
+	//	dst->depth[kc]=(char)GET_INT();
+	//	SKIP_SPACE();
+	//}
+
+	if(ptr<end&&*ptr=='c')
+	{
+		++ptr;
+		dst->codec_id=GET_INT();
+	}
+	ptr+=ptr<end&&*ptr=='\n';
+#undef  SKIP_SPACE
+#undef  GET_INT
+	return ptr-src;
+}
+int image_from_lsimheader(Image *dst, LSIMHeader const *src)
+{
+	size_t size=sizeof(short)*src->nch*src->iw*src->ih;
+	void *ptr=realloc(dst->data, size);
+	if(!ptr)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
+	memset(ptr, 0, size);
+	dst->data=(short*)ptr;
+	dst->iw=src->iw;
+	dst->ih=src->ih;
+	dst->nch=src->nch;
+	dst->depth=src->depth;
+	//for(int kc=0;kc<src->nch;++kc)
+	//	dst[0]->src_depth[kc]=dst[0]->depth[kc]=src->depth[kc];
+	return 1;
 }

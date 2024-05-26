@@ -19,11 +19,24 @@ int image_load(const char *fn, Image *image);
 int load_dng(const char *fn, Image *image);
 unsigned char* image_export8(Image const *src);
 int image_save8(const char *fn, Image const *image);
+int image_save_native(const char *fn, Image const *image);
+int image_save_ppm(const char *fn, Image const *image);
 int image_copy(Image *dst, Image const *src);//dst must be initialized to zero, or another image
 int image_copy_nodata(Image *dst, Image const *src);//dst must be initialized to zero, or another image
 int image_snapshot8(Image const *image);
 void image_clear(Image *image);
 size_t image_getBMPsize(Image const *image);
+
+
+typedef struct LSIMHeaderStruct
+{
+	int iw, ih, nch;
+	char depth;
+	int codec_id;
+} LSIMHeader;
+size_t lsim_writeheader(ArrayHandle *dst, int iw, int ih, int nch, char depth, int codec_id);//returns number of bytes written
+size_t lsim_readheader(const unsigned char *src, size_t srclen, LSIMHeader *dst);//returns number of bytes read
+int image_from_lsimheader(Image *dst, LSIMHeader const *src);//dst must be initialized to zero
 
 
 //RCTs

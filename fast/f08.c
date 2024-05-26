@@ -6,7 +6,7 @@
 static const char file[]=__FILE__;
 
 
-	#define ENABLE_GUIDE
+//	#define ENABLE_GUIDE
 //	#define PROFILER 1
 	#define N_CODER
 	#define DEDICATED_AC

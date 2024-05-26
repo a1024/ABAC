@@ -102,6 +102,7 @@ static void calc_update(const __m128i *eWW, const __m128i *eW, const __m128i *eN
 	//*ecurr=_mm_add_epi32(*ecurr, _mm_slli_epi32(*ecurr, 4));
 	//*ecurr=_mm_srli_epi32(*ecurr, 8);
 
+	(void)eWW;
 	//(void)eN;
 }
 int f20_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud)

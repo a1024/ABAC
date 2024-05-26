@@ -581,7 +581,7 @@ static void block_thread(void *param)
 	if(args->fwd)
 	{
 		Image const *image=args->src;
-		int nlevels=1<<image->depth, half=nlevels>>1, mask=nlevels-1, mash=32-image->depth;
+		int nlevels=1<<image->depth, half=nlevels>>1, mask=nlevels-1;
 		int poolNch=0;
 		double csizes[MAXPREDS]={0};
 		char predsel[MAXPREDS>>1]={0};
@@ -614,12 +614,12 @@ static void block_thread(void *param)
 			{
 				int
 					idx=image->iw*ky+kx,
-					*NN	=rows[2]+0*8,
-					*NNE	=rows[2]+1*8,
+				//	*NN	=rows[2]+0*8,
+				//	*NNE	=rows[2]+1*8,
 					*NW	=rows[1]-1*8,
 					*N	=rows[1]+0*8,
-					*NE	=rows[1]+1*8,
-					*WW	=rows[0]-2*8,
+				//	*NE	=rows[1]+1*8,
+				//	*WW	=rows[0]-2*8,
 					*W	=rows[0]-1*8,
 					*curr	=rows[0]+0*8;
 
@@ -793,13 +793,13 @@ static void block_thread(void *param)
 			for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
 			{
 				int
-					*NN	=rows[2]+0*8,
-					*NNE	=rows[2]+1*8,
+				//	*NN	=rows[2]+0*8,
+				//	*NNE	=rows[2]+1*8,
 					*NW	=rows[1]-1*8,
 					*N	=rows[1]+0*8,
-					*NE	=rows[1]+1*8,
+				//	*NE	=rows[1]+1*8,
 					*NEEE	=rows[1]+3*8,
-					*WW	=rows[0]-2*8,
+				//	*WW	=rows[0]-2*8,
 					*W	=rows[0]-1*8,
 					*curr	=rows[0]+0*8;
 #if 0
@@ -856,7 +856,7 @@ static void block_thread(void *param)
 	else
 	{
 		Image *image=args->dst;
-		int nlevels=1<<image->depth, half=nlevels>>1, mask=nlevels-1, mash=32-image->depth;
+		int nlevels=1<<image->depth, half=nlevels>>1;
 		const unsigned char *srcstart=args->decstart, *srcend=args->decend;
 		int combination[4]={0};
 		unsigned short flag=0;
@@ -865,15 +865,14 @@ static void block_thread(void *param)
 		srcstart+=1LL+(image->nch==4);
 		{
 			const int *groups=0;
-			int glen=0;
 
 			int idx=image->nch*(flag>>image->nch);
 			switch(image->nch)
 			{
-			case 4:groups=combinations_4c;	glen=_countof(combinations_4c);	break;
-			case 3:groups=combinations_3c;	glen=_countof(combinations_3c);	break;
-			case 2:groups=combinations_2c;	glen=_countof(combinations_2c);	break;
-			case 1:groups=0;		glen=0;				break;
+			case 4:groups=combinations_4c;	break;
+			case 3:groups=combinations_3c;	break;
+			case 2:groups=combinations_2c;	break;
+			case 1:groups=0;		break;
 			}
 			if(groups)
 			{

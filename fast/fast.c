@@ -338,19 +338,26 @@ int main(int argc, char **argv)
 	{
 		printf(
 			"Usage:\n"
-			"  %s  filename\n"
-			"  %s  folder [nthreads]\n",
-			argv[0], argv[0]
+			"  %s  filename                               Test codec without saving\n"
+			"  %s  folder [nthreads]                      Batch test without saving\n"
+			"  %s  input.PPM/PGM/PNG  output.LSIM         Encode image\n"
+			"  %s  input.LSIM         output.PPM/PGM/PNG  Decode image\n",
+			argv[0], argv[0], argv[0], argv[0]
 		);
 		pause();
 		return 1;
 	}
-	const char *fn=argv[1];
+	const char *fn=argv[1], *arg2=argc==3?argv[2]:0;
 #else
+	const char *arg2=
+	//	0
+		"D:/ML/big_building.LSIM.PPM"
+		;
 	const char *fn=
 	//	"D:/ML/dataset-kodak/kodim13.png"
 	//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
 	//	"D:/ML/big_building.PPM"
+		"D:/ML/big_building.LSIM"
 	//	"C:/dataset-LPCB-ppm/PIA13785.ppm"
 	//	"C:/dataset-LPCB-ppm/STA13456.ppm"	//uncorrelated channels
 	//	"C:/dataset-LPCB-ppm/PIA13799.ppm"
@@ -361,7 +368,7 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/dataset-kodak-pgm/kodim13.pgm"
 	//	"C:/Projects/datasets/dataset-kodak/kodim13.png"
 	//	"C:/Projects/datasets/kodim13-small4.PNG"
-		"C:/Projects/datasets/big_building.PPM"
+	//	"C:/Projects/datasets/big_building.PPM"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA12811.ppm"
 	//	"C:/Projects/datasets/dataset-ic-rgb16bit/flower_foveon.png"	//smallest 16-bit image
@@ -373,6 +380,65 @@ int main(int argc, char **argv)
 		;
 #endif
 	ptrdiff_t formatsize=get_filesize(fn);
+	if(arg2)
+	{
+		const char *ext1=strrchr(fn, '.'), *ext2=strrchr(arg2, '.');
+		if(ext2)
+		{
+			if((!_stricmp(ext1, ".PPM")||!_stricmp(ext1, ".PGM")||!_stricmp(ext1, ".PNG"))&&!_stricmp(ext2, ".LSIM"))
+			{
+				Image src={0};
+				image_load(fn, &src);
+				if(!src.data)
+				{
+					printf("Canot open \"%s\"\n", fn);
+					return 1;
+				}
+				
+				ArrayHandle cdata=0;
+				lsim_writeheader(&cdata, src.iw, src.ih, src.nch, src.depth, CODECID);
+				ENCODE(&src, &cdata, 1);
+				{
+					int success=save_file(arg2, cdata->data, cdata->count, 1);
+					printf("%s\n", success?"Saved.":"Failed to save.");
+				}
+
+				array_free(&cdata);
+				image_clear(&src);
+				return 0;
+			}
+			if(!_stricmp(ext1, ".LSIM")&&(!_stricmp(ext2, ".PPM")||!_stricmp(ext2, ".PGM")||!_stricmp(ext2, ".PNG")))
+			{
+				int e, success;
+				size_t idx;
+				LSIMHeader header;
+				Image dst={0};
+				ArrayHandle cdata=load_file(fn, 1, 16, 0);
+				if(!cdata)
+				{
+					printf("Cannot open \'%s\'", fn);
+					return 1;
+				}
+				idx=lsim_readheader(cdata->data, cdata->count, &header);
+				image_from_lsimheader(&dst, &header);
+
+				e=DECODE(cdata->data+idx, cdata->count-idx, &dst, 1);
+				array_free(&cdata);
+				if(e)
+				{
+					printf("Failed to decode \'%s\'", fn);
+					return 1;
+				}
+				if(!_stricmp(ext2, ".PNG"))
+					success=image_save_native(arg2, &dst);
+				else
+					success=image_save_ppm(arg2, &dst);
+				printf("%s\n", success?"Saved.":"Failed to save.");
+				image_clear(&dst);
+				return 0;
+			}
+		}
+	}
 	if(formatsize<0)
 	{
 		printf("Not a file or directory:  \'%s\'\n", fn);
