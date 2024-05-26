@@ -12,15 +12,15 @@
 static const char file[]=__FILE__;
 
 
-	#define ENABLE_GUIDE
-	#define DISABLE_MT
+//	#define ENABLE_GUIDE
+//	#define DISABLE_MT
 
 
 #include"ac.h"
 #ifdef ENABLE_GUIDE
 static const Image *guide=0;
 #endif
-#define BLOCKSIZE 128
+#define BLOCKSIZE 256
 static int cgrad(int N, int W, int NW)
 {
 	int pred;
@@ -30,6 +30,7 @@ static int cgrad(int N, int W, int NW)
 }
 static int wgrad(int N, int W, int X, int Y)//(X*N+Y*W)/(X+Y)
 {
+	return (N+W)>>1;
 #ifdef _MSC_VER
 	double pred=((double)X*N+(double)Y*W)/((double)X+Y);
 	return _cvt_dtoi_fast(pred);
@@ -100,13 +101,23 @@ typedef struct _ThreadArgs
 {
 	const Image *src;
 	Image *dst;
-	int fwd, y1, y2;
+	int fwd, loud, y1, y2;
 	int bufsize, histsize;
 	int *pixels, *hist;
 
 	DList list;
 	const unsigned char *decstart, *decend;
 } ThreadArgs;
+
+static const char *prednames[]=
+{
+#define PRED(IDX, DFLAG, VAL, EXPR) #VAL " - " #EXPR,
+	PREDLIST0
+	PREDLIST1
+	PREDLIST2
+	PREDLIST3
+#undef  PRED
+};
 
 //indices are permuted for causality, cyclic dependencies are commented out
 static const int combinations_4c[]=
@@ -429,6 +440,74 @@ static const int combinations_2c[]=
 //	6, 4,
 	2, 6,//10
 };
+#if 0
+static void test4cycles()
+{
+	static const int dependency_flags[]=
+	{
+#define PRED(IDX, DFLAG, VAL, EXPR) DFLAG,
+		PREDLIST0
+		PREDLIST1
+		PREDLIST2
+		PREDLIST3
+#undef  PRED
+	};
+	for(int kg=0;kg<_countof(combinations_4c);kg+=4)
+	{
+		int *group=combinations_4c+kg;
+		for(int k=0;k<4;++k)
+		{
+			int kv=k;
+			for(int it=0;;++it)
+			{
+				if(it>=4)
+					printf("Cycle at group %d:  %2d, %2d, %2d, %2d", kg>>2, group[0], group[1], group[2], group[3]);
+				int val=dependency_flags[kv];
+				if((val&15)==(val>>4&15))
+					break;
+				kv=val&15;
+			}
+		}
+	}
+	for(int kg=0;kg<_countof(combinations_3c);kg+=3)
+	{
+		int *group=combinations_3c+kg;
+		for(int k=0;k<3;++k)
+		{
+			int kv=k;
+			for(int it=0;;++it)
+			{
+				if(it>=3)
+					printf("Cycle at group %d:  %2d, %2d, %2d", kg>>2, group[0], group[1], group[2]);
+				int val=dependency_flags[kv];
+				if((val&15)==(val>>4&15))
+					break;
+				kv=val&15;
+			}
+		}
+	}
+	for(int kg=0;kg<_countof(combinations_2c);kg+=2)
+	{
+		int *group=combinations_2c+kg;
+		for(int k=0;k<2;++k)
+		{
+			int kv=k;
+			for(int it=0;;++it)
+			{
+				if(it>=2)
+					printf("Cycle at group %d:  %2d, %2d", kg>>2, group[0], group[1]);
+				int val=dependency_flags[kv];
+				if((val&15)==(val>>4&15))
+					break;
+				kv=val&15;
+			}
+		}
+	}
+	printf("Done.\n");
+	pause();
+}
+#endif
+#if 0
 static int argmin_permuted(double *data, const int *permutation, int count)
 {
 	int best=permutation[0];
@@ -439,46 +518,11 @@ static int argmin_permuted(double *data, const int *permutation, int count)
 	}
 	return best;
 }
-#if 1
-static void test4cycles()
-{
-	static const int dependency_flags[]=
-	{
-#define PRED(IDX, DFLAG, EXPR) DFLAG,
-		PREDLIST0
-		PREDLIST1
-		PREDLIST2
-		PREDLIST3
-#undef  PRED
-	};
-	for(int kg=0;kg<_countof(combinations_4c);kg+=4)
-	{
-		int *group=combinations_4c+kg;
-		int visited[4]={0};
-		for(;;)
-		{
-			int kv=0;
-			for(;kv<4&&visited[kv];++kv);
-			if(kv==4)
-				break;
-			for(int it=0;;++it)
-			{
-				//if(it>4)
-				//	LOG_ERROR("Cycle at group %d", kg>>2);
-				int val=dependency_flags[kv];
-				visited[kv]=1;
-				kv=val&15;
-			}
-		}
-	}
-}
-#endif
-#if 0
 static void gen_permutation(const int *combination, int nch, int *permutation)
 {
 	static const int dependency_flags[]=
 	{
-#define PRED(IDX, DFLAG, EXPR) DFLAG,
+#define PRED(IDX, DFLAG, VAL, EXPR) DFLAG,
 		PREDLIST0
 		PREDLIST1
 		PREDLIST2
@@ -514,22 +558,22 @@ static void gen_permutation(const int *combination, int nch, int *permutation)
 #endif
 static void block_thread(void *param)
 {
-	static const int combination_idx[]=
-	{//	 L   L   C   C   C   C   C   C
-		 0,  1,  6,  7, 16, 17, 30, 31,
-		 2,  3,  4,  5, 14, 15, 28, 29,
-		 8,  9, 10, 11, 12, 13, 26, 27,
-		18, 19, 20, 21, 22, 23, 24, 25,
-	};
-	static const int dependency_flags[]=
-	{
-#define PRED(IDX, DFLAG, EXPR) DFLAG,
-		PREDLIST0
-		PREDLIST1
-		PREDLIST2
-		PREDLIST3
-#undef  PRED
-	};
+//	static const int combination_idx[]=
+//	{//	 L   L   C   C   C   C   C   C
+//		 0,  1,  6,  7, 16, 17, 30, 31,
+//		 2,  3,  4,  5, 14, 15, 28, 29,
+//		 8,  9, 10, 11, 12, 13, 26, 27,
+//		18, 19, 20, 21, 22, 23, 24, 25,
+//	};
+//	static const int dependency_flags[]=
+//	{
+//#define PRED(IDX, DFLAG, VAL, EXPR) DFLAG,
+//		PREDLIST0
+//		PREDLIST1
+//		PREDLIST2
+//		PREDLIST3
+//#undef  PRED
+//	};
 
 	GolombRiceCoder ec;
 	ThreadArgs *args=(ThreadArgs*)param;
@@ -540,7 +584,10 @@ static void block_thread(void *param)
 		int nlevels=1<<image->depth, half=nlevels>>1, mask=nlevels-1, mash=32-image->depth;
 		int poolNch=0;
 		double csizes[MAXPREDS]={0};
-		int best_lumas[4]={0}, best_chromas[4]={0}, combination[4]={0};
+		char predsel[MAXPREDS>>1]={0};
+		double best_csize=0;
+		int comb_idx=0, combination[4]={0}, flag=0;
+		//int best_lumas[4]={0}, best_chromas[4]={0}, combination[4]={0};
 		//int permutation[4]={0};
 		int res=image->iw*image->ih;
 		switch(image->nch)
@@ -577,7 +624,8 @@ static void block_thread(void *param)
 					*curr	=rows[0]+0*8;
 
 				for(int kc=0;kc<image->nch;++kc)
-					curr[kc]=image->data[idx|kc];
+					curr[kc]=image->data[idx+kc];
+#if 0
 
 				{
 					__m128i mX=_mm_set1_epi32(1);
@@ -603,6 +651,7 @@ static void block_thread(void *param)
 					_mm_store_si128((__m128i*)X, mX);
 					_mm_store_si128((__m128i*)Y, mY);
 				}
+#endif
 #define PRED(IDX, DFLAG, VAL, EXPR) preds[j++]=(VAL)-(EXPR);
 				j=0;
 				PREDLIST0;
@@ -645,13 +694,69 @@ static void block_thread(void *param)
 		}
 
 		//select best combination:
+		{
+			const int *groups=0, *group;
+			int glen=0;
+
+			for(int k=0;k<poolNch;k+=2)
+				predsel[k>>1]=csizes[k|1]>csizes[k|0];
+			switch(image->nch)
+			{
+			case 4:groups=combinations_4c;	glen=_countof(combinations_4c);	break;
+			case 3:groups=combinations_3c;	glen=_countof(combinations_3c);	break;
+			case 2:groups=combinations_2c;	glen=_countof(combinations_2c);	break;
+			case 1:groups=0;		glen=0;				break;
+			}
+			if(groups)
+			{
+				double csize;
+
+				comb_idx=0;
+
+				group=groups+comb_idx;
+				csize=0;
+				for(int k=0;k<image->nch;++k)
+					csize+=csizes[group[k]|predsel[group[k]>>1]];
+				best_csize=csize;
+				for(int kg=image->nch;kg<glen;kg+=image->nch)
+				{
+					group=groups+kg;
+					csize=0;
+					for(int k=0;k<image->nch;++k)
+						csize+=csizes[group[k]|predsel[group[k]>>1]];
+					if(best_csize>csize)
+						comb_idx=kg;
+				}
+				
+				group=groups+comb_idx;
+				for(int k=0;k<image->nch;++k)
+					combination[k]=group[k]|predsel[group[k]>>1];
+				comb_idx/=image->nch;
+			}
+			else
+			{
+				comb_idx=0;
+				combination[0]=predsel[0];
+			}
+			flag=comb_idx<<image->nch;
+			for(int k=0;k<image->nch;++k)
+				flag|=predsel[combination[k]>>1]<<k;
+		}
+		if(args->loud)
+		{
+			printf("Y %5d\n", args->y1);
+			for(int k=0;k<image->nch;++k)
+				printf("%s\n", prednames[combination[k]]);
+			printf("\n");
+		}
+		
+#if 0
 		for(int kc=0;kc<image->nch;++kc)
 			best_lumas[kc]=argmin_permuted(csizes, combination_idx+kc*8+0, 2);
 		if(image->nch>1)
 		{
 			for(int kc=0;kc<image->nch;++kc)
 				best_chromas[kc]=argmin_permuted(csizes, combination_idx+kc*8+2, (image->nch-1)*2);
-#if 0
 			int best_luma=argmin_permuted(csizes, best_lumas, image->nch);
 			for(int kc=0;kc<image->nch;++kc)
 			{
@@ -660,22 +765,21 @@ static void block_thread(void *param)
 				else
 					combination[kc]=csizes[best_lumas[kc]]<csizes[best_chromas[kc]]?best_lumas[kc]:best_chromas[kc];
 			}
-#endif
 		}
 		else
 			combination[0]=best_lumas[0];
-
 		//generate a permutation to resolve dependencies:	X  no need
-
+#endif
 
 		dlist_init(&args->list, 1, 1024, 0);
-		{
-			int flag=combination[3]<<3*5|combination[2]<<2*5|combination[1]<<1*5|combination[0];
-			dlist_push_back(&args->list, &flag, sizeof(int));
-		}
+		dlist_push_back(&args->list, &flag, 1LL+(image->nch==4));
+		//{
+		//	int flag=combination[3]<<3*5|combination[2]<<2*5|combination[1]<<1*5|combination[0];
+		//	dlist_push_back(&args->list, &flag, sizeof(char[3]));
+		//}
 		gr_enc_init(&ec, &args->list);
 		memset(args->pixels, 0, args->bufsize);
-		for(int ky=args->y1;ky<args->y2;++ky)
+		for(int ky=args->y1, idx=image->nch*image->iw*args->y1;ky<args->y2;++ky)
 		{
 			ALIGN(16) int *rows[]=
 			{
@@ -686,10 +790,9 @@ static void block_thread(void *param)
 			};
 			ALIGN(16) int X[4]={0}, Y[4]={0};
 			int val[4]={0};
-			for(int kx=0;kx<image->iw;++kx)
+			for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
 			{
 				int
-					idx=image->iw*ky+kx,
 					*NN	=rows[2]+0*8,
 					*NNE	=rows[2]+1*8,
 					*NW	=rows[1]-1*8,
@@ -699,6 +802,7 @@ static void block_thread(void *param)
 					*WW	=rows[0]-2*8,
 					*W	=rows[0]-1*8,
 					*curr	=rows[0]+0*8;
+#if 0
 				{
 					__m128i mX=_mm_set1_epi32(1);
 					__m128i mY=mX;
@@ -723,21 +827,23 @@ static void block_thread(void *param)
 					_mm_store_si128((__m128i*)X, mX);
 					_mm_store_si128((__m128i*)Y, mY);
 				}
+#endif
 				for(int kc=0;kc<image->nch;++kc)
-					curr[kc]=image->data[idx|kc];
+					curr[kc]=image->data[idx+kc];
 				for(int kc=0;kc<image->nch;++kc)
 				{
 					switch(combination[kc])
 					{
-#define PRED(IDX, DFLAGS, VAL, EXPR) case IDX:val[kc]=(VAL)-(EXPR);break;
+#define PRED(IDX, DFLAG, VAL, EXPR) case IDX:val[kc]=(VAL)-(EXPR);break;
 					PREDLIST0
 					PREDLIST1
 					PREDLIST2
 					PREDLIST3
 #undef  PRED
 					}
+					val[kc]=val[kc]<<1^-(val[kc]<0);
 					gr_enc_POT(&ec, val[kc], FLOOR_LOG2(W[kc+4]+1));
-					curr[kc+4]=(2*W[kc+4]+abs(val[kc])+NEEE[kc+4])>>2;
+					curr[kc+4]=(2*W[kc+4]+val[kc]+NEEE[kc+4])>>2;
 				}
 				rows[0]+=8;
 				rows[1]+=8;
@@ -754,15 +860,40 @@ static void block_thread(void *param)
 		const unsigned char *srcstart=args->decstart, *srcend=args->decend;
 		int combination[4]={0};
 		unsigned short flag=0;
-		memcpy(&flag, srcstart, 2);
-		srcstart+=2;
-		combination[0]=flag>>0*5&31;
-		combination[1]=flag>>1*5&31;
-		combination[2]=flag>>2*5&31;
-		combination[3]=flag>>3*5&31;
 
-		gr_dec_init(&ec, args->decstart, args->decend);
-		for(int ky=args->y1;ky<args->y2;++ky)
+		memcpy(&flag, srcstart, 1LL+(image->nch==4));
+		srcstart+=1LL+(image->nch==4);
+		{
+			const int *groups=0;
+			int glen=0;
+
+			int idx=image->nch*(flag>>image->nch);
+			switch(image->nch)
+			{
+			case 4:groups=combinations_4c;	glen=_countof(combinations_4c);	break;
+			case 3:groups=combinations_3c;	glen=_countof(combinations_3c);	break;
+			case 2:groups=combinations_2c;	glen=_countof(combinations_2c);	break;
+			case 1:groups=0;		glen=0;				break;
+			}
+			if(groups)
+			{
+				memcpy(combination, groups+idx, sizeof(int)*image->nch);
+				for(int k=0;k<image->nch;++k)
+					combination[k]|=flag>>k&1;
+			}
+			else
+			{
+				combination[0]=flag;
+			}
+		}
+
+		//combination[0]=flag>>0*5&31;
+		//combination[1]=flag>>1*5&31;
+		//combination[2]=flag>>2*5&31;
+		//combination[3]=flag>>3*5&31;
+
+		gr_dec_init(&ec, srcstart, srcend);
+		for(int ky=args->y1, idx=image->nch*image->iw*args->y1;ky<args->y2;++ky)
 		{
 			ALIGN(16) int *rows[]=
 			{
@@ -774,10 +905,9 @@ static void block_thread(void *param)
 			ALIGN(16) int X[4]={0}, Y[4]={0};
 			int val[4]={0};
 
-			for(int kx=0;kx<image->iw;++kx)
+			for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
 			{
 				int
-					idx=image->iw*ky+kx,
 					*NN	=rows[2]+0*8,
 					*NNE	=rows[2]+1*8,
 					*NW	=rows[1]-1*8,
@@ -813,22 +943,25 @@ static void block_thread(void *param)
 				}
 				for(int kc=0;kc<image->nch;++kc)
 				{
-					val[kc]=curr[kc]=gr_dec_POT(&ec, FLOOR_LOG2(W[kc+4]+1));
-					curr[kc+4]=(2*W[kc+4]+abs(val[kc])+NEEE[kc+4])>>2;
+					val[kc]=gr_dec_POT(&ec, FLOOR_LOG2(W[kc+4]+1));
+					curr[kc+4]=(2*W[kc+4]+val[kc]+NEEE[kc+4])>>2;
+					val[kc]=val[kc]>>1^-(val[kc]&1);
 				}
 				for(int kc=0;kc<image->nch;++kc)
 				{
 					switch(combination[kc])
 					{
-#define PRED(IDX, DFLAGS, VAL, EXPR) case IDX:curr[kc]=(VAL)+(EXPR);break;
+#define PRED(IDX, DFLAG, VAL, EXPR) case IDX:VAL=val[kc]+EXPR;break;
 					PREDLIST0
 					PREDLIST1
 					PREDLIST2
 					PREDLIST3
 #undef  PRED
 					}
-					image->data[idx|kc]=curr[kc];
 				}
+				for(int kc=0;kc<image->nch;++kc)
+					image->data[idx+kc]=curr[kc];
+#ifdef ENABLE_GUIDE
 				if(memcmp(image->data+idx, guide->data+idx, sizeof(short)*image->nch))
 				{
 					short orig[4]={0};
@@ -836,6 +969,7 @@ static void block_thread(void *param)
 					LOG_ERROR("Guide error XY %d %d", kx, ky);
 					printf("");//
 				}
+#endif
 				rows[0]+=8;
 				rows[1]+=8;
 				rows[2]+=8;
@@ -846,6 +980,8 @@ static void block_thread(void *param)
 }
 int f23_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud)
 {
+	//test4cycles();
+
 	double t0=time_sec();
 	int fwd=src!=0;
 	Image const *image=fwd?src:dst;
@@ -854,7 +990,7 @@ int f23_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		guide=image;
 #endif
 	int ncores=query_cpu_cores();
-	int nblocks=(image->ih+BLOCKSIZE-1)/BLOCKSIZE, nthreads=MAXVAR(nblocks, ncores);
+	int nblocks=(image->ih+BLOCKSIZE-1)/BLOCKSIZE, nthreads=MINVAR(nblocks, ncores);
 	ptrdiff_t memusage=0;
 	ptrdiff_t argssize=nthreads*sizeof(ThreadArgs);
 	ThreadArgs *args=(ThreadArgs*)malloc(argssize);
@@ -881,8 +1017,11 @@ int f23_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		}
 		memusage+=(ptrdiff_t)arg->bufsize+arg->histsize;
 		arg->fwd=fwd;
-		arg->y1=BLOCKSIZE*k;
-		arg->y2=MINVAR(arg->y1+BLOCKSIZE, image->ih);
+#ifdef DISABLE_MT
+		arg->loud=loud;
+#else
+		arg->loud=0;
+#endif
 	}
 	if(fwd)
 	{
@@ -890,6 +1029,12 @@ int f23_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		for(int kt=0;kt<nblocks;kt+=nthreads)
 		{
 			int nthreads2=MINVAR(kt+nthreads, nblocks)-kt;
+			for(int kt2=0;kt2<nthreads2;++kt2)
+			{
+				ThreadArgs *arg=args+kt2;
+				arg->y1=BLOCKSIZE*(kt+kt2);
+				arg->y2=MINVAR(arg->y1+BLOCKSIZE, image->ih);
+			}
 #ifdef DISABLE_MT
 			for(int k=0;k<nthreads2;++k)
 				block_thread(args+k);
@@ -911,26 +1056,41 @@ int f23_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				usize=((ptrdiff_t)image->iw*image->ih*image->nch*image->depth+7)>>3;
 			t0=time_sec()-t0;
 			printf("Size %14td/%14td  %16lf%%  %16lf\n", csize, usize, 100.*csize/usize, (double)usize/csize);
-			printf("Mem usage:  ");
+			printf("Mem usage: ");
 			print_size((double)memusage, 8, 4, 0, 0);
 			printf("\n");
-			printf("E %16.6lf sec\n", t0);
+			printf("E %16.6lf sec  %16.6lf MB/s\n", t0, usize/(t0*1024*1024));
 		}
 	}
 	else
 	{
 		const unsigned char *dstptr=cbuf+sizeof(int)*nblocks;
 		int dec_offset=0;
+
+		//integrity check
+#if 1
+		for(int kt=0;kt<nblocks;++kt)
+		{
+			int size=0;
+			memcpy(&size, cbuf+sizeof(int)*kt, sizeof(int));
+			dec_offset+=size;
+		}
+		if(sizeof(int)*nblocks+dec_offset!=clen)
+			LOG_ERROR("Corrupt file");
+#endif
+		dec_offset=0;
 		for(int kt=0;kt<nblocks;kt+=nthreads)
 		{
 			int nthreads2=MINVAR(kt+nthreads, nblocks)-kt;
 			for(int kt2=0;kt2<nthreads2;++kt2)
 			{
 				ThreadArgs *arg=args+kt2;
-				int listsize=0;
-				memcpy(&listsize, cbuf+sizeof(int)*((ptrdiff_t)kt+kt2), sizeof(int));
+				int size=0;
+				memcpy(&size, cbuf+sizeof(int)*((ptrdiff_t)kt+kt2), sizeof(int));
+				arg->y1=BLOCKSIZE*(kt+kt2);
+				arg->y2=MINVAR(arg->y1+BLOCKSIZE, image->ih);
 				arg->decstart=dstptr+dec_offset;
-				dec_offset+=listsize;
+				dec_offset+=size;
 				arg->decend=dstptr+dec_offset;
 			}
 #ifdef DISABLE_MT
@@ -945,15 +1105,17 @@ int f23_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		}
 		if(loud)
 		{
+			ptrdiff_t usize=((ptrdiff_t)image->iw*image->ih*image->nch*image->depth+7)>>3;
 			t0=time_sec()-t0;
-			printf("D %16.6lf sec\n", t0);
+			printf("D %16.6lf sec  %16.6lf MB/s\n", t0, usize/(t0*1024*1024));
 		}
 	}
 	for(int k=0;k<nthreads;++k)
 	{
 		ThreadArgs *arg=args+k;
-		free(arg->pixels);
+		_mm_free(arg->pixels);
 		free(arg->hist);
 	}
+	free(args);
 	return 0;
 }

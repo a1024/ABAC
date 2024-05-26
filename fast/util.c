@@ -1075,9 +1075,9 @@ int print_binn(unsigned long long x, int nbits)
 double convert_size(double bytesize, int *log1024)
 {
 	int k=0;
-	double p=1024;
-	for(;k<4&&bytesize<p;++k, p*=1024);
-	*log1024=k;
+	double p=1;
+	for(;k<4&&bytesize>p;++k, p*=1024);
+	*log1024=k-1;
 	return bytesize*1024/p;
 }
 int print_size(double bytesize, int ndigits, int pdigits, char *str, int len)
