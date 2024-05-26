@@ -350,14 +350,14 @@ int main(int argc, char **argv)
 	const char *fn=argv[1], *arg2=argc==3?argv[2]:0;
 #else
 	const char *arg2=
-	//	0
-		"D:/ML/big_building.LSIM.PPM"
+		0
+	//	"D:/ML/big_building.LSIM.PPM"
 		;
 	const char *fn=
-	//	"D:/ML/dataset-kodak/kodim13.png"
+		"D:/ML/dataset-kodak/kodim13.png"
 	//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
 	//	"D:/ML/big_building.PPM"
-		"D:/ML/big_building.LSIM"
+	//	"D:/ML/big_building.LSIM"
 	//	"C:/dataset-LPCB-ppm/PIA13785.ppm"
 	//	"C:/dataset-LPCB-ppm/STA13456.ppm"	//uncorrelated channels
 	//	"C:/dataset-LPCB-ppm/PIA13799.ppm"

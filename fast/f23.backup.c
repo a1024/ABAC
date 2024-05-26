@@ -789,9 +789,8 @@ static void block_thread(void *param)
 					*NW	=rows[1]-1*8,
 					*N	=rows[1]+0*8,
 					*NE	=rows[1]+1*8,
-				//	*NEE	=rows[1]+2*8,
 					*NEEE	=rows[1]+3*8,
-					*WW	=rows[0]-2*8,
+				//	*WW	=rows[0]-2*8,
 					*W	=rows[0]-1*8,
 					*curr	=rows[0]+0*8;
 #ifdef DISABLE_WGRAD
@@ -828,13 +827,6 @@ static void block_thread(void *param)
 					curr[kc]=image->data[idx+kc];
 				for(int kc=0;kc<image->nch;++kc)
 				{
-					//int nbits=(W[kc+4]+NEEE[kc+4])>>1;
-					int nbits=(N[kc+4]+W[kc+4])>>1;
-					//int nbits=(3*W[kc+4]+2*N[kc+4]+NE[kc+4]+NEE[kc+4])>>3;
-					//nbits+=!nbits;
-					//nbits=abs(nbits);
-					nbits=FLOOR_LOG2(nbits+1);
-
 					switch(combination[kc])
 					{
 #define PRED(IDX, DFLAG, VAL, EXPR) case IDX:val[kc]=(VAL)-(EXPR);break;
@@ -845,9 +837,8 @@ static void block_thread(void *param)
 #undef  PRED
 					}
 					val[kc]=val[kc]<<1^-(val[kc]<0);
-					gr_enc_POT(&ec, val[kc], nbits);
-					//curr[kc+4]=(4*W[kc+4]-WW[kc+4]+val[kc])>>2;
-					curr[kc+4]=(W[kc+4]+2*val[kc]+NEEE[kc+4])>>2;
+					gr_enc_POT(&ec, val[kc], FLOOR_LOG2(W[kc+4]+1));
+					curr[kc+4]=(2*W[kc+4]+val[kc]+NEEE[kc+4])>>2;
 				}
 				rows[0]+=8;
 				rows[1]+=8;
@@ -885,8 +876,15 @@ static void block_thread(void *param)
 					combination[k]|=flag>>k&1;
 			}
 			else
+			{
 				combination[0]=flag;
+			}
 		}
+
+		//combination[0]=flag>>0*5&31;
+		//combination[1]=flag>>1*5&31;
+		//combination[2]=flag>>2*5&31;
+		//combination[3]=flag>>3*5&31;
 
 		gr_dec_init(&ec, srcstart, srcend);
 		for(int ky=args->y1, idx=image->nch*image->iw*args->y1;ky<args->y2;++ky)
@@ -911,9 +909,8 @@ static void block_thread(void *param)
 					*NW	=rows[1]-1*8,
 					*N	=rows[1]+0*8,
 					*NE	=rows[1]+1*8,
-				//	*NEE	=rows[1]+2*8,
 					*NEEE	=rows[1]+3*8,
-					*WW	=rows[0]-2*8,
+				//	*WW	=rows[0]-2*8,
 					*W	=rows[0]-1*8,
 					*curr	=rows[0]+0*8;
 #ifdef DISABLE_WGRAD
@@ -948,16 +945,8 @@ static void block_thread(void *param)
 #endif
 				for(int kc=0;kc<image->nch;++kc)
 				{
-					//int nbits=(W[kc+4]+NEEE[kc+4])>>1;
-					int nbits=(N[kc+4]+W[kc+4])>>1;
-					//int nbits=(3*W[kc+4]+2*N[kc+4]+NE[kc+4]+NEE[kc+4])>>3;
-					//nbits+=!nbits;
-					//nbits=abs(nbits);
-					nbits=FLOOR_LOG2(nbits+1);
-
-					val[kc]=gr_dec_POT(&ec, nbits);
-					//curr[kc+4]=(4*W[kc+4]-WW[kc+4]+val[kc])>>2;
-					curr[kc+4]=(W[kc+4]+2*val[kc]+NEEE[kc+4])>>2;
+					val[kc]=gr_dec_POT(&ec, FLOOR_LOG2(W[kc+4]+1));
+					curr[kc+4]=(2*W[kc+4]+val[kc]+NEEE[kc+4])>>2;
 					val[kc]=val[kc]>>1^-(val[kc]&1);
 				}
 				for(int kc=0;kc<image->nch;++kc)
