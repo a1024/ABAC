@@ -30,6 +30,22 @@ static int cgrad(int N, int W, int NW)
 	MEDIAN3_32(pred, N, W, N+W-NW);
 	return pred;
 }
+static int clampav(int NW, int N, int NE, int WW, int W)
+{
+	ALIGN(16) int pred[4];
+	__m128i va=_mm_set_epi32(0, 0, 0, N);
+	__m128i vb=_mm_set_epi32(0, 0, 0, W);
+	__m128i vc=_mm_set_epi32(0, 0, 0, NE);
+	__m128i vd=_mm_set_epi32(0, 0, 0, (8*W+5*(N-NW)+NE-WW)>>3);
+	__m128i vmin=_mm_min_epi32(va, vb);
+	__m128i vmax=_mm_max_epi32(va, vb);
+	vmin=_mm_min_epi32(vmin, vc);
+	vmax=_mm_max_epi32(vmax, vc);
+	vd=_mm_max_epi32(vd, vmin);
+	vd=_mm_min_epi32(vd, vmax);
+	_mm_store_si128((__m128i*)pred, vd);
+	return pred[0];
+}
 static int wgrad(int N, int W, int X, int Y)
 {
 #ifdef DISABLE_WGRAD
@@ -68,6 +84,83 @@ static int clamp(int vmin, int x, int vmax)
 	return ret;
 }
 #define MAXPREDS 32
+#if 1
+#define PREDLIST0\
+	PRED( 0, 0x00, curr[0], W[0])\
+	PRED( 1, 0x00, curr[0], cgrad(N[0], W[0], NW[0]))
+#define PREDLIST1\
+	PRED( 2, 0x11, curr[1], W[1])\
+	PRED( 3, 0x11, curr[1], cgrad(N[1], W[1], NW[1]))\
+	PRED( 4, 0x10, curr[1], clamp(-half, W[1]-W[0]+curr[0], half-1))\
+	PRED( 5, 0x10, curr[1], clamp(-half, cgrad(N[1]-N[0], W[1]-W[0], NW[1]-NW[0])+curr[0], half-1))\
+	PRED( 6, 0x01, curr[0], clamp(-half, W[0]-W[1]+curr[1], half-1))\
+	PRED( 7, 0x01, curr[0], clamp(-half, cgrad(N[0]-N[1], W[0]-W[1], NW[0]-NW[1])+curr[1], half-1))
+#define PREDLIST2\
+	PRED( 8, 0x22, curr[2], W[2])\
+	PRED( 9, 0x22, curr[2], cgrad(N[2], W[2], NW[2]))\
+	PRED(10, 0x20, curr[2], clamp(-half, W[2]-W[0]+curr[0], half-1))\
+	PRED(11, 0x20, curr[2], clamp(-half, cgrad(N[2]-N[0], W[2]-W[0], NW[2]-NW[0])+curr[0], half-1))\
+	PRED(12, 0x21, curr[2], clamp(-half, W[2]-W[1]+curr[1], half-1))\
+	PRED(13, 0x21, curr[2], clamp(-half, cgrad(N[2]-N[1], W[2]-W[1], NW[2]-NW[1])+curr[1], half-1))\
+	PRED(14, 0x12, curr[1], clamp(-half, W[1]-W[2]+curr[2], half-1))\
+	PRED(15, 0x12, curr[1], clamp(-half, cgrad(N[1]-N[2], W[1]-W[2], NW[1]-NW[2])+curr[2], half-1))\
+	PRED(16, 0x02, curr[0], clamp(-half, W[0]-W[2]+curr[2], half-1))\
+	PRED(17, 0x02, curr[0], clamp(-half, cgrad(N[0]-N[2], W[0]-W[2], NW[0]-NW[2])+curr[2], half-1))
+#define PREDLIST3\
+	PRED(18, 0x33, curr[3], W[3])\
+	PRED(19, 0x33, curr[3], cgrad(N[3], W[3], NW[3]))\
+	PRED(20, 0x30, curr[3], clamp(-half, W[3]-W[0]+curr[0], half-1))\
+	PRED(21, 0x30, curr[3], clamp(-half, cgrad(N[3]-N[0], W[3]-W[0], NW[3]-NW[0])+curr[0], half-1))\
+	PRED(22, 0x31, curr[3], clamp(-half, W[3]-W[1]+curr[1], half-1))\
+	PRED(23, 0x31, curr[3], clamp(-half, cgrad(N[3]-N[1], W[3]-W[1], NW[3]-NW[1])+curr[1], half-1))\
+	PRED(24, 0x32, curr[3], clamp(-half, W[3]-W[2]+curr[2], half-1))\
+	PRED(25, 0x32, curr[3], clamp(-half, cgrad(N[3]-N[2], W[3]-W[2], NW[3]-NW[2])+curr[2], half-1))\
+	PRED(26, 0x23, curr[2], clamp(-half, W[2]-W[3]+curr[3], half-1))\
+	PRED(27, 0x23, curr[2], clamp(-half, cgrad(N[2]-N[3], W[2]-W[3], NW[2]-NW[3])+curr[3], half-1))\
+	PRED(28, 0x13, curr[1], clamp(-half, W[1]-W[3]+curr[3], half-1))\
+	PRED(29, 0x13, curr[1], clamp(-half, cgrad(N[1]-N[3], W[1]-W[3], NW[1]-NW[3])+curr[3], half-1))\
+	PRED(30, 0x03, curr[0], clamp(-half, W[0]-W[3]+curr[3], half-1))\
+	PRED(31, 0x03, curr[0], clamp(-half, cgrad(N[0]-N[3], W[0]-W[3], NW[0]-NW[3])+curr[3], half-1))
+#endif
+#if 0
+#define PREDLIST0\
+	PRED( 0, 0x00, curr[0], ((N[0]+W[0])>>1))\
+	PRED( 1, 0x00, curr[0], cgrad(N[0], W[0], NW[0]))
+#define PREDLIST1\
+	PRED( 2, 0x11, curr[1], ((N[1]+W[1])>>1))\
+	PRED( 3, 0x11, curr[1], cgrad(N[1], W[1], NW[1]))\
+	PRED( 4, 0x10, curr[1], clamp(-half, ((N[1]-N[0]+W[1]-W[0])>>1)+curr[0], half-1))\
+	PRED( 5, 0x10, curr[1], clamp(-half, cgrad(N[1]-N[0], W[1]-W[0], NW[1]-NW[0])+curr[0], half-1))\
+	PRED( 6, 0x01, curr[0], clamp(-half, ((N[0]-N[1]+W[0]-W[1])>>1)+curr[1], half-1))\
+	PRED( 7, 0x01, curr[0], clamp(-half, cgrad(N[0]-N[1], W[0]-W[1], NW[0]-NW[1])+curr[1], half-1))
+#define PREDLIST2\
+	PRED( 8, 0x22, curr[2], ((N[2]+W[2])>>1))\
+	PRED( 9, 0x22, curr[2], cgrad(N[2], W[2], NW[2]))\
+	PRED(10, 0x20, curr[2], clamp(-half, ((N[2]-N[0]+W[2]-W[0])>>1)+curr[0], half-1))\
+	PRED(11, 0x20, curr[2], clamp(-half, cgrad(N[2]-N[0], W[2]-W[0], NW[2]-NW[0])+curr[0], half-1))\
+	PRED(12, 0x21, curr[2], clamp(-half, ((N[2]-N[1]+W[2]-W[1])>>1)+curr[1], half-1))\
+	PRED(13, 0x21, curr[2], clamp(-half, cgrad(N[2]-N[1], W[2]-W[1], NW[2]-NW[1])+curr[1], half-1))\
+	PRED(14, 0x12, curr[1], clamp(-half, ((N[1]-N[2]+W[1]-W[2])>>1)+curr[2], half-1))\
+	PRED(15, 0x12, curr[1], clamp(-half, cgrad(N[1]-N[2], W[1]-W[2], NW[1]-NW[2])+curr[2], half-1))\
+	PRED(16, 0x02, curr[0], clamp(-half, ((N[0]-N[2]+W[0]-W[2])>>1)+curr[2], half-1))\
+	PRED(17, 0x02, curr[0], clamp(-half, cgrad(N[0]-N[2], W[0]-W[2], NW[0]-NW[2])+curr[2], half-1))
+#define PREDLIST3\
+	PRED(18, 0x33, curr[3], ((N[3]+W[3])>>1))\
+	PRED(19, 0x33, curr[3], cgrad(N[3], W[3], NW[3]))\
+	PRED(20, 0x30, curr[3], clamp(-half, ((N[3]-N[0]+W[3]-W[0])>>1)+curr[0], half-1))\
+	PRED(21, 0x30, curr[3], clamp(-half, cgrad(N[3]-N[0], W[3]-W[0], NW[3]-NW[0])+curr[0], half-1))\
+	PRED(22, 0x31, curr[3], clamp(-half, ((N[3]-N[1]+W[3]-W[1])>>1)+curr[1], half-1))\
+	PRED(23, 0x31, curr[3], clamp(-half, cgrad(N[3]-N[1], W[3]-W[1], NW[3]-NW[1])+curr[1], half-1))\
+	PRED(24, 0x32, curr[3], clamp(-half, ((N[3]-N[2]+W[3]-W[2])>>1)+curr[2], half-1))\
+	PRED(25, 0x32, curr[3], clamp(-half, cgrad(N[3]-N[2], W[3]-W[2], NW[3]-NW[2])+curr[2], half-1))\
+	PRED(26, 0x23, curr[2], clamp(-half, ((N[2]-N[3]+W[2]-W[3])>>1)+curr[3], half-1))\
+	PRED(27, 0x23, curr[2], clamp(-half, cgrad(N[2]-N[3], W[2]-W[3], NW[2]-NW[3])+curr[3], half-1))\
+	PRED(28, 0x13, curr[1], clamp(-half, ((N[1]-N[3]+W[1]-W[3])>>1)+curr[3], half-1))\
+	PRED(29, 0x13, curr[1], clamp(-half, cgrad(N[1]-N[3], W[1]-W[3], NW[1]-NW[3])+curr[3], half-1))\
+	PRED(30, 0x03, curr[0], clamp(-half, ((N[0]-N[3]+W[0]-W[3])>>1)+curr[3], half-1))\
+	PRED(31, 0x03, curr[0], clamp(-half, cgrad(N[0]-N[3], W[0]-W[3], NW[0]-NW[3])+curr[3], half-1))
+#endif
+#if 0
 #define PREDLIST0\
 	PRED( 0, 0x00, curr[0], wgrad(N[0], W[0], X[0], Y[0]))\
 	PRED( 1, 0x00, curr[0], cgrad(N[0], W[0], NW[0]))
@@ -104,6 +197,45 @@ static int clamp(int vmin, int x, int vmax)
 	PRED(29, 0x13, curr[1], clamp(-half, cgrad(N[1]-N[3], W[1]-W[3], NW[1]-NW[3])+curr[3], half-1))\
 	PRED(30, 0x03, curr[0], clamp(-half, wgrad(N[0]-N[3], W[0]-W[3], X[0]+X[3], Y[0]+Y[3])+curr[3], half-1))\
 	PRED(31, 0x03, curr[0], clamp(-half, cgrad(N[0]-N[3], W[0]-W[3], NW[0]-NW[3])+curr[3], half-1))
+#endif
+#if 0
+#define PREDLIST0\
+	PRED( 0, 0x00, curr[0], clampav(NW[0], N[0], NE[0], WW[0], W[0]))\
+	PRED( 1, 0x00, curr[0], cgrad(N[0], W[0], NW[0]))
+#define PREDLIST1\
+	PRED( 2, 0x11, curr[1], clampav(NW[1], N[1], NE[1], WW[1], W[1]))\
+	PRED( 3, 0x11, curr[1], cgrad(N[1], W[1], NW[1]))\
+	PRED( 4, 0x10, curr[1], clamp(-half, clampav(NW[1]-NW[0], N[1]-N[0], NE[1]-NE[0], WW[1]-WW[0], W[1]-W[0])+curr[0], half-1))\
+	PRED( 5, 0x10, curr[1], clamp(-half, cgrad(N[1]-N[0], W[1]-W[0], NW[1]-NW[0])+curr[0], half-1))\
+	PRED( 6, 0x01, curr[0], clamp(-half, clampav(NW[0]-NW[1], N[0]-N[1], NE[0]-NE[1], WW[0]-WW[1], W[0]-W[1])+curr[1], half-1))\
+	PRED( 7, 0x01, curr[0], clamp(-half, cgrad(N[0]-N[1], W[0]-W[1], NW[0]-NW[1])+curr[1], half-1))
+#define PREDLIST2\
+	PRED( 8, 0x22, curr[2], clampav(NW[2], N[2], NE[2], WW[2], W[2]))\
+	PRED( 9, 0x22, curr[2], cgrad(N[2], W[2], NW[2]))\
+	PRED(10, 0x20, curr[2], clamp(-half, clampav(NW[2]-NW[0], N[2]-N[0], NE[2]-NE[0], WW[2]-WW[0], W[2]-W[0])+curr[0], half-1))\
+	PRED(11, 0x20, curr[2], clamp(-half, cgrad(N[2]-N[0], W[2]-W[0], NW[2]-NW[0])+curr[0], half-1))\
+	PRED(12, 0x21, curr[2], clamp(-half, clampav(NW[2]-NW[1], N[2]-N[1], NE[2]-NE[1], WW[2]-WW[1], W[2]-W[1])+curr[1], half-1))\
+	PRED(13, 0x21, curr[2], clamp(-half, cgrad(N[2]-N[1], W[2]-W[1], NW[2]-NW[1])+curr[1], half-1))\
+	PRED(14, 0x12, curr[1], clamp(-half, clampav(NW[1]-NW[2], N[1]-N[2], NE[1]-NE[2], WW[1]-WW[2], W[1]-W[2])+curr[2], half-1))\
+	PRED(15, 0x12, curr[1], clamp(-half, cgrad(N[1]-N[2], W[1]-W[2], NW[1]-NW[2])+curr[2], half-1))\
+	PRED(16, 0x02, curr[0], clamp(-half, clampav(NW[0]-NW[2], N[0]-N[2], NE[0]-NE[2], WW[0]-WW[2], W[0]-W[2])+curr[2], half-1))\
+	PRED(17, 0x02, curr[0], clamp(-half, cgrad(N[0]-N[2], W[0]-W[2], NW[0]-NW[2])+curr[2], half-1))
+#define PREDLIST3\
+	PRED(18, 0x33, curr[3], clampav(NW[3], N[3], NE[3], WW[3], W[3]))\
+	PRED(19, 0x33, curr[3], cgrad(N[3], W[3], NW[3]))\
+	PRED(20, 0x30, curr[3], clamp(-half, clampav(NW[3]-NW[0], N[3]-N[0], NE[3]-NE[0], WW[3]-WW[0], W[3]-W[0])+curr[0], half-1))\
+	PRED(21, 0x30, curr[3], clamp(-half, cgrad(N[3]-N[0], W[3]-W[0], NW[3]-NW[0])+curr[0], half-1))\
+	PRED(22, 0x31, curr[3], clamp(-half, clampav(NW[3]-NW[1], N[3]-N[1], NE[3]-NE[1], WW[3]-WW[1], W[3]-W[1])+curr[1], half-1))\
+	PRED(23, 0x31, curr[3], clamp(-half, cgrad(N[3]-N[1], W[3]-W[1], NW[3]-NW[1])+curr[1], half-1))\
+	PRED(24, 0x32, curr[3], clamp(-half, clampav(NW[3]-NW[2], N[3]-N[2], NE[3]-NE[2], WW[3]-WW[2], W[3]-W[2])+curr[2], half-1))\
+	PRED(25, 0x32, curr[3], clamp(-half, cgrad(N[3]-N[2], W[3]-W[2], NW[3]-NW[2])+curr[2], half-1))\
+	PRED(26, 0x23, curr[2], clamp(-half, clampav(NW[2]-NW[3], N[2]-N[3], NE[2]-NE[3], WW[2]-WW[3], W[2]-W[3])+curr[3], half-1))\
+	PRED(27, 0x23, curr[2], clamp(-half, cgrad(N[2]-N[3], W[2]-W[3], NW[2]-NW[3])+curr[3], half-1))\
+	PRED(28, 0x13, curr[1], clamp(-half, clampav(NW[1]-NW[3], N[1]-N[3], NE[1]-NE[3], WW[1]-WW[3], W[1]-W[3])+curr[3], half-1))\
+	PRED(29, 0x13, curr[1], clamp(-half, cgrad(N[1]-N[3], W[1]-W[3], NW[1]-NW[3])+curr[3], half-1))\
+	PRED(30, 0x03, curr[0], clamp(-half, clampav(NW[0]-NW[3], N[0]-N[3], NE[0]-NE[3], WW[0]-WW[3], W[0]-W[3])+curr[3], half-1))\
+	PRED(31, 0x03, curr[0], clamp(-half, cgrad(N[0]-N[3], W[0]-W[3], NW[0]-NW[3])+curr[3], half-1))
+#endif
 typedef struct _ThreadArgs
 {
 	const Image *src;
