@@ -354,8 +354,8 @@ int main(int argc, char **argv)
 	//	"D:/ML/big_building.LSIM.PPM"
 		;
 	const char *fn=
-		"D:/ML/dataset-kodak/kodim13.png"
-	//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
+		"D:/ML/dataset-kodak-ppm/kodim13.ppm"
+	//	"D:/ML/dataset-kodak/kodim13.png"
 	//	"D:/ML/big_building.PPM"
 	//	"D:/ML/big_building.LSIM"
 	//	"C:/dataset-LPCB-ppm/PIA13785.ppm"
