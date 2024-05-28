@@ -51,22 +51,22 @@ extern "C"
 #define ROTATE3(A, B, C, TEMP) TEMP=A, A=B, B=C, C=TEMP
 #define MINVAR(A, B) ((A)<(B)?(A):(B))//use the faster _mm_min...
 #define MAXVAR(A, B) ((A)>(B)?(A):(B))//use the faster _mm_max...
-#define CLAMP(LO, X, HI) ((X)>(LO)?(X)<(HI)?(X):(HI):(LO))
+#define CLAMP(LO, X, HI) ((X)>(LO)?(X)<(HI)?(X):(HI):(LO))//use MEDIAN3_32
 
 //include<smmintrin.h>	SSE4.1
 #define MEDIAN3_32(DST, A, B, C)\
 	do\
 	{\
-		ALIGN(16) int arr[4];\
-		__m128i va=_mm_set_epi32(0, 0, 0, A);\
-		__m128i vb=_mm_set_epi32(0, 0, 0, B);\
-		__m128i vc=_mm_set_epi32(0, 0, 0, C);\
-		__m128i vmin=_mm_min_epi32(va, vb);\
-		__m128i vmax=_mm_max_epi32(va, vb);\
-		vc=_mm_max_epi32(vc, vmin);\
-		vc=_mm_min_epi32(vc, vmax);\
-		_mm_store_si128((__m128i*)arr, vc);\
-		DST=arr[0];\
+		ALIGN(16) int _arr[4];\
+		__m128i _va=_mm_set_epi32(0, 0, 0, A);\
+		__m128i _vb=_mm_set_epi32(0, 0, 0, B);\
+		__m128i _vc=_mm_set_epi32(0, 0, 0, C);\
+		__m128i _vmin=_mm_min_epi32(_va, _vb);\
+		__m128i _vmax=_mm_max_epi32(_va, _vb);\
+		_vc=_mm_max_epi32(_vc, _vmin);\
+		_vc=_mm_min_epi32(_vc, _vmax);\
+		_mm_store_si128((__m128i*)_arr, _vc);\
+		DST=_arr[0];\
 	}while(0)
 
 //include<emmintrin.h>	SSE2

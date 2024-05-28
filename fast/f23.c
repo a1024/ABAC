@@ -14,6 +14,7 @@ static const char file[]=__FILE__;
 
 //	#define ENABLE_GUIDE
 //	#define DISABLE_MT
+//	#define UNROLL_DECODER//binary incompatible!
 
 	#define DISABLE_WGRAD//do not comment this
 
@@ -46,13 +47,9 @@ static int clampav(int NW, int N, int NE, int WW, int W)
 	_mm_store_si128((__m128i*)pred, vd);
 	return pred[0];
 }
-static int wgrad(int N, int W, int X, int Y)
+#ifndef DISABLE_WGRAD
+static int wgrad(int N, int W, int X, int Y)//(X*N+Y*W)/(X+Y)
 {
-#ifdef DISABLE_WGRAD
-	return (N+W)>>1;
-	//return (4*(N+W)+Y-X)>>3;
-#else
-	//(X*N+Y*W)/(X+Y)
 #ifdef _MSC_VER
 	double pred=((double)X*N+(double)Y*W)/((double)X+Y);
 	return _cvt_dtoi_fast(pred);
@@ -74,8 +71,8 @@ static int wgrad(int N, int W, int X, int Y)
 		return result[0];
 	}
 #endif
-#endif
 }
+#endif
 static int clamp(int vmin, int x, int vmax)
 {
 	int ret;
@@ -914,7 +911,7 @@ static void block_thread(void *param)
 #ifndef DISABLE_WGRAD
 			ALIGN(16) int X[4]={0}, Y[4]={0};
 #endif
-			int val[4]={0};
+			ALIGN(16) int val[4]={0};
 			for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
 			{
 				int
@@ -968,10 +965,29 @@ static void block_thread(void *param)
 					PREDLIST3
 #undef  PRED
 					}
+#ifndef UNROLL_DECODER
 					val[kc]=val[kc]<<1^-(val[kc]<0);
 					gr_enc_POT(&ec, val[kc], FLOOR_LOG2(W[kc+4]+1));
 					curr[kc+4]=(2*W[kc+4]+val[kc]+NEEE[kc+4])>>2;
+#endif
 				}
+#ifdef UNROLL_DECODER
+				{
+					__m128i mval=_mm_load_si128((__m128i*)val);
+					__m128i update=_mm_add_epi32(_mm_slli_epi32(_mm_load_si128((__m128i*)W+1), 1), _mm_load_si128((__m128i*)NEEE+1));
+					mval=_mm_xor_si128(_mm_slli_epi32(mval, 1), _mm_srai_epi32(mval, 31));
+					update=_mm_srli_epi32(_mm_add_epi32(update, mval), 2);
+					_mm_store_si128((__m128i*)val, mval);
+					_mm_store_si128((__m128i*)curr+1, update);
+				}
+				switch(image->nch)
+				{
+				case 4:gr_enc_POT(&ec, val[3], FLOOR_LOG2(W[3+4]+1));
+				case 3:gr_enc_POT(&ec, val[2], FLOOR_LOG2(W[2+4]+1));
+				case 2:gr_enc_POT(&ec, val[1], FLOOR_LOG2(W[1+4]+1));
+				case 1:gr_enc_POT(&ec, val[0], FLOOR_LOG2(W[0+4]+1));
+				}
+#endif
 				rows[0]+=8;
 				rows[1]+=8;
 #ifndef DISABLE_WGRAD
@@ -1033,7 +1049,7 @@ static void block_thread(void *param)
 #ifndef DISABLE_WGRAD
 			ALIGN(16) int X[4]={0}, Y[4]={0};
 #endif
-			int val[4]={0};
+			ALIGN(16) int val[4]={0};
 
 			for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
 			{
@@ -1075,6 +1091,183 @@ static void block_thread(void *param)
 					_mm_store_si128((__m128i*)Y, mY);
 				}
 #endif
+#ifdef UNROLL_DECODER
+				switch(image->nch)
+				{
+#if 0
+				case 4:
+					{
+						GolombRiceCoder *pc=&ec;
+						int nbypass=FLOOR_LOG2(W[3+4]+1);
+						int sym=0, nleadingzeros=0;
+						if(!pc->nbits)//cache is empty
+							goto read_c3;
+						for(;;)//cache reading loop
+						{
+							nleadingzeros=pc->nbits-FLOOR_LOG2_P1(pc->cache);//count leading zeros
+							pc->nbits-=nleadingzeros;//remove accessed zeros
+							sym+=nleadingzeros;
+
+							if(pc->nbits)
+								break;
+						read_c3://cache is empty
+							gr_dec_impl_read(pc);
+						}
+						//now  0 < nbits <= 64
+						--pc->nbits;
+						//now  0 <= nbits < 64
+						pc->cache-=1ULL<<pc->nbits;//remove stop bit
+
+						unsigned bypass=0;
+						sym<<=nbypass;
+						if(pc->nbits<nbypass)
+						{
+							nbypass-=pc->nbits;
+							bypass|=(int)(pc->cache<<nbypass);
+							gr_dec_impl_read(pc);
+						}
+						if(nbypass)
+						{
+							pc->nbits-=nbypass;
+							bypass|=(int)(pc->cache>>pc->nbits);
+							pc->cache&=(1ULL<<pc->nbits)-1;
+						}
+						val[3]=sym|bypass;
+					}
+				case 3:
+					{
+						GolombRiceCoder *pc=&ec;
+						int nbypass=FLOOR_LOG2(W[2+4]+1);
+						int sym=0, nleadingzeros=0;
+						if(!pc->nbits)//cache is empty
+							goto read_c2;
+						for(;;)//cache reading loop
+						{
+							nleadingzeros=pc->nbits-FLOOR_LOG2_P1(pc->cache);//count leading zeros
+							pc->nbits-=nleadingzeros;//remove accessed zeros
+							sym+=nleadingzeros;
+
+							if(pc->nbits)
+								break;
+						read_c2://cache is empty
+							gr_dec_impl_read(pc);
+						}
+						//now  0 < nbits <= 64
+						--pc->nbits;
+						//now  0 <= nbits < 64
+						pc->cache-=1ULL<<pc->nbits;//remove stop bit
+
+						unsigned bypass=0;
+						sym<<=nbypass;
+						if(pc->nbits<nbypass)
+						{
+							nbypass-=pc->nbits;
+							bypass|=(int)(pc->cache<<nbypass);
+							gr_dec_impl_read(pc);
+						}
+						if(nbypass)
+						{
+							pc->nbits-=nbypass;
+							bypass|=(int)(pc->cache>>pc->nbits);
+							pc->cache&=(1ULL<<pc->nbits)-1;
+						}
+						val[2]=sym|bypass;
+					}
+				case 2:
+					{
+						GolombRiceCoder *pc=&ec;
+						int nbypass=FLOOR_LOG2(W[1+4]+1);
+						int sym=0, nleadingzeros=0;
+						if(!pc->nbits)//cache is empty
+							goto read_c1;
+						for(;;)//cache reading loop
+						{
+							nleadingzeros=pc->nbits-FLOOR_LOG2_P1(pc->cache);//count leading zeros
+							pc->nbits-=nleadingzeros;//remove accessed zeros
+							sym+=nleadingzeros;
+
+							if(pc->nbits)
+								break;
+						read_c1://cache is empty
+							gr_dec_impl_read(pc);
+						}
+						//now  0 < nbits <= 64
+						--pc->nbits;
+						//now  0 <= nbits < 64
+						pc->cache-=1ULL<<pc->nbits;//remove stop bit
+
+						unsigned bypass=0;
+						sym<<=nbypass;
+						if(pc->nbits<nbypass)
+						{
+							nbypass-=pc->nbits;
+							bypass|=(int)(pc->cache<<nbypass);
+							gr_dec_impl_read(pc);
+						}
+						if(nbypass)
+						{
+							pc->nbits-=nbypass;
+							bypass|=(int)(pc->cache>>pc->nbits);
+							pc->cache&=(1ULL<<pc->nbits)-1;
+						}
+						val[1]=sym|bypass;
+					}
+				case 1:
+					{
+						GolombRiceCoder *pc=&ec;
+						int nbypass=FLOOR_LOG2(W[0+4]+1);
+						int sym=0, nleadingzeros=0;
+						if(!pc->nbits)//cache is empty
+							goto read_c0;
+						for(;;)//cache reading loop
+						{
+							nleadingzeros=pc->nbits-FLOOR_LOG2_P1(pc->cache);//count leading zeros
+							pc->nbits-=nleadingzeros;//remove accessed zeros
+							sym+=nleadingzeros;
+
+							if(pc->nbits)
+								break;
+						read_c0://cache is empty
+							gr_dec_impl_read(pc);
+						}
+						//now  0 < nbits <= 64
+						--pc->nbits;
+						//now  0 <= nbits < 64
+						pc->cache-=1ULL<<pc->nbits;//remove stop bit
+
+						unsigned bypass=0;
+						sym<<=nbypass;
+						if(pc->nbits<nbypass)
+						{
+							nbypass-=pc->nbits;
+							bypass|=(int)(pc->cache<<nbypass);
+							gr_dec_impl_read(pc);
+						}
+						if(nbypass)
+						{
+							pc->nbits-=nbypass;
+							bypass|=(int)(pc->cache>>pc->nbits);
+							pc->cache&=(1ULL<<pc->nbits)-1;
+						}
+						val[0]=sym|bypass;
+					}
+#else
+				case 4:val[3]=gr_dec_POT(&ec, FLOOR_LOG2(W[3+4]+1));
+				case 3:val[2]=gr_dec_POT(&ec, FLOOR_LOG2(W[2+4]+1));
+				case 2:val[1]=gr_dec_POT(&ec, FLOOR_LOG2(W[1+4]+1));
+				case 1:val[0]=gr_dec_POT(&ec, FLOOR_LOG2(W[0+4]+1));
+#endif
+				}
+				{
+					__m128i mval=_mm_load_si128((__m128i*)val);
+					__m128i update=_mm_add_epi32(_mm_slli_epi32(_mm_load_si128((__m128i*)W+1), 1), _mm_load_si128((__m128i*)NEEE+1));
+					__m128i mask=_mm_cmpeq_epi32(_mm_and_si128(mval, _mm_set1_epi32(1)), _mm_set1_epi32(1));
+					update=_mm_srli_epi32(_mm_add_epi32(update, mval), 2);
+					mval=_mm_xor_si128(_mm_srli_epi32(mval, 1), mask);
+					_mm_store_si128((__m128i*)curr+1, update);
+					_mm_store_si128((__m128i*)val, mval);
+				}
+#endif
 				//for(int kc=0;kc<image->nch;++kc)
 				//{
 				//	val[kc]=gr_dec_POT(&ec, FLOOR_LOG2(W[kc+4]+1));
@@ -1083,10 +1276,11 @@ static void block_thread(void *param)
 				//}
 				for(int kc=0;kc<image->nch;++kc)
 				{
+#ifndef UNROLL_DECODER
 					val[kc]=gr_dec_POT(&ec, FLOOR_LOG2(W[kc+4]+1));
 					curr[kc+4]=(2*W[kc+4]+val[kc]+NEEE[kc+4])>>2;
 					val[kc]=val[kc]>>1^-(val[kc]&1);
-
+#endif
 					switch(combination[kc])
 					{
 #define PRED(IDX, DFLAG, VAL, EXPR) case IDX:VAL=val[kc]+EXPR;break;

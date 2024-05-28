@@ -6,7 +6,7 @@
 #include<math.h>
 #include<process.h>
 #include<immintrin.h>
-//static const char file[]=__FILE__;
+static const char file[]=__FILE__;
 
 short lossyconv_clipboard=0;
 int lossyconv_page=0;//[0~15]: 4 channels max * 4 layers	layer<<2|ch
@@ -166,4 +166,151 @@ void pred_lossyconv(Image *src)
 		}
 	}
 	free(dst);
+}
+void pred_WC(Image *src)
+{
+	int wpmask;
+	Image *dst;
+	int *buf;
+	ptrdiff_t bufsize;
+
+	wpmask=0;
+	for(int k1=0;k1<16;++k1)
+	{
+		short *curr_filt=lossyconv_params+5*5*k1;
+		for(int k2=0;k2<25;++k2)
+		{
+			if(curr_filt[k2])
+			{
+				wpmask|=1<<k1;
+				break;
+			}
+		}
+	}
+	if(!wpmask)
+		return;
+
+	bufsize=(src->iw+16LL)*sizeof(int[4*16]);//4 padded rows * 16 pred errors
+	buf=(int*)malloc(bufsize);
+	if(!buf)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	dst=0;
+	image_copy(&dst, src);
+	for(int kc=0;kc<4;++kc)
+	{
+		int depth, half;
+		int preds[16]={0}, nb[25]={0}, weights[16]={0};
+
+		depth=src->depth[kc];
+		if(!depth)
+			continue;
+		half=1<<depth>>1;
+		memset(buf, 0, bufsize);
+		for(int ky=0, idx=0;ky<src->ih;++ky)
+		{
+			int *rows[]=
+			{
+				buf+(((src->iw+16LL)*((ky-0LL)&3)+8LL)<<4),
+				buf+(((src->iw+16LL)*((ky-1LL)&3)+8LL)<<4),
+				buf+(((src->iw+16LL)*((ky-2LL)&3)+8LL)<<4),
+				buf+(((src->iw+16LL)*((ky-3LL)&3)+8LL)<<4),
+			};
+			for(int kx=0;kx<src->iw;++kx, ++idx)
+			{
+				long long lpred, wsum;
+				int weight;
+				int offset=0, pred=0, vmin=-half, vmax=half-1, uninit=1;
+				int
+					*eNW	=rows[1]-1*16,
+					*eN	=rows[1]+0*16,
+					*eNE	=rows[1]+1*16,
+					*eNEE	=rows[1]+2*16,
+					*eWW	=rows[0]-2*16,
+					*eW	=rows[0]-1*16,
+					*ecurr	=rows[0]+0*16;
+
+				for(int ky2=-2, idx2=0;ky2<=2;++ky2)
+				{
+					for(int kx2=-2;kx2<=2;++kx2, ++idx2)
+					{
+						if((unsigned)(ky+ky2)<(unsigned)src->ih&&(unsigned)(kx+kx2)<(unsigned)src->iw)
+						{
+							int idx3=src->iw*(ky+ky2)+kx+kx2;
+							nb[idx2]=dst->data[idx3<<2|kc];
+							if(kc!=1&&lossyconv_causalRCT[0])
+								nb[idx2]-=dst->data[idx3<<2|1];
+						}
+					}
+				}
+				if(kc!=1&&lossyconv_causalRCT[0])
+					offset+=dst->data[idx<<2|1];
+
+				lpred=0;
+				wsum=0;
+				for(int kp=0;kp<16;++kp)
+				{
+					if(wpmask>>kp&1)
+					{
+						preds[kp]=0;
+						uninit=1;
+						for(int idx2=0;idx2<25;++idx2)
+						{
+							short param=lossyconv_params[25*kp+idx2];
+							preds[kp]+=(param>>1)*nb[idx2];
+							if(param&1)
+							{
+								if(uninit)
+								{
+									uninit=0;
+									vmin=nb, vmax=nb;
+								}
+								else
+								{
+									UPDATE_MIN(vmin, nb);
+									UPDATE_MAX(vmax, nb);
+								}
+							}
+						}
+						if(!uninit)
+						{
+							MEDIAN3_32(preds[kp], vmin, vmax, preds[kp]);
+						}
+						weight=eNW[kp]+eN[kp]+eNE[kp]+eNEE[kp]+eWW[kp]+eW[kp];
+						weight=0x1000000/(weight+1);
+						lpred+=(long long)weight*preds[kp];
+						wsum+=weight;
+					}
+				}
+				lpred/=wsum+1;
+				lpred+=16;
+				lpred>>=5;
+				pred=(int)lpred;
+				//CLAMP3_32(pred, (int)lpred, nb[10], nb[7], nb[8]);//clamp(N, W, NE)
+
+				pred+=offset;
+				pred=CLAMP(-half, pred, half);
+				{
+					int curr=dst->data[idx<<2|kc];
+					curr-=pred;
+					curr<<=32-depth;//signed-MA
+					curr>>=32-depth;
+					src->data[idx<<2|kc]=curr;
+				}
+				for(int kp=0;kp<16;++kp)
+				{
+					if(wpmask>>kp&1)
+						ecurr[kc]=abs(nb[12]-preds[kp]);
+				}
+				rows[0]+=16;
+				rows[1]+=16;
+				rows[2]+=16;
+				rows[3]+=16;
+			}
+		}
+	}
+	free(dst);
+	free(buf);
 }

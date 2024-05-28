@@ -789,6 +789,7 @@ extern short lossyconv_params[5*5*4*4];//(r2 = 5*5) * 4 channels max * 4 banks
 extern unsigned char lossyconv_stride[2*4], lossyconv_offset[2*4];//2 dimensions * 4 stages
 extern unsigned char lossyconv_causalRCT[4];
 void pred_lossyconv(Image *src);//irreversible conv
+void pred_WC(Image *src);
 
 void pred_calic(Image *src, int fwd, int enable_ma);
 void pred_grad2(Image *src, int fwd, int enable_ma);

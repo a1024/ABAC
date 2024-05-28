@@ -2947,6 +2947,7 @@ static void sort_int32(int *data, int count)
 
 	#define WGRAD_UPDATE_LUMA
 //	#define WGRAD_SSE
+#ifdef WGRAD_SSE
 static int quantize_nb(int x)
 {
 	int ax=abs(x), negmask=x<0;
@@ -2956,6 +2957,7 @@ static int quantize_nb(int x)
 	return x;
 }
 #define QUANTIZE_NB(X) quantize_nb(X)+maxdepth
+#endif
 void pred_wgrad(Image *src, int fwd)
 {
 	//static int sh=8;
@@ -2983,13 +2985,13 @@ void pred_wgrad(Image *src, int fwd)
 	int perm[]={1, 2, 0, 3};
 	int fwdmask=-fwd;
 
-	int *pixels=(int*)malloc((src->iw+4LL)*sizeof(int[4*4]));//4 padded rows * 4 channels max
+	int *pixels=(int*)malloc((src->iw+16LL)*sizeof(int[4*4]));//4 padded rows * 4 channels max
 	if(!pixels)
 	{
 		LOG_ERROR("Alloc error");
 		return;
 	}
-	memset(pixels, 0, (src->iw+4LL)*sizeof(int[4*4]));
+	memset(pixels, 0, (src->iw+16LL)*sizeof(int[4*4]));
 #ifdef WGRAD_SSE
 	int maxdepth=MAXVAR(src->depth[0], src->depth[1]);
 	UPDATE_MAX(maxdepth, src->depth[2]);
@@ -3008,12 +3010,13 @@ void pred_wgrad(Image *src, int fwd)
 	UPDATE_MAX(nch, src->nch);
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
+		int eW[16]={0};
 		int *rows[]=
 		{
-			pixels+(((src->iw+4LL)*((ky-0LL)&3)+2)<<2),
-			pixels+(((src->iw+4LL)*((ky-1LL)&3)+2)<<2),
-			pixels+(((src->iw+4LL)*((ky-2LL)&3)+2)<<2),
-			pixels+(((src->iw+4LL)*((ky-3LL)&3)+2)<<2),
+			pixels+(((src->iw+16LL)*((ky-0LL)&3)+8LL)<<2),
+			pixels+(((src->iw+16LL)*((ky-1LL)&3)+8LL)<<2),
+			pixels+(((src->iw+16LL)*((ky-2LL)&3)+8LL)<<2),
+			pixels+(((src->iw+16LL)*((ky-3LL)&3)+8LL)<<2),
 		};
 		for(int kx=0;kx<src->iw;++kx, idx+=4)
 		{
@@ -3023,7 +3026,7 @@ void pred_wgrad(Image *src, int fwd)
 				int
 					cb	=src->data[idx+2],
 					cr	=src->data[idx+0];
-				int update=(cb+cr)>>3;
+				int update=(cb+cr)>>2;
 				update=CLAMP(-halfs[1], update, halfs[1]-1);
 				{
 					int luma=src->data[idx+1]-update;//subtract update
@@ -3037,6 +3040,7 @@ void pred_wgrad(Image *src, int fwd)
 			{
 				int kc=perm[kc0], pred;
 				int
+					NNNN	=rows[0][kc+0*4],
 					NNN	=rows[3][kc+0*4],
 					NNWW	=rows[2][kc-2*4],
 					NNW	=rows[2][kc-1*4],
@@ -3048,9 +3052,16 @@ void pred_wgrad(Image *src, int fwd)
 					N	=rows[1][kc+0*4],
 					NE	=rows[1][kc+1*4],
 					NEE	=rows[1][kc+2*4],
+					NEEE	=rows[1][kc+3*4],
+					NEEEE	=rows[1][kc+4*4],
+					NEEEEE	=rows[1][kc+5*4],
+					WWWWW	=rows[0][kc-5*4],
+					WWWW	=rows[0][kc-4*4],
+					WWW	=rows[0][kc-3*4],
 					WW	=rows[0][kc-2*4],
 					W	=rows[0][kc-1*4],
 					offset	=0;
+				(void)NNNN;		//<- what insanity looks like
 				(void)NNN;
 				(void)NNWW;
 				(void)NNW;
@@ -3062,6 +3073,10 @@ void pred_wgrad(Image *src, int fwd)
 				(void)N;
 				(void)NE;
 				(void)NEE;
+				(void)NEEE;
+				(void)NEEEE;
+				(void)NEEEEE;
+				(void)WWW;
 				(void)WW;
 				(void)W;
 				if(kc0>0)
@@ -3074,6 +3089,44 @@ void pred_wgrad(Image *src, int fwd)
 				//sort_int32(nb, (int)_countof(nb));
 				//int pred=nb[_countof(nb)>>1];
 				//pred=(pred+N+W-NW)>>1;
+#if 1
+				long long lpred, wsum;
+				int preds[]=
+				{
+					N+W-NW,
+					W+NE-N,
+					N+NE-NNE,
+					N,
+					W,
+					3*(N-NN)+NNN,
+					3*(W-WW)+WWW,
+					(W+NEEE)>>1,
+
+					//(N+NE)>>1,
+					//W+((WWWWW-WWWW+NEEEE-NEEEEE)>>2),
+					//(W+N+NE+NEE+NEEE)/5,
+					//(N+2*NE-NNE)>>1,
+				};
+				//MEDIAN3_32(preds[0], N, W, preds[0]);
+
+				lpred=0;
+				wsum=0;
+				for(int k=0;k<_countof(preds);++k)
+				{
+					int weight=0x1000000/(eW[k]+1);
+					lpred+=(long long)weight*preds[k];
+					wsum+=weight;
+				}
+				lpred/=wsum+1;
+				pred=(int)lpred;
+				//offset=0;
+#endif
+#if 0
+				int cgrad;
+				MEDIAN3_32(cgrad, N, W, N+W-NW);
+				pred=(eW[1]*W+eW[0]*cgrad)/(eW[0]+eW[1]);
+#endif
+#if 0
 				{
 					int
 						gx=abs(W-WW)+abs(N-NW)+abs(NE-N)+1,
@@ -3119,6 +3172,7 @@ void pred_wgrad(Image *src, int fwd)
 
 					//MEDIAN3_32(pred, N, W, N+W-NW);
 				}
+#endif
 				//const int sh=8;
 				//int grad=N+W-NW, pred;
 				//MEDIAN3_32(pred, N, W, grad);
@@ -3212,6 +3266,28 @@ void pred_wgrad(Image *src, int fwd)
 					}
 #endif
 				}
+#if 1
+				{
+					int curr=rows[0][kc];
+					for(int k=0;k<_countof(preds);++k)
+					{
+						int err=abs(curr-preds[k]);
+						eW[k]+=err;
+						eW[k]-=(eW[k]+3)>>2;
+						//eW[k]*=3;
+						//eW[k]>>=2;
+					}
+				}
+#endif
+#if 0
+				{
+					int curr=rows[0][kc];
+					eW[0]=(eW[0]+abs(curr-W)+1)>>1;
+					eW[1]=(eW[1]+abs(curr-cgrad)+1)>>1;
+					//eW[0]=abs(curr-W);
+					//eW[1]=abs(curr-cgrad);
+				}
+#endif
 			}
 #ifdef WGRAD_UPDATE_LUMA
 			if(fwd)
@@ -3219,7 +3295,7 @@ void pred_wgrad(Image *src, int fwd)
 				int
 					cb	=src->data[idx+2],
 					cr	=src->data[idx+0];
-				int update=(cb+cr)>>3;
+				int update=(cb+cr)>>2;
 				update=CLAMP(-halfs[1], update, halfs[1]-1);
 				{
 					int luma=src->data[idx+1]+update;//add update

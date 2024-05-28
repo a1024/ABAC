@@ -1,7 +1,42 @@
 #include"fast.h"
 #include<stdint.h>
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wall"
+#pragma GCC diagnostic ignored "-Wextra"
+#pragma GCC diagnostic ignored "-Wcast-qual"
+#pragma GCC diagnostic ignored "-Wcast-align"
+#pragma GCC diagnostic ignored "-Wstrict-aliasing"
+#pragma GCC diagnostic ignored "-Wpointer-arith"
+#pragma GCC diagnostic ignored "-Winit-self"
+#pragma GCC diagnostic ignored "-Wshadow"
+#pragma GCC diagnostic ignored "-Wredundant-decls"
+#pragma GCC diagnostic ignored "-Wformat=2"
+#pragma GCC diagnostic ignored "-Wfloat-equal"
+#pragma GCC diagnostic ignored "-Wundef"
+#pragma GCC diagnostic ignored "-Wvla"
+#pragma GCC diagnostic ignored "-Wvla"
+#pragma GCC diagnostic ignored "-Winline"
+#pragma GCC diagnostic ignored "-Wstringop-overflow"
+#ifdef __cplusplus
+//C++ warnings
+#pragma GCC diagnostic ignored "-Wshift-negative-value"
+#pragma GCC diagnostic ignored "-Wcalloc-transposed-args"
+#pragma GCC diagnostic ignored "-Wignored-qualifiers"
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#else
+//C warnings:
+#pragma GCC diagnostic ignored "-Wstrict-prototypes"
+#pragma GCC diagnostic ignored "-Wmissing-prototypes"
+#pragma GCC diagnostic ignored "-Wdeclaration-after-statement"
+#pragma GCC diagnostic ignored "-Wc++-compat"
+#endif
+#endif
 #define TINY_DNG_LOADER_IMPLEMENTATION
 #include"tiny_dng_loader.h"
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif
 static const char file[]=__FILE__;
 
 extern "C" int load_dng(const char *fn, Image *dst)

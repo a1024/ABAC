@@ -87,6 +87,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_WP,		ST_INV_WP,
 	ST_FWD_WPU,		ST_INV_WPU,
 	ST_FWD_DEFERRED,	ST_INV_DEFERRED,
+	ST_FWD_WC,		ST_INV_WC,	//irreversible conv
 	ST_FWD_CUSTOM4,		ST_INV_CUSTOM4,	//irreversible conv
 	ST_FWD_CUSTOM3,		ST_INV_CUSTOM3,
 	ST_FWD_CUSTOM,		ST_INV_CUSTOM,
@@ -1451,6 +1452,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 //	case ST_INV_ZIPPER:		a=" S Inv Zipper";		break;
 //	case ST_FWD_DIR:		a=" S Fwd Dir";			break;
 //	case ST_INV_DIR:		a=" S Inv Dir";			break;
+	case ST_FWD_WC:			a=" S Fwd WC";			break;
+	case ST_INV_WC:			a=" S Inv WC";			break;
 	case ST_FWD_CUSTOM4:		a=" S Fwd CUSTOM4";		break;
 	case ST_INV_CUSTOM4:		a=" S Inv CUSTOM4";		break;
 	case ST_FWD_CUSTOM3:		a="CS Fwd CUSTOM3";		break;
@@ -2443,6 +2446,8 @@ void apply_selected_transforms(Image *image, int rct_only)
 				
 	//	case ST_FWD_CUSTOM2:		custom2_apply((char*)image, iw, ih, 1, &c2_params);	break;
 	//	case ST_INV_CUSTOM2:		custom2_apply((char*)image, iw, ih, 0, &c2_params);	break;
+		case ST_FWD_WC:			pred_WC(image);						break;
+		case ST_INV_WC:			pred_WC(image);						break;
 		case ST_FWD_CUSTOM4:		pred_lossyconv(image);					break;
 		case ST_INV_CUSTOM4:		pred_lossyconv(image);					break;
 		case ST_FWD_CUSTOM3:		custom3_apply(image, 1, pred_ma_enabled, &c3_params);	break;
@@ -3369,7 +3374,7 @@ static void click_hittest(int _mx, int _my, int *objidx, int *cellx, int *celly,
 			(!transforms_customenabled&&(*objidx==0||*objidx==1))||
 			(!(transforms_mask[ST_FWD_WP]||transforms_mask[ST_INV_WP])&&*objidx==3)||
 			(!(transforms_mask[ST_FWD_OLS4]||transforms_mask[ST_INV_OLS4])&&*objidx==5)||
-			(!(transforms_mask[ST_FWD_CUSTOM4]||transforms_mask[ST_INV_CUSTOM4])&&*objidx==6)
+			(!(transforms_mask[ST_FWD_CUSTOM4]||transforms_mask[ST_INV_CUSTOM4]||transforms_mask[ST_FWD_WC]||transforms_mask[ST_INV_WC])&&*objidx==6)
 		)
 			continue;
 		if(_mx>=p[0]->x1&&_mx<p[0]->x2&&_my>=p[0]->y1&&_my<p[0]->y2)
@@ -5053,7 +5058,7 @@ int io_keydn(IOKey key, char c)
 					return 1;
 				}
 			}
-			else if(transforms_mask[ST_FWD_CUSTOM4]||transforms_mask[ST_INV_CUSTOM4])
+			else if(transforms_mask[ST_FWD_CUSTOM4]||transforms_mask[ST_INV_CUSTOM4]||transforms_mask[ST_FWD_WC]||transforms_mask[ST_INV_WC])
 			{
 				int srcidx=(lossyconv_page&0xF0)|((key-KEY_1)&15);
 				if(srcidx!=lossyconv_page)
@@ -5130,7 +5135,7 @@ int io_keydn(IOKey key, char c)
 			MODVAR(custom_pred_ch_idx, custom_pred_ch_idx, 3);
 			return 1;
 		}
-		else if(transforms_mask[ST_FWD_CUSTOM4]||transforms_mask[ST_INV_CUSTOM4])
+		else if(transforms_mask[ST_FWD_CUSTOM4]||transforms_mask[ST_INV_CUSTOM4]||transforms_mask[ST_FWD_WC]||transforms_mask[ST_INV_WC])
 		{
 			int sign=((key==KEY_RBRACKET)<<1)-1;
 			if(GET_KEY_STATE(KEY_SHIFT))//change layer
@@ -6342,7 +6347,7 @@ void io_render(void)
 		}
 		set_bk_color(c0);
 	}
-	else if(transforms_mask[ST_FWD_CUSTOM4]||transforms_mask[ST_INV_CUSTOM4])
+	else if(transforms_mask[ST_FWD_CUSTOM4]||transforms_mask[ST_INV_CUSTOM4]||transforms_mask[ST_FWD_WC]||transforms_mask[ST_INV_WC])
 	{
 		int c0=set_bk_color(0x80FFFFFF);
 		float x=0, y=0, ystep=tdy*guizoom;//

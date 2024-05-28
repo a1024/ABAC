@@ -3,7 +3,7 @@ SRC = f02.c f08.c f12.c f16.c f18.c f19.c f20.c f23.c fast.c format.c lodepng.c 
 
 WARN = -Wall -Wextra -Wcast-qual -Wcast-align -Wstrict-aliasing -Wpointer-arith -Winit-self -Wshadow\
 	-Wstrict-prototypes -Wmissing-prototypes -Wredundant-decls -Wformat=2 -Wfloat-equal -Wundef\
-	-Wvla -Wdeclaration-after-statement -Wc++-compat\
+	-Wvla -Wdeclaration-after-statement -Wc++-compat -Winline\
 	-Wno-cast-function-type -Wno-redundant-decls -Wno-unused-function -Wno-implicit-fallthrough -Wno-misleading-indentation -Wno-missing-field-initializers
 
 WARN_CLANG = -Wno-cast-align
