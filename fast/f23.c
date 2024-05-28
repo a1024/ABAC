@@ -162,6 +162,45 @@ static int clamp(int vmin, int x, int vmax)
 #endif
 #if 0
 #define PREDLIST0\
+	PRED( 0, 0x00, curr[0], W[0])\
+	PRED( 1, 0x00, curr[0], N[0])
+#define PREDLIST1\
+	PRED( 2, 0x11, curr[1], W[1])\
+	PRED( 3, 0x11, curr[1], N[1])\
+	PRED( 4, 0x10, curr[1], clamp(-half, W[1]-W[0]+curr[0], half-1))\
+	PRED( 5, 0x10, curr[1], clamp(-half, N[1]-N[0]+curr[0], half-1))\
+	PRED( 6, 0x01, curr[0], clamp(-half, W[0]-W[1]+curr[1], half-1))\
+	PRED( 7, 0x01, curr[0], clamp(-half, N[0]-N[1]+curr[1], half-1))
+#define PREDLIST2\
+	PRED( 8, 0x22, curr[2], W[2])\
+	PRED( 9, 0x22, curr[2], N[2])\
+	PRED(10, 0x20, curr[2], clamp(-half, W[2]-W[0]+curr[0], half-1))\
+	PRED(11, 0x20, curr[2], clamp(-half, N[2]-N[0]+curr[0], half-1))\
+	PRED(12, 0x21, curr[2], clamp(-half, W[2]-W[1]+curr[1], half-1))\
+	PRED(13, 0x21, curr[2], clamp(-half, N[2]-N[1]+curr[1], half-1))\
+	PRED(14, 0x12, curr[1], clamp(-half, W[1]-W[2]+curr[2], half-1))\
+	PRED(15, 0x12, curr[1], clamp(-half, N[1]-N[2]+curr[2], half-1))\
+	PRED(16, 0x02, curr[0], clamp(-half, W[0]-W[2]+curr[2], half-1))\
+	PRED(17, 0x02, curr[0], clamp(-half, N[0]-N[2]+curr[2], half-1))
+#define PREDLIST3\
+	PRED(18, 0x33, curr[3], W[3])\
+	PRED(19, 0x33, curr[3], N[3])\
+	PRED(20, 0x30, curr[3], clamp(-half, W[3]-W[0]+curr[0], half-1))\
+	PRED(21, 0x30, curr[3], clamp(-half, N[3]-N[0]+curr[0], half-1))\
+	PRED(22, 0x31, curr[3], clamp(-half, W[3]-W[1]+curr[1], half-1))\
+	PRED(23, 0x31, curr[3], clamp(-half, N[3]-N[1]+curr[1], half-1))\
+	PRED(24, 0x32, curr[3], clamp(-half, W[3]-W[2]+curr[2], half-1))\
+	PRED(25, 0x32, curr[3], clamp(-half, N[3]-N[2]+curr[2], half-1))\
+	PRED(26, 0x23, curr[2], clamp(-half, W[2]-W[3]+curr[3], half-1))\
+	PRED(27, 0x23, curr[2], clamp(-half, N[2]-N[3]+curr[3], half-1))\
+	PRED(28, 0x13, curr[1], clamp(-half, W[1]-W[3]+curr[3], half-1))\
+	PRED(29, 0x13, curr[1], clamp(-half, N[1]-N[3]+curr[3], half-1))\
+	PRED(30, 0x03, curr[0], clamp(-half, W[0]-W[3]+curr[3], half-1))\
+	PRED(31, 0x03, curr[0], clamp(-half, N[0]-N[3]+curr[3], half-1))
+#endif
+
+#if 0
+#define PREDLIST0\
 	PRED( 0, 0x00, curr[0], wgrad(N[0], W[0], X[0], Y[0]))\
 	PRED( 1, 0x00, curr[0], cgrad(N[0], W[0], NW[0]))
 #define PREDLIST1\
@@ -705,18 +744,16 @@ static void block_thread(void *param)
 			for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
 			{
 				int
+#ifndef DISABLE_WGRAD
 					*NN	=rows[2]+0*8,
 					*NNE	=rows[2]+1*8,
-					*NW	=rows[1]-1*8,
-					*N	=rows[1]+0*8,
 					*NE	=rows[1]+1*8,
 					*WW	=rows[0]-2*8,
+#endif
+					*NW	=rows[1]-1*8,
+					*N	=rows[1]+0*8,
 					*W	=rows[0]-1*8,
 					*curr	=rows[0]+0*8;
-#ifdef DISABLE_WGRAD
-				int *X=NW;//
-				int *Y=NE;//
-#endif
 				for(int kc=0;kc<image->nch;++kc)
 					curr[kc]=image->data[idx+kc];
 #ifndef DISABLE_WGRAD
@@ -770,8 +807,10 @@ static void block_thread(void *param)
 				}
 				rows[0]+=8;
 				rows[1]+=8;
+#ifndef DISABLE_WGRAD
 				rows[2]+=8;
 				rows[3]+=8;
+#endif
 			}
 		}
 		for(int kc=0;kc<poolNch;++kc)
@@ -879,19 +918,17 @@ static void block_thread(void *param)
 			for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
 			{
 				int
+#ifndef DISABLE_WGRAD
 					*NN	=rows[2]+0*8,
 					*NNE	=rows[2]+1*8,
+					*NE	=rows[1]+1*8,
+					*WW	=rows[0]-2*8,
+#endif
 					*NW	=rows[1]-1*8,
 					*N	=rows[1]+0*8,
-					*NE	=rows[1]+1*8,
 					*NEEE	=rows[1]+3*8,
-					*WW	=rows[0]-2*8,
 					*W	=rows[0]-1*8,
 					*curr	=rows[0]+0*8;
-#ifdef DISABLE_WGRAD
-				int *X=NW;//
-				int *Y=NE;//
-#endif
 #ifndef DISABLE_WGRAD
 				{
 					__m128i mX=_mm_set1_epi32(1);
@@ -937,8 +974,10 @@ static void block_thread(void *param)
 				}
 				rows[0]+=8;
 				rows[1]+=8;
+#ifndef DISABLE_WGRAD
 				rows[2]+=8;
 				rows[3]+=8;
+#endif
 			}
 		}
 		gr_enc_flush(&ec);
@@ -999,19 +1038,17 @@ static void block_thread(void *param)
 			for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
 			{
 				int
+#ifndef DISABLE_WGRAD
 					*NN	=rows[2]+0*8,
 					*NNE	=rows[2]+1*8,
+					*NE	=rows[1]+1*8,
+					*WW	=rows[0]-2*8,
+#endif
 					*NW	=rows[1]-1*8,
 					*N	=rows[1]+0*8,
-					*NE	=rows[1]+1*8,
 					*NEEE	=rows[1]+3*8,
-					*WW	=rows[0]-2*8,
 					*W	=rows[0]-1*8,
 					*curr	=rows[0]+0*8;
-#ifdef DISABLE_WGRAD
-				int *X=NW;//
-				int *Y=NE;//
-#endif
 #ifndef DISABLE_WGRAD
 				{
 					__m128i mX=_mm_set1_epi32(1);
@@ -1038,14 +1075,18 @@ static void block_thread(void *param)
 					_mm_store_si128((__m128i*)Y, mY);
 				}
 #endif
+				//for(int kc=0;kc<image->nch;++kc)
+				//{
+				//	val[kc]=gr_dec_POT(&ec, FLOOR_LOG2(W[kc+4]+1));
+				//	curr[kc+4]=(2*W[kc+4]+val[kc]+NEEE[kc+4])>>2;
+				//	val[kc]=val[kc]>>1^-(val[kc]&1);
+				//}
 				for(int kc=0;kc<image->nch;++kc)
 				{
 					val[kc]=gr_dec_POT(&ec, FLOOR_LOG2(W[kc+4]+1));
 					curr[kc+4]=(2*W[kc+4]+val[kc]+NEEE[kc+4])>>2;
 					val[kc]=val[kc]>>1^-(val[kc]&1);
-				}
-				for(int kc=0;kc<image->nch;++kc)
-				{
+
 					switch(combination[kc])
 					{
 #define PRED(IDX, DFLAG, VAL, EXPR) case IDX:VAL=val[kc]+EXPR;break;
@@ -1069,8 +1110,10 @@ static void block_thread(void *param)
 #endif
 				rows[0]+=8;
 				rows[1]+=8;
+#ifndef DISABLE_WGRAD
 				rows[2]+=8;
 				rows[3]+=8;
+#endif
 			}
 		}
 	}
