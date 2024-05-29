@@ -431,6 +431,7 @@ static void batch_test(const char *path, int nthreads)
 		}
 	}
 	t_start=time_sec()-t_start;
+	printf("\n");
 	print_result(&total, "Total:", titlecolumn, 1, t_start);
 	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H%M%S");
 	printf("%s elapsed %lf sec\n", g_buf, t_start);
