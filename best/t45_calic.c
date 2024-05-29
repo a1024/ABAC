@@ -1,5 +1,4 @@
 #include"best.h"
-#include"ac.h"
 #include<stdio.h>
 #include<stdlib.h>
 #include<string.h>
@@ -7,7 +6,7 @@
 static const char file[]=__FILE__;
 
 //auxiliary functions
-double calc_bitsize(unsigned *CDF, int nlevels, int sym)
+static double calc_bitsize(unsigned *CDF, int nlevels, int sym)
 {
 	int freq=CDF?CDF[sym+1]-CDF[sym]:0x10000/nlevels;
 	double prob=(double)freq/0x10000;
@@ -19,6 +18,8 @@ double calc_bitsize(unsigned *CDF, int nlevels, int sym)
 
 //T45 CALIC
 
+#define UNIFORM_DIST
+#include"ac.h"
 #define CALIC_SSE_BITS (2+8)
 #define CALIC_REACH 2
 typedef char DeltaType;
@@ -298,7 +299,10 @@ static int calic_ct(CalicState *state, int curr, int enc)//continuous-tone mode
 			else
 				sym=e2;
 
-			ac_enc(&state->ec, sym, CDF);
+			if(CDF)
+				ac_enc(&state->ec, sym, CDF);
+			else
+				ac_enc_bypass(&state->ec, sym, 8);
 			//ac_enc(&state->ec, sym, CDF, nlevels, fmin);
 			if(state->loud)
 			{
@@ -309,7 +313,10 @@ static int calic_ct(CalicState *state, int curr, int enc)//continuous-tone mode
 		}
 		else
 		{
-			sym=ac_dec(&state->ec, CDF, nlevels);
+			if(CDF)
+				sym=ac_dec(&state->ec, CDF, nlevels);
+			else
+				sym=ac_dec_bypass(&state->ec, 8);
 			//sym=ac_dec(&state->ec, CDF, nlevels, fmin);
 			e2+=sym;
 		}
@@ -475,7 +482,7 @@ int t45_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 					state.errors[idx]=state.error;
 				}
 			}
-			if(loud)
+			if(loud&&!((ky+1)&31))
 				printf("%5.2lf%%  CR %10.6lf\r", (double)(kc*ih+ky+1)*100/(nch*ih), (double)(kc*ih+ky+1)*iw/list.nobj);
 		}
 	}

@@ -360,11 +360,13 @@ int t46_encode(Image const *src, ArrayHandle *data, int loud)
 					LOG_ERROR("Bypass nbits 0");
 				while(nbits>8)//encode bypass LSB-first
 				{
-					ans_enc(&ec, bypass&0xFF, 0, 256);
+					ans_enc_bypass(&ec, bypass&0xFF, 8);
+					//ans_enc(&ec, bypass&0xFF, 0, 256);
 					nbits-=8;
 					bypass>>=8;
 				}
-				ans_enc(&ec, bypass&((1<<nbits)-1), 0, 1<<nbits);
+				ans_enc_bypass(&ec, bypass&((1<<nbits)-1), nbits);
+				//ans_enc(&ec, bypass&((1<<nbits)-1), 0, 1<<nbits);
 			}
 			ans_enc(&ec, token, hist+(cdfsize+1)*ctx, cdfsize);
 		}
@@ -499,9 +501,11 @@ int t46_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 					int msb=sym&((1<<SLIC4_CONFIG_MSB)-1);
 					sym>>=SLIC4_CONFIG_MSB;
 					int nbits=sym+SLIC4_CONFIG_EXP-(SLIC4_CONFIG_MSB+SLIC4_CONFIG_LSB);
-					int bypass=nbits&7?ans_dec(&ec, 0, 1<<(nbits&7)):0;
+					int bypass=nbits&7?ans_dec_bypass(&ec, nbits&7):0;
+					//int bypass=nbits&7?ans_dec(&ec, 0, 1<<(nbits&7)):0;
 					for(int k=0, nb=nbits>>3;k<nb;++k)
-						bypass=bypass<<8|ans_dec(&ec, 0, 256);
+						bypass=bypass<<8|ans_dec_bypass(&ec, 8);
+						//bypass=bypass<<8|ans_dec(&ec, 0, 256);
 					sym=1;
 					sym<<=SLIC4_CONFIG_MSB;
 					sym|=msb;
