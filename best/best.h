@@ -81,6 +81,11 @@ int	t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #define t54_decode(CBUF, CSIZE, DST, LOUD)	t54_codec(0, 0, CBUF, CSIZE, DST, LOUD)
 
 
+//	F02 lossless multithreaded block-based
+int	f02_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
+#define f02_encode(SRC, DATA, LOUD)		f02_codec(SRC, DATA, 0, 0, 0, LOUD)
+#define f02_decode(CBUF, CSIZE, DST, LOUD)	f02_codec(0, 0, CBUF, CSIZE, DST, LOUD)
+
 //	F23 lossless multithreaded block-based
 int	f23_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
 #define f23_encode(SRC, DATA, LOUD)		f23_codec(SRC, DATA, 0, 0, 0, LOUD)

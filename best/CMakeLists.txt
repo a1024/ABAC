@@ -2,6 +2,7 @@
 
 add_executable(best
 	best.c
+	f02_bypass.c
 	f23.c
 	format.c
 	lodepng.c

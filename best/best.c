@@ -7,14 +7,14 @@ static const char file[]=__FILE__;
 
 
 #define CODECLIST\
-	CODEC( 1000, MEMCPY,	"MEMCPY")\
-	CODEC(   39, T39,	"T39: 8-bit only, very efficient/slow, ABAC")\
-	CODEC(   42, T42,	"T42: 8-bit only, most efficient/slow, ABAC")\
-	CODEC(   45, T45,	"T45: 8-bit only, kind of efficient/fast, CALIC clone, supports color, fast, AC")\
-	CODEC(   46, T46,	"T46: [8~16] bit, moderate efficiency/speed, ANS")\
-	CODEC(   47, T47,	"T47: [8~16] bit, moderate efficiency/speed, AC")\
-	CODEC(   54, T54,	"T54: [8~16] bit, fast/inefficient, AC")\
-	CODEC( 1023, F23,	"F23: [8~16] bit, extremely fast/inefficient, multithreaded, GR")
+	CODEC(   39, T39, "T39: 8-bit only, very efficient/slow, ABAC")\
+	CODEC(   42, T42, "T42: 8-bit only, most efficient/slow, ABAC")\
+	CODEC(   45, T45, "T45: 8-bit only, kind of efficient/fast, CALIC clone, supports color, fast, AC")\
+	CODEC(   46, T46, "T46: [8~16] bit, moderate efficiency/speed, ANS")\
+	CODEC(   47, T47, "T47: [8~16] bit, moderate efficiency/speed, AC")\
+	CODEC(   54, T54, "T54: [8~16] bit, fast/inefficient, AC")\
+	CODEC( 1000, F02, "F02: [8~16] bypass")\
+	CODEC( 1023, F23, "F23: [8~16] bit, extremely fast/inefficient, multithreaded, GR")
 typedef enum CodecChoiceEnum
 {
 #define CODEC(ID, NAME, DESC) CODEC_##NAME,
@@ -73,15 +73,13 @@ static int encode(const Image *src, const unsigned char *src8, int iw, int ih, A
 {
 	switch(codecid)
 	{
-	case CODEC_MEMCPY:
-		LOG_ERROR("TODO");
-		return 1;
 	case CODEC_T39:return t39_encode(src8, iw, ih, cdata, loud);
 	case CODEC_T42:return t42_encode(src8, iw, ih, cdata, loud);
 	case CODEC_T45:return t45_encode(src8, iw, ih, cdata, loud);
 	case CODEC_T46:return t46_encode(src, cdata, loud);
 	case CODEC_T47:return t47_encode(src, cdata, loud);
 	case CODEC_T54:return t54_encode(src, cdata, loud);
+	case CODEC_F02:return f02_encode(src, cdata, loud);
 	case CODEC_F23:return f23_encode(src, cdata, loud);
 	}
 	LOG_ERROR("Unsupported codec ID");
@@ -91,15 +89,13 @@ static int decode(const unsigned char *cdata, size_t clen, int iw, int ih, unsig
 {
 	switch(codecid)
 	{
-	case CODEC_MEMCPY:
-		LOG_ERROR("TODO");
-		return 1;
 	case CODEC_T39:return t39_decode(cdata, clen, iw, ih, dst8, loud);
 	case CODEC_T42:return t42_decode(cdata, clen, iw, ih, dst8, loud);
 	case CODEC_T45:return t45_decode(cdata, clen, iw, ih, dst8, loud);
 	case CODEC_T46:return t46_decode(cdata, clen, dst, loud);
 	case CODEC_T47:return t47_decode(cdata, clen, dst, loud);
 	case CODEC_T54:return t54_decode(cdata, clen, dst, loud);
+	case CODEC_F02:return f02_decode(cdata, clen, dst, loud);
 	case CODEC_F23:return f23_decode(cdata, clen, dst, loud);
 	}
 	LOG_ERROR("Unsupported codec ID");
