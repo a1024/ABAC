@@ -4,19 +4,6 @@
 #include<string.h>
 #include<math.h>
 #include<time.h>
-#ifdef _MSC_VER
-#include<intrin.h>
-#include<Windows.h>
-#include<process.h>
-#define THREAD_CALL __stdcall
-typedef unsigned THREAD_RET;
-#else
-#include<x86intrin.h>
-#include<pthread.h>
-#define THREAD_CALL
-typedef void *THREAD_RET;
-#endif
-//#include"huffman.h"
 static const char file[]=__FILE__;
 
 
@@ -37,7 +24,7 @@ typedef struct ThreadArgsStruct
 	int error, unused;//whether the image was recovered successfully
 	ptrdiff_t idx;
 } ThreadArgs;
-static THREAD_RET THREAD_CALL sample_thread(void *param)
+static void sample_thread(void *param)
 {
 	ThreadArgs *args=(ThreadArgs*)param;
 #ifdef BENCH_QOI
@@ -65,7 +52,6 @@ static THREAD_RET THREAD_CALL sample_thread(void *param)
 #endif
 	image_clear(&args->src);
 	image_clear(&args->dst);
-	return 0;
 }
 typedef struct ResultStruct
 {
