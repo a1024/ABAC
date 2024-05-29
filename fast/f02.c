@@ -242,14 +242,16 @@ int f02_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	}
 	if(loud)
 	{
+		ptrdiff_t usize, csize;
+
 		t0=time_sec()-t0;
-		ptrdiff_t usize=image_getBMPsize(image);
+		usize=image_getBMPsize(image);
 		if(fwd)
 		{
 #ifdef EC_USE_ARRAY
-			ptrdiff_t csize=ec.srcptr-ec.srcstart;
+			csize=ec.srcptr-ec.srcstart;
 #else
-			ptrdiff_t csize=list.nobj;
+			csize=list.nobj;
 #endif
 			printf("csize %12td  %10.6lf%%  CR %8.6lf\n", csize, 100.*csize/usize, (double)usize/csize);
 #if defined USE_ANS && defined ANS_DEC_FWD

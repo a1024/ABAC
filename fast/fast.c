@@ -28,14 +28,6 @@ static const char file[]=__FILE__;
 #define DECODE     f23_decode
 
 
-static const char *g_extensions[]=
-{
-	"png",
-	"jpg", "jpeg",
-	"ppm", "pgm",
-	"bmp",
-	"tif", "tiff",
-};
 typedef struct ThreadArgsStruct
 {
 	ArrayHandle title;
@@ -96,12 +88,18 @@ static void print_result(Result *res, const char *title, int width, int print_ti
 		CR2=(double)res->usize/res->csize2;
 	g_total_usize+=res->usize;
 	g_total_csize+=res->csize2;
-	printf("%-*s  %10zd  format %10zd %10.6lf%% D %12lf sec  test %10zd %10.6lf%% E %12lf D %12lf sec %s  all %10.6lf%%",
+	printf("%-*s  %10zd  format %10zd %10.6lf%% D %12lf sec  test %10zd %10.6lf%% E %12lf D %12lf sec %s",
 		width, title, res->usize,
 		res->csize1, 100./CR1, res->fdec,
-		res->csize2, 100./CR2, res->enc, res->dec, res->error?"ERROR":"SUCCESS",
-		100.*g_total_csize/g_total_usize
+		res->csize2, 100./CR2, res->enc, res->dec,
+		res->error?"ERROR":"OK"
 	);
+	//printf("%-*s  %10zd  format %10zd %10.6lf%% D %12lf sec  test %10zd %10.6lf%% E %12lf D %12lf sec %s  all %10.6lf%%",
+	//	width, title, res->usize,
+	//	res->csize1, 100./CR1, res->fdec,
+	//	res->csize2, 100./CR2, res->enc, res->dec, res->error?"ERROR":"OK",
+	//	100.*g_total_csize/g_total_usize
+	//);
 	if(print_timestamp)
 	{
 		printf(" ");
@@ -235,6 +233,15 @@ static void process_file(ProcessCtx *ctx, ArrayHandle title, int maxlen, Image *
 }
 static void batch_test_mt(const char *path, int nthreads)
 {
+	static const char *ext[]=
+	{
+		"png",
+		"jpg", "jpeg",
+		"ppm", "pgm",
+		"bmp",
+		"tif", "tiff",
+	};
+
 	g_total_usize=0;
 	g_total_csize=0;
 	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H%M%S");
@@ -242,7 +249,7 @@ static void batch_test_mt(const char *path, int nthreads)
 	printf("Multithreaded Batch Test %s\n", CODECNAME);
 	double t_start=time_sec();
 	check_time=start_time=t_start;
-	ArrayHandle filenames=get_filenames(path, g_extensions, _countof(g_extensions), 1);
+	ArrayHandle filenames=get_filenames(path, ext, _countof(ext), 1);
 	if(!filenames)
 	{
 		printf("No supported images in \"%s\"\n", path);
@@ -253,10 +260,10 @@ static void batch_test_mt(const char *path, int nthreads)
 	int width=6;//"Total:"
 	for(int k=0;k<(int)filenames->count;++k)
 	{
+		ArrayHandle title;
 		ArrayHandle *fn=(ArrayHandle*)array_at(&filenames, k);
 		int start=0, end=0;
 		get_filetitle((char*)fn[0]->data, (int)fn[0]->count, &start, &end);
-		ArrayHandle title;
 		STR_COPY(title, (char*)fn[0]->data+start, end-start);
 		if(width<(int)title->count)
 			width=(int)title->count;
@@ -308,6 +315,7 @@ static void batch_test_mt(const char *path, int nthreads)
 	printf("Finish %s\n", g_buf);
 
 	array_free(&filenames);
+	array_free(&titles);
 }
 
 int main(int argc, char **argv)
