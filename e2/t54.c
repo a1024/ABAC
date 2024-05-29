@@ -80,7 +80,7 @@ static const Image *guide=0;
 #ifdef SELECT_TRANSFORMS
 typedef enum PredTypeEnum
 {
-	//PRED_ZERO,
+	PRED_ZERO,
 	PRED_W,
 	//PRED_W_NW,
 	//PRED_NW,
@@ -94,7 +94,7 @@ typedef enum PredTypeEnum
 	//PRED_Wbias,
 	//PRED_AV4,
 	//PRED_N_W,
-	//PRED_N_W_adj,
+	PRED_N_W_adj,
 	PRED_CGRAD,
 
 	PRED_COUNT,
@@ -185,12 +185,11 @@ static int predict(int N, int W, int NW, int NE, PredType kp)
 	//case PRED_N_W:
 	//	pred=(N+W)>>1;
 	//	break;
-	//case PRED_N_W_adj:
-	//	pred=(4*(N+W)+NE-NW)>>3;
-	//	break;
+	case PRED_N_W_adj:
+		pred=(4*(N+W)+NE-NW)>>3;
+		break;
 	case PRED_CGRAD:
-		pred=N+W-NW;
-		pred=MEDIAN3(N, W, pred);
+		MEDIAN3_32(pred, N, W, N+W-NW);
 		break;
 	default:
 		break;
@@ -343,7 +342,7 @@ int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			};
 			const char *prednames[]=
 			{
-				//"zero",
+				"zero",
 				"W",
 				//"(W+NW)/2",
 				//"NW",
@@ -357,7 +356,7 @@ int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				//"(N+3*W)/4",
 				//"(N+W+NW+NE)/4",
 				//"(N+W)/2",
-				//"(4*(N+W)+NE-NW)/8",
+				"(4*(N+W)+NE-NW)/8",
 				"cgrad",
 			};
 			for(int krct=0;krct<=(3&-(nch>=3));++krct)
