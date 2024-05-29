@@ -10,11 +10,13 @@ Each folder contains a different project.
 ### `best`
 The export folder of achievements. Sometimes not up to date.
 Reference implementations of the best open-source lossless algorithms that I implemented/encountered.
+To compile, either make an MSVC 2022 CMake project, or to use GCC:
 
-`gcc -O3 -mavx2  best.c format.c lodepng.c t39.c t42.c t45_calic.c t46_slic4.c t47_slic5.c transforms.c util.c  -o best`
+`make`
 
 ### `e2`
 Contains most of my latest experiments on lossless image compression, and other older/obsolete algorithms.
+To compile, either make an MSVC 2022 CMake project, or to use GCC:
 
 `gcc -O3 -mavx2 -mbmi  e2.c format.c lodepng.c t51.c t54.c t55.c tests4.c tests5.c tests6.c transforms.c util.c  -o e2`
 
@@ -22,16 +24,19 @@ Contains most of my latest experiments on lossless image compression, and other 
 A GUI tool that evaluates reversible decorrelating transforms.
 Supports high bit depth images.
 Currently works only on Windows.
+To compile, either make an MSVC 2022 CMake project, or to use GCC:
 
-`gcc -O3 -mavx2  console.c custom4.c ebench.c graphics.c image.c lodepng.c ols4.c ols5.c transforms.c util.c window.c  -o ebench -lopengl32 -lgdi32 -lole32 -lcomdlg32 -luuid`
+`make`
 
 ### `fast`
 Experiments prioritizing speed.
+To compile, either make an MSVC 2022 CMake project, or to use GCC:
 
-`gcc -O3 -mavx2 -mbmi -mlzcnt  f02.c f08.c f16.c f18.c f19.c f20.c f22.c fast.c format.c lodepng.c qoi.c transforms.c util.c load_dng.cpp  -o fast`
+`make`
 
 ### `imgcvt`
 Batch image converter.
+To compile, either make an MSVC 2022 CMake project, or to use GCC:
 
 `gcc -O3 imgcvt.c util.c -o imgcvt`
 
