@@ -3,9 +3,53 @@
 #include<stdlib.h>
 #include<string.h>
 #include<ctype.h>
+
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wall"
+#pragma GCC diagnostic ignored "-Wextra"
+#pragma GCC diagnostic ignored "-Wcast-qual"
+#pragma GCC diagnostic ignored "-Wcast-align"
+#pragma GCC diagnostic ignored "-Wstrict-aliasing"
+#pragma GCC diagnostic ignored "-Wpointer-arith"
+#pragma GCC diagnostic ignored "-Winit-self"
+#pragma GCC diagnostic ignored "-Wshadow"
+#pragma GCC diagnostic ignored "-Wredundant-decls"
+#pragma GCC diagnostic ignored "-Wformat=2"
+#pragma GCC diagnostic ignored "-Wfloat-equal"
+#pragma GCC diagnostic ignored "-Wundef"
+#pragma GCC diagnostic ignored "-Wvla"
+#pragma GCC diagnostic ignored "-Wvla"
+#pragma GCC diagnostic ignored "-Winline"
+#pragma GCC diagnostic ignored "-Wstringop-overflow"
+#ifdef __cplusplus
+//C++ warnings
+#pragma GCC diagnostic ignored "-Wshift-negative-value"
+#pragma GCC diagnostic ignored "-Wcalloc-transposed-args"
+#pragma GCC diagnostic ignored "-Wignored-qualifiers"
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#else
+//C warnings:
+#pragma GCC diagnostic ignored "-Wstrict-prototypes"
+#pragma GCC diagnostic ignored "-Wmissing-prototypes"
+#pragma GCC diagnostic ignored "-Wdeclaration-after-statement"
+#pragma GCC diagnostic ignored "-Wc++-compat"
+#endif
+#elif defined _MSC_VER
+#pragma warning(push)
+#pragma warning(disable:4334)
+#pragma warning(disable:4267)
+#endif
 #include"lodepng.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include"stb_image.h"
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#define _stricmp strcasecmp
+#elif defined _MSC_VER
+#pragma warning(pop)
+#endif
+
 static const char file[]=__FILE__;
 
 int calc_maxdepth(Image const *image, int *inflation)
@@ -192,12 +236,24 @@ int image_save_native(const char *fn, Image const *image, int override_alpha)
 	free(dst);
 	return !error;
 }
-double image_getBMPsize(Image const *image)
+int image_save_buf8(const char *fn, const unsigned char *buf, int iw, int ih, int nch)
+{
+	LodePNGColorType type=LCT_RGB;
+	switch(nch)
+	{
+	case 1:type=LCT_GREY;		break;
+	case 2:type=LCT_GREY_ALPHA;	break;
+	case 3:type=LCT_RGB;		break;
+	case 4:type=LCT_RGBA;		break;
+	}
+	return lodepng_encode_file(fn, buf, iw, ih, type, 8);
+}
+ptrdiff_t image_getBMPsize(Image const *image)
 {
 	int totalbits=0;
 	for(int k=0;k<image->nch;++k)
 		totalbits+=image->src_depth[k];
-	return (double)image->iw*image->ih*totalbits/8;
+	return ((ptrdiff_t)image->iw*image->ih*totalbits+7)>>3;
 }
 size_t image_getbufsize(Image const *image)
 {
@@ -207,14 +263,18 @@ size_t image_getbufsize(Image const *image)
 }
 void image_copy_nodata(Image **dst, Image const *src)
 {
-	size_t srcsize=image_getbufsize(src);
+	size_t srcsize;
+	void *p;
+	
+	srcsize=image_getbufsize(src);
 	if(!srcsize)
 		return;
-	void *p=realloc(*dst, srcsize);
+	p=realloc(*dst, srcsize);
 	if(!p)
 		return;
 	*dst=(Image*)p;
 	memcpy(*dst, src, sizeof(Image));
+	memset(dst[0]->data, 0, srcsize-sizeof(Image));//clear image
 }
 void image_copy(Image **dst, Image const *src)
 {

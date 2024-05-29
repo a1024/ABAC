@@ -174,7 +174,7 @@ void t39_ctx_reset(T39Ctx *ctx, int hardreset)
 		ctx->nnodes=0;
 }
 #endif
-void t39_ctx_get_context(T39Ctx *ctx, const char *buf, const char *ebuf, int iw, int ih, int kc, int kx, int ky)
+static void t39_ctx_get_context(T39Ctx *ctx, const char *buf, const char *ebuf, int iw, int ih, int kc, int kx, int ky)
 {
 #define LOAD(BUF, C, X, Y) (unsigned)(kc-C)<3&&(unsigned)(kx-(X))<(unsigned)iw&&(unsigned)(ky-Y)<(unsigned)ih?BUF[(iw*(ky-Y)+kx-(X))<<2|(kc-C)]:0
 	int count_W_N_m1=(kx-1>=0)+(ky-1>=0)+(kc-1>=0);
@@ -366,7 +366,7 @@ void t39_ctx_get_context(T39Ctx *ctx, const char *buf, const char *ebuf, int iw,
 		ctx->context[k]=CLAMP(0, ctx->context[k], 255);
 	}
 }
-int t39_ctx_map_context(int *context, int kp, int workidx)//replacement for context[kp]
+static int t39_ctx_map_context(int *context, int kp, int workidx)//replacement for context[kp]
 {
 	return context[kp];
 
@@ -374,7 +374,7 @@ int t39_ctx_map_context(int *context, int kp, int workidx)//replacement for cont
 	//static const int sub[]={ 6,  6,  6,  6,  2,  0,  0, 10,     10,  6,  6,  2,  2, 13,  6, 10,      2,  1,  2, 13, 13, 12,  0, 12};
 	//return context[kp==rep[workidx]?sub[workidx]:kp];
 }
-void t39_ctx_estimate_p0(T39Ctx *ctx, int kc, int kb)
+static void t39_ctx_estimate_p0(T39Ctx *ctx, int kc, int kb)
 {
 	int workidx=kc<<3|kb;
 	int *wk=ctx->weights[workidx];
@@ -417,7 +417,7 @@ void t39_ctx_estimate_p0(T39Ctx *ctx, int kc, int kb)
 
 	ctx->p0=CLAMP(1, ctx->p0, 0xFFFF);
 }
-void t39_ctx_update(T39Ctx *ctx, int kc, int kb, int bit)
+static void t39_ctx_update(T39Ctx *ctx, int kc, int kb, int bit)
 {
 	int workidx=kc<<3|kb;
 

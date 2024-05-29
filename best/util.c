@@ -1,5 +1,5 @@
 //util.c - Utilities implementation
-//Copyright (C) 2023  Ayman Wagih Mohsen
+//Copyright (C) 2023  Ayman Wagih Mohsen, unless source link provided
 //
 //This program is free software: you can redistribute it and/or modify
 //it under the terms of the GNU General Public License as published by
@@ -19,20 +19,38 @@
 #include<stdlib.h>
 #include<stdarg.h>
 #include<string.h>
-#include<sys/stat.h>
+#include<ctype.h>
 #include<math.h>
+#include<sys/stat.h>
 #include<errno.h>
 #include<time.h>
+#ifdef _MSC_VER
+#include<intrin.h>
+#else
+#include<x86intrin.h>
+#include<unistd.h>
+#endif
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include<Windows.h>//QueryPerformance...
+#include<processthreadsapi.h>
 #include<conio.h>
 #else
+#include<dirent.h>
 #define sprintf_s	snprintf
 #define vsprintf_s	vsnprintf
 #ifndef _HUGE
 #define _HUGE	HUGE_VAL
 #endif
+#endif
+#if defined _MSC_VER && defined _WIN32
+#include<process.h>
+#define THREAD_CALL __stdcall
+typedef unsigned THREAD_RET;
+#else
+#include<pthread.h>
+#define THREAD_CALL
+typedef void *THREAD_RET;
 #endif
 static const char file[]=__FILE__;
 
@@ -79,6 +97,11 @@ void memreverse(void *p, size_t count, size_t esize)
 	size_t totalsize=count*esize;
 	unsigned char *s1=(unsigned char*)p, *s2=s1+totalsize-esize;
 	void *temp=malloc(esize);
+	if(!temp)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
 	while(s1<s2)
 	{
 		memswap(s1, s2, esize, temp);
@@ -86,7 +109,40 @@ void memreverse(void *p, size_t count, size_t esize)
 	}
 	free(temp);
 }
-void memrotate(void *p, size_t byteoffset, size_t bytesize, void *temp)
+void reverse16(void *start, void *end)
+{
+	__m256i reverse=_mm256_set_epi8(
+		 1,  0,  3,  2,  5,  4,  7,  6,  9,  8, 11, 10, 13, 12, 15, 14,
+		 1,  0,  3,  2,  5,  4,  7,  6,  9,  8, 11, 10, 13, 12, 15, 14
+		// 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15,
+		// 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15
+	);
+	unsigned short
+		*p1=(unsigned short*)start,
+		*p2=(unsigned short*)end;
+	while(p1<p2-(sizeof(__m256i)/sizeof(short)-1))
+	{
+		p2-=sizeof(__m256i)/sizeof(short);
+		__m256i v1=_mm256_loadu_si256((__m256i*)p1);
+		__m256i v2=_mm256_loadu_si256((__m256i*)p2);
+		v1=_mm256_shuffle_epi8(v1, reverse);
+		v2=_mm256_shuffle_epi8(v2, reverse);
+		v1=_mm256_permute2x128_si256(v1, v1, 1);
+		v2=_mm256_permute2x128_si256(v2, v2, 1);
+		_mm256_store_si256((__m256i*)p1, v2);
+		_mm256_store_si256((__m256i*)p2, v1);
+		p1+=sizeof(__m256i)/sizeof(short);
+	}
+	while(p1<p2-1)
+	{
+		--p2;
+		unsigned short temp=*p1;
+		*p1=*p2;
+		*p2=temp;
+		++p1;
+	}
+}
+void memrotate(void *p, size_t byteoffset, size_t bytesize, void *temp)//temp buffer is min(byteoffset, bytesize-byteoffset)
 {
 	unsigned char *buf=(unsigned char*)p;
 
@@ -106,17 +162,30 @@ void memrotate(void *p, size_t byteoffset, size_t bytesize, void *temp)
 int binary_search(const void *base, size_t count, size_t esize, int (*threeway)(const void*, const void*), const void *val, size_t *idx)
 {
 	const unsigned char *buf=(const unsigned char*)base;
-	ptrdiff_t L=0, R=(ptrdiff_t)count-1, mid;
-	int ret;
-
-	while(L<=R)
+#if 1
+	ptrdiff_t low=0, range=count, mid;
+	while(range)//binary search		log2(nlevels) memory accesses per symbol
 	{
-		mid=(L+R)>>1;
+		ptrdiff_t floorhalf=range>>1;
+		mid=low+floorhalf;
+		low+=(range-floorhalf)&-(ptrdiff_t)(threeway(buf+mid*esize, val)<0);
+		range=floorhalf;
+	}
+	if(idx)
+		*idx=low;
+	return !threeway(buf+low*esize, val);
+#endif
+#if 0
+	ptrdiff_t left=0, right=(ptrdiff_t)count-1, mid;
+	int ret;
+	while(left<=right)
+	{
+		mid=(left+right)>>1;
 		ret=threeway(buf+mid*esize, val);
 		if(ret<0)
-			L=mid+1;
+			left=mid+1;
 		else if(ret>0)
-			R=mid-1;
+			right=mid-1;
 		else
 		{
 			if(idx)
@@ -125,8 +194,9 @@ int binary_search(const void *base, size_t count, size_t esize, int (*threeway)(
 		}
 	}
 	if(idx)
-		*idx=L+(L<(ptrdiff_t)count&&threeway(buf+L*esize, val)<0);
+		*idx=left+(left<(ptrdiff_t)count&&threeway(buf+left*esize, val)<0);
 	return 0;
+#endif
 }
 void isort(void *base, size_t count, size_t esize, int (*threeway)(const void*, const void*))
 {
@@ -138,6 +208,11 @@ void isort(void *base, size_t count, size_t esize, int (*threeway)(const void*, 
 		return;
 
 	temp=malloc((count>>1)*esize);
+	if(!temp)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
 	for(k=1;k<count;++k)
 	{
 		size_t idx=0;
@@ -195,16 +270,58 @@ int acme_getopt(int argc, char **argv, int *start, const char **keywords, int kw
 	return OPT_NOMATCH;
 }
 
-int floor_log2(unsigned long long n)
+int hammingweight16(unsigned short x)
 {
 #ifdef _MSC_VER
-	unsigned long logn=0;
-	int success=_BitScanReverse64(&logn, n);
-	logn=success?logn:-1;
-	return logn;
+	return __popcnt16(x);
+#else
+	return __builtin_popcount(x);
+#endif
+}
+int hammingweight32(unsigned x)
+{
+#ifdef _MSC_VER
+	return __popcnt(x);
+#else
+	return __builtin_popcount(x);
+#endif
+}
+int hammingweight64(unsigned long long x)
+{
+#ifdef _MSC_VER
+	return (int)__popcnt64(x);
+#else
+	return __builtin_popcountll(x);
+#endif
+}
+#if 0
+int floor_log2_p1(unsigned long long n)
+{
+#ifdef _MSC_VER
+	return (sizeof(n)<<3)-(int)__lzcnt64(n);
+
+	//unsigned long logn=0;
+	//int success=_BitScanReverse64(&logn, n);
+	//logn=success?logn+1:0;
+	//return logn;
 #elif defined __GNUC__
-	int logn=63-__builtin_clzll(n);
+	int logn=64-__builtin_clzll(n);
 	return logn;
+#else
+	int	logn=n!=0;
+	int	sh=(n>=1ULL<<32)<<5;	logn+=sh, n>>=sh;
+		sh=(n>=1<<16)<<4;	logn+=sh, n>>=sh;
+		sh=(n>=1<< 8)<<3;	logn+=sh, n>>=sh;
+		sh=(n>=1<< 4)<<2;	logn+=sh, n>>=sh;
+		sh=(n>=1<< 2)<<1;	logn+=sh, n>>=sh;
+		sh= n>=1<< 1;		logn+=sh;
+	return logn;
+#endif
+}
+int floor_log2(unsigned long long n)
+{
+#if defined _MSC_VER || defined __GNUC__
+	return (sizeof(n)<<3)-1-(int)_lzcnt_u64(n);//since Haswell
 #else
 	int	logn=-!n;
 	int	sh=(n>=1ULL<<32)<<5;	logn+=sh, n>>=sh;
@@ -218,15 +335,11 @@ int floor_log2(unsigned long long n)
 }
 int floor_log2_32(unsigned n)
 {
-#ifdef _MSC_VER
-	unsigned long logn=0;
-	int success=_BitScanReverse(&logn, n);
-	logn=success?logn:-1;
-	return logn;
-#elif defined __GNUC__
-	int logn=31-__builtin_clz(n);
-	return logn;
+#if defined _MSC_VER || defined __GNUC__
+	return (sizeof(n)<<3)-1-(int)_lzcnt_u32(n);//SSE4
 #else
+	//binary search
+#if 0
 	int	logn=-!n;
 	int	sh=(n>=1<<16)<<4;	logn+=sh, n>>=sh;
 		sh=(n>=1<< 8)<<3;	logn+=sh, n>>=sh;
@@ -235,13 +348,130 @@ int floor_log2_32(unsigned n)
 		sh= n>=1<< 1;		logn+=sh;
 	return logn;
 #endif
+
+	//https://github.com/Cyan4973/FiniteStateEntropy/blob/d41d8be8e7955787ce486b90708d7b8de53137bd/lib/bitstream.h#L187
+#if 1
+	static const int table[]=
+	{
+		 0,  9,  1, 10, 13, 21,  2, 29,
+		11, 14, 16, 18, 22, 25,  3, 30,
+		 8, 12, 20, 28, 15, 17, 24,  7,
+		19, 27, 23,  6, 26,  5,  4, 31,
+	};
+	n|=n>>1;
+	n|=n>>2;
+	n|=n>>4;
+	n|=n>>8;
+	n|=n>>16;
+	n*=0x07C4ACDD;//0b0000_0111_1100_0100_1010_1100_1101_1101
+	n>>=27;
+	n=table[n];
+	return n;
+#endif
+
+	//https://en.wikipedia.org/wiki/De_Bruijn_sequence?useskin=monobook
+	//memory-bound, doesn't return -1 for zero
+#if 0
+	static const int table[]=
+	{
+		 0,  1, 16,  2, 29, 17,  3, 22, 30, 20, 18, 11, 13,  4,  7, 23,
+		31, 15, 28, 21, 19, 10, 12,  6, 14, 27,  9,  5, 26,  8, 25, 24,
+	};
+	n|=n>>1;
+	n|=n>>2;
+	n|=n>>4;
+	n|=n>>8;
+	n|=n>>16;
+	n-=n>>1;
+	n*=0x06EB14F9;//0b0000_0110_1110_1011_0001_0100_1111_1001
+	n>>=27;
+	n=table[n];
+	return n;
+#endif
+#endif
 }
+#endif
 int ceil_log2(unsigned long long n)
 {
-	int l2=floor_log2(n);
-	l2+=(1ULL<<l2)<n;
-	return l2;
+	int lgn=FLOOR_LOG2(n);
+	lgn+=(1ULL<<lgn)<n;
+	return lgn;
 }
+int ceil_log2_32(unsigned n)
+{
+	int lgn=FLOOR_LOG2(n);
+	lgn+=(1U<<lgn)<n;
+	return lgn;
+}
+#if 0
+int get_lsb_index(unsigned long long n)
+{
+#ifdef _MSC_VER
+	return (int)_tzcnt_u64(n);//BMI1 (2013)
+
+	//unsigned long idx;
+	//_BitScanForward64(&idx, n);
+	//return idx;
+#elif defined __GNUC__
+	return __builtin_ctzll(n);
+	//return __builtin_ffsll(n)-1;
+#else
+	int cond, lsb;
+	if(!n)
+		return sizeof(n)<<3;
+	lsb=0;
+	cond=(n>>32<<32==n)<<5, lsb+=cond, n>>=cond;
+	cond=(n>>16<<16==n)<<4, lsb+=cond, n>>=cond;
+	cond=(n>> 8<< 8==n)<<3, lsb+=cond, n>>=cond;
+	cond=(n>> 4<< 4==n)<<2, lsb+=cond, n>>=cond;
+	cond=(n>> 2<< 2==n)<<1, lsb+=cond, n>>=cond;
+	cond= n>> 1<< 1==n    , lsb+=cond;
+	return lsb;
+#endif
+}
+int get_lsb_index32(unsigned n)
+{
+#ifdef _MSC_VER
+	return (int)_tzcnt_u32(n);
+
+	//unsigned long idx;
+	//_BitScanForward(&idx, n);
+	//return idx;
+#elif defined __GNUC__
+	return __builtin_ctz(n);
+	//return __builtin_ffs(n)-1;
+#else
+	int cond, lsb;
+	if(!n)
+		return sizeof(n)<<3;
+	lsb=0;
+	cond=(n>>16<<16==n)<<4, lsb+=cond, n>>=cond;
+	cond=(n>> 8<< 8==n)<<3, lsb+=cond, n>>=cond;
+	cond=(n>> 4<< 4==n)<<2, lsb+=cond, n>>=cond;
+	cond=(n>> 2<< 2==n)<<1, lsb+=cond, n>>=cond;
+	cond= n>> 1<< 1==n    , lsb+=cond;
+	return lsb;
+#endif
+}
+int get_lsb_index16(unsigned short n)
+{
+#ifdef _MSC_VER
+	return (int)_tzcnt_u16(n);
+#elif defined __GNUC__
+	return __builtin_ctzs(n);
+#else
+	int cond, lsb;
+	if(!n)
+		return sizeof(n)<<3;
+	lsb=0;
+	cond=(n>> 8<< 8==n)<<3, lsb+=cond, n>>=cond;
+	cond=(n>> 4<< 4==n)<<2, lsb+=cond, n>>=cond;
+	cond=(n>> 2<< 2==n)<<1, lsb+=cond, n>>=cond;
+	cond= n>> 1<< 1==n    , lsb+=cond;
+	return lsb;
+#endif
+}
+#endif
 int floor_log10(double x)
 {
 	static const double pmask[]=//positive powers
@@ -297,7 +527,389 @@ int floor_log10(double x)
 	sh= x<nmask[1];      logn-=sh;
 	return logn;
 }
-double	power(double x, int y)
+unsigned floor_sqrt(unsigned long long x)
+{
+	unsigned long long low=0, range=x;
+	while(range)
+	{
+		unsigned long long floorhalf=range>>1;
+		unsigned long long level=low+floorhalf+1;
+		if(level*level<=x)
+			low+=range-floorhalf;
+		range=floorhalf;
+	}
+	return (unsigned)low;
+#if 0
+	if(x<2)
+		return (unsigned)x;
+	int lg_sqrtx_p1=(floor_log2(x)>>1)+1;
+	unsigned long long
+		U=1ULL<<lg_sqrtx_p1,
+		L=U>>1,
+		temp=x>>(lg_sqrtx_p1-1);
+	--U;
+	U=MINVAR(U, temp);
+	temp>>=1;
+	L=MAXVAR(L, temp);
+	//unsigned long long
+	//	L=(1ULL<<lg_sqrtx_p1)>>1,
+	//	U=(1ULL<<lg_sqrtx_p1)-1,
+	//	L2=x>>lg_sqrtx_p1,	//where is the proof that these are also bounds?
+	//	U2=x>>(lg_sqrtx_p1-1);
+	//L=MAXVAR(L, L2);
+	//U=MINVAR(U, U2);
+	//int nmuls=0;//
+	while(L<=U)//binary search
+	{
+		unsigned long long level=(L+U)>>1, sq=level*level;
+		//++nmuls;//
+		if(x>sq)
+			L=level+1;
+		else if(x<sq)
+			U=level-1;
+		else
+		{
+			U=level;
+			break;
+		}
+	}
+	//printf("%d muls\n", nmuls);//
+	return (unsigned)U;//U <= L, we want floor, so return U
+#endif
+
+	//https://stackoverflow.com/questions/1100090/looking-for-an-efficient-integer-square-root-algorithm-for-arm-thumb2
+#if 0
+	unsigned res=0, add=0x80000000;
+	int i;
+	for(i=0;i<32;++i)
+	{
+		unsigned temp=res|add;
+		if(x>=(unsigned long long)temp*temp)
+			res=temp;
+		add>>=1;
+	}
+	return res;
+#endif
+}
+#define FRAC_BITS 24
+unsigned exp2_fix24_neg(unsigned x)
+{
+	//return (unsigned)(exp2(-(x/16777216.))*0x1000000);//53% slower
+	/*
+	transcendental fractional powers of two
+	x					inv(x)
+	2^-0x0.000001 = 0x0.FFFFFF4F...		0x1.000000B1... = 2^0x0.000001
+	2^-0x0.000002 = 0x0.FFFFFE9D...		0x1.00000163... = 2^0x0.000002
+	2^-0x0.000004 = 0x0.FFFFFD3A...		0x1.000002C6... = 2^0x0.000004
+	2^-0x0.000008 = 0x0.FFFFFA74...		0x1.0000058C... = 2^0x0.000008
+	2^-0x0.000010 = 0x0.FFFFF4E9...		0x1.00000B17... = 2^0x0.000010
+	2^-0x0.000020 = 0x0.FFFFE9D2...		0x1.0000162E... = 2^0x0.000020
+	2^-0x0.000040 = 0x0.FFFFD3A3...		0x1.00002C5D... = 2^0x0.000040
+	2^-0x0.000080 = 0x0.FFFFA747...		0x1.000058B9... = 2^0x0.000080
+	2^-0x0.000100 = 0x0.FFFF4E8E...		0x1.0000B172... = 2^0x0.000100
+	2^-0x0.000200 = 0x0.FFFE9D1D...		0x1.000162E5... = 2^0x0.000200
+	2^-0x0.000400 = 0x0.FFFD3A3B...		0x1.0002C5CD... = 2^0x0.000400
+	2^-0x0.000800 = 0x0.FFFA747F...		0x1.00058BA0... = 2^0x0.000800
+	2^-0x0.001000 = 0x0.FFF4E91C...		0x1.000B175F... = 2^0x0.001000
+	2^-0x0.002000 = 0x0.FFE9D2B3...		0x1.00162F39... = 2^0x0.002000
+	2^-0x0.004000 = 0x0.FFD3A752...		0x1.002C605E... = 2^0x0.004000
+	2^-0x0.008000 = 0x0.FFA75652...		0x1.0058C86E... = 2^0x0.008000
+	2^-0x0.010000 = 0x0.FF4ECB59...		0x1.00B1AFA6... = 2^0x0.010000
+	2^-0x0.020000 = 0x0.FE9E115C...		0x1.0163DAA0... = 2^0x0.020000
+	2^-0x0.040000 = 0x0.FD3E0C0D...		0x1.02C9A3E7... = 2^0x0.040000
+	2^-0x0.080000 = 0x0.FA83B2DB...		0x1.059B0D32... = 2^0x0.080000
+	2^-0x0.100000 = 0x0.F5257D15...		0x1.0B5586D0... = 2^0x0.100000
+	2^-0x0.200000 = 0x0.EAC0C6E8...		0x1.172B83C8... = 2^0x0.200000
+	2^-0x0.400000 = 0x0.D744FCCB...		0x1.306FE0A3... = 2^0x0.400000
+	2^-0x0.800000 = 0x0.B504F334...		0x1.6A09E667... = 2^0x0.800000
+	*/
+	static const unsigned long long frac_pots[]=
+	{
+		0x100000000,
+		0x0FFFFFF4F,//extra 8 bits of precision
+		0x0FFFFFE9D,
+		0x0FFFFFD3A,
+		0x0FFFFFA74,
+		0x0FFFFF4E9,
+		0x0FFFFE9D2,
+		0x0FFFFD3A3,
+		0x0FFFFA747,
+		0x0FFFF4E8E,
+		0x0FFFE9D1D,
+		0x0FFFD3A3B,
+		0x0FFFA747F,
+		0x0FFF4E91C,
+		0x0FFE9D2B3,
+		0x0FFD3A752,
+		0x0FFA75652,
+		0x0FF4ECB59,
+		0x0FE9E115C,
+		0x0FD3E0C0D,
+		0x0FA83B2DB,
+		0x0F5257D15,
+		0x0EAC0C6E8,
+		0x0D744FCCB,
+		0x0B504F334,
+	};
+#if 0
+	unsigned long long x2=(unsigned long long)x<<1;
+	unsigned long long r0=0x1000000, r1=0x1000000, r2=0x1000000, r3=0x1000000;
+	for(int k=1;k<=FRAC_BITS;k+=8)
+	{
+		r0=r0*frac_pots[(k+0)&-(int)(x2>>(k+0)&1)]>>32;
+		r1=r1*frac_pots[(k+1)&-(int)(x2>>(k+1)&1)]>>32;
+		r2=r2*frac_pots[(k+2)&-(int)(x2>>(k+2)&1)]>>32;
+		r3=r3*frac_pots[(k+3)&-(int)(x2>>(k+3)&1)]>>32;
+		r0=r0*frac_pots[(k+4)&-(int)(x2>>(k+4)&1)]>>32;
+		r1=r1*frac_pots[(k+5)&-(int)(x2>>(k+5)&1)]>>32;
+		r2=r2*frac_pots[(k+6)&-(int)(x2>>(k+6)&1)]>>32;
+		r3=r3*frac_pots[(k+7)&-(int)(x2>>(k+7)&1)]>>32;
+	}
+	r2=r2*r3>>24;
+	r0=r0*r1>>24;
+	r0=r0*r2>>24;
+	r0>>=x>>FRAC_BITS;
+	return (unsigned)r0;
+#endif
+#if 0
+	unsigned long long x2=(unsigned long long)x<<1;
+	unsigned long long r0=0x1000000, r1=0x1000000;
+	for(int k=1;k<=FRAC_BITS;k+=2)
+	{
+		//unsigned long long t0=r0*frac_pots[k+0], t1=r1*frac_pots[k+1];//continuous access
+		//t0>>=32;
+		//t1>>=32;
+		//if(x2>>(k+0)&1)
+		r0=r0*frac_pots[(k+0)&-(int)(x2>>(k+0)&1)]>>32;
+		r1=r1*frac_pots[(k+1)&-(int)(x2>>(k+1)&1)]>>32;
+		//r0=r0*frac_pots[(k+2)&-(int)(x2>>(k+2)&1)]>>32;
+		//r1=r1*frac_pots[(k+3)&-(int)(x2>>(k+3)&1)]>>32;
+		//r0=r0*frac_pots[(k+4)&-(int)(x2>>(k+4)&1)]>>32;
+		//r1=r1*frac_pots[(k+5)&-(int)(x2>>(k+5)&1)]>>32;
+		//r0=r0*frac_pots[(k+6)&-(int)(x2>>(k+6)&1)]>>32;
+		//r1=r1*frac_pots[(k+7)&-(int)(x2>>(k+7)&1)]>>32;
+	}
+	r0*=r1;
+	r0>>=(x>>FRAC_BITS)+24;
+	return (unsigned)r0;
+#endif
+#if 1
+	unsigned long long result=0x1000000;
+	for(int k=0;k<FRAC_BITS;)//up to 24 muls
+	{
+		int bit=x>>k&1;
+		++k;
+		result=result*frac_pots[k&-bit]>>32;
+	}
+	result>>=x>>FRAC_BITS;
+	return (unsigned)result;
+#endif
+}
+unsigned exp2_neg_fix24_avx2(unsigned x)
+{
+	/*
+	transcendental fractional powers of two
+	x					inv(x)
+	2^-0x0.000001 = 0x0.FFFFFF4F...		0x1.000000B1... = 2^0x0.000001
+	2^-0x0.000002 = 0x0.FFFFFE9D...		0x1.00000163... = 2^0x0.000002
+	2^-0x0.000004 = 0x0.FFFFFD3A...		0x1.000002C6... = 2^0x0.000004
+	2^-0x0.000008 = 0x0.FFFFFA74...		0x1.0000058C... = 2^0x0.000008
+	2^-0x0.000010 = 0x0.FFFFF4E9...		0x1.00000B17... = 2^0x0.000010
+	2^-0x0.000020 = 0x0.FFFFE9D2...		0x1.0000162E... = 2^0x0.000020
+	2^-0x0.000040 = 0x0.FFFFD3A3...		0x1.00002C5D... = 2^0x0.000040
+	2^-0x0.000080 = 0x0.FFFFA747...		0x1.000058B9... = 2^0x0.000080
+	2^-0x0.000100 = 0x0.FFFF4E8E...		0x1.0000B172... = 2^0x0.000100
+	2^-0x0.000200 = 0x0.FFFE9D1D...		0x1.000162E5... = 2^0x0.000200
+	2^-0x0.000400 = 0x0.FFFD3A3B...		0x1.0002C5CD... = 2^0x0.000400
+	2^-0x0.000800 = 0x0.FFFA747F...		0x1.00058BA0... = 2^0x0.000800
+	2^-0x0.001000 = 0x0.FFF4E91C...		0x1.000B175F... = 2^0x0.001000
+	2^-0x0.002000 = 0x0.FFE9D2B3...		0x1.00162F39... = 2^0x0.002000
+	2^-0x0.004000 = 0x0.FFD3A752...		0x1.002C605E... = 2^0x0.004000
+	2^-0x0.008000 = 0x0.FFA75652...		0x1.0058C86E... = 2^0x0.008000
+	2^-0x0.010000 = 0x0.FF4ECB59...		0x1.00B1AFA6... = 2^0x0.010000
+	2^-0x0.020000 = 0x0.FE9E115C...		0x1.0163DAA0... = 2^0x0.020000
+	2^-0x0.040000 = 0x0.FD3E0C0D...		0x1.02C9A3E7... = 2^0x0.040000
+	2^-0x0.080000 = 0x0.FA83B2DB...		0x1.059B0D32... = 2^0x0.080000
+	2^-0x0.100000 = 0x0.F5257D15...		0x1.0B5586D0... = 2^0x0.100000
+	2^-0x0.200000 = 0x0.EAC0C6E8...		0x1.172B83C8... = 2^0x0.200000
+	2^-0x0.400000 = 0x0.D744FCCB...		0x1.306FE0A3... = 2^0x0.400000
+	2^-0x0.800000 = 0x0.B504F334...		0x1.6A09E667... = 2^0x0.800000
+	*/
+	ALIGN(32) static const unsigned long long frac_pots[]=
+	{
+		(0xFFFFFF4F+128)>>8,//bit  0
+		(0xFFFFD3A3+128)>>8,//bit  6
+		(0xFFF4E91C+128)>>8,//bit 12
+		(0xFD3E0C0D+128)>>8,//bit 18
+		
+		0xFFFFFE9D,//bit  1
+		0xFFFFA747,//bit  7
+		0xFFE9D2B3,//bit 13
+		0xFA83B2DB,//bit 19
+		
+		0xFFFFFD3A,//bit  2
+		0xFFFF4E8E,//bit  8
+		0xFFD3A752,//bit 14
+		0xF5257D15,//bit 20
+		
+		0xFFFFFA74,//bit  3
+		0xFFFE9D1D,//bit  9
+		0xFFA75652,//bit 15
+		0xEAC0C6E8,//bit 21
+		
+		0xFFFFF4E9,//bit  4
+		0xFFFD3A3B,//bit 10
+		0xFF4ECB59,//bit 16
+		0xD744FCCB,//bit 22
+		
+		0xFFFFE9D2,//bit  5
+		0xFFFA747F,//bit 11
+		0xFE9E115C,//bit 17
+		0xB504F334,//bit 23
+
+		0x1000000,//initialization
+		0x1000000,
+		0x1000000,
+		0x1000000,
+	};
+	__m256i sr32=_mm256_set_epi8(
+		-1, -1, -1, -1, 15, 14, 13, 12,
+		-1, -1, -1, -1,  7,  6,  5,  4,
+		-1, -1, -1, -1, 15, 14, 13, 12,
+		-1, -1, -1, -1,  7,  6,  5,  4
+		//15, 14, 13, 12, 11, 10,  9,  8,
+		// 7,  6,  5,  4,  3,  2,  1,  0
+	);
+	__m128i sr24=_mm_set_epi8(
+		-1, -1, -1, 15, 14, 13, 12, 11,
+		-1, -1, -1,  7,  6,  5,  4,  3
+	);
+	__m256i ones=_mm256_set_epi32(0, 1, 0, 1, 0, 1, 0, 1);
+
+	__m256i x2=_mm256_set_epi32(0, x>>18&63, 0, x>>12&63, 0, x>>6&63, 0, x&63);
+	__m256i result=_mm256_load_si256((const __m256i*)frac_pots+6);
+
+	__m256i factor=_mm256_load_si256((const __m256i*)frac_pots+0);
+	__m256i mask=_mm256_and_si256(x2, ones);
+	x2=_mm256_srli_epi32(x2, 1);
+	mask=_mm256_cmpeq_epi64(mask, ones);
+	result=_mm256_castpd_si256(_mm256_blendv_pd(_mm256_castsi256_pd(result), _mm256_castsi256_pd(factor), _mm256_castsi256_pd(mask)));
+	for(int k=1;k<FRAC_BITS/4;++k)
+	{
+		factor=_mm256_load_si256((const __m256i*)frac_pots+k);
+		factor=_mm256_mul_epu32(factor, result);
+		mask=_mm256_and_si256(x2, ones);
+		x2=_mm256_srli_epi32(x2, 1);
+		factor=_mm256_shuffle_epi8(factor, sr32);
+		mask=_mm256_cmpeq_epi64(mask, ones);
+		result=_mm256_castpd_si256(_mm256_blendv_pd(_mm256_castsi256_pd(result), _mm256_castsi256_pd(factor), _mm256_castsi256_pd(mask)));
+	}
+	__m128i r0=_mm256_extracti128_si256(result, 0);
+	__m128i r1=_mm256_extracti128_si256(result, 1);
+	r0=_mm_mul_epu32(r0, r1);
+	r0=_mm_shuffle_epi8(r0, sr24);
+	unsigned sh=(x>>FRAC_BITS)+24;
+	unsigned res=(unsigned)((unsigned long long)_mm_extract_epi64(r0, 0)*(unsigned long long)_mm_extract_epi64(r0, 1)>>sh);
+	return res;
+}
+unsigned long long exp2_fix24(int x)
+{
+	/*
+	transcendental fractional powers of two
+	x					inv(x)
+	2^-0x0.000001 = 0x0.FFFFFF4F...		0x1.000000B1... = 2^0x0.000001
+	2^-0x0.000002 = 0x0.FFFFFE9D...		0x1.00000163... = 2^0x0.000002
+	2^-0x0.000004 = 0x0.FFFFFD3A...		0x1.000002C6... = 2^0x0.000004
+	2^-0x0.000008 = 0x0.FFFFFA74...		0x1.0000058C... = 2^0x0.000008
+	2^-0x0.000010 = 0x0.FFFFF4E9...		0x1.00000B17... = 2^0x0.000010
+	2^-0x0.000020 = 0x0.FFFFE9D2...		0x1.0000162E... = 2^0x0.000020
+	2^-0x0.000040 = 0x0.FFFFD3A3...		0x1.00002C5D... = 2^0x0.000040
+	2^-0x0.000080 = 0x0.FFFFA747...		0x1.000058B9... = 2^0x0.000080
+	2^-0x0.000100 = 0x0.FFFF4E8E...		0x1.0000B172... = 2^0x0.000100
+	2^-0x0.000200 = 0x0.FFFE9D1D...		0x1.000162E5... = 2^0x0.000200
+	2^-0x0.000400 = 0x0.FFFD3A3B...		0x1.0002C5CD... = 2^0x0.000400
+	2^-0x0.000800 = 0x0.FFFA747F...		0x1.00058BA0... = 2^0x0.000800
+	2^-0x0.001000 = 0x0.FFF4E91C...		0x1.000B175F... = 2^0x0.001000
+	2^-0x0.002000 = 0x0.FFE9D2B3...		0x1.00162F39... = 2^0x0.002000
+	2^-0x0.004000 = 0x0.FFD3A752...		0x1.002C605E... = 2^0x0.004000
+	2^-0x0.008000 = 0x0.FFA75652...		0x1.0058C86E... = 2^0x0.008000
+	2^-0x0.010000 = 0x0.FF4ECB59...		0x1.00B1AFA6... = 2^0x0.010000
+	2^-0x0.020000 = 0x0.FE9E115C...		0x1.0163DAA0... = 2^0x0.020000
+	2^-0x0.040000 = 0x0.FD3E0C0D...		0x1.02C9A3E7... = 2^0x0.040000
+	2^-0x0.080000 = 0x0.FA83B2DB...		0x1.059B0D32... = 2^0x0.080000
+	2^-0x0.100000 = 0x0.F5257D15...		0x1.0B5586D0... = 2^0x0.100000
+	2^-0x0.200000 = 0x0.EAC0C6E8...		0x1.172B83C8... = 2^0x0.200000
+	2^-0x0.400000 = 0x0.D744FCCB...		0x1.306FE0A3... = 2^0x0.400000
+	2^-0x0.800000 = 0x0.B504F334...		0x1.6A09E667... = 2^0x0.800000
+	*/
+	static const unsigned long long frac_pots[]=
+	{
+		0x1000000B1,//round(2^(0x000001*2^-24)*2^32)		//extra 8 bits of precision
+		0x100000163,
+		0x1000002C6,
+		0x10000058C,
+		0x100000B17,
+		0x10000162E,
+		0x100002C5D,
+		0x1000058B9,
+		0x10000B172,
+		0x1000162E5,
+		0x10002C5CC,
+		0x100058BA0,
+		0x1000B175F,
+		0x100162F39,
+		0x1002C605E,
+		0x10058C86E,
+		0x100B1AFA6,
+		0x10163DAA0,
+		0x102C9A3E7,
+		0x1059B0D31,
+		0x10B5586D0,
+		0x1172B83C8,
+		0x1306FE0A3,
+		0x16A09E668,//round(2^(0x800000*2^-24)*2^32)
+	};
+	int neg=x<0;
+	x=abs(x);
+	if(x>=0x27000000)
+		return neg?0:0xFFFFFFFFFFFFFFFF;
+	unsigned long long result=0x1000000;
+	for(int k=0;k<FRAC_BITS;++k)//up to 24 muls
+	{
+		if(x&1)
+		{
+			result*=frac_pots[k];
+			result>>=32;
+		}
+		x>>=1;
+	}
+	result=SHIFT_LEFT_SIGNED(result, x);
+	if(neg)
+		result=0x1000000000000/result;
+	return result;
+}
+int log2_fix24(unsigned long long x)
+{
+	//https://stackoverflow.com/questions/4657468/fast-fixed-point-pow-log-exp-and-sqrt
+	//and YouChad
+	if(!x)
+		return -((FRAC_BITS+1)<<FRAC_BITS);
+	int lgx=FLOOR_LOG2(x)-24;
+	x=SHIFT_RIGHT_SIGNED(x, lgx);
+	lgx<<=24;
+	if(!(x&(x-1)))//no need to do 24 muls if x is a power of two
+		return lgx;
+	for(int k=FRAC_BITS-1;k>=0;--k)//constant 24 muls, hopefully will be unrolled
+	{
+		x=x*x>>FRAC_BITS;
+		int cond=x>=(2LL<<FRAC_BITS);
+		x>>=cond;
+		lgx|=cond<<k;
+	}
+	return lgx;
+}
+#undef  FRAC_BITS
+double power(double x, int y)
 {
 	double mask[]={1, 0}, product=1;
 	if(y<0)
@@ -313,14 +925,13 @@ double	power(double x, int y)
 	}
 	return product;
 }
-double	_10pow(int n)
+double _10pow(int n)
 {
-	static double *mask=0;
-	int k;
+	static double mask[616]={0};
 //	const double _ln10=log(10.);
-	if(!mask)
+	if(!mask[308])
 	{
-		mask=(double*)malloc(616*sizeof(double));
+		int k;
 		for(k=-308;k<308;++k)		//23.0
 			mask[k+308]=power(10., k);
 		//	mask[k+308]=exp(k*_ln10);//inaccurate
@@ -331,7 +942,7 @@ double	_10pow(int n)
 		return _HUGE;
 	return mask[n+308];
 }
-int		acme_isdigit(char c, char base)
+int acme_isdigit(char c, char base)
 {
 	switch(base)
 	{
@@ -343,7 +954,27 @@ int		acme_isdigit(char c, char base)
 	return 0;
 }
 
-double time_sec()
+double time_ms(void)
+{
+#ifdef _MSC_VER
+	static long long t0=0;
+	LARGE_INTEGER li;
+	double t;
+	QueryPerformanceCounter(&li);
+	if(!t0)
+		t0=li.QuadPart;
+	t=(double)(li.QuadPart-t0);
+	QueryPerformanceFrequency(&li);
+	t/=(double)li.QuadPart;
+	t*=1000;
+	return t;
+#else
+	struct timespec t;
+	clock_gettime(CLOCK_REALTIME, &t);//<time.h>
+	return t.tv_sec*1000+t.tv_nsec*1e-6;
+#endif
+}
+double time_sec(void)
 {
 #ifdef _MSC_VER
 	static long long t0=0;
@@ -359,52 +990,58 @@ double time_sec()
 #else
 	struct timespec t;
 	clock_gettime(CLOCK_REALTIME, &t);//<time.h>
-	return t.tv_sec*1000+t.tv_nsec*1e-6;
+	return t.tv_sec+t.tv_nsec*1e-9;
 #endif
 }
-void parsetimedelta(double sec, TimeInfo *ti)
+void parsetimedelta(double secs, TimeInfo *ti)
 {
-	ti->days=(int)floor(sec/(60*60*24));
-	sec-=ti->days*(60*60*24);
+	ti->days=(int)floor(secs/(60*60*24));
+	secs-=ti->days*(60*60*24);
 
-	ti->hours=(int)floor(sec/(60*60));
-	sec-=ti->hours*(60*60);
+	ti->hours=(int)floor(secs/(60*60));
+	secs-=ti->hours*(60*60);
 
-	ti->mins=(int)floor(sec/(60));
-	sec-=ti->mins*60;
+	ti->mins=(int)floor(secs/60);
+	secs-=ti->mins*60;
 
-	ti->secs=(float)sec;
+	ti->secs=(float)secs;
 }
-int		timedelta2str(char *buf, size_t len, double ms)
+int timedelta2str(char *buf, size_t len, double secs)
 {
 	int printed;
 	TimeInfo ti;
 
-	parsetimedelta(ms, &ti);
+	parsetimedelta(secs, &ti);
 
 	printed=0;
 	if(buf)
 	{
 		if(ti.days)
-			printed+=snprintf(buf, len, "%dD-", ti.days);
+			printed+=snprintf(buf, len, "%02dD-", ti.days);
 		printed+=snprintf(buf, len, "%02d-%02d-%09.6lf", ti.hours, ti.mins, ti.secs);
 	}
 	else
 	{
 		if(ti.days)
-			printed+=printf("%dD-", ti.days);
+			printed+=printf("%02dD-", ti.days);
 		printed+=printf("%02d-%02d-%09.6lf", ti.hours, ti.mins, ti.secs);
 	}
 	return printed;
 }
-int		acme_strftime(char *buf, size_t len, const char *format)
+int acme_strftime(char *buf, size_t len, const char *format)
 {
+#ifdef _MSC_VER
 	time_t tstamp;
 	struct tm tformat;
 
 	tstamp=time(0);
 	localtime_s(&tformat, &tstamp);
 	return (int)strftime(buf, len, format, &tformat);
+#else
+	time_t tstamp=time(0);
+	struct tm *tformat=localtime(&tstamp);
+	return (int)strftime(buf, len, format, tformat);
+#endif
 }
 int print_bin8(int x)
 {
@@ -418,7 +1055,7 @@ int print_bin8(int x)
 }
 int print_bin32(unsigned x)
 {
-	printf("0b");
+	//printf("0b");
 	for(int k=31;k>=0;--k)
 	{
 		int bit=x>>k&1;
@@ -435,25 +1072,51 @@ int print_binn(unsigned long long x, int nbits)
 	}
 	return nbits;
 }
+double convert_size(double bytesize, int *log1024)
+{
+	int k=0;
+	double p=1;
+	for(;k<4&&bytesize>p;++k, p*=1024);
+	*log1024=k-1;
+	return bytesize*1024/p;
+}
+int print_size(double bytesize, int ndigits, int pdigits, char *str, int len)
+{
+	static const char *labels[]=
+	{
+		"bytes",
+		"KB",
+		"MB",
+		"GB",
+		"TB",
+		"PB",
+		"EB",
+	};
+	int idx=0;
+	bytesize=convert_size(bytesize, &idx);
+	if(str)
+		return snprintf(str, len-1LL, "%*.*lf %s", ndigits, pdigits, bytesize, labels[idx]);
+	return printf("%*.*lf %s", ndigits, pdigits, bytesize, labels[idx]);
+}
 
 //error handling
 char first_error_msg[G_BUF_SIZE]={0}, latest_error_msg[G_BUF_SIZE]={0};
-int log_error(const char *file, int line, int quit, const char *format, ...)
+int log_error(const char *fn, int line, int quit, const char *format, ...)
 {
 	int firsttime=first_error_msg[0]=='\0';
 
-	ptrdiff_t size=strlen(file), start=size-1;
-	for(;start>=0&&file[start]!='/'&&file[start]!='\\';--start);
-	start+=start==-1||file[start]=='/'||file[start]=='\\';
+	ptrdiff_t size=strlen(fn), start=size-1;
+	for(;start>=0&&fn[start]!='/'&&fn[start]!='\\';--start);
+	start+=start==-1||fn[start]=='/'||fn[start]=='\\';
 
-	int printed=sprintf_s(latest_error_msg, G_BUF_SIZE, "\n%s(%d): ", file+start, line);
+	int printed=sprintf_s(latest_error_msg, G_BUF_SIZE, "\n%s(%d): ", fn+start, line);
 	va_list args;
 	va_start(args, format);
-	printed+=vsprintf_s(latest_error_msg+printed, G_BUF_SIZE-printed, format, args);
+	printed+=vsprintf_s(latest_error_msg+printed, G_BUF_SIZE-printed-1, format, args);
 	va_end(args);
 
 	if(firsttime)
-		memcpy(first_error_msg, latest_error_msg, printed+1);
+		memcpy(first_error_msg, latest_error_msg, printed+1LL);
 	fprintf(stderr, "%s\n", latest_error_msg);
 	//messagebox(MBOX_OK, "Error", latest_error_msg);
 	if(quit)
@@ -463,7 +1126,8 @@ int log_error(const char *file, int line, int quit, const char *format, ...)
 	}
 	return firsttime;
 }
-int valid(const void *p)
+#if 0
+static int valid(const void *p)//only makes sense with MSVC debugger
 {
 	size_t val=(size_t)p;
 
@@ -499,7 +1163,8 @@ int valid(const void *p)
 	}
 	return 1;
 }
-int pause()
+#endif
+int pause(void)
 {
 	int k;
 
@@ -507,15 +1172,15 @@ int pause()
 	while(!scanf("%d", &k));
 	return k;
 }
-#ifdef _MSC_VER
-int pause1()
+//#ifdef _MSC_VER
+//int pause1(void)
+//{
+//	return _getch();
+//}
+//#endif
+int pause_abort(const char *fn, int lineno, const char *extraInfo)
 {
-	return _getch();
-}
-#endif
-int pause_abort(const char *file, int lineno, const char *extraInfo)
-{
-	printf("INTERNAL ERROR %s(%d)\nABORTING\n", file, lineno);
+	printf("INTERNAL ERROR %s(%d)\nABORTING\n", fn, lineno);
 	if(extraInfo)
 		printf("%s\n\n", extraInfo);
 	pause();
@@ -528,17 +1193,19 @@ int pause_abort(const char *file, int lineno, const char *extraInfo)
 #if 1
 static void array_realloc(ArrayHandle *arr, size_t count, size_t pad)//CANNOT be nullptr, array must be initialized with array_alloc()
 {
-	ArrayHandle p2;
 	size_t size, newcap;
 
-	ASSERT_P(*arr);
 	size=(count+pad)*arr[0]->esize, newcap=arr[0]->esize;
 	for(;newcap<size;newcap<<=1);
 	if(newcap>arr[0]->cap)
 	{
-		p2=(ArrayHandle)realloc(*arr, sizeof(ArrayHeader)+newcap);
-		ASSERT_P(p2);
-		*arr=p2;
+		void *p2=realloc(*arr, sizeof(ArrayHeader)+newcap);
+		if(!p2)
+		{
+			LOG_ERROR("Alloc error");
+			return;
+		}
+		*arr=(ArrayHandle)p2;
 		if(arr[0]->cap<newcap)
 			memset(arr[0]->data+arr[0]->cap, 0, newcap-arr[0]->cap);
 		arr[0]->cap=newcap;
@@ -561,15 +1228,12 @@ ArrayHandle array_construct(const void *src, size_t esize, size_t count, size_t 
 		LOG_ERROR("Alloc error");
 		return 0;
 	}
-	arr->count=count;
+	arr->count=count*rep;
 	arr->esize=esize;
 	arr->cap=cap;
 	arr->destructor=destructor;
 	if(src)
-	{
-		ASSERT_P(src);
 		memfill(arr->data, src, dstsize, srcsize);
-	}
 	else
 		memset(arr->data, 0, dstsize);
 		
@@ -618,20 +1282,24 @@ void array_free(ArrayHandle *arr)//can be nullptr
 }
 void array_fit(ArrayHandle *arr, size_t pad)//can be nullptr
 {
-	ArrayHandle p2;
+	void *p2;
+
 	if(!*arr)
 		return;
 	arr[0]->cap=(arr[0]->count+pad)*arr[0]->esize;
-	p2=(ArrayHandle)realloc(*arr, sizeof(ArrayHeader)+arr[0]->cap);
-	ASSERT_P(p2);
-	*arr=p2;
+	p2=realloc(*arr, sizeof(ArrayHeader)+arr[0]->cap);
+	if(!p2)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	*arr=(ArrayHandle)p2;
 }
 
 void* array_insert(ArrayHandle *arr, size_t idx, const void *data, size_t count, size_t rep, size_t pad)//cannot be nullptr
 {
 	size_t start, srcsize, dstsize, movesize;
 	
-	ASSERT_P(*arr);
 	start=idx*arr[0]->esize;
 	srcsize=count*arr[0]->esize;
 	dstsize=rep*srcsize;
@@ -648,7 +1316,6 @@ void* array_erase(ArrayHandle *arr, size_t idx, size_t count)//does not realloca
 {
 	size_t k;
 
-	ASSERT_P(*arr);
 	if(arr[0]->count<idx+count)
 	{
 		LOG_ERROR("array_erase() out of bounds: idx=%lld count=%lld size=%lld", (long long)idx, (long long)count, (long long)arr[0]->count);
@@ -669,7 +1336,6 @@ void* array_replace(ArrayHandle *arr, size_t idx, size_t rem_count, const void *
 {
 	size_t k, c0, c1, start, srcsize, dstsize;
 
-	ASSERT_P(*arr);
 	if(arr[0]->count<idx+rem_count)
 	{
 		LOG_ERROR("array_replace() out of bounds: idx=%lld rem_count=%lld size=%lld ins_count=%lld", (long long)idx, (long long)rem_count, (long long)arr[0]->count, (long long)ins_count);
@@ -707,9 +1373,15 @@ void* array_replace(ArrayHandle *arr, size_t idx, size_t rem_count, const void *
 void* array_at(ArrayHandle *arr, size_t idx)
 {
 	if(!arr[0])
+	{
+		LOG_ERROR("nullptr exception");
 		return 0;
+	}
 	if(idx>=arr[0]->count)
+	{
+		LOG_ERROR("OOB");
 		return 0;
+	}
 	return arr[0]->data+idx*arr[0]->esize;
 }
 void* array_back(ArrayHandle *arr)
@@ -765,10 +1437,19 @@ void dlist_init(DListHandle list, size_t objsize, size_t objpernode, void (*dest
 	list->destructor=destructor;
 }
 #define DLIST_COPY_NODE(DST, PREV, NEXT, SRC, PAYLOADSIZE)\
-	DST=(DNodeHandle)malloc(sizeof(DNodeHeader)+(PAYLOADSIZE)),\
-	DST->prev=PREV,\
-	DST->next=NEXT,\
-	memcpy(DST->data, SRC->data, PAYLOADSIZE)
+	do\
+	{\
+		DST=(DNodeHandle)malloc(sizeof(DNodeHeader)+(PAYLOADSIZE));\
+		if(!(DST))\
+		{\
+			LOG_ERROR("Alloc error");\
+			return;\
+		}\
+		DST->prev=PREV;\
+		DST->next=NEXT;\
+		memcpy(DST->data, SRC->data, PAYLOADSIZE);\
+	}\
+	while(0)
 void dlist_copy(DListHandle dst, DListHandle src)
 {
 	DNodeHandle it;
@@ -863,7 +1544,10 @@ static void dlist_append_node(DListHandle list)
 
 	temp=(DNodeHandle)malloc(sizeof(DNodeHeader)+list->objpernode*list->objsize);
 	if(!temp)
-		PANIC();
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
 	temp->next=0;
 	if(list->nnodes)
 	{
@@ -887,7 +1571,7 @@ static void dlist_append_node(DListHandle list)
 	else\
 		memset(DST, 0, COPYSIZE);
 #else
-static void dlist_fill_node(DListHandle list, size_t copysize, char **src, void *dst)
+static void dlist_fill_node(DListHandle list, size_t copysize, const char **src, void *dst)
 {
 	list->nobj+=copysize;
 	copysize*=list->objsize;
@@ -925,10 +1609,10 @@ void* dlist_push_back1(DListHandle list, const void *obj)
 void* dlist_push_back(DListHandle list, const void *data, size_t count)
 {
 	size_t obj_idx, copysize;
-	char *buffer;
+	const char *buffer;
 	void *ret;
 	
-	buffer=(char*)data;
+	buffer=(const char*)data;
 	ret=0;
 	obj_idx=list->nobj%list->objpernode;
 	if(obj_idx)
@@ -1057,9 +1741,15 @@ void  dlist_last(DListHandle list, DListItHandle it)
 void* dlist_it_deref(DListItHandle it)
 {
 	if(it->obj_idx>=it->list->nobj)
+	{
 		LOG_ERROR("dlist_it_deref() out of bounds");
+		return 0;
+	}
 	if(!it->node)
+	{
 		LOG_ERROR("dlist_it_deref() node == nullptr");
+		return 0;
+	}
 	return it->node->data+it->obj_idx%it->list->objpernode*it->list->objsize;
 }
 int   dlist_it_inc(DListItHandle it)
@@ -1091,7 +1781,7 @@ int   dlist_it_dec(DListItHandle it)
 }
 #endif
 
-//red-black tree map
+//map/set (red-black tree)
 #if 1
 void map_init(MapHandle map, size_t esize, MapCmpFn comparator, void (*destructor)(void*))
 {
@@ -1212,6 +1902,11 @@ RBNodeHandle* map_insert(MapHandle map, const void *key, int *found)
 		*found=0;
 
 	z=(RBNodeHandle)malloc(sizeof(RBNodeHeader)+map->esize);
+	if(!z)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
 	z->parent=y;
 	z->left=z->right=0;
 	z->is_red=1;
@@ -1232,6 +1927,7 @@ RBNodeHandle* map_insert(MapHandle map, const void *key, int *found)
 		case RESULT_GREATER:
 			y->right=z;
 			break;
+		case RESULT_EQUAL:
 		default:
 			free(z);
 			return 0;
@@ -1298,18 +1994,16 @@ RBNodeHandle* map_insert(MapHandle map, const void *key, int *found)
 	++map->nnodes;
 	return get_node_addr(map, z);
 }
-#if 0
-static void rb_transplant(MapHandle map, RBNodeHandle u, RBNodeHandle v)
-{
-	if(!u->parent)
-		map->root=v;
-	else if(u==u->parent->left)
-		u->parent->left=v;
-	else
-		u->parent->right=v;
-	v->parent=u->parent;
-}
-#endif
+//static void rb_transplant(MapHandle map, RBNodeHandle u, RBNodeHandle v)
+//{
+//	if(!u->parent)
+//		map->root=v;
+//	else if(u==u->parent->left)
+//		u->parent->left=v;
+//	else
+//		u->parent->right=v;
+//	v->parent=u->parent;
+//}
 static RBNodeHandle tree_minimum(RBNodeHandle root)
 {
 	if(!root)
@@ -1346,8 +2040,7 @@ int  map_erase(MapHandle map, const void *data, RBNodeHandle node)
 		LOG_ERROR("map_erase() usage error: nullptr args");
 		return 0;
 	}
-	
-	//root=&map->root->parent;
+
 	leftmost=&map->root->left;
 	rightmost=&map->root->right;
 	y=z;
@@ -1422,72 +2115,72 @@ int  map_erase(MapHandle map, const void *data, RBNodeHandle node)
 	}
 	if(!y->is_red)
 	{
-		RBNodeHandle w;
+		RBNodeHandle wnode;
 
 		while(x!=map->root&&(!x||!x->is_red))
 		{
 			if(x==xp->left)
 			{
-				w=xp->right;
-				if(w->is_red)
+				wnode=xp->right;
+				if(wnode->is_red)
 				{
-					w->is_red=0;
+					wnode->is_red=0;
 					xp->is_red=1;
 					rb_rotateleft(map, xp);
-					w=xp->right;
+					wnode=xp->right;
 				}
-				if((!w->left||!w->left->is_red)&&(!w->right||!w->right->is_red))
+				if((!wnode->left||!wnode->left->is_red)&&(!wnode->right||!wnode->right->is_red))
 				{
-					w->is_red=1;
+					wnode->is_red=1;
 					x=xp;
 					xp=xp->parent;
 				}
 				else
 				{
-					if(!w->right||!w->right->is_red)
+					if(!wnode->right||!wnode->right->is_red)
 					{
-						w->left->is_red=0;
-						w->is_red=1;
-						rb_rotateright(map, w);
-						w=xp->right;
+						wnode->left->is_red=0;
+						wnode->is_red=1;
+						rb_rotateright(map, wnode);
+						wnode=xp->right;
 					}
-					w->is_red=xp->is_red;
+					wnode->is_red=xp->is_red;
 					xp->is_red=0;
-					if(w->right)
-						w->right->is_red=0;
+					if(wnode->right)
+						wnode->right->is_red=0;
 					rb_rotateleft(map, xp);
 					break;
 				}
 			}
 			else//same as above with right <-> left
 			{
-				w=xp->left;
-				if(w->is_red)
+				wnode=xp->left;
+				if(wnode->is_red)
 				{
-					w->is_red=0;
+					wnode->is_red=0;
 					xp->is_red=1;
 					rb_rotateright(map, xp);
-					w=xp->left;
+					wnode=xp->left;
 				}
-				if((!w->right||!w->right->is_red)&&(!w->left||!w->left->is_red))
+				if((!wnode->right||!wnode->right->is_red)&&(!wnode->left||!wnode->left->is_red))
 				{
-					w->is_red=1;
+					wnode->is_red=1;
 					x=xp;
 					xp=xp->parent;
 				}
 				else
 				{
-					if(!w->left||!w->left->is_red)
+					if(!wnode->left||!wnode->left->is_red)
 					{
-						w->right->is_red=0;
-						w->is_red=1;
-						rb_rotateleft(map, w);
-						w=xp->left;
+						wnode->right->is_red=0;
+						wnode->is_red=1;
+						rb_rotateleft(map, wnode);
+						wnode=xp->left;
 					}
-					w->is_red=xp->is_red;
+					wnode->is_red=xp->is_red;
 					xp->is_red=0;
-					if(w->left)
-						w->left->is_red=0;
+					if(wnode->left)
+						wnode->left->is_red=0;
 					rb_rotateright(map, xp);
 					break;
 				}
@@ -1542,6 +2235,11 @@ static SNodeHandle slist_alloc_node(SListHandle list, SNodeHandle prev, const vo
 
 	//allocate new node
 	temp=(SNodeHandle)malloc(sizeof(SNode)+list->esize);
+	if(!temp)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
 	temp->prev=prev;
 	if(data)
 		memcpy(temp->data, data, list->esize);
@@ -1627,17 +2325,22 @@ BitstringHandle bitstring_construct(const void *src, size_t bitCount, size_t bit
 {
 	BitstringHandle str;
 	size_t srcBytes, cap;
-	unsigned char *srcbytes=(unsigned char*)src;
 
 	srcBytes=(bitCount+7)>>3;
 	cap=srcBytes+bytePad;
 	str=(BitstringHandle)malloc(sizeof(BitstringHeader)+cap);
+	if(!str)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
 	str->bitCount=bitCount;
 	str->byteCap=cap;
 
 	memset(str->data, 0, cap);
 	if(src)
 	{
+		const unsigned char *srcbytes=(const unsigned char*)src;
 		for(size_t b=0;b<bitCount;++b)
 		{
 			int bit=srcbytes[(bitOffset+b)>>3]>>((bitOffset+b)&7)&1;
@@ -1654,9 +2357,7 @@ void bitstring_free(BitstringHandle *str)
 void bitstring_append(BitstringHandle *str, const void *src, size_t bitCount, size_t bitOffset)
 {
 	size_t reqcap, newcap;
-	void *p;
 	size_t byteIdx;
-	unsigned char *srcbytes=(unsigned char*)src;
 
 	newcap=str[0]->byteCap;
 	newcap+=!newcap;
@@ -1664,16 +2365,20 @@ void bitstring_append(BitstringHandle *str, const void *src, size_t bitCount, si
 	for(;newcap<reqcap;newcap<<=1);
 	if(str[0]->byteCap<newcap)
 	{
-		p=realloc(*str, sizeof(BitstringHeader)+newcap);
+		void *p=realloc(*str, sizeof(BitstringHeader)+newcap);
 		if(!p)
-			LOG_ERROR("realloc returned nullptr");
-		*str=p;
+		{
+			LOG_ERROR("Alloc error");
+			return;
+		}
+		*str=(BitstringHandle)p;
 		str[0]->byteCap=newcap;
 	}
 	byteIdx=(str[0]->bitCount+7)/8;
 	memset(str[0]->data+byteIdx, 0, newcap-byteIdx);
 	if(src)
 	{
+		const unsigned char *srcbytes=(const unsigned char*)src;
 		for(size_t b=0;b<bitCount;++b)
 		{
 			int bit=srcbytes[(bitOffset+b)>>3]>>((bitOffset+b)&7)&1;
@@ -1726,18 +2431,20 @@ void bitstring_print(BitstringHandle str)
 #if 1
 static void pqueue_realloc(PQueueHandle *pq, size_t count, size_t pad)//CANNOT be nullptr, array must be initialized with array_alloc()
 {
-	void *p2;
 	size_t size, newcap;
 
-	ASSERT_P(*pq);
 	size=(count+pad)*pq[0]->esize, newcap=pq[0]->esize;
 	for(;newcap<size;newcap<<=1);
 	if(newcap>pq[0]->byteCap)
 	{
 		//printf("realloc(%p, %lld)\n", *pq, sizeof(PQueueHeader)+newcap);//
 
-		p2=realloc(*pq, sizeof(PQueueHeader)+newcap);
-		ASSERT_P(p2);
+		void *p2=realloc(*pq, sizeof(PQueueHeader)+newcap);
+		if(!p2)
+		{
+			LOG_ERROR("Alloc error");
+			return;
+		}
 		*pq=(PQueueHandle)p2;
 		if(pq[0]->byteCap<newcap)
 			memset(pq[0]->data+pq[0]->byteCap, 0, newcap-pq[0]->byteCap);
@@ -1745,7 +2452,7 @@ static void pqueue_realloc(PQueueHandle *pq, size_t count, size_t pad)//CANNOT b
 	}
 	pq[0]->count=count;
 }
-void        pqueue_heapifyup(PQueueHandle *pq, size_t idx, void *temp)
+static void pqueue_heapifyup(PQueueHandle *pq, size_t idx, void *temp)
 {
 	for(;idx!=0;)
 	{
@@ -1759,19 +2466,19 @@ void        pqueue_heapifyup(PQueueHandle *pq, size_t idx, void *temp)
 }
 void        pqueue_heapifydown(PQueueHandle *pq, size_t idx, void *temp)
 {
-	size_t L, R, largest;
+	size_t left, right, largest;
 
 	for(;idx<pq[0]->count;)
 	{
-		L=(idx<<1)+1, R=L+1;
+		left=(idx<<1)+1, right=left+1;
 
-		if(L<pq[0]->count&&pq[0]->less(pq[0]->data+idx*pq[0]->esize, pq[0]->data+L*pq[0]->esize))//if [idx] < [L]
-			largest=L;
+		if(left<pq[0]->count&&pq[0]->less(pq[0]->data+idx*pq[0]->esize, pq[0]->data+left*pq[0]->esize))//if [idx] < [left]
+			largest=left;
 		else
 			largest=idx;
 
-		if(R<pq[0]->count&&pq[0]->less(pq[0]->data+largest*pq[0]->esize, pq[0]->data+R*pq[0]->esize))//if [largest] < [R]
-			largest=R;
+		if(right<pq[0]->count&&pq[0]->less(pq[0]->data+largest*pq[0]->esize, pq[0]->data+right*pq[0]->esize))//if [largest] < [right]
+			largest=right;
 
 		if(largest==idx)
 			break;
@@ -1783,8 +2490,15 @@ void        pqueue_buildheap(PQueueHandle *pq)
 {
 	void *temp;
 
+	if(pq[0]->count<2)
+		return;
 	temp=malloc(pq[0]->esize);
-	for(size_t i=pq[0]->count/2-1;i>=0;--i)
+	if(!temp)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	for(ptrdiff_t i=pq[0]->count/2-1;i>=0;--i)
 		pqueue_heapifydown(pq, i, temp);
 	free(temp);
 }
@@ -1832,13 +2546,17 @@ void  pqueue_enqueue(PQueueHandle *pq, const void *src)//src cannot be nullptr
 	size_t start;
 	void *temp;
 	
-	ASSERT_P(*pq);
 	start=pq[0]->count*pq[0]->esize;
 	pqueue_realloc(pq, pq[0]->count+1, 0);
 
 	memcpy(pq[0]->data+start, src, pq[0]->esize);
 
 	temp=malloc(pq[0]->esize);
+	if(!temp)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
 	pqueue_heapifyup(pq, pq[0]->count-1, temp);
 	free(temp);
 }
@@ -1850,7 +2568,6 @@ void  pqueue_dequeue(PQueueHandle *pq)
 {
 	void *temp;
 
-	ASSERT_P(*pq);
 	if(!pq[0]->count)
 	{
 		LOG_ERROR("pqueue_erase() out of bounds: size=%lld", (long long)pq[0]->count);
@@ -1861,6 +2578,11 @@ void  pqueue_dequeue(PQueueHandle *pq)
 		pq[0]->destructor(pq[0]->data);
 
 	temp=malloc(pq[0]->esize);
+	if(!temp)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
 	memswap(pq[0]->data, pq[0]->data+(pq[0]->count-1)*pq[0]->esize, pq[0]->esize, temp);
 	--pq[0]->count;
 	pqueue_heapifydown(pq, 0, temp);
@@ -1887,10 +2609,14 @@ void  pqueue_print_heap(PQueueHandle *pq, void (*printer)(const void*))
 ptrdiff_t get_filesize(const char *filename)//-1 not found,  0: not a file,  ...: regular file size
 {
 	struct stat info={0};
-	int error=stat(filename, &info);
-	if(error)
+	int e2=stat(filename, &info);
+	if(e2)
 		return -1;
+#if defined _MSC_VER || defined _WIN32
 	if((info.st_mode&S_IFMT)==S_IFREG)
+#else
+	if(S_ISREG(info.st_mode))
+#endif
 		return info.st_size;
 	return 0;
 }
@@ -1912,11 +2638,13 @@ ptrdiff_t acme_strrchr(const char *str, ptrdiff_t len, char c)//find last occurr
 			return k;
 	return -1;
 }
-ArrayHandle filter_path(const char *path)//replaces back slashes with slashes, adds trailing slash if missing, as ArrayHandle
+ArrayHandle filter_path(const char *path, int len)//replaces back slashes with slashes, adds trailing slash if missing, as ArrayHandle
 {
 	ArrayHandle path2;
 
-	STR_COPY(path2, path, strlen(path));
+	if(len<0)
+		len=(int)strlen(path);
+	STR_COPY(path2, path, len);
 	for(ptrdiff_t k=0;k<(ptrdiff_t)path2->count;++k)//replace back slashes
 	{
 		if(path2->data[k]=='\\')
@@ -1926,9 +2654,8 @@ ArrayHandle filter_path(const char *path)//replaces back slashes with slashes, a
 		STR_APPEND(path2, "/", 1, 1);
 	return path2;
 }
-ArrayHandle get_filetitle(const char *fn, int len)
+void get_filetitle(const char *fn, int len, int *idx_start, int *idx_end)//pass -1 for len if unknown
 {
-	ArrayHandle title;
 	int kpoint, kslash;
 	if(len<0)
 		len=(int)strlen(fn);
@@ -1937,8 +2664,10 @@ ArrayHandle get_filetitle(const char *fn, int len)
 		kpoint=len;
 	for(kslash=kpoint-1;kslash>=0&&fn[kslash]!='/'&&fn[kslash]!='\\';--kslash);
 	++kslash;
-	STR_COPY(title, fn+kslash, kpoint-kslash);
-	return title;
+	if(idx_start)
+		*idx_start=kslash;
+	if(idx_end)
+		*idx_end=kpoint;
 }
 static const char* get_extension(const char *filename, ptrdiff_t len)//excludes the dot
 {
@@ -1955,15 +2684,25 @@ static const char* get_extension(const char *filename, ptrdiff_t len)//excludes 
 	return dot+1;
 #endif
 }
-void	free_str(void *p)
+static void free_str(void *p)
 {
 	ArrayHandle *str;
 	
 	str=(ArrayHandle*)p;
 	array_free(str);
 }
+#ifdef __linux__
+static int cmp_str(const void *p1, const void *p2)
+{
+	ArrayHandle const
+		*s1=(ArrayHandle const*)p1,
+		*s2=(ArrayHandle const*)p2;
+	return _stricmp((char*)s1[0]->data, (char*)s2[0]->data);
+}
+#endif
 ArrayHandle get_filenames(const char *path, const char **extensions, int extCount, int fullyqualified)
 {
+#if defined _MSC_VER || defined _WIN32
 	ArrayHandle searchpath, filename, filenames;
 	char c;
 	WIN32_FIND_DATAA data={0};
@@ -1974,7 +2713,7 @@ ArrayHandle get_filenames(const char *path, const char **extensions, int extCoun
 	int found;
 	
 	//prepare searchpath
-	searchpath=filter_path(path);
+	searchpath=filter_path(path, -1);
 	c='*';
 	STR_APPEND(searchpath, &c, 1, 1);
 
@@ -1986,8 +2725,11 @@ ArrayHandle get_filenames(const char *path, const char **extensions, int extCoun
 	STR_POPBACK(searchpath, 1);//pop the '*'
 	ARRAY_ALLOC(ArrayHandle, filenames, 0, 0, 0, free_str);
 
-	for(;(success=FindNextFileA(hSearch, &data));)
+	for(;;)
 	{
+		success=FindNextFileA(hSearch, &data);
+		if(!success)
+			break;
 		len=strlen(data.cFileName);
 		extension=get_extension(data.cFileName, len);
 		if(!(data.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY))
@@ -2004,8 +2746,9 @@ ArrayHandle get_filenames(const char *path, const char **extensions, int extCoun
 			if(found)
 			{
 				STR_ALLOC(filename, 0);
-				STR_APPEND(filename, searchpath->data, searchpath->count, 1);
-				STR_APPEND(filename, data.cFileName, strlen(data.cFileName), 1);
+				if(fullyqualified)
+					STR_APPEND(filename, searchpath->data, searchpath->count, 1);
+				STR_APPEND(filename, data.cFileName, len, 1);
 				ARRAY_APPEND(filenames, &filename, 1, 1, 0);
 			}
 		}
@@ -2013,6 +2756,45 @@ ArrayHandle get_filenames(const char *path, const char **extensions, int extCoun
 	success=FindClose(hSearch);
 	array_free(&searchpath);
 	return filenames;
+#elif defined __linux__
+	ArrayHandle searchpath, filename, filenames;
+	searchpath=filter_path(path, -1);
+	struct dirent *dir;
+	DIR *d=opendir((char*)searchpath->data);
+	if(!d)
+		return 0;
+	ARRAY_ALLOC(ArrayHandle, filenames, 0, 0, 0, free_str);
+	while((dir=readdir(d)))
+	{
+		if(dir->d_type==DT_REG)//regular file
+		{
+			const char *name=dir->d_name;
+			ptrdiff_t len=strlen(name);
+			const char *extension=get_extension(name, len);
+			int found=0;
+			for(int k=0;k<extCount;++k)
+			{
+				if(!acme_stricmp(extension, extensions[k]))
+				{
+					found=1;
+					break;
+				}
+			}
+			if(found)
+			{
+				STR_ALLOC(filename, 0);
+				if(fullyqualified)
+					STR_APPEND(filename, searchpath->data, searchpath->count, 1);
+				STR_APPEND(filename, name, len, 1);
+				ARRAY_APPEND(filenames, &filename, 1, 1, 0);
+			}
+		}
+	}
+	closedir(d);
+	array_free(&searchpath);
+	qsort(filenames->data, filenames->count, filenames->esize, cmp_str);
+	return filenames;
+#endif
 }
 
 ArrayHandle load_file(const char *filename, int bin, int pad, int erroronfail)
@@ -2020,27 +2802,37 @@ ArrayHandle load_file(const char *filename, int bin, int pad, int erroronfail)
 	struct stat info={0};
 	FILE *f;
 	ArrayHandle str;
-	char mode[3]={'r', bin?'b':0, 0};
+	char mode[3]={'r', bin?'b':'\0', 0};
 
-	int error=stat(filename, &info);
-	if(error)
+	int e2=stat(filename, &info);
+	if(e2)
 	{
 		if(erroronfail)
 		{
+#ifdef _MSC_VER
 			strerror_s(g_buf, G_BUF_SIZE, errno);
 			LOG_ERROR("Cannot open %s\n%s", filename, g_buf);
+#else
+			LOG_ERROR("Cannot open %s\n%s", filename, strerror(errno));
+#endif
 		}
 		return 0;
 	}
+#ifdef _MSC_VER
 	fopen_s(&f, filename, mode);
-	//f=fopen(filename, "r");
-	//f=fopen(filename, "r, ccs=UTF-8");//gets converted to UTF-16 on Windows
+#else
+	f=fopen(filename, mode);
+#endif
 	if(!f)
 	{
 		if(erroronfail)
 		{
+#ifdef _MSC_VER
 			strerror_s(g_buf, G_BUF_SIZE, errno);
 			LOG_ERROR("Cannot open %s\n%s", filename, g_buf);
+#else
+			LOG_ERROR("Cannot open %s\n%s", filename, strerror(errno));
+#endif
 		}
 		return 0;
 	}
@@ -2055,19 +2847,23 @@ int save_file(const char *filename, const unsigned char *src, size_t srcSize, in
 {
 	FILE *f;
 	size_t bytesRead;
-	char mode[]={'w', is_bin?'b':0, 0};
+	char mode[]={'w', is_bin?'b':'\0', 0};
 
+#ifdef _MSC_VER
 	fopen_s(&f, filename, mode);
+#else
+	f=fopen(filename, mode);
+#endif
 	if(!f)
 	{
-		printf("Failed to save %s\n", filename);
+		//printf("Failed to save %s\n", filename);
 		return 0;
 	}
 	bytesRead=fwrite(src, 1, srcSize, f);
 	fclose(f);
 	if(is_bin&&bytesRead!=srcSize)
 	{
-		printf("Failed to save %s\n", filename);
+		//printf("Failed to save %s\n", filename);
 		return 0;
 	}
 	return 1;
@@ -2088,4 +2884,110 @@ ArrayHandle searchfor_file(const char *searchpath, const char *filetitle)
 			array_free(&filename);
 	}
 	return filename;
+}
+
+int get_cpu_features(void)//returns  0: old CPU,  1: AVX2,  3: AVX-512
+{
+#ifdef _MSC_VER
+	int avx2=IsProcessorFeaturePresent(PF_AVX2_INSTRUCTIONS_AVAILABLE)!=0;
+	int avx512=IsProcessorFeaturePresent(PF_AVX512F_INSTRUCTIONS_AVAILABLE)!=0;
+#else
+	__builtin_cpu_init();
+	int avx2=__builtin_cpu_supports("avx2")!=0;
+	int avx512=__builtin_cpu_supports("avx512f")!=0;
+#endif
+	return avx512<<1|avx2;
+}
+int query_cpu_cores(void)
+{
+#ifdef _WIN32
+	SYSTEM_INFO info;
+	GetNativeSystemInfo(&info);
+	return info.dwNumberOfProcessors;
+#else
+	return sysconf(_SC_NPROCESSORS_ONLN);
+#endif
+}
+
+typedef struct _ThreadParam
+{
+	void (*func)(void*);
+	void *args;
+	void *handle;
+} ThreadParam;
+static THREAD_RET THREAD_CALL thread_caller(void *param)
+{
+	ThreadParam *args=(ThreadParam*)param;
+
+	args->func(args->args);
+	
+	return 0;
+}
+void* mt_exec(void (*func)(void*), void *args, int argbytes, int nthreads)
+{
+	ArrayHandle handles;
+
+	ARRAY_ALLOC(ThreadParam, handles, 0, nthreads, 0, 0);
+	if(!handles)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
+	for(int k=0;k<nthreads;++k)
+	{
+		ThreadParam *h;
+		int error;
+		
+		h=(ThreadParam*)array_at(&handles, k);
+		h->func=func;
+		h->args=(char*)args+argbytes*k;
+#ifdef _MSC_VER
+		h->handle=(void*)_beginthreadex(0, 0, thread_caller, h, 0, 0);
+		error=!h->handle;
+#else
+		error=pthread_create((pthread_t*)&h->handle, 0, thread_caller, h);
+#endif
+		if(error)
+		{
+			LOG_ERROR("Alloc error");
+			return 0;
+		}
+	}
+	return handles;
+}
+void mt_finish(void *ctx)
+{
+	ArrayHandle handles=(ArrayHandle)ctx;
+#ifdef _MSC_VER
+	ArrayHandle h2;
+	ARRAY_ALLOC(HANDLE, h2, 0, handles->count, 0, 0);
+	if(!h2)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	for(int k=0;k<(int)handles->count;++k)
+	{
+		ThreadParam *src;
+		HANDLE *dst;
+		
+		src=(ThreadParam*)array_at(&handles, k);
+		dst=(HANDLE*)array_at(&h2, k);
+		*dst=src->handle;
+	}
+	WaitForMultipleObjects((int)h2->count, (HANDLE*)h2->data, TRUE, INFINITE);
+	for(int k=0;k<(int)handles->count;++k)
+	{
+		HANDLE *h=(HANDLE*)array_at(&h2, k);
+		CloseHandle(*h);
+	}
+	array_free(&h2);
+#else
+	for(int k=0;k<(int)handles->count;++k)
+	{
+		ThreadParam *h=(ThreadParam*)array_at(&handles, k);
+		pthread_join((pthread_t)h->handle, 0);
+	}
+#endif
+	array_free(&handles);
 }

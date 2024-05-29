@@ -1,5 +1,4 @@
 #include"best.h"
-#include"ac.h"
 #include<stdio.h>
 #include<stdlib.h>
 #include<string.h>
@@ -8,6 +7,8 @@ static const char file[]=__FILE__;
 
 //	#define PRINT_SSE
 
+#define UNIFORM_DIST
+#include"ac.h"
 #define SLIC5_CONFIG_EXP 5
 #define SLIC5_CONFIG_MSB 2
 #define SLIC5_CONFIG_LSB 0
@@ -30,7 +31,7 @@ static void hybriduint_encode(unsigned val, HybridUint *hu)
 	}
 	else
 	{
-		int lgv=floor_log2_32((unsigned)val);
+		int lgv=FLOOR_LOG2((unsigned)val);
 		int mantissa=val-(1<<lgv);
 		token = (1<<SLIC5_CONFIG_EXP) + (
 				(lgv-SLIC5_CONFIG_EXP)<<(SLIC5_CONFIG_MSB+SLIC5_CONFIG_LSB)|
@@ -285,7 +286,7 @@ static void slic5_nextrow(SLIC5Ctx *pr, int ky)
 static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 {
 	int idx=(pr->iw*ky+kx)<<2|kc;
-	if(!(idx&(CDF_UPDATE_PERIOD-1))||idx<CDF_UPDATE_PERIOD&&(idx&15))
+	if(!(idx&(CDF_UPDATE_PERIOD-1))||(idx<CDF_UPDATE_PERIOD&&(idx&15)))
 		slic5_update_CDFs(pr);
 	//XY are flipped, no need to check if indices OOB due to padding
 	int
@@ -298,7 +299,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		NW      =LOAD(pr->pixels,  1, 1)<<PRED_PREC,
 		N       =LOAD(pr->pixels,  0, 1)<<PRED_PREC,
 		NE      =LOAD(pr->pixels, -1, 1)<<PRED_PREC,
-		NEE     =LOAD(pr->pixels, -2, 1)<<PRED_PREC,
+	//	NEE     =LOAD(pr->pixels, -2, 1)<<PRED_PREC,
 		WW      =LOAD(pr->pixels,  2, 0)<<PRED_PREC,
 		W       =LOAD(pr->pixels,  1, 0)<<PRED_PREC;
 	long long
@@ -448,7 +449,6 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx, int ky)
 		pr->sse_count[k]=(int)(sse_val&0xFFF);
 		pr->sse_sum[k]=(int)(sse_val>>12);
 		int sse_corr=pr->sse_count[k]?(int)(pr->sse_sum[k]/pr->sse_count[k]):0;
-		long long pred0=pr->pred;
 		pr->pred+=sse_corr;
 		pr->sse_corr+=sse_corr;
 
@@ -577,16 +577,19 @@ static void slic5_enc(SLIC5Ctx *pr, int curr, int kc, int kx, int ky)
 	if(hu.token>=pr->cdfsize)
 		LOG_ERROR("Token OOB %d/%d", hu.token, pr->cdfsize);
 
-	ac_enc(pr->ec, hu.token, pr->CDFs+(pr->cdfsize+1)*pr->hist_idx, pr->cdfsize, 1);
+	ac_enc(pr->ec, hu.token, pr->CDFs+(pr->cdfsize+1)*pr->hist_idx);
+	//ac_enc(pr->ec, hu.token, pr->CDFs+(pr->cdfsize+1)*pr->hist_idx, pr->cdfsize, 1);
 	if(hu.nbits)
 	{
 		int bypass=hu.bypass, nbits=hu.nbits;
 		while(nbits>8)
 		{
-			ac_enc(pr->ec, bypass>>(nbits-8)&0xFF, 0, 1<<8, 0x10000>>8);
+			ac_enc_bypass(pr->ec, bypass>>(nbits-8)&0xFF, 8);
+			//ac_enc(pr->ec, bypass>>(nbits-8)&0xFF, 0, 1<<8, 0x10000>>8);
 			nbits-=8;
 		}
-		ac_enc(pr->ec, bypass&((1<<nbits)-1), 0, 1<<nbits, 0x10000>>nbits);
+		ac_enc_bypass(pr->ec, bypass&((1<<nbits)-1), nbits);
+		//ac_enc(pr->ec, bypass&((1<<nbits)-1), 0, 1<<nbits, 0x10000>>nbits);
 	}
 
 	slic5_update(pr, curr, hu.token);
@@ -595,7 +598,8 @@ static int slic5_dec(SLIC5Ctx *pr, int kc, int kx, int ky)
 {
 	slic5_predict(pr, kc, kx, ky);
 
-	int token=ac_dec(pr->ec, pr->CDFs+(pr->cdfsize+1)*pr->hist_idx, pr->cdfsize, 1);
+	int token=ac_dec(pr->ec, pr->CDFs+(pr->cdfsize+1)*pr->hist_idx, pr->cdfsize);
+	//int token=ac_dec(pr->ec, pr->CDFs+(pr->cdfsize+1)*pr->hist_idx, pr->cdfsize, 1);
 	int error=token;
 	if(error>=(1<<SLIC5_CONFIG_EXP))
 	{
@@ -609,9 +613,11 @@ static int slic5_dec(SLIC5Ctx *pr, int kc, int kx, int ky)
 		while(n>8)
 		{
 			n-=8;
-			bypass|=ac_dec(pr->ec, 0, 1<<8, 0x10000>>8)<<n;
+			bypass|=ac_dec_bypass(pr->ec, 8)<<n;
+			//bypass|=ac_dec(pr->ec, 0, 1<<8, 0x10000>>8)<<n;
 		}
-		bypass|=ac_dec(pr->ec, 0, 1<<n, 0x10000>>n);
+		bypass|=ac_dec_bypass(pr->ec, n);
+		//bypass|=ac_dec(pr->ec, 0, 1<<n, 0x10000>>n);
 		error=1;
 		error<<=SLIC5_CONFIG_MSB;
 		error|=msb;
@@ -722,7 +728,7 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 	dlist_appendtoarray(&list, data);
 	if(loud)
 	{
-		double usize=image_getBMPsize(src);
+		double usize=(double)image_getBMPsize(src);
 		printf("\n");
 		printf("Encode elapsed ");
 		timedelta2str(0, 0, time_sec()-t_start);
@@ -749,10 +755,10 @@ int t47_encode(Image const *src, ArrayHandle *data, int loud)
 				for(int kx=0;kx<SSE_WIDTH;++kx)
 				{
 					long long val=curr_sse[SSE_WIDTH*ky+kx];
-					long long sum=val>>12;
 					int count=(int)(val&0xFFF);
-					int corr=count?(int)(sum/count):0;
 #ifdef PRINT_SSE
+					long long sum=val>>12;
+					int corr=count?(int)(sum/count):0;
 					printf("%7d%c", corr, kx<SSE_WIDTH-1?' ':'\n');
 #endif
 					if(count)

@@ -298,17 +298,19 @@ static int calic_ct(CalicState *state, int curr, int enc)//continuous-tone mode
 			else
 				sym=e2;
 
-			ac_enc(&state->ec, sym, CDF, nlevels, fmin);
+			ac_enc(&state->ec, sym, CDF);
+			//ac_enc(&state->ec, sym, CDF, nlevels, fmin);
 			if(state->loud)
 			{
 				state->csizes[state->kc]+=calc_bitsize(CDF, nlevels, sym);
 				if(!CDF)
-					state->bypass[state->kc]+=floor_log2_32(nlevels);
+					state->bypass[state->kc]+=FLOOR_LOG2(nlevels);
 			}
 		}
 		else
 		{
-			sym=ac_dec(&state->ec, CDF, nlevels, fmin);
+			sym=ac_dec(&state->ec, CDF, nlevels);
+			//sym=ac_dec(&state->ec, CDF, nlevels, fmin);
 			e2+=sym;
 		}
 
@@ -377,12 +379,14 @@ static int calic_bin(CalicState *state, int sym, int enc)//binary mode: 2 symbol
 	
 	if(enc)
 	{
-		ac_enc(&state->ec, sym, state->CDF, 3, fmin);
+		ac_enc(&state->ec, sym, state->CDF);
+		//ac_enc(&state->ec, sym, state->CDF, 3, fmin);
 		if(state->loud)
 			state->csizes[state->kc]+=calc_bitsize(state->CDF, 3, sym);
 	}
 	else
-		sym=ac_dec(&state->ec, state->CDF, 3, fmin);
+		sym=ac_dec(&state->ec, state->CDF, 3);
+		//sym=ac_dec(&state->ec, state->CDF, 3, fmin);
 	
 	hist[sym]+=state->bin_inc[state->beta];
 	sum+=state->bin_inc[state->beta];

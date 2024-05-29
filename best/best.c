@@ -3,314 +3,477 @@
 #include<stdlib.h>
 #include<string.h>
 #include<math.h>
-#include<time.h>
-#ifdef _MSC_VER
-#include<intrin.h>
-#include<Windows.h>
-#include<process.h>
-#define THREAD_CALL __stdcall
-typedef unsigned THREAD_RET;
-#else
-#include<x86intrin.h>
-#include<pthread.h>
-#define THREAD_CALL
-typedef void *THREAD_RET;
-#endif
 static const char file[]=__FILE__;
 
 
-#define CODECID     47
-#define CODECNAME "T47"
-#define ENCODE     t47_encode
-#define DECODE     t47_decode
-
-
-	#define BATCHTEST_PRINTTABLE
-
-
-const char *g_extensions[]=
+#define CODECLIST\
+	CODEC( 1000, MEMCPY,	"MEMCPY")\
+	CODEC(   39, T39,	"T39: 8-bit only, very efficient/slow, ABAC")\
+	CODEC(   42, T42,	"T42: 8-bit only, most efficient/slow, ABAC")\
+	CODEC(   45, T45,	"T45: 8-bit only, kind of efficient/fast, CALIC clone, supports color, fast, AC")\
+	CODEC(   46, T46,	"T46: [8~16] bit, moderate efficiency/speed, ANS")\
+	CODEC(   47, T47,	"T47: [8~16] bit, moderate efficiency/speed, AC")\
+	CODEC(   54, T54,	"T54: [8~16] bit, fast/inefficient, AC")\
+	CODEC( 1023, F23,	"F23: [8~16] bit, extremely fast/inefficient, multithreaded, GR")
+typedef enum CodecChoiceEnum
 {
-	"png",
-	"jpg",
-	"jpeg",
-	"ppm",
-	"pgm",
+#define CODEC(ID, NAME, DESC) CODEC_##NAME,
+	CODECLIST
+#undef  CODEC
+	CODEC_COUNT,
+} CodecChoice;
+static const char *codecnames[]=
+{
+#define CODEC(ID, NAME, DESC) #NAME,
+	CODECLIST
+#undef  CODEC
 };
+static const int codecIDs[]=
+{
+#define CODEC(ID, NAME, DESC) ID,
+	CODECLIST
+#undef  CODEC
+};
+static const char *codecdesc[]=
+{
+#define CODEC(ID, NAME, DESC) DESC,
+	CODECLIST
+#undef  CODEC
+};
+static int cli_select_codec(void)
+{
+	int choice=0;
+	printf("Input   Codec\n");
+	for(int k=0;k<_countof(codecIDs);++k)
+		printf("%3d\t%s\n", k, codecdesc[k]);
+	//printf(
+	//	"Input  Codec\n"
+	//	"  0     MEMCPY\n"
+	//	"  1     T39: 8-bit only, very efficient/slow, ABAC\n"
+	//	"  2     T42: 8-bit only, most efficient/slow, ABAC\n"
+	//	"  3     T45: 8-bit only, kind of efficient/slow, CALIC clone, supports color, fast, AC\n"
+	//	"  4     T46: [8~16] bit, moderate efficiency/slow, ANS\n"
+	//	"  5     T47: [8~16] bit, moderate efficiency/slow, AC\n"
+	//	"  6     T54: [8~16] bit, fast/inefficient, AC\n"
+	//	"  7     F23: [8~16] bit, extremely fast/inefficient, multithreaded, GR\n"
+	//);
+	for(;;)
+	{
+		printf("Choose a codec: ");
+		//printf("Enter 0 for T42 (better/slower, 8-bit only), other keys for T46 (faster, supports high bit depth): ");
+		while(!scanf("%d", &choice));
+		if((unsigned)choice<_countof(codecIDs))
+			break;
+		printf("Invalid choice \"%d\"\n\n", choice);
+	}
+	printf("\n");
+	return choice;
+}
+static int encode(const Image *src, const unsigned char *src8, int iw, int ih, ArrayHandle *cdata, int codecid, int loud)
+{
+	switch(codecid)
+	{
+	case CODEC_MEMCPY:
+		LOG_ERROR("TODO");
+		return 1;
+	case CODEC_T39:return t39_encode(src8, iw, ih, cdata, loud);
+	case CODEC_T42:return t42_encode(src8, iw, ih, cdata, loud);
+	case CODEC_T45:return t45_encode(src8, iw, ih, cdata, loud);
+	case CODEC_T46:return t46_encode(src, cdata, loud);
+	case CODEC_T47:return t47_encode(src, cdata, loud);
+	case CODEC_T54:return t54_encode(src, cdata, loud);
+	case CODEC_F23:return f23_encode(src, cdata, loud);
+	}
+	LOG_ERROR("Unsupported codec ID");
+	return 1;
+}
+static int decode(const unsigned char *cdata, size_t clen, int iw, int ih, unsigned char *dst8, Image *dst, int codecid, int loud)
+{
+	switch(codecid)
+	{
+	case CODEC_MEMCPY:
+		LOG_ERROR("TODO");
+		return 1;
+	case CODEC_T39:return t39_decode(cdata, clen, iw, ih, dst8, loud);
+	case CODEC_T42:return t42_decode(cdata, clen, iw, ih, dst8, loud);
+	case CODEC_T45:return t45_decode(cdata, clen, iw, ih, dst8, loud);
+	case CODEC_T46:return t46_decode(cdata, clen, dst, loud);
+	case CODEC_T47:return t47_decode(cdata, clen, dst, loud);
+	case CODEC_T54:return t54_decode(cdata, clen, dst, loud);
+	case CODEC_F23:return f23_decode(cdata, clen, dst, loud);
+	}
+	LOG_ERROR("Unsupported codec ID");
+	return 1;
+}
+static int codec_is_8bit(int codecid)
+{
+	return codecid==CODEC_T39||codecid==CODEC_T42||codecid==CODEC_T45;
+}
 
+typedef enum CodecModeEnum
+{
+	MODE_TEST,//enc, dec, compare
+	MODE_ENC,//PNG->LSIM
+	MODE_DEC,//LSIM->PNG
+} CodecMode;
 typedef struct ThreadArgsStruct
 {
-	ArrayHandle title;
 	Image *src, *dst;
-	//int iw, ih;
-	//unsigned char *src, *dst;
-	size_t usize, csize1, csize2;
-	double fdec, enc, dec;//time in secs
-	int error;//whether the image was recovered successfully
-	ptrdiff_t idx;
+	
+	unsigned char *src8, *dst8;
+	int iw, ih, nch, depth;
+
+	ArrayHandle cdata;
+	const char *dstfn;
+
+	int mode, loud, codecid, error;
+	ptrdiff_t idx, usize, csize1, csize2;
+	double fdec, enc, dec;
 } ThreadArgs;
-//static void free_threadargs(void *p)
-//{
-//	ThreadArgs *args=(ThreadArgs*)p;
-//	free(args->src);
-//	free(args->dst);
-//	args->dst=0;
-//}
-static THREAD_RET THREAD_CALL sample_thread(void *param)
+static int open_fancy(const char *fn, int _8bit_codec, ThreadArgs *arg, int point_idx, ptrdiff_t formatsize)
 {
-	ThreadArgs *args=(ThreadArgs*)param;
-	ArrayHandle cdata=0;
-
-	args->usize=(int)ceil(image_getBMPsize(args->src));
-
-	double t=time_sec();
-	ENCODE(args->src, &cdata, 0);
-	t=time_sec()-t;
-	args->enc=t;
-
-	args->csize2=cdata->count;
+	volatile double t;
 
 	t=time_sec();
-	DECODE(cdata->data, cdata->count, args->dst, 0);
-	t=time_sec()-t;
-	args->dec=t;
+	if(_8bit_codec)
+	{
+		extern unsigned char* stbi_load(char const *filename, int *x, int *y, int *channels_in_file, int desired_channels);
 
-	array_free(&cdata);
-	args->error=compare_bufs_32(args->dst->data, args->src->data, args->src->iw, args->src->ih, args->src->nch, 4, CODECNAME, 0, 0);
-	free(args->src);
-	free(args->dst);
-	args->dst=0;
+		arg->src8=stbi_load(fn, &arg->iw, &arg->ih, &arg->nch, 4);
+		if(!arg->src8)
+		{
+			if(arg->loud)
+				printf("Cannot open \"%s\"\n", fn);
+			return 1;
+		}
+		arg->depth=8;
+		arg->usize=(ptrdiff_t)arg->iw*arg->ih*arg->nch;
+	}
+	else
+	{
+		arg->src=image_load(fn);
+		if(!arg->src)
+		{
+			if(arg->loud)
+				printf("Cannot open \"%s\"\n", fn);
+			return 1;
+		}
+		arg->iw=arg->src->iw;
+		arg->ih=arg->src->ih;
+		arg->nch=arg->src->nch;
+		arg->depth=arg->src->src_depth[0];
+		arg->usize=image_getBMPsize(arg->src);
+	}
+	t=time_sec()-t;
+	arg->fdec=t;
+	
+	if(arg->loud)
+	{
+		printf("Opened %s in %lf sec  %lf MB/s  CWHD %d*%d*%d*%d  %td/%td bytes  %lf%%  CR %lf\n",
+			fn+point_idx,
+			t, arg->usize/(t*1024*1024),
+			arg->nch, arg->iw, arg->ih, arg->depth,
+			formatsize, arg->usize,
+			100.*formatsize/arg->usize, (double)arg->usize/formatsize
+		);
+	}
 	return 0;
 }
-typedef struct ResultStruct
+static void process_sample(void *param)
 {
-	//ptrdiff_t idx;
-	size_t usize, csize1, csize2, error;
-	double fdec, enc, dec;
-} Result;
-typedef struct ProcessCtxStruct
-{
-	int nstarted, nfinished;
-	ArrayHandle threadargs;//<ThreadArgs>	*thread_count
-	ArrayHandle results;//<Result>		*nsamples
-} ProcessCtx;
-static void print_result(Result *res, const char *title, int width)
+	ThreadArgs *args=(ThreadArgs*)param;
+	volatile double t;
+	ptrdiff_t datastart=0;
+	int _8bit_codec;
+
+	if(args->mode==MODE_TEST||args->mode==MODE_DEC)
+	{
+		LSIMHeader header={0};
+		if(args->mode==MODE_DEC)
+		{
+			datastart=lsim_readheader(args->cdata->data, args->cdata->count, &header);
+			args->iw=header.iw;
+			args->ih=header.ih;
+			args->nch=header.nch;
+			args->depth=header.depth[0];
+
+			args->codecid=-1;
+			for(int k=0;k<_countof(codecIDs);++k)
+			{
+				if(header.codec_id==codecIDs[k])
+				{
+					args->codecid=k;
+					break;
+				}
+			}
+			if(args->codecid<0)
+			{
+				LOG_ERROR("Unsupported codec ID  %d", header.codec_id);
+				return;
+			}
+		}
+		_8bit_codec=codec_is_8bit(args->codecid);
+		if(_8bit_codec)
+		{
+			args->usize=sizeof(char[4])*args->iw*args->ih;
+			args->dst8=(unsigned char*)malloc(args->usize);
+			if(!args->dst8)
+			{
+				LOG_ERROR("Alloc error");
+				return;
+			}
+			memset(args->dst8, 0, args->usize);
+		}
+		else
+		{
+			if(args->mode==MODE_DEC)
+				image_from_lsimheader(&args->dst, &header);
+			else
+			{
+				args->usize=image_getBMPsize(args->src);
+				image_copy_nodata(&args->dst, args->src);
+				if(!args->dst)
+				{
+					LOG_ERROR("Alloc error");
+					return;
+				}
+			}
+		}
+	}
+	else
+	{
+		char depths[4]={0};
+		memfill(depths, &args->depth, sizeof(char)*args->nch, sizeof(char));
+		lsim_writeheader(&args->cdata, args->iw, args->ih, args->nch, depths, args->codecid);
+		_8bit_codec=codec_is_8bit(args->codecid);
+	}
+
+	if(args->mode==MODE_TEST||args->mode==MODE_ENC)
+	{
+		t=time_sec();
+		encode(args->src, args->src8, args->iw, args->ih, &args->cdata, args->codecid, args->loud);
+		t=time_sec()-t;
+		args->enc=t;
+	}
+
+	if(!args->cdata)
+	{
+		LOG_ERROR("Encode error");
+		return;
+	}
+	args->csize2=args->cdata->count;
+	
+	if(args->mode==MODE_TEST||args->mode==MODE_DEC)
+	{
+		t=time_sec();
+		decode(args->cdata->data+datastart, args->cdata->count-datastart, args->iw, args->ih, args->dst8, args->dst, args->codecid, args->loud);
+		t=time_sec()-t;
+		args->dec=t;
+	}
+	
+	switch(args->mode)
+	{
+	case MODE_TEST:
+		if(_8bit_codec)
+			args->error=compare_bufs_uint8(args->dst8, args->src8, args->iw, args->ih, args->nch, 4, codecnames[args->codecid], 0, args->loud);
+		else
+			args->error=compare_bufs_32(args->dst->data, args->src->data, args->src->iw, args->src->ih, args->src->nch, 4, codecnames[args->codecid], 0, args->loud);
+		//args->error=compare(args->image, dst, args->image8, dst8, args->iw, args->ih, args->nch, args->codecid, args->loud);
+		break;
+	case MODE_ENC:
+		{
+			int success=save_file(args->dstfn, args->cdata->data, args->cdata->count, 1);
+			if(args->loud)
+				printf("%s  \"%s\".\n", success?"Saved":"Failed to save", args->dstfn);
+		}
+		break;
+	case MODE_DEC:
+		{
+			int error=0;
+			if(_8bit_codec)
+				error=image_save_buf8(args->dstfn, args->dst8, args->iw, args->ih, args->nch);
+			else
+				error=!image_save_native(args->dstfn, args->dst, !args->dst->depth[3]);
+			if(args->loud)
+				printf("%s  \"%s\".\n", error?"Failed to save":"Saved", args->dstfn);
+		}
+		break;
+	}
+
+	array_free(&args->cdata);
+	if(_8bit_codec)
+	{
+		free(args->src8);
+		free(args->dst8);
+	}
+	else
+	{
+		free(args->src);
+		free(args->dst);
+	}
+}
+static void print_result(ThreadArgs *res, const char *title, int titlecolumn, int print_timestamp, double elapsed)
 {
 	double
 		CR1=(double)res->usize/res->csize1,
 		CR2=(double)res->usize/res->csize2;
-	printf("%-*s  %10lld  format %10lld %10.6lf D %12lf sec  test %10lld %10.6lf E %12lf D %12lf sec %s\n",
-		width, title, res->usize,
-		res->csize1, CR1, res->fdec,
-		res->csize2, CR2, res->enc, res->dec, res->error?"ERROR":"SUCCESS"
+	printf(
+		"%-*s  %10zd  format %10zd %10.6lf%% %12lf sec %8.3lf MB/s  test %10zd %10.6lf%% %12lf %12lf sec  %8.3lf %8.3lf MB/s %s",
+		titlecolumn, title, res->usize,
+		res->csize1, 100./CR1, res->fdec,
+		res->usize/(res->fdec*1024*1024),
+		res->csize2, 100./CR2, res->enc, res->dec,
+		res->usize/(res->enc*1024*1024),
+		res->usize/(res->dec*1024*1024),
+		res->error?"ERROR":"OK"
 	);
+	if(print_timestamp)
+	{
+		printf(" ");
+		timedelta2str(0, 0, elapsed);
+	}
+	printf("\n");
 }
-static void process_file(ProcessCtx *ctx, ArrayHandle title, int maxlen, Image *image, size_t csize1, double fdec, ptrdiff_t idx, int nthreads)
+static void batch_test(const char *path, int nthreads)
 {
-	if(!ctx->nstarted)
+	static const char *ext[]=
 	{
-		ARRAY_ALLOC(ThreadArgs, ctx->threadargs, 0, 0, nthreads, 0);
-		ARRAY_ALLOC(Result, ctx->results, 0, 0, 0, 0);
-	}
+		"PNG",
+		"JPG", "JPEG",
+		"PPM", "PGM",
+		"BMP",
+		"TIF", "TIFF",
+	};
 
-	if(image)
-	{
-		ThreadArgs *threadargs=(ThreadArgs*)ARRAY_APPEND(ctx->threadargs, 0, 1, 1, 0);
-		size_t res=(size_t)image->iw*image->ih;
-		threadargs->src=image;
-		image_copy_nodata(&threadargs->dst, image);
-		if(!threadargs->dst)
-		{
-			LOG_ERROR("Alloc error");
-			return;
-		}
-		memset(threadargs->dst->data, 0, res*sizeof(int[4]));
-		threadargs->title=title;
-		threadargs->usize=0;
-		threadargs->csize1=csize1;
-		threadargs->csize2=0;
-		threadargs->fdec=fdec;
-		threadargs->enc=0;
-		threadargs->dec=0;
-		threadargs->error=0;
-		threadargs->idx=idx;
-		++ctx->nstarted;
-	}
+	int codecid, _8bit_codec;
+	ArrayHandle filenames, titles, threadargs;
+	int titlecolumn;
+	volatile double t_start;
+	ThreadArgs total={0};
 
-	if(ctx->nstarted==1)//first sample initializes memory, can't parallelize yet
-	{
-		ThreadArgs *threadargs=array_at(&ctx->threadargs, ctx->threadargs->count-1);
-		sample_thread(threadargs);
-		Result result=
-		{
-			threadargs->usize,
-			threadargs->csize1,
-			threadargs->csize2,
-			threadargs->error,
-			threadargs->fdec,
-			threadargs->enc,
-			threadargs->dec,
-		};
-		ARRAY_APPEND(ctx->results, &result, 1, 1, 0);
-		print_result(&result, (char*)threadargs->title->data, maxlen);
-
-		array_clear(&ctx->threadargs);
-		ctx->nfinished=ctx->nstarted;
-	}
-	else if(ctx->nstarted-ctx->nfinished>=nthreads)
-	{
-		int n=ctx->nstarted-ctx->nfinished;
-		ArrayHandle handles;
-#ifdef _MSC_VER
-		ARRAY_ALLOC(HANDLE, handles, 0, n, 0, 0);
-		for(int k=0;k<n;++k)
-		{
-			HANDLE *h=(HANDLE*)array_at(&handles, k);
-			ThreadArgs *threadargs=(ThreadArgs*)array_at(&ctx->threadargs, k);
-			*h=(void*)_beginthreadex(0, 0, sample_thread, threadargs, 0, 0);
-			if(!*h)
-			{
-				LOG_ERROR("Alloc error");
-				return;
-			}
-		}
-		WaitForMultipleObjects(n, (HANDLE*)handles->data, TRUE, INFINITE);
-		for(int k=0;k<n;++k)
-		{
-			HANDLE *h=(HANDLE*)array_at(&handles, k);
-			CloseHandle(*h);
-		}
-#else
-		ARRAY_ALLOC(pthread_t, handles, 0, n, 0, 0);
-		for(int k=0;k<n;++k)
-		{
-			pthread_t *h=(pthread_t*)array_at(&handles, k);
-			ThreadArgs *threadargs=(ThreadArgs*)array_at(&ctx->threadargs, k);
-			int error=pthread_create(h, 0, sample_thread, threadargs);
-			if(error)
-			{
-				LOG_ERROR("Alloc error");
-				return;
-			}
-		}
-		for(int k=0;k<n;++k)
-		{
-			pthread_t *h=(pthread_t*)array_at(&handles, k);
-			pthread_join(*h, 0);
-		}
-#endif
-		
-		for(int k=0;k<n;++k)
-		{
-			ThreadArgs *threadargs=(ThreadArgs*)array_at(&ctx->threadargs, k);
-			Result result=
-			{
-				threadargs->usize,
-				threadargs->csize1,
-				threadargs->csize2,
-				threadargs->error,
-				threadargs->fdec,
-				threadargs->enc,
-				threadargs->dec,
-			};
-			ARRAY_APPEND(ctx->results, &result, 1, 1, 0);
-			print_result(&result, (char*)threadargs->title->data, maxlen);
-			//print_result(&result, ctx->nfinished+k+1);
-		}
-
-		array_clear(&ctx->threadargs);
-		ctx->nfinished=ctx->nstarted;
-	}
-}
-void batch_test_mt(const char *path, int nthreads)
-{
+	//print date & time
 	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H%M%S");
 	printf("%s\n", g_buf);
-	printf("Multithreaded Batch Test\n");
-	double t_start=time_sec();
-	ArrayHandle filenames=get_filenames(path, g_extensions, _countof(g_extensions), 1);
+
+	//read directory
+	filenames=get_filenames(path, ext, _countof(ext), 1);
 	if(!filenames)
 	{
 		printf("No supported images in \"%s\"\n", path);
 		return;
 	}
-	ArrayHandle titles;
 	ARRAY_ALLOC(ArrayHandle, titles, 0, 0, filenames->count, (void(*)(void*))array_free);
-	int width=6;//"Total:"
+	titlecolumn=6;//"Total:"
 	for(int k=0;k<(int)filenames->count;++k)
 	{
+		ArrayHandle title;
 		ArrayHandle *fn=(ArrayHandle*)array_at(&filenames, k);
-		ArrayHandle title=get_filetitle((char*)fn[0]->data, (int)fn[0]->count);
-		if(width<(int)title->count)
-			width=(int)title->count;
+		int start=0, end=0;
+		get_filetitle((char*)fn[0]->data, (int)fn[0]->count, &start, &end);
+		STR_COPY(title, (char*)fn[0]->data+start, end-start);
+		if(titlecolumn<(int)title->count)
+			titlecolumn=(int)title->count;
 		ARRAY_APPEND(titles, &title, 1, 1, 0);
 	}
-	ProcessCtx processctx={0};
+
+	//select codec
+	codecid=cli_select_codec();
+	_8bit_codec=codec_is_8bit(codecid);
+	printf("Multithreaded Batch Test  %s\n", codecnames[codecid]);
+	if(codecid==CODEC_F23&&nthreads!=1)
+	{
+		printf("F23 is already multithreaded, defaulting to 1 thread\n");
+		nthreads=1;
+	}
+	ARRAY_ALLOC(ThreadArgs, threadargs, 0, 0, nthreads, 0);
+
+	t_start=time_sec();
 	for(int k=0;k<(int)filenames->count;++k)
 	{
-		ArrayHandle *fn=(ArrayHandle*)array_at(&filenames, k);
-		ArrayHandle *title=(ArrayHandle*)array_at(&titles, k);
+		ArrayHandle *fn0=(ArrayHandle*)array_at(&filenames, k);
+		const char *fn=(char*)fn0[0]->data;
+		ThreadArgs arg={0};
+		
+		arg.csize1=get_filesize(fn);
 
-		ptrdiff_t formatsize=get_filesize((char*)fn[0]->data);
-		if(!formatsize||formatsize==-1)//skip non-images, this check is useless because get_filenames() has already filtered the list
+		arg.error=open_fancy(fn, _8bit_codec, &arg, 0, arg.csize1);
+		if(arg.error)
 			continue;
+		
+		arg.mode=MODE_TEST;
+		arg.loud=0;
+		arg.codecid=codecid;
+		arg.idx=k;
+		ARRAY_APPEND(threadargs, &arg, 1, 1, 0);
+		if((int)threadargs->count>=nthreads||k+1>=(int)filenames->count)
+		{
+			volatile double t;
 
-		double t=time_sec();
-		Image *image=image_load((char*)fn[0]->data);
-		t=time_sec()-t;
-		if(!image)
-		{
-			printf("Cannot open \"%s\"\n", fn[0]->data);
-			continue;
+			t=time_sec();
+			if(threadargs->count==1)
+				process_sample(threadargs->data);
+			else
+			{
+				void *hthreads=mt_exec(process_sample, threadargs->data, (int)threadargs->esize, (int)threadargs->count);
+				mt_finish(hthreads);
+			}
+			t=time_sec()-t;
+			for(int k2=0;k2<(int)threadargs->count;++k2)
+			{
+				ThreadArgs *res=(ThreadArgs*)array_at(&threadargs, k2);
+				ArrayHandle *title=(ArrayHandle*)array_at(&titles, res->idx);
+				print_result(res, (char*)title[0]->data, titlecolumn, k2>=(int)threadargs->count-1, t);
+
+				total.usize+=res->usize;
+				total.csize1+=res->csize1;
+				total.csize2+=res->csize2;
+				total.fdec+=res->fdec;
+				total.enc+=res->enc;
+				total.dec+=res->dec;
+			}
+			array_clear(&threadargs);
 		}
-		process_file(&processctx, *title, width, image, formatsize, t, k, nthreads);
 	}
-	process_file(&processctx, 0, width, 0, 0, 0, 0, 0);//set nthreads=0 to flush queued images
-	if(processctx.results)
-	{
-		Result total={0};
-		for(int k=0;k<processctx.results->count;++k)
-		{
-			Result *result=(Result*)array_at(&processctx.results, k);
-			total.usize+=result->usize;
-			total.csize1+=result->csize1;
-			total.csize2+=result->csize2;
-			total.error+=result->error;
-			total.fdec+=result->fdec;
-			total.enc+=result->enc;
-			total.dec+=result->dec;
-		}
-		printf("\n");
-		print_result(&total, "Total:", width);
-		array_free(&processctx.results);
-	}
-	printf("Batch elapsed ");
-	timedelta2str(0, 0, time_sec()-t_start);
-	printf("\n");
+	t_start=time_sec()-t_start;
+	print_result(&total, "Total:", titlecolumn, 1, t_start);
 	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H%M%S");
-	printf("Finish %s\n", g_buf);
-
+	printf("%s elapsed %lf sec\n", g_buf, t_start);
 	array_free(&filenames);
+	array_free(&titles);
+	array_free(&threadargs);
 }
 
-void print_usage(const char *argv0)
+static void print_usage(const char *argv0)
 {
 	//skip the full path if present, to print only the program title
-	int len=(int)strlen(argv0), ks;
-	for(ks=len-1;ks>=0&&argv0[ks]!='/'&&argv0[ks]!='\\';--ks);
-	++ks;
-	len-=ks;
-	argv0+=ks;
+	int start=0, end=0;
+	get_filetitle(argv0, -1, &start, &end);
+	argv0+=start;
+	end-=start;
+	printf("Usage:\n");
+	printf(" %.*s  srcfn                     Test the current codec.\n",					end, argv0);
+	printf(" %.*s  folder  [nthreads]        Test the current codec on all images in the folder.\n",	end, argv0);
+	printf(" %.*s  c/e  srcfn  dstfn.LSIM    Losslessly encode src image to dst.\n",			end, argv0);
+	printf(" %.*s  d  srcfn.LSIM  dstfn.PNG  Losslessly decode src image to dst as a PNG file.\n",		end, argv0);
+	printf(" %.*s  t  im1  im2               Measure MSE & PSNR between two images.\n",			end, argv0);
 
+#if 0
 	printf(
 		"Usage:\n"
-		" %s  <srcfn>                       Test the current codec.\n"
-		" %s  <folder>  [<nthreads>]        Test the current codec on all images in the folder.\n"
-		" %*s                                nthreads defaults to 1.\n"
-		" %s  c  <srcfn>  <dstfn.LSIM>      Losslessly encode src image to dst.\n"
-		" %s  d  <srcfn.LSIM>  <dstfn.PNG>  Losslessly decode src image to dst as a PNG file.\n"
-		" %s  t  <im1>  <im2>               Measure MSE & PSNR between two images.\n",
-		argv0, argv0, len, "", argv0, argv0, argv0
+		" %.*s  srcfn                     Test the current codec.\n"
+		" %.*s  folder  [nthreads]        Test the current codec on all images in the folder.\n"
+		 " %*s                                nthreads defaults to 1.\n"
+		" %.*s  c  srcfn  dstfn.LSIM      Losslessly encode src image to dst.\n"
+		" %.*s  d  srcfn.LSIM  dstfn.PNG  Losslessly decode src image to dst as a PNG file.\n"
+		" %.*s  t  im1  im2               Measure MSE & PSNR between two images.\n",
+		end, argv0,
+		end, argv0,
+		end, "",
+		end, argv0,
+		end, argv0,
+		end, argv0
 	);
+#endif
 }
 typedef enum ProgOpEnum
 {
@@ -372,6 +535,7 @@ static int parse_cmdargs(int argc, char **argv, ProgArgs *args)
 		{
 		case 'C':args->op=OP_COMPRESS;break;
 		case 'D':args->op=OP_DECOMPRESS;break;
+		case 'E':args->op=OP_COMPRESS;break;
 		case 'T':args->op=OP_COMPARE;break;
 		}
 		args->nthreads=1;
@@ -384,171 +548,79 @@ static int parse_cmdargs(int argc, char **argv, ProgArgs *args)
 	}
 	return 1;//valid
 }
-static void test_one(const char *fn, ptrdiff_t formatsize)
+
+static void test_one_file(const char *fn, ptrdiff_t formatsize)
 {
+	ThreadArgs arg={0};
+	int codecid, _8bit_codec;
+	int start=0, end=0;
+
+	get_filetitle(fn, -1, &start, &end);
+
 	if(!formatsize)
 		formatsize=get_filesize(fn);
-	printf("Testing \"%s\"\n", fn);
+	if(formatsize<1)
+	{
+		printf("Not a valid file  \"%s\"", fn);
+		return;
+	}
 	
-	printf(
-		"Input  Method\n"
-		"  1     T39 (8-bit only): older codec\n"
-		"  2     T42 (8-bit only): more efficient, slower\n"
-		"  3     T45 (8-bit only): CALIC clone, supports color images\n"
-		"  4     T46: supports high bit depth, faster\n"
-		"  5...  T47: supports high bit depth, more efficient\n"
-		"Enter a choice: "
-	);
-	//printf("Enter 0 for T42 (better/slower, 8-bit only), other keys for T46 (faster, supports high bit depth): ");
-	int choice=0;
-	while(!scanf("%d", &choice));
-	switch(choice)
-	{
-	case 1:
-	case 2:
-	case 3:
-		{
-			extern unsigned char* stbi_load(char const *filename, int *x, int *y, int *channels_in_file, int desired_channels);
-			double t=time_sec();
-			int iw=0, ih=0, nch=0;
-			unsigned char *image=stbi_load(fn, &iw, &ih, &nch, 4);
-			t=time_sec()-t;
-			if(!image)
-			{
-				printf("Cannot open \"%s\"\n", fn);
-				return;
-			}
-			size_t usize=(size_t)iw*ih*nch;
-			printf("Opened in %lf sec  csize %lld  CR %lf\n", t, formatsize, (double)usize/formatsize);
-			unsigned char *buf2=(unsigned char*)malloc(sizeof(char[4])*iw*ih);
-			if(!buf2)
-			{
-				LOG_ERROR("Alloc error");
-				return;
-			}
-			memset(buf2, 0, sizeof(char[4])*iw*ih);
-
-			ArrayHandle data=0;
-			switch(choice)
-			{
-			case 1://older binary coder
-				t39_encode(image, iw, ih, &data, 1);
-				t39_decode(data->data, data->count, iw, ih, buf2, 1);
-				compare_bufs_uint8(buf2, image, iw, ih, nch, 4, "T39", 0, 1);
-				break;
-			case 2://efficient but slow binary coder
-				t42_encode(image, iw, ih, &data, 1);
-				t42_decode(data->data, data->count, iw, ih, buf2, 1);
-				compare_bufs_uint8(buf2, image, iw, ih, nch, 4, "T42", 0, 1);
-				break;
-			case 3://CALIC clone
-				t45_encode(image, iw, ih, &data, 1);
-				t45_decode(data->data, data->count, iw, ih, buf2, 1);
-				compare_bufs_uint8(buf2, image, iw, ih, nch, 4, "T45", 0, 1);
-				break;
-			}
-
-
-			array_free(&data);
-			free(buf2);
-			free(image);
-		}
-		return;
-	}
-
-	double t=time_sec();
-	Image *src=image_load(fn);
-	t=time_sec()-t;
-	if(!src)
-	{
-		printf("Cannot open \"%s\"\n", fn);
-		return;
-	}
-	double usize=image_getBMPsize(src);
-	printf("Opened in %lf sec  csize %lld  CR %lf\n", t, formatsize, usize/formatsize);
-
-	//encode
-	ArrayHandle cdata=0;
-	if(choice==4)
-		t46_encode(src, &cdata, 1);
-	else
-		t47_encode(src, &cdata, 1);
-	if(!cdata)
-	{
-		printf("Encode error\n");
-		return;
-	}
-#if 1
-	//decode
-	Image *dst=0;
-	image_copy_nodata(&dst, src);
-	if(!dst)
-	{
-		LOG_ERROR("Alloc error");
-		return;
-	}
-	size_t res=(size_t)dst->iw*dst->ih;
-	memset(dst->data, 0, res*sizeof(int[4]));
+	codecid=cli_select_codec();
+	_8bit_codec=codec_is_8bit(codecid);
 	
-	//rct_JPEG2000_32(src, 1);
-	if(choice==4)
-		t46_decode(cdata->data, cdata->count, dst, 1);
-	else
-		t47_decode(cdata->data, cdata->count, dst, 1);
+	printf("Testing  \"%s\"\n", fn);
 
-	//check & cleanup
-	compare_bufs_32(dst->data, src->data, src->iw, src->ih, 3, 4, CODECNAME, 0, 1);
-	//memset(dst->data, 0, res*sizeof(int[4]));
-#endif
-	printf("\n");
-
-	array_free(&cdata);
-	free(src);
-	free(dst);
+	arg.mode=MODE_TEST;
+	arg.loud=1;
+	arg.codecid=codecid;
+	arg.csize1=formatsize;
+	open_fancy(fn, _8bit_codec, &arg, end, formatsize);
+	
+	process_sample(&arg);
 }
-static void encode(const char *srcfn, const char *dstfn)
+static void encode_one_file(const char *srcfn, const char *dstfn)
 {
-	printf("Encoding \"%s\"\n", srcfn);
-	Image *src=image_load(srcfn);
-	if(!src)
+	ThreadArgs arg={0};
+	int codecid, _8bit_codec;
+	int start=0, end=0;
+	ptrdiff_t formatsize;
+
+	get_filetitle(srcfn, -1, &start, &end);
+
+	formatsize=get_filesize(srcfn);
+	if(formatsize<1)
 	{
-		printf("Cannot open \"%s\"\n", srcfn);
+		printf("Not a valid file  \"%s\"", srcfn);
 		return;
 	}
-	ArrayHandle cdata=0;
-	lsim_writeheader(&cdata, src->iw, src->ih, src->nch, src->src_depth, CODECID);
-	ENCODE(src, &cdata, 1);
+	
+	codecid=cli_select_codec();
+	_8bit_codec=codec_is_8bit(codecid);
+	
+	printf("Testing  \"%s\"\n", srcfn);
 
-	int success=save_file(dstfn, cdata->data, cdata->count, 1);
-	printf("%s\n", success?"Saved.":"Failed to save.");
-
-	array_free(&cdata);
-	free(src);
+	arg.mode=MODE_ENC;
+	arg.loud=1;
+	arg.codecid=codecid;
+	arg.csize1=formatsize;
+	open_fancy(srcfn, _8bit_codec, &arg, end, formatsize);
+	
+	process_sample(&arg);
 }
-static void decode(const char *srcfn, const char *dstfn)
+static void decode_one_file(const char *srcfn, const char *dstfn)
 {
-	printf("Decoding \"%s\"\n", srcfn);
-	ArrayHandle cdata=load_file(srcfn, 1, 16, 0);
-	if(!cdata)
+	ThreadArgs arg={0};
+	
+	printf("Decoding  \"%s\"\n", srcfn);
+	arg.cdata=load_file(srcfn, 1, 16, 0);
+	if(!arg.cdata)
 	{
 		printf("Cannot open \'%s\'", srcfn);
 		return;
 	}
-	LSIMHeader header;
-	size_t idx=lsim_readheader(cdata->data, cdata->count, &header);
-	Image *image=0;
-	image_from_lsimheader(&image, &header);
-
-	int success=DECODE(cdata->data+idx, cdata->count-idx, image, 1);
-	array_free(&cdata);
-	if(!success)
-	{
-		printf("Failed to decode \'%s\'", srcfn);
-		return;
-	}
-	success=image_save_native(dstfn, image, !image->depth[3]);
-	printf("%s\n", success?"Saved.":"Failed to save.");
-	free(image);
+	arg.mode=MODE_DEC;
+	arg.loud=1;
+	process_sample(&arg);
 }
 static void compare(const char *fn1, const char *fn2)
 {
@@ -578,10 +650,10 @@ static void compare(const char *fn1, const char *fn2)
 			dg=im1->data[k<<2|1]-im2->data[k<<2|1],
 			db=im1->data[k<<2|2]-im2->data[k<<2|2],
 			da=im1->data[k<<2|3]-im2->data[k<<2|3];
-		sum[0]+=dr*dr;
-		sum[1]+=dg*dg;
-		sum[2]+=db*db;
-		sum[3]+=da*da;
+		sum[0]+=(long long)dr*dr;
+		sum[1]+=(long long)dg*dg;
+		sum[2]+=(long long)db*db;
+		sum[3]+=(long long)da*da;
 	}
 	int nch=get_nch32(im1->data, res);
 	double rmse[]=
@@ -611,10 +683,13 @@ static void compare(const char *fn1, const char *fn2)
 }
 ProgArgs args=
 {
-	OP_TESTFILE, 1, 0,//op, nthreads, formatsize
+	OP_TESTFILE, 1, 0,//operation, nthreads, formatsize
+
+	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
+//	"D:/ML/big_building.PPM"
 
 //	"C:/Projects/datasets/dataset-kodak/kodim02.png",
-	"C:/Projects/datasets/dataset-kodak/kodim13.png",
+//	"C:/Projects/datasets/dataset-kodak/kodim13.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/artificial.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/big_building.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/cathedral.png",
@@ -632,16 +707,16 @@ int main(int argc, char **argv)
 		print_usage(argv[0]);
 		break;
 	case OP_TESTFILE:
-		test_one(args.fn1, args.formatsize);
+		test_one_file(args.fn1, args.formatsize);
 		break;
 	case OP_TESTFOLDER:
-		batch_test_mt(args.fn1, args.nthreads);
+		batch_test(args.fn1, args.nthreads);
 		break;
 	case OP_COMPRESS:
-		encode(args.fn1, args.fn2);
+		encode_one_file(args.fn1, args.fn2);
 		break;
 	case OP_DECOMPRESS:
-		decode(args.fn1, args.fn2);
+		decode_one_file(args.fn1, args.fn2);
 		break;
 	case OP_COMPARE:
 		compare(args.fn1, args.fn2);

@@ -40,7 +40,7 @@ void hybriduint_encode(int val, TempHybrid *hu)
 	}
 	else
 	{
-		int lgv=floor_log2_32((unsigned)val);
+		int lgv=FLOOR_LOG2((unsigned)val);
 		int mantissa=val-(1<<lgv);
 		token = (1<<SLIC4_CONFIG_EXP) + (
 				(lgv-SLIC4_CONFIG_EXP)<<(SLIC4_CONFIG_MSB+SLIC4_CONFIG_LSB)|
@@ -137,7 +137,7 @@ int t46_encode(Image const *src, ArrayHandle *data, int loud)
 	double t_start=time_sec();
 	ptrdiff_t res=(ptrdiff_t)src->iw*src->ih;
 	int maxdepth=calc_maxdepth(src, 0), maxlevels=1<<maxdepth;
-	double usize=image_getBMPsize(src);
+	double usize=(double)image_getBMPsize(src);
 	int nch=src->nch;
 	if(loud)
 	{

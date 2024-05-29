@@ -17,13 +17,14 @@ typedef struct ImageStruct
 	int data[];//stride always sizeof(int[4])
 } Image;
 Image* image_load(const char *fn);
-int image_save_uint8(const char *fn, Image const *image, int override_alpha);
-int image_save_native(const char *fn, Image const *image, int override_alpha);
+int image_save_native(const char *fn, Image const *image, int override_alpha);		//[8~16] -> [8~16]
+int image_save_uint8(const char *fn, Image const *image, int override_alpha);		//[8~16] -> 8
+int image_save_buf8(const char *fn, const unsigned char *buf, int iw, int ih, int nch);	//8 -> 8
 Image* image_from_uint8(const unsigned char *src, int iw, int ih, int nch, char rdepth, char gdepth, char bdepth, char adepth);
 Image* image_from_uint16(const unsigned short *src, int iw, int ih, int nch, char *src_depths, char *dst_depths);
 void image_export_uint8(Image const *image, unsigned char **dst, int override_alpha);
 void image_export_uint16(Image const *image, unsigned short **dst, int override_alpha, int big_endian);
-double image_getBMPsize(Image const *image);
+ptrdiff_t image_getBMPsize(Image const *image);
 size_t image_getbufsize(Image const *image);
 void image_copy_nodata(Image **dst, Image const *src);//dst must be 0 or a valid pointed
 void image_copy(Image **dst, Image const *src);//dst must be 0 or a valid pointed
@@ -53,14 +54,16 @@ void colortransform_JPEG2000_fwd(char *buf, int iw, int ih);
 void colortransform_JPEG2000_inv(char *buf, int iw, int ih);
 void colortransform_YCbCr_R_v0_fwd(char *buf, int iw, int ih);
 void colortransform_YCbCr_R_v0_inv(char *buf, int iw, int ih);
-	
+
+//T39 ABAC
 int t39_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);
 int t39_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
 
+//T42 ABAC
 int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);
 int t42_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
 
-//CALIC
+//T45 CALIC
 int t45_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);
 int t45_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *pixels, int loud);
 
@@ -68,9 +71,20 @@ int t45_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 int t46_encode(Image const *src, ArrayHandle *data, int loud);
 int t46_decode(const unsigned char *data, size_t srclen, Image *dst, int loud);
 
-//CLICv5
+//SLICv5
 int t47_encode(Image const *src, ArrayHandle *data, int loud);
 int t47_decode(const unsigned char *data, size_t srclen, Image *dst, int loud);
+
+//	T54 Tries to be fast, slightly sacrificing efficiency
+int	t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
+#define t54_encode(SRC, DATA, LOUD)		t54_codec(SRC, DATA, 0, 0, 0, LOUD)
+#define t54_decode(CBUF, CSIZE, DST, LOUD)	t54_codec(0, 0, CBUF, CSIZE, DST, LOUD)
+
+
+//	F23 lossless multithreaded block-based
+int	f23_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
+#define f23_encode(SRC, DATA, LOUD)		f23_codec(SRC, DATA, 0, 0, 0, LOUD)
+#define f23_decode(CBUF, CSIZE, DST, LOUD)	f23_codec(0, 0, CBUF, CSIZE, DST, LOUD)
 
 
 #ifdef __cplusplus
