@@ -27,11 +27,13 @@
 #ifdef _MSC_VER
 #include<intrin.h>
 #else
+#include<x86intrin.h>
 #include<unistd.h>
 #endif
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include<Windows.h>//QueryPerformance...
+#include<processthreadsapi.h>
 #include<conio.h>
 #else
 #include<dirent.h>
@@ -40,6 +42,15 @@
 #ifndef _HUGE
 #define _HUGE	HUGE_VAL
 #endif
+#endif
+#if defined _MSC_VER && defined _WIN32
+#include<process.h>
+#define THREAD_CALL __stdcall
+typedef unsigned THREAD_RET;
+#else
+#include<pthread.h>
+#define THREAD_CALL
+typedef void *THREAD_RET;
 #endif
 static const char file[]=__FILE__;
 
@@ -98,6 +109,39 @@ void memreverse(void *p, size_t count, size_t esize)
 	}
 	free(temp);
 }
+void reverse16(void *start, void *end)
+{
+	__m256i reverse=_mm256_set_epi8(
+		 1,  0,  3,  2,  5,  4,  7,  6,  9,  8, 11, 10, 13, 12, 15, 14,
+		 1,  0,  3,  2,  5,  4,  7,  6,  9,  8, 11, 10, 13, 12, 15, 14
+		// 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15,
+		// 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15
+	);
+	unsigned short
+		*p1=(unsigned short*)start,
+		*p2=(unsigned short*)end;
+	while(p1<p2-(sizeof(__m256i)/sizeof(short)-1))
+	{
+		p2-=sizeof(__m256i)/sizeof(short);
+		__m256i v1=_mm256_loadu_si256((__m256i*)p1);
+		__m256i v2=_mm256_loadu_si256((__m256i*)p2);
+		v1=_mm256_shuffle_epi8(v1, reverse);
+		v2=_mm256_shuffle_epi8(v2, reverse);
+		v1=_mm256_permute2x128_si256(v1, v1, 1);
+		v2=_mm256_permute2x128_si256(v2, v2, 1);
+		_mm256_store_si256((__m256i*)p1, v2);
+		_mm256_store_si256((__m256i*)p2, v1);
+		p1+=sizeof(__m256i)/sizeof(short);
+	}
+	while(p1<p2-1)
+	{
+		--p2;
+		unsigned short temp=*p1;
+		*p1=*p2;
+		*p2=temp;
+		++p1;
+	}
+}
 void memrotate(void *p, size_t byteoffset, size_t bytesize, void *temp)//temp buffer is min(byteoffset, bytesize-byteoffset)
 {
 	unsigned char *buf=(unsigned char*)p;
@@ -119,34 +163,29 @@ int binary_search(const void *base, size_t count, size_t esize, int (*threeway)(
 {
 	const unsigned char *buf=(const unsigned char*)base;
 #if 1
-	ptrdiff_t low=0, range=count;
-	while(range)//binary search		lg(nlevels) memory accesses per symbol
+	ptrdiff_t low=0, range=count, mid;
+	while(range)//binary search		log2(nlevels) memory accesses per symbol
 	{
 		ptrdiff_t floorhalf=range>>1;
-		if(threeway(buf+(low+floorhalf)*esize, val)<0)//gcc -O3:  13 instructions
-			low+=range-floorhalf;
+		mid=low+floorhalf;
+		low+=(range-floorhalf)&-(ptrdiff_t)(threeway(buf+mid*esize, val)<0);
 		range=floorhalf;
-		
-		//int odd=(int)(range&1);
-		//range>>=1;
-		//if(threeway(buf+(low+range)*esize, val)<0)//gcc generates a branch (gcc -O3:  14 instructions)
-		//	low+=range+odd;
 	}
 	if(idx)
 		*idx=low;
 	return !threeway(buf+low*esize, val);
 #endif
 #if 0
-	ptrdiff_t L=0, R=(ptrdiff_t)count-1, mid;
+	ptrdiff_t left=0, right=(ptrdiff_t)count-1, mid;
 	int ret;
-	while(L<=R)
+	while(left<=right)
 	{
-		mid=(L+R)>>1;
+		mid=(left+right)>>1;
 		ret=threeway(buf+mid*esize, val);
 		if(ret<0)
-			L=mid+1;
+			left=mid+1;
 		else if(ret>0)
-			R=mid-1;
+			right=mid-1;
 		else
 		{
 			if(idx)
@@ -155,7 +194,7 @@ int binary_search(const void *base, size_t count, size_t esize, int (*threeway)(
 		}
 	}
 	if(idx)
-		*idx=L+(L<(ptrdiff_t)count&&threeway(buf+L*esize, val)<0);
+		*idx=left+(left<(ptrdiff_t)count&&threeway(buf+left*esize, val)<0);
 	return 0;
 #endif
 }
@@ -255,6 +294,7 @@ int hammingweight64(unsigned long long x)
 	return __builtin_popcountll(x);
 #endif
 }
+#if 0
 int floor_log2_p1(unsigned long long n)
 {
 #ifdef _MSC_VER
@@ -280,16 +320,8 @@ int floor_log2_p1(unsigned long long n)
 }
 int floor_log2(unsigned long long n)
 {
-#ifdef _MSC_VER
-	return (sizeof(n)<<3)-1-(int)__lzcnt64(n);//since Haswell
-
-	//unsigned long logn=0;
-	//int success=_BitScanReverse64(&logn, n);
-	//logn=success?logn:-1;
-	//return logn;
-#elif defined __GNUC__
-	int logn=63-__builtin_clzll(n);
-	return logn;
+#if defined _MSC_VER || defined __GNUC__
+	return (sizeof(n)<<3)-1-(int)_lzcnt_u64(n);//since Haswell
 #else
 	int	logn=-!n;
 	int	sh=(n>=1ULL<<32)<<5;	logn+=sh, n>>=sh;
@@ -303,18 +335,8 @@ int floor_log2(unsigned long long n)
 }
 int floor_log2_32(unsigned n)
 {
-#ifdef _MSC_VER
-	return (sizeof(n)<<3)-1-(int)__lzcnt(n);//SSE4
-
-	//unsigned long logn=0;
-	//int success=_BitScanReverse(&logn, n);
-	//logn=success?logn:-1;
-	//return logn;
-#elif defined __GNUC__
-	if(!n)
-		return -1;
-	int logn=31-__builtin_clz(n);
-	return logn;
+#if defined _MSC_VER || defined __GNUC__
+	return (sizeof(n)<<3)-1-(int)_lzcnt_u32(n);//SSE4
 #else
 	//binary search
 #if 0
@@ -368,18 +390,20 @@ int floor_log2_32(unsigned n)
 #endif
 #endif
 }
+#endif
 int ceil_log2(unsigned long long n)
 {
-	int lgn=floor_log2(n);
+	int lgn=FLOOR_LOG2(n);
 	lgn+=(1ULL<<lgn)<n;
 	return lgn;
 }
 int ceil_log2_32(unsigned n)
 {
-	int lgn=floor_log2_32(n);
+	int lgn=FLOOR_LOG2(n);
 	lgn+=(1U<<lgn)<n;
 	return lgn;
 }
+#if 0
 int get_lsb_index(unsigned long long n)
 {
 #ifdef _MSC_VER
@@ -429,6 +453,25 @@ int get_lsb_index32(unsigned n)
 	return lsb;
 #endif
 }
+int get_lsb_index16(unsigned short n)
+{
+#ifdef _MSC_VER
+	return (int)_tzcnt_u16(n);
+#elif defined __GNUC__
+	return __builtin_ctzs(n);
+#else
+	int cond, lsb;
+	if(!n)
+		return sizeof(n)<<3;
+	lsb=0;
+	cond=(n>> 8<< 8==n)<<3, lsb+=cond, n>>=cond;
+	cond=(n>> 4<< 4==n)<<2, lsb+=cond, n>>=cond;
+	cond=(n>> 2<< 2==n)<<1, lsb+=cond, n>>=cond;
+	cond= n>> 1<< 1==n    , lsb+=cond;
+	return lsb;
+#endif
+}
+#endif
 int floor_log10(double x)
 {
 	static const double pmask[]=//positive powers
@@ -486,6 +529,17 @@ int floor_log10(double x)
 }
 unsigned floor_sqrt(unsigned long long x)
 {
+	unsigned long long low=0, range=x;
+	while(range)
+	{
+		unsigned long long floorhalf=range>>1;
+		unsigned long long level=low+floorhalf+1;
+		if(level*level<=x)
+			low+=range-floorhalf;
+		range=floorhalf;
+	}
+	return (unsigned)low;
+#if 0
 	if(x<2)
 		return (unsigned)x;
 	int lg_sqrtx_p1=(floor_log2(x)>>1)+1;
@@ -521,6 +575,7 @@ unsigned floor_sqrt(unsigned long long x)
 	}
 	//printf("%d muls\n", nmuls);//
 	return (unsigned)U;//U <= L, we want floor, so return U
+#endif
 
 	//https://stackoverflow.com/questions/1100090/looking-for-an-efficient-integer-square-root-algorithm-for-arm-thumb2
 #if 0
@@ -537,8 +592,256 @@ unsigned floor_sqrt(unsigned long long x)
 #endif
 }
 #define FRAC_BITS 24
+unsigned exp2_fix24_neg(unsigned x)
+{
+	//return (unsigned)(exp2(-(x/16777216.))*0x1000000);//53% slower
+	/*
+	transcendental fractional powers of two
+	x					inv(x)
+	2^-0x0.000001 = 0x0.FFFFFF4F...		0x1.000000B1... = 2^0x0.000001
+	2^-0x0.000002 = 0x0.FFFFFE9D...		0x1.00000163... = 2^0x0.000002
+	2^-0x0.000004 = 0x0.FFFFFD3A...		0x1.000002C6... = 2^0x0.000004
+	2^-0x0.000008 = 0x0.FFFFFA74...		0x1.0000058C... = 2^0x0.000008
+	2^-0x0.000010 = 0x0.FFFFF4E9...		0x1.00000B17... = 2^0x0.000010
+	2^-0x0.000020 = 0x0.FFFFE9D2...		0x1.0000162E... = 2^0x0.000020
+	2^-0x0.000040 = 0x0.FFFFD3A3...		0x1.00002C5D... = 2^0x0.000040
+	2^-0x0.000080 = 0x0.FFFFA747...		0x1.000058B9... = 2^0x0.000080
+	2^-0x0.000100 = 0x0.FFFF4E8E...		0x1.0000B172... = 2^0x0.000100
+	2^-0x0.000200 = 0x0.FFFE9D1D...		0x1.000162E5... = 2^0x0.000200
+	2^-0x0.000400 = 0x0.FFFD3A3B...		0x1.0002C5CD... = 2^0x0.000400
+	2^-0x0.000800 = 0x0.FFFA747F...		0x1.00058BA0... = 2^0x0.000800
+	2^-0x0.001000 = 0x0.FFF4E91C...		0x1.000B175F... = 2^0x0.001000
+	2^-0x0.002000 = 0x0.FFE9D2B3...		0x1.00162F39... = 2^0x0.002000
+	2^-0x0.004000 = 0x0.FFD3A752...		0x1.002C605E... = 2^0x0.004000
+	2^-0x0.008000 = 0x0.FFA75652...		0x1.0058C86E... = 2^0x0.008000
+	2^-0x0.010000 = 0x0.FF4ECB59...		0x1.00B1AFA6... = 2^0x0.010000
+	2^-0x0.020000 = 0x0.FE9E115C...		0x1.0163DAA0... = 2^0x0.020000
+	2^-0x0.040000 = 0x0.FD3E0C0D...		0x1.02C9A3E7... = 2^0x0.040000
+	2^-0x0.080000 = 0x0.FA83B2DB...		0x1.059B0D32... = 2^0x0.080000
+	2^-0x0.100000 = 0x0.F5257D15...		0x1.0B5586D0... = 2^0x0.100000
+	2^-0x0.200000 = 0x0.EAC0C6E8...		0x1.172B83C8... = 2^0x0.200000
+	2^-0x0.400000 = 0x0.D744FCCB...		0x1.306FE0A3... = 2^0x0.400000
+	2^-0x0.800000 = 0x0.B504F334...		0x1.6A09E667... = 2^0x0.800000
+	*/
+	static const unsigned long long frac_pots[]=
+	{
+		0x100000000,
+		0x0FFFFFF4F,//extra 8 bits of precision
+		0x0FFFFFE9D,
+		0x0FFFFFD3A,
+		0x0FFFFFA74,
+		0x0FFFFF4E9,
+		0x0FFFFE9D2,
+		0x0FFFFD3A3,
+		0x0FFFFA747,
+		0x0FFFF4E8E,
+		0x0FFFE9D1D,
+		0x0FFFD3A3B,
+		0x0FFFA747F,
+		0x0FFF4E91C,
+		0x0FFE9D2B3,
+		0x0FFD3A752,
+		0x0FFA75652,
+		0x0FF4ECB59,
+		0x0FE9E115C,
+		0x0FD3E0C0D,
+		0x0FA83B2DB,
+		0x0F5257D15,
+		0x0EAC0C6E8,
+		0x0D744FCCB,
+		0x0B504F334,
+	};
+#if 0
+	unsigned long long x2=(unsigned long long)x<<1;
+	unsigned long long r0=0x1000000, r1=0x1000000, r2=0x1000000, r3=0x1000000;
+	for(int k=1;k<=FRAC_BITS;k+=8)
+	{
+		r0=r0*frac_pots[(k+0)&-(int)(x2>>(k+0)&1)]>>32;
+		r1=r1*frac_pots[(k+1)&-(int)(x2>>(k+1)&1)]>>32;
+		r2=r2*frac_pots[(k+2)&-(int)(x2>>(k+2)&1)]>>32;
+		r3=r3*frac_pots[(k+3)&-(int)(x2>>(k+3)&1)]>>32;
+		r0=r0*frac_pots[(k+4)&-(int)(x2>>(k+4)&1)]>>32;
+		r1=r1*frac_pots[(k+5)&-(int)(x2>>(k+5)&1)]>>32;
+		r2=r2*frac_pots[(k+6)&-(int)(x2>>(k+6)&1)]>>32;
+		r3=r3*frac_pots[(k+7)&-(int)(x2>>(k+7)&1)]>>32;
+	}
+	r2=r2*r3>>24;
+	r0=r0*r1>>24;
+	r0=r0*r2>>24;
+	r0>>=x>>FRAC_BITS;
+	return (unsigned)r0;
+#endif
+#if 0
+	unsigned long long x2=(unsigned long long)x<<1;
+	unsigned long long r0=0x1000000, r1=0x1000000;
+	for(int k=1;k<=FRAC_BITS;k+=2)
+	{
+		//unsigned long long t0=r0*frac_pots[k+0], t1=r1*frac_pots[k+1];//continuous access
+		//t0>>=32;
+		//t1>>=32;
+		//if(x2>>(k+0)&1)
+		r0=r0*frac_pots[(k+0)&-(int)(x2>>(k+0)&1)]>>32;
+		r1=r1*frac_pots[(k+1)&-(int)(x2>>(k+1)&1)]>>32;
+		//r0=r0*frac_pots[(k+2)&-(int)(x2>>(k+2)&1)]>>32;
+		//r1=r1*frac_pots[(k+3)&-(int)(x2>>(k+3)&1)]>>32;
+		//r0=r0*frac_pots[(k+4)&-(int)(x2>>(k+4)&1)]>>32;
+		//r1=r1*frac_pots[(k+5)&-(int)(x2>>(k+5)&1)]>>32;
+		//r0=r0*frac_pots[(k+6)&-(int)(x2>>(k+6)&1)]>>32;
+		//r1=r1*frac_pots[(k+7)&-(int)(x2>>(k+7)&1)]>>32;
+	}
+	r0*=r1;
+	r0>>=(x>>FRAC_BITS)+24;
+	return (unsigned)r0;
+#endif
+#if 1
+	unsigned long long result=0x1000000;
+	for(int k=0;k<FRAC_BITS;)//up to 24 muls
+	{
+		int bit=x>>k&1;
+		++k;
+		result=result*frac_pots[k&-bit]>>32;
+	}
+	result>>=x>>FRAC_BITS;
+	return (unsigned)result;
+#endif
+}
+unsigned exp2_neg_fix24_avx2(unsigned x)
+{
+	/*
+	transcendental fractional powers of two
+	x					inv(x)
+	2^-0x0.000001 = 0x0.FFFFFF4F...		0x1.000000B1... = 2^0x0.000001
+	2^-0x0.000002 = 0x0.FFFFFE9D...		0x1.00000163... = 2^0x0.000002
+	2^-0x0.000004 = 0x0.FFFFFD3A...		0x1.000002C6... = 2^0x0.000004
+	2^-0x0.000008 = 0x0.FFFFFA74...		0x1.0000058C... = 2^0x0.000008
+	2^-0x0.000010 = 0x0.FFFFF4E9...		0x1.00000B17... = 2^0x0.000010
+	2^-0x0.000020 = 0x0.FFFFE9D2...		0x1.0000162E... = 2^0x0.000020
+	2^-0x0.000040 = 0x0.FFFFD3A3...		0x1.00002C5D... = 2^0x0.000040
+	2^-0x0.000080 = 0x0.FFFFA747...		0x1.000058B9... = 2^0x0.000080
+	2^-0x0.000100 = 0x0.FFFF4E8E...		0x1.0000B172... = 2^0x0.000100
+	2^-0x0.000200 = 0x0.FFFE9D1D...		0x1.000162E5... = 2^0x0.000200
+	2^-0x0.000400 = 0x0.FFFD3A3B...		0x1.0002C5CD... = 2^0x0.000400
+	2^-0x0.000800 = 0x0.FFFA747F...		0x1.00058BA0... = 2^0x0.000800
+	2^-0x0.001000 = 0x0.FFF4E91C...		0x1.000B175F... = 2^0x0.001000
+	2^-0x0.002000 = 0x0.FFE9D2B3...		0x1.00162F39... = 2^0x0.002000
+	2^-0x0.004000 = 0x0.FFD3A752...		0x1.002C605E... = 2^0x0.004000
+	2^-0x0.008000 = 0x0.FFA75652...		0x1.0058C86E... = 2^0x0.008000
+	2^-0x0.010000 = 0x0.FF4ECB59...		0x1.00B1AFA6... = 2^0x0.010000
+	2^-0x0.020000 = 0x0.FE9E115C...		0x1.0163DAA0... = 2^0x0.020000
+	2^-0x0.040000 = 0x0.FD3E0C0D...		0x1.02C9A3E7... = 2^0x0.040000
+	2^-0x0.080000 = 0x0.FA83B2DB...		0x1.059B0D32... = 2^0x0.080000
+	2^-0x0.100000 = 0x0.F5257D15...		0x1.0B5586D0... = 2^0x0.100000
+	2^-0x0.200000 = 0x0.EAC0C6E8...		0x1.172B83C8... = 2^0x0.200000
+	2^-0x0.400000 = 0x0.D744FCCB...		0x1.306FE0A3... = 2^0x0.400000
+	2^-0x0.800000 = 0x0.B504F334...		0x1.6A09E667... = 2^0x0.800000
+	*/
+	ALIGN(32) static const unsigned long long frac_pots[]=
+	{
+		(0xFFFFFF4F+128)>>8,//bit  0
+		(0xFFFFD3A3+128)>>8,//bit  6
+		(0xFFF4E91C+128)>>8,//bit 12
+		(0xFD3E0C0D+128)>>8,//bit 18
+		
+		0xFFFFFE9D,//bit  1
+		0xFFFFA747,//bit  7
+		0xFFE9D2B3,//bit 13
+		0xFA83B2DB,//bit 19
+		
+		0xFFFFFD3A,//bit  2
+		0xFFFF4E8E,//bit  8
+		0xFFD3A752,//bit 14
+		0xF5257D15,//bit 20
+		
+		0xFFFFFA74,//bit  3
+		0xFFFE9D1D,//bit  9
+		0xFFA75652,//bit 15
+		0xEAC0C6E8,//bit 21
+		
+		0xFFFFF4E9,//bit  4
+		0xFFFD3A3B,//bit 10
+		0xFF4ECB59,//bit 16
+		0xD744FCCB,//bit 22
+		
+		0xFFFFE9D2,//bit  5
+		0xFFFA747F,//bit 11
+		0xFE9E115C,//bit 17
+		0xB504F334,//bit 23
+
+		0x1000000,//initialization
+		0x1000000,
+		0x1000000,
+		0x1000000,
+	};
+	__m256i sr32=_mm256_set_epi8(
+		-1, -1, -1, -1, 15, 14, 13, 12,
+		-1, -1, -1, -1,  7,  6,  5,  4,
+		-1, -1, -1, -1, 15, 14, 13, 12,
+		-1, -1, -1, -1,  7,  6,  5,  4
+		//15, 14, 13, 12, 11, 10,  9,  8,
+		// 7,  6,  5,  4,  3,  2,  1,  0
+	);
+	__m128i sr24=_mm_set_epi8(
+		-1, -1, -1, 15, 14, 13, 12, 11,
+		-1, -1, -1,  7,  6,  5,  4,  3
+	);
+	__m256i ones=_mm256_set_epi32(0, 1, 0, 1, 0, 1, 0, 1);
+
+	__m256i x2=_mm256_set_epi32(0, x>>18&63, 0, x>>12&63, 0, x>>6&63, 0, x&63);
+	__m256i result=_mm256_load_si256((const __m256i*)frac_pots+6);
+
+	__m256i factor=_mm256_load_si256((const __m256i*)frac_pots+0);
+	__m256i mask=_mm256_and_si256(x2, ones);
+	x2=_mm256_srli_epi32(x2, 1);
+	mask=_mm256_cmpeq_epi64(mask, ones);
+	result=_mm256_castpd_si256(_mm256_blendv_pd(_mm256_castsi256_pd(result), _mm256_castsi256_pd(factor), _mm256_castsi256_pd(mask)));
+	for(int k=1;k<FRAC_BITS/4;++k)
+	{
+		factor=_mm256_load_si256((const __m256i*)frac_pots+k);
+		factor=_mm256_mul_epu32(factor, result);
+		mask=_mm256_and_si256(x2, ones);
+		x2=_mm256_srli_epi32(x2, 1);
+		factor=_mm256_shuffle_epi8(factor, sr32);
+		mask=_mm256_cmpeq_epi64(mask, ones);
+		result=_mm256_castpd_si256(_mm256_blendv_pd(_mm256_castsi256_pd(result), _mm256_castsi256_pd(factor), _mm256_castsi256_pd(mask)));
+	}
+	__m128i r0=_mm256_extracti128_si256(result, 0);
+	__m128i r1=_mm256_extracti128_si256(result, 1);
+	r0=_mm_mul_epu32(r0, r1);
+	r0=_mm_shuffle_epi8(r0, sr24);
+	unsigned sh=(x>>FRAC_BITS)+24;
+	unsigned res=(unsigned)((unsigned long long)_mm_extract_epi64(r0, 0)*(unsigned long long)_mm_extract_epi64(r0, 1)>>sh);
+	return res;
+}
 unsigned long long exp2_fix24(int x)
 {
+	/*
+	transcendental fractional powers of two
+	x					inv(x)
+	2^-0x0.000001 = 0x0.FFFFFF4F...		0x1.000000B1... = 2^0x0.000001
+	2^-0x0.000002 = 0x0.FFFFFE9D...		0x1.00000163... = 2^0x0.000002
+	2^-0x0.000004 = 0x0.FFFFFD3A...		0x1.000002C6... = 2^0x0.000004
+	2^-0x0.000008 = 0x0.FFFFFA74...		0x1.0000058C... = 2^0x0.000008
+	2^-0x0.000010 = 0x0.FFFFF4E9...		0x1.00000B17... = 2^0x0.000010
+	2^-0x0.000020 = 0x0.FFFFE9D2...		0x1.0000162E... = 2^0x0.000020
+	2^-0x0.000040 = 0x0.FFFFD3A3...		0x1.00002C5D... = 2^0x0.000040
+	2^-0x0.000080 = 0x0.FFFFA747...		0x1.000058B9... = 2^0x0.000080
+	2^-0x0.000100 = 0x0.FFFF4E8E...		0x1.0000B172... = 2^0x0.000100
+	2^-0x0.000200 = 0x0.FFFE9D1D...		0x1.000162E5... = 2^0x0.000200
+	2^-0x0.000400 = 0x0.FFFD3A3B...		0x1.0002C5CD... = 2^0x0.000400
+	2^-0x0.000800 = 0x0.FFFA747F...		0x1.00058BA0... = 2^0x0.000800
+	2^-0x0.001000 = 0x0.FFF4E91C...		0x1.000B175F... = 2^0x0.001000
+	2^-0x0.002000 = 0x0.FFE9D2B3...		0x1.00162F39... = 2^0x0.002000
+	2^-0x0.004000 = 0x0.FFD3A752...		0x1.002C605E... = 2^0x0.004000
+	2^-0x0.008000 = 0x0.FFA75652...		0x1.0058C86E... = 2^0x0.008000
+	2^-0x0.010000 = 0x0.FF4ECB59...		0x1.00B1AFA6... = 2^0x0.010000
+	2^-0x0.020000 = 0x0.FE9E115C...		0x1.0163DAA0... = 2^0x0.020000
+	2^-0x0.040000 = 0x0.FD3E0C0D...		0x1.02C9A3E7... = 2^0x0.040000
+	2^-0x0.080000 = 0x0.FA83B2DB...		0x1.059B0D32... = 2^0x0.080000
+	2^-0x0.100000 = 0x0.F5257D15...		0x1.0B5586D0... = 2^0x0.100000
+	2^-0x0.200000 = 0x0.EAC0C6E8...		0x1.172B83C8... = 2^0x0.200000
+	2^-0x0.400000 = 0x0.D744FCCB...		0x1.306FE0A3... = 2^0x0.400000
+	2^-0x0.800000 = 0x0.B504F334...		0x1.6A09E667... = 2^0x0.800000
+	*/
 	static const unsigned long long frac_pots[]=
 	{
 		0x1000000B1,//round(2^(0x000001*2^-24)*2^32)		//extra 8 bits of precision
@@ -576,7 +879,6 @@ unsigned long long exp2_fix24(int x)
 		if(x&1)
 		{
 			result*=frac_pots[k];
-			//result+=1LL<<31;
 			result>>=32;
 		}
 		x>>=1;
@@ -592,7 +894,7 @@ int log2_fix24(unsigned long long x)
 	//and YouChad
 	if(!x)
 		return -((FRAC_BITS+1)<<FRAC_BITS);
-	int lgx=floor_log2(x)-24;
+	int lgx=FLOOR_LOG2(x)-24;
 	x=SHIFT_RIGHT_SIGNED(x, lgx);
 	lgx<<=24;
 	if(!(x&(x-1)))//no need to do 24 muls if x is a power of two
@@ -621,7 +923,7 @@ double power(double x, int y)
 			return product;
 		mask[1]*=mask[1];
 	}
-	//return product;
+	return product;
 }
 double _10pow(int n)
 {
@@ -773,9 +1075,9 @@ int print_binn(unsigned long long x, int nbits)
 double convert_size(double bytesize, int *log1024)
 {
 	int k=0;
-	double p=1024;
-	for(;k<4&&bytesize<p;++k, p*=1024);
-	*log1024=k;
+	double p=1;
+	for(;k<4&&bytesize>p;++k, p*=1024);
+	*log1024=k-1;
 	return bytesize*1024/p;
 }
 int print_size(double bytesize, int ndigits, int pdigits, char *str, int len)
@@ -825,7 +1127,7 @@ int log_error(const char *fn, int line, int quit, const char *format, ...)
 	return firsttime;
 }
 #if 0
-int valid(const void *p)//only makes sense with MSVC debugger
+static int valid(const void *p)//only makes sense with MSVC debugger
 {
 	size_t val=(size_t)p;
 
@@ -870,20 +1172,20 @@ int pause(void)
 	while(!scanf("%d", &k));
 	return k;
 }
-#ifdef _MSC_VER
-int pause1(void)
-{
-	return _getch();
-}
-#endif
+//#ifdef _MSC_VER
+//int pause1(void)
+//{
+//	return _getch();
+//}
+//#endif
 int pause_abort(const char *fn, int lineno, const char *extraInfo)
 {
 	printf("INTERNAL ERROR %s(%d)\nABORTING\n", fn, lineno);
 	if(extraInfo)
 		printf("%s\n\n", extraInfo);
 	pause();
-	exit(1);
-	//return 0;
+	abort();
+	return 0;
 }
 
 
@@ -1269,7 +1571,7 @@ static void dlist_append_node(DListHandle list)
 	else\
 		memset(DST, 0, COPYSIZE);
 #else
-static void dlist_fill_node(DListHandle list, size_t copysize, char **src, void *dst)
+static void dlist_fill_node(DListHandle list, size_t copysize, const char **src, void *dst)
 {
 	list->nobj+=copysize;
 	copysize*=list->objsize;
@@ -1307,10 +1609,10 @@ void* dlist_push_back1(DListHandle list, const void *obj)
 void* dlist_push_back(DListHandle list, const void *data, size_t count)
 {
 	size_t obj_idx, copysize;
-	char *buffer;
+	const char *buffer;
 	void *ret;
 	
-	buffer=(char*)data;
+	buffer=(const char*)data;
 	ret=0;
 	obj_idx=list->nobj%list->objpernode;
 	if(obj_idx)
@@ -1813,72 +2115,72 @@ int  map_erase(MapHandle map, const void *data, RBNodeHandle node)
 	}
 	if(!y->is_red)
 	{
-		RBNodeHandle w;
+		RBNodeHandle wnode;
 
 		while(x!=map->root&&(!x||!x->is_red))
 		{
 			if(x==xp->left)
 			{
-				w=xp->right;
-				if(w->is_red)
+				wnode=xp->right;
+				if(wnode->is_red)
 				{
-					w->is_red=0;
+					wnode->is_red=0;
 					xp->is_red=1;
 					rb_rotateleft(map, xp);
-					w=xp->right;
+					wnode=xp->right;
 				}
-				if((!w->left||!w->left->is_red)&&(!w->right||!w->right->is_red))
+				if((!wnode->left||!wnode->left->is_red)&&(!wnode->right||!wnode->right->is_red))
 				{
-					w->is_red=1;
+					wnode->is_red=1;
 					x=xp;
 					xp=xp->parent;
 				}
 				else
 				{
-					if(!w->right||!w->right->is_red)
+					if(!wnode->right||!wnode->right->is_red)
 					{
-						w->left->is_red=0;
-						w->is_red=1;
-						rb_rotateright(map, w);
-						w=xp->right;
+						wnode->left->is_red=0;
+						wnode->is_red=1;
+						rb_rotateright(map, wnode);
+						wnode=xp->right;
 					}
-					w->is_red=xp->is_red;
+					wnode->is_red=xp->is_red;
 					xp->is_red=0;
-					if(w->right)
-						w->right->is_red=0;
+					if(wnode->right)
+						wnode->right->is_red=0;
 					rb_rotateleft(map, xp);
 					break;
 				}
 			}
 			else//same as above with right <-> left
 			{
-				w=xp->left;
-				if(w->is_red)
+				wnode=xp->left;
+				if(wnode->is_red)
 				{
-					w->is_red=0;
+					wnode->is_red=0;
 					xp->is_red=1;
 					rb_rotateright(map, xp);
-					w=xp->left;
+					wnode=xp->left;
 				}
-				if((!w->right||!w->right->is_red)&&(!w->left||!w->left->is_red))
+				if((!wnode->right||!wnode->right->is_red)&&(!wnode->left||!wnode->left->is_red))
 				{
-					w->is_red=1;
+					wnode->is_red=1;
 					x=xp;
 					xp=xp->parent;
 				}
 				else
 				{
-					if(!w->left||!w->left->is_red)
+					if(!wnode->left||!wnode->left->is_red)
 					{
-						w->right->is_red=0;
-						w->is_red=1;
-						rb_rotateleft(map, w);
-						w=xp->left;
+						wnode->right->is_red=0;
+						wnode->is_red=1;
+						rb_rotateleft(map, wnode);
+						wnode=xp->left;
 					}
-					w->is_red=xp->is_red;
+					wnode->is_red=xp->is_red;
 					xp->is_red=0;
-					if(w->left)
-						w->left->is_red=0;
+					if(wnode->left)
+						wnode->left->is_red=0;
 					rb_rotateright(map, xp);
 					break;
 				}
@@ -2023,7 +2325,6 @@ BitstringHandle bitstring_construct(const void *src, size_t bitCount, size_t bit
 {
 	BitstringHandle str;
 	size_t srcBytes, cap;
-	unsigned char *srcbytes=(unsigned char*)src;
 
 	srcBytes=(bitCount+7)>>3;
 	cap=srcBytes+bytePad;
@@ -2039,6 +2340,7 @@ BitstringHandle bitstring_construct(const void *src, size_t bitCount, size_t bit
 	memset(str->data, 0, cap);
 	if(src)
 	{
+		const unsigned char *srcbytes=(const unsigned char*)src;
 		for(size_t b=0;b<bitCount;++b)
 		{
 			int bit=srcbytes[(bitOffset+b)>>3]>>((bitOffset+b)&7)&1;
@@ -2056,7 +2358,6 @@ void bitstring_append(BitstringHandle *str, const void *src, size_t bitCount, si
 {
 	size_t reqcap, newcap;
 	size_t byteIdx;
-	unsigned char *srcbytes=(unsigned char*)src;
 
 	newcap=str[0]->byteCap;
 	newcap+=!newcap;
@@ -2077,6 +2378,7 @@ void bitstring_append(BitstringHandle *str, const void *src, size_t bitCount, si
 	memset(str[0]->data+byteIdx, 0, newcap-byteIdx);
 	if(src)
 	{
+		const unsigned char *srcbytes=(const unsigned char*)src;
 		for(size_t b=0;b<bitCount;++b)
 		{
 			int bit=srcbytes[(bitOffset+b)>>3]>>((bitOffset+b)&7)&1;
@@ -2164,19 +2466,19 @@ static void pqueue_heapifyup(PQueueHandle *pq, size_t idx, void *temp)
 }
 void        pqueue_heapifydown(PQueueHandle *pq, size_t idx, void *temp)
 {
-	size_t L, R, largest;
+	size_t left, right, largest;
 
 	for(;idx<pq[0]->count;)
 	{
-		L=(idx<<1)+1, R=L+1;
+		left=(idx<<1)+1, right=left+1;
 
-		if(L<pq[0]->count&&pq[0]->less(pq[0]->data+idx*pq[0]->esize, pq[0]->data+L*pq[0]->esize))//if [idx] < [L]
-			largest=L;
+		if(left<pq[0]->count&&pq[0]->less(pq[0]->data+idx*pq[0]->esize, pq[0]->data+left*pq[0]->esize))//if [idx] < [left]
+			largest=left;
 		else
 			largest=idx;
 
-		if(R<pq[0]->count&&pq[0]->less(pq[0]->data+largest*pq[0]->esize, pq[0]->data+R*pq[0]->esize))//if [largest] < [R]
-			largest=R;
+		if(right<pq[0]->count&&pq[0]->less(pq[0]->data+largest*pq[0]->esize, pq[0]->data+right*pq[0]->esize))//if [largest] < [right]
+			largest=right;
 
 		if(largest==idx)
 			break;
@@ -2584,6 +2886,18 @@ ArrayHandle searchfor_file(const char *searchpath, const char *filetitle)
 	return filename;
 }
 
+int get_cpu_features(void)//returns  0: old CPU,  1: AVX2,  3: AVX-512
+{
+#ifdef _MSC_VER
+	int avx2=IsProcessorFeaturePresent(PF_AVX2_INSTRUCTIONS_AVAILABLE)!=0;
+	int avx512=IsProcessorFeaturePresent(PF_AVX512F_INSTRUCTIONS_AVAILABLE)!=0;
+#else
+	__builtin_cpu_init();
+	int avx2=__builtin_cpu_supports("avx2")!=0;
+	int avx512=__builtin_cpu_supports("avx512f")!=0;
+#endif
+	return avx512<<1|avx2;
+}
 int query_cpu_cores(void)
 {
 #ifdef _WIN32
@@ -2593,4 +2907,87 @@ int query_cpu_cores(void)
 #else
 	return sysconf(_SC_NPROCESSORS_ONLN);
 #endif
+}
+
+typedef struct _ThreadParam
+{
+	void (*func)(void*);
+	void *args;
+	void *handle;
+} ThreadParam;
+static THREAD_RET THREAD_CALL thread_caller(void *param)
+{
+	ThreadParam *args=(ThreadParam*)param;
+
+	args->func(args->args);
+	
+	return 0;
+}
+void* mt_exec(void (*func)(void*), void *args, int argbytes, int nthreads)
+{
+	ArrayHandle handles;
+
+	ARRAY_ALLOC(ThreadParam, handles, 0, nthreads, 0, 0);
+	if(!handles)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
+	for(int k=0;k<nthreads;++k)
+	{
+		ThreadParam *h;
+		int error;
+		
+		h=(ThreadParam*)array_at(&handles, k);
+		h->func=func;
+		h->args=(char*)args+argbytes*k;
+#ifdef _MSC_VER
+		h->handle=(void*)_beginthreadex(0, 0, thread_caller, h, 0, 0);
+		error=!h->handle;
+#else
+		error=pthread_create((pthread_t*)&h->handle, 0, thread_caller, h);
+#endif
+		if(error)
+		{
+			LOG_ERROR("Alloc error");
+			return 0;
+		}
+	}
+	return handles;
+}
+void mt_finish(void *ctx)
+{
+	ArrayHandle handles=(ArrayHandle)ctx;
+#ifdef _MSC_VER
+	ArrayHandle h2;
+	ARRAY_ALLOC(HANDLE, h2, 0, handles->count, 0, 0);
+	if(!h2)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	for(int k=0;k<(int)handles->count;++k)
+	{
+		ThreadParam *src;
+		HANDLE *dst;
+		
+		src=(ThreadParam*)array_at(&handles, k);
+		dst=(HANDLE*)array_at(&h2, k);
+		*dst=src->handle;
+	}
+	WaitForMultipleObjects((int)h2->count, (HANDLE*)h2->data, TRUE, INFINITE);
+	for(int k=0;k<(int)handles->count;++k)
+	{
+		HANDLE *h=(HANDLE*)array_at(&h2, k);
+		CloseHandle(*h);
+	}
+	array_free(&h2);
+#else
+	for(int k=0;k<(int)handles->count;++k)
+	{
+		ThreadParam *h=(ThreadParam*)array_at(&handles, k);
+		pthread_join((pthread_t)h->handle, 0);
+	}
+#endif
+	array_free(&handles);
 }

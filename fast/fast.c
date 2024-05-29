@@ -170,6 +170,10 @@ static void process_file(ProcessCtx *ctx, ArrayHandle title, int maxlen, Image *
 	else if(ctx->nstarted-ctx->nfinished>=nthreads)
 	{
 		int n=ctx->nstarted-ctx->nfinished;
+
+		void *hthreads=mt_exec(sample_thread, ctx->threadargs->data, (int)ctx->threadargs->esize, (int)ctx->threadargs->count);
+		mt_finish(hthreads);
+#if 0
 		ArrayHandle handles;
 #ifdef _MSC_VER
 		ARRAY_ALLOC(HANDLE, handles, 0, n, 0, 0);
@@ -209,7 +213,7 @@ static void process_file(ProcessCtx *ctx, ArrayHandle title, int maxlen, Image *
 			pthread_join(*h, 0);
 		}
 #endif
-		
+#endif
 		for(int k=0;k<n;++k)
 		{
 			ThreadArgs *threadargs=(ThreadArgs*)array_at(&ctx->threadargs, k);
@@ -362,7 +366,7 @@ int main(int argc, char **argv)
 	//	"D:/ML/big_building.LSIM.PPM"
 		;
 	const char *fn=
-		"D:/ML/dataset-kodak-ppm/kodim13.ppm"
+	//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
 	//	"D:/ML/dataset-kodak/kodim13.png"
 	//	"D:/ML/big_building.PPM"
 	//	"D:/ML/big_building.LSIM"
@@ -371,7 +375,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-LPCB-ppm/PIA13799.ppm"
 	//	"D:/ML/dataset-RAW/a0001-jmac_DSC1459.dng"
 
-	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
+		"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim24.ppm"	//borderless
 	//	"C:/Projects/datasets/dataset-kodak-pgm/kodim13.pgm"
 	//	"C:/Projects/datasets/dataset-kodak/kodim13.png"
@@ -449,7 +453,7 @@ int main(int argc, char **argv)
 	}
 	if(formatsize<0)
 	{
-		printf("Not a file or directory:  \'%s\'\n", fn);
+		printf("Not a file nor directory:  \'%s\'\n", fn);
 		pause();
 		return 1;
 	}

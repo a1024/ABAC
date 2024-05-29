@@ -1,16 +1,14 @@
 #include"e2.h"
-#define AC_IMPLEMENTATION
-#include"ac.h"
 #include<stdio.h>
 #include<stdlib.h>
 #include<string.h>
 #include<math.h>
 #include<ctype.h>
-#ifdef _MSC_VER
-#include<intrin.h>
-#else
-#include<x86intrin.h>
-#endif
+//#ifdef _MSC_VER
+//#include<intrin.h>
+//#else
+//#include<x86intrin.h>
+//#endif
 static const char file[]=__FILE__;
 
 //debug
@@ -37,6 +35,8 @@ static const char file[]=__FILE__;
 //	#define AVX512
 //	#define AVX2
 
+#define AC_IMPLEMENTATION
+#include"ac.h"
 #if defined AVX2 || defined AVX512
 #include<immintrin.h>
 #endif
@@ -314,7 +314,7 @@ static void hybriduint_encode(unsigned val, HybridUint *hu)
 	}
 	else
 	{
-		int lgv=floor_log2_32((unsigned)val);
+		int lgv=FLOOR_LOG2((unsigned)val);
 		int mantissa=val-(1<<lgv);
 		token = (1<<SLIC5_CONFIG_EXP) + (
 				(lgv-SLIC5_CONFIG_EXP)<<(SLIC5_CONFIG_MSB+SLIC5_CONFIG_LSB)|
@@ -332,7 +332,7 @@ INLINE int quantize_unsigned(int val, int exp, int msb)
 {
 	if(val<(1<<exp))
 		return val;
-	int lgv=floor_log2_32(val);
+	int lgv=FLOOR_LOG2(val);
 	int token=(1<<exp)+((lgv-exp)<<msb|(val-(1<<lgv))>>(lgv-msb));
 	return token;
 }

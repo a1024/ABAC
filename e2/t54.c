@@ -6,11 +6,11 @@
 #include<string.h>
 #include<math.h>
 #include<ctype.h>
-#ifdef _MSC_VER
-#include<intrin.h>
-#else
-#include<x86intrin.h>
-#endif
+//#ifdef _MSC_VER
+//#include<intrin.h>
+//#else
+//#include<x86intrin.h>
+//#endif
 static const char file[]=__FILE__;
 
 
@@ -57,12 +57,12 @@ static void update_CDF(const int *hist, unsigned *CDF, int qlevels)
 	}
 	CDF[qlevels]=1<<16;
 }
-int quantize_ctx(int val)
+static int quantize_ctx(int val)
 {
 	int negmask=-(val<0);
 	val=abs(val);
-	val=floor_log2_32(val)+1;//[0~0x10000] -> [0~0x10]
-	val=floor_log2_32(val)+1;//[0~0x10] -> [0~4]
+	val=FLOOR_LOG2_P1(val);//[0~0x10000] -> [0~0x10]
+	val=FLOOR_LOG2_P1(val);//[0~0x10] -> [0~4]
 	val^=negmask;
 	val-=negmask;
 	//val>>=1;
@@ -80,8 +80,8 @@ static const Image *guide=0;
 #ifdef SELECT_TRANSFORMS
 typedef enum PredTypeEnum
 {
-	PRED_ZERO,
-	//PRED_W,
+	//PRED_ZERO,
+	PRED_W,
 	//PRED_W_NW,
 	//PRED_NW,
 	//PRED_N_NW,
@@ -94,7 +94,7 @@ typedef enum PredTypeEnum
 	//PRED_Wbias,
 	//PRED_AV4,
 	//PRED_N_W,
-	PRED_N_W_adj,
+	//PRED_N_W_adj,
 	PRED_CGRAD,
 
 	PRED_COUNT,
@@ -146,9 +146,9 @@ static int predict(int N, int W, int NW, int NE, PredType kp)
 	int pred=0;
 	switch(kp)
 	{
-	//case PRED_W:
-	//	pred=W;
-	//	break;
+	case PRED_W:
+		pred=W;
+		break;
 	//case PRED_W_NW:
 	//	pred=(W+NW)>>1;
 	//	break;
@@ -185,9 +185,9 @@ static int predict(int N, int W, int NW, int NE, PredType kp)
 	//case PRED_N_W:
 	//	pred=(N+W)>>1;
 	//	break;
-	case PRED_N_W_adj:
-		pred=(4*(N+W)+NE-NW)>>3;
-		break;
+	//case PRED_N_W_adj:
+	//	pred=(4*(N+W)+NE-NW)>>3;
+	//	break;
 	case PRED_CGRAD:
 		pred=N+W-NW;
 		pred=MEDIAN3(N, W, pred);
@@ -251,7 +251,7 @@ int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		}
 	}
 #ifdef SELECT_TRANSFORMS
-	int config=PRED_ZERO;
+	int config=0;
 	if(fwd)
 	{
 #if 1
@@ -343,8 +343,8 @@ int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			};
 			const char *prednames[]=
 			{
-				"zero",
-				//"W",
+				//"zero",
+				"W",
 				//"(W+NW)/2",
 				//"NW",
 				//"(N+NW)/2",
@@ -357,7 +357,7 @@ int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				//"(N+3*W)/4",
 				//"(N+W+NW+NE)/4",
 				//"(N+W)/2",
-				"(4*(N+W)+NE-NW)/8",
+				//"(4*(N+W)+NE-NW)/8",
 				"cgrad",
 			};
 			for(int krct=0;krct<=(3&-(nch>=3));++krct)
@@ -525,7 +525,7 @@ int t54_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					}
 					else
 					{
-						int lgv=floor_log2_32((unsigned)val);
+						int lgv=FLOOR_LOG2((unsigned)val);
 						int mantissa=val-(1<<lgv);
 						token = (1<<CONFIG_EXP) + (
 								(lgv-CONFIG_EXP)<<(CONFIG_MSB+CONFIG_LSB)|

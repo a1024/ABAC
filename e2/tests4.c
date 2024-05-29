@@ -166,7 +166,7 @@ static void calic_nextrow(CalicState *state)
 	{
 		int nlevels=state->ct_tsizes[kt];
 		if(state->prevrow_av_absE>(nlevels>>1))
-			state->nbypass[kt]=floor_log2(state->prevrow_av_absE/(nlevels>>1))+1;
+			state->nbypass[kt]=FLOOR_LOG2_P1(state->prevrow_av_absE/(nlevels>>1));
 		else
 			state->nbypass[kt]=0;
 	}

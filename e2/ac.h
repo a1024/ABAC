@@ -4,9 +4,7 @@
 #include"util.h"
 #include<stdio.h>
 #include<string.h>
-#ifdef _MSC_VER
-#include<intrin.h>
-#endif
+#include<immintrin.h>
 #ifdef __cplusplus
 extern "C"
 {
@@ -286,10 +284,9 @@ INLINE void ac_dec_renorm(ArithmeticCoder *ec)//fast renorm by F. Rubin 1979
 INLINE void ac_enc_flush(ArithmeticCoder *ec)
 {
 	unsigned long long code=ec->low+ec->range;
-	int n=floor_log2(ec->low^code)-1;
-	if(n<0)
-		n=0;
-	code&=~((1LL<<n)-1);		//minimize final code
+	int n=FLOOR_LOG2(ec->low^code);
+	if(n>0)
+		code&=~((1LL<<n)-1);	//minimize final code
 #if 0
 	int flushbits=get_lsb_index(code);//FIXME tail-chaining parallel decoders
 #endif
@@ -300,9 +297,265 @@ INLINE void ac_enc_flush(ArithmeticCoder *ec)
 #else
 		dlist_push_back(ec->dst, (unsigned char*)&code+4, 2);
 #endif
-		code<<=16;
+		code<<=PROB_BITS;
 		code&=(~0LLU>>PROB_BITS);
 	}
+}
+
+INLINE void ac_enc_update(ArithmeticCoder *ec, int cdf, int freq)//CDF is 16 bit
+{
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if(freq<=0)
+		LOG_ERROR2("ZPS");
+	if(cdf>=0x10000||cdf+freq>0x10000)
+		LOG_ERROR2("Invalid CDF");
+	if(ec->range==~0LLU)
+		LOG_ERROR2("Invalid AC range");
+#endif
+	ec->low+=ec->range*cdf>>PROB_BITS;
+	ec->range=(ec->range*freq>>PROB_BITS)-1;//must decrement hi because decoder fails when code == hi2
+	while(ec->range<(1LL<<PROB_BITS))//only when freq=1 -> range=0, this loop runs twice
+		ac_enc_renorm(ec);
+	acval_enc(0, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);//
+	//acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->cidx);//
+}
+INLINE unsigned ac_dec_getcdf(ArithmeticCoder *ec)
+{
+	unsigned cdf=(unsigned)(((ec->code-ec->low)<<PROB_BITS|0xFFFF)/ec->range);
+	return cdf;
+}
+INLINE void ac_dec_update(ArithmeticCoder *ec, int cdf, int freq)
+{
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if(freq<=0||cdf>=0x10000||cdf+freq>0x10000)
+		LOG_ERROR2("ZPS");
+#endif
+	ec->low+=ec->range*cdf>>PROB_BITS;
+	ec->range=(ec->range*freq>>PROB_BITS)-1;//must decrement hi because decoder fails when code == hi2
+	while(ec->range<(1LL<<PROB_BITS))
+		ac_dec_renorm(ec);
+	acval_dec(0, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
+}
+
+INLINE void ac_enc_av2(ArithmeticCoder *ec, int sym, const unsigned *CDF1, const unsigned *CDF2, int nlevels)//CDF is 16 bit
+{
+	unsigned cdf=(CDF1[sym]+CDF2[sym])>>1;
+	int freq=((CDF1[sym+1]+CDF2[sym+1])>>1)-cdf;
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if(freq<=0)
+		LOG_ERROR2("ZPS");
+	if(cdf>=0x10000||cdf+freq>0x10000)
+		LOG_ERROR2("Invalid CDF");
+	if(ec->range==~0LLU)
+		LOG_ERROR2("Invalid AC range");
+#endif
+	(void)nlevels;
+
+	ec->low+=ec->range*cdf>>PROB_BITS;
+	ec->range*=freq;
+	ec->range>>=PROB_BITS;
+	--ec->range;//must decrement hi because decoder fails when code == hi2
+	while(ec->range<(1LL<<PROB_BITS))//only when freq=1 -> range=0, this loop runs twice
+		ac_enc_renorm(ec);
+	acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);//
+	//acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->cidx);//
+}
+INLINE int ac_dec_packedsign_av2(ArithmeticCoder *ec, const unsigned *CDF1, const unsigned *CDF2, int nlevels)//preferred for skewed distributions as with 'pack sign'
+{
+	unsigned cdf=(unsigned)(((ec->code-ec->low)<<PROB_BITS|0xFFFF)/ec->range);
+	int freq;
+	int sym;
+#ifdef AC_VALIDATE
+	unsigned long long lo0, r0;
+#endif
+
+	(void)nlevels;
+
+	//_mm_prefetch((char*)CDF, _MM_HINT_T0);
+	
+	for(sym=0;cdf>=((CDF1[sym+2]+CDF2[sym+2])>>1);sym+=2);//must shift right to remove LSB which can corrupt decoded symbol
+	sym+=cdf>=((CDF1[sym+1]+CDF2[sym+1])>>1);
+	cdf=(CDF1[sym]+CDF2[sym])>>1;
+	freq=((CDF1[sym+1]+CDF2[sym+1])>>1)-cdf;
+#ifdef AC_VALIDATE
+	lo0=ec->low, r0=ec->range;
+	if(freq<=0||cdf>=0x10000||cdf+freq>0x10000)
+		LOG_ERROR2("ZPS");
+#endif
+	ec->low+=ec->range*cdf>>PROB_BITS;
+	ec->range*=freq;
+	ec->range>>=PROB_BITS;
+	--ec->range;//must decrement hi because decoder fails when code == hi2
+	while(ec->range<(1LL<<PROB_BITS))
+		ac_dec_renorm(ec);
+	acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
+	return sym;
+}
+
+#define AV4_CDFs(IDX) ((CDF1[IDX]+CDF2[IDX]+CDF3[IDX]+CDF4[IDX])>>2)
+INLINE void ac_enc_av4(ArithmeticCoder *ec, int sym, const unsigned *CDF1, const unsigned *CDF2, const unsigned *CDF3, const unsigned *CDF4)//CDF is 16 bit
+{
+	unsigned cdf=AV4_CDFs(sym);
+	int freq=AV4_CDFs(sym+1)-cdf;
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if(freq<=0)
+		LOG_ERROR2("ZPS");
+	if(cdf>=0x10000||cdf+freq>0x10000)
+		LOG_ERROR2("Invalid CDF");
+	if(ec->range==~0LLU)
+		LOG_ERROR2("Invalid AC range");
+#endif
+	ec->low+=ec->range*cdf>>PROB_BITS;
+	ec->range*=freq;
+	ec->range>>=PROB_BITS;
+	--ec->range;//must decrement hi because decoder fails when code == hi2
+	while(ec->range<(1LL<<PROB_BITS))//only when freq=1 -> range=0, this loop runs twice
+		ac_enc_renorm(ec);
+	acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);//
+	//acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->cidx);//
+}
+INLINE int ac_dec_packedsign_av4(ArithmeticCoder *ec, const unsigned *CDF1, const unsigned *CDF2, const unsigned *CDF3, const unsigned *CDF4, int nlevels)//preferred for skewed distributions as with 'pack sign'
+{
+	unsigned cdf=(unsigned)(((ec->code-ec->low)<<PROB_BITS|0xFFFF)/ec->range);
+	int freq;
+	int sym;
+
+	(void)nlevels;
+
+	//_mm_prefetch((char*)CDF, _MM_HINT_T0);
+	
+	for(sym=0;cdf>=AV4_CDFs(sym+2);sym+=2);
+	sym+=cdf>=AV4_CDFs(sym+1);
+	cdf=AV4_CDFs(sym);
+	freq=AV4_CDFs(sym+1)-cdf;
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if(freq<=0||cdf>=0x10000||cdf+freq>0x10000)
+		LOG_ERROR2("ZPS");
+#endif
+	ec->low+=ec->range*cdf>>PROB_BITS;
+	ec->range*=freq;
+	ec->range>>=PROB_BITS;
+	--ec->range;//must decrement hi because decoder fails when code == hi2
+	while(ec->range<(1LL<<PROB_BITS))
+		ac_dec_renorm(ec);
+	acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
+	return sym;
+}
+
+#define MIX2(X1, X2, ALPHA) (unsigned)(X1+((int)(X2-X1)*(ALPHA)>>15))
+INLINE void ac_enc_mix2(ArithmeticCoder *ec, int sym, const unsigned *CDF1, const unsigned *CDF2, int alpha)//CDF is 16 bit
+{
+	unsigned cdf=MIX2(CDF1[sym], CDF2[sym], alpha);
+	int freq=MIX2(CDF1[sym+1], CDF2[sym+1], alpha)-cdf;
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if(freq<=0)
+		LOG_ERROR2("ZPS");
+	if(cdf>=0x10000||cdf+freq>0x10000)
+		LOG_ERROR2("Invalid CDF");
+	if(ec->range==~0LLU)
+		LOG_ERROR2("Invalid AC range");
+#endif
+	ec->low+=ec->range*cdf>>PROB_BITS;
+	ec->range*=freq;
+	ec->range>>=PROB_BITS;
+	--ec->range;//must decrement hi because decoder fails when code == hi2
+	while(ec->range<(1LL<<PROB_BITS))//only when freq=1 -> range=0, this loop runs twice
+		ac_enc_renorm(ec);
+	acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);//
+	//acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->cidx);//
+}
+INLINE int ac_dec_packedsign_mix2(ArithmeticCoder *ec, const unsigned *CDF1, const unsigned *CDF2, int alpha, int nlevels)//preferred for skewed distributions as with 'pack sign'
+{
+	unsigned cdf=(unsigned)(((ec->code-ec->low)<<PROB_BITS|0xFFFF)/ec->range);
+	int freq;
+	int sym;
+
+	(void)nlevels;
+
+	//_mm_prefetch((char*)CDF, _MM_HINT_T0);
+	
+	for(sym=0;cdf>=MIX2(CDF1[sym+2], CDF2[sym+2], alpha);sym+=2);
+	sym+=cdf>=MIX2(CDF1[sym+1], CDF2[sym+1], alpha);
+	cdf=MIX2(CDF1[sym], CDF2[sym], alpha);
+	freq=MIX2(CDF1[sym+1], CDF2[sym+1], alpha)-cdf;
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if(freq<=0||cdf>=0x10000||cdf+freq>0x10000)
+		LOG_ERROR2("ZPS");
+#endif
+	ec->low+=ec->range*cdf>>PROB_BITS;
+	ec->range*=freq;
+	ec->range>>=PROB_BITS;
+	--ec->range;//must decrement hi because decoder fails when code == hi2
+	while(ec->range<(1LL<<PROB_BITS))
+		ac_dec_renorm(ec);
+	acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
+	return sym;
+}
+
+INLINE unsigned mix4(unsigned x0, unsigned x1, unsigned x2, unsigned x3, int alpha, int beta)
+{
+	x0=MIX2(x0, x1, alpha);
+	x2=MIX2(x2, x3, alpha);
+	x0=MIX2(x0, x2, beta);
+	return x0;
+}
+#define MIX4_CDFs(IDX) mix4(CDF1[IDX], CDF2[IDX], CDF3[IDX], CDF4[IDX], alpha, beta)
+INLINE void ac_enc_mix4(ArithmeticCoder *ec, int sym, const unsigned *CDF1, const unsigned *CDF2, const unsigned *CDF3, const unsigned *CDF4, int alpha, int beta)//CDF is 16 bit
+{
+	unsigned cdf=MIX4_CDFs(sym);
+	int freq=MIX4_CDFs(sym+1)-cdf;
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if(freq<=0)
+		LOG_ERROR2("ZPS");
+	if(cdf>=0x10000||cdf+freq>0x10000)
+		LOG_ERROR2("Invalid CDF");
+	if(ec->range==~0LLU)
+		LOG_ERROR2("Invalid AC range");
+#endif
+	ec->low+=ec->range*cdf>>PROB_BITS;
+	ec->range*=freq;
+	ec->range>>=PROB_BITS;
+	--ec->range;//must decrement hi because decoder fails when code == hi2
+	while(ec->range<(1LL<<PROB_BITS))//only when freq=1 -> range=0, this loop runs twice
+		ac_enc_renorm(ec);
+	acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);//
+	//acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->cidx);//
+}
+INLINE int ac_dec_packedsign_mix4(ArithmeticCoder *ec, const unsigned *CDF1, const unsigned *CDF2, const unsigned *CDF3, const unsigned *CDF4, int alpha, int beta, int nlevels)//preferred for skewed distributions as with 'pack sign'
+{
+	unsigned cdf=(unsigned)(((ec->code-ec->low)<<PROB_BITS|0xFFFF)/ec->range);
+	int freq;
+	int sym;
+
+	(void)nlevels;
+
+	//_mm_prefetch((char*)CDF, _MM_HINT_T0);
+	
+	for(sym=0;cdf>=MIX4_CDFs(sym+2);sym+=2);
+	sym+=cdf>=MIX4_CDFs(sym+1);
+	cdf=MIX4_CDFs(sym);
+	freq=MIX4_CDFs(sym+1)-cdf;
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if(freq<=0||cdf>=0x10000||cdf+freq>0x10000)
+		LOG_ERROR2("ZPS");
+#endif
+	ec->low+=ec->range*cdf>>PROB_BITS;
+	ec->range*=freq;
+	ec->range>>=PROB_BITS;
+	--ec->range;//must decrement hi because decoder fails when code == hi2
+	while(ec->range<(1LL<<PROB_BITS))
+		ac_dec_renorm(ec);
+	acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
+	return sym;
 }
 
 INLINE void ac_enc(ArithmeticCoder *ec, int sym, const unsigned *CDF)//CDF is 16 bit
@@ -313,14 +566,14 @@ INLINE void ac_enc(ArithmeticCoder *ec, int sym, const unsigned *CDF)//CDF is 16
 	unsigned long long lo0=ec->low, r0=ec->range;
 	if(freq<=0)
 		LOG_ERROR2("ZPS");
-	if(cdf>0x10000||cdf+freq>0x10000)
-		LOG_ERROR2("");
+	if(cdf>=0x10000||cdf+freq>0x10000)
+		LOG_ERROR2("Invalid CDF");
 	if(ec->range==~0LLU)
-		LOG_ERROR2("");
+		LOG_ERROR2("Invalid AC range");
 #endif
-	ec->low+=ec->range*cdf>>16;
+	ec->low+=ec->range*cdf>>PROB_BITS;
 	ec->range*=freq;
-	ec->range>>=16;
+	ec->range>>=PROB_BITS;
 	--ec->range;//must decrement hi because decoder fails when code == hi2
 	while(ec->range<(1LL<<PROB_BITS))//only when freq=1 -> range=0, this loop runs twice
 		ac_enc_renorm(ec);
@@ -329,64 +582,30 @@ INLINE void ac_enc(ArithmeticCoder *ec, int sym, const unsigned *CDF)//CDF is 16
 }
 INLINE int ac_dec_uniform(ArithmeticCoder *ec, const unsigned *CDF, int nlevels)
 {
-	unsigned cdf;
+	unsigned cdf=(unsigned)(((ec->code-ec->low)<<PROB_BITS|0xFFFF)/ec->range);
 	int freq;
-	int sym=0;
+	int sym;
 	
-	cdf=(unsigned)(((ec->code-ec->low)<<16|0xFFFF)/ec->range);
-#ifdef LINEAR_SEARCH
-	for(sym=0;cdf>=CDF[sym+1];++sym);
-#elif 0
-	{
-		int lo=0, hi=1;
-		while(cdf>=CDF[hi])//exponential search
-		{
-			lo=hi;
-			hi<<=1;
-		}
-		for(int range=hi-lo;range;)
-		{
-			int floorhalf=range>>1;
-			sym=lo+floorhalf;
-			lo+=(range-floorhalf)&-(cdf>=CDF[sym]);
-			range=floorhalf;
-		}
-		//for(sym=lo;cdf>=CDF[sym+1];++sym);//slower
-	}
-#elif 0
-	int low=0, range=nlevels;
-	while(range>1)
-	{
-		int mid=(range+3)>>2;//mid can take arbitrary value in [1, range-1]
-		sym=low+mid;
-		int mask=-(cdf>=CDF[sym]);
-		low+=mid&mask;
-		mid^=mask;
-		mid-=mask;
-		mid+=range&mask;
-		range=mid;
-	}
-#else
-	int low=0, range=nlevels;
-	while(range)//binary search		lg(nlevels) memory accesses per symbol
+	int range=nlevels;
+	sym=0;
+	while(range)
 	{
 		int floorhalf=range>>1;
-		sym=low+floorhalf;
-		low+=(range-floorhalf)&-(cdf>=CDF[sym+1]);
+		if(cdf>=CDF[sym+floorhalf+1])
+			sym+=range-floorhalf;
 		range=floorhalf;
 	}
-#endif
 
 	cdf=CDF[sym];
 	freq=CDF[sym+1]-cdf;
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
-	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
+	if(freq<=0||cdf>=0x10000||cdf+freq>0x10000)
 		LOG_ERROR2("ZPS");
 #endif
-	ec->low+=ec->range*cdf>>16;
+	ec->low+=ec->range*cdf>>PROB_BITS;
 	ec->range*=freq;
-	ec->range>>=16;
+	ec->range>>=PROB_BITS;
 	--ec->range;//must decrement hi because decoder fails when code == hi2
 	while(ec->range<(1LL<<PROB_BITS))
 		ac_dec_renorm(ec);
@@ -396,54 +615,30 @@ INLINE int ac_dec_uniform(ArithmeticCoder *ec, const unsigned *CDF, int nlevels)
 }
 INLINE int ac_dec(ArithmeticCoder *ec, const unsigned *CDF, int nlevels)//preferred for skewed distributions as with 'pack sign'
 {
-	unsigned cdf=(unsigned)(((ec->code-ec->low)<<16|0xFFFF)/ec->range);
+	unsigned cdf=(unsigned)(((ec->code-ec->low)<<PROB_BITS|0xFFFF)/ec->range);
 	int freq;
-	int sym;
-	_mm_prefetch((char*)CDF, _MM_HINT_T0);
-#if 0
-	{
-#ifdef UNIFORM_DIST
-		int lo=0, hi=nlevels;
-#else
-		int lo=0, hi=1;
-		while(cdf>=CDF[hi])//exponential search
-		{
-			lo=hi;
-			hi<<=1;
-			if(hi>nlevels)
-			{
-				hi=nlevels;
-				break;
-			}
-		}
-#endif
-		for(int range=hi-lo;range&((range&1)-1);)
-		{
-			range>>=1;
-			sym=lo+range;
-			if(cdf>=CDF[sym])
-				lo=sym;
-		}
-		for(sym=lo;cdf>=CDF[sym+1];++sym);
-	}
-#endif
-#if 1
+	int sym=0;
+	
 	int range=nlevels;
 #ifdef UNIFORM_DIST
 	sym=0;
 #else
-	for(range=1;;)
+	for(range=1;;)//exponential search
 	{
 		if(range>nlevels)
 		{
+			sym=range>>1;
 			range=nlevels;
 			break;
 		}
 		if(cdf<CDF[range])
+		{
+			range>>=1;
+			sym=range;
 			break;
+		}
 		range<<=1;
 	}
-	sym=range>>1;
 #endif
 	while(range)//binary search		lg(nlevels) memory accesses per symbol
 	{
@@ -452,18 +647,17 @@ INLINE int ac_dec(ArithmeticCoder *ec, const unsigned *CDF, int nlevels)//prefer
 			sym+=range-floorhalf;
 		range=floorhalf;
 	}
-#endif
 
 	cdf=CDF[sym];
 	freq=CDF[sym+1]-cdf;
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
-	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
+	if(freq<=0||cdf>=0x10000||cdf+freq>0x10000)
 		LOG_ERROR2("ZPS");
 #endif
-	ec->low+=ec->range*cdf>>16;
+	ec->low+=ec->range*cdf>>PROB_BITS;
 	ec->range*=freq;
-	ec->range>>=16;
+	ec->range>>=PROB_BITS;
 	--ec->range;//must decrement hi because decoder fails when code == hi2
 	while(ec->range<(1LL<<PROB_BITS))
 		ac_dec_renorm(ec);
@@ -472,27 +666,29 @@ INLINE int ac_dec(ArithmeticCoder *ec, const unsigned *CDF, int nlevels)//prefer
 }
 INLINE int ac_dec_packedsign(ArithmeticCoder *ec, const unsigned *CDF, int nlevels)//preferred for skewed distributions as with 'pack sign'
 {
-	unsigned cdf=(unsigned)(((ec->code-ec->low)<<16|0xFFFF)/ec->range);
+	unsigned cdf=(unsigned)(((ec->code-ec->low)<<PROB_BITS|0xFFFF)/ec->range);
 	int freq;
 	int sym;
 
-	_mm_prefetch((char*)CDF, _MM_HINT_T0);
+	(void)nlevels;
+
+	//_mm_prefetch((char*)CDF, _MM_HINT_T0);
 
 	for(sym=0;cdf>=CDF[sym+2];sym+=2);
 	sym+=cdf>=CDF[sym+1];
 	
-	//for(sym=0;cdf>=CDF[sym+1];++sym);
+	//for(sym=0;cdf>=CDF[sym+1];++sym);//slower
 
 	cdf=CDF[sym];
 	freq=CDF[sym+1]-cdf;
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
-	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
+	if(freq<=0||cdf>=0x10000||cdf+freq>0x10000)
 		LOG_ERROR2("ZPS");
 #endif
-	ec->low+=ec->range*cdf>>16;
+	ec->low+=ec->range*cdf>>PROB_BITS;
 	ec->range*=freq;
-	ec->range>>=16;
+	ec->range>>=PROB_BITS;
 	--ec->range;//must decrement hi because decoder fails when code == hi2
 	while(ec->range<(1LL<<PROB_BITS))
 		ac_dec_renorm(ec);
@@ -505,7 +701,7 @@ INLINE int ac_dec_POT(ArithmeticCoder *ec, const unsigned *CDF, int nbits)
 	int freq;
 	int sym=0;
 	
-	unsigned c=(unsigned)(((ec->code-ec->low)<<16|0xFFFF)/ec->range);
+	unsigned c=(unsigned)(((ec->code-ec->low)<<PROB_BITS|0xFFFF)/ec->range);
 	switch(nbits)
 	{
 	default:
@@ -529,12 +725,12 @@ INLINE int ac_dec_POT(ArithmeticCoder *ec, const unsigned *CDF, int nbits)
 	freq=CDF[sym+1]-cdf;
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
-	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
+	if(freq<=0||cdf>=0x10000||cdf+freq>0x10000)
 		LOG_ERROR2("ZPS");
 #endif
-	ec->low+=ec->range*cdf>>16;
+	ec->low+=ec->range*cdf>>PROB_BITS;
 	ec->range*=freq;
-	ec->range>>=16;
+	ec->range>>=PROB_BITS;
 	--ec->range;//must decrement hi because decoder fails when code == hi2
 	while(ec->range<(1LL<<PROB_BITS))
 		ac_dec_renorm(ec);
@@ -548,7 +744,7 @@ INLINE int ac_dec_POT_permuted(ArithmeticCoder *ec, const unsigned *pCDF, const 
 	int freq;
 	unsigned sym=1;
 	
-	unsigned c=(unsigned)(((ec->code-ec->low)<<16|0xFFFF)/ec->range);
+	unsigned c=(unsigned)(((ec->code-ec->low)<<PROB_BITS|0xFFFF)/ec->range);
 	switch(nbits)
 	{
 	default:
@@ -579,12 +775,12 @@ INLINE int ac_dec_POT_permuted(ArithmeticCoder *ec, const unsigned *pCDF, const 
 	freq=CDF[sym+1]-cdf;
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
-	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
+	if(freq<=0||cdf>=0x10000||cdf+freq>0x10000)
 		LOG_ERROR2("ZPS");
 #endif
-	ec->low+=ec->range*cdf>>16;
+	ec->low+=ec->range*cdf>>PROB_BITS;
 	ec->range*=freq;
-	ec->range>>=16;
+	ec->range>>=PROB_BITS;
 	--ec->range;//must decrement hi because decoder fails when code == hi2
 	while(ec->range<(1LL<<PROB_BITS))
 		ac_dec_renorm(ec);
@@ -598,19 +794,19 @@ INLINE int ac_dec_CDF2sym(ArithmeticCoder *ec, const unsigned *CDF, const unsign
 	int freq;
 	unsigned sym;
 	
-	unsigned c=(unsigned)(((ec->code-ec->low)<<16|0xFFFF)/ec->range);
+	unsigned c=(unsigned)(((ec->code-ec->low)<<PROB_BITS|0xFFFF)/ec->range);
 	sym=CDF2sym[c];
 
 	cdf=CDF[sym];
 	freq=CDF[sym+1]-cdf;
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
-	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
+	if(freq<=0||cdf>=0x10000||cdf+freq>0x10000)
 		LOG_ERROR2("ZPS");
 #endif
-	ec->low+=ec->range*cdf>>16;
+	ec->low+=ec->range*cdf>>PROB_BITS;
 	ec->range*=freq;
-	ec->range>>=16;
+	ec->range>>=PROB_BITS;
 	--ec->range;//must decrement hi because decoder fails when code == hi2
 	while(ec->range<(1LL<<PROB_BITS))
 		ac_dec_renorm(ec);
@@ -624,7 +820,7 @@ INLINE int ac_dec_4bit(ArithmeticCoder *ec, const unsigned *CDF)
 	int freq;
 	unsigned short sym=0;
 	
-	unsigned long long c=((ec->code-ec->low)<<16|0xFFFF)/ec->range;
+	unsigned long long c=((ec->code-ec->low)<<PROB_BITS|0xFFFF)/ec->range;
 	sym|=8&-(c>=CDF[sym|8]);
 	sym|=4&-(c>=CDF[sym|4]);
 	sym|=2&-(c>=CDF[sym|2]);
@@ -634,12 +830,12 @@ INLINE int ac_dec_4bit(ArithmeticCoder *ec, const unsigned *CDF)
 	freq=CDF[sym+1]-cdf;
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
-	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
+	if(freq<=0||cdf>=0x10000||cdf+freq>0x10000)
 		LOG_ERROR2("ZPS");
 #endif
-	ec->low+=ec->range*cdf>>16;
+	ec->low+=ec->range*cdf>>PROB_BITS;
 	ec->range*=freq;
-	ec->range>>=16;
+	ec->range>>=PROB_BITS;
 	--ec->range;//must decrement hi because decoder fails when code == hi2
 	while(ec->range<(1LL<<PROB_BITS))
 		ac_dec_renorm(ec);
@@ -653,7 +849,7 @@ INLINE int ac_dec_5bit(ArithmeticCoder *ec, const unsigned *CDF)
 	int freq;
 	unsigned sym=0;
 	
-	unsigned long long c=((ec->code-ec->low)<<16|0xFFFF)/ec->range;
+	unsigned long long c=((ec->code-ec->low)<<PROB_BITS|0xFFFF)/ec->range;
 	sym|=16&-(c>=CDF[sym|16]);
 	sym|= 8&-(c>=CDF[sym| 8]);
 	sym|= 4&-(c>=CDF[sym| 4]);
@@ -664,12 +860,12 @@ INLINE int ac_dec_5bit(ArithmeticCoder *ec, const unsigned *CDF)
 	freq=CDF[sym+1]-cdf;
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
-	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
+	if(freq<=0||cdf>=0x10000||cdf+freq>0x10000)
 		LOG_ERROR2("ZPS");
 #endif
-	ec->low+=ec->range*cdf>>16;
+	ec->low+=ec->range*cdf>>PROB_BITS;
 	ec->range*=freq;
-	ec->range>>=16;
+	ec->range>>=PROB_BITS;
 	--ec->range;//must decrement hi because decoder fails when code == hi2
 	while(ec->range<(1LL<<PROB_BITS))
 		ac_dec_renorm(ec);
@@ -686,15 +882,15 @@ INLINE void ac_enc_packedCDF(ArithmeticCoder *ec, int sym, const unsigned short 
 	unsigned long long lo0=ec->low, r0=ec->range;
 	if(freq<=0)
 		LOG_ERROR2("ZPS");
-	if(cdf>0x10000||cdf+freq>0x10000)
-		LOG_ERROR2("");
+	if(cdf>=0x10000||cdf+freq>0x10000)
+		LOG_ERROR2("Invalid CDF");
 	if(ec->range==~0LLU)
-		LOG_ERROR2("");
+		LOG_ERROR2("Invalid AC range");
 	//if(cdf>>15||freq>>15)
 	//	LOG_ERROR2("LOL_1");
 #endif
-	ec->low+=ec->range*cdf>>16;
-	ec->range=ec->range*freq>>16;
+	ec->low+=ec->range*cdf>>PROB_BITS;
+	ec->range=ec->range*freq>>PROB_BITS;
 	--ec->range;//must decrement hi because decoder fails when code == hi2
 	while(ec->range<(1LL<<PROB_BITS))//only when freq=1 -> range=0, this loop runs twice
 		ac_enc_renorm(ec);
@@ -706,7 +902,7 @@ INLINE int ac_dec_packedCDF_POT(ArithmeticCoder *ec, const unsigned short *CDF, 
 	int freq;
 	int sym=0;
 	
-	unsigned long long c=((ec->code-ec->low)<<16|0xFFFF)/ec->range;
+	unsigned long long c=((ec->code-ec->low)<<PROB_BITS|0xFFFF)/ec->range;
 	switch(nbits)
 	{
 	default:
@@ -728,11 +924,11 @@ INLINE int ac_dec_packedCDF_POT(ArithmeticCoder *ec, const unsigned short *CDF, 
 	freq=(sym>=(1<<nbits)-1?0x10000:CDF[sym+1])-cdf;
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
-	if(freq<=0||cdf>0x10000||cdf+freq>0x10000)
+	if(freq<=0||cdf>=0x10000||cdf+freq>0x10000)
 		LOG_ERROR2("ZPS");
 #endif
-	ec->low+=ec->range*cdf>>16;
-	ec->range=ec->range*freq>>16;
+	ec->low+=ec->range*cdf>>PROB_BITS;
+	ec->range=ec->range*freq>>PROB_BITS;
 	--ec->range;//must decrement hi because decoder fails when code == hi2
 	while(ec->range<(1LL<<PROB_BITS))
 		ac_dec_renorm(ec);
@@ -760,12 +956,12 @@ INLINE void ac_enc_packedCDF_8x3(ArithmeticCoder *ec, const unsigned char *sym, 
 	if(freq[2]<=0||cdf[2]>0x10000||cdf[2]+freq[2]>0x10000)
 		LOG_ERROR2("ZPS");
 #endif
-	ec[0].low+=ec[0].range*cdf[0]>>16;
-	ec[1].low+=ec[1].range*cdf[1]>>16;
-	ec[2].low+=ec[2].range*cdf[2]>>16;
-	ec[0].range=ec[0].range*freq[0]>>16;
-	ec[1].range=ec[1].range*freq[1]>>16;
-	ec[2].range=ec[2].range*freq[2]>>16;
+	ec[0].low+=ec[0].range*cdf[0]>>PROB_BITS;
+	ec[1].low+=ec[1].range*cdf[1]>>PROB_BITS;
+	ec[2].low+=ec[2].range*cdf[2]>>PROB_BITS;
+	ec[0].range=ec[0].range*freq[0]>>PROB_BITS;
+	ec[1].range=ec[1].range*freq[1]>>PROB_BITS;
+	ec[2].range=ec[2].range*freq[2]>>PROB_BITS;
 	--ec[0].range;//must decrement hi because decoder fails when code == hi2
 	--ec[1].range;
 	--ec[2].range;
@@ -786,9 +982,9 @@ INLINE void ac_dec_packedCDF_8x3(ArithmeticCoder *ec, const unsigned short *CDF0
 	
 	unsigned long long c[]=
 	{
-		((ec[0].code-ec[0].low)<<16|0xFFFF)/ec[0].range,
-		((ec[1].code-ec[1].low)<<16|0xFFFF)/ec[1].range,
-		((ec[2].code-ec[2].low)<<16|0xFFFF)/ec[2].range,
+		((ec[0].code-ec[0].low)<<PROB_BITS|0xFFFF)/ec[0].range,
+		((ec[1].code-ec[1].low)<<PROB_BITS|0xFFFF)/ec[1].range,
+		((ec[2].code-ec[2].low)<<PROB_BITS|0xFFFF)/ec[2].range,
 	};
 	ret_sym[0] =(c[0]>=CDF0[          128])<<7;
 	ret_sym[1] =(c[1]>=CDF1[          128])<<7;
@@ -832,12 +1028,12 @@ INLINE void ac_dec_packedCDF_8x3(ArithmeticCoder *ec, const unsigned short *CDF0
 	if(freq[2]<=0||cdf[2]>0x10000||cdf[2]+freq[2]>0x10000)
 		LOG_ERROR2("ZPS");
 #endif
-	ec[0].low+=ec[0].range*cdf[0]>>16;
-	ec[1].low+=ec[1].range*cdf[1]>>16;
-	ec[2].low+=ec[2].range*cdf[2]>>16;
-	ec[0].range=ec[0].range*freq[0]>>16;
-	ec[1].range=ec[1].range*freq[1]>>16;
-	ec[2].range=ec[2].range*freq[2]>>16;
+	ec[0].low+=ec[0].range*cdf[0]>>PROB_BITS;
+	ec[1].low+=ec[1].range*cdf[1]>>PROB_BITS;
+	ec[2].low+=ec[2].range*cdf[2]>>PROB_BITS;
+	ec[0].range=ec[0].range*freq[0]>>PROB_BITS;
+	ec[1].range=ec[1].range*freq[1]>>PROB_BITS;
+	ec[2].range=ec[2].range*freq[2]>>PROB_BITS;
 	--ec[0].range;//must decrement hi because decoder fails when code == hi2
 	--ec[1].range;
 	--ec[2].range;
@@ -854,16 +1050,16 @@ INLINE void ac_dec_packedCDF_8x3(ArithmeticCoder *ec, const unsigned short *CDF0
 
 INLINE void ac_enc_bypass(ArithmeticCoder *ec, int sym, int nlevels)//CDF is 16 bit
 {
-	unsigned cdf=(sym<<16)/nlevels;
-	int freq=((sym+1)<<16)/nlevels-cdf;
+	unsigned cdf=(sym<<PROB_BITS)/nlevels;
+	int freq=((sym+1)<<PROB_BITS)/nlevels-cdf;
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
 	if(freq<=0)
 		LOG_ERROR2("ZPS");
 #endif
-	ec->low+=ec->range*cdf>>16;
+	ec->low+=ec->range*cdf>>PROB_BITS;
 	ec->range*=freq;
-	ec->range>>=16;
+	ec->range>>=PROB_BITS;
 	--ec->range;//must decrement hi because decoder fails when code == hi2
 	if(ec->range<(1LL<<PROB_BITS))
 		ac_enc_renorm(ec);
@@ -876,24 +1072,24 @@ INLINE int ac_dec_bypass(ArithmeticCoder *ec, int nlevels)
 	int freq;
 	int sym;
 	
-	cdf=(int)(((ec->code-ec->low)<<16)/ec->range);
-	sym=(cdf*nlevels>>16)+1;//this is to handle the case when code == lo2
-	cdf=(sym<<16)/nlevels;
-	if(ec->low+(ec->range*cdf>>16)>ec->code)
+	cdf=(int)(((ec->code-ec->low)<<PROB_BITS)/ec->range);//FIXME
+	sym=(cdf*nlevels>>PROB_BITS)+1;//this is to handle the case when code == lo2
+	cdf=(sym<<PROB_BITS)/nlevels;//FIXME
+	if(ec->low+(ec->range*cdf>>PROB_BITS)>ec->code)//FIXME!!!
 	{
 		--sym;
-		cdf=(sym<<16)/nlevels;
+		cdf=(sym<<PROB_BITS)/nlevels;
 	}
 
-	freq=((sym+1)<<16)/nlevels-cdf;
+	freq=((sym+1)<<PROB_BITS)/nlevels-cdf;
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
 	if(freq<=0)
 		LOG_ERROR2("ZPS");
 #endif
-	ec->low+=ec->range*cdf>>16;
+	ec->low+=ec->range*cdf>>PROB_BITS;
 	ec->range*=freq;
-	ec->range>>=16;
+	ec->range>>=PROB_BITS;
 	--ec->range;//must decrement hi because decoder fails when code == hi2
 	while(ec->range<(1LL<<PROB_BITS))
 		ac_dec_renorm(ec);
@@ -904,7 +1100,7 @@ INLINE int ac_dec_bypass(ArithmeticCoder *ec, int nlevels)
 
 INLINE void ac_enc_bin(ArithmeticCoder *ec, unsigned short p0, int bit)
 {
-	unsigned long long r2=ec->range*p0>>16;
+	unsigned long long r2=ec->range*p0>>PROB_BITS;
 #ifdef AC_VALIDATE
 	if(!p0)//reject degenerate distribution
 		LOG_ERROR2("ZPS");
@@ -918,7 +1114,7 @@ INLINE void ac_enc_bin(ArithmeticCoder *ec, unsigned short p0, int bit)
 }
 INLINE int ac_dec_bin(ArithmeticCoder *ec, unsigned short p0)//binary AC decoder doesn't do binary search
 {
-	unsigned long long r2=ec->range*p0>>16;
+	unsigned long long r2=ec->range*p0>>PROB_BITS;
 	int bit=ec->code>=ec->low+r2;
 #ifdef AC_VALIDATE
 	if(!p0)//reject degenerate distribution
@@ -957,13 +1153,20 @@ INLINE void ans_enc_init(ANSCoder *ec, EC_DSTStructure *dst)
 INLINE void ans_dec_init(ANSCoder *ec, const unsigned char *start, const unsigned char *end)
 {
 	memset(ec, 0, sizeof(*ec));
+#ifdef ANS_DEC_FWD
+	ec->srcptr=start;
+	ec->srcstart=end;
+	memcpy((unsigned char*)&ec->state+2, ec->srcptr+0, 2);
+	memcpy((unsigned char*)&ec->state+0, ec->srcptr+2, 2);
+	ec->srcptr+=2;
+#else
 	ec->srcptr=end;
 	ec->srcstart=start;
-
 	ec->srcptr-=4;
 	if(ec->srcptr<ec->srcstart)
 		LOG_ERROR2("ANS buffer overflow");
 	memcpy(&ec->state, ec->srcptr, 4);
+#endif
 }
 INLINE void ans_enc_flush(ANSCoder *ec)
 {
@@ -973,14 +1176,119 @@ INLINE void ans_enc_flush(ANSCoder *ec)
 	dlist_push_back(ec->dst, &ec->state, 4);
 #endif
 }
+INLINE void ans_enc_update(ANSCoder *ec, unsigned cdf, int freq)
+{
+#ifdef DEBUG_ANS
+	if(!freq)
+		LOG_ERROR2("ZPS");
+#endif
+	if((ec->state>>16)>=(unsigned)freq)//renorm
+	{
+#ifdef EC_USE_ARRAY
+		ARRAY_APPEND(*ec->dst, &ec->state, 2, 1, 0);
+#else
+		dlist_push_back(ec->dst, &ec->state, 2);
+#endif
+		ec->state>>=16;
+	}
+	debug_enc_update(ec->state, cdf, freq, 0, 0, 0, 0, 0);
+	ec->state=ec->state/freq<<16|(cdf+ec->state%freq);//update
+}
+INLINE void ans_dec_update(ANSCoder *ec, unsigned cdf, int freq)
+{
+	unsigned c=(unsigned short)ec->state;
+#ifdef DEBUG_ANS
+	if(!freq)
+		LOG_ERROR2("ZPS");
+#endif
+	debug_dec_update(ec->state, cdf, freq, 0, 0, 0, 0, 0);
+	ec->state=freq*(ec->state>>16)+c-cdf;//update
+#ifdef ANS_DEC_FWD
+	int renorm=ec->state<0x10000;
+	ec->srcptr+=(size_t)renorm<<1;
+	unsigned newstate=ec->state<<16|*(unsigned short*)ec->srcptr;
+	ec->state=renorm?newstate:ec->state;
+#else
+	if(ec->state<0x10000)//renorm
+	{
+		ec->state<<=16;
+		if(ec->srcptr-2>=ec->srcstart)
+		{
+			ec->srcptr-=2;
+			memcpy(&ec->state, ec->srcptr, 2);
+		}
+	}
+#endif
+}
 
 INLINE void ans_enc(ANSCoder *ec, int sym, const unsigned *CDF, int nlevels)
 {
 	int cdf, freq;
-	if(CDF)
-		cdf=CDF[sym], freq=CDF[sym+1]-cdf;
-	else//bypass
-		cdf=(sym<<16)/nlevels, freq=((sym+1)<<16)/nlevels-cdf;
+
+	cdf=CDF[sym], freq=CDF[sym+1]-cdf;
+#ifdef DEBUG_ANS
+	if(!freq)
+		LOG_ERROR2("ZPS");
+#endif
+	if((ec->state>>16)>=(unsigned)freq)//renorm
+	{
+#ifdef EC_USE_ARRAY
+		ARRAY_APPEND(*ec->dst, &ec->state, 2, 1, 0);
+#else
+		dlist_push_back(ec->dst, &ec->state, 2);
+#endif
+		ec->state>>=16;
+	}
+	debug_enc_update(ec->state, cdf, freq, 0, 0, 0, 0, sym);
+	ec->state=ec->state/freq<<16|(cdf+ec->state%freq);//update
+
+	(void)nlevels;
+}
+INLINE int ans_dec(ANSCoder *ec, const unsigned *CDF, int nlevels)
+{
+	unsigned c=(unsigned short)ec->state;
+	int sym=0;
+
+	unsigned cdf, freq;
+
+	int range=nlevels;
+	while(range)//binary search		lg(nlevels) memory accesses per symbol
+	{
+		int floorhalf=range>>1;
+		sym+=(range-floorhalf)&-(CDF[sym+floorhalf+1]<=c);
+		range=floorhalf;
+	}
+
+	cdf=CDF[sym], freq=CDF[sym+1]-cdf;
+#ifdef DEBUG_ANS
+	if(!freq)
+		LOG_ERROR2("ZPS");
+#endif
+	debug_dec_update(ec->state, cdf, freq, 0, 0, 0, 0, sym);
+	ec->state=freq*(ec->state>>16)+c-cdf;//update
+#ifdef ANS_DEC_FWD
+	int renorm=ec->state<0x10000;
+	ec->srcptr+=(size_t)renorm<<1;
+	unsigned newstate=ec->state<<16|*(unsigned short*)ec->srcptr;
+	ec->state=renorm?newstate:ec->state;
+#else
+	if(ec->state<0x10000)//renorm
+	{
+		ec->state<<=16;
+		if(ec->srcptr-2>=ec->srcstart)
+		{
+			ec->srcptr-=2;
+			memcpy(&ec->state, ec->srcptr, 2);
+		}
+	}
+#endif
+	return sym;
+}
+INLINE void ans_enc_bypass(ANSCoder *ec, int sym, int nbits)//nbits [1 ~ 16]
+{
+	int cdf, freq;
+
+	cdf=sym<<16>>nbits, freq=0x10000>>nbits;
 #ifdef DEBUG_ANS
 	if(!freq)
 		LOG_ERROR2("ZPS");
@@ -997,54 +1305,27 @@ INLINE void ans_enc(ANSCoder *ec, int sym, const unsigned *CDF, int nlevels)
 	debug_enc_update(ec->state, cdf, freq, 0, 0, 0, 0, sym);
 	ec->state=ec->state/freq<<16|(cdf+ec->state%freq);//update
 }
-INLINE int ans_dec(ANSCoder *ec, const unsigned *CDF, int nlevels)
+INLINE int ans_dec_bypass(ANSCoder *ec, int nbits)
 {
 	unsigned c=(unsigned short)ec->state;
 	int sym=0;
 
 	unsigned cdf, freq;
-	if(CDF)
-	{
-		int L=0, R=nlevels;
-		while(R)//binary search		lg(nlevels) memory accesses per symbol
-		{
-			int floorhalf=R>>1;
-			sym=L+floorhalf;
-			L+=(R-floorhalf)&-(CDF[sym]<=c);
-			R=floorhalf;
-		}
-		//int L=0, R=nlevels, found=0;
-		//while(L<=R)
-		//{
-		//	sym=(L+R)>>1;
-		//	if(CDF[sym]<c)
-		//		L=sym+1;
-		//	else if(CDF[sym]>c)
-		//		R=sym-1;
-		//	else
-		//	{
-		//		found=1;
-		//		break;
-		//	}
-		//}
-		//if(found)
-		//	for(;sym<nlevels-1&&CDF[sym+1]==c;++sym);
-		//else
-		//	sym=L+(L<nlevels&&CDF[L]<c)-(L!=0);
 
-		cdf=CDF[sym], freq=CDF[sym+1]-cdf;
-	}
-	else//bypass
-	{
-		sym=c*nlevels>>16;
-		cdf=(sym<<16)/nlevels, freq=((sym+1)<<16)/nlevels-cdf;
-	}
+	sym=c<<nbits>>16;
+	cdf=sym<<16>>nbits, freq=0x10000>>nbits;
 #ifdef DEBUG_ANS
 	if(!freq)
 		LOG_ERROR2("ZPS");
 #endif
 	debug_dec_update(ec->state, cdf, freq, 0, 0, 0, 0, sym);
 	ec->state=freq*(ec->state>>16)+c-cdf;//update
+#ifdef ANS_DEC_FWD
+	int renorm=ec->state<0x10000;
+	ec->srcptr+=(size_t)renorm<<1;
+	unsigned newstate=ec->state<<16|*(unsigned short*)ec->srcptr;
+	ec->state=renorm?newstate:ec->state;
+#else
 	if(ec->state<0x10000)//renorm
 	{
 		ec->state<<=16;
@@ -1054,6 +1335,7 @@ INLINE int ans_dec(ANSCoder *ec, const unsigned *CDF, int nlevels)
 			memcpy(&ec->state, ec->srcptr, 2);
 		}
 	}
+#endif
 	return sym;
 }
 INLINE int ans_dec_POT(ANSCoder *ec, const unsigned *CDF, int nbits)
@@ -1086,6 +1368,12 @@ INLINE int ans_dec_POT(ANSCoder *ec, const unsigned *CDF, int nbits)
 	debug_dec_update(ec->state, cdf, freq, 0, 0, 0, 0, sym);
 #endif
 	ec->state=freq*(ec->state>>16)+c-cdf;//update
+#ifdef ANS_DEC_FWD
+	int renorm=ec->state<0x10000;
+	ec->srcptr+=(size_t)renorm<<1;
+	unsigned newstate=ec->state<<16|*(unsigned short*)ec->srcptr;
+	ec->state=renorm?newstate:ec->state;
+#else
 	if(ec->state<0x10000)//renorm
 	{
 		ec->state<<=16;
@@ -1095,6 +1383,40 @@ INLINE int ans_dec_POT(ANSCoder *ec, const unsigned *CDF, int nbits)
 			memcpy(&ec->state, ec->srcptr, 2);
 		}
 	}
+#endif
+	return sym;
+}
+INLINE int ans_dec_CDF2sym(ANSCoder *ec, const unsigned *CDF, const unsigned char *CDF2sym)
+{
+	unsigned c=(unsigned short)ec->state;
+	int sym=0;
+
+	unsigned cdf, freq;
+	sym=CDF2sym[c];
+
+	cdf=CDF[sym], freq=CDF[sym+1]-cdf;
+#ifdef DEBUG_ANS
+	if(!freq)
+		LOG_ERROR2("ZPS");
+	debug_dec_update(ec->state, cdf, freq, 0, 0, 0, 0, sym);
+#endif
+	ec->state=freq*(ec->state>>16)+c-cdf;//update
+#ifdef ANS_DEC_FWD
+	int renorm=ec->state<0x10000;
+	ec->srcptr+=(size_t)renorm<<1;
+	unsigned newstate=ec->state<<16|*(unsigned short*)ec->srcptr;
+	ec->state=renorm?newstate:ec->state;
+#else
+	if(ec->state<0x10000)//renorm
+	{
+		ec->state<<=16;
+		if(ec->srcptr-2>=ec->srcstart)
+		{
+			ec->srcptr-=2;
+			memcpy(&ec->state, ec->srcptr, 2);
+		}
+	}
+#endif
 	return sym;
 }
 
@@ -1157,6 +1479,12 @@ INLINE int ans_dec15(ANSCoder *ec, const unsigned short *CDF, int nlevels)
 		LOG_ERROR2("ZPS");
 	debug_dec_update(ec->state, cdf, freq, 0, 0, 0, 0, sym);
 	ec->state=freq*(ec->state>>16)+c-cdf;//update
+#ifdef ANS_DEC_FWD
+	int renorm=ec->state<0x10000;
+	ec->srcptr+=(size_t)renorm<<1;
+	unsigned newstate=ec->state<<16|*(unsigned short*)ec->srcptr;
+	ec->state=renorm?newstate:ec->state;
+#else
 	if(ec->state<0x10000)//renorm
 	{
 		ec->state<<=16;
@@ -1166,6 +1494,7 @@ INLINE int ans_dec15(ANSCoder *ec, const unsigned short *CDF, int nlevels)
 			memcpy(&ec->state, ec->srcptr, 2);
 		}
 	}
+#endif
 	return sym;
 }
 
@@ -1193,6 +1522,12 @@ INLINE int ans_dec_bin(ANSCoder *ec, unsigned short p0)
 
 	debug_dec_update(ec->state, cdf, freq, 0, 0, 0, 0, bit);
 	ec->state=freq*(ec->state>>16)+c-cdf;//update
+#ifdef ANS_DEC_FWD
+	int renorm=ec->state<0x10000;
+	ec->srcptr+=(size_t)renorm<<1;
+	unsigned newstate=ec->state<<16|*(unsigned short*)ec->srcptr;
+	ec->state=renorm?newstate:ec->state;
+#else
 	if(ec->state<0x10000)//renorm
 	{
 		ec->state<<=16;
@@ -1202,6 +1537,7 @@ INLINE int ans_dec_bin(ANSCoder *ec, unsigned short p0)
 			memcpy(&ec->state, ec->srcptr, 2);
 		}
 	}
+#endif
 	return bit;
 }
 
@@ -1210,12 +1546,37 @@ INLINE int ans_dec_bin(ANSCoder *ec, unsigned short p0)
 typedef struct GolombRiceCoderStruct
 {
 	unsigned long long cache;
-	unsigned nbits;//enc: number of free bits in cache, dec: number of unread bits in cache
-	int is_enc;
+	int nbits;//enc: number of free bits in cache, dec: number of unread bits in cache
+	int is_enc;//for padding
 	const unsigned char *srcptr, *srcend, *srcstart;
 	unsigned char *dstptr, *dstend, *dststart;
 	DList *dst;
 } GolombRiceCoder;
+INLINE size_t gr_enc_flush(GolombRiceCoder *ec)
+{
+#ifdef EC_USE_ARRAY
+	if(ec->dstptr+sizeof(ec->cache)>ec->dstend)//compression failed
+		return 0;
+	memcpy(ec->dstptr, &ec->cache, sizeof(ec->cache));
+	ec->dstptr+=sizeof(ec->cache);
+	return 1;
+#else
+	dlist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));//size is qword-aligned
+	return 1;
+#endif
+}
+INLINE int gr_dec_impl_read(GolombRiceCoder *ec)
+{
+	if(ec->srcptr+sizeof(ec->cache)>ec->srcend)
+	{
+		LOG_ERROR2("buffer overflow");
+		return 1;
+	}
+	ec->nbits=sizeof(ec->cache)<<3;
+	memcpy(&ec->cache, ec->srcptr, sizeof(ec->cache));
+	ec->srcptr+=sizeof(ec->cache);
+	return 0;
+}
 INLINE void gr_enc_init(GolombRiceCoder *ec,
 #ifdef EC_USE_ARRAY
 	unsigned char *start, unsigned char *end
@@ -1246,52 +1607,22 @@ INLINE void gr_dec_init(GolombRiceCoder *ec, const unsigned char *start, const u
 	ec->srcend=end;
 	ec->srcstart=start;
 }
-INLINE int gr_dec_impl_read(GolombRiceCoder *ec)
-{
-	if(ec->srcptr+sizeof(ec->cache)>ec->srcend)
-	{
-		LOG_ERROR2("buffer overflow");
-		return 1;
-	}
-	ec->nbits=sizeof(ec->cache)<<3;
-	memcpy(&ec->cache, ec->srcptr, sizeof(ec->cache));
-	ec->srcptr+=sizeof(ec->cache);
-	return 0;
-}
-INLINE size_t gr_enc_flush(GolombRiceCoder *ec)
-{
-#ifdef EC_USE_ARRAY
-	if(ec->dstptr+sizeof(ec->cache)>ec->dstend)//compression failed
-		return 0;
-	memcpy(ec->dstptr, &ec->cache, sizeof(ec->cache));
-	ec->dstptr+=sizeof(ec->cache);
-	return 1;
-#else
-	dlist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));//size is qword-aligned
-	return 1;
-#endif
-	//while(ec->nbits<(sizeof(ec->cache)<<3))//loops up to 2 times
-	//{
-	//	dlist_push_back(ec->dst, (unsigned*)&ec->cache+1, 4);
-	//	ec->nbits+=32;
-	//	ec->cache<<=32;
-	//}
-}
 
 INLINE int gr_enc(GolombRiceCoder *ec, unsigned sym, unsigned magnitude)
 {
 	//buffer: {c,c,c,b,b,a,a,a, f,f,f,e,e,e,d,c}, cache: MSB gg[hhh]000 LSB	nbits 6->3, code h is about to be emitted
-	//written 64-bit words are byte-reversed because the CPU is big-endian
-	magnitude+=!magnitude;
-	unsigned nbypass=floor_log2_32(magnitude)+1;
-	unsigned nzeros=sym/magnitude, bypass=sym%magnitude;
+	//written 64-bit words are byte-reversed because the CPU is little-endian
+
+	//magnitude+=!magnitude;
+	int nbypass=32-_lzcnt_u32(magnitude);
+	int nzeros=sym/magnitude, bypass=sym%magnitude;
 	if(nzeros>=ec->nbits)//fill the rest of cache with zeros, and flush
 	{
 		nzeros-=ec->nbits;
 		if(!gr_enc_flush(ec))
 			return 0;
 		//dlist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));
-		if(nzeros>=(sizeof(ec->cache)<<3))//just flush zeros
+		if(nzeros>=(int)(sizeof(ec->cache)<<3))//just flush zeros
 		{
 			ec->cache=0;
 			do
@@ -1301,16 +1632,15 @@ INLINE int gr_enc(GolombRiceCoder *ec, unsigned sym, unsigned magnitude)
 					return 0;
 				//dlist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));
 			}
-			while(nzeros>(sizeof(ec->cache)<<3));
+			while(nzeros>(int)(sizeof(ec->cache)<<3));
 		}
 		ec->cache=0;
 		ec->nbits=(sizeof(ec->cache)<<3);
 	}
 	//now there is room for zeros:  0 <= nzeros < nbits <= 64
-	if(nzeros)//emit remaining zeros to cache
-		ec->nbits-=nzeros;
+	ec->nbits-=nzeros;//emit remaining zeros to cache
 
-	unsigned nunused=(1<<nbypass)-magnitude;//truncated binary code
+	int nunused=(1<<nbypass)-magnitude;//truncated binary code
 	if(bypass<nunused)	//emit(bypass, nbypass-1)
 		--nbypass;
 	else			//emit(bypass+nunused, nbypass)
@@ -1327,28 +1657,25 @@ INLINE int gr_enc(GolombRiceCoder *ec, unsigned sym, unsigned magnitude)
 			return 0;
 		//dlist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));
 		ec->cache=0;
-		ec->nbits=(sizeof(ec->cache)<<3);
+		ec->nbits=sizeof(ec->cache)<<3;
 	}
 	//now there is room for bypass:  0 <= nbypass < nbits <= 64
-	if(nbypass)//emit remaining bypass to cache
-	{
-		ec->nbits-=nbypass;
-		ec->cache|=(unsigned long long)bypass<<ec->nbits;
-	}
+	ec->nbits-=nbypass;//emit remaining bypass to cache
+	ec->cache|=(unsigned long long)bypass<<ec->nbits;
 	return 1;
 }
 INLINE unsigned gr_dec(GolombRiceCoder *ec, unsigned magnitude)
 {
 	//cache: MSB 00[hhh]ijj LSB		nbits 6->3, h is about to be read (past codes must be cleared from cache)
 	
-	magnitude+=!magnitude;
-	unsigned nbypass=floor_log2_32(magnitude);
+	//magnitude+=!magnitude;
+	int nbypass=FLOOR_LOG2(magnitude);
 	int sym=0, nleadingzeros=0;
 	if(!ec->nbits)//cache is empty
 		goto read;
 	for(;;)//cache reading loop
 	{
-		nleadingzeros=ec->nbits-1-floor_log2(ec->cache);//count leading zeros
+		nleadingzeros=ec->nbits-FLOOR_LOG2_P1(ec->cache);//count leading zeros
 		ec->nbits-=nleadingzeros;//remove accessed zeros
 		sym+=nleadingzeros;
 
@@ -1361,7 +1688,12 @@ INLINE unsigned gr_dec(GolombRiceCoder *ec, unsigned magnitude)
 	//now  0 < nbits <= 64
 	--ec->nbits;
 	//now  0 <= nbits < 64
-	ec->cache&=(1ULL<<ec->nbits)-1;//remove stop bit
+	ec->cache-=1ULL<<ec->nbits;//remove stop bit
+	//ec->cache&=(1ULL<<ec->nbits)-1;
+
+	//nleadingzeros=(sizeof(ec->cache)<<3)-ec->nbits;//X  won't work when removed bit is LSB
+	//ec->cache<<=nleadingzeros;
+	//ec->cache>>=nleadingzeros;
 
 	sym*=magnitude;
 	unsigned bypass=0, nunused=(1<<(nbypass+1))-magnitude;
@@ -1388,6 +1720,216 @@ INLINE unsigned gr_dec(GolombRiceCoder *ec, unsigned magnitude)
 		--ec->nbits;
 		bypass=(bypass<<1|(int)(ec->cache>>ec->nbits))-nunused;
 		ec->cache&=(1ULL<<ec->nbits)-1;
+	}
+	sym+=bypass;
+	return sym;
+}
+
+INLINE int gr_enc_POT(GolombRiceCoder *ec, int sym, int nbypass)
+{
+	//buffer: {c,c,c,b,b,a,a,a, f,f,f,e,e,e,d,c}, cache: MSB gg[hhh]000 LSB	nbits 6->3, code h is about to be emitted
+	//written 64-bit words are byte-reversed because the CPU is little-endian
+
+	int nzeros=sym>>nbypass, bypass=sym&((1<<nbypass)-1);
+	if(nzeros>=ec->nbits)//fill the rest of cache with zeros, and flush
+	{
+		nzeros-=ec->nbits;
+		if(!gr_enc_flush(ec))
+			return 0;
+		//dlist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));
+		if(nzeros>=(int)(sizeof(ec->cache)<<3))//just flush zeros
+		{
+			ec->cache=0;
+			do
+			{
+				nzeros-=(sizeof(ec->cache)<<3);
+				if(!gr_enc_flush(ec))
+					return 0;
+				//dlist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));
+			}
+			while(nzeros>(int)(sizeof(ec->cache)<<3));
+		}
+		ec->cache=0;
+		ec->nbits=(sizeof(ec->cache)<<3);
+	}
+	//now there is room for zeros:  0 <= nzeros < nbits <= 64
+	ec->nbits-=nzeros;//emit remaining zeros to cache
+
+	bypass|=1<<nbypass;//append 1 stop bit
+	++nbypass;
+	if(nbypass>=ec->nbits)//not enough free bits in cache:  fill cache, write to list, and repeat
+	{
+		nbypass-=ec->nbits;
+		ec->cache|=(unsigned long long)bypass>>nbypass;
+		bypass&=(1<<nbypass)-1;
+		if(!gr_enc_flush(ec))
+			return 0;
+		//dlist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));
+		ec->cache=0;
+		ec->nbits=sizeof(ec->cache)<<3;
+	}
+	//now there is room for bypass:  0 <= nbypass < nbits <= 64
+	ec->nbits-=nbypass;//emit remaining bypass to cache
+	ec->cache|=(unsigned long long)bypass<<ec->nbits;
+	return 1;
+}
+INLINE unsigned gr_dec_POT(GolombRiceCoder *ec, int nbypass)
+{
+	//cache: MSB 00[hhh]ijj LSB		nbits 6->3, h is about to be read (past codes must be cleared from cache)
+	
+	int sym=0, nleadingzeros=0;
+	if(!ec->nbits)//cache is empty
+		goto read;
+	for(;;)//cache reading loop
+	{
+		nleadingzeros=ec->nbits-FLOOR_LOG2_P1(ec->cache);//count leading zeros
+		ec->nbits-=nleadingzeros;//remove accessed zeros
+		sym+=nleadingzeros;
+
+		if(ec->nbits)
+			break;
+	read://cache is empty
+		if(gr_dec_impl_read(ec))
+			return 0;
+	}
+	//now  0 < nbits <= 64
+	--ec->nbits;
+	//now  0 <= nbits < 64
+	ec->cache-=1ULL<<ec->nbits;//remove stop bit
+
+	unsigned bypass=0;
+	sym<<=nbypass;
+	if(ec->nbits<nbypass)
+	{
+		nbypass-=ec->nbits;
+		bypass|=(int)(ec->cache<<nbypass);
+		if(gr_dec_impl_read(ec))
+			return 0;
+	}
+	if(nbypass)
+	{
+		ec->nbits-=nbypass;
+		bypass|=(int)(ec->cache>>ec->nbits);
+		ec->cache&=(1ULL<<ec->nbits)-1;
+	}
+	return sym|bypass;
+}
+
+INLINE int gr_enc_track(GolombRiceCoder *ec, unsigned sym, unsigned magnitude, unsigned *count_zeros, unsigned *count_bypass)
+{
+	//buffer: {c,c,c,b,b,a,a,a, f,f,f,e,e,e,d,c}, cache: MSB gg[hhh]000 LSB	nbits 6->3, code h is about to be emitted
+	//written 64-bit words are byte-reversed because the CPU is little-endian
+
+	int nbypass=FLOOR_LOG2(magnitude)+1;
+	int nzeros=sym/magnitude, bypass=sym%magnitude;
+	*count_zeros+=nzeros;
+	if(nzeros>=ec->nbits)//fill the rest of cache with zeros, and flush
+	{
+		nzeros-=ec->nbits;
+		if(!gr_enc_flush(ec))
+			return 0;
+		//dlist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));
+		if(nzeros>=(int)(sizeof(ec->cache)<<3))//just flush zeros
+		{
+			ec->cache=0;
+			do
+			{
+				nzeros-=(sizeof(ec->cache)<<3);
+				if(!gr_enc_flush(ec))
+					return 0;
+				//dlist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));
+			}
+			while(nzeros>(int)(sizeof(ec->cache)<<3));
+		}
+		ec->cache=0;
+		ec->nbits=(sizeof(ec->cache)<<3);
+	}
+	//now there is room for zeros:  0 <= nzeros < nbits <= 64
+	ec->nbits-=nzeros;//emit remaining zeros to cache
+
+	int nunused=(1<<nbypass)-magnitude;//truncated binary code
+	if(bypass<nunused)	//emit(bypass, nbypass-1)
+		--nbypass;
+	else			//emit(bypass+nunused, nbypass)
+		bypass+=nunused;
+
+	bypass|=1<<nbypass;//append 1 stop bit
+	++nbypass;
+	*count_bypass+=nbypass;
+	if(nbypass>=ec->nbits)//not enough free bits in cache:  fill cache, write to list, and repeat
+	{
+		nbypass-=ec->nbits;
+		ec->cache|=(unsigned long long)bypass>>nbypass;
+		bypass&=(1<<nbypass)-1;
+		if(!gr_enc_flush(ec))
+			return 0;
+		//dlist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));
+		ec->cache=0;
+		ec->nbits=(sizeof(ec->cache)<<3);
+	}
+	//now there is room for bypass:  0 <= nbypass < nbits <= 64
+	ec->nbits-=nbypass;//emit remaining bypass to cache
+	ec->cache|=(unsigned long long)bypass<<ec->nbits;
+	return 1;
+}
+INLINE unsigned gr_dec_track(GolombRiceCoder *ec, unsigned magnitude, unsigned *count_zeros, unsigned *count_bypass)
+{
+	//cache: MSB 00[hhh]ijj LSB		nbits 6->3, h is about to be read (past codes must be cleared from cache)
+	
+	int nbypass=FLOOR_LOG2(magnitude);
+	int sym=0, nleadingzeros=0;
+	if(!ec->nbits)//cache is empty
+		goto read;
+	for(;;)//cache reading loop
+	{
+		nleadingzeros=ec->nbits-FLOOR_LOG2_P1(ec->cache);
+		ec->nbits-=nleadingzeros;//remove accessed zeros
+		sym+=nleadingzeros;
+
+		if(ec->nbits)
+			break;
+	read://cache is empty
+		if(gr_dec_impl_read(ec))
+			return 0;
+	}
+	*count_zeros+=sym;
+	//now  0 < nbits <= 64
+	--ec->nbits;
+	//now  0 <= nbits < 64
+	ec->cache-=1ULL<<ec->nbits;//remove stop bit
+	//ec->cache&=(1ULL<<ec->nbits)-1;
+
+	//nleadingzeros=(sizeof(ec->cache)<<3)-ec->nbits;//X  won't work when removed bit is LSB
+	//ec->cache<<=nleadingzeros;
+	//ec->cache>>=nleadingzeros;
+	*count_bypass+=nbypass+1;
+
+	sym*=magnitude;
+	unsigned bypass=0, nunused=(1<<(nbypass+1))-magnitude;
+	if(ec->nbits<nbypass)
+	{
+		nbypass-=ec->nbits;
+		bypass|=(int)(ec->cache<<nbypass);
+		if(gr_dec_impl_read(ec))
+			return 0;
+	}
+	if(nbypass)
+	{
+		ec->nbits-=nbypass;
+		bypass|=(int)(ec->cache>>ec->nbits);
+		ec->cache&=(1ULL<<ec->nbits)-1;
+	}
+	if(bypass>=nunused)
+	{
+		if(ec->nbits<1)
+		{
+			if(gr_dec_impl_read(ec))
+				return 0;
+		}
+		--ec->nbits;
+		bypass=(bypass<<1|(int)(ec->cache>>ec->nbits))-nunused;
+		ec->cache&=(1ULL<<ec->nbits)-1;
+		++*count_bypass;
 	}
 	sym+=bypass;
 	return sym;

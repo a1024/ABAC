@@ -873,7 +873,7 @@ void grad_explore(const unsigned char *buf, int iw, int ih)
 	for(int k=0;k<nhist;++k)
 	{
 		printf("%s:\n", histnames[k]);
-		print_histogram(hist+(k<<8), 256, 128);
+		print_histogram(hist+((size_t)k<<8), 256, 128);
 		printf("\n");
 	}
 	free(hist);

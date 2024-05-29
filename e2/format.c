@@ -3,13 +3,15 @@
 #include<stdlib.h>
 #include<string.h>
 #include<ctype.h>
+#include<immintrin.h>
 #include"lodepng.h"
 //#define J40_IMPLEMENTATION
 //#define J40_CONFIRM_THAT_THIS_IS_EXPERIMENTAL_AND_POTENTIALLY_UNSAFE
 //#include"j40.h"
 #ifndef _MSC_VER
-#include<byteswap.h>
-#define _byteswap_ushort bswap_16
+#define _byteswap_ushort __builtin_bswap16
+//#include<byteswap.h>
+//#define _byteswap_ushort bswap_16
 #endif
 #define STB_IMAGE_IMPLEMENTATION
 #include"stb_image.h"
@@ -471,7 +473,7 @@ void calc_depthfromdata(int *image, int iw, int ih, char *depths, const char *sr
 				vmax=sym;
 		}
 		int nlevels=vmax-vmin;
-		depths[kc]=nlevels?(char)(floor_log2_32(nlevels)+1):0;
+		depths[kc]=nlevels?(char)FLOOR_LOG2_P1(nlevels):0;
 		depths[kc]=MAXVAR(depths[kc], src_depths[kc]);
 	}
 }

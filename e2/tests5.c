@@ -51,7 +51,7 @@ static void hybriduint_encode(unsigned val, TempHybrid *hu)
 	}
 	else
 	{
-		int lgv=floor_log2_32((unsigned)val);
+		int lgv=FLOOR_LOG2((unsigned)val);
 		int mantissa=val-(1<<lgv);
 		token = (1<<SLIC4_CONFIG_EXP) + (
 				(lgv-SLIC4_CONFIG_EXP)<<(SLIC4_CONFIG_MSB+SLIC4_CONFIG_LSB)|
@@ -188,7 +188,7 @@ static void slic4_pred_nextrow(PredictorCtx *pr, int ky)
 	//pr->sse_idx=0;
 	if(ky)
 	{
-		pr->shift=floor_log2(pr->sigma)+1-PRED_PREC;
+		pr->shift=FLOOR_LOG2_P1(pr->sigma)-PRED_PREC;
 		pr->shift=MAXVAR(8, pr->shift)-8+PRED_PREC;
 	}
 	else

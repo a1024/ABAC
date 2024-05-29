@@ -31,24 +31,6 @@ extern "C"
 #endif
 
 //utility
-#define BETWEEN_INC(LO, X, HI) ((unsigned)((X)-LO)<(unsigned)(HI+1-LO))
-#define BETWEEN_EXC(LO, X, HI) ((unsigned)((X)-LO)<(unsigned)(HI-LO))
-#define SWAPVAR(A, B, TEMP) TEMP=A, A=B, B=TEMP
-#define SWAPMEM(A, B, TEMP) memcpy(TEMP, A, sizeof(*(TEMP))), memcpy(A, B, sizeof(*(TEMP))), memcpy(B, TEMP, sizeof(*(TEMP)))
-#define ROTATE3(A, B, C, TEMP) TEMP=A, A=B, B=C, C=TEMP
-#define MINVAR(A, B) ((A)<(B)?(A):(B))
-#define MAXVAR(A, B) ((A)>(B)?(A):(B))
-#define CLAMP(LO, X, HI) ((X)>(LO)?(X)<(HI)?(X):(HI):(LO))
-#define MEDIAN3(A, B, C) (B<A?B<C?C<A?C:A:B:A<C?C<B?C:B:A)//3 branches max
-#define MOVEOBJ(SRC, DST, SIZE) memcpy(DST, SRC, SIZE), memset(SRC, 0, SIZE)
-#define MODVAR(DST, SRC, N) DST=(SRC)%(N), DST+=(N)&-(DST<0)
-#define SHIFT_LEFT_SIGNED(X, SH) ((SH)<0?(X)>>-(SH):(X)<<(SH))
-#define SHIFT_RIGHT_SIGNED(X, SH) ((SH)<0?(X)<<-(SH):(X)>>(SH))
-#define UPDATE_MIN(M, X) if(M>X)M=X
-#define UPDATE_MAX(M, X) if(M<X)M=X
-#define THREEWAY(L, R) (((L)>(R))-((L)<(R)))
-#define MIX(V0, V1, X) ((V0)+((V1)-(V0))*(X))
-
 #ifdef _MSC_VER
 #define	ALIGN(N) __declspec(align(N))
 #define INLINE static
@@ -61,6 +43,64 @@ extern "C"
 #endif
 //#define _stricmp strcasecmp		//moved to source		because this interferes with later includes
 #endif
+#define BETWEEN_INC(LO, X, HI) ((unsigned)((X)-LO)<(unsigned)(HI+1-LO))
+#define BETWEEN_EXC(LO, X, HI) ((unsigned)((X)-LO)<(unsigned)(HI-LO))
+#define SWAPVAR(A, B, TEMP) TEMP=A, A=B, B=TEMP
+#define SWAPMEM(A, B, TEMP) memcpy(TEMP, A, sizeof(*(TEMP))), memcpy(A, B, sizeof(*(TEMP))), memcpy(B, TEMP, sizeof(*(TEMP)))
+#define ROTATE3(A, B, C, TEMP) TEMP=A, A=B, B=C, C=TEMP
+#define MINVAR(A, B) ((A)<(B)?(A):(B))
+#define MAXVAR(A, B) ((A)>(B)?(A):(B))
+#define CLAMP(LO, X, HI) ((X)>(LO)?(X)<(HI)?(X):(HI):(LO))
+
+//include<smmintrin.h>	SSE4.1
+#define MEDIAN3_32(DST, A, B, C)\
+	do\
+	{\
+		ALIGN(16) int arr[4];\
+		__m128i va=_mm_set_epi32(0, 0, 0, A);\
+		__m128i vb=_mm_set_epi32(0, 0, 0, B);\
+		__m128i vc=_mm_set_epi32(0, 0, 0, C);\
+		__m128i _vmin=_mm_min_epi32(va, vb);\
+		__m128i _vmax=_mm_max_epi32(va, vb);\
+		vc=_mm_max_epi32(vc, _vmin);\
+		vc=_mm_min_epi32(vc, _vmax);\
+		_mm_store_si128((__m128i*)arr, vc);\
+		DST=arr[0];\
+	}while(0)
+
+//include<emmintrin.h>	SSE2
+#define MEDIAN3_16(DST, A, B, C)\
+	do\
+	{\
+		ALIGN(16) short arr[8];\
+		__m128i va=_mm_set_epi16(0, 0, 0, 0, 0, 0, 0, A);\
+		__m128i vb=_mm_set_epi16(0, 0, 0, 0, 0, 0, 0, B);\
+		__m128i vc=_mm_set_epi16(0, 0, 0, 0, 0, 0, 0, C);\
+		__m128i vmin=_mm_min_epi16(va, vb);\
+		__m128i vmax=_mm_max_epi16(va, vb);\
+		vc=_mm_max_epi16(vc, vmin);\
+		vc=_mm_min_epi16(vc, vmax);\
+		_mm_store_si128((__m128i*)arr, vc);\
+		DST=arr[0];\
+	}while(0)
+#define MEDIAN3(A, B, C) (B<A?B<C?C<A?C:A:B:A<C?C<B?C:B:A)//SLOW
+#define MOVEOBJ(SRC, DST, SIZE) memcpy(DST, SRC, SIZE), memset(SRC, 0, SIZE)
+#define MODVAR(DST, SRC, N) DST=(SRC)%(N), DST+=(N)&-(DST<0)
+#define SHIFT_LEFT_SIGNED(X, SH) ((SH)<0?(X)>>-(SH):(X)<<(SH))
+#define SHIFT_RIGHT_SIGNED(X, SH) ((SH)<0?(X)<<-(SH):(X)>>(SH))
+#define UPDATE_MIN(M, X) if(M>X)M=X
+#define UPDATE_MAX(M, X) if(M<X)M=X
+#define THREEWAY(L, R) (((L)>(R))-((L)<(R)))
+#define MIX(V0, V1, X) ((V0)+((V1)-(V0))*(X))
+#define FLOOR_LOG2(X)		(sizeof(X)==8?63-(int)_lzcnt_u64((unsigned long long)(X)):31-(int)_lzcnt_u32((unsigned)(X)))
+#define FLOOR_LOG2_P1(X)	(sizeof(X)==8?64-(int)_lzcnt_u64((unsigned long long)(X)):32-(int)_lzcnt_u32((unsigned)(X)))
+//#define FLOOR_LOG2_64(X)	(63-(int)_lzcnt_u64(X))
+//#define FLOOR_LOG2_P1_64(X)	(64-(int)_lzcnt_u64(X))
+//#define FLOOR_LOG2_32(X)	(31-(int)_lzcnt_u32(X))
+//#define FLOOR_LOG2_P1_32(X)	(32-(int)_lzcnt_u32(X))
+#define LSB_IDX_64(X)	(int)_tzcnt_u64(X)
+#define LSB_IDX_32(X)	(int)_tzcnt_u32(X)
+#define LSB_IDX_16(X)	(int)_tzcnt_u16(X)
 
 #define G_BUF_SIZE 4096
 extern char g_buf[G_BUF_SIZE];
@@ -69,6 +109,7 @@ void memfill(void *dst, const void *src, size_t dstbytes, size_t srcbytes);
 void memswap_slow(void *p1, void *p2, size_t size);
 void memswap(void *p1, void *p2, size_t size, void *temp);
 void memreverse(void *p, size_t count, size_t esize);//calls memswap
+void reverse16(void *start, void *end);
 void memrotate(void *p, size_t byteoffset, size_t bytesize, void *temp);//temp buffer is min(byteoffset, bytesize-byteoffset)
 int binary_search(const void *base, size_t count, size_t esize, int (*threeway)(const void*, const void*), const void *val, size_t *idx);//returns true if found, otherwise the idx is where val should be inserted, standard bsearch doesn't do this
 void isort(void *base, size_t count, size_t esize, int (*threeway)(const void*, const void*));//binary insertion sort
@@ -84,15 +125,18 @@ int acme_getopt(int argc, char **argv, int *start, const char **keywords, int kw
 int hammingweight16(unsigned short x);
 int hammingweight32(unsigned x);
 int hammingweight64(unsigned long long x);
-int floor_log2_p1(unsigned long long n);
-int floor_log2(unsigned long long n);//uses intrinsics and was patched to give -1 for zero input
-int floor_log2_32(unsigned n);
+//int floor_log2_p1(unsigned long long n);
+//int floor_log2(unsigned long long n);		//use (31-_lzcnt_u64(n)) instead
+//int floor_log2_32(unsigned n);		//use (31-_lzcnt_u32(n)) instead
 int ceil_log2(unsigned long long n);
 int ceil_log2_32(unsigned n);
-int get_lsb_index(unsigned long long n);//returns lsb position + 1,  returns register bit count if n is zero
-int get_lsb_index32(unsigned n);
+//int get_lsb_index(unsigned long long n);//returns lsb position + 1,  returns register bit count if n is zero
+//int get_lsb_index32(unsigned n);
+//int get_lsb_index16(unsigned short n);
 int floor_log10(double x);
 unsigned floor_sqrt(unsigned long long x);
+unsigned exp2_fix24_neg(unsigned x);
+unsigned exp2_neg_fix24_avx2(unsigned x);
 unsigned long long exp2_fix24(int x);
 int log2_fix24(unsigned long long x);
 #define POW_FIX24(BASE, EXP) exp2_fix24((int)((long long)(EXP)*log2_fix24(BASE)>>24))
@@ -127,9 +171,9 @@ int log_error(const char *file, int line, int quit, const char *format, ...);//d
 #define ASSERT_MSG(SUCCESS, MSG, ...) ((SUCCESS)!=0||log_error(file, __LINE__, 1, MSG, ##__VA_ARGS__))
 //int valid(const void *p);
 int pause(void);
-#ifdef _MSC_VER
-int pause1(void);
-#endif
+//#ifdef _MSC_VER
+//int pause1(void);
+//#endif
 int pause_abort(const char *file, int lineno, const char *extraInfo);
 #define PANIC() pause_abort(file, __LINE__, 0)
 #define ASSERT(SUCCESS) ((SUCCESS)!=0||pause_abort(file, __LINE__, #SUCCESS))
@@ -421,7 +465,11 @@ int save_file(const char *filename, const unsigned char *src, size_t srcSize, in
 
 ArrayHandle searchfor_file(const char *searchpath, const char *filetitle);
 
+int get_cpu_features(void);//returns  0: old CPU,  1: AVX2,  3: AVX-512
 int query_cpu_cores(void);
+
+void* mt_exec(void (*func)(void*), void *args, int argbytes, int nthreads);
+void  mt_finish(void *ctx);
 
 
 #ifdef _MSC_VER

@@ -5,11 +5,11 @@
 #include<string.h>
 #include<math.h>
 #include<ctype.h>
-#ifdef _MSC_VER
-#include<intrin.h>
-#else
-#include<x86intrin.h>
-#endif
+//#ifdef _MSC_VER
+//#include<intrin.h>
+//#else
+//#include<x86intrin.h>
+//#endif
 static const char file[]=__FILE__;
 
 
@@ -36,7 +36,7 @@ static void quantize(int val, int *token, int *nbits, int *bypass)
 	}
 	else
 	{
-		int lgv=floor_log2_32((unsigned)val);
+		int lgv=FLOOR_LOG2((unsigned)val);
 		int mantissa=val-(1<<lgv);
 		*token = (1<<CONFIG_EXP) + (
 				(lgv-CONFIG_EXP)<<(CONFIG_MSB+CONFIG_LSB)|
@@ -83,7 +83,7 @@ static int ctx_quantize(int ctx, int clevels)
 {
 	int negmask=-(ctx<0);
 	ctx=ctx<<1^negmask;
-	ctx=floor_log2_32(ctx);
+	ctx=FLOOR_LOG2(ctx);
 	ctx^=negmask;
 	ctx-=negmask;
 	ctx+=clevels>>1;

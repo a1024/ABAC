@@ -1,15 +1,14 @@
 #include"e2.h"
-#include"ac.h"
 #include<stdio.h>
 #include<stdlib.h>
 #include<string.h>
 #include<math.h>
 #include<ctype.h>
-#ifdef _MSC_VER
-#include<intrin.h>
-#else
-#include<x86intrin.h>
-#endif
+//#ifdef _MSC_VER
+//#include<intrin.h>
+//#else
+//#include<x86intrin.h>
+//#endif
 static const char file[]=__FILE__;
 
 
@@ -26,6 +25,7 @@ static const char file[]=__FILE__;
 //	#define PROFILER
 
 
+#include"ac.h"
 #define NROWS 4
 #define PAD_SIZE 4
 //#define MAXQBITS 6
@@ -251,7 +251,7 @@ static int quantize0(int x)
 {
 	int negmask=-(x<0);
 	x=abs(x);
-	int qx=floor_log2_32(x)+1;
+	int qx=FLOOR_LOG2_P1(x);
 	qx^=negmask;
 	qx-=negmask;
 	return qx;
@@ -260,7 +260,7 @@ static int quantize1(int x)
 {
 	int negmask=-(x<0);
 	x=abs(x);
-	int qx=floor_log2_32(x)+1;
+	int qx=FLOOR_LOG2_P1(x);
 	x>>=qx-2;
 	x&=1;
 	qx<<=1;
@@ -273,22 +273,22 @@ static int quantize2(int x)
 {
 	int negmask=-(x<0);
 	x=abs(x);
-	int qx=floor_log2_32(x)+1;
-	qx=floor_log2_32(x)+1;
-	qx^=negmask;
-	qx-=negmask;
-	return qx;
+	x=FLOOR_LOG2_P1(x);
+	//x=FLOOR_LOG2_P1(x);
+	x^=negmask;
+	x-=negmask;
+	return x;
 }
 static int quantize3(int x)
 {
 	int negmask=-(x<0);
 	x=abs(x);
-	int qx=floor_log2_32(x)+1;
-	qx=floor_log2_32(x)+1;
-	qx=floor_log2_32(x)+1;
-	qx^=negmask;
-	qx-=negmask;
-	return qx;
+	x=FLOOR_LOG2_P1(x)+1;
+	//x=FLOOR_LOG2_P1(x)+1;
+	//x=FLOOR_LOG2_P1(x)+1;
+	x^=negmask;
+	x-=negmask;
+	return x;
 }
 static int (*const quantize[])(int)=
 {
@@ -323,7 +323,7 @@ static ptrdiff_t t51_init(T51Ctx *pr, int iw, int ih, int nch, const char *depth
 		pr->shift8[kc]=pr->depths[kc]-8;
 		UPDATE_MAX(pr->maxdepth, pr->depths[kc]);
 #ifndef RECT_BUFFER
-		pr->lgdepths[kc]=floor_log2_32(pr->depths[kc]);
+		pr->lgdepths[kc]=FLOOR_LOG2(pr->depths[kc]);
 		UPDATE_MIN(pr->lgdepths[kc], 4);
 		pr->quantize[kc]=quantize[pr->lgdepths[kc]];
 		pr->nqlevels[kc]=pr->quantize[kc](pr->half[kc])<<1|1;
@@ -992,7 +992,7 @@ static void test_quantize(unsigned val, HybridUint *hu)
 	}
 	else
 	{
-		int lgv=floor_log2_32((unsigned)val);
+		int lgv=FLOOR_LOG2((unsigned)val);
 		int mantissa=val-(1<<lgv);
 		token = (1<<SLIC5_CONFIG_EXP) + (
 				(lgv-SLIC5_CONFIG_EXP)<<(SLIC5_CONFIG_MSB+SLIC5_CONFIG_LSB)|

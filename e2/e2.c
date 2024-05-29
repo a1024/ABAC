@@ -4,18 +4,6 @@
 #include<string.h>
 #include<math.h>
 #include<time.h>
-#ifdef _MSC_VER
-#include<intrin.h>
-#include<Windows.h>
-#include<process.h>
-#define THREAD_CALL __stdcall
-typedef unsigned THREAD_RET;
-#else
-#include<x86intrin.h>
-#include<pthread.h>
-#define THREAD_CALL
-typedef void *THREAD_RET;
-#endif
 static const char file[]=__FILE__;
 
 
@@ -26,10 +14,10 @@ static const char file[]=__FILE__;
 //	#define DSP_TEST
 
 
-#define CODECID     47
-#define CODECNAME "T47"
-#define ENCODE     t47_encode
-#define DECODE     t47_decode
+#define CODECID     54
+#define CODECNAME "T54"
+#define ENCODE     t54_encode
+#define DECODE     t54_decode
 
 #if CODECID==47
 	#define PRINT_RCT//comment when not applicable
@@ -56,7 +44,7 @@ typedef struct ThreadArgsStruct
 	int error;//whether the image was recovered successfully
 	ptrdiff_t idx;
 } ThreadArgs;
-static THREAD_RET THREAD_CALL sample_thread(void *param)
+static void sample_thread(void *param)
 {
 	ThreadArgs *args=(ThreadArgs*)param;
 	ArrayHandle cdata=0;
@@ -85,7 +73,6 @@ static THREAD_RET THREAD_CALL sample_thread(void *param)
 	free(args->src);
 	free(args->dst);
 	args->dst=0;
-	return 0;
 }
 typedef struct ResultStruct
 {
@@ -137,12 +124,18 @@ static void print_result(Result *res, const char *title, int width, int print_ti
 		CR2=(double)res->usize/res->csize2;
 	g_total_usize+=res->usize;
 	g_total_csize+=res->csize2;
-	printf("%-*s  %10zd  format %10zd %10.6lf%% D %12lf sec  test %10zd %10.6lf%% E %12lf D %12lf sec %s  all %10.6lf%%",
+	printf("%-*s  %10zd  format %10zd %10.6lf%% D %12lf sec %8.3lf MB/s  test %10zd %10.6lf%% E %12lf D %12lf sec %8.3lf MB/s %s",
 		width, title, res->usize,
-		res->csize1, 100./CR1, res->fdec,
-		res->csize2, 100./CR2, res->enc, res->dec, res->error?"ERROR":"SUCCESS",
-		100.*g_total_csize/g_total_usize
+		res->csize1, 100./CR1, res->fdec, res->usize/(res->fdec*1024*1024),
+		res->csize2, 100./CR2, res->enc, res->dec, res->usize/(res->dec*1024*1024),
+		res->error?"ERROR":"OK"
 	);
+	//printf("%-*s  %10zd  format %10zd %10.6lf%% D %12lf sec  test %10zd %10.6lf%% E %12lf D %12lf sec %s  all %10.6lf%%",
+	//	width, title, res->usize,
+	//	res->csize1, 100./CR1, res->fdec,
+	//	res->csize2, 100./CR2, res->enc, res->dec, res->error?"ERROR":"SUCCESS",
+	//	100.*g_total_csize/g_total_usize
+	//);
 #ifdef PRINT_RCT
 #ifdef SLIC5_OPTIMIZE_RCT
 	if(print_rct)
@@ -249,6 +242,9 @@ static void process_file(ProcessCtx *ctx, ArrayHandle title, int maxlen, Image *
 	else if(ctx->nstarted-ctx->nfinished>=nthreads)
 	{
 		int n=ctx->nstarted-ctx->nfinished;
+		void *hthreads=mt_exec(sample_thread, ctx->threadargs->data, (int)ctx->threadargs->esize, (int)ctx->threadargs->count);
+		mt_finish(hthreads);
+#if 0
 		ArrayHandle handles;
 #ifdef _MSC_VER
 		ARRAY_ALLOC(HANDLE, handles, 0, n, 0, 0);
@@ -288,7 +284,7 @@ static void process_file(ProcessCtx *ctx, ArrayHandle title, int maxlen, Image *
 			pthread_join(*h, 0);
 		}
 #endif
-		
+#endif
 		for(int k=0;k<n;++k)
 		{
 			ThreadArgs *threadargs=(ThreadArgs*)array_at(&ctx->threadargs, k);
