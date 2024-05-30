@@ -13,7 +13,7 @@ int lossyconv_page=0;//[0~15]: 4 channels max * 4 layers	layer<<2|ch
 short lossyconv_params[5*5*4*4]={0};//(r2 = 5*5) * 4 channels max * 4 layers			9-bit precision: sign_bit.2.5.clamp_bit
 unsigned char lossyconv_stride[2*4]={0}, lossyconv_offset[2*4]={0};//2 dimensions * 4 layers
 unsigned char lossyconv_causalRCT[4]={0};
-#define LOAD(BUF, X, Y) ((unsigned)(ky+(Y))<(unsigned)src->ih&&(unsigned)(kx+(X))<(unsigned)src->iw?BUF[(src->iw*(ky+(Y))+kx+(X))<<2|kc]:0)
+//#define LOAD(BUF, X, Y) ((unsigned)(ky+(Y))<(unsigned)src->ih&&(unsigned)(kx+(X))<(unsigned)src->iw?BUF[(src->iw*(ky+(Y))+kx+(X))<<2|kc]:0)
 void pred_lossyconv(Image *src)
 {
 	Image *dst;
