@@ -265,12 +265,12 @@ void pred_WC(Image *src)
 								if(uninit)
 								{
 									uninit=0;
-									vmin=nb, vmax=nb;
+									vmin=nb[idx2], vmax=nb[idx2];
 								}
 								else
 								{
-									UPDATE_MIN(vmin, nb);
-									UPDATE_MAX(vmax, nb);
+									UPDATE_MIN(vmin, nb[idx2]);
+									UPDATE_MAX(vmax, nb[idx2]);
 								}
 							}
 						}

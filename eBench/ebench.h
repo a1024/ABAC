@@ -680,6 +680,7 @@ void colortransform_CrCgCb_R(Image *image, int fwd);
 void colortransform_Pei09(Image *image, int fwd);
 void colortransform_JPEG2000(Image *image, int fwd);
 void colortransform_subtractgreen(Image *image, int fwd);
+void colortransform_J2K2(Image *image, int fwd);
 void rct_yrgb_v1(Image *image, int fwd);
 void rct_yrgb_v2(Image *image, int fwd);
 void ct_cmyk_fwd(Image *image);
@@ -719,7 +720,7 @@ void pred_WPU(Image *src, int fwd);
 void pred_average(Image *src, int fwd, int enable_ma);
 void pred_wp_deferred(Image *src, int fwd);
 void pred_ecoeff(Image *src, int fwd, int enable_ma);
-void pred_zipper(Image **psrc, int fwd, int enable_ma);
+void pred_zipper(Image *src, int fwd, int enable_ma);
 void pred_multistage(Image *src, int fwd, int enable_ma);
 void pred_separate(Image *src, int fwd, int enable_ma);
 

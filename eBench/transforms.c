@@ -618,6 +618,52 @@ void colortransform_subtractgreen(Image *image, int fwd)
 		}
 	}
 }
+void colortransform_J2K2(Image *image, int fwd)//apply twice
+{
+	int sh[]=
+	{
+		32-image->depth[0],
+		32-image->depth[1],
+		32-image->depth[2],
+		32-image->depth[3],
+	};
+	if(fwd)
+	{
+		for(ptrdiff_t k=0, len=(ptrdiff_t)image->iw*image->ih*4;k<len;k+=4)
+		{
+			int
+				r=image->data[k|0],
+				g=image->data[k|1],
+				b=image->data[k|2];
+			
+			r-=g>>1;	r=r<<sh[0]>>sh[0];
+			b-=g>>1;	b=b<<sh[2]>>sh[2];
+			g+=(r+b)>>4;	g=g<<sh[1]>>sh[1];
+
+			image->data[k|0]=r;//Cr
+			image->data[k|1]=g;//Y
+			image->data[k|2]=b;//Cb
+		}
+	}
+	else
+	{
+		for(ptrdiff_t k=0, len=(ptrdiff_t)image->iw*image->ih*4;k<len;k+=4)
+		{
+			int
+				r=image->data[k|0],
+				g=image->data[k|1],
+				b=image->data[k|2];
+			
+			g-=(r+b)>>4;	g=g<<sh[1]>>sh[1];
+			b+=g>>1;	b=b<<sh[2]>>sh[2];
+			r+=g>>1;	r=r<<sh[0]>>sh[0];
+
+			image->data[k|0]=r;
+			image->data[k|1]=g;
+			image->data[k|2]=b;
+		}
+	}
+}
 void rct_yrgb_v1(Image *image, int fwd)
 {
 	if(fwd)
@@ -2602,6 +2648,8 @@ void pred_CG3D(Image *src, int fwd, int enable_ma)
 		if(src->depth[kc])
 			src->depth[kc]+=fwd;
 	}
+#else
+	//src->depth[1]-=src->depth[1]>src->src_depth[1];
 #endif
 	for(int kc=1;kc<nch;++kc)
 		nlumas+=src->depth[kc]==src->depth[0];
@@ -2631,9 +2679,10 @@ void pred_CG3D(Image *src, int fwd, int enable_ma)
 						offset	=0;
 					if(kc0>chpoints[kk])
 						offset+=rows[0][perm[chpoints[kk]]];
-					pred=N+W-NW;
-					MEDIAN3_32(pred, N, W, pred);
+
+					MEDIAN3_32(pred, N, W, N+W-NW);
 					//pred=(N+W)>>1;
+
 					pred+=offset;
 					pred=CLAMP(-halfs[kc], pred, halfs[kc]-1);
 
@@ -2642,9 +2691,14 @@ void pred_CG3D(Image *src, int fwd, int enable_ma)
 					pred-=fwdmask;
 					pred+=curr;
 
-					pred+=nlevels[kc]>>1;
-					pred&=nlevels[kc]-1;
-					pred-=nlevels[kc]>>1;
+					//if(kc!=1)
+					//{
+						pred<<=32-src->depth[kc];
+						pred>>=32-src->depth[kc];
+					//}
+					//pred+=nlevels[kc]>>1;
+					//pred&=nlevels[kc]-1;
+					//pred-=nlevels[kc]>>1;
 
 					src->data[idx+kc]=pred;
 					rows[0][kc]=(fwd?curr:pred)-offset;
@@ -2768,6 +2822,8 @@ void pred_CG3D(Image *src, int fwd, int enable_ma)
 		if(src->depth[kc])
 			src->depth[kc]-=!fwd;
 	}
+#else
+	//src->depth[1]+=src->depth[1]<24;
 #endif
 	free(pixels);
 }
@@ -2818,24 +2874,26 @@ void pred_PU(Image *src, int fwd)
 #ifdef PU_UPDATE_LUMA
 			if(!fwd)
 			{
+				{
+					int *ptr=src->data+idx, temp;
+					ROTATE3(ptr[2], ptr[1], ptr[0], temp);
+				}
 				int
-					NN	=rows[2][1+0*4],
-					NW	=rows[1][1-1*4],
-					N	=rows[1][1+0*4],
-					NE	=rows[1][1+1*4],
-					WW	=rows[0][1-2*4],
-					W	=rows[0][1-1*4],
+				//	NN	=rows[2][1+0*4],
+				//	NW	=rows[1][1-1*4],
+				//	N	=rows[1][1+0*4],
+				//	NE	=rows[1][1+1*4],
+				//	WW	=rows[0][1-2*4],
+				//	W	=rows[0][1-1*4],
 					cb	=src->data[idx+2],
 					cr	=src->data[idx+0];
-
-				int update=(2*(NN+WW)-(N+W+NW+NE)+4*(cb+cr))>>4;
-				update=CLAMP(-halfs[1], update, halfs[1]-1);
-				{
-					int luma=src->data[idx+1]-update;//subtract update
-					luma<<=32-src->depth[1];
-					luma>>=32-src->depth[1];
-					src->data[idx+1]=luma;
-				}
+				//int update=(2*(NN+WW)-(N+W+NW+NE)+4*(cb+cr))>>4;
+				//update=CLAMP(-halfs[1], update, halfs[1]-1);
+				int update=(cb+cr)>>2;
+				int luma=src->data[idx+1]-update;//subtract update
+				luma<<=32-src->depth[1];
+				luma>>=32-src->depth[1];
+				src->data[idx+1]=luma;
 			}
 #endif
 			for(int kc0=0;kc0<src->nch;++kc0)
@@ -2870,8 +2928,8 @@ void pred_PU(Image *src, int fwd)
 				if(kc0>0)
 				{
 					offset+=rows[0][1];
-					if(kc0>1)
-						offset=(2*offset+rows[0][2])>>1;
+					//if(kc0>1)
+					//	offset=(2*offset+rows[0][2])>>1;
 				}
 				//if(kc==1)//luma
 				//	pred=(4*(N+W)+NE-NW)>>3;
@@ -2879,7 +2937,8 @@ void pred_PU(Image *src, int fwd)
 				{
 					pred=N+W-NW;
 					MEDIAN3_32(pred, N, W, pred);
-					pred=((512-4)*pred+N+W+NW+NE)>>9;
+					//if(kc==1)
+					//	pred=((512-4)*pred+N+W+NW+NE)>>9;
 				}
 
 				//pred=(252*pred+N+W+NW+NE)>>8;
@@ -2904,21 +2963,26 @@ void pred_PU(Image *src, int fwd)
 			if(fwd)
 			{
 				int
-					NN	=rows[2][1+0*4],
-					NW	=rows[1][1-1*4],
-					N	=rows[1][1+0*4],
-					NE	=rows[1][1+1*4],
-					WW	=rows[0][1-2*4],
-					W	=rows[0][1-1*4],
+				//	NN	=rows[2][1+0*4],
+				//	NW	=rows[1][1-1*4],
+				//	N	=rows[1][1+0*4],
+				//	NE	=rows[1][1+1*4],
+				//	WW	=rows[0][1-2*4],
+				//	W	=rows[0][1-1*4],
 					cb	=src->data[idx+2],
 					cr	=src->data[idx+0];
-				int update=(2*(NN+WW)-(N+W+NW+NE)+4*(cb+cr))>>4;
-				update=CLAMP(-halfs[1], update, halfs[1]-1);
+				//int update=(2*(NN+WW)-(N+W+NW+NE)+4*(cb+cr))>>4;
+				//update=CLAMP(-halfs[1], update, halfs[1]-1);
+				int update=(cb+cr)>>2;
 				{
 					int luma=src->data[idx+1]+update;//add update
 					luma<<=32-src->depth[1];
 					luma>>=32-src->depth[1];
 					src->data[idx+1]=luma;
+				}
+				{
+					int *ptr=src->data+idx, temp;
+					ROTATE3(ptr[0], ptr[1], ptr[2], temp);
 				}
 			}
 #endif
@@ -4282,9 +4346,154 @@ void pred_ecoeff(Image *src, int fwd, int enable_ma)
 	free(dst);
 }
 
-void pred_zipper(Image **psrc, int fwd, int enable_ma)
+#if 0
+static void zipper_predict(Image *src, int fwd)
 {
-#if 1
+	int negmask=-fwd;
+	for(int ky=fwd?src->ih-1:0, step=fwd?-1:1;(unsigned)ky<(unsigned)src->ih;ky+=step)
+	{
+		for(int kx=fwd?src->iw-1:0;(unsigned)kx<(unsigned)src->iw;kx+=step)
+		{
+			int idx=src->iw*ky+kx;
+			for(int kc=0;kc<src->nch;++kc)
+			{
+				int
+					NW	=ky&&kx?src->data[(idx-src->iw-1)<<2|kc]:0,
+					N	=ky?src->data[(idx-src->iw)<<2|kc]:0,
+					W	=kx?src->data[(idx-1)<<2|kc]:0;
+				int pred;
+				MEDIAN3_32(pred, N, W, N+W-NW);
+				
+				pred^=negmask;
+				pred-=negmask;
+				pred+=src->data[idx<<2|kc];
+				//pred<<=32-src->depth[kc];
+				//pred>>=32-src->depth[kc];
+				src->data[idx<<2|kc]=pred;
+			}
+		}
+	}
+}
+static void zipper_update(Image *src, int fwd)
+{
+	int negmask=-fwd;
+	for(int ky=fwd?src->ih-1:0, step=fwd?-1:1;(unsigned)ky<(unsigned)src->ih;ky+=step)
+	{
+		for(int kx=fwd?src->iw-1:0;(unsigned)kx<(unsigned)src->iw;kx+=step)
+		{
+			int idx=src->iw*ky+kx;
+			for(int kc=0;kc<src->nch;++kc)
+			{
+				int pred;
+				if(kc>1)
+				{
+					int
+						NW	=ky<src->ih-1&&kx<src->iw-1?src->data[(idx+src->iw+1)<<2|kc]:0,
+						N	=ky<src->ih-1?src->data[(idx+src->iw)<<2|kc]:0,
+						W	=kx<src->iw-1?src->data[(idx+1)<<2|kc]:0;
+					pred=(N+W-NW)>>4;
+				}
+				else
+					pred=0;
+				//if(kc)
+				//	pred-=NW;
+				//pred>>=4;
+				//int pred=kc?(N+W-NW)>>4:(N+W)>>4;
+				
+				pred^=negmask;
+				pred-=negmask;
+				pred+=src->data[idx<<2|kc];
+				pred<<=32-src->depth[kc];
+				pred>>=32-src->depth[kc];
+				src->data[idx<<2|kc]=pred;
+			}
+		}
+	}
+}
+#endif
+void pred_zipper(Image *src, int fwd, int enable_ma)
+{
+	int negmask=-fwd;
+	int half[]=
+	{
+		1<<src->depth[0]>>1,
+		1<<src->depth[1]>>1,
+		1<<src->depth[2]>>1,
+		1<<src->depth[3]>>1,
+	};
+	for(int ky=fwd?src->ih-1:0, step=fwd?-1:1;(unsigned)ky<(unsigned)src->ih;ky+=step)
+	{
+		for(int kx=fwd?src->iw-1:0;(unsigned)kx<(unsigned)src->iw;kx+=step)
+		{
+			int idx=src->iw*ky+kx;
+			for(int kc=0;kc<src->nch;++kc)
+			{
+#define LOAD(X, Y) ((unsigned)(ky+(Y))<(unsigned)src->ih&&(unsigned)(kx+(X))<(unsigned)src->iw?src->data[(src->iw*(ky+(Y))+kx+(X))<<2|kc]:0)
+				int
+					NW	=LOAD(-1, -1),
+					N	=LOAD( 0, -1),
+					W	=LOAD(-1,  0),
+					eE	=LOAD( 1,  0),
+					eEE	=LOAD( 2,  0),
+					eSWW	=LOAD(-2,  1),
+					eSW	=LOAD(-1,  1),
+					eS	=LOAD( 0,  1),
+					eSE	=LOAD( 1,  1),
+					eSEE	=LOAD( 2,  1),
+					eSSWW	=LOAD(-2,  2),
+					eSSW	=LOAD(-1,  2),
+					eSS	=LOAD( 0,  2),
+					eSSE	=LOAD( 1,  2),
+					eSSEE	=LOAD( 2,  2);
+				//int
+				//	NW	=ky&&kx?src->data[(idx-src->iw-1)<<2|kc]:0,
+				//	N	=ky?src->data[(idx-src->iw)<<2|kc]:0,
+				//	W	=kx?src->data[(idx-1)<<2|kc]:0,
+				//	eE	=kx<src->iw-1?src->data[(idx+1)<<2|kc]:0,
+				//	eEE	=kx<src->iw-2?src->data[(idx+2)<<2|kc]:0,
+				//	eSWW	=ky<src->ih-1&&kx>1?src->data[(idx+src->iw-2)<<2|kc]:0,
+				//	eSW	=ky<src->ih-1&&kx>0?src->data[(idx+src->iw-1)<<2|kc]:0,
+				//	eS	=ky<src->ih-1?src->data[(idx+src->iw)<<2|kc]:0,
+				//	eSE	=ky<src->ih-1&&kx<src->iw-1?src->data[(idx+src->iw+1)<<2|kc]:0,
+				//	eSEE	=ky<src->ih-1&&kx<src->iw-2?src->data[(idx+src->iw+2)<<2|kc]:0,
+				//	eSS	=ky<src->ih-2?src->data[(idx+src->iw*2)<<2|kc]:0;
+#undef  LOAD
+				int pred;
+				int
+					vx=abs(eE-eEE)+abs(eS-eSE)+abs(eS-eSW),
+					vy=abs(eSSW-eSW)+abs(eSS-eS)+abs(eSE-eE);
+				int update=(vy>vx?eS:eE)/4;
+				//int update=(abs(eS-eSS)>abs(eE-eEE)?eS:eE)/4;
+				//int update=(abs(eS)>abs(eE)?eS:eE)/4;
+				MEDIAN3_32(pred, N, W, N+W-NW);
+				pred+=update;
+				CLAMP2_32(pred, pred, -half[kc], half[kc]-1);
+				
+				pred^=negmask;
+				pred-=negmask;
+				pred+=src->data[idx<<2|kc];
+				pred<<=32-src->depth[kc];
+				pred>>=32-src->depth[kc];
+				src->data[idx<<2|kc]=pred;
+			}
+		}
+	}
+	//if(fwd)
+	//{
+	//	zipper_predict(src, 1);
+	//	for(int kc=2;kc<src->nch;++kc)
+	//		src->depth[kc]+=src->depth[kc]!=0&&src->depth[kc]<24;
+	//	zipper_update(src, 0);
+	//}
+	//else
+	//{
+	//	zipper_update(src, 1);
+	//	for(int kc=2;kc<src->nch;++kc)
+	//		src->depth[kc]-=src->depth[kc]>0;
+	//	zipper_predict(src, 0);
+	//}
+
+#if 0
 	Image *src=*psrc;
 	int *row=(int*)malloc(src->iw*sizeof(int));
 	//Image *dst=(Image*)malloc(sizeof(Image)+(src->iw+1LL)*(src->ih+1LL)*sizeof(int[4]));
@@ -4328,7 +4537,8 @@ void pred_zipper(Image **psrc, int fwd, int enable_ma)
 	free(row);
 	//free(src);
 	//*psrc=dst;
-#else
+#endif
+#if 0
 	//reference cheating (W+E)/2  (fwd-only)
 	Image *src=*psrc, *dst=0;
 	image_copy(&dst, src);

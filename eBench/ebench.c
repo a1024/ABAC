@@ -57,6 +57,7 @@ typedef enum TransformTypeEnum
 {
 	CT_FWD_SUBGREEN,	CT_INV_SUBGREEN,
 	CT_FWD_JPEG2000,	CT_INV_JPEG2000,//	(1997) JPEG2000 RCT
+	CT_FWD_J2K2,		CT_INV_J2K2,
 	CT_FWD_YCoCg_R,		CT_INV_YCoCg_R,	//	(2003) AVC, HEVC, VVC
 	CT_FWD_YCbCr_R_v1,	CT_INV_YCbCr_R_v1,
 	CT_FWD_YCbCr_R_v2,	CT_INV_YCbCr_R_v2,
@@ -106,7 +107,7 @@ typedef enum TransformTypeEnum
 //	ST_FWD_ECOEFF,		ST_INV_ECOEFF,
 //	ST_FWD_AVERAGE,		ST_INV_AVERAGE,
 	ST_FWD_MULTISTAGE,	ST_INV_MULTISTAGE,
-//	ST_FWD_ZIPPER,		ST_INV_ZIPPER,
+	ST_FWD_ZIPPER,		ST_INV_ZIPPER,
 //	ST_FWD_DIR,		ST_INV_DIR,
 #if 0
 	ST_FWD_CTX,		ST_INV_CTX,
@@ -200,6 +201,34 @@ float jhc_level=10.5f;
 int loud_transforms=1;
 //int crop_enable=0, crop_x=0, crop_y=0, crop_dx=128, crop_dy=128;
 
+static void entropy2invcr(const double *entropy, const char *src_depth, int nch, double *invcr)//invcr: {T, R/Y, G/U, ...} nch+1=5 elements
+{
+	double etotal;
+	int dtotal;
+
+	etotal=0;
+	dtotal=0;
+	for(int k=0;k<nch;++k)
+	{
+		double e=entropy[k];
+		int d=src_depth[k];
+		etotal+=e;
+		dtotal+=d;
+		invcr[k+1]=d?e/d:0;
+	}
+	invcr[0]=dtotal?etotal/dtotal:0;
+}
+static void invcr2csizes(const double *invcr, const char *src_depths, int iw, int ih, int nch, double *csizes)//invcr & csizes have nch+1=5 elements
+{
+	int dtotal=0;
+	for(int k=0;k<nch;++k)
+	{
+		int d=src_depths[k];
+		csizes[k+1]=iw*ih*d*invcr[k+1]/8;
+		dtotal+=d;
+	}
+	csizes[0]=iw*ih*dtotal*invcr[0]/8;
+}
 static void center_image(void)
 {
 	int wndw2, wndh2;
@@ -1376,10 +1405,12 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case CT_INV_Pei09:		a="C  Inv Pei09";		break;
 	case CT_FWD_YCoCg_R:		a="C  Fwd YCoCg-R";		break;
 	case CT_INV_YCoCg_R:		a="C  Inv YCoCg-R";		break;
-	case CT_FWD_JPEG2000:		a="C  Fwd JPEG2000 RCT";	break;
-	case CT_INV_JPEG2000:		a="C  Inv JPEG2000 RCT";	break;
 	case CT_FWD_SUBGREEN:		a="C  Fwd SubGreen";		break;
 	case CT_INV_SUBGREEN:		a="C  Inv SubGreen";		break;
+	case CT_FWD_JPEG2000:		a="C  Fwd JPEG2000 RCT";	break;
+	case CT_INV_JPEG2000:		a="C  Inv JPEG2000 RCT";	break;
+	case CT_FWD_J2K2:		a="C  Fwd J2K/2";		break;
+	case CT_INV_J2K2:		a="C  Inv J2K/2";		break;
 //	case CT_FWD_YRGB_v1:		a="C  Fwd YRGB v1";		break;
 //	case CT_INV_YRGB_v1:		a="C  Inv YRGB v1";		break;
 //	case CT_FWD_YRGB_v2:		a="C  Fwd YRGB v2";		break;
@@ -1448,8 +1479,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 //	case ST_INV_AVERAGE:		a=" S Inv Average";		break;
 	case ST_FWD_MULTISTAGE:		a=" S Fwd Multistage";		break;
 	case ST_INV_MULTISTAGE:		a=" S Inv Multistage";		break;
-//	case ST_FWD_ZIPPER:		a=" S Fwd Zipper";		break;
-//	case ST_INV_ZIPPER:		a=" S Inv Zipper";		break;
+	case ST_FWD_ZIPPER:		a=" S Fwd Zipper";		break;
+	case ST_INV_ZIPPER:		a=" S Inv Zipper";		break;
 //	case ST_FWD_DIR:		a=" S Fwd Dir";			break;
 //	case ST_INV_DIR:		a=" S Inv Dir";			break;
 	case ST_FWD_WC:			a=" S Fwd WC";			break;
@@ -2402,10 +2433,12 @@ void apply_selected_transforms(Image *image, int rct_only)
 	//	case CT_INV_CrCgCb:		colortransform_CrCgCb_R(image, 0);			break;
 		case CT_FWD_Pei09:		colortransform_Pei09(image, 1);				break;
 		case CT_INV_Pei09:		colortransform_Pei09(image, 0);				break;
-		case CT_FWD_JPEG2000:		colortransform_JPEG2000(image, 1);			break;
-		case CT_INV_JPEG2000:		colortransform_JPEG2000(image, 0);			break;
 		case CT_FWD_SUBGREEN:		colortransform_subtractgreen(image, 1);			break;
 		case CT_INV_SUBGREEN:		colortransform_subtractgreen(image, 0);			break;
+		case CT_FWD_JPEG2000:		colortransform_JPEG2000(image, 1);			break;
+		case CT_INV_JPEG2000:		colortransform_JPEG2000(image, 0);			break;
+		case CT_FWD_J2K2:		colortransform_J2K2(image, 1);				break;
+		case CT_INV_J2K2:		colortransform_J2K2(image, 0);				break;
 	//	case CT_FWD_YRGB_v1:		rct_yrgb_v1(image, 1);					break;
 	//	case CT_INV_YRGB_v1:		rct_yrgb_v1(image, 0);					break;
 	//	case CT_FWD_YRGB_v2:		rct_yrgb_v2(image, 1);					break;
@@ -2518,8 +2551,8 @@ void apply_selected_transforms(Image *image, int rct_only)
 	//	case ST_INV_AVERAGE:		pred_average(image, 0, pred_ma_enabled);		break;
 		case ST_FWD_MULTISTAGE:		pred_multistage(image, 1, pred_ma_enabled);		break;
 		case ST_INV_MULTISTAGE:		pred_multistage(image, 0, pred_ma_enabled);		break;
-	//	case ST_FWD_ZIPPER:		pred_zipper(&image, 1, pred_ma_enabled);		break;
-	//	case ST_INV_ZIPPER:		pred_zipper(&image, 0, pred_ma_enabled);		break;
+		case ST_FWD_ZIPPER:		pred_zipper(image, 1, pred_ma_enabled);			break;
+		case ST_INV_ZIPPER:		pred_zipper(image, 0, pred_ma_enabled);			break;
 		case ST_FWD_P3:			pred_separate(image, 1, pred_ma_enabled);		break;
 		case ST_INV_P3:			pred_separate(image, 0, pred_ma_enabled);		break;
 	//	case ST_FWD_DIR:		pred_dir(image, 1, pred_ma_enabled);			break;
@@ -4113,14 +4146,11 @@ int io_keydn(IOKey key, char c)
 			{
 				const char *ext[]=
 				{
-					"PPM",
-					"PGM",
+					"PPM", "PGM",
 					"PNG",
-					"JPG",
-					"JPEG",
+					"JPG", "JPEG",
 					"BMP",
-					"TIF",
-					"TIFF",
+					"TIF", "TIFF",
 				};
 				ArrayHandle path, filenames, filteredfn, *fn2;
 
@@ -4676,14 +4706,29 @@ int io_keydn(IOKey key, char c)
 			}
 			if(mode==VIS_IMAGE||mode==VIS_ZIPF)
 			{
-				double cr_combined=(im1->src_depth[0]+im1->src_depth[1]+im1->src_depth[2]+im1->src_depth[3])/(ch_entropy[0]+ch_entropy[1]+ch_entropy[2]+ch_entropy[3]);
-				str_append(&str, "TRGBA %8.4lf %8.4lf %8.4lf %8.4lf %8.4lf",
-					100./cr_combined,
-					100.*ch_entropy[0]/im1->src_depth[0],
-					100.*ch_entropy[1]/im1->src_depth[1],
-					100.*ch_entropy[2]/im1->src_depth[2],
-					100.*ch_entropy[3]/im1->src_depth[1]
+				double invcr[5]={0}, csizes[5]={0};
+				entropy2invcr(ch_entropy, im0->src_depth, 4, invcr);
+				invcr2csizes(invcr, im0->src_depth, im0->iw, im0->ih, 4, csizes);
+				str_append(&str,
+					"TRGBA %8.4lf %8.4lf %8.4lf %8.4lf %8.4lf%%  TRGBA %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf bytes",
+					100.*invcr[0],
+					100.*invcr[1],
+					100.*invcr[2],
+					100.*invcr[3],
+					100.*invcr[4],
+					csizes[0],
+					csizes[1],
+					csizes[2],
+					csizes[3],
+					csizes[4]
 				);
+				//str_append(&str, "TRGBA %8.4lf %8.4lf %8.4lf %8.4lf %8.4lf",
+				//	100.*(ch_entropy[0]+ch_entropy[1]+ch_entropy[2]+ch_entropy[3])/(im1->src_depth[0]+im1->src_depth[1]+im1->src_depth[2]+im1->src_depth[3]),
+				//	100.*ch_entropy[0]/im1->src_depth[0],
+				//	100.*ch_entropy[1]/im1->src_depth[1],
+				//	100.*ch_entropy[2]/im1->src_depth[2],
+				//	100.*ch_entropy[3]/im1->src_depth[1]
+				//);
 			}
 #if 0
 			//else if(mode==VIS_IMAGE_E24)
