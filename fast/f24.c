@@ -381,6 +381,7 @@ static void block_enc(void *param)
 			}
 
 			//if(ky==330&&kx==146)//
+			//if(ky==28&&kx==624)//
 			//	printf("");
 
 			for(int kc0=0;kc0<3;++kc0)
@@ -402,9 +403,22 @@ static void block_enc(void *param)
 					CLAMP2_32(pred, pred, -halfs[ch], halfs[ch]-1);
 				}
 				val=comp[kc]-pred;
-				val<<=32-depths[ch];
-				val>>=32-depths[ch];
-				sym=val<<1^(val>>31);
+				//val<<=32-depths[ch];
+				//val>>=32-depths[ch];
+				{
+					int upred=halfs[ch]-abs(pred), aval=abs(val);
+					if(aval<=upred)
+					{
+						sym=val;
+						//negmask=-((pr->sse_corr<0)&(sym!=-pr->half[kc]));//sign is flipped if SSE correction was negative, to skew the histogram
+						//sym^=negmask;
+						//sym-=negmask;
+						sym=sym<<1^-(sym<0);//pack sign
+					}
+					else
+						sym=upred+aval;//error sign is known
+				}
+				//sym=val<<1^(val>>31);
 				gr_enc_POT(&ec, sym, FLOOR_LOG2(W[kc2+1]+1));
 				curr[kc2+0]=comp[kc]-offset;
 				curr[kc2+1]=(2*W[kc2+1]+sym+NEEE[kc2+1])>>2;
@@ -502,6 +516,7 @@ static void block_dec(void *param)
 				*curr	=rows[0]+0*28;
 
 			//if(ky==330&&kx==146)//
+			//if(ky==28&&kx==624)//
 			//	printf("");
 
 			for(int kc0=0;kc0<3;++kc0)
@@ -523,10 +538,25 @@ static void block_dec(void *param)
 					CLAMP2_32(pred, pred, -halfs[ch], halfs[ch]-1);
 				}
 				sym=gr_dec_POT(&ec, FLOOR_LOG2(W[kc2+1]+1));
-				val=sym>>1^-(sym&1);
+				{
+					int upred=halfs[ch]-abs(pred), negmask=0;
+					if(sym<=(upred<<1))
+					{
+						val=sym>>1^-(sym&1);
+						//negmask=-((pr->sse_corr<0)&(error!=-pr->half[kc]));
+					}
+					else
+					{
+						val=sym-upred;
+						negmask=-(pred>0);
+					}
+					val^=negmask;
+					val-=negmask;
+				}
+				//val=sym>>1^-(sym&1);
 				val+=pred;
-				val<<=32-depths[ch];
-				val>>=32-depths[ch];
+				//val<<=32-depths[ch];
+				//val>>=32-depths[ch];
 				comp[kc]=val;
 				curr[kc2+0]=comp[kc]-offset;
 				curr[kc2+1]=(2*W[kc2+1]+sym+NEEE[kc2+1])>>2;
