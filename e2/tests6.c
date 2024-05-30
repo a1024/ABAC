@@ -4,11 +4,6 @@
 #include<string.h>
 #include<math.h>
 #include<ctype.h>
-//#ifdef _MSC_VER
-//#include<intrin.h>
-//#else
-//#include<x86intrin.h>
-//#endif
 static const char file[]=__FILE__;
 
 //debug
@@ -35,6 +30,7 @@ static const char file[]=__FILE__;
 //	#define AVX512
 //	#define AVX2
 
+#define UNIFORM_DIST
 #define AC_IMPLEMENTATION
 #include"ac.h"
 #if defined AVX2 || defined AVX512
@@ -238,7 +234,6 @@ static int nonlinear2nonlinear(int x, int srcgamma, int dstgamma)
 	SLIC5_PRED(N+(int)((-eNN*0x0DFLL-eN*0x051LL-eNE*0x0BDLL+((long long)N-NN)*0x05C+((long long)NW-W)*0x102)>>PARAM_PREC))\
 	SLIC5_PRED(3*(N-NN)+NNN)\
 	SLIC5_PRED((N+W)>>1)\
-	SLIC5_PRED(geomean)\
 	SLIC5_PRED(N+W-NW)\
 	SLIC5_PRED((W+NEE)>>1)\
 	SLIC5_PRED((3*W+NEEE)>>2)\
@@ -265,6 +260,7 @@ static int nonlinear2nonlinear(int x, int srcgamma, int dstgamma)
 	SLIC5_PRED((N+NN)>>1)\
 	SLIC5_PRED((NE+NNEE)>>1)\
 	SLIC5_PRED((NE+NNE+NEE+NNEE)>>2)
+//	SLIC5_PRED(geomean)
 //	SLIC5_PRED(ols)
 //	SLIC5_PRED((4*(N+W+NE+NW)-(WW+NWW+NNWW+NNW+NN+NNE+NNEE+NEE))>>3)
 //	SLIC5_PRED((9*(NE-NNEE)+NNNNEE+NNNEEE+NNEEEE)/3)
@@ -286,13 +282,13 @@ const char *slic5_prednames[]=
 #undef  SLIC5_PRED
 };
 #ifdef PROBBITS_15
-#define EC_ENC(EC, X, CDF) ac_enc15(EC, X, CDF)
-#define EC_DEC(EC, CDF, NLEVELS) ac_dec15(EC, CDF, NLEVELS)
+#define EC_ENC(EC, X, CDF)		ac_enc15(EC, X, CDF)
+#define EC_DEC(EC, CDF, NLEVELS)	ac_dec15(EC, CDF, NLEVELS)
 typedef unsigned short CDF_t;
 #define CDF_SHIFT 15
 #else
-#define EC_ENC(EC, X, CDF) ac_enc(EC, X, CDF)
-#define EC_DEC(EC, CDF, NLEVELS) ac_dec(EC, CDF, NLEVELS)
+#define EC_ENC(EC, X, CDF)		ac_enc(EC, X, CDF)
+#define EC_DEC(EC, CDF, NLEVELS)	ac_dec(EC, CDF, NLEVELS)
 typedef unsigned CDF_t;
 #define CDF_SHIFT 16
 #endif
@@ -852,7 +848,7 @@ static int custom1_predict(const int *nb, const char *params)
 #ifdef ENABLE_CUSTOM1_v2
 static double g_matrix[16*8];
 #endif
-INLINE int invert_matrix(double *matrix, int size, double *temprow)
+static int invert_matrix(double *matrix, int size, double *temprow)
 {
 	int success=1;
 	//double *temp=_malloca(size*sizeof(double[2]));
@@ -1011,12 +1007,14 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 		calic_GAP=(10*N+6*W+3*(NE-NW))>>4;	//c4	[5/8  3/8  3/16  -3/16]
 	else
 		calic_GAP=(((N+W)<<1)+NE-NW)>>2;	//c5	[1/2  1/2  1/4  -1/4]
-
-	int geomean;
-	long long aN=N+0x800000LL, aW=W+0x800000LL;
-	aN=CLAMP(0, aN, 0xFFFFFF);
-	aW=CLAMP(0, aW, 0xFFFFFF);
-	geomean=(int)floor_sqrt(aN*aW)-0x800000;
+	
+	//if(kx==1&&pr->ky==0)//
+	//	printf("");
+	//int geomean;
+	//long long aN=N+0x800000LL, aW=W+0x800000LL;
+	//aN=CLAMP(0, aN, 0xFFFFFF);
+	//aW=CLAMP(0, aW, 0xFFFFFF);
+	//geomean=(int)floor_sqrt(aN*aW)-0x800000;
 
 #ifdef ENABLE_CUSTOM1_v4
 	int ols=0;

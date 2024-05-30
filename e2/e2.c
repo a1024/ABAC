@@ -14,10 +14,10 @@ static const char file[]=__FILE__;
 //	#define DSP_TEST
 
 
-#define CODECID     54
-#define CODECNAME "T54"
-#define ENCODE     t54_encode
-#define DECODE     t54_decode
+#define CODECID     47
+#define CODECNAME "T47"
+#define ENCODE     t47_encode
+#define DECODE     t47_decode
 
 #if CODECID==47
 	#define PRINT_RCT//comment when not applicable
@@ -104,9 +104,12 @@ static void curiosity_add(SLIC5Curiosity *dst, SLIC5Curiosity const *src)
 static void curiosity_print(SLIC5Curiosity const *src)
 {
 #ifndef SLIC5_OPTIMIZE_RCT
-	printf("RCT csizes:\n");
+	ptrdiff_t usize=0;
 	for(int k=0;k<RCT_COUNT;++k)
-		printf("%20lf %s\n", src->rct_sizes[k], rct_names[k]);
+		usize+=src->coverage[k];
+	printf("RCT csizes & coverage:\n");
+	for(int k=0;k<RCT_COUNT;++k)
+		printf("%20lf %8.4lf%% %s\n", src->rct_sizes[k], 100.*src->coverage[k]/usize, rct_names[k]);
 #endif
 
 	printf("Pred errors:\n");
@@ -232,6 +235,7 @@ static void process_file(ProcessCtx *ctx, ArrayHandle title, int maxlen, Image *
 		print_result(&result, (char*)threadargs->title->data, maxlen, 1, 1);
 #ifdef PRINT_RCT
 		curiosity_add(curiosity, &threadargs->curiosity);
+		curiosity->coverage[threadargs->curiosity.rct]+=threadargs->usize;
 #else
 		(void)curiosity;
 #endif
@@ -306,6 +310,7 @@ static void process_file(ProcessCtx *ctx, ArrayHandle title, int maxlen, Image *
 			//print_result(&result, ctx->nfinished+k+1);
 #ifdef PRINT_RCT
 			curiosity_add(curiosity, &threadargs->curiosity);
+			curiosity->coverage[threadargs->curiosity.rct]+=threadargs->usize;
 #endif
 		}
 
@@ -681,7 +686,9 @@ ProgArgs args=
 #if 1
 	OP_TESTFILE, 1, 0,//op, nthreads, formatsize
 
-	"D:/ML/dataset-kodak/kodim13.png",
+//	"D:/ML/dataset-kodak/kodim13.png",
+	"D:/ML/dataset-kodak-ppm/kodim13.ppm",
+//	"C:/dataset-LPCB-ppm/canon_eos_1100d_02.ppm",
 //	"D:/ML/20240407 blank.PNG",
 //	"D:/ML/dataset-ic-rgb16bit/artificial.png",
 //	"D:/ML/dataset-ic-rgb16bit/big_building.png",
@@ -1185,7 +1192,7 @@ int main(int argc, char **argv)
 	for(int k=0;k<1000000000;++k)
 	{
 		unsigned n=rand()<<15|rand();
-		int lgn=floor_log2_32(n);
+		int lgn=FLOOR_LOG2(n);
 		sum+=lgn;
 	}
 	printf("%lf  %d\n", time_sec()-t, sum);
@@ -1356,6 +1363,7 @@ int main(int argc, char **argv)
 	printf("FIXED PREC MATH TEST\n");
 	for(;;)
 	{
+#if 0
 #define POW_FIX24(B, E) exp2_fix24((int)((long long)E*log2_fix24(B)>>24))
 		int base=0, e=0;
 
@@ -1371,7 +1379,7 @@ int main(int argc, char **argv)
 		//unsigned long long trial=exp2_fix24((int)((long long)e*temp>>24));
 		unsigned long long truth=(unsigned long long)(pow((double)base/0x1000000, (double)e/0x1000000)*0x1000000);
 		printf("  TRIAL 0x%016llX>>24\n  TRUTH 0x%016llX>>24\n", trial, truth);
-
+#endif
 
 		//int k=0;
 		//printf("Enter an int32 in fix24 (hex without prefix): ");
@@ -1388,11 +1396,11 @@ int main(int argc, char **argv)
 		//int truth=(int)(log2((double)k/0x1000000)*0x1000000);
 		//printf("log2(0x%016llX>>24)  TRIAL %c0x%08X>>24  TRUTH %c0x%08X>>24\n", k, trial<0?'-':'+', abs(trial), truth<0?'-':'+', abs(truth));
 
-
-		//printf("Enter a uint64: ");
-		//while(!scanf("%llu", &k));
-		//unsigned s=floor_sqrt(k);
-		//printf("SQRT(%llu) = %u\n", k, s);
+		unsigned long long k=0;
+		printf("Enter a uint63: ");
+		while(!scanf("%llu", &k));
+		unsigned s=floor_sqrt(k);
+		printf("SQRT(%llu) = %u\n", k, s);
 	}
 #endif
 #if 0
