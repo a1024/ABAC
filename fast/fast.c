@@ -9,10 +9,10 @@ static const char file[]=__FILE__;
 
 //	#define BENCH_QOI
 
-#define CODECID     23
-#define CODECNAME "F23"
-#define ENCODE     f23_encode
-#define DECODE     f23_decode
+#define CODECID     24
+#define CODECNAME "F24"
+#define ENCODE     f24_encode
+#define DECODE     f24_decode
 
 
 typedef struct ThreadArgsStruct
@@ -74,10 +74,12 @@ static void print_result(Result *res, const char *title, int width, int print_ti
 		CR2=(double)res->usize/res->csize2;
 	g_total_usize+=res->usize;
 	g_total_csize+=res->csize2;
-	printf("%-*s  %10zd  format %10zd %10.6lf%% D %12lf sec  test %10zd %10.6lf%% E %12lf D %12lf sec %s",
+	printf("%-*s  %10zd  format %10zd %10.6lf%% D %12lf sec %9.4lf MB/s  test %10zd %10.6lf%% E %12lf D %12lf sec %9.4lf MB/s %s",
 		width, title, res->usize,
 		res->csize1, 100./CR1, res->fdec,
+		res->usize/(res->fdec*1024*1024),
 		res->csize2, 100./CR2, res->enc, res->dec,
+		res->usize/(res->dec*1024*1024),
 		res->error?"ERROR":"OK"
 	);
 	//printf("%-*s  %10zd  format %10zd %10.6lf%% D %12lf sec  test %10zd %10.6lf%% E %12lf D %12lf sec %s  all %10.6lf%%",
@@ -352,7 +354,7 @@ int main(int argc, char **argv)
 	//	"D:/ML/big_building.LSIM.PPM"
 		;
 	const char *fn=
-	//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
+		"D:/ML/dataset-kodak-ppm/kodim13.ppm"
 	//	"D:/ML/dataset-kodak/kodim13.png"
 	//	"D:/ML/big_building.PPM"
 	//	"D:/ML/big_building.LSIM"
@@ -361,7 +363,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-LPCB-ppm/PIA13799.ppm"
 	//	"D:/ML/dataset-RAW/a0001-jmac_DSC1459.dng"
 
-		"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
+	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim24.ppm"	//borderless
 	//	"C:/Projects/datasets/dataset-kodak-pgm/kodim13.pgm"
 	//	"C:/Projects/datasets/dataset-kodak/kodim13.png"
