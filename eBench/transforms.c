@@ -2684,7 +2684,7 @@ void pred_CG3D(Image *src, int fwd, int enable_ma)
 					//pred=(N+W)>>1;
 
 					pred+=offset;
-					pred=CLAMP(-halfs[kc], pred, halfs[kc]-1);
+					CLAMP2_32(pred, pred, -halfs[kc], halfs[kc]-1);
 
 					curr=src->data[idx+kc];
 					pred^=fwdmask;
@@ -2851,23 +2851,24 @@ void pred_PU(Image *src, int fwd)
 	int perm[]={1, 2, 0, 3};
 	int fwdmask=-fwd;
 
-	int *pixels=(int*)malloc((src->iw+4LL)*sizeof(int[4*4]));//4 padded rows * 4 channels max
+	size_t bufsize=(src->iw+4LL)*sizeof(int[4*4*2]);//4 padded rows * 4 channels max * {pixels, errors}
+	int *pixels=(int*)malloc(bufsize);
 	if(!pixels)
 	{
 		LOG_ERROR("Alloc error");
 		return;
 	}
-	memset(pixels, 0, (src->iw+4LL)*sizeof(int[4*4]));
+	memset(pixels, 0, bufsize);
 	nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
 	UPDATE_MAX(nch, src->nch);
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
 		int *rows[]=
 		{
-			pixels+(((src->iw+4LL)*((ky-0LL)&3)+2)<<2),
-			pixels+(((src->iw+4LL)*((ky-1LL)&3)+2)<<2),
-			pixels+(((src->iw+4LL)*((ky-2LL)&3)+2)<<2),
-			pixels+(((src->iw+4LL)*((ky-3LL)&3)+2)<<2),
+			pixels+(((src->iw+4LL)*((ky-0LL)&3)+2)<<3),
+			pixels+(((src->iw+4LL)*((ky-1LL)&3)+2)<<3),
+			pixels+(((src->iw+4LL)*((ky-2LL)&3)+2)<<3),
+			pixels+(((src->iw+4LL)*((ky-3LL)&3)+2)<<3),
 		};
 		for(int kx=0;kx<src->iw;++kx, idx+=4)
 		{
@@ -2879,12 +2880,12 @@ void pred_PU(Image *src, int fwd)
 					ROTATE3(ptr[2], ptr[1], ptr[0], temp);
 				}
 				int
-				//	NN	=rows[2][1+0*4],
-				//	NW	=rows[1][1-1*4],
-				//	N	=rows[1][1+0*4],
-				//	NE	=rows[1][1+1*4],
-				//	WW	=rows[0][1-2*4],
-				//	W	=rows[0][1-1*4],
+					//NN	=rows[2][1+0*8],
+					//NW	=rows[1][1-1*8],
+					//N	=rows[1][1+0*8],
+					//NE	=rows[1][1+1*8],
+					//WW	=rows[0][1-2*8],
+					//W	=rows[0][1-1*8],
 					cb	=src->data[idx+2],
 					cr	=src->data[idx+0];
 				//int update=(2*(NN+WW)-(N+W+NW+NE)+4*(cb+cr))>>4;
@@ -2900,43 +2901,75 @@ void pred_PU(Image *src, int fwd)
 			{
 				int kc=perm[kc0], pred;
 				int
-					NNWW	=rows[2][kc-2*4],
-					NNW	=rows[2][kc-1*4],
-					NN	=rows[2][kc+0*4],
-					NNE	=rows[2][kc+1*4],
-					NNEE	=rows[2][kc+2*4],
-					NWW	=rows[1][kc-2*4],
-					NW	=rows[1][kc-1*4],
-					N	=rows[1][kc+0*4],
-					NE	=rows[1][kc+1*4],
-					NEE	=rows[1][kc+2*4],
-					WW	=rows[0][kc-2*4],
-					W	=rows[0][kc-1*4],
+					NNWW	=rows[2][kc-2*8+0],
+					NNW	=rows[2][kc-1*8+0],
+					NN	=rows[2][kc+0*8+0],
+					NNE	=rows[2][kc+1*8+0],
+					NNEE	=rows[2][kc+2*8+0],
+					NWW	=rows[1][kc-2*8+0],
+					NW	=rows[1][kc-1*8+0],
+					N	=rows[1][kc+0*8+0],
+					NE	=rows[1][kc+1*8+0],
+					NEE	=rows[1][kc+2*8+0],
+					WW	=rows[0][kc-2*8+0],
+					W	=rows[0][kc-1*8+0],
+					eNNWW	=rows[2][kc-2*8+4],
+					eNNW	=rows[2][kc-1*8+4],
+					eNN	=rows[2][kc+0*8+4],
+					eNNE	=rows[2][kc+1*8+4],
+					eNNEE	=rows[2][kc+2*8+4],
+					eNWW	=rows[1][kc-2*8+4],
+					eNW	=rows[1][kc-1*8+4],
+					eN	=rows[1][kc+0*8+4],
+					eNE	=rows[1][kc+1*8+4],
+					eNEE	=rows[1][kc+2*8+4],
+					eWW	=rows[0][kc-2*8+4],
+					eW	=rows[0][kc-1*8+4],
 					offset	=0;
-				(void)NNWW;
-				(void)NNW;
-				(void)NN;
-				(void)NNE;
-				(void)NNEE;
-				(void)NWW;
-				(void)NW;
-				(void)N;
-				(void)NE;
-				(void)NEE;
-				(void)WW;
-				(void)W;
+				//(void)NNWW;	(void)eNNWW;
+				//(void)NNW;	(void)eNNW;
+				//(void)NN;	(void)eNN;
+				//(void)NNE;	(void)eNNE;
+				//(void)NNEE;	(void)eNNEE;
+				//(void)NWW;	(void)eNWW;
+				//(void)NW;	(void)eNW;
+				//(void)N;	(void)eN;
+				//(void)NE;	(void)eNE;
+				//(void)NEE;	(void)eNEE;
+				//(void)WW;	(void)eWW;
+				//(void)W;	(void)eW;
 				if(kc0>0)
 				{
 					offset+=rows[0][1];
 					//if(kc0>1)
 					//	offset=(2*offset+rows[0][2])>>1;
 				}
+				//if(kx==10&&ky==10)//
+				//	printf("");
 				//if(kc==1)//luma
 				//	pred=(4*(N+W)+NE-NW)>>3;
 				//else
 				{
-					pred=N+W-NW;
-					MEDIAN3_32(pred, N, W, pred);
+					static const int update_sh[]={2, 2, 2, 2};
+					int
+						vx=abs(eW-eWW)+abs(eN-eNW)+abs(eNE-eN)+1,
+						vy=abs(eW-eNW)+abs(eN-eNN)+abs(eNE-eNNE)+1;
+					int update=vx<vy?eN:eW;
+					update/=4;
+					//update=(update+(((1<<update_sh[kc])-1)&update>>31))>>update_sh[kc];
+					//update=(update>>update_sh[kc])+(update>>31&((update&((1<<update_sh[kc])-1))!=0));
+					//update/=abs(eN)+abs(eW)+1;
+
+					//int update2=(update+(((1<<2)-1)&update>>31))>>2;
+					//int update2=(update>>update_sh[kc])+(update>>31&((update&3)!=0));
+					//update/=4;
+					//if(update!=update2)
+					//	LOG_ERROR("");//ceil(floor(5.13)*-1.3) = -6
+
+					MEDIAN3_32(pred, N, W, N+W-NW);
+					pred+=update;
+					//CLAMP2_32(pred, pred, -halfs[kc], halfs[kc]-1);//X
+
 					//if(kc==1)
 					//	pred=((512-4)*pred+N+W+NW+NE)>>9;
 				}
@@ -2945,7 +2978,7 @@ void pred_PU(Image *src, int fwd)
 				//pred=((512-48)*pred+16*(N+W)+3*(NW+NE+NN+WW)+2*(NNW+NNE+NWW+NEE+NNWW+NNEE))>>9;
 
 				pred+=offset;
-				pred=CLAMP(-halfs[kc], pred, halfs[kc]-1);
+				CLAMP2_32(pred, pred, -halfs[kc], halfs[kc]-1);
 				{
 					int curr=src->data[idx+kc];
 					pred^=fwdmask;
@@ -2956,19 +2989,20 @@ void pred_PU(Image *src, int fwd)
 					pred>>=32-src->depth[kc];
 
 					src->data[idx+kc]=pred;
-					rows[0][kc]=(fwd?curr:pred)-offset;
+					rows[0][kc  ]=(fwd?curr:pred)-offset;
+					rows[0][kc+4]=(fwd?pred:curr);
 				}
 			}
 #ifdef PU_UPDATE_LUMA
 			if(fwd)
 			{
 				int
-				//	NN	=rows[2][1+0*4],
-				//	NW	=rows[1][1-1*4],
-				//	N	=rows[1][1+0*4],
-				//	NE	=rows[1][1+1*4],
-				//	WW	=rows[0][1-2*4],
-				//	W	=rows[0][1-1*4],
+					//NN	=rows[2][1+0*8],
+					//NW	=rows[1][1-1*8],
+					//N	=rows[1][1+0*8],
+					//NE	=rows[1][1+1*8],
+					//WW	=rows[0][1-2*8],
+					//W	=rows[0][1-1*8],
 					cb	=src->data[idx+2],
 					cr	=src->data[idx+0];
 				//int update=(2*(NN+WW)-(N+W+NW+NE)+4*(cb+cr))>>4;
@@ -2986,10 +3020,10 @@ void pred_PU(Image *src, int fwd)
 				}
 			}
 #endif
-			rows[0]+=4;
-			rows[1]+=4;
-			rows[2]+=4;
-			rows[3]+=4;
+			rows[0]+=8;
+			rows[1]+=8;
+			rows[2]+=8;
+			rows[3]+=8;
 		}
 	}
 	free(pixels);

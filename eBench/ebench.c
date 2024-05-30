@@ -79,6 +79,8 @@ typedef enum TransformTypeEnum
 
 	CST_FWD_SEPARATOR,	CST_INV_SEPARATOR,
 	
+	ST_FILT_MEDIAN33,	ST_FILT_AV33,
+
 	ST_FWD_PACKSIGN,	ST_INV_PACKSIGN,
 	ST_FWD_MTF,		ST_INV_MTF,
 	ST_FWD_T47,		ST_INV_T47,
@@ -1447,6 +1449,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_PACKSIGN:		a=" S Inv PackSign";		break;
 	case ST_FWD_MTF:		a=" S Fwd MTF";			break;
 	case ST_INV_MTF:		a=" S Inv MTF";			break;
+	case ST_FILT_MEDIAN33:		a=" S Filt Median33";		break;
+	case ST_FILT_AV33:		a=" S Filt Av33";		break;
 	case ST_FWD_P3:			a=" S Fwd P3";			break;
 	case ST_INV_P3:			a=" S Inv P3";			break;
 	case ST_FWD_G2:			a=" S Fwd G2";			break;
@@ -2535,6 +2539,8 @@ void apply_selected_transforms(Image *image, int rct_only)
 		case ST_INV_PACKSIGN:		packsign(image, 0);					break;
 		case ST_FWD_MTF:		pred_MTF(image, 1);					break;
 		case ST_INV_MTF:		pred_MTF(image, 0);					break;
+		case ST_FILT_MEDIAN33:		filt_median33(image);					break;
+		case ST_FILT_AV33:		filt_av33(image);					break;
 		case ST_FWD_PU:			pred_PU(image, 1);					break;
 		case ST_INV_PU:			pred_PU(image, 0);					break;
 		case ST_FWD_CG3D:		pred_CG3D(image, 1, pred_ma_enabled);			break;
@@ -5274,7 +5280,7 @@ int io_keydn(IOKey key, char c)
 #endif
 			if(GET_KEY_STATE(KEY_CTRL))
 			{
-				int success=1;
+				//int success=1;
 				if(im0->iw!=im1->iw||im0->ih!=im1->ih||im0->nch!=im1->nch)
 				{
 					messagebox(MBOX_OK, "Dimension Error",
@@ -5284,10 +5290,69 @@ int io_keydn(IOKey key, char c)
 						im0->nch, im0->iw, im0->ih,
 						im1->nch, im1->iw, im1->ih
 					);
-					success=0;
+					//success=0;
 				}
 				else
 				{
+					double rmse[4]={0}, psnr[4]={0};
+					ptrdiff_t res=(ptrdiff_t)im0->iw*im0->ih, idx=-1;
+					int printed;
+					int half[]=
+					{
+						1<<im0->src_depth[0]>>1,
+						1<<im0->src_depth[1]>>1,
+						1<<im0->src_depth[2]>>1,
+						1<<im0->src_depth[3]>>1,
+					};
+					for(ptrdiff_t k=0;k<res;++k)
+					{
+						int
+							dr=im1->data[k<<2|0]-im0->data[k<<2|0],
+							dg=im1->data[k<<2|1]-im0->data[k<<2|1],
+							db=im1->data[k<<2|2]-im0->data[k<<2|2],
+							da=im1->data[k<<2|3]-im0->data[k<<2|3];
+						if(idx<0&&(dr|dg|db|da))
+							idx=k;
+						rmse[0]+=dr*dr;
+						rmse[1]+=dg*dg;
+						rmse[2]+=db*db;
+						rmse[3]+=da*da;
+					}
+					for(int kc=0;kc<4;++kc)
+					{
+						rmse[kc]=sqrt(rmse[kc]/res);
+						psnr[kc]=20*log10(half[kc]/rmse[kc]);
+					}
+					printed=snprintf(g_buf, G_BUF_SIZE-1,
+						"RMSE PSNR\n"
+						"C0 %12lf %12lf\n"
+						"C1 %12lf %12lf\n"
+						"C2 %12lf %12lf\n"
+						"C3 %12lf %12lf",
+						rmse[0], psnr[0],
+						rmse[1], psnr[1],
+						rmse[2], psnr[2],
+						rmse[3], psnr[3]
+					);
+					if(idx>=0)
+					{
+						int kx=idx%im0->iw, ky=idx/im0->iw;
+						printed+=snprintf(g_buf+printed, G_BUF_SIZE-printed-1,
+							"\nError vs Original at XY %d %d:\n"
+							"C0\t0x%08X\t0x%08X\n"
+							"C1\t0x%08X\t0x%08X\n"
+							"C2\t0x%08X\t0x%08X\n"
+							"C3\t0x%08X\t0x%08X",
+							kx, ky,
+							im1->data[idx<<2|0], im0->data[idx<<2|0],
+							im1->data[idx<<2|1], im0->data[idx<<2|1],
+							im1->data[idx<<2|2], im0->data[idx<<2|2],
+							im1->data[idx<<2|3], im0->data[idx<<2|3]
+						);
+						copy_to_clipboard(g_buf, printed);
+					}
+					messagebox(MBOX_OK, idx>=0?"Error (Copied to clipboard)":"Bit Exact", "%s", g_buf);
+#if 0
 					for(ptrdiff_t k=0, res=(ptrdiff_t)im0->iw*im0->ih;k<res;++k)
 					{
 						if(memcmp(im1->data+(k<<2), im0->data+(k<<2), sizeof(int[4])))
@@ -5310,9 +5375,10 @@ int io_keydn(IOKey key, char c)
 							break;
 						}
 					}
+#endif
 				}
-				if(success)
-					messagebox(MBOX_OK, "SUCCESS", "The image is bit-exact.");
+				//if(success)
+				//	messagebox(MBOX_OK, "SUCCESS", "The image is bit-exact.");
 			}
 			else if(transforms_mask[CT_FWD_CUSTOM]||transforms_mask[CT_INV_CUSTOM])
 			{

@@ -791,6 +791,8 @@ extern unsigned char lossyconv_stride[2*4], lossyconv_offset[2*4];//2 dimensions
 extern unsigned char lossyconv_causalRCT[4];
 void pred_lossyconv(Image *src);//irreversible conv
 void pred_WC(Image *src);
+void filt_median33(Image *src);
+void filt_av33(Image *src);
 
 void pred_calic(Image *src, int fwd, int enable_ma);
 void pred_grad2(Image *src, int fwd, int enable_ma);
