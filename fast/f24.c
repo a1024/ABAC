@@ -9,6 +9,7 @@ static const char file[]=__FILE__;
 
 //	#define ENABLE_GUIDE
 //	#define DISABLE_MT
+//	#define PROFILE_CSIZE
 
 
 #include"ac.h"
@@ -16,9 +17,10 @@ static const char file[]=__FILE__;
 static const Image *guide=0;
 #endif
 
-	#define USE_AC
-	#define ENABLE_ZERO	//can't use PRED_ZERO with GR coder
-//	#define ENABLE_WG
+	#define USE_AC 2
+//	#define CTX_MIN_NW	//bad
+	#define ENABLE_WG
+//	#define ENABLE_ZERO	//incompatible with quantized entropy coder
 
 #define BLOCKSIZE 256
 #define NCHPOOL 15
@@ -64,9 +66,14 @@ typedef struct _ThreadArgs
 	DList list;
 	const unsigned char *decstart, *decend;
 
+	double bestsize;
+
 #ifdef USE_AC
 	int tlevels, clevels, statssize;
 	unsigned *stats;
+#endif
+#ifdef PROFILE_CSIZE
+	ptrdiff_t bypasssizes[4];
 #endif
 } ThreadArgs;
 static const int combinations[RCT_COUNT*3]=
@@ -112,8 +119,8 @@ static const short wp_params[WP_NPARAMS*3]=//signed fixed 7.8 bit
 #define CDFSTRIDE 64
 
 //from libjxl		packsign(pixel) = 0b00001MMBB...BBL	token = offset + 0bGGGGMML,  where G = bits of lg(packsign(pixel)),  bypass = 0bBB...BB
-#define CONFIG_EXP 5
-#define CONFIG_MSB 2
+#define CONFIG_EXP 4
+#define CONFIG_MSB 1
 #define CONFIG_LSB 0
 static void quantize_pixel(int val, int *token, int *bypass, int *nbits)
 {
@@ -138,7 +145,8 @@ static void quantize_pixel(int val, int *token, int *bypass, int *nbits)
 }
 static int quantize_ctx(int val)
 {
-	int negmask=-(val<0);
+#if 1
+	int negmask=val>>31;
 	val=abs(val);
 	val=FLOOR_LOG2_P1(val);//[0~0x8000] -> [0~16]
 	val=FLOOR_LOG2_P1(val);//[0~16] -> [0~5]
@@ -149,6 +157,9 @@ static int quantize_ctx(int val)
 		LOG_ERROR("Context OOB");
 #endif
 	return val;
+#else
+	return THREEWAY(val, 0)+1;
+#endif
 }
 #define QUANTIZE_CTX(X) quantize_ctx(X)+chalf
 static void update_CDF(const int *hist, unsigned *CDF, int tlevels)
@@ -164,24 +175,41 @@ static void update_CDF(const int *hist, unsigned *CDF, int tlevels)
 }
 static void init_stats(int *hist, unsigned *stats, int tlevels, int clevels, int nch)
 {
-	int stride=tlevels+1, chsize=clevels*clevels*stride;
+	int stride=tlevels+1;
+#ifdef CTX_MIN_NW
+	int chsize=clevels*stride;
+#else
+	int chsize=clevels*clevels*stride;
+#endif
 	for(int kc=0;kc<nch;++kc)
 	{
 		int sum=0;
 		int *curr_hist=hist+chsize*kc;
 		unsigned *curr_CDF=stats+chsize*kc;
 
+#if 1
 		//memset(curr_hist, 0, chsize);
 		//memset(curr_CDF, 0, chsize);
 		for(int k=0;k<tlevels;++k)
 		{
-			int val=(tlevels-k)>>1;
-			val+=!val;
-			val*=val;
-			if(sum+val*val*val<sum)
-				LOG_ERROR("");
-			sum+=curr_hist[k]=val*val*val;
+			sum+=curr_hist[k]=1;
+			//int val=(tlevels-k)>>1;
+			//val+=!val;
+			//val*=val;
+			//val*=val*val;
+			//if(sum+val*val*val<sum)
+			//	LOG_ERROR("");
+			//sum+=curr_hist[k]=val;
+			//sum+=curr_hist[k]=tlevels-(k>>2);
 		}
+#else
+		int val=0x400;
+		for(int k=0;k<tlevels;++k)//X
+		{
+			sum+=curr_hist[k]=val;
+			val-=val>>5;
+		}
+#endif
 		curr_hist[tlevels]=sum;
 		update_CDF(curr_hist, curr_CDF, tlevels);
 		memfill(curr_hist+stride, curr_hist, ((size_t)chsize-stride)*sizeof(int), stride*sizeof(int));
@@ -220,6 +248,7 @@ static void wp_update(int curr, int pred, const int *preds, int *ecurr, int *eNE
 		eNE[k+1]+=e2;
 	}
 }
+#ifdef ENABLE_WG
 static int wg_predict(int NNN, int NN, int NNE, int NW, int N, int NE, int NEEE, int WWW, int WW, int W, const int *eW, int *preds)
 {
 	int pred;
@@ -247,7 +276,7 @@ static int wg_predict(int NNN, int NN, int NNE, int NW, int N, int NE, int NEEE,
 	CLAMP3_32(pred, (int)lpred, N, W, NE);
 	return pred;
 }
-static void wg_update(int curr, int pred, const int *preds, int *eW)
+static void wg_update(int curr, const int *preds, int *eW)
 {
 	for(int k=0;k<8;++k)
 	{
@@ -256,12 +285,19 @@ static void wg_update(int curr, int pred, const int *preds, int *eW)
 		eW[k]-=(eW[k]+3)>>2;
 	}
 }
+#endif
 static void block_enc(void *param)
 {
 	ThreadArgs *args=(ThreadArgs*)param;
 #ifdef USE_AC
 	ArithmeticCoder ec;
-	int chalf=args->clevels>>1, nctx=args->clevels*args->clevels, cdfstride=args->tlevels+1;
+	int chalf=args->clevels>>1;
+#ifdef CTX_MIN_NW
+	int nctx=args->clevels;
+#else
+	int nctx=args->clevels*args->clevels;
+#endif
+	int cdfstride=args->tlevels+1;
 	int token=0, bypass=0, nbits=0;
 #else
 	GolombRiceCoder ec;
@@ -314,6 +350,40 @@ static void block_enc(void *param)
 				*WW	=rows[0]-2*6*NCHPOOL,
 				*W	=rows[0]-1*6*NCHPOOL,
 				*curr	=rows[0]+0*6*NCHPOOL;
+			//          NNN
+			//          NN  NNE
+			//       NW N   NE  .  NEEE
+			//WWW WW W  ?
+			if(ky<=args->y1+2)
+			{
+				if(ky<=args->y1+1)
+				{
+					if(ky==args->y1)
+						NEEE=NE=NW=N=W;
+					NN=N;
+					NNE=NE;
+				}
+				NNN=NN;
+			}
+			if(kx<=2)
+			{
+				if(kx<=1)
+				{
+					if(!kx)
+						NW=W=N;
+					WW=W;
+				}
+				WWW=WW;
+			}
+			if(kx>=image->iw-3)
+			{
+				if(kx>=image->iw-1)
+				{
+					NNE=NN;
+					NE=N;
+				}
+				NEEE=NE;
+			}
 
 			//0	r-P(rprev)		NONE		r; g; b;
 			//1	g-P(gprev)
@@ -423,12 +493,16 @@ static void block_enc(void *param)
 					val=comp[kc]-preds[k];
 					val+=halfs[kc];
 					val&=nlevels[kc]-1;
+
+					//if(kc*PRED_COUNT+k==3&&val==134)//
+					//	printf("");
+
 					++args->hist[(kc*PRED_COUNT+k)<<(image->depth+1)|val];
 				}
 				curr[kc2+0]=comp[kc]-offset;
 				wp_update(comp[kc], wpred, wp_preds, curr+kc2+1, NE+kc2+1);
 #ifdef ENABLE_WG
-				wg_update(comp[kc], preds[PRED_WG], wg_preds, wg_errors);
+				wg_update(comp[kc], wg_preds, wg_errors);
 #endif
 			}
 			rows[0]+=6*NCHPOOL;
@@ -450,8 +524,9 @@ static void block_enc(void *param)
 		csizes[kc]/=8;
 	}
 	int bestrct=0;
+	double bestsize;
+	const int *group;
 	char predsel[NCHPOOL]={0};
-	double bestsize=0;
 	for(int k=0;k<NCHPOOL;++k)
 	{
 		int best=0;
@@ -462,7 +537,8 @@ static void block_enc(void *param)
 		}
 		predsel[k]=best;
 	}
-	const int *group=combinations;
+	group=combinations;
+	bestrct=0;
 	bestsize=
 		csizes[group[0]*PRED_COUNT+predsel[group[0]]]+
 		csizes[group[1]*PRED_COUNT+predsel[group[1]]]+
@@ -477,6 +553,7 @@ static void block_enc(void *param)
 		if(bestsize>csize)
 			bestsize=csize, bestrct=k;
 	}
+	args->bestsize=bestsize;
 	int combination[]=
 	{
 		combinations[bestrct*3+0],
@@ -611,11 +688,50 @@ static void block_enc(void *param)
 				*NW	=rows[1]-1*7*4,
 				*N	=rows[1]+0*7*4,
 				*NE	=rows[1]+1*7*4,
+				*NEE	=rows[1]+2*7*4,
 				*NEEE	=rows[1]+3*7*4,
 				*WWW	=rows[0]-3*7*4,
 				*WW	=rows[0]-2*7*4,
 				*W	=rows[0]-1*7*4,
 				*curr	=rows[0]+0*7*4;
+			//          NNN
+			//          NN  NNE
+			//       NW N   NE  NEE  NEEE
+			//WWW WW W  ?
+			if(ky<=args->y1+2)
+			{
+				if(ky<=args->y1+1)
+				{
+					if(ky==args->y1)
+						NEEE=NE=NW=N=W;
+					NN=N;
+					NNE=NE;
+				}
+				NNN=NN;
+			}
+			if(kx<=2)
+			{
+				if(kx<=1)
+				{
+					if(!kx)
+						NW=W=N;
+					WW=W;
+				}
+				WWW=WW;
+			}
+			if(kx>=image->iw-3)
+			{
+				if(kx>=image->iw-2)
+				{
+					if(kx>=image->iw-1)
+					{
+						NNE=NN;
+						NE=N;
+					}
+					NEE=NE;
+				}
+				NEEE=NEE;
+			}
 
 			//if(ky==330&&kx==146)//
 			//if(ky==28&&kx==624)//
@@ -741,15 +857,19 @@ static void block_enc(void *param)
 						//negmask=-((pr->sse_corr<0)&(sym!=-pr->half[kc]));//sign is flipped if SSE correction was negative, to skew the histogram
 						//sym^=negmask;
 						//sym-=negmask;
-						sym=sym<<1^-(sym<0);//pack sign
+						sym=sym<<1^(sym>>31);//pack sign
 					}
 					else
 						sym=upred+aval;//error sign is known
 				}
 #ifdef USE_AC
+#ifdef CTX_MIN_NW
+				int cidx=cdfstride*(nctx*kc+MINVAR(N[kc2+1], W[kc2+1]));
+#else
 				int qeN=QUANTIZE_CTX(N[kc2+1]);
 				int qeW=QUANTIZE_CTX(W[kc2+1]);
 				int cidx=cdfstride*(nctx*kc+args->clevels*qeN+qeW);
+#endif
 				int *curr_hist=args->hist+cidx;
 				unsigned *curr_CDF=args->stats+cidx;
 				quantize_pixel(sym, &token, &bypass, &nbits);
@@ -760,31 +880,39 @@ static void block_enc(void *param)
 				ac_enc(&ec, token, curr_CDF);
 				if(nbits)
 					ac_enc_bypass(&ec, bypass, nbits);//up to 16 bits
-
-				if(curr_hist[args->tlevels]+1>0x1000)
+				
+#ifdef PROFILE_CSIZE
+				args->bypasssizes[kc]+=nbits;
+#endif
+				//if(curr_hist[token]+1>0x1800)//X
+				if(curr_hist[args->tlevels]+1>0x1800)
 				{
 					int sum=0;
 					//update_CDF(curr_hist, curr_CDF, args->tlevels);
 					for(int k=0;k<args->tlevels;++k)
-						sum+=curr_hist[k]=(curr_hist[k]+1)>>1;
+						sum+=curr_hist[k]>>=1;
 					curr_hist[args->tlevels]=sum;
 				}
 				++curr_hist[token];
 				++curr_hist[args->tlevels];
 				if((kx&(CDFSTRIDE-1))==CDFSTRIDE-1)		//FIXME this updates just the current CDF at regular intervals
 					update_CDF(curr_hist, curr_CDF, args->tlevels);
-
+#ifdef CTX_MIN_NW
+				curr[kc2+1]=token;
+#else
 				curr[kc2+1]=val;
+#endif
 #else
 				gr_enc_POT(&ec, sym, FLOOR_LOG2(W[kc2+1]+1));
-				curr[kc2+1]=(2*W[kc2+1]+sym+NEEE[kc2+1])>>2;
+				curr[kc2+1]=(W[kc2+1]+sym+NEE[kc2+1]+NEEE[kc2+1])/4;
+				//curr[kc2+1]=(W[kc2+1]+sym+NEEE[kc2+1])/3;
 #endif
 				curr[kc2+0]=yuv[kc]-offset;
 				if(predidx[kc]==PRED_WP)
 					wp_update(curr[kc2+0], wp_result, wp_preds, curr+kc2+2, NE+kc2+2);
 #ifdef ENABLE_WG
 				else if(predidx[kc]==PRED_WG)
-					wg_update(curr[kc2+0], pred, wp_preds, wg_errors);
+					wg_update(curr[kc2+0], wp_preds, wg_errors);
 #endif
 			}
 			rows[0]+=7*4;
@@ -806,7 +934,13 @@ static void block_dec(void *param)
 	ThreadArgs *args=(ThreadArgs*)param;
 #ifdef USE_AC
 	ArithmeticCoder ec;
-	int chalf=args->clevels>>1, nctx=args->clevels*args->clevels, cdfstride=args->tlevels+1;
+	int chalf=args->clevels>>1;
+#ifdef CTX_MIN_NW
+	int nctx=args->clevels;
+#else
+	int nctx=args->clevels*args->clevels;
+#endif
+	int cdfstride=args->tlevels+1;
 	int token=0, bypass=0, nbits=0;
 #else
 	GolombRiceCoder ec;
@@ -868,11 +1002,50 @@ static void block_dec(void *param)
 				*NW	=rows[1]-1*7*4,
 				*N	=rows[1]+0*7*4,
 				*NE	=rows[1]+1*7*4,
+				*NEE	=rows[1]+2*7*4,
 				*NEEE	=rows[1]+3*7*4,
 				*WWW	=rows[0]-3*7*4,
 				*WW	=rows[0]-2*7*4,
 				*W	=rows[0]-1*7*4,
 				*curr	=rows[0]+0*7*4;
+			//          NNN
+			//          NN  NNE
+			//       NW N   NE  NEE  NEEE
+			//WWW WW W  ?
+			if(ky<=args->y1+2)
+			{
+				if(ky<=args->y1+1)
+				{
+					if(ky==args->y1)
+						NEEE=NE=NW=N=W;
+					NN=N;
+					NNE=NE;
+				}
+				NNN=NN;
+			}
+			if(kx<=2)
+			{
+				if(kx<=1)
+				{
+					if(!kx)
+						NW=W=N;
+					WW=W;
+				}
+				WWW=WW;
+			}
+			if(kx>=image->iw-3)
+			{
+				if(kx>=image->iw-2)
+				{
+					if(kx>=image->iw-1)
+					{
+						NNE=NN;
+						NE=N;
+					}
+					NEE=NE;
+				}
+				NEEE=NEE;
+			}
 
 			//if(ky==330&&kx==146)//
 			//if(ky==28&&kx==624)//
@@ -936,9 +1109,13 @@ static void block_dec(void *param)
 					CLAMP2_32(pred, pred, -halfs[ch], halfs[ch]-1);
 				}
 #ifdef USE_AC
+#ifdef CTX_MIN_NW
+				int cidx=cdfstride*(nctx*kc+MINVAR(N[kc2+1], W[kc2+1]));
+#else
 				int qeN=QUANTIZE_CTX(N[kc2+1]);
 				int qeW=QUANTIZE_CTX(W[kc2+1]);
 				int cidx=cdfstride*(nctx*kc+args->clevels*qeN+qeW);
+#endif
 				int *curr_hist=args->hist+cidx;
 				unsigned *curr_CDF=args->stats+cidx;
 
@@ -980,22 +1157,27 @@ static void block_dec(void *param)
 					val-=negmask;
 				}
 #ifdef USE_AC
-				if(curr_hist[args->tlevels]+1>0x1000)
+				//if(curr_hist[token]+1>0x1800)//X
+				if(curr_hist[args->tlevels]+1>0x1800)
 				{
 					int sum=0;
 					//update_CDF(curr_hist, curr_CDF, args->tlevels);
 					for(int k=0;k<args->tlevels;++k)
-						sum+=curr_hist[k]=(curr_hist[k]+1)>>1;
+						sum+=curr_hist[k]>>=1;
 					curr_hist[args->tlevels]=sum;
 				}
 				++curr_hist[token];
 				++curr_hist[args->tlevels];
 				if((kx&(CDFSTRIDE-1))==CDFSTRIDE-1)
 					update_CDF(curr_hist, curr_CDF, args->tlevels);
-
-				curr[kc2+1]=val;
+#ifdef CTX_MIN_NW
+				curr[kc2+1]=token;
 #else
-				curr[kc2+1]=(2*W[kc2+1]+sym+NEEE[kc2+1])>>2;
+				curr[kc2+1]=val;
+#endif
+#else
+				curr[kc2+1]=(W[kc2+1]+sym+NEE[kc2+1]+NEEE[kc2+1])/4;
+				//curr[kc2+1]=(W[kc2+1]+sym+NEEE[kc2+1])/3;
 #endif
 				val+=pred;
 				yuv[kc]=val;
@@ -1004,7 +1186,7 @@ static void block_dec(void *param)
 					wp_update(curr[kc2+0], wp_result, wp_preds, curr+kc2+2, NE+kc2+2);
 #ifdef ENABLE_WG
 				else if(predidx[kc]==PRED_WG)
-					wg_update(curr[kc2+0], pred, wp_preds, wg_errors);
+					wg_update(curr[kc2+0], wp_preds, wg_errors);
 #endif
 			}
 			switch(bestrct)//forward RCT
@@ -1117,8 +1299,13 @@ int f24_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 
 		quantize_pixel(nlevels, &token, &bypass, &nbits);
 		tlevels=token+1;
+#ifdef CTX_MIN_NW
+		clevels=token+1;
+		statssize=clevels*(tlevels+1)*image->nch*(int)sizeof(int);
+#else
 		clevels=quantize_ctx(nlevels>>1)<<1|1;
 		statssize=clevels*clevels*(tlevels+1)*image->nch*(int)sizeof(int);
+#endif
 		if(fwd)
 		{
 			histsize=sizeof(int[NCHPOOL*PRED_COUNT])<<(image->depth+1);
@@ -1178,6 +1365,10 @@ int f24_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	}
 	if(fwd)
 	{
+		double bestsize=0;
+#ifdef PROFILE_CSIZE
+		double bypasstotal=0;
+#endif
 		ptrdiff_t dststart=array_append(data, 0, 1, sizeof(int)*nblocks, 1, 0, 0);
 		for(int kt=0;kt<nblocks;kt+=nthreads)
 		{
@@ -1198,7 +1389,33 @@ int f24_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			for(int kt2=0;kt2<nthreads2;++kt2)
 			{
 				if(loud)
-					printf("[%3d]  %8zd\n", kt+kt2, args[kt2].list.nobj);
+				{
+					if(!(kt+kt2))
+						printf("block,  usize,     best  ->  actual,  (actual-best)\n");
+					printf(
+						"[%3d]  %8d  %11.2lf -> %8zd bytes  (%+11.2lf)"
+#ifdef PROFILE_CSIZE
+						"  bypass %7td+%7td+%7td=%8td (%8.4lf%%)"
+#endif
+						"\n",
+						kt+kt2,
+						(image->iw*(args[kt2].y2-args[kt2].y1)*image->nch*image->depth+7)>>3,
+						args[kt2].bestsize,
+						args[kt2].list.nobj,
+						(double)args[kt2].list.nobj-args[kt2].bestsize
+#ifdef PROFILE_CSIZE
+						, args[kt2].bypasssizes[0]>>3
+						, args[kt2].bypasssizes[1]>>3
+						, args[kt2].bypasssizes[2]>>3
+						, (args[kt2].bypasssizes[0]+args[kt2].bypasssizes[1]+args[kt2].bypasssizes[2])>>3
+						, 100.*(args[kt2].bypasssizes[0]+args[kt2].bypasssizes[1]+args[kt2].bypasssizes[2])/(8*args[kt2].list.nobj)
+#endif
+					);
+					bestsize+=args[kt2].bestsize;
+#ifdef PROFILE_CSIZE
+					bypasstotal+=(args[kt2].bypasssizes[0]+args[kt2].bypasssizes[1]+args[kt2].bypasssizes[2])/8.;
+#endif
+				}
 				memcpy(data[0]->data+dststart+sizeof(int)*((ptrdiff_t)kt+kt2), &args[kt2].list.nobj, sizeof(int));
 				dlist_appendtoarray(&args[kt2].list, data);
 				dlist_clear(&args[kt2].list);
@@ -1210,7 +1427,17 @@ int f24_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				csize=data[0]->count-dststart,
 				usize=((ptrdiff_t)image->iw*image->ih*image->nch*image->depth+7)>>3;
 			t0=time_sec()-t0;
-			printf("Size %14td/%14td  %16lf%%  %16lf\n", csize, usize, 100.*csize/usize, (double)usize/csize);
+			printf("best: %11.2lf  actual: [[%9td]]/%9td bytes  (%+11.2lf)  %10lf%% %10lf\n",
+				bestsize,
+				csize,
+				usize,
+				csize-bestsize,
+				100.*csize/usize,
+				(double)usize/csize
+			);
+#ifdef PROFILE_CSIZE
+			printf("bypass %.2lf %lf%%\n", bypasstotal, 100.*bypasstotal/csize);
+#endif
 			printf("E %16.6lf sec  %16.6lf MB/s  Mem usage: ", t0, usize/(t0*1024*1024));
 			print_size((double)memusage, 8, 4, 0, 0);
 			printf("\n");

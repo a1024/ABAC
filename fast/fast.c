@@ -361,10 +361,11 @@ int main(int argc, char **argv)
 	//	"D:/ML/big_building.LSIM.PPM"
 		;
 	const char *fn=
-	//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
+		"D:/ML/dataset-kodak-ppm/kodim13.ppm"
 	//	"D:/ML/dataset-kodak/kodim13.png"
 	//	"D:/ML/big_building.PPM"
 	//	"D:/ML/big_building.LSIM"
+	//	"D:/ML/20240407 blank.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_03.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13757.ppm"	//MER-3D
 	//	"C:/dataset-LPCB-ppm/PIA13785.ppm"
@@ -373,7 +374,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-LPCB-ppm/PIA13799.ppm"
 	//	"D:/ML/dataset-RAW/a0001-jmac_DSC1459.dng"
 
-		"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
+	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim24.ppm"	//borderless
 	//	"C:/Projects/datasets/dataset-kodak-pgm/kodim13.pgm"
 	//	"C:/Projects/datasets/dataset-kodak/kodim13.png"
@@ -523,7 +524,7 @@ int main(int argc, char **argv)
 		
 		compare_bufs_16(dst.data, src.data, src.iw, src.ih, src.nch, src.nch, CODECNAME, 0, 1);
 
-		qoi_test(&src, 0, 0, 0, 0, 1);
+		//qoi_test(&src, 0, 0, 0, 0, 1);
 #endif
 #if 0
 		ptrdiff_t nvals=(ptrdiff_t)src.nch*src.iw*src.ih;
