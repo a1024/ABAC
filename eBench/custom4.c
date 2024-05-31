@@ -276,7 +276,7 @@ void pred_WC(Image *src)
 						}
 						if(!uninit)
 						{
-							MEDIAN3_32(preds[kp], vmin, vmax, preds[kp]);
+							MEDIAN3_32(preds[kp], vmin<<5, vmax<<5, preds[kp]);
 						}
 						weight=eNW[kp]+eN[kp]+eNE[kp]+eNEE[kp]+eWW[kp]+eW[kp];
 						weight=0x1000000/(weight+1);
@@ -291,7 +291,7 @@ void pred_WC(Image *src)
 				//CLAMP3_32(pred, (int)lpred, nb[10], nb[7], nb[8]);//clamp(N, W, NE)
 
 				pred+=offset;
-				pred=CLAMP(-half, pred, half);
+				CLAMP2_32(pred, pred, -half, half);
 				{
 					int curr=dst->data[idx<<2|kc];
 					curr-=pred;

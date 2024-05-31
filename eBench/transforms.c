@@ -2682,6 +2682,7 @@ void pred_CG3D(Image *src, int fwd, int enable_ma)
 
 					MEDIAN3_32(pred, N, W, N+W-NW);
 					//pred=(N+W)>>1;
+					//pred=N+W-NW;//X
 
 					pred+=offset;
 					CLAMP2_32(pred, pred, -halfs[kc], halfs[kc]-1);
@@ -2870,8 +2871,12 @@ void pred_PU(Image *src, int fwd)
 			pixels+(((src->iw+4LL)*((ky-2LL)&3)+2)<<3),
 			pixels+(((src->iw+4LL)*((ky-3LL)&3)+2)<<3),
 		};
+		//__m128i vmin=_mm_set_epi32(-halfs[3], -halfs[2], -halfs[1], -halfs[0]);
+		//__m128i vmax=_mm_set_epi32(halfs[3]-1, halfs[2]-1, halfs[1]-1, halfs[0]-1);
+		//ALIGN(16) int preds[4]={0};
 		for(int kx=0;kx<src->iw;++kx, idx+=4)
 		{
+#if 1
 #ifdef PU_UPDATE_LUMA
 			if(!fwd)
 			{
@@ -2938,12 +2943,6 @@ void pred_PU(Image *src, int fwd)
 				//(void)NEE;	(void)eNEE;
 				//(void)WW;	(void)eWW;
 				//(void)W;	(void)eW;
-				if(kc0>0)
-				{
-					offset+=rows[0][1];
-					//if(kc0>1)
-					//	offset=(2*offset+rows[0][2])>>1;
-				}
 				//if(kx==10&&ky==10)//
 				//	printf("");
 				//if(kc==1)//luma
@@ -2967,6 +2966,7 @@ void pred_PU(Image *src, int fwd)
 					//	LOG_ERROR("");//ceil(floor(5.13)*-1.3) = -6
 
 					MEDIAN3_32(pred, N, W, N+W-NW);
+					//pred=(N+W)>>1;//X
 					pred+=update;
 					//CLAMP2_32(pred, pred, -halfs[kc], halfs[kc]-1);//X
 
@@ -2976,9 +2976,15 @@ void pred_PU(Image *src, int fwd)
 
 				//pred=(252*pred+N+W+NW+NE)>>8;
 				//pred=((512-48)*pred+16*(N+W)+3*(NW+NE+NN+WW)+2*(NNW+NNE+NWW+NEE+NNWW+NNEE))>>9;
-
-				pred+=offset;
-				CLAMP2_32(pred, pred, -halfs[kc], halfs[kc]-1);
+				
+				if(kc0>0)
+				{
+					offset=rows[0][1];
+					//if(kc0>1)
+					//	offset=(2*offset+rows[0][2])>>1;
+					pred+=offset;
+					CLAMP2_32(pred, pred, -halfs[kc], halfs[kc]-1);
+				}
 				{
 					int curr=src->data[idx+kc];
 					pred^=fwdmask;
@@ -3018,6 +3024,65 @@ void pred_PU(Image *src, int fwd)
 					int *ptr=src->data+idx, temp;
 					ROTATE3(ptr[0], ptr[1], ptr[2], temp);
 				}
+			}
+#endif
+#endif
+#if 0
+			int
+				*NNWW	=rows[2]-2*8,
+				*NNW	=rows[2]-1*8,
+				*NN	=rows[2]+0*8,
+				*NNE	=rows[2]+1*8,
+				*NNEE	=rows[2]+2*8,
+				*NWW	=rows[1]-2*8,
+				*NW	=rows[1]-1*8,
+				*N	=rows[1]+0*8,
+				*NE	=rows[1]+1*8,
+				*NEE	=rows[1]+2*8,
+				*WW	=rows[0]-2*8,
+				*W	=rows[0]-1*8;
+			for(int kc=0;kc<src->nch;++kc)
+			{
+				int
+					vx=abs(W[kc+4]-WW[kc+4])+abs(N[kc+4]-NW[kc+4])+abs(NE[kc+4]-N[kc+4])+1,
+					vy=abs(W[kc+4]-NW[kc+4])+abs(N[kc+4]-NN[kc+4])+abs(NE[kc+4]-NNE[kc+4])+1;
+				MEDIAN3_32(preds[kc], N[kc], W[kc], N[kc]+W[kc]-NW[kc]);
+				preds[kc]+=(vx<vy?N[kc+4]:W[kc+4])/4;
+			}
+			if(src->nch>=3)
+			{
+				preds[1]-=preds[2]>>1;
+				preds[2]+=preds[1];
+				preds[1]-=preds[0]>>1;
+				preds[0]+=preds[1];
+				{
+					__m128i mpred=_mm_load_si128((__m128i*)preds);
+					mpred=_mm_max_epi32(mpred, vmin);
+					mpred=_mm_min_epi32(mpred, vmax);
+					_mm_store_si128((__m128i*)preds, mpred);
+				}
+			}
+			for(int kc=0;kc<src->nch;++kc)
+			{
+				int curr=src->data[idx+kc], pred=preds[kc];
+				pred^=fwdmask;
+				pred-=fwdmask;
+				pred+=curr;
+				
+				pred<<=32-src->depth[kc];
+				pred>>=32-src->depth[kc];
+
+				src->data[idx+kc]=pred;
+				rows[0][kc  ]=(fwd?curr:pred);
+				rows[0][kc+4]=(fwd?pred:curr);
+			}
+			if(src->nch>=3)
+			{
+				int *curr=rows[0];
+				curr[0]-=curr[1];
+				curr[1]+=curr[0]>>1;
+				curr[2]-=curr[1];
+				curr[1]+=curr[2]>>1;
 			}
 #endif
 			rows[0]+=8;
@@ -7861,7 +7926,7 @@ static void pred_jxl_prealloc(const int *src, int iw, int ih, int depth, int kc,
 				//	printf("");
 
 				//pred=CLAMP(vmin, pred, vmax);
-				CLAMP3_32(pred, pred, ctop<<8, cleft<<8, ctopleft<<8);
+				CLAMP3_32(pred, pred, ctop<<8, cleft<<8, ctopright<<8);
 				{
 					int pred_final=(pred+127)>>8;
 					pred_final^=-fwd;
@@ -11865,7 +11930,11 @@ void calc_csize_ec(Image const *src, EContext method, int adaptive, int expbits,
 		int nch=(src->src_depth[0]!=0)+(src->src_depth[1]!=0)+(src->src_depth[2]!=0)+(src->src_depth[3]!=0);
 		double chubitsize=image_getBMPsize(src)*8/nch;
 		for(int kc=0;kc<4;++kc)
+		{
 			entropy[kc]=(bitsizes[kc]+bypasssizes[kc])*src->src_depth[kc]/chubitsize;
+			bitsizes[kc]/=8;
+			bypasssizes[kc]/=8;
+		}
 	}
 	free(hist);
 	free(hsum);
