@@ -234,6 +234,13 @@ static void batch_test_mt(const char *path, int nthreads)
 		"tif", "tiff",
 	};
 
+	switch(CODECID)
+	{
+	case 23:
+	case 24:
+		nthreads=1;
+		break;
+	}
 	g_total_usize=0;
 	g_total_csize=0;
 	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H%M%S");

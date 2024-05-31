@@ -261,11 +261,11 @@ static void block_enc(void *param)
 		{
 			int
 				*NN	=rows[2]+0*6*NCHPOOL,
-				*NNE	=rows[2]+1*6*NCHPOOL,
+			//	*NNE	=rows[2]+1*6*NCHPOOL,
 				*NW	=rows[1]-1*6*NCHPOOL,
 				*N	=rows[1]+0*6*NCHPOOL,
 				*NE	=rows[1]+1*6*NCHPOOL,
-				*WW	=rows[0]-2*6*NCHPOOL,
+			//	*WW	=rows[0]-2*6*NCHPOOL,
 				*W	=rows[0]-1*6*NCHPOOL,
 				*curr	=rows[0]+0*6*NCHPOOL;
 
@@ -334,10 +334,10 @@ static void block_enc(void *param)
 			{
 				int kc2=kc*6;
 				int wpred, wp_preds[4], cgrad, offset=0, val;
-				int
-					vx=abs(W[kc2+1]-WW[kc2+1])+abs(N[kc2+1]-NW[kc2+1])+abs(NE[kc2+1]-N[kc2+1])+1,
-					vy=abs(W[kc2+1]-NW[kc2+1])+abs(N[kc2+1]-NN[kc2+1])+abs(NE[kc2+1]-NNE[kc2+1])+1;
-				int update=(vx<vy?N[kc2+1]:W[kc2+1])/4;
+				//int
+				//	vx=abs(W[kc2+1]-WW[kc2+1])+abs(N[kc2+1]-NW[kc2+1])+abs(NE[kc2+1]-N[kc2+1])+1,
+				//	vy=abs(W[kc2+1]-NW[kc2+1])+abs(N[kc2+1]-NN[kc2+1])+abs(NE[kc2+1]-NNE[kc2+1])+1;
+				//int update=(vx<vy?N[kc2+1]:W[kc2+1])/4;
 				
 				wpred=wp_predict(ch_params[kc], NN[kc2], NW[kc2], N[kc2], NE[kc2], W[kc2], NW+kc2+1, N+kc2+1, NE+kc2+1, W+kc2+1, wp_preds);
 				MEDIAN3_32(cgrad, N[kc2], W[kc2], N[kc2]+W[kc2]-NW[kc2]);
@@ -407,7 +407,7 @@ static void block_enc(void *param)
 		csizes[group[0]*PRED_COUNT+predsel[group[0]]]+
 		csizes[group[1]*PRED_COUNT+predsel[group[1]]]+
 		csizes[group[2]*PRED_COUNT+predsel[group[2]]];
-	for(int k=1;k<(int)_countof(combinations)/3;++k)
+	for(int k=1;k<RCT_COUNT;++k)
 	{
 		group=combinations+k*3;
 		double csize=
@@ -499,7 +499,7 @@ static void block_enc(void *param)
 			for(int k2=0;k2<PRED_COUNT;++k2)
 				printf("  %11s", prednames[k2]);
 			printf("\n");
-			for(int k=0;k<_countof(csizes)/PRED_COUNT;++k)
+			for(int k=0;k<NCHPOOL;++k)
 			{
 				int best=0;
 				for(int k2=1;k2<PRED_COUNT;++k2)
@@ -539,12 +539,14 @@ static void block_enc(void *param)
 		{
 			int
 				*NN	=rows[2]+0*7*4,
-				*NNE	=rows[2]+1*7*4,
+			//	*NNE	=rows[2]+1*7*4,
 				*NW	=rows[1]-1*7*4,
 				*N	=rows[1]+0*7*4,
 				*NE	=rows[1]+1*7*4,
+#ifndef USE_AC
 				*NEEE	=rows[1]+3*7*4,
-				*WW	=rows[0]-2*7*4,
+#endif
+			//	*WW	=rows[0]-2*7*4,
 				*W	=rows[0]-1*7*4,
 				*curr	=rows[0]+0*7*4;
 
@@ -779,12 +781,14 @@ static void block_dec(void *param)
 		{
 			int
 				*NN	=rows[2]+0*7*4,
-				*NNE	=rows[2]+1*7*4,
+			//	*NNE	=rows[2]+1*7*4,
 				*NW	=rows[1]-1*7*4,
 				*N	=rows[1]+0*7*4,
 				*NE	=rows[1]+1*7*4,
+#ifndef USE_AC
 				*NEEE	=rows[1]+3*7*4,
-				*WW	=rows[0]-2*7*4,
+#endif
+			//	*WW	=rows[0]-2*7*4,
 				*W	=rows[0]-1*7*4,
 				*curr	=rows[0]+0*7*4;
 
@@ -797,7 +801,7 @@ static void block_dec(void *param)
 
 			for(int kc=0;kc<3;++kc)
 			{
-				int kc2=kc*7, pred, offset=0, ch=combination[kc], val, sym;
+				int kc2=kc*7, pred=0, offset=0, ch=combination[kc], val, sym;
 				switch(predidx[kc])//WP
 				{
 				//case PRED_N:
