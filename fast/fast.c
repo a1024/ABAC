@@ -354,13 +354,14 @@ int main(int argc, char **argv)
 	//	"D:/ML/big_building.LSIM.PPM"
 		;
 	const char *fn=
-		"D:/ML/dataset-kodak-ppm/kodim13.ppm"
+	//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
 	//	"D:/ML/dataset-kodak/kodim13.png"
 	//	"D:/ML/big_building.PPM"
 	//	"D:/ML/big_building.LSIM"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_03.ppm"
-	//	"C:/dataset-LPCB-ppm/PIA13943.ppm"	//mostly blank
+		"C:/dataset-LPCB-ppm/PIA13757.ppm"	//MER-3D
 	//	"C:/dataset-LPCB-ppm/PIA13785.ppm"
+	//	"C:/dataset-LPCB-ppm/PIA13943.ppm"	//mostly blank
 	//	"C:/dataset-LPCB-ppm/STA13456.ppm"	//uncorrelated channels
 	//	"C:/dataset-LPCB-ppm/PIA13799.ppm"
 	//	"D:/ML/dataset-RAW/a0001-jmac_DSC1459.dng"

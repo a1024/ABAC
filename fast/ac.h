@@ -620,26 +620,26 @@ INLINE int ac_dec(ArithmeticCoder *ec, const unsigned *CDF, int nlevels)//prefer
 	int sym=0;
 	
 	int range=nlevels;
-#ifdef UNIFORM_DIST
-	sym=0;
-#else
-	for(range=1;;)//exponential search
-	{
-		if(range>nlevels)
-		{
-			sym=range>>1;
-			range=nlevels;
-			break;
-		}
-		if(cdf<CDF[range])
-		{
-			range>>=1;
-			sym=range;
-			break;
-		}
-		range<<=1;
-	}
-#endif
+//#ifdef UNIFORM_DIST
+//	sym=0;
+//#else
+//	for(range=1;;)//exponential search
+//	{
+//		if(range>nlevels)
+//		{
+//			sym=range>>1;
+//			range=nlevels;
+//			break;
+//		}
+//		if(cdf<CDF[range])
+//		{
+//			range>>=1;
+//			sym=range;
+//			break;
+//		}
+//		range<<=1;
+//	}
+//#endif
 	while(range)//binary search		lg(nlevels) memory accesses per symbol
 	{
 		int floorhalf=range>>1;
@@ -1048,7 +1048,49 @@ INLINE void ac_dec_packedCDF_8x3(ArithmeticCoder *ec, const unsigned short *CDF0
 	acval_dec(ret_sym[2], cdf[2], freq[2], lo0[2], lo0[2]+r0[2], ec[2].low, ec[2].low+ec[2].range, 0, 0, ec[2].code);
 }
 
-INLINE void ac_enc_bypass(ArithmeticCoder *ec, int sym, int nlevels)//CDF is 16 bit
+INLINE void ac_enc_bypass(ArithmeticCoder *ec, int sym, int nbits)//CDF is 16 bit
+{
+	unsigned cdf=sym<<PROB_BITS>>nbits;
+	int freq=1<<PROB_BITS>>nbits;
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if(freq<=0)
+		LOG_ERROR2("ZPS");
+#endif
+	ec->low+=ec->range*cdf>>PROB_BITS;
+	ec->range*=freq;
+	ec->range>>=PROB_BITS;
+	--ec->range;//must decrement hi because decoder fails when code == hi2
+	if(ec->range<(1LL<<PROB_BITS))
+		ac_enc_renorm(ec);
+	acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
+}
+INLINE int ac_dec_bypass(ArithmeticCoder *ec, int nbits)
+{
+	unsigned cdf;
+	int freq;
+	int sym;
+	
+	cdf=(int)(((ec->code-ec->low)<<PROB_BITS|0xFFFF)/ec->range);
+	sym=cdf<<nbits>>PROB_BITS;
+	cdf=sym<<PROB_BITS>>nbits;
+	freq=1<<PROB_BITS>>nbits;
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if(freq<=0)
+		LOG_ERROR2("ZPS");
+#endif
+	ec->low+=ec->range*cdf>>PROB_BITS;
+	ec->range*=freq;
+	ec->range>>=PROB_BITS;
+	--ec->range;//must decrement hi because decoder fails when code == hi2
+	while(ec->range<(1LL<<PROB_BITS))
+		ac_dec_renorm(ec);
+	acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
+	return sym;
+}
+
+INLINE void ac_enc_bypass_NPOT(ArithmeticCoder *ec, int sym, int nlevels)//CDF is 16 bit
 {
 	unsigned cdf=(sym<<PROB_BITS)/nlevels;
 	int freq=((sym+1)<<PROB_BITS)/nlevels-cdf;
@@ -1066,7 +1108,7 @@ INLINE void ac_enc_bypass(ArithmeticCoder *ec, int sym, int nlevels)//CDF is 16 
 	acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);//
 	//acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->cidx);//
 }
-INLINE int ac_dec_bypass(ArithmeticCoder *ec, int nlevels)
+INLINE int ac_dec_bypass_NPOT(ArithmeticCoder *ec, int nlevels)
 {
 	unsigned cdf;
 	int freq;
