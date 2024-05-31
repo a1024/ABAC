@@ -366,19 +366,20 @@ int main(int argc, char **argv)
 	//	"D:/ML/big_building.PPM"
 	//	"D:/ML/big_building.LSIM"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_03.ppm"
-		"C:/dataset-LPCB-ppm/PIA13757.ppm"	//MER-3D
+	//	"C:/dataset-LPCB-ppm/PIA13757.ppm"	//MER-3D
 	//	"C:/dataset-LPCB-ppm/PIA13785.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13943.ppm"	//mostly blank
 	//	"C:/dataset-LPCB-ppm/STA13456.ppm"	//uncorrelated channels
 	//	"C:/dataset-LPCB-ppm/PIA13799.ppm"
 	//	"D:/ML/dataset-RAW/a0001-jmac_DSC1459.dng"
 
-	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
+		"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim24.ppm"	//borderless
 	//	"C:/Projects/datasets/dataset-kodak-pgm/kodim13.pgm"
 	//	"C:/Projects/datasets/dataset-kodak/kodim13.png"
 	//	"C:/Projects/datasets/kodim13-small4.PNG"
 	//	"C:/Projects/datasets/big_building.PPM"
+	//	"C:/Projects/datasets/dataset-CID22-ppm/3637739.PPM"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA12811.ppm"
 	//	"C:/Projects/datasets/dataset-ic-rgb16bit/flower_foveon.png"	//smallest 16-bit image
