@@ -79,7 +79,7 @@ void pred_palette(Image *src, int fwd)
 				int idx=src->data[k<<2|kc];
 				idx+=nvals>>1;
 				idx%=nvals;
-				src->data[k<<2|kc]=vals[idx]+half;
+				src->data[k<<2|kc]=vals[idx]-half;
 			}
 		}
 	}
