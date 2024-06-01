@@ -18,7 +18,8 @@ static const Image *guide=0;
 #endif
 
 	#define USE_PALETTE
-	#define USE_AC
+//	#define USE_AC
+//	#define USE_GRABAC	//bad
 //	#define CTX_MIN_NW	//bad
 //	#define ENABLE_ZERO	//bad	incompatible with quantized entropy coder
 	#define ENABLE_WG	//good
@@ -28,6 +29,16 @@ static const Image *guide=0;
 #define NCHPOOL 15
 #if defined ENABLE_GUIDE && defined USE_PALETTE
 static Image g_palimage={0};
+#endif
+#ifdef USE_GRABAC
+#define LR_SHIFT_TOKEN 1
+#define LR_SHIFT_BYPASS 16
+#define UPDATE_P0(P0, BIT, SH)\
+	do\
+	{\
+		int update=(BIT<<16)-P0;\
+		P0+=(update+(1<<SH>>1))>>SH;\
+	}while(0)
 #endif
 typedef enum RCTTypeEnum
 {
@@ -76,6 +87,8 @@ typedef struct _ThreadArgs
 #ifdef USE_AC
 	int tlevels, clevels, statssize;
 	unsigned *stats;
+#elif defined USE_GRABAC
+	unsigned short p0[16*4], p0_bypass[4];
 #endif
 #ifdef PROFILE_CSIZE
 	ptrdiff_t bypasssizes[4];
@@ -305,6 +318,8 @@ static void block_enc(void *param)
 #endif
 	int cdfstride=args->tlevels+1;
 	int token=0, bypass=0, nbits=0;
+#elif defined USE_GRABAC
+	ArithmeticCoder ec;
 #else
 	GolombRiceCoder ec;
 #endif
@@ -687,6 +702,12 @@ static void block_enc(void *param)
 #ifdef USE_AC
 	ac_enc_init(&ec, &args->list);
 	init_stats(args->hist, args->stats, args->tlevels, args->clevels, image->nch);
+#elif defined USE_GRABAC
+	ac_enc_init(&ec, &args->list);
+	for(int k=0;k<_countof(args->p0);++k)
+		args->p0[k]=0x8000;
+	for(int k=0;k<_countof(args->p0_bypass);++k)
+		args->p0_bypass[k]=0x8000;
 #else
 	gr_enc_init(&ec, &args->list);
 #endif
@@ -935,7 +956,44 @@ static void block_enc(void *param)
 #ifdef PROFILE_CSIZE
 				args->bypasssizes[kc]+=nbits;
 #endif
+				//if(ky<4)
+				//{
+				//	int nzeros=sym>>nbits, bypass=sym&((1<<nbits)-1);
+				//	for(int k=0;k<nzeros;++k)
+				//		printf("0");
+				//	printf("1\t");
+				//	for(int k=nbits-1;k>=0;--k)
+				//		printf("%d", bypass>>k&1);
+				//	printf("\n");
+				//}
+#ifdef USE_GRABAC
+				int nzeros=sym>>nbits, bypass=sym&((1<<nbits)-1);
+				unsigned short
+					*p0_nzeros	=args->p0+((size_t)kc<<4),
+					*p0_end		=args->p0+((kc+1LL)<<4)-1,
+					*p0_bypass	=args->p0_bypass+kc;
+				//if(ky==args->y2-1&&!kx)//
+				//	printf("");
+				for(int k=0;k<nzeros+1;++k)
+				{
+					int p0=*p0_nzeros;
+					int bit=k>=nzeros;
+					ac_enc_bin(&ec, p0, bit);
+					UPDATE_P0(p0, bit, LR_SHIFT_TOKEN);
+					CLAMP2_32(*p0_nzeros, p0, 1, 0xFFFF);
+					p0_nzeros+=p0_nzeros<p0_end;
+				}
+				for(int k=nbits-1;k>=0;--k)
+				{
+					int p0=*p0_bypass;
+					int bit=bypass>>k&1;
+					ac_enc_bin(&ec, p0, bit);
+					UPDATE_P0(p0, bit, LR_SHIFT_BYPASS);
+					CLAMP2_32(*p0_bypass, p0, 1, 0xFFFF);
+				}
+#else
 				gr_enc_POT(&ec, sym, nbits);
+#endif
 				curr[kc2+1]=(2*W[kc2+1]+sym+NEEE[kc2+1])/4;			//1211852242
 				//curr[kc2+1]=(W[kc2+1]+sym+NEE[kc2+1]+NEEE[kc2+1])/4;		//1212314674
 				//curr[kc2+1]=(W[kc2+1]+sym+NEEE[kc2+1])/3;			//1213062186
@@ -956,7 +1014,7 @@ static void block_enc(void *param)
 			rows[3]+=7*4;
 		}
 	}
-#ifdef USE_AC
+#if defined USE_AC || defined USE_GRABAC
 	ac_enc_flush(&ec);
 #else
 	gr_enc_flush(&ec);
@@ -977,6 +1035,8 @@ static void block_dec(void *param)
 #endif
 	int cdfstride=args->tlevels+1;
 	int token=0, bypass=0, nbits=0;
+#elif defined USE_GRABAC
+	ArithmeticCoder ec;
 #else
 	GolombRiceCoder ec;
 #endif
@@ -1010,6 +1070,12 @@ static void block_dec(void *param)
 #ifdef USE_AC
 	ac_dec_init(&ec, srcstart, srcend);
 	init_stats(args->hist, args->stats, args->tlevels, args->clevels, image->nch);
+#elif defined USE_GRABAC
+	ac_dec_init(&ec, srcstart, srcend);
+	for(int k=0;k<_countof(args->p0);++k)
+		args->p0[k]=0x8000;
+	for(int k=0;k<_countof(args->p0_bypass);++k)
+		args->p0_bypass[k]=0x8000;
 #else
 	gr_dec_init(&ec, srcstart, srcend);
 #endif
@@ -1175,6 +1241,34 @@ static void block_dec(void *param)
 					sym<<=CONFIG_LSB;
 					sym|=lsb;
 				}
+#elif defined USE_GRABAC
+				int nbits=FLOOR_LOG2(W[kc2+1]+1), nzeros=0, bypass=0;
+				unsigned short
+					*p0_nzeros	=args->p0+((size_t)kc<<4),
+					*p0_end		=args->p0+((kc+1LL)<<4)-1,
+					*p0_bypass	=args->p0_bypass+kc;
+				for(;;)
+				{
+					int p0=*p0_nzeros;
+					int bit=ac_dec_bin(&ec, p0);
+					UPDATE_P0(p0, bit, LR_SHIFT_TOKEN);
+					//p0+=((bit<<16)-p0)>>LR_SHIFT_TOKEN;
+					CLAMP2_32(*p0_nzeros, p0, 1, 0xFFFF);
+					if(bit)
+						break;
+					++nzeros;
+					p0_nzeros+=p0_nzeros<p0_end;
+				}
+				for(int k=nbits-1;k>=0;--k)
+				{
+					int p0=*p0_bypass;
+					int bit=ac_dec_bin(&ec, p0);
+					bypass|=bit<<k;
+					UPDATE_P0(p0, bit, LR_SHIFT_BYPASS);
+					//p0+=((bit<<16)-p0)>>LR_SHIFT_BYPASS;
+					CLAMP2_32(*p0_bypass, p0, 1, 0xFFFF);
+				}
+				sym=nzeros<<nbits|bypass;
 #else
 				sym=gr_dec_POT(&ec, FLOOR_LOG2(W[kc2+1]+1));
 #endif
@@ -1552,6 +1646,28 @@ int f24_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			printf("E %16.6lf sec  %16.6lf MB/s  Mem usage: ", t0, usize/(t0*1024*1024));
 			print_size((double)memusage, 8, 4, 0, 0);
 			printf("\n");
+#if 0
+			unsigned char *ptr=data[0]->data+start_dst;
+			int n=MINVAR((int)data[0]->count, 4000);
+			printf("First %d bytes:\n", n);
+			for(int k=0;k<n;++k)
+				printf("%02X", ptr[k]);
+			printf("\n");
+#endif
+#if 0
+			int bins[16]={0};
+			for(int k=0;k<(int)data[0]->count;++k)
+				++bins[ptr[k]&15];
+			printf("Histogram of low 4 bytes:\n");
+			for(int k=0;k<16;++k)
+			{
+				int nstars=bins[k]*240/(int)data[0]->count;
+				printf("%2d %8d ", k, bins[k]);
+				for(int k2=0;k2<nstars;++k2)
+					printf("*");
+				printf("\n");
+			}
+#endif
 		}
 #ifdef USE_PALETTE
 		if(palused)
