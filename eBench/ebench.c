@@ -82,6 +82,7 @@ typedef enum TransformTypeEnum
 	ST_FILT_MEDIAN33,	ST_FILT_AV33,
 
 	ST_FWD_PACKSIGN,	ST_INV_PACKSIGN,
+	ST_FWD_PALETTE,		ST_INV_PALETTE,
 	ST_FWD_MTF,		ST_INV_MTF,
 	ST_FWD_T47,		ST_INV_T47,
 	ST_FWD_P3,		ST_INV_P3,
@@ -104,6 +105,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_PU,		ST_INV_PU,
 	ST_FWD_CG3D,		ST_INV_CG3D,
 	ST_FWD_WGRAD,		ST_INV_WGRAD,
+	ST_FWD_WGRAD2,		ST_INV_WGRAD2,
 	ST_FWD_CLAMPGRAD,	ST_INV_CLAMPGRAD,
 	ST_FWD_AV2,		ST_INV_AV2,
 //	ST_FWD_ECOEFF,		ST_INV_ECOEFF,
@@ -1449,6 +1451,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_PACKSIGN:		a=" S Inv PackSign";		break;
 	case ST_FWD_MTF:		a=" S Fwd MTF";			break;
 	case ST_INV_MTF:		a=" S Inv MTF";			break;
+	case ST_FWD_PALETTE:		a=" S Fwd Palette";		break;
+	case ST_INV_PALETTE:		a=" S Inv Palette";		break;
 	case ST_FILT_MEDIAN33:		a=" S Filt Median33";		break;
 	case ST_FILT_AV33:		a=" S Filt Av33";		break;
 	case ST_FWD_P3:			a=" S Fwd P3";			break;
@@ -1477,6 +1481,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_AV2:		a=" S Inv (N+W)>>1";		break;
 	case ST_FWD_WGRAD:		a="CS Fwd WGrad";		break;
 	case ST_INV_WGRAD:		a="CS Inv WGrad";		break;
+	case ST_FWD_WGRAD2:		a="CS Fwd WGrad2";		break;
+	case ST_INV_WGRAD2:		a="CS Inv WGrad2";		break;
 //	case ST_FWD_ECOEFF:		a=" S Fwd E-Coeff";		break;
 //	case ST_INV_ECOEFF:		a=" S Inv E-Coeff";		break;
 //	case ST_FWD_AVERAGE:		a=" S Fwd Average";		break;
@@ -2539,6 +2545,8 @@ void apply_selected_transforms(Image *image, int rct_only)
 		case ST_INV_PACKSIGN:		packsign(image, 0);					break;
 		case ST_FWD_MTF:		pred_MTF(image, 1);					break;
 		case ST_INV_MTF:		pred_MTF(image, 0);					break;
+		case ST_FWD_PALETTE:		pred_palette(image, 1);					break;
+		case ST_INV_PALETTE:		pred_palette(image, 0);					break;
 		case ST_FILT_MEDIAN33:		filt_median33(image);					break;
 		case ST_FILT_AV33:		filt_av33(image);					break;
 		case ST_FWD_PU:			pred_PU(image, 1);					break;
@@ -2551,6 +2559,8 @@ void apply_selected_transforms(Image *image, int rct_only)
 		case ST_INV_AV2:		pred_av2(image, 0);					break;
 		case ST_FWD_WGRAD:		pred_wgrad(image, 1);					break;
 		case ST_INV_WGRAD:		pred_wgrad(image, 0);					break;
+		case ST_FWD_WGRAD2:		pred_wgrad2(image, 1);					break;
+		case ST_INV_WGRAD2:		pred_wgrad2(image, 0);					break;
 	//	case ST_FWD_ECOEFF:		pred_ecoeff(image, 1, pred_ma_enabled);			break;
 	//	case ST_INV_ECOEFF:		pred_ecoeff(image, 0, pred_ma_enabled);			break;
 	//	case ST_FWD_AVERAGE:		pred_average(image, 1, pred_ma_enabled);		break;
@@ -5336,7 +5346,7 @@ int io_keydn(IOKey key, char c)
 					);
 					if(idx>=0)
 					{
-						int kx=idx%im0->iw, ky=idx/im0->iw;
+						int kx=(int)(idx%im0->iw), ky=(int)(idx/im0->iw);
 						printed+=snprintf(g_buf+printed, G_BUF_SIZE-printed-1,
 							"\nError vs Original at XY %d %d:\n"
 							"C0\t0x%08X\t0x%08X\n"

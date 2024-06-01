@@ -3477,6 +3477,246 @@ void pred_wgrad(Image *src, int fwd)
 	free(pixels);
 	//set_window_title("sh=%d", sh);
 }
+void pred_wgrad2(Image *src, int fwd)
+{
+	int nch;
+	int nlevels[]=
+	{
+		1<<src->depth[0],
+		1<<src->depth[1],
+		1<<src->depth[2],
+		1<<src->depth[3],
+	};
+	int halfs[]=
+	{
+		nlevels[0]>>1,
+		nlevels[1]>>1,
+		nlevels[2]>>1,
+		nlevels[3]>>1,
+	};
+	int perm[]={1, 2, 0, 3};
+	int fwdmask=-fwd;
+
+	int *pixels;
+	int maxdepth, histsize, *hist;
+
+	pixels=(int*)malloc((src->iw+16LL)*sizeof(int[4*4]));//4 padded rows * 4 channels max
+	maxdepth=MAXVAR(src->depth[0], src->depth[1]);
+	UPDATE_MAX(maxdepth, src->depth[2]);
+	UPDATE_MAX(maxdepth, src->depth[3]);
+	histsize=sizeof(int[4])<<maxdepth;
+	hist=(int*)malloc(histsize);
+	if(!pixels||!hist)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(pixels, 0, (src->iw+16LL)*sizeof(int[4*4]));
+	memset(hist, 0, histsize);
+	nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
+	UPDATE_MAX(nch, src->nch);
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		int eW[16]={0};
+		int *rows[]=
+		{
+			pixels+(((src->iw+16LL)*((ky-0LL)&3)+8LL)<<2),
+			pixels+(((src->iw+16LL)*((ky-1LL)&3)+8LL)<<2),
+			pixels+(((src->iw+16LL)*((ky-2LL)&3)+8LL)<<2),
+			pixels+(((src->iw+16LL)*((ky-3LL)&3)+8LL)<<2),
+		};
+		for(int kx=0;kx<src->iw;++kx, idx+=4)
+		{
+#ifdef WGRAD_UPDATE_LUMA
+			if(!fwd)
+			{
+				int
+					cb	=src->data[idx+2],
+					cr	=src->data[idx+0];
+				int update=(cb+cr)>>2;
+				update=CLAMP(-halfs[1], update, halfs[1]-1);
+				{
+					int luma=src->data[idx+1]-update;//subtract update
+					luma<<=32-src->depth[1];
+					luma>>=32-src->depth[1];
+					src->data[idx+1]=luma;
+				}
+			}
+#endif
+			for(int kc0=0;kc0<src->nch;++kc0)
+			{
+				int kc=perm[kc0], pred;
+				int
+					NNNN	=rows[0][kc+0*4],
+					NNN	=rows[3][kc+0*4],
+					NNWW	=rows[2][kc-2*4],
+					NNW	=rows[2][kc-1*4],
+					NN	=rows[2][kc+0*4],
+					NNE	=rows[2][kc+1*4],
+					NNEE	=rows[2][kc+2*4],
+					NWW	=rows[1][kc-2*4],
+					NW	=rows[1][kc-1*4],
+					N	=rows[1][kc+0*4],
+					NE	=rows[1][kc+1*4],
+					NEE	=rows[1][kc+2*4],
+					NEEE	=rows[1][kc+3*4],
+					NEEEE	=rows[1][kc+4*4],
+					NEEEEE	=rows[1][kc+5*4],
+					WWWWW	=rows[0][kc-5*4],
+					WWWW	=rows[0][kc-4*4],
+					WWW	=rows[0][kc-3*4],
+					WW	=rows[0][kc-2*4],
+					W	=rows[0][kc-1*4],
+					offset	=0;
+				int *curr_hist=hist+((size_t)kc<<maxdepth);
+				//(void)NNNN;		//<- what insanity looks like
+				//(void)NNN;
+				//(void)NNWW;
+				//(void)NNW;
+				//(void)NN;
+				//(void)NNE;
+				//(void)NNEE;
+				//(void)NWW;
+				//(void)NW;
+				//(void)N;
+				//(void)NE;
+				//(void)NEE;
+				//(void)NEEE;
+				//(void)NEEEE;
+				//(void)NEEEEE;
+				//(void)WWW;
+				//(void)WW;
+				//(void)W;
+				if(kc0>0)
+				{
+					offset+=rows[0][1];
+					if(kc0>1)
+						offset=(2*offset+rows[0][2])>>1;
+				}
+				long long lpred, wsum;
+				int preds[]=
+				{
+					N+W-NW,
+					W+NE-N,
+					N+NE-NNE,
+					N,
+					W,
+					3*(N-NN)+NNN,
+					3*(W-WW)+WWW,
+					(W+NEEE)>>1,
+				};
+
+				lpred=0;
+				wsum=0;
+				for(int k=0;k<_countof(preds);++k)
+				{
+					int weight=0x1000000/(eW[k]+1);
+					lpred+=(long long)weight*preds[k];
+					wsum+=weight;
+				}
+				lpred/=wsum+1;
+				pred=(int)lpred;
+
+				{
+					int val=pred+halfs[kc];
+					int start=val, end=val;
+					//if(ky==10&&kx==10)
+					//	printf("");
+
+					for(int k=val;k>=0;--k)
+					{
+						if(curr_hist[k])
+						{
+							start=k;
+							break;
+						}
+					}
+					for(int k=val;k<nlevels[kc];++k)
+					{
+						if(curr_hist[k])
+						{
+							end=k;
+							break;
+						}
+					}
+					if(val-start<end-val)
+						pred=start-halfs[kc];
+					else if(val-start>end-val)
+						pred=end-halfs[kc];
+					
+					//const int windowsize=10;
+					//int val=pred+halfs[kc], start, end;
+					//start=MAXVAR(val-(windowsize>>1), 0);
+					//end=MINVAR(val+(windowsize>>1), nlevels[kc]-1);
+					//for(int k=start;k<end;++k)
+					//{
+					//	if(curr_hist[val]<curr_hist[k])
+					//		val=k;
+					//}
+					//pred=val-halfs[kc];
+				}
+
+				pred+=offset;
+				pred=CLAMP(-halfs[kc], pred, halfs[kc]-1);
+				{
+					int curr=src->data[idx+kc];
+					pred^=fwdmask;
+					pred-=fwdmask;
+					pred+=curr;
+
+					pred<<=32-src->depth[kc];
+					pred>>=32-src->depth[kc];
+
+					src->data[idx+kc]=pred;
+					rows[0][kc]=(fwd?curr:pred)-offset;
+				}
+				{
+					int curr=rows[0][kc];
+					for(int k=0;k<_countof(preds);++k)
+					{
+						int err=abs(curr-preds[k]);
+						eW[k]+=err;
+						eW[k]-=(eW[k]+3)>>2;
+						//eW[k]*=3;
+						//eW[k]>>=2;
+					}
+				}
+				{
+					int curr=rows[0][kc];
+					curr+=halfs[kc];
+					curr&=nlevels[kc]-1;
+					++curr_hist[curr];
+					if(curr_hist[curr]>6144)
+					{
+						for(int ks=0;ks<nlevels[kc];++ks)
+							curr_hist[ks]>>=1;
+					}
+				}
+			}
+#ifdef WGRAD_UPDATE_LUMA
+			if(fwd)
+			{
+				int
+					cb	=src->data[idx+2],
+					cr	=src->data[idx+0];
+				int update=(cb+cr)>>2;
+				update=CLAMP(-halfs[1], update, halfs[1]-1);
+				{
+					int luma=src->data[idx+1]+update;//add update
+					luma<<=32-src->depth[1];
+					luma>>=32-src->depth[1];
+					src->data[idx+1]=luma;
+				}
+			}
+#endif
+			rows[0]+=4;
+			rows[1]+=4;
+			rows[2]+=4;
+			rows[3]+=4;
+		}
+	}
+	free(pixels);
+}
 
 
 //	#define WPU_TRACE
