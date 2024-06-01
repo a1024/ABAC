@@ -17,13 +17,18 @@ static const char file[]=__FILE__;
 static const Image *guide=0;
 #endif
 
-	#define USE_AC 2
+	#define USE_PALETTE
+	#define USE_AC
 //	#define CTX_MIN_NW	//bad
-	#define ENABLE_WG
-//	#define ENABLE_ZERO	//incompatible with quantized entropy coder
+//	#define ENABLE_ZERO	//bad	incompatible with quantized entropy coder
+	#define ENABLE_WG	//good
+	#define FOLD_OOB	//good
 
 #define BLOCKSIZE 256
 #define NCHPOOL 15
+#if defined ENABLE_GUIDE && defined USE_PALETTE
+static Image g_palimage={0};
+#endif
 typedef enum RCTTypeEnum
 {
 	RCT_NONE,
@@ -89,7 +94,7 @@ static const int combinations[RCT_COUNT*3]=
 };
 static const int wp_param_idx[NCHPOOL]=
 {
-	2, 0, 1,	//RCT_NONE
+	0, 1, 2,	//RCT_NONE
 	2, 1,		//RCT_SubG
 	0, 1, 2,	//RCT_J2KG
 	0, 2,		//RCT_J2KB
@@ -231,6 +236,7 @@ static int wp_predict(const short *params, int NN, int NW, int N, int NE, int W,
 		lpred+=(long long)weight*preds[k];
 		wsum+=weight;
 	}
+	lpred+=(wsum>>1)-1;
 	lpred/=wsum+1;
 	if(!wsum)
 		lpred=preds[0];
@@ -354,6 +360,7 @@ static void block_enc(void *param)
 			//          NN  NNE
 			//       NW N   NE  .  NEEE
 			//WWW WW W  ?
+#ifdef FOLD_OOB
 			if(ky<=args->y1+2)
 			{
 				if(ky<=args->y1+1)
@@ -384,6 +391,7 @@ static void block_enc(void *param)
 				}
 				NEEE=NE;
 			}
+#endif
 
 			//0	r-P(rprev)		NONE		r; g; b;
 			//1	g-P(gprev)
@@ -406,9 +414,11 @@ static void block_enc(void *param)
 			//
 			//11	y4-P(y4prev)		RCT1		r-=g; g+=r>>1; b-=g; g+=b>>1;
 			//12	u4-P(u4prev)
+			// X	v4-P(v4prev)	v4 = v1
 			//
 			//13	y5-P(y5prev)		Pei09		b-=(87*r+169*g+128)>>8; r-=g; g+=(86*r+29*b+128)>>8;
 			//14	u5-P(u5prev)
+			// X	v5-P(v5prev)	v5 = v1
 
 			//NONE
 			comp_none[0]=image->data[idx+0];//r
@@ -514,14 +524,28 @@ static void block_enc(void *param)
 	for(int kc=0;kc<NCHPOOL*PRED_COUNT;++kc)
 	{
 		int *curr_hist=args->hist+((size_t)kc<<(image->depth+1));
+		//int nlevels2=1<<(image->depth+1);
 		int nlevels2=nlevels[kc/PRED_COUNT];
+		//for(int ks=nlevels2;ks<(1<<(image->depth+1));++ks)
+		//{
+		//	if(curr_hist[ks])
+		//		LOG_ERROR("");
+		//}
+		//int sum=0;
+		//for(int ks=0;ks<nlevels2;++ks)
+		//	sum+=curr_hist[ks];
+		//if(sum!=res)
+		//	LOG_ERROR("");
 		for(int ks=0;ks<nlevels2;++ks)
 		{
 			int freq=curr_hist[ks];
 			if(freq)
-				csizes[kc]-=freq*log2((double)freq/res);
+			{
+				double p=(double)freq/res;
+				csizes[kc]-=p*log2(p);
+			}
 		}
-		csizes[kc]/=8;
+		csizes[kc]*=(double)res/8;
 	}
 	int bestrct=0;
 	double bestsize;
@@ -543,6 +567,7 @@ static void block_enc(void *param)
 		csizes[group[0]*PRED_COUNT+predsel[group[0]]]+
 		csizes[group[1]*PRED_COUNT+predsel[group[1]]]+
 		csizes[group[2]*PRED_COUNT+predsel[group[2]]];
+#if 1
 	for(int k=1;k<RCT_COUNT;++k)
 	{
 		group=combinations+k*3;
@@ -553,6 +578,7 @@ static void block_enc(void *param)
 		if(bestsize>csize)
 			bestsize=csize, bestrct=k;
 	}
+#endif
 	args->bestsize=bestsize;
 	int combination[]=
 	{
@@ -698,6 +724,7 @@ static void block_enc(void *param)
 			//          NN  NNE
 			//       NW N   NE  NEE  NEEE
 			//WWW WW W  ?
+#ifdef FOLD_OOB
 			if(ky<=args->y1+2)
 			{
 				if(ky<=args->y1+1)
@@ -732,6 +759,7 @@ static void block_enc(void *param)
 				}
 				NEEE=NEE;
 			}
+#endif
 
 			//if(ky==330&&kx==146)//
 			//if(ky==28&&kx==624)//
@@ -903,9 +931,16 @@ static void block_enc(void *param)
 				curr[kc2+1]=val;
 #endif
 #else
-				gr_enc_POT(&ec, sym, FLOOR_LOG2(W[kc2+1]+1));
-				curr[kc2+1]=(W[kc2+1]+sym+NEE[kc2+1]+NEEE[kc2+1])/4;
-				//curr[kc2+1]=(W[kc2+1]+sym+NEEE[kc2+1])/3;
+				int nbits=FLOOR_LOG2(W[kc2+1]+1);
+#ifdef PROFILE_CSIZE
+				args->bypasssizes[kc]+=nbits;
+#endif
+				gr_enc_POT(&ec, sym, nbits);
+				curr[kc2+1]=(2*W[kc2+1]+sym+NEEE[kc2+1])/4;			//1211852242
+				//curr[kc2+1]=(W[kc2+1]+sym+NEE[kc2+1]+NEEE[kc2+1])/4;		//1212314674
+				//curr[kc2+1]=(W[kc2+1]+sym+NEEE[kc2+1])/3;			//1213062186
+				//curr[kc2+1]=(3*W[kc2+1]+2*sym+N[kc2+1]+2*NEEE[kc2+1])/8;	//1215279290
+				//curr[kc2+1]=(W[kc2+1]+2*sym+NEEE[kc2+1])/4;			//1227447530
 #endif
 				curr[kc2+0]=yuv[kc]-offset;
 				if(predidx[kc]==PRED_WP)
@@ -1012,6 +1047,7 @@ static void block_dec(void *param)
 			//          NN  NNE
 			//       NW N   NE  NEE  NEEE
 			//WWW WW W  ?
+#ifdef FOLD_OOB
 			if(ky<=args->y1+2)
 			{
 				if(ky<=args->y1+1)
@@ -1046,6 +1082,7 @@ static void block_dec(void *param)
 				}
 				NEEE=NEE;
 			}
+#endif
 
 			//if(ky==330&&kx==146)//
 			//if(ky==28&&kx==624)//
@@ -1176,8 +1213,11 @@ static void block_dec(void *param)
 				curr[kc2+1]=val;
 #endif
 #else
-				curr[kc2+1]=(W[kc2+1]+sym+NEE[kc2+1]+NEEE[kc2+1])/4;
+				curr[kc2+1]=(2*W[kc2+1]+sym+NEEE[kc2+1])/4;
+				//curr[kc2+1]=(W[kc2+1]+sym+NEE[kc2+1]+NEEE[kc2+1])/4;
 				//curr[kc2+1]=(W[kc2+1]+sym+NEEE[kc2+1])/3;
+				//curr[kc2+1]=(3*W[kc2+1]+2*sym+N[kc2+1]+2*NEEE[kc2+1])/8;
+				//curr[kc2+1]=(W[kc2+1]+2*sym+NEEE[kc2+1])/4;
 #endif
 				val+=pred;
 				yuv[kc]=val;
@@ -1365,11 +1405,67 @@ int f24_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	}
 	if(fwd)
 	{
+#ifdef USE_PALETTE
+		int palused;
+		Image palimage={0};
+		int palnvals[4]={0};
+		unsigned short *pal;
+#endif
 		double bestsize=0;
 #ifdef PROFILE_CSIZE
 		double bypasstotal=0;
 #endif
-		ptrdiff_t dststart=array_append(data, 0, 1, sizeof(int)*nblocks, 1, 0, 0);
+		ptrdiff_t start_dst, start_blocksizes;
+#ifdef USE_PALETTE
+		pal=apply_palette_fwd(image, &palimage, palnvals);
+		palused=pal!=0&&palimage.data!=0;
+		if(palused)
+		{
+			image=&palimage;
+			for(int k=0;k<nthreads;++k)
+				args[k].src=&palimage;
+#ifdef ENABLE_GUIDE
+			image_copy(&g_palimage, &palimage);
+			guide=&g_palimage;
+#endif
+		}
+
+		start_dst=-1;
+		for(int kc=0;kc<image->nch;++kc)//data starts with NCH palette sizes
+		{
+			ptrdiff_t start=array_append(data, palnvals+kc, 1, 1LL<<(image->depth>8), 1, 0, 0);
+			if(start_dst==-1)
+				start_dst=start;
+		}
+		if(palused)
+		{
+			unsigned short *palptr=pal;
+			for(int kc=0;kc<image->nch;++kc)//palette can be delta coded
+			{
+				int count=palnvals[kc];
+				if(src->depth>8)
+				{
+					ptrdiff_t idx=array_append(data, 0, 1, (ptrdiff_t)count<<1, 1, 0, 0);
+					unsigned short *dstptr=(unsigned short*)(data[0]->data+idx);
+					for(int k=0;k<count;++k)
+						memcpy(dstptr+k*sizeof(short), palptr+k, sizeof(short));
+				}
+				else
+				{
+					ptrdiff_t idx=array_append(data, 0, 1, count, 1, 0, 0);
+					unsigned char *dstptr=data[0]->data+idx;
+					for(int k=0;k<count;++k)
+						dstptr[k]=(unsigned char)palptr[k];
+				}
+				palptr+=1LL<<image->depth;
+			}
+		}
+
+		start_blocksizes=data[0]->count;
+		array_append(data, 0, 1, sizeof(int)*nblocks, 1, 0, 0);
+#else
+		start_blocksizes=start_dst=array_append(data, 0, 1, sizeof(int)*nblocks, 1, 0, 0);
+#endif
 		for(int kt=0;kt<nblocks;kt+=nthreads)
 		{
 			int nthreads2=MINVAR(kt+nthreads, nblocks)-kt;
@@ -1391,14 +1487,15 @@ int f24_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				if(loud)
 				{
 					if(!(kt+kt2))
-						printf("block,  usize,     best  ->  actual,  (actual-best)\n");
+						printf("block,  nrows,  usize,     best  ->  actual,  (actual-best)\n");
 					printf(
-						"[%3d]  %8d  %11.2lf -> %8zd bytes  (%+11.2lf)"
+						"[%3d]  %4d  %8d  %11.2lf -> %8zd bytes  (%+11.2lf)"
 #ifdef PROFILE_CSIZE
 						"  bypass %7td+%7td+%7td=%8td (%8.4lf%%)"
 #endif
 						"\n",
 						kt+kt2,
+						args[kt2].y2-args[kt2].y1,
 						(image->iw*(args[kt2].y2-args[kt2].y1)*image->nch*image->depth+7)>>3,
 						args[kt2].bestsize,
 						args[kt2].list.nobj,
@@ -1416,7 +1513,7 @@ int f24_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					bypasstotal+=(args[kt2].bypasssizes[0]+args[kt2].bypasssizes[1]+args[kt2].bypasssizes[2])/8.;
 #endif
 				}
-				memcpy(data[0]->data+dststart+sizeof(int)*((ptrdiff_t)kt+kt2), &args[kt2].list.nobj, sizeof(int));
+				memcpy(data[0]->data+start_blocksizes+sizeof(int)*((ptrdiff_t)kt+kt2), &args[kt2].list.nobj, sizeof(int));
 				dlist_appendtoarray(&args[kt2].list, data);
 				dlist_clear(&args[kt2].list);
 			}
@@ -1424,10 +1521,24 @@ int f24_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		if(loud)
 		{
 			ptrdiff_t
-				csize=data[0]->count-dststart,
+				csize=data[0]->count-start_dst,
 				usize=((ptrdiff_t)image->iw*image->ih*image->nch*image->depth+7)>>3;
 			t0=time_sec()-t0;
-			printf("best: %11.2lf  actual: [[%9td]]/%9td bytes  (%+11.2lf)  %10lf%% %10lf\n",
+#ifdef USE_PALETTE
+			if(palused)
+			{
+				int palsize=palnvals[0]+palnvals[1]+palnvals[2]+palnvals[3];
+				printf("Palette  %d bytes\n", palsize<<(image->depth>8));
+				for(int kc=0;kc<4;++kc)
+				{
+					if(palnvals[kc])
+						printf("  C%d  %5d/%5d levels\n", kc, palnvals[kc], 1<<image->depth);
+				}
+			}
+#endif
+			printf(
+				"best:     %12.2lf\n"
+				"actual: [[%9td]]/%9td bytes  (%+11.2lf)  %10lf%% %10lf\n",
 				bestsize,
 				csize,
 				usize,
@@ -1442,12 +1553,63 @@ int f24_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			print_size((double)memusage, 8, 4, 0, 0);
 			printf("\n");
 		}
+#ifdef USE_PALETTE
+		if(palused)
+			image_clear(&palimage);
+#endif
 	}
 	else
 	{
-		const unsigned char *dstptr=cbuf+sizeof(int)*nblocks;
+		const unsigned char *dstptr;
 		int dec_offset=0;
+		
+#ifdef USE_PALETTE
+		//const unsigned char *debugptr=cbuf;
+		//ptrdiff_t debugsize=clen;
 
+		int palsize=0;
+		int palnvals[4]={0};
+		unsigned short *pal=0, *palptr;
+
+		for(int kc=0;kc<dst->nch;++kc)
+		{
+			int tagsize=1<<(dst->depth>8);
+			memcpy(palnvals+kc, cbuf, tagsize);
+			cbuf+=tagsize;
+			clen-=tagsize;
+			palsize+=palnvals[kc];
+		}
+		if(palsize)
+		{
+			pal=(unsigned short*)malloc(sizeof(short)*palsize);
+			if(!pal)
+			{
+				LOG_ERROR("Alloc error");
+				return 1;
+			}
+			palptr=pal;
+			for(int kc=0;kc<image->nch;++kc)//palette can be delta coded
+			{
+				int count=palnvals[kc];
+				if(dst->depth>8)
+				{
+					for(int k=0;k<count;++k)
+						memcpy(palptr+k, cbuf+k*sizeof(short), sizeof(short));
+					cbuf+=count*sizeof(short);
+					clen-=count*sizeof(short);
+				}
+				else
+				{
+					for(int k=0;k<count;++k)
+						palptr[k]=(unsigned char)cbuf[k];
+					cbuf+=count;
+					clen-=count;
+				}
+				palptr+=count;
+			}
+		}
+#endif
+		dstptr=cbuf+sizeof(int)*nblocks;
 		//integrity check
 #if 1
 		for(int kt=0;kt<nblocks;++kt)
@@ -1484,6 +1646,16 @@ int f24_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			}
 #endif
 		}
+#ifdef USE_PALETTE
+		if(palsize)
+		{
+			apply_palette_inv(dst, pal, palnvals);
+			free(pal);
+#ifdef ENABLE_GUIDE
+			image_clear(&g_palimage);
+#endif
+		}
+#endif
 		if(loud)
 		{
 			ptrdiff_t usize=((ptrdiff_t)image->iw*image->ih*image->nch*image->depth+7)>>3;

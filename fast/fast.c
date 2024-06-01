@@ -362,16 +362,21 @@ int main(int argc, char **argv)
 		;
 	const char *fn=
 		"D:/ML/dataset-kodak-ppm/kodim13.ppm"
+	//	"D:/ML/dataset-kodak-ppm/kodim20.ppm"
 	//	"D:/ML/dataset-kodak/kodim13.png"
 	//	"D:/ML/big_building.PPM"
 	//	"D:/ML/big_building.LSIM"
 	//	"D:/ML/20240407 blank.ppm"
+	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_03.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13757.ppm"	//MER-3D
 	//	"C:/dataset-LPCB-ppm/PIA13785.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13943.ppm"	//mostly blank
-	//	"C:/dataset-LPCB-ppm/STA13456.ppm"	//uncorrelated channels
 	//	"C:/dataset-LPCB-ppm/PIA13799.ppm"
+	//	"C:/dataset-LPCB-ppm/STA13456.ppm"	//uncorrelated channels
+	//	"C:/dataset-LPCB-ppm/STA13844.ppm"	//space gas clouds, 6800^2
+	//	"C:/dataset-LPCB-ppm/PIA13799.ppm"	//mars crater, needs palette?
+	//	"C:/dataset-LPCB-ppm/PIA13882.ppm"
 	//	"D:/ML/dataset-RAW/a0001-jmac_DSC1459.dng"
 
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"

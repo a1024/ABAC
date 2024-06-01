@@ -53,6 +53,10 @@ void pred_simd(Image *src, int fwd, const char *depths);
 void pred_PU(Image *src, int fwd);
 
 
+unsigned short* apply_palette_fwd(Image const *src, Image *dst, int *nvals);//nvals[4]
+void apply_palette_inv(Image *dst, const unsigned short *palette, int *nvals);
+
+
 //entropy estimators
 void calc_csize(Image const *src, const char *depths, double *ret_csizes, double *ret_invCR);//depths[4];  ret[5] TRGBA
 void calc_csize_vlc(Image const *src, const char *depths, double *ret_csizes, double *ret_csizes_vlc);

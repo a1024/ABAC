@@ -957,3 +957,108 @@ size_t calc_csize_ABAC(Image const *src, const char *depths)
 	free(stats);
 	return csize;
 }
+
+
+unsigned short* apply_palette_fwd(Image const *src, Image *dst, int *nvals)
+{
+	int paltotal=0;
+	int nlevels=1<<src->depth, half=nlevels>>1, mask=nlevels-1;
+	ptrdiff_t res=(ptrdiff_t)src->iw*src->ih*src->nch-(src->nch-1LL);
+	int histsize=(int)sizeof(int)*src->nch<<src->depth;
+	int *hist=(int*)malloc(histsize);
+	unsigned short *palettes=(unsigned short*)malloc(histsize>>1);
+	if(!hist||!palettes)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
+	memset(nvals, 0, sizeof(int[4]));
+	memset(hist, 0, histsize);
+	memset(palettes, 0, histsize>>1);
+	for(int kc=0;kc<src->nch;++kc)
+	{
+		int ks2=0;
+		int *curr_hist=hist+((size_t)kc<<src->depth);
+		unsigned short *curr_pal=palettes+((size_t)kc<<src->depth);
+		for(ptrdiff_t k=kc;k<res;k+=src->nch)
+		{
+			int val=src->data[k];
+			val+=half;
+			val&=mask;
+			++curr_hist[val];
+		}
+		for(int ks=0;ks<nlevels;++ks)
+		{
+			int freq=curr_hist[ks];
+			curr_hist[ks]=ks2;
+			if(freq)
+			{
+				curr_pal[ks2]=ks;
+				++ks2;
+			}
+		}
+		if(ks2<=half)
+		{
+			nvals[kc]=ks2;
+			paltotal+=nvals[kc];
+			//int psize=nvals[kc]<<(src->depth>8);
+			//int psize=(nvals[kc]*src->depth+7)>>3;
+			//ptrdiff_t dststart=array_append(ret_palette, 0, 1, psize, 1, 0, 0);
+			//if(src->depth>8)
+			//{
+			//	unsigned short *dstpal=ret_palette[0]->data+dststart;
+			//	for(int k=0;k<nvals[kc];++k)
+			//		memcpy(dstpal+k, curr_pal+k, sizeof(short));
+			//}
+			//else
+			//{
+			//	unsigned char *dstpal=ret_palette[0]->data+dststart;
+			//	for(int k=0;k<nvals[kc];++k)
+			//		dstpal[k]=curr_pal[k];
+			//}
+			//writtenbytes+=psize;
+			if(!dst->data)
+			{
+				image_copy(dst, src);
+				if(!dst->data)
+				{
+					LOG_ERROR("Alloc error");
+					return 0;
+				}
+			}
+			for(ptrdiff_t k=kc;k<res;k+=dst->nch)
+			{
+				int val=dst->data[k];
+				val+=half;
+				val&=mask;
+				dst->data[k]=curr_hist[val]-(nvals[kc]>>1);
+			}
+		}
+	}
+	free(hist);
+	if(!paltotal)
+	{
+		free(palettes);
+		return 0;
+	}
+	return palettes;
+}
+void apply_palette_inv(Image *dst, const unsigned short *palette, int *nvals)
+{
+	ptrdiff_t res=(ptrdiff_t)dst->iw*dst->ih*dst->nch-(dst->nch-1LL);
+	int half=1<<dst->depth>>1;
+	for(int kc=0;kc<dst->nch;++kc)
+	{
+		int count=nvals[kc];
+		if(!count)
+			continue;
+		for(ptrdiff_t k=kc;k<res;k+=dst->nch)
+		{
+			int idx=dst->data[k];
+			idx+=count>>1;
+			idx%=count;
+			dst->data[k]=palette[idx]-half;
+		}
+		palette+=count;
+	}
+}
