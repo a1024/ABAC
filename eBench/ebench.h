@@ -695,6 +695,7 @@ extern short rct_custom_params[RCT_CUSTOM_NPARAMS];
 void rct_custom_unpackpermutation(short p, unsigned char *permutation);
 void rct_custom(Image *image, int fwd, const short *params);
 void rct_custom_optimize(Image const *image, short *params);
+void rct_custom_getmatrix(double *matrix, int fwd);
 
 void rct_adaptive(Image *src, int fwd);
 

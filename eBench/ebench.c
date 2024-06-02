@@ -2836,8 +2836,12 @@ void update_image(void)//apply selected operations on original image, calculate 
 	}
 }
 
-static void draw_AAcuboid_wire(float x1, float x2, float y1, float y2, float z1, float z2, int color)
+static void draw_AAcuboid_wire(float size, int applyRCT)
 {
+	float
+		x1=0, x2=size,
+		y1=0, y2=size,
+		z1=0, z2=size;
 	float cuboid[]=
 	{
 		x1, y1, z1,
@@ -2849,20 +2853,66 @@ static void draw_AAcuboid_wire(float x1, float x2, float y1, float y2, float z1,
 		x2, y2, z2,
 		x1, y2, z2,
 	};
-	draw_3d_line(&cam, cuboid    , cuboid+1*3, color);
-	draw_3d_line(&cam, cuboid+1*3, cuboid+2*3, color);
-	draw_3d_line(&cam, cuboid+2*3, cuboid+3*3, color);
-	draw_3d_line(&cam, cuboid+3*3, cuboid    , color);
+	if(applyRCT)
+	{
+		ALIGN(4) static char buf[148]={0};
+		static Image *image=0;
+		float half=size*0.5f;
+		if(!image)
+		{
+			image=(Image*)buf;
+			image->iw=8;
+			image->ih=1;
+			memset(image->src_depth, 8, sizeof(image->src_depth));
+		}
+		for(int k=0;k<8;++k)
+		{
+			image->data[k<<2|0]=(int)(cuboid[k*3+0]-half);
+			image->data[k<<2|1]=(int)(cuboid[k*3+1]-half);
+			image->data[k<<2|2]=(int)(cuboid[k*3+2]-half);
+		}
+		memcpy(image->depth, image->src_depth, sizeof(image->depth));
+		apply_selected_transforms(image, 1);
+		for(int k=0;k<8;++k)
+		{
+			cuboid[k*3+0]=(float)image->data[k<<2|0]+half;
+			cuboid[k*3+1]=(float)image->data[k<<2|1]+half;
+			cuboid[k*3+2]=(float)image->data[k<<2|2]+half;
+		}
+		//float half=size*0.5f;
+		//unsigned char permutation[4]={0};
+		//rct_custom_unpackpermutation(rct_custom_params[8], permutation);
+		//for(int k=0;k<_countof(cuboid)-2;k+=3)
+		//{
+		//	float vrtx[]=
+		//	{
+		//		cuboid[k+permutation[0]]-half,
+		//		cuboid[k+permutation[1]]-half,
+		//		cuboid[k+permutation[2]]-half,
+		//	};
+		//	vrtx[0]+=(rct_custom_params[0]*vrtx[1]+rct_custom_params[1]*vrtx[2])*(1/4096.f);
+		//	vrtx[1]+=(rct_custom_params[2]*vrtx[0]+rct_custom_params[3]*vrtx[2])*(1/4096.f);
+		//	vrtx[2]+=(rct_custom_params[4]*vrtx[0]+rct_custom_params[5]*vrtx[1])*(1/4096.f);
+		//	vrtx[1]+=(rct_custom_params[6]*vrtx[0]+rct_custom_params[7]*vrtx[2])*(1/4096.f);
+		//	cuboid[k+0]=vrtx[0]+half;
+		//	cuboid[k+1]=vrtx[1]+half;
+		//	cuboid[k+2]=vrtx[2]+half;
+		//}
+	}
+	draw_3d_line(&cam, cuboid+(0+0)*3, cuboid+(0+1)*3, 0xFF0000FF);
+	draw_3d_line(&cam, cuboid+(0+1)*3, cuboid+(0+2)*3, 0xFF000000);
+	draw_3d_line(&cam, cuboid+(0+2)*3, cuboid+(0+3)*3, 0xFF000000);
+	draw_3d_line(&cam, cuboid+(0+3)*3, cuboid+(0+0)*3, 0xFFFF0000);
 		
-	draw_3d_line(&cam, cuboid+(4  )*3, cuboid+(4+1)*3, color);
-	draw_3d_line(&cam, cuboid+(4+1)*3, cuboid+(4+2)*3, color);
-	draw_3d_line(&cam, cuboid+(4+2)*3, cuboid+(4+3)*3, color);
-	draw_3d_line(&cam, cuboid+(4+3)*3, cuboid+(4  )*3, color);
+	draw_3d_line(&cam, cuboid+(4+0)*3, cuboid+(4+1)*3, 0xFF000000);
+	draw_3d_line(&cam, cuboid+(4+1)*3, cuboid+(4+2)*3, 0xFF000000);
+	draw_3d_line(&cam, cuboid+(4+2)*3, cuboid+(4+3)*3, 0xFF000000);
+	draw_3d_line(&cam, cuboid+(4+3)*3, cuboid+(4+0)*3, 0xFF000000);
 		
-	draw_3d_line(&cam, cuboid    , cuboid+(4  )*3, color);
-	draw_3d_line(&cam, cuboid+1*3, cuboid+(4+1)*3, color);
-	draw_3d_line(&cam, cuboid+2*3, cuboid+(4+2)*3, color);
-	draw_3d_line(&cam, cuboid+3*3, cuboid+(4+3)*3, color);
+	draw_3d_line(&cam, cuboid+(0+0)*3, cuboid+(4+0)*3, 0xFF00FF00);
+	draw_3d_line(&cam, cuboid+(0+1)*3, cuboid+(4+1)*3, 0xFF000000);
+	draw_3d_line(&cam, cuboid+(0+2)*3, cuboid+(4+2)*3, 0xFF000000);
+	draw_3d_line(&cam, cuboid+(0+3)*3, cuboid+(4+3)*3, 0xFF000000);
 }
 //void chart_planes_draw()
 //{
@@ -3215,7 +3265,8 @@ static void draw_cloud(int x, int y, int blocksize, float cubesize)
 #endif
 static void chart_jointhist_draw(void)
 {
-	draw_AAcuboid_wire(0, jh_cubesize, 0, jh_cubesize, 0, jh_cubesize, 0xFF000000);
+	draw_AAcuboid_wire(jh_cubesize, 0);
+	draw_AAcuboid_wire(jh_cubesize, 1);
 
 	//for(int k=0;k<(int)jhc_mesh->count;++k)//
 	//{
@@ -6289,6 +6340,49 @@ void io_render(void)
 				rct_custom_params[7]<0?'-':'+', abs(rct_custom_params[7]), chnames[per[2]],
 				RCT_CUSTOM_PARAMBITS
 			);
+			x=buttons[0].x2;
+			y=buttons[0].y1;
+			{
+				double mfwd[9]={0}, minv[9]={0};
+				//double mprod[9]={0};
+				rct_custom_getmatrix(mfwd, 1);
+				rct_custom_getmatrix(minv, 0);
+				//for(int ky=0;ky<3;++ky)
+				//{
+				//	for(int kx=0;kx<3;++kx)
+				//	{
+				//		double sum=0;
+				//		for(int j=0;j<3;++j)
+				//			sum+=minv[3*ky+j]*mfwd[3*j+kx];
+				//		mprod[ky*3+kx]=sum;
+				//	}
+				//}
+
+				GUIPrint(0, x, y, guizoom, "Fwd:");
+				y+=ystep;
+				for(int k=0;k<9-2;k+=3)
+				{
+					double *v=mfwd+k;
+					GUIPrint(0, x, y, guizoom, "%10.6lf %10.6lf %10.6lf", v[0], v[1], v[2]);
+					y+=ystep;
+				}
+				GUIPrint(0, x, y, guizoom, "Inv:");
+				y+=ystep;
+				for(int k=0;k<9-2;k+=3)
+				{
+					double *v=minv+k;
+					GUIPrint(0, x, y, guizoom, "%10.6lf %10.6lf %10.6lf", v[0], v[1], v[2]);
+					y+=ystep;
+				}
+				//GUIPrint(0, x, y, guizoom, "Product:");
+				//y+=ystep;
+				//for(int k=0;k<9-2;k+=3)
+				//{
+				//	double *v=mprod+k;
+				//	GUIPrint(0, x, y, guizoom, "%10.6lf %10.6lf %10.6lf", v[0], v[1], v[2]);
+				//	y+=ystep;
+				//}
+			}
 #if 0
 			//0000000000111111111122222222223333
 			//0123456789012345678901234567890123

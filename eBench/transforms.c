@@ -1025,14 +1025,18 @@ void rct_custom(Image *image, int fwd, const short *params)//4 params	fixed 15.1
 				image->data[k|permutation[1]],
 				image->data[k|permutation[2]],
 			};
-			temp=params[0]*comp[1]+params[1]*comp[2], comp[0]+=(temp>>RCT_CUSTOM_PARAMBITS)+(temp<0);
-			temp=params[2]*comp[0]+params[3]*comp[2], comp[1]+=(temp>>RCT_CUSTOM_PARAMBITS)+(temp<0);
-			temp=params[4]*comp[0]+params[5]*comp[1], comp[2]+=(temp>>RCT_CUSTOM_PARAMBITS)+(temp<0);
-			temp=params[6]*comp[0]+params[7]*comp[2], comp[1]+=(temp>>RCT_CUSTOM_PARAMBITS)+(temp<0);
-			image->data[k|0]=comp[1];//Y
-			image->data[k|1]=comp[2];//Cb
-			image->data[k|2]=comp[0];//Cr
-			//memcpy(image->data+k, comp, sizeof(comp));
+			temp=params[0]*comp[1]+params[1]*comp[2], comp[0]+=(temp+(((1<<RCT_CUSTOM_PARAMBITS)-1)&-(temp<0)))>>RCT_CUSTOM_PARAMBITS;
+			temp=params[2]*comp[0]+params[3]*comp[2], comp[1]+=(temp+(((1<<RCT_CUSTOM_PARAMBITS)-1)&-(temp<0)))>>RCT_CUSTOM_PARAMBITS;
+			temp=params[4]*comp[0]+params[5]*comp[1], comp[2]+=(temp+(((1<<RCT_CUSTOM_PARAMBITS)-1)&-(temp<0)))>>RCT_CUSTOM_PARAMBITS;
+			temp=params[6]*comp[0]+params[7]*comp[2], comp[1]+=(temp+(((1<<RCT_CUSTOM_PARAMBITS)-1)&-(temp<0)))>>RCT_CUSTOM_PARAMBITS;
+			//temp=params[0]*comp[1]+params[1]*comp[2], comp[0]+=(temp>>RCT_CUSTOM_PARAMBITS)+(temp<0);
+			//temp=params[2]*comp[0]+params[3]*comp[2], comp[1]+=(temp>>RCT_CUSTOM_PARAMBITS)+(temp<0);
+			//temp=params[4]*comp[0]+params[5]*comp[1], comp[2]+=(temp>>RCT_CUSTOM_PARAMBITS)+(temp<0);
+			//temp=params[6]*comp[0]+params[7]*comp[2], comp[1]+=(temp>>RCT_CUSTOM_PARAMBITS)+(temp<0);
+			//image->data[k|0]=comp[1];//Y
+			//image->data[k|1]=comp[2];//Cb
+			//image->data[k|2]=comp[0];//Cr
+			memcpy(image->data+k, comp, sizeof(comp));
 		}
 		image->depth[0]+=image->depth[0]<24;
 		image->depth[1]+=image->depth[1]<24;
@@ -1051,17 +1055,18 @@ void rct_custom(Image *image, int fwd, const short *params)//4 params	fixed 15.1
 		//ROTATE3(image->depth[2], image->depth[1], image->depth[0], temp);
 		for(ptrdiff_t k=0, len=(ptrdiff_t)image->iw*image->ih*4;k<len;k+=4)
 		{
-			int comp[]=
-			{
-				image->data[k|2],
-				image->data[k|0],
-				image->data[k|1],
-			};
-			//memcpy(comp, image->data+k, sizeof(comp));
-			temp=params[6]*comp[0]+params[7]*comp[2], comp[1]-=(temp>>RCT_CUSTOM_PARAMBITS)+(temp<0);
-			temp=params[4]*comp[0]+params[5]*comp[1], comp[2]-=(temp>>RCT_CUSTOM_PARAMBITS)+(temp<0);
-			temp=params[2]*comp[0]+params[3]*comp[2], comp[1]-=(temp>>RCT_CUSTOM_PARAMBITS)+(temp<0);
-			temp=params[0]*comp[1]+params[1]*comp[2], comp[0]-=(temp>>RCT_CUSTOM_PARAMBITS)+(temp<0);
+			int comp[3];
+			//int comp[]=
+			//{
+			//	image->data[k|2],
+			//	image->data[k|0],
+			//	image->data[k|1],
+			//};
+			memcpy(comp, image->data+k, sizeof(comp));
+			temp=params[6]*comp[0]+params[7]*comp[2], comp[1]-=(temp+(((1<<RCT_CUSTOM_PARAMBITS)-1)&-(temp<0)))>>RCT_CUSTOM_PARAMBITS;
+			temp=params[4]*comp[0]+params[5]*comp[1], comp[2]-=(temp+(((1<<RCT_CUSTOM_PARAMBITS)-1)&-(temp<0)))>>RCT_CUSTOM_PARAMBITS;
+			temp=params[2]*comp[0]+params[3]*comp[2], comp[1]-=(temp+(((1<<RCT_CUSTOM_PARAMBITS)-1)&-(temp<0)))>>RCT_CUSTOM_PARAMBITS;
+			temp=params[0]*comp[1]+params[1]*comp[2], comp[0]-=(temp+(((1<<RCT_CUSTOM_PARAMBITS)-1)&-(temp<0)))>>RCT_CUSTOM_PARAMBITS;
 			image->data[k|permutation[0]]=comp[0];
 			image->data[k|permutation[1]]=comp[1];
 			image->data[k|permutation[2]]=comp[2];
@@ -1272,6 +1277,47 @@ void rct_custom_optimize(Image const *image, short *params)
 #undef  CALC_LOSS
 	free(hist);
 	free(im2);
+}
+void rct_custom_getmatrix(double *matrix, int fwd)
+{
+	unsigned char per[4]={0};
+	rct_custom_unpackpermutation(rct_custom_params[8], per);
+	memset(matrix, 0, sizeof(double[9]));
+	matrix[0]=1;
+	matrix[4]=1;
+	matrix[8]=1;
+	for(int k=0;k<3;++k)
+	{
+		double vrtx[]=
+		{
+			matrix[k+3*(fwd?per[0]:0)],
+			matrix[k+3*(fwd?per[1]:1)],
+			matrix[k+3*(fwd?per[2]:2)],
+			//matrix[k+3*0],
+			//matrix[k+3*1],
+			//matrix[k+3*2],
+		};
+		if(fwd)
+		{
+			vrtx[0]+=(rct_custom_params[0]*vrtx[1]+rct_custom_params[1]*vrtx[2])*(1/4096.);
+			vrtx[1]+=(rct_custom_params[2]*vrtx[0]+rct_custom_params[3]*vrtx[2])*(1/4096.);
+			vrtx[2]+=(rct_custom_params[4]*vrtx[0]+rct_custom_params[5]*vrtx[1])*(1/4096.);
+			vrtx[1]+=(rct_custom_params[6]*vrtx[0]+rct_custom_params[7]*vrtx[2])*(1/4096.);
+		}
+		else
+		{
+			vrtx[1]-=(rct_custom_params[6]*vrtx[0]+rct_custom_params[7]*vrtx[2])*(1/4096.);
+			vrtx[2]-=(rct_custom_params[4]*vrtx[0]+rct_custom_params[5]*vrtx[1])*(1/4096.);
+			vrtx[1]-=(rct_custom_params[2]*vrtx[0]+rct_custom_params[3]*vrtx[2])*(1/4096.);
+			vrtx[0]-=(rct_custom_params[0]*vrtx[1]+rct_custom_params[1]*vrtx[2])*(1/4096.);
+		}
+		matrix[k+3*(fwd?0:per[0])]=vrtx[0];
+		matrix[k+3*(fwd?1:per[1])]=vrtx[1];
+		matrix[k+3*(fwd?2:per[2])]=vrtx[2];
+		//matrix[k+3*0]=vrtx[0];
+		//matrix[k+3*1]=vrtx[1];
+		//matrix[k+3*2]=vrtx[2];
+	}
 }
 
 
