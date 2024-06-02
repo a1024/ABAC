@@ -18,7 +18,7 @@ static const Image *guide=0;
 #endif
 
 	#define USE_PALETTE
-//	#define USE_AC
+	#define USE_AC		//good
 //	#define USE_GRABAC	//bad
 //	#define CTX_MIN_NW	//bad
 //	#define ENABLE_ZERO	//bad	incompatible with quantized entropy coder
@@ -52,14 +52,24 @@ typedef enum RCTTypeEnum
 
 	RCT_COUNT,
 } RCTType;
+static const char *rctnames[RCT_COUNT]=
+{
+	"NONE      ",
+	"SubG      ",
+	"JPEG2000_G",
+	"JPEG2000_B",
+	"JPEG2000_R",
+	"RCT1      ",
+	"Pei09     ",
+};
 typedef enum PredTypeEnum
 {
 #ifdef ENABLE_ZERO
 	PRED_ZERO,
 #endif
 //	PRED_N,
-	PRED_W,
-//	PRED_AV2,
+//	PRED_W,
+	PRED_AV2,
 //	PRED_AV4,
 //	PRED_AV5,
 	PRED_CG,
@@ -71,6 +81,23 @@ typedef enum PredTypeEnum
 
 	PRED_COUNT,
 } PredType;
+static const char *prednames[PRED_COUNT]=
+{
+#ifdef ENABLE_ZERO
+	"Zero",
+#endif
+//	"N   ",
+//	"W   ",
+	"Av2 ",
+//	"Av4 ",
+//	"Av5 ",
+	"CG  ",
+//	"CGU ",
+	"WP  ",
+#ifdef ENABLE_WG
+	"WG  ",
+#endif
+};
 typedef struct _ThreadArgs
 {
 	const Image *src;
@@ -83,6 +110,7 @@ typedef struct _ThreadArgs
 	const unsigned char *decstart, *decend;
 
 	double bestsize;
+	int bestrct, predidx[3];
 
 #ifdef USE_AC
 	int tlevels, clevels, statssize;
@@ -492,8 +520,8 @@ static void block_enc(void *param)
 				preds[PRED_ZERO]=0;
 #endif
 			//	preds[PRED_N]=N[kc2];
-				preds[PRED_W]=W[kc2];
-			//	preds[PRED_AV2]=(N[kc2]+W[kc2])/2;
+			//	preds[PRED_W]=W[kc2];
+				preds[PRED_AV2]=(N[kc2]+W[kc2])/2;
 			//	preds[PRED_AV4]=(4*(N[kc2]+W[kc2])+NE[kc2]-NW[kc2])/8;
 			//	preds[PRED_AV5]=W[kc2]+(5*(N[kc2]-NW[kc2])+NE[kc2]-WW[kc2])/8;
 				preds[PRED_CG]=cgrad;
@@ -555,12 +583,9 @@ static void block_enc(void *param)
 		{
 			int freq=curr_hist[ks];
 			if(freq)
-			{
-				double p=(double)freq/res;
-				csizes[kc]-=p*log2(p);
-			}
+				csizes[kc]-=freq*log2((double)freq/res);
 		}
-		csizes[kc]*=(double)res/8;
+		csizes[kc]/=8;
 	}
 	int bestrct=0;
 	double bestsize;
@@ -594,7 +619,6 @@ static void block_enc(void *param)
 			bestsize=csize, bestrct=k;
 	}
 #endif
-	args->bestsize=bestsize;
 	int combination[]=
 	{
 		combinations[bestrct*3+0],
@@ -611,50 +635,36 @@ static void block_enc(void *param)
 	flag=flag*PRED_COUNT+predidx[2];
 	flag=flag*PRED_COUNT+predidx[1];
 	flag=flag*PRED_COUNT+predidx[0];
+
+	args->bestsize=bestsize;
+	args->bestrct=bestrct;
+	args->predidx[0]=predidx[0];
+	args->predidx[1]=predidx[1];
+	args->predidx[2]=predidx[2];
 	if(args->loud)
 	{
-		static const char *rctnames[RCT_COUNT]=
-		{
-			"NONE",
-			"SubG",
-			"JPEG2000-G",
-			"JPEG2000-B",
-			"JPEG2000-R",
-			"RCT1",
-			"Pei09",
-		};
-		static const char *prednames[PRED_COUNT]=
-		{
-#ifdef ENABLE_ZERO
-			"Zero",
-#endif
-		//	"N",
-			"W",
-		//	"Av2",
-		//	"Av4",
-		//	"Av5",
-			"CG",
-		//	"CGU",
-			"WP",
-#ifdef ENABLE_WG
-			"WG",
-#endif
-		};
-
-		double defsize=
-			csizes[combinations[3*2+0]*PRED_COUNT+PRED_WP]+
-			csizes[combinations[3*2+1]*PRED_COUNT+PRED_WP]+
-			csizes[combinations[3*2+2]*PRED_COUNT+PRED_WP];
-		printf("Y %5d~%5d  default %12.2lf bytes  current %12.2lf bytes (%+12.2lf)  %s [YUV: %s %s %s]\n",
+		printf("Y %5d~%5d  best %12.2lf bytes  %s [YUV: %s %s %s]\n",
 			args->y1, args->y2,
-			defsize,
 			bestsize,
-			bestsize-defsize,
 			rctnames[bestrct],
 			prednames[predidx[0]],
 			prednames[predidx[1]],
 			prednames[predidx[2]]
 		);
+		//double defsize=
+		//	csizes[combinations[3*2+0]*PRED_COUNT+PRED_WP]+
+		//	csizes[combinations[3*2+1]*PRED_COUNT+PRED_WP]+
+		//	csizes[combinations[3*2+2]*PRED_COUNT+PRED_WP];
+		//printf("Y %5d~%5d  default %12.2lf bytes  current %12.2lf bytes (%+12.2lf)  %s [YUV: %s %s %s]\n",
+		//	args->y1, args->y2,
+		//	defsize,
+		//	bestsize,
+		//	bestsize-defsize,
+		//	rctnames[bestrct],
+		//	prednames[predidx[0]],
+		//	prednames[predidx[1]],
+		//	prednames[predidx[2]]
+		//);
 		{
 			const char *poolnames[]=
 			{
@@ -681,7 +691,7 @@ static void block_enc(void *param)
 				"Pei9: u5-P(u5prev), v5=v1",
 			};
 			for(int k2=0;k2<PRED_COUNT;++k2)
-				printf("  %11s", prednames[k2]);
+				printf("%-14s", prednames[k2]);
 			printf("\n");
 			for(int k=0;k<NCHPOOL;++k)
 			{
@@ -692,9 +702,25 @@ static void block_enc(void *param)
 						best=k2;
 				}
 				for(int k2=0;k2<PRED_COUNT;++k2)
-					printf(" %11.2lf%c", csizes[k*PRED_COUNT+k2], k2==best?'*':' ');
+					printf(" %12.2lf%c", csizes[k*PRED_COUNT+k2], k2==best?'*':' ');
 				printf("  %s\n", poolnames[k]);
 			}
+		}
+		for(int k=0;k<RCT_COUNT;++k)
+		{
+			group=combinations+k*3;
+			double csize=
+				csizes[group[0]*PRED_COUNT+predsel[group[0]]]+
+				csizes[group[1]*PRED_COUNT+predsel[group[1]]]+
+				csizes[group[2]*PRED_COUNT+predsel[group[2]]];
+			printf("%12.2lf %c  %s %s %s %s\n",
+				csize,
+				k==bestrct?'*':' ',
+				prednames[predsel[group[0]]],
+				prednames[predsel[group[1]]],
+				prednames[predsel[group[2]]],
+				rctnames[k]
+			);
 		}
 	}
 	dlist_init(&args->list, 1, 1024, 0);
@@ -856,12 +882,12 @@ static void block_enc(void *param)
 				//case PRED_N:
 				//	pred=N[kc2];
 				//	break;
-				case PRED_W:
-					pred=W[kc2];
-					break;
-				//case PRED_AV2:
-				//	pred=(N[kc2]+W[kc2])/2;
+				//case PRED_W:
+				//	pred=W[kc2];
 				//	break;
+				case PRED_AV2:
+					pred=(N[kc2]+W[kc2])/2;
+					break;
 				//case PRED_AV4:
 				//	pred=(4*(N[kc2]+W[kc2])+NE[kc2]-NW[kc2])/8;
 				//	break;
@@ -1170,12 +1196,12 @@ static void block_dec(void *param)
 				//case PRED_N:
 				//	pred=N[kc2];
 				//	break;
-				case PRED_W:
-					pred=W[kc2];
-					break;
-				//case PRED_AV2:
-				//	pred=(N[kc2]+W[kc2])/2;
+				//case PRED_W:
+				//	pred=W[kc2];
 				//	break;
+				case PRED_AV2:
+					pred=(N[kc2]+W[kc2])/2;
+					break;
 				//case PRED_AV4:
 				//	pred=(4*(N[kc2]+W[kc2])+NE[kc2]-NW[kc2])/8;
 				//	break;
@@ -1499,6 +1525,9 @@ int f24_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	}
 	if(fwd)
 	{
+		int hist_rct[RCT_COUNT]={0};
+		int hist_pred[PRED_COUNT]={0};
+
 #ifdef USE_PALETTE
 		int palused;
 		Image palimage={0};
@@ -1578,8 +1607,12 @@ int f24_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #endif
 			for(int kt2=0;kt2<nthreads2;++kt2)
 			{
+				ThreadArgs *arg=args+kt2;
 				if(loud)
 				{
+					int
+						blocksize=(image->iw*(arg->y2-arg->y1)*image->nch*image->depth+7)>>3,
+						cbsize=(image->iw*(arg->y2-arg->y1)*image->depth+7)>>3;
 					if(!(kt+kt2))
 						printf("block,  nrows,  usize,     best  ->  actual,  (actual-best)\n");
 					printf(
@@ -1587,29 +1620,37 @@ int f24_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #ifdef PROFILE_CSIZE
 						"  bypass %7td+%7td+%7td=%8td (%8.4lf%%)"
 #endif
-						"\n",
+						"  %s %s %s %s\n",
 						kt+kt2,
-						args[kt2].y2-args[kt2].y1,
-						(image->iw*(args[kt2].y2-args[kt2].y1)*image->nch*image->depth+7)>>3,
-						args[kt2].bestsize,
-						args[kt2].list.nobj,
-						(double)args[kt2].list.nobj-args[kt2].bestsize
+						arg->y2-arg->y1,
+						blocksize,
+						arg->bestsize,
+						arg->list.nobj,
+						(double)arg->list.nobj-arg->bestsize,
 #ifdef PROFILE_CSIZE
-						, args[kt2].bypasssizes[0]>>3
-						, args[kt2].bypasssizes[1]>>3
-						, args[kt2].bypasssizes[2]>>3
-						, (args[kt2].bypasssizes[0]+args[kt2].bypasssizes[1]+args[kt2].bypasssizes[2])>>3
-						, 100.*(args[kt2].bypasssizes[0]+args[kt2].bypasssizes[1]+args[kt2].bypasssizes[2])/(8*args[kt2].list.nobj)
+						arg->bypasssizes[0]>>3,
+						arg->bypasssizes[1]>>3,
+						arg->bypasssizes[2]>>3,
+						(arg->bypasssizes[0]+arg->bypasssizes[1]+arg->bypasssizes[2])>>3,
+						100.*(arg->bypasssizes[0]+arg->bypasssizes[1]+arg->bypasssizes[2])/(8*arg->list.nobj),
 #endif
+						rctnames[arg->bestrct],
+						prednames[arg->predidx[0]],
+						prednames[arg->predidx[1]],
+						prednames[arg->predidx[2]]
 					);
-					bestsize+=args[kt2].bestsize;
+					bestsize+=arg->bestsize;
+					hist_rct[arg->bestrct]+=blocksize;
+					hist_pred[arg->predidx[0]]+=cbsize;
+					hist_pred[arg->predidx[1]]+=cbsize;
+					hist_pred[arg->predidx[2]]+=cbsize;
 #ifdef PROFILE_CSIZE
-					bypasstotal+=(args[kt2].bypasssizes[0]+args[kt2].bypasssizes[1]+args[kt2].bypasssizes[2])/8.;
+					bypasstotal+=(arg->bypasssizes[0]+arg->bypasssizes[1]+arg->bypasssizes[2])/8.;
 #endif
 				}
-				memcpy(data[0]->data+start_blocksizes+sizeof(int)*((ptrdiff_t)kt+kt2), &args[kt2].list.nobj, sizeof(int));
-				dlist_appendtoarray(&args[kt2].list, data);
-				dlist_clear(&args[kt2].list);
+				memcpy(data[0]->data+start_blocksizes+sizeof(int)*((ptrdiff_t)kt+kt2), &arg->list.nobj, sizeof(int));
+				dlist_appendtoarray(&arg->list, data);
+				dlist_clear(&arg->list);
 			}
 		}
 		if(loud)
@@ -1630,6 +1671,30 @@ int f24_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				}
 			}
 #endif
+			{
+				int blocksize=(image->iw*image->nch*image->depth*BLOCKSIZE+7)>>3;
+				printf("RCTs:\n");
+				for(int k=0;k<RCT_COUNT;++k)
+				{
+					int nstars=(int)(hist_rct[k]*60LL/usize);
+					printf("%s %12d %8.4lf ", rctnames[k], hist_rct[k], (double)hist_rct[k]/blocksize);
+					for(int k=0;k<nstars;++k)
+						printf("*");
+					printf("\n");
+				}
+				printf("\n");
+
+				printf("Predictors:\n");
+				for(int k=0;k<PRED_COUNT;++k)
+				{
+					int nstars=(int)(hist_pred[k]*60LL/usize);
+					printf("%s %12d %8.4lf ", prednames[k], hist_pred[k], (double)hist_pred[k]/blocksize);
+					for(int k=0;k<nstars;++k)
+						printf("*");
+					printf("\n");
+				}
+				printf("\n");
+			}
 			printf(
 				"best:     %12.2lf\n"
 				"actual: [[%9td]]/%9td bytes  (%+11.2lf)  %10lf%% %10lf\n",
