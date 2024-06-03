@@ -1061,7 +1061,7 @@ INLINE void ac_enc_bypass(ArithmeticCoder *ec, int sym, int nbits)//CDF is 16 bi
 	ec->range*=freq;
 	ec->range>>=PROB_BITS;
 	--ec->range;//must decrement hi because decoder fails when code == hi2
-	if(ec->range<(1LL<<PROB_BITS))
+	while(ec->range<(1LL<<PROB_BITS))
 		ac_enc_renorm(ec);
 	acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
 }
@@ -1103,7 +1103,7 @@ INLINE void ac_enc_bypass_NPOT(ArithmeticCoder *ec, int sym, int nlevels)//CDF i
 	ec->range*=freq;
 	ec->range>>=PROB_BITS;
 	--ec->range;//must decrement hi because decoder fails when code == hi2
-	if(ec->range<(1LL<<PROB_BITS))
+	while(ec->range<(1LL<<PROB_BITS))
 		ac_enc_renorm(ec);
 	acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);//
 	//acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->cidx);//

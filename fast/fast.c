@@ -369,6 +369,7 @@ int main(int argc, char **argv)
 	//	"D:/ML/20240407 blank.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_03.ppm"
+	//	"C:/dataset-LPCB-ppm/olympus_xz1_14.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13757.ppm"	//MER-3D
 	//	"C:/dataset-LPCB-ppm/PIA13785.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13943.ppm"	//mostly blank

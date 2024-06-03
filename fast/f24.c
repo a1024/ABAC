@@ -9,7 +9,7 @@ static const char file[]=__FILE__;
 
 //	#define ENABLE_GUIDE
 //	#define DISABLE_MT
-//	#define PROFILE_CSIZE
+//	#define PROFILE_BYPASS
 
 
 #include"ac.h"
@@ -23,7 +23,9 @@ static const Image *guide=0;
 //	#define CTX_MIN_NW	//bad
 //	#define ENABLE_ZERO	//bad	incompatible with quantized entropy coder
 	#define ENABLE_WG	//good
+	#define ENABLE_WG2
 	#define FOLD_OOB	//good
+//	#define USE_T47CTX	//bad
 
 #define BLOCKSIZE 256
 #define NCHPOOL 15
@@ -68,15 +70,18 @@ typedef enum PredTypeEnum
 	PRED_ZERO,
 #endif
 //	PRED_N,
-//	PRED_W,
-	PRED_AV2,
+	PRED_W,
+//	PRED_AV2,
 //	PRED_AV4,
-//	PRED_AV5,
+	PRED_AV5,
 	PRED_CG,
 //	PRED_CGU,
 	PRED_WP,
 #ifdef ENABLE_WG
 	PRED_WG,
+#endif
+#ifdef ENABLE_WG2
+	PRED_WG2,
 #endif
 
 	PRED_COUNT,
@@ -87,15 +92,18 @@ static const char *prednames[PRED_COUNT]=
 	"Zero",
 #endif
 //	"N   ",
-//	"W   ",
-	"Av2 ",
+	"W   ",
+//	"Av2 ",
 //	"Av4 ",
-//	"Av5 ",
+	"Av5 ",
 	"CG  ",
 //	"CGU ",
 	"WP  ",
 #ifdef ENABLE_WG
 	"WG  ",
+#endif
+#ifdef ENABLE_WG2
+	"WG2 ",
 #endif
 };
 typedef struct _ThreadArgs
@@ -118,7 +126,7 @@ typedef struct _ThreadArgs
 #elif defined USE_GRABAC
 	unsigned short p0[16*4], p0_bypass[4];
 #endif
-#ifdef PROFILE_CSIZE
+#ifdef PROFILE_BYPASS
 	ptrdiff_t bypasssizes[4];
 #endif
 } ThreadArgs;
@@ -189,6 +197,10 @@ static void quantize_pixel(int val, int *token, int *bypass, int *nbits)
 		*bypass=val>>CONFIG_LSB&((1LL<<*nbits)-1);
 	}
 }
+#ifdef USE_T47CTX
+#define quantize_ctx FLOOR_LOG2_P1
+#define QUANTIZE_CTX FLOOR_LOG2_P1
+#else
 static int quantize_ctx(int val)
 {
 #if 1
@@ -208,6 +220,7 @@ static int quantize_ctx(int val)
 #endif
 }
 #define QUANTIZE_CTX(X) quantize_ctx(X)+chalf
+#endif
 static void update_CDF(const int *hist, unsigned *CDF, int tlevels)
 {
 	int sum=hist[tlevels], c=0;
@@ -333,6 +346,160 @@ static void wg_update(int curr, const int *preds, int *eW)
 	}
 }
 #endif
+#ifdef ENABLE_WG2
+#define STRIDE 7
+#define WG2_NPREDS 32
+#define WG2_PREDLIST\
+	WG2_PRED(W+NE-N-((2*(eN+eW)+eNE-eNW+4)>>3))\
+	WG2_PRED(N-(int)(((long long)eN+eW+eNE)*-0x05C>>8))\
+	WG2_PRED(W-(int)(((long long)eN+eW+eNW)*-0x05B>>8))\
+	WG2_PRED(N+(int)((-eNN*0x0DFLL-eN*0x051LL-eNE*0x0BDLL+((long long)N-NN)*0x05C+((long long)NW-W)*0x102)>>8))\
+	WG2_PRED(3*(N-NN)+NNN)\
+	WG2_PRED((N+W)>>1)\
+	WG2_PRED(N+W-NW)\
+	WG2_PRED((W+NEE)>>1)\
+	WG2_PRED((3*W+NEEE)>>2)\
+	WG2_PRED((3*(3*W+NE+NEE)-10*N+2)/5)\
+	WG2_PRED((3*(3*W+NE+NEE)-10*N)/5)\
+	WG2_PRED((4*N-2*NN+NW+NE)>>2)\
+	WG2_PRED(N+NE-NNE-eNNE)\
+	WG2_PRED((4*(N+W+NW+NE)-(NN+WW+NNWW+NNEE)+6)/12)\
+	WG2_PRED(W+((eW-eWW)>>1))\
+	WG2_PRED(paper_GAP)\
+	WG2_PRED(calic_GAP)\
+	WG2_PRED(N+W-((NW+NN+WW+NE)>>2))\
+	WG2_PRED(((2*(N+W)-(NW+NN+WW+NE))*9+(WWW+NWW+NNW+NNN+NNE+NEE)*2)/12)\
+	WG2_PRED(3*(N+W-NW-(NN+WW-NNWW))+NNN+WWW-NNNWWW)\
+	WG2_PRED(2*(W+NE-N)-(WW+NNEE-NN))\
+	WG2_PRED((2*W+NEE-N)>>1)\
+	WG2_PRED(NW+NWW-NNWWW)\
+	WG2_PRED((14*NE-(NNEE+NNNEE+NNEEE))/11)\
+	WG2_PRED((NEEE+NEEEE)>>1)\
+	WG2_PRED((NNNEEEE+NNEEE)>>1)\
+	WG2_PRED(NNEEEE)\
+	WG2_PRED((NNWWWW+NNNWWWW)>>1)\
+	WG2_PRED((WWW+WWWW)>>1)\
+	WG2_PRED((N+NN)>>1)\
+	WG2_PRED((NE+NNEE)>>1)\
+	WG2_PRED((NE+NNE+NEE+NNEE)>>2)
+static int wg2_predict(int **rows, int stride, int kc2, int eoffset, int depth, const int *eprev, int *preds)
+{
+	int sh_up=24-depth, sh_dn=depth-8;
+	int
+		NNNWWWW	=rows[3][kc2-4*stride]<<sh_up,
+		NNNWWW	=rows[3][kc2-3*stride]<<sh_up,
+	//	NNNWW	=rows[3][kc2-2*stride]<<sh_up,
+	//	NNNW	=rows[3][kc2-1*stride]<<sh_up,
+		NNN	=rows[3][kc2+0*stride]<<sh_up,
+	//	NNNE	=rows[3][kc2+1*stride]<<sh_up,
+		NNNEE	=rows[3][kc2+2*stride]<<sh_up,
+	//	NNNEEE	=rows[3][kc2+3*stride]<<sh_up,
+		NNNEEEE	=rows[3][kc2+4*stride]<<sh_up,
+		NNWWWW	=rows[2][kc2-4*stride]<<sh_up,
+		NNWWW	=rows[2][kc2-3*stride]<<sh_up,
+		NNWW	=rows[2][kc2-2*stride]<<sh_up,
+		NNW	=rows[2][kc2-1*stride]<<sh_up,
+		NN	=rows[2][kc2+0*stride]<<sh_up,
+		NNE	=rows[2][kc2+1*stride]<<sh_up,
+		NNEE	=rows[2][kc2+2*stride]<<sh_up,
+		NNEEE	=rows[2][kc2+3*stride]<<sh_up,
+		NNEEEE	=rows[2][kc2+4*stride]<<sh_up,
+	//	NWWWW	=rows[1][kc2-4*stride]<<sh_up,
+	//	NWWW	=rows[1][kc2-3*stride]<<sh_up,
+		NWW	=rows[1][kc2-2*stride]<<sh_up,
+		NW	=rows[1][kc2-1*stride]<<sh_up,
+		N	=rows[1][kc2+0*stride]<<sh_up,
+		NE	=rows[1][kc2+1*stride]<<sh_up,
+		NEE	=rows[1][kc2+2*stride]<<sh_up,
+		NEEE	=rows[1][kc2+3*stride]<<sh_up,
+		NEEEE	=rows[1][kc2+4*stride]<<sh_up,
+		WWWW	=rows[0][kc2-4*stride]<<sh_up,
+		WWW	=rows[0][kc2-3*stride]<<sh_up,
+		WW	=rows[0][kc2-2*stride]<<sh_up,
+		W	=rows[0][kc2-1*stride]<<sh_up,
+	//	eNNWW	=rows[2][kc2-2*stride+eoffset],
+	//	eNNW	=rows[2][kc2-1*stride+eoffset],
+		eNN	=rows[2][kc2+0*stride+eoffset],
+		eNNE	=rows[2][kc2+1*stride+eoffset],
+	//	eNNEE	=rows[2][kc2+2*stride+eoffset],
+	//	eNWW	=rows[1][kc2-2*stride+eoffset],
+		eNW	=rows[1][kc2-1*stride+eoffset],
+		eN	=rows[1][kc2+0*stride+eoffset],
+		eNE	=rows[1][kc2+1*stride+eoffset],
+	//	eNEE	=rows[1][kc2+2*stride+eoffset],
+		eWW	=rows[0][kc2-2*stride+eoffset],
+		eW	=rows[0][kc2-1*stride+eoffset];
+	int pred;
+	long long lpred=0, wsum=0;
+	int dx=abs(W-WW)+abs(N-NW)+abs(NE-N);
+	int dy=abs(W-NW)+abs(N-NN)+abs(NE-NNE);
+	int d45=abs(W-NWW)+abs(NW-NNWW)+abs(N-NNW);
+	int d135=abs(NE-NNEE)+abs(N-NNE)+abs(W-N);
+	int diff=(dy-dx)>>sh_dn, diff2=(d45-d135)>>sh_dn, diff3=NE-NW;
+	int paper_GAP, calic_GAP;
+	if(dy+dx>32)
+		paper_GAP=(int)(((long long)dx*N+(long long)dy*W)/((long long)dy+dx));
+	else if(diff>12)
+		paper_GAP=(N+2*W)/3;
+	else if(diff<-12)
+		paper_GAP=(2*N+W)/3;
+	else
+		paper_GAP=(N+W)>>1;
+
+	if(diff2>32)
+		paper_GAP+=diff3>>2;
+	else if(diff2>16)
+		paper_GAP+=diff3*3>>4;
+	else if(diff2>=-16)
+		paper_GAP+=diff3>>3;
+	else if(diff2>=-32)
+		paper_GAP+=diff3>>4;
+
+	if(diff>80)
+		calic_GAP=W;
+	else if(diff<-80)
+		calic_GAP=N;
+	else if(diff>32)
+		calic_GAP=(2*N+6*W+NE-NW)>>3;		//c1	[1/4  3/4  1/8  -1/8].[N W NE NW]
+	else if(diff>8)
+		calic_GAP=(6*N+10*W+3*(NE-NW))>>4;	//c2	[3/8  5/8  3/16  -3/16]
+	else if(diff<-32)
+		calic_GAP=(6*N+2*W+NE-NW)>>3;		//c3	[3/4  1/4  1/8  -1/8]
+	else if(diff<-8)
+		calic_GAP=(10*N+6*W+3*(NE-NW))>>4;	//c4	[5/8  3/8  3/16  -3/16]
+	else
+		calic_GAP=(((N+W)<<1)+NE-NW)>>2;	//c5	[1/2  1/2  1/4  -1/4]
+	int j=0;
+	
+#define WG2_PRED(X) preds[j++]=X;
+	WG2_PREDLIST
+#undef  WG2_PRED
+	
+	lpred=0;
+	wsum=0;
+	for(int k=0;k<WG2_NPREDS;++k)
+	{
+		int weight=0xFFFFFFFF/(eprev[k]+1);
+		lpred+=(long long)weight*preds[k];
+		wsum+=weight;
+	}
+	lpred/=wsum+1;
+	pred=(int)lpred;
+	CLAMP3_32(pred, (int)lpred, N, W, NE);
+	return pred;
+}
+static void wg2_update(int curr24, const int *preds, int *eprev)
+{
+	for(int k=0;k<WG2_NPREDS;++k)
+	{
+		int err=abs(curr24-preds[k]);
+		eprev[k]+=err;
+		eprev[k]-=(eprev[k]+3)>>2;
+	}
+}
+#else
+#define STRIDE 6
+#endif
 static void block_enc(void *param)
 {
 	ThreadArgs *args=(ThreadArgs*)param;
@@ -369,10 +536,10 @@ static void block_enc(void *param)
 	{
 		ALIGN(16) int *rows[]=
 		{
-			args->pixels+((image->iw+16LL)*((ky-0LL)&3)+8LL)*6*NCHPOOL,
-			args->pixels+((image->iw+16LL)*((ky-1LL)&3)+8LL)*6*NCHPOOL,
-			args->pixels+((image->iw+16LL)*((ky-2LL)&3)+8LL)*6*NCHPOOL,
-			args->pixels+((image->iw+16LL)*((ky-3LL)&3)+8LL)*6*NCHPOOL,
+			args->pixels+((image->iw+16LL)*((ky-0LL)&3)+8LL)*STRIDE*NCHPOOL,
+			args->pixels+((image->iw+16LL)*((ky-1LL)&3)+8LL)*STRIDE*NCHPOOL,
+			args->pixels+((image->iw+16LL)*((ky-2LL)&3)+8LL)*STRIDE*NCHPOOL,
+			args->pixels+((image->iw+16LL)*((ky-3LL)&3)+8LL)*STRIDE*NCHPOOL,
 		};
 		short comp[NCHPOOL]={0};
 		short
@@ -385,20 +552,23 @@ static void block_enc(void *param)
 			*comp_pei9=comp_rct1+2;
 		int preds[PRED_COUNT]={0};
 		int wg_errors[8]={0};
+#ifdef ENABLE_WG2
+		int wg2_eprev[WG2_NPREDS]={0}, wg2_preds[WG2_NPREDS]={0}, wg2pred=0;
+#endif
 		for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
 		{
 			int
-				*NNN	=rows[3]+0*6*NCHPOOL,
-				*NN	=rows[2]+0*6*NCHPOOL,
-				*NNE	=rows[2]+1*6*NCHPOOL,
-				*NW	=rows[1]-1*6*NCHPOOL,
-				*N	=rows[1]+0*6*NCHPOOL,
-				*NE	=rows[1]+1*6*NCHPOOL,
-				*NEEE	=rows[1]+3*6*NCHPOOL,
-				*WWW	=rows[0]-3*6*NCHPOOL,
-				*WW	=rows[0]-2*6*NCHPOOL,
-				*W	=rows[0]-1*6*NCHPOOL,
-				*curr	=rows[0]+0*6*NCHPOOL;
+				*NNN	=rows[3]+0*STRIDE*NCHPOOL,
+				*NN	=rows[2]+0*STRIDE*NCHPOOL,
+				*NNE	=rows[2]+1*STRIDE*NCHPOOL,
+				*NW	=rows[1]-1*STRIDE*NCHPOOL,
+				*N	=rows[1]+0*STRIDE*NCHPOOL,
+				*NE	=rows[1]+1*STRIDE*NCHPOOL,
+				*NEEE	=rows[1]+3*STRIDE*NCHPOOL,
+				*WWW	=rows[0]-3*STRIDE*NCHPOOL,
+				*WW	=rows[0]-2*STRIDE*NCHPOOL,
+				*W	=rows[0]-1*STRIDE*NCHPOOL,
+				*curr	=rows[0]+0*STRIDE*NCHPOOL;
 			//          NNN
 			//          NN  NNE
 			//       NW N   NE  .  NEEE
@@ -501,7 +671,7 @@ static void block_enc(void *param)
 			comp_pei9[0]=comp_none[1]+((86*comp_j2kg[2]+29*comp_pei9[1]+128)>>8);//y5
 			for(int kc=0;kc<NCHPOOL;++kc)
 			{
-				int kc2=kc*6;
+				int kc2=kc*STRIDE;
 				int cgrad;
 				int wpred, wp_preds[4];
 #ifdef ENABLE_WG
@@ -520,10 +690,10 @@ static void block_enc(void *param)
 				preds[PRED_ZERO]=0;
 #endif
 			//	preds[PRED_N]=N[kc2];
-			//	preds[PRED_W]=W[kc2];
-				preds[PRED_AV2]=(N[kc2]+W[kc2])/2;
+				preds[PRED_W]=W[kc2];
+			//	preds[PRED_AV2]=(N[kc2]+W[kc2])/2;
 			//	preds[PRED_AV4]=(4*(N[kc2]+W[kc2])+NE[kc2]-NW[kc2])/8;
-			//	preds[PRED_AV5]=W[kc2]+(5*(N[kc2]-NW[kc2])+NE[kc2]-WW[kc2])/8;
+				CLAMP3_32(preds[PRED_AV5], W[kc2]+(5*(N[kc2]-NW[kc2])+NE[kc2]-WW[kc2])/8, N[kc2], W[kc2], NE[kc2]);
 				preds[PRED_CG]=cgrad;
 			//	CLAMP2_32(cgrad, cgrad+update, -halfs[kc], halfs[kc]-1);
 			//	preds[PRED_CGU]=cgrad;
@@ -531,7 +701,11 @@ static void block_enc(void *param)
 #ifdef ENABLE_WG
 				preds[PRED_WG]=wg_predict(NNN[kc2], NN[kc2], NNE[kc2], NW[kc2], N[kc2], NE[kc2], NEEE[kc2], WWW[kc2], WW[kc2], W[kc2], wg_errors, wg_preds);
 #endif
-
+#ifdef ENABLE_WG2
+				int depth=image->depth+depth_inf[kc];
+				wg2pred=wg2_predict(rows, STRIDE*NCHPOOL, kc2, 6, depth, wg2_eprev, wg2_preds);
+				preds[PRED_WG2]=wg2pred>>(24-depth);
+#endif
 				if((unsigned)(kc-3)<2)//{r, g, b, [r-g, b-g], JPEG2000_G, ...}
 				{
 					offset=comp[1];
@@ -557,28 +731,24 @@ static void block_enc(void *param)
 #ifdef ENABLE_WG
 				wg_update(comp[kc], wg_preds, wg_errors);
 #endif
+#ifdef ENABLE_WG2
+				{
+					int curr24=comp[kc]<<(24-depth);
+					curr[kc2+6]=curr24-wg2pred;
+					wg2_update(curr24, wg2_preds, wg2_eprev);
+				}
+#endif
 			}
-			rows[0]+=6*NCHPOOL;
-			rows[1]+=6*NCHPOOL;
-			rows[2]+=6*NCHPOOL;
-			rows[3]+=6*NCHPOOL;
+			rows[0]+=STRIDE*NCHPOOL;
+			rows[1]+=STRIDE*NCHPOOL;
+			rows[2]+=STRIDE*NCHPOOL;
+			rows[3]+=STRIDE*NCHPOOL;
 		}
 	}
 	for(int kc=0;kc<NCHPOOL*PRED_COUNT;++kc)
 	{
 		int *curr_hist=args->hist+((size_t)kc<<(image->depth+1));
-		//int nlevels2=1<<(image->depth+1);
 		int nlevels2=nlevels[kc/PRED_COUNT];
-		//for(int ks=nlevels2;ks<(1<<(image->depth+1));++ks)
-		//{
-		//	if(curr_hist[ks])
-		//		LOG_ERROR("");
-		//}
-		//int sum=0;
-		//for(int ks=0;ks<nlevels2;++ks)
-		//	sum+=curr_hist[ks];
-		//if(sum!=res)
-		//	LOG_ERROR("");
 		for(int ks=0;ks<nlevels2;++ks)
 		{
 			int freq=curr_hist[ks];
@@ -651,20 +821,6 @@ static void block_enc(void *param)
 			prednames[predidx[1]],
 			prednames[predidx[2]]
 		);
-		//double defsize=
-		//	csizes[combinations[3*2+0]*PRED_COUNT+PRED_WP]+
-		//	csizes[combinations[3*2+1]*PRED_COUNT+PRED_WP]+
-		//	csizes[combinations[3*2+2]*PRED_COUNT+PRED_WP];
-		//printf("Y %5d~%5d  default %12.2lf bytes  current %12.2lf bytes (%+12.2lf)  %s [YUV: %s %s %s]\n",
-		//	args->y1, args->y2,
-		//	defsize,
-		//	bestsize,
-		//	bestsize-defsize,
-		//	rctnames[bestrct],
-		//	prednames[predidx[0]],
-		//	prednames[predidx[1]],
-		//	prednames[predidx[2]]
-		//);
 		{
 			const char *poolnames[]=
 			{
@@ -752,6 +908,15 @@ static void block_enc(void *param)
 		int yuv[4]={0};
 		int wp_preds[8]={0}, wp_result=0;//wp_preds are reused in WG
 		int wg_errors[8]={0};
+#ifdef ENABLE_WG2
+		int wg2_eprev[WG2_NPREDS]={0}, wg2_preds[WG2_NPREDS]={0}, wg2pred=0;
+		int depths[]=
+		{
+			image->depth+depth_inf[combination[0]],
+			image->depth+depth_inf[combination[1]],
+			image->depth+depth_inf[combination[2]],
+		};
+#endif
 		for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
 		{
 			int
@@ -813,6 +978,7 @@ static void block_enc(void *param)
 			//if(idx==26147568)//
 			//if(idx==2304)//
 			//if(ky==0&&kx==64)//
+			//if(ky==1634&&kx==433)//
 			//	printf("");
 
 			switch(bestrct)//forward RCT
@@ -872,6 +1038,11 @@ static void block_enc(void *param)
 			for(int kc=0;kc<3;++kc)
 			{
 				int kc2=kc*7, pred=0, offset=0, ch=combination[kc], val, sym;
+#ifdef USE_T47CTX
+				int
+					vx=abs(W[kc2+1]-WW[kc2+1])+abs(N[kc2+1]-NW[kc2+1])+abs(NE[kc2+1]-N[kc2+1])+abs(WW[kc2+1]+W[kc2+1]),
+					vy=abs(W[kc2+1]-NW[kc2+1])+abs(N[kc2+1]-NN[kc2+1])+abs(NE[kc2+1]-NNE[kc2+1])+abs(NN[kc2+1]+N[kc2+1]);
+#endif
 				switch(predidx[kc])
 				{
 #ifdef ENABLE_ZERO
@@ -882,18 +1053,18 @@ static void block_enc(void *param)
 				//case PRED_N:
 				//	pred=N[kc2];
 				//	break;
-				//case PRED_W:
-				//	pred=W[kc2];
-				//	break;
-				case PRED_AV2:
-					pred=(N[kc2]+W[kc2])/2;
+				case PRED_W:
+					pred=W[kc2];
 					break;
+				//case PRED_AV2:
+				//	pred=(N[kc2]+W[kc2])/2;
+				//	break;
 				//case PRED_AV4:
 				//	pred=(4*(N[kc2]+W[kc2])+NE[kc2]-NW[kc2])/8;
 				//	break;
-				//case PRED_AV5:
-				//	pred=W[kc2]+(5*(N[kc2]-NW[kc2])+NE[kc2]-WW[kc2])/8;
-				//	break;
+				case PRED_AV5:
+					CLAMP3_32(pred, W[kc2]+(5*(N[kc2]-NW[kc2])+NE[kc2]-WW[kc2])/8, N[kc2], W[kc2], NE[kc2]);
+					break;
 				case PRED_CG:
 					MEDIAN3_32(pred, N[kc2], W[kc2], N[kc2]+W[kc2]-NW[kc2]);
 					break;
@@ -914,6 +1085,12 @@ static void block_enc(void *param)
 #ifdef ENABLE_WG
 				case PRED_WG:
 					pred=wg_predict(NNN[kc2], NN[kc2], NNE[kc2], NW[kc2], N[kc2], NE[kc2], NEEE[kc2], WWW[kc2], WW[kc2], W[kc2], wg_errors, wp_preds);
+					break;
+#endif
+#ifdef ENABLE_WG2
+				case PRED_WG2:
+					wg2pred=wg2_predict(rows, 7*4, kc2, 2, depths[kc], wg2_eprev, wg2_preds);
+					pred=wg2pred>>(24-depths[kc]);
 					break;
 #endif
 				}
@@ -941,8 +1118,13 @@ static void block_enc(void *param)
 #ifdef CTX_MIN_NW
 				int cidx=cdfstride*(nctx*kc+MINVAR(N[kc2+1], W[kc2+1]));
 #else
+#ifdef USE_T47CTX
+				int qeN=QUANTIZE_CTX(vy);
+				int qeW=QUANTIZE_CTX(vx);
+#else
 				int qeN=QUANTIZE_CTX(N[kc2+1]);
 				int qeW=QUANTIZE_CTX(W[kc2+1]);
+#endif
 				int cidx=cdfstride*(nctx*kc+args->clevels*qeN+qeW);
 #endif
 				int *curr_hist=args->hist+cidx;
@@ -952,11 +1134,14 @@ static void block_enc(void *param)
 				if((unsigned)token>=(unsigned)args->tlevels)
 					LOG_ERROR("Token OOB %d/%d", token, args->tlevels);
 #endif
+				//if(ky==1634&&kx==432&&kc==0)//
+				//	printf("");
+
 				ac_enc(&ec, token, curr_CDF);
 				if(nbits)
 					ac_enc_bypass(&ec, bypass, nbits);//up to 16 bits
 				
-#ifdef PROFILE_CSIZE
+#ifdef PROFILE_BYPASS
 				args->bypasssizes[kc]+=nbits;
 #endif
 				//if(curr_hist[token]+1>0x1800)//X
@@ -979,7 +1164,7 @@ static void block_enc(void *param)
 #endif
 #else
 				int nbits=FLOOR_LOG2(W[kc2+1]+1);
-#ifdef PROFILE_CSIZE
+#ifdef PROFILE_BYPASS
 				args->bypasssizes[kc]+=nbits;
 #endif
 				//if(ky<4)
@@ -1032,6 +1217,14 @@ static void block_enc(void *param)
 #ifdef ENABLE_WG
 				else if(predidx[kc]==PRED_WG)
 					wg_update(curr[kc2+0], wp_preds, wg_errors);
+#endif
+#ifdef ENABLE_WG2
+				else if(predidx[kc]==PRED_WG2)
+				{
+					int curr24=curr[kc2+0]<<(24-depths[kc]);
+					curr[kc2+2]=curr24-wg2pred;
+					wg2_update(curr24, wg2_preds, wg2_eprev);
+				}
 #endif
 			}
 			rows[0]+=7*4;
@@ -1120,6 +1313,15 @@ static void block_dec(void *param)
 		int yuv[4]={0};
 		int wp_preds[8]={0}, wp_result=0;//wp_preds are reused in WG
 		int wg_errors[8]={0};
+#ifdef ENABLE_WG2
+		int wg2_eprev[WG2_NPREDS]={0}, wg2_preds[WG2_NPREDS]={0}, wg2pred=0;
+		int depths[]=
+		{
+			image->depth+depth_inf[combination[0]],
+			image->depth+depth_inf[combination[1]],
+			image->depth+depth_inf[combination[2]],
+		};
+#endif
 		for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
 		{
 			int
@@ -1181,11 +1383,17 @@ static void block_dec(void *param)
 			//if(idx==26147568)//
 			//if(idx==2304)//
 			//if(ky==0&&kx==64)//
+			//if(ky==1634&&kx==433)//
 			//	printf("");
 
 			for(int kc=0;kc<3;++kc)
 			{
 				int kc2=kc*7, pred=0, offset=0, ch=combination[kc], val, sym;
+#ifdef USE_T47CTX
+				int
+					vx=abs(W[kc2+1]-WW[kc2+1])+abs(N[kc2+1]-NW[kc2+1])+abs(NE[kc2+1]-N[kc2+1])+abs(WW[kc2+1]+W[kc2+1]),
+					vy=abs(W[kc2+1]-NW[kc2+1])+abs(N[kc2+1]-NN[kc2+1])+abs(NE[kc2+1]-NNE[kc2+1])+abs(NN[kc2+1]+N[kc2+1]);
+#endif
 				switch(predidx[kc])//WP
 				{
 #ifdef ENABLE_ZERO
@@ -1196,18 +1404,18 @@ static void block_dec(void *param)
 				//case PRED_N:
 				//	pred=N[kc2];
 				//	break;
-				//case PRED_W:
-				//	pred=W[kc2];
-				//	break;
-				case PRED_AV2:
-					pred=(N[kc2]+W[kc2])/2;
+				case PRED_W:
+					pred=W[kc2];
 					break;
+				//case PRED_AV2:
+				//	pred=(N[kc2]+W[kc2])/2;
+				//	break;
 				//case PRED_AV4:
 				//	pred=(4*(N[kc2]+W[kc2])+NE[kc2]-NW[kc2])/8;
 				//	break;
-				//case PRED_AV5:
-				//	pred=W[kc2]+(5*(N[kc2]-NW[kc2])+NE[kc2]-WW[kc2])/8;
-				//	break;
+				case PRED_AV5:
+					CLAMP3_32(pred, W[kc2]+(5*(N[kc2]-NW[kc2])+NE[kc2]-WW[kc2])/8, N[kc2], W[kc2], NE[kc2]);
+					break;
 				case PRED_CG:
 					MEDIAN3_32(pred, N[kc2], W[kc2], N[kc2]+W[kc2]-NW[kc2]);
 					break;
@@ -1230,6 +1438,12 @@ static void block_dec(void *param)
 					pred=wg_predict(NNN[kc2], NN[kc2], NNE[kc2], NW[kc2], N[kc2], NE[kc2], NEEE[kc2], WWW[kc2], WW[kc2], W[kc2], wg_errors, wp_preds);
 					break;
 #endif
+#ifdef ENABLE_WG2
+				case PRED_WG2:
+					wg2pred=wg2_predict(rows, 7*4, kc2, 2, image->depth+depth_inf[ch], wg2_eprev, wg2_preds);
+					pred=wg2pred>>(24-depths[kc]);
+					break;
+#endif
 				}
 				if(bestrct==RCT_SUBG&&kc>0)
 				{
@@ -1241,12 +1455,20 @@ static void block_dec(void *param)
 #ifdef CTX_MIN_NW
 				int cidx=cdfstride*(nctx*kc+MINVAR(N[kc2+1], W[kc2+1]));
 #else
+#ifdef USE_T47CTX
+				int qeN=QUANTIZE_CTX(vy);
+				int qeW=QUANTIZE_CTX(vx);
+#else
 				int qeN=QUANTIZE_CTX(N[kc2+1]);
 				int qeW=QUANTIZE_CTX(W[kc2+1]);
+#endif
 				int cidx=cdfstride*(nctx*kc+args->clevels*qeN+qeW);
 #endif
 				int *curr_hist=args->hist+cidx;
 				unsigned *curr_CDF=args->stats+cidx;
+				
+				//if(ky==1634&&kx==432&&kc==0)//
+				//	printf("");
 
 				token=ac_dec(&ec, curr_CDF, args->tlevels);//try ac_dec_packedsign()
 				sym=token;
@@ -1347,6 +1569,14 @@ static void block_dec(void *param)
 #ifdef ENABLE_WG
 				else if(predidx[kc]==PRED_WG)
 					wg_update(curr[kc2+0], wp_preds, wg_errors);
+#endif
+#ifdef ENABLE_WG2
+				else if(predidx[kc]==PRED_WG2)
+				{
+					int curr24=curr[kc2+0]<<(24-depths[kc]);
+					curr[kc2+2]=curr24-wg2pred;
+					wg2_update(curr24, wg2_preds, wg2_eprev);
+				}
 #endif
 			}
 			switch(bestrct)//forward RCT
@@ -1463,7 +1693,11 @@ int f24_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		clevels=token+1;
 		statssize=clevels*(tlevels+1)*image->nch*(int)sizeof(int);
 #else
+#ifdef USE_T47CTX
+		clevels=quantize_ctx(nlevels<<1)+1;
+#else
 		clevels=quantize_ctx(nlevels>>1)<<1|1;
+#endif
 		statssize=clevels*clevels*(tlevels+1)*image->nch*(int)sizeof(int);
 #endif
 		if(fwd)
@@ -1482,7 +1716,7 @@ int f24_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		ThreadArgs *arg=args+k;
 		arg->src=src;
 		arg->dst=dst;
-		arg->bufsize=sizeof(int[4*NCHPOOL*6])*(image->iw+16LL);//4 padded rows * NCHPOOL * {pixels, hires-errors, 4 pred hires-errors}
+		arg->bufsize=sizeof(int[4*NCHPOOL*STRIDE])*(image->iw+16LL);//4 padded rows * NCHPOOL * {pixels, hires-errors, 4 pred hires-errors}
 		arg->pixels=(int*)_mm_malloc(arg->bufsize, sizeof(__m128i));
 #ifdef USE_AC
 		arg->tlevels=tlevels;
@@ -1535,7 +1769,7 @@ int f24_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		unsigned short *pal;
 #endif
 		double bestsize=0;
-#ifdef PROFILE_CSIZE
+#ifdef PROFILE_BYPASS
 		double bypasstotal=0;
 #endif
 		ptrdiff_t start_dst, start_blocksizes;
@@ -1617,7 +1851,7 @@ int f24_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						printf("block,  nrows,  usize,     best  ->  actual,  (actual-best)\n");
 					printf(
 						"[%3d]  %4d  %8d  %11.2lf -> %8zd bytes  (%+11.2lf)"
-#ifdef PROFILE_CSIZE
+#ifdef PROFILE_BYPASS
 						"  bypass %7td+%7td+%7td=%8td (%8.4lf%%)"
 #endif
 						"  %s %s %s %s\n",
@@ -1627,7 +1861,7 @@ int f24_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						arg->bestsize,
 						arg->list.nobj,
 						(double)arg->list.nobj-arg->bestsize,
-#ifdef PROFILE_CSIZE
+#ifdef PROFILE_BYPASS
 						arg->bypasssizes[0]>>3,
 						arg->bypasssizes[1]>>3,
 						arg->bypasssizes[2]>>3,
@@ -1644,7 +1878,7 @@ int f24_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					hist_pred[arg->predidx[0]]+=cbsize;
 					hist_pred[arg->predidx[1]]+=cbsize;
 					hist_pred[arg->predidx[2]]+=cbsize;
-#ifdef PROFILE_CSIZE
+#ifdef PROFILE_BYPASS
 					bypasstotal+=(arg->bypasssizes[0]+arg->bypasssizes[1]+arg->bypasssizes[2])/8.;
 #endif
 				}
@@ -1705,7 +1939,7 @@ int f24_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				100.*csize/usize,
 				(double)usize/csize
 			);
-#ifdef PROFILE_CSIZE
+#ifdef PROFILE_BYPASS
 			printf("bypass %.2lf %lf%%\n", bypasstotal, 100.*bypasstotal/csize);
 #endif
 			printf("E %16.6lf sec  %16.6lf MB/s  Mem usage: ", t0, usize/(t0*1024*1024));
