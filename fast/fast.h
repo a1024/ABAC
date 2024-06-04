@@ -184,6 +184,7 @@ int	f23_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 int	f24_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
 #define f24_encode(SRC, DATA, LOUD)		f24_codec(SRC, DATA, 0, 0, 0, LOUD)
 #define f24_decode(CBUF, CSIZE, DST, LOUD)	f24_codec(0, 0, CBUF, CSIZE, DST, LOUD)
+void	f24_curiosity();
 
 
 #ifdef __cplusplus

@@ -245,7 +245,7 @@ static void batch_test_mt(const char *path, int nthreads)
 	g_total_csize=0;
 	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H%M%S");
 	printf("%s\n", g_buf);
-	printf("Multithreaded Batch Test %s\n", CODECNAME);
+	printf("Multithreaded Batch Test %s  \"%s\"\n", CODECNAME, path);
 	double t_start=time_sec();
 	check_time=start_time=t_start;
 	ArrayHandle filenames=get_filenames(path, ext, _countof(ext), 1);
@@ -310,6 +310,9 @@ static void batch_test_mt(const char *path, int nthreads)
 		print_result(&total, "Total:", width, 2);
 		array_free(&processctx.results);
 	}
+#if CODECID==24
+	f24_curiosity();
+#endif
 	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H%M%S");
 	printf("Finish %s\n", g_buf);
 
@@ -364,7 +367,7 @@ int main(int argc, char **argv)
 	//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
 	//	"D:/ML/dataset-kodak-ppm/kodim20.ppm"
 	//	"D:/ML/dataset-kodak/kodim13.png"
-		"D:/ML/big_building.PPM"
+	//	"D:/ML/big_building.PPM"
 	//	"D:/ML/big_building.LSIM"
 	//	"D:/ML/20240407 blank.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
@@ -379,6 +382,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-LPCB-ppm/STA13456.ppm"	//uncorrelated channels
 	//	"C:/dataset-LPCB-ppm/STA13844.ppm"	//space gas clouds, 6800^2
 	//	"D:/ML/dataset-RAW/a0001-jmac_DSC1459.dng"
+		"D:/ML/dataset-kodak-small"
 
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim24.ppm"	//borderless

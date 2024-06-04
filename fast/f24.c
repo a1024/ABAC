@@ -25,7 +25,11 @@ static const char file[]=__FILE__;
 	#define ENABLE_WG3	//good
 	#define FOLD_OOB	//good
 //	#define USE_T47CTX	//bad
-	#define USE_FP64
+	#define USE_FP64	//4% faster
+	#define WG_DECAY_NUM	493	//493	//3	//230
+	#define WG_DECAY_SH	9	//9	//2	//8
+	#define WG3_DECAY_NUM	493
+	#define WG3_DECAY_SH	9
 
 #include"ac.h"
 #define BLOCKSIZE 256
@@ -120,6 +124,7 @@ static const char *prednames[PRED_COUNT]=
 	"WG3 ",
 #endif
 };
+long long rct_gains[RCT_COUNT]={0}, pred_gains[PRED_COUNT]={0};
 typedef struct _ThreadArgs
 {
 	const Image *src;
@@ -383,7 +388,7 @@ static int wg_predict(int NNN, int NN, int NNE, int NW, int N, int NE, int NEEE,
 static void wg_update(int curr, const int *preds, int *eW)
 {
 	for(int k=0;k<8;++k)
-		eW[k]=(eW[k]+abs(curr-preds[k]))*0xE6>>8;
+		eW[k]=(eW[k]+abs(curr-preds[k]))*WG_DECAY_NUM>>WG_DECAY_SH;
 }
 #endif
 #ifdef ENABLE_WG2
@@ -598,7 +603,7 @@ static int wg3_predict(int cgrad, int NNN, int NN, int NNE, int NW, int N, int N
 static void wg3_update(int curr, const int *preds, int *eW)
 {
 	for(int k=0;k<WG3_NPREDS;++k)
-		eW[k]=(eW[k]+abs(curr-preds[k]))*0xE6>>8;
+		eW[k]=(eW[k]+abs(curr-preds[k]))*WG3_DECAY_NUM>>WG3_DECAY_SH;
 }
 #endif
 static void block_enc(void *param)
@@ -877,7 +882,7 @@ static void block_enc(void *param)
 	int bestrct=0;
 	double bestsize;
 	const int *group;
-	char predsel[NCHPOOL]={0};
+	int predsel[NCHPOOL]={0};
 	for(int k=0;k<NCHPOOL;++k)
 	{
 		int best=0;
@@ -1215,10 +1220,12 @@ static void block_enc(void *param)
 					pred=wg2pred>>(24-depths[kc]);
 					break;
 #endif
+#ifdef ENABLE_WG3
 				case PRED_WG3:
 					MEDIAN3_32(pred, N[kc2], W[kc2], N[kc2]+W[kc2]-NW[kc2]);
 					pred=wg3_predict(pred, NNN[kc2], NN[kc2], NNE[kc2], NW[kc2], N[kc2], NE[kc2], NEE[kc2], NEEE[kc2], WWW[kc2], WW[kc2], W[kc2], wg3_eprev, wg3_preds);
 					break;
+#endif
 				}
 				if(bestrct==RCT_SUBG&&kc>0)
 				{
@@ -1584,10 +1591,12 @@ static void block_dec(void *param)
 					pred=wg2pred>>(24-depths[kc]);
 					break;
 #endif
+#ifdef ENABLE_WG3
 				case PRED_WG3:
 					MEDIAN3_32(pred, N[kc2], W[kc2], N[kc2]+W[kc2]-NW[kc2]);
 					pred=wg3_predict(pred, NNN[kc2], NN[kc2], NNE[kc2], NW[kc2], N[kc2], NE[kc2], NEE[kc2], NEEE[kc2], WWW[kc2], WW[kc2], W[kc2], wg3_eprev, wg3_preds);
 					break;
+#endif
 				}
 				if(bestrct==RCT_SUBG&&kc>0)
 				{
@@ -1992,11 +2001,11 @@ int f24_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			for(int kt2=0;kt2<nthreads2;++kt2)
 			{
 				ThreadArgs *arg=args+kt2;
+				int
+					blocksize=(image->iw*(arg->y2-arg->y1)*image->nch*image->depth+7)>>3,
+					cbsize=(image->iw*(arg->y2-arg->y1)*image->depth+7)>>3;
 				if(loud)
 				{
-					int
-						blocksize=(image->iw*(arg->y2-arg->y1)*image->nch*image->depth+7)>>3,
-						cbsize=(image->iw*(arg->y2-arg->y1)*image->depth+7)>>3;
 					if(!(kt+kt2))
 						printf("block,  nrows,  usize,     best  ->  actual,  (actual-best)\n");
 					printf(
@@ -2032,6 +2041,11 @@ int f24_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					bypasstotal+=(arg->bypasssizes[0]+arg->bypasssizes[1]+arg->bypasssizes[2])/8.;
 #endif
 				}
+				rct_gains[arg->bestrct]+=blocksize;
+				pred_gains[arg->predidx[0]]+=cbsize;
+				pred_gains[arg->predidx[1]]+=cbsize;
+				pred_gains[arg->predidx[2]]+=cbsize;
+
 				memcpy(data[0]->data+start_blocksizes+sizeof(int)*((ptrdiff_t)kt+kt2), &arg->list.nobj, sizeof(int));
 				dlist_appendtoarray(&arg->list, data);
 				dlist_clear(&arg->list);
@@ -2244,4 +2258,36 @@ int f24_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	}
 	free(args);
 	return 0;
+}
+void f24_curiosity()
+{
+	long long sum;
+
+	printf("RCTs:\n");
+	sum=0;
+	for(int k=0;k<RCT_COUNT;++k)
+		sum+=rct_gains[k];
+	for(int k=0;k<RCT_COUNT;++k)
+	{
+		int nstars=(int)(rct_gains[k]*60LL/sum);
+		printf("%s %12lld %8.4lf%% ", rctnames[k], rct_gains[k], 100.*rct_gains[k]/sum);
+		for(int k2=0;k2<nstars;++k2)
+			printf("*");
+		printf("\n");
+	}
+	printf("\n");
+
+	printf("Predictors:\n");
+	sum=0;
+	for(int k=0;k<PRED_COUNT;++k)
+		sum+=pred_gains[k];
+	for(int k=0;k<PRED_COUNT;++k)
+	{
+		int nstars=(int)(pred_gains[k]*60LL/sum);
+		printf("%s %12lld %8.4lf%% ", prednames[k], pred_gains[k], 100.*pred_gains[k]/sum);
+		for(int k2=0;k2<nstars;++k2)
+			printf("*");
+		printf("\n");
+	}
+	printf("\n");
 }
