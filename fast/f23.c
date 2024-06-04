@@ -14,9 +14,9 @@ static const char file[]=__FILE__;
 
 //	#define ENABLE_GUIDE
 //	#define DISABLE_MT
-//	#define UNROLL_DECODER//binary incompatible!
 
-	#define DISABLE_WGRAD//do not comment this
+//	#define UNROLL_DECODER//bad, binary incompatible!
+//	#define ENABLE_WGRAD//bad
 
 
 #include"ac.h"
@@ -47,7 +47,7 @@ static int clampav(int NW, int N, int NE, int WW, int W)
 	_mm_store_si128((__m128i*)pred, vd);
 	return pred[0];
 }
-#ifndef DISABLE_WGRAD
+#ifdef ENABLE_WGRAD
 static int wgrad(int N, int W, int X, int Y)//(X*N+Y*W)/(X+Y)
 {
 #ifdef _MSC_VER
@@ -734,14 +734,14 @@ static void block_thread(void *param)
 				args->pixels+(((image->iw+16LL)*((ky-2LL)&3)+8)<<3),
 				args->pixels+(((image->iw+16LL)*((ky-3LL)&3)+8)<<3),
 			};
-#ifndef DISABLE_WGRAD
+#ifdef ENABLE_WGRAD
 			ALIGN(16) int X[4]={0}, Y[4]={0};
 #endif
 			int preds[MAXPREDS]={0}, j;
 			for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
 			{
 				int
-#ifndef DISABLE_WGRAD
+#ifdef ENABLE_WGRAD
 					*NN	=rows[2]+0*8,
 					*NNE	=rows[2]+1*8,
 					*NE	=rows[1]+1*8,
@@ -753,7 +753,7 @@ static void block_thread(void *param)
 					*curr	=rows[0]+0*8;
 				for(int kc=0;kc<image->nch;++kc)
 					curr[kc]=image->data[idx+kc];
-#ifndef DISABLE_WGRAD
+#ifdef ENABLE_WGRAD
 				{
 					__m128i mX=_mm_set1_epi32(1);
 					__m128i mY=mX;
@@ -804,7 +804,7 @@ static void block_thread(void *param)
 				}
 				rows[0]+=8;
 				rows[1]+=8;
-#ifndef DISABLE_WGRAD
+#ifdef ENABLE_WGRAD
 				rows[2]+=8;
 				rows[3]+=8;
 #endif
@@ -908,14 +908,14 @@ static void block_thread(void *param)
 				args->pixels+(((image->iw+16LL)*((ky-2LL)&3)+8)<<3),
 				args->pixels+(((image->iw+16LL)*((ky-3LL)&3)+8)<<3),
 			};
-#ifndef DISABLE_WGRAD
+#ifdef ENABLE_WGRAD
 			ALIGN(16) int X[4]={0}, Y[4]={0};
 #endif
 			ALIGN(16) int val[4]={0};
 			for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
 			{
 				int
-#ifndef DISABLE_WGRAD
+#ifdef ENABLE_WGRAD
 					*NN	=rows[2]+0*8,
 					*NNE	=rows[2]+1*8,
 					*NE	=rows[1]+1*8,
@@ -926,7 +926,7 @@ static void block_thread(void *param)
 					*NEEE	=rows[1]+3*8,
 					*W	=rows[0]-1*8,
 					*curr	=rows[0]+0*8;
-#ifndef DISABLE_WGRAD
+#ifdef ENABLE_WGRAD
 				{
 					__m128i mX=_mm_set1_epi32(1);
 					__m128i mY=mX;
@@ -990,7 +990,7 @@ static void block_thread(void *param)
 #endif
 				rows[0]+=8;
 				rows[1]+=8;
-#ifndef DISABLE_WGRAD
+#ifdef ENABLE_WGRAD
 				rows[2]+=8;
 				rows[3]+=8;
 #endif
@@ -1046,7 +1046,7 @@ static void block_thread(void *param)
 				args->pixels+(((image->iw+16LL)*((ky-2LL)&3)+8)<<3),
 				args->pixels+(((image->iw+16LL)*((ky-3LL)&3)+8)<<3),
 			};
-#ifndef DISABLE_WGRAD
+#ifdef ENABLE_WGRAD
 			ALIGN(16) int X[4]={0}, Y[4]={0};
 #endif
 			ALIGN(16) int val[4]={0};
@@ -1054,7 +1054,7 @@ static void block_thread(void *param)
 			for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
 			{
 				int
-#ifndef DISABLE_WGRAD
+#ifdef ENABLE_WGRAD
 					*NN	=rows[2]+0*8,
 					*NNE	=rows[2]+1*8,
 					*NE	=rows[1]+1*8,
@@ -1065,7 +1065,7 @@ static void block_thread(void *param)
 					*NEEE	=rows[1]+3*8,
 					*W	=rows[0]-1*8,
 					*curr	=rows[0]+0*8;
-#ifndef DISABLE_WGRAD
+#ifdef ENABLE_WGRAD
 				{
 					__m128i mX=_mm_set1_epi32(1);
 					__m128i mY=mX;
@@ -1304,7 +1304,7 @@ static void block_thread(void *param)
 #endif
 				rows[0]+=8;
 				rows[1]+=8;
-#ifndef DISABLE_WGRAD
+#ifdef ENABLE_WGRAD
 				rows[2]+=8;
 				rows[3]+=8;
 #endif

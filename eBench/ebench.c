@@ -105,7 +105,8 @@ typedef enum TransformTypeEnum
 	ST_FWD_PU,		ST_INV_PU,
 	ST_FWD_CG3D,		ST_INV_CG3D,
 	ST_FWD_WGRAD,		ST_INV_WGRAD,
-	ST_FWD_WGRAD2,		ST_INV_WGRAD2,
+//	ST_FWD_WGRAD2,		ST_INV_WGRAD2,
+	ST_FWD_WGRAD3,		ST_INV_WGRAD3,
 	ST_FWD_CLAMPGRAD,	ST_INV_CLAMPGRAD,
 	ST_FWD_AV2,		ST_INV_AV2,
 //	ST_FWD_ECOEFF,		ST_INV_ECOEFF,
@@ -1481,8 +1482,10 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_AV2:		a=" S Inv (N+W)>>1";		break;
 	case ST_FWD_WGRAD:		a="CS Fwd WGrad";		break;
 	case ST_INV_WGRAD:		a="CS Inv WGrad";		break;
-	case ST_FWD_WGRAD2:		a="CS Fwd WGrad2";		break;
-	case ST_INV_WGRAD2:		a="CS Inv WGrad2";		break;
+//	case ST_FWD_WGRAD2:		a="CS Fwd WGrad2";		break;
+//	case ST_INV_WGRAD2:		a="CS Inv WGrad2";		break;
+	case ST_FWD_WGRAD3:		a="CS Fwd WGrad3";		break;
+	case ST_INV_WGRAD3:		a="CS Inv WGrad3";		break;
 //	case ST_FWD_ECOEFF:		a=" S Fwd E-Coeff";		break;
 //	case ST_INV_ECOEFF:		a=" S Inv E-Coeff";		break;
 //	case ST_FWD_AVERAGE:		a=" S Fwd Average";		break;
@@ -2559,8 +2562,10 @@ void apply_selected_transforms(Image *image, int rct_only)
 		case ST_INV_AV2:		pred_av2(image, 0);					break;
 		case ST_FWD_WGRAD:		pred_wgrad(image, 1);					break;
 		case ST_INV_WGRAD:		pred_wgrad(image, 0);					break;
-		case ST_FWD_WGRAD2:		pred_wgrad2(image, 1);					break;
-		case ST_INV_WGRAD2:		pred_wgrad2(image, 0);					break;
+	//	case ST_FWD_WGRAD2:		pred_wgrad2(image, 1);					break;
+	//	case ST_INV_WGRAD2:		pred_wgrad2(image, 0);					break;
+		case ST_FWD_WGRAD3:		pred_wgrad3(image, 1);					break;
+		case ST_INV_WGRAD3:		pred_wgrad3(image, 0);					break;
 	//	case ST_FWD_ECOEFF:		pred_ecoeff(image, 1, pred_ma_enabled);			break;
 	//	case ST_INV_ECOEFF:		pred_ecoeff(image, 0, pred_ma_enabled);			break;
 	//	case ST_FWD_AVERAGE:		pred_average(image, 1, pred_ma_enabled);		break;
@@ -6345,6 +6350,7 @@ void io_render(void)
 			{
 				double mfwd[9]={0}, minv[9]={0};
 				//double mprod[9]={0};
+
 				rct_custom_getmatrix(mfwd, 1);
 				rct_custom_getmatrix(minv, 0);
 				//for(int ky=0;ky<3;++ky)

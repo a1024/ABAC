@@ -3,6 +3,9 @@
 #include<stdlib.h>
 #include<string.h>
 #include<math.h>
+#ifdef _MSC_VER
+#include<intrin.h>
+#endif
 #include<immintrin.h>
 static const char file[]=__FILE__;
 
@@ -11,24 +14,25 @@ static const char file[]=__FILE__;
 //	#define DISABLE_MT
 //	#define PROFILE_BYPASS
 
-
-#include"ac.h"
-#ifdef ENABLE_GUIDE
-static const Image *guide=0;
-#endif
-
 	#define USE_PALETTE
 	#define USE_AC		//good
 //	#define USE_GRABAC	//bad
 //	#define CTX_MIN_NW	//bad
 //	#define ENABLE_ZERO	//bad	incompatible with quantized entropy coder
+	#define ENABLE_WP	//good
 	#define ENABLE_WG	//good
-	#define ENABLE_WG2
+//	#define ENABLE_WG2	//2x slower, not worth the penalty
+	#define ENABLE_WG3	//good
 	#define FOLD_OOB	//good
 //	#define USE_T47CTX	//bad
+	#define USE_FP64
 
+#include"ac.h"
 #define BLOCKSIZE 256
 #define NCHPOOL 15
+#ifdef ENABLE_GUIDE
+static const Image *guide=0;
+#endif
 #if defined ENABLE_GUIDE && defined USE_PALETTE
 static Image g_palimage={0};
 #endif
@@ -70,18 +74,23 @@ typedef enum PredTypeEnum
 	PRED_ZERO,
 #endif
 //	PRED_N,
-	PRED_W,
+//	PRED_W,
 //	PRED_AV2,
 //	PRED_AV4,
-	PRED_AV5,
+//	PRED_AV5,
 	PRED_CG,
 //	PRED_CGU,
+#ifdef ENABLE_WP
 	PRED_WP,
+#endif
 #ifdef ENABLE_WG
 	PRED_WG,
 #endif
 #ifdef ENABLE_WG2
 	PRED_WG2,
+#endif
+#ifdef ENABLE_WG3
+	PRED_WG3,
 #endif
 
 	PRED_COUNT,
@@ -92,18 +101,23 @@ static const char *prednames[PRED_COUNT]=
 	"Zero",
 #endif
 //	"N   ",
-	"W   ",
+//	"W   ",
 //	"Av2 ",
 //	"Av4 ",
-	"Av5 ",
+//	"Av5 ",
 	"CG  ",
 //	"CGU ",
+#ifdef ENABLE_WP
 	"WP  ",
+#endif
 #ifdef ENABLE_WG
 	"WG  ",
 #endif
 #ifdef ENABLE_WG2
 	"WG2 ",
+#endif
+#ifdef ENABLE_WG3
+	"WG3 ",
 #endif
 };
 typedef struct _ThreadArgs
@@ -141,22 +155,23 @@ static const int combinations[RCT_COUNT*3]=
 	11, 12,  7,//RCT_1
 	13, 14,  7,//RCT_PEI09
 };
-static const int wp_param_idx[NCHPOOL]=
-{
-	0, 1, 2,	//RCT_NONE
-	2, 1,		//RCT_SubG
-	0, 1, 2,	//RCT_J2KG
-	0, 2,		//RCT_J2KB
-	0,		//RCT_J2KR
-	0, 1,		//RCT_1
-	0, 1,		//RCT_Pei09
-};
 static const int depth_inf[NCHPOOL]=
 {
 	0, 0, 0,	//RCT_NONE
 	0, 0,		//RCT_SubG (causal RCT)
 	0, 1, 1,	//RCT_J2KG
 	0, 1,		//RCT_J2KB
+	0,		//RCT_J2KR
+	0, 1,		//RCT_1
+	0, 1,		//RCT_Pei09
+};
+#ifdef ENABLE_WP
+static const int wp_param_idx[NCHPOOL]=
+{
+	0, 1, 2,	//RCT_NONE
+	2, 1,		//RCT_SubG
+	0, 1, 2,	//RCT_J2KG
+	0, 2,		//RCT_J2KB
 	0,		//RCT_J2KR
 	0, 1,		//RCT_1
 	0, 1,		//RCT_Pei09
@@ -168,6 +183,7 @@ static const short wp_params[WP_NPARAMS*3]=//signed fixed 7.8 bit
 	0x064C,  0x0F31,  0x1040,  0x0BF8, -0x0007, -0x000D, -0x0085, -0x0063, -0x00A2, -0x0017,  0x00F2,//Cb
 	0x0B37,  0x110B,  0x121B,  0x0BFC, -0x0001,  0x000E, -0x0188, -0x00E7, -0x00BB, -0x004A,  0x00BA,//Cr
 };
+#endif
 #ifdef USE_AC
 
 #define CDFSTRIDE 64
@@ -276,21 +292,22 @@ static void init_stats(int *hist, unsigned *stats, int tlevels, int clevels, int
 	}
 }
 #endif
+#ifdef ENABLE_WP
 static int wp_predict(const short *params, int NN, int NW, int N, int NE, int W, const int *eNW, const int *eN, const int *eNE, const int *eW, int *preds)
 {
 	int pred;
 	long long lpred=0, wsum=0;
 	preds[0]=(W+NE-N)<<8;
-	preds[1]=(N<<8)-((eN[0]+eW[0]+eNE[0])*params[4]>>8);
-	preds[2]=(W<<8)-((eN[0]+eW[0]+eNW[0])*params[5]>>8);
-	preds[3]=(N<<8)-(((eNW[0]*params[6]+eN[0]*params[7]+eNE[0]*params[8])>>8)+(NN-N)*params[9]+(NW-W)*params[10]);
+	preds[1]=(N<<8)-((eN[0]+eW[0]+eNE[0])*params[4]/0x100);
+	preds[2]=(W<<8)-((eN[0]+eW[0]+eNW[0])*params[5]/0x100);
+	preds[3]=(N<<8)-(((eNW[0]*params[6]+eN[0]*params[7]+eNE[0]*params[8])/0x100)+(NN-N)*params[9]+(NW-W)*params[10]);
 	for(int k=0;k<4;++k)
 	{
 		int weight=(params[k]<<8)/(eNW[k+1]+eN[k+1]+eNE[k+1]+1);
 		lpred+=(long long)weight*preds[k];
 		wsum+=weight;
 	}
-	lpred+=(wsum>>1)-1;
+	lpred+=wsum/2-1;
 	lpred/=wsum+1;
 	if(!wsum)
 		lpred=preds[0];
@@ -308,11 +325,16 @@ static void wp_update(int curr, int pred, const int *preds, int *ecurr, int *eNE
 		eNE[k+1]+=e2;
 	}
 }
+#endif
 #ifdef ENABLE_WG
 static int wg_predict(int NNN, int NN, int NNE, int NW, int N, int NE, int NEEE, int WWW, int WW, int W, const int *eW, int *preds)
 {
 	int pred;
-	long long lpred=0, wsum=0;
+#ifdef USE_FP64
+	double pred2=0, wsum=0;
+#else
+	long long pred2=0, wsum=0;
+#endif
 
 	preds[0]=N+W-NW;
 	preds[1]=W+NE-N;
@@ -321,29 +343,47 @@ static int wg_predict(int NNN, int NN, int NNE, int NW, int N, int NE, int NEEE,
 	preds[4]=W;
 	preds[5]=3*(N-NN)+NNN;
 	preds[6]=3*(W-WW)+WWW;
-	preds[7]=(W+NEEE)>>1;
+	preds[7]=(W+NEEE)/2;
 	
-	lpred=0;
-	wsum=0;
 	for(int k=0;k<8;++k)
 	{
-		int weight=0x1000000/(eW[k]+1);
-		lpred+=(long long)weight*preds[k];
+#ifdef USE_FP64
+		double weight=1./(eW[k]+1);
+		pred2+=weight*preds[k];
 		wsum+=weight;
+#else
+		int weight=0x1000000/(eW[k]+1);
+		pred2+=(long long)weight*preds[k];
+		wsum+=weight;
+#endif
 	}
-	lpred/=wsum+1;
-	pred=(int)lpred;
-	CLAMP3_32(pred, (int)lpred, N, W, NE);
+	pred2/=wsum;
+#ifdef USE_FP64
+#ifdef _MSC_VER
+	pred=_cvt_dtoi_fast(pred2);
+#else
+	pred=(int)pred2;
+#endif
+#else
+	pred=(int)pred2;
+#endif
+	//lpred=0;
+	//wsum=0;
+	//for(int k=0;k<8;++k)
+	//{
+	//	int weight=0x1000000/(eW[k]+1);
+	//	lpred+=(long long)weight*preds[k];
+	//	wsum+=weight;
+	//}
+	//lpred/=wsum+1;
+	//pred=(int)lpred;
+	CLAMP3_32(pred, pred, N, W, NE);
 	return pred;
 }
 static void wg_update(int curr, const int *preds, int *eW)
 {
 	for(int k=0;k<8;++k)
-	{
-		int err=abs(curr-preds[k]);
-		eW[k]+=err;
-		eW[k]-=(eW[k]+3)>>2;
-	}
+		eW[k]=(eW[k]+abs(curr-preds[k]))*0xE6>>8;
 }
 #endif
 #ifdef ENABLE_WG2
@@ -500,6 +540,67 @@ static void wg2_update(int curr24, const int *preds, int *eprev)
 #else
 #define STRIDE 6
 #endif
+#ifdef ENABLE_WG3
+#define WG3_NPREDS 8
+static int wg3_predict(int cgrad, int NNN, int NN, int NNE, int NW, int N, int NE, int NEE, int NEEE, int WWW, int WW, int W, const int *eW, int *preds)
+{
+	int pred;
+#ifdef USE_FP64
+	double pred2=0, wsum=0;
+#else
+	long long pred2=0, wsum=0;
+#endif
+	int j=0;
+
+	preds[j++]=cgrad;
+	preds[j++]=(N+W)/2;
+	preds[j++]=(W+NEE)/2;
+	preds[j++]=W+NE-N;
+	preds[j++]=2*N-NN;
+	preds[j++]=(4*W+N+NE+NEE+NEEE)/8;
+	preds[j++]=(N+NN)/2;
+	preds[j++]=(N+NE)/2;
+
+	//preds[j++]=N+W-NW;
+	//preds[j++]=W+NE-N;
+	//preds[j++]=N+NE-NNE;
+	//preds[j++]=N;
+	//preds[j++]=W;
+	//preds[j++]=3*(N-NN)+NNN;
+	//preds[j++]=3*(W-WW)+WWW;
+	//preds[j++]=(W+NEEE)/2;
+	
+	for(int k=0;k<WG3_NPREDS;++k)
+	{
+#ifdef USE_FP64
+		double weight=1./(eW[k]+1);
+		pred2+=weight*preds[k];
+		wsum+=weight;
+#else
+		int weight=0x1000000/(eW[k]+1);
+		pred2+=(long long)weight*preds[k];
+		wsum+=weight;
+#endif
+	}
+	pred2/=wsum;
+#ifdef USE_FP64
+#ifdef _MSC_VER
+	pred=_cvt_dtoi_fast(pred2);
+#else
+	pred=(int)pred2;
+#endif
+#else
+	pred=(int)pred2;
+#endif
+	CLAMP3_32(pred, pred, N, W, NE);
+	return pred;
+}
+static void wg3_update(int curr, const int *preds, int *eW)
+{
+	for(int k=0;k<WG3_NPREDS;++k)
+		eW[k]=(eW[k]+abs(curr-preds[k]))*0xE6>>8;
+}
+#endif
 static void block_enc(void *param)
 {
 	ThreadArgs *args=(ThreadArgs*)param;
@@ -521,14 +622,18 @@ static void block_enc(void *param)
 	Image const *image=args->src;
 	int nlevels[NCHPOOL]={0}, halfs[NCHPOOL]={0};
 	double csizes[NCHPOOL*PRED_COUNT]={0};
+#ifdef ENABLE_WP
 	const short *ch_params[NCHPOOL]={0};
+#endif
 	int res=image->iw*(args->y2-args->y1);
 
 	for(int k=0;k<NCHPOOL;++k)
 	{
 		nlevels[k]=1<<(image->depth+depth_inf[k]);
 		halfs[k]=nlevels[k]>>1;
+#ifdef ENABLE_WP
 		ch_params[k]=wp_params+WP_NPARAMS*wp_param_idx[k];
+#endif
 	}
 	memset(args->pixels, 0, args->bufsize);
 	memset(args->hist, 0, args->histsize);
@@ -555,6 +660,9 @@ static void block_enc(void *param)
 #ifdef ENABLE_WG2
 		int wg2_eprev[WG2_NPREDS]={0}, wg2_preds[WG2_NPREDS]={0}, wg2pred=0;
 #endif
+#ifdef ENABLE_WG3
+		int wg3_eprev[WG3_NPREDS]={0}, wg3_preds[WG3_NPREDS]={0};
+#endif
 		for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
 		{
 			int
@@ -564,6 +672,7 @@ static void block_enc(void *param)
 				*NW	=rows[1]-1*STRIDE*NCHPOOL,
 				*N	=rows[1]+0*STRIDE*NCHPOOL,
 				*NE	=rows[1]+1*STRIDE*NCHPOOL,
+				*NEE	=rows[1]+2*STRIDE*NCHPOOL,
 				*NEEE	=rows[1]+3*STRIDE*NCHPOOL,
 				*WWW	=rows[0]-3*STRIDE*NCHPOOL,
 				*WW	=rows[0]-2*STRIDE*NCHPOOL,
@@ -672,8 +781,9 @@ static void block_enc(void *param)
 			for(int kc=0;kc<NCHPOOL;++kc)
 			{
 				int kc2=kc*STRIDE;
-				int cgrad;
+#ifdef ENABLE_WP
 				int wpred, wp_preds[4];
+#endif
 #ifdef ENABLE_WG
 				int wg_preds[8];
 #endif
@@ -682,22 +792,21 @@ static void block_enc(void *param)
 				//	vx=abs(W[kc2+1]-WW[kc2+1])+abs(N[kc2+1]-NW[kc2+1])+abs(NE[kc2+1]-N[kc2+1])+1,
 				//	vy=abs(W[kc2+1]-NW[kc2+1])+abs(N[kc2+1]-NN[kc2+1])+abs(NE[kc2+1]-NNE[kc2+1])+1;
 				//int update=(vx<vy?N[kc2+1]:W[kc2+1])/4;
-				
-				wpred=wp_predict(ch_params[kc], NN[kc2], NW[kc2], N[kc2], NE[kc2], W[kc2], NW+kc2+1, N+kc2+1, NE+kc2+1, W+kc2+1, wp_preds);
-				MEDIAN3_32(cgrad, N[kc2], W[kc2], N[kc2]+W[kc2]-NW[kc2]);
-				
 #ifdef ENABLE_ZERO
 				preds[PRED_ZERO]=0;
 #endif
 			//	preds[PRED_N]=N[kc2];
-				preds[PRED_W]=W[kc2];
+			//	preds[PRED_W]=W[kc2];
 			//	preds[PRED_AV2]=(N[kc2]+W[kc2])/2;
 			//	preds[PRED_AV4]=(4*(N[kc2]+W[kc2])+NE[kc2]-NW[kc2])/8;
-				CLAMP3_32(preds[PRED_AV5], W[kc2]+(5*(N[kc2]-NW[kc2])+NE[kc2]-WW[kc2])/8, N[kc2], W[kc2], NE[kc2]);
-				preds[PRED_CG]=cgrad;
+			//	CLAMP3_32(preds[PRED_AV5], W[kc2]+(5*(N[kc2]-NW[kc2])+NE[kc2]-WW[kc2])/8, N[kc2], W[kc2], NE[kc2]);
+				MEDIAN3_32(preds[PRED_CG], N[kc2], W[kc2], N[kc2]+W[kc2]-NW[kc2]);
 			//	CLAMP2_32(cgrad, cgrad+update, -halfs[kc], halfs[kc]-1);
 			//	preds[PRED_CGU]=cgrad;
+#ifdef ENABLE_WP
+				wpred=wp_predict(ch_params[kc], NN[kc2], NW[kc2], N[kc2], NE[kc2], W[kc2], NW+kc2+1, N+kc2+1, NE+kc2+1, W+kc2+1, wp_preds);
 				preds[PRED_WP]=(wpred+127)>>8;
+#endif
 #ifdef ENABLE_WG
 				preds[PRED_WG]=wg_predict(NNN[kc2], NN[kc2], NNE[kc2], NW[kc2], N[kc2], NE[kc2], NEEE[kc2], WWW[kc2], WW[kc2], W[kc2], wg_errors, wg_preds);
 #endif
@@ -705,6 +814,9 @@ static void block_enc(void *param)
 				int depth=image->depth+depth_inf[kc];
 				wg2pred=wg2_predict(rows, STRIDE*NCHPOOL, kc2, 6, depth, wg2_eprev, wg2_preds);
 				preds[PRED_WG2]=wg2pred>>(24-depth);
+#endif
+#ifdef ENABLE_WG3
+				preds[PRED_WG3]=wg3_predict(preds[PRED_CG], NNN[kc2], NN[kc2], NNE[kc2], NW[kc2], N[kc2], NE[kc2], NEE[kc2], NEEE[kc2], WWW[kc2], WW[kc2], W[kc2], wg3_eprev, wg3_preds);
 #endif
 				if((unsigned)(kc-3)<2)//{r, g, b, [r-g, b-g], JPEG2000_G, ...}
 				{
@@ -727,7 +839,9 @@ static void block_enc(void *param)
 					++args->hist[(kc*PRED_COUNT+k)<<(image->depth+1)|val];
 				}
 				curr[kc2+0]=comp[kc]-offset;
+#ifdef ENABLE_WP
 				wp_update(comp[kc], wpred, wp_preds, curr+kc2+1, NE+kc2+1);
+#endif
 #ifdef ENABLE_WG
 				wg_update(comp[kc], wg_preds, wg_errors);
 #endif
@@ -737,6 +851,9 @@ static void block_enc(void *param)
 					curr[kc2+6]=curr24-wg2pred;
 					wg2_update(curr24, wg2_preds, wg2_eprev);
 				}
+#endif
+#ifdef ENABLE_WG3
+				wg3_update(comp[kc], wg3_preds, wg3_eprev);
 #endif
 			}
 			rows[0]+=STRIDE*NCHPOOL;
@@ -917,6 +1034,9 @@ static void block_enc(void *param)
 			image->depth+depth_inf[combination[2]],
 		};
 #endif
+#ifdef ENABLE_WG3
+		int wg3_eprev[WG3_NPREDS]={0}, wg3_preds[WG3_NPREDS]={0};
+#endif
 		for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
 		{
 			int
@@ -1053,18 +1173,18 @@ static void block_enc(void *param)
 				//case PRED_N:
 				//	pred=N[kc2];
 				//	break;
-				case PRED_W:
-					pred=W[kc2];
-					break;
+				//case PRED_W:
+				//	pred=W[kc2];
+				//	break;
 				//case PRED_AV2:
 				//	pred=(N[kc2]+W[kc2])/2;
 				//	break;
 				//case PRED_AV4:
 				//	pred=(4*(N[kc2]+W[kc2])+NE[kc2]-NW[kc2])/8;
 				//	break;
-				case PRED_AV5:
-					CLAMP3_32(pred, W[kc2]+(5*(N[kc2]-NW[kc2])+NE[kc2]-WW[kc2])/8, N[kc2], W[kc2], NE[kc2]);
-					break;
+				//case PRED_AV5:
+				//	CLAMP3_32(pred, W[kc2]+(5*(N[kc2]-NW[kc2])+NE[kc2]-WW[kc2])/8, N[kc2], W[kc2], NE[kc2]);
+				//	break;
 				case PRED_CG:
 					MEDIAN3_32(pred, N[kc2], W[kc2], N[kc2]+W[kc2]-NW[kc2]);
 					break;
@@ -1078,10 +1198,12 @@ static void block_enc(void *param)
 				//		CLAMP2_32(pred, pred+update, -halfs[ch], halfs[ch]-1);
 				//	}
 				//	break;
+#ifdef ENABLE_WP
 				case PRED_WP:
 					wp_result=wp_predict(ch_params[ch], NN[kc2], NW[kc2], N[kc2], NE[kc2], W[kc2], NW+kc2+2, N+kc2+2, NE+kc2+2, W+kc2+2, wp_preds);
 					pred=(wp_result+127)>>8;
 					break;
+#endif
 #ifdef ENABLE_WG
 				case PRED_WG:
 					pred=wg_predict(NNN[kc2], NN[kc2], NNE[kc2], NW[kc2], N[kc2], NE[kc2], NEEE[kc2], WWW[kc2], WW[kc2], W[kc2], wg_errors, wp_preds);
@@ -1093,6 +1215,10 @@ static void block_enc(void *param)
 					pred=wg2pred>>(24-depths[kc]);
 					break;
 #endif
+				case PRED_WG3:
+					MEDIAN3_32(pred, N[kc2], W[kc2], N[kc2]+W[kc2]-NW[kc2]);
+					pred=wg3_predict(pred, NNN[kc2], NN[kc2], NNE[kc2], NW[kc2], N[kc2], NE[kc2], NEE[kc2], NEEE[kc2], WWW[kc2], WW[kc2], W[kc2], wg3_eprev, wg3_preds);
+					break;
 				}
 				if(bestrct==RCT_SUBG&&kc>0)
 				{
@@ -1212,19 +1338,25 @@ static void block_enc(void *param)
 				//curr[kc2+1]=(W[kc2+1]+2*sym+NEEE[kc2+1])/4;			//1227447530
 #endif
 				curr[kc2+0]=yuv[kc]-offset;
+#ifdef ENABLE_WP
 				if(predidx[kc]==PRED_WP)
 					wp_update(curr[kc2+0], wp_result, wp_preds, curr+kc2+2, NE+kc2+2);
+#endif
 #ifdef ENABLE_WG
-				else if(predidx[kc]==PRED_WG)
+				if(predidx[kc]==PRED_WG)
 					wg_update(curr[kc2+0], wp_preds, wg_errors);
 #endif
 #ifdef ENABLE_WG2
-				else if(predidx[kc]==PRED_WG2)
+				if(predidx[kc]==PRED_WG2)
 				{
 					int curr24=curr[kc2+0]<<(24-depths[kc]);
 					curr[kc2+2]=curr24-wg2pred;
 					wg2_update(curr24, wg2_preds, wg2_eprev);
 				}
+#endif
+#ifdef ENABLE_WG3
+				if(predidx[kc]==PRED_WG3)
+					wg3_update(curr[kc2+0], wg3_preds, wg3_eprev);
 #endif
 			}
 			rows[0]+=7*4;
@@ -1264,12 +1396,15 @@ static void block_dec(void *param)
 	int flag=0, bestrct;
 	int combination[3]={0}, predidx[3]={0};
 	int halfs[NCHPOOL]={0};
+#ifdef ENABLE_WP
 	const short *ch_params[NCHPOOL]={0};
-	
+#endif
 	for(int k=0;k<NCHPOOL;++k)
 	{
 		halfs[k]=1<<(image->depth+depth_inf[k])>>1;
+#ifdef ENABLE_WP
 		ch_params[k]=wp_params+WP_NPARAMS*wp_param_idx[k];
+#endif
 	}
 	memcpy(&flag, srcstart, sizeof(char[2]));
 	srcstart+=sizeof(char[2]);
@@ -1321,6 +1456,9 @@ static void block_dec(void *param)
 			image->depth+depth_inf[combination[1]],
 			image->depth+depth_inf[combination[2]],
 		};
+#endif
+#ifdef ENABLE_WG3
+		int wg3_eprev[WG3_NPREDS]={0}, wg3_preds[WG3_NPREDS]={0};
 #endif
 		for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
 		{
@@ -1404,18 +1542,18 @@ static void block_dec(void *param)
 				//case PRED_N:
 				//	pred=N[kc2];
 				//	break;
-				case PRED_W:
-					pred=W[kc2];
-					break;
+				//case PRED_W:
+				//	pred=W[kc2];
+				//	break;
 				//case PRED_AV2:
 				//	pred=(N[kc2]+W[kc2])/2;
 				//	break;
 				//case PRED_AV4:
 				//	pred=(4*(N[kc2]+W[kc2])+NE[kc2]-NW[kc2])/8;
 				//	break;
-				case PRED_AV5:
-					CLAMP3_32(pred, W[kc2]+(5*(N[kc2]-NW[kc2])+NE[kc2]-WW[kc2])/8, N[kc2], W[kc2], NE[kc2]);
-					break;
+				//case PRED_AV5:
+				//	CLAMP3_32(pred, W[kc2]+(5*(N[kc2]-NW[kc2])+NE[kc2]-WW[kc2])/8, N[kc2], W[kc2], NE[kc2]);
+				//	break;
 				case PRED_CG:
 					MEDIAN3_32(pred, N[kc2], W[kc2], N[kc2]+W[kc2]-NW[kc2]);
 					break;
@@ -1429,10 +1567,12 @@ static void block_dec(void *param)
 				//		CLAMP2_32(pred, pred+update, -halfs[ch], halfs[ch]-1);
 				//	}
 				//	break;
+#ifdef ENABLE_WP
 				case PRED_WP:
 					wp_result=wp_predict(ch_params[ch], NN[kc2], NW[kc2], N[kc2], NE[kc2], W[kc2], NW+kc2+2, N+kc2+2, NE+kc2+2, W+kc2+2, wp_preds);
 					pred=(wp_result+127)>>8;
 					break;
+#endif
 #ifdef ENABLE_WG
 				case PRED_WG:
 					pred=wg_predict(NNN[kc2], NN[kc2], NNE[kc2], NW[kc2], N[kc2], NE[kc2], NEEE[kc2], WWW[kc2], WW[kc2], W[kc2], wg_errors, wp_preds);
@@ -1444,6 +1584,10 @@ static void block_dec(void *param)
 					pred=wg2pred>>(24-depths[kc]);
 					break;
 #endif
+				case PRED_WG3:
+					MEDIAN3_32(pred, N[kc2], W[kc2], N[kc2]+W[kc2]-NW[kc2]);
+					pred=wg3_predict(pred, NNN[kc2], NN[kc2], NNE[kc2], NW[kc2], N[kc2], NE[kc2], NEE[kc2], NEEE[kc2], WWW[kc2], WW[kc2], W[kc2], wg3_eprev, wg3_preds);
+					break;
 				}
 				if(bestrct==RCT_SUBG&&kc>0)
 				{
@@ -1564,19 +1708,25 @@ static void block_dec(void *param)
 				val+=pred;
 				yuv[kc]=val;
 				curr[kc2+0]=yuv[kc]-offset;
+#ifdef ENABLE_WP
 				if(predidx[kc]==PRED_WP)
 					wp_update(curr[kc2+0], wp_result, wp_preds, curr+kc2+2, NE+kc2+2);
+#endif
 #ifdef ENABLE_WG
-				else if(predidx[kc]==PRED_WG)
+				if(predidx[kc]==PRED_WG)
 					wg_update(curr[kc2+0], wp_preds, wg_errors);
 #endif
 #ifdef ENABLE_WG2
-				else if(predidx[kc]==PRED_WG2)
+				if(predidx[kc]==PRED_WG2)
 				{
 					int curr24=curr[kc2+0]<<(24-depths[kc]);
 					curr[kc2+2]=curr24-wg2pred;
 					wg2_update(curr24, wg2_preds, wg2_eprev);
 				}
+#endif
+#ifdef ENABLE_WG3
+				if(predidx[kc]==PRED_WG3)
+					wg3_update(curr[kc2+0], wg3_preds, wg3_eprev);
 #endif
 			}
 			switch(bestrct)//forward RCT
@@ -1912,7 +2062,7 @@ int f24_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				{
 					int nstars=(int)(hist_rct[k]*60LL/usize);
 					printf("%s %12d %8.4lf ", rctnames[k], hist_rct[k], (double)hist_rct[k]/blocksize);
-					for(int k=0;k<nstars;++k)
+					for(int k2=0;k2<nstars;++k2)
 						printf("*");
 					printf("\n");
 				}
@@ -1923,7 +2073,7 @@ int f24_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				{
 					int nstars=(int)(hist_pred[k]*60LL/usize);
 					printf("%s %12d %8.4lf ", prednames[k], hist_pred[k], (double)hist_pred[k]/blocksize);
-					for(int k=0;k<nstars;++k)
+					for(int k2=0;k2<nstars;++k2)
 						printf("*");
 					printf("\n");
 				}
