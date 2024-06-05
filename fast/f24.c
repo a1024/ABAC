@@ -23,6 +23,7 @@ static const char file[]=__FILE__;
 	#define ENABLE_WG	//good
 //	#define ENABLE_WG2	//2x slower, not worth the penalty
 	#define ENABLE_WG3	//good
+	#define ENABLE_OLS4
 	#define FOLD_OOB	//good
 //	#define USE_T47CTX	//bad
 	#define USE_FP64	//4% faster
@@ -96,6 +97,9 @@ typedef enum PredTypeEnum
 #ifdef ENABLE_WG3
 	PRED_WG3,
 #endif
+#ifdef ENABLE_OLS4
+	PRED_OLS4,
+#endif
 
 	PRED_COUNT,
 } PredType;
@@ -122,6 +126,9 @@ static const char *prednames[PRED_COUNT]=
 #endif
 #ifdef ENABLE_WG3
 	"WG3 ",
+#endif
+#ifdef ENABLE_OLS4
+	"OLS4",
 #endif
 };
 long long rct_gains[RCT_COUNT]={0}, pred_gains[PRED_COUNT]={0};
@@ -606,6 +613,144 @@ static void wg3_update(int curr, const int *preds, int *eW)
 		eW[k]=(eW[k]+abs(curr-preds[k]))*WG3_DECAY_NUM>>WG3_DECAY_SH;
 }
 #endif
+#ifdef ENABLE_OLS4
+typedef struct _OLS4Context
+{
+	int nparams, matsize;
+	double *context, *vec, *cov, *cholesky, *params;
+} OLS4Context;
+#define OLS4COORDLIST\
+	OLS4COORD(-2, -2)\
+	OLS4COORD(-1, -2)\
+	OLS4COORD( 0, -2)\
+	OLS4COORD( 1, -2)\
+	OLS4COORD( 2, -2)\
+	OLS4COORD( 3, -2)\
+	OLS4COORD(-3, -1)\
+	OLS4COORD(-2, -1)\
+	OLS4COORD(-1, -1)\
+	OLS4COORD( 0, -1)\
+	OLS4COORD( 1, -1)\
+	OLS4COORD( 2, -1)\
+	OLS4COORD( 3, -1)\
+	OLS4COORD(-3,  0)\
+	OLS4COORD(-2,  0)\
+	OLS4COORD(-1,  0)
+static int ols4_alloc(OLS4Context *ctx)
+{
+#define OLS4COORD(X, Y) +1
+	const int nparams=OLS4COORDLIST+1;
+#undef  OLS4COORD
+	memset(ctx, 0, sizeof(*ctx));
+	ctx->nparams=nparams;
+	ctx->matsize=nparams*nparams;
+	ctx->context=(double*)_mm_malloc(sizeof(double)*ctx->nparams, sizeof(__m256i));
+	ctx->vec=(double*)_mm_malloc(sizeof(double)*ctx->nparams, sizeof(__m256d));
+	ctx->cov=(double*)_mm_malloc(sizeof(double)*ctx->matsize, sizeof(__m256d));
+	ctx->cholesky=(double*)malloc(sizeof(double)*ctx->matsize);
+	ctx->params=(double*)_mm_malloc(sizeof(double)*ctx->nparams, sizeof(__m256d));
+	if(!ctx->context||!ctx->vec||!ctx->cov||!ctx->cholesky||!ctx->params)
+	{
+		LOG_ERROR("Alloc error");
+		return 1;
+	}
+	memset(ctx->context,	0, sizeof(double)*ctx->nparams);
+	memset(ctx->vec,	0, sizeof(double)*ctx->nparams);
+	memset(ctx->cov,	0, sizeof(double)*ctx->matsize);
+	memset(ctx->cholesky,	0, sizeof(double)*ctx->matsize);
+	memset(ctx->params,	0, sizeof(double)*ctx->nparams);
+	return 0;
+}
+static void ols4_clear(OLS4Context *ctx)
+{
+	_mm_free(ctx->context);
+	_mm_free(ctx->vec);
+	_mm_free(ctx->cov);
+	free(ctx->cholesky);
+	_mm_free(ctx->params);
+	memset(ctx, 0, sizeof(*ctx));
+}
+static int ols4_predict(OLS4Context const *ctx, int cgrad, int **rows, int stride, int kc2)
+{
+	double fpred;
+	int pred;
+	int j=0;
+	ctx->context[j++]=cgrad;
+#define OLS4COORD(X, Y) ctx->context[j++]=(double)rows[-(Y)][kc2+(X)*stride];
+	OLS4COORDLIST
+#undef  OLS4COORD
+
+	fpred=0;
+	for(int k=0;k<ctx->nparams;++k)
+		fpred+=ctx->params[k]*ctx->context[k];
+#ifdef _MSC_VER
+	pred=_cvt_dtoi_fast(fpred);
+#else
+	pred=(double)fpred;
+#endif
+	CLAMP3_32(pred, pred, rows[0][kc2-1*stride], rows[1][kc2+0*stride], rows[1][kc2+1*stride]);
+	return pred;
+}
+static void ols4_update(OLS4Context *ctx, int curr)
+{
+	const double lr=0.0024;
+	
+	for(int ky2=0, midx=0;ky2<ctx->nparams;++ky2)
+	{
+		for(int kx2=0;kx2<ctx->nparams;++kx2, ++midx)
+			ctx->cov[midx]+=(ctx->context[kx2]*ctx->context[ky2]-ctx->cov[midx])*lr;
+	}
+	{
+		double lval=curr*lr, lr_comp=1-lr;
+		for(int k=0;k<ctx->nparams;++k)
+			ctx->vec[k]=lval*ctx->context[k]+lr_comp*ctx->vec[k];
+	}
+	{
+		int success=1;
+		double sum;
+		int n=ctx->nparams;
+		memcpy(ctx->cholesky, ctx->cov, sizeof(double)*ctx->matsize);
+		for(int k=0;k<ctx->matsize;k+=n+1)
+			ctx->cholesky[k]+=0.0075;
+		for(int i=0;i<n;++i)
+		{
+			for(int j=0;j<i;++j)
+			{
+				sum=ctx->cholesky[i*n+j];
+				for(int k=0;k<j;++k)
+					sum-=ctx->cholesky[i*n+k]*ctx->cholesky[j*n+k];
+				ctx->cholesky[i*n+j]=sum/ctx->cholesky[j*n+j];
+			}
+			sum=ctx->cholesky[i*n+i];
+			for(int k=0;k<i;++k)
+				sum-=ctx->cholesky[i*n+k]*ctx->cholesky[i*n+k];
+			if(sum<=1e-8)
+			{
+				success=0;
+				break;
+			}
+			ctx->cholesky[i*n+i]=sqrt(sum);
+		}
+		if(success)
+		{
+			for(int i=0;i<n;++i)
+			{
+				sum=ctx->vec[i];
+				for(int j=0;j<i;++j)
+					sum-=ctx->cholesky[i*n+j]*ctx->params[j];
+				ctx->params[i]=sum/ctx->cholesky[i*n+i];
+			}
+			for(int i=n-1;i>=0;--i)
+			{
+				sum=ctx->params[i];
+				for(int j=i+1;j<n;++j)
+					sum-=ctx->cholesky[j*n+i]*ctx->params[j];
+				ctx->params[i]=sum/ctx->cholesky[i*n+i];
+			}
+		}
+	}
+}
+#endif
 static void block_enc(void *param)
 {
 	ThreadArgs *args=(ThreadArgs*)param;
@@ -630,8 +775,15 @@ static void block_enc(void *param)
 #ifdef ENABLE_WP
 	const short *ch_params[NCHPOOL]={0};
 #endif
+#ifdef ENABLE_OLS4
+	OLS4Context ols4[NCHPOOL]={0};
+#endif
 	int res=image->iw*(args->y2-args->y1);
-
+	
+#ifdef ENABLE_OLS4
+	for(int k=0;k<NCHPOOL;++k)
+		ols4_alloc(ols4+k);
+#endif
 	for(int k=0;k<NCHPOOL;++k)
 	{
 		nlevels[k]=1<<(image->depth+depth_inf[k]);
@@ -823,6 +975,9 @@ static void block_enc(void *param)
 #ifdef ENABLE_WG3
 				preds[PRED_WG3]=wg3_predict(preds[PRED_CG], NNN[kc2], NN[kc2], NNE[kc2], NW[kc2], N[kc2], NE[kc2], NEE[kc2], NEEE[kc2], WWW[kc2], WW[kc2], W[kc2], wg3_eprev, wg3_preds);
 #endif
+#ifdef ENABLE_OLS4
+				preds[PRED_OLS4]=ols4_predict(ols4+kc, preds[PRED_CG], rows, STRIDE*NCHPOOL, kc2);
+#endif
 				if((unsigned)(kc-3)<2)//{r, g, b, [r-g, b-g], JPEG2000_G, ...}
 				{
 					offset=comp[1];
@@ -860,6 +1015,9 @@ static void block_enc(void *param)
 #ifdef ENABLE_WG3
 				wg3_update(comp[kc], wg3_preds, wg3_eprev);
 #endif
+#ifdef ENABLE_OLS4
+				ols4_update(ols4+kc, comp[kc]);
+#endif
 			}
 			rows[0]+=STRIDE*NCHPOOL;
 			rows[1]+=STRIDE*NCHPOOL;
@@ -867,6 +1025,10 @@ static void block_enc(void *param)
 			rows[3]+=STRIDE*NCHPOOL;
 		}
 	}
+#ifdef ENABLE_OLS4
+	for(int k=0;k<NCHPOOL;++k)
+		ols4_clear(ols4+k);
+#endif
 	for(int kc=0;kc<NCHPOOL*PRED_COUNT;++kc)
 	{
 		int *curr_hist=args->hist+((size_t)kc<<(image->depth+1));
@@ -1016,6 +1178,13 @@ static void block_enc(void *param)
 	gr_enc_init(&ec, &args->list);
 #endif
 	memset(args->pixels, 0, args->bufsize);
+#ifdef ENABLE_OLS4
+	for(int kc=0;kc<3;++kc)
+	{
+		if(predidx[kc]==PRED_OLS4)
+			ols4_alloc(ols4+kc);
+	}
+#endif
 	for(int ky=args->y1, idx=image->nch*image->iw*args->y1;ky<args->y2;++ky)
 	{
 		//static const int perm[]={1, 2, 0};
@@ -1226,6 +1395,12 @@ static void block_enc(void *param)
 					pred=wg3_predict(pred, NNN[kc2], NN[kc2], NNE[kc2], NW[kc2], N[kc2], NE[kc2], NEE[kc2], NEEE[kc2], WWW[kc2], WW[kc2], W[kc2], wg3_eprev, wg3_preds);
 					break;
 #endif
+#ifdef ENABLE_OLS4
+				case PRED_OLS4:
+					MEDIAN3_32(pred, N[kc2], W[kc2], N[kc2]+W[kc2]-NW[kc2]);
+					pred=ols4_predict(ols4+kc, pred, rows, 7*4, kc2);
+					break;
+#endif
 				}
 				if(bestrct==RCT_SUBG&&kc>0)
 				{
@@ -1365,6 +1540,10 @@ static void block_enc(void *param)
 				if(predidx[kc]==PRED_WG3)
 					wg3_update(curr[kc2+0], wg3_preds, wg3_eprev);
 #endif
+#ifdef ENABLE_OLS4
+				if(predidx[kc]==PRED_OLS4)
+					ols4_update(ols4+kc, curr[kc2+0]);
+#endif
 			}
 			rows[0]+=7*4;
 			rows[1]+=7*4;
@@ -1372,6 +1551,13 @@ static void block_enc(void *param)
 			rows[3]+=7*4;
 		}
 	}
+#ifdef ENABLE_OLS4
+	for(int kc=0;kc<3;++kc)
+	{
+		if(predidx[kc]==PRED_OLS4)
+			ols4_clear(ols4+kc);
+	}
+#endif
 #if defined USE_AC || defined USE_GRABAC
 	ac_enc_flush(&ec);
 #else
@@ -1406,6 +1592,10 @@ static void block_dec(void *param)
 #ifdef ENABLE_WP
 	const short *ch_params[NCHPOOL]={0};
 #endif
+#ifdef ENABLE_OLS4
+	OLS4Context ols4[3]={0};
+#endif
+
 	for(int k=0;k<NCHPOOL;++k)
 	{
 		halfs[k]=1<<(image->depth+depth_inf[k])>>1;
@@ -1441,6 +1631,13 @@ static void block_dec(void *param)
 	gr_dec_init(&ec, srcstart, srcend);
 #endif
 	memset(args->pixels, 0, args->bufsize);
+#ifdef ENABLE_OLS4
+	for(int kc=0;kc<3;++kc)
+	{
+		if(predidx[kc]==PRED_OLS4)
+			ols4_alloc(ols4+kc);
+	}
+#endif
 	for(int ky=args->y1, idx=image->nch*image->iw*args->y1;ky<args->y2;++ky)
 	{
 		//static const int perm[]={1, 2, 0};
@@ -1597,6 +1794,12 @@ static void block_dec(void *param)
 					pred=wg3_predict(pred, NNN[kc2], NN[kc2], NNE[kc2], NW[kc2], N[kc2], NE[kc2], NEE[kc2], NEEE[kc2], WWW[kc2], WW[kc2], W[kc2], wg3_eprev, wg3_preds);
 					break;
 #endif
+#ifdef ENABLE_OLS4
+				case PRED_OLS4:
+					MEDIAN3_32(pred, N[kc2], W[kc2], N[kc2]+W[kc2]-NW[kc2]);
+					pred=ols4_predict(ols4+kc, pred, rows, 7*4, kc2);
+					break;
+#endif
 				}
 				if(bestrct==RCT_SUBG&&kc>0)
 				{
@@ -1737,6 +1940,10 @@ static void block_dec(void *param)
 				if(predidx[kc]==PRED_WG3)
 					wg3_update(curr[kc2+0], wg3_preds, wg3_eprev);
 #endif
+#ifdef ENABLE_OLS4
+				if(predidx[kc]==PRED_OLS4)
+					ols4_update(ols4+kc, curr[kc2+0]);
+#endif
 			}
 			switch(bestrct)//forward RCT
 			{
@@ -1807,6 +2014,13 @@ static void block_dec(void *param)
 			rows[3]+=7*4;
 		}
 	}
+#ifdef ENABLE_OLS4
+	for(int kc=0;kc<3;++kc)
+	{
+		if(predidx[kc]==PRED_OLS4)
+			ols4_clear(ols4+kc);
+	}
+#endif
 }
 int f24_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud)
 {

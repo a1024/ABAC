@@ -382,9 +382,9 @@ int main(int argc, char **argv)
 	//	"C:/dataset-LPCB-ppm/STA13456.ppm"	//uncorrelated channels
 	//	"C:/dataset-LPCB-ppm/STA13844.ppm"	//space gas clouds, 6800^2
 	//	"D:/ML/dataset-RAW/a0001-jmac_DSC1459.dng"
-		"D:/ML/dataset-kodak-small"
+	//	"D:/ML/dataset-kodak-small"
 
-	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
+		"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim24.ppm"	//borderless
 	//	"C:/Projects/datasets/dataset-kodak-pgm/kodim13.pgm"
 	//	"C:/Projects/datasets/dataset-kodak/kodim13.png"
