@@ -23,7 +23,7 @@ static const char file[]=__FILE__;
 	#define ENABLE_WG	//good
 //	#define ENABLE_WG2	//2x slower, not worth the penalty
 	#define ENABLE_WG3	//good
-	#define ENABLE_OLS4
+//	#define ENABLE_OLS4	//bad
 	#define FOLD_OOB	//good
 //	#define USE_T47CTX	//bad
 	#define USE_FP64	//4% faster
@@ -339,7 +339,19 @@ static void wp_update(int curr, int pred, const int *preds, int *ecurr, int *eNE
 }
 #endif
 #ifdef ENABLE_WG
-static int wg_predict(int NNN, int NN, int NNE, int NW, int N, int NE, int NEEE, int WWW, int WW, int W, const int *eW, int *preds)
+#define WG_NPREDS 10
+#define WG_PREDLIST\
+	WG_PRED(1.5, N)\
+	WG_PRED(1.5, W)\
+	WG_PRED(0.5, NW)\
+	WG_PRED(0.5, NE)\
+	WG_PRED(1.2, N+W-NW)\
+	WG_PRED(1, W+NE-N)\
+	WG_PRED(1, N+NE-NNE)\
+	WG_PRED(1, 3*(N-NN)+NNN)\
+	WG_PRED(1, 3*(W-WW)+WWW)\
+	WG_PRED(1, (W+NEEE)/2)
+static int wg_predict(int NNN, int NN, int NNE, int NW, int N, int NE, int NEE, int NEEE, int WWW, int WW, int W, const int *eW, int *preds)
 {
 	int pred;
 #ifdef USE_FP64
@@ -347,20 +359,34 @@ static int wg_predict(int NNN, int NN, int NNE, int NW, int N, int NE, int NEEE,
 #else
 	long long pred2=0, wsum=0;
 #endif
+	int j=0;
+	const double weights[]=
+	{
+#define WG_PRED(WEIGHT, EXPR) WEIGHT,
+		WG_PREDLIST
+#undef  WG_PRED
+	};
+#define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
+	WG_PREDLIST
+#undef  WG_PRED
+	//preds[j++]=N;
+	//preds[j++]=W;
+	//preds[j++]=NW;
+	//preds[j++]=NE;
+	//preds[j++]=N+W-NW;
+	//preds[j++]=W+NE-N;
+	//preds[j++]=N+NE-NNE;
+	//preds[j++]=3*(N-NN)+NNN;
+	//preds[j++]=3*(W-WW)+WWW;
+	//preds[j++]=(W+NEEE)/2;
 
-	preds[0]=N+W-NW;
-	preds[1]=W+NE-N;
-	preds[2]=N+NE-NNE;
-	preds[3]=N;
-	preds[4]=W;
-	preds[5]=3*(N-NN)+NNN;
-	preds[6]=3*(W-WW)+WWW;
-	preds[7]=(W+NEEE)/2;
+	//preds[j++]=(N+NE)/2;
+	//preds[j++]=(3*(3*W+NE+NEE)-10*N)/5;
 	
-	for(int k=0;k<8;++k)
+	for(int k=0;k<WG_NPREDS;++k)
 	{
 #ifdef USE_FP64
-		double weight=1./(eW[k]+1);
+		double weight=weights[k]/(eW[k]+1);
 		pred2+=weight*preds[k];
 		wsum+=weight;
 #else
@@ -381,7 +407,7 @@ static int wg_predict(int NNN, int NN, int NNE, int NW, int N, int NE, int NEEE,
 #endif
 	//lpred=0;
 	//wsum=0;
-	//for(int k=0;k<8;++k)
+	//for(int k=0;k<WG_NPREDS;++k)
 	//{
 	//	int weight=0x1000000/(eW[k]+1);
 	//	lpred+=(long long)weight*preds[k];
@@ -394,7 +420,7 @@ static int wg_predict(int NNN, int NN, int NNE, int NW, int N, int NE, int NEEE,
 }
 static void wg_update(int curr, const int *preds, int *eW)
 {
-	for(int k=0;k<8;++k)
+	for(int k=0;k<WG_NPREDS;++k)
 		eW[k]=(eW[k]+abs(curr-preds[k]))*WG_DECAY_NUM>>WG_DECAY_SH;
 }
 #endif
@@ -554,6 +580,15 @@ static void wg2_update(int curr24, const int *preds, int *eprev)
 #endif
 #ifdef ENABLE_WG3
 #define WG3_NPREDS 8
+#define WG3_PREDLIST\
+	WG3_PRED(0.75, cgrad)\
+	WG3_PRED(2, (N+W)/2)\
+	WG3_PRED(1.25, (W+NEE)/2)\
+	WG3_PRED(0.75, W+NE-N)\
+	WG3_PRED(1, 2*N-NN)\
+	WG3_PRED(1, (4*W+N+NE+NEE+NEEE)/8)\
+	WG3_PRED(1, (N+NN)/2)\
+	WG3_PRED(1, (N+NE)/2)
 static int wg3_predict(int cgrad, int NNN, int NN, int NNE, int NW, int N, int NE, int NEE, int NEEE, int WWW, int WW, int W, const int *eW, int *preds)
 {
 	int pred;
@@ -563,15 +598,27 @@ static int wg3_predict(int cgrad, int NNN, int NN, int NNE, int NW, int N, int N
 	long long pred2=0, wsum=0;
 #endif
 	int j=0;
+	const double weights[]=
+	{
+#define WG3_PRED(WEIGHT, EXPR) WEIGHT,
+		WG3_PREDLIST
+#undef  WG3_PRED
+	};
+#define WG3_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
+	WG3_PREDLIST
+#undef  WG3_PRED
 
-	preds[j++]=cgrad;
-	preds[j++]=(N+W)/2;
-	preds[j++]=(W+NEE)/2;
-	preds[j++]=W+NE-N;
-	preds[j++]=2*N-NN;
-	preds[j++]=(4*W+N+NE+NEE+NEEE)/8;
-	preds[j++]=(N+NN)/2;
-	preds[j++]=(N+NE)/2;
+	//preds[j++]=cgrad;
+	//preds[j++]=(N+W)/2;
+	//preds[j++]=(W+NEE)/2;
+	//preds[j++]=W+NE-N;
+	//preds[j++]=2*N-NN;
+	//preds[j++]=(4*W+N+NE+NEE+NEEE)/8;
+	//preds[j++]=(N+NN)/2;
+	//preds[j++]=(N+NE)/2;
+
+	//preds[j++]=(2*W+NEE-N)>>1;
+	//preds[j++]=(3*W+NEEE-N)>>1;
 
 	//preds[j++]=N+W-NW;
 	//preds[j++]=W+NE-N;
@@ -585,7 +632,7 @@ static int wg3_predict(int cgrad, int NNN, int NN, int NNE, int NW, int N, int N
 	for(int k=0;k<WG3_NPREDS;++k)
 	{
 #ifdef USE_FP64
-		double weight=1./(eW[k]+1);
+		double weight=weights[k]/(eW[k]+1);
 		pred2+=weight*preds[k];
 		wsum+=weight;
 #else
@@ -619,6 +666,7 @@ typedef struct _OLS4Context
 	int nparams, matsize;
 	double *context, *vec, *cov, *cholesky, *params;
 } OLS4Context;
+#define OLS4_PERIOD 16
 #define OLS4COORDLIST\
 	OLS4COORD(-2, -2)\
 	OLS4COORD(-1, -2)\
@@ -813,7 +861,7 @@ static void block_enc(void *param)
 			*comp_rct1=comp_j2kr+1,
 			*comp_pei9=comp_rct1+2;
 		int preds[PRED_COUNT]={0};
-		int wg_errors[8]={0};
+		int wg_errors[WG_NPREDS]={0};
 #ifdef ENABLE_WG2
 		int wg2_eprev[WG2_NPREDS]={0}, wg2_preds[WG2_NPREDS]={0}, wg2pred=0;
 #endif
@@ -942,7 +990,7 @@ static void block_enc(void *param)
 				int wpred, wp_preds[4];
 #endif
 #ifdef ENABLE_WG
-				int wg_preds[8];
+				int wg_preds[WG_NPREDS];
 #endif
 				int offset=0, val;
 				//int
@@ -965,7 +1013,7 @@ static void block_enc(void *param)
 				preds[PRED_WP]=(wpred+127)>>8;
 #endif
 #ifdef ENABLE_WG
-				preds[PRED_WG]=wg_predict(NNN[kc2], NN[kc2], NNE[kc2], NW[kc2], N[kc2], NE[kc2], NEEE[kc2], WWW[kc2], WW[kc2], W[kc2], wg_errors, wg_preds);
+				preds[PRED_WG]=wg_predict(NNN[kc2], NN[kc2], NNE[kc2], NW[kc2], N[kc2], NE[kc2], NEE[kc2], NEEE[kc2], WWW[kc2], WW[kc2], W[kc2], wg_errors, wg_preds);
 #endif
 #ifdef ENABLE_WG2
 				int depth=image->depth+depth_inf[kc];
@@ -1016,7 +1064,8 @@ static void block_enc(void *param)
 				wg3_update(comp[kc], wg3_preds, wg3_eprev);
 #endif
 #ifdef ENABLE_OLS4
-				ols4_update(ols4+kc, comp[kc]);
+				if((kx&(OLS4_PERIOD-1))==OLS4_PERIOD-1)
+					ols4_update(ols4+kc, comp[kc]);
 #endif
 			}
 			rows[0]+=STRIDE*NCHPOOL;
@@ -1197,8 +1246,8 @@ static void block_enc(void *param)
 			args->pixels+((image->iw+16LL)*((ky-3LL)&3)+8LL)*7*4,
 		};
 		int yuv[4]={0};
-		int wp_preds[8]={0}, wp_result=0;//wp_preds are reused in WG
-		int wg_errors[8]={0};
+		int wp_preds[WG_NPREDS]={0}, wp_result=0;//wp_preds are reused in WG
+		int wg_errors[WG_NPREDS]={0};
 #ifdef ENABLE_WG2
 		int wg2_eprev[WG2_NPREDS]={0}, wg2_preds[WG2_NPREDS]={0}, wg2pred=0;
 		int depths[]=
@@ -1380,7 +1429,7 @@ static void block_enc(void *param)
 #endif
 #ifdef ENABLE_WG
 				case PRED_WG:
-					pred=wg_predict(NNN[kc2], NN[kc2], NNE[kc2], NW[kc2], N[kc2], NE[kc2], NEEE[kc2], WWW[kc2], WW[kc2], W[kc2], wg_errors, wp_preds);
+					pred=wg_predict(NNN[kc2], NN[kc2], NNE[kc2], NW[kc2], N[kc2], NE[kc2], NEE[kc2], NEEE[kc2], WWW[kc2], WW[kc2], W[kc2], wg_errors, wp_preds);
 					break;
 #endif
 #ifdef ENABLE_WG2
@@ -1542,7 +1591,10 @@ static void block_enc(void *param)
 #endif
 #ifdef ENABLE_OLS4
 				if(predidx[kc]==PRED_OLS4)
-					ols4_update(ols4+kc, curr[kc2+0]);
+				{
+					if((kx&(OLS4_PERIOD-1))==OLS4_PERIOD-1)
+						ols4_update(ols4+kc, curr[kc2+0]);
+				}
 #endif
 			}
 			rows[0]+=7*4;
@@ -1650,8 +1702,8 @@ static void block_dec(void *param)
 			args->pixels+((image->iw+16LL)*((ky-3LL)&3)+8LL)*7*4,
 		};
 		int yuv[4]={0};
-		int wp_preds[8]={0}, wp_result=0;//wp_preds are reused in WG
-		int wg_errors[8]={0};
+		int wp_preds[WG_NPREDS]={0}, wp_result=0;//wp_preds are reused in WG
+		int wg_errors[WG_NPREDS]={0};
 #ifdef ENABLE_WG2
 		int wg2_eprev[WG2_NPREDS]={0}, wg2_preds[WG2_NPREDS]={0}, wg2pred=0;
 		int depths[]=
@@ -1779,7 +1831,7 @@ static void block_dec(void *param)
 #endif
 #ifdef ENABLE_WG
 				case PRED_WG:
-					pred=wg_predict(NNN[kc2], NN[kc2], NNE[kc2], NW[kc2], N[kc2], NE[kc2], NEEE[kc2], WWW[kc2], WW[kc2], W[kc2], wg_errors, wp_preds);
+					pred=wg_predict(NNN[kc2], NN[kc2], NNE[kc2], NW[kc2], N[kc2], NE[kc2], NEE[kc2], NEEE[kc2], WWW[kc2], WW[kc2], W[kc2], wg_errors, wp_preds);
 					break;
 #endif
 #ifdef ENABLE_WG2
@@ -1942,7 +1994,10 @@ static void block_dec(void *param)
 #endif
 #ifdef ENABLE_OLS4
 				if(predidx[kc]==PRED_OLS4)
-					ols4_update(ols4+kc, curr[kc2+0]);
+				{
+					if((kx&(OLS4_PERIOD-1))==OLS4_PERIOD-1)
+						ols4_update(ols4+kc, curr[kc2+0]);
+				}
 #endif
 			}
 			switch(bestrct)//forward RCT
