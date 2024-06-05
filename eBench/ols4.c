@@ -394,7 +394,7 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 					*curr_params,
 					fpred;
 #ifdef CLAMPGRAD
-				double cgrad, cmin, cmax;
+				ALIGN(16) double cgrad[2], cmin[2], cmax[2];
 #endif
 
 				if(!nparams)
@@ -405,15 +405,37 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 				curr_cholesky=cholesky[kc];
 				curr_params=params[kc];
 #ifdef CLAMPGRAD
-				cgrad=rows[1][kc]+rows[0][kc-8]-rows[1][kc-8];
-				if(rows[1][kc]<rows[0][kc-8])
-					cmin=rows[1][kc], cmax=rows[0][kc-8];//N, W
-				else
-					cmin=rows[0][kc-8], cmax=rows[1][kc];
-				cgrad=CLAMP(cmin, cgrad, cmax);
-				//double temp=rows[1][kc+8];//NE
-				//UPDATE_MIN(cmin, temp);
-				//UPDATE_MAX(cmax, temp);
+				{
+					__m128d a=_mm_set_pd(0, rows[1][kc]);//N
+					__m128d b=_mm_set_pd(0, rows[0][kc-8]);//W
+					__m128d c=_mm_set_pd(0, rows[1][kc+8]);//NE
+					__m128d x=_mm_set_pd(0, rows[1][kc]+rows[0][kc-8]-rows[1][kc-8]);//N+W-NW
+					__m128d vmin=_mm_min_pd(a, b);
+					__m128d vmax=_mm_max_pd(a, b);
+					x=_mm_max_pd(x, vmin);
+					x=_mm_min_pd(x, vmax);
+					vmin=_mm_min_pd(vmin, c);
+					vmax=_mm_max_pd(vmax, c);
+					_mm_store_pd(cgrad, x);
+					_mm_store_pd(cmin, vmin);
+					_mm_store_pd(cmax, vmax);
+				}
+				//cgrad=rows[1][kc]+rows[0][kc-8]-rows[1][kc-8];
+				//if(rows[1][kc]<rows[0][kc-8])
+				//	cmin=rows[1][kc], cmax=rows[0][kc-8];//N, W
+				//else
+				//	cmin=rows[0][kc-8], cmax=rows[1][kc];
+				//cgrad=CLAMP(cmin, cgrad, cmax);
+				//{
+				//	double temp=rows[1][kc+8];//NE
+				//	UPDATE_MIN(cmin, temp);
+				//	UPDATE_MAX(cmax, temp);
+				//}
+				//{
+				//	double temp=rows[1][kc-8];//NW	X
+				//	UPDATE_MIN(cmin, temp);
+				//	UPDATE_MAX(cmax, temp);
+				//}
 				--nparams;
 #else
 #ifdef OLS4_OPTIMAL_CLAMP
@@ -498,8 +520,8 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 				}
 #endif
 #ifdef CLAMPGRAD
-				ctxtemp[nparams]=cgrad;
-				fpred+=cgrad*curr_params[nparams];
+				ctxtemp[nparams]=cgrad[0];
+				fpred+=cgrad[0]*curr_params[nparams];
 				++nparams;
 				//if(ky==100&&kx==100&&!kc)//
 				//	printf("");
@@ -508,7 +530,8 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 				double fpred0=fpred;//
 #endif
 #ifdef OLS4_OPTIMAL_CLAMP
-				fpred=CLAMP(cmin, fpred, cmax);
+				CLAMP2_fp64(fpred, fpred, cmin[0], cmax[0]);
+				//fpred=CLAMP(cmin, fpred, cmax);
 #else
 				fpred=CLAMP(-half[kc], fpred, half[kc]-1);
 #endif
