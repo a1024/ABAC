@@ -1074,7 +1074,7 @@ static void calc_csize_stateful(Image const *image, int *hist_full, double *entr
 		int allocated=0;
 		if(!hist_full)
 		{
-			int maxdepth=calc_maxdepth(im1, 0);
+			int maxdepth=calc_maxdepth(image, 0);
 			hist_full=(int*)malloc(sizeof(int)<<maxdepth);
 			allocated=1;
 		}
@@ -2642,7 +2642,7 @@ void apply_selected_transforms(Image *image, int rct_only)
 				int *temp=(int*)malloc(MAXVAR(image->iw, image->ih)*sizeof(int));
 				for(int kc=0;kc<4;++kc)
 				{
-					if(!im1->depth[kc])
+					if(!image->depth[kc])
 						continue;
 					switch(tid)
 					{
@@ -2665,8 +2665,11 @@ void apply_selected_transforms(Image *image, int rct_only)
 					}
 					{
 						int inv=tid&1;
-						im1->depth[kc]+=(char)(!inv-inv);
-						UPDATE_MAX(im1->depth[kc], im1->src_depth[kc]);
+						image->depth[kc]+=(char)(!inv-inv);
+						UPDATE_MAX(image->depth[kc], image->src_depth[kc]);
+						//if(image->depth[kc]>=18)
+						//	printf("");
+						UPDATE_MIN(image->depth[kc], 18);
 					}
 				}
 				array_free(&sizes);
