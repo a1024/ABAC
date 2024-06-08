@@ -86,17 +86,15 @@ extern "C"
 #define MEDIAN3(A, B, C) (B<A?B<C?C<A?C:A:B:A<C?C<B?C:B:A)//SLOW
 	
 //include<smmintrin.h>	SSE4.1
-#define CLAMP2_32(DST, X, A, B)\
+#define CLAMP2_32(DST, X, LO, HI)\
 	do\
 	{\
 		ALIGN(16) int _dst[4];\
 		__m128i _mx=_mm_set_epi32(0, 0, 0, X);\
-		__m128i ma=_mm_set_epi32(0, 0, 0, A);\
-		__m128i mb=_mm_set_epi32(0, 0, 0, B);\
-		__m128i vmin=_mm_min_epi32(ma, mb);\
-		__m128i vmax=_mm_max_epi32(ma, mb);\
-		_mx=_mm_max_epi32(_mx, vmin);\
-		_mx=_mm_min_epi32(_mx, vmax);\
+		__m128i _vmin=_mm_set_epi32(0, 0, 0, LO);\
+		__m128i _vmax=_mm_set_epi32(0, 0, 0, HI);\
+		_mx=_mm_max_epi32(_mx, _vmin);\
+		_mx=_mm_min_epi32(_mx, _vmax);\
 		_mm_store_si128((__m128i*)_dst, _mx);\
 		DST=_dst[0];\
 	}while(0)

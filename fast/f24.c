@@ -14,8 +14,8 @@ static const char file[]=__FILE__;
 //	#define DISABLE_MT
 //	#define PROFILE_BYPASS
 
-//	#define ENABLE_BIASCORR
-//	#define UPDATE_WEIGHTS
+	#define ENABLE_BIASCORR
+	#define UPDATE_WEIGHTS
 //	#define OVERRIDE_PRED	//bad
 	#define USE_PALETTE	//good
 	#define USE_AC		//good
@@ -24,11 +24,11 @@ static const char file[]=__FILE__;
 //	#define ENABLE_ZERO	//bad	incompatible with quantized entropy coder
 	#define ENABLE_WP	//good
 	#define ENABLE_WG	//good
-//	#define ENABLE_WG2	//2x slower, not worth the penalty
+	#define ENABLE_WG2	//2x slower, not worth the penalty
 	#define ENABLE_WG3	//good
-//	#define ENABLE_OLS4	//bad
+	#define ENABLE_OLS4	//good but slow
 	#define FOLD_OOB	//good
-//	#define USE_T47CTX	//bad
+	#define USE_T47CTX	//good
 	#define USE_FP64	//4% faster
 	#define WG_DECAY_NUM	493	//493	//3	//230
 	#define WG_DECAY_SH	9	//9	//2	//8
@@ -154,6 +154,42 @@ static const char *prednames[PRED_COUNT]=
 //	WG_PRED(0.5, NW)
 //	WG_PRED(0.5, NE)
 #endif
+#ifdef ENABLE_WG2
+#define WG2_NPREDS 32
+#define WG2_PREDLIST\
+	WG2_PRED(W+NE-N-((2*(eN+eW)+eNE-eNW+4)>>3))\
+	WG2_PRED(N-(int)(((long long)eN+eW+eNE)*-0x05C>>8))\
+	WG2_PRED(W-(int)(((long long)eN+eW+eNW)*-0x05B>>8))\
+	WG2_PRED(N+(int)((-eNN*0x0DFLL-eN*0x051LL-eNE*0x0BDLL+((long long)N-NN)*0x05C+((long long)NW-W)*0x102)>>8))\
+	WG2_PRED(3*(N-NN)+NNN)\
+	WG2_PRED((N+W)>>1)\
+	WG2_PRED(N+W-NW)\
+	WG2_PRED((W+NEE)>>1)\
+	WG2_PRED((3*W+NEEE)>>2)\
+	WG2_PRED((3*(3*W+NE+NEE)-10*N+2)/5)\
+	WG2_PRED((3*(3*W+NE+NEE)-10*N)/5)\
+	WG2_PRED((4*N-2*NN+NW+NE)>>2)\
+	WG2_PRED(N+NE-NNE-eNNE)\
+	WG2_PRED((4*(N+W+NW+NE)-(NN+WW+NNWW+NNEE)+6)/12)\
+	WG2_PRED(W+((eW-eWW)>>1))\
+	WG2_PRED(paper_GAP)\
+	WG2_PRED(calic_GAP)\
+	WG2_PRED(N+W-((NW+NN+WW+NE)>>2))\
+	WG2_PRED(((2*(N+W)-(NW+NN+WW+NE))*9+(WWW+NWW+NNW+NNN+NNE+NEE)*2)/12)\
+	WG2_PRED(3*(N+W-NW-(NN+WW-NNWW))+NNN+WWW-NNNWWW)\
+	WG2_PRED(2*(W+NE-N)-(WW+NNEE-NN))\
+	WG2_PRED((2*W+NEE-N)>>1)\
+	WG2_PRED(NW+NWW-NNWWW)\
+	WG2_PRED((14*NE-(NNEE+NNNEE+NNEEE))/11)\
+	WG2_PRED((NEEE+NEEEE)>>1)\
+	WG2_PRED((NNNEEEE+NNEEE)>>1)\
+	WG2_PRED(NNEEEE)\
+	WG2_PRED((NNWWWW+NNNWWWW)>>1)\
+	WG2_PRED((WWW+WWWW)>>1)\
+	WG2_PRED((N+NN)>>1)\
+	WG2_PRED((NE+NNEE)>>1)\
+	WG2_PRED((NE+NNE+NEE+NNEE)>>2)
+#endif
 #ifdef ENABLE_WG3
 #define WG3_NPREDS 8
 #define WG3_PREDLIST\
@@ -179,6 +215,9 @@ typedef struct _ThreadArgs
 #endif
 #ifdef ENABLE_WG
 	double wg_weights[WG_NPREDS*NCHPOOL];
+#endif
+#ifdef ENABLE_WG2
+	double wg2_weights[WG2_NPREDS*NCHPOOL];
 #endif
 #ifdef ENABLE_WG3
 	double wg3_weights[WG3_NPREDS*NCHPOOL];
@@ -534,41 +573,12 @@ static void wg_update(int curr, const int *preds, int *eW, double *weights)
 #endif
 #ifdef ENABLE_WG2
 #define STRIDE 7
-#define WG2_NPREDS 32
-#define WG2_PREDLIST\
-	WG2_PRED(W+NE-N-((2*(eN+eW)+eNE-eNW+4)>>3))\
-	WG2_PRED(N-(int)(((long long)eN+eW+eNE)*-0x05C>>8))\
-	WG2_PRED(W-(int)(((long long)eN+eW+eNW)*-0x05B>>8))\
-	WG2_PRED(N+(int)((-eNN*0x0DFLL-eN*0x051LL-eNE*0x0BDLL+((long long)N-NN)*0x05C+((long long)NW-W)*0x102)>>8))\
-	WG2_PRED(3*(N-NN)+NNN)\
-	WG2_PRED((N+W)>>1)\
-	WG2_PRED(N+W-NW)\
-	WG2_PRED((W+NEE)>>1)\
-	WG2_PRED((3*W+NEEE)>>2)\
-	WG2_PRED((3*(3*W+NE+NEE)-10*N+2)/5)\
-	WG2_PRED((3*(3*W+NE+NEE)-10*N)/5)\
-	WG2_PRED((4*N-2*NN+NW+NE)>>2)\
-	WG2_PRED(N+NE-NNE-eNNE)\
-	WG2_PRED((4*(N+W+NW+NE)-(NN+WW+NNWW+NNEE)+6)/12)\
-	WG2_PRED(W+((eW-eWW)>>1))\
-	WG2_PRED(paper_GAP)\
-	WG2_PRED(calic_GAP)\
-	WG2_PRED(N+W-((NW+NN+WW+NE)>>2))\
-	WG2_PRED(((2*(N+W)-(NW+NN+WW+NE))*9+(WWW+NWW+NNW+NNN+NNE+NEE)*2)/12)\
-	WG2_PRED(3*(N+W-NW-(NN+WW-NNWW))+NNN+WWW-NNNWWW)\
-	WG2_PRED(2*(W+NE-N)-(WW+NNEE-NN))\
-	WG2_PRED((2*W+NEE-N)>>1)\
-	WG2_PRED(NW+NWW-NNWWW)\
-	WG2_PRED((14*NE-(NNEE+NNNEE+NNEEE))/11)\
-	WG2_PRED((NEEE+NEEEE)>>1)\
-	WG2_PRED((NNNEEEE+NNEEE)>>1)\
-	WG2_PRED(NNEEEE)\
-	WG2_PRED((NNWWWW+NNNWWWW)>>1)\
-	WG2_PRED((WWW+WWWW)>>1)\
-	WG2_PRED((N+NN)>>1)\
-	WG2_PRED((NE+NNEE)>>1)\
-	WG2_PRED((NE+NNE+NEE+NNEE)>>2)
-static int wg2_predict(int **rows, int stride, int kc2, int eoffset, int depth, const int *eprev, int *preds)
+static void wg2_init(double *weights)
+{
+	for(int k=0;k<WG2_NPREDS;++k)
+		weights[k]=176;
+}
+static int wg2_predict(const double *weights, int **rows, int stride, int kc2, int eoffset, int depth, const int *eprev, int *preds)
 {
 	int sh_up=24-depth, sh_dn=depth-8;
 	int
@@ -616,14 +626,14 @@ static int wg2_predict(int **rows, int stride, int kc2, int eoffset, int depth, 
 		eWW	=rows[0][kc2-2*stride+eoffset],
 		eW	=rows[0][kc2-1*stride+eoffset];
 	int pred;
-	long long lpred=0, wsum=0;
+	double pred2=0, wsum=0;
 	int dx=abs(W-WW)+abs(N-NW)+abs(NE-N);
 	int dy=abs(W-NW)+abs(N-NN)+abs(NE-NNE);
 	int d45=abs(W-NWW)+abs(NW-NNWW)+abs(N-NNW);
 	int d135=abs(NE-NNEE)+abs(N-NNE)+abs(W-N);
 	int diff=(dy-dx)>>sh_dn, diff2=(d45-d135)>>sh_dn, diff3=NE-NW;
 	int paper_GAP, calic_GAP;
-	if(dy+dx>32)
+	if(dy+dx>(32<<(sh_dn-2)))
 		paper_GAP=(int)(((long long)dx*N+(long long)dy*W)/((long long)dy+dx));
 	else if(diff>12)
 		paper_GAP=(N+2*W)/3;
@@ -661,27 +671,44 @@ static int wg2_predict(int **rows, int stride, int kc2, int eoffset, int depth, 
 	WG2_PREDLIST
 #undef  WG2_PRED
 	
-	lpred=0;
+	pred2=0;
 	wsum=0;
 	for(int k=0;k<WG2_NPREDS;++k)
 	{
-		int weight=0xFFFFFFFF/(eprev[k]+1);
-		lpred+=(long long)weight*preds[k];
+		double weight=weights[k]/(eprev[k]+1);
+		//int weight=0xFFFFFFFF/(eprev[k]+1);
+		pred2+=weight*preds[k];
 		wsum+=weight;
 	}
-	lpred/=wsum+1;
-	pred=(int)lpred;
-	CLAMP3_32(pred, (int)lpred, N, W, NE);
+	pred2/=wsum;
+#ifdef _MSC_VER
+	pred=_cvt_dtoi_fast(pred2);
+#else
+	pred=(int)pred2;
+#endif
+	CLAMP3_32(pred, pred, N, W, NE);
 	return pred;
 }
-static void wg2_update(int curr24, const int *preds, int *eprev)
+static void wg2_update(int curr24, const int *preds, int *eprev, double *weights)
 {
+	int kbest=0, ebest=0;
 	for(int k=0;k<WG2_NPREDS;++k)
 	{
-		int err=abs(curr24-preds[k]);
-		eprev[k]+=err;
-		eprev[k]-=(eprev[k]+3)>>2;
+		int e2=abs(curr24-preds[k])>>8;//24 bits is too much
+		eprev[k]=(eprev[k]+e2)*WG3_DECAY_NUM>>WG3_DECAY_SH;
+		//eprev[k]+=e2;
+		//eprev[k]-=(eprev[k]+3)>>2;
+		if(!k||ebest>e2)
+			kbest=k, ebest=e2;
 	}
+#ifdef UPDATE_WEIGHTS
+	++weights[kbest];
+	if(weights[kbest]>WEIGHT_RESCALE_LIMIT)
+	{
+		for(int k=0;k<WG2_NPREDS;++k)
+			weights[k]*=0.5;
+	}
+#endif
 }
 #else
 #define STRIDE 6
@@ -966,6 +993,10 @@ static void block_enc(void *param)
 	for(int k=0;k<NCHPOOL;++k)
 		wg_init(args->wg_weights+WG_NPREDS*k);
 #endif
+#ifdef ENABLE_WG2
+	for(int k=0;k<NCHPOOL;++k)
+		wg2_init(args->wg2_weights+WG2_NPREDS*k);
+#endif
 #ifdef ENABLE_WG3
 	for(int k=0;k<NCHPOOL;++k)
 		wg3_init(args->wg3_weights+WG3_NPREDS*k);
@@ -997,7 +1028,7 @@ static void block_enc(void *param)
 		int preds[PRED_COUNT]={0};
 		int wg_errors[WG_NPREDS]={0};
 #ifdef ENABLE_WG2
-		int wg2_eprev[WG2_NPREDS]={0}, wg2_preds[WG2_NPREDS]={0}, wg2pred=0;
+		int wg2_eprev[WG2_NPREDS*NCHPOOL]={0}, wg2_preds[WG2_NPREDS]={0}, wg2pred=0;
 #endif
 #ifdef ENABLE_WG3
 		int wg3_eprev[WG3_NPREDS]={0}, wg3_preds[WG3_NPREDS]={0};
@@ -1159,7 +1190,7 @@ static void block_enc(void *param)
 #endif
 #ifdef ENABLE_WG2
 				int depth=image->depth+depth_inf[kc];
-				wg2pred=wg2_predict(rows, STRIDE*NCHPOOL, kc2, 6, depth, wg2_eprev, wg2_preds);
+				wg2pred=wg2_predict(args->wg2_weights+WG2_NPREDS*kc, rows, STRIDE*NCHPOOL, kc2, 6, depth, wg2_eprev+WG2_NPREDS*kc, wg2_preds);
 				preds[PRED_WG2]=wg2pred>>(24-depth);
 #endif
 #ifdef ENABLE_WG3
@@ -1199,7 +1230,7 @@ static void block_enc(void *param)
 				{
 					int curr24=comp[kc]<<(24-depth);
 					curr[kc2+6]=curr24-wg2pred;
-					wg2_update(curr24, wg2_preds, wg2_eprev);
+					wg2_update(curr24, wg2_preds, wg2_eprev+WG2_NPREDS*kc, args->wg2_weights+WG2_NPREDS*kc);
 				}
 #endif
 #ifdef ENABLE_WG3
@@ -1263,6 +1294,10 @@ static void block_enc(void *param)
 			bestsize=csize, bestrct=k;
 	}
 	
+	//bestrct=RCT_1;//
+	//*predsel=PRED_WG2;//
+	//memfill(predsel+1, predsel, sizeof(predsel)-sizeof(int), sizeof(int));//
+
 #ifdef OVERRIDE_PRED
 override_pred:
 	bestrct=RCT_JPEG2000_G;
@@ -1389,6 +1424,13 @@ override_pred:
 			wg_init(args->wg_weights+WG_NPREDS*kc);
 	}
 #endif
+#ifdef ENABLE_WG2
+	for(int kc=0;kc<3;++kc)
+	{
+		if(predidx[kc]==PRED_WG2)
+			wg2_init(args->wg2_weights+WG2_NPREDS*kc);
+	}
+#endif
 #ifdef ENABLE_WG3
 	for(int kc=0;kc<3;++kc)
 	{
@@ -1422,7 +1464,7 @@ override_pred:
 		int wp_preds[WG_NPREDS]={0}, wp_result=0;//wp_preds are reused in WG
 		int wg_errors[WG_NPREDS]={0};
 #ifdef ENABLE_WG2
-		int wg2_eprev[WG2_NPREDS]={0}, wg2_preds[WG2_NPREDS]={0}, wg2pred=0;
+		int wg2_eprev[WG2_NPREDS*4]={0}, wg2_preds[WG2_NPREDS]={0}, wg2pred=0;
 		int depths[]=
 		{
 			image->depth+depth_inf[combination[0]],
@@ -1558,8 +1600,10 @@ override_pred:
 				int kc2=kc*7, pred=0, offset=0, ch=combination[kc], val, sym;
 #ifdef USE_T47CTX
 				int
-					vx=abs(W[kc2+1]-WW[kc2+1])+abs(N[kc2+1]-NW[kc2+1])+abs(NE[kc2+1]-N[kc2+1])+abs(WW[kc2+1]+W[kc2+1]),
-					vy=abs(W[kc2+1]-NW[kc2+1])+abs(N[kc2+1]-NN[kc2+1])+abs(NE[kc2+1]-NNE[kc2+1])+abs(NN[kc2+1]+N[kc2+1]);
+					vx=(abs(W[kc2]-WW[kc2])+abs(N[kc2]-NW[kc2])+abs(NE[kc2]-N[kc2])+abs(W[kc2+1]+WW[kc2+1]))<<10>>depths[kc],
+					vy=(abs(W[kc2]-NW[kc2])+abs(N[kc2]-NN[kc2])+abs(NE[kc2]-NNE[kc2])+abs(N[kc2+1]+NN[kc2+1]))<<10>>depths[kc];
+				//if(ky==10&&kx==10)//
+				//	printf("");
 #endif
 				switch(predidx[kc])
 				{
@@ -1615,7 +1659,7 @@ override_pred:
 #endif
 #ifdef ENABLE_WG2
 				case PRED_WG2:
-					wg2pred=wg2_predict(rows, 7*4, kc2, 2, depths[kc], wg2_eprev, wg2_preds);
+					wg2pred=wg2_predict(args->wg2_weights+WG2_NPREDS*kc, rows, 7*4, kc2, 2, depths[kc], wg2_eprev+WG2_NPREDS*kc, wg2_preds);
 					pred=wg2pred>>(24-depths[kc]);
 					break;
 #endif
@@ -1646,7 +1690,7 @@ override_pred:
 #else
 				ibias_corr=(int)fbias_corr;
 #endif
-				pred+=ibias_corr;
+				//pred+=ibias_corr;
 #endif
 				if(bestrct==RCT_SUBG&&kc>0)
 				{
@@ -1656,14 +1700,16 @@ override_pred:
 				}
 				val=yuv[kc]-pred;
 				{
-					int upred=halfs[ch]-abs(pred), aval=abs(val), negmask;
+					int upred=halfs[ch]-abs(pred), aval=abs(val);
 					if(aval<=upred)
 					{
 						sym=val;
 #ifdef ENABLE_BIASCORR
-						negmask=-((ibias_corr<0)&(sym!=-halfs[ch]));//sign is flipped if SSE correction was negative, to skew the histogram
-						sym^=negmask;
-						sym-=negmask;
+						{
+							int negmask=-((ibias_corr<0)&(sym!=-halfs[ch]));//sign is flipped if SSE correction was negative, to skew the histogram
+							sym^=negmask;
+							sym-=negmask;
+						}
 #endif
 						sym=sym<<1^(sym>>31);//pack sign
 					}
@@ -1677,6 +1723,8 @@ override_pred:
 #ifdef USE_T47CTX
 				int qeN=QUANTIZE_CTX(vy);
 				int qeW=QUANTIZE_CTX(vx);
+				qeN=MINVAR(qeN, 8);
+				qeW=MINVAR(qeW, 8);
 #else
 				int qeN=QUANTIZE_CTX(N[kc2+1]);
 				int qeW=QUANTIZE_CTX(W[kc2+1]);
@@ -1790,7 +1838,7 @@ override_pred:
 				{
 					int curr24=curr[kc2+0]<<(24-depths[kc]);
 					curr[kc2+2]=curr24-wg2pred;
-					wg2_update(curr24, wg2_preds, wg2_eprev);
+					wg2_update(curr24, wg2_preds, wg2_eprev+WG2_NPREDS*kc, args->wg2_weights+WG2_NPREDS*kc);
 				}
 #endif
 #ifdef ENABLE_WG3
@@ -1905,6 +1953,13 @@ static void block_dec(void *param)
 			wg_init(args->wg_weights+WG_NPREDS*kc);
 	}
 #endif
+#ifdef ENABLE_WG2
+	for(int kc=0;kc<3;++kc)
+	{
+		if(predidx[kc]==PRED_WG2)
+			wg2_init(args->wg2_weights+WG2_NPREDS*kc);
+	}
+#endif
 #ifdef ENABLE_WG3
 	for(int kc=0;kc<3;++kc)
 	{
@@ -1938,7 +1993,7 @@ static void block_dec(void *param)
 		int wp_preds[WG_NPREDS]={0}, wp_result=0;//wp_preds are reused in WG
 		int wg_errors[WG_NPREDS]={0};
 #ifdef ENABLE_WG2
-		int wg2_eprev[WG2_NPREDS]={0}, wg2_preds[WG2_NPREDS]={0}, wg2pred=0;
+		int wg2_eprev[WG2_NPREDS*4]={0}, wg2_preds[WG2_NPREDS]={0}, wg2pred=0;
 		int depths[]=
 		{
 			image->depth+depth_inf[combination[0]],
@@ -2020,8 +2075,8 @@ static void block_dec(void *param)
 				int kc2=kc*7, pred=0, offset=0, ch=combination[kc], val, sym;
 #ifdef USE_T47CTX
 				int
-					vx=abs(W[kc2+1]-WW[kc2+1])+abs(N[kc2+1]-NW[kc2+1])+abs(NE[kc2+1]-N[kc2+1])+abs(WW[kc2+1]+W[kc2+1]),
-					vy=abs(W[kc2+1]-NW[kc2+1])+abs(N[kc2+1]-NN[kc2+1])+abs(NE[kc2+1]-NNE[kc2+1])+abs(NN[kc2+1]+N[kc2+1]);
+					vx=(abs(W[kc2]-WW[kc2])+abs(N[kc2]-NW[kc2])+abs(NE[kc2]-N[kc2])+abs(W[kc2+1]+WW[kc2+1]))<<10>>depths[kc],
+					vy=(abs(W[kc2]-NW[kc2])+abs(N[kc2]-NN[kc2])+abs(NE[kc2]-NNE[kc2])+abs(N[kc2+1]+NN[kc2+1]))<<10>>depths[kc];
 #endif
 				switch(predidx[kc])//WP
 				{
@@ -2077,7 +2132,7 @@ static void block_dec(void *param)
 #endif
 #ifdef ENABLE_WG2
 				case PRED_WG2:
-					wg2pred=wg2_predict(rows, 7*4, kc2, 2, image->depth+depth_inf[ch], wg2_eprev, wg2_preds);
+					wg2pred=wg2_predict(args->wg2_weights+WG2_NPREDS*kc, rows, 7*4, kc2, 2, depths[kc], wg2_eprev+WG2_NPREDS*kc, wg2_preds);
 					pred=wg2pred>>(24-depths[kc]);
 					break;
 #endif
@@ -2108,7 +2163,7 @@ static void block_dec(void *param)
 #else
 				ibias_corr=(int)fbias_corr;
 #endif
-				pred+=ibias_corr;
+				//pred+=ibias_corr;
 #endif
 				if(bestrct==RCT_SUBG&&kc>0)
 				{
@@ -2123,6 +2178,8 @@ static void block_dec(void *param)
 #ifdef USE_T47CTX
 				int qeN=QUANTIZE_CTX(vy);
 				int qeW=QUANTIZE_CTX(vx);
+				qeN=MINVAR(qeN, 8);
+				qeW=MINVAR(qeW, 8);
 #else
 				int qeN=QUANTIZE_CTX(N[kc2+1]);
 				int qeW=QUANTIZE_CTX(W[kc2+1]);
@@ -2254,7 +2311,7 @@ static void block_dec(void *param)
 				{
 					int curr24=curr[kc2+0]<<(24-depths[kc]);
 					curr[kc2+2]=curr24-wg2pred;
-					wg2_update(curr24, wg2_preds, wg2_eprev);
+					wg2_update(curr24, wg2_preds, wg2_eprev+WG2_NPREDS*kc, args->wg2_weights+WG2_NPREDS*kc);
 				}
 #endif
 #ifdef ENABLE_WG3
@@ -2391,7 +2448,7 @@ int f24_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		statssize=clevels*(tlevels+1)*image->nch*(int)sizeof(int);
 #else
 #ifdef USE_T47CTX
-		clevels=quantize_ctx(nlevels<<1)+1;
+		clevels=9;
 #else
 		clevels=quantize_ctx(nlevels>>1)<<1|1;
 #endif
