@@ -9,10 +9,10 @@ static const char file[]=__FILE__;
 
 //	#define BENCH_QOI
 
-#define CODECID     24
-#define CODECNAME "F24"
-#define ENCODE     f24_encode
-#define DECODE     f24_decode
+#define CODECID     25
+#define CODECNAME "F25"
+#define ENCODE     f25_encode
+#define DECODE     f25_decode
 
 
 typedef struct ThreadArgsStruct
