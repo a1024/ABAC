@@ -191,6 +191,11 @@ int	f25_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #define f25_encode(SRC, DATA, LOUD)		f25_codec(SRC, DATA, 0, 0, 0, LOUD)
 #define f25_decode(CBUF, CSIZE, DST, LOUD)	f25_codec(0, 0, CBUF, CSIZE, DST, LOUD)
 
+//	F26 multithreaded, symmetric codec
+int	f26_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
+#define f26_encode(SRC, DATA, LOUD)		f26_codec(SRC, DATA, 0, 0, 0, LOUD)
+#define f26_decode(CBUF, CSIZE, DST, LOUD)	f26_codec(0, 0, CBUF, CSIZE, DST, LOUD)
+
 
 #ifdef __cplusplus
 }
