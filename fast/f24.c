@@ -244,7 +244,7 @@ typedef struct _ThreadArgs
 } ThreadArgs;
 static const int combinations[RCT_COUNT*3]=
 {
-	//YUV		X/Y orders are irrelevant here
+	//YUV
 	 1,  2,  0,//RCT_NONE
 	 1,  3,  4,//RCT_SUBG
 	 5,  6,  7,//RCT_J2KG	default

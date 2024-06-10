@@ -17,7 +17,7 @@ static const char file[]=__FILE__;
 	#define USE_BACKPROP		//good, keep enabled
 
 
-#define BLOCKSIZE 65536
+#define BLOCKSIZE 256	//65536
 #define CTXBITS 8
 #define CTXSIZE (1<<CTXBITS)
 //#define NCTRS 2
