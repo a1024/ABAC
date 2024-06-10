@@ -9,10 +9,10 @@ static const char file[]=__FILE__;
 
 //	#define BENCH_QOI
 
-#define CODECID     25
-#define CODECNAME "F25"
-#define ENCODE     f25_encode
-#define DECODE     f25_decode
+#define CODECID     26
+#define CODECNAME "F26"
+#define ENCODE     f26_encode
+#define DECODE     f26_decode
 
 
 typedef struct ThreadArgsStruct
@@ -364,7 +364,7 @@ int main(int argc, char **argv)
 	//	"D:/ML/big_building.LSIM.PPM"
 		;
 	const char *fn=
-		"D:/ML/dataset-kodak-ppm/kodim13.ppm"
+	//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
 	//	"D:/ML/dataset-kodak-ppm/kodim20.ppm"
 	//	"D:/ML/dataset-kodak/kodim13.png"
 	//	"D:/ML/big_building.PPM"
@@ -384,7 +384,7 @@ int main(int argc, char **argv)
 	//	"D:/ML/dataset-RAW/a0001-jmac_DSC1459.dng"
 	//	"D:/ML/dataset-kodak-small"
 
-	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
+		"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim24.ppm"	//borderless
 	//	"C:/Projects/datasets/dataset-kodak-pgm/kodim13.pgm"
 	//	"C:/Projects/datasets/dataset-kodak/kodim13.png"

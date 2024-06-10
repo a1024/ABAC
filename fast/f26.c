@@ -21,42 +21,8 @@ static const char file[]=__FILE__;
 static const Image *guide=0;
 #endif
 #define BLOCKSIZE 256
-#if 0
-static int cgrad(int N, int W, int NW)
-{
-	int pred;
-
-	MEDIAN3_32(pred, N, W, N+W-NW);
-	return pred;
-}
-static int clampav(int NW, int N, int NE, int WW, int W)
-{
-	ALIGN(16) int pred[4];
-	__m128i va=_mm_set_epi32(0, 0, 0, N);
-	__m128i vb=_mm_set_epi32(0, 0, 0, W);
-	__m128i vc=_mm_set_epi32(0, 0, 0, NE);
-	__m128i vd=_mm_set_epi32(0, 0, 0, (8*W+5*(N-NW)+NE-WW)>>3);
-	__m128i vmin=_mm_min_epi32(va, vb);
-	__m128i vmax=_mm_max_epi32(va, vb);
-	vmin=_mm_min_epi32(vmin, vc);
-	vmax=_mm_max_epi32(vmax, vc);
-	vd=_mm_max_epi32(vd, vmin);
-	vd=_mm_min_epi32(vd, vmax);
-	_mm_store_si128((__m128i*)pred, vd);
-	return pred[0];
-}
-static int clamp(int vmin, int x, int vmax)
-{
-	int ret;
-
-	MEDIAN3_32(ret, vmin, vmax, x);
-	return ret;
-}
-#endif
-
 typedef enum _IChannelType
 {
-	ICH_ZERO,
 	ICH_R,
 	ICH_G,
 	ICH_B,
@@ -68,6 +34,7 @@ typedef enum _IChannelType
 	ICH_P9Y,
 	ICH_P9U,
 
+	ICH_ZERO,
 	ICH_COUNT,
 } IChannelType;
 #define ICH_R1V ICH_J2V
@@ -96,48 +63,54 @@ typedef enum _OChannelType
 #undef  OCH
 	OCH_COUNT,
 } OChannelType;
-static const char och_inflation[OCH_COUNT]=
+static const int och_info[OCH_COUNT][3]=
 {
-#define OCH(ONAME, OINF, TARGET, HELPER) OINF,
+#define OCH(ONAME, OINF, TARGET, HELPER) {TARGET, HELPER, OINF},
 	OCHLIST
 #undef  OCH
 };
-static const int och_dependencies[OCH_COUNT][2]=
+static const char *och_names[OCH_COUNT]=
 {
-#define OCH(ONAME, OINF, TARGET, HELPER) {TARGET, HELPER},
+#define OCH(ONAME, OINF, TARGET, HELPER) #ONAME,
 	OCHLIST
 #undef  OCH
 };
 #define RCTLIST\
-	RCT(R_G_B,	OCH_R,		OCH_G,		OCH_B)\
-	RCT(R_G_BG,	OCH_R,		OCH_G,		OCH_BG)\
-	RCT(R_G_BR,	OCH_R,		OCH_G,		OCH_BR)\
-	RCT(G_B_RG,	OCH_G,		OCH_B,		OCH_RG)\
-	RCT(G_B_RB,	OCH_G,		OCH_B,		OCH_RB)\
-	RCT(B_R_GR,	OCH_B,		OCH_R,		OCH_GR)\
-	RCT(B_R_GB,	OCH_B,		OCH_R,		OCH_GB)\
-	RCT(G_BG_RG,	OCH_G,		OCH_BG,		OCH_RG)\
-	RCT(G_BG_RB,	OCH_G,		OCH_BG,		OCH_RB)\
-	RCT(G_RG_BR,	OCH_G,		OCH_RG,		OCH_BR)\
-	RCT(B_RB_GB,	OCH_B,		OCH_RB,		OCH_GB)\
-	RCT(B_RB_GR,	OCH_B,		OCH_RB,		OCH_GR)\
-	RCT(B_GB_RG,	OCH_B,		OCH_GB,		OCH_RG)\
-	RCT(G_GR_BR,	OCH_R,		OCH_GR,		OCH_BR)\
-	RCT(R_GR_BG,	OCH_R,		OCH_GR,		OCH_BG)\
-	RCT(R_BR_GB,	OCH_R,		OCH_BR,		OCH_GB)\
-	RCT(J2K,	OCH_J2Y,	OCH_J2U,	OCH_J2V)\
-	RCT(RCT1,	OCH_R1Y,	OCH_R1U,	OCH_J2V)\
-	RCT(Pei09,	OCH_P9Y,	OCH_P9U,	OCH_J2V)
+	RCT(R_G_B,	OCH_R,		OCH_G,		OCH_B,		4, 4, 4)\
+	RCT(R_G_BG,	OCH_R,		OCH_G,		OCH_BG,		4, 4, 1)\
+	RCT(R_G_BR,	OCH_R,		OCH_G,		OCH_BR,		4, 4, 0)\
+	RCT(G_B_RG,	OCH_G,		OCH_B,		OCH_RG,		4, 4, 0)\
+	RCT(G_B_RB,	OCH_G,		OCH_B,		OCH_RB,		4, 4, 1)\
+	RCT(B_R_GR,	OCH_B,		OCH_R,		OCH_GR,		4, 4, 1)\
+	RCT(B_R_GB,	OCH_B,		OCH_R,		OCH_GB,		4, 4, 0)\
+	RCT(G_BG_RG,	OCH_G,		OCH_BG,		OCH_RG,		4, 0, 0)\
+	RCT(G_BG_RB,	OCH_G,		OCH_BG,		OCH_RB,		4, 0, 1)\
+	RCT(G_RG_BR,	OCH_G,		OCH_RG,		OCH_BR,		4, 0, 1)\
+	RCT(B_RB_GB,	OCH_B,		OCH_RB,		OCH_GB,		4, 0, 0)\
+	RCT(B_RB_GR,	OCH_B,		OCH_RB,		OCH_GR,		4, 0, 1)\
+	RCT(B_GB_RG,	OCH_B,		OCH_GB,		OCH_RG,		4, 0, 1)\
+	RCT(R_GR_BR,	OCH_R,		OCH_GR,		OCH_BR,		4, 0, 0)\
+	RCT(R_GR_BG,	OCH_R,		OCH_GR,		OCH_BG,		4, 0, 1)\
+	RCT(R_BR_GB,	OCH_R,		OCH_BR,		OCH_GB,		4, 0, 1)\
+	RCT(J2K,	OCH_J2Y,	OCH_J2U,	OCH_J2V,	4, 4, 4)\
+	RCT(RCT1,	OCH_R1Y,	OCH_R1U,	OCH_J2V,	4, 4, 4)\
+	RCT(Pei09,	OCH_P9Y,	OCH_P9U,	OCH_J2V,	4, 4, 4)
 typedef enum _RCTType
 {
-#define RCT(RCTNAME, YIDX, UIDX, VIDX) RCT_##RCTNAME,
+#define RCT(RCTNAME, YIDX, UIDX, VIDX, YOFF, UOFF, VOFF) RCT_##RCTNAME,
 	RCTLIST
 #undef  RCT
 	RCT_COUNT,
 } RCTType;
-static const int rctcombinations[RCT_COUNT][3]=
+static const int rct_combinations[RCT_COUNT][6]=
 {
-#define RCT(RCTNAME, YIDX, UIDX, VIDX) {YIDX, UIDX, VIDX},
+#define RCT(RCTNAME, YIDX, UIDX, VIDX, YOFF, UOFF, VOFF) {YIDX, UIDX, VIDX, YOFF, UOFF, VOFF},
+	RCTLIST
+#undef  RCT
+};
+static const char *rct_names[RCT_COUNT]=
+{
+#define RCT(RCTNAME, YIDX, UIDX, VIDX, YOFF, UOFF, VOFF) #RCTNAME,
 	RCTLIST
 #undef  RCT
 };
@@ -153,6 +126,12 @@ typedef enum _PredType
 #undef  PRED
 	PRED_COUNT,
 } PredType;
+static const char *pred_names[PRED_COUNT]=
+{
+#define PRED(NAME) #NAME,
+	PREDLIST
+#undef  PRED
+};
 
 
 //WG:
@@ -226,34 +205,98 @@ static void wg_update(int curr, const int *preds, int *eW, double *weights)
 }
 
 
+//from libjxl		packsign(pixel) = 0b00001MMBB...BBL	token = offset + 0bGGGGMML,  where G = bits of lg(packsign(pixel)),  bypass = 0bBB...BB
+#define CONFIG_EXP 4
+#define CONFIG_MSB 1
+#define CONFIG_LSB 0
+static void quantize_pixel(int val, int *token, int *bypass, int *nbits)
+{
+	if(val<(1<<CONFIG_EXP))
+	{
+		*token=val;//token
+		*nbits=0;
+		*bypass=0;
+	}
+	else
+	{
+		int lgv=FLOOR_LOG2((unsigned)val);
+		int mantissa=val-(1<<lgv);
+		*token = (1<<CONFIG_EXP) + (
+				(lgv-CONFIG_EXP)<<(CONFIG_MSB+CONFIG_LSB)|
+				(mantissa>>(lgv-CONFIG_MSB))<<CONFIG_LSB|
+				(mantissa&((1<<CONFIG_LSB)-1))
+			);
+		*nbits=lgv-CONFIG_MSB+CONFIG_LSB;
+		*bypass=val>>CONFIG_LSB&((1LL<<*nbits)-1);
+	}
+}
+
 typedef struct _ThreadArgs
 {
 	const Image *src;
 	Image *dst;
 	int fwd, loud, y1, y2;
-	int bufsize, histsize;
-	int *pixels, *hist;
+	
+	short *pixels;
+	int bufsize;
+
+	int *hist, histsize, histindices[OCH_COUNT*PRED_COUNT+1];
 
 	DList list;
 	const unsigned char *decstart, *decend;
 
 	double wg_weights[WG_NPREDS*OCH_COUNT];
+
+	//AC
+	int tlevels, clevels, statssize;
+	unsigned *stats;
 } ThreadArgs;
+#define CDFSTRIDE 64
+static void update_CDF(const int *hist, unsigned *CDF, int tlevels)
+{
+	int sum=hist[tlevels], c=0;
+	for(int ks=0;ks<tlevels;++ks)
+	{
+		int freq=hist[ks];
+		CDF[ks]=(int)(c*((1LL<<PROB_BITS)-tlevels)/sum)+ks;
+		c+=freq;
+	}
+	CDF[tlevels]=1<<PROB_BITS;
+}
 static void block_thread(void *param)
 {
-	GolombRiceCoder ec;
+	ArithmeticCoder ec;
 	ThreadArgs *args=(ThreadArgs*)param;
 	Image const *image=args->fwd?args->src:args->dst;
-	memset(args->pixels, 0, args->bufsize);
+	int depths[OCH_COUNT]={0}, halfs[OCH_COUNT]={0};
+	double bestsize=0;
+	int bestrct=0, combination[6]={0}, predidx[3]={0}, flag;
+	int res=image->iw*(args->y2-args->y1);
+	int nctx=args->clevels*args->clevels, cdfstride=args->tlevels+1, chsize=nctx*cdfstride;
 
-	if(image->nch<3)
+	for(int kc=0;kc<OCH_COUNT;++kc)
 	{
+		int depth=image->depth+och_info[kc][2];
+		UPDATE_MIN(depth, 16);
+		depths[kc]=depth;
+		halfs[kc]=1<<depth>>1;
+	}
+	memset(args->pixels, 0, args->bufsize);
+		
+	if(args->fwd)//encode
+	{
+		int nlevels[OCH_COUNT]={0};
 		double csizes[OCH_COUNT*PRED_COUNT]={0};
 		char predsel[OCH_COUNT]={0};
+
+		for(int kc=0;kc<OCH_COUNT;++kc)
+			nlevels[kc]=1<<depths[kc];
+		for(int kc=0;kc<OCH_COUNT;++kc)
+			wg_init(args->wg_weights+WG_NPREDS*kc);
 		memset(args->hist, 0, args->histsize);
 		for(int ky=args->y1, idx=image->nch*image->iw*args->y1;ky<args->y2;++ky)
 		{
-			ALIGN(16) int *rows[]=
+			ALIGN(16) short *rows[]=
 			{
 				args->pixels+((image->iw+16LL)*((ky-0LL)&3)+8LL)*OCH_COUNT,
 				args->pixels+((image->iw+16LL)*((ky-1LL)&3)+8LL)*OCH_COUNT,
@@ -265,7 +308,7 @@ static void block_thread(void *param)
 			int wg_errors[WG_NPREDS]={0}, wg_preds[WG_NPREDS]={0};
 			for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
 			{
-				int
+				short
 					*NNN	=rows[3]+0*OCH_COUNT,
 					*NNW	=rows[2]-1*OCH_COUNT,
 					*NN	=rows[2]+0*OCH_COUNT,
@@ -327,12 +370,16 @@ static void block_thread(void *param)
 				input[ICH_R1Y]+=input[ICH_R1U]>>1;
 
 				//Pei09		b-=(87*r+169*g+128)>>8; r-=g; g+=(86*r+29*b+128)>>8;
-				input[ICH_P9U]=(87*input[ICH_R]+169*input[ICH_G]+128)>>8;
+				input[ICH_P9U]=input[ICH_B]-((87*input[ICH_R]+169*input[ICH_G]+128)>>8);
 			//	input[ICH_P9V]=input[ICH_R]-input[ICH_G];
-				input[ICH_P9Y]=(86*input[ICH_P9V]+29*input[ICH_P9U]+128)>>8;
+				input[ICH_P9Y]=input[ICH_G]+((86*input[ICH_P9V]+29*input[ICH_P9U]+128)>>8);
+
+				//if(ky==128&&kx==128)//
+				//	printf("");
+
 				for(int kc=0;kc<OCH_COUNT;++kc)
 				{
-					int offset=curr[dependencies[kc][1]];
+					int target=input[och_info[kc][0]], offset=input[och_info[kc][1]];
 
 					preds[PRED_W]=W[kc];
 					MEDIAN3_32(preds[PRED_cgrad], N[kc], W[kc], N[kc]+W[kc]-NW[kc]);
@@ -353,18 +400,498 @@ static void block_thread(void *param)
 							CLAMP2_32(preds[kp], preds[kp], -halfs[kc], halfs[kc]-1);
 						}
 					}
-					curr[dependencies[kc][0]];
+					for(int kp=0;kp<PRED_COUNT;++kp)
+					{
+						int *curr_hist=args->hist+args->histindices[kc*PRED_COUNT+kp];
+						int val=target-preds[kp];
+						val+=halfs[kc];
+						val&=nlevels[kc]-1;
+						//if((unsigned)val>=(unsigned)(args->histindices[kc*PRED_COUNT+kp+1]-args->histindices[kc*PRED_COUNT+kp]))//
+						//	LOG_ERROR("");
+						++curr_hist[val];
+					}
+					target-=offset;
+					wg_update(target, wg_preds, wg_errors, args->wg_weights+WG_NPREDS*kc);
+					curr[kc]=target;
 				}
-
 				rows[0]+=OCH_COUNT;
 				rows[1]+=OCH_COUNT;
 				rows[2]+=OCH_COUNT;
 				rows[3]+=OCH_COUNT;
 			}
 		}
+		for(int kc=0;kc<OCH_COUNT*PRED_COUNT;++kc)//calculate channel sizes
+		{
+			int *curr_hist=args->hist+args->histindices[kc];
+			int nlevels2=nlevels[kc/PRED_COUNT];
+			for(int ks=0;ks<nlevels2;++ks)
+			{
+				int freq=curr_hist[ks];
+				if(freq)
+					csizes[kc]-=freq*log2((double)freq/res);
+			}
+			csizes[kc]/=8;
+		}
+		for(int kc=0;kc<OCH_COUNT;++kc)//select best predictors
+		{
+			int bestpred=0;
+			for(int kp=1;kp<PRED_COUNT;++kp)
+			{
+				if(csizes[kc*PRED_COUNT+bestpred]>csizes[kc*PRED_COUNT+kp])
+					bestpred=kp;
+			}
+			predsel[kc]=bestpred;
+		}
+		for(int kt=0;kt<RCT_COUNT;++kt)//select best R.C.T
+		{
+			const int *combination=rct_combinations[kt];
+			double csize=
+				csizes[combination[0]*PRED_COUNT+predsel[combination[0]]]+
+				csizes[combination[1]*PRED_COUNT+predsel[combination[1]]]+
+				csizes[combination[2]*PRED_COUNT+predsel[combination[2]]];
+			if(!kt||bestsize>csize)
+				bestsize=csize, bestrct=kt;
+		}
+		memcpy(combination, rct_combinations[bestrct], sizeof(combination));
+		predidx[0]=predsel[combination[0]];
+		predidx[1]=predsel[combination[1]];
+		predidx[2]=predsel[combination[2]];
+		flag=bestrct;
+		flag=flag*PRED_COUNT+predidx[2];
+		flag=flag*PRED_COUNT+predidx[1];
+		flag=flag*PRED_COUNT+predidx[0];//19*3*3*3 = 513
+		if(args->loud)
+		{
+			printf("Y %5d~%5d  best %12.2lf bytes  %s [YUV: %s %s %s]\n",
+				args->y1, args->y2,
+				bestsize,
+				rct_names[bestrct],
+				pred_names[predidx[0]],
+				pred_names[predidx[1]],
+				pred_names[predidx[2]]
+			);
+
+			for(int kp=0;kp<PRED_COUNT;++kp)
+				printf("%14s", pred_names[kp]);
+			printf("\n");
+			for(int kc=0;kc<OCH_COUNT;++kc)
+			{
+				for(int kp=0;kp<PRED_COUNT;++kp)
+					printf(" %12.2lf%c", csizes[kc*PRED_COUNT+kp], kp==predsel[kc]?'*':' ');
+				printf("  %s\n", och_names[kc]);
+			}
+
+			for(int kt=0;kt<RCT_COUNT;++kt)
+			{
+				const int *combination=rct_combinations[kt];
+				double csize=
+					csizes[combination[0]*PRED_COUNT+predsel[combination[0]]]+
+					csizes[combination[1]*PRED_COUNT+predsel[combination[1]]]+
+					csizes[combination[2]*PRED_COUNT+predsel[combination[2]]];
+				printf("%12.2lf %c  %-10s %-10s %-10s %-10s\n",
+					csize,
+					kt==bestrct?'*':' ',
+					rct_names[kt],
+					pred_names[predsel[combination[0]]],
+					pred_names[predsel[combination[1]]],
+					pred_names[predsel[combination[2]]]
+				);
+			}
+		}
+		dlist_init(&args->list, 1, 1024, 0);
+		dlist_push_back(&args->list, &flag, sizeof(char[2]));
+		ac_enc_init(&ec, &args->list);
 	}
-	else
+	else//decode
 	{
+		const unsigned char *srcstart=args->decstart, *srcend=args->decend;
+			
+		memcpy(&flag, srcstart, sizeof(char[2]));
+		srcstart+=sizeof(char[2]);
+		bestrct=flag;
+		predidx[0]=bestrct%PRED_COUNT;	bestrct/=PRED_COUNT;
+		predidx[1]=bestrct%PRED_COUNT;	bestrct/=PRED_COUNT;
+		predidx[2]=bestrct%PRED_COUNT;	bestrct/=PRED_COUNT;
+		if((unsigned)bestrct>=(unsigned)RCT_COUNT)
+		{
+			LOG_ERROR("Corrupt file");
+			return;
+		}
+		memcpy(combination, rct_combinations[bestrct], sizeof(combination));
+		ac_dec_init(&ec, srcstart, srcend);
+	}
+	
+	for(int kc=0;kc<image->nch;++kc)
+	{
+		int *curr_hist=args->hist+chsize*kc;
+		unsigned *curr_CDF=args->stats+chsize*kc;
+		
+		*curr_hist=1;
+		memfill(curr_hist+1, curr_hist, sizeof(int)*(args->tlevels-1LL), sizeof(int));
+		curr_hist[args->tlevels]=args->tlevels;
+		update_CDF(curr_hist, curr_CDF, args->tlevels);
+		memfill(curr_hist+cdfstride, curr_hist, ((size_t)chsize-cdfstride)*sizeof(int), cdfstride*sizeof(int));
+		memfill(curr_CDF+cdfstride, curr_CDF, ((size_t)chsize-cdfstride)*sizeof(int), cdfstride*sizeof(int));
+	}
+	for(int kc=0;kc<3;++kc)
+	{
+		if(predidx[kc]==PRED_wgrad)
+			wg_init(args->wg_weights+WG_NPREDS*kc);
+	}
+	for(int ky=args->y1, idx=image->nch*image->iw*args->y1;ky<args->y2;++ky)//codec loop
+	{
+		ALIGN(16) short *rows[]=
+		{
+			args->pixels+((image->iw+16LL)*((ky-0LL)&3)+8LL)*4,
+			args->pixels+((image->iw+16LL)*((ky-1LL)&3)+8LL)*4,
+			args->pixels+((image->iw+16LL)*((ky-2LL)&3)+8LL)*4,
+			args->pixels+((image->iw+16LL)*((ky-3LL)&3)+8LL)*4,
+		};
+		short yuv[5]={0};
+		int wg_errors[WG_NPREDS]={0}, wg_preds[WG_NPREDS]={0};
+		int token=0, bypass=0, nbits=0;
+
+		for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
+		{
+			short
+				*NNN	=rows[3]+0*4,
+				*NNW	=rows[2]-1*4,
+				*NN	=rows[2]+0*4,
+				*NNE	=rows[2]+1*4,
+				*NNEE	=rows[2]+2*4,
+				*NW	=rows[1]-1*4,
+				*N	=rows[1]+0*4,
+				*NE	=rows[1]+1*4,
+				*NEE	=rows[1]+2*4,
+				*NEEE	=rows[1]+3*4,
+				*WWW	=rows[0]-3*4,
+				*WW	=rows[0]-2*4,
+				*W	=rows[0]-1*4,
+				*curr	=rows[0]+0*4;
+			if(ky<=args->y1+2)
+			{
+				if(ky<=args->y1+1)
+				{
+					if(ky==args->y1)
+						NEEE=NE=NW=N=W;
+					NN=N;
+					NNE=NE;
+				}
+				NNN=NN;
+			}
+			if(kx<=2)
+			{
+				if(kx<=1)
+				{
+					if(!kx)
+						NW=W=N;
+					WW=W;
+				}
+				WWW=WW;
+			}
+			if(kx>=image->iw-3)
+			{
+				if(kx>=image->iw-2)
+				{
+					if(kx>=image->iw-1)
+					{
+						NNE=NN;
+						NE=N;
+					}
+					NEE=NE;
+				}
+				NEEE=NEE;
+			}
+			if(args->fwd)
+			{
+				int kc=0;
+				if(image->nch>=3)
+				{
+					switch(bestrct)
+					{
+					case RCT_R_G_B:
+					case RCT_R_G_BG:
+					case RCT_R_G_BR:
+					case RCT_R_GR_BR:
+					case RCT_R_GR_BG:
+						yuv[0]=image->data[idx+0];
+						yuv[1]=image->data[idx+1];
+						yuv[2]=image->data[idx+2];
+						break;
+					case RCT_G_B_RG:
+					case RCT_G_B_RB:
+					case RCT_G_BG_RG:
+					case RCT_G_BG_RB:
+						yuv[0]=image->data[idx+1];
+						yuv[1]=image->data[idx+2];
+						yuv[2]=image->data[idx+0];
+						break;
+					case RCT_B_R_GR:
+					case RCT_B_R_GB:
+					case RCT_B_RB_GB:
+					case RCT_B_RB_GR:
+						yuv[0]=image->data[idx+2];
+						yuv[1]=image->data[idx+0];
+						yuv[2]=image->data[idx+1];
+						break;
+					case RCT_G_RG_BR:
+						yuv[0]=image->data[idx+1];
+						yuv[1]=image->data[idx+0];
+						yuv[2]=image->data[idx+2];
+						break;
+					case RCT_B_GB_RG:
+						yuv[0]=image->data[idx+2];
+						yuv[1]=image->data[idx+1];
+						yuv[2]=image->data[idx+0];
+						break;
+					case RCT_R_BR_GB:
+						yuv[0]=image->data[idx+0];
+						yuv[1]=image->data[idx+2];
+						yuv[2]=image->data[idx+1];
+						break;
+					case RCT_J2K:
+						yuv[0]=image->data[idx+1];
+						yuv[1]=image->data[idx+2];
+						yuv[2]=image->data[idx+0];
+						yuv[1]-=yuv[0];
+						yuv[2]-=yuv[0];
+						yuv[0]+=(yuv[1]+yuv[2])>>2;
+						break;
+					case RCT_RCT1:
+						yuv[0]=image->data[idx+1];
+						yuv[1]=image->data[idx+2];
+						yuv[2]=image->data[idx+0];
+						yuv[1]-=yuv[0];
+						yuv[0]+=yuv[1]>>1;
+						yuv[2]-=yuv[0];
+						yuv[0]+=yuv[2]>>1;
+						break;
+					case RCT_Pei09:
+						yuv[0]=image->data[idx+1];
+						yuv[1]=image->data[idx+2];
+						yuv[2]=image->data[idx+0];
+						yuv[1]-=(87*yuv[2]+169*yuv[0]+128)>>8;
+						yuv[2]-=yuv[0];
+						yuv[0]+=(86*yuv[2]+29*yuv[1]+128)>>8;
+						break;
+					}
+					kc=3;
+				}
+				if(kc<image->nch)
+					yuv[kc]=image->data[kc];
+			}
+
+			//if(!idx)//
+			//	printf("");
+			
+			for(int kc=0;kc<image->nch;++kc)
+			{
+				int
+					vx=(abs(W[kc]-WW[kc])+abs(N[kc]-NW[kc])+abs(NE[kc]-N[kc]))<<9>>depths[kc],
+					vy=(abs(W[kc]-NW[kc])+abs(N[kc]-NN[kc])+abs(NE[kc]-NNE[kc]))<<9>>depths[kc];
+				int qeN=FLOOR_LOG2_P1(vy);
+				int qeW=FLOOR_LOG2_P1(vx);
+				qeN=MINVAR(qeN, 8);
+				qeW=MINVAR(qeW, 8);
+				int cidx=cdfstride*(nctx*kc+args->clevels*qeN+qeW);
+				int *curr_hist=args->hist+cidx;
+				unsigned *curr_CDF=args->stats+cidx;
+				int ch=combination[kc], offset=yuv[combination[kc+3]], pred, error, sym;
+
+				switch(predidx[kc])
+				{
+				case PRED_W:
+					pred=W[kc];
+					break;
+				case PRED_cgrad:
+					MEDIAN3_32(pred, N[kc], W[kc], N[kc]+W[kc]-NW[kc]);
+					break;
+				case PRED_wgrad:
+					pred=wg_predict(
+						args->wg_weights+WG_NPREDS*kc,
+						NNN[kc],
+						NN[kc], NNE[kc],
+						NW[kc], N[kc], NE[kc], NEE[kc], NEEE[kc],
+						WWW[kc], WW[kc], W[kc],
+						wg_errors, wg_preds
+					);
+					break;
+				}
+				pred+=offset;
+				CLAMP2_32(pred, pred, -halfs[ch], halfs[ch]-1);
+				if(args->fwd)
+				{
+					curr[kc]=yuv[kc];
+					error=curr[kc]-pred;
+					{
+						int upred=halfs[ch]-abs(pred), aval=abs(error);
+						if(aval<=upred)
+						{
+							sym=error;
+#ifdef ENABLE_BIASCORR
+							{
+								int negmask=-((ibias_corr<0)&(sym!=-halfs[ch]));//sign is flipped if SSE correction was negative, to skew the histogram
+								sym^=negmask;
+								sym-=negmask;
+							}
+#endif
+							sym=sym<<1^(sym>>31);//pack sign
+						}
+						else
+							sym=upred+aval;//error sign is known
+					}
+					quantize_pixel(sym, &token, &bypass, &nbits);
+					ac_enc(&ec, token, curr_CDF);
+					if(nbits)
+						ac_enc_bypass(&ec, bypass, nbits);//up to 16 bits
+				}
+				else
+				{
+					token=ac_dec(&ec, curr_CDF, args->tlevels);//try ac_dec_packedsign()
+					sym=token;
+					if(sym>=(1<<CONFIG_EXP))
+					{
+						sym-=1<<CONFIG_EXP;
+						int lsb=sym&((1<<CONFIG_LSB)-1);
+						sym>>=CONFIG_LSB;
+						int msb=sym&((1<<CONFIG_MSB)-1);
+						sym>>=CONFIG_MSB;
+						nbits=sym+CONFIG_EXP-(CONFIG_MSB+CONFIG_LSB);
+						bypass=ac_dec_bypass(&ec, nbits);
+						sym=1;
+						sym<<=CONFIG_MSB;
+						sym|=msb;
+						sym<<=nbits;
+						sym|=bypass;
+						sym<<=CONFIG_LSB;
+						sym|=lsb;
+					}
+					{
+						int upred=halfs[ch]-abs(pred), negmask=0;
+						if(sym<=(upred<<1))
+						{
+							error=sym>>1^-(sym&1);
+#ifdef ENABLE_BIASCORR
+							negmask=-((ibias_corr<0)&(error!=-halfs[ch]));
+#endif
+						}
+						else
+						{
+							error=sym-upred;
+							negmask=-(pred>0);
+						}
+						error^=negmask;
+						error-=negmask;
+					}
+					yuv[kc]=error+pred;
+					curr[kc]=yuv[kc];
+				}
+				++curr_hist[token];
+				++curr_hist[args->tlevels];
+				if((kx&(CDFSTRIDE-1))==CDFSTRIDE-1)
+					update_CDF(curr_hist, curr_CDF, args->tlevels);
+				curr[kc]-=offset;
+				if(predidx[kc]==PRED_wgrad)
+					wg_update(curr[kc], wg_preds, wg_errors, args->wg_weights+WG_NPREDS*kc);
+			}
+			if(!args->fwd)
+			{
+				int kc=0;
+				if(image->nch>=3)
+				{
+					switch(bestrct)
+					{
+					case RCT_R_G_B:
+					case RCT_R_G_BG:
+					case RCT_R_G_BR:
+					case RCT_R_GR_BR:
+					case RCT_R_GR_BG:
+						image->data[idx+0]=yuv[0];
+						image->data[idx+1]=yuv[1];
+						image->data[idx+2]=yuv[2];
+						break;
+					case RCT_G_B_RG:
+					case RCT_G_B_RB:
+					case RCT_G_BG_RG:
+					case RCT_G_BG_RB:
+						image->data[idx+1]=yuv[0];
+						image->data[idx+2]=yuv[1];
+						image->data[idx+0]=yuv[2];
+						break;
+					case RCT_B_R_GR:
+					case RCT_B_R_GB:
+					case RCT_B_RB_GB:
+					case RCT_B_RB_GR:
+						image->data[idx+2]=yuv[0];
+						image->data[idx+0]=yuv[1];
+						image->data[idx+1]=yuv[2];
+						break;
+					case RCT_G_RG_BR:
+						image->data[idx+1]=yuv[0];
+						image->data[idx+0]=yuv[1];
+						image->data[idx+2]=yuv[2];
+						break;
+					case RCT_B_GB_RG:
+						image->data[idx+2]=yuv[0];
+						image->data[idx+1]=yuv[1];
+						image->data[idx+0]=yuv[2];
+						break;
+					case RCT_R_BR_GB:
+						image->data[idx+0]=yuv[0];
+						image->data[idx+2]=yuv[1];
+						image->data[idx+1]=yuv[2];
+						break;
+					case RCT_J2K:
+						yuv[0]-=(yuv[1]+yuv[2])>>2;
+						yuv[2]+=yuv[0];
+						yuv[1]+=yuv[0];
+						image->data[idx+1]=yuv[0];
+						image->data[idx+2]=yuv[1];
+						image->data[idx+0]=yuv[2];
+						break;
+					case RCT_RCT1:
+						yuv[0]-=yuv[2]>>1;
+						yuv[2]+=yuv[0];
+						yuv[0]-=yuv[1]>>1;
+						yuv[1]+=yuv[0];
+						image->data[idx+1]=yuv[0];
+						image->data[idx+2]=yuv[1];
+						image->data[idx+0]=yuv[2];
+						break;
+					case RCT_Pei09:
+						yuv[0]-=(86*yuv[2]+29*yuv[1]+128)>>8;
+						yuv[2]+=yuv[0];
+						yuv[1]+=(87*yuv[2]+169*yuv[0]+128)>>8;
+						image->data[idx+1]=yuv[0];
+						image->data[idx+2]=yuv[1];
+						image->data[idx+0]=yuv[2];
+						break;
+					}
+					kc=3;
+				}
+				if(kc<image->nch)
+					image->data[kc]=yuv[kc];
+			}
+#ifdef ENABLE_GUIDE
+			if(memcmp(image->data+idx, guide->data+idx, sizeof(short)*image->nch))
+			{
+				short orig[4]={0};
+				memcpy(orig, guide->data+idx, image->nch*sizeof(short));
+				LOG_ERROR("Guide error XY %d %d", kx, ky);
+				printf("");//
+			}
+#endif
+			rows[0]+=4;
+			rows[1]+=4;
+			rows[2]+=4;
+			rows[3]+=4;
+		}
+	}
+	if(args->fwd)
+	{
+		ac_enc_flush(&ec);
+		if(args->loud)
+			printf("Actual %8zd bytes (%+11.2lf)\n\n", args->list.nobj, args->list.nobj-bestsize);
 	}
 }
 int f26_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud)
@@ -372,15 +899,66 @@ int f26_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	double t0=time_sec();
 	int fwd=src!=0;
 	Image const *image=fwd?src:dst;
-#ifdef ENABLE_GUIDE
-	if(fwd)
-		guide=image;
-#endif
 	int ncores=query_cpu_cores();
 	int nblocks=(image->ih+BLOCKSIZE-1)/BLOCKSIZE, nthreads=MINVAR(nblocks, ncores);
+	int coffset=sizeof(int)*nblocks;
+	ptrdiff_t start=0;
 	ptrdiff_t memusage=0;
 	ptrdiff_t argssize=nthreads*sizeof(ThreadArgs);
 	ThreadArgs *args=(ThreadArgs*)malloc(argssize);
+	int depths[OCH_COUNT]={0}, histindices[OCH_COUNT*PRED_COUNT+1]={0}, histsize=0;
+	int tlevels=0, clevels=0, statssize=0;
+	
+	if(fwd)
+	{
+#ifdef ENABLE_GUIDE
+		guide=image;
+#endif
+		histsize=0;
+		for(int kc=0;kc<OCH_COUNT;++kc)
+		{
+			int depth=image->depth+och_info[kc][2];
+			UPDATE_MIN(depth, 16);
+			depths[kc]=depth;
+			for(int kp=0;kp<PRED_COUNT;++kp)
+			{
+				int nlevels=1<<depth;
+				histindices[kc*PRED_COUNT+kp]=histsize;
+				histsize+=nlevels;
+			}
+		}
+		histindices[OCH_COUNT*PRED_COUNT]=histsize;
+		start=array_append(data, 0, 1, coffset, 1, 0, 0);
+	}
+	else//integrity check
+	{
+		start=coffset;
+		for(int kt=0;kt<nblocks;++kt)
+		{
+			int size=0;
+			memcpy(&size, cbuf+sizeof(int)*kt, sizeof(int));
+			start+=size;
+		}
+		if(start!=clen)
+			LOG_ERROR("Corrupt file");
+		start=coffset;
+	}
+	{
+		int nlevels=2<<image->depth;//chroma-inflated
+		int token=0, bypass=0, nbits=0;
+
+		quantize_pixel(nlevels, &token, &bypass, &nbits);
+		tlevels=token+1;
+		clevels=9;
+		statssize=clevels*clevels*(tlevels+1)*image->nch*(int)sizeof(int);
+		if(fwd)
+		{
+			UPDATE_MAX(histsize, statssize);
+		}
+		else
+			histsize=statssize;
+	}
+
 	if(!args)
 	{
 		LOG_ERROR("Alloc error");
@@ -393,16 +971,26 @@ int f26_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		ThreadArgs *arg=args+k;
 		arg->src=src;
 		arg->dst=dst;
-		arg->bufsize=sizeof(int[4*4*2])*(image->iw+16LL);//4 padded rows * 4 channels max * {pixels, errors}
-		arg->pixels=(int*)_mm_malloc(arg->bufsize, sizeof(__m128i));
-		arg->histsize=sizeof(int[MAXPREDS])<<image->depth;
+		arg->bufsize=sizeof(short[4*OCH_COUNT*1])*(image->iw+16LL);//4 padded rows * OCH_COUNT * {pixels}
+		arg->pixels=(short*)_mm_malloc(arg->bufsize, sizeof(__m128i));
+
+		arg->histsize=histsize*sizeof(int);
 		arg->hist=(int*)malloc(arg->histsize);
-		if(!arg->pixels||!arg->hist)
+
+		arg->statssize=statssize;
+		arg->stats=(unsigned*)malloc(statssize);
+		if(!arg->pixels||!arg->hist||!arg->stats)
 		{
 			LOG_ERROR("Alloc error");
 			return 1;
 		}
-		memusage+=(ptrdiff_t)arg->bufsize+arg->histsize;
+		memusage+=arg->bufsize;
+		memusage+=arg->histsize;
+		memusage+=arg->statssize;
+		
+		arg->tlevels=tlevels;
+		arg->clevels=clevels;
+		memcpy(arg->histindices, histindices, sizeof(arg->histindices));
 		arg->fwd=fwd;
 #ifdef DISABLE_MT
 		arg->loud=loud;
@@ -410,100 +998,62 @@ int f26_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		arg->loud=0;
 #endif
 	}
-	if(fwd)
+	for(int kt=0;kt<nblocks;kt+=nthreads)
 	{
-		ptrdiff_t dststart=array_append(data, 0, 1, sizeof(int)*nblocks, 1, 0, 0);
-		for(int kt=0;kt<nblocks;kt+=nthreads)
+		int nthreads2=MINVAR(kt+nthreads, nblocks)-kt;
+		for(int kt2=0;kt2<nthreads2;++kt2)
 		{
-			int nthreads2=MINVAR(kt+nthreads, nblocks)-kt;
-			for(int kt2=0;kt2<nthreads2;++kt2)
+			ThreadArgs *arg=args+kt2;
+			arg->y1=BLOCKSIZE*(kt+kt2);
+			arg->y2=MINVAR(arg->y1+BLOCKSIZE, image->ih);
+			if(!fwd)
 			{
-				ThreadArgs *arg=args+kt2;
-				arg->y1=BLOCKSIZE*(kt+kt2);
-				arg->y2=MINVAR(arg->y1+BLOCKSIZE, image->ih);
+				int size=0;
+				memcpy(&size, cbuf+sizeof(int)*((ptrdiff_t)kt+kt2), sizeof(int));
+				arg->decstart=cbuf+start;
+				start+=size;
+				arg->decend=cbuf+start;
 			}
+		}
 #ifdef DISABLE_MT
-			for(int k=0;k<nthreads2;++k)
-				block_thread(args+k);
+		for(int k=0;k<nthreads2;++k)
+			block_thread(args+k);
 #else
-			void *ctx=mt_exec(block_thread, args, sizeof(ThreadArgs), nthreads2);
-			mt_finish(ctx);
+		void *ctx=mt_exec(block_thread, args, sizeof(ThreadArgs), nthreads2);
+		mt_finish(ctx);
 #endif
+		if(fwd)
+		{
 			for(int kt2=0;kt2<nthreads2;++kt2)
 			{
 				if(loud)
 					printf("[%d]  %zd\n", kt+kt2, args[kt2].list.nobj);
-				memcpy(data[0]->data+dststart+sizeof(int)*((ptrdiff_t)kt+kt2), &args[kt2].list.nobj, sizeof(int));
+				memcpy(data[0]->data+start+sizeof(int)*((ptrdiff_t)kt+kt2), &args[kt2].list.nobj, sizeof(int));
 				dlist_appendtoarray(&args[kt2].list, data);
 				dlist_clear(&args[kt2].list);
 			}
 		}
-		if(loud)
+	}
+	if(loud)
+	{
+		ptrdiff_t usize=((ptrdiff_t)image->iw*image->ih*image->nch*image->depth+7)>>3;
+		t0=time_sec()-t0;
+		if(fwd)
 		{
-			ptrdiff_t
-				csize=data[0]->count-dststart,
-				usize=((ptrdiff_t)image->iw*image->ih*image->nch*image->depth+7)>>3;
-			t0=time_sec()-t0;
+			ptrdiff_t csize=data[0]->count-start;
 			printf("Size %14td/%14td  %16lf%%  %16lf\n", csize, usize, 100.*csize/usize, (double)usize/csize);
 			printf("Mem usage: ");
 			print_size((double)memusage, 8, 4, 0, 0);
 			printf("\n");
-			printf("E %16.6lf sec  %16.6lf MB/s\n", t0, usize/(t0*1024*1024));
 		}
-	}
-	else
-	{
-		const unsigned char *dstptr=cbuf+sizeof(int)*nblocks;
-		int dec_offset=0;
-
-		//integrity check
-#if 1
-		for(int kt=0;kt<nblocks;++kt)
-		{
-			int size=0;
-			memcpy(&size, cbuf+sizeof(int)*kt, sizeof(int));
-			dec_offset+=size;
-		}
-		if(sizeof(int)*nblocks+dec_offset!=clen)
-			LOG_ERROR("Corrupt file");
-#endif
-		dec_offset=0;
-		for(int kt=0;kt<nblocks;kt+=nthreads)
-		{
-			int nthreads2=MINVAR(kt+nthreads, nblocks)-kt;
-			for(int kt2=0;kt2<nthreads2;++kt2)
-			{
-				ThreadArgs *arg=args+kt2;
-				int size=0;
-				memcpy(&size, cbuf+sizeof(int)*((ptrdiff_t)kt+kt2), sizeof(int));
-				arg->y1=BLOCKSIZE*(kt+kt2);
-				arg->y2=MINVAR(arg->y1+BLOCKSIZE, image->ih);
-				arg->decstart=dstptr+dec_offset;
-				dec_offset+=size;
-				arg->decend=dstptr+dec_offset;
-			}
-#ifdef DISABLE_MT
-			for(int k=0;k<nthreads2;++k)
-				block_thread(args+k);
-#else
-			{
-				void *ctx=mt_exec(block_thread, args, sizeof(ThreadArgs), nthreads2);
-				mt_finish(ctx);
-			}
-#endif
-		}
-		if(loud)
-		{
-			ptrdiff_t usize=((ptrdiff_t)image->iw*image->ih*image->nch*image->depth+7)>>3;
-			t0=time_sec()-t0;
-			printf("D %16.6lf sec  %16.6lf MB/s\n", t0, usize/(t0*1024*1024));
-		}
+		printf("%c %16.6lf sec  %16.6lf MB/s\n", 'D'+fwd, t0, usize/(t0*1024*1024));
 	}
 	for(int k=0;k<nthreads;++k)
 	{
 		ThreadArgs *arg=args+k;
 		_mm_free(arg->pixels);
 		free(arg->hist);
+		free(arg->stats);
 	}
 	free(args);
 	return 0;

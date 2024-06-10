@@ -2491,9 +2491,11 @@ int f24_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			arg->hist=0;
 		}
 #endif
-		if(!arg->pixels||(fwd&&!arg->hist)
+		if(!arg->pixels
 #ifdef USE_AC
-			||!args->stats
+			||!args->stats||!args->hist
+#else
+			||(fwd&&!arg->hist)
 #endif
 		)
 		{
