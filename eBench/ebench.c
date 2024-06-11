@@ -2415,11 +2415,14 @@ void bayes_update()
 
 void apply_selected_transforms(Image *image, int rct_only)
 {
+	int hasRCT=0;
+
 	if(!transforms)
 		return;
 	for(int k=0;k<(int)transforms->count;++k)
 	{
 		unsigned char tid=transforms->data[k];
+		hasRCT|=tid<CST_INV_SEPARATOR;
 		if(rct_only&&tid>CST_INV_SEPARATOR)
 			continue;
 		switch(tid)
@@ -2560,12 +2563,12 @@ void apply_selected_transforms(Image *image, int rct_only)
 		case ST_INV_CLAMPGRAD:		pred_clampgrad(image, 0, pred_ma_enabled);		break;
 		case ST_FWD_AV2:		pred_av2(image, 1);					break;
 		case ST_INV_AV2:		pred_av2(image, 0);					break;
-		case ST_FWD_WGRAD:		pred_wgrad(image, 1);					break;
-		case ST_INV_WGRAD:		pred_wgrad(image, 0);					break;
+		case ST_FWD_WGRAD:		pred_wgrad(image, 1, hasRCT);				break;
+		case ST_INV_WGRAD:		pred_wgrad(image, 0, hasRCT);				break;
 	//	case ST_FWD_WGRAD2:		pred_wgrad2(image, 1);					break;
 	//	case ST_INV_WGRAD2:		pred_wgrad2(image, 0);					break;
-		case ST_FWD_WGRAD3:		pred_wgrad3(image, 1);					break;
-		case ST_INV_WGRAD3:		pred_wgrad3(image, 0);					break;
+		case ST_FWD_WGRAD3:		pred_wgrad3(image, 1, hasRCT);				break;
+		case ST_INV_WGRAD3:		pred_wgrad3(image, 0, hasRCT);				break;
 	//	case ST_FWD_ECOEFF:		pred_ecoeff(image, 1, pred_ma_enabled);			break;
 	//	case ST_INV_ECOEFF:		pred_ecoeff(image, 0, pred_ma_enabled);			break;
 	//	case ST_FWD_AVERAGE:		pred_average(image, 1, pred_ma_enabled);		break;

@@ -3167,7 +3167,7 @@ static int quantize_nb(int x)
 }
 #define QUANTIZE_NB(X) quantize_nb(X)+maxdepth
 #endif
-void pred_wgrad(Image *src, int fwd)
+void pred_wgrad(Image *src, int fwd, int hasRCT)
 {
 	//static int sh=8;
 	//if(fwd)
@@ -3191,7 +3191,7 @@ void pred_wgrad(Image *src, int fwd)
 		nlevels[2]>>1,
 		nlevels[3]>>1,
 	};
-	int perm[]={1, 2, 0, 3};
+	const int perm0[]={1, 2, 0, 3, 0, 1, 2, 3}, *perm=perm0+hasRCT*4;
 	int fwdmask=-fwd;
 
 	int *pixels=(int*)malloc((src->iw+16LL)*sizeof(int[4*4]));//4 padded rows * 4 channels max
@@ -3230,7 +3230,7 @@ void pred_wgrad(Image *src, int fwd)
 		for(int kx=0;kx<src->iw;++kx, idx+=4)
 		{
 #ifdef WGRAD_UPDATE_LUMA
-			if(!fwd)
+			if(!hasRCT&&!fwd)
 			{
 				int
 					cb	=src->data[idx+2],
@@ -3288,7 +3288,7 @@ void pred_wgrad(Image *src, int fwd)
 				(void)WWW;
 				(void)WW;
 				(void)W;
-				if(kc0>0)
+				if(!hasRCT&&kc0>0)
 				{
 					offset+=rows[0][1];
 					if(kc0>1)
@@ -3499,7 +3499,7 @@ void pred_wgrad(Image *src, int fwd)
 #endif
 			}
 #ifdef WGRAD_UPDATE_LUMA
-			if(fwd)
+			if(!hasRCT&&fwd)
 			{
 				int
 					cb	=src->data[idx+2],
@@ -3857,7 +3857,7 @@ void pred_wgrad2(Image *src, int fwd)
 	free(pixels);
 	//free(hist);
 }
-void pred_wgrad3(Image *src, int fwd)
+void pred_wgrad3(Image *src, int fwd, int hasRCT)
 {
 	//static int callidx=0;
 
@@ -3876,8 +3876,7 @@ void pred_wgrad3(Image *src, int fwd)
 		nlevels[2]>>1,
 		nlevels[3]>>1,
 	};
-	int hasRCT=src->depth[0]!=src->depth[1];
-	int perm0[]={1, 2, 0, 3, 0, 1, 2, 3}, *perm=perm0+hasRCT*4;
+	const int perm0[]={1, 2, 0, 3, 0, 1, 2, 3}, *perm=perm0+hasRCT*4;
 	int fwdmask=-fwd;
 	int *pixels;
 
@@ -7451,7 +7450,7 @@ void pred_linear(Image const *src, Image *dst, const int *coeffs, int lgden, int
 }
 
 
-#define SLIC5_NPREDS 33
+#define SLIC5_NPREDS 32
 #define SLIC5_PREDLIST\
 	SLIC5_PRED(W+NE-N-((2*(eN+eW)+eNE-eNW+4)>>3))\
 	SLIC5_PRED(N-(int)(((long long)eN+eW+eNE)*-0x05C>>8))\
@@ -7459,7 +7458,6 @@ void pred_linear(Image const *src, Image *dst, const int *coeffs, int lgden, int
 	SLIC5_PRED(N+(int)((-eNN*0x0DFLL-eN*0x051LL-eNE*0x0BDLL+((long long)N-NN)*0x05C+((long long)NW-W)*0x102)>>8))\
 	SLIC5_PRED(3*(N-NN)+NNN)\
 	SLIC5_PRED((N+W)>>1)\
-	SLIC5_PRED(geomean)\
 	SLIC5_PRED(N+W-NW)\
 	SLIC5_PRED((W+NEE)>>1)\
 	SLIC5_PRED((3*W+NEEE)>>2)\
@@ -7486,6 +7484,7 @@ void pred_linear(Image const *src, Image *dst, const int *coeffs, int lgden, int
 	SLIC5_PRED((N+NN)>>1)\
 	SLIC5_PRED((NE+NNEE)>>1)\
 	SLIC5_PRED((NE+NNE+NEE+NNEE)>>2)
+//	SLIC5_PRED(geomean)
 void pred_t47(Image *src, int fwd, int enable_ma)
 {
 	Image *dst;
