@@ -312,6 +312,8 @@ static void batch_test_mt(const char *path, int nthreads)
 	}
 #if CODECID==24
 	f24_curiosity();
+#elif CODECID==26
+	f26_curiosity();
 #endif
 	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H%M%S");
 	printf("Finish %s\n", g_buf);

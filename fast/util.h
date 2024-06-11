@@ -191,6 +191,7 @@ int acme_strftime(char *buf, size_t len, const char *format);//prints current ti
 int print_bin8(int x);
 int print_bin32(unsigned x);
 int print_binn(unsigned long long x, int nbits);
+void print_nan(double x, int total, int decimal);
 
 double convert_size(double bytesize, int *log1024);
 int print_size(double bytesize, int ndigits, int pdigits, char *str, int len);

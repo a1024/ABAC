@@ -353,6 +353,10 @@ static void quantize_pixel(int val, int *token, int *bypass, int *nbits)
 	}
 }
 
+double g_usizes[OCH_COUNT*PRED_COUNT]={0};
+double g_csizes[OCH_COUNT*PRED_COUNT]={0};
+//double g_utotal[OCH_COUNT*PRED_COUNT]={0};
+//double g_ctotal[OCH_COUNT*PRED_COUNT]={0};
 typedef struct _ThreadArgs
 {
 	const Image *src;
@@ -375,7 +379,8 @@ typedef struct _ThreadArgs
 	unsigned *stats;
 
 	//aux
-	double bestsize;
+	int bestrct, predidx[3];
+	double usizes[3], csizes[3], bestsize;
 #ifdef ENABLE_DEBUGIMAGE
 	Image *debug_image;
 #endif
@@ -617,6 +622,20 @@ static void block_thread(void *param)
 		flag=flag*PRED_COUNT+predidx[2];
 		flag=flag*PRED_COUNT+predidx[1];
 		flag=flag*PRED_COUNT+predidx[0];//19*3*3*3 = 513
+
+		args->bestrct=bestrct;
+		args->predidx[0]=predidx[0];
+		args->predidx[1]=predidx[1];
+		args->predidx[2]=predidx[2];
+		args->usizes[0]=(res*image->depth+7)>>3;
+		args->usizes[1]=(res*image->depth+7)>>3;
+		args->usizes[2]=(res*image->depth+7)>>3;
+		{
+			const int *group=rct_combinations[bestrct];
+			args->csizes[0]=csizes[group[0]*PRED_COUNT+predsel[group[0]]];
+			args->csizes[1]=csizes[group[1]*PRED_COUNT+predsel[group[1]]];
+			args->csizes[2]=csizes[group[2]*PRED_COUNT+predsel[group[2]]];
+		}
 		args->bestsize=bestsize;
 		if(args->loud)
 		{
@@ -1222,6 +1241,15 @@ int f26_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			for(int kt2=0;kt2<nthreads2;++kt2)
 			{
 				ThreadArgs *arg=args+kt2;
+				{
+					const int *group=rct_combinations[arg->bestrct];
+					g_usizes[group[0]*PRED_COUNT+arg->predidx[0]]+=arg->usizes[0];
+					g_usizes[group[1]*PRED_COUNT+arg->predidx[1]]+=arg->usizes[1];
+					g_usizes[group[2]*PRED_COUNT+arg->predidx[2]]+=arg->usizes[2];
+					g_csizes[group[0]*PRED_COUNT+arg->predidx[0]]+=arg->csizes[0];
+					g_csizes[group[1]*PRED_COUNT+arg->predidx[1]]+=arg->csizes[1];
+					g_csizes[group[2]*PRED_COUNT+arg->predidx[2]]+=arg->csizes[2];
+				}
 				if(loud)
 				{
 					printf("[%3d]  %13.2lf -> %10zd bytes (%+13.2lf)\n", kt+kt2, arg->bestsize, arg->list.nobj, arg->list.nobj-arg->bestsize);
@@ -1264,4 +1292,60 @@ int f26_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	}
 	free(args);
 	return 0;
+}
+void f26_curiosity()
+{
+	double rowusum[OCH_COUNT]={0}, colusum[PRED_COUNT]={0};
+	double rowcsum[OCH_COUNT]={0}, colcsum[PRED_COUNT]={0};
+	double utotal=0, ctotal=0;
+	for(int kc=0;kc<OCH_COUNT;++kc)
+	{
+		for(int kp=0;kp<PRED_COUNT;++kp)
+		{
+			rowusum[kc]+=g_usizes[kc*PRED_COUNT+kp];
+			rowcsum[kc]+=g_csizes[kc*PRED_COUNT+kp];
+			colusum[kp]+=g_usizes[kc*PRED_COUNT+kp];
+			colcsum[kp]+=g_csizes[kc*PRED_COUNT+kp];
+		}
+	}
+	for(int kp=0;kp<PRED_COUNT;++kp)
+	{
+		utotal+=colusum[kp];
+		ctotal+=colcsum[kp];
+	}
+	for(int kp=0;kp<PRED_COUNT;++kp)
+		printf("%*s%*s", 15, pred_names[kp], 14, "");
+	printf("\n");
+
+	for(int kp=0;kp<PRED_COUNT;++kp)
+	{
+		double p=100.*colusum[kp]/utotal;
+		printf("%*s", 9, "");
+		print_nan(p, 10, 6);
+		printf("%c%*s", p!=p?' ':'%', 10, "");
+	}
+	//	printf("%14lf%%", 100.*colusum[kp]/utotal);
+	printf("  coverage\n");
+
+	for(int kp=0;kp<PRED_COUNT;++kp)
+	{
+		double p=100.*colcsum[kp]/colusum[kp];
+		printf("%*s", 9, "");
+		print_nan(p, 10, 6);
+		printf("%c%*s", p!=p?' ':'%', 10, "");
+	}
+	//	printf("%14lf%%", 100.*colcsum[kp]/colusum[kp]);
+	printf("  ratio\n");
+	for(int kc=0;kc<OCH_COUNT;++kc)
+	{
+		double p1=100.*rowusum[kc]/utotal, p2=100.*rowcsum[kc]/rowusum[kc];
+		for(int kp=0;kp<PRED_COUNT;++kp)
+			printf(" %12.2lf->%12.2lf", g_usizes[kc*PRED_COUNT+kp], g_csizes[kc*PRED_COUNT+kp]);
+		printf("  ");
+		print_nan(p1, 10, 6);
+		printf("%c ", p1!=p1?' ':'%');
+		print_nan(p2, 10, 6);
+		printf("%c  %s\n", p2!=p2?' ':'%', och_names[kc]);
+		//printf("  %10.6lf%% %10.6lf%%  %s\n", 100.*rowusum[kc]/utotal, 100.*rowcsum[kc]/rowusum[kc], och_names[kc]);
+	}
 }

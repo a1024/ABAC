@@ -1072,6 +1072,13 @@ int print_binn(unsigned long long x, int nbits)
 	}
 	return nbits;
 }
+void print_nan(double x, int total, int decimal)
+{
+	if(x!=x)
+		printf("%*s", total, "");
+	else
+		printf("%*.*lf", total, decimal, x);
+}
 double convert_size(double bytesize, int *log1024)
 {
 	int k=0;
