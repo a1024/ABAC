@@ -10,8 +10,9 @@
 static const char file[]=__FILE__;
 
 
-	#define ENABLE_GUIDE
-	#define DISABLE_MT
+//	#define ENABLE_DEBUGIMAGE
+//	#define ENABLE_GUIDE
+//	#define DISABLE_MT
 
 
 #include"ac.h"
@@ -91,148 +92,130 @@ typedef enum _IChannelType
 	ICH_ZERO,
 	ICH_COUNT,
 } IChannelType;
+//#define ICH_R1V ICH_J2V
+//#define ICH_P9V ICH_J2V
 #define OCHLIST\
-	OCH(OCH_R,		0,	ICH_R,		ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_G,		0,	ICH_G,		ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_B,		0,	ICH_B,		ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_RG,		0,	ICH_R,		ICH_G,		ICH_ZERO,	0)\
-	OCH(OCH_RB,		0,	ICH_R,		ICH_B,		ICH_ZERO,	0)\
-	OCH(OCH_GR,		0,	ICH_G,		ICH_R,		ICH_ZERO,	0)\
-	OCH(OCH_GB,		0,	ICH_G,		ICH_B,		ICH_ZERO,	0)\
-	OCH(OCH_BG,		0,	ICH_B,		ICH_G,		ICH_ZERO,	0)\
-	OCH(OCH_BR,		0,	ICH_B,		ICH_R,		ICH_ZERO,	0)\
-	OCH(OCH_R2,		0,	ICH_R,		ICH_G,		ICH_B,		1)\
-	OCH(OCH_G2,		0,	ICH_G,		ICH_B,		ICH_R,		1)\
-	OCH(OCH_B2,		0,	ICH_B,		ICH_R,		ICH_G,		1)\
-	OCH(OCH_R1_120Y,	0,	ICH_R1_120Y,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_R1_120U,	1,	ICH_R1_120U,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_R1_120V,	1,	ICH_R1_120V,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_R1_201Y,	0,	ICH_R1_201Y,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_R1_201U,	1,	ICH_R1_201U,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_R1_201V,	1,	ICH_R1_201V,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_R1_012Y,	0,	ICH_R1_012Y,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_R1_012U,	1,	ICH_R1_012U,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_R1_012V,	1,	ICH_R1_012V,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_R1_210Y,	0,	ICH_R1_210Y,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_R1_210U,	1,	ICH_R1_210U,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_R1_210V,	1,	ICH_R1_210V,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_R1_102Y,	0,	ICH_R1_102Y,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_R1_102U,	1,	ICH_R1_102U,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_R1_102V,	1,	ICH_R1_102V,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_R1_021Y,	0,	ICH_R1_021Y,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_R1_021U,	1,	ICH_R1_021U,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_R1_021V,	1,	ICH_R1_021V,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_P9_120Y,	0,	ICH_P9_120Y,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_P9_120U,	1,	ICH_P9_120U,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_P9_120V,	1,	ICH_P9_120V,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_P9_201Y,	0,	ICH_P9_201Y,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_P9_201U,	1,	ICH_P9_201U,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_P9_201V,	1,	ICH_P9_201V,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_P9_012Y,	0,	ICH_P9_012Y,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_P9_012U,	1,	ICH_P9_012U,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_P9_012V,	1,	ICH_P9_012V,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_P9_210Y,	0,	ICH_P9_210Y,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_P9_210U,	1,	ICH_P9_210U,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_P9_210V,	1,	ICH_P9_210V,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_P9_102Y,	0,	ICH_P9_102Y,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_P9_102U,	1,	ICH_P9_102U,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_P9_102V,	1,	ICH_P9_102V,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_P9_021Y,	0,	ICH_P9_021Y,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_P9_021U,	1,	ICH_P9_021U,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_P9_021V,	1,	ICH_P9_021V,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_J2_120Y,	0,	ICH_J2_120Y,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_J2_120U,	1,	ICH_J2_120U,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_J2_120V,	1,	ICH_J2_120V,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_J2_201Y,	0,	ICH_J2_201Y,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_J2_201U,	1,	ICH_J2_201U,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_J2_201V,	1,	ICH_J2_201V,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_J2_012Y,	0,	ICH_J2_012Y,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_J2_012U,	1,	ICH_J2_012U,	ICH_ZERO,	ICH_ZERO,	0)\
-	OCH(OCH_J2_012V,	1,	ICH_J2_012V,	ICH_ZERO,	ICH_ZERO,	0)
+	OCH(OCH_R,		0,	ICH_R,		ICH_ZERO)\
+	OCH(OCH_G,		0,	ICH_G,		ICH_ZERO)\
+	OCH(OCH_B,		0,	ICH_B,		ICH_ZERO)\
+	OCH(OCH_RG,		0,	ICH_R,		ICH_G)\
+	OCH(OCH_RB,		0,	ICH_R,		ICH_B)\
+	OCH(OCH_GR,		0,	ICH_G,		ICH_R)\
+	OCH(OCH_GB,		0,	ICH_G,		ICH_B)\
+	OCH(OCH_BG,		0,	ICH_B,		ICH_G)\
+	OCH(OCH_BR,		0,	ICH_B,		ICH_R)\
+	OCH(OCH_R1_120Y,	0,	ICH_R1_120Y,	ICH_ZERO)\
+	OCH(OCH_R1_120U,	1,	ICH_R1_120U,	ICH_ZERO)\
+	OCH(OCH_R1_120V,	1,	ICH_R1_120V,	ICH_ZERO)\
+	OCH(OCH_R1_201Y,	0,	ICH_R1_201Y,	ICH_ZERO)\
+	OCH(OCH_R1_201U,	1,	ICH_R1_201U,	ICH_ZERO)\
+	OCH(OCH_R1_201V,	1,	ICH_R1_201V,	ICH_ZERO)\
+	OCH(OCH_R1_012Y,	0,	ICH_R1_012Y,	ICH_ZERO)\
+	OCH(OCH_R1_012U,	1,	ICH_R1_012U,	ICH_ZERO)\
+	OCH(OCH_R1_012V,	1,	ICH_R1_012V,	ICH_ZERO)\
+	OCH(OCH_R1_210Y,	0,	ICH_R1_210Y,	ICH_ZERO)\
+	OCH(OCH_R1_210U,	1,	ICH_R1_210U,	ICH_ZERO)\
+	OCH(OCH_R1_210V,	1,	ICH_R1_210V,	ICH_ZERO)\
+	OCH(OCH_R1_102Y,	0,	ICH_R1_102Y,	ICH_ZERO)\
+	OCH(OCH_R1_102U,	1,	ICH_R1_102U,	ICH_ZERO)\
+	OCH(OCH_R1_102V,	1,	ICH_R1_102V,	ICH_ZERO)\
+	OCH(OCH_R1_021Y,	0,	ICH_R1_021Y,	ICH_ZERO)\
+	OCH(OCH_R1_021U,	1,	ICH_R1_021U,	ICH_ZERO)\
+	OCH(OCH_R1_021V,	1,	ICH_R1_021V,	ICH_ZERO)\
+	OCH(OCH_P9_120Y,	0,	ICH_P9_120Y,	ICH_ZERO)\
+	OCH(OCH_P9_120U,	1,	ICH_P9_120U,	ICH_ZERO)\
+	OCH(OCH_P9_120V,	1,	ICH_P9_120V,	ICH_ZERO)\
+	OCH(OCH_P9_201Y,	0,	ICH_P9_201Y,	ICH_ZERO)\
+	OCH(OCH_P9_201U,	1,	ICH_P9_201U,	ICH_ZERO)\
+	OCH(OCH_P9_201V,	1,	ICH_P9_201V,	ICH_ZERO)\
+	OCH(OCH_P9_012Y,	0,	ICH_P9_012Y,	ICH_ZERO)\
+	OCH(OCH_P9_012U,	1,	ICH_P9_012U,	ICH_ZERO)\
+	OCH(OCH_P9_012V,	1,	ICH_P9_012V,	ICH_ZERO)\
+	OCH(OCH_P9_210Y,	0,	ICH_P9_210Y,	ICH_ZERO)\
+	OCH(OCH_P9_210U,	1,	ICH_P9_210U,	ICH_ZERO)\
+	OCH(OCH_P9_210V,	1,	ICH_P9_210V,	ICH_ZERO)\
+	OCH(OCH_P9_102Y,	0,	ICH_P9_102Y,	ICH_ZERO)\
+	OCH(OCH_P9_102U,	1,	ICH_P9_102U,	ICH_ZERO)\
+	OCH(OCH_P9_102V,	1,	ICH_P9_102V,	ICH_ZERO)\
+	OCH(OCH_P9_021Y,	0,	ICH_P9_021Y,	ICH_ZERO)\
+	OCH(OCH_P9_021U,	1,	ICH_P9_021U,	ICH_ZERO)\
+	OCH(OCH_P9_021V,	1,	ICH_P9_021V,	ICH_ZERO)\
+	OCH(OCH_J2_120Y,	0,	ICH_J2_120Y,	ICH_ZERO)\
+	OCH(OCH_J2_120U,	1,	ICH_J2_120U,	ICH_ZERO)\
+	OCH(OCH_J2_120V,	1,	ICH_J2_120V,	ICH_ZERO)\
+	OCH(OCH_J2_201Y,	0,	ICH_J2_201Y,	ICH_ZERO)\
+	OCH(OCH_J2_201U,	1,	ICH_J2_201U,	ICH_ZERO)\
+	OCH(OCH_J2_201V,	1,	ICH_J2_201V,	ICH_ZERO)\
+	OCH(OCH_J2_012Y,	0,	ICH_J2_012Y,	ICH_ZERO)\
+	OCH(OCH_J2_012U,	1,	ICH_J2_012U,	ICH_ZERO)\
+	OCH(OCH_J2_012V,	1,	ICH_J2_012V,	ICH_ZERO)
 typedef enum _OChannelType
 {
-#define OCH(ONAME, OINF, TARGET, HELPER1, HELPER2, HSHIFT) ONAME,
+#define OCH(ONAME, OINF, TARGET, HELPER) ONAME,
 	OCHLIST
 #undef  OCH
 	OCH_COUNT,
 } OChannelType;
-typedef enum _InfoIndex
+static const int och_info[OCH_COUNT][3]=
 {
-	II_TARGET,
-	II_HELPER1,
-	II_HELPER2,
-	II_HSHIFT,
-	II_INFLATION,
-} InfoIndex;
-static const int och_info[OCH_COUNT][5]=
-{
-#define OCH(ONAME, OINF, TARGET, HELPER1, HELPER2, HSHIFT) {TARGET, HELPER1, HELPER2, HSHIFT, OINF},
+#define OCH(ONAME, OINF, TARGET, HELPER) {TARGET, HELPER, OINF},
 	OCHLIST
 #undef  OCH
 };
 static const char *och_names[OCH_COUNT]=
 {
-#define OCH(ONAME, OINF, TARGET, HELPER1, HELPER2, HSHIFT) #ONAME,
+#define OCH(ONAME, OINF, TARGET, HELPER) #ONAME,
 	OCHLIST
 #undef  OCH
 };
 #define RCTLIST\
-	RCT(R_G_B,	OCH_R,		OCH_G,		OCH_B,		4, 4, 4,	4, 4, 4)\
-	RCT(R_G_BG,	OCH_R,		OCH_G,		OCH_BG,		4, 4, 1,	4, 4, 4)\
-	RCT(R_G_BR,	OCH_R,		OCH_G,		OCH_BR,		4, 4, 0,	4, 4, 4)\
-	RCT(G_B_RG,	OCH_G,		OCH_B,		OCH_RG,		4, 4, 0,	4, 4, 4)\
-	RCT(G_B_RB,	OCH_G,		OCH_B,		OCH_RB,		4, 4, 1,	4, 4, 4)\
-	RCT(B_R_GR,	OCH_B,		OCH_R,		OCH_GR,		4, 4, 1,	4, 4, 4)\
-	RCT(B_R_GB,	OCH_B,		OCH_R,		OCH_GB,		4, 4, 0,	4, 4, 4)\
-	RCT(G_BG_RG,	OCH_G,		OCH_BG,		OCH_RG,		4, 0, 0,	4, 4, 4)\
-	RCT(G_BG_RB,	OCH_G,		OCH_BG,		OCH_RB,		4, 0, 1,	4, 4, 4)\
-	RCT(G_RG_BR,	OCH_G,		OCH_RG,		OCH_BR,		4, 0, 1,	4, 4, 4)\
-	RCT(B_RB_GB,	OCH_B,		OCH_RB,		OCH_GB,		4, 0, 0,	4, 4, 4)\
-	RCT(B_RB_GR,	OCH_B,		OCH_RB,		OCH_GR,		4, 0, 1,	4, 4, 4)\
-	RCT(B_GB_RG,	OCH_B,		OCH_GB,		OCH_RG,		4, 0, 1,	4, 4, 4)\
-	RCT(R_GR_BR,	OCH_R,		OCH_GR,		OCH_BR,		4, 0, 0,	4, 4, 4)\
-	RCT(R_GR_BG,	OCH_R,		OCH_GR,		OCH_BG,		4, 0, 1,	4, 4, 4)\
-	RCT(R_BR_GB,	OCH_R,		OCH_BR,		OCH_GB,		4, 0, 1,	4, 4, 4)\
-	RCT(R_G_B2,	OCH_R,		OCH_G,		OCH_B2,		4, 4, 0,	4, 4, 1)\
-	RCT(R_B_G2,	OCH_R,		OCH_B,		OCH_G2,		4, 4, 0,	4, 4, 1)\
-	RCT(G_B_R2,	OCH_G,		OCH_B,		OCH_R2,		4, 4, 0,	4, 4, 1)\
-	RCT(R_GR_B2,	OCH_R,		OCH_GR,		OCH_B2,		4, 0, 0,	4, 4, 1)\
-	RCT(R_BR_G2,	OCH_R,		OCH_BR,		OCH_G2,		4, 0, 0,	4, 4, 1)\
-	RCT(G_BG_R2,	OCH_G,		OCH_BG,		OCH_R2,		4, 0, 0,	4, 4, 1)\
-	RCT(G_RG_B2,	OCH_G,		OCH_RG,		OCH_B2,		4, 0, 0,	4, 4, 1)\
-	RCT(B_RB_G2,	OCH_B,		OCH_RB,		OCH_G2,		4, 0, 0,	4, 4, 1)\
-	RCT(B_GB_R2,	OCH_B,		OCH_GB,		OCH_R2,		4, 0, 0,	4, 4, 1)\
-	RCT(RCT1_120,	OCH_R1_120Y,	OCH_R1_120U,	OCH_R1_120V,	4, 4, 4,	4, 4, 4)\
-	RCT(RCT1_201,	OCH_R1_201Y,	OCH_R1_201U,	OCH_R1_201V,	4, 4, 4,	4, 4, 4)\
-	RCT(RCT1_012,	OCH_R1_012Y,	OCH_R1_012U,	OCH_R1_012V,	4, 4, 4,	4, 4, 4)\
-	RCT(RCT1_210,	OCH_R1_210Y,	OCH_R1_210U,	OCH_R1_210V,	4, 4, 4,	4, 4, 4)\
-	RCT(RCT1_102,	OCH_R1_102Y,	OCH_R1_102U,	OCH_R1_102V,	4, 4, 4,	4, 4, 4)\
-	RCT(RCT1_021,	OCH_R1_021Y,	OCH_R1_021U,	OCH_R1_021V,	4, 4, 4,	4, 4, 4)\
-	RCT(Pei09_120,	OCH_P9_120Y,	OCH_P9_120U,	OCH_P9_120V,	4, 4, 4,	4, 4, 4)\
-	RCT(Pei09_201,	OCH_P9_201Y,	OCH_P9_201U,	OCH_P9_201V,	4, 4, 4,	4, 4, 4)\
-	RCT(Pei09_012,	OCH_P9_012Y,	OCH_P9_012U,	OCH_P9_012V,	4, 4, 4,	4, 4, 4)\
-	RCT(Pei09_210,	OCH_P9_210Y,	OCH_P9_210U,	OCH_P9_210V,	4, 4, 4,	4, 4, 4)\
-	RCT(Pei09_102,	OCH_P9_102Y,	OCH_P9_102U,	OCH_P9_102V,	4, 4, 4,	4, 4, 4)\
-	RCT(Pei09_021,	OCH_P9_021Y,	OCH_P9_021U,	OCH_P9_021V,	4, 4, 4,	4, 4, 4)\
-	RCT(J2K_120,	OCH_J2_120Y,	OCH_J2_120U,	OCH_J2_120V,	4, 4, 4,	4, 4, 4)\
-	RCT(J2K_201,	OCH_J2_201Y,	OCH_J2_201U,	OCH_J2_201V,	4, 4, 4,	4, 4, 4)\
-	RCT(J2K_012,	OCH_J2_012Y,	OCH_J2_012U,	OCH_J2_012V,	4, 4, 4,	4, 4, 4)
+	RCT(R_G_B,	OCH_R,		OCH_G,		OCH_B,		4, 4, 4)\
+	RCT(R_G_BG,	OCH_R,		OCH_G,		OCH_BG,		4, 4, 1)\
+	RCT(R_G_BR,	OCH_R,		OCH_G,		OCH_BR,		4, 4, 0)\
+	RCT(G_B_RG,	OCH_G,		OCH_B,		OCH_RG,		4, 4, 0)\
+	RCT(G_B_RB,	OCH_G,		OCH_B,		OCH_RB,		4, 4, 1)\
+	RCT(B_R_GR,	OCH_B,		OCH_R,		OCH_GR,		4, 4, 1)\
+	RCT(B_R_GB,	OCH_B,		OCH_R,		OCH_GB,		4, 4, 0)\
+	RCT(G_BG_RG,	OCH_G,		OCH_BG,		OCH_RG,		4, 0, 0)\
+	RCT(G_BG_RB,	OCH_G,		OCH_BG,		OCH_RB,		4, 0, 1)\
+	RCT(G_RG_BR,	OCH_G,		OCH_RG,		OCH_BR,		4, 0, 1)\
+	RCT(B_RB_GB,	OCH_B,		OCH_RB,		OCH_GB,		4, 0, 0)\
+	RCT(B_RB_GR,	OCH_B,		OCH_RB,		OCH_GR,		4, 0, 1)\
+	RCT(B_GB_RG,	OCH_B,		OCH_GB,		OCH_RG,		4, 0, 1)\
+	RCT(R_GR_BR,	OCH_R,		OCH_GR,		OCH_BR,		4, 0, 0)\
+	RCT(R_GR_BG,	OCH_R,		OCH_GR,		OCH_BG,		4, 0, 1)\
+	RCT(R_BR_GB,	OCH_R,		OCH_BR,		OCH_GB,		4, 0, 1)\
+	RCT(RCT1_120,	OCH_R1_120Y,	OCH_R1_120U,	OCH_R1_120V,	4, 4, 4)\
+	RCT(RCT1_201,	OCH_R1_201Y,	OCH_R1_201U,	OCH_R1_201V,	4, 4, 4)\
+	RCT(RCT1_012,	OCH_R1_012Y,	OCH_R1_012U,	OCH_R1_012V,	4, 4, 4)\
+	RCT(RCT1_210,	OCH_R1_210Y,	OCH_R1_210U,	OCH_R1_210V,	4, 4, 4)\
+	RCT(RCT1_102,	OCH_R1_102Y,	OCH_R1_102U,	OCH_R1_102V,	4, 4, 4)\
+	RCT(RCT1_021,	OCH_R1_021Y,	OCH_R1_021U,	OCH_R1_021V,	4, 4, 4)\
+	RCT(Pei09_120,	OCH_P9_120Y,	OCH_P9_120U,	OCH_P9_120V,	4, 4, 4)\
+	RCT(Pei09_201,	OCH_P9_201Y,	OCH_P9_201U,	OCH_P9_201V,	4, 4, 4)\
+	RCT(Pei09_012,	OCH_P9_012Y,	OCH_P9_012U,	OCH_P9_012V,	4, 4, 4)\
+	RCT(Pei09_210,	OCH_P9_210Y,	OCH_P9_210U,	OCH_P9_210V,	4, 4, 4)\
+	RCT(Pei09_102,	OCH_P9_102Y,	OCH_P9_102U,	OCH_P9_102V,	4, 4, 4)\
+	RCT(Pei09_021,	OCH_P9_021Y,	OCH_P9_021U,	OCH_P9_021V,	4, 4, 4)\
+	RCT(J2K_120,	OCH_J2_120Y,	OCH_J2_120U,	OCH_J2_120V,	4, 4, 4)\
+	RCT(J2K_201,	OCH_J2_201Y,	OCH_J2_201U,	OCH_J2_201V,	4, 4, 4)\
+	RCT(J2K_012,	OCH_J2_012Y,	OCH_J2_012U,	OCH_J2_012V,	4, 4, 4)
 typedef enum _RCTType
 {
-#define RCT(NAME, YIDX, UIDX, VIDX, YOFF1, UOFF1, VOFF1, YOFF2, UOFF2, VOFF2) RCT_##NAME,
+#define RCT(NAME, YIDX, UIDX, VIDX, YOFF, UOFF, VOFF) RCT_##NAME,
 	RCTLIST
 #undef  RCT
 	RCT_COUNT,
 } RCTType;
-static const int rct_combinations[RCT_COUNT][9]=
+static const int rct_combinations[RCT_COUNT][6]=
 {
-#define RCT(NAME, YIDX, UIDX, VIDX, YOFF1, UOFF1, VOFF1, YOFF2, UOFF2, VOFF2) {YIDX, UIDX, VIDX, YOFF1, UOFF1, VOFF1, YOFF2, UOFF2, VOFF2},
+#define RCT(NAME, YIDX, UIDX, VIDX, YOFF, UOFF, VOFF) {YIDX, UIDX, VIDX, YOFF, UOFF, VOFF},
 	RCTLIST
 #undef  RCT
 };
 static const char *rct_names[RCT_COUNT]=
 {
-#define RCT(NAME, YIDX, UIDX, VIDX, YOFF1, UOFF1, VOFF1, YOFF2, UOFF2, VOFF2) #NAME,
+#define RCT(NAME, YIDX, UIDX, VIDX, YOFF, UOFF, VOFF) #NAME,
 	RCTLIST
 #undef  RCT
 };
@@ -259,42 +242,30 @@ static const char *pred_names[PRED_COUNT]=
 //WG:
 
 //	#define WG_UPDATE
+#define WG_RESCALE_LIMIT 100
 #define WG_DECAY_NUM	493
 #define WG_DECAY_SH	9
 
 #define WG_NPREDS	8
-#if 0
 #define WG_PREDLIST\
-	WG_PRED(10000, N+W-NW)\
-	WG_PRED(10000, N)\
-	WG_PRED(10000, W)\
-	WG_PRED(10000, W+NE-N)\
-	WG_PRED(10000, N+NE-NNE)\
-	WG_PRED(10000, 3*(N-NN)+NNN)\
-	WG_PRED(10000, 3*(W-WW)+WWW)\
-	WG_PRED(10000, (W+NEEE)/2)
-#endif
+	WG_PRED(1, N+W-NW)\
+	WG_PRED(1, N)\
+	WG_PRED(1, W)\
+	WG_PRED(1, W+NE-N)\
+	WG_PRED(1, N+NE-NNE)\
+	WG_PRED(1, 3*(N-NN)+NNN)\
+	WG_PRED(1, 3*(W-WW)+WWW)\
+	WG_PRED(1, (W+NEEE)/2)
 #if 0
-#define WG_PREDLIST\
-	WG_PRED(211.2, N+W-NW)\
-	WG_PRED(264.0, N)\
-	WG_PRED(264.0, W)\
-	WG_PRED(176.0, W+NE-N)\
-	WG_PRED(176.0, N+NE-NNE)\
-	WG_PRED(176.0, 3*(N-NN)+NNN)\
-	WG_PRED(176.0, 3*(W-WW)+WWW)\
-	WG_PRED(176.0, (W+NEEE)/2)
-#endif
-#if 1
 #define WG_PREDLIST\
 	WG_PRED(1.2, N+W-NW)\
 	WG_PRED(1.5, N)\
 	WG_PRED(1.5, W)\
-	WG_PRED(1.0, W+NE-N)\
-	WG_PRED(1.0, N+NE-NNE)\
-	WG_PRED(1.0, 3*(N-NN)+NNN)\
-	WG_PRED(1.0, 3*(W-WW)+WWW)\
-	WG_PRED(1.0, (W+NEEE)/2)
+	WG_PRED(1, W+NE-N)\
+	WG_PRED(1, N+NE-NNE)\
+	WG_PRED(1, 3*(N-NN)+NNN)\
+	WG_PRED(1, 3*(W-WW)+WWW)\
+	WG_PRED(1, (W+NEEE)/2)
 #endif
 //	WG_PRED(0.5, NW)
 //	WG_PRED(0.5, NE)
@@ -337,34 +308,21 @@ static int wg_predict(
 }
 static void wg_update(int curr, const int *preds, int *perrors, double *weights)
 {
-#ifdef WG_UPDATE
 	int kbest=0, ebest=0;
-	int kworst=0, eworst=0;
-#endif
 	for(int k=0;k<WG_NPREDS;++k)
 	{
 		int e2=abs(curr-preds[k]);
 		perrors[k]=(perrors[k]+e2)*WG_DECAY_NUM>>WG_DECAY_SH;
-#ifdef WG_UPDATE
 		if(!k||ebest>e2)
 			kbest=k, ebest=e2;
-		if(!k||eworst<e2)
-			kworst=k, eworst=e2;
-		weights[k]-=log2(e2+1);
-		//weights[k]+=1./((e2+1)*(e2+1));
-#endif
 	}
 #ifdef WG_UPDATE
-	if(weights[kworst]<1000)
+	++weights[kbest];
+	if(weights[kbest]>WG_RESCALE_LIMIT)
 	{
 		for(int k=0;k<WG_NPREDS;++k)
-			weights[k]*=10;
+			weights[k]*=0.5;
 	}
-	//if(weights[kbest]>10)//100	352
-	//{
-	//	for(int k=0;k<WG_NPREDS;++k)
-	//		weights[k]*=0.5;
-	//}
 #endif
 }
 
@@ -423,6 +381,9 @@ typedef struct _ThreadArgs
 	//aux
 	int bestrct, predidx[3];
 	double usizes[3], csizes[3], bestsize;
+#ifdef ENABLE_DEBUGIMAGE
+	Image *debug_image;
+#endif
 } ThreadArgs;
 #define CDFSTRIDE 64
 static void update_CDF(const int *hist, unsigned *CDF, int tlevels)
@@ -443,13 +404,13 @@ static void block_thread(void *param)
 	Image const *image=args->fwd?args->src:args->dst;
 	int depths[OCH_COUNT]={0}, halfs[OCH_COUNT]={0};
 	double bestsize=0;
-	int bestrct=0, combination[9]={0}, predidx[3]={0}, flag=0;
+	int bestrct=0, combination[6]={0}, predidx[3]={0}, flag=0;
 	int res=image->iw*(args->y2-args->y1);
 	int nctx=args->clevels*args->clevels, cdfstride=args->tlevels+1, chsize=nctx*cdfstride;
 
 	for(int kc=0;kc<OCH_COUNT;++kc)
 	{
-		int depth=image->depth+och_info[kc][II_INFLATION];
+		int depth=image->depth+och_info[kc][2];
 		UPDATE_MIN(depth, 16);
 		depths[kc]=depth;
 		halfs[kc]=1<<depth>>1;
@@ -530,6 +491,11 @@ static void block_thread(void *param)
 					}
 					NEEE=NE;
 				}
+
+				//if(ky==128&&kx==128)//
+				//if(ky==3&&kx==10)//
+				//	printf("");
+
 				input[ICH_R]=image->data[idx+0];//r
 				input[ICH_G]=image->data[idx+1];//g
 				input[ICH_B]=image->data[idx+2];//b
@@ -566,9 +532,11 @@ static void block_thread(void *param)
 				}
 				for(int kc=0;kc<OCH_COUNT;++kc)
 				{
-					int
-						target=input[och_info[kc][II_TARGET]],
-						offset=(input[och_info[kc][II_HELPER1]]+input[och_info[kc][II_HELPER2]])>>och_info[kc][II_HSHIFT];
+					int target=input[och_info[kc][0]], offset=input[och_info[kc][1]];
+					//if(kc==OCH_R1_120Y)
+					//{
+					//	int LOL_1=0;
+					//}
 
 					preds[PRED_W]=W[kc];
 					MEDIAN3_32(preds[PRED_cgrad], N[kc], W[kc], N[kc]+W[kc]-NW[kc]);
@@ -580,7 +548,7 @@ static void block_thread(void *param)
 						args->wg_errors+WG_NPREDS*kc, wg_preds
 					);
 
-					if(offset)
+					//if(offset)
 					{
 						for(int kp=0;kp<PRED_COUNT;++kp)
 						{
@@ -592,8 +560,16 @@ static void block_thread(void *param)
 					{
 						int *curr_hist=args->hist+args->histindices[kc*PRED_COUNT+kp];
 						int val=target-preds[kp];
+#ifdef ENABLE_DEBUGIMAGE
+						if((unsigned)(kc-OCH_R1_120Y)<3&&kp==PRED_wgrad)
+							args->debug_image->data[idx+kc-OCH_R1_120Y]=val;
+#endif
 						val+=halfs[kc];
 						val&=nlevels[kc]-1;
+						//if(val&~(nlevels[kc]-1))//
+						//	LOG_ERROR("");
+						//if((unsigned)val>=(unsigned)(args->histindices[kc*PRED_COUNT+kp+1]-args->histindices[kc*PRED_COUNT+kp]))//
+						//	LOG_ERROR("");
 						++curr_hist[val];
 					}
 					target-=offset;
@@ -770,6 +746,8 @@ static void block_thread(void *param)
 				*WW	=rows[0]-2*4,
 				*W	=rows[0]-1*4,
 				*curr	=rows[0]+0*4;
+			//if(ky==256&&kx==765)//
+			//	printf("");
 			if(ky<=args->y1+2)
 			{
 				if(ky<=args->y1+1)
@@ -816,8 +794,6 @@ static void block_thread(void *param)
 					case RCT_R_G_BR:
 					case RCT_R_GR_BR:
 					case RCT_R_GR_BG:
-					case RCT_R_G_B2:
-					case RCT_R_GR_B2:
 						yuv[0]=image->data[idx+0];
 						yuv[1]=image->data[idx+1];
 						yuv[2]=image->data[idx+2];
@@ -826,8 +802,6 @@ static void block_thread(void *param)
 					case RCT_G_B_RB:
 					case RCT_G_BG_RG:
 					case RCT_G_BG_RB:
-					case RCT_G_B_R2:
-					case RCT_G_BG_R2:
 						yuv[0]=image->data[idx+1];
 						yuv[1]=image->data[idx+2];
 						yuv[2]=image->data[idx+0];
@@ -836,26 +810,21 @@ static void block_thread(void *param)
 					case RCT_B_R_GB:
 					case RCT_B_RB_GB:
 					case RCT_B_RB_GR:
-					case RCT_B_RB_G2:
 						yuv[0]=image->data[idx+2];
 						yuv[1]=image->data[idx+0];
 						yuv[2]=image->data[idx+1];
 						break;
 					case RCT_G_RG_BR:
-					case RCT_G_RG_B2:
 						yuv[0]=image->data[idx+1];
 						yuv[1]=image->data[idx+0];
 						yuv[2]=image->data[idx+2];
 						break;
 					case RCT_B_GB_RG:
-					case RCT_B_GB_R2:
 						yuv[0]=image->data[idx+2];
 						yuv[1]=image->data[idx+1];
 						yuv[2]=image->data[idx+0];
 						break;
 					case RCT_R_BR_GB:
-					case RCT_R_B_G2:
-					case RCT_R_BR_G2:
 						yuv[0]=image->data[idx+0];
 						yuv[1]=image->data[idx+2];
 						yuv[2]=image->data[idx+1];
@@ -903,11 +872,14 @@ static void block_thread(void *param)
 				if(kc<image->nch)
 					yuv[kc]=image->data[kc];
 			}
+
+			//if(!idx)//
+			//if(ky==257&&kx==5)//
+			//	printf("");
+			
 			for(int kc=0;kc<image->nch;++kc)
 			{
-				int ch=combination[kc];
-				int offset=(yuv[combination[kc+3]]+yuv[combination[kc+6]])>>rct_combinations[ch][II_HSHIFT];
-				int pred=0, error, sym;
+				int ch=combination[kc], offset=yuv[combination[kc+3]], pred, error, sym;
 				int
 					vx=(abs(W[kc]-WW[kc])+abs(N[kc]-NW[kc])+abs(NE[kc]-N[kc]))<<8>>depths[ch],
 					vy=(abs(W[kc]-NW[kc])+abs(N[kc]-NN[kc])+abs(NE[kc]-NNE[kc]))<<8>>depths[ch];
@@ -916,6 +888,9 @@ static void block_thread(void *param)
 				int cidx=cdfstride*(nctx*kc+args->clevels*MINVAR(qeN, 8)+MINVAR(qeW, 8));
 				int *curr_hist=args->hist+cidx;
 				unsigned *curr_CDF=args->stats+cidx;
+				
+				//if(ky==256&&kx==765&&kc==1)//
+				//	printf("");
 
 				switch(predidx[kc])
 				{
@@ -1024,8 +999,6 @@ static void block_thread(void *param)
 					case RCT_R_G_BR:
 					case RCT_R_GR_BR:
 					case RCT_R_GR_BG:
-					case RCT_R_G_B2:
-					case RCT_R_GR_B2:
 						image->data[idx+0]=yuv[0];
 						image->data[idx+1]=yuv[1];
 						image->data[idx+2]=yuv[2];
@@ -1034,8 +1007,6 @@ static void block_thread(void *param)
 					case RCT_G_B_RB:
 					case RCT_G_BG_RG:
 					case RCT_G_BG_RB:
-					case RCT_G_B_R2:
-					case RCT_G_BG_R2:
 						image->data[idx+1]=yuv[0];
 						image->data[idx+2]=yuv[1];
 						image->data[idx+0]=yuv[2];
@@ -1044,26 +1015,21 @@ static void block_thread(void *param)
 					case RCT_B_R_GB:
 					case RCT_B_RB_GB:
 					case RCT_B_RB_GR:
-					case RCT_B_RB_G2:
 						image->data[idx+2]=yuv[0];
 						image->data[idx+0]=yuv[1];
 						image->data[idx+1]=yuv[2];
 						break;
 					case RCT_G_RG_BR:
-					case RCT_G_RG_B2:
 						image->data[idx+1]=yuv[0];
 						image->data[idx+0]=yuv[1];
 						image->data[idx+2]=yuv[2];
 						break;
 					case RCT_B_GB_RG:
-					case RCT_B_GB_R2:
 						image->data[idx+2]=yuv[0];
 						image->data[idx+1]=yuv[1];
 						image->data[idx+0]=yuv[2];
 						break;
 					case RCT_R_BR_GB:
-					case RCT_R_B_G2:
-					case RCT_R_BR_G2:
 						image->data[idx+0]=yuv[0];
 						image->data[idx+2]=yuv[1];
 						image->data[idx+1]=yuv[2];
@@ -1148,16 +1114,22 @@ int f26_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	int histindices[OCH_COUNT*PRED_COUNT+1]={0}, histsize=0;
 	int tlevels=0, clevels=0, statssize=0;
 	double bestsize=0;
+#ifdef ENABLE_DEBUGIMAGE
+	Image debug_image={0};
+#endif
 	
 	if(fwd)
 	{
 #ifdef ENABLE_GUIDE
 		guide=image;
 #endif
+#ifdef ENABLE_DEBUGIMAGE
+		image_copy_nodata(&debug_image, image);
+#endif
 		histsize=0;
 		for(int kc=0;kc<OCH_COUNT;++kc)
 		{
-			int depth=image->depth+och_info[kc][II_INFLATION];
+			int depth=image->depth+och_info[kc][2];
 			UPDATE_MIN(depth, 16);
 			for(int kp=0;kp<PRED_COUNT;++kp)
 			{
@@ -1236,6 +1208,9 @@ int f26_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #else
 		arg->loud=0;
 #endif
+#ifdef ENABLE_DEBUGIMAGE
+		arg->debug_image=&debug_image;
+#endif
 	}
 	for(int kt=0;kt<nblocks;kt+=nthreads)
 	{
@@ -1277,23 +1252,7 @@ int f26_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				}
 				if(loud)
 				{
-					int blocksize=(int)(arg->csizes[0]+arg->csizes[1]+arg->csizes[2]);
-					if(!(kt+kt2))
-						printf("block,  nrows,  usize,     best  ->  actual,  (actual-best)\n");
-					printf(
-						"[%3d]  %4d  %8d  %11.2lf -> %8zd bytes  (%+11.2lf)  %s %s %s %s\n",
-						kt+kt2,
-						arg->y2-arg->y1,
-						blocksize,
-						arg->bestsize,
-						arg->list.nobj,
-						(double)arg->list.nobj-arg->bestsize,
-						rct_names[arg->bestrct],
-						pred_names[arg->predidx[0]],
-						pred_names[arg->predidx[1]],
-						pred_names[arg->predidx[2]]
-					);
-					//printf("[%3d]  %13.2lf -> %10zd bytes (%+13.2lf)\n", kt+kt2, arg->bestsize, arg->list.nobj, arg->list.nobj-arg->bestsize);
+					printf("[%3d]  %13.2lf -> %10zd bytes (%+13.2lf)\n", kt+kt2, arg->bestsize, arg->list.nobj, arg->list.nobj-arg->bestsize);
 					bestsize+=arg->bestsize;
 				}
 				memcpy(data[0]->data+start+sizeof(int)*((ptrdiff_t)kt+kt2), &arg->list.nobj, sizeof(int));
@@ -1317,6 +1276,13 @@ int f26_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		}
 		printf("%c %16.6lf sec  %16.6lf MB/s\n", 'D'+fwd, t0, usize/(t0*1024*1024));
 	}
+#ifdef ENABLE_DEBUGIMAGE
+	if(fwd)
+	{
+		image_snapshot8(&debug_image);
+		image_clear(&debug_image);
+	}
+#endif
 	for(int k=0;k<nthreads;++k)
 	{
 		ThreadArgs *arg=args+k;
@@ -1358,6 +1324,7 @@ void f26_curiosity()
 		print_nan(p, 10, 6);
 		printf("%c%*s", p!=p?' ':'%', 10, "");
 	}
+	//	printf("%14lf%%", 100.*colusum[kp]/utotal);
 	printf("  coverage\n");
 
 	for(int kp=0;kp<PRED_COUNT;++kp)
@@ -1367,6 +1334,7 @@ void f26_curiosity()
 		print_nan(p, 10, 6);
 		printf("%c%*s", p!=p?' ':'%', 10, "");
 	}
+	//	printf("%14lf%%", 100.*colcsum[kp]/colusum[kp]);
 	printf("  ratio\n");
 	for(int kc=0;kc<OCH_COUNT;++kc)
 	{
@@ -1378,5 +1346,6 @@ void f26_curiosity()
 		printf("%c ", p1!=p1?' ':'%');
 		print_nan(p2, 10, 6);
 		printf("%c  %s\n", p2!=p2?' ':'%', och_names[kc]);
+		//printf("  %10.6lf%% %10.6lf%%  %s\n", 100.*rowusum[kc]/utotal, 100.*rowcsum[kc]/rowusum[kc], och_names[kc]);
 	}
 }
