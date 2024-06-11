@@ -370,7 +370,7 @@ int main(int argc, char **argv)
 	//	"D:/ML/big_building.PPM"
 	//	"D:/ML/big_building.LSIM"
 	//	"D:/ML/20240407 blank.ppm"
-	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
+		"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_03.ppm"
 	//	"C:/dataset-LPCB-ppm/olympus_xz1_14.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13757.ppm"	//MER-3D
@@ -384,7 +384,7 @@ int main(int argc, char **argv)
 	//	"D:/ML/dataset-RAW/a0001-jmac_DSC1459.dng"
 	//	"D:/ML/dataset-kodak-small"
 
-		"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
+	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim24.ppm"	//borderless
 	//	"C:/Projects/datasets/dataset-kodak-pgm/kodim13.pgm"
 	//	"C:/Projects/datasets/dataset-kodak/kodim13.png"

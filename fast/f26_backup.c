@@ -3,15 +3,17 @@
 #include<stdlib.h>
 #include<string.h>
 #include<math.h>
-#ifdef _MSC_VER
-#include<intrin.h>
-#endif
 #include<immintrin.h>
+//#ifdef _MSC_VER
+//#include<intrin.h>
+//#else
+//#include<x86intrin.h>
+//#endif
 static const char file[]=__FILE__;
 
 
 //	#define ENABLE_GUIDE
-	#define DISABLE_MT
+//	#define DISABLE_MT
 
 
 #include"ac.h"
@@ -19,135 +21,41 @@ static const char file[]=__FILE__;
 static const Image *guide=0;
 #endif
 #define BLOCKSIZE 256
-
-static const int rgb2yuv_permutations[6][3]=
-{
-	//YUV
-	1, 2, 0,
-	2, 0, 1,
-	0, 1, 2,
-	2, 1, 0,
-	1, 0, 2,
-	0, 2, 1,
-};
-
 typedef enum _IChannelType
 {
 	ICH_R,
 	ICH_G,
 	ICH_B,
-
-	//YCbCr-R_v1 "RCT1"		FIXME deduplicate channels
-	ICH_R1_120Y,
-	ICH_R1_120U,
-	ICH_R1_120V,
-	ICH_R1_201Y,
-	ICH_R1_201U,
-	ICH_R1_201V,
-	ICH_R1_012Y,
-	ICH_R1_012U,
-	ICH_R1_012V,
-	ICH_R1_210Y,
-	ICH_R1_210U,
-	ICH_R1_210V,
-	ICH_R1_102Y,
-	ICH_R1_102U,
-	ICH_R1_102V,
-	ICH_R1_021Y,
-	ICH_R1_021U,
-	ICH_R1_021V,
-
-	//RCT_Pei09
-	ICH_P9_120Y,
-	ICH_P9_120U,
-	ICH_P9_120V,
-	ICH_P9_201Y,
-	ICH_P9_201U,
-	ICH_P9_201V,
-	ICH_P9_012Y,
-	ICH_P9_012U,
-	ICH_P9_012V,
-	ICH_P9_210Y,
-	ICH_P9_210U,
-	ICH_P9_210V,
-	ICH_P9_102Y,
-	ICH_P9_102U,
-	ICH_P9_102V,
-	ICH_P9_021Y,
-	ICH_P9_021U,
-	ICH_P9_021V,
-
-	//RCT_JPEG2000
-	ICH_J2_120Y,
-	ICH_J2_120U,
-	ICH_J2_120V,
-	ICH_J2_201Y,
-	ICH_J2_201U,
-	ICH_J2_201V,
-	ICH_J2_012Y,
-	ICH_J2_012U,
-	ICH_J2_012V,
+	ICH_J2Y,
+	ICH_J2U,
+	ICH_J2V,
+	ICH_R1Y,
+	ICH_R1U,
+	ICH_P9Y,
+	ICH_P9U,
 
 	ICH_ZERO,
 	ICH_COUNT,
 } IChannelType;
-//#define ICH_R1V ICH_J2V
-//#define ICH_P9V ICH_J2V
+#define ICH_R1V ICH_J2V
+#define ICH_P9V ICH_J2V
 #define OCHLIST\
-	OCH(OCH_R,		0,	ICH_R,		ICH_ZERO)\
-	OCH(OCH_G,		0,	ICH_G,		ICH_ZERO)\
-	OCH(OCH_B,		0,	ICH_B,		ICH_ZERO)\
-	OCH(OCH_RG,		0,	ICH_R,		ICH_G)\
-	OCH(OCH_RB,		0,	ICH_R,		ICH_B)\
-	OCH(OCH_GR,		0,	ICH_G,		ICH_R)\
-	OCH(OCH_GB,		0,	ICH_G,		ICH_B)\
-	OCH(OCH_BG,		0,	ICH_B,		ICH_G)\
-	OCH(OCH_BR,		0,	ICH_B,		ICH_R)\
-	OCH(OCH_R1_120Y,	0,	ICH_R1_120Y,	ICH_ZERO)\
-	OCH(OCH_R1_120U,	1,	ICH_R1_120U,	ICH_ZERO)\
-	OCH(OCH_R1_120V,	1,	ICH_R1_120V,	ICH_ZERO)\
-	OCH(OCH_R1_201Y,	0,	ICH_R1_201Y,	ICH_ZERO)\
-	OCH(OCH_R1_201U,	1,	ICH_R1_201U,	ICH_ZERO)\
-	OCH(OCH_R1_201V,	1,	ICH_R1_201V,	ICH_ZERO)\
-	OCH(OCH_R1_012Y,	0,	ICH_R1_012Y,	ICH_ZERO)\
-	OCH(OCH_R1_012U,	1,	ICH_R1_012U,	ICH_ZERO)\
-	OCH(OCH_R1_012V,	1,	ICH_R1_012V,	ICH_ZERO)\
-	OCH(OCH_R1_210Y,	0,	ICH_R1_210Y,	ICH_ZERO)\
-	OCH(OCH_R1_210U,	1,	ICH_R1_210U,	ICH_ZERO)\
-	OCH(OCH_R1_210V,	1,	ICH_R1_210V,	ICH_ZERO)\
-	OCH(OCH_R1_102Y,	0,	ICH_R1_102Y,	ICH_ZERO)\
-	OCH(OCH_R1_102U,	1,	ICH_R1_102U,	ICH_ZERO)\
-	OCH(OCH_R1_102V,	1,	ICH_R1_102V,	ICH_ZERO)\
-	OCH(OCH_R1_021Y,	0,	ICH_R1_021Y,	ICH_ZERO)\
-	OCH(OCH_R1_021U,	1,	ICH_R1_021U,	ICH_ZERO)\
-	OCH(OCH_R1_021V,	1,	ICH_R1_021V,	ICH_ZERO)\
-	OCH(OCH_P9_120Y,	0,	ICH_P9_120Y,	ICH_ZERO)\
-	OCH(OCH_P9_120U,	1,	ICH_P9_120U,	ICH_ZERO)\
-	OCH(OCH_P9_120V,	1,	ICH_P9_120V,	ICH_ZERO)\
-	OCH(OCH_P9_201Y,	0,	ICH_P9_201Y,	ICH_ZERO)\
-	OCH(OCH_P9_201U,	1,	ICH_P9_201U,	ICH_ZERO)\
-	OCH(OCH_P9_201V,	1,	ICH_P9_201V,	ICH_ZERO)\
-	OCH(OCH_P9_012Y,	0,	ICH_P9_012Y,	ICH_ZERO)\
-	OCH(OCH_P9_012U,	1,	ICH_P9_012U,	ICH_ZERO)\
-	OCH(OCH_P9_012V,	1,	ICH_P9_012V,	ICH_ZERO)\
-	OCH(OCH_P9_210Y,	0,	ICH_P9_210Y,	ICH_ZERO)\
-	OCH(OCH_P9_210U,	1,	ICH_P9_210U,	ICH_ZERO)\
-	OCH(OCH_P9_210V,	1,	ICH_P9_210V,	ICH_ZERO)\
-	OCH(OCH_P9_102Y,	0,	ICH_P9_102Y,	ICH_ZERO)\
-	OCH(OCH_P9_102U,	1,	ICH_P9_102U,	ICH_ZERO)\
-	OCH(OCH_P9_102V,	1,	ICH_P9_102V,	ICH_ZERO)\
-	OCH(OCH_P9_021Y,	0,	ICH_P9_021Y,	ICH_ZERO)\
-	OCH(OCH_P9_021U,	1,	ICH_P9_021U,	ICH_ZERO)\
-	OCH(OCH_P9_021V,	1,	ICH_P9_021V,	ICH_ZERO)\
-	OCH(OCH_J2_120Y,	0,	ICH_J2_120Y,	ICH_ZERO)\
-	OCH(OCH_J2_120U,	1,	ICH_J2_120U,	ICH_ZERO)\
-	OCH(OCH_J2_120V,	1,	ICH_J2_120V,	ICH_ZERO)\
-	OCH(OCH_J2_201Y,	0,	ICH_J2_201Y,	ICH_ZERO)\
-	OCH(OCH_J2_201U,	1,	ICH_J2_201U,	ICH_ZERO)\
-	OCH(OCH_J2_201V,	1,	ICH_J2_201V,	ICH_ZERO)\
-	OCH(OCH_J2_012Y,	0,	ICH_J2_012Y,	ICH_ZERO)\
-	OCH(OCH_J2_012U,	1,	ICH_J2_012U,	ICH_ZERO)\
-	OCH(OCH_J2_012V,	1,	ICH_J2_012V,	ICH_ZERO)
+	OCH(OCH_R,	0,	ICH_R,		ICH_ZERO)\
+	OCH(OCH_G,	0,	ICH_G,		ICH_ZERO)\
+	OCH(OCH_B,	0,	ICH_B,		ICH_ZERO)\
+	OCH(OCH_RG,	0,	ICH_R,		ICH_G)\
+	OCH(OCH_RB,	0,	ICH_R,		ICH_B)\
+	OCH(OCH_GR,	0,	ICH_G,		ICH_R)\
+	OCH(OCH_GB,	0,	ICH_G,		ICH_B)\
+	OCH(OCH_BG,	0,	ICH_B,		ICH_G)\
+	OCH(OCH_BR,	0,	ICH_B,		ICH_R)\
+	OCH(OCH_J2Y,	0,	ICH_J2Y,	ICH_ZERO)\
+	OCH(OCH_J2U,	1,	ICH_J2U,	ICH_ZERO)\
+	OCH(OCH_J2V,	1,	ICH_J2V,	ICH_ZERO)\
+	OCH(OCH_R1Y,	0,	ICH_R1Y,	ICH_ZERO)\
+	OCH(OCH_R1U,	1,	ICH_R1U,	ICH_ZERO)\
+	OCH(OCH_P9Y,	0,	ICH_P9Y,	ICH_ZERO)\
+	OCH(OCH_P9U,	1,	ICH_P9U,	ICH_ZERO)
 typedef enum _OChannelType
 {
 #define OCH(ONAME, OINF, TARGET, HELPER) ONAME,
@@ -184,37 +92,25 @@ static const char *och_names[OCH_COUNT]=
 	RCT(R_GR_BR,	OCH_R,		OCH_GR,		OCH_BR,		4, 0, 0)\
 	RCT(R_GR_BG,	OCH_R,		OCH_GR,		OCH_BG,		4, 0, 1)\
 	RCT(R_BR_GB,	OCH_R,		OCH_BR,		OCH_GB,		4, 0, 1)\
-	RCT(RCT1_120,	OCH_R1_120Y,	OCH_R1_120U,	OCH_R1_120V,	4, 4, 4)\
-	RCT(RCT1_201,	OCH_R1_201Y,	OCH_R1_201U,	OCH_R1_201V,	4, 4, 4)\
-	RCT(RCT1_012,	OCH_R1_012Y,	OCH_R1_012U,	OCH_R1_012V,	4, 4, 4)\
-	RCT(RCT1_210,	OCH_R1_210Y,	OCH_R1_210U,	OCH_R1_210V,	4, 4, 4)\
-	RCT(RCT1_102,	OCH_R1_102Y,	OCH_R1_102U,	OCH_R1_102V,	4, 4, 4)\
-	RCT(RCT1_021,	OCH_R1_021Y,	OCH_R1_021U,	OCH_R1_021V,	4, 4, 4)\
-	RCT(Pei09_120,	OCH_P9_120Y,	OCH_P9_120U,	OCH_P9_120V,	4, 4, 4)\
-	RCT(Pei09_201,	OCH_P9_201Y,	OCH_P9_201U,	OCH_P9_201V,	4, 4, 4)\
-	RCT(Pei09_012,	OCH_P9_012Y,	OCH_P9_012U,	OCH_P9_012V,	4, 4, 4)\
-	RCT(Pei09_210,	OCH_P9_210Y,	OCH_P9_210U,	OCH_P9_210V,	4, 4, 4)\
-	RCT(Pei09_102,	OCH_P9_102Y,	OCH_P9_102U,	OCH_P9_102V,	4, 4, 4)\
-	RCT(Pei09_021,	OCH_P9_021Y,	OCH_P9_021U,	OCH_P9_021V,	4, 4, 4)\
-	RCT(J2K_120,	OCH_J2_120Y,	OCH_J2_120U,	OCH_J2_120V,	4, 4, 4)\
-	RCT(J2K_201,	OCH_J2_201Y,	OCH_J2_201U,	OCH_J2_201V,	4, 4, 4)\
-	RCT(J2K_012,	OCH_J2_012Y,	OCH_J2_012U,	OCH_J2_012V,	4, 4, 4)
+	RCT(J2K,	OCH_J2Y,	OCH_J2U,	OCH_J2V,	4, 4, 4)\
+	RCT(RCT1,	OCH_R1Y,	OCH_R1U,	OCH_J2V,	4, 4, 4)\
+	RCT(Pei09,	OCH_P9Y,	OCH_P9U,	OCH_J2V,	4, 4, 4)
 typedef enum _RCTType
 {
-#define RCT(NAME, YIDX, UIDX, VIDX, YOFF, UOFF, VOFF) RCT_##NAME,
+#define RCT(RCTNAME, YIDX, UIDX, VIDX, YOFF, UOFF, VOFF) RCT_##RCTNAME,
 	RCTLIST
 #undef  RCT
 	RCT_COUNT,
 } RCTType;
 static const int rct_combinations[RCT_COUNT][6]=
 {
-#define RCT(NAME, YIDX, UIDX, VIDX, YOFF, UOFF, VOFF) {YIDX, UIDX, VIDX, YOFF, UOFF, VOFF},
+#define RCT(RCTNAME, YIDX, UIDX, VIDX, YOFF, UOFF, VOFF) {YIDX, UIDX, VIDX, YOFF, UOFF, VOFF},
 	RCTLIST
 #undef  RCT
 };
 static const char *rct_names[RCT_COUNT]=
 {
-#define RCT(NAME, YIDX, UIDX, VIDX, YOFF, UOFF, VOFF) #NAME,
+#define RCT(RCTNAME, YIDX, UIDX, VIDX, YOFF, UOFF, VOFF) #RCTNAME,
 	RCTLIST
 #undef  RCT
 };
@@ -354,9 +250,6 @@ typedef struct _ThreadArgs
 	//AC
 	int tlevels, clevels, statssize;
 	unsigned *stats;
-
-	//aux
-	double bestsize;
 } ThreadArgs;
 #define CDFSTRIDE 64
 static void update_CDF(const int *hist, unsigned *CDF, int tlevels)
@@ -377,7 +270,7 @@ static void block_thread(void *param)
 	Image const *image=args->fwd?args->src:args->dst;
 	int depths[OCH_COUNT]={0}, halfs[OCH_COUNT]={0};
 	double bestsize=0;
-	int bestrct=0, combination[6]={0}, predidx[3]={0}, flag=0;
+	int bestrct=0, combination[6]={0}, predidx[3]={0}, flag;
 	int res=image->iw*(args->y2-args->y1);
 	int nctx=args->clevels*args->clevels, cdfstride=args->tlevels+1, chsize=nctx*cdfstride;
 
@@ -394,7 +287,7 @@ static void block_thread(void *param)
 	{
 		int nlevels[OCH_COUNT]={0};
 		double csizes[OCH_COUNT*PRED_COUNT]={0};
-		int predsel[OCH_COUNT]={0};
+		char predsel[OCH_COUNT]={0};
 
 		for(int kc=0;kc<OCH_COUNT;++kc)
 			nlevels[kc]=1<<depths[kc];
@@ -415,7 +308,6 @@ static void block_thread(void *param)
 			int wg_errors[WG_NPREDS]={0}, wg_preds[WG_NPREDS]={0};
 			for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
 			{
-				int cidx=3;
 				short
 					*NNN	=rows[3]+0*OCH_COUNT,
 					*NNW	=rows[2]-1*OCH_COUNT,
@@ -465,39 +357,23 @@ static void block_thread(void *param)
 				input[ICH_R]=image->data[idx+0];//r
 				input[ICH_G]=image->data[idx+1];//g
 				input[ICH_B]=image->data[idx+2];//b
-#if 1
-				for(int kp=0;kp<6;++kp)//RCT1		r-=g; g+=r>>1; b-=g; g+=b>>1;
-				{
-					input[cidx+0]=input[rgb2yuv_permutations[kp][0]];//Y
-					input[cidx+1]=input[rgb2yuv_permutations[kp][1]];//U
-					input[cidx+2]=input[rgb2yuv_permutations[kp][2]];//V
-					input[cidx+2]-=input[cidx+0];
-					input[cidx+0]+=input[cidx+2]>>1;
-					input[cidx+1]-=input[cidx+0];
-					input[cidx+0]+=input[cidx+1]>>1;
-					cidx+=3;
-				}
-				for(int kp=0;kp<6;++kp)//Pei09		b-=(87*r+169*g+128)>>8; r-=g; g+=(86*r+29*b+128)>>8;
-				{
-					input[cidx+0]=input[rgb2yuv_permutations[kp][0]];//Y
-					input[cidx+1]=input[rgb2yuv_permutations[kp][1]];//U
-					input[cidx+2]=input[rgb2yuv_permutations[kp][2]];//V
-					input[cidx+1]-=(87*input[cidx+2]+169*input[cidx+0]+128)>>8;
-					input[cidx+2]-=input[cidx+0];
-					input[cidx+0]+=(86*input[cidx+2]+29*input[cidx+1]+128)>>8;
-					cidx+=3;
-				}
-				for(int kp=0;kp<3;++kp)//JPEG2000	r-=g; b-=g; g+=(r+b)>>2;
-				{
-					input[cidx+0]=input[rgb2yuv_permutations[kp][0]];//Y
-					input[cidx+1]=input[rgb2yuv_permutations[kp][1]];//U
-					input[cidx+2]=input[rgb2yuv_permutations[kp][2]];//V
-					input[cidx+2]-=input[cidx+0];
-					input[cidx+1]-=input[cidx+0];
-					input[cidx+0]+=(input[cidx+2]+input[cidx+1])>>2;
-					cidx+=3;
-				}
-#endif
+
+				//JPEG2000	r-=g; b-=g; g+=(r+b)>>2;
+				input[ICH_J2V]=input[ICH_R]-input[ICH_G];
+				input[ICH_J2U]=input[ICH_B]-input[ICH_G];
+				input[ICH_J2Y]=input[ICH_G]+((input[ICH_J2V]+input[ICH_J2U])>>2);
+
+				//RCT1		r-=g; g+=r>>1; b-=g; g+=b>>1;
+			//	input[ICH_R1V]=input[ICH_R]-input[ICH_G];
+				input[ICH_R1Y]=input[ICH_G]+(input[ICH_R1V]>>1);
+				input[ICH_R1U]=input[ICH_B]-input[ICH_G];
+				input[ICH_R1Y]+=input[ICH_R1U]>>1;
+
+				//Pei09		b-=(87*r+169*g+128)>>8; r-=g; g+=(86*r+29*b+128)>>8;
+				input[ICH_P9U]=input[ICH_B]-((87*input[ICH_R]+169*input[ICH_G]+128)>>8);
+			//	input[ICH_P9V]=input[ICH_R]-input[ICH_G];
+				input[ICH_P9Y]=input[ICH_G]+((86*input[ICH_P9V]+29*input[ICH_P9U]+128)>>8);
+
 				//if(ky==128&&kx==128)//
 				//	printf("");
 
@@ -568,11 +444,11 @@ static void block_thread(void *param)
 		}
 		for(int kt=0;kt<RCT_COUNT;++kt)//select best R.C.T
 		{
-			const int *group=rct_combinations[kt];
+			const int *combination=rct_combinations[kt];
 			double csize=
-				csizes[group[0]*PRED_COUNT+predsel[group[0]]]+
-				csizes[group[1]*PRED_COUNT+predsel[group[1]]]+
-				csizes[group[2]*PRED_COUNT+predsel[group[2]]];
+				csizes[combination[0]*PRED_COUNT+predsel[combination[0]]]+
+				csizes[combination[1]*PRED_COUNT+predsel[combination[1]]]+
+				csizes[combination[2]*PRED_COUNT+predsel[combination[2]]];
 			if(!kt||bestsize>csize)
 				bestsize=csize, bestrct=kt;
 		}
@@ -584,7 +460,6 @@ static void block_thread(void *param)
 		flag=flag*PRED_COUNT+predidx[2];
 		flag=flag*PRED_COUNT+predidx[1];
 		flag=flag*PRED_COUNT+predidx[0];//19*3*3*3 = 513
-		args->bestsize=bestsize;
 		if(args->loud)
 		{
 			printf("Y %5d~%5d  best %12.2lf bytes  %s [YUV: %s %s %s]\n",
@@ -608,18 +483,18 @@ static void block_thread(void *param)
 
 			for(int kt=0;kt<RCT_COUNT;++kt)
 			{
-				const int *group=rct_combinations[kt];
+				const int *combination=rct_combinations[kt];
 				double csize=
-					csizes[group[0]*PRED_COUNT+predsel[group[0]]]+
-					csizes[group[1]*PRED_COUNT+predsel[group[1]]]+
-					csizes[group[2]*PRED_COUNT+predsel[group[2]]];
+					csizes[combination[0]*PRED_COUNT+predsel[combination[0]]]+
+					csizes[combination[1]*PRED_COUNT+predsel[combination[1]]]+
+					csizes[combination[2]*PRED_COUNT+predsel[combination[2]]];
 				printf("%12.2lf %c  %-10s %-10s %-10s %-10s\n",
 					csize,
 					kt==bestrct?'*':' ',
 					rct_names[kt],
-					pred_names[predsel[group[0]]],
-					pred_names[predsel[group[1]]],
-					pred_names[predsel[group[2]]]
+					pred_names[predsel[combination[0]]],
+					pred_names[predsel[combination[1]]],
+					pred_names[predsel[combination[2]]]
 				);
 			}
 		}
@@ -774,42 +649,30 @@ static void block_thread(void *param)
 						yuv[1]=image->data[idx+2];
 						yuv[2]=image->data[idx+1];
 						break;
-					case RCT_RCT1_120:
-					case RCT_RCT1_201:
-					case RCT_RCT1_012:
-					case RCT_RCT1_210:
-					case RCT_RCT1_102:
-					case RCT_RCT1_021:
-						yuv[0]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][0]];
-						yuv[1]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][1]];
-						yuv[2]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][2]];
+					case RCT_J2K:
+						yuv[0]=image->data[idx+1];
+						yuv[1]=image->data[idx+2];
+						yuv[2]=image->data[idx+0];
+						yuv[1]-=yuv[0];
+						yuv[2]-=yuv[0];
+						yuv[0]+=(yuv[1]+yuv[2])>>2;
+						break;
+					case RCT_RCT1:
+						yuv[0]=image->data[idx+1];
+						yuv[1]=image->data[idx+2];
+						yuv[2]=image->data[idx+0];
 						yuv[1]-=yuv[0];
 						yuv[0]+=yuv[1]>>1;
 						yuv[2]-=yuv[0];
 						yuv[0]+=yuv[2]>>1;
 						break;
-					case RCT_Pei09_120:
-					case RCT_Pei09_201:
-					case RCT_Pei09_012:
-					case RCT_Pei09_210:
-					case RCT_Pei09_102:
-					case RCT_Pei09_021:
-						yuv[0]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_Pei09_120][0]];
-						yuv[1]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_Pei09_120][1]];
-						yuv[2]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_Pei09_120][2]];
+					case RCT_Pei09:
+						yuv[0]=image->data[idx+1];
+						yuv[1]=image->data[idx+2];
+						yuv[2]=image->data[idx+0];
 						yuv[1]-=(87*yuv[2]+169*yuv[0]+128)>>8;
 						yuv[2]-=yuv[0];
 						yuv[0]+=(86*yuv[2]+29*yuv[1]+128)>>8;
-						break;
-					case RCT_J2K_120:
-					case RCT_J2K_201:
-					case RCT_J2K_012:
-						yuv[0]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_J2K_120][0]];
-						yuv[1]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_J2K_120][1]];
-						yuv[2]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_J2K_120][2]];
-						yuv[1]-=yuv[0];
-						yuv[2]-=yuv[0];
-						yuv[0]+=(yuv[1]+yuv[2])>>2;
 						break;
 					}
 					kc=3;
@@ -823,15 +686,17 @@ static void block_thread(void *param)
 			
 			for(int kc=0;kc<image->nch;++kc)
 			{
-				int ch=combination[kc], offset=yuv[combination[kc+3]], pred, error, sym;
 				int
-					vx=(abs(W[kc]-WW[kc])+abs(N[kc]-NW[kc])+abs(NE[kc]-N[kc]))<<8>>depths[ch],
-					vy=(abs(W[kc]-NW[kc])+abs(N[kc]-NN[kc])+abs(NE[kc]-NNE[kc]))<<8>>depths[ch];
+					vx=(abs(W[kc]-WW[kc])+abs(N[kc]-NW[kc])+abs(NE[kc]-N[kc]))<<9>>depths[kc],
+					vy=(abs(W[kc]-NW[kc])+abs(N[kc]-NN[kc])+abs(NE[kc]-NNE[kc]))<<9>>depths[kc];
 				int qeN=FLOOR_LOG2_P1(vy);
 				int qeW=FLOOR_LOG2_P1(vx);
-				int cidx=cdfstride*(nctx*kc+args->clevels*MINVAR(qeN, 8)+MINVAR(qeW, 8));
+				qeN=MINVAR(qeN, 8);
+				qeW=MINVAR(qeW, 8);
+				int cidx=cdfstride*(nctx*kc+args->clevels*qeN+qeW);
 				int *curr_hist=args->hist+cidx;
 				unsigned *curr_CDF=args->stats+cidx;
+				int ch=combination[kc], offset=yuv[combination[kc+3]], pred, error, sym;
 
 				switch(predidx[kc])
 				{
@@ -976,42 +841,30 @@ static void block_thread(void *param)
 						image->data[idx+2]=yuv[1];
 						image->data[idx+1]=yuv[2];
 						break;
-					case RCT_RCT1_120:
-					case RCT_RCT1_201:
-					case RCT_RCT1_012:
-					case RCT_RCT1_210:
-					case RCT_RCT1_102:
-					case RCT_RCT1_021:
+					case RCT_J2K:
+						yuv[0]-=(yuv[1]+yuv[2])>>2;
+						yuv[2]+=yuv[0];
+						yuv[1]+=yuv[0];
+						image->data[idx+1]=yuv[0];
+						image->data[idx+2]=yuv[1];
+						image->data[idx+0]=yuv[2];
+						break;
+					case RCT_RCT1:
 						yuv[0]-=yuv[2]>>1;
 						yuv[2]+=yuv[0];
 						yuv[0]-=yuv[1]>>1;
 						yuv[1]+=yuv[0];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][0]]=yuv[0];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][1]]=yuv[1];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][2]]=yuv[2];
+						image->data[idx+1]=yuv[0];
+						image->data[idx+2]=yuv[1];
+						image->data[idx+0]=yuv[2];
 						break;
-					case RCT_Pei09_120:
-					case RCT_Pei09_201:
-					case RCT_Pei09_012:
-					case RCT_Pei09_210:
-					case RCT_Pei09_102:
-					case RCT_Pei09_021:
+					case RCT_Pei09:
 						yuv[0]-=(86*yuv[2]+29*yuv[1]+128)>>8;
 						yuv[2]+=yuv[0];
 						yuv[1]+=(87*yuv[2]+169*yuv[0]+128)>>8;
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_Pei09_120][0]]=yuv[0];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_Pei09_120][1]]=yuv[1];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_Pei09_120][2]]=yuv[2];
-						break;
-					case RCT_J2K_120:
-					case RCT_J2K_201:
-					case RCT_J2K_012:
-						yuv[0]-=(yuv[1]+yuv[2])>>2;
-						yuv[2]+=yuv[0];
-						yuv[1]+=yuv[0];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_J2K_120][0]]=yuv[0];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_J2K_120][1]]=yuv[1];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_J2K_120][2]]=yuv[2];
+						image->data[idx+1]=yuv[0];
+						image->data[idx+2]=yuv[1];
+						image->data[idx+0]=yuv[2];
 						break;
 					}
 					kc=3;
@@ -1053,9 +906,8 @@ int f26_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	ptrdiff_t memusage=0;
 	ptrdiff_t argssize=nthreads*sizeof(ThreadArgs);
 	ThreadArgs *args=(ThreadArgs*)malloc(argssize);
-	int histindices[OCH_COUNT*PRED_COUNT+1]={0}, histsize=0;
+	int depths[OCH_COUNT]={0}, histindices[OCH_COUNT*PRED_COUNT+1]={0}, histsize=0;
 	int tlevels=0, clevels=0, statssize=0;
-	double bestsize=0;
 	
 	if(fwd)
 	{
@@ -1067,6 +919,7 @@ int f26_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		{
 			int depth=image->depth+och_info[kc][2];
 			UPDATE_MIN(depth, 16);
+			depths[kc]=depth;
 			for(int kp=0;kp<PRED_COUNT;++kp)
 			{
 				int nlevels=1<<depth;
@@ -1086,7 +939,7 @@ int f26_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			memcpy(&size, cbuf+sizeof(int)*kt, sizeof(int));
 			start+=size;
 		}
-		if(start!=(ptrdiff_t)clen)
+		if(start!=clen)
 			LOG_ERROR("Corrupt file");
 		start=coffset;
 	}
@@ -1173,15 +1026,11 @@ int f26_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		{
 			for(int kt2=0;kt2<nthreads2;++kt2)
 			{
-				ThreadArgs *arg=args+kt2;
 				if(loud)
-				{
-					printf("[%3d]  %13.2lf -> %10zd bytes (%+13.2lf)\n", kt+kt2, arg->bestsize, arg->list.nobj, arg->list.nobj-arg->bestsize);
-					bestsize+=arg->bestsize;
-				}
-				memcpy(data[0]->data+start+sizeof(int)*((ptrdiff_t)kt+kt2), &arg->list.nobj, sizeof(int));
-				dlist_appendtoarray(&arg->list, data);
-				dlist_clear(&arg->list);
+					printf("[%d]  %zd\n", kt+kt2, args[kt2].list.nobj);
+				memcpy(data[0]->data+start+sizeof(int)*((ptrdiff_t)kt+kt2), &args[kt2].list.nobj, sizeof(int));
+				dlist_appendtoarray(&args[kt2].list, data);
+				dlist_clear(&args[kt2].list);
 			}
 		}
 	}
@@ -1192,8 +1041,7 @@ int f26_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		if(fwd)
 		{
 			ptrdiff_t csize=data[0]->count-start;
-			printf("Best %15.2lf (%+13.2lf) bytes\n", bestsize, csize-bestsize);
-			printf("Size %12td/%12td  %10.6lf%%  %10lf\n", csize, usize, 100.*csize/usize, (double)usize/csize);
+			printf("Size %14td/%14td  %16lf%%  %16lf\n", csize, usize, 100.*csize/usize, (double)usize/csize);
 			printf("Mem usage: ");
 			print_size((double)memusage, 8, 4, 0, 0);
 			printf("\n");

@@ -4,11 +4,6 @@
 #include<string.h>
 #include<math.h>
 #include<immintrin.h>
-//#ifdef _MSC_VER
-//#include<intrin.h>
-//#else
-//#include<x86intrin.h>
-//#endif
 static const char file[]=__FILE__;
 
 

@@ -632,7 +632,7 @@ int f25_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			memcpy(&size, cbuf+sizeof(int)*kt, sizeof(int));
 			start+=size;
 		}
-		if(start!=clen)
+		if(start!=(ptrdiff_t)clen)
 			LOG_ERROR("Corrupt file");
 		start=coffset;
 	}
@@ -701,9 +701,9 @@ int f25_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			for(int kt=0;kt<nthreads2;++kt)
 			{
 				ThreadArgs *arg=args+kt;
-				int
-					blocksize=(image->iw*(arg->y2-arg->y1)*image->nch*image->depth+7)>>3,
-					cbsize=(image->iw*(arg->y2-arg->y1)*image->depth+7)>>3;
+				//int
+				//	blocksize=(image->iw*(arg->y2-arg->y1)*image->nch*image->depth+7)>>3,
+				//	cbsize=(image->iw*(arg->y2-arg->y1)*image->depth+7)>>3;
 
 				memcpy(data[0]->data+start+sizeof(int)*((ptrdiff_t)kb+kt), &arg->list.nobj, sizeof(int));
 				dlist_appendtoarray(&arg->list, data);
