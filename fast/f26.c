@@ -10,8 +10,9 @@
 static const char file[]=__FILE__;
 
 
+//	#define ENABLE_DEBUGIMAGE
 //	#define ENABLE_GUIDE
-	#define DISABLE_MT
+//	#define DISABLE_MT
 
 
 #include"ac.h"
@@ -247,6 +248,16 @@ static const char *pred_names[PRED_COUNT]=
 
 #define WG_NPREDS	8
 #define WG_PREDLIST\
+	WG_PRED(1, N+W-NW)\
+	WG_PRED(1, N)\
+	WG_PRED(1, W)\
+	WG_PRED(1, W+NE-N)\
+	WG_PRED(1, N+NE-NNE)\
+	WG_PRED(1, 3*(N-NN)+NNN)\
+	WG_PRED(1, 3*(W-WW)+WWW)\
+	WG_PRED(1, (W+NEEE)/2)
+#if 0
+#define WG_PREDLIST\
 	WG_PRED(1.2, N+W-NW)\
 	WG_PRED(1.5, N)\
 	WG_PRED(1.5, W)\
@@ -255,6 +266,7 @@ static const char *pred_names[PRED_COUNT]=
 	WG_PRED(1, 3*(N-NN)+NNN)\
 	WG_PRED(1, 3*(W-WW)+WWW)\
 	WG_PRED(1, (W+NEEE)/2)
+#endif
 //	WG_PRED(0.5, NW)
 //	WG_PRED(0.5, NE)
 static void wg_init(double *weights)
@@ -264,7 +276,13 @@ static void wg_init(double *weights)
 	WG_PREDLIST
 #undef  WG_PRED
 }
-static int wg_predict(const double *weights, int NNN, int NN, int NNE, int NW, int N, int NE, int NEE, int NEEE, int WWW, int WW, int W, const int *eW, int *preds)
+static int wg_predict(
+	const double *weights,
+	int NNN, int NN, int NNE,
+	int NW, int N, int NE, int NEE, int NEEE,
+	int WWW, int WW, int W,
+	const int *perrors, int *preds
+)
 {
 	int pred;
 	double pred2=0, wsum=0;
@@ -275,7 +293,7 @@ static int wg_predict(const double *weights, int NNN, int NN, int NNE, int NW, i
 	
 	for(int k=0;k<WG_NPREDS;++k)
 	{
-		double weight=weights[k]/(eW[k]+1);
+		double weight=weights[k]/(perrors[k]+1);
 		pred2+=weight*preds[k];
 		wsum+=weight;
 	}
@@ -288,13 +306,13 @@ static int wg_predict(const double *weights, int NNN, int NN, int NNE, int NW, i
 	CLAMP3_32(pred, pred, N, W, NE);
 	return pred;
 }
-static void wg_update(int curr, const int *preds, int *eW, double *weights)
+static void wg_update(int curr, const int *preds, int *perrors, double *weights)
 {
 	int kbest=0, ebest=0;
 	for(int k=0;k<WG_NPREDS;++k)
 	{
 		int e2=abs(curr-preds[k]);
-		eW[k]=(eW[k]+e2)*WG_DECAY_NUM>>WG_DECAY_SH;
+		perrors[k]=(perrors[k]+e2)*WG_DECAY_NUM>>WG_DECAY_SH;
 		if(!k||ebest>e2)
 			kbest=k, ebest=e2;
 	}
@@ -349,7 +367,8 @@ typedef struct _ThreadArgs
 	DList list;
 	const unsigned char *decstart, *decend;
 
-	double wg_weights[WG_NPREDS*OCH_COUNT];
+	double wg_weights[OCH_COUNT*WG_NPREDS];
+	int wg_errors[OCH_COUNT*WG_NPREDS];
 
 	//AC
 	int tlevels, clevels, statssize;
@@ -357,6 +376,9 @@ typedef struct _ThreadArgs
 
 	//aux
 	double bestsize;
+#ifdef ENABLE_DEBUGIMAGE
+	Image *debug_image;
+#endif
 } ThreadArgs;
 #define CDFSTRIDE 64
 static void update_CDF(const int *hist, unsigned *CDF, int tlevels)
@@ -398,8 +420,11 @@ static void block_thread(void *param)
 
 		for(int kc=0;kc<OCH_COUNT;++kc)
 			nlevels[kc]=1<<depths[kc];
+
 		for(int kc=0;kc<OCH_COUNT;++kc)
 			wg_init(args->wg_weights+WG_NPREDS*kc);
+		memset(args->wg_errors, 0, sizeof(args->wg_errors));
+
 		memset(args->hist, 0, args->histsize);
 		for(int ky=args->y1, idx=image->nch*image->iw*args->y1;ky<args->y2;++ky)
 		{
@@ -412,7 +437,7 @@ static void block_thread(void *param)
 			};
 			short input[ICH_COUNT]={0};
 			int preds[PRED_COUNT]={0};
-			int wg_errors[WG_NPREDS]={0}, wg_preds[WG_NPREDS]={0};
+			int wg_preds[WG_NPREDS]={0};
 			for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
 			{
 				int cidx=3;
@@ -436,7 +461,7 @@ static void block_thread(void *param)
 					if(ky<=args->y1+1)
 					{
 						if(ky==args->y1)
-							NEEE=NE=NW=N=W;
+							NEEE=NEE=NE=NW=N=W;
 						NN=N;
 						NNE=NE;
 					}
@@ -461,11 +486,14 @@ static void block_thread(void *param)
 					}
 					NEEE=NE;
 				}
-				//NONE
+
+				//if(ky==128&&kx==128)//
+				//if(ky==3&&kx==10)//
+				//	printf("");
+
 				input[ICH_R]=image->data[idx+0];//r
 				input[ICH_G]=image->data[idx+1];//g
 				input[ICH_B]=image->data[idx+2];//b
-#if 1
 				for(int kp=0;kp<6;++kp)//RCT1		r-=g; g+=r>>1; b-=g; g+=b>>1;
 				{
 					input[cidx+0]=input[rgb2yuv_permutations[kp][0]];//Y
@@ -497,26 +525,25 @@ static void block_thread(void *param)
 					input[cidx+0]+=(input[cidx+2]+input[cidx+1])>>2;
 					cidx+=3;
 				}
-#endif
-				//if(ky==128&&kx==128)//
-				//	printf("");
-
 				for(int kc=0;kc<OCH_COUNT;++kc)
 				{
 					int target=input[och_info[kc][0]], offset=input[och_info[kc][1]];
+					//if(kc==OCH_R1_120Y)
+					//{
+					//	int LOL_1=0;
+					//}
 
 					preds[PRED_W]=W[kc];
 					MEDIAN3_32(preds[PRED_cgrad], N[kc], W[kc], N[kc]+W[kc]-NW[kc]);
 					preds[PRED_wgrad]=wg_predict(
 						args->wg_weights+WG_NPREDS*kc,
-						NNN[kc],
-						NN[kc], NNE[kc],
+						NNN[kc], NN[kc], NNE[kc],
 						NW[kc], N[kc], NE[kc], NEE[kc], NEEE[kc],
 						WWW[kc], WW[kc], W[kc],
-						wg_errors, wg_preds
+						args->wg_errors+WG_NPREDS*kc, wg_preds
 					);
 
-					if(offset)
+					//if(offset)
 					{
 						for(int kp=0;kp<PRED_COUNT;++kp)
 						{
@@ -528,14 +555,20 @@ static void block_thread(void *param)
 					{
 						int *curr_hist=args->hist+args->histindices[kc*PRED_COUNT+kp];
 						int val=target-preds[kp];
+#ifdef ENABLE_DEBUGIMAGE
+						if((unsigned)(kc-OCH_R1_120Y)<3&&kp==PRED_wgrad)
+							args->debug_image->data[idx+kc-OCH_R1_120Y]=val;
+#endif
 						val+=halfs[kc];
 						val&=nlevels[kc]-1;
+						//if(val&~(nlevels[kc]-1))//
+						//	LOG_ERROR("");
 						//if((unsigned)val>=(unsigned)(args->histindices[kc*PRED_COUNT+kp+1]-args->histindices[kc*PRED_COUNT+kp]))//
 						//	LOG_ERROR("");
 						++curr_hist[val];
 					}
 					target-=offset;
-					wg_update(target, wg_preds, wg_errors, args->wg_weights+WG_NPREDS*kc);
+					wg_update(target, wg_preds, args->wg_errors+WG_NPREDS*kc, args->wg_weights+WG_NPREDS*kc);
 					curr[kc]=target;
 				}
 				rows[0]+=OCH_COUNT;
@@ -663,6 +696,7 @@ static void block_thread(void *param)
 		if(predidx[kc]==PRED_wgrad)
 			wg_init(args->wg_weights+WG_NPREDS*kc);
 	}
+	memset(args->wg_errors, 0, sizeof(args->wg_errors));
 	for(int ky=args->y1, idx=image->nch*image->iw*args->y1;ky<args->y2;++ky)//codec loop
 	{
 		ALIGN(16) short *rows[]=
@@ -673,7 +707,7 @@ static void block_thread(void *param)
 			args->pixels+((image->iw+16LL)*((ky-3LL)&3)+8LL)*4,
 		};
 		short yuv[5]={0};
-		int wg_errors[WG_NPREDS]={0}, wg_preds[WG_NPREDS]={0};
+		int wg_preds[WG_NPREDS]={0};
 		int token=0, bypass=0, nbits=0;
 
 		for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
@@ -693,12 +727,14 @@ static void block_thread(void *param)
 				*WW	=rows[0]-2*4,
 				*W	=rows[0]-1*4,
 				*curr	=rows[0]+0*4;
+			//if(ky==256&&kx==765)//
+			//	printf("");
 			if(ky<=args->y1+2)
 			{
 				if(ky<=args->y1+1)
 				{
 					if(ky==args->y1)
-						NEEE=NE=NW=N=W;
+						NEEE=NEE=NE=NW=N=W;
 					NN=N;
 					NNE=NE;
 				}
@@ -819,6 +855,7 @@ static void block_thread(void *param)
 			}
 
 			//if(!idx)//
+			//if(ky==257&&kx==5)//
 			//	printf("");
 			
 			for(int kc=0;kc<image->nch;++kc)
@@ -832,6 +869,9 @@ static void block_thread(void *param)
 				int cidx=cdfstride*(nctx*kc+args->clevels*MINVAR(qeN, 8)+MINVAR(qeW, 8));
 				int *curr_hist=args->hist+cidx;
 				unsigned *curr_CDF=args->stats+cidx;
+				
+				//if(ky==256&&kx==765&&kc==1)//
+				//	printf("");
 
 				switch(predidx[kc])
 				{
@@ -844,11 +884,10 @@ static void block_thread(void *param)
 				case PRED_wgrad:
 					pred=wg_predict(
 						args->wg_weights+WG_NPREDS*kc,
-						NNN[kc],
-						NN[kc], NNE[kc],
+						NNN[kc], NN[kc], NNE[kc],
 						NW[kc], N[kc], NE[kc], NEE[kc], NEEE[kc],
 						WWW[kc], WW[kc], W[kc],
-						wg_errors, wg_preds
+						args->wg_errors+WG_NPREDS*kc, wg_preds
 					);
 					break;
 				}
@@ -927,7 +966,7 @@ static void block_thread(void *param)
 					update_CDF(curr_hist, curr_CDF, args->tlevels);
 				curr[kc]-=offset;
 				if(predidx[kc]==PRED_wgrad)
-					wg_update(curr[kc], wg_preds, wg_errors, args->wg_weights+WG_NPREDS*kc);
+					wg_update(curr[kc], wg_preds, args->wg_errors+WG_NPREDS*kc, args->wg_weights+WG_NPREDS*kc);
 			}
 			if(!args->fwd)
 			{
@@ -1056,11 +1095,17 @@ int f26_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	int histindices[OCH_COUNT*PRED_COUNT+1]={0}, histsize=0;
 	int tlevels=0, clevels=0, statssize=0;
 	double bestsize=0;
+#ifdef ENABLE_DEBUGIMAGE
+	Image debug_image={0};
+#endif
 	
 	if(fwd)
 	{
 #ifdef ENABLE_GUIDE
 		guide=image;
+#endif
+#ifdef ENABLE_DEBUGIMAGE
+		image_copy_nodata(&debug_image, image);
 #endif
 		histsize=0;
 		for(int kc=0;kc<OCH_COUNT;++kc)
@@ -1144,6 +1189,9 @@ int f26_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #else
 		arg->loud=0;
 #endif
+#ifdef ENABLE_DEBUGIMAGE
+		arg->debug_image=&debug_image;
+#endif
 	}
 	for(int kt=0;kt<nblocks;kt+=nthreads)
 	{
@@ -1200,6 +1248,13 @@ int f26_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		}
 		printf("%c %16.6lf sec  %16.6lf MB/s\n", 'D'+fwd, t0, usize/(t0*1024*1024));
 	}
+#ifdef ENABLE_DEBUGIMAGE
+	if(fwd)
+	{
+		image_snapshot8(&debug_image);
+		image_clear(&debug_image);
+	}
+#endif
 	for(int k=0;k<nthreads;++k)
 	{
 		ThreadArgs *arg=args+k;

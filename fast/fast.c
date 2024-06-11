@@ -364,13 +364,13 @@ int main(int argc, char **argv)
 	//	"D:/ML/big_building.LSIM.PPM"
 		;
 	const char *fn=
-	//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
+		"D:/ML/dataset-kodak-ppm/kodim13.ppm"
 	//	"D:/ML/dataset-kodak-ppm/kodim20.ppm"
 	//	"D:/ML/dataset-kodak/kodim13.png"
 	//	"D:/ML/big_building.PPM"
 	//	"D:/ML/big_building.LSIM"
 	//	"D:/ML/20240407 blank.ppm"
-		"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
+	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_03.ppm"
 	//	"C:/dataset-LPCB-ppm/olympus_xz1_14.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13757.ppm"	//MER-3D
