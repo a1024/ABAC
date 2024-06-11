@@ -386,7 +386,7 @@ int main(int argc, char **argv)
 	//	"D:/ML/dataset-RAW/a0001-jmac_DSC1459.dng"
 	//	"D:/ML/dataset-kodak-small"
 
-		"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
+	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim24.ppm"	//borderless
 	//	"C:/Projects/datasets/dataset-kodak-pgm/kodim13.pgm"
 	//	"C:/Projects/datasets/dataset-kodak/kodim13.png"
@@ -394,6 +394,7 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/big_building.PPM"
 	//	"C:/Projects/datasets/dataset-CID22-ppm/3637739.PPM"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
+		"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_02.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA12811.ppm"
 	//	"C:/Projects/datasets/dataset-ic-rgb16bit/flower_foveon.png"	//smallest 16-bit image
 	//	"C:/Projects/datasets/dataset-ic-rgb16bit/deer.png"

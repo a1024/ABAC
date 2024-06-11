@@ -991,10 +991,10 @@ static void block_thread(void *param)
 						yuv[0]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][0]];
 						yuv[1]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][1]];
 						yuv[2]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][2]];
-						yuv[1]-=yuv[0];
-						yuv[0]+=yuv[1]>>1;
 						yuv[2]-=yuv[0];
 						yuv[0]+=yuv[2]>>1;
+						yuv[1]-=yuv[0];
+						yuv[0]+=yuv[1]>>1;
 						break;
 					case RCT_RCT2_120:
 					case RCT_RCT2_201:
@@ -1002,12 +1002,12 @@ static void block_thread(void *param)
 					case RCT_RCT2_210:
 					case RCT_RCT2_102:
 					case RCT_RCT2_021:
-						yuv[0]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][0]];
-						yuv[1]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][1]];
-						yuv[2]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][2]];
-						yuv[1]-=yuv[0];
-						yuv[0]+=yuv[1]>>1;
+						yuv[0]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT2_120][0]];
+						yuv[1]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT2_120][1]];
+						yuv[2]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT2_120][2]];
 						yuv[2]-=yuv[0];
+						yuv[0]+=yuv[2]>>1;
+						yuv[1]-=yuv[0];
 						yuv[0]+=(2*yuv[1]-yuv[2]+4)>>3;//A710
 						break;
 					case RCT_RCT3_120:
@@ -1016,12 +1016,12 @@ static void block_thread(void *param)
 					case RCT_RCT3_210:
 					case RCT_RCT3_102:
 					case RCT_RCT3_021:
-						yuv[0]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][0]];
-						yuv[1]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][1]];
-						yuv[2]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][2]];
-						yuv[1]-=yuv[0];
-						yuv[0]+=yuv[1]>>1;
+						yuv[0]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT3_120][0]];
+						yuv[1]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT3_120][1]];
+						yuv[2]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT3_120][2]];
 						yuv[2]-=yuv[0];
+						yuv[0]+=yuv[2]>>1;
+						yuv[1]-=yuv[0];
 						yuv[0]+=(2*yuv[1]+yuv[2]+4)>>3;
 						break;
 					case RCT_RCT4_120:
@@ -1030,12 +1030,12 @@ static void block_thread(void *param)
 					case RCT_RCT4_210:
 					case RCT_RCT4_102:
 					case RCT_RCT4_021:
-						yuv[0]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][0]];
-						yuv[1]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][1]];
-						yuv[2]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][2]];
-						yuv[1]-=yuv[0];
-						yuv[0]+=yuv[1]>>1;
+						yuv[0]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT4_120][0]];
+						yuv[1]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT4_120][1]];
+						yuv[2]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT4_120][2]];
 						yuv[2]-=yuv[0];
+						yuv[0]+=yuv[2]>>1;
+						yuv[1]-=yuv[0];
 						yuv[0]+=yuv[1]/3;
 						break;
 					case RCT_RCT5_120:
@@ -1044,12 +1044,12 @@ static void block_thread(void *param)
 					case RCT_RCT5_210:
 					case RCT_RCT5_102:
 					case RCT_RCT5_021:
-						yuv[0]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][0]];
-						yuv[1]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][1]];
-						yuv[2]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][2]];
-						yuv[1]-=yuv[0];
-						yuv[0]+=yuv[1]>>1;
+						yuv[0]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT5_120][0]];
+						yuv[1]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT5_120][1]];
+						yuv[2]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT5_120][2]];
 						yuv[2]-=yuv[0];
+						yuv[0]+=yuv[2]>>1;
+						yuv[1]-=yuv[0];
 						yuv[0]+=(3*yuv[1]+4)>>3;
 						break;
 					case RCT_RCT6_120:
@@ -1058,12 +1058,12 @@ static void block_thread(void *param)
 					case RCT_RCT6_210:
 					case RCT_RCT6_102:
 					case RCT_RCT6_021:
-						yuv[0]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][0]];
-						yuv[1]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][1]];
-						yuv[2]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][2]];
-						yuv[1]-=yuv[0];
-						yuv[0]+=yuv[1]>>1;
+						yuv[0]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT6_120][0]];
+						yuv[1]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT6_120][1]];
+						yuv[2]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT6_120][2]];
 						yuv[2]-=yuv[0];
+						yuv[0]+=yuv[2]>>1;
+						yuv[1]-=yuv[0];
 						yuv[0]+=(7*yuv[1]+8)>>4;
 						break;
 					case RCT_RCT7_120:
@@ -1072,12 +1072,12 @@ static void block_thread(void *param)
 					case RCT_RCT7_210:
 					case RCT_RCT7_102:
 					case RCT_RCT7_021:
-						yuv[0]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][0]];
-						yuv[1]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][1]];
-						yuv[2]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][2]];
-						yuv[1]-=yuv[0];
-						yuv[0]+=yuv[1]>>1;
+						yuv[0]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT7_120][0]];
+						yuv[1]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT7_120][1]];
+						yuv[2]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT7_120][2]];
 						yuv[2]-=yuv[0];
+						yuv[0]+=yuv[2]>>1;
+						yuv[1]-=yuv[0];
 						yuv[0]+=(10*yuv[1]-yuv[2]+16)>>5;
 						break;
 					case RCT_Pei09_120:
@@ -1280,10 +1280,10 @@ static void block_thread(void *param)
 					case RCT_RCT1_210:
 					case RCT_RCT1_102:
 					case RCT_RCT1_021:
-						yuv[0]-=yuv[2]>>1;
-						yuv[2]+=yuv[0];
 						yuv[0]-=yuv[1]>>1;
 						yuv[1]+=yuv[0];
+						yuv[0]-=yuv[2]>>1;
+						yuv[2]+=yuv[0];
 						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][0]]=yuv[0];
 						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][1]]=yuv[1];
 						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][2]]=yuv[2];
@@ -1295,12 +1295,12 @@ static void block_thread(void *param)
 					case RCT_RCT2_102:
 					case RCT_RCT2_021:
 						yuv[0]-=(2*yuv[1]-yuv[2]+4)>>3;//A710
-						yuv[2]+=yuv[0];
-						yuv[0]-=yuv[1]>>1;
 						yuv[1]+=yuv[0];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][0]]=yuv[0];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][1]]=yuv[1];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][2]]=yuv[2];
+						yuv[0]-=yuv[2]>>1;
+						yuv[2]+=yuv[0];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT2_120][0]]=yuv[0];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT2_120][1]]=yuv[1];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT2_120][2]]=yuv[2];
 						break;
 					case RCT_RCT3_120:
 					case RCT_RCT3_201:
@@ -1309,12 +1309,12 @@ static void block_thread(void *param)
 					case RCT_RCT3_102:
 					case RCT_RCT3_021:
 						yuv[0]-=(2*yuv[1]+yuv[2]+4)>>3;
-						yuv[2]+=yuv[0];
-						yuv[0]-=yuv[1]>>1;
 						yuv[1]+=yuv[0];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][0]]=yuv[0];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][1]]=yuv[1];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][2]]=yuv[2];
+						yuv[0]-=yuv[2]>>1;
+						yuv[2]+=yuv[0];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT3_120][0]]=yuv[0];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT3_120][1]]=yuv[1];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT3_120][2]]=yuv[2];
 						break;
 					case RCT_RCT4_120:
 					case RCT_RCT4_201:
@@ -1323,12 +1323,12 @@ static void block_thread(void *param)
 					case RCT_RCT4_102:
 					case RCT_RCT4_021:
 						yuv[0]-=yuv[1]/3;
-						yuv[2]+=yuv[0];
-						yuv[0]-=yuv[1]>>1;
 						yuv[1]+=yuv[0];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][0]]=yuv[0];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][1]]=yuv[1];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][2]]=yuv[2];
+						yuv[0]-=yuv[2]>>1;
+						yuv[2]+=yuv[0];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT4_120][0]]=yuv[0];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT4_120][1]]=yuv[1];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT4_120][2]]=yuv[2];
 						break;
 					case RCT_RCT5_120:
 					case RCT_RCT5_201:
@@ -1337,12 +1337,12 @@ static void block_thread(void *param)
 					case RCT_RCT5_102:
 					case RCT_RCT5_021:
 						yuv[0]-=(3*yuv[1]+4)>>3;
-						yuv[2]+=yuv[0];
-						yuv[0]-=yuv[1]>>1;
 						yuv[1]+=yuv[0];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][0]]=yuv[0];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][1]]=yuv[1];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][2]]=yuv[2];
+						yuv[0]-=yuv[2]>>1;
+						yuv[2]+=yuv[0];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT5_120][0]]=yuv[0];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT5_120][1]]=yuv[1];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT5_120][2]]=yuv[2];
 						break;
 					case RCT_RCT6_120:
 					case RCT_RCT6_201:
@@ -1351,12 +1351,12 @@ static void block_thread(void *param)
 					case RCT_RCT6_102:
 					case RCT_RCT6_021:
 						yuv[0]-=(7*yuv[1]+8)>>4;
-						yuv[2]+=yuv[0];
-						yuv[0]-=yuv[1]>>1;
 						yuv[1]+=yuv[0];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][0]]=yuv[0];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][1]]=yuv[1];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][2]]=yuv[2];
+						yuv[0]-=yuv[2]>>1;
+						yuv[2]+=yuv[0];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT6_120][0]]=yuv[0];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT6_120][1]]=yuv[1];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT6_120][2]]=yuv[2];
 						break;
 					case RCT_RCT7_120:
 					case RCT_RCT7_201:
@@ -1365,12 +1365,12 @@ static void block_thread(void *param)
 					case RCT_RCT7_102:
 					case RCT_RCT7_021:
 						yuv[0]-=(10*yuv[1]-yuv[2]+16)>>5;
-						yuv[2]+=yuv[0];
-						yuv[0]-=yuv[1]>>1;
 						yuv[1]+=yuv[0];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][0]]=yuv[0];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][1]]=yuv[1];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][2]]=yuv[2];
+						yuv[0]-=yuv[2]>>1;
+						yuv[2]+=yuv[0];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT7_120][0]]=yuv[0];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT7_120][1]]=yuv[1];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT7_120][2]]=yuv[2];
 						break;
 					case RCT_Pei09_120:
 					case RCT_Pei09_201:
