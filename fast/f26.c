@@ -510,6 +510,7 @@ static void quantize_pixel(int val, int *token, int *bypass, int *nbits)
 	}
 }
 
+double g_rct_usizes[RCT_COUNT]={0};
 double g_usizes[OCH_COUNT*PRED_COUNT]={0};
 double g_csizes[OCH_COUNT*PRED_COUNT]={0};
 //double g_utotal[OCH_COUNT*PRED_COUNT]={0};
@@ -1556,8 +1557,10 @@ int f26_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			for(int kt2=0;kt2<nthreads2;++kt2)
 			{
 				ThreadArgs *arg=args+kt2;
+				int blocksize=(int)(arg->csizes[0]+arg->csizes[1]+arg->csizes[2]);
 				{
 					const int *group=rct_combinations[arg->bestrct];
+					g_rct_usizes[arg->bestrct]+=blocksize;
 					g_usizes[group[0]*PRED_COUNT+arg->predidx[0]]+=arg->usizes[0];
 					g_usizes[group[1]*PRED_COUNT+arg->predidx[1]]+=arg->usizes[1];
 					g_usizes[group[2]*PRED_COUNT+arg->predidx[2]]+=arg->usizes[2];
@@ -1567,7 +1570,6 @@ int f26_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				}
 				if(loud)
 				{
-					int blocksize=(int)(arg->csizes[0]+arg->csizes[1]+arg->csizes[2]);
 					if(!(kt+kt2))
 						printf("block,  nrows,  usize,     best  ->  actual,  (actual-best)\n");
 					printf(
@@ -1637,6 +1639,8 @@ void f26_curiosity()
 		utotal+=colusum[kp];
 		ctotal+=colcsum[kp];
 	}
+
+	printf("Output channel compressed sizes:\n");
 	for(int kp=0;kp<PRED_COUNT;++kp)
 		printf("%*s%*s", 15, pred_names[kp], 14, "");
 	printf("\n");
@@ -1669,4 +1673,8 @@ void f26_curiosity()
 		print_nan(p2, 10, 6);
 		printf("%c  %s\n", p2!=p2?' ':'%', och_names[kc]);
 	}
+
+	printf("RCT contributions:\n");
+	for(int kt=0;kt<RCT_COUNT;++kt)
+		printf("%12.2lf  %8.4lf%%  %s\n", g_rct_usizes[kt], 100.*g_rct_usizes[kt]/utotal, rct_names[kt]);
 }
