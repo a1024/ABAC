@@ -10,8 +10,8 @@
 static const char file[]=__FILE__;
 
 
-	#define ENABLE_GUIDE
-	#define DISABLE_MT
+//	#define ENABLE_GUIDE
+//	#define DISABLE_MT
 
 
 #include"ac.h"
@@ -37,23 +37,64 @@ typedef enum _IChannelType
 	ICH_G,
 	ICH_B,
 
-	//YCbCr-R_v1 "RCT1"		FIXME deduplicate channels
+	//YCbCr-R "RCT1~7"		FIXME deduplicate channels
 	ICH_R1_120Y,
+	ICH_R2_120Y,
+	ICH_R3_120Y,
+	ICH_R4_120Y,
+	ICH_R5_120Y,
+	ICH_R6_120Y,
+	ICH_R7_120Y,
 	ICH_R1_120U,
 	ICH_R1_120V,
+
 	ICH_R1_201Y,
+	ICH_R2_201Y,
+	ICH_R3_201Y,
+	ICH_R4_201Y,
+	ICH_R5_201Y,
+	ICH_R6_201Y,
+	ICH_R7_201Y,
 	ICH_R1_201U,
 	ICH_R1_201V,
+
 	ICH_R1_012Y,
+	ICH_R2_012Y,
+	ICH_R3_012Y,
+	ICH_R4_012Y,
+	ICH_R5_012Y,
+	ICH_R6_012Y,
+	ICH_R7_012Y,
 	ICH_R1_012U,
 	ICH_R1_012V,
+
 	ICH_R1_210Y,
+	ICH_R2_210Y,
+	ICH_R3_210Y,
+	ICH_R4_210Y,
+	ICH_R5_210Y,
+	ICH_R6_210Y,
+	ICH_R7_210Y,
 	ICH_R1_210U,
 	ICH_R1_210V,
+
 	ICH_R1_102Y,
+	ICH_R2_102Y,
+	ICH_R3_102Y,
+	ICH_R4_102Y,
+	ICH_R5_102Y,
+	ICH_R6_102Y,
+	ICH_R7_102Y,
 	ICH_R1_102U,
 	ICH_R1_102V,
+
 	ICH_R1_021Y,
+	ICH_R2_021Y,
+	ICH_R3_021Y,
+	ICH_R4_021Y,
+	ICH_R5_021Y,
+	ICH_R6_021Y,
+	ICH_R7_021Y,
 	ICH_R1_021U,
 	ICH_R1_021V,
 
@@ -91,6 +132,16 @@ typedef enum _IChannelType
 	ICH_ZERO,
 	ICH_COUNT,
 } IChannelType;
+typedef enum _InfoIndex
+{
+	II_TARGET,
+	II_HELPER1,
+	II_HELPER2,
+	II_HSHIFT,
+	II_INFLATION,
+
+	II_COUNT,
+} InfoIndex;
 #define OCHLIST\
 	OCH(OCH_R,		0,	ICH_R,		ICH_ZERO,	ICH_ZERO,	0)\
 	OCH(OCH_G,		0,	ICH_G,		ICH_ZERO,	ICH_ZERO,	0)\
@@ -105,21 +156,57 @@ typedef enum _IChannelType
 	OCH(OCH_G2,		0,	ICH_G,		ICH_B,		ICH_R,		1)\
 	OCH(OCH_B2,		0,	ICH_B,		ICH_R,		ICH_G,		1)\
 	OCH(OCH_R1_120Y,	0,	ICH_R1_120Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R2_120Y,	0,	ICH_R2_120Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R3_120Y,	0,	ICH_R3_120Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R4_120Y,	0,	ICH_R4_120Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R5_120Y,	0,	ICH_R5_120Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R6_120Y,	0,	ICH_R6_120Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R7_120Y,	0,	ICH_R7_120Y,	ICH_ZERO,	ICH_ZERO,	0)\
 	OCH(OCH_R1_120U,	1,	ICH_R1_120U,	ICH_ZERO,	ICH_ZERO,	0)\
 	OCH(OCH_R1_120V,	1,	ICH_R1_120V,	ICH_ZERO,	ICH_ZERO,	0)\
 	OCH(OCH_R1_201Y,	0,	ICH_R1_201Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R2_201Y,	0,	ICH_R2_201Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R3_201Y,	0,	ICH_R3_201Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R4_201Y,	0,	ICH_R4_201Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R5_201Y,	0,	ICH_R5_201Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R6_201Y,	0,	ICH_R6_201Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R7_201Y,	0,	ICH_R7_201Y,	ICH_ZERO,	ICH_ZERO,	0)\
 	OCH(OCH_R1_201U,	1,	ICH_R1_201U,	ICH_ZERO,	ICH_ZERO,	0)\
 	OCH(OCH_R1_201V,	1,	ICH_R1_201V,	ICH_ZERO,	ICH_ZERO,	0)\
 	OCH(OCH_R1_012Y,	0,	ICH_R1_012Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R2_012Y,	0,	ICH_R2_012Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R3_012Y,	0,	ICH_R3_012Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R4_012Y,	0,	ICH_R4_012Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R5_012Y,	0,	ICH_R5_012Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R6_012Y,	0,	ICH_R6_012Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R7_012Y,	0,	ICH_R7_012Y,	ICH_ZERO,	ICH_ZERO,	0)\
 	OCH(OCH_R1_012U,	1,	ICH_R1_012U,	ICH_ZERO,	ICH_ZERO,	0)\
 	OCH(OCH_R1_012V,	1,	ICH_R1_012V,	ICH_ZERO,	ICH_ZERO,	0)\
 	OCH(OCH_R1_210Y,	0,	ICH_R1_210Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R2_210Y,	0,	ICH_R2_210Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R3_210Y,	0,	ICH_R3_210Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R4_210Y,	0,	ICH_R4_210Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R5_210Y,	0,	ICH_R5_210Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R6_210Y,	0,	ICH_R6_210Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R7_210Y,	0,	ICH_R7_210Y,	ICH_ZERO,	ICH_ZERO,	0)\
 	OCH(OCH_R1_210U,	1,	ICH_R1_210U,	ICH_ZERO,	ICH_ZERO,	0)\
 	OCH(OCH_R1_210V,	1,	ICH_R1_210V,	ICH_ZERO,	ICH_ZERO,	0)\
 	OCH(OCH_R1_102Y,	0,	ICH_R1_102Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R2_102Y,	0,	ICH_R2_102Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R3_102Y,	0,	ICH_R3_102Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R4_102Y,	0,	ICH_R4_102Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R5_102Y,	0,	ICH_R5_102Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R6_102Y,	0,	ICH_R6_102Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R7_102Y,	0,	ICH_R7_102Y,	ICH_ZERO,	ICH_ZERO,	0)\
 	OCH(OCH_R1_102U,	1,	ICH_R1_102U,	ICH_ZERO,	ICH_ZERO,	0)\
 	OCH(OCH_R1_102V,	1,	ICH_R1_102V,	ICH_ZERO,	ICH_ZERO,	0)\
 	OCH(OCH_R1_021Y,	0,	ICH_R1_021Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R2_021Y,	0,	ICH_R2_021Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R3_021Y,	0,	ICH_R3_021Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R4_021Y,	0,	ICH_R4_021Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R5_021Y,	0,	ICH_R5_021Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R6_021Y,	0,	ICH_R6_021Y,	ICH_ZERO,	ICH_ZERO,	0)\
+	OCH(OCH_R7_021Y,	0,	ICH_R7_021Y,	ICH_ZERO,	ICH_ZERO,	0)\
 	OCH(OCH_R1_021U,	1,	ICH_R1_021U,	ICH_ZERO,	ICH_ZERO,	0)\
 	OCH(OCH_R1_021V,	1,	ICH_R1_021V,	ICH_ZERO,	ICH_ZERO,	0)\
 	OCH(OCH_P9_120Y,	0,	ICH_P9_120Y,	ICH_ZERO,	ICH_ZERO,	0)\
@@ -156,15 +243,7 @@ typedef enum _OChannelType
 #undef  OCH
 	OCH_COUNT,
 } OChannelType;
-typedef enum _InfoIndex
-{
-	II_TARGET,
-	II_HELPER1,
-	II_HELPER2,
-	II_HSHIFT,
-	II_INFLATION,
-} InfoIndex;
-static const int och_info[OCH_COUNT][5]=
+static const int och_info[OCH_COUNT][II_COUNT]=
 {
 #define OCH(ONAME, OINF, TARGET, HELPER1, HELPER2, HSHIFT) {TARGET, HELPER1, HELPER2, HSHIFT, OINF},
 	OCHLIST
@@ -208,6 +287,42 @@ static const char *och_names[OCH_COUNT]=
 	RCT(RCT1_210,	OCH_R1_210Y,	OCH_R1_210U,	OCH_R1_210V,	4, 4, 4,	4, 4, 4)\
 	RCT(RCT1_102,	OCH_R1_102Y,	OCH_R1_102U,	OCH_R1_102V,	4, 4, 4,	4, 4, 4)\
 	RCT(RCT1_021,	OCH_R1_021Y,	OCH_R1_021U,	OCH_R1_021V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT2_120,	OCH_R2_120Y,	OCH_R1_120U,	OCH_R1_120V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT2_201,	OCH_R2_201Y,	OCH_R1_201U,	OCH_R1_201V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT2_012,	OCH_R2_012Y,	OCH_R1_012U,	OCH_R1_012V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT2_210,	OCH_R2_210Y,	OCH_R1_210U,	OCH_R1_210V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT2_102,	OCH_R2_102Y,	OCH_R1_102U,	OCH_R1_102V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT2_021,	OCH_R2_021Y,	OCH_R1_021U,	OCH_R1_021V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT3_120,	OCH_R3_120Y,	OCH_R1_120U,	OCH_R1_120V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT3_201,	OCH_R3_201Y,	OCH_R1_201U,	OCH_R1_201V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT3_012,	OCH_R3_012Y,	OCH_R1_012U,	OCH_R1_012V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT3_210,	OCH_R3_210Y,	OCH_R1_210U,	OCH_R1_210V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT3_102,	OCH_R3_102Y,	OCH_R1_102U,	OCH_R1_102V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT3_021,	OCH_R3_021Y,	OCH_R1_021U,	OCH_R1_021V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT4_120,	OCH_R4_120Y,	OCH_R1_120U,	OCH_R1_120V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT4_201,	OCH_R4_201Y,	OCH_R1_201U,	OCH_R1_201V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT4_012,	OCH_R4_012Y,	OCH_R1_012U,	OCH_R1_012V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT4_210,	OCH_R4_210Y,	OCH_R1_210U,	OCH_R1_210V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT4_102,	OCH_R4_102Y,	OCH_R1_102U,	OCH_R1_102V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT4_021,	OCH_R4_021Y,	OCH_R1_021U,	OCH_R1_021V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT5_120,	OCH_R5_120Y,	OCH_R1_120U,	OCH_R1_120V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT5_201,	OCH_R5_201Y,	OCH_R1_201U,	OCH_R1_201V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT5_012,	OCH_R5_012Y,	OCH_R1_012U,	OCH_R1_012V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT5_210,	OCH_R5_210Y,	OCH_R1_210U,	OCH_R1_210V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT5_102,	OCH_R5_102Y,	OCH_R1_102U,	OCH_R1_102V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT5_021,	OCH_R5_021Y,	OCH_R1_021U,	OCH_R1_021V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT6_120,	OCH_R6_120Y,	OCH_R1_120U,	OCH_R1_120V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT6_201,	OCH_R6_201Y,	OCH_R1_201U,	OCH_R1_201V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT6_012,	OCH_R6_012Y,	OCH_R1_012U,	OCH_R1_012V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT6_210,	OCH_R6_210Y,	OCH_R1_210U,	OCH_R1_210V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT6_102,	OCH_R6_102Y,	OCH_R1_102U,	OCH_R1_102V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT6_021,	OCH_R6_021Y,	OCH_R1_021U,	OCH_R1_021V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT7_120,	OCH_R7_120Y,	OCH_R1_120U,	OCH_R1_120V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT7_201,	OCH_R7_201Y,	OCH_R1_201U,	OCH_R1_201V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT7_012,	OCH_R7_012Y,	OCH_R1_012U,	OCH_R1_012V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT7_210,	OCH_R7_210Y,	OCH_R1_210U,	OCH_R1_210V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT7_102,	OCH_R7_102Y,	OCH_R1_102U,	OCH_R1_102V,	4, 4, 4,	4, 4, 4)\
+	RCT(RCT7_021,	OCH_R7_021Y,	OCH_R1_021U,	OCH_R1_021V,	4, 4, 4,	4, 4, 4)\
 	RCT(Pei09_120,	OCH_P9_120Y,	OCH_P9_120U,	OCH_P9_120V,	4, 4, 4,	4, 4, 4)\
 	RCT(Pei09_201,	OCH_P9_201Y,	OCH_P9_201U,	OCH_P9_201V,	4, 4, 4,	4, 4, 4)\
 	RCT(Pei09_012,	OCH_P9_012Y,	OCH_P9_012U,	OCH_P9_012V,	4, 4, 4,	4, 4, 4)\
@@ -263,6 +378,17 @@ static const char *pred_names[PRED_COUNT]=
 #define WG_DECAY_SH	9
 
 #define WG_NPREDS	8
+#if 1
+#define WG_PREDLIST\
+	WG_PRED(1.2, N+W-NW)\
+	WG_PRED(1.5, N)\
+	WG_PRED(1.5, W)\
+	WG_PRED(1.0, W+NE-N)\
+	WG_PRED(1.0, N+NE-NNE)\
+	WG_PRED(1.0, 3*(N-NN)+NNN)\
+	WG_PRED(1.0, 3*(W-WW)+WWW)\
+	WG_PRED(1.0, (W+NEEE)/2)
+#endif
 #if 0
 #define WG_PREDLIST\
 	WG_PRED(10000, N+W-NW)\
@@ -284,17 +410,6 @@ static const char *pred_names[PRED_COUNT]=
 	WG_PRED(176.0, 3*(N-NN)+NNN)\
 	WG_PRED(176.0, 3*(W-WW)+WWW)\
 	WG_PRED(176.0, (W+NEEE)/2)
-#endif
-#if 1
-#define WG_PREDLIST\
-	WG_PRED(1.2, N+W-NW)\
-	WG_PRED(1.5, N)\
-	WG_PRED(1.5, W)\
-	WG_PRED(1.0, W+NE-N)\
-	WG_PRED(1.0, N+NE-NNE)\
-	WG_PRED(1.0, 3*(N-NN)+NNN)\
-	WG_PRED(1.0, 3*(W-WW)+WWW)\
-	WG_PRED(1.0, (W+NEEE)/2)
 #endif
 //	WG_PRED(0.5, NW)
 //	WG_PRED(0.5, NE)
@@ -533,16 +648,23 @@ static void block_thread(void *param)
 				input[ICH_R]=image->data[idx+0];//r
 				input[ICH_G]=image->data[idx+1];//g
 				input[ICH_B]=image->data[idx+2];//b
-				for(int kp=0;kp<6;++kp)//RCT1		r-=g; g+=r>>1; b-=g; g+=b>>1;
+				for(int kp=0;kp<6;++kp)//RCT1~7		r-=g; g+=r>>1; b-=g; g+=(A*r+B*b+C)>>SH;
 				{
 					input[cidx+0]=input[rgb2yuv_permutations[kp][0]];//Y
-					input[cidx+1]=input[rgb2yuv_permutations[kp][1]];//U
-					input[cidx+2]=input[rgb2yuv_permutations[kp][2]];//V
-					input[cidx+2]-=input[cidx+0];
-					input[cidx+0]+=input[cidx+2]>>1;
-					input[cidx+1]-=input[cidx+0];
-					input[cidx+0]+=input[cidx+1]>>1;
-					cidx+=3;
+					input[cidx+7]=input[rgb2yuv_permutations[kp][1]];//U
+					input[cidx+8]=input[rgb2yuv_permutations[kp][2]];//V
+					input[cidx+8]-=input[cidx+0];
+					input[cidx+0]+=input[cidx+8]>>1;
+					input[cidx+7]-=input[cidx+0];
+					input[cidx+6]=input[cidx+5]=input[cidx+4]=input[cidx+3]=input[cidx+2]=input[cidx+1]=input[cidx+0];
+					input[cidx+0]+=input[cidx+7]>>1;
+					input[cidx+1]+=(2*input[cidx+7]-input[cidx+8]+4)>>3;
+					input[cidx+2]+=(2*input[cidx+7]+input[cidx+8]+4)>>3;
+					input[cidx+3]+=input[cidx+7]/3;
+					input[cidx+4]+=(3*input[cidx+7]+4)>>3;
+					input[cidx+5]+=(7*input[cidx+7]+8)>>4;
+					input[cidx+6]+=(10*input[cidx+7]-input[cidx+8]+16)>>5;
+					cidx+=9;
 				}
 				for(int kp=0;kp<6;++kp)//Pei09		b-=(87*r+169*g+128)>>8; r-=g; g+=(86*r+29*b+128)>>8;
 				{
@@ -874,6 +996,90 @@ static void block_thread(void *param)
 						yuv[2]-=yuv[0];
 						yuv[0]+=yuv[2]>>1;
 						break;
+					case RCT_RCT2_120:
+					case RCT_RCT2_201:
+					case RCT_RCT2_012:
+					case RCT_RCT2_210:
+					case RCT_RCT2_102:
+					case RCT_RCT2_021:
+						yuv[0]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][0]];
+						yuv[1]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][1]];
+						yuv[2]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][2]];
+						yuv[1]-=yuv[0];
+						yuv[0]+=yuv[1]>>1;
+						yuv[2]-=yuv[0];
+						yuv[0]+=(2*yuv[1]-yuv[2]+4)>>3;//A710
+						break;
+					case RCT_RCT3_120:
+					case RCT_RCT3_201:
+					case RCT_RCT3_012:
+					case RCT_RCT3_210:
+					case RCT_RCT3_102:
+					case RCT_RCT3_021:
+						yuv[0]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][0]];
+						yuv[1]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][1]];
+						yuv[2]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][2]];
+						yuv[1]-=yuv[0];
+						yuv[0]+=yuv[1]>>1;
+						yuv[2]-=yuv[0];
+						yuv[0]+=(2*yuv[1]+yuv[2]+4)>>3;
+						break;
+					case RCT_RCT4_120:
+					case RCT_RCT4_201:
+					case RCT_RCT4_012:
+					case RCT_RCT4_210:
+					case RCT_RCT4_102:
+					case RCT_RCT4_021:
+						yuv[0]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][0]];
+						yuv[1]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][1]];
+						yuv[2]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][2]];
+						yuv[1]-=yuv[0];
+						yuv[0]+=yuv[1]>>1;
+						yuv[2]-=yuv[0];
+						yuv[0]+=yuv[1]/3;
+						break;
+					case RCT_RCT5_120:
+					case RCT_RCT5_201:
+					case RCT_RCT5_012:
+					case RCT_RCT5_210:
+					case RCT_RCT5_102:
+					case RCT_RCT5_021:
+						yuv[0]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][0]];
+						yuv[1]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][1]];
+						yuv[2]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][2]];
+						yuv[1]-=yuv[0];
+						yuv[0]+=yuv[1]>>1;
+						yuv[2]-=yuv[0];
+						yuv[0]+=(3*yuv[1]+4)>>3;
+						break;
+					case RCT_RCT6_120:
+					case RCT_RCT6_201:
+					case RCT_RCT6_012:
+					case RCT_RCT6_210:
+					case RCT_RCT6_102:
+					case RCT_RCT6_021:
+						yuv[0]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][0]];
+						yuv[1]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][1]];
+						yuv[2]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][2]];
+						yuv[1]-=yuv[0];
+						yuv[0]+=yuv[1]>>1;
+						yuv[2]-=yuv[0];
+						yuv[0]+=(7*yuv[1]+8)>>4;
+						break;
+					case RCT_RCT7_120:
+					case RCT_RCT7_201:
+					case RCT_RCT7_012:
+					case RCT_RCT7_210:
+					case RCT_RCT7_102:
+					case RCT_RCT7_021:
+						yuv[0]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][0]];
+						yuv[1]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][1]];
+						yuv[2]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][2]];
+						yuv[1]-=yuv[0];
+						yuv[0]+=yuv[1]>>1;
+						yuv[2]-=yuv[0];
+						yuv[0]+=(10*yuv[1]-yuv[2]+16)>>5;
+						break;
 					case RCT_Pei09_120:
 					case RCT_Pei09_201:
 					case RCT_Pei09_012:
@@ -906,7 +1112,7 @@ static void block_thread(void *param)
 			for(int kc=0;kc<image->nch;++kc)
 			{
 				int ch=combination[kc];
-				int offset=(yuv[combination[kc+3]]+yuv[combination[kc+6]])>>rct_combinations[ch][II_HSHIFT];
+				int offset=(yuv[combination[kc+3]]+yuv[combination[kc+6]])>>och_info[ch][II_HSHIFT];
 				int pred=0, error, sym;
 				int
 					vx=(abs(W[kc]-WW[kc])+abs(N[kc]-NW[kc])+abs(NE[kc]-N[kc]))<<8>>depths[ch],
@@ -1075,6 +1281,90 @@ static void block_thread(void *param)
 					case RCT_RCT1_102:
 					case RCT_RCT1_021:
 						yuv[0]-=yuv[2]>>1;
+						yuv[2]+=yuv[0];
+						yuv[0]-=yuv[1]>>1;
+						yuv[1]+=yuv[0];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][0]]=yuv[0];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][1]]=yuv[1];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][2]]=yuv[2];
+						break;
+					case RCT_RCT2_120:
+					case RCT_RCT2_201:
+					case RCT_RCT2_012:
+					case RCT_RCT2_210:
+					case RCT_RCT2_102:
+					case RCT_RCT2_021:
+						yuv[0]-=(2*yuv[1]-yuv[2]+4)>>3;//A710
+						yuv[2]+=yuv[0];
+						yuv[0]-=yuv[1]>>1;
+						yuv[1]+=yuv[0];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][0]]=yuv[0];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][1]]=yuv[1];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][2]]=yuv[2];
+						break;
+					case RCT_RCT3_120:
+					case RCT_RCT3_201:
+					case RCT_RCT3_012:
+					case RCT_RCT3_210:
+					case RCT_RCT3_102:
+					case RCT_RCT3_021:
+						yuv[0]-=(2*yuv[1]+yuv[2]+4)>>3;
+						yuv[2]+=yuv[0];
+						yuv[0]-=yuv[1]>>1;
+						yuv[1]+=yuv[0];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][0]]=yuv[0];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][1]]=yuv[1];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][2]]=yuv[2];
+						break;
+					case RCT_RCT4_120:
+					case RCT_RCT4_201:
+					case RCT_RCT4_012:
+					case RCT_RCT4_210:
+					case RCT_RCT4_102:
+					case RCT_RCT4_021:
+						yuv[0]-=yuv[1]/3;
+						yuv[2]+=yuv[0];
+						yuv[0]-=yuv[1]>>1;
+						yuv[1]+=yuv[0];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][0]]=yuv[0];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][1]]=yuv[1];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][2]]=yuv[2];
+						break;
+					case RCT_RCT5_120:
+					case RCT_RCT5_201:
+					case RCT_RCT5_012:
+					case RCT_RCT5_210:
+					case RCT_RCT5_102:
+					case RCT_RCT5_021:
+						yuv[0]-=(3*yuv[1]+4)>>3;
+						yuv[2]+=yuv[0];
+						yuv[0]-=yuv[1]>>1;
+						yuv[1]+=yuv[0];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][0]]=yuv[0];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][1]]=yuv[1];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][2]]=yuv[2];
+						break;
+					case RCT_RCT6_120:
+					case RCT_RCT6_201:
+					case RCT_RCT6_012:
+					case RCT_RCT6_210:
+					case RCT_RCT6_102:
+					case RCT_RCT6_021:
+						yuv[0]-=(7*yuv[1]+8)>>4;
+						yuv[2]+=yuv[0];
+						yuv[0]-=yuv[1]>>1;
+						yuv[1]+=yuv[0];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][0]]=yuv[0];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][1]]=yuv[1];
+						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][2]]=yuv[2];
+						break;
+					case RCT_RCT7_120:
+					case RCT_RCT7_201:
+					case RCT_RCT7_012:
+					case RCT_RCT7_210:
+					case RCT_RCT7_102:
+					case RCT_RCT7_021:
+						yuv[0]-=(10*yuv[1]-yuv[2]+16)>>5;
 						yuv[2]+=yuv[0];
 						yuv[0]-=yuv[1]>>1;
 						yuv[1]+=yuv[0];
