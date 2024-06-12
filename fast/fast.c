@@ -9,10 +9,10 @@ static const char file[]=__FILE__;
 
 //	#define BENCH_QOI
 
-#define CODECID     26
-#define CODECNAME "F26"
-#define ENCODE     f26_encode
-#define DECODE     f26_decode
+#define CODECID     27
+#define CODECNAME "F27"
+#define ENCODE     f27_encode
+#define DECODE     f27_decode
 
 
 typedef struct ThreadArgsStruct
@@ -234,13 +234,8 @@ static void batch_test_mt(const char *path, int nthreads)
 		"tif", "tiff",
 	};
 
-	switch(CODECID)
-	{
-	case 23:
-	case 24:
+	if(CODECID>=23)//codecs starting from F23 are multithreaded in shaa Allah
 		nthreads=1;
-		break;
-	}
 	g_total_usize=0;
 	g_total_csize=0;
 	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H%M%S");
@@ -314,6 +309,8 @@ static void batch_test_mt(const char *path, int nthreads)
 	f24_curiosity();
 #elif CODECID==26
 	f26_curiosity();
+#elif CODECID==27
+	f27_curiosity();
 #endif
 	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H%M%S");
 	printf("Finish %s\n", g_buf);
@@ -394,12 +391,13 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/big_building.PPM"
 	//	"C:/Projects/datasets/dataset-CID22-ppm/3637739.PPM"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
-		"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_02.ppm"
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_02.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA12811.ppm"
 	//	"C:/Projects/datasets/dataset-ic-rgb16bit/flower_foveon.png"	//smallest 16-bit image
 	//	"C:/Projects/datasets/dataset-ic-rgb16bit/deer.png"
 	//	"C:/Projects/datasets/jupiter.PNG"		//actually 8-bit
 	//	"C:/Projects/datasets/space-8k-CROP.PPM"
+		"C:/Projects/datasets/dataset-CID22-ppm"
 	//	"C:/Projects/datasets/dataset-CLIC30"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm"
 		;

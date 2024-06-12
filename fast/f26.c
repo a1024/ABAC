@@ -510,11 +510,11 @@ static void quantize_pixel(int val, int *token, int *bypass, int *nbits)
 	}
 }
 
-double g_rct_usizes[RCT_COUNT]={0};
-double g_usizes[OCH_COUNT*PRED_COUNT]={0};
-double g_csizes[OCH_COUNT*PRED_COUNT]={0};
-//double g_utotal[OCH_COUNT*PRED_COUNT]={0};
-//double g_ctotal[OCH_COUNT*PRED_COUNT]={0};
+static double g_rct_usizes[RCT_COUNT]={0};
+static double g_usizes[OCH_COUNT*PRED_COUNT]={0};
+static double g_csizes[OCH_COUNT*PRED_COUNT]={0};
+//static double g_utotal[OCH_COUNT*PRED_COUNT]={0};
+//static double g_ctotal[OCH_COUNT*PRED_COUNT]={0};
 typedef struct _ThreadArgs
 {
 	const Image *src;
@@ -1210,6 +1210,13 @@ static void block_thread(void *param)
 					}
 					yuv[kc]=error+pred;
 					curr[kc]=yuv[kc];
+				}
+				if(curr_hist[args->tlevels]>=1000)
+				{
+					int sum=0;
+					for(int ks=0;ks<args->tlevels;++ks)
+						sum+=curr_hist[ks]>>=1;
+					curr_hist[args->tlevels]=sum;
 				}
 				++curr_hist[token];
 				++curr_hist[args->tlevels];

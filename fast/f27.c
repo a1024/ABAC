@@ -510,34 +510,28 @@ static void quantize_pixel(int val, int *token, int *bypass, int *nbits)
 	}
 }
 
-double g_rct_usizes[RCT_COUNT]={0};
-double g_usizes[OCH_COUNT*PRED_COUNT]={0};
-double g_csizes[OCH_COUNT*PRED_COUNT]={0};
-//double g_utotal[OCH_COUNT*PRED_COUNT]={0};
-//double g_ctotal[OCH_COUNT*PRED_COUNT]={0};
+static double g_rct_usizes[RCT_COUNT]={0};
+static double g_usizes[OCH_COUNT*PRED_COUNT]={0};
+static double g_csizes[OCH_COUNT*PRED_COUNT]={0};
+//static double g_utotal[OCH_COUNT*PRED_COUNT]={0};
+//static double g_ctotal[OCH_COUNT*PRED_COUNT]={0};
 typedef struct _ThreadArgs
 {
 	const Image *image;
-	int fwd, loud, x1, x2, y1, y2;
+//	int x1, x2;//FIXME later
+	int y1, y2;
+	int fwd, loud;//fwd always true
 	
 	short *pixels;
 	int bufsize;
 
-	int *hist, histsize, histindices[OCH_COUNT*PRED_COUNT+1];
-
-	DList list;
-	const unsigned char *decstart, *decend;
-
 	double wg_weights[OCH_COUNT*WG_NPREDS];
 	int wg_errors[OCH_COUNT*WG_NPREDS];
 
-	//AC
-	int tlevels, clevels, statssize;
-	unsigned *stats;
-
-	//aux
-	int bestrct, predidx[3];
-	double usizes[3], csizes[3], bestsize;
+	int *hist, histsize, histindices[OCH_COUNT*PRED_COUNT+1];
+	
+	double csizes[OCH_COUNT*PRED_COUNT], bestsize;
+	int predsel[OCH_COUNT], bestrct;
 } ThreadArgs;
 #define CDFSTRIDE 64
 static void update_CDF(const int *hist, unsigned *CDF, int tlevels)
@@ -553,14 +547,12 @@ static void update_CDF(const int *hist, unsigned *CDF, int tlevels)
 }
 static void block_thread(void *param)
 {
-	ArithmeticCoder ec;
 	ThreadArgs *args=(ThreadArgs*)param;
-	Image const *image=args->fwd?args->src:args->dst;
+	Image const *image=args->image;
 	int depths[OCH_COUNT]={0}, halfs[OCH_COUNT]={0};
 	double bestsize=0;
-	int bestrct=0, combination[9]={0}, predidx[3]={0}, flag=0;
 	int res=image->iw*(args->y2-args->y1);
-	int nctx=args->clevels*args->clevels, cdfstride=args->tlevels+1, chsize=nctx*cdfstride;
+	int nlevels[OCH_COUNT]={0};
 
 	for(int kc=0;kc<OCH_COUNT;++kc)
 	{
@@ -570,308 +562,226 @@ static void block_thread(void *param)
 		halfs[kc]=1<<depth>>1;
 	}
 	memset(args->pixels, 0, args->bufsize);
-		
-	if(args->fwd)//encode
+
+	for(int kc=0;kc<OCH_COUNT;++kc)
+		nlevels[kc]=1<<depths[kc];
+
+	for(int kc=0;kc<OCH_COUNT;++kc)
+		wg_init(args->wg_weights+WG_NPREDS*kc);
+	memset(args->wg_errors, 0, sizeof(args->wg_errors));
+
+	memset(args->hist, 0, args->histsize);
+	for(int ky=args->y1, idx=image->nch*image->iw*args->y1;ky<args->y2;++ky)
 	{
-		int nlevels[OCH_COUNT]={0};
-		double csizes[OCH_COUNT*PRED_COUNT]={0};
-		int predsel[OCH_COUNT]={0};
-
-		for(int kc=0;kc<OCH_COUNT;++kc)
-			nlevels[kc]=1<<depths[kc];
-
-		for(int kc=0;kc<OCH_COUNT;++kc)
-			wg_init(args->wg_weights+WG_NPREDS*kc);
-		memset(args->wg_errors, 0, sizeof(args->wg_errors));
-
-		memset(args->hist, 0, args->histsize);
-		for(int ky=args->y1, idx=image->nch*image->iw*args->y1;ky<args->y2;++ky)
+		ALIGN(16) short *rows[]=
 		{
-			ALIGN(16) short *rows[]=
+			args->pixels+((image->iw+16LL)*((ky-0LL)&3)+8LL)*OCH_COUNT,
+			args->pixels+((image->iw+16LL)*((ky-1LL)&3)+8LL)*OCH_COUNT,
+			args->pixels+((image->iw+16LL)*((ky-2LL)&3)+8LL)*OCH_COUNT,
+			args->pixels+((image->iw+16LL)*((ky-3LL)&3)+8LL)*OCH_COUNT,
+		};
+		short input[ICH_COUNT]={0};
+		int preds[PRED_COUNT]={0};
+		int wg_preds[WG_NPREDS]={0};
+		for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
+		{
+			int cidx=3;
+			short
+				*NNN	=rows[3]+0*OCH_COUNT,
+				*NNW	=rows[2]-1*OCH_COUNT,
+				*NN	=rows[2]+0*OCH_COUNT,
+				*NNE	=rows[2]+1*OCH_COUNT,
+				*NNEE	=rows[2]+2*OCH_COUNT,
+				*NW	=rows[1]-1*OCH_COUNT,
+				*N	=rows[1]+0*OCH_COUNT,
+				*NE	=rows[1]+1*OCH_COUNT,
+				*NEE	=rows[1]+2*OCH_COUNT,
+				*NEEE	=rows[1]+3*OCH_COUNT,
+				*WWW	=rows[0]-3*OCH_COUNT,
+				*WW	=rows[0]-2*OCH_COUNT,
+				*W	=rows[0]-1*OCH_COUNT,
+				*curr	=rows[0]+0*OCH_COUNT;
+			if(ky<=args->y1+2)
 			{
-				args->pixels+((image->iw+16LL)*((ky-0LL)&3)+8LL)*OCH_COUNT,
-				args->pixels+((image->iw+16LL)*((ky-1LL)&3)+8LL)*OCH_COUNT,
-				args->pixels+((image->iw+16LL)*((ky-2LL)&3)+8LL)*OCH_COUNT,
-				args->pixels+((image->iw+16LL)*((ky-3LL)&3)+8LL)*OCH_COUNT,
-			};
-			short input[ICH_COUNT]={0};
-			int preds[PRED_COUNT]={0};
-			int wg_preds[WG_NPREDS]={0};
-			for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
-			{
-				int cidx=3;
-				short
-					*NNN	=rows[3]+0*OCH_COUNT,
-					*NNW	=rows[2]-1*OCH_COUNT,
-					*NN	=rows[2]+0*OCH_COUNT,
-					*NNE	=rows[2]+1*OCH_COUNT,
-					*NNEE	=rows[2]+2*OCH_COUNT,
-					*NW	=rows[1]-1*OCH_COUNT,
-					*N	=rows[1]+0*OCH_COUNT,
-					*NE	=rows[1]+1*OCH_COUNT,
-					*NEE	=rows[1]+2*OCH_COUNT,
-					*NEEE	=rows[1]+3*OCH_COUNT,
-					*WWW	=rows[0]-3*OCH_COUNT,
-					*WW	=rows[0]-2*OCH_COUNT,
-					*W	=rows[0]-1*OCH_COUNT,
-					*curr	=rows[0]+0*OCH_COUNT;
-				if(ky<=args->y1+2)
+				if(ky<=args->y1+1)
 				{
-					if(ky<=args->y1+1)
-					{
-						if(ky==args->y1)
-							NEEE=NEE=NE=NW=N=W;
-						NN=N;
-						NNE=NE;
-					}
-					NNN=NN;
+					if(ky==args->y1)
+						NEEE=NEE=NE=NW=N=W;
+					NN=N;
+					NNE=NE;
 				}
-				if(kx<=2)
-				{
-					if(kx<=1)
-					{
-						if(!kx)
-							NW=W=N;
-						WW=W;
-					}
-					WWW=WW;
-				}
-				if(kx>=image->iw-3)
-				{
-					if(kx>=image->iw-1)
-					{
-						NNE=NN;
-						NE=N;
-					}
-					NEEE=NE;
-				}
-				input[ICH_R]=image->data[idx+0];//r
-				input[ICH_G]=image->data[idx+1];//g
-				input[ICH_B]=image->data[idx+2];//b
-				for(int kp=0;kp<6;++kp)//RCT1~7		r-=g; g+=r>>1; b-=g; g+=(A*r+B*b+C)>>SH;
-				{
-					input[cidx+0]=input[rgb2yuv_permutations[kp][0]];//Y
-					input[cidx+7]=input[rgb2yuv_permutations[kp][1]];//U
-					input[cidx+8]=input[rgb2yuv_permutations[kp][2]];//V
-					input[cidx+8]-=input[cidx+0];
-					input[cidx+0]+=input[cidx+8]>>1;
-					input[cidx+7]-=input[cidx+0];
-					input[cidx+6]=input[cidx+5]=input[cidx+4]=input[cidx+3]=input[cidx+2]=input[cidx+1]=input[cidx+0];
-					input[cidx+0]+=input[cidx+7]>>1;
-					input[cidx+1]+=(2*input[cidx+7]-input[cidx+8]+4)>>3;
-					input[cidx+2]+=(2*input[cidx+7]+input[cidx+8]+4)>>3;
-					input[cidx+3]+=input[cidx+7]/3;
-					input[cidx+4]+=(3*input[cidx+7]+4)>>3;
-					input[cidx+5]+=(7*input[cidx+7]+8)>>4;
-					input[cidx+6]+=(10*input[cidx+7]-input[cidx+8]+16)>>5;
-					cidx+=9;
-				}
-				for(int kp=0;kp<6;++kp)//Pei09		b-=(87*r+169*g+128)>>8; r-=g; g+=(86*r+29*b+128)>>8;
-				{
-					input[cidx+0]=input[rgb2yuv_permutations[kp][0]];//Y
-					input[cidx+1]=input[rgb2yuv_permutations[kp][1]];//U
-					input[cidx+2]=input[rgb2yuv_permutations[kp][2]];//V
-					input[cidx+1]-=(87*input[cidx+2]+169*input[cidx+0]+128)>>8;
-					input[cidx+2]-=input[cidx+0];
-					input[cidx+0]+=(86*input[cidx+2]+29*input[cidx+1]+128)>>8;
-					cidx+=3;
-				}
-				for(int kp=0;kp<3;++kp)//JPEG2000	r-=g; b-=g; g+=(r+b)>>2;
-				{
-					input[cidx+0]=input[rgb2yuv_permutations[kp][0]];//Y
-					input[cidx+1]=input[rgb2yuv_permutations[kp][1]];//U
-					input[cidx+2]=input[rgb2yuv_permutations[kp][2]];//V
-					input[cidx+2]-=input[cidx+0];
-					input[cidx+1]-=input[cidx+0];
-					input[cidx+0]+=(input[cidx+2]+input[cidx+1])>>2;
-					cidx+=3;
-				}
-				for(int kc=0;kc<OCH_COUNT;++kc)
-				{
-					int
-						target=input[och_info[kc][II_TARGET]],
-						offset=(input[och_info[kc][II_HELPER1]]+input[och_info[kc][II_HELPER2]])>>och_info[kc][II_HSHIFT];
-
-					preds[PRED_W]=W[kc];
-					MEDIAN3_32(preds[PRED_cgrad], N[kc], W[kc], N[kc]+W[kc]-NW[kc]);
-					preds[PRED_wgrad]=wg_predict(
-						args->wg_weights+WG_NPREDS*kc,
-						NNN[kc], NN[kc], NNE[kc],
-						NW[kc], N[kc], NE[kc], NEE[kc], NEEE[kc],
-						WWW[kc], WW[kc], W[kc],
-						args->wg_errors+WG_NPREDS*kc, wg_preds
-					);
-
-					if(offset)
-					{
-						for(int kp=0;kp<PRED_COUNT;++kp)
-						{
-							preds[kp]+=offset;
-							CLAMP2_32(preds[kp], preds[kp], -halfs[kc], halfs[kc]-1);
-						}
-					}
-					for(int kp=0;kp<PRED_COUNT;++kp)
-					{
-						int *curr_hist=args->hist+args->histindices[kc*PRED_COUNT+kp];
-						int val=target-preds[kp];
-						val+=halfs[kc];
-						val&=nlevels[kc]-1;
-						++curr_hist[val];
-					}
-					target-=offset;
-					wg_update(target, wg_preds, args->wg_errors+WG_NPREDS*kc, args->wg_weights+WG_NPREDS*kc);
-					curr[kc]=target;
-				}
-				rows[0]+=OCH_COUNT;
-				rows[1]+=OCH_COUNT;
-				rows[2]+=OCH_COUNT;
-				rows[3]+=OCH_COUNT;
+				NNN=NN;
 			}
-		}
-		for(int kc=0;kc<OCH_COUNT*PRED_COUNT;++kc)//calculate channel sizes
-		{
-			int *curr_hist=args->hist+args->histindices[kc];
-			int nlevels2=nlevels[kc/PRED_COUNT];
-			for(int ks=0;ks<nlevels2;++ks)
+			if(kx<=2)
 			{
-				int freq=curr_hist[ks];
-				if(freq)
-					csizes[kc]-=freq*log2((double)freq/res);
+				if(kx<=1)
+				{
+					if(!kx)
+						NW=W=N;
+					WW=W;
+				}
+				WWW=WW;
 			}
-			csizes[kc]/=8;
-		}
-		for(int kc=0;kc<OCH_COUNT;++kc)//select best predictors
-		{
-			int bestpred=0;
-			for(int kp=1;kp<PRED_COUNT;++kp)
+			if(kx>=image->iw-3)
 			{
-				if(csizes[kc*PRED_COUNT+bestpred]>csizes[kc*PRED_COUNT+kp])
-					bestpred=kp;
+				if(kx>=image->iw-1)
+				{
+					NNE=NN;
+					NE=N;
+				}
+				NEEE=NE;
 			}
-			predsel[kc]=bestpred;
-		}
-		for(int kt=0;kt<RCT_COUNT;++kt)//select best R.C.T
-		{
-			const int *group=rct_combinations[kt];
-			double csize=
-				csizes[group[0]*PRED_COUNT+predsel[group[0]]]+
-				csizes[group[1]*PRED_COUNT+predsel[group[1]]]+
-				csizes[group[2]*PRED_COUNT+predsel[group[2]]];
-			if(!kt||bestsize>csize)
-				bestsize=csize, bestrct=kt;
-		}
-		memcpy(combination, rct_combinations[bestrct], sizeof(combination));
-		predidx[0]=predsel[combination[0]];
-		predidx[1]=predsel[combination[1]];
-		predidx[2]=predsel[combination[2]];
-		flag=bestrct;
-		flag=flag*PRED_COUNT+predidx[2];
-		flag=flag*PRED_COUNT+predidx[1];
-		flag=flag*PRED_COUNT+predidx[0];//19*3*3*3 = 513
-
-		args->bestrct=bestrct;
-		args->predidx[0]=predidx[0];
-		args->predidx[1]=predidx[1];
-		args->predidx[2]=predidx[2];
-		args->usizes[0]=(res*image->depth+7)>>3;
-		args->usizes[1]=(res*image->depth+7)>>3;
-		args->usizes[2]=(res*image->depth+7)>>3;
-		{
-			const int *group=rct_combinations[bestrct];
-			args->csizes[0]=csizes[group[0]*PRED_COUNT+predsel[group[0]]];
-			args->csizes[1]=csizes[group[1]*PRED_COUNT+predsel[group[1]]];
-			args->csizes[2]=csizes[group[2]*PRED_COUNT+predsel[group[2]]];
-		}
-		args->bestsize=bestsize;
-		if(args->loud)
-		{
-			printf("Y %5d~%5d  best %12.2lf bytes  %s [YUV: %s %s %s]\n",
-				args->y1, args->y2,
-				bestsize,
-				rct_names[bestrct],
-				pred_names[predidx[0]],
-				pred_names[predidx[1]],
-				pred_names[predidx[2]]
-			);
-
-			for(int kp=0;kp<PRED_COUNT;++kp)
-				printf("%14s", pred_names[kp]);
-			printf("\n");
+			input[ICH_R]=image->data[idx+0];//r
+			input[ICH_G]=image->data[idx+1];//g
+			input[ICH_B]=image->data[idx+2];//b
+			for(int kp=0;kp<6;++kp)//RCT1~7		r-=g; g+=r>>1; b-=g; g+=(A*r+B*b+C)>>SH;
+			{
+				input[cidx+0]=input[rgb2yuv_permutations[kp][0]];//Y
+				input[cidx+7]=input[rgb2yuv_permutations[kp][1]];//U
+				input[cidx+8]=input[rgb2yuv_permutations[kp][2]];//V
+				input[cidx+8]-=input[cidx+0];
+				input[cidx+0]+=input[cidx+8]>>1;
+				input[cidx+7]-=input[cidx+0];
+				input[cidx+6]=input[cidx+5]=input[cidx+4]=input[cidx+3]=input[cidx+2]=input[cidx+1]=input[cidx+0];
+				input[cidx+0]+=input[cidx+7]>>1;
+				input[cidx+1]+=(2*input[cidx+7]-input[cidx+8]+4)>>3;
+				input[cidx+2]+=(2*input[cidx+7]+input[cidx+8]+4)>>3;
+				input[cidx+3]+=input[cidx+7]/3;
+				input[cidx+4]+=(3*input[cidx+7]+4)>>3;
+				input[cidx+5]+=(7*input[cidx+7]+8)>>4;
+				input[cidx+6]+=(10*input[cidx+7]-input[cidx+8]+16)>>5;
+				cidx+=9;
+			}
+			for(int kp=0;kp<6;++kp)//Pei09		b-=(87*r+169*g+128)>>8; r-=g; g+=(86*r+29*b+128)>>8;
+			{
+				input[cidx+0]=input[rgb2yuv_permutations[kp][0]];//Y
+				input[cidx+1]=input[rgb2yuv_permutations[kp][1]];//U
+				input[cidx+2]=input[rgb2yuv_permutations[kp][2]];//V
+				input[cidx+1]-=(87*input[cidx+2]+169*input[cidx+0]+128)>>8;
+				input[cidx+2]-=input[cidx+0];
+				input[cidx+0]+=(86*input[cidx+2]+29*input[cidx+1]+128)>>8;
+				cidx+=3;
+			}
+			for(int kp=0;kp<3;++kp)//JPEG2000	r-=g; b-=g; g+=(r+b)>>2;
+			{
+				input[cidx+0]=input[rgb2yuv_permutations[kp][0]];//Y
+				input[cidx+1]=input[rgb2yuv_permutations[kp][1]];//U
+				input[cidx+2]=input[rgb2yuv_permutations[kp][2]];//V
+				input[cidx+2]-=input[cidx+0];
+				input[cidx+1]-=input[cidx+0];
+				input[cidx+0]+=(input[cidx+2]+input[cidx+1])>>2;
+				cidx+=3;
+			}
 			for(int kc=0;kc<OCH_COUNT;++kc)
 			{
-				for(int kp=0;kp<PRED_COUNT;++kp)
-					printf(" %12.2lf%c", csizes[kc*PRED_COUNT+kp], kp==predsel[kc]?'*':' ');
-				printf("  %s\n", och_names[kc]);
-			}
+				int
+					target=input[och_info[kc][II_TARGET]],
+					offset=(input[och_info[kc][II_HELPER1]]+input[och_info[kc][II_HELPER2]])>>och_info[kc][II_HSHIFT];
 
-			for(int kt=0;kt<RCT_COUNT;++kt)
-			{
-				const int *group=rct_combinations[kt];
-				double csize=
-					csizes[group[0]*PRED_COUNT+predsel[group[0]]]+
-					csizes[group[1]*PRED_COUNT+predsel[group[1]]]+
-					csizes[group[2]*PRED_COUNT+predsel[group[2]]];
-				printf("%12.2lf %c  %-10s %-10s %-10s %-10s\n",
-					csize,
-					kt==bestrct?'*':' ',
-					rct_names[kt],
-					pred_names[predsel[group[0]]],
-					pred_names[predsel[group[1]]],
-					pred_names[predsel[group[2]]]
+				preds[PRED_W]=W[kc];
+				MEDIAN3_32(preds[PRED_cgrad], N[kc], W[kc], N[kc]+W[kc]-NW[kc]);
+				preds[PRED_wgrad]=wg_predict(
+					args->wg_weights+WG_NPREDS*kc,
+					NNN[kc], NN[kc], NNE[kc],
+					NW[kc], N[kc], NE[kc], NEE[kc], NEEE[kc],
+					WWW[kc], WW[kc], W[kc],
+					args->wg_errors+WG_NPREDS*kc, wg_preds
 				);
+
+				if(offset)
+				{
+					for(int kp=0;kp<PRED_COUNT;++kp)
+					{
+						preds[kp]+=offset;
+						CLAMP2_32(preds[kp], preds[kp], -halfs[kc], halfs[kc]-1);
+					}
+				}
+				for(int kp=0;kp<PRED_COUNT;++kp)
+				{
+					int *curr_hist=args->hist+args->histindices[kc*PRED_COUNT+kp];
+					int val=target-preds[kp];
+					val+=halfs[kc];
+					val&=nlevels[kc]-1;
+					++curr_hist[val];
+				}
+				target-=offset;
+				wg_update(target, wg_preds, args->wg_errors+WG_NPREDS*kc, args->wg_weights+WG_NPREDS*kc);
+				curr[kc]=target;
 			}
+			rows[0]+=OCH_COUNT;
+			rows[1]+=OCH_COUNT;
+			rows[2]+=OCH_COUNT;
+			rows[3]+=OCH_COUNT;
 		}
-		dlist_init(&args->list, 1, 1024, 0);
-		dlist_push_back(&args->list, &flag, sizeof(char[2]));
-		ac_enc_init(&ec, &args->list);
 	}
-	else//decode
+	memset(args->csizes, 0, sizeof(args->csizes));
+	for(int kc=0;kc<OCH_COUNT*PRED_COUNT;++kc)//calculate channel sizes
 	{
-		const unsigned char *srcstart=args->decstart, *srcend=args->decend;
-			
-		memcpy(&flag, srcstart, sizeof(char[2]));
-		srcstart+=sizeof(char[2]);
-		bestrct=flag;
-		predidx[0]=bestrct%PRED_COUNT;	bestrct/=PRED_COUNT;
-		predidx[1]=bestrct%PRED_COUNT;	bestrct/=PRED_COUNT;
-		predidx[2]=bestrct%PRED_COUNT;	bestrct/=PRED_COUNT;
-		if((unsigned)bestrct>=(unsigned)RCT_COUNT)
+		int *curr_hist=args->hist+args->histindices[kc];
+		int nlevels2=nlevels[kc/PRED_COUNT];
+		for(int ks=0;ks<nlevels2;++ks)
 		{
-			LOG_ERROR("Corrupt file");
-			return;
+			int freq=curr_hist[ks];
+			if(freq)
+				args->csizes[kc]-=freq*log2((double)freq/res);
 		}
-		memcpy(combination, rct_combinations[bestrct], sizeof(combination));
-		ac_dec_init(&ec, srcstart, srcend);
+		args->csizes[kc]/=8;
 	}
-	
-	for(int kc=0;kc<image->nch;++kc)
+	for(int kc=0;kc<OCH_COUNT;++kc)//select best predictors
 	{
-		int *curr_hist=args->hist+chsize*kc;
-		unsigned *curr_CDF=args->stats+chsize*kc;
-		
-		*curr_hist=1;
-		memfill(curr_hist+1, curr_hist, sizeof(int)*(args->tlevels-1LL), sizeof(int));
-		curr_hist[args->tlevels]=args->tlevels;
-		update_CDF(curr_hist, curr_CDF, args->tlevels);
-		memfill(curr_hist+cdfstride, curr_hist, ((size_t)chsize-cdfstride)*sizeof(int), cdfstride*sizeof(int));
-		memfill(curr_CDF+cdfstride, curr_CDF, ((size_t)chsize-cdfstride)*sizeof(int), cdfstride*sizeof(int));
+		int bestpred=0;
+		for(int kp=1;kp<PRED_COUNT;++kp)
+		{
+			if(args->csizes[kc*PRED_COUNT+bestpred]>args->csizes[kc*PRED_COUNT+kp])
+				bestpred=kp;
+		}
+		args->predsel[kc]=bestpred;
+	}
+	for(int kt=0;kt<RCT_COUNT;++kt)//select best R.C.T
+	{
+		const int *group=rct_combinations[kt];
+		double csize=
+			args->csizes[group[0]*PRED_COUNT+args->predsel[group[0]]]+
+			args->csizes[group[1]*PRED_COUNT+args->predsel[group[1]]]+
+			args->csizes[group[2]*PRED_COUNT+args->predsel[group[2]]];
+		if(!kt||bestsize>csize)
+			bestsize=csize, args->bestrct=kt;
 	}
 }
+typedef struct _DecorrInfo
+{
+	unsigned char bestrct, predidx[3];
+} DecorrInfo;
 int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud)
 {
 	double t0=time_sec();
 	int fwd=src!=0;
 	Image const *image=fwd?src:dst;
+	ArithmeticCoder ec;
+	DList list={0};
 	int nblocks=(image->ih+BLOCKSIZE-1)/BLOCKSIZE;
-	int coffset=sizeof(int)*nblocks;
-	ptrdiff_t start=0;
+	int bufsize=sizeof(short[4*OCH_COUNT*1])*(image->iw+16LL);//4 padded rows * OCH_COUNT * {pixels}
 	ptrdiff_t memusage=0;
-	int histindices[OCH_COUNT*PRED_COUNT+1]={0}, histsize=0;
 	int tlevels=0, clevels=0, statssize=0;
 	double bestsize=0;
-	
+	DecorrInfo *flags=(DecorrInfo*)malloc(nblocks*sizeof(DecorrInfo));
+	int nctx, cdfstride, chsize;
+	int *hist=0;
+	unsigned *stats=0;
+	double wg_weights[4*WG_NPREDS]={0};
+	int wg_errors[4*WG_NPREDS]={0};
+	short *pixels=0;
+	int depths[OCH_COUNT]={0}, halfs[OCH_COUNT]={0};
+
+	if(!flags)
+	{
+		LOG_ERROR("Alloc error");
+		return 1;
+	}
+	memset(flags, 0, nblocks*sizeof(DecorrInfo));
 	if(fwd)
 	{
+		int histindices[OCH_COUNT*PRED_COUNT+1]={0}, histsize=0;
 		int ncores=query_cpu_cores(), nthreads=MINVAR(nblocks, ncores);
 		ptrdiff_t argssize=nthreads*sizeof(ThreadArgs);
 		ThreadArgs *args=(ThreadArgs*)malloc(argssize);
@@ -882,48 +792,46 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			return 1;
 		}
 		memusage+=argssize;
+		dlist_init(&list, 1, 1024, 0);
+		ac_enc_init(&ec, &list);
 #ifdef ENABLE_GUIDE
 		guide=image;
 #endif
 		histsize=0;
 		for(int kc=0;kc<OCH_COUNT;++kc)
 		{
-			int depth=image->depth+och_info[kc][II_INFLATION];
+			int depth=image->depth+och_info[kc][II_INFLATION], nlevels;
 			UPDATE_MIN(depth, 16);
+			depths[kc]=depth;
+			nlevels=1<<depth;
+			halfs[kc]=nlevels>>1;
 			for(int kp=0;kp<PRED_COUNT;++kp)
 			{
-				int nlevels=1<<depth;
 				histindices[kc*PRED_COUNT+kp]=histsize;
 				histsize+=nlevels;
 			}
 		}
 		histindices[OCH_COUNT*PRED_COUNT]=histsize;
-		start=array_append(data, 0, 1, coffset, 1, 0, 0);
+
 		memset(args, 0, argssize);
 		for(int k=0;k<nthreads;++k)
 		{
 			ThreadArgs *arg=args+k;
-			arg->src=src;
-			arg->dst=dst;
-			arg->bufsize=sizeof(short[4*OCH_COUNT*1])*(image->iw+16LL);//4 padded rows * OCH_COUNT * {pixels}
+			arg->image=image;
+			arg->bufsize=bufsize;
 			arg->pixels=(short*)_mm_malloc(arg->bufsize, sizeof(__m128i));
 
 			arg->histsize=histsize*sizeof(int);
 			arg->hist=(int*)malloc(arg->histsize);
 
-			arg->statssize=statssize;
-			arg->stats=(unsigned*)malloc(statssize);
-			if(!arg->pixels||!arg->hist||!arg->stats)
+			if(!arg->pixels||!arg->hist)
 			{
 				LOG_ERROR("Alloc error");
 				return 1;
 			}
 			memusage+=arg->bufsize;
 			memusage+=arg->histsize;
-			memusage+=arg->statssize;
-		
-			arg->tlevels=tlevels;
-			arg->clevels=clevels;
+
 			memcpy(arg->histindices, histindices, sizeof(arg->histindices));
 			arg->fwd=fwd;
 #ifdef DISABLE_MT
@@ -940,14 +848,6 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				ThreadArgs *arg=args+kt2;
 				arg->y1=BLOCKSIZE*(kt+kt2);
 				arg->y2=MINVAR(arg->y1+BLOCKSIZE, image->ih);
-				if(!fwd)
-				{
-					int size=0;
-					memcpy(&size, cbuf+sizeof(int)*((ptrdiff_t)kt+kt2), sizeof(int));
-					arg->decstart=cbuf+start;
-					start+=size;
-					arg->decend=cbuf+start;
-				}
 			}
 #ifdef DISABLE_MT
 			for(int k=0;k<nthreads2;++k)
@@ -956,31 +856,82 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			void *ctx=mt_exec(block_thread, args, sizeof(ThreadArgs), nthreads2);
 			mt_finish(ctx);
 #endif
-			if(fwd)
+			for(int kt2=0;kt2<nthreads2;++kt2)
 			{
-				for(int kt2=0;kt2<nthreads2;++kt2)
+				ThreadArgs *arg=args+kt2;
+				DecorrInfo *flag=flags+kt+kt2;
+				const int *comb=rct_combinations[arg->bestrct];
+				flag->bestrct=arg->bestrct;//all this just to return 4 bytes
+				flag->predidx[0]=arg->predsel[comb[0]];
+				flag->predidx[1]=arg->predsel[comb[1]];
+				flag->predidx[2]=arg->predsel[comb[2]];
+				ac_enc_bypass_NPOT(&ec, flag->bestrct, RCT_COUNT);
+				ac_enc_bypass_NPOT(&ec, flag->predidx[0], PRED_COUNT);
+				ac_enc_bypass_NPOT(&ec, flag->predidx[1], PRED_COUNT);
+				ac_enc_bypass_NPOT(&ec, flag->predidx[2], PRED_COUNT);
+
+				//aux info
 				{
-					ThreadArgs *arg=args+kt2;
-					int blocksize=(int)(arg->csizes[0]+arg->csizes[1]+arg->csizes[2]);
+					int usize=(image->iw*(arg->y2-arg->y1)*image->depth+7)>>3;
+					int csize=(int)(arg->csizes[0]+arg->csizes[1]+arg->csizes[2]);
+					int cidx[]=
 					{
-						const int *group=rct_combinations[arg->bestrct];
-						g_rct_usizes[arg->bestrct]+=blocksize;
-						g_usizes[group[0]*PRED_COUNT+arg->predidx[0]]+=arg->usizes[0];
-						g_usizes[group[1]*PRED_COUNT+arg->predidx[1]]+=arg->usizes[1];
-						g_usizes[group[2]*PRED_COUNT+arg->predidx[2]]+=arg->usizes[2];
-						g_csizes[group[0]*PRED_COUNT+arg->predidx[0]]+=arg->csizes[0];
-						g_csizes[group[1]*PRED_COUNT+arg->predidx[1]]+=arg->csizes[1];
-						g_csizes[group[2]*PRED_COUNT+arg->predidx[2]]+=arg->csizes[2];
-					}
+						comb[0]*PRED_COUNT+flag->predidx[0],
+						comb[1]*PRED_COUNT+flag->predidx[1],
+						comb[2]*PRED_COUNT+flag->predidx[2],
+					};
+					g_rct_usizes[arg->bestrct]+=csize;
+					g_usizes[cidx[0]]+=usize;
+					g_usizes[cidx[1]]+=usize;
+					g_usizes[cidx[2]]+=usize;
+					g_csizes[cidx[0]]+=arg->csizes[cidx[0]];
+					g_csizes[cidx[1]]+=arg->csizes[cidx[1]];
+					g_csizes[cidx[2]]+=arg->csizes[cidx[2]];
 					if(loud)
 					{
+						printf("Y %5d~%5d  best %12.2lf bytes  %s [YUV: %s %s %s]\n",
+							arg->y1, arg->y2,
+							arg->bestsize,
+							rct_names[flag->bestrct],
+							pred_names[flag->predidx[0]],
+							pred_names[flag->predidx[1]],
+							pred_names[flag->predidx[2]]
+						);
+
+						for(int kp=0;kp<PRED_COUNT;++kp)
+							printf("%14s", pred_names[kp]);
+						printf("\n");
+						for(int kc=0;kc<OCH_COUNT;++kc)
+						{
+							for(int kp=0;kp<PRED_COUNT;++kp)
+								printf(" %12.2lf%c", arg->csizes[kc*PRED_COUNT+kp], kp==arg->predsel[kc]?'*':' ');
+							printf("  %s\n", och_names[kc]);
+						}
+
+						for(int kt=0;kt<RCT_COUNT;++kt)
+						{
+							const int *group=rct_combinations[kt];
+							double csize=
+								arg->csizes[group[0]*PRED_COUNT+arg->predsel[group[0]]]+
+								arg->csizes[group[1]*PRED_COUNT+arg->predsel[group[1]]]+
+								arg->csizes[group[2]*PRED_COUNT+arg->predsel[group[2]]];
+							printf("%12.2lf %c  %-10s %-10s %-10s %-10s\n",
+								csize,
+								kt==arg->bestrct?'*':' ',
+								rct_names[kt],
+								pred_names[arg->predsel[group[0]]],
+								pred_names[arg->predsel[group[1]]],
+								pred_names[arg->predsel[group[2]]]
+							);
+						}
+#if 0
 						if(!(kt+kt2))
 							printf("block,  nrows,  usize,     best  ->  actual,  (actual-best)\n");
 						printf(
 							"[%3d]  %4d  %8d  %11.2lf -> %8zd bytes  (%+11.2lf)  %s %s %s %s\n",
 							kt+kt2,
 							arg->y2-arg->y1,
-							blocksize,
+							csize,
 							arg->bestsize,
 							arg->list.nobj,
 							(double)arg->list.nobj-arg->bestsize,
@@ -989,63 +940,93 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 							pred_names[arg->predidx[1]],
 							pred_names[arg->predidx[2]]
 						);
-						//printf("[%3d]  %13.2lf -> %10zd bytes (%+13.2lf)\n", kt+kt2, arg->bestsize, arg->list.nobj, arg->list.nobj-arg->bestsize);
+#endif
 						bestsize+=arg->bestsize;
 					}
-					memcpy(data[0]->data+start+sizeof(int)*((ptrdiff_t)kt+kt2), &arg->list.nobj, sizeof(int));
-					dlist_appendtoarray(&arg->list, data);
-					dlist_clear(&arg->list);
 				}
 			}
 		}
-	}
-	else//integrity check
-	{
-		start=coffset;
-		for(int kt=0;kt<nblocks;++kt)
+		for(int k=0;k<nthreads;++k)
 		{
-			int size=0;
-			memcpy(&size, cbuf+sizeof(int)*kt, sizeof(int));
-			start+=size;
+			ThreadArgs *arg=args+k;
+			_mm_free(arg->pixels);
+			free(arg->hist);
 		}
-		if(start!=(ptrdiff_t)clen)
-			LOG_ERROR("Corrupt file");
-		start=coffset;
+		free(args);
 	}
+	else//decode
 	{
-		int nlevels=2<<image->depth;//chroma-inflated
+		for(int kc=0;kc<OCH_COUNT;++kc)
+		{
+			int depth=image->depth+och_info[kc][II_INFLATION], nlevels;
+			UPDATE_MIN(depth, 16);
+			depths[kc]=depth;
+			nlevels=1<<depth;
+			halfs[kc]=nlevels>>1;
+		}
+		ac_dec_init(&ec, cbuf, cbuf+clen);
+		for(int kb=0;kb<nblocks;++kb)
+		{
+			DecorrInfo *flag=flags+kb;
+			flag->bestrct=ac_dec_bypass_NPOT(&ec, RCT_COUNT);
+			flag->predidx[0]=ac_dec_bypass_NPOT(&ec, PRED_COUNT);
+			flag->predidx[1]=ac_dec_bypass_NPOT(&ec, PRED_COUNT);
+			flag->predidx[2]=ac_dec_bypass_NPOT(&ec, PRED_COUNT);
+		}
+	}
+
+	{
+		int nlevels=2<<image->depth;//chroma-inflated for token
 		int token=0, bypass=0, nbits=0;
 
 		quantize_pixel(nlevels, &token, &bypass, &nbits);
 		tlevels=token+1;
 		clevels=9;
 		statssize=clevels*clevels*(tlevels+1)*image->nch*(int)sizeof(int);
-		if(fwd)
-		{
-			UPDATE_MAX(histsize, statssize);
-		}
-		else
-			histsize=statssize;
 	}
-
-	for(int kc=0;kc<3;++kc)
+	nctx=clevels*clevels;
+	cdfstride=tlevels+1;
+	chsize=nctx*cdfstride;
+	
+	pixels=(short*)_mm_malloc(bufsize, sizeof(__m128i));
+	stats=(unsigned*)malloc(statssize);
+	hist=(int*)malloc(statssize);
+	if(!pixels||!hist||!stats)
 	{
-		if(predidx[kc]==PRED_wgrad)
-			wg_init(args->wg_weights+WG_NPREDS*kc);
+		LOG_ERROR("Alloc error");
+		return 1;
 	}
-	memset(args->wg_errors, 0, sizeof(args->wg_errors));
-	for(int ky=args->y1, idx=image->nch*image->iw*args->y1;ky<args->y2;++ky)//codec loop
+	for(int kc=0;kc<image->nch;++kc)
+	{
+		int *curr_hist=hist+chsize*kc;
+		unsigned *curr_CDF=stats+chsize*kc;
+		
+		*curr_hist=1;
+		memfill(curr_hist+1, curr_hist, sizeof(int)*(tlevels-1LL), sizeof(int));
+		curr_hist[tlevels]=tlevels;
+		update_CDF(curr_hist, curr_CDF, tlevels);
+		memfill(curr_hist+cdfstride, curr_hist, ((size_t)chsize-cdfstride)*sizeof(int), cdfstride*sizeof(int));
+		memfill(curr_CDF+cdfstride, curr_CDF, ((size_t)chsize-cdfstride)*sizeof(int), cdfstride*sizeof(int));
+	}
+	for(int kc=0;kc<image->nch;++kc)
+		wg_init(wg_weights+WG_NPREDS*kc);
+	memset(wg_errors, 0, sizeof(wg_errors));
+	memset(pixels, 0, bufsize);
+	for(int ky=0, idx=0;ky<image->ih;++ky)//codec loop
 	{
 		ALIGN(16) short *rows[]=
 		{
-			args->pixels+((image->iw+16LL)*((ky-0LL)&3)+8LL)*4,
-			args->pixels+((image->iw+16LL)*((ky-1LL)&3)+8LL)*4,
-			args->pixels+((image->iw+16LL)*((ky-2LL)&3)+8LL)*4,
-			args->pixels+((image->iw+16LL)*((ky-3LL)&3)+8LL)*4,
+			pixels+((image->iw+16LL)*((ky-0LL)&3)+8LL)*4,
+			pixels+((image->iw+16LL)*((ky-1LL)&3)+8LL)*4,
+			pixels+((image->iw+16LL)*((ky-2LL)&3)+8LL)*4,
+			pixels+((image->iw+16LL)*((ky-3LL)&3)+8LL)*4,
 		};
 		short yuv[5]={0};
 		int wg_preds[WG_NPREDS]={0};
 		int token=0, bypass=0, nbits=0;
+		int kb=ky/BLOCKSIZE;
+		DecorrInfo *flag=flags+kb;
+		const int *combination=rct_combinations[flag->bestrct];
 
 		for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
 		{
@@ -1064,11 +1045,11 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				*WW	=rows[0]-2*4,
 				*W	=rows[0]-1*4,
 				*curr	=rows[0]+0*4;
-			if(ky<=args->y1+2)
+			if(ky<=2)
 			{
-				if(ky<=args->y1+1)
+				if(ky<=1)
 				{
-					if(ky==args->y1)
+					if(ky==0)
 						NEEE=NEE=NE=NW=N=W;
 					NN=N;
 					NNE=NE;
@@ -1098,12 +1079,12 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				}
 				NEEE=NEE;
 			}
-			if(args->fwd)
+			if(fwd)
 			{
 				int kc=0;
 				if(image->nch>=3)
 				{
-					switch(bestrct)
+					switch(flag->bestrct)
 					{
 					case RCT_R_G_B:
 					case RCT_R_G_BG:
@@ -1160,9 +1141,9 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					case RCT_RCT1_210:
 					case RCT_RCT1_102:
 					case RCT_RCT1_021:
-						yuv[0]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][0]];
-						yuv[1]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][1]];
-						yuv[2]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][2]];
+						yuv[0]=image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT1_120][0]];
+						yuv[1]=image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT1_120][1]];
+						yuv[2]=image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT1_120][2]];
 						yuv[2]-=yuv[0];
 						yuv[0]+=yuv[2]>>1;
 						yuv[1]-=yuv[0];
@@ -1174,13 +1155,13 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					case RCT_RCT2_210:
 					case RCT_RCT2_102:
 					case RCT_RCT2_021:
-						yuv[0]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT2_120][0]];
-						yuv[1]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT2_120][1]];
-						yuv[2]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT2_120][2]];
+						yuv[0]=image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT2_120][0]];
+						yuv[1]=image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT2_120][1]];
+						yuv[2]=image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT2_120][2]];
 						yuv[2]-=yuv[0];
 						yuv[0]+=yuv[2]>>1;
 						yuv[1]-=yuv[0];
-						yuv[0]+=(2*yuv[1]-yuv[2]+4)>>3;//A710
+						yuv[0]+=(2*yuv[1]-yuv[2]+4)>>3;//A710 from GWFX
 						break;
 					case RCT_RCT3_120:
 					case RCT_RCT3_201:
@@ -1188,9 +1169,9 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					case RCT_RCT3_210:
 					case RCT_RCT3_102:
 					case RCT_RCT3_021:
-						yuv[0]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT3_120][0]];
-						yuv[1]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT3_120][1]];
-						yuv[2]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT3_120][2]];
+						yuv[0]=image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT3_120][0]];
+						yuv[1]=image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT3_120][1]];
+						yuv[2]=image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT3_120][2]];
 						yuv[2]-=yuv[0];
 						yuv[0]+=yuv[2]>>1;
 						yuv[1]-=yuv[0];
@@ -1202,9 +1183,9 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					case RCT_RCT4_210:
 					case RCT_RCT4_102:
 					case RCT_RCT4_021:
-						yuv[0]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT4_120][0]];
-						yuv[1]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT4_120][1]];
-						yuv[2]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT4_120][2]];
+						yuv[0]=image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT4_120][0]];
+						yuv[1]=image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT4_120][1]];
+						yuv[2]=image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT4_120][2]];
 						yuv[2]-=yuv[0];
 						yuv[0]+=yuv[2]>>1;
 						yuv[1]-=yuv[0];
@@ -1216,9 +1197,9 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					case RCT_RCT5_210:
 					case RCT_RCT5_102:
 					case RCT_RCT5_021:
-						yuv[0]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT5_120][0]];
-						yuv[1]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT5_120][1]];
-						yuv[2]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT5_120][2]];
+						yuv[0]=image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT5_120][0]];
+						yuv[1]=image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT5_120][1]];
+						yuv[2]=image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT5_120][2]];
 						yuv[2]-=yuv[0];
 						yuv[0]+=yuv[2]>>1;
 						yuv[1]-=yuv[0];
@@ -1230,9 +1211,9 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					case RCT_RCT6_210:
 					case RCT_RCT6_102:
 					case RCT_RCT6_021:
-						yuv[0]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT6_120][0]];
-						yuv[1]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT6_120][1]];
-						yuv[2]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT6_120][2]];
+						yuv[0]=image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT6_120][0]];
+						yuv[1]=image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT6_120][1]];
+						yuv[2]=image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT6_120][2]];
 						yuv[2]-=yuv[0];
 						yuv[0]+=yuv[2]>>1;
 						yuv[1]-=yuv[0];
@@ -1244,9 +1225,9 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					case RCT_RCT7_210:
 					case RCT_RCT7_102:
 					case RCT_RCT7_021:
-						yuv[0]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT7_120][0]];
-						yuv[1]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT7_120][1]];
-						yuv[2]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT7_120][2]];
+						yuv[0]=image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT7_120][0]];
+						yuv[1]=image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT7_120][1]];
+						yuv[2]=image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT7_120][2]];
 						yuv[2]-=yuv[0];
 						yuv[0]+=yuv[2]>>1;
 						yuv[1]-=yuv[0];
@@ -1258,9 +1239,9 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					case RCT_Pei09_210:
 					case RCT_Pei09_102:
 					case RCT_Pei09_021:
-						yuv[0]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_Pei09_120][0]];
-						yuv[1]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_Pei09_120][1]];
-						yuv[2]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_Pei09_120][2]];
+						yuv[0]=image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_Pei09_120][0]];
+						yuv[1]=image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_Pei09_120][1]];
+						yuv[2]=image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_Pei09_120][2]];
 						yuv[1]-=(87*yuv[2]+169*yuv[0]+128)>>8;
 						yuv[2]-=yuv[0];
 						yuv[0]+=(86*yuv[2]+29*yuv[1]+128)>>8;
@@ -1268,9 +1249,9 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					case RCT_J2K_120:
 					case RCT_J2K_201:
 					case RCT_J2K_012:
-						yuv[0]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_J2K_120][0]];
-						yuv[1]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_J2K_120][1]];
-						yuv[2]=image->data[idx+rgb2yuv_permutations[bestrct-RCT_J2K_120][2]];
+						yuv[0]=image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_J2K_120][0]];
+						yuv[1]=image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_J2K_120][1]];
+						yuv[2]=image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_J2K_120][2]];
 						yuv[1]-=yuv[0];
 						yuv[2]-=yuv[0];
 						yuv[0]+=(yuv[1]+yuv[2])>>2;
@@ -1291,11 +1272,11 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					vy=(abs(W[kc]-NW[kc])+abs(N[kc]-NN[kc])+abs(NE[kc]-NNE[kc]))<<8>>depths[ch];
 				int qeN=FLOOR_LOG2_P1(vy);
 				int qeW=FLOOR_LOG2_P1(vx);
-				int cidx=cdfstride*(nctx*kc+args->clevels*MINVAR(qeN, 8)+MINVAR(qeW, 8));
-				int *curr_hist=args->hist+cidx;
-				unsigned *curr_CDF=args->stats+cidx;
+				int cidx=cdfstride*(nctx*kc+clevels*MINVAR(qeN, 8)+MINVAR(qeW, 8));
+				int *curr_hist=hist+cidx;
+				unsigned *curr_CDF=stats+cidx;
 
-				switch(predidx[kc])
+				switch(flag->predidx[kc])
 				{
 				case PRED_W:
 					pred=W[kc];
@@ -1305,17 +1286,17 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					break;
 				case PRED_wgrad:
 					pred=wg_predict(
-						args->wg_weights+WG_NPREDS*kc,
+						wg_weights+WG_NPREDS*kc,
 						NNN[kc], NN[kc], NNE[kc],
 						NW[kc], N[kc], NE[kc], NEE[kc], NEEE[kc],
 						WWW[kc], WW[kc], W[kc],
-						args->wg_errors+WG_NPREDS*kc, wg_preds
+						wg_errors+WG_NPREDS*kc, wg_preds
 					);
 					break;
 				}
 				pred+=offset;
 				CLAMP2_32(pred, pred, -halfs[ch], halfs[ch]-1);
-				if(args->fwd)
+				if(fwd)
 				{
 					curr[kc]=yuv[kc];
 					error=curr[kc]-pred;
@@ -1343,7 +1324,7 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				}
 				else
 				{
-					token=ac_dec(&ec, curr_CDF, args->tlevels);//try ac_dec_packedsign()
+					token=ac_dec(&ec, curr_CDF, tlevels);//try ac_dec_packedsign()
 					sym=token;
 					if(sym>=(1<<CONFIG_EXP))
 					{
@@ -1382,20 +1363,28 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					yuv[kc]=error+pred;
 					curr[kc]=yuv[kc];
 				}
+				if(curr_hist[tlevels]>=1000)
+				{
+					int sum=0;
+					for(int ks=0;ks<tlevels;++ks)
+						sum+=curr_hist[ks]>>=1;
+					curr_hist[tlevels]=sum;
+				}
 				++curr_hist[token];
-				++curr_hist[args->tlevels];
+				++curr_hist[tlevels];
 				if((kx&(CDFSTRIDE-1))==CDFSTRIDE-1)
-					update_CDF(curr_hist, curr_CDF, args->tlevels);
+					update_CDF(curr_hist, curr_CDF, tlevels);
 				curr[kc]-=offset;
-				if(predidx[kc]==PRED_wgrad)
-					wg_update(curr[kc], wg_preds, args->wg_errors+WG_NPREDS*kc, args->wg_weights+WG_NPREDS*kc);
+				if(flag->predidx[kc]==PRED_wgrad)
+					wg_update(curr[kc], wg_preds, wg_errors+WG_NPREDS*kc, wg_weights+WG_NPREDS*kc);
 			}
-			if(!args->fwd)
+			if(!fwd)
 			{
+				Image *image=dst;
 				int kc=0;
 				if(image->nch>=3)
 				{
-					switch(bestrct)
+					switch(flag->bestrct)
 					{
 					case RCT_R_G_B:
 					case RCT_R_G_BG:
@@ -1456,9 +1445,9 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						yuv[1]+=yuv[0];
 						yuv[0]-=yuv[2]>>1;
 						yuv[2]+=yuv[0];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][0]]=yuv[0];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][1]]=yuv[1];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT1_120][2]]=yuv[2];
+						image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT1_120][0]]=yuv[0];
+						image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT1_120][1]]=yuv[1];
+						image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT1_120][2]]=yuv[2];
 						break;
 					case RCT_RCT2_120:
 					case RCT_RCT2_201:
@@ -1470,9 +1459,9 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						yuv[1]+=yuv[0];
 						yuv[0]-=yuv[2]>>1;
 						yuv[2]+=yuv[0];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT2_120][0]]=yuv[0];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT2_120][1]]=yuv[1];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT2_120][2]]=yuv[2];
+						image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT2_120][0]]=yuv[0];
+						image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT2_120][1]]=yuv[1];
+						image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT2_120][2]]=yuv[2];
 						break;
 					case RCT_RCT3_120:
 					case RCT_RCT3_201:
@@ -1484,9 +1473,9 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						yuv[1]+=yuv[0];
 						yuv[0]-=yuv[2]>>1;
 						yuv[2]+=yuv[0];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT3_120][0]]=yuv[0];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT3_120][1]]=yuv[1];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT3_120][2]]=yuv[2];
+						image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT3_120][0]]=yuv[0];
+						image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT3_120][1]]=yuv[1];
+						image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT3_120][2]]=yuv[2];
 						break;
 					case RCT_RCT4_120:
 					case RCT_RCT4_201:
@@ -1498,9 +1487,9 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						yuv[1]+=yuv[0];
 						yuv[0]-=yuv[2]>>1;
 						yuv[2]+=yuv[0];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT4_120][0]]=yuv[0];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT4_120][1]]=yuv[1];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT4_120][2]]=yuv[2];
+						image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT4_120][0]]=yuv[0];
+						image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT4_120][1]]=yuv[1];
+						image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT4_120][2]]=yuv[2];
 						break;
 					case RCT_RCT5_120:
 					case RCT_RCT5_201:
@@ -1512,9 +1501,9 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						yuv[1]+=yuv[0];
 						yuv[0]-=yuv[2]>>1;
 						yuv[2]+=yuv[0];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT5_120][0]]=yuv[0];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT5_120][1]]=yuv[1];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT5_120][2]]=yuv[2];
+						image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT5_120][0]]=yuv[0];
+						image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT5_120][1]]=yuv[1];
+						image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT5_120][2]]=yuv[2];
 						break;
 					case RCT_RCT6_120:
 					case RCT_RCT6_201:
@@ -1526,9 +1515,9 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						yuv[1]+=yuv[0];
 						yuv[0]-=yuv[2]>>1;
 						yuv[2]+=yuv[0];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT6_120][0]]=yuv[0];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT6_120][1]]=yuv[1];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT6_120][2]]=yuv[2];
+						image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT6_120][0]]=yuv[0];
+						image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT6_120][1]]=yuv[1];
+						image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT6_120][2]]=yuv[2];
 						break;
 					case RCT_RCT7_120:
 					case RCT_RCT7_201:
@@ -1540,9 +1529,9 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						yuv[1]+=yuv[0];
 						yuv[0]-=yuv[2]>>1;
 						yuv[2]+=yuv[0];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT7_120][0]]=yuv[0];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT7_120][1]]=yuv[1];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_RCT7_120][2]]=yuv[2];
+						image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT7_120][0]]=yuv[0];
+						image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT7_120][1]]=yuv[1];
+						image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_RCT7_120][2]]=yuv[2];
 						break;
 					case RCT_Pei09_120:
 					case RCT_Pei09_201:
@@ -1553,9 +1542,9 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						yuv[0]-=(86*yuv[2]+29*yuv[1]+128)>>8;
 						yuv[2]+=yuv[0];
 						yuv[1]+=(87*yuv[2]+169*yuv[0]+128)>>8;
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_Pei09_120][0]]=yuv[0];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_Pei09_120][1]]=yuv[1];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_Pei09_120][2]]=yuv[2];
+						image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_Pei09_120][0]]=yuv[0];
+						image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_Pei09_120][1]]=yuv[1];
+						image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_Pei09_120][2]]=yuv[2];
 						break;
 					case RCT_J2K_120:
 					case RCT_J2K_201:
@@ -1563,9 +1552,9 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						yuv[0]-=(yuv[1]+yuv[2])>>2;
 						yuv[2]+=yuv[0];
 						yuv[1]+=yuv[0];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_J2K_120][0]]=yuv[0];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_J2K_120][1]]=yuv[1];
-						image->data[idx+rgb2yuv_permutations[bestrct-RCT_J2K_120][2]]=yuv[2];
+						image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_J2K_120][0]]=yuv[0];
+						image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_J2K_120][1]]=yuv[1];
+						image->data[idx+rgb2yuv_permutations[flag->bestrct-RCT_J2K_120][2]]=yuv[2];
 						break;
 					}
 					kc=3;
@@ -1588,11 +1577,10 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			rows[3]+=4;
 		}
 	}
-	if(args->fwd)
+	if(fwd)
 	{
 		ac_enc_flush(&ec);
-		if(args->loud)
-			printf("Actual %8zd bytes (%+11.2lf)\n\n", args->list.nobj, args->list.nobj-bestsize);
+		dlist_appendtoarray(&list, data);
 	}
 	if(loud)
 	{
@@ -1600,7 +1588,7 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		t0=time_sec()-t0;
 		if(fwd)
 		{
-			ptrdiff_t csize=data[0]->count-start;
+			ptrdiff_t csize=list.nobj;
 			printf("Best %15.2lf (%+13.2lf) bytes\n", bestsize, csize-bestsize);
 			printf("Size %12td/%12td  %10.6lf%%  %10lf\n", csize, usize, 100.*csize/usize, (double)usize/csize);
 			printf("Mem usage: ");
@@ -1609,14 +1597,12 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		}
 		printf("%c %16.6lf sec  %16.6lf MB/s\n", 'D'+fwd, t0, usize/(t0*1024*1024));
 	}
-	for(int k=0;k<nthreads;++k)
-	{
-		ThreadArgs *arg=args+k;
-		_mm_free(arg->pixels);
-		free(arg->hist);
-		free(arg->stats);
-	}
-	free(args);
+	if(fwd)
+		dlist_clear(&list);
+	free(hist);
+	free(stats);
+	_mm_free(pixels);
+	free(flags);
 	return 0;
 }
 void f27_curiosity()
