@@ -175,7 +175,7 @@ int	f22_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #define f22_encode(SRC, DATA, LOUD)		f22_codec(SRC, DATA, 0, 0, 0, LOUD)
 #define f22_decode(CBUF, CSIZE, DST, LOUD)	f22_codec(0, 0, CBUF, CSIZE, DST, LOUD)
 
-//	F23 lossless multithreaded block-based
+//	F23 lossless multithreaded block-based, [[Pareto front]]
 int	f23_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
 #define f23_encode(SRC, DATA, LOUD)		f23_codec(SRC, DATA, 0, 0, 0, LOUD)
 #define f23_decode(CBUF, CSIZE, DST, LOUD)	f23_codec(0, 0, CBUF, CSIZE, DST, LOUD)
@@ -191,11 +191,17 @@ int	f25_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #define f25_encode(SRC, DATA, LOUD)		f25_codec(SRC, DATA, 0, 0, 0, LOUD)
 #define f25_decode(CBUF, CSIZE, DST, LOUD)	f25_codec(0, 0, CBUF, CSIZE, DST, LOUD)
 
-//	F26 multithreaded, symmetric codec, mix of F23 & F24
+//	F26 multithreaded, 76 RCTs, 3 spatial predictors, [[Pareto front]]
 int	f26_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
 #define f26_encode(SRC, DATA, LOUD)		f26_codec(SRC, DATA, 0, 0, 0, LOUD)
 #define f26_decode(CBUF, CSIZE, DST, LOUD)	f26_codec(0, 0, CBUF, CSIZE, DST, LOUD)
 void	f26_curiosity();
+
+//	F27 multithreaded decorrelation, single-threaded entropy coding
+int	f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
+#define f27_encode(SRC, DATA, LOUD)		f27_codec(SRC, DATA, 0, 0, 0, LOUD)
+#define f27_decode(CBUF, CSIZE, DST, LOUD)	f27_codec(0, 0, CBUF, CSIZE, DST, LOUD)
+void	f27_curiosity();
 
 
 #ifdef __cplusplus
