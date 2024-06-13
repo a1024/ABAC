@@ -18,7 +18,7 @@ static const char file[]=__FILE__;
 #ifdef ENABLE_GUIDE
 static const Image *guide=0;
 #endif
-#define BLOCKSIZE 256
+#define BLOCKSIZE 64
 
 static const int rgb2yuv_permutations[6][3]=
 {
@@ -454,7 +454,7 @@ static void wg_update(int curr, const int *preds, int *perrors, double *weights)
 {
 #ifdef WG_UPDATE
 	int kbest=0, ebest=0;
-	int kworst=0, eworst=0;
+	//int kworst=0, eworst=0;
 #endif
 	for(int k=0;k<WG_NPREDS;++k)
 	{
@@ -463,17 +463,17 @@ static void wg_update(int curr, const int *preds, int *perrors, double *weights)
 #ifdef WG_UPDATE
 		if(!k||ebest>e2)
 			kbest=k, ebest=e2;
-		if(!k||eworst<e2)
-			kworst=k, eworst=e2;
-		weights[k]-=log2(e2+1);
-		//weights[k]+=1./((e2+1)*(e2+1));
+		//if(!k||eworst<e2)
+		//	kworst=k, eworst=e2;
+		weights[k]+=1/sqrt(e2+1./256);
+		//weights[k]+=1./(e2+1);
 #endif
 	}
 #ifdef WG_UPDATE
-	if(weights[kworst]<1000)
+	if(weights[kbest]>10)
 	{
 		for(int k=0;k<WG_NPREDS;++k)
-			weights[k]*=10;
+			weights[k]*=0.125;
 	}
 	//if(weights[kbest]>10)//100	352
 	//{
@@ -533,7 +533,7 @@ typedef struct _ThreadArgs
 	double csizes[OCH_COUNT*PRED_COUNT], bestsize;
 	int predsel[OCH_COUNT], bestrct;
 } ThreadArgs;
-#define CDFSTRIDE 64
+#define CDFSTRIDE 32	//power-of-two
 static void update_CDF(const int *hist, unsigned *CDF, int tlevels)
 {
 	int sum=hist[tlevels], c=0;
@@ -988,6 +988,9 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	cdfstride=tlevels+1;
 	chsize=nctx*cdfstride;
 	
+//#define PIXELSTRIDE 4*(1+WG_NPREDS)
+#define PIXELSTRIDE 4*1
+	bufsize=sizeof(short[4*PIXELSTRIDE])*(image->iw+16LL);//4 padded rows * max 4 channels * {pixels, pred errors...}
 	pixels=(short*)_mm_malloc(bufsize, sizeof(__m128i));
 	stats=(unsigned*)malloc(statssize);
 	hist=(int*)malloc(statssize);
@@ -1010,16 +1013,15 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	}
 	for(int kc=0;kc<image->nch;++kc)
 		wg_init(wg_weights+WG_NPREDS*kc);
-	memset(wg_errors, 0, sizeof(wg_errors));
 	memset(pixels, 0, bufsize);
 	for(int ky=0, idx=0;ky<image->ih;++ky)//codec loop
 	{
 		ALIGN(16) short *rows[]=
 		{
-			pixels+((image->iw+16LL)*((ky-0LL)&3)+8LL)*4,
-			pixels+((image->iw+16LL)*((ky-1LL)&3)+8LL)*4,
-			pixels+((image->iw+16LL)*((ky-2LL)&3)+8LL)*4,
-			pixels+((image->iw+16LL)*((ky-3LL)&3)+8LL)*4,
+			pixels+((image->iw+16LL)*((ky-0LL)&3)+8LL)*PIXELSTRIDE,
+			pixels+((image->iw+16LL)*((ky-1LL)&3)+8LL)*PIXELSTRIDE,
+			pixels+((image->iw+16LL)*((ky-2LL)&3)+8LL)*PIXELSTRIDE,
+			pixels+((image->iw+16LL)*((ky-3LL)&3)+8LL)*PIXELSTRIDE,
 		};
 		short yuv[5]={0};
 		int wg_preds[WG_NPREDS]={0};
@@ -1031,20 +1033,24 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
 		{
 			short
-				*NNN	=rows[3]+0*4,
-				*NNW	=rows[2]-1*4,
-				*NN	=rows[2]+0*4,
-				*NNE	=rows[2]+1*4,
-				*NNEE	=rows[2]+2*4,
-				*NW	=rows[1]-1*4,
-				*N	=rows[1]+0*4,
-				*NE	=rows[1]+1*4,
-				*NEE	=rows[1]+2*4,
-				*NEEE	=rows[1]+3*4,
-				*WWW	=rows[0]-3*4,
-				*WW	=rows[0]-2*4,
-				*W	=rows[0]-1*4,
-				*curr	=rows[0]+0*4;
+				*NNN	=rows[3]+0*PIXELSTRIDE,
+				*NNW	=rows[2]-1*PIXELSTRIDE,
+				*NN	=rows[2]+0*PIXELSTRIDE,
+				*NNE	=rows[2]+1*PIXELSTRIDE,
+				*NNEE	=rows[2]+2*PIXELSTRIDE,
+				*NW	=rows[1]-1*PIXELSTRIDE,
+				*N	=rows[1]+0*PIXELSTRIDE,
+				*NE	=rows[1]+1*PIXELSTRIDE,
+				*NEE	=rows[1]+2*PIXELSTRIDE,
+				*NEEE	=rows[1]+3*PIXELSTRIDE,
+				*WWW	=rows[0]-3*PIXELSTRIDE,
+				*WW	=rows[0]-2*PIXELSTRIDE,
+				*W	=rows[0]-1*PIXELSTRIDE,
+				*curr	=rows[0]+0*PIXELSTRIDE;
+			//           NNN
+			//       NNW NN  NNE NNEE
+			//       NW  N   NE  NEE  NEEE
+			//WWW WW W  [?]
 			if(ky<=2)
 			{
 				if(ky<=1)
@@ -1265,11 +1271,13 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			for(int kc=0;kc<image->nch;++kc)
 			{
 				int ch=combination[kc];
+				int kc2=kc;
+				//int kc2=kc*(1+WG_NPREDS);
 				int offset=(yuv[combination[kc+3]]+yuv[combination[kc+6]])>>och_info[ch][II_HSHIFT];
 				int pred=0, error, sym;
 				int
-					vx=(abs(W[kc]-WW[kc])+abs(N[kc]-NW[kc])+abs(NE[kc]-N[kc]))<<8>>depths[ch],
-					vy=(abs(W[kc]-NW[kc])+abs(N[kc]-NN[kc])+abs(NE[kc]-NNE[kc]))<<8>>depths[ch];
+					vx=(abs(W[kc2]-WW[kc2])+abs(N[kc2]-NW[kc2])+abs(NE[kc2]-N[kc2]))<<8>>depths[ch],
+					vy=(abs(W[kc2]-NW[kc2])+abs(N[kc2]-NN[kc2])+abs(NE[kc2]-NNE[kc2]))<<8>>depths[ch];
 				int qeN=FLOOR_LOG2_P1(vy);
 				int qeW=FLOOR_LOG2_P1(vx);
 				int cidx=cdfstride*(nctx*kc+clevels*MINVAR(qeN, 8)+MINVAR(qeW, 8));
@@ -1279,17 +1287,32 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				switch(flag->predidx[kc])
 				{
 				case PRED_W:
-					pred=W[kc];
+					pred=W[kc2];
 					break;
 				case PRED_cgrad:
-					MEDIAN3_32(pred, N[kc], W[kc], N[kc]+W[kc]-NW[kc]);
+					MEDIAN3_32(pred, N[kc2], W[kc2], N[kc2]+W[kc2]-NW[kc2]);
 					break;
 				case PRED_wgrad:
+					//for(int kp=0;kp<WG_NPREDS;++kp)
+					//{
+					//	//       [NNW]   [NN]   [NNE] [NNEE]
+					//	//NWW  2*[NW]  4*[N]  2*[NE]  [NEE]
+					//	//WW   3* W       ?
+					//	wg_errors[kp]=
+					//		NNW	[kc2+kp+1]+//NNW+NWW
+					//		NN	[kc2+kp+1]+//NN+NW
+					//		NNE	[kc2+kp+1]+//NNE+N
+					//		NNEE	[kc2+kp+1]+//NNEE+NE
+					//		NW	[kc2+kp+1]+//NW+WW
+					//		N	[kc2+kp+1]*3+//N+W
+					//		NE	[kc2+kp+1]+//NE
+					//		NEE	[kc2+kp+1];//NEE
+					//}
 					pred=wg_predict(
 						wg_weights+WG_NPREDS*kc,
-						NNN[kc], NN[kc], NNE[kc],
-						NW[kc], N[kc], NE[kc], NEE[kc], NEEE[kc],
-						WWW[kc], WW[kc], W[kc],
+						NNN[kc2], NN[kc2], NNE[kc2],
+						NW[kc2], N[kc2], NE[kc2], NEE[kc2], NEEE[kc2],
+						WWW[kc2], WW[kc2], W[kc2],
 						wg_errors+WG_NPREDS*kc, wg_preds
 					);
 					break;
@@ -1298,8 +1321,8 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				CLAMP2_32(pred, pred, -halfs[ch], halfs[ch]-1);
 				if(fwd)
 				{
-					curr[kc]=yuv[kc];
-					error=curr[kc]-pred;
+					curr[kc2]=yuv[kc];
+					error=yuv[kc]-pred;
 					{
 						int upred=halfs[ch]-abs(pred), aval=abs(error);
 						if(aval<=upred)
@@ -1360,23 +1383,32 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						error^=negmask;
 						error-=negmask;
 					}
-					yuv[kc]=error+pred;
-					curr[kc]=yuv[kc];
+					curr[kc2]=yuv[kc]=error+pred;
 				}
-				if(curr_hist[tlevels]>=1000)
+				++curr_hist[token];
+				++curr_hist[tlevels];
+				if(curr_hist[tlevels]>=tlevels&&!(curr_hist[tlevels]&(CDFSTRIDE-1)))
+					update_CDF(curr_hist, curr_CDF, tlevels);
+				if(curr_hist[tlevels]>=6144)
 				{
 					int sum=0;
 					for(int ks=0;ks<tlevels;++ks)
 						sum+=curr_hist[ks]>>=1;
 					curr_hist[tlevels]=sum;
 				}
-				++curr_hist[token];
-				++curr_hist[tlevels];
-				if((kx&(CDFSTRIDE-1))==CDFSTRIDE-1)
-					update_CDF(curr_hist, curr_CDF, tlevels);
-				curr[kc]-=offset;
+				curr[kc2]-=offset;
 				if(flag->predidx[kc]==PRED_wgrad)
-					wg_update(curr[kc], wg_preds, wg_errors+WG_NPREDS*kc, wg_weights+WG_NPREDS*kc);
+				{
+					wg_update(curr[kc2], wg_preds, wg_errors+WG_NPREDS*kc, wg_weights+WG_NPREDS*kc);
+					//for(int kp=0;kp<WG_NPREDS;++kp)
+					//{
+					//	//       [NNW]   [NN]   [NNE] [NNEE]
+					//	//NWW  2*[NW]  4*[N]  2*[NE]  [NEE]
+					//	//WW   3* W       ?
+					//	curr[kc2+kp+1]=(curr[kc2+kp+1]+3*wg_errors[kp])>>2;
+					//	NE[kc2+kp+1]+=wg_errors[kp];
+					//}
+				}
 			}
 			if(!fwd)
 			{
@@ -1571,10 +1603,10 @@ int f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				printf("");//
 			}
 #endif
-			rows[0]+=4;
-			rows[1]+=4;
-			rows[2]+=4;
-			rows[3]+=4;
+			rows[0]+=PIXELSTRIDE;
+			rows[1]+=PIXELSTRIDE;
+			rows[2]+=PIXELSTRIDE;
+			rows[3]+=PIXELSTRIDE;
 		}
 	}
 	if(fwd)

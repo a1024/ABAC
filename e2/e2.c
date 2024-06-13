@@ -687,7 +687,7 @@ ProgArgs args=
 	OP_TESTFILE, 1, 0,//op, nthreads, formatsize
 
 //	"D:/ML/dataset-kodak/kodim13.png",
-//	"D:/ML/dataset-kodak-ppm/kodim13.ppm",
+	"D:/ML/dataset-kodak-ppm/kodim13.ppm",
 //	"C:/dataset-LPCB-ppm/canon_eos_1100d_02.ppm",
 //	"D:/ML/20240407 blank.PNG",
 //	"D:/ML/dataset-ic-rgb16bit/artificial.png",
@@ -700,7 +700,7 @@ ProgArgs args=
 
 //	"C:/Projects/datasets/dataset-kodak/kodim02.png",
 //	"C:/Projects/datasets/dataset-kodak/kodim05.png",
-	"C:/Projects/datasets/dataset-kodak/kodim13.png",
+//	"C:/Projects/datasets/dataset-kodak/kodim13.png",
 //	"C:/Projects/datasets/dataset-kodak/kodim19.png",
 //	"C:/Projects/datasets/dataset-kodak/kodim21.png",
 //	"C:/Projects/datasets/dataset-kodak/kodim22.png",

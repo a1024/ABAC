@@ -975,7 +975,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 	int d135=abs(NE-NNEE)+abs(N-NNE)+abs(W-N);
 	int diff=(dy-dx)>>sh, diff2=(d45-d135)>>sh, diff3=NE-NW;
 	int paper_GAP, calic_GAP;
-	if(dy+dx>(32<<(sh-2)))
+	if(dy+dx>32)//[sic]
 		paper_GAP=(int)(((long long)dx*N+(long long)dy*W)/((long long)dy+dx));
 	else if(diff>12)
 		paper_GAP=(N+2*W)/3;
@@ -1850,15 +1850,18 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 	long long weights[SLIC5_NPREDS]={0}, wsum=0;
 	for(int k=0;k<SLIC5_NPREDS;++k)
 	{
-		weights[k]=//(long long)LOAD_PRED_ERROR(kc,  0, 1, k);
-			(long long)LOAD_PRED_ERROR(kc, -2, 2, k)+	//peNNEE
-			(long long)LOAD_PRED_ERROR(kc, -1, 2, k)+	//peNNE
-			(long long)LOAD_PRED_ERROR(kc,  0, 2, k)+	//peNN+peNW
+		//       [NNW]   [NN]   [NNE] [NNEE]
+		//NWW  2*[NW]  4*[N]  2*[NE]  [NEE]
+		//WW   3* W       ?
+		weights[k]=
 			(long long)LOAD_PRED_ERROR(kc,  1, 2, k)+	//peNNW+peNWW
-			(long long)LOAD_PRED_ERROR(kc, -2, 1, k)+	//peNEE
-			(long long)LOAD_PRED_ERROR(kc, -1, 1, k)+	//peNE
+			(long long)LOAD_PRED_ERROR(kc,  0, 2, k)+	//peNN+peNW
+			(long long)LOAD_PRED_ERROR(kc, -1, 2, k)+	//peNNE+peN
+			(long long)LOAD_PRED_ERROR(kc, -2, 2, k)+	//peNNEE+peNE
+			(long long)LOAD_PRED_ERROR(kc,  1, 1, k)+	//peNW+peWW
 			(long long)LOAD_PRED_ERROR(kc,  0, 1, k)*3+	//peN+peW
-			(long long)LOAD_PRED_ERROR(kc,  1, 1, k);	//peNW+peWW
+			(long long)LOAD_PRED_ERROR(kc, -1, 1, k)+	//peNE
+			(long long)LOAD_PRED_ERROR(kc, -2, 1, k);	//peNEE
 		
 		//	(long long)LOAD_PRED_ERROR(kc, -2, 2, k)+	//peNNEE
 		//	(long long)LOAD_PRED_ERROR(kc, -1, 2, k)+	//peNNE
@@ -1941,12 +1944,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 	qy=CLAMP(0, qy, pr->ytextures-1);
 	pr->txid=pr->xtextures*qy+qx;
 #else
-	int qx=(dx+abs(eW+eWW))>>(sh-2), qy=(dy+abs(eN+eNN))>>(sh-2);
-	//int qx=QUANTIZE_HIST((dx+abs(eW+eWW))>>(sh-2)), qy=QUANTIZE_HIST((dy+abs(eN+eNN))>>(sh-2));
-	//if(pr->ky==10&&kx==10)//
-	//	printf("");
-	qx=FLOOR_LOG2_P1(qx);
-	qy=FLOOR_LOG2_P1(qy);
+	int qx=QUANTIZE_HIST((dx+abs(eW+eWW))>>(sh-2)), qy=QUANTIZE_HIST((dy+abs(eN+eNN))>>(sh-2));
 	qx=CLAMP(0, qx, pr->nhist-1);
 	qy=CLAMP(0, qy, pr->nhist-1);
 	pr->hist_idx=pr->nhist*qy+qx;
@@ -2309,7 +2307,7 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 #endif
 
 	int final_corr=(int)(pr->bias_sum[kc]/(pr->bias_count[kc]+1LL));
-	//pr->pred+=final_corr;
+	pr->pred+=final_corr;
 	pr->sse_corr+=final_corr;
 	PROF(SSE_LOOP);
 
@@ -2353,7 +2351,8 @@ static void slic5_update_hist(SLIC5Ctx *pr, int token)
 		int sum=0;
 		for(int ks=0;ks<pr->cdfsize;++ks)
 		{
-			curr_hist[ks]=(curr_hist[ks]+1)>>1;
+			curr_hist[ks]>>=1;
+			//curr_hist[ks]=(curr_hist[ks]+1)>>1;
 			sum+=curr_hist[ks];
 		}
 		*curr_sum=sum;
