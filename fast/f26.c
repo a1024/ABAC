@@ -15,7 +15,7 @@ static const char file[]=__FILE__;
 //	#define ENABLE_CURIOSITY
 
 //	#define WG_T47
-//	#define WG_UPDATE
+//	#define WG_UPDATE//horrible
 
 
 #include"ac.h"
@@ -24,6 +24,18 @@ static const Image *guide=0;
 #endif
 #define BLOCKSIZE 256
 
+//RCT1~7:
+//Cr-=y		Cr = [ 1	-1	0].RGB
+//y+=Cr>>1	y  = [ 1/2	 1/2	0].RGB
+//Cb-=y		Cb = [-1/2	-1/2	1].RGB
+	#define LUMA_UPDATE_1(Cb, Cr) ((Cb)>>1)			//RCT1	y = [1/4	1/4	 1/2].RGB
+	#define LUMA_UPDATE_2(Cb, Cr) ((2*(Cb)-(Cr)+4)>>3)	//RCT2	y = [1/4	1/2	 1/4].RGB
+//	#define LUMA_UPDATE_3(Cb, Cr) ((2*(Cb)+(Cr)+4)>>3)	//RCT3a	y = [1/2	1/4	 1/4].RGB	never used
+	#define LUMA_UPDATE_3(Cb, Cr) (((Cb)+(Cr)+2)>>2)	//RCT3b	y = [5/8	1/8	 1/4].RGB
+	#define LUMA_UPDATE_4(Cb, Cr) ((Cb)/3)			//RCT4	y = [1/3	1/3	 1/3].RGB
+	#define LUMA_UPDATE_5(Cb, Cr) ((3*(Cb)+4)>>3)		//RCT5	y = [5/16	5/16	 6/16].RGB
+	#define LUMA_UPDATE_6(Cb, Cr) ((7*(Cb)+8)>>4)		//RCT6	y = [9/32	9/32	14/32].RGB
+	#define LUMA_UPDATE_7(Cb, Cr) ((10*(Cb)-(Cr)+16)>>5)	//RCT7	y = [5/16	6/16	 5/16].RGB
 static const int rgb2yuv_permutations[6][3]=
 {
 	//YUV
@@ -34,7 +46,6 @@ static const int rgb2yuv_permutations[6][3]=
 	1, 0, 2,
 	0, 2, 1,
 };
-
 typedef enum _IChannelType
 {
 	ICH_R,
@@ -380,10 +391,46 @@ static const char *pred_names[PRED_COUNT]=
 #define WG_DECAY_SH	9
 
 #if 1
+#define WG_NPREDS	13
+#define WG_PREDLIST\
+	WG_PRED(132, N+W-NW)\
+	WG_PRED(176, N+W-NW+((eN+eW-eNW+16)>>5))\
+	WG_PRED(120, N+eN)\
+	WG_PRED( 90, N+(eN>>2))\
+	WG_PRED( 70, N)\
+	WG_PRED(120, W+eW)\
+	WG_PRED( 90, W+(eW>>2))\
+	WG_PRED( 70, W)\
+	WG_PRED(165, W+NE-N)\
+	WG_PRED(220, N+NE-NNE)\
+	WG_PRED(165, 3*(N-NN)+NNN)\
+	WG_PRED(165, 3*(W-WW)+WWW)\
+	WG_PRED(176, (W+NEEE)/2)
+//	WG_PRED(  0, N+NE-NNE+((eN+eNE-eNNE)>>2))
+#endif
+#if 0
+#define WG_NPREDS	13
+#define WG_PREDLIST\
+	WG_PRED(132, N+W-NW)\
+	WG_PRED(176, N+W-NW+((eN+eW-eNW+16)>>5))\
+	WG_PRED(176, N+eN)\
+	WG_PRED( 88, N)\
+	WG_PRED(176, W+eW)\
+	WG_PRED( 88, W)\
+	WG_PRED(165, W+NE-N)\
+	WG_PRED(200, N+NE-NNE)\
+	WG_PRED( 10, NE+NEE-NNEEE)\
+	WG_PRED( 10, 3*NE-(NEE+NEEE))\
+	WG_PRED(165, 3*(N-NN)+NNN)\
+	WG_PRED(165, 3*(W-WW)+WWW)\
+	WG_PRED(176, (W+NEEE)/2)
+//	WG_PRED(  0, N+NE-NNE+((eN+eNE-eNNE)>>2))
+#endif
+#if 0
 #define WG_NPREDS	11
 #define WG_PREDLIST\
 	WG_PRED(0.75, N+W-NW)\
-	WG_PRED(1.0, N+W-NW+((eN+eW-eNW+32)>>6))\
+	WG_PRED(1.0, N+W-NW+((eN+eW-eNW+16)>>5))\
 	WG_PRED(1.0, N+eN)\
 	WG_PRED(1.0, W+eW)\
 	WG_PRED(0.5, N)\
@@ -456,7 +503,7 @@ static const char *pred_names[PRED_COUNT]=
 	WG_PRED(176.0, (NE+NNEE)>>1)\
 	WG_PRED(176.0, (NE+NNE+NEE+NNEE)>>2)
 #endif
-static void wg_init(double *weights)
+static void wg_init(int *weights)
 {
 	int j=0;
 #define WG_PRED(WEIGHT, EXPR) weights[j++]=WEIGHT;
@@ -464,7 +511,7 @@ static void wg_init(double *weights)
 #undef  WG_PRED
 }
 static int wg_predict(
-	const double *weights,
+	const int *weights,
 	short **rows, const int stride, int kc2, int depth,
 	const int *perrors, int *preds
 )
@@ -551,6 +598,7 @@ static int wg_predict(
 		NNN	=rows[3][kc2+0*stride+0],
 		NN	=rows[2][kc2+0*stride+0],
 		NNE	=rows[2][kc2+1*stride+0],
+		NNEEE	=rows[2][kc2+3*stride+0],
 		NW	=rows[1][kc2-1*stride+0],
 		N	=rows[1][kc2+0*stride+0],
 		NE	=rows[1][kc2+1*stride+0],
@@ -559,6 +607,7 @@ static int wg_predict(
 		WWW	=rows[0][kc2-3*stride+0],
 		WW	=rows[0][kc2-2*stride+0],
 		W	=rows[0][kc2-1*stride+0],
+		eNNE	=rows[2][kc2+1*stride+1],
 		eNW	=rows[1][kc2-1*stride+1],
 		eN	=rows[1][kc2+0*stride+1],
 		eNE	=rows[1][kc2+1*stride+1],
@@ -571,7 +620,7 @@ static int wg_predict(
 	
 	for(int k=0;k<WG_NPREDS;++k)
 	{
-		double weight=weights[k]/(perrors[k]+1);
+		double weight=(double)weights[k]/(perrors[k]+1);
 		pred2+=weight*preds[k];
 		wsum+=weight;
 	}
@@ -616,11 +665,11 @@ static int wg_predict(
 	return pred;
 }
 #endif
-static void wg_update(int curr, const int *preds, int *perrors, double *weights)
+static void wg_update(int curr, const int *preds, int *perrors, int *weights)
 {
 #ifdef WG_UPDATE
 	double wsum=0;
-	//int kbest=0, ebest=0;
+	int kbest=0, ebest=0;
 	//int kworst=0, eworst=0;
 #endif
 	for(int k=0;k<WG_NPREDS;++k)
@@ -628,35 +677,38 @@ static void wg_update(int curr, const int *preds, int *perrors, double *weights)
 		int e2=abs(curr-preds[k]);
 		perrors[k]=(perrors[k]+e2)*WG_DECAY_NUM>>WG_DECAY_SH;
 #ifdef WG_UPDATE
-		//if(!k||ebest>e2)
-		//	kbest=k, ebest=e2;
+		if(!k||ebest>e2)
+			kbest=k, ebest=e2;
 		//if(!k||eworst<e2)
 		//	kworst=k, eworst=e2;
 		
-		{
-			//https://stackoverflow.com/questions/11644441/fast-inverse-square-root-on-x64
-			double t1=e2+1, t2=t1*0.5;
-			long long t3=*(long long*)&t1;
-			t3=0x5FE6EB50C7B537A9-(t3>>1);
-			t1=*(double*)&t3;
-			t1=t1*(1.5-(t2*t1*t1));
-			wsum+=weights[k]+=t1;
-		}
+		//{
+		//	//https://stackoverflow.com/questions/11644441/fast-inverse-square-root-on-x64
+		//	double t1=e2+1, t2=t1*0.5;
+		//	long long t3=*(long long*)&t1;
+		//	t3=0x5FE6EB50C7B537A9-(t3>>1);
+		//	t1=*(double*)&t3;
+		//	t1=t1*(1.5-(t2*t1*t1));
+		//	wsum+=weights[k]+=t1;
+		//}
 		//wsum+=weights[k]+=1./sqrt(e2+1);
 		//weights[k]+=1./(e2+1);
 #endif
 	}
 #ifdef WG_UPDATE
-	wsum=1/wsum;
-	for(int k=0;k<WG_NPREDS;++k)
-		weights[k]*=wsum;
+	//wsum=1/wsum;
+	//for(int k=0;k<WG_NPREDS;++k)
+	//	weights[k]*=wsum;
 
-	//++weights[kbest];
+	//weights[kbest]+=1./256;
+	++weights[kbest];
 	//if(weights[kbest]>22)//352/16.
-	//{
-	//	for(int k=0;k<WG_NPREDS;++k)
-	//		weights[k]*=0.5;
-	//}
+	if(weights[kbest]>352)
+	{
+		for(int k=0;k<WG_NPREDS;++k)
+			weights[k]>>=1;
+			//weights[k]*=0.5;
+	}
 #endif
 }
 
@@ -706,7 +758,7 @@ typedef struct _ThreadArgs
 	DList list;
 	const unsigned char *decstart, *decend;
 
-	double wg_weights[OCH_COUNT*WG_NPREDS];
+	int wg_weights[OCH_COUNT*WG_NPREDS];
 	int wg_errors[OCH_COUNT*WG_NPREDS];
 
 	//AC
@@ -827,20 +879,31 @@ static void block_thread(void *param)
 				input[ICH_B]=image->data[idx+2];//b
 				for(int kp=0;kp<6;++kp)//RCT1~7		r-=g; g+=r>>1; b-=g; g+=(A*r+B*b+C)>>SH;
 				{
+					int j=0;
 					input[cidx+0]=input[rgb2yuv_permutations[kp][0]];//Y
 					input[cidx+7]=input[rgb2yuv_permutations[kp][1]];//U
 					input[cidx+8]=input[rgb2yuv_permutations[kp][2]];//V
-					input[cidx+8]-=input[cidx+0];
-					input[cidx+0]+=input[cidx+8]>>1;
-					input[cidx+7]-=input[cidx+0];
+					input[cidx+8]-=input[cidx+0];				//	Cr = [ 1	-1	0].RGB
+					input[cidx+0]+=input[cidx+8]>>1;			//	y = [1/2	1/2	0].RGB
+					input[cidx+7]-=input[cidx+0];				//	Cb = [-1/2	-1/2	1].RGB
 					input[cidx+6]=input[cidx+5]=input[cidx+4]=input[cidx+3]=input[cidx+2]=input[cidx+1]=input[cidx+0];
-					input[cidx+0]+=input[cidx+7]>>1;
-					input[cidx+1]+=(2*input[cidx+7]-input[cidx+8]+4)>>3;
-					input[cidx+2]+=(2*input[cidx+7]+input[cidx+8]+4)>>3;
-					input[cidx+3]+=input[cidx+7]/3;
-					input[cidx+4]+=(3*input[cidx+7]+4)>>3;
-					input[cidx+5]+=(7*input[cidx+7]+8)>>4;
-					input[cidx+6]+=(10*input[cidx+7]-input[cidx+8]+16)>>5;
+					input[cidx+0]+=LUMA_UPDATE_1(input[cidx+7], input[cidx+8]);
+					input[cidx+1]+=LUMA_UPDATE_2(input[cidx+7], input[cidx+8]);
+					input[cidx+2]+=LUMA_UPDATE_3(input[cidx+7], input[cidx+8]);
+					input[cidx+3]+=LUMA_UPDATE_4(input[cidx+7], input[cidx+8]);
+					input[cidx+4]+=LUMA_UPDATE_5(input[cidx+7], input[cidx+8]);
+					input[cidx+5]+=LUMA_UPDATE_6(input[cidx+7], input[cidx+8]);
+					input[cidx+6]+=LUMA_UPDATE_7(input[cidx+7], input[cidx+8]);
+#if 0
+					input[cidx+0]+=input[cidx+7]>>1;			//RCT1	y = [1/4	1/4	 1/2].RGB
+					input[cidx+1]+=(2*input[cidx+7]-input[cidx+8]+4)>>3;	//RCT2	y = [1/4	1/2	 1/4].RGB
+				//	input[cidx+2]+=(2*input[cidx+7]+input[cidx+8]+4)>>3;	//RCT3a	y = [1/2	1/4	 1/4].RGB	never used
+					input[cidx+2]+=(input[cidx+7]+input[cidx+8]+2)>>2;	//RCT3b	y = [5/8	1/8	 1/4].RGB
+					input[cidx+3]+=input[cidx+7]/3;				//RCT4	y = [1/3	1/3	 1/3].RGB
+					input[cidx+4]+=(3*input[cidx+7]+4)>>3;			//RCT5	y = [5/16	5/16	 6/16].RGB
+					input[cidx+5]+=(7*input[cidx+7]+8)>>4;			//RCT6	y = [9/32	9/32	14/32].RGB
+					input[cidx+6]+=(10*input[cidx+7]-input[cidx+8]+16)>>5;	//RCT7	y = [5/16	6/16	 5/16].RGB
+#endif
 					cidx+=9;
 				}
 				for(int kp=0;kp<6;++kp)//Pei09		b-=(87*r+169*g+128)>>8; r-=g; g+=(86*r+29*b+128)>>8;
@@ -1172,7 +1235,8 @@ static void block_thread(void *param)
 						yuv[2]-=yuv[0];
 						yuv[0]+=yuv[2]>>1;
 						yuv[1]-=yuv[0];
-						yuv[0]+=yuv[1]>>1;
+						yuv[0]+=LUMA_UPDATE_1(yuv[1], yuv[2]);
+						//yuv[0]+=yuv[1]>>1;
 						break;
 					case RCT_RCT2_120:
 					case RCT_RCT2_201:
@@ -1186,7 +1250,8 @@ static void block_thread(void *param)
 						yuv[2]-=yuv[0];
 						yuv[0]+=yuv[2]>>1;
 						yuv[1]-=yuv[0];
-						yuv[0]+=(2*yuv[1]-yuv[2]+4)>>3;//A710
+						yuv[0]+=LUMA_UPDATE_2(yuv[1], yuv[2]);
+						//yuv[0]+=(2*yuv[1]-yuv[2]+4)>>3;//A710
 						break;
 					case RCT_RCT3_120:
 					case RCT_RCT3_201:
@@ -1200,7 +1265,8 @@ static void block_thread(void *param)
 						yuv[2]-=yuv[0];
 						yuv[0]+=yuv[2]>>1;
 						yuv[1]-=yuv[0];
-						yuv[0]+=(2*yuv[1]+yuv[2]+4)>>3;
+						yuv[0]+=LUMA_UPDATE_3(yuv[1], yuv[2]);
+						//yuv[0]+=(2*yuv[1]+yuv[2]+4)>>3;
 						break;
 					case RCT_RCT4_120:
 					case RCT_RCT4_201:
@@ -1214,7 +1280,8 @@ static void block_thread(void *param)
 						yuv[2]-=yuv[0];
 						yuv[0]+=yuv[2]>>1;
 						yuv[1]-=yuv[0];
-						yuv[0]+=yuv[1]/3;
+						yuv[0]+=LUMA_UPDATE_4(yuv[1], yuv[2]);
+						//yuv[0]+=yuv[1]/3;
 						break;
 					case RCT_RCT5_120:
 					case RCT_RCT5_201:
@@ -1228,7 +1295,8 @@ static void block_thread(void *param)
 						yuv[2]-=yuv[0];
 						yuv[0]+=yuv[2]>>1;
 						yuv[1]-=yuv[0];
-						yuv[0]+=(3*yuv[1]+4)>>3;
+						yuv[0]+=LUMA_UPDATE_5(yuv[1], yuv[2]);
+						//yuv[0]+=(3*yuv[1]+4)>>3;
 						break;
 					case RCT_RCT6_120:
 					case RCT_RCT6_201:
@@ -1242,7 +1310,8 @@ static void block_thread(void *param)
 						yuv[2]-=yuv[0];
 						yuv[0]+=yuv[2]>>1;
 						yuv[1]-=yuv[0];
-						yuv[0]+=(7*yuv[1]+8)>>4;
+						yuv[0]+=LUMA_UPDATE_6(yuv[1], yuv[2]);
+						//yuv[0]+=(7*yuv[1]+8)>>4;
 						break;
 					case RCT_RCT7_120:
 					case RCT_RCT7_201:
@@ -1256,7 +1325,8 @@ static void block_thread(void *param)
 						yuv[2]-=yuv[0];
 						yuv[0]+=yuv[2]>>1;
 						yuv[1]-=yuv[0];
-						yuv[0]+=(10*yuv[1]-yuv[2]+16)>>5;
+						yuv[0]+=LUMA_UPDATE_7(yuv[1], yuv[2]);
+						//yuv[0]+=(10*yuv[1]-yuv[2]+16)>>5;
 						break;
 					case RCT_Pei09_120:
 					case RCT_Pei09_201:
@@ -1465,7 +1535,8 @@ static void block_thread(void *param)
 					case RCT_RCT1_210:
 					case RCT_RCT1_102:
 					case RCT_RCT1_021:
-						yuv[0]-=yuv[1]>>1;
+						yuv[0]-=LUMA_UPDATE_1(yuv[1], yuv[2]);
+						//yuv[0]-=yuv[1]>>1;
 						yuv[1]+=yuv[0];
 						yuv[0]-=yuv[2]>>1;
 						yuv[2]+=yuv[0];
@@ -1479,7 +1550,8 @@ static void block_thread(void *param)
 					case RCT_RCT2_210:
 					case RCT_RCT2_102:
 					case RCT_RCT2_021:
-						yuv[0]-=(2*yuv[1]-yuv[2]+4)>>3;//A710
+						yuv[0]-=LUMA_UPDATE_2(yuv[1], yuv[2]);
+						//yuv[0]-=(2*yuv[1]-yuv[2]+4)>>3;//A710
 						yuv[1]+=yuv[0];
 						yuv[0]-=yuv[2]>>1;
 						yuv[2]+=yuv[0];
@@ -1493,7 +1565,8 @@ static void block_thread(void *param)
 					case RCT_RCT3_210:
 					case RCT_RCT3_102:
 					case RCT_RCT3_021:
-						yuv[0]-=(2*yuv[1]+yuv[2]+4)>>3;
+						yuv[0]-=LUMA_UPDATE_3(yuv[1], yuv[2]);
+						//yuv[0]-=(2*yuv[1]+yuv[2]+4)>>3;
 						yuv[1]+=yuv[0];
 						yuv[0]-=yuv[2]>>1;
 						yuv[2]+=yuv[0];
@@ -1507,7 +1580,8 @@ static void block_thread(void *param)
 					case RCT_RCT4_210:
 					case RCT_RCT4_102:
 					case RCT_RCT4_021:
-						yuv[0]-=yuv[1]/3;
+						yuv[0]-=LUMA_UPDATE_4(yuv[1], yuv[2]);
+						//yuv[0]-=yuv[1]/3;
 						yuv[1]+=yuv[0];
 						yuv[0]-=yuv[2]>>1;
 						yuv[2]+=yuv[0];
@@ -1521,7 +1595,8 @@ static void block_thread(void *param)
 					case RCT_RCT5_210:
 					case RCT_RCT5_102:
 					case RCT_RCT5_021:
-						yuv[0]-=(3*yuv[1]+4)>>3;
+						yuv[0]-=LUMA_UPDATE_5(yuv[1], yuv[2]);
+						//yuv[0]-=(3*yuv[1]+4)>>3;
 						yuv[1]+=yuv[0];
 						yuv[0]-=yuv[2]>>1;
 						yuv[2]+=yuv[0];
@@ -1535,7 +1610,8 @@ static void block_thread(void *param)
 					case RCT_RCT6_210:
 					case RCT_RCT6_102:
 					case RCT_RCT6_021:
-						yuv[0]-=(7*yuv[1]+8)>>4;
+						yuv[0]-=LUMA_UPDATE_6(yuv[1], yuv[2]);
+						//yuv[0]-=(7*yuv[1]+8)>>4;
 						yuv[1]+=yuv[0];
 						yuv[0]-=yuv[2]>>1;
 						yuv[2]+=yuv[0];
@@ -1549,7 +1625,8 @@ static void block_thread(void *param)
 					case RCT_RCT7_210:
 					case RCT_RCT7_102:
 					case RCT_RCT7_021:
-						yuv[0]-=(10*yuv[1]-yuv[2]+16)>>5;
+						yuv[0]-=LUMA_UPDATE_7(yuv[1], yuv[2]);
+						//yuv[0]-=(10*yuv[1]-yuv[2]+16)>>5;
 						yuv[1]+=yuv[0];
 						yuv[0]-=yuv[2]>>1;
 						yuv[2]+=yuv[0];

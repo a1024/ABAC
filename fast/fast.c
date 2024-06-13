@@ -17,7 +17,7 @@ static const char file[]=__FILE__;
 
 typedef struct ThreadArgsStruct
 {
-	ArrayHandle title;
+	ArrayHandle title, ext;
 	Image src, dst;
 	size_t usize, csize1, csize2;
 	double fdec, enc, dec;//time in secs
@@ -55,9 +55,9 @@ static void sample_thread(void *param)
 }
 typedef struct ResultStruct
 {
-	//ptrdiff_t idx;
 	size_t usize, csize1, csize2, error;
 	double fdec, enc, dec;
+	ptrdiff_t idx;
 } Result;
 typedef struct ProcessCtxStruct
 {
@@ -67,19 +67,20 @@ typedef struct ProcessCtxStruct
 } ProcessCtx;
 static double start_time=0, check_time=0;
 static double g_total_usize=0, g_total_csize=0;
-static void print_result(Result *res, const char *title, int width, int print_timestamp)
+static void print_result(Result *res, const char *title, const char *ext, int twidth, int ewidth, int print_timestamp)
 {
 	double
 		CR1=(double)res->usize/res->csize1,
 		CR2=(double)res->usize/res->csize2;
 	g_total_usize+=res->usize;
 	g_total_csize+=res->csize2;
-	printf("%-*s  %10zd  format %10zd %10.6lf%% D %12lf sec %9.4lf MB/s  test %10zd %10.6lf%% E %12lf D %12lf sec %9.4lf MB/s %s",
-		width, title, res->usize,
-		res->csize1, 100./CR1, res->fdec,
-		res->usize/(res->fdec*1024*1024),
-		res->csize2, 100./CR2, res->enc, res->dec,
-		res->usize/(res->dec*1024*1024),
+	printf("%-*s  %10zd  %-*s %10zd %10.6lf%% D %12lf sec %9.4lf MB/s %5td %10zd %10.6lf%% E %12lf D %12lf sec %9.4lf MB/s %s",
+		twidth, title,
+		res->usize,
+		ewidth, ext,
+		res->csize1, 100./CR1, res->fdec, res->usize/(res->fdec*1024*1024),
+		res->idx,
+		res->csize2, 100./CR2, res->enc, res->dec, res->usize/(res->dec*1024*1024),
 		res->error?"ERROR":"OK"
 	);
 	//printf("%-*s  %10zd  format %10zd %10.6lf%% D %12lf sec  test %10zd %10.6lf%% E %12lf D %12lf sec %s  all %10.6lf%%",
@@ -102,7 +103,7 @@ static void print_result(Result *res, const char *title, int width, int print_ti
 	}
 	printf("\n");
 }
-static void process_file(ProcessCtx *ctx, ArrayHandle title, int maxlen, Image *image, size_t csize1, double fdec, ptrdiff_t idx, int nthreads)
+static void process_file(ProcessCtx *ctx, ArrayHandle title, ArrayHandle ext, int twidth, int ewidth, Image *image, size_t csize1, double fdec, ptrdiff_t idx, int nthreads)
 {
 	if(!ctx->nstarted)
 	{
@@ -124,6 +125,7 @@ static void process_file(ProcessCtx *ctx, ArrayHandle title, int maxlen, Image *
 		}
 		memset(threadargs->dst.data, 0, nvals*sizeof(short));
 		threadargs->title=title;
+		threadargs->ext=ext;
 		threadargs->usize=0;
 		threadargs->csize1=csize1;
 		threadargs->csize2=0;
@@ -148,9 +150,10 @@ static void process_file(ProcessCtx *ctx, ArrayHandle title, int maxlen, Image *
 			threadargs->fdec,
 			threadargs->enc,
 			threadargs->dec,
+			threadargs->idx,
 		};
 		ARRAY_APPEND(ctx->results, &result, 1, 1, 0);
-		print_result(&result, (char*)threadargs->title->data, maxlen, 1);
+		print_result(&result, (char*)threadargs->title->data, (char*)threadargs->ext->data, twidth, ewidth, 1);
 
 		array_clear(&ctx->threadargs);
 		ctx->nfinished=ctx->nstarted;
@@ -214,9 +217,10 @@ static void process_file(ProcessCtx *ctx, ArrayHandle title, int maxlen, Image *
 				threadargs->fdec,
 				threadargs->enc,
 				threadargs->dec,
+				threadargs->idx,
 			};
 			ARRAY_APPEND(ctx->results, &result, 1, 1, 0);
-			print_result(&result, (char*)threadargs->title->data, maxlen, k>=n-1);
+			print_result(&result, (char*)threadargs->title->data, (char*)threadargs->ext->data, twidth, ewidth, k>=n-1);
 		}
 
 		array_clear(&ctx->threadargs);
@@ -233,6 +237,12 @@ static void batch_test_mt(const char *path, int nthreads)
 		"bmp",
 		"tif", "tiff",
 	};
+	
+	ArrayHandle filenames, titles, exts;
+	ProcessCtx processctx={0};
+	double t_start;
+	int twidth=6;//"Total:"
+	int ewidth=0;
 
 	if(CODECID>=23)//codecs starting from F23 are multithreaded in shaa Allah
 		nthreads=1;
@@ -241,33 +251,36 @@ static void batch_test_mt(const char *path, int nthreads)
 	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H%M%S");
 	printf("%s\n", g_buf);
 	printf("Multithreaded Batch Test %s  \"%s\"\n", CODECNAME, path);
-	double t_start=time_sec();
-	check_time=start_time=t_start;
-	ArrayHandle filenames=get_filenames(path, ext, _countof(ext), 1);
+	filenames=get_filenames(path, ext, _countof(ext), 1);
 	if(!filenames)
 	{
 		printf("No supported images in \"%s\"\n", path);
 		return;
 	}
-	ArrayHandle titles;
 	ARRAY_ALLOC(ArrayHandle, titles, 0, 0, filenames->count, (void(*)(void*))array_free);
-	int width=6;//"Total:"
+	ARRAY_ALLOC(ArrayHandle, exts, 0, 0, filenames->count, (void(*)(void*))array_free);
 	for(int k=0;k<(int)filenames->count;++k)
 	{
 		ArrayHandle title;
+		ArrayHandle ext;
 		ArrayHandle *fn=(ArrayHandle*)array_at(&filenames, k);
 		int start=0, end=0;
 		get_filetitle((char*)fn[0]->data, (int)fn[0]->count, &start, &end);
 		STR_COPY(title, (char*)fn[0]->data+start, end-start);
-		if(width<(int)title->count)
-			width=(int)title->count;
+		STR_COPY(ext, (char*)fn[0]->data+end, fn[0]->count-end);
 		ARRAY_APPEND(titles, &title, 1, 1, 0);
+		ARRAY_APPEND(exts, &ext, 1, 1, 0);
+		if(twidth<(int)title->count)
+			twidth=(int)title->count;
+		if(ewidth<(int)ext->count)
+			ewidth=(int)ext->count;
 	}
-	ProcessCtx processctx={0};
+	check_time=start_time=t_start=time_sec();
 	for(int k=0;k<(int)filenames->count;++k)
 	{
 		ArrayHandle *fn=(ArrayHandle*)array_at(&filenames, k);
 		ArrayHandle *title=(ArrayHandle*)array_at(&titles, k);
+		ArrayHandle *ext2=(ArrayHandle*)array_at(&exts, k);
 
 		ptrdiff_t formatsize=get_filesize((char*)fn[0]->data);
 		if(!formatsize||formatsize==-1)//skip non-images, this check is useless because get_filenames() has already filtered the list
@@ -282,10 +295,10 @@ static void batch_test_mt(const char *path, int nthreads)
 			printf("Cannot open \"%s\"\n", fn[0]->data);
 			continue;
 		}
-		process_file(&processctx, *title, width, &image, formatsize, t, k, nthreads);
+		process_file(&processctx, *title, *ext2, twidth, ewidth, &image, formatsize, t, k, nthreads);
 		//printf("");
 	}
-	process_file(&processctx, 0, width, 0, 0, 0, 0, 0);//set nthreads=0 to flush queued images
+	process_file(&processctx, 0, 0, twidth, ewidth, 0, 0, 0, 0, 0);//set nthreads=0 to flush queued images
 	if(processctx.results)
 	{
 		Result total={0};
@@ -300,9 +313,10 @@ static void batch_test_mt(const char *path, int nthreads)
 			total.fdec+=result->fdec;
 			total.enc+=result->enc;
 			total.dec+=result->dec;
+			total.idx=result->idx;
 		}
 		printf("\n");
-		print_result(&total, "Total:", width, 2);
+		print_result(&total, "Total:", "", twidth, ewidth, 2);
 		array_free(&processctx.results);
 	}
 #if CODECID==24
@@ -381,6 +395,8 @@ int main(int argc, char **argv)
 	//	"C:/dataset-LPCB-ppm/STA13456.ppm"	//uncorrelated channels
 	//	"C:/dataset-LPCB-ppm/STA13844.ppm"	//space gas clouds, 6800^2
 	//	"D:/ML/dataset-RAW/a0001-jmac_DSC1459.dng"
+	//	"D:/ML/dataset-CID22-ppm/pexels-photo-2802032.PPM"
+	//	"D:/ML/dataset-CID22-ppm"
 	//	"D:/ML/dataset-kodak-small"
 
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
