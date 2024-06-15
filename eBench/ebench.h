@@ -1,6 +1,6 @@
 #pragma once
-#ifndef INC_PXVIEW3D_H
-#define INC_PXVIEW3D_H
+#ifndef INC_EBENCH_H
+#define INC_EBENCH_H
 #include"util.h"
 #define WIN32_LEAN_AND_MEAN
 #include<Windows.h>
@@ -934,4 +934,4 @@ void calc_csize_abac(Image const *src, double *entropy);
 #ifdef __cplusplus
 }
 #endif
-#endif//INC_PXVIEW3D_H
+#endif//INC_EBENCH_H
