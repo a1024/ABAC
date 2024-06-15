@@ -25,7 +25,7 @@ static void calc_ctx_512(const __m512i *N, const __m512i *W, const __m512i *NW, 
 {
 	//pred = median3(N, W, N+W-NW)
 	//mag = eW
-	//mag = FLOOR_LOG2_P1(mag+1)
+	//mag = FLOOR_LOG2(mag+1)
 	__m512i mmin=_mm512_min_epi32(*N, *W);
 	__m512i mmax=_mm512_max_epi32(*N, *W);
 	*pred=_mm512_add_epi32(*N, *W);
@@ -41,7 +41,7 @@ static void calc_ctx_512(const __m512i *N, const __m512i *W, const __m512i *NW, 
 static void pack_sign_512(__m512i *data)
 {
 	//x = curr-pred
-	//x = x<<1^-(x<0)
+	//x = x<<1 ^ x>>31
 	__m512i negmask=_mm512_srai_epi32(*data, 31);
 	*data=_mm512_slli_epi32(*data, 1);
 	*data=_mm512_xor_si512(*data, negmask);
@@ -63,9 +63,9 @@ static void calc_update_512(const __m512i *eW, const __m512i *eNEEE, __m512i *ec
 #endif
 static void calc_ctx_256x2(const __m256i *N, const __m256i *W, const __m256i *NW, const __m256i *eW, const __m256i *mminmag, __m256i *pred, __m256i *mag)
 {
-	//pred = median3(N, W, N+W-NW)
+	//pred = median(N, W, N+W-NW)
 	//mag = eW
-	//mag = FLOOR_LOG2_P1(PACK_SIGN(mag)+1)
+	//mag = FLOOR_LOG2(PACK_SIGN(mag)+1)
 	__m256i mmin0=_mm256_min_epi32(N[0], W[0]);
 	__m256i mmin1=_mm256_min_epi32(N[1], W[1]);
 	__m256i mmax0=_mm256_max_epi32(N[0], W[0]);
@@ -87,7 +87,7 @@ static void calc_ctx_256x2(const __m256i *N, const __m256i *W, const __m256i *NW
 static void pack_sign_256x2(__m256i *data)
 {
 	//x = curr-pred
-	//x = x<<1^-(x<0)
+	//x = x<<1 ^ x>>31
 	__m256i negmask[]=
 	{
 		_mm256_srai_epi32(data[0], 31),

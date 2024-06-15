@@ -12,7 +12,7 @@ static const char file[]=__FILE__;
 
 //	#define ENABLE_GUIDE
 //	#define DISABLE_MT
-//	#define ENABLE_CURIOSITY
+	#define ENABLE_CURIOSITY
 
 //	#define WG_T47
 //	#define WG_UPDATE//horrible
@@ -30,8 +30,8 @@ static const Image *guide=0;
 //Cb-=y		Cb = [-1/2	-1/2	1].RGB
 	#define LUMA_UPDATE_1(Cb, Cr) ((Cb)>>1)			//RCT1	y = [1/4	1/4	 1/2].RGB
 	#define LUMA_UPDATE_2(Cb, Cr) ((2*(Cb)-(Cr)+4)>>3)	//RCT2	y = [1/4	1/2	 1/4].RGB
-//	#define LUMA_UPDATE_3(Cb, Cr) ((2*(Cb)+(Cr)+4)>>3)	//RCT3a	y = [1/2	1/4	 1/4].RGB	never used
-	#define LUMA_UPDATE_3(Cb, Cr) (((Cb)+(Cr)+2)>>2)	//RCT3b	y = [5/8	1/8	 1/4].RGB
+	#define LUMA_UPDATE_3(Cb, Cr) ((2*(Cb)+(Cr)+4)>>3)	//RCT3a	y = [1/2	1/4	 1/4].RGB	never used
+//	#define LUMA_UPDATE_3(Cb, Cr) (((Cb)+(Cr)+2)>>2)	//RCT3b	y = [5/8	1/8	 1/4].RGB
 	#define LUMA_UPDATE_4(Cb, Cr) ((Cb)/3)			//RCT4	y = [1/3	1/3	 1/3].RGB
 	#define LUMA_UPDATE_5(Cb, Cr) ((3*(Cb)+4)>>3)		//RCT5	y = [5/16	5/16	 6/16].RGB
 	#define LUMA_UPDATE_6(Cb, Cr) ((7*(Cb)+8)>>4)		//RCT6	y = [9/32	9/32	14/32].RGB
@@ -391,6 +391,22 @@ static const char *pred_names[PRED_COUNT]=
 #define WG_DECAY_SH	9
 
 #if 1
+#define WG_NPREDS	11
+#define WG_PREDLIST\
+	WG_PRED(132, N+W-NW)\
+	WG_PRED(176, N+W-NW+((eN+eW-eNW+16)>>5))\
+	WG_PRED(176, N+eN)\
+	WG_PRED(100, N)\
+	WG_PRED(176, W+eW)\
+	WG_PRED(100, W)\
+	WG_PRED(165, W+NE-N)\
+	WG_PRED(220, N+NE-NNE)\
+	WG_PRED(165, 3*(N-NN)+NNN)\
+	WG_PRED(165, 3*(W-WW)+WWW)\
+	WG_PRED(176, (W+NEEE)/2)
+//	WG_PRED(  0, N+NE-NNE+((eN+eNE-eNNE)>>2))
+#endif
+#if 0
 #define WG_NPREDS	13
 #define WG_PREDLIST\
 	WG_PRED(132, N+W-NW)\
@@ -1366,8 +1382,8 @@ static void block_thread(void *param)
 				int
 					vx=(abs(W[kc2]-WW[kc2])+abs(N[kc2]-NW[kc2])+abs(NE[kc2]-N[kc2])+abs(WW[kc2+1]+W[kc2+1]))<<8>>depths[ch],
 					vy=(abs(W[kc2]-NW[kc2])+abs(N[kc2]-NN[kc2])+abs(NE[kc2]-NNE[kc2])+abs(NN[kc2+1]+N[kc2+1]))<<8>>depths[ch];
-				int qeN=FLOOR_LOG2_P1(vy);
-				int qeW=FLOOR_LOG2_P1(vx);
+				int qeN=FLOOR_LOG2(vy+1);
+				int qeW=FLOOR_LOG2(vx+1);
 				int cidx=cdfstride*(nctx*kc+args->clevels*MINVAR(qeN, 8)+MINVAR(qeW, 8));
 				int *curr_hist=args->hist+cidx;
 				unsigned *curr_CDF=args->stats+cidx;

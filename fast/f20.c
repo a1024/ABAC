@@ -26,7 +26,7 @@ static const Image *guide=0;
 #endif
 static void calc_ctx(const __m128i *N, const __m128i *W, const __m128i *NW, const __m128i *eN, const __m128i *eW, const __m128i *eNE, const __m128i *eNW, const __m128i *mminmag, __m128i *pred, __m128i *mag)
 {
-	//pred = median3(N, W, N+W-NW)
+	//pred = median(N, W, N+W-NW)
 	//mag = eW
 	__m128i mmin=_mm_min_epi32(*N, *W);
 	__m128i mmax=_mm_max_epi32(*N, *W);
@@ -48,7 +48,7 @@ static void calc_ctx(const __m128i *N, const __m128i *W, const __m128i *NW, cons
 static void pack_sign(__m128i *data)
 {
 	//x = curr-pred
-	//x = x<<1^-(x<0)
+	//x = x<<1 ^ x>>31
 	__m128i negmask=_mm_cmpgt_epi32(_mm_setzero_si128(), *data);
 	*data=_mm_slli_epi32(*data, 1);
 	*data=_mm_xor_si128(*data, negmask);

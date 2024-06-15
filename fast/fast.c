@@ -79,7 +79,7 @@ static void print_result(Result *res, const char *title, const char *ext, int tw
 		res->usize,
 		ewidth, ext,
 		res->csize1, 100./CR1, res->fdec, res->usize/(res->fdec*1024*1024),
-		res->idx,
+		res->idx+1,
 		res->csize2, 100./CR2, res->enc, res->dec, res->usize/(res->dec*1024*1024),
 		res->error?"ERROR":"OK"
 	);
