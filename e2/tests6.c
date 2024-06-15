@@ -1944,7 +1944,12 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 	qy=CLAMP(0, qy, pr->ytextures-1);
 	pr->txid=pr->xtextures*qy+qx;
 #else
-	int qx=QUANTIZE_HIST((dx+abs(eW+eWW))>>(sh-2)), qy=QUANTIZE_HIST((dy+abs(eN+eNN))>>(sh-2));
+	//int qx=QUANTIZE_HIST((dx+abs(eW+eWW))>>(sh-2)), qy=QUANTIZE_HIST((dy+abs(eN+eNN))>>(sh-2));
+	int qx=(dx+abs(eW+eWW))>>(sh-2), qy=(dy+abs(eN+eNN))>>(sh-2);
+	//if(pr->ky==10&&kx==10)//
+	//	printf("");
+	qx=FLOOR_LOG2_P1(qx);
+	qy=FLOOR_LOG2_P1(qy);
 	qx=CLAMP(0, qx, pr->nhist-1);
 	qy=CLAMP(0, qy, pr->nhist-1);
 	pr->hist_idx=pr->nhist*qy+qx;
@@ -2375,29 +2380,32 @@ static void slic5_update(SLIC5Ctx *pr, int curr, int token)
 
 	//update WP errors
 	int error=curr-(int)pr->pred;
+
 	LOAD(pr->errors, 0, 0)=error;
-	int errors[SLIC5_NPREDS]={0}, kbest=0;
+	int ebest=0, kbest=0;
 	for(int k=0;k<SLIC5_NPREDS;++k)
 	{
-		errors[k]=abs(curr-pr->preds[k]);
-		LOAD_PRED_ERROR(kc, 0, 0, k)=errors[k];
+		int e2=abs(curr-pr->preds[k]);
+		LOAD_PRED_ERROR(kc, 0, 0, k)=e2;
 		if(pr->ky&&pr->kx+1<pr->iw)
-			LOAD_PRED_ERROR(kc, -1, 1, k)+=errors[k];//eNE += ecurr
-		if(errors[kbest]>errors[k])
-			kbest=k;
+			LOAD_PRED_ERROR(kc, -1, 1, k)+=e2;//eNE += ecurr
+		if(!k||ebest>e2)
+			ebest=e2, kbest=k;
 
-		pr->pred_error_sums[k]+=errors[k];
+		pr->pred_error_sums[k]+=e2;
 	}
 	PROF(UPDATE_ERRORS);
 
 	//update WP weights
+#if 1
 	++pr->params[kbest<<2|kc];
-	//if(pr->params[kbest<<2|kc]>(12<<pr->depths[kc]))
+	//if(pr->params[kbest<<2|kc]>(12<<pr->depths[kc]))//X
 	if(pr->params[kbest<<2|kc]>352)
 	{
 		for(int k=0;k<SLIC5_NPREDS;++k)
 			pr->params[k<<2|kc]>>=1;
 	}
+#endif
 	PROF(UPDATE_WP);
 	
 #ifdef ENABLE_CUSTOM1
@@ -3808,7 +3816,7 @@ static void rct_inv(int *p, RCTType rct)
 #undef  N2L
 #undef  L2N
 #endif
-RCTType rct_select_best(Image const *src, double *ret_csizes)
+static RCTType rct_select_best(Image const *src, double *ret_csizes)
 {
 	int inflation[]={1, 1, 1, 0};
 	int maxdepth=calc_maxdepth(src, inflation), maxlevels=1<<maxdepth;
