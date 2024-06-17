@@ -244,7 +244,7 @@ static void process_sample(void *param)
 	{
 		char depths[4]={0};
 		memfill(depths, &args->depth, sizeof(char)*args->nch, sizeof(char));
-		lsim_writeheader(&args->cdata, args->iw, args->ih, args->nch, depths, args->codecid);
+		lsim_writeheader(&args->cdata, args->iw, args->ih, args->nch, depths, codecIDs[args->codecid]);
 		_8bit_codec=codec_is_8bit(args->codecid);
 	}
 
@@ -600,6 +600,7 @@ static void encode_one_file(const char *srcfn, const char *dstfn)
 	
 	printf("Testing  \"%s\"\n", srcfn);
 
+	arg.dstfn=dstfn;
 	arg.mode=MODE_ENC;
 	arg.loud=1;
 	arg.codecid=codecid;
