@@ -205,3 +205,53 @@ void colortransform_YCbCr_R_v0_inv(char *buf, int iw, int ih)
 		buf[k|2]=b;
 	}
 }
+void colortransform_subgreen_fwd(char *buf, int iw, int ih)
+{
+	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
+	{
+		char r=buf[k], g=buf[k|1], b=buf[k|2];
+
+		r-=g;
+		b-=g;
+
+		buf[k  ]=g;//luma
+		buf[k|1]=b;
+		buf[k|2]=r;
+	}
+}
+void colortransform_subgreen_inv(char *buf, int iw, int ih)
+{
+	for(ptrdiff_t k=0, len=(ptrdiff_t)iw*ih*4;k<len;k+=4)
+	{
+		char g=buf[k], b=buf[k|1], r=buf[k|2];
+		
+		r+=g;
+		b+=g;
+
+		buf[k  ]=r;
+		buf[k|1]=g;
+		buf[k|2]=b;
+	}
+}
+
+void pack3_fwd(char *buf, int res)
+{
+	for(int k=1, idx=3;k<res;++k, idx+=3)
+	{
+		char r=buf[k<<2|0], g=buf[k<<2|1], b=buf[k<<2|2];
+		buf[idx+0]=r;
+		buf[idx+1]=g;
+		buf[idx+2]=b;
+	}
+}
+void pack3_inv(char *buf, int res)
+{
+	for(int k=res-1, idx=3*(res-1);k>0;--k, idx-=3)
+	{
+		char r=buf[idx+0], g=buf[idx+1], b=buf[idx+2];
+		buf[k<<2|0]=r;
+		buf[k<<2|1]=g;
+		buf[k<<2|2]=b;
+		buf[k<<2|3]=(char)-1;
+	}
+}

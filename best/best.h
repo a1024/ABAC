@@ -54,6 +54,11 @@ void colortransform_JPEG2000_fwd(char *buf, int iw, int ih);
 void colortransform_JPEG2000_inv(char *buf, int iw, int ih);
 void colortransform_YCbCr_R_v0_fwd(char *buf, int iw, int ih);
 void colortransform_YCbCr_R_v0_inv(char *buf, int iw, int ih);
+void colortransform_subgreen_fwd(char *buf, int iw, int ih);
+void colortransform_subgreen_inv(char *buf, int iw, int ih);
+
+void pack3_fwd(char *buf, int res);
+void pack3_inv(char *buf, int res);
 
 //T39 ABAC
 int t39_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);
@@ -62,6 +67,10 @@ int t39_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 //T42 ABAC
 int t42_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);
 int t42_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
+
+//T44 paq8px ported to C
+int t44_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);
+int t44_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigned char *buf, int loud);
 
 //T45 CALIC
 int t45_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud);

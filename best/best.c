@@ -8,7 +8,8 @@ static const char file[]=__FILE__;
 
 #define CODECLIST\
 	CODEC(   39, T39, "T39: 8-bit only, very efficient/slow, ABAC")\
-	CODEC(   42, T42, "T42: 8-bit only, most efficient/slow, ABAC")\
+	CODEC(   42, T42, "T42: 8-bit only, very efficient/slow, ABAC")\
+	CODEC(   44, T44, "T44: 8-bit only, most efficient/slowest, paq8px ported to C")\
 	CODEC(   45, T45, "T45: 8-bit only, kind of efficient/fast, CALIC clone, supports color, fast, AC")\
 	CODEC(   46, T46, "T46: [8~16] bit, moderate efficiency/speed, ANS")\
 	CODEC(   47, T47, "T47: [8~16] bit, moderate efficiency/speed, AC")\
@@ -75,6 +76,7 @@ static int encode(const Image *src, const unsigned char *src8, int iw, int ih, A
 	{
 	case CODEC_T39:return t39_encode(src8, iw, ih, cdata, loud);
 	case CODEC_T42:return t42_encode(src8, iw, ih, cdata, loud);
+	case CODEC_T44:return t44_encode(src8, iw, ih, cdata, loud);
 	case CODEC_T45:return t45_encode(src8, iw, ih, cdata, loud);
 	case CODEC_T46:return t46_encode(src, cdata, loud);
 	case CODEC_T47:return t47_encode(src, cdata, loud);
@@ -91,6 +93,7 @@ static int decode(const unsigned char *cdata, size_t clen, int iw, int ih, unsig
 	{
 	case CODEC_T39:return t39_decode(cdata, clen, iw, ih, dst8, loud);
 	case CODEC_T42:return t42_decode(cdata, clen, iw, ih, dst8, loud);
+	case CODEC_T44:return t44_decode(cdata, clen, iw, ih, dst8, loud);
 	case CODEC_T45:return t45_decode(cdata, clen, iw, ih, dst8, loud);
 	case CODEC_T46:return t46_decode(cdata, clen, dst, loud);
 	case CODEC_T47:return t47_decode(cdata, clen, dst, loud);
@@ -103,7 +106,7 @@ static int decode(const unsigned char *cdata, size_t clen, int iw, int ih, unsig
 }
 static int codec_is_8bit(int codecid)
 {
-	return codecid==CODEC_T39||codecid==CODEC_T42||codecid==CODEC_T45;
+	return codecid==CODEC_T39||codecid==CODEC_T42||codecid==CODEC_T44||codecid==CODEC_T45;
 }
 
 typedef enum CodecModeEnum
@@ -219,6 +222,7 @@ static void process_sample(void *param)
 				return;
 			}
 			memset(args->dst8, 0, args->usize);
+			args->usize=(ptrdiff_t)args->nch*args->iw*args->ih;
 		}
 		else
 		{

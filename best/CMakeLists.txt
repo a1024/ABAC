@@ -8,6 +8,7 @@ add_executable(best
 	lodepng.c
 	t39.c
 	t42.c
+	t44_paq8pxd.c
 	t45_calic.c
 	t46_slic4.c
 	t47_slic5.c
