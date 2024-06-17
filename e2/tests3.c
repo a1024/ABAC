@@ -11,7 +11,7 @@ static const char file[]=__FILE__;
 #endif
 
 
-//T44 Secondary Symbol Estimation from paq8pxd
+//T44	paq8pxd ported to C
 
 #define T44_RCT 7
 
