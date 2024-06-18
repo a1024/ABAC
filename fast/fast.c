@@ -164,47 +164,7 @@ static void process_file(ProcessCtx *ctx, ArrayHandle title, ArrayHandle ext, in
 
 		void *hthreads=mt_exec(sample_thread, ctx->threadargs->data, (int)ctx->threadargs->esize, (int)ctx->threadargs->count);
 		mt_finish(hthreads);
-#if 0
-		ArrayHandle handles;
-#ifdef _MSC_VER
-		ARRAY_ALLOC(HANDLE, handles, 0, n, 0, 0);
-		for(int k=0;k<n;++k)
-		{
-			HANDLE *h=(HANDLE*)array_at(&handles, k);
-			ThreadArgs *threadargs=(ThreadArgs*)array_at(&ctx->threadargs, k);
-			*h=(void*)_beginthreadex(0, 0, sample_thread, threadargs, 0, 0);
-			if(!*h)
-			{
-				LOG_ERROR("Alloc error");
-				return;
-			}
-		}
-		WaitForMultipleObjects(n, (HANDLE*)handles->data, TRUE, INFINITE);
-		for(int k=0;k<n;++k)
-		{
-			HANDLE *h=(HANDLE*)array_at(&handles, k);
-			CloseHandle(*h);
-		}
-#else
-		ARRAY_ALLOC(pthread_t, handles, 0, n, 0, 0);
-		for(int k=0;k<n;++k)
-		{
-			pthread_t *h=(pthread_t*)array_at(&handles, k);
-			ThreadArgs *threadargs=(ThreadArgs*)array_at(&ctx->threadargs, k);
-			int error=pthread_create(h, 0, sample_thread, threadargs);
-			if(error)
-			{
-				LOG_ERROR("Alloc error");
-				return;
-			}
-		}
-		for(int k=0;k<n;++k)
-		{
-			pthread_t *h=(pthread_t*)array_at(&handles, k);
-			pthread_join(*h, 0);
-		}
-#endif
-#endif
+
 		for(int k=0;k<n;++k)
 		{
 			ThreadArgs *threadargs=(ThreadArgs*)array_at(&ctx->threadargs, k);
@@ -354,7 +314,7 @@ int main(int argc, char **argv)
 		return 0;
 	}
 #endif
-	printf("FastEntropy\n\n");
+	//printf("FastEntropy\n\n");
 #ifndef _DEBUG
 //#if 0
 	if((unsigned)(argc-2)>1)
@@ -377,7 +337,7 @@ int main(int argc, char **argv)
 	//	"D:/ML/big_building.LSIM.PPM"
 		;
 	const char *fn=
-		"D:/ML/dataset-kodak-ppm/kodim13.ppm"
+	//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
 	//	"D:/ML/dataset-kodak-ppm/kodim20.ppm"
 	//	"D:/ML/dataset-kodak/kodim13.png"
 	//	"D:/ML/big_building.PPM"
@@ -399,7 +359,7 @@ int main(int argc, char **argv)
 	//	"D:/ML/dataset-CID22-ppm"
 	//	"D:/ML/dataset-kodak-small"
 
-	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
+		"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim24.ppm"	//borderless
 	//	"C:/Projects/datasets/dataset-kodak-pgm/kodim13.pgm"
 	//	"C:/Projects/datasets/dataset-kodak/kodim13.png"
@@ -436,10 +396,12 @@ int main(int argc, char **argv)
 				
 				ArrayHandle cdata=0;
 				lsim_writeheader(&cdata, src.iw, src.ih, src.nch, src.depth, CODECID);
-				ENCODE(&src, &cdata, 1);
+				ENCODE(&src, &cdata, 0);
 				{
 					int success=save_file(arg2, cdata->data, cdata->count, 1);
-					printf("%s\n", success?"Saved.":"Failed to save.");
+					if(!success)
+						printf("Failed to save\n");
+					//printf("%s\n", success?"Saved.":"Failed to save.");
 				}
 
 				array_free(&cdata);
@@ -461,7 +423,7 @@ int main(int argc, char **argv)
 				idx=lsim_readheader(cdata->data, cdata->count, &header);
 				image_from_lsimheader(&dst, &header);
 
-				e=DECODE(cdata->data+idx, cdata->count-idx, &dst, 1);
+				e=DECODE(cdata->data+idx, cdata->count-idx, &dst, 0);
 				array_free(&cdata);
 				if(e)
 				{
@@ -472,7 +434,9 @@ int main(int argc, char **argv)
 					success=image_save_native(arg2, &dst);
 				else
 					success=image_save_ppm(arg2, &dst);
-				printf("%s\n", success?"Saved.":"Failed to save.");
+				if(!success)
+					printf("Failed to save\n");
+				//printf("%s\n", success?"Saved.":"Failed to save.");
 				image_clear(&dst);
 				return 0;
 			}

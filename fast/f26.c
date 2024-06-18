@@ -12,7 +12,7 @@ static const char file[]=__FILE__;
 
 //	#define ENABLE_GUIDE
 //	#define DISABLE_MT
-	#define ENABLE_CURIOSITY
+//	#define ENABLE_CURIOSITY
 
 //	#define WG_T47
 //	#define WG_UPDATE//horrible
