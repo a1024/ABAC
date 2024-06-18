@@ -10,11 +10,11 @@ WARN = -Wall -Wextra -Wcast-qual -Wcast-align -Wstrict-aliasing -Wpointer-arith 
 WARN_CLANG = -Wno-cast-align
 
 build:
-	g++ -O3 $(WARN) -mavx2 -mbmi -mlzcnt $(SRC) -o fast
+	g++ -O3 $(WARN) -mavx2 -mbmi -mlzcnt $(SRC) -o fast -static
 debug:
-	g++ -g $(WARN) -mavx2 -mbmi -mlzcnt $(SRC) -o fast-debug
+	g++ -g $(WARN) -mavx2 -mbmi -mlzcnt $(SRC) -o fast-debug -static
 avx512:
-	g++ -O3 $(WARN) -mavx512f -mavx512cd -mbmi -mlzcnt $(SRC) -o fast
+	g++ -O3 $(WARN) -mavx512f -mavx512cd -mbmi -mlzcnt $(SRC) -o fast -static
 
 use-clang-avx512:
-	clang++ -O3 $(WARN) $(WARN_CLANG) -mavx512f -mavx512cd -mbmi -mlzcnt $(SRC) -o fast
+	clang++ -O3 $(WARN) $(WARN_CLANG) -mavx512f -mavx512cd -mbmi -mlzcnt $(SRC) -o fast -static
