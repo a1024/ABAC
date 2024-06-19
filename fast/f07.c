@@ -103,7 +103,7 @@ static void update_CDFs(unsigned char *val, unsigned short *stats, int *ctx)
 		unsigned short *curr_CDF=stats+ctx[kc];
 #if 0
 		for(int ks=0;ks<256;++ks)
-			curr_CDF[ks]+=((0xFF00&-(ks>val[kc]))+ks-curr_CDF[ks])>>RATE_SR;
+			curr_CDF[ks]+=(int)((0xFF00&-(ks>val[kc]))+ks-curr_CDF[ks])>>RATE_SR;
 #else
 		__m256i sym=_mm256_set1_epi16(val[kc]);
 		__m256i r0=_mm256_set_epi16(15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0);

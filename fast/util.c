@@ -1209,7 +1209,7 @@ static void array_realloc(ArrayHandle *arr, size_t count, size_t pad)//CANNOT be
 		void *p2=realloc(*arr, sizeof(ArrayHeader)+newcap);
 		if(!p2)
 		{
-			LOG_ERROR("Alloc error");
+			LOG_ERROR("Alloc error %016llX", sizeof(ArrayHeader)+newcap);
 			return;
 		}
 		*arr=(ArrayHandle)p2;

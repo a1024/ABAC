@@ -49,7 +49,7 @@ void acval_enc(int sym, int cdf, int freq, unsigned long long lo1, unsigned long
 }
 void acval_print(int idx, ACVAL const *p, int dec)
 {
-	printf("%9d sym %03X cdf %04X freq %04X range %012llX~%012llX:%012llX->%012llX~%012llX:%012llX",
+	printf("%9d sym %03X cdf %08X freq %08X range %012llX~%012llX:%012llX->%012llX~%012llX:%012llX",
 		idx, p->sym, p->cdf, p->freq, p->lo1, p->hi1, p->hi1-p->lo1, p->lo2, p->hi2, p->hi2-p->lo2
 	);
 	//printf("%9d sym %03X cdf %04X freq %04X range %012llX~%012llX:%012llX->%012llX~%012llX:%012llX cache %016llX nbits %2d",
@@ -198,7 +198,7 @@ void debug_dec_update(unsigned state, unsigned cdf, int freq, int kx, int ky, in
 #endif
 
 
-//arithmetic coder
+//arithmetic coder (carryless)
 #define PROB_BITS 16//can't be changed
 #ifdef EC_USE_ARRAY
 typedef ArrayHandle EC_DSTStructure;
@@ -1176,6 +1176,176 @@ INLINE int ac_dec_bin(ArithmeticCoder *ec, unsigned short p0)//binary AC decoder
 	while(ec->range<(1LL<<PROB_BITS))
 		ac_dec_renorm(ec);
 	return bit;
+}
+
+
+//arithmetic coder from paq8px
+#define AC2_PROB_BITS 24
+typedef struct _AC2
+{
+	unsigned x1, x2, pending_bits, code;
+	unsigned char cache, nbits;//enc: number of written bits	dec: number of remaining bits
+	DList *dst;
+	const unsigned char *srcptr, *srcend;
+} AC2;
+INLINE void ac2_bitwrite(AC2 *ec, int bit)
+{
+	ec->cache=ec->cache<<1|bit;
+	++ec->nbits;
+	if(ec->nbits==8)
+	{
+		dlist_push_back1(ec->dst, &ec->cache);
+		ec->cache=0;
+		ec->nbits=0;
+	}
+}
+INLINE void ac2_bitwrite_withpending(AC2 *ec, int bit)
+{
+	ac2_bitwrite(ec, bit);
+	bit^=1;
+	while(ec->pending_bits)
+	{
+		ac2_bitwrite(ec, bit);
+		--ec->pending_bits;
+	}
+}
+INLINE int ac2_bitread(AC2 *ec)
+{
+	if(!ec->nbits)
+	{
+		ec->cache=ec->srcptr<ec->srcend?*ec->srcptr++:0;
+		ec->nbits=8;
+	}
+	--ec->nbits;
+	return ec->cache>>ec->nbits&1;
+}
+INLINE void ac2_enc_init(AC2 *ec, EC_DSTStructure *dst)
+{
+	memset(ec, 0, sizeof(*ec));
+	ec->x1=0;
+	ec->x2=~0;
+	ec->dst=dst;
+}
+INLINE void ac2_dec_init(AC2 *ec, const unsigned char *start, unsigned const char *end)
+{
+	memset(ec, 0, sizeof(*ec));
+	ec->x1=0;
+	ec->x2=~0;
+	ec->srcptr=start;
+	ec->srcend=end;
+	for(int k=0;k<32;++k)
+		ec->code=ec->code<<1|ac2_bitread(ec);
+}
+INLINE void ac2_enc_flush(AC2 *ec)
+{
+	do
+	{
+		ac2_bitwrite_withpending(ec, ec->x1>>31);
+		ec->x1<<=1;
+	}while(ec->nbits||ec->x1);//while(ec->nbits);
+}
+INLINE void ac2_enc_renorm(AC2 *ec)
+{
+	while(!((ec->x1^ec->x2)>>31))
+	{
+		ac2_bitwrite_withpending(ec, ec->x1>>31);
+		ec->x1<<=1;
+		ec->x2=ec->x2<<1|1;
+	}
+	//while(ec->x1+(1<<AC2_PROB_BITS)>ec->x2)
+	while(ec->x1>=0x40000000&&ec->x2<0xC0000000)
+	{
+		++ec->pending_bits;
+		ec->x1=ec->x1<<1&0x7FFFFFFF;
+		ec->x2=ec->x2<<1|0x80000001;
+	}
+#ifdef AC_VALIDATE
+	if(ec->x1>=ec->x2)
+		LOG_ERROR("");
+#endif
+}
+INLINE void ac2_dec_renorm(AC2 *ec)
+{
+	while(!((ec->x1^ec->x2)>>31))
+	{
+		ec->x1<<=1;
+		ec->x2=ec->x2<<1|1;
+		ec->code=(ec->code<<1)|ac2_bitread(ec);
+	}
+	//while(ec->x1+(1<<AC2_PROB_BITS)>ec->x2)
+	while(ec->x1>=0x40000000&&ec->x2<0xC0000000)
+	{
+		ec->x1=ec->x1<<1&0x7FFFFFFF;
+		ec->x2=ec->x2<<1|0x80000001;
+		ec->code=(ec->code<<1^0x80000000)+ac2_bitread(ec);
+	}
+#ifdef AC_VALIDATE
+	if(ec->x1>=ec->x2)
+		LOG_ERROR("");
+#endif
+}
+
+INLINE void ac2_enc_update(AC2 *ec, unsigned cdf_curr, unsigned cdf_next)
+{
+	unsigned range, x1, x2;
+
+	range=ec->x2-ec->x1;
+	x1=ec->x1+(unsigned)((unsigned long long)range*cdf_curr>>AC2_PROB_BITS);
+	x2=ec->x1+(unsigned)((unsigned long long)range*cdf_next>>AC2_PROB_BITS)-1;//must decrement hi because decoder fails when code == hi2
+	ec->x1=x1;
+	ec->x2=x2;
+	ac2_enc_renorm(ec);
+	acval_enc(0, cdf_curr, cdf_next-cdf_curr, x1, x2, ec->x1, ec->x2, 0, 0);
+}
+INLINE unsigned ac2_dec_getcdf(AC2 *ec)
+{
+	//unsigned range=ec->x2-ec->x1;
+	//unsigned cdf=(unsigned)((((unsigned long long)(ec->code-ec->x1)<<AC2_PROB_BITS)+range-1)/range);
+	unsigned cdf=(unsigned)(((unsigned long long)(ec->code-ec->x1)<<AC2_PROB_BITS|((1LL<<AC2_PROB_BITS)-1))/(ec->x2-ec->x1));
+	return cdf;
+}
+INLINE void ac2_dec_update(AC2 *ec, unsigned cdf_curr, unsigned cdf_next)
+{
+	unsigned range, x1, x2;
+
+	range=ec->x2-ec->x1;
+	x1=ec->x1+(unsigned)((unsigned long long)range*cdf_curr>>AC2_PROB_BITS);
+	x2=ec->x1+(unsigned)((unsigned long long)range*cdf_next>>AC2_PROB_BITS)-1;//must decrement hi because decoder fails when code == hi2
+	ec->x1=x1;
+	ec->x2=x2;
+	ac2_dec_renorm(ec);
+	acval_dec(0, cdf_curr, cdf_next-cdf_curr, x1, x2, ec->x1, ec->x2, 0, 0, ec->code);
+}
+INLINE void ac2_enc_bypass(AC2 *ec, unsigned sym, int nbits)
+{
+	unsigned range, x1, x2;
+	unsigned cdf_curr=(unsigned)((unsigned long long)(sym+0)<<AC2_PROB_BITS>>nbits);
+	unsigned cdf_next=(unsigned)((unsigned long long)(sym+1)<<AC2_PROB_BITS>>nbits);
+
+	range=ec->x2-ec->x1;
+	x1=ec->x1+(unsigned)((unsigned long long)range*cdf_curr>>AC2_PROB_BITS);
+	x2=ec->x1+(unsigned)((unsigned long long)range*cdf_next>>AC2_PROB_BITS)-1;
+	ec->x1=x1;
+	ec->x2=x2;
+	ac2_enc_renorm(ec);
+	acval_enc(0, cdf_curr, cdf_next-cdf_curr, x1, x2, ec->x1, ec->x2, 0, 0);
+}
+INLINE unsigned ac2_dec_bypass(AC2 *ec, int nbits)
+{
+	unsigned range, x1, x2;
+	unsigned cdf=ac2_dec_getcdf(ec);
+	unsigned sym=(unsigned)((unsigned long long)cdf<<nbits>>AC2_PROB_BITS);
+	unsigned cdf_curr=(unsigned)((unsigned long long)(sym+0)<<AC2_PROB_BITS>>nbits);
+	unsigned cdf_next=(unsigned)((unsigned long long)(sym+1)<<AC2_PROB_BITS>>nbits);
+
+	range=ec->x2-ec->x1;
+	x1=ec->x1+(unsigned)((unsigned long long)range*cdf_curr>>AC2_PROB_BITS);
+	x2=ec->x1+(unsigned)((unsigned long long)range*cdf_next>>AC2_PROB_BITS)-1;
+	ec->x1=x1;
+	ec->x2=x2;
+	ac2_dec_renorm(ec);
+	acval_dec(0, cdf_curr, cdf_next-cdf_curr, x1, x2, ec->x1, ec->x2, 0, 0, ec->code);
+	return sym;
 }
 
 

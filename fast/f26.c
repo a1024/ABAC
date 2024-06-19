@@ -14,11 +14,20 @@ static const char file[]=__FILE__;
 //	#define DISABLE_MT
 //	#define ENABLE_CURIOSITY
 
+//	#define USE_AC2//bad
+//	#define MIXCDF//bad
 //	#define WG_T47
 //	#define WG_UPDATE//horrible
 
 
+//#define PROB_BITS 24//X
+//#define EMIT_BITS 1
 #include"ac.h"
+#ifdef USE_AC2
+#define USE_PROB_BITS AC2_PROB_BITS
+#else
+#define USE_PROB_BITS PROB_BITS
+#endif
 #ifdef ENABLE_GUIDE
 static const Image *guide=0;
 #endif
@@ -750,7 +759,7 @@ static void quantize_pixel(int val, int *token, int *bypass, int *nbits)
 				(mantissa>>(lgv-CONFIG_MSB))<<CONFIG_LSB|
 				(mantissa&((1<<CONFIG_LSB)-1))
 			);
-		*nbits=lgv-CONFIG_MSB+CONFIG_LSB;
+		*nbits=lgv-(CONFIG_MSB+CONFIG_LSB);
 		*bypass=val>>CONFIG_LSB&((1LL<<*nbits)-1);
 	}
 }
@@ -771,35 +780,47 @@ typedef struct _ThreadArgs
 
 	int *hist, histsize, histindices[OCH_COUNT*PRED_COUNT+1];
 
-	DList list;
-	const unsigned char *decstart, *decend;
-
-	int wg_weights[OCH_COUNT*WG_NPREDS];
-	int wg_errors[OCH_COUNT*WG_NPREDS];
-
 	//AC
 	int tlevels, clevels, statssize;
 	unsigned *stats;
+	DList list;
+	const unsigned char *decstart, *decend;
 
 	//aux
 	int bestrct, predidx[3];
 	double usizes[3], csizes[3], bestsize;
+
+	//WG
+	int wg_weights[OCH_COUNT*WG_NPREDS];
+	int wg_errors[OCH_COUNT*WG_NPREDS];
 } ThreadArgs;
-#define CDFSTRIDE 32
+#ifndef MIXCDF
+#define CDFSTRIDE 16
 static void update_CDF(const int *hist, unsigned *CDF, int tlevels)
 {
 	int sum=hist[tlevels], c=0;
 	for(int ks=0;ks<tlevels;++ks)
 	{
 		int freq=hist[ks];
-		CDF[ks]=(int)(c*((1LL<<PROB_BITS)-tlevels)/sum)+ks;
+		CDF[ks]=(int)(c*((1LL<<USE_PROB_BITS)-tlevels)/sum)+ks;
 		c+=freq;
 	}
-	CDF[tlevels]=1<<PROB_BITS;
+	CDF[tlevels]=1<<USE_PROB_BITS;
+
+	//for(int ks=0;ks<tlevels;++ks)//
+	//{
+	//	if(CDF[ks]>CDF[ks+1])
+	//		LOG_ERROR("");
+	//}
 }
+#endif
 static void block_thread(void *param)
 {
+#ifdef USE_AC2
+	AC2 ec;
+#else
 	ArithmeticCoder ec;
+#endif
 	ThreadArgs *args=(ThreadArgs*)param;
 	Image const *image=args->fwd?args->src:args->dst;
 	int depths[OCH_COUNT]={0}, halfs[OCH_COUNT]={0};
@@ -1079,7 +1100,11 @@ static void block_thread(void *param)
 		}
 		dlist_init(&args->list, 1, 1024, 0);
 		dlist_push_back(&args->list, &flag, sizeof(char[2]));
+#ifdef USE_AC2
+		ac2_enc_init(&ec, &args->list);
+#else
 		ac_enc_init(&ec, &args->list);
+#endif
 	}
 	else//decode
 	{
@@ -1097,21 +1122,30 @@ static void block_thread(void *param)
 			return;
 		}
 		memcpy(combination, rct_combinations[bestrct], sizeof(combination));
+#ifdef USE_AC2
+		ac2_dec_init(&ec, srcstart, srcend);
+#else
 		ac_dec_init(&ec, srcstart, srcend);
+#endif
 	}
-	
+#ifdef MIXCDF
+	for(int ks=0;ks<=args->tlevels;++ks)//init bypass
+		args->stats[ks]=(unsigned)(((1LL<<USE_PROB_BITS)-args->tlevels)*ks/args->tlevels);
+	memfill(args->stats+cdfstride, args->stats, sizeof(int)*((size_t)chsize*image->nch-cdfstride), sizeof(int)*cdfstride);
+#else
 	for(int kc=0;kc<image->nch;++kc)
 	{
 		int *curr_hist=args->hist+chsize*kc;
 		unsigned *curr_CDF=args->stats+chsize*kc;
 		
-		*curr_hist=1;
+		*curr_hist=1;//init bypass
 		memfill(curr_hist+1, curr_hist, sizeof(int)*(args->tlevels-1LL), sizeof(int));
 		curr_hist[args->tlevels]=args->tlevels;
 		update_CDF(curr_hist, curr_CDF, args->tlevels);
 		memfill(curr_hist+cdfstride, curr_hist, ((size_t)chsize-cdfstride)*sizeof(int), cdfstride*sizeof(int));
 		memfill(curr_CDF+cdfstride, curr_CDF, ((size_t)chsize-cdfstride)*sizeof(int), cdfstride*sizeof(int));
 	}
+#endif
 	for(int kc=0;kc<3;++kc)
 	{
 		if(predidx[kc]==PRED_wgrad)
@@ -1385,7 +1419,9 @@ static void block_thread(void *param)
 				int qeN=FLOOR_LOG2(vy+1);
 				int qeW=FLOOR_LOG2(vx+1);
 				int cidx=cdfstride*(nctx*kc+args->clevels*MINVAR(qeN, 8)+MINVAR(qeW, 8));
+#ifndef MIXCDF
 				int *curr_hist=args->hist+cidx;
+#endif
 				unsigned *curr_CDF=args->stats+cidx;
 
 				switch(predidx[kc])
@@ -1406,6 +1442,18 @@ static void block_thread(void *param)
 				}
 				pred+=offset;
 				CLAMP2_32(pred, pred, -halfs[ch], halfs[ch]-1);
+
+				//if(ky==13&&kx==623)//
+				//if(ky==80&&kx==510&&kc==2)//
+				//if(ky==16&&kx==640&&kc==1)//
+				//if(ky==0&&kx==258&&kc==1)//
+				//if(ky==17&&kx==458&&kc==2)//
+				//if(ky==255&&kx==767&&kc==0)//
+				//if(ky==0&&kx==125&&kc==0)//
+				//if(ky==0&&kx==102&&kc==1)//
+				//if(ky==1&&kx==111&&kc==1)//
+				//	printf("");
+
 				if(args->fwd)
 				{
 					curr[kc2+0]=yuv[kc];
@@ -1428,23 +1476,71 @@ static void block_thread(void *param)
 							sym=upred+aval;//error sign is known
 					}
 					quantize_pixel(sym, &token, &bypass, &nbits);
+#ifdef MIXCDF
+					ac2_enc_update(&ec, curr_CDF[token]+token, curr_CDF[token+1]+token+1);
+#elif defined USE_AC2
+					ac2_enc_update(&ec, curr_CDF[token], curr_CDF[token+1]);
+#else
 					ac_enc(&ec, token, curr_CDF);
+#endif
 					if(nbits)
+#ifdef USE_AC2
+						ac2_enc_bypass(&ec, bypass, nbits);
+#else
 						ac_enc_bypass(&ec, bypass, nbits);//up to 16 bits
+#endif
 				}
 				else
 				{
+#ifdef MIXCDF
+					unsigned cdf=ac2_dec_getcdf(&ec);
+					int range=args->tlevels;
+
+					token=0;
+					while(range)//binary search
+					{
+						int floorhalf=range>>1, ks=token+floorhalf+1;
+						if(cdf>=curr_CDF[ks]+ks)
+							token+=range-floorhalf;
+						range=floorhalf;
+					}
+					//if(token>=args->tlevels)
+					//	LOG_ERROR("");
+					ac2_dec_update(&ec, curr_CDF[token]+token, curr_CDF[token+1]+token+1);
+#elif defined USE_AC2
+					unsigned cdf=ac2_dec_getcdf(&ec);
+					int range=args->tlevels;
+
+					token=0;
+					while(range)//binary search
+					{
+						int floorhalf=range>>1, ks=token+floorhalf+1;
+						if(cdf>=curr_CDF[ks])
+							token+=range-floorhalf;
+						range=floorhalf;
+					}
+					//if(token>=args->tlevels)
+					//	LOG_ERROR("");
+					ac2_dec_update(&ec, curr_CDF[token], curr_CDF[token+1]);
+#else
 					token=ac_dec(&ec, curr_CDF, args->tlevels);//try ac_dec_packedsign()
+#endif
 					sym=token;
 					if(sym>=(1<<CONFIG_EXP))
 					{
+						int lsb, msb;
+
 						sym-=1<<CONFIG_EXP;
-						int lsb=sym&((1<<CONFIG_LSB)-1);
+						lsb=sym&((1<<CONFIG_LSB)-1);
 						sym>>=CONFIG_LSB;
-						int msb=sym&((1<<CONFIG_MSB)-1);
+						msb=sym&((1<<CONFIG_MSB)-1);
 						sym>>=CONFIG_MSB;
 						nbits=sym+CONFIG_EXP-(CONFIG_MSB+CONFIG_LSB);
+#ifdef USE_AC2
+						bypass=ac2_dec_bypass(&ec, nbits);
+#else
 						bypass=ac_dec_bypass(&ec, nbits);
+#endif
 						sym=1;
 						sym<<=CONFIG_MSB;
 						sym|=msb;
@@ -1473,6 +1569,21 @@ static void block_thread(void *param)
 					curr[kc2+0]=yuv[kc]=error+pred;
 					curr[kc2+1]=error;
 				}
+#ifdef MIXCDF
+				for(int ks=0, mixin=0, mag=(1<<USE_PROB_BITS)-args->tlevels;ks<args->tlevels;++ks)
+				{
+					mixin|=mag&(token-ks)>>31;
+					curr_CDF[ks]+=(int)(mixin-curr_CDF[ks])>>8;
+				}
+				//for(int ks=0;ks<args->tlevels;++ks)
+				//	curr_CDF[ks]+=((((1<<USE_PROB_BITS)-args->tlevels)&-(ks>token))+ks-curr_CDF[ks])>>8;
+
+				//for(int ks=0;ks<args->tlevels-1;++ks)//
+				//{
+				//	if(curr_CDF[ks]>curr_CDF[ks+1])
+				//		LOG_ERROR("");
+				//}
+#else
 				++curr_hist[token];
 				++curr_hist[args->tlevels];
 				//if((kx&(CDFSTRIDE-1))==CDFSTRIDE-1)
@@ -1485,6 +1596,7 @@ static void block_thread(void *param)
 						sum+=curr_hist[ks]>>=1;
 					curr_hist[args->tlevels]=sum;
 				}
+#endif
 				curr[kc2]-=offset;
 				if(predidx[kc]==PRED_wgrad)
 					wg_update(curr[kc2], wg_preds, args->wg_errors+WG_NPREDS*kc, args->wg_weights+WG_NPREDS*kc);
@@ -1678,16 +1790,16 @@ static void block_thread(void *param)
 				}
 				if(kc<image->nch)
 					image->data[kc]=yuv[kc];
-			}
 #ifdef ENABLE_GUIDE
-			if(memcmp(image->data+idx, guide->data+idx, sizeof(short)*image->nch))
-			{
-				short orig[4]={0};
-				memcpy(orig, guide->data+idx, image->nch*sizeof(short));
-				LOG_ERROR("Guide error XY %d %d", kx, ky);
-				printf("");//
-			}
+				if(memcmp(image->data+idx, guide->data+idx, sizeof(short)*image->nch))
+				{
+					short orig[4]={0};
+					memcpy(orig, guide->data+idx, image->nch*sizeof(short));
+					LOG_ERROR("Guide error XY %d %d", kx, ky);
+					printf("");//
+				}
 #endif
+			}
 			rows[0]+=4*2;
 			rows[1]+=4*2;
 			rows[2]+=4*2;
@@ -1696,7 +1808,11 @@ static void block_thread(void *param)
 	}
 	if(args->fwd)
 	{
+#ifdef USE_AC2
+		ac2_enc_flush(&ec);
+#else
 		ac_enc_flush(&ec);
+#endif
 		if(args->loud)
 			printf("Actual %8zd bytes (%+11.2lf)\n\n", args->list.nobj, args->list.nobj-bestsize);
 	}

@@ -235,7 +235,9 @@ static void process_file(ProcessCtx *ctx, ArrayHandle title, int maxlen, Image *
 		print_result(&result, (char*)threadargs->title->data, maxlen, 1, 1);
 #ifdef PRINT_RCT
 		curiosity_add(curiosity, &threadargs->curiosity);
+#ifndef SLIC5_OPTIMIZE_RCT
 		curiosity->coverage[threadargs->curiosity.rct]+=threadargs->usize;
+#endif
 #else
 		(void)curiosity;
 #endif
@@ -310,7 +312,9 @@ static void process_file(ProcessCtx *ctx, ArrayHandle title, int maxlen, Image *
 			//print_result(&result, ctx->nfinished+k+1);
 #ifdef PRINT_RCT
 			curiosity_add(curiosity, &threadargs->curiosity);
+#ifndef SLIC5_OPTIMIZE_RCT
 			curiosity->coverage[threadargs->curiosity.rct]+=threadargs->usize;
+#endif
 #endif
 		}
 

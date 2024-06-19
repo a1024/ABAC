@@ -15,7 +15,7 @@ static const char file[]=__FILE__;
 //	#define TRACK_SSE_RANGES//SLOW
 
 //efficiency
-//	#define ENABLE_SSE_4D//3% smaller, but 2x slower
+	#define ENABLE_SSE_4D//3% smaller, but 2x slower
 //	#define USE_ABAC//inferior
 //	#define USE_ABAC_SSE
 //	#define SSE_UPDATE_NB_CELLS//inferior
@@ -205,7 +205,7 @@ static int nonlinear2nonlinear(int x, int srcgamma, int dstgamma)
 
 //	#define ENABLE_CUSTOM1
 //	#define ENABLE_CUSTOM1_v2
-//	#define ENABLE_CUSTOM1_v3//best		0.1% smaller, but 2x slower
+	#define ENABLE_CUSTOM1_v3//best		0.1% smaller, but 2x slower
 //	#define ENABLE_CUSTOM1_v4//incomplete
 
 //don't forget to update SLIC5_NPREDS in e2.h
@@ -259,7 +259,8 @@ static int nonlinear2nonlinear(int x, int srcgamma, int dstgamma)
 	SLIC5_PRED((WWW+WWWW)>>1)\
 	SLIC5_PRED((N+NN)>>1)\
 	SLIC5_PRED((NE+NNEE)>>1)\
-	SLIC5_PRED((NE+NNE+NEE+NNEE)>>2)
+	SLIC5_PRED((NE+NNE+NEE+NNEE)>>2)\
+	SLIC5_PRED(ols)
 //	SLIC5_PRED(geomean)
 //	SLIC5_PRED(ols)
 //	SLIC5_PRED((4*(N+W+NE+NW)-(WW+NWW+NNWW+NNW+NN+NNE+NNEE+NEE))>>3)
@@ -912,12 +913,12 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 
 		NNNWWWW	=LOAD(pr->pixels,  4, 3),
 		NNNWWW	=LOAD(pr->pixels,  3, 3),
-	//	NNNWW	=LOAD(pr->pixels,  2, 3),
-	//	NNNW	=LOAD(pr->pixels,  1, 3),
+		NNNWW	=LOAD(pr->pixels,  2, 3),
+		NNNW	=LOAD(pr->pixels,  1, 3),
 		NNN	=LOAD(pr->pixels,  0, 3),
-	//	NNNE	=LOAD(pr->pixels, -1, 3),
+		NNNE	=LOAD(pr->pixels, -1, 3),
 		NNNEE	=LOAD(pr->pixels, -2, 3),
-	//	NNNEEE	=LOAD(pr->pixels, -3, 3),
+		NNNEEE	=LOAD(pr->pixels, -3, 3),
 		NNNEEEE	=LOAD(pr->pixels, -4, 3),
 		
 		NNWWWW	=LOAD(pr->pixels,  4, 2),
@@ -931,8 +932,8 @@ static void slic5_predict(SLIC5Ctx *pr, int kc, int kx)
 #if PAD_SIZE>=4
 		NNEEE	=LOAD(pr->pixels, -3, 2),
 		NNEEEE	=LOAD(pr->pixels, -4, 2),
-	//	NWWWW	=LOAD(pr->pixels,  4, 1),
-	//	NWWW	=LOAD(pr->pixels,  3, 1),
+		NWWWW	=LOAD(pr->pixels,  4, 1),
+		NWWW	=LOAD(pr->pixels,  3, 1),
 #endif
 		NWW	=LOAD(pr->pixels,  2, 1),
 		NW	=LOAD(pr->pixels,  1, 1),
@@ -2943,7 +2944,7 @@ static int slic5_dec(SLIC5Ctx *pr, int kc, int kx)
 
 #define OCRT_PARAMBITS 7
 #define ORCT_ONE (1<<OCRT_PARAMBITS)
-static void orct_unpack_permutation(char p, char *permutation)
+static void orct_unpack_permutation(unsigned char p, unsigned char *permutation)
 {
 	int temp=0;
 	switch(p)
@@ -2960,7 +2961,7 @@ static void orct_unpack_permutation(char p, char *permutation)
 	}
 	memcpy(permutation, &temp, sizeof(char[3]));
 }
-static void orct_fwd(int *comp, const char *params, const char *permutation)
+static void orct_fwd(int *comp, const char *params, const unsigned char *permutation)
 {
 	int temp;
 	//const int half=(1<<OCRT_PARAMBITS)>>1;
@@ -2980,7 +2981,7 @@ static void orct_fwd(int *comp, const char *params, const char *permutation)
 	//c2[1]+=(params[6]*c2[0]+params[7]*c2[2]+half)>>OCRT_PARAMBITS;
 	memcpy(comp, c2, sizeof(c2));
 }
-static void orct_inv(int *comp, const char *params, const char *permutation)
+static void orct_inv(int *comp, const char *params, const unsigned char *permutation)
 {
 	int temp;
 	//const int half=(1<<OCRT_PARAMBITS)>>1;
@@ -2998,7 +2999,7 @@ static void orct_inv(int *comp, const char *params, const char *permutation)
 	comp[permutation[1]]=c2[1];
 	comp[permutation[2]]=c2[2];
 }
-static void orct_calc_depths(const char *params, const char *permutation, const char *srcdepths, char *dstdepths)
+static void orct_calc_depths(const char *params, const unsigned char *permutation, const char *srcdepths, char *dstdepths)
 {
 	int extremevals[]=
 	{
@@ -3016,7 +3017,12 @@ static void orct_calc_depths(const char *params, const char *permutation, const 
 	{
 		//int comp[]={extremevals[k&3], extremevals[4|k>>2&3], extremevals[8|k>>4&3]};
 		//int comp[]={extremevals[k%3], extremevals[3+k/3%3], extremevals[6+k/9%3]};
-		int comp[]={extremevals[k&1], extremevals[2|k>>1&1], extremevals[4|k>>2&1]};
+		int comp[]=
+		{
+			extremevals[0|(k>>0&1)],
+			extremevals[2|(k>>1&1)],
+			extremevals[4|(k>>2&1)],
+		};
 		orct_fwd(comp, params, permutation);
 		UPDATE_MIN(ranges[0], comp[0]);
 		UPDATE_MAX(ranges[1], comp[0]);
@@ -3068,7 +3074,8 @@ static double orct_calcloss(Image const *src, int *pixels, int *hist, int maxlev
 	//	1<<(src->depth[2]+1),
 	//	1<<(src->depth[0]+1),
 	//};
-	char permutation[3]={0}, depths[3];
+	char unsigned permutation[3]={0};
+	char depths[3]={0};
 	orct_unpack_permutation(params[8], permutation);
 	orct_calc_depths(params, permutation, src->depth, depths);
 	int nlevels[]=
@@ -3110,8 +3117,6 @@ static double orct_calcloss(Image const *src, int *pixels, int *hist, int maxlev
 		}
 	}
 	int res=src->iw*src->ih;
-	int kbest=0;
-	double bestsize=0;
 	double csizes[3]={0};
 	for(int kc=0;kc<3;++kc)
 	{
@@ -3122,11 +3127,7 @@ static double orct_calcloss(Image const *src, int *pixels, int *hist, int maxlev
 			//	printf("");
 			int freq=curr_hist[ks];
 			if(freq)
-			{
-				double p=(double)freq/res;
-				double bitsize=-log2(p);
-				csizes[kc]+=freq*bitsize;
-			}
+				csizes[kc]-=freq*log2((double)freq/res);
 		}
 	}
 	double csize=(csizes[0]+csizes[1]+csizes[2])/8;
@@ -3148,7 +3149,7 @@ static const char *slic5_orct_permutationnames[]=
 };
 void orct_print_compact(const char *params)
 {
-	printf("[%s", slic5_orct_permutationnames[params[ORCT_NPARAMS]]);
+	printf("[%s", slic5_orct_permutationnames[(unsigned char)params[ORCT_NPARAMS]]);
 	for(int k=0;k<ORCT_NPARAMS;++k)
 	{
 		int val=params[k];
@@ -3253,7 +3254,7 @@ static void orct_optimize(Image const *src, char *params, int loud)
 	//ORCTInfo info;
 	//memcpy(info.params, params, sizeof(info.params));
 #define CALC_LOSS(L) L=orct_calcloss(src, pixels, hist, maxlevels, params2)
-	double loss_init, loss_bestsofar, loss_prev, loss_curr;
+	double loss_init, loss_bestsofar, loss_prev, loss_curr=0;
 #if 0
 	char params2[ORCT_NPARAMS+1]={0};
 	CALC_LOSS(loss_curr);
@@ -3570,7 +3571,7 @@ static void orct_optimize(Image const *src, char *params, int loud)
 		//	printf("  %12g,%c", (double)params[k]/ORCT_ONE, k&1?'\n':' ');
 		//printf("  p%d  rgb->%s\n", params[ORCT_NPARAMS], slic5_orct_permutationnames[params[ORCT_NPARAMS]]);
 		const char chnames[]="rgb";
-		char p[3];
+		unsigned char p[3]={0};
 		orct_unpack_permutation(params[ORCT_NPARAMS], p);
 		printf("  %c += %12g*%c + %12g*%c\n", chnames[p[0]], (double)params[0]/ORCT_ONE, chnames[p[1]], (double)params[1]/ORCT_ONE, chnames[p[2]]);
 		printf("  %c += %12g*%c + %12g*%c\n", chnames[p[1]], (double)params[2]/ORCT_ONE, chnames[p[0]], (double)params[3]/ORCT_ONE, chnames[p[2]]);
@@ -4019,7 +4020,7 @@ int t47_encode(Image const *src, ArrayHandle *data, SLIC5Curiosity *curiosity, i
 
 		//0x00, 0xC0, 0x0D, 0xF8, 0x02, 0x02, 0x0E, 0x00, 0x00,
 	};
-	char permutation[3]={0};
+	unsigned char permutation[3]={0};
 	char depths[4]={0};
 	memcpy(depths, src->depth, nch*sizeof(char));
 	if(nch>=3)
@@ -4262,7 +4263,8 @@ int t47_decode(const unsigned char *data, size_t srclen, Image *dst, int loud)
 	PROF_START();
 	double t_start=time_sec();
 #ifdef SLIC5_OPTIMIZE_RCT
-	char rct_params[ORCT_NPARAMS+1]={0}, permutation[3]={0};
+	char rct_params[ORCT_NPARAMS+1]={0};
+	unsigned char permutation[3]={0};
 #else
 	RCTType rct=RCT_NONE;
 #endif

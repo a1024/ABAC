@@ -204,8 +204,8 @@ typedef enum RCTTypeEnum
 extern const char *rct_names[RCT_COUNT];
 
 //T47 SLIC5
-#define SLIC5_NPREDS 32
-//#define SLIC5_OPTIMIZE_RCT//extremely slow
+#define SLIC5_NPREDS 33
+#define SLIC5_OPTIMIZE_RCT//extremely slow
 typedef struct SLIC5CuriosityStruct
 {
 #ifdef SLIC5_OPTIMIZE_RCT
