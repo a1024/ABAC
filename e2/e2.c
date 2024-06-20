@@ -5,6 +5,9 @@
 #include<math.h>
 #include<time.h>
 static const char file[]=__FILE__;
+#ifndef _MSC_VER
+#define _stricmp strcasecmp
+#endif
 
 
 //override program

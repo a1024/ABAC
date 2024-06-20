@@ -51,6 +51,7 @@ typedef unsigned THREAD_RET;
 #include<pthread.h>
 #define THREAD_CALL
 typedef void *THREAD_RET;
+#define _stricmp strcasecmp
 #endif
 static const char file[]=__FILE__;
 

@@ -45,14 +45,13 @@ add_executable(e2
 	util.c
 )
 
-#if(MSVC)
+if(MSVC)
+	message("Hello MSVC")
 #	target_compile_options(e2 PRIVATE /W4)
-#else()
+else()
+	message("Hello GCC")
+	target_link_libraries(e2 PRIVATE m)
 #	target_compile_options(e2 PRIVATE -Wall -Wextra -Wpedantic)
-#endif()
-
-if(!MSVC)
-	target_link_libraries(e2 m)
 endif()
 #target_link_libraries(e2 OpenCL::OpenCL)
 

@@ -19,6 +19,8 @@
 #define INC_UTIL_H
 #ifdef _MSC_VER
 #define _CRT_SECURE_NO_WARNINGS
+#else
+#define _GNU_SOURCE
 #endif
 #include<stddef.h>//size_t, ptrdiff_t
 #ifdef __cplusplus
