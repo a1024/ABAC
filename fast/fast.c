@@ -337,7 +337,7 @@ int main(int argc, char **argv)
 	//	"D:/ML/big_building.LSIM.PPM"
 		;
 	const char *fn=
-	//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
+		"D:/ML/dataset-kodak-ppm/kodim13.ppm"
 	//	"D:/ML/dataset-kodak-ppm/kodim20.ppm"
 	//	"D:/ML/dataset-kodak/kodim13.png"
 	//	"D:/ML/big_building.PPM"
@@ -360,7 +360,7 @@ int main(int argc, char **argv)
 	//	"D:/ML/dataset-CID22-ppm"
 	//	"D:/ML/dataset-kodak-small"
 
-		"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
+	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim24.ppm"	//borderless
 	//	"C:/Projects/datasets/dataset-kodak-pgm/kodim13.pgm"
 	//	"C:/Projects/datasets/dataset-kodak/kodim13.png"

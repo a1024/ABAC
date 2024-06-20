@@ -317,8 +317,7 @@ INLINE void ac_enc_update(ArithmeticCoder *ec, int cdf, int freq)//CDF is 16 bit
 	ec->range=(ec->range*freq>>PROB_BITS)-1;//must decrement hi because decoder fails when code == hi2
 	while(ec->range<(1LL<<PROB_BITS))//only when freq=1 -> range=0, this loop runs twice
 		ac_enc_renorm(ec);
-	acval_enc(0, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);//
-	//acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->cidx);//
+	acval_enc(0, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
 }
 INLINE unsigned ac_dec_getcdf(ArithmeticCoder *ec)
 {

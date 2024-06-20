@@ -4,19 +4,22 @@
 #include<string.h>
 #include<math.h>
 #include<ctype.h>
+#ifdef _MSC_VER
+#include<intrin.h>
+#endif
 #include<immintrin.h>
 static const char file[]=__FILE__;
 
 
 //	#define ENABLE_GUIDE
-	#define SERIAL_EC
-#ifdef SERIAL_EC
-	#define DISABLE_MT
-#endif
+//	#define DISABLE_MT
+	#define DYNAMIC_CDF
 
 
 #include"ac.h"
-#define BLOCKSIZE 64
+#define BLOCKSIZE 512
+#define MAXPRINTEDBLOCKS 500
+#define CLEVELS 8
 
 
 #define ORCT_NPARAMS 8//not counting permutation
@@ -47,41 +50,41 @@ static const char file[]=__FILE__;
 	WG_PRED(176, (W+NEEE)/2)
 #endif
 #if 0
-#define WG_NPREDS 33
+#define WG_NPREDS 32
 #define WG_PREDLIST\
-	WG_PRED(W+NE-N-((2*(eN+eW)+eNE-eNW+4)>>3))\
-	WG_PRED(N-(int)(((long long)eN+eW+eNE)*-0x05C>>8))\
-	WG_PRED(W-(int)(((long long)eN+eW+eNW)*-0x05B>>8))\
-	WG_PRED(N+(int)((-eNN*0x0DFLL-eN*0x051LL-eNE*0x0BDLL+((long long)N-NN)*0x05C+((long long)NW-W)*0x102)>>8))\
-	WG_PRED(3*(N-NN)+NNN)\
-	WG_PRED((N+W)>>1)\
-	WG_PRED(N+W-NW)\
-	WG_PRED((W+NEE)>>1)\
-	WG_PRED((3*W+NEEE)>>2)\
-	WG_PRED((3*(3*W+NE+NEE)-10*N+2)/5)\
-	WG_PRED((3*(3*W+NE+NEE)-10*N)/5)\
-	WG_PRED((4*N-2*NN+NW+NE)>>2)\
-	WG_PRED(N+NE-NNE-eNNE)\
-	WG_PRED((4*(N+W+NW+NE)-(NN+WW+NNWW+NNEE)+6)/12)\
-	WG_PRED(W+((eW-eWW)>>1))\
-	WG_PRED(paper_GAP)\
-	WG_PRED(calic_GAP)\
-	WG_PRED(N+W-((NW+NN+WW+NE)>>2))\
-	WG_PRED(((2*(N+W)-(NW+NN+WW+NE))*9+(WWW+NWW+NNW+NNN+NNE+NEE)*2)/12)\
-	WG_PRED(3*(N+W-NW-(NN+WW-NNWW))+NNN+WWW-NNNWWW)\
-	WG_PRED(2*(W+NE-N)-(WW+NNEE-NN))\
-	WG_PRED((2*W+NEE-N)>>1)\
-	WG_PRED(NW+NWW-NNWWW)\
-	WG_PRED((14*NE-(NNEE+NNNEE+NNEEE))/11)\
-	WG_PRED((NEEE+NEEEE)>>1)\
-	WG_PRED((NNNEEEE+NNEEE)>>1)\
-	WG_PRED(NNEEEE)\
-	WG_PRED((NNWWWW+NNNWWWW)>>1)\
-	WG_PRED((WWW+WWWW)>>1)\
-	WG_PRED((N+NN)>>1)\
-	WG_PRED((NE+NNEE)>>1)\
-	WG_PRED((NE+NNE+NEE+NNEE)>>2)\
-	WG_PRED(ols)
+	WG_PRED(176, W+NE-N-((2*(eN+eW)+eNE-eNW+4)>>3))\
+	WG_PRED(176, N-(int)(((long long)eN+eW+eNE)*-0x05C>>8))\
+	WG_PRED(176, W-(int)(((long long)eN+eW+eNW)*-0x05B>>8))\
+	WG_PRED(176, N+(int)((-eNN*0x0DFLL-eN*0x051LL-eNE*0x0BDLL+((long long)N-NN)*0x05C+((long long)NW-W)*0x102)>>8))\
+	WG_PRED(176, 3*(N-NN)+NNN)\
+	WG_PRED(176, (N+W)>>1)\
+	WG_PRED(176, N+W-NW)\
+	WG_PRED(176, (W+NEE)>>1)\
+	WG_PRED(176, (3*W+NEEE)>>2)\
+	WG_PRED(176, (3*(3*W+NE+NEE)-10*N+2)/5)\
+	WG_PRED(176, (3*(3*W+NE+NEE)-10*N)/5)\
+	WG_PRED(176, (4*N-2*NN+NW+NE)>>2)\
+	WG_PRED(176, N+NE-NNE-eNNE)\
+	WG_PRED(176, (4*(N+W+NW+NE)-(NN+WW+NNWW+NNEE)+6)/12)\
+	WG_PRED(176, W+((eW-eWW)>>1))\
+	WG_PRED(176, paper_GAP)\
+	WG_PRED(176, calic_GAP)\
+	WG_PRED(176, N+W-((NW+NN+WW+NE)>>2))\
+	WG_PRED(176, ((2*(N+W)-(NW+NN+WW+NE))*9+(WWW+NWW+NNW+NNN+NNE+NEE)*2)/12)\
+	WG_PRED(176, 3*(N+W-NW-(NN+WW-NNWW))+NNN+WWW-NNNWWW)\
+	WG_PRED(176, 2*(W+NE-N)-(WW+NNEE-NN))\
+	WG_PRED(176, (2*W+NEE-N)>>1)\
+	WG_PRED(176, NW+NWW-NNWWW)\
+	WG_PRED(176, (14*NE-(NNEE+NNNEE+NNEEE))/11)\
+	WG_PRED(176, (NEEE+NEEEE)>>1)\
+	WG_PRED(176, (NNNEEEE+NNEEE)>>1)\
+	WG_PRED(176, NNEEEE)\
+	WG_PRED(176, (NNWWWW+NNNWWWW)>>1)\
+	WG_PRED(176, (WWW+WWWW)>>1)\
+	WG_PRED(176, (N+NN)>>1)\
+	WG_PRED(176, (NE+NNEE)>>1)\
+	WG_PRED(176, (NE+NNE+NEE+NNEE)>>2)
+//	WG_PRED(176, ols)
 #endif
 
 #define OCH_COUNT 4
@@ -96,12 +99,15 @@ typedef struct _ThreadArgs
 
 	//AC
 	int tlevels, clevels, statssize;
+#ifndef DYNAMIC_CDF
 	unsigned *stats;
+#endif
 	DList list;
 	const unsigned char *decstart, *decend;
 
 	//aux
 	double bestsize;
+	char rct_params[ORCT_NPARAMS+1];
 
 	//WG
 	int wg_weights[4*WG_NPREDS];
@@ -574,7 +580,7 @@ static int wg_predict(
 {
 	double pred2=0, wsum=0;
 	int j=0, pred;
-#ifdef WG_T47
+#if 0
 	short
 		NNNWWWW	=rows[3][kc2-4*stride+0],
 		NNNWWW	=rows[3][kc2-3*stride+0],
@@ -669,7 +675,7 @@ static int wg_predict(
 		eNE	=rows[1][kc2+1*stride+1],
 		eW	=rows[0][kc2-1*stride+1];
 #endif
-
+	
 #define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
 	WG_PREDLIST
 #undef  WG_PRED
@@ -805,20 +811,42 @@ static void block_thread(void *param)
 			rct_params[k]=ac_dec_bypass(&ec, 8)-128;
 		rct_params[ORCT_NPARAMS]=ac_dec_bypass_NPOT(&ec, 6);
 	}
+	memcpy(args->rct_params, rct_params, sizeof(args->rct_params));
 	orct_unpack_permutation(rct_params[ORCT_NPARAMS], rct_per);
 	for(int kc=0;kc<image->nch;++kc)
 	{
+		static const init_freqs[]={16, 4, 3, 2, 1};
 		int *curr_hist=args->hist+chsize*kc;
-		unsigned *curr_CDF=args->stats+chsize*kc;
-		
-#ifndef SERIAL_EC
-		*curr_hist=1;//init bypass
-		memfill(curr_hist+1, curr_hist, sizeof(int)*(args->tlevels-1LL), sizeof(int));
-		curr_hist[args->tlevels]=args->tlevels;
+
+		int sum=0;
+		for(int ks=0;ks<args->tlevels;++ks)
+		{
+			int freq=init_freqs[MINVAR(ks, _countof(init_freqs)-1)];
+			//int freq=ks?1:10;
+
+			//int freq=args->tlevels>>1;
+			//if(ks)
+			//{
+			//	freq=(args->tlevels>>2)-ks;
+			//	UPDATE_MAX(freq, 1);
+			//}
+			sum+=curr_hist[ks]=freq;
+		}
+		//	sum+=curr_hist[ks]=1;
+		curr_hist[args->tlevels]=sum;
+
+		//*curr_hist=1;//init bypass
+		//memfill(curr_hist+1, curr_hist, sizeof(int)*(args->tlevels-1LL), sizeof(int));
+		//curr_hist[args->tlevels]=args->tlevels;
+
 		memfill(curr_hist+cdfstride, curr_hist, ((size_t)chsize-cdfstride)*sizeof(int), cdfstride*sizeof(int));
+#ifndef DYNAMIC_CDF
+		{
+			unsigned *curr_CDF=args->stats+chsize*kc;
+			update_CDF(curr_hist, curr_CDF, args->tlevels);
+			memfill(curr_CDF+cdfstride, curr_CDF, ((size_t)chsize-cdfstride)*sizeof(int), cdfstride*sizeof(int));
+		}
 #endif
-		update_CDF(curr_hist, curr_CDF, args->tlevels);
-		memfill(curr_CDF+cdfstride, curr_CDF, ((size_t)chsize-cdfstride)*sizeof(int), cdfstride*sizeof(int));
 	}
 	for(int kc=0;kc<image->nch;++kc)
 		wg_init(args->wg_weights+WG_NPREDS*kc);
@@ -907,14 +935,23 @@ static void block_thread(void *param)
 				int kc2=kc<<1;
 				int pred=0, error, sym;
 				int
-					vx=(abs(W[kc2]-WW[kc2])+abs(N[kc2]-NW[kc2])+abs(NE[kc2]-N  [kc2])+abs(WWW[kc2+1])+abs(WW[kc2+1])+abs(W[kc2+1])*2)<<8>>depth,
-					vy=(abs(W[kc2]-NW[kc2])+abs(N[kc2]-NN[kc2])+abs(NE[kc2]-NNE[kc2])+abs(NNN[kc2+1])+abs(NN[kc2+1])+abs(N[kc2+1])*2)<<8>>depth;
+					vx=(abs(W[kc2]-WW[kc2])+abs(N[kc2]-NW[kc2])+abs(NE[kc2]-N  [kc2])+abs(WWW[kc2+1])+abs(WW[kc2+1])+abs(W[kc2+1])*2)<<10>>depth,
+					vy=(abs(W[kc2]-NW[kc2])+abs(N[kc2]-NN[kc2])+abs(NE[kc2]-NNE[kc2])+abs(NNN[kc2+1])+abs(NN[kc2+1])+abs(N[kc2+1])*2)<<10>>depth;
 				int qeN=FLOOR_LOG2(vy+1);
 				int qeW=FLOOR_LOG2(vx+1);
-				int cidx=cdfstride*(nctx*kc+args->clevels*MINVAR(qeN, 8)+MINVAR(qeW, 8));
+				//qeN=FLOOR_LOG2(qeN+1);
+				//qeW=FLOOR_LOG2(qeW+1);
+				//qeN=0;
+				int cidx=cdfstride*(nctx*kc+args->clevels*MINVAR(qeN, CLEVELS-1)+MINVAR(qeW, CLEVELS-1));
 				int *curr_hist=args->hist+cidx;
+#ifdef DYNAMIC_CDF
+				int cdf;
+#else
 				unsigned *curr_CDF=args->stats+cidx;
-
+#endif
+#ifdef AC_VALIDATE
+				unsigned long long lo0=ec.low, r0=ec.range;
+#endif
 				pred=wg_predict(
 					args->wg_weights+WG_NPREDS*kc,
 					rows, 4*2, kc2, depth,
@@ -930,6 +967,7 @@ static void block_thread(void *param)
 				//if(ky==0&&kx==125&&kc==0)//
 				//if(ky==0&&kx==102&&kc==1)//
 				//if(ky==1&&kx==111&&kc==1)//
+				//if(ky==5&&kx==149&&kc==1)//
 				//	printf("");
 
 				if(args->fwd)
@@ -954,14 +992,50 @@ static void block_thread(void *param)
 							sym=upred+aval;//error sign is known
 					}
 					quantize_pixel(sym, &token, &bypass, &nbits);
+					
+#ifdef DYNAMIC_CDF
+					cdf=0;
+					for(int ks=0;ks<token;++ks)
+						cdf+=curr_hist[ks];
+					ec.low+=ec.range*cdf/curr_hist[args->tlevels];
+					ec.range=ec.range*curr_hist[token]/curr_hist[args->tlevels]-1;
+					while(ec.range<(1LL<<PROB_BITS))
+						ac_enc_renorm(&ec);
+					acval_enc(0, cdf, curr_hist[token], lo0, lo0+r0, ec.low, ec.low+ec.range, 0, 0);
 
+					//ac_enc_update(&ec, cdf, curr_hist[token]);//X  normalize
+#else
 					ac_enc(&ec, token, curr_CDF);
+#endif
 					if(nbits)
 						ac_enc_bypass(&ec, bypass, nbits);//up to 16 bits
 				}
 				else
 				{
-					token=ac_dec(&ec, curr_CDF, args->tlevels);//try ac_dec_packedsign()
+#ifdef DYNAMIC_CDF
+					unsigned code=(unsigned)(((ec.code-ec.low)*curr_hist[args->tlevels]+curr_hist[args->tlevels]-1)/ec.range);
+					//unsigned code=ac_dec_getcdf(&ec);//X  normalize
+					int *ptr=curr_hist;
+					cdf=0;
+					for(;;)
+					{
+						unsigned cdf2=cdf+*ptr++;
+						if(cdf2>code)
+							break;
+						cdf=cdf2;
+					}
+					token=(int)(ptr-curr_hist-1);
+					
+					ec.low+=ec.range*cdf/curr_hist[args->tlevels];
+					ec.range=ec.range*curr_hist[token]/curr_hist[args->tlevels]-1;
+					while(ec.range<(1LL<<PROB_BITS))
+						ac_dec_renorm(&ec);
+					acval_dec(0, cdf, curr_hist[token], lo0, lo0+r0, ec.low, ec.low+ec.range, 0, 0, ec.code);
+
+					//ac_dec_update(&ec, cdf, curr_hist[token]);//X  normalize
+#else
+					token=ac_dec(&ec, curr_CDF, args->tlevels);
+#endif
 					sym=token;
 					if(sym>=(1<<CONFIG_EXP))
 					{
@@ -1002,15 +1076,27 @@ static void block_thread(void *param)
 					curr[kc2+0]=yuv[kc]=error+pred;
 					curr[kc2+1]=error;
 				}
+				//{
+				//	int inc=(1<<depth>>4)/(abs(curr[kc2+1])+1);
+				//	curr_hist[token]+=inc;
+				//	curr_hist[args->tlevels]+=inc;
+				//}
 				++curr_hist[token];
 				++curr_hist[args->tlevels];
+#ifndef DYNAMIC_CDF
 				if(curr_hist[args->tlevels]>=args->tlevels&&!(curr_hist[args->tlevels]&(CDFSTRIDE-1)))
 					update_CDF(curr_hist, curr_CDF, args->tlevels);
-				if(curr_hist[args->tlevels]>=6144)
+#endif
+				//if(curr_hist[args->tlevels]>=(args->tlevels<<7))//shift up to 11
+				if(curr_hist[args->tlevels]>=6144)//6144	4296	65536
 				{
 					int sum=0;
 					for(int ks=0;ks<args->tlevels;++ks)
+#ifdef DYNAMIC_CDF
+						sum+=curr_hist[ks]=(curr_hist[ks]+1)>>1;
+#else
 						sum+=curr_hist[ks]>>=1;
+#endif
 					curr_hist[args->tlevels]=sum;
 				}
 				wg_update(curr[kc2], wg_preds, args->wg_errors+WG_NPREDS*kc, args->wg_weights+WG_NPREDS*kc);
@@ -1031,8 +1117,16 @@ static void block_thread(void *param)
 #ifdef ENABLE_GUIDE
 				if(memcmp(image->data+idx, guide->data+idx, sizeof(short)*image->nch))
 				{
-					short orig[4]={0};
-					memcpy(orig, guide->data+idx, image->nch*sizeof(short));
+					int orig[4]={0};
+					orig[0]=guide->data[idx+0];
+					orig[1]=guide->data[idx+1];
+					orig[2]=guide->data[idx+2];
+					yuv[0]=image->data[idx+0];
+					yuv[1]=image->data[idx+1];
+					yuv[2]=image->data[idx+2];
+					orct_fwd(orig, rct_params, rct_per);
+					orct_fwd(yuv, rct_params, rct_per);
+					//memcpy(orig, guide->data+idx, image->nch*sizeof(short));
 					LOG_ERROR("Guide error XY %d %d", kx, ky);
 					printf("");//
 				}
@@ -1063,9 +1157,6 @@ int f28_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	ThreadArgs *args=(ThreadArgs*)malloc(argssize);
 	int tlevels=0, clevels=0, statssize=0;
 	double esize=0;
-#ifdef SERIAL_EC
-	int *common_hist=0;
-#endif
 	if(fwd)
 	{
 #ifdef ENABLE_GUIDE
@@ -1092,39 +1183,16 @@ int f28_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 
 		quantize_pixel(nlevels, &token, &bypass, &nbits);
 		tlevels=token+1;
-		clevels=9;
+		clevels=CLEVELS;
 		statssize=clevels*clevels*(tlevels+1)*image->nch*(int)sizeof(int);
 	}
-#ifdef SERIAL_EC
-	common_hist=(int*)malloc(statssize);
-#endif
-	if(!args
-#ifdef SERIAL_EC
-		||!common_hist
-#endif
-	)
+	if(!args)
 	{
 		LOG_ERROR("Alloc error");
 		return 1;
 	}
 	memusage+=argssize;
 	memset(args, 0, argssize);
-#ifdef SERIAL_EC
-	for(int kc=0;kc<image->nch;++kc)
-	{
-		int nctx=clevels*clevels, cdfstride=tlevels+1, chsize=nctx*cdfstride;
-		int *curr_hist=common_hist+chsize*kc;
-		//unsigned *curr_CDF=stats+chsize*kc;
-		
-		*curr_hist=1;//init bypass
-		memfill(curr_hist+1, curr_hist, sizeof(int)*(tlevels-1LL), sizeof(int));
-		curr_hist[tlevels]=tlevels;
-		memfill(curr_hist+cdfstride, curr_hist, ((size_t)chsize-cdfstride)*sizeof(int), cdfstride*sizeof(int));
-		//update_CDF(curr_hist, curr_CDF, tlevels);
-		//memfill(curr_CDF+cdfstride, curr_CDF, ((size_t)chsize-cdfstride)*sizeof(int), cdfstride*sizeof(int));
-		printf("");
-	}
-#endif
 	for(int k=0;k<nthreads;++k)
 	{
 		ThreadArgs *arg=args+k;
@@ -1134,15 +1202,17 @@ int f28_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		arg->pixels=(int*)_mm_malloc(arg->bufsize, sizeof(__m128i));
 
 		arg->histsize=statssize;
-#ifdef SERIAL_EC
-		arg->hist=common_hist;
-#else
 		arg->hist=(int*)malloc(statssize);
-#endif
 
 		arg->statssize=statssize;
+#ifndef DYNAMIC_CDF
 		arg->stats=(unsigned*)malloc(statssize);
-		if(!arg->pixels||!arg->hist||!arg->stats)
+#endif
+		if(!arg->pixels||!arg->hist
+#ifndef DYNAMIC_CDF
+			||!arg->stats
+#endif
+		)
 		{
 			LOG_ERROR("Alloc error");
 			return 1;
@@ -1155,7 +1225,7 @@ int f28_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		arg->clevels=clevels;
 		arg->fwd=fwd;
 #ifdef DISABLE_MT
-		arg->loud=loud&&nblocks<2000;
+		arg->loud=loud&&nblocks<MAXPRINTEDBLOCKS;
 #else
 		arg->loud=0;
 #endif
@@ -1204,12 +1274,12 @@ int f28_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 					kx=kt+kt2;
 					ky=kx/xblocks;
 					kx%=xblocks;
-					if(nblocks<2000)
+					if(nblocks<MAXPRINTEDBLOCKS)
 					{
 						//if(!(kt+kt2))
 						//	printf("block,  nrows,  usize,     best  ->  actual,  (actual-best)\n");
 						printf(
-							"block %4d/%4d  XY %3d %3d  %4d*%4d:  %8d->%16lf->%8zd bytes  %10.6lf%%  CR %10lf\n",
+							"block %4d/%4d  XY %3d %3d  %4d*%4d:  %8d->%16lf->%8zd bytes (%+10.2lf)  %10.6lf%%  CR %10lf  ",
 							kt+kt2+1, nblocks,
 							kx, ky,
 							arg->y2-arg->y1,
@@ -1217,9 +1287,12 @@ int f28_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 							blocksize,
 							arg->bestsize,
 							arg->list.nobj,
+							arg->list.nobj-arg->bestsize,
 							100.*arg->list.nobj/blocksize,
 							(double)blocksize/arg->list.nobj
 						);
+						orct_print_compact(arg->rct_params);
+						printf("\n");
 					}
 					esize+=arg->bestsize;
 				}
@@ -1248,14 +1321,11 @@ int f28_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	{
 		ThreadArgs *arg=args+k;
 		_mm_free(arg->pixels);
-#ifndef SERIAL_EC
 		free(arg->hist);
-#endif
+#ifndef DYNAMIC_CDF
 		free(arg->stats);
-	}
-#ifdef SERIAL_EC
-	free(common_hist);
 #endif
+	}
 	free(args);
 	return 0;
 }
