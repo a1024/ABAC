@@ -8,12 +8,12 @@
 static const char file[]=__FILE__;
 
 
-	#define ENABLE_GUIDE
-	#define DISABLE_MT
+//	#define ENABLE_GUIDE
+//	#define DISABLE_MT
 
 
 #include"ac.h"
-#define BLOCKSIZE 256
+#define BLOCKSIZE 64
 
 
 #define ORCT_NPARAMS 8//not counting permutation
@@ -96,6 +96,9 @@ typedef struct _ThreadArgs
 	unsigned *stats;
 	DList list;
 	const unsigned char *decstart, *decend;
+
+	//aux
+	double bestsize;
 
 	//WG
 	int wg_weights[4*WG_NPREDS];
@@ -246,15 +249,9 @@ static double orct_calcloss(Image const *src, int x1, int x2, int y1, int y2, in
 				++hist[0<<depth|result[0]];
 				++hist[1<<depth|result[1]];
 				++hist[2<<depth|result[2]];
-				//if(hist[0<<depth|result[0]]<0)
-				//	LOG_ERROR("");
-				//if(hist[1<<depth|result[1]]<0)
-				//	LOG_ERROR("");
-				//if(hist[2<<depth|result[2]]<0)
-				//	LOG_ERROR("");
 			}
-			++rows[0];
-			++rows[1];
+			rows[0]+=4;
+			rows[1]+=4;
 		}
 	}
 	{
@@ -268,22 +265,32 @@ static double orct_calcloss(Image const *src, int x1, int x2, int y1, int y2, in
 			{
 				int freq=curr_hist[ks];
 				if(freq)
-				{
 					csizes[kc]-=freq*log2((double)freq/res);
-					if(isnan(csizes[kc]))
-						LOG_ERROR("");
-				}
 			}
 		}
 		csize=(csizes[0]+csizes[1]+csizes[2])/8;
 		return csize;
 	}
 }
-static void orct_optimize(Image const *src, int x1, int x2, int y1, int y2, char *params, int loud)
+static double orct_optimize(Image const *src, int x1, int x2, int y1, int y2, char *params, int loud)
 {
-	static const char paramsets[]=//too lazy to initialize the permutations correctly
+	static const char *rctnames[]=
 	{
-		0,	0,//0	RCT_NONE defeats the purpose of optimization
+		"NONE",
+		"SubGreen",
+		"JPEG2000",
+		"YCbCr_R_v1",
+		"A710",
+		"YCbCr_R_v3",
+		"YCbCr_R_v4",
+		"YCbCr_R_v5",
+		"YCbCr_R_v6",
+		"YCbCr_R_v7",
+		"Pei09",
+	};
+	static const char paramsets[]=//permutations are brute forced
+	{
+		0,	0,//0	RCT_NONE defeats the purpose of optimization?
 		0,	0,
 		0,	0,
 		0,	0,
@@ -349,30 +356,16 @@ static void orct_optimize(Image const *src, int x1, int x2, int y1, int y2, char
 		ORCT_ONE*29>>8,		ORCT_ONE*86>>8,
 		0,//rgb
 	};
-	static const char *rctnames[]=
-	{
-		"NONE",
-		"SubGreen",
-		"JPEG2000",
-		"YCbCr_R_v1",
-		"A710",
-		"YCbCr_R_v3",
-		"YCbCr_R_v4",
-		"YCbCr_R_v5",
-		"YCbCr_R_v6",
-		"YCbCr_R_v7",
-		"Pei09",
-	};
 	double loss_init, loss_bestsofar, loss_prev, loss_curr=0;
 	double t_start=time_sec();
 	int maxdepth=src->depth+2, maxlevels=1<<maxdepth;
 	int bufsize=(BLOCKSIZE+16LL)*sizeof(int[2*4]);//2 rows * 4 channels
-	int *pixels=(int*)malloc(bufsize);
+	int *pixels=(int*)_mm_malloc(bufsize, sizeof(__m128i));
 	int *hist=(int*)malloc(maxlevels*sizeof(int[3]));
 	if(!pixels||!hist)
 	{
 		LOG_ERROR("Alloc error");
-		return;
+		return 0;
 	}
 	char params2[]=
 	{
@@ -399,28 +392,30 @@ static void orct_optimize(Image const *src, int x1, int x2, int y1, int y2, char
 	}
 	memcpy(params2, paramsets+(ORCT_NPARAMS+1)*best_init, sizeof(params2));
 	params2[ORCT_NPARAMS]=bestp;
-	if(loud)
-		printf("Init %d %s  %lf\n", best_init, rctnames[best_init], loss_bestsofar);
-
 	loss_init=loss_bestsofar;
-
 	memcpy(params, params2, sizeof(params2));//save
 	if(loud)
-		printf("Permutation %d rgb->%s  %lf\n", bestp, slic5_orct_permutationnames[bestp], loss_bestsofar);
+		printf("init  rgb->%s(%d)  %s(%d)  UC %d->%lf bytes\n",
+			slic5_orct_permutationnames[bestp], bestp,
+			rctnames[best_init], best_init,
+			((x2-x1)*(y2-y1)*src->nch*src->depth+7)>>3,
+			loss_bestsofar
+		);
 
 	for(int it=0, checkpoint=-1;it<ORCT_NITER;++it)
 	{
+		double losses[3]={0};
 		char params3[ORCT_NPARAMS+1];
+		const int deviation2=ORCT_ONE>>4;
+
 		memcpy(params3, params2, sizeof(params3));
 
 		//slider
-		const int deviation2=ORCT_ONE>>4;
 		int vals[3]=
 		{
 			CLAMP(-ORCT_ONE, params2[0]-deviation2, ORCT_ONE-1),
 			CLAMP(-ORCT_ONE, params2[0]+deviation2, ORCT_ONE-1),
 		};
-		double losses[3];
 		params2[0]=vals[0], params2[1]=-ORCT_ONE-params2[0]; CALC_LOSS(losses[0]);
 		params2[0]=vals[1], params2[1]=-ORCT_ONE-params2[0]; CALC_LOSS(losses[1]);
 		for(;vals[0]<vals[1]-1;)
@@ -514,57 +509,23 @@ static void orct_optimize(Image const *src, int x1, int x2, int y1, int y2, char
 #undef  CALC_LOSS
 	if(loud)
 	{
+		const char chnames[]="rgb";
+		unsigned char p[3]={0};
+		double matrix[9]={0};
+
 		printf("\n");
 		printf("CR improvement %lf -> %lf  %+6.2lf%%\n", loss_init, loss_bestsofar, 100.*(1-loss_init/loss_bestsofar));
 		printf("Final RCT params:\n");
 		//for(int k=0;k<ORCT_NPARAMS;++k)
 		//	printf("  %12g,%c", (double)params[k]/ORCT_ONE, k&1?'\n':' ');
 		//printf("  p%d  rgb->%s\n", params[ORCT_NPARAMS], slic5_orct_permutationnames[params[ORCT_NPARAMS]]);
-		const char chnames[]="rgb";
-		unsigned char p[3]={0};
 		orct_unpack_permutation(params[ORCT_NPARAMS], p);
 		printf("  %c += %12g*%c + %12g*%c\n", chnames[p[0]], (double)params[0]/ORCT_ONE, chnames[p[1]], (double)params[1]/ORCT_ONE, chnames[p[2]]);
 		printf("  %c += %12g*%c + %12g*%c\n", chnames[p[1]], (double)params[2]/ORCT_ONE, chnames[p[0]], (double)params[3]/ORCT_ONE, chnames[p[2]]);
 		printf("  %c += %12g*%c + %12g*%c\n", chnames[p[2]], (double)params[4]/ORCT_ONE, chnames[p[0]], (double)params[5]/ORCT_ONE, chnames[p[1]]);
 		printf("  %c += %12g*%c + %12g*%c\n", chnames[p[1]], (double)params[6]/ORCT_ONE, chnames[p[0]], (double)params[7]/ORCT_ONE, chnames[p[2]]);
 
-		printf("Equivalent RCT matrix:\n");
-		double matrix[9]={0};
-#if 0
-		double m1[9]={0};
-		m1[0+p[0]]=1;
-		m1[3+p[1]]=1;
-		m1[6+p[2]]=1;
-		double m2[9]=
-		{
-			1, (double)params[0]/ORCT_ONE, (double)params[1]/ORCT_ONE,
-			0, 1, 0,
-			0, 0, 1,
-		};
-		double m3[9]=
-		{
-			1, 0, 0,
-			(double)params[2]/ORCT_ONE, 1, (double)params[3]/ORCT_ONE,
-			0, 0, 1,
-		};
-		double m4[9]=
-		{
-			1, 0, 0,
-			0, 1, 0,
-			(double)params[4]/ORCT_ONE, (double)params[5]/ORCT_ONE, 1,
-		};
-		double m5[9]=
-		{
-			1, 0, 0,
-			(double)params[6]/ORCT_ONE, 1, (double)params[7]/ORCT_ONE,
-			0, 0, 1,
-		};
-		double mt1[9], mt2[9];
-		matmul(mt1, m2, m1, 3, 3, 3);
-		matmul(mt2, m3, mt1, 3, 3, 3);
-		matmul(mt1, m4, mt2, 3, 3, 3);
-		matmul(mt2, m5, mt1, 3, 3, 3);
-#endif
+		printf("RCT matrces:\n");
 		orct_custom_getmatrix(params, matrix, 1);
 		for(int k=0;k<9;++k)
 		{
@@ -574,6 +535,7 @@ static void orct_optimize(Image const *src, int x1, int x2, int y1, int y2, char
 			if(!((k+1)%3))
 				printf("%c\n", "RGB"[k/3]);
 		}
+		printf("\n");
 		orct_custom_getmatrix(params, matrix, 0);
 		for(int k=0;k<9;++k)
 		{
@@ -589,8 +551,9 @@ static void orct_optimize(Image const *src, int x1, int x2, int y1, int y2, char
 		printf("\n");
 	}
 
-	free(pixels);
+	_mm_free(pixels);
 	free(hist);
+	return loss_bestsofar;
 }
 
 static void wg_init(int *weights)
@@ -822,13 +785,13 @@ static void block_thread(void *param)
 
 	if(args->fwd)//encode
 	{
-		orct_optimize(image, args->x1, args->x2, args->y1, args->y2, rct_params, args->loud);
+		args->bestsize=orct_optimize(image, args->x1, args->x2, args->y1, args->y2, rct_params, args->loud);
 
 		dlist_init(&args->list, 1, 1024, 0);
 		ac_enc_init(&ec, &args->list);
 
 		for(int k=0;k<ORCT_NPARAMS;++k)
-			ac_enc_bypass(&ec, rct_params[k], 8);
+			ac_enc_bypass(&ec, rct_params[k]+128, 8);
 		ac_enc_bypass_NPOT(&ec, rct_params[ORCT_NPARAMS], 6);
 	}
 	else//decode
@@ -836,7 +799,7 @@ static void block_thread(void *param)
 		ac_dec_init(&ec, args->decstart, args->decend);
 		
 		for(int k=0;k<ORCT_NPARAMS;++k)
-			rct_params[k]=ac_dec_bypass(&ec, 8);
+			rct_params[k]=ac_dec_bypass(&ec, 8)-128;
 		rct_params[ORCT_NPARAMS]=ac_dec_bypass_NPOT(&ec, 6);
 	}
 	orct_unpack_permutation(rct_params[ORCT_NPARAMS], rct_per);
@@ -1005,11 +968,7 @@ static void block_thread(void *param)
 						msb=sym&((1<<CONFIG_MSB)-1);
 						sym>>=CONFIG_MSB;
 						nbits=sym+CONFIG_EXP-(CONFIG_MSB+CONFIG_LSB);
-#ifdef USE_AC2
-						bypass=ac2_dec_bypass(&ec, nbits);
-#else
 						bypass=ac_dec_bypass(&ec, nbits);
-#endif
 						sym=1;
 						sym<<=CONFIG_MSB;
 						sym|=msb;
@@ -1098,6 +1057,7 @@ int f28_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	ptrdiff_t argssize=nthreads*sizeof(ThreadArgs);
 	ThreadArgs *args=(ThreadArgs*)malloc(argssize);
 	int tlevels=0, clevels=0, statssize=0;
+	double esize=0;
 	if(fwd)
 	{
 #ifdef ENABLE_GUIDE
@@ -1203,22 +1163,30 @@ int f28_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 				ThreadArgs *arg=args+kt2;
 				if(loud)
 				{
-					int blocksize=(arg->x2-arg->x1)*(arg->y2-arg->y1);
+					int blocksize=((arg->x2-arg->x1)*(arg->y2-arg->y1)*image->nch*image->depth+7)>>3;
 					int kx, ky;
 
 					kx=kt+kt2;
 					ky=kx/xblocks;
 					kx%=xblocks;
-					if(!(kt+kt2))
-						printf("block,  nrows,  usize,     best  ->  actual,  (actual-best)\n");
-					printf(
-						"XY %3d %3d  %4d*%4d:  %8d  %8zd bytes\n",
-						kx, ky,
-						arg->y2-arg->y1,
-						arg->x2-arg->x1,
-						blocksize,
-						arg->list.nobj
-					);
+					if(nblocks<2000)
+					{
+						//if(!(kt+kt2))
+						//	printf("block,  nrows,  usize,     best  ->  actual,  (actual-best)\n");
+						printf(
+							"block %4d/%4d  XY %3d %3d  %4d*%4d:  %8d->%16lf->%8zd bytes  %10.6lf%%  CR %10lf\n",
+							kt+kt2+1, nblocks,
+							kx, ky,
+							arg->y2-arg->y1,
+							arg->x2-arg->x1,
+							blocksize,
+							arg->bestsize,
+							arg->list.nobj,
+							100.*arg->list.nobj/blocksize,
+							(double)blocksize/arg->list.nobj
+						);
+					}
+					esize+=arg->bestsize;
 				}
 				memcpy(data[0]->data+start+sizeof(int)*((ptrdiff_t)kt+kt2), &arg->list.nobj, sizeof(int));
 				dlist_appendtoarray(&arg->list, data);
@@ -1233,6 +1201,7 @@ int f28_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		if(fwd)
 		{
 			ptrdiff_t csize=data[0]->count-start;
+			printf("Best %15.2lf (%+13.2lf) bytes\n", esize, csize-esize);
 			printf("%12td/%12td  %10.6lf%%  %10lf\n", csize, usize, 100.*csize/usize, (double)usize/csize);
 			printf("Mem usage: ");
 			print_size((double)memusage, 8, 4, 0, 0);
