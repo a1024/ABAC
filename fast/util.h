@@ -19,6 +19,8 @@
 #define INC_UTIL_H
 #ifdef _MSC_VER
 #define _CRT_SECURE_NO_WARNINGS
+#elif !defined _GNU_SOURCE
+#define _GNU_SOURCE
 #endif
 #include<stddef.h>//size_t, ptrdiff_t
 #ifdef __cplusplus
@@ -145,6 +147,7 @@ void reverse16(void *start, void *end);
 void memrotate(void *p, size_t byteoffset, size_t bytesize, void *temp);//temp buffer is min(byteoffset, bytesize-byteoffset)
 int binary_search(const void *base, size_t count, size_t esize, int (*threeway)(const void*, const void*), const void *val, size_t *idx);//returns true if found, otherwise the idx is where val should be inserted, standard bsearch doesn't do this
 void isort(void *base, size_t count, size_t esize, int (*threeway)(const void*, const void*));//binary insertion sort
+int strcmp_ci(const char *s1, const char *s2);
 
 typedef enum GetOptRetEnum
 {

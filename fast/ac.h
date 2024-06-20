@@ -1179,7 +1179,7 @@ INLINE int ac_dec_bin(ArithmeticCoder *ec, unsigned short p0)//binary AC decoder
 }
 
 
-//arithmetic coder from paq8px
+//arithmetic coder from paq8px (bad)
 #define AC2_PROB_BITS 24
 typedef struct _AC2
 {

@@ -21,7 +21,7 @@
 #ifdef __cplusplus
 //C++ warnings
 #pragma GCC diagnostic ignored "-Wshift-negative-value"
-#pragma GCC diagnostic ignored "-Wcalloc-transposed-args"
+//#pragma GCC diagnostic ignored "-Wcalloc-transposed-args"
 #pragma GCC diagnostic ignored "-Wignored-qualifiers"
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #else

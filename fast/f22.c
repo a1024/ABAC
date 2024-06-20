@@ -13,7 +13,9 @@ static const char file[]=__FILE__;
 
 
 //	#define ENABLE_GUIDE
+#ifndef __GNUC__
 	#define ALLOW_AVX512
+#endif
 
 
 #include"ac.h"

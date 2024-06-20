@@ -222,6 +222,14 @@ void isort(void *base, size_t count, size_t esize, int (*threeway)(const void*, 
 	}
 	free(temp);
 }
+int strcmp_ci(const char *s1, const char *s2)
+{
+#ifdef _MSC_VER
+	return _stricmp(s1, s2);
+#else
+	return strcasecmp(s1, s2);
+#endif
+}
 int acme_getopt(int argc, char **argv, int *start, const char **keywords, int kw_count)
 {
 	int k;
@@ -2704,7 +2712,7 @@ static int cmp_str(const void *p1, const void *p2)
 	ArrayHandle const
 		*s1=(ArrayHandle const*)p1,
 		*s2=(ArrayHandle const*)p2;
-	return _stricmp((char*)s1[0]->data, (char*)s2[0]->data);
+	return strcmp_ci((char*)s1[0]->data, (char*)s2[0]->data);
 }
 #endif
 ArrayHandle get_filenames(const char *path, const char **extensions, int extCount, int fullyqualified)

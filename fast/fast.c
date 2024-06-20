@@ -9,10 +9,10 @@ static const char file[]=__FILE__;
 
 //	#define BENCH_QOI
 
-#define CODECID     26
-#define CODECNAME "F26"
-#define ENCODE     f26_encode
-#define DECODE     f26_decode
+#define CODECID     28
+#define CODECNAME "F28"
+#define ENCODE     f28_encode
+#define DECODE     f28_decode
 
 
 typedef struct ThreadArgsStruct
@@ -385,7 +385,7 @@ int main(int argc, char **argv)
 		const char *ext1=strrchr(fn, '.'), *ext2=strrchr(arg2, '.');
 		if(ext2)
 		{
-			if((!_stricmp(ext1, ".PPM")||!_stricmp(ext1, ".PGM")||!_stricmp(ext1, ".PNG"))&&!_stricmp(ext2, ".LSIM"))
+			if((!strcmp_ci(ext1, ".PPM")||!strcmp_ci(ext1, ".PGM")||!strcmp_ci(ext1, ".PNG"))&&!strcmp_ci(ext2, ".LSIM"))
 			{
 				Image src={0};
 				image_load(fn, &src);
@@ -409,7 +409,7 @@ int main(int argc, char **argv)
 				image_clear(&src);
 				return 0;
 			}
-			if(!_stricmp(ext1, ".LSIM")&&(!_stricmp(ext2, ".PPM")||!_stricmp(ext2, ".PGM")||!_stricmp(ext2, ".PNG")))
+			if(!strcmp_ci(ext1, ".LSIM")&&(!strcmp_ci(ext2, ".PPM")||!strcmp_ci(ext2, ".PGM")||!strcmp_ci(ext2, ".PNG")))
 			{
 				int e, success;
 				size_t idx;
@@ -431,7 +431,7 @@ int main(int argc, char **argv)
 					printf("Failed to decode \'%s\'", fn);
 					return 1;
 				}
-				if(!_stricmp(ext2, ".PNG"))
+				if(!strcmp_ci(ext2, ".PNG"))
 					success=image_save_native(arg2, &dst);
 				else
 					success=image_save_ppm(arg2, &dst);

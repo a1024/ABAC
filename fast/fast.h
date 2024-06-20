@@ -203,6 +203,11 @@ int	f27_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #define f27_decode(CBUF, CSIZE, DST, LOUD)	f27_codec(0, 0, CBUF, CSIZE, DST, LOUD)
 void	f27_curiosity();
 
+//	F28 ORCT from T47
+int	f28_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
+#define f28_encode(SRC, DATA, LOUD)		f28_codec(SRC, DATA, 0, 0, 0, LOUD)
+#define f28_decode(CBUF, CSIZE, DST, LOUD)	f28_codec(0, 0, CBUF, CSIZE, DST, LOUD)
+
 
 #ifdef __cplusplus
 }

@@ -26,6 +26,7 @@
 	f25.c
 	f26.c
 	f27.c
+	f28.c
 	fast.c
 	format.c
 #	huffman.c
@@ -36,11 +37,15 @@
 	util.c
 )
 
-#if(MSVC)
+if(MSVC)
+	message("Hello MSVC")
 #	target_compile_options(fast PRIVATE /Wall)
-#else()
+else()
+	message("Hello GCC")
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -mavx2 -mlzcnt")
+#	message("CMAKE_C_FLAGS = " ${CMAKE_C_FLAGS})
 #	target_compile_options(fast PRIVATE -Wall -Wextra -Wpedantic)
-#endif()
+endif()
 
 #if (CMAKE_VERSION VERSION_GREATER 3.12)
 #  set_property(TARGET fast PROPERTY CXX_STANDARD 20)
