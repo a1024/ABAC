@@ -9,7 +9,10 @@ static const char file[]=__FILE__;
 
 
 //	#define ENABLE_GUIDE
-//	#define DISABLE_MT
+	#define SERIAL_EC
+#ifdef SERIAL_EC
+	#define DISABLE_MT
+#endif
 
 
 #include"ac.h"
@@ -808,11 +811,13 @@ static void block_thread(void *param)
 		int *curr_hist=args->hist+chsize*kc;
 		unsigned *curr_CDF=args->stats+chsize*kc;
 		
+#ifndef SERIAL_EC
 		*curr_hist=1;//init bypass
 		memfill(curr_hist+1, curr_hist, sizeof(int)*(args->tlevels-1LL), sizeof(int));
 		curr_hist[args->tlevels]=args->tlevels;
-		update_CDF(curr_hist, curr_CDF, args->tlevels);
 		memfill(curr_hist+cdfstride, curr_hist, ((size_t)chsize-cdfstride)*sizeof(int), cdfstride*sizeof(int));
+#endif
+		update_CDF(curr_hist, curr_CDF, args->tlevels);
 		memfill(curr_CDF+cdfstride, curr_CDF, ((size_t)chsize-cdfstride)*sizeof(int), cdfstride*sizeof(int));
 	}
 	for(int kc=0;kc<image->nch;++kc)
@@ -1058,6 +1063,9 @@ int f28_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	ThreadArgs *args=(ThreadArgs*)malloc(argssize);
 	int tlevels=0, clevels=0, statssize=0;
 	double esize=0;
+#ifdef SERIAL_EC
+	int *common_hist=0;
+#endif
 	if(fwd)
 	{
 #ifdef ENABLE_GUIDE
@@ -1087,13 +1095,36 @@ int f28_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		clevels=9;
 		statssize=clevels*clevels*(tlevels+1)*image->nch*(int)sizeof(int);
 	}
-	if(!args)
+#ifdef SERIAL_EC
+	common_hist=(int*)malloc(statssize);
+#endif
+	if(!args
+#ifdef SERIAL_EC
+		||!common_hist
+#endif
+	)
 	{
 		LOG_ERROR("Alloc error");
 		return 1;
 	}
 	memusage+=argssize;
 	memset(args, 0, argssize);
+#ifdef SERIAL_EC
+	for(int kc=0;kc<image->nch;++kc)
+	{
+		int nctx=clevels*clevels, cdfstride=tlevels+1, chsize=nctx*cdfstride;
+		int *curr_hist=common_hist+chsize*kc;
+		//unsigned *curr_CDF=stats+chsize*kc;
+		
+		*curr_hist=1;//init bypass
+		memfill(curr_hist+1, curr_hist, sizeof(int)*(tlevels-1LL), sizeof(int));
+		curr_hist[tlevels]=tlevels;
+		memfill(curr_hist+cdfstride, curr_hist, ((size_t)chsize-cdfstride)*sizeof(int), cdfstride*sizeof(int));
+		//update_CDF(curr_hist, curr_CDF, tlevels);
+		//memfill(curr_CDF+cdfstride, curr_CDF, ((size_t)chsize-cdfstride)*sizeof(int), cdfstride*sizeof(int));
+		printf("");
+	}
+#endif
 	for(int k=0;k<nthreads;++k)
 	{
 		ThreadArgs *arg=args+k;
@@ -1102,8 +1133,12 @@ int f28_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		arg->bufsize=sizeof(int[4*OCH_COUNT*2])*(BLOCKSIZE+16LL);//4 padded rows * OCH_COUNT * {pixels, wg_errors}
 		arg->pixels=(int*)_mm_malloc(arg->bufsize, sizeof(__m128i));
 
-		arg->histsize=statssize*sizeof(int);
-		arg->hist=(int*)malloc(arg->histsize);
+		arg->histsize=statssize;
+#ifdef SERIAL_EC
+		arg->hist=common_hist;
+#else
+		arg->hist=(int*)malloc(statssize);
+#endif
 
 		arg->statssize=statssize;
 		arg->stats=(unsigned*)malloc(statssize);
@@ -1120,7 +1155,7 @@ int f28_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		arg->clevels=clevels;
 		arg->fwd=fwd;
 #ifdef DISABLE_MT
-		arg->loud=loud;
+		arg->loud=loud&&nblocks<2000;
 #else
 		arg->loud=0;
 #endif
@@ -1213,9 +1248,14 @@ int f28_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	{
 		ThreadArgs *arg=args+k;
 		_mm_free(arg->pixels);
+#ifndef SERIAL_EC
 		free(arg->hist);
+#endif
 		free(arg->stats);
 	}
+#ifdef SERIAL_EC
+	free(common_hist);
+#endif
 	free(args);
 	return 0;
 }
