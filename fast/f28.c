@@ -14,7 +14,8 @@ static const char file[]=__FILE__;
 //	#define ENABLE_GUIDE
 //	#define DISABLE_MT
 
-	#define DYNAMIC_CDF
+	#define USE_ABAC
+//	#define DYNAMIC_CDF
 
 
 #include"ac.h"
@@ -98,7 +99,9 @@ typedef struct _ThreadArgs
 	
 	unsigned long long seed;
 	int *pixels, bufsize;
+#ifndef USE_ABAC
 	int *hist, histsize;
+#endif
 
 	//AC
 	int tlevels, clevels, statssize;
@@ -922,6 +925,9 @@ static void block_thread(void *param)
 		}
 	}
 	memfill(args->hist+chsize, args->hist, sizeof(int)*chsize*(image->nch-1LL), sizeof(int)*chsize);
+#elif defined USE_ABAC
+	*args->stats=0x8000;//init bypass
+	memfill(args->stats+1, args->stats, args->statssize-sizeof(*args->stats), sizeof(*args->stats));
 #else
 	for(int kc=0;kc<image->nch;++kc)
 	{
@@ -1091,6 +1097,11 @@ static void block_thread(void *param)
 				//	hist2=args->hist+cdfstride*(nctx*kc+args->clevels*MINVAR(qeN, CLEVELS-1)+MINVAR(qeW, CLEVELS-1));
 				//	break;
 				//}
+#define MIX4(X) f28_mix4(curr_hist[0][X], curr_hist[1][X], curr_hist[2][X], curr_hist[3][X], alphax, alphay)
+				den=MIX4(args->tlevels);
+#elif defined USE_ABAC
+				int cidx=cdfstride*(nctx*kc+args->clevels*MINVAR(qeN, CLEVELS-1)+MINVAR(qeW, CLEVELS-1));
+				unsigned *curr_stats=args->stats+cidx;
 #else
 				int cidx=cdfstride*(nctx*kc+args->clevels*MINVAR(qeN, CLEVELS-1)+MINVAR(qeW, CLEVELS-1));
 				int *curr_hist=args->hist+cidx;
@@ -1124,8 +1135,6 @@ static void block_thread(void *param)
 				//if(ky==1228&&kx==2132&&kc==2)//
 				//	printf("");
 				
-#define MIX4(X) f28_mix4(curr_hist[0][X], curr_hist[1][X], curr_hist[2][X], curr_hist[3][X], alphax, alphay)
-				den=MIX4(args->tlevels);
 				if(args->fwd)
 				{
 					curr[kc2+0]=yuv[kc];
@@ -1167,6 +1176,18 @@ static void block_thread(void *param)
 					acval_enc(0, cdf, freq, lo0, lo0+r0, ec.low, ec.low+ec.range, 0, 0);
 
 					//ac_enc_update(&ec, cdf, curr_hist[token]);//X  normalize
+#elif defined USE_ABAC
+					for(int k=0;k<=token;++k)
+					{
+						int p0=*curr_stats;
+
+						int bit=k<token;
+						ac_enc_bin(&ec, p0, bit);
+
+						p0+=((!bit<<16)-p0)>>8;
+						CLAMP2_32(*curr_stats, p0, 1, 0xFFFF);
+						++curr_stats;
+					}
 #else
 					ac_enc(&ec, token, curr_CDF);
 #endif
@@ -1219,6 +1240,19 @@ static void block_thread(void *param)
 					acval_dec(0, cdf, freq, lo0, lo0+r0, ec.low, ec.low+ec.range, 0, 0, ec.code);
 
 					//ac_dec_update(&ec, cdf, curr_hist[token]);//X  normalize
+#elif defined USE_ABAC
+					for(token=0;;++token)
+					{
+						int p0=*curr_stats;
+
+						int bit=ac_dec_bin(&ec, p0);
+
+						p0+=((!bit<<16)-p0)>>8;
+						CLAMP2_32(*curr_stats, p0, 1, 0xFFFF);
+						++curr_stats;
+						if(bit)
+							break;
+					}
 #else
 					token=ac_dec(&ec, curr_CDF, args->tlevels);
 #endif
@@ -1295,6 +1329,8 @@ static void block_thread(void *param)
 						hist2[args->tlevels]=sum;
 					}
 				}
+#elif defined USE_ABAC
+				//nothing
 #else
 				++curr_hist[token];
 				++curr_hist[args->tlevels];
@@ -1351,22 +1387,22 @@ static void block_thread(void *param)
 	if(args->fwd)
 	{
 		ac_enc_flush(&ec);
-		if(args->loud)
-		{
-			for(int ky=0;ky<args->clevels;++ky)
-			{
-				for(int kx=0;kx<args->clevels;++kx)
-				{
-					double mean=0;
-					int *curr_hist=args->hist+cdfstride*(args->clevels*ky+kx);
-					for(int ks=0;ks<args->tlevels;++ks)
-						mean+=ks*curr_hist[ks];
-					mean/=curr_hist[args->tlevels];
-					printf(" %10.2lf", mean);
-				}
-				printf("\n");
-			}
-		}
+		//if(args->loud)
+		//{
+		//	for(int ky=0;ky<args->clevels;++ky)
+		//	{
+		//		for(int kx=0;kx<args->clevels;++kx)
+		//		{
+		//			double mean=0;
+		//			int *curr_hist=args->hist+cdfstride*(args->clevels*ky+kx);
+		//			for(int ks=0;ks<args->tlevels;++ks)
+		//				mean+=ks*curr_hist[ks];
+		//			mean/=curr_hist[args->tlevels];
+		//			printf(" %10.2lf", mean);
+		//		}
+		//		printf("\n");
+		//	}
+		//}
 	}
 }
 int f28_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud)
@@ -1429,14 +1465,19 @@ int f28_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		arg->bufsize=sizeof(int[4*OCH_COUNT*2])*(BLOCKSIZE+16LL);//4 padded rows * OCH_COUNT * {pixels, wg_errors}
 		arg->pixels=(int*)_mm_malloc(arg->bufsize, sizeof(__m128i));
 
+#ifndef USE_ABAC
 		arg->histsize=statssize;
 		arg->hist=(int*)malloc(statssize);
+#endif
 
 		arg->statssize=statssize;
 #ifndef DYNAMIC_CDF
 		arg->stats=(unsigned*)malloc(statssize);
 #endif
-		if(!arg->pixels||!arg->hist
+		if(!arg->pixels
+#ifndef USE_ABAC
+			||!arg->hist
+#endif
 #ifndef DYNAMIC_CDF
 			||!arg->stats
 #endif
@@ -1446,8 +1487,12 @@ int f28_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			return 1;
 		}
 		memusage+=arg->bufsize;
+#ifndef USE_ABAC
 		memusage+=arg->histsize;
+#endif
+#ifndef DYNAMIC_CDF
 		memusage+=arg->statssize;
+#endif
 		
 		arg->tlevels=tlevels;
 		arg->clevels=clevels;
@@ -1550,7 +1595,9 @@ int f28_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		ThreadArgs *arg=args+k;
 		//printf("Freeing %d/%d\n", k, nthreads);//
 		_mm_free(arg->pixels);
+#ifndef USE_ABAC
 		free(arg->hist);
+#endif
 #ifndef DYNAMIC_CDF
 		free(arg->stats);
 #endif
