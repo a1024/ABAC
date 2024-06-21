@@ -13,23 +13,25 @@ static const char file[]=__FILE__;
 
 //	#define ENABLE_GUIDE
 //	#define DISABLE_MT
+
 	#define DYNAMIC_CDF
 
 
 #include"ac.h"
-#define BLOCKSIZE 512
+#define BLOCKSIZE 384
 #define MAXPRINTEDBLOCKS 500
-#define CLEVELS 8
+#define CLEVELS 9
+#define MIXBITS 14
 
 
 #define ORCT_NPARAMS 8//not counting permutation
 
-#define ORCT_NITER 100
+#define ORCT_NITER 2000
 #define ORCT_DELTAGROUP 1
 #define ORCT_WATCHDOGTIMEOUT (ORCT_NPARAMS*16)
 
-#define OCRT_PARAMBITS 7
-#define ORCT_ONE (1<<OCRT_PARAMBITS)
+#define ORCT_PARAMBITS 12
+#define ORCT_ONE (1<<ORCT_PARAMBITS)
 
 
 #define WG_DECAY_NUM	493
@@ -94,6 +96,7 @@ typedef struct _ThreadArgs
 	Image *dst;
 	int fwd, loud, x1, x2, y1, y2;
 	
+	unsigned long long seed;
 	int *pixels, bufsize;
 	int *hist, histsize;
 
@@ -106,8 +109,9 @@ typedef struct _ThreadArgs
 	const unsigned char *decstart, *decend;
 
 	//aux
+	int blockidx;
 	double bestsize;
-	char rct_params[ORCT_NPARAMS+1];
+	short rct_params[ORCT_NPARAMS+1];
 
 	//WG
 	int wg_weights[4*WG_NPREDS];
@@ -122,17 +126,25 @@ static const char *slic5_orct_permutationnames[]=
 	"bgr",//4
 	"brg",//5
 };
-static void orct_print_compact(const char *params)
+static int xorshift64(unsigned long long *state)
 {
-	printf("[%s", slic5_orct_permutationnames[(unsigned char)params[ORCT_NPARAMS]]);
+	unsigned long long x=*state;
+	x^=x<<7;
+	x^=x>>9;
+	*state=x;
+	return (int)x&(~0U>>1);
+}
+static void orct_print_compact(const short *params)
+{
+	printf("[%s", slic5_orct_permutationnames[(unsigned short)params[ORCT_NPARAMS]]);
 	for(int k=0;k<ORCT_NPARAMS;++k)
 	{
 		int val=params[k];
-		printf("%c%02X", val<0?'-':'+', abs(val));
+		printf("%c%04X", val<0?'-':'+', abs(val));
 	}
 	printf("]");
 }
-static void orct_unpack_permutation(unsigned char p, unsigned char *permutation)
+static void orct_unpack_permutation(unsigned short p, unsigned char *permutation)
 {
 	int temp=0;
 	switch(p)
@@ -149,7 +161,7 @@ static void orct_unpack_permutation(unsigned char p, unsigned char *permutation)
 	}
 	memcpy(permutation, &temp, sizeof(char[3]));
 }
-static void orct_custom_getmatrix(const char *params, double *matrix, int fwd)
+static void orct_custom_getmatrix(const short *params, double *matrix, int fwd)
 {
 	unsigned char per[4]={0};
 	orct_unpack_permutation(params[ORCT_NPARAMS], per);
@@ -167,24 +179,24 @@ static void orct_custom_getmatrix(const char *params, double *matrix, int fwd)
 		};
 		if(fwd)
 		{
-			vrtx[0]+=(params[0]*vrtx[1]+params[1]*vrtx[2])*(1./(1<<OCRT_PARAMBITS));
-			vrtx[1]+=(params[2]*vrtx[0]+params[3]*vrtx[2])*(1./(1<<OCRT_PARAMBITS));
-			vrtx[2]+=(params[4]*vrtx[0]+params[5]*vrtx[1])*(1./(1<<OCRT_PARAMBITS));
-			vrtx[1]+=(params[6]*vrtx[0]+params[7]*vrtx[2])*(1./(1<<OCRT_PARAMBITS));
+			vrtx[0]+=(params[0]*vrtx[1]+params[1]*vrtx[2])*(1./(1<<ORCT_PARAMBITS));
+			vrtx[1]+=(params[2]*vrtx[0]+params[3]*vrtx[2])*(1./(1<<ORCT_PARAMBITS));
+			vrtx[2]+=(params[4]*vrtx[0]+params[5]*vrtx[1])*(1./(1<<ORCT_PARAMBITS));
+			vrtx[1]+=(params[6]*vrtx[0]+params[7]*vrtx[2])*(1./(1<<ORCT_PARAMBITS));
 		}
 		else
 		{
-			vrtx[1]-=(params[6]*vrtx[0]+params[7]*vrtx[2])*(1./(1<<OCRT_PARAMBITS));
-			vrtx[2]-=(params[4]*vrtx[0]+params[5]*vrtx[1])*(1./(1<<OCRT_PARAMBITS));
-			vrtx[1]-=(params[2]*vrtx[0]+params[3]*vrtx[2])*(1./(1<<OCRT_PARAMBITS));
-			vrtx[0]-=(params[0]*vrtx[1]+params[1]*vrtx[2])*(1./(1<<OCRT_PARAMBITS));
+			vrtx[1]-=(params[6]*vrtx[0]+params[7]*vrtx[2])*(1./(1<<ORCT_PARAMBITS));
+			vrtx[2]-=(params[4]*vrtx[0]+params[5]*vrtx[1])*(1./(1<<ORCT_PARAMBITS));
+			vrtx[1]-=(params[2]*vrtx[0]+params[3]*vrtx[2])*(1./(1<<ORCT_PARAMBITS));
+			vrtx[0]-=(params[0]*vrtx[1]+params[1]*vrtx[2])*(1./(1<<ORCT_PARAMBITS));
 		}
 		matrix[k+3*(fwd?0:per[0])]=vrtx[0];
 		matrix[k+3*(fwd?1:per[1])]=vrtx[1];
 		matrix[k+3*(fwd?2:per[2])]=vrtx[2];
 	}
 }
-static void orct_fwd(int *comp, const char *params, const unsigned char *permutation)
+static void orct_fwd(int *comp, const short *params, const unsigned char *permutation)
 {
 	int c2[3]=
 	{
@@ -192,27 +204,27 @@ static void orct_fwd(int *comp, const char *params, const unsigned char *permuta
 		comp[permutation[1]],
 		comp[permutation[2]],
 	};
-	c2[0]+=(params[0]*c2[1]+params[1]*c2[2]+((1<<OCRT_PARAMBITS)>>1))>>OCRT_PARAMBITS;
-	c2[1]+=(params[2]*c2[0]+params[3]*c2[2]+((1<<OCRT_PARAMBITS)>>1))>>OCRT_PARAMBITS;
-	c2[2]+=(params[4]*c2[0]+params[5]*c2[1]+((1<<OCRT_PARAMBITS)>>1))>>OCRT_PARAMBITS;
-	c2[1]+=(params[6]*c2[0]+params[7]*c2[2]+((1<<OCRT_PARAMBITS)>>1))>>OCRT_PARAMBITS;
+	c2[0]+=(params[0]*c2[1]+params[1]*c2[2]+((1<<ORCT_PARAMBITS)>>1))>>ORCT_PARAMBITS;
+	c2[1]+=(params[2]*c2[0]+params[3]*c2[2]+((1<<ORCT_PARAMBITS)>>1))>>ORCT_PARAMBITS;
+	c2[2]+=(params[4]*c2[0]+params[5]*c2[1]+((1<<ORCT_PARAMBITS)>>1))>>ORCT_PARAMBITS;
+	c2[1]+=(params[6]*c2[0]+params[7]*c2[2]+((1<<ORCT_PARAMBITS)>>1))>>ORCT_PARAMBITS;
 	memcpy(comp, c2, sizeof(c2));
 }
-static void orct_inv(int *comp, const char *params, const unsigned char *permutation)
+static void orct_inv(int *comp, const short *params, const unsigned char *permutation)
 {
 	int c2[3];
 	memcpy(c2, comp, sizeof(c2));
-	c2[1]-=(params[6]*c2[0]+params[7]*c2[2]+((1<<OCRT_PARAMBITS)>>1))>>OCRT_PARAMBITS;
-	c2[2]-=(params[4]*c2[0]+params[5]*c2[1]+((1<<OCRT_PARAMBITS)>>1))>>OCRT_PARAMBITS;
-	c2[1]-=(params[2]*c2[0]+params[3]*c2[2]+((1<<OCRT_PARAMBITS)>>1))>>OCRT_PARAMBITS;
-	c2[0]-=(params[0]*c2[1]+params[1]*c2[2]+((1<<OCRT_PARAMBITS)>>1))>>OCRT_PARAMBITS;
+	c2[1]-=(params[6]*c2[0]+params[7]*c2[2]+((1<<ORCT_PARAMBITS)>>1))>>ORCT_PARAMBITS;
+	c2[2]-=(params[4]*c2[0]+params[5]*c2[1]+((1<<ORCT_PARAMBITS)>>1))>>ORCT_PARAMBITS;
+	c2[1]-=(params[2]*c2[0]+params[3]*c2[2]+((1<<ORCT_PARAMBITS)>>1))>>ORCT_PARAMBITS;
+	c2[0]-=(params[0]*c2[1]+params[1]*c2[2]+((1<<ORCT_PARAMBITS)>>1))>>ORCT_PARAMBITS;
 	comp[permutation[0]]=c2[0];
 	comp[permutation[1]]=c2[1];
 	comp[permutation[2]]=c2[2];
 }
-static double orct_calcloss(Image const *src, int x1, int x2, int y1, int y2, int *pixels, int bufsize, int *hist, const char *params)
+static double orct_calcloss(Image const *src, int x1, int x2, int y1, int y2, int *pixels, int bufsize, int *hist, const short *params)
 {
-	int depth=src->depth+2, nlevels=1<<depth, half=nlevels>>1, mask=nlevels-1;
+	int depth=src->depth+1, nlevels=1<<depth, half=nlevels>>1, mask=nlevels-1;
 	__m128i mhalf=_mm_set1_epi32(half);
 	__m128i mmask=_mm_set1_epi32(mask);
 	unsigned char permutation[3]={0};
@@ -281,7 +293,7 @@ static double orct_calcloss(Image const *src, int x1, int x2, int y1, int y2, in
 		return csize;
 	}
 }
-static double orct_optimize(Image const *src, int x1, int x2, int y1, int y2, char *params, int loud)
+static double orct_optimize(unsigned long long seed, Image const *src, int x1, int x2, int y1, int y2, short *params, int loud)
 {
 	static const char *rctnames[]=
 	{
@@ -297,7 +309,7 @@ static double orct_optimize(Image const *src, int x1, int x2, int y1, int y2, ch
 		"YCbCr_R_v7",
 		"Pei09",
 	};
-	static const char paramsets[]=//permutations are brute forced
+	static const short paramsets[]=//permutations are brute forced
 	{
 		0,	0,//0	RCT_NONE defeats the purpose of optimization?
 		0,	0,
@@ -367,16 +379,10 @@ static double orct_optimize(Image const *src, int x1, int x2, int y1, int y2, ch
 	};
 	double loss_init, loss_bestsofar, loss_prev, loss_curr=0;
 	double t_start=time_sec();
-	int maxdepth=src->depth+2, maxlevels=1<<maxdepth;
 	int bufsize=(BLOCKSIZE+16LL)*sizeof(int[2*4]);//2 rows * 4 channels
 	int *pixels=(int*)_mm_malloc(bufsize, sizeof(__m128i));
-	int *hist=(int*)malloc(maxlevels*sizeof(int[3]));
-	if(!pixels||!hist)
-	{
-		LOG_ERROR("Alloc error");
-		return 0;
-	}
-	char params2[]=
+	int *hist=(int*)malloc(sizeof(int[3])<<(src->depth+2));
+	short params2[]=
 	{
 		-ORCT_ONE,	0,		//-1	0		JPEG2000 RCT
 		0,		0,		//0	0
@@ -384,14 +390,20 @@ static double orct_optimize(Image const *src, int x1, int x2, int y1, int y2, ch
 		ORCT_ONE>>1,	ORCT_ONE>>1,	//1/2	1/2
 		0,//rgb
 	};
+	int best_init=0, bestp=0;
+
+	if(!pixels||!hist)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
 #define CALC_LOSS(L) L=orct_calcloss(src, x1, x2, y1, y2, pixels, bufsize, hist, params2)
 
-	int best_init=0, bestp=0;
 	loss_bestsofar=INFINITY;
 	for(int k=0;k<(_countof(paramsets)/(ORCT_NPARAMS+1));++k)//brute force initial RCT
 	{
 		memcpy(params2, paramsets+(ORCT_NPARAMS+1)*k, sizeof(params2));
-		for(int k2=1;k2<6;++k2)//brute force the permutations
+		for(int k2=0;k2<6;++k2)//brute force the permutations
 		{
 			params2[ORCT_NPARAMS]=k2;
 			CALC_LOSS(loss_prev);
@@ -410,11 +422,11 @@ static double orct_optimize(Image const *src, int x1, int x2, int y1, int y2, ch
 			((x2-x1)*(y2-y1)*src->nch*src->depth+7)>>3,
 			loss_bestsofar
 		);
-
+#if 0
 	for(int it=0, checkpoint=-1;it<ORCT_NITER;++it)
 	{
 		double losses[3]={0};
-		char params3[ORCT_NPARAMS+1];
+		short params3[ORCT_NPARAMS+1];
 		const int deviation2=ORCT_ONE>>4;
 
 		memcpy(params3, params2, sizeof(params3));
@@ -451,7 +463,7 @@ static double orct_optimize(Image const *src, int x1, int x2, int y1, int y2, ch
 		const int deviation=ORCT_ONE>>4;
 		for(int k=2;k<ORCT_NPARAMS;++k)
 		{
-			char *p=params2+k;
+			short *p=params2+k;
 			switch(k>>1)
 			{
 			case 2://curr+[-1, 1/2]
@@ -512,8 +524,60 @@ static double orct_optimize(Image const *src, int x1, int x2, int y1, int y2, ch
 			printf("chk %4d  %4d/%4d  curr %16lf  best %16lf  elapsed %12lf sec\r",
 				checkpoint+1, it+1, ORCT_NITER, loss_curr, loss_bestsofar, time_sec()-t_start
 			);
-		if(!memcmp(params2, params3, sizeof(params2))||it-checkpoint>=5)
+		if(!memcmp(params2, params3, sizeof(params2))||it-checkpoint>=7)
 			break;
+	}
+	if(loud)
+		printf("\n");
+#endif
+#define ORCT_MASKBITS 10
+	double loss_new=loss_bestsofar;
+	for(int it=0, watchdog=0;it<ORCT_NITER;++it)
+	{
+		int idx=0, inc=0, stuck=0;
+		if(loud)
+			printf("%4d/%4d  curr %16lf  best %16lf  elapsed %12lf sec\r",
+				it+1, ORCT_NITER, loss_curr, loss_bestsofar, time_sec()-t_start
+			);
+		if(watchdog>=ORCT_NPARAMS)//bump if stuck
+		{
+			memcpy(params2, params, sizeof(params2));
+			for(int k=0;k<ORCT_NPARAMS;++k)
+				params2[k]+=((xorshift64(&seed)&1)<<1)-1;
+			watchdog=0;
+			stuck=1;
+		}
+		else
+		{
+			idx=xorshift64(&seed)%ORCT_NPARAMS;
+			while(!(inc=(xorshift64(&seed)&((1<<ORCT_MASKBITS)-1))-(1<<ORCT_MASKBITS>>1)));//reject zero delta
+			params2[idx]+=inc;
+		}
+
+		CALC_LOSS(loss_new);
+		
+		if(loss_new>loss_curr)//revert if worse
+		{
+			if(stuck)//a bad branch may surpass the local minimum
+				loss_curr=loss_new;
+			else
+			{
+				//loss_new=loss_curr;
+				params2[idx]-=inc;
+			}
+			++watchdog;
+		}
+		else//save if better
+		{
+			if(loss_bestsofar>loss_new)
+			{
+				memcpy(params, params2, sizeof(params2));
+				loss_bestsofar=loss_new;
+				--it;//bis
+			}
+			loss_curr=loss_new;
+			watchdog=0;
+		}
 	}
 #undef  CALC_LOSS
 	if(loud)
@@ -779,6 +843,14 @@ static void update_CDF(const int *hist, unsigned *CDF, int tlevels)
 	}
 	CDF[tlevels]=1<<PROB_BITS;
 }
+static int f28_mix4(int v00, int v01, int v10, int v11, int alphax, int alphay)
+{
+	//v00=v00*((1<<12)-alphax)+v01*alphax;
+	v00=((v00<<MIXBITS)+(v01-v00)*alphax)>>(MIXBITS-1);
+	v10=((v10<<MIXBITS)+(v11-v10)*alphax)>>(MIXBITS-1);
+	v00=((v00<<MIXBITS)+(v10-v00)*alphay)>>(MIXBITS-1);
+	return v00;
+}
 #ifdef ENABLE_GUIDE
 static const Image *guide=0;
 #endif
@@ -787,20 +859,31 @@ static void block_thread(void *param)
 	ArithmeticCoder ec;
 	ThreadArgs *args=(ThreadArgs*)param;
 	Image const *image=args->fwd?args->src:args->dst;
-	char rct_params[ORCT_NPARAMS+1]={0}, rct_per[4]={0};
-	int depth=image->depth+2, nlevels=1<<depth, half=nlevels>>1, mask=nlevels-1;
+	short rct_params[ORCT_NPARAMS+1]=
+	{
+		//-0x1000, +0x0000, +0x0000, +0x0000, +0x0000, -0x1000, +0x0000, +0x0000, 0
+		0
+	};
+	char rct_per[4]={0};
+	int depth=image->depth+3, nlevels=1<<depth, half=nlevels>>1, mask=nlevels-1;
 	int res=(args->x2-args->x1)*(args->y2-args->y1);
 	int nctx=args->clevels*args->clevels, cdfstride=args->tlevels+1, chsize=nctx*cdfstride;
+	args->seed=0x72B7254637722345;
+	//args->seed=__rdtsc();
 
 	if(args->fwd)//encode
 	{
-		args->bestsize=orct_optimize(image, args->x1, args->x2, args->y1, args->y2, rct_params, args->loud);
+		args->bestsize=orct_optimize(args->seed, image, args->x1, args->x2, args->y1, args->y2, rct_params, args->loud);
 
 		dlist_init(&args->list, 1, 1024, 0);
 		ac_enc_init(&ec, &args->list);
 
 		for(int k=0;k<ORCT_NPARAMS;++k)
-			ac_enc_bypass(&ec, rct_params[k]+128, 8);
+		{
+			int p=rct_params[k];
+			p=p<<1^p>>31;
+			ac_enc_bypass(&ec, p, ORCT_PARAMBITS+3);//[-2, 2]<<NBITS
+		}
 		ac_enc_bypass_NPOT(&ec, rct_params[ORCT_NPARAMS], 6);
 	}
 	else//decode
@@ -808,11 +891,38 @@ static void block_thread(void *param)
 		ac_dec_init(&ec, args->decstart, args->decend);
 		
 		for(int k=0;k<ORCT_NPARAMS;++k)
-			rct_params[k]=ac_dec_bypass(&ec, 8)-128;
+		{
+			int p=ac_dec_bypass(&ec, ORCT_PARAMBITS+3);
+			rct_params[k]=p>>1^-(p&1);
+		}
 		rct_params[ORCT_NPARAMS]=ac_dec_bypass_NPOT(&ec, 6);
 	}
 	memcpy(args->rct_params, rct_params, sizeof(args->rct_params));
 	orct_unpack_permutation(rct_params[ORCT_NPARAMS], rct_per);
+	//if(args->blockidx==3)//
+	//	printf("");
+#ifdef DYNAMIC_CDF
+	for(int ky=0;ky<args->clevels;++ky)
+	{
+		for(int kx=0;kx<args->clevels;++kx)
+		{
+			static const init_freqs[]={32, 8, 6, 4, 3, 2, 1};
+			//static const init_freqs[]={16, 5, 4, 3, 2, 1};
+			//static const init_freqs[]={1, 1};
+			int *curr_hist=args->hist+cdfstride*(args->clevels*ky+kx);
+			int sum=0;
+			for(int ks=0;ks<args->tlevels;++ks)
+			{
+				int freq=init_freqs[MINVAR(ks, _countof(init_freqs)-1)];
+				//int freq=init_freqs[MINVAR(ks, _countof(init_freqs)-1)]-kx-ky;//X
+				UPDATE_MAX(freq, 1);
+				sum+=curr_hist[ks]=freq;
+			}
+			curr_hist[args->tlevels]=sum;
+		}
+	}
+	memfill(args->hist+chsize, args->hist, sizeof(int)*chsize*(image->nch-1LL), sizeof(int)*chsize);
+#else
 	for(int kc=0;kc<image->nch;++kc)
 	{
 		static const init_freqs[]={16, 4, 3, 2, 1};
@@ -848,6 +958,7 @@ static void block_thread(void *param)
 		}
 #endif
 	}
+#endif
 	for(int kc=0;kc<image->nch;++kc)
 		wg_init(args->wg_weights+WG_NPREDS*kc);
 	memset(args->wg_errors, 0, sizeof(args->wg_errors));
@@ -869,6 +980,7 @@ static void block_thread(void *param)
 			int
 				idx	=image->nch*(image->iw*ky+kx),
 				*NNN	=rows[3]+0*4*2,
+			//	*NNNE	=rows[3]+1*4*2,
 				*NNW	=rows[2]-1*4*2,
 				*NN	=rows[2]+0*4*2,
 				*NNE	=rows[2]+1*4*2,
@@ -878,6 +990,7 @@ static void block_thread(void *param)
 				*NE	=rows[1]+1*4*2,
 				*NEE	=rows[1]+2*4*2,
 				*NEEE	=rows[1]+3*4*2,
+			//	*WWWW	=rows[0]-4*4*2,
 				*WWW	=rows[0]-3*4*2,
 				*WW	=rows[0]-2*4*2,
 				*W	=rows[0]-1*4*2,
@@ -928,7 +1041,7 @@ static void block_thread(void *param)
 					kc=3;
 				}
 				if(kc<image->nch)
-					yuv[kc]=image->data[kc];
+					yuv[kc]=image->data[idx+kc];
 			}
 			for(int kc=0;kc<image->nch;++kc)
 			{
@@ -939,14 +1052,48 @@ static void block_thread(void *param)
 					vy=(abs(W[kc2]-NW[kc2])+abs(N[kc2]-NN[kc2])+abs(NE[kc2]-NNE[kc2])+abs(NNN[kc2+1])+abs(NN[kc2+1])+abs(N[kc2+1])*2)<<10>>depth;
 				int qeN=FLOOR_LOG2(vy+1);
 				int qeW=FLOOR_LOG2(vx+1);
-				//qeN=FLOOR_LOG2(qeN+1);
-				//qeW=FLOOR_LOG2(qeW+1);
+				//int qeN=vy>>7;//X
+				//int qeW=vx>>7;
+				//qeN=(1<<FLOOR_LOG2(qeN+1))-1;//X
+				//qeW=(1<<FLOOR_LOG2(qeW+1))-1;
 				//qeN=0;
+#ifdef DYNAMIC_CDF
+				int *curr_hist[4];
+				qeN=MINVAR(qeN, CLEVELS-2);
+				qeW=MINVAR(qeW, CLEVELS-2);
+				curr_hist[0]=args->hist+cdfstride*(nctx*kc+args->clevels*(qeN+0)+qeW+0);
+				curr_hist[1]=args->hist+cdfstride*(nctx*kc+args->clevels*(qeN+0)+qeW+1);
+				curr_hist[2]=args->hist+cdfstride*(nctx*kc+args->clevels*(qeN+1)+qeW+0);
+				curr_hist[3]=args->hist+cdfstride*(nctx*kc+args->clevels*(qeN+1)+qeW+1);
+				int alphax=(((vx+1-(1<<qeW))<<MIXBITS)+(1<<qeW>>1))>>qeW;
+				int alphay=(((vy+1-(1<<qeN))<<MIXBITS)+(1<<qeN>>1))>>qeN;
+				int cdf, freq=0, den;
+
+				CLAMP2_32(alphax, 0, alphax, 1<<MIXBITS);
+				CLAMP2_32(alphay, 0, alphay, 1<<MIXBITS);
+				//UPDATE_MIN(alphax, 1<<MIXBITS);
+				//UPDATE_MIN(alphay, 1<<MIXBITS);
+
+				//int *hist2=curr_hist;
+				//int a1=vy+1-qeN, a2;
+				//for(;;)
+				//{
+				//	if(hist2[args->tlevels]>=6144/2||(!qeN&&!qeW))
+				//		break;
+				//	if(qeN>qeW)
+				//		--qeN;
+				//	else if(qeW>qeN)
+				//		--qeW;
+				//	else
+				//		--qeN, --qeW;
+				//	UPDATE_MAX(qeN, 0);
+				//	UPDATE_MAX(qeW, 0);
+				//	hist2=args->hist+cdfstride*(nctx*kc+args->clevels*MINVAR(qeN, CLEVELS-1)+MINVAR(qeW, CLEVELS-1));
+				//	break;
+				//}
+#else
 				int cidx=cdfstride*(nctx*kc+args->clevels*MINVAR(qeN, CLEVELS-1)+MINVAR(qeW, CLEVELS-1));
 				int *curr_hist=args->hist+cidx;
-#ifdef DYNAMIC_CDF
-				int cdf;
-#else
 				unsigned *curr_CDF=args->stats+cidx;
 #endif
 #ifdef AC_VALIDATE
@@ -968,8 +1115,17 @@ static void block_thread(void *param)
 				//if(ky==0&&kx==102&&kc==1)//
 				//if(ky==1&&kx==111&&kc==1)//
 				//if(ky==5&&kx==149&&kc==1)//
+				//if(ky==0&&kx==106&&kc==1)//
+				//if(ky==0&&kx==111&&kc==1)//
+				//if(ky==1&&kx==20&&kc==2)//
+				//if(ky==401&&kx==1&&kc==1)//
+				//if(ky==0&&kx==0&&kc==1)//
+				//if(ky==1231&&kx==2232&&kc==1)//
+				//if(ky==1228&&kx==2132&&kc==2)//
 				//	printf("");
-
+				
+#define MIX4(X) f28_mix4(curr_hist[0][X], curr_hist[1][X], curr_hist[2][X], curr_hist[3][X], alphax, alphay)
+				den=MIX4(args->tlevels);
 				if(args->fwd)
 				{
 					curr[kc2+0]=yuv[kc];
@@ -992,45 +1148,75 @@ static void block_thread(void *param)
 							sym=upred+aval;//error sign is known
 					}
 					quantize_pixel(sym, &token, &bypass, &nbits);
+					if(token>=args->tlevels)
+						LOG_ERROR("YXC %d %d %d  token %d/%d, seed 0x%016llX", ky, kx, kc, token, args->tlevels, args->seed);
 					
 #ifdef DYNAMIC_CDF
 					cdf=0;
 					for(int ks=0;ks<token;++ks)
-						cdf+=curr_hist[ks];
-					ec.low+=ec.range*cdf/curr_hist[args->tlevels];
-					ec.range=ec.range*curr_hist[token]/curr_hist[args->tlevels]-1;
-					while(ec.range<(1LL<<PROB_BITS))
+						cdf+=MIX4(ks);
+					freq=MIX4(token);
+					while(ec.range<den)
 						ac_enc_renorm(&ec);
-					acval_enc(0, cdf, curr_hist[token], lo0, lo0+r0, ec.low, ec.low+ec.range, 0, 0);
+					ec.low+=ec.range*cdf/den;
+					ec.range=ec.range*freq/den-1;
+					//ec.low+=ec.range*cdf/curr_hist[args->tlevels];
+					//ec.range=ec.range*curr_hist[token]/curr_hist[args->tlevels]-1;
+					//while(ec.range<(1LL<<PROB_BITS))
+					//	ac_enc_renorm(&ec);
+					acval_enc(0, cdf, freq, lo0, lo0+r0, ec.low, ec.low+ec.range, 0, 0);
 
 					//ac_enc_update(&ec, cdf, curr_hist[token]);//X  normalize
 #else
 					ac_enc(&ec, token, curr_CDF);
 #endif
 					if(nbits)
-						ac_enc_bypass(&ec, bypass, nbits);//up to 16 bits
+					{
+#ifdef AC_VALIDATE
+						lo0=ec.low, r0=ec.range;
+#endif
+						while(ec.range<(1ULL<<nbits))
+							ac_enc_renorm(&ec);
+						ec.low+=ec.range*bypass>>nbits;
+						ec.range=(ec.range>>nbits)-1;
+						acval_enc(bypass, cdf, freq, lo0, lo0+r0, ec.low, ec.low+ec.range, 0, 0);
+					}
+					//	ac_enc_bypass(&ec, bypass, nbits);//up to 16 bits
 				}
 				else
 				{
 #ifdef DYNAMIC_CDF
-					unsigned code=(unsigned)(((ec.code-ec.low)*curr_hist[args->tlevels]+curr_hist[args->tlevels]-1)/ec.range);
+					unsigned code;
+
+					while(ec.range<den)
+						ac_dec_renorm(&ec);
+					code=(unsigned)(((ec.code-ec.low)*den+den-1)/ec.range);
 					//unsigned code=ac_dec_getcdf(&ec);//X  normalize
-					int *ptr=curr_hist;
+					//int *ptr=curr_hist;
 					cdf=0;
+					token=0;
 					for(;;)
 					{
-						unsigned cdf2=cdf+*ptr++;
+						unsigned cdf2;
+
+						freq=MIX4(token);
+						cdf2=cdf+freq;
+						//unsigned cdf2=cdf + *ptr++ + *ptr2++;
 						if(cdf2>code)
 							break;
+						if(token>=args->tlevels)
+							LOG_ERROR("YXC %d %d %d  token %d/%d, seed 0x%016llX", ky, kx, kc, token, args->tlevels, args->seed);
 						cdf=cdf2;
+						++token;
 					}
-					token=(int)(ptr-curr_hist-1);
 					
-					ec.low+=ec.range*cdf/curr_hist[args->tlevels];
-					ec.range=ec.range*curr_hist[token]/curr_hist[args->tlevels]-1;
-					while(ec.range<(1LL<<PROB_BITS))
-						ac_dec_renorm(&ec);
-					acval_dec(0, cdf, curr_hist[token], lo0, lo0+r0, ec.low, ec.low+ec.range, 0, 0, ec.code);
+					ec.low+=ec.range*cdf/den;
+					ec.range=ec.range*freq/den-1;
+					//ec.low+=ec.range*cdf/curr_hist[args->tlevels];
+					//ec.range=ec.range*curr_hist[token]/curr_hist[args->tlevels]-1;
+					//while(ec.range<(1LL<<PROB_BITS))
+					//	ac_dec_renorm(&ec);
+					acval_dec(0, cdf, freq, lo0, lo0+r0, ec.low, ec.low+ec.range, 0, 0, ec.code);
 
 					//ac_dec_update(&ec, cdf, curr_hist[token]);//X  normalize
 #else
@@ -1047,7 +1233,18 @@ static void block_thread(void *param)
 						msb=sym&((1<<CONFIG_MSB)-1);
 						sym>>=CONFIG_MSB;
 						nbits=sym+CONFIG_EXP-(CONFIG_MSB+CONFIG_LSB);
-						bypass=ac_dec_bypass(&ec, nbits);
+						{
+#ifdef AC_VALIDATE
+							lo0=ec.low, r0=ec.range;
+#endif
+							while(ec.range<(1ULL<<nbits))
+								ac_dec_renorm(&ec);
+							bypass=(int)(((ec.code-ec.low)<<nbits|((1LL<<nbits)-1))/ec.range);
+							ec.low+=ec.range*bypass>>nbits;
+							ec.range=(ec.range>>nbits)-1;
+							acval_dec(bypass, cdf, freq, lo0, lo0+r0, ec.low, ec.low+ec.range, 0, 0, ec.code);
+						}
+						//bypass=ac_dec_bypass(&ec, nbits);
 						sym=1;
 						sym<<=CONFIG_MSB;
 						sym|=msb;
@@ -1076,29 +1273,42 @@ static void block_thread(void *param)
 					curr[kc2+0]=yuv[kc]=error+pred;
 					curr[kc2+1]=error;
 				}
+#ifdef DYNAMIC_CDF
+				int inc;
+				inc=((1<<MIXBITS)-alphax)*((1<<MIXBITS)-alphay)>>(MIXBITS+MIXBITS-5); curr_hist[0][token]+=inc; curr_hist[0][args->tlevels]+=inc;
+				inc=(             alphax)*((1<<MIXBITS)-alphay)>>(MIXBITS+MIXBITS-5); curr_hist[1][token]+=inc; curr_hist[1][args->tlevels]+=inc;
+				inc=((1<<MIXBITS)-alphax)*(             alphay)>>(MIXBITS+MIXBITS-5); curr_hist[2][token]+=inc; curr_hist[2][args->tlevels]+=inc;
+				inc=(             alphax)*(             alphay)>>(MIXBITS+MIXBITS-5); curr_hist[3][token]+=inc; curr_hist[3][args->tlevels]+=inc;
 				//{
-				//	int inc=(1<<depth>>4)/(abs(curr[kc2+1])+1);
+				//	int inc=(1<<depth>>4)/(abs(curr[kc2+1])+1);//X
 				//	curr_hist[token]+=inc;
 				//	curr_hist[args->tlevels]+=inc;
 				//}
+				for(int kh=0;kh<4;++kh)
+				{
+					int *hist2=curr_hist[kh];
+					if(hist2[args->tlevels]>=10752)//6144	4296	65536
+					{
+						int sum=0;
+						for(int ks=0;ks<args->tlevels;++ks)
+							sum+=hist2[ks]=(hist2[ks]+1)>>1;
+						hist2[args->tlevels]=sum;
+					}
+				}
+#else
 				++curr_hist[token];
 				++curr_hist[args->tlevels];
-#ifndef DYNAMIC_CDF
 				if(curr_hist[args->tlevels]>=args->tlevels&&!(curr_hist[args->tlevels]&(CDFSTRIDE-1)))
 					update_CDF(curr_hist, curr_CDF, args->tlevels);
-#endif
 				//if(curr_hist[args->tlevels]>=(args->tlevels<<7))//shift up to 11
-				if(curr_hist[args->tlevels]>=6144)//6144	4296	65536
+				if(curr_hist[args->tlevels]>=4096)//6144	4296	65536
 				{
 					int sum=0;
 					for(int ks=0;ks<args->tlevels;++ks)
-#ifdef DYNAMIC_CDF
-						sum+=curr_hist[ks]=(curr_hist[ks]+1)>>1;
-#else
 						sum+=curr_hist[ks]>>=1;
-#endif
 					curr_hist[args->tlevels]=sum;
 				}
+#endif
 				wg_update(curr[kc2], wg_preds, args->wg_errors+WG_NPREDS*kc, args->wg_weights+WG_NPREDS*kc);
 			}
 			if(!args->fwd)
@@ -1113,7 +1323,7 @@ static void block_thread(void *param)
 					kc=3;
 				}
 				if(kc<image->nch)
-					image->data[kc]=yuv[kc];
+					image->data[idx+kc]=yuv[kc];
 #ifdef ENABLE_GUIDE
 				if(memcmp(image->data+idx, guide->data+idx, sizeof(short)*image->nch))
 				{
@@ -1127,7 +1337,7 @@ static void block_thread(void *param)
 					orct_fwd(orig, rct_params, rct_per);
 					orct_fwd(yuv, rct_params, rct_per);
 					//memcpy(orig, guide->data+idx, image->nch*sizeof(short));
-					LOG_ERROR("Guide error XY %d %d", kx, ky);
+					LOG_ERROR("Guide error XY %d %d, seed 0x%016llX", kx, ky, args->seed);
 					printf("");//
 				}
 #endif
@@ -1139,7 +1349,25 @@ static void block_thread(void *param)
 		}
 	}
 	if(args->fwd)
+	{
 		ac_enc_flush(&ec);
+		if(args->loud)
+		{
+			for(int ky=0;ky<args->clevels;++ky)
+			{
+				for(int kx=0;kx<args->clevels;++kx)
+				{
+					double mean=0;
+					int *curr_hist=args->hist+cdfstride*(args->clevels*ky+kx);
+					for(int ks=0;ks<args->tlevels;++ks)
+						mean+=ks*curr_hist[ks];
+					mean/=curr_hist[args->tlevels];
+					printf(" %10.2lf", mean);
+				}
+				printf("\n");
+			}
+		}
+	}
 }
 int f28_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud)
 {
@@ -1178,7 +1406,7 @@ int f28_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		start=coffset;
 	}
 	{
-		int nlevels=2<<image->depth;//chroma-inflated
+		int nlevels=8<<image->depth;//chroma-inflated
 		int token=0, bypass=0, nbits=0;
 
 		quantize_pixel(nlevels, &token, &bypass, &nbits);
@@ -1238,7 +1466,7 @@ int f28_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			ThreadArgs *arg=args+kt2;
 			int kx, ky;
 
-			kx=kt+kt2;
+			arg->blockidx=kx=kt+kt2;
 			ky=kx/xblocks;
 			kx%=xblocks;
 			arg->x1=BLOCKSIZE*kx;
@@ -1320,6 +1548,7 @@ int f28_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	for(int k=0;k<nthreads;++k)
 	{
 		ThreadArgs *arg=args+k;
+		//printf("Freeing %d/%d\n", k, nthreads);//
 		_mm_free(arg->pixels);
 		free(arg->hist);
 #ifndef DYNAMIC_CDF
