@@ -12,6 +12,7 @@ static const char file[]=__FILE__;
 
 //	#define ENABLE_GUIDE
 //	#define DISABLE_MT
+
 //	#define ENABLE_CURIOSITY
 
 //	#define USE_AC2//bad
@@ -363,9 +364,9 @@ typedef enum _RCTType
 #undef  RCT
 	RCT_COUNT,
 } RCTType;
-static const int rct_combinations[RCT_COUNT][9]=
+static const int rct_combinations[RCT_COUNT][12]=
 {
-#define RCT(NAME, YIDX, UIDX, VIDX, YOFF1, UOFF1, VOFF1, YOFF2, UOFF2, VOFF2) {YIDX, UIDX, VIDX, YOFF1, UOFF1, VOFF1, YOFF2, UOFF2, VOFF2},
+#define RCT(NAME, YIDX, UIDX, VIDX, YOFF1, UOFF1, VOFF1, YOFF2, UOFF2, VOFF2) {YIDX, UIDX, VIDX, 0, YOFF1, UOFF1, VOFF1, 4, YOFF2, UOFF2, VOFF2, 4},
 	RCTLIST
 #undef  RCT
 };
@@ -825,7 +826,7 @@ static void block_thread(void *param)
 	Image const *image=args->fwd?args->src:args->dst;
 	int depths[OCH_COUNT]={0}, halfs[OCH_COUNT]={0};
 	double bestsize=0;
-	int bestrct=0, combination[9]={0}, predidx[3]={0}, flag=0;
+	int bestrct=0, combination[12]={0}, predidx[4]={0}, flag=0;
 	int res=image->iw*(args->y2-args->y1);
 	int nctx=args->clevels*args->clevels, cdfstride=args->tlevels+1, chsize=nctx*cdfstride;
 
@@ -1128,6 +1129,7 @@ static void block_thread(void *param)
 		ac_dec_init(&ec, srcstart, srcend);
 #endif
 	}
+	predidx[3]=PRED_cgrad;
 #ifdef MIXCDF
 	for(int ks=0;ks<=args->tlevels;++ks)//init bypass
 		args->stats[ks]=(unsigned)(((1LL<<USE_PROB_BITS)-args->tlevels)*ks/args->tlevels);
@@ -1405,13 +1407,13 @@ static void block_thread(void *param)
 					kc=3;
 				}
 				if(kc<image->nch)
-					yuv[kc]=image->data[kc];
+					yuv[kc]=image->data[idx+kc];
 			}
 			for(int kc=0;kc<image->nch;++kc)
 			{
 				int ch=combination[kc];
 				int kc2=kc<<1;
-				int offset=(yuv[combination[kc+3]]+yuv[combination[kc+6]])>>och_info[ch][II_HSHIFT];
+				int offset=(yuv[combination[kc+4]]+yuv[combination[kc+8]])>>och_info[ch][II_HSHIFT];
 				int pred=0, error, sym;
 				int
 					vx=(abs(W[kc2]-WW[kc2])+abs(N[kc2]-NW[kc2])+abs(NE[kc2]-N  [kc2])+abs(WWW[kc2+1])+abs(WW[kc2+1])+abs(W[kc2+1])*2)<<8>>depths[ch],
@@ -1452,6 +1454,7 @@ static void block_thread(void *param)
 				//if(ky==0&&kx==125&&kc==0)//
 				//if(ky==0&&kx==102&&kc==1)//
 				//if(ky==1&&kx==111&&kc==1)//
+				//if(ky==22&&kx==242&&kc==3)//
 				//	printf("");
 
 				if(args->fwd)
@@ -1789,7 +1792,7 @@ static void block_thread(void *param)
 					kc=3;
 				}
 				if(kc<image->nch)
-					image->data[kc]=yuv[kc];
+					image->data[idx+kc]=yuv[kc];
 #ifdef ENABLE_GUIDE
 				if(memcmp(image->data+idx, guide->data+idx, sizeof(short)*image->nch))
 				{

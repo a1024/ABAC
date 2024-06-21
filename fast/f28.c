@@ -14,7 +14,11 @@ static const char file[]=__FILE__;
 //	#define ENABLE_GUIDE
 //	#define DISABLE_MT
 
-	#define USE_ABAC
+//ABAC1: {exponent, mantissa, sign}
+//ABAC2: plain
+//ABAC3: mix2D
+//	#define USE_ABAC 3
+//	#define ABAC_PROFILE_SIZE
 //	#define DYNAMIC_CDF
 
 
@@ -105,8 +109,15 @@ typedef struct _ThreadArgs
 
 	//AC
 	int tlevels, clevels, statssize;
-#ifndef DYNAMIC_CDF
+#if !defined DYNAMIC_CDF &&!defined USE_ABAC
 	unsigned *stats;
+#endif
+#ifdef USE_ABAC
+	unsigned short *stats;
+#if USE_ABAC==1
+	unsigned short *signstats;
+	int signstatssize;
+#endif
 #endif
 	DList list;
 	const unsigned char *decstart, *decend;
@@ -115,6 +126,9 @@ typedef struct _ThreadArgs
 	int blockidx;
 	double bestsize;
 	short rct_params[ORCT_NPARAMS+1];
+#ifdef ABAC_PROFILE_SIZE
+	double csizes[3];
+#endif
 
 	//WG
 	int wg_weights[4*WG_NPREDS];
@@ -809,6 +823,7 @@ static void wg_update(int curr, const int *preds, int *perrors, int *weights)
 #endif
 }
 
+#ifndef USE_ABAC
 //from libjxl		packsign(pixel) = 0b00001MMBB...BBL	token = offset + 0bGGGGMML,  where G = bits of lg(packsign(pixel)),  bypass = 0bBB...BB
 #define CONFIG_EXP 4
 #define CONFIG_MSB 1
@@ -854,6 +869,35 @@ static int f28_mix4(int v00, int v01, int v10, int v11, int alphax, int alphay)
 	v00=((v00<<MIXBITS)+(v10-v00)*alphay)>>(MIXBITS-1);
 	return v00;
 }
+#elif USE_ABAC==3
+static int abac3_predict(unsigned short **stats, int tidx, int alphax, int alphay)
+{
+	int xN=((stats[0][tidx]<<MIXBITS)+(stats[1][tidx]-stats[0][tidx])*alphax)>>MIXBITS;
+	int xS=((stats[2][tidx]<<MIXBITS)+(stats[3][tidx]-stats[2][tidx])*alphax)>>MIXBITS;
+	int p0=((xN<<MIXBITS)+(xS-xN)*alphay)>>MIXBITS;
+	CLAMP2_32(p0, p0, 1, 0xFFFF);
+	return p0;
+}
+static void abac3_update(unsigned short **stats, int tidx, int alphax, int alphay, int p0, int bit)
+{
+	//p0 = (v0*(1-ax) + v1*ax)*(1-ay) + (v2*(1-ax) + v3*ax)*ay
+	int update=(!bit<<16)-p0;
+	int alphas[]=
+	{
+		((1<<MIXBITS)-alphax)*((1<<MIXBITS)-alphay),
+		(             alphax)*((1<<MIXBITS)-alphay),
+		((1<<MIXBITS)-alphax)*(             alphay),
+		(             alphax)*(             alphay),
+	};
+	for(int k=0;k<4;++k)
+	{
+		int p2=stats[k][tidx];
+		p2+=(int)((long long)alphas[k]*update>>(MIXBITS+MIXBITS+4));
+		//p2+=((int)((long long)alphas[k]*update>>(MIXBITS+MIXBITS))-p2)>>4;
+		CLAMP2_32(stats[k][tidx], p2, 1, 0xFFFF);
+	}
+}
+#endif
 #ifdef ENABLE_GUIDE
 static const Image *guide=0;
 #endif
@@ -870,7 +914,13 @@ static void block_thread(void *param)
 	char rct_per[4]={0};
 	int depth=image->depth+3, nlevels=1<<depth, half=nlevels>>1, mask=nlevels-1;
 	int res=(args->x2-args->x1)*(args->y2-args->y1);
-	int nctx=args->clevels*args->clevels, cdfstride=args->tlevels+1, chsize=nctx*cdfstride;
+	int nctx=args->clevels*args->clevels;
+#ifdef USE_ABAC
+	int cdfstride=1<<args->tlevels;
+#else
+	int cdfstride=args->tlevels+1;
+#endif
+	int chsize=nctx*cdfstride;
 	args->seed=0x72B7254637722345;
 	//args->seed=__rdtsc();
 
@@ -926,8 +976,15 @@ static void block_thread(void *param)
 	}
 	memfill(args->hist+chsize, args->hist, sizeof(int)*chsize*(image->nch-1LL), sizeof(int)*chsize);
 #elif defined USE_ABAC
-	*args->stats=0x8000;//init bypass
-	memfill(args->stats+1, args->stats, args->statssize-sizeof(*args->stats), sizeof(*args->stats));
+	FILLMEM(args->stats, 0x8000, args->statssize, sizeof(*args->stats));//init bypass
+
+	//*args->stats=0x8000;
+	//memfill(args->stats+1, args->stats, args->statssize-sizeof(*args->stats), sizeof(*args->stats));
+#if USE_ABAC==1
+	FILLMEM(args->signstats, 0x8000, args->signstatssize, sizeof(*args->signstats));
+	//*args->signstats=0x8000;
+	//memfill(args->signstats+1, args->signstats, args->signstatssize-sizeof(*args->signstats), sizeof(*args->signstats));
+#endif
 #else
 	for(int kc=0;kc<image->nch;++kc)
 	{
@@ -1052,7 +1109,10 @@ static void block_thread(void *param)
 			for(int kc=0;kc<image->nch;++kc)
 			{
 				int kc2=kc<<1;
-				int pred=0, error, sym;
+				int pred=0, error;
+#ifndef USE_ABAC
+				int sym;
+#endif
 				int
 					vx=(abs(W[kc2]-WW[kc2])+abs(N[kc2]-NW[kc2])+abs(NE[kc2]-N  [kc2])+abs(WWW[kc2+1])+abs(WW[kc2+1])+abs(W[kc2+1])*2)<<10>>depth,
 					vy=(abs(W[kc2]-NW[kc2])+abs(N[kc2]-NN[kc2])+abs(NE[kc2]-NNE[kc2])+abs(NNN[kc2+1])+abs(NN[kc2+1])+abs(N[kc2+1])*2)<<10>>depth;
@@ -1100,8 +1160,27 @@ static void block_thread(void *param)
 #define MIX4(X) f28_mix4(curr_hist[0][X], curr_hist[1][X], curr_hist[2][X], curr_hist[3][X], alphax, alphay)
 				den=MIX4(args->tlevels);
 #elif defined USE_ABAC
-				int cidx=cdfstride*(nctx*kc+args->clevels*MINVAR(qeN, CLEVELS-1)+MINVAR(qeW, CLEVELS-1));
-				unsigned *curr_stats=args->stats+cidx;
+#if USE_ABAC==3
+				int cX=MINVAR(qeW, CLEVELS-2);
+				int cY=MINVAR(qeN, CLEVELS-2);
+				unsigned short *curr_stats[]=
+				{
+					args->stats+((nctx*kc+args->clevels*(cY+0)+cX+0)<<args->tlevels),
+					args->stats+((nctx*kc+args->clevels*(cY+0)+cX+1)<<args->tlevels),
+					args->stats+((nctx*kc+args->clevels*(cY+1)+cX+0)<<args->tlevels),
+					args->stats+((nctx*kc+args->clevels*(cY+1)+cX+1)<<args->tlevels),
+				};
+				int alphax=(((vx+1-(1<<qeW))<<MIXBITS)+(1<<qeW>>1))>>qeW;
+				int alphay=(((vy+1-(1<<qeN))<<MIXBITS)+(1<<qeN>>1))>>qeN;
+				CLAMP2_32(alphax, 0, alphax, 1<<MIXBITS);
+				CLAMP2_32(alphay, 0, alphay, 1<<MIXBITS);
+				//alphax=alphax*alphax>>MIXBITS;
+				//alphay=alphay*alphay>>MIXBITS;
+#else
+				int cidx=(nctx*kc+args->clevels*MINVAR(qeN, CLEVELS-2)+MINVAR(qeW, CLEVELS-1))<<args->tlevels;
+				//int cidx=(nctx*kc+args->clevels*0+0)<<args->tlevels;
+				unsigned short *curr_stats=args->stats+cidx;
+#endif
 #else
 				int cidx=cdfstride*(nctx*kc+args->clevels*MINVAR(qeN, CLEVELS-1)+MINVAR(qeW, CLEVELS-1));
 				int *curr_hist=args->hist+cidx;
@@ -1139,6 +1218,95 @@ static void block_thread(void *param)
 				{
 					curr[kc2+0]=yuv[kc];
 					curr[kc2+1]=error=yuv[kc]-pred;
+#ifdef USE_ABAC
+#if USE_ABAC==1
+					int signbit=error<0, mag=abs(error), power=0;
+					for(power=0;power<depth;++power)//encode mag with exponential acceleration
+					{
+						int tidx=(1<<power)-1;
+						int p0=curr_stats[tidx];
+
+						int bit=mag<=tidx;
+						ac_enc_bin(&ec, p0, bit);
+#ifdef ABAC_PROFILE_SIZE
+						args->csizes[0]-=log2((bit?0x10000-p0:p0)/65536.);
+#endif
+
+						p0+=((!bit<<16)-p0)>>6;
+						CLAMP2_32(curr_stats[tidx], p0, 1, 0xFFFF);
+						if(bit)
+						{
+							int low=tidx>>1, range=1<<power>>1;
+							while(range)
+							{
+								int floorhalf=range>>1;
+
+								tidx=low+floorhalf;
+								p0=curr_stats[tidx];
+
+								bit=mag<=tidx;
+								ac_enc_bin(&ec, p0, bit);
+#ifdef ABAC_PROFILE_SIZE
+								args->csizes[1]-=log2((bit?0x10000-p0:p0)/65536.);
+#endif
+								if(!bit)
+									low+=range-floorhalf;
+
+								p0+=((!bit<<16)-p0)>>8;
+								CLAMP2_32(curr_stats[tidx], p0, 1, 0xFFFF);
+								range=floorhalf;
+							}
+							//if(low!=mag)
+							//	LOG_ERROR("");
+							break;
+						}
+					}
+					if(mag&&mag<(half>>1))
+					{
+						int signctx=FLOOR_LOG2(abs(W[kc2+1])+1);
+						unsigned short *curr_signstats=args->signstats+depth*(depth*kc+signctx)+power;
+						int p0=*curr_signstats;
+						
+						//p0=0x8000;
+						//p0=0x8000+THREEWAY(W[kc2+1], 0)*power;
+						//p0=0x8000+(THREEWAY(W[kc2+1], 0)<<power);
+						ac_enc_bin(&ec, p0, signbit);
+#ifdef ABAC_PROFILE_SIZE
+						args->csizes[2]-=log2((signbit?0x10000-p0:p0)/65536.);
+#endif
+						
+						p0+=((!signbit<<16)-p0)>>8;
+						CLAMP2_32(*curr_signstats, p0, 1, 0xFFFF);
+					}
+#elif USE_ABAC==2
+					error+=half>>1;
+					error&=(nlevels-1)>>1;
+					for(int kb=depth-2, tidx=1;kb>=0;--kb)
+					{
+						int p0=curr_stats[tidx];
+
+						int bit=error>>kb&1;
+						ac_enc_bin(&ec, p0, bit);
+
+						p0+=((!bit<<16)-p0)>>5;
+						CLAMP2_32(curr_stats[tidx], p0, 1, 0xFFFF);
+						tidx=tidx<<1|bit;
+					}
+#elif USE_ABAC==3
+					error+=half>>1;
+					error&=(nlevels-1)>>1;
+					for(int kb=depth-2, tidx=1;kb>=0;--kb)
+					{
+						int p0=abac3_predict(curr_stats, tidx, alphax, alphay);
+
+						int bit=error>>kb&1;
+						ac_enc_bin(&ec, p0, bit);
+
+						abac3_update(curr_stats, tidx, alphax, alphay, p0, bit);
+						tidx=tidx<<1|bit;
+					}
+#endif
+#else
 					{
 						int upred=half-abs(pred), aval=abs(error);
 						if(aval<=upred)
@@ -1184,7 +1352,7 @@ static void block_thread(void *param)
 						int bit=k>=token;
 						ac_enc_bin(&ec, p0, bit);
 
-						p0+=((!bit<<16)-p0)>>8;
+						p0+=((!bit<<16)-p0)>>6;
 						CLAMP2_32(*curr_stats, p0, 1, 0xFFFF);
 						++curr_stats;
 					}
@@ -1203,9 +1371,91 @@ static void block_thread(void *param)
 						acval_enc(bypass, cdf, freq, lo0, lo0+r0, ec.low, ec.low+ec.range, 0, 0);
 					}
 					//	ac_enc_bypass(&ec, bypass, nbits);//up to 16 bits
+#endif
 				}
 				else
 				{
+#ifdef USE_ABAC
+#if USE_ABAC==1
+					int signbit=0, mag=0, power=0;
+					for(power=0;power<depth;++power)//encode mag with exponential acceleration
+					{
+						int tidx=(1<<power)-1;
+						int p0=curr_stats[tidx];
+
+						int bit=ac_dec_bin(&ec, p0);
+
+						p0+=((!bit<<16)-p0)>>6;
+						CLAMP2_32(curr_stats[tidx], p0, 1, 0xFFFF);
+						if(bit)
+						{
+							int low=tidx>>1, range=1<<power>>1;
+							while(range)
+							{
+								int floorhalf=range>>1;
+
+								tidx=low+floorhalf;
+								p0=curr_stats[tidx];
+
+								bit=ac_dec_bin(&ec, p0);
+								if(!bit)
+									low+=range-floorhalf;
+
+								p0+=((!bit<<16)-p0)>>8;
+								CLAMP2_32(curr_stats[tidx], p0, 1, 0xFFFF);
+								range=floorhalf;
+							}
+							mag=low;
+							break;
+						}
+					}
+					if(mag&&mag<(half>>1))
+					{
+						int signctx=FLOOR_LOG2(abs(W[kc2+1])+1);
+						unsigned short *curr_signstats=args->signstats+depth*(depth*kc+signctx)+power;
+						//unsigned short *curr_signstats=args->signstats+depth*kc+power;
+						int p0=*curr_signstats;
+						
+						//p0=0x8000;
+						//p0=0x8000+THREEWAY(W[kc2+1], 0)*power;
+						//p0=0x8000+(THREEWAY(W[kc2+1], 0)<<power);
+						signbit=ac_dec_bin(&ec, p0);
+						
+						p0+=((!signbit<<16)-p0)>>8;
+						CLAMP2_32(*curr_signstats, p0, 1, 0xFFFF);
+					}
+					else
+						signbit=pred>0;
+					error=signbit?-mag:mag;
+#elif USE_ABAC==2
+					error=0;
+					for(int kb=depth-2, tidx=1;kb>=0;--kb)
+					{
+						int p0=curr_stats[tidx];
+
+						int bit=ac_dec_bin(&ec, p0);
+						error|=bit<<kb;
+
+						p0+=((!bit<<16)-p0)>>5;
+						CLAMP2_32(curr_stats[tidx], p0, 1, 0xFFFF);
+						tidx=tidx<<1|bit;
+					}
+					error-=half>>1;
+#elif USE_ABAC==3
+					error=0;
+					for(int kb=depth-2, tidx=1;kb>=0;--kb)
+					{
+						int p0=abac3_predict(curr_stats, tidx, alphax, alphay);
+
+						int bit=ac_dec_bin(&ec, p0);
+						error|=bit<<kb;
+						
+						abac3_update(curr_stats, tidx, alphax, alphay, p0, bit);
+						tidx=tidx<<1|bit;
+					}
+					error-=half>>1;
+#endif
+#else
 #ifdef DYNAMIC_CDF
 					unsigned code;
 
@@ -1247,7 +1497,7 @@ static void block_thread(void *param)
 
 						int bit=ac_dec_bin(&ec, p0);
 
-						p0+=((!bit<<16)-p0)>>8;
+						p0+=((!bit<<16)-p0)>>6;
 						CLAMP2_32(*curr_stats, p0, 1, 0xFFFF);
 						++curr_stats;
 						if(bit)
@@ -1304,8 +1554,14 @@ static void block_thread(void *param)
 						error^=negmask;
 						error-=negmask;
 					}
-					curr[kc2+0]=yuv[kc]=error+pred;
+#endif
 					curr[kc2+1]=error;
+					error+=pred;
+#if defined USE_ABAC && USE_ABAC==2
+					error<<=32-(depth-1);
+					error>>=32-(depth-1);
+#endif
+					curr[kc2+0]=yuv[kc]=error;
 				}
 #ifdef DYNAMIC_CDF
 				int inc;
@@ -1421,6 +1677,12 @@ int f28_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	ThreadArgs *args=(ThreadArgs*)malloc(argssize);
 	int tlevels=0, clevels=0, statssize=0;
 	double esize=0;
+#ifdef USE_ABAC
+#ifdef ABAC_PROFILE_SIZE
+	double csizes[3]={0};
+#endif
+	int signstatssize=(image->depth+3)*(image->depth+3)*image->nch*(int)sizeof(short);
+#endif
 	if(fwd)
 	{
 #ifdef ENABLE_GUIDE
@@ -1442,13 +1704,18 @@ int f28_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		start=coffset;
 	}
 	{
+#ifdef USE_ABAC
+		tlevels=image->depth+3;
+		clevels=CLEVELS;
+		statssize=clevels*clevels*image->nch*(int)sizeof(short)<<tlevels;
+#else
 		int nlevels=8<<image->depth;//chroma-inflated
 		int token=0, bypass=0, nbits=0;
-
 		quantize_pixel(nlevels, &token, &bypass, &nbits);
 		tlevels=token+1;
 		clevels=CLEVELS;
 		statssize=clevels*clevels*(tlevels+1)*image->nch*(int)sizeof(int);
+#endif
 	}
 	if(!args)
 	{
@@ -1465,17 +1732,28 @@ int f28_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		arg->bufsize=sizeof(int[4*OCH_COUNT*2])*(BLOCKSIZE+16LL);//4 padded rows * OCH_COUNT * {pixels, wg_errors}
 		arg->pixels=(int*)_mm_malloc(arg->bufsize, sizeof(__m128i));
 
-#ifndef USE_ABAC
+#ifdef USE_ABAC
+#if USE_ABAC==1
+		arg->signstatssize=signstatssize;
+		arg->signstats=(unsigned short*)malloc(signstatssize);
+#endif
+#else
 		arg->histsize=statssize;
 		arg->hist=(int*)malloc(statssize);
 #endif
 
 		arg->statssize=statssize;
-#ifndef DYNAMIC_CDF
+#ifdef USE_ABAC
+		arg->stats=(unsigned short*)malloc(statssize);
+#elif !defined DYNAMIC_CDF
 		arg->stats=(unsigned*)malloc(statssize);
 #endif
 		if(!arg->pixels
-#ifndef USE_ABAC
+#ifdef USE_ABAC
+#if USE_ABAC==1
+			||!arg->signstats
+#endif
+#else
 			||!arg->hist
 #endif
 #ifndef DYNAMIC_CDF
@@ -1568,6 +1846,11 @@ int f28_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 						printf("\n");
 					}
 					esize+=arg->bestsize;
+#ifdef ABAC_PROFILE_SIZE
+					csizes[0]+=arg->csizes[0];
+					csizes[1]+=arg->csizes[1];
+					csizes[2]+=arg->csizes[2];
+#endif
 				}
 				memcpy(data[0]->data+start+sizeof(int)*((ptrdiff_t)kt+kt2), &arg->list.nobj, sizeof(int));
 				dlist_appendtoarray(&arg->list, data);
@@ -1582,6 +1865,12 @@ int f28_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		if(fwd)
 		{
 			ptrdiff_t csize=data[0]->count-start;
+#ifdef ABAC_PROFILE_SIZE
+			printf("  Exponent: %lf\n", csizes[0]/8);
+			printf("  Mantissa: %lf\n", csizes[1]/8);
+			printf("  Sign:     %lf\n", csizes[2]/8);
+			printf("  Total:    %lf\n", (csizes[0]+csizes[1]+csizes[2])/8);
+#endif
 			printf("Best %15.2lf (%+13.2lf) bytes\n", esize, csize-esize);
 			printf("%12td/%12td  %10.6lf%%  %10lf\n", csize, usize, 100.*csize/usize, (double)usize/csize);
 			printf("Mem usage: ");

@@ -140,6 +140,12 @@ extern "C"
 extern char g_buf[G_BUF_SIZE];
 
 void memfill(void *dst, const void *src, size_t dstbytes, size_t srcbytes);
+#define FILLMEM(PTR, ELEM, ASIZE, ESIZE)\
+	do\
+	{\
+		*(PTR)=(ELEM);\
+		memfill((PTR)+1, PTR, (ASIZE)-(ESIZE), ESIZE);\
+	}while(0)
 void memswap_slow(void *p1, void *p2, size_t size);
 void memswap(void *p1, void *p2, size_t size, void *temp);
 void memreverse(void *p, size_t count, size_t esize);//calls memswap
