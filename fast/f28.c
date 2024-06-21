@@ -27,7 +27,7 @@ static const char file[]=__FILE__;
 
 #define ORCT_NPARAMS 8//not counting permutation
 
-#define ORCT_NITER 2000
+#define ORCT_NITER 250
 #define ORCT_DELTAGROUP 1
 #define ORCT_WATCHDOGTIMEOUT (ORCT_NPARAMS*16)
 
@@ -1181,7 +1181,7 @@ static void block_thread(void *param)
 					{
 						int p0=*curr_stats;
 
-						int bit=k<token;
+						int bit=k>=token;
 						ac_enc_bin(&ec, p0, bit);
 
 						p0+=((!bit<<16)-p0)>>8;
