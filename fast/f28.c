@@ -22,7 +22,7 @@ static const char file[]=__FILE__;
 //ABAC3: mix2D
 //	#define USE_ABAC 3//all bad
 //	#define ABAC_PROFILE_SIZE
-	#define DYNAMIC_CDF//good
+	#define DIRECT_HISTOGRAM//good
 
 
 #include"ac.h"
@@ -117,7 +117,7 @@ typedef struct _ThreadArgs
 
 	//AC
 	int tlevels, clevels, statssize;
-#if !defined DYNAMIC_CDF &&!defined USE_ABAC
+#if !defined DIRECT_HISTOGRAM &&!defined USE_ABAC
 	unsigned *stats;
 #endif
 #ifdef USE_ABAC
@@ -990,7 +990,7 @@ static void block_thread(void *param)
 	orct_unpack_permutation(rct_params[ORCT_NPARAMS], rct_per);
 	//if(args->blockidx==3)//
 	//	printf("");
-#ifdef DYNAMIC_CDF
+#ifdef DIRECT_HISTOGRAM
 	for(int ky=0;ky<args->clevels;++ky)
 	{
 		for(int kx=0;kx<args->clevels;++kx)
@@ -1041,7 +1041,7 @@ static void block_thread(void *param)
 		//curr_hist[args->tlevels]=args->tlevels;
 
 		memfill(curr_hist+cdfstride, curr_hist, ((size_t)chsize-cdfstride)*sizeof(int), cdfstride*sizeof(int));
-#ifndef DYNAMIC_CDF
+#ifndef DIRECT_HISTOGRAM
 		{
 			unsigned *curr_CDF=args->stats+chsize*kc;
 			update_CDF(curr_hist, curr_CDF, args->tlevels);
@@ -1151,7 +1151,7 @@ static void block_thread(void *param)
 				//qeN=(1<<FLOOR_LOG2(qeN+1))-1;//X
 				//qeW=(1<<FLOOR_LOG2(qeW+1))-1;
 				//qeN=0;
-#ifdef DYNAMIC_CDF
+#ifdef DIRECT_HISTOGRAM
 				int *curr_hist[4];
 				qeN=MINVAR(qeN, CLEVELS-2);
 				qeW=MINVAR(qeW, CLEVELS-2);
@@ -1356,7 +1356,7 @@ static void block_thread(void *param)
 					if(token>=args->tlevels)
 						LOG_ERROR("YXC %d %d %d  token %d/%d, seed 0x%016llX", ky, kx, kc, token, args->tlevels, args->seed);
 					
-#ifdef DYNAMIC_CDF
+#ifdef DIRECT_HISTOGRAM
 					cdf=0;
 					for(int ks=0;ks<token;++ks)
 						cdf+=MIX4(ks);
@@ -1484,7 +1484,7 @@ static void block_thread(void *param)
 					error-=half>>1;
 #endif
 #else
-#ifdef DYNAMIC_CDF
+#ifdef DIRECT_HISTOGRAM
 #ifdef USE_AC3
 					unsigned code=ac3_dec_getcdf_NPOT(&ec, den);
 #else
@@ -1604,7 +1604,7 @@ static void block_thread(void *param)
 #endif
 					curr[kc2+0]=yuv[kc]=error;
 				}
-#ifdef DYNAMIC_CDF
+#ifdef DIRECT_HISTOGRAM
 				int inc;
 				inc=((1<<MIXBITS)-alphax)*((1<<MIXBITS)-alphay)>>(MIXBITS+MIXBITS-5); curr_hist[0][token]+=inc; curr_hist[0][args->tlevels]+=inc;
 				inc=(             alphax)*((1<<MIXBITS)-alphay)>>(MIXBITS+MIXBITS-5); curr_hist[1][token]+=inc; curr_hist[1][args->tlevels]+=inc;
@@ -1790,7 +1790,7 @@ int f28_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		arg->statssize=statssize;
 #ifdef USE_ABAC
 		arg->stats=(unsigned short*)malloc(statssize);
-#elif !defined DYNAMIC_CDF
+#elif !defined DIRECT_HISTOGRAM
 		arg->stats=(unsigned*)malloc(statssize);
 #endif
 		if(!arg->pixels
@@ -1801,7 +1801,7 @@ int f28_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #else
 			||!arg->hist
 #endif
-#ifndef DYNAMIC_CDF
+#ifndef DIRECT_HISTOGRAM
 			||!arg->stats
 #endif
 		)
@@ -1813,7 +1813,7 @@ int f28_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #ifndef USE_ABAC
 		memusage+=arg->histsize;
 #endif
-#ifndef DYNAMIC_CDF
+#ifndef DIRECT_HISTOGRAM
 		memusage+=arg->statssize;
 #endif
 		
@@ -1932,7 +1932,7 @@ int f28_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #ifndef USE_ABAC
 		free(arg->hist);
 #endif
-#ifndef DYNAMIC_CDF
+#ifndef DIRECT_HISTOGRAM
 		free(arg->stats);
 #endif
 	}

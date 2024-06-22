@@ -1378,7 +1378,7 @@ INLINE void ac3_enc_renorm(AC3 *ec)//fast renorm by F. Rubin 1979
 	unsigned long long rmax;
 
 	dlist_push_back(ec->dst, (unsigned char*)&ec->low+8-AC3_RENORM/8, AC3_RENORM/8);
-	ec->range=ec->range<<AC3_RENORM|(1LL<<AC3_RENORM)-1;
+	ec->range=ec->range<<AC3_RENORM|((1LL<<AC3_RENORM)-1);
 	ec->low<<=AC3_RENORM;
 
 	rmax=~ec->low;
@@ -1389,7 +1389,7 @@ INLINE void ac3_dec_renorm(AC3 *ec)//fast renorm by F. Rubin 1979
 {
 	unsigned long long rmax;
 
-	ec->range=ec->range<<AC3_RENORM|(1LL<<AC3_RENORM)-1;
+	ec->range=ec->range<<AC3_RENORM|((1LL<<AC3_RENORM)-1);
 	ec->code<<=AC3_RENORM;
 	ec->low<<=AC3_RENORM;
 	if(ec->srcptr+AC3_RENORM/8<=ec->srcend)
