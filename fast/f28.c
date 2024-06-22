@@ -14,12 +14,15 @@ static const char file[]=__FILE__;
 //	#define ENABLE_GUIDE
 //	#define DISABLE_MT
 
+//	#define USE_AC3
+//	#define AC3_PREC
+
 //ABAC1: {exponent, mantissa, sign}
 //ABAC2: plain
 //ABAC3: mix2D
-//	#define USE_ABAC 3
+//	#define USE_ABAC 3//all bad
 //	#define ABAC_PROFILE_SIZE
-//	#define DYNAMIC_CDF
+	#define DYNAMIC_CDF//good
 
 
 #include"ac.h"
@@ -27,6 +30,11 @@ static const char file[]=__FILE__;
 #define MAXPRINTEDBLOCKS 500
 #define CLEVELS 9
 #define MIXBITS 14
+#ifdef USE_AC3
+#define USE_PROB_BITS AC3_PROB_BITS
+#else
+#define USE_PROB_BITS PROB_BITS
+#endif
 
 
 #define ORCT_NPARAMS 8//not counting permutation
@@ -856,10 +864,10 @@ static void update_CDF(const int *hist, unsigned *CDF, int tlevels)
 	for(int ks=0;ks<tlevels;++ks)
 	{
 		int freq=hist[ks];
-		CDF[ks]=(int)(c*((1LL<<PROB_BITS)-tlevels)/sum)+ks;
+		CDF[ks]=(int)(c*((1LL<<USE_PROB_BITS)-tlevels)/sum)+ks;
 		c+=freq;
 	}
-	CDF[tlevels]=1<<PROB_BITS;
+	CDF[tlevels]=1<<USE_PROB_BITS;
 }
 static int f28_mix4(int v00, int v01, int v10, int v11, int alphax, int alphay)
 {
@@ -903,7 +911,11 @@ static const Image *guide=0;
 #endif
 static void block_thread(void *param)
 {
+#ifdef USE_AC3
+	AC3 ec;
+#else
 	ArithmeticCoder ec;
+#endif
 	ThreadArgs *args=(ThreadArgs*)param;
 	Image const *image=args->fwd?args->src:args->dst;
 	short rct_params[ORCT_NPARAMS+1]=
@@ -929,26 +941,50 @@ static void block_thread(void *param)
 		args->bestsize=orct_optimize(args->seed, image, args->x1, args->x2, args->y1, args->y2, rct_params, args->loud);
 
 		dlist_init(&args->list, 1, 1024, 0);
+#ifdef USE_AC3
+		ac3_enc_init(&ec, &args->list);
+#else
 		ac_enc_init(&ec, &args->list);
+#endif
 
 		for(int k=0;k<ORCT_NPARAMS;++k)
 		{
 			int p=rct_params[k];
 			p=p<<1^p>>31;
+#ifdef USE_AC3
+			ac3_enc_bypass(&ec, p, ORCT_PARAMBITS+3);
+#else
 			ac_enc_bypass(&ec, p, ORCT_PARAMBITS+3);//[-2, 2]<<NBITS
+#endif
 		}
+#ifdef USE_AC3
+		ac3_enc_bypass_NPOT(&ec, rct_params[ORCT_NPARAMS], 6);
+#else
 		ac_enc_bypass_NPOT(&ec, rct_params[ORCT_NPARAMS], 6);
+#endif
 	}
 	else//decode
 	{
+#ifdef USE_AC3
+		ac3_dec_init(&ec, args->decstart, args->decend);
+#else
 		ac_dec_init(&ec, args->decstart, args->decend);
+#endif
 		
 		for(int k=0;k<ORCT_NPARAMS;++k)
 		{
+#ifdef USE_AC3
+			int p=ac3_dec_bypass(&ec, ORCT_PARAMBITS+3);
+#else
 			int p=ac_dec_bypass(&ec, ORCT_PARAMBITS+3);
+#endif
 			rct_params[k]=p>>1^-(p&1);
 		}
+#ifdef USE_AC3
+		rct_params[ORCT_NPARAMS]=ac3_dec_bypass_NPOT(&ec, 6);
+#else
 		rct_params[ORCT_NPARAMS]=ac_dec_bypass_NPOT(&ec, 6);
+#endif
 	}
 	memcpy(args->rct_params, rct_params, sizeof(args->rct_params));
 	orct_unpack_permutation(rct_params[ORCT_NPARAMS], rct_per);
@@ -995,14 +1031,6 @@ static void block_thread(void *param)
 		for(int ks=0;ks<args->tlevels;++ks)
 		{
 			int freq=init_freqs[MINVAR(ks, _countof(init_freqs)-1)];
-			//int freq=ks?1:10;
-
-			//int freq=args->tlevels>>1;
-			//if(ks)
-			//{
-			//	freq=(args->tlevels>>2)-ks;
-			//	UPDATE_MAX(freq, 1);
-			//}
 			sum+=curr_hist[ks]=freq;
 		}
 		//	sum+=curr_hist[ks]=1;
@@ -1333,17 +1361,21 @@ static void block_thread(void *param)
 					for(int ks=0;ks<token;++ks)
 						cdf+=MIX4(ks);
 					freq=MIX4(token);
+#ifdef USE_AC3
+					ac3_enc_update_NPOT(&ec, cdf, freq, den);
+#else
 					while(ec.range<den)
 						ac_enc_renorm(&ec);
 					ec.low+=ec.range*cdf/den;
 					ec.range=ec.range*freq/den-1;
 					//ec.low+=ec.range*cdf/curr_hist[args->tlevels];
 					//ec.range=ec.range*curr_hist[token]/curr_hist[args->tlevels]-1;
-					//while(ec.range<(1LL<<PROB_BITS))
+					//while(ec.range<(1LL<<USE_PROB_BITS))
 					//	ac_enc_renorm(&ec);
 					acval_enc(0, cdf, freq, lo0, lo0+r0, ec.low, ec.low+ec.range, 0, 0);
 
 					//ac_enc_update(&ec, cdf, curr_hist[token]);//X  normalize
+#endif
 #elif defined USE_ABAC
 					for(int k=0;k<=token;++k)
 					{
@@ -1356,22 +1388,18 @@ static void block_thread(void *param)
 						CLAMP2_32(*curr_stats, p0, 1, 0xFFFF);
 						++curr_stats;
 					}
+#elif defined USE_AC3
+					ac3_enc(&ec, token, curr_CDF);
 #else
 					ac_enc(&ec, token, curr_CDF);
 #endif
 					if(nbits)
-					{
-#ifdef AC_VALIDATE
-						lo0=ec.low, r0=ec.range;
+#ifdef USE_AC3
+						ac3_enc_bypass(&ec, bypass, nbits);
+#else
+						ac_enc_bypass(&ec, bypass, nbits);//up to 16 bits
 #endif
-						while(ec.range<(1ULL<<nbits))
-							ac_enc_renorm(&ec);
-						ec.low+=ec.range*bypass>>nbits;
-						ec.range=(ec.range>>nbits)-1;
-						acval_enc(bypass, cdf, freq, lo0, lo0+r0, ec.low, ec.low+ec.range, 0, 0);
-					}
-					//	ac_enc_bypass(&ec, bypass, nbits);//up to 16 bits
-#endif
+#endif//ABAC
 				}
 				else
 				{
@@ -1457,11 +1485,15 @@ static void block_thread(void *param)
 #endif
 #else
 #ifdef DYNAMIC_CDF
+#ifdef USE_AC3
+					unsigned code=ac3_dec_getcdf_NPOT(&ec, den);
+#else
 					unsigned code;
 
 					while(ec.range<den)
 						ac_dec_renorm(&ec);
 					code=(unsigned)(((ec.code-ec.low)*den+den-1)/ec.range);
+#endif
 					//unsigned code=ac_dec_getcdf(&ec);//X  normalize
 					//int *ptr=curr_hist;
 					cdf=0;
@@ -1481,15 +1513,18 @@ static void block_thread(void *param)
 						++token;
 					}
 					
+#ifdef USE_AC3
+					ac3_dec_update_NPOT(&ec, cdf, freq, den);
+#else
 					ec.low+=ec.range*cdf/den;
 					ec.range=ec.range*freq/den-1;
 					//ec.low+=ec.range*cdf/curr_hist[args->tlevels];
 					//ec.range=ec.range*curr_hist[token]/curr_hist[args->tlevels]-1;
-					//while(ec.range<(1LL<<PROB_BITS))
+					//while(ec.range<(1LL<<USE_PROB_BITS))
 					//	ac_dec_renorm(&ec);
 					acval_dec(0, cdf, freq, lo0, lo0+r0, ec.low, ec.low+ec.range, 0, 0, ec.code);
-
 					//ac_dec_update(&ec, cdf, curr_hist[token]);//X  normalize
+#endif
 #elif defined USE_ABAC
 					for(token=0;;++token)
 					{
@@ -1503,6 +1538,8 @@ static void block_thread(void *param)
 						if(bit)
 							break;
 					}
+#elif defined USE_AC3
+					token=ac3_dec(&ec, curr_CDF, args->tlevels);
 #else
 					token=ac_dec(&ec, curr_CDF, args->tlevels);
 #endif
@@ -1517,18 +1554,22 @@ static void block_thread(void *param)
 						msb=sym&((1<<CONFIG_MSB)-1);
 						sym>>=CONFIG_MSB;
 						nbits=sym+CONFIG_EXP-(CONFIG_MSB+CONFIG_LSB);
-						{
-#ifdef AC_VALIDATE
-							lo0=ec.low, r0=ec.range;
+#ifdef USE_AC3
+//						{
+//#ifdef AC_VALIDATE
+//							lo0=ec.low, r0=ec.range;
+//#endif
+//							while(ec.range<(1ULL<<nbits))
+//								ac_dec_renorm(&ec);
+//							bypass=(int)(((ec.code-ec.low)<<nbits|((1LL<<nbits)-1))/ec.range);
+//							ec.low+=ec.range*bypass>>nbits;
+//							ec.range=(ec.range>>nbits)-1;
+//							acval_dec(bypass, cdf, freq, lo0, lo0+r0, ec.low, ec.low+ec.range, 0, 0, ec.code);
+//						}
+						bypass=ac3_dec_bypass(&ec, nbits);
+#else
+						bypass=ac_dec_bypass(&ec, nbits);
 #endif
-							while(ec.range<(1ULL<<nbits))
-								ac_dec_renorm(&ec);
-							bypass=(int)(((ec.code-ec.low)<<nbits|((1LL<<nbits)-1))/ec.range);
-							ec.low+=ec.range*bypass>>nbits;
-							ec.range=(ec.range>>nbits)-1;
-							acval_dec(bypass, cdf, freq, lo0, lo0+r0, ec.low, ec.low+ec.range, 0, 0, ec.code);
-						}
-						//bypass=ac_dec_bypass(&ec, nbits);
 						sym=1;
 						sym<<=CONFIG_MSB;
 						sym|=msb;
@@ -1642,7 +1683,11 @@ static void block_thread(void *param)
 	}
 	if(args->fwd)
 	{
+#ifdef USE_AC3
+		ac3_enc_flush(&ec);
+#else
 		ac_enc_flush(&ec);
+#endif
 		//if(args->loud)
 		//{
 		//	for(int ky=0;ky<args->clevels;++ky)
