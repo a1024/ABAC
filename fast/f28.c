@@ -14,8 +14,8 @@ static const char file[]=__FILE__;
 //	#define ENABLE_GUIDE
 //	#define DISABLE_MT
 
-//	#define USE_AC3
-//	#define AC3_PREC
+	#define USE_AC3
+	#define AC3_PREC
 
 //ABAC1: {exponent, mantissa, sign}
 //ABAC2: plain
@@ -923,7 +923,7 @@ static void block_thread(void *param)
 		//-0x1000, +0x0000, +0x0000, +0x0000, +0x0000, -0x1000, +0x0000, +0x0000, 0
 		0
 	};
-	char rct_per[4]={0};
+	unsigned char rct_per[4]={0};
 	int depth=image->depth+3, nlevels=1<<depth, half=nlevels>>1, mask=nlevels-1;
 	int res=(args->x2-args->x1)*(args->y2-args->y1);
 	int nctx=args->clevels*args->clevels;
@@ -995,14 +995,14 @@ static void block_thread(void *param)
 	{
 		for(int kx=0;kx<args->clevels;++kx)
 		{
-			static const init_freqs[]={32, 8, 6, 4, 3, 2, 1};
-			//static const init_freqs[]={16, 5, 4, 3, 2, 1};
-			//static const init_freqs[]={1, 1};
+			static const int init_freqs[]={32, 8, 6, 4, 3, 2, 1};
+			//static const int init_freqs[]={16, 5, 4, 3, 2, 1};
+			//static const int init_freqs[]={1, 1};
 			int *curr_hist=args->hist+cdfstride*(args->clevels*ky+kx);
 			int sum=0;
 			for(int ks=0;ks<args->tlevels;++ks)
 			{
-				int freq=init_freqs[MINVAR(ks, _countof(init_freqs)-1)];
+				int freq=init_freqs[MINVAR(ks, (int)_countof(init_freqs)-1)];
 				//int freq=init_freqs[MINVAR(ks, _countof(init_freqs)-1)]-kx-ky;//X
 				UPDATE_MAX(freq, 1);
 				sum+=curr_hist[ks]=freq;

@@ -5,6 +5,9 @@
 #include<stdio.h>
 #include<string.h>
 #include<immintrin.h>
+#ifdef _MSC_VER
+#include<intrin.h>//_udiv128, _umul128
+#endif
 #ifdef __cplusplus
 extern "C"
 {

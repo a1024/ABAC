@@ -184,6 +184,10 @@ int log2_fix24(unsigned long long x);
 double power(double x, int y);
 double _10pow(int n);
 int acme_isdigit(char c, char base);
+#ifdef __GNUC__
+unsigned long long _udiv128(unsigned long long hi, unsigned long long lo, unsigned long long den, unsigned long long *rem);
+unsigned long long _umul128(unsigned long long a, unsigned long long b, unsigned long long *hi);
+#endif
 
 double time_ms(void);
 double time_sec(void);

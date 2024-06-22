@@ -961,6 +961,22 @@ int acme_isdigit(char c, char base)
 	}
 	return 0;
 }
+#ifdef __GNUC__
+unsigned long long _udiv128(unsigned long long hi, unsigned long long lo, unsigned long long den, unsigned long long *rem)
+{
+	//FIXME get rid of __int128
+	//https://stackoverflow.com/questions/1870158/unsigned-128-bit-division-on-64-bit-machine
+	unsigned __int128 num=(unsigned __int128)hi<<64|lo;
+	*rem=(unsigned long long)(num%den);
+	return (unsigned long long)(num/den);
+}
+unsigned long long _umul128(unsigned long long a, unsigned long long b, unsigned long long *hi)
+{
+	unsigned __int128 num=(unsigned __int128)a*b;
+	*hi=(unsigned long long)num>>64;
+	return (unsigned long long)num;
+}
+#endif
 
 double time_ms(void)
 {
