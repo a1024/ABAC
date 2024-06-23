@@ -55,4 +55,9 @@ if __name__=='__main__':
 			etotal+=elapsed_enc
 			dtotal+=elapsed_dec
 			idx+=1
-	print('\n%4d %10d->%10d %16f %16f'%(idx, utotal, ctotal, etotal, dtotal))
+	print('\n%4d %10d->%10d %16f %16f    %16f MB/s %16lf MB/s'%(
+		idx,
+		utotal, ctotal,
+		etotal, dtotal,
+		utotal/(etotal*1024*1024), utotal/(dtotal*1024*1024)
+	))

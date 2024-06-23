@@ -40,6 +40,12 @@ To compile, either make an MSVC 2022 CMake project, or to use GCC:
 
 `gcc -O3 imgcvt.c util.c -o imgcvt`
 
+### `ppmcodec`
+Plain 8-bit codecs without alpha. PPM only.
+To compile, either make an MSVC 2022 CMake project, or to use GCC:
+
+`make`
+
 
 ## Archived projects (obsolete)
 
