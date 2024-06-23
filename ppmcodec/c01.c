@@ -83,7 +83,8 @@ static const char *rct_names[RCT_COUNT]=
 
 #define PREDLIST\
 	PRED(W)\
-	PRED(CG)
+	PRED(CG)\
+	PRED(AV5)
 typedef enum _PredIndex
 {
 #define PRED(LABEL) PRED_##LABEL,
@@ -152,6 +153,14 @@ typedef struct _ThreadArgs
 	double bestsize;
 	int bestrct, predidx[3];
 } ThreadArgs;
+//static void check_result(const short *result)
+//{
+//	for(int k=0;k<15;++k)
+//	{
+//		if((unsigned)result[k]>255)
+//			LOG_ERROR("");
+//	}
+//}
 static void block_thread(void *param)
 {
 	const int nch=3, depth=8, half=128;
@@ -168,17 +177,17 @@ static void block_thread(void *param)
 	{
 		double csizes[OCH_COUNT*PRED_COUNT]={0}, bestsize=0;
 		unsigned char predsel[OCH_COUNT]={0};
-		int res=(args->x2-args->x1-1)/5*5*(args->y2-args->y1-1);
+		int res=(args->x2-args->x1-3)/5*5*(args->y2-args->y1-1);
 		
 		memset(args->hist, 0, args->histsize);
 		for(int ky=args->y1+1;ky<args->y2;++ky)
 		{
-			int kx=args->x1+1;
+			int kx=args->x1+2;
 			const unsigned char *ptr=image+3*(args->iw*ky+kx);
 
 			__m256i amin=_mm256_set1_epi16(-128);
 			__m256i amax=_mm256_set1_epi16(127);
-			__m128i half=_mm_set1_epi8(128);
+			__m128i half8=_mm_set1_epi8(128);
 			__m128i shuf=_mm_set_epi8(
 				-1,
 				12, 14, 13,
@@ -189,33 +198,33 @@ static void block_thread(void *param)
 				//15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
 			);
 			ALIGN(32) short result[16]={0};
-			for(;kx<args->x2-4;kx+=5, ptr+=15)
+			for(;kx<args->x2-5;kx+=5, ptr+=15)
 			{
-				__m256i NW, N, W, curr, NW2, N2, W2, curr2;
+				__m256i NW, N, NE, WW, W, curr, NW2, N2, NE2, WW2, W2, curr2;
 				__m256i vmin, vmax, pred;
 				{
-					__m128i NW8	=_mm_load_si128((__m128i*)(ptr-1*ystride-1*3+0));
-					__m128i N8	=_mm_load_si128((__m128i*)(ptr-1*ystride+0*3+0));
-					__m128i W8	=_mm_load_si128((__m128i*)(ptr+0*ystride-1*3+0));
-					__m128i curr8	=_mm_load_si128((__m128i*)(ptr+0*ystride+0*3+0));
+					__m128i NW8	=_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-1*ystride-1*3+0)), half8);
+					__m128i N8	=_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-1*ystride+0*3+0)), half8);
+					__m128i NE8	=_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-1*ystride+1*3+0)), half8);
+					__m128i WW8	=_mm_xor_si128(_mm_load_si128((__m128i*)(ptr+0*ystride-2*3+0)), half8);
+					__m128i W8	=_mm_xor_si128(_mm_load_si128((__m128i*)(ptr+0*ystride-1*3+0)), half8);
+					__m128i curr8	=_mm_xor_si128(_mm_load_si128((__m128i*)(ptr+0*ystride+0*3+0)), half8);
 					__m128i NW82=_mm_shuffle_epi8(NW8, shuf);
 					__m128i N82=_mm_shuffle_epi8(N8, shuf);
+					__m128i NE82=_mm_shuffle_epi8(NE8, shuf);
+					__m128i WW82=_mm_shuffle_epi8(WW8, shuf);
 					__m128i W82=_mm_shuffle_epi8(W8, shuf);
 					__m128i curr82=_mm_shuffle_epi8(curr8, shuf);
-					NW8	=_mm_xor_si128(NW8	, half);
-					N8	=_mm_xor_si128(N8	, half);
-					W8	=_mm_xor_si128(W8	, half);
-					curr8	=_mm_xor_si128(curr8	, half);
-					NW82	=_mm_xor_si128(NW82	, half);
-					N82	=_mm_xor_si128(N82	, half);
-					W82	=_mm_xor_si128(W82	, half);
-					curr82	=_mm_xor_si128(curr82	, half);
 					NW	=_mm256_cvtepi8_epi16(NW8);
 					N	=_mm256_cvtepi8_epi16(N8);
+					NE	=_mm256_cvtepi8_epi16(NE8);
+					WW	=_mm256_cvtepi8_epi16(WW8);
 					W	=_mm256_cvtepi8_epi16(W8);
 					curr	=_mm256_cvtepi8_epi16(curr8);
 					NW2	=_mm256_cvtepi8_epi16(NW82);
 					N2	=_mm256_cvtepi8_epi16(N82);
+					NE2	=_mm256_cvtepi8_epi16(NE82);
+					WW2	=_mm256_cvtepi8_epi16(WW82);
 					W2	=_mm256_cvtepi8_epi16(W82);
 					curr2	=_mm256_cvtepi8_epi16(curr82);
 				}
@@ -282,6 +291,7 @@ static void block_thread(void *param)
 				pred=_mm256_sub_epi16(_mm256_add_epi16(N, W), NW);
 				pred=_mm256_max_epi16(pred, vmin);
 				pred=_mm256_min_epi16(pred, vmax);
+
 				pred=_mm256_sub_epi16(curr, pred);
 				UPDATE(
 					PRED_CG,
@@ -292,9 +302,9 @@ static void block_thread(void *param)
 					OCH_R, OCH_G, OCH_B
 				);
 				{
+					__m256i NW3=_mm256_sub_epi16(NW, NW2);
 					__m256i N3=_mm256_sub_epi16(N, N2);
 					__m256i W3=_mm256_sub_epi16(W, W2);
-					__m256i NW3=_mm256_sub_epi16(NW, NW2);
 
 					vmin=_mm256_min_epi16(N3, W3);
 					vmax=_mm256_max_epi16(N3, W3);
@@ -316,9 +326,9 @@ static void block_thread(void *param)
 					);
 				}
 				{
+					__m256i NW3=_mm256_sub_epi16(NW2, NW);
 					__m256i N3=_mm256_sub_epi16(N2, N);
 					__m256i W3=_mm256_sub_epi16(W2, W);
-					__m256i NW3=_mm256_sub_epi16(NW2, NW);
 
 					vmin=_mm256_min_epi16(N3, W3);
 					vmax=_mm256_max_epi16(N3, W3);
@@ -332,6 +342,89 @@ static void block_thread(void *param)
 					pred=_mm256_sub_epi16(curr2, pred);
 					UPDATE(
 						PRED_CG,
+						OCH_GR, OCH_BG, OCH_RB,
+						OCH_GR, OCH_BG, OCH_RB,
+						OCH_GR, OCH_BG, OCH_RB,
+						OCH_GR, OCH_BG, OCH_RB,
+						OCH_GR, OCH_BG, OCH_RB
+					);
+				}
+
+				pred=_mm256_sub_epi16(N, NW);
+				pred=_mm256_add_epi16(pred, _mm256_slli_epi16(pred, 2));
+				pred=_mm256_add_epi16(pred, _mm256_sub_epi16(NE, WW));
+				pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 3), W);
+				vmin=_mm256_min_epi16(N, W);
+				vmax=_mm256_max_epi16(N, W);
+				vmin=_mm256_min_epi16(vmin, NE);
+				vmax=_mm256_max_epi16(vmax, NE);
+				pred=_mm256_max_epi16(pred, vmin);
+				pred=_mm256_min_epi16(pred, vmax);
+
+				pred=_mm256_sub_epi16(curr, pred);
+				UPDATE(
+					PRED_AV5,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B
+				);
+				{
+					__m256i NW3=_mm256_sub_epi16(NW, NW2);
+					__m256i N3=_mm256_sub_epi16(N, N2);
+					__m256i NE3=_mm256_sub_epi16(NE, NE2);
+					__m256i WW3=_mm256_sub_epi16(WW, WW2);
+					__m256i W3=_mm256_sub_epi16(W, W2);
+					
+					pred=_mm256_sub_epi16(N3, NW3);
+					pred=_mm256_add_epi16(pred, _mm256_slli_epi16(pred, 2));
+					pred=_mm256_add_epi16(pred, _mm256_sub_epi16(NE3, WW3));
+					pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 3), W3);
+					vmin=_mm256_min_epi16(N3, W3);
+					vmax=_mm256_max_epi16(N3, W3);
+					vmin=_mm256_min_epi16(vmin, NE3);
+					vmax=_mm256_max_epi16(vmax, NE3);
+					pred=_mm256_max_epi16(pred, vmin);
+					pred=_mm256_min_epi16(pred, vmax);
+
+					pred=_mm256_add_epi16(pred, curr2);
+					pred=_mm256_max_epi16(pred, amin);
+					pred=_mm256_min_epi16(pred, amax);
+					pred=_mm256_sub_epi16(curr, pred);
+					UPDATE(
+						PRED_AV5,
+						OCH_RG, OCH_GB, OCH_BR,
+						OCH_RG, OCH_GB, OCH_BR,
+						OCH_RG, OCH_GB, OCH_BR,
+						OCH_RG, OCH_GB, OCH_BR,
+						OCH_RG, OCH_GB, OCH_BR
+					);
+				}
+				{
+					__m256i NW3	=_mm256_sub_epi16(NW2	, NW);
+					__m256i N3	=_mm256_sub_epi16(N2	, N);
+					__m256i NE3	=_mm256_sub_epi16(NE2	, NE);
+					__m256i WW3	=_mm256_sub_epi16(WW2	, WW);
+					__m256i W3	=_mm256_sub_epi16(W2	, W);
+					
+					pred=_mm256_sub_epi16(N3, NW3);
+					pred=_mm256_add_epi16(pred, _mm256_slli_epi16(pred, 2));
+					pred=_mm256_add_epi16(pred, _mm256_sub_epi16(NE3, WW3));
+					pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 3), W3);
+					vmin=_mm256_min_epi16(N3, W3);
+					vmax=_mm256_max_epi16(N3, W3);
+					vmin=_mm256_min_epi16(vmin, NE3);
+					vmax=_mm256_max_epi16(vmax, NE3);
+					pred=_mm256_max_epi16(pred, vmin);
+					pred=_mm256_min_epi16(pred, vmax);
+
+					pred=_mm256_add_epi16(pred, curr);
+					pred=_mm256_max_epi16(pred, amin);
+					pred=_mm256_min_epi16(pred, amax);
+					pred=_mm256_sub_epi16(curr2, pred);
+					UPDATE(
+						PRED_AV5,
 						OCH_GR, OCH_BG, OCH_RB,
 						OCH_GR, OCH_BG, OCH_RB,
 						OCH_GR, OCH_BG, OCH_RB,
@@ -608,6 +701,9 @@ static void block_thread(void *param)
 					break;
 				case PRED_CG:
 					MEDIAN3_32(pred, N[kc2], W[kc2], N[kc2]+W[kc2]-NW[kc2]);
+					break;
+				case PRED_AV5:
+					CLAMP3_32(pred, W[kc2]+((5*(N[kc2]-NW[kc2])+NE[kc2]-WW[kc2])>>3), N[kc2], W[kc2], NE[kc2]);
 					break;
 				}
 				pred+=offset;
@@ -932,8 +1028,8 @@ int c01_codec(const char *srcfn, const char *dstfn)
 		arg->bufsize=sizeof(short[4*OCH_COUNT*2])*(BLOCKSIZE+16LL);//4 padded rows * OCH_COUNT * {pixels, wg_errors}
 		arg->pixels=(short*)_mm_malloc(arg->bufsize, sizeof(__m128i));
 
-		arg->histsize=statssize;
-		arg->hist=(int*)malloc(statssize);
+		arg->histsize=histsize;
+		arg->hist=(int*)malloc(histsize);
 
 		//arg->statssize=statssize;
 		//arg->stats=(unsigned*)malloc(statssize);
