@@ -103,12 +103,15 @@ int main(int argc, char **argv)
 	dstfn=argc==3?argv[2]:0;
 #else
 	srcfn=
-		"D:/ML/dataset-kodak-ppm/kodim13.ppm"
+		"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
+	//	"C:/Projects/datasets/dataset-CLIC30-ppm/03.ppm"
+
+	//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
 	//	"D:/ML/dataset-kodak-ppm/kodim13.c01"
 		;
 	dstfn=
-	//	"D:/ML/dataset-kodak-ppm/kodim13.c01.ppm"
 		0
+	//	"D:/ML/dataset-kodak-ppm/kodim13.c01.ppm"
 		;
 #endif
 	c01_codec(srcfn, dstfn);

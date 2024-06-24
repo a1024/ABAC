@@ -84,7 +84,8 @@ static const char *rct_names[RCT_COUNT]=
 #define PREDLIST\
 	PRED(W)\
 	PRED(CG)\
-	PRED(AV5)
+	PRED(AV5)\
+	PRED(AV9)
 typedef enum _PredIndex
 {
 #define PRED(LABEL) PRED_##LABEL,
@@ -177,10 +178,10 @@ static void block_thread(void *param)
 	{
 		double csizes[OCH_COUNT*PRED_COUNT]={0}, bestsize=0;
 		unsigned char predsel[OCH_COUNT]={0};
-		int res=(args->x2-args->x1-3)/5*5*(args->y2-args->y1-1);
+		int res=(args->x2-args->x1-3)/5*5*(args->y2-args->y1-2);
 		
 		memset(args->hist, 0, args->histsize);
-		for(int ky=args->y1+1;ky<args->y2;++ky)
+		for(int ky=args->y1+2;ky<args->y2;++ky)
 		{
 			int kx=args->x1+2;
 			const unsigned char *ptr=image+3*(args->iw*ky+kx);
@@ -200,33 +201,50 @@ static void block_thread(void *param)
 			ALIGN(32) short result[16]={0};
 			for(;kx<args->x2-5;kx+=5, ptr+=15)
 			{
-				__m256i NW, N, NE, WW, W, curr, NW2, N2, NE2, WW2, W2, curr2;
+				__m256i NNW, NN, NNE, NWW, NW, N, NE, WW, W, curr,
+					NNW2, NN2, NNE2, NWW2, NW2, N2, NE2, WW2, W2, curr2;
 				__m256i vmin, vmax, pred;
 				{
+					__m128i NNW8	=_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-2*ystride-1*3+0)), half8);
+					__m128i NN8	=_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-2*ystride+0*3+0)), half8);
+					__m128i NNE8	=_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-2*ystride+1*3+0)), half8);
+					__m128i NWW8	=_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-1*ystride-2*3+0)), half8);
 					__m128i NW8	=_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-1*ystride-1*3+0)), half8);
 					__m128i N8	=_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-1*ystride+0*3+0)), half8);
 					__m128i NE8	=_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-1*ystride+1*3+0)), half8);
 					__m128i WW8	=_mm_xor_si128(_mm_load_si128((__m128i*)(ptr+0*ystride-2*3+0)), half8);
 					__m128i W8	=_mm_xor_si128(_mm_load_si128((__m128i*)(ptr+0*ystride-1*3+0)), half8);
 					__m128i curr8	=_mm_xor_si128(_mm_load_si128((__m128i*)(ptr+0*ystride+0*3+0)), half8);
-					__m128i NW82=_mm_shuffle_epi8(NW8, shuf);
-					__m128i N82=_mm_shuffle_epi8(N8, shuf);
-					__m128i NE82=_mm_shuffle_epi8(NE8, shuf);
-					__m128i WW82=_mm_shuffle_epi8(WW8, shuf);
-					__m128i W82=_mm_shuffle_epi8(W8, shuf);
-					__m128i curr82=_mm_shuffle_epi8(curr8, shuf);
-					NW	=_mm256_cvtepi8_epi16(NW8);
-					N	=_mm256_cvtepi8_epi16(N8);
-					NE	=_mm256_cvtepi8_epi16(NE8);
-					WW	=_mm256_cvtepi8_epi16(WW8);
-					W	=_mm256_cvtepi8_epi16(W8);
-					curr	=_mm256_cvtepi8_epi16(curr8);
-					NW2	=_mm256_cvtepi8_epi16(NW82);
-					N2	=_mm256_cvtepi8_epi16(N82);
-					NE2	=_mm256_cvtepi8_epi16(NE82);
-					WW2	=_mm256_cvtepi8_epi16(WW82);
-					W2	=_mm256_cvtepi8_epi16(W82);
-					curr2	=_mm256_cvtepi8_epi16(curr82);
+					__m128i NNW82	=_mm_shuffle_epi8(NNW8	, shuf);
+					__m128i NN82	=_mm_shuffle_epi8(NN8	, shuf);
+					__m128i NNE82	=_mm_shuffle_epi8(NNE8	, shuf);
+					__m128i NWW82	=_mm_shuffle_epi8(NWW8	, shuf);
+					__m128i NW82	=_mm_shuffle_epi8(NW8	, shuf);
+					__m128i N82	=_mm_shuffle_epi8(N8	, shuf);
+					__m128i NE82	=_mm_shuffle_epi8(NE8	, shuf);
+					__m128i WW82	=_mm_shuffle_epi8(WW8	, shuf);
+					__m128i W82	=_mm_shuffle_epi8(W8	, shuf);
+					__m128i curr82	=_mm_shuffle_epi8(curr8	, shuf);
+					NNW	=_mm256_cvtepi8_epi16(NNW8	);
+					NN	=_mm256_cvtepi8_epi16(NN8	);
+					NNE	=_mm256_cvtepi8_epi16(NNE8	);
+					NWW	=_mm256_cvtepi8_epi16(NWW8	);
+					NW	=_mm256_cvtepi8_epi16(NW8	);
+					N	=_mm256_cvtepi8_epi16(N8	);
+					NE	=_mm256_cvtepi8_epi16(NE8	);
+					WW	=_mm256_cvtepi8_epi16(WW8	);
+					W	=_mm256_cvtepi8_epi16(W8	);
+					curr	=_mm256_cvtepi8_epi16(curr8	);
+					NNW2	=_mm256_cvtepi8_epi16(NNW82	);
+					NN2	=_mm256_cvtepi8_epi16(NN82	);
+					NNE2	=_mm256_cvtepi8_epi16(NNE82	);
+					NWW2	=_mm256_cvtepi8_epi16(NWW82	);
+					NW2	=_mm256_cvtepi8_epi16(NW82	);
+					N2	=_mm256_cvtepi8_epi16(N82	);
+					NE2	=_mm256_cvtepi8_epi16(NE82	);
+					WW2	=_mm256_cvtepi8_epi16(WW82	);
+					W2	=_mm256_cvtepi8_epi16(W82	);
+					curr2	=_mm256_cvtepi8_epi16(curr82	);
 				}
 #define UPDATE(PREDIDX, IDX0, IDX1, IDX2, IDX3, IDX4, IDX5, IDX6, IDX7, IDX8, IDX9, IDXA, IDXB, IDXC, IDXD, IDXE)\
 	do\
@@ -350,6 +368,9 @@ static void block_thread(void *param)
 					);
 				}
 
+				//AV5
+				//		-5	5	1
+				//	-1	8	[?]>>3
 				pred=_mm256_sub_epi16(N, NW);
 				pred=_mm256_add_epi16(pred, _mm256_slli_epi16(pred, 2));
 				pred=_mm256_add_epi16(pred, _mm256_sub_epi16(NE, WW));
@@ -425,6 +446,107 @@ static void block_thread(void *param)
 					pred=_mm256_sub_epi16(curr2, pred);
 					UPDATE(
 						PRED_AV5,
+						OCH_GR, OCH_BG, OCH_RB,
+						OCH_GR, OCH_BG, OCH_RB,
+						OCH_GR, OCH_BG, OCH_RB,
+						OCH_GR, OCH_BG, OCH_RB,
+						OCH_GR, OCH_BG, OCH_RB
+					);
+				}
+
+				//AV9
+				//		1	-2	-1
+				//	-1	-9	10	4
+				//	-2	16	[?]>>4
+				pred=_mm256_add_epi16(N, _mm256_slli_epi16(N, 2));//5*N
+				pred=_mm256_sub_epi16(pred, _mm256_add_epi16(NN, WW));//5*N - (NN+WW)
+				pred=_mm256_add_epi16(pred, _mm256_slli_epi16(NE, 1));//5*N-NN-WW + 2*NE
+				pred=_mm256_sub_epi16(_mm256_slli_epi16(pred, 1), _mm256_add_epi16(_mm256_slli_epi16(NW, 3), NW));//2*(5*N-NN-WW+2*NE) - 9*NW
+				pred=_mm256_add_epi16(pred, _mm256_sub_epi16(NNW, _mm256_add_epi16(NNE, NWW)));//2*(5*N-NN-WW+2*NE)-9*NW + NNW-NNE-NWW
+				pred=_mm256_add_epi16(W, _mm256_srai_epi16(pred, 4));
+				vmin=_mm256_min_epi16(N, W);
+				vmax=_mm256_max_epi16(N, W);
+				vmin=_mm256_min_epi16(vmin, NE);
+				vmax=_mm256_max_epi16(vmax, NE);
+				pred=_mm256_max_epi16(pred, vmin);
+				pred=_mm256_min_epi16(pred, vmax);
+
+				pred=_mm256_sub_epi16(curr, pred);
+				UPDATE(
+					PRED_AV9,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B
+				);
+				{
+					__m256i NNW3	=_mm256_sub_epi16(NNW2	, NNW	);
+					__m256i NN3	=_mm256_sub_epi16(NN2	, NN	);
+					__m256i NNE3	=_mm256_sub_epi16(NNE2	, NNE	);
+					__m256i NWW3	=_mm256_sub_epi16(NWW2	, NWW	);
+					__m256i NW3	=_mm256_sub_epi16(NW2	, NW	);
+					__m256i N3	=_mm256_sub_epi16(N2	, N	);
+					__m256i NE3	=_mm256_sub_epi16(NE2	, NE	);
+					__m256i WW3	=_mm256_sub_epi16(WW2	, WW	);
+					__m256i W3	=_mm256_sub_epi16(W2	, W	);
+
+					pred=_mm256_add_epi16(N3, _mm256_slli_epi16(N3, 2));//5*N
+					pred=_mm256_sub_epi16(pred, _mm256_add_epi16(NN3, WW3));//5*N - (NN+WW)
+					pred=_mm256_add_epi16(pred, _mm256_slli_epi16(NE3, 1));//5*N-NN-WW + 2*NE
+					pred=_mm256_sub_epi16(_mm256_slli_epi16(pred, 1), _mm256_add_epi16(_mm256_slli_epi16(NW3, 3), NW3));//2*(5*N-NN-WW+2*NE) - 9*NW
+					pred=_mm256_add_epi16(pred, _mm256_sub_epi16(NNW3, _mm256_add_epi16(NNE3, NWW3)));//2*(5*N-NN-WW+2*NE)-9*NW + NNW-NNE-NWW
+					pred=_mm256_add_epi16(W, _mm256_srai_epi16(pred, 4));
+					vmin=_mm256_min_epi16(N3, W3);
+					vmax=_mm256_max_epi16(N3, W3);
+					vmin=_mm256_min_epi16(vmin, NE3);
+					vmax=_mm256_max_epi16(vmax, NE3);
+					pred=_mm256_max_epi16(pred, vmin);
+					pred=_mm256_min_epi16(pred, vmax);
+					
+					pred=_mm256_add_epi16(pred, curr);
+					pred=_mm256_max_epi16(pred, amin);
+					pred=_mm256_min_epi16(pred, amax);
+					pred=_mm256_sub_epi16(curr2, pred);
+					UPDATE(
+						PRED_AV9,
+						OCH_RG, OCH_GB, OCH_BR,
+						OCH_RG, OCH_GB, OCH_BR,
+						OCH_RG, OCH_GB, OCH_BR,
+						OCH_RG, OCH_GB, OCH_BR,
+						OCH_RG, OCH_GB, OCH_BR
+					);
+				}
+				{
+					__m256i NNW3	=_mm256_sub_epi16(NNW	, NNW2	);
+					__m256i NN3	=_mm256_sub_epi16(NN	, NN2	);
+					__m256i NNE3	=_mm256_sub_epi16(NNE	, NNE2	);
+					__m256i NWW3	=_mm256_sub_epi16(NWW	, NWW2	);
+					__m256i NW3	=_mm256_sub_epi16(NW	, NW2	);
+					__m256i N3	=_mm256_sub_epi16(N	, N2	);
+					__m256i NE3	=_mm256_sub_epi16(NE	, NE2	);
+					__m256i WW3	=_mm256_sub_epi16(WW	, WW2	);
+					__m256i W3	=_mm256_sub_epi16(W	, W2	);
+
+					pred=_mm256_add_epi16(N3, _mm256_slli_epi16(N3, 2));//5*N
+					pred=_mm256_sub_epi16(pred, _mm256_add_epi16(NN3, WW3));//5*N - (NN+WW)
+					pred=_mm256_add_epi16(pred, _mm256_slli_epi16(NE3, 1));//5*N-NN-WW + 2*NE
+					pred=_mm256_sub_epi16(_mm256_slli_epi16(pred, 1), _mm256_add_epi16(_mm256_slli_epi16(NW3, 3), NW3));//2*(5*N-NN-WW+2*NE) - 9*NW
+					pred=_mm256_add_epi16(pred, _mm256_sub_epi16(NNW3, _mm256_add_epi16(NNE3, NWW3)));//2*(5*N-NN-WW+2*NE)-9*NW + NNW-NNE-NWW
+					pred=_mm256_add_epi16(W, _mm256_srai_epi16(pred, 4));
+					vmin=_mm256_min_epi16(N3, W3);
+					vmax=_mm256_max_epi16(N3, W3);
+					vmin=_mm256_min_epi16(vmin, NE3);
+					vmax=_mm256_max_epi16(vmax, NE3);
+					pred=_mm256_max_epi16(pred, vmin);
+					pred=_mm256_min_epi16(pred, vmax);
+					
+					pred=_mm256_add_epi16(pred, curr2);
+					pred=_mm256_max_epi16(pred, amin);
+					pred=_mm256_min_epi16(pred, amax);
+					pred=_mm256_sub_epi16(curr, pred);
+					UPDATE(
+						PRED_AV9,
 						OCH_GR, OCH_BG, OCH_RB,
 						OCH_GR, OCH_BG, OCH_RB,
 						OCH_GR, OCH_BG, OCH_RB,
@@ -562,10 +684,11 @@ static void block_thread(void *param)
 			int idx=nch*(args->iw*ky+kx);
 			short
 				*NNN	=rows[3]+0*4*2,
-			//	*NNW	=rows[2]-1*4*2,
+				*NNW	=rows[2]-1*4*2,
 				*NN	=rows[2]+0*4*2,
 				*NNE	=rows[2]+1*4*2,
 			//	*NNEE	=rows[2]+2*4*2,
+				*NWW	=rows[1]-2*4*2,
 				*NW	=rows[1]-1*4*2,
 				*N	=rows[1]+0*4*2,
 				*NE	=rows[1]+1*4*2,
@@ -580,7 +703,8 @@ static void block_thread(void *param)
 				if(ky<=args->y1+1)
 				{
 					if(ky==args->y1)
-						NEEE=NEE=NE=NW=N=W;
+						NEEE=NEE=NE=NWW=NW=N=W;
+					NNW=NW;
 					NN=N;
 					NNE=NE;
 				}
@@ -591,7 +715,7 @@ static void block_thread(void *param)
 				if(kx<=args->x1+1)
 				{
 					if(kx<=args->x1)
-						NW=W=N;
+						NWW=NW=W=N;
 					WW=W;
 				}
 				WWW=WW;
@@ -704,6 +828,14 @@ static void block_thread(void *param)
 					break;
 				case PRED_AV5:
 					CLAMP3_32(pred, W[kc2]+((5*(N[kc2]-NW[kc2])+NE[kc2]-WW[kc2])>>3), N[kc2], W[kc2], NE[kc2]);
+					break;
+				case PRED_AV9:
+					CLAMP3_32(pred,
+						W[kc2]+((10*N[kc2]-9*NW[kc2]+4*NE[kc2]-2*(NN[kc2]+WW[kc2])+NNW[kc2]-(NNE[kc2]+NWW[kc2]))>>4),
+						N[kc2],
+						W[kc2],
+						NE[kc2]
+					);
 					break;
 				}
 				pred+=offset;
@@ -819,7 +951,7 @@ static void block_thread(void *param)
 				for(int kh=0;kh<4;++kh)
 				{
 					int *hist2=curr_hist[kh];
-					if(hist2[args->tlevels]>=10752)//6144	4296	65536
+					if(hist2[args->tlevels]>=0x10000)//4296	6144	10752	65536
 					{
 						int sum=0;
 						for(int ks=0;ks<args->tlevels;++ks)
