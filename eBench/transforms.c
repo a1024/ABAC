@@ -7824,7 +7824,7 @@ static void pred_custom_calcloss(Image const *src, Image *dst, int *hist, const 
 	loss[3]=(loss[0]+loss[1]+loss[2])/3;
 }
 #define CUSTOM_NITER 128
-#define CUSTOM_DELTAGROUP 4
+#define CUSTOM_DELTAGROUP 2//must be 2		//must be even
 void pred_custom_optimize(Image const *image, int *params)
 {
 	static int call_idx=0;
@@ -7852,12 +7852,20 @@ void pred_custom_optimize(Image const *image, int *params)
 
 	memcpy(params2, params, sizeof(params2));
 
-#define CALC_LOSS(L) pred_custom_calcloss(image, im2, hist, params2, L)
+#define CALC_LOSS(L) pred_custom_calcloss(image, im2, hist, params, L)
 #ifndef _DEBUG
 	srand((unsigned)__rdtsc());
 #endif
 	CALC_LOSS(loss_bestsofar);
-	memcpy(loss_prev, loss_bestsofar, sizeof(loss_prev));
+	//for(int kc=0;kc<3;++kc)
+	{
+		int sum=0, idx;
+		for(int k=0;k<CUSTOM_NNB*2;k+=2)
+			sum+=params[CUSTOM_NNB*2*custom_pred_ch_idx+k];
+		idx=rand()%CUSTOM_NNB;
+		params[CUSTOM_NNB*2*custom_pred_ch_idx+idx*2]+=0x10000-sum;
+	}
+	CALC_LOSS(loss_prev);
 
 	shakethreshold=CUSTOM_NPARAMS;
 	for(int it=0, watchdog=0;it<CUSTOM_NITER;++it)
@@ -7865,11 +7873,11 @@ void pred_custom_optimize(Image const *image, int *params)
 		int idx[CUSTOM_DELTAGROUP]={0}, stuck=0;
 		int params_original_selected[CUSTOM_DELTAGROUP]={0};
 
-		if(watchdog>=shakethreshold)//bump if stuck
+		if(watchdog>=shakethreshold)//bump if stuck?
 		{
-			memcpy(params2, params, sizeof(params2));
-			for(int k=0;k<CUSTOM_NPARAMS;++k)
-				params2[k]+=((rand()&1)<<1)-1;
+			//memcpy(params2, params, sizeof(params2));
+			//for(int k=0;k<CUSTOM_NPARAMS;++k)
+			//	params2[k]+=((rand()&1)<<1)-1;
 			watchdog=0;
 			stuck=1;
 		}
@@ -7878,12 +7886,57 @@ void pred_custom_optimize(Image const *image, int *params)
 			for(int k=0;k<CUSTOM_DELTAGROUP;++k)//increment params
 			{
 				int inc=0;
-				idx[k]=rand()%CUSTOM_NPARAMS;
+#if 1
+				//inc=(rand()&0xFFFF)-0x8000;
+				//inc=(rand()&0x0FF0)-0x0800;
+				inc=rand()&1?0x100:-0x100;
+
+				//idx[k]=rand()%3;
+				idx[k]=(CUSTOM_NNB*custom_pred_ch_idx+rand()%CUSTOM_NNB)*2;
+				++k;
+				//idx[k]=rand()%3;
+				idx[k]=(CUSTOM_NNB*custom_pred_ch_idx+rand()%CUSTOM_NNB)*2;
+
+				params_original_selected[k-1]=params[idx[k-1]];
+				params[idx[k-1]]+=inc;
+				params_original_selected[k+0]=params[idx[k+0]];
+				params[idx[k+0]]-=inc;
+				//{
+				//	int sum=0;
+				//	for(int k=0;k<CUSTOM_NNB*2;k+=2)
+				//		sum+=params[CUSTOM_NNB*2*custom_pred_ch_idx+k];
+				//	if(sum!=0x10000)
+				//		LOG_ERROR("");
+				//}
+#endif
+#if 0
 				while(!(inc=rand()-(RAND_MAX>>1)));//reject zero delta
-		
-				params_original_selected[k]=params2[idx[k]];
-				params2[idx[k]]+=(int)(((long long)inc*CUSTOM_NITER<<8)/((it+1)*RAND_MAX));
-				//params2[idx[k]]+=inc*(16<<1)/RAND_MAX;
+				idx[k]=rand()%CUSTOM_NPARAMS;
+				if(!(idx[k]&1))//maintain pixel coefficient sum at 1
+				{
+					if(k<CUSTOM_DELTAGROUP-1)
+					{
+						params_original_selected[k]=params2[idx[k]];
+						params2[idx[k]]+=(int)(((long long)inc*CUSTOM_NITER<<8)/((it+1)*RAND_MAX));
+						++k;
+						idx[k]=rand()%CUSTOM_NPARAMS;
+						params_original_selected[k]=params2[idx[k]];
+						params2[idx[k]]-=(int)(((long long)inc*CUSTOM_NITER<<8)/((it+1)*RAND_MAX));
+					}
+					else
+					{
+						++idx[k];
+						params_original_selected[k]=params2[idx[k]];
+						params2[idx[k]]+=(int)(((long long)inc*CUSTOM_NITER<<8)/((it+1)*RAND_MAX));
+					}
+				}
+				else
+				{
+					params_original_selected[k]=params2[idx[k]];
+					params2[idx[k]]+=(int)(((long long)inc*CUSTOM_NITER<<8)/((it+1)*RAND_MAX));
+					//params2[idx[k]]+=inc*(16<<1)/RAND_MAX;
+				}
+#endif
 			}
 		}
 
@@ -7897,7 +7950,7 @@ void pred_custom_optimize(Image const *image, int *params)
 			{
 				memcpy(loss_curr, loss_prev, sizeof(loss_prev));
 				for(int k=0;k<CUSTOM_DELTAGROUP;++k)
-					params2[idx[k]]=params_original_selected[k];
+					params[idx[k]]=params_original_selected[k];
 			}
 			++watchdog;
 		}
@@ -7905,7 +7958,7 @@ void pred_custom_optimize(Image const *image, int *params)
 		{
 			if(loss_curr[3]<loss_bestsofar[3])//publish if record best
 			{
-				memcpy(params, params2, sizeof(params2));
+				memcpy(params2, params, sizeof(params2));
 				memcpy(loss_bestsofar, loss_curr, sizeof(loss_bestsofar));
 				--it;//again
 			}
@@ -7943,6 +7996,7 @@ void pred_custom_optimize(Image const *image, int *params)
 		}
 #endif
 	}
+	memcpy(params, params2, sizeof(params2));
 #undef  CALC_LOSS
 	free(hist);
 	free(im2);

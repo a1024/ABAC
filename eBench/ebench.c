@@ -6420,6 +6420,12 @@ void io_render(void)
 		if(transforms_mask[ST_FWD_CUSTOM]||transforms_mask[ST_INV_CUSTOM])
 		{
 			int c0=set_bk_color(0x80FFFFFF);
+			int *params=custom_params+CUSTOM_NNB*2*custom_pred_ch_idx;
+			int sum=0, neg=0;
+			for(int k=0;k<CUSTOM_NNB*2;k+=2)
+				sum+=params[k];
+			neg=sum<0;
+			sum=abs(sum);
 			//custom spatial transform params
 			x=buttons[1].x1;
 			y=buttons[1].y1;
@@ -6428,50 +6434,50 @@ void io_render(void)
 			//-0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000
 			//-0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000 -0x00.0000-0x00.0000
 			//-0x00.0000-0x00.0000 -0x00.0000-0x00.0000
-			GUIPrint(0, x, y, guizoom, "Ch %d  Clamp [%cW %cNW %cN %cNE]",
+			GUIPrint(0, x, y, guizoom, "Ch %d  Clamp [%cW %cNW %cN %cNE] sum%c0x%02X.%04X",
 				custom_pred_ch_idx,
 				custom_clamp[0]?'+':'-',
 				custom_clamp[1]?'+':'-',
 				custom_clamp[2]?'+':'-',
-				custom_clamp[3]?'+':'-'
+				custom_clamp[3]?'+':'-',
+				neg?'-':' ',
+				sum>>16,
+				sum&0xFFFF
 			);
 			//GUIPrint(0, x, y-tdy, 1, "Ch %d", custom_pred_ch_idx);
-			{
-				int *params=custom_params+24*custom_pred_ch_idx;
-				GUIPrint(0, x, y+ystep*1, guizoom, "%c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X ",
-					params[0]<0?'-':' ', abs(params[0])>>16, abs(params[0])&0xFFFF,
-					params[1]<0?'-':' ', abs(params[1])>>16, abs(params[1])&0xFFFF,
-					params[2]<0?'-':' ', abs(params[2])>>16, abs(params[2])&0xFFFF,
-					params[3]<0?'-':' ', abs(params[3])>>16, abs(params[3])&0xFFFF,
-					params[4]<0?'-':' ', abs(params[4])>>16, abs(params[4])&0xFFFF,
-					params[5]<0?'-':' ', abs(params[5])>>16, abs(params[5])&0xFFFF,
-					params[6]<0?'-':' ', abs(params[6])>>16, abs(params[6])&0xFFFF,
-					params[7]<0?'-':' ', abs(params[7])>>16, abs(params[7])&0xFFFF,
-					params[8]<0?'-':' ', abs(params[8])>>16, abs(params[8])&0xFFFF,
-					params[9]<0?'-':' ', abs(params[9])>>16, abs(params[9])&0xFFFF
-				);
-				params+=10;
-				GUIPrint(0, x, y+ystep*2, guizoom, "%c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X ",
-					params[0]<0?'-':' ', abs(params[0])>>16, abs(params[0])&0xFFFF,
-					params[1]<0?'-':' ', abs(params[1])>>16, abs(params[1])&0xFFFF,
-					params[2]<0?'-':' ', abs(params[2])>>16, abs(params[2])&0xFFFF,
-					params[3]<0?'-':' ', abs(params[3])>>16, abs(params[3])&0xFFFF,
-					params[4]<0?'-':' ', abs(params[4])>>16, abs(params[4])&0xFFFF,
-					params[5]<0?'-':' ', abs(params[5])>>16, abs(params[5])&0xFFFF,
-					params[6]<0?'-':' ', abs(params[6])>>16, abs(params[6])&0xFFFF,
-					params[7]<0?'-':' ', abs(params[7])>>16, abs(params[7])&0xFFFF,
-					params[8]<0?'-':' ', abs(params[8])>>16, abs(params[8])&0xFFFF,
-					params[9]<0?'-':' ', abs(params[9])>>16, abs(params[9])&0xFFFF
-				);
-				params+=10;
-				GUIPrint(0, x, y+ystep*3, guizoom, "%c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X",
-					params[0]<0?'-':' ', abs(params[0])>>16, abs(params[0])&0xFFFF,
-					params[1]<0?'-':' ', abs(params[1])>>16, abs(params[1])&0xFFFF,
-					params[2]<0?'-':' ', abs(params[2])>>16, abs(params[2])&0xFFFF,
-					params[3]<0?'-':' ', abs(params[3])>>16, abs(params[3])&0xFFFF
-				);
-				set_bk_color(c0);
-			}
+			GUIPrint(0, x, y+ystep*1, guizoom, "%c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X ",
+				params[0]<0?'-':' ', abs(params[0])>>16, abs(params[0])&0xFFFF,
+				params[1]<0?'-':' ', abs(params[1])>>16, abs(params[1])&0xFFFF,
+				params[2]<0?'-':' ', abs(params[2])>>16, abs(params[2])&0xFFFF,
+				params[3]<0?'-':' ', abs(params[3])>>16, abs(params[3])&0xFFFF,
+				params[4]<0?'-':' ', abs(params[4])>>16, abs(params[4])&0xFFFF,
+				params[5]<0?'-':' ', abs(params[5])>>16, abs(params[5])&0xFFFF,
+				params[6]<0?'-':' ', abs(params[6])>>16, abs(params[6])&0xFFFF,
+				params[7]<0?'-':' ', abs(params[7])>>16, abs(params[7])&0xFFFF,
+				params[8]<0?'-':' ', abs(params[8])>>16, abs(params[8])&0xFFFF,
+				params[9]<0?'-':' ', abs(params[9])>>16, abs(params[9])&0xFFFF
+			);
+			params+=10;
+			GUIPrint(0, x, y+ystep*2, guizoom, "%c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X ",
+				params[0]<0?'-':' ', abs(params[0])>>16, abs(params[0])&0xFFFF,
+				params[1]<0?'-':' ', abs(params[1])>>16, abs(params[1])&0xFFFF,
+				params[2]<0?'-':' ', abs(params[2])>>16, abs(params[2])&0xFFFF,
+				params[3]<0?'-':' ', abs(params[3])>>16, abs(params[3])&0xFFFF,
+				params[4]<0?'-':' ', abs(params[4])>>16, abs(params[4])&0xFFFF,
+				params[5]<0?'-':' ', abs(params[5])>>16, abs(params[5])&0xFFFF,
+				params[6]<0?'-':' ', abs(params[6])>>16, abs(params[6])&0xFFFF,
+				params[7]<0?'-':' ', abs(params[7])>>16, abs(params[7])&0xFFFF,
+				params[8]<0?'-':' ', abs(params[8])>>16, abs(params[8])&0xFFFF,
+				params[9]<0?'-':' ', abs(params[9])>>16, abs(params[9])&0xFFFF
+			);
+			params+=10;
+			GUIPrint(0, x, y+ystep*3, guizoom, "%c0x%02X.%04X%c0x%02X.%04X %c0x%02X.%04X%c0x%02X.%04X",
+				params[0]<0?'-':' ', abs(params[0])>>16, abs(params[0])&0xFFFF,
+				params[1]<0?'-':' ', abs(params[1])>>16, abs(params[1])&0xFFFF,
+				params[2]<0?'-':' ', abs(params[2])>>16, abs(params[2])&0xFFFF,
+				params[3]<0?'-':' ', abs(params[3])>>16, abs(params[3])&0xFFFF
+			);
+			set_bk_color(c0);
 			//0000000000111111111122222222223333333333444444444455555
 			//0123456789012345678901234567890123456789012345678901234
 			//>>nnnN.NNN >>nnnN.NNN >>nnnN.NNN >>nnnN.NNN >>nnnN.NNN

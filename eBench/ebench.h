@@ -758,6 +758,7 @@ void pred_t47(Image *src, int fwd, int enable_ma);
 #define CUSTOM_NPARAMS (2*(CUSTOM_REACH+1)*CUSTOM_REACH*6)
 extern int custom_params[CUSTOM_NPARAMS];
 extern int custom_clamp[4];//W NW N NE
+extern int custom_pred_ch_idx;
 void pred_custom(Image *src, int fwd, int enable_ma, const int *params);
 void pred_custom_optimize(Image const *image, int *params);
 
