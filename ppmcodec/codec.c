@@ -103,8 +103,9 @@ int main(int argc, char **argv)
 	dstfn=argc==3?argv[2]:0;
 #else
 	srcfn=
-		"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
+	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC30-ppm/03.ppm"
+		"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm"	//large
 
 	//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
 	//	"D:/ML/dataset-kodak-ppm/kodim13.c01"

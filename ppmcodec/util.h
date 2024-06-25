@@ -1,4 +1,4 @@
-//util.h - Utilities declarations
+//util.h - Utilities
 //Copyright (C) 2023  Ayman Wagih Mohsen
 //
 //This program is free software: you can redistribute it and/or modify
@@ -140,10 +140,10 @@ extern "C"
 extern char g_buf[G_BUF_SIZE];
 
 void memfill(void *dst, const void *src, size_t dstbytes, size_t srcbytes);
-#define FILLMEM(PTR, ELEM, ASIZE, ESIZE)\
+#define FILLMEM(PTR, DATA, ASIZE, ESIZE)\
 	do\
 	{\
-		*(PTR)=(ELEM);\
+		*(PTR)=(DATA);\
 		memfill((PTR)+1, PTR, (ASIZE)-(ESIZE), ESIZE);\
 	}while(0)
 void memswap_slow(void *p1, void *p2, size_t size);

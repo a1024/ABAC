@@ -1,4 +1,4 @@
-//util.c - Utilities implementation
+//util.c - Utilities
 //Copyright (C) 2023  Ayman Wagih Mohsen, unless source link provided
 //
 //This program is free software: you can redistribute it and/or modify
