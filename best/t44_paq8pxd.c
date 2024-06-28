@@ -4,6 +4,7 @@
 #include<stdlib.h>
 #include<string.h>
 #include<math.h>
+#include<tmmintrin.h>
 static const char file[]=__FILE__;
 
 #ifndef assert
@@ -12,6 +13,9 @@ static const char file[]=__FILE__;
 
 
 //T44	paq8pxd ported to C
+
+#define ENABLE_SIMD
+#define LOUD_UPDATE_PERIOD 16
 
 #define T44_RCT 7
 
@@ -135,13 +139,13 @@ static unsigned t44_rnd(T44_PRNG *rnd)
 	return rnd->table[rnd->i];
 }
 
-int t44_squash(int d)//1/(1+exp(-p))  (sigmoid)
+static int t44_squash(int d)//p1 = squash(s = sum: wi*ti) = 1/(1+exp(-s))  (sigmoid)		clamp12(signed) -> uint12
 {
 	static const int t[33]=
 	{
-		1,2,3,6,10,16,27,45,73,120,194,310,488,747,1101,
-		1546,2047,2549,2994,3348,3607,3785,3901,3975,4022,
-		4050,4068,4079,4085,4089,4092,4093,4094
+		   1,    2,    3,    6,   10,   16,   27,   45,   73,  120,  194,
+		 310,  488,  747, 1101, 1546, 2047, 2549, 2994, 3348, 3607, 3785,
+		3901, 3975, 4022, 4050, 4068, 4079, 4085, 4089, 4092, 4093, 4094,
 	};
 	if(d>2047)return 4095;
 	if(d<-2047)return 0;
@@ -149,7 +153,7 @@ int t44_squash(int d)//1/(1+exp(-p))  (sigmoid)
 	d=(d>>7)+16;
 	return (t[d]*(128-w)+t[(d+1)]*w+64) >> 7;
 }
-int t44_stretch(int p)//inv_sigmoid
+static int t44_stretch(int p)//t = stretch(p1) = ln(p1/(1-p1))		uint12 -> signed int12
 {
 	static short t[4096];
 	static int initialized=0;
@@ -169,7 +173,7 @@ int t44_stretch(int p)//inv_sigmoid
 	}
 	return t[p];
 }
-int t44_ilog(unsigned short x)
+static int t44_ilog(unsigned short x)
 {
 	static int initialized=0;
 	static unsigned char t[65536];
@@ -186,13 +190,33 @@ int t44_ilog(unsigned short x)
 	}
 	return t[x];
 }
-int t44_dot_product(short *t, short *w, int n)
+static int t44_dot_product(short *t, short *w, int n)
 {
+#ifdef ENABLE_SIMD
+	__m128i sum=_mm_setzero_si128();
+
+	//n=(n+7)&-8;
+	while(n)
+	{
+		__m128i mt, mw;
+		
+		n-=8;
+		mt=_mm_loadu_si128((__m128i*)(t+n));
+		mw=_mm_loadu_si128((__m128i*)(w+n));
+		mt=_mm_madd_epi16(mt, mw);
+		mt=_mm_srai_epi32(mt, 8);
+		sum=_mm_add_epi32(sum, mt);
+	}
+	sum=_mm_add_epi32(sum, _mm_srli_si128(sum, 8));
+	sum=_mm_add_epi32(sum, _mm_srli_si128(sum, 4));
+	return _mm_cvtsi128_si32(sum);
+#else
 	int sum=0;
 	n=(n+7)&-8;
 	for(int i=0;i<n;i+=2)
 		sum+=(t[i]*w[i]+t[i+1]*w[i+1])>>8;
 	return sum;
+#endif
 }
 static unsigned t44_hash(unsigned a, unsigned b, unsigned c, unsigned d, unsigned e)
 {
@@ -201,6 +225,24 @@ static unsigned t44_hash(unsigned a, unsigned b, unsigned c, unsigned d, unsigne
 }
 static void t44_train(short *t, short *w, int n, int err)
 {
+#ifdef ENABLE_SIMD
+	__m128i merr=_mm_set1_epi16((short)err);
+	__m128i one=_mm_set1_epi16(1);
+	while(n)
+	{
+		__m128i mt, mw;
+
+		n-=8;
+		mt=_mm_loadu_si128((__m128i*)(t+n));
+		mw=_mm_loadu_si128((__m128i*)(w+n));
+		mt=_mm_adds_epi16(mt, mt);
+		mt=_mm_mulhi_epi16(mt, merr);
+		mt=_mm_adds_epi16(mt, one);
+		mt=_mm_srai_epi16(mt, 1);
+		mw=_mm_adds_epi16(mw, mt);
+		_mm_storeu_si128((__m128i*)(w+n), mw);
+	}
+#else
 	n=(n+7)&-8;
 	for(int i=0;i<n;++i)
 	{
@@ -208,6 +250,7 @@ static void t44_train(short *t, short *w, int n, int err)
 		wt=CLAMP(-32768, wt, 32767);
 		w[i]=wt;
 	}
+#endif
 }
 static int t44_dt(int x)//x -> 16K/(x+3)
 {
@@ -378,12 +421,12 @@ static void t44_scm_clear(T44SmallStationaryContextMap *scm)
 }
 static void t44_scm_set(T44SmallStationaryContextMap *scm, unsigned cx)
 {
-	scm->cxt=cx<<8&(scm->t->count-256);
+	scm->cxt=cx<<8&(int)(scm->t->count-256);
 }
 static void t44_scm_mix(T44SmallStationaryContextMap *scm, T44Mixer *m, int rate, int c0, int bit)
 {
 	unsigned short *t=(unsigned short*)array_at(&scm->t, 0);
-	*scm->cp+=((bit<<16)-*scm->cp+(1<<(rate-1)))>>rate;
+	*scm->cp+=((bit<<16)-*scm->cp+(1<<rate>>1))>>rate;
 	scm->cp=t+scm->cxt+c0;
 	t44_mixer_add(m, t44_stretch((*scm->cp)>>4));
 }
@@ -603,7 +646,7 @@ static int t44_cm_mix(T44ContextMap *cm, T44_PRNG *rnd, T44Mixer *m, int bpos, i
 		if((runp[i][1]+256)>>(8-bpos)==c0)
 		{
 			int rc=runp[i][0];//count*2, +1 if 2 different bytes seen
-			int b=(runp[i][1]>>(7-bpos)&1)*2-1;//predicted bit + for 1, - for 0
+			int b=(runp[i][1]>>(7-bpos)&1)*2-1;//predicted bit, + for 1, - for 0
 			int c=t44_ilog(rc+1)<<(2+(~rc&1));
 			t44_mixer_add(m, b*c);
 		}
@@ -683,7 +726,7 @@ static void t44_state_init(T44State *state, int iw, int ih, int decode)
 	t44_scm_init(state->scm+5, SC);
 	t44_scm_init(state->scm+6, SC);
 	t44_scm_init(state->scm+7, SC);
-	t44_scm_init(state->scm+8, SC*2);
+	t44_scm_init(state->scm+8, SC<<1);
 	t44_scm_init(state->scm+9, 512);
 	t44_cm_init(&state->cm, T44_MEM*4, 13);
 	t44_rnd_init(&state->rnd);
@@ -795,21 +838,21 @@ static void t44_update(T44State *state, int bit, const char *buf)
 	{
 #define LOAD(C, X, Y) LOADU(idx+(Y)*state->w3+3*(X)+(C))
 		unsigned char
-			NNWW=LOAD(0, -2, -2),
-			NN  =LOAD(0,  0, -2),
-			NNE =LOAD(0,  1, -2),
-			NNEE=LOAD(0,  2, -2),
-			NW  =LOAD(0, -1, -1),
-			NWp2=LOAD(2, -1, -1),
-			N   =LOAD(0,  0, -1),
-			//Np1 =LOAD(1,  0, -1),
-			Np2 =LOAD(2,  0, -1),
-			NE  =LOAD(0,  1, -1),
-			WW  =LOAD(0, -2,  0),
-			WWp2=LOAD(2, -2,  0),
-			W   =LOAD(0, -1,  0),
-			Wp1 =LOAD(1, -1,  0),
-			Wp2 =LOAD(2, -1,  0);
+			NNWW	=LOAD(0, -2, -2),
+			NN	=LOAD(0,  0, -2),
+			NNE	=LOAD(0,  1, -2),
+			NNEE	=LOAD(0,  2, -2),
+			NW	=LOAD(0, -1, -1),
+			NWp2	=LOAD(2, -1, -1),
+			N	=LOAD(0,  0, -1),
+		//	Np1	=LOAD(1,  0, -1),
+			Np2	=LOAD(2,  0, -1),
+			NE	=LOAD(0,  1, -1),
+			WW	=LOAD(0, -2,  0),
+			WWp2	=LOAD(2, -2,  0),
+			W	=LOAD(0, -1,  0),
+			Wp1	=LOAD(1, -1,  0),
+			Wp2	=LOAD(2, -1,  0);
 #undef  LOAD
 		int mean=W+NE+N+NW;
 		int var=(SQ(W)+SQ(NE)+SQ(N)+SQ(NW)-SQ(mean)/4)>>2;
@@ -836,7 +879,7 @@ static void t44_update(T44State *state, int bit, const char *buf)
 		t44_scm_set(state->scm+5, 2*NE-NNEE);
 		t44_scm_set(state->scm+6, NE+Wp2-Np2);
 		t44_scm_set(state->scm+7, N+NE-NNE);
-		t44_scm_set(state->scm+8, mean>>1|(logvar<<1&0x180));
+		t44_scm_set(state->scm+8, (logvar<<1&0x180)|mean>>1);
 	}
 	//Predict next bit
 	if(++state->col>=24)
@@ -880,6 +923,7 @@ static void t44_update(T44State *state, int bit, const char *buf)
 int t44_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud)
 {
 	double t_start=time_sec();
+	double csize_prev=0;
 	if(loud)
 	{
 		acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H-%M-%S");
@@ -921,21 +965,19 @@ int t44_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int 
 					int bit=buf[idx]>>kb&1;
 					ac_enc_bin(&ec, p0, bit);
 					
-					int prob=bit?0x10000-p0:p0;//
-					double bitsize=-log2((double)prob*(1./0x10000));
-					csizes[kc<<3|kb]+=bitsize;//
+					if(loud)
+						csizes[kc<<3|kb]-=log2((double)(bit?0x10000-p0:p0)*(1./0x10000));
 
 					t44_update(&state, bit, buf);
 				}
 			}
 		}
-		if(loud)
+		if(loud&&(ky&(LOUD_UPDATE_PERIOD-1))==LOUD_UPDATE_PERIOD-1)
 		{
-			static double csize_prev=0;
 			double csize=0;
 			for(int k=0;k<24;++k)
 				csize+=csizes[k]/8;
-			printf("%5d/%5d  %6.2lf%%  CR%11f  CR_delta%11f\r", ky+1, ih, 100.*(ky+1)/ih, iw*(ky+1)*3/csize, iw*3/(csize-csize_prev));
+			printf("%5d/%5d  %6.2lf%%  CR%11f  CR_delta%11f\r", ky+1, ih, 100.*(ky+1)/ih, iw*(ky+1)*3/csize, iw*LOUD_UPDATE_PERIOD*3/(csize-csize_prev));
 			csize_prev=csize;
 		}
 	}
@@ -1000,7 +1042,7 @@ int t44_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 				}
 			}
 		}
-		if(loud)
+		if(loud&&(ky&63)==63)
 			printf("%5d/%5d  %6.2lf%%\r", ky+1, ih, 100.*(ky+1)/ih);
 	}
 	pack3_inv((char*)buf, res);

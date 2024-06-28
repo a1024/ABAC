@@ -565,8 +565,11 @@ static void test_one_file(const char *fn, ptrdiff_t formatsize)
 		printf("Not a valid file  \"%s\"", fn);
 		return;
 	}
-	
+#ifdef _DEBUG
+	codecid=CODEC_T44;
+#else
 	codecid=cli_select_codec();
+#endif
 	_8bit_codec=codec_is_8bit(codecid);
 	
 	printf("Testing  \"%s\"\n", fn);
@@ -591,7 +594,7 @@ static void encode_one_file(const char *srcfn, const char *dstfn)
 	formatsize=get_filesize(srcfn);
 	if(formatsize<1)
 	{
-		printf("Not a valid file  \"%s\"", srcfn);
+		printf("Not a valid file  \"%s\"\n", srcfn);
 		return;
 	}
 	
@@ -687,9 +690,10 @@ ProgArgs args=
 {
 	OP_TESTFILE, 1, 0,//operation, nthreads, formatsize
 
-	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
+//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
 //	"D:/ML/big_building.PPM"
 
+	"C:/Projects/datasets/kodim13.ppm"
 //	"C:/Projects/datasets/dataset-kodak/kodim02.png",
 //	"C:/Projects/datasets/dataset-kodak/kodim13.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/artificial.png",

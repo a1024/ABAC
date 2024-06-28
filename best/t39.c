@@ -1,5 +1,4 @@
 #include"best.h"
-#define AC_IMPLEMENTATION
 #include"ac.h"
 #include<stdio.h>
 #include<stdlib.h>
