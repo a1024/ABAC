@@ -8,7 +8,7 @@ Each folder contains a different project.
 ## Maintained projects
 
 ### `best`
-The export folder of achievements. Sometimes not up to date.
+The best codecs are placed here. Sometimes not up to date.
 Reference implementations of the best open-source lossless algorithms that I implemented/encountered.
 To compile, either make an MSVC 2022 CMake project, or to use GCC:
 

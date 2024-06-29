@@ -41,7 +41,7 @@ static const char file[]=__FILE__;
 #define ABAC_TLEVELS 25
 #define ABAC_TOKEN_BITS 5
 #define ABAC_TREESIZE (1<<ABAC_TOKEN_BITS)	//25/32 is used
-#define ABAC_PCTX 20
+#define ABAC_PCTX 23
 #define ABAC_ECTX 13
 #define ABAC_NCTX (ABAC_PCTX+ABAC_ECTX)
 #define ABAC_CLEVELS 32
@@ -1127,7 +1127,46 @@ static void block_thread(void *param)
 			{
 				int kc2=kc<<1;
 				int offset=(yuv[combination[kc+3]]+yuv[combination[kc+6]])>>combination[kc+9];
-				int cdf, freq=0, den;
+
+				switch(predidx[kc])
+				{
+				case PRED_W:
+					pred=W[kc2];
+					break;
+				case PRED_CG:
+					MEDIAN3_32(pred, N[kc2], W[kc2], N[kc2]+W[kc2]-NW[kc2]);
+					break;
+				case PRED_AV5:
+					CLAMP3_32(pred, W[kc2]+((5*(N[kc2]-NW[kc2])+NE[kc2]-WW[kc2])>>3), N[kc2], W[kc2], NE[kc2]);
+					break;
+				case PRED_AV9:
+					CLAMP3_32(pred,
+						W[kc2]+((10*N[kc2]-9*NW[kc2]+4*NE[kc2]-2*(NN[kc2]+WW[kc2])+NNW[kc2]-(NNE[kc2]+NWW[kc2]))>>4),
+						N[kc2],
+						W[kc2],
+						NE[kc2]
+					);
+					break;
+				case PRED_AV12:
+					pred=(
+						av12_icoeffs[ 0]*NNWW[kc2]+
+						av12_icoeffs[ 1]*NNW[kc2]+
+						av12_icoeffs[ 2]*NN[kc2]+
+						av12_icoeffs[ 3]*NNE[kc2]+
+						av12_icoeffs[ 4]*NNEE[kc2]+
+						av12_icoeffs[ 5]*NWW[kc2]+
+						av12_icoeffs[ 6]*NW[kc2]+
+						av12_icoeffs[ 7]*N[kc2]+
+						av12_icoeffs[ 8]*NE[kc2]+
+						av12_icoeffs[ 9]*NEE[kc2]+
+						av12_icoeffs[10]*WW[kc2]+
+						av12_icoeffs[11]*W[kc2]
+					)>>8;
+					CLAMP3_32(pred, pred, N[kc2], W[kc2], NE[kc2]);
+					break;
+				}
+				pred+=offset;
+				CLAMP2_32(pred, pred, -128, 127);
 #ifdef ENABLE_ABAC
 				int tidx, token2;
 				int logits[ABAC_NCTX];
@@ -1135,6 +1174,8 @@ static void block_thread(void *param)
 				int ctx[]=
 				{
 					//pixel contexts
+					kx>>5,
+					pred,
 					N[kc2+0]*5,
 					W[kc2+0],
 					N[kc2+0]+W[kc2+0]-NW[kc2+0]-NE[kc2+0],
@@ -1155,6 +1196,7 @@ static void block_thread(void *param)
 					NW[kc2+0]-W[kc2+0],
 					NW[kc2+0]-N[kc2+0],
 					NW[kc2+0]-NNWW[kc2+0],
+					NNE[kc2+0]-NN[kc2+0],
 
 					//error contexts
 					N[kc2+1],
@@ -1171,14 +1213,14 @@ static void block_thread(void *param)
 					W[kc2+1]+WW[kc2+1]+NW[kc2+1]+NWW[kc2+1],
 					6*N[kc2+1]-NNW[kc2+1]-NN[kc2+1]-NNE[kc2+1],
 				};
-				for(int k=0;k<ABAC_NCTX/2;++k)
+				for(int k=0;k<ABAC_PCTX;++k)
 				{
 					int x=ctx[k];
 					x>>=3;
 					CLAMP2_32(x, x, -ABAC_CLEVELS/2, ABAC_CLEVELS/2-1);
 					ctx[k]=x&(ABAC_CLEVELS-1);
 				}
-				for(int k=ABAC_NCTX/2;k<ABAC_NCTX;++k)
+				for(int k=ABAC_PCTX;k<ABAC_NCTX;++k)
 				{
 					int x=ctx[k], neg=x<0;
 					x=abs(x);
@@ -1191,6 +1233,7 @@ static void block_thread(void *param)
 				for(int k=0;k<ABAC_NCTX;++k)
 					curr_stats[k]=stats+(k*ABAC_CLEVELS+ctx[k])*ABAC_TREESIZE;
 #elif defined ENABLE_MIX4
+				int cdf, freq=0, den;
 				int
 					vx=(abs(W[kc2]-WW[kc2])+abs(N[kc2]-NW[kc2])+abs(NE[kc2]-N  [kc2])+abs(WWW[kc2+1])+abs(WW[kc2+1])+abs(W[kc2+1])*2)<<10>>depth,
 					vy=(abs(N[kc2]-NN[kc2])+abs(W[kc2]-NW[kc2])+abs(NE[kc2]-NNE[kc2])+abs(NNN[kc2+1])+abs(NN[kc2+1])+abs(N[kc2+1])*2)<<10>>depth;
@@ -1212,6 +1255,7 @@ static void block_thread(void *param)
 #define MIXCDF(X) f28_mix4(curr_hist[0][X], curr_hist[1][X], curr_hist[2][X], curr_hist[3][X], alphax, alphay)
 				den=MIXCDF(args->tlevels);
 #elif defined ENABLE_MIX8
+				int cdf, freq=0, den;
 				int ctx[3]=
 				{
 				//	W[kc2+0],
@@ -1312,6 +1356,7 @@ static void block_thread(void *param)
 				//den=1<<14;
 				den=MIXCDF(args->tlevels);
 #elif defined ENABLE_CALICCTX
+				int cdf, freq=0, den;
 				int *curr_hist;
 				int ctx=0;
 			//	ctx=ctx*3+THREEWAY(N[kc2+1], 0)+1;
@@ -1336,6 +1381,7 @@ static void block_thread(void *param)
 //#define MIXCDF(X) f28_mix4(curr_hist[0][X], curr_hist[1][X], curr_hist[2][X], curr_hist[3][X], alphax, alphay)
 				den=MIXCDF(args->tlevels);
 #elif defined ENABLE_HASH
+				int cdf, freq=0, den;
 				int *curr_hist;
 				int ctx=0;//int32_t!
 
@@ -1365,6 +1411,7 @@ static void block_thread(void *param)
 				curr_hist=args->hist+cdfstride*(CLEVELS*kc+ctx);
 #define MIXCDF(X) curr_hist[X]
 #else
+				int cdf, freq=0, den;
 				int
 					vx=(abs(W[kc2]-WW[kc2])+abs(N[kc2]-NW[kc2])+abs(NE[kc2]-N  [kc2])+abs(WWW[kc2+1])+abs(WW[kc2+1])+abs(W[kc2+1])*2)<<10>>depth,
 					vy=(abs(N[kc2]-NN[kc2])+abs(W[kc2]-NW[kc2])+abs(NE[kc2]-NNE[kc2])+abs(NNN[kc2+1])+abs(NN[kc2+1])+abs(N[kc2+1])*2)<<10>>depth;
@@ -1385,45 +1432,6 @@ static void block_thread(void *param)
 				//		printf("\n\n");
 				//	}
 				//}
-				switch(predidx[kc])
-				{
-				case PRED_W:
-					pred=W[kc2];
-					break;
-				case PRED_CG:
-					MEDIAN3_32(pred, N[kc2], W[kc2], N[kc2]+W[kc2]-NW[kc2]);
-					break;
-				case PRED_AV5:
-					CLAMP3_32(pred, W[kc2]+((5*(N[kc2]-NW[kc2])+NE[kc2]-WW[kc2])>>3), N[kc2], W[kc2], NE[kc2]);
-					break;
-				case PRED_AV9:
-					CLAMP3_32(pred,
-						W[kc2]+((10*N[kc2]-9*NW[kc2]+4*NE[kc2]-2*(NN[kc2]+WW[kc2])+NNW[kc2]-(NNE[kc2]+NWW[kc2]))>>4),
-						N[kc2],
-						W[kc2],
-						NE[kc2]
-					);
-					break;
-				case PRED_AV12:
-					pred=(
-						av12_icoeffs[ 0]*NNWW[kc2]+
-						av12_icoeffs[ 1]*NNW[kc2]+
-						av12_icoeffs[ 2]*NN[kc2]+
-						av12_icoeffs[ 3]*NNE[kc2]+
-						av12_icoeffs[ 4]*NNEE[kc2]+
-						av12_icoeffs[ 5]*NWW[kc2]+
-						av12_icoeffs[ 6]*NW[kc2]+
-						av12_icoeffs[ 7]*N[kc2]+
-						av12_icoeffs[ 8]*NE[kc2]+
-						av12_icoeffs[ 9]*NEE[kc2]+
-						av12_icoeffs[10]*WW[kc2]+
-						av12_icoeffs[11]*W[kc2]
-					)>>8;
-					CLAMP3_32(pred, pred, N[kc2], W[kc2], NE[kc2]);
-					break;
-				}
-				pred+=offset;
-				CLAMP2_32(pred, pred, -128, 127);
 				//if(ky==480&&kx==109&&kc==2)//
 				//if(ky==147&&kx==317&&kc==1)//
 				//if(ky==2562&&kx==1038&&kc==1)//
