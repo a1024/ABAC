@@ -24,7 +24,7 @@ static const char file[]=__FILE__;
 #define AC_IMPLEMENTATION
 #include"entropy.h"
 
-#define BLOCKSIZE 384
+#define BLOCKSIZE 640
 #define MAXPRINTEDBLOCKS 200
 #ifdef ENABLE_CALICCTX
 #define CLEVELS (3*3*3*3*3*3*3*3)
@@ -40,8 +40,8 @@ static const char file[]=__FILE__;
 #define CZLEVELS (8+1)
 #elif defined ENABLE_ABAC2
 #define A2_CTXBITS 8
-#define A2_NCTX 10
-#define A2_SSEBITS 5
+#define A2_NCTX 12
+#define A2_SSEBITS 6
 #define A2_SSECTR 16
 #elif defined ENABLE_ABAC
 #define ABAC_TLEVELS 256
@@ -925,8 +925,6 @@ static void block_thread(void *param)
 					csizes[kc]-=freq*log2((double)freq/res);
 			}
 			csizes[kc]/=8;
-			//if(kc>=OCH_R2*PRED_COUNT)
-			//	csizes[kc]=INFINITY;
 		}
 		for(int kc=0;kc<OCH_COUNT;++kc)//select best predictors
 		{
@@ -1254,27 +1252,29 @@ static void block_thread(void *param)
 				unsigned short *curr_stats[A2_NCTX];
 				int ctx[A2_NCTX]=
 				{
-					pred*5,
+					pred*3,
 					//pred*5+abs(W[kc2+1])/25,
-					pred/3,
+					pred/5,
 					//(W[kc2+0]+NE[kc2+0]+NEE[kc2+0]+NEEE[kc2+0])>>1,
 					//N[kc2+0],
-					abs(NE[kc2+0]-N[kc2+0])+abs(N[kc2+0]-NW[kc2+0])+abs(W[kc2+0]-NW[kc2+0])-256,
+					(abs(NE[kc2+0]-N[kc2+0])+abs(N[kc2+0]-NW[kc2+0])+abs(W[kc2+0]-NW[kc2+0]))*2-256,
 					N[kc2+0]-W[kc2+0],
-					2*FLOOR_LOG2(abs(N[kc2+1])*3)+FLOOR_LOG2(abs(W[kc2+1])*3),
+					2*FLOOR_LOG2(abs(N[kc2+1])*7)+FLOOR_LOG2(abs(W[kc2+1])*3),
 					//N[kc2+0]+W[kc2+0]-NW[kc2+0],
 					//N[kc2+0]-NN[kc2+0],
 					//W[kc2+0]+WW[kc2+0],
 					//NW[kc2+1],
 					//N[kc2+1]+W[kc2+1]-NW[kc2+1],
 					//abs(W[kc2+1]),
-					((NEE[kc2+1]<0)<<6|(NN[kc2+1]<0)<<5|(WW[kc2+1]<0)<<4|(NE[kc2+1]<0)<<3|(NW[kc2+1]<0)<<2|(W[kc2+1]<0)<<1|(N[kc2+1]<0))*4-256,
-					(kc?abs(curr[1]):0),
-					(kc>=2?abs(curr[3]):W[kc2+2]),
+					((NEEE[kc2+0]<0)<<7|(NEE[kc2+0]<0)<<6|(NN[kc2+0]<0)<<5|(WW[kc2+0]<0)<<4|(NE[kc2+0]<0)<<3|(NW[kc2+0]<0)<<2|(W[kc2+0]<0)<<1|(N[kc2+0]<0))*2-256,
+					((NEEE[kc2+1]<0)<<7|(NEE[kc2+1]<0)<<6|(NN[kc2+1]<0)<<5|(WW[kc2+1]<0)<<4|(NE[kc2+1]<0)<<3|(NW[kc2+1]<0)<<2|(W[kc2+1]<0)<<1|(N[kc2+1]<0))*2-256,
+					(THREEWAY(N[kc2+1], 0)+1+(THREEWAY(W[kc2+1], 0)+1+(THREEWAY(NW[kc2+1], 0)+1+(THREEWAY(NE[kc2+1], 0)+1+(THREEWAY(N[kc2+1], W[kc2+1])+1)*3)*3)*3)*3)-256,
+					(kc?abs(curr[1]):N[kc2+2]*2),
+					(kc>=2?abs(curr[3])*5+abs(curr[1]):W[kc2+2]/4),
 					//(kc?abs(curr[0]):0)+(kc>=2?abs(curr[2]):0),
 					//(kc?abs(curr[kc2-1]):abs(curr[kc2-2]))+(kc>=2?abs(curr[kc2-2]):abs(curr[kc2-3])),
-					abs(W[kc2+0])-abs(W[kc2/2+1]),
-					3*(abs(N[kc2+1])+abs(W[kc2+1]))+abs(NW[kc2+1])+abs(NE[kc2+1])-256,
+					(abs(N[kc2+0])+abs(W[kc2+0]))/2-abs(W[kc2/2+1]),
+					(abs(N[kc2+1])+abs(W[kc2+1]))*11-abs(NW[kc2+1])/2+abs(NE[kc2+1])*7-256,
 				};
 				for(int k=0;k<A2_NCTX;++k)
 				{
@@ -1322,7 +1322,7 @@ static void block_thread(void *param)
 					int prob_error=(!bit<<16)-(int)p0;
 					++ssecount;
 					ssesum+=prob_error;
-					if(ssecount>0x4700)
+					if(ssecount>0x4A00)
 					{
 						ssecount>>=1;
 						ssesum>>=1;
