@@ -39,8 +39,8 @@ static const char file[]=__FILE__;
 #define CYLEVELS (8+1)
 #define CZLEVELS (8+1)
 #elif defined ENABLE_ABAC2
-#define A2_CTXBITS 4
-#define A2_NCTX 2
+#define A2_CTXBITS 7
+#define A2_NCTX 8
 #elif defined ENABLE_ABAC
 #define ABAC_TLEVELS 256
 #define ABAC_TOKEN_BITS 8
@@ -1250,13 +1250,19 @@ static void block_thread(void *param)
 				unsigned short *curr_stats[A2_NCTX];
 				int ctx[A2_NCTX]=
 				{
+					0,
 					pred,
-					//(N[kc2+0]+W[kc2+0])/2,
-					//N[kc2]+W[kc2]-NW[kc2],
-					//N[kc2+1],
-					//W[kc2+1],
+					//N[kc2+0],
+					W[kc2+0]/32,
+					N[kc2+0]-NW[kc2+0],
+					NE[kc2+0]-N[kc2+0],
+					W[kc2+0]-NW[kc2+0],
+					N[kc2+0]-W[kc2+0],
+					//N[kc2+0]+W[kc2+0]-NW[kc2+0],
+					//N[kc+0]+NN[kc2+0],
+					//W[kc+0]+WW[kc2+0],
 					//NW[kc2+1],
-					N[kc2+1]+W[kc2+1]-NW[kc2+1],
+					N[kc2+0]+W[kc2+0]-NW[kc2+0],
 				};
 				for(int k=0;k<A2_NCTX;++k)
 				{
@@ -1272,7 +1278,7 @@ static void block_thread(void *param)
 					error=0;
 				int tidx=1;
 				int *curr_mixer=mixer+kc*8*A2_NCTX;
-				for(int kb=7;kb>=0;--kb)
+				for(int kb=7, e2=0;kb>=0;--kb)
 				{
 					long long p0=0;
 					int wsum=0, bit;
@@ -1297,7 +1303,10 @@ static void block_thread(void *param)
 						bit=ac3_dec_bin(&ec, (int)p0, 16);
 						error|=bit<<kb;
 					}
+					e2|=bit<<kb;
+					int pred2=(char)(e2|1<<kb>>1)-pred;
 					//if((unsigned)(p00-1)<0xFFFE)
+					if(abs((!bit<<16)-(int)p0)>256)
 					{
 						int pbit=bit?0x10000-(int)p0:(int)p0;
 						long long dL_dp0=-(1LL<<32)/pbit;//fixed 47.16 bit
@@ -1307,16 +1316,39 @@ static void block_thread(void *param)
 						{
 							int diff=curr_stats[k][tidx]-(int)p0;
 							long long grad=dL_dp0*diff/wsum;
-							long long wnew=grad*4588>>16;
+							long long wnew=grad*2750>>16;
 							wnew=curr_mixer[k]-wnew;
 							CLAMP2_32(curr_mixer[k], (int)wnew, 1, 0xFFFF);
 						}
 					}
-					for(int k=0;k<A2_NCTX;++k)
 					{
-						int p=curr_stats[k][tidx];
-						p+=((!bit<<16)-p)>>8;
-						CLAMP2_32(curr_stats[k][tidx], p, 1, 0xFFFF);
+						int sh;
+						sh=(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1]));//{76543}
+						switch(kb)
+						{
+						default:
+							sh=sh*9>>8;
+							break;
+						case 3:
+						case 2:
+							sh=(9*sh+abs(pred2))>>8;
+							//sh=(15*sh/28+abs(pred2)/16)>>4;
+							break;
+						case 1:
+							sh=(8*sh+4*abs(pred2))>>8;
+							//sh=(7*sh/28+abs(pred2)/8)>>3;
+							break;
+						case 0:
+							sh=abs(pred2)>>5;//{0}
+							break;
+						}
+						sh=FLOOR_LOG2(sh+1);
+						for(int k=0;k<A2_NCTX;++k)
+						{
+							int p=curr_stats[k][tidx];
+							p+=((!bit<<16)-p)>>(5+sh);	//5
+							CLAMP2_32(curr_stats[k][tidx], p, 1, 0xFFFF);
+						}
 					}
 					curr_mixer+=A2_NCTX;
 					tidx+=tidx+bit;
