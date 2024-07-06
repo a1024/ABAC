@@ -11,8 +11,9 @@ static const char file[]=__FILE__;
 
 
 //select one:
-	#define ENABLE_MIX4//good
+//	#define ENABLE_MIX4//good
 //	#define ENABLE_MIX8//slightly worse
+	#define ENABLE_ABAC2
 //	#define ENABLE_ABAC//bad
 //	#define ENABLE_CALICCTX//bad
 //	#define ENABLE_HASH//bad
@@ -37,16 +38,23 @@ static const char file[]=__FILE__;
 #define CXLEVELS ((1<<(8-MIXBITSX))+1)
 #define CYLEVELS (8+1)
 #define CZLEVELS (8+1)
+#elif defined ENABLE_ABAC2
+#define A2_CTXBITS 4
+#define A2_NCTX 2
 #elif defined ENABLE_ABAC
-#define ABAC_TLEVELS 25
-#define ABAC_TOKEN_BITS 5
+#define ABAC_TLEVELS 256
+#define ABAC_TOKEN_BITS 8
+//#define ABAC_TLEVELS 25
+//#define ABAC_TOKEN_BITS 5
 #define ABAC_TREESIZE (1<<ABAC_TOKEN_BITS)	//25/32 is used
 #define ABAC_PCTX 23//1//18
 #define ABAC_ECTX 13//2//16
 #define ABAC_NCTX (ABAC_PCTX+ABAC_ECTX)
+#define ABAC_NCTRS 5
 #define ABAC_CLEVELS 32
 #define ABAC_PROBBITS 16	//minimum 12
-#define MIXBITS 7
+#define ABAC_MIXBITS 7
+	#define ABAC_SIMPLEOVERRIDE
 //	#define DISABLE_LOGMIX
 
 //	#define ABAC_PROFILESIZE
@@ -264,27 +272,41 @@ static int stretch(int x)//ln(x/(1-x))		probs -> logits
 #endif
 	return x;
 }
+//static int g_compare=0;
+//static int
+//	g_probs1[180]={0},
+//	g_probs2[180]={0};
 static unsigned abac_predict(const unsigned short **stats, int tidx, const int **mixer, int *alphas, int *weights, int *logits)
 {
 	//const int prob_sh=22+16-ABAC_PROBBITS;//17 bit
 
-	const int prob_sh=12+16-ABAC_PROBBITS;//16 bit
+	const int prob_sh=11+16-ABAC_PROBBITS;//16 bit
+	const int coeff=96;//192
 
 	long long p0=0;
 	for(int k=0;k<ABAC_NCTX;++k)
 	{
-		int w0=mixer[0][k]+((mixer[1][k]-mixer[0][k])*96>>(MIXBITS+2));
-		int w1=mixer[2][k]+((mixer[3][k]-mixer[2][k])*96>>(MIXBITS+2));
-		weights[k]=w0+((w1-w0)*96>>(MIXBITS+2));
-		//int w0=mixer[0][k]+((mixer[1][k]-mixer[0][k])*alphas[0]>>(MIXBITS+2));
-		//int w1=mixer[2][k]+((mixer[3][k]-mixer[2][k])*alphas[0]>>(MIXBITS+2));
-		//weights[k]=w0+((w1-w0)*alphas[1]>>(MIXBITS+2));
-		logits[k]=stretch(stats[k][tidx]);
-		p0+=(long long)weights[k]*logits[k];
+		for(int k2=0;k2<ABAC_NCTRS;++k2)
+		{
+			int k3=ABAC_NCTRS*k+k2;
+			int w0=mixer[0][k3]+((mixer[1][k3]-mixer[0][k3])*alphas[0]>>(ABAC_MIXBITS+2));
+			int w1=mixer[2][k3]+((mixer[3][k3]-mixer[2][k3])*alphas[0]>>(ABAC_MIXBITS+2));
+			weights[k3]=w0+((w1-w0)*alphas[1]>>(ABAC_MIXBITS+2));
+			//int w0=mixer[0][k3]+((mixer[1][k3]-mixer[0][k3])*coeff>>(ABAC_MIXBITS+2));
+			//int w1=mixer[2][k3]+((mixer[3][k3]-mixer[2][k3])*coeff>>(ABAC_MIXBITS+2));
+			//weights[k3]=w0+((w1-w0)*coeff>>(ABAC_MIXBITS+2));
+			logits[k3]=stretch(stats[k][ABAC_NCTRS*tidx+k2]);
+			p0+=(long long)weights[k3]*logits[k3];
+
+			//if(g_compare==1)//
+			//	g_probs1[k3]=logits[k3], g_probs2[k2]=weights[k3];
+			//else if(g_compare==2)//
+			//	g_probs1[k3]-=logits[k3], g_probs2[k2]-=weights[k3];
+		}
 	}
 	p0+=1LL<<prob_sh>>1;
 	p0>>=prob_sh;
-	p0/=ABAC_NCTX;
+	p0/=ABAC_NCTX*ABAC_NCTRS;
 	//p0=((((p0<<ABAC_PROBBITS)+0x8000)>>16)+ABAC_NCTX/2)/ABAC_NCTX;
 	//p0+=1LL<<ABAC_PROBBITS>>1;
 	//CLAMP2_32(p0, (int)p0, 1, (1<<ABAC_PROBBITS)-1);
@@ -294,34 +316,39 @@ static unsigned abac_predict(const unsigned short **stats, int tidx, const int *
 static void abac_update(const int *weights, const int *logits, unsigned short **stats, int tidx, int **mixer, int *alphas, unsigned p0final, int bit)
 {
 	//const int pupdate_sh=31;//17 bit
-	//const int mupdate_sh=2*MIXBITS+10;
+	//const int mupdate_sh=2*ABAC_MIXBITS+10;
 
 	const int pupdate_sh=27;//16 bit
-	const int mupdate_sh=2*MIXBITS+10;
+	const int mupdate_sh=2*ABAC_MIXBITS+10;
+	int pupdate_offset=1LL<<pupdate_sh;
 
 	int offset=16<<mupdate_sh;
 	int err=(!bit<<ABAC_PROBBITS)-p0final;
 	for(int k=0;k<ABAC_NCTX;++k)
 	{
-		int p0=stats[k][tidx];
-		int m0=mixer[0][k];
-		int m1=mixer[1][k];
-		int m2=mixer[2][k];
-		int m3=mixer[3][k];
-		int mk=weights[k];
-		long long update=(long long)err*logits[k];
-		p0+=(int)(((long long)err*mk+(1LL<<pupdate_sh))>>pupdate_sh);
-		m0+=(int)((update*((1<<MIXBITS)-alphas[0])*((1<<MIXBITS)-alphas[1])-offset)>>mupdate_sh);
-		m1+=(int)((update*((1<<MIXBITS)-alphas[0])*(             alphas[1])-offset)>>mupdate_sh);
-		m2+=(int)((update*(             alphas[0])*((1<<MIXBITS)-alphas[1])-offset)>>mupdate_sh);
-		m3+=(int)((update*(             alphas[0])*(             alphas[1])-offset)>>mupdate_sh);
-		CLAMP2_32(p0, p0, -(1<<ABAC_PROBBITS>>1)+1, (1<<ABAC_PROBBITS>>1)-1);
-		//CLAMP2_32(m0, m0, 0, 0x7FFFFF);
-		stats[k][tidx]=p0;
-		mixer[0][k]=m0;
-		mixer[1][k]=m1;
-		mixer[2][k]=m2;
-		mixer[2][k]=m3;
+		for(int k2=0;k2<ABAC_NCTRS;++k2)
+		{
+			int k3=ABAC_NCTRS*k+k2;
+			int p0=stats[k][ABAC_NCTRS*tidx+k2];
+			int m0=mixer[0][k3];
+			int m1=mixer[1][k3];
+			int m2=mixer[2][k3];
+			int m3=mixer[3][k3];
+			int mk=weights[k3];
+			long long update=(long long)err*logits[k3];
+			p0+=(int)(((long long)err*mk+((long long)pupdate_offset<<k2))<<k2>>pupdate_sh);
+			m0+=(int)((update*((1<<ABAC_MIXBITS)-alphas[0])*((1<<ABAC_MIXBITS)-alphas[1])-offset)>>mupdate_sh);
+			m1+=(int)((update*((1<<ABAC_MIXBITS)-alphas[0])*(                  alphas[1])-offset)>>mupdate_sh);
+			m2+=(int)((update*(                  alphas[0])*((1<<ABAC_MIXBITS)-alphas[1])-offset)>>mupdate_sh);
+			m3+=(int)((update*(                  alphas[0])*(                  alphas[1])-offset)>>mupdate_sh);
+			CLAMP2_32(p0, p0, -(1<<ABAC_PROBBITS>>1)+1, (1<<ABAC_PROBBITS>>1)-1);
+			//CLAMP2_32(m0, m0, 0, 0x7FFFFF);
+			stats[k][ABAC_NCTRS*tidx+k2]=p0;
+			mixer[0][k3]=m0;
+			mixer[1][k3]=m1;
+			mixer[2][k3]=m2;
+			mixer[2][k3]=m3;
+		}
 	}
 #if 0
 	const int sh=4;
@@ -354,13 +381,15 @@ typedef struct _ThreadArgs
 	int clevels;
 #endif
 	int tlevels;
-#ifdef ENABLE_ABAC
+#ifdef ENABLE_ABAC2
+	unsigned short stats[A2_NCTX*3<<A2_CTXBITS<<8];
+#elif defined ENABLE_ABAC
 	int statssize;
 #ifdef ABAC_PROFILESIZE
 	double abac_csizes[ABAC_TOKEN_BITS*3];
 #endif
 //	int mixer[ABAC_NCTX*3<<ABAC_TOKEN_BITS];
-	int mixer[ABAC_NCTX*3*((1<<(8-MIXBITS))+1)*(1<<(8-MIXBITS)|1)];
+	int mixer[ABAC_NCTRS*ABAC_NCTX*3*((1<<(8-ABAC_MIXBITS))+1)*(1<<(8-ABAC_MIXBITS)|1)];
 //	int mixer[ABAC_NCTX*ABAC_TOKEN_BITS*3*2];
 //	int mixer[ABAC_NCTX*ABAC_TOKEN_BITS*3];
 #endif
@@ -394,9 +423,9 @@ static void block_thread(void *param)
 	unsigned short *stats=(unsigned short*)args->hist;
 #endif
 	
-#ifdef AC_VALIDATE
-	acval_disable=1;
-#endif
+//#ifdef AC_VALIDATE
+//	acval_disable=1;
+//#endif
 	if(args->fwd)
 	{
 		double csizes[OCH_COUNT*PRED_COUNT]={0}, bestsize=0;
@@ -987,6 +1016,10 @@ static void block_thread(void *param)
 		args->hist[args->tlevels]=sum;
 		memfill(args->hist+cdfstride, args->hist, args->histsize-cdfstride*sizeof(int), cdfstride*sizeof(int));
 	}
+#elif defined ENABLE_ABAC2
+	int mixer[8*3*A2_NCTX]={0};
+	FILLMEM(mixer, 0x8000, sizeof(mixer), sizeof(int));
+	FILLMEM(args->stats, 0x8000, sizeof(args->stats), sizeof(short));
 #elif defined ENABLE_ABAC
 	{
 		static const unsigned short prob0[]=//NPOT tree initialized to bypass
@@ -1031,6 +1064,10 @@ static void block_thread(void *param)
 	memfill(args->hist+chsize, args->hist, sizeof(int)*chsize*(nch-1LL), sizeof(int)*chsize);
 #endif
 	memset(args->pixels, 0, args->bufsize);
+#ifdef ABAC_SIMPLEOVERRIDE
+	unsigned short stats2[768]={0};
+	FILLMEM(stats2, 0x8000, sizeof(short[768]), sizeof(short));
+#endif
 	for(int ky=args->y1;ky<args->y2;++ky)//codec loop
 	{
 		ALIGN(16) short *rows[]=
@@ -1209,9 +1246,91 @@ static void block_thread(void *param)
 				}
 				pred+=offset;
 				CLAMP2_32(pred, pred, -128, 127);
-#ifdef ENABLE_ABAC
+#ifdef ENABLE_ABAC2
+				unsigned short *curr_stats[A2_NCTX];
+				int ctx[A2_NCTX]=
+				{
+					pred,
+					//(N[kc2+0]+W[kc2+0])/2,
+					//N[kc2]+W[kc2]-NW[kc2],
+					//N[kc2+1],
+					//W[kc2+1],
+					//NW[kc2+1],
+					N[kc2+1]+W[kc2+1]-NW[kc2+1],
+				};
+				for(int k=0;k<A2_NCTX;++k)
+				{
+					int idx2=((A2_NCTX*kc+k)<<A2_CTXBITS|((ctx[k]+256)>>(9-A2_CTXBITS)&((1<<A2_CTXBITS)-1)))<<8;
+					curr_stats[k]=args->stats+idx2;
+				}
+				if(args->fwd)
+				{
+					curr[kc2+0]=yuv[kc];
+					curr[kc2+1]=error=yuv[kc]-pred;
+				}
+				else
+					error=0;
+				int tidx=1;
+				int *curr_mixer=mixer+kc*8*A2_NCTX;
+				for(int kb=7;kb>=0;--kb)
+				{
+					long long p0=0;
+					int wsum=0, bit;
+					for(int k=0;k<A2_NCTX;++k)
+					{
+						p0+=(long long)curr_mixer[k]*curr_stats[k][tidx];
+						wsum+=curr_mixer[k];
+					}
+					if(wsum)
+						p0/=wsum;
+					else
+						p0=0x8000, wsum=1;
+					int p00=(int)p0;
+					CLAMP2_32(p0, (int)p0, 1, 0xFFFF);
+					if(args->fwd)
+					{
+						bit=error>>kb&1;
+						ac3_enc_bin(&ec, bit, (int)p0, 16);
+					}
+					else
+					{
+						bit=ac3_dec_bin(&ec, (int)p0, 16);
+						error|=bit<<kb;
+					}
+					//if((unsigned)(p00-1)<0xFFFE)
+					{
+						int pbit=bit?0x10000-(int)p0:(int)p0;
+						long long dL_dp0=-(1LL<<32)/pbit;//fixed 47.16 bit
+						dL_dp0^=-bit;
+						dL_dp0+=bit;
+						for(int k=0;k<A2_NCTX;++k)
+						{
+							int diff=curr_stats[k][tidx]-(int)p0;
+							long long grad=dL_dp0*diff/wsum;
+							long long wnew=grad*4588>>16;
+							wnew=curr_mixer[k]-wnew;
+							CLAMP2_32(curr_mixer[k], (int)wnew, 1, 0xFFFF);
+						}
+					}
+					for(int k=0;k<A2_NCTX;++k)
+					{
+						int p=curr_stats[k][tidx];
+						p+=((!bit<<16)-p)>>8;
+						CLAMP2_32(curr_stats[k][tidx], p, 1, 0xFFFF);
+					}
+					curr_mixer+=A2_NCTX;
+					tidx+=tidx+bit;
+				}
+				if(!args->fwd)
+				{
+					error+=pred;
+					error=error<<(32-8)>>(32-8);
+					curr[kc2+0]=yuv[kc]=error;
+					curr[kc2+1]=error-pred;
+				}
+#elif defined ENABLE_ABAC
 				int tidx, token2;
-				int logits[ABAC_NCTX];
+				int logits[ABAC_NCTRS*ABAC_NCTX];
 				unsigned short *curr_stats[ABAC_NCTX];
 				int ctx[]=
 				{
@@ -1316,27 +1435,28 @@ static void block_thread(void *param)
 					//x>>=3;//X
 					ctx[k]=x&(ABAC_CLEVELS-1);
 				}
+				memset(ctx, 0, sizeof(ctx));//
 				for(int k=0;k<ABAC_NCTX;++k)
 					curr_stats[k]=stats+(k*ABAC_CLEVELS+ctx[k])*ABAC_TREESIZE;
 				
 				int mixalphas[]=
 				{
-					W[kc2+1]&((1<<MIXBITS)-1),
-					N[kc2+1]&((1<<MIXBITS)-1),
+					(W[kc2+1]+128)&((1<<ABAC_MIXBITS)-1),
+					(N[kc2+1]+128)&((1<<ABAC_MIXBITS)-1),
 				};
 				int mixidx[]=
 				{
-					W[kc2+1]&255>>MIXBITS,
-					N[kc2+1]&255>>MIXBITS,
+					(W[kc2+1]+128)&255>>ABAC_MIXBITS,
+					(N[kc2+1]+128)&255>>ABAC_MIXBITS,
 				};
 				int *curr_mixer[]=
 				{
-					args->mixer+ABAC_NCTX*((1LL<<(8-MIXBITS)|1)*((1LL<<(8-MIXBITS)|1)*kc+mixidx[1]+0)+mixidx[0]+0),
-					args->mixer+ABAC_NCTX*((1LL<<(8-MIXBITS)|1)*((1LL<<(8-MIXBITS)|1)*kc+mixidx[1]+0)+mixidx[0]+1),
-					args->mixer+ABAC_NCTX*((1LL<<(8-MIXBITS)|1)*((1LL<<(8-MIXBITS)|1)*kc+mixidx[1]+1)+mixidx[0]+0),
-					args->mixer+ABAC_NCTX*((1LL<<(8-MIXBITS)|1)*((1LL<<(8-MIXBITS)|1)*kc+mixidx[1]+1)+mixidx[0]+1),
+					args->mixer+ABAC_NCTRS*ABAC_NCTX*((1LL<<(8-ABAC_MIXBITS)|1)*((1LL<<(8-ABAC_MIXBITS)|1)*kc+mixidx[1]+0)+mixidx[0]+0),
+					args->mixer+ABAC_NCTRS*ABAC_NCTX*((1LL<<(8-ABAC_MIXBITS)|1)*((1LL<<(8-ABAC_MIXBITS)|1)*kc+mixidx[1]+0)+mixidx[0]+1),
+					args->mixer+ABAC_NCTRS*ABAC_NCTX*((1LL<<(8-ABAC_MIXBITS)|1)*((1LL<<(8-ABAC_MIXBITS)|1)*kc+mixidx[1]+1)+mixidx[0]+0),
+					args->mixer+ABAC_NCTRS*ABAC_NCTX*((1LL<<(8-ABAC_MIXBITS)|1)*((1LL<<(8-ABAC_MIXBITS)|1)*kc+mixidx[1]+1)+mixidx[0]+1),
 				};
-				int weights[ABAC_NCTX];
+				int weights[ABAC_NCTRS*ABAC_NCTX];
 
 			//	int *curr_mixer=args->mixer+(ABAC_NCTX*(size_t)kc<<ABAC_TOKEN_BITS);
 			//	int *curr_mixer=args->mixer+ABAC_NCTX*(size_t)kc*ABAC_TOKEN_BITS*2;
@@ -1533,6 +1653,7 @@ static void block_thread(void *param)
 #define MIXCDF(X) curr_hist[X]
 				den=MIXCDF(args->tlevels);
 #endif
+#ifndef ENABLE_ABAC2
 				//if(den<=0)
 				//{
 				//	for(int k=0;k<8;++k)
@@ -1559,16 +1680,18 @@ static void block_thread(void *param)
 				//if(ky==216&&kx==507&&kc==0)//
 				//if(ky==0&&kx==86&&kc==0)//
 				//if(ky==128&&kx==128&&kc==0)//
+				//if(ky==1&&kx==32&&kc==0)//
 				//	printf("");
-#ifdef AC_VALIDATE
-				//if(ky==5420&&kx==3072)//
-				if(args->blockidx==260)//
-					acval_disable=0;
-#endif
+//#ifdef AC_VALIDATE
+//				//if(ky==5420&&kx==3072)//
+//				if(args->blockidx==260)//
+//					acval_disable=0;
+//#endif
 				if(args->fwd)
 				{
 					curr[kc2+0]=yuv[kc];
 					curr[kc2+1]=error=yuv[kc]-pred;
+#ifndef ENABLE_ABAC
 					{
 						int upred=half-abs(pred), aval=abs(error);
 						if(aval<=upred)
@@ -1591,29 +1714,51 @@ static void block_thread(void *param)
 					if(token>=args->tlevels)
 						LOG_ERROR("YXC %d %d %d  token %d/%d", ky, kx, kc, token, args->tlevels);
 #endif
+#endif
 #ifdef ENABLE_ABAC
 					tidx=1;
 					token2=0;
+					//error<<=32-ABAC_TOKEN_BITS;
+					//error>>=32-ABAC_TOKEN_BITS;
 					for(int kb=ABAC_TOKEN_BITS-1, bit=0;kb>=0;--kb)
 					{
 						//int *mixercell=curr_mixer+ABAC_NCTX*kb*2+bit;
 						//if(ky==216&&kx==508&&kc==2&&kb==4)//
 						//if(ky==0&&kx==86&&kc==2&&kb==2)//
-						if(ky==128&&kx==128&&kc==0&&kb==0)//
-							printf("");
+						//if(ky==128&&kx==128&&kc==0&&kb==0)//
+						//if(ky==1&&kx==32&&kc==1&&kb==0)//
+						//if(ky==1&&kx==33&&kc==0&&kb==7)//
+						//{
+						//	g_compare=1;
+						//	printf("");
+						//}
+#ifdef ABAC_SIMPLEOVERRIDE
+						int p0=stats2[kc<<8|tidx];
+#else
 						int p0=abac_predict((const unsigned short**)curr_stats, tidx, curr_mixer, mixalphas, weights, logits);
-
-						bit=token>>kb&1;
+#endif
+						
+						//if(ky==1&&kx==33&&kc==0&&kb==7)//
+						//	g_compare=0;
+						bit=error>>kb&1;
 						ac3_enc_bin(&ec, bit, p0, ABAC_PROBBITS);
 #ifdef ABAC_PROFILESIZE
 						args->abac_csizes[kc*ABAC_TOKEN_BITS+kb]-=log2((double)(bit?(1<<ABAC_PROBBITS)-p0:p0)/(1<<ABAC_PROBBITS));
 #endif
 						token2|=bit<<kb;
 
+						//if(ky==1&&kx==32)//
+						//	printf("0x%04X %d\n", p0, bit);
+						
+#ifdef ABAC_SIMPLEOVERRIDE
+						p0+=((!bit<<ABAC_PROBBITS)-p0)>>7;
+						CLAMP2_32(stats2[kc<<8|tidx], p0, 1, 0xFFFF);
+#else
 						abac_update(weights, logits, curr_stats, tidx, curr_mixer, mixalphas, p0, bit);
+#endif
 						tidx+=tidx+bit;
-						if(tidx==7)//NPOT tree
-							break;
+						//if(tidx==7)//NPOT tree
+						//	break;
 					}
 #else
 					cdf=0;
@@ -1622,8 +1767,10 @@ static void block_thread(void *param)
 					freq=MIXCDF(token);
 					ac3_enc_update_NPOT(&ec, cdf, freq, den);
 #endif
+#ifndef ENABLE_ABAC
 					if(nbits)
 						ac3_enc_bypass(&ec, bypass, nbits);
+#endif
 				}
 				else
 				{
@@ -1632,18 +1779,37 @@ static void block_thread(void *param)
 					token2=0;
 					for(int kb=ABAC_TOKEN_BITS-1, bit=0;kb>=0;--kb)
 					{
+						//if(ky==1&&kx==33&&kc==0&&kb==7)//
+						//	g_compare=2;
 						//int *mixercell=curr_mixer+ABAC_NCTX*kb*2+bit;
+#ifdef ABAC_SIMPLEOVERRIDE
+						int p0=stats2[kc<<8|tidx];
+#else
 						int p0=abac_predict((const unsigned short**)curr_stats, tidx, curr_mixer, mixalphas, weights, logits);
-
+#endif
+						
+						//if(ky==1&&kx==33&&kc==0&&kb==7)//
+						//{
+						//	g_compare=0;
+						//	printf("");
+						//}
 						bit=ac3_dec_bin(&ec, p0, ABAC_PROBBITS);
 						token2|=bit<<kb;
 
+						//if(ky==1&&kx==32)//
+						//	printf("0x%04X %d\n", p0, bit);
+						
+#ifdef ABAC_SIMPLEOVERRIDE
+						p0+=((!bit<<ABAC_PROBBITS)-p0)>>7;
+						CLAMP2_32(stats2[kc<<8|tidx], p0, 1, 0xFFFF);
+#else
 						abac_update(weights, logits, curr_stats, tidx, curr_mixer, mixalphas, p0, bit);
+#endif
 						tidx+=tidx+bit;
-						if(tidx==7)//NPOT tree
-							break;
+						//if(tidx==7)//NPOT tree
+						//	break;
 					}
-					token=token2;
+					error=token2;
 #else
 					unsigned code=ac3_dec_getcdf_NPOT(&ec, den);
 					cdf=0;
@@ -1665,6 +1831,7 @@ static void block_thread(void *param)
 					}
 					ac3_dec_update_NPOT(&ec, cdf, freq, den);
 #endif
+#ifndef ENABLE_ABAC
 					sym=token;
 					if(sym>=(1<<CONFIG_EXP))
 					{
@@ -1702,13 +1869,17 @@ static void block_thread(void *param)
 						error^=negmask;
 						error-=negmask;
 					}
+#endif
 					curr[kc2+1]=error;
 					error+=pred;
+#ifdef ENABLE_ABAC
+					error=error<<(32-ABAC_TOKEN_BITS)>>(32-ABAC_TOKEN_BITS);
+					curr[kc2+1]=error-pred;
+#endif
 					curr[kc2+0]=yuv[kc]=error;
 					//if((unsigned)(yuv[kc]+128)>255)
 					//	LOG_ERROR("");
 				}
-
 				//X
 #if 0
 				{
@@ -1730,7 +1901,6 @@ static void block_thread(void *param)
 					}
 				}
 #endif
-				curr[kc2+0]-=offset;
 #if defined ENABLE_MIX4
 				{
 					int inc;
@@ -1790,6 +1960,8 @@ static void block_thread(void *param)
 					curr_hist[args->tlevels]=sum;
 				}
 #endif
+#endif
+				curr[kc2+0]-=offset;
 			}
 			if(!args->fwd)
 			{
@@ -1979,8 +2151,10 @@ int c01_codec(const char *srcfn, const char *dstfn)
 		statssize=(tlevels+1)*nch*(int)sizeof(int[CLEVELS]);
 #elif defined ENABLE_MIX8
 		statssize=(tlevels+1)*nch*(int)sizeof(int[CXLEVELS*CYLEVELS*CZLEVELS]);
+#elif defined ENABLE_ABAC2
+		statssize=0;
 #elif defined ENABLE_ABAC
-		statssize=nch*(int)sizeof(short[ABAC_NCTX*ABAC_CLEVELS*ABAC_TREESIZE]);
+		statssize=nch*(int)sizeof(short[ABAC_NCTRS*ABAC_NCTX*ABAC_CLEVELS*ABAC_TREESIZE]);
 #else
 		clevels=CLEVELS;
 		statssize=clevels*clevels*(tlevels+1)*nch*(int)sizeof(int);
