@@ -52,6 +52,7 @@ typedef unsigned THREAD_RET;
 #define THREAD_CALL
 typedef void *THREAD_RET;
 #endif
+#include<immintrin.h>
 static const char file[]=__FILE__;
 
 char g_buf[G_BUF_SIZE]={0};
@@ -297,7 +298,7 @@ int hammingweight32(unsigned x)
 int hammingweight64(unsigned long long x)
 {
 #ifdef _MSC_VER
-	return (int)__popcnt64(x);
+	return (int)_mm_popcnt_u64(x);
 #else
 	return __builtin_popcountll(x);
 #endif

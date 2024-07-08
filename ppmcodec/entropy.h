@@ -520,7 +520,7 @@ INLINE void ac3_enc_bin(AC3 *ec, int bit, unsigned p0, int probbits)
 
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
-	if(!p0||p0>=1<<probbits)
+	if(!p0||p0>=1ULL<<probbits)
 		LOG_ERROR2("ZPS");
 #endif
 	mid=ec->range>>probbits;
@@ -549,7 +549,7 @@ INLINE int ac3_dec_bin(AC3 *ec, unsigned p0, int probbits)
 	
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
-	if(!p0||p0>=1<<probbits)
+	if(!p0||p0>=1ULL<<probbits)
 		LOG_ERROR2("ZPS");
 #endif
 	mid=ec->range>>probbits;
