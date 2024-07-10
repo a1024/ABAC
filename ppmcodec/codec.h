@@ -19,6 +19,7 @@ int header_read(const unsigned char *src, int len, int *iw, int *ih, CodecID *co
 int compare_bufs_8(const unsigned char *b1, const unsigned char *b0, int iw, int ih, int nch, int chstride, const char *name, int backward, int loud);
 
 int c01_codec(const char *srcfn, const char *dstfn);
+int c02_codec(const char *srcfn, const char *dstfn);
 
 	
 #ifdef __cplusplus

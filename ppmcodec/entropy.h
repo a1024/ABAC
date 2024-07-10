@@ -14,13 +14,13 @@ extern "C"
 #endif
 
 	
-//	#define AC_VALIDATE
+	#define AC_VALIDATE
 
 #ifdef AC_VALIDATE
 void acval_enc(int sym, int cdf, int freq, unsigned long long lo1, unsigned long long hi1, unsigned long long lo2, unsigned long long hi2, unsigned long long cache, int nbits);
 void acval_dec(int sym, int cdf, int freq, unsigned long long lo1, unsigned long long hi1, unsigned long long lo2, unsigned long long hi2, unsigned long long cache, int nbits, unsigned long long code);
 void acval_dump();
-extern int acval_disable;
+//extern int acval_disable;
 #ifdef AC_IMPLEMENTATION
 typedef struct ACVALStruct
 {
@@ -35,7 +35,7 @@ typedef struct ACVALStruct
 ArrayHandle acval=0;
 ACVAL acval_cbuf[ACVAL_CBUFSIZE]={0};
 int acval_idx=0;
-int acval_disable=0;
+//int acval_disable=0;
 void acval_enc(int sym, int cdf, int freq, unsigned long long lo1, unsigned long long hi1, unsigned long long lo2, unsigned long long hi2, unsigned long long cache, int nbits)
 {
 	ACVAL val=
@@ -46,8 +46,8 @@ void acval_enc(int sym, int cdf, int freq, unsigned long long lo1, unsigned long
 		nbits,
 		sym, cdf, freq,
 	};
-	if(acval_disable)
-		return;
+	//if(acval_disable)
+	//	return;
 	//if(lo1>>48||hi1>>48||lo2>>48||hi2>>48)
 	//	LOG_ERROR2("");
 	if(!acval)
@@ -105,8 +105,8 @@ void acval_dec(int sym, int cdf, int freq, unsigned long long lo1, unsigned long
 		sym, cdf, freq,
 	};
 	
-	if(acval_disable)
-		return;
+	//if(acval_disable)
+	//	return;
 
 	acval_cbuf[acval_idx%ACVAL_CBUFSIZE]=val2;
 
@@ -211,7 +211,7 @@ INLINE void ac2_enc_renorm(AC2 *ec)
 	}
 #ifdef AC_VALIDATE
 	if(ec->x1>=ec->x2)
-		LOG_ERROR("");
+		LOG_ERROR("Invalid AC range %08X~%08X", ec->x1, ec->x2);
 #endif
 }
 INLINE void ac2_dec_renorm(AC2 *ec)
@@ -230,7 +230,7 @@ INLINE void ac2_dec_renorm(AC2 *ec)
 	}
 #ifdef AC_VALIDATE
 	if(ec->x1>=ec->x2)
-		LOG_ERROR("");
+		LOG_ERROR("Invalid AC range %08X~%08X", ec->x1, ec->x2);
 #endif
 }
 
@@ -272,7 +272,7 @@ INLINE void ac2_enc_bypass(AC2 *ec, unsigned sym, int nbits)
 	range=ec->x2-ec->x1;
 	x1=ec->x1+(unsigned)((unsigned long long)range*(sym+0ULL)>>nbits);
 	x2=ec->x1+(unsigned)((unsigned long long)range*(sym+1ULL)>>nbits)-1;
-	acval_enc(0, sym, 1, ec->x1, ec->x2, x1, x2, 0, 0);
+	acval_enc(sym, sym, 1, ec->x1, ec->x2, x1, x2, 0, 0);
 	ec->x1=x1;
 	ec->x2=x2;
 }
@@ -284,7 +284,7 @@ INLINE unsigned ac2_dec_bypass(AC2 *ec, int nbits)
 	range=ec->x2-ec->x1;
 	x1=ec->x1+(unsigned)((unsigned long long)range*(sym+0ULL)>>nbits);
 	x2=ec->x1+(unsigned)((unsigned long long)range*(sym+1ULL)>>nbits)-1;
-	acval_dec(0, sym, 1, ec->x1, ec->x2, x1, x2, 0, 0, ec->code);
+	acval_dec(sym, sym, 1, ec->x1, ec->x2, x1, x2, 0, 0, ec->code);
 	ec->x1=x1;
 	ec->x2=x2;
 	return sym;
@@ -296,7 +296,7 @@ INLINE void ac2_enc_bypass_NPOT(AC2 *ec, unsigned sym, int nlevels)
 	range=ec->x2-ec->x1;
 	x1=ec->x1+(unsigned)((unsigned long long)range*(sym+0ULL)/nlevels);
 	x2=ec->x1+(unsigned)((unsigned long long)range*(sym+1ULL)/nlevels)-1;
-	acval_enc(0, sym, 1, ec->x1, ec->x2, x1, x2, 0, 0);
+	acval_enc(sym, sym, 1, ec->x1, ec->x2, x1, x2, 0, 0);
 	ec->x1=x1;
 	ec->x2=x2;
 }
@@ -308,7 +308,7 @@ INLINE unsigned ac2_dec_bypass_NPOT(AC2 *ec, int nlevels)
 	range=ec->x2-ec->x1;
 	x1=ec->x1+(unsigned)((unsigned long long)range*(sym+0ULL)/nlevels);
 	x2=ec->x1+(unsigned)((unsigned long long)range*(sym+1ULL)/nlevels)-1;
-	acval_dec(0, sym, 1, ec->x1, ec->x2, x1, x2, 0, 0, ec->code);
+	acval_dec(sym, sym, 1, ec->x1, ec->x2, x1, x2, 0, 0, ec->code);
 	ec->x1=x1;
 	ec->x2=x2;
 	return sym;
@@ -319,16 +319,16 @@ INLINE void ac2_enc_bin(AC2 *ec, unsigned p1, int bit)
 
 	ac2_enc_renorm(ec);
 #ifdef AC_SYMMETRIC
-	if(p1<1U<<AC2_PROB_BITS>>1)
+	if(p1<1ULL<<AC2_PROB_BITS>>1)
 	{
 		p1=(1<<AC2_PROB_BITS)-p1;
-		bit=!bit;
+		bit^=1;
 	}
 #endif
 #ifdef AC_VALIDATE
 	unsigned x1=ec->x1, x2=ec->x2;
-	if(!p1||p1>=1ULL<<AC2_PROB_BITS)
-		LOG_ERROR2("ZPS");
+	if((unsigned long long)(p1-1LL)>=(1ULL<<AC2_PROB_BITS)-1)
+		LOG_ERROR2("Invalid probability %08X", p1);
 #endif
 	mid=ec->x1+(unsigned)((unsigned long long)(ec->x2-ec->x1)*p1>>AC2_PROB_BITS);
 	if(bit)
@@ -350,8 +350,8 @@ INLINE int ac2_dec_bin(AC2 *ec, unsigned p1)
 #endif
 #ifdef AC_VALIDATE
 	unsigned x1=ec->x1, x2=ec->x2;
-	if(!p1||p1>=1ULL<<AC2_PROB_BITS)
-		LOG_ERROR2("ZPS");
+	if((unsigned long long)(p1-1LL)>=(1ULL<<AC2_PROB_BITS)-1)
+		LOG_ERROR2("Invalid probability %08X", p1);
 #endif
 	mid=ec->x1+(unsigned)((unsigned long long)(ec->x2-ec->x1)*p1>>AC2_PROB_BITS);
 	bit=ec->code<=mid;
@@ -359,7 +359,7 @@ INLINE int ac2_dec_bin(AC2 *ec, unsigned p1)
 		ec->x2=mid;
 	else
 		ec->x1=mid+1;
-	acval_enc(bit, 0, p1, x1, x2, ec->x1, ec->x2, 0, 0);
+	acval_dec(bit, 0, p1, x1, x2, ec->x1, ec->x2, 0, 0, ec->code);
 #ifdef AC_SYMMETRIC
 	bit^=flip;
 #endif

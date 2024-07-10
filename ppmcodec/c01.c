@@ -61,7 +61,7 @@ static const char file[]=__FILE__;
 #define A3_CTXBITS1 8
 #define A3_CTRBITS1 6
 //order 2
-#define A3_NCTX2 3
+#define A3_NCTX2 5
 #define A3_CTXBITS2 6
 #define A3_CTRBITS2 4
 //mixer
@@ -304,6 +304,14 @@ static int quantize_ctx(int x)
 	x^=negmask;
 	x-=negmask;
 	return x;
+
+	//x=x<<1^x>>31;
+	//if(x<1<<(6-3))
+	//	return x;
+	//int lgx=FLOOR_LOG2(x);
+	//int mantissa=x-(1<<lgx);
+	//int token=(1<<(6-3))+((lgx-(6-3))<<3|mantissa>>(lgx-3));
+	//return token;
 }
 #define SCALE_BITS 16
 static int squash(int x)//sigmoid(x) = 1/(1-exp(-x))		logit sum -> prob
@@ -1884,12 +1892,19 @@ static void block_thread(void *param)
 				};
 				int ctx2[A3_NCTX2][2]=
 				{
-					{N[kc2+0], W[kc2+0]},
-					{N[kc2+0]+W[kc2+0]-NW[kc2+0], N[kc2+0]+NE[kc2+0]-NNE[kc2+0]},
+					{N[kc2+0], NN[kc2+0]},
+					{W[kc2+0], WW[kc2+0]},
+					{N[kc2+0]-NW[kc2+0], W[kc2+0]-NW[kc2+0]},
+					{W[kc2+0]-WW[kc2+0], N[kc2+0]-NN[kc2+0]},
+					//{NW[kc2+0], N[kc2+0]},
+					//{N[kc2+1], W[kc2+1]},
+					//{NE[kc2+0], NNEE[kc2+0]},
+					//{N[kc2+0], W[kc2+0]},
+					//{N[kc2+0]+W[kc2+0]-NW[kc2+0], N[kc2+0]+NE[kc2+0]-NNE[kc2+0]},
 					//{N[kc2+0]+NE[kc2+0]-NNE[kc2+0], 3*(W[kc2+0]-WW[kc2+0])+WWW[kc2+0]},
-					//{quantize_ctx(N[kc2+1]+W[kc2+1]-NW[kc2+1])<<(8-4), quantize_ctx(N[kc2+1]+NE[kc2+1]-NNE[kc2+1])<<(8-4)},
 					{quantize_ctx(N[kc2+1])<<(8-3), quantize_ctx(W[kc2+1])<<(8-3)},
 					//{quantize_ctx(NW[kc2+1])<<(8-3), quantize_ctx(NE[kc2+1])<<(8-3)},
+					//{quantize_ctx(N[kc2+1]+W[kc2+1]-NW[kc2+1])<<(8-4), quantize_ctx(N[kc2+1]+NE[kc2+1]-NNE[kc2+1])<<(8-4)},
 					//{abs(N[kc2+1])<<1, abs(W[kc2+1])<<1},
 				};
 				//int mctx=(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1]))>>2;
@@ -1978,6 +1993,10 @@ static void block_thread(void *param)
 					p0>>=26;//FIXME
 					//p0=(int)(((unsigned long long)(n0+1)<<16)/(unsigned)(n0+n1+2));
 					//p0=((n0+1)<<16)/(n0+n1+2);
+					{
+						long long x=p0-0x8000;
+						p0-=((x-(x*x*x>>30))*585+(1<<14>>1))>>14;
+					}
 					CLAMP2_32(p0, (int)p0+0x8000, 1, 0xFFFF);
 					//p0+=p0<0x8000;
 #endif
@@ -1997,6 +2016,15 @@ static void block_thread(void *param)
 					}
 					p0=((n0+1)<<16)/(n0+n1+2);
 #endif
+#define PRECISION 16
+					//if(p0<1<<PRECISION>>1)
+					//	p0=p0*p0<<1>>PRECISION;
+					//else
+					//{
+					//	p0=(1<<PRECISION)-p0;
+					//	p0=(unsigned)((unsigned long long)p0*p0<<1>>PRECISION);
+					//	p0=(1<<PRECISION)-p0;
+					//}
 					//int p0=curr_stats[tidx], bit;
 					//if(ky==289&&kx==544&&kc==0&&kb==7)
 					//	printf("");
@@ -2073,7 +2101,7 @@ static void block_thread(void *param)
 						if(bit==bit2)
 						{
 							xorshift64(&args->prng_state);
-							count+=!(args->prng_state&((1ULL<<count)-1));
+							count+=!(args->prng_state&((1ULL<<(count+1))-1));
 							if(count>(1<<(16-A3_CTRBITS1*2)>>1)-1)
 								count=(1<<(16-A3_CTRBITS1*2)>>1)-1;
 						}
@@ -2223,16 +2251,20 @@ static void block_thread(void *param)
 					int sseidx=(int)p0>>(16-A2_SSEBITS);
 					long long ssesum=curr_sse[sseidx]>>A2_SSECTR, ssecount=curr_sse[sseidx]&((1LL<<A2_SSECTR)-1);
 					p0+=ssesum/(ssecount+160);
+					{
+						long long x=p0-0x8000;
+						p0-=(x-(x*x*x>>30))*585>>14;
+					}
 					CLAMP2_32(p0, (int)p0, 1, 0xFFFF);
 #ifdef USE_AC2
 					if(args->fwd)
 					{
 						bit=error>>kb&1;
-						ac2_enc_bin(&ec, (int)p0<<(31-16), !bit);
+						ac2_enc_bin(&ec, (unsigned)p0<<(31-16), !bit);
 					}
 					else
 					{
-						bit=ac2_dec_bin(&ec, (int)p0<<(31-16));
+						bit=ac2_dec_bin(&ec, (unsigned)p0<<(31-16));
 						bit=!bit;
 						error|=bit<<kb;
 					}

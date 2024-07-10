@@ -108,13 +108,13 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/dataset-CLIC30-ppm/03.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm"	//large
 
-	//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
+		"D:/ML/dataset-kodak-ppm/kodim13.ppm"
 	//	"D:/ML/dataset-kodak-ppm/kodim13.c01"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13803.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13833.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13915.ppm"	//false color terrain
-		"C:/dataset-LPCB-ppm/STA13843.ppm"	//space clouds
+	//	"C:/dataset-LPCB-ppm/STA13843.ppm"	//space clouds
 	//	"C:/dataset-LPCB-ppm/STA13844.ppm"	//space clouds
 	//	"C:/dataset-LPCB-ppm/STA13845.ppm"	//space clouds
 		;
@@ -123,6 +123,6 @@ int main(int argc, char **argv)
 	//	"D:/ML/dataset-kodak-ppm/kodim13.c01.ppm"
 		;
 #endif
-	c01_codec(srcfn, dstfn);
+	c02_codec(srcfn, dstfn);
 	return 0;
 }
