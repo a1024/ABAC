@@ -8,9 +8,9 @@ static const char file[]=__FILE__;
 
 //	#define ENABLE_GUIDE
 //	#define DISABLE_MT
+
+
 //	#define PROFILE_SIZE
-
-
 	#define ENCODE_ERROR
 //	#define AC_SYMMETRIC
 //	#define DISABLE_RCTPROBE
@@ -21,6 +21,17 @@ static const char file[]=__FILE__;
 
 #define BLOCKSIZE 640
 #define MAXPRINTEDBLOCKS 0//200
+
+#define MIXCOUNT 9
+
+#define O1_IDXBITS 7
+#define O1_CTRBITS 9
+typedef unsigned O1Counter;
+
+//#define SSE_LBITS 4	//lookup (index) bits
+//#define SSE_PBITS 12	//prob bits
+//#define SSE_CBITS 16	//counter bits
+//#define SSE_THRESHOLD 6144
 
 #define OCHLIST\
 	OCH(R)\
@@ -240,8 +251,9 @@ typedef struct _ThreadArgs
 	const unsigned char *decstart, *decend;
 	
 	int stats0[3][1<<8];
-	//int stats1[3][1<<8][1<<8];
-	//unsigned char stats2[3][1<<8][1<<8][1<<8];
+	O1Counter stats1[3][MIXCOUNT-1][1<<O1_IDXBITS][1<<8];
+	int mixer[3][MIXCOUNT];
+	//long long sse[3][1<<SSE_LBITS][9<<SSE_PBITS];
 #ifdef PROFILE_SIZE
 	double csizes[24];
 #endif
@@ -850,9 +862,11 @@ static void block_thread(void *param)
 	}
 	
 	unsigned long long prngstate=0x3243F6A8885A308D;//pi
+	//FILLMEM((int*)args->stats0, 0x40000000, sizeof(args->stats0), sizeof(int));
 	memset(args->stats0, 0, sizeof(args->stats0));
-	//memset(args->stats1, 0, sizeof(args->stats1));
-	//memset(args->stats2, 0, sizeof(args->stats2));
+	memset(args->stats1, 0, sizeof(args->stats1));
+	memset(args->mixer, 0, sizeof(args->mixer));
+	//memset(args->sse, 0, sizeof(args->sse));
 #ifdef PROFILE_SIZE
 	memset(args->csizes, 0, sizeof(args->csizes));
 #endif
@@ -1041,8 +1055,31 @@ static void block_thread(void *param)
 				CLAMP2_32(pred, pred, -128, 127);
 
 				int *curr_stats0=args->stats0[kc];
-				//int *curr_stats1=args->stats1[kc][((N[kc2+0]+W[kc2+0])/2+128)&255];
-				//unsigned char *curr_stats2=args->stats2[kc][(WW[kc2+0]+128)&255][(W[kc2+0]+128)&255];
+				int ctx[]=//don't forget to update MIXCOUNT
+				{
+					pred,
+					(N[kc2+0]+W[kc2+0])/2,
+					N[kc2+0]+W[kc2+0]-NW[kc2+0],
+					N[kc2+0]-W[kc2+0],
+					N[kc2+0]-NW[kc2+0],
+					W[kc2+0]-NW[kc2+0],
+					N[kc2+1],
+					W[kc2+1],
+					//NW[kc2+1],
+					//NE[kc2+1],
+				};
+				O1Counter *curr_stats1[_countof(ctx)]={0};
+				for(int k=0;k<_countof(ctx);++k)
+					curr_stats1[k]=args->stats1[kc][k][((ctx[k]+128)&255)>>(8-O1_IDXBITS)];
+				int *curr_mixer=args->mixer[kc];
+				//long long *curr_sse[]=
+				//{
+				//	args->sse[kc][0],
+				//	//args->sse[kc][(((N[kc2+0]+W[kc2+0])/2+128)&255)>>(8-SSE_LBITS)],
+				//	//args->sse[kc][((N[kc2+0]-W[kc2+0]+128)&255)>>(8-SSE_LBITS)],
+				//	//args->sse[kc][((N[kc2+0]-NW[kc2+0]+128)&255)>>(8-SSE_LBITS)],
+				//	//args->sse[kc][((W[kc2+0]-NW[kc2+0]+128)&255)>>(8-SSE_LBITS)],
+				//};
 				if(args->fwd)
 				{
 					//if(ky==3&&kx==128&&!kc)//
@@ -1071,19 +1108,41 @@ static void block_thread(void *param)
 				}
 				else
 					sym=0;
+#ifdef ENCODE_ERROR
 				for(int kb=8, tidx=0;kb>=0;--kb)
+#else
+				for(int kb=7, tidx=1;kb>=0;--kb)
+#endif
 				{
-					long long probs[]=
+					long long p1=curr_stats0[tidx];
+					p1+=1LL<<AC2_PROB_BITS>>1;
+
+					//long long probs[MIXCOUNT]={curr_stats0[tidx]};
+					//long long p1=curr_mixer[0]*probs[0];
+					//for(int k=1;k<MIXCOUNT;++k)
+					//{
+					//	O1Counter cell=curr_stats1[k-1][tidx];
+					//	int c0=cell&((1<<O1_CTRBITS)-1), c1=cell>>O1_CTRBITS&((1<<O1_CTRBITS)-1), run=(short)cell>>O1_CTRBITS*2;
+					//	probs[k]=((c0+1LL)<<22)/(c0+c1+2)+((long long)run<<22);
+					//	p1+=curr_mixer[k]*probs[k];
+					//}
+					//p1>>=25;
+					//p1+=1ULL<<AC2_PROB_BITS>>1;
+#if 0
+					long long *ssecell[_countof(curr_sse)], ssesum[_countof(curr_sse)];
+					int ssecount[_countof(curr_sse)];
+					for(int k=0;k<_countof(curr_sse);++k)
 					{
-						curr_stats0[tidx],
-					//	curr_stats1[tidx],
-					};
-					//long long p1=(probs[0]+3LL*probs[1]+2)>>2;
-					//long long p1=probs[1];
-					long long p1=probs[0];
+						int sseidx=(int)(p1>>(AC2_PROB_BITS-SSE_PBITS))*9+kb;
+						ssecell[k]=curr_sse[k]+sseidx;
+						ssesum[k]=*ssecell[k]>>SSE_CBITS;
+						ssecount[k]=*ssecell[k]&((1ULL<<SSE_CBITS)-1);
+						if(ssecount[k]>SSE_THRESHOLD/4)
+							p1-=ssesum[k]>>11;
+					}
+#endif
+					CLAMP2(p1, 1, (1LL<<AC2_PROB_BITS)-1);
 					int bit;
-					p1+=1ULL<<AC2_PROB_BITS>>1;
-					//CLAMP2_32(p1, (int)p1, 1, (int)((1ULL<<AC2_PROB_BITS)-1));
 					if(args->fwd)
 					{
 						bit=sym>>kb&1;
@@ -1098,31 +1157,70 @@ static void block_thread(void *param)
 						bit=ac2_dec_bin(&ec, (unsigned)p1);
 						sym|=bit<<kb;
 					}
+					p1=curr_stats0[tidx];
+					p1+=((((long long)bit<<AC2_PROB_BITS)-(1LL<<AC2_PROB_BITS>>1)-p1)*17+(1<<11>>1))>>11;
+					CLAMP2(p1, -((1LL<<AC2_PROB_BITS>>1)-1), (1LL<<AC2_PROB_BITS>>1)-1);
+					curr_stats0[tidx]=(int)p1;
+					//curr_stats0[tidx]=bit<<(AC2_PROB_BITS-1)|curr_stats0[tidx]>>1;
+#if 0
 					//if(!kc&&kb==7)
 					//	printf("");
 					//long long perr=(long long)(bit<<AC2_PROB_BITS)-p1;
-					long long collapse=(long long)(bit<<AC2_PROB_BITS)-(int)(1ULL<<AC2_PROB_BITS>>1);
-					probs[0]+=((collapse-probs[0])*17+(1<<11>>1))>>11;//30 bit
-					//probs[0]+=((collapse-probs[0])*17+(1<<22>>1))>>22;//31 bit
-					//probs[1]+=(collapse-probs[1]+(1<<5>>1))>>5;
+					long long collapse=((long long)bit<<AC2_PROB_BITS)-(int)(1ULL<<AC2_PROB_BITS>>1);
+					long long error=((long long)bit<<AC2_PROB_BITS)-p1;
+#if 0
+					for(int k=0;k<_countof(curr_sse);++k)
+					{
+						ssesum[k]+=(error-ssesum[k])>>2;
+						//ssesum[k]+=error;
+						++ssecount[k];
+						if(ssecount[k]>=SSE_THRESHOLD)//FIXME
+						{
+							ssecount[k]>>=1;
+							ssesum[k]>>=1;
+						}
+						*ssecell[k]=ssesum[k]<<SSE_CBITS|ssecount[k];
+					}
+#endif
+					for(int k=0;k<_countof(probs);++k)
+						curr_mixer[k]+=probs[k]*error>>(AC2_PROB_BITS+16);
+
+					probs[0]+=((collapse-probs[0])*17+(1<<11>>1))>>11;
 					const int pmin=-((int)(1ULL<<AC2_PROB_BITS>>1)-1), pmax=(int)(1ULL<<AC2_PROB_BITS>>1)-1;
-					CLAMP2(probs[0], pmin, pmax);
-					//CLAMP2(probs[1], -((1LL<<AC2_PROB_BITS>>1)-1), (1LL<<AC2_PROB_BITS>>1)-1);
-					//long long probs0[]=
-					//{
-					//	probs[0],
-					//	probs[1],
-					//};
-					//if(probs[0]/(1<<31)||probs[1]/(1<<31))
-					//	LOG_ERROR("");
-					//probs[0]+=(int)(((long long)(bit<<AC2_PROB_BITS)-probs[0]+(1<<7>>1))>>7);
-					//probs[1]+=(int)(((long long)(bit<<AC2_PROB_BITS)-probs[1]+(1<<5>>1))>>5);
-					//if(probs[0]/(1<<31)||probs[1]/(1<<31))
-					//	LOG_ERROR("");
+					//CLAMP2(probs[0], pmin, pmax);
+					for(int k=1;k<MIXCOUNT;++k)
+					{
+						O1Counter cell=curr_stats1[k-1][tidx];
+						int c[]={cell&((1<<O1_CTRBITS)-1), cell>>O1_CTRBITS&((1<<O1_CTRBITS)-1)}, run=(short)cell>>O1_CTRBITS*2;
+						if(c[bit]>=(1<<O1_CTRBITS)-1)
+						{
+							c[0]>>=1;
+							c[1]>>=1;
+						}
+						++c[bit];
+
+						int bit2=run<0;
+						run=abs(run);
+						if(bit==bit2)
+						{
+							xorshift64(&prngstate);
+							run+=!(prngstate&((1ULL<<(run+1))-1));
+							if(run>(1<<(16-O1_CTRBITS*2)>>1)-1)
+								run=(1<<(16-O1_CTRBITS*2)>>1)-1;
+						}
+						else
+							run=1;
+						if(bit)
+							run=-run;
+
+						curr_stats1[k-1][tidx]=run<<O1_CTRBITS*2|c[1]<<O1_CTRBITS|c[0];
+					}
 					curr_stats0[tidx]=(int)probs[0];
-					//curr_stats1[tidx]=(int)probs[1];
+#endif
+#ifdef ENCODE_ERROR
 					if(kb==8&&bit)
 						break;
+#endif
 					tidx+=tidx+!bit;
 				}
 				if(!args->fwd)
