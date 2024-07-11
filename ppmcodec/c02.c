@@ -6,9 +6,9 @@
 static const char file[]=__FILE__;
 
 
-	#define ENABLE_GUIDE
-	#define DISABLE_MT
-	#define PROFILE_SIZE
+//	#define ENABLE_GUIDE
+//	#define DISABLE_MT
+//	#define PROFILE_SIZE
 
 
 	#define ENCODE_ERROR
@@ -127,78 +127,6 @@ static const short av12_icoeffs[12]=
 	 0x07,	-0x9E,	 0xDB,	 0x1E,	 0x13,
 	-0x2A,	 0xF3,
 };
-
-#if 0
-	#define TEST_USE_AC3
-#ifdef TEST_USE_AC3
-#define TEST_PROB_BITS 16
-#endif
-static void test()
-{
-	//const int prob_bits=12;
-	double t;
-	const long long usize=1024LL*1024*1024;
-	DList list;
-#ifdef TEST_USE_AC3
-	AC3 ec;
-#else
-	AC2 ec;
-#endif
-	ArrayHandle cdata=0;
-#define TESTBIT 0
-#ifdef TEST_USE_AC3
-	const int p0=TESTBIT?1:(1ULL<<TEST_PROB_BITS)-1;
-#else
-	const int p1=TESTBIT?(1ULL<<AC2_PROB_BITS)-1:1;
-#endif
-
-	dlist_init(&list, 1, 1024, 0);
-#ifdef TEST_USE_AC3
-	ac3_enc_init(&ec, &list);
-#else
-	ac2_enc_init(&ec, &list);
-#endif
-	t=time_sec();
-	for(long long k=0;k<usize*8;++k)
-#ifdef TEST_USE_AC3
-		ac3_enc_bin(&ec, TESTBIT, p0, TEST_PROB_BITS);
-	ac3_enc_flush(&ec);
-#else
-		ac2_enc_bin(&ec, p1, TESTBIT);
-	ac2_enc_flush(&ec);
-#endif
-	t=time_sec()-t;
-	dlist_appendtoarray(&list, &cdata);
-	dlist_clear(&list);
-
-	printf("%zd/%lld  %8.4lf%%  %lf\n", cdata->count, usize, 100.*cdata->count/usize, (double)usize/cdata->count);
-	printf("E %lf sec  %lf MB/s\n", t, usize/(t*1024*1024));
-	
-#ifdef TEST_USE_AC3
-	ac3_dec_init(&ec, cdata->data, cdata->data+cdata->count);
-#else
-	ac2_dec_init(&ec, cdata->data, cdata->data+cdata->count);
-#endif
-	t=time_sec();
-	for(long long k=0;k<usize*8;++k)
-	{
-#ifdef TEST_USE_AC3
-		int bit=ac3_dec_bin(&ec, p0, TEST_PROB_BITS);
-#else
-		int bit=ac2_dec_bin(&ec, p1);
-#endif
-		if(bit!=TESTBIT)
-			LOG_ERROR("Test failed %lld/%lld", k, usize*8);
-	}
-	t=time_sec()-t;
-	printf("D %lf sec  %lf MB/s\n", t, usize/(t*1024*1024));
-	array_free(&cdata);
-
-	printf("Done.\n");
-	//pause();
-	exit(0);
-}
-#endif
 
 //from libjxl		packsign(pixel) = 0b00001MMBB...BBL	token = offset + 0bGGGGMML,  where G = bits of lg(packsign(pixel)),  bypass = 0bBB...BB
 #define CONFIG_EXP 4
@@ -1170,11 +1098,12 @@ static void block_thread(void *param)
 						bit=ac2_dec_bin(&ec, (unsigned)p1);
 						sym|=bit<<kb;
 					}
-					//if(!kc&&kb==3)
+					//if(!kc&&kb==7)
 					//	printf("");
 					//long long perr=(long long)(bit<<AC2_PROB_BITS)-p1;
 					long long collapse=(long long)(bit<<AC2_PROB_BITS)-(int)(1ULL<<AC2_PROB_BITS>>1);
-					probs[0]+=((collapse-probs[0])*17+(1<<11>>1))>>11;
+					probs[0]+=((collapse-probs[0])*17+(1<<11>>1))>>11;//30 bit
+					//probs[0]+=((collapse-probs[0])*17+(1<<22>>1))>>22;//31 bit
 					//probs[1]+=(collapse-probs[1]+(1<<5>>1))>>5;
 					const int pmin=-((int)(1ULL<<AC2_PROB_BITS>>1)-1), pmax=(int)(1ULL<<AC2_PROB_BITS>>1)-1;
 					CLAMP2(probs[0], pmin, pmax);
