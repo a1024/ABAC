@@ -130,8 +130,8 @@ void acval_dec(int sym, int cdf, int freq, unsigned long long lo1, unsigned long
 #endif
 
 
-//arithmetic coder from paq8px
-#define AC2_PROB_BITS 18
+//arithmetic coder (paq8px)
+#define AC2_PROB_BITS 31
 typedef struct _AC2
 {
 	unsigned x1, x2, pending_bits, code;
@@ -826,6 +826,85 @@ INLINE int ac3_dec_bin(AC3 *ec, unsigned p0, int probbits)
 #ifdef AC_SYMMETRIC
 	bit^=flip;
 #endif
+	return bit;
+}
+
+
+//arithmetic coder (zpaq)	https://mattmahoney.net/dc/dce.html#Section_32
+typedef struct _AC4
+{
+	unsigned lo, hi;
+	DList *dst;
+	const unsigned char *srcptr, *srcend;
+	unsigned code;
+} AC4;
+INLINE void ac4_enc_init(AC4 *ec, DList *dst)
+{
+	memset(ec, 0, sizeof(*ec));
+	ec->lo=0;
+	ec->hi=0xFFFFFFFF;
+	ec->dst=dst;
+}
+INLINE void ac4_dec_init(AC4 *ec, const unsigned char *srcstart, const unsigned char *srcend)
+{
+	memset(ec, 0, sizeof(*ec));
+	ec->lo=0;
+	ec->hi=0xFFFFFFFF;
+	ec->srcptr=srcstart;
+	ec->srcend=srcend;
+	
+	ec->code=0;
+	for(int k=0;k<4;++k)
+	{
+		ec->code<<=8;
+		if(ec->srcptr<ec->srcend)
+			ec->code|=*ec->srcptr++;
+	}
+}
+INLINE void ac4_enc_flush(AC4 *ec)
+{
+	do
+	{
+		dlist_push_back1(&ec->dst, ec->lo>>24);
+		ec->hi=ec->hi<<8|255;
+		ec->lo<<=8;
+	}while((ec->hi^ec->lo)<0x1000000);
+}
+INLINE void ac4_enc_bin(AC4 *ec, unsigned short p1, int bit)
+{
+	unsigned mid;
+	
+	while((ec->hi^ec->lo)<0x1000000)
+	{
+		dlist_push_back1(&ec->dst, ec->lo>>24);
+		ec->hi=ec->hi<<8|255;
+		ec->lo<<=8;
+	}
+	mid=ec->lo+((unsigned long long)(ec->hi-ec->lo)*p1>>16);
+	if(bit)
+		ec->hi=mid;
+	else
+		ec->lo=mid+1;
+}
+INLINE int ac4_dec_bin(AC4 *ec, unsigned short p1)
+{
+	unsigned mid;
+	int bit;
+	
+	while((ec->hi^ec->lo)<0x1000000)
+	{
+		ec->hi=ec->hi<<8|255;
+		ec->lo<<=8;
+		ec->code<<=8;
+		if(ec->srcptr<ec->srcend)
+			ec->code|=*ec->srcptr++;
+	}
+	mid=ec->lo+((unsigned long long)(ec->hi-ec->lo)*p1>>16);
+	bit=ec->code<=mid;
+	if(bit)
+		ec->hi=mid;
+	else
+		ec->lo=mid+1;
 	return bit;
 }
 
