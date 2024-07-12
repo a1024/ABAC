@@ -3201,7 +3201,17 @@ static void chart_hist_draw(float x1, float x2, float y1, float y2, int cstart, 
 			//	y=k*histpx*10000;
 			//}
 			for(int k2=0;k2<256;++k2)
+			{
 				draw_rect(x1+k2*(x2-x1)/256, x1+(k2+1)*(x2-x1)/256, y1+(kc+1)*dy-_hist[kc<<8|k2]*histpx, y1+(kc+1)*dy, color?color:alpha<<24|0xFF<<(kc<<3));//0x80
+				float x=x1+(k2+0.5f)*(x2-x1)/256, y;
+				if(k2<128)
+					y=(float)_hist[kc<<8|(k2+0)]/_hist[kc<<8|(k2+1)];
+				else if(k2>128)
+					y=(float)_hist[kc<<8|(k2+0)]/_hist[kc<<8|(k2-1)];
+				else
+					y=0;
+				draw_line(x, y1+(kc+1)*dy, x, y1+(kc+1)*dy-y*dy*0.25f, color?color:0xFF<<24|0xFF<<(kc<<3));
+			}
 		}
 	}
 }
