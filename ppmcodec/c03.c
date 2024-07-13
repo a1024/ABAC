@@ -18,6 +18,7 @@ static const char file[]=__FILE__;
 //	#define ENABLE_CALICCTX//bad
 //	#define ENABLE_HASH//bad
 
+//	#define DISABLE_PREDSEL
 //	#define DISABLE_WG
 	#define AC3_PREC
 
@@ -140,12 +141,17 @@ static const char *rct_names[RCT_COUNT]=
 #undef  RCT
 };
 
+#ifdef DISABLE_PREDSEL
+#define PREDLIST\
+	PRED(CG)
+#else
 #define PREDLIST\
 	PRED(W)\
 	PRED(CG)\
 	PRED(AV5)\
 	PRED(AV9)\
 	PRED(AV12)
+#endif
 typedef enum _PredIndex
 {
 #define PRED(LABEL) PRED_##LABEL,
@@ -159,6 +165,7 @@ static const char *pred_names[PRED_COUNT]=
 	PREDLIST
 #undef  PRED
 };
+
 typedef enum _NBIndex
 {
 	NB_NNWW,	NB_NNW,		NB_NN,		NB_NNE,		NB_NNEE,
@@ -471,6 +478,8 @@ typedef struct _ThreadArgs
 	DList list;
 	const unsigned char *decstart, *decend;
 	
+	//int hist[54<<8];
+
 #ifdef ENABLE_MIX4
 	int clevels;
 #endif
@@ -516,10 +525,10 @@ static void block_thread(void *param)
 		unsigned char predsel[OCH_COUNT]={0};
 		int res=(args->x2-args->x1-3)/5*5*(args->y2-args->y1-2);
 		__m256i av12_mcoeffs[12];
-
+		
+		memset(args->hist, 0, args->histsize);
 		for(int k=0;k<(int)_countof(av12_mcoeffs);++k)
 			av12_mcoeffs[k]=_mm256_set1_epi16(av12_icoeffs[k]>>1);
-		memset(args->hist, 0, args->histsize);
 		for(int ky=args->y1+2;ky<args->y2;++ky)//analysis loop
 		{
 			int kx=args->x1+2;
@@ -604,6 +613,7 @@ static void block_thread(void *param)
 		++args->hist[(IDXD*PRED_COUNT+PREDIDX)<<8|result[0xD]];\
 		++args->hist[(IDXE*PRED_COUNT+PREDIDX)<<8|result[0xE]];\
 	}while(0)
+#ifndef DISABLE_PREDSEL
 				//W
 				pred=_mm256_sub_epi16(nb0[NB_curr], nb0[NB_W]);
 				UPDATE(
@@ -653,6 +663,7 @@ static void block_thread(void *param)
 					OCH_R2, OCH_G2, OCH_B2,
 					OCH_R2, OCH_G2, OCH_B2
 				);
+#endif
 
 				//CG
 				vmin[0]=_mm256_min_epi16(nb0[NB_N], nb0[NB_W]);
@@ -724,7 +735,8 @@ static void block_thread(void *param)
 					OCH_R2, OCH_G2, OCH_B2,
 					OCH_R2, OCH_G2, OCH_B2
 				);
-
+				
+#ifndef DISABLE_PREDSEL
 				//AV5
 				//		-5	5	1
 				//	-1	8	[?]>>3
@@ -994,6 +1006,7 @@ static void block_thread(void *param)
 					OCH_R2, OCH_G2, OCH_B2,
 					OCH_R2, OCH_G2, OCH_B2
 				);
+#endif
 			}
 		}
 		for(int kc=0;kc<OCH_COUNT*PRED_COUNT;++kc)
@@ -1296,7 +1309,9 @@ static void block_thread(void *param)
 			{
 				int kc2=kc<<1;
 				int offset=(yuv[combination[kc+3]]+yuv[combination[kc+6]])>>combination[kc+9];
-
+#ifdef DISABLE_PREDSEL
+				CLAMP3_32(pred, W[kc2]+((5*(N[kc2]-NW[kc2])+NE[kc2]-WW[kc2])>>3), N[kc2], W[kc2], NE[kc2]);
+#else
 				switch(predidx[kc])
 				{
 				case PRED_W:
@@ -1334,6 +1349,7 @@ static void block_thread(void *param)
 					CLAMP3_32(pred, pred, N[kc2], W[kc2], NE[kc2]);
 					break;
 				}
+#endif
 #ifndef DISABLE_WG
 				pred=wg_predict(wg_weights+WG_NPREDS*kc, rows, 4*2, kc2, pred, wg_perrors+WG_NPREDS*kc, wg_preds);
 #endif
@@ -2345,7 +2361,7 @@ int c03_codec(const char *srcfn, const char *dstfn)
 		arg->dst=fwd?0:dst->data+printed;
 		arg->iw=iw;
 		arg->ih=ih;
-		arg->bufsize=sizeof(short[4*OCH_COUNT*2])*(BLOCKSIZE+16LL);//4 padded rows * OCH_COUNT * {pixels, wg_errors}
+		arg->bufsize=sizeof(short[4*OCH_COUNT*2*(BLOCKSIZE+16LL)]);//4 padded rows * OCH_COUNT * {pixels, wg_errors}
 		arg->pixels=(short*)_mm_malloc(arg->bufsize, sizeof(__m128i));
 
 		arg->histsize=histsize;

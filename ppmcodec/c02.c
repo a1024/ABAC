@@ -10,28 +10,186 @@ static const char file[]=__FILE__;
 //	#define DISABLE_MT
 
 
-//	#define PROFILE_SIZE
-	#define ENCODE_ERROR//CALIC pack sign (good)
-//	#define ENCODE_ERROR2//(e+128)&255 (bad)
-	#define USE_AC4//faster
+//select one:
+//	#define ENABLE_MIX4//good
+//	#define ENABLE_MIX8//slightly worse
+	#define ENABLE_ABAC2
+//	#define ENABLE_ABAC//bad
+//	#define ENABLE_CALICCTX//bad
+//	#define ENABLE_HASH//bad
+
+	#define DISABLE_PREDSEL
+//	#define DISABLE_WG
+	#define AC3_PREC
 
 #define CODECNAME "C02"
+#define AC_IMPLEMENTATION
 #include"entropy.h"
-#ifdef USE_AC4
-#define PROB_BITS 16
-#else
-#define PROB_BITS AC2_PROB_BITS
-#endif
 
 #define BLOCKSIZE 640
-#define MAXPRINTEDBLOCKS 0//200
+#define MAXPRINTEDBLOCKS 200
+#ifdef ENABLE_CALICCTX
+#define CLEVELS (3*3*3*3*3*3*3*3)
+#elif defined ENABLE_HASH
+#define CLEVELS 0x1000
+#define HASH_CANTOR(A, B) (((A)+(B))*((A)+(B)+1)/2+(B))
+#elif defined ENABLE_MIX8
+#define MIXBITSX 5
+#define MIXBITSY 3
+#define MIXBITSZ 3
+#define CXLEVELS ((1<<(8-MIXBITSX))+1)
+#define CYLEVELS (8+1)
+#define CZLEVELS (8+1)
+#elif defined ENABLE_ABAC2
+#define A2_CTXBITS 8
+#define A2_NCTX 12
+#define A2_SSEBITS 6
+#define A2_SSECTR 16
+#elif defined ENABLE_ABAC
+#define ABAC_TLEVELS 256
+#define ABAC_TOKEN_BITS 8
+//#define ABAC_TLEVELS 25
+//#define ABAC_TOKEN_BITS 5
+#define ABAC_TREESIZE (1<<ABAC_TOKEN_BITS)	//25/32 is used
+#define ABAC_PCTX 23//1//18
+#define ABAC_ECTX 13//2//16
+#define ABAC_NCTX (ABAC_PCTX+ABAC_ECTX)
+#define ABAC_NCTRS 5
+#define ABAC_CLEVELS 32
+#define ABAC_PROBBITS 16	//minimum 12
+#define ABAC_MIXBITS 7
+	#define ABAC_SIMPLEOVERRIDE
+//	#define DISABLE_LOGMIX
 
-#define MIXCOUNT 9
+//	#define ABAC_PROFILESIZE
+#else
+#define CLEVELS 9
+#define MIXBITS 8
+#endif
 
-#define O1_IDXBITS 7
-#define O1_CTRBITS 9
-typedef unsigned O1Counter;
+#define PERMUTATIONLIST\
+	PERM(RGB, 0, 1, 2)\
+	PERM(GBR, 1, 2, 0)\
+	PERM(BRG, 2, 0, 1)\
+	PERM(BGR, 2, 1, 0)\
+	PERM(RBG, 0, 2, 1)\
+	PERM(GRB, 1, 0, 2)
+typedef enum _CRCTPermutation
+{
+#define PERM(L, A, B, C) PERM_##L,
+	PERMUTATIONLIST
+#undef  PERM
+	PERM_COUNT,
+} CRCTPermutation;
+int permutations[6][3]=
+{
+#define PERM(L, A, B, C) {A, B, C},
+	PERMUTATIONLIST
+#undef  PERM
+};
+const char *permnames[]=
+{
+#define PERM(L, A, B, C) #L,
+	PERMUTATIONLIST
+#undef  PERM
+};
 
+#if 1
+#define OCHLIST\
+	OCH(Rgb00)\
+	OCH(Rgb0G)\
+	OCH(Rgb1F)\
+	OCH(Rgb2E)\
+	OCH(Rgb3D)\
+	OCH(Rgb4C)\
+	OCH(Rgb5B)\
+	OCH(Rgb6A)\
+	OCH(Rgb79)\
+	OCH(Rgb88)\
+	OCH(Rgb97)\
+	OCH(RgbA6)\
+	OCH(RgbB5)\
+	OCH(RgbC4)\
+	OCH(RgbD3)\
+	OCH(RgbE2)\
+	OCH(RgbF1)\
+	OCH(RgbG0)\
+	OCH(Gbr00)\
+	OCH(Gbr0G)\
+	OCH(Gbr1F)\
+	OCH(Gbr2E)\
+	OCH(Gbr3D)\
+	OCH(Gbr4C)\
+	OCH(Gbr5B)\
+	OCH(Gbr6A)\
+	OCH(Gbr79)\
+	OCH(Gbr88)\
+	OCH(Gbr97)\
+	OCH(GbrA6)\
+	OCH(GbrB5)\
+	OCH(GbrC4)\
+	OCH(GbrD3)\
+	OCH(GbrE2)\
+	OCH(GbrF1)\
+	OCH(GbrG0)\
+	OCH(Brg00)\
+	OCH(Brg0G)\
+	OCH(Brg1F)\
+	OCH(Brg2E)\
+	OCH(Brg3D)\
+	OCH(Brg4C)\
+	OCH(Brg5B)\
+	OCH(Brg6A)\
+	OCH(Brg79)\
+	OCH(Brg88)\
+	OCH(Brg97)\
+	OCH(BrgA6)\
+	OCH(BrgB5)\
+	OCH(BrgC4)\
+	OCH(BrgD3)\
+	OCH(BrgE2)\
+	OCH(BrgF1)\
+	OCH(BrgG0)
+typedef enum _OCHIndex
+{
+#define OCH(X) OCH_##X,
+	OCHLIST
+#undef  OCH
+	OCH_COUNT,
+} OCHIndex;
+const char *ochnames[]=
+{
+#define OCH(X) #X,
+	OCHLIST
+#undef  OCH
+};
+
+const int lumapool[]=
+{
+	OCH_Rgb00,
+	OCH_Gbr00,
+	OCH_Brg00,
+};
+//const int chroma1pool[]=
+//{//			R	G	B
+//	OCH_Rgb00,//	X
+//	OCH_Rgb0G,//	X	X
+//	OCH_RgbG0,//	X		X
+//	OCH_Gbr00,//		X
+//	OCH_Gbr0G,//		X	X
+//	OCH_GbrG0,//	X	X
+//	OCH_Brg00,//			X
+//	OCH_Brg0G,//	X		X
+//	OCH_BrgG0,//		X	X
+//};//chroma2 unfiltered pool includes all OCH_COUNT=54 output channels
+const int chroma1pool[3][4]=
+{
+	{OCH_Gbr00, OCH_Gbr0G, OCH_Brg00, OCH_BrgG0},//R
+	{OCH_Rgb00, OCH_RgbG0, OCH_Brg00, OCH_Brg0G},//G
+	{OCH_Rgb00, OCH_Rgb0G, OCH_Gbr00, OCH_GbrG0},//B
+};
+#endif
+#if 0
 #define OCHLIST\
 	OCH(R)\
 	OCH(G)\
@@ -106,12 +264,17 @@ static const char *rct_names[RCT_COUNT]=
 #undef  RCT
 };
 
+#ifdef DISABLE_PREDSEL
+#define PREDLIST\
+	PRED(CG)
+#else
 #define PREDLIST\
 	PRED(W)\
 	PRED(CG)\
 	PRED(AV5)\
 	PRED(AV9)\
 	PRED(AV12)
+#endif
 typedef enum _PredIndex
 {
 #define PRED(LABEL) PRED_##LABEL,
@@ -137,27 +300,37 @@ static const short av12_icoeffs[12]=
 	 0x07,	-0x9E,	 0xDB,	 0x1E,	 0x13,
 	-0x2A,	 0xF3,
 };
+#endif
+
+typedef enum _NBIndex
+{
+	NB_NW,		NB_N,
+	NB_W,		NB_curr,
+} NBIndex;
 
 
 //WG:
 #define WG_DECAY_NUM	493
 #define WG_DECAY_SH	9
 
-#define WG_NPREDS	12
+#define WG_NPREDS	16
 #define WG_PREDLIST\
-	WG_PRED(200, spred)\
+	WG_PRED(25, spred)\
+	WG_PRED(50, wgrad)\
+	WG_PRED(50, 3*N-W-NE)\
+	WG_PRED(30, 2*NE-W)\
 	WG_PRED(132, N+W-NW)\
-	WG_PRED(176, N+W-NW+((eN+eW-eNW+16)>>5))\
-	WG_PRED(176, N+eN)\
+	WG_PRED(100, N+W-NW+((eN+eW-eNW+16)>>5))\
+	WG_PRED(150, N+eN)\
 	WG_PRED(100, N)\
-	WG_PRED(176, W+eW)\
+	WG_PRED(150, W+eW)\
 	WG_PRED(100, W)\
 	WG_PRED(165, W+NE-N)\
 	WG_PRED(220, N+NE-NNE)\
+	WG_PRED(25, N+NE-NNE+((eN+eNE-eNNE)>>2))\
 	WG_PRED(165, 3*(N-NN)+NNN)\
 	WG_PRED(165, 3*(W-WW)+WWW)\
-	WG_PRED(176, (W+NEEE)/2)
-//	WG_PRED(176, N+NE-NNE+((eN+eNE-eNNE)>>2))
+	WG_PRED(150, (W+NEEE)/2)
 static void wg_init(int *weights)
 {
 	int j=0;
@@ -193,6 +366,12 @@ static int wg_predict(
 		eN	=rows[1][kc2+0*stride+1],
 		eNE	=rows[1][kc2+1*stride+1],
 		eW	=rows[0][kc2-1*stride+1];
+
+	int gy=abs(eN)+1, gx=abs(eW)+1;
+	//int
+	//	gx=abs(W-WW)+abs(N-NW)+abs(NE-N)+1,
+	//	gy=abs(W-NW)+abs(N-NN)+abs(NE-NNE)+1;
+	int wgrad=(N*gy+W*gx)/(gy+gx);
 
 #define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
 	WG_PREDLIST
@@ -248,30 +427,44 @@ static void quantize_pixel(int val, int *token, int *bypass, int *nbits)
 		*bypass=val>>CONFIG_LSB&((1LL<<*nbits)-1);
 	}
 }
-static int quantize_ctx(int x)
+#ifdef ENABLE_MIX4
+static int f28_mix4(int v00, int v01, int v10, int v11, int alphax, int alphay)
 {
-	int negmask=x>>31;
-	x=abs(x)+1;
-	x=FLOOR_LOG2(x);
-	x^=negmask;
-	x-=negmask;
-	return x;
-
-	//x=x<<1^x>>31;
-	//if(x<1<<(6-3))
-	//	return x;
-	//int lgx=FLOOR_LOG2(x);
-	//int mantissa=x-(1<<lgx);
-	//int token=(1<<(6-3))+((lgx-(6-3))<<3|mantissa>>(lgx-3));
-	//return token;
+	//v00=v00*((1<<12)-alphax)+v01*alphax;
+	v00+=(v01-v00)*alphax>>MIXBITS;
+	v10+=(v11-v10)*alphax>>MIXBITS;
+	v00+=(v10-v00)*alphay>>MIXBITS;
+	//v00=((v00<<MIXBITS)+(v01-v00)*alphax+(1<<(MIXBITS-1)>>1))>>MIXBITS;//X
+	//v10=((v10<<MIXBITS)+(v11-v10)*alphax+(1<<(MIXBITS-1)>>1))>>MIXBITS;
+	//v00=((v00<<MIXBITS)+(v10-v00)*alphay+(1<<(MIXBITS-1)>>1))>>MIXBITS;
+	return v00;
 }
-#define SCALE_BITS 16
+#elif defined ENABLE_MIX8
+static int f28_mix8(int v000, int v001, int v010, int v011, int v100, int v101, int v110, int v111, int alphax, int alphay, int alphaz)
+{
+	v000=((v000<<MIXBITSX)+(v001-v000)*alphax)>>MIXBITSX;
+	v010=((v010<<MIXBITSX)+(v011-v010)*alphax)>>MIXBITSX;
+	v100=((v100<<MIXBITSX)+(v101-v100)*alphax)>>MIXBITSX;
+	v110=((v110<<MIXBITSX)+(v111-v110)*alphax)>>MIXBITSX;
+	v000=((v000<<MIXBITSY)+(v010-v000)*alphay)>>MIXBITSY;
+	v100=((v100<<MIXBITSY)+(v110-v100)*alphay)>>MIXBITSY;
+	v000=((v000<<MIXBITSZ)+(v100-v000)*alphaz)>>MIXBITSZ;
+	//v000=((v000<<MIXBITSX)+(v001-v000)*alphax+(1<<MIXBITSX>>1))>>MIXBITSX;//X
+	//v010=((v010<<MIXBITSX)+(v011-v010)*alphax+(1<<MIXBITSX>>1))>>MIXBITSX;
+	//v100=((v100<<MIXBITSX)+(v101-v100)*alphax+(1<<MIXBITSX>>1))>>MIXBITSX;
+	//v110=((v110<<MIXBITSX)+(v111-v110)*alphax+(1<<MIXBITSX>>1))>>MIXBITSX;
+	//v000=((v000<<MIXBITSY)+(v010-v000)*alphay+(1<<MIXBITSY>>1))>>MIXBITSY;
+	//v100=((v100<<MIXBITSY)+(v110-v100)*alphay+(1<<MIXBITSY>>1))>>MIXBITSY;
+	//v000=((v000<<MIXBITSZ)+(v100-v000)*alphaz+(1<<MIXBITSZ>>1))>>MIXBITSZ;
+	return v000;
+}
+#elif defined ENABLE_ABAC
 static int squash(int x)//sigmoid(x) = 1/(1-exp(-x))		logit sum -> prob
 {
 #ifdef DISABLE_LOGMIX
 	x>>=11;
-	x+=1<<SCALE_BITS>>1;
-	CLAMP2_32(x, x, 1, (1<<SCALE_BITS)-1);
+	x+=1<<ABAC_PROBBITS>>1;
+	CLAMP2_32(x, x, 1, (1<<ABAC_PROBBITS)-1);
 #else
 	static const int t[33]=//2^5 table elements, table amplitude 2^12
 	{
@@ -279,13 +472,13 @@ static int squash(int x)//sigmoid(x) = 1/(1-exp(-x))		logit sum -> prob
 		 310,  488,  747, 1101, 1546, 2047, 2549, 2994, 3348, 3607, 3785,
 		3901, 3975, 4022, 4050, 4068, 4079, 4085, 4089, 4092, 4093, 4094,
 	};
-	int w=x&((1<<(SCALE_BITS-5))-1);
-	x=(x>>(SCALE_BITS-5))+16;
+	int w=x&((1<<(ABAC_PROBBITS-5))-1);
+	x=(x>>(ABAC_PROBBITS-5))+16;
 	if(x>31)
-		return (1<<SCALE_BITS)-1;
+		return (1<<ABAC_PROBBITS)-1;
 	if(x<0)
 		return 1;
-	x=(t[x]*((1<<(SCALE_BITS-5))-w)+t[x+1]*w+64)>>(12-5);
+	x=(t[x]*((1<<(ABAC_PROBBITS-5))-w)+t[x+1]*w+64)>>(12-5);
 #endif
 	return x;
 }
@@ -301,25 +494,108 @@ static int stretch(int x)//ln(x/(1-x))		probs -> logits
 		int pi=0;
 		for(int k=-2047;k<=2047;++k)//invert squash()
 		{
-			int i=squash(k<<(SCALE_BITS-12))>>(SCALE_BITS-12);
+			int i=squash(k<<(ABAC_PROBBITS-12))>>(ABAC_PROBBITS-12);
 			for(int j=pi;j<=i;++j)
-				t[j]=k<<(SCALE_BITS-12);
+				t[j]=k<<(ABAC_PROBBITS-12);
 			pi=i+1;
 		}
-		t[4095]=(1<<SCALE_BITS>>1)-1;
+		t[4095]=(1<<ABAC_PROBBITS>>1)-1;
 	}
-	x=t[x>>(SCALE_BITS-12)];
+	x=t[x>>(ABAC_PROBBITS-12)];
 #endif
 	return x;
 }
-static void xorshift64(unsigned long long *state)
+//static int g_compare=0;
+//static int
+//	g_probs1[180]={0},
+//	g_probs2[180]={0};
+static unsigned abac_predict(const unsigned short **stats, int tidx, const int **mixer, int *alphas, int *weights, int *logits)
 {
-	unsigned long long x=*state;
-	x^=x<<13;
-	x^=x>>7;
-	x^=x<<17;
-	*state=x;
+	//const int prob_sh=22+16-ABAC_PROBBITS;//17 bit
+
+	const int prob_sh=11+16-ABAC_PROBBITS;//16 bit
+	const int coeff=96;//192
+
+	long long p0=0;
+	for(int k=0;k<ABAC_NCTX;++k)
+	{
+		for(int k2=0;k2<ABAC_NCTRS;++k2)
+		{
+			int k3=ABAC_NCTRS*k+k2;
+			int w0=mixer[0][k3]+((mixer[1][k3]-mixer[0][k3])*alphas[0]>>(ABAC_MIXBITS+2));
+			int w1=mixer[2][k3]+((mixer[3][k3]-mixer[2][k3])*alphas[0]>>(ABAC_MIXBITS+2));
+			weights[k3]=w0+((w1-w0)*alphas[1]>>(ABAC_MIXBITS+2));
+			//int w0=mixer[0][k3]+((mixer[1][k3]-mixer[0][k3])*coeff>>(ABAC_MIXBITS+2));
+			//int w1=mixer[2][k3]+((mixer[3][k3]-mixer[2][k3])*coeff>>(ABAC_MIXBITS+2));
+			//weights[k3]=w0+((w1-w0)*coeff>>(ABAC_MIXBITS+2));
+			logits[k3]=stretch(stats[k][ABAC_NCTRS*tidx+k2]);
+			p0+=(long long)weights[k3]*logits[k3];
+
+			//if(g_compare==1)//
+			//	g_probs1[k3]=logits[k3], g_probs2[k2]=weights[k3];
+			//else if(g_compare==2)//
+			//	g_probs1[k3]-=logits[k3], g_probs2[k2]-=weights[k3];
+		}
+	}
+	p0+=1LL<<prob_sh>>1;
+	p0>>=prob_sh;
+	p0/=ABAC_NCTX*ABAC_NCTRS;
+	//p0=((((p0<<ABAC_PROBBITS)+0x8000)>>16)+ABAC_NCTX/2)/ABAC_NCTX;
+	//p0+=1LL<<ABAC_PROBBITS>>1;
+	//CLAMP2_32(p0, (int)p0, 1, (1<<ABAC_PROBBITS)-1);
+	p0=squash((int)p0);
+	return (unsigned)p0;
 }
+static void abac_update(const int *weights, const int *logits, unsigned short **stats, int tidx, int **mixer, int *alphas, unsigned p0final, int bit)
+{
+	//const int pupdate_sh=31;//17 bit
+	//const int mupdate_sh=2*ABAC_MIXBITS+10;
+
+	const int pupdate_sh=27;//16 bit
+	const int mupdate_sh=2*ABAC_MIXBITS+10;
+	int pupdate_offset=1LL<<pupdate_sh;
+
+	int offset=16<<mupdate_sh;
+	int err=(!bit<<ABAC_PROBBITS)-p0final;
+	for(int k=0;k<ABAC_NCTX;++k)
+	{
+		for(int k2=0;k2<ABAC_NCTRS;++k2)
+		{
+			int k3=ABAC_NCTRS*k+k2;
+			int p0=stats[k][ABAC_NCTRS*tidx+k2];
+			int m0=mixer[0][k3];
+			int m1=mixer[1][k3];
+			int m2=mixer[2][k3];
+			int m3=mixer[3][k3];
+			int mk=weights[k3];
+			long long update=(long long)err*logits[k3];
+			p0+=(int)(((long long)err*mk+((long long)pupdate_offset<<k2))<<k2>>pupdate_sh);
+			m0+=(int)((update*((1<<ABAC_MIXBITS)-alphas[0])*((1<<ABAC_MIXBITS)-alphas[1])-offset)>>mupdate_sh);
+			m1+=(int)((update*((1<<ABAC_MIXBITS)-alphas[0])*(                  alphas[1])-offset)>>mupdate_sh);
+			m2+=(int)((update*(                  alphas[0])*((1<<ABAC_MIXBITS)-alphas[1])-offset)>>mupdate_sh);
+			m3+=(int)((update*(                  alphas[0])*(                  alphas[1])-offset)>>mupdate_sh);
+			CLAMP2_32(p0, p0, -(1<<ABAC_PROBBITS>>1)+1, (1<<ABAC_PROBBITS>>1)-1);
+			//CLAMP2_32(m0, m0, 0, 0x7FFFFF);
+			stats[k][ABAC_NCTRS*tidx+k2]=p0;
+			mixer[0][k3]=m0;
+			mixer[1][k3]=m1;
+			mixer[2][k3]=m2;
+			mixer[2][k3]=m3;
+		}
+	}
+#if 0
+	const int sh=4;
+	//int err=(!bit<<ABAC_PROBBITS)-p0;
+	for(int k=0;k<ABAC_NCTX;++k)
+	{
+		int p0=stats[k][tidx];
+		p0+=((!bit<<16)-p0+(1<<sh>>1))>>sh;
+	//	CLAMP2_32(p0, p0, 1, 0xFFFF);
+		stats[k][tidx]=p0;
+	}
+#endif
+}
+#endif
 typedef struct _ThreadArgs
 {
 	const unsigned char *src;
@@ -327,47 +603,291 @@ typedef struct _ThreadArgs
 	int iw, ih;
 
 	int fwd, test, loud, x1, x2, y1, y2;
-	int bufsize, histsize;
+	int bufsize;
+	//int histsize;
 	short *pixels;
-	int *hist;
+	//int *hist;
 
 	DList list;
 	const unsigned char *decstart, *decend;
 	
-	int stats0[3][1<<8];
-#ifdef PROFILE_SIZE
-	//double csizes[3][1<<8];
-	double csizes[24];
+	int hist[54<<8];
+
+#ifdef ENABLE_MIX4
+	int clevels;
+#endif
+	int tlevels;
+#ifdef ENABLE_ABAC2
+	unsigned short stats[A2_NCTX*3<<A2_CTXBITS<<8];
+	long long sse[24<<A2_SSEBITS];
+#elif defined ENABLE_ABAC
+	int statssize;
+#ifdef ABAC_PROFILESIZE
+	double abac_csizes[ABAC_TOKEN_BITS*3];
+#endif
+//	int mixer[ABAC_NCTX*3<<ABAC_TOKEN_BITS];
+	int mixer[ABAC_NCTRS*ABAC_NCTX*3*((1<<(8-ABAC_MIXBITS))+1)*(1<<(8-ABAC_MIXBITS)|1)];
+//	int mixer[ABAC_NCTX*ABAC_TOKEN_BITS*3*2];
+//	int mixer[ABAC_NCTX*ABAC_TOKEN_BITS*3];
 #endif
 
 	//aux
 	int blockidx;
 	double bestsize;
-	int bestrct, predidx[3];
+	int permutation, helper1, alpha1, alpha2;
+	//int bestrct, predidx[3];
 } ThreadArgs;
 static void block_thread(void *param)
 {
 	const int nch=3, depth=8, half=128;
 	ThreadArgs *args=(ThreadArgs*)param;
-#ifdef USE_AC4
-	AC4 ec;
-#else
-	AC2 ec;
-#endif
+	AC3 ec;
 	const unsigned char *image=args->fwd?args->src:args->dst;
-	unsigned char bestrct=0, combination[6]={0}, predidx[4]={0};
+	//unsigned char bestrct=0, combination[6]={0}, predidx[4]={0};
+	int ystride=args->iw*3;
+	int cdfstride=args->tlevels+1;
+#ifdef ENABLE_MIX4
+	int nctx=args->clevels*args->clevels;
+	int chsize=nctx*cdfstride;
+#elif defined ENABLE_ABAC
+	unsigned short *stats=(unsigned short*)args->hist;
+#endif
 	
+	int permutation=0, helper1=0, alpha1=0, alpha2;
+	int rgbidx[3]={0};//derived from permutation
 	if(args->fwd)
 	{
-		int res;
+		int res=(args->x2-args->x1-1)/5*5*(args->y2-args->y1-1);
+		__m256i ramp[]=
+		{
+			_mm256_set1_epi16(0),
+			_mm256_set1_epi16(1),
+			_mm256_set1_epi16(2),
+			_mm256_set1_epi16(3),
+			_mm256_set1_epi16(4),
+			_mm256_set1_epi16(5),
+			_mm256_set1_epi16(6),
+			_mm256_set1_epi16(7),
+			_mm256_set1_epi16(8),
+			_mm256_set1_epi16(9),
+			_mm256_set1_epi16(10),
+			_mm256_set1_epi16(11),
+			_mm256_set1_epi16(12),
+			_mm256_set1_epi16(13),
+			_mm256_set1_epi16(14),
+			_mm256_set1_epi16(15),
+			_mm256_set1_epi16(16),
+		};
+		for(int ky=args->y1+1;ky<args->y2;++ky)//analysis loop
+		{
+			int kx=args->x1+1;
+			const unsigned char *ptr=image+3*(args->iw*ky+kx);
+			__m256i amin=_mm256_set1_epi16(-128);
+			__m256i amax=_mm256_set1_epi16(127);
+			__m128i half8=_mm_set1_epi8(128);
+			__m128i shuf=_mm_set_epi8(
+				-1,
+				12, 14, 13,
+				 9, 11, 10,
+				 6,  8,  7,
+				 3,  5,  4,
+				 0,  2,  1
+				//15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+			);
+			ALIGN(32) short result[16]={0};
+			for(;kx<args->x2-4;kx+=5, ptr+=15)
+			{
+				__m256i
+					pred, vmin, vmax,
+					rgb[4],
+					gbr[4],
+					brg[4];
+				{
+					__m128i nb8[13]=//8-bit
+					{
+						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-1*ystride-1*3+0)), half8),//NW
+						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-1*ystride+0*3+0)), half8),//N
+						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr+0*ystride-1*3+0)), half8),//W
+						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr+0*ystride+0*3+0)), half8),//curr
+					};
+					for(int k=0;k<_countof(rgb);++k)
+					{
+						__m128i temp;
+						rgb[k]=_mm256_cvtepi8_epi16(nb8[k]);
+						temp=_mm_shuffle_epi8(nb8[k], shuf);
+						gbr[k]=_mm256_cvtepi8_epi16(temp);
+						brg[k]=_mm256_cvtepi8_epi16(_mm_shuffle_epi8(temp, shuf));
+					}
+				}
+#define UPDATE(IDX0, IDX1, IDX2, IDX3, IDX4, IDX5, IDX6, IDX7, IDX8, IDX9, IDXA, IDXB, IDXC, IDXD, IDXE)\
+	do\
+	{\
+		pred=_mm256_slli_epi16(pred, 8);\
+		pred=_mm256_srai_epi16(pred, 8);\
+		pred=_mm256_sub_epi16(pred, amin);\
+		_mm256_store_si256((__m256i*)result, pred);\
+		++args->hist[(IDX0)<<8|result[0x0]];\
+		++args->hist[(IDX1)<<8|result[0x1]];\
+		++args->hist[(IDX2)<<8|result[0x2]];\
+		++args->hist[(IDX3)<<8|result[0x3]];\
+		++args->hist[(IDX4)<<8|result[0x4]];\
+		++args->hist[(IDX5)<<8|result[0x5]];\
+		++args->hist[(IDX6)<<8|result[0x6]];\
+		++args->hist[(IDX7)<<8|result[0x7]];\
+		++args->hist[(IDX8)<<8|result[0x8]];\
+		++args->hist[(IDX9)<<8|result[0x9]];\
+		++args->hist[(IDXA)<<8|result[0xA]];\
+		++args->hist[(IDXB)<<8|result[0xB]];\
+		++args->hist[(IDXC)<<8|result[0xC]];\
+		++args->hist[(IDXD)<<8|result[0xD]];\
+		++args->hist[(IDXE)<<8|result[0xE]];\
+	}while(0)
+				//CG
+				vmin=_mm256_min_epi16(rgb[NB_N], rgb[NB_W]);
+				vmax=_mm256_max_epi16(rgb[NB_N], rgb[NB_W]);
+				pred=_mm256_sub_epi16(_mm256_add_epi16(rgb[NB_N], rgb[NB_W]), rgb[NB_NW]);
+				pred=_mm256_max_epi16(pred, vmin);
+				pred=_mm256_min_epi16(pred, vmax);
+
+				pred=_mm256_sub_epi16(rgb[NB_curr], pred);
+				UPDATE(
+					OCH_Rgb00, OCH_Gbr00, OCH_Brg00,
+					OCH_Rgb00, OCH_Gbr00, OCH_Brg00,
+					OCH_Rgb00, OCH_Gbr00, OCH_Brg00,
+					OCH_Rgb00, OCH_Gbr00, OCH_Brg00,
+					OCH_Rgb00, OCH_Gbr00, OCH_Brg00
+				);
+				for(int k=0;k<=16;++k)
+				{
+					__m256i helpers[]=
+					{
+						_mm256_srai_epi16(_mm256_add_epi16(_mm256_mullo_epi16(gbr[0], ramp[k]), _mm256_mullo_epi16(brg[0], ramp[16-k])), 4),//NW
+						_mm256_srai_epi16(_mm256_add_epi16(_mm256_mullo_epi16(gbr[1], ramp[k]), _mm256_mullo_epi16(brg[1], ramp[16-k])), 4),//N
+						_mm256_srai_epi16(_mm256_add_epi16(_mm256_mullo_epi16(gbr[2], ramp[k]), _mm256_mullo_epi16(brg[2], ramp[16-k])), 4),//W
+						_mm256_srai_epi16(_mm256_add_epi16(_mm256_mullo_epi16(gbr[3], ramp[k]), _mm256_mullo_epi16(brg[3], ramp[16-k])), 4),//curr
+					};
+					__m256i nb2[]=
+					{
+						_mm256_sub_epi16(rgb[0], helpers[0]),
+						_mm256_sub_epi16(rgb[1], helpers[1]),
+						_mm256_sub_epi16(rgb[2], helpers[2]),
+					};
+					vmin=_mm256_min_epi16(nb2[NB_N], nb2[NB_W]);
+					vmax=_mm256_max_epi16(nb2[NB_N], nb2[NB_W]);
+					pred=_mm256_sub_epi16(_mm256_add_epi16(nb2[NB_N], nb2[NB_W]), nb2[NB_NW]);
+					pred=_mm256_max_epi16(pred, vmin);
+					pred=_mm256_min_epi16(pred, vmax);
+
+					pred=_mm256_add_epi16(pred, helpers[NB_curr]);
+					pred=_mm256_max_epi16(pred, amin);
+					pred=_mm256_min_epi16(pred, amax);
+					pred=_mm256_sub_epi16(rgb[NB_curr], pred);
+					UPDATE(
+						OCH_Rgb0G+k, OCH_Gbr0G+k, OCH_Brg0G+k,
+						OCH_Rgb0G+k, OCH_Gbr0G+k, OCH_Brg0G+k,
+						OCH_Rgb0G+k, OCH_Gbr0G+k, OCH_Brg0G+k,
+						OCH_Rgb0G+k, OCH_Gbr0G+k, OCH_Brg0G+k,
+						OCH_Rgb0G+k, OCH_Gbr0G+k, OCH_Brg0G+k
+					);
+				}
+			}
+		}
+		double csizes[OCH_COUNT]={0};
+		for(int kc=0;kc<OCH_COUNT;++kc)
+		{
+			int *curr_hist=args->hist+((size_t)kc<<8);
+			for(int ks=0;ks<256;++ks)
+			{
+				int freq=curr_hist[ks];
+				if(freq)
+					csizes[kc]-=freq*log2((double)freq/res);
+			}
+			csizes[kc]/=8;
+		}
+		const int poolsize=OCH_COUNT/3;
+		int cidx[3]={0};
+		double bestsize=0;
+		for(int k0=0;k0<_countof(lumapool);++k0)//215 RCTs
+		{
+			int kl=lumapool[k0];
+			for(int k1=0;k1<_countof(chroma1pool[0]);++k1)
+			{
+				int kc1=chroma1pool[k0][k1];
+				//if(kc1/poolsize==kl/poolsize)
+				//	continue;
+				for(int kc2=0;kc2<OCH_COUNT;++kc2)
+				{
+					if(kc2/poolsize==kl/poolsize||kc2/poolsize==kc1/poolsize)
+						continue;
+					double size=csizes[kl]+csizes[kc1]+csizes[kc2];
+					//printf("%16.6lf %d %d %d\n", size, kl, kc1, kc2);
+					if(!bestsize||bestsize>size)
+						bestsize=size, cidx[0]=kl, cidx[1]=kc1, cidx[2]=kc2;
+				}
+			}
+		}
+		if(cidx[0]/poolsize==cidx[1]/poolsize||cidx[0]/poolsize==cidx[2]/poolsize)
+			LOG_ERROR("RCT selection error %d %d %d", cidx[0], cidx[1], cidx[2]);
+		rgbidx[0]=cidx[0]/poolsize;
+		rgbidx[1]=cidx[1]/poolsize;
+		rgbidx[2]=cidx[2]/poolsize;
+		helper1=cidx[1]%poolsize>0;
+		alpha1=cidx[2]%poolsize;
+		if(alpha1)
+		{
+			--alpha1;
+			alpha2=16-alpha1;
+		}
+		else
+		{
+			alpha1=0;
+			alpha2=0;
+		}
+		switch(rgbidx[2]<<8|rgbidx[1]<<4|rgbidx[0])
+		{
+		case 0x210:permutation=0;break;
+		case 0x021:permutation=1;break;
+		case 0x102:permutation=2;break;
+		case 0x012:permutation=3;break;
+		case 0x120:permutation=4;break;
+		case 0x201:permutation=5;break;
+		default:
+			LOG_ERROR("Invalid permutation %d %d %d", rgbidx[0], rgbidx[1], rgbidx[2]);
+			break;
+		}
+		dlist_init(&args->list, 1, BLOCKSIZE*BLOCKSIZE*3, 0);
+		ac3_enc_init(&ec, &args->list);
+		ac3_enc_bypass_NPOT(&ec, permutation, PERM_COUNT);
+		ac3_enc_bypass(&ec, helper1, 1);
+		ac3_enc_bypass_NPOT(&ec, alpha1, 17);
+		ac3_enc_bypass_NPOT(&ec, alpha2, 17);
+
+		args->bestsize=bestsize;
+		args->permutation=permutation;
+		args->helper1=helper1;
+		args->alpha1=alpha1;
+		args->alpha2=alpha2;
+	}
+	else
+	{
+		ac3_dec_init(&ec, args->decstart, args->decend);
+		permutation=ac3_dec_bypass_NPOT(&ec, PERM_COUNT);
+		helper1=ac3_dec_bypass(&ec, 1);
+		alpha1=ac3_dec_bypass_NPOT(&ec, 17);
+		alpha2=ac3_dec_bypass_NPOT(&ec, 17);
+		memcpy(rgbidx, permutations[permutation], sizeof(int[3]));
+	}
+#if 0
+	if(args->fwd)
+	{
 		double csizes[OCH_COUNT*PRED_COUNT]={0}, bestsize=0;
 		unsigned char predsel[OCH_COUNT]={0};
+		int res=(args->x2-args->x1-3)/5*5*(args->y2-args->y1-2);
 		__m256i av12_mcoeffs[12];
-		int ystride=args->iw*3;
-
+		
+		memset(args->hist, 0, args->histsize);
 		for(int k=0;k<(int)_countof(av12_mcoeffs);++k)
 			av12_mcoeffs[k]=_mm256_set1_epi16(av12_icoeffs[k]>>1);
-		memset(args->hist, 0, args->histsize);
 		for(int ky=args->y1+2;ky<args->y2;++ky)//analysis loop
 		{
 			int kx=args->x1+2;
@@ -452,6 +972,7 @@ static void block_thread(void *param)
 		++args->hist[(IDXD*PRED_COUNT+PREDIDX)<<8|result[0xD]];\
 		++args->hist[(IDXE*PRED_COUNT+PREDIDX)<<8|result[0xE]];\
 	}while(0)
+#ifndef DISABLE_PREDSEL
 				//W
 				pred=_mm256_sub_epi16(nb0[NB_curr], nb0[NB_W]);
 				UPDATE(
@@ -501,6 +1022,7 @@ static void block_thread(void *param)
 					OCH_R2, OCH_G2, OCH_B2,
 					OCH_R2, OCH_G2, OCH_B2
 				);
+#endif
 
 				//CG
 				vmin[0]=_mm256_min_epi16(nb0[NB_N], nb0[NB_W]);
@@ -572,7 +1094,8 @@ static void block_thread(void *param)
 					OCH_R2, OCH_G2, OCH_B2,
 					OCH_R2, OCH_G2, OCH_B2
 				);
-
+				
+#ifndef DISABLE_PREDSEL
 				//AV5
 				//		-5	5	1
 				//	-1	8	[?]>>3
@@ -842,9 +1365,9 @@ static void block_thread(void *param)
 					OCH_R2, OCH_G2, OCH_B2,
 					OCH_R2, OCH_G2, OCH_B2
 				);
+#endif
 			}
 		}
-		res=(args->x2-args->x1-3)/5*5*(args->y2-args->y1-2);
 		for(int kc=0;kc<OCH_COUNT*PRED_COUNT;++kc)
 		{
 			int *curr_hist=args->hist+((size_t)kc<<8);
@@ -887,8 +1410,8 @@ static void block_thread(void *param)
 		args->predidx[2]=predidx[2];
 		if(args->loud)
 		{
-			printf("X %5d~%5d  Y %5d~%5d  best %12.2lf bytes  %s [YUV: %s %s %s]\n",
-				args->x1, args->x2, args->y1, args->y2,
+			printf("Y %5d~%5d  best %12.2lf bytes  %s [YUV: %s %s %s]\n",
+				args->y1, args->y2,
 				bestsize,
 				rct_names[bestrct],
 				pred_names[predidx[0]],
@@ -923,53 +1446,91 @@ static void block_thread(void *param)
 				);
 			}
 		}
-		res=(args->x2-args->x1)*(args->y2-args->y1)*3;
-		dlist_init(&args->list, 1, res, 0);
-#ifdef USE_AC4
-		ac4_enc_init(&ec, &args->list);
-		ac4_enc_update_NPOT(&ec, bestrct, bestrct+1, RCT_COUNT);
-		ac4_enc_update_NPOT(&ec, predidx[0], predidx[0]+1, PRED_COUNT);
-		ac4_enc_update_NPOT(&ec, predidx[1], predidx[1]+1, PRED_COUNT);
-		ac4_enc_update_NPOT(&ec, predidx[2], predidx[2]+1, PRED_COUNT);
-#else
-		ac2_enc_init(&ec, &args->list);
-		ac2_enc_bypass_NPOT(&ec, bestrct, RCT_COUNT);
-		ac2_enc_bypass_NPOT(&ec, predidx[0], PRED_COUNT);
-		ac2_enc_bypass_NPOT(&ec, predidx[1], PRED_COUNT);
-		ac2_enc_bypass_NPOT(&ec, predidx[2], PRED_COUNT);
-#endif
+		dlist_init(&args->list, 1, BLOCKSIZE*BLOCKSIZE*3, 0);
+		ac3_enc_init(&ec, &args->list);
+		ac3_enc_bypass_NPOT(&ec, bestrct, RCT_COUNT);
+		ac3_enc_bypass_NPOT(&ec, predidx[0], PRED_COUNT);
+		ac3_enc_bypass_NPOT(&ec, predidx[1], PRED_COUNT);
+		ac3_enc_bypass_NPOT(&ec, predidx[2], PRED_COUNT);
 	}
 	else
 	{
-#ifdef USE_AC4
-		ac4_dec_init(&ec, args->decstart, args->decend);
-		bestrct=ac4_dec_getcdf_NPOT(&ec, RCT_COUNT);		ac4_dec_update_NPOT(&ec, bestrct, bestrct+1, RCT_COUNT);
-		predidx[0]=ac4_dec_getcdf_NPOT(&ec, PRED_COUNT);	ac4_dec_update_NPOT(&ec, predidx[0], predidx[0]+1, PRED_COUNT);
-		predidx[1]=ac4_dec_getcdf_NPOT(&ec, PRED_COUNT);	ac4_dec_update_NPOT(&ec, predidx[1], predidx[1]+1, PRED_COUNT);
-		predidx[2]=ac4_dec_getcdf_NPOT(&ec, PRED_COUNT);	ac4_dec_update_NPOT(&ec, predidx[2], predidx[2]+1, PRED_COUNT);
-#else
-		ac2_dec_init(&ec, args->decstart, args->decend);
-		bestrct=ac2_dec_bypass_NPOT(&ec, RCT_COUNT);
-		predidx[0]=ac2_dec_bypass_NPOT(&ec, PRED_COUNT);
-		predidx[1]=ac2_dec_bypass_NPOT(&ec, PRED_COUNT);
-		predidx[2]=ac2_dec_bypass_NPOT(&ec, PRED_COUNT);
-#endif
+		ac3_dec_init(&ec, args->decstart, args->decend);
+		bestrct=ac3_dec_bypass_NPOT(&ec, RCT_COUNT);
+		predidx[0]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
+		predidx[1]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
+		predidx[2]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
 	}
-	//unsigned long long prngstate=0x3243F6A8885A308D;//pi
-	//FILLMEM((int*)mixer, 0x10000, sizeof(mixer), sizeof(int));
-	memset(args->stats0, 0, sizeof(args->stats0));
-	//FILLMEM((int*)args->bhist, (int)(1LL<<PROB_BITS>>1), sizeof(args->bhist), sizeof(int));
-	//memset(args->stats1, 0, sizeof(args->stats1));
-	//memset(args->mixer, 0, sizeof(args->mixer));
-#ifdef PROFILE_SIZE
-	memset(args->csizes, 0, sizeof(args->csizes));
 #endif
-	
-	int weights[WG_NPREDS*3]={0}, perrors[WG_NPREDS*3]={0}, preds[WG_NPREDS]={0};
-	wg_init(weights+WG_NPREDS*0);
-	wg_init(weights+WG_NPREDS*1);
-	wg_init(weights+WG_NPREDS*2);
+#if defined ENABLE_CALICCTX || defined ENABLE_HASH || defined ENABLE_MIX8
+	{
+		static const int init_freqs[]={32, 8, 6, 4, 3, 2, 1};
+		int sum=0;
+		for(int ks=0;ks<args->tlevels;++ks)
+			sum+=args->hist[ks]=init_freqs[MINVAR(ks, (int)_countof(init_freqs)-1)];
+		args->hist[args->tlevels]=sum;
+		memfill(args->hist+cdfstride, args->hist, args->histsize-cdfstride*sizeof(int), cdfstride*sizeof(int));
+	}
+#elif defined ENABLE_ABAC2
+	int mixer[8*3*A2_NCTX]={0};
+	FILLMEM(mixer, 0x3000, sizeof(mixer), sizeof(int));
+	FILLMEM(args->stats, 0x8000, sizeof(args->stats), sizeof(short));
+	memset(args->sse, 0, sizeof(args->sse));
+#elif defined ENABLE_ABAC
+	{
+		static const unsigned short prob0[]=//NPOT tree initialized to bypass
+		{
+			//0,
+			//(16<<16)/25-0x8000,
+			//0, (8<<16)/9-0x8000,
+			//0, 0, 0, 0,
+			//0, 0, 0, 0, 0, 0, 0, 0,
+			//0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+			
+			(1<<16)/2,
+			(16<<16)/25,
+			(1<<16)/2, (8<<16)/9,
+			(1<<16)/2, (1<<16)/2, (1<<16)/2, (1<<16)/2,
+			(1<<16)/2, (1<<16)/2, (1<<16)/2, (1<<16)/2, (1<<16)/2, (1<<16)/2, (1<<16)/2, (1<<16)/2,
+			(1<<16)/2, (1<<16)/2, (1<<16)/2, (1<<16)/2, (1<<16)/2, (1<<16)/2, (1<<16)/2, (1<<16)/2, (1<<16)/2, (1<<16)/2, (1<<16)/2, (1<<16)/2, (1<<16)/2, (1<<16)/2, (1<<16)/2, (1<<16)/2,
+		};
+		memfill(stats, prob0, args->statssize, sizeof(prob0));
+	}
+	//FILLMEM(stats, 0x8000, args->statssize, sizeof(short));
+	memset(args->mixer, 0, sizeof(args->mixer));
+#ifdef ABAC_PROFILESIZE
+	memset(args->abac_csizes, 0, sizeof(args->abac_csizes));
+#endif
+#else
+	for(int ky=0;ky<args->clevels;++ky)
+	{
+		for(int kx=0;kx<args->clevels;++kx)
+		{
+			static const int init_freqs[]={32, 8, 6, 4, 3, 2, 1};
+			int *curr_hist=args->hist+cdfstride*(args->clevels*ky+kx);
+			int sum=0;
+			for(int ks=0;ks<args->tlevels;++ks)
+			{
+				int freq=init_freqs[MINVAR(ks, (int)_countof(init_freqs)-1)];
+				sum+=curr_hist[ks]=freq;
+			}
+			curr_hist[args->tlevels]=sum;
+		}
+	}
+	memfill(args->hist+chsize, args->hist, sizeof(int)*chsize*(nch-1LL), sizeof(int)*chsize);
+#endif
+
+#ifndef DISABLE_WG
+	int wg_weights[WG_NPREDS*3]={0}, wg_perrors[WG_NPREDS*3]={0}, wg_preds[WG_NPREDS]={0};
+	wg_init(wg_weights+WG_NPREDS*0);
+	wg_init(wg_weights+WG_NPREDS*1);
+	wg_init(wg_weights+WG_NPREDS*2);
+#endif
 	memset(args->pixels, 0, args->bufsize);
+#ifdef ABAC_SIMPLEOVERRIDE
+	unsigned short stats2[768]={0};
+	FILLMEM(stats2, 0x8000, sizeof(short[768]), sizeof(short));
+#endif
 	for(int ky=args->y1;ky<args->y2;++ky)//codec loop
 	{
 		ALIGN(16) short *rows[]=
@@ -981,10 +1542,11 @@ static void block_thread(void *param)
 		};
 		int yuv[4]={0};
 		int token=0, bypass=0, nbits=0;
-		int pred=0, sym=0;
-		const unsigned char *combination=rct_combinations[bestrct];
+		int pred=0, error=0, sym=0;
+		//const unsigned char *combination=rct_combinations[bestrct];
 		for(int kx=args->x1;kx<args->x2;++kx)
 		{
+			int offset=0;
 			int idx=nch*(args->iw*ky+kx);
 			short
 				*NNN	=rows[3]+0*4*2,
@@ -1051,67 +1613,23 @@ static void block_thread(void *param)
 			}
 			if(args->fwd)
 			{
-				switch(bestrct)
-				{
-				case RCT_R_G_B:
-				case RCT_R_G_BG:
-				case RCT_R_G_BR:
-				case RCT_R_GR_BR:
-				case RCT_R_GR_BG:
-				case RCT_R_G_B2:
-				case RCT_R_GR_B2:
-					yuv[0]=args->src[idx+0]-128;
-					yuv[1]=args->src[idx+1]-128;
-					yuv[2]=args->src[idx+2]-128;
-					break;
-				case RCT_G_B_RG:
-				case RCT_G_B_RB:
-				case RCT_G_BG_RG:
-				case RCT_G_BG_RB:
-				case RCT_G_B_R2:
-				case RCT_G_BG_R2:
-					yuv[0]=args->src[idx+1]-128;
-					yuv[1]=args->src[idx+2]-128;
-					yuv[2]=args->src[idx+0]-128;
-					break;
-				case RCT_B_R_GR:
-				case RCT_B_R_GB:
-				case RCT_B_RB_GB:
-				case RCT_B_RB_GR:
-				case RCT_B_RB_G2:
-					yuv[0]=args->src[idx+2]-128;
-					yuv[1]=args->src[idx+0]-128;
-					yuv[2]=args->src[idx+1]-128;
-					break;
-				case RCT_G_RG_BR:
-				case RCT_G_RG_B2:
-					yuv[0]=args->src[idx+1]-128;
-					yuv[1]=args->src[idx+0]-128;
-					yuv[2]=args->src[idx+2]-128;
-					break;
-				case RCT_B_GB_RG:
-				case RCT_B_GB_R2:
-					yuv[0]=args->src[idx+2]-128;
-					yuv[1]=args->src[idx+1]-128;
-					yuv[2]=args->src[idx+0]-128;
-					break;
-				case RCT_R_BR_GB:
-				case RCT_R_B_G2:
-				case RCT_R_BR_G2:
-					yuv[0]=args->src[idx+0]-128;
-					yuv[1]=args->src[idx+2]-128;
-					yuv[2]=args->src[idx+1]-128;
-					break;
-				}
+				yuv[0]=args->src[idx+rgbidx[0]]-128;
+				yuv[1]=args->src[idx+rgbidx[1]]-128;
+				yuv[2]=args->src[idx+rgbidx[2]]-128;
 			}
-			//if(ky==289&&kx==544)
-			//if(ky==128&&kx==128)
-			//	printf("");
 			for(int kc=0;kc<nch;++kc)
 			{
 				int kc2=kc<<1;
-				int offset=(yuv[combination[kc+3]]+yuv[combination[kc+6]])>>combination[kc+9];
-
+				switch(kc)
+				{
+				case 0:offset=0;break;
+				case 1:offset=helper1?yuv[0]:0;break;
+				case 2:offset=(alpha1*yuv[0]+alpha2*yuv[1])/16;break;
+				}
+				//int offset=(yuv[combination[kc+3]]+yuv[combination[kc+6]])>>combination[kc+9];
+#ifdef DISABLE_PREDSEL
+				CLAMP3_32(pred, W[kc2]+((5*(N[kc2]-NW[kc2])+NE[kc2]-WW[kc2])>>3), N[kc2], W[kc2], NE[kc2]);
+#else
 				switch(predidx[kc])
 				{
 				case PRED_W:
@@ -1149,173 +1667,816 @@ static void block_thread(void *param)
 					CLAMP3_32(pred, pred, N[kc2], W[kc2], NE[kc2]);
 					break;
 				}
-				pred=wg_predict(weights+WG_NPREDS*kc, rows, 4*2, kc2, pred, perrors+WG_NPREDS*kc, preds);
+#endif
+#ifndef DISABLE_WG
+				pred=wg_predict(wg_weights+WG_NPREDS*kc, rows, 4*2, kc2, pred, wg_perrors+WG_NPREDS*kc, wg_preds);
+#endif
 				pred+=offset;
 				CLAMP2_32(pred, pred, -128, 127);
-
-				int *curr_stats0=args->stats0[kc];
+#ifdef ENABLE_ABAC2
+				unsigned short *curr_stats[A2_NCTX];
+				int ctx[A2_NCTX]=
+				{
+					pred*3,
+					//pred*5+abs(W[kc2+1])/25,
+					pred/5,
+					//(W[kc2+0]+NE[kc2+0]+NEE[kc2+0]+NEEE[kc2+0])>>1,
+					//N[kc2+0],
+					(abs(NE[kc2+0]-N[kc2+0])+abs(N[kc2+0]-NW[kc2+0])+abs(W[kc2+0]-NW[kc2+0]))*2,
+					N[kc2+0]-W[kc2+0],
+					2*FLOOR_LOG2(abs(N[kc2+1])*7)+FLOOR_LOG2(abs(W[kc2+1])*3),
+					//N[kc2+0]+W[kc2+0]-NW[kc2+0],
+					//N[kc2+0]-NN[kc2+0],
+					//W[kc2+0]+WW[kc2+0],
+					//NW[kc2+1],
+					//N[kc2+1]+W[kc2+1]-NW[kc2+1],
+					//abs(W[kc2+1]),
+					((NEEE[kc2+0]<0)<<7|(NEE[kc2+0]<0)<<6|(NN[kc2+0]<0)<<5|(WW[kc2+0]<0)<<4|(NE[kc2+0]<0)<<3|(NW[kc2+0]<0)<<2|(W[kc2+0]<0)<<1|(N[kc2+0]<0))*2,
+					((NEEE[kc2+1]<0)<<7|(NEE[kc2+1]<0)<<6|(NN[kc2+1]<0)<<5|(WW[kc2+1]<0)<<4|(NE[kc2+1]<0)<<3|(NW[kc2+1]<0)<<2|(W[kc2+1]<0)<<1|(N[kc2+1]<0))*2,
+					(THREEWAY(N[kc2+1], 0)+1+(THREEWAY(W[kc2+1], 0)+1+(THREEWAY(NW[kc2+1], 0)+1+(THREEWAY(NE[kc2+1], 0)+1+(THREEWAY(N[kc2+1], W[kc2+1])+1)*3)*3)*3)*3),
+					(kc?abs(curr[1]):N[kc2+2]*2),
+					(kc>=2?abs(curr[3])*5+abs(curr[1]):W[kc2+2]/4),
+					//(kc?abs(curr[0]):0)+(kc>=2?abs(curr[2]):0),
+					//(kc?abs(curr[kc2-1]):abs(curr[kc2-2]))+(kc>=2?abs(curr[kc2-2]):abs(curr[kc2-3])),
+					(abs(N[kc2+0])+abs(W[kc2+0]))/2-abs(W[kc2/2+1]),
+					(abs(N[kc2+1])+abs(W[kc2+1]))*11-abs(NW[kc2+1])/2+abs(NE[kc2+1])*7,
+				};
+				for(int k=0;k<A2_NCTX;++k)
+				{
+					int idx2=((A2_NCTX*kc+k)<<A2_CTXBITS|(ctx[k]>>(9-A2_CTXBITS)&((1<<A2_CTXBITS)-1)))<<8;
+					curr_stats[k]=args->stats+idx2;
+				}
 				if(args->fwd)
 				{
-					//if(ky==3&&kx==128&&!kc)//
-					//	printf("");
 					curr[kc2+0]=yuv[kc];
-					curr[kc2+1]=yuv[kc]-pred;
-#ifdef ENCODE_ERROR
-					sym=curr[kc2+1];
-					int upred=half-abs(pred), aval=abs(sym);
-					if(aval<=upred)
-					{
-#ifdef ENABLE_BIASCORR
-						{
-							int negmask=ibias_corr>>31&-(sym!=-128);//sign is flipped if SSE correction was negative, to skew the histogram
-							sym^=negmask;
-							sym-=negmask;
-						}
-#endif
-						sym=sym<<1^sym>>31;//pack sign
-					}
-					else
-						sym=aval+upred;//error sign is known	sym=2^n=256 when pixel=-2^(n-1)=-128 and pred>0
-#elif defined ENCODE_ERROR2
-					sym=(curr[kc2+1]+128)&0xFF;
-#else
-					sym=yuv[kc];
-#endif
+					curr[kc2+1]=error=yuv[kc]-pred;
 				}
 				else
-					sym=0;
-#ifdef ENCODE_ERROR
-				for(int kb=8, tidx=0;kb>=0;--kb)
-#else
-				for(int kb=7, tidx=1;kb>=0;--kb)
-#endif
+					error=0;
+				int tidx=1;
+				int *curr_mixer=mixer+kc*8*A2_NCTX;
+				long long *curr_sse=args->sse+(kc*8LL<<A2_SSEBITS);
+				for(int kb=7, e2=0;kb>=0;--kb)
 				{
-					long long p1=curr_stats0[tidx];
-					p1+=1LL<<PROB_BITS>>1;
-					CLAMP2(p1, 1, (1LL<<PROB_BITS)-1);
-					int bit;
+					long long p0=0;
+					int wsum=0, bit;
+					for(int k=0;k<A2_NCTX;++k)
+					{
+						p0+=(long long)curr_mixer[k]*curr_stats[k][tidx];
+						wsum+=curr_mixer[k];
+					}
+					if(wsum)
+						p0/=wsum;
+					else
+						p0=0x8000, wsum=1;
+					int sseidx=(int)(p0>>(16-A2_SSEBITS));
+					long long ssesum=curr_sse[sseidx]>>A2_SSECTR, ssecount=curr_sse[sseidx]&((1LL<<A2_SSECTR)-1);
+					p0+=ssesum/(ssecount+160);
+					CLAMP2_32(p0, (int)p0, 1, 0xFFFF);
 					if(args->fwd)
 					{
-						bit=sym>>kb&1;
-#ifdef USE_AC4
-						ac4_enc_bin(&ec, (unsigned)p1, bit);
-#else
-						ac2_enc_bin(&ec, (unsigned)p1, bit);
-#endif
-#ifdef PROFILE_SIZE
-						args->csizes[kc<<3|kb&7]-=log2((double)(bit?p1:0x80000000-p1)/0x80000000);
-#endif
+						bit=error>>kb&1;
+						ac3_enc_bin(&ec, bit, (int)p0, 16);
 					}
 					else
 					{
-#ifdef USE_AC4
-						bit=ac4_dec_bin(&ec, (unsigned)p1);
-#else
-						bit=ac2_dec_bin(&ec, (unsigned)p1);
-#endif
-						sym|=bit<<kb;
+						bit=ac3_dec_bin(&ec, (int)p0, 16);
+						error|=bit<<kb;
 					}
-
-					p1=curr_stats0[tidx];
-					p1+=((((long long)bit<<PROB_BITS)-(1LL<<PROB_BITS>>1)-p1)*17+(1<<11>>1))>>11;
-					CLAMP2(p1, -((1LL<<PROB_BITS>>1)-1), (1LL<<PROB_BITS>>1)-1);
-					curr_stats0[tidx]=(int)p1;
-#ifdef ENCODE_ERROR
-					if(kb==8&&bit)
-						break;
-					tidx+=tidx+!bit;
-#else
+					e2|=bit<<kb;
+					int prob_error=(!bit<<16)-(int)p0;
+					++ssecount;
+					ssesum+=prob_error;
+					if(ssecount>0x4A00)
+					{
+						ssecount>>=1;
+						ssesum>>=1;
+					}
+					curr_sse[sseidx]=ssesum<<A2_SSECTR|ssecount;
+					{
+						int pred2=(char)(e2|1<<kb>>1)-pred;
+						int sh=0;
+						switch(kb)
+						{
+						case 7:
+							sh=(ctx[2]/2+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
+							if(sh<-1)sh=-1;
+							sh=FLOOR_LOG2(sh+1)+1;
+							break;
+						case 6:
+							sh=(ctx[2]/2-abs(pred2)+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
+							if(sh<-1)sh=-1;
+							sh=FLOOR_LOG2(sh+1)+1;
+							break;
+						case 5:
+							sh=(ctx[2]/2-abs(pred2)+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
+							if(sh<-1)sh=-1;
+							sh=FLOOR_LOG2(sh+1)+1;
+						//	sh=(9*(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1]))+abs(pred2))>>8;
+						//	sh=FLOOR_LOG2(sh);
+							break;
+						case 4:
+							sh=(ctx[2]/2-abs(pred2)/2+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
+							if(sh<-1)sh=-1;
+							sh=FLOOR_LOG2(sh+1)+1;
+						//	sh=(9*(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1]))+abs(pred2))>>8;
+						//	sh=FLOOR_LOG2(sh);
+							break;
+						case 3:
+							sh=(ctx[2]/2-abs(pred2)/4+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
+							if(sh<-1)sh=-1;
+							sh=FLOOR_LOG2(sh+1)+1;
+						//	sh=(9*(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1]))+abs(pred2))>>8;
+						//	sh=FLOOR_LOG2(sh);
+							break;
+						case 2:
+							sh=(ctx[2]/2-abs(pred2)/8+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
+							if(sh<-1)sh=-1;
+							sh=FLOOR_LOG2(sh+1)+1;
+						//	sh=(9*(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1]))+abs(pred2))>>8;
+						//	sh=FLOOR_LOG2(sh);
+							break;
+						case 1:
+							sh=(ctx[2]/2+abs(pred2)/4+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
+							if(sh<-1)sh=-1;
+							sh=FLOOR_LOG2(sh+1)+1;
+						//	sh=(8*(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1]))+2*abs(pred2))>>8;
+						//	sh=FLOOR_LOG2(sh);
+							break;
+						case 0:
+							sh=(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])-abs(WW[kc2+1])+7*abs(pred2))>>8;
+							if(sh<0)sh=0;
+							sh=FLOOR_LOG2(sh)+1;
+						//	sh=(ctx[2]/2+abs(pred2)/4+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
+						//	if(sh<-1)sh=-1;
+						//	sh=FLOOR_LOG2(sh+1);
+							break;
+						}
+						if(abs(prob_error)>16)
+						{
+							int dL_dp0=0x7F00000/((bit<<16)-(int)p0);
+							for(int k=0;k<A2_NCTX;++k)
+							{
+								int mk=curr_mixer[k]-(int)(dL_dp0*(curr_stats[k][tidx]-(int)p0)/wsum>>sh);
+								CLAMP2_32(curr_mixer[k], mk, 1, 0x40000);
+							}
+						}
+						for(int k=0;k<A2_NCTX;++k)
+						{
+							int p=curr_stats[k][tidx];
+							p+=((!bit<<16)-p)>>(sh+4+(k>A2_NCTX/2));
+							CLAMP2_32(curr_stats[k][tidx], p, 1, 0xFFFF);
+						}
+					}
+					curr_mixer+=A2_NCTX;
+					curr_sse+=1<<A2_SSEBITS;
 					tidx+=tidx+bit;
-#endif
 				}
 				if(!args->fwd)
 				{
-					//if(ky==3&&kx==128&&!kc)//
-					//	printf("");
-#ifdef ENCODE_ERROR
-					int upred=half-abs(pred), negmask=0;
-					if(sym<=(upred<<1))
-					{
-						sym=sym>>1^-(sym&1);
-#ifdef ENABLE_BIASCORR
-						negmask=ibias_corr>>31&-(sym!=-128);
-#endif
-					}
-					else
-					{
-						sym=sym-upred;
-						negmask=(-pred)>>31;
-					}
-					sym^=negmask;
-					sym-=negmask;
-					sym+=pred;
-#elif defined ENCODE_ERROR2
-					sym+=pred;
-					sym-=128;
-					sym=sym<<(32-8)>>(32-8);
-#else
-					sym=sym<<(32-8)>>(32-8);
-#endif
-					curr[kc2+0]=yuv[kc]=sym;
-					curr[kc2+1]=sym-pred;
+					error+=pred;
+					error=error<<(32-8)>>(32-8);
+					curr[kc2+0]=yuv[kc]=error;
+					curr[kc2+1]=error-pred;
 				}
+#elif defined ENABLE_ABAC
+				int tidx, token2;
+				int logits[ABAC_NCTRS*ABAC_NCTX];
+				unsigned short *curr_stats[ABAC_NCTX];
+				int ctx[]=
+				{
+					//pixel contexts
+#if 0
+					//kx>>5,
+					pred,
+					//N[kc2]+W[kc2]-NW[kc2],
+					//NNWW	[kc2],
+					//NNW	[kc2],
+					//NN	[kc2],
+					//NNE	[kc2],
+					//NNEE	[kc2],
+					//NNEEE	[kc2],
+					//NWW	[kc2],
+					//NW	[kc2],
+					//N	[kc2],
+					//NE	[kc2],
+					//NEE	[kc2],
+					//NEEE	[kc2],
+					//WWWW	[kc2],
+					//WWW	[kc2],
+					//WW	[kc2],
+					//W	[kc2],
+#endif
+#if 1
+					kx>>5,
+					pred,
+					N[kc2+0]*5,
+					W[kc2+0],
+					N[kc2+0]+W[kc2+0]-NW[kc2+0]-NE[kc2+0],
+					(N[kc2+0]+W[kc2+0]-NW[kc2+0])*2,
+					(W[kc2+0]+NE[kc2+0]-N[kc2+0])/4,
+					(N[kc2+0]+NE[kc2+0]-NNE[kc2+0])*3,
+					2*N[kc2+0]+NE[kc2+0]-2*NNE[kc2+0],
+					N[kc2+0]-NN[kc2+0]-NE[kc2+0]+NNE[kc2+0],
+					(NE[kc2+0]+NEE[kc2+0]-NNEEE[kc2+0])/2,
+					W[kc2+0]+NW[kc2+0]-NWW[kc2+0],
+					W[kc2+0]-WW[kc2+0],
+					N[kc2+0]-NN[kc2+0],
+					3*(N[kc2+0]-NN[kc2+0])+NNN[kc2+0],
+					3*(W[kc2+0]-WW[kc2+0])+WWW[kc2+0],
+					W[kc2+0]+N[kc2+0]+NE[kc2+0]+NEE[kc2+0]+NEEE[kc2+0],
+					(WWWW[kc2+0]-NEEE[kc2+0])>7,
+					(WWW[kc2+0]-NEE[kc2+0])>6,
+					NW[kc2+0]-W[kc2+0],
+					NW[kc2+0]-N[kc2+0],
+					NW[kc2+0]-NNWW[kc2+0],
+					NNE[kc2+0]-NN[kc2+0],
+#endif
+
+					//error contexts
+#if 0
+					//N[kc2+1]+W[kc2+1]-NW[kc2+1],
+					//NNWW	[kc2+1],
+					//NNW	[kc2+1],
+					//NN	[kc2+1],
+					//NNE	[kc2+1],
+					//NNEE	[kc2+1],
+					//NNEEE	[kc2+1],
+					//NWW	[kc2+1],
+					//NW	[kc2+1],
+					N	[kc2+1],
+					//NE	[kc2+1],
+					//NEE	[kc2+1],
+					//NEEE	[kc2+1],
+					//WWWW	[kc2+1],
+					//WWW	[kc2+1],
+					//WW	[kc2+1],
+					W	[kc2+1],
+#endif
+#if 1
+					N[kc2+1],
+					W[kc2+1]*3,
+					N[kc2+1]*17-NN[kc2+1],
+					W[kc2+1]*9-WW[kc2+1]/4,
+					((N[kc2+1]-NN[kc2+1])*3+NNN[kc2+1])/6,
+					((W[kc2+1]-WW[kc2+1])*3+WWW[kc2+1])*6,
+					(2*abs(N[kc2+1])+abs(W[kc2+1])-abs(NW[kc2+1])+abs(NE[kc2+1]))/32,
+					(2*abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1]))/2,
+					2*N[kc2+1]+NN[kc2+1],
+					(W[kc2+1]+WW[kc2+1]+WWW[kc2+1])/32,
+					N[kc2+1]+NN[kc2+1]+NE[kc2+1]+NNE[kc2+1],
+					W[kc2+1]+WW[kc2+1]+NW[kc2+1]+NWW[kc2+1],
+					6*N[kc2+1]-NNW[kc2+1]-NN[kc2+1]-NNE[kc2+1],
+#endif
+				};
+				for(int k=0;k<ABAC_PCTX;++k)
+				{
+					int x=ctx[k];
+					x>>=3;
+					CLAMP2_32(x, x, -ABAC_CLEVELS/2, ABAC_CLEVELS/2-1);
+					ctx[k]=x&(ABAC_CLEVELS-1);
+				}
+				for(int k=ABAC_PCTX;k<ABAC_NCTX;++k)
+				{
+					int x=ctx[k], neg=x<0;
+					x=abs(x);
+					x=FLOOR_LOG2(x+1);
+					if(!neg)
+						x+=ABAC_CLEVELS/2;
+					//x>>=3;//X
+					ctx[k]=x&(ABAC_CLEVELS-1);
+				}
+				memset(ctx, 0, sizeof(ctx));//
+				for(int k=0;k<ABAC_NCTX;++k)
+					curr_stats[k]=stats+(k*ABAC_CLEVELS+ctx[k])*ABAC_TREESIZE;
+				
+				int mixalphas[]=
+				{
+					(W[kc2+1]+128)&((1<<ABAC_MIXBITS)-1),
+					(N[kc2+1]+128)&((1<<ABAC_MIXBITS)-1),
+				};
+				int mixidx[]=
+				{
+					(W[kc2+1]+128)&255>>ABAC_MIXBITS,
+					(N[kc2+1]+128)&255>>ABAC_MIXBITS,
+				};
+				int *curr_mixer[]=
+				{
+					args->mixer+ABAC_NCTRS*ABAC_NCTX*((1LL<<(8-ABAC_MIXBITS)|1)*((1LL<<(8-ABAC_MIXBITS)|1)*kc+mixidx[1]+0)+mixidx[0]+0),
+					args->mixer+ABAC_NCTRS*ABAC_NCTX*((1LL<<(8-ABAC_MIXBITS)|1)*((1LL<<(8-ABAC_MIXBITS)|1)*kc+mixidx[1]+0)+mixidx[0]+1),
+					args->mixer+ABAC_NCTRS*ABAC_NCTX*((1LL<<(8-ABAC_MIXBITS)|1)*((1LL<<(8-ABAC_MIXBITS)|1)*kc+mixidx[1]+1)+mixidx[0]+0),
+					args->mixer+ABAC_NCTRS*ABAC_NCTX*((1LL<<(8-ABAC_MIXBITS)|1)*((1LL<<(8-ABAC_MIXBITS)|1)*kc+mixidx[1]+1)+mixidx[0]+1),
+				};
+				int weights[ABAC_NCTRS*ABAC_NCTX];
+
+			//	int *curr_mixer=args->mixer+(ABAC_NCTX*(size_t)kc<<ABAC_TOKEN_BITS);
+			//	int *curr_mixer=args->mixer+ABAC_NCTX*(size_t)kc*ABAC_TOKEN_BITS*2;
+			//	int *curr_mixer=args->mixer+ABAC_NCTX*(size_t)kc*ABAC_TOKEN_BITS;
+
+#elif defined ENABLE_MIX4
+				int cdf, freq=0, den;
+				int
+					vx=(abs(W[kc2]-WW[kc2])+abs(N[kc2]-NW[kc2])+abs(NE[kc2]-N  [kc2])+abs(WWW[kc2+1])+abs(WW[kc2+1])+abs(W[kc2+1])*2)<<10>>depth,
+					vy=(abs(N[kc2]-NN[kc2])+abs(W[kc2]-NW[kc2])+abs(NE[kc2]-NNE[kc2])+abs(NNN[kc2+1])+abs(NN[kc2+1])+abs(N[kc2+1])*2)<<10>>depth;
+				int qeN=FLOOR_LOG2(vy+1);
+				int qeW=FLOOR_LOG2(vx+1);
+				int *curr_hist[4];
+				int alphax, alphay;
+
+				qeN=MINVAR(qeN, CLEVELS-2);
+				qeW=MINVAR(qeW, CLEVELS-2);
+				curr_hist[0]=args->hist+cdfstride*(args->clevels*(args->clevels*kc+qeN+0)+qeW+0);
+				curr_hist[1]=args->hist+cdfstride*(args->clevels*(args->clevels*kc+qeN+0)+qeW+1);
+				curr_hist[2]=args->hist+cdfstride*(args->clevels*(args->clevels*kc+qeN+1)+qeW+0);
+				curr_hist[3]=args->hist+cdfstride*(args->clevels*(args->clevels*kc+qeN+1)+qeW+1);
+				alphax=(((vx+1-(1<<qeW))<<MIXBITS)+(1<<qeW>>1))>>qeW;
+				alphay=(((vy+1-(1<<qeN))<<MIXBITS)+(1<<qeN>>1))>>qeN;
+				CLAMP2_32(alphax, 0, alphax, 1<<MIXBITS);
+				CLAMP2_32(alphay, 0, alphay, 1<<MIXBITS);
+#define MIXCDF(X) f28_mix4(curr_hist[0][X], curr_hist[1][X], curr_hist[2][X], curr_hist[3][X], alphax, alphay)
+				den=MIXCDF(args->tlevels);
+#elif defined ENABLE_MIX8
+				int cdf, freq=0, den;
+				int ctx[3]=
+				{
+				//	W[kc2+0],
+				//	(N[kc2+0]+W[kc2+0])>>1,
+					N[kc2+0]+W[kc2+0]-NW[kc2+0],
+					abs(N[kc2+0]-W[kc2+0]),
+					(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1]))>>2,
+				};
+				int qctx[3]=
+				{
+					ctx[0]>>MIXBITSX&(CXLEVELS-2),
+					FLOOR_LOG2(ctx[1]+1),
+					FLOOR_LOG2(ctx[2]+1),
+				};
+				int alphas[3]=
+				{
+					ctx[0]&((1<<MIXBITSX)-1),
+					(((ctx[1]+1-(1<<qctx[1]))<<MIXBITSY)+(1<<qctx[1]>>1))>>qctx[1],
+					(((ctx[2]+1-(1<<qctx[2]))<<MIXBITSZ)+(1<<qctx[2]>>1))>>qctx[2],
+				};
+				UPDATE_MIN(qctx[1], CYLEVELS-2);
+				UPDATE_MIN(qctx[2], CZLEVELS-2);
+				int *curr_hist[8]=
+				{
+					args->hist+cdfstride*(CXLEVELS*(CYLEVELS*(CZLEVELS*kc+qctx[2]+0)+qctx[1]+0)+qctx[0]+0),
+					args->hist+cdfstride*(CXLEVELS*(CYLEVELS*(CZLEVELS*kc+qctx[2]+0)+qctx[1]+0)+qctx[0]+1),
+					args->hist+cdfstride*(CXLEVELS*(CYLEVELS*(CZLEVELS*kc+qctx[2]+0)+qctx[1]+1)+qctx[0]+0),
+					args->hist+cdfstride*(CXLEVELS*(CYLEVELS*(CZLEVELS*kc+qctx[2]+0)+qctx[1]+1)+qctx[0]+1),
+					args->hist+cdfstride*(CXLEVELS*(CYLEVELS*(CZLEVELS*kc+qctx[2]+1)+qctx[1]+0)+qctx[0]+0),
+					args->hist+cdfstride*(CXLEVELS*(CYLEVELS*(CZLEVELS*kc+qctx[2]+1)+qctx[1]+0)+qctx[0]+1),
+					args->hist+cdfstride*(CXLEVELS*(CYLEVELS*(CZLEVELS*kc+qctx[2]+1)+qctx[1]+1)+qctx[0]+0),
+					args->hist+cdfstride*(CXLEVELS*(CYLEVELS*(CZLEVELS*kc+qctx[2]+1)+qctx[1]+1)+qctx[0]+1),
+				};
+				int dens[8]=
+				{
+					(1<<24)/curr_hist[0][args->tlevels],
+					(1<<24)/curr_hist[1][args->tlevels],
+					(1<<24)/curr_hist[2][args->tlevels],
+					(1<<24)/curr_hist[3][args->tlevels],
+					(1<<24)/curr_hist[4][args->tlevels],
+					(1<<24)/curr_hist[5][args->tlevels],
+					(1<<24)/curr_hist[6][args->tlevels],
+					(1<<24)/curr_hist[7][args->tlevels],
+				};
+#define MIXCDF(X)\
+	f28_mix8(\
+		(int)((long long)curr_hist[0][X]*dens[0]>>(24-14)),\
+		(int)((long long)curr_hist[1][X]*dens[1]>>(24-14)),\
+		(int)((long long)curr_hist[2][X]*dens[2]>>(24-14)),\
+		(int)((long long)curr_hist[3][X]*dens[3]>>(24-14)),\
+		(int)((long long)curr_hist[4][X]*dens[4]>>(24-14)),\
+		(int)((long long)curr_hist[5][X]*dens[5]>>(24-14)),\
+		(int)((long long)curr_hist[6][X]*dens[6]>>(24-14)),\
+		(int)((long long)curr_hist[7][X]*dens[7]>>(24-14)),\
+		alphas[0],\
+		alphas[1],\
+		alphas[2]\
+	)
+
+//#define MIXCDF(X)\
+//	f28_mix8(\
+//		(curr_hist[0][X]<<14)/curr_hist[0][args->tlevels],\
+//		(curr_hist[1][X]<<14)/curr_hist[1][args->tlevels],\
+//		(curr_hist[2][X]<<14)/curr_hist[2][args->tlevels],\
+//		(curr_hist[3][X]<<14)/curr_hist[3][args->tlevels],\
+//		(curr_hist[4][X]<<14)/curr_hist[4][args->tlevels],\
+//		(curr_hist[5][X]<<14)/curr_hist[5][args->tlevels],\
+//		(curr_hist[6][X]<<14)/curr_hist[6][args->tlevels],\
+//		(curr_hist[7][X]<<14)/curr_hist[7][args->tlevels],\
+//		alphas[0],\
+//		alphas[1],\
+//		alphas[2]\
+//	)
+
+//#define MIXCDF(X)\
+//	f28_mix8(\
+//		curr_hist[0][X],\
+//		curr_hist[1][X],\
+//		curr_hist[2][X],\
+//		curr_hist[3][X],\
+//		curr_hist[4][X],\
+//		curr_hist[5][X],\
+//		curr_hist[6][X],\
+//		curr_hist[7][X],\
+//		alphas[0],\
+//		alphas[1],\
+//		alphas[2]\
+//	)
+				//if((unsigned)qctx[0]>=CXLEVELS||(unsigned)qctx[1]>=CYLEVELS||(unsigned)qctx[2]>=CZLEVELS)
+				//	LOG_ERROR("");
+				//for(int k=0;k<8;++k)
+				//{
+				//	int *hist2=curr_hist[k];
+				//	if(hist2<args->hist||hist2+args->tlevels>=args->hist+args->histsize)
+				//		LOG_ERROR("");
+				//}
+
+				//den=1<<14;
+				den=MIXCDF(args->tlevels);
+#elif defined ENABLE_CALICCTX
+				int cdf, freq=0, den;
+				int *curr_hist;
+				int ctx=0;
+			//	ctx=ctx*3+THREEWAY(N[kc2+1], 0)+1;
+			//	ctx=ctx*3+THREEWAY(W[kc2+1], 0)+1;
+				ctx=ctx*3+THREEWAY((N[kc2+1]+W[kc2+1])/8, 0)+1;
+				ctx=ctx*3+THREEWAY(NW[kc2]/4, (N[kc2]+W[kc2])/(2*4))+1;
+				ctx=ctx*3+THREEWAY(N[kc2]/8, W[kc2]/8)+1;
+			//	ctx=ctx*3+THREEWAY(N[kc2], NE[kc2])+1;
+			//	ctx=ctx*3+THREEWAY(N[kc2], NW[kc2])+1;
+			//	ctx=ctx*3+THREEWAY(W[kc2], NW[kc2])+1;
+				curr_hist=args->hist+cdfstride*(CLEVELS*kc+ctx);
+#define MIXCDF(X) curr_hist[X]
+				//int
+				//	alphax=abs(W[kc2]-WW[kc2])+abs(N[kc2]-NW[kc2])+abs(NE[kc2]-N  [kc2])+abs(WW[kc2+1])+abs(W[kc2+1]),
+				//	alphay=abs(N[kc2]-NN[kc2])+abs(W[kc2]-NW[kc2])+abs(NE[kc2]-NNE[kc2])+abs(NN[kc2+1])+abs(N[kc2+1]);
+				//int *curr_hist[4];
+				//
+				//curr_hist[0]=args->hist+cdfstride*(nctx*kc+args->clevels*(0)+0);
+				//curr_hist[1]=args->hist+cdfstride*(nctx*kc+args->clevels*(0)+1);
+				//curr_hist[2]=args->hist+cdfstride*(nctx*kc+args->clevels*(1)+0);
+				//curr_hist[3]=args->hist+cdfstride*(nctx*kc+args->clevels*(1)+1);
+//#define MIXCDF(X) f28_mix4(curr_hist[0][X], curr_hist[1][X], curr_hist[2][X], curr_hist[3][X], alphax, alphay)
+				den=MIXCDF(args->tlevels);
+#elif defined ENABLE_HASH
+				int cdf, freq=0, den;
+				int *curr_hist;
+				int ctx=0;//int32_t!
+
+			//	ctx=HASH_CANTOR(ctx, NNWW[kc2])>>8;
+			//	ctx=HASH_CANTOR(ctx, NNW[kc2])>>8;
+			//	ctx=HASH_CANTOR(ctx, NN[kc2])>>8;
+			//	ctx=HASH_CANTOR(ctx, NNE[kc2])>>8;
+			//	ctx=HASH_CANTOR(ctx, NNEE[kc2])>>8;
+			//	ctx=HASH_CANTOR(ctx, NWW[kc2])>>8;
+			//	ctx=HASH_CANTOR(ctx, NW[kc2])>>8;
+			//	ctx=HASH_CANTOR(ctx, NE[kc2])>>8;
+			//	ctx=HASH_CANTOR(ctx, NEE[kc2])>>8;
+			//	ctx=HASH_CANTOR(ctx, WW[kc2])>>8;
+			//	ctx=HASH_CANTOR(ctx, N[kc2])>>8;
+			//	ctx=HASH_CANTOR(ctx, W[kc2])>>8;
+			//	ctx=HASH_CANTOR(N[kc2], W[kc2])>>8;
+
+				int v0=(3*(W[kc2+0]-WW[kc2+0])+WWW[kc2+0])>>9;
+				int v1=(3*(N[kc2+0]-NN[kc2+0])+NNN[kc2+0])>>9;
+				int v2=(3*(W[kc2+1]-WW[kc2+1])+WWW[kc2+1])>>9;
+				int v3=(3*(N[kc2+1]-NN[kc2+1])+NNN[kc2+1])>>9;
+				v0=HASH_CANTOR(v0, v1);
+				v2=HASH_CANTOR(v2, v3);
+				ctx=HASH_CANTOR(v0, v2);
+
+				ctx&=CLEVELS-1;
+				curr_hist=args->hist+cdfstride*(CLEVELS*kc+ctx);
+#define MIXCDF(X) curr_hist[X]
+#else
+				int cdf, freq=0, den;
+				int
+					vx=(abs(W[kc2]-WW[kc2])+abs(N[kc2]-NW[kc2])+abs(NE[kc2]-N  [kc2])+abs(WWW[kc2+1])+abs(WW[kc2+1])+abs(W[kc2+1])*2)<<10>>depth,
+					vy=(abs(N[kc2]-NN[kc2])+abs(W[kc2]-NW[kc2])+abs(NE[kc2]-NNE[kc2])+abs(NNN[kc2+1])+abs(NN[kc2+1])+abs(N[kc2+1])*2)<<10>>depth;
+				int qeN=FLOOR_LOG2(vy+1);
+				int qeW=FLOOR_LOG2(vx+1);
+				qeN=MINVAR(qeN, CLEVELS-1);
+				qeW=MINVAR(qeW, CLEVELS-1);
+				int *curr_hist=args->hist+cdfstride*(nctx*kc+args->clevels*MINVAR(qeN, CLEVELS-1)+MINVAR(qeW, CLEVELS-1));
+#define MIXCDF(X) curr_hist[X]
+				den=MIXCDF(args->tlevels);
+#endif
+#ifndef ENABLE_ABAC2
+				//if(den<=0)
+				//{
+				//	for(int k=0;k<8;++k)
+				//	{
+				//		for(int ks=0;ks<=args->tlevels;++ks)
+				//			printf(" %d", curr_hist[k][ks]);
+				//		printf("\n\n");
+				//	}
+				//}
+				//if(ky==480&&kx==109&&kc==2)//
+				//if(ky==147&&kx==317&&kc==1)//
+				//if(ky==2562&&kx==1038&&kc==1)//
+				//if(ky==208&&kx==6339&&kc==2)//
+				//if(ky==208&&kx==6339&&kc==1)//
+				//if(ky==208&&kx==6340&&kc==0)//
+				//if(ky==261&&kx==6700&&kc==0)//
+				//if(ky==5420&&kx==3267&&kc==1)//
+				//if(ky==0&&kx==0&&kc==0)//
+				//if(ky==1&&kx==41&&kc==2)//
+				//if(ky==1&&kx==41&&kc==1)//
+				//if(ky==5420&&kx==3267&&kc==1)//
+				//if(ky==5420&&kx==3267&&kc==1)//
+				//if(ky==128&&kx==128&&kc==0)//
+				//if(ky==216&&kx==507&&kc==0)//
+				//if(ky==0&&kx==86&&kc==0)//
+				//if(ky==128&&kx==128&&kc==0)//
+				//if(ky==1&&kx==32&&kc==0)//
+				//	printf("");
+				if(args->fwd)
+				{
+					curr[kc2+0]=yuv[kc];
+					curr[kc2+1]=error=yuv[kc]-pred;
+#ifndef ENABLE_ABAC
+					{
+						int upred=half-abs(pred), aval=abs(error);
+						if(aval<=upred)
+						{
+							sym=error;
+#ifdef ENABLE_BIASCORR
+							{
+								int negmask=-((ibias_corr<0)&(sym!=-halfs[ch]));//sign is flipped if SSE correction was negative, to skew the histogram
+								sym^=negmask;
+								sym-=negmask;
+							}
+#endif
+							sym=sym<<1^sym>>31;//pack sign
+						}
+						else
+							sym=upred+aval;//error sign is known
+					}
+					quantize_pixel(sym, &token, &bypass, &nbits);
+#ifdef _DEBUG
+					if(token>=args->tlevels)
+						LOG_ERROR("YXC %d %d %d  token %d/%d", ky, kx, kc, token, args->tlevels);
+#endif
+#endif
+#ifdef ENABLE_ABAC
+					tidx=1;
+					token2=0;
+					//error<<=32-ABAC_TOKEN_BITS;
+					//error>>=32-ABAC_TOKEN_BITS;
+					for(int kb=ABAC_TOKEN_BITS-1, bit=0;kb>=0;--kb)
+					{
+						//int *mixercell=curr_mixer+ABAC_NCTX*kb*2+bit;
+						//if(ky==216&&kx==508&&kc==2&&kb==4)//
+						//if(ky==0&&kx==86&&kc==2&&kb==2)//
+						//if(ky==128&&kx==128&&kc==0&&kb==0)//
+						//if(ky==1&&kx==32&&kc==1&&kb==0)//
+						//if(ky==1&&kx==33&&kc==0&&kb==7)//
+						//{
+						//	g_compare=1;
+						//	printf("");
+						//}
+#ifdef ABAC_SIMPLEOVERRIDE
+						int p0=stats2[kc<<8|tidx];
+#else
+						int p0=abac_predict((const unsigned short**)curr_stats, tidx, curr_mixer, mixalphas, weights, logits);
+#endif
+						
+						//if(ky==1&&kx==33&&kc==0&&kb==7)//
+						//	g_compare=0;
+						bit=error>>kb&1;
+						ac3_enc_bin(&ec, bit, p0, ABAC_PROBBITS);
+#ifdef ABAC_PROFILESIZE
+						args->abac_csizes[kc*ABAC_TOKEN_BITS+kb]-=log2((double)(bit?(1<<ABAC_PROBBITS)-p0:p0)/(1<<ABAC_PROBBITS));
+#endif
+						token2|=bit<<kb;
+
+						//if(ky==1&&kx==32)//
+						//	printf("0x%04X %d\n", p0, bit);
+						
+#ifdef ABAC_SIMPLEOVERRIDE
+						p0+=((!bit<<ABAC_PROBBITS)-p0)>>7;
+						CLAMP2_32(stats2[kc<<8|tidx], p0, 1, 0xFFFF);
+#else
+						abac_update(weights, logits, curr_stats, tidx, curr_mixer, mixalphas, p0, bit);
+#endif
+						tidx+=tidx+bit;
+						//if(tidx==7)//NPOT tree
+						//	break;
+					}
+#else
+					cdf=0;
+					for(int ks=0;ks<token;++ks)
+						cdf+=MIXCDF(ks);
+					freq=MIXCDF(token);
+					ac3_enc_update_NPOT(&ec, cdf, freq, den);
+#endif
+#ifndef ENABLE_ABAC
+					if(nbits)
+						ac3_enc_bypass(&ec, bypass, nbits);
+#endif
+				}
+				else
+				{
+#ifdef ENABLE_ABAC
+					tidx=1;
+					token2=0;
+					for(int kb=ABAC_TOKEN_BITS-1, bit=0;kb>=0;--kb)
+					{
+						//if(ky==1&&kx==33&&kc==0&&kb==7)//
+						//	g_compare=2;
+						//int *mixercell=curr_mixer+ABAC_NCTX*kb*2+bit;
+#ifdef ABAC_SIMPLEOVERRIDE
+						int p0=stats2[kc<<8|tidx];
+#else
+						int p0=abac_predict((const unsigned short**)curr_stats, tidx, curr_mixer, mixalphas, weights, logits);
+#endif
+						
+						//if(ky==1&&kx==33&&kc==0&&kb==7)//
+						//{
+						//	g_compare=0;
+						//	printf("");
+						//}
+						bit=ac3_dec_bin(&ec, p0, ABAC_PROBBITS);
+						token2|=bit<<kb;
+
+						//if(ky==1&&kx==32)//
+						//	printf("0x%04X %d\n", p0, bit);
+						
+#ifdef ABAC_SIMPLEOVERRIDE
+						p0+=((!bit<<ABAC_PROBBITS)-p0)>>7;
+						CLAMP2_32(stats2[kc<<8|tidx], p0, 1, 0xFFFF);
+#else
+						abac_update(weights, logits, curr_stats, tidx, curr_mixer, mixalphas, p0, bit);
+#endif
+						tidx+=tidx+bit;
+						//if(tidx==7)//NPOT tree
+						//	break;
+					}
+					error=token2;
+#else
+					unsigned code=ac3_dec_getcdf_NPOT(&ec, den);
+					cdf=0;
+					token=0;
+					for(;;)
+					{
+						unsigned cdf2;
+
+						freq=MIXCDF(token);
+						cdf2=cdf+freq;
+						if(cdf2>code)
+							break;
+#ifdef _DEBUG
+						if(token>=args->tlevels)
+							LOG_ERROR("YXC %d %d %d  token %d/%d", ky, kx, kc, token, args->tlevels);
+#endif
+						cdf=cdf2;
+						++token;
+					}
+					ac3_dec_update_NPOT(&ec, cdf, freq, den);
+#endif
+#ifndef ENABLE_ABAC
+					sym=token;
+					if(sym>=(1<<CONFIG_EXP))
+					{
+						int lsb, msb;
+
+						sym-=1<<CONFIG_EXP;
+						lsb=sym&((1<<CONFIG_LSB)-1);
+						sym>>=CONFIG_LSB;
+						msb=sym&((1<<CONFIG_MSB)-1);
+						sym>>=CONFIG_MSB;
+						nbits=sym+CONFIG_EXP-(CONFIG_MSB+CONFIG_LSB);
+						bypass=ac3_dec_bypass(&ec, nbits);
+						sym=1;
+						sym<<=CONFIG_MSB;
+						sym|=msb;
+						sym<<=nbits;
+						sym|=bypass;
+						sym<<=CONFIG_LSB;
+						sym|=lsb;
+					}
+					{
+						int upred=half-abs(pred), negmask=0;
+						if(sym<=(upred<<1))
+						{
+							error=sym>>1^-(sym&1);
+#ifdef ENABLE_BIASCORR
+							negmask=-((ibias_corr<0)&(error!=-half));
+#endif
+						}
+						else
+						{
+							error=sym-upred;
+							negmask=-(pred>0);
+						}
+						error^=negmask;
+						error-=negmask;
+					}
+#endif
+					curr[kc2+1]=error;
+					error+=pred;
+#ifdef ENABLE_ABAC
+					error=error<<(32-ABAC_TOKEN_BITS)>>(32-ABAC_TOKEN_BITS);
+					curr[kc2+1]=error-pred;
+#endif
+					curr[kc2+0]=yuv[kc]=error;
+					//if((unsigned)(yuv[kc]+128)>255)
+					//	LOG_ERROR("");
+				}
+				//X
+#if 0
+				{
+					int c=curr[kc2+0];
+					int kbest=0, kworst=0;
+					int ebest=0, eworst=0;
+					for(int kp=0;kp<PRED_COUNT;++kp)
+					{
+						int e=abs(c-preds[kp]);
+						if(!kp||ebest>e)
+							ebest=e, kbest=kp;
+						if(!kp||eworst>e)
+							eworst=e, kworst=kp;
+					}
+					{
+						int inc=predmix[kc][kworst]>1&&predmix[kc][kbest]<255;
+						predmix[kc][kbest]+=inc;
+						predmix[kc][kworst]-=inc;
+					}
+				}
+#endif
+#if defined ENABLE_MIX4
+				{
+					int inc;
+					inc=((1<<MIXBITS)-alphax)*((1<<MIXBITS)-alphay)>>(MIXBITS+MIXBITS-5); curr_hist[0][token]+=inc; curr_hist[0][args->tlevels]+=inc;
+					inc=(             alphax)*((1<<MIXBITS)-alphay)>>(MIXBITS+MIXBITS-5); curr_hist[1][token]+=inc; curr_hist[1][args->tlevels]+=inc;
+					inc=((1<<MIXBITS)-alphax)*(             alphay)>>(MIXBITS+MIXBITS-5); curr_hist[2][token]+=inc; curr_hist[2][args->tlevels]+=inc;
+					inc=(             alphax)*(             alphay)>>(MIXBITS+MIXBITS-5); curr_hist[3][token]+=inc; curr_hist[3][args->tlevels]+=inc;
+				}
+				for(int kh=0;kh<4;++kh)
+				{
+					int *hist2=curr_hist[kh];
+					if(hist2[args->tlevels]>=0xD400)//4296	6144	10752	65536
+					{
+						int sum=0;
+						for(int ks=0;ks<args->tlevels;++ks)
+							sum+=hist2[ks]=(hist2[ks]+1)>>1;
+						hist2[args->tlevels]=sum;
+					}
+				}
+#elif defined ENABLE_MIX8
+				{
+					int inc[8]=
+					{
+						(int)((long long)((1<<MIXBITSX)-alphas[0])*((1<<MIXBITSY)-alphas[1])*((1<<MIXBITSZ)-alphas[2])>>(MIXBITSX+MIXBITSY+MIXBITSZ-5)),
+						(int)((long long)(              alphas[0])*((1<<MIXBITSY)-alphas[1])*((1<<MIXBITSZ)-alphas[2])>>(MIXBITSX+MIXBITSY+MIXBITSZ-5)),
+						(int)((long long)((1<<MIXBITSX)-alphas[0])*(              alphas[1])*((1<<MIXBITSZ)-alphas[2])>>(MIXBITSX+MIXBITSY+MIXBITSZ-5)),
+						(int)((long long)(              alphas[0])*(              alphas[1])*((1<<MIXBITSZ)-alphas[2])>>(MIXBITSX+MIXBITSY+MIXBITSZ-5)),
+						(int)((long long)((1<<MIXBITSX)-alphas[0])*((1<<MIXBITSY)-alphas[1])*(              alphas[2])>>(MIXBITSX+MIXBITSY+MIXBITSZ-5)),
+						(int)((long long)(              alphas[0])*((1<<MIXBITSY)-alphas[1])*(              alphas[2])>>(MIXBITSX+MIXBITSY+MIXBITSZ-5)),
+						(int)((long long)((1<<MIXBITSX)-alphas[0])*(              alphas[1])*(              alphas[2])>>(MIXBITSX+MIXBITSY+MIXBITSZ-5)),
+						(int)((long long)(              alphas[0])*(              alphas[1])*(              alphas[2])>>(MIXBITSX+MIXBITSY+MIXBITSZ-5)),
+					};
+					for(int kh=0;kh<8;++kh)
+					{
+						int *hist2=curr_hist[kh];
+						//if(inc[kh]<0)
+						//	LOG_ERROR("");
+						hist2[token]+=inc[kh];
+						hist2[args->tlevels]+=inc[kh];
+						if(hist2[args->tlevels]>=(1<<11))//4296	6144	10752	65536	0xD400
+						{
+							int sum=0;
+							for(int ks=0;ks<args->tlevels;++ks)
+								sum+=hist2[ks]=(hist2[ks]+1)>>1;
+							hist2[args->tlevels]=sum;
+						}
+					}
+				}
+#elif !defined ENABLE_ABAC
+				++curr_hist[token];
+				++curr_hist[args->tlevels];
+				if(curr_hist[args->tlevels]>=6144)
+				{
+					int sum=0;
+					for(int ks=0;ks<args->tlevels;++ks)
+						sum+=curr_hist[ks]=(curr_hist[ks]+1)>>1;
+					curr_hist[args->tlevels]=sum;
+				}
+#endif
+#endif
 				curr[kc2+0]-=offset;
-				wg_update(curr[kc2+0], preds, perrors, weights);
+#ifndef DISABLE_WG
+				wg_update(curr[kc2+0], wg_preds, wg_perrors+WG_NPREDS*kc, wg_weights+WG_NPREDS*kc);
+#endif
 			}
 			if(!args->fwd)
 			{
-				switch(bestrct)
-				{
-				case RCT_R_G_B:
-				case RCT_R_G_BG:
-				case RCT_R_G_BR:
-				case RCT_R_GR_BR:
-				case RCT_R_GR_BG:
-				case RCT_R_G_B2:
-				case RCT_R_GR_B2:
-					args->dst[idx+0]=yuv[0]+128;
-					args->dst[idx+1]=yuv[1]+128;
-					args->dst[idx+2]=yuv[2]+128;
-					break;
-				case RCT_G_B_RG:
-				case RCT_G_B_RB:
-				case RCT_G_BG_RG:
-				case RCT_G_BG_RB:
-				case RCT_G_B_R2:
-				case RCT_G_BG_R2:
-					args->dst[idx+1]=yuv[0]+128;
-					args->dst[idx+2]=yuv[1]+128;
-					args->dst[idx+0]=yuv[2]+128;
-					break;
-				case RCT_B_R_GR:
-				case RCT_B_R_GB:
-				case RCT_B_RB_GB:
-				case RCT_B_RB_GR:
-				case RCT_B_RB_G2:
-					args->dst[idx+2]=yuv[0]+128;
-					args->dst[idx+0]=yuv[1]+128;
-					args->dst[idx+1]=yuv[2]+128;
-					break;
-				case RCT_G_RG_BR:
-				case RCT_G_RG_B2:
-					args->dst[idx+1]=yuv[0]+128;
-					args->dst[idx+0]=yuv[1]+128;
-					args->dst[idx+2]=yuv[2]+128;
-					break;
-				case RCT_B_GB_RG:
-				case RCT_B_GB_R2:
-					args->dst[idx+2]=yuv[0]+128;
-					args->dst[idx+1]=yuv[1]+128;
-					args->dst[idx+0]=yuv[2]+128;
-					break;
-				case RCT_R_BR_GB:
-				case RCT_R_B_G2:
-				case RCT_R_BR_G2:
-					args->dst[idx+0]=yuv[0]+128;
-					args->dst[idx+2]=yuv[1]+128;
-					args->dst[idx+1]=yuv[2]+128;
-					break;
-				}
+				args->dst[idx+rgbidx[0]]=yuv[0]+128;
+				args->dst[idx+rgbidx[1]]=yuv[1]+128;
+				args->dst[idx+rgbidx[2]]=yuv[2]+128;
 #ifdef ENABLE_GUIDE
 				if(args->test&&memcmp(args->dst+idx, args->src+idx, sizeof(char)*nch))
 				{
@@ -1333,16 +2494,10 @@ static void block_thread(void *param)
 		}
 	}
 	if(args->fwd)
-#ifdef USE_AC4
-		ac4_enc_flush(&ec);
-#else
-		ac2_enc_flush(&ec);
-#endif
+		ac3_enc_flush(&ec);
 }
 int c02_codec(const char *srcfn, const char *dstfn)
 {
-	//test();//
-
 	const int nch=3, depth=8;
 	double t0;
 	ArrayHandle src, dst;
@@ -1359,7 +2514,7 @@ int c02_codec(const char *srcfn, const char *dstfn)
 #ifdef ENABLE_MIX4
 	int clevels;
 #endif
-	int histsize;
+	//int tlevels, histsize, statssize;
 	double esize;
 	int usize;
 #ifdef ABAC_PROFILESIZE
@@ -1446,7 +2601,28 @@ int c02_codec(const char *srcfn, const char *dstfn)
 		}
 		memset(image2, 0, usize);
 	}
-	histsize=(int)sizeof(int[OCH_COUNT*PRED_COUNT<<8]);
+	{
+		//int nlevels=256;
+		//int token=0, bypass=0, nbits=0;
+
+		//quantize_pixel(nlevels, &token, &bypass, &nbits);
+		//tlevels=token+1;
+#if defined ENABLE_CALICCTX || defined ENABLE_HASH
+		statssize=(tlevels+1)*nch*(int)sizeof(int[CLEVELS]);
+#elif defined ENABLE_MIX8
+		statssize=(tlevels+1)*nch*(int)sizeof(int[CXLEVELS*CYLEVELS*CZLEVELS]);
+#elif defined ENABLE_ABAC2
+		//statssize=0;
+#elif defined ENABLE_ABAC
+		statssize=nch*(int)sizeof(short[ABAC_NCTRS*ABAC_NCTX*ABAC_CLEVELS*ABAC_TREESIZE]);
+#else
+		clevels=CLEVELS;
+		statssize=clevels*clevels*(tlevels+1)*nch*(int)sizeof(int);
+#endif
+		//histsize=(int)sizeof(int[OCH_COUNT*PRED_COUNT<<8]);
+		//if(histsize<statssize)
+		//	histsize=statssize;
+	}
 	for(int k=0;k<nthreads;++k)
 	{
 		ThreadArgs *arg=args+k;
@@ -1454,22 +2630,28 @@ int c02_codec(const char *srcfn, const char *dstfn)
 		arg->dst=fwd?0:dst->data+printed;
 		arg->iw=iw;
 		arg->ih=ih;
-		arg->bufsize=sizeof(short[4*OCH_COUNT*2])*(BLOCKSIZE+16LL);//4 padded rows * OCH_COUNT * {pixels, wg_errors}
+		arg->bufsize=sizeof(short[4*OCH_COUNT*2*(BLOCKSIZE+16LL)]);//4 padded rows * OCH_COUNT * {pixels, wg_errors}
 		arg->pixels=(short*)_mm_malloc(arg->bufsize, sizeof(__m128i));
 
-		arg->histsize=histsize;
-		arg->hist=(int*)malloc(histsize);
+		//arg->histsize=histsize;
+		//arg->hist=(int*)malloc(histsize);
 #ifdef ENABLE_ABAC
 		arg->statssize=statssize;
 #endif
-		if(!arg->pixels||!arg->hist)
+		//arg->stats=(unsigned*)malloc(statssize);
+		if(!arg->pixels)
 		{
 			LOG_ERROR("Alloc error");
 			return 1;
 		}
 		memusage+=arg->bufsize;
-		memusage+=histsize;
+		//memusage+=histsize;
+		//memusage+=statssize;
 		
+		//arg->tlevels=tlevels;
+#ifdef ENABLE_MIX4
+		arg->clevels=clevels;
+#endif
 		arg->fwd=fwd;
 		arg->test=test;
 #ifdef DISABLE_MT
@@ -1524,25 +2706,12 @@ int c02_codec(const char *srcfn, const char *dstfn)
 						kx=kt+kt2;
 						ky=kx/xblocks;
 						kx%=xblocks;
-#ifdef PROFILE_SIZE
-						double usize=(double)blocksize/nch;
-						//for(int kc=0;kc<3;++kc)
-						//{
-						//	for(int ks=0;ks<256;++ks)
-						//		printf("C%d L%3d %10.2lf/%10.2lf\n", kc, ks, arg->csizes[kc][ks]/8, usize);
-						//}
-						for(int kp=0;kp<24;++kp)
-						{
-							double csize=arg->csizes[kp]/8;
-							printf("%2d  %12.2lf/%10.2lf  %8.4lf%%  %16.6lf\n", kp, csize, usize, 100.*csize/usize, usize/csize);
-						}
-#endif
 						if(nblocks<MAXPRINTEDBLOCKS)
 						{
 							//if(!(kt+kt2))
 							//	printf("block,  nrows,  usize,     best  ->  actual,  (actual-best)\n");
 							printf(
-								"block %4d/%4d  XY %3d %3d  %4d*%4d:  %8d->%16lf->%8zd bytes (%+10.2lf)  %10.6lf%%  CR %10lf  %s %s %s %s\n",
+								"block %4d/%4d  XY %3d %3d  %4d*%4d:  %8d->%16lf->%8zd bytes (%+10.2lf)  %10.6lf%%  CR %10lf  %s %d (%2d+%2d)/16\n",
 								kt+kt2+1, nblocks,
 								kx, ky,
 								arg->y2-arg->y1,
@@ -1553,10 +2722,10 @@ int c02_codec(const char *srcfn, const char *dstfn)
 								arg->list.nobj-arg->bestsize,
 								100.*arg->list.nobj/blocksize,
 								(double)blocksize/arg->list.nobj,
-								rct_names[arg->bestrct],
-								pred_names[arg->predidx[0]],
-								pred_names[arg->predidx[1]],
-								pred_names[arg->predidx[2]]
+								permnames[arg->permutation],
+								arg->helper1,
+								arg->alpha1,
+								arg->alpha2
 							);
 						}
 						esize+=arg->bestsize;
@@ -1578,9 +2747,6 @@ int c02_codec(const char *srcfn, const char *dstfn)
 			t0=time_sec()-t0;
 			if(fwd)
 			{
-//#ifdef DISABLE_MT
-//				printf("overflows %d/%lld = %lf%%\n", count_overflow, count_total, 100.*count_overflow/count_total);
-//#endif
 #ifdef ABAC_PROFILESIZE
 				double upsize=(double)iw*ih/8;
 				for(int kb=0;kb<ABAC_TOKEN_BITS*3;++kb)
@@ -1636,7 +2802,8 @@ int c02_codec(const char *srcfn, const char *dstfn)
 	{
 		ThreadArgs *arg=args+k;
 		_mm_free(arg->pixels);
-		free(arg->hist);
+		//free(arg->hist);
+		//free(arg->stats);
 	}
 	free(args);
 	array_free(&src);
