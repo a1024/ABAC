@@ -177,21 +177,24 @@ static const short av12_icoeffs[12]=
 #define WG_DECAY_NUM	493
 #define WG_DECAY_SH	9
 
-#define WG_NPREDS	12
+#define WG_NPREDS	16
 #define WG_PREDLIST\
-	WG_PRED(200, spred)\
+	WG_PRED(25, spred)\
+	WG_PRED(50, wgrad)\
+	WG_PRED(50, 3*N-W-NE)\
+	WG_PRED(30, 2*NE-W)\
 	WG_PRED(132, N+W-NW)\
-	WG_PRED(176, N+W-NW+((eN+eW-eNW+16)>>5))\
-	WG_PRED(176, N+eN)\
+	WG_PRED(100, N+W-NW+((eN+eW-eNW+16)>>5))\
+	WG_PRED(150, N+eN)\
 	WG_PRED(100, N)\
-	WG_PRED(176, W+eW)\
+	WG_PRED(150, W+eW)\
 	WG_PRED(100, W)\
 	WG_PRED(165, W+NE-N)\
 	WG_PRED(220, N+NE-NNE)\
+	WG_PRED(25, N+NE-NNE+((eN+eNE-eNNE)>>2))\
 	WG_PRED(165, 3*(N-NN)+NNN)\
 	WG_PRED(165, 3*(W-WW)+WWW)\
-	WG_PRED(176, (W+NEEE)/2)
-//	WG_PRED(176, N+NE-NNE+((eN+eNE-eNNE)>>2))
+	WG_PRED(150, (W+NEEE)/2)
 static void wg_init(int *weights)
 {
 	int j=0;
@@ -227,6 +230,9 @@ static int wg_predict(
 		eN	=rows[1][kc2+0*stride+1],
 		eNE	=rows[1][kc2+1*stride+1],
 		eW	=rows[0][kc2-1*stride+1];
+
+	int gy=abs(eN)+1, gx=abs(eW)+1;
+	int wgrad=(N*gy+W*gx)/(gy+gx);
 
 #define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
 	WG_PREDLIST
@@ -488,14 +494,6 @@ typedef struct _ThreadArgs
 	double bestsize;
 	int bestrct, predidx[3];
 } ThreadArgs;
-//static void check_result(const short *result)
-//{
-//	for(int k=0;k<15;++k)
-//	{
-//		if((unsigned)result[k]>255)
-//			LOG_ERROR("");
-//	}
-//}
 static void block_thread(void *param)
 {
 	const int nch=3, depth=8, half=128;
@@ -512,9 +510,6 @@ static void block_thread(void *param)
 	unsigned short *stats=(unsigned short*)args->hist;
 #endif
 	
-//#ifdef AC_VALIDATE
-//	acval_disable=1;
-//#endif
 	if(args->fwd)
 	{
 		double csizes[OCH_COUNT*PRED_COUNT]={0}, bestsize=0;
@@ -1864,11 +1859,6 @@ static void block_thread(void *param)
 				//if(ky==128&&kx==128&&kc==0)//
 				//if(ky==1&&kx==32&&kc==0)//
 				//	printf("");
-//#ifdef AC_VALIDATE
-//				//if(ky==5420&&kx==3072)//
-//				if(args->blockidx==260)//
-//					acval_disable=0;
-//#endif
 				if(args->fwd)
 				{
 					curr[kc2+0]=yuv[kc];
