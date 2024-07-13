@@ -7,18 +7,24 @@ static const char file[]=__FILE__;
 
 
 //	#define ENABLE_GUIDE
-//	#define DISABLE_MT
+	#define DISABLE_MT
 
 
 //	#define PROFILE_SIZE
-//	#define ENCODE_ERROR
-	#define ENCODE_ERROR2
-//	#define AC_SYMMETRIC
+	#define ENCODE_ERROR//CALIC pack sign (good)
+//	#define ENCODE_ERROR2//(e+128)&255 (bad)
+	#define USE_AC4//faster
 //	#define DISABLE_RCTPROBE
-	#define AC3_PREC
+//	#define AC_SYMMETRIC//unused
+//	#define AC3_PREC//unused
 
 #define CODECNAME "C02"
 #include"entropy.h"
+#ifdef USE_AC4
+#define PROB_BITS 16
+#else
+#define PROB_BITS AC2_PROB_BITS
+#endif
 
 #define BLOCKSIZE 640
 #define MAXPRINTEDBLOCKS 0//200
@@ -252,9 +258,10 @@ typedef struct _ThreadArgs
 	const unsigned char *decstart, *decend;
 	
 	unsigned short decay_rate[3];
-	int sstats0[3][1<<8];//static o0
+	//int sstats0[3][1<<8];//static o0	X
 	int stats0[3][1<<8];
-	int bhist[3][1<<8];//X
+	//int stats1[3][2][1<<8];
+	//int bhist[3][1<<8];//X
 	//O1Counter stats1[3][MIXCOUNT-1][1<<O1_IDXBITS][1<<8];
 	//int mixer[3][MIXCOUNT];
 	//long long sse[3][1<<SSE_LBITS][9<<SSE_PBITS];
@@ -271,7 +278,11 @@ static void block_thread(void *param)
 {
 	const int nch=3, depth=8, half=128;
 	ThreadArgs *args=(ThreadArgs*)param;
+#ifdef USE_AC4
+	AC4 ec;
+#else
 	AC2 ec;
+#endif
 	const unsigned char *image=args->fwd?args->src:args->dst;
 	unsigned char bestrct=0, combination[6]={0}, predidx[4]={0};
 	
@@ -850,11 +861,20 @@ static void block_thread(void *param)
 #endif
 		res=(args->x2-args->x1)*(args->y2-args->y1)*3;
 		dlist_init(&args->list, 1, res, 0);
+#ifdef USE_AC4
+		ac4_enc_init(&ec, &args->list);
+		ac4_enc_update_NPOT(&ec, bestrct, bestrct+1, RCT_COUNT);
+		ac4_enc_update_NPOT(&ec, predidx[0], predidx[0]+1, PRED_COUNT);
+		ac4_enc_update_NPOT(&ec, predidx[1], predidx[1]+1, PRED_COUNT);
+		ac4_enc_update_NPOT(&ec, predidx[2], predidx[2]+1, PRED_COUNT);
+#else
 		ac2_enc_init(&ec, &args->list);
 		ac2_enc_bypass_NPOT(&ec, bestrct, RCT_COUNT);
 		ac2_enc_bypass_NPOT(&ec, predidx[0], PRED_COUNT);
 		ac2_enc_bypass_NPOT(&ec, predidx[1], PRED_COUNT);
 		ac2_enc_bypass_NPOT(&ec, predidx[2], PRED_COUNT);
+#endif
+#if 0
 		{
 			int *sel_hists[]=
 			{
@@ -878,17 +898,27 @@ static void block_thread(void *param)
 				ac2_enc_bypass(&ec, args->decay_rate[kc], 16);
 			}
 		}
+#endif
 	}
 	else
 	{
+#ifdef USE_AC4
+		ac4_dec_init(&ec, args->decstart, args->decend);
+		bestrct=ac4_dec_getcdf_NPOT(&ec, RCT_COUNT);		ac4_dec_update_NPOT(&ec, bestrct, bestrct+1, RCT_COUNT);
+		predidx[0]=ac4_dec_getcdf_NPOT(&ec, PRED_COUNT);	ac4_dec_update_NPOT(&ec, predidx[0], predidx[0]+1, PRED_COUNT);
+		predidx[1]=ac4_dec_getcdf_NPOT(&ec, PRED_COUNT);	ac4_dec_update_NPOT(&ec, predidx[1], predidx[1]+1, PRED_COUNT);
+		predidx[2]=ac4_dec_getcdf_NPOT(&ec, PRED_COUNT);	ac4_dec_update_NPOT(&ec, predidx[2], predidx[2]+1, PRED_COUNT);
+#else
 		ac2_dec_init(&ec, args->decstart, args->decend);
 		bestrct=ac2_dec_bypass_NPOT(&ec, RCT_COUNT);
 		predidx[0]=ac2_dec_bypass_NPOT(&ec, PRED_COUNT);
 		predidx[1]=ac2_dec_bypass_NPOT(&ec, PRED_COUNT);
 		predidx[2]=ac2_dec_bypass_NPOT(&ec, PRED_COUNT);
-		for(int kc=0;kc<3;++kc)
-			args->decay_rate[kc]=ac2_dec_bypass(&ec, 16);
+		//for(int kc=0;kc<3;++kc)
+		//	args->decay_rate[kc]=ac2_dec_bypass(&ec, 16);
+#endif
 	}
+#if 0
 	for(int kc=0;kc<3;++kc)
 	{
 		int *sstats=args->sstats0[kc];
@@ -911,20 +941,20 @@ static void block_thread(void *param)
 					s0+=hist[ks];
 				for(int ks=mid;ks<end;++ks)
 					s1+=hist[ks];
-				sstats[count+k]=(int)(((s1+1LL)<<AC2_PROB_BITS)/(s0+s1+2)-(1LL<<AC2_PROB_BITS>>1));
+				sstats[count+k]=(int)(((s1+1LL)<<PROB_BITS)/(s0+s1+2)-(1LL<<PROB_BITS>>1));
 			}
 		}
 		//for(int k=0;k<128;++k)
-		//	sstats[128+k]=(int)(((long long)hist[k<<1|1]<<AC2_PROB_BITS)/(hist[k<<1|0]+hist[k<<1|1]));
+		//	sstats[128+k]=(int)(((long long)hist[k<<1|1]<<PROB_BITS)/(hist[k<<1|0]+hist[k<<1|1]));
 		//for(int k=0;k<64;++k)
-		//	sstats[64+k]=(int)(((long long)hist[k<<1|1]<<AC2_PROB_BITS)/(hist[k<<1|0]+hist[k<<1|1]));
+		//	sstats[64+k]=(int)(((long long)hist[k<<1|1]<<PROB_BITS)/(hist[k<<1|0]+hist[k<<1|1]));
 	}
-	
+#endif
 	//unsigned long long prngstate=0x3243F6A8885A308D;//pi
 	//int mixer[3][2]={0};
 	//FILLMEM((int*)mixer, 0x10000, sizeof(mixer), sizeof(int));
 	memset(args->stats0, 0, sizeof(args->stats0));
-	FILLMEM((int*)args->bhist, (int)(1LL<<AC2_PROB_BITS>>1), sizeof(args->bhist), sizeof(int));
+	//FILLMEM((int*)args->bhist, (int)(1LL<<PROB_BITS>>1), sizeof(args->bhist), sizeof(int));
 	//memset(args->stats1, 0, sizeof(args->stats1));
 	//memset(args->mixer, 0, sizeof(args->mixer));
 	//memset(args->sse, 0, sizeof(args->sse));
@@ -1116,7 +1146,8 @@ static void block_thread(void *param)
 				CLAMP2_32(pred, pred, -128, 127);
 
 				int *curr_stats0=args->stats0[kc];
-				int *curr_bhist=args->bhist[kc];
+				//int *curr_stats1=args->stats1[kc][N[kc2]>W[kc2]];
+				//int *curr_bhist=args->bhist[kc];
 				//int *curr_mixer=mixer[kc];
 #if 0
 				int ctx[]=//don't forget to update MIXCOUNT
@@ -1182,13 +1213,14 @@ static void block_thread(void *param)
 #endif
 				{
 					//long long p1=((long long)curr_mixer[0]*args->sstats0[kc][tidx]+(long long)curr_mixer[1]*curr_stats0[tidx])>>16;
+					//long long p1=(3LL*curr_stats0[tidx]+curr_stats1[tidx])>>2;
 					//long long p1=(args->sstats0[kc][tidx]+3LL*curr_stats0[tidx])>>2;
-					long long p1=args->sstats0[kc][tidx];
-					//long long p1=curr_stats0[tidx];
+					//long long p1=args->sstats0[kc][tidx];
+					long long p1=curr_stats0[tidx];
 
-					//p1=(curr_mixer[0]*p1+(long long)curr_mixer[1]*(curr_bhist[tidx]-(1LL<<AC2_PROB_BITS>>1)));
+					//p1=(curr_mixer[0]*p1+(long long)curr_mixer[1]*(curr_bhist[tidx]-(1LL<<PROB_BITS>>1)));
 					//p1>>=24;
-					p1+=1LL<<AC2_PROB_BITS>>1;
+					p1+=1LL<<PROB_BITS>>1;
 
 					//long long probs[MIXCOUNT]={curr_stats0[tidx]};
 					//long long p1=curr_mixer[0]*probs[0];
@@ -1200,13 +1232,13 @@ static void block_thread(void *param)
 					//	p1+=curr_mixer[k]*probs[k];
 					//}
 					//p1>>=25;
-					//p1+=1ULL<<AC2_PROB_BITS>>1;
+					//p1+=1ULL<<PROB_BITS>>1;
 #if 0
 					long long *ssecell[_countof(curr_sse)], ssesum[_countof(curr_sse)];
 					int ssecount[_countof(curr_sse)];
 					for(int k=0;k<_countof(curr_sse);++k)
 					{
-						int sseidx=(int)(p1>>(AC2_PROB_BITS-SSE_PBITS))*9+kb;
+						int sseidx=(int)(p1>>(PROB_BITS-SSE_PBITS))*9+kb;
 						ssecell[k]=curr_sse[k]+sseidx;
 						ssesum[k]=*ssecell[k]>>SSE_CBITS;
 						ssecount[k]=*ssecell[k]&((1ULL<<SSE_CBITS)-1);
@@ -1214,12 +1246,16 @@ static void block_thread(void *param)
 							p1-=ssesum[k]>>11;
 					}
 #endif
-					CLAMP2(p1, 1, (1LL<<AC2_PROB_BITS)-1);
+					CLAMP2(p1, 1, (1LL<<PROB_BITS)-1);
 					int bit;
 					if(args->fwd)
 					{
 						bit=sym>>kb&1;
+#ifdef USE_AC4
+						ac4_enc_bin(&ec, (unsigned)p1, bit);
+#else
 						ac2_enc_bin(&ec, (unsigned)p1, bit);
+#endif
 #ifdef PROFILE_SIZE
 						if(kb<8)
 							args->csizes[kc<<3|kb]-=log2((double)(bit?p1:0x80000000-p1)/0x80000000);
@@ -1227,53 +1263,62 @@ static void block_thread(void *param)
 					}
 					else
 					{
+#ifdef USE_AC4
+						bit=ac4_dec_bin(&ec, (unsigned)p1);
+#else
 						bit=ac2_dec_bin(&ec, (unsigned)p1);
+#endif
 						sym|=bit<<kb;
 					}
 					
-					//long long error=((long long)bit<<AC2_PROB_BITS)-p1;
+					//long long error=((long long)bit<<PROB_BITS)-p1;
 					//long long mk;
-					//mk=curr_mixer[0]+(error*args->sstats0[kc][tidx]>>(AC2_PROB_BITS+7));
+					//mk=curr_mixer[0]+(error*args->sstats0[kc][tidx]>>(PROB_BITS+7));
 					//CLAMP2(mk, -0x10000, 0x20000);
 					//curr_mixer[0]=mk;
-					//mk=curr_mixer[1]+(error*curr_stats0[tidx]>>(AC2_PROB_BITS+7));
+					//mk=curr_mixer[1]+(error*curr_stats0[tidx]>>(PROB_BITS+7));
 					//CLAMP2(mk, -0x10000, 0x20000);
 					//curr_mixer[1]=mk;
 
-					//p1=curr_stats0[tidx];
-					//p1+=((((long long)bit<<AC2_PROB_BITS)-(1LL<<AC2_PROB_BITS>>1)-p1)*17+(1<<11>>1))>>11;
-					//CLAMP2(p1, -((1LL<<AC2_PROB_BITS>>1)-1), (1LL<<AC2_PROB_BITS>>1)-1);
-					//curr_stats0[tidx]=(int)p1;
-
-					//p1=args->sstats0[kc][tidx];
-					//p1+=((((long long)bit<<AC2_PROB_BITS)-(1LL<<AC2_PROB_BITS>>1)-p1)*17+(1<<11>>1))>>11;
-					//CLAMP2(p1, -((1LL<<AC2_PROB_BITS>>1)-1), (1LL<<AC2_PROB_BITS>>1)-1);
-					//args->sstats0[kc][tidx]=(int)p1;
-#if 0
-					long long error=((long long)bit<<AC2_PROB_BITS)-p1;
-					long long mk;
-					mk=curr_mixer[0]+(error*curr_stats0[tidx]>>(AC2_PROB_BITS+2));
-					CLAMP2(mk, -0x80000, 0x80000);
-					curr_mixer[0]=mk;
-					mk=curr_mixer[1]+(error*(curr_bhist[tidx]-(1LL<<AC2_PROB_BITS>>1))>>(AC2_PROB_BITS+6));
-					CLAMP2(mk, -0x80000, 0x80000);
-					curr_mixer[1]=mk;
-					//curr_mixer[0]+=error*curr_stats0[tidx]>>(AC2_PROB_BITS+2);
-					//curr_mixer[1]+=error*(curr_bhist[tidx]-(1LL<<AC2_PROB_BITS>>1))>>(AC2_PROB_BITS+6);
-
 					p1=curr_stats0[tidx];
-					p1+=((((long long)bit<<AC2_PROB_BITS)-(1LL<<AC2_PROB_BITS>>1)-p1)*17+(1<<11>>1))>>11;
-					CLAMP2(p1, -((1LL<<AC2_PROB_BITS>>1)-1), (1LL<<AC2_PROB_BITS>>1)-1);
+					p1+=((((long long)bit<<PROB_BITS)-(1LL<<PROB_BITS>>1)-p1)*17+(1<<11>>1))>>11;
+					CLAMP2(p1, -((1LL<<PROB_BITS>>1)-1), (1LL<<PROB_BITS>>1)-1);
 					curr_stats0[tidx]=(int)p1;
 
-					curr_bhist[tidx]=bit<<(AC2_PROB_BITS-1)|curr_bhist[tidx]>>1;
+					//p1=curr_stats1[tidx];
+					//p1+=((((long long)bit<<PROB_BITS)-(1LL<<PROB_BITS>>1)-p1)*17+(1<<11>>1))>>11;
+					//CLAMP2(p1, -((1LL<<PROB_BITS>>1)-1), (1LL<<PROB_BITS>>1)-1);
+					//curr_stats1[tidx]=(int)p1;
+
+					//p1=args->sstats0[kc][tidx];
+					//p1+=((((long long)bit<<PROB_BITS)-(1LL<<PROB_BITS>>1)-p1)*17+(1<<11>>1))>>11;
+					//CLAMP2(p1, -((1LL<<PROB_BITS>>1)-1), (1LL<<PROB_BITS>>1)-1);
+					//args->sstats0[kc][tidx]=(int)p1;
+#if 0
+					long long error=((long long)bit<<PROB_BITS)-p1;
+					long long mk;
+					mk=curr_mixer[0]+(error*curr_stats0[tidx]>>(PROB_BITS+2));
+					CLAMP2(mk, -0x80000, 0x80000);
+					curr_mixer[0]=mk;
+					mk=curr_mixer[1]+(error*(curr_bhist[tidx]-(1LL<<PROB_BITS>>1))>>(PROB_BITS+6));
+					CLAMP2(mk, -0x80000, 0x80000);
+					curr_mixer[1]=mk;
+					//curr_mixer[0]+=error*curr_stats0[tidx]>>(PROB_BITS+2);
+					//curr_mixer[1]+=error*(curr_bhist[tidx]-(1LL<<PROB_BITS>>1))>>(PROB_BITS+6);
+
+					p1=curr_stats0[tidx];
+					p1+=((((long long)bit<<PROB_BITS)-(1LL<<PROB_BITS>>1)-p1)*17+(1<<11>>1))>>11;
+					CLAMP2(p1, -((1LL<<PROB_BITS>>1)-1), (1LL<<PROB_BITS>>1)-1);
+					curr_stats0[tidx]=(int)p1;
+
+					curr_bhist[tidx]=bit<<(PROB_BITS-1)|curr_bhist[tidx]>>1;
 #endif
 #if 0
 					//if(!kc&&kb==7)
 					//	printf("");
-					//long long perr=(long long)(bit<<AC2_PROB_BITS)-p1;
-					long long collapse=((long long)bit<<AC2_PROB_BITS)-(int)(1ULL<<AC2_PROB_BITS>>1);
-					long long error=((long long)bit<<AC2_PROB_BITS)-p1;
+					//long long perr=(long long)(bit<<PROB_BITS)-p1;
+					long long collapse=((long long)bit<<PROB_BITS)-(int)(1ULL<<PROB_BITS>>1);
+					long long error=((long long)bit<<PROB_BITS)-p1;
 #if 0
 					for(int k=0;k<_countof(curr_sse);++k)
 					{
@@ -1289,10 +1334,10 @@ static void block_thread(void *param)
 					}
 #endif
 					for(int k=0;k<_countof(probs);++k)
-						curr_mixer[k]+=probs[k]*error>>(AC2_PROB_BITS+16);
+						curr_mixer[k]+=probs[k]*error>>(PROB_BITS+16);
 
 					probs[0]+=((collapse-probs[0])*17+(1<<11>>1))>>11;
-					const int pmin=-((int)(1ULL<<AC2_PROB_BITS>>1)-1), pmax=(int)(1ULL<<AC2_PROB_BITS>>1)-1;
+					const int pmin=-((int)(1ULL<<PROB_BITS>>1)-1), pmax=(int)(1ULL<<PROB_BITS>>1)-1;
 					//CLAMP2(probs[0], pmin, pmax);
 					for(int k=1;k<MIXCOUNT;++k)
 					{
@@ -1435,7 +1480,11 @@ static void block_thread(void *param)
 		}
 	}
 	if(args->fwd)
+#ifdef USE_AC4
+		ac4_enc_flush(&ec);
+#else
 		ac2_enc_flush(&ec);
+#endif
 }
 int c02_codec(const char *srcfn, const char *dstfn)
 {

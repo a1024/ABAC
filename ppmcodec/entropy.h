@@ -131,7 +131,7 @@ void acval_dec(int sym, int cdf, int freq, unsigned long long lo1, unsigned long
 
 
 //arithmetic coder (paq8px)
-#define AC2_PROB_BITS 31
+#define AC2_PROB_BITS 18
 typedef struct _AC2
 {
 	unsigned x1, x2, pending_bits, code;
@@ -863,12 +863,8 @@ INLINE void ac4_dec_init(AC4 *ec, const unsigned char *srcstart, const unsigned 
 }
 INLINE void ac4_enc_flush(AC4 *ec)
 {
-	do
-	{
-		dlist_push_back1(&ec->dst, ec->lo>>24);
-		ec->hi=ec->hi<<8|255;
-		ec->lo<<=8;
-	}while((ec->hi^ec->lo)<0x1000000);
+	unsigned mid=(unsigned)(((unsigned long long)ec->lo+ec->hi)>>1);
+	dlist_push_back1(ec->dst, (unsigned char*)&mid+3);
 }
 INLINE void ac4_enc_bin(AC4 *ec, unsigned short p1, int bit)
 {
@@ -876,15 +872,21 @@ INLINE void ac4_enc_bin(AC4 *ec, unsigned short p1, int bit)
 	
 	while((ec->hi^ec->lo)<0x1000000)
 	{
-		dlist_push_back1(&ec->dst, ec->lo>>24);
+		dlist_push_back1(ec->dst, (unsigned char*)&ec->lo+3);
 		ec->hi=ec->hi<<8|255;
 		ec->lo<<=8;
 	}
-	mid=ec->lo+((unsigned long long)(ec->hi-ec->lo)*p1>>16);
+#ifdef AC_VALIDATE
+	unsigned lo=ec->lo, hi=ec->hi;
+	if(!p1)
+		LOG_ERROR("ZPS");
+#endif
+	mid=ec->lo+(unsigned)((unsigned long long)(ec->hi-ec->lo)*p1>>16);
 	if(bit)
 		ec->hi=mid;
 	else
 		ec->lo=mid+1;
+	acval_enc(bit, bit, p1, lo, hi, ec->lo, ec->hi, 0, 0);
 }
 INLINE int ac4_dec_bin(AC4 *ec, unsigned short p1)
 {
@@ -899,13 +901,60 @@ INLINE int ac4_dec_bin(AC4 *ec, unsigned short p1)
 		if(ec->srcptr<ec->srcend)
 			ec->code|=*ec->srcptr++;
 	}
-	mid=ec->lo+((unsigned long long)(ec->hi-ec->lo)*p1>>16);
+#ifdef AC_VALIDATE
+	unsigned lo=ec->lo, hi=ec->hi;
+	if(!p1)
+		LOG_ERROR("ZPS");
+#endif
+	mid=ec->lo+(unsigned)((unsigned long long)(ec->hi-ec->lo)*p1>>16);
 	bit=ec->code<=mid;
 	if(bit)
 		ec->hi=mid;
 	else
 		ec->lo=mid+1;
+	acval_dec(bit, bit, p1, lo, hi, ec->lo, ec->hi, 0, 0, ec->code);
 	return bit;
+}
+INLINE void ac4_enc_update_NPOT(AC4 *ec, unsigned cdf_curr, unsigned cdf_next, unsigned den)
+{
+	unsigned lo, hi;
+
+	while((ec->hi^ec->lo)<0x1000000)
+	{
+		dlist_push_back1(ec->dst, (unsigned char*)&ec->lo+3);
+		ec->hi=ec->hi<<8|255;
+		ec->lo<<=8;
+	}
+	lo=ec->lo+(unsigned)((unsigned long long)(ec->hi-ec->lo)*cdf_curr/den);
+	hi=ec->lo+(unsigned)((unsigned long long)(ec->hi-ec->lo)*cdf_next/den);
+	acval_enc(0, cdf_curr, cdf_next-cdf_curr, ec->lo, ec->hi, lo, hi, 0, 0);
+	ec->lo=lo;
+	ec->hi=hi;
+}
+INLINE unsigned ac4_dec_getcdf_NPOT(AC4 *ec, unsigned den)
+{
+	unsigned cdf;
+	
+	while((ec->hi^ec->lo)<0x1000000)
+	{
+		ec->hi=ec->hi<<8|255;
+		ec->lo<<=8;
+		ec->code<<=8;
+		if(ec->srcptr<ec->srcend)
+			ec->code|=*ec->srcptr++;
+	}
+	cdf=(unsigned)(((unsigned long long)(ec->code-ec->lo)*den+den-1)/(ec->hi-ec->lo));
+	return cdf;
+}
+INLINE void ac4_dec_update_NPOT(AC4 *ec, unsigned cdf_curr, unsigned cdf_next, unsigned den)
+{
+	unsigned lo, hi;
+
+	lo=ec->lo+(unsigned)((unsigned long long)(ec->hi-ec->lo)*cdf_curr/den);
+	hi=ec->lo+(unsigned)((unsigned long long)(ec->hi-ec->lo)*cdf_next/den);
+	acval_dec(0, cdf_curr, cdf_next-cdf_curr, ec->lo, ec->hi, lo, hi, 0, 0, ec->code);
+	ec->lo=lo;
+	ec->hi=hi;
 }
 
 
