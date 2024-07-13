@@ -20,6 +20,7 @@ int compare_bufs_8(const unsigned char *b1, const unsigned char *b0, int iw, int
 
 int c01_codec(const char *srcfn, const char *dstfn);
 int c02_codec(const char *srcfn, const char *dstfn);
+int c03_codec(const char *srcfn, const char *dstfn);
 
 	
 #ifdef __cplusplus

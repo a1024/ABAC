@@ -534,8 +534,8 @@ INLINE void ac3_enc_update_NPOT(AC3 *ec, unsigned cdf, unsigned freq, unsigned d
 	ec->low+=q*cdf+r*cdf/den;
 	ec->range=q*freq+r*freq/den-1;
 #else
-	ec->low+=r2*cdf;
-	ec->range=r2*freq-1;//must decrement hi because decoder fails when code == hi2
+	ec->low+=q*cdf;
+	ec->range=q*freq-1;//must decrement hi because decoder fails when code == hi2
 #endif
 	acval_enc(0, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
 }
@@ -554,7 +554,7 @@ INLINE unsigned ac3_dec_getcdf_NPOT(AC3 *ec, unsigned den)
 		return (unsigned)_udiv128(hi, lo, ec->range, &hi);
 	}
 #else
-	return (unsigned)((ec->code-ec->low)/r2);
+	return (unsigned)((ec->code-ec->low)/(ec->range/den));
 #endif
 }
 INLINE void ac3_dec_update_NPOT(AC3 *ec, unsigned cdf, unsigned freq, unsigned den)
@@ -571,8 +571,8 @@ INLINE void ac3_dec_update_NPOT(AC3 *ec, unsigned cdf, unsigned freq, unsigned d
 	ec->low+=q*cdf+r*cdf/den;
 	ec->range=q*freq+r*freq/den-1;
 #else
-	ec->low+=r2*cdf;
-	ec->range=r2*freq-1;//must decrement hi because decoder fails when code == hi2
+	ec->low+=q*cdf;
+	ec->range=q*freq-1;//must decrement hi because decoder fails when code == hi2
 #endif
 	acval_dec(0, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
 }
@@ -642,14 +642,17 @@ INLINE void ac3_enc_bypass_NPOT(AC3 *ec, int bypass, int nlevels)
 	ec->low+=q*bypass+r*bypass/nlevels;
 	ec->range=q-1;
 #else
-	ec->low+=r2*bypass;
-	ec->range=r2-1;
+	ec->low+=q*bypass;
+	ec->range=q-1;
 #endif
 	acval_enc(bypass, bypass, 1, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
 }
 INLINE int ac3_dec_bypass_NPOT(AC3 *ec, int nlevels)
 {
-	unsigned long long q, r;
+	unsigned long long q;
+#ifdef AC3_PREC
+	unsigned long long r;
+#endif
 	int bypass;
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
@@ -671,8 +674,9 @@ INLINE int ac3_dec_bypass_NPOT(AC3 *ec, int nlevels)
 	ec->range=q-1;
 #else
 	bypass=(int)((ec->code-ec->low)*nlevels/ec->range);
-	ec->low+=r2*bypass;
-	ec->range=r2-1;
+	q=ec->range/nlevels;
+	ec->low+=q*bypass;
+	ec->range=q-1;
 #endif
 	acval_dec(bypass, bypass, 1, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
 	return bypass;
@@ -864,7 +868,10 @@ INLINE void ac4_dec_init(AC4 *ec, const unsigned char *srcstart, const unsigned 
 INLINE void ac4_enc_flush(AC4 *ec)
 {
 	unsigned mid=(unsigned)(((unsigned long long)ec->lo+ec->hi)>>1);
-	dlist_push_back1(ec->dst, (unsigned char*)&mid+3);
+	dlist_push_back1(ec->dst, (unsigned char*)&mid+3);//big-endian
+	dlist_push_back1(ec->dst, (unsigned char*)&mid+2);
+	dlist_push_back1(ec->dst, (unsigned char*)&mid+1);
+	dlist_push_back1(ec->dst, (unsigned char*)&mid+0);
 }
 INLINE void ac4_enc_bin(AC4 *ec, unsigned short p1, int bit)
 {
