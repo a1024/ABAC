@@ -18,6 +18,7 @@ static const char file[]=__FILE__;
 //	#define ENABLE_CALICCTX//bad
 //	#define ENABLE_HASH//bad
 
+//	#define ENABLE_OLS
 	#define DISABLE_PREDSEL
 //	#define DISABLE_WG
 	#define AC3_PREC
@@ -42,7 +43,7 @@ static const char file[]=__FILE__;
 #define CZLEVELS (8+1)
 #elif defined ENABLE_ABAC2
 #define A2_CTXBITS 8
-#define A2_NCTX 12
+#define A2_NCTX 13
 #define A2_SSEBITS 6
 #define A2_SSECTR 16
 #elif defined ENABLE_ABAC
@@ -65,6 +66,14 @@ static const char file[]=__FILE__;
 #else
 #define CLEVELS 9
 #define MIXBITS 8
+#endif
+
+#ifdef ENABLE_OLS
+#define OLS_REACH 1
+#define OLS_NPARAMS0 (2*(OLS_REACH+1)*OLS_REACH*3+0)
+#define OLS_NPARAMS1 (2*(OLS_REACH+1)*OLS_REACH*3+1)
+#define OLS_NPARAMS2 (2*(OLS_REACH+1)*OLS_REACH*3+2)
+#define OLS_NPARAMS (2*(OLS_REACH+1)*OLS_REACH*3*3+3)
 #endif
 
 #define PERMUTATIONLIST\
@@ -304,7 +313,7 @@ static const short av12_icoeffs[12]=
 
 typedef enum _NBIndex
 {
-	NB_NW,		NB_N,
+	NB_NW,		NB_N,		NB_NE,
 	NB_W,		NB_curr,
 } NBIndex;
 
@@ -341,7 +350,7 @@ static void wg_init(int *weights)
 static int wg_predict(
 	const int *weights,
 	short **rows, const int stride, int kc2,
-	int spred, const int *perrors, int *preds
+	int spred, int ols, const int *perrors, int *preds
 )
 {
 	double pred2=0, wsum=0;
@@ -399,6 +408,67 @@ static void wg_update(int curr, const int *preds, int *perrors, int *weights)
 		int e2=abs(curr-preds[k]);
 		perrors[k]=(perrors[k]+e2)*WG_DECAY_NUM>>WG_DECAY_SH;
 	}
+}
+
+
+//OLS
+
+/*
+example with size 2:
+matrix buffer before call:
+	Fwd  Fwd  1  0
+	Fwd  Fwd  0  1
+matrix buffer after call, on success:
+	1  0  Inv  Inv
+	0  1  Inv  Inv
+temprow buffer [size*2]
+*/
+static int invert_matrix(double *matrix, int size, double *temprow)
+{
+	int success;
+
+	success=1;
+	for(int it=0;it<size;++it)
+	{
+		int kp;
+		double pivot;
+
+		kp=it;
+		for(;kp<size;++kp)
+		{
+			if(fabs(matrix[((size_t)size<<1)*kp+it])>1e-6)
+				break;
+		}
+		if(kp==size)
+		{
+			success=0;
+			break;
+		}
+		if(kp!=it)
+		{
+			memcpy(temprow, matrix+((size_t)size<<1)*it, size*sizeof(double[2]));
+			memcpy(matrix+((size_t)size<<1)*it, matrix+((size_t)size<<1)*kp, size*sizeof(double[2]));
+			memcpy(matrix+((size_t)size<<1)*kp, temprow, size*sizeof(double[2]));
+		}
+		pivot=matrix[((size_t)size<<1)*it+it];
+		for(int kx=it;kx<(size<<1);++kx)
+			matrix[((size_t)size<<1)*it+kx]/=pivot;
+		for(int ky=0;ky<size;++ky)
+		{
+			double factor;
+
+			if(ky==it)
+				continue;
+			factor=matrix[((size_t)size<<1)*ky+it];
+			if(fabs(factor)>1e-6)
+			{
+				for(int kx=it;kx<(size<<1);++kx)
+					matrix[((size_t)size<<1)*ky+kx]-=matrix[((size_t)size<<1)*it+kx]*factor;
+			}
+		}
+	}
+	//_freea(temp);
+	return success;
 }
 
 
@@ -612,6 +682,13 @@ typedef struct _ThreadArgs
 	const unsigned char *decstart, *decend;
 	
 	int hist[54<<8];
+#ifdef ENABLE_OLS
+	long long ols_imat[3][OLS_NPARAMS2*OLS_NPARAMS2];
+	long long ols_ivec[3][OLS_NPARAMS2];
+	double ols_mat[3][OLS_NPARAMS2*OLS_NPARAMS2<<1];
+	double ols_vec[3][OLS_NPARAMS2];
+	int ols_params[3][OLS_NPARAMS2];
+#endif
 
 #ifdef ENABLE_MIX4
 	int clevels;
@@ -655,9 +732,12 @@ static void block_thread(void *param)
 	
 	int permutation=0, helper1=0, alpha1=0, alpha2;
 	int rgbidx[3]={0};//derived from permutation
+#ifdef ENABLE_OLS
+	int ols_success[3]={0};
+#endif
 	if(args->fwd)
 	{
-		int res=(args->x2-args->x1-1)/5*5*(args->y2-args->y1-1);
+		int res=(args->x2-args->x1-2)/5*5*(args->y2-args->y1-1);
 		__m256i ramp[]=
 		{
 			_mm256_set1_epi16(0),
@@ -678,6 +758,11 @@ static void block_thread(void *param)
 			_mm256_set1_epi16(15),
 			_mm256_set1_epi16(16),
 		};
+#ifdef ENABLE_OLS
+		long long ols_ivec[OLS_NPARAMS0+3]={0};
+		memset(args->ols_imat, 0, sizeof(args->ols_imat));
+		memset(args->ols_ivec, 0, sizeof(args->ols_ivec));
+#endif
 		for(int ky=args->y1+1;ky<args->y2;++ky)//analysis loop
 		{
 			int kx=args->x1+1;
@@ -695,22 +780,23 @@ static void block_thread(void *param)
 				//15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
 			);
 			ALIGN(32) short result[16]={0};
-			for(;kx<args->x2-4;kx+=5, ptr+=15)
+			for(;kx<args->x2-5;kx+=5, ptr+=15)
 			{
 				__m256i
 					pred, vmin, vmax,
-					rgb[4],
-					gbr[4],
-					brg[4];
+					rgb[5],
+					gbr[5],
+					brg[5];
 				{
-					__m128i nb8[13]=//8-bit
+					__m128i nb8[]=//8-bit
 					{
 						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-1*ystride-1*3+0)), half8),//NW
 						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-1*ystride+0*3+0)), half8),//N
+						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-1*ystride+1*3+0)), half8),//NE
 						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr+0*ystride-1*3+0)), half8),//W
 						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr+0*ystride+0*3+0)), half8),//curr
 					};
-					for(int k=0;k<_countof(rgb);++k)
+					for(int k=0;k<(int)_countof(rgb);++k)
 					{
 						__m128i temp;
 						rgb[k]=_mm256_cvtepi8_epi16(nb8[k]);
@@ -763,14 +849,16 @@ static void block_thread(void *param)
 					{
 						_mm256_srai_epi16(_mm256_add_epi16(_mm256_mullo_epi16(gbr[0], ramp[k]), _mm256_mullo_epi16(brg[0], ramp[16-k])), 4),//NW
 						_mm256_srai_epi16(_mm256_add_epi16(_mm256_mullo_epi16(gbr[1], ramp[k]), _mm256_mullo_epi16(brg[1], ramp[16-k])), 4),//N
-						_mm256_srai_epi16(_mm256_add_epi16(_mm256_mullo_epi16(gbr[2], ramp[k]), _mm256_mullo_epi16(brg[2], ramp[16-k])), 4),//W
-						_mm256_srai_epi16(_mm256_add_epi16(_mm256_mullo_epi16(gbr[3], ramp[k]), _mm256_mullo_epi16(brg[3], ramp[16-k])), 4),//curr
+						_mm256_srai_epi16(_mm256_add_epi16(_mm256_mullo_epi16(gbr[2], ramp[k]), _mm256_mullo_epi16(brg[2], ramp[16-k])), 4),//NE (unused!)
+						_mm256_srai_epi16(_mm256_add_epi16(_mm256_mullo_epi16(gbr[3], ramp[k]), _mm256_mullo_epi16(brg[3], ramp[16-k])), 4),//W
+						_mm256_srai_epi16(_mm256_add_epi16(_mm256_mullo_epi16(gbr[4], ramp[k]), _mm256_mullo_epi16(brg[4], ramp[16-k])), 4),//curr
 					};
 					__m256i nb2[]=
 					{
-						_mm256_sub_epi16(rgb[0], helpers[0]),
-						_mm256_sub_epi16(rgb[1], helpers[1]),
-						_mm256_sub_epi16(rgb[2], helpers[2]),
+						_mm256_sub_epi16(rgb[0], helpers[0]),//NW
+						_mm256_sub_epi16(rgb[1], helpers[1]),//N
+						_mm256_sub_epi16(rgb[2], helpers[2]),//NE (unused!)
+						_mm256_sub_epi16(rgb[3], helpers[3]),//W
 					};
 					vmin=_mm256_min_epi16(nb2[NB_N], nb2[NB_W]);
 					vmax=_mm256_max_epi16(nb2[NB_N], nb2[NB_W]);
@@ -790,6 +878,48 @@ static void block_thread(void *param)
 						OCH_Rgb0G+k, OCH_Gbr0G+k, OCH_Brg0G+k
 					);
 				}
+#ifdef ENABLE_OLS
+				ALIGN(32) short nbNW[16], nbN[16], nbNE[16], nbW[16], nbcurr[16];
+				_mm256_store_si256((__m256i*)nbNW	, rgb[0]);
+				_mm256_store_si256((__m256i*)nbN	, rgb[1]);
+				_mm256_store_si256((__m256i*)nbNE	, rgb[2]);
+				_mm256_store_si256((__m256i*)nbW	, rgb[3]);
+				_mm256_store_si256((__m256i*)nbcurr	, rgb[4]);
+				for(int kx2=0;kx2<5;++kx2)
+				{
+					int j=0;
+					ols_ivec[j++]=nbNW	[kx2*3+0];
+					ols_ivec[j++]=nbNW	[kx2*3+1];
+					ols_ivec[j++]=nbNW	[kx2*3+2];
+					ols_ivec[j++]=nbN	[kx2*3+0];
+					ols_ivec[j++]=nbN	[kx2*3+1];
+					ols_ivec[j++]=nbN	[kx2*3+2];
+					ols_ivec[j++]=nbNE	[kx2*3+0];
+					ols_ivec[j++]=nbNE	[kx2*3+1];
+					ols_ivec[j++]=nbNE	[kx2*3+2];
+					ols_ivec[j++]=nbW	[kx2*3+0];
+					ols_ivec[j++]=nbW	[kx2*3+1];
+					ols_ivec[j++]=nbW	[kx2*3+2];
+					ols_ivec[j++]=nbcurr	[kx2*3+0];
+					ols_ivec[j++]=nbcurr	[kx2*3+1];
+					ols_ivec[j++]=nbcurr	[kx2*3+2];
+					for(int kc=0;kc<3;++kc)
+					{
+						int nparams=OLS_NPARAMS0+kc;
+						for(int y=0;y<nparams;++y)
+						{
+							int vy=ols_ivec[y];
+							for(int x=0;x<nparams;++x)
+							{
+								int vx=ols_ivec[x];
+								args->ols_imat[kc][nparams*y+x]+=(long long)vy*vx;
+							}
+						}
+						for(int k=0;k<nparams;++k)
+							args->ols_ivec[kc][k]+=ols_ivec[k]*ols_ivec[nparams];
+					}
+				}
+#endif
 			}
 		}
 		double csizes[OCH_COUNT]={0};
@@ -807,10 +937,10 @@ static void block_thread(void *param)
 		const int poolsize=OCH_COUNT/3;
 		int cidx[3]={0};
 		double bestsize=0;
-		for(int k0=0;k0<_countof(lumapool);++k0)//215 RCTs
+		for(int k0=0;k0<(int)_countof(lumapool);++k0)//215 RCTs
 		{
 			int kl=lumapool[k0];
-			for(int k1=0;k1<_countof(chroma1pool[0]);++k1)
+			for(int k1=0;k1<(int)_countof(chroma1pool[0]);++k1)
 			{
 				int kc1=chroma1pool[k0][k1];
 				//if(kc1/poolsize==kl/poolsize)
@@ -855,12 +985,110 @@ static void block_thread(void *param)
 			LOG_ERROR("Invalid permutation %d %d %d", rgbidx[0], rgbidx[1], rgbidx[2]);
 			break;
 		}
+
+#ifdef ENABLE_OLS
+		//naive OLS solver		params = inv(NB * NBT) * NB * Targets	->	pred = NBT * params
+		memset(args->ols_mat, 0, sizeof(args->ols_mat));
+		for(int kc=0;kc<3;++kc)
+		{
+			double temprow[(OLS_NPARAMS0+2)*2];
+			int nparams=OLS_NPARAMS0+kc;
+			int matsize=nparams*nparams;
+			long long *curr_imat=args->ols_imat[kc];
+			//long long imax=0;
+			//for(int k=0;k<matsize;++k)//X
+			//{
+			//	long long mag=llabs(curr_imat[k]);
+			//	if(imax<mag)
+			//		imax=mag;
+			//}
+			//double gain=1/(double)imax;
+			double gain=1./(double)((long long)res<<16);
+			double *curr_mat=args->ols_mat[kc];
+			for(int y=0;y<nparams;++y)
+			{
+				for(int x=0;x<nparams;++x)
+				{
+					double *ptr=curr_mat+nparams*2*y+x;
+					*ptr=(double)curr_imat[nparams*y+x]*gain;
+					if(x==y)
+						*ptr+=0.00005;//regularization
+				}
+			}
+			for(int k=0;k<nparams;++k)
+				curr_mat[nparams*2*k+k+nparams]=1;
+			//double LOL_1[]=//
+			//{
+			//	1, 2, 2, 1, 0, 0,
+			//	3, 4, 3, 0, 1, 0,
+			//	9, 7, 1, 0, 0, 1
+			//};
+			//memcpy(curr_mat, LOL_1, sizeof(LOL_1));
+			//nparams=3;
+#if 0
+			printf("Forward:\n");
+			for(int y=0;y<nparams;++y)
+			{
+				for(int x=0;x<nparams;++x)
+					printf("%14lf ", curr_mat[nparams*2*y+x]);
+				printf("\n");
+			}
+			printf("\n");
+#endif
+			ols_success[kc]=invert_matrix(curr_mat, nparams, temprow);
+			if(!ols_success[kc])
+				continue;
+#if 0
+			printf("Inverse:  %s\n", ols_success[kc]?"SUCCESS":"FAILED");
+			for(int y=0;y<nparams;++y)
+			{
+				for(int x=0;x<nparams;++x)
+					printf("%14lf ", curr_mat[nparams*2*y+x+nparams]);
+				printf("\n");
+			}
+			printf("\n");
+#endif
+			long long *curr_ivec=args->ols_ivec[kc];
+			double psum=0;
+			for(int kp=0;kp<nparams;++kp)
+			{
+				double param=0;
+				for(int j=0;j<nparams;++j)
+					param+=curr_mat[nparams*2*kp+j+nparams]*(double)curr_ivec[j];
+				//param*=256;
+				//CLAMP2(param, -0x7FFF, 0x7FFF);
+				temprow[kp]=param;
+				psum+=param;
+			}
+			ols_success[kc]=fabs(psum)>1e-9;
+			if(!ols_success[kc])
+				continue;
+			for(int kp=0;kp<nparams;++kp)
+				args->ols_params[kc][kp]=(int)(temprow[kp]*256/psum);
+		}
+#endif
+
 		dlist_init(&args->list, 1, BLOCKSIZE*BLOCKSIZE*3, 0);
 		ac3_enc_init(&ec, &args->list);
 		ac3_enc_bypass_NPOT(&ec, permutation, PERM_COUNT);
 		ac3_enc_bypass(&ec, helper1, 1);
 		ac3_enc_bypass_NPOT(&ec, alpha1, 17);
 		ac3_enc_bypass_NPOT(&ec, alpha2, 17);
+#ifdef ENABLE_OLS
+		for(int kc=0;kc<3;++kc)
+		{
+			int nparams=OLS_NPARAMS0+kc;
+			ac3_enc_bypass(&ec, ols_success[kc], 1);
+			if(ols_success[kc])
+			{
+				for(int kp=0;kp<nparams;++kp)
+				{
+					int param=args->ols_params[kc][kp]+0x8000;
+					ac3_enc_bypass(&ec, param, 16);
+				}
+			}
+		}
+#endif
 
 		args->bestsize=bestsize;
 		args->permutation=permutation;
@@ -876,6 +1104,18 @@ static void block_thread(void *param)
 		alpha1=ac3_dec_bypass_NPOT(&ec, 17);
 		alpha2=ac3_dec_bypass_NPOT(&ec, 17);
 		memcpy(rgbidx, permutations[permutation], sizeof(int[3]));
+#ifdef ENABLE_OLS
+		for(int kc=0;kc<3;++kc)
+		{
+			int nparams=OLS_NPARAMS0+kc;
+			ols_success[kc]=ac3_dec_bypass(&ec, 1);
+			if(ols_success[kc])
+			{
+				for(int kp=0;kp<nparams;++kp)
+					args->ols_params[kc][kp]=ac3_dec_bypass(&ec, 16)-0x8000;
+			}
+		}
+#endif
 	}
 #if 0
 	if(args->fwd)
@@ -1620,11 +1860,69 @@ static void block_thread(void *param)
 			for(int kc=0;kc<nch;++kc)
 			{
 				int kc2=kc<<1;
+				int ols=0;
 				switch(kc)
 				{
-				case 0:offset=0;break;
-				case 1:offset=helper1?yuv[0]:0;break;
-				case 2:offset=(alpha1*yuv[0]+alpha2*yuv[1])/16;break;
+				case 0:
+					offset=0;
+#ifdef ENABLE_OLS
+					ols=(
+						args->ols_params[0][ 0]*NW	[0]+
+						args->ols_params[0][ 1]*NW	[2]+
+						args->ols_params[0][ 2]*NW	[6]+
+						args->ols_params[0][ 3]*N	[0]+
+						args->ols_params[0][ 4]*N	[2]+
+						args->ols_params[0][ 5]*N	[6]+
+						args->ols_params[0][ 6]*NE	[0]+
+						args->ols_params[0][ 7]*NE	[2]+
+						args->ols_params[0][ 8]*NE	[6]+
+						args->ols_params[0][ 9]*W	[0]+
+						args->ols_params[0][10]*W	[2]+
+						args->ols_params[0][11]*W	[6]
+					)>>8;
+#endif
+					break;
+				case 1:
+					offset=helper1?yuv[0]:0;
+#ifdef ENABLE_OLS
+					ols=(
+						args->ols_params[1][ 0]*NW	[0]+
+						args->ols_params[1][ 1]*NW	[2]+
+						args->ols_params[1][ 2]*NW	[6]+
+						args->ols_params[1][ 3]*N	[0]+
+						args->ols_params[1][ 4]*N	[2]+
+						args->ols_params[1][ 5]*N	[6]+
+						args->ols_params[1][ 6]*NE	[0]+
+						args->ols_params[1][ 7]*NE	[2]+
+						args->ols_params[1][ 8]*NE	[6]+
+						args->ols_params[1][ 9]*W	[0]+
+						args->ols_params[1][10]*W	[2]+
+						args->ols_params[1][11]*W	[6]+
+						args->ols_params[1][12]*curr	[0]
+					)>>8;
+#endif
+					break;
+				case 2:
+					offset=(alpha1*yuv[0]+alpha2*yuv[1])/16;
+#ifdef ENABLE_OLS
+					ols=(
+						args->ols_params[2][ 0]*NW	[0]+
+						args->ols_params[2][ 1]*NW	[2]+
+						args->ols_params[2][ 2]*NW	[6]+
+						args->ols_params[2][ 3]*N	[0]+
+						args->ols_params[2][ 4]*N	[2]+
+						args->ols_params[2][ 5]*N	[6]+
+						args->ols_params[2][ 6]*NE	[0]+
+						args->ols_params[2][ 7]*NE	[2]+
+						args->ols_params[2][ 8]*NE	[6]+
+						args->ols_params[2][ 9]*W	[0]+
+						args->ols_params[2][10]*W	[2]+
+						args->ols_params[2][11]*W	[6]+
+						args->ols_params[2][12]*curr	[0]+
+						args->ols_params[2][13]*curr	[2]
+					)>>8;
+#endif
+					break;
 				}
 				//int offset=(yuv[combination[kc+3]]+yuv[combination[kc+6]])>>combination[kc+9];
 #ifdef DISABLE_PREDSEL
@@ -1669,7 +1967,7 @@ static void block_thread(void *param)
 				}
 #endif
 #ifndef DISABLE_WG
-				pred=wg_predict(wg_weights+WG_NPREDS*kc, rows, 4*2, kc2, pred, wg_perrors+WG_NPREDS*kc, wg_preds);
+				pred=wg_predict(wg_weights+WG_NPREDS*kc, rows, 4*2, kc2, pred, ols, wg_perrors+WG_NPREDS*kc, wg_preds);
 #endif
 				pred+=offset;
 				CLAMP2_32(pred, pred, -128, 127);
@@ -1677,6 +1975,7 @@ static void block_thread(void *param)
 				unsigned short *curr_stats[A2_NCTX];
 				int ctx[A2_NCTX]=
 				{
+					0,
 					pred*3,
 					//pred*5+abs(W[kc2+1])/25,
 					pred/5,
