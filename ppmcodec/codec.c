@@ -128,6 +128,6 @@ int main(int argc, char **argv)
 	//	"D:/ML/dataset-kodak-ppm/kodim13.c01.ppm"
 		;
 #endif
-	c03_codec(srcfn, dstfn);
+	c02_codec(srcfn, dstfn);
 	return 0;
 }

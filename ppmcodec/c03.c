@@ -23,10 +23,9 @@ static const char file[]=__FILE__;
 	#define AC3_PREC
 
 #define CODECNAME "C03"
-#define AC_IMPLEMENTATION
 #include"entropy.h"
 
-#define BLOCKSIZE 768
+#define BLOCKSIZE 1024
 #define MAXPRINTEDBLOCKS 200
 #ifdef ENABLE_CALICCTX
 #define CLEVELS (3*3*3*3*3*3*3*3)
@@ -505,14 +504,14 @@ typedef struct _ThreadArgs
 } ThreadArgs;
 static void block_thread(void *param)
 {
-	const int nch=3, depth=8, half=128;
+	const int nch=3;
 	ThreadArgs *args=(ThreadArgs*)param;
 	AC3 ec;
 	const unsigned char *image=args->fwd?args->src:args->dst;
 	unsigned char bestrct=0, combination[6]={0}, predidx[4]={0};
 	int ystride=args->iw*3;
-	int cdfstride=args->tlevels+1;
 #ifdef ENABLE_MIX4
+	int cdfstride=args->tlevels+1;
 	int nctx=args->clevels*args->clevels;
 	int chsize=nctx*cdfstride;
 #elif defined ENABLE_ABAC
@@ -1181,8 +1180,7 @@ static void block_thread(void *param)
 			args->pixels+((BLOCKSIZE+16LL)*((ky-3LL)&3)+8LL)*4*2,
 		};
 		int yuv[4]={0};
-		int token=0, bypass=0, nbits=0;
-		int pred=0, error=0, sym=0;
+		int pred=0, error=0;
 		const unsigned char *combination=rct_combinations[bestrct];
 		for(int kx=args->x1;kx<args->x2;++kx)
 		{
@@ -1412,6 +1410,7 @@ static void block_thread(void *param)
 					else
 						p0=0x8000, wsum=1;
 					int sseidx=(int)(p0>>(16-A2_SSEBITS));
+					CLAMP2_32(sseidx, sseidx, 0, (1<<A2_SSEBITS)-1);
 					long long ssesum=curr_sse[sseidx]>>A2_SSECTR, ssecount=curr_sse[sseidx]&((1LL<<A2_SSECTR)-1);
 					p0+=ssesum/(ssecount+160);
 					CLAMP2_32(p0, (int)p0, 1, 0xFFFF);
@@ -1656,6 +1655,7 @@ static void block_thread(void *param)
 			//	int *curr_mixer=args->mixer+ABAC_NCTX*(size_t)kc*ABAC_TOKEN_BITS;
 
 #elif defined ENABLE_MIX4
+				const int depth=8;
 				int cdf, freq=0, den;
 				int
 					vx=(abs(W[kc2]-WW[kc2])+abs(N[kc2]-NW[kc2])+abs(NE[kc2]-N  [kc2])+abs(WWW[kc2+1])+abs(WW[kc2+1])+abs(W[kc2+1])*2)<<10>>depth,
@@ -1737,36 +1737,38 @@ static void block_thread(void *param)
 		alphas[1],\
 		alphas[2]\
 	)
-
-//#define MIXCDF(X)\
-//	f28_mix8(\
-//		(curr_hist[0][X]<<14)/curr_hist[0][args->tlevels],\
-//		(curr_hist[1][X]<<14)/curr_hist[1][args->tlevels],\
-//		(curr_hist[2][X]<<14)/curr_hist[2][args->tlevels],\
-//		(curr_hist[3][X]<<14)/curr_hist[3][args->tlevels],\
-//		(curr_hist[4][X]<<14)/curr_hist[4][args->tlevels],\
-//		(curr_hist[5][X]<<14)/curr_hist[5][args->tlevels],\
-//		(curr_hist[6][X]<<14)/curr_hist[6][args->tlevels],\
-//		(curr_hist[7][X]<<14)/curr_hist[7][args->tlevels],\
-//		alphas[0],\
-//		alphas[1],\
-//		alphas[2]\
-//	)
-
-//#define MIXCDF(X)\
-//	f28_mix8(\
-//		curr_hist[0][X],\
-//		curr_hist[1][X],\
-//		curr_hist[2][X],\
-//		curr_hist[3][X],\
-//		curr_hist[4][X],\
-//		curr_hist[5][X],\
-//		curr_hist[6][X],\
-//		curr_hist[7][X],\
-//		alphas[0],\
-//		alphas[1],\
-//		alphas[2]\
-//	)
+#if 0
+#define MIXCDF(X)\
+	f28_mix8(\
+		(curr_hist[0][X]<<14)/curr_hist[0][args->tlevels],\
+		(curr_hist[1][X]<<14)/curr_hist[1][args->tlevels],\
+		(curr_hist[2][X]<<14)/curr_hist[2][args->tlevels],\
+		(curr_hist[3][X]<<14)/curr_hist[3][args->tlevels],\
+		(curr_hist[4][X]<<14)/curr_hist[4][args->tlevels],\
+		(curr_hist[5][X]<<14)/curr_hist[5][args->tlevels],\
+		(curr_hist[6][X]<<14)/curr_hist[6][args->tlevels],\
+		(curr_hist[7][X]<<14)/curr_hist[7][args->tlevels],\
+		alphas[0],\
+		alphas[1],\
+		alphas[2]\
+	)
+#endif
+#if 0
+#define MIXCDF(X)\
+	f28_mix8(\
+		curr_hist[0][X],\
+		curr_hist[1][X],\
+		curr_hist[2][X],\
+		curr_hist[3][X],\
+		curr_hist[4][X],\
+		curr_hist[5][X],\
+		curr_hist[6][X],\
+		curr_hist[7][X],\
+		alphas[0],\
+		alphas[1],\
+		alphas[2]\
+	)
+#endif
 				//if((unsigned)qctx[0]>=CXLEVELS||(unsigned)qctx[1]>=CYLEVELS||(unsigned)qctx[2]>=CZLEVELS)
 				//	LOG_ERROR("");
 				//for(int k=0;k<8;++k)
@@ -1834,6 +1836,7 @@ static void block_thread(void *param)
 				curr_hist=args->hist+cdfstride*(CLEVELS*kc+ctx);
 #define MIXCDF(X) curr_hist[X]
 #else
+				const int depth=8;
 				int cdf, freq=0, den;
 				int
 					vx=(abs(W[kc2]-WW[kc2])+abs(N[kc2]-NW[kc2])+abs(NE[kc2]-N  [kc2])+abs(WWW[kc2+1])+abs(WW[kc2+1])+abs(W[kc2+1])*2)<<10>>depth,
@@ -1847,6 +1850,8 @@ static void block_thread(void *param)
 				den=MIXCDF(args->tlevels);
 #endif
 #ifndef ENABLE_ABAC2
+				int sym=0;
+				int token=0, bypass=0, nbits=0;
 				//if(den<=0)
 				//{
 				//	for(int k=0;k<8;++k)
@@ -1881,13 +1886,14 @@ static void block_thread(void *param)
 					curr[kc2+1]=error=yuv[kc]-pred;
 #ifndef ENABLE_ABAC
 					{
+						const int half=128;
 						int upred=half-abs(pred), aval=abs(error);
 						if(aval<=upred)
 						{
 							sym=error;
 #ifdef ENABLE_BIASCORR
 							{
-								int negmask=-((ibias_corr<0)&(sym!=-halfs[ch]));//sign is flipped if SSE correction was negative, to skew the histogram
+								int negmask=-((ibias_corr<0)&(sym!=-half));//sign is flipped if SSE correction was negative, to skew the histogram
 								sym^=negmask;
 								sym-=negmask;
 							}
@@ -2041,6 +2047,7 @@ static void block_thread(void *param)
 						sym|=lsb;
 					}
 					{
+						const int half=128;
 						int upred=half-abs(pred), negmask=0;
 						if(sym<=(upred<<1))
 						{

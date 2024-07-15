@@ -542,7 +542,7 @@ typedef struct _ThreadArgs
 } ThreadArgs;
 static void block_thread(void *param)
 {
-	const int nch=3, depth=8, half=128;
+	const int nch=3;
 	ThreadArgs *args=(ThreadArgs*)param;
 #ifdef USE_AC2
 	AC2 ec;
@@ -552,8 +552,8 @@ static void block_thread(void *param)
 	const unsigned char *image=args->fwd?args->src:args->dst;
 	unsigned char bestrct=0, combination[6]={0}, predidx[4]={0};
 	int ystride=args->iw*3;
-	int cdfstride=args->tlevels+1;
 #ifdef ENABLE_MIX4
+	int cdfstride=args->tlevels+1;
 	int nctx=args->clevels*args->clevels;
 	int chsize=nctx*cdfstride;
 #elif defined ENABLE_ABAC
@@ -1249,7 +1249,7 @@ static void block_thread(void *param)
 	}
 	//if(args->fwd&&!args->blockidx)
 	//{
-	//	for(int k=0;k<_countof(pulses);++k)
+	//	for(int k=0;k<(int)_countof(pulses);++k)
 	//		printf("%5d%c", pulses[k], (k+1)&(AC4_PULSEWIDTH-1)?' ':'\n');
 	//}
 
@@ -1333,8 +1333,7 @@ static void block_thread(void *param)
 			args->pixels+((BLOCKSIZE+16LL)*((ky-3LL)&3)+8LL)*4*2,
 		};
 		int yuv[4]={0};
-		int token=0, bypass=0, nbits=0;
-		int pred=0, error=0, sym=0;
+		int pred=0, error=0;
 		const unsigned char *combination=rct_combinations[bestrct];
 		for(int kx=args->x1;kx<args->x2;++kx)
 		{
@@ -1505,6 +1504,8 @@ static void block_thread(void *param)
 				pred+=offset;
 				CLAMP2_32(pred, pred, -128, 127);
 #ifdef ENABLE_AC5
+				int token=0, bypass=0, nbits=0;
+				int sym=0;
 				int den, cdf, freq, code;
 				int ctx=W[kc2+0]+128, alpha=ctx&((1<<AC5_CBITS)-1);
 				ctx>>=AC5_CBITS;
@@ -1521,13 +1522,14 @@ static void block_thread(void *param)
 				{
 					curr[kc2+0]=yuv[kc];
 					curr[kc2+1]=error=yuv[kc]-pred;
+					const int half=128;
 					int upred=half-abs(pred), aval=abs(error);
 					if(aval<=upred)
 					{
 						sym=error;
 #ifdef ENABLE_BIASCORR
 						{
-							int negmask=-((ibias_corr<0)&(sym!=-halfs[ch]));//sign is flipped if SSE correction was negative, to skew the histogram
+							int negmask=-((ibias_corr<0)&(sym!=-half));//sign is flipped if SSE correction was negative, to skew the histogram
 							sym^=negmask;
 							sym-=negmask;
 						}
@@ -1593,7 +1595,7 @@ static void block_thread(void *param)
 						sym|=lsb;
 					}
 #endif
-
+					const int half=128;
 					int upred=half-abs(pred), negmask=0;
 					if(sym<=(upred<<1))
 					{
@@ -1667,6 +1669,8 @@ static void block_thread(void *param)
 				//	}
 				//}
 #elif defined ENABLE_AC4
+				int token=0, bypass=0, nbits=0;
+				int sym=0;
 				int den, cdf, freq, code;
 				unsigned *curr_stats=args->stats+kc*(AC4_NLEVELS+1);
 				den=curr_stats[AC4_NLEVELS];
@@ -1674,13 +1678,14 @@ static void block_thread(void *param)
 				{
 					curr[kc2+0]=yuv[kc];
 					curr[kc2+1]=error=yuv[kc]-pred;
+					const int half=128;
 					int upred=half-abs(pred), aval=abs(error);
 					if(aval<=upred)
 					{
 						sym=error;
 #ifdef ENABLE_BIASCORR
 						{
-							int negmask=-((ibias_corr<0)&(sym!=-halfs[ch]));//sign is flipped if SSE correction was negative, to skew the histogram
+							int negmask=-((ibias_corr<0)&(sym!=-half));//sign is flipped if SSE correction was negative, to skew the histogram
 							sym^=negmask;
 							sym-=negmask;
 						}
@@ -1747,7 +1752,7 @@ static void block_thread(void *param)
 						sym|=lsb;
 					}
 #endif
-
+					const int half=128;
 					int upred=half-abs(pred), negmask=0;
 					if(sym<=(upred<<1))
 					{
@@ -1871,13 +1876,14 @@ static void block_thread(void *param)
 					int sum=0;
 					for(int ks=0;ks<AC4_NLEVELS;++ks)
 					{
-						//if((size_t)(curr_stats+ks-args->stats)>=_countof(args->stats))
+						//if((size_t)(curr_stats+ks-args->stats)>=(int)_countof(args->stats))
 						//	LOG_ERROR("");
 						sum+=curr_stats[ks]=(curr_stats[ks]+1)>>1;
 					}
 					curr_stats[AC4_NLEVELS]=sum;
 				}
 #elif defined ENABLE_ABAC3
+				int sym=0;
 				int tidx=0;
 				int ctx[A3_NCTX1]=
 				{
@@ -1921,6 +1927,7 @@ static void block_thread(void *param)
 				{
 					curr[kc2+0]=yuv[kc];
 					curr[kc2+1]=error=yuv[kc]-pred;
+					const int half=128;
 					int upred=half-abs(pred), aval=abs(error);
 					if(aval<=upred)
 					{
@@ -2167,6 +2174,7 @@ static void block_thread(void *param)
 				}
 				if(!args->fwd)
 				{
+					const int half=128;
 					int upred=half-abs(pred), negmask=0;
 					if(sym<=(upred<<1))
 					{
@@ -2377,10 +2385,10 @@ static void block_thread(void *param)
 						//const int nsteps[]={8192, 16384};
 						//int coeff=8+(_lzcnt_u32(prob_error)-16)*2;
 						int coeff=8;
-						for(int k=0;k<_countof(psteps);++k)
+						for(int k=0;k<(int)_countof(psteps);++k)
 							coeff+=(prob_error<psteps[k])<<1;
 						coeff+=prob_error<2048?(_lzcnt_u32(prob_error)-16-4)*2:0;
-						//for(int k=0;k<_countof(nsteps);++k)
+						//for(int k=0;k<(int)_countof(nsteps);++k)
 						//	coeff-=prob_error<nsteps[k];
 						//int coeff=(abs(prob_error)<=32)+(abs(prob_error)<=256)+(abs(prob_error)<=1024)+(abs(prob_error)<=2350)*4+4;
 						//int coeff=(abs(prob_error)<=2350)?8:4;
@@ -2540,6 +2548,7 @@ static void block_thread(void *param)
 			//	int *curr_mixer=args->mixer+ABAC_NCTX*(size_t)kc*ABAC_TOKEN_BITS;
 
 #elif defined ENABLE_MIX4
+				const int depth=8;
 				int cdf, freq=0, den;
 				int
 					vx=(abs(W[kc2]-WW[kc2])+abs(N[kc2]-NW[kc2])+abs(NE[kc2]-N  [kc2])+abs(WWW[kc2+1])+abs(WW[kc2+1])+abs(W[kc2+1])*2)<<10>>depth,
@@ -2621,36 +2630,38 @@ static void block_thread(void *param)
 		alphas[1],\
 		alphas[2]\
 	)
-
-//#define MIXCDF(X)\
-//	f28_mix8(\
-//		(curr_hist[0][X]<<14)/curr_hist[0][args->tlevels],\
-//		(curr_hist[1][X]<<14)/curr_hist[1][args->tlevels],\
-//		(curr_hist[2][X]<<14)/curr_hist[2][args->tlevels],\
-//		(curr_hist[3][X]<<14)/curr_hist[3][args->tlevels],\
-//		(curr_hist[4][X]<<14)/curr_hist[4][args->tlevels],\
-//		(curr_hist[5][X]<<14)/curr_hist[5][args->tlevels],\
-//		(curr_hist[6][X]<<14)/curr_hist[6][args->tlevels],\
-//		(curr_hist[7][X]<<14)/curr_hist[7][args->tlevels],\
-//		alphas[0],\
-//		alphas[1],\
-//		alphas[2]\
-//	)
-
-//#define MIXCDF(X)\
-//	f28_mix8(\
-//		curr_hist[0][X],\
-//		curr_hist[1][X],\
-//		curr_hist[2][X],\
-//		curr_hist[3][X],\
-//		curr_hist[4][X],\
-//		curr_hist[5][X],\
-//		curr_hist[6][X],\
-//		curr_hist[7][X],\
-//		alphas[0],\
-//		alphas[1],\
-//		alphas[2]\
-//	)
+#if 0
+#define MIXCDF(X)\
+	f28_mix8(\
+		(curr_hist[0][X]<<14)/curr_hist[0][args->tlevels],\
+		(curr_hist[1][X]<<14)/curr_hist[1][args->tlevels],\
+		(curr_hist[2][X]<<14)/curr_hist[2][args->tlevels],\
+		(curr_hist[3][X]<<14)/curr_hist[3][args->tlevels],\
+		(curr_hist[4][X]<<14)/curr_hist[4][args->tlevels],\
+		(curr_hist[5][X]<<14)/curr_hist[5][args->tlevels],\
+		(curr_hist[6][X]<<14)/curr_hist[6][args->tlevels],\
+		(curr_hist[7][X]<<14)/curr_hist[7][args->tlevels],\
+		alphas[0],\
+		alphas[1],\
+		alphas[2]\
+	)
+#endif
+#if 0
+#define MIXCDF(X)\
+	f28_mix8(\
+		curr_hist[0][X],\
+		curr_hist[1][X],\
+		curr_hist[2][X],\
+		curr_hist[3][X],\
+		curr_hist[4][X],\
+		curr_hist[5][X],\
+		curr_hist[6][X],\
+		curr_hist[7][X],\
+		alphas[0],\
+		alphas[1],\
+		alphas[2]\
+	)
+#endif
 				//if((unsigned)qctx[0]>=CXLEVELS||(unsigned)qctx[1]>=CYLEVELS||(unsigned)qctx[2]>=CZLEVELS)
 				//	LOG_ERROR("");
 				//for(int k=0;k<8;++k)
@@ -2688,6 +2699,7 @@ static void block_thread(void *param)
 //#define MIXCDF(X) f28_mix4(curr_hist[0][X], curr_hist[1][X], curr_hist[2][X], curr_hist[3][X], alphax, alphay)
 				den=MIXCDF(args->tlevels);
 #elif defined ENABLE_HASH
+				const int depth=8;
 				int cdf, freq=0, den;
 				int *curr_hist;
 				int ctx=0;//int32_t!
@@ -2731,6 +2743,8 @@ static void block_thread(void *param)
 				den=MIXCDF(args->tlevels);
 #endif
 #if !defined ENABLE_ABAC2 && !defined ENABLE_ABAC3 && !defined ENABLE_AC4 && !defined ENABLE_AC5
+				int token=0, bypass=0, nbits=0;
+				int sym=0;
 				//if(den<=0)
 				//{
 				//	for(int k=0;k<8;++k)
@@ -2770,13 +2784,14 @@ static void block_thread(void *param)
 					curr[kc2+1]=error=yuv[kc]-pred;
 #ifndef ENABLE_ABAC
 					{
+						const int half=128;
 						int upred=half-abs(pred), aval=abs(error);
 						if(aval<=upred)
 						{
 							sym=error;
 #ifdef ENABLE_BIASCORR
 							{
-								int negmask=-((ibias_corr<0)&(sym!=-halfs[ch]));//sign is flipped if SSE correction was negative, to skew the histogram
+								int negmask=-((ibias_corr<0)&(sym!=-half));//sign is flipped if SSE correction was negative, to skew the histogram
 								sym^=negmask;
 								sym-=negmask;
 							}
@@ -2930,6 +2945,7 @@ static void block_thread(void *param)
 						sym|=lsb;
 					}
 					{
+						const int half=128;
 						int upred=half-abs(pred), negmask=0;
 						if(sym<=(upred<<1))
 						{

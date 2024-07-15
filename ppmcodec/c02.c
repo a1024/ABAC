@@ -7,7 +7,7 @@ static const char file[]=__FILE__;
 
 
 //	#define ENABLE_GUIDE
-//	#define DISABLE_MT
+	#define DISABLE_MT
 
 
 //select one:
@@ -18,17 +18,27 @@ static const char file[]=__FILE__;
 //	#define ENABLE_CALICCTX//bad
 //	#define ENABLE_HASH//bad
 
+//	#define MIXERLAYERS
+//	#define PREDICT_SIGN
 //	#define ENABLE_OLS
 	#define DISABLE_PREDSEL
 //	#define DISABLE_WG
 	#define AC3_PREC
 
 #define CODECNAME "C02"
-#define AC_IMPLEMENTATION
 #include"entropy.h"
 
 #define BLOCKSIZE 640
 #define MAXPRINTEDBLOCKS 200
+#ifdef MIXERLAYERS
+#define MIXERINIT 0x100000
+#define MIXERCLAMP 0x1000000
+#else
+#define MIXERINIT 0x3000
+#define MIXERCLAMP 0xC000
+#endif
+#define EBITS 0		//up to 8
+#define NBITS 0
 #ifdef ENABLE_CALICCTX
 #define CLEVELS (3*3*3*3*3*3*3*3)
 #elif defined ENABLE_HASH
@@ -43,7 +53,11 @@ static const char file[]=__FILE__;
 #define CZLEVELS (8+1)
 #elif defined ENABLE_ABAC2
 #define A2_CTXBITS 8
-#define A2_NCTX 13
+#define A2_NCTX 12
+#ifdef MIXERLAYERS
+#define A2_CTXGROUPSIZE 2
+#define A2_NCTXGROUPS (A2_NCTX/A2_CTXGROUPSIZE)
+#endif
 #define A2_SSEBITS 6
 #define A2_SSECTR 16
 #elif defined ENABLE_ABAC
@@ -350,7 +364,7 @@ static void wg_init(int *weights)
 static int wg_predict(
 	const int *weights,
 	short **rows, const int stride, int kc2,
-	int spred, int ols, const int *perrors, int *preds
+	int spred, int ols, const long long *perrors, int *preds
 )
 {
 	double pred2=0, wsum=0;
@@ -401,7 +415,7 @@ static int wg_predict(
 	CLAMP3_32(pred, pred, N, W, NE);
 	return pred;
 }
-static void wg_update(int curr, const int *preds, int *perrors, int *weights)
+static void wg_update(int curr, const int *preds, long long *perrors, int *weights)
 {
 	for(int k=0;k<WG_NPREDS;++k)
 	{
@@ -696,7 +710,11 @@ typedef struct _ThreadArgs
 	int tlevels;
 #ifdef ENABLE_ABAC2
 	unsigned short stats[A2_NCTX*3<<A2_CTXBITS<<8];
-	long long sse[24<<A2_SSEBITS];
+#ifdef PREDICT_SIGN
+	long long sse[9*3<<A2_SSEBITS];
+#else
+	long long sse[8*3<<A2_SSEBITS];
+#endif
 #elif defined ENABLE_ABAC
 	int statssize;
 #ifdef ABAC_PROFILESIZE
@@ -716,14 +734,14 @@ typedef struct _ThreadArgs
 } ThreadArgs;
 static void block_thread(void *param)
 {
-	const int nch=3, depth=8, half=128;
+	const int nch=3;
 	ThreadArgs *args=(ThreadArgs*)param;
 	AC3 ec;
 	const unsigned char *image=args->fwd?args->src:args->dst;
 	//unsigned char bestrct=0, combination[6]={0}, predidx[4]={0};
 	int ystride=args->iw*3;
-	int cdfstride=args->tlevels+1;
 #ifdef ENABLE_MIX4
+	int cdfstride=args->tlevels+1;
 	int nctx=args->clevels*args->clevels;
 	int chsize=nctx*cdfstride;
 #elif defined ENABLE_ABAC
@@ -1712,8 +1730,16 @@ static void block_thread(void *param)
 		memfill(args->hist+cdfstride, args->hist, args->histsize-cdfstride*sizeof(int), cdfstride*sizeof(int));
 	}
 #elif defined ENABLE_ABAC2
+#ifdef PREDICT_SIGN
+	int mixer[9*3*A2_NCTX]={0};
+#else
 	int mixer[8*3*A2_NCTX]={0};
-	FILLMEM(mixer, 0x3000, sizeof(mixer), sizeof(int));
+#ifdef MIXERLAYERS
+	int mixer2[8*3*A2_NCTXGROUPS]={0};
+	FILLMEM(mixer2, MIXERINIT, sizeof(mixer2), sizeof(int));
+#endif
+#endif
+	FILLMEM(mixer, MIXERINIT, sizeof(mixer), sizeof(int));
 	FILLMEM(args->stats, 0x8000, sizeof(args->stats), sizeof(short));
 	memset(args->sse, 0, sizeof(args->sse));
 #elif defined ENABLE_ABAC
@@ -1761,7 +1787,9 @@ static void block_thread(void *param)
 #endif
 
 #ifndef DISABLE_WG
-	int wg_weights[WG_NPREDS*3]={0}, wg_perrors[WG_NPREDS*3]={0}, wg_preds[WG_NPREDS]={0};
+	int wg_weights[WG_NPREDS*3]={0};
+	int wg_preds[WG_NPREDS]={0};
+	long long wg_perrors[WG_NPREDS*3]={0};
 	wg_init(wg_weights+WG_NPREDS*0);
 	wg_init(wg_weights+WG_NPREDS*1);
 	wg_init(wg_weights+WG_NPREDS*2);
@@ -1781,8 +1809,7 @@ static void block_thread(void *param)
 			args->pixels+((BLOCKSIZE+16LL)*((ky-3LL)&3)+8LL)*4*2,
 		};
 		int yuv[4]={0};
-		int token=0, bypass=0, nbits=0;
-		int pred=0, error=0, sym=0;
+		int pred=0, error=0;
 		//const unsigned char *combination=rct_combinations[bestrct];
 		for(int kx=args->x1;kx<args->x2;++kx)
 		{
@@ -1883,7 +1910,7 @@ static void block_thread(void *param)
 #endif
 					break;
 				case 1:
-					offset=helper1?yuv[0]:0;
+					offset=helper1?yuv[0]<<EBITS>>NBITS:0;
 #ifdef ENABLE_OLS
 					ols=(
 						args->ols_params[1][ 0]*NW	[0]+
@@ -1903,7 +1930,7 @@ static void block_thread(void *param)
 #endif
 					break;
 				case 2:
-					offset=(alpha1*yuv[0]+alpha2*yuv[1])/16;
+					offset=(alpha1*yuv[0]+alpha2*yuv[1])<<EBITS>>NBITS>>4;
 #ifdef ENABLE_OLS
 					ols=(
 						args->ols_params[2][ 0]*NW	[0]+
@@ -1970,20 +1997,21 @@ static void block_thread(void *param)
 				pred=wg_predict(wg_weights+WG_NPREDS*kc, rows, 4*2, kc2, pred, ols, wg_perrors+WG_NPREDS*kc, wg_preds);
 #endif
 				pred+=offset;
-				CLAMP2_32(pred, pred, -128, 127);
+				CLAMP2_32(pred, pred, -(128<<EBITS>>NBITS), 127<<EBITS>>NBITS);
 #ifdef ENABLE_ABAC2
 				unsigned short *curr_stats[A2_NCTX];
-				int ctx[A2_NCTX]=
+				int grads=abs(NE[kc2+0]-N[kc2+0])+abs(N[kc2+0]-NW[kc2+0])+abs(W[kc2+0]-NW[kc2+0]);
+				int ctx[]=
 				{
-					0,
 					pred*3,
 					//pred*5+abs(W[kc2+1])/25,
 					pred/5,
 					//(W[kc2+0]+NE[kc2+0]+NEE[kc2+0]+NEEE[kc2+0])>>1,
 					//N[kc2+0],
-					(abs(NE[kc2+0]-N[kc2+0])+abs(N[kc2+0]-NW[kc2+0])+abs(W[kc2+0]-NW[kc2+0]))*2,
+					grads*2,
 					N[kc2+0]-W[kc2+0],
-					2*FLOOR_LOG2(abs(N[kc2+1])*7)+FLOOR_LOG2(abs(W[kc2+1])*3),
+
+					(2*FLOOR_LOG2(abs(N[kc2+1]<<NBITS>>EBITS)*7)+FLOOR_LOG2(abs(W[kc2+1]<<NBITS>>EBITS)*3))<<EBITS>>NBITS,
 					//N[kc2+0]+W[kc2+0]-NW[kc2+0],
 					//N[kc2+0]-NN[kc2+0],
 					//W[kc2+0]+WW[kc2+0],
@@ -1993,42 +2021,101 @@ static void block_thread(void *param)
 					((NEEE[kc2+0]<0)<<7|(NEE[kc2+0]<0)<<6|(NN[kc2+0]<0)<<5|(WW[kc2+0]<0)<<4|(NE[kc2+0]<0)<<3|(NW[kc2+0]<0)<<2|(W[kc2+0]<0)<<1|(N[kc2+0]<0))*2,
 					((NEEE[kc2+1]<0)<<7|(NEE[kc2+1]<0)<<6|(NN[kc2+1]<0)<<5|(WW[kc2+1]<0)<<4|(NE[kc2+1]<0)<<3|(NW[kc2+1]<0)<<2|(W[kc2+1]<0)<<1|(N[kc2+1]<0))*2,
 					(THREEWAY(N[kc2+1], 0)+1+(THREEWAY(W[kc2+1], 0)+1+(THREEWAY(NW[kc2+1], 0)+1+(THREEWAY(NE[kc2+1], 0)+1+(THREEWAY(N[kc2+1], W[kc2+1])+1)*3)*3)*3)*3),
+
 					(kc?abs(curr[1]):N[kc2+2]*2),
 					(kc>=2?abs(curr[3])*5+abs(curr[1]):W[kc2+2]/4),
 					//(kc?abs(curr[0]):0)+(kc>=2?abs(curr[2]):0),
 					//(kc?abs(curr[kc2-1]):abs(curr[kc2-2]))+(kc>=2?abs(curr[kc2-2]):abs(curr[kc2-3])),
 					(abs(N[kc2+0])+abs(W[kc2+0]))/2-abs(W[kc2/2+1]),
 					(abs(N[kc2+1])+abs(W[kc2+1]))*11-abs(NW[kc2+1])/2+abs(NE[kc2+1])*7,
+
+					//0,
+					//(WWWW[kc2+0]+WWW[kc2+0]+NEEE[kc2+0]+NNN[kc2+0])>>2,
 				};
 				for(int k=0;k<A2_NCTX;++k)
 				{
-					int idx2=((A2_NCTX*kc+k)<<A2_CTXBITS|(ctx[k]>>(9-A2_CTXBITS)&((1<<A2_CTXBITS)-1)))<<8;
+					int idx2=((A2_NCTX*kc+k)<<A2_CTXBITS|(ctx[k]>>(9+EBITS-NBITS-A2_CTXBITS)&((1<<A2_CTXBITS)-1)))<<8;
 					curr_stats[k]=args->stats+idx2;
 				}
+				//if(ky==330&&kx==183)//
+				//	printf("");
 				if(args->fwd)
 				{
-					curr[kc2+0]=yuv[kc];
-					curr[kc2+1]=error=yuv[kc]-pred;
+					curr[kc2+0]=yuv[kc]<<EBITS>>NBITS;
+					curr[kc2+1]=curr[kc2+0]-pred;
+					error=yuv[kc]-(((pred<<NBITS)+(1<<EBITS>>1))>>EBITS);
+#ifdef PREDICT_SIGN
+					const int half=128;
+					int upred=half-abs(pred), aval=abs(error);
+					if(aval<=upred)
+					{
+#ifdef ENABLE_BIASCORR
+						{
+							int negmask=ibias_corr>>31&-(error!=-half);//sign is flipped if SSE correction was negative, to skew the histogram
+							error^=negmask;
+							error-=negmask;
+						}
+#endif
+						error=error<<1^error>>31;//pack sign
+					}
+					else
+						error=aval+upred;//error sign is known	sym=2^n=256 when pixel=-2^(n-1)=-128 and pred>0
+#endif
 				}
 				else
 					error=0;
-				int tidx=1;
+#ifdef PREDICT_SIGN
+				int *curr_mixer=mixer+kc*9*A2_NCTX;
+				long long *curr_sse=args->sse+(kc*9LL<<A2_SSEBITS);
+				for(int kb=8, tidx=0, e2=0;kb>=0;--kb)
+#else
 				int *curr_mixer=mixer+kc*8*A2_NCTX;
+#ifdef MIXERLAYERS
+				int *curr_mixer2=mixer2+kc*8*A2_NCTXGROUPS;
+#endif
 				long long *curr_sse=args->sse+(kc*8LL<<A2_SSEBITS);
-				for(int kb=7, e2=0;kb>=0;--kb)
+				for(int kb=7, tidx=1, e2=0;kb>=0;--kb)
+#endif
 				{
 					long long p0=0;
 					int wsum=0, bit;
+#ifdef MIXERLAYERS
+					long long probs[A2_NCTXGROUPS];
+					int wsumX[A2_NCTXGROUPS];
+					for(int k2=0, j=0;k2<A2_NCTXGROUPS;++k2)
+					{
+						probs[k2]=0;
+						wsumX[k2]=0;
+						for(int k=0;k<A2_CTXGROUPSIZE;++k, ++j)
+						{
+							int m1=curr_mixer[j];
+							probs[k2]+=(long long)m1*curr_stats[j][tidx];
+							wsumX[k2]+=m1;
+						}
+						//probs[k2]+=wsumX[k2];
+						//probs[k2]/=wsumX[k2];
+						probs[k2]/=MIXERINIT*A2_CTXGROUPSIZE;
+						p0+=curr_mixer2[k2]*probs[k2];
+						wsum+=curr_mixer2[k2];
+					}
+					//p0+=wsum;
+					//p0/=wsum;
+					p0=p0*6>>25;
+					//p0/=MIXERINIT*A2_NCTXGROUPS;
+#else
 					for(int k=0;k<A2_NCTX;++k)
 					{
 						p0+=(long long)curr_mixer[k]*curr_stats[k][tidx];
 						wsum+=curr_mixer[k];
 					}
-					if(wsum)
-						p0/=wsum;
-					else
-						p0=0x8000, wsum=1;
+					p0/=wsum;
+#endif
+					//if(wsum)
+					//	p0/=wsum;
+					//else
+					//	p0=0x8000, wsum=1;
 					int sseidx=(int)(p0>>(16-A2_SSEBITS));
+					CLAMP2_32(sseidx, sseidx, 0, (1<<A2_SSEBITS)-1);
 					long long ssesum=curr_sse[sseidx]>>A2_SSECTR, ssecount=curr_sse[sseidx]&((1LL<<A2_SSECTR)-1);
 					p0+=ssesum/(ssecount+160);
 					CLAMP2_32(p0, (int)p0, 1, 0xFFFF);
@@ -2053,50 +2140,54 @@ static void block_thread(void *param)
 					}
 					curr_sse[sseidx]=ssesum<<A2_SSECTR|ssecount;
 					{
-						int pred2=(char)(e2|1<<kb>>1)-pred;
+						//int grads=ctx[2]/2;
+						//grads=abs(ctx[1]/2);
+						//grads=pred/36;
+						grads=0;
+						int pred2=((char)(e2|1<<kb>>1)<<EBITS>>NBITS)-pred;
 						int sh=0;
 						switch(kb)
 						{
 						case 7:
-							sh=(ctx[2]/2+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
+							sh=(grads+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
 							if(sh<-1)sh=-1;
 							sh=FLOOR_LOG2(sh+1)+1;
 							break;
 						case 6:
-							sh=(ctx[2]/2-abs(pred2)+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
+							sh=(grads-abs(pred2)+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
 							if(sh<-1)sh=-1;
 							sh=FLOOR_LOG2(sh+1)+1;
 							break;
 						case 5:
-							sh=(ctx[2]/2-abs(pred2)+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
+							sh=(grads-abs(pred2)+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
 							if(sh<-1)sh=-1;
 							sh=FLOOR_LOG2(sh+1)+1;
 						//	sh=(9*(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1]))+abs(pred2))>>8;
 						//	sh=FLOOR_LOG2(sh);
 							break;
 						case 4:
-							sh=(ctx[2]/2-abs(pred2)/2+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
+							sh=(grads-abs(pred2)/2+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
 							if(sh<-1)sh=-1;
 							sh=FLOOR_LOG2(sh+1)+1;
 						//	sh=(9*(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1]))+abs(pred2))>>8;
 						//	sh=FLOOR_LOG2(sh);
 							break;
 						case 3:
-							sh=(ctx[2]/2-abs(pred2)/4+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
+							sh=(grads-abs(pred2)/4+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
 							if(sh<-1)sh=-1;
 							sh=FLOOR_LOG2(sh+1)+1;
 						//	sh=(9*(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1]))+abs(pred2))>>8;
 						//	sh=FLOOR_LOG2(sh);
 							break;
 						case 2:
-							sh=(ctx[2]/2-abs(pred2)/8+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
+							sh=(grads-abs(pred2)/8+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
 							if(sh<-1)sh=-1;
 							sh=FLOOR_LOG2(sh+1)+1;
 						//	sh=(9*(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1]))+abs(pred2))>>8;
 						//	sh=FLOOR_LOG2(sh);
 							break;
 						case 1:
-							sh=(ctx[2]/2+abs(pred2)/4+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
+							sh=(grads+abs(pred2)/4+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
 							if(sh<-1)sh=-1;
 							sh=FLOOR_LOG2(sh+1)+1;
 						//	sh=(8*(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1]))+2*abs(pred2))>>8;
@@ -2111,34 +2202,107 @@ static void block_thread(void *param)
 						//	sh=FLOOR_LOG2(sh+1);
 							break;
 						}
-						if(abs(prob_error)>16)
+						sh+=NBITS-EBITS;
+						if(sh<0)sh=0;
+						if(abs(prob_error)>64)
 						{
-							int dL_dp0=0x7F00000/((bit<<16)-(int)p0);
+#ifdef MIXERLAYERS
+#if 0
+							//p[i] = (mA*pa+mB*pb+mC*pc+mD*pd)/(mA+mB+mC+mD)
+							//p = (m1*p1+m2*p2+m3*p3)/(m1+m2+m3)
+							//L = -log2(pbit)
+							//dL/dm[i] = 1/(bit-p) * (p[i]-p)/wsum				'A2_NCTXGROUPS' values from mixer2
+							//dL/dm[X] = 1/(bit-p) * m[i]/wsum * (p[X]-p[i])/wsumX[i]	'A2_NCTX' values from mixer
+							long long dL_dp0=0x7C000000000/((bit<<16)-(int)p0);
+							for(int k2=0, j=0;k2<A2_NCTXGROUPS;++k2)
+							{
+								long long dL_dpi=((long long)dL_dp0*curr_mixer2[k2]/wsum);
+								for(int k=0;k<A2_CTXGROUPSIZE;++k, ++j)
+								{
+									int mk=curr_mixer2[j]-(int)((long long)dL_dpi*(curr_stats[j][tidx]-probs[k2])/wsumX[k2]>>9);
+									//CLAMP2_32(mk, mk, 1, MIXERCLAMP);
+									curr_mixer[j]=mk;
+								}
+								int mk=curr_mixer2[k2]-(int)(dL_dp0*(probs[k2]-(int)p0)/wsum>>9);
+								//CLAMP2_32(mk, mk, 1, MIXERCLAMP);
+								curr_mixer2[k2]=mk;
+							}
+#else
+							int error=(!bit<<16)-(int)p0;
+							for(int k2=0, j=0;k2<A2_NCTXGROUPS;++k2)
+							{
+								for(int k=0;k<A2_CTXGROUPSIZE;++k, ++j)
+								{
+									int mk=curr_mixer2[j];
+									mk+=(int)((long long)error*curr_stats[j][tidx]>>24);
+									//CLAMP2_32(mk, mk, -MIXERCLAMP, MIXERCLAMP);
+									curr_mixer[j]=mk;
+								}
+								int mk=curr_mixer2[k2];
+								mk+=(int)((long long)error*probs[k2]>>24);
+								//CLAMP2_32(mk, mk, -MIXERCLAMP, MIXERCLAMP);
+								curr_mixer2[k2]=mk;
+							}
+#endif
+#else
+							long long dL_dp0=0x1600000000/((bit<<16)-(int)p0);
 							for(int k=0;k<A2_NCTX;++k)
 							{
-								int mk=curr_mixer[k]-(int)(dL_dp0*(curr_stats[k][tidx]-(int)p0)/wsum>>sh);
-								CLAMP2_32(curr_mixer[k], mk, 1, 0x40000);
+								int mk=curr_mixer[k]-(int)(dL_dp0*(curr_stats[k][tidx]-(int)p0)/wsum>>9);
+								CLAMP2_32(mk, mk, 1, 0xC000);
+								curr_mixer[k]=mk;
 							}
+#endif
 						}
 						for(int k=0;k<A2_NCTX;++k)
 						{
 							int p=curr_stats[k][tidx];
 							p+=((!bit<<16)-p)>>(sh+4+(k>A2_NCTX/2));
-							CLAMP2_32(curr_stats[k][tidx], p, 1, 0xFFFF);
+							CLAMP2_32(p, p, 1, 0xFFFF);
+							curr_stats[k][tidx]=p;
 						}
 					}
 					curr_mixer+=A2_NCTX;
+#ifdef MIXERLAYERS
+					//curr_mixer2+=A2_NCTXGROUPS;//X
+#endif
 					curr_sse+=1<<A2_SSEBITS;
+#ifdef PREDICT_SIGN
+					tidx+=tidx+!bit;
+#else
 					tidx+=tidx+bit;
+#endif
 				}
 				if(!args->fwd)
 				{
+#ifdef PREDICT_SIGN
+					const int half=128;
+					int upred=half-abs(pred), negmask=0;
+					if(error<=(upred<<1))
+					{
+						error=error>>1^-(error&1);
+#ifdef ENABLE_BIASCORR
+						negmask=ibias_corr>>31&-(error!=-half);
+#endif
+					}
+					else
+					{
+						error=error-upred;
+						negmask=(-pred)>>31;
+					}
+					error^=negmask;
+					error-=negmask;
 					error+=pred;
+#else
+					error+=((pred<<NBITS)+(1<<EBITS>>1))>>EBITS;
 					error=error<<(32-8)>>(32-8);
-					curr[kc2+0]=yuv[kc]=error;
-					curr[kc2+1]=error-pred;
+#endif
+					yuv[kc]=error;
+					curr[kc2+0]=yuv[kc]<<EBITS>>NBITS;
+					curr[kc2+1]=curr[kc2+0]-pred;
 				}
 #elif defined ENABLE_ABAC
+				int token=0, bypass=0, nbits=0;
 				int tidx, token2;
 				int logits[ABAC_NCTRS*ABAC_NCTX];
 				unsigned short *curr_stats[ABAC_NCTX];
@@ -2273,6 +2437,7 @@ static void block_thread(void *param)
 			//	int *curr_mixer=args->mixer+ABAC_NCTX*(size_t)kc*ABAC_TOKEN_BITS;
 
 #elif defined ENABLE_MIX4
+				const int depth=8;
 				int cdf, freq=0, den;
 				int
 					vx=(abs(W[kc2]-WW[kc2])+abs(N[kc2]-NW[kc2])+abs(NE[kc2]-N  [kc2])+abs(WWW[kc2+1])+abs(WW[kc2+1])+abs(W[kc2+1])*2)<<10>>depth,
@@ -2354,36 +2519,38 @@ static void block_thread(void *param)
 		alphas[1],\
 		alphas[2]\
 	)
-
-//#define MIXCDF(X)\
-//	f28_mix8(\
-//		(curr_hist[0][X]<<14)/curr_hist[0][args->tlevels],\
-//		(curr_hist[1][X]<<14)/curr_hist[1][args->tlevels],\
-//		(curr_hist[2][X]<<14)/curr_hist[2][args->tlevels],\
-//		(curr_hist[3][X]<<14)/curr_hist[3][args->tlevels],\
-//		(curr_hist[4][X]<<14)/curr_hist[4][args->tlevels],\
-//		(curr_hist[5][X]<<14)/curr_hist[5][args->tlevels],\
-//		(curr_hist[6][X]<<14)/curr_hist[6][args->tlevels],\
-//		(curr_hist[7][X]<<14)/curr_hist[7][args->tlevels],\
-//		alphas[0],\
-//		alphas[1],\
-//		alphas[2]\
-//	)
-
-//#define MIXCDF(X)\
-//	f28_mix8(\
-//		curr_hist[0][X],\
-//		curr_hist[1][X],\
-//		curr_hist[2][X],\
-//		curr_hist[3][X],\
-//		curr_hist[4][X],\
-//		curr_hist[5][X],\
-//		curr_hist[6][X],\
-//		curr_hist[7][X],\
-//		alphas[0],\
-//		alphas[1],\
-//		alphas[2]\
-//	)
+#if 0
+#define MIXCDF(X)\
+	f28_mix8(\
+		(curr_hist[0][X]<<14)/curr_hist[0][args->tlevels],\
+		(curr_hist[1][X]<<14)/curr_hist[1][args->tlevels],\
+		(curr_hist[2][X]<<14)/curr_hist[2][args->tlevels],\
+		(curr_hist[3][X]<<14)/curr_hist[3][args->tlevels],\
+		(curr_hist[4][X]<<14)/curr_hist[4][args->tlevels],\
+		(curr_hist[5][X]<<14)/curr_hist[5][args->tlevels],\
+		(curr_hist[6][X]<<14)/curr_hist[6][args->tlevels],\
+		(curr_hist[7][X]<<14)/curr_hist[7][args->tlevels],\
+		alphas[0],\
+		alphas[1],\
+		alphas[2]\
+	)
+#endif
+#if 0
+#define MIXCDF(X)\
+	f28_mix8(\
+		curr_hist[0][X],\
+		curr_hist[1][X],\
+		curr_hist[2][X],\
+		curr_hist[3][X],\
+		curr_hist[4][X],\
+		curr_hist[5][X],\
+		curr_hist[6][X],\
+		curr_hist[7][X],\
+		alphas[0],\
+		alphas[1],\
+		alphas[2]\
+	)
+#endif
 				//if((unsigned)qctx[0]>=CXLEVELS||(unsigned)qctx[1]>=CYLEVELS||(unsigned)qctx[2]>=CZLEVELS)
 				//	LOG_ERROR("");
 				//for(int k=0;k<8;++k)
@@ -2451,6 +2618,7 @@ static void block_thread(void *param)
 				curr_hist=args->hist+cdfstride*(CLEVELS*kc+ctx);
 #define MIXCDF(X) curr_hist[X]
 #else
+				const int depth=8;
 				int cdf, freq=0, den;
 				int
 					vx=(abs(W[kc2]-WW[kc2])+abs(N[kc2]-NW[kc2])+abs(NE[kc2]-N  [kc2])+abs(WWW[kc2+1])+abs(WW[kc2+1])+abs(W[kc2+1])*2)<<10>>depth,
@@ -2464,6 +2632,7 @@ static void block_thread(void *param)
 				den=MIXCDF(args->tlevels);
 #endif
 #ifndef ENABLE_ABAC2
+				int sym=0;
 				//if(den<=0)
 				//{
 				//	for(int k=0;k<8;++k)
@@ -2498,13 +2667,14 @@ static void block_thread(void *param)
 					curr[kc2+1]=error=yuv[kc]-pred;
 #ifndef ENABLE_ABAC
 					{
+						const int half=128;
 						int upred=half-abs(pred), aval=abs(error);
 						if(aval<=upred)
 						{
 							sym=error;
 #ifdef ENABLE_BIASCORR
 							{
-								int negmask=-((ibias_corr<0)&(sym!=-halfs[ch]));//sign is flipped if SSE correction was negative, to skew the histogram
+								int negmask=-((ibias_corr<0)&(sym!=-half));//sign is flipped if SSE correction was negative, to skew the histogram
 								sym^=negmask;
 								sym-=negmask;
 							}
@@ -2658,6 +2828,7 @@ static void block_thread(void *param)
 						sym|=lsb;
 					}
 					{
+						const int half=128;
 						int upred=half-abs(pred), negmask=0;
 						if(sym<=(upred<<1))
 						{
@@ -2767,6 +2938,14 @@ static void block_thread(void *param)
 #endif
 #endif
 				curr[kc2+0]-=offset;
+				//NWW[kc2+1]+=curr[kc2+1]>>1;//bad
+				//NW[kc2+1]+=curr[kc2+1]<<1;
+				//N[kc2+1]+=curr[kc2+1]>>4;
+				//NE[kc2+1]+=curr[kc2+1]<<1;
+				//NEE[kc2+1]+=curr[kc2+1]>>1;
+				//NEEE[kc2+1]+=curr[kc2+1]>>1;
+				//W[kc2+1]-=N[kc2+1];//bad
+				//curr[kc2+1]=(2*W[kc2+1]+curr[kc2+1]+NEEE[kc2+1])>>2;//bad
 #ifndef DISABLE_WG
 				wg_update(curr[kc2+0], wg_preds, wg_perrors+WG_NPREDS*kc, wg_weights+WG_NPREDS*kc);
 #endif
@@ -2873,7 +3052,7 @@ int c02_codec(const char *srcfn, const char *dstfn)
 		
 		image2=0;
 	}
-	else//integrity check
+	else
 	{
 		dst=0;
 		printed=snprintf(g_buf, G_BUF_SIZE-1, "P6\n%d %d\n255\n", iw, ih);
