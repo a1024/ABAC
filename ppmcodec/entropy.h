@@ -515,7 +515,10 @@ INLINE void ac3_dec_update(AC3 *ec, unsigned cdf, unsigned freq)
 }
 INLINE void ac3_enc_update_NPOT(AC3 *ec, unsigned cdf, unsigned freq, unsigned den)
 {
-	unsigned long long q, r;
+	unsigned long long q;
+#ifdef AC3_PREC
+	unsigned long long r;
+#endif
 #ifdef AC_VALIDATE
 	unsigned long long lo0, r0;
 	if(!freq)
@@ -529,8 +532,8 @@ INLINE void ac3_enc_update_NPOT(AC3 *ec, unsigned cdf, unsigned freq, unsigned d
 	lo0=ec->low, r0=ec->range;
 #endif
 	q=ec->range/den;
-	r=ec->range%den;
 #ifdef AC3_PREC
+	r=ec->range%den;
 	ec->low+=q*cdf+r*cdf/den;
 	ec->range=q*freq+r*freq/den-1;
 #else
@@ -559,7 +562,10 @@ INLINE unsigned ac3_dec_getcdf_NPOT(AC3 *ec, unsigned den)
 }
 INLINE void ac3_dec_update_NPOT(AC3 *ec, unsigned cdf, unsigned freq, unsigned den)
 {
-	unsigned long long q=ec->range/den, r=ec->range%den;
+	unsigned long long q=ec->range/den;
+#ifdef AC3_PREC
+	unsigned long long r=ec->range%den;
+#endif
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
 	if(!freq)
@@ -629,7 +635,10 @@ INLINE int ac3_dec_bypass(AC3 *ec, int nbits)
 }
 INLINE void ac3_enc_bypass_NPOT(AC3 *ec, int bypass, int nlevels)
 {
-	unsigned long long q, r;
+	unsigned long long q;
+#ifdef AC3_PREC
+	unsigned long long r;
+#endif
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
 #endif
@@ -637,8 +646,8 @@ INLINE void ac3_enc_bypass_NPOT(AC3 *ec, int bypass, int nlevels)
 	AC3_RENORM_STATEMENT(ec->range<(unsigned)nlevels)
 		ac3_enc_renorm(ec);
 	q=ec->range/nlevels;
-	r=ec->range%nlevels;
 #ifdef AC3_PREC
+	r=ec->range%nlevels;
 	ec->low+=q*bypass+r*bypass/nlevels;
 	ec->range=q-1;
 #else
