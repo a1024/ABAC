@@ -9,10 +9,10 @@ static const char file[]=__FILE__;
 
 //	#define BENCH_QOI
 
-#define CODECID     28
-#define CODECNAME "F28"
-#define ENCODE     f28_encode
-#define DECODE     f28_decode
+#define CODECID     29
+#define CODECNAME "F29"
+#define ENCODE     f29_encode
+#define DECODE     f29_decode
 
 
 typedef struct ThreadArgsStruct
@@ -337,7 +337,7 @@ int main(int argc, char **argv)
 	//	"D:/ML/big_building.LSIM.PPM"
 		;
 	const char *fn=
-		"D:/ML/dataset-kodak-ppm/kodim13.ppm"
+	//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
 	//	"D:/ML/dataset-kodak-ppm/kodim20.ppm"
 	//	"D:/ML/dataset-kodak/kodim13.png"
 	//	"D:/ML/dataset-CLIC30-ppm/03.ppm"
@@ -366,10 +366,13 @@ int main(int argc, char **argv)
 	//	"D:/ML/dataset-CID22-ppm"
 	//	"D:/ML/dataset-kodak-small"
 
-	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
+		"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim24.ppm"	//borderless
 	//	"C:/Projects/datasets/dataset-kodak-pgm/kodim13.pgm"
 	//	"C:/Projects/datasets/dataset-kodak/kodim13.png"
+	//	"C:/Projects/datasets/kodim13-small4.PPM"
+	//	"C:/Projects/datasets/dataset-CLIC16-ppm/2048x1320_adam-willoughby-knox-56406.ppm"
+	//	"C:/Projects/datasets/dataset-CLIC16-ppm/2048x1320_eric-huang-35182.ppm"
 	//	"C:/Projects/datasets/kodim13-small4.PNG"
 	//	"C:/Projects/datasets/PNG_transparency_demonstration_1.png"
 	//	"C:/Projects/datasets/big_building.PPM"
@@ -377,6 +380,8 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_02.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA12811.ppm"
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA13891.ppm"
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA13943.ppm"	//highly skewed
 	//	"C:/Projects/datasets/dataset-ic-rgb16bit/flower_foveon.png"	//smallest 16-bit image
 	//	"C:/Projects/datasets/dataset-ic-rgb16bit/deer.png"
 	//	"C:/Projects/datasets/jupiter.PNG"		//actually 8-bit

@@ -26,6 +26,7 @@ static int cgrad(int N, int W, int NW)
 	MEDIAN3_32(pred, N, W, N+W-NW);
 	return pred;
 }
+#if 0
 static int clampav(int NW, int N, int NE, int WW, int W)
 {
 	ALIGN(16) int pred[4];
@@ -42,6 +43,7 @@ static int clampav(int NW, int N, int NE, int WW, int W)
 	_mm_store_si128((__m128i*)pred, vd);
 	return pred[0];
 }
+#endif
 #ifdef ENABLE_WGRAD
 static int wgrad(int N, int W, int X, int Y)//(X*N+Y*W)/(X+Y)
 {
@@ -277,6 +279,10 @@ typedef struct _ThreadArgs
 
 	DList list;
 	const unsigned char *decstart, *decend;
+
+	size_t nbypass;
+
+	double bestsize;
 } ThreadArgs;
 
 static const char *prednames[]=
@@ -859,11 +865,15 @@ static void block_thread(void *param)
 				for(int k=0;k<image->nch;++k)
 					combination[k]=group[k]|predsel[group[k]>>1];
 				comb_idx/=image->nch;
+
+				args->bestsize=best_csize;
 			}
 			else
 			{
 				comb_idx=0;
 				combination[0]=predsel[0];
+
+				args->bestsize=0;
 			}
 			flag=comb_idx<<image->nch;
 			for(int k=0;k<image->nch;++k)
@@ -894,6 +904,7 @@ static void block_thread(void *param)
 		//}
 		gr_enc_init(&ec, &args->list);
 		memset(args->pixels, 0, args->bufsize);
+		args->nbypass=0;
 		for(int ky=args->y1, idx=image->nch*image->iw*args->y1;ky<args->y2;++ky)
 		{
 			ALIGN(16) int *rows[]=
@@ -961,8 +972,10 @@ static void block_thread(void *param)
 #undef  PRED
 					}
 #ifndef UNROLL_DECODER
-					val[kc]=val[kc]<<1^-(val[kc]<0);
-					gr_enc_POT(&ec, val[kc], FLOOR_LOG2(W[kc+4]+1));
+					val[kc]=val[kc]<<1^val[kc]>>31;
+					int nbypass=FLOOR_LOG2(W[kc+4]+1);
+					args->nbypass+=nbypass;
+					gr_enc_POT(&ec, val[kc], nbypass);
 					curr[kc+4]=(2*W[kc+4]+val[kc]+NEEE[kc+4])>>2;
 #endif
 				}
@@ -1374,7 +1387,7 @@ int f23_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			for(int kt2=0;kt2<nthreads2;++kt2)
 			{
 				if(loud)
-					printf("[%d]  %zd\n", kt+kt2, args[kt2].list.nobj);
+					printf("[%4d]  bypass %10.2lf  total %10zd\n", kt+kt2, args[kt2].nbypass/8., args[kt2].list.nobj);
 				memcpy(data[0]->data+dststart+sizeof(int)*((ptrdiff_t)kt+kt2), &args[kt2].list.nobj, sizeof(int));
 				dlist_appendtoarray(&args[kt2].list, data);
 				dlist_clear(&args[kt2].list);

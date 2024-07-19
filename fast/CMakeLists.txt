@@ -26,7 +26,8 @@
 	f25.c
 	f26.c
 	f27.c
-	f28.c
+#	f28.c
+	f29.c
 	fast.c
 	format.c
 #	huffman.c

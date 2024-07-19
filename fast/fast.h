@@ -208,6 +208,11 @@ int	f28_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #define f28_encode(SRC, DATA, LOUD)		f28_codec(SRC, DATA, 0, 0, 0, LOUD)
 #define f28_decode(CBUF, CSIZE, DST, LOUD)	f28_codec(0, 0, CBUF, CSIZE, DST, LOUD)
 
+//	F29
+int	f29_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
+#define f29_encode(SRC, DATA, LOUD)		f29_codec(SRC, DATA, 0, 0, 0, LOUD)
+#define f29_decode(CBUF, CSIZE, DST, LOUD)	f29_codec(0, 0, CBUF, CSIZE, DST, LOUD)
+
 
 #ifdef __cplusplus
 }

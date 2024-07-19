@@ -1953,10 +1953,10 @@ int f26_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 			for(int kt2=0;kt2<nthreads2;++kt2)
 			{
 				ThreadArgs *arg=args+kt2;
-				int blocksize=(int)(arg->csizes[0]+arg->csizes[1]+arg->csizes[2]);
+				int blocksize=(arg->y2-arg->y1)*image->iw*image->nch*image->depth/8;
 				{
 					const int *group=rct_combinations[arg->bestrct];
-					g_rct_usizes[arg->bestrct]+=blocksize;
+					g_rct_usizes[arg->bestrct]+=arg->bestsize;
 					g_usizes[group[0]*PRED_COUNT+arg->predidx[0]]+=arg->usizes[0];
 					g_usizes[group[1]*PRED_COUNT+arg->predidx[1]]+=arg->usizes[1];
 					g_usizes[group[2]*PRED_COUNT+arg->predidx[2]]+=arg->usizes[2];

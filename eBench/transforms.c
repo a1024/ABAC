@@ -7146,6 +7146,7 @@ void pred_ols3(Image *src, int fwd, int enable_ma)
 	double *samples, *matrix, *matrix2, *temp;
 	const int *pixels;
 //	const int *errors;
+	double avparams[OLS3_NPARAMS2*3]={0};
 	double params[OLS3_NPARAMS2*3]={0};
 	int nlevels[]=
 	{
@@ -7269,6 +7270,7 @@ void pred_ols3(Image *src, int fwd, int enable_ma)
 									cparams[ky2]+=(sum-cparams[ky2])*0.2;
 								else
 									cparams[ky2]=sum;
+								avparams[OLS3_NPARAMS2*kc+ky2]+=cparams[ky2];
 							}
 							initialized[kc]=1;
 						}
@@ -7335,7 +7337,25 @@ void pred_ols3(Image *src, int fwd, int enable_ma)
 	}
 	//memcpy(src->data, dst->data, (size_t)src->iw*src->ih*sizeof(int[4]));
 	if(loud_transforms)
+	{
 		set_window_title("OLS3 %lf%%  %lf sec", 100.*successcount/(src->nch*src->iw*src->ih), time_sec()-t_start);
+		for(int k=0;k<(int)_countof(avparams);++k)
+			avparams[k]*=(double)src->nch/successcount;
+		int printed=0;
+		printed+=snprintf(g_buf+printed, G_BUF_SIZE-printed-1, "NW N NE W curr\n");
+		for(int kg=0;kg<3;++kg)
+		{
+			for(int ky=0;ky<3;++ky)
+			{
+				for(int kx=0;kx<5;++kx)
+					printed+=snprintf(g_buf+printed, G_BUF_SIZE-printed-1, " %+12.8lf", avparams[(kg*3+ky)*5+kx]);
+				printed+=snprintf(g_buf+printed, G_BUF_SIZE-printed-1, "\n");
+			}
+			printed+=snprintf(g_buf+printed, G_BUF_SIZE-printed-1, "\n");
+		}
+		copy_to_clipboard(g_buf, printed);
+		messagebox(MBOX_OK, "Copied to clipboard", g_buf);
+	}
 	if(!enable_ma)
 	{
 		++src->depth[0];
