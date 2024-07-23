@@ -74,8 +74,8 @@ if __name__=='__main__':
 			print('%4d %10d->%10d->%10d (%+10d)  A %8.3f %8.3f sec  B %8.3f %8.3f sec  %s'%(
 				idx+1,
 				usize, csize1, csize2, csize2-csize1,
-				elapsed_enc1, elapsed_enc2,
-				elapsed_enc1, elapsed_dec2,
+				elapsed_enc1, elapsed_dec1,
+				elapsed_enc2, elapsed_dec2,
 				name
 			))
 			utotal+=usize

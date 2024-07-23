@@ -106,8 +106,8 @@ int main(int argc, char **argv)
 #else
 	srcfn=
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
-	//	"C:/Projects/datasets/big_building.PPM"
-		"C:/Projects/datasets/kodim13.ppm"
+		"C:/Projects/datasets/big_building.PPM"
+	//	"C:/Projects/datasets/kodim13.ppm"
 	//	"C:/Projects/datasets/kodim13-small4.PPM"
 	//	"C:/Projects/datasets/dataset-CLIC30-ppm/03.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm"	//large
@@ -128,6 +128,6 @@ int main(int argc, char **argv)
 	//	"D:/ML/dataset-kodak-ppm/kodim13.c01.ppm"
 		;
 #endif
-	c02_codec(srcfn, dstfn);
+	c04_codec(srcfn, dstfn);
 	return 0;
 }

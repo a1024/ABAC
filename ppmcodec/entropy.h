@@ -1040,7 +1040,7 @@ INLINE void gr_dec_init(GolombRiceCoder *ec, const unsigned char *start, const u
 	ec->srcstart=start;
 }
 
-INLINE int gr_enc(GolombRiceCoder *ec, unsigned sym, unsigned magnitude)
+INLINE int gr_enc_NPOT(GolombRiceCoder *ec, unsigned sym, unsigned magnitude)
 {
 	//buffer: {c,c,c,b,b,a,a,a, f,f,f,e,e,e,d,c}, cache: MSB gg[hhh]000 LSB	nbits 6->3, code h is about to be emitted
 	//written 64-bit words are byte-reversed because the CPU is little-endian
@@ -1096,7 +1096,7 @@ INLINE int gr_enc(GolombRiceCoder *ec, unsigned sym, unsigned magnitude)
 	ec->cache|=(unsigned long long)bypass<<ec->nbits;
 	return 1;
 }
-INLINE unsigned gr_dec(GolombRiceCoder *ec, unsigned magnitude)
+INLINE unsigned gr_dec_NPOT(GolombRiceCoder *ec, unsigned magnitude)
 {
 	//cache: MSB 00[hhh]ijj LSB		nbits 6->3, h is about to be read (past codes must be cleared from cache)
 	
@@ -1157,7 +1157,7 @@ INLINE unsigned gr_dec(GolombRiceCoder *ec, unsigned magnitude)
 	return sym;
 }
 
-INLINE int gr_enc_POT(GolombRiceCoder *ec, int sym, int nbypass)
+INLINE int gr_enc(GolombRiceCoder *ec, int sym, int nbypass)
 {
 	//buffer: {c,c,c,b,b,a,a,a, f,f,f,e,e,e,d,c}, cache: MSB gg[hhh]000 LSB	nbits 6->3, code h is about to be emitted
 	//written 64-bit words are byte-reversed because the CPU is little-endian
@@ -1205,7 +1205,7 @@ INLINE int gr_enc_POT(GolombRiceCoder *ec, int sym, int nbypass)
 	ec->cache|=(unsigned long long)bypass<<ec->nbits;
 	return 1;
 }
-INLINE unsigned gr_dec_POT(GolombRiceCoder *ec, int nbypass)
+INLINE unsigned gr_dec(GolombRiceCoder *ec, int nbypass)
 {
 	//cache: MSB 00[hhh]ijj LSB		nbits 6->3, h is about to be read (past codes must be cleared from cache)
 	

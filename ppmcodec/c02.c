@@ -107,7 +107,7 @@ typedef enum _CRCTPermutation
 #undef  PERM
 	PERM_COUNT,
 } CRCTPermutation;
-int permutations[6][3]=
+static int permutations[6][3]=
 {
 #define PERM(L, A, B, C) {A, B, C},
 	PERMUTATIONLIST
@@ -755,7 +755,8 @@ typedef struct _ThreadArgs
 	int tlevels;
 #ifdef ENABLE_ABAC2
 	unsigned short stats2[3][A2_NCTX2][1<<A2_CTXBITS2][1<<A2_CTXBITS2][1<<8];
-	unsigned short stats[A2_NCTX*3<<A2_CTXBITS<<8];
+	unsigned stats[A2_NCTX*3<<A2_CTXBITS<<8];
+	unsigned long long stats0[3][1<<8];
 #ifdef PREDICT_SIGN
 	long long sse[9*3<<A2_SSEBITS];
 #else
@@ -790,7 +791,6 @@ static void block_thread(void *param)
 #endif
 	const unsigned char *image=args->fwd?args->src:args->dst;
 	//unsigned char bestrct=0, combination[6]={0}, predidx[4]={0};
-	int ystride=args->iw*3;
 #ifdef ENABLE_MIX4
 	int cdfstride=args->tlevels+1;
 	int nctx=args->clevels*args->clevels;
@@ -807,6 +807,7 @@ static void block_thread(void *param)
 #endif
 	if(args->fwd)
 	{
+		int ystride=args->iw*3;
 		int res=(args->x2-args->x1-2)/5*5*(args->y2-args->y1-1);
 		__m256i ramp[]=
 		{
@@ -861,11 +862,11 @@ static void block_thread(void *param)
 				{
 					__m128i nb8[]=//8-bit
 					{
-						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-1*ystride-1*3+0)), half8),//NW
-						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-1*ystride+0*3+0)), half8),//N
-						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-1*ystride+1*3+0)), half8),//NE
-						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr+0*ystride-1*3+0)), half8),//W
-						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr+0*ystride+0*3+0)), half8),//curr
+						_mm_xor_si128(_mm_loadu_si128((__m128i*)(ptr-1*ystride-1*3+0)), half8),//NW
+						_mm_xor_si128(_mm_loadu_si128((__m128i*)(ptr-1*ystride+0*3+0)), half8),//N
+						_mm_xor_si128(_mm_loadu_si128((__m128i*)(ptr-1*ystride+1*3+0)), half8),//NE
+						_mm_xor_si128(_mm_loadu_si128((__m128i*)(ptr+0*ystride-1*3+0)), half8),//W
+						_mm_xor_si128(_mm_loadu_si128((__m128i*)(ptr+0*ystride+0*3+0)), half8),//curr
 					};
 					for(int k=0;k<(int)_countof(rgb);++k)
 					{
@@ -1266,7 +1267,7 @@ static void block_thread(void *param)
 		}
 #endif
 
-		dlist_init(&args->list, 1, BLOCKSIZE*BLOCKSIZE*3, 0);
+		dlist_init(&args->list, 1, 1024, 0);
 #ifdef USE_GRCODER
 		gr_enc_init(&ec, &args->list);
 		gr_enc(&ec, permutation, PERM_COUNT);
@@ -1950,13 +1951,14 @@ static void block_thread(void *param)
 #ifdef PREDICT_SIGN
 	int mixer[9*3*A2_NCTX]={0};
 #else
-	int mixer[8*3*(A2_NCTX+A2_NCTX2)]={0};
+	int mixer[8*3*(1+A2_NCTX+A2_NCTX2)]={0};
 #ifdef MIXERLAYERS
 	int mixer2[8*3*A2_NCTXGROUPS]={0};
 	FILLMEM(mixer2, MIXERINIT, sizeof(mixer2), sizeof(int));
 #endif
 #endif
 	FILLMEM(mixer, MIXERINIT, sizeof(mixer), sizeof(int));
+	memset(args->stats0, 0, sizeof(args->stats0));
 	memset(args->stats, 0, sizeof(args->stats));
 	memset(args->stats2, 0, sizeof(args->stats2));
 	//FILLMEM(args->stats, 0x0000, sizeof(args->stats), sizeof(short));
@@ -2292,7 +2294,8 @@ static void block_thread(void *param)
 					yuv[kc]=curr[kc2+0]=error;
 				}
 #elif defined ENABLE_ABAC2
-				unsigned short *curr_stats[A2_NCTX];
+				unsigned long long *curr_stats0=args->stats0[kc];
+				unsigned *curr_stats[A2_NCTX];
 				int grads=abs(NE[kc2+0]-N[kc2+0])+abs(N[kc2+0]-NW[kc2+0])+abs(W[kc2+0]-NW[kc2+0]);
 				int ctx[]=
 				{
@@ -2375,7 +2378,7 @@ static void block_thread(void *param)
 				long long *curr_sse=args->sse+(kc*9LL<<A2_SSEBITS);
 				for(int kb=8, tidx=0, e2=0;kb>=0;--kb)
 #else
-				int *curr_mixer=mixer+kc*8*(A2_NCTX+A2_NCTX2);
+				int *curr_mixer=mixer+kc*8*(1+A2_NCTX+A2_NCTX2);
 #ifdef MIXERLAYERS
 				int *curr_mixer2=mixer2+kc*8*A2_NCTXGROUPS;
 #endif
@@ -2409,13 +2412,49 @@ static void block_thread(void *param)
 					p0=p0*6>>25;
 					//p0/=MIXERINIT*A2_NCTXGROUPS;
 #else
-					int probs[A2_NCTX+A2_NCTX2];
+					int probs[1+A2_NCTX+A2_NCTX2];
 					int j=0;
+					{
+						unsigned long long cell=curr_stats0[tidx];
+						int prevseq=(cell>>62);
+						const int c0=1, c1=29;
+						int n0=0, n1=0;
+						switch(prevseq)
+						{
+						case 0:
+							n0=(cell>>42&0x7F)*c0+(cell>>28&0x7F)*c0+(cell>>14&0x7F)*c0+(cell>>0&0x7F)*c1;
+							n1=(cell>>49&0x7F)*c0+(cell>>35&0x7F)*c0+(cell>>21&0x7F)*c0+(cell>>7&0x7F)*c1;
+							break;
+						case 1:
+							n0=(cell>>42&0x7F)*c0+(cell>>28&0x7F)*c0+(cell>>14&0x7F)*c1+(cell>>0&0x7F)*c0;
+							n1=(cell>>49&0x7F)*c0+(cell>>35&0x7F)*c0+(cell>>21&0x7F)*c1+(cell>>7&0x7F)*c0;
+							break;
+						case 2:
+							n0=(cell>>42&0x7F)*c0+(cell>>28&0x7F)*5+(cell>>14&0x7F)*c0+(cell>>0&0x7F)*c0;
+							n1=(cell>>49&0x7F)*c0+(cell>>35&0x7F)*5+(cell>>21&0x7F)*c0+(cell>>7&0x7F)*c0;
+							break;
+						case 3:
+							n0=(cell>>42&0x7F)*c1+(cell>>28&0x7F)*c0+(cell>>14&0x7F)*c0+(cell>>0&0x7F)*c0;
+							n1=(cell>>49&0x7F)*c1+(cell>>35&0x7F)*c0+(cell>>21&0x7F)*c0+(cell>>7&0x7F)*c0;
+							break;
+						}
+						probs[j]=(int)(((n1*2LL+1)<<16)/((n0+n1)*2+2));
+						p1+=(long long)curr_mixer[j]*probs[j];
+						wsum+=curr_mixer[j];
+						++j;
+					}
 					for(int k=0;k<A2_NCTX;++k)
 					{
-						int n0=curr_stats[k][tidx]&0xFF, n1=curr_stats[k][tidx]>>8&0xFF;
+						unsigned cell=curr_stats[k][tidx];
+						int prevbit=cell>>31;
+						int n0, n1;
+						if(prevbit)
+							n0=(cell>>14&0x7F)*7+(cell>>0&0x7F), n1=(cell>>21&0x7F)*7+(cell>>7&0x7F);
+						else
+							n0=(cell>>14&0x7F)+(cell>>0&0x7F)*7, n1=(cell>>21&0x7F)+(cell>>7&0x7F)*7;
+						//int n0=curr_stats[k][tidx]&0xFF, n1=curr_stats[k][tidx]>>8&0xFF;
 						probs[j]=(int)(((n1*2LL+1)<<16)/((n0+n1)*2+2));
-						p1+=(long long)curr_mixer[k]*probs[j];
+						p1+=(long long)curr_mixer[j]*probs[j];
 						wsum+=curr_mixer[j];
 						++j;
 					}
@@ -2562,7 +2601,7 @@ static void block_thread(void *param)
 #endif
 #else
 							long long dL_dp1=0x1600000000/((!bit<<16)-(int)p1);
-							for(int k=0;k<A2_NCTX+A2_NCTX2;++k)
+							for(int k=0;k<1+A2_NCTX+A2_NCTX2;++k)
 							{
 								int mk=curr_mixer[k]-(int)(dL_dp1*(probs[k]-(int)p1)/wsum>>9);
 								CLAMP2_32(mk, mk, 1, 0xC000);
@@ -2570,16 +2609,88 @@ static void block_thread(void *param)
 							}
 #endif
 						}
-						for(int k=0;k<A2_NCTX;++k)
 						{
-							int c[]={curr_stats[k][tidx]&0xFF, curr_stats[k][tidx]>>8&0xFF};
-							if(c[bit]>=255)
+							unsigned long long cell=curr_stats0[tidx];
+							int prevseq=(cell>>62);
+							int ctrs[]=
+							{
+								cell>> 0&0x7F,
+								cell>> 7&0x7F,
+								cell>>14&0x7F,
+								cell>>21&0x7F,
+								cell>>28&0x7F,
+								cell>>35&0x7F,
+								cell>>42&0x7F,
+								cell>>49&0x7F,
+							};
+							int *c=ctrs+prevseq*2;
+							//switch(prevseq)
+							//{
+							//case 0:
+							//	c[0]=cell>>0&0x7F;
+							//	c[1]=cell>>7&0x7F;
+							//	break;
+							//case 1:
+							//	c[0]=cell>>14&0x7F;
+							//	c[1]=cell>>21&0x7F;
+							//	break;
+							//case 2:
+							//	c[0]=cell>>28&0x7F;
+							//	c[1]=cell>>35&0x7F;
+							//	break;
+							//case 3:
+							//	c[0]=cell>>42&0x7F;
+							//	c[1]=cell>>49&0x7F;
+							//	break;
+							//}
+							if(c[bit]>=127)
 							{
 								c[0]>>=1;
 								c[1]>>=1;
 							}
 							++c[bit];
-							curr_stats[k][tidx]=c[1]<<8|c[0];
+							prevseq=prevseq<<1|bit;
+							curr_stats0[tidx]=
+								(unsigned long long)prevseq<<62|
+								(unsigned long long)c[7]<<49|
+								(unsigned long long)c[6]<<42|
+								(unsigned long long)c[5]<<35|
+								(unsigned long long)c[4]<<28|
+								(unsigned long long)c[3]<<21|
+								(unsigned long long)c[2]<<14|
+								(unsigned long long)c[1]<<7|
+								(unsigned long long)c[0];
+
+						}
+						for(int k=0;k<A2_NCTX;++k)
+						{
+							unsigned cell=curr_stats[k][tidx];
+							int prevbit=cell>>31;
+							int c[2];
+							if(prevbit)
+								c[0]=cell>>14&0x7F, c[1]=cell>>21&0x7F;
+							else
+								c[0]=cell>>0&0x7F, c[1]=cell>>7&0x7F;
+							if(c[bit]>=127)
+							{
+								c[0]>>=1;
+								c[1]>>=1;
+							}
+							++c[bit];
+							if(prevbit)
+								cell=bit<<31|c[1]<<21|c[0]<<14|cell&0x3FFF;
+							else
+								cell=bit<<31|cell&0xFFFC000|c[1]<<7|c[0];
+							curr_stats[k][tidx]=cell;
+
+							//int c[]={curr_stats[k][tidx]&0xFF, curr_stats[k][tidx]>>8&0xFF};
+							//if(c[bit]>=255)
+							//{
+							//	c[0]>>=1;
+							//	c[1]>>=1;
+							//}
+							//++c[bit];
+							//curr_stats[k][tidx]=c[1]<<8|c[0];
 
 							//p+=((!bit<<16)-p)>>(sh+4+(k>A2_NCTX/2));
 							//CLAMP2_32(p, p, 1, 0xFFFF);
@@ -2615,7 +2726,7 @@ static void block_thread(void *param)
 						//	++j;
 						//}
 					}
-					curr_mixer+=A2_NCTX+A2_NCTX2;
+					curr_mixer+=1+A2_NCTX+A2_NCTX2;
 #ifdef MIXERLAYERS
 					//curr_mixer2+=A2_NCTXGROUPS;//X
 #endif
@@ -3467,7 +3578,7 @@ int c02_codec(const char *srcfn, const char *dstfn)
 		arg->dst=fwd?0:dst->data+printed;
 		arg->iw=iw;
 		arg->ih=ih;
-		arg->bufsize=sizeof(short[4*OCH_COUNT*2*(BLOCKSIZE+16LL)]);//4 padded rows * OCH_COUNT * {pixels, wg_errors}
+		arg->bufsize=sizeof(short[4*4*2*(BLOCKSIZE+16LL)]);//4 padded rows * 4 channels max * {pixels, wg_errors}
 		arg->pixels=(short*)_mm_malloc(arg->bufsize, sizeof(__m128i));
 
 		//arg->histsize=histsize;
