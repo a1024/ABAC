@@ -14,11 +14,8 @@ extern "C"
 #endif
 
 
-	//done		AC should renorm then encode/decode
-	//FIXME		AC bypass should do less shifts
-
-
 //	#define AC_VALIDATE
+
 
 #ifdef AC_VALIDATE
 void acval_enc(int sym, int cdf, int freq, unsigned long long lo1, unsigned long long hi1, unsigned long long lo2, unsigned long long hi2, unsigned long long cache, int nbits);
@@ -1085,51 +1082,30 @@ INLINE int ac_dec_bypass(ArithmeticCoder *ec, int nbits)
 
 INLINE void ac_enc_bypass_NPOT(ArithmeticCoder *ec, int sym, int nlevels)//CDF is 16 bit
 {
-	unsigned cdf=(sym<<PROB_BITS)/nlevels;
-	int freq=((sym+1)<<PROB_BITS)/nlevels-cdf;
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
 	if(freq<=0)
 		LOG_ERROR2("ZPS");
 #endif
-	while(ec->range<(1LL<<PROB_BITS))
+	while(ec->range<(unsigned)nlevels)
 		ac_enc_renorm(ec);
-	ec->low+=ec->range*cdf>>PROB_BITS;
-	ec->range*=freq;
-	ec->range>>=PROB_BITS;
-	--ec->range;//must decrement hi because decoder fails when code == hi2
-	acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);//
-	//acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->cidx);//
+	ec->low+=ec->range*sym/nlevels;
+	ec->range=ec->range/nlevels-1;
+	acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
 }
 INLINE int ac_dec_bypass_NPOT(ArithmeticCoder *ec, int nlevels)
 {
-	unsigned cdf;
-	int freq;
 	int sym;
 	
-	while(ec->range<(1LL<<PROB_BITS))
+	while(ec->range<(unsigned)nlevels)
 		ac_dec_renorm(ec);
-	cdf=(int)(((ec->code-ec->low)<<PROB_BITS)/ec->range);//FIXME
-	sym=(cdf*nlevels>>PROB_BITS)+1;//this is to handle the case when code == lo2
-	cdf=(sym<<PROB_BITS)/nlevels;//FIXME
-	if(ec->low+(ec->range*cdf>>PROB_BITS)>ec->code)//FIXME
-	{
-		--sym;
-		cdf=(sym<<PROB_BITS)/nlevels;
-	}
-
-	freq=((sym+1)<<PROB_BITS)/nlevels-cdf;
+	sym=(int)(((ec->code-ec->low)*nlevels+nlevels-1)/ec->range);
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
-	if(freq<=0)
-		LOG_ERROR2("ZPS");
 #endif
-	ec->low+=ec->range*cdf>>PROB_BITS;
-	ec->range*=freq;
-	ec->range>>=PROB_BITS;
-	--ec->range;//must decrement hi because decoder fails when code == hi2
-	acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);//
-	//acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, ec->cache, ec->cidx, ec->code);//
+	ec->low+=ec->range*sym/nlevels;
+	ec->range=ec->range/nlevels-1;
+	acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
 	return sym;
 }
 

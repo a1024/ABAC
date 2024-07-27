@@ -977,6 +977,8 @@ static void block_thread(void *param)
 					args->nbypass+=nbypass;
 					gr_enc_POT(&ec, val[kc], nbypass);
 					curr[kc+4]=(2*W[kc+4]+val[kc]+NEEE[kc+4])>>2;
+					//curr[kc+4]=(W[kc+4]+val[kc]+NEEE[kc+4])/3;
+					//curr[kc+4]=(4*W[kc+4]+val[kc]+3*NEEE[kc+4])>>3;
 #endif
 				}
 #ifdef UNROLL_DECODER
@@ -1287,6 +1289,8 @@ static void block_thread(void *param)
 #ifndef UNROLL_DECODER
 					val[kc]=gr_dec_POT(&ec, FLOOR_LOG2(W[kc+4]+1));
 					curr[kc+4]=(2*W[kc+4]+val[kc]+NEEE[kc+4])>>2;
+					//curr[kc+4]=(W[kc+4]+val[kc]+NEEE[kc+4])/3;
+					//curr[kc+4]=(4*W[kc+4]+val[kc]+3*NEEE[kc+4])>>3;
 					val[kc]=val[kc]>>1^-(val[kc]&1);
 #endif
 					switch(combination[kc])

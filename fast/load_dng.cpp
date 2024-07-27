@@ -70,6 +70,7 @@ extern "C" int load_dng(const char *fn, Image *dst)
 		return 0;
 	}
 	memset(dst->data, 0, bufsize);
+	size_t size=src.data.size();
 	const unsigned char *data=src.data.data();
 	int nlevels=1<<src.bits_per_sample, half=nlevels>>1;
 	for(int ky=0, idx=0, kb2=0;ky<dst->ih;++ky)
@@ -77,9 +78,9 @@ extern "C" int load_dng(const char *fn, Image *dst)
 		for(int kx=0;kx<dst->iw;++kx, ++idx)
 		{
 			unsigned val=0;
-			for(int kb=0;kb<dst->depth;++kb, ++kb2)
+			for(int kb=dst->depth-1;kb>=0;--kb, ++kb2)
 			{
-				int bit=data[kb2>>3]>>(kb2&7)&1;
+				int bit=data[kb2>>3]>>(7-(kb2&7))&1;
 				val|=bit<<kb;
 			}
 			dst->data[idx]=(short)(val-half);

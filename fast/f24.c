@@ -950,7 +950,7 @@ static void block_enc(void *param)
 	ThreadArgs *args=(ThreadArgs*)param;
 #ifdef USE_AC
 	ArithmeticCoder ec;
-	int chalf=args->clevels>>1;
+	//int chalf=args->clevels>>1;
 #ifdef CTX_MIN_NW
 	int nctx=args->clevels;
 #else
@@ -1879,7 +1879,7 @@ static void block_dec(void *param)
 	ThreadArgs *args=(ThreadArgs*)param;
 #ifdef USE_AC
 	ArithmeticCoder ec;
-	int chalf=args->clevels>>1;
+	//int chalf=args->clevels>>1;
 #ifdef CTX_MIN_NW
 	int nctx=args->clevels;
 #else

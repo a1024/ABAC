@@ -213,6 +213,21 @@ int	f29_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #define f29_encode(SRC, DATA, LOUD)		f29_codec(SRC, DATA, 0, 0, 0, LOUD)
 #define f29_decode(CBUF, CSIZE, DST, LOUD)	f29_codec(0, 0, CBUF, CSIZE, DST, LOUD)
 
+//	F30 JPEG2000, CG, Q, o2, AC
+int	f30_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
+#define f30_encode(SRC, DATA, LOUD)		f30_codec(SRC, DATA, 0, 0, 0, LOUD)
+#define f30_decode(CBUF, CSIZE, DST, LOUD)	f30_codec(0, 0, CBUF, CSIZE, DST, LOUD)
+
+//	F31 color NBLIC by WangXuan95
+int	f31_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
+#define f31_encode(SRC, DATA, LOUD)		f31_codec(SRC, DATA, 0, 0, 0, LOUD)
+#define f31_decode(CBUF, CSIZE, DST, LOUD)	f31_codec(0, 0, CBUF, CSIZE, DST, LOUD)
+
+//	F32 RAW codec
+int	f32_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
+#define f32_encode(SRC, DATA, LOUD)		f32_codec(SRC, DATA, 0, 0, 0, LOUD)
+#define f32_decode(CBUF, CSIZE, DST, LOUD)	f32_codec(0, 0, CBUF, CSIZE, DST, LOUD)
+
 
 #ifdef __cplusplus
 }
