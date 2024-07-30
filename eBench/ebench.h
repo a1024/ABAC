@@ -648,6 +648,7 @@ Image* paste_bmp_from_clipboard(void);//window.c
 
 
 //extern Image *im0, *im1;
+extern ArrayHandle fn;
 extern double ch_entropy[4];
 extern int loud_transforms;
 void update_image(void);
@@ -716,6 +717,7 @@ void pred_palette(Image *src, int fwd);
 
 void pred_CG3D(Image *src, int fwd, int enable_ma);
 void pred_PU(Image *src, int fwd);
+void pred_divfreeWP(Image *src, int fwd);
 void pred_wgrad(Image *src, int fwd, int hasRCT);
 void pred_wgrad2(Image *src, int fwd);
 void pred_wgrad3(Image *src, int fwd, int hasRCT);
@@ -745,6 +747,7 @@ extern unsigned char ols4_cache;
 extern unsigned char ols4_mask[4][OLS4_CTXSIZE+1];
 void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsigned char *mask1, unsigned char *mask2, unsigned char *mask3, int fwd);
 void pred_ols5(Image *src, int fwd);
+void pred_ols6(Image *src, int fwd);
 
 void pred_select(Image const *src, Image *dst, int fwd, int enable_ma);
 
@@ -761,6 +764,7 @@ extern int custom_clamp[4];//W NW N NE
 extern int custom_pred_ch_idx;
 void pred_custom(Image *src, int fwd, int enable_ma, const int *params);
 void pred_custom_optimize(Image const *image, int *params);
+void conv_custom(Image *src);
 
 #define PW2_NPRED 20	//63
 #define PW2_NPARAM (PW2_NPRED+11)

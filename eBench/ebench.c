@@ -89,12 +89,14 @@ typedef enum TransformTypeEnum
 	ST_FWD_G2,		ST_INV_G2,
 	ST_FWD_MM,		ST_INV_MM,
 	ST_FWD_WP,		ST_INV_WP,
+	ST_FWD_WP2,		ST_INV_WP2,
 	ST_FWD_WPU,		ST_INV_WPU,
 	ST_FWD_DEFERRED,	ST_INV_DEFERRED,
 	ST_FWD_WC,		ST_INV_WC,	//irreversible conv
 	ST_FWD_CUSTOM4,		ST_INV_CUSTOM4,	//irreversible conv
 	ST_FWD_CUSTOM3,		ST_INV_CUSTOM3,
 	ST_FWD_CUSTOM,		ST_INV_CUSTOM,
+	ST_FWD_CC,		ST_INV_CC,
 //	ST_FWD_NBLIC,		ST_INV_NBLIC,
 	ST_FWD_CALIC,		ST_INV_CALIC,
 	ST_FWD_OLS,		ST_INV_OLS,
@@ -102,6 +104,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_OLS3,		ST_INV_OLS3,
 	ST_FWD_OLS4,		ST_INV_OLS4,
 	ST_FWD_OLS5,		ST_INV_OLS5,
+	ST_FWD_OLS6,		ST_INV_OLS6,
 	ST_FWD_PU,		ST_INV_PU,
 	ST_FWD_CG3D,		ST_INV_CG3D,
 	ST_FWD_WGRAD,		ST_INV_WGRAD,
@@ -1301,7 +1304,11 @@ static int customtransforms_getflag(unsigned char tid)
 		tid==CT_FWD_CUSTOM||
 		tid==CT_INV_CUSTOM||
 		tid==ST_FWD_CUSTOM||
-		tid==ST_INV_CUSTOM;
+		tid==ST_INV_CUSTOM||
+		tid==ST_FWD_CC||
+		tid==ST_INV_CC||
+		tid==ST_FWD_OLS6||
+		tid==ST_INV_OLS6;
 	//	tid==ST_FWD_WP||
 	//	tid==ST_INV_WP;
 	//	tid==ST_FWD_EXPDWT||
@@ -1472,6 +1479,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_OLS4:		a=" S Inv OLS-4";		break;
 	case ST_FWD_OLS5:		a=" S Fwd OLS-5";		break;
 	case ST_INV_OLS5:		a=" S Inv OLS-5";		break;
+	case ST_FWD_OLS6:		a=" S Fwd OLS-6";		break;
+	case ST_INV_OLS6:		a=" S Inv OLS-6";		break;
 	case ST_FWD_PU:			a="CS Fwd PU";			break;
 	case ST_INV_PU:			a="CS Inv PU";			break;
 	case ST_FWD_CG3D:		a="CS Fwd CG3D";		break;
@@ -1508,6 +1517,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 //	case ST_INV_NBLIC:		a=" S Inv NBLIC";		break;
 	case ST_FWD_WP:			a=" S Fwd JXL WP";		break;
 	case ST_INV_WP:			a=" S Inv JXL WP";		break;
+	case ST_FWD_WP2:		a=" S Fwd WP2";			break;
+	case ST_INV_WP2:		a=" S Inv WP2";			break;
 	case ST_FWD_WPU:		a="CS Fwd WPU";			break;
 	case ST_INV_WPU:		a="CS Inv WPU";			break;
 	case ST_FWD_DEFERRED:		a=" S Fwd DEFERRED";		break;
@@ -1516,6 +1527,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_MM:			a=" S Inv MM";			break;
 	case ST_FWD_CUSTOM:		a=" S Fwd CUSTOM";		break;
 	case ST_INV_CUSTOM:		a=" S Inv CUSTOM";		break;
+	case ST_FWD_CC:			a=" S Fwd CC";			break;
+	case ST_INV_CC:			a=" S Inv CC";			break;
 #if 0
 //	case ST_FWD_CUSTOM2:		a=" S Fwd CUSTOM2";		break;
 //	case ST_INV_CUSTOM2:		a=" S Inv CUSTOM2";		break;
@@ -2503,6 +2516,8 @@ void apply_selected_transforms(Image *image, int rct_only)
 		case ST_INV_CUSTOM3:		custom3_apply(image, 0, pred_ma_enabled, &c3_params);	break;
 		case ST_FWD_CUSTOM:		pred_custom(image, 1, pred_ma_enabled, custom_params);	break;
 		case ST_INV_CUSTOM:		pred_custom(image, 0, pred_ma_enabled, custom_params);	break;
+		case ST_FWD_CC:			conv_custom(image);					break;
+		case ST_INV_CC:			conv_custom(image);					break;
 	//	case ST_FWD_CUSTOM4:		custom4_apply((char*)image, iw, ih, 1, &c4_params);	break;
 	//	case ST_INV_CUSTOM4:		custom4_apply((char*)image, iw, ih, 0, &c4_params);	break;
 	//	case ST_FWD_KALMAN:		kalman_apply((char*)image, iw, ih, 1);			break;
@@ -2531,6 +2546,8 @@ void apply_selected_transforms(Image *image, int rct_only)
 	//	case ST_INV_NBLIC:		pred_nblic((char*)image, iw, ih, 0);			break;
 		case ST_FWD_WP:			pred_jxl_apply(image, 1, pred_ma_enabled, jxlparams_i16);break;
 		case ST_INV_WP:			pred_jxl_apply(image, 0, pred_ma_enabled, jxlparams_i16);break;
+		case ST_FWD_WP2:		pred_divfreeWP(image, 1);				break;
+		case ST_INV_WP2:		pred_divfreeWP(image, 0);				break;
 		case ST_FWD_WPU:		pred_WPU(image, 1);					break;
 		case ST_INV_WPU:		pred_WPU(image, 0);					break;
 		case ST_FWD_DEFERRED:		pred_wp_deferred(image, 1);				break;
@@ -2547,6 +2564,8 @@ void apply_selected_transforms(Image *image, int rct_only)
 		case ST_INV_OLS4:		pred_ols4(image, ols4_period, ols4_lr, ols4_mask[0], ols4_mask[1], ols4_mask[2], ols4_mask[3], 0);break;
 		case ST_FWD_OLS5:		pred_ols5(image, 1);					break;
 		case ST_INV_OLS5:		pred_ols5(image, 0);					break;
+		case ST_FWD_OLS6:		pred_ols6(image, 1);					break;
+		case ST_INV_OLS6:		pred_ols6(image, 0);					break;
 		case ST_FWD_PACKSIGN:		packsign(image, 1);					break;
 		case ST_INV_PACKSIGN:		packsign(image, 0);					break;
 		case ST_FWD_MTF:		pred_MTF(image, 1);					break;
@@ -3643,7 +3662,10 @@ int io_mousewheel(int forward)
 #endif
 				break;
 			case 1://spatial transform params
-				if(!transforms_mask[ST_FWD_CUSTOM]&&!transforms_mask[ST_INV_CUSTOM])
+				if(!transforms_mask[ST_FWD_CUSTOM]&&!transforms_mask[ST_INV_CUSTOM]&&
+					!transforms_mask[ST_FWD_CC]&&!transforms_mask[ST_INV_CC]&&
+					!transforms_mask[ST_FWD_OLS6]&&!transforms_mask[ST_INV_OLS6]
+				)
 					break;
 				if(!celly)
 				{
@@ -5916,6 +5938,135 @@ static void draw_profile_y(int comp, int color)//vertical cross-section profile
 	}
 }
 
+#if 0
+#define DSP_REACH 5
+//#define DSP_NPARAMS (2*(DSP_REACH+1)*DSP_REACH)
+static double dspparams[]=
+{
+	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+	0,	0,	0,	0,	0,	0.1,	0,	0,	0,	0,	0,
+	0,	0,	0,	0,	0.1,	0,	0.2,	0,	0,	0,	0,
+	0,	0,	0,	0.1,	0,	0,	0,	0.1,	0.1,	0,	0,
+	0,	0,	0.1,	0.1,	0,	0.1,	(0),	(0),	(0),	(0),	(0),
+
+	//0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+	//0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+	//0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+	//0,	0,	0,	0,	0,	0.2,	0,	0,	0,	0,	0,
+	//0,	0,	0,	0,	0.2,	0,	0.1,	0.2,	0,	0,	0,
+	//0,	0,	0,	0.2,	0,	0.1,	(0),	(0),	(0),	(0),	(0),
+	
+	//0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+	//0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+	//0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+	//0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+	//0,	0,	0,	0,	0.05,	0.05,	0.05,	0.05,	0.25,	0,	0,
+	//0,	0,	0,	0.3,	0.20,	0.05,	(0),	(0),	(0),	(0),	(0),
+
+	//curr = (2*W+curr+NEEE)>>2:
+	//0,	0,	0,	0.3,	0.25,	(0.25),	(0),	(0),	(0),	(0),	(0),
+	//0,	0,	0,	0,	0.05,	0.05,	0.05,	0.05,	0.25,	0,	0,
+	//0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+	//0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+	//0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+	//0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+
+	//0,	0,	0,	0,	0.15,	(0.25),	(0),	(0),	(0),	(0),	(0),
+	//0,	0,	0,	0,	0.15,	0.15,	0.15,	0.15,	0.25,	0,	0,
+	//0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+	//0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+	//0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+	//0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+
+	//curr = (2*W+curr+NEEE)>>2:
+	//0,	0,	0,	0,	0.5,	(0.25),	(0),	(0),	(0),	(0),	(0),
+	//0,	0,	0,	0,	0,	0,	0,	0,	0.25,	0,	0,
+	//0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+	//0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+	//0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+	//0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+};
+static double *dspbuf=0;
+static int *exbuf=0;
+static const int dspw=1024, dsph=512;
+static void dsp_update()
+{
+	if(!dspbuf)
+	{
+		dspbuf=(double*)malloc(sizeof(double)*dspw*dsph);
+		exbuf=(int*)malloc(sizeof(int)*dspw*dsph);
+		if(!dspbuf||!exbuf)
+		{
+			LOG_ERROR("Alloc error");
+			return;
+		}
+	}
+	memset(dspbuf, 0, sizeof(double)*dspw*dsph);
+	//dspbuf[dspw>>1]=256;
+	for(int ky=0;ky<dsph;++ky)
+	{
+		for(int kx=0;kx<dspw;++kx)
+		{
+			int dx=kx-dspw/2, dy=ky-dsph/2, dist=100-abs(dx*dx+dy*dy-100*100);
+			if(dist<0)
+				dist=0;
+			double val=255*dist;
+			if((unsigned)(kx-dspw/2+25)<50&&(unsigned)(ky-dsph/2+25)<50)
+				val=255;
+			if((unsigned)(kx-dspw/2+10)<20&&(unsigned)(ky-dsph/2+10)<20)
+				val=0;
+			dspbuf[dspw*ky+kx]=val;
+			//double val=(unsigned)(kx-dspw/2)<10&&(unsigned)(ky-dsph/4)<10?255:0;
+			//double val=kx==dspw/2&&ky==1?255:0;
+			//double val=dspbuf[dspw*ky+kx];
+
+			val=0;
+			for(int ky2=-DSP_REACH;ky2<=0;++ky2)
+			{
+				for(int kx2=-DSP_REACH;kx2<=DSP_REACH;++kx2)
+				{
+					if((unsigned)(ky+ky2)<dsph&&(unsigned)(kx+kx2)<dspw)
+						val+=dspbuf[dspw*(ky+ky2)+kx+kx2]*dspparams[(DSP_REACH<<1|1)*(ky2+DSP_REACH)+kx2+DSP_REACH];
+					if(!ky2&&!kx2)
+						break;
+				}
+			}
+			dspbuf[dspw*ky+kx]=val;
+			int ival=(int)val;
+			CLAMP2_32(ival, ival, 0, 255);
+			exbuf[dspw*ky+kx]=0xFF000000|ival<<16|ival<<8|ival;
+		}
+	}
+	for(int kx=0;kx<dspw;++kx)
+		exbuf[dspw*(dsph/2)+kx]^=255;
+	for(int ky=0;ky<dsph;++ky)
+		exbuf[dspw*ky+dspw/2]^=255;
+	//double *ptr=dspparams+DSP_REACH-1;
+	//*ptr+=0.001;
+	//if(*ptr>0.75)
+	//	*ptr=0;
+}
+static void dsp_render()
+{
+	int
+		sx1=image2screen_x_int(0), sx2=image2screen_x_int(dspw),
+		sy1=image2screen_y_int(0), sy2=image2screen_y_int(dsph);
+	if(exbuf)
+		display_texture_i(sx1, sx2, sy1, sy2, exbuf, dspw, dsph, 0, 1, 0, 1, 1, 0);
+	if(drag)
+	{
+		for(int ky=0;ky<DSP_REACH;++ky)
+		{
+			for(int kx=0;kx<(DSP_REACH<<1|1);++kx)
+			{
+				GUIPrint(0, (float)(kx*wndw/(DSP_REACH<<1|1)), (float)(ky*wndh/DSP_REACH), guizoom, "%lf", dspparams[(DSP_REACH<<1|1)*ky+kx]);
+			}
+		}
+	}
+}
+#endif
+
 static ArrayHandle vertices_text=0;
 static void print_pixellabels(int ix1, int ix2, int iy1, int iy2, int component, char label, long long txtcolors, int depth)
 {
@@ -5962,6 +6113,10 @@ void io_render(void)
 	if(!wndh)
 		return;
 
+	//{
+	//	dsp_update();//
+	//	dsp_render();//
+	//}
 	{
 		float axes[]=
 		{
@@ -6427,7 +6582,11 @@ void io_render(void)
 			//GUIPrint(0, x, y+ystep*4, guizoom, "g+=(%c%c%8.3lf)r+(%c%c%8.3lf)b", sel[ 8], sel[ 8], customparam_ct[ 8], sel[ 9], sel[ 9], customparam_ct[ 9]);
 			//GUIPrint(0, x, y+ystep*5, guizoom, "b+=(%c%c%8.3lf)r+(%c%c%8.3lf)g", sel[10], sel[10], customparam_ct[10], sel[11], sel[11], customparam_ct[11]);
 		}
-		if(transforms_mask[ST_FWD_CUSTOM]||transforms_mask[ST_INV_CUSTOM])
+		if(
+			transforms_mask[ST_FWD_CUSTOM]||transforms_mask[ST_INV_CUSTOM]||
+			transforms_mask[ST_FWD_CC]||transforms_mask[ST_INV_CC]||
+			transforms_mask[ST_FWD_OLS6]||transforms_mask[ST_INV_OLS6]
+		)
 		{
 			int c0=set_bk_color(0x80FFFFFF);
 			int *params=custom_params+CUSTOM_NNB*2*custom_pred_ch_idx;

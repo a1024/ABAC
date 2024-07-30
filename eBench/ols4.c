@@ -227,6 +227,53 @@ unsigned char ols4_mask[4][OLS4_CTXSIZE+1]=//MSB {E3 E2 E1 E0  P3 P2 P1 P0} LSB,
 	},
 #endif
 };
+static int solve_Mx_v(double *matrix, double *vec, int size)
+{
+	int success=1;
+	for(int it=0;it<size;++it)
+	{
+		int kp;
+		double pivot;
+
+		kp=it;
+		for(;kp<size;++kp)
+		{
+			if(fabs(matrix[size*kp+it])>1e-6)
+				break;
+		}
+		if(kp==size)
+		{
+			success=0;
+			break;
+		}
+		if(kp!=it)
+		{
+			double temp;
+			for(int k=it;k<size;++k)
+				SWAPVAR(matrix[size*it+k], matrix[size*kp+k], temp);
+			SWAPVAR(vec[it], vec[kp], temp);
+		}
+		pivot=matrix[size*it+it];
+		for(int kx=it;kx<size;++kx)
+			matrix[size*it+kx]/=pivot;
+		vec[it]/=pivot;
+		for(int ky=0;ky<size;++ky)
+		{
+			double factor;
+
+			if(ky==it)
+				continue;
+			factor=matrix[size*ky+it];
+			if(fabs(factor)>1e-6)
+			{
+				for(int kx=it;kx<size;++kx)
+					matrix[size*ky+kx]-=matrix[size*it+kx]*factor;
+				vec[ky]-=vec[it]*factor;
+			}
+		}
+	}
+	return success;
+}
 void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsigned char *mask1, unsigned char *mask2, unsigned char *mask3, int fwd)
 {
 	double t_start=time_sec();
@@ -239,6 +286,7 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 	};
 	int ctxsize[4]={0}, maxcount=0;
 	double **ctx[4]={0}, *vec[4]={0};
+	//double *vec2[4]={0};
 	int matsize[4]={0};
 	double *cov[4]={0}, *cholesky[4]={0};
 	double *params[4]={0};
@@ -313,12 +361,14 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 			matsize[kc]=ctxsize[kc]*ctxsize[kc];
 			ctx[kc]=(double**)_mm_malloc(sizeof(double*)*ctxsize[kc], sizeof(__m256i));
 			vec[kc]=(double*)_mm_malloc(sizeof(double)*(ctxsize[kc]+4LL), sizeof(__m256d));
+			//vec2[kc]=(double*)_mm_malloc(sizeof(double)*(ctxsize[kc]+4LL), sizeof(__m256d));
 			cov[kc]=(double*)_mm_malloc(sizeof(double)*(matsize[kc]+4LL), sizeof(__m256d));
 			cholesky[kc]=(double*)malloc(sizeof(double)*matsize[kc]);
 			params[kc]=(double*)_mm_malloc(sizeof(double)*ctxsize[kc], sizeof(__m256d));
 			ALLOCASSERT(!ctx[kc]||!vec[kc]||!cov[kc]||!cholesky[kc]||!params[kc]);
 			memset(ctx[kc], 0, sizeof(double*)*ctxsize[kc]);
 			memset(vec[kc], 0, sizeof(double)*(ctxsize[kc]+4LL));
+			//memset(vec2[kc], 0, sizeof(double)*(ctxsize[kc]+4LL));
 			memset(cov[kc], 0, sizeof(double)*(matsize[kc]+4LL));
 			memset(cholesky[kc], 0, sizeof(double)*matsize[kc]);
 			memset(params[kc], 0, sizeof(double)*ctxsize[kc]);
@@ -570,6 +620,7 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 					src->data[idx]=val;
 				}
 				rows[0][kc+4]=rows[0][kc+0]-fpred;//high-res error
+				//rows[0][kc+4]=fpred;//high-res pred
 				if(olsidx==olsnextpoint)
 				//if(!(olsidx&63))
 				{
@@ -645,11 +696,12 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 				//if(olsidx==period)//OLS solver by Cholesky decomposition from paq8px
 				{
 					int success=1;
-					double sum;
 					int n=nparams;
 					memcpy(curr_cholesky, curr_cov, sizeof(double)*matsize[kc]);
 					for(int k=0;k<matsize[kc];k+=n+1)
 						curr_cholesky[k]+=0.0075;
+#if 1
+					double sum;
 					for(int i=0;i<n;++i)
 					{
 						for(int j=0;j<i;++j)
@@ -689,6 +741,18 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 						//	curr_params[k]+=(ctxtemp[k]-curr_params[k])*0.9;
 						++successcount;
 					}
+#endif
+#if 0
+					double *curr_vec2=vec2[kc];
+					memcpy(curr_vec2, curr_vec, nparams*sizeof(double));
+					success=solve_Mx_v(curr_cholesky, curr_vec2, nparams);
+					if(success)
+					{
+						memcpy(curr_params, curr_vec2, nparams*sizeof(double));
+						//for(int k=0;k<n;++k)
+						//	curr_params[k]+=(curr_vec2[k]-curr_params[k])*0.2;
+					}
+#endif
 				}
 				}
 #ifndef BASE_OFFSET_ADDRESSING

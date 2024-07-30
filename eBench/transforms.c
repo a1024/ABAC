@@ -3012,7 +3012,9 @@ void pred_PU(Image *src, int fwd)
 					//	LOG_ERROR("");//ceil(floor(5.13)*-1.3) = -6
 
 					MEDIAN3_32(pred, N, W, N+W-NW);
+					//pred=(N*vx+W*vy)/(vx+vy);//X
 					//pred=(N+W)>>1;//X
+					//pred=W;//X
 					pred+=update;
 					//CLAMP2_32(pred, pred, -halfs[kc], halfs[kc]-1);//X
 
@@ -3135,6 +3137,131 @@ void pred_PU(Image *src, int fwd)
 			rows[1]+=8;
 			rows[2]+=8;
 			rows[3]+=8;
+		}
+	}
+	free(pixels);
+}
+
+#define DFWP_NPREDS 8
+void pred_divfreeWP(Image *src, int fwd)
+{
+	int nch;
+	int nlevels[]=
+	{
+		1<<src->depth[0],
+		1<<src->depth[1],
+		1<<src->depth[2],
+		1<<src->depth[3],
+	};
+	int halfs[]=
+	{
+		nlevels[0]>>1,
+		nlevels[1]>>1,
+		nlevels[2]>>1,
+		nlevels[3]>>1,
+	};
+	int perm[]={1, 2, 0, 3};
+	int fwdmask=-fwd;
+	//int weights[4][DFWP_NPREDS*2]={0};
+
+	size_t bufsize=(src->iw+16LL)*sizeof(int[4*4*DFWP_NPREDS*2]);//4 padded rows * 4 channels max * {pixel, error, 2 perrors, 4 perrors, 8 perrors}
+	int *pixels=(int*)malloc(bufsize);
+	if(!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	//FILLMEM((int*)weights, 0x8000, sizeof(weights), sizeof(int));
+	memset(pixels, 0, bufsize);
+	nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
+	UPDATE_MAX(nch, src->nch);
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		int *rows[]=
+		{
+			pixels+((src->iw+16LL)*((ky-0LL)&3)+8)*DFWP_NPREDS*2*4,
+			pixels+((src->iw+16LL)*((ky-1LL)&3)+8)*DFWP_NPREDS*2*4,
+			pixels+((src->iw+16LL)*((ky-2LL)&3)+8)*DFWP_NPREDS*2*4,
+			pixels+((src->iw+16LL)*((ky-3LL)&3)+8)*DFWP_NPREDS*2*4,
+		};
+		int preds[DFWP_NPREDS*2]={0};
+		int weights[DFWP_NPREDS*2]={0};
+		for(int kx=0;kx<src->iw;++kx, idx+=4)
+		{
+			for(int kc=0;kc<src->nch;++kc)
+			{
+				int kc2=kc*DFWP_NPREDS*2;
+				int
+					*NNN	=rows[3]+kc2+0*DFWP_NPREDS*2*4,
+					*NNWW	=rows[2]+kc2-2*DFWP_NPREDS*2*4,
+					*NNW	=rows[2]+kc2-1*DFWP_NPREDS*2*4,
+					*NN	=rows[2]+kc2+0*DFWP_NPREDS*2*4,
+					*NNE	=rows[2]+kc2+1*DFWP_NPREDS*2*4,
+					*NNEE	=rows[2]+kc2+2*DFWP_NPREDS*2*4,
+					*NWW	=rows[1]+kc2-2*DFWP_NPREDS*2*4,
+					*NW	=rows[1]+kc2-1*DFWP_NPREDS*2*4,
+					*N	=rows[1]+kc2+0*DFWP_NPREDS*2*4,
+					*NE	=rows[1]+kc2+1*DFWP_NPREDS*2*4,
+					*NEE	=rows[1]+kc2+2*DFWP_NPREDS*2*4,
+					*NEEE	=rows[1]+kc2+3*DFWP_NPREDS*2*4,
+					*WWW	=rows[0]+kc2-3*DFWP_NPREDS*2*4,
+					*WW	=rows[0]+kc2-2*DFWP_NPREDS*2*4,
+					*W	=rows[0]+kc2-1*DFWP_NPREDS*2*4,
+					*curr	=rows[0]+kc2+0*DFWP_NPREDS*2*4;
+				int pred=0;
+				//int *curr_weights=weights[kc];
+				int j=DFWP_NPREDS;
+
+				//if(ky==100&&kx==100)//
+				//	printf("");
+
+				preds[j++]=N[0];
+				preds[j++]=W[0];
+				preds[j++]=3*(N[0]-NN[0])+NNN[0];
+				preds[j++]=3*(W[0]-WW[0])+WWW[0];
+				preds[j++]=N[0]+W[0]-NW[0];
+				preds[j++]=N[0]+NE[0]-NNE[0];
+				preds[j++]=W[0]+NE[0]-N[0];
+				preds[j++]=(W[0]+NEEE[0])>>1;
+
+				for(int nsrc=DFWP_NPREDS, srcidx=DFWP_NPREDS;nsrc>1;)
+				{
+					int ndst=nsrc>>1, dstidx=srcidx-ndst;
+					for(int kp=0;kp<ndst;++kp)
+					{
+						int w1=NNWW[srcidx+kp*2+0]+NNW[srcidx+kp*2+0]+NN[srcidx+kp*2+0]+NNE[srcidx+kp*2+0]+NNEE[srcidx+kp*2+0]+NWW[srcidx+kp*2+0]+NW[srcidx+kp*2+0]+N[srcidx+kp*2+0]*3+NE[srcidx+kp*2+0]+NEE[srcidx+kp*2+0]+WW[srcidx+kp*2+0]+W[srcidx+kp*2+0]*3+1;
+						int w2=NNWW[srcidx+kp*2+1]+NNW[srcidx+kp*2+1]+NN[srcidx+kp*2+1]+NNE[srcidx+kp*2+1]+NNEE[srcidx+kp*2+1]+NWW[srcidx+kp*2+1]+NW[srcidx+kp*2+1]+N[srcidx+kp*2+1]*3+NE[srcidx+kp*2+1]+NEE[srcidx+kp*2+1]+WW[srcidx+kp*2+1]+W[srcidx+kp*2+1]*3+1;
+
+						//weights[dstidx+kp]=(w2<<16)/(w1+w2);
+						//preds[dstidx+kp]=preds[srcidx+kp*2+1]+((preds[srcidx+kp*2+0]-preds[srcidx+kp*2+1])*weights[dstidx+kp]>>16);
+
+						preds[dstidx+kp]=(preds[srcidx+kp*2+0]*w2+preds[srcidx+kp*2+1]*w1)/(w1+w2);//NPREDs DIVs
+					}
+					nsrc=ndst;
+					srcidx=dstidx;
+				}
+				pred=preds[1];
+				
+				{
+					int c2=src->data[idx+kc];
+					pred^=fwdmask;
+					pred-=fwdmask;
+					pred+=c2;
+				
+					pred<<=32-src->depth[kc];
+					pred>>=32-src->depth[kc];
+
+					src->data[idx+kc]=pred;
+					curr[0]=fwd?c2:pred;
+					curr[1]=fwd?pred:c2;
+				}
+				for(int k=2;k<DFWP_NPREDS*2;++k)
+					curr[k]=abs(curr[0]-preds[k]);
+			}
+			rows[0]+=DFWP_NPREDS*2*4;
+			rows[1]+=DFWP_NPREDS*2*4;
+			rows[2]+=DFWP_NPREDS*2*4;
+			rows[3]+=DFWP_NPREDS*2*4;
 		}
 	}
 	free(pixels);
@@ -3300,8 +3427,12 @@ void pred_wgrad(Image *src, int fwd, int hasRCT)
 				//pred=(pred+N+W-NW)>>1;
 #if 1
 				long long lpred, wsum;
+				int
+					gy=abs(N-NN)+abs(W-NW)+1,
+					gx=abs(W-WW)+abs(N-NW)+1;
 				int preds[]=
 				{
+					//(N*gx+W*gy)/(gy+gx),
 					N+W-NW,
 					W+NE-N,
 					N+NE-NNE,
@@ -5713,11 +5844,15 @@ void pred_multistage(Image *src, int fwd, int enable_ma)
 }
 #undef  LOAD
 
-#define P3_CALCCSIZE
+//	#define P3_CALCCSIZE
 #define P3_MAXPREDS 128
 #define LOAD(BUF, X, Y) ((unsigned)(ky+(Y))<(unsigned)src->ih&&(unsigned)(kx+(X))<(unsigned)src->iw?BUF[(src->iw*(ky+(Y))+kx+(X))<<2|kc]:0)
 //static Image *guide=0;
-static void pred_separate_x(Image const *src, Image *dst, int fwd, int enable_ma, int kc, int *hist, double *csizes)
+static void pred_separate_x(Image const *src, Image *dst, int fwd, int enable_ma, int kc
+#ifdef P3_CALCCSIZE
+	, int *hist, double *csizes
+#endif
+)
 {
 	int nlevels=1<<src->depth[kc];
 //	int half=nlevels>>1;
@@ -5785,7 +5920,7 @@ static void pred_separate_x(Image const *src, Image *dst, int fwd, int enable_ma
 				WWW	=LOAD(pixels, -3,  0),
 				WW	=LOAD(pixels, -2,  0),
 				W	=LOAD(pixels, -1,  0);
-			int preds[]=
+			int preds[]=//P3
 			{
 				 0x2E00000, N+W-NW,
 				//0x0100000, (2*N+W+NE-NW-NNE)>>1,//X
@@ -6202,6 +6337,7 @@ static void pred_separate_y(Image const *src, Image *dst, int fwd, int enable_ma
 #undef  LOAD
 void pred_separate(Image *src, int fwd, int enable_ma)
 {
+	double t=time_sec();
 	Image *dst;
 #ifdef P3_CALCCSIZE
 	int maxdepth, *hist;
@@ -6280,6 +6416,14 @@ void pred_separate(Image *src, int fwd, int enable_ma)
 		src->depth[3]+=src->depth[3]!=0;
 	}
 	free(dst);
+	t=time_sec()-t;
+	if(loud_transforms)
+	{
+		if(fn)
+			set_window_title("%s - %lf sec", (char*)fn->data, t);
+		else
+			set_window_title("%lf sec", t);
+	}
 }
 
 void pred_dir(Image *src, int fwd, int enable_ma)
@@ -7338,20 +7482,38 @@ void pred_ols3(Image *src, int fwd, int enable_ma)
 	//memcpy(src->data, dst->data, (size_t)src->iw*src->ih*sizeof(int[4]));
 	if(loud_transforms)
 	{
+		const char *nbnames[]=
+		{
+			"bias",
+			"NW",
+			"N",
+			"NE",
+			"W",
+			"curr",
+		};
 		set_window_title("OLS3 %lf%%  %lf sec", 100.*successcount/(src->nch*src->iw*src->ih), time_sec()-t_start);
 		for(int k=0;k<(int)_countof(avparams);++k)
 			avparams[k]*=(double)src->nch/successcount;
 		int printed=0;
-		printed+=snprintf(g_buf+printed, G_BUF_SIZE-printed-1, "NW N NE W curr\n");
-		for(int kg=0;kg<3;++kg)
+		printed+=snprintf(g_buf+printed, G_BUF_SIZE-1-printed, "Y U V\n");
+		for(int kg=0, idx=0;kg<3;++kg)
 		{
-			for(int ky=0;ky<3;++ky)
+			int idx2=0;
+			for(int k=0;k<OLS3_NPARAMS2;++k)
 			{
-				for(int kx=0;kx<5;++kx)
-					printed+=snprintf(g_buf+printed, G_BUF_SIZE-printed-1, " %+12.8lf", avparams[(kg*3+ky)*5+kx]);
-				printed+=snprintf(g_buf+printed, G_BUF_SIZE-printed-1, "\n");
+				printed+=snprintf(g_buf+printed, G_BUF_SIZE-1-printed, " %+12.8lf", avparams[idx++]);
+				if(!(k%3))
+					printed+=snprintf(g_buf+printed, G_BUF_SIZE-1-printed, "  %s\n", nbnames[idx2++]);
 			}
-			printed+=snprintf(g_buf+printed, G_BUF_SIZE-printed-1, "\n");
+			printed+=snprintf(g_buf+printed, G_BUF_SIZE-1-printed, "  %s", nbnames[idx2]);
+			//for(int kx=0;kx<5;++kx)
+			//{
+			//	for(int kc=0;kc<3;++kc)
+			//		printed+=snprintf(g_buf+printed, G_BUF_SIZE-1-printed, " %+12.8lf", avparams[(kg*3+kx)*3+kc]);
+			//	printed+=snprintf(g_buf+printed, G_BUF_SIZE-1-printed, "\n");
+			//}
+			if(kg<2)
+				printed+=snprintf(g_buf+printed, G_BUF_SIZE-1-printed, "\n\n");
 		}
 		copy_to_clipboard(g_buf, printed);
 		messagebox(MBOX_OK, "Copied to clipboard", g_buf);
@@ -7735,44 +7897,75 @@ int custom_params[CUSTOM_NPARAMS]={0};
 int custom_clamp[4]={0};
 void pred_custom(Image *src, int fwd, int enable_ma, const int *params)
 {
-	Image *dst;
-	int *pixels, *errors;
-
-	dst=0;
-	image_copy(&dst, src);
-	pixels=fwd?src->data:dst->data;
-	errors=fwd?dst->data:src->data;
-	for(int kc=0;kc<3;++kc)//there are params only for 3 channels in CUSTOM predictor
+	int bufsize=(src->iw+16)*(int)sizeof(int[4*4*2]);//4 padded rows * 4 channels max * {pixel, pred}
+	int *pixels=(int*)malloc(bufsize);
+	if(!pixels)
 	{
-		int nlevels;
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(pixels, 0, bufsize);
+	//Image *dst;
+	//int *pixels, *errors;
 
-		if(!src->depth[kc])
-			continue;
-		nlevels=1<<src->depth[kc];
-		for(int ky=0, idx=0;ky<src->ih;++ky)
+	//dst=0;
+	//image_copy(&dst, src);
+	//pixels=fwd?dst->data:src->data;
+	//errors=fwd?src->data:dst->data;
+	//int nlevels;
+
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		ALIGN(16) int *rows[]=
 		{
-			for(int kx=0;kx<src->iw;++kx, ++idx)
+			pixels+((src->iw+16LL)*((ky-0LL)&3)+8LL)*4*2,
+			pixels+((src->iw+16LL)*((ky-1LL)&3)+8LL)*4*2,
+			pixels+((src->iw+16LL)*((ky-2LL)&3)+8LL)*4*2,
+			pixels+((src->iw+16LL)*((ky-3LL)&3)+8LL)*4*2,
+		};
+		for(int kx=0;kx<src->iw;++kx, ++idx)
+		{
+			for(int kc=0;kc<3;++kc)//there are params only for 3 channels in CUSTOM predictor
 			{
-				int nb[CUSTOM_NNB*2], clamp_idx[]={22, 12, 14, 16};//W NW N NE
+				int nlevels=1<<src->depth[kc];
+				if(!src->depth[kc])
+					continue;
+				int nb[CUSTOM_NNB*2]=
+				{
+					rows[2][kc-2*8+0], rows[2][kc-2*8+4],
+					rows[2][kc-1*8+0], rows[2][kc-1*8+4],
+					rows[2][kc+0*8+0], rows[2][kc+0*8+4],
+					rows[2][kc+1*8+0], rows[2][kc+1*8+4],
+					rows[2][kc+2*8+0], rows[2][kc+2*8+4],
+					rows[1][kc-2*8+0], rows[1][kc-2*8+4],
+					rows[1][kc-1*8+0], rows[1][kc-1*8+4],
+					rows[1][kc+0*8+0], rows[1][kc+0*8+4],
+					rows[1][kc+1*8+0], rows[1][kc+1*8+4],
+					rows[1][kc+2*8+0], rows[1][kc+2*8+4],
+					rows[0][kc-2*8+0], rows[0][kc-2*8+4],
+					rows[0][kc-1*8+0], rows[0][kc-1*8+4],
+				};
+				int clamp_idx[]={22, 12, 14, 16};//W NW N NE
 				int vmin, vmax, uninitialized;
 				long long pred;
+				int curr=src->data[idx<<2|kc];
 
-				for(int ky2=-CUSTOM_REACH, idx2=0;ky2<=0;++ky2)
-				{
-					for(int kx2=-CUSTOM_REACH;kx2<=CUSTOM_REACH&&idx2<CUSTOM_NNB*2;++kx2, idx2+=2)
-					{
-						if((unsigned)(ky+ky2)<(unsigned)src->ih&&(unsigned)(kx+kx2)<(unsigned)src->iw)
-						{
-							nb[idx2  ]=pixels[(src->iw*(ky+ky2)+kx+kx2)<<2|kc];
-							nb[idx2+1]=errors[(src->iw*(ky+ky2)+kx+kx2)<<2|kc];
-						}
-						else
-						{
-							nb[idx2  ]=0;
-							nb[idx2+1]=0;
-						}
-					}
-				}
+				//for(int ky2=-CUSTOM_REACH, idx2=0;ky2<=0;++ky2)
+				//{
+				//	for(int kx2=-CUSTOM_REACH;kx2<=CUSTOM_REACH&&idx2<CUSTOM_NNB*2;++kx2, idx2+=2)
+				//	{
+				//		if((unsigned)(ky+ky2)<(unsigned)src->ih&&(unsigned)(kx+kx2)<(unsigned)src->iw)
+				//		{
+				//			nb[idx2  ]=pixels[(src->iw*(ky+ky2)+kx+kx2)<<2|kc];
+				//			nb[idx2+1]=errors[(src->iw*(ky+ky2)+kx+kx2)<<2|kc];
+				//		}
+				//		else
+				//		{
+				//			nb[idx2  ]=0;
+				//			nb[idx2+1]=0;
+				//		}
+				//	}
+				//}
 				vmin=-(nlevels>>1);
 				vmax=(nlevels>>1);
 				uninitialized=1;
@@ -7797,25 +7990,32 @@ void pred_custom(Image *src, int fwd, int enable_ma, const int *params)
 
 				pred=0;
 				for(int k=0;k<CUSTOM_NNB*2;++k)
-					pred+=(long long)nb[k]*params[k];
+					pred+=(long long)nb[k]*params[kc*CUSTOM_NNB*2+k];
 				pred+=1LL<<15;
 				pred>>=16;
 				pred=CLAMP(vmin, pred, vmax);
 
+				rows[0][kc+4*!fwd]=curr;
 				pred^=-fwd;
 				pred+=fwd;
-				pred+=(long long)src->data[(size_t)idx<<2|kc];
+				pred+=(long long)curr;
+				//pred+=(long long)dst->data[(size_t)idx<<2|kc];
 				if(enable_ma)
 				{
 					pred<<=32-src->depth[kc];
 					pred>>=32-src->depth[kc];
 				}
-				dst->data[idx<<2|kc]=(int)pred;
+				src->data[idx<<2|kc]=(int)pred;
+				rows[0][kc+4* fwd]=(int)pred;
 			}
+			rows[0]+=8;
+			rows[1]+=8;
+			rows[2]+=8;
+			rows[3]+=8;
 		}
-		params+=24;
+		//params+=24;
 	}
-	memcpy(src->data, dst->data, (size_t)src->iw*src->ih*sizeof(int[4]));
+	//memcpy(src->data, dst->data, (size_t)src->iw*src->ih*sizeof(int[4]));
 	if(!enable_ma)
 	{
 		++src->depth[0];
@@ -7823,7 +8023,8 @@ void pred_custom(Image *src, int fwd, int enable_ma, const int *params)
 		++src->depth[2];
 		src->depth[3]+=src->depth[3]!=0;
 	}
-	free(dst);
+	free(pixels);
+	//free(dst);
 }
 static void pred_custom_calcloss(Image const *src, Image *dst, int *hist, const int *params, double *loss)
 {
@@ -7910,11 +8111,11 @@ void pred_custom_optimize(Image const *image, int *params)
 				//inc=(rand()&0xFFFF)-0x8000;
 				//inc=(rand()&0x0FF0)-0x0800;
 				inc=rand()&1?0x100:-0x100;
-
-				//idx[k]=rand()%3;
+				
+			//	idx[k]=(CUSTOM_NNB*2*custom_pred_ch_idx+rand()%(CUSTOM_NNB*2));
 				idx[k]=(CUSTOM_NNB*custom_pred_ch_idx+rand()%CUSTOM_NNB)*2;
 				++k;
-				//idx[k]=rand()%3;
+			//	idx[k]=(CUSTOM_NNB*2*custom_pred_ch_idx+rand()%(CUSTOM_NNB*2));
 				idx[k]=(CUSTOM_NNB*custom_pred_ch_idx+rand()%CUSTOM_NNB)*2;
 
 				params_original_selected[k-1]=params[idx[k-1]];
@@ -8020,6 +8221,54 @@ void pred_custom_optimize(Image const *image, int *params)
 #undef  CALC_LOSS
 	free(hist);
 	free(im2);
+}
+
+void conv_custom(Image *src)
+{
+	Image *dst=0;
+	image_copy(&dst, src);
+	if(!dst)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	for(int ky=0;ky<src->ih;++ky)
+	{
+		for(int kx=0;kx<src->iw;++kx)
+		{
+			for(int kc=0;kc<3;++kc)
+			{
+				int nb[]=
+				{
+#define LOAD(BUF, X, Y) ((unsigned)(kx+(X))<(unsigned)src->iw&&(unsigned)(ky+(Y))<(unsigned)src->ih?BUF[(src->iw*(ky+(Y))+kx+(X))<<2|kc]:0)
+					LOAD(src->data, -2, -2),
+					LOAD(src->data, -1, -2),
+					LOAD(src->data,  0, -2),
+					LOAD(src->data,  1, -2),
+					LOAD(src->data,  2, -2),
+					LOAD(src->data, -2, -1),
+					LOAD(src->data, -1, -1),
+					LOAD(src->data,  0, -1),
+					LOAD(src->data,  1, -1),
+					LOAD(src->data,  2, -1),
+					LOAD(src->data, -2,  0),
+					LOAD(src->data, -1,  0),
+#undef  LOAD
+				};
+				int *curr_params=custom_params+kc*CUSTOM_NNB*2;
+				if(!curr_params[0])
+					continue;
+				int idx=(src->iw*ky+kx)<<2|kc;
+				int val=dst->data[idx]*curr_params[0];
+				for(int k=1;k<_countof(nb);++k)
+					val+=nb[k]*curr_params[k<<1];
+				val+=1<<15;
+				val>>=16;
+				src->data[idx]=val;
+			}
+		}
+	}
+	free(dst);
 }
 
 
