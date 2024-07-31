@@ -13,21 +13,12 @@
 static const char file[]=__FILE__;
 
 
-	#define ENABLE_V3
+	#define ENABLE_V4
+//	#define ENABLE_V3
 //	#define ENABLE_V2
 //	#define ENABLE_LOGGING
 
 
-#define V3_NPARAMS 16
-
-#define OLS6_REACH 1
-#define OLS6_STEP 1
-#define OLS6_SAMPLEREACH 8
-#define OLS6_NPARAMS0 (2*(OLS6_REACH+1)*OLS6_REACH*3+0+1)
-#define OLS6_NPARAMS1 (2*(OLS6_REACH+1)*OLS6_REACH*3+1+1)
-#define OLS6_NPARAMS2 (2*(OLS6_REACH+1)*OLS6_REACH*3+2+1)
-//#define OLS6_NPARAMS_TOTAL (2*(OLS6_REACH+1)*OLS6_REACH*9+3+3)
-#define OLS6_NSAMPLES ((2*OLS6_SAMPLEREACH+OLS6_STEP+1)*OLS6_SAMPLEREACH)
 static int solve_Mx_v_cholesky(double *matrix, const double *vec, int n, double *solution)
 {
 	int success=1;
@@ -121,6 +112,266 @@ static int solve_Mx_v(double *matrix, double *vec, int size)
 	}
 	return success;
 }
+
+typedef struct _V4Context
+{
+	long long *vbuf, *isum, *ptr;
+	double *sum, *solution, *params, *paramptr, gain;
+	int iw, nparams, cellsize, init, successcount, totalcalls;
+} V4Context;
+static int v4_init(V4Context *ctx, int iw, int nparams, int depth)
+{
+	int cellsize=nparams*(nparams+1);
+	int vbufsize=iw*cellsize;
+	memset(ctx, 0, sizeof(*ctx));
+	ctx->iw=iw;
+	ctx->nparams=nparams;
+	ctx->cellsize=cellsize;
+	ctx->init=0;
+	ctx->successcount=0;
+	ctx->totalcalls=0;
+	ctx->gain=1<<depth>>1;
+	ctx->vbuf=(long long*)malloc(vbufsize*sizeof(long long));
+	ctx->isum=(long long*)_mm_malloc(cellsize*sizeof(long long), sizeof(__m256i));
+	ctx->sum=(double*)_mm_malloc(cellsize*sizeof(double), sizeof(__m256d));
+	ctx->solution=(double*)malloc(nparams*sizeof(double));
+	ctx->params=(double*)malloc((iw+8LL)*nparams*sizeof(double));
+	if(!ctx->vbuf||!ctx->isum||!ctx->sum||!ctx->solution||!ctx->params)
+	{
+		LOG_ERROR("Alloc error");
+		return 1;
+	}
+	memset(ctx->vbuf, 0, vbufsize*sizeof(long long));
+	memset(ctx->isum, 0, cellsize*sizeof(long long));
+	memset(ctx->sum, 0, cellsize*sizeof(double));
+	memset(ctx->solution, 0, nparams*sizeof(double));
+	memset(ctx->params, 0, (iw+8LL)*nparams*sizeof(double));
+
+	return 0;
+}
+static void v4_finish(V4Context *ctx)
+{
+	free(ctx->vbuf);
+	_mm_free(ctx->isum);
+	_mm_free(ctx->sum);
+	free(ctx->solution);
+	free(ctx->params);
+}
+static void v4_addsample(V4Context *ctx, long long *dst, const int *nb)
+{
+	int msize=ctx->nparams*ctx->nparams;
+	for(int ky=0, idx=0;ky<ctx->nparams;++ky)
+	{
+		int val=nb[ky];
+		for(int kx=0;kx<ctx->nparams;++kx)
+			dst[idx++]+=(long long)val*nb[kx];
+		dst[msize+ky]+=(long long)val*nb[ctx->nparams];
+	}
+}
+static void v4_subsample(V4Context *ctx, long long *dst, const int *nb)
+{
+	int msize=ctx->nparams*ctx->nparams;
+	for(int ky=0, idx=0;ky<ctx->nparams;++ky)
+	{
+		int val=nb[ky];
+		for(int kx=0;kx<ctx->nparams;++kx)
+			dst[idx++]-=(long long)val*nb[kx];
+		dst[msize+ky]-=(long long)val*nb[ctx->nparams];
+	}
+}
+static void v4_addmv(V4Context *ctx, long long *dst, const long long *src)
+{
+	for(int k=0;k<ctx->cellsize;++k)
+		dst[k]+=src[k];
+}
+static void v4_submv(V4Context *ctx, long long *dst, const long long *src)
+{
+	for(int k=0;k<ctx->cellsize;++k)
+		dst[k]-=src[k];
+}
+static int v4_predict(V4Context *ctx, const int *nb, int W, int N, int NE, int solve)
+{
+	if(solve)
+	{
+		int msize=ctx->nparams*ctx->nparams;
+		//double gain=ctx->gain*ctx->gain;
+#if 0
+		{
+			__m256d mg=_mm256_set1_pd(gain);
+			int k=0;
+			for(;k<ctx->cellsize-7;k+=8)
+			{
+				__m128i msum0=_mm_load_si128((__m128i*)(ctx->isum+k+0*4));
+				__m128i msum1=_mm_load_si128((__m128i*)(ctx->isum+k+1*4));
+				__m256d x0=_mm256_cvtepi32_pd(msum0);
+				__m256d x1=_mm256_cvtepi32_pd(msum1);
+				x0=_mm256_mul_pd(x0, mg);
+				x1=_mm256_mul_pd(x1, mg);
+				_mm256_store_pd(ctx->sum+k+0*4, x0);
+				_mm256_store_pd(ctx->sum+k+1*4, x1);
+			}
+			for(;k<ctx->cellsize;++k)
+				ctx->sum[k]=(double)ctx->isum[k]*gain;
+		}
+#endif
+		for(int k=0;k<ctx->cellsize;++k)
+			ctx->sum[k]=(double)ctx->isum[k];
+		double reg=ctx->gain*0.00005;
+		for(int k=0;k<ctx->nparams;++k)
+			ctx->sum[(ctx->nparams+1)*k]+=reg;
+
+		int success=solve_Mx_v_cholesky(ctx->sum, ctx->sum+msize, ctx->nparams, ctx->solution);
+	//	int success=solve_Mx_v(ctx->sum, ctx->sum+msize, ctx->nparams);
+	//	memcpy(ctx->solution, ctx->sum+msize, ctx->nparams*sizeof(double));
+		
+		//ctx->paramptr+=ctx->nparams;
+		if(success)
+		{
+			if(ctx->init)
+			{
+				for(int k=0;k<ctx->nparams;++k)
+				//	ctx->paramptr[k]=(4*ctx->paramptr[k-1*ctx->nparams]+ctx->solution[k])*0.2;
+				//	ctx->paramptr[k]=(2*ctx->paramptr[k-1*ctx->nparams]+ctx->solution[k]+2*ctx->paramptr[k])*0.2;//(2*W+curr+2*N)/5
+					ctx->paramptr[k]+=(ctx->solution[k]-ctx->paramptr[k])*0.2;//(4*W+curr)/5
+			}
+			else
+			{
+				memcpy(ctx->paramptr, ctx->solution, ctx->nparams*sizeof(double));
+				ctx->init=1;
+			}
+			++ctx->successcount;
+		}
+		++ctx->totalcalls;
+	}
+	double fpred=0;
+	ALIGN(16) int pred[4];
+	for(int k=0;k<ctx->nparams;++k)
+		fpred+=ctx->paramptr[k]*nb[k];
+
+	__m128i mpred=_mm_cvtpd_epi32(_mm_set_sd(fpred));
+	__m128i mN	=_mm_set_epi32(0, 0, 0, N);
+	__m128i mW	=_mm_set_epi32(0, 0, 0, W);
+	__m128i mNE	=_mm_set_epi32(0, 0, 0, NE);
+	__m128i vmin=_mm_min_epi32(mN, mW);
+	__m128i vmax=_mm_max_epi32(mN, mW);
+	vmin=_mm_min_epi32(vmin, mNE);
+	vmax=_mm_max_epi32(vmax, mNE);
+	mpred=_mm_max_epi32(mpred, vmin);
+	mpred=_mm_min_epi32(mpred, vmax);
+	_mm_store_si128((__m128i*)pred, mpred);
+	return *pred;
+
+	//return (int)fpred;
+}
+static void v4_newrow(V4Context *ctx)
+{
+	ctx->ptr=ctx->vbuf;
+	memset(ctx->isum, 0, ctx->cellsize*sizeof(long long));
+	ctx->init=0;
+	ctx->paramptr=ctx->params+ctx->nparams;
+}
+
+
+#define BOXSIZE 8
+static void boxtest(Image *src)
+{
+	int bufsize=src->iw*src->ih*(int)sizeof(int[2]);
+	int *buf=(int*)malloc(bufsize);
+	if(!buf)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(buf, 0, bufsize);
+
+	double t1=time_sec();
+	for(int ky=0;ky<src->ih;++ky)
+	{
+		for(int kx=0;kx<src->iw;++kx)
+		{
+			int sum=0;
+			//if(ky==0&&kx==8)//
+			//	printf("");
+			for(int ky2=-BOXSIZE;ky2<=BOXSIZE;++ky2)
+			{
+				int ky3=ky+ky2;
+				if((unsigned)ky3<(unsigned)src->ih)
+				{
+					for(int kx2=-BOXSIZE;kx2<=BOXSIZE;++kx2)
+					{
+						int kx3=kx+kx2;
+						if((unsigned)(kx+kx2)<(unsigned)src->iw)
+							sum+=src->data[(src->iw*ky3+kx3)<<2|0];
+					}
+				}
+			}
+			buf[(src->iw*ky+kx)<<1|0]=sum/((BOXSIZE<<1|1)*(BOXSIZE<<1|1));
+			//src->data[(src->iw*ky+kx)<<2|1]=sum/((BOXSIZE<<1|1)*(BOXSIZE<<1|1));
+		}
+	}
+	t1=time_sec()-t1;
+	
+	int psize=(src->iw+BOXSIZE*2)*(int)sizeof(int);
+	int *pixels=(int*)malloc(psize);
+	if(!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(pixels, 0, psize);
+	double t2=time_sec();
+	for(int ky=-BOXSIZE;ky<src->ih+BOXSIZE;++ky)
+	{
+		int sum=0;
+		for(int kx=-BOXSIZE;kx<src->iw+BOXSIZE;++kx)
+		{
+			if((unsigned)(ky+BOXSIZE)<(unsigned)src->ih&&(unsigned)(kx+BOXSIZE)<(unsigned)src->iw)
+				pixels[kx+BOXSIZE]+=src->data[(src->iw*(ky+BOXSIZE)+kx+BOXSIZE)<<2|0];
+			if((unsigned)(ky-BOXSIZE-1)<(unsigned)src->ih&&(unsigned)(kx+BOXSIZE)<(unsigned)src->iw)
+				pixels[kx+BOXSIZE]-=src->data[(src->iw*(ky-BOXSIZE-1)+kx+BOXSIZE)<<2|0];
+			if((unsigned)(kx+BOXSIZE)<(unsigned)src->iw)
+				sum+=pixels[kx+BOXSIZE];
+			if((unsigned)(kx-BOXSIZE-1)<(unsigned)src->iw)
+				sum-=pixels[kx-BOXSIZE-1];
+			if((unsigned)ky<(unsigned)src->ih&&(unsigned)kx<(unsigned)src->iw)
+			{
+				int idx=(src->iw*ky+kx)<<1;
+				buf[idx|1]=sum/((BOXSIZE<<1|1)*(BOXSIZE<<1|1));
+				//src->data[idx|2]=sum/((BOXSIZE<<1|1)*(BOXSIZE<<1|1));
+				if(buf[idx|0]!=buf[idx|1])
+				{
+					LOG_ERROR("ERROR  XY %d %d", kx, ky);
+					printf("");
+				}
+			}
+		}
+	}
+	t2=time_sec()-t2;
+	free(pixels);
+	free(buf);
+	messagebox(MBOX_OK, "Info",
+		"%lf sec\n"
+		"%lf sec\n"
+		, t1, t2
+	);
+}
+
+
+#define OLS6_REACH 1
+#define OLS6_STEP 1
+#define OLS6_PADX 16	//64
+#define OLS6_PADY 16	//multiple of 4
+#define OLS6_SAMPLEREACHX 8	//60
+#define OLS6_SAMPLEREACHY 8	//12
+//#define OLS6_SAMPLEREACH 8
+#define OLS6_NPARAMS0 (2*(OLS6_REACH+1)*OLS6_REACH*3+0+1)
+#define OLS6_NPARAMS1 (2*(OLS6_REACH+1)*OLS6_REACH*3+1+1)
+#define OLS6_NPARAMS2 (2*(OLS6_REACH+1)*OLS6_REACH*3+2+1)
+//#define OLS6_NPARAMS_TOTAL (2*(OLS6_REACH+1)*OLS6_REACH*9+3+3)
+//#define OLS6_NSAMPLES ((2*OLS6_SAMPLEREACH+OLS6_STEP+1)*OLS6_SAMPLEREACH)
+#if 0
+#define V3_NPARAMS 16
+
 static int invert_matrix(double *matrix, int size, double *temprow)
 {
 	int success;
@@ -222,9 +473,284 @@ finish:
 		}
 	}
 }
+#endif
 void pred_ols6(Image *src, int fwd)
 {
-#ifdef ENABLE_V3
+	//{
+	//	boxtest(src);
+	//	return;
+	//}
+#ifdef ENABLE_V4
+	double t=time_sec();
+	int half=1<<src->depth[0]>>1;
+	V4Context v4[3]={0};
+	v4_init(v4+0, src->iw, OLS6_NPARAMS0, src->depth[0]);
+	v4_init(v4+1, src->iw, OLS6_NPARAMS1, src->depth[1]);
+	v4_init(v4+2, src->iw, OLS6_NPARAMS2, src->depth[2]);
+	int bufsize=(src->iw+OLS6_PADX*2)*(int)sizeof(short[OLS6_PADY*4]);//16 padded rows * 4 channels max
+	short *pixels=(short*)malloc(bufsize);
+	if(!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	if(loud_transforms)
+		DisableProcessWindowsGhosting();
+	memset(pixels, 0, bufsize);
+	for(int ky=0;ky<src->ih;++ky)
+	{
+		__m256i rowstride=_mm256_set1_epi64x(sizeof(short[4]));
+		ALIGN(32) short *rows[OLS6_PADY];
+		for(int k=0;k<_countof(rows);++k)
+			rows[k]=pixels+((src->iw+OLS6_PADX*2LL)*((ky-(size_t)k)%OLS6_PADY)+OLS6_PADX)*4;
+		v4_newrow(v4+0);
+		v4_newrow(v4+1);
+		v4_newrow(v4+2);
+		for(int kx=0;kx<src->iw;++kx)
+		{
+			int future_bottom[]=
+			{
+				half,
+				rows[1+1][0+(OLS6_SAMPLEREACHX-1)*4],
+				rows[1+1][1+(OLS6_SAMPLEREACHX-1)*4],
+				rows[1+1][2+(OLS6_SAMPLEREACHX-1)*4],
+				rows[1+1][0+(OLS6_SAMPLEREACHX+0)*4],
+				rows[1+1][1+(OLS6_SAMPLEREACHX+0)*4],
+				rows[1+1][2+(OLS6_SAMPLEREACHX+0)*4],
+				rows[1+1][0+(OLS6_SAMPLEREACHX+1)*4],
+				rows[1+1][1+(OLS6_SAMPLEREACHX+1)*4],
+				rows[1+1][2+(OLS6_SAMPLEREACHX+1)*4],
+				rows[0+1][0+(OLS6_SAMPLEREACHX-1)*4],
+				rows[0+1][1+(OLS6_SAMPLEREACHX-1)*4],
+				rows[0+1][2+(OLS6_SAMPLEREACHX-1)*4],
+				rows[0+1][0+(OLS6_SAMPLEREACHX+0)*4],
+				rows[0+1][1+(OLS6_SAMPLEREACHX+0)*4],
+				rows[0+1][2+(OLS6_SAMPLEREACHX+0)*4],
+			};
+			int future_top[]=
+			{
+				half,
+				rows[1+OLS6_SAMPLEREACHY+1][0+(OLS6_SAMPLEREACHX-1)*4],
+				rows[1+OLS6_SAMPLEREACHY+1][1+(OLS6_SAMPLEREACHX-1)*4],
+				rows[1+OLS6_SAMPLEREACHY+1][2+(OLS6_SAMPLEREACHX-1)*4],
+				rows[1+OLS6_SAMPLEREACHY+1][0+(OLS6_SAMPLEREACHX+0)*4],
+				rows[1+OLS6_SAMPLEREACHY+1][1+(OLS6_SAMPLEREACHX+0)*4],
+				rows[1+OLS6_SAMPLEREACHY+1][2+(OLS6_SAMPLEREACHX+0)*4],
+				rows[1+OLS6_SAMPLEREACHY+1][0+(OLS6_SAMPLEREACHX+1)*4],
+				rows[1+OLS6_SAMPLEREACHY+1][1+(OLS6_SAMPLEREACHX+1)*4],
+				rows[1+OLS6_SAMPLEREACHY+1][2+(OLS6_SAMPLEREACHX+1)*4],
+				rows[0+OLS6_SAMPLEREACHY+1][0+(OLS6_SAMPLEREACHX-1)*4],
+				rows[0+OLS6_SAMPLEREACHY+1][1+(OLS6_SAMPLEREACHX-1)*4],
+				rows[0+OLS6_SAMPLEREACHY+1][2+(OLS6_SAMPLEREACHX-1)*4],
+				rows[0+OLS6_SAMPLEREACHY+1][0+(OLS6_SAMPLEREACHX+0)*4],
+				rows[0+OLS6_SAMPLEREACHY+1][1+(OLS6_SAMPLEREACHX+0)*4],
+				rows[0+OLS6_SAMPLEREACHY+1][2+(OLS6_SAMPLEREACHX+0)*4],
+			};
+			int present[]=
+			{
+				half,
+				rows[1][0+(-1-1)*4],
+				rows[1][1+(-1-1)*4],
+				rows[1][2+(-1-1)*4],
+				rows[1][0+(-1+0)*4],
+				rows[1][1+(-1+0)*4],
+				rows[1][2+(-1+0)*4],
+				rows[1][0+(-1+1)*4],
+				rows[1][1+(-1+1)*4],
+				rows[1][2+(-1+1)*4],
+				rows[0][0+(-1-1)*4],
+				rows[0][1+(-1-1)*4],
+				rows[0][2+(-1-1)*4],
+				rows[0][0+(-1+0)*4],
+				rows[0][1+(-1+0)*4],
+				rows[0][2+(-1+0)*4],
+			};
+			int past[]=
+			{
+				half,
+				rows[1][0+(-OLS6_SAMPLEREACHX-1-1)*4],
+				rows[1][1+(-OLS6_SAMPLEREACHX-1-1)*4],
+				rows[1][2+(-OLS6_SAMPLEREACHX-1-1)*4],
+				rows[1][0+(-OLS6_SAMPLEREACHX-1+0)*4],
+				rows[1][1+(-OLS6_SAMPLEREACHX-1+0)*4],
+				rows[1][2+(-OLS6_SAMPLEREACHX-1+0)*4],
+				rows[1][0+(-OLS6_SAMPLEREACHX-1+1)*4],
+				rows[1][1+(-OLS6_SAMPLEREACHX-1+1)*4],
+				rows[1][2+(-OLS6_SAMPLEREACHX-1+1)*4],
+				rows[0][0+(-OLS6_SAMPLEREACHX-1-1)*4],
+				rows[0][1+(-OLS6_SAMPLEREACHX-1-1)*4],
+				rows[0][2+(-OLS6_SAMPLEREACHX-1-1)*4],
+				rows[0][0+(-OLS6_SAMPLEREACHX-1+0)*4],
+				rows[0][1+(-OLS6_SAMPLEREACHX-1+0)*4],
+				rows[0][2+(-OLS6_SAMPLEREACHX-1+0)*4],
+			};
+			int nb[]=
+			{
+				half,
+				rows[1][0+(0-1)*4],//NW
+				rows[1][1+(0-1)*4],
+				rows[1][2+(0-1)*4],
+				rows[1][0+(0+0)*4],//N
+				rows[1][1+(0+0)*4],
+				rows[1][2+(0+0)*4],
+				rows[1][0+(0+1)*4],//NE
+				rows[1][1+(0+1)*4],
+				rows[1][2+(0+1)*4],
+				rows[0][0+(0-1)*4],//W
+				rows[0][1+(0-1)*4],
+				rows[0][2+(0-1)*4],
+				0,//curr
+				0,
+				0,
+			};
+			//if(ky==10&&kx==10)//
+			//	printf("");
+			for(int kc=0;kc<3;++kc)
+			{
+				V4Context *ctx=v4+kc;
+#if 0
+				{
+					ALIGN(32) int _arr[8];
+					__m256i _va=_mm256_set_epi32(
+						0,
+						0,
+						0,
+						past		[1+1*3+kc],
+						present		[1+1*3+kc],
+						nb		[1+1*3+kc],
+						future_top	[1+1*3+kc],
+						future_bottom	[1+1*3+kc]
+					);
+					__m256i _vb=_mm256_set_epi32(
+						0,
+						0,
+						0,
+						past		[1+3*3+kc],
+						present		[1+3*3+kc],
+						nb		[1+3*3+kc],
+						future_top	[1+3*3+kc],
+						future_bottom	[1+3*3+kc]
+					);
+					__m256i _vc=_mm256_set_epi32(
+						0,
+						0,
+						0,
+						past		[1+1*3+kc] + past		[1+3*3+kc] - past		[1+0*3+kc],
+						present		[1+1*3+kc] + present		[1+3*3+kc] - present		[1+0*3+kc],
+						nb		[1+1*3+kc] + nb			[1+3*3+kc] - nb			[1+0*3+kc],
+						future_top	[1+1*3+kc] + future_top		[1+3*3+kc] - future_top		[1+0*3+kc],
+						future_bottom	[1+1*3+kc] + future_bottom	[1+3*3+kc] - future_bottom	[1+0*3+kc]
+					);
+					__m256i _vmin=_mm256_min_epi32(_va, _vb);
+					__m256i _vmax=_mm256_max_epi32(_va, _vb);
+					_vc=_mm256_max_epi32(_vc, _vmin);
+					_vc=_mm256_min_epi32(_vc, _vmax);
+					_mm256_store_si256((__m256i*)_arr, _vc);
+					future_bottom	[0]=_arr[0];
+					future_top	[0]=_arr[1];
+					nb		[0]=_arr[2];
+					present		[0]=_arr[3];
+					past		[0]=_arr[4];
+				}
+#endif
+#if 0
+				{
+					ALIGN(16) int _arr[4];
+					__m128i _va=_mm_set_epi32(
+						0,
+						nb		[1+1*3+kc],
+						future_top	[1+1*3+kc],
+						future_bottom	[1+1*3+kc]
+					);
+					__m128i _vb=_mm_set_epi32(
+						0,
+						nb		[1+3*3+kc],
+						future_top	[1+3*3+kc],
+						future_bottom	[1+3*3+kc]
+					);
+					__m128i _vc=_mm_set_epi32(
+						0,
+						nb		[1+1*3+kc] + nb			[1+3*3+kc] - nb			[1+0*3+kc],
+						future_top	[1+1*3+kc] + future_top		[1+3*3+kc] - future_top		[1+0*3+kc],
+						future_bottom	[1+1*3+kc] + future_bottom	[1+3*3+kc] - future_bottom	[1+0*3+kc]
+					);
+					__m128i _vmin=_mm_min_epi32(_va, _vb);
+					__m128i _vmax=_mm_max_epi32(_va, _vb);
+					_vc=_mm_max_epi32(_vc, _vmin);
+					_vc=_mm_min_epi32(_vc, _vmax);
+					_mm_store_si128((__m128i*)_arr, _vc);
+					future_bottom	[0]=_arr[0];
+					future_top	[0]=_arr[1];
+					nb		[0]=_arr[2];
+				}
+#endif
+				if(kx<src->iw-OLS6_SAMPLEREACHX)
+				{
+					if(ky>1)
+						v4_addsample(ctx, ctx->ptr+OLS6_SAMPLEREACHX*ctx->cellsize, future_bottom);
+					if(ky>OLS6_SAMPLEREACHY+1)
+						v4_subsample(ctx, ctx->ptr+OLS6_SAMPLEREACHX*ctx->cellsize, future_top);
+					v4_addmv(ctx, ctx->isum, ctx->ptr+OLS6_SAMPLEREACHX*ctx->cellsize);
+				}
+				//if(kx>=1)
+				//	v4_submv(ctx, ctx->isum, ctx->ptr-1*ctx->cellsize);
+				if(kx>=OLS6_SAMPLEREACHX)
+					v4_submv(ctx, ctx->isum, ctx->ptr-OLS6_SAMPLEREACHX*ctx->cellsize);
+				if(kx>1)
+					v4_addsample(ctx, ctx->isum, present);
+				if(kx>OLS6_SAMPLEREACHX+1)
+					v4_subsample(ctx, ctx->isum, past);
+				int pred;
+				if(ky>=OLS6_SAMPLEREACHY&&kx>=OLS6_SAMPLEREACHX&&kx<src->iw-OLS6_SAMPLEREACHX)
+					pred=v4_predict(ctx, nb, rows[0][kc-1*4], rows[1][kc+0*4], rows[1][kc+1*4], 1);
+				//	pred=v4_predict(ctx, nb, rows[0][kc-1*4], rows[1][kc+0*4], rows[1][kc+1*4], !(kx&15));
+				else
+					MEDIAN3_32(pred, rows[1][kc+0*4], rows[0][kc-1*4], rows[1][kc+0*4]+rows[0][kc-1*4]-rows[1][kc-1*4]);
+
+				int idx=(src->iw*ky+kx)<<2;
+				int curr=0;
+				if(fwd)
+				{
+					curr=src->data[idx|kc];
+					pred=curr-pred;
+					pred<<=32-src->depth[kc];
+					pred>>=32-src->depth[kc];
+				}
+				else
+				{
+					pred+=src->data[idx|kc];
+					pred<<=32-src->depth[kc];
+					pred>>=32-src->depth[kc];
+					curr=pred;
+				}
+				src->data[idx|kc]=pred;
+				nb[_countof(nb)-3+kc]=rows[0][kc]=curr;
+
+				ctx->ptr+=ctx->cellsize;
+			}
+			for(int k=0;k<sizeof(rows)/sizeof(__m256i);++k)
+			{
+				__m256i mr=_mm256_load_si256((__m256i*)rows+k);
+				mr=_mm256_add_epi64(mr, rowstride);
+				_mm256_store_si256((__m256i*)rows+k, mr);
+			}
+		}
+		if(loud_transforms&&(!((ky+1)&63)||ky>=src->ih-1))
+			set_window_title(
+				"%d/%d %lf%%  %lf%% %lf%% %lf%%  %lf sec",
+				ky+1, src->ih,
+				100.*(ky+1)/src->ih,
+				100.*v4[0].successcount/v4[0].totalcalls,
+				100.*v4[1].successcount/v4[1].totalcalls,
+				100.*v4[2].successcount/v4[2].totalcalls,
+				time_sec()-t
+			);
+	}
+	v4_finish(v4+0);
+	v4_finish(v4+1);
+	v4_finish(v4+2);
+	free(pixels);
+#elif defined ENABLE_V3
 	static const int xindices[]=
 	{
 		0,

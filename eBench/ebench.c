@@ -1306,9 +1306,7 @@ static int customtransforms_getflag(unsigned char tid)
 		tid==ST_FWD_CUSTOM||
 		tid==ST_INV_CUSTOM||
 		tid==ST_FWD_CC||
-		tid==ST_INV_CC||
-		tid==ST_FWD_OLS6||
-		tid==ST_INV_OLS6;
+		tid==ST_INV_CC;
 	//	tid==ST_FWD_WP||
 	//	tid==ST_INV_WP;
 	//	tid==ST_FWD_EXPDWT||
@@ -3662,9 +3660,9 @@ int io_mousewheel(int forward)
 #endif
 				break;
 			case 1://spatial transform params
-				if(!transforms_mask[ST_FWD_CUSTOM]&&!transforms_mask[ST_INV_CUSTOM]&&
-					!transforms_mask[ST_FWD_CC]&&!transforms_mask[ST_INV_CC]&&
-					!transforms_mask[ST_FWD_OLS6]&&!transforms_mask[ST_INV_OLS6]
+				if(!transforms_mask[ST_FWD_CUSTOM]&&!transforms_mask[ST_INV_CUSTOM]
+					&&!transforms_mask[ST_FWD_CC]&&!transforms_mask[ST_INV_CC]
+				//	&&!transforms_mask[ST_FWD_OLS6]&&!transforms_mask[ST_INV_OLS6]
 				)
 					break;
 				if(!celly)
@@ -6583,9 +6581,9 @@ void io_render(void)
 			//GUIPrint(0, x, y+ystep*5, guizoom, "b+=(%c%c%8.3lf)r+(%c%c%8.3lf)g", sel[10], sel[10], customparam_ct[10], sel[11], sel[11], customparam_ct[11]);
 		}
 		if(
-			transforms_mask[ST_FWD_CUSTOM]||transforms_mask[ST_INV_CUSTOM]||
-			transforms_mask[ST_FWD_CC]||transforms_mask[ST_INV_CC]||
-			transforms_mask[ST_FWD_OLS6]||transforms_mask[ST_INV_OLS6]
+			transforms_mask[ST_FWD_CUSTOM]||transforms_mask[ST_INV_CUSTOM]
+			||transforms_mask[ST_FWD_CC]||transforms_mask[ST_INV_CC]
+		//	||transforms_mask[ST_FWD_OLS6]||transforms_mask[ST_INV_OLS6]
 		)
 		{
 			int c0=set_bk_color(0x80FFFFFF);

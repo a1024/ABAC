@@ -1,6 +1,4 @@
-﻿# CMakeList.txt : CMake project for eBench, include source and define project specific logic here.
-
-#include_directories(
+﻿#include_directories(
 #	"C:/Projects/a/OpenCL-Headers"
 #)
 #link_directories(
@@ -33,7 +31,7 @@ add_executable (eBench WIN32
 #	target_compile_options(eBench PRIVATE -Wall -Wextra -Wpedantic)
 #endif()
 
-if (CMAKE_VERSION VERSION_GREATER 3.12)
-  set_property(TARGET eBench PROPERTY CXX_STANDARD 20)
-endif()
+#if (CMAKE_VERSION VERSION_GREATER 3.12)
+#  set_property(TARGET eBench PROPERTY CXX_STANDARD 20)
+#endif()
 
