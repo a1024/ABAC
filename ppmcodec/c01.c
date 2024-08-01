@@ -209,7 +209,7 @@ static void test()
 	//const int prob_bits=12;
 	double t;
 	const long long usize=1024LL*1024*1024;
-	DList list;
+	BList list;
 #ifdef TEST_USE_AC3
 	AC3 ec;
 #else
@@ -314,7 +314,7 @@ static int quantize_ctx(int x)
 	//return token;
 }
 #define SCALE_BITS 16
-static int squash(int x)//sigmoid(x) = 1/(1-exp(-x))		logit sum -> prob
+static int squash(int x)//sigmoid(x) = 1/(1+exp(-x))		logit sum -> prob
 {
 #ifdef DISABLE_LOGMIX
 	x>>=11;
@@ -502,7 +502,7 @@ typedef struct _ThreadArgs
 	short *pixels;
 	int *hist;
 
-	DList list;
+	BList list;
 	const unsigned char *decstart, *decend;
 	
 #ifdef ENABLE_MIX4
@@ -1135,8 +1135,7 @@ static void block_thread(void *param)
 		predidx[1]=PRED_AV12;
 		predidx[2]=PRED_AV12;
 #endif
-		res=(args->x2-args->x1)*(args->y2-args->y1)*3;
-		dlist_init(&args->list, 1, res, 0);
+		blist_init(&args->list);
 #ifdef USE_AC2
 		ac2_enc_init(&ec, &args->list);
 		ac2_enc_bypass_NPOT(&ec, bestrct, RCT_COUNT);
@@ -3357,10 +3356,10 @@ int c01_codec(const char *srcfn, const char *dstfn)
 								arg->x2-arg->x1,
 								blocksize,
 								arg->bestsize,
-								arg->list.nobj,
-								arg->list.nobj-arg->bestsize,
-								100.*arg->list.nobj/blocksize,
-								(double)blocksize/arg->list.nobj,
+								arg->list.nbytes,
+								arg->list.nbytes-arg->bestsize,
+								100.*arg->list.nbytes/blocksize,
+								(double)blocksize/arg->list.nbytes,
 								rct_names[arg->bestrct],
 								pred_names[arg->predidx[0]],
 								pred_names[arg->predidx[1]],
@@ -3373,9 +3372,9 @@ int c01_codec(const char *srcfn, const char *dstfn)
 							abac_csizes[k]+=arg->abac_csizes[k];
 #endif
 					}
-					memcpy(dst->data+start+sizeof(int)*((ptrdiff_t)kt+kt2), &arg->list.nobj, sizeof(int));
-					dlist_appendtoarray(&arg->list, &dst);
-					dlist_clear(&arg->list);
+					memcpy(dst->data+start+sizeof(int)*((ptrdiff_t)kt+kt2), &arg->list.nbytes, sizeof(int));
+					blist_appendtoarray(&arg->list, &dst);
+					blist_clear(&arg->list);
 				}
 			}
 		}

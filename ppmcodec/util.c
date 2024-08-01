@@ -1414,6 +1414,7 @@ size_t array_append(ArrayHandle *dst, const void *src, size_t esize, size_t coun
 }
 #endif
 
+
 //double-linked array list
 #if 1
 void dlist_init(DListHandle list, size_t objsize, size_t objpernode, void (*destructor)(void*))

@@ -577,7 +577,7 @@ typedef struct _ThreadArgs
 	short *pixels;
 	int *hist;
 
-	DList list;
+	BList list;
 	const unsigned char *decstart, *decend;
 	
 	//int hist[54<<8];
@@ -1192,7 +1192,7 @@ static void block_thread(void *param)
 				);
 			}
 		}
-		dlist_init(&args->list, 1, BLOCKSIZE*BLOCKSIZE*3, 0);
+		blist_init(&args->list);
 		ac4_enc_init(&ec, &args->list);
 		ac4_enc_update_NPOT(&ec, bestrct, bestrct+1, RCT_COUNT);
 		ac4_enc_update_NPOT(&ec, predidx[0], predidx[0]+1, PRED_COUNT);
@@ -2681,10 +2681,10 @@ int c03_codec(const char *srcfn, const char *dstfn)
 								arg->x2-arg->x1,
 								blocksize,
 								arg->bestsize,
-								arg->list.nobj,
-								arg->list.nobj-arg->bestsize,
-								100.*arg->list.nobj/blocksize,
-								(double)blocksize/arg->list.nobj,
+								arg->list.nbytes,
+								arg->list.nbytes-arg->bestsize,
+								100.*arg->list.nbytes/blocksize,
+								(double)blocksize/arg->list.nbytes,
 								rct_names[arg->bestrct],
 								pred_names[arg->predidx[0]],
 								pred_names[arg->predidx[1]],
@@ -2697,9 +2697,9 @@ int c03_codec(const char *srcfn, const char *dstfn)
 							abac_csizes[k]+=arg->abac_csizes[k];
 #endif
 					}
-					memcpy(dst->data+start+sizeof(int)*((ptrdiff_t)kt+kt2), &arg->list.nobj, sizeof(int));
-					dlist_appendtoarray(&arg->list, &dst);
-					dlist_clear(&arg->list);
+					memcpy(dst->data+start+sizeof(int)*((ptrdiff_t)kt+kt2), &arg->list.nbytes, sizeof(int));
+					blist_appendtoarray(&arg->list, &dst);
+					blist_clear(&arg->list);
 				}
 			}
 		}

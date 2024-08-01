@@ -2,28 +2,23 @@
 #include<stdlib.h>
 #include<string.h>
 #include<math.h>//abs
-//#include<immintrin.h>//included by "entropy.h"
 static const char file[]=__FILE__;
 
 
 //	#define ENABLE_GUIDE
-//	#define DISABLE_MT
+	#define DISABLE_MT
 
-
-//	#define ENABLE_WP2
-	#define ENABLE_WP
-	#define ENABLE_SSE
-	#define DISABLE_PREDSEL
-
-
-#define CODECNAME "C04"
-#include"entropy.h"
+	#define USE_AC4
+//	#define USE_AC2
+	#define USE_ABAC
 
 #define BLOCKSIZE 512
-#define MAXPRINTEDBLOCKS 50
-#ifdef ENABLE_WP
-#define NPREDS 3
-#endif
+#define MAXPRINTEDBLOCKS 0
+#define CODECNAME "C07"
+#define AC3_PREC
+#include"entropy.h"
+
+#define NLEVELS 257
 
 #define OCHLIST\
 	OCH(R)\
@@ -53,63 +48,58 @@ static const char *och_names[OCH_COUNT]=
 };
 
 #define RCTLIST\
-	RCT(R_G_B,	OCH_R,		OCH_G,		OCH_B,		0, 1, 2,	3,	3, 3, 0)\
-	RCT(R_G_BG,	OCH_R,		OCH_G,		OCH_BG,		0, 1, 2,	3,	1, 3, 0)\
-	RCT(R_G_BR,	OCH_R,		OCH_G,		OCH_BR,		0, 1, 2,	3,	0, 3, 0)\
-	RCT(R_G_B2,	OCH_R,		OCH_G,		OCH_B2,		0, 1, 2,	3,	0, 1, 1)\
-	RCT(R_GR_BR,	OCH_R,		OCH_GR,		OCH_BR,		0, 1, 2,	0,	0, 3, 0)\
-	RCT(R_GR_BG,	OCH_R,		OCH_GR,		OCH_BG,		0, 1, 2,	0,	1, 3, 0)\
-	RCT(R_GR_B2,	OCH_R,		OCH_GR,		OCH_B2,		0, 1, 2,	0,	0, 1, 1)\
-	RCT(R_B_G2,	OCH_R,		OCH_B,		OCH_G2,		0, 2, 1,	3,	0, 1, 1)\
-	RCT(R_BR_GB,	OCH_R,		OCH_BR,		OCH_GB,		0, 2, 1,	0,	1, 3, 0)\
-	RCT(R_BR_G2,	OCH_R,		OCH_BR,		OCH_G2,		0, 2, 1,	0,	0, 1, 1)\
-	RCT(G_B_RG,	OCH_G,		OCH_B,		OCH_RG,		1, 2, 0,	3,	0, 3, 0)\
-	RCT(G_B_RB,	OCH_G,		OCH_B,		OCH_RB,		1, 2, 0,	3,	1, 3, 0)\
-	RCT(G_B_R2,	OCH_G,		OCH_B,		OCH_R2,		1, 2, 0,	3,	0, 1, 1)\
-	RCT(G_BG_RG,	OCH_G,		OCH_BG,		OCH_RG,		1, 2, 0,	0,	0, 3, 0)\
-	RCT(G_BG_RB,	OCH_G,		OCH_BG,		OCH_RB,		1, 2, 0,	0,	1, 3, 0)\
-	RCT(G_BG_R2,	OCH_G,		OCH_BG,		OCH_R2,		1, 2, 0,	0,	0, 1, 1)\
-	RCT(G_RG_BR,	OCH_G,		OCH_RG,		OCH_BR,		1, 0, 2,	0,	1, 3, 0)\
-	RCT(G_RG_B2,	OCH_G,		OCH_RG,		OCH_B2,		1, 0, 2,	0,	0, 1, 1)\
-	RCT(B_R_GR,	OCH_B,		OCH_R,		OCH_GR,		2, 0, 1,	3,	1, 3, 0)\
-	RCT(B_R_GB,	OCH_B,		OCH_R,		OCH_GB,		2, 0, 1,	3,	0, 3, 0)\
-	RCT(B_RB_GB,	OCH_B,		OCH_RB,		OCH_GB,		2, 0, 1,	0,	0, 3, 0)\
-	RCT(B_RB_GR,	OCH_B,		OCH_RB,		OCH_GR,		2, 0, 1,	0,	1, 3, 0)\
-	RCT(B_RB_G2,	OCH_B,		OCH_RB,		OCH_G2,		2, 0, 1,	0,	0, 1, 1)\
-	RCT(B_GB_RG,	OCH_B,		OCH_GB,		OCH_RG,		2, 1, 0,	0,	1, 3, 0)\
-	RCT(B_GB_R2,	OCH_B,		OCH_GB,		OCH_R2,		2, 1, 0,	0,	0, 1, 1)
+	RCT(R_G_B,	OCH_R,		OCH_G,		OCH_B,		3, 3, 3,	3, 3, 3,	0, 0, 0)\
+	RCT(R_G_BG,	OCH_R,		OCH_G,		OCH_BG,		3, 3, 1,	3, 3, 3,	0, 0, 0)\
+	RCT(R_G_BR,	OCH_R,		OCH_G,		OCH_BR,		3, 3, 0,	3, 3, 3,	0, 0, 0)\
+	RCT(G_B_RG,	OCH_G,		OCH_B,		OCH_RG,		3, 3, 0,	3, 3, 3,	0, 0, 0)\
+	RCT(G_B_RB,	OCH_G,		OCH_B,		OCH_RB,		3, 3, 1,	3, 3, 3,	0, 0, 0)\
+	RCT(B_R_GR,	OCH_B,		OCH_R,		OCH_GR,		3, 3, 1,	3, 3, 3,	0, 0, 0)\
+	RCT(B_R_GB,	OCH_B,		OCH_R,		OCH_GB,		3, 3, 0,	3, 3, 3,	0, 0, 0)\
+	RCT(G_BG_RG,	OCH_G,		OCH_BG,		OCH_RG,		3, 0, 0,	3, 3, 3,	0, 0, 0)\
+	RCT(G_BG_RB,	OCH_G,		OCH_BG,		OCH_RB,		3, 0, 1,	3, 3, 3,	0, 0, 0)\
+	RCT(G_RG_BR,	OCH_G,		OCH_RG,		OCH_BR,		3, 0, 1,	3, 3, 3,	0, 0, 0)\
+	RCT(B_RB_GB,	OCH_B,		OCH_RB,		OCH_GB,		3, 0, 0,	3, 3, 3,	0, 0, 0)\
+	RCT(B_RB_GR,	OCH_B,		OCH_RB,		OCH_GR,		3, 0, 1,	3, 3, 3,	0, 0, 0)\
+	RCT(B_GB_RG,	OCH_B,		OCH_GB,		OCH_RG,		3, 0, 1,	3, 3, 3,	0, 0, 0)\
+	RCT(R_GR_BR,	OCH_R,		OCH_GR,		OCH_BR,		3, 0, 0,	3, 3, 3,	0, 0, 0)\
+	RCT(R_GR_BG,	OCH_R,		OCH_GR,		OCH_BG,		3, 0, 1,	3, 3, 3,	0, 0, 0)\
+	RCT(R_BR_GB,	OCH_R,		OCH_BR,		OCH_GB,		3, 0, 1,	3, 3, 3,	0, 0, 0)\
+	RCT(R_G_B2,	OCH_R,		OCH_G,		OCH_B2,		3, 3, 0,	3, 3, 1,	0, 0, 1)\
+	RCT(R_B_G2,	OCH_R,		OCH_B,		OCH_G2,		3, 3, 0,	3, 3, 1,	0, 0, 1)\
+	RCT(G_B_R2,	OCH_G,		OCH_B,		OCH_R2,		3, 3, 0,	3, 3, 1,	0, 0, 1)\
+	RCT(R_GR_B2,	OCH_R,		OCH_GR,		OCH_B2,		3, 0, 0,	3, 3, 1,	0, 0, 1)\
+	RCT(R_BR_G2,	OCH_R,		OCH_BR,		OCH_G2,		3, 0, 0,	3, 3, 1,	0, 0, 1)\
+	RCT(G_BG_R2,	OCH_G,		OCH_BG,		OCH_R2,		3, 0, 0,	3, 3, 1,	0, 0, 1)\
+	RCT(G_RG_B2,	OCH_G,		OCH_RG,		OCH_B2,		3, 0, 0,	3, 3, 1,	0, 0, 1)\
+	RCT(B_RB_G2,	OCH_B,		OCH_RB,		OCH_G2,		3, 0, 0,	3, 3, 1,	0, 0, 1)\
+	RCT(B_GB_R2,	OCH_B,		OCH_GB,		OCH_R2,		3, 0, 0,	3, 3, 1,	0, 0, 1)
 typedef enum _RCTIndex
 {
-#define RCT(LABEL, YIDX, UIDX, VIDX,  YPERM, UPERM, VPERM,  UOFF1,  VOFF1, VOFF2, VSH2) RCT_##LABEL,
+#define RCT(LABEL, YIDX, UIDX, VIDX, YOFF1, UOFF1, VOFF1, YOFF2, UOFF2, VOFF2, YSH2, USH2, VSH2) RCT_##LABEL,
 	RCTLIST
 #undef  RCT
 	RCT_COUNT,
 } RCTIndex;
-static const unsigned char rct_combinations[RCT_COUNT][10]=
+static const unsigned char rct_combinations[RCT_COUNT][12]=
 {
-#define RCT(LABEL, YIDX, UIDX, VIDX,  YPERM, UPERM, VPERM,  UOFF1,  VOFF1, VOFF2, VSH2)\
-	{YIDX, UIDX, VIDX,  YPERM, UPERM, VPERM,  UOFF1,  VOFF1, VOFF2, VSH2},
+#define RCT(LABEL, YIDX, UIDX, VIDX, YOFF1, UOFF1, VOFF1, YOFF2, UOFF2, VOFF2, YSH2, USH2, VSH2)\
+	{YIDX, UIDX, VIDX, YOFF1, UOFF1, VOFF1, YOFF2, UOFF2, VOFF2, YSH2, USH2, VSH2},
 	RCTLIST
 #undef  RCT
 };
 static const char *rct_names[RCT_COUNT]=
 {
-#define RCT(LABEL, YIDX, UIDX, VIDX,  YPERM, UPERM, VPERM,  UOFF1,  VOFF1, VOFF2, VSH2) #LABEL,
+#define RCT(LABEL, YIDX, UIDX, VIDX, YOFF1, UOFF1, VOFF1, YOFF2, UOFF2, VOFF2, YSH2, USH2, VSH2) #LABEL,
 	RCTLIST
 #undef  RCT
 };
 
-#ifdef DISABLE_PREDSEL
-#define PREDLIST\
-	PRED(CG)
-#else
 #define PREDLIST\
 	PRED(W)\
 	PRED(CG)\
 	PRED(AV5)\
 	PRED(AV9)\
 	PRED(AV12)
-#endif
 typedef enum _PredIndex
 {
 #define PRED(LABEL) PRED_##LABEL,
@@ -124,54 +114,139 @@ static const char *pred_names[PRED_COUNT]=
 #undef  PRED
 };
 
-//typedef enum _NBIndex
-//{
-//	NB_NNWW,	NB_NNW,		NB_NN,		NB_NNE,		NB_NNEE,
-//	NB_NWW,		NB_NW,		NB_N,		NB_NE,		NB_NEE,
-//	NB_WW,		NB_W,		NB_curr,
-//} NBIndex;
 typedef enum _NBIndex
 {
-	NB_NW,		NB_N,
-	NB_W,		NB_curr,
+	NB_NNWW,	NB_NNW,		NB_NN,		NB_NNE,		NB_NNEE,
+	NB_NWW,		NB_NW,		NB_N,		NB_NE,		NB_NEE,
+	NB_WW,		NB_W,		NB_curr,
 } NBIndex;
-#if 0
 static const short av12_icoeffs[12]=
 {
 	 0x04,	 0x03,	-0x1F,	-0x26,	 0x00,
 	 0x07,	-0x9E,	 0xDB,	 0x1E,	 0x13,
 	-0x2A,	 0xF3,
 };
-ALIGN(32) static const short g_coeffs[]=
+
+#if 0
+//WG:
+#define WG_DECAY_NUM	493
+#define WG_DECAY_SH	9
+
+#define WG_NPREDS	16
+#define WG_PREDLIST\
+	WG_PRED(25, spred)\
+	WG_PRED(50, wgrad)\
+	WG_PRED(50, 3*N-W-NE)\
+	WG_PRED(30, 2*NE-W)\
+	WG_PRED(132, N+W-NW)\
+	WG_PRED(100, N+W-NW+((eN+eW-eNW+16)>>5))\
+	WG_PRED(150, N+eN)\
+	WG_PRED(100, N)\
+	WG_PRED(150, W+eW)\
+	WG_PRED(100, W)\
+	WG_PRED(165, W+NE-N)\
+	WG_PRED(220, N+NE-NNE)\
+	WG_PRED(25, N+NE-NNE+((eN+eNE-eNNE)>>2))\
+	WG_PRED(165, 3*(N-NN)+NNN)\
+	WG_PRED(165, 3*(W-WW)+WWW)\
+	WG_PRED(150, (W+NEEE)/2)
+static void wg_init(int *weights)
 {
-	//W
-	 0x00,		0x00,		0x00,		0x00,		0x00,
-	 0x00,		0x00,		0x00,		0x00,		0x00,
-	 0x00,		1<<8,		0, 0, 0, 0,
+	int j=0;
+#define WG_PRED(WEIGHT, EXPR) weights[j++]=WEIGHT;
+	WG_PREDLIST
+#undef  WG_PRED
+}
+static int wg_predict(
+	const int *weights,
+	short **rows, const int stride, int kc2,
+	int spred, const int *perrors, int *preds
+)
+{
+	double pred2=0, wsum=0;
+	int j=0, pred;
+	short
+		NNNWWWW	=rows[3][kc2-4*stride+0],
+		NNWWWW	=rows[2][kc2-4*stride+0],
+		NNN	=rows[3][kc2+0*stride+0],
+		NN	=rows[2][kc2+0*stride+0],
+		NNE	=rows[2][kc2+1*stride+0],
+		NNEEE	=rows[2][kc2+3*stride+0],
+		NW	=rows[1][kc2-1*stride+0],
+		N	=rows[1][kc2+0*stride+0],
+		NE	=rows[1][kc2+1*stride+0],
+		NEE	=rows[1][kc2+2*stride+0],
+		NEEE	=rows[1][kc2+3*stride+0],
+		WWW	=rows[0][kc2-3*stride+0],
+		WW	=rows[0][kc2-2*stride+0],
+		W	=rows[0][kc2-1*stride+0],
+		eNNE	=rows[2][kc2+1*stride+1],
+		eNW	=rows[1][kc2-1*stride+1],
+		eN	=rows[1][kc2+0*stride+1],
+		eNE	=rows[1][kc2+1*stride+1],
+		eW	=rows[0][kc2-1*stride+1];
+	(void)NNNWWWW;
+	(void)NNWWWW;
+	(void)NNEEE;
+	(void)NEE;
+	int gy=abs(eN)+1, gx=abs(eW)+1;
+	int wgrad=(N*gy+W*gx)/(gy+gx);
 
-	//CG
-	 0x00,		 0x00,		0x00,		0x00,		0x00,
-	 0x00,		-(1<<8),	1<<8,		0x00,		0x00,
-	 0x00,		 1<<8,		0, 0, 0, 0,
-
-	//AV5
-	 0x00,		 0x00,		0x00,		0x00,		0x00,
-	 0x00,		-(5<<5),	5<<5,		1<<5,		0x00,
-	 -(1<<5),	 8<<5,		0, 0, 0, 0,
-
-	//AV9
-	 0x00,		 1<<4,		-(2<<4),	-(1<<4),	0x00,
-	 1<<4,		-(9<<4),	10<<4,		4<<4,		0x00,
-	 -(2<<4),	 16<<4,		0, 0, 0, 0,
-
-	//AV12
-	 0x04,		 0x03,		-0x1F,		-0x26,		 0x00,
-	 0x07,		-0x9E,		 0xDB,		 0x1E,		 0x13,
-	-0x2A,		 0xF3,		0, 0, 0, 0,
-};
+#define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
+	WG_PREDLIST
+#undef  WG_PRED
+	
+	for(int k=0;k<WG_NPREDS;++k)
+	{
+		double weight=(double)weights[k]/(perrors[k]+1);
+		pred2+=weight*preds[k];
+		wsum+=weight;
+	}
+	pred2/=wsum;
+#ifdef _MSC_VER
+	pred=_cvt_dtoi_fast(pred2);
+#else
+	pred=(int)pred2;
 #endif
+	CLAMP3_32(pred, pred, N, W, NE);
+	return pred;
+}
+static void wg_update(int curr, const int *preds, int *perrors, int *weights)
+{
+	for(int k=0;k<WG_NPREDS;++k)
+	{
+		int e2=abs(curr-preds[k]);
+		perrors[k]=(perrors[k]+e2)*WG_DECAY_NUM>>WG_DECAY_SH;
+	}
+}
 
 
+//from libjxl		packsign(pixel) = 0b00001MMBB...BBL	token = offset + 0bGGGGMML,  where G = bits of lg(packsign(pixel)),  bypass = 0bBB...BB
+#define CONFIG_EXP 4
+#define CONFIG_MSB 1
+#define CONFIG_LSB 0
+static void quantize_pixel(int val, int *token, int *bypass, int *nbits)
+{
+	if(val<(1<<CONFIG_EXP))
+	{
+		*token=val;//token
+		*nbits=0;
+		*bypass=0;
+	}
+	else
+	{
+		int lgv=FLOOR_LOG2((unsigned)val);
+		int mantissa=val-(1<<lgv);
+		*token = (1<<CONFIG_EXP) + (
+				(lgv-CONFIG_EXP)<<(CONFIG_MSB+CONFIG_LSB)|
+				(mantissa>>(lgv-CONFIG_MSB))<<CONFIG_LSB|
+				(mantissa&((1<<CONFIG_LSB)-1))
+			);
+		*nbits=lgv-(CONFIG_MSB+CONFIG_LSB);
+		*bypass=val>>CONFIG_LSB&((1LL<<*nbits)-1);
+	}
+}
+#endif
 typedef struct _ThreadArgs
 {
 	const unsigned char *src;
@@ -179,16 +254,12 @@ typedef struct _ThreadArgs
 	int iw, ih;
 
 	int fwd, test, loud, x1, x2, y1, y2;
-	int bufsize;
-	short pixels[(BLOCKSIZE+16)*4*4*2];//4 padded rows * 4 channels max * {pixel, abs(e)}
-#ifdef ENABLE_WP
-	unsigned short wp_errors[(BLOCKSIZE+16)*NPREDS*3];
-#endif
+	int bufsize, histsize;
+	short *pixels;
+	int *hist;
 
 	BList list;
 	const unsigned char *decstart, *decend;
-	
-	int hist[OCH_COUNT*PRED_COUNT<<8];
 
 	//aux
 	int blockidx;
@@ -197,31 +268,40 @@ typedef struct _ThreadArgs
 } ThreadArgs;
 static void block_thread(void *param)
 {
-	const int half=128, nch=3;
+	const int nch=3;
+#ifndef USE_ABAC
+	const int half=128;
+#endif
 	ThreadArgs *args=(ThreadArgs*)param;
-	GolombRiceCoder ec;
+#ifdef USE_AC2
+	AC2 ec;
+#elif defined USE_AC4
+	AC4 ec;
+#else
+	AC3 ec;
+#endif
 	const unsigned char *image=args->fwd?args->src:args->dst;
 	unsigned char bestrct=0, combination[6]={0}, predidx[4]={0};
-	int ystride=args->iw*3;
 	
 	if(args->fwd)
 	{
+		int ystride=args->iw*3;
 		double csizes[OCH_COUNT*PRED_COUNT]={0}, bestsize=0;
 		unsigned char predsel[OCH_COUNT]={0};
-		int res=(args->x2-args->x1-1)/5*5*(args->y2-args->y1-1);
-		//__m256i av12_mcoeffs[12];
+		int res=(args->x2-args->x1-3)/5*5*(args->y2-args->y1-2);
+		__m256i av12_mcoeffs[12];
 		
-		memset(args->hist, 0, sizeof(args->hist));
-		//for(int k=0;k<(int)_countof(av12_mcoeffs);++k)
-		//	av12_mcoeffs[k]=_mm256_set1_epi16(av12_icoeffs[k]>>1);
-		for(int ky=args->y1+1;ky<args->y2;++ky)//analysis loop
+		memset(args->hist, 0, args->histsize);
+		for(int k=0;k<(int)_countof(av12_mcoeffs);++k)
+			av12_mcoeffs[k]=_mm256_set1_epi16(av12_icoeffs[k]>>1);
+		for(int ky=args->y1+2;ky<args->y2;++ky)//analysis loop
 		{
-			int kx=args->x1+1;
+			int kx=args->x1+2;
 			const unsigned char *ptr=image+3*(args->iw*ky+kx);
 
 			__m256i amin=_mm256_set1_epi16(-128);
 			__m256i amax=_mm256_set1_epi16(127);
-			__m128i half8=_mm_set1_epi8(128);
+			__m128i half8=_mm_set1_epi8(-128);
 			__m128i shuf=_mm_set_epi8(
 				-1,
 				12, 14, 13,
@@ -232,25 +312,34 @@ static void block_thread(void *param)
 				//15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
 			);
 			ALIGN(32) short result[16]={0};
-			for(;kx<args->x2-4;kx+=5, ptr+=15)
+			for(;kx<args->x2-5;kx+=5, ptr+=15)
 			{
 				__m256i
-					nb0[4],//rgb
-					nb1[4],//gbr
-					nb2[4],//rgb - gbr
-					nb3[4],//gbr - rgb
-					nb4[4],//(gbr+brg)/2
-					nb5[4];//rgb - (gbr+brg)/2
+					nb0[13],//rgb
+					nb1[13],//gbr
+					nb2[13],//rgb - gbr
+					nb3[13],//gbr - rgb
+					nb4[13],//(gbr+brg)/2
+					nb5[13];//rgb - (gbr+brg)/2
 				__m256i vmin[4], vmax[4], pred;
 				{
-					__m128i nb8[4]=//8-bit
+					__m128i nb8[13]=//8-bit
 					{
+						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-2*ystride-2*3+0)), half8),//NNWW
+						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-2*ystride-1*3+0)), half8),//NNW
+						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-2*ystride+0*3+0)), half8),//NN
+						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-2*ystride+1*3+0)), half8),//NNE
+						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-2*ystride+2*3+0)), half8),//NNEE
+						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-1*ystride-2*3+0)), half8),//NWW
 						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-1*ystride-1*3+0)), half8),//NW
 						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-1*ystride+0*3+0)), half8),//N
+						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-1*ystride+1*3+0)), half8),//NE
+						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-1*ystride+2*3+0)), half8),//NEE
+						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr+0*ystride-2*3+0)), half8),//WW
 						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr+0*ystride-1*3+0)), half8),//W
 						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr+0*ystride+0*3+0)), half8),//curr
 					};
-					for(int k=0;k<(int)_countof(nb8);++k)
+					for(int k=0;k<13;++k)
 					{
 						__m128i temp;
 						__m256i t2;
@@ -289,7 +378,6 @@ static void block_thread(void *param)
 		++args->hist[(IDXD*PRED_COUNT+PREDIDX)<<8|result[0xD]];\
 		++args->hist[(IDXE*PRED_COUNT+PREDIDX)<<8|result[0xE]];\
 	}while(0)
-#ifndef DISABLE_PREDSEL
 				//W
 				pred=_mm256_sub_epi16(nb0[NB_curr], nb0[NB_W]);
 				UPDATE(
@@ -339,7 +427,6 @@ static void block_thread(void *param)
 					OCH_R2, OCH_G2, OCH_B2,
 					OCH_R2, OCH_G2, OCH_B2
 				);
-#endif
 
 				//CG
 				vmin[0]=_mm256_min_epi16(nb0[NB_N], nb0[NB_W]);
@@ -412,7 +499,6 @@ static void block_thread(void *param)
 					OCH_R2, OCH_G2, OCH_B2
 				);
 				
-#ifndef DISABLE_PREDSEL
 				//AV5
 				//		-5	5	1
 				//	-1	8	[?]>>3
@@ -682,7 +768,6 @@ static void block_thread(void *param)
 					OCH_R2, OCH_G2, OCH_B2,
 					OCH_R2, OCH_G2, OCH_B2
 				);
-#endif
 			}
 		}
 		for(int kc=0;kc<OCH_COUNT*PRED_COUNT;++kc)
@@ -727,19 +812,14 @@ static void block_thread(void *param)
 		args->predidx[2]=predidx[2];
 		if(args->loud)
 		{
-			printf("Y %5d~%5d  best %12.2lf bytes  %s\n",
+			printf("Y %5d~%5d  best %12.2lf bytes  %s [YUV: %s %s %s]\n",
 				args->y1, args->y2,
 				bestsize,
-				rct_names[bestrct]
+				rct_names[bestrct],
+				pred_names[predidx[0]],
+				pred_names[predidx[1]],
+				pred_names[predidx[2]]
 			);
-			//printf("Y %5d~%5d  best %12.2lf bytes  %s [YUV: %s %s %s]\n",
-			//	args->y1, args->y2,
-			//	bestsize,
-			//	rct_names[bestrct],
-			//	pred_names[predidx[0]],
-			//	pred_names[predidx[1]],
-			//	pred_names[predidx[2]]
-			//);
 
 			for(int kp=0;kp<PRED_COUNT;++kp)
 				printf("%14s", pred_names[kp]);
@@ -758,55 +838,69 @@ static void block_thread(void *param)
 					csizes[group[0]*PRED_COUNT+predsel[group[0]]]+
 					csizes[group[1]*PRED_COUNT+predsel[group[1]]]+
 					csizes[group[2]*PRED_COUNT+predsel[group[2]]];
-				printf("%12.2lf %c  %-10s\n",
+				printf("%12.2lf %c  %-10s %-10s %-10s %-10s\n",
 					csize,
 					kt==bestrct?'*':' ',
-					rct_names[kt]
+					rct_names[kt],
+					pred_names[predsel[group[0]]],
+					pred_names[predsel[group[1]]],
+					pred_names[predsel[group[2]]]
 				);
-				//printf("%12.2lf %c  %-10s %-10s %-10s %-10s\n",
-				//	csize,
-				//	kt==bestrct?'*':' ',
-				//	rct_names[kt],
-				//	pred_names[predsel[group[0]]],
-				//	pred_names[predsel[group[1]]],
-				//	pred_names[predsel[group[2]]]
-				//);
 			}
 		}
 		blist_init(&args->list);
-		gr_enc_init(&ec, &args->list);
-		gr_enc_NPOT(&ec, bestrct, RCT_COUNT);
-#ifndef DISABLE_PREDSEL
-		gr_enc_NPOT(&ec, predidx[0], PRED_COUNT);
-		gr_enc_NPOT(&ec, predidx[1], PRED_COUNT);
-		gr_enc_NPOT(&ec, predidx[2], PRED_COUNT);
+#ifdef USE_AC2
+		ac2_enc_init(&ec, &args->list);
+		ac2_enc_bypass_NPOT(&ec, bestrct, RCT_COUNT);
+		ac2_enc_bypass_NPOT(&ec, predidx[0], PRED_COUNT);
+		ac2_enc_bypass_NPOT(&ec, predidx[1], PRED_COUNT);
+		ac2_enc_bypass_NPOT(&ec, predidx[2], PRED_COUNT);
+#elif defined USE_AC4
+		ac4_enc_init(&ec, &args->list);
+		ac4_enc_update_NPOT(&ec, bestrct, bestrct+1, RCT_COUNT);
+		ac4_enc_update_NPOT(&ec, predidx[0], predidx[0]+1, PRED_COUNT);
+		ac4_enc_update_NPOT(&ec, predidx[1], predidx[1]+1, PRED_COUNT);
+		ac4_enc_update_NPOT(&ec, predidx[2], predidx[2]+1, PRED_COUNT);
+#else
+		ac3_enc_init(&ec, &args->list);
+		ac3_enc_bypass_NPOT(&ec, bestrct, RCT_COUNT);
+		ac3_enc_bypass_NPOT(&ec, predidx[0], PRED_COUNT);
+		ac3_enc_bypass_NPOT(&ec, predidx[1], PRED_COUNT);
+		ac3_enc_bypass_NPOT(&ec, predidx[2], PRED_COUNT);
 #endif
 	}
 	else
 	{
-		gr_dec_init(&ec, args->decstart, args->decend);
-		bestrct=gr_dec_NPOT(&ec, RCT_COUNT);
-#ifndef DISABLE_PREDSEL
-		predidx[0]=gr_dec_NPOT(&ec, PRED_COUNT);
-		predidx[1]=gr_dec_NPOT(&ec, PRED_COUNT);
-		predidx[2]=gr_dec_NPOT(&ec, PRED_COUNT);
+#ifdef USE_AC2
+		ac2_dec_init(&ec, args->decstart, args->decend);
+		bestrct=ac2_dec_bypass_NPOT(&ec, RCT_COUNT);
+		predidx[0]=ac2_dec_bypass_NPOT(&ec, PRED_COUNT);
+		predidx[1]=ac2_dec_bypass_NPOT(&ec, PRED_COUNT);
+		predidx[2]=ac2_dec_bypass_NPOT(&ec, PRED_COUNT);
+#elif defined USE_AC4
+		ac4_dec_init(&ec, args->decstart, args->decend);
+		bestrct=ac4_dec_getcdf_NPOT(&ec, RCT_COUNT);		ac4_dec_update_NPOT(&ec, bestrct, bestrct+1, RCT_COUNT);
+		predidx[0]=ac4_dec_getcdf_NPOT(&ec, PRED_COUNT);	ac4_dec_update_NPOT(&ec, predidx[0], predidx[0]+1, PRED_COUNT);
+		predidx[1]=ac4_dec_getcdf_NPOT(&ec, PRED_COUNT);	ac4_dec_update_NPOT(&ec, predidx[1], predidx[1]+1, PRED_COUNT);
+		predidx[2]=ac4_dec_getcdf_NPOT(&ec, PRED_COUNT);	ac4_dec_update_NPOT(&ec, predidx[2], predidx[2]+1, PRED_COUNT);
+#else
+		ac3_dec_init(&ec, args->decstart, args->decend);
+		bestrct=ac3_dec_bypass_NPOT(&ec, RCT_COUNT);
+		predidx[0]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
+		predidx[1]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
+		predidx[2]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
 #endif
 	}
-#ifdef ENABLE_SSE
-	int sse[3][128][2]={0};
+
+#ifdef USE_ABAC
+	unsigned short stats0[3][256]={0};
+	FILLMEM((unsigned short*)stats0, 0x8000, sizeof(stats0), sizeof(short));
+#else
+	unsigned stats0[3][NLEVELS]={0}, stats0sum[3]={0};
 #endif
-#ifdef ENABLE_WP
-	memset(args->wp_errors, 0, sizeof(args->wp_errors));
-#endif
-	memset(args->pixels, 0, sizeof(args->pixels));
+	memset(args->pixels, 0, args->bufsize);
 	for(int ky=args->y1;ky<args->y2;++ky)//codec loop
 	{
-#ifdef ENABLE_WP2
-		int wp_errors[6]={0};
-#elif defined ENABLE_WP
-		unsigned short *wp_errors=args->wp_errors+NPREDS*3;
-		//int wp_errors[NPREDS*3]={0};
-#endif
 		ALIGN(16) short *rows[]=
 		{
 			args->pixels+((BLOCKSIZE+16LL)*((ky-0LL)&3)+8LL)*4*2,
@@ -815,332 +909,360 @@ static void block_thread(void *param)
 			args->pixels+((BLOCKSIZE+16LL)*((ky-3LL)&3)+8LL)*4*2,
 		};
 		int yuv[4]={0};
-		int pred=0, error=0;
+		int pred=0;
+#ifndef USE_ABAC
+		int error=0;
+#endif
 		const unsigned char *combination=rct_combinations[bestrct];
 		for(int kx=args->x1;kx<args->x2;++kx)
 		{
 			int idx=nch*(args->iw*ky+kx);
 			short
-			//	*NNN	=rows[3]+0*4*2,
-			//	*NNWW	=rows[2]-2*4*2,
-			//	*NNW	=rows[2]-1*4*2,
+				*NNN	=rows[3]+0*4*2,
+				*NNWW	=rows[2]-2*4*2,
+				*NNW	=rows[2]-1*4*2,
 				*NN	=rows[2]+0*4*2,
-			//	*NNE	=rows[2]+1*4*2,
-			//	*NNEE	=rows[2]+2*4*2,
-			//	*NNEEE	=rows[2]+3*4*2,
-			//	*NWW	=rows[1]-2*4*2,
+				*NNE	=rows[2]+1*4*2,
+				*NNEE	=rows[2]+2*4*2,
+				*NNEEE	=rows[2]+3*4*2,
+				*NWW	=rows[1]-2*4*2,
 				*NW	=rows[1]-1*4*2,
 				*N	=rows[1]+0*4*2,
 				*NE	=rows[1]+1*4*2,
-			//	*NEE	=rows[1]+2*4*2,
+				*NEE	=rows[1]+2*4*2,
 				*NEEE	=rows[1]+3*4*2,
-			//	*WWWW	=rows[0]-4*4*2,
-			//	*WWW	=rows[0]-3*4*2,
-			//	*WW	=rows[0]-2*4*2,
+				*WWWW	=rows[0]-4*4*2,
+				*WWW	=rows[0]-3*4*2,
+				*WW	=rows[0]-2*4*2,
 				*W	=rows[0]-1*4*2,
 				*curr	=rows[0]+0*4*2;
-			if(ky==args->y1)
-				NEEE=NE=NW=N=W;
-			else if(kx==args->x1)
-				NW=W=N;
-			else if(kx>args->x2-4)
-				NEEE-=(kx-(args->x2-4))*4*2;
-			int nbypass[]=
+			(void)NNN;
+			(void)NNEEE;
+			(void)WWWW;
+			if(ky<=args->y1+2)
 			{
-				FLOOR_LOG2(W[4+0]+1),
-				FLOOR_LOG2(W[4+1]+1),
-				FLOOR_LOG2(W[4+2]+1),
-			};
-#ifdef ENABLE_WP2
-			int weights[]=
-			{
-				wp_errors[0]+1,
-				wp_errors[1]+1,
-				wp_errors[2]+1,
-				wp_errors[3]+1,
-				wp_errors[4]+1,
-				wp_errors[5]+1,
-			};
-			int preds[]=
-			{
-				(weights[0*2+1]*N[0]+weights[0*2+0]*W[0])/(weights[0*2+0]+weights[0*2+1]),
-				(weights[1*2+1]*N[1]+weights[1*2+0]*W[1])/(weights[1*2+0]+weights[1*2+1]),
-				(weights[2*2+1]*N[2]+weights[2*2+0]*W[2])/(weights[2*2+0]+weights[2*2+1]),
-			};
-#elif defined ENABLE_WP
-			int preds[3];
-			int wp_preds[NPREDS*3]=
-			{
-				N[0],
-				W[0],
-				N[0]+W[0]-NW[0],
-				//NE[0],
-				//N[0]+W[0]+NE[0]-NW[0],
-				//(N[0]+W[0])>>1,
-				//W[0]+NE[0]-N[0],
-				
-				N[1],
-				W[1],
-				N[1]+W[1]-NW[1],
-				//NE[1],
-				//N[1]+W[1]+NE[1]-NW[1],
-				//(N[1]+W[1])>>1,
-				//W[1]+NE[1]-N[1],
-				
-				N[2],
-				W[2],
-				N[2]+W[2]-NW[2],
-				//NE[2],
-				//N[2]+W[2]+NE[2]-NW[2],
-				//(N[2]+W[2])>>1,
-				//W[2]+NE[2]-N[2],
-			};
-			for(int kc=0;kc<3;++kc)
-			{
-				//int weights[NPREDS]={0};
-				//long long pred=0;
-				int pred=0;
-				int wsum=0;
-
-				int weights[NPREDS]=
+				if(ky<=args->y1+1)
 				{
-					+wp_errors[kc*NPREDS+0-1*NPREDS*3]//W
-					+wp_errors[kc*NPREDS+0+0*NPREDS*3]//N
-					+wp_errors[kc*NPREDS+0+1*NPREDS*3]//NE
-					+wp_errors[kc*NPREDS+0+2*NPREDS*3]//NEE
-					,
-					+wp_errors[kc*NPREDS+1-1*NPREDS*3]//W
-					+wp_errors[kc*NPREDS+1+0*NPREDS*3]//N
-					+wp_errors[kc*NPREDS+1+1*NPREDS*3]//NE
-					+wp_errors[kc*NPREDS+1+2*NPREDS*3]//NEE
-					,
-					+wp_errors[kc*NPREDS+2-1*NPREDS*3]//W
-					+wp_errors[kc*NPREDS+2+0*NPREDS*3]//N
-					+wp_errors[kc*NPREDS+2+1*NPREDS*3]//NE
-					+wp_errors[kc*NPREDS+2+2*NPREDS*3],//NEE
-				};
-				int w2[]=
-				{
-					weights[1]*weights[2]+1,
-					weights[2]*weights[0]+1,
-					weights[0]*weights[1]+1,
-				};
-				pred=
-					+w2[0]*wp_preds[kc*NPREDS+0]
-					+w2[1]*wp_preds[kc*NPREDS+1]
-					+w2[2]*wp_preds[kc*NPREDS+2];
-				wsum=w2[0]+w2[1]+w2[2];
-
-				//for(int kp=0;kp<NPREDS;++kp)
-				//{
-				//	int weight=0x1000000/(
-				//		wp_errors[kc*NPREDS+kp-1*NPREDS*3]+//W
-				//		wp_errors[kc*NPREDS+kp+0*NPREDS*3]+//N
-				//		wp_errors[kc*NPREDS+kp+1*NPREDS*3]+//NE
-				//		wp_errors[kc*NPREDS+kp+2*NPREDS*3]+//NEE
-				//	1);
-				//	//weights[kp]=weight;
-				//	wsum+=weight;
-				//	pred+=(long long)weight*wp_preds[kc*NPREDS+kp];
-				//}
-				pred/=wsum;
-				CLAMP3_32(pred, (int)pred, N[kc], W[kc], NE[kc]);
-				preds[kc]=(int)pred;
+					if(ky==args->y1)
+						NEEE=NEE=NE=NWW=NW=N=W;
+					NNWW=NWW;
+					NNW=NW;
+					NN=N;
+					NNE=NE;
+					NNEE=NEE;
+					NNEEE=NEEE;
+				}
+				NNN=NN;
 			}
-#else
-			ALIGN(16) short preds[8];
-			__m128i mNW	=_mm_loadu_si128((__m128i*)NW);
-			__m128i mN	=_mm_loadu_si128((__m128i*)N);
-			__m128i mW	=_mm_loadu_si128((__m128i*)W);
-			__m128i mmin=_mm_min_epi16(mN, mW);
-			__m128i mmax=_mm_max_epi16(mN, mW);
-			__m128i mp=_mm_add_epi16(mN, mW);
-			mp=_mm_sub_epi16(mp, mNW);
-			mp=_mm_max_epi16(mp, mmin);
-			mp=_mm_min_epi16(mp, mmax);
-			_mm_store_si128((__m128i*)preds, mp);
-			//MEDIAN3_32(preds[0], N[0], W[0], N[0]+W[0]-NW[0]);
-			//MEDIAN3_32(preds[1], N[1], W[1], N[1]+W[1]-NW[1]);
-			//MEDIAN3_32(preds[2], N[2], W[2], N[2]+W[2]-NW[2]);
-#endif
-#ifdef ENABLE_SSE
-			int *curr_sse[]=
+			if(kx<=args->x1+3)
 			{
-				sse[0][(preds[0]+half*2)>>2],
-				sse[1][(preds[1]+half*2)>>2],
-				sse[2][(preds[2]+half*2)>>2],
-			};
-			//if((unsigned)(preds[0]+half*2)>511||(unsigned)(preds[1]+half*2)>511||(unsigned)(preds[2]+half*2)>511)
-			//	LOG_ERROR("");
-			preds[0]+=curr_sse[0][1]/(curr_sse[0][0]+1);
-			preds[1]+=curr_sse[1][1]/(curr_sse[1][0]+1);
-			preds[2]+=curr_sse[2][1]/(curr_sse[2][0]+1);
-#endif
-			int sym=0, offset;
-#define UPDATE_FORMULA(IDX) (2*W[IDX]+sym+NEEE[IDX])>>2
-//#define UPDATE_FORMULA(IDX) (W[IDX]+sym+NN[IDX]+NEEE[IDX])>>2
+				if(kx<=args->x1+2)
+				{
+					if(kx<=args->x1+1)
+					{
+						if(kx<=args->x1)
+							NW=W=N;
+						WW=W;
+						NWW=NW;
+					}
+					WWW=WW;
+				}
+				WWWW=WWW;
+			}
+			if(kx>=args->x2-3)
+			{
+				if(kx>=args->x2-2)
+				{
+					if(kx>=args->x2-1)
+					{
+						NNE=NN;
+						NE=N;
+					}
+					NNEE=NNE;
+					NEE=NE;
+				}
+				NEEE=NEE;
+			}
 			if(args->fwd)
 			{
-				yuv[0]=args->src[idx+combination[3+0]]-128;
-				yuv[1]=args->src[idx+combination[3+1]]-128;
-				yuv[2]=args->src[idx+combination[3+2]]-128;
-
-				//enc Y
-				pred=preds[0];
-				error=yuv[0]-pred;
+				switch(bestrct)
 				{
-					int upred=half-abs(pred), aval=abs(error);
-					if(aval<=upred)
-					{
-						sym=error;
-#ifdef ENABLE_BIASCORR
-						{
-							int negmask=-((ibias_corr<0)&(sym!=-half));//sign is flipped if SSE correction was negative, to skew the histogram
-							sym^=negmask;
-							sym-=negmask;
-						}
-#endif
-						sym=sym<<1^sym>>31;//pack sign
-					}
-					else
-						sym=upred+aval;//error sign is known
+				case RCT_R_G_B:
+				case RCT_R_G_BG:
+				case RCT_R_G_BR:
+				case RCT_R_GR_BR:
+				case RCT_R_GR_BG:
+				case RCT_R_G_B2:
+				case RCT_R_GR_B2:
+					yuv[0]=args->src[idx+0]-128;
+					yuv[1]=args->src[idx+1]-128;
+					yuv[2]=args->src[idx+2]-128;
+					break;
+				case RCT_G_B_RG:
+				case RCT_G_B_RB:
+				case RCT_G_BG_RG:
+				case RCT_G_BG_RB:
+				case RCT_G_B_R2:
+				case RCT_G_BG_R2:
+					yuv[0]=args->src[idx+1]-128;
+					yuv[1]=args->src[idx+2]-128;
+					yuv[2]=args->src[idx+0]-128;
+					break;
+				case RCT_B_R_GR:
+				case RCT_B_R_GB:
+				case RCT_B_RB_GB:
+				case RCT_B_RB_GR:
+				case RCT_B_RB_G2:
+					yuv[0]=args->src[idx+2]-128;
+					yuv[1]=args->src[idx+0]-128;
+					yuv[2]=args->src[idx+1]-128;
+					break;
+				case RCT_G_RG_BR:
+				case RCT_G_RG_B2:
+					yuv[0]=args->src[idx+1]-128;
+					yuv[1]=args->src[idx+0]-128;
+					yuv[2]=args->src[idx+2]-128;
+					break;
+				case RCT_B_GB_RG:
+				case RCT_B_GB_R2:
+					yuv[0]=args->src[idx+2]-128;
+					yuv[1]=args->src[idx+1]-128;
+					yuv[2]=args->src[idx+0]-128;
+					break;
+				case RCT_R_BR_GB:
+				case RCT_R_B_G2:
+				case RCT_R_BR_G2:
+					yuv[0]=args->src[idx+0]-128;
+					yuv[1]=args->src[idx+2]-128;
+					yuv[2]=args->src[idx+1]-128;
+					break;
 				}
-				gr_enc(&ec, sym, nbypass[0]);
-				curr[0]=yuv[0];
-				curr[4]=UPDATE_FORMULA(4);
-				
-				//enc U
-				offset=yuv[combination[6]];
-				pred=preds[1]+offset;
-				CLAMP2_32(pred, pred, -half, half-1);
-				error=yuv[1]-pred;
-				{
-					int upred=half-abs(pred), aval=abs(error);
-					if(aval<=upred)
-					{
-						sym=error;
-#ifdef ENABLE_BIASCORR
-						{
-							int negmask=-((ibias_corr<0)&(sym!=-half));//sign is flipped if SSE correction was negative, to skew the histogram
-							sym^=negmask;
-							sym-=negmask;
-						}
-#endif
-						sym=sym<<1^sym>>31;//pack sign
-					}
-					else
-						sym=upred+aval;//error sign is known
-				}
-				gr_enc(&ec, sym, nbypass[1]);
-				curr[1]=yuv[1]-offset;
-				curr[5]=UPDATE_FORMULA(5);
-
-				//enc V
-				offset=(yuv[combination[7]]+yuv[combination[8]])>>combination[9];
-				pred=preds[2]+offset;
-				CLAMP2_32(pred, pred, -half, half-1);
-				error=yuv[2]-pred;
-				{
-					int upred=half-abs(pred), aval=abs(error);
-					if(aval<=upred)
-					{
-						sym=error;
-#ifdef ENABLE_BIASCORR
-						{
-							int negmask=-((ibias_corr<0)&(sym!=-half));//sign is flipped if SSE correction was negative, to skew the histogram
-							sym^=negmask;
-							sym-=negmask;
-						}
-#endif
-						sym=sym<<1^sym>>31;//pack sign
-					}
-					else
-						sym=upred+aval;//error sign is known
-				}
-				gr_enc(&ec, sym, nbypass[2]);
-				curr[2]=yuv[2]-offset;
-				curr[6]=UPDATE_FORMULA(6);
 			}
-			else
+			for(int kc=0;kc<nch;++kc)
 			{
-				//dec Y
-				pred=preds[0];
-				sym=gr_dec(&ec, nbypass[0]);
+				int kc2=kc<<1;
+				int offset=(yuv[combination[kc+3]]+yuv[combination[kc+6]])>>combination[kc+9];
+				switch(predidx[kc])
 				{
-					int upred=half-abs(pred), negmask=0;
-					if(sym<=(upred<<1))
+				case PRED_W:
+					pred=W[kc2];
+					break;
+				case PRED_CG:
+					MEDIAN3_32(pred, N[kc2], W[kc2], N[kc2]+W[kc2]-NW[kc2]);
+					break;
+				case PRED_AV5:
+					CLAMP3_32(pred, W[kc2]+((5*(N[kc2]-NW[kc2])+NE[kc2]-WW[kc2])>>3), N[kc2], W[kc2], NE[kc2]);
+					break;
+				case PRED_AV9:
+					CLAMP3_32(pred,
+						W[kc2]+((10*N[kc2]-9*NW[kc2]+4*NE[kc2]-2*(NN[kc2]+WW[kc2])+NNW[kc2]-(NNE[kc2]+NWW[kc2]))>>4),
+						N[kc2],
+						W[kc2],
+						NE[kc2]
+					);
+					break;
+				case PRED_AV12:
+					pred=(
+						av12_icoeffs[ 0]*NNWW[kc2]+
+						av12_icoeffs[ 1]*NNW[kc2]+
+						av12_icoeffs[ 2]*NN[kc2]+
+						av12_icoeffs[ 3]*NNE[kc2]+
+						av12_icoeffs[ 4]*NNEE[kc2]+
+						av12_icoeffs[ 5]*NWW[kc2]+
+						av12_icoeffs[ 6]*NW[kc2]+
+						av12_icoeffs[ 7]*N[kc2]+
+						av12_icoeffs[ 8]*NE[kc2]+
+						av12_icoeffs[ 9]*NEE[kc2]+
+						av12_icoeffs[10]*WW[kc2]+
+						av12_icoeffs[11]*W[kc2]
+					)>>8;
+					CLAMP3_32(pred, pred, N[kc2], W[kc2], NE[kc2]);
+					break;
+				}
+				pred+=offset;
+				CLAMP2_32(pred, pred, -128, 127);
+				//o0
+#ifdef USE_ABAC
+				//if(ky==50&kx==362)//
+				//	printf("");
+				int error=0;
+				if(args->fwd)
+				{
+					curr[kc2+0]=yuv[kc];
+					curr[kc2+1]=error=yuv[kc]-pred;
+					error<<=24;
+					error>>=24;
+				}
+				for(int kb=7, tidx=1;kb>=0;--kb)
+				{
+					int p1=stats0[kc][tidx];
+					int bit;
+					if(args->fwd)
 					{
-						error=sym>>1^-(sym&1);
-#ifdef ENABLE_BIASCORR
-						negmask=-((ibias_corr<0)&(error!=-half));
-#endif
+						bit=error>>kb&1;
+						ac4_enc_bin(&ec, p1, bit);
+					//	ac2_enc_bin(&ec, p1, bit);
+					//	AC3_ENC_BIN(&ec, bit, p0, 16);
+					//	ac3_enc_bin(&ec, bit, p0, 16);
 					}
 					else
 					{
-						error=sym-upred;
-						negmask=-(pred>0);
+						bit=ac4_dec_bin(&ec, p1);
+					//	bit=ac2_dec_bin(&ec, p1);
+					//	AC3_DEC_BIN(&ec, bit, p0, 16);
+					//	bit=ac3_dec_bin(&ec, p0, 16);
+						error|=bit<<kb;
 					}
-					error^=negmask;
-					error-=negmask;
-				}
-				curr[0]=yuv[0]=error+pred;
-				curr[4]=UPDATE_FORMULA(4);
+					p1+=((bit<<16)-p1+(1<<7>>1))>>7;
+					stats0[kc][tidx]=p1;
 
-				//decU
-				offset=yuv[combination[6]];
-				pred=preds[1]+offset;
-				CLAMP2_32(pred, pred, -half, half-1);
-				sym=gr_dec(&ec, nbypass[1]);
-				{
-					int upred=half-abs(pred), negmask=0;
-					if(sym<=(upred<<1))
-					{
-						error=sym>>1^-(sym&1);
-#ifdef ENABLE_BIASCORR
-						negmask=-((ibias_corr<0)&(error!=-half));
-#endif
-					}
-					else
-					{
-						error=sym-upred;
-						negmask=-(pred>0);
-					}
-					error^=negmask;
-					error-=negmask;
+					tidx+=tidx+bit;
 				}
-				yuv[1]=error+pred;
-				curr[1]=yuv[1]-offset;
-				curr[5]=UPDATE_FORMULA(5);
+				if(!args->fwd)
+				{
+					error+=pred;
+					error<<=24;
+					error>>=24;
+					curr[kc2+0]=yuv[kc]=error;
+					curr[kc2+1]=error-pred;
+				}
+#else
+				int sym=0;
+				int den=0, cdf=0, freq=0;
+				//if(ky==190&&kx==366&&kc==2)//
+				//	printf("");
+				if(args->fwd)
+				{
+					curr[kc2+0]=yuv[kc];
+					curr[kc2+1]=error=yuv[kc]-pred;
+					{
+						int upred=half-abs(pred), aval=abs(error);
+						if(aval<=upred)
+						{
+							sym=error;
+#ifdef ENABLE_BIASCORR
+							{
+								int negmask=-((ibias_corr<0)&(sym!=-half));//sign is flipped if SSE correction was negative, to skew the histogram
+								sym^=negmask;
+								sym-=negmask;
+							}
+#endif
+							sym=sym<<1^sym>>31;//pack sign
+						}
+						else
+							sym=upred+aval;//error sign is known
+					}
+					den=stats0sum[kc]+NLEVELS;
+					cdf=0;
+					freq=stats0[kc][sym]+1;
+					for(int k=0;k<sym;++k)
+						cdf+=stats0[kc][k]+1;
+					ac3_enc_update_NPOT(&ec, cdf, freq, den);
+				}
+				else
+				{
+					den=stats0sum[kc]+NLEVELS;
+					cdf=0;
+					freq=0;
+					int code=ac3_dec_getcdf_NPOT(&ec, den);
+					for(;;)
+					{
+						int cdf2;
 
-				//dec V
-				offset=(yuv[combination[7]]+yuv[combination[8]])>>combination[9];
-				pred=preds[2]+offset;
-				CLAMP2_32(pred, pred, -half, half-1);
-				sym=gr_dec(&ec, nbypass[2]);
-				{
-					int upred=half-abs(pred), negmask=0;
-					if(sym<=(upred<<1))
+						freq=stats0[kc][sym]+1;
+						cdf2=cdf+freq;
+						if(cdf2>code)
+							break;
+						cdf=cdf2;
+						++sym;
+					}
+					ac3_dec_update_NPOT(&ec, cdf, freq, den);
 					{
-						error=sym>>1^-(sym&1);
+						int upred=half-abs(pred), negmask=0;
+						if(sym<=(upred<<1))
+						{
+							error=sym>>1^-(sym&1);
 #ifdef ENABLE_BIASCORR
-						negmask=-((ibias_corr<0)&(error!=-half));
+							negmask=-((ibias_corr<0)&(error!=-half));
 #endif
+						}
+						else
+						{
+							error=sym-upred;
+							negmask=-(pred>0);
+						}
+						error^=negmask;
+						error-=negmask;
 					}
-					else
-					{
-						error=sym-upred;
-						negmask=-(pred>0);
-					}
-					error^=negmask;
-					error-=negmask;
+					curr[kc2+0]=yuv[kc]=error+pred;
+					curr[kc2+1]=error;
 				}
-				yuv[2]=error+pred;
-				curr[2]=yuv[2]-offset;
-				curr[6]=UPDATE_FORMULA(6);
-				
-				args->dst[idx+combination[3+0]]=yuv[0]+128;
-				args->dst[idx+combination[3+1]]=yuv[1]+128;
-				args->dst[idx+combination[3+2]]=yuv[2]+128;
+				++stats0[kc][sym];
+				++stats0sum[kc];
+				if(stats0sum[kc]>=6144)
+				{
+					int sum=0;
+					for(int k=0;k<NLEVELS;++k)
+						sum+=stats0[kc][k]>>=1;
+					stats0sum[kc]=sum;
+				}
+#endif
+				curr[kc2+0]-=offset;
+			}
+			if(!args->fwd)
+			{
+				switch(bestrct)
+				{
+				case RCT_R_G_B:
+				case RCT_R_G_BG:
+				case RCT_R_G_BR:
+				case RCT_R_GR_BR:
+				case RCT_R_GR_BG:
+				case RCT_R_G_B2:
+				case RCT_R_GR_B2:
+					args->dst[idx+0]=yuv[0]+128;
+					args->dst[idx+1]=yuv[1]+128;
+					args->dst[idx+2]=yuv[2]+128;
+					break;
+				case RCT_G_B_RG:
+				case RCT_G_B_RB:
+				case RCT_G_BG_RG:
+				case RCT_G_BG_RB:
+				case RCT_G_B_R2:
+				case RCT_G_BG_R2:
+					args->dst[idx+1]=yuv[0]+128;
+					args->dst[idx+2]=yuv[1]+128;
+					args->dst[idx+0]=yuv[2]+128;
+					break;
+				case RCT_B_R_GR:
+				case RCT_B_R_GB:
+				case RCT_B_RB_GB:
+				case RCT_B_RB_GR:
+				case RCT_B_RB_G2:
+					args->dst[idx+2]=yuv[0]+128;
+					args->dst[idx+0]=yuv[1]+128;
+					args->dst[idx+1]=yuv[2]+128;
+					break;
+				case RCT_G_RG_BR:
+				case RCT_G_RG_B2:
+					args->dst[idx+1]=yuv[0]+128;
+					args->dst[idx+0]=yuv[1]+128;
+					args->dst[idx+2]=yuv[2]+128;
+					break;
+				case RCT_B_GB_RG:
+				case RCT_B_GB_R2:
+					args->dst[idx+2]=yuv[0]+128;
+					args->dst[idx+1]=yuv[1]+128;
+					args->dst[idx+0]=yuv[2]+128;
+					break;
+				case RCT_R_BR_GB:
+				case RCT_R_B_G2:
+				case RCT_R_BR_G2:
+					args->dst[idx+0]=yuv[0]+128;
+					args->dst[idx+2]=yuv[1]+128;
+					args->dst[idx+1]=yuv[2]+128;
+					break;
+				}
 #ifdef ENABLE_GUIDE
 				if(args->test&&memcmp(args->dst+idx, args->src+idx, sizeof(char)*nch))
 				{
@@ -1151,52 +1273,6 @@ static void block_thread(void *param)
 				}
 #endif
 			}
-#ifdef ENABLE_SSE
-			++curr_sse[0][0];
-			++curr_sse[1][0];
-			++curr_sse[2][0];
-			curr_sse[0][1]+=curr[0]-preds[0];
-			curr_sse[1][1]+=curr[1]-preds[1];
-			curr_sse[2][1]+=curr[2]-preds[2];
-#endif
-#ifdef ENABLE_WP2
-			wp_errors[0*2+0]=(wp_errors[0*2+0]>>1)+abs(curr[0]-N[0]);
-			wp_errors[0*2+1]=(wp_errors[0*2+1]>>1)+abs(curr[0]-W[0]);
-			wp_errors[1*2+0]=(wp_errors[1*2+0]>>1)+abs(curr[1]-N[1]);
-			wp_errors[1*2+1]=(wp_errors[1*2+1]>>1)+abs(curr[1]-W[1]);
-			wp_errors[2*2+0]=(wp_errors[2*2+0]>>1)+abs(curr[2]-N[2]);
-			wp_errors[2*2+1]=(wp_errors[2*2+1]>>1)+abs(curr[2]-W[2]);
-#elif defined ENABLE_WP
-			for(int kc=0;kc<3;++kc)
-			{
-				int c=curr[kc];
-				int wsum=0;
-				for(int kp=0;kp<NPREDS;++kp)
-					wsum+=wp_errors[kc*NPREDS+kp]=((
-						+wp_errors[kc*NPREDS+kp-1*NPREDS*3]//W
-						+wp_errors[kc*NPREDS+kp+0*NPREDS*3]//N
-					)>>2)+abs(c-wp_preds[kc*NPREDS+kp]);
-
-				//for(int kp=0;kp<NPREDS;++kp)
-				//	wsum+=wp_errors[kc*NPREDS+kp]+=
-				//		abs(c-wp_preds[kc*NPREDS+kp]);
-				if(wsum>64)
-				{
-					for(int kp=0;kp<NPREDS;++kp)
-						wp_errors[kc*NPREDS+kp]>>=1;
-				}
-
-				//	wp_errors[kc*NPREDS+kp]=((
-				//		wp_errors[kc*NPREDS+kp-1*NPREDS*3]+//W
-				//		wp_errors[kc*NPREDS+kp+0*NPREDS*3]+//N
-				//	abs(c-wp_preds[kc*NPREDS+kp]))>>2);
-
-					//wp_errors[kc*NPREDS+kp]=(wp_errors[kc*NPREDS+kp]>>1)+abs(c-wp_preds[kc*NPREDS+kp]);//good
-					//wp_errors[kc*NPREDS+kp]=abs(c-wp_preds[kc*NPREDS+kp]);
-					//args->wp_errors[kc*NPREDS+kp]=(wp_errors[kc*NPREDS+kp]+abs(c-wp_preds[kc*NPREDS+kp]))*493>>9;
-			}
-			wp_errors+=NPREDS*3;
-#endif
 			rows[0]+=4*2;
 			rows[1]+=4*2;
 			rows[2]+=4*2;
@@ -1204,26 +1280,39 @@ static void block_thread(void *param)
 		}
 	}
 	if(args->fwd)
-		gr_enc_flush(&ec);
+#ifdef USE_AC2
+		ac2_enc_flush(&ec);
+#elif defined USE_AC4
+		ac4_enc_flush(&ec);
+#else
+		ac3_enc_flush(&ec);
+#endif
 }
-int c04_codec(const char *srcfn, const char *dstfn)
+int c07_codec(const char *srcfn, const char *dstfn)
 {
 	const int nch=3, depth=8;
 	double t0;
+//	double ttable;
 	ArrayHandle src, dst;
 	int headersize, printed;
 	int iw, ih;
 	const unsigned char *image, *imageend;
 	unsigned char *image2;
 	CodecID codec;
-	int ncores;
+	int ncores=query_cpu_cores();
 	int xblocks, yblocks, nblocks, nthreads, coffset;
 	ptrdiff_t start, memusage, argssize;
 	ThreadArgs *args;
 	int test, fwd;
+//	unsigned short *divtable1, *divtable2, *divtable3;
+//	unsigned *statetable;
+//	int tlevels, statssize;
+	int histsize;
 	double esize;
 	int usize;
 	
+	//pause();//
+
 	t0=time_sec();
 	src=load_file(srcfn, 1, 3, 1);
 	headersize=header_read(src->data, (int)src->count, &iw, &ih, &codec);
@@ -1248,7 +1337,6 @@ int c04_codec(const char *srcfn, const char *dstfn)
 	
 	if(test)
 		printf("%s \"%s\"  WH %d*%d\n", CODECNAME, srcfn, iw, ih);
-	ncores=query_cpu_cores();
 	usize=iw*ih*3;
 	xblocks=(iw+BLOCKSIZE-1)/BLOCKSIZE;
 	yblocks=(ih+BLOCKSIZE-1)/BLOCKSIZE;
@@ -1258,11 +1346,50 @@ int c04_codec(const char *srcfn, const char *dstfn)
 	memusage=0;
 	argssize=nthreads*sizeof(ThreadArgs);
 	args=(ThreadArgs*)malloc(argssize);
+	//divtable1=(unsigned short*)malloc(sizeof(short[1<<(A2_CTRBITS1<<1)]));
+	//divtable2=(unsigned short*)malloc(sizeof(short[1<<(A2_CTRBITS2<<1)]));
+	//divtable3=(unsigned short*)malloc(sizeof(short[1<<(A2_CTRBITS3<<1)]));
+	//statetable=(unsigned*)malloc(sizeof(int[256]));
 	if(!args)
 	{
 		LOG_ERROR("Alloc error");
 		return 1;
 	}
+#if 0
+	ttable=time_sec();
+	for(int k=0;k<1<<(A2_CTRBITS1<<1);++k)
+	{
+		long long mag=8;
+		int n0=k&((1<<A2_CTRBITS1)-1), n1=k>>A2_CTRBITS1&((1<<A2_CTRBITS1)-1);
+		int total=(int)((n0+n1)*mag+2);
+		int p1=(int)((((n1*mag+1)<<16)+total/2)/total);
+		divtable1[k]=p1;
+	}
+	for(int k=0;k<1<<(A2_CTRBITS2<<1);++k)
+	{
+		long long mag=8;
+		int n0=k&((1<<A2_CTRBITS2)-1), n1=k>>A2_CTRBITS2&((1<<A2_CTRBITS2)-1);
+		int total=(int)((n0+n1)*mag+2);
+		int p1=(int)((((n1*mag+1)<<16)+total-1)/total);
+		divtable2[k]=p1;
+	}
+	for(int k=0;k<1<<(A2_CTRBITS3<<1);++k)
+	{
+		long long mag=8;
+		int n0=k&((1<<A2_CTRBITS3)-1), n1=k>>A2_CTRBITS3&((1<<A2_CTRBITS3)-1);
+		int total=(int)((n0+n1)*mag+2);
+		int p1=(int)((((n1*mag+1)<<16)+0)/total);
+		divtable3[k]=p1;
+	}
+	//for(int k=0;k<256;++k)
+	//{
+	//	const unsigned char *cell=g_state_table[k];
+	//	int total=(cell[2]+cell[3])*8+2;
+	//	int p1=(((cell[3]*8+1)<<16)+total/2)/total;
+	//	statetable[k]=p1<<16|cell[1]<<8|cell[0];
+	//}
+	ttable=time_sec()-ttable;
+#endif
 	esize=0;
 	memusage+=argssize;
 	memset(args, 0, argssize);
@@ -1302,6 +1429,16 @@ int c04_codec(const char *srcfn, const char *dstfn)
 		}
 		memset(image2, 0, usize);
 	}
+	{
+		//int nlevels=256;
+		//int token=0, bypass=0, nbits=0;
+		//
+		//quantize_pixel(nlevels, &token, &bypass, &nbits);
+		//tlevels=token+1;
+		histsize=(int)sizeof(int[OCH_COUNT*PRED_COUNT<<8]);
+		//if(histsize<statssize)
+		//	histsize=statssize;
+	}
 	for(int k=0;k<nthreads;++k)
 	{
 		ThreadArgs *arg=args+k;
@@ -1309,6 +1446,18 @@ int c04_codec(const char *srcfn, const char *dstfn)
 		arg->dst=fwd?0:dst->data+printed;
 		arg->iw=iw;
 		arg->ih=ih;
+		arg->bufsize=sizeof(short[4*OCH_COUNT*2*(BLOCKSIZE+16LL)]);//4 padded rows * OCH_COUNT * {pixels, wg_errors}
+		arg->pixels=(short*)_mm_malloc(arg->bufsize, sizeof(__m128i));
+
+		arg->histsize=histsize;
+		arg->hist=(int*)malloc(histsize);
+		if(!arg->pixels||!arg->hist)
+		{
+			LOG_ERROR("Alloc error");
+			return 1;
+		}
+		memusage+=arg->bufsize;
+		memusage+=histsize;
 
 		arg->fwd=fwd;
 		arg->test=test;
@@ -1367,7 +1516,7 @@ int c04_codec(const char *srcfn, const char *dstfn)
 						if(nblocks<MAXPRINTEDBLOCKS)
 						{
 							printf(
-								"block %4d/%4d  XY %3d %3d  %4d*%4d:  %8d->%16lf->%8zd bytes (%+10.2lf)  %10.6lf%%  CR %10lf  %s\n",
+								"block %4d/%4d  XY %3d %3d  %4d*%4d:  %8d->%16lf->%8zd bytes (%+10.2lf)  %10.6lf%%  CR %10lf  %s %s %s %s\n",
 								kt+kt2+1, nblocks,
 								kx, ky,
 								arg->y2-arg->y1,
@@ -1378,25 +1527,11 @@ int c04_codec(const char *srcfn, const char *dstfn)
 								arg->list.nbytes-arg->bestsize,
 								100.*arg->list.nbytes/blocksize,
 								(double)blocksize/arg->list.nbytes,
-								rct_names[arg->bestrct]
+								rct_names[arg->bestrct],
+								pred_names[arg->predidx[0]],
+								pred_names[arg->predidx[1]],
+								pred_names[arg->predidx[2]]
 							);
-							//printf(
-							//	"block %4d/%4d  XY %3d %3d  %4d*%4d:  %8d->%16lf->%8zd bytes (%+10.2lf)  %10.6lf%%  CR %10lf  %s %s %s %s\n",
-							//	kt+kt2+1, nblocks,
-							//	kx, ky,
-							//	arg->y2-arg->y1,
-							//	arg->x2-arg->x1,
-							//	blocksize,
-							//	arg->bestsize,
-							//	arg->list.nbytes,
-							//	arg->list.nbytes-arg->bestsize,
-							//	100.*arg->list.nbytes/blocksize,
-							//	(double)blocksize/arg->list.nbytes,
-							//	rct_names[arg->bestrct],
-							//	pred_names[arg->predidx[0]],
-							//	pred_names[arg->predidx[1]],
-							//	pred_names[arg->predidx[2]]
-							//);
 						}
 						esize+=arg->bestsize;
 #ifdef ABAC_PROFILESIZE
@@ -1417,6 +1552,22 @@ int c04_codec(const char *srcfn, const char *dstfn)
 			t0=time_sec()-t0;
 			if(fwd)
 			{
+				//printf("Table gen %lf sec\n", ttable);
+#ifdef ABAC_PROFILESIZE
+				double upsize=(double)iw*ih/8;
+				for(int kb=0;kb<ABAC_TOKEN_BITS*3;++kb)
+				{
+					double cpsize=abac_csizes[kb]/8;
+					printf("C%d B%d  %10.2lf/%10.2lf  %8.4lf%%  CR %10.6lf\n",
+						kb/ABAC_TOKEN_BITS,
+						kb%ABAC_TOKEN_BITS,
+						cpsize,
+						upsize,
+						100.*cpsize/upsize,
+						upsize/cpsize
+					);
+				}
+#endif
 				printf("Best %15.2lf (%+13.2lf) bytes\n", esize, csize-esize);
 				printf("%12td/%12td  %10.6lf%%  %10lf\n", csize, usize, 100.*csize/usize, (double)usize/csize);
 				printf("Mem usage: ");
@@ -1453,8 +1604,17 @@ int c04_codec(const char *srcfn, const char *dstfn)
 		save_file(dstfn, dst->data, dst->count, 1);
 	if(image2)
 		free(image2);
+	for(int k=0;k<nthreads;++k)
+	{
+		ThreadArgs *arg=args+k;
+		_mm_free(arg->pixels);
+		free(arg->hist);
+		//free(arg->stats);
+	}
 	free(args);
 	array_free(&src);
 	array_free(&dst);
+	//if(test)
+	//	pause();
 	return 0;
 }

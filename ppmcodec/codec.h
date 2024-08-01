@@ -18,10 +18,14 @@ typedef enum _CodecID
 int header_read(const unsigned char *src, int len, int *iw, int *ih, CodecID *codec);//returns header size
 int compare_bufs_8(const unsigned char *b1, const unsigned char *b0, int iw, int ih, int nch, int chstride, const char *name, int backward, int loud);
 
-int c01_codec(const char *srcfn, const char *dstfn);
-int c02_codec(const char *srcfn, const char *dstfn);
-int c03_codec(const char *srcfn, const char *dstfn);
-int c04_codec(const char *srcfn, const char *dstfn);
+int c01_codec(const char *srcfn, const char *dstfn);//binary/AC
+int c02_codec(const char *srcfn, const char *dstfn);//binary
+int c03_codec(const char *srcfn, const char *dstfn);//binary
+int c04_codec(const char *srcfn, const char *dstfn);//Golomb-Rice
+int c05_codec(const char *srcfn, const char *dstfn);//Golomb-Rice
+int c06_codec(const char *srcfn, const char *dstfn);//binary
+int c07_codec(const char *srcfn, const char *dstfn);//o0 AC speed test
+int c08_codec(const char *srcfn, const char *dstfn);//FILE-only AC5 test
 
 	
 #ifdef __cplusplus

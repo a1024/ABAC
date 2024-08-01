@@ -4,7 +4,9 @@
 #include<string.h>
 static const char file[]=__FILE__;
 
+
 //	#define _DEBUG
+
 
 static void ppm_skip(const unsigned char **ptr, const unsigned char *end)
 {
@@ -95,19 +97,21 @@ int main(int argc, char **argv)
 	if((unsigned)(argc-2)>1)
 	{
 		printf("Usage:\n");
-		printf("  %s  input.ppm            Test without saving\n", argv[0]);
-	//	printf("  %s  path                 Test without saving\n", argv[0]);
-		printf("  %s  input.ppm  output    Encode file\n", argv[0]);
-		printf("  %s  input  output.ppm    Decode file\n", argv[0]);
+		printf("  %s  input.PPM/PGM          Test without saving\n", argv[0]);
+	//	printf("  %s  path                   Test without saving\n", argv[0]);
+		printf("  %s  input.PPM/PGM  output  Encode file\n", argv[0]);
+		printf("  %s  input  output.PPM/PGM  Decode file\n", argv[0]);
 		return 0;
 	}
 	srcfn=argv[1];
 	dstfn=argc==3?argv[2]:0;
+	c08_codec(srcfn, dstfn);
 #else
 	srcfn=
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
-		"C:/Projects/datasets/big_building.PPM"
-	//	"C:/Projects/datasets/kodim13.ppm"
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA13882.ppm"
+	//	"C:/Projects/datasets/big_building.PPM"
+		"C:/Projects/datasets/kodim13.ppm"
 	//	"C:/Projects/datasets/kodim13-small4.PPM"
 	//	"C:/Projects/datasets/dataset-CLIC30-ppm/03.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm"	//large
@@ -127,7 +131,9 @@ int main(int argc, char **argv)
 		0
 	//	"D:/ML/dataset-kodak-ppm/kodim13.c01.ppm"
 		;
+	c08_codec("C:/Projects/datasets/kodim13.ppm", "C:/Projects/datasets/kodim13.lsim");
+	c08_codec("C:/Projects/datasets/kodim13.lsim", "C:/Projects/datasets/kodim13_dec.ppm");
 #endif
-	c04_codec(srcfn, dstfn);
+	//c07_codec(srcfn, dstfn);
 	return 0;
 }

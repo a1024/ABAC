@@ -8,6 +8,7 @@
 #ifdef _MSC_VER
 #include<intrin.h>//_udiv128, _umul128
 #endif
+#include"blist.h"
 #ifdef __cplusplus
 extern "C"
 {
@@ -21,7 +22,6 @@ void acval_enc(int sym, int cdf, int freq, unsigned long long lo1, unsigned long
 void acval_dec(int sym, int cdf, int freq, unsigned long long lo1, unsigned long long hi1, unsigned long long lo2, unsigned long long hi2, unsigned long long cache, int nbits, unsigned long long code);
 void acval_dump();
 //extern int acval_disable;
-#ifdef AC_IMPLEMENTATION
 typedef struct ACVALStruct
 {
 	unsigned long long
@@ -32,6 +32,10 @@ typedef struct ACVALStruct
 	int sym, cdf, freq;
 } ACVAL;
 #define ACVAL_CBUFSIZE 128
+extern ArrayHandle acval;
+extern ACVAL acval_cbuf[ACVAL_CBUFSIZE];
+extern int acval_idx;
+#ifdef AC_IMPLEMENTATION
 ArrayHandle acval=0;
 ACVAL acval_cbuf[ACVAL_CBUFSIZE]={0};
 int acval_idx=0;
@@ -131,12 +135,12 @@ void acval_dec(int sym, int cdf, int freq, unsigned long long lo1, unsigned long
 
 
 //arithmetic coder (paq8px)
-#define AC2_PROB_BITS 18
+#define AC2_PROB_BITS 16
 typedef struct _AC2
 {
 	unsigned x1, x2, pending_bits, code;
 	unsigned char cache, nbits;//enc: number of written bits	dec: number of remaining bits
-	DList *dst;
+	BList *dst;
 	const unsigned char *srcptr, *srcend;
 } AC2;
 INLINE void ac2_bitwrite(AC2 *ec, int bit)
@@ -145,7 +149,7 @@ INLINE void ac2_bitwrite(AC2 *ec, int bit)
 	++ec->nbits;
 	if(ec->nbits==8)
 	{
-		dlist_push_back1(ec->dst, &ec->cache);
+		blist_push_back1(ec->dst, &ec->cache);
 		ec->cache=0;
 		ec->nbits=0;
 	}
@@ -170,7 +174,7 @@ INLINE int ac2_bitread(AC2 *ec)
 	--ec->nbits;
 	return ec->cache>>ec->nbits&1;
 }
-INLINE void ac2_enc_init(AC2 *ec, DList *dst)
+INLINE void ac2_enc_init(AC2 *ec, BList *dst)
 {
 	memset(ec, 0, sizeof(*ec));
 	ec->x1=0;
@@ -378,11 +382,11 @@ INLINE int ac2_dec_bin(AC2 *ec, unsigned p1)
 typedef struct _AC3
 {
 	unsigned long long low, range;
-	DList *dst;
+	BList *dst;
 	const unsigned char *srcptr, *srcend;
 	unsigned long long code;
 } AC3;
-INLINE void ac3_enc_init(AC3 *ec, DList *dst)
+INLINE void ac3_enc_init(AC3 *ec, BList *dst)
 {
 	memset(ec, 0, sizeof(*ec));
 	ec->low=0;
@@ -413,7 +417,7 @@ INLINE void ac3_enc_renorm(AC3 *ec)//fast renorm by F. Rubin 1979
 {
 	unsigned long long rmax;
 
-	dlist_push_back(ec->dst, (unsigned char*)&ec->low+8-AC3_RENORM/8, AC3_RENORM/8);
+	blist_push_back(ec->dst, (unsigned char*)&ec->low+8-AC3_RENORM/8, AC3_RENORM/8);
 	ec->range=ec->range<<AC3_RENORM|((1LL<<AC3_RENORM)-1);
 	ec->low<<=AC3_RENORM;
 
@@ -429,8 +433,10 @@ INLINE void ac3_dec_renorm(AC3 *ec)//fast renorm by F. Rubin 1979
 	ec->code<<=AC3_RENORM;
 	ec->low<<=AC3_RENORM;
 	if(ec->srcptr+AC3_RENORM/8<=ec->srcend)
+	{
 		memcpy(&ec->code, ec->srcptr, AC3_RENORM/8);
-	ec->srcptr+=AC3_RENORM/8;
+		ec->srcptr+=AC3_RENORM/8;
+	}
 
 	rmax=~ec->low;
 	if(ec->range>rmax)
@@ -447,7 +453,7 @@ INLINE void ac3_enc_flush(AC3 *ec)
 #endif
 	for(int k=8-AC3_RENORM/8;k>=0&&code;k-=AC3_RENORM/8)
 	{
-		dlist_push_back(ec->dst, (unsigned char*)&code+8-(AC3_RENORM/8), AC3_RENORM/8);
+		blist_push_back(ec->dst, (unsigned char*)&code+8-(AC3_RENORM/8), AC3_RENORM/8);
 		code<<=AC3_RENORM;
 	}
 }
@@ -523,7 +529,7 @@ INLINE void ac3_enc_update_NPOT(AC3 *ec, unsigned cdf, unsigned freq, unsigned d
 	unsigned long long lo0, r0;
 	if(!freq)
 		LOG_ERROR2("ZPS");
-	if(cdf+freq<cdf)
+	if(cdf+freq<cdf||cdf+freq>den)
 		LOG_ERROR2("Invalid CDF");
 #endif
 	AC3_RENORM_STATEMENT(ec->range<(unsigned)den)//only when freq=1 -> range=0, this loop runs twice
@@ -548,11 +554,14 @@ INLINE unsigned ac3_dec_getcdf_NPOT(AC3 *ec, unsigned den)
 		ac3_dec_renorm(ec);
 #ifdef AC3_PREC
 	{
+#ifdef AC_VALIDATE
+		ACVAL *val=(ACVAL*)array_at(&acval, acval_idx);
+		if(ec->code<val->lo2||ec->code>val->hi2)
+			printf("");
+#endif
 		unsigned long long lo, hi, lo0;
 		lo0=lo=_umul128(ec->code-ec->low, den, &hi);
 		lo+=den-1LL;
-	//	lo+=den>>1;
-	//	lo+=ec->range>>1;//X
 		hi+=lo<lo0;
 		return (unsigned)_udiv128(hi, lo, ec->range, &hi);
 	}
@@ -841,17 +850,68 @@ INLINE int ac3_dec_bin(AC3 *ec, unsigned p0, int probbits)
 #endif
 	return bit;
 }
+#define AC3_ENC_BIN(EC, BIT, P0, PROB_BITS)\
+	do\
+	{\
+		unsigned long long _mid=(EC)->range>>PROB_BITS;\
+		if(!_mid)\
+		{\
+			blist_push_back((EC)->dst, (unsigned char*)&(EC)->low+8-AC3_RENORM/8, AC3_RENORM/8);\
+			(EC)->range=(EC)->range<<AC3_RENORM|((1LL<<AC3_RENORM)-1);\
+			(EC)->low<<=AC3_RENORM;\
+			_mid=~(EC)->low;\
+			if((EC)->range>_mid)\
+				(EC)->range=_mid;\
+			_mid=(EC)->range>>PROB_BITS;\
+		}\
+		_mid*=P0;\
+		_mid+=((EC)->range&((1LL<<PROB_BITS)-1))*P0>>PROB_BITS;\
+		if(BIT)\
+		{\
+			(EC)->low+=_mid;\
+			(EC)->range-=_mid;\
+		}\
+		else\
+			(EC)->range=_mid-1;\
+	}while(0)
+#define AC3_DEC_BIN(EC, DSTBIT, P0, PROB_BITS)\
+	do\
+	{\
+		unsigned long long _mid=(EC)->range>>PROB_BITS, _t2;\
+		if(!_mid)\
+		{\
+			(EC)->range=(EC)->range<<AC3_RENORM|((1LL<<AC3_RENORM)-1);\
+			(EC)->code<<=AC3_RENORM;\
+			(EC)->low<<=AC3_RENORM;\
+			if((EC)->srcptr+AC3_RENORM/8<=(EC)->srcend)\
+			{\
+				memcpy(&(EC)->code, (EC)->srcptr, AC3_RENORM/8);\
+				(EC)->srcptr+=AC3_RENORM/8;\
+			}\
+			_mid=~(EC)->low;\
+			if((EC)->range>_mid)\
+				(EC)->range=_mid;\
+			_mid=(EC)->range>>PROB_BITS;\
+		}\
+		_mid*=P0;\
+		_mid+=((EC)->range&((1LL<<PROB_BITS)-1))*P0>>PROB_BITS;\
+		_t2=(EC)->low+_mid;\
+		(EC)->range-=_mid;\
+		DSTBIT=(EC)->code>=_t2;\
+		(EC)->low=DSTBIT?_t2:(EC)->low;\
+		(EC)->range=DSTBIT?(EC)->range:_mid-1;\
+	}while(0)
 
 
 //arithmetic coder (zpaq)	https://mattmahoney.net/dc/dce.html#Section_32
 typedef struct _AC4
 {
 	unsigned lo, hi;
-	DList *dst;
+	BList *dst;
 	const unsigned char *srcptr, *srcend;
 	unsigned code;
 } AC4;
-INLINE void ac4_enc_init(AC4 *ec, DList *dst)
+INLINE void ac4_enc_init(AC4 *ec, BList *dst)
 {
 	memset(ec, 0, sizeof(*ec));
 	ec->lo=0;
@@ -877,10 +937,10 @@ INLINE void ac4_dec_init(AC4 *ec, const unsigned char *srcstart, const unsigned 
 INLINE void ac4_enc_flush(AC4 *ec)
 {
 	unsigned mid=(unsigned)(((unsigned long long)ec->lo+ec->hi)>>1);
-	dlist_push_back1(ec->dst, (unsigned char*)&mid+3);//big-endian
-	dlist_push_back1(ec->dst, (unsigned char*)&mid+2);
-	dlist_push_back1(ec->dst, (unsigned char*)&mid+1);
-	dlist_push_back1(ec->dst, (unsigned char*)&mid+0);
+	blist_push_back1(ec->dst, (unsigned char*)&mid+3);//big-endian
+	blist_push_back1(ec->dst, (unsigned char*)&mid+2);
+	blist_push_back1(ec->dst, (unsigned char*)&mid+1);
+	blist_push_back1(ec->dst, (unsigned char*)&mid+0);
 }
 INLINE void ac4_enc_bin(AC4 *ec, unsigned short p1, int bit)
 {
@@ -888,7 +948,7 @@ INLINE void ac4_enc_bin(AC4 *ec, unsigned short p1, int bit)
 	
 	while((ec->hi^ec->lo)<0x1000000)
 	{
-		dlist_push_back1(ec->dst, (unsigned char*)&ec->lo+3);
+		blist_push_back1(ec->dst, (unsigned char*)&ec->lo+3);
 		ec->hi=ec->hi<<8|255;
 		ec->lo<<=8;
 	}
@@ -937,11 +997,11 @@ INLINE void ac4_enc_update_NPOT(AC4 *ec, unsigned cdf_curr, unsigned cdf_next, u
 
 	while((ec->hi^ec->lo)<0x1000000)
 	{
-		dlist_push_back1(ec->dst, (unsigned char*)&ec->lo+3);
+		blist_push_back1(ec->dst, (unsigned char*)&ec->lo+3);
 		ec->hi=ec->hi<<8|255;
 		ec->lo<<=8;
 	}
-	lo=ec->lo+(unsigned)((unsigned long long)(ec->hi-ec->lo)*cdf_curr/den);
+	lo=ec->lo+(unsigned)((unsigned long long)(ec->hi-ec->lo)*cdf_curr/den)+1;
 	hi=ec->lo+(unsigned)((unsigned long long)(ec->hi-ec->lo)*cdf_next/den);
 	acval_enc(0, cdf_curr, cdf_next-cdf_curr, ec->lo, ec->hi, lo, hi, 0, 0);
 	ec->lo=lo;
@@ -966,11 +1026,76 @@ INLINE void ac4_dec_update_NPOT(AC4 *ec, unsigned cdf_curr, unsigned cdf_next, u
 {
 	unsigned lo, hi;
 
-	lo=ec->lo+(unsigned)((unsigned long long)(ec->hi-ec->lo)*cdf_curr/den);
+	lo=ec->lo+(unsigned)((unsigned long long)(ec->hi-ec->lo)*cdf_curr/den)+1;
 	hi=ec->lo+(unsigned)((unsigned long long)(ec->hi-ec->lo)*cdf_next/den);
 	acval_dec(0, cdf_curr, cdf_next-cdf_curr, ec->lo, ec->hi, lo, hi, 0, 0, ec->code);
 	ec->lo=lo;
 	ec->hi=hi;
+}
+
+
+#define AC5_PROB_BITS 10
+typedef struct _AC5
+{
+	unsigned lo, hi, code, enc;
+	FILE *f;
+} AC5;
+INLINE void ac5_enc_init(AC5 *ec, FILE *fdst)
+{
+	ec->lo=0;
+	ec->hi=0xFFFFFFFF;
+	ec->code=0;
+	ec->enc=1;
+	ec->f=fdst;
+}
+INLINE void ac5_dec_init(AC5 *ec, FILE *fsrc)
+{
+	ec->lo=0;
+	ec->hi=0xFFFFFFFF;
+	ec->enc=0;
+	ec->f=fsrc;
+	ec->code=fgetc(fsrc)&255;
+	ec->code=ec->code<<8|(fgetc(fsrc)&255);
+	ec->code=ec->code<<8|(fgetc(fsrc)&255);
+	ec->code=ec->code<<8|(fgetc(fsrc)&255);
+}
+INLINE void ac5_enc_flush(AC5 *ec)
+{
+	unsigned code=ec->lo;
+	fputc(code>>24, ec->f);	code<<=8;
+	fputc(code>>24, ec->f);	code<<=8;
+	fputc(code>>24, ec->f);	code<<=8;
+	fputc(code>>24, ec->f);
+}
+INLINE void ac5_enc_bin(AC5 *ec, int p1, int bit)
+{
+	while((ec->lo^ec->hi)<0x1000000)
+	{
+		fputc(ec->lo>>24, ec->f);
+		ec->lo<<=8;
+		ec->hi=ec->hi<<8|255;
+	}
+	{
+		unsigned mid=ec->lo+((ec->hi-ec->lo)>>AC5_PROB_BITS)*p1;
+		ec->lo=bit?ec->lo:mid+1;
+		ec->hi=bit?mid:ec->hi;
+	}
+}
+INLINE int ac5_dec_bin(AC5 *ec, int p1)
+{
+	while((ec->lo^ec->hi)<0x1000000)
+	{
+		ec->code=ec->code<<8|(fgetc(ec->f)&255);
+		ec->lo<<=8;
+		ec->hi=ec->hi<<8|255;
+	}
+	{
+		unsigned mid=ec->lo+((ec->hi-ec->lo)>>AC5_PROB_BITS)*p1;
+		int bit=ec->code<=mid;
+		ec->lo=bit?ec->lo:mid+1;
+		ec->hi=bit?mid:ec->hi;
+		return bit;
+	}
 }
 
 
@@ -982,7 +1107,7 @@ typedef struct GolombRiceCoderStruct
 	int is_enc;//for padding
 	const unsigned char *srcptr, *srcend, *srcstart;
 	unsigned char *dstptr, *dstend, *dststart;
-	DList *dst;
+	BList *dst;
 } GolombRiceCoder;
 INLINE size_t gr_enc_flush(GolombRiceCoder *ec)
 {
@@ -993,7 +1118,7 @@ INLINE size_t gr_enc_flush(GolombRiceCoder *ec)
 	ec->dstptr+=sizeof(ec->cache);
 	return 1;
 #else
-	dlist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));//size is qword-aligned
+	blist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));//size is qword-aligned
 	return 1;
 #endif
 }
@@ -1013,7 +1138,7 @@ INLINE void gr_enc_init(GolombRiceCoder *ec,
 #ifdef EC_USE_ARRAY
 	unsigned char *start, unsigned char *end
 #else
-	DList *dst
+	BList *dst
 #endif
 )
 {
@@ -1053,7 +1178,7 @@ INLINE int gr_enc_NPOT(GolombRiceCoder *ec, unsigned sym, unsigned magnitude)
 		nzeros-=ec->nbits;
 		if(!gr_enc_flush(ec))
 			return 0;
-		//dlist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));
+		//blist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));
 		if(nzeros>=(int)(sizeof(ec->cache)<<3))//just flush zeros
 		{
 			ec->cache=0;
@@ -1062,7 +1187,7 @@ INLINE int gr_enc_NPOT(GolombRiceCoder *ec, unsigned sym, unsigned magnitude)
 				nzeros-=(sizeof(ec->cache)<<3);
 				if(!gr_enc_flush(ec))
 					return 0;
-				//dlist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));
+				//blist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));
 			}
 			while(nzeros>(int)(sizeof(ec->cache)<<3));
 		}
@@ -1087,7 +1212,7 @@ INLINE int gr_enc_NPOT(GolombRiceCoder *ec, unsigned sym, unsigned magnitude)
 		bypass&=(1<<nbypass)-1;
 		if(!gr_enc_flush(ec))
 			return 0;
-		//dlist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));
+		//blist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));
 		ec->cache=0;
 		ec->nbits=sizeof(ec->cache)<<3;
 	}
@@ -1168,7 +1293,7 @@ INLINE int gr_enc(GolombRiceCoder *ec, int sym, int nbypass)
 		nzeros-=ec->nbits;
 		if(!gr_enc_flush(ec))
 			return 0;
-		//dlist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));
+		//blist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));
 		if(nzeros>=(int)(sizeof(ec->cache)<<3))//just flush zeros
 		{
 			ec->cache=0;
@@ -1177,7 +1302,7 @@ INLINE int gr_enc(GolombRiceCoder *ec, int sym, int nbypass)
 				nzeros-=(sizeof(ec->cache)<<3);
 				if(!gr_enc_flush(ec))
 					return 0;
-				//dlist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));
+				//blist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));
 			}
 			while(nzeros>(int)(sizeof(ec->cache)<<3));
 		}
@@ -1196,7 +1321,7 @@ INLINE int gr_enc(GolombRiceCoder *ec, int sym, int nbypass)
 		bypass&=(1<<nbypass)-1;
 		if(!gr_enc_flush(ec))
 			return 0;
-		//dlist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));
+		//blist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));
 		ec->cache=0;
 		ec->nbits=sizeof(ec->cache)<<3;
 	}

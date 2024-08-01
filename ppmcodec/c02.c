@@ -737,7 +737,7 @@ typedef struct _ThreadArgs
 	short *pixels;
 	//int *hist;
 
-	DList list;
+	BList list;
 	const unsigned char *decstart, *decend;
 	
 	int hist[54<<8];
@@ -1267,7 +1267,7 @@ static void block_thread(void *param)
 		}
 #endif
 
-		dlist_init(&args->list, 1, 1024, 0);
+		blist_init(&args->list);
 #ifdef USE_GRCODER
 		gr_enc_init(&ec, &args->list);
 		gr_enc(&ec, permutation, PERM_COUNT);
@@ -2614,14 +2614,14 @@ static void block_thread(void *param)
 							int prevseq=(cell>>62);
 							int ctrs[]=
 							{
-								cell>> 0&0x7F,
-								cell>> 7&0x7F,
-								cell>>14&0x7F,
-								cell>>21&0x7F,
-								cell>>28&0x7F,
-								cell>>35&0x7F,
-								cell>>42&0x7F,
-								cell>>49&0x7F,
+								(int)(cell>> 0&0x7F),
+								(int)(cell>> 7&0x7F),
+								(int)(cell>>14&0x7F),
+								(int)(cell>>21&0x7F),
+								(int)(cell>>28&0x7F),
+								(int)(cell>>35&0x7F),
+								(int)(cell>>42&0x7F),
+								(int)(cell>>49&0x7F),
 							};
 							int *c=ctrs+prevseq*2;
 							//switch(prevseq)
@@ -3666,10 +3666,10 @@ int c02_codec(const char *srcfn, const char *dstfn)
 								arg->x2-arg->x1,
 								blocksize,
 								arg->bestsize,
-								arg->list.nobj,
-								arg->list.nobj-arg->bestsize,
-								100.*arg->list.nobj/blocksize,
-								(double)blocksize/arg->list.nobj,
+								arg->list.nbytes,
+								arg->list.nbytes-arg->bestsize,
+								100.*arg->list.nbytes/blocksize,
+								(double)blocksize/arg->list.nbytes,
 								permnames[arg->permutation],
 								arg->helper1,
 								arg->alpha1,
@@ -3685,9 +3685,9 @@ int c02_codec(const char *srcfn, const char *dstfn)
 							abac_csizes[k]+=arg->abac_csizes[k];
 #endif
 					}
-					memcpy(dst->data+start+sizeof(int)*((ptrdiff_t)kt+kt2), &arg->list.nobj, sizeof(int));
-					dlist_appendtoarray(&arg->list, &dst);
-					dlist_clear(&arg->list);
+					memcpy(dst->data+start+sizeof(int)*((ptrdiff_t)kt+kt2), &arg->list.nbytes, sizeof(int));
+					blist_appendtoarray(&arg->list, &dst);
+					blist_clear(&arg->list);
 				}
 			}
 		}
