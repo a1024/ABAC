@@ -111,8 +111,9 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA13882.ppm"
 	//	"C:/Projects/datasets/big_building.PPM"
-		"C:/Projects/datasets/kodim13.ppm"
+	//	"C:/Projects/datasets/kodim13.ppm"
 	//	"C:/Projects/datasets/kodim13-small4.PPM"
+		"C:/Projects/datasets/kodim13-small16.PPM"
 	//	"C:/Projects/datasets/dataset-CLIC30-ppm/03.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm"	//large
 
@@ -133,7 +134,13 @@ int main(int argc, char **argv)
 		;
 	c08_codec("C:/Projects/datasets/kodim13.ppm", "C:/Projects/datasets/kodim13.lsim");
 	c08_codec("C:/Projects/datasets/kodim13.lsim", "C:/Projects/datasets/kodim13_dec.ppm");
+		;
+//	c08_codec("C:/Projects/datasets/kodim13-small16.ppm", "C:/Projects/datasets/kodim13-small16.lsim");
+//	c08_codec("C:/Projects/datasets/kodim13-small16.lsim", "C:/Projects/datasets/kodim13-small16_dec.ppm");
+
+//	c08_codec("C:/Projects/datasets/20240414-noise.PPM", "C:/Projects/datasets/20240414-noise.LSIM");
+//	c08_codec("C:/Projects/datasets/20240414-noise.LSIM", "C:/Projects/datasets/20240414-noise_dec.PPM");
 #endif
-	//c07_codec(srcfn, dstfn);
+//	c07_codec(srcfn, dstfn);
 	return 0;
 }

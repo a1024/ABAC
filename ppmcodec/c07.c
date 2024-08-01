@@ -12,7 +12,7 @@ static const char file[]=__FILE__;
 //	#define USE_AC2
 	#define USE_ABAC
 
-#define BLOCKSIZE 512
+#define BLOCKSIZE 768
 #define MAXPRINTEDBLOCKS 0
 #define CODECNAME "C07"
 #define AC3_PREC
@@ -1088,6 +1088,8 @@ static void block_thread(void *param)
 				int error=0;
 				if(args->fwd)
 				{
+				//	printf("%5d %d  %4d %4d  %5d\n", idx, kc, yuv[kc], pred, yuv[kc]-pred);//
+
 					curr[kc2+0]=yuv[kc];
 					curr[kc2+1]=error=yuv[kc]-pred;
 					error<<=24;
@@ -1097,6 +1099,8 @@ static void block_thread(void *param)
 				{
 					int p1=stats0[kc][tidx];
 					int bit;
+					if(p1!=0x8000)//
+						printf("");
 					if(args->fwd)
 					{
 						bit=error>>kb&1;
