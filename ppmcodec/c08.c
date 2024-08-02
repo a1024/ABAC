@@ -7,6 +7,18 @@ static const char file[]=__FILE__;
 	#define BYPASS_ON_INFLATION
 //	#define ENABLE_FILEGUARD	//makes using scripts harder
 
+//	#define ESTIMATE_SIZE
+
+//	#define EXPERIMENTAL1
+//	#define EXPERIMENTAL2
+//	#define ENABLE_O1
+//	#define ENABLE_CTR
+
+
+#define NCTX 4
+#define LR_PROB 20
+#define LR_MIXER 21
+#define SPLITLEVELS 3
 
 #include"entropy.h"
 #define OCHLIST\
@@ -115,7 +127,27 @@ static const short av12_icoeffs[12]=
 	 0x07,	-0x9E,	 0xDB,	 0x1E,	 0x13,
 	-0x2A,	 0xF3,
 };
-static int decorrelate(unsigned char *buffer, int iw, int ih, unsigned char *ret_params)
+static int calc_centroid(int *hist, int x1, int x2, int margin)
+{
+	long long num=0;
+	int den=0;
+	for(int k=x1;k<x2;++k)
+	{
+		num+=(long long)hist[k]*k;
+		den+=hist[k];
+	}
+	int split;
+	if(den)
+		split=(int)(num/den);
+	else
+		split=128;
+	if(split<x1+margin)
+		split=x1+margin;
+	if(split>x2-margin)
+		split=x2-margin;
+	return split;
+}
+static int decorrelate(unsigned char *buffer, int iw, int ih, unsigned char *ret_params, unsigned char *splits)
 {
 	int ystride=iw*3;
 	double csizes[OCH_COUNT*PRED_COUNT]={0}, bestsize=0;
@@ -194,6 +226,8 @@ static int decorrelate(unsigned char *buffer, int iw, int ih, unsigned char *ret
 					nb5[k]=_mm256_sub_epi16(nb0[k], t2);
 				}
 			}
+//	pred=_mm256_slli_epi16(pred, 8);
+//	pred=_mm256_xor_si256(_mm256_slli_epi16(pred, 7), _mm256_slli_epi16(pred, 15));
 #define UPDATE(PREDIDX, IDX0, IDX1, IDX2, IDX3, IDX4, IDX5, IDX6, IDX7, IDX8, IDX9, IDXA, IDXB, IDXC, IDXD, IDXE)\
 do\
 {\
@@ -629,7 +663,7 @@ do\
 		}
 		predsel[kc]=bestpred;
 	}
-	unsigned char bestrct=0, combination[6]={0};
+	unsigned char bestrct=0;
 	for(int kt=0;kt<RCT_COUNT;++kt)//select best RCT
 	{
 		const unsigned char *group=rct_combinations[kt];
@@ -640,17 +674,36 @@ do\
 		if(!kt||bestsize>csize)
 			bestsize=csize, bestrct=kt;
 	}
-	memcpy(combination, rct_combinations[bestrct], sizeof(combination));
-
 	ret_params[0]=bestrct;//best RCT	5 bit
-	ret_params[1]=predsel[combination[0]];//pred idx	3 bit each
-	ret_params[2]=predsel[combination[1]];
-	ret_params[3]=predsel[combination[2]];
+	ret_params[1]=predsel[rct_combinations[bestrct][0]];//pred idx	3 bit each
+	ret_params[2]=predsel[rct_combinations[bestrct][1]];
+	ret_params[3]=predsel[rct_combinations[bestrct][2]];
+	for(int kc=0;kc<3;++kc)
+	{
+		unsigned char *curr_splits=splits+((size_t)kc<<SPLITLEVELS);
+		unsigned char hidx=rct_combinations[bestrct][kc];
+		int *curr_hist=hist+(((size_t)hidx*PRED_COUNT+predsel[hidx])<<8);
+
+		curr_splits[1]=calc_centroid(curr_hist, 0, 256, 3);
+
+		curr_splits[2]=calc_centroid(curr_hist, 0, curr_splits[1], 2);
+		curr_splits[3]=calc_centroid(curr_hist, curr_splits[1], 256, 2);
+
+		curr_splits[4]=calc_centroid(curr_hist, 0, curr_splits[2], 1);
+		curr_splits[5]=calc_centroid(curr_hist, curr_splits[2], curr_splits[1], 1);
+		curr_splits[6]=calc_centroid(curr_hist, curr_splits[1], curr_splits[3], 1);
+		curr_splits[7]=calc_centroid(curr_hist, curr_splits[3], 256, 1);
+	}
 	free(hist);
 	return 0;
 }
 int c08_codec(const char *srcfn, const char *dstfn)
 {
+#ifdef ESTIMATE_SIZE
+	double t=time_sec();
+	double csizes[3]={0};
+	size_t nqueries=0;
+#endif
 	if(!srcfn||!dstfn)
 	{
 		LOG_ERROR("Codec C08 requires both source and destination filenames");
@@ -681,7 +734,7 @@ int c08_codec(const char *srcfn, const char *dstfn)
 		return 1;
 	}
 	int iw=0, ih=0;
-	unsigned char dparams[4];
+	unsigned char dparams[4]={0}, splits[3][1<<SPLITLEVELS]={0};
 	int usize=0;
 	if(fwd)
 	{
@@ -728,6 +781,14 @@ int c08_codec(const char *srcfn, const char *dstfn)
 				LOG_ERROR("Unsupported archive");
 				return 1;
 			}
+			nread =fread(splits[0]+1, 1, (1LL<<SPLITLEVELS)-1, fsrc);
+			nread+=fread(splits[1]+1, 1, (1LL<<SPLITLEVELS)-1, fsrc);
+			nread+=fread(splits[2]+1, 1, (1LL<<SPLITLEVELS)-1, fsrc);
+			if(nread!=((1LL<<SPLITLEVELS)-1)*3)
+			{
+				LOG_ERROR("Unsupported archive");
+				return 1;
+			}
 		}
 	}
 	usize=iw*ih*3;
@@ -748,12 +809,15 @@ int c08_codec(const char *srcfn, const char *dstfn)
 			LOG_ERROR("Corrupt PPM");
 			return 1;
 		}
-		decorrelate(buffer, iw, ih, dparams);
+		decorrelate(buffer, iw, ih, dparams, (unsigned char*)splits);
 
 		nwritten+=fwrite("CH", 1, 2, fdst);
 		nwritten+=fwrite(&iw, 1, 4, fdst);
 		nwritten+=fwrite(&ih, 1, 4, fdst);
 		nwritten+=fwrite(dparams, 1, 4, fdst);
+		nwritten+=fwrite(splits[0]+1, 1, (1LL<<SPLITLEVELS)-1, fdst);
+		nwritten+=fwrite(splits[1]+1, 1, (1LL<<SPLITLEVELS)-1, fdst);
+		nwritten+=fwrite(splits[2]+1, 1, (1LL<<SPLITLEVELS)-1, fdst);
 		ac5_enc_init(&ec, fdst);
 	}
 	else
@@ -804,15 +868,42 @@ int c08_codec(const char *srcfn, const char *dstfn)
 	};
 	const unsigned char *permutation=permutations[dparams[0]];
 	const unsigned char *combination=rct_combinations[dparams[0]];
-	unsigned short stats0[3][256]={0};
 	int psize=(iw+16LL)*sizeof(short[4*4]);//4 padded rows * 4 channels max
 	short *pixels=(short*)malloc(psize);
-	if(!pixels||!buffer)
+#ifdef ENABLE_O1
+	int stats1size=(int)sizeof(short[3*NCTX*256*256]);
+	short *stats1=(short*)malloc(stats1size);
+#ifdef EXPERIMENTAL1
+	int esign1size=(int)sizeof(short[3*NCTX*256]);
+	short *esign1=(short*)malloc(esign1size);
+#endif
+#endif
+	if(!pixels
+#ifdef ENABLE_O1
+		||!stats1
+#ifdef EXPERIMENTAL1
+		||!esign1
+#endif
+#endif
+	)
 	{
 		LOG_ERROR("Alloc error");
 		return 1;
 	}
+#ifdef ENABLE_O1
+	memset(stats1, 0, stats1size);
+#ifdef EXPERIMENTAL1
+	memset(esign1, 0, esign1size);
+#endif
+	short mixer1[3][256][NCTX]={0};
+	FILLMEM((short*)mixer1, 0x4000, sizeof(mixer1), sizeof(short));
+#else
+//#ifdef EXPERIMENTAL1
+//	unsigned short esign0[]={0x8000, 0x8000, 0x8000};
+//#endif
+	unsigned short stats0[3][256]={0};
 	FILLMEM((unsigned short*)stats0, 0x8000, sizeof(stats0), sizeof(short));
+#endif
 	memset(pixels, 0, psize);
 	for(int ky=0, idx=0;ky<ih;++ky)//codec loop
 	{
@@ -828,9 +919,9 @@ int c08_codec(const char *srcfn, const char *dstfn)
 		{
 			if(fwd)
 			{
-				yuv[0]=buffer[idx+permutation[0]]-128;
-				yuv[1]=buffer[idx+permutation[1]]-128;
-				yuv[2]=buffer[idx+permutation[2]]-128;
+				yuv[0]=buffer[idx+permutation[0]];
+				yuv[1]=buffer[idx+permutation[1]];
+				yuv[2]=buffer[idx+permutation[2]];
 			}
 			for(int kc=0;kc<3;++kc)
 			{
@@ -935,76 +1026,429 @@ int c08_codec(const char *srcfn, const char *dstfn)
 					break;
 				}
 				pred+=offset;
-				CLAMP2_32(pred, pred, -128, 127);
+				CLAMP2_32(pred, pred, 0, 255);
 				int error=0;
 				if(fwd)
 				{
 					*curr=yuv[kc];
 					error=yuv[kc]-pred;
-					error<<=24;
-					error>>=24;
+					error+=128;
+					error&=255;
+					//error<<=24;
+					//error>>=24;
 				}
+#ifdef EXPERIMENTAL1
+				ALIGN(16) int ctx[]=
+				{
+					N+W-NW,
+					N,
+					W,
+					(N+W)>>1,
+				};
+				{
+					__m128i mc=_mm_load_si128((__m128i*)ctx);
+					mc=_mm_min_epi32(mc, _mm_set1_epi32(255));
+					mc=_mm_max_epi32(mc, _mm_setzero_si128());
+					_mm_store_si128((__m128i*)ctx, mc);
+				}
+				short *curr_esign[]=
+				{
+					esign1+(((size_t)kc<<8|ctx[0])<<2|0),
+					esign1+(((size_t)kc<<8|ctx[1])<<2|1),
+					esign1+(((size_t)kc<<8|ctx[2])<<2|2),
+					esign1+(((size_t)kc<<8|ctx[3])<<2|3),
+				};
+				short *curr_stats[]=
+				{
+					stats1+((((size_t)kc<<8|ctx[0])<<2|0)<<8),
+					stats1+((((size_t)kc<<8|ctx[1])<<2|1)<<8),
+					stats1+((((size_t)kc<<8|ctx[2])<<2|2)<<8),
+					stats1+((((size_t)kc<<8|ctx[3])<<2|3)<<8),
+				};
+				short *curr_mixer=mixer1[kc][pred];
+				short probs[4];
+				int temp, p1, proberror;
+
+			//	unsigned short *curr_stats, p1;
+				int bit;
+				
+				probs[0]=curr_esign[0][0];
+				probs[1]=curr_esign[1][0];
+				probs[2]=curr_esign[2][0];
+				probs[3]=curr_esign[3][0];
+				p1=(int)((
+					+(long long)curr_mixer[0]*probs[0]
+					+(long long)curr_mixer[1]*probs[1]
+					+(long long)curr_mixer[2]*probs[2]
+					+(long long)curr_mixer[3]*probs[3]
+				)>>19);
+				p1+=0x8000;
+				CLAMP2_32(p1, p1, 1, 0xFFFF);
+			//	p1=esign1[kc];
+				if(fwd)
+				{
+					bit=error>=128;
+					ac5_enc_bin(&ec, p1, bit);
+#ifdef ESTIMATE_SIZE
+					csizes[kc]-=log2((double)(bit?p1:0x10000-p1)/0x10000);
+					++nqueries;
+#endif
+				}
+				else
+					bit=ac5_dec_bin(&ec, p1);
+				proberror=(bit<<16)-p1;
+				temp=probs[0]+(((long long)curr_mixer[0]*proberror+(1<<LR_PROB>>1))>>LR_PROB); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_esign[0][0]=temp;
+				temp=probs[1]+(((long long)curr_mixer[1]*proberror+(1<<LR_PROB>>1))>>LR_PROB); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_esign[1][0]=temp;
+				temp=probs[2]+(((long long)curr_mixer[2]*proberror+(1<<LR_PROB>>1))>>LR_PROB); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_esign[2][0]=temp;
+				temp=probs[3]+(((long long)curr_mixer[3]*proberror+(1<<LR_PROB>>1))>>LR_PROB); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_esign[3][0]=temp;
+				temp=curr_mixer[0]+(((long long)probs[0]*proberror+(1LL<<LR_MIXER>>1))>>LR_MIXER); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_mixer[0]=temp;
+				temp=curr_mixer[1]+(((long long)probs[1]*proberror+(1LL<<LR_MIXER>>1))>>LR_MIXER); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_mixer[1]=temp;
+				temp=curr_mixer[2]+(((long long)probs[2]*proberror+(1LL<<LR_MIXER>>1))>>LR_MIXER); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_mixer[2]=temp;
+				temp=curr_mixer[3]+(((long long)probs[3]*proberror+(1LL<<LR_MIXER>>1))>>LR_MIXER); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_mixer[3]=temp;
+			//	p1+=((bit<<16)-p1+(1<<7>>1))>>7;
+			//	esign1[kc]=p1;
+				if(bit)
+				{
+				//	curr_stats=stats0[kc]+128;
+					for(int ks=128;ks<256;++ks)
+					{
+						probs[0]=curr_stats[0][ks];
+						probs[1]=curr_stats[1][ks];
+						probs[2]=curr_stats[2][ks];
+						probs[3]=curr_stats[3][ks];
+						p1=(int)((
+							+(long long)curr_mixer[0]*probs[0]
+							+(long long)curr_mixer[1]*probs[1]
+							+(long long)curr_mixer[2]*probs[2]
+							+(long long)curr_mixer[3]*probs[3]
+						)>>19);
+						p1+=0x8000;
+						CLAMP2_32(p1, p1, 1, 0xFFFF);
+						//if((size_t)(curr_stats-stats0[kc])>255)
+						//	LOG_ERROR("");
+					//	p1=*curr_stats;
+						if(fwd)
+						{
+							bit=error==ks;
+							ac5_enc_bin(&ec, p1, bit);
+#ifdef ESTIMATE_SIZE
+							csizes[kc]-=log2((double)(bit?p1:0x10000-p1)/0x10000);
+							++nqueries;
+#endif
+						}
+						else
+							bit=ac5_dec_bin(&ec, p1);
+						proberror=(bit<<16)-p1;
+						temp=probs[0]+(((long long)curr_mixer[0]*proberror+(1<<LR_PROB>>1))>>LR_PROB); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_stats[0][ks]=temp;
+						temp=probs[1]+(((long long)curr_mixer[1]*proberror+(1<<LR_PROB>>1))>>LR_PROB); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_stats[1][ks]=temp;
+						temp=probs[2]+(((long long)curr_mixer[2]*proberror+(1<<LR_PROB>>1))>>LR_PROB); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_stats[2][ks]=temp;
+						temp=probs[3]+(((long long)curr_mixer[3]*proberror+(1<<LR_PROB>>1))>>LR_PROB); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_stats[3][ks]=temp;
+						temp=curr_mixer[0]+(((long long)probs[0]*proberror+(1LL<<LR_MIXER>>1))>>LR_MIXER); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_mixer[0]=temp;
+						temp=curr_mixer[1]+(((long long)probs[1]*proberror+(1LL<<LR_MIXER>>1))>>LR_MIXER); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_mixer[1]=temp;
+						temp=curr_mixer[2]+(((long long)probs[2]*proberror+(1LL<<LR_MIXER>>1))>>LR_MIXER); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_mixer[2]=temp;
+						temp=curr_mixer[3]+(((long long)probs[3]*proberror+(1LL<<LR_MIXER>>1))>>LR_MIXER); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_mixer[3]=temp;
+					//	p1+=((bit<<16)-p1+(1<<7>>1))>>7;
+					//	*curr_stats=p1;
+						if(bit)
+						{
+							error=ks;
+							break;
+						}
+					//	++curr_stats;
+					}
+				}
+				else
+				{
+				//	curr_stats=stats0[kc]+127;
+					for(int ks=127;ks>=0;--ks)
+					{
+						probs[0]=curr_stats[0][ks];
+						probs[1]=curr_stats[1][ks];
+						probs[2]=curr_stats[2][ks];
+						probs[3]=curr_stats[3][ks];
+						p1=(int)((
+							+(long long)curr_mixer[0]*probs[0]
+							+(long long)curr_mixer[1]*probs[1]
+							+(long long)curr_mixer[2]*probs[2]
+							+(long long)curr_mixer[3]*probs[3]
+						)>>19);
+						p1+=0x8000;
+						CLAMP2_32(p1, p1, 1, 0xFFFF);
+						//if((size_t)(curr_stats-stats0[kc])>255)
+						//	LOG_ERROR("");
+					//	p1=*curr_stats;
+						if(fwd)
+						{
+							bit=error==ks;
+							ac5_enc_bin(&ec, p1, bit);
+#ifdef ESTIMATE_SIZE
+							csizes[kc]-=log2((double)(bit?p1:0x10000-p1)/0x10000);
+							++nqueries;
+#endif
+						}
+						else
+							bit=ac5_dec_bin(&ec, p1);
+						proberror=(bit<<16)-p1;
+						temp=probs[0]+(((long long)curr_mixer[0]*proberror+(1<<LR_PROB>>1))>>LR_PROB); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_stats[0][ks]=temp;
+						temp=probs[1]+(((long long)curr_mixer[1]*proberror+(1<<LR_PROB>>1))>>LR_PROB); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_stats[1][ks]=temp;
+						temp=probs[2]+(((long long)curr_mixer[2]*proberror+(1<<LR_PROB>>1))>>LR_PROB); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_stats[2][ks]=temp;
+						temp=probs[3]+(((long long)curr_mixer[3]*proberror+(1<<LR_PROB>>1))>>LR_PROB); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_stats[3][ks]=temp;
+						temp=curr_mixer[0]+(((long long)probs[0]*proberror+(1LL<<LR_MIXER>>1))>>LR_MIXER); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_mixer[0]=temp;
+						temp=curr_mixer[1]+(((long long)probs[1]*proberror+(1LL<<LR_MIXER>>1))>>LR_MIXER); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_mixer[1]=temp;
+						temp=curr_mixer[2]+(((long long)probs[2]*proberror+(1LL<<LR_MIXER>>1))>>LR_MIXER); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_mixer[2]=temp;
+						temp=curr_mixer[3]+(((long long)probs[3]*proberror+(1LL<<LR_MIXER>>1))>>LR_MIXER); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_mixer[3]=temp;
+					//	p1+=((bit<<16)-p1+(1<<7>>1))>>7;
+					//	*curr_stats=p1;
+						if(bit)
+						{
+							error=ks;
+							break;
+						}
+					//	--curr_stats;
+					}
+				}
+#elif defined EXPERIMENTAL2
+				ALIGN(16) int ctx[]=
+				{
+					N+W-NW,
+					N,
+					W,
+					(N+W)>>1,
+				};
+				{
+					__m128i mc=_mm_load_si128((__m128i*)ctx);
+					mc=_mm_min_epi32(mc, _mm_set1_epi32(255));
+					mc=_mm_max_epi32(mc, _mm_setzero_si128());
+					_mm_store_si128((__m128i*)ctx, mc);
+				}
+				short *curr_stats[]=
+				{
+					stats1+(((size_t)kc<<8|ctx[0])<<10|0),
+					stats1+(((size_t)kc<<8|ctx[1])<<10|1),
+					stats1+(((size_t)kc<<8|ctx[2])<<10|2),
+					stats1+(((size_t)kc<<8|ctx[3])<<10|3),
+				};
+				short *curr_mixer=mixer1[kc][pred];
+				short probs[4];
+				int temp, p1, proberror;
+
+				unsigned char *curr_splits=splits[kc];
+				int low=0, range=256, tidx=1;
+			//	short *curr_mixer=mixer1+((size_t)kc<<8|((size_t)N+W)>>1);
+				int bit;
+
+				while(range)
+				{
+					int mid=curr_splits[tidx];
+					probs[0]=curr_stats[0][mid];
+					probs[1]=curr_stats[1][mid];
+					probs[2]=curr_stats[2][mid];
+					probs[3]=curr_stats[3][mid];
+					p1=(int)((
+						+(long long)curr_mixer[0]*probs[0]
+						+(long long)curr_mixer[1]*probs[1]
+						+(long long)curr_mixer[2]*probs[2]
+						+(long long)curr_mixer[3]*probs[3]
+					)>>19);
+					p1+=0x8000;
+					CLAMP2_32(p1, p1, 1, 0xFFFF);
+					if(fwd)
+					{
+						bit=error>mid;
+						ac5_enc_bin(&ec, p1, bit);
+#ifdef ESTIMATE_SIZE
+						csizes[kc]-=log2((double)(bit?p1:0x10000-p1)/0x10000);
+						++nqueries;
+#endif
+					}
+					else
+						bit=ac5_dec_bin(&ec, p1);
+					proberror=(bit<<16)-p1;
+					temp=probs[0]+(((long long)curr_mixer[0]*proberror+(1<<LR_PROB>>1))>>LR_PROB); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_stats[0][mid]=temp;
+					temp=probs[1]+(((long long)curr_mixer[1]*proberror+(1<<LR_PROB>>1))>>LR_PROB); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_stats[1][mid]=temp;
+					temp=probs[2]+(((long long)curr_mixer[2]*proberror+(1<<LR_PROB>>1))>>LR_PROB); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_stats[2][mid]=temp;
+					temp=probs[3]+(((long long)curr_mixer[3]*proberror+(1<<LR_PROB>>1))>>LR_PROB); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_stats[3][mid]=temp;
+					temp=curr_mixer[0]+(((long long)probs[0]*proberror+(1LL<<LR_MIXER>>1))>>LR_MIXER); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_mixer[0]=temp;
+					temp=curr_mixer[1]+(((long long)probs[1]*proberror+(1LL<<LR_MIXER>>1))>>LR_MIXER); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_mixer[1]=temp;
+					temp=curr_mixer[2]+(((long long)probs[2]*proberror+(1LL<<LR_MIXER>>1))>>LR_MIXER); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_mixer[2]=temp;
+					temp=curr_mixer[3]+(((long long)probs[3]*proberror+(1LL<<LR_MIXER>>1))>>LR_MIXER); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_mixer[3]=temp;
+				//	curr_stats[0][mid]+=((bit<<16)-probs[0]+(1<<7>>1))>>7;
+				//	curr_stats[1][mid]+=((bit<<16)-probs[1]+(1<<7>>1))>>7;
+				//	curr_stats[2][mid]+=((bit<<16)-probs[2]+(1<<7>>1))>>7;
+				//	curr_stats[3][mid]+=((bit<<16)-probs[3]+(1<<7>>1))>>7;
+				//	p1+=((bit<<16)-p1+(1<<7>>1))>>7;
+				//	curr_stats[mid]=p1;
+
+					//range=bit?range-(mid-low):mid-low;
+					//low=bit?mid:low;
+
+					if(bit)
+					{
+						range=low+range-(mid+1);
+						low=mid+1;
+					}
+					else
+						range=mid+1-low;
+					
+					//int floorhalf=mid-low;//X
+					//if(bit)
+					//	low+=range-floorhalf;
+					//range=floorhalf;
+					if(tidx>=(1LL<<SPLITLEVELS>>1)||!range)
+					{
+						while(range)
+						{
+							int floorhalf=range>>1;
+							mid=low+floorhalf;
+							probs[0]=curr_stats[0][mid];
+							probs[1]=curr_stats[1][mid];
+							probs[2]=curr_stats[2][mid];
+							probs[3]=curr_stats[3][mid];
+							p1=(int)((
+								+(long long)curr_mixer[0]*probs[0]
+								+(long long)curr_mixer[1]*probs[1]
+								+(long long)curr_mixer[2]*probs[2]
+								+(long long)curr_mixer[3]*probs[3]
+							)>>20);
+							p1+=0x8000;
+							CLAMP2_32(p1, p1, 1, 0xFFFF);
+						//	p1=curr_stats[mid];
+							if(fwd)
+							{
+								bit=error>mid;
+								ac5_enc_bin(&ec, p1, bit);
+#ifdef ESTIMATE_SIZE
+								csizes[kc]-=log2((double)(bit?p1:0x10000-p1)/0x10000);
+								++nqueries;
+#endif
+							}
+							else
+								bit=ac5_dec_bin(&ec, p1);
+							proberror=(bit<<16)-p1;
+							temp=probs[0]+(((long long)curr_mixer[0]*proberror+(1<<LR_PROB>>1))>>LR_PROB); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_stats[0][mid]=temp;
+							temp=probs[1]+(((long long)curr_mixer[1]*proberror+(1<<LR_PROB>>1))>>LR_PROB); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_stats[1][mid]=temp;
+							temp=probs[2]+(((long long)curr_mixer[2]*proberror+(1<<LR_PROB>>1))>>LR_PROB); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_stats[2][mid]=temp;
+							temp=probs[3]+(((long long)curr_mixer[3]*proberror+(1<<LR_PROB>>1))>>LR_PROB); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_stats[3][mid]=temp;
+							temp=curr_mixer[0]+(((long long)probs[0]*proberror+(1LL<<LR_MIXER>>1))>>LR_MIXER); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_mixer[0]=temp;
+							temp=curr_mixer[1]+(((long long)probs[1]*proberror+(1LL<<LR_MIXER>>1))>>LR_MIXER); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_mixer[1]=temp;
+							temp=curr_mixer[2]+(((long long)probs[2]*proberror+(1LL<<LR_MIXER>>1))>>LR_MIXER); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_mixer[2]=temp;
+							temp=curr_mixer[3]+(((long long)probs[3]*proberror+(1LL<<LR_MIXER>>1))>>LR_MIXER); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_mixer[3]=temp;
+						//	p1+=((bit<<16)-p1+(1<<7>>1))>>7;
+						//	curr_stats[mid]=p1;
+							if(bit)
+								low+=range-floorhalf;
+							range=floorhalf;
+						}
+						error=low;
+						break;
+					}
+					tidx=tidx*2+bit;
+				}
+#else
+#ifdef ENABLE_O1
+				ALIGN(16) int ctx[]=
+				{
+					N+W-NW,
+					N,
+					W,
+					(N+W)>>1,
+				};
+				{
+					__m128i mc=_mm_load_si128((__m128i*)ctx);
+					mc=_mm_min_epi32(mc, _mm_set1_epi32(255));
+					mc=_mm_max_epi32(mc, _mm_setzero_si128());
+					_mm_store_si128((__m128i*)ctx, mc);
+				}
+				short *curr_stats[]=
+				{
+					stats1+(((size_t)kc<<8|ctx[0])<<10|0),
+					stats1+(((size_t)kc<<8|ctx[1])<<10|1),
+					stats1+(((size_t)kc<<8|ctx[2])<<10|2),
+					stats1+(((size_t)kc<<8|ctx[3])<<10|3),
+				};
+				short *curr_mixer=mixer1[kc][pred];
+				short probs[4];
+				int temp, p1, proberror;
+#else
 				unsigned short *curr_stats=stats0[kc];
+#endif
+
 				int bit=0;
 				for(int kb=7, tidx=1;kb>=0;--kb)
 				{
+#ifdef ENABLE_O1
+					probs[0]=curr_stats[0][tidx];
+					probs[1]=curr_stats[1][tidx];
+					probs[2]=curr_stats[2][tidx];
+					probs[3]=curr_stats[3][tidx];
+					p1=(int)((
+						+(long long)curr_mixer[0]*probs[0]
+						+(long long)curr_mixer[1]*probs[1]
+						+(long long)curr_mixer[2]*probs[2]
+						+(long long)curr_mixer[3]*probs[3]
+					)>>16);
+					p1+=0x8000;
+					CLAMP2_32(p1, p1, 1, 0xFFFF);
+#elif defined ENABLE_CTR
+					unsigned char *ctr=(unsigned char*)(curr_stats+tidx);
+					int p1=((ctr[1]*3+1)<<16)/((ctr[0]+ctr[1])*3+2);
+#else
 					int p1=curr_stats[tidx];
-					//if(p1!=0x8000)//
-					//	printf("");
+#endif
 					if(fwd)
 					{
 						bit=error>>kb&1;
-						
-						while((ec.lo^ec.hi)<0x1000000)
-						{
-							fputc(ec.lo>>24, ec.f);
-							ec.lo<<=8;
-							ec.hi=ec.hi<<8|255;
-						}
-						{
-							unsigned mid=ec.lo+(unsigned)((unsigned long long)(ec.hi-ec.lo)*p1>>16);
-						//	unsigned mid=ec.lo+((ec.hi-ec.lo)>>AC5_PROB_BITS)*(p1>>(16-AC5_PROB_BITS));
-							ec.lo=bit?ec.lo:mid+1;
-							ec.hi=bit?mid:ec.hi;
-						}
-						//ac5_enc_bin(&ec, p1>>(16-AC5_PROB_BITS), bit);
+						ac5_enc_bin(&ec, p1, bit);
+#ifdef ESTIMATE_SIZE
+						csizes[kc]-=log2((double)(bit?p1:0x10000-p1)/0x10000);
+						++nqueries;
+#endif
 					}
 					else
 					{
-						while((ec.lo^ec.hi)<0x1000000)
-						{
-							ec.code=ec.code<<8|(fgetc(ec.f)&255);
-							ec.lo<<=8;
-							ec.hi=ec.hi<<8|255;
-						}
-						{
-							unsigned mid=ec.lo+(unsigned)((unsigned long long)(ec.hi-ec.lo)*p1>>16);
-						//	unsigned mid=ec.lo+((ec.hi-ec.lo)>>AC5_PROB_BITS)*(p1>>(16-AC5_PROB_BITS));
-							bit=ec.code<=mid;
-							ec.lo=bit?ec.lo:mid+1;
-							ec.hi=bit?mid:ec.hi;
-						}
-						//bit=ac5_dec_bin(&ec, p1>>(16-AC5_PROB_BITS));
+						bit=ac5_dec_bin(&ec, p1);
 						error|=bit<<kb;
 					}
+#ifdef ENABLE_O1
+					proberror=(bit<<16)-p1;
+					temp=probs[0]+(((long long)curr_mixer[0]*proberror+(1<<LR_PROB>>1))>>LR_PROB); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_stats[0][tidx]=temp;
+					temp=probs[1]+(((long long)curr_mixer[1]*proberror+(1<<LR_PROB>>1))>>LR_PROB); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_stats[1][tidx]=temp;
+					temp=probs[2]+(((long long)curr_mixer[2]*proberror+(1<<LR_PROB>>1))>>LR_PROB); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_stats[2][tidx]=temp;
+					temp=probs[3]+(((long long)curr_mixer[3]*proberror+(1<<LR_PROB>>1))>>LR_PROB); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_stats[3][tidx]=temp;
+					temp=curr_mixer[0]+(((long long)probs[0]*proberror+(1LL<<LR_MIXER>>1))>>LR_MIXER); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_mixer[0]=temp;
+					temp=curr_mixer[1]+(((long long)probs[1]*proberror+(1LL<<LR_MIXER>>1))>>LR_MIXER); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_mixer[1]=temp;
+					temp=curr_mixer[2]+(((long long)probs[2]*proberror+(1LL<<LR_MIXER>>1))>>LR_MIXER); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_mixer[2]=temp;
+					temp=curr_mixer[3]+(((long long)probs[3]*proberror+(1LL<<LR_MIXER>>1))>>LR_MIXER); CLAMP2_32(temp, temp, -0x8000, 0x7FFF); curr_mixer[3]=temp;
+#elif defined ENABLE_CTR
+					++ctr[bit];
+					if(ctr[0]+ctr[1]>=255)
+					{
+						ctr[0]>>=1;
+						ctr[1]>>=1;
+					//	ctr[0]=(ctr[0]+1)>>1;
+					//	ctr[1]=(ctr[1]+1)>>1;
+					}
+#else
 					p1+=((bit<<16)-p1+(1<<7>>1))>>7;
 					curr_stats[tidx]=p1;
+#endif
 					tidx+=tidx+bit;
 				}
+#endif
 				if(!fwd)
 				{
 					error+=pred;
-					error<<=24;
-					error>>=24;
+					error-=128;
+					error&=255;
 					*curr=yuv[kc]=error;
 				}
 				*curr-=offset;
 			}
 			if(!fwd)
 			{
-				buffer[idx+permutation[0]]=yuv[0]+128;
-				buffer[idx+permutation[1]]=yuv[1]+128;
-				buffer[idx+permutation[2]]=yuv[2]+128;
+				buffer[idx+permutation[0]]=yuv[0];
+				buffer[idx+permutation[1]]=yuv[1];
+				buffer[idx+permutation[2]]=yuv[2];
 			}
 			rows[0]+=4;
 			rows[1]+=4;
@@ -1019,9 +1463,30 @@ int c08_codec(const char *srcfn, const char *dstfn)
 	fclose(fsrc);
 	fclose(fdst);
 	free(pixels);
-	(void)nwritten;
+#ifdef ENABLE_O1
+	free(stats1);
+	free(mixer);
+#endif
 #ifdef BYPASS_ON_INFLATION
 	dstsize=get_filesize(dstfn);
+#ifdef ESTIMATE_SIZE
+	if(fwd)
+	{
+		t=time_sec()-t;
+		csizes[0]/=8;
+		csizes[1]/=8;
+		csizes[2]/=8;
+		printf("%.2lf  ->  %.2lf + %.2lf + %.2lf = %.2lf  ->  %td\n",
+			nqueries/8.,
+			csizes[0],
+			csizes[1],
+			csizes[2],
+			csizes[0]+csizes[1]+csizes[2],
+			dstsize
+		);
+		printf("%lf sec  %lf MB/s\n", t, usize/(t*1024*1024));
+	}
+#endif
 	if(fwd&&dstsize>usize)
 	{
 		printf("Bypass encode\n");
@@ -1034,5 +1499,9 @@ int c08_codec(const char *srcfn, const char *dstfn)
 	}
 #endif
 	free(buffer);
+	(void)nwritten;
+	(void)och_names;
+	(void)rct_names;
+	(void)pred_names;
 	return 0;
 }

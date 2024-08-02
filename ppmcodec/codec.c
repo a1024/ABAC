@@ -105,15 +105,15 @@ int main(int argc, char **argv)
 	}
 	srcfn=argv[1];
 	dstfn=argc==3?argv[2]:0;
-	c08_codec(srcfn, dstfn);
+	//c08_codec(srcfn, dstfn);
 #else
 	srcfn=
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA13882.ppm"
 	//	"C:/Projects/datasets/big_building.PPM"
-	//	"C:/Projects/datasets/kodim13.ppm"
+		"C:/Projects/datasets/kodim13.ppm"
 	//	"C:/Projects/datasets/kodim13-small4.PPM"
-		"C:/Projects/datasets/kodim13-small16.PPM"
+	//	"C:/Projects/datasets/kodim13-small16.PPM"
 	//	"C:/Projects/datasets/dataset-CLIC30-ppm/03.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm"	//large
 
@@ -132,15 +132,22 @@ int main(int argc, char **argv)
 		0
 	//	"D:/ML/dataset-kodak-ppm/kodim13.c01.ppm"
 		;
-	c08_codec("C:/Projects/datasets/kodim13.ppm", "C:/Projects/datasets/kodim13.lsim");
-	c08_codec("C:/Projects/datasets/kodim13.lsim", "C:/Projects/datasets/kodim13_dec.ppm");
-		;
+
+//	c08_codec("C:/Projects/datasets/kodim13.ppm", "C:/Projects/datasets/kodim13.lsim");
+//	c08_codec("C:/Projects/datasets/kodim13.lsim", "C:/Projects/datasets/kodim13_dec.ppm");
+
 //	c08_codec("C:/Projects/datasets/kodim13-small16.ppm", "C:/Projects/datasets/kodim13-small16.lsim");
 //	c08_codec("C:/Projects/datasets/kodim13-small16.lsim", "C:/Projects/datasets/kodim13-small16_dec.ppm");
+
+//	c08_codec("C:/Projects/datasets/dataset-LPCB-ppm/PIA12811.ppm", "C:/Projects/datasets/PIA12811.lsim");
+//	c08_codec("C:/Projects/datasets/PIA12811.lsim", "C:/Projects/datasets/PIA12811_dec.ppm");
+
+//	c08_codec("C:/Projects/datasets/big_building.PPM", "C:/Projects/datasets/big_building.lsim");
+//	c08_codec("C:/Projects/datasets/big_building.lsim", "C:/Projects/datasets/big_building_dec.ppm");
 
 //	c08_codec("C:/Projects/datasets/20240414-noise.PPM", "C:/Projects/datasets/20240414-noise.LSIM");
 //	c08_codec("C:/Projects/datasets/20240414-noise.LSIM", "C:/Projects/datasets/20240414-noise_dec.PPM");
 #endif
-//	c07_codec(srcfn, dstfn);
+	c05_codec(srcfn, dstfn);
 	return 0;
 }

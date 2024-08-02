@@ -10,7 +10,7 @@ static const char file[]=__FILE__;
 //	#define DISABLE_MT
 
 
-	#define ENABLE_SSE
+//	#define ENABLE_SSE
 
 
 #define CODECNAME "C05"
@@ -423,6 +423,11 @@ static void block_thread(void *param)
 				*WW	=rows[0]-2*4*2,
 				*W	=rows[0]-1*4*2,
 				*curr	=rows[0]+0*4*2;
+			(void)NNNEE;
+			(void)NN;
+			(void)NNE;
+			(void)NNEE;
+			(void)NEEEE;
 			if(ky==args->y1)
 				NEEEE=NEEE=NEE=NE=NW=N=W;
 			else if(kx==args->x1)
@@ -461,9 +466,9 @@ static void block_thread(void *param)
 #endif
 			int sym=0, offset;
 //	#define UPDATE_FORMULA(IDX) (MAXVAR(N[IDX], W[IDX])+2*(sym+NE[IDX])+NEE[IDX]+NEEE[IDX])/7	//Formula10
-	#define UPDATE_FORMULA(IDX) (MAXVAR(N[IDX], W[IDX])+sym+NE[IDX]+NEEE[IDX])>>2		//Formula11
+//	#define UPDATE_FORMULA(IDX) (MAXVAR(N[IDX], W[IDX])+sym+NE[IDX]+NEEE[IDX])>>2		//Formula11
 //	#define UPDATE_FORMULA(IDX) (NE[IDX]>sym?sym+2*NE[IDX]+NEE[IDX]:W[IDX]+2*sym+NE[IDX])>>2//X
-//	#define UPDATE_FORMULA(IDX) (W[IDX]+sym+NE[IDX]+NEEE[IDX])>>2	//Formula8
+	#define UPDATE_FORMULA(IDX) (W[IDX]+sym+NE[IDX]+NEEE[IDX])>>2	//Formula8
 //	#define UPDATE_FORMULA(IDX) (sym+NE[IDX]+NEE[IDX]+NEEE[IDX])>>2
 //	#define UPDATE_FORMULA(IDX) (2*W[IDX]+sym+NEEE[IDX])>>2		//Formula1
 //	#define UPDATE_FORMULA(IDX) (W[IDX]+sym+NEEE[IDX])/3
