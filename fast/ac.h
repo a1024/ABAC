@@ -1071,12 +1071,10 @@ INLINE int ac_dec_bypass(ArithmeticCoder *ec, int nbits)
 	sym=(int)(((ec->code-ec->low)<<nbits|((1ULL<<nbits)-1))/ec->range);
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
-	if(freq<=0)
-		LOG_ERROR2("ZPS");
 #endif
 	ec->low+=ec->range*sym>>nbits;
 	ec->range=(ec->range>>nbits)-1;
-	acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
+	acval_dec(sym, sym, 1, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
 	return sym;
 }
 
@@ -1084,14 +1082,12 @@ INLINE void ac_enc_bypass_NPOT(ArithmeticCoder *ec, int sym, int nlevels)//CDF i
 {
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
-	if(freq<=0)
-		LOG_ERROR2("ZPS");
 #endif
 	while(ec->range<(unsigned)nlevels)
 		ac_enc_renorm(ec);
 	ec->low+=ec->range*sym/nlevels;
 	ec->range=ec->range/nlevels-1;
-	acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
+	acval_enc(sym, sym, 1, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
 }
 INLINE int ac_dec_bypass_NPOT(ArithmeticCoder *ec, int nlevels)
 {
@@ -1105,7 +1101,7 @@ INLINE int ac_dec_bypass_NPOT(ArithmeticCoder *ec, int nlevels)
 #endif
 	ec->low+=ec->range*sym/nlevels;
 	ec->range=ec->range/nlevels-1;
-	acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
+	acval_dec(sym, sym, 1, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
 	return sym;
 }
 

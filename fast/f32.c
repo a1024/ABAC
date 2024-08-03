@@ -57,10 +57,10 @@ static void block_thread(void *param)
 	args->pixels[1]=0;
 	args->pixels[2]=0;
 	args->pixels[3]=0;
-	args->pixels[4]=128;
-	args->pixels[5]=128;
-	args->pixels[6]=128;
-	args->pixels[7]=128;
+	args->pixels[4]=1<<(image->depth>>1);
+	args->pixels[5]=1<<(image->depth>>1);
+	args->pixels[6]=1<<(image->depth>>1);
+	args->pixels[7]=1<<(image->depth>>1);
 	memfill(args->pixels+8, args->pixels, sizeof(args->pixels)-sizeof(int[8]), sizeof(int[8]));
 	//memset(args->pixels, 0, sizeof(args->pixels));
 	for(int ky=args->y1;ky<args->y2-1;ky+=2)//codec loop
@@ -78,7 +78,13 @@ static void block_thread(void *param)
 			int
 				*NW	=rows[1]-1*4*2,
 				*N	=rows[1]+0*4*2,
+				*NE	=rows[1]+1*4*2,
+				*NEE	=rows[1]+2*4*2,
 				*NEEE	=rows[1]+3*4*2,
+				*NEEEE	=rows[1]+4*4*2,
+				*WWWW	=rows[0]-4*4*2,
+				*WWW	=rows[0]-3*4*2,
+				*WW	=rows[0]-2*4*2,
 				*W	=rows[0]-1*4*2,
 				*curr	=rows[0]+0*4*2;
 			//if(ky==222&&kx==468)//
@@ -91,17 +97,24 @@ static void block_thread(void *param)
 				comp[1]=image->data[image->iw*(ky+0)+kx+1];//g
 				comp[2]=image->data[image->iw*(ky+1)+kx+0];//g
 				comp[3]=image->data[image->iw*(ky+1)+kx+1];//b
-				
-				comp[0]-=comp[1];
-				comp[2]-=comp[3];
-				comp[1]+=comp[0]>>1;
-				comp[3]+=comp[2]>>1;
-				comp[0]-=comp[2];
-				comp[1]-=comp[3];
-				comp[2]+=comp[0]>>1;
-				comp[3]+=comp[1]>>1;
 
-				//comp[0]-=comp[1];
+				comp[0]-=comp[1];	//RCT3
+				comp[1]+=comp[0]>>1;
+				comp[2]-=comp[1];
+				comp[1]+=comp[2]>>1;
+				comp[3]-=comp[1];
+				comp[1]+=comp[3]>>1;
+				
+				//comp[0]-=comp[1];	//RCT2
+				//comp[2]-=comp[3];
+				//comp[1]+=comp[0]>>1;
+				//comp[3]+=comp[2]>>1;
+				//comp[0]-=comp[2];
+				//comp[1]-=comp[3];
+				//comp[2]+=comp[0]>>1;
+				//comp[3]+=comp[1]>>1;
+
+				//comp[0]-=comp[1];	//RCT1
 				//comp[2]-=comp[1];
 				//comp[3]-=comp[1];
 				//comp[1]+=(comp[0]+comp[2]+comp[3])/3;
@@ -129,21 +142,34 @@ static void block_thread(void *param)
 					comp[kc2]=val;
 				}
 				curr[kc]=comp[kc2];
-				curr[kc+4]=(2*W[kc+4]+error+NEEE[kc+4])>>2;
-				//if(curr[kc+4]<0)//
-				//	LOG_ERROR("");
+				curr[kc+4]=(WWW[kc+4]+5*WW[kc+4]+10*W[kc+4]+10*error+NE[kc+4])/27;	//Formula5
+			//	curr[kc+4]=(WW[kc+4]+3*(W[kc+4]+error)+N[kc+4]+NEEE[kc+4])/9;
+			//	curr[kc+4]=(3*WWW[kc+4]+11*WW[kc+4]+23*W[kc+4]+23*error+2*NE[kc+4]+2*NEEEE[kc+4])>>6;
+			//	curr[kc+4]=(WW[kc+4]+7*(W[kc+4]+error)+NEEE[kc+4])>>4;	//Formula4
+			//	curr[kc+4]=(WWW[kc+4]+WW[kc+4]+14*W[kc+4]+13*error+NEEE[kc+4]+2*NEEEE[kc+4])>>5;
+			//	curr[kc+4]=(8*W[kc+4]+7*error+NEEE[kc+4])>>4;	//Formula3
+			//	curr[kc+4]=(WW[kc+4]+7*W[kc+4]+6*error+NEEE[kc+4]+NEEEE[kc+4])>>4;
+			//	curr[kc+4]=(4*W[kc+4]+3*error+NEEE[kc+4])>>3;	//Formula2
+			//	curr[kc+4]=(2*W[kc+4]+error+NEEE[kc+4])>>2;	//Formula1
 			}
 			if(!args->fwd)
 			{
-				comp[3]-=comp[1]>>1;
-				comp[2]-=comp[0]>>1;
-				comp[1]+=comp[3];
-				comp[0]+=comp[2];
-				comp[3]-=comp[2]>>1;
+				comp[1]-=comp[3]>>1;
+				comp[3]+=comp[1];
+				comp[1]-=comp[2]>>1;
+				comp[2]+=comp[1];
 				comp[1]-=comp[0]>>1;
-				comp[2]+=comp[3];
 				comp[0]+=comp[1];
 
+				//comp[3]-=comp[1]>>1;
+				//comp[2]-=comp[0]>>1;
+				//comp[1]+=comp[3];
+				//comp[0]+=comp[2];
+				//comp[3]-=comp[2]>>1;
+				//comp[1]-=comp[0]>>1;
+				//comp[2]+=comp[3];
+				//comp[0]+=comp[1];
+				
 				//comp[1]-=(comp[0]+comp[2]+comp[3])/3;
 				//comp[3]+=comp[1];
 				//comp[2]+=comp[1];

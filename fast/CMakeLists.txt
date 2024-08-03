@@ -31,6 +31,7 @@
 	f30.c
 	f31.c
 	f32.c
+	f33.c
 	fast.c
 	format.c
 #	huffman.c

@@ -8,12 +8,13 @@ static const char file[]=__FILE__;
 
 
 //	#define _DEBUG
+//	#define DNGCODEC
 //	#define BENCH_QOI
 
-#define CODECID     32
-#define CODECNAME "F32"
-#define ENCODE     f32_encode
-#define DECODE     f32_decode
+#define CODECID     33
+#define CODECNAME "F33"
+#define ENCODE     f33_encode
+#define DECODE     f33_decode
 
 
 typedef struct ThreadArgsStruct
@@ -192,12 +193,15 @@ static void batch_test_mt(const char *path, int nthreads)
 {
 	static const char *ext[]=
 	{
+#ifdef DNGCODEC
+		"dng",
+#else
 		"png",
 		"jpg", "jpeg",
 		"ppm", "pgm",
 		"bmp",
 		"tif", "tiff",
-		"dng",
+#endif
 	};
 	
 	ArrayHandle filenames, titles, exts;
@@ -323,10 +327,14 @@ int main(int argc, char **argv)
 	{
 		printf(
 			"Usage:\n"
-			"  %s  filename                               Test codec without saving\n"
-			"  %s  folder [nthreads]                      Batch test without saving\n"
-			"  %s  input.PPM/PGM/PNG  output.LSIM         Encode image\n"
-			"  %s  input.LSIM         output.PPM/PGM/PNG  Decode image\n",
+			"  %s  filename                        Test codec without saving\n"
+			"  %s  folder [nthreads]               Batch test without saving\n"
+#ifdef DNGCODEC
+			"  %s  input.DNG  output.LSIM          Encode image\n"
+#else
+			"  %s  input.PPM/PGM/PNG  output.LSIM  Encode image\n"
+#endif
+			"  %s  input.LSIM  output.PPM/PGM/PNG  Decode image\n",
 			argv[0], argv[0], argv[0], argv[0]
 		);
 		pause();
@@ -368,17 +376,18 @@ int main(int argc, char **argv)
 	//	"D:/ML/dataset-CID22-ppm"
 	//	"D:/ML/dataset-kodak-small"
 
-	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
+		"C:/Projects/datasets/dataset-kodak-ppm/kodim13.ppm"
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim24.ppm"	//borderless
 	//	"C:/Projects/datasets/dataset-kodak-pgm/kodim13.pgm"
 	//	"C:/Projects/datasets/dataset-kodak/kodim13.png"
 	//	"C:/Projects/datasets/kodim13-small4.PPM"
+	//	"C:/Projects/datasets/big_building.PPM"
 	//	"C:/Projects/datasets/dataset-CLIC16-ppm/2048x1320_adam-willoughby-knox-56406.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC16-ppm/2048x1320_eric-huang-35182.ppm"
 	//	"C:/Projects/datasets/kodim13-small4.PNG"
 	//	"C:/Projects/datasets/PNG_transparency_demonstration_1.png"
-	//	"C:/Projects/datasets/big_building.PPM"
-		"C:/Projects/datasets/dataset-DNG/L1020006.DNG"
+	//	"C:/Projects/datasets/dataset-DNG/L1020006.DNG"
+	//	"C:/Projects/datasets/dataset-DNG"
 	//	"C:/Projects/datasets/dataset-CID22-ppm/3637739.PPM"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_02.ppm"

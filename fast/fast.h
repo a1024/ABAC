@@ -228,6 +228,11 @@ int	f32_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #define f32_encode(SRC, DATA, LOUD)		f32_codec(SRC, DATA, 0, 0, 0, LOUD)
 #define f32_decode(CBUF, CSIZE, DST, LOUD)	f32_codec(0, 0, CBUF, CSIZE, DST, LOUD)
 
+//	F33  MT F26_RCT OLS4 AC_NPOT
+int	f33_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, size_t clen, Image *dst, int loud);
+#define f33_encode(SRC, DATA, LOUD)		f33_codec(SRC, DATA, 0, 0, 0, LOUD)
+#define f33_decode(CBUF, CSIZE, DST, LOUD)	f33_codec(0, 0, CBUF, CSIZE, DST, LOUD)
+
 
 #ifdef __cplusplus
 }
