@@ -26,6 +26,7 @@ int c05_codec(const char *srcfn, const char *dstfn);//Golomb-Rice
 int c06_codec(const char *srcfn, const char *dstfn);//binary
 int c07_codec(const char *srcfn, const char *dstfn);//o0 AC speed test
 int c08_codec(const char *srcfn, const char *dstfn);//FILE-only AC5 test
+int c09_codec(const char *srcfn, const char *dstfn);//Pei09 CG o0 ST AVX2 ANS
 
 	
 #ifdef __cplusplus

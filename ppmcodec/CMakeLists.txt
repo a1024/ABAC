@@ -7,6 +7,7 @@
 	c06.c
 	c07.c
 	c08.c
+	c09.c
 	codec.c
 	util.c
 )
