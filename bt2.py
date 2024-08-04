@@ -21,6 +21,7 @@ if __name__=='__main__':
 		if len(sys.argv)<6:
 			print('Usage:    python %s srcpath dstpath ext1  ext2  program args...'%sys.argv[0])
 			print('')
+			print('Example:  python %s srcpath dstpath ppm   jpg   FFMPEG -hide_banner -loglevel error -i ---s ---d'%sys.argv[0])
 			print('Example:  python %s srcpath dstpath ppm   qlic2 QLIC2 c ---d ---s'%sys.argv[0])
 			print('Example:  python %s srcpath dstpath qlic2 ppm   QLIC2 d ---s ---d'%sys.argv[0])
 			print('Example:  python %s srcpath dstpath ppm   halic HALIC_ENCODE ---s ---d'%sys.argv[0])
