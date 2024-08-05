@@ -4163,6 +4163,7 @@ void pred_wgrad3(Image *src, int fwd, int hasRCT)
 //	#define WPU_TRACE
 	#define WPU_UPDATE_LUMA
 
+#if 1
 #define WPU_NPREDS 8
 #define WPU_PREDLIST\
 	WPU_PRED((N+W+NE-NW)>>1)\
@@ -4173,6 +4174,7 @@ void pred_wgrad3(Image *src, int fwd, int hasRCT)
 	WPU_PRED((3*N+W-(NNW+NNE))>>1)\
 	WPU_PRED(N+W-NW+((eN+eW-eNW)>>1))\
 	WPU_PRED(N+NE-NNE)
+#endif
 //	WPU_PRED(grad)
 //	WPU_PRED((W+NEE)>>1)
 //	WPU_PRED((3*W+NEEE)>>2)
@@ -4218,8 +4220,8 @@ void pred_WPU(Image *src, int fwd)
 
 	for(int k=0;k<(WPU_NPREDS<<2);++k)
 		weights[k]=0x8000;
-	bufsize=(src->iw+8LL)*sizeof(int[4*WPU_PIXEL_STRIDE]);
-	pixels=(int*)malloc(bufsize);//4 padded rows * 4 channels max * {pixels, errors, pred_errors...}
+	bufsize=(src->iw+8LL)*sizeof(int[4*WPU_PIXEL_STRIDE]);//4 padded rows * 4 channels max * {pixels, errors, pred_errors...}
+	pixels=(int*)malloc(bufsize);
 	if(!pixels)
 	{
 		LOG_ERROR("Alloc error");
@@ -4246,7 +4248,7 @@ void pred_WPU(Image *src, int fwd)
 					cb	=src->data[idx+2],
 					cr	=src->data[idx+0];
 				int update=(cb+cr)>>3;
-				update=CLAMP(-halfs[1], update, halfs[1]-1);
+				CLAMP2_32(update, update, -halfs[1], halfs[1]-1);
 				{
 					int luma=src->data[idx+1]-update;//subtract update
 					luma<<=32-src->depth[1];
@@ -4257,30 +4259,32 @@ void pred_WPU(Image *src, int fwd)
 #endif
 			for(int kc0=0;kc0<src->nch;++kc0)
 			{
-				int kc=perm[kc0], pred, vmin, vmax, curr, val;
+				int kc=perm[kc0], kc2=kc*(WPU_NPREDS+2LL), pred, vmin, vmax, curr, val;
 				int
-					NNN	=rows[3][kc+0*WPU_PIXEL_STRIDE+0],
-					NNWW	=rows[2][kc-2*WPU_PIXEL_STRIDE+0],
-					NNW	=rows[2][kc-1*WPU_PIXEL_STRIDE+0],
-					NN	=rows[2][kc+0*WPU_PIXEL_STRIDE+0],
-					NNE	=rows[2][kc+1*WPU_PIXEL_STRIDE+0],
-					NNEE	=rows[2][kc+2*WPU_PIXEL_STRIDE+0],
-					NNEEE	=rows[2][kc+3*WPU_PIXEL_STRIDE+0],
-					NWW	=rows[1][kc-2*WPU_PIXEL_STRIDE+0],
-					NW	=rows[1][kc-1*WPU_PIXEL_STRIDE+0],
-					N	=rows[1][kc+0*WPU_PIXEL_STRIDE+0],
-					NE	=rows[1][kc+1*WPU_PIXEL_STRIDE+0],
-					NEE	=rows[1][kc+2*WPU_PIXEL_STRIDE+0],
-					NEEE	=rows[1][kc+3*WPU_PIXEL_STRIDE+0],
-					WWW	=rows[0][kc-3*WPU_PIXEL_STRIDE+0],
-					WW	=rows[0][kc-2*WPU_PIXEL_STRIDE+0],
-					W	=rows[0][kc-1*WPU_PIXEL_STRIDE+0],
+					NNN	=rows[3][kc2+0*WPU_PIXEL_STRIDE+0],
+					NNWW	=rows[2][kc2-2*WPU_PIXEL_STRIDE+0],
+					NNW	=rows[2][kc2-1*WPU_PIXEL_STRIDE+0],
+					NN	=rows[2][kc2+0*WPU_PIXEL_STRIDE+0],
+					NNE	=rows[2][kc2+1*WPU_PIXEL_STRIDE+0],
+					NNEE	=rows[2][kc2+2*WPU_PIXEL_STRIDE+0],
+					NNEEE	=rows[2][kc2+3*WPU_PIXEL_STRIDE+0],
+					NWW	=rows[1][kc2-2*WPU_PIXEL_STRIDE+0],
+					NW	=rows[1][kc2-1*WPU_PIXEL_STRIDE+0],
+					N	=rows[1][kc2+0*WPU_PIXEL_STRIDE+0],
+					NE	=rows[1][kc2+1*WPU_PIXEL_STRIDE+0],
+					NEE	=rows[1][kc2+2*WPU_PIXEL_STRIDE+0],
+					NEEE	=rows[1][kc2+3*WPU_PIXEL_STRIDE+0],
+					NEEEE	=rows[1][kc2+4*WPU_PIXEL_STRIDE+0],
+					WWWW	=rows[0][kc2-4*WPU_PIXEL_STRIDE+0],
+					WWW	=rows[0][kc2-3*WPU_PIXEL_STRIDE+0],
+					WW	=rows[0][kc2-2*WPU_PIXEL_STRIDE+0],
+					W	=rows[0][kc2-1*WPU_PIXEL_STRIDE+0],
 
-					eNN	=rows[2][kc+0*WPU_PIXEL_STRIDE+4],
-					eNW	=rows[1][kc-1*WPU_PIXEL_STRIDE+4],
-					eN	=rows[1][kc+0*WPU_PIXEL_STRIDE+4],
-					eNE	=rows[1][kc+1*WPU_PIXEL_STRIDE+4],
-					eW	=rows[0][kc-1*WPU_PIXEL_STRIDE+4],
+					eNN	=rows[2][kc2+0*WPU_PIXEL_STRIDE+1],
+					eNW	=rows[1][kc2-1*WPU_PIXEL_STRIDE+1],
+					eN	=rows[1][kc2+0*WPU_PIXEL_STRIDE+1],
+					eNE	=rows[1][kc2+1*WPU_PIXEL_STRIDE+1],
+					eW	=rows[0][kc2-1*WPU_PIXEL_STRIDE+1],
 					offset	=0;
 				(void)NNN;
 				(void)NNWW;
@@ -4295,6 +4299,8 @@ void pred_WPU(Image *src, int fwd)
 				(void)NE;
 				(void)NEE;
 				(void)NEEE;
+				(void)NEEEE;
+				(void)WWWW;
 				(void)WWW;
 				(void)WW;
 				(void)W;
@@ -4305,9 +4311,9 @@ void pred_WPU(Image *src, int fwd)
 				(void)eW;
 				if(kc0>0)
 				{
-					offset+=rows[0][1];
+					offset+=rows[0][1*(WPU_NPREDS+2LL)];
 					if(kc0>1)
-						offset=(2*offset+rows[0][2])>>1;//(2*g+[b-g])/2 = (g+b)/2
+						offset=(2*offset+rows[0][2*(WPU_NPREDS+2LL)])>>1;//(2*g+[b-g])/2 = (g+b)/2
 				}
 
 				//int
@@ -4390,13 +4396,13 @@ void pred_WPU(Image *src, int fwd)
 					for(int k=0;k<WPU_NPREDS;++k)
 					{
 						long long weight=0;
-						weight+=(long long)rows[1][kc+0*WPU_PIXEL_STRIDE+8+((size_t)k<<2)];
+						weight+=(long long)rows[1][(size_t)kc2+k+0*WPU_PIXEL_STRIDE+2];
 #ifdef WPU_TRACE
 						if(kc==1)
 							trace[k]+=weight*weight;
 #endif
-						weight+=(long long)rows[1][kc-1*WPU_PIXEL_STRIDE+8+((size_t)k<<2)];
-						weight+=(long long)rows[1][kc+1*WPU_PIXEL_STRIDE+8+((size_t)k<<2)];
+						weight+=(long long)rows[1][(size_t)kc2+k-1*WPU_PIXEL_STRIDE+2];
+						weight+=(long long)rows[1][(size_t)kc2+k+1*WPU_PIXEL_STRIDE+2];
 						weight+=!weight;
 						weight=((long long)weights[k<<2|kc]<<16)/weight;
 						llpred+=weight*preds[k];
@@ -4406,45 +4412,46 @@ void pred_WPU(Image *src, int fwd)
 					wsum+=!wsum;
 					llpred/=wsum;
 					pred=(int)llpred;
-					pred=CLAMP(vmin, pred, vmax);
+					CLAMP2_32(pred, pred, vmin, vmax);
 					pred=((64-4)*pred+N+W+NW+NE)>>6;
 
 					pred+=offset;
-					pred=CLAMP(-boosthalfs[kc], pred, boosthalfs[kc]-1);
+					CLAMP2_32(pred, pred, -boosthalfs[kc], boosthalfs[kc]-1);
 
 					val=src->data[idx+kc];
 					if(fwd)
 					{
 						curr=val;
 						val-=(pred+(1<<WPU_NBITS>>1))>>WPU_NBITS;
-						val+=halfs[kc];
-						val&=nlevels[kc]-1;
-						val-=halfs[kc];
+						val<<=32-src->depth[kc];
+						val>>=32-src->depth[kc];
 					}
 					else
 					{
 						val+=(pred+(1<<WPU_NBITS>>1))>>WPU_NBITS;
-						val+=halfs[kc];
-						val&=nlevels[kc]-1;
-						val-=halfs[kc];
+						val<<=32-src->depth[kc];
+						val>>=32-src->depth[kc];
 						curr=val;
 					}
 					src->data[idx+kc]=val;
 					curr<<=WPU_NBITS;
-					rows[0][kc+0]=curr-offset;
-					rows[0][kc+4]=curr-pred;
+					rows[0][kc2+0]=curr-offset;
+					rows[0][kc2+1]=curr-pred;
 					{
 						int kbest=0;
 						for(int k=0;k<WPU_NPREDS;++k)
 						{
 							int e2=abs(curr-preds[k]);
 							eprev[k]=e2;
-							rows[0][kc+0*WPU_PIXEL_STRIDE+8+((size_t)k<<2)]=e2;
-							rows[1][kc+1*WPU_PIXEL_STRIDE+8+((size_t)k<<2)]+=e2;
+							rows[0][(size_t)kc2+k+0*WPU_PIXEL_STRIDE+2]=e2;
+							rows[1][(size_t)kc2+k+1*WPU_PIXEL_STRIDE+2]+=e2;
 							if(eprev[kbest]>eprev[k])
 								kbest=k;
 						}
 						(void)kbest;
+
+						//X
+#if 0
 						//++weights[kbest<<2|kc];
 						//if(weights[kbest<<2|kc]>0x8000)
 						//{
@@ -4464,6 +4471,7 @@ void pred_WPU(Image *src, int fwd)
 									weights[k<<2|kc]<<=1;
 							}
 						}
+#endif
 					}
 				}
 			}
@@ -4474,7 +4482,7 @@ void pred_WPU(Image *src, int fwd)
 					cb	=src->data[idx+2],
 					cr	=src->data[idx+0];
 				int update=(cb+cr)>>3;
-				update=CLAMP(-halfs[1], update, halfs[1]-1);
+				CLAMP2_32(update, update, -halfs[1], halfs[1]-1);
 				{
 					int luma=src->data[idx+1]+update;//add update
 					luma<<=32-src->depth[1];

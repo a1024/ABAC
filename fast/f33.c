@@ -20,10 +20,10 @@ static const char file[]=__FILE__;
 
 #define AC3_PREC
 #include"ac.h"
-#define BLOCKSIZE 768
+#define BLOCKSIZE 384
 #define MAXPRINTEDBLOCKS 0	//20
 
-#define OLS_STRIDE 16
+#define OLS_STRIDE 15
 #ifdef ENABLE_SSE
 #define SSEBITS 6
 #endif
@@ -1014,6 +1014,12 @@ static void block_thread(void *param)
 		depths2[1]-8,
 		depths2[2]-8,
 	};
+	int halfs2[]=
+	{
+		halfs[combination[0]],
+		halfs[combination[1]],
+		halfs[combination[2]],
+	};
 	__m128i swap16=_mm_set_epi8(
 		13, 12, 15, 14,  9,  8, 11, 10,  5,  4,  7,  6,  1,  0,  3,  2
 	//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
@@ -1354,6 +1360,7 @@ static void block_thread(void *param)
 			ols4_ctx0[j0++]=WWW	[0];
 			ols4_ctx0[j0++]=WW	[0];
 			ols4_ctx0[j0++]=W	[0];
+
 			ols4_ctx1[j1++]=cgrads	[2];
 		//	ols4_ctx1[j1++]=NNWW	[2];
 			ols4_ctx1[j1++]=NNW	[2];
@@ -1372,6 +1379,7 @@ static void block_thread(void *param)
 			ols4_ctx1[j1++]=W	[2];
 			ols4_ctx1[j1++]=W	[0];
 		//	ols4_ctx1[j1++]=curr	[0];//X  unavailable
+
 			ols4_ctx2[j2++]=cgrads	[4];
 		//	ols4_ctx2[j2++]=NNWW	[4];
 			ols4_ctx2[j2++]=NNW	[4];
@@ -1480,7 +1488,7 @@ static void block_thread(void *param)
 #endif
 			for(int kc=0;kc<image->nch;++kc)
 			{
-				int ch=combination[kc], depth=depths[ch];
+				int ch=combination[kc], depth=depths[ch], half=halfs2[kc];
 				int kc2=kc<<1;
 				int offset=(yuv[combination[kc+4]]+yuv[combination[kc+8]])>>och_info[ch][II_HSHIFT];
 				int pred=0, error, sym;
@@ -1597,8 +1605,8 @@ static void block_thread(void *param)
 				int ssecorr=0;
 				if(kc<3)
 				{
-					int sseidx1=(N[kc2]-NW[kc2]+halfs[kc])<<SSEBITS>>depth;
-					int sseidx2=(W[kc2]-NW[kc2]+halfs[kc])<<SSEBITS>>depth;
+					int sseidx1=(N[kc2]-NW[kc2]+half)<<SSEBITS>>depth;
+					int sseidx2=(W[kc2]-NW[kc2]+half)<<SSEBITS>>depth;
 					CLAMP2(sseidx1, 0, (1<<SSEBITS)-1);
 					CLAMP2(sseidx2, 0, (1<<SSEBITS)-1);
 					ssecell=&args->sse[kc][sseidx1][sseidx2];
@@ -1609,7 +1617,7 @@ static void block_thread(void *param)
 				}
 #endif
 				pred+=offset;
-				CLAMP2_32(pred, pred, -halfs[ch], halfs[ch]-1);
+				CLAMP2_32(pred, pred, -half, half-1);
 
 				//if(ky==13&&kx==623)//
 				//if(ky==80&&kx==510&&kc==2)//
@@ -1621,6 +1629,7 @@ static void block_thread(void *param)
 				//if(ky==0&&kx==102&&kc==1)//
 				//if(ky==1&&kx==111&&kc==1)//
 				//if(ky==22&&kx==242&&kc==3)//
+				//if(ky==0&&kx==4&&kc==0)//
 				//	printf("");
 
 				if(args->fwd)
@@ -1628,13 +1637,13 @@ static void block_thread(void *param)
 					curr[kc2+0]=yuv[kc];
 					curr[kc2+1]=error=yuv[kc]-pred;
 					{
-						int upred=halfs[ch]-abs(pred), aval=abs(error);
+						int upred=half-abs(pred), aval=abs(error);
 						if(aval<=upred)
 						{
 							sym=error;
 #ifdef ENABLE_SSE
 							{
-								int negmask=-((ssecorr<0)&(sym!=-halfs[ch]));//sign is flipped if SSE correction was negative, to skew the histogram
+								int negmask=-((ssecorr<0)&(sym!=-half));//sign is flipped if SSE correction was negative, to skew the histogram
 								sym^=negmask;
 								sym-=negmask;
 							}
@@ -1669,6 +1678,8 @@ static void block_thread(void *param)
 						cdf=cdf2;
 						++token;
 					}
+					//if(token>=args->tlevels)//
+					//	LOG_ERROR("");
 					ac3_dec_update_NPOT(&ec, cdf, freq, den);
 					//token=ac3_dec(&ec, curr_CDF, args->tlevels);//try ac_dec_packedsign()
 					sym=token;
@@ -1692,12 +1703,12 @@ static void block_thread(void *param)
 						sym|=lsb;
 					}
 					{
-						int upred=halfs[ch]-abs(pred), negmask=0;
+						int upred=half-abs(pred), negmask=0;
 						if(sym<=(upred<<1))
 						{
 							error=sym>>1^-(sym&1);
 #ifdef ENABLE_SSE
-							negmask=-((ssecorr<0)&(error!=-halfs[ch]));
+							negmask=-((ssecorr<0)&(error!=-half));
 #endif
 						}
 						else
