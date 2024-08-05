@@ -15,7 +15,7 @@ static const char file[]=__FILE__;
 #include"entropy.h"
 
 #define BLOCKSIZE 384
-#define MAXPRINTEDBLOCKS 0
+#define MAXPRINTEDBLOCKS 10
 #define CLEVELS 9
 #define MIXBITS 14
 
@@ -81,6 +81,7 @@ static const char *rct_names[RCT_COUNT]=
 };
 
 #define PREDLIST\
+	PRED(W)\
 	PRED(AV2)\
 	PRED(CG)
 typedef enum _PredIndex
@@ -241,6 +242,41 @@ static void block_thread(void *param)
 		++args->hist[(IDXD*PRED_COUNT+PREDIDX)<<8|result[0xD]];\
 		++args->hist[(IDXE*PRED_COUNT+PREDIDX)<<8|result[0xE]];\
 	}while(0)
+				//W
+				pred=_mm256_sub_epi16(curr, W);
+				UPDATE(
+					PRED_W,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B
+				);
+				pred=_mm256_add_epi16(_mm256_sub_epi16(W, W2), curr2);
+				pred=_mm256_max_epi16(pred, amin);
+				pred=_mm256_min_epi16(pred, amax);
+				pred=_mm256_sub_epi16(curr, pred);
+				UPDATE(
+					PRED_W,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR
+				);
+				pred=_mm256_add_epi16(_mm256_sub_epi16(W2, W), curr);
+				pred=_mm256_max_epi16(pred, amin);
+				pred=_mm256_min_epi16(pred, amax);
+				pred=_mm256_sub_epi16(curr2, pred);
+				UPDATE(
+					PRED_W,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB
+				);
+
 				//(N+W)/2
 				pred=_mm256_srai_epi16(_mm256_add_epi16(N, W), 1);
 				pred=_mm256_sub_epi16(curr, pred);
@@ -463,11 +499,17 @@ static void block_thread(void *param)
 	__m128i cmax=_mm_set1_epi16(CLEVELS-2);
 	__m128i one=_mm_set1_epi16(1);
 	//__m128i amax=_mm_set1_epi16(1<<MIXBITS);
-	__m128i predmask=_mm_set_epi16(
+	__m128i predmaskW=_mm_set_epi16(
 		0, 0, 0, 0, 0,
-		-!predidx[2],
-		-!predidx[1],
-		-!predidx[0]
+		-(predidx[2]==PRED_W),
+		-(predidx[1]==PRED_W),
+		-(predidx[0]==PRED_W)
+	);
+	__m128i predmaskAV2=_mm_set_epi16(
+		0, 0, 0, 0, 0,
+		-(predidx[2]==PRED_AV2),
+		-(predidx[1]==PRED_AV2),
+		-(predidx[0]==PRED_AV2)
 	);
 	for(int ky=args->y1;ky<args->y2;++ky)//codec loop
 	{
@@ -687,14 +729,15 @@ static void block_thread(void *param)
 			dens[2+2*4]=((dens[2+2*4]<<MIXBITS)+(dens[3+2*4]-dens[2+2*4])*alphas[2])>>(MIXBITS-1);
 			dens[0+2*4]=((dens[0+2*4]<<MIXBITS)+(dens[2+2*4]-dens[0+2*4])*alphas[5])>>(MIXBITS-1);//den2
 			ALIGN(16) short preds[8];
-			__m128i mp0=_mm_add_epi16(mN, mW);
-			__m128i mp=_mm_sub_epi16(mp0, mNW);
-			mp0=_mm_srai_epi16(mp0, 1);
+			__m128i mav2=_mm_add_epi16(mN, mW);
+			__m128i mp=_mm_sub_epi16(mav2, mNW);
+			mav2=_mm_srai_epi16(mav2, 1);
 			t0=_mm_min_epi16(mN, mW);
 			t1=_mm_max_epi16(mN, mW);
 			mp=_mm_max_epi16(mp, t0);
 			mp=_mm_min_epi16(mp, t1);
-			mp=_mm_blendv_epi8(mp, mp0, predmask);//SSE4.1
+			mp=_mm_blendv_epi8(mp, mav2, predmaskAV2);//SSE4.1
+			mp=_mm_blendv_epi8(mp, mW, predmaskW);
 			_mm_store_si128((__m128i*)preds, mp);
 			for(int kc=0;kc<nch;++kc)
 			{
@@ -1079,8 +1122,8 @@ int c01_codec(const char *srcfn, const char *dstfn)
 		arg->bufsize=sizeof(short[4*OCH_COUNT*2])*(BLOCKSIZE+16LL);//4 padded rows * OCH_COUNT * {pixels, wg_errors}
 		arg->pixels=(short*)_mm_malloc(arg->bufsize, sizeof(__m128i));
 
-		arg->histsize=statssize;
-		arg->hist=(int*)malloc(statssize);
+		arg->histsize=histsize;
+		arg->hist=(int*)malloc(histsize);
 
 		//arg->statssize=statssize;
 		//arg->stats=(unsigned*)malloc(statssize);
