@@ -15,7 +15,7 @@ static const char file[]=__FILE__;
 
 	#define ALLOW_AVX2
 	#define ENABLE_OLS
-//	#define ENABLE_SSE
+	#define ENABLE_SSE
 
 
 #define AC3_PREC
@@ -23,7 +23,7 @@ static const char file[]=__FILE__;
 #define BLOCKSIZE 768
 #define MAXPRINTEDBLOCKS 0	//20
 
-#define OLS_STRIDE 64
+#define OLS_STRIDE 16
 #ifdef ENABLE_SSE
 #define SSEBITS 6
 #endif
@@ -33,7 +33,7 @@ static const Image *guide=0;
 #endif
 
 //RCT1~7:
-//Cr-=y		Cr = [ 1	-1	0].RGB-
+//Cr-=y		Cr = [ 1	-1	0].RGB
 //y+=Cr>>1	y  = [ 1/2	 1/2	0].RGB
 //Cb-=y		Cb = [-1/2	-1/2	1].RGB
 //y+=LUMA_UPDATE(Cb, Cr)
@@ -564,9 +564,7 @@ static void ols4_update(OLS4Context *ctx, int target, double lr)
 	}
 }
 
-#define OLS4_NPARAMS0 17
-#define OLS4_NPARAMS1 17
-#define OLS4_NPARAMS2 17
+#define OLS4_NPARAMS 16		//multiple of 4,  NPARAMS is unified because of interleaving
 
 
 //from libjxl		packsign(pixel) = 0b00001MMBB...BBL	token = offset + 0bGGGGMML,  where G = bits of lg(packsign(pixel)),  bypass = 0bBB...BB
@@ -653,8 +651,8 @@ static void block_thread(void *param)
 	int bestrct=0;
 	const int *combination=0;
 	int nctx=args->clevels*args->clevels, cdfstride=args->tlevels+1, chsize=nctx*cdfstride;
-	ALIGN(16) int ols4_ctx[OLS4_NPARAMS2]={0};//
-	ALIGN(16) int ols4_ctx0[OLS4_NPARAMS2]={0}, ols4_ctx1[OLS4_NPARAMS2]={0}, ols4_ctx2[OLS4_NPARAMS2]={0};
+	//ALIGN(16) int ols4_ctx[OLS4_NPARAMS]={0};//
+	ALIGN(16) int ols4_ctx0[OLS4_NPARAMS]={0}, ols4_ctx1[OLS4_NPARAMS]={0}, ols4_ctx2[OLS4_NPARAMS]={0};
 	static const double lrs[]={0.0018, 0.003, 0.003};
 
 	for(int kc=0;kc<OCH_COUNT;++kc)
@@ -690,6 +688,7 @@ static void block_thread(void *param)
 				};
 				int idx=image->nch*(image->iw*ky+args->x1);
 				short input[ICH_COUNT]={0};
+				ALIGN(32) short preds[OCH_COUNT]={0};
 				for(int kx=args->x1;kx<args->x2;kx+=4, idx+=image->nch*4)
 				{
 					int cidx=3;
@@ -764,7 +763,7 @@ static void block_thread(void *param)
 					input[ICH_B]=image->data[idx+2];//b
 					for(int kp=0;kp<6;++kp)//RCT1~7		r-=g; g+=r>>1; b-=g; g+=(A*r+B*b+C)>>SH;
 					{
-						int j=0;
+						//int j=0;
 						input[cidx+0]=input[rgb2yuv_permutations[kp][0]];//Y
 						input[cidx+7]=input[rgb2yuv_permutations[kp][1]];//U
 						input[cidx+8]=input[rgb2yuv_permutations[kp][2]];//V
@@ -801,21 +800,52 @@ static void block_thread(void *param)
 						input[cidx+0]+=(input[cidx+2]+input[cidx+1])>>2;
 						cidx+=3;
 					}
+					{
+						int kc=0;
+						for(;kc<OCH_COUNT-15;kc+=16)
+						{
+							__m256i mNW	=_mm256_loadu_si256((__m256i*)(NW	+kc));
+							__m256i mN	=_mm256_loadu_si256((__m256i*)(N	+kc));
+							__m256i mW	=_mm256_loadu_si256((__m256i*)(W	+kc));
+							__m256i mp=_mm256_sub_epi16(_mm256_add_epi16(mN, mW), mNW);
+							__m256i vmin=_mm256_min_epi16(mN, mW);
+							__m256i vmax=_mm256_max_epi16(mN, mW);
+							mp=_mm256_max_epi16(mp, vmin);
+							mp=_mm256_min_epi16(mp, vmax);
+							_mm256_store_si256((__m256i*)(preds+kc), mp);
+						}
+						if(kc<OCH_COUNT-7)
+						{
+							__m128i mNW	=_mm_loadu_si128((__m128i*)(NW	+kc));
+							__m128i mN	=_mm_loadu_si128((__m128i*)(N	+kc));
+							__m128i mW	=_mm_loadu_si128((__m128i*)(W	+kc));
+							__m128i mp=_mm_sub_epi16(_mm_add_epi16(mN, mW), mNW);
+							__m128i vmin=_mm_min_epi16(mN, mW);
+							__m128i vmax=_mm_max_epi16(mN, mW);
+							mp=_mm_max_epi16(mp, vmin);
+							mp=_mm_min_epi16(mp, vmax);
+							_mm_store_si128((__m128i*)(preds+kc), mp);
+							kc+=8;
+						}
+						for(;kc<OCH_COUNT;++kc)
+							MEDIAN3_32(preds[kc], N[kc], W[kc], N[kc]+W[kc]-NW[kc]);
+					}
 					for(int kc=0;kc<OCH_COUNT;++kc)
 					{
 						int
-							kc2=kc, pred,
+							pred,
 							offset=(input[och_info[kc][II_HELPER1]]+input[och_info[kc][II_HELPER2]])>>och_info[kc][II_HSHIFT],
 							target=input[och_info[kc][II_TARGET]];
 
-						MEDIAN3_32(pred, N[kc2], W[kc2], N[kc2]+W[kc2]-NW[kc2]);
+						pred=preds[kc];
+						//MEDIAN3_32(pred, N[kc], W[kc], N[kc]+W[kc]-NW[kc]);
 
 						//int j=0, cmin, cmax;
 						//{
 						//	ALIGN(16) int arr[4];
-						//	__m128i va=_mm_set_epi32(0, 0, 0, N[kc2]);
-						//	__m128i vb=_mm_set_epi32(0, 0, 0, W[kc2]);
-						//	__m128i vc=_mm_set_epi32(0, 0, 0, N[kc2]+W[kc2]-NW[kc2]);
+						//	__m128i va=_mm_set_epi32(0, 0, 0, N[kc]);
+						//	__m128i vb=_mm_set_epi32(0, 0, 0, W[kc]);
+						//	__m128i vc=_mm_set_epi32(0, 0, 0, N[kc]+W[kc]-NW[kc]);
 						//	__m128i _vmin=_mm_min_epi32(va, vb);
 						//	__m128i _vmax=_mm_max_epi32(va, vb);
 						//	vc=_mm_max_epi32(vc, _vmin);
@@ -823,7 +853,7 @@ static void block_thread(void *param)
 						//	_mm_store_si128((__m128i*)arr, vc);
 						//	pred=arr[0];
 						//
-						//	vc=_mm_set_epi32(0, 0, 0, NE[kc2]);
+						//	vc=_mm_set_epi32(0, 0, 0, NE[kc]);
 						//	_vmin=_mm_min_epi32(_vmin, vc);
 						//	_vmax=_mm_max_epi32(_vmax, vc);
 						//	_mm_store_si128((__m128i*)arr, _vmin);
@@ -832,22 +862,22 @@ static void block_thread(void *param)
 						//	cmax=arr[0];
 						//}
 						//ols4_ctx[j++]=pred;
-						//ols4_ctx[j++]=NNWW	[kc2];
-						//ols4_ctx[j++]=NNW	[kc2];
-						//ols4_ctx[j++]=NN	[kc2];
-						//ols4_ctx[j++]=NNE	[kc2];
-						//ols4_ctx[j++]=NNEE	[kc2];
-						//ols4_ctx[j++]=NNEEE	[kc2];
-						//ols4_ctx[j++]=NWWW	[kc2];
-						//ols4_ctx[j++]=NWW	[kc2];
-						//ols4_ctx[j++]=NW	[kc2];
-						//ols4_ctx[j++]=N		[kc2];
-						//ols4_ctx[j++]=NE	[kc2];
-						//ols4_ctx[j++]=NEE	[kc2];
-						//ols4_ctx[j++]=NEEE	[kc2];
-						//ols4_ctx[j++]=WWW	[kc2];
-						//ols4_ctx[j++]=WW	[kc2];
-						//ols4_ctx[j++]=W		[kc2];
+						//ols4_ctx[j++]=NNWW	[kc];
+						//ols4_ctx[j++]=NNW	[kc];
+						//ols4_ctx[j++]=NN	[kc];
+						//ols4_ctx[j++]=NNE	[kc];
+						//ols4_ctx[j++]=NNEE	[kc];
+						//ols4_ctx[j++]=NNEEE	[kc];
+						//ols4_ctx[j++]=NWWW	[kc];
+						//ols4_ctx[j++]=NWW	[kc];
+						//ols4_ctx[j++]=NW	[kc];
+						//ols4_ctx[j++]=N		[kc];
+						//ols4_ctx[j++]=NE	[kc];
+						//ols4_ctx[j++]=NEE	[kc];
+						//ols4_ctx[j++]=NEEE	[kc];
+						//ols4_ctx[j++]=WWW	[kc];
+						//ols4_ctx[j++]=WW	[kc];
+						//ols4_ctx[j++]=W		[kc];
 						//pred=ols4_predict(args->ols4+0, ols4_ctx, cmin, cmax);
 
 						pred+=offset;
@@ -860,7 +890,7 @@ static void block_thread(void *param)
 						++curr_hist[val];
 
 						target-=offset;
-						curr[kc2+0]=target;
+						curr[kc]=target;
 						//if(kc<3&&!(kx&63))
 						//	ols4_update(args->ols4+kc, target, lrs[kc]);
 					}
@@ -881,7 +911,6 @@ static void block_thread(void *param)
 						csizes[kc]-=freq*log2((double)freq/res);
 				}
 				csizes[kc]/=8;
-			//	csizes[kc]*=4.*4./8;//4*4 is compensation for strided analysis
 			}
 			for(int kt=0;kt<RCT_COUNT;++kt)//select best RCT
 			{
@@ -1309,7 +1338,7 @@ static void block_thread(void *param)
 			vmax=_mm_srai_epi32(vmax, 16);
 			int j0=0, j1=0, j2=0;
 			ols4_ctx0[j0++]=cgrads	[0];
-			ols4_ctx0[j0++]=NNWW	[0];
+		//	ols4_ctx0[j0++]=NNWW	[0];
 			ols4_ctx0[j0++]=NNW	[0];
 			ols4_ctx0[j0++]=NN	[0];
 			ols4_ctx0[j0++]=NNE	[0];
@@ -1326,7 +1355,7 @@ static void block_thread(void *param)
 			ols4_ctx0[j0++]=WW	[0];
 			ols4_ctx0[j0++]=W	[0];
 			ols4_ctx1[j1++]=cgrads	[2];
-			ols4_ctx1[j1++]=NNWW	[2];
+		//	ols4_ctx1[j1++]=NNWW	[2];
 			ols4_ctx1[j1++]=NNW	[2];
 			ols4_ctx1[j1++]=NN	[2];
 			ols4_ctx1[j1++]=NNE	[2];
@@ -1344,7 +1373,7 @@ static void block_thread(void *param)
 			ols4_ctx1[j1++]=W	[0];
 		//	ols4_ctx1[j1++]=curr	[0];//X  unavailable
 			ols4_ctx2[j2++]=cgrads	[4];
-			ols4_ctx2[j2++]=NNWW	[4];
+		//	ols4_ctx2[j2++]=NNWW	[4];
 			ols4_ctx2[j2++]=NNW	[4];
 			ols4_ctx2[j2++]=NN	[4];
 			ols4_ctx2[j2++]=NNE	[4];
@@ -1426,12 +1455,20 @@ static void block_thread(void *param)
 				_mm256_store_pd(sums+1*4, sum1);
 				_mm256_store_pd(sums+2*4, sum2);
 
-				pnb0[16]=(double)ols4_ctx0[16];
-				pnb1[16]=(double)ols4_ctx1[16];
-				pnb2[16]=(double)ols4_ctx2[16];
-				sums[ 0]+=sums[ 1]+sums[ 2]+sums[ 3]+pp0[16]*pnb0[16];
-				sums[ 4]+=sums[ 5]+sums[ 6]+sums[ 7]+pp1[16]*pnb1[16];
-				sums[ 8]+=sums[ 9]+sums[10]+sums[11]+pp2[16]*pnb2[16];
+				sums[ 0]+=sums[ 1]+sums[ 2]+sums[ 3];
+				sums[ 4]+=sums[ 5]+sums[ 6]+sums[ 7];
+				sums[ 8]+=sums[ 9]+sums[10]+sums[11];
+#if OLS_NPARAMS&15
+				for(int k=16;k<OLS_NPARAMS;++k)
+				{
+					pnb0[k]=(double)ols4_ctx0[k];
+					pnb1[k]=(double)ols4_ctx1[k];
+					pnb2[k]=(double)ols4_ctx2[k];
+					sums[ 0]+=pp0[k]*pnb0[k];
+					sums[ 4]+=pp1[k]*pnb1[k];
+					sums[ 8]+=pp2[k]*pnb2[k];
+				}
+#endif
 				sums[1]=sums[4];
 				sums[2]=sums[8];
 
@@ -1730,13 +1767,13 @@ static void block_thread(void *param)
 				__m256d mlr0=_mm256_set1_pd(lrs[0]);
 				__m256d mlr1=_mm256_set1_pd(lrs[1]);
 				__m256d mlr2=_mm256_set1_pd(lrs[2]);
-				for(int ky2=0, midx=0;ky2<OLS4_NPARAMS0;++ky2)
+				for(int ky2=0, midx=0;ky2<OLS4_NPARAMS;++ky2)
 				{
 					__m256d vy0=_mm256_set1_pd(pnb0[ky2]);
 					__m256d vy1=_mm256_set1_pd(pnb1[ky2]);
 					__m256d vy2=_mm256_set1_pd(pnb2[ky2]);
 					int kx2=0;
-					for(;kx2<OLS4_NPARAMS0-3;kx2+=4, midx+=4)
+					for(;kx2<OLS4_NPARAMS-3;kx2+=4, midx+=4)
 					{
 						__m256d mcov0=_mm256_load_pd(cov0+midx);
 						__m256d mcov1=_mm256_load_pd(cov1+midx);
@@ -1760,16 +1797,13 @@ static void block_thread(void *param)
 						_mm256_store_pd(cov1+midx, vx1);
 						_mm256_store_pd(cov2+midx, vx2);
 					}
-#if OLS4_NPARAMS0!=17	//1 step left
-					for(;kx2<OLS4_NPARAMS0;++kx2, ++midx)
-#endif
+#if OLS4_NPARAMS&15
+					for(;kx2<OLS4_NPARAMS;++kx2, ++midx)
 					{
 						cov0[midx]+=(pnb0[kx2]*pnb0[ky2]-cov0[midx])*lrs[0];
 						cov1[midx]+=(pnb1[kx2]*pnb1[ky2]-cov1[midx])*lrs[1];
 						cov2[midx]+=(pnb2[kx2]*pnb2[ky2]-cov2[midx])*lrs[2];
 					}
-#if OLS4_NPARAMS0==17
-					++midx;
 #endif
 				}
 				double *vec0=args->ols4[0].vec;
@@ -1783,7 +1817,7 @@ static void block_thread(void *param)
 					__m256d mval1=_mm256_set1_pd(lval1);
 					__m256d mval2=_mm256_set1_pd(lval2);
 					int k=0;
-					for(;k<OLS4_NPARAMS0-3;k+=4)
+					for(;k<OLS4_NPARAMS-3;k+=4)
 					{
 						__m256d mvec0=_mm256_load_pd(vec0+k);
 						__m256d mvec1=_mm256_load_pd(vec1+k);
@@ -1804,14 +1838,14 @@ static void block_thread(void *param)
 						_mm256_store_pd(vec1+k, mvec1);
 						_mm256_store_pd(vec2+k, mvec2);
 					}
-//#if OLS4_NPARAMS0!=17	//1 step left
-					for(;k<OLS4_NPARAMS0;++k)
-//#endif
+#if OLS4_NPARAMS&15
+					for(;k<OLS4_NPARAMS;++k)
 					{
 						vec0[k]=lval0*pnb0[k]+lr_comp0*vec0[k];
 						vec1[k]=lval1*pnb1[k]+lr_comp1*vec1[k];
 						vec2[k]=lval2*pnb2[k]+lr_comp2*vec2[k];
 					}
+#endif
 				}
 				double *chol0=args->ols4[0].cholesky;
 				double *chol1=args->ols4[1].cholesky;
@@ -1822,122 +1856,122 @@ static void block_thread(void *param)
 				int success0=1;
 				int success1=1;
 				int success2=1;
-				memcpy(chol0, cov0, sizeof(double[OLS4_NPARAMS0*OLS4_NPARAMS0]));
-				memcpy(chol1, cov1, sizeof(double[OLS4_NPARAMS0*OLS4_NPARAMS0]));
-				memcpy(chol2, cov2, sizeof(double[OLS4_NPARAMS0*OLS4_NPARAMS0]));
-				for(int k=0;k<OLS4_NPARAMS0*OLS4_NPARAMS0;k+=OLS4_NPARAMS0+1)
+				memcpy(chol0, cov0, sizeof(double[OLS4_NPARAMS*OLS4_NPARAMS]));
+				memcpy(chol1, cov1, sizeof(double[OLS4_NPARAMS*OLS4_NPARAMS]));
+				memcpy(chol2, cov2, sizeof(double[OLS4_NPARAMS*OLS4_NPARAMS]));
+				for(int k=0;k<OLS4_NPARAMS*OLS4_NPARAMS;k+=OLS4_NPARAMS+1)
 				{
 					chol0[k]+=0.0075;
 					chol1[k]+=0.0075;
 					chol2[k]+=0.0075;
 				}
 				double sum;
-				for(int i=0;i<OLS4_NPARAMS0;++i)
+				for(int i=0;i<OLS4_NPARAMS;++i)
 				{
 					for(int j=0;j<i;++j)
 					{
-						sum=chol0[i*OLS4_NPARAMS0+j];
+						sum=chol0[i*OLS4_NPARAMS+j];
 						for(int k=0;k<j;++k)
-							sum-=chol0[i*OLS4_NPARAMS0+k]*chol0[j*OLS4_NPARAMS0+k];
-						chol0[i*OLS4_NPARAMS0+j]=sum/chol0[j*OLS4_NPARAMS0+j];
+							sum-=chol0[i*OLS4_NPARAMS+k]*chol0[j*OLS4_NPARAMS+k];
+						chol0[i*OLS4_NPARAMS+j]=sum/chol0[j*OLS4_NPARAMS+j];
 					}
-					sum=chol0[i*OLS4_NPARAMS0+i];
+					sum=chol0[i*OLS4_NPARAMS+i];
 					for(int k=0;k<i;++k)
-						sum-=chol0[i*OLS4_NPARAMS0+k]*chol0[i*OLS4_NPARAMS0+k];
+						sum-=chol0[i*OLS4_NPARAMS+k]*chol0[i*OLS4_NPARAMS+k];
 					if(sum<=1e-8)
 					{
 						success0=0;
 						break;
 					}
-					chol0[i*OLS4_NPARAMS0+i]=sqrt(sum);
+					chol0[i*OLS4_NPARAMS+i]=sqrt(sum);
 				}
-				for(int i=0;i<OLS4_NPARAMS0;++i)
+				for(int i=0;i<OLS4_NPARAMS;++i)
 				{
 					for(int j=0;j<i;++j)
 					{
-						sum=chol1[i*OLS4_NPARAMS0+j];
+						sum=chol1[i*OLS4_NPARAMS+j];
 						for(int k=0;k<j;++k)
-							sum-=chol1[i*OLS4_NPARAMS0+k]*chol1[j*OLS4_NPARAMS0+k];
-						chol1[i*OLS4_NPARAMS0+j]=sum/chol1[j*OLS4_NPARAMS0+j];
+							sum-=chol1[i*OLS4_NPARAMS+k]*chol1[j*OLS4_NPARAMS+k];
+						chol1[i*OLS4_NPARAMS+j]=sum/chol1[j*OLS4_NPARAMS+j];
 					}
-					sum=chol1[i*OLS4_NPARAMS0+i];
+					sum=chol1[i*OLS4_NPARAMS+i];
 					for(int k=0;k<i;++k)
-						sum-=chol1[i*OLS4_NPARAMS0+k]*chol1[i*OLS4_NPARAMS0+k];
+						sum-=chol1[i*OLS4_NPARAMS+k]*chol1[i*OLS4_NPARAMS+k];
 					if(sum<=1e-8)
 					{
 						success1=0;
 						break;
 					}
-					chol1[i*OLS4_NPARAMS0+i]=sqrt(sum);
+					chol1[i*OLS4_NPARAMS+i]=sqrt(sum);
 				}
-				for(int i=0;i<OLS4_NPARAMS0;++i)
+				for(int i=0;i<OLS4_NPARAMS;++i)
 				{
 					for(int j=0;j<i;++j)
 					{
-						sum=chol2[i*OLS4_NPARAMS0+j];
+						sum=chol2[i*OLS4_NPARAMS+j];
 						for(int k=0;k<j;++k)
-							sum-=chol2[i*OLS4_NPARAMS0+k]*chol2[j*OLS4_NPARAMS0+k];
-						chol2[i*OLS4_NPARAMS0+j]=sum/chol2[j*OLS4_NPARAMS0+j];
+							sum-=chol2[i*OLS4_NPARAMS+k]*chol2[j*OLS4_NPARAMS+k];
+						chol2[i*OLS4_NPARAMS+j]=sum/chol2[j*OLS4_NPARAMS+j];
 					}
-					sum=chol2[i*OLS4_NPARAMS0+i];
+					sum=chol2[i*OLS4_NPARAMS+i];
 					for(int k=0;k<i;++k)
-						sum-=chol2[i*OLS4_NPARAMS0+k]*chol2[i*OLS4_NPARAMS0+k];
+						sum-=chol2[i*OLS4_NPARAMS+k]*chol2[i*OLS4_NPARAMS+k];
 					if(sum<=1e-8)
 					{
 						success2=0;
 						break;
 					}
-					chol2[i*OLS4_NPARAMS0+i]=sqrt(sum);
+					chol2[i*OLS4_NPARAMS+i]=sqrt(sum);
 				}
 				if(success0)
 				{
-					for(int i=0;i<OLS4_NPARAMS0;++i)
+					for(int i=0;i<OLS4_NPARAMS;++i)
 					{
 						sum=vec0[i];
 						for(int j=0;j<i;++j)
-							sum-=chol0[i*OLS4_NPARAMS0+j]*params0[j];
-						params0[i]=sum/chol0[i*OLS4_NPARAMS0+i];
+							sum-=chol0[i*OLS4_NPARAMS+j]*params0[j];
+						params0[i]=sum/chol0[i*OLS4_NPARAMS+i];
 					}
-					for(int i=OLS4_NPARAMS0-1;i>=0;--i)
+					for(int i=OLS4_NPARAMS-1;i>=0;--i)
 					{
 						sum=params0[i];
-						for(int j=i+1;j<OLS4_NPARAMS0;++j)
-							sum-=chol0[j*OLS4_NPARAMS0+i]*params0[j];
-						params0[i]=sum/chol0[i*OLS4_NPARAMS0+i];
+						for(int j=i+1;j<OLS4_NPARAMS;++j)
+							sum-=chol0[j*OLS4_NPARAMS+i]*params0[j];
+						params0[i]=sum/chol0[i*OLS4_NPARAMS+i];
 					}
 				}
 				if(success1)
 				{
-					for(int i=0;i<OLS4_NPARAMS0;++i)
+					for(int i=0;i<OLS4_NPARAMS;++i)
 					{
 						sum=vec1[i];
 						for(int j=0;j<i;++j)
-							sum-=chol1[i*OLS4_NPARAMS0+j]*params1[j];
-						params1[i]=sum/chol1[i*OLS4_NPARAMS0+i];
+							sum-=chol1[i*OLS4_NPARAMS+j]*params1[j];
+						params1[i]=sum/chol1[i*OLS4_NPARAMS+i];
 					}
-					for(int i=OLS4_NPARAMS0-1;i>=0;--i)
+					for(int i=OLS4_NPARAMS-1;i>=0;--i)
 					{
 						sum=params1[i];
-						for(int j=i+1;j<OLS4_NPARAMS0;++j)
-							sum-=chol1[j*OLS4_NPARAMS0+i]*params1[j];
-						params1[i]=sum/chol1[i*OLS4_NPARAMS0+i];
+						for(int j=i+1;j<OLS4_NPARAMS;++j)
+							sum-=chol1[j*OLS4_NPARAMS+i]*params1[j];
+						params1[i]=sum/chol1[i*OLS4_NPARAMS+i];
 					}
 				}
 				if(success2)
 				{
-					for(int i=0;i<OLS4_NPARAMS0;++i)
+					for(int i=0;i<OLS4_NPARAMS;++i)
 					{
 						sum=vec2[i];
 						for(int j=0;j<i;++j)
-							sum-=chol2[i*OLS4_NPARAMS0+j]*params2[j];
-						params2[i]=sum/chol2[i*OLS4_NPARAMS0+i];
+							sum-=chol2[i*OLS4_NPARAMS+j]*params2[j];
+						params2[i]=sum/chol2[i*OLS4_NPARAMS+i];
 					}
-					for(int i=OLS4_NPARAMS0-1;i>=0;--i)
+					for(int i=OLS4_NPARAMS-1;i>=0;--i)
 					{
 						sum=params2[i];
-						for(int j=i+1;j<OLS4_NPARAMS0;++j)
-							sum-=chol2[j*OLS4_NPARAMS0+i]*params2[j];
-						params2[i]=sum/chol2[i*OLS4_NPARAMS0+i];
+						for(int j=i+1;j<OLS4_NPARAMS;++j)
+							sum-=chol2[j*OLS4_NPARAMS+i]*params2[j];
+						params2[i]=sum/chol2[i*OLS4_NPARAMS+i];
 					}
 				}
 			}
@@ -2158,12 +2192,6 @@ int f33_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	int histindices[OCH_COUNT+1]={0}, histsize=0;
 	int tlevels=0, clevels=0, statssize=0;
 	double bestsize=0;
-	int ols4_nparams[]=
-	{
-		OLS4_NPARAMS0,
-		OLS4_NPARAMS1,
-		OLS4_NPARAMS2,
-	};
 	
 	ncores=query_cpu_cores();
 	xblocks=(image->iw+BLOCKSIZE-1)/BLOCKSIZE;
@@ -2241,7 +2269,7 @@ int f33_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		//arg->stats=(unsigned*)malloc(statssize);
 #ifdef ENABLE_OLS
 		for(int k=0;k<image->nch&&k<3;++k)
-			ols4_init(arg->ols4+k, ols4_nparams[k]);
+			ols4_init(arg->ols4+k, OLS4_NPARAMS);
 #endif
 		if(!arg->pixels||!arg->hist)
 		{

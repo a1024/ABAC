@@ -261,8 +261,8 @@ static double orct_calcloss(Image const *src, int x1, int x2, int y1, int y2, in
 	{
 		ALIGN(16) int *rows[]=
 		{
-			pixels+((BLOCKSIZE+16LL)*((ky-0LL)&1)+8LL)*4,
-			pixels+((BLOCKSIZE+16LL)*((ky-1LL)&1)+8LL)*4,
+			pixels+((BLOCKSIZE+16LL)*((ay-0LL)&1)+8LL)*4,
+			pixels+((BLOCKSIZE+16LL)*((ay-1LL)&1)+8LL)*4,
 		};
 		ALIGN(16) int result[4]={0};
 		for(int kx=x1;kx<x2-3;kx+=4)
