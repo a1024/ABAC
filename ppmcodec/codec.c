@@ -121,6 +121,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-LPCB-ppm/PIA13912.ppm"
 		"D:/ML/dataset-kodak-ppm/kodim13.ppm"
 	//	"D:/ML/dataset-kodak-ppm/kodim13.c01"
+	//	"D:/ML/big_building.PPM"
 	//	"C:/dataset-LPCB-ppm/PIA13803.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13833.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13915.ppm"	//false color terrain
