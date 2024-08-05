@@ -787,7 +787,7 @@ static void block_thread(void *param)
 #ifdef USE_GRCODER
 	GolombRiceCoder ec;
 #else
-	AC4 ec;
+	AC3 ec;
 #endif
 	const unsigned char *image=args->fwd?args->src:args->dst;
 	//unsigned char bestrct=0, combination[6]={0}, predidx[4]={0};
@@ -1278,15 +1278,15 @@ static void block_thread(void *param)
 		gr_enc(&ec, predsel[1], PRED_COUNT);
 		gr_enc(&ec, predsel[2], PRED_COUNT);
 #else
-		ac4_enc_init(&ec, &args->list);
-		ac4_enc_update_NPOT(&ec, permutation, permutation+1, PERM_COUNT);
-		ac4_enc_update_NPOT(&ec, helper1, helper1+1, 2);
-		ac4_enc_update_NPOT(&ec, alpha1, alpha1+1, 17);
-		ac4_enc_update_NPOT(&ec, alpha2, alpha2+1, 17);
+		ac3_enc_init(&ec, &args->list);
+		ac3_enc_update_NPOT(&ec, permutation, permutation+1, PERM_COUNT);
+		ac3_enc_update_NPOT(&ec, helper1, helper1+1, 2);
+		ac3_enc_update_NPOT(&ec, alpha1, alpha1+1, 17);
+		ac3_enc_update_NPOT(&ec, alpha2, alpha2+1, 17);
 
-		ac4_enc_update_NPOT(&ec, predsel[0], predsel[0]+1, PRED_COUNT);
-		ac4_enc_update_NPOT(&ec, predsel[1], predsel[1]+1, PRED_COUNT);
-		ac4_enc_update_NPOT(&ec, predsel[2], predsel[2]+1, PRED_COUNT);
+		ac3_enc_update_NPOT(&ec, predsel[0], predsel[0]+1, PRED_COUNT);
+		ac3_enc_update_NPOT(&ec, predsel[1], predsel[1]+1, PRED_COUNT);
+		ac3_enc_update_NPOT(&ec, predsel[2], predsel[2]+1, PRED_COUNT);
 #endif
 #ifdef ENABLE_OLS
 		for(int kc=0;kc<3;++kc)
@@ -1326,27 +1326,27 @@ static void block_thread(void *param)
 		predsel[1]=gr_dec(&ec, PRED_COUNT);
 		predsel[2]=gr_dec(&ec, PRED_COUNT);
 #else
-		ac4_dec_init(&ec, args->decstart, args->decend);
-		permutation=ac4_dec_getcdf_NPOT(&ec, PERM_COUNT);	ac4_dec_update_NPOT(&ec, permutation, permutation+1, PERM_COUNT);
-		helper1=ac4_dec_getcdf_NPOT(&ec, 2);			ac4_dec_update_NPOT(&ec, helper1, helper1+1, 2);
-		alpha1=ac4_dec_getcdf_NPOT(&ec, 17);			ac4_dec_update_NPOT(&ec, alpha1, alpha1+1, 17);
-		alpha2=ac4_dec_getcdf_NPOT(&ec, 17);			ac4_dec_update_NPOT(&ec, alpha2, alpha2+1, 17);
+		ac3_dec_init(&ec, args->decstart, args->decend);
+		permutation=ac3_dec_getcdf_NPOT(&ec, PERM_COUNT);	ac3_dec_update_NPOT(&ec, permutation, permutation+1, PERM_COUNT);
+		helper1=ac3_dec_getcdf_NPOT(&ec, 2);			ac3_dec_update_NPOT(&ec, helper1, helper1+1, 2);
+		alpha1=ac3_dec_getcdf_NPOT(&ec, 17);			ac3_dec_update_NPOT(&ec, alpha1, alpha1+1, 17);
+		alpha2=ac3_dec_getcdf_NPOT(&ec, 17);			ac3_dec_update_NPOT(&ec, alpha2, alpha2+1, 17);
 		memcpy(rgbidx, permutations[permutation], sizeof(int[3]));
 		
-		predsel[0]=ac4_dec_getcdf_NPOT(&ec, PRED_COUNT);	ac4_dec_update_NPOT(&ec, predsel[0], predsel[0]+1, PRED_COUNT);
-		predsel[1]=ac4_dec_getcdf_NPOT(&ec, PRED_COUNT);	ac4_dec_update_NPOT(&ec, predsel[1], predsel[1]+1, PRED_COUNT);
-		predsel[2]=ac4_dec_getcdf_NPOT(&ec, PRED_COUNT);	ac4_dec_update_NPOT(&ec, predsel[2], predsel[2]+1, PRED_COUNT);
+		predsel[0]=ac3_dec_getcdf_NPOT(&ec, PRED_COUNT);	ac3_dec_update_NPOT(&ec, predsel[0], predsel[0]+1, PRED_COUNT);
+		predsel[1]=ac3_dec_getcdf_NPOT(&ec, PRED_COUNT);	ac3_dec_update_NPOT(&ec, predsel[1], predsel[1]+1, PRED_COUNT);
+		predsel[2]=ac3_dec_getcdf_NPOT(&ec, PRED_COUNT);	ac3_dec_update_NPOT(&ec, predsel[2], predsel[2]+1, PRED_COUNT);
 #endif
 #ifdef ENABLE_OLS
 		for(int kc=0;kc<3;++kc)
 		{
 			int nparams=OLS_NPARAMS0+kc;
-			ols_success[kc]=ac4_dec_bypass(&ec, 2);		ac4_dec_update_NPOT(&ec, ols_success[kc], ols_success[kc]+1, 2);
+			ols_success[kc]=ac3_dec_bypass(&ec, 2);		ac3_dec_update_NPOT(&ec, ols_success[kc], ols_success[kc]+1, 2);
 			if(ols_success[kc])
 			{
 				for(int kp=0;kp<nparams;++kp)
 				{
-					args->ols_params[kc][kp]=ac4_dec_bypass(&ec, 16);	ac4_dec_update_NPOT(&ec, args->ols_params[kc][kp], args->ols_params[kc][kp]+1, 0x10000);
+					args->ols_params[kc][kp]=ac3_dec_bypass(&ec, 16);	ac3_dec_update_NPOT(&ec, args->ols_params[kc][kp], args->ols_params[kc][kp]+1, 0x10000);
 					args->ols_params[kc][kp]-=0x8000;
 				}
 			}
@@ -1923,19 +1923,19 @@ static void block_thread(void *param)
 			}
 		}
 		dlist_init(&args->list, 1, BLOCKSIZE*BLOCKSIZE*3, 0);
-		ac4_enc_init(&ec, &args->list);
-		ac4_enc_update_NPOT(&ec, bestrct, bestrct+1, RCT_COUNT);
-		ac4_enc_update_NPOT(&ec, predidx[0], predidx[0]+1, PRED_COUNT);
-		ac4_enc_update_NPOT(&ec, predidx[1], predidx[1]+1, PRED_COUNT);
-		ac4_enc_update_NPOT(&ec, predidx[2], predidx[2]+1, PRED_COUNT);
+		ac3_enc_init(&ec, &args->list);
+		ac3_enc_update_NPOT(&ec, bestrct, bestrct+1, RCT_COUNT);
+		ac3_enc_update_NPOT(&ec, predidx[0], predidx[0]+1, PRED_COUNT);
+		ac3_enc_update_NPOT(&ec, predidx[1], predidx[1]+1, PRED_COUNT);
+		ac3_enc_update_NPOT(&ec, predidx[2], predidx[2]+1, PRED_COUNT);
 	}
 	else
 	{
-		ac4_dec_init(&ec, args->decstart, args->decend);
-		bestrct=ac4_dec_getcdf_NPOT(&ec, RCT_COUNT);		ac4_dec_update_NPOT(&ec, bestrct, bestrct+1, RCT_COUNT);
-		predidx[0]=ac4_dec_getcdf_NPOT(&ec, PRED_COUNT);	ac4_dec_update_NPOT(&ec, predidx[0], predidx[0]+1, PRED_COUNT);
-		predidx[1]=ac4_dec_getcdf_NPOT(&ec, PRED_COUNT);	ac4_dec_update_NPOT(&ec, predidx[1], predidx[1]+1, PRED_COUNT);
-		predidx[2]=ac4_dec_getcdf_NPOT(&ec, PRED_COUNT);	ac4_dec_update_NPOT(&ec, predidx[2], predidx[2]+1, PRED_COUNT);
+		ac3_dec_init(&ec, args->decstart, args->decend);
+		bestrct=ac3_dec_getcdf_NPOT(&ec, RCT_COUNT);		ac3_dec_update_NPOT(&ec, bestrct, bestrct+1, RCT_COUNT);
+		predidx[0]=ac3_dec_getcdf_NPOT(&ec, PRED_COUNT);	ac3_dec_update_NPOT(&ec, predidx[0], predidx[0]+1, PRED_COUNT);
+		predidx[1]=ac3_dec_getcdf_NPOT(&ec, PRED_COUNT);	ac3_dec_update_NPOT(&ec, predidx[1], predidx[1]+1, PRED_COUNT);
+		predidx[2]=ac3_dec_getcdf_NPOT(&ec, PRED_COUNT);	ac3_dec_update_NPOT(&ec, predidx[2], predidx[2]+1, PRED_COUNT);
 	}
 #endif
 #if defined ENABLE_CALICCTX || defined ENABLE_HASH || defined ENABLE_MIX8
@@ -2477,11 +2477,11 @@ static void block_thread(void *param)
 					if(args->fwd)
 					{
 						bit=error>>kb&1;
-						ac4_enc_bin(&ec, (int)p1, bit);
+						ac3_enc_bin(&ec, !bit, (int)p1, 16);
 					}
 					else
 					{
-						bit=ac4_dec_bin(&ec, (int)p1);
+						bit=!ac3_dec_bin(&ec, (int)p1, 16);
 						error|=bit<<kb;
 					}
 					e2|=bit<<kb;
@@ -2766,7 +2766,6 @@ static void block_thread(void *param)
 					curr[kc2+1]=curr[kc2+0]-pred;
 				}
 #elif defined ENABLE_ABAC
-				int token=0, bypass=0, nbits=0;
 				int tidx, token2;
 				int logits[ABAC_NCTRS*ABAC_NCTX];
 				unsigned short *curr_stats[ABAC_NCTX];
@@ -2901,6 +2900,7 @@ static void block_thread(void *param)
 			//	int *curr_mixer=args->mixer+ABAC_NCTX*(size_t)kc*ABAC_TOKEN_BITS;
 
 #elif defined ENABLE_MIX4
+				int token=0, bypass=0, nbits=0;
 				const int depth=8;
 				int cdf, freq=0, den;
 				int
@@ -3441,7 +3441,7 @@ static void block_thread(void *param)
 #ifdef USE_GRCODER
 		gr_enc_flush(&ec);
 #else
-		ac4_enc_flush(&ec);
+		ac3_enc_flush(&ec);
 #endif
 }
 int c02_codec(const char *srcfn, const char *dstfn)
@@ -3462,7 +3462,9 @@ int c02_codec(const char *srcfn, const char *dstfn)
 #ifdef ENABLE_MIX4
 	int clevels;
 #endif
-	//int tlevels, histsize, statssize;
+	int tlevels;
+//	int histsize;
+	int statssize;
 	double esize;
 	int usize;
 #ifdef ABAC_PROFILESIZE
@@ -3550,11 +3552,11 @@ int c02_codec(const char *srcfn, const char *dstfn)
 		memset(image2, 0, usize);
 	}
 	{
-		//int nlevels=256;
-		//int token=0, bypass=0, nbits=0;
+		int nlevels=256;
+		int token=0, bypass=0, nbits=0;
 
-		//quantize_pixel(nlevels, &token, &bypass, &nbits);
-		//tlevels=token+1;
+		quantize_pixel(nlevels, &token, &bypass, &nbits);
+		tlevels=token+1;
 #if defined ENABLE_CALICCTX || defined ENABLE_HASH
 		statssize=(tlevels+1)*nch*(int)sizeof(int[CLEVELS]);
 #elif defined ENABLE_MIX8

@@ -409,7 +409,7 @@ int c09_codec(const char *srcfn, const char *dstfn)
 					{
 						cdf=freq;
 						freq=curr_CDF[sym+1];
-						if(freq>code)
+						if((unsigned)freq>code)
 							break;
 						++sym;
 					}
@@ -429,7 +429,7 @@ int c09_codec(const char *srcfn, const char *dstfn)
 					{
 						cdf=freq;
 						freq=curr_CDF[sym+1];
-						if(freq>code)
+						if((unsigned)freq>code)
 							break;
 						++sym;
 					}
@@ -449,7 +449,7 @@ int c09_codec(const char *srcfn, const char *dstfn)
 					{
 						cdf=freq;
 						freq=curr_CDF[sym+1];
-						if(freq>code)
+						if((unsigned)freq>code)
 							break;
 						++sym;
 					}
