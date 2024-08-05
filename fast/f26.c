@@ -34,6 +34,8 @@ static const Image *guide=0;
 #endif
 #define BLOCKSIZE 256
 
+#define ANALYSIS_STRIDE 3
+
 //RCT1~7:
 //Cr-=y		Cr = [ 1	-1	0].RGB
 //y+=Cr>>1	y  = [ 1/2	 1/2	0].RGB
@@ -827,7 +829,6 @@ static void block_thread(void *param)
 	int depths[OCH_COUNT]={0}, halfs[OCH_COUNT]={0};
 	double bestsize=0;
 	int bestrct=0, combination[12]={0}, predidx[4]={0}, flag=0;
-	int res=image->iw*(args->y2-args->y1);
 	int nctx=args->clevels*args->clevels, cdfstride=args->tlevels+1, chsize=nctx*cdfstride;
 
 	for(int kc=0;kc<OCH_COUNT;++kc)
@@ -839,6 +840,7 @@ static void block_thread(void *param)
 	}
 	if(args->fwd)//encode
 	{
+		int res=(image->iw/ANALYSIS_STRIDE)*((args->y2-args->y1)/ANALYSIS_STRIDE);
 		int nlevels[OCH_COUNT]={0};
 		double csizes[OCH_COUNT*PRED_COUNT]={0};
 		int predsel[OCH_COUNT]={0};
@@ -852,19 +854,20 @@ static void block_thread(void *param)
 
 		memset(args->hist, 0, args->histsize);
 		memset(args->pixels, 0, args->bufsize);
-		for(int ky=args->y1, idx=image->nch*image->iw*args->y1;ky<args->y2;++ky)
+		for(int ky=args->y1, ay=0;ky<args->y2-3;ky+=ANALYSIS_STRIDE, ++ay)
 		{
 			ALIGN(16) short *rows[]=
 			{
-				args->pixels+((image->iw+16LL)*((ky-0LL)&3)+8LL)*OCH_COUNT*2,
-				args->pixels+((image->iw+16LL)*((ky-1LL)&3)+8LL)*OCH_COUNT*2,
-				args->pixels+((image->iw+16LL)*((ky-2LL)&3)+8LL)*OCH_COUNT*2,
-				args->pixels+((image->iw+16LL)*((ky-3LL)&3)+8LL)*OCH_COUNT*2,
+				args->pixels+((image->iw+16LL)*((ay-0LL)&3)+8LL)*OCH_COUNT*2,
+				args->pixels+((image->iw+16LL)*((ay-1LL)&3)+8LL)*OCH_COUNT*2,
+				args->pixels+((image->iw+16LL)*((ay-2LL)&3)+8LL)*OCH_COUNT*2,
+				args->pixels+((image->iw+16LL)*((ay-3LL)&3)+8LL)*OCH_COUNT*2,
 			};
+			int idx=image->nch*image->iw*ky;
 			short input[ICH_COUNT]={0};
 			int preds[PRED_COUNT]={0};
 			int wg_preds[WG_NPREDS]={0};
-			for(int kx=0;kx<image->iw;++kx, idx+=image->nch)
+			for(int kx=0;kx<image->iw;kx+=ANALYSIS_STRIDE, idx+=image->nch*ANALYSIS_STRIDE)
 			{
 				int cidx=3;
 				short

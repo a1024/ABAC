@@ -653,7 +653,8 @@ static void block_thread(void *param)
 	int bestrct=0;
 	const int *combination=0;
 	int nctx=args->clevels*args->clevels, cdfstride=args->tlevels+1, chsize=nctx*cdfstride;
-	ALIGN(16) int ols4_ctx[OLS4_NPARAMS2]={0};
+	ALIGN(16) int ols4_ctx[OLS4_NPARAMS2]={0};//
+	ALIGN(16) int ols4_ctx0[OLS4_NPARAMS2]={0}, ols4_ctx1[OLS4_NPARAMS2]={0}, ols4_ctx2[OLS4_NPARAMS2]={0};
 	static const double lrs[]={0.0018, 0.003, 0.003};
 
 	for(int kc=0;kc<OCH_COUNT;++kc)
@@ -972,6 +973,22 @@ static void block_thread(void *param)
 	memset(args->sse, 0, sizeof(args->sse));
 #endif
 	memset(args->pixels, 0, args->bufsize);
+	int depths2[]=
+	{
+		depths[combination[0]],
+		depths[combination[1]],
+		depths[combination[2]],
+	};
+	int depths3[]=
+	{
+		depths2[0]-8,
+		depths2[1]-8,
+		depths2[2]-8,
+	};
+	__m128i swap16=_mm_set_epi8(
+		13, 12, 15, 14,  9,  8, 11, 10,  5,  4,  7,  6,  1,  0,  3,  2
+	//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+	);
 	for(int ky=args->y1;ky<args->y2;++ky)//codec loop
 	{
 		ALIGN(16) short *rows[]=
@@ -1237,23 +1254,214 @@ static void block_thread(void *param)
 #ifdef ENABLE_OLS
 			++kols;
 #endif
+			//if(ky==10&&kx==10)//
+			//	printf("");
+			__m128i mNNN	=_mm_load_si128((__m128i*)NNN);
+			__m128i mNN	=_mm_load_si128((__m128i*)NN);
+			__m128i mNNE	=_mm_load_si128((__m128i*)NNE);
+			__m128i mNW	=_mm_load_si128((__m128i*)NW);
+			__m128i mN	=_mm_load_si128((__m128i*)N);
+			__m128i mNE	=_mm_load_si128((__m128i*)NE);
+			__m128i mWWW	=_mm_load_si128((__m128i*)WWW);
+			__m128i mWW	=_mm_load_si128((__m128i*)WW);
+			__m128i mW	=_mm_load_si128((__m128i*)W);
+			__m128i t0=_mm_abs_epi16(_mm_sub_epi16(mW, mWW));
+			__m128i t1=_mm_abs_epi16(_mm_sub_epi16(mN, mNN));
+			t0=_mm_add_epi16(t0, _mm_abs_epi16(_mm_sub_epi16(mN, mNW)));
+			t1=_mm_add_epi16(t1, _mm_abs_epi16(_mm_sub_epi16(mW, mNW)));
+			t0=_mm_add_epi16(t0, _mm_abs_epi16(_mm_sub_epi16(mNE, mN)));
+			t1=_mm_add_epi16(t1, _mm_abs_epi16(_mm_sub_epi16(mNE, mNNE)));
+			t0=_mm_add_epi16(t0, _mm_shuffle_epi8(_mm_abs_epi16(mWWW), swap16));
+			t1=_mm_add_epi16(t1, _mm_shuffle_epi8(_mm_abs_epi16(mNNN), swap16));
+			t0=_mm_add_epi16(t0, _mm_shuffle_epi8(_mm_abs_epi16(mWW), swap16));
+			t1=_mm_add_epi16(t1, _mm_shuffle_epi8(_mm_abs_epi16(mNN), swap16));
+			t0=_mm_add_epi16(t0, _mm_slli_epi16(_mm_shuffle_epi8(_mm_abs_epi16(mW), swap16), 1));
+			t1=_mm_add_epi16(t1, _mm_slli_epi16(_mm_shuffle_epi8(_mm_abs_epi16(mN), swap16), 1));
+			ALIGN(16) short grads[16];
+			_mm_store_si128((__m128i*)grads+0, t0);
+			_mm_store_si128((__m128i*)grads+1, t1);
+			grads[ 0]>>=depths3[0], grads[ 0]=FLOOR_LOG2(grads[ 0]+1);
+			grads[ 2]>>=depths3[1], grads[ 2]=FLOOR_LOG2(grads[ 2]+1);
+			grads[ 4]>>=depths3[2], grads[ 4]=FLOOR_LOG2(grads[ 4]+1);
+			grads[ 8]>>=depths3[0], grads[ 8]=FLOOR_LOG2(grads[ 8]+1);
+			grads[10]>>=depths3[1], grads[10]=FLOOR_LOG2(grads[10]+1);
+			grads[12]>>=depths3[2], grads[12]=FLOOR_LOG2(grads[12]+1);
+			int ctxidx[]=
+			{
+				cdfstride*(nctx*0+args->clevels*MINVAR(grads[ 8], 8)+MINVAR(grads[0], 8)),
+				cdfstride*(nctx*1+args->clevels*MINVAR(grads[10], 8)+MINVAR(grads[2], 8)),
+				cdfstride*(nctx*2+args->clevels*MINVAR(grads[12], 8)+MINVAR(grads[4], 8)),
+			};
+			__m128i vmin=_mm_min_epi16(mN, mW);
+			__m128i vmax=_mm_max_epi16(mN, mW);
+			__m128i mg=_mm_sub_epi16(_mm_add_epi16(mN, mW), mNW);
+			mg=_mm_max_epi16(mg, vmin);
+			mg=_mm_min_epi16(mg, vmax);
+			ALIGN(16) short cgrads[8];
+			_mm_store_si128((__m128i*)cgrads, mg);
+#if defined ENABLE_OLS && defined ALLOW_AVX2
+			ALIGN(16) int preds[4];
+			vmin=_mm_min_epi16(vmin, mNE);
+			vmax=_mm_max_epi16(vmax, mNE);
+			vmin=_mm_slli_epi32(vmin, 16);//need low signed 16 bits -> 32 bit
+			vmax=_mm_slli_epi32(vmax, 16);
+			vmin=_mm_srai_epi32(vmin, 16);
+			vmax=_mm_srai_epi32(vmax, 16);
+			int j0=0, j1=0, j2=0;
+			ols4_ctx0[j0++]=cgrads	[0];
+			ols4_ctx0[j0++]=NNWW	[0];
+			ols4_ctx0[j0++]=NNW	[0];
+			ols4_ctx0[j0++]=NN	[0];
+			ols4_ctx0[j0++]=NNE	[0];
+			ols4_ctx0[j0++]=NNEE	[0];
+			ols4_ctx0[j0++]=NNEEE	[0];
+			ols4_ctx0[j0++]=NWWW	[0];
+			ols4_ctx0[j0++]=NWW	[0];
+			ols4_ctx0[j0++]=NW	[0];
+			ols4_ctx0[j0++]=N	[0];
+			ols4_ctx0[j0++]=NE	[0];
+			ols4_ctx0[j0++]=NEE	[0];
+			ols4_ctx0[j0++]=NEEE	[0];
+			ols4_ctx0[j0++]=WWW	[0];
+			ols4_ctx0[j0++]=WW	[0];
+			ols4_ctx0[j0++]=W	[0];
+			ols4_ctx1[j1++]=cgrads	[2];
+			ols4_ctx1[j1++]=NNWW	[2];
+			ols4_ctx1[j1++]=NNW	[2];
+			ols4_ctx1[j1++]=NN	[2];
+			ols4_ctx1[j1++]=NNE	[2];
+			ols4_ctx1[j1++]=NNEE	[2];
+			ols4_ctx1[j1++]=NWW	[2];
+			ols4_ctx1[j1++]=NW	[2];
+			ols4_ctx1[j1++]=NW	[0];
+			ols4_ctx1[j1++]=N	[2];
+			ols4_ctx1[j1++]=N	[0];
+			ols4_ctx1[j1++]=NE	[2];
+			ols4_ctx1[j1++]=NE	[0];
+			ols4_ctx1[j1++]=NEE	[2];
+			ols4_ctx1[j1++]=WW	[2];
+			ols4_ctx1[j1++]=W	[2];
+			ols4_ctx1[j1++]=W	[0];
+		//	ols4_ctx1[j1++]=curr	[0];//X  unavailable
+			ols4_ctx2[j2++]=cgrads	[4];
+			ols4_ctx2[j2++]=NNWW	[4];
+			ols4_ctx2[j2++]=NNW	[4];
+			ols4_ctx2[j2++]=NN	[4];
+			ols4_ctx2[j2++]=NNE	[4];
+			ols4_ctx2[j2++]=NNEE	[4];
+			ols4_ctx2[j2++]=NWW	[4];
+			ols4_ctx2[j2++]=NW	[4];
+			ols4_ctx2[j2++]=NW	[0];
+			ols4_ctx2[j2++]=N	[4];
+			ols4_ctx2[j2++]=N	[0];
+			ols4_ctx2[j2++]=NE	[4];
+			ols4_ctx2[j2++]=NE	[0];
+			ols4_ctx2[j2++]=NEE	[4];
+			ols4_ctx2[j2++]=WW	[4];
+			ols4_ctx2[j2++]=W	[4];
+			ols4_ctx2[j2++]=W	[0];
+		//	ols4_ctx2[j2++]=curr	[0];//X  unavailable
+			{
+				double *pp0=args->ols4[0].params;
+				double *pp1=args->ols4[1].params;
+				double *pp2=args->ols4[2].params;
+				double *pnb0=args->ols4[0].nb;
+				double *pnb1=args->ols4[1].nb;
+				double *pnb2=args->ols4[2].nb;
+
+				__m128i mnb0=_mm_load_si128((__m128i*)ols4_ctx0+0);
+				__m128i mnb1=_mm_load_si128((__m128i*)ols4_ctx1+0);
+				__m128i mnb2=_mm_load_si128((__m128i*)ols4_ctx2+0);
+				__m256d dnb0=_mm256_cvtepi32_pd(mnb0);
+				__m256d dnb1=_mm256_cvtepi32_pd(mnb1);
+				__m256d dnb2=_mm256_cvtepi32_pd(mnb2);
+				_mm256_store_pd(pnb0+0*4, dnb0);
+				_mm256_store_pd(pnb1+0*4, dnb1);
+				_mm256_store_pd(pnb2+0*4, dnb2);
+				__m256d sum0=_mm256_mul_pd(dnb0, _mm256_load_pd(pp0+0*4));
+				__m256d sum1=_mm256_mul_pd(dnb1, _mm256_load_pd(pp1+0*4));
+				__m256d sum2=_mm256_mul_pd(dnb2, _mm256_load_pd(pp2+0*4));
+
+				mnb0=_mm_load_si128((__m128i*)ols4_ctx0+1);
+				mnb1=_mm_load_si128((__m128i*)ols4_ctx1+1);
+				mnb2=_mm_load_si128((__m128i*)ols4_ctx2+1);
+				dnb0=_mm256_cvtepi32_pd(mnb0);
+				dnb1=_mm256_cvtepi32_pd(mnb1);
+				dnb2=_mm256_cvtepi32_pd(mnb2);
+				_mm256_store_pd(pnb0+1*4, dnb0);
+				_mm256_store_pd(pnb1+1*4, dnb1);
+				_mm256_store_pd(pnb2+1*4, dnb2);
+				sum0=_mm256_add_pd(sum0, _mm256_mul_pd(dnb0, _mm256_load_pd(pp0+1*4)));
+				sum1=_mm256_add_pd(sum1, _mm256_mul_pd(dnb1, _mm256_load_pd(pp1+1*4)));
+				sum2=_mm256_add_pd(sum2, _mm256_mul_pd(dnb2, _mm256_load_pd(pp2+1*4)));
+
+				mnb0=_mm_load_si128((__m128i*)ols4_ctx0+2);
+				mnb1=_mm_load_si128((__m128i*)ols4_ctx1+2);
+				mnb2=_mm_load_si128((__m128i*)ols4_ctx2+2);
+				dnb0=_mm256_cvtepi32_pd(mnb0);
+				dnb1=_mm256_cvtepi32_pd(mnb1);
+				dnb2=_mm256_cvtepi32_pd(mnb2);
+				_mm256_store_pd(pnb0+2*4, dnb0);
+				_mm256_store_pd(pnb1+2*4, dnb1);
+				_mm256_store_pd(pnb2+2*4, dnb2);
+				sum0=_mm256_add_pd(sum0, _mm256_mul_pd(dnb0, _mm256_load_pd(pp0+2*4)));
+				sum1=_mm256_add_pd(sum1, _mm256_mul_pd(dnb1, _mm256_load_pd(pp1+2*4)));
+				sum2=_mm256_add_pd(sum2, _mm256_mul_pd(dnb2, _mm256_load_pd(pp2+2*4)));
+
+				mnb0=_mm_load_si128((__m128i*)ols4_ctx0+3);
+				mnb1=_mm_load_si128((__m128i*)ols4_ctx1+3);
+				mnb2=_mm_load_si128((__m128i*)ols4_ctx2+3);
+				dnb0=_mm256_cvtepi32_pd(mnb0);
+				dnb1=_mm256_cvtepi32_pd(mnb1);
+				dnb2=_mm256_cvtepi32_pd(mnb2);
+				_mm256_store_pd(pnb0+3*4, dnb0);
+				_mm256_store_pd(pnb1+3*4, dnb1);
+				_mm256_store_pd(pnb2+3*4, dnb2);
+				sum0=_mm256_add_pd(sum0, _mm256_mul_pd(dnb0, _mm256_load_pd(pp0+3*4)));
+				sum1=_mm256_add_pd(sum1, _mm256_mul_pd(dnb1, _mm256_load_pd(pp1+3*4)));
+				sum2=_mm256_add_pd(sum2, _mm256_mul_pd(dnb2, _mm256_load_pd(pp2+3*4)));
+
+				ALIGN(32) double sums[12];
+				_mm256_store_pd(sums+0*4, sum0);
+				_mm256_store_pd(sums+1*4, sum1);
+				_mm256_store_pd(sums+2*4, sum2);
+
+				pnb0[16]=(double)ols4_ctx0[16];
+				pnb1[16]=(double)ols4_ctx1[16];
+				pnb2[16]=(double)ols4_ctx2[16];
+				sums[ 0]+=sums[ 1]+sums[ 2]+sums[ 3]+pp0[16]*pnb0[16];
+				sums[ 4]+=sums[ 5]+sums[ 6]+sums[ 7]+pp1[16]*pnb1[16];
+				sums[ 8]+=sums[ 9]+sums[10]+sums[11]+pp2[16]*pnb2[16];
+				sums[1]=sums[4];
+				sums[2]=sums[8];
+
+				__m128i mp=_mm256_cvtpd_epi32(_mm256_load_pd(sums));//rounded
+				mp=_mm_min_epi32(mp, vmax);
+				mp=_mm_max_epi32(mp, vmin);
+				_mm_store_si128((__m128i*)preds, mp);
+			}
+#endif
 			for(int kc=0;kc<image->nch;++kc)
 			{
 				int ch=combination[kc], depth=depths[ch];
 				int kc2=kc<<1;
 				int offset=(yuv[combination[kc+4]]+yuv[combination[kc+8]])>>och_info[ch][II_HSHIFT];
 				int pred=0, error, sym;
-				int
-					vx=(abs(W[kc2]-WW[kc2])+abs(N[kc2]-NW[kc2])+abs(NE[kc2]-N  [kc2])+abs(WWW[kc2+1])+abs(WW[kc2+1])+abs(W[kc2+1])*2)<<8>>depth,
-					vy=(abs(W[kc2]-NW[kc2])+abs(N[kc2]-NN[kc2])+abs(NE[kc2]-NNE[kc2])+abs(NNN[kc2+1])+abs(NN[kc2+1])+abs(N[kc2+1])*2)<<8>>depth;
-				int qeN=FLOOR_LOG2(vy+1);
-				int qeW=FLOOR_LOG2(vx+1);
-				int cidx=cdfstride*(nctx*kc+args->clevels*MINVAR(qeN, 8)+MINVAR(qeW, 8));
-				int *curr_hist=args->hist+cidx;
+				//int
+				//	vx=(abs(W[kc2]-WW[kc2])+abs(N[kc2]-NW[kc2])+abs(NE[kc2]-N  [kc2])+abs(WWW[kc2+1])+abs(WW[kc2+1])+abs(W[kc2+1])*2)<<8>>depth,
+				//	vy=(abs(N[kc2]-NN[kc2])+abs(W[kc2]-NW[kc2])+abs(NE[kc2]-NNE[kc2])+abs(NNN[kc2+1])+abs(NN[kc2+1])+abs(N[kc2+1])*2)<<8>>depth;
+				//int qeN=FLOOR_LOG2(vy+1);
+				//int qeW=FLOOR_LOG2(vx+1);
+				//int cidx=cdfstride*(nctx*kc+args->clevels*MINVAR(qeN, 8)+MINVAR(qeW, 8));
+				//int *curr_hist=args->hist+cidx;
+				int *curr_hist=args->hist+ctxidx[kc];
 				//unsigned *curr_CDF=args->stats+cidx;
 
 				int den=curr_hist[args->tlevels]+args->tlevels, cdf=0, freq;
 #ifdef ENABLE_OLS
+#ifdef ALLOW_AVX2
+				pred=preds[kc];
+#else
 				int j=0, cmin, cmax;
 				{
 					ALIGN(16) int arr[4];
@@ -1299,6 +1507,7 @@ static void block_thread(void *param)
 					break;
 				case 1:
 					ols4_ctx[j++]=pred;
+					ols4_ctx[j++]=NNWW	[kc2];
 					ols4_ctx[j++]=NNW	[kc2];
 					ols4_ctx[j++]=NN	[kc2];
 					ols4_ctx[j++]=NNE	[kc2];
@@ -1314,11 +1523,12 @@ static void block_thread(void *param)
 					ols4_ctx[j++]=WW	[kc2];
 					ols4_ctx[j++]=W		[kc2];
 					ols4_ctx[j++]=W		[kc2-2];
-					ols4_ctx[j++]=curr	[kc2-2];
+				//	ols4_ctx[j++]=curr	[kc2-2];
 					pred=ols4_predict(args->ols4+1, ols4_ctx, cmin, cmax);
 					break;
 				case 2:
 					ols4_ctx[j++]=pred;
+					ols4_ctx[j++]=NNWW	[kc2];
 					ols4_ctx[j++]=NNW	[kc2];
 					ols4_ctx[j++]=NN	[kc2];
 					ols4_ctx[j++]=NNE	[kc2];
@@ -1334,12 +1544,14 @@ static void block_thread(void *param)
 					ols4_ctx[j++]=WW	[kc2];
 					ols4_ctx[j++]=W		[kc2];
 					ols4_ctx[j++]=W		[kc2-4];
-					ols4_ctx[j++]=curr	[kc2-4];
+				//	ols4_ctx[j++]=curr	[kc2-4];
 					pred=ols4_predict(args->ols4+2, ols4_ctx, cmin, cmax);
 					break;
 				}
+#endif
 #else
-				MEDIAN3_32(pred, N[kc2], W[kc2], N[kc2]+W[kc2]-NW[kc2]);
+				pred=cgrads[kc2];
+				//MEDIAN3_32(pred, N[kc2], W[kc2], N[kc2]+W[kc2]-NW[kc2]);
 #endif
 #ifdef ENABLE_SSE
 				int pred0=pred;
@@ -1498,12 +1710,237 @@ static void block_thread(void *param)
 				}
 #endif
 				curr[kc2]-=offset;
-#ifdef ENABLE_OLS
+#if defined ENABLE_OLS && !defined ALLOW_AVX2
 				if(kc<3&&(kx<5||kols>=kols2))
 					ols4_update(args->ols4+kc, curr[kc2], lrs[kc]);
 #endif
 			}
 #ifdef ENABLE_OLS
+			if(kx<5||kols>=kols2)
+			{
+				double *pnb0=args->ols4[0].nb;
+				double *pnb1=args->ols4[1].nb;
+				double *pnb2=args->ols4[2].nb;
+				double *cov0=args->ols4[0].cov;
+				double *cov1=args->ols4[1].cov;
+				double *cov2=args->ols4[2].cov;
+				double lval0=curr[0]*lrs[0], lr_comp0=1-lrs[0];
+				double lval1=curr[2]*lrs[1], lr_comp1=1-lrs[1];
+				double lval2=curr[4]*lrs[2], lr_comp2=1-lrs[2];
+				__m256d mlr0=_mm256_set1_pd(lrs[0]);
+				__m256d mlr1=_mm256_set1_pd(lrs[1]);
+				__m256d mlr2=_mm256_set1_pd(lrs[2]);
+				for(int ky2=0, midx=0;ky2<OLS4_NPARAMS0;++ky2)
+				{
+					__m256d vy0=_mm256_set1_pd(pnb0[ky2]);
+					__m256d vy1=_mm256_set1_pd(pnb1[ky2]);
+					__m256d vy2=_mm256_set1_pd(pnb2[ky2]);
+					int kx2=0;
+					for(;kx2<OLS4_NPARAMS0-3;kx2+=4, midx+=4)
+					{
+						__m256d mcov0=_mm256_load_pd(cov0+midx);
+						__m256d mcov1=_mm256_load_pd(cov1+midx);
+						__m256d mcov2=_mm256_load_pd(cov2+midx);
+						__m256d vx0=_mm256_load_pd(pnb0+kx2);
+						__m256d vx1=_mm256_load_pd(pnb1+kx2);
+						__m256d vx2=_mm256_load_pd(pnb2+kx2);
+						vx0=_mm256_mul_pd(vx0, vy0);
+						vx1=_mm256_mul_pd(vx1, vy1);
+						vx2=_mm256_mul_pd(vx2, vy2);
+						vx0=_mm256_sub_pd(vx0, mcov0);
+						vx1=_mm256_sub_pd(vx1, mcov1);
+						vx2=_mm256_sub_pd(vx2, mcov2);
+						vx0=_mm256_mul_pd(vx0, mlr0);
+						vx1=_mm256_mul_pd(vx1, mlr1);
+						vx2=_mm256_mul_pd(vx2, mlr2);
+						vx0=_mm256_add_pd(vx0, mcov0);
+						vx1=_mm256_add_pd(vx1, mcov1);
+						vx2=_mm256_add_pd(vx2, mcov2);
+						_mm256_store_pd(cov0+midx, vx0);
+						_mm256_store_pd(cov1+midx, vx1);
+						_mm256_store_pd(cov2+midx, vx2);
+					}
+#if OLS4_NPARAMS0!=17	//1 step left
+					for(;kx2<OLS4_NPARAMS0;++kx2, ++midx)
+#endif
+					{
+						cov0[midx]+=(pnb0[kx2]*pnb0[ky2]-cov0[midx])*lrs[0];
+						cov1[midx]+=(pnb1[kx2]*pnb1[ky2]-cov1[midx])*lrs[1];
+						cov2[midx]+=(pnb2[kx2]*pnb2[ky2]-cov2[midx])*lrs[2];
+					}
+#if OLS4_NPARAMS0==17
+					++midx;
+#endif
+				}
+				double *vec0=args->ols4[0].vec;
+				double *vec1=args->ols4[1].vec;
+				double *vec2=args->ols4[2].vec;
+				{
+					__m256d mlr_comp0=_mm256_set1_pd(lr_comp0);
+					__m256d mlr_comp1=_mm256_set1_pd(lr_comp1);
+					__m256d mlr_comp2=_mm256_set1_pd(lr_comp2);
+					__m256d mval0=_mm256_set1_pd(lval0);
+					__m256d mval1=_mm256_set1_pd(lval1);
+					__m256d mval2=_mm256_set1_pd(lval2);
+					int k=0;
+					for(;k<OLS4_NPARAMS0-3;k+=4)
+					{
+						__m256d mvec0=_mm256_load_pd(vec0+k);
+						__m256d mvec1=_mm256_load_pd(vec1+k);
+						__m256d mvec2=_mm256_load_pd(vec2+k);
+						__m256d mtmp0=_mm256_load_pd(pnb0+k);
+						__m256d mtmp1=_mm256_load_pd(pnb1+k);
+						__m256d mtmp2=_mm256_load_pd(pnb2+k);
+						mvec0=_mm256_mul_pd(mvec0, mlr_comp0);
+						mvec1=_mm256_mul_pd(mvec1, mlr_comp1);
+						mvec2=_mm256_mul_pd(mvec2, mlr_comp2);
+						mtmp0=_mm256_mul_pd(mtmp0, mval0);
+						mtmp1=_mm256_mul_pd(mtmp1, mval1);
+						mtmp2=_mm256_mul_pd(mtmp2, mval2);
+						mvec0=_mm256_add_pd(mvec0, mtmp0);
+						mvec1=_mm256_add_pd(mvec1, mtmp1);
+						mvec2=_mm256_add_pd(mvec2, mtmp2);
+						_mm256_store_pd(vec0+k, mvec0);
+						_mm256_store_pd(vec1+k, mvec1);
+						_mm256_store_pd(vec2+k, mvec2);
+					}
+//#if OLS4_NPARAMS0!=17	//1 step left
+					for(;k<OLS4_NPARAMS0;++k)
+//#endif
+					{
+						vec0[k]=lval0*pnb0[k]+lr_comp0*vec0[k];
+						vec1[k]=lval1*pnb1[k]+lr_comp1*vec1[k];
+						vec2[k]=lval2*pnb2[k]+lr_comp2*vec2[k];
+					}
+				}
+				double *chol0=args->ols4[0].cholesky;
+				double *chol1=args->ols4[1].cholesky;
+				double *chol2=args->ols4[2].cholesky;
+				double *params0=args->ols4[0].params;
+				double *params1=args->ols4[1].params;
+				double *params2=args->ols4[2].params;
+				int success0=1;
+				int success1=1;
+				int success2=1;
+				memcpy(chol0, cov0, sizeof(double[OLS4_NPARAMS0*OLS4_NPARAMS0]));
+				memcpy(chol1, cov1, sizeof(double[OLS4_NPARAMS0*OLS4_NPARAMS0]));
+				memcpy(chol2, cov2, sizeof(double[OLS4_NPARAMS0*OLS4_NPARAMS0]));
+				for(int k=0;k<OLS4_NPARAMS0*OLS4_NPARAMS0;k+=OLS4_NPARAMS0+1)
+				{
+					chol0[k]+=0.0075;
+					chol1[k]+=0.0075;
+					chol2[k]+=0.0075;
+				}
+				double sum;
+				for(int i=0;i<OLS4_NPARAMS0;++i)
+				{
+					for(int j=0;j<i;++j)
+					{
+						sum=chol0[i*OLS4_NPARAMS0+j];
+						for(int k=0;k<j;++k)
+							sum-=chol0[i*OLS4_NPARAMS0+k]*chol0[j*OLS4_NPARAMS0+k];
+						chol0[i*OLS4_NPARAMS0+j]=sum/chol0[j*OLS4_NPARAMS0+j];
+					}
+					sum=chol0[i*OLS4_NPARAMS0+i];
+					for(int k=0;k<i;++k)
+						sum-=chol0[i*OLS4_NPARAMS0+k]*chol0[i*OLS4_NPARAMS0+k];
+					if(sum<=1e-8)
+					{
+						success0=0;
+						break;
+					}
+					chol0[i*OLS4_NPARAMS0+i]=sqrt(sum);
+				}
+				for(int i=0;i<OLS4_NPARAMS0;++i)
+				{
+					for(int j=0;j<i;++j)
+					{
+						sum=chol1[i*OLS4_NPARAMS0+j];
+						for(int k=0;k<j;++k)
+							sum-=chol1[i*OLS4_NPARAMS0+k]*chol1[j*OLS4_NPARAMS0+k];
+						chol1[i*OLS4_NPARAMS0+j]=sum/chol1[j*OLS4_NPARAMS0+j];
+					}
+					sum=chol1[i*OLS4_NPARAMS0+i];
+					for(int k=0;k<i;++k)
+						sum-=chol1[i*OLS4_NPARAMS0+k]*chol1[i*OLS4_NPARAMS0+k];
+					if(sum<=1e-8)
+					{
+						success1=0;
+						break;
+					}
+					chol1[i*OLS4_NPARAMS0+i]=sqrt(sum);
+				}
+				for(int i=0;i<OLS4_NPARAMS0;++i)
+				{
+					for(int j=0;j<i;++j)
+					{
+						sum=chol2[i*OLS4_NPARAMS0+j];
+						for(int k=0;k<j;++k)
+							sum-=chol2[i*OLS4_NPARAMS0+k]*chol2[j*OLS4_NPARAMS0+k];
+						chol2[i*OLS4_NPARAMS0+j]=sum/chol2[j*OLS4_NPARAMS0+j];
+					}
+					sum=chol2[i*OLS4_NPARAMS0+i];
+					for(int k=0;k<i;++k)
+						sum-=chol2[i*OLS4_NPARAMS0+k]*chol2[i*OLS4_NPARAMS0+k];
+					if(sum<=1e-8)
+					{
+						success2=0;
+						break;
+					}
+					chol2[i*OLS4_NPARAMS0+i]=sqrt(sum);
+				}
+				if(success0)
+				{
+					for(int i=0;i<OLS4_NPARAMS0;++i)
+					{
+						sum=vec0[i];
+						for(int j=0;j<i;++j)
+							sum-=chol0[i*OLS4_NPARAMS0+j]*params0[j];
+						params0[i]=sum/chol0[i*OLS4_NPARAMS0+i];
+					}
+					for(int i=OLS4_NPARAMS0-1;i>=0;--i)
+					{
+						sum=params0[i];
+						for(int j=i+1;j<OLS4_NPARAMS0;++j)
+							sum-=chol0[j*OLS4_NPARAMS0+i]*params0[j];
+						params0[i]=sum/chol0[i*OLS4_NPARAMS0+i];
+					}
+				}
+				if(success1)
+				{
+					for(int i=0;i<OLS4_NPARAMS0;++i)
+					{
+						sum=vec1[i];
+						for(int j=0;j<i;++j)
+							sum-=chol1[i*OLS4_NPARAMS0+j]*params1[j];
+						params1[i]=sum/chol1[i*OLS4_NPARAMS0+i];
+					}
+					for(int i=OLS4_NPARAMS0-1;i>=0;--i)
+					{
+						sum=params1[i];
+						for(int j=i+1;j<OLS4_NPARAMS0;++j)
+							sum-=chol1[j*OLS4_NPARAMS0+i]*params1[j];
+						params1[i]=sum/chol1[i*OLS4_NPARAMS0+i];
+					}
+				}
+				if(success2)
+				{
+					for(int i=0;i<OLS4_NPARAMS0;++i)
+					{
+						sum=vec2[i];
+						for(int j=0;j<i;++j)
+							sum-=chol2[i*OLS4_NPARAMS0+j]*params2[j];
+						params2[i]=sum/chol2[i*OLS4_NPARAMS0+i];
+					}
+					for(int i=OLS4_NPARAMS0-1;i>=0;--i)
+					{
+						sum=params2[i];
+						for(int j=i+1;j<OLS4_NPARAMS0;++j)
+							sum-=chol2[j*OLS4_NPARAMS0+i]*params2[j];
+						params2[i]=sum/chol2[i*OLS4_NPARAMS0+i];
+					}
+				}
+			}
 			if(kols>=kols2)
 				kols2+=OLS_STRIDE;
 #endif

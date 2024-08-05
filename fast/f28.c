@@ -257,7 +257,7 @@ static double orct_calcloss(Image const *src, int x1, int x2, int y1, int y2, in
 	orct_unpack_permutation(params[8], permutation);
 	memset(hist, 0, nlevels*sizeof(int[3]));
 	memset(pixels, 0, bufsize);
-	for(int ky=y1;ky<y2;++ky)
+	for(int ky=y1, ay=0;ky<y2-3;ky+=4, ++ay)
 	{
 		ALIGN(16) int *rows[]=
 		{
@@ -265,7 +265,7 @@ static double orct_calcloss(Image const *src, int x1, int x2, int y1, int y2, in
 			pixels+((BLOCKSIZE+16LL)*((ky-1LL)&1)+8LL)*4,
 		};
 		ALIGN(16) int result[4]={0};
-		for(int kx=x1;kx<x2;++kx)
+		for(int kx=x1;kx<x2-3;kx+=4)
 		{
 			int
 				idx	=src->nch*(src->iw*ky+kx),
@@ -302,7 +302,7 @@ static double orct_calcloss(Image const *src, int x1, int x2, int y1, int y2, in
 	}
 	{
 		double csize;
-		int res=(x2-x1)*(y2-y1);
+		int res=((x2-x1)>>2)*((y2-y1)>>2);
 		double csizes[3]={0};
 		for(int kc=0;kc<3;++kc)
 		{
