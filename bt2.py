@@ -21,10 +21,12 @@ if __name__=='__main__':
 		if len(sys.argv)<6:
 			print('Usage:    python %s srcpath dstpath ext1  ext2  program args...'%sys.argv[0])
 			print('')
+			print('Example:  python %s srcpath dstpath ppm   jxl   cjxl --quiet --num-threads=-1 -d 0 -e 2 ---s ---d'%sys.argv[0])
 			print('Example:  python %s srcpath dstpath ppm   jpg   FFMPEG -hide_banner -loglevel error -i ---s ---d'%sys.argv[0])
 			print('Example:  python %s srcpath dstpath ppm   qlic2 QLIC2 c ---d ---s'%sys.argv[0])
 			print('Example:  python %s srcpath dstpath qlic2 ppm   QLIC2 d ---s ---d'%sys.argv[0])
-			print('Example:  python %s srcpath dstpath ppm   halic HALIC_ENCODE ---s ---d'%sys.argv[0])
+			print('Example:  python %s srcpath dstpath ppm   halic HALIC_ENCODE ---s ---d -mt'%sys.argv[0])
+			print('')
 			print('args should contain placeholders "---s" for source files, "---d" for destination files')
 			exit(0)
 		srcpath=sys.argv[1]
@@ -62,8 +64,8 @@ if __name__=='__main__':
 				usize=size2
 			else:
 				usize=size1
-			print('%4d %11d->%11d (%+11d)  %8.3f sec  %8.3f MB/s  %s'%(
-				idx+1, size1, size2, size2-size1, elapsed, usize/(elapsed*1024*1024), name
+			print('%4d %11d->%11d (%+11d)  %11.6f sec  %11.6f MB/s  %s'%(
+				idx+1, size1, size2, size2-size1, elapsed, usize/(elapsed*1024*1024) if elapsed>0 else float('inf'), name
 			))
 			total1+=size1
 			total2+=size2
@@ -73,8 +75,8 @@ if __name__=='__main__':
 		utotal=total2
 	else:
 		utotal=total1
-	print('\n%4d %11d->%11d (%+11d)  %8.3f sec  %8.3f MB/s'%(
-		idx, total1, total2, total2-total1, etotal, utotal/(etotal*1024*1024)
+	print('\n%4d %11d->%11d (%+11d)  %11.6f sec  %11.6f MB/s'%(
+		idx, total1, total2, total2-total1, etotal, utotal/(etotal*1024*1024) if etotal>0 else float('inf')
 	))
 	finish=time.time()
 	print('%s (%f sec)'%(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), finish-start))
