@@ -102,7 +102,7 @@ static const char *pred_names[PRED_COUNT]=
 #define CONFIG_EXP 4
 #define CONFIG_MSB 1
 #define CONFIG_LSB 0
-static void quantize_pixel(int val, int *token, int *bypass, int *nbits)
+FORCEINLINE void quantize_pixel(int val, int *token, int *bypass, int *nbits)
 {
 	if(val<(1<<CONFIG_EXP))
 	{
