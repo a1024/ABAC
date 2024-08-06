@@ -160,10 +160,10 @@ static void block_thread(void *param)
 	const unsigned char *image=args->fwd?args->src:args->dst;
 	unsigned char bestrct=0, combination[6]={0}, predidx[4]={0};
 	int ystride=args->iw*3;
-	int nctx=args->clevels*args->clevels;
-	int cdfstride=args->tlevels+1;
-	int chsize=nctx*cdfstride;
-
+//	int nctx=args->clevels*args->clevels;
+//	int cdfstride=args->tlevels+1;
+//	int chsize=nctx*cdfstride;
+	(void)depth;
 	if(args->fwd)
 	{
 		double csizes[OCH_COUNT*PRED_COUNT]={0}, bestsize=0;
@@ -512,6 +512,13 @@ static void block_thread(void *param)
 		-(predidx[1]==PRED_AV2),
 		-(predidx[0]==PRED_AV2)
 	);
+	__m256i mclevels=_mm256_set1_epi64x(args->clevels);
+	__m256i mclevels2=_mm256_set1_epi64x(args->clevels*2);
+	__m256i mcdfstride4=_mm256_set1_epi64x((args->tlevels+1LL)*sizeof(int));
+	__m256i mgyoffset=_mm256_set_epi64x(1, 1, 0, 0);
+	__m256i mgxoffset=_mm256_set_epi64x(1, 0, 1, 0);
+	__m256i mhistptr=_mm256_set1_epi64x((long long)args->hist);
+	__m256i mtlevels=_mm256_set1_epi64x(args->tlevels);
 	for(int ky=args->y1;ky<args->y2;++ky)//codec loop
 	{
 		ALIGN(16) short *rows[]=
@@ -543,6 +550,7 @@ static void block_thread(void *param)
 				*WW	=rows[0]-2*4*2,
 				*W	=rows[0]-1*4*2,
 				*curr	=rows[0]+0*4*2;
+			(void)NEEE;
 			if(ky<=args->y1+2)
 			{
 				if(ky<=args->y1+1)
@@ -674,21 +682,57 @@ static void block_thread(void *param)
 			grads[13]=FLOOR_LOG2(grads[5]);
 			//if(ky==0&&kx==1)//
 			//	printf("");
-			int alphas[]=//((x<<a)+(1<<b>>1))>>b = x<<(a-b)	a>=b
+			ALIGN(32) long long alphas[]=//((x<<a)+(1<<b>>1))>>b = x<<(a-b)	a>=b
 			{
-				(grads[0]-(1<<grads[ 8]))<<(MIXBITS-grads[ 8]),//ax
-				(grads[1]-(1<<grads[ 9]))<<(MIXBITS-grads[ 9]),
-				(grads[2]-(1<<grads[10]))<<(MIXBITS-grads[10]),
-				(grads[3]-(1<<grads[11]))<<(MIXBITS-grads[11]),//ay
-				(grads[4]-(1<<grads[12]))<<(MIXBITS-grads[12]),
-				(grads[5]-(1<<grads[13]))<<(MIXBITS-grads[13]),
+				(grads[0]-(1<<grads[ 8]))<<(MIXBITS-grads[ 8]),//yax
+				(grads[1]-(1<<grads[ 9]))<<(MIXBITS-grads[ 9]),//uax
+				(grads[2]-(1<<grads[10]))<<(MIXBITS-grads[10]),//vax
+				0,
+				(grads[3]-(1<<grads[11]))<<(MIXBITS-grads[11]),//yay
+				(grads[4]-(1<<grads[12]))<<(MIXBITS-grads[12]),//uay
+				(grads[5]-(1<<grads[13]))<<(MIXBITS-grads[13]),//vay
+				0,
 			};
 			t1=_mm_load_si128((__m128i*)grads+1);
 			t1=_mm_min_epi16(t1, cmax);
 			_mm_store_si128((__m128i*)grads+1, t1);
+#if 1
+			ALIGN(32) int *ctxptr[12];
+			{
+				__m256i gx0=_mm256_set1_epi64x(grads[ 8]);
+				__m256i gx1=_mm256_set1_epi64x(grads[ 9]);
+				__m256i gx2=_mm256_set1_epi64x(grads[10]);
+				__m256i gy0=_mm256_set1_epi64x(grads[11]);
+				__m256i gy1=_mm256_set1_epi64x(grads[12]);
+				__m256i gy2=_mm256_set1_epi64x(grads[13]);
+				gy0=_mm256_add_epi64(gy0, mgyoffset);
+				gy1=_mm256_add_epi64(gy1, mgyoffset);
+				gy2=_mm256_add_epi64(gy2, mgyoffset);
+				gy1=_mm256_add_epi64(gy1, mclevels);
+				gy2=_mm256_add_epi64(gy2, mclevels2);
+				gy0=_mm256_mul_epi32(gy0, mclevels);
+				gy1=_mm256_mul_epi32(gy1, mclevels);
+				gy2=_mm256_mul_epi32(gy2, mclevels);
+				gx0=_mm256_add_epi64(gx0, mgxoffset);
+				gx1=_mm256_add_epi64(gx1, mgxoffset);
+				gx2=_mm256_add_epi64(gx2, mgxoffset);
+				gy0=_mm256_add_epi64(gy0, gx0);
+				gy1=_mm256_add_epi64(gy1, gx1);
+				gy2=_mm256_add_epi64(gy2, gx2);
+				gy0=_mm256_mul_epi32(gy0, mcdfstride4);
+				gy1=_mm256_mul_epi32(gy1, mcdfstride4);
+				gy2=_mm256_mul_epi32(gy2, mcdfstride4);
+				gy0=_mm256_add_epi64(gy0, mhistptr);
+				gy1=_mm256_add_epi64(gy1, mhistptr);
+				gy2=_mm256_add_epi64(gy2, mhistptr);
+				_mm256_store_si256((__m256i*)ctxptr+0, gy0);
+				_mm256_store_si256((__m256i*)ctxptr+1, gy1);
+				_mm256_store_si256((__m256i*)ctxptr+2, gy2);
+			}
+#else
 			int *ctxptr[]=
 			{
-				args->hist+cdfstride*(nctx*0+args->clevels*(grads[11]+0)+grads[ 8]+0),
+				args->hist+cdfstride*(nctx*0+args->clevels*(grads[11]+0)+grads[ 8]+0),//optimize
 				args->hist+cdfstride*(nctx*0+args->clevels*(grads[11]+0)+grads[ 8]+1),
 				args->hist+cdfstride*(nctx*0+args->clevels*(grads[11]+1)+grads[ 8]+0),
 				args->hist+cdfstride*(nctx*0+args->clevels*(grads[11]+1)+grads[ 8]+1),
@@ -701,10 +745,59 @@ static void block_thread(void *param)
 				args->hist+cdfstride*(nctx*2+args->clevels*(grads[13]+1)+grads[10]+0),
 				args->hist+cdfstride*(nctx*2+args->clevels*(grads[13]+1)+grads[10]+1),
 			};
+#endif
 			//t0=_mm_load_si128((__m128i*)alphas);//no need
 			//t0=_mm_min_epi16(t0, amax);
 			//t0=_mm_max_epi16(t0, _mm_setzero_si128());
 			//_mm_store_si128((__m128i*)alphas, t0);
+#if 1
+			ALIGN(32) long long dens[4];
+			{
+				ALIGN(32) long long temp[]=
+				{
+					ctxptr[ 0][args->tlevels],//y00
+					ctxptr[ 4][args->tlevels],//u00
+					ctxptr[ 8][args->tlevels],//v00
+					0,
+					ctxptr[ 1][args->tlevels],//y01
+					ctxptr[ 5][args->tlevels],//u01
+					ctxptr[ 9][args->tlevels],//v01
+					0,
+					ctxptr[ 2][args->tlevels],//y10
+					ctxptr[ 6][args->tlevels],//u10
+					ctxptr[10][args->tlevels],//v10
+					0,
+					ctxptr[ 3][args->tlevels],//y11
+					ctxptr[ 7][args->tlevels],//u11
+					ctxptr[11][args->tlevels],//v11
+					0,
+				};
+				__m256i ax=_mm256_load_si256((__m256i*)alphas+0);
+				__m256i ay=_mm256_load_si256((__m256i*)alphas+1);
+				__m256i v00=_mm256_load_si256((__m256i*)temp+0);
+				__m256i v01=_mm256_load_si256((__m256i*)temp+1);
+				__m256i v10=_mm256_load_si256((__m256i*)temp+2);
+				__m256i v11=_mm256_load_si256((__m256i*)temp+3);
+				__m256i tmp0=_mm256_sub_epi32(v01, v00);
+				__m256i tmp1=_mm256_sub_epi32(v11, v10);
+				tmp0=_mm256_mul_epi32(tmp0, ax);
+				tmp1=_mm256_mul_epi32(tmp1, ax);
+				v00=_mm256_slli_epi32(v00, MIXBITS);
+				v10=_mm256_slli_epi32(v10, MIXBITS);
+				tmp0=_mm256_add_epi64(tmp0, v00);
+				tmp1=_mm256_add_epi64(tmp1, v10);
+				tmp0=_mm256_srli_epi32(tmp0, MIXBITS-1);
+				tmp1=_mm256_srli_epi32(tmp1, MIXBITS-1);
+
+				v00=_mm256_sub_epi32(tmp1, tmp0);
+				v00=_mm256_mul_epi32(v00, ay);
+				tmp0=_mm256_slli_epi32(tmp0, MIXBITS);
+				v00=_mm256_add_epi64(v00, tmp0);
+				v00=_mm256_srli_epi32(v00, MIXBITS-1);
+				v00=_mm256_add_epi32(v00, mtlevels);
+				_mm256_store_si256((__m256i*)dens, v00);
+			}
+#else
 			int dens[]=
 			{
 				ctxptr[ 0][args->tlevels],
@@ -720,18 +813,19 @@ static void block_thread(void *param)
 				ctxptr[10][args->tlevels],
 				ctxptr[11][args->tlevels],
 			};
-			dens[0+0*4]=((dens[0+0*4]<<MIXBITS)+(dens[1+0*4]-dens[0+0*4])*alphas[0])>>(MIXBITS-1);
+			dens[0+0*4]=((dens[0+0*4]<<MIXBITS)+(dens[1+0*4]-dens[0+0*4])*alphas[0])>>(MIXBITS-1);//optimize
 			dens[2+0*4]=((dens[2+0*4]<<MIXBITS)+(dens[3+0*4]-dens[2+0*4])*alphas[0])>>(MIXBITS-1);
-			dens[0+0*4]=((dens[0+0*4]<<MIXBITS)+(dens[2+0*4]-dens[0+0*4])*alphas[3])>>(MIXBITS-1);//den0
 			dens[0+1*4]=((dens[0+1*4]<<MIXBITS)+(dens[1+1*4]-dens[0+1*4])*alphas[1])>>(MIXBITS-1);
 			dens[2+1*4]=((dens[2+1*4]<<MIXBITS)+(dens[3+1*4]-dens[2+1*4])*alphas[1])>>(MIXBITS-1);
-			dens[0+1*4]=((dens[0+1*4]<<MIXBITS)+(dens[2+1*4]-dens[0+1*4])*alphas[4])>>(MIXBITS-1);//den1
 			dens[0+2*4]=((dens[0+2*4]<<MIXBITS)+(dens[1+2*4]-dens[0+2*4])*alphas[2])>>(MIXBITS-1);
 			dens[2+2*4]=((dens[2+2*4]<<MIXBITS)+(dens[3+2*4]-dens[2+2*4])*alphas[2])>>(MIXBITS-1);
+			dens[0+0*4]=((dens[0+0*4]<<MIXBITS)+(dens[2+0*4]-dens[0+0*4])*alphas[3])>>(MIXBITS-1);//den0
+			dens[0+1*4]=((dens[0+1*4]<<MIXBITS)+(dens[2+1*4]-dens[0+1*4])*alphas[4])>>(MIXBITS-1);//den1
 			dens[0+2*4]=((dens[0+2*4]<<MIXBITS)+(dens[2+2*4]-dens[0+2*4])*alphas[5])>>(MIXBITS-1);//den2
 			dens[0+0*4]+=args->tlevels;
 			dens[0+1*4]+=args->tlevels;
 			dens[0+2*4]+=args->tlevels;
+#endif
 			ALIGN(16) short preds[8];
 			__m128i mav2=_mm_add_epi16(mN, mW);
 			__m128i mp=_mm_sub_epi16(mav2, mNW);
@@ -747,13 +841,17 @@ static void block_thread(void *param)
 			{
 				int kc2=kc<<1;
 				int offset=yuv[combination[kc+3]];
-				int cdf=0, freq=0, den=dens[kc<<2];
+				int cdf=0, freq=0;
+				int den=(int)dens[kc];
+			//	int den=dens[kc<<2];
 				int *curr_hist00=ctxptr[kc<<2|0];
 				int *curr_hist01=ctxptr[kc<<2|1];
 				int *curr_hist10=ctxptr[kc<<2|2];
 				int *curr_hist11=ctxptr[kc<<2|3];
-				int alphax=alphas[kc+0];
-				int alphay=alphas[kc+3];
+				__m256i ax=_mm256_set1_epi64x(alphas[kc+0]);
+				__m256i ay=_mm256_set1_epi64x(alphas[kc+4]);
+			//	int alphax=(int)alphas[kc+0];
+			//	int alphay=(int)alphas[kc+4];
 				pred=preds[kc2];
 #if 0
 				int curr_hist[4];
@@ -775,6 +873,7 @@ static void block_thread(void *param)
 				CLAMP2_32(alphax2, 0, alphax2, 1<<MIXBITS);
 				CLAMP2_32(alphay2, 0, alphay2, 1<<MIXBITS);
 #endif
+#if 0
 //#define MIX4(X) f28_mix4(curr_hist00[X], curr_hist01[X], curr_hist10[X], curr_hist11[X], alphax, alphay)
 #define MIX4(DST, X)\
 	do\
@@ -786,8 +885,9 @@ static void block_thread(void *param)
 		v00=((v00<<MIXBITS)+(v01-v00)*alphax)>>(MIXBITS-1);\
 		v10=((v10<<MIXBITS)+(v11-v10)*alphax)>>(MIXBITS-1);\
 		v00=((v00<<MIXBITS)+(v10-v00)*alphay)>>(MIXBITS-1);\
-		DST+=v00+1;\
+		DST=v00+1;\
 	}while(0)
+#endif
 			//	den=MIX4(args->tlevels);
 			//	switch(predidx[kc])
 			//	{
@@ -829,10 +929,69 @@ static void block_thread(void *param)
 					if(token>=args->tlevels)
 						LOG_ERROR("YXC %d %d %d  token %d/%d", ky, kx, kc, token, args->tlevels);
 #endif
+#if 1
 					cdf=0;
-					for(int ks=0;ks<token;++ks)
-						MIX4(cdf, ks);
-					MIX4(freq, token);
+					for(int ks=0;;ks+=4)
+					{
+						ALIGN(32) long long freq2[4];
+						__m256i v00=_mm256_cvtepi32_epi64(_mm_loadu_si128((__m128i*)(curr_hist00+ks)));
+						__m256i v01=_mm256_cvtepi32_epi64(_mm_loadu_si128((__m128i*)(curr_hist01+ks)));
+						__m256i v10=_mm256_cvtepi32_epi64(_mm_loadu_si128((__m128i*)(curr_hist10+ks)));
+						__m256i v11=_mm256_cvtepi32_epi64(_mm_loadu_si128((__m128i*)(curr_hist11+ks)));
+						__m256i tmp0=_mm256_sub_epi32(v01, v00);
+						__m256i tmp1=_mm256_sub_epi32(v11, v10);
+						tmp0=_mm256_mul_epi32(tmp0, ax);
+						tmp1=_mm256_mul_epi32(tmp1, ax);
+						v00=_mm256_slli_epi32(v00, MIXBITS);
+						v10=_mm256_slli_epi32(v10, MIXBITS);
+						tmp0=_mm256_add_epi64(tmp0, v00);
+						tmp1=_mm256_add_epi64(tmp1, v10);
+						tmp0=_mm256_srli_epi32(tmp0, MIXBITS-1);
+						tmp1=_mm256_srli_epi32(tmp1, MIXBITS-1);
+
+						v00=_mm256_sub_epi32(tmp1, tmp0);
+						v00=_mm256_mul_epi32(v00, ay);
+						tmp0=_mm256_slli_epi32(tmp0, MIXBITS);
+						v00=_mm256_add_epi64(v00, tmp0);
+						v00=_mm256_srli_epi32(v00, MIXBITS-1);
+						v00=_mm256_add_epi32(v00, _mm256_set1_epi64x(1));
+						_mm256_store_si256((__m256i*)freq2, v00);
+					//	MIX4(freq2[0], ks+0);
+					//	MIX4(freq2[1], ks+1);
+					//	MIX4(freq2[2], ks+2);
+					//	MIX4(freq2[3], ks+3);
+
+						freq=(int)freq2[0];
+						if(ks+0>=token)
+							break;
+						cdf+=freq;
+
+						freq=(int)freq2[1];
+						if(ks+1>=token)
+							break;
+						cdf+=freq;
+
+						freq=(int)freq2[2];
+						if(ks+2>=token)
+							break;
+						cdf+=freq;
+
+						freq=(int)freq2[3];
+						if(ks+3>=token)
+							break;
+						cdf+=freq;
+
+					}
+#else
+					cdf=0;
+					for(int ks=0;;++ks)
+					{
+						MIX4(freq, ks);
+						if(ks>=token)
+							break;
+						cdf+=freq;
+					}
+#endif
 					ac3_enc_update_NPOT(&ec, cdf, freq, den);
 					if(nbits)
 						ac3_enc_bypass(&ec, bypass, nbits);
@@ -840,6 +999,69 @@ static void block_thread(void *param)
 				else
 				{
 					unsigned code=ac3_dec_getcdf_NPOT(&ec, den);
+#if 1
+					cdf=0;
+					token=0;
+					for(;;)
+					{
+						ALIGN(32) long long freq2[4];
+						__m256i v00=_mm256_cvtepi32_epi64(_mm_loadu_si128((__m128i*)(curr_hist00+token)));
+						__m256i v01=_mm256_cvtepi32_epi64(_mm_loadu_si128((__m128i*)(curr_hist01+token)));
+						__m256i v10=_mm256_cvtepi32_epi64(_mm_loadu_si128((__m128i*)(curr_hist10+token)));
+						__m256i v11=_mm256_cvtepi32_epi64(_mm_loadu_si128((__m128i*)(curr_hist11+token)));
+						__m256i tmp0=_mm256_sub_epi32(v01, v00);
+						__m256i tmp1=_mm256_sub_epi32(v11, v10);
+						tmp0=_mm256_mul_epi32(tmp0, ax);
+						tmp1=_mm256_mul_epi32(tmp1, ax);
+						v00=_mm256_slli_epi32(v00, MIXBITS);
+						v10=_mm256_slli_epi32(v10, MIXBITS);
+						tmp0=_mm256_add_epi64(tmp0, v00);
+						tmp1=_mm256_add_epi64(tmp1, v10);
+						tmp0=_mm256_srli_epi32(tmp0, MIXBITS-1);
+						tmp1=_mm256_srli_epi32(tmp1, MIXBITS-1);
+
+						v00=_mm256_sub_epi32(tmp1, tmp0);
+						v00=_mm256_mul_epi32(v00, ay);
+						tmp0=_mm256_slli_epi32(tmp0, MIXBITS);
+						v00=_mm256_add_epi64(v00, tmp0);
+						v00=_mm256_srli_epi32(v00, MIXBITS-1);
+						v00=_mm256_add_epi32(v00, _mm256_set1_epi64x(1));
+						_mm256_store_si256((__m256i*)freq2, v00);
+					//	MIX4(freq2[0], token+0);
+					//	MIX4(freq2[1], token+1);
+					//	MIX4(freq2[2], token+2);
+					//	MIX4(freq2[3], token+3);
+
+						unsigned cdf2;
+						freq=(int)freq2[0];
+						cdf2=cdf+freq;
+						if(cdf2>code)
+							break;
+						cdf=cdf2;
+						++token;
+						
+						freq=(int)freq2[1];
+						cdf2=cdf+freq;
+						if(cdf2>code)
+							break;
+						cdf=cdf2;
+						++token;
+						
+						freq=(int)freq2[2];
+						cdf2=cdf+freq;
+						if(cdf2>code)
+							break;
+						cdf=cdf2;
+						++token;
+						
+						freq=(int)freq2[3];
+						cdf2=cdf+freq;
+						if(cdf2>code)
+							break;
+						cdf=cdf2;
+						++token;
+					}
+#else
 					cdf=0;
 					token=0;
 					for(;;)
@@ -858,6 +1080,7 @@ static void block_thread(void *param)
 						cdf=cdf2;
 						++token;
 					}
+#endif
 					ac3_dec_update_NPOT(&ec, cdf, freq, den);
 					sym=token;
 					if(sym>=(1<<CONFIG_EXP))
@@ -902,43 +1125,94 @@ static void block_thread(void *param)
 				}
 				curr[kc2+0]-=offset;
 				{
+#if 1
+					ALIGN(32) long long inc[4];
+				//	__m256i axmask=_mm256_set_epi64x(0, ~0ULL, 0, ~0ULL);
+				//	__m256i aymask=_mm256_set_epi64x(0, 0, ~0ULL, ~0ULL);
+				//	__m256i axoffset=_mm256_set_epi64x(0, 1LL<<MIXBITS|1, 0, 1LL<<MIXBITS|1);//a-b = ~b+(a+1)
+				//	__m256i ayoffset=_mm256_set_epi64x(0, 0, 1LL<<MIXBITS|1, 1LL<<MIXBITS|1);
+					ax=_mm256_xor_si256(ax, _mm256_set_epi64x(0, ~0ULL, 0, ~0ULL));
+					ay=_mm256_xor_si256(ay, _mm256_set_epi64x(0, 0, ~0ULL, ~0ULL));
+					ax=_mm256_add_epi64(ax, _mm256_set_epi64x(0, 1LL<<MIXBITS|1, 0, 1LL<<MIXBITS|1));//a-b = ~b+(a+1)
+					ay=_mm256_add_epi64(ay, _mm256_set_epi64x(0, 0, 1LL<<MIXBITS|1, 1LL<<MIXBITS|1));
+					ax=_mm256_mul_epi32(ax, ay);
+					ax=_mm256_srli_epi32(ax, MIXBITS*2-5);
+					_mm256_store_si256((__m256i*)inc, ax);
+					curr_hist00[token]+=(int)inc[0];
+					curr_hist01[token]+=(int)inc[1];
+					curr_hist10[token]+=(int)inc[2];
+					curr_hist11[token]+=(int)inc[3];
+					int s00=curr_hist00[args->tlevels]+=(int)inc[0];
+					int s01=curr_hist01[args->tlevels]+=(int)inc[1];
+					int s10=curr_hist10[args->tlevels]+=(int)inc[2];
+					int s11=curr_hist11[args->tlevels]+=(int)inc[3];
+					if(s00>=10752)//4296	6144	10752	65536
+					{
+						int sum=0;
+						for(int ks=0;ks<args->tlevels;++ks)
+							sum+=curr_hist00[ks]>>=1;
+						curr_hist00[args->tlevels]=sum;
+					}
+					if(s01>=10752)
+					{
+						int sum=0;
+						for(int ks=0;ks<args->tlevels;++ks)
+							sum+=curr_hist01[ks]>>=1;
+						curr_hist01[args->tlevels]=sum;
+					}
+					if(s10>=10752)
+					{
+						int sum=0;
+						for(int ks=0;ks<args->tlevels;++ks)
+							sum+=curr_hist10[ks]>>=1;
+						curr_hist10[args->tlevels]=sum;
+					}
+					if(s11>=10752)
+					{
+						int sum=0;
+						for(int ks=0;ks<args->tlevels;++ks)
+							sum+=curr_hist11[ks]>>=1;
+						curr_hist11[args->tlevels]=sum;
+					}
+#else
 					int inc;
-					inc=((1<<MIXBITS)-alphax)*((1<<MIXBITS)-alphay)>>(MIXBITS+MIXBITS-5); curr_hist00[token]+=inc; curr_hist00[args->tlevels]+=inc;
+					inc=((1<<MIXBITS)-alphax)*((1<<MIXBITS)-alphay)>>(MIXBITS+MIXBITS-5); curr_hist00[token]+=inc; curr_hist00[args->tlevels]+=inc;//optimize
 					inc=(             alphax)*((1<<MIXBITS)-alphay)>>(MIXBITS+MIXBITS-5); curr_hist01[token]+=inc; curr_hist01[args->tlevels]+=inc;
 					inc=((1<<MIXBITS)-alphax)*(             alphay)>>(MIXBITS+MIXBITS-5); curr_hist10[token]+=inc; curr_hist10[args->tlevels]+=inc;
 					inc=(             alphax)*(             alphay)>>(MIXBITS+MIXBITS-5); curr_hist11[token]+=inc; curr_hist11[args->tlevels]+=inc;
-				}
-				if(curr_hist00[args->tlevels]>=10752)//4296	6144	10752	65536
-				{
-					int sum=0;
-					for(int ks=0;ks<args->tlevels;++ks)
-						sum+=curr_hist00[ks]>>=1;
-					//	sum+=curr_hist00[ks]=(curr_hist00[ks]+1)>>1;
-					curr_hist00[args->tlevels]=sum;
-				}
-				if(curr_hist01[args->tlevels]>=10752)
-				{
-					int sum=0;
-					for(int ks=0;ks<args->tlevels;++ks)
-						sum+=curr_hist01[ks]>>=1;
-					//	sum+=curr_hist01[ks]=(curr_hist01[ks]+1)>>1;
-					curr_hist01[args->tlevels]=sum;
-				}
-				if(curr_hist10[args->tlevels]>=10752)
-				{
-					int sum=0;
-					for(int ks=0;ks<args->tlevels;++ks)
-						sum+=curr_hist10[ks]>>=1;
-					//	sum+=curr_hist10[ks]=(curr_hist10[ks]+1)>>1;
-					curr_hist10[args->tlevels]=sum;
-				}
-				if(curr_hist11[args->tlevels]>=10752)
-				{
-					int sum=0;
-					for(int ks=0;ks<args->tlevels;++ks)
-						sum+=curr_hist11[ks]>>=1;
-					//	sum+=curr_hist11[ks]=(curr_hist11[ks]+1)>>1;
-					curr_hist11[args->tlevels]=sum;
+					if(curr_hist00[args->tlevels]>=10752)//4296	6144	10752	65536
+					{
+						int sum=0;
+						for(int ks=0;ks<args->tlevels;++ks)
+							sum+=curr_hist00[ks]>>=1;
+						//	sum+=curr_hist00[ks]=(curr_hist00[ks]+1)>>1;
+						curr_hist00[args->tlevels]=sum;
+					}
+					if(curr_hist01[args->tlevels]>=10752)
+					{
+						int sum=0;
+						for(int ks=0;ks<args->tlevels;++ks)
+							sum+=curr_hist01[ks]>>=1;
+						//	sum+=curr_hist01[ks]=(curr_hist01[ks]+1)>>1;
+						curr_hist01[args->tlevels]=sum;
+					}
+					if(curr_hist10[args->tlevels]>=10752)
+					{
+						int sum=0;
+						for(int ks=0;ks<args->tlevels;++ks)
+							sum+=curr_hist10[ks]>>=1;
+						//	sum+=curr_hist10[ks]=(curr_hist10[ks]+1)>>1;
+						curr_hist10[args->tlevels]=sum;
+					}
+					if(curr_hist11[args->tlevels]>=10752)
+					{
+						int sum=0;
+						for(int ks=0;ks<args->tlevels;++ks)
+							sum+=curr_hist11[ks]>>=1;
+						//	sum+=curr_hist11[ks]=(curr_hist11[ks]+1)>>1;
+						curr_hist11[args->tlevels]=sum;
+					}
+#endif
 				}
 			}
 			if(!args->fwd)
@@ -1115,7 +1389,8 @@ int c01_codec(const char *srcfn, const char *dstfn)
 		quantize_pixel(nlevels, &token, &bypass, &nbits);
 		tlevels=token+1;
 		clevels=CLEVELS;
-		statssize=clevels*clevels*(tlevels+1)*nch*(int)sizeof(int);
+		statssize=(clevels*clevels*(tlevels+1)*nch+4LL)*(int)sizeof(int);//AVX2
+	//	statssize=clevels*clevels*(tlevels+1)*nch*(int)sizeof(int);
 		histsize=(int)sizeof(int[OCH_COUNT*PRED_COUNT<<8]);
 		if(histsize<statssize)
 			histsize=statssize;
