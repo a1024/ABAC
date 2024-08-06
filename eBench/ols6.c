@@ -116,8 +116,8 @@ static int solve_Mx_v(double *matrix, double *vec, int size)
 typedef struct _V4Context
 {
 	long long *vbuf, *isum, *ptr;
-	double *sum, *solution, *params, *paramptr, gain;
-	int iw, nparams, cellsize, init, successcount, totalcalls;
+	double *sum, *solution, *params, gain;
+	int iw, nparams, cellsize, init, successcount, totalcalls, txid;
 } V4Context;
 static int v4_init(V4Context *ctx, int iw, int nparams, int depth)
 {
@@ -135,7 +135,7 @@ static int v4_init(V4Context *ctx, int iw, int nparams, int depth)
 	ctx->isum=(long long*)_mm_malloc(cellsize*sizeof(long long), sizeof(__m256i));
 	ctx->sum=(double*)_mm_malloc(cellsize*sizeof(double), sizeof(__m256d));
 	ctx->solution=(double*)malloc(nparams*sizeof(double));
-	ctx->params=(double*)malloc((iw+8LL)*nparams*sizeof(double));
+	ctx->params=(double*)malloc((nparams+1LL)*sizeof(double[256]));
 	if(!ctx->vbuf||!ctx->isum||!ctx->sum||!ctx->solution||!ctx->params)
 	{
 		LOG_ERROR("Alloc error");
@@ -145,7 +145,7 @@ static int v4_init(V4Context *ctx, int iw, int nparams, int depth)
 	memset(ctx->isum, 0, cellsize*sizeof(long long));
 	memset(ctx->sum, 0, cellsize*sizeof(double));
 	memset(ctx->solution, 0, nparams*sizeof(double));
-	memset(ctx->params, 0, (iw+8LL)*nparams*sizeof(double));
+	memset(ctx->params, 0, (nparams+1LL)*sizeof(double[256]));
 
 	return 0;
 }
@@ -189,31 +189,18 @@ static void v4_submv(V4Context *ctx, long long *dst, const long long *src)
 	for(int k=0;k<ctx->cellsize;++k)
 		dst[k]-=src[k];
 }
-static int v4_predict(V4Context *ctx, const int *nb, int W, int N, int NE, int solve)
+static int v4_predict(V4Context *ctx, const int *nb, int W, int N, int NE, int txid)
 {
-	if(solve)
+	ctx->txid=txid;
+	double *pWWW	=ctx->params+(ctx->nparams+1LL)*((ctx->successcount-3LL)&3);
+	double *pWW	=ctx->params+(ctx->nparams+1LL)*((ctx->successcount-2LL)&3);
+	double *pW	=ctx->params+(ctx->nparams+1LL)*((ctx->successcount-1LL)&3);
+	double *params	=ctx->params+(ctx->nparams+1LL)*((ctx->successcount+0LL)&3);
+	//double *params=ctx->params+(ctx->nparams+1LL)*txid;
+	//if(params[ctx->nparams]<10.5)
 	{
 		int msize=ctx->nparams*ctx->nparams;
 		//double gain=ctx->gain*ctx->gain;
-#if 0
-		{
-			__m256d mg=_mm256_set1_pd(gain);
-			int k=0;
-			for(;k<ctx->cellsize-7;k+=8)
-			{
-				__m128i msum0=_mm_load_si128((__m128i*)(ctx->isum+k+0*4));
-				__m128i msum1=_mm_load_si128((__m128i*)(ctx->isum+k+1*4));
-				__m256d x0=_mm256_cvtepi32_pd(msum0);
-				__m256d x1=_mm256_cvtepi32_pd(msum1);
-				x0=_mm256_mul_pd(x0, mg);
-				x1=_mm256_mul_pd(x1, mg);
-				_mm256_store_pd(ctx->sum+k+0*4, x0);
-				_mm256_store_pd(ctx->sum+k+1*4, x1);
-			}
-			for(;k<ctx->cellsize;++k)
-				ctx->sum[k]=(double)ctx->isum[k]*gain;
-		}
-#endif
 		for(int k=0;k<ctx->cellsize;++k)
 			ctx->sum[k]=(double)ctx->isum[k];
 		double reg=ctx->gain*0.00005;
@@ -224,29 +211,32 @@ static int v4_predict(V4Context *ctx, const int *nb, int W, int N, int NE, int s
 	//	int success=solve_Mx_v(ctx->sum, ctx->sum+msize, ctx->nparams);
 	//	memcpy(ctx->solution, ctx->sum+msize, ctx->nparams*sizeof(double));
 		
-		//ctx->paramptr+=ctx->nparams;
 		if(success)
 		{
 			if(ctx->init)
 			{
 				for(int k=0;k<ctx->nparams;++k)
-				//	ctx->paramptr[k]=(4*ctx->paramptr[k-1*ctx->nparams]+ctx->solution[k])*0.2;
-				//	ctx->paramptr[k]=(2*ctx->paramptr[k-1*ctx->nparams]+ctx->solution[k]+2*ctx->paramptr[k])*0.2;//(2*W+curr+2*N)/5
-					ctx->paramptr[k]+=(ctx->solution[k]-ctx->paramptr[k])*0.2;//(4*W+curr)/5
+					params[k]=(2*pWW[k]+pW[k]+ctx->solution[k])*0.25;
+				//	params[k]=(pWW[k]+pW[k]+2*ctx->solution[k])*0.25;
+				//	params[k]=(pWW[k]+3*pW[k]+ctx->solution[k])*0.2;
+				//	params[k]=(-pWWW[k]+pWW[k]+4*pW[k]+ctx->solution[k])*0.2;
+				//	params[k]=(4*prevp[k]+ctx->solution[k])*0.2;
+				//	params[k]+=(ctx->solution[k]-params[k])*0.2;//(4*W+curr)/5
 			}
 			else
 			{
-				memcpy(ctx->paramptr, ctx->solution, ctx->nparams*sizeof(double));
+				memcpy(params, ctx->solution, ctx->nparams*sizeof(double));
 				ctx->init=1;
 			}
 			++ctx->successcount;
+			//++params[ctx->nparams];
 		}
 		++ctx->totalcalls;
 	}
 	double fpred=0;
 	ALIGN(16) int pred[4];
 	for(int k=0;k<ctx->nparams;++k)
-		fpred+=ctx->paramptr[k]*nb[k];
+		fpred+=params[k]*nb[k];
 
 	__m128i mpred=_mm_cvtpd_epi32(_mm_set_sd(fpred));
 	__m128i mN	=_mm_set_epi32(0, 0, 0, N);
@@ -260,15 +250,12 @@ static int v4_predict(V4Context *ctx, const int *nb, int W, int N, int NE, int s
 	mpred=_mm_min_epi32(mpred, vmax);
 	_mm_store_si128((__m128i*)pred, mpred);
 	return *pred;
-
-	//return (int)fpred;
 }
 static void v4_newrow(V4Context *ctx)
 {
 	ctx->ptr=ctx->vbuf;
 	memset(ctx->isum, 0, ctx->cellsize*sizeof(long long));
 	ctx->init=0;
-	ctx->paramptr=ctx->params+ctx->nparams;
 }
 
 
@@ -474,6 +461,50 @@ finish:
 	}
 }
 #endif
+static void load_nb(short **rows, int half, int *nb, int x, int y)
+{
+	int j=0;
+	nb[j++]=half;
+//	nb[j++]=rows[2-y][0+(x-2)*4];//NNWW
+//	nb[j++]=rows[2-y][1+(x-2)*4];
+//	nb[j++]=rows[2-y][2+(x-2)*4];
+//	nb[j++]=rows[2-y][0+(x-1)*4];//NNW
+//	nb[j++]=rows[2-y][1+(x-1)*4];
+//	nb[j++]=rows[2-y][2+(x-1)*4];
+//	nb[j++]=rows[2-y][0+(x+0)*4];//NN
+//	nb[j++]=rows[2-y][1+(x+0)*4];
+//	nb[j++]=rows[2-y][2+(x+0)*4];
+//	nb[j++]=rows[2-y][0+(x+1)*4];//NNE
+//	nb[j++]=rows[2-y][1+(x+1)*4];
+//	nb[j++]=rows[2-y][2+(x+1)*4];
+//	nb[j++]=rows[2-y][0+(x+2)*4];//NNEE
+//	nb[j++]=rows[2-y][1+(x+2)*4];
+//	nb[j++]=rows[2-y][2+(x+2)*4];
+//	nb[j++]=rows[1-y][0+(x-2)*4];//NWW
+//	nb[j++]=rows[1-y][1+(x-2)*4];
+//	nb[j++]=rows[1-y][2+(x-2)*4];
+	nb[j++]=rows[1-y][0+(x-1)*4];//NW
+	nb[j++]=rows[1-y][1+(x-1)*4];
+	nb[j++]=rows[1-y][2+(x-1)*4];
+	nb[j++]=rows[1-y][0+(x+0)*4];//N
+	nb[j++]=rows[1-y][1+(x+0)*4];
+	nb[j++]=rows[1-y][2+(x+0)*4];
+	nb[j++]=rows[1-y][0+(x+1)*4];//NE
+	nb[j++]=rows[1-y][1+(x+1)*4];
+	nb[j++]=rows[1-y][2+(x+1)*4];
+//	nb[j++]=rows[1-y][0+(x+2)*4];//NEE
+//	nb[j++]=rows[1-y][1+(x+2)*4];
+//	nb[j++]=rows[1-y][2+(x+2)*4];
+//	nb[j++]=rows[0-y][0+(x-2)*4];//WW
+//	nb[j++]=rows[0-y][1+(x-2)*4];
+//	nb[j++]=rows[0-y][2+(x-2)*4];
+	nb[j++]=rows[0-y][0+(x-1)*4];//W
+	nb[j++]=rows[0-y][1+(x-1)*4];
+	nb[j++]=rows[0-y][2+(x-1)*4];
+	nb[j++]=rows[0-y][0+(x+0)*4];//curr
+	nb[j++]=rows[0-y][1+(x+0)*4];
+	nb[j++]=rows[0-y][2+(x+0)*4];
+}
 void pred_ols6(Image *src, int fwd)
 {
 	//{
@@ -487,6 +518,9 @@ void pred_ols6(Image *src, int fwd)
 	v4_init(v4+0, src->iw, OLS6_NPARAMS0, src->depth[0]);
 	v4_init(v4+1, src->iw, OLS6_NPARAMS1, src->depth[1]);
 	v4_init(v4+2, src->iw, OLS6_NPARAMS2, src->depth[2]);
+	//v4_init(v4+0, src->iw, 3, src->depth[0]);
+	//v4_init(v4+1, src->iw, 7, src->depth[1]);
+	//v4_init(v4+2, src->iw, 7, src->depth[2]);
 	int bufsize=(src->iw+OLS6_PADX*2)*(int)sizeof(short[OLS6_PADY*4]);//16 padded rows * 4 channels max
 	short *pixels=(short*)malloc(bufsize);
 	if(!pixels)
@@ -506,8 +540,26 @@ void pred_ols6(Image *src, int fwd)
 		v4_newrow(v4+0);
 		v4_newrow(v4+1);
 		v4_newrow(v4+2);
+		//int future_bottom[8]={0};
+		//int future_top[8]={0};
+		//int present[8]={0};
+		//int past[8]={0};
+		//int nb[8]={0};
 		for(int kx=0;kx<src->iw;++kx)
 		{
+			//if(ky==10&&kx==10)//
+			//	printf("");
+			int future_bottom	[OLS6_NPARAMS2+1];
+			int future_top		[OLS6_NPARAMS2+1];
+			int present		[OLS6_NPARAMS2+1];
+			int past		[OLS6_NPARAMS2+1];
+			int nb			[OLS6_NPARAMS2+1];
+			load_nb(rows, half, future_bottom	, OLS6_SAMPLEREACHX	, -1			);
+			load_nb(rows, half, future_top		, OLS6_SAMPLEREACHX	, -OLS6_SAMPLEREACHY-1	);
+			load_nb(rows, half, present		, -1			, 0			);
+			load_nb(rows, half, past		, -OLS6_SAMPLEREACHX-1	, 0			);
+			load_nb(rows, half, nb			, 0			, 0			);
+#if 0
 			int future_bottom[]=
 			{
 				half,
@@ -603,10 +655,86 @@ void pred_ols6(Image *src, int fwd)
 				0,
 				0,
 			};
+#endif
 			//if(ky==10&&kx==10)//
 			//	printf("");
 			for(int kc=0;kc<3;++kc)
 			{
+#if 0
+#define LOAD_NB(ARR, X, Y)\
+	do\
+	{\
+		int j=0;\
+		if(kc)\
+		{\
+			ARR[j++]=rows[1-(Y)][kc-1+((X)-1)*4];\
+			ARR[j++]=rows[1-(Y)][kc-1+((X)+0)*4];\
+			ARR[j++]=rows[0-(Y)][kc-1+((X)-1)*4];\
+			ARR[j++]=rows[0-(Y)][kc-1+((X)+0)*4];\
+		}\
+		ARR[j++]=rows[1-(Y)][kc+((X)-1)*4];\
+		ARR[j++]=rows[1-(Y)][kc+((X)+0)*4];\
+		ARR[j++]=rows[0-(Y)][kc+((X)-1)*4];\
+		ARR[j++]=rows[0-(Y)][kc+((X)+0)*4];\
+	}while(0)
+				LOAD_NB(future_bottom	, OLS6_SAMPLEREACHX, -1);
+				LOAD_NB(future_top	, OLS6_SAMPLEREACHX, -OLS6_SAMPLEREACHY);
+				LOAD_NB(present		, -1, 0);
+				LOAD_NB(past		, -OLS6_SAMPLEREACHX, 0);
+				LOAD_NB(nb		, 0, 0);
+#endif
+
+				//worse & 14x slower than WP
+#if 0
+				int future_bottom[]=
+				{
+					rows[1+1][kc+(OLS6_SAMPLEREACHX-1)*4],//NW
+					rows[1+1][kc+(OLS6_SAMPLEREACHX+0)*4],//N
+					rows[0+1][kc+(OLS6_SAMPLEREACHX-1)*4],//W
+					//kc?rows[0+1][kc-1+(OLS6_SAMPLEREACHX+0)*4]:half,
+					//rows[1+1][kc+(OLS6_SAMPLEREACHX-1)*4],//NW
+					//rows[1+1][kc+(OLS6_SAMPLEREACHX+0)*4],//N
+					//rows[1+1][kc+(OLS6_SAMPLEREACHX+1)*4],//NE
+					//rows[0+1][kc+(OLS6_SAMPLEREACHX-1)*4],//W
+					//rows[0+1][kc+(OLS6_SAMPLEREACHX+0)*4],//curr
+				};
+				int future_top[]=
+				{
+					kc?rows[0+OLS6_SAMPLEREACHY+1][kc-1+(OLS6_SAMPLEREACHX+0)*4]:half,
+					rows[1+OLS6_SAMPLEREACHY+1][kc+(OLS6_SAMPLEREACHX-1)*4],
+					rows[1+OLS6_SAMPLEREACHY+1][kc+(OLS6_SAMPLEREACHX+0)*4],
+					rows[1+OLS6_SAMPLEREACHY+1][kc+(OLS6_SAMPLEREACHX+1)*4],
+					rows[0+OLS6_SAMPLEREACHY+1][kc+(OLS6_SAMPLEREACHX-1)*4],
+					rows[0+OLS6_SAMPLEREACHY+1][kc+(OLS6_SAMPLEREACHX+0)*4],
+				};
+				int present[]=
+				{
+					kc?rows[0][kc-1+(-1+0)*4]:half,
+					rows[1][kc+(-1-1)*4],
+					rows[1][kc+(-1+0)*4],
+					rows[1][kc+(-1+1)*4],
+					rows[0][kc+(-1-1)*4],
+					rows[0][kc+(-1+0)*4],
+				};
+				int past[]=
+				{
+					kc?rows[0][kc-1+(-OLS6_SAMPLEREACHX-1+0)*4]:half,
+					rows[1][kc+(-OLS6_SAMPLEREACHX-1-1)*4],
+					rows[1][kc+(-OLS6_SAMPLEREACHX-1+0)*4],
+					rows[1][kc+(-OLS6_SAMPLEREACHX-1+1)*4],
+					rows[0][kc+(-OLS6_SAMPLEREACHX-1-1)*4],
+					rows[0][kc+(-OLS6_SAMPLEREACHX-1+0)*4],
+				};
+				int nb[]=
+				{
+					kc?rows[0][kc-1+(0+0)*4]:half,
+					rows[1][kc+(0-1)*4],//NW
+					rows[1][kc+(0+0)*4],//N
+					rows[1][kc+(0+1)*4],//NE
+					rows[0][kc+(0-1)*4],//W
+					0,//curr
+				};
+#endif
 				V4Context *ctx=v4+kc;
 #if 0
 				{
@@ -702,8 +830,13 @@ void pred_ols6(Image *src, int fwd)
 					v4_subsample(ctx, ctx->isum, past);
 				int pred;
 				if(ky>=OLS6_SAMPLEREACHY&&kx>=OLS6_SAMPLEREACHX&&kx<src->iw-OLS6_SAMPLEREACHX)
-					pred=v4_predict(ctx, nb, rows[0][kc-1*4], rows[1][kc+0*4], rows[1][kc+1*4], 1);
+				{
+					int txid=(((rows[1][kc+(0+0)*4]>>(src->depth[kc]-4))+8)&15)<<4|(((rows[0][kc+(0-1)*4]>>(src->depth[kc]-4))+8)&15);
+					pred=v4_predict(ctx, nb, rows[0][kc-1*4], rows[1][kc+0*4], rows[1][kc+1*4], txid);
+				//	pred=v4_predict(ctx, nb, rows[0][kc-1*4], rows[1][kc+0*4], rows[1][kc+1*4], (pred+128)&255);
+				//	pred=v4_predict(ctx, nb, rows[0][kc-1*4], rows[1][kc+0*4], rows[1][kc+1*4], 1);
 				//	pred=v4_predict(ctx, nb, rows[0][kc-1*4], rows[1][kc+0*4], rows[1][kc+1*4], !(kx&15));
+				}
 				else
 					MEDIAN3_32(pred, rows[1][kc+0*4], rows[0][kc-1*4], rows[1][kc+0*4]+rows[0][kc-1*4]-rows[1][kc-1*4]);
 
@@ -724,7 +857,8 @@ void pred_ols6(Image *src, int fwd)
 					curr=pred;
 				}
 				src->data[idx|kc]=pred;
-				nb[_countof(nb)-3+kc]=rows[0][kc]=curr;
+				rows[0][kc]=curr;
+				nb[_countof(nb)-3+kc]=curr;
 
 				ctx->ptr+=ctx->cellsize;
 			}

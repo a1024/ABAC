@@ -97,7 +97,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_CUSTOM3,		ST_INV_CUSTOM3,
 	ST_FWD_CUSTOM,		ST_INV_CUSTOM,
 	ST_FWD_CC,		ST_INV_CC,
-//	ST_FWD_NBLIC,		ST_INV_NBLIC,
+	ST_FWD_NBLIC,		ST_INV_NBLIC,
 	ST_FWD_CALIC,		ST_INV_CALIC,
 	ST_FWD_OLS,		ST_INV_OLS,
 	ST_FWD_OLS2,		ST_INV_OLS2,
@@ -110,6 +110,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_WGRAD,		ST_INV_WGRAD,
 //	ST_FWD_WGRAD2,		ST_INV_WGRAD2,
 	ST_FWD_WGRAD3,		ST_INV_WGRAD3,
+	ST_FWD_LWAV,		ST_INV_LWAV,
 	ST_FWD_CLAMPGRAD,	ST_INV_CLAMPGRAD,
 	ST_FWD_AV2,		ST_INV_AV2,
 //	ST_FWD_ECOEFF,		ST_INV_ECOEFF,
@@ -1493,6 +1494,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 //	case ST_INV_WGRAD2:		a="CS Inv WGrad2";		break;
 	case ST_FWD_WGRAD3:		a="CS Fwd WGrad3";		break;
 	case ST_INV_WGRAD3:		a="CS Inv WGrad3";		break;
+	case ST_FWD_LWAV:		a="CS Fwd LWAV";		break;
+	case ST_INV_LWAV:		a="CS Inv LWAV";		break;
 //	case ST_FWD_ECOEFF:		a=" S Fwd E-Coeff";		break;
 //	case ST_INV_ECOEFF:		a=" S Inv E-Coeff";		break;
 //	case ST_FWD_AVERAGE:		a=" S Fwd Average";		break;
@@ -1509,10 +1512,10 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_CUSTOM4:		a=" S Inv CUSTOM4";		break;
 	case ST_FWD_CUSTOM3:		a="CS Fwd CUSTOM3";		break;
 	case ST_INV_CUSTOM3:		a="CS Inv CUSTOM3";		break;
+	case ST_FWD_NBLIC:		a=" S Fwd NBLIC";		break;
+	case ST_INV_NBLIC:		a=" S Inv NBLIC";		break;
 	case ST_FWD_CALIC:		a=" S Fwd CALIC";		break;
 	case ST_INV_CALIC:		a=" S Inv CALIC";		break;
-//	case ST_FWD_NBLIC:		a=" S Fwd NBLIC";		break;
-//	case ST_INV_NBLIC:		a=" S Inv NBLIC";		break;
 	case ST_FWD_WP:			a=" S Fwd JXL WP";		break;
 	case ST_INV_WP:			a=" S Inv JXL WP";		break;
 	case ST_FWD_WP2:		a=" S Fwd WP2";			break;
@@ -2538,10 +2541,10 @@ void apply_selected_transforms(Image *image, int rct_only)
 	//	case ST_INV_GRAD2:		pred_grad2_inv((char*)image, iw, ih, 3, 4);		break;
 	//	case ST_FWD_ADAPTIVE:		pred_adaptive((char*)image, iw, ih, 3, 4, 1);		break;
 	//	case ST_INV_ADAPTIVE:		pred_adaptive((char*)image, iw, ih, 3, 4, 0);		break;
+		case ST_FWD_NBLIC:		pred_nblic(image, 1);					break;
+		case ST_INV_NBLIC:		pred_nblic(image, 0);					break;
 		case ST_FWD_CALIC:		pred_calic(image, 1, pred_ma_enabled);			break;
 		case ST_INV_CALIC:		pred_calic(image, 0, pred_ma_enabled);			break;
-	//	case ST_FWD_NBLIC:		pred_nblic((char*)image, iw, ih, 1);			break;
-	//	case ST_INV_NBLIC:		pred_nblic((char*)image, iw, ih, 0);			break;
 		case ST_FWD_WP:			pred_jxl_apply(image, 1, pred_ma_enabled, jxlparams_i16);break;
 		case ST_INV_WP:			pred_jxl_apply(image, 0, pred_ma_enabled, jxlparams_i16);break;
 		case ST_FWD_WP2:		pred_divfreeWP(image, 1);				break;
@@ -2586,6 +2589,8 @@ void apply_selected_transforms(Image *image, int rct_only)
 	//	case ST_INV_WGRAD2:		pred_wgrad2(image, 0);					break;
 		case ST_FWD_WGRAD3:		pred_wgrad3(image, 1, hasRCT);				break;
 		case ST_INV_WGRAD3:		pred_wgrad3(image, 0, hasRCT);				break;
+		case ST_FWD_LWAV:		pred_lwav(image, 1);					break;
+		case ST_INV_LWAV:		pred_lwav(image, 0);					break;
 	//	case ST_FWD_ECOEFF:		pred_ecoeff(image, 1, pred_ma_enabled);			break;
 	//	case ST_INV_ECOEFF:		pred_ecoeff(image, 0, pred_ma_enabled);			break;
 	//	case ST_FWD_AVERAGE:		pred_average(image, 1, pred_ma_enabled);		break;

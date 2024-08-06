@@ -665,7 +665,7 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 #ifdef ALLOW_AVX2
 				{
 					double lval=rows[0][kc+0]*lr, lr_comp=1-lr;//
-					__m256d mval=_mm256_set1_pd(rows[0][kc+0]*lr);
+					__m256d mval=_mm256_set1_pd(lval);
 					int k=0;
 					for(;k<nparams-3;k+=4)
 					{

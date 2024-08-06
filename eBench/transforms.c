@@ -3143,7 +3143,7 @@ void pred_PU(Image *src, int fwd)
 }
 
 #define DFWP_NPREDS 8
-void pred_divfreeWP(Image *src, int fwd)
+void pred_divfreeWP(Image *src, int fwd)//not DIV-free
 {
 	int nch;
 	int nlevels[]=
@@ -3265,6 +3265,209 @@ void pred_divfreeWP(Image *src, int fwd)
 		}
 	}
 	free(pixels);
+}
+
+
+void pred_nblic(Image *src, int fwd)//https://github.com/WangXuan95/NBLIC-Image-Compression
+{
+	int nch;
+	int nlevels[]=
+	{
+		1<<src->depth[0],
+		1<<src->depth[1],
+		1<<src->depth[2],
+		1<<src->depth[3],
+	};
+	int halfs[]=
+	{
+		nlevels[0]>>1,
+		nlevels[1]>>1,
+		nlevels[2]>>1,
+		nlevels[3]>>1,
+	};
+	int fwdmask=-fwd;
+	static const int thresholds[]=
+	{
+		1, 3, 9, 20, 50, 110, 300, 800,
+	};
+	const static int q_mid[]={0, 2, 4, 7, 10, 14, 20, 26, 34, 42, 52, 64, 78, 95, 135, 200};
+	int bufsize=(src->iw+16LL)*sizeof(int[4*4*2]);//4 padded rows * 4 channels max
+	int *pixels=(int*)malloc(bufsize);
+	int ssesize=(int)sizeof(int[4<<4>>1<<8]);
+	int *sse=(int*)malloc(ssesize);
+	if(!pixels||!sse)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(pixels, 0, bufsize);
+	memset(sse, 0, ssesize);
+	nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
+	UPDATE_MAX(nch, src->nch);
+	for(int ky=0;ky<src->ih;++ky)
+	{
+		int *rows[]=
+		{
+			pixels+((src->iw+16LL)*((ky-0LL)&3)+8LL)*4*2,
+			pixels+((src->iw+16LL)*((ky-1LL)&3)+8LL)*4*2,
+			pixels+((src->iw+16LL)*((ky-2LL)&3)+8LL)*4*2,
+			pixels+((src->iw+16LL)*((ky-3LL)&3)+8LL)*4*2,
+		};
+		for(int kx=0;kx<src->iw;++kx)
+		{
+			for(int kc=0;kc<src->nch;++kc)
+			{
+				//NNWW NNW NN NNE NNEE
+				//NWW  NW  N  NE  NEE
+				//WW   W   ?
+				int
+					idx	=(src->iw*ky+kx)<<2|kc,
+					NNWW	=rows[2][kc-2*4*2+0],
+					NNW	=rows[2][kc-1*4*2+0],
+					NN	=rows[2][kc+0*4*2+0],
+					NNE	=rows[2][kc+1*4*2+0],
+					NNEE	=rows[2][kc+2*4*2+0],
+					NWW	=rows[1][kc-2*4*2+0],
+					NW	=rows[1][kc-1*4*2+0],
+					N	=rows[1][kc+0*4*2+0],
+					NE	=rows[1][kc+1*4*2+0],
+					NEE	=rows[1][kc+2*4*2+0],
+					WW	=rows[0][kc-2*4*2+0],
+					W	=rows[0][kc-1*4*2+0],
+					*curr	=rows[0]+kc+0*4*2+0,
+					eN	=rows[1][kc+0*4*2+4],
+					eW	=rows[0][kc-1*4*2+4];
+
+				//simple predict:
+
+				//      -1
+				//   -2  9  2
+				//-1  9  ?
+				int pred_linear=9*(N+W)+2*(NE-NW)-NN-WW;
+				int pred_ang=0, cost, csum=0, cmin=0xFFFFFF, wt;
+				CLAMP2_32(pred_linear, pred_linear, -halfs[kc]<<4, halfs[kc]<<4);
+
+				cost=2*(abs(W-WW)+abs(NW-NWW)+abs(N-NW)+abs(NE-N));//180 degrees
+				csum+=cost;
+				if(cmin>cost)
+				{
+					cmin=cost;
+					pred_ang=2*W;
+				}
+
+				cost=2*(abs(W-NW)+abs(NW-NNW)+abs(N-NN)+abs(NE-NNE));//90 degrees
+				csum+=cost;
+				if(cmin>cost)
+				{
+					cmin=cost;
+					pred_ang=2*N;
+				}
+
+				cost=2*(abs(W-NWW)+abs(NW-NNWW)+abs(N-NNW)+abs(NE-NN));//135 degrees
+				csum+=cost;
+				if(cmin>cost)
+				{
+					cmin=cost;
+					pred_ang=2*NW;
+				}
+
+				cost=2*(abs(W-N)+abs(NW-NN)+abs(N-NNE)+abs(NE-NNEE));//45 degrees
+				csum+=cost;
+				if(cmin>cost)
+				{
+					cmin=cost;
+					pred_ang=2*NE;
+				}
+
+				cost=abs(2*W-WW-NWW)+abs(2*NW-NNW-NNWW)+abs(2*N-NW-NNW)+abs(2*NE-N-NN);//180-atand(1/2) ~= 153 degrees
+				csum+=cost;
+				if(cmin>cost)
+				{
+					cmin=cost;
+					pred_ang=W+NW;
+				}
+
+				cost=abs(2*W-NWW-NW)+abs(2*NW-NNWW-NNW)+abs(2*N-NNW-NN)+abs(2*NE-NN-NNE);//90+atand(1/2) ~= 116 degrees
+				csum+=cost;
+				if(cmin>cost)
+				{
+					cmin=cost;
+					pred_ang=NW+N;
+				}
+
+				cost=abs(2*W-NW-N)+abs(2*NW-NNW-NN)+abs(2*N-NN-NNE)+abs(2*NE-NNE-NNEE);//90-atand(1/2) ~= 63 degrees
+				csum+=cost;
+				if(cmin>cost)
+				{
+					cmin=cost;
+					pred_ang=N+NE;
+				}
+				
+				csum-=7*cmin;
+				for(wt=0;wt<_countof(thresholds)&&(thresholds[wt]<<src->depth[kc])-thresholds[wt]<=(csum<<3);++wt);
+				int pred=(8*wt*pred_ang+(8-wt)*pred_linear+64)>>7, pred0=pred;
+
+				//get quantized delta:
+				int delta=abs(W-WW)+abs(N-NW)+abs(N-NE)+abs(W-NW)+abs(N-NN)+abs(NE-NNE)+2*abs(eW), qd, qu, qv, qw;
+				for(qd=0;qd<_countof(q_mid)-1&&delta>q_mid[qd];++qd);
+				qu=qv=qd;
+				qw=0;
+				if(delta<q_mid[qd])
+				{
+					qw=((delta-q_mid[qd])<<5)/(q_mid[qd]-q_mid[qd-1]);
+					if(qw<(1<<5>>1))
+						qu=qd-1;
+					else
+					{
+						qv=qd-1;
+						qw=(1<<5)-qw;
+					}
+				}
+
+				//get context address:
+				int ctx=kc;
+				ctx=ctx<<(4-1)|qu>>1;
+				ctx=ctx<<1|(pred>2*N-NN);
+				ctx=ctx<<1|(pred>2*W-WW);
+				ctx=ctx<<1|(pred>NN);
+				ctx=ctx<<1|(pred>WW);
+				ctx=ctx<<1|(pred>NE);
+				ctx=ctx<<1|(pred>NW);
+				ctx=ctx<<1|(pred>N);
+				ctx=ctx<<1|(pred>W);
+
+				//correct prediction by context:
+				int *cell=sse+ctx;
+				int corr=*cell;
+				int ssesign=corr>>7&1;
+				pred+=corr>>8;
+
+				CLAMP2_32(pred, pred, -halfs[kc], halfs[kc]);
+				
+				//apply prediction:
+				int p2=pred;
+				int c2=src->data[idx];
+				p2^=fwdmask;
+				p2-=fwdmask;
+				p2+=c2;
+				p2<<=32-src->depth[kc];
+				p2>>=32-src->depth[kc];
+				src->data[idx]=p2;
+				rows[0][kc+0]=fwd?c2:p2;
+				rows[0][kc+4]=rows[0][kc+0]-pred0;//FIXME error uses prediction before SSE correction?
+
+				//update context:
+				int e2=rows[0][kc+4];
+				*cell=(corr*((1<<7)-1)+(e2<<7)+(1<<7>>1))>>7;//curr = curr*127/128+error	FIXME compare with traditional SSE
+			}
+			rows[0]+=4*2;
+			rows[1]+=4*2;
+			rows[2]+=4*2;
+			rows[3]+=4*2;
+		}
+	}
+	free(pixels);
+	free(sse);
 }
 
 
@@ -4160,10 +4363,240 @@ void pred_wgrad3(Image *src, int fwd, int hasRCT)
 }
 
 
+#define LWAV_NPARAMS 5
+//#define LWAV_LPARAMS 3
+#define LWAV_PBITS 8
+#define LWAV_NBITS 16
+void pred_lwav(Image *src, int fwd)
+{
+	int nch;
+	int nlevels[]=
+	{
+		1<<src->depth[0],
+		1<<src->depth[1],
+		1<<src->depth[2],
+		1<<src->depth[3],
+	};
+	int halfs[]=
+	{
+		nlevels[0]>>1,
+		nlevels[1]>>1,
+		nlevels[2]>>1,
+		nlevels[3]>>1,
+	};
+	int fwdmask=-fwd;
+
+	int bufsize=(src->iw+16LL)*sizeof(int[4*4*(2+LWAV_NPARAMS)]);
+	int *pixels=(int*)malloc(bufsize);//4 padded rows * 4 channels max * {pixels, errors}
+	if(!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(pixels, 0, bufsize);
+	nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
+	UPDATE_MAX(nch, src->nch);
+	int params[4][LWAV_NPARAMS]={0};
+	FILLMEM(params[0], 1<<LWAV_NBITS, sizeof(int[LWAV_NPARAMS]), sizeof(int));
+	FILLMEM(params[1], 1<<LWAV_NBITS, sizeof(int[LWAV_NPARAMS]), sizeof(int));
+	FILLMEM(params[2], 1<<LWAV_NBITS, sizeof(int[LWAV_NPARAMS]), sizeof(int));
+	FILLMEM(params[3], 1<<LWAV_NBITS, sizeof(int[LWAV_NPARAMS]), sizeof(int));
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		int eW[16]={0};
+		int *rows[]=
+		{
+			pixels+((src->iw+16LL)*((ky-0LL)&3)+8LL)*4*(2+LWAV_NPARAMS),
+			pixels+((src->iw+16LL)*((ky-1LL)&3)+8LL)*4*(2+LWAV_NPARAMS),
+			pixels+((src->iw+16LL)*((ky-2LL)&3)+8LL)*4*(2+LWAV_NPARAMS),
+			pixels+((src->iw+16LL)*((ky-3LL)&3)+8LL)*4*(2+LWAV_NPARAMS),
+		};
+		int pred=0;
+		//for(int k=0;k<LWAV_NPARAMS*4;++k)
+		//	((int*)params)[k]>>=1;
+		for(int kx=0;kx<src->iw;++kx, idx+=4)
+		{
+			for(int kc=0;kc<src->nch;++kc)
+			{
+				int
+					*NNNN	=rows[0]+(kc+0*4)*(2+LWAV_NPARAMS),
+					*NNN	=rows[3]+(kc+0*4)*(2+LWAV_NPARAMS),
+					*NNWW	=rows[2]+(kc-2*4)*(2+LWAV_NPARAMS),
+					*NNW	=rows[2]+(kc-1*4)*(2+LWAV_NPARAMS),
+					*NN	=rows[2]+(kc+0*4)*(2+LWAV_NPARAMS),
+					*NNE	=rows[2]+(kc+1*4)*(2+LWAV_NPARAMS),
+					*NNEE	=rows[2]+(kc+2*4)*(2+LWAV_NPARAMS),
+					*NWW	=rows[1]+(kc-2*4)*(2+LWAV_NPARAMS),
+					*NW	=rows[1]+(kc-1*4)*(2+LWAV_NPARAMS),
+					*N	=rows[1]+(kc+0*4)*(2+LWAV_NPARAMS),
+					*NE	=rows[1]+(kc+1*4)*(2+LWAV_NPARAMS),
+					*NEE	=rows[1]+(kc+2*4)*(2+LWAV_NPARAMS),
+					*NEEE	=rows[1]+(kc+3*4)*(2+LWAV_NPARAMS),
+					*NEEEE	=rows[1]+(kc+4*4)*(2+LWAV_NPARAMS),
+					*NEEEEE	=rows[1]+(kc+5*4)*(2+LWAV_NPARAMS),
+					*WWWWW	=rows[0]+(kc-5*4)*(2+LWAV_NPARAMS),
+					*WWWW	=rows[0]+(kc-4*4)*(2+LWAV_NPARAMS),
+					*WWW	=rows[0]+(kc-3*4)*(2+LWAV_NPARAMS),
+					*WW	=rows[0]+(kc-2*4)*(2+LWAV_NPARAMS),
+					*W	=rows[0]+(kc-1*4)*(2+LWAV_NPARAMS),
+					*curr	=rows[0]+(kc+0*4)*(2+LWAV_NPARAMS);
+				(void)NNNN;
+				(void)NNN;
+				(void)NNWW;
+				(void)NNW;
+				(void)NN;
+				(void)NNE;
+				(void)NNEE;
+				(void)NWW;
+				(void)NW;
+				(void)N;
+				(void)NE;
+				(void)NEE;
+				(void)NEEE;
+				(void)NEEEE;
+				(void)NEEEEE;
+				(void)WWW;
+				(void)WW;
+				(void)W;
+
+				//if(ky==10&&kx==10)//
+				//	printf("");
+				//int errors[]=
+				//{
+				//	abs(eN)+abs(eW)+abs(eNW),
+				//	abs(eW)+abs(eNE)+abs(eN),
+				//	abs(eN),
+				//	abs(eW),
+				//	abs(eN)*2+abs(eNN),
+				//	abs(eW)*2+abs(eWW),
+				//	abs(eN)+abs(eW),
+				//	abs(eW)+abs(eNEE),
+				//	//abs(eN)+abs(eNN)+abs(eNNN),
+				//	//abs(eW)+abs(eWW)+abs(eWWW),
+				//};
+				int ctx[]=
+				{
+					0x2100,	N[0]+W[0]-NW[0],
+					0x0DB8, W[0]+NE[0]-N[0],
+					0x0E22, N[0]-((N[1]+W[1]+NE[1])*-0x005C>>8),
+					0x181F, W[0]-((N[1]+W[1]+NW[1])*-0x005B>>8),
+					0x0BF3, N[0]-((0x00DF*NW[1]+0x0051*N[1]+0x00BD*NE[1]+0x005C*(NN[0]-N[0])-0x0102*(NW[0]-W[0]))>>8),
+
+				//	13,	N[0]+W[0]-NW[0],
+				//	1,	N[0]+W[0]-((NN[0]+WW[0])>>1),
+				//	1,	2*N[0]-NN[0],
+				//	1,	2*W[0]-WW[0],
+
+				//	(W+NE)>>1,
+				//	W,
+				//	N,
+				//	W+NE-N,
+				//	W+((5*(N-NW)+NE-WW)>>3),//AV5
+				//	W+((N+9*(N-NW)+2*(NE-NN-WW)+NNW-NNE-NWW)>>4),//AV9
+
+					//3*(N-NN)+NNN,//X
+					//3*(W-WW)+WWW,
+					//(N+W+NE+NW)>>2,//X
+
+					//rows[1][kc-1*4],//NW
+					//rows[1][kc+0*4],//N
+					//rows[1][kc+1*4],//NE
+					//rows[0][kc-1*4],//W
+				};
+				MEDIAN3_32(ctx[0<<1|1], N[0], W[0], ctx[0<<1|1]);
+			//	ctx[6]=ctx[5]=ctx[4]=ctx[3]=ctx[2]=ctx[1]=ctx[0];
+			//	MEDIAN3_32(ctx[1], W, NE, ctx[1]);//X
+				//if(NW&&N&&NE&&W)//
+				//	printf("");
+				long long lpred=0;
+				int wsum=0;
+				for(int k=0;k<LWAV_NPARAMS;++k)
+				{
+					int weight=params[kc][k]*ctx[k<<1|0]/(NW[k+2]+N[k+2]+NE[k+2]+WW[k+2]+W[k+2]+1);
+					lpred+=(long long)weight*ctx[k<<1|1];
+					wsum+=weight;
+				}
+				if(wsum)
+					pred=(int)((lpred+(wsum>>1))/wsum);
+				else
+					pred=ctx[0<<1|1];
+				//pred=(int)(lpred>>(LWAV_LPARAMS+LWAV_NBITS));
+				//pred=(int)((
+				//	+(long long)params[kc][0]*ctx[0]
+				//	+(long long)params[kc][1]*ctx[1]
+				//	+(long long)params[kc][2]*ctx[2]
+				//	+(long long)params[kc][3]*ctx[3]
+				//)>>(LWAV_LPARAMS+LWAV_NBITS));
+
+				CLAMP3_32(pred, pred, N[0], W[0], NE[0]);
+
+				{
+					int p2=(pred+(1<<LWAV_PBITS>>1))>>LWAV_PBITS;
+					int c=src->data[idx+kc];
+					p2^=fwdmask;
+					p2-=fwdmask;
+					p2+=c;
+
+					p2<<=32-src->depth[kc];
+					p2>>=32-src->depth[kc];
+
+					src->data[idx+kc]=p2;
+					curr[0]=(fwd?c:p2)<<LWAV_PBITS;
+					curr[1]=curr[0]-pred;
+				}
+
+				int error=(2*W[1]+curr[1]+N[1]+NE[1]+NEEE[1]);
+				//int error=
+				//	+rows[0][kc+4-1*4]*2
+				//	+rows[0][kc+4+0*4]
+				//	+rows[1][kc+4+0*4]
+				//	+rows[1][kc+4+1*4]
+				//	+rows[1][kc+4+3*4];
+				//int error=
+				//	+rows[0][kc+4-1*4]
+				//	+rows[0][kc+4+0*4]*2
+				//	+rows[1][kc+4+0*4]
+				//	+rows[1][kc+4+1*4];
+				//int error=rows[0][kc+4];//X
+				int vmax=0;
+				for(int k=0;k<LWAV_NPARAMS;++k)
+				{
+					curr[k+2]=abs(curr[0]-ctx[k<<1|1]);
+					params[kc][k]+=(int)((long long)error*ctx[k<<1|1]>>src->depth[kc]);
+					//params[kc][k]+=(int)((long long)error*errors[k]*ctx[k]>>src->depth[kc]>>src->depth[kc]);
+					//if(abs(params[kc][k])>1<<LWAV_NBITS)//
+					//	printf("");
+					CLAMP2_32(params[kc][k], params[kc][k], -(1<<LWAV_NBITS), 1<<LWAV_NBITS);
+					//int val=abs(params[kc][k]);
+					//if(vmax<val)
+					//	vmax=val;
+				}
+				//if(vmax>=0x100000)
+				//{
+				//	for(int k=0;k<LWAV_NPARAMS;++k)
+				//		params[kc][k]>>=1;
+				//}
+			//	params[kc][0]+=error*NW	<<LWAV_NBITS>>src->depth[kc]*2;	CLAMP2_32(params[kc][0], params[kc][0], -(1<<LWAV_NBITS), 1<<LWAV_NBITS);
+			//	params[kc][1]+=error*N	<<LWAV_NBITS>>src->depth[kc]*2;	CLAMP2_32(params[kc][1], params[kc][1], -(1<<LWAV_NBITS), 1<<LWAV_NBITS);
+			//	params[kc][2]+=error*NE	<<LWAV_NBITS>>src->depth[kc]*2;	CLAMP2_32(params[kc][2], params[kc][2], -(1<<LWAV_NBITS), 1<<LWAV_NBITS);
+			//	params[kc][3]+=error*W	<<LWAV_NBITS>>src->depth[kc]*2;	CLAMP2_32(params[kc][3], params[kc][3], -(1<<LWAV_NBITS), 1<<LWAV_NBITS);
+
+			//	rows[0][kc+4+0*4]=error;
+			}
+			rows[0]+=4*(2+LWAV_NPARAMS);
+			rows[1]+=4*(2+LWAV_NPARAMS);
+			rows[2]+=4*(2+LWAV_NPARAMS);
+			rows[3]+=4*(2+LWAV_NPARAMS);
+		}
+	}
+	free(pixels);
+	//set_window_title("sh=%d", sh);
+}
+
+
 //	#define WPU_TRACE
 	#define WPU_UPDATE_LUMA
 
-#if 1
 #define WPU_NPREDS 8
 #define WPU_PREDLIST\
 	WPU_PRED((N+W+NE-NW)>>1)\
@@ -4174,7 +4607,6 @@ void pred_wgrad3(Image *src, int fwd, int hasRCT)
 	WPU_PRED((3*N+W-(NNW+NNE))>>1)\
 	WPU_PRED(N+W-NW+((eN+eW-eNW)>>1))\
 	WPU_PRED(N+NE-NNE)
-#endif
 //	WPU_PRED(grad)
 //	WPU_PRED((W+NEE)>>1)
 //	WPU_PRED((3*W+NEEE)>>2)
@@ -4220,8 +4652,8 @@ void pred_WPU(Image *src, int fwd)
 
 	for(int k=0;k<(WPU_NPREDS<<2);++k)
 		weights[k]=0x8000;
-	bufsize=(src->iw+8LL)*sizeof(int[4*WPU_PIXEL_STRIDE]);//4 padded rows * 4 channels max * {pixels, errors, pred_errors...}
-	pixels=(int*)malloc(bufsize);
+	bufsize=(src->iw+8LL)*sizeof(int[4*WPU_PIXEL_STRIDE]);
+	pixels=(int*)malloc(bufsize);//4 padded rows * 4 channels max * {pixels, errors, pred_errors...}
 	if(!pixels)
 	{
 		LOG_ERROR("Alloc error");
@@ -4248,7 +4680,7 @@ void pred_WPU(Image *src, int fwd)
 					cb	=src->data[idx+2],
 					cr	=src->data[idx+0];
 				int update=(cb+cr)>>3;
-				CLAMP2_32(update, update, -halfs[1], halfs[1]-1);
+				update=CLAMP(-halfs[1], update, halfs[1]-1);
 				{
 					int luma=src->data[idx+1]-update;//subtract update
 					luma<<=32-src->depth[1];
@@ -4259,32 +4691,30 @@ void pred_WPU(Image *src, int fwd)
 #endif
 			for(int kc0=0;kc0<src->nch;++kc0)
 			{
-				int kc=perm[kc0], kc2=kc*(WPU_NPREDS+2LL), pred, vmin, vmax, curr, val;
+				int kc=perm[kc0], pred, vmin, vmax, curr, val;
 				int
-					NNN	=rows[3][kc2+0*WPU_PIXEL_STRIDE+0],
-					NNWW	=rows[2][kc2-2*WPU_PIXEL_STRIDE+0],
-					NNW	=rows[2][kc2-1*WPU_PIXEL_STRIDE+0],
-					NN	=rows[2][kc2+0*WPU_PIXEL_STRIDE+0],
-					NNE	=rows[2][kc2+1*WPU_PIXEL_STRIDE+0],
-					NNEE	=rows[2][kc2+2*WPU_PIXEL_STRIDE+0],
-					NNEEE	=rows[2][kc2+3*WPU_PIXEL_STRIDE+0],
-					NWW	=rows[1][kc2-2*WPU_PIXEL_STRIDE+0],
-					NW	=rows[1][kc2-1*WPU_PIXEL_STRIDE+0],
-					N	=rows[1][kc2+0*WPU_PIXEL_STRIDE+0],
-					NE	=rows[1][kc2+1*WPU_PIXEL_STRIDE+0],
-					NEE	=rows[1][kc2+2*WPU_PIXEL_STRIDE+0],
-					NEEE	=rows[1][kc2+3*WPU_PIXEL_STRIDE+0],
-					NEEEE	=rows[1][kc2+4*WPU_PIXEL_STRIDE+0],
-					WWWW	=rows[0][kc2-4*WPU_PIXEL_STRIDE+0],
-					WWW	=rows[0][kc2-3*WPU_PIXEL_STRIDE+0],
-					WW	=rows[0][kc2-2*WPU_PIXEL_STRIDE+0],
-					W	=rows[0][kc2-1*WPU_PIXEL_STRIDE+0],
+					NNN	=rows[3][kc+0*WPU_PIXEL_STRIDE+0],
+					NNWW	=rows[2][kc-2*WPU_PIXEL_STRIDE+0],
+					NNW	=rows[2][kc-1*WPU_PIXEL_STRIDE+0],
+					NN	=rows[2][kc+0*WPU_PIXEL_STRIDE+0],
+					NNE	=rows[2][kc+1*WPU_PIXEL_STRIDE+0],
+					NNEE	=rows[2][kc+2*WPU_PIXEL_STRIDE+0],
+					NNEEE	=rows[2][kc+3*WPU_PIXEL_STRIDE+0],
+					NWW	=rows[1][kc-2*WPU_PIXEL_STRIDE+0],
+					NW	=rows[1][kc-1*WPU_PIXEL_STRIDE+0],
+					N	=rows[1][kc+0*WPU_PIXEL_STRIDE+0],
+					NE	=rows[1][kc+1*WPU_PIXEL_STRIDE+0],
+					NEE	=rows[1][kc+2*WPU_PIXEL_STRIDE+0],
+					NEEE	=rows[1][kc+3*WPU_PIXEL_STRIDE+0],
+					WWW	=rows[0][kc-3*WPU_PIXEL_STRIDE+0],
+					WW	=rows[0][kc-2*WPU_PIXEL_STRIDE+0],
+					W	=rows[0][kc-1*WPU_PIXEL_STRIDE+0],
 
-					eNN	=rows[2][kc2+0*WPU_PIXEL_STRIDE+1],
-					eNW	=rows[1][kc2-1*WPU_PIXEL_STRIDE+1],
-					eN	=rows[1][kc2+0*WPU_PIXEL_STRIDE+1],
-					eNE	=rows[1][kc2+1*WPU_PIXEL_STRIDE+1],
-					eW	=rows[0][kc2-1*WPU_PIXEL_STRIDE+1],
+					eNN	=rows[2][kc+0*WPU_PIXEL_STRIDE+4],
+					eNW	=rows[1][kc-1*WPU_PIXEL_STRIDE+4],
+					eN	=rows[1][kc+0*WPU_PIXEL_STRIDE+4],
+					eNE	=rows[1][kc+1*WPU_PIXEL_STRIDE+4],
+					eW	=rows[0][kc-1*WPU_PIXEL_STRIDE+4],
 					offset	=0;
 				(void)NNN;
 				(void)NNWW;
@@ -4299,8 +4729,6 @@ void pred_WPU(Image *src, int fwd)
 				(void)NE;
 				(void)NEE;
 				(void)NEEE;
-				(void)NEEEE;
-				(void)WWWW;
 				(void)WWW;
 				(void)WW;
 				(void)W;
@@ -4311,9 +4739,9 @@ void pred_WPU(Image *src, int fwd)
 				(void)eW;
 				if(kc0>0)
 				{
-					offset+=rows[0][1*(WPU_NPREDS+2LL)];
+					offset+=rows[0][1];
 					if(kc0>1)
-						offset=(2*offset+rows[0][2*(WPU_NPREDS+2LL)])>>1;//(2*g+[b-g])/2 = (g+b)/2
+						offset=(2*offset+rows[0][2])>>1;//(2*g+[b-g])/2 = (g+b)/2
 				}
 
 				//int
@@ -4396,13 +4824,13 @@ void pred_WPU(Image *src, int fwd)
 					for(int k=0;k<WPU_NPREDS;++k)
 					{
 						long long weight=0;
-						weight+=(long long)rows[1][(size_t)kc2+k+0*WPU_PIXEL_STRIDE+2];
+						weight+=(long long)rows[1][kc+0*WPU_PIXEL_STRIDE+8+((size_t)k<<2)];
 #ifdef WPU_TRACE
 						if(kc==1)
 							trace[k]+=weight*weight;
 #endif
-						weight+=(long long)rows[1][(size_t)kc2+k-1*WPU_PIXEL_STRIDE+2];
-						weight+=(long long)rows[1][(size_t)kc2+k+1*WPU_PIXEL_STRIDE+2];
+						weight+=(long long)rows[1][kc-1*WPU_PIXEL_STRIDE+8+((size_t)k<<2)];
+						weight+=(long long)rows[1][kc+1*WPU_PIXEL_STRIDE+8+((size_t)k<<2)];
 						weight+=!weight;
 						weight=((long long)weights[k<<2|kc]<<16)/weight;
 						llpred+=weight*preds[k];
@@ -4412,46 +4840,45 @@ void pred_WPU(Image *src, int fwd)
 					wsum+=!wsum;
 					llpred/=wsum;
 					pred=(int)llpred;
-					CLAMP2_32(pred, pred, vmin, vmax);
+					pred=CLAMP(vmin, pred, vmax);
 					pred=((64-4)*pred+N+W+NW+NE)>>6;
 
 					pred+=offset;
-					CLAMP2_32(pred, pred, -boosthalfs[kc], boosthalfs[kc]-1);
+					pred=CLAMP(-boosthalfs[kc], pred, boosthalfs[kc]-1);
 
 					val=src->data[idx+kc];
 					if(fwd)
 					{
 						curr=val;
 						val-=(pred+(1<<WPU_NBITS>>1))>>WPU_NBITS;
-						val<<=32-src->depth[kc];
-						val>>=32-src->depth[kc];
+						val+=halfs[kc];
+						val&=nlevels[kc]-1;
+						val-=halfs[kc];
 					}
 					else
 					{
 						val+=(pred+(1<<WPU_NBITS>>1))>>WPU_NBITS;
-						val<<=32-src->depth[kc];
-						val>>=32-src->depth[kc];
+						val+=halfs[kc];
+						val&=nlevels[kc]-1;
+						val-=halfs[kc];
 						curr=val;
 					}
 					src->data[idx+kc]=val;
 					curr<<=WPU_NBITS;
-					rows[0][kc2+0]=curr-offset;
-					rows[0][kc2+1]=curr-pred;
+					rows[0][kc+0]=curr-offset;
+					rows[0][kc+4]=curr-pred;
 					{
 						int kbest=0;
 						for(int k=0;k<WPU_NPREDS;++k)
 						{
 							int e2=abs(curr-preds[k]);
 							eprev[k]=e2;
-							rows[0][(size_t)kc2+k+0*WPU_PIXEL_STRIDE+2]=e2;
-							rows[1][(size_t)kc2+k+1*WPU_PIXEL_STRIDE+2]+=e2;
+							rows[0][kc+0*WPU_PIXEL_STRIDE+8+((size_t)k<<2)]=e2;
+							rows[1][kc+1*WPU_PIXEL_STRIDE+8+((size_t)k<<2)]+=e2;
 							if(eprev[kbest]>eprev[k])
 								kbest=k;
 						}
 						(void)kbest;
-
-						//X
-#if 0
 						//++weights[kbest<<2|kc];
 						//if(weights[kbest<<2|kc]>0x8000)
 						//{
@@ -4471,7 +4898,6 @@ void pred_WPU(Image *src, int fwd)
 									weights[k<<2|kc]<<=1;
 							}
 						}
-#endif
 					}
 				}
 			}
@@ -4482,7 +4908,7 @@ void pred_WPU(Image *src, int fwd)
 					cb	=src->data[idx+2],
 					cr	=src->data[idx+0];
 				int update=(cb+cr)>>3;
-				CLAMP2_32(update, update, -halfs[1], halfs[1]-1);
+				update=CLAMP(-halfs[1], update, halfs[1]-1);
 				{
 					int luma=src->data[idx+1]+update;//add update
 					luma<<=32-src->depth[1];
@@ -8770,7 +9196,12 @@ static void pred_jxl_prealloc(const int *src, int iw, int ih, int depth, int kc,
 			int weights[4];//fixed 23.8 bit
 			for(int k=0;k<4;++k)
 			{
-				int e2=(ky-1>=0?pred_errors[k][prevrow+kx]:0)+(ky-1>=0&&kx+1<iw?pred_errors[k][prevrow+kx+1]:0)+(ky-1>=0&&kx-1>=0?pred_errors[k][prevrow+kx-1]:0);
+				//	eNW	eN	eNE
+				//eWW	eW	?
+				int e2=
+					+(ky-1>=0?pred_errors[k][prevrow+kx]:0)			//eN + eW
+					+(ky-1>=0&&kx+1<iw?pred_errors[k][prevrow+kx+1]:0)	//eNE
+					+(ky-1>=0&&kx-1>=0?pred_errors[k][prevrow+kx-1]:0);	//eNW + eWW
 				weights[k]=(params[k]<<8)/(e2+1);
 			}
 			{
@@ -8841,7 +9272,7 @@ static void pred_jxl_prealloc(const int *src, int iw, int ih, int depth, int kc,
 						int e=abs(curr-(int)predictions[k]);
 						pred_errors[k][currrow+kx]=e;
 						if(kx+1<iw)
-							pred_errors[k][prevrow+kx+1]+=e;
+							pred_errors[k][prevrow+kx+1]+=e;//eNE+=ecurr
 					}
 				}
 			}
