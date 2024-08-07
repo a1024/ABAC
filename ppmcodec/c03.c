@@ -20,6 +20,7 @@ static const char file[]=__FILE__;
 
 //	#define DISABLE_PREDSEL
 //	#define DISABLE_WG
+	#define AC3_PREC
 
 #define CODECNAME "C03"
 #include"entropy.h"
@@ -41,12 +42,6 @@ static const char file[]=__FILE__;
 #elif defined ENABLE_ABAC2
 #define A2_CTXBITS 8
 #define A2_NCTX 12
-#define A2_NREC 5
-#define A2_CTRBITS1 7	//all up to 9
-#define A2_CTRBITS2 7	//9
-#define A2_CTRBITS3 7	//14
-#define A2_RCTRBITS 16
-#define A2_RUNBITS 6
 #define A2_SSEBITS 6
 #define A2_SSECTR 16
 #elif defined ENABLE_ABAC
@@ -184,95 +179,6 @@ static const short av12_icoeffs[12]=
 };
 
 
-//state table from paq8l:
-#if 0
-// State table:
-//   nex(state, 0) = next state if bit y is 0, 0 <= state < 256
-//   nex(state, 1) = next state if bit y is 1
-//   nex(state, 2) = number of zeros in bit history represented by state
-//   nex(state, 3) = number of ones represented
-//
-// States represent a bit history within some context.
-// State 0 is the starting state (no bits seen).
-// States 1-30 represent all possible sequences of 1-4 bits.
-// States 31-252 represent a pair of counts, (n0,n1), the number
-//   of 0 and 1 bits respectively.  If n0+n1 < 16 then there are
-//   two states for each pair, depending on if a 0 or 1 was the last
-//   bit seen.
-// If n0 and n1 are too large, then there is no state to represent this
-// pair, so another state with about the same ratio of n0/n1 is substituted.
-// Also, when a bit is observed and the count of the opposite bit is large,
-// then part of this count is discarded to favor newer data over old.
-static const unsigned char g_state_table[256][4]=
-{
-	{  1,  2, 0, 0},{  3,  5, 1, 0},{  4,  6, 0, 1},{  7, 10, 2, 0}, // 0-3
-	{  8, 12, 1, 1},{  9, 13, 1, 1},{ 11, 14, 0, 2},{ 15, 19, 3, 0}, // 4-7
-	{ 16, 23, 2, 1},{ 17, 24, 2, 1},{ 18, 25, 2, 1},{ 20, 27, 1, 2}, // 8-11
-	{ 21, 28, 1, 2},{ 22, 29, 1, 2},{ 26, 30, 0, 3},{ 31, 33, 4, 0}, // 12-15
-	{ 32, 35, 3, 1},{ 32, 35, 3, 1},{ 32, 35, 3, 1},{ 32, 35, 3, 1}, // 16-19
-	{ 34, 37, 2, 2},{ 34, 37, 2, 2},{ 34, 37, 2, 2},{ 34, 37, 2, 2}, // 20-23
-	{ 34, 37, 2, 2},{ 34, 37, 2, 2},{ 36, 39, 1, 3},{ 36, 39, 1, 3}, // 24-27
-	{ 36, 39, 1, 3},{ 36, 39, 1, 3},{ 38, 40, 0, 4},{ 41, 43, 5, 0}, // 28-31
-	{ 42, 45, 4, 1},{ 42, 45, 4, 1},{ 44, 47, 3, 2},{ 44, 47, 3, 2}, // 32-35
-	{ 46, 49, 2, 3},{ 46, 49, 2, 3},{ 48, 51, 1, 4},{ 48, 51, 1, 4}, // 36-39
-	{ 50, 52, 0, 5},{ 53, 43, 6, 0},{ 54, 57, 5, 1},{ 54, 57, 5, 1}, // 40-43
-	{ 56, 59, 4, 2},{ 56, 59, 4, 2},{ 58, 61, 3, 3},{ 58, 61, 3, 3}, // 44-47
-	{ 60, 63, 2, 4},{ 60, 63, 2, 4},{ 62, 65, 1, 5},{ 62, 65, 1, 5}, // 48-51
-	{ 50, 66, 0, 6},{ 67, 55, 7, 0},{ 68, 57, 6, 1},{ 68, 57, 6, 1}, // 52-55
-	{ 70, 73, 5, 2},{ 70, 73, 5, 2},{ 72, 75, 4, 3},{ 72, 75, 4, 3}, // 56-59
-	{ 74, 77, 3, 4},{ 74, 77, 3, 4},{ 76, 79, 2, 5},{ 76, 79, 2, 5}, // 60-63
-	{ 62, 81, 1, 6},{ 62, 81, 1, 6},{ 64, 82, 0, 7},{ 83, 69, 8, 0}, // 64-67
-	{ 84, 71, 7, 1},{ 84, 71, 7, 1},{ 86, 73, 6, 2},{ 86, 73, 6, 2}, // 68-71
-	{ 44, 59, 5, 3},{ 44, 59, 5, 3},{ 58, 61, 4, 4},{ 58, 61, 4, 4}, // 72-75
-	{ 60, 49, 3, 5},{ 60, 49, 3, 5},{ 76, 89, 2, 6},{ 76, 89, 2, 6}, // 76-79
-	{ 78, 91, 1, 7},{ 78, 91, 1, 7},{ 80, 92, 0, 8},{ 93, 69, 9, 0}, // 80-83
-	{ 94, 87, 8, 1},{ 94, 87, 8, 1},{ 96, 45, 7, 2},{ 96, 45, 7, 2}, // 84-87
-	{ 48, 99, 2, 7},{ 48, 99, 2, 7},{ 88,101, 1, 8},{ 88,101, 1, 8}, // 88-91
-	{ 80,102, 0, 9},{103, 69,10, 0},{104, 87, 9, 1},{104, 87, 9, 1}, // 92-95
-	{106, 57, 8, 2},{106, 57, 8, 2},{ 62,109, 2, 8},{ 62,109, 2, 8}, // 96-99
-	{ 88,111, 1, 9},{ 88,111, 1, 9},{ 80,112, 0,10},{113, 85,11, 0}, // 100-103
-	{114, 87,10, 1},{114, 87,10, 1},{116, 57, 9, 2},{116, 57, 9, 2}, // 104-107
-	{ 62,119, 2, 9},{ 62,119, 2, 9},{ 88,121, 1,10},{ 88,121, 1,10}, // 108-111
-	{ 90,122, 0,11},{123, 85,12, 0},{124, 97,11, 1},{124, 97,11, 1}, // 112-115
-	{126, 57,10, 2},{126, 57,10, 2},{ 62,129, 2,10},{ 62,129, 2,10}, // 116-119
-	{ 98,131, 1,11},{ 98,131, 1,11},{ 90,132, 0,12},{133, 85,13, 0}, // 120-123
-	{134, 97,12, 1},{134, 97,12, 1},{136, 57,11, 2},{136, 57,11, 2}, // 124-127
-	{ 62,139, 2,11},{ 62,139, 2,11},{ 98,141, 1,12},{ 98,141, 1,12}, // 128-131
-	{ 90,142, 0,13},{143, 95,14, 0},{144, 97,13, 1},{144, 97,13, 1}, // 132-135
-	{ 68, 57,12, 2},{ 68, 57,12, 2},{ 62, 81, 2,12},{ 62, 81, 2,12}, // 136-139
-	{ 98,147, 1,13},{ 98,147, 1,13},{100,148, 0,14},{149, 95,15, 0}, // 140-143
-	{150,107,14, 1},{150,107,14, 1},{108,151, 1,14},{108,151, 1,14}, // 144-147
-	{100,152, 0,15},{153, 95,16, 0},{154,107,15, 1},{108,155, 1,15}, // 148-151
-	{100,156, 0,16},{157, 95,17, 0},{158,107,16, 1},{108,159, 1,16}, // 152-155
-	{100,160, 0,17},{161,105,18, 0},{162,107,17, 1},{108,163, 1,17}, // 156-159
-	{110,164, 0,18},{165,105,19, 0},{166,117,18, 1},{118,167, 1,18}, // 160-163
-	{110,168, 0,19},{169,105,20, 0},{170,117,19, 1},{118,171, 1,19}, // 164-167
-	{110,172, 0,20},{173,105,21, 0},{174,117,20, 1},{118,175, 1,20}, // 168-171
-	{110,176, 0,21},{177,105,22, 0},{178,117,21, 1},{118,179, 1,21}, // 172-175
-	{110,180, 0,22},{181,115,23, 0},{182,117,22, 1},{118,183, 1,22}, // 176-179
-	{120,184, 0,23},{185,115,24, 0},{186,127,23, 1},{128,187, 1,23}, // 180-183
-	{120,188, 0,24},{189,115,25, 0},{190,127,24, 1},{128,191, 1,24}, // 184-187
-	{120,192, 0,25},{193,115,26, 0},{194,127,25, 1},{128,195, 1,25}, // 188-191
-	{120,196, 0,26},{197,115,27, 0},{198,127,26, 1},{128,199, 1,26}, // 192-195
-	{120,200, 0,27},{201,115,28, 0},{202,127,27, 1},{128,203, 1,27}, // 196-199
-	{120,204, 0,28},{205,115,29, 0},{206,127,28, 1},{128,207, 1,28}, // 200-203
-	{120,208, 0,29},{209,125,30, 0},{210,127,29, 1},{128,211, 1,29}, // 204-207
-	{130,212, 0,30},{213,125,31, 0},{214,137,30, 1},{138,215, 1,30}, // 208-211
-	{130,216, 0,31},{217,125,32, 0},{218,137,31, 1},{138,219, 1,31}, // 212-215
-	{130,220, 0,32},{221,125,33, 0},{222,137,32, 1},{138,223, 1,32}, // 216-219
-	{130,224, 0,33},{225,125,34, 0},{226,137,33, 1},{138,227, 1,33}, // 220-223
-	{130,228, 0,34},{229,125,35, 0},{230,137,34, 1},{138,231, 1,34}, // 224-227
-	{130,232, 0,35},{233,125,36, 0},{234,137,35, 1},{138,235, 1,35}, // 228-231
-	{130,236, 0,36},{237,125,37, 0},{238,137,36, 1},{138,239, 1,36}, // 232-235
-	{130,240, 0,37},{241,125,38, 0},{242,137,37, 1},{138,243, 1,37}, // 236-239
-	{130,244, 0,38},{245,135,39, 0},{246,137,38, 1},{138,247, 1,38}, // 240-243
-	{140,248, 0,39},{249,135,40, 0},{250, 69,39, 1},{ 80,251, 1,39}, // 244-247
-	{140,252, 0,40},{249,135,41, 0},{250, 69,40, 1},{ 80,251, 1,40}, // 248-251
-	{140,252, 0,41},  // 252, 253-255 are reserved
-};
-#endif
-
-
 //WG:
 #define WG_DECAY_NUM	493
 #define WG_DECAY_SH	9
@@ -387,14 +293,6 @@ static void quantize_pixel(int val, int *token, int *bypass, int *nbits)
 		*nbits=lgv-(CONFIG_MSB+CONFIG_LSB);
 		*bypass=val>>CONFIG_LSB&((1LL<<*nbits)-1);
 	}
-}
-static void xorshift64(unsigned long long *state)
-{
-	unsigned long long x=*state;
-	x^=x<<13;
-	x^=x>>7;
-	x^=x<<17;
-	*state=x;
 }
 #ifdef ENABLE_MIX4
 static int f28_mix4(int v00, int v01, int v10, int v11, int alphax, int alphay)
@@ -565,7 +463,6 @@ static void abac_update(const int *weights, const int *logits, unsigned short **
 #endif
 }
 #endif
-typedef unsigned long long Counter;
 typedef struct _ThreadArgs
 {
 	const unsigned char *src;
@@ -587,10 +484,7 @@ typedef struct _ThreadArgs
 #endif
 	int tlevels;
 #ifdef ENABLE_ABAC2
-	const unsigned short *divtable1, *divtable2, *divtable3;
-	//const unsigned *statetable;
-	int mixer[8*3*A2_NCTX*A2_NREC];
-	Counter stats[A2_NCTX*3<<A2_CTXBITS<<8];
+	unsigned short stats[A2_NCTX*3<<A2_CTXBITS<<8];
 	long long sse[24<<A2_SSEBITS];
 #elif defined ENABLE_ABAC
 	int statssize;
@@ -612,7 +506,7 @@ static void block_thread(void *param)
 {
 	const int nch=3;
 	ThreadArgs *args=(ThreadArgs*)param;
-	AC4 ec;
+	AC3 ec;
 	const unsigned char *image=args->fwd?args->src:args->dst;
 	unsigned char bestrct=0, combination[6]={0}, predidx[4]={0};
 	int ystride=args->iw*3;
@@ -1193,19 +1087,19 @@ static void block_thread(void *param)
 			}
 		}
 		blist_init(&args->list);
-		ac4_enc_init(&ec, &args->list);
-		ac4_enc_update_NPOT(&ec, bestrct, bestrct+1, RCT_COUNT);
-		ac4_enc_update_NPOT(&ec, predidx[0], predidx[0]+1, PRED_COUNT);
-		ac4_enc_update_NPOT(&ec, predidx[1], predidx[1]+1, PRED_COUNT);
-		ac4_enc_update_NPOT(&ec, predidx[2], predidx[2]+1, PRED_COUNT);
+		ac3_enc_init(&ec, &args->list);
+		ac3_enc_bypass_NPOT(&ec, bestrct, RCT_COUNT);
+		ac3_enc_bypass_NPOT(&ec, predidx[0], PRED_COUNT);
+		ac3_enc_bypass_NPOT(&ec, predidx[1], PRED_COUNT);
+		ac3_enc_bypass_NPOT(&ec, predidx[2], PRED_COUNT);
 	}
 	else
 	{
-		ac4_dec_init(&ec, args->decstart, args->decend);
-		bestrct=ac4_dec_getcdf_NPOT(&ec, RCT_COUNT);		ac4_dec_update_NPOT(&ec, bestrct, bestrct+1, RCT_COUNT);
-		predidx[0]=ac4_dec_getcdf_NPOT(&ec, PRED_COUNT);	ac4_dec_update_NPOT(&ec, predidx[0], predidx[0]+1, PRED_COUNT);
-		predidx[1]=ac4_dec_getcdf_NPOT(&ec, PRED_COUNT);	ac4_dec_update_NPOT(&ec, predidx[1], predidx[1]+1, PRED_COUNT);
-		predidx[2]=ac4_dec_getcdf_NPOT(&ec, PRED_COUNT);	ac4_dec_update_NPOT(&ec, predidx[2], predidx[2]+1, PRED_COUNT);
+		ac3_dec_init(&ec, args->decstart, args->decend);
+		bestrct=ac3_dec_bypass_NPOT(&ec, RCT_COUNT);
+		predidx[0]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
+		predidx[1]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
+		predidx[2]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
 	}
 #if defined ENABLE_CALICCTX || defined ENABLE_HASH || defined ENABLE_MIX8
 	{
@@ -1217,9 +1111,9 @@ static void block_thread(void *param)
 		memfill(args->hist+cdfstride, args->hist, args->histsize-cdfstride*sizeof(int), cdfstride*sizeof(int));
 	}
 #elif defined ENABLE_ABAC2
-	unsigned long long prngstate=0x3243F6A8885A308D;//pi
-	FILLMEM(args->mixer, 0x3000, sizeof(args->mixer), sizeof(int));
-	FILLMEM(args->stats, 0x0000000000000000, sizeof(args->stats), sizeof(Counter));
+	int mixer[8*3*A2_NCTX]={0};
+	FILLMEM(mixer, 0x3000, sizeof(mixer), sizeof(int));
+	FILLMEM(args->stats, 0x8000, sizeof(args->stats), sizeof(short));
 	memset(args->sse, 0, sizeof(args->sse));
 #elif defined ENABLE_ABAC
 	{
@@ -1460,7 +1354,7 @@ static void block_thread(void *param)
 				pred+=offset;
 				CLAMP2_32(pred, pred, -128, 127);
 #ifdef ENABLE_ABAC2
-				Counter *curr_stats[A2_NCTX];
+				unsigned short *curr_stats[A2_NCTX];
 				int ctx[A2_NCTX]=
 				{
 					pred*3,
@@ -1500,96 +1394,38 @@ static void block_thread(void *param)
 				else
 					error=0;
 				int tidx=1;
-				int *curr_mixer=args->mixer+kc*8*A2_NCTX*A2_NREC;
+				int *curr_mixer=mixer+kc*8*A2_NCTX;
 				long long *curr_sse=args->sse+(kc*8LL<<A2_SSEBITS);
 				for(int kb=7, e2=0;kb>=0;--kb)
 				{
-					static const int extract_shift[]=
-					{
-						0,
-						A2_CTRBITS1,
-						A2_CTRBITS1+A2_CTRBITS1,
-						A2_CTRBITS1+A2_CTRBITS1+A2_CTRBITS2,
-						A2_CTRBITS1+A2_CTRBITS1+A2_CTRBITS2+A2_CTRBITS2,
-						A2_CTRBITS1+A2_CTRBITS1+A2_CTRBITS2+A2_CTRBITS2+A2_CTRBITS3,
-						A2_CTRBITS1+A2_CTRBITS1+A2_CTRBITS2+A2_CTRBITS2+A2_CTRBITS3+A2_CTRBITS3,
-						A2_CTRBITS1+A2_CTRBITS1+A2_CTRBITS2+A2_CTRBITS2+A2_CTRBITS3+A2_CTRBITS3+A2_RCTRBITS,
-					};
-					long long p1=0;
+					long long p0=0;
 					int wsum=0, bit;
-					Counter *pprobs[A2_NCTX];
-					ALIGN(32) long long probs[A2_NCTX*A2_NREC];
-					short ctrs[A2_NCTX*_countof(extract_shift)], *pctrs=ctrs;
-					//__m256i mp1=_mm256_setzero_si256();
-					//__m256i mwsum=_mm256_setzero_si256();
 					for(int k=0;k<A2_NCTX;++k)
 					{
-						pprobs[k]=curr_stats[k]+tidx;
-						Counter cell=*pprobs[k];
-						pctrs[0]=(int)(cell>>extract_shift[0]&((1ULL<<A2_CTRBITS1)-1));
-						pctrs[1]=(int)(cell>>extract_shift[1]&((1ULL<<A2_CTRBITS1)-1));
-						pctrs[2]=(int)(cell>>extract_shift[2]&((1ULL<<A2_CTRBITS2)-1));
-						pctrs[3]=(int)(cell>>extract_shift[3]&((1ULL<<A2_CTRBITS2)-1));
-						pctrs[4]=(int)(cell>>extract_shift[4]&((1ULL<<A2_CTRBITS3)-1));
-						pctrs[5]=(int)(cell>>extract_shift[5]&((1ULL<<A2_CTRBITS3)-1));
-						pctrs[6]=(int)(cell>>extract_shift[6]&((1ULL<<A2_RCTRBITS)-1));
-						pctrs[7]=(int)((long long)cell>>extract_shift[7]);
-						
-						probs[k*A2_NREC+0]=args->divtable1[cell&((1ULL<<(A2_CTRBITS1<<1))-1)];	cell>>=A2_CTRBITS1<<1;
-						probs[k*A2_NREC+1]=args->divtable2[cell&((1ULL<<(A2_CTRBITS2<<1))-1)];	cell>>=A2_CTRBITS2<<1;
-						probs[k*A2_NREC+2]=args->divtable3[cell&((1ULL<<(A2_CTRBITS3<<1))-1)];
-						//probs[k*A2_NREC+0]=divtable1[pctrs[1]>>(A2_CTRBITS1-6)<<6|pctrs[0]>>(A2_CTRBITS1-6)];
-						//probs[k*A2_NREC+1]=divtable1[pctrs[3]>>(A2_CTRBITS2-6)<<6|pctrs[2]>>(A2_CTRBITS2-6)];
-						//probs[k*A2_NREC+2]=divtable1[pctrs[5]>>(A2_CTRBITS3-6)<<6|pctrs[4]>>(A2_CTRBITS3-6)];
-						probs[k*A2_NREC+3]=probs[k*A2_NREC+0]+((long long)pctrs[7]<<7);
-						probs[k*A2_NREC+4]=pctrs[6];
-						//probs[k*A2_NREC+4]=args->statetable[pctrs[6]]>>16;
-
-						//__m256i mprob=_mm256_load_si256((__m256i*)probs+k);
-						//__m256i mmix=_mm256_set_epi64x(curr_mixer[k*A2_NREC+3], curr_mixer[k*A2_NREC+2], curr_mixer[k*A2_NREC+1], curr_mixer[k*A2_NREC+0]);
-						//mprob=_mm256_mul_epi32(mprob, mmix);
-						//mwsum=_mm256_add_epi64(mwsum, mmix);
-						//mp1=_mm256_add_epi64(mp1, mprob);
-
-						p1+=
-							(long long)curr_mixer[k*A2_NREC+0]*probs[k*A2_NREC+0]+
-							(long long)curr_mixer[k*A2_NREC+1]*probs[k*A2_NREC+1]+
-							(long long)curr_mixer[k*A2_NREC+2]*probs[k*A2_NREC+2]+
-							(long long)curr_mixer[k*A2_NREC+3]*probs[k*A2_NREC+3]+
-							(long long)curr_mixer[k*A2_NREC+4]*probs[k*A2_NREC+4];
-						wsum+=
-							curr_mixer[k*A2_NREC+0]+
-							curr_mixer[k*A2_NREC+1]+
-							curr_mixer[k*A2_NREC+2]+
-							curr_mixer[k*A2_NREC+3]+
-							curr_mixer[k*A2_NREC+4];
-						pctrs+=_countof(extract_shift);
+						p0+=(long long)curr_mixer[k]*curr_stats[k][tidx];
+						wsum+=curr_mixer[k];
 					}
-					//{
-					//	ALIGN(32) long long vec1[4], vec2[4];
-					//	_mm256_store_si256((__m256i*)vec1, mp1);
-					//	_mm256_store_si256((__m256i*)vec2, mwsum);
-					//	p1=vec1[0]+vec1[1]+vec1[2]+vec1[3];
-					//	wsum=(int)(vec2[0]+vec2[1]+vec2[2]+vec2[3]);
-					//}
-					p1/=wsum;
-					int sseidx=(int)(p1>>(16-A2_SSEBITS));
+					if(wsum)
+						p0/=wsum;
+					else
+						p0=0x8000, wsum=1;
+					int sseidx=(int)(p0>>(16-A2_SSEBITS));
 					CLAMP2_32(sseidx, sseidx, 0, (1<<A2_SSEBITS)-1);
 					long long ssesum=curr_sse[sseidx]>>A2_SSECTR, ssecount=curr_sse[sseidx]&((1LL<<A2_SSECTR)-1);
-					p1+=ssesum/(ssecount+160);
-					CLAMP2_32(p1, (int)p1, 1, 0xFFFF);
+					p0+=ssesum/(ssecount+160);
+					CLAMP2_32(p0, (int)p0, 1, 0xFFFF);
 					if(args->fwd)
 					{
 						bit=error>>kb&1;
-						ac4_enc_bin(&ec, (int)p1, bit);
+						ac3_enc_bin(&ec, bit, (int)p0, 16);
 					}
 					else
 					{
-						bit=ac4_dec_bin(&ec, (int)p1);
+						bit=ac3_dec_bin(&ec, (int)p0, 16);
 						error|=bit<<kb;
 					}
 					e2|=bit<<kb;
-					int prob_error=(bit<<16)-(int)p1;
+					int prob_error=(!bit<<16)-(int)p0;
 					++ssecount;
 					ssesum+=prob_error;
 					if(ssecount>0x4A00)
@@ -1598,100 +1434,82 @@ static void block_thread(void *param)
 						ssesum>>=1;
 					}
 					curr_sse[sseidx]=ssesum<<A2_SSECTR|ssecount;
-					if(abs(prob_error)>64)
 					{
-						long long dL_dp0=0x1600000000/((!bit<<16)-(int)p1);
-						int invwsum=(1U<<31)/wsum;
-						dL_dp0*=invwsum;
-						for(int k=0;k<A2_NCTX*A2_NREC-(A2_NREC-1);k+=A2_NREC)
+						int pred2=(char)(e2|1<<kb>>1)-pred;
+						int sh=0;
+						switch(kb)
 						{
-							int mk0=curr_mixer[k+0]-(int)(dL_dp0*(probs[k+0]-(int)p1)>>32);
-							int mk1=curr_mixer[k+1]-(int)(dL_dp0*(probs[k+1]-(int)p1)>>32);
-							int mk2=curr_mixer[k+2]-(int)(dL_dp0*(probs[k+2]-(int)p1)>>32);
-							int mk3=curr_mixer[k+3]-(int)(dL_dp0*(probs[k+3]-(int)p1)>>32);
-							int mk4=curr_mixer[k+4]-(int)(dL_dp0*(probs[k+4]-(int)p1)>>32);
-							CLAMP2_32(curr_mixer[k+0], mk0, 1, 0x40000);
-							CLAMP2_32(curr_mixer[k+1], mk1, 1, 0x40000);
-							CLAMP2_32(curr_mixer[k+2], mk2, 1, 0x40000);
-							CLAMP2_32(curr_mixer[k+3], mk3, 1, 0x40000);
-							CLAMP2_32(curr_mixer[k+4], mk4, 1, 0x40000);
+						case 7:
+							sh=(ctx[2]/2+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
+							if(sh<-1)sh=-1;
+							sh=FLOOR_LOG2(sh+1)+1;
+							break;
+						case 6:
+							sh=(ctx[2]/2-abs(pred2)+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
+							if(sh<-1)sh=-1;
+							sh=FLOOR_LOG2(sh+1)+1;
+							break;
+						case 5:
+							sh=(ctx[2]/2-abs(pred2)+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
+							if(sh<-1)sh=-1;
+							sh=FLOOR_LOG2(sh+1)+1;
+						//	sh=(9*(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1]))+abs(pred2))>>8;
+						//	sh=FLOOR_LOG2(sh);
+							break;
+						case 4:
+							sh=(ctx[2]/2-abs(pred2)/2+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
+							if(sh<-1)sh=-1;
+							sh=FLOOR_LOG2(sh+1)+1;
+						//	sh=(9*(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1]))+abs(pred2))>>8;
+						//	sh=FLOOR_LOG2(sh);
+							break;
+						case 3:
+							sh=(ctx[2]/2-abs(pred2)/4+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
+							if(sh<-1)sh=-1;
+							sh=FLOOR_LOG2(sh+1)+1;
+						//	sh=(9*(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1]))+abs(pred2))>>8;
+						//	sh=FLOOR_LOG2(sh);
+							break;
+						case 2:
+							sh=(ctx[2]/2-abs(pred2)/8+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
+							if(sh<-1)sh=-1;
+							sh=FLOOR_LOG2(sh+1)+1;
+						//	sh=(9*(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1]))+abs(pred2))>>8;
+						//	sh=FLOOR_LOG2(sh);
+							break;
+						case 1:
+							sh=(ctx[2]/2+abs(pred2)/4+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
+							if(sh<-1)sh=-1;
+							sh=FLOOR_LOG2(sh+1)+1;
+						//	sh=(8*(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1]))+2*abs(pred2))>>8;
+						//	sh=FLOOR_LOG2(sh);
+							break;
+						case 0:
+							sh=(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])-abs(WW[kc2+1])+7*abs(pred2))>>8;
+							if(sh<0)sh=0;
+							sh=FLOOR_LOG2(sh)+1;
+						//	sh=(ctx[2]/2+abs(pred2)/4+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
+						//	if(sh<-1)sh=-1;
+						//	sh=FLOOR_LOG2(sh+1);
+							break;
+						}
+						if(abs(prob_error)>16)
+						{
+							int dL_dp0=0x7F00000/((bit<<16)-(int)p0);
+							for(int k=0;k<A2_NCTX;++k)
+							{
+								int mk=curr_mixer[k]-(int)(dL_dp0*(curr_stats[k][tidx]-(int)p0)/wsum>>sh);
+								CLAMP2_32(curr_mixer[k], mk, 1, 0x40000);
+							}
+						}
+						for(int k=0;k<A2_NCTX;++k)
+						{
+							int p=curr_stats[k][tidx];
+							p+=((!bit<<16)-p)>>(sh+4+(k>A2_NCTX/2));
+							CLAMP2_32(curr_stats[k][tidx], p, 1, 0xFFFF);
 						}
 					}
-					pctrs=ctrs;
-					xorshift64(&prngstate);
-					unsigned long long x=prngstate;
-					for(int k=0;k<A2_NCTX;++k)
-					{
-						if(pctrs[bit]>=(1<<A2_CTRBITS1)-1)
-						{
-							pctrs[0]>>=1;
-							pctrs[1]>>=1;
-						}
-						//pctrs[bit+0]+=!(x&1);
-						//x>>=1;
-						++pctrs[bit];
-
-						if(pctrs[bit+2]>=(1<<A2_CTRBITS2)-1)
-						{
-							pctrs[2]>>=1;
-							pctrs[3]>>=1;
-						}
-						pctrs[bit+2]+=!(x&3);
-						x>>=2;
-						//++pctrs[bit+2];
-
-						if(pctrs[bit+4]>=(1<<A2_CTRBITS3)-1)
-						{
-							pctrs[4]>>=1;
-							pctrs[5]>>=1;
-						}
-						pctrs[bit+4]+=!(x&15);
-						x>>=4;
-						//++pctrs[bit+4];
-
-						pctrs[6]+=((bit<<16)-pctrs[6]+8)>>4;
-
-						//int next=args->statetable[pctrs[6]]>>(bit<<3)&0xFF;
-						//if(next>204&&x<<((452-next)>>3))//from paq8l
-						//	next-=4;
-						//pctrs[6]=next;
-
-						//if(!(x&1))
-						//	pctrs[6]=args->statetable[pctrs[6]]>>(bit<<3)&0xFF;
-						//x>>=1;
-
-						int bit2=pctrs[7]>0, count=abs(pctrs[6]);
-						if(bit==bit2)
-						{
-							int c0=count+1;
-							count+=!(x&((1ULL<<c0)-1));
-							x>>=c0;
-							//xorshift64(&prngstate);
-							//count+=!(prngstate&((1ULL<<(count+1))-1));
-							if(count>(1<<A2_RUNBITS>>1)-1)
-								count=(1<<A2_RUNBITS>>1)-1;
-						}
-						else
-							bit2=bit, count=1;
-						pctrs[7]=bit2?count:-count;
-
-						*pprobs[k]=
-							(unsigned long long)pctrs[7]<<extract_shift[7]|
-							(unsigned long long)pctrs[6]<<extract_shift[6]|
-							(unsigned long long)pctrs[5]<<extract_shift[5]|
-							(unsigned long long)pctrs[4]<<extract_shift[4]|
-							(unsigned long long)pctrs[3]<<extract_shift[3]|
-							(unsigned long long)pctrs[2]<<extract_shift[2]|
-							(unsigned long long)pctrs[1]<<extract_shift[1]|
-							pctrs[0];
-						pctrs+=_countof(extract_shift);
-						if(x<1ULL<<(2+4+A2_RUNBITS))
-						{
-							xorshift64(&prngstate);
-							x=prngstate;
-						}
-					}
-					curr_mixer+=A2_NCTX*A2_NREC;
+					curr_mixer+=A2_NCTX;
 					curr_sse+=1<<A2_SSEBITS;
 					tidx+=tidx+bit;
 				}
@@ -2414,12 +2232,12 @@ static void block_thread(void *param)
 		}
 	}
 	if(args->fwd)
-		ac4_enc_flush(&ec);
+		ac3_enc_flush(&ec);
 }
 int c03_codec(const char *srcfn, const char *dstfn)
 {
 	const int nch=3, depth=8;
-	double t0, ttable;
+	double t0;
 	ArrayHandle src, dst;
 	int headersize, printed;
 	int iw, ih;
@@ -2431,8 +2249,6 @@ int c03_codec(const char *srcfn, const char *dstfn)
 	ptrdiff_t start, memusage, argssize;
 	ThreadArgs *args;
 	int test, fwd;
-	unsigned short *divtable1, *divtable2, *divtable3;
-	unsigned *statetable;
 #ifdef ENABLE_MIX4
 	int clevels;
 #endif
@@ -2479,48 +2295,11 @@ int c03_codec(const char *srcfn, const char *dstfn)
 	memusage=0;
 	argssize=nthreads*sizeof(ThreadArgs);
 	args=(ThreadArgs*)malloc(argssize);
-	divtable1=(unsigned short*)malloc(sizeof(short[1<<(A2_CTRBITS1<<1)]));
-	divtable2=(unsigned short*)malloc(sizeof(short[1<<(A2_CTRBITS2<<1)]));
-	divtable3=(unsigned short*)malloc(sizeof(short[1<<(A2_CTRBITS3<<1)]));
-	statetable=(unsigned*)malloc(sizeof(int[256]));
-	if(!args||!divtable1||!divtable2||!divtable3||!statetable)
+	if(!args)
 	{
 		LOG_ERROR("Alloc error");
 		return 1;
 	}
-	ttable=time_sec();
-	for(int k=0;k<1<<(A2_CTRBITS1<<1);++k)
-	{
-		long long mag=8;
-		int n0=k&((1<<A2_CTRBITS1)-1), n1=k>>A2_CTRBITS1&((1<<A2_CTRBITS1)-1);
-		int total=(int)((n0+n1)*mag+2);
-		int p1=(int)((((n1*mag+1)<<16)+total/2)/total);
-		divtable1[k]=p1;
-	}
-	for(int k=0;k<1<<(A2_CTRBITS2<<1);++k)
-	{
-		long long mag=8;
-		int n0=k&((1<<A2_CTRBITS2)-1), n1=k>>A2_CTRBITS2&((1<<A2_CTRBITS2)-1);
-		int total=(int)((n0+n1)*mag+2);
-		int p1=(int)((((n1*mag+1)<<16)+total-1)/total);
-		divtable2[k]=p1;
-	}
-	for(int k=0;k<1<<(A2_CTRBITS3<<1);++k)
-	{
-		long long mag=8;
-		int n0=k&((1<<A2_CTRBITS3)-1), n1=k>>A2_CTRBITS3&((1<<A2_CTRBITS3)-1);
-		int total=(int)((n0+n1)*mag+2);
-		int p1=(int)((((n1*mag+1)<<16)+0)/total);
-		divtable3[k]=p1;
-	}
-	//for(int k=0;k<256;++k)
-	//{
-	//	const unsigned char *cell=g_state_table[k];
-	//	int total=(cell[2]+cell[3])*8+2;
-	//	int p1=(((cell[3]*8+1)<<16)+total/2)/total;
-	//	statetable[k]=p1<<16|cell[1]<<8|cell[0];
-	//}
-	ttable=time_sec()-ttable;
 	esize=0;
 	memusage+=argssize;
 	memset(args, 0, argssize);
@@ -2603,10 +2382,6 @@ int c03_codec(const char *srcfn, const char *dstfn)
 			LOG_ERROR("Alloc error");
 			return 1;
 		}
-		arg->divtable1=divtable1;
-		arg->divtable2=divtable2;
-		arg->divtable3=divtable3;
-		//arg->statetable=statetable;
 		memusage+=arg->bufsize;
 		memusage+=histsize;
 		//memusage+=statssize;
@@ -2710,7 +2485,6 @@ int c03_codec(const char *srcfn, const char *dstfn)
 			t0=time_sec()-t0;
 			if(fwd)
 			{
-				printf("Table gen %lf sec\n", ttable);
 #ifdef ABAC_PROFILESIZE
 				double upsize=(double)iw*ih/8;
 				for(int kb=0;kb<ABAC_TOKEN_BITS*3;++kb)
