@@ -22,8 +22,8 @@ static const char file[]=__FILE__;
 
 #define A2_CTXBITS 8
 #define A2_NCTX 12	//multiple of 4
-#define A2_SSECBITS 5
-#define A2_SSEPBITS 5
+#define A2_SSECBITS 6
+#define A2_SSEPBITS 4
 #define A2_SSECTR 16
 
 
@@ -1107,6 +1107,8 @@ static void block_thread(void *param)
 				long long *curr_sse=args->sse[kc]
 					[(N[kc2]-NW[kc2]+256)>>(9-A2_SSECBITS)&((1<<A2_SSECBITS)-1)]
 					[(W[kc2]-NW[kc2]+256)>>(9-A2_SSECBITS)&((1<<A2_SSECBITS)-1)];
+				//	[(W[kc2]-NW[kc2]+N[kc2]-NN[kc2]+512)>>(10-A2_SSECBITS)&((1<<A2_SSECBITS)-1)]
+				//	[(N[kc2]-NW[kc2]+W[kc2]-WW[kc2]+512)>>(10-A2_SSECBITS)&((1<<A2_SSECBITS)-1)];
 				//long long *curr_sse=args->sse+(kc*8LL<<A2_SSEPBITS);
 #endif
 				int shoffset=abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]);
