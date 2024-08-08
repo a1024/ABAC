@@ -9,7 +9,8 @@ static const char file[]=__FILE__;
 //	#define ENABLE_GUIDE
 //	#define DISABLE_MT
 
-
+	#define ENABLE_SSE//good
+//	#define PRINT_SH
 //	#define DISABLE_WG
 
 #define CODECNAME "C03"
@@ -266,7 +267,9 @@ typedef struct _ThreadArgs
 
 	int tlevels;
 	unsigned short stats[A2_NCTX*3<<A2_CTXBITS<<8];
+#ifdef ENABLE_SSE
 	long long sse[24<<A2_SSEBITS];
+#endif
 
 	//aux
 	int blockidx;
@@ -864,7 +867,9 @@ static void block_thread(void *param)
 	ALIGN(32) long long mixer[8*3*A2_NCTX]={0};
 	FILLMEM(mixer, 0x3000, sizeof(mixer), sizeof(long long));
 	FILLMEM(args->stats, 0x8000, sizeof(args->stats), sizeof(short));
+#ifdef ENABLE_SSE
 	memset(args->sse, 0, sizeof(args->sse));
+#endif
 
 #ifndef DISABLE_WG
 	int wg_weights[WG_NPREDS*3]={0}, wg_perrors[WG_NPREDS*3]={0}, wg_preds[WG_NPREDS]={0};
@@ -1057,6 +1062,7 @@ static void block_thread(void *param)
 				pred+=offset;
 				CLAMP2_32(pred, pred, -128, 127);
 				unsigned short *curr_stats[A2_NCTX];
+				int grad=abs(NE[kc2+0]-N[kc2+0])+abs(N[kc2+0]-NW[kc2+0])+abs(W[kc2+0]-NW[kc2+0]);
 				int ctx[A2_NCTX]=
 				{
 					pred*3,
@@ -1064,7 +1070,7 @@ static void block_thread(void *param)
 					pred/5,
 					//(W[kc2+0]+NE[kc2+0]+NEE[kc2+0]+NEEE[kc2+0])>>1,
 					//N[kc2+0],
-					(abs(NE[kc2+0]-N[kc2+0])+abs(N[kc2+0]-NW[kc2+0])+abs(W[kc2+0]-NW[kc2+0]))*2,
+					grad*2,
 					N[kc2+0]-W[kc2+0],
 					2*FLOOR_LOG2(abs(N[kc2+1])*7)+FLOOR_LOG2(abs(W[kc2+1])*3),
 					//N[kc2+0]+W[kc2+0]-NW[kc2+0],
@@ -1097,7 +1103,10 @@ static void block_thread(void *param)
 					error=0;
 				int tidx=1;
 				long long *curr_mixer=mixer+kc*8*A2_NCTX;
+#ifdef ENABLE_SSE
 				long long *curr_sse=args->sse+(kc*8LL<<A2_SSEBITS);
+#endif
+				int shoffset=abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]);
 				for(int kb=7, e2=0;kb>=0;--kb)
 				{
 					long long p0=0;
@@ -1157,10 +1166,12 @@ static void block_thread(void *param)
 					else
 						p0=0x8000, wsum=1;
 #endif
+#ifdef ENABLE_SSE
 					int sseidx=(int)(p0>>(16-A2_SSEBITS));
 					CLAMP2(sseidx, 0, (1<<A2_SSEBITS)-1);
 					long long ssesum=curr_sse[sseidx]>>A2_SSECTR, ssecount=curr_sse[sseidx]&((1LL<<A2_SSECTR)-1);
 					p0+=ssesum/(ssecount+160);
+#endif
 					CLAMP2(p0, 1, 0xFFFF);
 					//CLAMP2_32(p0, (int)p0, 1, 0xFFFF);
 					if(args->fwd)
@@ -1175,6 +1186,7 @@ static void block_thread(void *param)
 					}
 					e2|=bit<<kb;
 					int prob_error=(!bit<<16)-(int)p0;
+#ifdef ENABLE_SSE
 					++ssecount;
 					ssesum+=prob_error;
 					if(ssecount>0x4A00)
@@ -1183,65 +1195,82 @@ static void block_thread(void *param)
 						ssesum>>=1;
 					}
 					curr_sse[sseidx]=ssesum<<A2_SSECTR|ssecount;
+#endif
 					{
 						int pred2=(char)(e2|1<<kb>>1)-pred;
 						int sh=0;
 						switch(kb)
 						{
 						case 7:
-							sh=(ctx[2]/2+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
+							sh=(shoffset+grad)>>7;
 							if(sh<-1)sh=-1;
 							sh=FLOOR_LOG2(sh+1)+1;
 							break;
 						case 6:
-							sh=(ctx[2]/2-abs(pred2)+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
+							sh=(shoffset+grad-abs(pred2))>>7;
 							if(sh<-1)sh=-1;
 							sh=FLOOR_LOG2(sh+1)+1;
 							break;
 						case 5:
-							sh=(ctx[2]/2-abs(pred2)+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
+							sh=(shoffset+grad-abs(pred2))>>7;
 							if(sh<-1)sh=-1;
 							sh=FLOOR_LOG2(sh+1)+1;
 						//	sh=(9*(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1]))+abs(pred2))>>8;
 						//	sh=FLOOR_LOG2(sh);
 							break;
 						case 4:
-							sh=(ctx[2]/2-abs(pred2)/2+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
+							sh=(shoffset+grad-abs(pred2)/2)>>7;
 							if(sh<-1)sh=-1;
 							sh=FLOOR_LOG2(sh+1)+1;
 						//	sh=(9*(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1]))+abs(pred2))>>8;
 						//	sh=FLOOR_LOG2(sh);
 							break;
 						case 3:
-							sh=(ctx[2]/2-abs(pred2)/4+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
+							sh=(shoffset+grad-abs(pred2)/4)>>7;
 							if(sh<-1)sh=-1;
 							sh=FLOOR_LOG2(sh+1)+1;
 						//	sh=(9*(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1]))+abs(pred2))>>8;
 						//	sh=FLOOR_LOG2(sh);
 							break;
 						case 2:
-							sh=(ctx[2]/2-abs(pred2)/8+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
+							sh=(shoffset+grad-abs(pred2)/8)>>7;
 							if(sh<-1)sh=-1;
 							sh=FLOOR_LOG2(sh+1)+1;
 						//	sh=(9*(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1]))+abs(pred2))>>8;
 						//	sh=FLOOR_LOG2(sh);
 							break;
 						case 1:
-							sh=(ctx[2]/2+abs(pred2)/4+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
+							sh=(shoffset+grad+abs(pred2)/4)>>7;
 							if(sh<-1)sh=-1;
 							sh=FLOOR_LOG2(sh+1)+1;
 						//	sh=(8*(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1]))+2*abs(pred2))>>8;
 						//	sh=FLOOR_LOG2(sh);
 							break;
 						case 0:
-							sh=(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])-abs(WW[kc2+1])+7*abs(pred2))>>8;
+							sh=(shoffset+7*abs(pred2))>>8;
+						//	sh=(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])-abs(WW[kc2+1])+7*abs(pred2))>>8;
 							if(sh<0)sh=0;
 							sh=FLOOR_LOG2(sh)+1;
-						//	sh=(ctx[2]/2+abs(pred2)/4+abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]))>>7;
+						//	sh=(grad+abs(pred2)/4+shoffset)>>7;
 						//	if(sh<-1)sh=-1;
 						//	sh=FLOOR_LOG2(sh+1);
 							break;
 						}
+#ifdef PRINT_SH
+						if(args->fwd&&ky<<1>=args->ih-5&&ky<<1<=args->ih+5&&kx<<1>=args->iw-5&&kx<<1<=args->iw+5)
+						{
+							if(kb==7)
+								printf("%5d %5d", kx, ky);
+							printf(" %d", sh);
+							if(kb==0)
+							{
+								printf(" 0x%02X = %d\n", error&0xFF, error);
+								if(kc==2)
+									printf("\n");
+							}
+						//	printf("%5d %5d %d %d\n", kx, ky, kb, sh);
+						}
+#endif
 						if(abs(prob_error)>16)
 						{
 #if 1
@@ -1324,7 +1353,9 @@ static void block_thread(void *param)
 #endif
 					}
 					curr_mixer+=A2_NCTX;
+#ifdef ENABLE_SSE
 					curr_sse+=1<<A2_SSEBITS;
+#endif
 					tidx+=tidx+bit;
 				}
 				if(!args->fwd)
