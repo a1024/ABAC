@@ -18,11 +18,12 @@ static const char file[]=__FILE__;
 #include"entropy.h"
 
 #define BLOCKSIZE 1024
-#define MAXPRINTEDBLOCKS 200
+#define MAXPRINTEDBLOCKS 20
 
 #define A2_CTXBITS 8
 #define A2_NCTX 12	//multiple of 4
-#define A2_SSEBITS 6
+#define A2_SSECBITS 5
+#define A2_SSEPBITS 5
 #define A2_SSECTR 16
 
 
@@ -268,7 +269,8 @@ typedef struct _ThreadArgs
 	int tlevels;
 	unsigned short stats[A2_NCTX*3<<A2_CTXBITS<<8];
 #ifdef ENABLE_SSE
-	long long sse[24<<A2_SSEBITS];
+	long long sse[3][1<<A2_SSECBITS][1<<A2_SSECBITS][8<<A2_SSEPBITS];
+	//long long sse[24<<A2_SSEPBITS];
 #endif
 
 	//aux
@@ -1033,9 +1035,7 @@ static void block_thread(void *param)
 				case PRED_AV9:
 					CLAMP3_32(pred,
 						W[kc2]+((10*N[kc2]-9*NW[kc2]+4*NE[kc2]-2*(NN[kc2]+WW[kc2])+NNW[kc2]-(NNE[kc2]+NWW[kc2]))>>4),
-						N[kc2],
-						W[kc2],
-						NE[kc2]
+						N[kc2], W[kc2], NE[kc2]
 					);
 					break;
 				case PRED_AV12:
@@ -1060,7 +1060,7 @@ static void block_thread(void *param)
 				pred=wg_predict(wg_weights+WG_NPREDS*kc, rows, 4*2, kc2, pred, wg_perrors+WG_NPREDS*kc, wg_preds);
 #endif
 				pred+=offset;
-				CLAMP2_32(pred, pred, -128, 127);
+				CLAMP2(pred, -128, 127);
 				unsigned short *curr_stats[A2_NCTX];
 				int grad=abs(NE[kc2+0]-N[kc2+0])+abs(N[kc2+0]-NW[kc2+0])+abs(W[kc2+0]-NW[kc2+0]);
 				int ctx[A2_NCTX]=
@@ -1104,7 +1104,10 @@ static void block_thread(void *param)
 				int tidx=1;
 				long long *curr_mixer=mixer+kc*8*A2_NCTX;
 #ifdef ENABLE_SSE
-				long long *curr_sse=args->sse+(kc*8LL<<A2_SSEBITS);
+				long long *curr_sse=args->sse[kc]
+					[(N[kc2]-NW[kc2]+256)>>(9-A2_SSECBITS)&((1<<A2_SSECBITS)-1)]
+					[(W[kc2]-NW[kc2]+256)>>(9-A2_SSECBITS)&((1<<A2_SSECBITS)-1)];
+				//long long *curr_sse=args->sse+(kc*8LL<<A2_SSEPBITS);
 #endif
 				int shoffset=abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]);
 				for(int kb=7, e2=0;kb>=0;--kb)
@@ -1167,10 +1170,10 @@ static void block_thread(void *param)
 						p0=0x8000, wsum=1;
 #endif
 #ifdef ENABLE_SSE
-					int sseidx=(int)(p0>>(16-A2_SSEBITS));
-					CLAMP2(sseidx, 0, (1<<A2_SSEBITS)-1);
+					int sseidx=(int)(p0>>(16-A2_SSEPBITS));
+					CLAMP2(sseidx, 0, (1<<A2_SSEPBITS)-1);
 					long long ssesum=curr_sse[sseidx]>>A2_SSECTR, ssecount=curr_sse[sseidx]&((1LL<<A2_SSECTR)-1);
-					p0+=ssesum/(ssecount+160);
+					p0+=ssesum/(ssecount+5);
 #endif
 					CLAMP2(p0, 1, 0xFFFF);
 					//CLAMP2_32(p0, (int)p0, 1, 0xFFFF);
@@ -1202,60 +1205,32 @@ static void block_thread(void *param)
 						switch(kb)
 						{
 						case 7:
-							sh=(shoffset+grad)>>7;
-							if(sh<-1)sh=-1;
-							sh=FLOOR_LOG2(sh+1)+1;
+							sh=(shoffset+grad+(1<<7))>>7;
 							break;
 						case 6:
-							sh=(shoffset+grad-abs(pred2))>>7;
-							if(sh<-1)sh=-1;
-							sh=FLOOR_LOG2(sh+1)+1;
+							sh=(shoffset+grad-abs(pred2)+(1<<7))>>7;
 							break;
 						case 5:
-							sh=(shoffset+grad-abs(pred2))>>7;
-							if(sh<-1)sh=-1;
-							sh=FLOOR_LOG2(sh+1)+1;
-						//	sh=(9*(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1]))+abs(pred2))>>8;
-						//	sh=FLOOR_LOG2(sh);
+							sh=(shoffset+grad-abs(pred2)+(1<<7))>>7;
 							break;
 						case 4:
-							sh=(shoffset+grad-abs(pred2)/2)>>7;
-							if(sh<-1)sh=-1;
-							sh=FLOOR_LOG2(sh+1)+1;
-						//	sh=(9*(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1]))+abs(pred2))>>8;
-						//	sh=FLOOR_LOG2(sh);
+							sh=(shoffset+grad-abs(pred2)/2+(1<<7))>>7;
 							break;
 						case 3:
-							sh=(shoffset+grad-abs(pred2)/4)>>7;
-							if(sh<-1)sh=-1;
-							sh=FLOOR_LOG2(sh+1)+1;
-						//	sh=(9*(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1]))+abs(pred2))>>8;
-						//	sh=FLOOR_LOG2(sh);
+							sh=(shoffset+grad-abs(pred2)/4+(1<<7))>>7;
 							break;
 						case 2:
-							sh=(shoffset+grad-abs(pred2)/8)>>7;
-							if(sh<-1)sh=-1;
-							sh=FLOOR_LOG2(sh+1)+1;
-						//	sh=(9*(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1]))+abs(pred2))>>8;
-						//	sh=FLOOR_LOG2(sh);
+							sh=(shoffset+grad-abs(pred2)/8+(1<<7))>>7;
 							break;
 						case 1:
-							sh=(shoffset+grad+abs(pred2)/4)>>7;
-							if(sh<-1)sh=-1;
-							sh=FLOOR_LOG2(sh+1)+1;
-						//	sh=(8*(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1]))+2*abs(pred2))>>8;
-						//	sh=FLOOR_LOG2(sh);
+							sh=(shoffset+grad+abs(pred2)/4+(1<<7))>>7;
 							break;
 						case 0:
-							sh=(shoffset+7*abs(pred2))>>8;
-						//	sh=(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])-abs(WW[kc2+1])+7*abs(pred2))>>8;
-							if(sh<0)sh=0;
-							sh=FLOOR_LOG2(sh)+1;
-						//	sh=(grad+abs(pred2)/4+shoffset)>>7;
-						//	if(sh<-1)sh=-1;
-						//	sh=FLOOR_LOG2(sh+1);
+							sh=(shoffset-abs(W[kc2+1])+abs(NEE[kc2+1])/2+abs(NN[kc2+1])+7*abs(pred2))>>8;
 							break;
 						}
+						if(sh<0)sh=0;
+						sh=FLOOR_LOG2_P1(sh);
 #ifdef PRINT_SH
 						if(args->fwd&&ky<<1>=args->ih-5&&ky<<1<=args->ih+5&&kx<<1>=args->iw-5&&kx<<1<=args->iw+5)
 						{
@@ -1354,7 +1329,7 @@ static void block_thread(void *param)
 					}
 					curr_mixer+=A2_NCTX;
 #ifdef ENABLE_SSE
-					curr_sse+=1<<A2_SSEBITS;
+					curr_sse+=1<<A2_SSEPBITS;
 #endif
 					tidx+=tidx+bit;
 				}
