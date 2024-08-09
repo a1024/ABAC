@@ -2255,6 +2255,66 @@ void pred_cfl(char *buf, int iw, int ih, int fwd)
 
 
 //spatial transforms
+void filt_deint422(Image *src)
+{
+	for(int ky=0;ky<src->ih;++ky)
+	{
+		for(int kx=1;kx<src->iw-1;kx+=2)
+		{
+			int
+				duW=src->data[(src->iw*(ky+0)+kx+0)<<2|1],
+				duE=src->data[(src->iw*(ky+0)+kx+1)<<2|1],
+				dvW=src->data[(src->iw*(ky+0)+kx+0)<<2|2],
+				dvE=src->data[(src->iw*(ky+0)+kx+1)<<2|2];
+			int
+				suW=(+3*duW-1*duE+1)>>1,
+				suE=(-1*duW+3*duE+1)>>1;
+			int
+				svW=(+3*dvW-1*dvE+1)>>1,
+				svE=(-1*dvW+3*dvE+1)>>1;
+			src->data[(src->iw*(ky+0)+kx+0)<<2|1]=suW;
+			src->data[(src->iw*(ky+0)+kx+1)<<2|1]=suE;
+			src->data[(src->iw*(ky+0)+kx+0)<<2|2]=svW;
+			src->data[(src->iw*(ky+0)+kx+1)<<2|2]=svE;
+		}
+	}
+}
+void filt_deint420(Image *src)
+{
+	for(int ky=1;ky<src->ih-1;ky+=2)
+	{
+		for(int kx=1;kx<src->iw-1;kx+=2)
+		{
+			int
+				duNW=src->data[(src->iw*(ky+0)+kx+0)<<2|1],
+				duNE=src->data[(src->iw*(ky+0)+kx+1)<<2|1],
+				duSW=src->data[(src->iw*(ky+1)+kx+0)<<2|1],
+				duSE=src->data[(src->iw*(ky+1)+kx+1)<<2|1],
+				dvNW=src->data[(src->iw*(ky+0)+kx+0)<<2|2],
+				dvNE=src->data[(src->iw*(ky+0)+kx+1)<<2|2],
+				dvSW=src->data[(src->iw*(ky+1)+kx+0)<<2|2],
+				dvSE=src->data[(src->iw*(ky+1)+kx+1)<<2|2];
+			int
+				suNW=(+9*duNW-3*duNE-3*duSW+1*duSE+2)>>2,
+				suNE=(-3*duNW+9*duNE+1*duSW-3*duSE+2)>>2,
+				suSW=(-3*duNW+1*duNE+9*duSW-3*duSE+2)>>2,
+				suSE=(+1*duNW-3*duNE-3*duSW+9*duSE+2)>>2;
+			int
+				svNW=(+9*dvNW-3*dvNE-3*dvSW+1*dvSE+2)>>2,
+				svNE=(-3*dvNW+9*dvNE+1*dvSW-3*dvSE+2)>>2,
+				svSW=(-3*dvNW+1*dvNE+9*dvSW-3*dvSE+2)>>2,
+				svSE=(+1*dvNW-3*dvNE-3*dvSW+9*dvSE+2)>>2;
+			src->data[(src->iw*(ky+0)+kx+0)<<2|1]=suNW;
+			src->data[(src->iw*(ky+0)+kx+1)<<2|1]=suNE;
+			src->data[(src->iw*(ky+1)+kx+0)<<2|1]=suSW;
+			src->data[(src->iw*(ky+1)+kx+1)<<2|1]=suSE;
+			src->data[(src->iw*(ky+0)+kx+0)<<2|2]=svNW;
+			src->data[(src->iw*(ky+0)+kx+1)<<2|2]=svNE;
+			src->data[(src->iw*(ky+1)+kx+0)<<2|2]=svSW;
+			src->data[(src->iw*(ky+1)+kx+1)<<2|2]=svSE;
+		}
+	}
+}
 
 void packsign(Image *src, int fwd)
 {
@@ -2643,6 +2703,178 @@ void pred_clampgrad(Image *src, int fwd, int enable_ma)
 	}
 	free(dst);
 #endif
+}
+void pred_CG420(Image *src, int fwd)
+{
+	int nch;
+	int nlevels[]=
+	{
+		1<<src->depth[0],
+		1<<src->depth[1],
+		1<<src->depth[2],
+		1<<src->depth[3],
+	};
+	int halfs[]=
+	{
+		nlevels[0]>>1,
+		nlevels[1]>>1,
+		nlevels[2]>>1,
+		nlevels[3]>>1,
+	};
+	int fwdmask=-fwd;
+
+	int bufsize=(src->iw+16LL)*sizeof(int[4*4]);//4 padded rows * 4 channels max
+	int *pixels=(int*)malloc(bufsize);
+
+	if(!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(pixels, 0, bufsize);
+	nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
+	UPDATE_MAX(nch, src->nch);
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		int *rows[]=
+		{
+			pixels+((src->iw+16LL)*((ky-0LL)&3)+8)*4,
+			pixels+((src->iw+16LL)*((ky-1LL)&3)+8)*4,
+			pixels+((src->iw+16LL)*((ky-2LL)&3)+8)*4,
+			pixels+((src->iw+16LL)*((ky-3LL)&3)+8)*4,
+		};
+		for(int kx=0;kx<src->iw;++kx, idx+=4)
+		{
+			for(int kc=0;kc<3;++kc)
+			{
+				int pred, curr;
+				int
+					NW	=rows[1][kc-1*4],
+					N	=rows[1][kc+0*4],
+					W	=rows[0][kc-1*4];
+
+				if(kc)
+				{
+					if(ky&1)
+					{
+						if(kx&1)
+						{
+							MEDIAN3_32(pred, N, W, N+W-NW);
+						}
+						else
+							pred=N;
+					}
+					else
+					{
+						if(kx&1)
+							pred=W;
+						else
+						{
+							MEDIAN3_32(pred, N, W, N+W-NW);
+						}
+					}
+				}
+				else
+					MEDIAN3_32(pred, N, W, N+W-NW);
+
+				curr=src->data[idx+kc];
+				pred^=fwdmask;
+				pred-=fwdmask;
+				pred+=curr;
+
+				pred<<=32-src->depth[kc];
+				pred>>=32-src->depth[kc];
+
+				src->data[idx+kc]=pred;
+				rows[0][kc]=fwd?curr:pred;
+			}
+			rows[0]+=4;
+			rows[1]+=4;
+			rows[2]+=4;
+			rows[3]+=4;
+		}
+	}
+	free(pixels);
+}
+void pred_CG422(Image *src, int fwd)
+{
+	int nch;
+	int nlevels[]=
+	{
+		1<<src->depth[0],
+		1<<src->depth[1],
+		1<<src->depth[2],
+		1<<src->depth[3],
+	};
+	int halfs[]=
+	{
+		nlevels[0]>>1,
+		nlevels[1]>>1,
+		nlevels[2]>>1,
+		nlevels[3]>>1,
+	};
+	int fwdmask=-fwd;
+
+	int bufsize=(src->iw+16LL)*sizeof(int[4*4]);//4 padded rows * 4 channels max
+	int *pixels=(int*)malloc(bufsize);
+
+	if(!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(pixels, 0, bufsize);
+	nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
+	UPDATE_MAX(nch, src->nch);
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		int *rows[]=
+		{
+			pixels+((src->iw+16LL)*((ky-0LL)&3)+8)*4,
+			pixels+((src->iw+16LL)*((ky-1LL)&3)+8)*4,
+			pixels+((src->iw+16LL)*((ky-2LL)&3)+8)*4,
+			pixels+((src->iw+16LL)*((ky-3LL)&3)+8)*4,
+		};
+		for(int kx=0;kx<src->iw;++kx, idx+=4)
+		{
+			for(int kc=0;kc<3;++kc)
+			{
+				int pred, curr;
+				int
+					NW	=rows[1][kc-1*4],
+					N	=rows[1][kc+0*4],
+					W	=rows[0][kc-1*4];
+
+				if(kc)
+				{
+					if(kx&1)
+						pred=W;
+					else
+					{
+						MEDIAN3_32(pred, N, W, N+W-NW);
+					}
+				}
+				else
+					MEDIAN3_32(pred, N, W, N+W-NW);
+
+				curr=src->data[idx+kc];
+				pred^=fwdmask;
+				pred-=fwdmask;
+				pred+=curr;
+
+				pred<<=32-src->depth[kc];
+				pred>>=32-src->depth[kc];
+
+				src->data[idx+kc]=pred;
+				rows[0][kc]=fwd?curr:pred;
+			}
+			rows[0]+=4;
+			rows[1]+=4;
+			rows[2]+=4;
+			rows[3]+=4;
+		}
+	}
+	free(pixels);
 }
 
 
@@ -4477,6 +4709,7 @@ void pred_lwav(Image *src, int fwd)
 				int ctx[]=
 				{
 					0x2100,	N[0]+W[0]-NW[0],
+				//	0x0DB8, (NNW[0]-NN[0]-2*N[0]+2*NE[0]-2*WW[0]+5*W[0])/3,
 					0x0DB8, W[0]+NE[0]-N[0],
 					0x0E22, N[0]-((N[1]+W[1]+NE[1])*-0x005C>>8),
 					0x181F, W[0]-((N[1]+W[1]+NW[1])*-0x005B>>8),
@@ -11214,6 +11447,86 @@ void dwt2d_lazy_inv(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end
 }
 #endif
 
+//lazy DWT (1 step)
+static void dwt1d_lazy_fwd(int *buffer, int count, int stride, int *b2)
+{
+	int nodd=count>>1, extraeven=count&1;
+	int *odd=b2, *even=b2+nodd;
+	
+	for(int k=0, ks=0;k<nodd;++k, ks+=stride<<1)//lazy wavelet: split into odd (low frequency) & even (high frequency)
+	{
+		even[k]=buffer[ks];
+		odd[k]=buffer[ks+stride];
+	}
+	if(extraeven)
+		even[nodd]=buffer[stride*(count-1)];
+
+
+	for(int k=0, ks=0;k<count;++k, ks+=stride)
+		buffer[ks]=b2[k];
+}
+static void dwt1d_lazy_inv(int *buffer, int count, int stride, int *b2)
+{
+	int nodd=count>>1, extraeven=count&1;
+	int *odd=b2, *even=b2+nodd;
+
+	for(int k=0, ks=0;k<count;++k, ks+=stride)
+		b2[k]=buffer[ks];
+
+
+	for(int k=0, ks=0;k<nodd;++k, ks+=stride<<1)//inv lazy wavelet: join even & odd
+	{
+		buffer[ks]=even[k];
+		buffer[ks+stride]=odd[k];
+	}
+	if(extraeven)
+		buffer[stride*(count-1)]=even[nodd];
+}
+void dwt2d_lazy_fwd(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp)
+{
+	int iw=sizes->w, rowlen=stride*iw;
+//	int ih=sizes->h;
+	if(sizes_start>=sizes_end-1)
+		return;
+	//for(int it=sizes_start;it<sizes_end-1;++it)
+	{
+		//int w2=sizes[it].w, h2=sizes[it].h;
+		int w2=sizes[sizes_start].w, h2=sizes[sizes_start].h;
+
+		for(int ky=0;ky<h2;++ky)//horizontal DWT
+			dwt1d_lazy_fwd(buffer+rowlen*ky, w2, stride, temp);
+
+		//save_channel(buffer, iw, ih, 4, "cdf53-stage%02dA.PNG", it);
+		//snprintf(g_buf, G_BUF_SIZE, "cdf53-stage%02dA.PNG", it);
+		//lodepng_encode_file(g_buf, buffer, iw, ih, LCT_RGBA, 8);
+
+		for(int kx=0;kx<w2;++kx)//vertical DWT
+			dwt1d_lazy_fwd(buffer+stride*kx, h2, rowlen, temp);
+		
+		//save_channel(buffer, iw, ih, 4, "cdf53-stage%02dB.PNG", it);
+		//break;
+	}
+}
+void dwt2d_lazy_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp)
+{
+	int iw=sizes->w, rowlen=stride*iw;
+//	int ih=sizes->h;
+	if(sizes_start>=sizes_end-1)
+		return;
+	//for(int it=sizes_end-2;it>=sizes_start;--it)
+	{
+		//int w2=sizes[it].w, h2=sizes[it].h;
+		int w2=sizes[sizes_start].w, h2=sizes[sizes_start].h;
+
+		for(int kx=0;kx<w2;++kx)//vertical IDWT
+			dwt1d_lazy_inv(buffer+stride*kx, h2, rowlen, temp);
+
+		for(int ky=0;ky<h2;++ky)//horizontal IDWT
+			dwt1d_lazy_inv(buffer+rowlen*ky, w2, stride, temp);
+		//break;
+	}
+}
+
 //lifting-based 8bit Haar DWT
 static void dwt1d_haar_fwd(int *buffer, int count, int stride, int *b2)
 {
@@ -12999,6 +13312,8 @@ const char* ec_method_label(EContext ec_method)
 	CASE(ECTX_HIST)
 	CASE(ECTX_ABAC)
 	CASE(ECTX_ZERO)
+	CASE(ECTX_YUV422)
+	CASE(ECTX_YUV420)
 	CASE(ECTX_QNW)
 	CASE(ECTX_MIN_QN_QW)
 	CASE(ECTX_MAX_QN_QW)
@@ -13102,9 +13417,11 @@ void calc_csize_ec(Image const *src, EContext method, int adaptive, int expbits,
 {
 	int (*const getctx[])(const int *nb, int expbits, int msb, int lsb)=
 	{
-		getctx_zero,//unused
-		getctx_zero,//unused
 		getctx_zero,
+		getctx_zero,//unused
+		getctx_zero,//unused
+		getctx_zero,//unused
+		getctx_zero,//unused
 		getctx_QNW,
 		getctx_min_QN_QW,
 		getctx_max_QN_QW,

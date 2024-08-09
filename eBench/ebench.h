@@ -655,6 +655,7 @@ void update_image(void);
 
 
 //transforms
+void apply_transform(Image *image, int tid, int hasRCT);
 void apply_selected_transforms(Image *image, int rct_only);
 
 
@@ -709,8 +710,12 @@ void rct_adaptive(Image *src, int fwd);
 
 
 //spatial transforms
+void filt_deint422(Image *src);
+void filt_deint420(Image *src);
 void packsign(Image *src, int fwd);
 void pred_clampgrad(Image *image, int fwd, int enable_ma);
+void pred_CG420(Image *src, int fwd);
+void pred_CG422(Image *src, int fwd);
 void pred_av2(Image *src, int fwd);
 void pred_MTF(Image *src, int fwd);
 void pred_palette(Image *src, int fwd);
@@ -821,6 +826,8 @@ typedef struct DWTSizeStruct
 } DWTSize;
 ArrayHandle dwt2d_gensizes(int iw, int ih, int wstop, int hstop, int nstages_override);//calculate dimensions of each DWT stage in descending order
 
+void dwt2d_lazy_fwd   (int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp);
+void dwt2d_lazy_inv   (int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp);
 void dwt2d_haar_fwd   (int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp);
 void dwt2d_haar_inv   (int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp);
 void dwt2d_squeeze_fwd(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp);
@@ -832,8 +839,6 @@ void dwt2d_cdf97_inv  (int *buffer, DWTSize *sizes, int sizes_start, int sizes_e
 #if 0
 void dwt2d_grad_fwd   (int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp);
 void dwt2d_grad_inv   (int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp);
-void dwt2d_lazy_fwd   (int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp);
-void dwt2d_lazy_inv   (int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp);
 void dwt2d_exp_fwd    (int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp, const double *params);
 void dwt2d_exp_inv    (int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp, const double *params);
 void dwt2d_custom_fwd (int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp, const double *params);
@@ -921,6 +926,8 @@ typedef enum EContextEnum
 {
 	ECTX_ZERO,
 	ECTX_HIST,
+	ECTX_YUV422,
+	ECTX_YUV420,
 	ECTX_ABAC,
 	ECTX_QNW,
 	ECTX_MIN_QN_QW,

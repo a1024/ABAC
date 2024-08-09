@@ -53,6 +53,17 @@ typedef enum VisModeEnum
 } VisMode;
 int mode=VIS_IMAGE;
 
+typedef enum _ImageViewMode
+{
+	VIEW_RGB,
+	VIEW_C0,
+	VIEW_C1,
+	VIEW_C2,
+
+	VIEW_COUNT,
+} ImageViewMode;
+int viewmode=VIEW_RGB, view_ma=0;
+
 typedef enum TransformTypeEnum
 {
 	CT_FWD_SUBGREEN,	CT_INV_SUBGREEN,
@@ -77,9 +88,10 @@ typedef enum TransformTypeEnum
 	CT_FWD_CUSTOM,		CT_INV_CUSTOM,
 //	CT_FWD_ADAPTIVE,	CT_INV_ADAPTIVE,
 
-	CST_FWD_SEPARATOR,	CST_INV_SEPARATOR,
+	CST_COMPARE,		CST_INV_SEPARATOR,
 	
 	ST_FILT_MEDIAN33,	ST_FILT_AV33,
+	ST_FILT_DEINT422,	ST_FILT_DEINT420,
 
 	ST_FWD_PACKSIGN,	ST_INV_PACKSIGN,
 	ST_FWD_PALETTE,		ST_INV_PALETTE,
@@ -112,7 +124,10 @@ typedef enum TransformTypeEnum
 	ST_FWD_WGRAD3,		ST_INV_WGRAD3,
 	ST_FWD_LWAV,		ST_INV_LWAV,
 	ST_FWD_CLAMPGRAD,	ST_INV_CLAMPGRAD,
+	ST_FWD_CG422,		ST_INV_CG422,
+	ST_FWD_CG420,		ST_INV_CG420,
 	ST_FWD_AV2,		ST_INV_AV2,
+//	ST_FWD_AV3,		ST_INV_AV3,
 //	ST_FWD_ECOEFF,		ST_INV_ECOEFF,
 //	ST_FWD_AVERAGE,		ST_INV_AVERAGE,
 	ST_FWD_MULTISTAGE,	ST_INV_MULTISTAGE,
@@ -126,7 +141,7 @@ typedef enum TransformTypeEnum
 //	ST_FWD_SPLIT,		ST_INV_SPLIT,
 #endif
 	
-//	ST_FWD_LAZY,		ST_INV_LAZY,
+	ST_FWD_LAZY,		ST_INV_LAZY,
 	ST_FWD_HAAR,		ST_INV_HAAR,
 	ST_FWD_SQUEEZE,		ST_INV_SQUEEZE,
 	ST_FWD_LEGALL53,	ST_INV_LEGALL53,
@@ -1098,6 +1113,167 @@ static void calc_csize_stateful(Image const *image, int *hist_full, double *entr
 	}
 	else if(ec_method==ECTX_ABAC)
 		calc_csize_abac(image, entropy);
+	else if(ec_method==ECTX_YUV422||ec_method==ECTX_YUV420)
+	{
+		int nlevels[]=
+		{
+			1<<image->depth[0],
+			1<<image->depth[1],
+			1<<image->depth[2],
+		};
+		int hoffsets[]=
+		{
+			0,
+			nlevels[0],
+			nlevels[0],
+			nlevels[1],
+			nlevels[1],
+			nlevels[1],
+			nlevels[1],
+			nlevels[2],
+			nlevels[2],
+			nlevels[2],
+			nlevels[2],
+		};
+		int hsum[_countof(hoffsets)-1]={0};
+		for(int kc=1;kc<_countof(hoffsets);++kc)
+			hoffsets[kc]+=hoffsets[kc-1];
+		int hsize=hoffsets[_countof(hoffsets)-1]*(int)sizeof(int);
+		int *hist=(int*)malloc(hsize);
+		if(!hist)
+		{
+			LOG_ERROR("Alloc error");
+			return;
+		}
+		memset(hist, 0, hsize);
+		int *hist_y=hist, *hist_u=hist+hoffsets[2], *hist_v=hist+hoffsets[6];
+		for(int ky=0;ky<image->ih;++ky)
+		{
+			for(int kx=0;kx<image->iw;++kx)
+			{
+				for(int kc=0;kc<3;++kc)
+				{
+					int val=image->data[(image->iw*ky+kx)<<2|kc]+(nlevels[kc]>>1);
+					val&=nlevels[kc]-1;
+					if(ec_method==ECTX_YUV420)
+					{
+						switch(kc)
+						{
+						case 0:
+							if(!(kx&7)&&!(ky&7))//DC
+								++hist_y[0<<image->depth[0]|val], ++hsum[0];
+							else//AC
+								++hist_y[1<<image->depth[0]|val], ++hsum[1];
+							break;
+						case 1:
+							if(!(kx>>1&7)&&!(ky>>1&7))//DC
+							{
+								if(!(kx&1)&&!(ky&1))//base
+									++hist_u[0<<image->depth[1]|val], ++hsum[2];
+								else//interpolated
+									++hist_u[1<<image->depth[1]|val], ++hsum[3];
+							}
+							else//AC
+							{
+								if(!(kx&1)&&!(ky&1))//base
+									++hist_u[2<<image->depth[1]|val], ++hsum[4];
+								else//interpolated
+									++hist_u[3<<image->depth[1]|val], ++hsum[5];
+							}
+							break;
+						case 2:
+							if(!(kx>>1&7)&&!(ky>>1&7))//DC
+							{
+								if(!(kx&1)&&!(ky&1))//base
+									++hist_v[0<<image->depth[2]|val], ++hsum[6];
+								else//interpolated
+									++hist_v[1<<image->depth[2]|val], ++hsum[7];
+							}
+							else//AC
+							{
+								if(!(kx&1)&&!(ky&1))//base
+									++hist_v[2<<image->depth[2]|val], ++hsum[8];
+								else//interpolated
+									++hist_v[3<<image->depth[2]|val], ++hsum[9];
+							}
+							break;
+						}
+					}
+					else//YUV422
+					{
+						switch(kc)
+						{
+						case 0:
+							if(!(kx&7)&&!(ky&7))//DC
+								++hist_y[0<<image->depth[0]|val], ++hsum[0];
+							else//AC
+								++hist_y[1<<image->depth[0]|val], ++hsum[1];
+							break;
+						case 1:
+							if(!(kx>>1&7)&&!(ky&7))//DC
+							{
+								if(!(kx&1))//base
+									++hist_u[0<<image->depth[1]|val], ++hsum[2];
+								else//interpolated
+									++hist_u[1<<image->depth[1]|val], ++hsum[3];
+							}
+							else//AC
+							{
+								if(!(kx&1))//base
+									++hist_u[2<<image->depth[1]|val], ++hsum[4];
+								else//interpolated
+									++hist_u[3<<image->depth[1]|val], ++hsum[5];
+							}
+							break;
+						case 2:
+							if(!(kx>>1&7)&&!(ky&7))//DC
+							{
+								if(!(kx&1))//base
+									++hist_v[0<<image->depth[2]|val], ++hsum[6];
+								else//interpolated
+									++hist_v[1<<image->depth[2]|val], ++hsum[7];
+							}
+							else//AC
+							{
+								if(!(kx&1))//base
+									++hist_v[2<<image->depth[2]|val], ++hsum[8];
+								else//interpolated
+									++hist_v[3<<image->depth[2]|val], ++hsum[9];
+							}
+							break;
+						}
+					}
+				}
+			}
+		}
+		int eidxs[]=
+		{
+			0, 0,
+			1, 1, 1, 1,
+			2, 2, 2, 2,
+		};
+		//double e2[_countof(hoffsets)-1]={0};
+		memset(entropy, 0, sizeof(double[4]));
+		for(int kc=0;kc<_countof(hoffsets)-1;++kc)
+		{
+			int eidx=eidxs[kc], nlevels2=hoffsets[kc+1]-hoffsets[kc], sum=hsum[kc];
+			for(int ks=0;ks<nlevels2;++ks)
+			{
+				int freq=hist[hoffsets[kc]+ks];
+				if(freq)
+					entropy[eidx]-=freq*log2((double)freq/sum);
+			}
+			//e2[kc]=calc_entropy(hist+hoffsets[kc], hoffsets[kc+1]-hoffsets[kc], hsum[kc]);
+		}
+		int res=image->iw*image->ih;
+		entropy[0]/=res;
+		entropy[1]/=res;
+		entropy[2]/=res;
+		//entropy[0]=(e2[0]+e2[1])*0.5;
+		//entropy[1]=(e2[2]+e2[3]+e2[4]+e2[5])*0.25;
+		//entropy[2]=(e2[6]+e2[7]+e2[8]+e2[9])*0.25;
+		free(hist);
+	}
 	else
 		calc_csize_ec(image, ec_method, ec_adaptive?ec_adaptive_threshold:0, ec_expbits, ec_msb, ec_lsb, entropy);
 }
@@ -1355,7 +1531,7 @@ static void transforms_removeall(void)
 }
 static void transforms_append(unsigned tid)
 {
-	if(tid<T_COUNT&&tid!=CST_FWD_SEPARATOR&&tid!=CST_INV_SEPARATOR)
+	if(tid<T_COUNT&&tid!=CST_INV_SEPARATOR)
 	{
 		if(!transforms)
 		{
@@ -1370,7 +1546,7 @@ static void transforms_append(unsigned tid)
 			{
 				for(int k=0;k<(int)transforms->count;)
 				{
-					if((tid<CST_FWD_SEPARATOR)==(transforms->data[k]<CST_FWD_SEPARATOR))
+					if((tid<CST_COMPARE)==(transforms->data[k]<CST_COMPARE))
 					{
 						if(idx==-1)
 							idx=k;
@@ -1447,7 +1623,7 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 //	case CT_FWD_QUAD:		a="C  Fwd Quad";		break;
 //	case CT_INV_QUAD:		a="C  Inv Quad";		break;
 
-	case CST_FWD_SEPARATOR:		a="";				break;
+	case CST_COMPARE:		a="Compare";			break;
 	case CST_INV_SEPARATOR:		a="";				break;
 
 //	case ST_PREPROC_GRAD:		a=" S Preproc Grad";		break;
@@ -1462,6 +1638,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_PALETTE:		a=" S Inv Palette";		break;
 	case ST_FILT_MEDIAN33:		a=" S Filt Median33";		break;
 	case ST_FILT_AV33:		a=" S Filt Av33";		break;
+	case ST_FILT_DEINT422:		a=" S Filt DeInt422";		break;
+	case ST_FILT_DEINT420:		a=" S Filt DeInt420";		break;
 	case ST_FWD_P3:			a=" S Fwd P3";			break;
 	case ST_INV_P3:			a=" S Inv P3";			break;
 	case ST_FWD_G2:			a=" S Fwd G2";			break;
@@ -1486,16 +1664,22 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_CG3D:		a="CS Inv CG3D";		break;
 	case ST_FWD_CLAMPGRAD:		a=" S Fwd ClampGrad";		break;
 	case ST_INV_CLAMPGRAD:		a=" S Inv ClampGrad";		break;
+	case ST_FWD_CG422:		a=" S Fwd CG422";		break;
+	case ST_INV_CG422:		a=" S Inv CG422";		break;
+	case ST_FWD_CG420:		a=" S Fwd CG420";		break;
+	case ST_INV_CG420:		a=" S Inv CG420";		break;
 	case ST_FWD_AV2:		a=" S Fwd (N+W)>>1";		break;
 	case ST_INV_AV2:		a=" S Inv (N+W)>>1";		break;
+//	case ST_FWD_AV3:		a=" S Fwd AV3";			break;
+//	case ST_INV_AV3:		a=" S Inv AV3";			break;
 	case ST_FWD_WGRAD:		a="CS Fwd WGrad";		break;
 	case ST_INV_WGRAD:		a="CS Inv WGrad";		break;
 //	case ST_FWD_WGRAD2:		a="CS Fwd WGrad2";		break;
 //	case ST_INV_WGRAD2:		a="CS Inv WGrad2";		break;
 	case ST_FWD_WGRAD3:		a="CS Fwd WGrad3";		break;
 	case ST_INV_WGRAD3:		a="CS Inv WGrad3";		break;
-	case ST_FWD_LWAV:		a="CS Fwd LWAV";		break;
-	case ST_INV_LWAV:		a="CS Inv LWAV";		break;
+	case ST_FWD_LWAV:		a=" S Fwd LWAV";		break;
+	case ST_INV_LWAV:		a=" S Inv LWAV";		break;
 //	case ST_FWD_ECOEFF:		a=" S Fwd E-Coeff";		break;
 //	case ST_INV_ECOEFF:		a=" S Inv E-Coeff";		break;
 //	case ST_FWD_AVERAGE:		a=" S Fwd Average";		break;
@@ -1594,9 +1778,9 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_SHUFFLE:		a=" S Inv Shuffle";		break;
 //	case ST_FWD_SPLIT:		a=" S Fwd Split";		break;
 //	case ST_INV_SPLIT:		a=" S Inv Split";		break;
+#endif
 	case ST_FWD_LAZY:		a=" S Fwd Lazy DWT";		break;
 	case ST_INV_LAZY:		a=" S Inv Lazy DWT";		break;
-#endif
 	case ST_FWD_HAAR:		a=" S Fwd Haar";		break;
 	case ST_INV_HAAR:		a=" S Inv Haar";		break;
 	case ST_FWD_SQUEEZE:		a=" S Fwd Squeeze";		break;
@@ -2427,6 +2611,283 @@ void bayes_update()
 }
 #endif
 
+void apply_transform(Image *image, int tid, int hasRCT)
+{
+	switch(tid)
+	{
+//	case CT_FWD_ADAPTIVE:		rct_adaptive((char*)image, iw, ih, 1);			break;
+//	case CT_INV_ADAPTIVE:		rct_adaptive((char*)image, iw, ih, 0);			break;
+	case CT_FWD_YCoCg_R:		colortransform_YCoCg_R(image, 1);			break;
+	case CT_INV_YCoCg_R:		colortransform_YCoCg_R(image, 0);			break;
+	case CT_FWD_YCbCr_R_v1:		colortransform_YCbCr_R_v1(image, 1);			break;
+	case CT_INV_YCbCr_R_v1:		colortransform_YCbCr_R_v1(image, 0);			break;
+	case CT_FWD_YCbCr_R_v2:		colortransform_YCbCr_R_v2(image, 1);			break;
+	case CT_INV_YCbCr_R_v2:		colortransform_YCbCr_R_v2(image, 0);			break;
+	case CT_FWD_YCbCr_R_v3:		colortransform_YCbCr_R_v3(image, 1);			break;
+	case CT_INV_YCbCr_R_v3:		colortransform_YCbCr_R_v3(image, 0);			break;
+	case CT_FWD_YCbCr_R_v4:		colortransform_YCbCr_R_v4(image, 1);			break;
+	case CT_INV_YCbCr_R_v4:		colortransform_YCbCr_R_v4(image, 0);			break;
+	case CT_FWD_YCbCr_R_v5:		colortransform_YCbCr_R_v5(image, 1);			break;
+	case CT_INV_YCbCr_R_v5:		colortransform_YCbCr_R_v5(image, 0);			break;
+	case CT_FWD_YCbCr_R_v6:		colortransform_YCbCr_R_v6(image, 1);			break;
+	case CT_INV_YCbCr_R_v6:		colortransform_YCbCr_R_v6(image, 0);			break;
+	case CT_FWD_YCbCr_R_v7:		colortransform_YCbCr_R_v7(image, 1);			break;
+	case CT_INV_YCbCr_R_v7:		colortransform_YCbCr_R_v7(image, 0);			break;
+//	case CT_FWD_CrCgCb:		colortransform_CrCgCb_R(image, 1);			break;
+//	case CT_INV_CrCgCb:		colortransform_CrCgCb_R(image, 0);			break;
+	case CT_FWD_Pei09:		colortransform_Pei09(image, 1);				break;
+	case CT_INV_Pei09:		colortransform_Pei09(image, 0);				break;
+	case CT_FWD_SUBGREEN:		colortransform_subtractgreen(image, 1);			break;
+	case CT_INV_SUBGREEN:		colortransform_subtractgreen(image, 0);			break;
+	case CT_FWD_JPEG2000:		colortransform_JPEG2000(image, 1);			break;
+	case CT_INV_JPEG2000:		colortransform_JPEG2000(image, 0);			break;
+//	case CT_FWD_J2K2:		colortransform_J2K2(image, 1);				break;
+//	case CT_INV_J2K2:		colortransform_J2K2(image, 0);				break;
+//	case CT_FWD_YRGB_v1:		rct_yrgb_v1(image, 1);					break;
+//	case CT_INV_YRGB_v1:		rct_yrgb_v1(image, 0);					break;
+//	case CT_FWD_YRGB_v2:		rct_yrgb_v2(image, 1);					break;
+//	case CT_INV_YRGB_v2:		rct_yrgb_v2(image, 0);					break;
+//	case CT_FWD_CMYK:		ct_cmyk_fwd(image);					break;
+//	case CT_INV_CMYK_DUMMY:									break;
+	case CT_FWD_YCbCr:		colortransform_lossy_YCbCr(image, 1);			break;
+	case CT_INV_YCbCr:		colortransform_lossy_YCbCr(image, 0);			break;
+	case CT_FWD_XYB:		colortransform_lossy_XYB(image, 1);			break;
+	case CT_INV_XYB:		colortransform_lossy_XYB(image, 0);			break;
+//	case CT_FWD_MATRIX:		colortransform_lossy_matrix(image, 1);			break;
+//	case CT_INV_MATRIX:		colortransform_lossy_matrix(image, 0);			break;
+//	case CT_FWD_JPEG2000:		colortransform_jpeg2000_fwd((char*)image, iw, ih);	break;
+//	case CT_INV_JPEG2000:		colortransform_jpeg2000_inv((char*)image, iw, ih);	break;
+//	case CT_FWD_XGZ:		colortransform_xgz_fwd((char*)image, iw, ih);		break;
+//	case CT_INV_XGZ:		colortransform_xgz_inv((char*)image, iw, ih);		break;
+//	case CT_FWD_XYZ:		colortransform_xyz_fwd((char*)image, iw, ih);		break;
+//	case CT_INV_XYZ:		colortransform_xyz_inv((char*)image, iw, ih);		break;
+//	case CT_FWD_EXP:		colortransform_exp_fwd((char*)image, iw, ih);		break;
+//	case CT_INV_EXP:		colortransform_exp_inv((char*)image, iw, ih);		break;
+//	case CT_FWD_ADAPTIVE:		colortransform_adaptive((char*)image, iw, ih, 1);	break;
+//	case CT_INV_ADAPTIVE:		colortransform_adaptive((char*)image, iw, ih, 0);	break;
+	case CT_FWD_CUSTOM:		rct_custom(image, 1, rct_custom_params);		break;
+	case CT_INV_CUSTOM:		rct_custom(image, 0, rct_custom_params);		break;
+//	case CT_FWD_QUAD:		colortransform_quad((char*)image, iw, ih, 1);		break;
+//	case CT_INV_QUAD:		colortransform_quad((char*)image, iw, ih, 1);		break;
+
+//	case ST_PREPROC_GRAD:		preproc_grad((char*)image, iw, ih);			break;
+//	case ST_PREPROC_X:		preproc_x((char*)image, iw, ih);			break;
+//	case ST_PREPROC_X2:		preproc_x2((char*)image, iw, ih);			break;
+
+//	case ST_FWD_JOINT:		pred_joint_apply((char*)image, iw, ih, jointpredparams, 1);break;
+//	case ST_INV_JOINT:		pred_joint_apply((char*)image, iw, ih, jointpredparams, 0);break;
+//	case ST_FWD_CFL:		pred_cfl((char*)image, iw, ih, 1);			break;
+//	case ST_INV_CFL:		pred_cfl((char*)image, iw, ih, 0);			break;
+//	case ST_FWD_HYBRID3:		pred_hybrid_fwd((char*)image, iw, ih);			break;
+//	case ST_INV_HYBRID3:		pred_hybrid_inv((char*)image, iw, ih);			break;
+				
+//	case ST_FWD_CUSTOM2:		custom2_apply((char*)image, iw, ih, 1, &c2_params);	break;
+//	case ST_INV_CUSTOM2:		custom2_apply((char*)image, iw, ih, 0, &c2_params);	break;
+	case ST_FWD_WC:			pred_WC(image);						break;
+	case ST_INV_WC:			pred_WC(image);						break;
+	case ST_FWD_CUSTOM4:		pred_lossyconv(image);					break;
+	case ST_INV_CUSTOM4:		pred_lossyconv(image);					break;
+	case ST_FWD_CUSTOM3:		custom3_apply(image, 1, pred_ma_enabled, &c3_params);	break;
+	case ST_INV_CUSTOM3:		custom3_apply(image, 0, pred_ma_enabled, &c3_params);	break;
+	case ST_FWD_CUSTOM:		pred_custom(image, 1, pred_ma_enabled, custom_params);	break;
+	case ST_INV_CUSTOM:		pred_custom(image, 0, pred_ma_enabled, custom_params);	break;
+	case ST_FWD_CC:			conv_custom(image);					break;
+	case ST_INV_CC:			conv_custom(image);					break;
+//	case ST_FWD_CUSTOM4:		custom4_apply((char*)image, iw, ih, 1, &c4_params);	break;
+//	case ST_INV_CUSTOM4:		custom4_apply((char*)image, iw, ih, 0, &c4_params);	break;
+//	case ST_FWD_KALMAN:		kalman_apply((char*)image, iw, ih, 1);			break;
+//	case ST_INV_KALMAN:		kalman_apply((char*)image, iw, ih, 0);			break;
+//	case ST_FWD_CUSTOM2:		pred_custom2_apply((char*)image, iw, ih, 1);		break;
+//	case ST_INV_CUSTOM2:		pred_custom2_apply((char*)image, iw, ih, 0);		break;
+//	case ST_FWD_LOGIC:		pred_logic_apply((char*)image, iw, ih, logic_params, 1);break;
+//	case ST_INV_LOGIC:		pred_logic_apply((char*)image, iw, ih, logic_params, 0);break;
+//	case ST_FWD_LEARNED:		pred_learned_v4((char*)image, iw, ih, 1);		break;
+//	case ST_INV_LEARNED:		pred_learned_v4((char*)image, iw, ih, 0);		break;
+#ifdef ALLOW_OPENCL
+//	case ST_FWD_LEARNED_GPU:pred_learned_gpu((char*)image, iw, ih, 1);			break;
+//	case ST_INV_LEARNED_GPU:pred_learned_gpu((char*)image, iw, ih, 0);			break;
+#endif
+//	case ST_FWD_DIFF2D:		pred_diff2d_fwd((char*)image, iw, ih, 3, 4);		break;
+//	case ST_INV_DIFF2D:		pred_diff2d_inv((char*)image, iw, ih, 3, 4);		break;
+//	case ST_FWD_HPF:		pred_hpf_fwd((char*)image, iw, ih, 3, 4);		break;
+//	case ST_INV_HPF:		pred_hpf_inv((char*)image, iw, ih, 3, 4);		break;
+//	case ST_FWD_GRAD2:		pred_grad2_fwd((char*)image, iw, ih, 3, 4);		break;
+//	case ST_INV_GRAD2:		pred_grad2_inv((char*)image, iw, ih, 3, 4);		break;
+//	case ST_FWD_ADAPTIVE:		pred_adaptive((char*)image, iw, ih, 3, 4, 1);		break;
+//	case ST_INV_ADAPTIVE:		pred_adaptive((char*)image, iw, ih, 3, 4, 0);		break;
+	case ST_FWD_NBLIC:		pred_nblic(image, 1);					break;
+	case ST_INV_NBLIC:		pred_nblic(image, 0);					break;
+	case ST_FWD_CALIC:		pred_calic(image, 1, pred_ma_enabled);			break;
+	case ST_INV_CALIC:		pred_calic(image, 0, pred_ma_enabled);			break;
+	case ST_FWD_WP:			pred_jxl_apply(image, 1, pred_ma_enabled, jxlparams_i16);break;
+	case ST_INV_WP:			pred_jxl_apply(image, 0, pred_ma_enabled, jxlparams_i16);break;
+	case ST_FWD_WP2:		pred_divfreeWP(image, 1);				break;
+	case ST_INV_WP2:		pred_divfreeWP(image, 0);				break;
+	case ST_FWD_WPU:		pred_WPU(image, 1);					break;
+	case ST_INV_WPU:		pred_WPU(image, 0);					break;
+	case ST_FWD_DEFERRED:		pred_wp_deferred(image, 1);				break;
+	case ST_INV_DEFERRED:		pred_wp_deferred(image, 0);				break;
+	case ST_FWD_MM:			pred_w2_apply(image, 1, pred_ma_enabled, pw2_params);	break;
+	case ST_INV_MM:			pred_w2_apply(image, 0, pred_ma_enabled, pw2_params);	break;
+	case ST_FWD_OLS:		pred_ols(image, 1, pred_ma_enabled);			break;
+	case ST_INV_OLS:		pred_ols(image, 0, pred_ma_enabled);			break;
+	case ST_FWD_OLS2:		pred_ols2(image, 1, pred_ma_enabled);			break;
+	case ST_INV_OLS2:		pred_ols2(image, 0, pred_ma_enabled);			break;
+	case ST_FWD_OLS3:		pred_ols3(image, 1, pred_ma_enabled);			break;
+	case ST_INV_OLS3:		pred_ols3(image, 0, pred_ma_enabled);			break;
+	case ST_FWD_OLS4:		pred_ols4(image, ols4_period, ols4_lr, ols4_mask[0], ols4_mask[1], ols4_mask[2], ols4_mask[3], 1);break;
+	case ST_INV_OLS4:		pred_ols4(image, ols4_period, ols4_lr, ols4_mask[0], ols4_mask[1], ols4_mask[2], ols4_mask[3], 0);break;
+	case ST_FWD_OLS5:		pred_ols5(image, 1);					break;
+	case ST_INV_OLS5:		pred_ols5(image, 0);					break;
+	case ST_FWD_OLS6:		pred_ols6(image, 1);					break;
+	case ST_INV_OLS6:		pred_ols6(image, 0);					break;
+	case ST_FWD_PACKSIGN:		packsign(image, 1);					break;
+	case ST_INV_PACKSIGN:		packsign(image, 0);					break;
+	case ST_FWD_MTF:		pred_MTF(image, 1);					break;
+	case ST_INV_MTF:		pred_MTF(image, 0);					break;
+	case ST_FWD_PALETTE:		pred_palette(image, 1);					break;
+	case ST_INV_PALETTE:		pred_palette(image, 0);					break;
+	case ST_FILT_MEDIAN33:		filt_median33(image);					break;
+	case ST_FILT_AV33:		filt_av33(image);					break;
+	case ST_FILT_DEINT422:		filt_deint422(image);					break;
+	case ST_FILT_DEINT420:		filt_deint420(image);					break;
+	case ST_FWD_PU:			pred_PU(image, 1);					break;
+	case ST_INV_PU:			pred_PU(image, 0);					break;
+	case ST_FWD_CG3D:		pred_CG3D(image, 1, pred_ma_enabled);			break;
+	case ST_INV_CG3D:		pred_CG3D(image, 0, pred_ma_enabled);			break;
+	case ST_FWD_CLAMPGRAD:		pred_clampgrad(image, 1, pred_ma_enabled);		break;
+	case ST_INV_CLAMPGRAD:		pred_clampgrad(image, 0, pred_ma_enabled);		break;
+	case ST_FWD_CG422:		pred_CG422(image, 1);					break;
+	case ST_INV_CG422:		pred_CG422(image, 0);					break;
+	case ST_FWD_CG420:		pred_CG420(image, 1);					break;
+	case ST_INV_CG420:		pred_CG420(image, 0);					break;
+	case ST_FWD_AV2:		pred_av2(image, 1);					break;
+	case ST_INV_AV2:		pred_av2(image, 0);					break;
+//	case ST_FWD_AV3:		pred_av3(image, 1);					break;
+//	case ST_INV_AV3:		pred_av3(image, 0);					break;
+	case ST_FWD_WGRAD:		pred_wgrad(image, 1, hasRCT);				break;
+	case ST_INV_WGRAD:		pred_wgrad(image, 0, hasRCT);				break;
+//	case ST_FWD_WGRAD2:		pred_wgrad2(image, 1);					break;
+//	case ST_INV_WGRAD2:		pred_wgrad2(image, 0);					break;
+	case ST_FWD_WGRAD3:		pred_wgrad3(image, 1, hasRCT);				break;
+	case ST_INV_WGRAD3:		pred_wgrad3(image, 0, hasRCT);				break;
+	case ST_FWD_LWAV:		pred_lwav(image, 1);					break;
+	case ST_INV_LWAV:		pred_lwav(image, 0);					break;
+//	case ST_FWD_ECOEFF:		pred_ecoeff(image, 1, pred_ma_enabled);			break;
+//	case ST_INV_ECOEFF:		pred_ecoeff(image, 0, pred_ma_enabled);			break;
+//	case ST_FWD_AVERAGE:		pred_average(image, 1, pred_ma_enabled);		break;
+//	case ST_INV_AVERAGE:		pred_average(image, 0, pred_ma_enabled);		break;
+	case ST_FWD_MULTISTAGE:		pred_multistage(image, 1, pred_ma_enabled);		break;
+	case ST_INV_MULTISTAGE:		pred_multistage(image, 0, pred_ma_enabled);		break;
+	case ST_FWD_ZIPPER:		pred_zipper(image, 1, pred_ma_enabled);			break;
+	case ST_INV_ZIPPER:		pred_zipper(image, 0, pred_ma_enabled);			break;
+	case ST_FWD_P3:			pred_separate(image, 1, pred_ma_enabled);		break;
+	case ST_INV_P3:			pred_separate(image, 0, pred_ma_enabled);		break;
+//	case ST_FWD_DIR:		pred_dir(image, 1, pred_ma_enabled);			break;
+//	case ST_INV_DIR:		pred_dir(image, 0, pred_ma_enabled);			break;
+	case ST_FWD_G2:			pred_grad2(image, 1, pred_ma_enabled);			break;
+	case ST_INV_G2:			pred_grad2(image, 0, pred_ma_enabled);			break;
+	case ST_FWD_T47:		pred_t47(image, 1, pred_ma_enabled);			break;
+	case ST_INV_T47:		pred_t47(image, 0, pred_ma_enabled);			break;
+	case ST_FWD_DCT4:		image_dct4_fwd(image);					break;
+	case ST_INV_DCT4:		image_dct4_inv(image);					break;
+	case ST_FWD_DCT8:		image_dct8_fwd(image);					break;
+	case ST_INV_DCT8:		image_dct8_inv(image);					break;
+#if 0
+//	case ST_FWD_JMJ:		pred_jmj_apply((char*)image, iw, ih, 1);		break;
+//	case ST_INV_JMJ:		pred_jmj_apply((char*)image, iw, ih, 0);		break;
+//	case ST_FWD_JXL:		pred_jxl((char*)image, iw, ih, 3, 4, 1);		break;
+//	case ST_INV_JXL:		pred_jxl((char*)image, iw, ih, 3, 4, 0);		break;
+//	case ST_FWD_SORTNB:		pred_sortnb((char*)image, iw, ih, 3, 4, 1);		break;
+//	case ST_INV_SORTNB:		pred_sortnb((char*)image, iw, ih, 3, 4, 0);		break;
+//	case ST_FWD_MEDIAN:		pred_median_fwd((char*)image, iw, ih, 3, 4);		break;
+//	case ST_INV_MEDIAN:		pred_median_inv((char*)image, iw, ih, 3, 4);		break;
+//	case ST_FWD_DCT3PRED:		pred_dct3_fwd((char*)image, iw, ih, 3, 4);		break;
+//	case ST_INV_DCT3PRED:		pred_dct3_inv((char*)image, iw, ih, 3, 4);		break;
+//	case ST_FWD_PATHPRED:		pred_path_fwd((char*)image, iw, ih, 3, 4);		break;
+//	case ST_INV_PATHPRED:		pred_path_inv((char*)image, iw, ih, 3, 4);		break;
+	case ST_FWD_GRADPRED:		pred_grad_fwd((char*)image, iw, ih, 3, 4);		break;
+	case ST_INV_GRADPRED:		pred_grad_inv((char*)image, iw, ih, 3, 4);		break;
+	case ST_FWD_GRAD2:		pred_grad2((char*)image, iw, ih, 1);			break;
+	case ST_INV_GRAD2:		pred_grad2((char*)image, iw, ih, 0);			break;
+	case ST_FWD_CTX:		pred_ctx((char*)image, iw, ih, 1);			break;
+	case ST_INV_CTX:		pred_ctx((char*)image, iw, ih, 0);			break;
+//	case ST_FWD_C03:		pred_c03((char*)image, iw, ih, 1);			break;
+//	case ST_INV_C03:		pred_c03((char*)image, iw, ih, 0);			break;
+//	case ST_FWD_C10:		pred_c10((char*)image, iw, ih, 1);			break;
+//	case ST_INV_C10:		pred_c10((char*)image, iw, ih, 0);			break;
+	case ST_FWD_C20:		pred_c20((char*)image, iw, ih, 1);			break;
+	case ST_INV_C20:		pred_c20((char*)image, iw, ih, 0);			break;
+//	case ST_FWD_WU97:		pred_wu97((char*)image, iw, ih, 1);			break;
+//	case ST_INV_WU97:		pred_wu97((char*)image, iw, ih, 0);			break;
+//	case ST_FWD_BITWISE:		pred_bitwise((char*)image, iw, ih, 1);			break;
+//	case ST_INV_BITWISE:		pred_bitwise((char*)image, iw, ih, 0);			break;
+	case ST_FWD_SHUFFLE:		shuffle((char*)image, iw, ih, 1);			break;
+	case ST_INV_SHUFFLE:		shuffle((char*)image, iw, ih, 0);			break;
+//	case ST_FWD_SPLIT:		image_split_fwd((char*)image, iw, ih);			break;
+//	case ST_INV_SPLIT:		image_split_inv((char*)image, iw, ih);			break;
+#endif
+
+	case ST_FWD_LAZY:
+	case ST_INV_LAZY:
+	case ST_FWD_HAAR:
+	case ST_INV_HAAR:
+	case ST_FWD_SQUEEZE:
+	case ST_INV_SQUEEZE:
+	case ST_FWD_LEGALL53:
+	case ST_INV_LEGALL53:
+	case ST_FWD_CDF97:
+	case ST_INV_CDF97:
+//	case ST_FWD_GRAD_DWT:
+//	case ST_INV_GRAD_DWT:
+//	case ST_FWD_EXPDWT:
+//	case ST_INV_EXPDWT:
+//	case ST_FWD_CUSTOM_DWT:
+//	case ST_INV_CUSTOM_DWT:
+		{
+			ArrayHandle sizes=dwt2d_gensizes(image->iw, image->ih, 3, 3, 0);
+			int *temp=(int*)malloc(MAXVAR(image->iw, image->ih)*sizeof(int));
+			for(int kc=0;kc<4;++kc)
+			{
+				if(!image->depth[kc])
+					continue;
+				switch(tid)
+				{
+				case ST_FWD_LAZY:      dwt2d_lazy_fwd   (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+				case ST_INV_LAZY:      dwt2d_lazy_inv   (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+				case ST_FWD_HAAR:      dwt2d_haar_fwd   (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+				case ST_INV_HAAR:      dwt2d_haar_inv   (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+				case ST_FWD_SQUEEZE:   dwt2d_squeeze_fwd(image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+				case ST_INV_SQUEEZE:   dwt2d_squeeze_inv(image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+				case ST_FWD_LEGALL53:  dwt2d_cdf53_fwd  (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+				case ST_INV_LEGALL53:  dwt2d_cdf53_inv  (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+				case ST_FWD_CDF97:     dwt2d_cdf97_fwd  (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+				case ST_INV_CDF97:     dwt2d_cdf97_inv  (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+			//	case ST_FWD_GRAD_DWT:  dwt2d_grad_fwd   (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+			//	case ST_INV_GRAD_DWT:  dwt2d_grad_inv   (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+			//	case ST_FWD_EXPDWT:    dwt2d_exp_fwd    (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, customparam_st);break;//TODO use customdwtparams instead of sharing allcustomparam_st
+			//	case ST_INV_EXPDWT:    dwt2d_exp_inv    (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, customparam_st);break;
+			//	case ST_FWD_CUSTOM_DWT:dwt2d_custom_fwd (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, customparam_st);break;
+			//	case ST_INV_CUSTOM_DWT:dwt2d_custom_inv (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, customparam_st);break;
+				}
+				if(tid!=ST_FWD_LAZY&&tid!=ST_INV_LAZY)
+				{
+					int inv=tid&1;
+					image->depth[kc]+=(char)(!inv-inv);
+					UPDATE_MAX(image->depth[kc], image->src_depth[kc]);
+					//if(image->depth[kc]>=18)
+					//	printf("");
+					UPDATE_MIN(image->depth[kc], 18);
+				}
+			}
+			array_free(&sizes);
+			free(temp);
+		}
+		break;
+//	case ST_FWD_DEC_DWT:   dwt2d_dec_fwd((char*)image, iw, ih);	break;
+//	case ST_INV_DEC_DWT:   dwt2d_dec_inv((char*)image, iw, ih);	break;
+	}//switch
+}
 void apply_selected_transforms(Image *image, int rct_only)
 {
 	int hasRCT=0;
@@ -2436,274 +2897,80 @@ void apply_selected_transforms(Image *image, int rct_only)
 	for(int k=0;k<(int)transforms->count;++k)
 	{
 		unsigned char tid=transforms->data[k];
+		if(tid==CST_COMPARE)
+		{
+			unsigned char tid2=CST_COMPARE;
+			for(k=0;k<(int)transforms->count;++k)//look for two spatial transforms
+			{
+				tid=transforms->data[k];
+				if(tid>CST_COMPARE)
+					break;
+			}
+			for(++k;k<(int)transforms->count;++k)
+			{
+				tid2=transforms->data[k];
+				if(tid2>CST_COMPARE)
+					break;
+			}
+			if(tid>CST_COMPARE&&tid2>CST_COMPARE&&tid!=tid2)
+			{
+				Image *image2=0;
+				for(k=0;k<(int)transforms->count;++k)//apply RCTs
+				{
+					unsigned char tid3=transforms->data[k];
+					hasRCT|=tid<CST_INV_SEPARATOR;
+					if(tid3==tid||tid3==tid2)
+						break;
+					apply_transform(image, tid3, hasRCT);
+				}
+				image_copy(&image2, image);
+				apply_transform(image, tid, 0);
+				apply_transform(image2, tid2, 0);
+				int res=image->iw*image->ih<<2;
+				int amplitudes[]=
+				{
+					1<<image->depth[0]>>2,
+					1<<image->depth[1]>>2,
+					1<<image->depth[2]>>2,
+					1<<image->depth[3]>>2,
+				};
+				for(int kp=0;kp<res;++kp)
+				{
+					int val=image->data[kp];
+					int val2=image2->data[kp];
+					if(val==val2)
+						image->data[kp]=0;
+					else
+					{
+						val=abs(val);
+						val2=abs(val2);
+						if(val<val2)
+							image->data[kp]=-amplitudes[kp&3];
+						else
+							image->data[kp]=amplitudes[kp&3];
+					}
+				}
+				free(image2);
+				for(++k;k<(int)transforms->count;++k)
+				{
+					unsigned char tid3=transforms->data[k];
+					hasRCT|=tid3<CST_INV_SEPARATOR;
+					if(rct_only&&tid3>CST_INV_SEPARATOR)
+						continue;
+					if(tid3!=tid&&tid3!=tid2)
+						apply_transform(image, tid3, hasRCT);
+				}
+			}
+			return;
+		}
+	}
+	for(int k=0;k<(int)transforms->count;++k)
+	{
+		unsigned char tid=transforms->data[k];
 		hasRCT|=tid<CST_INV_SEPARATOR;
 		if(rct_only&&tid>CST_INV_SEPARATOR)
 			continue;
-		switch(tid)
-		{
-	//	case CT_FWD_ADAPTIVE:		rct_adaptive((char*)image, iw, ih, 1);			break;
-	//	case CT_INV_ADAPTIVE:		rct_adaptive((char*)image, iw, ih, 0);			break;
-		case CT_FWD_YCoCg_R:		colortransform_YCoCg_R(image, 1);			break;
-		case CT_INV_YCoCg_R:		colortransform_YCoCg_R(image, 0);			break;
-		case CT_FWD_YCbCr_R_v1:		colortransform_YCbCr_R_v1(image, 1);			break;
-		case CT_INV_YCbCr_R_v1:		colortransform_YCbCr_R_v1(image, 0);			break;
-		case CT_FWD_YCbCr_R_v2:		colortransform_YCbCr_R_v2(image, 1);			break;
-		case CT_INV_YCbCr_R_v2:		colortransform_YCbCr_R_v2(image, 0);			break;
-		case CT_FWD_YCbCr_R_v3:		colortransform_YCbCr_R_v3(image, 1);			break;
-		case CT_INV_YCbCr_R_v3:		colortransform_YCbCr_R_v3(image, 0);			break;
-		case CT_FWD_YCbCr_R_v4:		colortransform_YCbCr_R_v4(image, 1);			break;
-		case CT_INV_YCbCr_R_v4:		colortransform_YCbCr_R_v4(image, 0);			break;
-		case CT_FWD_YCbCr_R_v5:		colortransform_YCbCr_R_v5(image, 1);			break;
-		case CT_INV_YCbCr_R_v5:		colortransform_YCbCr_R_v5(image, 0);			break;
-		case CT_FWD_YCbCr_R_v6:		colortransform_YCbCr_R_v6(image, 1);			break;
-		case CT_INV_YCbCr_R_v6:		colortransform_YCbCr_R_v6(image, 0);			break;
-		case CT_FWD_YCbCr_R_v7:		colortransform_YCbCr_R_v7(image, 1);			break;
-		case CT_INV_YCbCr_R_v7:		colortransform_YCbCr_R_v7(image, 0);			break;
-	//	case CT_FWD_CrCgCb:		colortransform_CrCgCb_R(image, 1);			break;
-	//	case CT_INV_CrCgCb:		colortransform_CrCgCb_R(image, 0);			break;
-		case CT_FWD_Pei09:		colortransform_Pei09(image, 1);				break;
-		case CT_INV_Pei09:		colortransform_Pei09(image, 0);				break;
-		case CT_FWD_SUBGREEN:		colortransform_subtractgreen(image, 1);			break;
-		case CT_INV_SUBGREEN:		colortransform_subtractgreen(image, 0);			break;
-		case CT_FWD_JPEG2000:		colortransform_JPEG2000(image, 1);			break;
-		case CT_INV_JPEG2000:		colortransform_JPEG2000(image, 0);			break;
-	//	case CT_FWD_J2K2:		colortransform_J2K2(image, 1);				break;
-	//	case CT_INV_J2K2:		colortransform_J2K2(image, 0);				break;
-	//	case CT_FWD_YRGB_v1:		rct_yrgb_v1(image, 1);					break;
-	//	case CT_INV_YRGB_v1:		rct_yrgb_v1(image, 0);					break;
-	//	case CT_FWD_YRGB_v2:		rct_yrgb_v2(image, 1);					break;
-	//	case CT_INV_YRGB_v2:		rct_yrgb_v2(image, 0);					break;
-	//	case CT_FWD_CMYK:		ct_cmyk_fwd(image);					break;
-	//	case CT_INV_CMYK_DUMMY:									break;
-		case CT_FWD_YCbCr:		colortransform_lossy_YCbCr(image, 1);			break;
-		case CT_INV_YCbCr:		colortransform_lossy_YCbCr(image, 0);			break;
-		case CT_FWD_XYB:		colortransform_lossy_XYB(image, 1);			break;
-		case CT_INV_XYB:		colortransform_lossy_XYB(image, 0);			break;
-	//	case CT_FWD_MATRIX:		colortransform_lossy_matrix(image, 1);			break;
-	//	case CT_INV_MATRIX:		colortransform_lossy_matrix(image, 0);			break;
-	//	case CT_FWD_JPEG2000:		colortransform_jpeg2000_fwd((char*)image, iw, ih);	break;
-	//	case CT_INV_JPEG2000:		colortransform_jpeg2000_inv((char*)image, iw, ih);	break;
-	//	case CT_FWD_XGZ:		colortransform_xgz_fwd((char*)image, iw, ih);		break;
-	//	case CT_INV_XGZ:		colortransform_xgz_inv((char*)image, iw, ih);		break;
-	//	case CT_FWD_XYZ:		colortransform_xyz_fwd((char*)image, iw, ih);		break;
-	//	case CT_INV_XYZ:		colortransform_xyz_inv((char*)image, iw, ih);		break;
-	//	case CT_FWD_EXP:		colortransform_exp_fwd((char*)image, iw, ih);		break;
-	//	case CT_INV_EXP:		colortransform_exp_inv((char*)image, iw, ih);		break;
-	//	case CT_FWD_ADAPTIVE:		colortransform_adaptive((char*)image, iw, ih, 1);	break;
-	//	case CT_INV_ADAPTIVE:		colortransform_adaptive((char*)image, iw, ih, 0);	break;
-		case CT_FWD_CUSTOM:		rct_custom(image, 1, rct_custom_params);		break;
-		case CT_INV_CUSTOM:		rct_custom(image, 0, rct_custom_params);		break;
-	//	case CT_FWD_QUAD:		colortransform_quad((char*)image, iw, ih, 1);		break;
-	//	case CT_INV_QUAD:		colortransform_quad((char*)image, iw, ih, 1);		break;
-
-	//	case ST_PREPROC_GRAD:		preproc_grad((char*)image, iw, ih);			break;
-	//	case ST_PREPROC_X:		preproc_x((char*)image, iw, ih);			break;
-	//	case ST_PREPROC_X2:		preproc_x2((char*)image, iw, ih);			break;
-
-	//	case ST_FWD_JOINT:		pred_joint_apply((char*)image, iw, ih, jointpredparams, 1);break;
-	//	case ST_INV_JOINT:		pred_joint_apply((char*)image, iw, ih, jointpredparams, 0);break;
-	//	case ST_FWD_CFL:		pred_cfl((char*)image, iw, ih, 1);			break;
-	//	case ST_INV_CFL:		pred_cfl((char*)image, iw, ih, 0);			break;
-	//	case ST_FWD_HYBRID3:		pred_hybrid_fwd((char*)image, iw, ih);			break;
-	//	case ST_INV_HYBRID3:		pred_hybrid_inv((char*)image, iw, ih);			break;
-				
-	//	case ST_FWD_CUSTOM2:		custom2_apply((char*)image, iw, ih, 1, &c2_params);	break;
-	//	case ST_INV_CUSTOM2:		custom2_apply((char*)image, iw, ih, 0, &c2_params);	break;
-		case ST_FWD_WC:			pred_WC(image);						break;
-		case ST_INV_WC:			pred_WC(image);						break;
-		case ST_FWD_CUSTOM4:		pred_lossyconv(image);					break;
-		case ST_INV_CUSTOM4:		pred_lossyconv(image);					break;
-		case ST_FWD_CUSTOM3:		custom3_apply(image, 1, pred_ma_enabled, &c3_params);	break;
-		case ST_INV_CUSTOM3:		custom3_apply(image, 0, pred_ma_enabled, &c3_params);	break;
-		case ST_FWD_CUSTOM:		pred_custom(image, 1, pred_ma_enabled, custom_params);	break;
-		case ST_INV_CUSTOM:		pred_custom(image, 0, pred_ma_enabled, custom_params);	break;
-		case ST_FWD_CC:			conv_custom(image);					break;
-		case ST_INV_CC:			conv_custom(image);					break;
-	//	case ST_FWD_CUSTOM4:		custom4_apply((char*)image, iw, ih, 1, &c4_params);	break;
-	//	case ST_INV_CUSTOM4:		custom4_apply((char*)image, iw, ih, 0, &c4_params);	break;
-	//	case ST_FWD_KALMAN:		kalman_apply((char*)image, iw, ih, 1);			break;
-	//	case ST_INV_KALMAN:		kalman_apply((char*)image, iw, ih, 0);			break;
-	//	case ST_FWD_CUSTOM2:		pred_custom2_apply((char*)image, iw, ih, 1);		break;
-	//	case ST_INV_CUSTOM2:		pred_custom2_apply((char*)image, iw, ih, 0);		break;
-	//	case ST_FWD_LOGIC:		pred_logic_apply((char*)image, iw, ih, logic_params, 1);break;
-	//	case ST_INV_LOGIC:		pred_logic_apply((char*)image, iw, ih, logic_params, 0);break;
-	//	case ST_FWD_LEARNED:		pred_learned_v4((char*)image, iw, ih, 1);		break;
-	//	case ST_INV_LEARNED:		pred_learned_v4((char*)image, iw, ih, 0);		break;
-#ifdef ALLOW_OPENCL
-	//	case ST_FWD_LEARNED_GPU:pred_learned_gpu((char*)image, iw, ih, 1);			break;
-	//	case ST_INV_LEARNED_GPU:pred_learned_gpu((char*)image, iw, ih, 0);			break;
-#endif
-	//	case ST_FWD_DIFF2D:		pred_diff2d_fwd((char*)image, iw, ih, 3, 4);		break;
-	//	case ST_INV_DIFF2D:		pred_diff2d_inv((char*)image, iw, ih, 3, 4);		break;
-	//	case ST_FWD_HPF:		pred_hpf_fwd((char*)image, iw, ih, 3, 4);		break;
-	//	case ST_INV_HPF:		pred_hpf_inv((char*)image, iw, ih, 3, 4);		break;
-	//	case ST_FWD_GRAD2:		pred_grad2_fwd((char*)image, iw, ih, 3, 4);		break;
-	//	case ST_INV_GRAD2:		pred_grad2_inv((char*)image, iw, ih, 3, 4);		break;
-	//	case ST_FWD_ADAPTIVE:		pred_adaptive((char*)image, iw, ih, 3, 4, 1);		break;
-	//	case ST_INV_ADAPTIVE:		pred_adaptive((char*)image, iw, ih, 3, 4, 0);		break;
-		case ST_FWD_NBLIC:		pred_nblic(image, 1);					break;
-		case ST_INV_NBLIC:		pred_nblic(image, 0);					break;
-		case ST_FWD_CALIC:		pred_calic(image, 1, pred_ma_enabled);			break;
-		case ST_INV_CALIC:		pred_calic(image, 0, pred_ma_enabled);			break;
-		case ST_FWD_WP:			pred_jxl_apply(image, 1, pred_ma_enabled, jxlparams_i16);break;
-		case ST_INV_WP:			pred_jxl_apply(image, 0, pred_ma_enabled, jxlparams_i16);break;
-		case ST_FWD_WP2:		pred_divfreeWP(image, 1);				break;
-		case ST_INV_WP2:		pred_divfreeWP(image, 0);				break;
-		case ST_FWD_WPU:		pred_WPU(image, 1);					break;
-		case ST_INV_WPU:		pred_WPU(image, 0);					break;
-		case ST_FWD_DEFERRED:		pred_wp_deferred(image, 1);				break;
-		case ST_INV_DEFERRED:		pred_wp_deferred(image, 0);				break;
-		case ST_FWD_MM:			pred_w2_apply(image, 1, pred_ma_enabled, pw2_params);	break;
-		case ST_INV_MM:			pred_w2_apply(image, 0, pred_ma_enabled, pw2_params);	break;
-		case ST_FWD_OLS:		pred_ols(image, 1, pred_ma_enabled);			break;
-		case ST_INV_OLS:		pred_ols(image, 0, pred_ma_enabled);			break;
-		case ST_FWD_OLS2:		pred_ols2(image, 1, pred_ma_enabled);			break;
-		case ST_INV_OLS2:		pred_ols2(image, 0, pred_ma_enabled);			break;
-		case ST_FWD_OLS3:		pred_ols3(image, 1, pred_ma_enabled);			break;
-		case ST_INV_OLS3:		pred_ols3(image, 0, pred_ma_enabled);			break;
-		case ST_FWD_OLS4:		pred_ols4(image, ols4_period, ols4_lr, ols4_mask[0], ols4_mask[1], ols4_mask[2], ols4_mask[3], 1);break;
-		case ST_INV_OLS4:		pred_ols4(image, ols4_period, ols4_lr, ols4_mask[0], ols4_mask[1], ols4_mask[2], ols4_mask[3], 0);break;
-		case ST_FWD_OLS5:		pred_ols5(image, 1);					break;
-		case ST_INV_OLS5:		pred_ols5(image, 0);					break;
-		case ST_FWD_OLS6:		pred_ols6(image, 1);					break;
-		case ST_INV_OLS6:		pred_ols6(image, 0);					break;
-		case ST_FWD_PACKSIGN:		packsign(image, 1);					break;
-		case ST_INV_PACKSIGN:		packsign(image, 0);					break;
-		case ST_FWD_MTF:		pred_MTF(image, 1);					break;
-		case ST_INV_MTF:		pred_MTF(image, 0);					break;
-		case ST_FWD_PALETTE:		pred_palette(image, 1);					break;
-		case ST_INV_PALETTE:		pred_palette(image, 0);					break;
-		case ST_FILT_MEDIAN33:		filt_median33(image);					break;
-		case ST_FILT_AV33:		filt_av33(image);					break;
-		case ST_FWD_PU:			pred_PU(image, 1);					break;
-		case ST_INV_PU:			pred_PU(image, 0);					break;
-		case ST_FWD_CG3D:		pred_CG3D(image, 1, pred_ma_enabled);			break;
-		case ST_INV_CG3D:		pred_CG3D(image, 0, pred_ma_enabled);			break;
-		case ST_FWD_CLAMPGRAD:		pred_clampgrad(image, 1, pred_ma_enabled);		break;
-		case ST_INV_CLAMPGRAD:		pred_clampgrad(image, 0, pred_ma_enabled);		break;
-		case ST_FWD_AV2:		pred_av2(image, 1);					break;
-		case ST_INV_AV2:		pred_av2(image, 0);					break;
-		case ST_FWD_WGRAD:		pred_wgrad(image, 1, hasRCT);				break;
-		case ST_INV_WGRAD:		pred_wgrad(image, 0, hasRCT);				break;
-	//	case ST_FWD_WGRAD2:		pred_wgrad2(image, 1);					break;
-	//	case ST_INV_WGRAD2:		pred_wgrad2(image, 0);					break;
-		case ST_FWD_WGRAD3:		pred_wgrad3(image, 1, hasRCT);				break;
-		case ST_INV_WGRAD3:		pred_wgrad3(image, 0, hasRCT);				break;
-		case ST_FWD_LWAV:		pred_lwav(image, 1);					break;
-		case ST_INV_LWAV:		pred_lwav(image, 0);					break;
-	//	case ST_FWD_ECOEFF:		pred_ecoeff(image, 1, pred_ma_enabled);			break;
-	//	case ST_INV_ECOEFF:		pred_ecoeff(image, 0, pred_ma_enabled);			break;
-	//	case ST_FWD_AVERAGE:		pred_average(image, 1, pred_ma_enabled);		break;
-	//	case ST_INV_AVERAGE:		pred_average(image, 0, pred_ma_enabled);		break;
-		case ST_FWD_MULTISTAGE:		pred_multistage(image, 1, pred_ma_enabled);		break;
-		case ST_INV_MULTISTAGE:		pred_multistage(image, 0, pred_ma_enabled);		break;
-		case ST_FWD_ZIPPER:		pred_zipper(image, 1, pred_ma_enabled);			break;
-		case ST_INV_ZIPPER:		pred_zipper(image, 0, pred_ma_enabled);			break;
-		case ST_FWD_P3:			pred_separate(image, 1, pred_ma_enabled);		break;
-		case ST_INV_P3:			pred_separate(image, 0, pred_ma_enabled);		break;
-	//	case ST_FWD_DIR:		pred_dir(image, 1, pred_ma_enabled);			break;
-	//	case ST_INV_DIR:		pred_dir(image, 0, pred_ma_enabled);			break;
-		case ST_FWD_G2:			pred_grad2(image, 1, pred_ma_enabled);			break;
-		case ST_INV_G2:			pred_grad2(image, 0, pred_ma_enabled);			break;
-		case ST_FWD_T47:		pred_t47(image, 1, pred_ma_enabled);			break;
-		case ST_INV_T47:		pred_t47(image, 0, pred_ma_enabled);			break;
-		case ST_FWD_DCT4:		image_dct4_fwd(image);					break;
-		case ST_INV_DCT4:		image_dct4_inv(image);					break;
-		case ST_FWD_DCT8:		image_dct8_fwd(image);					break;
-		case ST_INV_DCT8:		image_dct8_inv(image);					break;
-#if 0
-	//	case ST_FWD_JMJ:		pred_jmj_apply((char*)image, iw, ih, 1);		break;
-	//	case ST_INV_JMJ:		pred_jmj_apply((char*)image, iw, ih, 0);		break;
-	//	case ST_FWD_JXL:		pred_jxl((char*)image, iw, ih, 3, 4, 1);		break;
-	//	case ST_INV_JXL:		pred_jxl((char*)image, iw, ih, 3, 4, 0);		break;
-	//	case ST_FWD_SORTNB:		pred_sortnb((char*)image, iw, ih, 3, 4, 1);		break;
-	//	case ST_INV_SORTNB:		pred_sortnb((char*)image, iw, ih, 3, 4, 0);		break;
-	//	case ST_FWD_MEDIAN:		pred_median_fwd((char*)image, iw, ih, 3, 4);		break;
-	//	case ST_INV_MEDIAN:		pred_median_inv((char*)image, iw, ih, 3, 4);		break;
-	//	case ST_FWD_DCT3PRED:		pred_dct3_fwd((char*)image, iw, ih, 3, 4);		break;
-	//	case ST_INV_DCT3PRED:		pred_dct3_inv((char*)image, iw, ih, 3, 4);		break;
-	//	case ST_FWD_PATHPRED:		pred_path_fwd((char*)image, iw, ih, 3, 4);		break;
-	//	case ST_INV_PATHPRED:		pred_path_inv((char*)image, iw, ih, 3, 4);		break;
-		case ST_FWD_GRADPRED:		pred_grad_fwd((char*)image, iw, ih, 3, 4);		break;
-		case ST_INV_GRADPRED:		pred_grad_inv((char*)image, iw, ih, 3, 4);		break;
-		case ST_FWD_GRAD2:		pred_grad2((char*)image, iw, ih, 1);			break;
-		case ST_INV_GRAD2:		pred_grad2((char*)image, iw, ih, 0);			break;
-		case ST_FWD_CTX:		pred_ctx((char*)image, iw, ih, 1);			break;
-		case ST_INV_CTX:		pred_ctx((char*)image, iw, ih, 0);			break;
-	//	case ST_FWD_C03:		pred_c03((char*)image, iw, ih, 1);			break;
-	//	case ST_INV_C03:		pred_c03((char*)image, iw, ih, 0);			break;
-	//	case ST_FWD_C10:		pred_c10((char*)image, iw, ih, 1);			break;
-	//	case ST_INV_C10:		pred_c10((char*)image, iw, ih, 0);			break;
-		case ST_FWD_C20:		pred_c20((char*)image, iw, ih, 1);			break;
-		case ST_INV_C20:		pred_c20((char*)image, iw, ih, 0);			break;
-	//	case ST_FWD_WU97:		pred_wu97((char*)image, iw, ih, 1);			break;
-	//	case ST_INV_WU97:		pred_wu97((char*)image, iw, ih, 0);			break;
-	//	case ST_FWD_BITWISE:		pred_bitwise((char*)image, iw, ih, 1);			break;
-	//	case ST_INV_BITWISE:		pred_bitwise((char*)image, iw, ih, 0);			break;
-		case ST_FWD_SHUFFLE:		shuffle((char*)image, iw, ih, 1);			break;
-		case ST_INV_SHUFFLE:		shuffle((char*)image, iw, ih, 0);			break;
-	//	case ST_FWD_SPLIT:		image_split_fwd((char*)image, iw, ih);			break;
-	//	case ST_INV_SPLIT:		image_split_inv((char*)image, iw, ih);			break;
-#endif
-
-	//	case ST_FWD_LAZY:
-	//	case ST_INV_LAZY:
-		case ST_FWD_HAAR:
-		case ST_INV_HAAR:
-		case ST_FWD_SQUEEZE:
-		case ST_INV_SQUEEZE:
-		case ST_FWD_LEGALL53:
-		case ST_INV_LEGALL53:
-		case ST_FWD_CDF97:
-		case ST_INV_CDF97:
-	//	case ST_FWD_GRAD_DWT:
-	//	case ST_INV_GRAD_DWT:
-	//	case ST_FWD_EXPDWT:
-	//	case ST_INV_EXPDWT:
-	//	case ST_FWD_CUSTOM_DWT:
-	//	case ST_INV_CUSTOM_DWT:
-			{
-				ArrayHandle sizes=dwt2d_gensizes(image->iw, image->ih, 3, 3, 0);
-				int *temp=(int*)malloc(MAXVAR(image->iw, image->ih)*sizeof(int));
-				for(int kc=0;kc<4;++kc)
-				{
-					if(!image->depth[kc])
-						continue;
-					switch(tid)
-					{
-				//	case ST_FWD_LAZY:      dwt2d_lazy_fwd   (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-				//	case ST_INV_LAZY:      dwt2d_lazy_inv   (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-					case ST_FWD_HAAR:      dwt2d_haar_fwd   (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-					case ST_INV_HAAR:      dwt2d_haar_inv   (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-					case ST_FWD_SQUEEZE:   dwt2d_squeeze_fwd(image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-					case ST_INV_SQUEEZE:   dwt2d_squeeze_inv(image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-					case ST_FWD_LEGALL53:  dwt2d_cdf53_fwd  (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-					case ST_INV_LEGALL53:  dwt2d_cdf53_inv  (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-					case ST_FWD_CDF97:     dwt2d_cdf97_fwd  (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-					case ST_INV_CDF97:     dwt2d_cdf97_inv  (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-				//	case ST_FWD_GRAD_DWT:  dwt2d_grad_fwd   (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-				//	case ST_INV_GRAD_DWT:  dwt2d_grad_inv   (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-				//	case ST_FWD_EXPDWT:    dwt2d_exp_fwd    (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, customparam_st);break;//TODO use customdwtparams instead of sharing allcustomparam_st
-				//	case ST_INV_EXPDWT:    dwt2d_exp_inv    (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, customparam_st);break;
-				//	case ST_FWD_CUSTOM_DWT:dwt2d_custom_fwd (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, customparam_st);break;
-				//	case ST_INV_CUSTOM_DWT:dwt2d_custom_inv (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, customparam_st);break;
-					}
-					{
-						int inv=tid&1;
-						image->depth[kc]+=(char)(!inv-inv);
-						UPDATE_MAX(image->depth[kc], image->src_depth[kc]);
-						//if(image->depth[kc]>=18)
-						//	printf("");
-						UPDATE_MIN(image->depth[kc], 18);
-					}
-				}
-				array_free(&sizes);
-				free(temp);
-			}
-			break;
-	//	case ST_FWD_DEC_DWT:   dwt2d_dec_fwd((char*)image, iw, ih);	break;
-	//	case ST_INV_DEC_DWT:   dwt2d_dec_inv((char*)image, iw, ih);	break;
-		}//switch
+		apply_transform(image, tid, hasRCT);
 		//calc_depthfromdata(image->data, image->iw, image->ih, image->depth, image->src_depth);//X  depth must depend only on src_depth and applied RCTs, so that preds can apply MA
 	}//for
 }
@@ -2715,8 +2982,48 @@ void update_image(void)//apply selected operations on original image, calculate 
 	apply_selected_transforms(im1, 0);
 
 	//do not modify im1 beyond this point
-
-	image_export_uint8(im1, &im_export, 1, 0);
+	
+	{
+		void *ptr=realloc(im_export, sizeof(char[4])*im1->iw*im1->ih);
+		if(!ptr)
+		{
+			LOG_ERROR("Alloc error");
+			return;
+		}
+		im_export=(unsigned char*)ptr;
+	}
+	{
+		int shift[]=
+		{
+			MAXVAR(0, im1->depth[0]-8),
+			MAXVAR(0, im1->depth[1]-8),
+			MAXVAR(0, im1->depth[2]-8),
+			MAXVAR(0, im1->depth[3]-8),
+		};
+		int c0=0, c1=1, c2=2;
+		switch(viewmode)
+		{
+		case VIEW_C0:
+			c1=0; c2=0;
+			break;
+		case VIEW_C1:
+			c0=1; c2=1;
+			break;
+		case VIEW_C2:
+			c0=2; c1=2;
+			break;
+		}
+		if(view_ma)
+			memset(shift, 0, sizeof(shift));
+		for(ptrdiff_t k=0, res=(ptrdiff_t)im1->iw*im1->ih*4;k<res;k+=4)
+		{
+			im_export[k|0]=(unsigned char)((im1->data[k|c0]>>shift[c0])+128);
+			im_export[k|1]=(unsigned char)((im1->data[k|c1]>>shift[c1])+128);
+			im_export[k|2]=(unsigned char)((im1->data[k|c2]>>shift[c2])+128);
+			im_export[k|3]=0xFF;
+		}
+	}
+	//image_export_uint8(im1, &im_export, 1, 0);
 
 	{
 		int maxdepth=calc_maxdepth(im1, 0), maxlevels=1<<maxdepth;
@@ -4664,24 +4971,26 @@ int io_keydn(IOKey key, char c)
 			"Ctrl Mouse1:\tReplace all transforms of this type\n"
 			"E:\t\tShow image at 1:1 scale\n"
 			"C:\t\tCenter image\n"
+			"J / Shift J:\tToggle single-channel view\n"
+			"N:\t\tToggle modular arithmetic in image view\n"
 			"Ctrl R:\t\tDisable all transforms\n"
-			//"Ctrl E:\t\tReset custom transform parameters\n"
+		//	"Ctrl E:\t\tReset custom transform parameters\n"
 			"Comma/Period:\tSelect context for size estimation\n"
 			"Slash:\t\tToggle adaptive histogram\n"
 			"[ ]:\t\t(Custom transforms) Select coefficient page\n"
 			"Ctrl 1/2/3:\t(Custom predictor) Populate page from channel N\n"
 			"Space:\t\t(Custom transforms) Optimize\n"
 			"Ctrl N:\t\tAdd noise to CUSTOM3 params\n"
-			//"Shift space:\t(Custom transforms) Optimize blockwise\n"
-			//"Ctrl Space\t(Custom transforms) Reset params\n"
+		//	"Shift space:\t(Custom transforms) Optimize blockwise\n"
+		//	"Ctrl Space\t(Custom transforms) Reset params\n"
 			"Ctrl B:\t\tBatch test\n"
 			"\n"
-			"WASDTG:\tMove cam\n"
-			"Arrow keys:\tTurn cam\n"
-			"Mouse1/Esc:\tToggle mouse look\n"
-			"R:\t\tReset cam\n"
-			"\n"
-			"H:\t\tReset CR history graph\n"
+		//	"WASDTG:\tMove cam\n"
+		//	"Arrow keys:\tTurn cam\n"
+		//	"Mouse1/Esc:\tToggle mouse look\n"
+		//	"R:\t\tReset cam\n"
+		//	"\n"
+			"H:\t\tReset invCR history graph\n"
 			"Ctrl C:\t\tCopy data\n"
 			"Ctrl V:\t\tPaste data\n"
 			"Ctrl B:\t\tBatch test\n"
@@ -4776,7 +5085,7 @@ int io_keydn(IOKey key, char c)
 		imagecentered=0;
 		return 1;
 	case 'C':
-		if(im1&&GET_KEY_STATE(KEY_CTRL))//copy custom transform value
+		if(im1&&GET_KEY_STATE(KEY_CTRL))
 		{
 			ArrayHandle str;
 
@@ -4816,8 +5125,8 @@ int io_keydn(IOKey key, char c)
 				next_channel:
 					str_append(&str, "\n");
 				}
-			}
-			if(mode==VIS_IMAGE||mode==VIS_ZIPF)
+			}//no 'else' here
+			if(mode==VIS_IMAGE||mode==VIS_ZIPF)//copy custom transform value
 			{
 				double invcr[5]={0}, csizes[5]={0};
 				entropy2invcr(ch_entropy, im0->src_depth, 4, invcr);
@@ -5269,6 +5578,16 @@ int io_keydn(IOKey key, char c)
 	//	if(GET_KEY_STATE(KEY_CTRL))
 	//		test_predmask(im1);
 	//	break;
+	case 'J':
+		if(im0)
+		{
+			int shift=GET_KEY_STATE(KEY_SHIFT);
+			viewmode+=shift?-1:1;
+			MODVAR(viewmode, viewmode, VIEW_COUNT);
+			update_image();
+			return 1;
+		}
+		break;
 	case 'B'://batch test
 		if(GET_KEY_STATE(KEY_CTRL))
 		{
@@ -5320,6 +5639,12 @@ int io_keydn(IOKey key, char c)
 				}
 				update_image();
 			}
+			return 1;
+		}
+		else
+		{
+			view_ma=!view_ma;
+			update_image();
 			return 1;
 		}
 		break;
@@ -6197,9 +6522,12 @@ void io_render(void)
 						0xC0FF000080FFFFFF,
 						0xC0FFFFFF80000000,
 					};
-					print_pixellabels(ix1, ix2, iy1, iy2, 0, 'r', theme[0], im1->depth[0]);
-					print_pixellabels(ix1, ix2, iy1, iy2, 1, 'g', theme[1], im1->depth[1]);
-					print_pixellabels(ix1, ix2, iy1, iy2, 2, 'b', theme[2], im1->depth[2]);
+					if(viewmode==VIEW_RGB||viewmode==VIEW_C0)
+						print_pixellabels(ix1, ix2, iy1, iy2, 0, 'r', theme[0], im1->depth[0]);
+					if(viewmode==VIEW_RGB||viewmode==VIEW_C1)
+						print_pixellabels(ix1, ix2, iy1, iy2, 1, 'g', theme[1], im1->depth[1]);
+					if(viewmode==VIEW_RGB||viewmode==VIEW_C2)
+						print_pixellabels(ix1, ix2, iy1, iy2, 2, 'b', theme[2], im1->depth[2]);
 					if(imzoom>=ZOOM_LIMIT_ALPHA&&im1->depth[3])
 						print_pixellabels(ix1, ix2, iy1, iy2, 3, 'a', theme[3], im1->depth[3]);
 				}
@@ -6991,7 +7319,7 @@ void io_render(void)
 		usize=image_getBMPsize(im0);
 		crformat=(float)(usize/filesize);
 		RGBspace=1;
-		for(int k=0;k<CST_FWD_SEPARATOR;++k)
+		for(int k=0;k<CST_COMPARE;++k)
 		{
 			if(transforms_mask[k])
 			{
@@ -7010,6 +7338,8 @@ void io_render(void)
 			}
 			if(!isfinite(maxinvcr))
 				maxinvcr=0;
+			if(maxinvcr>100)
+				maxinvcr=100;
 			if(maxinvcr<1/crformat)
 				maxinvcr=1/crformat;
 			if(xend-scale*maxinvcr<xstart)
@@ -7490,7 +7820,7 @@ void io_render(void)
 	//}
 	//GUIPrint(0, 0, 0, 1, "p(%f, %f, %f) dx %f a(%f, %f) fov %f", cam.x, cam.y, cam.z, cam.move_speed, cam.ax, cam.ay, atan(cam.tanfov)*180/M_PI*2);
 	{
-		const char *mode_str=0;
+		const char *mode_str=0, *view_str=0;
 		static double t=0;
 		double t2=time_ms();
 
@@ -7511,7 +7841,16 @@ void io_render(void)
 		}
 		GUIPrint(0, 0, tdy, 1, "timer %d, fps%11lf, [%2d/%2d] %s", timer, 1000./(t2-t), mode+1, VIS_COUNT, mode_str);
 		if(mode==VIS_IMAGE||mode==VIS_ZIPF)
-			GUIPrint(0, 0, tdy*2, 1, "%s", show_full_image?"FILL SCREEN":"1:1");
+		{
+			switch(viewmode)
+			{
+			case VIEW_RGB:	view_str="RGB";break;
+			case VIEW_C0:	view_str="C0";break;
+			case VIEW_C1:	view_str="C1";break;
+			case VIEW_C2:	view_str="C2";break;
+			}
+			GUIPrint(0, 0, tdy*2, 1, "%s %s", show_full_image?"FILL SCREEN":"1:1", view_str);
+		}
 		else if(mode==VIS_JOINT_HISTOGRAM)
 		{
 			switch(space_not_color)

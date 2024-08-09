@@ -239,7 +239,7 @@ void image_export_uint8(Image const *image, unsigned char **dst, int override_al
 	if(!image)
 		return;
 	{
-		void *ptr=realloc(*dst, image->iw*image->ih*sizeof(char[4]));
+		void *ptr=realloc(*dst, sizeof(char[4])*image->iw*image->ih);
 		if(!ptr)
 			return;
 		*dst=(unsigned char*)ptr;
@@ -262,7 +262,7 @@ void image_export_uint8(Image const *image, unsigned char **dst, int override_al
 			dst[0][k|r]=(unsigned char)((image->data[k|0]>>shift[0])+128);
 			dst[0][k|1]=(unsigned char)((image->data[k|1]>>shift[1])+128);
 			dst[0][k|b]=(unsigned char)((image->data[k|2]>>shift[2])+128);
-			dst[0][k|3]=override_alpha?0xFF:(unsigned char)(image->data[k|2]>>shift[3]);
+			dst[0][k|3]=override_alpha?0xFF:(unsigned char)(image->data[k|3]>>shift[3])+128;
 		}
 	}
 }
