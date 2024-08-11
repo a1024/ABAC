@@ -8,6 +8,11 @@ static const char file[]=__FILE__;
 //	#define _DEBUG
 
 
+#ifndef CODEC_FUNC
+#define CODEC_FUNC c07_codec
+#endif
+
+
 static void ppm_skip(const unsigned char **ptr, const unsigned char *end)
 {
 	for(;*ptr<end;)
@@ -105,13 +110,13 @@ int main(int argc, char **argv)
 	}
 	srcfn=argv[1];
 	dstfn=argc==3?argv[2]:0;
-	//c01_codec(srcfn, dstfn);
+	CODEC_FUNC(srcfn, dstfn);
 #else
 	srcfn=
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA13882.ppm"
 	//	"C:/Projects/datasets/big_building.PPM"
-	//	"C:/Projects/datasets/kodim13.ppm"
+		"C:/Projects/datasets/kodim13.ppm"
 	//	"C:/Projects/datasets/kodim13-small4.PPM"
 	//	"C:/Projects/datasets/kodim13-small16.PPM"
 	//	"C:/Projects/datasets/dataset-CLIC30-ppm/03.ppm"
@@ -119,7 +124,7 @@ int main(int argc, char **argv)
 
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13912.ppm"
-		"D:/ML/dataset-kodak-ppm/kodim13.ppm"
+	//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
 	//	"D:/ML/dataset-kodak-ppm/kodim13.c01"
 	//	"D:/ML/big_building.PPM"
 	//	"C:/dataset-LPCB-ppm/PIA13803.ppm"
@@ -134,8 +139,8 @@ int main(int argc, char **argv)
 	//	"D:/ML/dataset-kodak-ppm/kodim13.c01.ppm"
 		;
 
-//	c09_codec("C:/Projects/datasets/kodim13.ppm", "C:/Projects/datasets/kodim13.lsim");
-//	c09_codec("C:/Projects/datasets/kodim13.lsim", "C:/Projects/datasets/kodim13_dec.ppm");
+	c09_codec("C:/Projects/datasets/kodim13.ppm", "C:/Projects/datasets/kodim13.lsim");
+	c09_codec("C:/Projects/datasets/kodim13.lsim", "C:/Projects/datasets/kodim13_dec.ppm");
 
 //	c08_codec("C:/Projects/datasets/kodim13-small16.ppm", "C:/Projects/datasets/kodim13-small16.lsim");
 //	c08_codec("C:/Projects/datasets/kodim13-small16.lsim", "C:/Projects/datasets/kodim13-small16_dec.ppm");
@@ -148,7 +153,8 @@ int main(int argc, char **argv)
 
 //	c08_codec("C:/Projects/datasets/20240414-noise.PPM", "C:/Projects/datasets/20240414-noise.LSIM");	//bypass
 //	c08_codec("C:/Projects/datasets/20240414-noise.LSIM", "C:/Projects/datasets/20240414-noise_dec.PPM");
+
+//	c07_codec(srcfn, dstfn);
 #endif
-	c07_codec(srcfn, dstfn);
 	return 0;
 }

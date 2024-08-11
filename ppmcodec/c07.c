@@ -8,9 +8,9 @@ static const char file[]=__FILE__;
 //	#define ENABLE_GUIDE
 	#define DISABLE_MT
 
-	#define USE_AC4
+//	#define USE_AC4
 //	#define USE_AC2
-	#define USE_ABAC
+//	#define USE_ABAC
 
 #define BLOCKSIZE 768
 #define MAXPRINTEDBLOCKS 0

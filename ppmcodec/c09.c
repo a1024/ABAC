@@ -12,6 +12,8 @@ static const char file[]=__FILE__;
 //	#define ENABLE_FILEGUARD	//makes using scripts harder
 
 //	#define ESTIMATE_SIZE
+	#define USE_RCTJ2K
+	#define ANS_INTERLEAVE3
 
 
 static void update_CDF(const unsigned *hist, int nlevels, unsigned *CDF)
@@ -164,12 +166,20 @@ int c09_codec(const char *srcfn, const char *dstfn)
 	int rowsize=iw*3;
 	if(fwd)//encode
 	{
+#ifdef ANS_INTERLEAVE3
+		int statbufsize=iw*sizeof(int[8]);
+		unsigned *statbuf=(unsigned*)_mm_malloc(statbufsize, sizeof(__m128i));
+#else
 		unsigned *statbuf=(unsigned*)malloc(rowsize*sizeof(int[2]));
+#endif
 		if(!statbuf)
 		{
 			LOG_ERROR("Alloc error");
 			return 1;
 		}
+#ifdef ANS_INTERLEAVE3
+		memset(statbuf, 0, statbufsize);
+#endif
 		//BList list;
 		//blist_init(&list);
 		for(int ky=0, idx=0;ky<ih;++ky)
@@ -207,10 +217,16 @@ int c09_codec(const char *srcfn, const char *dstfn)
 					buffer[idx+2]-128,//b
 					buffer[idx+0]-128,//r
 				};
+#ifdef USE_RCTJ2K
+				yuv[1]-=yuv[0];
+				yuv[2]-=yuv[0];
+				yuv[0]+=(yuv[1]+yuv[2])>>2;
+#else
 				//Pei09 RCT		b-=(87*r+169*g+128)>>8; r-=g; g+=(86*r+29*b+128)>>8;
 				yuv[1]-=(87*yuv[2]+169*yuv[0]+128)>>8;
 				yuv[2]-=yuv[0];
 				yuv[0]+=(86*yuv[2]+29*yuv[1]+128)>>8;
+#endif
 				curr[0]=yuv[0];
 				curr[1]=yuv[1];
 				curr[2]=yuv[2];
@@ -232,7 +248,18 @@ int c09_codec(const char *srcfn, const char *dstfn)
 				errors[2]=errors[2]<<1^errors[2]>>31;
 				
 				unsigned *curr_CDF;
-
+				
+#ifdef ANS_INTERLEAVE3
+				curr_CDF=CDF;
+				statbuf[kx*8+0]=curr_CDF[errors[0]];
+				statbuf[kx*8+4]=curr_CDF[errors[0]+1]-curr_CDF[errors[0]];
+				curr_CDF=CDF+257;
+				statbuf[kx*8+1]=curr_CDF[errors[1]];
+				statbuf[kx*8+5]=curr_CDF[errors[1]+1]-curr_CDF[errors[1]];
+				curr_CDF=CDF+257+513;
+				statbuf[kx*8+2]=curr_CDF[errors[2]];
+				statbuf[kx*8+6]=curr_CDF[errors[2]+1]-curr_CDF[errors[2]];
+#else
 				curr_CDF=CDF;
 				statbuf[kx*6+0]=curr_CDF[errors[0]];
 				statbuf[kx*6+1]=curr_CDF[errors[0]+1]-curr_CDF[errors[0]];
@@ -242,6 +269,7 @@ int c09_codec(const char *srcfn, const char *dstfn)
 				curr_CDF=CDF+257+513;
 				statbuf[kx*6+4]=curr_CDF[errors[2]];
 				statbuf[kx*6+5]=curr_CDF[errors[2]+1]-curr_CDF[errors[2]];
+#endif
 
 				++hist[errors[0]];
 				++hist[256];
@@ -259,6 +287,50 @@ int c09_codec(const char *srcfn, const char *dstfn)
 				rows[2]+=4*2;
 				rows[3]+=4*2;
 			}
+#ifdef ANS_INTERLEAVE3
+			ALIGN(16) unsigned states[]={0x10000, 0x10000, 0x10000, 0x10000};
+			for(int kx=iw-1;kx>=0;--kx)
+			{
+				if(!ky&&kx==1)//
+					printf("");
+				__m128i mstate=_mm_load_si128((__m128i*)states);
+				__m128i mfreq=_mm_load_si128((__m128i*)(statbuf+kx*8+4));
+				int mask=_mm_movemask_ps(_mm_castsi128_ps(_mm_cmpgt_epi32(mfreq, _mm_srli_epi32(mstate, 16))));
+				if(!(mask&1))
+				{
+					*sptr++=(unsigned short)states[0];
+					states[0]>>=16;
+				}
+				if(!(mask&2))
+				{
+					*sptr++=(unsigned short)states[1];
+					states[1]>>=16;
+				}
+				if(!(mask&4))
+				{
+					*sptr++=(unsigned short)states[2];
+					states[2]>>=16;
+				}
+				mstate=_mm_load_si128((__m128i*)states);
+				__m256d dstate=_mm256_cvtepi32_pd(mstate);
+				__m256d dfreq=_mm256_cvtepi32_pd(mfreq);
+				dstate=_mm256_div_pd(dstate, dfreq);
+				__m128i q=_mm256_cvttpd_epi32(dstate);
+				__m128i r=_mm_mullo_epi32(q, mfreq);
+				__m128i mcdf=_mm_load_si128((__m128i*)(statbuf+kx*8+0));
+				r=_mm_sub_epi32(mstate, r);
+				r=_mm_add_epi32(r, mcdf);
+				q=_mm_slli_epi32(q, 16);
+				q=_mm_or_si128(q, r);
+				_mm_store_si128((__m128i*)states, q);
+			}
+			*sptr++=(unsigned short)states[0];
+			*sptr++=(unsigned short)(states[0]>>16);
+			*sptr++=(unsigned short)states[1];
+			*sptr++=(unsigned short)(states[1]>>16);
+			*sptr++=(unsigned short)states[2];
+			*sptr++=(unsigned short)(states[2]>>16);
+#else
 			unsigned state=0x10000;
 			for(int kx=rowsize-1;kx>=0;--kx)
 			{
@@ -272,6 +344,7 @@ int c09_codec(const char *srcfn, const char *dstfn)
 			}
 			*sptr++=(unsigned short)state;//ANS is little-endian
 			*sptr++=(unsigned short)(state>>16);
+#endif
 
 			int streamsize=(int)(sptr-sbuf);//number of emits
 			if(streamsize<<1>rowsize+4)//bypass row
@@ -290,7 +363,11 @@ int c09_codec(const char *srcfn, const char *dstfn)
 			update_CDF(hist+257, 512, CDF+257);
 			update_CDF(hist+257+513, 512, CDF+257+513);
 		}
+#ifdef ANS_INTERLEAVE3
+		_mm_free(statbuf);
+#else
 		free(statbuf);
+#endif
 	}
 	else//decode
 	{
@@ -333,10 +410,16 @@ int c09_codec(const char *srcfn, const char *dstfn)
 						buffer[idx+2]-128,//b
 						buffer[idx+0]-128,//r
 					};
+#ifdef USE_RCTJ2K
+					yuv[1]-=yuv[0];
+					yuv[2]-=yuv[0];
+					yuv[0]+=(yuv[1]+yuv[2])>>2;
+#else
 					//Pei09 RCT		b-=(87*r+169*g+128)>>8; r-=g; g+=(86*r+29*b+128)>>8;
 					yuv[1]-=(87*yuv[2]+169*yuv[0]+128)>>8;
 					yuv[2]-=yuv[0];
 					yuv[0]+=(86*yuv[2]+29*yuv[1]+128)>>8;
+#endif
 					curr[0]=yuv[0];
 					curr[1]=yuv[1];
 					curr[2]=yuv[2];
@@ -374,9 +457,19 @@ int c09_codec(const char *srcfn, const char *dstfn)
 			{
 				fread(sbuf, sizeof(short), streamsize, fsrc);
 				unsigned short *sptr=sbuf+streamsize-1;
+#ifdef ANS_INTERLEAVE3
+				ALIGN(16) unsigned states[4]={0}, freqs[4]={0}, cdfs[4]={0};
+				states[2]=*sptr--;
+				states[2]=*sptr--|states[2]<<16;
+				states[1]=*sptr--;
+				states[1]=*sptr--|states[1]<<16;
+				states[0]=*sptr--;
+				states[0]=*sptr--|states[0]<<16;
+#else
 				unsigned state=0;
 				state=*sptr--;
 				state=*sptr--|state<<16;
+#endif
 				for(int kx=0;kx<iw;++kx, idx+=3)
 				{
 					short
@@ -396,7 +489,76 @@ int c09_codec(const char *srcfn, const char *dstfn)
 					mp=_mm_min_epi16(mp, vmax);
 					_mm_store_si128((__m128i*)preds, mp);
 
-					int errors[3];
+					ALIGN(16) int errors[3];
+#ifdef ANS_INTERLEAVE3
+					int cdf, freq, sym;
+					unsigned code, *curr_CDF;
+
+					curr_CDF=CDF;
+					code=(unsigned short)states[0];
+					sym=0;
+					for(freq=0;;)
+					{
+						cdf=freq;
+						freq=curr_CDF[sym+1];
+						if((unsigned)freq>code)
+							break;
+						++sym;
+					}
+					freq-=cdf;
+					errors[0]=sym;
+					freqs[0]=freq;
+					cdfs[0]=cdf;
+					
+					curr_CDF=CDF+257;
+					code=(unsigned short)states[1];
+					sym=0;
+					for(freq=0;;)
+					{
+						cdf=freq;
+						freq=curr_CDF[sym+1];
+						if((unsigned)freq>code)
+							break;
+						++sym;
+					}
+					freq-=cdf;
+					errors[1]=sym;
+					freqs[1]=freq;
+					cdfs[1]=cdf;
+					
+					curr_CDF=CDF+257+513;
+					code=(unsigned short)states[2];
+					sym=0;
+					for(freq=0;;)
+					{
+						cdf=freq;
+						freq=curr_CDF[sym+1];
+						if((unsigned)freq>code)
+							break;
+						++sym;
+					}
+					freq-=cdf;
+					errors[2]=sym;
+					freqs[2]=freq;
+					cdfs[2]=cdf;
+
+					__m128i mstate=_mm_load_si128((__m128i*)states);
+					__m128i mfreq=_mm_load_si128((__m128i*)freqs);
+					__m128i mcdf=_mm_load_si128((__m128i*)cdfs);
+					__m128i mlo=_mm_and_si128(mstate, _mm_set1_epi32(0xFFFF));
+					__m128i mhi=_mm_srli_epi32(mstate, 16);
+					mhi=_mm_mullo_epi32(mhi, mfreq);
+					mhi=_mm_add_epi32(mhi, mlo);
+					mhi=_mm_sub_epi32(mhi, mcdf);
+					int mask=_mm_movemask_ps(_mm_castsi128_ps(_mm_cmpgt_epi32(_mm_set1_epi32(0x10000), mhi)));
+					_mm_store_si128((__m128i*)states, mhi);
+					if(mask&4)
+						states[2]=*sptr--|states[2]<<16;
+					if(mask&2)
+						states[1]=*sptr--|states[1]<<16;
+					if(mask&1)
+						states[0]=*sptr--|states[0]<<16;
+#else
 					unsigned code;
 					int cdf, freq, sym;
 					unsigned *curr_CDF;
@@ -460,6 +622,7 @@ int c09_codec(const char *srcfn, const char *dstfn)
 					if(state<0x10000)//renorm
 						state=*sptr--|state<<16;
 					errors[2]=sym;
+#endif
 
 					++hist[errors[0]];
 					++hist[256];
@@ -486,10 +649,16 @@ int c09_codec(const char *srcfn, const char *dstfn)
 					curr[4]=errors[0]-preds[0];
 					curr[5]=errors[1]-preds[1];
 					curr[6]=errors[2]-preds[2];
+#ifdef USE_RCTJ2K
+					yuv[0]-=(yuv[1]+yuv[2])>>2;
+					yuv[2]+=yuv[0];
+					yuv[1]+=yuv[0];
+#else
 					//inverse Pei09 RCT
 					yuv[0]-=(86*yuv[2]+29*yuv[1]+128)>>8;
 					yuv[2]+=yuv[0];
 					yuv[1]+=(87*yuv[2]+169*yuv[0]+128)>>8;
+#endif
 					buffer[idx+1]=(unsigned char)(yuv[0]+128);
 					buffer[idx+2]=(unsigned char)(yuv[1]+128);
 					buffer[idx+0]=(unsigned char)(yuv[2]+128);
@@ -499,11 +668,19 @@ int c09_codec(const char *srcfn, const char *dstfn)
 					rows[2]+=4*2;
 					rows[3]+=4*2;
 				}
+#ifdef ANS_INTERLEAVE3
+				if(states[0]!=0x10000||states[1]!=0x10000||states[2]!=0x10000)
+				{
+					LOG_ERROR("Decode error  Y %d", ky);
+					return 1;
+				}
+#else
 				if(state!=0x10000)
 				{
 					LOG_ERROR("Decode error  Y %d", ky);
 					return 1;
 				}
+#endif
 			}
 			update_CDF(hist, 256, CDF);
 			update_CDF(hist+257, 512, CDF+257);
