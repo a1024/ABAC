@@ -381,7 +381,7 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 	)
 	{
 		LOG_ERROR("Alloc error");
-		return 0;
+		return 1;
 	}
 #ifndef USE_GRCODER
 	//initialize mixin_CDFs
@@ -1066,5 +1066,5 @@ int f08_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 #endif
 	free(pixels);
 	_mm_free(weights);
-	return 1;
+	return 0;
 }

@@ -770,7 +770,7 @@ extern int custom_params[CUSTOM_NPARAMS];
 extern int custom_clamp[4];//W NW N NE
 extern int custom_pred_ch_idx;
 void pred_custom(Image *src, int fwd, int enable_ma, const int *params);
-void pred_custom_optimize(Image const *image, int *params);
+void pred_custom_optimize(Image const *image, int *params, int reach);
 void conv_custom(Image *src);
 
 #define PW2_NPRED 20	//63

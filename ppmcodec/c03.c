@@ -11,7 +11,10 @@ static const char file[]=__FILE__;
 
 	#define ENABLE_SSE//good
 //	#define PRINT_SH
-//	#define DISABLE_WG
+	#define ESTIMATE_SIZE
+
+	#define ENABLE_OLS
+//	#define ENABLE_WG
 
 #define CODECNAME "C03"
 #define AC3_PREC
@@ -20,6 +23,7 @@ static const char file[]=__FILE__;
 #define BLOCKSIZE 1024
 #define MAXPRINTEDBLOCKS 20
 
+#define OLS_STRIDE 255
 #define A2_CTXBITS 8
 #define A2_NCTX 12	//multiple of 4
 #define A2_SSECBITS 6
@@ -133,6 +137,49 @@ static const short av12_icoeffs[12]=
 	 0x07,	-0x9E,	 0xDB,	 0x1E,	 0x13,
 	-0x2A,	 0xF3,
 };
+
+
+//OLS4
+typedef struct _OLS4Context
+{
+	int nparams;
+	double *nb, *vec, *cov, *cholesky, *params;
+} OLS4Context;
+static void ols4_init(OLS4Context *ctx, int nparams)
+{
+	int msize=nparams*nparams;
+	memset(ctx, 0, sizeof(*ctx));
+	ctx->nparams=nparams;
+	ctx->nb=(double*)_mm_malloc(nparams*sizeof(double), sizeof(__m256d));
+	ctx->vec=(double*)_mm_malloc(nparams*sizeof(double), sizeof(__m256d));
+	ctx->cov=(double*)_mm_malloc(msize*sizeof(double), sizeof(__m256d));
+	ctx->cholesky=(double*)malloc(msize*sizeof(double));
+	ctx->params=(double*)_mm_malloc(nparams*sizeof(double), sizeof(__m256d));
+	if(!ctx->nb||!ctx->vec||!ctx->cov||!ctx->cholesky||!ctx->params)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+}
+static void ols4_reset(OLS4Context *ctx)
+{
+	int msize=ctx->nparams*ctx->nparams;
+	memset(ctx->nb, 0, ctx->nparams*sizeof(double));
+	memset(ctx->vec, 0, ctx->nparams*sizeof(double));
+	memset(ctx->cov, 0, msize*sizeof(double));
+	memset(ctx->cholesky, 0, msize*sizeof(double));
+	memset(ctx->params, 0, ctx->nparams*sizeof(double));
+}
+static void ols4_free(OLS4Context *ctx)
+{
+	_mm_free(ctx->nb);
+	_mm_free(ctx->vec);
+	_mm_free(ctx->cov);
+	free(ctx->cholesky);
+	_mm_free(ctx->params);
+	memset(ctx, 0, sizeof(*ctx));
+}
+#define OLS4_NPARAMS 16		//multiple of 4,  NPARAMS is unified because of interleaving
 
 
 //WG:
@@ -250,6 +297,30 @@ static void quantize_pixel(int val, int *token, int *bypass, int *nbits)
 		*bypass=val>>CONFIG_LSB&((1LL<<*nbits)-1);
 	}
 }
+#define ABAC_PROBBITS 16
+static int squash(int x)//sigmoid(x) = 1/(1-exp(-x))		logit sum -> prob
+{
+#ifdef DISABLE_LOGMIX
+	x>>=11;
+	x+=1<<ABAC_PROBBITS>>1;
+	CLAMP2_32(x, x, 1, (1<<ABAC_PROBBITS)-1);
+#else
+	static const int t[33]=//2^5 table elements, table amplitude 2^12
+	{
+		   1,    2,    3,    6,   10,   16,   27,   45,   73,  120,  194,
+		 310,  488,  747, 1101, 1546, 2047, 2549, 2994, 3348, 3607, 3785,
+		3901, 3975, 4022, 4050, 4068, 4079, 4085, 4089, 4092, 4093, 4094,
+	};
+	int w=x&((1<<(ABAC_PROBBITS-5))-1);
+	x=(x>>(ABAC_PROBBITS-5))+16;
+	if(x>31)
+		return (1<<ABAC_PROBBITS)-1;
+	if(x<0)
+		return 1;
+	x=(t[x]*((1<<(ABAC_PROBBITS-5))-w)+t[x+1]*w+64)>>(12-5);
+#endif
+	return x;
+}
 typedef struct _ThreadArgs
 {
 	const unsigned char *src;
@@ -277,6 +348,12 @@ typedef struct _ThreadArgs
 	int blockidx;
 	double bestsize;
 	int bestrct, predidx[3];
+#ifdef ENABLE_OLS
+	OLS4Context ols4[3];
+#endif
+#ifdef ESTIMATE_SIZE
+	int hist2[3][256];
+#endif
 } ThreadArgs;
 static void block_thread(void *param)
 {
@@ -285,10 +362,13 @@ static void block_thread(void *param)
 	AC3 ec;
 	const unsigned char *image=args->fwd?args->src:args->dst;
 	unsigned char bestrct=0, combination[6]={0}, predidx[4]={0};
-	int ystride=args->iw*3;
-	
+#ifdef ENABLE_OLS
+	ALIGN(16) int ols4_ctx0[OLS4_NPARAMS]={0}, ols4_ctx1[OLS4_NPARAMS]={0}, ols4_ctx2[OLS4_NPARAMS]={0};
+	static const double lrs[]={0.0018, 0.003, 0.003};
+#endif
 	if(args->fwd)
 	{
+		int ystride=args->iw*3;
 		double csizes[OCH_COUNT*PRED_COUNT]={0}, bestsize=0;
 		unsigned char predsel[OCH_COUNT]={0};
 		int res=(args->x2-args->x1-3)/5*5*(args->y2-args->y1-2);
@@ -872,8 +952,16 @@ static void block_thread(void *param)
 #ifdef ENABLE_SSE
 	memset(args->sse, 0, sizeof(args->sse));
 #endif
-
-#ifndef DISABLE_WG
+	
+#ifdef ESTIMATE_SIZE
+	memset(args->hist2, 0, sizeof(args->hist2));
+#endif
+#ifdef ENABLE_OLS
+	int kols=0, kols2=OLS_STRIDE;
+	for(int k=0;k<3;++k)
+		ols4_reset(args->ols4+k);
+#endif
+#ifdef ENABLE_WG
 	int wg_weights[WG_NPREDS*3]={0}, wg_perrors[WG_NPREDS*3]={0}, wg_preds[WG_NPREDS]={0};
 	wg_init(wg_weights+WG_NPREDS*0);
 	wg_init(wg_weights+WG_NPREDS*1);
@@ -907,6 +995,7 @@ static void block_thread(void *param)
 				*NNE	=rows[2]+1*4*2,
 				*NNEE	=rows[2]+2*4*2,
 				*NNEEE	=rows[2]+3*4*2,
+				*NWWW	=rows[1]-3*4*2,
 				*NWW	=rows[1]-2*4*2,
 				*NW	=rows[1]-1*4*2,
 				*N	=rows[1]+0*4*2,
@@ -923,7 +1012,7 @@ static void block_thread(void *param)
 				if(ky<=args->y1+1)
 				{
 					if(ky==args->y1)
-						NEEE=NEE=NE=NWW=NW=N=W;
+						NEEE=NEE=NE=NWWW=NWW=NW=N=W;
 					NNWW=NWW;
 					NNW=NW;
 					NN=N;
@@ -1017,10 +1106,171 @@ static void block_thread(void *param)
 					break;
 				}
 			}
+#ifdef ENABLE_OLS
+			ALIGN(16) int preds[4];
+			__m128i mNW	=_mm_load_si128((__m128i*)NW);
+			__m128i mN	=_mm_load_si128((__m128i*)N);
+			__m128i mNE	=_mm_load_si128((__m128i*)NE);
+			__m128i mW	=_mm_load_si128((__m128i*)W);
+			__m128i vmin=_mm_min_epi16(mN, mW);
+			__m128i vmax=_mm_max_epi16(mN, mW);
+			__m128i mg=_mm_sub_epi16(_mm_add_epi16(mN, mW), mNW);
+			mg=_mm_max_epi16(mg, vmin);
+			mg=_mm_min_epi16(mg, vmax);
+			ALIGN(16) short cgrads[8];
+			_mm_store_si128((__m128i*)cgrads, mg);
+			vmin=_mm_min_epi16(vmin, mNE);
+			vmax=_mm_max_epi16(vmax, mNE);
+			vmin=_mm_slli_epi32(vmin, 16);//need low signed 16 bits -> 32 bit
+			vmax=_mm_slli_epi32(vmax, 16);
+			vmin=_mm_srai_epi32(vmin, 16);
+			vmax=_mm_srai_epi32(vmax, 16);
+			int j0=0, j1=0, j2=0;
+			ols4_ctx0[j0++]=cgrads	[0];
+			ols4_ctx0[j0++]=NNW	[0];
+			ols4_ctx0[j0++]=NN	[0];
+			ols4_ctx0[j0++]=NNE	[0];
+			ols4_ctx0[j0++]=NNEE	[0];
+			ols4_ctx0[j0++]=NNEEE	[0];
+			ols4_ctx0[j0++]=NWWW	[0];
+			ols4_ctx0[j0++]=NWW	[0];
+			ols4_ctx0[j0++]=NW	[0];
+			ols4_ctx0[j0++]=N	[0];
+			ols4_ctx0[j0++]=NE	[0];
+			ols4_ctx0[j0++]=NEE	[0];
+			ols4_ctx0[j0++]=NEEE	[0];
+			ols4_ctx0[j0++]=WWW	[0];
+			ols4_ctx0[j0++]=WW	[0];
+			ols4_ctx0[j0++]=W	[0];
+
+			ols4_ctx1[j1++]=cgrads	[2];
+			ols4_ctx1[j1++]=NNW	[2];
+			ols4_ctx1[j1++]=NN	[2];
+			ols4_ctx1[j1++]=NNE	[2];
+			ols4_ctx1[j1++]=NNEE	[2];
+			ols4_ctx1[j1++]=NWW	[2];
+			ols4_ctx1[j1++]=NW	[2];
+			ols4_ctx1[j1++]=NW	[0];
+			ols4_ctx1[j1++]=N	[2];
+			ols4_ctx1[j1++]=N	[0];
+			ols4_ctx1[j1++]=NE	[2];
+			ols4_ctx1[j1++]=NE	[0];
+			ols4_ctx1[j1++]=NEE	[2];
+			ols4_ctx1[j1++]=WW	[2];
+			ols4_ctx1[j1++]=W	[2];
+			ols4_ctx1[j1++]=W	[0];
+
+			ols4_ctx2[j2++]=cgrads	[4];
+			ols4_ctx2[j2++]=NNW	[4];
+			ols4_ctx2[j2++]=NN	[4];
+			ols4_ctx2[j2++]=NNE	[4];
+			ols4_ctx2[j2++]=NNEE	[4];
+			ols4_ctx2[j2++]=NWW	[4];
+			ols4_ctx2[j2++]=NW	[4];
+			ols4_ctx2[j2++]=NW	[0];
+			ols4_ctx2[j2++]=N	[4];
+			ols4_ctx2[j2++]=N	[0];
+			ols4_ctx2[j2++]=NE	[4];
+			ols4_ctx2[j2++]=NE	[0];
+			ols4_ctx2[j2++]=NEE	[4];
+			ols4_ctx2[j2++]=WW	[4];
+			ols4_ctx2[j2++]=W	[4];
+			ols4_ctx2[j2++]=W	[0];
+			{
+				double *pp0=args->ols4[0].params;
+				double *pp1=args->ols4[1].params;
+				double *pp2=args->ols4[2].params;
+				double *pnb0=args->ols4[0].nb;
+				double *pnb1=args->ols4[1].nb;
+				double *pnb2=args->ols4[2].nb;
+
+				__m128i mnb0=_mm_load_si128((__m128i*)ols4_ctx0+0);
+				__m128i mnb1=_mm_load_si128((__m128i*)ols4_ctx1+0);
+				__m128i mnb2=_mm_load_si128((__m128i*)ols4_ctx2+0);
+				__m256d dnb0=_mm256_cvtepi32_pd(mnb0);
+				__m256d dnb1=_mm256_cvtepi32_pd(mnb1);
+				__m256d dnb2=_mm256_cvtepi32_pd(mnb2);
+				_mm256_store_pd(pnb0+0*4, dnb0);
+				_mm256_store_pd(pnb1+0*4, dnb1);
+				_mm256_store_pd(pnb2+0*4, dnb2);
+				__m256d sum0=_mm256_mul_pd(dnb0, _mm256_load_pd(pp0+0*4));
+				__m256d sum1=_mm256_mul_pd(dnb1, _mm256_load_pd(pp1+0*4));
+				__m256d sum2=_mm256_mul_pd(dnb2, _mm256_load_pd(pp2+0*4));
+
+				mnb0=_mm_load_si128((__m128i*)ols4_ctx0+1);
+				mnb1=_mm_load_si128((__m128i*)ols4_ctx1+1);
+				mnb2=_mm_load_si128((__m128i*)ols4_ctx2+1);
+				dnb0=_mm256_cvtepi32_pd(mnb0);
+				dnb1=_mm256_cvtepi32_pd(mnb1);
+				dnb2=_mm256_cvtepi32_pd(mnb2);
+				_mm256_store_pd(pnb0+1*4, dnb0);
+				_mm256_store_pd(pnb1+1*4, dnb1);
+				_mm256_store_pd(pnb2+1*4, dnb2);
+				sum0=_mm256_add_pd(sum0, _mm256_mul_pd(dnb0, _mm256_load_pd(pp0+1*4)));
+				sum1=_mm256_add_pd(sum1, _mm256_mul_pd(dnb1, _mm256_load_pd(pp1+1*4)));
+				sum2=_mm256_add_pd(sum2, _mm256_mul_pd(dnb2, _mm256_load_pd(pp2+1*4)));
+
+				mnb0=_mm_load_si128((__m128i*)ols4_ctx0+2);
+				mnb1=_mm_load_si128((__m128i*)ols4_ctx1+2);
+				mnb2=_mm_load_si128((__m128i*)ols4_ctx2+2);
+				dnb0=_mm256_cvtepi32_pd(mnb0);
+				dnb1=_mm256_cvtepi32_pd(mnb1);
+				dnb2=_mm256_cvtepi32_pd(mnb2);
+				_mm256_store_pd(pnb0+2*4, dnb0);
+				_mm256_store_pd(pnb1+2*4, dnb1);
+				_mm256_store_pd(pnb2+2*4, dnb2);
+				sum0=_mm256_add_pd(sum0, _mm256_mul_pd(dnb0, _mm256_load_pd(pp0+2*4)));
+				sum1=_mm256_add_pd(sum1, _mm256_mul_pd(dnb1, _mm256_load_pd(pp1+2*4)));
+				sum2=_mm256_add_pd(sum2, _mm256_mul_pd(dnb2, _mm256_load_pd(pp2+2*4)));
+
+				mnb0=_mm_load_si128((__m128i*)ols4_ctx0+3);
+				mnb1=_mm_load_si128((__m128i*)ols4_ctx1+3);
+				mnb2=_mm_load_si128((__m128i*)ols4_ctx2+3);
+				dnb0=_mm256_cvtepi32_pd(mnb0);
+				dnb1=_mm256_cvtepi32_pd(mnb1);
+				dnb2=_mm256_cvtepi32_pd(mnb2);
+				_mm256_store_pd(pnb0+3*4, dnb0);
+				_mm256_store_pd(pnb1+3*4, dnb1);
+				_mm256_store_pd(pnb2+3*4, dnb2);
+				sum0=_mm256_add_pd(sum0, _mm256_mul_pd(dnb0, _mm256_load_pd(pp0+3*4)));
+				sum1=_mm256_add_pd(sum1, _mm256_mul_pd(dnb1, _mm256_load_pd(pp1+3*4)));
+				sum2=_mm256_add_pd(sum2, _mm256_mul_pd(dnb2, _mm256_load_pd(pp2+3*4)));
+
+				ALIGN(32) double sums[12];
+				_mm256_store_pd(sums+0*4, sum0);
+				_mm256_store_pd(sums+1*4, sum1);
+				_mm256_store_pd(sums+2*4, sum2);
+
+				sums[ 0]+=sums[ 1]+sums[ 2]+sums[ 3];
+				sums[ 4]+=sums[ 5]+sums[ 6]+sums[ 7];
+				sums[ 8]+=sums[ 9]+sums[10]+sums[11];
+#if OLS4_NPARAMS&15
+				for(int k=16;k<OLS4_NPARAMS;++k)
+				{
+					pnb0[k]=(double)ols4_ctx0[k];
+					pnb1[k]=(double)ols4_ctx1[k];
+					pnb2[k]=(double)ols4_ctx2[k];
+					sums[ 0]+=pp0[k]*pnb0[k];
+					sums[ 4]+=pp1[k]*pnb1[k];
+					sums[ 8]+=pp2[k]*pnb2[k];
+				}
+#endif
+				sums[1]=sums[4];
+				sums[2]=sums[8];
+
+				__m128i mp=_mm256_cvtpd_epi32(_mm256_load_pd(sums));//rounded
+				mp=_mm_min_epi32(mp, vmax);
+				mp=_mm_max_epi32(mp, vmin);
+				_mm_store_si128((__m128i*)preds, mp);
+			}
+#endif
 			for(int kc=0;kc<nch;++kc)
 			{
 				int kc2=kc<<1;
 				int offset=(yuv[combination[kc+3]]+yuv[combination[kc+6]])>>combination[kc+9];
+#ifdef ENABLE_OLS
+				pred=preds[kc];
+#else
 				switch(predidx[kc])
 				{
 				case PRED_W:
@@ -1056,8 +1306,9 @@ static void block_thread(void *param)
 					CLAMP3_32(pred, pred, N[kc2], W[kc2], NE[kc2]);
 					break;
 				}
-#ifndef DISABLE_WG
+#ifdef ENABLE_WG
 				pred=wg_predict(wg_weights+WG_NPREDS*kc, rows, 4*2, kc2, pred, wg_perrors+WG_NPREDS*kc, wg_preds);
+#endif
 #endif
 				pred+=offset;
 				CLAMP2(pred, -128, 127);
@@ -1071,6 +1322,7 @@ static void block_thread(void *param)
 					//(W[kc2+0]+NE[kc2+0]+NEE[kc2+0]+NEEE[kc2+0])>>1,
 					//N[kc2+0],
 					grad*2,
+					//grad<<2|(ky&1)<<1|(kx&1),//for chroma-subsampled exJPEGs
 					N[kc2+0]-W[kc2+0],
 					2*FLOOR_LOG2(abs(N[kc2+1])*7)+FLOOR_LOG2(abs(W[kc2+1])*3),
 					//N[kc2+0]+W[kc2+0]-NW[kc2+0],
@@ -1177,6 +1429,9 @@ static void block_thread(void *param)
 					long long ssesum=curr_sse[sseidx]>>A2_SSECTR, ssecount=curr_sse[sseidx]&((1LL<<A2_SSECTR)-1);
 					p0+=ssesum/(ssecount+5);
 #endif
+					//p0-=0x8000;
+					//p0>>=1;
+					//p0=squash((int)p0);
 					CLAMP2(p0, 1, 0xFFFF);
 					//CLAMP2_32(p0, (int)p0, 1, 0xFFFF);
 					if(args->fwd)
@@ -1201,134 +1456,135 @@ static void block_thread(void *param)
 					}
 					curr_sse[sseidx]=ssesum<<A2_SSECTR|ssecount;
 #endif
+					int pred2=(char)(e2|1<<kb>>1)-pred;
+					int sh=0;
+					switch(kb)
 					{
-						int pred2=(char)(e2|1<<kb>>1)-pred;
-						int sh=0;
-						switch(kb)
-						{
-						case 7:
-							sh=(shoffset+grad+(1<<7))>>7;
-							break;
-						case 6:
-							sh=(shoffset+grad-abs(pred2)+(1<<7))>>7;
-							break;
-						case 5:
-							sh=(shoffset+grad-abs(pred2)+(1<<7))>>7;
-							break;
-						case 4:
-							sh=(shoffset+grad-abs(pred2)/2+(1<<7))>>7;
-							break;
-						case 3:
-							sh=(shoffset+grad-abs(pred2)/4+(1<<7))>>7;
-							break;
-						case 2:
-							sh=(shoffset+grad-abs(pred2)/8+(1<<7))>>7;
-							break;
-						case 1:
-							sh=(shoffset+grad+abs(pred2)/4+(1<<7))>>7;
-							break;
-						case 0:
-							sh=(shoffset-abs(W[kc2+1])+abs(NEE[kc2+1])/2+abs(NN[kc2+1])+7*abs(pred2))>>8;
-							break;
-						}
-						if(sh<0)sh=0;
-						sh=FLOOR_LOG2_P1(sh);
+					case 7:
+						sh=(shoffset+grad+(1<<7))>>7;
+						break;
+					case 6:
+						sh=(shoffset+grad-abs(pred2)+(1<<7))>>7;
+						break;
+					case 5:
+						sh=(shoffset+grad-abs(pred2)+(1<<7))>>7;
+						break;
+					case 4:
+						sh=(shoffset+grad-abs(pred2)/2+(1<<7))>>7;
+						break;
+					case 3:
+						sh=(shoffset+grad-abs(pred2)/4+(1<<7))>>7;
+						break;
+					case 2:
+						sh=(shoffset+grad-abs(pred2)/8+(1<<7))>>7;
+						break;
+					case 1:
+						sh=(shoffset+grad+abs(pred2)/4+(1<<7))>>7;
+						break;
+					case 0:
+						sh=(shoffset-abs(W[kc2+1])+abs(NEE[kc2+1])/2+abs(NN[kc2+1])+7*abs(pred2))>>8;
+						break;
+					}
+					if(sh<0)sh=0;
+					sh=FLOOR_LOG2_P1(sh);
 #ifdef PRINT_SH
-						if(args->fwd&&ky<<1>=args->ih-5&&ky<<1<=args->ih+5&&kx<<1>=args->iw-5&&kx<<1<=args->iw+5)
+					if(args->fwd&&ky<<1>=args->ih-5&&ky<<1<=args->ih+5&&kx<<1>=args->iw-5&&kx<<1<=args->iw+5)
+					{
+						if(kb==7)
+							printf("%5d %5d", kx, ky);
+						printf(" %d", sh);
+						if(kb==0)
 						{
-							if(kb==7)
-								printf("%5d %5d", kx, ky);
-							printf(" %d", sh);
-							if(kb==0)
-							{
-								printf(" 0x%02X = %d\n", error&0xFF, error);
-								if(kc==2)
-									printf("\n");
-							}
-						//	printf("%5d %5d %d %d\n", kx, ky, kb, sh);
+							printf(" 0x%02X = %d\n", error&0xFF, error);
+							if(kc==2)
+								printf("\n");
 						}
+					//	printf("%5d %5d %d %d\n", kx, ky, kb, sh);
+					}
 #endif
-						if(abs(prob_error)>16)
-						{
+					if(abs(prob_error)>16)
+					{
 #if 1
-							long long dL_dp0=0x7F000000000/((long long)((bit<<16)-(int)p0)*wsum*2);
-							CLAMP2(dL_dp0, -0x3FFF, 0x3FFF);
-							__m256i vmin=_mm256_set1_epi64x(1);
-							__m256i vmax=_mm256_set1_epi64x(0x40000);
-							__m256i lo32=_mm256_set1_epi64x(0xFFFFFFFF);
-							__m256i msh=_mm256_set1_epi64x(sh+12LL);
-							__m256i mp0=_mm256_set1_epi64x(p0);
-							__m256i mdL_dp0=_mm256_set1_epi64x(dL_dp0);
-							__m256i update0=_mm256_sub_epi32(mprob0, mp0);
-							__m256i update1=_mm256_sub_epi32(mprob1, mp0);
-							__m256i update2=_mm256_sub_epi32(mprob2, mp0);
-							update0=_mm256_mul_epi32(update0, mdL_dp0);
-							update1=_mm256_mul_epi32(update1, mdL_dp0);
-							update2=_mm256_mul_epi32(update2, mdL_dp0);
-							update0=_mm256_srav_epi32(update0, msh);
-							update1=_mm256_srav_epi32(update1, msh);
-							update2=_mm256_srav_epi32(update2, msh);
-							mweight0=_mm256_sub_epi32(mweight0, update0);
-							mweight1=_mm256_sub_epi32(mweight1, update1);
-							mweight2=_mm256_sub_epi32(mweight2, update2);
-							mweight0=_mm256_max_epi32(mweight0, vmin);
-							mweight1=_mm256_max_epi32(mweight1, vmin);
-							mweight2=_mm256_max_epi32(mweight2, vmin);
-							mweight0=_mm256_min_epi32(mweight0, vmax);
-							mweight1=_mm256_min_epi32(mweight1, vmax);
-							mweight2=_mm256_min_epi32(mweight2, vmax);
-							mweight0=_mm256_and_si256(mweight0, lo32);
-							mweight1=_mm256_and_si256(mweight1, lo32);
-							mweight2=_mm256_and_si256(mweight2, lo32);
-							_mm256_store_si256((__m256i*)curr_mixer+0, mweight0);
-							_mm256_store_si256((__m256i*)curr_mixer+1, mweight1);
-							_mm256_store_si256((__m256i*)curr_mixer+2, mweight2);
-							//for(int k=0;k<A2_NCTX;++k)
-							//{
-							//	int update=(int)((int)dL_dp0*(curr_stats[k][tidx]-(int)p0)>>(sh+17-4-1));
-							//	int mk=curr_mixer[k]-update;
-							//	CLAMP2(mk, 1, 0x40000);
-							//	curr_mixer[k]=mk;
-							//}
+						long long dL_dp0=0x7F000000000/((long long)((bit<<16)-(int)p0)*wsum*2);
+						CLAMP2(dL_dp0, -0x3FFF, 0x3FFF);
+						__m256i vmin2=_mm256_set1_epi64x(1);
+						__m256i vmax2=_mm256_set1_epi64x(0x40000);
+						__m256i lo32=_mm256_set1_epi64x(0xFFFFFFFF);
+						__m256i msh=_mm256_set1_epi64x(sh+12LL);
+						__m256i mp0=_mm256_set1_epi64x(p0);
+						__m256i mdL_dp0=_mm256_set1_epi64x(dL_dp0);
+						__m256i update0=_mm256_sub_epi32(mprob0, mp0);
+						__m256i update1=_mm256_sub_epi32(mprob1, mp0);
+						__m256i update2=_mm256_sub_epi32(mprob2, mp0);
+						update0=_mm256_mul_epi32(update0, mdL_dp0);
+						update1=_mm256_mul_epi32(update1, mdL_dp0);
+						update2=_mm256_mul_epi32(update2, mdL_dp0);
+						update0=_mm256_srav_epi32(update0, msh);
+						update1=_mm256_srav_epi32(update1, msh);
+						update2=_mm256_srav_epi32(update2, msh);
+						mweight0=_mm256_sub_epi32(mweight0, update0);
+						mweight1=_mm256_sub_epi32(mweight1, update1);
+						mweight2=_mm256_sub_epi32(mweight2, update2);
+						mweight0=_mm256_max_epi32(mweight0, vmin2);
+						mweight1=_mm256_max_epi32(mweight1, vmin2);
+						mweight2=_mm256_max_epi32(mweight2, vmin2);
+						mweight0=_mm256_min_epi32(mweight0, vmax2);
+						mweight1=_mm256_min_epi32(mweight1, vmax2);
+						mweight2=_mm256_min_epi32(mweight2, vmax2);
+						mweight0=_mm256_and_si256(mweight0, lo32);
+						mweight1=_mm256_and_si256(mweight1, lo32);
+						mweight2=_mm256_and_si256(mweight2, lo32);
+						_mm256_store_si256((__m256i*)curr_mixer+0, mweight0);
+						_mm256_store_si256((__m256i*)curr_mixer+1, mweight1);
+						_mm256_store_si256((__m256i*)curr_mixer+2, mweight2);
+						//for(int k=0;k<A2_NCTX;++k)
+						//{
+						//	int update=(int)((int)dL_dp0*(curr_stats[k][tidx]-(int)p0)>>(sh+17-4-1));
+						//	int mk=curr_mixer[k]-update;
+						//	CLAMP2(mk, 1, 0x40000);
+						//	curr_mixer[k]=mk;
+						//}
 #else
-							int dL_dp0=0x7F00000/((bit<<16)-(int)p0);
-							for(int k=0;k<A2_NCTX;++k)
-							{
-								int mk=curr_mixer[k]-(int)((long long)dL_dp0*(curr_stats[k][tidx]-(int)p0)>>sh)/wsum;
-								CLAMP2(mk, 1, 0x40000);
-								curr_mixer[k]=mk;
-							//	CLAMP2_32(curr_mixer[k], mk, 1, 0x40000);
-							}
-#endif
-						}
-#if 1
-						__m256i msh=_mm256_set_epi64x(sh+5LL, sh+5LL, sh+4LL, sh+4LL);
-						__m256i mtruth=_mm256_set_epi64x((long long)!bit<<16|1<<5>>1, (long long)!bit<<16|1<<5>>1, (long long)!bit<<16|1<<4>>1, (long long)!bit<<16|1<<4>>1);
-						__m256i mupdate0=_mm256_sub_epi64(mtruth, mprob0);
-						__m256i mupdate1=_mm256_sub_epi64(mtruth, mprob1);
-						__m256i mupdate2=_mm256_sub_epi64(mtruth, mprob2);
-						mupdate0=_mm256_srav_epi32(mupdate0, msh);
-						mupdate1=_mm256_srav_epi32(mupdate1, msh);
-						mupdate2=_mm256_srav_epi32(mupdate2, msh);
-						mprob0=_mm256_add_epi64(mprob0, mupdate0);
-						mprob1=_mm256_add_epi64(mprob1, mupdate1);
-						mprob2=_mm256_add_epi64(mprob2, mupdate2);
-						_mm256_store_si256((__m256i*)probs+0, mprob0);
-						_mm256_store_si256((__m256i*)probs+1, mprob1);
-						_mm256_store_si256((__m256i*)probs+2, mprob2);
-						for(int k=0;k<A2_NCTX;++k)
-							curr_stats[k][tidx]=probs[k];
-#else
+						int dL_dp0=0x7F00000/((bit<<16)-(int)p0);
 						for(int k=0;k<A2_NCTX;++k)
 						{
-							int p=curr_stats[k][tidx];
-							p+=((!bit<<16)-p)>>(sh+4+(k>A2_NCTX/2));
-							CLAMP2(p, 1, 0xFFFF);
-							curr_stats[k][tidx]=p;
-						//	CLAMP2_32(curr_stats[k][tidx], p, 1, 0xFFFF);
+							int mk=curr_mixer[k]-(int)((long long)dL_dp0*(curr_stats[k][tidx]-(int)p0)>>sh)/wsum;
+							CLAMP2(mk, 1, 0x40000);
+							curr_mixer[k]=mk;
+						//	CLAMP2_32(curr_mixer[k], mk, 1, 0x40000);
 						}
 #endif
 					}
+#if 1
+					__m256i msh=_mm256_set1_epi64x(sh);
+					msh=_mm256_add_epi64(msh, _mm256_set_epi64x(5, 5, 4, 4));
+					__m256i mtruth=_mm256_sllv_epi32(_mm256_set1_epi64x(1), msh);
+					mtruth=_mm256_srli_epi32(mtruth, 1);
+					mtruth=_mm256_or_si256(mtruth, _mm256_set1_epi64x((long long)!bit<<16));
+					__m256i mupdate0=_mm256_sub_epi64(mtruth, mprob0);
+					__m256i mupdate1=_mm256_sub_epi64(mtruth, mprob1);
+					__m256i mupdate2=_mm256_sub_epi64(mtruth, mprob2);
+					mupdate0=_mm256_srav_epi32(mupdate0, msh);
+					mupdate1=_mm256_srav_epi32(mupdate1, msh);
+					mupdate2=_mm256_srav_epi32(mupdate2, msh);
+					mprob0=_mm256_add_epi64(mprob0, mupdate0);
+					mprob1=_mm256_add_epi64(mprob1, mupdate1);
+					mprob2=_mm256_add_epi64(mprob2, mupdate2);
+					_mm256_store_si256((__m256i*)probs+0, mprob0);
+					_mm256_store_si256((__m256i*)probs+1, mprob1);
+					_mm256_store_si256((__m256i*)probs+2, mprob2);
+					for(int k=0;k<A2_NCTX;++k)
+						curr_stats[k][tidx]=(int)probs[k];
+#else
+					for(int k=0;k<A2_NCTX;++k)
+					{
+						int p=curr_stats[k][tidx];
+						p+=((!bit<<16)-p)>>(sh+4+(k>A2_NCTX/2));
+						CLAMP2(p, 1, 0xFFFF);
+						curr_stats[k][tidx]=p;
+					//	CLAMP2_32(curr_stats[k][tidx], p, 1, 0xFFFF);
+					}
+#endif
 					curr_mixer+=A2_NCTX;
 #ifdef ENABLE_SSE
 					curr_sse+=1<<A2_SSEPBITS;
@@ -1342,11 +1598,240 @@ static void block_thread(void *param)
 					curr[kc2+0]=yuv[kc]=error;
 					curr[kc2+1]=error-pred;
 				}
+#ifdef ESTIMATE_SIZE
+				++args->hist2[kc][(curr[kc2+1]+128)&255];
+#endif
 				curr[kc2+0]-=offset;
-#ifndef DISABLE_WG
+#ifdef ENABLE_WG
 				wg_update(curr[kc2+0], wg_preds, wg_perrors+WG_NPREDS*kc, wg_weights+WG_NPREDS*kc);
 #endif
 			}
+#ifdef ENABLE_OLS
+			if(kx<5||kols>=kols2)
+			{
+				double *pnb0=args->ols4[0].nb;
+				double *pnb1=args->ols4[1].nb;
+				double *pnb2=args->ols4[2].nb;
+				double *cov0=args->ols4[0].cov;
+				double *cov1=args->ols4[1].cov;
+				double *cov2=args->ols4[2].cov;
+				double lval0=curr[0]*lrs[0], lr_comp0=1-lrs[0];
+				double lval1=curr[2]*lrs[1], lr_comp1=1-lrs[1];
+				double lval2=curr[4]*lrs[2], lr_comp2=1-lrs[2];
+				__m256d mlr0=_mm256_set1_pd(lrs[0]);
+				__m256d mlr1=_mm256_set1_pd(lrs[1]);
+				__m256d mlr2=_mm256_set1_pd(lrs[2]);
+				for(int ky2=0, midx=0;ky2<OLS4_NPARAMS;++ky2)
+				{
+					__m256d vy0=_mm256_set1_pd(pnb0[ky2]);
+					__m256d vy1=_mm256_set1_pd(pnb1[ky2]);
+					__m256d vy2=_mm256_set1_pd(pnb2[ky2]);
+					int kx2=0;
+					for(;kx2<OLS4_NPARAMS-3;kx2+=4, midx+=4)
+					{
+						__m256d mcov0=_mm256_load_pd(cov0+midx);
+						__m256d mcov1=_mm256_load_pd(cov1+midx);
+						__m256d mcov2=_mm256_load_pd(cov2+midx);
+						__m256d vx0=_mm256_load_pd(pnb0+kx2);
+						__m256d vx1=_mm256_load_pd(pnb1+kx2);
+						__m256d vx2=_mm256_load_pd(pnb2+kx2);
+						vx0=_mm256_mul_pd(vx0, vy0);
+						vx1=_mm256_mul_pd(vx1, vy1);
+						vx2=_mm256_mul_pd(vx2, vy2);
+						vx0=_mm256_sub_pd(vx0, mcov0);
+						vx1=_mm256_sub_pd(vx1, mcov1);
+						vx2=_mm256_sub_pd(vx2, mcov2);
+						vx0=_mm256_mul_pd(vx0, mlr0);
+						vx1=_mm256_mul_pd(vx1, mlr1);
+						vx2=_mm256_mul_pd(vx2, mlr2);
+						vx0=_mm256_add_pd(vx0, mcov0);
+						vx1=_mm256_add_pd(vx1, mcov1);
+						vx2=_mm256_add_pd(vx2, mcov2);
+						_mm256_store_pd(cov0+midx, vx0);
+						_mm256_store_pd(cov1+midx, vx1);
+						_mm256_store_pd(cov2+midx, vx2);
+					}
+#if OLS4_NPARAMS&15
+					for(;kx2<OLS4_NPARAMS;++kx2, ++midx)
+					{
+						cov0[midx]+=(pnb0[kx2]*pnb0[ky2]-cov0[midx])*lrs[0];
+						cov1[midx]+=(pnb1[kx2]*pnb1[ky2]-cov1[midx])*lrs[1];
+						cov2[midx]+=(pnb2[kx2]*pnb2[ky2]-cov2[midx])*lrs[2];
+					}
+#endif
+				}
+				double *vec0=args->ols4[0].vec;
+				double *vec1=args->ols4[1].vec;
+				double *vec2=args->ols4[2].vec;
+				{
+					__m256d mlr_comp0=_mm256_set1_pd(lr_comp0);
+					__m256d mlr_comp1=_mm256_set1_pd(lr_comp1);
+					__m256d mlr_comp2=_mm256_set1_pd(lr_comp2);
+					__m256d mval0=_mm256_set1_pd(lval0);
+					__m256d mval1=_mm256_set1_pd(lval1);
+					__m256d mval2=_mm256_set1_pd(lval2);
+					int k=0;
+					for(;k<OLS4_NPARAMS-3;k+=4)
+					{
+						__m256d mvec0=_mm256_load_pd(vec0+k);
+						__m256d mvec1=_mm256_load_pd(vec1+k);
+						__m256d mvec2=_mm256_load_pd(vec2+k);
+						__m256d mtmp0=_mm256_load_pd(pnb0+k);
+						__m256d mtmp1=_mm256_load_pd(pnb1+k);
+						__m256d mtmp2=_mm256_load_pd(pnb2+k);
+						mvec0=_mm256_mul_pd(mvec0, mlr_comp0);
+						mvec1=_mm256_mul_pd(mvec1, mlr_comp1);
+						mvec2=_mm256_mul_pd(mvec2, mlr_comp2);
+						mtmp0=_mm256_mul_pd(mtmp0, mval0);
+						mtmp1=_mm256_mul_pd(mtmp1, mval1);
+						mtmp2=_mm256_mul_pd(mtmp2, mval2);
+						mvec0=_mm256_add_pd(mvec0, mtmp0);
+						mvec1=_mm256_add_pd(mvec1, mtmp1);
+						mvec2=_mm256_add_pd(mvec2, mtmp2);
+						_mm256_store_pd(vec0+k, mvec0);
+						_mm256_store_pd(vec1+k, mvec1);
+						_mm256_store_pd(vec2+k, mvec2);
+					}
+#if OLS4_NPARAMS&15
+					for(;k<OLS4_NPARAMS;++k)
+					{
+						vec0[k]=lval0*pnb0[k]+lr_comp0*vec0[k];
+						vec1[k]=lval1*pnb1[k]+lr_comp1*vec1[k];
+						vec2[k]=lval2*pnb2[k]+lr_comp2*vec2[k];
+					}
+#endif
+				}
+				double *chol0=args->ols4[0].cholesky;
+				double *chol1=args->ols4[1].cholesky;
+				double *chol2=args->ols4[2].cholesky;
+				double *params0=args->ols4[0].params;
+				double *params1=args->ols4[1].params;
+				double *params2=args->ols4[2].params;
+				int success0=1;
+				int success1=1;
+				int success2=1;
+				memcpy(chol0, cov0, sizeof(double[OLS4_NPARAMS*OLS4_NPARAMS]));
+				memcpy(chol1, cov1, sizeof(double[OLS4_NPARAMS*OLS4_NPARAMS]));
+				memcpy(chol2, cov2, sizeof(double[OLS4_NPARAMS*OLS4_NPARAMS]));
+				for(int k=0;k<OLS4_NPARAMS*OLS4_NPARAMS;k+=OLS4_NPARAMS+1)
+				{
+					chol0[k]+=0.0075;
+					chol1[k]+=0.0075;
+					chol2[k]+=0.0075;
+				}
+				double sum;
+				for(int i=0;i<OLS4_NPARAMS;++i)
+				{
+					for(int j=0;j<i;++j)
+					{
+						sum=chol0[i*OLS4_NPARAMS+j];
+						for(int k=0;k<j;++k)
+							sum-=chol0[i*OLS4_NPARAMS+k]*chol0[j*OLS4_NPARAMS+k];
+						chol0[i*OLS4_NPARAMS+j]=sum/chol0[j*OLS4_NPARAMS+j];
+					}
+					sum=chol0[i*OLS4_NPARAMS+i];
+					for(int k=0;k<i;++k)
+						sum-=chol0[i*OLS4_NPARAMS+k]*chol0[i*OLS4_NPARAMS+k];
+					if(sum<=1e-8)
+					{
+						success0=0;
+						break;
+					}
+					chol0[i*OLS4_NPARAMS+i]=sqrt(sum);
+				}
+				for(int i=0;i<OLS4_NPARAMS;++i)
+				{
+					for(int j=0;j<i;++j)
+					{
+						sum=chol1[i*OLS4_NPARAMS+j];
+						for(int k=0;k<j;++k)
+							sum-=chol1[i*OLS4_NPARAMS+k]*chol1[j*OLS4_NPARAMS+k];
+						chol1[i*OLS4_NPARAMS+j]=sum/chol1[j*OLS4_NPARAMS+j];
+					}
+					sum=chol1[i*OLS4_NPARAMS+i];
+					for(int k=0;k<i;++k)
+						sum-=chol1[i*OLS4_NPARAMS+k]*chol1[i*OLS4_NPARAMS+k];
+					if(sum<=1e-8)
+					{
+						success1=0;
+						break;
+					}
+					chol1[i*OLS4_NPARAMS+i]=sqrt(sum);
+				}
+				for(int i=0;i<OLS4_NPARAMS;++i)
+				{
+					for(int j=0;j<i;++j)
+					{
+						sum=chol2[i*OLS4_NPARAMS+j];
+						for(int k=0;k<j;++k)
+							sum-=chol2[i*OLS4_NPARAMS+k]*chol2[j*OLS4_NPARAMS+k];
+						chol2[i*OLS4_NPARAMS+j]=sum/chol2[j*OLS4_NPARAMS+j];
+					}
+					sum=chol2[i*OLS4_NPARAMS+i];
+					for(int k=0;k<i;++k)
+						sum-=chol2[i*OLS4_NPARAMS+k]*chol2[i*OLS4_NPARAMS+k];
+					if(sum<=1e-8)
+					{
+						success2=0;
+						break;
+					}
+					chol2[i*OLS4_NPARAMS+i]=sqrt(sum);
+				}
+				if(success0)
+				{
+					for(int i=0;i<OLS4_NPARAMS;++i)
+					{
+						sum=vec0[i];
+						for(int j=0;j<i;++j)
+							sum-=chol0[i*OLS4_NPARAMS+j]*params0[j];
+						params0[i]=sum/chol0[i*OLS4_NPARAMS+i];
+					}
+					for(int i=OLS4_NPARAMS-1;i>=0;--i)
+					{
+						sum=params0[i];
+						for(int j=i+1;j<OLS4_NPARAMS;++j)
+							sum-=chol0[j*OLS4_NPARAMS+i]*params0[j];
+						params0[i]=sum/chol0[i*OLS4_NPARAMS+i];
+					}
+				}
+				if(success1)
+				{
+					for(int i=0;i<OLS4_NPARAMS;++i)
+					{
+						sum=vec1[i];
+						for(int j=0;j<i;++j)
+							sum-=chol1[i*OLS4_NPARAMS+j]*params1[j];
+						params1[i]=sum/chol1[i*OLS4_NPARAMS+i];
+					}
+					for(int i=OLS4_NPARAMS-1;i>=0;--i)
+					{
+						sum=params1[i];
+						for(int j=i+1;j<OLS4_NPARAMS;++j)
+							sum-=chol1[j*OLS4_NPARAMS+i]*params1[j];
+						params1[i]=sum/chol1[i*OLS4_NPARAMS+i];
+					}
+				}
+				if(success2)
+				{
+					for(int i=0;i<OLS4_NPARAMS;++i)
+					{
+						sum=vec2[i];
+						for(int j=0;j<i;++j)
+							sum-=chol2[i*OLS4_NPARAMS+j]*params2[j];
+						params2[i]=sum/chol2[i*OLS4_NPARAMS+i];
+					}
+					for(int i=OLS4_NPARAMS-1;i>=0;--i)
+					{
+						sum=params2[i];
+						for(int j=i+1;j<OLS4_NPARAMS;++j)
+							sum-=chol2[j*OLS4_NPARAMS+i]*params2[j];
+						params2[i]=sum/chol2[i*OLS4_NPARAMS+i];
+					}
+				}
+			}
+			if(kols>=kols2)
+				kols2+=OLS_STRIDE;
+#endif
 			if(!args->fwd)
 			{
 				switch(bestrct)
@@ -1436,10 +1921,13 @@ int c03_codec(const char *srcfn, const char *dstfn)
 	ThreadArgs *args;
 	int test, fwd;
 	int tlevels, histsize, statssize;
-	double esize;
+	double bestsize;
 	int usize;
 #ifdef ABAC_PROFILESIZE
 	double abac_csizes[ABAC_TOKEN_BITS*3]={0};
+#endif
+#ifdef ESTIMATE_SIZE
+	double esize[3]={0};
 #endif
 	
 	t0=time_sec();
@@ -1480,7 +1968,7 @@ int c03_codec(const char *srcfn, const char *dstfn)
 		LOG_ERROR("Alloc error");
 		return 1;
 	}
-	esize=0;
+	bestsize=0;
 	memusage+=argssize;
 	memset(args, 0, argssize);
 	if(fwd)
@@ -1543,6 +2031,10 @@ int c03_codec(const char *srcfn, const char *dstfn)
 		arg->histsize=histsize;
 		arg->hist=(int*)malloc(histsize);
 		//arg->stats=(unsigned*)malloc(statssize);
+#ifdef ENABLE_OLS
+		for(int k=0;k<3;++k)
+			ols4_init(arg->ols4+k, OLS4_NPARAMS);
+#endif
 		if(!arg->pixels||!arg->hist)
 		{
 			LOG_ERROR("Alloc error");
@@ -1602,7 +2094,8 @@ int c03_codec(const char *srcfn, const char *dstfn)
 					ThreadArgs *arg=args+kt2;
 					if(test)
 					{
-						int blocksize=((arg->x2-arg->x1)*(arg->y2-arg->y1)*nch*depth+7)>>3;
+						int res=(arg->x2-arg->x1)*(arg->y2-arg->y1);
+						int blocksize=(res*nch*depth+7)>>3;
 						int kx, ky;
 
 						kx=kt+kt2;
@@ -1630,10 +2123,21 @@ int c03_codec(const char *srcfn, const char *dstfn)
 								pred_names[arg->predidx[2]]
 							);
 						}
-						esize+=arg->bestsize;
+						bestsize+=arg->bestsize;
 #ifdef ABAC_PROFILESIZE
 						for(int k=0;k<ABAC_TOKEN_BITS*3;++k)
 							abac_csizes[k]+=arg->abac_csizes[k];
+#endif
+#ifdef ESTIMATE_SIZE
+						for(int kc=0;kc<3;++kc)
+						{
+							for(int ks=0;ks<256;++ks)
+							{
+								int freq=arg->hist2[kc][ks];
+								if(freq)
+									esize[kc]-=freq*log2((double)freq/res);
+							}
+						}
 #endif
 					}
 					memcpy(dst->data+start+sizeof(int)*((ptrdiff_t)kt+kt2), &arg->list.nbytes, sizeof(int));
@@ -1664,7 +2168,16 @@ int c03_codec(const char *srcfn, const char *dstfn)
 					);
 				}
 #endif
-				printf("Best %15.2lf (%+13.2lf) bytes\n", esize, csize-esize);
+#ifdef ESTIMATE_SIZE
+				esize[0]/=8;
+				esize[1]/=8;
+				esize[2]/=8;
+				printf("T %15.2lf\n", esize[0]+esize[1]+esize[2]);
+				printf("Y %15.2lf\n", esize[0]);
+				printf("U %15.2lf\n", esize[1]);
+				printf("V %15.2lf\n", esize[2]);
+#endif
+				printf("Best %15.2lf (%+13.2lf) bytes\n", bestsize, csize-bestsize);
 				printf("%12td/%12td  %10.6lf%%  %10lf\n", csize, usize, 100.*csize/usize, (double)usize/csize);
 				printf("Mem usage: ");
 				print_size((double)memusage, 8, 4, 0, 0);
@@ -1706,6 +2219,10 @@ int c03_codec(const char *srcfn, const char *dstfn)
 		_mm_free(arg->pixels);
 		free(arg->hist);
 		//free(arg->stats);
+#ifdef ENABLE_OLS
+		for(int k=0;k<3;++k)
+			ols4_free(arg->ols4+k);
+#endif
 	}
 	free(args);
 	array_free(&src);

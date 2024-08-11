@@ -690,10 +690,10 @@ ProgArgs args=
 {
 	OP_TESTFILE, 1, 0,//operation, nthreads, formatsize
 
-//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
+	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
 //	"D:/ML/big_building.PPM"
 
-	"C:/Projects/datasets/kodim13.ppm"
+//	"C:/Projects/datasets/kodim13.ppm"
 //	"C:/Projects/datasets/dataset-kodak/kodim02.png",
 //	"C:/Projects/datasets/dataset-kodak/kodim13.png",
 //	"C:/Projects/datasets/dataset-ic-rgb16bit/artificial.png",

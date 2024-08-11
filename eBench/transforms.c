@@ -2985,8 +2985,6 @@ void pred_CG3D(Image *src, int fwd, int enable_ma)
 			}
 #endif
 #if 0
-			if(ky==100&&kx==100)
-				printf("");
 			int kc=0;
 			if(nch>=3)
 			{
@@ -3862,9 +3860,9 @@ void pred_wgrad(Image *src, int fwd, int hasRCT)
 				//pred=(pred+N+W-NW)>>1;
 #if 1
 				long long lpred, wsum;
-				int
-					gy=abs(N-NN)+abs(W-NW)+1,
-					gx=abs(W-WW)+abs(N-NW)+1;
+				//int
+				//	gy=abs(N-NN)+abs(W-NW)+1,
+				//	gx=abs(W-WW)+abs(N-NW)+1;
 				int preds[]=
 				{
 					//(N*gx+W*gy)/(gy+gx),
@@ -8713,10 +8711,15 @@ static void pred_custom_calcloss(Image const *src, Image *dst, int *hist, const 
 }
 #define CUSTOM_NITER 128
 #define CUSTOM_DELTAGROUP 2//must be 2		//must be even
-void pred_custom_optimize(Image const *image, int *params)
+void pred_custom_optimize(Image const *image, int *params, int reach)
 {
 	static int call_idx=0;
 
+	static const int r1_idx[]=
+	{
+		6, 7, 8,	//NW N NE
+		11,		//W  ?
+	};
 	Image *im2;
 	int maxdepth, maxlevels, *hist;
 	double loss_bestsofar[4], loss_prev[4], loss_curr[4];
@@ -8750,7 +8753,10 @@ void pred_custom_optimize(Image const *image, int *params)
 		int sum=0, idx;
 		for(int k=0;k<CUSTOM_NNB*2;k+=2)
 			sum+=params[CUSTOM_NNB*2*custom_pred_ch_idx+k];
-		idx=rand()%CUSTOM_NNB;
+		if(reach==1)
+			idx=r1_idx[rand()&3];
+		else
+			idx=rand()%CUSTOM_NNB;
 		params[CUSTOM_NNB*2*custom_pred_ch_idx+idx*2]+=0x10000-sum;
 	}
 	CALC_LOSS(loss_prev);
@@ -8768,6 +8774,18 @@ void pred_custom_optimize(Image const *image, int *params)
 			//	params2[k]+=((rand()&1)<<1)-1;
 			watchdog=0;
 			stuck=1;
+		}
+		else if(reach==1)
+		{
+			int inc;
+
+			inc=(rand()&1?1:-1)<<(rand()&7);
+			idx[0]=(CUSTOM_NNB*custom_pred_ch_idx+r1_idx[rand()&3])*2;
+			idx[1]=(CUSTOM_NNB*custom_pred_ch_idx+r1_idx[rand()&3])*2;
+			params_original_selected[0]=params[idx[0]];
+			params[idx[0]]+=inc;
+			params_original_selected[1]=params[idx[1]];
+			params[idx[1]]-=inc;
 		}
 		else
 		{

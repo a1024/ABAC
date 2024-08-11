@@ -14,8 +14,8 @@ static const char file[]=__FILE__;
 //	#define DISABLE_MT
 
 	#define ALLOW_AVX2
-	#define ENABLE_OLS
-	#define ENABLE_SSE
+//	#define ENABLE_OLS
+//	#define ENABLE_SSE
 
 
 #define AC3_PREC
@@ -2386,7 +2386,7 @@ int f33_codec(Image const *src, ArrayHandle *data, const unsigned char *cbuf, si
 		free(arg->hist);
 		//free(arg->stats);
 #ifdef ENABLE_OLS
-		for(int k=0;k<image->nch;++k)
+		for(int k=0;k<image->nch&&k<3;++k)
 			ols4_free(arg->ols4+k);
 #endif
 	}

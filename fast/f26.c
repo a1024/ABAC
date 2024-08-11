@@ -34,7 +34,7 @@ static const Image *guide=0;
 #endif
 #define BLOCKSIZE 256
 
-#define ANALYSIS_STRIDE 3
+#define ANALYSIS_STRIDE 1
 
 //RCT1~7:
 //Cr-=y		Cr = [ 1	-1	0].RGB

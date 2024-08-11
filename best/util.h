@@ -51,6 +51,12 @@ extern "C"
 #define MINVAR(A, B) ((A)<(B)?(A):(B))
 #define MAXVAR(A, B) ((A)>(B)?(A):(B))
 #define CLAMP(LO, X, HI) ((X)>(LO)?(X)<(HI)?(X):(HI):(LO))
+#define CLAMP2(X, LO, HI)\
+	do\
+	{\
+		if(X<(LO))X=LO;\
+		if(X>(HI))X=HI;\
+	}while(0)
 
 //include<smmintrin.h>	SSE4.1
 #define MEDIAN3_32(DST, A, B, C)\
@@ -84,6 +90,38 @@ extern "C"
 		DST=arr[0];\
 	}while(0)
 #define MEDIAN3(A, B, C) (B<A?B<C?C<A?C:A:B:A<C?C<B?C:B:A)//SLOW
+	
+//include<smmintrin.h>	SSE4.1
+#define CLAMP2_32(DST, X, LO, HI)\
+	do\
+	{\
+		ALIGN(16) int _dst[4];\
+		__m128i _mx=_mm_set_epi32(0, 0, 0, X);\
+		__m128i _vmin=_mm_set_epi32(0, 0, 0, LO);\
+		__m128i _vmax=_mm_set_epi32(0, 0, 0, HI);\
+		_mx=_mm_max_epi32(_mx, _vmin);\
+		_mx=_mm_min_epi32(_mx, _vmax);\
+		_mm_store_si128((__m128i*)_dst, _mx);\
+		DST=_dst[0];\
+	}while(0)
+#define CLAMP3_32(DST, X, A, B, C)\
+	do\
+	{\
+		ALIGN(16) int _dst[4];\
+		__m128i _mx=_mm_set_epi32(0, 0, 0, X);\
+		__m128i ma=_mm_set_epi32(0, 0, 0, A);\
+		__m128i mb=_mm_set_epi32(0, 0, 0, B);\
+		__m128i mc=_mm_set_epi32(0, 0, 0, C);\
+		__m128i vmin=_mm_min_epi32(ma, mb);\
+		__m128i vmax=_mm_max_epi32(ma, mb);\
+		vmin=_mm_min_epi32(vmin, mc);\
+		vmax=_mm_max_epi32(vmax, mc);\
+		_mx=_mm_max_epi32(_mx, vmin);\
+		_mx=_mm_min_epi32(_mx, vmax);\
+		_mm_store_si128((__m128i*)_dst, _mx);\
+		DST=_dst[0];\
+	}while(0)
+
 #define MOVEOBJ(SRC, DST, SIZE) memcpy(DST, SRC, SIZE), memset(SRC, 0, SIZE)
 #define MODVAR(DST, SRC, N) DST=(SRC)%(N), DST+=(N)&-(DST<0)
 #define SHIFT_LEFT_SIGNED(X, SH) ((SH)<0?(X)>>-(SH):(X)<<(SH))

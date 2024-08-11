@@ -8,13 +8,13 @@ static const char file[]=__FILE__;
 //	#define ENABLE_GUIDE
 	#define DISABLE_MT
 
-	#define USE_AC4
+//	#define USE_AC4
 //	#define USE_AC2
-	#define USE_ABAC
+//	#define USE_ABAC
 
 #define BLOCKSIZE 768
 #define MAXPRINTEDBLOCKS 0
-#define CODECNAME "C07"
+#define CODECNAME "C10_YUV422"
 #define AC3_PREC
 #include"entropy.h"
 
@@ -127,30 +127,6 @@ static const short av12_icoeffs[12]=
 	-0x2A,	 0xF3,
 };
 
-#define ABAC_PROBBITS 16
-static int squash(int x)//sigmoid(x) = 1/(1-exp(-x))		logit sum -> prob
-{
-#ifdef DISABLE_LOGMIX
-	x>>=11;
-	x+=1<<ABAC_PROBBITS>>1;
-	CLAMP2_32(x, x, 1, (1<<ABAC_PROBBITS)-1);
-#else
-	static const int t[33]=//2^5 table elements, table amplitude 2^12
-	{
-		   1,    2,    3,    6,   10,   16,   27,   45,   73,  120,  194,
-		 310,  488,  747, 1101, 1546, 2047, 2549, 2994, 3348, 3607, 3785,
-		3901, 3975, 4022, 4050, 4068, 4079, 4085, 4089, 4092, 4093, 4094,
-	};
-	int w=x&((1<<(ABAC_PROBBITS-5))-1);
-	x=(x>>(ABAC_PROBBITS-5))+16;
-	if(x>31)
-		return (1<<ABAC_PROBBITS)-1;
-	if(x<0)
-		return 1;
-	x=(t[x]*((1<<(ABAC_PROBBITS-5))-w)+t[x+1]*w+64)>>(12-5);
-#endif
-	return x;
-}
 #if 0
 //WG:
 #define WG_DECAY_NUM	493
@@ -297,13 +273,7 @@ static void block_thread(void *param)
 	const int half=128;
 #endif
 	ThreadArgs *args=(ThreadArgs*)param;
-#ifdef USE_AC2
-	AC2 ec;
-#elif defined USE_AC4
-	AC4 ec;
-#else
 	AC3 ec;
-#endif
 	const unsigned char *image=args->fwd?args->src:args->dst;
 	unsigned char bestrct=0, combination[6]={0}, predidx[4]={0};
 	
@@ -873,47 +843,19 @@ static void block_thread(void *param)
 			}
 		}
 		blist_init(&args->list);
-#ifdef USE_AC2
-		ac2_enc_init(&ec, &args->list);
-		ac2_enc_bypass_NPOT(&ec, bestrct, RCT_COUNT);
-		ac2_enc_bypass_NPOT(&ec, predidx[0], PRED_COUNT);
-		ac2_enc_bypass_NPOT(&ec, predidx[1], PRED_COUNT);
-		ac2_enc_bypass_NPOT(&ec, predidx[2], PRED_COUNT);
-#elif defined USE_AC4
-		ac4_enc_init(&ec, &args->list);
-		ac4_enc_update_NPOT(&ec, bestrct, bestrct+1, RCT_COUNT);
-		ac4_enc_update_NPOT(&ec, predidx[0], predidx[0]+1, PRED_COUNT);
-		ac4_enc_update_NPOT(&ec, predidx[1], predidx[1]+1, PRED_COUNT);
-		ac4_enc_update_NPOT(&ec, predidx[2], predidx[2]+1, PRED_COUNT);
-#else
 		ac3_enc_init(&ec, &args->list);
 		ac3_enc_bypass_NPOT(&ec, bestrct, RCT_COUNT);
 		ac3_enc_bypass_NPOT(&ec, predidx[0], PRED_COUNT);
 		ac3_enc_bypass_NPOT(&ec, predidx[1], PRED_COUNT);
 		ac3_enc_bypass_NPOT(&ec, predidx[2], PRED_COUNT);
-#endif
 	}
 	else
 	{
-#ifdef USE_AC2
-		ac2_dec_init(&ec, args->decstart, args->decend);
-		bestrct=ac2_dec_bypass_NPOT(&ec, RCT_COUNT);
-		predidx[0]=ac2_dec_bypass_NPOT(&ec, PRED_COUNT);
-		predidx[1]=ac2_dec_bypass_NPOT(&ec, PRED_COUNT);
-		predidx[2]=ac2_dec_bypass_NPOT(&ec, PRED_COUNT);
-#elif defined USE_AC4
-		ac4_dec_init(&ec, args->decstart, args->decend);
-		bestrct=ac4_dec_getcdf_NPOT(&ec, RCT_COUNT);		ac4_dec_update_NPOT(&ec, bestrct, bestrct+1, RCT_COUNT);
-		predidx[0]=ac4_dec_getcdf_NPOT(&ec, PRED_COUNT);	ac4_dec_update_NPOT(&ec, predidx[0], predidx[0]+1, PRED_COUNT);
-		predidx[1]=ac4_dec_getcdf_NPOT(&ec, PRED_COUNT);	ac4_dec_update_NPOT(&ec, predidx[1], predidx[1]+1, PRED_COUNT);
-		predidx[2]=ac4_dec_getcdf_NPOT(&ec, PRED_COUNT);	ac4_dec_update_NPOT(&ec, predidx[2], predidx[2]+1, PRED_COUNT);
-#else
 		ac3_dec_init(&ec, args->decstart, args->decend);
 		bestrct=ac3_dec_bypass_NPOT(&ec, RCT_COUNT);
 		predidx[0]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
 		predidx[1]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
 		predidx[2]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
-#endif
 	}
 
 #ifdef USE_ABAC
@@ -1080,9 +1022,7 @@ static void block_thread(void *param)
 				case PRED_AV9:
 					CLAMP3_32(pred,
 						W[kc2]+((10*N[kc2]-9*NW[kc2]+4*NE[kc2]-2*(NN[kc2]+WW[kc2])+NNW[kc2]-(NNE[kc2]+NWW[kc2]))>>4),
-						N[kc2],
-						W[kc2],
-						NE[kc2]
+						N[kc2], W[kc2], NE[kc2]
 					);
 					break;
 				case PRED_AV12:
@@ -1104,58 +1044,9 @@ static void block_thread(void *param)
 					break;
 				}
 				pred+=offset;
-				CLAMP2_32(pred, pred, -128, 127);
+				CLAMP2(pred, -128, 127);
+
 				//o0
-#ifdef USE_ABAC
-				//if(ky==50&kx==362)//
-				//	printf("");
-				int error=0;
-				if(args->fwd)
-				{
-				//	printf("%5d %d  %4d %4d  %5d\n", idx, kc, yuv[kc], pred, yuv[kc]-pred);//
-
-					curr[kc2+0]=yuv[kc];
-					curr[kc2+1]=error=yuv[kc]-pred;
-					error<<=24;
-					error>>=24;
-				}
-				for(int kb=7, tidx=1;kb>=0;--kb)
-				{
-					int p1=stats0[kc][tidx];
-					int bit;
-					//if(abs(p1-0x8000)>0x1000)//
-					//	printf("");
-					//p1=squash(p1-0x8000);
-					if(args->fwd)
-					{
-						bit=error>>kb&1;
-						ac4_enc_bin(&ec, p1, bit);
-					//	ac2_enc_bin(&ec, p1, bit);
-					//	AC3_ENC_BIN(&ec, bit, p0, 16);
-					//	ac3_enc_bin(&ec, bit, p0, 16);
-					}
-					else
-					{
-						bit=ac4_dec_bin(&ec, p1);
-					//	bit=ac2_dec_bin(&ec, p1);
-					//	AC3_DEC_BIN(&ec, bit, p0, 16);
-					//	bit=ac3_dec_bin(&ec, p0, 16);
-						error|=bit<<kb;
-					}
-					p1+=((bit<<16)-p1+(1<<7>>1))>>7;
-					stats0[kc][tidx]=p1;
-
-					tidx+=tidx+bit;
-				}
-				if(!args->fwd)
-				{
-					error+=pred;
-					error<<=24;
-					error>>=24;
-					curr[kc2+0]=yuv[kc]=error;
-					curr[kc2+1]=error-pred;
-				}
-#else
 				int sym=0;
 				int den=0, cdf=0, freq=0;
 				//if(ky==190&&kx==366&&kc==2)//
@@ -1235,7 +1126,7 @@ static void block_thread(void *param)
 						sum+=stats0[kc][k]>>=1;
 					stats0sum[kc]=sum;
 				}
-#endif
+
 				curr[kc2+0]-=offset;
 			}
 			if(!args->fwd)
@@ -1309,15 +1200,9 @@ static void block_thread(void *param)
 		}
 	}
 	if(args->fwd)
-#ifdef USE_AC2
-		ac2_enc_flush(&ec);
-#elif defined USE_AC4
-		ac4_enc_flush(&ec);
-#else
 		ac3_enc_flush(&ec);
-#endif
 }
-int c07_codec(const char *srcfn, const char *dstfn)
+int c10_codec(const char *srcfn, const char *dstfn)
 {
 	const int nch=3, depth=8;
 	double t0;

@@ -14,9 +14,11 @@ static const char file[]=__FILE__;
 
 //T44	paq8pxd ported to C
 
-#define ENABLE_SIMD
-#define LOUD_UPDATE_PERIOD 16
+	#define ENABLE_SIMD
+//	#define DISABLE_STRETCHSQUASH
+//	#define DISABLE_APM
 
+#define LOUD_UPDATE_PERIOD 16
 #define T44_RCT 7
 
 #if T44_RCT==0
@@ -141,6 +143,7 @@ static unsigned t44_rnd(T44_PRNG *rnd)
 
 static int t44_squash(int d)//p1 = squash(s = sum: wi*ti) = 1/(1+exp(-s))  (sigmoid)		clamp12(signed) -> uint12
 {
+#ifndef DISABLE_STRETCHSQUASH
 	static const int t[33]=
 	{
 		   1,    2,    3,    6,   10,   16,   27,   45,   73,  120,  194,
@@ -148,13 +151,19 @@ static int t44_squash(int d)//p1 = squash(s = sum: wi*ti) = 1/(1+exp(-s))  (sigm
 		3901, 3975, 4022, 4050, 4068, 4079, 4085, 4089, 4092, 4093, 4094,
 	};
 	if(d>2047)return 4095;
-	if(d<-2047)return 0;
+	if(d<-2047)return 1;
 	int w=d&127;
 	d=(d>>7)+16;
 	return (t[d]*(128-w)+t[(d+1)]*w+64) >> 7;
+#else
+	d+=2048;
+	CLAMP2_32(d, d, 1, 4095);
+	return d;
+#endif
 }
 static int t44_stretch(int p)//t = stretch(p1) = ln(p1/(1-p1))		uint12 -> signed int12
 {
+#ifndef DISABLE_STRETCHSQUASH
 	static short t[4096];
 	static int initialized=0;
 	if(!initialized)
@@ -172,6 +181,9 @@ static int t44_stretch(int p)//t = stretch(p1) = ln(p1/(1-p1))		uint12 -> signed
 		t[4095]=2047;
 	}
 	return t[p];
+#else
+	return p-2048;
+#endif
 }
 static int t44_ilog(unsigned short x)
 {
@@ -903,7 +915,9 @@ static void t44_update(T44State *state, int bit, const char *buf)
 	
 	int pr0=t44_mixer_predict(state->m, bit);
 	//end of contextModel2()
-	
+#ifdef DISABLE_APM
+	state->pr=pr0;
+#else
 	state->pr=t44_apm1_predict(state->a+0, pr0, state->c0, 7, bit);
 
 	int pr1=t44_apm1_predict(state->a+1, pr0, state->c0+256*LOADU(idx-1), 7, bit);
@@ -918,6 +932,7 @@ static void t44_update(T44State *state, int bit, const char *buf)
 
 	state->pr=(state->pr+pr0+1)>>1;
 	//end of Predictor::update()
+#endif
 }
 #undef  LOADU
 int t44_encode(const unsigned char *src, int iw, int ih, ArrayHandle *data, int loud)
@@ -1042,7 +1057,7 @@ int t44_decode(const unsigned char *data, size_t srclen, int iw, int ih, unsigne
 				}
 			}
 		}
-		if(loud&&(ky&63)==63)
+		if(loud&&(ky&(LOUD_UPDATE_PERIOD-1))==LOUD_UPDATE_PERIOD-1)
 			printf("%5d/%5d  %6.2lf%%\r", ky+1, ih, 100.*(ky+1)/ih);
 	}
 	pack3_inv((char*)buf, res);

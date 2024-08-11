@@ -2929,27 +2929,28 @@ void apply_selected_transforms(Image *image, int rct_only)
 				int res=image->iw*image->ih<<2;
 				int amplitudes[]=
 				{
-					1<<image->depth[0]>>2,
-					1<<image->depth[1]>>2,
-					1<<image->depth[2]>>2,
-					1<<image->depth[3]>>2,
+					1<<image->depth[0]>>3,
+					1<<image->depth[1]>>3,
+					1<<image->depth[2]>>3,
+					1<<image->depth[3]>>3,
 				};
 				for(int kp=0;kp<res;++kp)
-				{
-					int val=image->data[kp];
-					int val2=image2->data[kp];
-					if(val==val2)
-						image->data[kp]=0;
-					else
-					{
-						val=abs(val);
-						val2=abs(val2);
-						if(val<val2)
-							image->data[kp]=-amplitudes[kp&3];
-						else
-							image->data[kp]=amplitudes[kp&3];
-					}
-				}
+					image->data[kp]=abs(image->data[kp])-abs(image2->data[kp]);
+				//{
+				//	int val=image->data[kp];
+				//	int val2=image2->data[kp];
+				//	if(val==val2)
+				//		image->data[kp]=0;
+				//	else
+				//	{
+				//		val=abs(val);
+				//		val2=abs(val2);
+				//		if(val<val2)
+				//			image->data[kp]=-amplitudes[kp&3];
+				//		else
+				//			image->data[kp]=amplitudes[kp&3];
+				//	}
+				//}
 				free(image2);
 				for(++k;k<(int)transforms->count;++k)
 				{
@@ -5824,7 +5825,7 @@ int io_keydn(IOKey key, char c)
 				if(!im2)
 					return 0;
 				apply_selected_transforms(im2, 1);
-				pred_custom_optimize(im2, custom_params);
+				pred_custom_optimize(im2, custom_params, GET_KEY_STATE(KEY_SHIFT)?2:1);
 				free(im2);
 				update_image();
 			}

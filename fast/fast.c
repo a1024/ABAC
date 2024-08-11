@@ -344,10 +344,12 @@ int main(int argc, char **argv)
 #else
 	const char *arg2=
 		0
+	//	"D:/ML/kodim13.lsim.ppm"
 	//	"D:/ML/big_building.LSIM.PPM"
 		;
 	const char *fn=
 		"D:/ML/dataset-kodak-ppm/kodim13.ppm"
+	//	"D:/ML/kodim13.lsim"
 	//	"D:/ML/dataset-kodak-ppm/kodim20.ppm"
 	//	"D:/ML/dataset-kodak/kodim13.png"
 	//	"D:/ML/dataset-CLIC30-ppm/03.ppm"

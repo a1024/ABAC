@@ -149,6 +149,6 @@ int main(int argc, char **argv)
 //	c08_codec("C:/Projects/datasets/20240414-noise.PPM", "C:/Projects/datasets/20240414-noise.LSIM");	//bypass
 //	c08_codec("C:/Projects/datasets/20240414-noise.LSIM", "C:/Projects/datasets/20240414-noise_dec.PPM");
 #endif
-	c03_codec(srcfn, dstfn);
+	c07_codec(srcfn, dstfn);
 	return 0;
 }
