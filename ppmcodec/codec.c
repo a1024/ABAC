@@ -139,8 +139,11 @@ int main(int argc, char **argv)
 	//	"D:/ML/dataset-kodak-ppm/kodim13.c01.ppm"
 		;
 
-	c09_codec("D:/ML/kodim13.ppm", "D:/ML/kodim13.lsim");
-	c09_codec("D:/ML/kodim13.lsim", "D:/ML/kodim13_dec.ppm");
+	c10_codec("D:/ML/kodim13.ppm", "D:/ML/kodim13.lsim");
+	c10_codec("D:/ML/kodim13.lsim", "D:/ML/kodim13_dec.ppm");
+
+//	c10_codec("D:/ML/big_building.PPM", "D:/ML/big_building.LSIM");
+//	c10_codec("D:/ML/big_building.LSIM", "D:/ML/big_building_dec.PPM");
 
 //	c09_codec("C:/Projects/datasets/kodim13.ppm", "C:/Projects/datasets/kodim13.lsim");
 //	c09_codec("C:/Projects/datasets/kodim13.lsim", "C:/Projects/datasets/kodim13_dec.ppm");

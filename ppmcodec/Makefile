@@ -12,5 +12,8 @@ c07:
 c09:
 	gcc -O3 -Wall -DCODEC_FUNC=c09_codec -mavx2 -mbmi -mlzcnt  c09.c codec.c util.c  -o codec -static
 
+c10:
+	gcc -O3 -Wall -DCODEC_FUNC=c10_codec -mavx2 -mbmi -mlzcnt  c10.c codec.c util.c  -o codec -static
+
 build-clang:
 	clang -O3 -Wall -mavx2 -mbmi -mlzcnt $(SRC) -o codec -static
