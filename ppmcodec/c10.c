@@ -399,12 +399,17 @@ int c10_codec(const char *srcfn, const char *dstfn)
 				for(freq=0;;)
 				{
 					cdf=freq;
-					freq=curr_CDF[sym+1];
+					freq=curr_CDF[sym+2];
 					//if((unsigned)freq>c2)
 					if(range*freq>code2)
+					{
+						sym+=range*curr_CDF[sym+1]<=code2;
 						break;
-					++sym;
+					}
+					sym+=2;
 				}
+				cdf=curr_CDF[sym];
+				freq=curr_CDF[sym+1];
 #ifdef AC_VALIDATE
 				lo0=low; r0=range;
 #endif
@@ -431,12 +436,17 @@ int c10_codec(const char *srcfn, const char *dstfn)
 				for(freq=0;;)
 				{
 					cdf=freq;
-					freq=curr_CDF[sym+1];
+					freq=curr_CDF[sym+2];
 					//if((unsigned)freq>c2)
 					if(range*freq>code2)
+					{
+						sym+=range*curr_CDF[sym+1]<=code2;
 						break;
-					++sym;
+					}
+					sym+=2;
 				}
+				cdf=curr_CDF[sym];
+				freq=curr_CDF[sym+1];
 #ifdef AC_VALIDATE
 				lo0=low; r0=range;
 #endif
@@ -463,12 +473,17 @@ int c10_codec(const char *srcfn, const char *dstfn)
 				for(freq=0;;)
 				{
 					cdf=freq;
-					freq=curr_CDF[sym+1];
+					freq=curr_CDF[sym+2];
 					//if((unsigned)freq>c2)
 					if(range*freq>code2)
+					{
+						sym+=range*curr_CDF[sym+1]<=code2;
 						break;
-					++sym;
+					}
+					sym+=2;
 				}
+				cdf=curr_CDF[sym];
+				freq=curr_CDF[sym+1];
 #ifdef AC_VALIDATE
 				lo0=low; r0=range;
 #endif
