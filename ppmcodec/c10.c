@@ -183,7 +183,8 @@ int c10_codec(const char *srcfn, const char *dstfn)
 		};
 		ALIGN(16) short preds[8]={0};
 		unsigned *curr_CDF=0;
-		unsigned cdfs[3]={0}, freqs[3]={0}, c2;
+		unsigned cdfs[3]={0}, freqs[3]={0};
+		//unsigned c2;
 		int yuv[3]={0}, errors[3]={0};
 		unsigned long long low=0, range=0xFFFFFFFFFFFF, code=0;
 #ifndef USE_AC48
@@ -378,6 +379,7 @@ int c10_codec(const char *srcfn, const char *dstfn)
 			}
 			else
 			{
+				unsigned long long code2;
 				unsigned cdf, freq, sym;
 #ifdef USE_AC48
 				//if(!ky&&kx==513)//
@@ -390,14 +392,16 @@ int c10_codec(const char *srcfn, const char *dstfn)
 					if(range>(low^0xFFFFFFFFFFFF))
 						range=low^0xFFFFFFFFFFFF;
 				}
-				c2=(unsigned)(((code-low)<<16|0xFFFF)/range);
+				//c2=(unsigned)(((code-low)<<16|0xFFFF)/range);
+				code2=(code-low)<<16|0xFFFF;
 				curr_CDF=CDF;
 				sym=0;
 				for(freq=0;;)
 				{
 					cdf=freq;
 					freq=curr_CDF[sym+1];
-					if((unsigned)freq>c2)
+					//if((unsigned)freq>c2)
+					if(range*freq>code2)
 						break;
 					++sym;
 				}
@@ -420,14 +424,16 @@ int c10_codec(const char *srcfn, const char *dstfn)
 					if(range>(low^0xFFFFFFFFFFFF))
 						range=low^0xFFFFFFFFFFFF;
 				}
-				c2=(unsigned)(((code-low)<<16|0xFFFF)/range);
+				//c2=(unsigned)(((code-low)<<16|0xFFFF)/range);
+				code2=(code-low)<<16|0xFFFF;
 				curr_CDF=CDF+257;
 				sym=0;
 				for(freq=0;;)
 				{
 					cdf=freq;
 					freq=curr_CDF[sym+1];
-					if((unsigned)freq>c2)
+					//if((unsigned)freq>c2)
+					if(range*freq>code2)
 						break;
 					++sym;
 				}
@@ -450,14 +456,16 @@ int c10_codec(const char *srcfn, const char *dstfn)
 					if(range>(low^0xFFFFFFFFFFFF))
 						range=low^0xFFFFFFFFFFFF;
 				}
-				c2=(unsigned)(((code-low)<<16|0xFFFF)/range);
+				//c2=(unsigned)(((code-low)<<16|0xFFFF)/range);
+				code2=(code-low)<<16|0xFFFF;
 				curr_CDF=CDF+257+513;
 				sym=0;
 				for(freq=0;;)
 				{
 					cdf=freq;
 					freq=curr_CDF[sym+1];
-					if((unsigned)freq>c2)
+					//if((unsigned)freq>c2)
+					if(range*freq>code2)
 						break;
 					++sym;
 				}
