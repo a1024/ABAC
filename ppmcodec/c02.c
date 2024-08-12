@@ -3464,7 +3464,7 @@ int c02_codec(const char *srcfn, const char *dstfn)
 #endif
 	int tlevels;
 //	int histsize;
-	int statssize;
+//	int statssize;
 	double esize;
 	int usize;
 #ifdef ABAC_PROFILESIZE

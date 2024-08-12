@@ -138,6 +138,87 @@ void acval_dec(int sym, int cdf, int freq, unsigned long long lo1, unsigned long
 #define acval_dec(...)
 #endif
 
+	
+//	#define DEBUG_ANS
+
+#ifdef DEBUG_ANS
+typedef struct DebugANSInfoStruct
+{
+	unsigned s0, state, cdf, freq, id, kx, ky;
+	unsigned char kq, kc;
+	unsigned short sym;
+} DebugANSInfo;
+extern SList states;
+extern int debug_channel;
+void debug_enc_update(unsigned state, unsigned cdf, int freq, int kx, int ky, int kq, int kc, unsigned char sym);
+void debug_dec_update(unsigned state, unsigned cdf, int freq, int kx, int ky, int kq, int kc, unsigned char sym);
+#ifdef AC_IMPLEMENTATION
+SList states={0};
+int debug_channel=0;
+void debug_ans_print(DebugANSInfo *info, int dec)
+{
+	printf("%6d state 0x%08X%s0x%08X cdf 0x%04X freq 0x%04X sym 0x%02X\n", info->id, info->s0, dec?"<-":"->", info->state, info->cdf, info->freq, info->sym);
+}
+void debug_enc_dump(DebugANSInfo *i2)
+{
+	debug_ans_print(i2, 1);
+	printf("\n");
+	for(int k=0;k<20&&states.count;++k)
+	{
+		DebugANSInfo *i0=(DebugANSInfo*)STACK_TOP(&states);
+		debug_ans_print(i0, 0);
+		STACK_POP(&states);
+	}
+}
+void debug_enc_update(unsigned state, unsigned cdf, int freq, int kx, int ky, int kq, int kc, unsigned char sym)
+{
+	if(freq<=0)
+		LOG_ERROR2("ANS: invalid frequency %d", freq);
+	//if(kc==debug_channel)
+	{
+		unsigned s0=state;
+
+		if(!states.count)
+			slist_init(&states, sizeof(DebugANSInfo), 0);
+
+		//if(state>>16>(unsigned)freq)//enc renorm	X
+		//	state>>=16;
+		state=state/freq<<16|(cdf+state%freq);//enc update
+
+		DebugANSInfo info={s0, state, cdf, freq, (unsigned)states.count, kx, ky, kq, kc, sym};
+		STACK_PUSH(&states, &info);
+	}
+}
+void debug_dec_update(unsigned state, unsigned cdf, int freq, int kx, int ky, int kq, int kc, unsigned char sym)
+{
+	if(freq<=0)
+		LOG_ERROR2("ANS: invalid frequency %d", freq);
+	//if(kc==debug_channel)
+	{
+		if(!states.count)
+			LOG_ERROR2("Nothing to decode");
+		DebugANSInfo *i0=(DebugANSInfo*)STACK_TOP(&states), info;
+		memcpy(&info, i0, sizeof(info));
+
+		//unsigned s0=state;
+		unsigned s0=freq*(state>>16)+(unsigned short)state-cdf;//dec update
+
+		if(info.s0!=s0||info.state!=state||info.cdf!=cdf||info.freq!=freq||kx!=info.kx||ky!=info.ky||kq!=info.kq||kc!=info.kc||info.sym!=sym)
+		{
+			DebugANSInfo i2={s0, state, cdf, freq, (unsigned)states.count-1, kx, ky, kq, kc, sym};
+			debug_enc_dump(&i2);
+			LOG_ERROR2("Decode error  (%d decodes remaining)", info.id);
+		}
+
+		STACK_POP(&states);
+	}
+}
+#endif
+#else
+#define debug_enc_update(...)
+#define debug_dec_update(...)
+#endif
+
 
 //arithmetic coder (paq8px)
 #define AC2_PROB_BITS 16

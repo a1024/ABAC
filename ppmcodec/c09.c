@@ -14,8 +14,78 @@ static const char file[]=__FILE__;
 //	#define ESTIMATE_SIZE
 	#define USE_RCTJ2K
 	#define ANS_INTERLEAVE3
+//	#define ANS_DEBUG
 
-
+#ifdef ANS_DEBUG
+typedef struct _ANSDebugInfo
+{
+	unsigned s0[3], s1[3], s2[3];
+	unsigned short cdfs[3], freqs[3];
+} ANSDebugInfo;
+static int ansdebug_row=2;
+static ANSDebugInfo *ansdebug=0;
+static int ansdebug_idx=0;
+static void ansdebug_enc(unsigned *s0, unsigned *s1, unsigned *s2, unsigned *cdfs, unsigned *freqs, int ky, int iw)
+{
+	if(ky==ansdebug_row)
+	{
+		ANSDebugInfo info=
+		{
+			{s0[0], s0[1], s0[2]},
+			{s1[0], s1[1], s1[2]},
+			{s2[0], s2[1], s2[2]},
+			{cdfs[0], cdfs[1], cdfs[2]},
+			{freqs[0], freqs[1], freqs[2]},
+		};
+		if(!ansdebug)
+		{
+			ansdebug=(ANSDebugInfo*)malloc(iw*sizeof(ANSDebugInfo));
+			if(!ansdebug)
+			{
+				LOG_ERROR("Alloc error");
+				return;
+			}
+		}
+		ansdebug[ansdebug_idx++]=info;
+	}
+}
+static void ansdebug_dec(unsigned *s0, unsigned *s1, unsigned *s2, unsigned *cdfs, unsigned *freqs, int ky, int kx)
+{
+	if(ky==ansdebug_row)
+	{
+		ANSDebugInfo info1=ansdebug[--ansdebug_idx];
+		ANSDebugInfo info2=
+		{
+			{s0[0], s0[1], s0[2]},
+			{s1[0], s1[1], s1[2]},
+			{s2[0], s2[1], s2[2]},
+			{cdfs[0], cdfs[1], cdfs[2]},
+			{freqs[0], freqs[1], freqs[2]},
+		};
+		if(memcmp(&info2, &info1, sizeof(info1)))
+		{
+			printf(
+				"XY %d %d\n"
+				"[0] E 0x%04X 0x%04X 0x%08X -renorm->0x%08X -update->0x%08X\n"
+				"[0] D 0x%04X 0x%04X 0x%08X<-renorm- 0x%08X<-update- 0x%08X\n"
+				"[1] E 0x%04X 0x%04X 0x%08X -renorm->0x%08X -update->0x%08X\n"
+				"[1] D 0x%04X 0x%04X 0x%08X<-renorm- 0x%08X<-update- 0x%08X\n"
+				"[2] E 0x%04X 0x%04X 0x%08X -renorm->0x%08X -update->0x%08X\n"
+				"[2] D 0x%04X 0x%04X 0x%08X<-renorm- 0x%08X<-update- 0x%08X\n"
+				, kx, ky
+				, info1.cdfs[0], info1.freqs[0], info1.s0[0], info1.s1[0], info1.s2[0]
+				, info2.cdfs[0], info2.freqs[0], info2.s0[0], info2.s1[0], info2.s2[0]
+				, info1.cdfs[1], info1.freqs[1], info1.s0[1], info1.s1[1], info1.s2[1]
+				, info2.cdfs[1], info2.freqs[1], info2.s0[1], info2.s1[1], info2.s2[1]
+				, info1.cdfs[2], info1.freqs[2], info1.s0[2], info1.s1[2], info1.s2[2]
+				, info2.cdfs[2], info2.freqs[2], info2.s0[2], info2.s1[2], info2.s2[2]
+			);
+			LOG_ERROR("");
+			LOG_ERROR("");
+		}
+	}
+}
+#endif
 static void update_CDF(const unsigned *hist, int nlevels, unsigned *CDF)
 {
 	const int hsum=hist[nlevels];
@@ -291,38 +361,64 @@ int c09_codec(const char *srcfn, const char *dstfn)
 			ALIGN(16) unsigned states[]={0x10000, 0x10000, 0x10000, 0x10000};
 			for(int kx=iw-1;kx>=0;--kx)
 			{
-				if(!ky&&kx==1)//
-					printf("");
-				__m128i mstate=_mm_load_si128((__m128i*)states);
-				__m128i mfreq=_mm_load_si128((__m128i*)(statbuf+kx*8+4));
-				int mask=_mm_movemask_ps(_mm_castsi128_ps(_mm_cmpgt_epi32(mfreq, _mm_srli_epi32(mstate, 16))));
-				if(!(mask&1))
+#ifdef ANS_DEBUG
+				unsigned s0[4];
+				memcpy(s0, states, sizeof(s0));
+#endif
+				//if(ky==2&&kx==7)//
+				//	printf("");
+				//__m128i mstate=_mm_load_si128((__m128i*)states);
+				//__m128i mfreq=_mm_load_si128((__m128i*)(statbuf+kx*8+4));
+				//int mask=_mm_movemask_ps(_mm_castsi128_ps(_mm_cmpgt_epi32(mfreq, _mm_srli_epi32(mstate, 16))));
+				//if(!(mask&1))
+				if(states[0]>>16>=statbuf[kx*8+4+0])
 				{
 					*sptr++=(unsigned short)states[0];
 					states[0]>>=16;
 				}
-				if(!(mask&2))
+				//if(!(mask&2))
+				if(states[1]>>16>=statbuf[kx*8+4+1])
 				{
 					*sptr++=(unsigned short)states[1];
 					states[1]>>=16;
 				}
-				if(!(mask&4))
+				//if(!(mask&4))
+				if(states[2]>>16>=statbuf[kx*8+4+2])
 				{
 					*sptr++=(unsigned short)states[2];
 					states[2]>>=16;
 				}
-				mstate=_mm_load_si128((__m128i*)states);
-				__m256d dstate=_mm256_cvtepi32_pd(mstate);
-				__m256d dfreq=_mm256_cvtepi32_pd(mfreq);
-				dstate=_mm256_div_pd(dstate, dfreq);
-				__m128i q=_mm256_cvttpd_epi32(dstate);
-				__m128i r=_mm_mullo_epi32(q, mfreq);
-				__m128i mcdf=_mm_load_si128((__m128i*)(statbuf+kx*8+0));
-				r=_mm_sub_epi32(mstate, r);
-				r=_mm_add_epi32(r, mcdf);
-				q=_mm_slli_epi32(q, 16);
-				q=_mm_or_si128(q, r);
-				_mm_store_si128((__m128i*)states, q);
+#ifdef ANS_DEBUG
+				unsigned s1[4];
+				memcpy(s1, states, sizeof(s1));
+#endif
+//#ifdef ANS_DEBUG
+//				if(ky==2)
+//				{
+//					debug_enc_update(states[2], statbuf[kx*8+2], statbuf[kx*8+4+2], kx, ky, 0, 2, 0);
+//					debug_enc_update(states[1], statbuf[kx*8+1], statbuf[kx*8+4+1], kx, ky, 0, 1, 0);
+//					debug_enc_update(states[0], statbuf[kx*8+0], statbuf[kx*8+4+0], kx, ky, 0, 0, 0);
+//				}
+//#endif
+				int q, r;
+				q=states[0]/statbuf[kx*8+4+0]; r=states[0]%statbuf[kx*8+4+0]; states[0]=q<<16|(statbuf[kx*8+0]+r);//update
+				q=states[1]/statbuf[kx*8+4+1]; r=states[1]%statbuf[kx*8+4+1]; states[1]=q<<16|(statbuf[kx*8+1]+r);
+				q=states[2]/statbuf[kx*8+4+2]; r=states[2]%statbuf[kx*8+4+2]; states[2]=q<<16|(statbuf[kx*8+2]+r);
+				//mstate=_mm_load_si128((__m128i*)states);
+				//__m256d dstate=_mm256_cvtepi32_pd(mstate);//X  fails for ""negative"" values
+				//__m256d dfreq=_mm256_cvtepi32_pd(mfreq);
+				//dstate=_mm256_div_pd(dstate, dfreq);
+				//__m128i q=_mm256_cvttpd_epi32(dstate);
+				//__m128i r=_mm_mullo_epi32(q, mfreq);
+				//__m128i mcdf=_mm_load_si128((__m128i*)(statbuf+kx*8+0));
+				//r=_mm_sub_epi32(mstate, r);
+				//r=_mm_add_epi32(r, mcdf);
+				//q=_mm_slli_epi32(q, 16);
+				//q=_mm_or_si128(q, r);
+				//_mm_store_si128((__m128i*)states, q);
+#ifdef ANS_DEBUG
+				ansdebug_enc(s0, s1, states, statbuf+kx*8, statbuf+kx*8+4, ky, iw);
+#endif
 			}
 			*sptr++=(unsigned short)states[0];
 			*sptr++=(unsigned short)(states[0]>>16);
@@ -493,7 +589,9 @@ int c09_codec(const char *srcfn, const char *dstfn)
 #ifdef ANS_INTERLEAVE3
 					int cdf, freq, sym;
 					unsigned code, *curr_CDF;
-
+					
+					//if(ky==2&&kx==7)//
+					//	printf("");
 					curr_CDF=CDF;
 					code=(unsigned short)states[0];
 					sym=0;
@@ -541,23 +639,55 @@ int c09_codec(const char *srcfn, const char *dstfn)
 					errors[2]=sym;
 					freqs[2]=freq;
 					cdfs[2]=cdf;
-
-					__m128i mstate=_mm_load_si128((__m128i*)states);
-					__m128i mfreq=_mm_load_si128((__m128i*)freqs);
-					__m128i mcdf=_mm_load_si128((__m128i*)cdfs);
-					__m128i mlo=_mm_and_si128(mstate, _mm_set1_epi32(0xFFFF));
-					__m128i mhi=_mm_srli_epi32(mstate, 16);
-					mhi=_mm_mullo_epi32(mhi, mfreq);
-					mhi=_mm_add_epi32(mhi, mlo);
-					mhi=_mm_sub_epi32(mhi, mcdf);
-					int mask=_mm_movemask_ps(_mm_castsi128_ps(_mm_cmpgt_epi32(_mm_set1_epi32(0x10000), mhi)));
-					_mm_store_si128((__m128i*)states, mhi);
-					if(mask&4)
+					
+#ifdef ANS_DEBUG
+					unsigned s2[4];
+					memcpy(s2, states, sizeof(s2));
+#endif
+//#ifdef ANS_DEBUG
+//					if(ky==2)
+//					{
+//						int LOL_1=0;
+//						debug_dec_update(states[0], cdfs[0], freqs[0], kx, ky, 0, 0, 0);
+//						LOL_1=1;
+//						debug_dec_update(states[1], cdfs[1], freqs[1], kx, ky, 0, 1, 0);
+//						LOL_1=2;
+//						debug_dec_update(states[2], cdfs[2], freqs[2], kx, ky, 0, 2, 0);
+//						LOL_1=3;
+//					}
+//#endif
+					states[0]=(states[0]>>16)*freqs[0]+(states[0]&0xFFFF)-cdfs[0];
+					states[1]=(states[1]>>16)*freqs[1]+(states[1]&0xFFFF)-cdfs[1];
+					states[2]=(states[2]>>16)*freqs[2]+(states[2]&0xFFFF)-cdfs[2];
+					//__m128i mstate=_mm_load_si128((__m128i*)states);
+					//__m128i mfreq=_mm_load_si128((__m128i*)freqs);
+					//__m128i mcdf=_mm_load_si128((__m128i*)cdfs);
+					//__m128i mlo=_mm_and_si128(mstate, _mm_set1_epi32(0xFFFF));
+					//__m128i mhi=_mm_srli_epi32(mstate, 16);
+					//mhi=_mm_mullo_epi32(mhi, mfreq);
+					//mhi=_mm_add_epi32(mhi, mlo);
+					//mhi=_mm_sub_epi32(mhi, mcdf);
+					//int mask=_mm_movemask_ps(_mm_castsi128_ps(_mm_cmpeq_epi32(_mm_srli_epi32(mhi, 16), _mm_setzero_si128())));
+					//_mm_store_si128((__m128i*)states, mhi);
+#ifdef ANS_DEBUG
+					unsigned s1[4];
+					memcpy(s1, states, sizeof(s1));
+#endif
+					if(states[2]<0x10000)
 						states[2]=*sptr--|states[2]<<16;
-					if(mask&2)
+					if(states[1]<0x10000)
 						states[1]=*sptr--|states[1]<<16;
-					if(mask&1)
+					if(states[0]<0x10000)
 						states[0]=*sptr--|states[0]<<16;
+					//if(mask&4)
+					//	states[2]=*sptr--|states[2]<<16;
+					//if(mask&2)
+					//	states[1]=*sptr--|states[1]<<16;
+					//if(mask&1)
+					//	states[0]=*sptr--|states[0]<<16;
+#ifdef ANS_DEBUG
+					ansdebug_dec(states, s1, s2, cdfs, freqs, ky, kx);
+#endif
 #else
 					unsigned code;
 					int cdf, freq, sym;
