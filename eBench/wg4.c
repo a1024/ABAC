@@ -35,7 +35,7 @@ static const char file[]=__FILE__;
 	WG_PRED(165, 3*(N-NN)+NNN)\
 	WG_PRED(165, 3*(W-WW)+WWW)\
 	WG_PRED(150, (W+NEEE)/2)
-static void wg_init(int *weights)
+static void wg_init(double *weights)
 {
 	int j=0;
 #define WG_PRED(WEIGHT, EXPR) weights[j++]=WEIGHT;
@@ -43,12 +43,12 @@ static void wg_init(int *weights)
 #undef  WG_PRED
 }
 static int wg_predict(
-	const int *weights,
+	const double *weights,
 	int **rows, const int stride, int kc2,
 	int spred, const int *perrors, int *preds
 )
 {
-	double pred2=0, wsum=0;
+	//double fpred=0, wsum=0;
 	int j=0;
 	ALIGN(16) int pred[4];
 	int
@@ -78,16 +78,69 @@ static int wg_predict(
 #define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
 	WG_PREDLIST
 #undef  WG_PRED
+
+#if 1
+	__m128i one=_mm_set1_epi32(1);
+	__m128i me0=_mm_load_si128((__m128i*)perrors+0);
+	__m128i me1=_mm_load_si128((__m128i*)perrors+1);
+	__m128i me2=_mm_load_si128((__m128i*)perrors+2);
+	__m128i me3=_mm_load_si128((__m128i*)perrors+3);
+	__m256d w0=_mm256_load_pd(weights+0*4);
+	__m256d w1=_mm256_load_pd(weights+1*4);
+	__m256d w2=_mm256_load_pd(weights+2*4);
+	__m256d w3=_mm256_load_pd(weights+3*4);
+	me0=_mm_add_epi32(me0, one);
+	me1=_mm_add_epi32(me1, one);
+	me2=_mm_add_epi32(me2, one);
+	me3=_mm_add_epi32(me3, one);
+	__m256d de0=_mm256_cvtepi32_pd(me0);
+	__m256d de1=_mm256_cvtepi32_pd(me1);
+	__m256d de2=_mm256_cvtepi32_pd(me2);
+	__m256d de3=_mm256_cvtepi32_pd(me3);
+	w0=_mm256_div_pd(w0, de0);
+	w1=_mm256_div_pd(w1, de1);
+	w2=_mm256_div_pd(w2, de2);
+	w3=_mm256_div_pd(w3, de3);
+	de0=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)preds+0));
+	de1=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)preds+1));
+	de2=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)preds+2));
+	de3=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)preds+3));
+	de0=_mm256_mul_pd(de0, w0);
+	de1=_mm256_mul_pd(de1, w1);
+	de2=_mm256_mul_pd(de2, w2);
+	de3=_mm256_mul_pd(de3, w3);
+	w0=_mm256_add_pd(w0, w1);
+	w0=_mm256_add_pd(w0, w2);
+	w0=_mm256_add_pd(w0, w3);
+	de0=_mm256_add_pd(de0, de1);
+	de0=_mm256_add_pd(de0, de2);
+	de0=_mm256_add_pd(de0, de3);
+	//ALIGN(32) double apreds[4], awsum[4];
+	//_mm256_store_pd(awsum, w0);
+	//_mm256_store_pd(apreds, de0);
+	//fpred=(apreds[0]+apreds[1]+apreds[2]+apreds[3])/(awsum[0]+awsum[1]+awsum[2]+awsum[3]);
 	
+	//[num3 num2 num1 num0]
+	//[den3 den2 den1 den0]
+	//r = hadd(num, den) = [den3+den2 num3+num2 den1+den0 num1+num0]
+	//lo=_mm256_extractf128_pd(r, 0)
+	//hi=_mm256_extractf128_pd(r, 1)
+	//hi+lo = [den3+den2+den1+den0 num3+num2+num1+num0]
+	w0=_mm256_hadd_pd(de0, w0);
+	__m128d dp=_mm_add_pd(_mm256_extractf128_pd(w0, 1), _mm256_extractf128_pd(w0, 0));
+	dp=_mm_div_pd(dp, _mm_permute_pd(dp, 3));
+	__m128i mp=_mm_cvtpd_epi32(dp);
+#else
 	for(int k=0;k<WG_NPREDS;++k)
 	{
 		double weight=(double)weights[k]/(perrors[k]+1);
-		pred2+=weight*preds[k];
+		fpred+=weight*preds[k];
 		wsum+=weight;
 	}
-	pred2/=wsum;
+	fpred/=wsum;
+#endif
 #if 1
-	__m128i mp=_mm_cvtpd_epi32(_mm_set_pd(0, pred2));
+	//__m128i mp=_mm_cvtpd_epi32(_mm_set_pd(0, fpred));
 	__m128i mN	=_mm_set_epi32(0, 0, 0, N);
 	__m128i mW	=_mm_set_epi32(0, 0, 0, W);
 	__m128i mNE	=_mm_set_epi32(0, 0, 0, NE);
@@ -100,15 +153,15 @@ static int wg_predict(
 	_mm_store_si128((__m128i*)pred, mp);
 #else
 #ifdef _MSC_VER
-	pred=_cvt_dtoi_fast(pred2);
+	pred=_cvt_dtoi_fast(fpred);
 #else
-	pred=(int)pred2;
+	pred=(int)fpred;
 #endif
 	CLAMP3_32(pred, pred, N, W, NE);
 #endif
 	return pred[0];
 }
-static void wg_update(int curr, const int *preds, int *perrors, int *weights)
+static void wg_update(int curr, const int *preds, int *perrors)
 {
 	for(int k=0;k<WG_NPREDS;++k)
 	{
@@ -118,7 +171,8 @@ static void wg_update(int curr, const int *preds, int *perrors, int *weights)
 }
 void pred_wgrad4(Image *src, int fwd)
 {
-	ALIGN(32) int wg_weights[4][WG_NPREDS]={0}, wg_perrors[4][WG_NPREDS]={0}, wg_preds[WG_NPREDS]={0};
+	ALIGN(32) double wg_weights[4][WG_NPREDS]={0};
+	ALIGN(32) int wg_perrors[4][WG_NPREDS]={0}, wg_preds[WG_NPREDS]={0};
 	int nch;
 	int nlevels[]=
 	{
@@ -186,7 +240,7 @@ void pred_wgrad4(Image *src, int fwd)
 					rows[0][kc2+0]=fwd?curr:pred;
 					rows[0][kc2+1]=rows[0][kc2]-pred0;
 				}
-				wg_update(rows[0][kc2], wg_preds, wg_perrors[kc], wg_weights[kc]);
+				wg_update(rows[0][kc2], wg_preds, wg_perrors[kc]);
 			}
 			rows[0]+=4*2;
 			rows[1]+=4*2;
