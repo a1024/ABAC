@@ -117,11 +117,13 @@ typedef enum TransformTypeEnum
 	ST_FWD_OLS4,		ST_INV_OLS4,
 	ST_FWD_OLS5,		ST_INV_OLS5,
 	ST_FWD_OLS6,		ST_INV_OLS6,
+	ST_FWD_OLS7,		ST_INV_OLS7,
 	ST_FWD_PU,		ST_INV_PU,
 	ST_FWD_CG3D,		ST_INV_CG3D,
 	ST_FWD_WGRAD,		ST_INV_WGRAD,
 //	ST_FWD_WGRAD2,		ST_INV_WGRAD2,
 	ST_FWD_WGRAD3,		ST_INV_WGRAD3,
+	ST_FWD_WGRAD4,		ST_INV_WGRAD4,
 	ST_FWD_LWAV,		ST_INV_LWAV,
 	ST_FWD_CLAMPGRAD,	ST_INV_CLAMPGRAD,
 	ST_FWD_CG422,		ST_INV_CG422,
@@ -1658,6 +1660,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_OLS5:		a=" S Inv OLS-5";		break;
 	case ST_FWD_OLS6:		a=" S Fwd OLS-6";		break;
 	case ST_INV_OLS6:		a=" S Inv OLS-6";		break;
+	case ST_FWD_OLS7:		a=" S Fwd OLS-7";		break;
+	case ST_INV_OLS7:		a=" S Inv OLS-7";		break;
 	case ST_FWD_PU:			a="CS Fwd PU";			break;
 	case ST_INV_PU:			a="CS Inv PU";			break;
 	case ST_FWD_CG3D:		a="CS Fwd CG3D";		break;
@@ -1678,6 +1682,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 //	case ST_INV_WGRAD2:		a="CS Inv WGrad2";		break;
 	case ST_FWD_WGRAD3:		a="CS Fwd WGrad3";		break;
 	case ST_INV_WGRAD3:		a="CS Inv WGrad3";		break;
+	case ST_FWD_WGRAD4:		a=" S Fwd WGrad4";		break;
+	case ST_INV_WGRAD4:		a=" S Inv WGrad4";		break;
 	case ST_FWD_LWAV:		a=" S Fwd LWAV";		break;
 	case ST_INV_LWAV:		a=" S Inv LWAV";		break;
 //	case ST_FWD_ECOEFF:		a=" S Fwd E-Coeff";		break;
@@ -2741,6 +2747,8 @@ void apply_transform(Image *image, int tid, int hasRCT)
 	case ST_INV_OLS5:		pred_ols5(image, 0);					break;
 	case ST_FWD_OLS6:		pred_ols6(image, 1);					break;
 	case ST_INV_OLS6:		pred_ols6(image, 0);					break;
+	case ST_FWD_OLS7:		pred_ols7(image, 1);					break;
+	case ST_INV_OLS7:		pred_ols7(image, 0);					break;
 	case ST_FWD_PACKSIGN:		packsign(image, 1);					break;
 	case ST_INV_PACKSIGN:		packsign(image, 0);					break;
 	case ST_FWD_MTF:		pred_MTF(image, 1);					break;
@@ -2771,6 +2779,8 @@ void apply_transform(Image *image, int tid, int hasRCT)
 //	case ST_INV_WGRAD2:		pred_wgrad2(image, 0);					break;
 	case ST_FWD_WGRAD3:		pred_wgrad3(image, 1, hasRCT);				break;
 	case ST_INV_WGRAD3:		pred_wgrad3(image, 0, hasRCT);				break;
+	case ST_FWD_WGRAD4:		pred_wgrad4(image, 1);					break;
+	case ST_INV_WGRAD4:		pred_wgrad4(image, 0);					break;
 	case ST_FWD_LWAV:		pred_lwav(image, 1);					break;
 	case ST_INV_LWAV:		pred_lwav(image, 0);					break;
 //	case ST_FWD_ECOEFF:		pred_ecoeff(image, 1, pred_ma_enabled);			break;
