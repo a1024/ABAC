@@ -9,21 +9,21 @@ static const char file[]=__FILE__;
 //	#define ENABLE_GUIDE
 //	#define DISABLE_MT
 
+//	#define ENABLE_SELPRED
 	#define ENABLE_SSE//good
-//	#define PRINT_SH
-	#define ESTIMATE_SIZE
+//	#define ESTIMATE_SIZE
 
-	#define ENABLE_OLS
-//	#define ENABLE_WG
+	#define ENABLE_WG
 
 #define CODECNAME "C03"
 #define AC3_PREC
 #include"entropy.h"
 
-#define BLOCKSIZE 1024
+#define BLOCKX 512
+#define BLOCKY 256
 #define MAXPRINTEDBLOCKS 20
 
-#define OLS_STRIDE 255
+#define OLS_STRIDE 31
 #define A2_CTXBITS 8
 #define A2_NCTX 12	//multiple of 4
 #define A2_SSECBITS 6
@@ -105,12 +105,17 @@ static const char *rct_names[RCT_COUNT]=
 #undef  RCT
 };
 
+#ifdef ENABLE_SELPRED
 #define PREDLIST\
 	PRED(W)\
 	PRED(CG)\
 	PRED(AV5)\
 	PRED(AV9)\
 	PRED(AV12)
+#else
+#define PREDLIST\
+	PRED(CG)
+#endif
 typedef enum _PredIndex
 {
 #define PRED(LABEL) PRED_##LABEL,
@@ -127,9 +132,15 @@ static const char *pred_names[PRED_COUNT]=
 
 typedef enum _NBIndex
 {
+#ifdef ENABLE_SELPRED
 	NB_NNWW,	NB_NNW,		NB_NN,		NB_NNE,		NB_NNEE,
 	NB_NWW,		NB_NW,		NB_N,		NB_NE,		NB_NEE,
 	NB_WW,		NB_W,		NB_curr,
+#else
+	NB_NW,		NB_N,
+	NB_W,		NB_curr,
+#endif
+	NB_COUNT,
 } NBIndex;
 static const short av12_icoeffs[12]=
 {
@@ -139,56 +150,13 @@ static const short av12_icoeffs[12]=
 };
 
 
-//OLS4
-typedef struct _OLS4Context
-{
-	int nparams;
-	double *nb, *vec, *cov, *cholesky, *params;
-} OLS4Context;
-static void ols4_init(OLS4Context *ctx, int nparams)
-{
-	int msize=nparams*nparams;
-	memset(ctx, 0, sizeof(*ctx));
-	ctx->nparams=nparams;
-	ctx->nb=(double*)_mm_malloc(nparams*sizeof(double), sizeof(__m256d));
-	ctx->vec=(double*)_mm_malloc(nparams*sizeof(double), sizeof(__m256d));
-	ctx->cov=(double*)_mm_malloc(msize*sizeof(double), sizeof(__m256d));
-	ctx->cholesky=(double*)malloc(msize*sizeof(double));
-	ctx->params=(double*)_mm_malloc(nparams*sizeof(double), sizeof(__m256d));
-	if(!ctx->nb||!ctx->vec||!ctx->cov||!ctx->cholesky||!ctx->params)
-	{
-		LOG_ERROR("Alloc error");
-		return;
-	}
-}
-static void ols4_reset(OLS4Context *ctx)
-{
-	int msize=ctx->nparams*ctx->nparams;
-	memset(ctx->nb, 0, ctx->nparams*sizeof(double));
-	memset(ctx->vec, 0, ctx->nparams*sizeof(double));
-	memset(ctx->cov, 0, msize*sizeof(double));
-	memset(ctx->cholesky, 0, msize*sizeof(double));
-	memset(ctx->params, 0, ctx->nparams*sizeof(double));
-}
-static void ols4_free(OLS4Context *ctx)
-{
-	_mm_free(ctx->nb);
-	_mm_free(ctx->vec);
-	_mm_free(ctx->cov);
-	free(ctx->cholesky);
-	_mm_free(ctx->params);
-	memset(ctx, 0, sizeof(*ctx));
-}
-#define OLS4_NPARAMS 16		//multiple of 4,  NPARAMS is unified because of interleaving
-
-
 //WG:
 #define WG_DECAY_NUM	493
 #define WG_DECAY_SH	9
 
 #define WG_NPREDS	16
 #define WG_PREDLIST\
-	WG_PRED(25, spred)\
+	WG_PRED(255, cgrad)\
 	WG_PRED(50, wgrad)\
 	WG_PRED(50, 3*N-W-NE)\
 	WG_PRED(30, 2*NE-W)\
@@ -214,7 +182,7 @@ static void wg_init(int *weights)
 static int wg_predict(
 	const int *weights,
 	short **rows, const int stride, int kc2,
-	int spred, const int *perrors, int *preds
+	int cgrad, const int *perrors, int *preds
 )
 {
 	double pred2=0, wsum=0;
@@ -239,10 +207,14 @@ static int wg_predict(
 		eN	=rows[1][kc2+0*stride+1],
 		eNE	=rows[1][kc2+1*stride+1],
 		eW	=rows[0][kc2-1*stride+1];
-
 	int gy=abs(eN)+1, gx=abs(eW)+1;
 	int wgrad=(N*gy+W*gx)/(gy+gx);
-
+	(void)NNNWWWW;
+	(void)NNWWWW;
+	(void)NNEEE;
+	(void)NEE;
+	MEDIAN3_32(cgrad, N, W, N+W-NW);
+	
 #define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
 	WG_PREDLIST
 #undef  WG_PRED
@@ -276,7 +248,7 @@ static void wg_update(int curr, const int *preds, int *perrors, int *weights)
 #define CONFIG_EXP 4
 #define CONFIG_MSB 1
 #define CONFIG_LSB 0
-static void quantize_pixel(int val, int *token, int *bypass, int *nbits)
+FORCEINLINE void quantize_pixel(int val, int *token, int *bypass, int *nbits)
 {
 	if(val<(1<<CONFIG_EXP))
 	{
@@ -297,47 +269,23 @@ static void quantize_pixel(int val, int *token, int *bypass, int *nbits)
 		*bypass=val>>CONFIG_LSB&((1LL<<*nbits)-1);
 	}
 }
-#define ABAC_PROBBITS 16
-static int squash(int x)//sigmoid(x) = 1/(1-exp(-x))		logit sum -> prob
-{
-#ifdef DISABLE_LOGMIX
-	x>>=11;
-	x+=1<<ABAC_PROBBITS>>1;
-	CLAMP2_32(x, x, 1, (1<<ABAC_PROBBITS)-1);
-#else
-	static const int t[33]=//2^5 table elements, table amplitude 2^12
-	{
-		   1,    2,    3,    6,   10,   16,   27,   45,   73,  120,  194,
-		 310,  488,  747, 1101, 1546, 2047, 2549, 2994, 3348, 3607, 3785,
-		3901, 3975, 4022, 4050, 4068, 4079, 4085, 4089, 4092, 4093, 4094,
-	};
-	int w=x&((1<<(ABAC_PROBBITS-5))-1);
-	x=(x>>(ABAC_PROBBITS-5))+16;
-	if(x>31)
-		return (1<<ABAC_PROBBITS)-1;
-	if(x<0)
-		return 1;
-	x=(t[x]*((1<<(ABAC_PROBBITS-5))-w)+t[x+1]*w+64)>>(12-5);
-#endif
-	return x;
-}
 typedef struct _ThreadArgs
 {
 	const unsigned char *src;
 	unsigned char *dst;
 	int iw, ih;
 
-	int fwd, test, loud, x1, x2, y1, y2;
+	int fwd, test, loud, b1, b2, xblocks, blocksperthread, currentblock, x1, x2, y1, y2;
 	int bufsize, histsize;
 	short *pixels;
 	int *hist;
 
-	BList list;
-	const unsigned char *decstart, *decend;
+	BList *lists;
+	const int *offsets;
+	const unsigned char *decsrc, *decstart, *decend;
 	
 	//int hist[54<<8];
 
-	int tlevels;
 	unsigned short stats[A2_NCTX*3<<A2_CTXBITS<<8];
 #ifdef ENABLE_SSE
 	long long sse[3][1<<A2_SSECBITS][1<<A2_SSECBITS][8<<A2_SSEPBITS];
@@ -348,9 +296,7 @@ typedef struct _ThreadArgs
 	int blockidx;
 	double bestsize;
 	int bestrct, predidx[3];
-#ifdef ENABLE_OLS
-	OLS4Context ols4[3];
-#endif
+
 #ifdef ESTIMATE_SIZE
 	int hist2[3][256];
 #endif
@@ -362,10 +308,7 @@ static void block_thread(void *param)
 	AC3 ec;
 	const unsigned char *image=args->fwd?args->src:args->dst;
 	unsigned char bestrct=0, combination[6]={0}, predidx[4]={0};
-#ifdef ENABLE_OLS
-	ALIGN(16) int ols4_ctx0[OLS4_NPARAMS]={0}, ols4_ctx1[OLS4_NPARAMS]={0}, ols4_ctx2[OLS4_NPARAMS]={0};
-	static const double lrs[]={0.0018, 0.003, 0.003};
-#endif
+
 	if(args->fwd)
 	{
 		int ystride=args->iw*3;
@@ -398,31 +341,38 @@ static void block_thread(void *param)
 			for(;kx<args->x2-5;kx+=5, ptr+=15)
 			{
 				__m256i
-					nb0[13],//rgb
-					nb1[13],//gbr
-					nb2[13],//rgb - gbr
-					nb3[13],//gbr - rgb
-					nb4[13],//(gbr+brg)/2
-					nb5[13];//rgb - (gbr+brg)/2
+					nb0[NB_COUNT],//rgb
+					nb1[NB_COUNT],//gbr
+					nb2[NB_COUNT],//rgb - gbr
+					nb3[NB_COUNT],//gbr - rgb
+					nb4[NB_COUNT],//(gbr+brg)/2
+					nb5[NB_COUNT];//rgb - (gbr+brg)/2
 				__m256i vmin[4], vmax[4], pred;
 				{
-					__m128i nb8[13]=//8-bit
+					__m128i nb8[NB_COUNT]=//8-bit
 					{
+#ifdef ESTIMATE_SIZE
 						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-2*ystride-2*3+0)), half8),//NNWW
 						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-2*ystride-1*3+0)), half8),//NNW
 						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-2*ystride+0*3+0)), half8),//NN
 						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-2*ystride+1*3+0)), half8),//NNE
 						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-2*ystride+2*3+0)), half8),//NNEE
 						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-1*ystride-2*3+0)), half8),//NWW
+#endif
 						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-1*ystride-1*3+0)), half8),//NW
 						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-1*ystride+0*3+0)), half8),//N
+#ifdef ESTIMATE_SIZE
 						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-1*ystride+1*3+0)), half8),//NE
 						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-1*ystride+2*3+0)), half8),//NEE
 						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr+0*ystride-2*3+0)), half8),//WW
+#endif
 						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr+0*ystride-1*3+0)), half8),//W
 						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr+0*ystride+0*3+0)), half8),//curr
 					};
-					for(int k=0;k<13;++k)
+#ifdef __GNUC__
+#pragma GCC unroll 4
+#endif
+					for(int k=0;k<_countof(nb8);++k)
 					{
 						__m128i temp;
 						__m256i t2;
@@ -461,6 +411,7 @@ static void block_thread(void *param)
 		++args->hist[(IDXD*PRED_COUNT+PREDIDX)<<8|result[0xD]];\
 		++args->hist[(IDXE*PRED_COUNT+PREDIDX)<<8|result[0xE]];\
 	}while(0)
+#ifdef ENABLE_SELPRED
 				//W
 				pred=_mm256_sub_epi16(nb0[NB_curr], nb0[NB_W]);
 				UPDATE(
@@ -510,6 +461,7 @@ static void block_thread(void *param)
 					OCH_R2, OCH_G2, OCH_B2,
 					OCH_R2, OCH_G2, OCH_B2
 				);
+#endif
 
 				//CG
 				vmin[0]=_mm256_min_epi16(nb0[NB_N], nb0[NB_W]);
@@ -582,6 +534,7 @@ static void block_thread(void *param)
 					OCH_R2, OCH_G2, OCH_B2
 				);
 				
+#ifdef ENABLE_SELPRED
 				//AV5
 				//		-5	5	1
 				//	-1	8	[?]>>3
@@ -851,6 +804,7 @@ static void block_thread(void *param)
 					OCH_R2, OCH_G2, OCH_B2,
 					OCH_R2, OCH_G2, OCH_B2
 				);
+#endif
 			}
 		}
 		for(int kc=0;kc<OCH_COUNT*PRED_COUNT;++kc)
@@ -888,7 +842,7 @@ static void block_thread(void *param)
 		predidx[0]=predsel[combination[0]];
 		predidx[1]=predsel[combination[1]];
 		predidx[2]=predsel[combination[2]];
-		args->bestsize=bestsize;
+		args->bestsize+=bestsize;
 		args->bestrct=bestrct;
 		args->predidx[0]=predidx[0];
 		args->predidx[1]=predidx[1];
@@ -931,20 +885,24 @@ static void block_thread(void *param)
 				);
 			}
 		}
-		blist_init(&args->list);
-		ac3_enc_init(&ec, &args->list);
+		blist_init(args->lists+args->currentblock);
+		ac3_enc_init(&ec, args->lists+args->currentblock);
 		ac3_enc_bypass_NPOT(&ec, bestrct, RCT_COUNT);
+#ifdef ENABLE_SELPRED
 		ac3_enc_bypass_NPOT(&ec, predidx[0], PRED_COUNT);
 		ac3_enc_bypass_NPOT(&ec, predidx[1], PRED_COUNT);
 		ac3_enc_bypass_NPOT(&ec, predidx[2], PRED_COUNT);
+#endif
 	}
 	else
 	{
 		ac3_dec_init(&ec, args->decstart, args->decend);
 		bestrct=ac3_dec_bypass_NPOT(&ec, RCT_COUNT);
+#ifdef ENABLE_SELPRED
 		predidx[0]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
 		predidx[1]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
 		predidx[2]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
+#endif
 	}
 	ALIGN(32) long long mixer[8*3*A2_NCTX]={0};
 	FILLMEM(mixer, 0x3000, sizeof(mixer), sizeof(long long));
@@ -955,11 +913,6 @@ static void block_thread(void *param)
 	
 #ifdef ESTIMATE_SIZE
 	memset(args->hist2, 0, sizeof(args->hist2));
-#endif
-#ifdef ENABLE_OLS
-	int kols=0, kols2=OLS_STRIDE;
-	for(int k=0;k<3;++k)
-		ols4_reset(args->ols4+k);
 #endif
 #ifdef ENABLE_WG
 	int wg_weights[WG_NPREDS*3]={0}, wg_perrors[WG_NPREDS*3]={0}, wg_preds[WG_NPREDS]={0};
@@ -976,10 +929,10 @@ static void block_thread(void *param)
 	{
 		ALIGN(16) short *rows[]=
 		{
-			args->pixels+((BLOCKSIZE+16LL)*((ky-0LL)&3)+8LL)*4*2,
-			args->pixels+((BLOCKSIZE+16LL)*((ky-1LL)&3)+8LL)*4*2,
-			args->pixels+((BLOCKSIZE+16LL)*((ky-2LL)&3)+8LL)*4*2,
-			args->pixels+((BLOCKSIZE+16LL)*((ky-3LL)&3)+8LL)*4*2,
+			args->pixels+((BLOCKX+16LL)*((ky-0LL)&3)+8LL)*4*2,
+			args->pixels+((BLOCKX+16LL)*((ky-1LL)&3)+8LL)*4*2,
+			args->pixels+((BLOCKX+16LL)*((ky-2LL)&3)+8LL)*4*2,
+			args->pixels+((BLOCKX+16LL)*((ky-3LL)&3)+8LL)*4*2,
 		};
 		int yuv[4]={0};
 		int pred=0, error=0;
@@ -1007,6 +960,25 @@ static void block_thread(void *param)
 				*WW	=rows[0]-2*4*2,
 				*W	=rows[0]-1*4*2,
 				*curr	=rows[0]+0*4*2;
+			(void)NNN;
+			(void)NNWW;
+			(void)NNW;
+			(void)NN;
+			(void)NNE;
+			(void)NNEE;
+			(void)NNEEE;
+			(void)NWWW;
+			(void)NWW;
+			(void)NW;
+			(void)N;
+			(void)NE;
+			(void)NEE;
+			(void)NEEE;
+			(void)WWWW;
+			(void)WWW;
+			(void)WW;
+			(void)W;
+#if 0
 			if(ky<=args->y1+2)
 			{
 				if(ky<=args->y1+1)
@@ -1051,6 +1023,7 @@ static void block_thread(void *param)
 				}
 				NEEE=NEE;
 			}
+#endif
 			if(args->fwd)
 			{
 				switch(bestrct)
@@ -1106,171 +1079,12 @@ static void block_thread(void *param)
 					break;
 				}
 			}
-#ifdef ENABLE_OLS
-			ALIGN(16) int preds[4];
-			__m128i mNW	=_mm_load_si128((__m128i*)NW);
-			__m128i mN	=_mm_load_si128((__m128i*)N);
-			__m128i mNE	=_mm_load_si128((__m128i*)NE);
-			__m128i mW	=_mm_load_si128((__m128i*)W);
-			__m128i vmin=_mm_min_epi16(mN, mW);
-			__m128i vmax=_mm_max_epi16(mN, mW);
-			__m128i mg=_mm_sub_epi16(_mm_add_epi16(mN, mW), mNW);
-			mg=_mm_max_epi16(mg, vmin);
-			mg=_mm_min_epi16(mg, vmax);
-			ALIGN(16) short cgrads[8];
-			_mm_store_si128((__m128i*)cgrads, mg);
-			vmin=_mm_min_epi16(vmin, mNE);
-			vmax=_mm_max_epi16(vmax, mNE);
-			vmin=_mm_slli_epi32(vmin, 16);//need low signed 16 bits -> 32 bit
-			vmax=_mm_slli_epi32(vmax, 16);
-			vmin=_mm_srai_epi32(vmin, 16);
-			vmax=_mm_srai_epi32(vmax, 16);
-			int j0=0, j1=0, j2=0;
-			ols4_ctx0[j0++]=cgrads	[0];
-			ols4_ctx0[j0++]=NNW	[0];
-			ols4_ctx0[j0++]=NN	[0];
-			ols4_ctx0[j0++]=NNE	[0];
-			ols4_ctx0[j0++]=NNEE	[0];
-			ols4_ctx0[j0++]=NNEEE	[0];
-			ols4_ctx0[j0++]=NWWW	[0];
-			ols4_ctx0[j0++]=NWW	[0];
-			ols4_ctx0[j0++]=NW	[0];
-			ols4_ctx0[j0++]=N	[0];
-			ols4_ctx0[j0++]=NE	[0];
-			ols4_ctx0[j0++]=NEE	[0];
-			ols4_ctx0[j0++]=NEEE	[0];
-			ols4_ctx0[j0++]=WWW	[0];
-			ols4_ctx0[j0++]=WW	[0];
-			ols4_ctx0[j0++]=W	[0];
 
-			ols4_ctx1[j1++]=cgrads	[2];
-			ols4_ctx1[j1++]=NNW	[2];
-			ols4_ctx1[j1++]=NN	[2];
-			ols4_ctx1[j1++]=NNE	[2];
-			ols4_ctx1[j1++]=NNEE	[2];
-			ols4_ctx1[j1++]=NWW	[2];
-			ols4_ctx1[j1++]=NW	[2];
-			ols4_ctx1[j1++]=NW	[0];
-			ols4_ctx1[j1++]=N	[2];
-			ols4_ctx1[j1++]=N	[0];
-			ols4_ctx1[j1++]=NE	[2];
-			ols4_ctx1[j1++]=NE	[0];
-			ols4_ctx1[j1++]=NEE	[2];
-			ols4_ctx1[j1++]=WW	[2];
-			ols4_ctx1[j1++]=W	[2];
-			ols4_ctx1[j1++]=W	[0];
-
-			ols4_ctx2[j2++]=cgrads	[4];
-			ols4_ctx2[j2++]=NNW	[4];
-			ols4_ctx2[j2++]=NN	[4];
-			ols4_ctx2[j2++]=NNE	[4];
-			ols4_ctx2[j2++]=NNEE	[4];
-			ols4_ctx2[j2++]=NWW	[4];
-			ols4_ctx2[j2++]=NW	[4];
-			ols4_ctx2[j2++]=NW	[0];
-			ols4_ctx2[j2++]=N	[4];
-			ols4_ctx2[j2++]=N	[0];
-			ols4_ctx2[j2++]=NE	[4];
-			ols4_ctx2[j2++]=NE	[0];
-			ols4_ctx2[j2++]=NEE	[4];
-			ols4_ctx2[j2++]=WW	[4];
-			ols4_ctx2[j2++]=W	[4];
-			ols4_ctx2[j2++]=W	[0];
-			{
-				double *pp0=args->ols4[0].params;
-				double *pp1=args->ols4[1].params;
-				double *pp2=args->ols4[2].params;
-				double *pnb0=args->ols4[0].nb;
-				double *pnb1=args->ols4[1].nb;
-				double *pnb2=args->ols4[2].nb;
-
-				__m128i mnb0=_mm_load_si128((__m128i*)ols4_ctx0+0);
-				__m128i mnb1=_mm_load_si128((__m128i*)ols4_ctx1+0);
-				__m128i mnb2=_mm_load_si128((__m128i*)ols4_ctx2+0);
-				__m256d dnb0=_mm256_cvtepi32_pd(mnb0);
-				__m256d dnb1=_mm256_cvtepi32_pd(mnb1);
-				__m256d dnb2=_mm256_cvtepi32_pd(mnb2);
-				_mm256_store_pd(pnb0+0*4, dnb0);
-				_mm256_store_pd(pnb1+0*4, dnb1);
-				_mm256_store_pd(pnb2+0*4, dnb2);
-				__m256d sum0=_mm256_mul_pd(dnb0, _mm256_load_pd(pp0+0*4));
-				__m256d sum1=_mm256_mul_pd(dnb1, _mm256_load_pd(pp1+0*4));
-				__m256d sum2=_mm256_mul_pd(dnb2, _mm256_load_pd(pp2+0*4));
-
-				mnb0=_mm_load_si128((__m128i*)ols4_ctx0+1);
-				mnb1=_mm_load_si128((__m128i*)ols4_ctx1+1);
-				mnb2=_mm_load_si128((__m128i*)ols4_ctx2+1);
-				dnb0=_mm256_cvtepi32_pd(mnb0);
-				dnb1=_mm256_cvtepi32_pd(mnb1);
-				dnb2=_mm256_cvtepi32_pd(mnb2);
-				_mm256_store_pd(pnb0+1*4, dnb0);
-				_mm256_store_pd(pnb1+1*4, dnb1);
-				_mm256_store_pd(pnb2+1*4, dnb2);
-				sum0=_mm256_add_pd(sum0, _mm256_mul_pd(dnb0, _mm256_load_pd(pp0+1*4)));
-				sum1=_mm256_add_pd(sum1, _mm256_mul_pd(dnb1, _mm256_load_pd(pp1+1*4)));
-				sum2=_mm256_add_pd(sum2, _mm256_mul_pd(dnb2, _mm256_load_pd(pp2+1*4)));
-
-				mnb0=_mm_load_si128((__m128i*)ols4_ctx0+2);
-				mnb1=_mm_load_si128((__m128i*)ols4_ctx1+2);
-				mnb2=_mm_load_si128((__m128i*)ols4_ctx2+2);
-				dnb0=_mm256_cvtepi32_pd(mnb0);
-				dnb1=_mm256_cvtepi32_pd(mnb1);
-				dnb2=_mm256_cvtepi32_pd(mnb2);
-				_mm256_store_pd(pnb0+2*4, dnb0);
-				_mm256_store_pd(pnb1+2*4, dnb1);
-				_mm256_store_pd(pnb2+2*4, dnb2);
-				sum0=_mm256_add_pd(sum0, _mm256_mul_pd(dnb0, _mm256_load_pd(pp0+2*4)));
-				sum1=_mm256_add_pd(sum1, _mm256_mul_pd(dnb1, _mm256_load_pd(pp1+2*4)));
-				sum2=_mm256_add_pd(sum2, _mm256_mul_pd(dnb2, _mm256_load_pd(pp2+2*4)));
-
-				mnb0=_mm_load_si128((__m128i*)ols4_ctx0+3);
-				mnb1=_mm_load_si128((__m128i*)ols4_ctx1+3);
-				mnb2=_mm_load_si128((__m128i*)ols4_ctx2+3);
-				dnb0=_mm256_cvtepi32_pd(mnb0);
-				dnb1=_mm256_cvtepi32_pd(mnb1);
-				dnb2=_mm256_cvtepi32_pd(mnb2);
-				_mm256_store_pd(pnb0+3*4, dnb0);
-				_mm256_store_pd(pnb1+3*4, dnb1);
-				_mm256_store_pd(pnb2+3*4, dnb2);
-				sum0=_mm256_add_pd(sum0, _mm256_mul_pd(dnb0, _mm256_load_pd(pp0+3*4)));
-				sum1=_mm256_add_pd(sum1, _mm256_mul_pd(dnb1, _mm256_load_pd(pp1+3*4)));
-				sum2=_mm256_add_pd(sum2, _mm256_mul_pd(dnb2, _mm256_load_pd(pp2+3*4)));
-
-				ALIGN(32) double sums[12];
-				_mm256_store_pd(sums+0*4, sum0);
-				_mm256_store_pd(sums+1*4, sum1);
-				_mm256_store_pd(sums+2*4, sum2);
-
-				sums[ 0]+=sums[ 1]+sums[ 2]+sums[ 3];
-				sums[ 4]+=sums[ 5]+sums[ 6]+sums[ 7];
-				sums[ 8]+=sums[ 9]+sums[10]+sums[11];
-#if OLS4_NPARAMS&15
-				for(int k=16;k<OLS4_NPARAMS;++k)
-				{
-					pnb0[k]=(double)ols4_ctx0[k];
-					pnb1[k]=(double)ols4_ctx1[k];
-					pnb2[k]=(double)ols4_ctx2[k];
-					sums[ 0]+=pp0[k]*pnb0[k];
-					sums[ 4]+=pp1[k]*pnb1[k];
-					sums[ 8]+=pp2[k]*pnb2[k];
-				}
-#endif
-				sums[1]=sums[4];
-				sums[2]=sums[8];
-
-				__m128i mp=_mm256_cvtpd_epi32(_mm256_load_pd(sums));//rounded
-				mp=_mm_min_epi32(mp, vmax);
-				mp=_mm_max_epi32(mp, vmin);
-				_mm_store_si128((__m128i*)preds, mp);
-			}
-#endif
 			for(int kc=0;kc<nch;++kc)
 			{
 				int kc2=kc<<1;
 				int offset=(yuv[combination[kc+3]]+yuv[combination[kc+6]])>>combination[kc+9];
-#ifdef ENABLE_OLS
-				pred=preds[kc];
-#else
+#ifdef ENABLE_SELPRED
 				switch(predidx[kc])
 				{
 				case PRED_W:
@@ -1309,6 +1123,10 @@ static void block_thread(void *param)
 #ifdef ENABLE_WG
 				pred=wg_predict(wg_weights+WG_NPREDS*kc, rows, 4*2, kc2, pred, wg_perrors+WG_NPREDS*kc, wg_preds);
 #endif
+#elif defined ENABLE_WG
+				pred=wg_predict(wg_weights+WG_NPREDS*kc, rows, 4*2, kc2, 0, wg_perrors+WG_NPREDS*kc, wg_preds);
+#else
+				MEDIAN3_32(pred, N[kc2], W[kc2], N[kc2]+W[kc2]-NW[kc2]);
 #endif
 				pred+=offset;
 				CLAMP2(pred, -128, 127);
@@ -1341,6 +1159,9 @@ static void block_thread(void *param)
 					(abs(N[kc2+0])+abs(W[kc2+0]))/2-abs(W[kc2/2+1]),
 					(abs(N[kc2+1])+abs(W[kc2+1]))*11-abs(NW[kc2+1])/2+abs(NE[kc2+1])*7,
 				};
+#ifdef __GNUC__
+#pragma GCC unroll 12
+#endif
 				for(int k=0;k<A2_NCTX;++k)
 				{
 					int idx2=((A2_NCTX*kc+k)<<A2_CTXBITS|(ctx[k]>>(9-A2_CTXBITS)&((1<<A2_CTXBITS)-1)))<<8;
@@ -1364,6 +1185,9 @@ static void block_thread(void *param)
 				//long long *curr_sse=args->sse+(kc*8LL<<A2_SSEPBITS);
 #endif
 				int shoffset=abs(N[kc2+1])+abs(W[kc2+1])*2+abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])/2-abs(WW[kc2+1])-abs(NN[kc2+1]);
+#ifdef __GNUC__
+#pragma GCC unroll 8
+#endif
 				for(int kb=7, e2=0;kb>=0;--kb)
 				{
 					long long p0=0;
@@ -1429,11 +1253,7 @@ static void block_thread(void *param)
 					long long ssesum=curr_sse[sseidx]>>A2_SSECTR, ssecount=curr_sse[sseidx]&((1LL<<A2_SSECTR)-1);
 					p0+=ssesum/(ssecount+5);
 #endif
-					//p0-=0x8000;
-					//p0>>=1;
-					//p0=squash((int)p0);
 					CLAMP2(p0, 1, 0xFFFF);
-					//CLAMP2_32(p0, (int)p0, 1, 0xFFFF);
 					if(args->fwd)
 					{
 						bit=error>>kb&1;
@@ -1487,25 +1307,10 @@ static void block_thread(void *param)
 					}
 					if(sh<0)sh=0;
 					sh=FLOOR_LOG2_P1(sh);
-#ifdef PRINT_SH
-					if(args->fwd&&ky<<1>=args->ih-5&&ky<<1<=args->ih+5&&kx<<1>=args->iw-5&&kx<<1<=args->iw+5)
-					{
-						if(kb==7)
-							printf("%5d %5d", kx, ky);
-						printf(" %d", sh);
-						if(kb==0)
-						{
-							printf(" 0x%02X = %d\n", error&0xFF, error);
-							if(kc==2)
-								printf("\n");
-						}
-					//	printf("%5d %5d %d %d\n", kx, ky, kb, sh);
-					}
-#endif
 					if(abs(prob_error)>16)
 					{
-#if 1
 						long long dL_dp0=0x7F000000000/((long long)((bit<<16)-(int)p0)*wsum*2);
+#if 1
 						CLAMP2(dL_dp0, -0x3FFF, 0x3FFF);
 						__m256i vmin2=_mm256_set1_epi64x(1);
 						__m256i vmax2=_mm256_set1_epi64x(0x40000);
@@ -1537,21 +1342,13 @@ static void block_thread(void *param)
 						_mm256_store_si256((__m256i*)curr_mixer+0, mweight0);
 						_mm256_store_si256((__m256i*)curr_mixer+1, mweight1);
 						_mm256_store_si256((__m256i*)curr_mixer+2, mweight2);
-						//for(int k=0;k<A2_NCTX;++k)
-						//{
-						//	int update=(int)((int)dL_dp0*(curr_stats[k][tidx]-(int)p0)>>(sh+17-4-1));
-						//	int mk=curr_mixer[k]-update;
-						//	CLAMP2(mk, 1, 0x40000);
-						//	curr_mixer[k]=mk;
-						//}
 #else
-						int dL_dp0=0x7F00000/((bit<<16)-(int)p0);
 						for(int k=0;k<A2_NCTX;++k)
 						{
-							int mk=curr_mixer[k]-(int)((long long)dL_dp0*(curr_stats[k][tidx]-(int)p0)>>sh)/wsum;
+							int update=(int)((int)dL_dp0*(curr_stats[k][tidx]-(int)p0)>>(sh+17-4-1));
+							int mk=curr_mixer[k]-update;
 							CLAMP2(mk, 1, 0x40000);
 							curr_mixer[k]=mk;
-						//	CLAMP2_32(curr_mixer[k], mk, 1, 0x40000);
 						}
 #endif
 					}
@@ -1573,6 +1370,9 @@ static void block_thread(void *param)
 					_mm256_store_si256((__m256i*)probs+0, mprob0);
 					_mm256_store_si256((__m256i*)probs+1, mprob1);
 					_mm256_store_si256((__m256i*)probs+2, mprob2);
+#ifdef __GNUC__
+#pragma GCC unroll 12
+#endif
 					for(int k=0;k<A2_NCTX;++k)
 						curr_stats[k][tidx]=(int)probs[k];
 #else
@@ -1606,232 +1406,6 @@ static void block_thread(void *param)
 				wg_update(curr[kc2+0], wg_preds, wg_perrors+WG_NPREDS*kc, wg_weights+WG_NPREDS*kc);
 #endif
 			}
-#ifdef ENABLE_OLS
-			if(kx<5||kols>=kols2)
-			{
-				double *pnb0=args->ols4[0].nb;
-				double *pnb1=args->ols4[1].nb;
-				double *pnb2=args->ols4[2].nb;
-				double *cov0=args->ols4[0].cov;
-				double *cov1=args->ols4[1].cov;
-				double *cov2=args->ols4[2].cov;
-				double lval0=curr[0]*lrs[0], lr_comp0=1-lrs[0];
-				double lval1=curr[2]*lrs[1], lr_comp1=1-lrs[1];
-				double lval2=curr[4]*lrs[2], lr_comp2=1-lrs[2];
-				__m256d mlr0=_mm256_set1_pd(lrs[0]);
-				__m256d mlr1=_mm256_set1_pd(lrs[1]);
-				__m256d mlr2=_mm256_set1_pd(lrs[2]);
-				for(int ky2=0, midx=0;ky2<OLS4_NPARAMS;++ky2)
-				{
-					__m256d vy0=_mm256_set1_pd(pnb0[ky2]);
-					__m256d vy1=_mm256_set1_pd(pnb1[ky2]);
-					__m256d vy2=_mm256_set1_pd(pnb2[ky2]);
-					int kx2=0;
-					for(;kx2<OLS4_NPARAMS-3;kx2+=4, midx+=4)
-					{
-						__m256d mcov0=_mm256_load_pd(cov0+midx);
-						__m256d mcov1=_mm256_load_pd(cov1+midx);
-						__m256d mcov2=_mm256_load_pd(cov2+midx);
-						__m256d vx0=_mm256_load_pd(pnb0+kx2);
-						__m256d vx1=_mm256_load_pd(pnb1+kx2);
-						__m256d vx2=_mm256_load_pd(pnb2+kx2);
-						vx0=_mm256_mul_pd(vx0, vy0);
-						vx1=_mm256_mul_pd(vx1, vy1);
-						vx2=_mm256_mul_pd(vx2, vy2);
-						vx0=_mm256_sub_pd(vx0, mcov0);
-						vx1=_mm256_sub_pd(vx1, mcov1);
-						vx2=_mm256_sub_pd(vx2, mcov2);
-						vx0=_mm256_mul_pd(vx0, mlr0);
-						vx1=_mm256_mul_pd(vx1, mlr1);
-						vx2=_mm256_mul_pd(vx2, mlr2);
-						vx0=_mm256_add_pd(vx0, mcov0);
-						vx1=_mm256_add_pd(vx1, mcov1);
-						vx2=_mm256_add_pd(vx2, mcov2);
-						_mm256_store_pd(cov0+midx, vx0);
-						_mm256_store_pd(cov1+midx, vx1);
-						_mm256_store_pd(cov2+midx, vx2);
-					}
-#if OLS4_NPARAMS&15
-					for(;kx2<OLS4_NPARAMS;++kx2, ++midx)
-					{
-						cov0[midx]+=(pnb0[kx2]*pnb0[ky2]-cov0[midx])*lrs[0];
-						cov1[midx]+=(pnb1[kx2]*pnb1[ky2]-cov1[midx])*lrs[1];
-						cov2[midx]+=(pnb2[kx2]*pnb2[ky2]-cov2[midx])*lrs[2];
-					}
-#endif
-				}
-				double *vec0=args->ols4[0].vec;
-				double *vec1=args->ols4[1].vec;
-				double *vec2=args->ols4[2].vec;
-				{
-					__m256d mlr_comp0=_mm256_set1_pd(lr_comp0);
-					__m256d mlr_comp1=_mm256_set1_pd(lr_comp1);
-					__m256d mlr_comp2=_mm256_set1_pd(lr_comp2);
-					__m256d mval0=_mm256_set1_pd(lval0);
-					__m256d mval1=_mm256_set1_pd(lval1);
-					__m256d mval2=_mm256_set1_pd(lval2);
-					int k=0;
-					for(;k<OLS4_NPARAMS-3;k+=4)
-					{
-						__m256d mvec0=_mm256_load_pd(vec0+k);
-						__m256d mvec1=_mm256_load_pd(vec1+k);
-						__m256d mvec2=_mm256_load_pd(vec2+k);
-						__m256d mtmp0=_mm256_load_pd(pnb0+k);
-						__m256d mtmp1=_mm256_load_pd(pnb1+k);
-						__m256d mtmp2=_mm256_load_pd(pnb2+k);
-						mvec0=_mm256_mul_pd(mvec0, mlr_comp0);
-						mvec1=_mm256_mul_pd(mvec1, mlr_comp1);
-						mvec2=_mm256_mul_pd(mvec2, mlr_comp2);
-						mtmp0=_mm256_mul_pd(mtmp0, mval0);
-						mtmp1=_mm256_mul_pd(mtmp1, mval1);
-						mtmp2=_mm256_mul_pd(mtmp2, mval2);
-						mvec0=_mm256_add_pd(mvec0, mtmp0);
-						mvec1=_mm256_add_pd(mvec1, mtmp1);
-						mvec2=_mm256_add_pd(mvec2, mtmp2);
-						_mm256_store_pd(vec0+k, mvec0);
-						_mm256_store_pd(vec1+k, mvec1);
-						_mm256_store_pd(vec2+k, mvec2);
-					}
-#if OLS4_NPARAMS&15
-					for(;k<OLS4_NPARAMS;++k)
-					{
-						vec0[k]=lval0*pnb0[k]+lr_comp0*vec0[k];
-						vec1[k]=lval1*pnb1[k]+lr_comp1*vec1[k];
-						vec2[k]=lval2*pnb2[k]+lr_comp2*vec2[k];
-					}
-#endif
-				}
-				double *chol0=args->ols4[0].cholesky;
-				double *chol1=args->ols4[1].cholesky;
-				double *chol2=args->ols4[2].cholesky;
-				double *params0=args->ols4[0].params;
-				double *params1=args->ols4[1].params;
-				double *params2=args->ols4[2].params;
-				int success0=1;
-				int success1=1;
-				int success2=1;
-				memcpy(chol0, cov0, sizeof(double[OLS4_NPARAMS*OLS4_NPARAMS]));
-				memcpy(chol1, cov1, sizeof(double[OLS4_NPARAMS*OLS4_NPARAMS]));
-				memcpy(chol2, cov2, sizeof(double[OLS4_NPARAMS*OLS4_NPARAMS]));
-				for(int k=0;k<OLS4_NPARAMS*OLS4_NPARAMS;k+=OLS4_NPARAMS+1)
-				{
-					chol0[k]+=0.0075;
-					chol1[k]+=0.0075;
-					chol2[k]+=0.0075;
-				}
-				double sum;
-				for(int i=0;i<OLS4_NPARAMS;++i)
-				{
-					for(int j=0;j<i;++j)
-					{
-						sum=chol0[i*OLS4_NPARAMS+j];
-						for(int k=0;k<j;++k)
-							sum-=chol0[i*OLS4_NPARAMS+k]*chol0[j*OLS4_NPARAMS+k];
-						chol0[i*OLS4_NPARAMS+j]=sum/chol0[j*OLS4_NPARAMS+j];
-					}
-					sum=chol0[i*OLS4_NPARAMS+i];
-					for(int k=0;k<i;++k)
-						sum-=chol0[i*OLS4_NPARAMS+k]*chol0[i*OLS4_NPARAMS+k];
-					if(sum<=1e-8)
-					{
-						success0=0;
-						break;
-					}
-					chol0[i*OLS4_NPARAMS+i]=sqrt(sum);
-				}
-				for(int i=0;i<OLS4_NPARAMS;++i)
-				{
-					for(int j=0;j<i;++j)
-					{
-						sum=chol1[i*OLS4_NPARAMS+j];
-						for(int k=0;k<j;++k)
-							sum-=chol1[i*OLS4_NPARAMS+k]*chol1[j*OLS4_NPARAMS+k];
-						chol1[i*OLS4_NPARAMS+j]=sum/chol1[j*OLS4_NPARAMS+j];
-					}
-					sum=chol1[i*OLS4_NPARAMS+i];
-					for(int k=0;k<i;++k)
-						sum-=chol1[i*OLS4_NPARAMS+k]*chol1[i*OLS4_NPARAMS+k];
-					if(sum<=1e-8)
-					{
-						success1=0;
-						break;
-					}
-					chol1[i*OLS4_NPARAMS+i]=sqrt(sum);
-				}
-				for(int i=0;i<OLS4_NPARAMS;++i)
-				{
-					for(int j=0;j<i;++j)
-					{
-						sum=chol2[i*OLS4_NPARAMS+j];
-						for(int k=0;k<j;++k)
-							sum-=chol2[i*OLS4_NPARAMS+k]*chol2[j*OLS4_NPARAMS+k];
-						chol2[i*OLS4_NPARAMS+j]=sum/chol2[j*OLS4_NPARAMS+j];
-					}
-					sum=chol2[i*OLS4_NPARAMS+i];
-					for(int k=0;k<i;++k)
-						sum-=chol2[i*OLS4_NPARAMS+k]*chol2[i*OLS4_NPARAMS+k];
-					if(sum<=1e-8)
-					{
-						success2=0;
-						break;
-					}
-					chol2[i*OLS4_NPARAMS+i]=sqrt(sum);
-				}
-				if(success0)
-				{
-					for(int i=0;i<OLS4_NPARAMS;++i)
-					{
-						sum=vec0[i];
-						for(int j=0;j<i;++j)
-							sum-=chol0[i*OLS4_NPARAMS+j]*params0[j];
-						params0[i]=sum/chol0[i*OLS4_NPARAMS+i];
-					}
-					for(int i=OLS4_NPARAMS-1;i>=0;--i)
-					{
-						sum=params0[i];
-						for(int j=i+1;j<OLS4_NPARAMS;++j)
-							sum-=chol0[j*OLS4_NPARAMS+i]*params0[j];
-						params0[i]=sum/chol0[i*OLS4_NPARAMS+i];
-					}
-				}
-				if(success1)
-				{
-					for(int i=0;i<OLS4_NPARAMS;++i)
-					{
-						sum=vec1[i];
-						for(int j=0;j<i;++j)
-							sum-=chol1[i*OLS4_NPARAMS+j]*params1[j];
-						params1[i]=sum/chol1[i*OLS4_NPARAMS+i];
-					}
-					for(int i=OLS4_NPARAMS-1;i>=0;--i)
-					{
-						sum=params1[i];
-						for(int j=i+1;j<OLS4_NPARAMS;++j)
-							sum-=chol1[j*OLS4_NPARAMS+i]*params1[j];
-						params1[i]=sum/chol1[i*OLS4_NPARAMS+i];
-					}
-				}
-				if(success2)
-				{
-					for(int i=0;i<OLS4_NPARAMS;++i)
-					{
-						sum=vec2[i];
-						for(int j=0;j<i;++j)
-							sum-=chol2[i*OLS4_NPARAMS+j]*params2[j];
-						params2[i]=sum/chol2[i*OLS4_NPARAMS+i];
-					}
-					for(int i=OLS4_NPARAMS-1;i>=0;--i)
-					{
-						sum=params2[i];
-						for(int j=i+1;j<OLS4_NPARAMS;++j)
-							sum-=chol2[j*OLS4_NPARAMS+i]*params2[j];
-						params2[i]=sum/chol2[i*OLS4_NPARAMS+i];
-					}
-				}
-			}
-			if(kols>=kols2)
-				kols2+=OLS_STRIDE;
-#endif
 			if(!args->fwd)
 			{
 				switch(bestrct)
@@ -1905,9 +1479,33 @@ static void block_thread(void *param)
 	if(args->fwd)
 		ac3_enc_flush(&ec);
 }
+static void block_manager(void *param)
+{
+	ThreadArgs *args=(ThreadArgs*)param;
+	for(int kb=args->b1;kb<args->b2;++kb)
+	{
+		int kx, ky;
+
+		args->blockidx=kb;
+		args->currentblock=kb-args->b1;
+		ky=args->blockidx/args->xblocks;
+		kx=args->blockidx%args->xblocks;
+		args->x1=BLOCKX*kx;
+		args->y1=BLOCKY*ky;
+		args->x2=MINVAR(args->x1+BLOCKX, args->iw);
+		args->y2=MINVAR(args->y1+BLOCKY, args->ih);
+		if(!args->fwd)
+		{
+			args->decstart=args->decsrc+args->offsets[kb];
+			args->decend=args->decsrc+args->offsets[kb+1];
+		}
+		block_thread(param);
+	}
+}
 int c03_codec(const char *srcfn, const char *dstfn)
 {
-	const int nch=3, depth=8;
+	const int nch=3;
+//	const int depth=8;
 	double t0;
 	ArrayHandle src, dst;
 	int headersize, printed;
@@ -1915,17 +1513,13 @@ int c03_codec(const char *srcfn, const char *dstfn)
 	const unsigned char *image, *imageend;
 	unsigned char *image2;
 	CodecID codec;
-	int ncores=query_cpu_cores();
-	int xblocks, yblocks, nblocks, nthreads, coffset;
+	int xblocks, yblocks, nblocks, ncores, nthreads, blocksperthread, coffset;
 	ptrdiff_t start, memusage, argssize;
 	ThreadArgs *args;
 	int test, fwd;
-	int tlevels, histsize, statssize;
+	int histsize;
 	double bestsize;
 	int usize;
-#ifdef ABAC_PROFILESIZE
-	double abac_csizes[ABAC_TOKEN_BITS*3]={0};
-#endif
 #ifdef ESTIMATE_SIZE
 	double esize[3]={0};
 #endif
@@ -1955,22 +1549,21 @@ int c03_codec(const char *srcfn, const char *dstfn)
 	if(test)
 		printf("%s \"%s\"  WH %d*%d\n", CODECNAME, srcfn, iw, ih);
 	usize=iw*ih*3;
-	xblocks=(iw+BLOCKSIZE-1)/BLOCKSIZE;
-	yblocks=(ih+BLOCKSIZE-1)/BLOCKSIZE;
-	nblocks=xblocks*yblocks, nthreads=MINVAR(nblocks, ncores);
+	xblocks=(iw+BLOCKX-1)/BLOCKX;
+	yblocks=(ih+BLOCKY-1)/BLOCKY;
+	nblocks=xblocks*yblocks;
+	ncores=query_cpu_cores();
+	nthreads=MINVAR(nblocks, ncores);
+	blocksperthread=(nblocks+nthreads-1)/nthreads;
 	coffset=(int)sizeof(int)*nblocks;
-	start=0;
-	memusage=0;
-	argssize=nthreads*sizeof(ThreadArgs);
-	args=(ThreadArgs*)malloc(argssize);
-	if(!args)
+	int *offsets=(int*)malloc(coffset+sizeof(int));
+	if(!offsets)
 	{
 		LOG_ERROR("Alloc error");
 		return 1;
 	}
-	bestsize=0;
-	memusage+=argssize;
-	memset(args, 0, argssize);
+	start=0;
+	memusage=0;
 	if(fwd)
 	{
 		dst=0;
@@ -1993,58 +1586,67 @@ int c03_codec(const char *srcfn, const char *dstfn)
 		{
 			int size=0;
 			memcpy(&size, image+sizeof(int)*kt, sizeof(int));
+			offsets[kt]=(int)start;
 			start+=size;
 		}
+		offsets[nblocks]=(int)start;
 		if(image+start!=imageend)
 			LOG_ERROR("Corrupt file");
-		start=coffset;
 
 		image2=(unsigned char*)malloc(usize);
 		if(!image2)
 		{
 			LOG_ERROR("Alloc error");
-			return 0;
+			return 1;
 		}
 		memset(image2, 0, usize);
 	}
+	argssize=nthreads*sizeof(ThreadArgs);
+	args=(ThreadArgs*)malloc(argssize);
+	if(!args)
 	{
-		int nlevels=256;
-		int token=0, bypass=0, nbits=0;
-
-		quantize_pixel(nlevels, &token, &bypass, &nbits);
-		tlevels=token+1;
-		statssize=0;
-		histsize=(int)sizeof(int[OCH_COUNT*PRED_COUNT<<8]);
-		if(histsize<statssize)
-			histsize=statssize;
+		LOG_ERROR("Alloc error");
+		return 1;
 	}
-	for(int k=0;k<nthreads;++k)
+	bestsize=0;
+	memusage+=argssize;
+	memset(args, 0, argssize);
+	histsize=(int)sizeof(int[OCH_COUNT*PRED_COUNT<<8]);
+	for(int k=0, bidx=0;k<nthreads;++k)
 	{
 		ThreadArgs *arg=args+k;
 		arg->src=image;
 		arg->dst=fwd?0:dst->data+printed;
 		arg->iw=iw;
 		arg->ih=ih;
-		arg->bufsize=sizeof(short[4*OCH_COUNT*2*(BLOCKSIZE+16LL)]);//4 padded rows * OCH_COUNT * {pixels, wg_errors}
+		
+		arg->xblocks=xblocks;
+		arg->b1=bidx;
+		bidx+=blocksperthread;
+		if(bidx>nblocks)
+			bidx=nblocks;
+		arg->b2=bidx;
+		arg->offsets=offsets;
+		if(!fwd)
+			arg->decsrc=image;
+
+		int listssize=((size_t)arg->b2-arg->b1)*sizeof(BList);
+		arg->lists=(BList*)malloc(listssize);
+
+		arg->bufsize=sizeof(short[4*OCH_COUNT*2*(BLOCKX+16LL)]);//4 padded rows * OCH_COUNT * {pixels, wg_errors}
 		arg->pixels=(short*)_mm_malloc(arg->bufsize, sizeof(__m128i));
 
 		arg->histsize=histsize;
 		arg->hist=(int*)malloc(histsize);
-		//arg->stats=(unsigned*)malloc(statssize);
-#ifdef ENABLE_OLS
-		for(int k=0;k<3;++k)
-			ols4_init(arg->ols4+k, OLS4_NPARAMS);
-#endif
-		if(!arg->pixels||!arg->hist)
+		if(!arg->lists||!arg->pixels||!arg->hist)
 		{
 			LOG_ERROR("Alloc error");
 			return 1;
 		}
+		memusage+=listssize;
 		memusage+=arg->bufsize;
 		memusage+=histsize;
-		//memusage+=statssize;
-		
-		arg->tlevels=tlevels;
+
 		arg->fwd=fwd;
 		arg->test=test;
 #ifdef DISABLE_MT
@@ -2056,118 +1658,37 @@ int c03_codec(const char *srcfn, const char *dstfn)
 	}
 	for(int k2=0;k2<=test;++k2)
 	{
-		for(int kt=0;kt<nblocks;kt+=nthreads)
-		{
-			int nthreads2=MINVAR(kt+nthreads, nblocks)-kt;
-			for(int kt2=0;kt2<nthreads2;++kt2)
-			{
-				ThreadArgs *arg=args+kt2;
-				int kx, ky;
-
-				arg->blockidx=kx=kt+kt2;
-				ky=kx/xblocks;
-				kx%=xblocks;
-				arg->x1=BLOCKSIZE*kx;
-				arg->y1=BLOCKSIZE*ky;
-				arg->x2=MINVAR(arg->x1+BLOCKSIZE, iw);
-				arg->y2=MINVAR(arg->y1+BLOCKSIZE, ih);
-				if(!fwd)
-				{
-					int size=0;
-					memcpy(&size, image+sizeof(int)*((ptrdiff_t)kt+kt2), sizeof(int));
-					arg->decstart=image+start;
-					start+=size;
-					arg->decend=image+start;
-				}
-			}
 #ifdef DISABLE_MT
-			for(int k=0;k<nthreads2;++k)
-				block_thread(args+k);
+		for(int k=0;k<nthreads;++k)
+			block_manager(args+k);
 #else
-			void *ctx=mt_exec(block_thread, args, sizeof(ThreadArgs), nthreads2);
-			mt_finish(ctx);
+		void *ctx=mt_exec(block_manager, args, sizeof(ThreadArgs), nthreads);
+		mt_finish(ctx);
 #endif
-			if(fwd)
+		if(fwd)
+		{
+			for(int kt1=0;kt1<nthreads;++kt1)
 			{
-				for(int kt2=0;kt2<nthreads2;++kt2)
+				ThreadArgs *arg=args+kt1;
+				for(int kt2=0;kt2<blocksperthread;++kt2)
 				{
-					ThreadArgs *arg=args+kt2;
-					if(test)
-					{
-						int res=(arg->x2-arg->x1)*(arg->y2-arg->y1);
-						int blocksize=(res*nch*depth+7)>>3;
-						int kx, ky;
-
-						kx=kt+kt2;
-						ky=kx/xblocks;
-						kx%=xblocks;
-						if(nblocks<MAXPRINTEDBLOCKS)
-						{
-							//if(!(kt+kt2))
-							//	printf("block,  nrows,  usize,     best  ->  actual,  (actual-best)\n");
-							printf(
-								"block %4d/%4d  XY %3d %3d  %4d*%4d:  %8d->%16lf->%8zd bytes (%+10.2lf)  %10.6lf%%  CR %10lf  %s %s %s %s\n",
-								kt+kt2+1, nblocks,
-								kx, ky,
-								arg->y2-arg->y1,
-								arg->x2-arg->x1,
-								blocksize,
-								arg->bestsize,
-								arg->list.nbytes,
-								arg->list.nbytes-arg->bestsize,
-								100.*arg->list.nbytes/blocksize,
-								(double)blocksize/arg->list.nbytes,
-								rct_names[arg->bestrct],
-								pred_names[arg->predidx[0]],
-								pred_names[arg->predidx[1]],
-								pred_names[arg->predidx[2]]
-							);
-						}
-						bestsize+=arg->bestsize;
-#ifdef ABAC_PROFILESIZE
-						for(int k=0;k<ABAC_TOKEN_BITS*3;++k)
-							abac_csizes[k]+=arg->abac_csizes[k];
-#endif
-#ifdef ESTIMATE_SIZE
-						for(int kc=0;kc<3;++kc)
-						{
-							for(int ks=0;ks<256;++ks)
-							{
-								int freq=arg->hist2[kc][ks];
-								if(freq)
-									esize[kc]-=freq*log2((double)freq/res);
-							}
-						}
-#endif
-					}
-					memcpy(dst->data+start+sizeof(int)*((ptrdiff_t)kt+kt2), &arg->list.nbytes, sizeof(int));
-					blist_appendtoarray(&arg->list, &dst);
-					blist_clear(&arg->list);
+					int bidx=kt1*blocksperthread+kt2;
+					if(bidx>=nblocks)
+						break;
+					memcpy(dst->data+printed+sizeof(int)*bidx, &arg->lists[kt2].nbytes, sizeof(int));
+					blist_appendtoarray(arg->lists+kt2, &dst);
+					blist_clear(arg->lists+kt2);
 				}
+				if(fwd)
+					bestsize+=arg->bestsize;
 			}
 		}
 		if(test)
 		{
-			ptrdiff_t usize=((ptrdiff_t)iw*ih*nch*depth+7)>>3;
 			ptrdiff_t csize=dst->count;
 			t0=time_sec()-t0;
 			if(fwd)
 			{
-#ifdef ABAC_PROFILESIZE
-				double upsize=(double)iw*ih/8;
-				for(int kb=0;kb<ABAC_TOKEN_BITS*3;++kb)
-				{
-					double cpsize=abac_csizes[kb]/8;
-					printf("C%d B%d  %10.2lf/%10.2lf  %8.4lf%%  CR %10.6lf\n",
-						kb/ABAC_TOKEN_BITS,
-						kb%ABAC_TOKEN_BITS,
-						cpsize,
-						upsize,
-						100.*cpsize/upsize,
-						upsize/cpsize
-					);
-				}
-#endif
 #ifdef ESTIMATE_SIZE
 				esize[0]/=8;
 				esize[1]/=8;
@@ -2177,8 +1698,8 @@ int c03_codec(const char *srcfn, const char *dstfn)
 				printf("U %15.2lf\n", esize[1]);
 				printf("V %15.2lf\n", esize[2]);
 #endif
-				printf("Best %15.2lf (%+13.2lf) bytes\n", bestsize, csize-bestsize);
-				printf("%12td/%12td  %10.6lf%%  %10lf\n", csize, usize, 100.*csize/usize, (double)usize/csize);
+				printf("%15.2lf (%+13.2lf) bytes\n", bestsize, csize-bestsize);
+				printf("%12td/%12d  %10.6lf%%  %10lf\n", csize, usize, 100.*csize/usize, (double)usize/csize);
 				printf("Mem usage: ");
 				print_size((double)memusage, 8, 4, 0, 0);
 				printf("\n");
@@ -2187,9 +1708,8 @@ int c03_codec(const char *srcfn, const char *dstfn)
 			if(!fwd)
 				compare_bufs_8(image2, src->data+headersize, iw, ih, nch, nch, CODECNAME, 0, 1);
 		}
-		if(!k2&&test)
+		if(fwd&&test)//transition to (test) decode
 		{
-			int usize=iw*ih*3;
 			fwd=0;
 			image2=(unsigned char*)malloc(usize);
 			if(!image2)
@@ -2198,14 +1718,22 @@ int c03_codec(const char *srcfn, const char *dstfn)
 				return 0;
 			}
 			memset(image2, 0, usize);
+			start=coffset;
+			for(int kt=0;kt<nblocks;++kt)
+			{
+				int size=0;
+				memcpy(&size, dst->data+printed+sizeof(int)*kt, sizeof(int));
+				offsets[kt]=(int)start;
+				start+=size;
+			}
+			offsets[nblocks]=(int)start;
 			for(int kt=0;kt<nthreads;++kt)
 			{
 				ThreadArgs *arg=args+kt;
 				arg->dst=image2;
 				arg->fwd=0;
+				arg->decsrc=dst->data+printed;
 			}
-			image=dst->data+printed;
-			start=coffset;
 		}
 		t0=time_sec();
 	}
@@ -2216,15 +1744,12 @@ int c03_codec(const char *srcfn, const char *dstfn)
 	for(int k=0;k<nthreads;++k)
 	{
 		ThreadArgs *arg=args+k;
+		free(arg->lists);
 		_mm_free(arg->pixels);
 		free(arg->hist);
-		//free(arg->stats);
-#ifdef ENABLE_OLS
-		for(int k=0;k<3;++k)
-			ols4_free(arg->ols4+k);
-#endif
 	}
 	free(args);
+	free(offsets);
 	array_free(&src);
 	array_free(&dst);
 	//if(test)

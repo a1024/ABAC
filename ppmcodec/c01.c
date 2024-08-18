@@ -7,7 +7,7 @@ static const char file[]=__FILE__;
 
 
 //	#define ENABLE_GUIDE
-//	#define DISABLE_MT
+	#define DISABLE_MT
 
 	#define AC3_PREC
 

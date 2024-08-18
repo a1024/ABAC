@@ -9,7 +9,7 @@ static const char file[]=__FILE__;
 
 
 #ifndef CODEC_FUNC
-#define CODEC_FUNC c07_codec
+#define CODEC_FUNC c03_codec
 #endif
 
 
@@ -116,7 +116,7 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA13882.ppm"
 	//	"C:/Projects/datasets/big_building.PPM"
-		"C:/Projects/datasets/kodim13.ppm"
+	//	"C:/Projects/datasets/kodim13.ppm"
 	//	"C:/Projects/datasets/kodim13-small4.PPM"
 	//	"C:/Projects/datasets/kodim13-small16.PPM"
 	//	"C:/Projects/datasets/dataset-CLIC30-ppm/03.ppm"
@@ -126,7 +126,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-LPCB-ppm/PIA13912.ppm"
 	//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
 	//	"D:/ML/dataset-kodak-ppm/kodim13.c01"
-	//	"D:/ML/big_building.PPM"
+		"D:/ML/big_building.PPM"
 	//	"C:/dataset-LPCB-ppm/PIA13803.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13833.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13915.ppm"	//false color terrain
@@ -139,8 +139,11 @@ int main(int argc, char **argv)
 	//	"D:/ML/dataset-kodak-ppm/kodim13.c01.ppm"
 		;
 
-	c10_codec("D:/ML/kodim13.ppm", "D:/ML/kodim13.lsim");
-	c10_codec("D:/ML/kodim13.lsim", "D:/ML/kodim13_dec.ppm");
+//	c12_codec("D:/ML/kodim13.ppm", "D:/ML/kodim13.lsim");
+//	c12_codec("D:/ML/kodim13.lsim", "D:/ML/kodim13_dec.ppm");
+
+//	c10_codec("D:/ML/kodim13.ppm", "D:/ML/kodim13.lsim");
+//	c10_codec("D:/ML/kodim13.lsim", "D:/ML/kodim13_dec.ppm");
 
 //	c10_codec("D:/ML/big_building.PPM", "D:/ML/big_building.LSIM");
 //	c10_codec("D:/ML/big_building.LSIM", "D:/ML/big_building_dec.PPM");
@@ -164,6 +167,8 @@ int main(int argc, char **argv)
 //	c08_codec("C:/Projects/datasets/20240414-noise.LSIM", "C:/Projects/datasets/20240414-noise_dec.PPM");
 
 //	c07_codec(srcfn, dstfn);
+
+	CODEC_FUNC(srcfn, dstfn);
 #endif
 	return 0;
 }
