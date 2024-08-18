@@ -899,7 +899,7 @@ static void block_thread(void *param)
 			//		break;
 			//	}
 				pred+=offset;
-				CLAMP2_32(pred, pred, -128, 127);
+				CLAMP2(pred, -128, 127);
 				//if(ky==480&&kx==109&&kc==2)//
 				//if(ky==147&&kx==317&&kc==1)//
 				//	printf("");

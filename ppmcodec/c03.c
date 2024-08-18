@@ -179,7 +179,7 @@ static void wg_init(double *weights)
 	WG_PREDLIST
 #undef  WG_PRED
 }
-static int wg_predict(
+FORCEINLINE int wg_predict(
 	const double *weights,
 	short **rows, const int stride, int kc2,
 	int cgrad, const int *perrors, const int *NWerrors, const int *Nerrors, const int *NEerrors, int *preds
@@ -294,6 +294,9 @@ static int wg_predict(
 	{
 		double pred2=0, wsum=0;
 		int pred;
+#ifdef __GNUC__
+#pragma GCC unroll 16
+#endif
 		for(int k=0;k<WG_NPREDS;++k)
 		{
 			double weight=(double)weights[k]/(perrors[k]+1);
@@ -311,8 +314,11 @@ static int wg_predict(
 	}
 #endif
 }
-static void wg_update(int curr, const int *preds, int *perrors, int *Werrors, int *currerrors, int *NEerrors)
+FORCEINLINE void wg_update(int curr, const int *preds, int *perrors, int *Werrors, int *currerrors, int *NEerrors)
 {
+#ifdef __GNUC__
+#pragma GCC unroll 16
+#endif
 	for(int k=0;k<WG_NPREDS;++k)
 	{
 		int e2=abs(curr-preds[k]);
