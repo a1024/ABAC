@@ -21,8 +21,8 @@ if __name__=='__main__':
 		if len(sys.argv)<6:
 			print('Usage:    python %s srcpath dstpath ext1  ext2  program args...'%sys.argv[0])
 			print('')
-			print('Example:  python %s srcpath dstpath ppm   jxl   cjxl --quiet --num-threads=-1 -d 0 -e 2 ---s ---d'%sys.argv[0])
-			print('Example:  python %s srcpath dstpath ppm   jpg   FFMPEG -hide_banner -loglevel error -i ---s ---d'%sys.argv[0])
+			print('Example:  python %s srcpath dstpath ppm   jxl   CJXL --quiet --num-threads=-1 -d 0 -e 2 ---s ---d'%sys.argv[0])
+			print('Example:  python %s srcpath dstpath png   ppm   FFMPEG -hide_banner -loglevel error -i ---s ---d'%sys.argv[0])
 			print('Example:  python %s srcpath dstpath ppm   qlic2 QLIC2 c ---d ---s'%sys.argv[0])
 			print('Example:  python %s srcpath dstpath qlic2 ppm   QLIC2 d ---s ---d'%sys.argv[0])
 			print('Example:  python %s srcpath dstpath ppm   halic HALIC_ENCODE ---s ---d -mt'%sys.argv[0])
@@ -35,8 +35,14 @@ if __name__=='__main__':
 		dstext=sys.argv[4]
 		args2=sys.argv[5:]
 
-	placeholder1=args2.index('---s')
-	placeholder2=args2.index('---d')
+	try:
+		placeholder1=args2.index('---s')
+	except:
+		placeholder1=-1
+	try:
+		placeholder2=args2.index('---d')
+	except:
+		placeholder2=-1
 	if srcext[0]!='.':
 		srcext='.'+srcext
 	if dstext[0]!='.':
@@ -55,8 +61,10 @@ if __name__=='__main__':
 			srcfn=os.path.join(root, title)
 			dstfn=os.path.join(dstpath, name+dstext)
 			enc_args=args2.copy()
-			enc_args[placeholder1]=srcfn
-			enc_args[placeholder2]=dstfn
+			if placeholder1>=0:
+				enc_args[placeholder1]=srcfn
+			if placeholder2>=0:
+				enc_args[placeholder2]=dstfn
 			size1=os.path.getsize(srcfn)
 			elapsed=timeit.timeit(lambda: subprocess.run(enc_args), number=1)
 			size2=os.path.getsize(dstfn)
