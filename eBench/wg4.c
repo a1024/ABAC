@@ -22,18 +22,18 @@ static const char file[]=__FILE__;
 #define WG_NPREDS	12	//multiple of 4
 #if 1
 #define WG_PREDLIST\
-	WG_PRED(110, N)\
-	WG_PRED(110, W)\
-	WG_PRED(160, 3*(N-NN)+NNN)\
-	WG_PRED(160, 3*(W-WW)+WWW)\
-	WG_PRED(27, 4*(N+NNN)-6*NN+NNNW+NNNE-(NNWW+NNEE)/2)\
-	WG_PRED(27, 4*(W+WWW)-6*WW+WWWW)\
-	WG_PRED(150, N+eN/(kc2?2:4))\
-	WG_PRED(150, W+eW/(kc2?2:4))\
-	WG_PRED(120, N+W-NW+((eN+eW-eNW+8)>>4))\
-	WG_PRED(120, N+NE-NNE+((eN+eNE-eNNE+8)>>4))\
-	WG_PRED(165, W+NE-N)\
-	WG_PRED(150, (W+NEEE-eW)/2)
+	WG_PRED(280,	N+eN/(kc2?2:4))\
+	WG_PRED(280,	W+eW/(kc2?2:4))\
+	WG_PRED(160,	3*(N-NN)+NNN)\
+	WG_PRED(160,	3*(W-WW)+WWW)\
+	WG_PRED(30,	4*(N+NNN)-6*NN+NNNW+NNNE-(NNWW+NNEE)/2)\
+	WG_PRED(30,	4*(W+WWW)-6*WW+WWWW)\
+	WG_PRED(130,	N+W-NW+((eN+eW-eNW+8)>>4))\
+	WG_PRED(130,	N+NE-NNE+((eN+eNE-eNNE+8)>>4))\
+	WG_PRED(180,	W+NE-N)\
+	WG_PRED(150,	(W+NEEE-eW)/2)\
+	WG_PRED(4,	NE+eNE/4)\
+	WG_PRED(4,	NW+eNW/4)
 //	WG_PRED(0, (W+2*NE-NNE+(eW+2*eNE-eNNE)/4)/2)
 //	WG_PRED(0, N+W-NW)
 //	WG_PRED(0, (-WW+3*W+N)/3)
@@ -61,7 +61,7 @@ static const char file[]=__FILE__;
 	WG_PRED(165, 3*(W-WW)+WWW)\
 	WG_PRED(150, (W+NEEE)/2)
 #endif
-static void wg_init(double *weights)
+static void wg_init(double *weights, int kc)
 {
 	int j=0;
 #define WG_PRED(WEIGHT, EXPR) weights[j++]=WEIGHT;
@@ -79,9 +79,11 @@ static int wg_predict(
 	ALIGN(16) int pred[4];
 	int
 		NNNWWWW	=rows[3][kc2-4*stride+0],
+		NNNWWW	=rows[3][kc2-3*stride+0],
 		NNNW	=rows[3][kc2-1*stride+0],
 		NNN	=rows[3][kc2+0*stride+0],
 		NNNE	=rows[3][kc2+1*stride+0],
+		NNNEEE	=rows[3][kc2+3*stride+0],
 		NNWWWW	=rows[2][kc2-4*stride+0],
 		NNWW	=rows[2][kc2-2*stride+0],
 		NNW	=rows[2][kc2-1*stride+0],
@@ -99,19 +101,21 @@ static int wg_predict(
 		WWW	=rows[0][kc2-3*stride+0],
 		WW	=rows[0][kc2-2*stride+0],
 		W	=rows[0][kc2-1*stride+0],
+		eNN	=rows[2][kc2+0*stride+1],
 		eNNE	=rows[2][kc2+1*stride+1],
 		eNW	=rows[1][kc2-1*stride+1],
 		eN	=rows[1][kc2+0*stride+1],
 		eNE	=rows[1][kc2+1*stride+1],
+		eWW	=rows[0][kc2-2*stride+1],
 		eW	=rows[0][kc2-1*stride+1];
-
+	int sh=kc2?1:2;
 	//int gy=abs(eN)+1, gx=abs(eW)+1;
 	//int wgrad=(N*gy+W*gx)/(gy+gx);
 
 	//int cgrad, cgrad2;
 	//MEDIAN3_32(cgrad, N, W, N+W-NW);
 	//MEDIAN3_32(cgrad2, N, NE, N+NE-NNE);
-
+	
 #define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
 	WG_PREDLIST
 #undef  WG_PRED
@@ -254,7 +258,7 @@ void pred_wgrad4(Image *src, int fwd)
 	nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
 	UPDATE_MAX(nch, src->nch);
 	for(int kc=0;kc<nch;++kc)
-		wg_init(wg_weights[kc]);
+		wg_init(wg_weights[kc], kc);
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
 		int *rows[]=
