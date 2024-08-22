@@ -26,12 +26,12 @@ static const char file[]=__FILE__;
 	WG_PRED(280,	W+eW/(kc2?2:4))\
 	WG_PRED(160,	3*(N-NN)+NNN)\
 	WG_PRED(160,	3*(W-WW)+WWW)\
-	WG_PRED(30,	4*(N+NNN)-6*NN+NNNW+NNNE-(NNWW+NNEE)/2)\
-	WG_PRED(30,	4*(W+WWW)-6*WW+WWWW)\
-	WG_PRED(130,	N+W-NW+((eN+eW-eNW+8)>>4))\
-	WG_PRED(130,	N+NE-NNE+((eN+eNE-eNNE+8)>>4))\
 	WG_PRED(180,	W+NE-N)\
 	WG_PRED(150,	(W+NEEE-eW)/2)\
+	WG_PRED(130,	N+W-NW+((eN+eW-eNW+8)>>4))\
+	WG_PRED(130,	N+NE-NNE+((eN+eNE-eNNE+8)>>4))\
+	WG_PRED(30,	4*(N+NNN)-6*NN+NNNW+NNNE-(NNWW+NNEE)/2)\
+	WG_PRED(30,	4*(W+WWW)-6*WW+WWWW)\
 	WG_PRED(4,	NE+eNE/4)\
 	WG_PRED(4,	NW+eNW/4)
 //	WG_PRED(0, (W+2*NE-NNE+(eW+2*eNE-eNNE)/4)/2)
@@ -69,8 +69,7 @@ static void wg_init(double *weights, int kc)
 #undef  WG_PRED
 }
 static int wg_predict(
-	const double *weights,
-	int **rows, const int stride, int kc2,
+	const double *weights, int **rows, const int stride, int kc2,
 	int spred, const int *perrors, const int *Werrors, const int *Nerrors, const int *NEerrors, int *preds
 )
 {
