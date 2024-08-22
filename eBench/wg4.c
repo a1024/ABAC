@@ -16,8 +16,8 @@ static const char file[]=__FILE__;
 //WG:
 #define WG_NBITS 0
 
-#define WG_DECAY_NUM	493
-#define WG_DECAY_SH	9
+#define WG_DECAY_NUM	3
+#define WG_DECAY_SH	2
 
 #define WG_NPREDS	12	//multiple of 4
 #if 1
@@ -70,7 +70,7 @@ static void wg_init(double *weights, int kc)
 }
 static int wg_predict(
 	const double *weights, int **rows, const int stride, int kc2,
-	int spred, const int *perrors, const int *Werrors, const int *Nerrors, const int *NEerrors, int *preds
+	int spred, const int *perrors, const int *NWerrors, const int *Nerrors, const int *NEerrors, const int *NNEerrors, int *preds
 )
 {
 	//double fpred=0, wsum=0;
@@ -133,18 +133,22 @@ static int wg_predict(
 	//me1=_mm_srai_epi32(me1, 1);
 	//me2=_mm_srai_epi32(me2, 1);
 	//me3=_mm_srai_epi32(me3, 1);
-	me0=_mm_add_epi32(me0, _mm_load_si128((__m128i*)Werrors+0));
-	me1=_mm_add_epi32(me1, _mm_load_si128((__m128i*)Werrors+1));
-	me2=_mm_add_epi32(me2, _mm_load_si128((__m128i*)Werrors+2));
-//	me3=_mm_add_epi32(me3, _mm_load_si128((__m128i*)Werrors+3));
-	me0=_mm_add_epi32(me0, _mm_load_si128((__m128i*)Nerrors+0));
-	me1=_mm_add_epi32(me1, _mm_load_si128((__m128i*)Nerrors+1));
-	me2=_mm_add_epi32(me2, _mm_load_si128((__m128i*)Nerrors+2));
-//	me3=_mm_add_epi32(me3, _mm_load_si128((__m128i*)Nerrors+3));
+	me0=_mm_add_epi32(me0, _mm_load_si128((__m128i*)NWerrors+0));
+	me1=_mm_add_epi32(me1, _mm_load_si128((__m128i*)NWerrors+1));
+	me2=_mm_add_epi32(me2, _mm_load_si128((__m128i*)NWerrors+2));
+//	me3=_mm_add_epi32(me3, _mm_load_si128((__m128i*)NWerrors+3));
+	me0=_mm_add_epi32(me0, _mm_slli_epi32(_mm_load_si128((__m128i*)Nerrors+0), 1));
+	me1=_mm_add_epi32(me1, _mm_slli_epi32(_mm_load_si128((__m128i*)Nerrors+1), 1));
+	me2=_mm_add_epi32(me2, _mm_slli_epi32(_mm_load_si128((__m128i*)Nerrors+2), 1));
+//	me3=_mm_add_epi32(me3, _mm_slli_epi32(_mm_load_si128((__m128i*)Nerrors+3), 1));
 	me0=_mm_add_epi32(me0, _mm_load_si128((__m128i*)NEerrors+0));
 	me1=_mm_add_epi32(me1, _mm_load_si128((__m128i*)NEerrors+1));
 	me2=_mm_add_epi32(me2, _mm_load_si128((__m128i*)NEerrors+2));
 //	me3=_mm_add_epi32(me3, _mm_load_si128((__m128i*)NEerrors+3));
+	me0=_mm_add_epi32(me0, _mm_load_si128((__m128i*)NNEerrors+0));
+	me1=_mm_add_epi32(me1, _mm_load_si128((__m128i*)NNEerrors+1));
+	me2=_mm_add_epi32(me2, _mm_load_si128((__m128i*)NNEerrors+2));
+//	me3=_mm_add_epi32(me3, _mm_load_si128((__m128i*)NNEerrors+3));
 	me0=_mm_add_epi32(me0, one);
 	me1=_mm_add_epi32(me1, one);
 	me2=_mm_add_epi32(me2, one);
@@ -213,9 +217,8 @@ static void wg_update(int curr, const int *preds, int *perrors, int *Werrors, in
 {
 	for(int k=0;k<WG_NPREDS;++k)
 	{
-		int e2=abs(curr-preds[k]);
+		int e2=abs(curr-preds[k])<<1;
 		perrors[k]=(perrors[k]+e2)*WG_DECAY_NUM>>WG_DECAY_SH;
-		e2<<=3;
 		currerrors[k]=(2*Werrors[k]+e2+NEerrors[k])>>2;
 		NEerrors[k]+=e2;
 	}
@@ -282,18 +285,24 @@ void pred_wgrad4(Image *src, int fwd)
 				int
 					kc2=kc<<1,
 					kc3=kc*WG_NPREDS,
-					NW	=rows[1][kc2-1*4*2],
-					N	=rows[1][kc2+0*4*2],
-					W	=rows[0][kc2-1*4*2],
+				//	NW	=rows[1][kc2-1*4*2],
+				//	N	=rows[1][kc2+0*4*2],
+				//	W	=rows[0][kc2-1*4*2],
+					*eNNW	=erows[2]+kc3-1*4*WG_NPREDS,
+					*eNN	=erows[2]+kc3+0*4*WG_NPREDS,
+					*eNNE	=erows[2]+kc3+1*4*WG_NPREDS,
+					*eNNEE	=erows[2]+kc3+2*4*WG_NPREDS,
 					*eNW	=erows[1]+kc3-1*4*WG_NPREDS,
 					*eN	=erows[1]+kc3+0*4*WG_NPREDS,
 					*eNE	=erows[1]+kc3+1*4*WG_NPREDS,
+					*eNEE	=erows[1]+kc3+2*4*WG_NPREDS,
+					*eNEEE	=erows[1]+kc3+3*4*WG_NPREDS,
 					*eW	=erows[0]+kc3-1*4*WG_NPREDS,
 					*ecurr	=erows[0]+kc3+0*4*WG_NPREDS;
 				//if(ky==10&&kx==10)//
 				//	printf("");
 				//MEDIAN3_32(pred, N, W, N+W-NW);
-				pred=wg_predict(wg_weights[kc], rows, 4*2, kc2, 0, wg_perrors[kc], eNW, eN, eNE, wg_preds);
+				pred=wg_predict(wg_weights[kc], rows, 4*2, kc2, 0, wg_perrors[kc], eNW, eN, eNE, eNNE, wg_preds);
 				{
 					int curr=src->data[idx+kc], pred0=pred;
 					pred+=1<<WG_NBITS>>1;
