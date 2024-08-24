@@ -6,11 +6,11 @@
 #include<math.h>
 #include<process.h>
 #include<immintrin.h>
-#ifdef _MSC_VER
-#include<intrin.h>
-#elif defined __GNUC__
-#include<x86intrin.h>
-#endif
+//#ifdef _MSC_VER
+//#include<intrin.h>
+//#elif defined __GNUC__
+//#include<x86intrin.h>
+//#endif
 static const char file[]=__FILE__;
 
 //WG:
@@ -21,19 +21,60 @@ static const char file[]=__FILE__;
 
 #define WG_NPREDS	12	//multiple of 4
 #if 1
+#define WG_PREDLIST0\
+	WG_PRED(210,	N+(24*eN-eNW+9*eW)/120)\
+	WG_PRED(210,	W+(24*eW-eNW+9*eN)/120)\
+	WG_PRED(210,	3*(N-NN)+NNN+(eN/2+eNN+eNNN)/3)\
+	WG_PRED(210,	3*(W-WW)+WWW+(eW/2+eWW+eWWW)/3)\
+	WG_PRED(140,	W+NE-N-eN+eW/3+(eN>>3)-(eW>>7))\
+	WG_PRED(230,	(WWW-2*NW+NN+NEE+NEEE+NEEEE+((N-W)/3+NNN-NE-(5*(eN+eW)+eWW))/2)/3)\
+	WG_PRED(120,	N+W-NW+(eN+eW-eNW)/3)\
+	WG_PRED(140,	N+NE-NNE+((eN+eNE+eNNE+4)>>3))\
+	WG_PRED(45,	(4*(N+NNN)-6*NN+NNNW+NNNE-(NNWW+NNEE)/2+NNE+NNW-NE-NW-eN)/3)\
+	WG_PRED(97,	(6*(W+WWW)+20*WW+(eW-eWW+eWWW)/3)/32)\
+	WG_PRED(65,	(W+3*NW-NWW-NNWW)/2+eNW/4+eW/6)\
+	WG_PRED(40,	(3*NE+NEE+NEEEE-NNEE-NNEEE+(3*eNE+6*eNEE+3*eNEEE)/2)/3)
+#define WG_PREDLIST1\
+	WG_PRED(250,	N+(3*eN+eNW+eW)/6)\
+	WG_PRED(250,	W+(3*eW+eNW+eN)/6)\
+	WG_PRED(180,	3*(N-NN)+NNN+(eN+eNN-eWW)/2)\
+	WG_PRED(180,	3*(W-WW)+WWW+(eW+eWW-eNN)/2)\
+	WG_PRED(180,	W+NE-N-((eN+eW+31)>>5))\
+	WG_PRED(185,	(WWW+(W-N+NN+NNN)/2-NW+NEE+NEEE+NEEEE-eN-eW-eWW)/4)\
+	WG_PRED(130,	N+W-NW+(2*(eN+eW)-eNW)/5)\
+	WG_PRED(150,	N+NE-NNE+((eN+eNE+eNNE+8)>>4))\
+	WG_PRED(45,	(4*(N+NNN)-6*NN+NNNW+NNNE-(NNWW+NNEE)/2+NNE+NNW-NE-NW-2*eN)/3)\
+	WG_PRED(57,	(W+WW+(eW-eWW+eWWW)/4)/2)\
+	WG_PRED(35,	(W+3*NW-NWW-NNWW+eNW)/2+eW/3)\
+	WG_PRED(40,	(3*NE+NEE+NEEEE-NNEE-NNEEE+(3*eNE+6*eNEE+3*eNEEE)/2)/3)
+#define WG_PREDLIST2\
+	WG_PRED(270,	N+(3*eN+eW)/6)\
+	WG_PRED(270,	W+(3*eW+eN)/6)\
+	WG_PRED(195,	3*(N-NN)+NNN+(eN-eWW)/2)\
+	WG_PRED(195,	3*(W-WW)+WWW+(eW-eNN)/2)\
+	WG_PRED(180,	W+NE-N-((2*eN+eW+31)>>5))\
+	WG_PRED(165,	(WWW+(W-N+NN+NNN)/2-NW+NEE+NEEE+NEEEE-eN-eW-eWW)/4)\
+	WG_PRED(140,	N+W-NW+(2*(eN+eW)-eNW)/5)\
+	WG_PRED(150,	N+NE-NNE+(eN+eNE+eNNE)/16)\
+	WG_PRED(55,	(4*(N+NNN)-6*NN+NNNW+NNNE-(NNWW+NNEE)/2+NNE+NNW-NE-NW)/3-eN)\
+	WG_PRED(47,	(W+WW+(eW+eWWW)/3)/2)\
+	WG_PRED(22,	(W+3*NW-NWW-NNWW+eNW)/2+eW/3)\
+	WG_PRED(40,	(3*NE+NEE+NEEEE-NNEE-NNEEE+(3*eNE+6*eNEE+3*eNEEE)/2)/3)
+#if 0
 #define WG_PREDLIST\
-	WG_PRED(280,	N+eN/(kc2?2:4))\
-	WG_PRED(280,	W+eW/(kc2?2:4))\
-	WG_PRED(160,	3*(N-NN)+NNN)\
-	WG_PRED(160,	3*(W-WW)+WWW)\
-	WG_PRED(180,	W+NE-N)\
-	WG_PRED(150,	(W+NEEE-eW)/2)\
-	WG_PRED(130,	N+W-NW+((eN+eW-eNW+8)>>4))\
-	WG_PRED(130,	N+NE-NNE+((eN+eNE-eNNE+8)>>4))\
-	WG_PRED(30,	4*(N+NNN)-6*NN+NNNW+NNNE-(NNWW+NNEE)/2)\
-	WG_PRED(30,	4*(W+WWW)-6*WW+WWWW)\
-	WG_PRED(4,	NE+eNE/4)\
-	WG_PRED(4,	NW+eNW/4)
+	WG_PRED(kc==0?230:(kc==1?250:270),	N+(kc2==0?(3*eN+eNW+eW)/16:(kc2==2?(3*eN+eNW+eW)/6:(3*eN+eW)/6)))\
+	WG_PRED(kc==0?230:(kc==1?250:270),	W+(kc2==0?(3*eW+eNW+eN)/16:(kc2==2?(3*eW+eNW+eN)/6:(3*eW+eN)/6)))\
+	WG_PRED(kc==0?195:(kc==1?185:200),	3*(N-NN)+NNN+(kc2==0?(eN+eNN+eNNN)/3:(kc2==2?(eN+eNN-eWW)/2:(eN-eWW)/2)))\
+	WG_PRED(kc==0?195:(kc==1?185:200),	3*(W-WW)+WWW+(kc2==0?(eW+eWW+eWWW)/3:(kc2==2?(eW+eWW-eNN)/2:(eW-eNN)/2)))\
+	WG_PRED(185,				W+NE-N-(eW>>5)-(kc2==0?eN:(kc2==2?eN>>5:eN>>4)))\
+	WG_PRED(195,				(WWW+(W-N+NN+NNN)/2-NW+NEE+NEEE+NEEEE-eN-eW-eWW)/4)\
+	WG_PRED(132,				N+W-NW+(kc2?(2*(eN+eW)-eNW)/5:(eN+eW-eNW)/3))\
+	WG_PRED(120,				N+NE-NNE+((eN+eNE+eNNE+(kc2?8:4))>>(kc2?4:3)))\
+	WG_PRED(40,				(4*(N+NNN)-6*NN+NNNW+NNNE-(NNWW+NNEE)/2+NNE+NNW-NE-NW-eN)/3)\
+	WG_PRED(kc?37:67,			kc2==0 ? (6*(W+WWW)+20*WW+(eW-eWW+eWWW)/3)/32 : (kc2==2 ? (W+WW+(eW-eWW+eWWW)/4)/2 : (W+WW+(eW+eWWW)/3)/2))\
+	WG_PRED(40,				(W+3*NW-NWW-NNWW)/2+eW/6+eNW)\
+	WG_PRED(30,				(3*NE+NEE+NEEEE-NNEE-NNEEE+(3*eNE+6*eNEE+3*eNEEE)/2)/3)
+#endif
 //	WG_PRED(0, (W+2*NE-NNE+(eW+2*eNE-eNNE)/4)/2)
 //	WG_PRED(0, N+W-NW)
 //	WG_PRED(0, (-WW+3*W+N)/3)
@@ -43,6 +84,7 @@ static const char file[]=__FILE__;
 //	WG_PRED(0, N+NE-NNE+((eN+eNE-eNNE)>>2))
 #endif
 #if 0
+#define WG_NPREDS	16
 #define WG_PREDLIST\
 	WG_PRED(25, spred)\
 	WG_PRED(50, wgrad)\
@@ -64,9 +106,24 @@ static const char file[]=__FILE__;
 static void wg_init(double *weights, int kc)
 {
 	int j=0;
+	switch(kc)
+	{
+	case 0:
 #define WG_PRED(WEIGHT, EXPR) weights[j++]=WEIGHT;
-	WG_PREDLIST
+		WG_PREDLIST0
 #undef  WG_PRED
+		break;
+	case 1:
+#define WG_PRED(WEIGHT, EXPR) weights[j++]=WEIGHT;
+		WG_PREDLIST1
+#undef  WG_PRED
+		break;
+	case 2:
+#define WG_PRED(WEIGHT, EXPR) weights[j++]=WEIGHT;
+		WG_PREDLIST2
+#undef  WG_PRED
+		break;
+	}
 }
 static int wg_predict(
 	const double *weights, int **rows, const int stride, int kc2,
@@ -90,21 +147,30 @@ static int wg_predict(
 		NNE	=rows[2][kc2+1*stride+0],
 		NNEE	=rows[2][kc2+2*stride+0],
 		NNEEE	=rows[2][kc2+3*stride+0],
+		NNEEEE	=rows[2][kc2+4*stride+0],
+		NWWW	=rows[1][kc2-3*stride+0],
 		NWW	=rows[1][kc2-2*stride+0],
 		NW	=rows[1][kc2-1*stride+0],
 		N	=rows[1][kc2+0*stride+0],
 		NE	=rows[1][kc2+1*stride+0],
 		NEE	=rows[1][kc2+2*stride+0],
 		NEEE	=rows[1][kc2+3*stride+0],
+		NEEEE	=rows[1][kc2+4*stride+0],
+		WWWWW	=rows[0][kc2-5*stride+0],
 		WWWW	=rows[0][kc2-4*stride+0],
 		WWW	=rows[0][kc2-3*stride+0],
 		WW	=rows[0][kc2-2*stride+0],
 		W	=rows[0][kc2-1*stride+0],
+		eNNN	=rows[3][kc2+0*stride+1],
 		eNN	=rows[2][kc2+0*stride+1],
 		eNNE	=rows[2][kc2+1*stride+1],
 		eNW	=rows[1][kc2-1*stride+1],
 		eN	=rows[1][kc2+0*stride+1],
 		eNE	=rows[1][kc2+1*stride+1],
+		eNEE	=rows[1][kc2+2*stride+1],
+		eNEEE	=rows[1][kc2+3*stride+1],
+		eWWWW	=rows[0][kc2-4*stride+1],
+		eWWW	=rows[0][kc2-3*stride+1],
 		eWW	=rows[0][kc2-2*stride+1],
 		eW	=rows[0][kc2-1*stride+1];
 	int sh=kc2?1:2;
@@ -115,10 +181,24 @@ static int wg_predict(
 	//MEDIAN3_32(cgrad, N, W, N+W-NW);
 	//MEDIAN3_32(cgrad2, N, NE, N+NE-NNE);
 	
+	switch(kc2)
+	{
+	case 0:
 #define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
-	WG_PREDLIST
+		WG_PREDLIST0
 #undef  WG_PRED
-
+		break;
+	case 2:
+#define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
+		WG_PREDLIST1
+#undef  WG_PRED
+		break;
+	case 4:
+#define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
+		WG_PREDLIST2
+#undef  WG_PRED
+		break;
+	}
 #if 1
 	__m128i one=_mm_set1_epi32(1);
 	__m128i me0=_mm_load_si128((__m128i*)perrors+0);
@@ -285,9 +365,6 @@ void pred_wgrad4(Image *src, int fwd)
 				int
 					kc2=kc<<1,
 					kc3=kc*WG_NPREDS,
-				//	NW	=rows[1][kc2-1*4*2],
-				//	N	=rows[1][kc2+0*4*2],
-				//	W	=rows[0][kc2-1*4*2],
 					*eNNW	=erows[2]+kc3-1*4*WG_NPREDS,
 					*eNN	=erows[2]+kc3+0*4*WG_NPREDS,
 					*eNNE	=erows[2]+kc3+1*4*WG_NPREDS,
@@ -299,9 +376,6 @@ void pred_wgrad4(Image *src, int fwd)
 					*eNEEE	=erows[1]+kc3+3*4*WG_NPREDS,
 					*eW	=erows[0]+kc3-1*4*WG_NPREDS,
 					*ecurr	=erows[0]+kc3+0*4*WG_NPREDS;
-				//if(ky==10&&kx==10)//
-				//	printf("");
-				//MEDIAN3_32(pred, N, W, N+W-NW);
 				pred=wg_predict(wg_weights[kc], rows, 4*2, kc2, 0, wg_perrors[kc], eNW, eN, eNE, eNNE, wg_preds);
 				{
 					int curr=src->data[idx+kc], pred0=pred;
