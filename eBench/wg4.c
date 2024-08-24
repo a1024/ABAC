@@ -2,61 +2,55 @@
 #include<stdio.h>
 #include<stdlib.h>
 #include<string.h>
-//#define _USE_MATH_DEFINES
 #include<math.h>
 #include<process.h>
 #include<immintrin.h>
-//#ifdef _MSC_VER
-//#include<intrin.h>
-//#elif defined __GNUC__
-//#include<x86intrin.h>
-//#endif
 static const char file[]=__FILE__;
 
 //WG:
 #define WG_NBITS 0
 
-#define WG_DECAY_NUM	3
-#define WG_DECAY_SH	2
+#define WG_DECAY_NUM	97
+#define WG_DECAY_SH	7
 
 #define WG_NPREDS	12	//multiple of 4
 #if 1
 #define WG_PREDLIST0\
-	WG_PRED(210,	N+(24*eN-eNW+9*eW)/120)\
-	WG_PRED(210,	W+(24*eW-eNW+9*eN)/120)\
-	WG_PRED(210,	3*(N-NN)+NNN+(eN/2+eNN+eNNN)/3)\
-	WG_PRED(210,	3*(W-WW)+WWW+(eW/2+eWW+eWWW)/3)\
-	WG_PRED(140,	W+NE-N-eN+eW/3+(eN>>3)-(eW>>7))\
-	WG_PRED(230,	(WWW-2*NW+NN+NEE+NEEE+NEEEE+((N-W)/3+NNN-NE-(5*(eN+eW)+eWW))/2)/3)\
+	WG_PRED(210,	N+(23*eN-2*(eNN+eNW)+9*eW)/110)\
+	WG_PRED(210,	W+(23*eW-2*(eWW+eNW)+9*eN)/110)\
+	WG_PRED(215,	3*(N-NN)+NNN+(eN/2+eNN/2+eNNN)/3)\
+	WG_PRED(215,	3*(W-WW)+WWW+(eW/2+eWW/2+eWWW)/3)\
+	WG_PRED(140,	W+NE-N+((-13*eN)>>4)+eW*13/32-(eW>>7))\
+	WG_PRED(230,	(WWW+NN-2*NW+NEE+NEEE+NEEEE+(N-W)/6+(NNN-NE-(5*(eN+eW)+eWW))/2)/3)\
 	WG_PRED(120,	N+W-NW+(eN+eW-eNW)/3)\
 	WG_PRED(140,	N+NE-NNE+((eN+eNE+eNNE+4)>>3))\
-	WG_PRED(45,	(4*(N+NNN)-6*NN+NNNW+NNNE-(NNWW+NNEE)/2+NNE+NNW-NE-NW-eN)/3)\
+	WG_PRED(45,	(4*(N+NNN)-6*NN+NNNW+NNNE-(NNWW+NNEE)/2+NNE+NNW-NE-NW-eN-eNN+eNNN)/3)\
 	WG_PRED(97,	(6*(W+WWW)+20*WW+(eW-eWW+eWWW)/3)/32)\
 	WG_PRED(65,	(W+3*NW-NWW-NNWW)/2+eNW/4+eW/6)\
 	WG_PRED(40,	(3*NE+NEE+NEEEE-NNEE-NNEEE+(3*eNE+6*eNEE+3*eNEEE)/2)/3)
 #define WG_PREDLIST1\
 	WG_PRED(250,	N+(3*eN+eNW+eW)/6)\
 	WG_PRED(250,	W+(3*eW+eNW+eN)/6)\
-	WG_PRED(180,	3*(N-NN)+NNN+(eN+eNN-eWW)/2)\
-	WG_PRED(180,	3*(W-WW)+WWW+(eW+eWW-eNN)/2)\
+	WG_PRED(175,	3*(N-NN)+NNN+(eN/2+eNN/2-eWW)/2)\
+	WG_PRED(175,	3*(W-WW)+WWW+(eW/2+eWW/2-eNN)/2)\
 	WG_PRED(180,	W+NE-N-((eN+eW+31)>>5))\
-	WG_PRED(185,	(WWW+(W-N+NN+NNN)/2-NW+NEE+NEEE+NEEEE-eN-eW-eWW)/4)\
+	WG_PRED(175,	(WWW+NN-2*NW+NEE+NEEE+NEEEE+(W-N+NNN-NE)/2-eN-eW-eWW/3)/3)\
 	WG_PRED(130,	N+W-NW+(2*(eN+eW)-eNW)/5)\
 	WG_PRED(150,	N+NE-NNE+((eN+eNE+eNNE+8)>>4))\
-	WG_PRED(45,	(4*(N+NNN)-6*NN+NNNW+NNNE-(NNWW+NNEE)/2+NNE+NNW-NE-NW-2*eN)/3)\
+	WG_PRED(45,	(4*(N+NNN)-6*NN+NNNW+NNNE-(NNWW+NNEE)/2+NNE+NNW-NE-NW-2*eN-eNN+eNNN)/3)\
 	WG_PRED(57,	(W+WW+(eW-eWW+eWWW)/4)/2)\
 	WG_PRED(35,	(W+3*NW-NWW-NNWW+eNW)/2+eW/3)\
 	WG_PRED(40,	(3*NE+NEE+NEEEE-NNEE-NNEEE+(3*eNE+6*eNEE+3*eNEEE)/2)/3)
 #define WG_PREDLIST2\
 	WG_PRED(270,	N+(3*eN+eW)/6)\
 	WG_PRED(270,	W+(3*eW+eN)/6)\
-	WG_PRED(195,	3*(N-NN)+NNN+(eN-eWW)/2)\
-	WG_PRED(195,	3*(W-WW)+WWW+(eW-eNN)/2)\
+	WG_PRED(200,	3*(N-NN)+NNN+(eN/2-eWW)/2)\
+	WG_PRED(200,	3*(W-WW)+WWW+(eW/2-eNN)/2)\
 	WG_PRED(180,	W+NE-N-((2*eN+eW+31)>>5))\
-	WG_PRED(165,	(WWW+(W-N+NN+NNN)/2-NW+NEE+NEEE+NEEEE-eN-eW-eWW)/4)\
+	WG_PRED(165,	(WWW+NN-2*NW+NEE+NEEE+NEEEE+(W-N+NNN-NE)/2-eN-eW-eWW/3)/3)\
 	WG_PRED(140,	N+W-NW+(2*(eN+eW)-eNW)/5)\
 	WG_PRED(150,	N+NE-NNE+(eN+eNE+eNNE)/16)\
-	WG_PRED(55,	(4*(N+NNN)-6*NN+NNNW+NNNE-(NNWW+NNEE)/2+NNE+NNW-NE-NW)/3-eN)\
+	WG_PRED(55,	(4*(N+NNN)-6*NN+NNNW+NNNE-(NNWW+NNEE)/2+NNE+NNW-NE-NW)/3-eN-eNN+eNNN)\
 	WG_PRED(47,	(W+WW+(eW+eWWW)/3)/2)\
 	WG_PRED(22,	(W+3*NW-NWW-NNWW+eNW)/2+eW/3)\
 	WG_PRED(40,	(3*NE+NEE+NEEEE-NNEE-NNEEE+(3*eNE+6*eNEE+3*eNEEE)/2)/3)
@@ -199,6 +193,8 @@ static int wg_predict(
 #undef  WG_PRED
 		break;
 	}
+	//if((eW*47>>7)!=(eW*3>>3)-(eW>>7))
+	//	LOG_ERROR("%d", eW);
 #if 1
 	__m128i one=_mm_set1_epi32(1);
 	__m128i me0=_mm_load_si128((__m128i*)perrors+0);
@@ -293,12 +289,12 @@ static int wg_predict(
 #endif
 	return pred[0];
 }
-static void wg_update(int curr, const int *preds, int *perrors, int *Werrors, int *currerrors, int *NEerrors)
+static void wg_update(int curr, int kc, const int *preds, int *perrors, int *Werrors, int *currerrors, int *NEerrors)
 {
 	for(int k=0;k<WG_NPREDS;++k)
 	{
 		int e2=abs(curr-preds[k])<<1;
-		perrors[k]=(perrors[k]+e2)*WG_DECAY_NUM>>WG_DECAY_SH;
+		perrors[k]=(perrors[k]+e2)*(WG_DECAY_NUM+kc)>>WG_DECAY_SH;
 		currerrors[k]=(2*Werrors[k]+e2+NEerrors[k])>>2;
 		NEerrors[k]+=e2;
 	}
@@ -392,7 +388,7 @@ void pred_wgrad4(Image *src, int fwd)
 					rows[0][kc2+0]=(fwd?curr:pred)<<WG_NBITS;
 					rows[0][kc2+1]=rows[0][kc2]-pred0;
 				}
-				wg_update(rows[0][kc2], wg_preds, wg_perrors[kc], eW, ecurr, eNE);
+				wg_update(rows[0][kc2], kc, wg_preds, wg_perrors[kc], eW, ecurr, eNE);
 			}
 			rows[0]+=4*2;
 			rows[1]+=4*2;
