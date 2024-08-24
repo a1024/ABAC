@@ -9,6 +9,9 @@ build:
 c01:
 	gcc -O3 -Wall -DCODEC_FUNC=c01_codec -mavx2 -mbmi -mlzcnt  c01.c codec.c util.c  -o codec -static
 
+c02:
+	gcc -O3 -Wall -DCODEC_FUNC=c02_codec -mavx2 -mbmi -mlzcnt  c02.c codec.c util.c  -o codec -static
+
 c03:
 	gcc -O3 -Wall -DCODEC_FUNC=c03_codec -mavx2 -mbmi -mlzcnt  c03.c codec.c util.c  -o codec -static
 

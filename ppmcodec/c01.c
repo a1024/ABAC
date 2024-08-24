@@ -14,7 +14,7 @@ static const char file[]=__FILE__;
 #define AC_IMPLEMENTATION
 #include"entropy.h"
 
-#define BLOCKSIZE 256
+#define BLOCKSIZE 512
 #define MAXPRINTEDBLOCKS 10
 #define CLEVELS 9
 #define MIXBITS 14

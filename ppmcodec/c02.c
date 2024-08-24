@@ -7,14 +7,14 @@ static const char file[]=__FILE__;
 
 
 //	#define ENABLE_GUIDE
-//	#define DISABLE_MT
+	#define DISABLE_MT
 
 
 //select one:
 //	#define USE_GRCODER
-//	#define ENABLE_MIX4//good
+	#define ENABLE_MIX4//good
 //	#define ENABLE_MIX8//slightly worse
-	#define ENABLE_ABAC2
+//	#define ENABLE_ABAC2
 //	#define ENABLE_ABAC//bad
 //	#define ENABLE_CALICCTX//bad
 //	#define ENABLE_HASH//bad
@@ -23,13 +23,13 @@ static const char file[]=__FILE__;
 //	#define PREDICT_SIGN
 //	#define ENABLE_OLS
 	#define DISABLE_PREDSEL
-//	#define DISABLE_WG
+	#define ENABLE_WG
 	#define AC3_PREC
 
 #define CODECNAME "C02"
 #include"entropy.h"
 
-#define BLOCKSIZE 640
+#define BLOCKSIZE 512
 #define MAXPRINTEDBLOCKS 200
 #ifdef MIXERLAYERS
 #define MIXERINIT 0x100000
@@ -334,6 +334,7 @@ typedef enum _NBIndex
 	NB_W,		NB_curr,
 } NBIndex;
 
+#if 0
 #define PREDLIST\
 	PRED(N)\
 	PRED(W)\
@@ -342,6 +343,12 @@ typedef enum _NBIndex
 	PRED(AV9)\
 	PRED(AV12)\
 	PRED(WG)
+#endif
+#define PREDLIST\
+	PRED(CG)\
+	PRED(AV5)\
+	PRED(AV9)\
+	PRED(AV12)
 typedef enum _PredIndex
 {
 #define PRED(LABEL) PRED_##LABEL,
@@ -369,16 +376,17 @@ static const short av12_icoeffs[12]=
 };
 
 
-//WG:
+//WG
+#ifdef ENABLE_WG
 #define WG_DECAY_NUM	493
 #define WG_DECAY_SH	9
 
 #define WG_NPREDS	16
 #define WG_PREDLIST\
-	WG_PRED(25, spred)\
+	WG_PRED(100, spred)\
 	WG_PRED(50, wgrad)\
 	WG_PRED(50, 3*N-W-NE)\
-	WG_PRED(30, 2*NE-W)\
+	WG_PRED(50, cgrad)\
 	WG_PRED(132, N+W-NW)\
 	WG_PRED(100, N+W-NW+((eN+eW-eNW+16)>>5))\
 	WG_PRED(150, N+eN)\
@@ -391,6 +399,7 @@ static const short av12_icoeffs[12]=
 	WG_PRED(165, 3*(N-NN)+NNN)\
 	WG_PRED(165, 3*(W-WW)+WWW)\
 	WG_PRED(150, (W+NEEE)/2)
+//	WG_PRED(30, 2*NE-W)
 static void wg_init(int *weights)
 {
 	int j=0;
@@ -432,7 +441,12 @@ static int wg_predict(
 	//	gx=abs(W-WW)+abs(N-NW)+abs(NE-N)+1,
 	//	gy=abs(W-NW)+abs(N-NN)+abs(NE-NNE)+1;
 	int wgrad=(N*gy+W*gx)/(gy+gx);
-
+	int cgrad;
+	MEDIAN3_32(cgrad, N, W, N+W-NW);
+	(void)NNNWWWW;
+	(void)NNWWWW;
+	(void)NNEEE;
+	(void)NEE;
 #define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
 	WG_PREDLIST
 #undef  WG_PRED
@@ -460,10 +474,11 @@ static void wg_update(int curr, const int *preds, long long *perrors, int *weigh
 		perrors[k]=(perrors[k]+e2)*WG_DECAY_NUM>>WG_DECAY_SH;
 	}
 }
+#endif
 
 
 //OLS
-
+#if 0
 /*
 example with size 2:
 matrix buffer before call:
@@ -521,6 +536,7 @@ static int invert_matrix(double *matrix, int size, double *temprow)
 	//_freea(temp);
 	return success;
 }
+#endif
 
 
 //from libjxl		packsign(pixel) = 0b00001MMBB...BBL	token = offset + 0bGGGGMML,  where G = bits of lg(packsign(pixel)),  bypass = 0bBB...BB
@@ -548,6 +564,7 @@ static void quantize_pixel(int val, int *token, int *bypass, int *nbits)
 		*bypass=val>>CONFIG_LSB&((1LL<<*nbits)-1);
 	}
 }
+#if 0
 static void xorshift64(unsigned long long *state)
 {
 	unsigned long long x=*state;
@@ -556,6 +573,7 @@ static void xorshift64(unsigned long long *state)
 	x^=x<<17;
 	*state=x;
 }
+#endif
 #ifdef ENABLE_MIX4
 static int f28_mix4(int v00, int v01, int v10, int v11, int alphax, int alphay)
 {
@@ -741,37 +759,37 @@ typedef struct _ThreadArgs
 	const unsigned char *decstart, *decend;
 	
 	int hist[54<<8];
-#ifdef ENABLE_OLS
-	long long ols_imat[3][OLS_NPARAMS2*OLS_NPARAMS2];
-	long long ols_ivec[3][OLS_NPARAMS2];
-	double ols_mat[3][OLS_NPARAMS2*OLS_NPARAMS2<<1];
-	double ols_vec[3][OLS_NPARAMS2];
-	int ols_params[3][OLS_NPARAMS2];
-#endif
+//#ifdef ENABLE_OLS
+//	long long ols_imat[3][OLS_NPARAMS2*OLS_NPARAMS2];
+//	long long ols_ivec[3][OLS_NPARAMS2];
+//	double ols_mat[3][OLS_NPARAMS2*OLS_NPARAMS2<<1];
+//	double ols_vec[3][OLS_NPARAMS2];
+//	int ols_params[3][OLS_NPARAMS2];
+//#endif
 
-#ifdef ENABLE_MIX4
+//#ifdef ENABLE_MIX4
 	int clevels;
-#endif
+//#endif
 	int tlevels;
-#ifdef ENABLE_ABAC2
-	unsigned short stats2[3][A2_NCTX2][1<<A2_CTXBITS2][1<<A2_CTXBITS2][1<<8];
-	unsigned stats[A2_NCTX*3<<A2_CTXBITS<<8];
-	unsigned long long stats0[3][1<<8];
-#ifdef PREDICT_SIGN
-	long long sse[9*3<<A2_SSEBITS];
-#else
-	long long sse[8*3<<A2_SSEBITS];
-#endif
-#elif defined ENABLE_ABAC
-	int statssize;
-#ifdef ABAC_PROFILESIZE
-	double abac_csizes[ABAC_TOKEN_BITS*3];
-#endif
-//	int mixer[ABAC_NCTX*3<<ABAC_TOKEN_BITS];
-	int mixer[ABAC_NCTRS*ABAC_NCTX*3*((1<<(8-ABAC_MIXBITS))+1)*(1<<(8-ABAC_MIXBITS)|1)];
-//	int mixer[ABAC_NCTX*ABAC_TOKEN_BITS*3*2];
-//	int mixer[ABAC_NCTX*ABAC_TOKEN_BITS*3];
-#endif
+//#ifdef ENABLE_ABAC2
+//	unsigned short stats2[3][A2_NCTX2][1<<A2_CTXBITS2][1<<A2_CTXBITS2][1<<8];
+//	unsigned stats[A2_NCTX*3<<A2_CTXBITS<<8];
+//	unsigned long long stats0[3][1<<8];
+//#ifdef PREDICT_SIGN
+//	long long sse[9*3<<A2_SSEBITS];
+//#else
+//	long long sse[8*3<<A2_SSEBITS];
+//#endif
+//#elif defined ENABLE_ABAC
+//	int statssize;
+//#ifdef ABAC_PROFILESIZE
+//	double abac_csizes[ABAC_TOKEN_BITS*3];
+//#endif
+////	int mixer[ABAC_NCTX*3<<ABAC_TOKEN_BITS];
+//	int mixer[ABAC_NCTRS*ABAC_NCTX*3*((1<<(8-ABAC_MIXBITS))+1)*(1<<(8-ABAC_MIXBITS)|1)];
+////	int mixer[ABAC_NCTX*ABAC_TOKEN_BITS*3*2];
+////	int mixer[ABAC_NCTX*ABAC_TOKEN_BITS*3];
+//#endif
 
 	//aux
 	int blockidx;
@@ -1111,8 +1129,8 @@ static void block_thread(void *param)
 						offset=(alpha1*yuv[0]+alpha2*yuv[1])>>4;
 						break;
 					}
-					preds[PRED_W]=W[kc2];
-					preds[PRED_N]=N[kc2];
+					//preds[PRED_W]=W[kc2];
+					//preds[PRED_N]=N[kc2];
 					MEDIAN3_32(preds[PRED_CG], N[kc2], W[kc2], N[kc2]+W[kc2]-NW[kc2]);
 					CLAMP3_32(preds[PRED_AV5], W[kc2]+((5*(N[kc2]-NW[kc2])+NE[kc2]-WW[kc2])>>3), N[kc2], W[kc2], NE[kc2]);
 					CLAMP3_32(preds[PRED_AV9],
@@ -1138,15 +1156,15 @@ static void block_thread(void *param)
 					)>>8;
 					CLAMP3_32(preds[PRED_AV12], preds[PRED_AV12], N[kc2], W[kc2], NE[kc2]);
 
-					int
-						gy=abs(N[kc2]-NN[kc2])+abs(W[kc2]-NW[kc2])+1,
-						gx=abs(W[kc2]-WW[kc2])+abs(N[kc2]-NW[kc2])+1;
-					preds[PRED_WG]=(N[kc2]*gy+W[kc2]*gx)/(gy+gx);
+					//int
+					//	gy=abs(N[kc2]-NN[kc2])+abs(W[kc2]-NW[kc2])+1,
+					//	gx=abs(W[kc2]-WW[kc2])+abs(N[kc2]-NW[kc2])+1;
+					//preds[PRED_WG]=(N[kc2]*gy+W[kc2]*gx)/(gy+gx);
 
 					for(int kp=0;kp<PRED_COUNT;++kp)
 					{
 						int pred=preds[kp]+offset;
-						CLAMP2_32(pred, pred, -128, 127);
+						CLAMP2(pred, -128, 127);
 						int error=yuv[kc]-pred;
 						error+=128;
 						error&=255;
@@ -1279,14 +1297,14 @@ static void block_thread(void *param)
 		gr_enc(&ec, predsel[2], PRED_COUNT);
 #else
 		ac3_enc_init(&ec, &args->list);
-		ac3_enc_update_NPOT(&ec, permutation, permutation+1, PERM_COUNT);
-		ac3_enc_update_NPOT(&ec, helper1, helper1+1, 2);
-		ac3_enc_update_NPOT(&ec, alpha1, alpha1+1, 17);
-		ac3_enc_update_NPOT(&ec, alpha2, alpha2+1, 17);
+		ac3_enc_bypass_NPOT(&ec, permutation, PERM_COUNT);
+		ac3_enc_bypass_NPOT(&ec, helper1, 2);
+		ac3_enc_bypass_NPOT(&ec, alpha1, 17);
+		ac3_enc_bypass_NPOT(&ec, alpha2, 17);
 
-		ac3_enc_update_NPOT(&ec, predsel[0], predsel[0]+1, PRED_COUNT);
-		ac3_enc_update_NPOT(&ec, predsel[1], predsel[1]+1, PRED_COUNT);
-		ac3_enc_update_NPOT(&ec, predsel[2], predsel[2]+1, PRED_COUNT);
+		ac3_enc_bypass_NPOT(&ec, predsel[0], PRED_COUNT);
+		ac3_enc_bypass_NPOT(&ec, predsel[1], PRED_COUNT);
+		ac3_enc_bypass_NPOT(&ec, predsel[2], PRED_COUNT);
 #endif
 #ifdef ENABLE_OLS
 		for(int kc=0;kc<3;++kc)
@@ -1327,15 +1345,15 @@ static void block_thread(void *param)
 		predsel[2]=gr_dec(&ec, PRED_COUNT);
 #else
 		ac3_dec_init(&ec, args->decstart, args->decend);
-		permutation=ac3_dec_getcdf_NPOT(&ec, PERM_COUNT);	ac3_dec_update_NPOT(&ec, permutation, permutation+1, PERM_COUNT);
-		helper1=ac3_dec_getcdf_NPOT(&ec, 2);			ac3_dec_update_NPOT(&ec, helper1, helper1+1, 2);
-		alpha1=ac3_dec_getcdf_NPOT(&ec, 17);			ac3_dec_update_NPOT(&ec, alpha1, alpha1+1, 17);
-		alpha2=ac3_dec_getcdf_NPOT(&ec, 17);			ac3_dec_update_NPOT(&ec, alpha2, alpha2+1, 17);
+		permutation=ac3_dec_bypass_NPOT(&ec, PERM_COUNT);
+		helper1=ac3_dec_bypass_NPOT(&ec, 2);
+		alpha1=ac3_dec_bypass_NPOT(&ec, 17);
+		alpha2=ac3_dec_bypass_NPOT(&ec, 17);
 		memcpy(rgbidx, permutations[permutation], sizeof(int[3]));
 		
-		predsel[0]=ac3_dec_getcdf_NPOT(&ec, PRED_COUNT);	ac3_dec_update_NPOT(&ec, predsel[0], predsel[0]+1, PRED_COUNT);
-		predsel[1]=ac3_dec_getcdf_NPOT(&ec, PRED_COUNT);	ac3_dec_update_NPOT(&ec, predsel[1], predsel[1]+1, PRED_COUNT);
-		predsel[2]=ac3_dec_getcdf_NPOT(&ec, PRED_COUNT);	ac3_dec_update_NPOT(&ec, predsel[2], predsel[2]+1, PRED_COUNT);
+		predsel[0]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
+		predsel[1]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
+		predsel[2]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
 #endif
 #ifdef ENABLE_OLS
 		for(int kc=0;kc<3;++kc)
@@ -2008,8 +2026,8 @@ static void block_thread(void *param)
 	memfill(args->hist+chsize, args->hist, sizeof(int)*chsize*(nch-1LL), sizeof(int)*chsize);
 #endif
 
-#ifndef DISABLE_WG
-	unsigned long long prngstate=0x3243F6A8885A308D;//pi
+#ifdef ENABLE_WG
+	//unsigned long long prngstate=0x3243F6A8885A308D;//pi
 	int wg_weights[WG_NPREDS*3]={0};
 	int wg_preds[WG_NPREDS]={0};
 	long long wg_perrors[WG_NPREDS*3]={0};
@@ -2061,6 +2079,11 @@ static void block_thread(void *param)
 				*WW	=rows[0]-2*4*2,
 				*W	=rows[0]-1*4*2,
 				*curr	=rows[0]+0*4*2;
+			(void)NNWW;
+			(void)NNW;
+			(void)NNEE;
+			(void)NNEEE;
+			(void)WWWW;
 			if(ky<=args->y1+2)
 			{
 				if(ky<=args->y1+1)
@@ -2179,15 +2202,15 @@ static void block_thread(void *param)
 					break;
 				}
 				//int offset=(yuv[combination[kc+3]]+yuv[combination[kc+6]])>>combination[kc+9];
-#ifdef USE_GRCODER
+#if 1
 				switch(predsel[kc])
 				{
-				case PRED_N:
-					pred=N[kc2];
-					break;
-				case PRED_W:
-					pred=W[kc2];
-					break;
+				//case PRED_N:
+				//	pred=N[kc2];
+				//	break;
+				//case PRED_W:
+				//	pred=W[kc2];
+				//	break;
 				case PRED_CG:
 					MEDIAN3_32(pred, N[kc2], W[kc2], N[kc2]+W[kc2]-NW[kc2]);
 					break;
@@ -2197,9 +2220,7 @@ static void block_thread(void *param)
 				case PRED_AV9:
 					CLAMP3_32(pred,
 						W[kc2]+((10*N[kc2]-9*NW[kc2]+4*NE[kc2]-2*(NN[kc2]+WW[kc2])+NNW[kc2]-(NNE[kc2]+NWW[kc2]))>>4),
-						N[kc2],
-						W[kc2],
-						NE[kc2]
+						N[kc2], W[kc2], NE[kc2]
 					);
 					break;
 				case PRED_AV12:
@@ -2219,19 +2240,19 @@ static void block_thread(void *param)
 					)>>8;
 					CLAMP3_32(pred, pred, N[kc2], W[kc2], NE[kc2]);
 					break;
-				case PRED_WG:
-					{
-						int
-							gy=abs(N[kc2]-NN[kc2])+abs(W[kc2]-NW[kc2])+1,
-							gx=abs(W[kc2]-WW[kc2])+abs(N[kc2]-NW[kc2])+1;
-						pred=(N[kc2]*gy+W[kc2]*gx)/(gy+gx);
-					}
-					break;
+				//case PRED_WG:
+				//	{
+				//		int
+				//			gy=abs(N[kc2]-NN[kc2])+abs(W[kc2]-NW[kc2])+1,
+				//			gx=abs(W[kc2]-WW[kc2])+abs(N[kc2]-NW[kc2])+1;
+				//		pred=(N[kc2]*gy+W[kc2]*gx)/(gy+gx);
+				//	}
+				//	break;
 				}
 #else
-#ifdef DISABLE_PREDSEL
 				CLAMP3_32(pred, W[kc2]+((5*(N[kc2]-NW[kc2])+NE[kc2]-WW[kc2])>>3), N[kc2], W[kc2], NE[kc2]);
-#else
+#endif
+#if 0
 				switch(predidx[kc])
 				{
 				case PRED_W:
@@ -2270,12 +2291,11 @@ static void block_thread(void *param)
 					break;
 				}
 #endif
-#ifndef DISABLE_WG
+#ifdef ENABLE_WG
 				pred=wg_predict(wg_weights+WG_NPREDS*kc, rows, 4*2, kc2, pred, ols, wg_perrors+WG_NPREDS*kc, wg_preds);
 #endif
-#endif
 				pred+=offset;
-				CLAMP2_32(pred, pred, -(128<<EBITS>>NBITS), 127<<EBITS>>NBITS);
+				CLAMP2(pred, -(128<<EBITS>>NBITS), 127<<EBITS>>NBITS);
 #ifdef USE_GRCODER
 				if(args->fwd)
 				{
@@ -3411,7 +3431,7 @@ static void block_thread(void *param)
 				//NEEE[kc2+1]+=curr[kc2+1]>>1;
 				//W[kc2+1]-=N[kc2+1];//bad
 				//curr[kc2+1]=(2*W[kc2+1]+curr[kc2+1]+NEEE[kc2+1])>>2;//bad
-#ifndef DISABLE_WG
+#ifdef ENABLE_WG
 				wg_update(curr[kc2+0], wg_preds, wg_perrors+WG_NPREDS*kc, wg_weights+WG_NPREDS*kc);
 #endif
 #endif
@@ -3567,7 +3587,7 @@ int c02_codec(const char *srcfn, const char *dstfn)
 		statssize=nch*(int)sizeof(short[ABAC_NCTRS*ABAC_NCTX*ABAC_CLEVELS*ABAC_TREESIZE]);
 #else
 		clevels=CLEVELS;
-		statssize=clevels*clevels*(tlevels+1)*nch*(int)sizeof(int);
+		//statssize=clevels*clevels*(tlevels+1)*nch*(int)sizeof(int);
 #endif
 		//histsize=(int)sizeof(int[OCH_COUNT*PRED_COUNT<<8]);
 		//if(histsize<statssize)
@@ -3598,7 +3618,7 @@ int c02_codec(const char *srcfn, const char *dstfn)
 		//memusage+=histsize;
 		//memusage+=statssize;
 		
-		//arg->tlevels=tlevels;
+		arg->tlevels=tlevels;
 #ifdef ENABLE_MIX4
 		arg->clevels=clevels;
 #endif
