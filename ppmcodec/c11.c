@@ -270,7 +270,9 @@ int c11_codec(const char *srcfn, const char *dstfn)
 					//if(isinf(csizes[0])||isinf(csizes[1])||isinf(csizes[2]))
 					//	LOG_ERROR("");
 #endif
+#ifdef __GNUC__
 #pragma GCC unroll 6
+#endif
 					for(int k=0;k<6;++k)
 					{
 						while(range<0x4000)
@@ -294,7 +296,9 @@ int c11_codec(const char *srcfn, const char *dstfn)
 			}
 			else
 			{
+#ifdef __GNUC__
 #pragma GCC unroll 3
+#endif
 				for(int kc=0;kc<3;++kc)
 				{
 					unsigned cdf, freq;
@@ -322,7 +326,9 @@ int c11_codec(const char *srcfn, const char *dstfn)
 					acval_dec(syms[kc], cdf, freq, lo0, lo0+r0, low, low+range, 0, 0, code);
 #endif
 				}
+#ifdef __GNUC__
 #pragma GCC unroll 3
+#endif
 				for(int kc=0;kc<3;++kc)
 				{
 					unsigned cdf, freq;

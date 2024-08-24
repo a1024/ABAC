@@ -10,10 +10,10 @@ static const char file[]=__FILE__;
 //	#define DISABLE_MT
 
 //	#define ENABLE_SELPRED
-	#define ENABLE_SSE//good
 //	#define ESTIMATE_SIZE
 
-	#define ENABLE_WG
+	#define ENABLE_WG//good
+	#define ENABLE_SSE//good
 
 #define CODECNAME "C03"
 #define AC3_PREC

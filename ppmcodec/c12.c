@@ -229,7 +229,9 @@ int c12_codec(const char *srcfn, const char *dstfn)
 			}
 			if(fwd||streamsize)
 			{
+#ifdef __GNUC__
 #pragma GCC unroll 8
+#endif
 				for(int kb=7, tidx[]={1, 1, 1};kb>=0;--kb)
 				{
 					unsigned long long r2;
@@ -246,8 +248,10 @@ int c12_codec(const char *srcfn, const char *dstfn)
 						bit[0]=errors[0]>>kb&1;
 						bit[1]=errors[1]>>kb&1;
 						bit[2]=errors[2]>>kb&1;
-
+						
+#ifdef __GNUC__
 #pragma GCC unroll 3
+#endif
 						for(int kc=0;kc<3;++kc)
 						{
 							while(range<0x10000)
@@ -276,7 +280,9 @@ int c12_codec(const char *srcfn, const char *dstfn)
 					}
 					else
 					{
+#ifdef __GNUC__
 #pragma GCC unroll 3
+#endif
 						for(int kc=0;kc<3;++kc)
 						{
 							unsigned long long mid;
