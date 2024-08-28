@@ -13,9 +13,9 @@ static const char file[]=__FILE__;
 //	#define ESTIMATE_SIZE
 
 	#define ENABLE_WG//good
-//	#define ENABLE_SSE//good?
-//	#define ENABLE_VARIABLE_SHIFT
-//	#define A2_CTXMIXER
+//	#define ENABLE_SSE//waste of time	30% slower 0.2% smaller
+//	#define ENABLE_VARIABLE_SHIFT//useless
+//	#define A2_CTXMIXER//bad
 
 #define CODECNAME "C03"
 #define AC3_PREC
@@ -429,7 +429,7 @@ FORCEINLINE void wg_update(int curr, int kc, const int *preds, int *perrors, int
 		int e2=abs(curr-preds[k])<<1;
 		perrors[k]=(perrors[k]+e2)*factor>>7;
 	//	currerrors[k]=(e2+NEerrors[k])>>1;
-		currerrors[k]=(Werrors[k]+e2+Nerrors[k])/3;
+		currerrors[k]=(Werrors[k]+e2+Nerrors[k]+NEerrors[k])>>2;
 	//	currerrors[k]=(2*Werrors[k]+e2+NEerrors[k])>>2;
 		NEerrors[k]+=e2;
 	}
