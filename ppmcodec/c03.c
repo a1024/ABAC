@@ -13,7 +13,7 @@ static const char file[]=__FILE__;
 //	#define ESTIMATE_SIZE
 
 	#define ENABLE_WG//good
-	#define ENABLE_SSE//good?
+//	#define ENABLE_SSE//good?
 //	#define ENABLE_VARIABLE_SHIFT
 //	#define A2_CTXMIXER
 
@@ -417,7 +417,7 @@ FORCEINLINE int wg_predict(
 	}
 #endif
 }
-FORCEINLINE void wg_update(int curr, int kc, const int *preds, int *perrors, int *Werrors, int *currerrors, int *NEerrors)
+FORCEINLINE void wg_update(int curr, int kc, const int *preds, int *perrors, int *Nerrors, int *Werrors, int *currerrors, int *NEerrors)
 {
 	static const int factors[]={97, 99, 99};
 	int factor=factors[kc];
@@ -429,7 +429,7 @@ FORCEINLINE void wg_update(int curr, int kc, const int *preds, int *perrors, int
 		int e2=abs(curr-preds[k])<<1;
 		perrors[k]=(perrors[k]+e2)*factor>>7;
 	//	currerrors[k]=(e2+NEerrors[k])>>1;
-		currerrors[k]=(Werrors[k]+e2+NEerrors[k])/3;
+		currerrors[k]=(Werrors[k]+e2+Nerrors[k])/3;
 	//	currerrors[k]=(2*Werrors[k]+e2+NEerrors[k])>>2;
 		NEerrors[k]+=e2;
 	}
@@ -1315,6 +1315,8 @@ static void block_thread(void *param)
 					*eNW	=erows[1]+kc3-1*4*WG_NPREDS,
 					*eN	=erows[1]+kc3+0*4*WG_NPREDS,
 					*eNE	=erows[1]+kc3+1*4*WG_NPREDS,
+					*eNEE	=erows[1]+kc3+2*4*WG_NPREDS,
+					*eNEEE	=erows[1]+kc3+3*4*WG_NPREDS,
 					*eW	=erows[0]+kc3-1*4*WG_NPREDS,
 					*ecurr	=erows[0]+kc3+0*4*WG_NPREDS;
 				//if(ky==10&&kx==10&&kc==0)//
@@ -1711,7 +1713,7 @@ static void block_thread(void *param)
 #endif
 				curr[kc2+0]-=offset;
 #ifdef ENABLE_WG
-				wg_update(curr[kc2+0], kc, wg_preds, wg_perrors+WG_NPREDS*kc, eW, ecurr, eNE);
+				wg_update(curr[kc2+0], kc, wg_preds, wg_perrors+WG_NPREDS*kc, eN, eW, ecurr, eNE);
 #endif
 			}
 			if(!args->fwd)
