@@ -1,4 +1,6 @@
-﻿#pragma once
+﻿#ifdef _MSC_VER
+#pragma once
+#endif
 #ifndef INC_CODEC_H
 #define INC_CODEC_H
 #include"util.h"

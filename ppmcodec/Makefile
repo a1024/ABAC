@@ -35,3 +35,6 @@ c12:
 
 build-clang:
 	clang -O3 -Wall -mavx2 -mbmi -mlzcnt $(SRC) -o codec -static
+
+c03-clang:
+	clang -O3 -Wall -DCODEC_FUNC=c03_codec -mavx2 -mbmi -mlzcnt  c03.c codec.c util.c  -o c03-clang -static
