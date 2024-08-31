@@ -55,8 +55,8 @@ extern "C"
 #define CLAMP2(X, LO, HI)\
 	do\
 	{\
-		if(X<(LO))X=LO;\
-		if(X>(HI))X=HI;\
+		if((X)<(LO))X=LO;\
+		if((X)>(HI))X=HI;\
 	}while(0)
 //#define CLAMP(LO, X, HI) ((X)>(LO)?(X)<(HI)?(X):(HI):(LO))
 

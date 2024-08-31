@@ -10,6 +10,8 @@
 	c09.c
 	c10.c
 	c11.c
+	c12.c
+	c13.c
 	codec.c
 	util.c
- "c12.c")
+)

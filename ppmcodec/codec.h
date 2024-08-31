@@ -22,7 +22,7 @@ int compare_bufs_8(const unsigned char *b1, const unsigned char *b0, int iw, int
 
 int c01_codec(const char *srcfn, const char *dstfn);//AC (mix4)
 int c02_codec(const char *srcfn, const char *dstfn);//binary
-int c03_codec(const char *srcfn, const char *dstfn);//binary (A2)
+int c03_codec(const char *srcfn, const char *dstfn);//binary (A2/WG4)
 int c04_codec(const char *srcfn, const char *dstfn);//Golomb-Rice
 int c05_codec(const char *srcfn, const char *dstfn);//Golomb-Rice
 int c06_codec(const char *srcfn, const char *dstfn);//binary
@@ -31,7 +31,8 @@ int c08_codec(const char *srcfn, const char *dstfn);//disk AC5 test
 int c09_codec(const char *srcfn, const char *dstfn);//J2K CG o0 disk symbol ANS ST
 int c10_codec(const char *srcfn, const char *dstfn);//J2K CG o0 disk symbol AC ST
 int c11_codec(const char *srcfn, const char *dstfn);//SubG CG o0 disk nibble AC ST
-int c12_codec(const char *srcfn, const char *dstfn);//SubG CG o0 disk ABAC ST
+int c12_codec(const char *srcfn, const char *dstfn);//SubG CG o0 disk binary AC ST
+int c13_codec(const char *srcfn, const char *dstfn);//WG4 as binary context
 
 	
 #ifdef __cplusplus
