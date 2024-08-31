@@ -2,16 +2,18 @@ import sys
 import os
 import timeit
 import subprocess
+from datetime import datetime
+import time
 
 if __name__=='__main__':
 
 	debug=0		# <- CAUTION
 
 	if debug:
-		codec='f26'
-		srcpath='C:/Projects/datasets/dataset-kodak-ppm'
-		path1='C:/Projects/datasets/dataset-kodak-temp'
-		path2='C:/Projects/datasets/dataset-kodak-temp'
+		codec='E:/C/codec/codec/c03.exe'
+		srcpath='C:/dataset-CLIC303-ppm'
+		path1='C:/dataset-a-temp'
+		path2='C:/dataset-a-temp'
 	else:
 		if len(sys.argv)!=5:
 			print('Usage:  python %s codec src path1 path2'%sys.argv[0])
@@ -26,6 +28,25 @@ if __name__=='__main__':
 	ctotal=0
 	etotal=0
 	dtotal=0
+
+	start=time.time()
+	print(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+
+	linux=os.name=='posix'
+	if linux:
+		for root, dirs, files in os.walk(srcpath):#warm-up: copy source files to destination folder (doesn't work on Windows)
+			for title in files:
+				name, ext=os.path.splitext(title)
+				if ext.lower()!='.ppm':
+					continue
+				srcfn=os.path.join(root, title)
+				#if linux:
+				fn2=os.path.join(path2, name+'.PPM')
+				elapsed_enc=timeit.timeit(lambda: subprocess.run(['cp', srcfn, fn2]), number=1)
+				#else:
+				#	srcfn=srcfn.replace('/', '\\')
+				#	elapsed_enc=timeit.timeit(lambda: subprocess.run(['copy', srcfn, '/b', 'nul', '>nul', '2>&1'], shell=True), number=1)
+				#print(elapsed_enc)
 
 	for root, dirs, files in os.walk(srcpath):
 		for title in files:
@@ -61,3 +82,6 @@ if __name__=='__main__':
 		etotal, dtotal,
 		utotal/(etotal*1024*1024), utotal/(dtotal*1024*1024)
 	))
+
+	finish=time.time()
+	print('%s (%f sec)'%(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), finish-start))
