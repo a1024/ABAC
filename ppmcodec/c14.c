@@ -972,7 +972,7 @@ static void block_thread(void *param)
 #define A2CTXLIST\
 	A2CTX(2, 15,	0)\
 	A2CTX(3, 14,	((N[kc2+0]-NW[kc2+0])>>6&7)<<5|((W[kc2+0]-NW[kc2+0])>>6&7)<<2|((N[kc2+0]+W[kc2+0])>>7&3))\
-	A2CTX(4, 15,	abs(N[kc2+1])+abs(W[kc2+1]))\
+	A2CTX(4, 15,	(abs(N[kc2+1])+abs(W[kc2+1]))>>1)\
 	A2CTX(5, 14,	pred)\
 	A2CTX(5, 15,	kc>=2?(curr[1]+7*curr[3])>>3:(kc>=1?curr[1]:(N[kc2+1]+W[kc2+1])>>1))\
 	A2CTX(5, 14,	(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1]))>>1)\
@@ -996,19 +996,11 @@ static void block_thread(void *param)
 					A2CTXLIST
 #undef  A2CTX
 				};
-				ALIGN(32) int ctx[A2_NCTX]=//shift = [3  4  6  6  3  4  6  6]
+				ALIGN(32) int ctx[A2_NCTX]=
 				{
 #define A2CTX(SH, MIXSH, EXPR) EXPR,
 					A2CTXLIST
 #undef  A2CTX
-					//0,
-					//pred,
-					//grad,
-					//(FLOOR_LOG2(abs(N[kc2+1])*3)+FLOOR_LOG2(abs(W[kc2+1])*3))>>1,
-					//N[kc2+0]-W[kc2+0],
-					//(NE[kc2+0]<0)<<7|(NW[kc2+0]<0)<<6|(W[kc2+0]>>5&7)<<3|(N[kc2+0]>>5&7),
-					//(NE[kc2+1]<0)<<7|(NW[kc2+1]<0)<<6|(W[kc2+1]>>5&7)<<3|(N[kc2+1]>>5&7),
-					//(kc>=2?abs(curr[1])+6*abs(curr[3]):(kc>=1?curr[1]:W[kc2+2]/4))>>1,
 				};
 #ifdef __GNUC__
 #pragma GCC unroll 8
