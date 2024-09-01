@@ -58,3 +58,6 @@ c13-profile:
 
 #c13-gprofile:
 #	gcc -g -Wall -DCODEC_FUNC=c13_codec -mavx2 -mbmi -mlzcnt  c13.c codec.c util.c  -o c13-gprofile $(LIBS) -Wl,--no-as-needed,-lprofiler,--as-needed
+
+c14:
+	gcc -O3 -Wall -DCODEC_FUNC=c14_codec -mavx2 -mbmi -mlzcnt  c14.c codec.c util.c  -o c14 $(LIBS)
