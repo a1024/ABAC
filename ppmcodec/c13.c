@@ -948,13 +948,13 @@ static void block_thread(void *param)
 				//CLAMP2(gx, -128, 127);
 				//CLAMP2(gy, -128, 127);
 #define A2CTXLIST\
-	A2CTX(2, 14,	0)\
-	A2CTX(5, 14,	(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1]))>>1)\
+	A2CTX(2, 15,	0)\
+	A2CTX(3, 14,	((N[kc2+0]-NW[kc2+0])>>6&7)<<5|((W[kc2+0]-NW[kc2+0])>>6&7)<<2|((N[kc2+0]+W[kc2+0])>>7&3))\
+	A2CTX(4, 15,	abs(N[kc2+1])+abs(W[kc2+1]))\
 	A2CTX(5, 14,	pred)\
-	A2CTX(4, 14,	((NE[kc2+0]-NW[kc2+0])>>7&3)<<6|(W[kc2+0]>>5&7)<<3|(N[kc2+0]>>5&7))\
-	A2CTX(5, 14,	abs(N[kc2+1])+abs(W[kc2+1]))\
-	A2CTX(5, 14,	kc>=2?(curr[1]+7*curr[3])>>3:(kc>=1?curr[1]:(N[kc2+1]+W[kc2+1])>>1))\
-	A2CTX(6, 14,	(NE[kc2+1]>>6&3)<<6|(NW[kc2+1]>>6&3)<<4|(W[kc2+1]>>6&3)<<2|(N[kc2+1]>>6&3))\
+	A2CTX(5, 15,	kc>=2?(curr[1]+7*curr[3])>>3:(kc>=1?curr[1]:(N[kc2+1]+W[kc2+1])>>1))\
+	A2CTX(5, 14,	(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1]))>>1)\
+	A2CTX(6, 15,	(NE[kc2+1]>>6&3)<<6|(NW[kc2+1]>>6&3)<<4|(W[kc2+1]>>6&3)<<2|(N[kc2+1]>>6&3))\
 	A2CTX(6, 14,	grad)
 				ALIGN(32) static const long long g_mixsh[]=
 				{
@@ -1097,7 +1097,7 @@ static void block_thread(void *param)
 						error|=bit<<kb;
 					}
 					int prob_error=(!bit<<16)-(int)p0;
-					if(abs(prob_error)>256)
+					if(abs(prob_error)>512)
 					{
 						long long dL_dp0=0xC0000000000/((long long)((bit<<16)-(int)p0)*wsum);
 #if 1
