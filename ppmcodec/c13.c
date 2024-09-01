@@ -935,8 +935,7 @@ static void block_thread(void *param)
 				pred+=offset;
 				CLAMP2(pred, -128, 127);
 				unsigned short *curr_stats[A2_NCTX];
-				int range=N[kc2]-W[kc2];
-				int grad=abs(N[kc2]-NE[kc2])+abs(N[kc2]-NW[kc2])+abs(W[kc2]-NW[kc2])+abs(range);
+				int grad=abs(N[kc2]-NE[kc2])+abs(N[kc2]-NW[kc2])+abs(W[kc2]-NW[kc2])+abs(N[kc2]-W[kc2]);
 				if(grad>255)
 					grad=255;
 				//int cgrad, egrad;
@@ -950,12 +949,12 @@ static void block_thread(void *param)
 				//CLAMP2(gy, -128, 127);
 #define A2CTXLIST\
 	A2CTX(2, 14,	0)\
-	A2CTX(3, 14,	(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1]))>>1)\
-	A2CTX(4, 14,	pred)\
-	A2CTX(4, 14,	(NE[kc2+0]<0)<<7|(NW[kc2+0]<0)<<6|(W[kc2+0]>>5&7)<<3|(N[kc2+0]>>5&7))\
+	A2CTX(5, 14,	(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1]))>>1)\
+	A2CTX(5, 14,	pred)\
+	A2CTX(4, 14,	((NE[kc2+0]-NW[kc2+0])>>7&3)<<6|(W[kc2+0]>>5&7)<<3|(N[kc2+0]>>5&7))\
 	A2CTX(5, 14,	abs(N[kc2+1])+abs(W[kc2+1]))\
 	A2CTX(5, 14,	kc>=2?(curr[1]+7*curr[3])>>3:(kc>=1?curr[1]:(N[kc2+1]+W[kc2+1])>>1))\
-	A2CTX(6, 14,	(NE[kc2+1]<0)<<7|(NW[kc2+1]<0)<<6|(W[kc2+1]>>5&7)<<3|(N[kc2+1]>>5&7))\
+	A2CTX(6, 14,	(NE[kc2+1]>>6&3)<<6|(NW[kc2+1]>>6&3)<<4|(W[kc2+1]>>6&3)<<2|(N[kc2+1]>>6&3))\
 	A2CTX(6, 14,	grad)
 				ALIGN(32) static const long long g_mixsh[]=
 				{
