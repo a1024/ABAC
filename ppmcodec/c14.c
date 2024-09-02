@@ -155,8 +155,8 @@ static const short av12_icoeffs[12]=
 
 #define WG_NPREDS	8	//multiple of 4
 #define WG_PREDLIST0\
-	WG_PRED(320,	N-eN/3)\
-	WG_PRED(320,	W-eW/3)\
+	WG_PRED(330,	N-eN/3)\
+	WG_PRED(330,	W-eW/3)\
 	WG_PRED(205,	3*(N-NN)+NNN-eN/6-eNN/6+eNNN*2/3)\
 	WG_PRED(205,	3*(W-WW)+WWW-eW/6-eWW/6+eWWW*2/3)\
 	WG_PRED(140,	W+NE-N+((-13*eN)>>4)+eW/4-(eW>>7))\
@@ -164,8 +164,8 @@ static const short av12_icoeffs[12]=
 	WG_PRED(120,	N+W-NW+(2*(eN+eW)-eNW)/5)\
 	WG_PRED(120,	N+NE-NNE+((eN+eNE+eNNE+4)>>3))
 #define WG_PREDLIST1\
-	WG_PRED(250,	N+(2*eN+eW)/6)\
-	WG_PRED(250,	W+(2*eW+eN)/6)\
+	WG_PRED(330,	N+(2*eN+eW)/6)\
+	WG_PRED(330,	W+(2*eW+eN)/6)\
 	WG_PRED(175,	3*(N-NN)+NNN+eN/6+eNN/6-eWW*2/3)\
 	WG_PRED(175,	3*(W-WW)+WWW+eW/6+eWW/6-eNN*2/3)\
 	WG_PRED(180,	W+NE-N-((eN+eW+31)>>5))\
@@ -173,14 +173,18 @@ static const short av12_icoeffs[12]=
 	WG_PRED(130,	N+W-NW+(2*(eN+eW)-eNW)/5)\
 	WG_PRED(150,	N+NE-NNE+(2*eN+eNE)/10)
 #define WG_PREDLIST2\
-	WG_PRED(270,	N+(2*eN+eW)/6)\
-	WG_PRED(270,	W+(2*eW+eN)/6)\
+	WG_PRED(330,	N+(2*eN+eW)/6)\
+	WG_PRED(330,	W+(2*eW+eN)/6)\
 	WG_PRED(200,	3*(N-NN)+NNN+(eN-eWW)/3)\
 	WG_PRED(200,	3*(W-WW)+WWW+(eW-eNN)/3)\
 	WG_PRED(180,	W+NE-N-((5*eN+eW+31)>>5))\
 	WG_PRED(175,	(WWW+NNN+NEE+NEEE+NEEEE-2*NW+(W-N+NN-NE)/2-(eN+eW+eNN/3+eWW/3))/3)\
 	WG_PRED(140,	N+W-NW+(2*(eN+eW)-eNW)/8)\
 	WG_PRED(150,	N+NE-NNE+(2*eN+eNE)/10)
+//	WG_PRED(205,	5*(W-WWWW)+10*(WWW-WW)+WWWWW+eW+eWW+eWWW)
+//	WG_PRED(240,	W+((5*(N-NW)+NE-WW)>>3))
+//	WG_PRED(240,	W+((10*N-9*NW+4*NE-2*(NN+WW)+NNW-NNE-NWW)>>4))
+//	WG_PRED(240,	(0x04*NNWW+0x03*NNW-0x1F*NN-0x26*NNE+0x07*NWW-0x9E*NW+0xDB*N+0x1E*NE+0x13*NEE-0x2A*WW+0xF3*W)>>8)
 static void wg_init(double *weights, int kc)
 {
 	int j=0;
