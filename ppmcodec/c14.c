@@ -481,7 +481,7 @@ typedef struct _ThreadArgs
 	
 	//int hist[54<<8];
 
-	unsigned short stats[A2_NCTX*3<<A2_CTXBITS<<8];
+	unsigned short stats[3][(1+22+24+128+256+256+256+256)<<8];
 #ifdef A2_CTXMIXER
 	ALIGN(32) long long mixer[3][256][A2_NCTX];
 #endif
@@ -755,7 +755,7 @@ static void block_thread(void *param)
 	ALIGN(32) long long mixer[8*3*A2_NCTX]={0};
 	FILLMEM(mixer, 0x3000, sizeof(mixer), sizeof(long long));
 #endif
-	FILLMEM(args->stats, 0x8000, sizeof(args->stats), sizeof(short));
+	FILLMEM((unsigned short*)args->stats, 0x8000, sizeof(args->stats), sizeof(short));
 	//memset(args->stats, 0, sizeof(args->stats));
 	
 #ifdef ESTIMATE_SIZE
@@ -956,10 +956,29 @@ static void block_thread(void *param)
 				pred=wg_predict(wg_weights+WG_NPREDS*kc, rows, 4*2, kc2, 0, wg_perrors+WG_NPREDS*kc, eNW, eN, eNE, eNNE, wg_preds);
 				pred+=offset;
 				CLAMP2(pred, -128, 127);
-				unsigned short *curr_stats[A2_NCTX];
-				int grad=abs(N[kc2]-NE[kc2])+abs(N[kc2]-NW[kc2])+abs(W[kc2]-NW[kc2])+2*abs(N[kc2]-W[kc2]);
-				if(grad>255)
-					grad=255;
+				//int error=kc2?curr[kc2-1]:(N[kc2+1]+W[kc2+1])>>1;
+				//int neg=error<0;
+				//error=FLOOR_LOG2(error);
+				//error^=-neg;
+				//error+=neg;
+				int grad=
+					+(abs(N[kc2]-W[kc2])<<1)
+					+abs(N[kc2]-NE[kc2])
+					+abs(N[kc2]-NW[kc2])
+					+abs(W[kc2]-NW[kc2])
+				//	+(abs(N[kc2]-NN[kc2])+abs(W[kc2]-WW[kc2])+abs(NEE[kc2]-NE[kc2]))/2
+				;
+				grad=FLOOR_LOG2_P1(grad*grad);//0~21 = 22
+				//if(grad>192)
+				//	grad=192;
+				int energy=
+					((abs(N[kc2+1])+abs(W[kc2+1]))<<2)+
+					((abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])+abs(NN[kc2+1])+abs(WW[kc2+1]))<<1)+
+					abs(NWW[kc2+1])+abs(NNW[kc2+1])+abs(NNE[kc2+1])+abs(NEEE[kc2+1]);
+				energy=FLOOR_LOG2_P1(energy*energy);//0~23 = 24
+				//energy>>=3;
+				//if(energy>31)
+				//	energy=31;
 				//int cgrad, egrad;
 				//MEDIAN3_32(cgrad, N[kc2], W[kc2], N[kc2]+W[kc2]-NW[kc2]);
 				//MEDIAN3_32(egrad, N[kc2], NE[kc2], N[kc2]+NE[kc2]-NNE[kc2]);
@@ -970,46 +989,26 @@ static void block_thread(void *param)
 				//CLAMP2(gx, -128, 127);
 				//CLAMP2(gy, -128, 127);
 #define A2CTXLIST\
-	A2CTX(2, 15,	0)\
-	A2CTX(3, 14,	((N[kc2+0]-NW[kc2+0])>>5&7)<<5|((W[kc2+0]-NW[kc2+0])>>5&7)<<2|((N[kc2+0]+W[kc2+0])>>7&3))\
-	A2CTX(4, 15,	(abs(N[kc2+1])+abs(W[kc2+1]))>>2)\
-	A2CTX(5, 14,	pred)\
-	A2CTX(5, 15,	kc2?curr[kc2-1]:(N[kc2+1]+W[kc2+1])>>1)\
-	A2CTX(5, 14,	(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1]))>>1)\
-	A2CTX(6, 15,	(NE[kc2+1]>>5&3)<<6|(NW[kc2+1]>>5&3)<<4|(W[kc2+1]>>6&3)<<2|(N[kc2+1]>>6&3))\
-	A2CTX(6, 14,	grad)
-				ALIGN(32) static const long long g_mixsh[]=
-				{
-#define A2CTX(SH, MIXSH, EXPR) MIXSH,
-					A2CTXLIST
+	A2CTX(2, 16, 0,				0)\
+	A2CTX(6, 14, 0+1,			grad)\
+	A2CTX(5, 14, 0+1+22,			energy)\
+	A2CTX(2, 16, 0+1+22+24,			(kx-args->x1)>>2)\
+	A2CTX(3, 15, 0+1+22+24+128,		((N[kc2]-NW[kc2])>>5&7)<<5|((W[kc2]-NW[kc2])>>5&7)<<2|((N[kc2]+W[kc2])>>7&3))\
+	A2CTX(4, 15, 0+1+22+24+128+256,		pred+128)\
+	A2CTX(5, 15, 0+1+22+24+128+256+256,	((kc2?curr[kc2-1]:(N[kc2+1]+W[kc2+1])>>1)+128)&255)\
+	A2CTX(6, 15, 0+1+22+24+128+256+256+256,	(NE[kc2+1]>>5&3)<<6|(NW[kc2+1]>>5&3)<<4|(W[kc2+1]>>6&3)<<2|(N[kc2+1]>>6&3))
+#define A2CTX(SH, MIXSH, OFFSET, EXPR) MIXSH,
+				ALIGN(32) static const long long g_mixsh[]={A2CTXLIST};
 #undef  A2CTX
-				};
-				ALIGN(32) static const long long g_sh[]=
-				{
-#define A2CTX(SH, MIXSH, EXPR) SH,
-					A2CTXLIST
+#define A2CTX(SH, MIXSH, OFFSET, EXPR) SH,
+				ALIGN(32) static const long long g_sh[]={A2CTXLIST};
 #undef  A2CTX
-				};
-				ALIGN(32) static const long long g_offset[]=
-				{
-#define A2CTX(SH, MIXSH, EXPR) 1LL<<SH>>1,
-					A2CTXLIST
+#define A2CTX(SH, MIXSH, OFFSET, EXPR) 1LL<<SH>>1,
+				ALIGN(32) static const long long g_offset[]={A2CTXLIST};
 #undef  A2CTX
-				};
-				ALIGN(32) int ctx[A2_NCTX]=
-				{
-#define A2CTX(SH, MIXSH, EXPR) EXPR,
-					A2CTXLIST
+#define A2CTX(SH, MIXSH, OFFSET, EXPR) args->stats[kc]+((OFFSET+(EXPR))<<8),
+				unsigned short *curr_stats[A2_NCTX]={A2CTXLIST};
 #undef  A2CTX
-				};
-#ifdef __GNUC__
-#pragma GCC unroll 8
-#endif
-				for(int k=0;k<A2_NCTX;++k)
-				{
-					int idx2=((A2_NCTX*kc+k)<<A2_CTXBITS|(ctx[k]&((1<<A2_CTXBITS)-1)))<<8;
-					curr_stats[k]=args->stats+idx2;
-				}
 				if(args->fwd)
 				{
 					curr[kc2+0]=yuv[kc];
@@ -1041,11 +1040,6 @@ static void block_thread(void *param)
 					__m256i mprob0=_mm256_set_epi64x(curr_stats[ 3][tidx], curr_stats[ 2][tidx], curr_stats[ 1][tidx], curr_stats[ 0][tidx]);
 					__m256i mprob1=_mm256_set_epi64x(curr_stats[ 7][tidx], curr_stats[ 6][tidx], curr_stats[ 5][tidx], curr_stats[ 4][tidx]);
 				//	__m256i mprob2=_mm256_set_epi64x(curr_stats[11][tidx], curr_stats[10][tidx], curr_stats[ 9][tidx], curr_stats[ 8][tidx]);
-#if 0
-					__m256i mprob0=_mm256_set_epi64x((short)curr_stats[ 3][tidx], (short)curr_stats[ 2][tidx], (short)curr_stats[ 1][tidx], (short)curr_stats[ 0][tidx]);
-					__m256i mprob1=_mm256_set_epi64x((short)curr_stats[ 7][tidx], (short)curr_stats[ 6][tidx], (short)curr_stats[ 5][tidx], (short)curr_stats[ 4][tidx]);
-				//	__m256i mprob2=_mm256_set_epi64x((short)curr_stats[11][tidx], (short)curr_stats[10][tidx], (short)curr_stats[ 9][tidx], (short)curr_stats[ 8][tidx]);
-#endif
 					__m256i mweight0=_mm256_load_si256((__m256i*)curr_mixer+0);
 					__m256i mweight1=_mm256_load_si256((__m256i*)curr_mixer+1);
 				//	__m256i mweight2=_mm256_load_si256((__m256i*)curr_mixer+2);
@@ -1061,6 +1055,7 @@ static void block_thread(void *param)
 					wsum=(int)(awsum[0]+awsum[1]+awsum[2]+awsum[3]);
 					p0=apsum[0]+apsum[1]+apsum[2]+apsum[3];
 					wsum+=!wsum;
+					p0+=wsum>>1;
 					p0/=wsum;
 					//p0>>=22;
 
