@@ -163,23 +163,15 @@ static const short av12_icoeffs[12]=
 	WG_PRED(240,	(WWW+NNN+NEE+NEEE+NEEEE-2*NW-(4*(eN+eW)+eNN+eWW)/2)/3)\
 	WG_PRED(120,	N+W-NW+(2*(eN+eW)-eNW)/5)\
 	WG_PRED(120,	N+NE-NNE+((eN+eNE+eNNE+4)>>3))
-//	WG_PRED(45,	(4*(N+NNN)-6*NN+NNNW+NNNE-(NNWW+NNEE)/2+NNE+NNW-NE-NW-eN-eNN+eNNN)/3)
-//	WG_PRED(97,	(6*(W+WWW)+20*WW+(eW-eWW+eWWW)/3)/32)
-//	WG_PRED(65,	(W+3*NW-NWW-NNWW)/2+eNW/4+eW/6)
-//	WG_PRED(40,	(3*NE+NEE+NEEEE-NNEE-NNEEE+(3*eNE+6*eNEE+3*eNEEE)/2)/3)
 #define WG_PREDLIST1\
-	WG_PRED(250,	N+(2*eN+eW+eNW)/6)\
-	WG_PRED(250,	W+(2*eW+eN+eNW)/6)\
+	WG_PRED(250,	N+(2*eN+eW)/6)\
+	WG_PRED(250,	W+(2*eW+eN)/6)\
 	WG_PRED(175,	3*(N-NN)+NNN+eN/6+eNN/6-eWW*2/3)\
 	WG_PRED(175,	3*(W-WW)+WWW+eW/6+eWW/6-eNN*2/3)\
 	WG_PRED(180,	W+NE-N-((eN+eW+31)>>5))\
 	WG_PRED(175,	(WWW+NNN+NEE+NEEE+NEEEE-2*NW+(W-N+NN-NE)/2-(eN+eW+eNN/3+eWW/3))/3)\
 	WG_PRED(130,	N+W-NW+(2*(eN+eW)-eNW)/5)\
-	WG_PRED(150,	N+NE-NNE+((eN+eNE+eNNE+8)>>4))
-//	WG_PRED(45,	(4*(N+NNN)-6*NN+NNNW+NNNE-(NNWW+NNEE)/2+NNE+NNW-NE-NW-2*eN-eNN+eNNN)/3)
-//	WG_PRED(57,	(W+WW+(eW-eWW+eWWW)/4)/2)
-//	WG_PRED(35,	(W+3*NW-NWW-NNWW+eNW)/2+eW/3)
-//	WG_PRED(40,	(3*NE+NEE+NEEEE-NNEE-NNEEE+(3*eNE+6*eNEE+3*eNEEE)/2)/3)
+	WG_PRED(150,	N+NE-NNE+(2*eN+eNE)/10)
 #define WG_PREDLIST2\
 	WG_PRED(270,	N+(2*eN+eW)/6)\
 	WG_PRED(270,	W+(2*eW+eN)/6)\
@@ -188,11 +180,7 @@ static const short av12_icoeffs[12]=
 	WG_PRED(180,	W+NE-N-((5*eN+eW+31)>>5))\
 	WG_PRED(175,	(WWW+NNN+NEE+NEEE+NEEEE-2*NW+(W-N+NN-NE)/2-(eN+eW+eNN/3+eWW/3))/3)\
 	WG_PRED(140,	N+W-NW+(2*(eN+eW)-eNW)/8)\
-	WG_PRED(150,	N+NE-NNE+(eN+eNE+eNNE)/16)
-//	WG_PRED(55,	(4*(N+NNN)-6*NN+NNNW+NNNE-(NNWW+NNEE)/2+NNE+NNW-NE-NW)/3-eN-eNN+eNNN)
-//	WG_PRED(47,	(W+WW+(eW+eWWW)/3)/2)
-//	WG_PRED(22,	(W+3*NW-NWW-NNWW+eNW)/2+eW/3)
-//	WG_PRED(40,	(3*NE+NEE+NEEEE-NNEE-NNEEE+(3*eNE+6*eNEE+3*eNEEE)/2)/3)
+	WG_PRED(150,	N+NE-NNE+(2*eN+eNE)/10)
 static void wg_init(double *weights, int kc)
 {
 	int j=0;
@@ -226,6 +214,7 @@ FORCEINLINE int wg_predict(
 {
 	int j=0;
 	short
+		NNNN	=rows[0][kc2+0*stride+0],
 		NNNWWWW	=rows[3][kc2-4*stride+0],
 		NNNWWW	=rows[3][kc2-3*stride+0],
 		NNNW	=rows[3][kc2-1*stride+0],
@@ -265,6 +254,7 @@ FORCEINLINE int wg_predict(
 		eWWW	=rows[0][kc2-3*stride+1],
 		eWW	=rows[0][kc2-2*stride+1],
 		eW	=rows[0][kc2-1*stride+1];
+	(void)NNNN;
 	(void)NNNWWWW;
 	(void)NNNWWW;
 	(void)NNNW;
