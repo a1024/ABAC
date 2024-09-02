@@ -957,7 +957,7 @@ static void block_thread(void *param)
 				pred+=offset;
 				CLAMP2(pred, -128, 127);
 				unsigned short *curr_stats[A2_NCTX];
-				int grad=abs(N[kc2]-NE[kc2])+abs(N[kc2]-NW[kc2])+abs(W[kc2]-NW[kc2])+abs(N[kc2]-W[kc2]);
+				int grad=abs(N[kc2]-NE[kc2])+abs(N[kc2]-NW[kc2])+abs(W[kc2]-NW[kc2])+2*abs(N[kc2]-W[kc2]);
 				if(grad>255)
 					grad=255;
 				//int cgrad, egrad;
@@ -971,12 +971,12 @@ static void block_thread(void *param)
 				//CLAMP2(gy, -128, 127);
 #define A2CTXLIST\
 	A2CTX(2, 15,	0)\
-	A2CTX(3, 14,	((N[kc2+0]-NW[kc2+0])>>6&7)<<5|((W[kc2+0]-NW[kc2+0])>>6&7)<<2|((N[kc2+0]+W[kc2+0])>>7&3))\
-	A2CTX(4, 15,	(abs(N[kc2+1])+abs(W[kc2+1]))>>1)\
+	A2CTX(3, 14,	((N[kc2+0]-NW[kc2+0])>>5&7)<<5|((W[kc2+0]-NW[kc2+0])>>5&7)<<2|((N[kc2+0]+W[kc2+0])>>7&3))\
+	A2CTX(4, 15,	(abs(N[kc2+1])+abs(W[kc2+1]))>>2)\
 	A2CTX(5, 14,	pred)\
-	A2CTX(5, 15,	kc>=2?(curr[1]+7*curr[3])>>3:(kc>=1?curr[1]:(N[kc2+1]+W[kc2+1])>>1))\
+	A2CTX(5, 15,	kc2?curr[kc2-1]:(N[kc2+1]+W[kc2+1])>>1)\
 	A2CTX(5, 14,	(abs(N[kc2+1])+abs(W[kc2+1])+abs(NW[kc2+1])+abs(NE[kc2+1]))>>1)\
-	A2CTX(6, 15,	(NE[kc2+1]>>6&3)<<6|(NW[kc2+1]>>6&3)<<4|(W[kc2+1]>>6&3)<<2|(N[kc2+1]>>6&3))\
+	A2CTX(6, 15,	(NE[kc2+1]>>5&3)<<6|(NW[kc2+1]>>5&3)<<4|(W[kc2+1]>>6&3)<<2|(N[kc2+1]>>6&3))\
 	A2CTX(6, 14,	grad)
 				ALIGN(32) static const long long g_mixsh[]=
 				{
@@ -1007,7 +1007,7 @@ static void block_thread(void *param)
 #endif
 				for(int k=0;k<A2_NCTX;++k)
 				{
-					int idx2=((A2_NCTX*kc+k)<<A2_CTXBITS|(ctx[k]>>(8-A2_CTXBITS)&((1<<A2_CTXBITS)-1)))<<8;
+					int idx2=((A2_NCTX*kc+k)<<A2_CTXBITS|(ctx[k]&((1<<A2_CTXBITS)-1)))<<8;
 					curr_stats[k]=args->stats+idx2;
 				}
 				if(args->fwd)
@@ -1090,7 +1090,7 @@ static void block_thread(void *param)
 					else
 						p0=0x8000, wsum=1;
 #endif
-					CLAMP2(p0, 1, 0xFFFF);
+				//	CLAMP2(p0, 1, 0xFFFF);
 					
 					//p0=squash((int)((p0-0x8000)*abs(p0-0x8000)>>16));
 
@@ -1159,7 +1159,6 @@ static void block_thread(void *param)
 					}
 #if 1
 					__m256i mtruth=_mm256_set1_epi64x((long long)!bit<<16);
-				//	mtruth=_mm256_or_si256(mtruth, _mm256_set1_epi64x(((long long)!bit<<16)-0x8000));
 					__m256i mupdate0=_mm256_sub_epi64(_mm256_or_si256(mtruth, _mm256_load_si256((__m256i*)g_offset+0)), mprob0);
 					__m256i mupdate1=_mm256_sub_epi64(_mm256_or_si256(mtruth, _mm256_load_si256((__m256i*)g_offset+1)), mprob1);
 				//	__m256i mupdate2=_mm256_sub_epi64(_mm256_or_si256(mtruth, _mm256_load_si256((__m256i*)g_offset+2)), mprob2);
@@ -1178,13 +1177,16 @@ static void block_thread(void *param)
 					for(int k=0;k<A2_NCTX;++k)
 						curr_stats[k][tidx]=(int)probs[k];
 #else
+					int truth=!bit<<16;
+#ifdef __GNUC__
+#pragma GCC unroll 8
+#endif
 					for(int k=0;k<A2_NCTX;++k)
 					{
 						int p=curr_stats[k][tidx];
-						p+=((!bit<<16)-p)>>(1+4+(k>A2_NCTX/2));
-						CLAMP2(p, 1, 0xFFFF);
+						p+=(truth-p+g_offset[k])>>g_sh[k];
+					//	CLAMP2(p, 1, 0xFFFF);
 						curr_stats[k][tidx]=p;
-					//	CLAMP2_32(curr_stats[k][tidx], p, 1, 0xFFFF);
 					}
 #endif
 #ifndef A2_CTXMIXER
