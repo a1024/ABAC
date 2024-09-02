@@ -475,7 +475,7 @@ typedef struct _ThreadArgs
 	
 	//int hist[54<<8];
 
-	unsigned short stats[3][(1+22+24+128+256+256+256+256)<<8];
+	unsigned short stats[3][(1+22+24+128+512+256+256+256)<<8];
 #ifdef A2_CTXMIXER
 	ALIGN(32) long long mixer[3][256][A2_NCTX];
 #endif
@@ -987,10 +987,10 @@ static void block_thread(void *param)
 	A2CTX(6, 14, 0+1,			grad)\
 	A2CTX(5, 14, 0+1+22,			energy)\
 	A2CTX(2, 16, 0+1+22+24,			(kx-args->x1)>>2)\
-	A2CTX(3, 15, 0+1+22+24+128,		((N[kc2]-NW[kc2])>>5&7)<<5|((W[kc2]-NW[kc2])>>5&7)<<2|((N[kc2]+W[kc2])>>7&3))\
-	A2CTX(4, 15, 0+1+22+24+128+256,		pred+128)\
-	A2CTX(5, 15, 0+1+22+24+128+256+256,	((kc2?curr[kc2-1]:(N[kc2+1]+W[kc2+1])>>1)+128)&255)\
-	A2CTX(6, 15, 0+1+22+24+128+256+256+256,	(NE[kc2+1]>>5&3)<<6|(NW[kc2+1]>>5&3)<<4|(W[kc2+1]>>6&3)<<2|(N[kc2+1]>>6&3))
+	A2CTX(3, 15, 0+1+22+24+128,		((N[kc2]-NW[kc2])>>5&7)<<6|((W[kc2]-NW[kc2])>>5&7)<<3|((N[kc2]+W[kc2])>>6&7))\
+	A2CTX(4, 15, 0+1+22+24+128+512,		pred+128)\
+	A2CTX(5, 15, 0+1+22+24+128+512+256,	((kc2?curr[kc2-1]:(N[kc2+1]+W[kc2+1])>>1)+128)&255)\
+	A2CTX(6, 15, 0+1+22+24+128+512+256+256,	(NN[kc2+1]>>6&1)<<7|(WW[kc2+1]>>6&1)<<6|(NE[kc2+1]>>6&1)<<5|(NW[kc2+1]>>6&1)<<4|(W[kc2+1]>>6&3)<<2|(N[kc2+1]>>6&3))
 #define A2CTX(SH, MIXSH, OFFSET, EXPR) MIXSH,
 				ALIGN(32) static const long long g_mixsh[]={A2CTXLIST};
 #undef  A2CTX
