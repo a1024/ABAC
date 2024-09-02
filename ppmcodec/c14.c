@@ -155,14 +155,14 @@ static const short av12_icoeffs[12]=
 
 #define WG_NPREDS	8	//multiple of 4
 #define WG_PREDLIST0\
-	WG_PRED(300,	N)\
-	WG_PRED(300,	W)\
-	WG_PRED(215,	3*(N-NN)+NNN+(eN/2+eNN/2+eNNN)/4)\
-	WG_PRED(215,	3*(W-WW)+WWW+(eW/2+eWW/2+eWWW)/4)\
+	WG_PRED(320,	N-eN/3)\
+	WG_PRED(320,	W-eW/3)\
+	WG_PRED(205,	3*(N-NN)+NNN-eN/6-eNN/6+eNNN*2/3)\
+	WG_PRED(205,	3*(W-WW)+WWW-eW/6-eWW/6+eWWW*2/3)\
 	WG_PRED(140,	W+NE-N+((-13*eN)>>4)+eW/4-(eW>>7))\
-	WG_PRED(230,	(WWW+NNN+NEE+NEEE+NEEEE-2*NW+(W-N+NN-NE)/5-(7*(eN+eW)+eWW)/2)/3)\
-	WG_PRED(120,	N+W-NW+(eN+eW-eNW)/5)\
-	WG_PRED(140,	N+NE-NNE+((eN+eNE+eNNE+4)>>3))
+	WG_PRED(240,	(WWW+NNN+NEE+NEEE+NEEEE-2*NW-(4*(eN+eW)+eNN+eWW)/2)/3)\
+	WG_PRED(120,	N+W-NW+(2*(eN+eW)-eNW)/5)\
+	WG_PRED(120,	N+NE-NNE+((eN+eNE+eNNE+4)>>3))
 //	WG_PRED(45,	(4*(N+NNN)-6*NN+NNNW+NNNE-(NNWW+NNEE)/2+NNE+NNW-NE-NW-eN-eNN+eNNN)/3)
 //	WG_PRED(97,	(6*(W+WWW)+20*WW+(eW-eWW+eWWW)/3)/32)
 //	WG_PRED(65,	(W+3*NW-NWW-NNWW)/2+eNW/4+eW/6)
@@ -170,10 +170,10 @@ static const short av12_icoeffs[12]=
 #define WG_PREDLIST1\
 	WG_PRED(250,	N+(2*eN+eW+eNW)/6)\
 	WG_PRED(250,	W+(2*eW+eN+eNW)/6)\
-	WG_PRED(175,	3*(N-NN)+NNN+(eN/2+eNN/3-eWW)/2)\
-	WG_PRED(175,	3*(W-WW)+WWW+(eW/2+eWW/3-eNN)/2)\
+	WG_PRED(175,	3*(N-NN)+NNN+eN/6+eNN/6-eWW*2/3)\
+	WG_PRED(175,	3*(W-WW)+WWW+eW/6+eWW/6-eNN*2/3)\
 	WG_PRED(180,	W+NE-N-((eN+eW+31)>>5))\
-	WG_PRED(175,	(WWW+NNN+NEE+NEEE+NEEEE-2*NW+(W-N+NN-NE)/2-eN-eW-eWW/3)/3)\
+	WG_PRED(175,	(WWW+NNN+NEE+NEEE+NEEEE-2*NW+(W-N+NN-NE)/2-(eN+eW+eNN/3+eWW/3))/3)\
 	WG_PRED(130,	N+W-NW+(2*(eN+eW)-eNW)/5)\
 	WG_PRED(150,	N+NE-NNE+((eN+eNE+eNNE+8)>>4))
 //	WG_PRED(45,	(4*(N+NNN)-6*NN+NNNW+NNNE-(NNWW+NNEE)/2+NNE+NNW-NE-NW-2*eN-eNN+eNNN)/3)
@@ -186,7 +186,7 @@ static const short av12_icoeffs[12]=
 	WG_PRED(200,	3*(N-NN)+NNN+(eN-eWW)/3)\
 	WG_PRED(200,	3*(W-WW)+WWW+(eW-eNN)/3)\
 	WG_PRED(180,	W+NE-N-((5*eN+eW+31)>>5))\
-	WG_PRED(165,	(WWW+NNN+NEE+NEEE+NEEEE-2*NW+(W-N+NN-NE)/2-eN-eW-eWW/3)/3)\
+	WG_PRED(175,	(WWW+NNN+NEE+NEEE+NEEEE-2*NW+(W-N+NN-NE)/2-(eN+eW+eNN/3+eWW/3))/3)\
 	WG_PRED(140,	N+W-NW+(2*(eN+eW)-eNW)/8)\
 	WG_PRED(150,	N+NE-NNE+(eN+eNE+eNNE)/16)
 //	WG_PRED(55,	(4*(N+NNN)-6*NN+NNNW+NNNE-(NNWW+NNEE)/2+NNE+NNW-NE-NW)/3-eN-eNN+eNNN)
