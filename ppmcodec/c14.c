@@ -20,7 +20,7 @@ static const char file[]=__FILE__;
 #include"entropy.h"
 
 #define BLOCKX 512
-#define BLOCKY 256
+#define BLOCKY 512
 #define MAXPRINTEDBLOCKS 20
 
 #define A2_NCTX 8	//multiple of 4
@@ -141,14 +141,12 @@ typedef enum _NBIndex
 #endif
 	NB_COUNT,
 } NBIndex;
-#if 0
-static const short av12_icoeffs[12]=
-{
-	 0x04,	 0x03,	-0x1F,	-0x26,	 0x00,
-	 0x07,	-0x9E,	 0xDB,	 0x1E,	 0x13,
-	-0x2A,	 0xF3,
-};
-#endif
+//static const short av12_icoeffs[12]=
+//{
+//	 0x04,	 0x03,	-0x1F,	-0x26,	 0x00,
+//	 0x07,	-0x9E,	 0xDB,	 0x1E,	 0x13,
+//	-0x2A,	 0xF3,
+//};
 
 
 //WG:
@@ -206,10 +204,6 @@ static void wg_init(double *weights, int kc)
 #undef  WG_PRED
 		break;
 	}
-//	int j=0;
-//#define WG_PRED(WEIGHT, EXPR) weights[j++]=WEIGHT;
-//	WG_PREDLIST
-//#undef  WG_PRED
 }
 FORCEINLINE int wg_predict(
 	const double *weights, short **rows, const int stride, int kc2,
@@ -298,13 +292,6 @@ FORCEINLINE int wg_predict(
 	(void)eWWW;
 	(void)eWW;
 	(void)eW;
-	//int gy=abs(eN)+1, gx=abs(eW)+1;
-	//int wgrad=(N*gy+W*gx)/(gy+gx);
-	//(void)NNNWWWW;
-	//(void)NNWWWW;
-	//(void)NNEEE;
-	//(void)NEE;
-	//MEDIAN3_32(cgrad, N, W, N+W-NW);
 	
 	switch(kc2)
 	{
@@ -324,9 +311,6 @@ FORCEINLINE int wg_predict(
 #undef  WG_PRED
 		break;
 	}
-//#define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
-//	WG_PREDLIST
-//#undef  WG_PRED
 	
 #if 1
 	__m128i one=_mm_set1_epi32(1);
@@ -417,7 +401,7 @@ FORCEINLINE int wg_predict(
 		double pred2=0, wsum=0;
 		int pred;
 #ifdef __GNUC__
-#pragma GCC unroll 16
+#pragma GCC unroll 8
 #endif
 		for(int k=0;k<WG_NPREDS;++k)
 		{
@@ -441,7 +425,7 @@ FORCEINLINE void wg_update(int curr, int kc, const int *preds, int *perrors, int
 	static const int factors[]={97, 99, 99};
 	int factor=factors[kc];
 #ifdef __GNUC__
-#pragma GCC unroll 12
+#pragma GCC unroll 8
 #endif
 	for(int k=0;k<WG_NPREDS;++k)
 	{
@@ -472,8 +456,6 @@ typedef struct _ThreadArgs
 	BList *lists;
 	const int *offsets;
 	const unsigned char *decsrc, *decstart, *decend;
-	
-	//int hist[54<<8];
 
 	unsigned short stats[3][(1+32+32+128+512+256+256+256)<<8];
 #ifdef A2_CTXMIXER
@@ -1539,7 +1521,5 @@ int c14_codec(const char *srcfn, const char *dstfn)
 	free(offsets);
 	array_free(&src);
 	array_free(&dst);
-	//if(test)
-	//	pause();
 	return 0;
 }
