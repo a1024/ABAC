@@ -155,8 +155,8 @@ static const short av12_icoeffs[12]=
 
 #define WG_NPREDS	8	//multiple of 4
 #define WG_PREDLIST0\
-	WG_PRED(330,	N-eN/3)\
-	WG_PRED(330,	W-eW/3)\
+	WG_PRED(340,	N-eN/3)\
+	WG_PRED(340,	W-eW/3)\
 	WG_PRED(205,	3*(N-NN)+NNN-eN/6-eNN/6+eNNN*2/3)\
 	WG_PRED(205,	3*(W-WW)+WWW-eW/6-eWW/6+eWWW*2/3)\
 	WG_PRED(140,	W+NE-N+((-13*eN)>>4)+eW/4-(eW>>7))\
@@ -475,7 +475,7 @@ typedef struct _ThreadArgs
 	
 	//int hist[54<<8];
 
-	unsigned short stats[3][(1+22+24+128+512+256+256+256)<<8];
+	unsigned short stats[3][(1+32+32+128+512+256+256+256)<<8];
 #ifdef A2_CTXMIXER
 	ALIGN(32) long long mixer[3][256][A2_NCTX];
 #endif
@@ -747,7 +747,7 @@ static void block_thread(void *param)
 	FILLMEM((long long*)args->mixer, 0x3000, sizeof(args->mixer), sizeof(long long));
 #else
 	ALIGN(32) long long mixer[8*3*A2_NCTX]={0};
-	FILLMEM(mixer, 0x3000, sizeof(mixer), sizeof(long long));
+	FILLMEM(mixer, 0x1000, sizeof(mixer), sizeof(long long));
 #endif
 	FILLMEM((unsigned short*)args->stats, 0x8000, sizeof(args->stats), sizeof(short));
 	//memset(args->stats, 0, sizeof(args->stats));
@@ -950,47 +950,32 @@ static void block_thread(void *param)
 				pred=wg_predict(wg_weights+WG_NPREDS*kc, rows, 4*2, kc2, 0, wg_perrors+WG_NPREDS*kc, eNW, eN, eNE, eNNE, wg_preds);
 				pred+=offset;
 				CLAMP2(pred, -128, 127);
-				//int error=kc2?curr[kc2-1]:(N[kc2+1]+W[kc2+1])>>1;
-				//int neg=error<0;
-				//error=FLOOR_LOG2(error);
-				//error^=-neg;
-				//error+=neg;
 				int grad=
 					+(abs(N[kc2]-W[kc2])<<1)
 					+abs(N[kc2]-NE[kc2])
 					+abs(N[kc2]-NW[kc2])
 					+abs(W[kc2]-NW[kc2])
+				//	+abs(N[kc2]-NN[kc2])
+				//	+abs(W[kc2]-WW[kc2])
+				//	+abs(NE[kc2]-NEE[kc2])
+				//	+abs(NN[kc2]-WW[kc2])
 				//	+(abs(N[kc2]-NN[kc2])+abs(W[kc2]-WW[kc2])+abs(NEE[kc2]-NE[kc2]))/2
 				;
-				grad=FLOOR_LOG2_P1(grad*grad);//0~21 = 22
-				//if(grad>192)
-				//	grad=192;
+				grad=FLOOR_LOG2_P1(grad*grad);//256(2+1+1+1)=1280  FLOOR_LOG2_P1(1280^2)=0~21 -> 22 levels
 				int energy=
 					((abs(N[kc2+1])+abs(W[kc2+1]))<<2)+
 					((abs(NW[kc2+1])+abs(NE[kc2+1])+abs(NEE[kc2+1])+abs(NN[kc2+1])+abs(WW[kc2+1]))<<1)+
 					abs(NWW[kc2+1])+abs(NNW[kc2+1])+abs(NNE[kc2+1])+abs(NEEE[kc2+1]);
-				energy=FLOOR_LOG2_P1(energy*energy);//0~23 = 24
-				//energy>>=3;
-				//if(energy>31)
-				//	energy=31;
-				//int cgrad, egrad;
-				//MEDIAN3_32(cgrad, N[kc2], W[kc2], N[kc2]+W[kc2]-NW[kc2]);
-				//MEDIAN3_32(egrad, N[kc2], NE[kc2], N[kc2]+NE[kc2]-NNE[kc2]);
-				//int ctx0=FLOOR_LOG2(abs(pred));
-				//if(pred<0)
-				//	ctx0=-ctx0;
-				//int gx=3*(W[kc2]-WW[kc2])+WWW[kc2], gy=3*(N[kc2]-NN[kc2])+NNN[kc2];
-				//CLAMP2(gx, -128, 127);
-				//CLAMP2(gy, -128, 127);
+				energy=FLOOR_LOG2_P1(energy*energy);//128(4+4+2+2+2+2+2+1+1+1+1)=2816  FLOOR_LOG2_P1(2816^2)=0~23 -> 24 levels
 #define A2CTXLIST\
 	A2CTX(2, 16, 0,				0)\
 	A2CTX(6, 14, 0+1,			grad)\
-	A2CTX(5, 14, 0+1+22,			energy)\
-	A2CTX(2, 16, 0+1+22+24,			(kx-args->x1)>>2)\
-	A2CTX(3, 15, 0+1+22+24+128,		((N[kc2]-NW[kc2])>>5&7)<<6|((W[kc2]-NW[kc2])>>5&7)<<3|((N[kc2]+W[kc2])>>6&7))\
-	A2CTX(4, 15, 0+1+22+24+128+512,		pred+128)\
-	A2CTX(5, 15, 0+1+22+24+128+512+256,	((kc2?curr[kc2-1]:(N[kc2+1]+W[kc2+1])>>1)+128)&255)\
-	A2CTX(6, 15, 0+1+22+24+128+512+256+256,	(NN[kc2+1]>>6&1)<<7|(WW[kc2+1]>>6&1)<<6|(NE[kc2+1]>>6&1)<<5|(NW[kc2+1]>>6&1)<<4|(W[kc2+1]>>6&3)<<2|(N[kc2+1]>>6&3))
+	A2CTX(5, 14, 0+1+32,			energy)\
+	A2CTX(2, 16, 0+1+32+32,			(kx-args->x1)>>2)\
+	A2CTX(3, 15, 0+1+32+32+128,		((N[kc2]-NW[kc2])>>5&7)<<6|((W[kc2]-NW[kc2])>>5&7)<<3|(pred>>5&7))\
+	A2CTX(4, 15, 0+1+32+32+128+512,		pred+128)\
+	A2CTX(5, 15, 0+1+32+32+128+512+256,	((kc2?curr[kc2-1]:(N[kc2+1]+W[kc2+1])>>1)+128)&255)\
+	A2CTX(6, 15, 0+1+32+32+128+512+256+256,	(NN[kc2+1]<0)<<7|(WW[kc2+1]<0)<<6|(NE[kc2+1]<0)<<5|(NW[kc2+1]<0)<<4|(W[kc2+1]>>6&3)<<2|(N[kc2+1]>>6&3))
 #define A2CTX(SH, MIXSH, OFFSET, EXPR) MIXSH,
 				ALIGN(32) static const long long g_mixsh[]={A2CTXLIST};
 #undef  A2CTX
@@ -1051,7 +1036,6 @@ static void block_thread(void *param)
 					wsum+=!wsum;
 					p0+=wsum>>1;
 					p0/=wsum;
-					//p0>>=22;
 
 					//long long p0_2=0;
 					//int wsum2=0;
