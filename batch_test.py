@@ -51,7 +51,7 @@ if __name__=='__main__':
 	for root, dirs, files in os.walk(srcpath):
 		for title in files:
 			name, ext=os.path.splitext(title)
-			if ext.lower()!='.ppm':
+			if ext.lower()!='.ppm' and ext.lower()!='.pnm':
 				continue
 			srcfn=os.path.join(root, title)
 			fn1=os.path.join(path1, name+'.LSIM')
