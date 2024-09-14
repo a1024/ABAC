@@ -14,7 +14,7 @@ static const char file[]=__FILE__;
 	#define BYPASS_ON_INFLATION
 //	#define ENABLE_FILEGUARD	//makes using scripts harder
 
-//	#define ESTIMATE_SIZE
+//	#define ESTIMATE_SIZE		//FOR DEBUGGING
 	#define USE_RCTJ2K
 	#define USE_AC48
 
@@ -34,6 +34,13 @@ static void update_CDF(const unsigned *hist, int nlevels, unsigned *CDF)
 		c+=freq;
 	}
 	CDF[nlevels]=1<<16;
+}
+static void rescale_hist(unsigned *hist, int nlevels)
+{
+	int hsum=0;
+	for(int ks=0;ks<nlevels;++ks)
+		hsum+=hist[ks]=(hist[ks]+1)>>1;
+	hist[nlevels]=hsum;
 }
 int c10_codec(const char *srcfn, const char *dstfn)
 {
@@ -644,6 +651,9 @@ int c10_codec(const char *srcfn, const char *dstfn)
 		update_CDF(hist, 256, CDF);
 		update_CDF(hist+257, 512, CDF+257);
 		update_CDF(hist+257+513, 512, CDF+257+513);
+		rescale_hist(hist, 256);
+		rescale_hist(hist+257, 512);
+		rescale_hist(hist+257+513, 512);
 	}
 	if(!fwd)
 		fwrite(buffer, 1, usize, fdst);

@@ -32,8 +32,9 @@ int c09_codec(const char *srcfn, const char *dstfn);//J2K CG o0 disk symbol ANS 
 int c10_codec(const char *srcfn, const char *dstfn);//J2K CG o0 disk symbol AC ST
 int c11_codec(const char *srcfn, const char *dstfn);//SubG CG o0 disk nibble AC ST
 int c12_codec(const char *srcfn, const char *dstfn);//SubG CG o0 disk binary AC ST
-int c13_codec(const char *srcfn, const char *dstfn);//WG4_12
-int c14_codec(const char *srcfn, const char *dstfn);//WG4_8
+int c13_codec(const char *srcfn, const char *dstfn);//MT WG4_12
+int c14_codec(const char *srcfn, const char *dstfn);//MT WG4_8 binary AC
+int c15_codec(const char *srcfn, const char *dstfn);//ST WG4_8 symbol AC o0
 
 	
 #ifdef __cplusplus

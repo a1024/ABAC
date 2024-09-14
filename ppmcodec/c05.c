@@ -9,16 +9,29 @@ static const char file[]=__FILE__;
 //	#define ENABLE_GUIDE
 //	#define DISABLE_MT
 
-
-//	#define ENABLE_SSE
+	#define ENABLE_SSE	//good with MT
+//	#define ENABLE_SSE_SKEW	//bad
+//	#define DISABLE_RCTSEL	//causalRCTSEL > RCT,  disabling RCTSEL breaks SSE
+//	#define ENABLE_NPOT	//bad
 
 
 #define CODECNAME "C05"
 #include"entropy.h"
 
-#define BLOCKSIZE 512
+#define BLOCKSIZE 256
 #define MAXPRINTEDBLOCKS 50
 
+#ifndef DISABLE_RCTSEL
+#define HALF_Y 128
+#define HALF_U 128
+#define HALF_V 128
+#else
+#define HALF_Y 128
+#define HALF_U 256
+#define HALF_V 256
+#endif
+
+#ifndef DISABLE_RCTSEL
 #define OCHLIST\
 	OCH(R)\
 	OCH(G)\
@@ -113,6 +126,7 @@ typedef enum _NBIndex
 	NB_NW,		NB_N,
 	NB_W,		NB_curr,
 } NBIndex;
+#endif
 
 
 typedef struct _ThreadArgs
@@ -128,25 +142,63 @@ typedef struct _ThreadArgs
 	BList list;
 	const unsigned char *decstart, *decend;
 	
+#ifndef DISABLE_RCTSEL
 	int hist[OCH_COUNT*PRED_COUNT<<8];
+#endif
+#ifdef ENABLE_SSE
+	int sse1[3][64][64][2];
+	int sse2[3][64][64][2];
+	//int sse[3][128][2];
+#endif
 
 	//aux
 	int blockidx;
 	double bestsize;
 	int bestrct, predidx[3];
+#ifndef DISABLE_RCTSEL
 	double t_analysis;
+#endif
 } ThreadArgs;
+#if 0
+FORCEINLINE int median3(int a, int b, int c)
+{
+	MEDIAN3_32(a, a, b, c);
+	return a;
+}
+FORCEINLINE int max3(int a, int b, int c)
+{
+	if(a<b)
+		a=b;
+	if(a<c)
+		a=c;
+	return a;
+}
+FORCEINLINE int sum_largest3of7(int v0, int v1, int v2, int v3, int v4, int v5, int v6)
+{
+	int m0=v0, m1=v0, m2=v0;
+	if(m0<v1)m2=m1, m1=m0, m0=v1;
+	if(m0<v2)m2=m1, m1=m0, m0=v2;
+	if(m0<v3)m2=m1, m1=m0, m0=v3;
+	if(m0<v4)m2=m1, m1=m0, m0=v4;
+	if(m0<v5)m2=m1, m1=m0, m0=v5;
+	if(m0<v6)m2=m1, m1=m0, m0=v6;
+	return m0+m1+m2;
+}
+#endif
 static void block_thread(void *param)
 {
-	const int half=128, nch=3;
+	const int nch=3;
 	ThreadArgs *args=(ThreadArgs*)param;
 	GolombRiceCoder ec;
-	const unsigned char *image=args->fwd?args->src:args->dst;
+#ifndef DISABLE_RCTSEL
+//	const unsigned char *image=args->fwd?args->src:args->dst;
 	unsigned char bestrct=0, combination[6]={0}, predidx[4]={0};
-	int ystride=args->iw*3;
+#endif
 	
 	if(args->fwd)
 	{
+#ifndef DISABLE_RCTSEL
+		int ystride=args->iw*3;
 		double csizes[OCH_COUNT*PRED_COUNT]={0}, bestsize=0;
 		unsigned char predsel[OCH_COUNT]={0};
 		int res=(args->x2-args->x1-1)/5*5*(args->y2-args->y1-1);
@@ -156,7 +208,7 @@ static void block_thread(void *param)
 		for(int ky=args->y1+1;ky<args->y2;++ky)//analysis loop
 		{
 			int kx=args->x1+1;
-			const unsigned char *ptr=image+3*(args->iw*ky+kx);
+			const unsigned char *ptr=args->src+3*(args->iw*ky+kx);
 
 			__m256i amin=_mm256_set1_epi16(-128);
 			__m256i amax=_mm256_set1_epi16(127);
@@ -374,17 +426,23 @@ static void block_thread(void *param)
 				);
 			}
 		}
+#endif
 		blist_init(&args->list);
 		gr_enc_init(&ec, &args->list);
+#ifndef DISABLE_RCTSEL
 		gr_enc_NPOT(&ec, bestrct, RCT_COUNT);
+#endif
 	}
 	else
 	{
 		gr_dec_init(&ec, args->decstart, args->decend);
+#ifndef DISABLE_RCTSEL
 		bestrct=gr_dec_NPOT(&ec, RCT_COUNT);
+#endif
 	}
 #ifdef ENABLE_SSE
-	int sse[3][128][2]={0};
+	memset(args->sse1, 0, sizeof(args->sse1));
+	memset(args->sse2, 0, sizeof(args->sse2));
 #endif
 	memset(args->pixels, 0, sizeof(args->pixels));
 	for(int ky=args->y1;ky<args->y2;++ky)//codec loop
@@ -398,20 +456,23 @@ static void block_thread(void *param)
 		};
 		int yuv[4]={0};
 		int pred=0, error=0;
+#ifndef DISABLE_RCTSEL
 		const unsigned char *combination=rct_combinations[bestrct];
+#endif
 		for(int kx=args->x1;kx<args->x2;++kx)
 		{
 			int idx=nch*(args->iw*ky+kx);
 			short
-			//	*NNN	=rows[3]+0*4*2,
+				*NNN	=rows[3]+0*4*2,
+				*NNNE	=rows[3]+1*4*2,
 				*NNNEE	=rows[3]+2*4*2,
-			//	*NNWW	=rows[2]-2*4*2,
-			//	*NNW	=rows[2]-1*4*2,
+				*NNWW	=rows[2]-2*4*2,
+				*NNW	=rows[2]-1*4*2,
 				*NN	=rows[2]+0*4*2,
 				*NNE	=rows[2]+1*4*2,
 				*NNEE	=rows[2]+2*4*2,
 			//	*NNEEE	=rows[2]+3*4*2,
-			//	*NWW	=rows[1]-2*4*2,
+				*NWW	=rows[1]-2*4*2,
 				*NW	=rows[1]-1*4*2,
 				*N	=rows[1]+0*4*2,
 				*NE	=rows[1]+1*4*2,
@@ -434,12 +495,60 @@ static void block_thread(void *param)
 				NW=WWW=WW=W=N;
 			else if(kx>args->x2-4)
 				NEEE-=(kx-(args->x2-4))*4*2;
+#if 0
+			int nbypass[3];
+#ifdef __GNUC__
+#pragma GCC unroll 3
+#endif
+			for(int kc=4;kc<4+3;++kc)
+			{
+				//if(2*NW[kc]<N[kc]+W[kc]&&2*NNWW[kc]<NNW[kc]+NWW[kc])
+				//	nbypass[kc-4]=(NW[kc]+NNWW[kc])>>1;
+				//else if(NE[kc]<N[kc]&&NNEE[kc+4]<NNE[kc])
+				//	nbypass[kc-4]=(NE[kc]+NNEE[kc])>>1;
+				//else if(W[kc]<NW[kc]&&WW[kc]<NWW[kc])
+				//	nbypass[kc-4]=(W[kc]+WW[kc])>>1;
+				//else if(2*N[kc]<NW[kc]+NE[kc]&&2*NN[kc]<NNW[kc]+NNE[kc])
+				//	nbypass[kc-4]=(N[kc]+NN[kc])>>1;
+				//else
+					nbypass[kc-4]=W[kc];
+				//	nbypass[kc-4]=(4*(N[kc]+W[kc])+2*(NW[kc]+NE[kc]+NN[kc]+WW[kc])+WWW[kc]+NWW[kc]+NNW[kc]+NNN[kc]+NNE[kc]+NEE[kc]+NEEE[kc]+NNEE[kc])/24;
+				//	nbypass[kc-4]=(2*(N[kc]+W[kc])+NW[kc]+NE[kc]+NN[kc]+WW[kc])>>3;
+			}
+#if 0
+			{
+				int xgrads[]=
+				{
+					abs(W[4+0]-WW[4+0])+abs(WW[4+0]-WWW[4+0])+1,
+					abs(W[4+1]-WW[4+1])+abs(WW[4+1]-WWW[4+1])+1,
+					abs(W[4+2]-WW[4+2])+abs(WW[4+2]-WWW[4+2])+1,
+				};
+				int ygrads[]=
+				{
+					abs(N[4+0]-NN[4+0])+abs(NN[4+0]-NNN[4+0])+1,
+					abs(N[4+1]-NN[4+1])+abs(NN[4+1]-NNN[4+1])+1,
+					abs(N[4+2]-NN[4+2])+abs(NN[4+2]-NNN[4+2])+1,
+				};
+				nbypass[0]=((W[4+0]+WW[4+0]+WWW[4+0])*ygrads[0]+(N[4+0]+NN[4+0]+NNN[4+0])*xgrads[0])/(xgrads[0]+ygrads[0]);
+				nbypass[1]=((W[4+1]+WW[4+1]+WWW[4+1])*ygrads[1]+(N[4+1]+NN[4+1]+NNN[4+1])*xgrads[1])/(xgrads[1]+ygrads[1]);
+				nbypass[2]=((W[4+2]+WW[4+2]+WWW[4+2])*ygrads[2]+(N[4+2]+NN[4+2]+NNN[4+2])*xgrads[2])/(xgrads[2]+ygrads[2]);
+			}
+#endif
+#endif
 			int nbypass[]=
 			{
-				FLOOR_LOG2(W[4+0]+1),
-				FLOOR_LOG2(W[4+1]+1),
-				FLOOR_LOG2(W[4+2]+1),
+				(NE[4+0]+W[4+0])>>1,
+				(NE[4+1]+W[4+1])>>1,
+				(NE[4+2]+W[4+2])>>1,
 			};
+			nbypass[0]+=nbypass[0]<4;
+			nbypass[1]+=nbypass[1]<4;
+			nbypass[2]+=nbypass[2]<4;
+#ifndef ENABLE_NPOT
+			nbypass[0]=FLOOR_LOG2(nbypass[0]);
+			nbypass[1]=FLOOR_LOG2(nbypass[1]);
+			nbypass[2]=FLOOR_LOG2(nbypass[2]);
+#endif
 			ALIGN(16) short preds[8];
 			__m128i mNW	=_mm_loadu_si128((__m128i*)NW);
 			__m128i mN	=_mm_loadu_si128((__m128i*)N);
@@ -452,122 +561,217 @@ static void block_thread(void *param)
 			mp=_mm_min_epi16(mp, mmax);
 			_mm_store_si128((__m128i*)preds, mp);
 #ifdef ENABLE_SSE
-			int *curr_sse[]=
+			//int sse_ctx[][2]=
+			//{
+			//	{abs(N[0]-NW[0]), abs(W[0]-NW[0])},
+			//	{abs(N[1]-NW[1]), abs(W[1]-NW[1])},
+			//	{abs(N[2]-NW[2]), abs(W[2]-NW[2])},
+			//};
+			//sse_ctx[0][0]=FLOOR_LOG2_P1(sse_ctx[0][0]);
+			//sse_ctx[0][1]=FLOOR_LOG2_P1(sse_ctx[0][1]);
+			//sse_ctx[1][0]=FLOOR_LOG2_P1(sse_ctx[1][0]);
+			//sse_ctx[1][1]=FLOOR_LOG2_P1(sse_ctx[1][1]);
+			//sse_ctx[2][0]=FLOOR_LOG2_P1(sse_ctx[2][0]);
+			//sse_ctx[2][1]=FLOOR_LOG2_P1(sse_ctx[2][1]);
+			int *curr_sse1[]=
 			{
-				sse[0][(preds[0]+half*2)>>2],
-				sse[1][(preds[1]+half*2)>>2],
-				sse[2][(preds[2]+half*2)>>2],
+				args->sse1[0][((N[0]-NW[0])>>2)&63][((W[0]-NW[0])>>2)&63],
+				args->sse1[1][((N[1]-NW[1])>>2)&63][((W[1]-NW[1])>>2)&63],
+				args->sse1[2][((N[2]-NW[2])>>2)&63][((W[2]-NW[2])>>2)&63],
 			};
-			//if((unsigned)(preds[0]+half*2)>511||(unsigned)(preds[1]+half*2)>511||(unsigned)(preds[2]+half*2)>511)
-			//	LOG_ERROR("");
-			preds[0]+=curr_sse[0][1]/(curr_sse[0][0]+5);
-			preds[1]+=curr_sse[1][1]/(curr_sse[1][0]+5);
-			preds[2]+=curr_sse[2][1]/(curr_sse[2][0]+5);
+			preds[0]+=curr_sse1[0][1]/(curr_sse1[0][0]+5);
+			preds[1]+=curr_sse1[1][1]/(curr_sse1[1][0]+5);
+			preds[2]+=curr_sse1[2][1]/(curr_sse1[2][0]+5);
+			int *curr_sse2[]=
+			{
+				args->sse2[0][((N[0]+W[0]+(NE[0]-NW[0])/2+HALF_Y*2)>>3)&63][(preds[0]>>2)&63],
+				args->sse2[1][((N[1]+W[1]+(NE[1]-NW[1])/2+HALF_U*2)>>3)&63][(preds[1]>>2)&63],
+				args->sse2[2][((N[2]+W[2]+(NE[2]-NW[2])/2+HALF_V*2)>>3)&63][(preds[2]>>2)&63],
+
+				//args->sse[0][sse_ctx[0][0]][sse_ctx[0][1]],//worse
+				//args->sse[1][sse_ctx[1][0]][sse_ctx[1][1]],
+				//args->sse[2][sse_ctx[2][0]][sse_ctx[2][1]],
+
+				//args->sse[0][(preds[0]+HALF_Y)>>1&127],//worse
+				//args->sse[1][(preds[1]+HALF_U)>>1&127],
+				//args->sse[2][(preds[2]+HALF_V)>>1&127],
+			};
+			preds[0]+=curr_sse2[0][1]/(curr_sse2[0][0]+5);
+			preds[1]+=curr_sse2[1][1]/(curr_sse2[1][0]+5);
+			preds[2]+=curr_sse2[2][1]/(curr_sse2[2][0]+5);
+			//int sse_corr[]=
+			//{
+			//	curr_sse[0][1]/(curr_sse[0][0]+5)+curr_sse[3][1]/(curr_sse[3][0]+5),
+			//	curr_sse[1][1]/(curr_sse[1][0]+5)+curr_sse[4][1]/(curr_sse[4][0]+5),
+			//	curr_sse[2][1]/(curr_sse[2][0]+5)+curr_sse[5][1]/(curr_sse[5][0]+5),
+			//};
+			//preds[0]+=sse_corr[0];
+			//preds[1]+=sse_corr[1];
+			//preds[2]+=sse_corr[2];
 #endif
-			int sym=0, offset;
-//	#define UPDATE_FORMULA(IDX) (MAXVAR(N[IDX], W[IDX])+2*(sym+NE[IDX])+NEE[IDX]+NEEE[IDX])/7	//Formula10
+			int sym=0;
+#ifndef DISABLE_RCTSEL
+			int offset;
+#endif
+	#define UPDATE_FORMULA(IDX) (MAXVAR(WW[IDX], W[IDX])+sym+NE[IDX]+MAXVAR(NEE[IDX], NEEE[IDX]))>>2	//Formula12
+//	#define UPDATE_FORMULA(IDX) (W[IDX]+sym+NE[IDX]+NEEE[IDX])>>2	//Formula8
+//	#define UPDATE_FORMULA(IDX) (MAXVAR(N[IDX], W[IDX])+sym+NE[IDX]+MAXVAR(NEE[IDX], NEEE[IDX]))>>2
+//	#define UPDATE_FORMULA(IDX) (max3(WW[IDX], W[IDX], N[IDX])+sym+NE[IDX]+MAXVAR(NEE[IDX], NEEE[IDX]))>>2
+//	#define UPDATE_FORMULA(IDX) (sum_largest3of7(WW[IDX], W[IDX], NW[IDX], N[IDX], NE[IDX], NEE[IDX], NEEE[IDX])+sym)>>2
+//	#define UPDATE_FORMULA(IDX) (MAXVAR(WW[IDX], W[IDX])+sym+NE[IDX]+NNE[IDX]+NNNE[IDX]+MAXVAR(NEE[IDX], NEEE[IDX]))/6
+//	#define UPDATE_FORMULA(IDX) (MAXVAR(WW[IDX], W[IDX])+sym+NE[IDX]+NNE[IDX]/2+MAXVAR(NEE[IDX], NEEE[IDX]))*2/9
 //	#define UPDATE_FORMULA(IDX) (MAXVAR(N[IDX], W[IDX])+sym+NE[IDX]+NEEE[IDX])>>2		//Formula11
+//	#define UPDATE_FORMULA(IDX) (MAXVAR(N[IDX], W[IDX])+sym+NE[IDX]+NEE[IDX])>>2		//X
+//	#define UPDATE_FORMULA(IDX) (MAXVAR(N[IDX], W[IDX])+2*(sym+NE[IDX])+NEE[IDX]+NEEE[IDX])/7	//Formula10
 //	#define UPDATE_FORMULA(IDX) (NE[IDX]>sym?sym+2*NE[IDX]+NEE[IDX]:W[IDX]+2*sym+NE[IDX])>>2//X
-	#define UPDATE_FORMULA(IDX) (W[IDX]+sym+NE[IDX]+NEEE[IDX])>>2	//Formula8
 //	#define UPDATE_FORMULA(IDX) (sym+NE[IDX]+NEE[IDX]+NEEE[IDX])>>2
 //	#define UPDATE_FORMULA(IDX) (2*W[IDX]+sym+NEEE[IDX])>>2		//Formula1
 //	#define UPDATE_FORMULA(IDX) (W[IDX]+sym+NEEE[IDX])/3
 //	#define UPDATE_FORMULA(IDX) (WWW[IDX]+5*WW[IDX]+10*(W[IDX]+sym)+NE[IDX])/27	//Formula5	X
+//	#define UPDATE_FORMULA(IDX) sym
 			if(args->fwd)
 			{
+#ifndef DISABLE_RCTSEL
 				yuv[0]=args->src[idx+combination[3+0]]-128;
 				yuv[1]=args->src[idx+combination[3+1]]-128;
 				yuv[2]=args->src[idx+combination[3+2]]-128;
+#else
+				yuv[0]=args->src[idx+1]-128;
+				yuv[1]=args->src[idx+2]-128;
+				yuv[2]=args->src[idx+0]-128;
+
+				//Pei09 RCT		b-=(87*r+169*g+128)>>8; r-=g; g+=(86*r+29*b+128)>>8;
+				yuv[1]-=(87*yuv[2]+169*yuv[0]+128)>>8;
+				yuv[2]-=yuv[0];
+				yuv[0]+=(86*yuv[2]+29*yuv[1]+128)>>8;
+
+				//J2K RCT
+			//	yuv[1]-=yuv[0];
+			//	yuv[2]-=yuv[0];
+			//	yuv[0]+=(yuv[1]+yuv[2])>>2;
+#endif
 
 				//enc Y
 				pred=preds[0];
 				error=yuv[0]-pred;
 				{
-					int upred=half-abs(pred), aval=abs(error);
+					int upred=HALF_Y-abs(pred), aval=abs(error);
 					if(aval<=upred)
 					{
 						sym=error;
-#ifdef ENABLE_BIASCORR
-						{
-							int negmask=-((ibias_corr<0)&(sym!=-half));//sign is flipped if SSE correction was negative, to skew the histogram
-							sym^=negmask;
-							sym-=negmask;
-						}
-#endif
+//#if defined ENABLE_SSE && defined ENABLE_SSE_SKEW
+//						{
+//							int negmask=-((sse_corr[0]<0)&(sym!=-HALF_Y));//sign is flipped if SSE correction was negative, to skew the signal
+//							sym^=negmask;
+//							sym-=negmask;
+//						}
+//#endif
 						sym=sym<<1^sym>>31;//pack sign
 					}
 					else
 						sym=upred+aval;//error sign is known
 				}
+#ifdef ENABLE_NPOT
+				gr_enc_NPOT(&ec, sym, nbypass[0]);
+#else
 				gr_enc(&ec, sym, nbypass[0]);
+#endif
 				curr[0]=yuv[0];
 				curr[4]=UPDATE_FORMULA(4);
 				
 				//enc U
+#ifndef DISABLE_RCTSEL
 				offset=yuv[combination[6]];
 				pred=preds[1]+offset;
-				CLAMP2_32(pred, pred, -half, half-1);
+				CLAMP2(pred, -HALF_U, HALF_U-1);
+#else
+				pred=preds[1];
+#endif
 				error=yuv[1]-pred;
 				{
-					int upred=half-abs(pred), aval=abs(error);
+					int upred=HALF_U-abs(pred), aval=abs(error);
 					if(aval<=upred)
 					{
 						sym=error;
-#ifdef ENABLE_BIASCORR
-						{
-							int negmask=-((ibias_corr<0)&(sym!=-half));//sign is flipped if SSE correction was negative, to skew the histogram
-							sym^=negmask;
-							sym-=negmask;
-						}
-#endif
+//#if defined ENABLE_SSE && defined ENABLE_SSE_SKEW
+//						{
+//							int negmask=-((sse_corr[1]<0)&(sym!=-HALF_U));//sign is flipped if SSE correction was negative, to skew the signal
+//							sym^=negmask;
+//							sym-=negmask;
+//						}
+//#endif
 						sym=sym<<1^sym>>31;//pack sign
 					}
 					else
 						sym=upred+aval;//error sign is known
 				}
+#ifdef ENABLE_NPOT
+				gr_enc_NPOT(&ec, sym, nbypass[1]);
+#else
 				gr_enc(&ec, sym, nbypass[1]);
+#endif
+#ifndef DISABLE_RCTSEL
 				curr[1]=yuv[1]-offset;
+#else
+				curr[1]=yuv[1];
+#endif
 				curr[5]=UPDATE_FORMULA(5);
 
 				//enc V
+#ifndef DISABLE_RCTSEL
 				offset=(yuv[combination[7]]+yuv[combination[8]])>>combination[9];
 				pred=preds[2]+offset;
-				CLAMP2_32(pred, pred, -half, half-1);
+				CLAMP2(pred, -HALF_V, HALF_V-1);
+#else
+				pred=preds[2];
+#endif
 				error=yuv[2]-pred;
 				{
-					int upred=half-abs(pred), aval=abs(error);
+					int upred=HALF_V-abs(pred), aval=abs(error);
 					if(aval<=upred)
 					{
 						sym=error;
-#ifdef ENABLE_BIASCORR
-						{
-							int negmask=-((ibias_corr<0)&(sym!=-half));//sign is flipped if SSE correction was negative, to skew the histogram
-							sym^=negmask;
-							sym-=negmask;
-						}
-#endif
+//#if defined ENABLE_SSE && defined ENABLE_SSE_SKEW
+//						{
+//							int negmask=-((sse_corr[2]<0)&(sym!=-HALF_V));//sign is flipped if SSE correction was negative, to skew the signal
+//							sym^=negmask;
+//							sym-=negmask;
+//						}
+//#endif
 						sym=sym<<1^sym>>31;//pack sign
 					}
 					else
 						sym=upred+aval;//error sign is known
 				}
+#ifdef ENABLE_NPOT
+				gr_enc_NPOT(&ec, sym, nbypass[2]);
+#else
 				gr_enc(&ec, sym, nbypass[2]);
+#endif
+#ifndef DISABLE_RCTSEL
 				curr[2]=yuv[2]-offset;
+#else
+				curr[2]=yuv[2];
+#endif
 				curr[6]=UPDATE_FORMULA(6);
 			}
 			else
 			{
 				//dec Y
 				pred=preds[0];
+#ifdef ENABLE_NPOT
+				sym=gr_dec_NPOT(&ec, nbypass[0]);
+#else
 				sym=gr_dec(&ec, nbypass[0]);
+#endif
 				{
-					int upred=half-abs(pred), negmask=0;
+					int upred=HALF_Y-abs(pred), negmask=0;
 					if(sym<=(upred<<1))
 					{
 						error=sym>>1^-(sym&1);
-#ifdef ENABLE_BIASCORR
-						negmask=-((ibias_corr<0)&(error!=-half));
-#endif
+//#if defined ENABLE_SSE && defined ENABLE_SSE_SKEW
+//						negmask=-((sse_corr[0]<0)&(error!=-HALF_Y));
+//#endif
 					}
 					else
 					{
@@ -580,19 +784,27 @@ static void block_thread(void *param)
 				curr[0]=yuv[0]=error+pred;
 				curr[4]=UPDATE_FORMULA(4);
 
-				//decU
+				//dec U
+#ifndef DISABLE_RCTSEL
 				offset=yuv[combination[6]];
 				pred=preds[1]+offset;
-				CLAMP2_32(pred, pred, -half, half-1);
+				CLAMP2(pred, -HALF_U, HALF_U-1);
+#else
+				pred=preds[1];
+#endif
+#ifdef ENABLE_NPOT
+				sym=gr_dec_NPOT(&ec, nbypass[1]);
+#else
 				sym=gr_dec(&ec, nbypass[1]);
+#endif
 				{
-					int upred=half-abs(pred), negmask=0;
+					int upred=HALF_U-abs(pred), negmask=0;
 					if(sym<=(upred<<1))
 					{
 						error=sym>>1^-(sym&1);
-#ifdef ENABLE_BIASCORR
-						negmask=-((ibias_corr<0)&(error!=-half));
-#endif
+//#if defined ENABLE_SSE && defined ENABLE_SSE_SKEW
+//						negmask=-((sse_corr[1]<0)&(error!=-HALF_U));
+//#endif
 					}
 					else
 					{
@@ -603,22 +815,34 @@ static void block_thread(void *param)
 					error-=negmask;
 				}
 				yuv[1]=error+pred;
+#ifndef DISABLE_RCTSEL
 				curr[1]=yuv[1]-offset;
+#else
+				curr[1]=yuv[1];
+#endif
 				curr[5]=UPDATE_FORMULA(5);
 
 				//dec V
+#ifndef DISABLE_RCTSEL
 				offset=(yuv[combination[7]]+yuv[combination[8]])>>combination[9];
 				pred=preds[2]+offset;
-				CLAMP2_32(pred, pred, -half, half-1);
+				CLAMP2(pred, -HALF_V, HALF_V-1);
+#else
+				pred=preds[2];
+#endif
+#ifdef ENABLE_NPOT
+				sym=gr_dec_NPOT(&ec, nbypass[2]);
+#else
 				sym=gr_dec(&ec, nbypass[2]);
+#endif
 				{
-					int upred=half-abs(pred), negmask=0;
+					int upred=HALF_V-abs(pred), negmask=0;
 					if(sym<=(upred<<1))
 					{
 						error=sym>>1^-(sym&1);
-#ifdef ENABLE_BIASCORR
-						negmask=-((ibias_corr<0)&(error!=-half));
-#endif
+//#if defined ENABLE_SSE && defined ENABLE_SSE_SKEW
+//						negmask=-((sse_corr[2]<0)&(error!=-HALF_V));
+//#endif
 					}
 					else
 					{
@@ -629,12 +853,31 @@ static void block_thread(void *param)
 					error-=negmask;
 				}
 				yuv[2]=error+pred;
+#ifndef DISABLE_RCTSEL
 				curr[2]=yuv[2]-offset;
+#else
+				curr[2]=yuv[2];
+#endif
 				curr[6]=UPDATE_FORMULA(6);
 				
+#ifndef DISABLE_RCTSEL
 				args->dst[idx+combination[3+0]]=yuv[0]+128;
 				args->dst[idx+combination[3+1]]=yuv[1]+128;
 				args->dst[idx+combination[3+2]]=yuv[2]+128;
+#else
+				//Pei09 iRCT
+				yuv[0]-=(86*yuv[2]+29*yuv[1]+128)>>8;
+				yuv[2]+=yuv[0];
+				yuv[1]+=(87*yuv[2]+169*yuv[0]+128)>>8;
+
+				//J2K iRCT
+			//	yuv[0]-=(yuv[1]+yuv[2])>>2;
+			//	yuv[2]+=yuv[0];
+			//	yuv[1]+=yuv[0];
+				args->dst[idx+1]=yuv[0]+128;
+				args->dst[idx+2]=yuv[1]+128;
+				args->dst[idx+0]=yuv[2]+128;
+#endif
 #ifdef ENABLE_GUIDE
 				if(args->test&&memcmp(args->dst+idx, args->src+idx, sizeof(char)*nch))
 				{
@@ -646,12 +889,18 @@ static void block_thread(void *param)
 #endif
 			}
 #ifdef ENABLE_SSE
-			++curr_sse[0][0];
-			++curr_sse[1][0];
-			++curr_sse[2][0];
-			curr_sse[0][1]+=curr[0]-preds[0];
-			curr_sse[1][1]+=curr[1]-preds[1];
-			curr_sse[2][1]+=curr[2]-preds[2];
+			++curr_sse1[0][0];
+			++curr_sse1[1][0];
+			++curr_sse1[2][0];
+			++curr_sse2[0][0];
+			++curr_sse2[1][0];
+			++curr_sse2[2][0];
+			curr_sse1[0][1]+=curr[0]-preds[0];
+			curr_sse1[1][1]+=curr[1]-preds[1];
+			curr_sse1[2][1]+=curr[2]-preds[2];
+			curr_sse2[0][1]+=curr[0]-preds[0];
+			curr_sse2[1][1]+=curr[1]-preds[1];
+			curr_sse2[2][1]+=curr[2]-preds[2];
 #endif
 			rows[0]+=4*2;
 			rows[1]+=4*2;
@@ -677,9 +926,11 @@ int c05_codec(const char *srcfn, const char *dstfn)
 	ptrdiff_t start, memusage, argssize;
 	ThreadArgs *args;
 	int test, fwd;
-	double esize;
 	int usize;
+#ifndef DISABLE_RCTSEL
+	double esize;
 	double t_analysis=0;
+#endif
 	
 	t0=time_sec();
 	src=load_file(srcfn, 1, 3, 1);
@@ -705,7 +956,7 @@ int c05_codec(const char *srcfn, const char *dstfn)
 	
 	if(test)
 		printf("%s \"%s\"  WH %d*%d\n", CODECNAME, srcfn, iw, ih);
-#if 1
+#if 0
 	if(test)
 	{
 		volatile long long sum=0;
@@ -748,7 +999,9 @@ int c05_codec(const char *srcfn, const char *dstfn)
 		LOG_ERROR("Alloc error");
 		return 1;
 	}
+#ifndef DISABLE_RCTSEL
 	esize=0;
+#endif
 	memusage+=argssize;
 	memset(args, 0, argssize);
 	if(fwd)
@@ -841,6 +1094,7 @@ int c05_codec(const char *srcfn, const char *dstfn)
 				for(int kt2=0;kt2<nthreads2;++kt2)
 				{
 					ThreadArgs *arg=args+kt2;
+#ifndef DISABLE_RCTSEL
 					if(test)
 					{
 						int blocksize=((arg->x2-arg->x1)*(arg->y2-arg->y1)*nch*depth+7)>>3;
@@ -890,6 +1144,7 @@ int c05_codec(const char *srcfn, const char *dstfn)
 							abac_csizes[k]+=arg->abac_csizes[k];
 #endif
 					}
+#endif
 					memcpy(dst->data+start+sizeof(int)*((ptrdiff_t)kt+kt2), &arg->list.nbytes, sizeof(int));
 					blist_appendtoarray(&arg->list, &dst);
 					blist_clear(&arg->list);
@@ -903,8 +1158,10 @@ int c05_codec(const char *srcfn, const char *dstfn)
 			t0=time_sec()-t0;
 			if(fwd)
 			{
-				printf("A %16.6lf sec  %16.6lf MB/s\n", t_analysis, usize/(t_analysis*1024*1024));
+			//	printf("A %16.6lf sec  %16.6lf MB/s\n", t_analysis, usize/(t_analysis*1024*1024));
+#ifndef DISABLE_RCTSEL
 				printf("Best %15.2lf (%+13.2lf) bytes\n", esize, csize-esize);
+#endif
 				printf("%12td/%12td  %10.6lf%%  %10lf\n", csize, usize, 100.*csize/usize, (double)usize/csize);
 				printf("Mem usage: ");
 				print_size((double)memusage, 8, 4, 0, 0);

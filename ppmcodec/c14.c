@@ -958,6 +958,7 @@ static void block_thread(void *param)
 	A2CTX(4, 15, 0+1+32+32+128+512,		pred+128)\
 	A2CTX(5, 15, 0+1+32+32+128+512+256,	((kc2?curr[kc2-1]:(N[kc2+1]+W[kc2+1])>>1)+128)&255)\
 	A2CTX(6, 15, 0+1+32+32+128+512+256+256,	(NN[kc2+1]<0)<<7|(WW[kc2+1]<0)<<6|(NE[kc2+1]<0)<<5|(NW[kc2+1]<0)<<4|(W[kc2+1]>>6&3)<<2|(N[kc2+1]>>6&3))
+//	A2CTX(2, 16, 0,				kc?(ky&1)<<1|(kx&1):0)
 #define A2CTX(SH, MIXSH, OFFSET, EXPR) MIXSH,
 				ALIGN(32) static const long long g_mixsh[]={A2CTXLIST};
 #undef  A2CTX

@@ -9,7 +9,7 @@ static const char file[]=__FILE__;
 
 
 #ifndef CODEC_FUNC
-#define CODEC_FUNC c14_codec
+#define CODEC_FUNC c05_codec
 #endif
 
 
@@ -126,6 +126,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-LPCB-ppm/PIA13912.ppm"
 	//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
 	//	"D:/ML/dataset-kodak-ppm/kodim13.c01"
+	//	"C:/dataset-CLIC303-ppm/2048x1320_abigail-keenan-27293.ppm"
 		"D:/ML/dataset-CLIC303-ppm/2048x1320_lucas-lof-388.ppm"
 	//	"C:/dataset-CLIC303-ppm/2048x1320_cosmic-timetraveler-29758.ppm"
 	//	"C:/dataset-CLIC303-ppm/2048x1320_rosan-harmens-18703.ppm"
@@ -142,6 +143,9 @@ int main(int argc, char **argv)
 		0
 	//	"D:/ML/dataset-kodak-ppm/kodim13.c01.ppm"
 		;
+
+//	c15_codec("D:/ML/kodim13.ppm", "D:/ML/kodim13.lsim");
+//	c15_codec("D:/ML/kodim13.lsim", "D:/ML/kodim13_dec.ppm");
 
 //	c12_codec("D:/ML/kodim13.ppm", "D:/ML/kodim13.lsim");
 //	c12_codec("D:/ML/kodim13.lsim", "D:/ML/kodim13_dec.ppm");
