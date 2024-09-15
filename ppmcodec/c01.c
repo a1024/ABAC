@@ -16,7 +16,7 @@ static const char file[]=__FILE__;
 
 #define BLOCKSIZE 512
 #define MAXPRINTEDBLOCKS 10
-#define CLEVELS 9
+#define CLEVELS 18	//9
 #define MIXBITS 14
 
 #define OCHLIST\
@@ -498,7 +498,7 @@ static void block_thread(void *param)
 	//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
 	);
 	__m128i cmax=_mm_set1_epi16(CLEVELS-2);
-	__m128i one=_mm_set1_epi16(1);
+	//__m128i one=_mm_set1_epi16(1);
 	//__m128i amax=_mm_set1_epi16(1<<MIXBITS);
 	__m128i predmaskW=_mm_set_epi16(
 		0, 0, 0, 0, 0,
@@ -649,8 +649,8 @@ static void block_thread(void *param)
 			__m128i mWWW	=_mm_load_si128((__m128i*)WWW);
 			__m128i mWW	=_mm_load_si128((__m128i*)WW);
 			__m128i mW	=_mm_load_si128((__m128i*)W);
-			__m128i t0=_mm_abs_epi16(_mm_sub_epi16(mW, mWW));
-			__m128i t1=_mm_abs_epi16(_mm_sub_epi16(mN, mNN));
+			__m128i t0=_mm_abs_epi16(_mm_sub_epi16(mW, mWW));//abs(W-WW)+abs(N-NW)+abs(NE-N)+abs(eWWW)+abs(eWW)+2*abs(eW)
+			__m128i t1=_mm_abs_epi16(_mm_sub_epi16(mN, mNN));//abs(N-NN)+abs(W-NW)+abs(NE-NNE)+abs(eNNN)+abs(eNN)+2*abs(eN)
 			t0=_mm_add_epi16(t0, _mm_abs_epi16(_mm_sub_epi16(mN, mNW)));
 			t1=_mm_add_epi16(t1, _mm_abs_epi16(_mm_sub_epi16(mW, mNW)));
 			t0=_mm_add_epi16(t0, _mm_abs_epi16(_mm_sub_epi16(mNE, mN)));
@@ -661,19 +661,61 @@ static void block_thread(void *param)
 			t1=_mm_add_epi16(t1, _mm_shuffle_epi8(_mm_abs_epi16(mNN), swap16));
 			t0=_mm_add_epi16(t0, _mm_slli_epi16(_mm_shuffle_epi8(_mm_abs_epi16(mW), swap16), 1));
 			t1=_mm_add_epi16(t1, _mm_slli_epi16(_mm_shuffle_epi8(_mm_abs_epi16(mN), swap16), 1));
-			t0=_mm_slli_epi16(t0, 2);
-			t1=_mm_slli_epi16(t1, 2);//{0, 2, 4, 8, 10, 12}
-			t0=_mm_add_epi16(t0, one);
-			t1=_mm_add_epi16(t1, one);
-			ALIGN(16) short grads[16];
-			_mm_store_si128((__m128i*)grads+0, t0);
+		//	t0=_mm_slli_epi16(t0, 2);
+		//	t1=_mm_slli_epi16(t1, 2);
+		//	t0=_mm_add_epi16(t0, one);
+		//	t1=_mm_add_epi16(t1, one);
+			ALIGN(16) unsigned short grads[16];
+			_mm_store_si128((__m128i*)grads+0, t0);//{0, 2, 4, 8, 10, 12}
 			_mm_store_si128((__m128i*)grads+1, t1);
+#if 1
+			ALIGN(16) int g2[]=
+			{
+				grads[ 0]*grads[ 0]+1,
+				grads[ 2]*grads[ 2]+1,
+				grads[ 4]*grads[ 4]+1,
+				grads[ 8]*grads[ 8]+1,
+				grads[10]*grads[10]+1,
+				grads[12]*grads[12]+1,
+			};
+			grads[ 8]=FLOOR_LOG2(g2[0]);
+			grads[ 9]=FLOOR_LOG2(g2[1]);
+			grads[10]=FLOOR_LOG2(g2[2]);
+			grads[11]=FLOOR_LOG2(g2[3]);
+			grads[12]=FLOOR_LOG2(g2[4]);
+			grads[13]=FLOOR_LOG2(g2[5]);
+			//ALIGN(32) long long alphas[]=//((x<<a)+(1<<b>>1))>>b = x<<(a-b)	a>=b
+			//{
+			//	1<<MIXBITS>>2,
+			//	1<<MIXBITS>>2,
+			//	1<<MIXBITS>>2,
+			//	0,
+			//	1<<MIXBITS>>2,
+			//	1<<MIXBITS>>2,
+			//	1<<MIXBITS>>2,
+			//	0,
+			//	//(g2[0]-(1<<grads[ 8]))<<(24-grads[ 8])>>(24-MIXBITS),//yax
+			//	//(g2[1]-(1<<grads[ 9]))<<(24-grads[ 9])>>(24-MIXBITS),//uax
+			//	//(g2[2]-(1<<grads[10]))<<(24-grads[10])>>(24-MIXBITS),//vax
+			//	//0,
+			//	//(g2[3]-(1<<grads[11]))<<(24-grads[11])>>(24-MIXBITS),//yay
+			//	//(g2[4]-(1<<grads[12]))<<(24-grads[12])>>(24-MIXBITS),//uay
+			//	//(g2[5]-(1<<grads[13]))<<(24-grads[13])>>(24-MIXBITS),//vay
+			//	//0,
+			//};
+#else
+			grads[0]=grads[ 0]*grads[ 0]+1;//vx
+			grads[1]=grads[ 2]*grads[ 2]+1;
+			grads[2]=grads[ 4]*grads[ 4]+1;
+			grads[3]=grads[ 8]*grads[ 8]+1;//vy
+			grads[4]=grads[10]*grads[10]+1;
+			grads[5]=grads[12]*grads[12]+1;//{0, 1, 2, 3, 4, 5}
 		//	grads[0]=grads[ 0];//vx
-			grads[1]=grads[ 2];
-			grads[2]=grads[ 4];
-			grads[3]=grads[ 8];//vy
-			grads[4]=grads[10];
-			grads[5]=grads[12];//{0, 1, 2, 3, 4, 5}
+		//	grads[1]=grads[ 2];
+		//	grads[2]=grads[ 4];
+		//	grads[3]=grads[ 8];//vy
+		//	grads[4]=grads[10];
+		//	grads[5]=grads[12];//{0, 1, 2, 3, 4, 5}
 			grads[ 8]=FLOOR_LOG2(grads[0]);
 			grads[ 9]=FLOOR_LOG2(grads[1]);
 			grads[10]=FLOOR_LOG2(grads[2]);
@@ -684,15 +726,25 @@ static void block_thread(void *param)
 			//	printf("");
 			ALIGN(32) long long alphas[]=//((x<<a)+(1<<b>>1))>>b = x<<(a-b)	a>=b
 			{
-				(grads[0]-(1<<grads[ 8]))<<(MIXBITS-grads[ 8]),//yax
-				(grads[1]-(1<<grads[ 9]))<<(MIXBITS-grads[ 9]),//uax
-				(grads[2]-(1<<grads[10]))<<(MIXBITS-grads[10]),//vax
+				(grads[0]-(1<<grads[ 8]))<<(24-grads[ 8])>>(24-MIXBITS),//yax
+				(grads[1]-(1<<grads[ 9]))<<(24-grads[ 9])>>(24-MIXBITS),//uax
+				(grads[2]-(1<<grads[10]))<<(24-grads[10])>>(24-MIXBITS),//vax
 				0,
-				(grads[3]-(1<<grads[11]))<<(MIXBITS-grads[11]),//yay
-				(grads[4]-(1<<grads[12]))<<(MIXBITS-grads[12]),//uay
-				(grads[5]-(1<<grads[13]))<<(MIXBITS-grads[13]),//vay
+				(grads[3]-(1<<grads[11]))<<(24-grads[11])>>(24-MIXBITS),//yay
+				(grads[4]-(1<<grads[12]))<<(24-grads[12])>>(24-MIXBITS),//uay
+				(grads[5]-(1<<grads[13]))<<(24-grads[13])>>(24-MIXBITS),//vay
 				0,
 			};
+#endif
+			//if(
+			//	alphas[0]<0||alphas[0]>=(1<<MIXBITS)||
+			//	alphas[1]<0||alphas[1]>=(1<<MIXBITS)||
+			//	alphas[2]<0||alphas[2]>=(1<<MIXBITS)||
+			//	alphas[3]<0||alphas[3]>=(1<<MIXBITS)||
+			//	alphas[4]<0||alphas[4]>=(1<<MIXBITS)||
+			//	alphas[5]<0||alphas[5]>=(1<<MIXBITS)
+			//)
+			//	printf("");
 			t1=_mm_load_si128((__m128i*)grads+1);
 			t1=_mm_min_epi16(t1, cmax);
 			_mm_store_si128((__m128i*)grads+1, t1);
@@ -772,6 +824,18 @@ static void block_thread(void *param)
 					ctxptr[11][args->tlevels],//v11
 					0,
 				};
+#if 1
+				__m256i v00=_mm256_load_si256((__m256i*)temp+0);
+				__m256i v01=_mm256_load_si256((__m256i*)temp+1);
+				__m256i v10=_mm256_load_si256((__m256i*)temp+2);
+				__m256i v11=_mm256_load_si256((__m256i*)temp+3);
+				v00=_mm256_add_epi32(v00, v01);
+				v00=_mm256_add_epi32(v00, v10);
+				v00=_mm256_add_epi32(v00, v11);
+			//	v00=_mm256_srli_epi32(v00, 1);
+				v00=_mm256_add_epi32(v00, mtlevels);
+				_mm256_store_si256((__m256i*)dens, v00);
+#else
 				__m256i ax=_mm256_load_si256((__m256i*)alphas+0);
 				__m256i ay=_mm256_load_si256((__m256i*)alphas+1);
 				__m256i v00=_mm256_load_si256((__m256i*)temp+0);
@@ -796,6 +860,7 @@ static void block_thread(void *param)
 				v00=_mm256_srli_epi32(v00, MIXBITS-1);
 				v00=_mm256_add_epi32(v00, mtlevels);
 				_mm256_store_si256((__m256i*)dens, v00);
+#endif
 			}
 #else
 			int dens[]=
@@ -848,8 +913,8 @@ static void block_thread(void *param)
 				int *curr_hist01=ctxptr[kc<<2|1];
 				int *curr_hist10=ctxptr[kc<<2|2];
 				int *curr_hist11=ctxptr[kc<<2|3];
-				__m256i ax=_mm256_set1_epi64x(alphas[kc+0]);
-				__m256i ay=_mm256_set1_epi64x(alphas[kc+4]);
+			//	__m256i ax=_mm256_set1_epi64x(alphas[kc+0]);
+			//	__m256i ay=_mm256_set1_epi64x(alphas[kc+4]);
 			//	int alphax=(int)alphas[kc+0];
 			//	int alphay=(int)alphas[kc+4];
 				pred=preds[kc2];
@@ -938,6 +1003,12 @@ static void block_thread(void *param)
 						__m256i v01=_mm256_cvtepi32_epi64(_mm_loadu_si128((__m128i*)(curr_hist01+ks)));
 						__m256i v10=_mm256_cvtepi32_epi64(_mm_loadu_si128((__m128i*)(curr_hist10+ks)));
 						__m256i v11=_mm256_cvtepi32_epi64(_mm_loadu_si128((__m128i*)(curr_hist11+ks)));
+#if 1
+						v00=_mm256_add_epi32(v00, v01);
+						v00=_mm256_add_epi32(v00, v10);
+						v00=_mm256_add_epi32(v00, v11);
+					//	v00=_mm256_srli_epi32(v00, 1);
+#else
 						__m256i tmp0=_mm256_sub_epi32(v01, v00);
 						__m256i tmp1=_mm256_sub_epi32(v11, v10);
 						tmp0=_mm256_mul_epi32(tmp0, ax);
@@ -954,6 +1025,7 @@ static void block_thread(void *param)
 						tmp0=_mm256_slli_epi32(tmp0, MIXBITS);
 						v00=_mm256_add_epi64(v00, tmp0);
 						v00=_mm256_srli_epi32(v00, MIXBITS-1);
+#endif
 						v00=_mm256_add_epi32(v00, _mm256_set1_epi64x(1));
 						_mm256_store_si256((__m256i*)freq2, v00);
 					//	MIX4(freq2[0], ks+0);
@@ -1009,6 +1081,12 @@ static void block_thread(void *param)
 						__m256i v01=_mm256_cvtepi32_epi64(_mm_loadu_si128((__m128i*)(curr_hist01+token)));
 						__m256i v10=_mm256_cvtepi32_epi64(_mm_loadu_si128((__m128i*)(curr_hist10+token)));
 						__m256i v11=_mm256_cvtepi32_epi64(_mm_loadu_si128((__m128i*)(curr_hist11+token)));
+#if 1
+						v00=_mm256_add_epi32(v00, v01);
+						v00=_mm256_add_epi32(v00, v10);
+						v00=_mm256_add_epi32(v00, v11);
+					//	v00=_mm256_srli_epi32(v00, 1);
+#else
 						__m256i tmp0=_mm256_sub_epi32(v01, v00);
 						__m256i tmp1=_mm256_sub_epi32(v11, v10);
 						tmp0=_mm256_mul_epi32(tmp0, ax);
@@ -1025,6 +1103,7 @@ static void block_thread(void *param)
 						tmp0=_mm256_slli_epi32(tmp0, MIXBITS);
 						v00=_mm256_add_epi64(v00, tmp0);
 						v00=_mm256_srli_epi32(v00, MIXBITS-1);
+#endif
 						v00=_mm256_add_epi32(v00, _mm256_set1_epi64x(1));
 						_mm256_store_si256((__m256i*)freq2, v00);
 					//	MIX4(freq2[0], token+0);
@@ -1126,6 +1205,16 @@ static void block_thread(void *param)
 				curr[kc2+0]-=offset;
 				{
 #if 1
+#if 1
+					curr_hist00[token]+=8;
+					curr_hist01[token]+=8;
+					curr_hist10[token]+=8;
+					curr_hist11[token]+=8;
+					int s00=curr_hist00[args->tlevels]+=8;
+					int s01=curr_hist01[args->tlevels]+=8;
+					int s10=curr_hist10[args->tlevels]+=8;
+					int s11=curr_hist11[args->tlevels]+=8;
+#else
 					ALIGN(32) long long inc[4];
 				//	__m256i axmask=_mm256_set_epi64x(0, ~0ULL, 0, ~0ULL);
 				//	__m256i aymask=_mm256_set_epi64x(0, 0, ~0ULL, ~0ULL);
@@ -1146,6 +1235,7 @@ static void block_thread(void *param)
 					int s01=curr_hist01[args->tlevels]+=(int)inc[1];
 					int s10=curr_hist10[args->tlevels]+=(int)inc[2];
 					int s11=curr_hist11[args->tlevels]+=(int)inc[3];
+#endif
 					if(s00>=10752)//4296	6144	10752	65536
 					{
 						int sum=0;

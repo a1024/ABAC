@@ -9,6 +9,7 @@ static const char file[]=__FILE__;
 //	#define ENABLE_GUIDE
 //	#define DISABLE_MT
 
+	#define ENABLE_AV2	//good
 	#define ENABLE_SSE	//good with MT
 //	#define ENABLE_SSE_SKEW	//bad
 //	#define DISABLE_RCTSEL	//causalRCTSEL > RCT,  disabling RCTSEL breaks SSE
@@ -107,6 +108,7 @@ static const char *rct_names[RCT_COUNT]=
 };
 
 #define PREDLIST\
+	PRED(AV2)\
 	PRED(CG)
 typedef enum _PredIndex
 {
@@ -212,6 +214,7 @@ static void block_thread(void *param)
 
 			__m256i amin=_mm256_set1_epi16(-128);
 			__m256i amax=_mm256_set1_epi16(127);
+			__m256i amag=_mm256_set1_epi16(255);
 			__m128i half8=_mm_set1_epi8(128);
 			__m128i shuf=_mm_set_epi8(
 				-1,
@@ -260,9 +263,8 @@ static void block_thread(void *param)
 #define UPDATE(PREDIDX, IDX0, IDX1, IDX2, IDX3, IDX4, IDX5, IDX6, IDX7, IDX8, IDX9, IDXA, IDXB, IDXC, IDXD, IDXE)\
 	do\
 	{\
-		pred=_mm256_slli_epi16(pred, 8);\
-		pred=_mm256_srai_epi16(pred, 8);\
 		pred=_mm256_sub_epi16(pred, amin);\
+		pred=_mm256_and_si256(pred, amag);\
 		_mm256_store_si256((__m256i*)result, pred);\
 		++args->hist[(IDX0*PRED_COUNT+PREDIDX)<<8|result[0x0]];\
 		++args->hist[(IDX1*PRED_COUNT+PREDIDX)<<8|result[0x1]];\
@@ -351,6 +353,62 @@ static void block_thread(void *param)
 					OCH_R2, OCH_G2, OCH_B2,
 					OCH_R2, OCH_G2, OCH_B2
 				);
+#ifdef ENABLE_AV2
+				//(N+W)/2
+				pred=_mm256_srai_epi16(_mm256_add_epi16(nb0[NB_N], nb0[NB_W]), 1);
+
+				pred=_mm256_sub_epi16(nb0[NB_curr], pred);
+				UPDATE(
+					PRED_AV2,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B
+				);
+				pred=_mm256_srai_epi16(_mm256_add_epi16(nb2[NB_N], nb2[NB_W]), 1);
+
+				pred=_mm256_add_epi16(pred, nb1[NB_curr]);
+				pred=_mm256_max_epi16(pred, amin);
+				pred=_mm256_min_epi16(pred, amax);
+				pred=_mm256_sub_epi16(nb0[NB_curr], pred);
+				UPDATE(
+					PRED_AV2,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR
+				);
+				pred=_mm256_srai_epi16(_mm256_add_epi16(nb3[NB_N], nb3[NB_W]), 1);
+
+				pred=_mm256_add_epi16(pred, nb0[NB_curr]);
+				pred=_mm256_max_epi16(pred, amin);
+				pred=_mm256_min_epi16(pred, amax);
+				pred=_mm256_sub_epi16(nb1[NB_curr], pred);
+				UPDATE(
+					PRED_AV2,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB
+				);
+				pred=_mm256_srai_epi16(_mm256_add_epi16(nb5[NB_N], nb5[NB_W]), 1);
+
+				pred=_mm256_add_epi16(pred, nb4[NB_curr]);
+				pred=_mm256_max_epi16(pred, amin);
+				pred=_mm256_min_epi16(pred, amax);
+				pred=_mm256_sub_epi16(nb0[NB_curr], pred);
+				UPDATE(
+					PRED_AV2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2
+				);
+#endif
 			}
 		}
 		for(int kc=0;kc<OCH_COUNT*PRED_COUNT;++kc)
@@ -431,6 +489,9 @@ static void block_thread(void *param)
 		gr_enc_init(&ec, &args->list);
 #ifndef DISABLE_RCTSEL
 		gr_enc_NPOT(&ec, bestrct, RCT_COUNT);
+		gr_enc_NPOT(&ec, predidx[0], PRED_COUNT);
+		gr_enc_NPOT(&ec, predidx[1], PRED_COUNT);
+		gr_enc_NPOT(&ec, predidx[2], PRED_COUNT);
 #endif
 	}
 	else
@@ -438,6 +499,9 @@ static void block_thread(void *param)
 		gr_dec_init(&ec, args->decstart, args->decend);
 #ifndef DISABLE_RCTSEL
 		bestrct=gr_dec_NPOT(&ec, RCT_COUNT);
+		predidx[0]=gr_dec_NPOT(&ec, PRED_COUNT);
+		predidx[1]=gr_dec_NPOT(&ec, PRED_COUNT);
+		predidx[2]=gr_dec_NPOT(&ec, PRED_COUNT);
 #endif
 	}
 #ifdef ENABLE_SSE
@@ -445,6 +509,12 @@ static void block_thread(void *param)
 	memset(args->sse2, 0, sizeof(args->sse2));
 #endif
 	memset(args->pixels, 0, sizeof(args->pixels));
+	__m128i predmask=_mm_set_epi8(
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		-predidx[2], -predidx[2],
+		-predidx[1], -predidx[1],
+		-predidx[0], -predidx[0]
+	);
 	for(int ky=args->y1;ky<args->y2;++ky)//codec loop
 	{
 		ALIGN(16) short *rows[]=
@@ -550,15 +620,18 @@ static void block_thread(void *param)
 			nbypass[2]=FLOOR_LOG2(nbypass[2]);
 #endif
 			ALIGN(16) short preds[8];
+			//MEDIAN3(N, W, N+W-NW)
 			__m128i mNW	=_mm_loadu_si128((__m128i*)NW);
 			__m128i mN	=_mm_loadu_si128((__m128i*)N);
 			__m128i mW	=_mm_loadu_si128((__m128i*)W);
 			__m128i mmin=_mm_min_epi16(mN, mW);
 			__m128i mmax=_mm_max_epi16(mN, mW);
 			__m128i mp=_mm_add_epi16(mN, mW);
+			__m128i mav2=_mm_srai_epi16(mp, 1);
 			mp=_mm_sub_epi16(mp, mNW);
 			mp=_mm_max_epi16(mp, mmin);
 			mp=_mm_min_epi16(mp, mmax);
+			mp=_mm_blendv_epi8(mav2, mp, predmask);
 			_mm_store_si128((__m128i*)preds, mp);
 #ifdef ENABLE_SSE
 			//int sse_ctx[][2]=
