@@ -53,12 +53,12 @@ typedef enum _OCHIndex
 #undef  OCH
 	OCH_COUNT,
 } OCHIndex;
-static const char *och_names[OCH_COUNT]=
-{
-#define OCH(LABEL) #LABEL,
-	OCHLIST
-#undef  OCH
-};
+//static const char *och_names[OCH_COUNT]=
+//{
+//#define OCH(LABEL) #LABEL,
+//	OCHLIST
+//#undef  OCH
+//};
 
 #define RCTLIST\
 	RCT(R_G_B,	OCH_R,		OCH_G,		OCH_B,		0, 1, 2,	3,	3, 3, 0)\
@@ -171,7 +171,8 @@ typedef struct _ThreadArgs
 #ifdef ENABLE_SSE
 	int sse1[3][64][64][2];
 	int sse2[3][64][64][2];
-	//int sse[3][128][2];
+	int sse3[3][256][2];
+	int sse4[3][64][64][2];
 #endif
 
 	//aux
@@ -1088,6 +1089,8 @@ static void block_thread(void *param)
 #ifdef ENABLE_SSE
 	memset(args->sse1, 0, sizeof(args->sse1));
 	memset(args->sse2, 0, sizeof(args->sse2));
+	memset(args->sse3, 0, sizeof(args->sse3));
+	memset(args->sse4, 0, sizeof(args->sse4));
 #endif
 	memset(args->pixels, 0, sizeof(args->pixels));
 	for(int ky=args->y1;ky<args->y2;++ky)//codec loop
@@ -1185,12 +1188,12 @@ static void block_thread(void *param)
 #endif
 			int nbypass[]=
 			{
+				(2*NE[3+0]+4*W[6+0]+N[9+0]+WW[9+0])>>3,
+				(2*NE[3+1]+4*W[6+1]+N[9+1]+WW[9+1])>>3,
+				(2*NE[3+2]+4*W[6+2]+N[9+2]+WW[9+2])>>3,
 			//	(NE[3+0]+W[6+0])>>1,
 			//	(NE[3+1]+W[6+1])>>1,
 			//	(NE[3+2]+W[6+2])>>1,
-				(2*NE[3+0]+4*W[6+0]+N[9+0]+W[9+0])>>3,
-				(2*NE[3+1]+4*W[6+1]+N[9+1]+W[9+1])>>3,
-				(2*NE[3+2]+4*W[6+2]+N[9+2]+W[9+2])>>3,
 			};
 			//if(nbypass[0]<0)nbypass[0]=0;
 			//if(nbypass[1]<0)nbypass[1]=0;
@@ -1315,13 +1318,36 @@ static void block_thread(void *param)
 #if 1
 			int *curr_sse1[]=
 			{
-				args->sse1[0][((N[0]-NW[0])>>2)&63][((W[0]-NW[0])>>2)&63],
-				args->sse1[1][((N[1]-NW[1])>>2)&63][((W[1]-NW[1])>>2)&63],
-				args->sse1[2][((N[2]-NW[2])>>2)&63][((W[2]-NW[2])>>2)&63],
+				args->sse1[0][((N[0]-NW[0])>>1)&63][((W[0]-WW[0])>>2)&63],
+				args->sse1[1][((N[1]-NW[1])>>1)&63][((W[1]-WW[1])>>2)&63],
+				args->sse1[2][((N[2]-NW[2])>>1)&63][((W[2]-WW[2])>>2)&63],
+			//	args->sse1[0][((N[0]-NW[0]+W[0]-WW[0])>>3)&63][((W[0]-NW[0]+N[0]-NN[0])>>3)&63],//worse
+			//	args->sse1[1][((N[1]-NW[1]+W[1]-WW[1])>>3)&63][((W[1]-NW[1]+N[1]-NN[1])>>3)&63],
+			//	args->sse1[2][((N[2]-NW[2]+W[2]-WW[2])>>3)&63][((W[2]-NW[2]+N[2]-NN[2])>>3)&63],
 			};
 			preds[0]+=(curr_sse1[0][1]+((curr_sse1[0][0]+5)>>1))/(curr_sse1[0][0]+5);
 			preds[1]+=(curr_sse1[1][1]+((curr_sse1[1][0]+5)>>1))/(curr_sse1[1][0]+5);
 			preds[2]+=(curr_sse1[2][1]+((curr_sse1[2][0]+5)>>1))/(curr_sse1[2][0]+5);
+			int *curr_sse4[]=
+			{
+				args->sse4[0][((W[0]-NW[0])>>1)&63][((N[0]-NN[0])>>2)&63],
+				args->sse4[1][((W[1]-NW[1])>>1)&63][((N[1]-NN[1])>>2)&63],
+				args->sse4[2][((W[2]-NW[2])>>1)&63][((N[2]-NN[2])>>2)&63],
+			};
+			preds[0]+=(curr_sse4[0][1]+((curr_sse4[0][0]+5)>>1))/(curr_sse4[0][0]+5);
+			preds[1]+=(curr_sse4[1][1]+((curr_sse4[1][0]+5)>>1))/(curr_sse4[1][0]+5);
+			preds[2]+=(curr_sse4[2][1]+((curr_sse4[2][0]+5)>>1))/(curr_sse4[2][0]+5);
+#endif
+#if 1
+			int *curr_sse3[]=
+			{
+				args->sse3[0][preds[0]&255],
+				args->sse3[1][preds[1]&255],
+				args->sse3[2][preds[2]&255],
+			};
+			preds[0]+=(curr_sse3[0][1]+((curr_sse3[0][0]+5)>>1))/(curr_sse3[0][0]+5);
+			preds[1]+=(curr_sse3[1][1]+((curr_sse3[1][0]+5)>>1))/(curr_sse3[1][0]+5);
+			preds[2]+=(curr_sse3[2][1]+((curr_sse3[2][0]+5)>>1))/(curr_sse3[2][0]+5);
 #endif
 			//int sse_corr[]=
 			//{
@@ -1339,7 +1365,7 @@ static void block_thread(void *param)
 #endif
 	#define UPDATE_FORMULA1(IDX) (MAXVAR(NW[IDX], W[IDX])+sym+NEE[IDX]+MAXVAR(WW[IDX], WWW[IDX]))>>2	//for SW (thru NE)
 	#define UPDATE_FORMULA2(IDX) (MAXVAR(WW[IDX], W[IDX])+sym+NE[IDX]+MAXVAR(NEE[IDX], NEEE[IDX]))>>2	//for E (thru W)
-	#define UPDATE_FORMULA3(IDX) (N[IDX]+W[IDX]+sym)/3
+	#define UPDATE_FORMULA3(IDX) (N[IDX]+(IDX==9?W[IDX]:WW[IDX])+sym)/3
 //	#define UPDATE_FORMULA(IDX) (MAXVAR(WW[IDX], W[IDX])+sym+NE[IDX]+MAXVAR(NEE[IDX], NEEE[IDX]))>>2	//Formula12	best
 //	#define UPDATE_FORMULA(IDX) (max3(WW[IDX], W[IDX], NW[IDX])+sym+max3(NNE[IDX], NE[IDX], NEE[IDX])+NEEE[IDX])>>2
 //	#define UPDATE_FORMULA(IDX) (W[IDX]+sym+NE[IDX]+NEEE[IDX])>>2	//Formula8
@@ -1644,6 +1670,20 @@ static void block_thread(void *param)
 			curr_sse1[0][1]+=curr[0]-preds[0];
 			curr_sse1[1][1]+=curr[1]-preds[1];
 			curr_sse1[2][1]+=curr[2]-preds[2];
+			++curr_sse4[0][0];
+			++curr_sse4[1][0];
+			++curr_sse4[2][0];
+			curr_sse4[0][1]+=curr[0]-preds[0];
+			curr_sse4[1][1]+=curr[1]-preds[1];
+			curr_sse4[2][1]+=curr[2]-preds[2];
+#endif
+#if 1
+			++curr_sse3[0][0];
+			++curr_sse3[1][0];
+			++curr_sse3[2][0];
+			curr_sse3[0][1]+=curr[0]-preds[0];
+			curr_sse3[1][1]+=curr[1]-preds[1];
+			curr_sse3[2][1]+=curr[2]-preds[2];
 #endif
 #endif
 			rows[0]+=3*4;
