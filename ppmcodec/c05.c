@@ -182,6 +182,7 @@ typedef struct _ThreadArgs
 	double t_analysis;
 #endif
 } ThreadArgs;
+#if 0
 FORCEINLINE int max3(int a, int b, int c)
 {
 	if(a<b)
@@ -200,7 +201,6 @@ FORCEINLINE int max4(int v0, int v1, int v2, int v3)
 		v0=v3;
 	return v0;
 }
-#if 0
 FORCEINLINE int median3(int a, int b, int c)
 {
 	MEDIAN3_32(a, a, b, c);
@@ -1290,15 +1290,7 @@ static void block_thread(void *param)
 			//sse_ctx[1][1]=FLOOR_LOG2_P1(sse_ctx[1][1]);
 			//sse_ctx[2][0]=FLOOR_LOG2_P1(sse_ctx[2][0]);
 			//sse_ctx[2][1]=FLOOR_LOG2_P1(sse_ctx[2][1]);
-			int *curr_sse1[]=
-			{
-				args->sse1[0][((N[0]-NW[0])>>2)&63][((W[0]-NW[0])>>2)&63],
-				args->sse1[1][((N[1]-NW[1])>>2)&63][((W[1]-NW[1])>>2)&63],
-				args->sse1[2][((N[2]-NW[2])>>2)&63][((W[2]-NW[2])>>2)&63],
-			};
-			preds[0]+=(curr_sse1[0][1]+((curr_sse1[0][0]+5)>>1))/(curr_sse1[0][0]+5);
-			preds[1]+=(curr_sse1[1][1]+((curr_sse1[1][0]+5)>>1))/(curr_sse1[1][0]+5);
-			preds[2]+=(curr_sse1[2][1]+((curr_sse1[2][0]+5)>>1))/(curr_sse1[2][0]+5);
+#if 1
 			int *curr_sse2[]=
 			{
 				args->sse2[0][((N[0]+W[0]+(NE[0]-NW[0])/2+HALF_Y*2)>>3)&63][(preds[0]>>2)&63],
@@ -1316,6 +1308,18 @@ static void block_thread(void *param)
 			preds[0]+=(curr_sse2[0][1]+((curr_sse2[0][0]+5)>>1))/(curr_sse2[0][0]+5);
 			preds[1]+=(curr_sse2[1][1]+((curr_sse2[1][0]+5)>>1))/(curr_sse2[1][0]+5);
 			preds[2]+=(curr_sse2[2][1]+((curr_sse2[2][0]+5)>>1))/(curr_sse2[2][0]+5);
+#endif
+#if 1
+			int *curr_sse1[]=
+			{
+				args->sse1[0][((N[0]-NW[0])>>2)&63][((W[0]-NW[0])>>2)&63],
+				args->sse1[1][((N[1]-NW[1])>>2)&63][((W[1]-NW[1])>>2)&63],
+				args->sse1[2][((N[2]-NW[2])>>2)&63][((W[2]-NW[2])>>2)&63],
+			};
+			preds[0]+=(curr_sse1[0][1]+((curr_sse1[0][0]+5)>>1))/(curr_sse1[0][0]+5);
+			preds[1]+=(curr_sse1[1][1]+((curr_sse1[1][0]+5)>>1))/(curr_sse1[1][0]+5);
+			preds[2]+=(curr_sse1[2][1]+((curr_sse1[2][0]+5)>>1))/(curr_sse1[2][0]+5);
+#endif
 			//int sse_corr[]=
 			//{
 			//	curr_sse[0][1]/(curr_sse[0][0]+5)+curr_sse[3][1]/(curr_sse[3][0]+5),
@@ -1615,18 +1619,22 @@ static void block_thread(void *param)
 #endif
 			}
 #ifdef ENABLE_SSE
-			++curr_sse1[0][0];
-			++curr_sse1[1][0];
-			++curr_sse1[2][0];
+#if 1
 			++curr_sse2[0][0];
 			++curr_sse2[1][0];
 			++curr_sse2[2][0];
-			curr_sse1[0][1]+=curr[0]-preds[0];
-			curr_sse1[1][1]+=curr[1]-preds[1];
-			curr_sse1[2][1]+=curr[2]-preds[2];
 			curr_sse2[0][1]+=curr[0]-preds[0];
 			curr_sse2[1][1]+=curr[1]-preds[1];
 			curr_sse2[2][1]+=curr[2]-preds[2];
+#endif
+#if 1
+			++curr_sse1[0][0];
+			++curr_sse1[1][0];
+			++curr_sse1[2][0];
+			curr_sse1[0][1]+=curr[0]-preds[0];
+			curr_sse1[1][1]+=curr[1]-preds[1];
+			curr_sse1[2][1]+=curr[2]-preds[2];
+#endif
 #endif
 			rows[0]+=4*3;
 			rows[1]+=4*3;
