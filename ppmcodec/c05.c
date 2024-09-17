@@ -1296,9 +1296,9 @@ static void block_thread(void *param)
 				args->sse1[1][((N[1]-NW[1])>>2)&63][((W[1]-NW[1])>>2)&63],
 				args->sse1[2][((N[2]-NW[2])>>2)&63][((W[2]-NW[2])>>2)&63],
 			};
-			preds[0]+=curr_sse1[0][1]/(curr_sse1[0][0]+5);
-			preds[1]+=curr_sse1[1][1]/(curr_sse1[1][0]+5);
-			preds[2]+=curr_sse1[2][1]/(curr_sse1[2][0]+5);
+			preds[0]+=(curr_sse1[0][1]+((curr_sse1[0][0]+5)>>1))/(curr_sse1[0][0]+5);
+			preds[1]+=(curr_sse1[1][1]+((curr_sse1[1][0]+5)>>1))/(curr_sse1[1][0]+5);
+			preds[2]+=(curr_sse1[2][1]+((curr_sse1[2][0]+5)>>1))/(curr_sse1[2][0]+5);
 			int *curr_sse2[]=
 			{
 				args->sse2[0][((N[0]+W[0]+(NE[0]-NW[0])/2+HALF_Y*2)>>3)&63][(preds[0]>>2)&63],
@@ -1313,9 +1313,9 @@ static void block_thread(void *param)
 				//args->sse[1][(preds[1]+HALF_U)>>1&127],
 				//args->sse[2][(preds[2]+HALF_V)>>1&127],
 			};
-			preds[0]+=curr_sse2[0][1]/(curr_sse2[0][0]+5);
-			preds[1]+=curr_sse2[1][1]/(curr_sse2[1][0]+5);
-			preds[2]+=curr_sse2[2][1]/(curr_sse2[2][0]+5);
+			preds[0]+=(curr_sse2[0][1]+((curr_sse2[0][0]+5)>>1))/(curr_sse2[0][0]+5);
+			preds[1]+=(curr_sse2[1][1]+((curr_sse2[1][0]+5)>>1))/(curr_sse2[1][0]+5);
+			preds[2]+=(curr_sse2[2][1]+((curr_sse2[2][0]+5)>>1))/(curr_sse2[2][0]+5);
 			//int sse_corr[]=
 			//{
 			//	curr_sse[0][1]/(curr_sse[0][0]+5)+curr_sse[3][1]/(curr_sse[3][0]+5),
