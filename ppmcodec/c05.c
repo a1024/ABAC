@@ -160,7 +160,7 @@ typedef struct _ThreadArgs
 
 	int fwd, test, loud, x1, x2, y1, y2;
 	int bufsize;
-	short pixels[(BLOCKSIZE+16)*4*4*3];//4 padded rows * 4 channels max * {pixel, abs(e1), abs(e2)}
+	short pixels[(BLOCKSIZE+16)*4*3*4];//4 padded rows * 3 channels max * {pixel, abs(e1), abs(e2), abs(e3)}
 
 	BList list;
 	const unsigned char *decstart, *decend;
@@ -1094,10 +1094,10 @@ static void block_thread(void *param)
 	{
 		ALIGN(16) short *rows[]=
 		{
-			args->pixels+((BLOCKSIZE+16LL)*((ky-0LL)&3)+8LL)*4*3,
-			args->pixels+((BLOCKSIZE+16LL)*((ky-1LL)&3)+8LL)*4*3,
-			args->pixels+((BLOCKSIZE+16LL)*((ky-2LL)&3)+8LL)*4*3,
-			args->pixels+((BLOCKSIZE+16LL)*((ky-3LL)&3)+8LL)*4*3,
+			args->pixels+((BLOCKSIZE+16LL)*((ky-0LL)&3)+8LL)*3*4,
+			args->pixels+((BLOCKSIZE+16LL)*((ky-1LL)&3)+8LL)*3*4,
+			args->pixels+((BLOCKSIZE+16LL)*((ky-2LL)&3)+8LL)*3*4,
+			args->pixels+((BLOCKSIZE+16LL)*((ky-3LL)&3)+8LL)*3*4,
 		};
 		int yuv[4]={0};
 		int pred=0, error=0;
@@ -1109,27 +1109,27 @@ static void block_thread(void *param)
 		{
 			int idx=nch*(args->iw*ky+kx);
 			short
-				*NNN	=rows[3]+0*4*3,
-				*NNNE	=rows[3]+1*4*3,
-				*NNNEE	=rows[3]+2*4*3,
-				*NNWW	=rows[2]-2*4*3,
-				*NNW	=rows[2]-1*4*3,
-				*NN	=rows[2]+0*4*3,
-				*NNE	=rows[2]+1*4*3,
-				*NNEE	=rows[2]+2*4*3,
-			//	*NNEEE	=rows[2]+3*4*3,
-				*NWW	=rows[1]-2*4*3,
-				*NW	=rows[1]-1*4*3,
-				*N	=rows[1]+0*4*3,
-				*NE	=rows[1]+1*4*3,
-				*NEE	=rows[1]+2*4*3,
-				*NEEE	=rows[1]+3*4*3,
-				*NEEEE	=rows[1]+4*4*3,
-			//	*WWWW	=rows[0]-4*4*3,
-				*WWW	=rows[0]-3*4*3,
-				*WW	=rows[0]-2*4*3,
-				*W	=rows[0]-1*4*3,
-				*curr	=rows[0]+0*4*3;
+				*NNN	=rows[3]+0*3*4,
+				*NNNE	=rows[3]+1*3*4,
+				*NNNEE	=rows[3]+2*3*4,
+				*NNWW	=rows[2]-2*3*4,
+				*NNW	=rows[2]-1*3*4,
+				*NN	=rows[2]+0*3*4,
+				*NNE	=rows[2]+1*3*4,
+				*NNEE	=rows[2]+2*3*4,
+			//	*NNEEE	=rows[2]+3*3*4,
+				*NWW	=rows[1]-2*3*4,
+				*NW	=rows[1]-1*3*4,
+				*N	=rows[1]+0*3*4,
+				*NE	=rows[1]+1*3*4,
+				*NEE	=rows[1]+2*3*4,
+				*NEEE	=rows[1]+3*3*4,
+				*NEEEE	=rows[1]+4*3*4,
+			//	*WWWW	=rows[0]-4*3*4,
+				*WWW	=rows[0]-3*3*4,
+				*WW	=rows[0]-2*3*4,
+				*W	=rows[0]-1*3*4,
+				*curr	=rows[0]+0*3*4;
 			(void)NNNEE;
 			(void)NNNE;
 			(void)NNN;
@@ -1142,7 +1142,7 @@ static void block_thread(void *param)
 			else if(kx==args->x1)
 				NW=WWW=WW=W=N;
 			else if(kx>args->x2-4)
-				NEEE-=(kx-(args->x2-4))*4*3;
+				NEEE-=(kx-(args->x2-4))*3*4;
 #if 0
 			int nbypass[3];
 #ifdef __GNUC__
@@ -1185,9 +1185,12 @@ static void block_thread(void *param)
 #endif
 			int nbypass[]=
 			{
-				(NE[4+0]+W[8+0])>>1,
-				(NE[4+1]+W[8+1])>>1,
-				(NE[4+2]+W[8+2])>>1,
+			//	(NE[3+0]+W[6+0])>>1,
+			//	(NE[3+1]+W[6+1])>>1,
+			//	(NE[3+2]+W[6+2])>>1,
+				(2*NE[3+0]+4*W[6+0]+N[9+0]+W[9+0])>>3,
+				(2*NE[3+1]+4*W[6+1]+N[9+1]+W[9+1])>>3,
+				(2*NE[3+2]+4*W[6+2]+N[9+2]+W[9+2])>>3,
 			};
 			//if(nbypass[0]<0)nbypass[0]=0;
 			//if(nbypass[1]<0)nbypass[1]=0;
@@ -1334,8 +1337,9 @@ static void block_thread(void *param)
 #ifndef DISABLE_RCTSEL
 			int offset;
 #endif
-	#define UPDATE_FORMULA1(IDX) (MAXVAR(NW[IDX], W[IDX])+sym+NEE[IDX]+MAXVAR(WW[IDX], WWW[IDX]))>>2	//for SW (using NE)
-	#define UPDATE_FORMULA2(IDX) (MAXVAR(WW[IDX], W[IDX])+sym+NE[IDX]+MAXVAR(NEE[IDX], NEEE[IDX]))>>2	//for E (using W)
+	#define UPDATE_FORMULA1(IDX) (MAXVAR(NW[IDX], W[IDX])+sym+NEE[IDX]+MAXVAR(WW[IDX], WWW[IDX]))>>2	//for SW (thru NE)
+	#define UPDATE_FORMULA2(IDX) (MAXVAR(WW[IDX], W[IDX])+sym+NE[IDX]+MAXVAR(NEE[IDX], NEEE[IDX]))>>2	//for E (thru W)
+	#define UPDATE_FORMULA3(IDX) (N[IDX]+W[IDX]+sym)/3
 //	#define UPDATE_FORMULA(IDX) (MAXVAR(WW[IDX], W[IDX])+sym+NE[IDX]+MAXVAR(NEE[IDX], NEEE[IDX]))>>2	//Formula12	best
 //	#define UPDATE_FORMULA(IDX) (max3(WW[IDX], W[IDX], NW[IDX])+sym+max3(NNE[IDX], NE[IDX], NEE[IDX])+NEEE[IDX])>>2
 //	#define UPDATE_FORMULA(IDX) (W[IDX]+sym+NE[IDX]+NEEE[IDX])>>2	//Formula8
@@ -1401,8 +1405,9 @@ static void block_thread(void *param)
 				gr_enc(&ec, sym, nbypass[0]);
 #endif
 				curr[0]=yuv[0];
-				curr[4+0]=UPDATE_FORMULA1(4+0);
-				curr[8+0]=UPDATE_FORMULA2(8+0);
+				curr[3+0]=UPDATE_FORMULA1(3+0);
+				curr[6+0]=UPDATE_FORMULA2(6+0);
+				curr[9+0]=UPDATE_FORMULA3(9+0);
 				
 				//enc U
 #ifndef DISABLE_RCTSEL
@@ -1440,8 +1445,9 @@ static void block_thread(void *param)
 #else
 				curr[1]=yuv[1];
 #endif
-				curr[4+1]=UPDATE_FORMULA1(4+1);
-				curr[8+1]=UPDATE_FORMULA2(8+1);
+				curr[3+1]=UPDATE_FORMULA1(3+1);
+				curr[6+1]=UPDATE_FORMULA2(6+1);
+				curr[9+1]=UPDATE_FORMULA3(9+1);
 
 				//enc V
 #ifndef DISABLE_RCTSEL
@@ -1479,8 +1485,9 @@ static void block_thread(void *param)
 #else
 				curr[2]=yuv[2];
 #endif
-				curr[4+2]=UPDATE_FORMULA1(4+2);
-				curr[8+2]=UPDATE_FORMULA2(8+2);
+				curr[3+2]=UPDATE_FORMULA1(3+2);
+				curr[6+2]=UPDATE_FORMULA2(6+2);
+				curr[9+2]=UPDATE_FORMULA3(9+2);
 			}
 			else
 			{
@@ -1509,8 +1516,9 @@ static void block_thread(void *param)
 					error-=negmask;
 				}
 				curr[0]=yuv[0]=error+pred;
-				curr[4+0]=UPDATE_FORMULA1(4+0);
-				curr[8+0]=UPDATE_FORMULA2(8+0);
+				curr[3+0]=UPDATE_FORMULA1(3+0);
+				curr[6+0]=UPDATE_FORMULA2(6+0);
+				curr[9+0]=UPDATE_FORMULA3(9+0);
 
 				//dec U
 #ifndef DISABLE_RCTSEL
@@ -1548,8 +1556,9 @@ static void block_thread(void *param)
 #else
 				curr[1]=yuv[1];
 #endif
-				curr[4+1]=UPDATE_FORMULA1(4+1);
-				curr[8+1]=UPDATE_FORMULA2(8+1);
+				curr[3+1]=UPDATE_FORMULA1(3+1);
+				curr[6+1]=UPDATE_FORMULA2(6+1);
+				curr[9+1]=UPDATE_FORMULA3(9+1);
 
 				//dec V
 #ifndef DISABLE_RCTSEL
@@ -1587,8 +1596,9 @@ static void block_thread(void *param)
 #else
 				curr[2]=yuv[2];
 #endif
-				curr[4+2]=UPDATE_FORMULA1(4+2);
-				curr[8+2]=UPDATE_FORMULA2(8+2);
+				curr[3+2]=UPDATE_FORMULA1(3+2);
+				curr[6+2]=UPDATE_FORMULA2(6+2);
+				curr[9+2]=UPDATE_FORMULA3(9+2);
 				
 #ifndef DISABLE_RCTSEL
 				args->dst[idx+combination[3+0]]=yuv[0]+128;
@@ -1636,10 +1646,10 @@ static void block_thread(void *param)
 			curr_sse1[2][1]+=curr[2]-preds[2];
 #endif
 #endif
-			rows[0]+=4*3;
-			rows[1]+=4*3;
-			rows[2]+=4*3;
-			rows[3]+=4*3;
+			rows[0]+=3*4;
+			rows[1]+=3*4;
+			rows[2]+=3*4;
+			rows[3]+=3*4;
 		}
 	}
 	if(args->fwd)
