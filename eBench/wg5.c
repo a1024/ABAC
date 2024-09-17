@@ -307,20 +307,20 @@ void pred_wgrad5(Image *src, int fwd)
 	ALIGN(32) double wg_weights[4][WG_NPREDS]={0};
 	ALIGN(32) int wg_perrors[4][WG_NPREDS]={0}, wg_preds[WG_NPREDS]={0};
 	int nch;
-	int nlevels[]=
-	{
-		1<<src->depth[0],
-		1<<src->depth[1],
-		1<<src->depth[2],
-		1<<src->depth[3],
-	};
-	int halfs[]=
-	{
-		nlevels[0]>>1,
-		nlevels[1]>>1,
-		nlevels[2]>>1,
-		nlevels[3]>>1,
-	};
+	//int nlevels[]=
+	//{
+	//	1<<src->depth[0],
+	//	1<<src->depth[1],
+	//	1<<src->depth[2],
+	//	1<<src->depth[3],
+	//};
+	//int halfs[]=
+	//{
+	//	nlevels[0]>>1,
+	//	nlevels[1]>>1,
+	//	nlevels[2]>>1,
+	//	nlevels[3]>>1,
+	//};
 	int fwdmask=-fwd;
 	int bufsize;
 	int *pixels;

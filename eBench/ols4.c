@@ -227,6 +227,7 @@ unsigned char ols4_mask[4][OLS4_CTXSIZE+1]=//MSB {E3 E2 E1 E0  P3 P2 P1 P0} LSB,
 	},
 #endif
 };
+#if 0
 static int solve_Mx_v(double *matrix, double *vec, int size)
 {
 	int success=1;
@@ -274,6 +275,7 @@ static int solve_Mx_v(double *matrix, double *vec, int size)
 	}
 	return success;
 }
+#endif
 void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsigned char *mask1, unsigned char *mask2, unsigned char *mask3, int fwd)
 {
 	double t_start=time_sec();

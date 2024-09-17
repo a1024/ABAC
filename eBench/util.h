@@ -149,6 +149,16 @@ extern "C"
 		DST=_dst[0];\
 	}while(0)
 
+#define CONVERT_DOUBLE2INT(DST, SRC)\
+	do\
+	{\
+		ALIGN(16) int _c_[4];\
+		__m128d _a_=_mm_set_pd(0, SRC);\
+		__m128i _b_=_mm_cvttpd_epi32(_a_);\
+		_mm_store_si128((__m128i*)_c_, _b_);\
+		DST=_c_[0];\
+	}while(0)
+
 #define MOVEOBJ(SRC, DST, SIZE) memcpy(DST, SRC, SIZE), memset(SRC, 0, SIZE)
 #define MODVAR(DST, SRC, N) DST=(SRC)%(N), DST+=(N)&-(DST<0)
 #define SHIFT_LEFT_SIGNED(X, SH) ((SH)<0?(X)>>-(SH):(X)<<(SH))

@@ -65,6 +65,7 @@ static int solve_Mx_v_cholesky(double *matrix, const double *vec, int n, double 
 	}
 	return success;
 }
+#if 0
 static int solve_Mx_v(double *matrix, double *vec, int size)
 {
 	int success=1;
@@ -112,6 +113,7 @@ static int solve_Mx_v(double *matrix, double *vec, int size)
 	}
 	return success;
 }
+#endif
 
 typedef struct _V4Context
 {
@@ -259,6 +261,7 @@ static void v4_newrow(V4Context *ctx)
 }
 
 
+#if 0
 #define BOXSIZE 8
 static void boxtest(Image *src)
 {
@@ -342,6 +345,7 @@ static void boxtest(Image *src)
 		, t1, t2
 	);
 }
+#endif
 
 
 #define OLS6_REACH 1
@@ -862,7 +866,7 @@ void pred_ols6(Image *src, int fwd)
 
 				ctx->ptr+=ctx->cellsize;
 			}
-			for(int k=0;k<sizeof(rows)/sizeof(__m256i);++k)
+			for(int k=0;k<sizeof(rows)/(sizeof(__m256i));++k)
 			{
 				__m256i mr=_mm256_load_si256((__m256i*)rows+k);
 				mr=_mm256_add_epi64(mr, rowstride);

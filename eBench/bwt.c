@@ -9,6 +9,7 @@ static const char file[]=__FILE__;
 
 //"A Block-sorting Lossless Data Compression Algorithm" by M. Burrows and D.J. Wheeler
 //https://github.com/MichaelDipperstein/bwt
+
 #define WRAP(VALUE, LIMIT) ((VALUE)-((LIMIT)&-((VALUE)>=(LIMIT))))	//wraps array index within array bounds (assumes value < 2 * limit)
 typedef struct _BWTSortInfo
 {
@@ -16,16 +17,11 @@ typedef struct _BWTSortInfo
 	int count;
 } BWTSortInfo;
 //https://stackoverflow.com/questions/4210689/pass-extra-parameter-to-comparator-for-qsort
-#ifdef __GNUC__
-#define QSORT qsort_r
-#else
-#define QSORT qsort_s
-#endif
-#ifdef __GNUC__
-static int bwt_cmp_sorted(const void *s1, const void *s2, void *param)//for qsort_r (GNU C)
-#else
+//#ifdef __GNUC__
+//static int bwt_cmp_sorted(const void *s1, const void *s2, void *param)//for qsort_r (GNU C, C11)
+//#else
 static int bwt_cmp_sorted(void *param, const void *s1, const void *s2)//for qsort_s (MSVC)
-#endif
+//#endif
 {
 	const BWTSortInfo *ctx=(const BWTSortInfo*)param;
 	int offset1, offset2;
@@ -33,8 +29,8 @@ static int bwt_cmp_sorted(void *param, const void *s1, const void *s2)//for qsor
 
 	//Compare 1 character at a time until there's difference or the end of the block is reached.
 	//Since we're only sorting strings that already match at the first two characters, start with the third character.
-	offset1=*(int*)s1+2;
-	offset2=*(int*)s2+2;
+	offset1=*(const int*)s1+2;
+	offset2=*(const int*)s2+2;
 	for(i=2;i<ctx->count;++i)
 	{
 		unsigned char c1, c2;
@@ -123,23 +119,25 @@ static int bwt_fwd(unsigned char *ptr, int count, int nlevels, int *hist, int *C
 					break;
 			}
 			if(k-first>1)//there are at least 2 strings staring with ij, sort them
-				QSORT(rotationidx+first, (size_t)k-first, sizeof(int), bwt_cmp_sorted, &ctx);
+				qsort_s(rotationidx+first, (size_t)k-first, sizeof(int), bwt_cmp_sorted, &ctx);
 		}
 	}
 
 	//find last characters of rotations (L) - C2
-	int s0idx=0;
-	for(int i=0;i<count;++i)
 	{
-		if(rotationidx[i])
-			dst[i]=ptr[rotationidx[i]-1];
-		else
+		int s0idx=0;
+		for(int i=0;i<count;++i)
 		{
-			s0idx=i;//unrotated string 1st character is end of string
-			dst[i]=ptr[count-1];
+			if(rotationidx[i])
+				dst[i]=ptr[rotationidx[i]-1];
+			else
+			{
+				s0idx=i;//unrotated string 1st character is end of string
+				dst[i]=ptr[count-1];
+			}
 		}
+		return s0idx;
 	}
-	return s0idx;
 }
 
 //Inverse BWT:
@@ -238,11 +236,12 @@ void prep_BWT_x(Image **psrc, int fwd)
 		{
 			for(int ky=src->ih-1;ky>=0;--ky)
 			{
+				int bwtidx;
 				int *ptr=src->data+((size_t)src->iw*ky<<2|kc);
 				for(int kx=0;kx<src->iw;++kx)
 					sbuf[kx]=(ptr[kx<<2]+128)&255;
 
-				int bwtidx=bwt_fwd(sbuf, src->iw, 1<<src->depth[kc], t1, t2, t3, t4, dbuf);
+				bwtidx=bwt_fwd(sbuf, src->iw, 1<<src->depth[kc], t1, t2, t3, t4, dbuf);
 
 #if 0
 				bwt_inv(dbuf, bwtidx, src->iw, 1<<src->depth[kc], t1, t3, debugbuf);//
@@ -328,12 +327,12 @@ void prep_BWT_y(Image **psrc, int fwd)
 {
 	Image *src=*psrc;
 	int maxdepth=calc_maxdepth(src, 0), maxlevels=1<<maxdepth;
+	Image *tempimg=0;
 	if(src->iw>0x10000||src->ih>0x10000)
 	{
 		LOG_ERROR("BWT: Image dimensions must be up to 65536");
 		return;
 	}
-	Image *tempimg=0;
 	image_copy(&tempimg, src);
 	if(!tempimg)
 	{
@@ -363,11 +362,12 @@ void prep_BWT_y(Image **psrc, int fwd)
 		{
 			for(int kx=0;kx<src->iw;++kx)
 			{
+				int bwtidx;
 				int *ptr=tempimg->data+((size_t)kx<<2|kc);
 				for(int ky=0;ky<src->ih;++ky)
 					sbuf[ky]=(ptr[(size_t)src->iw*ky<<2]+128)&255;
 
-				int bwtidx=bwt_fwd(sbuf, src->ih, 1<<src->depth[kc], t1, t2, t3, t4, dbuf);
+				bwtidx=bwt_fwd(sbuf, src->ih, 1<<src->depth[kc], t1, t2, t3, t4, dbuf);
 
 				ptr=src->data+((size_t)kx<<2|kc);
 				for(int ky=0;ky<src->ih;++ky)

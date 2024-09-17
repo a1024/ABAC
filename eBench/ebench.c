@@ -103,7 +103,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_G2,		ST_INV_G2,
 	ST_FWD_MM,		ST_INV_MM,
 	ST_FWD_WP,		ST_INV_WP,
-	ST_FWD_WP2,		ST_INV_WP2,
+//	ST_FWD_WP2,		ST_INV_WP2,
 	ST_FWD_WPU,		ST_INV_WPU,
 	ST_FWD_DEFERRED,	ST_INV_DEFERRED,
 	ST_FWD_WC,		ST_INV_WC,	//irreversible conv
@@ -119,7 +119,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_OLS4,		ST_INV_OLS4,
 	ST_FWD_OLS5,		ST_INV_OLS5,
 	ST_FWD_OLS6,		ST_INV_OLS6,
-	ST_FWD_OLS7,		ST_INV_OLS7,
+//	ST_FWD_OLS7,		ST_INV_OLS7,
 	ST_FWD_PU,		ST_INV_PU,
 	ST_FWD_CG3D,		ST_INV_CG3D,
 	ST_FWD_WGRAD,		ST_INV_WGRAD,
@@ -1668,8 +1668,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_OLS5:		a=" S Inv OLS-5";		break;
 	case ST_FWD_OLS6:		a=" S Fwd OLS-6";		break;
 	case ST_INV_OLS6:		a=" S Inv OLS-6";		break;
-	case ST_FWD_OLS7:		a=" S Fwd OLS-7";		break;
-	case ST_INV_OLS7:		a=" S Inv OLS-7";		break;
+//	case ST_FWD_OLS7:		a=" S Fwd OLS-7";		break;
+//	case ST_INV_OLS7:		a=" S Inv OLS-7";		break;
 	case ST_FWD_PU:			a="CS Fwd PU";			break;
 	case ST_INV_PU:			a="CS Inv PU";			break;
 	case ST_FWD_CG3D:		a="CS Fwd CG3D";		break;
@@ -1720,8 +1720,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_CALIC:		a=" S Inv CALIC";		break;
 	case ST_FWD_WP:			a=" S Fwd JXL WP";		break;
 	case ST_INV_WP:			a=" S Inv JXL WP";		break;
-	case ST_FWD_WP2:		a=" S Fwd WP2";			break;
-	case ST_INV_WP2:		a=" S Inv WP2";			break;
+//	case ST_FWD_WP2:		a=" S Fwd WP2";			break;
+//	case ST_INV_WP2:		a=" S Inv WP2";			break;
 	case ST_FWD_WPU:		a="CS Fwd WPU";			break;
 	case ST_INV_WPU:		a="CS Inv WPU";			break;
 	case ST_FWD_DEFERRED:		a=" S Fwd DEFERRED";		break;
@@ -2740,8 +2740,8 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_INV_CALIC:		pred_calic(image, 0, pred_ma_enabled);			break;
 	case ST_FWD_WP:			pred_jxl_apply(image, 1, pred_ma_enabled, jxlparams_i16);break;
 	case ST_INV_WP:			pred_jxl_apply(image, 0, pred_ma_enabled, jxlparams_i16);break;
-	case ST_FWD_WP2:		pred_divfreeWP(image, 1);				break;
-	case ST_INV_WP2:		pred_divfreeWP(image, 0);				break;
+//	case ST_FWD_WP2:		pred_divfreeWP(image, 1);				break;
+//	case ST_INV_WP2:		pred_divfreeWP(image, 0);				break;
 	case ST_FWD_WPU:		pred_WPU(image, 1);					break;
 	case ST_INV_WPU:		pred_WPU(image, 0);					break;
 	case ST_FWD_DEFERRED:		pred_wp_deferred(image, 1);				break;
@@ -2760,8 +2760,8 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_INV_OLS5:		pred_ols5(image, 0);					break;
 	case ST_FWD_OLS6:		pred_ols6(image, 1);					break;
 	case ST_INV_OLS6:		pred_ols6(image, 0);					break;
-	case ST_FWD_OLS7:		pred_ols7(image, 1);					break;
-	case ST_INV_OLS7:		pred_ols7(image, 0);					break;
+//	case ST_FWD_OLS7:		pred_ols7(image, 1);					break;
+//	case ST_INV_OLS7:		pred_ols7(image, 0);					break;
 	case ST_FWD_PACKSIGN:		packsign(image, 1);					break;
 	case ST_INV_PACKSIGN:		packsign(image, 0);					break;
 	case ST_FWD_BWTX:		prep_BWT_x(pimage, 1);					break;
@@ -2958,13 +2958,13 @@ void apply_selected_transforms(Image **pimage, int rct_only)
 				apply_transform(pimage, tid, 0);
 				apply_transform(&image2, tid2, 0);
 				int res=pimage[0]->iw*pimage[0]->ih<<2;
-				int amplitudes[]=
-				{
-					1<<pimage[0]->depth[0]>>3,
-					1<<pimage[0]->depth[1]>>3,
-					1<<pimage[0]->depth[2]>>3,
-					1<<pimage[0]->depth[3]>>3,
-				};
+				//int amplitudes[]=
+				//{
+				//	1<<pimage[0]->depth[0]>>3,
+				//	1<<pimage[0]->depth[1]>>3,
+				//	1<<pimage[0]->depth[2]>>3,
+				//	1<<pimage[0]->depth[3]>>3,
+				//};
 				for(int kp=0;kp<res;++kp)
 					pimage[0]->data[kp]=abs(pimage[0]->data[kp])-abs(image2->data[kp]);
 				//{
@@ -3554,8 +3554,8 @@ static void chart_hist_draw(float x1, float x2, float y1, float y2, int cstart, 
 		if(_histmax[kc])
 		{
 			float dy=(y2-y1)/3.f, histpx=dy/_histmax[kc];
-			int k=1;
-			float y=k*histpx*10000;
+			//int k=1;
+			//float y=k*histpx*10000;
 			//for(;y<dy;++k)
 			//{
 			//	draw_line(x1, y1+(kc+1)*dy-y, x2, y1+(kc+1)*dy-y, color?color:alpha<<24|0xFF<<(kc<<3));//0x40

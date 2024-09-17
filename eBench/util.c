@@ -2500,22 +2500,22 @@ static void pqueue_heapifydown(PQueueHandle *pq, size_t idx, void *temp)
 		idx=largest;
 	}
 }
-static void pqueue_buildheap(PQueueHandle *pq)
-{
-	void *temp;
-
-	if(pq[0]->count<2)
-		return;
-	temp=malloc(pq[0]->esize);
-	if(!temp)
-	{
-		LOG_ERROR("Alloc error");
-		return;
-	}
-	for(ptrdiff_t i=pq[0]->count/2-1;i>=0;--i)
-		pqueue_heapifydown(pq, i, temp);
-	free(temp);
-}
+//static void pqueue_buildheap(PQueueHandle *pq)
+//{
+//	void *temp;
+//
+//	if(pq[0]->count<2)
+//		return;
+//	temp=malloc(pq[0]->esize);
+//	if(!temp)
+//	{
+//		LOG_ERROR("Alloc error");
+//		return;
+//	}
+//	for(ptrdiff_t i=pq[0]->count/2-1;i>=0;--i)
+//		pqueue_heapifydown(pq, i, temp);
+//	free(temp);
+//}
 
 //Priority Queue
 PQueueHandle pqueue_construct(

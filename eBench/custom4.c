@@ -201,7 +201,8 @@ void pred_WC(Image *src)
 	for(int kc=0;kc<4;++kc)
 	{
 		int depth, half;
-		int preds[16]={0}, nb[25]={0}, weights[16]={0};
+		int preds[16]={0}, nb[25]={0};
+	//	int weights[16]={0};
 
 		depth=src->depth[kc];
 		if(!depth)

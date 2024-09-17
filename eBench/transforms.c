@@ -2709,20 +2709,20 @@ void pred_clampgrad(Image *src, int fwd, int enable_ma)
 void pred_CG420(Image *src, int fwd)
 {
 	int nch;
-	int nlevels[]=
-	{
-		1<<src->depth[0],
-		1<<src->depth[1],
-		1<<src->depth[2],
-		1<<src->depth[3],
-	};
-	int halfs[]=
-	{
-		nlevels[0]>>1,
-		nlevels[1]>>1,
-		nlevels[2]>>1,
-		nlevels[3]>>1,
-	};
+	//int nlevels[]=
+	//{
+	//	1<<src->depth[0],
+	//	1<<src->depth[1],
+	//	1<<src->depth[2],
+	//	1<<src->depth[3],
+	//};
+	//int halfs[]=
+	//{
+	//	nlevels[0]>>1,
+	//	nlevels[1]>>1,
+	//	nlevels[2]>>1,
+	//	nlevels[3]>>1,
+	//};
 	int fwdmask=-fwd;
 
 	int bufsize=(src->iw+16LL)*sizeof(int[4*4]);//4 padded rows * 4 channels max
@@ -2801,20 +2801,20 @@ void pred_CG420(Image *src, int fwd)
 void pred_CG422(Image *src, int fwd)
 {
 	int nch;
-	int nlevels[]=
-	{
-		1<<src->depth[0],
-		1<<src->depth[1],
-		1<<src->depth[2],
-		1<<src->depth[3],
-	};
-	int halfs[]=
-	{
-		nlevels[0]>>1,
-		nlevels[1]>>1,
-		nlevels[2]>>1,
-		nlevels[3]>>1,
-	};
+	//int nlevels[]=
+	//{
+	//	1<<src->depth[0],
+	//	1<<src->depth[1],
+	//	1<<src->depth[2],
+	//	1<<src->depth[3],
+	//};
+	//int halfs[]=
+	//{
+	//	nlevels[0]>>1,
+	//	nlevels[1]>>1,
+	//	nlevels[2]>>1,
+	//	nlevels[3]>>1,
+	//};
 	int fwdmask=-fwd;
 
 	int bufsize=(src->iw+16LL)*sizeof(int[4*4]);//4 padded rows * 4 channels max
@@ -3227,7 +3227,7 @@ void pred_PU(Image *src, int fwd)
 				//	pred=(4*(N+W)+NE-NW)>>3;
 				//else
 				{
-					static const int update_sh[]={2, 2, 2, 2};
+					//static const int update_sh[]={2, 2, 2, 2};
 					int
 						vx=abs(eW-eWW)+abs(eN-eNW)+abs(eNE-eN)+1,
 						vy=abs(eW-eNW)+abs(eN-eNN)+abs(eNE-eNNE)+1;
@@ -3385,14 +3385,14 @@ void pred_divfreeWP(Image *src, int fwd)//not DIV-free
 		1<<src->depth[2],
 		1<<src->depth[3],
 	};
-	int halfs[]=
-	{
-		nlevels[0]>>1,
-		nlevels[1]>>1,
-		nlevels[2]>>1,
-		nlevels[3]>>1,
-	};
-	int perm[]={1, 2, 0, 3};
+	//int halfs[]=
+	//{
+	//	nlevels[0]>>1,
+	//	nlevels[1]>>1,
+	//	nlevels[2]>>1,
+	//	nlevels[3]>>1,
+	//};
+	//int perm[]={1, 2, 0, 3};
 	int fwdmask=-fwd;
 	//int weights[4][DFWP_NPREDS*2]={0};
 
@@ -3417,7 +3417,7 @@ void pred_divfreeWP(Image *src, int fwd)//not DIV-free
 			pixels+((src->iw+16LL)*((ky-3LL)&3)+8)*DFWP_NPREDS*2*4,
 		};
 		int preds[DFWP_NPREDS*2]={0};
-		int weights[DFWP_NPREDS*2]={0};
+		//int weights[DFWP_NPREDS*2]={0};
 		for(int kx=0;kx<src->iw;++kx, idx+=4)
 		{
 			for(int kc=0;kc<src->nch;++kc)
@@ -3671,7 +3671,7 @@ void pred_nblic(Image *src, int fwd)//https://github.com/WangXuan95/NBLIC-Image-
 				//correct prediction by context:
 				int *cell=sse+ctx;
 				int corr=*cell;
-				int ssesign=corr>>7&1;
+				//int ssesign=corr>>7&1;
 				pred+=corr>>8;
 
 				CLAMP2_32(pred, pred, -halfs[kc], halfs[kc]);
@@ -3703,18 +3703,18 @@ void pred_nblic(Image *src, int fwd)//https://github.com/WangXuan95/NBLIC-Image-
 }
 
 
-static void sort_int32(int *data, int count)
-{
-	int temp=0;
-	for(int k=0;k<count-1;++k)
-	{
-		for(int k2=k+1;k2<count;++k2)
-		{
-			if(data[k2]<data[k])
-				SWAPVAR(data[k], data[k2], temp);
-		}
-	}
-}
+//static void sort_int32(int *data, int count)
+//{
+//	int temp=0;
+//	for(int k=0;k<count-1;++k)
+//	{
+//		for(int k2=k+1;k2<count;++k2)
+//		{
+//			if(data[k2]<data[k])
+//				SWAPVAR(data[k], data[k2], temp);
+//		}
+//	}
+//}
 
 	#define WGRAD_UPDATE_LUMA
 //	#define WGRAD_SSE
@@ -4096,20 +4096,20 @@ void pred_wgrad(Image *src, int fwd, int hasRCT)
 void pred_wgrad2(Image *src, int fwd)
 {
 	int nch;
-	int nlevels[]=
-	{
-		1<<src->depth[0],
-		1<<src->depth[1],
-		1<<src->depth[2],
-		1<<src->depth[3],
-	};
-	int halfs[]=
-	{
-		nlevels[0]>>1,
-		nlevels[1]>>1,
-		nlevels[2]>>1,
-		nlevels[3]>>1,
-	};
+	//int nlevels[]=
+	//{
+	//	1<<src->depth[0],
+	//	1<<src->depth[1],
+	//	1<<src->depth[2],
+	//	1<<src->depth[3],
+	//};
+	//int halfs[]=
+	//{
+	//	nlevels[0]>>1,
+	//	nlevels[1]>>1,
+	//	nlevels[2]>>1,
+	//	nlevels[3]>>1,
+	//};
 	int perm[]={1, 2, 0, 3};
 	int fwdmask=-fwd;
 
@@ -4229,7 +4229,7 @@ void pred_wgrad2(Image *src, int fwd)
 				//	if(kc0>1)
 				//		offset=(2*offset+rows[0][2])>>1;
 				//}
-				long long lpred, wsum;
+				//long long lpred, wsum;
 				int preds[]=
 				{
 					N+W-NW,
@@ -4242,8 +4242,8 @@ void pred_wgrad2(Image *src, int fwd)
 					(W+NEEE)>>1,
 				};
 
-				lpred=0;
-				wsum=0;
+				//lpred=0;
+				//wsum=0;
 #ifdef WG2_DIVFREE
 				for(int k=0;k<_countof(preds);++k)
 				{
@@ -4261,7 +4261,7 @@ void pred_wgrad2(Image *src, int fwd)
 						fsum+=weight;
 					}
 					fpred/=fsum;
-					pred=_cvt_dtoi_fast(fpred);
+					CONVERT_DOUBLE2INT(pred, fpred);
 				}
 #else
 				for(int k=0;k<_countof(preds);++k)
@@ -4459,7 +4459,7 @@ void pred_wgrad3(Image *src, int fwd, int hasRCT)
 	UPDATE_MAX(nch, src->nch);
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
-		double fprev[16*4]={0};
+		//double fprev[16*4]={0};
 		int eprev[16*4]={0};
 		int *rows[]=
 		{
@@ -4529,7 +4529,7 @@ void pred_wgrad3(Image *src, int fwd, int hasRCT)
 					fsum+=weight;
 				}
 				fpred/=fsum;
-				pred=_cvt_dtoi_fast(fpred);
+				CONVERT_DOUBLE2INT(pred, fpred);
 				if(!hasRCT&&kc0>0)
 				{
 					offset+=rows[0][1];
@@ -4791,7 +4791,7 @@ void pred_lwav(Image *src, int fwd)
 				//	+rows[1][kc+4+0*4]
 				//	+rows[1][kc+4+1*4];
 				//int error=rows[0][kc+4];//X
-				int vmax=0;
+				//int vmax=0;
 				for(int k=0;k<LWAV_NPARAMS;++k)
 				{
 					curr[k+2]=abs(curr[0]-ctx[k<<1|1]);
@@ -5272,20 +5272,20 @@ void pred_av2(Image *src, int fwd)
 void pred_mix2(Image *src, int fwd)
 {
 	int nch;
-	int nlevels[]=
-	{
-		1<<src->depth[0],
-		1<<src->depth[1],
-		1<<src->depth[2],
-		1<<src->depth[3],
-	};
-	int halfs[]=
-	{
-		nlevels[0]>>1,
-		nlevels[1]>>1,
-		nlevels[2]>>1,
-		nlevels[3]>>1,
-	};
+	//int nlevels[]=
+	//{
+	//	1<<src->depth[0],
+	//	1<<src->depth[1],
+	//	1<<src->depth[2],
+	//	1<<src->depth[3],
+	//};
+	//int halfs[]=
+	//{
+	//	nlevels[0]>>1,
+	//	nlevels[1]>>1,
+	//	nlevels[2]>>1,
+	//	nlevels[3]>>1,
+	//};
 	int fwdmask=-fwd;
 
 	int bufsize=(src->iw+16LL)*sizeof(int[4*4*2]);//4 padded rows * 4 channels max
@@ -7739,11 +7739,7 @@ void pred_ols(Image *src, int fwd, int enable_ma)
 						double fpred=0;
 						for(int k=0;k<OLS_NPARAMS;++k)
 							fpred+=nb3[k]*c1_params[kc<<2|k];
-#ifdef _MSC_VER
-						pred=_cvt_dtoi_fast(fpred);
-#else
-						pred=(int)round(fpred);
-#endif
+						CONVERT_DOUBLE2INT(pred, fpred);
 					}
 					++successcount;
 				}
@@ -8569,7 +8565,7 @@ void pred_t47(Image *src, int fwd, int enable_ma)
 					eW	=LOAD(errors, -1,  0);
 #undef  LOAD
 				int paper_GAP, calic_GAP;
-				int geomean;
+				//int geomean;
 				{
 					int dx=abs(W-WW)+abs(N-NW)+abs(NE-N);
 					int dy=abs(W-NW)+abs(N-NN)+abs(NE-NNE);
@@ -8609,12 +8605,12 @@ void pred_t47(Image *src, int fwd, int enable_ma)
 					else
 						calic_GAP=(((N+W)<<1)+NE-NW)>>2;	//c5	[1/2  1/2  1/4  -1/4]
 				}
-				{
-					long long aN=N+0x800000LL, aW=W+0x800000LL;
-					aN=CLAMP(0, aN, 0xFFFFFF);
-					aW=CLAMP(0, aW, 0xFFFFFF);
-					geomean=(int)floor_sqrt(aN*aW)-0x800000;
-				}
+				//{
+				//	long long aN=N+0x800000LL, aW=W+0x800000LL;
+				//	aN=CLAMP(0, aN, 0xFFFFFF);
+				//	aW=CLAMP(0, aW, 0xFFFFFF);
+				//	geomean=(int)floor_sqrt(aN*aW)-0x800000;
+				//}
 				{
 					int val, curr, kbest, besterr;
 					int preds[]=
