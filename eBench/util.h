@@ -51,6 +51,12 @@ extern "C"
 #define ROTATE3(A, B, C, TEMP) TEMP=A, A=B, B=C, C=TEMP
 #define MINVAR(A, B) ((A)<(B)?(A):(B))//use the faster _mm_min...
 #define MAXVAR(A, B) ((A)>(B)?(A):(B))//use the faster _mm_max...
+#define CLAMP2(X, LO, HI)\
+	do\
+	{\
+		if((X)<(LO))X=LO;\
+		if((X)>(HI))X=HI;\
+	}while(0)
 #define CLAMP(LO, X, HI) ((X)>(LO)?(X)<(HI)?(X):(HI):(LO))//use MEDIAN3_32
 
 //include<smmintrin.h>	SSE4.1

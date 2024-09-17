@@ -5,6 +5,7 @@
 #	"C:/Projects/a/OpenCL-Headers"
 #)
 add_executable (eBench WIN32
+	bwt.c
 	console.c
 	custom4.c
 	ebench.c
@@ -24,6 +25,7 @@ add_executable (eBench WIN32
 	#transforms_pt2.c
 	util.c
 	wg4.c
+	wg5.c
 	window.c
 )
 

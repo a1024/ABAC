@@ -95,6 +95,8 @@ typedef enum TransformTypeEnum
 
 	ST_FWD_PACKSIGN,	ST_INV_PACKSIGN,
 	ST_FWD_PALETTE,		ST_INV_PALETTE,
+	ST_FWD_BWTX,		ST_INV_BWTX,
+	ST_FWD_BWTY,		ST_INV_BWTY,
 	ST_FWD_MTF,		ST_INV_MTF,
 	ST_FWD_T47,		ST_INV_T47,
 	ST_FWD_P3,		ST_INV_P3,
@@ -124,11 +126,13 @@ typedef enum TransformTypeEnum
 //	ST_FWD_WGRAD2,		ST_INV_WGRAD2,
 	ST_FWD_WGRAD3,		ST_INV_WGRAD3,
 	ST_FWD_WGRAD4,		ST_INV_WGRAD4,
+	ST_FWD_WGRAD5,		ST_INV_WGRAD5,
 	ST_FWD_LWAV,		ST_INV_LWAV,
 	ST_FWD_CLAMPGRAD,	ST_INV_CLAMPGRAD,
 	ST_FWD_CG422,		ST_INV_CG422,
 	ST_FWD_CG420,		ST_INV_CG420,
 	ST_FWD_AV2,		ST_INV_AV2,
+	ST_FWD_MIX2,		ST_INV_MIX2,
 //	ST_FWD_AV3,		ST_INV_AV3,
 //	ST_FWD_ECOEFF,		ST_INV_ECOEFF,
 //	ST_FWD_AVERAGE,		ST_INV_AVERAGE,
@@ -1293,7 +1297,7 @@ static unsigned __stdcall sample_thread(void *param)
 	ThreadCtx *ctx=(ThreadCtx*)param;
 
 	ctx->usize=image_getBMPsize(ctx->image);
-	apply_selected_transforms(ctx->image, 0);
+	apply_selected_transforms(&ctx->image, 0);
 	maxdepth=calc_maxdepth(ctx->image, 0);
 	nlevels=1<<maxdepth;
 	hist=(int*)malloc(nlevels*sizeof(int));
@@ -1429,7 +1433,7 @@ static void batch_test(void)
 		if(!image)
 			continue;
 		usize=image_getBMPsize(image), csize[3]={0};
-		apply_selected_transforms(image, 0);
+		apply_selected_transforms(&image, 0);
 		maxdepth=calc_maxdepth(image, 0);
 		maxlevels=1<<maxdepth;
 		int *hist=(int*)malloc(maxlevels*sizeof(int));
@@ -1634,6 +1638,10 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 		
 	case ST_FWD_PACKSIGN:		a=" S Fwd PackSign";		break;
 	case ST_INV_PACKSIGN:		a=" S Inv PackSign";		break;
+	case ST_FWD_BWTX:		a=" S Fwd BWT-X";		break;
+	case ST_INV_BWTX:		a=" S Inv BWT-X";		break;
+	case ST_FWD_BWTY:		a=" S Fwd BWT-Y";		break;
+	case ST_INV_BWTY:		a=" S Inv BWT-Y";		break;
 	case ST_FWD_MTF:		a=" S Fwd MTF";			break;
 	case ST_INV_MTF:		a=" S Inv MTF";			break;
 	case ST_FWD_PALETTE:		a=" S Fwd Palette";		break;
@@ -1672,8 +1680,10 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_CG422:		a=" S Inv CG422";		break;
 	case ST_FWD_CG420:		a=" S Fwd CG420";		break;
 	case ST_INV_CG420:		a=" S Inv CG420";		break;
-	case ST_FWD_AV2:		a=" S Fwd (N+W)>>1";		break;
-	case ST_INV_AV2:		a=" S Inv (N+W)>>1";		break;
+	case ST_FWD_AV2:		a=" S Fwd (N+W)/2";		break;
+	case ST_INV_AV2:		a=" S Inv (N+W)/2";		break;
+	case ST_FWD_MIX2:		a=" S Fwd MIX2";		break;
+	case ST_INV_MIX2:		a=" S Inv MIX2";		break;
 //	case ST_FWD_AV3:		a=" S Fwd AV3";			break;
 //	case ST_INV_AV3:		a=" S Inv AV3";			break;
 	case ST_FWD_WGRAD:		a="CS Fwd WGrad";		break;
@@ -1684,6 +1694,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_WGRAD3:		a="CS Inv WGrad3";		break;
 	case ST_FWD_WGRAD4:		a=" S Fwd WGrad4";		break;
 	case ST_INV_WGRAD4:		a=" S Inv WGrad4";		break;
+	case ST_FWD_WGRAD5:		a=" S Fwd WGrad5";		break;
+	case ST_INV_WGRAD5:		a=" S Inv WGrad5";		break;
 	case ST_FWD_LWAV:		a=" S Fwd LWAV";		break;
 	case ST_INV_LWAV:		a=" S Inv LWAV";		break;
 //	case ST_FWD_ECOEFF:		a=" S Fwd E-Coeff";		break;
@@ -2617,8 +2629,9 @@ void bayes_update()
 }
 #endif
 
-void apply_transform(Image *image, int tid, int hasRCT)
+void apply_transform(Image **pimage, int tid, int hasRCT)
 {
+	Image *image=*pimage;
 	switch(tid)
 	{
 //	case CT_FWD_ADAPTIVE:		rct_adaptive((char*)image, iw, ih, 1);			break;
@@ -2751,6 +2764,10 @@ void apply_transform(Image *image, int tid, int hasRCT)
 	case ST_INV_OLS7:		pred_ols7(image, 0);					break;
 	case ST_FWD_PACKSIGN:		packsign(image, 1);					break;
 	case ST_INV_PACKSIGN:		packsign(image, 0);					break;
+	case ST_FWD_BWTX:		prep_BWT_x(pimage, 1);					break;
+	case ST_INV_BWTX:		prep_BWT_x(pimage, 0);					break;
+	case ST_FWD_BWTY:		prep_BWT_y(pimage, 1);					break;
+	case ST_INV_BWTY:		prep_BWT_y(pimage, 0);					break;
 	case ST_FWD_MTF:		pred_MTF(image, 1);					break;
 	case ST_INV_MTF:		pred_MTF(image, 0);					break;
 	case ST_FWD_PALETTE:		pred_palette(image, 1);					break;
@@ -2771,6 +2788,8 @@ void apply_transform(Image *image, int tid, int hasRCT)
 	case ST_INV_CG420:		pred_CG420(image, 0);					break;
 	case ST_FWD_AV2:		pred_av2(image, 1);					break;
 	case ST_INV_AV2:		pred_av2(image, 0);					break;
+	case ST_FWD_MIX2:		pred_mix2(image, 1);					break;
+	case ST_INV_MIX2:		pred_mix2(image, 0);					break;
 //	case ST_FWD_AV3:		pred_av3(image, 1);					break;
 //	case ST_INV_AV3:		pred_av3(image, 0);					break;
 	case ST_FWD_WGRAD:		pred_wgrad(image, 1, hasRCT);				break;
@@ -2781,6 +2800,8 @@ void apply_transform(Image *image, int tid, int hasRCT)
 	case ST_INV_WGRAD3:		pred_wgrad3(image, 0, hasRCT);				break;
 	case ST_FWD_WGRAD4:		pred_wgrad4(image, 1);					break;
 	case ST_INV_WGRAD4:		pred_wgrad4(image, 0);					break;
+	case ST_FWD_WGRAD5:		pred_wgrad5(image, 1);					break;
+	case ST_INV_WGRAD5:		pred_wgrad5(image, 0);					break;
 	case ST_FWD_LWAV:		pred_lwav(image, 1);					break;
 	case ST_INV_LWAV:		pred_lwav(image, 0);					break;
 //	case ST_FWD_ECOEFF:		pred_ecoeff(image, 1, pred_ma_enabled);			break;
@@ -2898,7 +2919,7 @@ void apply_transform(Image *image, int tid, int hasRCT)
 //	case ST_INV_DEC_DWT:   dwt2d_dec_inv((char*)image, iw, ih);	break;
 	}//switch
 }
-void apply_selected_transforms(Image *image, int rct_only)
+void apply_selected_transforms(Image **pimage, int rct_only)
 {
 	int hasRCT=0;
 
@@ -2931,21 +2952,21 @@ void apply_selected_transforms(Image *image, int rct_only)
 					hasRCT|=tid<CST_INV_SEPARATOR;
 					if(tid3==tid||tid3==tid2)
 						break;
-					apply_transform(image, tid3, hasRCT);
+					apply_transform(pimage, tid3, hasRCT);
 				}
-				image_copy(&image2, image);
-				apply_transform(image, tid, 0);
-				apply_transform(image2, tid2, 0);
-				int res=image->iw*image->ih<<2;
+				image_copy(&image2, *pimage);
+				apply_transform(pimage, tid, 0);
+				apply_transform(&image2, tid2, 0);
+				int res=pimage[0]->iw*pimage[0]->ih<<2;
 				int amplitudes[]=
 				{
-					1<<image->depth[0]>>3,
-					1<<image->depth[1]>>3,
-					1<<image->depth[2]>>3,
-					1<<image->depth[3]>>3,
+					1<<pimage[0]->depth[0]>>3,
+					1<<pimage[0]->depth[1]>>3,
+					1<<pimage[0]->depth[2]>>3,
+					1<<pimage[0]->depth[3]>>3,
 				};
 				for(int kp=0;kp<res;++kp)
-					image->data[kp]=abs(image->data[kp])-abs(image2->data[kp]);
+					pimage[0]->data[kp]=abs(pimage[0]->data[kp])-abs(image2->data[kp]);
 				//{
 				//	int val=image->data[kp];
 				//	int val2=image2->data[kp];
@@ -2969,7 +2990,7 @@ void apply_selected_transforms(Image *image, int rct_only)
 					if(rct_only&&tid3>CST_INV_SEPARATOR)
 						continue;
 					if(tid3!=tid&&tid3!=tid2)
-						apply_transform(image, tid3, hasRCT);
+						apply_transform(pimage, tid3, hasRCT);
 				}
 			}
 			return;
@@ -2981,7 +3002,7 @@ void apply_selected_transforms(Image *image, int rct_only)
 		hasRCT|=tid<CST_INV_SEPARATOR;
 		if(rct_only&&tid>CST_INV_SEPARATOR)
 			continue;
-		apply_transform(image, tid, hasRCT);
+		apply_transform(pimage, tid, hasRCT);
 		//calc_depthfromdata(image->data, image->iw, image->ih, image->depth, image->src_depth);//X  depth must depend only on src_depth and applied RCTs, so that preds can apply MA
 	}//for
 }
@@ -2990,7 +3011,7 @@ void update_image(void)//apply selected operations on original image, calculate 
 	if(!im0)
 		return;
 	image_copy(&im1, im0);
-	apply_selected_transforms(im1, 0);
+	apply_selected_transforms(&im1, 0);
 
 	//do not modify im1 beyond this point
 	
@@ -3223,7 +3244,7 @@ static void draw_AAcuboid_wire(float size, int applyRCT)
 			image->data[k<<2|2]=(int)(cuboid[k*3+2]-half);
 		}
 		memcpy(image->depth, image->src_depth, sizeof(image->depth));
-		apply_selected_transforms(image, 1);
+		apply_selected_transforms(&image, 1);
 		for(int k=0;k<8;++k)
 		{
 			cuboid[k*3+0]=(float)image->data[k<<2|0]+half;
@@ -5834,7 +5855,7 @@ int io_keydn(IOKey key, char c)
 				image_copy(&im2, im0);
 				if(!im2)
 					return 0;
-				apply_selected_transforms(im2, 1);
+				apply_selected_transforms(&im2, 1);
 				pred_custom_optimize(im2, custom_params, GET_KEY_STATE(KEY_SHIFT)?2:1);
 				free(im2);
 				update_image();
@@ -5904,7 +5925,7 @@ int io_keydn(IOKey key, char c)
 					image_copy(&im2, im0);
 					if(!im2)
 						return 0;
-					apply_selected_transforms(im2, 1);
+					apply_selected_transforms(&im2, 1);
 					//if(GET_KEY_STATE(KEY_CTRL))
 					//	colortransform_YCbCr_R_v1(im2, 1);
 					custom3_opt(im2, &c3_params, 0, maskbits, 1, 0);

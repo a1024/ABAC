@@ -1114,8 +1114,9 @@ void rct_custom(Image *image, int fwd, const short *params)//4 params	fixed 15.1
 	}
 #endif
 }
-static void rct_custom_calcloss(Image const *src, Image *dst, int *hist, double *loss)
+static void rct_custom_calcloss(Image const *src, Image **pdst, int *hist, double *loss)
 {
+	Image *dst=*pdst;
 	int depths[]=
 	{
 		src->depth[1],
@@ -1125,7 +1126,8 @@ static void rct_custom_calcloss(Image const *src, Image *dst, int *hist, double 
 	ptrdiff_t res=(ptrdiff_t)src->iw*src->ih;
 	memcpy(dst->data, src->data, res*sizeof(int[4]));
 
-	apply_selected_transforms(dst, 0);
+	apply_selected_transforms(pdst, 0);
+	dst=*pdst;
 	//rct_custom(dst, 1, params);
 	//pred_grad2(dst, 1);
 	//pred_clampedgrad(dst, 1, 1);
@@ -1170,7 +1172,7 @@ void rct_custom_optimize(Image const *image, short *params)
 
 	memcpy(params2, params, sizeof(params2));
 
-#define CALC_LOSS(L) rct_custom_calcloss(image, im2, hist, L)
+#define CALC_LOSS(L) rct_custom_calcloss(image, &im2, hist, L)
 #ifndef _DEBUG
 	srand((unsigned)__rdtsc());
 #endif
@@ -5266,6 +5268,146 @@ void pred_av2(Image *src, int fwd)
 		}
 	}
 	_mm_free(pixels);
+}
+void pred_mix2(Image *src, int fwd)
+{
+	int nch;
+	int nlevels[]=
+	{
+		1<<src->depth[0],
+		1<<src->depth[1],
+		1<<src->depth[2],
+		1<<src->depth[3],
+	};
+	int halfs[]=
+	{
+		nlevels[0]>>1,
+		nlevels[1]>>1,
+		nlevels[2]>>1,
+		nlevels[3]>>1,
+	};
+	int fwdmask=-fwd;
+
+	int bufsize=(src->iw+16LL)*sizeof(int[4*4*2]);//4 padded rows * 4 channels max
+	int *pixels=(int*)malloc(bufsize);
+
+	if(!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(pixels, 0, bufsize);
+	nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
+	UPDATE_MAX(nch, src->nch);
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		int *rows[]=
+		{
+			pixels+((src->iw+16LL)*((ky-0LL)&3)+8)*4*2,
+			pixels+((src->iw+16LL)*((ky-1LL)&3)+8)*4*2,
+			pixels+((src->iw+16LL)*((ky-2LL)&3)+8)*4*2,
+			pixels+((src->iw+16LL)*((ky-3LL)&3)+8)*4*2,
+		};
+		int asum=0;
+	//	int acount=1;
+	//	int asum[3]={0}, acount[3]={1, 1, 1};
+		for(int kx=0;kx<src->iw;++kx, idx+=4)
+		{
+			for(int kc=0;kc<3;++kc)
+			{
+				int pred, curr;
+				int
+					NW	=rows[1][kc-1*4*2+0],
+					N	=rows[1][kc+0*4*2+0],
+					NE	=rows[1][kc+1*4*2+0],
+					W	=rows[0][kc-1*4*2+0],
+					aNNWW	=rows[2][kc-2*4*2+4],
+					aNNW	=rows[2][kc-1*4*2+4],
+					aNN	=rows[2][kc+0*4*2+4],
+					aNNE	=rows[2][kc+1*4*2+4],
+					aNNEE	=rows[2][kc+2*4*2+4],
+					aNWW	=rows[1][kc-2*4*2+4],
+					aNW	=rows[1][kc-1*4*2+4],
+					aN	=rows[1][kc+0*4*2+4],
+					aNE	=rows[1][kc+1*4*2+4],
+					aNEE	=rows[1][kc+2*4*2+4],
+					aNEEE	=rows[1][kc+3*4*2+4],
+					aNEEEE	=rows[1][kc+4*4*2+4],
+					aWWWW	=rows[0][kc-4*4*2+4],
+					aWWW	=rows[0][kc-3*4*2+4],
+					aWW	=rows[0][kc-2*4*2+4],
+					aW	=rows[0][kc-1*4*2+4];
+
+				//predict
+				if(kc)//chroma
+				{
+				//	alpha=asum/acount+(1<<8>>1);
+					pred=W+((N-W)*(asum+(1<<8>>1))>>8)+(NE-NW)/4;
+				}
+				else//luma
+				{
+					MEDIAN3_32(pred, N, W, N+W-NW);
+				}
+#if 0
+			//	int alpha=aW;
+				int alpha=aNNWW+aNNW+aNN+aNNE+aNNEE+aNWW+aNW+2*aN+aNE+aNEE+aNEEE+aWWW+aWW+2*aW;
+			//	int alpha=aN+aW+aNW+aNE;
+			//	int alpha=aN+aW;
+				alpha+=1<<(6+4)>>1;
+			//	alpha-=1<<8>>1;
+			//	alpha+=1<<4>>1;
+			//	alpha>>=4;
+			//	alpha+=1<<8>>1;
+				CLAMP2(alpha, 0, 1<<(6+4));
+				pred=W+((N-W)*alpha>>(6+4));
+			//	CLAMP2(pred, -halfs[kc], halfs[kc]-1);
+#endif
+
+				curr=src->data[idx+kc];
+				pred^=fwdmask;
+				pred-=fwdmask;
+				pred+=curr;
+
+				pred<<=32-src->depth[kc];
+				pred>>=32-src->depth[kc];
+
+				src->data[idx+kc]=pred;
+				rows[0][kc]=fwd?curr:pred;
+
+				//update
+				curr=rows[0][kc];
+				if(N!=W)
+				{
+					int alpha=((curr-W)<<8|1<<8>>1)/(N-W);
+					CLAMP2(alpha, 0, 1<<8);
+					alpha-=1<<8>>1;
+
+					asum+=(alpha-asum)>>6;
+
+				//	asum+=alpha;
+				//	++acount;
+				//	if(acount>=6)
+				//	{
+				//		asum>>=1;
+				//		acount>>=1;
+				//	}
+				}
+#if 0
+				if(N==W)
+					alpha=0;
+				else
+					alpha=((curr-W)<<6|1<<6>>1)/(N-W)-(1<<6>>1);
+				rows[0][kc+4]=alpha;
+			//	rows[0][kc+4]=(2*aW+alpha+aNEEE)/4;
+#endif
+			}
+			rows[0]+=4*2;
+			rows[1]+=4*2;
+			rows[2]+=4*2;
+			rows[3]+=4*2;
+		}
+	}
+	free(pixels);
 }
 
 

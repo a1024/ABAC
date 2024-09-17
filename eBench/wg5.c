@@ -95,24 +95,27 @@ static const char file[]=__FILE__;
 static void wg_init(double *weights, int kc)
 {
 	int j=0;
-	switch(kc)
-	{
-	case 0:
 #define WG_PRED(WEIGHT, EXPR) weights[j++]=WEIGHT;
-		WG_PREDLIST0
+	WG_PREDLIST0
 #undef  WG_PRED
-		break;
-	case 1:
-#define WG_PRED(WEIGHT, EXPR) weights[j++]=WEIGHT;
-		WG_PREDLIST1
-#undef  WG_PRED
-		break;
-	case 2:
-#define WG_PRED(WEIGHT, EXPR) weights[j++]=WEIGHT;
-		WG_PREDLIST2
-#undef  WG_PRED
-		break;
-	}
+//	switch(kc)
+//	{
+//	case 0:
+//#define WG_PRED(WEIGHT, EXPR) weights[j++]=WEIGHT;
+//		WG_PREDLIST0
+//#undef  WG_PRED
+//		break;
+//	case 1:
+//#define WG_PRED(WEIGHT, EXPR) weights[j++]=WEIGHT;
+//		WG_PREDLIST1
+//#undef  WG_PRED
+//		break;
+//	case 2:
+//#define WG_PRED(WEIGHT, EXPR) weights[j++]=WEIGHT;
+//		WG_PREDLIST2
+//#undef  WG_PRED
+//		break;
+//	}
 }
 static int wg_predict(
 	const double *weights, int **rows, const int stride, int kc2,
@@ -170,24 +173,27 @@ static int wg_predict(
 	//MEDIAN3_32(cgrad, N, W, N+W-NW);
 	//MEDIAN3_32(cgrad2, N, NE, N+NE-NNE);
 	
-	switch(kc2)
-	{
-	case 0:
 #define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
-		WG_PREDLIST0
+	WG_PREDLIST0
 #undef  WG_PRED
-		break;
-	case 2:
-#define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
-		WG_PREDLIST1
-#undef  WG_PRED
-		break;
-	case 4:
-#define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
-		WG_PREDLIST2
-#undef  WG_PRED
-		break;
-	}
+//	switch(kc2)
+//	{
+//	case 0:
+//#define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
+//		WG_PREDLIST0
+//#undef  WG_PRED
+//		break;
+//	case 2:
+//#define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
+//		WG_PREDLIST1
+//#undef  WG_PRED
+//		break;
+//	case 4:
+//#define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
+//		WG_PREDLIST2
+//#undef  WG_PRED
+//		break;
+//	}
 	//if((eW*47>>7)!=(eW*3>>3)-(eW>>7))
 	//	LOG_ERROR("%d", eW);
 #if 1
@@ -296,7 +302,7 @@ static void wg_update(int curr, int kc, const int *preds, int *perrors, int *Wer
 		NEerrors[k]+=e2;
 	}
 }
-void pred_wgrad4(Image *src, int fwd)
+void pred_wgrad5(Image *src, int fwd)
 {
 	ALIGN(32) double wg_weights[4][WG_NPREDS]={0};
 	ALIGN(32) int wg_perrors[4][WG_NPREDS]={0}, wg_preds[WG_NPREDS]={0};
@@ -369,7 +375,18 @@ void pred_wgrad4(Image *src, int fwd)
 				//	*eNEEE	=erows[1]+kc3+3*4*WG_NPREDS,
 					*eW	=erows[0]+kc3-1*4*WG_NPREDS,
 					*ecurr	=erows[0]+kc3+0*4*WG_NPREDS;
-				pred=wg_predict(wg_weights[kc], rows, 4*2, kc2, 0, wg_perrors[kc], eNW, eN, eNE, eNNE, wg_preds);
+				if(kc)
+				{
+					int
+						NW	=rows[1][kc2-1*4*2+0],
+						N	=rows[1][kc2+0*4*2+0],
+						W	=rows[0][kc2-1*4*2+0];
+					MEDIAN3_32(pred, N, W, N+W-NW);
+					//pred+=rows[0][2];
+					//CLAMP2(pred, -halfs[kc], halfs[kc]-1);
+				}
+				else
+					pred=wg_predict(wg_weights[0], rows, 4*2, kc2, 0, wg_perrors[kc], eNW, eN, eNE, eNNE, wg_preds);
 				{
 					int curr=src->data[idx+kc], pred0=pred;
 					pred+=1<<WG_NBITS>>1;
@@ -385,7 +402,11 @@ void pred_wgrad4(Image *src, int fwd)
 					rows[0][kc2+0]=(fwd?curr:pred)<<WG_NBITS;
 					rows[0][kc2+1]=rows[0][kc2]-pred0;
 				}
-				wg_update(rows[0][kc2], kc, wg_preds, wg_perrors[kc], eW, ecurr, eNE);
+				//if(kc)
+				//	rows[0][kc2+0]-=rows[0][2];
+				//else
+				if(!kc)
+					wg_update(rows[0][kc2], kc, wg_preds, wg_perrors[kc], eW, ecurr, eNE);
 			}
 			rows[0]+=4*2;
 			rows[1]+=4*2;

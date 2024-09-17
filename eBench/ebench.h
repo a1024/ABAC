@@ -655,8 +655,8 @@ void update_image(void);
 
 
 //transforms
-void apply_transform(Image *image, int tid, int hasRCT);
-void apply_selected_transforms(Image *image, int rct_only);
+void apply_transform(Image **image, int tid, int hasRCT);
+void apply_selected_transforms(Image **image, int rct_only);
 
 
 //aux func
@@ -709,6 +709,11 @@ void rct_adaptive(Image *src, int fwd);
 //void pred_cfl(char *buf, int iw, int ih, int fwd);
 
 
+//pre-processors
+void prep_BWT_x(Image **psrc, int fwd);
+void prep_BWT_y(Image **psrc, int fwd);
+
+
 //spatial transforms
 void filt_deint422(Image *src);
 void filt_deint420(Image *src);
@@ -717,6 +722,7 @@ void pred_clampgrad(Image *image, int fwd, int enable_ma);
 void pred_CG420(Image *src, int fwd);
 void pred_CG422(Image *src, int fwd);
 void pred_av2(Image *src, int fwd);
+void pred_mix2(Image *src, int fwd);
 void pred_MTF(Image *src, int fwd);
 void pred_palette(Image *src, int fwd);
 
@@ -728,6 +734,7 @@ void pred_wgrad(Image *src, int fwd, int hasRCT);
 void pred_wgrad2(Image *src, int fwd);
 void pred_wgrad3(Image *src, int fwd, int hasRCT);
 void pred_wgrad4(Image *src, int fwd);
+void pred_wgrad5(Image *src, int fwd);
 void pred_lwav(Image *src, int fwd);
 void pred_WPU(Image *src, int fwd);
 
