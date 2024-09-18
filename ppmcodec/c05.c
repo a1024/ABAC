@@ -10,10 +10,12 @@ static const char file[]=__FILE__;
 //	#define DISABLE_MT
 
 	#define ENABLE_AV2	//good
-	#define ENABLE_SSE	//good with MT
+//	#define ENABLE_SSE	//good with MT
 //	#define ENABLE_SSE_SKEW	//bad
 //	#define DISABLE_RCTSEL	//causalRCTSEL > RCT,  disabling RCTSEL breaks SSE
 //	#define ENABLE_NPOT	//bad
+
+#define ANALYSIS_STRIDE 4
 
 
 #define CODECNAME "C05"
@@ -171,8 +173,8 @@ typedef struct _ThreadArgs
 #ifdef ENABLE_SSE
 	int sse1[3][64][64][2];
 	int sse2[3][64][64][2];
-	int sse3[3][256][2];
-	int sse4[3][64][64][2];
+	int sse3[3][64][64][2];
+	int sse4[3][256][2];
 #endif
 
 	//aux
@@ -269,8 +271,8 @@ static void block_thread(void *param)
 		mixcoeff[1]/=res;
 		mixcoeff[2]/=res;
 #endif
-		res=(args->x2-args->x1-4)/5*5*(args->y2-args->y1-2);
-		for(int ky=args->y1+2;ky<args->y2;++ky)//analysis loop
+		res=(args->x2-args->x1-4)/5*5*((args->y2-args->y1-2)/ANALYSIS_STRIDE);
+		for(int ky=args->y1+2;ky<args->y2-(ANALYSIS_STRIDE-1);ky+=ANALYSIS_STRIDE)//analysis loop
 		{
 			int kx=args->x1+2;
 			const unsigned char *ptr=args->src+3*(args->iw*ky+kx);
@@ -1107,7 +1109,7 @@ static void block_thread(void *param)
 #ifndef DISABLE_RCTSEL
 		const unsigned char *combination=rct_combinations[bestrct];
 #endif
-		int preds[3]={0};
+		ALIGN(16) int preds[4]={0};
 		for(int kx=args->x1;kx<args->x2;++kx)
 		{
 			int idx=nch*(args->iw*ky+kx);
@@ -1198,13 +1200,17 @@ static void block_thread(void *param)
 			//if(nbypass[0]<0)nbypass[0]=0;
 			//if(nbypass[1]<0)nbypass[1]=0;
 			//if(nbypass[2]<0)nbypass[2]=0;
+#ifndef ENABLE_NPOT
 			nbypass[0]+=nbypass[0]<4;
 			nbypass[1]+=nbypass[1]<4;
 			nbypass[2]+=nbypass[2]<4;
-#ifndef ENABLE_NPOT
 			nbypass[0]=FLOOR_LOG2(nbypass[0]);
 			nbypass[1]=FLOOR_LOG2(nbypass[1]);
 			nbypass[2]=FLOOR_LOG2(nbypass[2]);
+#else
+			nbypass[0]+=nbypass[0]<3;
+			nbypass[1]+=nbypass[1]<3;
+			nbypass[2]+=nbypass[2]<3;
 #endif
 #if 1
 #ifdef __GNUC__
@@ -1284,80 +1290,67 @@ static void block_thread(void *param)
 			_mm_store_si128((__m128i*)preds, mp);
 #endif
 #ifdef ENABLE_SSE
-			//int sse_ctx[][2]=
-			//{
-			//	{abs(N[0]-NW[0]), abs(W[0]-NW[0])},
-			//	{abs(N[1]-NW[1]), abs(W[1]-NW[1])},
-			//	{abs(N[2]-NW[2]), abs(W[2]-NW[2])},
-			//};
-			//sse_ctx[0][0]=FLOOR_LOG2_P1(sse_ctx[0][0]);
-			//sse_ctx[0][1]=FLOOR_LOG2_P1(sse_ctx[0][1]);
-			//sse_ctx[1][0]=FLOOR_LOG2_P1(sse_ctx[1][0]);
-			//sse_ctx[1][1]=FLOOR_LOG2_P1(sse_ctx[1][1]);
-			//sse_ctx[2][0]=FLOOR_LOG2_P1(sse_ctx[2][0]);
-			//sse_ctx[2][1]=FLOOR_LOG2_P1(sse_ctx[2][1]);
+#if 1
+			int den[3];
+			int *curr_sse1[]=
+			{
+				args->sse1[0][((N[0]+W[0]+(NE[0]-NW[0])/2)>>3)&63][(preds[0]>>2)&63],
+				args->sse1[1][((N[1]+W[1]+(NE[1]-NW[1])/2)>>3)&63][(preds[1]>>2)&63],
+				args->sse1[2][((N[2]+W[2]+(NE[2]-NW[2])/2)>>3)&63][(preds[2]>>2)&63],
+			};
+			den[0]=curr_sse1[0][0]+5;
+			den[1]=curr_sse1[1][0]+5;
+			den[2]=curr_sse1[2][0]+5;
+			preds[0]+=(curr_sse1[0][1]+(den[0]>>1))/den[0];
+			preds[1]+=(curr_sse1[1][1]+(den[1]>>1))/den[1];
+			preds[2]+=(curr_sse1[2][1]+(den[2]>>1))/den[2];
+#endif
 #if 1
 			int *curr_sse2[]=
 			{
-				args->sse2[0][((N[0]+W[0]+(NE[0]-NW[0])/2+HALF_Y*2)>>3)&63][(preds[0]>>2)&63],
-				args->sse2[1][((N[1]+W[1]+(NE[1]-NW[1])/2+HALF_U*2)>>3)&63][(preds[1]>>2)&63],
-				args->sse2[2][((N[2]+W[2]+(NE[2]-NW[2])/2+HALF_V*2)>>3)&63][(preds[2]>>2)&63],
-
-				//args->sse[0][sse_ctx[0][0]][sse_ctx[0][1]],//worse
-				//args->sse[1][sse_ctx[1][0]][sse_ctx[1][1]],
-				//args->sse[2][sse_ctx[2][0]][sse_ctx[2][1]],
-
-				//args->sse[0][(preds[0]+HALF_Y)>>1&127],//worse
-				//args->sse[1][(preds[1]+HALF_U)>>1&127],
-				//args->sse[2][(preds[2]+HALF_V)>>1&127],
+				args->sse2[0][((N[0]-NW[0])>>1)&63][((W[0]-WW[0])>>2)&63],
+				args->sse2[1][((N[1]-NW[1])>>1)&63][((W[1]-WW[1])>>2)&63],
+				args->sse2[2][((N[2]-NW[2])>>1)&63][((W[2]-WW[2])>>2)&63],
 			};
-			preds[0]+=(curr_sse2[0][1]+((curr_sse2[0][0]+5)>>1))/(curr_sse2[0][0]+5);
-			preds[1]+=(curr_sse2[1][1]+((curr_sse2[1][0]+5)>>1))/(curr_sse2[1][0]+5);
-			preds[2]+=(curr_sse2[2][1]+((curr_sse2[2][0]+5)>>1))/(curr_sse2[2][0]+5);
-#endif
-#if 1
-			int *curr_sse1[]=
-			{
-				args->sse1[0][((N[0]-NW[0])>>1)&63][((W[0]-WW[0])>>2)&63],
-				args->sse1[1][((N[1]-NW[1])>>1)&63][((W[1]-WW[1])>>2)&63],
-				args->sse1[2][((N[2]-NW[2])>>1)&63][((W[2]-WW[2])>>2)&63],
-			//	args->sse1[0][((N[0]-NW[0]+W[0]-WW[0])>>3)&63][((W[0]-NW[0]+N[0]-NN[0])>>3)&63],//worse
-			//	args->sse1[1][((N[1]-NW[1]+W[1]-WW[1])>>3)&63][((W[1]-NW[1]+N[1]-NN[1])>>3)&63],
-			//	args->sse1[2][((N[2]-NW[2]+W[2]-WW[2])>>3)&63][((W[2]-NW[2]+N[2]-NN[2])>>3)&63],
-			};
-			preds[0]+=(curr_sse1[0][1]+((curr_sse1[0][0]+5)>>1))/(curr_sse1[0][0]+5);
-			preds[1]+=(curr_sse1[1][1]+((curr_sse1[1][0]+5)>>1))/(curr_sse1[1][0]+5);
-			preds[2]+=(curr_sse1[2][1]+((curr_sse1[2][0]+5)>>1))/(curr_sse1[2][0]+5);
-			int *curr_sse4[]=
-			{
-				args->sse4[0][((W[0]-NW[0])>>1)&63][((N[0]-NN[0])>>2)&63],
-				args->sse4[1][((W[1]-NW[1])>>1)&63][((N[1]-NN[1])>>2)&63],
-				args->sse4[2][((W[2]-NW[2])>>1)&63][((N[2]-NN[2])>>2)&63],
-			};
-			preds[0]+=(curr_sse4[0][1]+((curr_sse4[0][0]+5)>>1))/(curr_sse4[0][0]+5);
-			preds[1]+=(curr_sse4[1][1]+((curr_sse4[1][0]+5)>>1))/(curr_sse4[1][0]+5);
-			preds[2]+=(curr_sse4[2][1]+((curr_sse4[2][0]+5)>>1))/(curr_sse4[2][0]+5);
-#endif
-#if 1
+			den[0]=curr_sse2[0][0]+5;
+			den[1]=curr_sse2[1][0]+5;
+			den[2]=curr_sse2[2][0]+5;
+			preds[0]+=(curr_sse2[0][1]+(den[0]>>1))/den[0];
+			preds[1]+=(curr_sse2[1][1]+(den[1]>>1))/den[1];
+			preds[2]+=(curr_sse2[2][1]+(den[2]>>1))/den[2];
 			int *curr_sse3[]=
 			{
-				args->sse3[0][preds[0]&255],
-				args->sse3[1][preds[1]&255],
-				args->sse3[2][preds[2]&255],
+				args->sse3[0][((W[0]-NW[0])>>1)&63][((N[0]-NN[0])>>2)&63],
+				args->sse3[1][((W[1]-NW[1])>>1)&63][((N[1]-NN[1])>>2)&63],
+				args->sse3[2][((W[2]-NW[2])>>1)&63][((N[2]-NN[2])>>2)&63],
 			};
-			preds[0]+=(curr_sse3[0][1]+((curr_sse3[0][0]+5)>>1))/(curr_sse3[0][0]+5);
-			preds[1]+=(curr_sse3[1][1]+((curr_sse3[1][0]+5)>>1))/(curr_sse3[1][0]+5);
-			preds[2]+=(curr_sse3[2][1]+((curr_sse3[2][0]+5)>>1))/(curr_sse3[2][0]+5);
+			den[0]=curr_sse3[0][0]+5;
+			den[1]=curr_sse3[1][0]+5;
+			den[2]=curr_sse3[2][0]+5;
+			preds[0]+=(curr_sse3[0][1]+(den[0]>>1))/den[0];
+			preds[1]+=(curr_sse3[1][1]+(den[1]>>1))/den[1];
+			preds[2]+=(curr_sse3[2][1]+(den[2]>>1))/den[2];
 #endif
-			//int sse_corr[]=
+#if 1
+			int *curr_sse4[]=
+			{
+				args->sse4[0][preds[0]&255],
+				args->sse4[1][preds[1]&255],
+				args->sse4[2][preds[2]&255],
+			};
+			den[0]=curr_sse4[0][0]+5;
+			den[1]=curr_sse4[1][0]+5;
+			den[2]=curr_sse4[2][0]+5;
+			preds[0]+=(curr_sse4[0][1]+(den[0]>>1))/den[0];
+			preds[1]+=(curr_sse4[1][1]+(den[1]>>1))/den[1];
+			preds[2]+=(curr_sse4[2][1]+(den[2]>>1))/den[2];
+#endif
 			//{
-			//	curr_sse[0][1]/(curr_sse[0][0]+5)+curr_sse[3][1]/(curr_sse[3][0]+5),
-			//	curr_sse[1][1]/(curr_sse[1][0]+5)+curr_sse[4][1]/(curr_sse[4][0]+5),
-			//	curr_sse[2][1]/(curr_sse[2][0]+5)+curr_sse[5][1]/(curr_sse[5][0]+5),
-			//};
-			//preds[0]+=sse_corr[0];
-			//preds[1]+=sse_corr[1];
-			//preds[2]+=sse_corr[2];
+			//	__m128i mp=_mm_load_si128((__m128i*)preds);//worse
+			//	mp=_mm_max_epi32(mp, _mm_set1_epi32(-128));
+			//	mp=_mm_min_epi32(mp, _mm_set1_epi32(127));
+			//	_mm_store_si128((__m128i*)preds, mp);
+			//}
 #endif
 			int sym=0;
 #ifndef DISABLE_RCTSEL
@@ -1655,6 +1648,12 @@ static void block_thread(void *param)
 #endif
 			}
 #ifdef ENABLE_SSE
+			++curr_sse1[0][0];
+			++curr_sse1[1][0];
+			++curr_sse1[2][0];
+			curr_sse1[0][1]+=curr[0]-preds[0];
+			curr_sse1[1][1]+=curr[1]-preds[1];
+			curr_sse1[2][1]+=curr[2]-preds[2];
 #if 1
 			++curr_sse2[0][0];
 			++curr_sse2[1][0];
@@ -1664,26 +1663,20 @@ static void block_thread(void *param)
 			curr_sse2[2][1]+=curr[2]-preds[2];
 #endif
 #if 1
-			++curr_sse1[0][0];
-			++curr_sse1[1][0];
-			++curr_sse1[2][0];
-			curr_sse1[0][1]+=curr[0]-preds[0];
-			curr_sse1[1][1]+=curr[1]-preds[1];
-			curr_sse1[2][1]+=curr[2]-preds[2];
-			++curr_sse4[0][0];
-			++curr_sse4[1][0];
-			++curr_sse4[2][0];
-			curr_sse4[0][1]+=curr[0]-preds[0];
-			curr_sse4[1][1]+=curr[1]-preds[1];
-			curr_sse4[2][1]+=curr[2]-preds[2];
-#endif
-#if 1
 			++curr_sse3[0][0];
 			++curr_sse3[1][0];
 			++curr_sse3[2][0];
 			curr_sse3[0][1]+=curr[0]-preds[0];
 			curr_sse3[1][1]+=curr[1]-preds[1];
 			curr_sse3[2][1]+=curr[2]-preds[2];
+#endif
+#if 1
+			++curr_sse4[0][0];
+			++curr_sse4[1][0];
+			++curr_sse4[2][0];
+			curr_sse4[0][1]+=curr[0]-preds[0];
+			curr_sse4[1][1]+=curr[1]-preds[1];
+			curr_sse4[2][1]+=curr[2]-preds[2];
 #endif
 #endif
 			rows[0]+=3*4;

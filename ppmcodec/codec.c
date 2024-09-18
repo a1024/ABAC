@@ -152,14 +152,15 @@ int main(int argc, char **argv)
 //	c12_codec("D:/ML/kodim13.ppm", "D:/ML/kodim13.lsim");
 //	c12_codec("D:/ML/kodim13.lsim", "D:/ML/kodim13_dec.ppm");
 
-//	c10_codec("D:/ML/kodim13.ppm", "D:/ML/kodim13.lsim");
-//	c10_codec("D:/ML/kodim13.lsim", "D:/ML/kodim13_dec.ppm");
+//	c16_codec("D:/ML/kodim13.ppm", "D:/ML/kodim13.lsim");
+//	c16_codec("D:/ML/kodim13.lsim", "D:/ML/kodim13_dec.ppm");
 
 //	c10_codec("D:/ML/big_building.PPM", "D:/ML/big_building.LSIM");
 //	c10_codec("D:/ML/big_building.LSIM", "D:/ML/big_building_dec.PPM");
 
-//	c10_codec("C:/dataset-HUGE-ppm/space_huge.ppm", "C:/dataset-HUGE-ppm/space_huge.LSIM");
-//	c10_codec("C:/dataset-HUGE-ppm/space_huge.LSIM", "C:/dataset-HUGE-ppm/space_huge_dec.PPM");
+//	c16_codec("C:/dataset-HUGE-ppm/space_huge.ppm", "C:/dataset-HUGE-ppm/space_huge.LSIM");
+//	c16_codec("C:/dataset-HUGE-ppm/space_huge.LSIM", "C:/dataset-HUGE-ppm/space_huge_dec.PPM");
+
 
 //	c09_codec("C:/Projects/datasets/kodim13.ppm", "C:/Projects/datasets/kodim13.lsim");
 //	c09_codec("C:/Projects/datasets/kodim13.lsim", "C:/Projects/datasets/kodim13_dec.ppm");

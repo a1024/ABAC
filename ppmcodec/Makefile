@@ -64,3 +64,6 @@ c14:
 
 c15:
 	gcc -O3 -Wall -DCODEC_FUNC=c15_codec -mavx2 -mbmi -mlzcnt  c15.c codec.c util.c  -o c15 $(LIBS)
+
+c16:
+	gcc -O3 -Wall -DCODEC_FUNC=c16_codec -mavx2 -mbmi -mlzcnt  c16.c codec.c util.c  -o c16 $(LIBS)
