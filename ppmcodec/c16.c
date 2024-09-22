@@ -243,13 +243,21 @@ int c16_codec(const char *srcfn, const char *dstfn)
 				csizes[1]-=log2((double)freqs[1]/0x10000);
 				csizes[2]-=log2((double)freqs[2]/0x10000);
 #endif
-				while(range<0x10000)
+				if(range<0x10000)
 				{
 					*dstptr++=(unsigned short)(low>>32);
 					low=low<<16&0xFFFFFFFFFFFF;
 					range=range<<16|0xFFFF;
 					if(range>(low^0xFFFFFFFFFFFF))
 						range=low^0xFFFFFFFFFFFF;
+					if(range<0x10000)
+					{
+						*dstptr++=(unsigned short)(low>>32);
+						low=low<<16&0xFFFFFFFFFFFF;
+						range=range<<16|0xFFFF;
+						if(range>(low^0xFFFFFFFFFFFF))
+							range=low^0xFFFFFFFFFFFF;
+					}
 				}
 #ifdef AC_VALIDATE
 				lo0=low; r0=range;
@@ -260,13 +268,21 @@ int c16_codec(const char *srcfn, const char *dstfn)
 				acval_enc(0, cdfs[0], freqs[0], lo0, lo0+r0, low, low+range, 0, 0);//
 #endif
 
-				while(range<0x10000)
+				if(range<0x10000)
 				{
 					*dstptr++=(unsigned short)(low>>32);
 					low=low<<16&0xFFFFFFFFFFFF;
 					range=range<<16|0xFFFF;
 					if(range>(low^0xFFFFFFFFFFFF))
 						range=low^0xFFFFFFFFFFFF;
+					if(range<0x10000)
+					{
+						*dstptr++=(unsigned short)(low>>32);
+						low=low<<16&0xFFFFFFFFFFFF;
+						range=range<<16|0xFFFF;
+						if(range>(low^0xFFFFFFFFFFFF))
+							range=low^0xFFFFFFFFFFFF;
+					}
 				}
 #ifdef AC_VALIDATE
 				lo0=low; r0=range;
@@ -277,13 +293,21 @@ int c16_codec(const char *srcfn, const char *dstfn)
 				acval_enc(0, cdfs[1], freqs[1], lo0, lo0+r0, low, low+range, 0, 0);//
 #endif
 
-				while(range<0x10000)
+				if(range<0x10000)
 				{
 					*dstptr++=(unsigned short)(low>>32);
 					low=low<<16&0xFFFFFFFFFFFF;
 					range=range<<16|0xFFFF;
 					if(range>(low^0xFFFFFFFFFFFF))
 						range=low^0xFFFFFFFFFFFF;
+					if(range<0x10000)
+					{
+						*dstptr++=(unsigned short)(low>>32);
+						low=low<<16&0xFFFFFFFFFFFF;
+						range=range<<16|0xFFFF;
+						if(range>(low^0xFFFFFFFFFFFF))
+							range=low^0xFFFFFFFFFFFF;
+					}
 				}
 #ifdef AC_VALIDATE
 				lo0=low; r0=range;
@@ -362,13 +386,21 @@ int c16_codec(const char *srcfn, const char *dstfn)
 				int cdf, freq, sym[3];
 				
 				curr_CDF=CDF+257*0;
-				while(!(range>>16))
+				if(range<0x10000)
 				{
 					low=low<<16&0xFFFFFFFFFFFF;
 					range=range<<16|0xFFFF;
 					code=(code<<16&0xFFFFFFFFFFFF)|*sptr++;
 					if(range>(low^0xFFFFFFFFFFFF))
 						range=low^0xFFFFFFFFFFFF;
+					if(range<0x10000)
+					{
+						low=low<<16&0xFFFFFFFFFFFF;
+						range=range<<16|0xFFFF;
+						code=(code<<16&0xFFFFFFFFFFFF)|*sptr++;
+						if(range>(low^0xFFFFFFFFFFFF))
+							range=low^0xFFFFFFFFFFFF;
+					}
 				}
 				code2=(code-low)<<16|0xFFFF;
 				sym[0]=0;
@@ -396,13 +428,21 @@ int c16_codec(const char *srcfn, const char *dstfn)
 				dstbuf[idx+0]=sym[0];
 				
 				curr_CDF=CDF+257*1;
-				while(!(range>>16))
+				if(range<0x10000)
 				{
 					low=low<<16&0xFFFFFFFFFFFF;
 					range=range<<16|0xFFFF;
 					code=(code<<16&0xFFFFFFFFFFFF)|*sptr++;
 					if(range>(low^0xFFFFFFFFFFFF))
 						range=low^0xFFFFFFFFFFFF;
+					if(range<0x10000)
+					{
+						low=low<<16&0xFFFFFFFFFFFF;
+						range=range<<16|0xFFFF;
+						code=(code<<16&0xFFFFFFFFFFFF)|*sptr++;
+						if(range>(low^0xFFFFFFFFFFFF))
+							range=low^0xFFFFFFFFFFFF;
+					}
 				}
 				code2=(code-low)<<16|0xFFFF;
 				sym[1]=0;
@@ -430,13 +470,21 @@ int c16_codec(const char *srcfn, const char *dstfn)
 				dstbuf[idx+1]=sym[1];
 				
 				curr_CDF=CDF+257*2;
-				while(!(range>>16))
+				if(range<0x10000)
 				{
 					low=low<<16&0xFFFFFFFFFFFF;
 					range=range<<16|0xFFFF;
 					code=(code<<16&0xFFFFFFFFFFFF)|*sptr++;
 					if(range>(low^0xFFFFFFFFFFFF))
 						range=low^0xFFFFFFFFFFFF;
+					if(range<0x10000)
+					{
+						low=low<<16&0xFFFFFFFFFFFF;
+						range=range<<16|0xFFFF;
+						code=(code<<16&0xFFFFFFFFFFFF)|*sptr++;
+						if(range>(low^0xFFFFFFFFFFFF))
+							range=low^0xFFFFFFFFFFFF;
+					}
 				}
 				code2=(code-low)<<16|0xFFFF;
 				sym[2]=0;

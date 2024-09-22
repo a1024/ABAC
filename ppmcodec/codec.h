@@ -35,7 +35,8 @@ int c12_codec(const char *srcfn, const char *dstfn);//SubG CG o0 disk binary AC 
 int c13_codec(const char *srcfn, const char *dstfn);//MT WG4_12
 int c14_codec(const char *srcfn, const char *dstfn);//MT WG4_8 binary AC
 int c15_codec(const char *srcfn, const char *dstfn);//ST WG4_8 symbol AC o0
-int c16_codec(const char *srcfn, const char *dstfn);//ST J2K CG AC o0 separate loops
+int c16_codec(const char *srcfn, const char *dstfn);//ST SubG CG AC o0 separate loops
+int c17_codec(const char *srcfn, const char *dstfn);//ST SubPrev GR (speed test)
 
 	
 #ifdef __cplusplus
