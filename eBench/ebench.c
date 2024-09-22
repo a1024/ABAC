@@ -68,6 +68,7 @@ typedef enum TransformTypeEnum
 {
 	CT_FWD_SUBGREEN,	CT_INV_SUBGREEN,
 	CT_FWD_JPEG2000,	CT_INV_JPEG2000,//	(1997) JPEG2000 RCT
+	CT_FWD_NBLI,		CT_INV_NBLI,//	(2024) NBLI
 	CT_FWD_YCoCg_R,		CT_INV_YCoCg_R,	//	(2003) AVC, HEVC, VVC
 	CT_FWD_YCbCr_R_v1,	CT_INV_YCbCr_R_v1,
 	CT_FWD_YCbCr_R_v2,	CT_INV_YCbCr_R_v2,
@@ -1602,6 +1603,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case CT_INV_SUBGREEN:		a="C  Inv SubGreen";		break;
 	case CT_FWD_JPEG2000:		a="C  Fwd JPEG2000 RCT";	break;
 	case CT_INV_JPEG2000:		a="C  Inv JPEG2000 RCT";	break;
+	case CT_FWD_NBLI:		a="C  Fwd NBLI RCT";		break;
+	case CT_INV_NBLI:		a="C  Inv NBLI RCT";		break;
 //	case CT_FWD_J2K2:		a="C  Fwd J2K/2";		break;
 //	case CT_INV_J2K2:		a="C  Inv J2K/2";		break;
 //	case CT_FWD_YRGB_v1:		a="C  Fwd YRGB v1";		break;
@@ -2660,6 +2663,8 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case CT_INV_SUBGREEN:		colortransform_subtractgreen(image, 0);			break;
 	case CT_FWD_JPEG2000:		colortransform_JPEG2000(image, 1);			break;
 	case CT_INV_JPEG2000:		colortransform_JPEG2000(image, 0);			break;
+	case CT_FWD_NBLI:		colortransform_NBLI(image, 1);				break;
+	case CT_INV_NBLI:		colortransform_NBLI(image, 0);				break;
 //	case CT_FWD_J2K2:		colortransform_J2K2(image, 1);				break;
 //	case CT_INV_J2K2:		colortransform_J2K2(image, 0);				break;
 //	case CT_FWD_YRGB_v1:		rct_yrgb_v1(image, 1);					break;

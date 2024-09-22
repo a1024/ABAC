@@ -580,6 +580,48 @@ void colortransform_JPEG2000(Image *image, int fwd)
 		}
 	}
 }
+void colortransform_NBLI(Image *image, int fwd)
+{
+	char temp;
+	if(fwd)
+	{
+		for(ptrdiff_t k=0, len=(ptrdiff_t)image->iw*image->ih*4;k<len;k+=4)
+		{
+			int r=image->data[k], g=image->data[k|1], b=image->data[k|2];
+			
+			r-=g;       //r-g				[1     -1     0  ].RGB
+			b-=g;       //b-g				[0     -1     1  ].RGB
+			g+=(r+b)>>2;//g+(r-g+b-g)/4 = r/4+g/2+b/4	[1/4    1/2   1/4].RGB
+			b-=r>>2;    //b-g-(r-g)/4 = b-(r+3*g)/4		[1     -3/4  -1/4].RGB
+
+			image->data[k  ]=g;//Y
+			image->data[k|1]=b;//Cb
+			image->data[k|2]=r;//Cr
+		}
+		ROTATE3(image->depth[0], image->depth[1], image->depth[2], temp);
+		image->depth[1]+=image->depth[1]<24;
+		image->depth[2]+=image->depth[2]<24;
+	}
+	else
+	{
+		image->depth[1]-=image->depth[1]>image->src_depth[1];
+		image->depth[2]-=image->depth[2]>image->src_depth[2];
+		ROTATE3(image->depth[2], image->depth[1], image->depth[0], temp);
+		for(ptrdiff_t k=0, len=(ptrdiff_t)image->iw*image->ih*4;k<len;k+=4)
+		{
+			int Y=image->data[k], Cb=image->data[k|1], Cr=image->data[k|2];
+			
+			Cb+=Cr>>2;
+			Y-=(Cr+Cb)>>2;
+			Cb+=Y;
+			Cr+=Y;
+
+			image->data[k  ]=Cr;
+			image->data[k|1]=Y;
+			image->data[k|2]=Cb;
+		}
+	}
+}
 void colortransform_subtractgreen(Image *image, int fwd)
 {
 	char temp;
