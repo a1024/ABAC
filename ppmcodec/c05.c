@@ -9,21 +9,27 @@ static const char file[]=__FILE__;
 //	#define ENABLE_GUIDE
 //	#define DISABLE_MT
 
+	#define ENABLE_SSE2	//good for noisy areas		div-free SSE from NBLIC by WangXuan95
+//	#define ENABLE_SSE	//good with MT			obsolete
 	#define ENABLE_AV2	//good
-	#define ENABLE_SSE2
-//	#define ENABLE_SSE	//good with MT
+	#define USE_ANGULAR_PRED//mediocre  15% slower
+//	#define USE_GR_ESTIM	//bad    Shannon estimate 0.4% better, but 4.9% slower, when both at stride 4
 //	#define ENABLE_SSE_SKEW	//bad
 //	#define DISABLE_RCTSEL	//causalRCTSEL > RCT,  disabling RCTSEL breaks SSE
 //	#define ENABLE_NPOT	//bad
 
-#define ANALYSIS_STRIDE 4
+#define ANALYSIS_XSTRIDE 3
+#define ANALYSIS_YSTRIDE 3
 
 
 #define CODECNAME "C05"
+#define AC3_PREC
 #include"entropy.h"
 
 #define BLOCKSIZE 448
 #define MAXPRINTEDBLOCKS 50
+//#define MIXBITS 8
+#define AC_THRESHOLD 0.21
 
 #ifndef DISABLE_RCTSEL
 #define HALF_Y 128
@@ -163,13 +169,15 @@ typedef struct _ThreadArgs
 
 	int fwd, test, loud, x1, x2, y1, y2;
 	int bufsize;
-	short pixels[(BLOCKSIZE+16)*4*3*4];//4 padded rows * 3 channels max * {pixel, abs(e1), abs(e2), abs(e3)}
-
-	BList list;
-	const unsigned char *decstart, *decend;
+	short pixels[(BLOCKSIZE+16)*4*3*4];//4 padded rows * 3 channels max * {pixel, abs(e1), abs(e2), abs(e3)}	43.5 KB
 	
-#ifndef DISABLE_RCTSEL
-	int hist[OCH_COUNT*PRED_COUNT<<8];
+	int bestrct;
+	int use_AC[3];
+	BList list[3];
+	const unsigned char *decstart[3], *decend[3];
+	
+#if !defined DISABLE_RCTSEL && !defined USE_GR_ESTIM
+	int hist[OCH_COUNT*PRED_COUNT<<8];//84 KB
 #endif
 #ifdef ENABLE_SSE
 	int sse1[3][64][64][2];
@@ -178,7 +186,7 @@ typedef struct _ThreadArgs
 	int sse4[3][256][2];
 #endif
 #ifdef ENABLE_SSE2
-	int sse1[3][64][64];
+	int sse1[3][64][64];//147 KB
 	int sse2[3][64][64];
 	int sse3[3][64][64];
 	int sse4[3][256];
@@ -187,11 +195,11 @@ typedef struct _ThreadArgs
 	//aux
 	int blockidx;
 	double bestsize;
-	int bestrct, predidx[3];
+	int predidx[3];
 #ifndef DISABLE_RCTSEL
 	double t_analysis;
 #endif
-} ThreadArgs;
+} ThreadArgs;//274.64 KB
 #if 0
 FORCEINLINE int max3(int a, int b, int c)
 {
@@ -232,10 +240,11 @@ static void block_thread(void *param)
 {
 	const int nch=3;
 	ThreadArgs *args=(ThreadArgs*)param;
-	GolombRiceCoder ec;
+	GolombRiceCoder ec[3]={0};
+	AC3 ec2[3]={0};
 #ifndef DISABLE_RCTSEL
 //	const unsigned char *image=args->fwd?args->src:args->dst;
-	unsigned char bestrct=0, combination[6]={0}, predidx[4]={0};
+	unsigned char bestrct=0, predidx[4]={0};
 #endif
 //	short mixcoeff[4]={0};
 	
@@ -243,18 +252,30 @@ static void block_thread(void *param)
 	{
 #ifndef DISABLE_RCTSEL
 		int ystride=args->iw*3;
-	//	size_t csizes[OCH_COUNT*PRED_COUNT]={0}, bestsize=0;
+#ifdef USE_GR_ESTIM
+		__m256i table_floorlog2p1_lo=_mm256_set_epi8(
+		//	 15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0,
+			  4,  4,  4,  4,  4,  4,  4,  4,  3,  3,  3,  3,  2,  2,  1,  0,
+			  4,  4,  4,  4,  4,  4,  4,  4,  3,  3,  3,  3,  2,  2,  1,  0
+		);
+		__m256i table_floorlog2p1_hi=_mm256_set_epi8(
+		//	240,224,208,192,176,160,144,128,112, 96, 80, 64, 48, 32, 16,  0,
+			  8,  8,  8,  8,  8,  8,  8,  8,  7,  7,  7,  7,  6,  6,  5,  0,
+			  8,  8,  8,  8,  8,  8,  8,  8,  7,  7,  7,  7,  6,  6,  5,  0
+		);
+		int csizes[OCH_COUNT*PRED_COUNT]={0}, bestsize=0;
+#else
 		double csizes[OCH_COUNT*PRED_COUNT]={0}, bestsize=0;
+#endif
 		unsigned char predsel[OCH_COUNT]={0};
+#ifndef USE_GR_ESTIM
 		int res;
+#endif
 		__m256i av12_mcoeffs[12];
-	//	unsigned char eW[OCH_COUNT*PRED_COUNT];
 		
-	//	memset(eW, 1, sizeof(eW));
 		args->t_analysis=time_sec();
 		for(int k=0;k<(int)_countof(av12_mcoeffs);++k)
 			av12_mcoeffs[k]=_mm256_set1_epi16(av12_icoeffs[k]>>1);
-		memset(args->hist, 0, sizeof(args->hist));
 #if 0
 		for(int ky=args->y1+1;ky<args->y2;++ky)
 		{
@@ -278,16 +299,23 @@ static void block_thread(void *param)
 		mixcoeff[1]/=res;
 		mixcoeff[2]/=res;
 #endif
-		res=(args->x2-args->x1-4)/5*5*((args->y2-args->y1-2)/ANALYSIS_STRIDE);
-		for(int ky=args->y1+2;ky<args->y2-(ANALYSIS_STRIDE-1);ky+=ANALYSIS_STRIDE)//analysis loop
+#ifndef USE_GR_ESTIM
+		memset(args->hist, 0, sizeof(args->hist));
+		res=(args->x2-args->x1-4)/ANALYSIS_XSTRIDE/5*5*((args->y2-args->y1-2)/ANALYSIS_YSTRIDE);
+		if(!res)
+			res=(args->x2-args->x1)*(args->y2-args->y1-2);
+#endif
+		for(int ky=args->y1+2;ky<args->y2-(ANALYSIS_YSTRIDE-1);ky+=ANALYSIS_YSTRIDE)//analysis loop
 		{
 			int kx=args->x1+2;
 			const unsigned char *ptr=args->src+3*(args->iw*ky+kx);
 
 			__m256i amin=_mm256_set1_epi16(-128);
 			__m256i amax=_mm256_set1_epi16(127);
+#ifndef USE_GR_ESTIM
 			__m256i amag=_mm256_set1_epi16(255);
-			__m128i half8=_mm_set1_epi8(128);
+#endif
+			__m128i half8=_mm_set1_epi8(-128);
 			__m128i shuf=_mm_set_epi8(
 				-1,
 				12, 14, 13,
@@ -298,7 +326,7 @@ static void block_thread(void *param)
 				//15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
 			);
 			ALIGN(32) short result[16]={0};
-			for(;kx<args->x2-4-2;kx+=5, ptr+=15)
+			for(;kx<args->x2-(2+(5*ANALYSIS_XSTRIDE-1));kx+=5*ANALYSIS_XSTRIDE, ptr+=15*ANALYSIS_XSTRIDE)
 			{
 				__m256i
 					nb0[NB_COUNT],//rgb
@@ -341,32 +369,30 @@ static void block_thread(void *param)
 						nb5[k]=_mm256_sub_epi16(nb0[k], t2);
 					}
 				}
-#if 0
+#ifdef USE_GR_ESTIM
 #define UPDATE(PREDIDX, IDX0, IDX1, IDX2, IDX3, IDX4, IDX5, IDX6, IDX7, IDX8, IDX9, IDXA, IDXB, IDXC, IDXD, IDXE)\
 	do\
 	{\
-		int temp;\
-		pred=_mm256_sub_epi16(pred, amin);\
-		pred=_mm256_and_si256(pred, amag);\
+		pred=_mm256_xor_si256(_mm256_slli_epi16(pred, 1), _mm256_srai_epi16(pred, 15));\
+		pred=_mm256_max_epi8(_mm256_shuffle_epi8(table_floorlog2p1_hi, _mm256_srai_epi16(pred, 4)), _mm256_shuffle_epi8(table_floorlog2p1_lo, _mm256_and_si256(pred, _mm256_set1_epi16(15))));\
 		_mm256_store_si256((__m256i*)result, pred);\
-		temp=FLOOR_LOG2(eW[IDX0*PRED_COUNT+PREDIDX]+1); csizes[IDX0*PRED_COUNT+PREDIDX]+=(result[0x0]>>temp)+1+temp; eW[IDX0*PRED_COUNT+PREDIDX]=result[0x0];\
-		temp=FLOOR_LOG2(eW[IDX1*PRED_COUNT+PREDIDX]+1); csizes[IDX1*PRED_COUNT+PREDIDX]+=(result[0x1]>>temp)+1+temp; eW[IDX1*PRED_COUNT+PREDIDX]=result[0x1];\
-		temp=FLOOR_LOG2(eW[IDX2*PRED_COUNT+PREDIDX]+1); csizes[IDX2*PRED_COUNT+PREDIDX]+=(result[0x2]>>temp)+1+temp; eW[IDX2*PRED_COUNT+PREDIDX]=result[0x2];\
-		temp=FLOOR_LOG2(eW[IDX3*PRED_COUNT+PREDIDX]+1); csizes[IDX3*PRED_COUNT+PREDIDX]+=(result[0x3]>>temp)+1+temp; eW[IDX3*PRED_COUNT+PREDIDX]=result[0x3];\
-		temp=FLOOR_LOG2(eW[IDX4*PRED_COUNT+PREDIDX]+1); csizes[IDX4*PRED_COUNT+PREDIDX]+=(result[0x4]>>temp)+1+temp; eW[IDX4*PRED_COUNT+PREDIDX]=result[0x4];\
-		temp=FLOOR_LOG2(eW[IDX5*PRED_COUNT+PREDIDX]+1); csizes[IDX5*PRED_COUNT+PREDIDX]+=(result[0x5]>>temp)+1+temp; eW[IDX5*PRED_COUNT+PREDIDX]=result[0x5];\
-		temp=FLOOR_LOG2(eW[IDX6*PRED_COUNT+PREDIDX]+1); csizes[IDX6*PRED_COUNT+PREDIDX]+=(result[0x6]>>temp)+1+temp; eW[IDX6*PRED_COUNT+PREDIDX]=result[0x6];\
-		temp=FLOOR_LOG2(eW[IDX7*PRED_COUNT+PREDIDX]+1); csizes[IDX7*PRED_COUNT+PREDIDX]+=(result[0x7]>>temp)+1+temp; eW[IDX7*PRED_COUNT+PREDIDX]=result[0x7];\
-		temp=FLOOR_LOG2(eW[IDX8*PRED_COUNT+PREDIDX]+1); csizes[IDX8*PRED_COUNT+PREDIDX]+=(result[0x8]>>temp)+1+temp; eW[IDX8*PRED_COUNT+PREDIDX]=result[0x8];\
-		temp=FLOOR_LOG2(eW[IDX9*PRED_COUNT+PREDIDX]+1); csizes[IDX9*PRED_COUNT+PREDIDX]+=(result[0x9]>>temp)+1+temp; eW[IDX9*PRED_COUNT+PREDIDX]=result[0x9];\
-		temp=FLOOR_LOG2(eW[IDXA*PRED_COUNT+PREDIDX]+1); csizes[IDXA*PRED_COUNT+PREDIDX]+=(result[0xA]>>temp)+1+temp; eW[IDXA*PRED_COUNT+PREDIDX]=result[0xA];\
-		temp=FLOOR_LOG2(eW[IDXB*PRED_COUNT+PREDIDX]+1); csizes[IDXB*PRED_COUNT+PREDIDX]+=(result[0xB]>>temp)+1+temp; eW[IDXB*PRED_COUNT+PREDIDX]=result[0xB];\
-		temp=FLOOR_LOG2(eW[IDXC*PRED_COUNT+PREDIDX]+1); csizes[IDXC*PRED_COUNT+PREDIDX]+=(result[0xC]>>temp)+1+temp; eW[IDXC*PRED_COUNT+PREDIDX]=result[0xC];\
-		temp=FLOOR_LOG2(eW[IDXD*PRED_COUNT+PREDIDX]+1); csizes[IDXD*PRED_COUNT+PREDIDX]+=(result[0xD]>>temp)+1+temp; eW[IDXD*PRED_COUNT+PREDIDX]=result[0xD];\
-		temp=FLOOR_LOG2(eW[IDXE*PRED_COUNT+PREDIDX]+1); csizes[IDXE*PRED_COUNT+PREDIDX]+=(result[0xE]>>temp)+1+temp; eW[IDXE*PRED_COUNT+PREDIDX]=result[0xE];\
+		csizes[IDX0*PRED_COUNT+PREDIDX]+=result[0x0];\
+		csizes[IDX1*PRED_COUNT+PREDIDX]+=result[0x1];\
+		csizes[IDX2*PRED_COUNT+PREDIDX]+=result[0x2];\
+		csizes[IDX3*PRED_COUNT+PREDIDX]+=result[0x3];\
+		csizes[IDX4*PRED_COUNT+PREDIDX]+=result[0x4];\
+		csizes[IDX5*PRED_COUNT+PREDIDX]+=result[0x5];\
+		csizes[IDX6*PRED_COUNT+PREDIDX]+=result[0x6];\
+		csizes[IDX7*PRED_COUNT+PREDIDX]+=result[0x7];\
+		csizes[IDX8*PRED_COUNT+PREDIDX]+=result[0x8];\
+		csizes[IDX9*PRED_COUNT+PREDIDX]+=result[0x9];\
+		csizes[IDXA*PRED_COUNT+PREDIDX]+=result[0xA];\
+		csizes[IDXB*PRED_COUNT+PREDIDX]+=result[0xB];\
+		csizes[IDXC*PRED_COUNT+PREDIDX]+=result[0xC];\
+		csizes[IDXD*PRED_COUNT+PREDIDX]+=result[0xD];\
+		csizes[IDXE*PRED_COUNT+PREDIDX]+=result[0xE];\
 	}while(0)
-#endif
-#if 1
+#else
 #define UPDATE(PREDIDX, IDX0, IDX1, IDX2, IDX3, IDX4, IDX5, IDX6, IDX7, IDX8, IDX9, IDXA, IDXB, IDXC, IDXD, IDXE)\
 	do\
 	{\
@@ -399,6 +425,7 @@ static void block_thread(void *param)
 				pred=_mm256_min_epi16(pred, vmax[0]);
 
 				pred=_mm256_sub_epi16(nb0[NB_curr], pred);
+
 				UPDATE(
 					PRED_CG,
 					OCH_R, OCH_G, OCH_B,
@@ -975,7 +1002,7 @@ static void block_thread(void *param)
 #endif
 			}
 		}
-#if 1
+#ifndef USE_GR_ESTIM
 		for(int kc=0;kc<OCH_COUNT*PRED_COUNT;++kc)
 		{
 			int *curr_hist=args->hist+((size_t)kc<<8);
@@ -998,20 +1025,39 @@ static void block_thread(void *param)
 			}
 			predsel[kc]=bestpred;
 		}
+		double compsizes[3]={0};
 		for(int kt=0;kt<RCT_COUNT;++kt)//select best RCT
 		{
 			const unsigned char *group=rct_combinations[kt];
+			double tcompsizes[]=
+			{
+				csizes[group[0]*PRED_COUNT+predsel[group[0]]],
+				csizes[group[1]*PRED_COUNT+predsel[group[1]]],
+				csizes[group[2]*PRED_COUNT+predsel[group[2]]],
+			};
+#ifdef USE_GR_ESTIM
+			int csize=
+#else
 			double csize=
-				csizes[group[0]*PRED_COUNT+predsel[group[0]]]+
-				csizes[group[1]*PRED_COUNT+predsel[group[1]]]+
-				csizes[group[2]*PRED_COUNT+predsel[group[2]]];
+#endif
+				tcompsizes[0]+
+				tcompsizes[1]+
+				tcompsizes[2];
 			if(!kt||bestsize>csize)
+			{
 				bestsize=csize, bestrct=kt;
+				compsizes[0]=tcompsizes[0];
+				compsizes[1]=tcompsizes[1];
+				compsizes[2]=tcompsizes[2];
+			}
 		}
-		memcpy(combination, rct_combinations[bestrct], sizeof(combination));
-		predidx[0]=predsel[combination[0]];
-		predidx[1]=predsel[combination[1]];
-		predidx[2]=predsel[combination[2]];
+		const double threshold=(BLOCKSIZE/ANALYSIS_XSTRIDE)*(BLOCKSIZE/ANALYSIS_YSTRIDE)*AC_THRESHOLD;
+		args->use_AC[0]=compsizes[0]<threshold;
+		args->use_AC[1]=compsizes[1]<threshold;
+		args->use_AC[2]=compsizes[2]<threshold;
+		predidx[0]=predsel[rct_combinations[bestrct][0]];
+		predidx[1]=predsel[rct_combinations[bestrct][1]];
+		predidx[2]=predsel[rct_combinations[bestrct][2]];
 		args->bestsize=bestsize;
 		args->bestrct=bestrct;
 		args->predidx[0]=predidx[0];
@@ -1053,24 +1099,96 @@ static void block_thread(void *param)
 		}
 #endif
 #endif
-		blist_init(&args->list);
-		gr_enc_init(&ec, &args->list);
-#ifndef DISABLE_RCTSEL
-		gr_enc_NPOT(&ec, bestrct, RCT_COUNT);
-		gr_enc_NPOT(&ec, predidx[0], PRED_COUNT);
-		gr_enc_NPOT(&ec, predidx[1], PRED_COUNT);
-		gr_enc_NPOT(&ec, predidx[2], PRED_COUNT);
-#endif
+		blist_init(args->list+0);
+		blist_init(args->list+1);
+		blist_init(args->list+2);
+		if(args->use_AC[0])
+		{
+			ac3_enc_init(ec2+0, args->list+0);
+			ac3_enc_bypass_NPOT(ec2+0, predidx[0], PRED_COUNT);
+		}
+		else
+		{
+			gr_enc_init(ec+0, args->list+0);
+			gr_enc_NPOT(ec+0, predidx[0], PRED_COUNT);
+		}
+		if(args->use_AC[1])
+		{
+			ac3_enc_init(ec2+1, args->list+1);
+			ac3_enc_bypass_NPOT(ec2+1, predidx[1], PRED_COUNT);
+		}
+		else
+		{
+			gr_enc_init(ec+1, args->list+1);
+			gr_enc_NPOT(ec+1, predidx[1], PRED_COUNT);
+		}
+		if(args->use_AC[2])
+		{
+			ac3_enc_init(ec2+2, args->list+2);
+			ac3_enc_bypass_NPOT(ec2+2, predidx[2], PRED_COUNT);
+		}
+		else
+		{
+			gr_enc_init(ec+2, args->list+2);
+			gr_enc_NPOT(ec+2, predidx[2], PRED_COUNT);
+		}
+//		gr_enc_init(&ec, &args->list);
+//#ifndef DISABLE_RCTSEL
+//		gr_enc_NPOT(&ec, bestrct, RCT_COUNT);
+//		gr_enc_NPOT(&ec, predidx[0], PRED_COUNT);
+//		gr_enc_NPOT(&ec, predidx[1], PRED_COUNT);
+//		gr_enc_NPOT(&ec, predidx[2], PRED_COUNT);
+//#ifdef ENABLE_SSE2
+//		gr_enc(&ec, enable_SSE[0], 1);
+//		gr_enc(&ec, enable_SSE[1], 1);
+//		gr_enc(&ec, enable_SSE[2], 1);
+//#endif
+//#endif
 	}
 	else
 	{
-		gr_dec_init(&ec, args->decstart, args->decend);
-#ifndef DISABLE_RCTSEL
-		bestrct=gr_dec_NPOT(&ec, RCT_COUNT);
-		predidx[0]=gr_dec_NPOT(&ec, PRED_COUNT);
-		predidx[1]=gr_dec_NPOT(&ec, PRED_COUNT);
-		predidx[2]=gr_dec_NPOT(&ec, PRED_COUNT);
-#endif
+		if(args->use_AC[0])
+		{
+			ac3_dec_init(ec2+0, args->decstart[0], args->decend[0]);
+			predidx[0]=ac3_dec_bypass_NPOT(ec2+0, PRED_COUNT);
+		}
+		else
+		{
+			gr_dec_init(ec+0, args->decstart[0], args->decend[0]);
+			predidx[0]=gr_dec_NPOT(ec+0, PRED_COUNT);
+		}
+		if(args->use_AC[1])
+		{
+			ac3_dec_init(ec2+1, args->decstart[1], args->decend[1]);
+			predidx[1]=ac3_dec_bypass_NPOT(ec2+1, PRED_COUNT);
+		}
+		else
+		{
+			gr_dec_init(ec+1, args->decstart[1], args->decend[1]);
+			predidx[1]=gr_dec_NPOT(ec+1, PRED_COUNT);
+		}
+		if(args->use_AC[2])
+		{
+			ac3_dec_init(ec2+2, args->decstart[2], args->decend[2]);
+			predidx[2]=ac3_dec_bypass_NPOT(ec2+2, PRED_COUNT);
+		}
+		else
+		{
+			gr_dec_init(ec+2, args->decstart[2], args->decend[2]);
+			predidx[2]=gr_dec_NPOT(ec+2, PRED_COUNT);
+		}
+//		gr_dec_init(&ec, args->decstart, args->decend);
+//#ifndef DISABLE_RCTSEL
+//		bestrct=gr_dec_NPOT(&ec, RCT_COUNT);
+//		predidx[0]=gr_dec_NPOT(&ec, PRED_COUNT);
+//		predidx[1]=gr_dec_NPOT(&ec, PRED_COUNT);
+//		predidx[2]=gr_dec_NPOT(&ec, PRED_COUNT);
+//#ifdef ENABLE_SSE2
+//		enable_SSE[0]=gr_dec(&ec, 1);
+//		enable_SSE[1]=gr_dec(&ec, 1);
+//		enable_SSE[2]=gr_dec(&ec, 1);
+//#endif
+//#endif
 	}
 #if 0
 	//__m128i predmask1=_mm_setzero_si128();
@@ -1095,6 +1213,12 @@ static void block_thread(void *param)
 		-(predidx[0]==PRED_CG), -(predidx[0]==PRED_CG)
 	);
 #endif
+	//int mixer[3]=
+	//{
+	//	1<<MIXBITS>>1,
+	//	1<<MIXBITS>>1,
+	//	1<<MIXBITS>>1,
+	//};
 #ifdef ENABLE_SSE
 	memset(args->sse1, 0, sizeof(args->sse1));
 	memset(args->sse2, 0, sizeof(args->sse2));
@@ -1107,10 +1231,17 @@ static void block_thread(void *param)
 	memset(args->sse3, 0, sizeof(args->sse3));
 	memset(args->sse4, 0, sizeof(args->sse4));
 #endif
+	int *stats0[]=
+	{
+		args->hist+258*0,//{257 levels (because sym=256 is valid), total count}
+		args->hist+258*1,
+		args->hist+258*2,
+	};
+	memset(args->hist, 0, sizeof(args->hist));
 	memset(args->pixels, 0, sizeof(args->pixels));
 	for(int ky=args->y1;ky<args->y2;++ky)//codec loop
 	{
-		ALIGN(16) short *rows[]=
+		ALIGN(32) short *rows[]=
 		{
 			args->pixels+((BLOCKSIZE+16LL)*((ky-0LL)&3)+8LL)*3*4,
 			args->pixels+((BLOCKSIZE+16LL)*((ky-1LL)&3)+8LL)*3*4,
@@ -1120,22 +1251,31 @@ static void block_thread(void *param)
 		int yuv[4]={0};
 		int pred=0, error=0;
 #ifndef DISABLE_RCTSEL
-		const unsigned char *combination=rct_combinations[bestrct];
+		const unsigned char *combination=rct_combinations[args->bestrct];
+#endif
+#ifdef USE_ANGULAR_PRED
+	//	int linear[4]={0};
+		int angular[4]={0};
 #endif
 		ALIGN(16) int preds[4]={0};
+#ifdef ENABLE_SSE2
+		int *curr_sse1[3]={0};
+		int *curr_sse2[3]={0};
+		int *curr_sse3[3]={0};
+		int *curr_sse4[3]={0};
+#endif
+		int nbypass[3]={0};
 		for(int kx=args->x1;kx<args->x2;++kx)
 		{
 			int idx=nch*(args->iw*ky+kx);
 			short
 				*NNN	=rows[3]+0*3*4,
 				*NNNE	=rows[3]+1*3*4,
-				*NNNEE	=rows[3]+2*3*4,
 				*NNWW	=rows[2]-2*3*4,
 				*NNW	=rows[2]-1*3*4,
 				*NN	=rows[2]+0*3*4,
 				*NNE	=rows[2]+1*3*4,
 				*NNEE	=rows[2]+2*3*4,
-			//	*NNEEE	=rows[2]+3*3*4,
 				*NWW	=rows[1]-2*3*4,
 				*NW	=rows[1]-1*3*4,
 				*N	=rows[1]+0*3*4,
@@ -1143,12 +1283,10 @@ static void block_thread(void *param)
 				*NEE	=rows[1]+2*3*4,
 				*NEEE	=rows[1]+3*3*4,
 				*NEEEE	=rows[1]+4*3*4,
-			//	*WWWW	=rows[0]-4*3*4,
 				*WWW	=rows[0]-3*3*4,
 				*WW	=rows[0]-2*3*4,
 				*W	=rows[0]-1*3*4,
 				*curr	=rows[0]+0*3*4;
-			(void)NNNEE;
 			(void)NNNE;
 			(void)NNN;
 			(void)NN;
@@ -1201,35 +1339,57 @@ static void block_thread(void *param)
 			}
 #endif
 #endif
-			int nbypass[]=
+	#define UPDATE_FORMULA1(IDX) (MAXVAR(NW[IDX], W[IDX])+sym+NEE[IDX]+MAXVAR(WW[IDX], WWW[IDX]))>>2	//for SW (thru NE)
+	#define UPDATE_FORMULA2(IDX) (MAXVAR(WW[IDX], W[IDX])+sym+NE[IDX]+MAXVAR(NEE[IDX], NEEE[IDX]))>>2	//for E (thru W)
+	#define UPDATE_FORMULA3(IDX) (N[IDX]+(IDX==9?W[IDX]:WW[IDX])+sym)/3
+//	#define UPDATE_FORMULA(IDX) (MAXVAR(WW[IDX], W[IDX])+sym+NE[IDX]+MAXVAR(NEE[IDX], NEEE[IDX]))>>2	//Formula12	best
+//	#define UPDATE_FORMULA(IDX) (max3(WW[IDX], W[IDX], NW[IDX])+sym+max3(NNE[IDX], NE[IDX], NEE[IDX])+NEEE[IDX])>>2
+//	#define UPDATE_FORMULA(IDX) (W[IDX]+sym+NE[IDX]+NEEE[IDX])>>2	//Formula8
+//	#define UPDATE_FORMULA(IDX) (MAXVAR(N[IDX], W[IDX])+sym+NE[IDX]+MAXVAR(NEE[IDX], NEEE[IDX]))>>2
+//	#define UPDATE_FORMULA(IDX) (max3(WW[IDX], W[IDX], N[IDX])+sym+NE[IDX]+MAXVAR(NEE[IDX], NEEE[IDX]))>>2
+//	#define UPDATE_FORMULA(IDX) (sum_largest3of7(WW[IDX], W[IDX], NW[IDX], N[IDX], NE[IDX], NEE[IDX], NEEE[IDX])+sym)>>2
+//	#define UPDATE_FORMULA(IDX) (MAXVAR(WW[IDX], W[IDX])+sym+NE[IDX]+NNE[IDX]+NNNE[IDX]+MAXVAR(NEE[IDX], NEEE[IDX]))/6
+//	#define UPDATE_FORMULA(IDX) (MAXVAR(WW[IDX], W[IDX])+sym+NE[IDX]+NNE[IDX]/2+MAXVAR(NEE[IDX], NEEE[IDX]))*2/9
+//	#define UPDATE_FORMULA(IDX) (MAXVAR(N[IDX], W[IDX])+sym+NE[IDX]+NEEE[IDX])>>2		//Formula11
+//	#define UPDATE_FORMULA(IDX) (MAXVAR(N[IDX], W[IDX])+sym+NE[IDX]+NEE[IDX])>>2		//X
+//	#define UPDATE_FORMULA(IDX) (MAXVAR(N[IDX], W[IDX])+2*(sym+NE[IDX])+NEE[IDX]+NEEE[IDX])/7	//Formula10
+//	#define UPDATE_FORMULA(IDX) (NE[IDX]>sym?sym+2*NE[IDX]+NEE[IDX]:W[IDX]+2*sym+NE[IDX])>>2//X
+//	#define UPDATE_FORMULA(IDX) (sym+NE[IDX]+NEE[IDX]+NEEE[IDX])>>2
+//	#define UPDATE_FORMULA(IDX) (2*W[IDX]+sym+NEEE[IDX])>>2		//Formula1
+//	#define UPDATE_FORMULA(IDX) (W[IDX]+sym+NEEE[IDX])/3
+//	#define UPDATE_FORMULA(IDX) (WWW[IDX]+5*WW[IDX]+10*(W[IDX]+sym)+NE[IDX])/27	//Formula5	X
+//	#define UPDATE_FORMULA(IDX) sym
+			if(!args->use_AC[0])
 			{
-				(2*NE[3+0]+4*W[6+0]+N[9+0]+WW[9+0])>>3,
-				(2*NE[3+1]+4*W[6+1]+N[9+1]+WW[9+1])>>3,
-				(2*NE[3+2]+4*W[6+2]+N[9+2]+WW[9+2])>>3,
-			//	(NE[3+0]+W[6+0])>>1,
-			//	(NE[3+1]+W[6+1])>>1,
-			//	(NE[3+2]+W[6+2])>>1,
-			};
-			//if(nbypass[0]<0)nbypass[0]=0;
-			//if(nbypass[1]<0)nbypass[1]=0;
-			//if(nbypass[2]<0)nbypass[2]=0;
+				nbypass[0]=(7*W[3*2+0]+3*(NE[3*1+0]+N[3*3+0]+W [3*3+0]))>>4;
+				nbypass[0]+=nbypass[0]<4;
 #ifndef ENABLE_NPOT
-			nbypass[0]+=nbypass[0]<4;
-			nbypass[1]+=nbypass[1]<4;
-			nbypass[2]+=nbypass[2]<4;
-			nbypass[0]=FLOOR_LOG2(nbypass[0]);
-			nbypass[1]=FLOOR_LOG2(nbypass[1]);
-			nbypass[2]=FLOOR_LOG2(nbypass[2]);
-#else
-			nbypass[0]+=nbypass[0]<3;
-			nbypass[1]+=nbypass[1]<3;
-			nbypass[2]+=nbypass[2]<3;
+				nbypass[0]=FLOOR_LOG2(nbypass[0]);
 #endif
+			}
+			if(!args->use_AC[1])
+			{
+				nbypass[1]=(7*W[3*2+1]+3*(NE[3*1+1]+N[3*3+1]+WW[3*3+1]))>>4;
+				nbypass[1]+=nbypass[1]<4;
+#ifndef ENABLE_NPOT
+				nbypass[1]=FLOOR_LOG2(nbypass[1]);
+#endif
+			}
+			if(!args->use_AC[2])
+			{
+				nbypass[2]=(7*W[3*2+2]+3*(NE[3*1+2]+N[3*3+2]+WW[3*3+2]))>>4;
+				nbypass[2]+=nbypass[2]<4;
+#ifndef ENABLE_NPOT
+				nbypass[2]=FLOOR_LOG2(nbypass[2]);
+#endif
+			}
+			//if(nbypass[0]>=7||nbypass[1]>=7||nbypass[2]>=7)//not hit
+			//	printf("");
 #if 1
 #ifdef __GNUC__
 #pragma GCC unroll 3
 #endif
-			for(int kc=0;kc<3;++kc)
+			for(int kc=0;kc<3;++kc)//linear predictor (better for smooth areas)
 			{
 				switch(predidx[kc])
 				{
@@ -1275,6 +1435,130 @@ static void block_thread(void *param)
 					MEDIAN3_32(preds[kc], N[kc], W[kc], N[kc]+W[kc]-NW[kc]);
 					break;
 				}
+			}
+#endif
+#ifdef USE_ANGULAR_PRED
+			{//angular predictor (better for high-noise/edges) weak improvement, is it worth 1 IDIV/px? (15% slower)
+				int grads[]=
+				{
+					abs(NE[0]-NNE[0])+abs(N[0]-NN[0])+abs(NW[0]-NNW[0])+abs(W[0]-NW[0])+1,//N
+					abs(NE[1]-NNE[1])+abs(N[1]-NN[1])+abs(NW[1]-NNW[1])+abs(W[1]-NW[1])+1,
+					abs(NE[2]-NNE[2])+abs(N[2]-NN[2])+abs(NW[2]-NNW[2])+abs(W[2]-NW[2])+1,
+
+					abs(NE[0]-N[0])+abs(N[0]-NW[0])+abs(NW[0]-NWW[0])+abs(W[0]-WW[0])+1,//W
+					abs(NE[1]-N[1])+abs(N[1]-NW[1])+abs(NW[1]-NWW[1])+abs(W[1]-WW[1])+1,
+					abs(NE[2]-N[2])+abs(N[2]-NW[2])+abs(NW[2]-NWW[2])+abs(W[2]-WW[2])+1,
+				};
+				//linear[0]=preds[0];
+				//linear[1]=preds[1];
+				//linear[2]=preds[2];
+				angular[0]=(grads[3*1+0]*N[0]+grads[3*0+0]*W[0])/(grads[3*0+0]+grads[3*1+0]);
+				angular[1]=(grads[3*1+1]*N[1]+grads[3*0+1]*W[1])/(grads[3*0+1]+grads[3*1+1]);
+				angular[2]=(grads[3*1+2]*N[2]+grads[3*0+2]*W[2])/(grads[3*0+2]+grads[3*1+2]);
+
+				//if(mixer[0]!=(1<<MIXBITS>>1)&&abs(linear[0]-angular[0])>8)//
+				//	printf("");
+				//preds[0]+=(angular[0]-preds[0])*(mixer[0]+(1<<MIXBITS>>1))>>MIXBITS;
+				//preds[1]+=(angular[1]-preds[1])*(mixer[1]+(1<<MIXBITS>>1))>>MIXBITS;
+				//preds[2]+=(angular[2]-preds[2])*(mixer[2]+(1<<MIXBITS>>1))>>MIXBITS;
+
+				int noise[]=
+				{
+					(abs(W[0]-NW[0])+abs(N[0]-NW[0])+abs(N[0]-NE[0])+abs(N[0]-NN[0])+abs(W[0]-WW[0])+abs(NE[0]-NEE[0])+abs(NEE[0]-NEEE[0]))*170>>8,
+					(abs(W[1]-NW[1])+abs(N[1]-NW[1])+abs(N[1]-NE[1])+abs(N[1]-NN[1])+abs(W[1]-WW[1])+abs(NE[1]-NEE[1])+abs(NEE[1]-NEEE[1]))*170>>8,
+					(abs(W[2]-NW[2])+abs(N[2]-NW[2])+abs(N[2]-NE[2])+abs(N[2]-NN[2])+abs(W[2]-WW[2])+abs(NE[2]-NEE[2])+abs(NEE[2]-NEEE[2]))*170>>8,
+				};
+#define ANGULAR_STRENGTH 8
+				if(noise[0]>(1<<ANGULAR_STRENGTH))noise[0]=1<<ANGULAR_STRENGTH;
+				if(noise[1]>(1<<ANGULAR_STRENGTH))noise[1]=1<<ANGULAR_STRENGTH;
+				if(noise[2]>(1<<ANGULAR_STRENGTH))noise[2]=1<<ANGULAR_STRENGTH;
+				preds[0]+=((angular[0]-preds[0])*noise[0]+(1<<ANGULAR_STRENGTH>>1))>>ANGULAR_STRENGTH;
+				preds[1]+=((angular[1]-preds[1])*noise[1]+(1<<ANGULAR_STRENGTH>>1))>>ANGULAR_STRENGTH;
+				preds[2]+=((angular[2]-preds[2])*noise[2]+(1<<ANGULAR_STRENGTH>>1))>>ANGULAR_STRENGTH;
+				//preds[0]=angular[0];
+				//preds[1]=angular[1];
+				//preds[2]=angular[2];
+				//MEDIAN3_32(preds[0], N[0], W[0], N[0]+W[0]-NW[0]);
+				//MEDIAN3_32(preds[1], N[1], W[1], N[1]+W[1]-NW[1]);
+				//MEDIAN3_32(preds[2], N[2], W[2], N[2]+W[2]-NW[2]);
+
+				//preds[0]=(15*preds[0]+angular[0]+8)>>4;
+				//preds[1]=(15*preds[1]+angular[1]+8)>>4;
+				//preds[2]=(15*preds[2]+angular[2]+8)>>4;
+			}
+#endif
+#if 0
+			{//angular predictor (better for high-noise/edges) bad
+				int grads[]=
+				{
+					abs(NE[0]-NNEE[0])+abs(N[0]-NNE[0])+abs(NW[0]-NN[0])+abs(W[0]-N[0]),//NE
+					abs(NE[1]-NNEE[1])+abs(N[1]-NNE[1])+abs(NW[1]-NN[1])+abs(W[1]-N[1]),
+					abs(NE[2]-NNEE[2])+abs(N[2]-NNE[2])+abs(NW[2]-NN[2])+abs(W[2]-N[2]),
+
+					abs(NE[0]-NNE[0])+abs(N[0]-NN[0])+abs(NW[0]-NNW[0])+abs(W[0]-NW[0]),//N
+					abs(NE[1]-NNE[1])+abs(N[1]-NN[1])+abs(NW[1]-NNW[1])+abs(W[1]-NW[1]),
+					abs(NE[2]-NNE[2])+abs(N[2]-NN[2])+abs(NW[2]-NNW[2])+abs(W[2]-NW[2]),
+				
+					abs(NE[0]-NN[0])+abs(N[0]-NNW[0])+abs(NW[0]-NNWW[0])+abs(W[0]-NWW[0]),//NW
+					abs(NE[1]-NN[1])+abs(N[1]-NNW[1])+abs(NW[1]-NNWW[1])+abs(W[1]-NWW[1]),
+					abs(NE[2]-NN[2])+abs(N[2]-NNW[2])+abs(NW[2]-NNWW[2])+abs(W[2]-NWW[2]),
+
+					abs(NE[0]-N[0])+abs(N[0]-NW[0])+abs(NW[0]-NWW[0])+abs(W[0]-WW[0]),//W
+					abs(NE[1]-N[1])+abs(N[1]-NW[1])+abs(NW[1]-NWW[1])+abs(W[1]-WW[1]),
+					abs(NE[2]-N[2])+abs(N[2]-NW[2])+abs(NW[2]-NWW[2])+abs(W[2]-WW[2]),
+				};
+				long long weights[]=
+				{
+					(long long)grads[3*1+0]*grads[3*2+0]*grads[3*3+0]+1,
+					(long long)grads[3*0+0]*grads[3*2+0]*grads[3*3+0]+1,
+					(long long)grads[3*0+0]*grads[3*1+0]*grads[3*3+0]+1,
+					(long long)grads[3*0+0]*grads[3*1+0]*grads[3*2+0]+1,
+
+					(long long)grads[3*1+1]*grads[3*2+1]*grads[3*3+1]+1,
+					(long long)grads[3*0+1]*grads[3*2+1]*grads[3*3+1]+1,
+					(long long)grads[3*0+1]*grads[3*1+1]*grads[3*3+1]+1,
+					(long long)grads[3*0+1]*grads[3*1+1]*grads[3*2+1]+1,
+
+					(long long)grads[3*1+2]*grads[3*2+2]*grads[3*3+2]+1,
+					(long long)grads[3*0+2]*grads[3*2+2]*grads[3*3+2]+1,
+					(long long)grads[3*0+2]*grads[3*1+2]*grads[3*3+2]+1,
+					(long long)grads[3*0+2]*grads[3*1+2]*grads[3*2+2]+1,
+				};
+				//linear[0]=preds[0];
+				//linear[1]=preds[1];
+				//linear[2]=preds[2];
+				angular[0]=(weights[4*0+0]*NE[0]+weights[4*0+1]*N[0]+weights[4*0+2]*NW[0]+weights[4*0+3]*W[0])/(weights[4*0+0]+weights[4*0+1]+weights[4*0+2]+weights[4*0+3]);
+				angular[1]=(weights[4*1+0]*NE[1]+weights[4*1+1]*N[0]+weights[4*1+2]*NW[1]+weights[4*1+3]*W[0])/(weights[4*1+0]+weights[4*1+1]+weights[4*1+2]+weights[4*1+3]);
+				angular[2]=(weights[4*2+0]*NE[2]+weights[4*2+1]*N[0]+weights[4*2+2]*NW[2]+weights[4*2+3]*W[0])/(weights[4*2+0]+weights[4*2+1]+weights[4*2+2]+weights[4*2+3]);
+
+				//if(mixer[0]!=(1<<MIXBITS>>1)&&abs(linear[0]-angular[0])>8)//
+				//	printf("");
+				//preds[0]+=(angular[0]-preds[0])*(mixer[0]+(1<<MIXBITS>>1))>>MIXBITS;
+				//preds[1]+=(angular[1]-preds[1])*(mixer[1]+(1<<MIXBITS>>1))>>MIXBITS;
+				//preds[2]+=(angular[2]-preds[2])*(mixer[2]+(1<<MIXBITS>>1))>>MIXBITS;
+
+				int noise[]=
+				{
+					abs(N[0]-W[0])+abs(W[0]-NW[0])+abs(N[0]-NW[0])+abs(N[0]-NE[0]),
+					abs(N[1]-W[1])+abs(W[1]-NW[1])+abs(N[1]-NW[1])+abs(N[1]-NE[1]),
+					abs(N[2]-W[2])+abs(W[2]-NW[2])+abs(N[2]-NW[2])+abs(N[2]-NE[2]),
+				};
+				//if(noise[0]>256)noise[0]=256;
+				//if(noise[1]>256)noise[1]=256;
+				//if(noise[2]>256)noise[2]=256;
+				preds[0]+=((angular[0]-preds[0])*noise[0]+(1<<10>>1))>>10;
+				preds[1]+=((angular[1]-preds[1])*noise[1]+(1<<10>>1))>>10;
+				preds[2]+=((angular[2]-preds[2])*noise[2]+(1<<10>>1))>>10;
+				//preds[0]=angular[0];
+				//preds[1]=angular[1];
+				//preds[2]=angular[2];
+				//MEDIAN3_32(preds[0], N[0], W[0], N[0]+W[0]-NW[0]);
+				//MEDIAN3_32(preds[1], N[1], W[1], N[1]+W[1]-NW[1]);
+				//MEDIAN3_32(preds[2], N[2], W[2], N[2]+W[2]-NW[2]);
+
+				//preds[0]=(15*preds[0]+angular[0]+8)>>4;
+				//preds[1]=(15*preds[1]+angular[1]+8)>>4;
+				//preds[2]=(15*preds[2]+angular[2]+8)>>4;
 			}
 #endif
 #if 0
@@ -1358,77 +1642,76 @@ static void block_thread(void *param)
 			preds[1]+=(curr_sse4[1][1]+(den[1]>>1))/den[1];
 			preds[2]+=(curr_sse4[2][1]+(den[2]>>1))/den[2];
 #endif
+#endif
+#ifdef ENABLE_SSE2
+#define SSE2_SCALE 4
+#define SSE2_DECAY 7
+			curr_sse1[0]=&args->sse1[0][((N[0]+W[0]+(NE[0]-NW[0])/2)>>1)&63][(preds[0]>>1)&63];
+			curr_sse2[0]=&args->sse2[0][((N[0]-NW[0])>>2)&63][((W[0]-WW[0])>>2)&63];
+			curr_sse3[0]=&args->sse3[0][((W[0]-NW[0])>>2)&63][((N[0]-NN[0])>>2)&63];
+			preds[0]+=(*curr_sse1[0]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
+			preds[0]+=(*curr_sse2[0]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
+			preds[0]+=(*curr_sse3[0]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
+			curr_sse4[0]=&args->sse4[0][preds[0]&255];
+			preds[0]+=(*curr_sse4[0]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
+			curr_sse1[1]=&args->sse1[1][((N[1]+W[1]+(NE[1]-NW[1])/2)>>1)&63][(preds[1]>>1)&63];
+			curr_sse2[1]=&args->sse2[1][((N[1]-NW[1])>>2)&63][((W[1]-WW[1])>>2)&63];
+			curr_sse3[1]=&args->sse3[1][((W[1]-NW[1])>>2)&63][((N[1]-NN[1])>>2)&63];
+			preds[1]+=(*curr_sse1[1]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
+			preds[1]+=(*curr_sse2[1]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
+			preds[1]+=(*curr_sse3[1]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
+			curr_sse4[1]=&args->sse4[1][preds[1]&255];
+			preds[1]+=(*curr_sse4[1]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
+			curr_sse1[2]=&args->sse1[2][((N[2]+W[2]+(NE[2]-NW[2])/2)>>1)&63][(preds[2]>>1)&63];
+			curr_sse2[2]=&args->sse2[2][((N[2]-NW[2])>>2)&63][((W[2]-WW[2])>>2)&63];
+			curr_sse3[2]=&args->sse3[2][((W[2]-NW[2])>>2)&63][((N[2]-NN[2])>>2)&63];
+			preds[2]+=(*curr_sse1[2]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
+			preds[2]+=(*curr_sse2[2]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
+			preds[2]+=(*curr_sse3[2]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
+			curr_sse4[2]=&args->sse4[2][preds[2]&255];
+			preds[2]+=(*curr_sse4[2]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
+
+			if(N[0]==W[0]&&N[0]==NW[0])preds[0]=W[0];//flat area correction
+			if(N[1]==W[1]&&N[1]==NW[1])preds[1]=W[1];
+			if(N[2]==W[2]&&N[2]==NW[2])preds[2]=W[2];
+			
+			//int correction[]=
 			//{
-			//	__m128i mp=_mm_load_si128((__m128i*)preds);//worse
+			//	preds[0], W[0], N[0], preds[0],
+			//	preds[1], W[1], N[1], preds[1],
+			//	preds[2], W[2], N[2], preds[2],
+			//};
+			//int condition[]=
+			//{
+			//	((N[0]==NN[0])&(W[0]==NW[0]))<<1|((W[0]==WW[0])&(N[0]==NW[0])),//worse
+			//	((N[1]==NN[1])&(W[1]==NW[1]))<<1|((W[1]==WW[1])&(N[1]==NW[1])),
+			//	((N[2]==NN[2])&(W[2]==NW[2]))<<1|((W[2]==WW[2])&(N[2]==NW[2])),
+			//};
+			//preds[0]=correction[4*0+condition[0]];
+			//preds[1]=correction[4*1+condition[1]];
+			//preds[2]=correction[4*2+condition[2]];
+#endif
+			//int pred0[]=
+			//{
+			//	preds[0],
+			//	preds[1],
+			//	preds[2],
+			//};
+			//{
+			//	__m128i mp=_mm_load_si128((__m128i*)preds);	//worse
 			//	mp=_mm_max_epi32(mp, _mm_set1_epi32(-128));
 			//	mp=_mm_min_epi32(mp, _mm_set1_epi32(127));
 			//	_mm_store_si128((__m128i*)preds, mp);
 			//}
-#endif
-#ifdef ENABLE_SSE2
-			int *curr_sse1[]=
-			{
-				&args->sse1[0][((N[0]+W[0]+(NE[0]-NW[0])/2)>>3)&63][(preds[0]>>2)&63],
-				&args->sse1[1][((N[1]+W[1]+(NE[1]-NW[1])/2)>>3)&63][(preds[1]>>2)&63],
-				&args->sse1[2][((N[2]+W[2]+(NE[2]-NW[2])/2)>>3)&63][(preds[2]>>2)&63],
-			};
-			int *curr_sse2[]=
-			{
-				&args->sse2[0][((N[0]-NW[0])>>1)&63][((W[0]-WW[0])>>2)&63],
-				&args->sse2[1][((N[1]-NW[1])>>1)&63][((W[1]-WW[1])>>2)&63],
-				&args->sse2[2][((N[2]-NW[2])>>1)&63][((W[2]-WW[2])>>2)&63],
-			};
-			int *curr_sse3[]=
-			{
-				&args->sse3[0][((W[0]-NW[0])>>1)&63][((N[0]-NN[0])>>2)&63],
-				&args->sse3[1][((W[1]-NW[1])>>1)&63][((N[1]-NN[1])>>2)&63],
-				&args->sse3[2][((W[2]-NW[2])>>1)&63][((N[2]-NN[2])>>2)&63],
-			};
-			preds[0]+=(*curr_sse1[0]+128)>>8;
-			preds[1]+=(*curr_sse1[1]+128)>>8;
-			preds[2]+=(*curr_sse1[2]+128)>>8;
-			preds[0]+=(*curr_sse2[0]+128)>>8;
-			preds[1]+=(*curr_sse2[1]+128)>>8;
-			preds[2]+=(*curr_sse2[2]+128)>>8;
-			preds[0]+=(*curr_sse3[0]+128)>>8;
-			preds[1]+=(*curr_sse3[1]+128)>>8;
-			preds[2]+=(*curr_sse3[2]+128)>>8;
-			int *curr_sse4[]=
-			{
-				&args->sse4[0][preds[0]&255],
-				&args->sse4[1][preds[1]&255],
-				&args->sse4[2][preds[2]&255],
-			};
-			preds[0]+=(*curr_sse4[0]+128)>>8;
-			preds[1]+=(*curr_sse4[1]+128)>>8;
-			preds[2]+=(*curr_sse4[2]+128)>>8;
-#endif
 			int sym=0;
 #ifndef DISABLE_RCTSEL
 			int offset;
 #endif
-	#define UPDATE_FORMULA1(IDX) (MAXVAR(NW[IDX], W[IDX])+sym+NEE[IDX]+MAXVAR(WW[IDX], WWW[IDX]))>>2	//for SW (thru NE)
-	#define UPDATE_FORMULA2(IDX) (MAXVAR(WW[IDX], W[IDX])+sym+NE[IDX]+MAXVAR(NEE[IDX], NEEE[IDX]))>>2	//for E (thru W)
-	#define UPDATE_FORMULA3(IDX) (N[IDX]+(IDX==9?W[IDX]:WW[IDX])+sym)/3
-//	#define UPDATE_FORMULA(IDX) (MAXVAR(WW[IDX], W[IDX])+sym+NE[IDX]+MAXVAR(NEE[IDX], NEEE[IDX]))>>2	//Formula12	best
-//	#define UPDATE_FORMULA(IDX) (max3(WW[IDX], W[IDX], NW[IDX])+sym+max3(NNE[IDX], NE[IDX], NEE[IDX])+NEEE[IDX])>>2
-//	#define UPDATE_FORMULA(IDX) (W[IDX]+sym+NE[IDX]+NEEE[IDX])>>2	//Formula8
-//	#define UPDATE_FORMULA(IDX) (MAXVAR(N[IDX], W[IDX])+sym+NE[IDX]+MAXVAR(NEE[IDX], NEEE[IDX]))>>2
-//	#define UPDATE_FORMULA(IDX) (max3(WW[IDX], W[IDX], N[IDX])+sym+NE[IDX]+MAXVAR(NEE[IDX], NEEE[IDX]))>>2
-//	#define UPDATE_FORMULA(IDX) (sum_largest3of7(WW[IDX], W[IDX], NW[IDX], N[IDX], NE[IDX], NEE[IDX], NEEE[IDX])+sym)>>2
-//	#define UPDATE_FORMULA(IDX) (MAXVAR(WW[IDX], W[IDX])+sym+NE[IDX]+NNE[IDX]+NNNE[IDX]+MAXVAR(NEE[IDX], NEEE[IDX]))/6
-//	#define UPDATE_FORMULA(IDX) (MAXVAR(WW[IDX], W[IDX])+sym+NE[IDX]+NNE[IDX]/2+MAXVAR(NEE[IDX], NEEE[IDX]))*2/9
-//	#define UPDATE_FORMULA(IDX) (MAXVAR(N[IDX], W[IDX])+sym+NE[IDX]+NEEE[IDX])>>2		//Formula11
-//	#define UPDATE_FORMULA(IDX) (MAXVAR(N[IDX], W[IDX])+sym+NE[IDX]+NEE[IDX])>>2		//X
-//	#define UPDATE_FORMULA(IDX) (MAXVAR(N[IDX], W[IDX])+2*(sym+NE[IDX])+NEE[IDX]+NEEE[IDX])/7	//Formula10
-//	#define UPDATE_FORMULA(IDX) (NE[IDX]>sym?sym+2*NE[IDX]+NEE[IDX]:W[IDX]+2*sym+NE[IDX])>>2//X
-//	#define UPDATE_FORMULA(IDX) (sym+NE[IDX]+NEE[IDX]+NEEE[IDX])>>2
-//	#define UPDATE_FORMULA(IDX) (2*W[IDX]+sym+NEEE[IDX])>>2		//Formula1
-//	#define UPDATE_FORMULA(IDX) (W[IDX]+sym+NEEE[IDX])/3
-//	#define UPDATE_FORMULA(IDX) (WWW[IDX]+5*WW[IDX]+10*(W[IDX]+sym)+NE[IDX])/27	//Formula5	X
-//	#define UPDATE_FORMULA(IDX) sym
-			if(args->fwd)
+			if(args->fwd)//enc
 			{
+				//if(idx==8193027)//
+				//if(idx==8193024)//
+				//	printf("");
 #ifndef DISABLE_RCTSEL
 				yuv[0]=args->src[idx+combination[3+0]]-128;
 				yuv[1]=args->src[idx+combination[3+1]]-128;
@@ -1469,15 +1752,25 @@ static void block_thread(void *param)
 					else
 						sym=upred+aval;//error sign is known
 				}
+				if(args->use_AC[0])
+				{
+					int den=stats0[0][257]++ + 257, cdf=0, freq=stats0[0][sym]++ + 1;
+					for(int k=0;k<sym;++k)
+						cdf+=stats0[0][k]+1;
+					ac3_enc_update_NPOT(ec2+0, cdf, freq, den);
+				}
+				else
+				{
 #ifdef ENABLE_NPOT
-				gr_enc_NPOT(&ec, sym, nbypass[0]);
+					gr_enc_NPOT(ec+0, sym, nbypass[0]);
 #else
-				gr_enc(&ec, sym, nbypass[0]);
+					gr_enc(ec+0, sym, nbypass[0]);
 #endif
+					curr[3*1+0]=UPDATE_FORMULA1(3*1+0);
+					curr[3*2+0]=UPDATE_FORMULA2(3*2+0);
+					curr[3*3+0]=UPDATE_FORMULA3(3*3+0);
+				}
 				curr[0]=yuv[0];
-				curr[3+0]=UPDATE_FORMULA1(3+0);
-				curr[6+0]=UPDATE_FORMULA2(6+0);
-				curr[9+0]=UPDATE_FORMULA3(9+0);
 				
 				//enc U
 #ifndef DISABLE_RCTSEL
@@ -1505,19 +1798,29 @@ static void block_thread(void *param)
 					else
 						sym=upred+aval;//error sign is known
 				}
+				if(args->use_AC[1])
+				{
+					int den=stats0[1][257]++ + 257, cdf=0, freq=stats0[1][sym]++ + 1;
+					for(int k=0;k<sym;++k)
+						cdf+=stats0[1][k]+1;
+					ac3_enc_update_NPOT(ec2+1, cdf, freq, den);
+				}
+				else
+				{
 #ifdef ENABLE_NPOT
-				gr_enc_NPOT(&ec, sym, nbypass[1]);
+					gr_enc_NPOT(ec+1, sym, nbypass[1]);
 #else
-				gr_enc(&ec, sym, nbypass[1]);
+					gr_enc(ec+1, sym, nbypass[1]);
 #endif
+					curr[3*1+1]=UPDATE_FORMULA1(3*1+1);
+					curr[3*2+1]=UPDATE_FORMULA2(3*2+1);
+					curr[3*3+1]=UPDATE_FORMULA3(3*3+1);
+				}
 #ifndef DISABLE_RCTSEL
 				curr[1]=yuv[1]-offset;
 #else
 				curr[1]=yuv[1];
 #endif
-				curr[3+1]=UPDATE_FORMULA1(3+1);
-				curr[6+1]=UPDATE_FORMULA2(6+1);
-				curr[9+1]=UPDATE_FORMULA3(9+1);
 
 				//enc V
 #ifndef DISABLE_RCTSEL
@@ -1545,29 +1848,71 @@ static void block_thread(void *param)
 					else
 						sym=upred+aval;//error sign is known
 				}
+				if(args->use_AC[2])
+				{
+					int den=stats0[2][257]++ + 257, cdf=0, freq=stats0[2][sym]++ + 1;
+					for(int k=0;k<sym;++k)
+						cdf+=stats0[2][k]+1;
+					ac3_enc_update_NPOT(ec2+2, cdf, freq, den);
+				}
+				else
+				{
 #ifdef ENABLE_NPOT
-				gr_enc_NPOT(&ec, sym, nbypass[2]);
+					gr_enc_NPOT(ec+2, sym, nbypass[2]);
 #else
-				gr_enc(&ec, sym, nbypass[2]);
+					gr_enc(ec+2, sym, nbypass[2]);
 #endif
+					curr[3*1+2]=UPDATE_FORMULA1(3*1+2);
+					curr[3*2+2]=UPDATE_FORMULA2(3*2+2);
+					curr[3*3+2]=UPDATE_FORMULA3(3*3+2);
+				}
 #ifndef DISABLE_RCTSEL
 				curr[2]=yuv[2]-offset;
 #else
 				curr[2]=yuv[2];
 #endif
-				curr[3+2]=UPDATE_FORMULA1(3+2);
-				curr[6+2]=UPDATE_FORMULA2(6+2);
-				curr[9+2]=UPDATE_FORMULA3(9+2);
 			}
-			else
+			else//dec
 			{
+				//if(idx==8193027)//
+				//if(idx==8193024)//
+				//	printf("");
+
 				//dec Y
 				pred=preds[0];
-#ifdef ENABLE_NPOT
-				sym=gr_dec_NPOT(&ec, nbypass[0]);
-#else
-				sym=gr_dec(&ec, nbypass[0]);
+				if(args->use_AC[0])
+				{
+					int den=stats0[0][257]++ + 257, cdf=0, freq;
+					int code=ac3_dec_getcdf_NPOT(ec2+0, den);
+#ifdef _DEBUG
+					if(code>=den)
+						LOG_ERROR("code >= den at %d", idx);
 #endif
+					for(sym=0;;)
+					{
+						int cdf2;
+
+						freq=stats0[0][sym]+1;
+						cdf2=cdf+freq;
+						if(cdf2>code)
+							break;
+						cdf=cdf2;
+						++sym;
+					}
+					ac3_dec_update_NPOT(ec2+0, cdf, freq, den);
+					++stats0[0][sym];
+				}
+				else
+				{
+#ifdef ENABLE_NPOT
+					sym=gr_dec_NPOT(ec+0, nbypass[0]);
+#else
+					sym=gr_dec(ec+0, nbypass[0]);
+#endif
+					curr[3*1+0]=UPDATE_FORMULA1(3*1+0);
+					curr[3*2+0]=UPDATE_FORMULA2(3*2+0);
+					curr[3*3+0]=UPDATE_FORMULA3(3*3+0);
+				}
 				{
 					int upred=HALF_Y-abs(pred), negmask=0;
 					if(sym<=(upred<<1))
@@ -1586,9 +1931,6 @@ static void block_thread(void *param)
 					error-=negmask;
 				}
 				curr[0]=yuv[0]=error+pred;
-				curr[3+0]=UPDATE_FORMULA1(3+0);
-				curr[6+0]=UPDATE_FORMULA2(6+0);
-				curr[9+0]=UPDATE_FORMULA3(9+0);
 
 				//dec U
 #ifndef DISABLE_RCTSEL
@@ -1598,11 +1940,39 @@ static void block_thread(void *param)
 #else
 				pred=preds[1];
 #endif
-#ifdef ENABLE_NPOT
-				sym=gr_dec_NPOT(&ec, nbypass[1]);
-#else
-				sym=gr_dec(&ec, nbypass[1]);
+				if(args->use_AC[1])
+				{
+					int den=stats0[1][257]++ + 257, cdf=0, freq;
+					int code=ac3_dec_getcdf_NPOT(ec2+1, den);
+#ifdef _DEBUG
+					if(code>=den)
+						LOG_ERROR("code >= den at %d", idx);
 #endif
+					for(sym=0;;)
+					{
+						int cdf2;
+
+						freq=stats0[1][sym]+1;
+						cdf2=cdf+freq;
+						if(cdf2>code)
+							break;
+						cdf=cdf2;
+						++sym;
+					}
+					ac3_dec_update_NPOT(ec2+1, cdf, freq, den);
+					++stats0[1][sym];
+				}
+				else
+				{
+#ifdef ENABLE_NPOT
+					sym=gr_dec_NPOT(ec+1, nbypass[1]);
+#else
+					sym=gr_dec(ec+1, nbypass[1]);
+#endif
+					curr[3*1+1]=UPDATE_FORMULA1(3*1+1);
+					curr[3*2+1]=UPDATE_FORMULA2(3*2+1);
+					curr[3*3+1]=UPDATE_FORMULA3(3*3+1);
+				}
 				{
 					int upred=HALF_U-abs(pred), negmask=0;
 					if(sym<=(upred<<1))
@@ -1626,9 +1996,6 @@ static void block_thread(void *param)
 #else
 				curr[1]=yuv[1];
 #endif
-				curr[3+1]=UPDATE_FORMULA1(3+1);
-				curr[6+1]=UPDATE_FORMULA2(6+1);
-				curr[9+1]=UPDATE_FORMULA3(9+1);
 
 				//dec V
 #ifndef DISABLE_RCTSEL
@@ -1638,11 +2005,39 @@ static void block_thread(void *param)
 #else
 				pred=preds[2];
 #endif
-#ifdef ENABLE_NPOT
-				sym=gr_dec_NPOT(&ec, nbypass[2]);
-#else
-				sym=gr_dec(&ec, nbypass[2]);
+				if(args->use_AC[2])
+				{
+					int den=stats0[2][257]++ + 257, cdf=0, freq;
+					int code=ac3_dec_getcdf_NPOT(ec2+2, den);
+#ifdef _DEBUG
+					if(code>=den)
+						LOG_ERROR("code >= den at %d", idx);
 #endif
+					for(sym=0;;)
+					{
+						int cdf2;
+
+						freq=stats0[2][sym]+1;
+						cdf2=cdf+freq;
+						if(cdf2>code)
+							break;
+						cdf=cdf2;
+						++sym;
+					}
+					ac3_dec_update_NPOT(ec2+2, cdf, freq, den);
+					++stats0[2][sym];
+				}
+				else
+				{
+#ifdef ENABLE_NPOT
+					sym=gr_dec_NPOT(ec+2, nbypass[2]);
+#else
+					sym=gr_dec(ec+2, nbypass[2]);
+#endif
+					curr[3*1+2]=UPDATE_FORMULA1(3*1+2);
+					curr[3*2+2]=UPDATE_FORMULA2(3*2+2);
+					curr[3*3+2]=UPDATE_FORMULA3(3*3+2);
+				}
 				{
 					int upred=HALF_V-abs(pred), negmask=0;
 					if(sym<=(upred<<1))
@@ -1666,9 +2061,6 @@ static void block_thread(void *param)
 #else
 				curr[2]=yuv[2];
 #endif
-				curr[3+2]=UPDATE_FORMULA1(3+2);
-				curr[6+2]=UPDATE_FORMULA2(6+2);
-				curr[9+2]=UPDATE_FORMULA3(9+2);
 				
 #ifndef DISABLE_RCTSEL
 				args->dst[idx+combination[3+0]]=yuv[0]+128;
@@ -1698,6 +2090,27 @@ static void block_thread(void *param)
 				}
 #endif
 			}
+			//if(linear[0]!=angular[0])
+			//{
+			//	int alpha=linear[0]-angular[0];
+			//	alpha=(((curr[0]-angular[0])<<MIXBITS)+(alpha>>1))/alpha;
+			//	CLAMP2(alpha, 0, 1<<MIXBITS);
+			//	mixer[0]+=(alpha-(1<<MIXBITS>>1)-mixer[0])>>6;
+			//}
+			//if(linear[1]!=angular[1])
+			//{
+			//	int alpha=linear[1]-angular[1];
+			//	alpha=(((curr[1]-angular[1])<<MIXBITS)+(alpha>>1))/alpha;
+			//	CLAMP2(alpha, 0, 1<<MIXBITS);
+			//	mixer[1]+=(alpha-(1<<MIXBITS>>1)-mixer[1])>>6;
+			//}
+			//if(linear[2]!=angular[2])
+			//{
+			//	int alpha=linear[2]-angular[2];
+			//	alpha=(((curr[2]-angular[2])<<MIXBITS)+(alpha>>1))/alpha;
+			//	CLAMP2(alpha, 0, 1<<MIXBITS);
+			//	mixer[2]+=(alpha-(1<<MIXBITS>>1)-mixer[2])>>6;
+			//}
 #ifdef ENABLE_SSE
 			++curr_sse1[0][0];
 			++curr_sse1[1][0];
@@ -1731,33 +2144,52 @@ static void block_thread(void *param)
 #endif
 #endif
 #ifdef ENABLE_SSE2
-			int errors[]=
 			{
-				curr[0]-preds[0],
-				curr[1]-preds[1],
-				curr[2]-preds[2],
-			};
-			*curr_sse1[0]=(*curr_sse1[0]*127+(errors[0]<<8)+64)>>7;
-			*curr_sse1[1]=(*curr_sse1[1]*127+(errors[1]<<8)+64)>>7;
-			*curr_sse1[2]=(*curr_sse1[2]*127+(errors[2]<<8)+64)>>7;
-			*curr_sse2[0]=(*curr_sse2[0]*127+(errors[0]<<8)+64)>>7;
-			*curr_sse2[1]=(*curr_sse2[1]*127+(errors[1]<<8)+64)>>7;
-			*curr_sse2[2]=(*curr_sse2[2]*127+(errors[2]<<8)+64)>>7;
-			*curr_sse3[0]=(*curr_sse3[0]*127+(errors[0]<<8)+64)>>7;
-			*curr_sse3[1]=(*curr_sse3[1]*127+(errors[1]<<8)+64)>>7;
-			*curr_sse3[2]=(*curr_sse3[2]*127+(errors[2]<<8)+64)>>7;
-			*curr_sse4[0]=(*curr_sse4[0]*127+(errors[0]<<8)+64)>>7;
-			*curr_sse4[1]=(*curr_sse4[1]*127+(errors[1]<<8)+64)>>7;
-			*curr_sse4[2]=(*curr_sse4[2]*127+(errors[2]<<8)+64)>>7;
+				int e=(curr[0]-preds[0])<<SSE2_SCALE;
+				*curr_sse1[0]=((*curr_sse1[0]*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
+				*curr_sse2[0]=((*curr_sse2[0]*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
+				*curr_sse3[0]=((*curr_sse3[0]*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
+				*curr_sse4[0]=((*curr_sse4[0]*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
+			}
+			{
+				int e=(curr[1]-preds[1])<<SSE2_SCALE;
+				*curr_sse1[1]=((*curr_sse1[1]*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
+				*curr_sse2[1]=((*curr_sse2[1]*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
+				*curr_sse3[1]=((*curr_sse3[1]*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
+				*curr_sse4[1]=((*curr_sse4[1]*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
+			}
+			{
+				int e=(curr[2]-preds[2])<<SSE2_SCALE;
+				*curr_sse1[2]=((*curr_sse1[2]*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
+				*curr_sse2[2]=((*curr_sse2[2]*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
+				*curr_sse3[2]=((*curr_sse3[2]*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
+				*curr_sse4[2]=((*curr_sse4[2]*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
+			}
 #endif
-			rows[0]+=3*4;
-			rows[1]+=3*4;
-			rows[2]+=3*4;
-			rows[3]+=3*4;
+			__m256i mr=_mm256_load_si256((__m256i*)rows);
+			mr=_mm256_add_epi64(mr, _mm256_set1_epi64x(sizeof(short[3*4])));
+			_mm256_store_si256((__m256i*)rows, mr);
+			//rows[0]+=3*4;
+			//rows[1]+=3*4;
+			//rows[2]+=3*4;
+			//rows[3]+=3*4;
 		}
 	}
 	if(args->fwd)
-		gr_enc_flush(&ec);
+	{
+		if(args->use_AC[0])
+			ac3_enc_flush(ec2+0);
+		else
+			gr_enc_flush(ec+0);
+		if(args->use_AC[1])
+			ac3_enc_flush(ec2+1);
+		else
+			gr_enc_flush(ec+1);
+		if(args->use_AC[2])
+			ac3_enc_flush(ec2+2);
+		else
+			gr_enc_flush(ec+2);
+	}
 }
 int c05_codec(const char *srcfn, const char *dstfn)
 {
@@ -1775,6 +2207,7 @@ int c05_codec(const char *srcfn, const char *dstfn)
 	ThreadArgs *args;
 	int test, fwd;
 	int usize;
+	size_t yuvsizes[3]={0};
 #ifndef DISABLE_RCTSEL
 	double esize;
 	double t_analysis=0;
@@ -1837,7 +2270,7 @@ int c05_codec(const char *srcfn, const char *dstfn)
 	xblocks=(iw+BLOCKSIZE-1)/BLOCKSIZE;
 	yblocks=(ih+BLOCKSIZE-1)/BLOCKSIZE;
 	nblocks=xblocks*yblocks, nthreads=MINVAR(nblocks, ncores);
-	coffset=(int)sizeof(int)*nblocks;
+	coffset=(int)sizeof(int[3])*nblocks;
 	start=0;
 	memusage=0;
 	argssize=nthreads*sizeof(ThreadArgs);
@@ -1873,8 +2306,15 @@ int c05_codec(const char *srcfn, const char *dstfn)
 		for(int kt=0;kt<nblocks;++kt)
 		{
 			int size=0;
-			memcpy(&size, image+sizeof(int)*kt, sizeof(int));
-			start+=size;
+
+			memcpy(&size, image+sizeof(int)*(3LL*kt+0), sizeof(int));
+			start+=size/RCT_COUNT>>1;
+
+			memcpy(&size, image+sizeof(int)*(3LL*kt+1), sizeof(int));
+			start+=size>>1;
+
+			memcpy(&size, image+sizeof(int)*(3LL*kt+2), sizeof(int));
+			start+=size>>1;
 		}
 		if(image+start!=imageend)
 			LOG_ERROR("Corrupt file");
@@ -1924,10 +2364,25 @@ int c05_codec(const char *srcfn, const char *dstfn)
 				if(!fwd)
 				{
 					int size=0;
-					memcpy(&size, image+sizeof(int)*((ptrdiff_t)kt+kt2), sizeof(int));
-					arg->decstart=image+start;
-					start+=size;
-					arg->decend=image+start;
+
+					memcpy(&size, image+sizeof(int)*(((ptrdiff_t)kt+kt2)*3+0), sizeof(int));
+					arg->bestrct=size%RCT_COUNT;
+					arg->use_AC[0]=size/RCT_COUNT&1;
+					arg->decstart[0]=image+start;
+					start+=size/RCT_COUNT>>1;
+					arg->decend[0]=image+start;
+
+					memcpy(&size, image+sizeof(int)*(((ptrdiff_t)kt+kt2)*3+1), sizeof(int));
+					arg->use_AC[1]=size&1;
+					arg->decstart[1]=image+start;
+					start+=size>>1;
+					arg->decend[1]=image+start;
+
+					memcpy(&size, image+sizeof(int)*(((ptrdiff_t)kt+kt2)*3+2), sizeof(int));
+					arg->use_AC[2]=size&1;
+					arg->decstart[2]=image+start;
+					start+=size>>1;
+					arg->decend[2]=image+start;
 				}
 			}
 #ifdef DISABLE_MT
@@ -1954,51 +2409,56 @@ int c05_codec(const char *srcfn, const char *dstfn)
 						kx%=xblocks;
 						if(nblocks<MAXPRINTEDBLOCKS)
 						{
+							size_t csize=arg->list[0].nbytes+arg->list[1].nbytes+arg->list[2].nbytes;
 							printf(
-								"block %4d/%4d  XY %3d %3d  %4d*%4d:  %8d->%16lf->%8zd bytes (%+10.2lf)  %10.6lf%%  CR %10lf  %s %s %s %s\n",
+								"block %4d/%4d  XY %3d %3d  %4d*%4d:  %8d->%16lf->%7zd+%7zd+%7zd = %8zd bytes %s %s %s (%+10.2lf)  %10.6lf%%  CR %10lf  %s %s %s %s\n",
 								kt+kt2+1, nblocks,
 								kx, ky,
 								arg->y2-arg->y1,
 								arg->x2-arg->x1,
 								blocksize,
 								arg->bestsize,
-								arg->list.nbytes,
-								arg->list.nbytes-arg->bestsize,
-								100.*arg->list.nbytes/blocksize,
-								(double)blocksize/arg->list.nbytes,
+								arg->list[0].nbytes,
+								arg->list[1].nbytes,
+								arg->list[2].nbytes,
+								csize,
+								arg->use_AC[0]?"AC":"GR",
+								arg->use_AC[1]?"AC":"GR",
+								arg->use_AC[2]?"AC":"GR",
+								csize-arg->bestsize,
+								100.*csize/blocksize,
+								(double)blocksize/csize,
 								rct_names[arg->bestrct],
 								pred_names[arg->predidx[0]],
 								pred_names[arg->predidx[1]],
 								pred_names[arg->predidx[2]]
 							);
-							//printf(
-							//	"block %4d/%4d  XY %3d %3d  %4d*%4d:  %8d->%16lf->%8zd bytes (%+10.2lf)  %10.6lf%%  CR %10lf  %s %s %s %s\n",
-							//	kt+kt2+1, nblocks,
-							//	kx, ky,
-							//	arg->y2-arg->y1,
-							//	arg->x2-arg->x1,
-							//	blocksize,
-							//	arg->bestsize,
-							//	arg->list.nbytes,
-							//	arg->list.nbytes-arg->bestsize,
-							//	100.*arg->list.nbytes/blocksize,
-							//	(double)blocksize/arg->list.nbytes,
-							//	rct_names[arg->bestrct],
-							//	pred_names[arg->predidx[0]],
-							//	pred_names[arg->predidx[1]],
-							//	pred_names[arg->predidx[2]]
-							//);
 						}
 						esize+=arg->bestsize;
+						yuvsizes[0]+=arg->list[0].nbytes;
+						yuvsizes[1]+=arg->list[1].nbytes;
+						yuvsizes[2]+=arg->list[2].nbytes;
 #ifdef ABAC_PROFILESIZE
 						for(int k=0;k<ABAC_TOKEN_BITS*3;++k)
 							abac_csizes[k]+=arg->abac_csizes[k];
 #endif
 					}
 #endif
-					memcpy(dst->data+start+sizeof(int)*((ptrdiff_t)kt+kt2), &arg->list.nbytes, sizeof(int));
-					blist_appendtoarray(&arg->list, &dst);
-					blist_clear(&arg->list);
+					int msg[]=
+					{
+						((int)arg->list[0].nbytes<<1|arg->use_AC[0])*RCT_COUNT+arg->bestrct,
+						(int)arg->list[1].nbytes<<1|arg->use_AC[1],
+						(int)arg->list[2].nbytes<<1|arg->use_AC[2],
+					};
+					memcpy(dst->data+start+sizeof(int)*(((ptrdiff_t)kt+kt2)*3+0), msg+0, sizeof(int));
+					memcpy(dst->data+start+sizeof(int)*(((ptrdiff_t)kt+kt2)*3+1), msg+1, sizeof(int));
+					memcpy(dst->data+start+sizeof(int)*(((ptrdiff_t)kt+kt2)*3+2), msg+2, sizeof(int));
+					blist_appendtoarray(arg->list+0, &dst);
+					blist_appendtoarray(arg->list+1, &dst);
+					blist_appendtoarray(arg->list+2, &dst);
+					blist_clear(arg->list+0);
+					blist_clear(arg->list+1);
+					blist_clear(arg->list+2);
 				}
 			}
 		}
@@ -2014,6 +2474,9 @@ int c05_codec(const char *srcfn, const char *dstfn)
 				printf("Best %15.2lf (%+13.2lf) bytes\n", esize, csize-esize);
 #endif
 				printf("%12td/%12td  %10.6lf%%  %10lf\n", csize, usize, 100.*csize/usize, (double)usize/csize);
+				printf("Y%11zd\n", yuvsizes[0]);
+				printf("U%11zd\n", yuvsizes[1]);
+				printf("V%11zd\n", yuvsizes[2]);
 				printf("Mem usage: ");
 				print_size((double)memusage, 8, 4, 0, 0);
 				printf("\n");

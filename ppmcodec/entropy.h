@@ -543,6 +543,7 @@ FORCEINLINE void ac3_enc_flush(AC3 *ec)
 		code<<=AC3_RENORM;
 	}
 }
+
 FORCEINLINE void ac3_enc_update(AC3 *ec, unsigned cdf, unsigned freq)
 {
 	unsigned long long r2;
@@ -605,6 +606,7 @@ FORCEINLINE void ac3_dec_update(AC3 *ec, unsigned cdf, unsigned freq)
 #endif
 	acval_dec(0, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
 }
+
 FORCEINLINE void ac3_enc_update_NPOT(AC3 *ec, unsigned cdf, unsigned freq, unsigned den)
 {
 	unsigned long long q;
@@ -677,6 +679,7 @@ FORCEINLINE void ac3_dec_update_NPOT(AC3 *ec, unsigned cdf, unsigned freq, unsig
 #endif
 	acval_dec(0, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
 }
+
 FORCEINLINE void ac3_enc_bypass(AC3 *ec, int bypass, int nbits)
 {
 	unsigned long long r2;
@@ -785,6 +788,7 @@ FORCEINLINE int ac3_dec_bypass_NPOT(AC3 *ec, int nlevels)
 	acval_dec(bypass, bypass, 1, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
 	return bypass;
 }
+
 FORCEINLINE void ac3_enc(AC3 *ec, int sym, const unsigned *CDF)
 {
 	unsigned long long r2;
@@ -1188,9 +1192,13 @@ FORCEINLINE int ac5_dec_bin(AC5 *ec, int p1)
 
 
 //Golomb-Rice Coder
+
+	typedef unsigned long long GREmit_t;//0.001% larger, 18% faster enc
+//	typedef unsigned GREmit_t;
+
 typedef struct GolombRiceCoderStruct
 {
-	unsigned long long cache;
+	GREmit_t cache;
 	int nbits;//enc: number of free bits in cache, dec: number of unread bits in cache
 	int is_enc;//for padding
 	const unsigned char *srcptr, *srcend, *srcstart;
@@ -1296,7 +1304,7 @@ FORCEINLINE int gr_enc_NPOT(GolombRiceCoder *ec, unsigned sym, unsigned magnitud
 	if(nbypass>=ec->nbits)//not enough free bits in cache:  fill cache, write to list, and repeat
 	{
 		nbypass-=ec->nbits;
-		ec->cache|=(unsigned long long)bypass>>nbypass;
+		ec->cache|=(GREmit_t)bypass>>nbypass;
 		bypass&=(1<<nbypass)-1;
 		if(!gr_enc_flush(ec))
 			return 0;
@@ -1306,7 +1314,7 @@ FORCEINLINE int gr_enc_NPOT(GolombRiceCoder *ec, unsigned sym, unsigned magnitud
 	}
 	//now there is room for bypass:  0 <= nbypass < nbits <= 64
 	ec->nbits-=nbypass;//emit remaining bypass to cache
-	ec->cache|=(unsigned long long)bypass<<ec->nbits;
+	ec->cache|=(GREmit_t)bypass<<ec->nbits;
 	return 1;
 }
 FORCEINLINE unsigned gr_dec_NPOT(GolombRiceCoder *ec, unsigned magnitude)
@@ -1405,7 +1413,7 @@ FORCEINLINE int gr_enc(GolombRiceCoder *ec, int sym, int nbypass)
 	if(nbypass>=ec->nbits)//not enough free bits in cache:  fill cache, write to list, and repeat
 	{
 		nbypass-=ec->nbits;
-		ec->cache|=(unsigned long long)bypass>>nbypass;
+		ec->cache|=(GREmit_t)bypass>>nbypass;
 		bypass&=(1<<nbypass)-1;
 		if(!gr_enc_flush(ec))
 			return 0;
@@ -1415,7 +1423,7 @@ FORCEINLINE int gr_enc(GolombRiceCoder *ec, int sym, int nbypass)
 	}
 	//now there is room for bypass:  0 <= nbypass < nbits <= 64
 	ec->nbits-=nbypass;//emit remaining bypass to cache
-	ec->cache|=(unsigned long long)bypass<<ec->nbits;
+	ec->cache|=(GREmit_t)bypass<<ec->nbits;
 	return 1;
 }
 FORCEINLINE unsigned gr_dec(GolombRiceCoder *ec, int nbypass)
