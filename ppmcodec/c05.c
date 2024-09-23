@@ -152,6 +152,18 @@ typedef enum _NBIndex
 
 	NB_COUNT,
 } NBIndex;
+//static const short av5_icoeffs[12]=//X  immediates are faster
+//{
+//	 0x00,	 0x000,	 0x00,	 0x00,	 0x00,
+//	 0x00,	-0x0A0,	 0xA0,	 0x20,	 0x00,
+//	-0x20,	 0x100,
+//};
+//static const short av9_icoeffs[12]=
+//{
+//	 0x00,	 0x010,	-0x20,	-0x10,	 0x00,
+//	-0x10,	-0x090,	 0xA0,	 0x40,	 0x00,
+//	-0x20,	 0x100,
+//};
 static const short av12_icoeffs[12]=
 {
 	 0x04,	 0x03,	-0x1F,	-0x26,	 0x00,
@@ -1237,6 +1249,25 @@ static void block_thread(void *param)
 		args->hist+258*1,
 		args->hist+258*2,
 	};
+	//const short *coeffs[3]={0};
+	//if(predidx[0]==PRED_AV5)
+	//	coeffs[0]=av5_icoeffs;
+	//else if(predidx[0]==PRED_AV9)
+	//	coeffs[0]=av9_icoeffs;
+	//else if(predidx[0]==PRED_AV12)
+	//	coeffs[0]=av12_icoeffs;
+	//if(predidx[1]==PRED_AV5)
+	//	coeffs[1]=av5_icoeffs;
+	//else if(predidx[1]==PRED_AV9)
+	//	coeffs[1]=av9_icoeffs;
+	//else if(predidx[1]==PRED_AV12)
+	//	coeffs[1]=av12_icoeffs;
+	//if(predidx[2]==PRED_AV5)
+	//	coeffs[2]=av5_icoeffs;
+	//else if(predidx[2]==PRED_AV9)
+	//	coeffs[2]=av9_icoeffs;
+	//else if(predidx[2]==PRED_AV12)
+	//	coeffs[2]=av12_icoeffs;
 	memset(args->hist, 0, sizeof(args->hist));
 	memset(args->pixels, 0, sizeof(args->pixels));
 	for(int ky=args->y1;ky<args->y2;++ky)//codec loop
@@ -1257,7 +1288,7 @@ static void block_thread(void *param)
 	//	int linear[4]={0};
 		int angular[4]={0};
 #endif
-		ALIGN(16) int preds[4]={0};
+		ALIGN(16) short preds[8]={0};
 #ifdef ENABLE_SSE2
 		int *curr_sse1[3]={0};
 		int *curr_sse2[3]={0};
@@ -1386,55 +1417,108 @@ static void block_thread(void *param)
 			//if(nbypass[0]>=7||nbypass[1]>=7||nbypass[2]>=7)//not hit
 			//	printf("");
 #if 1
+			{
+				ALIGN(16) short vmin1[8];
+				ALIGN(16) short vmax1[8];
+				ALIGN(16) short vmin2[8];
+				ALIGN(16) short vmax2[8];
+				__m128i mN	=_mm_load_si128((__m128i*)N);
+				__m128i mNE	=_mm_load_si128((__m128i*)NE);
+				__m128i mW	=_mm_load_si128((__m128i*)W);
+				__m128i mmin=_mm_min_epi16(mN, mW);
+				__m128i mmax=_mm_max_epi16(mN, mW);
+				_mm_store_si128((__m128i*)vmin1, mmin);
+				_mm_store_si128((__m128i*)vmax1, mmax);
+				mmin=_mm_min_epi16(mmin, mNE);
+				mmax=_mm_max_epi16(mmax, mNE);
+				_mm_store_si128((__m128i*)vmin2, mmin);
+				_mm_store_si128((__m128i*)vmax2, mmax);
 #ifdef __GNUC__
 #pragma GCC unroll 3
 #endif
-			for(int kc=0;kc<3;++kc)//linear predictor (better for smooth areas)
-			{
-				switch(predidx[kc])
+				for(int kc=0;kc<3;++kc)//linear predictor (better for smooth areas)
 				{
-				case PRED_N:
-					preds[kc]=N[kc];
-					break;
-				case PRED_W:
-					preds[kc]=W[kc];
-					break;
-				case PRED_AV2:
-					preds[kc]=(N[kc]+W[kc]+1)>>1;
-					break;
-				case PRED_AV5:
-				//		-5	5	1
-				//	-1	8	[?]>>3
-					CLAMP3_32(preds[kc], W[kc]+((5*(N[kc]-NW[kc])+NE[kc]-WW[kc]+4)>>3), N[kc], W[kc], NE[kc]);
-					break;
-				case PRED_AV9:
-				//		1	-2	-1
-				//	-1	-9	10	4
-				//	-2	16	[?]>>4
-					CLAMP3_32(preds[kc], W[kc]+((10*N[kc]-9*NW[kc]+4*NE[kc]-2*(NN[kc]+WW[kc])+NNW[kc]-NNE[kc]-NWW[kc]+8)>>4), N[kc], W[kc], NE[kc]);
-					break;
-				case PRED_AV12:
-					preds[kc]=(
-						+av12_icoeffs[ 0]*NNWW[kc]
-						+av12_icoeffs[ 1]*NNW[kc]
-						+av12_icoeffs[ 2]*NN[kc]
-						+av12_icoeffs[ 3]*NNE[kc]
-						+av12_icoeffs[ 4]*NNEE[kc]
-						+av12_icoeffs[ 5]*NWW[kc]
-						+av12_icoeffs[ 6]*NW[kc]
-						+av12_icoeffs[ 7]*N[kc]
-						+av12_icoeffs[ 8]*NE[kc]
-						+av12_icoeffs[ 9]*NEE[kc]
-						+av12_icoeffs[10]*WW[kc]
-						+av12_icoeffs[11]*W[kc]
-						+128
-					)>>8;
-					CLAMP3_32(preds[kc], preds[kc], N[kc], W[kc], NE[kc]);
-					break;
-				case PRED_CG:
-					MEDIAN3_32(preds[kc], N[kc], W[kc], N[kc]+W[kc]-NW[kc]);
-					break;
+					switch(predidx[kc])
+					{
+					case PRED_N:
+						preds[kc]=N[kc];
+						break;
+					case PRED_W:
+						preds[kc]=W[kc];
+						break;
+					case PRED_AV2:
+						preds[kc]=(N[kc]+W[kc]+1)>>1;
+						break;
+#if 1
+					case PRED_AV5:
+						preds[kc]=W[kc]+((5*(N[kc]-NW[kc])+NE[kc]-WW[kc]+4)>>3);
+						break;
+					case PRED_AV9:
+						preds[kc]=W[kc]+((10*N[kc]-9*NW[kc]+4*NE[kc]-2*(NN[kc]+WW[kc])+NNW[kc]-NNE[kc]-NWW[kc]+8)>>4);
+						break;
+					case PRED_AV12:
+						preds[kc]=(
+							+av12_icoeffs[ 0]*NNWW[kc]
+							+av12_icoeffs[ 1]*NNW[kc]
+							+av12_icoeffs[ 2]*NN[kc]
+							+av12_icoeffs[ 3]*NNE[kc]
+							+av12_icoeffs[ 4]*NNEE[kc]
+							+av12_icoeffs[ 5]*NWW[kc]
+							+av12_icoeffs[ 6]*NW[kc]
+							+av12_icoeffs[ 7]*N[kc]
+							+av12_icoeffs[ 8]*NE[kc]
+							+av12_icoeffs[ 9]*NEE[kc]
+							+av12_icoeffs[10]*WW[kc]
+							+av12_icoeffs[11]*W[kc]
+							+128
+						)>>8;
+						break;
+					case PRED_CG:
+						vmin2[kc]=vmin1[kc];
+						vmax2[kc]=vmax1[kc];
+						preds[kc]=N[kc]+W[kc]-NW[kc];
+						break;
+#endif
+#if 0
+					case PRED_AV5:
+					//		-5	5	1
+					//	-1	8	[?]>>3
+						CLAMP3_32(preds[kc], W[kc]+((5*(N[kc]-NW[kc])+NE[kc]-WW[kc]+4)>>3), N[kc], W[kc], NE[kc]);
+						break;
+					case PRED_AV9:
+					//		1	-2	-1
+					//	-1	-9	10	4
+					//	-2	16	[?]>>4
+						CLAMP3_32(preds[kc], W[kc]+((10*N[kc]-9*NW[kc]+4*NE[kc]-2*(NN[kc]+WW[kc])+NNW[kc]-NNE[kc]-NWW[kc]+8)>>4), N[kc], W[kc], NE[kc]);
+						break;
+					case PRED_AV12:
+						preds[kc]=(
+							+av12_icoeffs[ 0]*NNWW[kc]
+							+av12_icoeffs[ 1]*NNW[kc]
+							+av12_icoeffs[ 2]*NN[kc]
+							+av12_icoeffs[ 3]*NNE[kc]
+							+av12_icoeffs[ 4]*NNEE[kc]
+							+av12_icoeffs[ 5]*NWW[kc]
+							+av12_icoeffs[ 6]*NW[kc]
+							+av12_icoeffs[ 7]*N[kc]
+							+av12_icoeffs[ 8]*NE[kc]
+							+av12_icoeffs[ 9]*NEE[kc]
+							+av12_icoeffs[10]*WW[kc]
+							+av12_icoeffs[11]*W[kc]
+							+128
+						)>>8;
+						CLAMP3_32(preds[kc], preds[kc], N[kc], W[kc], NE[kc]);
+						break;
+					case PRED_CG:
+						MEDIAN3_32(preds[kc], N[kc], W[kc], N[kc]+W[kc]-NW[kc]);
+						break;
+#endif
+					}
 				}
+				__m128i mp=_mm_load_si128((__m128i*)preds);
+				mp=_mm_max_epi16(mp, _mm_load_si128((__m128i*)vmin2));
+				mp=_mm_min_epi16(mp, _mm_load_si128((__m128i*)vmax2));
+				_mm_store_si128((__m128i*)preds, mp);
 			}
 #endif
 #ifdef USE_ANGULAR_PRED

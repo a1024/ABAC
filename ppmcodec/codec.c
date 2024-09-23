@@ -127,6 +127,7 @@ int main(int argc, char **argv)
 	//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
 	//	"D:/ML/dataset-kodak-ppm/kodim13.c01"
 	//	"C:/dataset-synthetic-ppm/20240409 1 LPCB.ppm"
+	//	"C:/dataset-HUGE-ppm/space_huge.ppm"
 		"C:/dataset-GDCC2020-ppm/astro-01.ppm"
 	//	"C:/dataset-DSLR2x4-ppm/DSC_0133.ppm"
 	//	"C:/dataset-CLIC303-ppm/2048x1320_abigail-keenan-27293.ppm"
