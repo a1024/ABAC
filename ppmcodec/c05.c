@@ -9,17 +9,17 @@ static const char file[]=__FILE__;
 //	#define ENABLE_GUIDE
 //	#define DISABLE_MT
 
+	#define ENABLE_AV2	//good
 //	#define ENABLE_SSE2	//good for noisy areas		div-free SSE from NBLIC by WangXuan95
 //	#define ENABLE_SSE	//good with MT			obsolete
-	#define ENABLE_AV2	//good
-//	#define USE_ANGULAR_PRED//mediocre  15% slower
+//	#define USE_ANGULAR_PRED//bad    15% slower
 //	#define USE_GR_ESTIM	//bad    Shannon estimate 0.4% better, but 4.9% slower, when both at stride 4
 //	#define ENABLE_SSE_SKEW	//bad
 //	#define DISABLE_RCTSEL	//causalRCTSEL > RCT,  disabling RCTSEL breaks SSE
 //	#define ENABLE_NPOT	//bad
 
-#define ANALYSIS_XSTRIDE 3
-#define ANALYSIS_YSTRIDE 3
+#define ANALYSIS_XSTRIDE 4
+#define ANALYSIS_YSTRIDE 4
 
 
 #define CODECNAME "C05"
@@ -2164,6 +2164,29 @@ static void block_thread(void *param)
 				*curr_sse2[2]=((*curr_sse2[2]*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
 				*curr_sse3[2]=((*curr_sse3[2]*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
 				*curr_sse4[2]=((*curr_sse4[2]*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
+			}
+#endif
+#if 0
+			if(args->use_AC[0]&&stats0[0][257]>=25600)
+			{
+				int sum=0;
+				for(int ks=0;ks<257;++ks)
+					sum+=stats0[0][ks]>>=1;
+				stats0[0][257]=sum;
+			}
+			if(args->use_AC[1]&&stats0[1][257]>=25600)
+			{
+				int sum=0;
+				for(int ks=0;ks<257;++ks)
+					sum+=stats0[1][ks]>>=1;
+				stats0[1][257]=sum;
+			}
+			if(args->use_AC[2]&&stats0[2][257]>=25600)
+			{
+				int sum=0;
+				for(int ks=0;ks<257;++ks)
+					sum+=stats0[2][ks]>>=1;
+				stats0[2][257]=sum;
 			}
 #endif
 			__m256i mr=_mm256_load_si256((__m256i*)rows);
