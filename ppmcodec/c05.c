@@ -9,10 +9,10 @@ static const char file[]=__FILE__;
 //	#define ENABLE_GUIDE
 //	#define DISABLE_MT
 
-	#define ENABLE_SSE2	//good for noisy areas		div-free SSE from NBLIC by WangXuan95
+//	#define ENABLE_SSE2	//good for noisy areas		div-free SSE from NBLIC by WangXuan95
 //	#define ENABLE_SSE	//good with MT			obsolete
 	#define ENABLE_AV2	//good
-	#define USE_ANGULAR_PRED//mediocre  15% slower
+//	#define USE_ANGULAR_PRED//mediocre  15% slower
 //	#define USE_GR_ESTIM	//bad    Shannon estimate 0.4% better, but 4.9% slower, when both at stride 4
 //	#define ENABLE_SSE_SKEW	//bad
 //	#define DISABLE_RCTSEL	//causalRCTSEL > RCT,  disabling RCTSEL breaks SSE
