@@ -16,6 +16,7 @@
 	c15.c
 	c16.c
 	c17.c
+	c18.c
 	codec.c
 	util.c
 )

@@ -24,7 +24,7 @@ int c01_codec(const char *srcfn, const char *dstfn);//AC (mix4)
 int c02_codec(const char *srcfn, const char *dstfn);//binary
 int c03_codec(const char *srcfn, const char *dstfn);//binary (A2/WG4)
 int c04_codec(const char *srcfn, const char *dstfn);//Golomb-Rice
-int c05_codec(const char *srcfn, const char *dstfn);//Golomb-Rice
+int c05_codec(const char *srcfn, const char *dstfn);//Golomb-Rice MT
 int c06_codec(const char *srcfn, const char *dstfn);//binary
 int c07_codec(const char *srcfn, const char *dstfn);//o0 (binary) AC speed test
 int c08_codec(const char *srcfn, const char *dstfn);//disk AC5 test
@@ -37,6 +37,7 @@ int c14_codec(const char *srcfn, const char *dstfn);//MT WG4_8 binary AC
 int c15_codec(const char *srcfn, const char *dstfn);//ST WG4_8 symbol AC o0
 int c16_codec(const char *srcfn, const char *dstfn);//ST SubG CG AC o0 separate loops
 int c17_codec(const char *srcfn, const char *dstfn);//ST SubPrev GR (speed test)
+int c18_codec(const char *srcfn, const char *dstfn);//MT SubG AC/GR
 
 	
 #ifdef __cplusplus
