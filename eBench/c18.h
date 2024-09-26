@@ -78,36 +78,35 @@ static const char *rct_names[RCT_COUNT]=
 };
 
 #define PREDLIST\
-	PRED(N)\
-	PRED(W)\
-	PRED(AV2)\
-	PRED(AV3)\
-	PRED(AV4)\
-	PRED(AV5)\
-	PRED(AV6)\
-	PRED(AV9)\
-	PRED(AVB)\
-	PRED(CG)
+	PRED(N, "N")\
+	PRED(W, "W")\
+	PRED(AV2, "(N+W)/2")\
+	PRED(AV3, "[-2 [3];3 ?]/4")\
+	PRED(AV4, "[-1 [4] 1;4 ?]/8")\
+	PRED(AV5, "[-5 [5] 1;-1 8 ?]/8")\
+	PRED(AV6, "[[-1];-5 [6] 1;-1 8 ?]/8")\
+	PRED(AV9, "[1 [-2] -1;-1 -9 [10] 4;-2 16 ?]/16")\
+	PRED(AVB, "[4 3 [-31] -38;7 -158 [219] 30 19;-42 243 ?]/256")\
+	PRED(CG, "median(N, W, N+W-NW)")
+static const char *pred_desc[]=
+{
+#define PRED(LABEL, DESC) DESC,
+	PREDLIST
+#undef  PRED
+};
 typedef enum _PredIndex
 {
-#define PRED(LABEL) PRED_##LABEL,
+#define PRED(LABEL, DESC) PRED_##LABEL,
 	PREDLIST
 #undef  PRED
 	PRED_COUNT,
 } PredIndex;
 static const char *pred_names[PRED_COUNT]=
 {
-#define PRED(LABEL) #LABEL,
+#define PRED(LABEL, DESC) #LABEL,
 	PREDLIST
 #undef  PRED
 };
-//typedef enum _NBIndex
-//{
-//	NB_NW,		NB_N,		NB_NE,
-//	NB_W,		NB_curr,
-//
-//	NB_COUNT,
-//} NBIndex;
 typedef enum _NBIndex
 {
 	NB_NNWW,	NB_NNW,		NB_NN,		NB_NNE,		NB_NNEE,
@@ -116,18 +115,6 @@ typedef enum _NBIndex
 
 	NB_COUNT,
 } NBIndex;
-//static const short av5_icoeffs[12]=//X  immediates are faster
-//{
-//	 0x00,	 0x000,	 0x00,	 0x00,	 0x00,
-//	 0x00,	-0x0A0,	 0xA0,	 0x20,	 0x00,
-//	-0x20,	 0x100,
-//};
-//static const short av9_icoeffs[12]=
-//{
-//	 0x00,	 0x010,	-0x20,	-0x10,	 0x00,
-//	-0x10,	-0x090,	 0xA0,	 0x40,	 0x00,
-//	-0x20,	 0x100,
-//};
 static const short av12_icoeffs[12]=
 {
 	 0x04,	 0x03,	-0x1F,	-0x26,	 0x00,

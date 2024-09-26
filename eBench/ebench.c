@@ -6591,7 +6591,7 @@ void io_render(void)
 						draw_line(0, ymid, (float)wndw, ymid, crosshaircolor);
 					}
 				}
-				float y=(float)wndh/4;
+				float y=(float)wndh/8;
 				const unsigned char *group=rct_combinations[analysis_info.bestrct];
 				int selected_ch[]=
 				{
@@ -6624,25 +6624,27 @@ void io_render(void)
 				{
 					int hit=k==selected_ch[0]||k==selected_ch[1]||k==selected_ch[2];
 					int color=hit?0xC04040FF:0xC0FFFFFF;
-					draw_line((float)(0.25*wndw), y+0, (float)(0.25*wndw*(1+analysis_info.esizes[k])), y+0, color);
-					draw_line((float)(0.25*wndw), y+1, (float)(0.25*wndw*(1+analysis_info.esizes[k])), y+1, color);
-					draw_line((float)(0.25*wndw), y+2, (float)(0.25*wndw*(1+analysis_info.esizes[k])), y+2, color);
-					draw_line((float)(0.25*wndw), y+3, (float)(0.25*wndw*(1+analysis_info.esizes[k])), y+3, 0xC0000000);
+					float x2=(float)(0.25*wndw*(1+analysis_info.esizes[k]));
+					draw_line((float)(0.25*wndw), y+0, x2, y+0, color);
+					draw_line((float)(0.25*wndw), y+1, x2, y+1, color);
+					draw_line((float)(0.25*wndw), y+2, x2, y+2, color);
+					draw_line((float)(0.25*wndw), y+3, x2, y+3, 0xC0000000);
 					if(hit)
 					{
-						float ex=(float)(0.25*wndw*(1+analysis_info.esizes[k])), ey=y+2;
-						centers[ncenters++]=ex;
-						centers[ncenters++]=ey;
+						centers[ncenters++]=x2;
+						centers[ncenters++]=y+2;
 					}
 					if(!((k+1)%(PRED_COUNT)))
 						GUIPrint(0, (float)(0.25*wndw)-40, y-30, 2, "%s", och_names[k/PRED_COUNT]);
 					y+=(k+1)%PRED_COUNT?4:10;
-					if(!((k+1)%(PRED_COUNT*3)))
-						y+=10;
+					//if(!((k+1)%(PRED_COUNT*3)))
+					//	y+=10;
 				}
-				draw_ellipse(centers[0]-10, centers[0]+10, centers[1]-10, centers[1]+10, 0x80FF00FF);
-				draw_ellipse(centers[2]-10, centers[2]+10, centers[3]-10, centers[3]+10, 0x80FF00FF);
-				draw_ellipse(centers[4]-10, centers[4]+10, centers[5]-10, centers[5]+10, 0x80FF00FF);
+				for(int k=0;k<PRED_COUNT;++k)
+					GUIPrint(0, (float)(0.25*wndw)+2, y+tdy*1.2f*k, 1.2f, "%4s  %s", pred_names[k], pred_desc[k]);
+				draw_ellipse(centers[0]-10, centers[0]+10, centers[1]-10, centers[1]+10, 0x8000FF00);
+				draw_ellipse(centers[2]-10, centers[2]+10, centers[3]-10, centers[3]+10, 0x8000FF00);
+				draw_ellipse(centers[4]-10, centers[4]+10, centers[5]-10, centers[5]+10, 0x8000FF00);
 			}
 			break;
 		case VIS_HISTOGRAM:
