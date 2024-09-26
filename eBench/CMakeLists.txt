@@ -8,6 +8,7 @@ add_executable (eBench WIN32
 	bwt.c
 	console.c
 	custom4.c
+	c18.c
 	ebench.c
 	graphics.c
 	image.c

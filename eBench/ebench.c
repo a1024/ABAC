@@ -9,6 +9,7 @@
 #include"lodepng.h"
 #define DEBUG_MEMORY_IMPLEMENTATION
 #include"intercept_malloc.h"
+#include"c18.h"
 static const char file[]=__FILE__;
 
 float
@@ -43,6 +44,7 @@ typedef enum VisModeEnum
 	VIS_IMAGE_TRICOLOR,
 	VIS_IMAGE,
 	VIS_HISTOGRAM,
+	VIS_ANALYSIS,
 	VIS_JOINT_HISTOGRAM,
 	VIS_ZIPF,
 	//VIS_BAYES,
@@ -181,6 +183,8 @@ int extrainfo=0;
 
 ArrayHandle cpu_vertices=0;
 unsigned gpu_vertices=0;
+
+C18Info analysis_info={0};
 
 ArrayHandle jointhist=0;
 int jointhist_nbits=6;//max
@@ -2604,6 +2608,13 @@ static void chart_jointhist_update(Image const *image, unsigned *txid)
 	}
 	//send_texture_pot_int16x1(*txid, (unsigned*)jointhist->data, nlevels, nlevels*nlevels, 1);
 }
+static void analysis_update(Image const *image)
+{
+	int bounds[4]={0};//x1, x2, y1, y2
+
+	jhc_getboxbounds(jhc_xbox, jhc_ybox, jhc_boxdx, jhc_boxdy, image->iw, image->ih, bounds);
+	c18_analyze(image, bounds[0], bounds[1], bounds[2], bounds[3], &analysis_info);
+}
 
 #if 0
 int bayes_kc=0;
@@ -3209,6 +3220,9 @@ void update_image(void)//apply selected operations on original image, calculate 
 		break;
 	case VIS_JOINT_HISTOGRAM:
 		chart_jointhist_update(im1, txid_jointhist);
+		break;
+	case VIS_ANALYSIS:
+		analysis_update(im1);
 		break;
 	}
 }
@@ -3832,12 +3846,18 @@ int io_mousemove(void)//return true to redraw
 		else
 		{
 			int X0=wndw>>1, Y0=wndh>>1;
-			if(mode==VIS_JOINT_HISTOGRAM)
+			if(mode==VIS_JOINT_HISTOGRAM)//drag cam
 			{
 				cam_turnMouse(cam, mx-X0, my-Y0, mouse_sensitivity);
 				set_mouse(X0, Y0);
 			}
-			else
+			else if(mode==VIS_ANALYSIS)//drag analysis box
+			{
+				jhc_xbox=mx;
+				jhc_ybox=my;
+				analysis_update(im1);
+			}
+			else//drag image
 			{
 				wpx-=(mx-X0)/imzoom;
 				wpy-=(my-Y0)/imzoom;
@@ -4426,6 +4446,22 @@ int io_mousewheel(int forward)
 				else		cam_zoomOut(cam, 1.1f);
 			}
 		}
+		else if(mode==VIS_ANALYSIS)
+		{
+			if(forward>0)
+			{
+				jhc_boxdx<<=1;
+				jhc_boxdy<<=1;
+			}
+			else
+			{
+				jhc_boxdx>>=1;
+				jhc_boxdy>>=1;
+			}
+			jhc_boxdx=CLAMP(0, jhc_boxdx, 256);
+			jhc_boxdy=CLAMP(0, jhc_boxdy, 256);
+			analysis_update(im1);
+		}
 		else
 		{
 			int mw_fwd=forward>0;
@@ -4981,6 +5017,12 @@ int io_keydn(IOKey key, char c)
 				chart_jointhist_update(im1, txid_jointhist);
 				return 1;
 			}
+			if(mode==VIS_ANALYSIS&&drag)
+			{
+				jhc_xbox=mx;
+				jhc_ybox=my;
+				analysis_update(im1);
+			}
 			if(drag)//enter mouse control
 			{
 				mx0=mx, my0=my;
@@ -5045,12 +5087,14 @@ int io_keydn(IOKey key, char c)
 		//	"\t7: Optimized block compression estimate (E24)\n"
 		//	"\t7: DWT block histogram\n"
 			"\t%d: Histogram\n"
+			"\t%d: Analysis\n"
 			"\t%d: Joint histogram\n"
 			"\t%d: Zipf view\n",
 
 			1+VIS_IMAGE_TRICOLOR,
 			1+VIS_IMAGE,
 			1+VIS_HISTOGRAM,
+			1+VIS_ANALYSIS,
 			1+VIS_JOINT_HISTOGRAM,
 			1+VIS_ZIPF
 		);
@@ -6523,6 +6567,84 @@ void io_render(void)
 		case VIS_JOINT_HISTOGRAM:
 			chart_jointhist_draw();
 			break;
+		case VIS_ANALYSIS:
+			{
+				int bounds[4]={0};//{x1, x2, y1, y2}
+				jhc_getboxbounds(jhc_xbox, jhc_ybox, jhc_boxdx, jhc_boxdy, im1->iw, im1->ih, bounds);
+				
+				display_texture_i(0, wndw, 0, wndh, (int*)im_export, im1->iw, im1->ih, 0, 1, 0, 1, 1, 0);
+
+				{
+					int crosshaircolor=0xFF000000;
+					float ratios[]={(float)wndw/im1->iw, (float)wndh/im1->ih};
+					float sbounds[4];
+					for(int k=0;k<4;++k)
+						sbounds[k]=bounds[k]*ratios[k>>1];
+					{
+						float xmid=(sbounds[0]+sbounds[1])*0.5f;
+						float ymid=(sbounds[2]+sbounds[3])*0.5f;
+						draw_line(sbounds[0], sbounds[2], sbounds[0], sbounds[3], crosshaircolor);//{x1, y1, x2, y2}
+						draw_line(sbounds[1], sbounds[2], sbounds[1], sbounds[3], crosshaircolor);
+						draw_line(sbounds[0], sbounds[2], sbounds[1], sbounds[2], crosshaircolor);
+						draw_line(sbounds[0], sbounds[3], sbounds[1], sbounds[3], crosshaircolor);
+						draw_line(xmid, 0, xmid, (float)wndh, crosshaircolor);
+						draw_line(0, ymid, (float)wndw, ymid, crosshaircolor);
+					}
+				}
+				float y=(float)wndh/4;
+				const unsigned char *group=rct_combinations[analysis_info.bestrct];
+				int selected_ch[]=
+				{
+					group[0]*PRED_COUNT+analysis_info.predidx[0],
+					group[1]*PRED_COUNT+analysis_info.predidx[1],
+					group[2]*PRED_COUNT+analysis_info.predidx[2],
+				};
+				GUIPrint(0, (float)(0.25*wndw), y-tdy*1.5f-2, 1.5f,
+					"3*%d*%d: %6.2lf%% + %6.2lf%% + %6.2lf%% = %6.2lf%%  %s %s %s %s",
+					bounds[1]-bounds[0], bounds[3]-bounds[2],
+					analysis_info.esizes[group[0]]*100,
+					analysis_info.esizes[group[1]]*100,
+					analysis_info.esizes[group[2]]*100,
+					(analysis_info.esizes[group[0]]+analysis_info.esizes[group[1]]+analysis_info.esizes[group[2]])*100/3,
+					rct_names[analysis_info.bestrct],
+					pred_names[analysis_info.predidx[0]],
+					pred_names[analysis_info.predidx[1]],
+					pred_names[analysis_info.predidx[2]]
+				);
+				draw_rect_hollow((float)(0.25*wndw)-1, (float)(0.75*wndw)+1, y+0, y+OCH_COUNT*PRED_COUNT*4+OCH_COUNT*10+0, 0xC0000000);
+				draw_rect_hollow((float)(0.25*wndw)-2, (float)(0.75*wndw)+0, y-1, y+OCH_COUNT*PRED_COUNT*4+OCH_COUNT*10-1, 0xC0FFFFFF);
+				//draw_line((float)(0.25*wndw)+0, y, (float)(0.25*wndw)+0, y+OCH_COUNT*PRED_COUNT*4+OCH_COUNT*10, 0xC0000000);
+				//draw_line((float)(0.25*wndw)-1, y, (float)(0.25*wndw)-1, y+OCH_COUNT*PRED_COUNT*4+OCH_COUNT*10, 0xC0FFFFFF);
+				//draw_line((float)(0.75*wndw)+1, y, (float)(0.75*wndw)+1, y+OCH_COUNT*PRED_COUNT*4+OCH_COUNT*10, 0xC0000000);
+				//draw_line((float)(0.75*wndw)+0, y, (float)(0.75*wndw)+0, y+OCH_COUNT*PRED_COUNT*4+OCH_COUNT*10, 0xC0FFFFFF);
+				y+=10;
+				float centers[6]={0};
+				int ncenters=0;
+				for(int k=0;k<OCH_COUNT*PRED_COUNT;++k)
+				{
+					int hit=k==selected_ch[0]||k==selected_ch[1]||k==selected_ch[2];
+					int color=hit?0xC04040FF:0xC0FFFFFF;
+					draw_line((float)(0.25*wndw), y+0, (float)(0.25*wndw*(1+analysis_info.esizes[k])), y+0, color);
+					draw_line((float)(0.25*wndw), y+1, (float)(0.25*wndw*(1+analysis_info.esizes[k])), y+1, color);
+					draw_line((float)(0.25*wndw), y+2, (float)(0.25*wndw*(1+analysis_info.esizes[k])), y+2, color);
+					draw_line((float)(0.25*wndw), y+3, (float)(0.25*wndw*(1+analysis_info.esizes[k])), y+3, 0xC0000000);
+					if(hit)
+					{
+						float ex=(float)(0.25*wndw*(1+analysis_info.esizes[k])), ey=y+2;
+						centers[ncenters++]=ex;
+						centers[ncenters++]=ey;
+					}
+					if(!((k+1)%(PRED_COUNT)))
+						GUIPrint(0, (float)(0.25*wndw)-40, y-30, 2, "%s", och_names[k/PRED_COUNT]);
+					y+=(k+1)%PRED_COUNT?4:10;
+					if(!((k+1)%(PRED_COUNT*3)))
+						y+=10;
+				}
+				draw_ellipse(centers[0]-10, centers[0]+10, centers[1]-10, centers[1]+10, 0x80FF00FF);
+				draw_ellipse(centers[2]-10, centers[2]+10, centers[3]-10, centers[3]+10, 0x80FF00FF);
+				draw_ellipse(centers[4]-10, centers[4]+10, centers[5]-10, centers[5]+10, 0x80FF00FF);
+			}
+			break;
 		case VIS_HISTOGRAM:
 		case VIS_IMAGE:
 		case VIS_ZIPF:
@@ -7866,6 +7988,7 @@ void io_render(void)
 	//	case VIS_PLANES:		mode_str="Planes";		break;
 	//	case VIS_MESH:			mode_str="Combined Mesh";	break;
 	//	case VIS_MESH_SEPARATE:		mode_str="Separate Mesh";	break;
+		case VIS_ANALYSIS:		mode_str="Analysis";		break;
 		case VIS_HISTOGRAM:		mode_str="Histogram";		break;
 		case VIS_JOINT_HISTOGRAM:	mode_str="Joint Histogram";	break;
 		case VIS_IMAGE:			mode_str="Image View";		break;
