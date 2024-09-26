@@ -4439,8 +4439,8 @@ int io_mousewheel(int forward)
 						jhc_boxdx>>=1;
 						jhc_boxdy>>=1;
 					}
-					jhc_boxdx=CLAMP(0, jhc_boxdx, 256);
-					jhc_boxdy=CLAMP(0, jhc_boxdy, 256);
+					jhc_boxdx=CLAMP(1, jhc_boxdx, 256);
+					jhc_boxdy=CLAMP(1, jhc_boxdy, 256);
 				}
 				else
 				{
@@ -4472,8 +4472,8 @@ int io_mousewheel(int forward)
 				jhc_boxdx>>=1;
 				jhc_boxdy>>=1;
 			}
-			jhc_boxdx=CLAMP(0, jhc_boxdx, 256);
-			jhc_boxdy=CLAMP(0, jhc_boxdy, 256);
+			jhc_boxdx=CLAMP(8, jhc_boxdx, 1024);
+			jhc_boxdy=CLAMP(8, jhc_boxdy, 1024);
 			analysis_update(im1);
 		}
 		else
@@ -5031,11 +5031,12 @@ int io_keydn(IOKey key, char c)
 				chart_jointhist_update(im1, txid_jointhist);
 				return 1;
 			}
-			if(mode==VIS_ANALYSIS&&drag)
+			if(mode==VIS_ANALYSIS)
 			{
 				jhc_xbox=mx;
 				jhc_ybox=my;
 				analysis_update(im1);
+				return 1;
 			}
 			if(drag)//enter mouse control
 			{
