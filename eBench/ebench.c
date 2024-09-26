@@ -185,6 +185,7 @@ ArrayHandle cpu_vertices=0;
 unsigned gpu_vertices=0;
 
 C18Info analysis_info={0};
+static long long pred_hist[PRED_COUNT]={0};
 
 ArrayHandle jointhist=0;
 int jointhist_nbits=6;//max
@@ -2614,6 +2615,19 @@ static void analysis_update(Image const *image)
 
 	jhc_getboxbounds(jhc_xbox, jhc_ybox, jhc_boxdx, jhc_boxdy, image->iw, image->ih, bounds);
 	c18_analyze(image, bounds[0], bounds[1], bounds[2], bounds[3], &analysis_info);
+	
+	++pred_hist[analysis_info.predidx[0]];
+	++pred_hist[analysis_info.predidx[1]];
+	++pred_hist[analysis_info.predidx[2]];
+	if(
+		pred_hist[analysis_info.predidx[0]]>=512||
+		pred_hist[analysis_info.predidx[1]]>=512||
+		pred_hist[analysis_info.predidx[2]]>=512
+	)
+	{
+		for(int k=0;k<PRED_COUNT;++k)
+			pred_hist[k]>>=1;
+	}
 }
 
 #if 0
@@ -6583,10 +6597,12 @@ void io_render(void)
 					{
 						float xmid=(sbounds[0]+sbounds[1])*0.5f;
 						float ymid=(sbounds[2]+sbounds[3])*0.5f;
-						draw_line(sbounds[0], sbounds[2], sbounds[0], sbounds[3], crosshaircolor);//{x1, y1, x2, y2}
-						draw_line(sbounds[1], sbounds[2], sbounds[1], sbounds[3], crosshaircolor);
-						draw_line(sbounds[0], sbounds[2], sbounds[1], sbounds[2], crosshaircolor);
-						draw_line(sbounds[0], sbounds[3], sbounds[1], sbounds[3], crosshaircolor);
+						draw_rect_hollow(sbounds[0]+1, sbounds[1]+1, sbounds[2]+1, sbounds[3]+1, 0xFFFFFFFF);
+						draw_rect_hollow(sbounds[0], sbounds[1], sbounds[2], sbounds[3], crosshaircolor);
+						//draw_line(sbounds[0], sbounds[2], sbounds[0], sbounds[3], crosshaircolor);//{x1, y1, x2, y2}
+						//draw_line(sbounds[1], sbounds[2], sbounds[1], sbounds[3], crosshaircolor);
+						//draw_line(sbounds[0], sbounds[2], sbounds[1], sbounds[2], crosshaircolor);
+						//draw_line(sbounds[0], sbounds[3], sbounds[1], sbounds[3], crosshaircolor);
 						draw_line(xmid, 0, xmid, (float)wndh, crosshaircolor);
 						draw_line(0, ymid, (float)wndw, ymid, crosshaircolor);
 					}
@@ -6611,8 +6627,8 @@ void io_render(void)
 					pred_names[analysis_info.predidx[1]],
 					pred_names[analysis_info.predidx[2]]
 				);
-				draw_rect_hollow((float)(0.25*wndw)-1, (float)(0.75*wndw)+1, y+0, y+OCH_COUNT*PRED_COUNT*4+OCH_COUNT*10+0, 0xC0000000);
-				draw_rect_hollow((float)(0.25*wndw)-2, (float)(0.75*wndw)+0, y-1, y+OCH_COUNT*PRED_COUNT*4+OCH_COUNT*10-1, 0xC0FFFFFF);
+				draw_rect_hollow((float)(0.25*wndw)-1, (float)(0.75*wndw)+1, y+0, y+OCH_COUNT*PRED_COUNT*4+OCH_COUNT*8+0, 0xC0000000);
+				draw_rect_hollow((float)(0.25*wndw)-2, (float)(0.75*wndw)+0, y-1, y+OCH_COUNT*PRED_COUNT*4+OCH_COUNT*8-1, 0xC0FFFFFF);
 				//draw_line((float)(0.25*wndw)+0, y, (float)(0.25*wndw)+0, y+OCH_COUNT*PRED_COUNT*4+OCH_COUNT*10, 0xC0000000);
 				//draw_line((float)(0.25*wndw)-1, y, (float)(0.25*wndw)-1, y+OCH_COUNT*PRED_COUNT*4+OCH_COUNT*10, 0xC0FFFFFF);
 				//draw_line((float)(0.75*wndw)+1, y, (float)(0.75*wndw)+1, y+OCH_COUNT*PRED_COUNT*4+OCH_COUNT*10, 0xC0000000);
@@ -6640,8 +6656,22 @@ void io_render(void)
 					//if(!((k+1)%(PRED_COUNT*3)))
 					//	y+=10;
 				}
+				long long hmax=0;
 				for(int k=0;k<PRED_COUNT;++k)
-					GUIPrint(0, (float)(0.25*wndw)+2, y+tdy*1.2f*k, 1.2f, "%4s  %s", pred_names[k], pred_desc[k]);
+				{
+					if(hmax<pred_hist[k])
+						hmax=pred_hist[k];
+				}
+				for(int k=0;k<PRED_COUNT;++k)
+				{
+					float
+						x1=(float)(0.25*wndw),
+						x2=(float)(x1-0.25*wndh*pred_hist[k]/hmax),
+						yk=y+tdy*1.2f*(k+1);
+					draw_line(x1, (float)(yk+tdy*(1.2/2))+1, x2, (float)(yk+tdy*(1.2/2))+1, 0xC0000000);
+					draw_line(x1, (float)(yk+tdy*(1.2/2))+0, x2, (float)(yk+tdy*(1.2/2))+0, 0xC0FFFFFF);
+					GUIPrint(0, x1+2, yk, 1.2f, "%4s  %s", pred_names[k], pred_desc[k]);
+				}
 				draw_ellipse(centers[0]-10, centers[0]+10, centers[1]-10, centers[1]+10, 0x8000FF00);
 				draw_ellipse(centers[2]-10, centers[2]+10, centers[3]-10, centers[3]+10, 0x8000FF00);
 				draw_ellipse(centers[4]-10, centers[4]+10, centers[5]-10, centers[5]+10, 0x8000FF00);
