@@ -8,14 +8,20 @@
 	OCH(G)\
 	OCH(B)\
 	OCH(RG)\
-	OCH(RB)\
 	OCH(GB)\
-	OCH(GR)\
 	OCH(BR)\
-	OCH(BG)\
+	OCH(R1)\
+	OCH(G1)\
+	OCH(B1)\
 	OCH(R2)\
 	OCH(G2)\
-	OCH(B2)
+	OCH(B2)\
+	OCH(R3)\
+	OCH(G3)\
+	OCH(B3)\
+	OCH(RB)\
+	OCH(GR)\
+	OCH(BG)
 typedef enum _OCHIndex
 {
 #define OCH(LABEL) OCH_##LABEL,
@@ -34,28 +40,46 @@ static const char *och_names[OCH_COUNT]=
 	RCT(R_G_B,	OCH_R,		OCH_G,		OCH_B,		0, 1, 2,	3,	3, 3, 0)\
 	RCT(R_G_BG,	OCH_R,		OCH_G,		OCH_BG,		0, 1, 2,	3,	1, 3, 0)\
 	RCT(R_G_BR,	OCH_R,		OCH_G,		OCH_BR,		0, 1, 2,	3,	0, 3, 0)\
+	RCT(R_G_B1,	OCH_R,		OCH_G,		OCH_B1,		0, 1, 2,	3,	0, 1, 1)\
 	RCT(R_G_B2,	OCH_R,		OCH_G,		OCH_B2,		0, 1, 2,	3,	0, 1, 1)\
+	RCT(R_G_B3,	OCH_R,		OCH_G,		OCH_B3,		0, 1, 2,	3,	0, 1, 1)\
 	RCT(R_GR_BR,	OCH_R,		OCH_GR,		OCH_BR,		0, 1, 2,	0,	0, 3, 0)\
 	RCT(R_GR_BG,	OCH_R,		OCH_GR,		OCH_BG,		0, 1, 2,	0,	1, 3, 0)\
+	RCT(R_GR_B1,	OCH_R,		OCH_GR,		OCH_B1,		0, 1, 2,	0,	0, 1, 1)\
 	RCT(R_GR_B2,	OCH_R,		OCH_GR,		OCH_B2,		0, 1, 2,	0,	0, 1, 1)\
+	RCT(R_GR_B3,	OCH_R,		OCH_GR,		OCH_B3,		0, 1, 2,	0,	0, 1, 1)\
+	RCT(R_B_G1,	OCH_R,		OCH_B,		OCH_G1,		0, 2, 1,	3,	0, 1, 1)\
 	RCT(R_B_G2,	OCH_R,		OCH_B,		OCH_G2,		0, 2, 1,	3,	0, 1, 1)\
+	RCT(R_B_G3,	OCH_R,		OCH_B,		OCH_G3,		0, 2, 1,	3,	0, 1, 1)\
 	RCT(R_BR_GB,	OCH_R,		OCH_BR,		OCH_GB,		0, 2, 1,	0,	1, 3, 0)\
+	RCT(R_BR_G1,	OCH_R,		OCH_BR,		OCH_G1,		0, 2, 1,	0,	0, 1, 1)\
 	RCT(R_BR_G2,	OCH_R,		OCH_BR,		OCH_G2,		0, 2, 1,	0,	0, 1, 1)\
+	RCT(R_BR_G3,	OCH_R,		OCH_BR,		OCH_G3,		0, 2, 1,	0,	0, 1, 1)\
 	RCT(G_B_RG,	OCH_G,		OCH_B,		OCH_RG,		1, 2, 0,	3,	0, 3, 0)\
 	RCT(G_B_RB,	OCH_G,		OCH_B,		OCH_RB,		1, 2, 0,	3,	1, 3, 0)\
+	RCT(G_B_R1,	OCH_G,		OCH_B,		OCH_R1,		1, 2, 0,	3,	0, 1, 1)\
 	RCT(G_B_R2,	OCH_G,		OCH_B,		OCH_R2,		1, 2, 0,	3,	0, 1, 1)\
+	RCT(G_B_R3,	OCH_G,		OCH_B,		OCH_R3,		1, 2, 0,	3,	0, 1, 1)\
 	RCT(G_BG_RG,	OCH_G,		OCH_BG,		OCH_RG,		1, 2, 0,	0,	0, 3, 0)\
 	RCT(G_BG_RB,	OCH_G,		OCH_BG,		OCH_RB,		1, 2, 0,	0,	1, 3, 0)\
+	RCT(G_BG_R1,	OCH_G,		OCH_BG,		OCH_R1,		1, 2, 0,	0,	0, 1, 1)\
 	RCT(G_BG_R2,	OCH_G,		OCH_BG,		OCH_R2,		1, 2, 0,	0,	0, 1, 1)\
+	RCT(G_BG_R3,	OCH_G,		OCH_BG,		OCH_R3,		1, 2, 0,	0,	0, 1, 1)\
 	RCT(G_RG_BR,	OCH_G,		OCH_RG,		OCH_BR,		1, 0, 2,	0,	1, 3, 0)\
+	RCT(G_RG_B1,	OCH_G,		OCH_RG,		OCH_B1,		1, 0, 2,	0,	0, 1, 1)\
 	RCT(G_RG_B2,	OCH_G,		OCH_RG,		OCH_B2,		1, 0, 2,	0,	0, 1, 1)\
+	RCT(G_RG_B3,	OCH_G,		OCH_RG,		OCH_B3,		1, 0, 2,	0,	0, 1, 1)\
 	RCT(B_R_GR,	OCH_B,		OCH_R,		OCH_GR,		2, 0, 1,	3,	1, 3, 0)\
 	RCT(B_R_GB,	OCH_B,		OCH_R,		OCH_GB,		2, 0, 1,	3,	0, 3, 0)\
 	RCT(B_RB_GB,	OCH_B,		OCH_RB,		OCH_GB,		2, 0, 1,	0,	0, 3, 0)\
 	RCT(B_RB_GR,	OCH_B,		OCH_RB,		OCH_GR,		2, 0, 1,	0,	1, 3, 0)\
+	RCT(B_RB_G1,	OCH_B,		OCH_RB,		OCH_G1,		2, 0, 1,	0,	0, 1, 1)\
 	RCT(B_RB_G2,	OCH_B,		OCH_RB,		OCH_G2,		2, 0, 1,	0,	0, 1, 1)\
+	RCT(B_RB_G3,	OCH_B,		OCH_RB,		OCH_G3,		2, 0, 1,	0,	0, 1, 1)\
 	RCT(B_GB_RG,	OCH_B,		OCH_GB,		OCH_RG,		2, 1, 0,	0,	1, 3, 0)\
-	RCT(B_GB_R2,	OCH_B,		OCH_GB,		OCH_R2,		2, 1, 0,	0,	0, 1, 1)
+	RCT(B_GB_R1,	OCH_B,		OCH_GB,		OCH_R1,		2, 1, 0,	0,	0, 1, 1)\
+	RCT(B_GB_R2,	OCH_B,		OCH_GB,		OCH_R2,		2, 1, 0,	0,	0, 1, 1)\
+	RCT(B_GB_R3,	OCH_B,		OCH_GB,		OCH_R3,		2, 1, 0,	0,	0, 1, 1)
 typedef enum _RCTIndex
 {
 #define RCT(LABEL, YIDX, UIDX, VIDX,  YPERM, UPERM, VPERM,  UOFF1,  VOFF1, VOFF2, VSH2) RCT_##LABEL,
@@ -81,6 +105,7 @@ static const char *rct_names[RCT_COUNT]=
 	PRED(N, "N")\
 	PRED(W, "W")\
 	PRED(AV2, "(N+W)/2")\
+	PRED(WG, "(gx*N+gy*W)/(gx+gy)")\
 	PRED(CG, "median(N, W, N+W-NW)")\
 	PRED(AV3, "[-2 [3];3 ?]/4")\
 	PRED(AV4, "[-1 [4] 1;4 ?]/8")\

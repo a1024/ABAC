@@ -6618,7 +6618,7 @@ void io_render(void)
 						draw_line(0, ymid, (float)wndw, ymid, crosshaircolor);
 					}
 				}
-				float y=(float)wndh/8;
+				float y=tdy*2;
 				const unsigned char *group=rct_combinations[analysis_info.bestrct];
 				int selected_ch[]=
 				{
@@ -6639,8 +6639,8 @@ void io_render(void)
 					pred_names[analysis_info.predidx[2]],
 					analysis_info.t_analysis
 				);
-				draw_rect_hollow((float)(0.25*wndw)-1, (float)(0.75*wndw)+1, y+0, y+RCT_COUNT*4+OCH_COUNT*PRED_COUNT*4+OCH_COUNT*8+0, 0xC0000000);
-				draw_rect_hollow((float)(0.25*wndw)-2, (float)(0.75*wndw)+0, y-1, y+RCT_COUNT*4+OCH_COUNT*PRED_COUNT*4+OCH_COUNT*8-1, 0xC0FFFFFF);
+				draw_rect_hollow((float)(0.25*wndw)-1, (float)(0.75*wndw)+1, y+0, y+RCT_COUNT*3+OCH_COUNT*PRED_COUNT*3+OCH_COUNT*8+0, 0xC0000000);
+				draw_rect_hollow((float)(0.25*wndw)-2, (float)(0.75*wndw)+0, y-1, y+RCT_COUNT*3+OCH_COUNT*PRED_COUNT*3+OCH_COUNT*8-1, 0xC0FFFFFF);
 				//draw_line((float)(0.25*wndw)+0, y, (float)(0.25*wndw)+0, y+OCH_COUNT*PRED_COUNT*4+OCH_COUNT*10, 0xC0000000);
 				//draw_line((float)(0.25*wndw)-1, y, (float)(0.25*wndw)-1, y+OCH_COUNT*PRED_COUNT*4+OCH_COUNT*10, 0xC0FFFFFF);
 				//draw_line((float)(0.75*wndw)+1, y, (float)(0.75*wndw)+1, y+OCH_COUNT*PRED_COUNT*4+OCH_COUNT*10, 0xC0000000);
@@ -6655,11 +6655,10 @@ void io_render(void)
 					float x1=(float)(0.25*wndw), x2=(float)(wndw*(0.25+0.5*analysis_info.rctsizes[k]));
 					draw_line(x1, y+0, x2, y+0, color);
 					draw_line(x1, y+1, x2, y+1, color);
-					draw_line(x1, y+2, x2, y+2, color);
-					draw_line(x1, y+3, x2, y+3, 0xC0000000);
-					y+=4;
+					draw_line(x1, y+2, x2, y+2, 0xC0000000);
+					y+=3;
 				}
-				y+=10;
+				y+=9;
 				for(int k=0;k<OCH_COUNT*PRED_COUNT;++k)//output channels
 				{
 					int hit=k==selected_ch[0]||k==selected_ch[1]||k==selected_ch[2];
@@ -6667,8 +6666,7 @@ void io_render(void)
 					float x1=(float)(0.25*wndw), x2=(float)(wndw*(0.25+0.5*analysis_info.esizes[k]));
 					draw_line(x1, y+0, x2, y+0, color);
 					draw_line(x1, y+1, x2, y+1, color);
-					draw_line(x1, y+2, x2, y+2, color);
-					draw_line(x1, y+3, x2, y+3, 0xC0000000);
+					draw_line(x1, y+2, x2, y+2, 0xC0000000);
 					if(hit)
 					{
 						centers[ncenters++]=x2;
@@ -6676,7 +6674,7 @@ void io_render(void)
 					}
 					if(!((k+1)%(PRED_COUNT)))
 						GUIPrint(0, (float)(0.25*wndw)-40, y-30, 2, "%s", och_names[k/PRED_COUNT]);
-					y+=(k+1)%PRED_COUNT?4:10;
+					y+=(k+1)%PRED_COUNT?3:9;
 					//if(!((k+1)%(PRED_COUNT*3)))
 					//	y+=10;
 				}
