@@ -81,13 +81,13 @@ static const char *rct_names[RCT_COUNT]=
 	PRED(N, "N")\
 	PRED(W, "W")\
 	PRED(AV2, "(N+W)/2")\
+	PRED(CG, "median(N, W, N+W-NW)")\
 	PRED(AV3, "[-2 [3];3 ?]/4")\
 	PRED(AV4, "[-1 [4] 1;4 ?]/8")\
 	PRED(AV5, "[-5 [5] 1;-1 8 ?]/8")\
 	PRED(AV6, "[[-1];-5 [6] 1;-1 8 ?]/8")\
 	PRED(AV9, "[1 [-2] -1;-1 -9 [10] 4;-2 16 ?]/16")\
-	PRED(AVB, "[4 3 [-31] -38;7 -158 [219] 30 19;-42 243 ?]/256")\
-	PRED(CG, "median(N, W, N+W-NW)")
+	PRED(AVB, "[4 3 [-31] -38;7 -158 [219] 30 19;-42 243 ?]/256")
 static const char *pred_desc[]=
 {
 #define PRED(LABEL, DESC) DESC,
@@ -123,9 +123,10 @@ static const short av12_icoeffs[12]=
 };
 typedef struct _C18Info
 {
-	double esizes[OCH_COUNT*PRED_COUNT];
+	double esizes[OCH_COUNT*PRED_COUNT], rctsizes[RCT_COUNT];
 	int bestrct, predidx[3];
 //	double ACsize[3], GRsize[3];
+	double t_analysis;
 } C18Info;
 
 void c18_analyze(Image const *src, int x1, int x2, int y1, int y2, C18Info *info);

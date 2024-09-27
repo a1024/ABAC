@@ -8,9 +8,6 @@
 #include<immintrin.h>
 static const char file[]=__FILE__;
 
-#define ANALYSIS_XSTRIDE 1	//4	//1
-#define ANALYSIS_YSTRIDE 1	//4	//3
-
 #define CODE_CG(NBIDX, KC, OCHIDX)\
 	do\
 	{\
@@ -177,6 +174,7 @@ static const char file[]=__FILE__;
 
 void c18_analyze(Image const *src, int x1, int x2, int y1, int y2, C18Info *info)
 {
+	double t_start=time_sec();
 	int nlevels[]=
 	{
 		1<<src->depth[0],
@@ -488,6 +486,7 @@ void c18_analyze(Image const *src, int x1, int x2, int y1, int y2, C18Info *info
 			+info->esizes[group[0]*PRED_COUNT+predsel[group[0]]]
 			+info->esizes[group[1]*PRED_COUNT+predsel[group[1]]]
 			+info->esizes[group[2]*PRED_COUNT+predsel[group[2]]];
+		info->rctsizes[kt]=csize/3;
 		if(!kt||bestsize>csize)
 		{
 			bestsize=csize;
@@ -499,4 +498,5 @@ void c18_analyze(Image const *src, int x1, int x2, int y1, int y2, C18Info *info
 	info->predidx[1]=predsel[group[1]];
 	info->predidx[2]=predsel[group[2]];
 	free(hist);
+	info->t_analysis=time_sec()-t_start;
 }

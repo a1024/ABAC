@@ -6133,6 +6133,16 @@ void io_timer(void)
 		if(keyboard[KEY_ENTER])	cam_zoomIn(cam, 1.1f);
 		if(keyboard[KEY_BKSP])	cam_zoomOut(cam, 1.1f);
 	}
+	else if(mode==VIS_ANALYSIS)
+	{
+		int update=0;
+		if(keyboard['W'])	--jhc_ybox, update=1;
+		if(keyboard['A'])	--jhc_xbox, update=1;
+		if(keyboard['S'])	++jhc_ybox, update=1;
+		if(keyboard['D'])	++jhc_xbox, update=1;
+		if(im1&&update)
+			analysis_update(im1);
+	}
 	else
 	{
 		const int delta=10;//screen pixels per frame
@@ -6617,19 +6627,20 @@ void io_render(void)
 					group[2]*PRED_COUNT+analysis_info.predidx[2],
 				};
 				GUIPrint(0, (float)(0.25*wndw), y-tdy*1.5f-2, 1.5f,
-					"3*%d*%d: %6.2lf%% + %6.2lf%% + %6.2lf%% = %6.2lf%%  %s %s %s %s",
+					"3*%d*%d: %6.2lf%% + %6.2lf%% + %6.2lf%% = %6.2lf%%  %s %s %s %s  %lf",
 					bounds[1]-bounds[0], bounds[3]-bounds[2],
-					analysis_info.esizes[group[0]]*100,
-					analysis_info.esizes[group[1]]*100,
-					analysis_info.esizes[group[2]]*100,
-					(analysis_info.esizes[group[0]]+analysis_info.esizes[group[1]]+analysis_info.esizes[group[2]])*100/3,
+					analysis_info.esizes[selected_ch[0]]*100,
+					analysis_info.esizes[selected_ch[1]]*100,
+					analysis_info.esizes[selected_ch[2]]*100,
+					(analysis_info.esizes[selected_ch[0]]+analysis_info.esizes[selected_ch[1]]+analysis_info.esizes[selected_ch[2]])*100/3,
 					rct_names[analysis_info.bestrct],
 					pred_names[analysis_info.predidx[0]],
 					pred_names[analysis_info.predidx[1]],
-					pred_names[analysis_info.predidx[2]]
+					pred_names[analysis_info.predidx[2]],
+					analysis_info.t_analysis
 				);
-				draw_rect_hollow((float)(0.25*wndw)-1, (float)(0.75*wndw)+1, y+0, y+OCH_COUNT*PRED_COUNT*4+OCH_COUNT*8+0, 0xC0000000);
-				draw_rect_hollow((float)(0.25*wndw)-2, (float)(0.75*wndw)+0, y-1, y+OCH_COUNT*PRED_COUNT*4+OCH_COUNT*8-1, 0xC0FFFFFF);
+				draw_rect_hollow((float)(0.25*wndw)-1, (float)(0.75*wndw)+1, y+0, y+RCT_COUNT*4+OCH_COUNT*PRED_COUNT*4+OCH_COUNT*8+0, 0xC0000000);
+				draw_rect_hollow((float)(0.25*wndw)-2, (float)(0.75*wndw)+0, y-1, y+RCT_COUNT*4+OCH_COUNT*PRED_COUNT*4+OCH_COUNT*8-1, 0xC0FFFFFF);
 				//draw_line((float)(0.25*wndw)+0, y, (float)(0.25*wndw)+0, y+OCH_COUNT*PRED_COUNT*4+OCH_COUNT*10, 0xC0000000);
 				//draw_line((float)(0.25*wndw)-1, y, (float)(0.25*wndw)-1, y+OCH_COUNT*PRED_COUNT*4+OCH_COUNT*10, 0xC0FFFFFF);
 				//draw_line((float)(0.75*wndw)+1, y, (float)(0.75*wndw)+1, y+OCH_COUNT*PRED_COUNT*4+OCH_COUNT*10, 0xC0000000);
@@ -6637,15 +6648,27 @@ void io_render(void)
 				y+=10;
 				float centers[6]={0};
 				int ncenters=0;
-				for(int k=0;k<OCH_COUNT*PRED_COUNT;++k)
+				for(int k=0;k<RCT_COUNT;++k)//RCTs
+				{
+					int hit=k==analysis_info.bestrct;
+					int color=hit?0xC04040FF:0xC0FFFFFF;
+					float x1=(float)(0.25*wndw), x2=(float)(wndw*(0.25+0.5*analysis_info.rctsizes[k]));
+					draw_line(x1, y+0, x2, y+0, color);
+					draw_line(x1, y+1, x2, y+1, color);
+					draw_line(x1, y+2, x2, y+2, color);
+					draw_line(x1, y+3, x2, y+3, 0xC0000000);
+					y+=4;
+				}
+				y+=10;
+				for(int k=0;k<OCH_COUNT*PRED_COUNT;++k)//output channels
 				{
 					int hit=k==selected_ch[0]||k==selected_ch[1]||k==selected_ch[2];
 					int color=hit?0xC04040FF:0xC0FFFFFF;
-					float x2=(float)(0.25*wndw*(1+analysis_info.esizes[k]));
-					draw_line((float)(0.25*wndw), y+0, x2, y+0, color);
-					draw_line((float)(0.25*wndw), y+1, x2, y+1, color);
-					draw_line((float)(0.25*wndw), y+2, x2, y+2, color);
-					draw_line((float)(0.25*wndw), y+3, x2, y+3, 0xC0000000);
+					float x1=(float)(0.25*wndw), x2=(float)(wndw*(0.25+0.5*analysis_info.esizes[k]));
+					draw_line(x1, y+0, x2, y+0, color);
+					draw_line(x1, y+1, x2, y+1, color);
+					draw_line(x1, y+2, x2, y+2, color);
+					draw_line(x1, y+3, x2, y+3, 0xC0000000);
 					if(hit)
 					{
 						centers[ncenters++]=x2;
