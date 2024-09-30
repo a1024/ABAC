@@ -1569,7 +1569,7 @@ static void block_thread(void *param)
 		int *curr_sse5[3]={0};
 		int *curr_sse6[3]={0};
 #endif
-		int nbypass[3]={0};
+		int nbypass=0;
 		for(int kx=args->x1;kx<args->x2;++kx)
 		{
 			int idx=nch*(args->iw*ky+kx);
@@ -1644,9 +1644,14 @@ static void block_thread(void *param)
 			}
 #endif
 #endif
-	#define UPDATE_FORMULA1(IDX) (MAXVAR(NW[IDX], W[IDX])+sym+NEE[IDX]+MAXVAR(WW[IDX], WWW[IDX]))>>2	//for SW (thru NE)
-	#define UPDATE_FORMULA2(IDX) (MAXVAR(WW[IDX], W[IDX])+sym+NE[IDX]+MAXVAR(NEE[IDX], NEEE[IDX]))>>2	//for E (thru W)
-	#define UPDATE_FORMULA3(IDX) (N[IDX]+(IDX==9?W[IDX]:WW[IDX])+sym)/3
+	#define GR_PREDICT(DST, IDX) DST=(7*W[3*2+IDX]+3*(NE[3*1+IDX]+N[3*3+IDX]+W[3*3+IDX]))>>4, DST+=(DST)<4
+//	#define GR_PREDICT(DST, IDX) DST=(7*W[3*2+IDX]+3*(NE[3*1+IDX]+N[3*3+IDX]+(IDX==0?W[3*3+IDX]:WW[3*3+IDX])))>>4, DST+=(DST)<4
+	#define GR_UPDATE1(IDX) (MAXVAR(NW[IDX], W[IDX])+sym+NEE[IDX]+MAXVAR(WW[IDX], WWW[IDX]))>>2	//for SW (thru NE)
+	#define GR_UPDATE2(IDX) (MAXVAR(WW[IDX], W[IDX])+sym+NE[IDX]+MAXVAR(NEE[IDX], NEEE[IDX]))>>2	//for E (thru W)
+	#define GR_UPDATE3(IDX) (MAXVAR(NE[IDX], N[IDX])+(IDX==9?W[IDX]:WW[IDX])+sym)/3
+//	#define UPDATE_FORMULA3(IDX) (N[IDX]+(IDX==9?W[IDX]:WW[IDX])+sym)/3
+//	#define UPDATE_FORMULA3(IDX) sym
+//	#define UPDATE_FORMULA3(IDX) (MAXVAR(N[IDX], W[IDX])+sym)>>1
 //	#define UPDATE_FORMULA(IDX) (MAXVAR(WW[IDX], W[IDX])+sym+NE[IDX]+MAXVAR(NEE[IDX], NEEE[IDX]))>>2	//Formula12	best
 //	#define UPDATE_FORMULA(IDX) (max3(WW[IDX], W[IDX], NW[IDX])+sym+max3(NNE[IDX], NE[IDX], NEE[IDX])+NEEE[IDX])>>2
 //	#define UPDATE_FORMULA(IDX) (W[IDX]+sym+NE[IDX]+NEEE[IDX])>>2	//Formula8
@@ -1664,10 +1669,12 @@ static void block_thread(void *param)
 //	#define UPDATE_FORMULA(IDX) (W[IDX]+sym+NEEE[IDX])/3
 //	#define UPDATE_FORMULA(IDX) (WWW[IDX]+5*WW[IDX]+10*(W[IDX]+sym)+NE[IDX])/27	//Formula5	X
 //	#define UPDATE_FORMULA(IDX) sym
+#if 0
 			if(!args->use_AC[0])
 			{
 				nbypass[0]=(7*W[3*2+0]+3*(NE[3*1+0]+N[3*3+0]+W [3*3+0]))>>4;
 				nbypass[0]+=nbypass[0]<4;
+			//	nbypass[0]+=(nbypass[0]<4)|((W[3*3+0]&N[3*3+0]&1));
 #ifndef ENABLE_NPOT
 				nbypass[0]=FLOOR_LOG2(nbypass[0]);
 #endif
@@ -1676,6 +1683,7 @@ static void block_thread(void *param)
 			{
 				nbypass[1]=(7*W[3*2+1]+3*(NE[3*1+1]+N[3*3+1]+WW[3*3+1]))>>4;
 				nbypass[1]+=nbypass[1]<4;
+			//	nbypass[1]+=(nbypass[1]<4)|((W[3*3+1]&N[3*3+1]&1));
 #ifndef ENABLE_NPOT
 				nbypass[1]=FLOOR_LOG2(nbypass[1]);
 #endif
@@ -1684,12 +1692,14 @@ static void block_thread(void *param)
 			{
 				nbypass[2]=(7*W[3*2+2]+3*(NE[3*1+2]+N[3*3+2]+WW[3*3+2]))>>4;
 				nbypass[2]+=nbypass[2]<4;
+			//	nbypass[2]+=(nbypass[2]<4)|((W[3*3+2]&N[3*3+2]&1));
 #ifndef ENABLE_NPOT
 				nbypass[2]=FLOOR_LOG2(nbypass[2]);
 #endif
 			}
 			//if(nbypass[0]>=7||nbypass[1]>=7||nbypass[2]>=7)//not hit
 			//	printf("");
+#endif
 #if 1
 			{
 				ALIGN(16) short vmin1[8];
@@ -1801,6 +1811,11 @@ static void block_thread(void *param)
 				__m128i mp=_mm_load_si128((__m128i*)preds);
 				mp=_mm_max_epi16(mp, _mm_load_si128((__m128i*)vmin2));
 				mp=_mm_min_epi16(mp, _mm_load_si128((__m128i*)vmax2));
+
+				//__m128i mc=_mm_or_si128(_mm_sub_epi16(mN, mW), _mm_sub_epi16(mN, mNE));//if(N==W&&N==NE)pred=W	does nothing
+				//mc=_mm_cmpeq_epi16(mc, _mm_setzero_si128());
+				//mp=_mm_blendv_epi8(mp, mW, mc);
+
 				_mm_store_si128((__m128i*)preds, mp);
 			}
 #endif
@@ -2156,14 +2171,15 @@ static void block_thread(void *param)
 				}
 				else
 				{
+					GR_PREDICT(nbypass, 0);
 #ifdef ENABLE_NPOT
-					gr_enc_NPOT(ec+0, sym, nbypass[0]);
+					gr_enc_NPOT(ec+0, sym, nbypass);
 #else
-					gr_enc(ec+0, sym, nbypass[0]);
+					gr_enc(ec+0, sym, FLOOR_LOG2(nbypass));
 #endif
-					curr[3*1+0]=UPDATE_FORMULA1(3*1+0);
-					curr[3*2+0]=UPDATE_FORMULA2(3*2+0);
-					curr[3*3+0]=UPDATE_FORMULA3(3*3+0);
+					curr[3*1+0]=GR_UPDATE1(3*1+0);
+					curr[3*2+0]=GR_UPDATE2(3*2+0);
+					curr[3*3+0]=GR_UPDATE3(3*3+0);
 				}
 				curr[0]=yuv[0];
 				
@@ -2202,14 +2218,15 @@ static void block_thread(void *param)
 				}
 				else
 				{
+					GR_PREDICT(nbypass, 1);
 #ifdef ENABLE_NPOT
-					gr_enc_NPOT(ec+1, sym, nbypass[1]);
+					gr_enc_NPOT(ec+1, sym, nbypass);
 #else
-					gr_enc(ec+1, sym, nbypass[1]);
+					gr_enc(ec+1, sym, FLOOR_LOG2(nbypass));
 #endif
-					curr[3*1+1]=UPDATE_FORMULA1(3*1+1);
-					curr[3*2+1]=UPDATE_FORMULA2(3*2+1);
-					curr[3*3+1]=UPDATE_FORMULA3(3*3+1);
+					curr[3*1+1]=GR_UPDATE1(3*1+1);
+					curr[3*2+1]=GR_UPDATE2(3*2+1);
+					curr[3*3+1]=GR_UPDATE3(3*3+1);
 				}
 #ifndef DISABLE_RCTSEL
 				curr[1]=yuv[1]-offset;
@@ -2252,14 +2269,15 @@ static void block_thread(void *param)
 				}
 				else
 				{
+					GR_PREDICT(nbypass, 2);
 #ifdef ENABLE_NPOT
-					gr_enc_NPOT(ec+2, sym, nbypass[2]);
+					gr_enc_NPOT(ec+2, sym, nbypass);
 #else
-					gr_enc(ec+2, sym, nbypass[2]);
+					gr_enc(ec+2, sym, FLOOR_LOG2(nbypass));
 #endif
-					curr[3*1+2]=UPDATE_FORMULA1(3*1+2);
-					curr[3*2+2]=UPDATE_FORMULA2(3*2+2);
-					curr[3*3+2]=UPDATE_FORMULA3(3*3+2);
+					curr[3*1+2]=GR_UPDATE1(3*1+2);
+					curr[3*2+2]=GR_UPDATE2(3*2+2);
+					curr[3*3+2]=GR_UPDATE3(3*3+2);
 				}
 #ifndef DISABLE_RCTSEL
 				curr[2]=yuv[2]-offset;
@@ -2299,14 +2317,15 @@ static void block_thread(void *param)
 				}
 				else
 				{
+					GR_PREDICT(nbypass, 0);
 #ifdef ENABLE_NPOT
-					sym=gr_dec_NPOT(ec+0, nbypass[0]);
+					sym=gr_dec_NPOT(ec+0, nbypass);
 #else
-					sym=gr_dec(ec+0, nbypass[0]);
+					sym=gr_dec(ec+0, FLOOR_LOG2(nbypass));
 #endif
-					curr[3*1+0]=UPDATE_FORMULA1(3*1+0);
-					curr[3*2+0]=UPDATE_FORMULA2(3*2+0);
-					curr[3*3+0]=UPDATE_FORMULA3(3*3+0);
+					curr[3*1+0]=GR_UPDATE1(3*1+0);
+					curr[3*2+0]=GR_UPDATE2(3*2+0);
+					curr[3*3+0]=GR_UPDATE3(3*3+0);
 				}
 				{
 					int upred=HALF_Y-abs(pred), negmask=0;
@@ -2359,14 +2378,15 @@ static void block_thread(void *param)
 				}
 				else
 				{
+					GR_PREDICT(nbypass, 1);
 #ifdef ENABLE_NPOT
-					sym=gr_dec_NPOT(ec+1, nbypass[1]);
+					sym=gr_dec_NPOT(ec+1, nbypass);
 #else
-					sym=gr_dec(ec+1, nbypass[1]);
+					sym=gr_dec(ec+1, FLOOR_LOG2(nbypass));
 #endif
-					curr[3*1+1]=UPDATE_FORMULA1(3*1+1);
-					curr[3*2+1]=UPDATE_FORMULA2(3*2+1);
-					curr[3*3+1]=UPDATE_FORMULA3(3*3+1);
+					curr[3*1+1]=GR_UPDATE1(3*1+1);
+					curr[3*2+1]=GR_UPDATE2(3*2+1);
+					curr[3*3+1]=GR_UPDATE3(3*3+1);
 				}
 				{
 					int upred=HALF_U-abs(pred), negmask=0;
@@ -2424,14 +2444,15 @@ static void block_thread(void *param)
 				}
 				else
 				{
+					GR_PREDICT(nbypass, 2);
 #ifdef ENABLE_NPOT
-					sym=gr_dec_NPOT(ec+2, nbypass[2]);
+					sym=gr_dec_NPOT(ec+2, nbypass);
 #else
-					sym=gr_dec(ec+2, nbypass[2]);
+					sym=gr_dec(ec+2, FLOOR_LOG2(nbypass));
 #endif
-					curr[3*1+2]=UPDATE_FORMULA1(3*1+2);
-					curr[3*2+2]=UPDATE_FORMULA2(3*2+2);
-					curr[3*3+2]=UPDATE_FORMULA3(3*3+2);
+					curr[3*1+2]=GR_UPDATE1(3*1+2);
+					curr[3*2+2]=GR_UPDATE2(3*2+2);
+					curr[3*3+2]=GR_UPDATE3(3*3+2);
 				}
 				{
 					int upred=HALF_V-abs(pred), negmask=0;

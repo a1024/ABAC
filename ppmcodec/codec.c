@@ -9,7 +9,7 @@ static const char file[]=__FILE__;
 
 
 #ifndef CODEC_FUNC
-#define CODEC_FUNC c19_codec
+#define CODEC_FUNC c18_codec
 #endif
 
 
@@ -154,8 +154,8 @@ int main(int argc, char **argv)
 //	c19_codec("C:/dataset-CLIC303-ppm/2048x1320_israel-sundseth-1687.ppm",	"D:/ML/2048x1320_israel-sundseth-1687.lsim");
 //	c19_codec("D:/ML/2048x1320_israel-sundseth-1687.lsim",			"D:/ML/2048x1320_israel-sundseth-1687_dec.ppm");
 
-	c19_codec("C:/dataset-HUGE-ppm/space_huge.ppm", "C:/dataset-HUGE-ppm/space_huge.lsim");
-	c19_codec("C:/dataset-HUGE-ppm/space_huge.lsim", "C:/dataset-HUGE-ppm/space_huge_dec.ppm");
+//	c19_codec("C:/dataset-HUGE-ppm/space_huge.ppm", "C:/dataset-HUGE-ppm/space_huge.lsim");
+//	c19_codec("C:/dataset-HUGE-ppm/space_huge.lsim", "C:/dataset-HUGE-ppm/space_huge_dec.ppm");
 
 //	c15_codec("D:/ML/kodim13.ppm", "D:/ML/kodim13.lsim");
 //	c15_codec("D:/ML/kodim13.lsim", "D:/ML/kodim13_dec.ppm");
@@ -190,7 +190,7 @@ int main(int argc, char **argv)
 
 //	c07_codec(srcfn, dstfn);
 
-	//CODEC_FUNC(srcfn, dstfn);
+	CODEC_FUNC(srcfn, dstfn);
 #endif
 	return 0;
 }
