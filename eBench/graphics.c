@@ -639,10 +639,10 @@ void gl_init(void)
 			sdf_dx*=16.f/sdf_dy;
 			sdf_dy=16;
 
-			tdx*=0.85;
-			tdy*=0.85;
-			sdf_dx*=0.85;
-			sdf_dy*=0.85;
+			tdx*=0.85f;
+			tdy*=0.85f;
+			sdf_dx*=0.85f;
+			sdf_dy*=0.85f;
 
 			glGenTextures(1, &sdf_atlas_txid);
 			send_texture_pot_grey(sdf_atlas_txid, bmp, iw, ih, 1);

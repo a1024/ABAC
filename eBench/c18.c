@@ -69,8 +69,7 @@ static const char file[]=__FILE__;
 			nb_N	=N	##NBIDX[KC],\
 			nb_W	=W	##NBIDX[KC];\
 		int pred=nb_N+nb_W-nb_NW;\
-		pred=MAXVAR(pred, vmin[KC]);\
-		pred=MINVAR(pred, vmax[KC]);\
+		CLAMP2(pred, vmin[KC], vmax[KC]);\
 		pred+=offset##NBIDX[KC];\
 		CLAMP2(pred, -half[KC], half[KC]-1);\
 		pred=(target[KC]-pred+half[KC])&mask[KC];\
@@ -84,8 +83,7 @@ static const char file[]=__FILE__;
 			nb_N	=N	##NBIDX[KC],\
 			nb_W	=W	##NBIDX[KC];\
 		int pred=(3*(nb_N+nb_W)-2*nb_NW+2)>>2;\
-		pred=MAXVAR(pred, vmin[KC]);\
-		pred=MINVAR(pred, vmax[KC]);\
+		CLAMP2(pred, vmin[KC], vmax[KC]);\
 		pred+=offset##NBIDX[KC];\
 		CLAMP2(pred, -half[KC], half[KC]-1);\
 		pred=(target[KC]-pred+half[KC])&mask[KC];\
@@ -100,8 +98,7 @@ static const char file[]=__FILE__;
 			nb_NE	=NE	##NBIDX[KC],\
 			nb_W	=W	##NBIDX[KC];\
 		int pred=(4*(nb_N+nb_W)+nb_NE-nb_NW+4)>>3;\
-		pred=MAXVAR(pred, vmin[KC]);\
-		pred=MINVAR(pred, vmax[KC]);\
+		CLAMP2(pred, vmin[KC], vmax[KC]);\
 		pred+=offset##NBIDX[KC];\
 		CLAMP2(pred, -half[KC], half[KC]-1);\
 		pred=(target[KC]-pred+half[KC])&mask[KC];\
@@ -117,8 +114,7 @@ static const char file[]=__FILE__;
 			nb_WW	=WW	##NBIDX[KC],\
 			nb_W	=W	##NBIDX[KC];\
 		int pred=nb_W+((5*(nb_N-nb_NW)+nb_NE-nb_WW+4)>>3);\
-		pred=MAXVAR(pred, vmin[KC]);\
-		pred=MINVAR(pred, vmax[KC]);\
+		CLAMP2(pred, vmin[KC], vmax[KC]);\
 		pred+=offset##NBIDX[KC];\
 		CLAMP2(pred, -half[KC], half[KC]-1);\
 		pred=(target[KC]-pred+half[KC])&mask[KC];\
@@ -135,8 +131,7 @@ static const char file[]=__FILE__;
 			nb_WW	=WW	##NBIDX[KC],\
 			nb_W	=W	##NBIDX[KC];\
 		int pred=nb_W+((6*nb_N-5*nb_NW+nb_NE-nb_NN-nb_WW+4)>>3);\
-		pred=MAXVAR(pred, vmin[KC]);\
-		pred=MINVAR(pred, vmax[KC]);\
+		CLAMP2(pred, vmin[KC], vmax[KC]);\
 		pred+=offset##NBIDX[KC];\
 		CLAMP2(pred, -half[KC], half[KC]-1);\
 		pred=(target[KC]-pred+half[KC])&mask[KC];\
@@ -156,8 +151,7 @@ static const char file[]=__FILE__;
 			nb_WW	=WW	##NBIDX[KC],\
 			nb_W	=W	##NBIDX[KC];\
 		int pred=nb_W+((10*nb_N-9*nb_NW+4*nb_NE-2*(nb_NN+nb_WW)-nb_NNE+nb_NNW-nb_NWW+8)>>4);\
-		pred=MAXVAR(pred, vmin[KC]);\
-		pred=MINVAR(pred, vmax[KC]);\
+		CLAMP2(pred, vmin[KC], vmax[KC]);\
 		pred+=offset##NBIDX[KC];\
 		CLAMP2(pred, -half[KC], half[KC]-1);\
 		pred=(target[KC]-pred+half[KC])&mask[KC];\
@@ -183,8 +177,7 @@ static const char file[]=__FILE__;
 			+0x07*nb_NWW	-0x9E*nb_NW	+0xDB*nb_N	+0x1E*nb_NE	+0x13*nb_NEE\
 			-0x2A*nb_WW	+0xF3*nb_W\
 		+128)>>8);\
-		pred=MAXVAR(pred, vmin[KC]);\
-		pred=MINVAR(pred, vmax[KC]);\
+		CLAMP2(pred, vmin[KC], vmax[KC]);\
 		pred+=offset##NBIDX[KC];\
 		CLAMP2(pred, -half[KC], half[KC]-1);\
 		pred=(target[KC]-pred+half[KC])&mask[KC];\

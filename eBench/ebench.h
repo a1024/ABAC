@@ -736,6 +736,7 @@ void pred_wgrad2(Image *src, int fwd);
 void pred_wgrad3(Image *src, int fwd, int hasRCT);
 void pred_wgrad4(Image *src, int fwd);
 void pred_wgrad5(Image *src, int fwd);
+void pred_table(Image *src, int fwd);
 void pred_lwav(Image *src, int fwd);
 void pred_WPU(Image *src, int fwd);
 

@@ -73,3 +73,6 @@ c17:
 
 c18:
 	gcc -O3 -Wall -DCODEC_FUNC=c18_codec -mavx2 -mbmi -mlzcnt  c18.c codec.c util.c  -o c18 $(LIBS)
+
+c19:
+	gcc -O3 -Wall -DCODEC_FUNC=c19_codec -mavx2 -mbmi -mlzcnt  c19.c codec.c util.c  -o c19 $(LIBS)

@@ -74,7 +74,7 @@ void acval_print(int idx, ACVAL const *p, int dec)
 	//);
 	if(dec)
 	{
-		printf(" code %012llX ", p->code);
+		printf(" code %016llX ", p->code);
 		//print_binn(p->code, 48);
 	}
 	printf("\n");
@@ -547,19 +547,19 @@ FORCEINLINE void ac3_enc_flush(AC3 *ec)
 FORCEINLINE void ac3_enc_update(AC3 *ec, unsigned cdf, unsigned freq)
 {
 	unsigned long long r2;
-#ifdef AC_VALIDATE
-	unsigned long long lo0=ec->low, r0=ec->range;
-	if(!freq)
-		LOG_ERROR2("ZPS");
-	if(cdf+freq<cdf)
-		LOG_ERROR2("Invalid CDF");
-#endif
 	r2=ec->range>>AC3_PROB_BITS;
 	AC3_RENORM_STATEMENT(!r2)//this loop runs twice when freq=1 -> range=0
 	{
 		ac3_enc_renorm(ec);
 		r2=ec->range>>AC3_PROB_BITS;
 	}
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if((unsigned)(freq-1)>=(0x10000-1))
+		LOG_ERROR2("ZPS");
+	if(cdf+freq<cdf)
+		LOG_ERROR2("Invalid CDF");
+#endif
 #ifdef AC3_PREC
 	ec->low+=r2*cdf+((ec->range&(~0ULL>>(64-AC3_PROB_BITS)))*cdf>>AC3_PROB_BITS);
 	ec->range=r2*freq+((ec->range&(~0ULL>>(64-AC3_PROB_BITS)))*freq>>AC3_PROB_BITS)-1;
@@ -592,7 +592,7 @@ FORCEINLINE void ac3_dec_update(AC3 *ec, unsigned cdf, unsigned freq)
 	unsigned long long r2=ec->range>>AC3_PROB_BITS;
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
-	if(!freq)
+	if((unsigned)(freq-1)>=(0x10000-1))
 		LOG_ERROR2("ZPS");
 	if(cdf+freq<cdf)
 		LOG_ERROR2("Invalid CDF");
@@ -615,7 +615,7 @@ FORCEINLINE void ac3_enc_update_NPOT(AC3 *ec, unsigned cdf, unsigned freq, unsig
 #endif
 #ifdef AC_VALIDATE
 	unsigned long long lo0, r0;
-	if(!freq)
+	if((unsigned)(freq-1)>=(den-1))
 		LOG_ERROR2("ZPS");
 	if(cdf+freq<cdf||cdf+freq>den)
 		LOG_ERROR2("Invalid CDF");
@@ -665,7 +665,7 @@ FORCEINLINE void ac3_dec_update_NPOT(AC3 *ec, unsigned cdf, unsigned freq, unsig
 #endif
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
-	if(!freq)
+	if((unsigned)(freq-1)>=(den-1))
 		LOG_ERROR2("ZPS");
 	if(cdf+freq<cdf)
 		LOG_ERROR2("Invalid CDF");

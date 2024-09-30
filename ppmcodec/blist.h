@@ -62,6 +62,20 @@ BLIST_INLINE static size_t blist_appendtoarray(BList *list, ArrayHandle *dst)
 	dst[0]->count+=list->nbytes;
 	return start;
 }
+BLIST_INLINE static void blist_appendtofile(BList *list, FILE *f)
+{
+	ptrdiff_t remaining=list->nbytes;
+	BNode *it;
+
+	it=list->i;
+	for(;it->next;)
+	{
+		fwrite(it->data, 1, BLIST_PAYLOADSIZE, f);
+		remaining-=BLIST_PAYLOADSIZE;
+		it=it->next;
+	}
+	fwrite(it->data, 1, remaining, f);
+}
 BLIST_INLINE static void blist_clear(BList *list)
 {
 	BNode *it;

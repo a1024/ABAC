@@ -3007,7 +3007,7 @@ void pred_CG3D(Image *src, int fwd, int enable_ma)
 					//pred=N+W-NW;//X
 
 					pred+=offset;
-					CLAMP2_32(pred, pred, -halfs[kc], halfs[kc]-1);
+					CLAMP2(pred, -halfs[kc], halfs[kc]-1);
 
 					curr=src->data[idx+kc];
 					pred^=fwdmask;
@@ -3147,6 +3147,107 @@ void pred_CG3D(Image *src, int fwd, int enable_ma)
 	//src->depth[1]+=src->depth[1]<24;
 #endif
 	free(pixels);
+}
+
+
+void pred_table(Image *src, int fwd)
+{
+	int nch;
+	int nlevels[]=
+	{
+		1<<src->depth[0],
+		1<<src->depth[1],
+		1<<src->depth[2],
+		1<<src->depth[3],
+	};
+	int halfs[]=
+	{
+		nlevels[0]>>1,
+		nlevels[1]>>1,
+		nlevels[2]>>1,
+		nlevels[3]>>1,
+	};
+
+	int maxdepth;
+	int tablesize;
+	int *table;
+
+	int *pixels=(int*)malloc((src->iw+2LL)*sizeof(int[2*4]));//2 padded rows * 4 channels max
+	int fwdmask=-fwd;
+	
+	maxdepth=src->depth[0];
+	UPDATE_MAX(maxdepth, src->depth[1]);
+	UPDATE_MAX(maxdepth, src->depth[2]);
+	UPDATE_MAX(maxdepth, src->depth[3]);
+	nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
+	UPDATE_MAX(nch, src->nch);
+	tablesize=sizeof(int[4])*nch<<maxdepth;//{N, W, NE, NW} tables * nch
+	table=(int*)malloc(tablesize);
+	if(!pixels||!table)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(table, 0, tablesize);
+	//FILLMEM(table, 1<<maxdepth, tablesize, sizeof(int));
+	memset(pixels, 0, (src->iw+2LL)*sizeof(int[2*4]));
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		int *rows[]=
+		{
+			pixels+(((src->iw+2LL)*((ky-0LL)&1)+1)<<2),
+			pixels+(((src->iw+2LL)*((ky-1LL)&1)+1)<<2),
+		};
+		for(int kx=0;kx<src->iw;++kx, idx+=4)
+		{
+			for(int kc=0;kc<nch;++kc)
+			{
+				int pred, curr;
+				int
+					NW	=rows[1][kc-4],
+					N	=rows[1][kc+0],
+					NE	=rows[1][kc+1],
+					W	=rows[0][kc-4];
+
+				int
+					*curr_table=table+(4LL*kc<<maxdepth),
+					*tNW	=curr_table+(0<<maxdepth|(NW	+halfs[kc])&(nlevels[kc]-1)),
+					*tN	=curr_table+(1<<maxdepth|(N	+halfs[kc])&(nlevels[kc]-1)),
+					*tNE	=curr_table+(2<<maxdepth|(NE	+halfs[kc])&(nlevels[kc]-1)),
+					*tW	=curr_table+(3<<maxdepth|(W	+halfs[kc])&(nlevels[kc]-1));
+				int
+					NW2	=*tNW	,//==(1<<maxdepth)?NW	:*tNW,
+					N2	=*tN	,//==(1<<maxdepth)?N	:*tN,
+					NE2	=*tNE	,//==(1<<maxdepth)?NE	:*tNE,
+					W2	=*tW	;//==(1<<maxdepth)?W	:*tW;
+
+				//MEDIAN3_32(pred, N2, W2, N2+W2-NW2);
+				pred=(N2+W2+NE2+NW2+2)>>2;
+				//pred=(N2+W2+1)>>1;
+
+				curr=src->data[idx+kc];
+				pred^=fwdmask;
+				pred-=fwdmask;
+				pred+=curr;
+
+				pred<<=32-src->depth[kc];
+				pred>>=32-src->depth[kc];
+
+				src->data[idx+kc]=pred;
+				rows[0][kc]=(fwd?curr:pred);
+
+				curr=rows[0][kc];
+				*tNW	=curr;
+				*tN	=curr;
+				*tNE	=curr;
+				*tW	=curr;
+			}
+			rows[0]+=4;
+			rows[1]+=4;
+		}
+	}
+	free(pixels);
+	free(table);
 }
 
 
@@ -3305,7 +3406,7 @@ void pred_PU(Image *src, int fwd)
 					//if(kc0>1)
 					//	offset=(2*offset+rows[0][2])>>1;
 					pred+=offset;
-					CLAMP2_32(pred, pred, -halfs[kc], halfs[kc]-1);
+					CLAMP2(pred, -halfs[kc], halfs[kc]-1);
 				}
 				{
 					int curr=src->data[idx+kc];
@@ -3619,7 +3720,7 @@ void pred_nblic(Image *src, int fwd)//https://github.com/WangXuan95/NBLIC-Image-
 				//-1  9  ?
 				int pred_linear=9*(N+W)+2*(NE-NW)-NN-WW;
 				int pred_ang=0, cost, csum=0, cmin=0xFFFFFF, wt;
-				CLAMP2_32(pred_linear, pred_linear, -halfs[kc]<<4, halfs[kc]<<4);
+				CLAMP2(pred_linear, -halfs[kc]<<4, halfs[kc]<<4);
 
 				cost=2*(abs(W-WW)+abs(NW-NWW)+abs(N-NW)+abs(NE-N));//180 degrees
 				csum+=cost;
@@ -3716,7 +3817,7 @@ void pred_nblic(Image *src, int fwd)//https://github.com/WangXuan95/NBLIC-Image-
 				//int ssesign=corr>>7&1;
 				pred+=corr>>8;
 
-				CLAMP2_32(pred, pred, -halfs[kc], halfs[kc]);
+				CLAMP2(pred, -halfs[kc], halfs[kc]);
 				
 				//apply prediction:
 				int p2=pred;
@@ -4841,7 +4942,7 @@ void pred_lwav(Image *src, int fwd)
 					//params[kc][k]+=(int)((long long)error*errors[k]*ctx[k]>>src->depth[kc]>>src->depth[kc]);
 					//if(abs(params[kc][k])>1<<LWAV_NBITS)//
 					//	printf("");
-					CLAMP2_32(params[kc][k], params[kc][k], -(1<<LWAV_NBITS), 1<<LWAV_NBITS);
+					CLAMP2(params[kc][k], -(1<<LWAV_NBITS), 1<<LWAV_NBITS);
 					//int val=abs(params[kc][k]);
 					//if(vmax<val)
 					//	vmax=val;
@@ -6096,7 +6197,7 @@ void pred_zipper(Image *src, int fwd, int enable_ma)
 				//int update=(abs(eS)>abs(eE)?eS:eE)/4;
 				MEDIAN3_32(pred, N, W, N+W-NW);
 				pred+=update;
-				CLAMP2_32(pred, pred, -half[kc], half[kc]-1);
+				CLAMP2(pred, -half[kc], half[kc]-1);
 				
 				pred^=negmask;
 				pred-=negmask;

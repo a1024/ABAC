@@ -10,7 +10,7 @@ static const char file[]=__FILE__;
 //	#define DISABLE_MT
 
 	#define ENABLE_AV2	//good
-	#define ENABLE_SSE2	//good for noisy areas		div-free SSE from NBLIC by WangXuan95
+//	#define ENABLE_SSE2	//good for noisy areas		div-free SSE from NBLIC by WangXuan95
 //	#define ENABLE_SSE	//good with MT			obsolete
 //	#define USE_ANGULAR_PRED//bad    15% slower
 //	#define USE_GR_ESTIM	//bad    Shannon estimate 0.4% better, but 4.9% slower, when both at stride 4
@@ -22,12 +22,12 @@ static const char file[]=__FILE__;
 #define ANALYSIS_YSTRIDE 2	//4	//3
 
 
-#define CODECNAME "C05"
+#define CODECNAME "C18"
 #define AC3_PREC
 #include"entropy.h"
 
 #define BLOCKSIZE 224	//192	//448
-#define MAXPRINTEDBLOCKS 50
+#define MAXPRINTEDBLOCKS 500
 //#define MIXBITS 8
 #define AC_THRESHOLD 0.21
 
@@ -202,9 +202,11 @@ typedef struct _ThreadArgs
 #endif
 #ifdef ENABLE_SSE2
 	int sse1[3][64][64];//147 KB
-	int sse2[3][64][64];
-	int sse3[3][64][64];
-	int sse4[3][256];
+	int sse2[3][256][16];
+	int sse3[3][256][16];
+	int sse4[3][256][16];
+	int sse5[3][64][64];
+	int sse6[3][512];
 #endif
 
 	//aux
@@ -931,7 +933,7 @@ static void block_thread(void *param)
 					OCH_R2, OCH_G2, OCH_B2
 				);
 
-				//AV4	(4*(N+W)+NE-NW)>>3
+				//AV4	(4*(N+W)+NE-NW)>>3		clamp(N, W, NE)
 				pred=_mm256_slli_epi16(_mm256_add_epi16(nb0[NB_N], nb0[NB_W]), 2);
 				pred=_mm256_add_epi16(pred, _mm256_sub_epi16(nb0[NB_NE], nb0[NB_NW]));
 				pred=_mm256_srai_epi16(pred, 3);
@@ -1203,6 +1205,9 @@ static void block_thread(void *param)
 				);
 
 				//AV12
+				//	+4	+3	-31	-38	+0
+				//	+7	-158	+219	+30	+19
+				//	-42	+243	[?]>>8		clamp(N, W, NE)
 				pred=_mm256_setzero_si256();
 				for(int k=0;k<(int)_countof(av12_icoeffs);++k)
 					pred=_mm256_add_epi16(pred, _mm256_mullo_epi16(av12_mcoeffs[k], nb0[k]));
@@ -1507,6 +1512,8 @@ static void block_thread(void *param)
 	memset(args->sse2, 0, sizeof(args->sse2));
 	memset(args->sse3, 0, sizeof(args->sse3));
 	memset(args->sse4, 0, sizeof(args->sse4));
+	memset(args->sse5, 0, sizeof(args->sse5));
+	memset(args->sse6, 0, sizeof(args->sse6));
 #endif
 	int *stats0[]=
 	{
@@ -1559,6 +1566,8 @@ static void block_thread(void *param)
 		int *curr_sse2[3]={0};
 		int *curr_sse3[3]={0};
 		int *curr_sse4[3]={0};
+		int *curr_sse5[3]={0};
+		int *curr_sse6[3]={0};
 #endif
 		int nbypass[3]={0};
 		for(int kx=args->x1;kx<args->x2;++kx)
@@ -2004,36 +2013,61 @@ static void block_thread(void *param)
 #ifdef ENABLE_SSE2
 #define SSE2_SCALE 4
 #define SSE2_DECAY 7
-			curr_sse1[0]=&args->sse1[0][((N[0]+W[0]+(NE[0]-NW[0])/2)>>1)&63][(preds[0]>>1)&63];
-			curr_sse2[0]=&args->sse2[0][((N[0]-NW[0])>>2)&63][((W[0]-WW[0])>>2)&63];
-			curr_sse3[0]=&args->sse3[0][((W[0]-NW[0])>>2)&63][((N[0]-NN[0])>>2)&63];
+			//if(idx==6099)//
+			//	printf("");
+			curr_sse1[0]=&args->sse1[0][((N[0]+W[0]+(NE[0]-NW[0])/2+4)>>3)&63][(preds[0]+2)>>2&63];
+			curr_sse1[1]=&args->sse1[1][((N[1]+W[1]+(NE[1]-NW[1])/2+4)>>3)&63][(preds[1]+2)>>2&63];
+			curr_sse1[2]=&args->sse1[2][((N[2]+W[2]+(NE[2]-NW[2])/2+4)>>3)&63][(preds[2]+2)>>2&63];
 			preds[0]+=(*curr_sse1[0]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
-			preds[0]+=(*curr_sse2[0]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
-			preds[0]+=(*curr_sse3[0]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
-			curr_sse4[0]=&args->sse4[0][preds[0]&255];
-			preds[0]+=(*curr_sse4[0]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
-
-			curr_sse1[1]=&args->sse1[1][((N[1]+W[1]+(NE[1]-NW[1])/2)>>1)&63][(preds[1]>>1)&63];
-			curr_sse2[1]=&args->sse2[1][((N[1]-NW[1])>>2)&63][((W[1]-WW[1])>>2)&63];
-			curr_sse3[1]=&args->sse3[1][((W[1]-NW[1])>>2)&63][((N[1]-NN[1])>>2)&63];
 			preds[1]+=(*curr_sse1[1]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
-			preds[1]+=(*curr_sse2[1]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
-			preds[1]+=(*curr_sse3[1]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
-			curr_sse4[1]=&args->sse4[1][preds[1]&255];
-			preds[1]+=(*curr_sse4[1]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
-
-			curr_sse1[2]=&args->sse1[2][((N[2]+W[2]+(NE[2]-NW[2])/2)>>1)&63][(preds[2]>>1)&63];
-			curr_sse2[2]=&args->sse2[2][((N[2]-NW[2])>>2)&63][((W[2]-WW[2])>>2)&63];
-			curr_sse3[2]=&args->sse3[2][((W[2]-NW[2])>>2)&63][((N[2]-NN[2])>>2)&63];
 			preds[2]+=(*curr_sse1[2]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
+			curr_sse2[0]=&args->sse2[0][(3*(N[0]-NN[0])+NNN[0]+1)>>1&255][(preds[0]+8)>>4&15];
+			curr_sse2[1]=&args->sse2[1][(3*(N[1]-NN[1])+NNN[1]+1)>>1&255][(preds[1]+8)>>4&15];
+			curr_sse2[2]=&args->sse2[2][(3*(N[2]-NN[2])+NNN[2]+1)>>1&255][(preds[2]+8)>>4&15];
+			curr_sse3[0]=&args->sse3[0][(3*(W[0]-WW[0])+WWW[0]+1)>>1&255][(preds[0]+8)>>4&15];
+			curr_sse3[1]=&args->sse3[1][(3*(W[1]-WW[1])+WWW[1]+1)>>1&255][(preds[1]+8)>>4&15];
+			curr_sse3[2]=&args->sse3[2][(3*(W[2]-WW[2])+WWW[2]+1)>>1&255][(preds[2]+8)>>4&15];
+			preds[0]+=(*curr_sse2[0]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
+			preds[1]+=(*curr_sse2[1]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
 			preds[2]+=(*curr_sse2[2]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
+			preds[0]+=(*curr_sse3[0]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
+			preds[1]+=(*curr_sse3[1]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
 			preds[2]+=(*curr_sse3[2]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
-			curr_sse4[2]=&args->sse4[2][preds[2]&255];
+			curr_sse4[0]=&args->sse4[0][(N[0]+W[0]-NW[0]+1)>>1&255][(preds[0]+8)>>4&15];
+			curr_sse4[1]=&args->sse4[1][(N[1]+W[1]-NW[1]+1)>>1&255][(preds[1]+8)>>4&15];
+			curr_sse4[2]=&args->sse4[2][(N[2]+W[2]-NW[2]+1)>>1&255][(preds[2]+8)>>4&15];
+			preds[0]+=(*curr_sse4[0]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
+			preds[1]+=(*curr_sse4[1]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
 			preds[2]+=(*curr_sse4[2]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
-
-			if(N[0]==W[0]&&N[0]==NW[0])preds[0]=W[0];//flat area correction
-			if(N[1]==W[1]&&N[1]==NW[1])preds[1]=W[1];
-			if(N[2]==W[2]&&N[2]==NW[2])preds[2]=W[2];
+			curr_sse5[0]=&args->sse5[0][(N[0]+NE[0]+4)>>3&63][(W[0]+NW[0]+4)>>3&63];
+			curr_sse5[1]=&args->sse5[1][(N[1]+NE[1]+4)>>3&63][(W[1]+NW[1]+4)>>3&63];
+			curr_sse5[2]=&args->sse5[2][(N[2]+NE[2]+4)>>3&63][(W[2]+NW[2]+4)>>3&63];
+			preds[0]+=(*curr_sse5[0]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
+			preds[1]+=(*curr_sse5[1]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
+			preds[2]+=(*curr_sse5[2]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
+			curr_sse6[0]=&args->sse6[0][preds[0]&511];
+			curr_sse6[1]=&args->sse6[1][preds[1]&511];
+			curr_sse6[2]=&args->sse6[2][preds[2]&511];
+			preds[0]+=(*curr_sse6[0]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
+			preds[1]+=(*curr_sse6[1]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
+			preds[2]+=(*curr_sse6[2]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
+#endif
+#if 0
+			{
+				__m128i mNW	=_mm_load_si128((__m128i*)NW);//flat area correction
+				__m128i mN	=_mm_load_si128((__m128i*)N);
+				__m128i mW	=_mm_load_si128((__m128i*)W);
+				__m128i mp=_mm_load_si128((__m128i*)preds);
+				__m128i mc=_mm_or_si128(_mm_sub_epi16(mN, mW), _mm_sub_epi16(mN, mNW));
+				mc=_mm_cmpeq_epi16(mc, _mm_setzero_si128());
+				mp=_mm_blendv_epi8(mp, mW, mc);
+			//	mp=_mm_max_epi16(mp, _mm_set1_epi16(-128));	//worse (?!)
+			//	mp=_mm_min_epi16(mp, _mm_set1_epi16(127));
+				_mm_store_si128((__m128i*)preds, mp);
+			}
+			//if(N[0]==W[0]&&N[0]==NW[0])preds[0]=W[0];//flat area correction
+			//if(N[1]==W[1]&&N[1]==NW[1])preds[1]=W[1];
+			//if(N[2]==W[2]&&N[2]==NW[2])preds[2]=W[2];
 			
 			//int correction[]=
 			//{
@@ -2050,7 +2084,7 @@ static void block_thread(void *param)
 			//preds[0]=correction[4*0+condition[0]];
 			//preds[1]=correction[4*1+condition[1]];
 			//preds[2]=correction[4*2+condition[2]];
-#endif
+
 			//int pred0[]=
 			//{
 			//	preds[0],
@@ -2059,10 +2093,11 @@ static void block_thread(void *param)
 			//};
 			//{
 			//	__m128i mp=_mm_load_si128((__m128i*)preds);	//worse
-			//	mp=_mm_max_epi32(mp, _mm_set1_epi32(-128));
-			//	mp=_mm_min_epi32(mp, _mm_set1_epi32(127));
+			//	mp=_mm_max_epi16(mp, _mm_set1_epi16(-128));
+			//	mp=_mm_min_epi16(mp, _mm_set1_epi16(127));
 			//	_mm_store_si128((__m128i*)preds, mp);
 			//}
+#endif
 			int sym=0;
 #ifndef DISABLE_RCTSEL
 			int offset;
@@ -2510,6 +2545,8 @@ static void block_thread(void *param)
 				*curr_sse2[0]=((*curr_sse2[0]*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
 				*curr_sse3[0]=((*curr_sse3[0]*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
 				*curr_sse4[0]=((*curr_sse4[0]*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
+				*curr_sse5[0]=((*curr_sse5[0]*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
+				*curr_sse6[0]=((*curr_sse6[0]*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
 			}
 			{
 				int e=(curr[1]-preds[1])<<SSE2_SCALE;
@@ -2517,6 +2554,8 @@ static void block_thread(void *param)
 				*curr_sse2[1]=((*curr_sse2[1]*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
 				*curr_sse3[1]=((*curr_sse3[1]*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
 				*curr_sse4[1]=((*curr_sse4[1]*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
+				*curr_sse5[1]=((*curr_sse5[1]*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
+				*curr_sse6[1]=((*curr_sse6[1]*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
 			}
 			{
 				int e=(curr[2]-preds[2])<<SSE2_SCALE;
@@ -2524,6 +2563,8 @@ static void block_thread(void *param)
 				*curr_sse2[2]=((*curr_sse2[2]*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
 				*curr_sse3[2]=((*curr_sse3[2]*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
 				*curr_sse4[2]=((*curr_sse4[2]*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
+				*curr_sse5[2]=((*curr_sse5[2]*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
+				*curr_sse6[2]=((*curr_sse6[2]*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
 			}
 #endif
 #if 0
