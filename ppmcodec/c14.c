@@ -13,6 +13,8 @@ static const char file[]=__FILE__;
 //	#define ESTIMATE_SIZE
 
 	#define ENABLE_WG//good
+//	#define ENABLE_SSE2
+//	#define ENABLE_SSE3_PROB	//bad
 //	#define A2_CTXMIXER//bad
 
 #define CODECNAME "C14"
@@ -28,6 +30,11 @@ static const char file[]=__FILE__;
 #define A2_SSECBITS 6
 #define A2_SSEPBITS 4
 #define A2_SSECTR 16
+
+#define SSE2_SCALE 4
+#define SSE2_DECAY 7
+#define SSE3_SCALE 4
+#define SSE3_DECAY 7
 
 
 #define OCHLIST\
@@ -461,6 +468,15 @@ typedef struct _ThreadArgs
 #ifdef A2_CTXMIXER
 	ALIGN(32) long long mixer[3][256][A2_NCTX];
 #endif
+#ifdef ENABLE_SSE2
+	int sse1[3][64][64];
+//	int sse2[3][256][16];
+//	int sse3[3][256][16];
+//	int sse4[3][256];
+#endif
+#ifdef ENABLE_SSE3_PROB
+	long long sse_prob[3][8][512];
+#endif
 
 	//aux
 	int blockidx;
@@ -477,7 +493,9 @@ static void block_thread(void *param)
 	ThreadArgs *args=(ThreadArgs*)param;
 	AC3 ec;
 	const unsigned char *image=args->fwd?args->src:args->dst;
-	unsigned char bestrct=0, combination[6]={0}, predidx[4]={0};
+	unsigned char bestrct=0;
+	const unsigned char *combination=0;
+	unsigned char predidx[4]={0};
 
 	if(args->fwd)
 	{
@@ -669,7 +687,7 @@ static void block_thread(void *param)
 			if(!kt||bestsize>csize)
 				bestsize=csize, bestrct=kt;
 		}
-		memcpy(combination, rct_combinations[bestrct], sizeof(combination));
+		combination=rct_combinations[bestrct];
 		predidx[0]=predsel[combination[0]];
 		predidx[1]=predsel[combination[1]];
 		predidx[2]=predsel[combination[2]];
@@ -719,11 +737,18 @@ static void block_thread(void *param)
 		blist_init(args->lists+args->currentblock);
 		ac3_enc_init(&ec, args->lists+args->currentblock);
 		ac3_enc_bypass_NPOT(&ec, bestrct, RCT_COUNT);
+	//	ac3_enc_bypass_NPOT(&ec, predidx[0], PRED_COUNT);
+	//	ac3_enc_bypass_NPOT(&ec, predidx[1], PRED_COUNT);
+	//	ac3_enc_bypass_NPOT(&ec, predidx[2], PRED_COUNT);
 	}
 	else
 	{
 		ac3_dec_init(&ec, args->decstart, args->decend);
 		bestrct=ac3_dec_bypass_NPOT(&ec, RCT_COUNT);
+		combination=rct_combinations[bestrct];
+	//	predidx[0]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
+	//	predidx[1]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
+	//	predidx[2]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
 	}
 #ifdef A2_CTXMIXER
 	FILLMEM((long long*)args->mixer, 0x3000, sizeof(args->mixer), sizeof(long long));
@@ -733,7 +758,15 @@ static void block_thread(void *param)
 #endif
 	FILLMEM((unsigned short*)args->stats, 0x8000, sizeof(args->stats), sizeof(short));
 	//memset(args->stats, 0, sizeof(args->stats));
-	
+#ifdef ENABLE_SSE2
+	memset(args->sse1, 0, sizeof(args->sse1));
+//	memset(args->sse2, 0, sizeof(args->sse2));
+//	memset(args->sse3, 0, sizeof(args->sse3));
+//	memset(args->sse4, 0, sizeof(args->sse4));
+#endif
+#ifdef ENABLE_SSE3_PROB
+	memset(args->sse_prob, 0, sizeof(args->sse_prob));
+#endif
 #ifdef ESTIMATE_SIZE
 	memset(args->hist2, 0, sizeof(args->hist2));
 #endif
@@ -768,7 +801,6 @@ static void block_thread(void *param)
 		};
 		int yuv[4]={0};
 		int pred=0, error=0;
-		const unsigned char *combination=rct_combinations[bestrct];
 		for(int kx=args->x1;kx<args->x2;++kx)
 		{
 			int idx=nch*(args->iw*ky+kx);
@@ -930,6 +962,21 @@ static void block_thread(void *param)
 					*eW	=erows[0]+kc3-1*4*WG_NPREDS,
 					*ecurr	=erows[0]+kc3+0*4*WG_NPREDS;
 				pred=wg_predict(wg_weights+WG_NPREDS*kc, rows, 4*2, kc2, 0, wg_perrors+WG_NPREDS*kc, eNW, eN, eNE, eNNE, wg_preds);
+#ifdef ENABLE_SSE2
+				int *curr_sse1=&args->sse1[kc][((N[kc2]+W[kc2]+(NE[kc2]-NW[kc2])/2+4)>>3)&63][(pred+2)>>2&63];
+				pred+=(*curr_sse1+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
+
+			//	int *curr_sse2=&args->sse2[kc][(N[kc2]-NW[kc2]+1)>>1&255][(pred+8)>>4&15];
+			//	int *curr_sse3=&args->sse3[kc][(W[kc2]-NW[kc2]+1)>>1&255][(pred+8)>>4&15];
+			//	pred+=(*curr_sse2+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
+			//	pred+=(*curr_sse3+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
+				//int *curr_sse_pred=&args->sse_pred[kc][((N[kc2]-W[kc2]+8)>>4)&63][(pred+2)>>2&63];
+				//if(args->fwd&&args->blockidx==0)
+				//	printf("%d\t%d\t%d\n", yuv[kc], pred0, pred);
+
+			//	int *curr_sse4=&args->sse4[kc][pred&255];
+			//	pred+=(*curr_sse4+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
+#endif
 				pred+=offset;
 				CLAMP2(pred, -128, 127);
 				int grad=
@@ -1046,8 +1093,14 @@ static void block_thread(void *param)
 					else
 						p0=0x8000, wsum=1;
 #endif
-				//	CLAMP2(p0, 1, 0xFFFF);
-					
+#ifdef ENABLE_SSE3_PROB
+					long long *curr_sse_prob=&args->sse_prob[kc][kb][p0>>7&511];
+					//int change=(*curr_sse_prob+(1<<(SSE3_DECAY+16)>>1))>>(SSE3_DECAY+16);
+					//if(abs(change)>100)
+					//	printf("");
+					p0+=(*curr_sse_prob+(1<<(SSE3_DECAY+SSE3_SCALE)>>1))>>(SSE3_DECAY+SSE3_SCALE);
+					CLAMP2(p0, 1, 0xFFFF);
+#endif
 					//p0=squash((int)((p0-0x8000)*abs(p0-0x8000)>>16));
 
 					//p0=(p0-0x8000)*abs(p0-0x8000)>>15; p0+=0x8000; CLAMP2(p0, 1, 0xFFFF);
@@ -1066,9 +1119,9 @@ static void block_thread(void *param)
 						bit=ac3_dec_bin(&ec, (int)p0, 16);
 						error|=bit<<kb;
 					}
-					int prob_error=abs((!bit<<16)-(int)p0);
-				//	int shift=FLOOR_LOG2(prob_error)>>1;
-					if(prob_error>512)
+					int truth=!bit<<16;
+					int prob_error=truth-(int)p0;
+					if(abs(prob_error)>512)
 					{
 						long long dL_dp0=0xE0000000000/((long long)((bit<<16)-(int)p0)*wsum);
 #if 1
@@ -1114,7 +1167,7 @@ static void block_thread(void *param)
 #endif
 					}
 #if 1
-					__m256i mtruth=_mm256_set1_epi64x((long long)!bit<<16);
+					__m256i mtruth=_mm256_set1_epi64x(truth);
 					__m256i mupdate0=_mm256_sub_epi64(_mm256_or_si256(mtruth, _mm256_load_si256((__m256i*)g_offset+0)), mprob0);
 					__m256i mupdate1=_mm256_sub_epi64(_mm256_or_si256(mtruth, _mm256_load_si256((__m256i*)g_offset+1)), mprob1);
 				//	__m256i mupdate2=_mm256_sub_epi64(_mm256_or_si256(mtruth, _mm256_load_si256((__m256i*)g_offset+2)), mprob2);
@@ -1145,6 +1198,14 @@ static void block_thread(void *param)
 						curr_stats[k][tidx]=p;
 					}
 #endif
+#ifdef ENABLE_SSE3_PROB
+					long long e=(long long)prob_error<<SSE3_SCALE;
+					*curr_sse_prob=((*curr_sse_prob*((1LL<<SSE3_DECAY)-1)+(1LL<<SSE3_DECAY>>1))>>SSE3_DECAY)+e;
+					//if(!kb)
+					//	printf("%lld\n", *curr_sse_prob);
+					//if(abs(*curr_sse_prob>>2)>0xFFFF)
+					//	printf("");
+#endif
 #ifndef A2_CTXMIXER
 					curr_mixer+=A2_NCTX;
 #endif
@@ -1159,6 +1220,13 @@ static void block_thread(void *param)
 				}
 #ifdef ESTIMATE_SIZE
 				++args->hist2[kc][(curr[kc2+1]+128)&255];
+#endif
+#ifdef ENABLE_SSE2
+				int e=curr[kc2+1]<<SSE2_SCALE;
+				*curr_sse1=((*curr_sse1*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
+			//	*curr_sse2=((*curr_sse2*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
+			//	*curr_sse3=((*curr_sse3*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
+			//	*curr_sse4=((*curr_sse4*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
 #endif
 				curr[kc2+0]-=offset;
 #ifdef ENABLE_WG

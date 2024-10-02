@@ -9,7 +9,7 @@ static const char file[]=__FILE__;
 
 
 #ifndef CODEC_FUNC
-#define CODEC_FUNC c18_codec
+#define CODEC_FUNC c15_codec
 #endif
 
 

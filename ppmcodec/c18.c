@@ -10,7 +10,7 @@ static const char file[]=__FILE__;
 //	#define DISABLE_MT
 
 	#define ENABLE_AV2	//good
-//	#define ENABLE_SSE2	//good for noisy areas		div-free SSE from NBLIC by WangXuan95
+//	#define ENABLE_SSE2	//good for noisy areas		div-free SSE from NBLIC by WangXuan95		2.613108 -> 2.632816
 //	#define ENABLE_SSE	//good with MT			obsolete
 //	#define USE_ANGULAR_PRED//bad    15% slower
 //	#define USE_GR_ESTIM	//bad    Shannon estimate 0.4% better, but 4.9% slower, when both at stride 4
@@ -2030,10 +2030,10 @@ static void block_thread(void *param)
 #define SSE2_DECAY 7
 			//if(idx==6099)//
 			//	printf("");
-			curr_sse1[0]=&args->sse1[0][((N[0]+W[0]+(NE[0]-NW[0])/2+4)>>3)&63][(preds[0]+2)>>2&63];
-			curr_sse1[1]=&args->sse1[1][((N[1]+W[1]+(NE[1]-NW[1])/2+4)>>3)&63][(preds[1]+2)>>2&63];
-			curr_sse1[2]=&args->sse1[2][((N[2]+W[2]+(NE[2]-NW[2])/2+4)>>3)&63][(preds[2]+2)>>2&63];
-			preds[0]+=(*curr_sse1[0]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
+			curr_sse1[0]=&args->sse1[0][(N[0]+W[0]+(NE[0]-NW[0])/2+4)>>3&63][(preds[0]+2)>>2&63];
+			curr_sse1[1]=&args->sse1[1][(N[1]+W[1]+(NE[1]-NW[1])/2+4)>>3&63][(preds[1]+2)>>2&63];
+			curr_sse1[2]=&args->sse1[2][(N[2]+W[2]+(NE[2]-NW[2])/2+4)>>3&63][(preds[2]+2)>>2&63];
+			preds[0]+=(*curr_sse1[0]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);//2.613108 -> 2.624025
 			preds[1]+=(*curr_sse1[1]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
 			preds[2]+=(*curr_sse1[2]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
 			curr_sse2[0]=&args->sse2[0][(3*(N[0]-NN[0])+NNN[0]+1)>>1&255][(preds[0]+8)>>4&15];
@@ -2042,28 +2042,28 @@ static void block_thread(void *param)
 			curr_sse3[0]=&args->sse3[0][(3*(W[0]-WW[0])+WWW[0]+1)>>1&255][(preds[0]+8)>>4&15];
 			curr_sse3[1]=&args->sse3[1][(3*(W[1]-WW[1])+WWW[1]+1)>>1&255][(preds[1]+8)>>4&15];
 			curr_sse3[2]=&args->sse3[2][(3*(W[2]-WW[2])+WWW[2]+1)>>1&255][(preds[2]+8)>>4&15];
-			preds[0]+=(*curr_sse2[0]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
+			preds[0]+=(*curr_sse2[0]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);//2.613108 -> 2.616589
 			preds[1]+=(*curr_sse2[1]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
 			preds[2]+=(*curr_sse2[2]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
-			preds[0]+=(*curr_sse3[0]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
+			preds[0]+=(*curr_sse3[0]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);//2.613108 -> 2.618468
 			preds[1]+=(*curr_sse3[1]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
 			preds[2]+=(*curr_sse3[2]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
 			curr_sse4[0]=&args->sse4[0][(N[0]+W[0]-NW[0]+1)>>1&255][(preds[0]+8)>>4&15];
 			curr_sse4[1]=&args->sse4[1][(N[1]+W[1]-NW[1]+1)>>1&255][(preds[1]+8)>>4&15];
 			curr_sse4[2]=&args->sse4[2][(N[2]+W[2]-NW[2]+1)>>1&255][(preds[2]+8)>>4&15];
-			preds[0]+=(*curr_sse4[0]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
+			preds[0]+=(*curr_sse4[0]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);//2.613108 -> 2.622749
 			preds[1]+=(*curr_sse4[1]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
 			preds[2]+=(*curr_sse4[2]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
 			curr_sse5[0]=&args->sse5[0][(N[0]+NE[0]+4)>>3&63][(W[0]+NW[0]+4)>>3&63];
 			curr_sse5[1]=&args->sse5[1][(N[1]+NE[1]+4)>>3&63][(W[1]+NW[1]+4)>>3&63];
 			curr_sse5[2]=&args->sse5[2][(N[2]+NE[2]+4)>>3&63][(W[2]+NW[2]+4)>>3&63];
-			preds[0]+=(*curr_sse5[0]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
+			preds[0]+=(*curr_sse5[0]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);//2.613108 -> 2.618170
 			preds[1]+=(*curr_sse5[1]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
 			preds[2]+=(*curr_sse5[2]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
 			curr_sse6[0]=&args->sse6[0][preds[0]&511];
 			curr_sse6[1]=&args->sse6[1][preds[1]&511];
 			curr_sse6[2]=&args->sse6[2][preds[2]&511];
-			preds[0]+=(*curr_sse6[0]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
+			preds[0]+=(*curr_sse6[0]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);//2.613108 -> 2.624963
 			preds[1]+=(*curr_sse6[1]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
 			preds[2]+=(*curr_sse6[2]+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
 #endif
