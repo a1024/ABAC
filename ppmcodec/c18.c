@@ -1648,7 +1648,8 @@ static void block_thread(void *param)
 //	#define GR_PREDICT(DST, IDX) DST=(7*W[3*2+IDX]+3*(NE[3*1+IDX]+N[3*3+IDX]+(IDX==0?W[3*3+IDX]:WW[3*3+IDX])))>>4, DST+=(DST)<4
 	#define GR_UPDATE1(IDX) (MAXVAR(NW[IDX], W[IDX])+sym+NEE[IDX]+MAXVAR(WW[IDX], WWW[IDX]))>>2	//for SW (thru NE)
 	#define GR_UPDATE2(IDX) (MAXVAR(WW[IDX], W[IDX])+sym+NE[IDX]+MAXVAR(NEE[IDX], NEEE[IDX]))>>2	//for E (thru W)
-	#define GR_UPDATE3(IDX) (MAXVAR(NE[IDX], N[IDX])+(IDX==9?W[IDX]:WW[IDX])+sym)/3
+	#define GR_UPDATE3(IDX) (W[IDX]+sym+MAXVAR(N[IDX], NE[IDX]))/3
+//	#define GR_UPDATE3(IDX) (MAXVAR(NE[IDX], N[IDX])+(IDX==9?W[IDX]:WW[IDX])+sym)/3
 //	#define UPDATE_FORMULA3(IDX) (N[IDX]+(IDX==9?W[IDX]:WW[IDX])+sym)/3
 //	#define UPDATE_FORMULA3(IDX) sym
 //	#define UPDATE_FORMULA3(IDX) (MAXVAR(N[IDX], W[IDX])+sym)>>1
