@@ -14,7 +14,7 @@ static const char file[]=__FILE__;
 
 	#define ENABLE_WG//good
 //	#define ENABLE_SSE2
-//	#define ENABLE_SSE3_PROB	//bad
+//	#define ENABLE_SSE3_PROB
 //	#define A2_CTXMIXER//bad
 
 #define CODECNAME "C14"
@@ -469,7 +469,7 @@ typedef struct _ThreadArgs
 	ALIGN(32) long long mixer[3][256][A2_NCTX];
 #endif
 #ifdef ENABLE_SSE2
-	int sse1[3][64][64];
+	int sse1[3][32][64];
 //	int sse2[3][256][16];
 //	int sse3[3][256][16];
 //	int sse4[3][256];
@@ -963,7 +963,7 @@ static void block_thread(void *param)
 					*ecurr	=erows[0]+kc3+0*4*WG_NPREDS;
 				pred=wg_predict(wg_weights+WG_NPREDS*kc, rows, 4*2, kc2, 0, wg_perrors+WG_NPREDS*kc, eNW, eN, eNE, eNNE, wg_preds);
 #ifdef ENABLE_SSE2
-				int *curr_sse1=&args->sse1[kc][((N[kc2]+W[kc2]+(NE[kc2]-NW[kc2])/2+4)>>3)&63][(pred+2)>>2&63];
+				int *curr_sse1=&args->sse1[kc][((N[kc2]-W[kc2]+8)>>4)&31][(pred+2)>>2&63];
 				pred+=(*curr_sse1+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
 
 			//	int *curr_sse2=&args->sse2[kc][(N[kc2]-NW[kc2]+1)>>1&255][(pred+8)>>4&15];

@@ -18,6 +18,7 @@
 	c17.c
 	c18.c
 	c19.c
+	c20.c
 	codec.c
 	util.c
 )

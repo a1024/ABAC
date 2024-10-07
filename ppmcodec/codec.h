@@ -39,6 +39,7 @@ int c16_codec(const char *srcfn, const char *dstfn);//ST SubG CG AC o0 separate 
 int c17_codec(const char *srcfn, const char *dstfn);//ST SubPrev GR (speed test)
 int c18_codec(const char *srcfn, const char *dstfn);//MT SubG AC/GR
 int c19_codec(const char *srcfn, const char *dstfn);//ST static o0
+int c20_codec(const char *srcfn, const char *dstfn);//MT SubG tANS (TODO)
 
 	
 #ifdef __cplusplus
