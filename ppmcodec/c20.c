@@ -297,8 +297,8 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				++curr_dens	[2*2+0][0];
 				++curr_dens	[2*2+1][0];
 
-				--Nptr;
-				--ptr;
+				Nptr	-=3;
+				ptr	-=3;
 			}
 			for(;kx>4;kx-=5)	//fast predict
 			{
@@ -466,8 +466,8 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				++curr_dens	[2*2+0][0];
 				++curr_dens	[2*2+1][0];
 
-				--Nptr;
-				--ptr;
+				Nptr	-=3;
+				ptr	-=3;
 			}
 			{
 				int N, curr;
@@ -511,8 +511,8 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				++curr_dens	[2*2+0][0];
 				++curr_dens	[2*2+1][0];
 
-				--Nptr;
-				--ptr;
+				Nptr	-=3;
+				ptr	-=3;
 			}
 			if(!(ky%hperiod))
 			{
@@ -602,17 +602,20 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				};
 				int sym, den, cdf, freq;
 
-				//enc Y
-				sym=yuv[0];
-				--curr_hists	[2*0+0][sym];
-				--curr_hists	[2*0+1][sym];
-				--curr_dens	[2*0+0][0];
-				--curr_dens	[2*0+1][0];
-				den=curr_dens[2*0+0][0]+curr_dens[2*0+1][0]+256;
+				//enc V
+#define KC 2
+				sym=yuv[KC];
+				if(!curr_hists[2*KC+0][sym])LOG_ERROR("");//
+				if(!curr_hists[2*KC+1][sym])LOG_ERROR("");//
+				--curr_hists	[2*KC+0][sym];
+				--curr_hists	[2*KC+1][sym];
+				--curr_dens	[2*KC+0][0];
+				--curr_dens	[2*KC+1][0];
+				den=curr_dens[2*KC+0][0]+curr_dens[2*KC+1][0]+256;
 				cdf=0;
 				for(int k=0;;++k)
 				{
-					freq=curr_hists[2*0+0][k]+curr_hists[2*0+1][k]+1;
+					freq=curr_hists[2*KC+0][k]+curr_hists[2*KC+1][k]+1;
 					if(k>=sym)
 						break;
 					cdf+=freq;
@@ -625,20 +628,24 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				debug_enc_update(state, den, cdf, freq, sym);
 				state=state/freq*den+cdf+state%freq;
 #ifdef ESTIMATE_SIZE
-				csizes[0]-=log2((double)freq/den);
+				csizes[KC]-=log2((double)freq/den);
 #endif
+#undef  KC
 				
 				//enc U
-				sym=yuv[1];
-				--curr_hists	[2*1+0][sym];
-				--curr_hists	[2*1+1][sym];
-				--curr_dens	[2*1+0][0];
-				--curr_dens	[2*1+1][0];
-				den=curr_dens[2*1+0][0]+curr_dens[2*1+1][0]+256;
+#define KC 1
+				sym=yuv[KC];
+				if(!curr_hists[2*KC+0][sym])LOG_ERROR("");//
+				if(!curr_hists[2*KC+1][sym])LOG_ERROR("");//
+				--curr_hists	[2*KC+0][sym];
+				--curr_hists	[2*KC+1][sym];
+				--curr_dens	[2*KC+0][0];
+				--curr_dens	[2*KC+1][0];
+				den=curr_dens[2*KC+0][0]+curr_dens[2*KC+1][0]+256;
 				cdf=0;
 				for(int k=0;;++k)
 				{
-					freq=curr_hists[2*1+0][k]+curr_hists[2*1+1][k]+1;
+					freq=curr_hists[2*KC+0][k]+curr_hists[2*KC+1][k]+1;
 					if(k>=sym)
 						break;
 					cdf+=freq;
@@ -651,20 +658,24 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				debug_enc_update(state, den, cdf, freq, sym);
 				state=state/freq*den+cdf+state%freq;
 #ifdef ESTIMATE_SIZE
-				csizes[1]-=log2((double)freq/den);
+				csizes[KC]-=log2((double)freq/den);
 #endif
+#undef  KC
 				
-				//enc V
-				sym=yuv[2];
-				--curr_hists	[2*2+0][sym];
-				--curr_hists	[2*2+1][sym];
-				--curr_dens	[2*2+0][0];
-				--curr_dens	[2*2+1][0];
-				den=curr_dens[2*2+0][0]+curr_dens[2*2+1][0]+256;
+				//enc Y
+#define KC 0
+				sym=yuv[KC];
+				if(!curr_hists[2*KC+0][sym])LOG_ERROR("");//
+				if(!curr_hists[2*KC+1][sym])LOG_ERROR("");//
+				--curr_hists	[2*KC+0][sym];
+				--curr_hists	[2*KC+1][sym];
+				--curr_dens	[2*KC+0][0];
+				--curr_dens	[2*KC+1][0];
+				den=curr_dens[2*KC+0][0]+curr_dens[2*KC+1][0]+256;
 				cdf=0;
 				for(int k=0;;++k)
 				{
-					freq=curr_hists[2*2+0][k]+curr_hists[2*2+1][k]+1;
+					freq=curr_hists[2*KC+0][k]+curr_hists[2*KC+1][k]+1;
 					if(k>=sym)
 						break;
 					cdf+=freq;
@@ -677,8 +688,9 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				debug_enc_update(state, den, cdf, freq, sym);
 				state=state/freq*den+cdf+state%freq;
 #ifdef ESTIMATE_SIZE
-				csizes[2]-=log2((double)freq/den);
+				csizes[KC]-=log2((double)freq/den);
 #endif
+#undef  KC
 
 				ptr-=3;
 			}
@@ -794,7 +806,8 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				int den, quotient, remainder, cdf, freq, sym;
 				
 				//dec Y
-				den=dens[2*0+0]+dens[2*0+1]+256;
+#define KC 0
+				den=dens[2*KC+0]+dens[2*KC+1]+256;
 				quotient=state/den;
 				remainder=state%den;
 				sym=0;
@@ -803,7 +816,7 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				{
 					unsigned cdf2;
 
-					freq=hists[2*0+0][sym]+hists[2*0+1][sym]+1;
+					freq=hists[2*KC+0][sym]+hists[2*KC+1][sym]+1;
 					cdf2=cdf+freq;
 					if(cdf2>(unsigned)remainder)
 						break;
@@ -814,12 +827,13 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				state=quotient*freq+remainder-cdf;
 				if(state<(unsigned)den)
 					state=state<<16|*ptr--;
-				++hists	[2*0+0][sym];
-				++hists	[2*0+1][sym];
-				++dens	[2*0+0];
-				++dens	[2*0+1];
+				++hists	[2*KC+0][sym];
+				++hists	[2*KC+1][sym];
+				++dens	[2*KC+0];
+				++dens	[2*KC+1];
 				sym=sym>>1^-(sym&1);
-				curr[0+0]=(sym+preds[0])<<24>>24;
+				curr[KC]=(sym+preds[KC])<<24>>24;
+#undef  KC
 
 				preds[1]+=curr[0];
 				CLAMP2(preds[1], -128, 127);
@@ -827,7 +841,8 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				CLAMP2(preds[2], -128, 127);
 				
 				//dec U
-				den=dens[2*1+0]+dens[2*1+1]+256;
+#define KC 1
+				den=dens[2*KC+0]+dens[2*KC+1]+256;
 				quotient=state/den;
 				remainder=state%den;
 				sym=0;
@@ -836,7 +851,7 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				{
 					unsigned cdf2;
 
-					freq=hists[2*1+0][sym]+hists[2*1+1][sym]+1;
+					freq=hists[2*KC+0][sym]+hists[2*KC+1][sym]+1;
 					cdf2=cdf+freq;
 					if(cdf2>(unsigned)remainder)
 						break;
@@ -847,15 +862,17 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				state=quotient*freq+remainder-cdf;
 				if(state<(unsigned)den)
 					state=state<<16|*ptr--;
-				++hists	[2*1+0][sym];
-				++hists	[2*1+1][sym];
-				++dens	[2*1+0];
-				++dens	[2*1+1];
+				++hists	[2*KC+0][sym];
+				++hists	[2*KC+1][sym];
+				++dens	[2*KC+0];
+				++dens	[2*KC+1];
 				sym=sym>>1^-(sym&1);
-				curr[0+1]=(sym+preds[1])<<24>>24;
+				curr[KC]=(sym+preds[KC])<<24>>24;
+#undef  KC
 				
 				//dec V
-				den=dens[2*2+0]+dens[2*2+1]+256;
+#define KC 2
+				den=dens[2*KC+0]+dens[2*KC+1]+256;
 				quotient=state/den;
 				remainder=state%den;
 				sym=0;
@@ -864,7 +881,7 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				{
 					unsigned cdf2;
 
-					freq=hists[2*2+0][sym]+hists[2*2+1][sym]+1;
+					freq=hists[2*KC+0][sym]+hists[2*KC+1][sym]+1;
 					cdf2=cdf+freq;
 					if(cdf2>(unsigned)remainder)
 						break;
@@ -875,12 +892,12 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				state=quotient*freq+remainder-cdf;
 				if(state<(unsigned)den)
 					state=state<<16|*ptr--;
-				++hists	[2*2+0][sym];
-				++hists	[2*2+1][sym];
-				++dens	[2*2+0];
-				++dens	[2*2+1];
-				curr[0+2]=(sym+preds[2])<<24>>24;
-				
+				++hists	[2*KC+0][sym];
+				++hists	[2*KC+1][sym];
+				++dens	[2*KC+0];
+				++dens	[2*KC+1];
+				curr[KC]=(sym+preds[KC])<<24>>24;
+#undef  KC
 
 			//	curr[4+0]=rows[0]-preds[0];
 			//	curr[4+1]=rows[1]-preds[1];
