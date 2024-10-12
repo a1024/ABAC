@@ -35,8 +35,11 @@
 #include<Windows.h>//QueryPerformance...
 #include<processthreadsapi.h>
 #include<conio.h>
+#include<psapi.h>
 #else
 #include<dirent.h>
+#include<sys/types.h>
+#include<sys/sysinfo.h>
 #define sprintf_s	snprintf
 #define vsprintf_s	vsnprintf
 #ifndef _HUGE
@@ -2895,6 +2898,32 @@ int query_cpu_cores(void)
 	return info.dwNumberOfProcessors;
 #else
 	return sysconf(_SC_NPROCESSORS_ONLN);
+#endif
+}
+size_t query_mem_usage()
+{
+#ifdef _WIN32
+	PROCESS_MEMORY_COUNTERS_EX pmc={0};
+	K32GetProcessMemoryInfo(GetCurrentProcess(), (PROCESS_MEMORY_COUNTERS*)&pmc, sizeof(pmc));
+	return pmc.PrivateUsage;
+#else
+	FILE *file=fopen("/proc/self/status", "r");
+	size_t result=0;
+	char line[128];
+
+	while(fgets(line, 128, file))
+	{
+		if(!strncmp(line, "VmSize:", 7))
+		{
+			//const char *p=line+7;
+			//while((unsigned)(*p-'0')>=10)++p;
+			//result=atoi(p);
+			result=atoi(line+7);
+			break;
+		}
+	}
+	fclose(file);
+	return result<<10;//KB -> bytes
 #endif
 }
 

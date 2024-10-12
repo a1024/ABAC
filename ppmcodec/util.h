@@ -151,6 +151,7 @@ extern "C"
 #define LSB_IDX_64(X)	(int)_tzcnt_u64(X)
 #define LSB_IDX_32(X)	(int)_tzcnt_u32(X)
 #define LSB_IDX_16(X)	(int)_tzcnt_u16(X)
+#define HAMMING_WEIGHT(X) (int)(sizeof(X)==8?_mm_popcnt_u32(X):_mm_popcnt_u64(X))
 
 #define G_BUF_SIZE 4096
 extern char g_buf[G_BUF_SIZE];
@@ -215,7 +216,7 @@ typedef struct TimeInfoStruct
 } TimeInfo;
 void parsetimedelta(double secs, TimeInfo *ti);
 int timedelta2str(char *buf, size_t len, double secs);
-int acme_strftime(char *buf, size_t len, const char *format);//prints current time to string
+int acme_strftime(char *buf, size_t len, const char *format);//prints current time to string, recommended format: "%Y-%m-%d_%H%M%S"
 
 int print_bin8(int x);
 int print_bin32(unsigned x);
@@ -529,6 +530,7 @@ ArrayHandle searchfor_file(const char *searchpath, const char *filetitle);
 
 int get_cpu_features(void);//returns  0: old CPU,  1: AVX2,  3: AVX-512
 int query_cpu_cores(void);
+size_t query_mem_usage();
 
 void* mt_exec(void (*func)(void*), void *args, int argbytes, int nthreads);
 void  mt_finish(void *ctx);

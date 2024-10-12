@@ -8,7 +8,10 @@ static const char file[]=__FILE__;
 
 
 //	#define ESTIMATE_SIZE
+//	#define ENABLE_BRUTEFORCE
 
+
+#define C19_PROB_BITS 14
 
 #define AC3_PREC
 #include"entropy.h"
@@ -860,32 +863,43 @@ static void c19_analyze(const unsigned char *src, int iw, int ih, AnalysisInfo *
 }
 
 
+#if 1
+#define CLAMPGRAD(PRED, N, W, GRAD)\
+	do\
+	{\
+		int _vmin=N, _vmax=W, _G;\
+		if(_vmax<_vmin)\
+		{\
+			_vmax=N;\
+			_vmin=W;\
+		}\
+		_G=GRAD;\
+		if(_G<_vmin)\
+			_G=_vmin;\
+		if(_G>_vmax)\
+			_G=_vmax;\
+		PRED=_G;\
+	}while(0)
+#else
+#define CLAMPGRAD(PRED, N, W, GRAD) MEDIAN3_32(PRED, N, W, GRAD)
+#endif
+
+
 static void update_CDF(const int *hist, unsigned *CDF)
 {
-	int hsum=0, nused=0;
+	int hsum=0;
 	for(int ks=0;ks<256;++ks)
 	{
 		int freq=hist[ks];
 		hsum+=freq;
-		nused+=freq!=0;
 	}
-	for(int ks=0, c=0, guard=0;ks<256;++ks)
+	for(int ks=0, c=0;ks<256;++ks)
 	{
 		int freq=hist[ks];
-	//	CDF[ks]=(int)(c*((1LL<<16)-nused)/hsum)+guard;
-		CDF[ks]=(int)(c*((1LL<<16)-256)/hsum)+ks;
+		CDF[ks]=(int)(c*((1LL<<C19_PROB_BITS)-256)/hsum)+ks;
 		c+=freq;
-		guard+=freq!=0;
 	}
-	CDF[256]=1<<16;
-	//const int hsum=hist[nlevels];
-	//for(int ks=0, c=0;ks<nlevels;++ks)
-	//{
-	//	int freq=hist[ks];
-	//	CDF[ks]=(int)(c*((1LL<<16)-nlevels)/hsum)+ks;
-	//	c+=freq;
-	//}
-	//CDF[nlevels]=1<<16;
+	CDF[256]=1<<C19_PROB_BITS;
 }
 int c19_codec(const char *srcfn, const char *dstfn)
 {
@@ -929,7 +943,7 @@ int c19_codec(const char *srcfn, const char *dstfn)
 	srcptr=srcbuf;
 	srcend=srcbuf+srcsize;
 
-	if(srcsize<2)
+	if(srcsize<=2)
 	{
 		LOG_ERROR("File is empty");
 		return 1;
@@ -998,7 +1012,7 @@ int c19_codec(const char *srcfn, const char *dstfn)
 
 	int psize=(iw+16LL)*sizeof(short[4*4]);//4 padded rows * 4 channels max
 	short *pixels=(short*)_mm_malloc(psize, sizeof(__m128i));
-	int hsize=(int)sizeof(unsigned[3][257]);
+	int hsize=(int)sizeof(int[3][257]);
 	unsigned *CDF=(unsigned*)malloc(hsize);
 	unsigned char *CDF2sym=0;
 	if(!pixels||!CDF)
@@ -1009,61 +1023,297 @@ int c19_codec(const char *srcfn, const char *dstfn)
 	BList list={0};
 	AC3 ec={0};
 	memset(pixels, 0, psize);
+#ifdef ENABLE_BRUTEFORCE
 	int bestrct=0;
 	const unsigned char *rctinfo=0;
 	int predidx[3]={0};
+#endif
 	if(fwd)//encode
 	{
+#ifdef _MSC_VER
+		double t_analysis=time_sec();
+		unsigned long long c_analysis=__rdtsc();
+#endif
 		AnalysisInfo info={0};
+#ifdef ENABLE_BRUTEFORCE
 		c19_analyze(image, iw, ih, &info);
+#else
+#if 1
+		ALIGN(16) short
+			errorsY[8]={0},
+			errorsU[8]={0},
+			errorsV[8]={0};
+		__m128i getY=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,    8,  7,    6,  5,    4,  3,    2,  1,    0
+			-1, -1, -1, -1, -1, -1, -1, 12+1, -1,  9+1, -1,  6+1, -1,  3+1, -1,  0+1
+		);
+		__m128i getU=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,    8,  7,    6,  5,    4,  3,    2,  1,    0
+			-1, -1, -1, -1, -1, -1, -1, 12+0, -1,  9+2, -1,  6+2, -1,  3+2, -1,  0+2
+		);
+		__m128i getV=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,    8,  7,    6,  5,    4,  3,    2,  1,    0
+			-1, -1, -1, -1, -1, -1, -1, 12+0, -1,  9+0, -1,  6+0, -1,  3+0, -1,  0+0
+		);
+		__m128i mmin=_mm_set1_epi16(0);
+		__m128i mmax=_mm_set1_epi16(255);
+		__m128i mhalf=_mm_set1_epi16(128);
+#endif
+		for(int ky=1;ky<ih;++ky)
+		{
+			//ALIGN(16) int preds[4]={0};
+			unsigned char *Nptr	=image+3*(iw*(ky-1)+1);
+			unsigned char *ptr	=image+3*(iw*(ky+0)+1);
+			for(int kx=1;kx<=iw-5;kx+=5)
+			{
+				//>2x faster
+#if 1
+				__m128i mNW	=_mm_loadu_si128((__m128i*)(Nptr	-1*3));
+				__m128i mN	=_mm_loadu_si128((__m128i*)(Nptr	+0*3));
+				__m128i mW	=_mm_loadu_si128((__m128i*)(ptr		-1*3));
+				__m128i mcurr	=_mm_loadu_si128((__m128i*)(ptr		+0*3));
+				__m128i mNW0	=_mm_shuffle_epi8(mNW, getY);
+				__m128i mNW1	=_mm_shuffle_epi8(mNW, getU);
+				__m128i mNW2	=_mm_shuffle_epi8(mNW, getV);
+				__m128i mN0	=_mm_shuffle_epi8(mN, getY);
+				__m128i mN1	=_mm_shuffle_epi8(mN, getU);
+				__m128i mN2	=_mm_shuffle_epi8(mN, getV);
+				__m128i mW0	=_mm_shuffle_epi8(mW, getY);
+				__m128i mW1	=_mm_shuffle_epi8(mW, getU);
+				__m128i mW2	=_mm_shuffle_epi8(mW, getV);
+				__m128i mcurr0	=_mm_shuffle_epi8(mcurr, getY);
+				__m128i mcurr1	=_mm_shuffle_epi8(mcurr, getU);
+				__m128i mcurr2	=_mm_shuffle_epi8(mcurr, getV);
+				
+				mNW1=_mm_sub_epi16(mNW1, mNW0);
+				mNW2=_mm_sub_epi16(mNW2, mNW0);
+				mN1=_mm_sub_epi16(mN1, mN0);
+				mN2=_mm_sub_epi16(mN2, mN0);
+				mW1=_mm_sub_epi16(mW1, mW0);
+				mW2=_mm_sub_epi16(mW2, mW0);
+				__m128i vmin0=_mm_min_epi16(mN0, mW0);
+				__m128i vmin1=_mm_min_epi16(mN1, mW1);
+				__m128i vmin2=_mm_min_epi16(mN2, mW2);
+				__m128i vmax0=_mm_max_epi16(mN0, mW0);
+				__m128i vmax1=_mm_max_epi16(mN1, mW1);
+				__m128i vmax2=_mm_max_epi16(mN2, mW2);
+				__m128i mp0=_mm_add_epi16(mN0, mW0);
+				__m128i mp1=_mm_add_epi16(mN1, mW1);
+				__m128i mp2=_mm_add_epi16(mN2, mW2);
+				mp0=_mm_sub_epi16(mp0, mNW0);
+				mp1=_mm_sub_epi16(mp1, mNW1);
+				mp2=_mm_sub_epi16(mp2, mNW2);
+				mp0=_mm_max_epi16(mp0, vmin0);
+				mp1=_mm_max_epi16(mp1, vmin1);
+				mp2=_mm_max_epi16(mp2, vmin2);
+				mp0=_mm_min_epi16(mp0, vmax0);
+				mp1=_mm_min_epi16(mp1, vmax1);
+				mp2=_mm_min_epi16(mp2, vmax2);
+				mp1=_mm_add_epi16(mp1, mcurr0);
+				mp2=_mm_add_epi16(mp2, mcurr0);
+				mp1=_mm_max_epi16(mp1, mmin);
+				mp2=_mm_max_epi16(mp2, mmin);
+				mp1=_mm_min_epi16(mp1, mmax);
+				mp2=_mm_min_epi16(mp2, mmax);
+				mcurr0=_mm_add_epi16(mcurr0, mhalf);
+				mcurr1=_mm_add_epi16(mcurr1, mhalf);
+				mcurr2=_mm_add_epi16(mcurr2, mhalf);
+				mp0=_mm_sub_epi16(mcurr0, mp0);
+				mp1=_mm_sub_epi16(mcurr1, mp1);
+				mp2=_mm_sub_epi16(mcurr2, mp2);
+				mp0=_mm_and_si128(mp0, mmax);
+				mp1=_mm_and_si128(mp1, mmax);
+				mp2=_mm_and_si128(mp2, mmax);
+				_mm_store_si128((__m128i*)errorsY, mp0);
+				_mm_store_si128((__m128i*)errorsU, mp1);
+				_mm_store_si128((__m128i*)errorsV, mp2);
+
+				++info.hist[0][errorsY[0]];
+				++info.hist[1][errorsU[0]];
+				++info.hist[2][errorsV[0]];
+				++info.hist[0][errorsY[1]];
+				++info.hist[1][errorsU[1]];
+				++info.hist[2][errorsV[1]];
+				++info.hist[0][errorsY[2]];
+				++info.hist[1][errorsU[2]];
+				++info.hist[2][errorsV[2]];
+				++info.hist[0][errorsY[3]];
+				++info.hist[1][errorsU[3]];
+				++info.hist[2][errorsV[3]];
+				++info.hist[0][errorsY[4]];
+				++info.hist[1][errorsU[4]];
+				++info.hist[2][errorsV[4]];
+
+				Nptr	+=3*5;
+				ptr	+=3*5;
+#endif
+
+				//slightly faster
+#if 0
+				__m128i mNW=_mm_set_epi32(
+					0,
+					Nptr	[0-1*3]-Nptr	[1-1*3],
+					Nptr	[2-1*3]-Nptr	[1-1*3],
+					Nptr	[1-1*3]-128
+				);
+				__m128i mN=_mm_set_epi32(
+					0,
+					Nptr	[0+0*3]-Nptr	[1+0*3],
+					Nptr	[2+0*3]-Nptr	[1+0*3],
+					Nptr	[1+0*3]-128
+				);
+				__m128i mW=_mm_set_epi32(
+					0,
+					ptr	[0-1*3]-ptr	[1-1*3],	//V
+					ptr	[2-1*3]-ptr	[1-1*3],	//U
+					ptr	[1-1*3]-128			//Y
+				);
+				int curr=ptr[1+0*3];
+				int offset=curr-128;
+				__m128i moffset=_mm_set_epi32(
+					0,
+					offset,		//V
+					offset,		//U
+					0		//Y
+				);
+				__m128i vmin=_mm_min_epi32(mN, mW);
+				__m128i vmax=_mm_max_epi32(mN, mW);
+				__m128i mp=_mm_sub_epi32(_mm_add_epi32(mN, mW), mNW);
+				mp=_mm_max_epi32(mp, vmin);
+				mp=_mm_min_epi32(mp, vmax);
+				mp=_mm_add_epi32(mp, moffset);
+				mp=_mm_max_epi32(mp, _mm_set1_epi32(-128));
+				mp=_mm_min_epi32(mp, _mm_set1_epi32(+127));
+				_mm_store_si128((__m128i*)preds, mp);
+
+				++info.hist[0][(curr-preds[0])&255];
+				++info.hist[1][(ptr[2+0*3]-preds[1])&255];
+				++info.hist[2][(ptr[0+0*3]-preds[2])&255];
+
+				Nptr	+=3;
+				ptr	+=3;
+#endif
+
+#if 0
+				int NW, N, W, curr;
+				int offset, pred;
+
+				//if(ky==256&&kx==256)//
+				//	printf("");
+				
+				NW	=Nptr	[1-1*3]-128;
+				N	=Nptr	[1+0*3]-128;
+				W	=ptr	[1-1*3]-128;
+				curr	=ptr	[1+0*3]-128;
+				CLAMPGRAD(pred, N, W, N+W-NW);
+				++info.hist[0][(curr-pred+128)&255];
+				offset=curr;
+
+				NW	=Nptr	[2-1*3]-Nptr	[1-1*3];
+				N	=Nptr	[2+0*3]-Nptr	[1+0*3];
+				W	=ptr	[2-1*3]-ptr	[1-1*3];
+				curr	=ptr	[2+0*3]-128;
+				CLAMPGRAD(pred, N, W, N+W-NW);
+				pred+=offset;
+				CLAMP2(pred, -128, 127);
+				++info.hist[1][(curr-pred+128)&255];
+
+				NW	=Nptr	[0-1*3]-Nptr	[1-1*3];
+				N	=Nptr	[0+0*3]-Nptr	[1+0*3];
+				W	=ptr	[0-1*3]-ptr	[1-1*3];
+				curr	=ptr	[0+0*3]-128;
+				CLAMPGRAD(pred, N, W, N+W-NW);
+				pred+=offset;
+				CLAMP2(pred, -128, 127);
+				++info.hist[2][(curr-pred+128)&255];
+
+				Nptr	+=3;
+				ptr	+=3;
+#endif
+			}
+		}
+#ifdef _MSC_VER
+		double csizes[3]={0};
+		for(int kc=0;kc<3;++kc)
+		{
+			int *curr_hist=info.hist[kc];
+			int hsum=0;
+			for(int ks=0;ks<256;++ks)
+				hsum+=curr_hist[ks];
+			double e=0, norm=1./hsum;
+			for(int ks=0;ks<256;++ks)
+			{
+				int freq=curr_hist[ks];
+				if(freq)
+					e-=freq*log2(freq*norm);
+			}
+			csizes[kc]=e/8;
+		}
+		c_analysis=__rdtsc()-c_analysis;
+		t_analysis=time_sec()-t_analysis;
+		for(int kc=0;kc<3;++kc)
+			printf("%c %12.2lf\n", "YUV"[kc], csizes[kc]);
+		size_t size=(size_t)3*iw*ih;
+		printf("Analysis %lf sec  %lf MB/s  %lld cycles %12lf C/B\n",
+			t_analysis,
+			size/(t_analysis*1024*1024),
+			c_analysis,
+			(double)size/c_analysis
+		);
+#endif
+#endif
 		update_CDF(info.hist[0], CDF+257*0);
 		update_CDF(info.hist[1], CDF+257*1);
 		update_CDF(info.hist[2], CDF+257*2);
+		
+		blist_init(&list);
+		ac3_enc_init(&ec, &list);
+#ifdef ENABLE_BRUTEFORCE
 		bestrct=info.bestrct;
 		rctinfo=rct_combinations[info.bestrct];
 		predidx[0]=info.predidx[0];
 		predidx[1]=info.predidx[1];
 		predidx[2]=info.predidx[2];
-		
-		blist_init(&list);
-		ac3_enc_init(&ec, &list);
 		ac3_enc_bypass_NPOT(&ec, bestrct, RCT_COUNT);
 		ac3_enc_bypass_NPOT(&ec, predidx[0], PRED_COUNT);
 		ac3_enc_bypass_NPOT(&ec, predidx[1], PRED_COUNT);
 		ac3_enc_bypass_NPOT(&ec, predidx[2], PRED_COUNT);
+#endif
 		for(int ks=1;ks<256;++ks)
 		{
-			ac3_enc_bypass_NPOT(&ec, CDF[257*0+ks]-CDF[257*0+ks-1], 0x10000-CDF[257*0+ks-1]);
-			ac3_enc_bypass_NPOT(&ec, CDF[257*1+ks]-CDF[257*1+ks-1], 0x10000-CDF[257*1+ks-1]);
-			ac3_enc_bypass_NPOT(&ec, CDF[257*2+ks]-CDF[257*2+ks-1], 0x10000-CDF[257*2+ks-1]);
+			ac3_enc_bypass_NPOT(&ec, CDF[257*0+ks]-CDF[257*0+ks-1], (1<<C19_PROB_BITS)-CDF[257*0+ks-1]);
+			ac3_enc_bypass_NPOT(&ec, CDF[257*1+ks]-CDF[257*1+ks-1], (1<<C19_PROB_BITS)-CDF[257*1+ks-1]);
+			ac3_enc_bypass_NPOT(&ec, CDF[257*2+ks]-CDF[257*2+ks-1], (1<<C19_PROB_BITS)-CDF[257*2+ks-1]);
 		}
 	}
 	else
 	{
-		CDF2sym=(unsigned char*)malloc(sizeof(char[0x30000]));
+		CDF2sym=(unsigned char*)malloc(sizeof(char[3<<C19_PROB_BITS]));
 		if(!CDF2sym)
 		{
 			LOG_ERROR("Alloc error");
 			return 1;
 		}
 		ac3_dec_init(&ec, srcptr, srcend);
+#ifdef ENABLE_BRUTEFORCE
 		bestrct=ac3_dec_bypass_NPOT(&ec, RCT_COUNT);
 		rctinfo=rct_combinations[bestrct];
 		predidx[0]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
 		predidx[1]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
 		predidx[2]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
+#endif
 		CDF[257*0+0]=0;
 		CDF[257*1+0]=0;
 		CDF[257*2+0]=0;
 		for(int ks=1;ks<256;++ks)
 		{
-			CDF[257*0+ks]=CDF[257*0+ks-1]+ac3_dec_bypass_NPOT(&ec, 0x10000-CDF[257*0+ks-1]);
-			CDF[257*1+ks]=CDF[257*1+ks-1]+ac3_dec_bypass_NPOT(&ec, 0x10000-CDF[257*1+ks-1]);
-			CDF[257*2+ks]=CDF[257*2+ks-1]+ac3_dec_bypass_NPOT(&ec, 0x10000-CDF[257*2+ks-1]);
+			CDF[257*0+ks]=CDF[257*0+ks-1]+ac3_dec_bypass_NPOT(&ec, (1<<C19_PROB_BITS)-CDF[257*0+ks-1]);
+			CDF[257*1+ks]=CDF[257*1+ks-1]+ac3_dec_bypass_NPOT(&ec, (1<<C19_PROB_BITS)-CDF[257*1+ks-1]);
+			CDF[257*2+ks]=CDF[257*2+ks-1]+ac3_dec_bypass_NPOT(&ec, (1<<C19_PROB_BITS)-CDF[257*2+ks-1]);
 		}
-		CDF[257*0+256]=0x10000;
-		CDF[257*1+256]=0x10000;
-		CDF[257*2+256]=0x10000;
+		CDF[257*0+256]=1<<C19_PROB_BITS;
+		CDF[257*1+256]=1<<C19_PROB_BITS;
+		CDF[257*2+256]=1<<C19_PROB_BITS;
 		for(int ks=0;ks<256;++ks)
 		{
 			int cdf, freq;
@@ -1071,17 +1321,17 @@ int c19_codec(const char *srcfn, const char *dstfn)
 			cdf=CDF[257*0+ks];
 			freq=CDF[257*0+ks+1]-cdf;
 			if(freq)
-				memset(CDF2sym+0x10000*0+cdf, ks, freq);
+				memset(CDF2sym+(0<<C19_PROB_BITS)+cdf, ks, freq);
 
 			cdf=CDF[257*1+ks];
 			freq=CDF[257*1+ks+1]-cdf;
 			if(freq)
-				memset(CDF2sym+0x10000*1+cdf, ks, freq);
+				memset(CDF2sym+(1<<C19_PROB_BITS)+cdf, ks, freq);
 
 			cdf=CDF[257*2+ks];
 			freq=CDF[257*2+ks+1]-cdf;
 			if(freq)
-				memset(CDF2sym+0x10000*2+cdf, ks, freq);
+				memset(CDF2sym+(2<<C19_PROB_BITS)+cdf, ks, freq);
 		}
 	}
 	for(int ky=0, idx=0;ky<ih;++ky)
@@ -1093,11 +1343,16 @@ int c19_codec(const char *srcfn, const char *dstfn)
 			pixels+((iw+16LL)*((ky-2LL)&3)+8LL)*4,
 			pixels+((iw+16LL)*((ky-3LL)&3)+8LL)*4,
 		};
+#ifndef ENABLE_BRUTEFORCE
+		ALIGN(16) short preds[8]={0};
+#endif
 		int pred=0;
 		char yuv[3]={0};
 		unsigned char sym=0;
 		for(int kx=0;kx<iw;++kx, idx+=3)
 		{
+			int offset=0;
+#ifdef ENABLE_BRUTEFORCE
 			short
 				*NNWW	=rows[2]-2*4,
 				*NNW	=rows[2]-1*4,
@@ -1112,17 +1367,39 @@ int c19_codec(const char *srcfn, const char *dstfn)
 				*WW	=rows[0]-2*4,
 				*W	=rows[0]-1*4,
 				*curr	=rows[0]+0*4;
+#else
+			short *curr=rows[0]+0*4;
+			//if(ky==256&&kx==256)//
+			//	printf("");
+
+			//__m128i mNW	=_mm_loadu_si128((__m128i*)(rows[1]-1*4));
+			//__m128i mN	=_mm_loadu_si128((__m128i*)(rows[1]+0*4));
+			//__m128i mW	=_mm_loadu_si128((__m128i*)(rows[0]-1*4));
+			//__m128i vmin=_mm_min_epi16(mN, mW);
+			//__m128i vmax=_mm_max_epi16(mN, mW);
+			//__m128i mp=_mm_sub_epi16(_mm_add_epi16(mN, mW), mNW);
+			//mp=_mm_max_epi16(mp, vmin);
+			//mp=_mm_min_epi16(mp, vmax);
+			//_mm_store_si128((__m128i*)preds, mp);
+#endif
 			if(fwd)
 			{
+#ifdef ENABLE_BRUTEFORCE
 				yuv[0]=image[idx+rctinfo[IDX_PERM_Y]]-128;
 				yuv[1]=image[idx+rctinfo[IDX_PERM_U]]-128;
 				yuv[2]=image[idx+rctinfo[IDX_PERM_V]]-128;
+#else
+				yuv[0]=image[idx+1]-128;
+				yuv[1]=image[idx+2]-128;
+				yuv[2]=image[idx+0]-128;
+#endif
 			}
 #ifdef __GNUC__
 #pragma GCC unroll 3
 #endif
 			for(int kc=0;kc<3;++kc)
 			{
+#ifdef ENABLE_BRUTEFORCE
 				int offset=(rctinfo[kc+IDX_YC0]*yuv[0]+rctinfo[kc+IDX_YC1]*yuv[1])>>2;
 				switch(predidx[kc])
 				{
@@ -1170,43 +1447,61 @@ int c19_codec(const char *srcfn, const char *dstfn)
 					CLAMP3_32(pred, pred, N[kc], W[kc], NE[kc]);
 					break;
 				}
+#else
+				//pred=preds[kc];
+
+				short
+					NW	=rows[1][+kc-1*4],
+					N	=rows[1][+kc+0*4],
+					W	=rows[0][+kc-1*4];
+				CLAMPGRAD(pred, N, W, N+W-NW);
+#endif
 				pred+=offset;
 				CLAMP2(pred, -128, 127);
 
 				int cdf, freq;
 				if(fwd)
 				{
-					curr[kc]=yuv[kc];
 					sym=(yuv[kc]-pred+128)&255;
 					cdf=CDF[257*kc+sym];
 					freq=CDF[257*kc+sym+1]-cdf;
-					ac3_enc_update(&ec, cdf, freq);
+					ac3_enc_update_N(&ec, cdf, freq, C19_PROB_BITS);
 #ifdef ESTIMATE_SIZE
-					csizes[kc]-=log2((double)freq/0x10000);
+					csizes[kc]-=log2((double)freq/(1<<C19_PROB_BITS));
 #endif
 				}
 				else
 				{
-					int code=ac3_dec_getcdf(&ec);
-					sym=CDF2sym[kc<<16|code];
+					int code=ac3_dec_getcdf_N(&ec, C19_PROB_BITS);
+					sym=CDF2sym[kc<<C19_PROB_BITS|code];
 					cdf=CDF[257*kc+sym];
 					freq=CDF[257*kc+sym+1]-cdf;
-					ac3_dec_update(&ec, cdf, freq);
+					ac3_dec_update_N(&ec, cdf, freq, C19_PROB_BITS);
 					yuv[kc]=((sym+pred)&255)-128;
-					curr[kc]=yuv[kc];
 				}
-				curr[kc]-=offset;
+				curr[kc]=yuv[kc]-offset;
+#ifndef ENABLE_BRUTEFORCE
+				offset=yuv[0];
+#endif
 			}
 			if(!fwd)
 			{
+#ifdef ENABLE_BRUTEFORCE
 				image[idx+rctinfo[IDX_PERM_Y]]=yuv[0]+128;
 				image[idx+rctinfo[IDX_PERM_U]]=yuv[1]+128;
 				image[idx+rctinfo[IDX_PERM_V]]=yuv[2]+128;
+#else
+				image[idx+1]=yuv[0]+128;
+				image[idx+2]=yuv[1]+128;
+				image[idx+0]=yuv[2]+128;
+#endif
 			}
 			rows[0]+=4;
 			rows[1]+=4;
+#ifdef ENABLE_BRUTEFORCE
 			rows[2]+=4;
 			rows[3]+=4;
+#endif
 		}
 	}
 	ptrdiff_t csize=0;
@@ -1262,7 +1557,7 @@ int c19_codec(const char *srcfn, const char *dstfn)
 			fwd?csize:imsize,
 			(double)imsize/csize,
 			elapsed,
-			imsize/elapsed/(1024*1024),
+			imsize/(elapsed*1024*1024),
 			(double)c_elapsed/imsize
 		);
 	}

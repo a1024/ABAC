@@ -11,11 +11,14 @@ static const char file[]=__FILE__;
 
 //	#define ENABLE_SELPRED
 //	#define ESTIMATE_SIZE
+#ifdef _DEBUG
+	#define ENABLE_ZIPF_VIEW
+#endif
 
 	#define ENABLE_WG//good
 	#define ENABLE_SSE2
 	#define ENABLE_SSE3_PROB
-//	#define A2_CTXMIXER//bad
+//	#define ENABLE_GATHER//bad
 
 #define CODECNAME "C15"
 #define AC3_PREC
@@ -25,7 +28,7 @@ static const char file[]=__FILE__;
 #define BLOCKY 512
 #define MAXPRINTEDBLOCKS 20
 
-#define A2_NCTX 12	//multiple of 4
+#define A2_NCTX 8	//multiple of 4
 #define A2_CTXBITS 8
 #define A2_SSECBITS 6
 #define A2_SSEPBITS 4
@@ -160,6 +163,34 @@ typedef enum _NBIndex
 
 #define WG_NPREDS	8	//multiple of 4
 #define WG_PREDLIST0\
+	WG_PRED(340,	N)\
+	WG_PRED(340,	W)\
+	WG_PRED(205,	3*(N-NN)+NNN)\
+	WG_PRED(205,	3*(W-WW)+WWW)\
+	WG_PRED(140,	W+NE-N)\
+	WG_PRED(240,	(WWWW+WWW+NNN+NEE+NEEE+NEEEE-2*NW)/4)\
+	WG_PRED(120,	N+W-NW)\
+	WG_PRED(120,	N+NE-NNE)
+#define WG_PREDLIST1\
+	WG_PRED(330,	N)\
+	WG_PRED(330,	W)\
+	WG_PRED(175,	3*(N-NN)+NNN)\
+	WG_PRED(175,	3*(W-WW)+WWW)\
+	WG_PRED(180,	W+NE-N)\
+	WG_PRED(175,	(WWW+NNN+NEE+NEEE+NEEEE-2*NW)/3)\
+	WG_PRED(130,	N+W-NW)\
+	WG_PRED(150,	N+NE-NNE)
+#define WG_PREDLIST2\
+	WG_PRED(330,	N)\
+	WG_PRED(330,	W)\
+	WG_PRED(200,	3*(N-NN)+NNN)\
+	WG_PRED(200,	3*(W-WW)+WWW)\
+	WG_PRED(180,	W+NE-N)\
+	WG_PRED(175,	(WWW+NNN+NEE+NEEE+NEEEE-2*NW)/3)\
+	WG_PRED(140,	N+W-NW)\
+	WG_PRED(150,	N+NE-NNE)
+#if 0
+#define WG_PREDLIST0\
 	WG_PRED(340,	N-eN/3)\
 	WG_PRED(340,	W-eW/3)\
 	WG_PRED(205,	3*(N-NN)+NNN-eN/6-eNN/6+eNNN*2/3)\
@@ -186,6 +217,7 @@ typedef enum _NBIndex
 	WG_PRED(175,	(WWW+NNN+NEE+NEEE+NEEEE-2*NW+(W-N+NN-NE)/2-(eN+eW+eNN/3+eWW/3))/3)\
 	WG_PRED(140,	N+W-NW+(2*(eN+eW)-eNW)/8)\
 	WG_PRED(150,	N+NE-NNE+(2*eN+eNE)/10)
+#endif
 #if 0
 #define WG_PREDLIST0\
 	WG_PRED(340,	N)\
@@ -329,24 +361,27 @@ FORCEINLINE int wg_predict(
 	(void)eWW;
 	(void)eW;
 	
-	switch(kc2)
-	{
-	case 0:
 #define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
-		WG_PREDLIST0
+	WG_PREDLIST0
 #undef  WG_PRED
-		break;
-	case 2:
-#define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
-		WG_PREDLIST1
-#undef  WG_PRED
-		break;
-	case 4:
-#define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
-		WG_PREDLIST2
-#undef  WG_PRED
-		break;
-	}
+//	switch(kc2)
+//	{
+//	case 0:
+//#define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
+//		WG_PREDLIST0
+//#undef  WG_PRED
+//		break;
+//	case 2:
+//#define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
+//		WG_PREDLIST1
+//#undef  WG_PRED
+//		break;
+//	case 4:
+//#define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
+//		WG_PREDLIST2
+//#undef  WG_PRED
+//		break;
+//	}
 	
 #if 1
 	__m128i one=_mm_set1_epi32(1);
@@ -499,9 +534,8 @@ typedef struct _ThreadArgs
 	unsigned short stats[3][(1+32+32+128+512+256+256+256)<<8];
 #elif A2_NCTX==12
 	unsigned short stats[3][(1+32+32+128+512+256+256+256+256+256+32+32)<<8];
-#endif
-#ifdef A2_CTXMIXER
-	ALIGN(32) long long mixer[3][256][A2_NCTX];
+#elif A2_NCTX==16
+	unsigned short stats[3][(1+32+32+128+512+256+256+256+256+256+32+32+256+256+256+256)<<8];
 #endif
 #ifdef ENABLE_SSE2
 	int sse1[3][32][64];
@@ -520,6 +554,9 @@ typedef struct _ThreadArgs
 
 #ifdef ESTIMATE_SIZE
 	int hist2[3][256];
+#endif
+#ifdef ENABLE_ZIPF_VIEW
+	unsigned char *zimage;
 #endif
 } ThreadArgs;
 #if A2_NCTX==4
@@ -554,6 +591,24 @@ typedef struct _ThreadArgs
 	A2CTX(5, 15, 0+1+32+32+128+512+256+256+256+256,		(2*W[kc2+1]-WW[kc2+1])>>1&255)\
 	A2CTX(5, 15, 0+1+32+32+128+512+256+256+256+256+256,	e090)\
 	A2CTX(5, 15, 0+1+32+32+128+512+256+256+256+256+256+32,	e180)
+#elif A2_NCTX==16
+#define A2CTXLIST\
+	A2CTX(2, 15, 0,								0)\
+	A2CTX(7, 14, 0+1,							grad)\
+	A2CTX(6, 14, 0+1+32,							energy)\
+	A2CTX(2, 15, 0+1+32+32,							(kx-args->x1)>>2)\
+	A2CTX(3, 15, 0+1+32+32+128,						((N[kc2]-NW[kc2])>>5&7)<<6|((W[kc2]-NW[kc2])>>5&7)<<3|(pred>>5&7))\
+	A2CTX(5, 15, 0+1+32+32+128+512,						pred+128)\
+	A2CTX(6, 14, 0+1+32+32+128+512+256,					((kc2?curr[kc2-1]:(N[kc2+1]+W[kc2+1])>>1)+128)&255)\
+	A2CTX(6, 15, 0+1+32+32+128+512+256+256,					(NN[kc2+1]<0)<<7|(WW[kc2+1]<0)<<6|(NE[kc2+1]<0)<<5|(NW[kc2+1]<0)<<4|(W[kc2+1]>>6&3)<<2|(N[kc2+1]>>6&3))\
+	A2CTX(5, 15, 0+1+32+32+128+512+256+256+256,				(2*N[kc2+1]-NN[kc2+1])>>1&255)\
+	A2CTX(5, 15, 0+1+32+32+128+512+256+256+256+256,				(2*W[kc2+1]-WW[kc2+1])>>1&255)\
+	A2CTX(5, 15, 0+1+32+32+128+512+256+256+256+256+256,			e090)\
+	A2CTX(5, 15, 0+1+32+32+128+512+256+256+256+256+256+32,			e180)\
+	A2CTX(5, 15, 0+1+32+32+128+512+256+256+256+256+256+32+32,		N[kc2+0]&255)\
+	A2CTX(5, 15, 0+1+32+32+128+512+256+256+256+256+256+32+32+256,		W[kc2+0]&255)\
+	A2CTX(5, 15, 0+1+32+32+128+512+256+256+256+256+256+32+32+256+256,	N[kc2+1]&255)\
+	A2CTX(5, 15, 0+1+32+32+128+512+256+256+256+256+256+32+32+256+256+256,	W[kc2+1]&255)
 #endif
 #define A2CTX(SH, MIXSH, OFFSET, EXPR) MIXSH,
 ALIGN(32) static const long long g_mixsh[]={A2CTXLIST};
@@ -830,14 +885,18 @@ static void block_thread(void *param)
 	ALIGN(32) long long curr_sh[A2_NCTX], curr_mixsh[A2_NCTX];
 	memcpy(curr_sh, g_sh, sizeof(curr_sh));
 	memcpy(curr_mixsh, g_mixsh, sizeof(curr_mixsh));
-#ifdef A2_CTXMIXER
-	FILLMEM((long long*)args->mixer, 0x3000, sizeof(args->mixer), sizeof(long long));
+#if A2_NCTX==16
+	ALIGN(32) unsigned short mixer1[3][8*A2_NCTX]={0};
+	ALIGN(16) int mixer2[3][8*A2_NCTX/4]={0};
+	FILLMEM((unsigned short*)mixer1, 0x4000, sizeof(mixer1), sizeof(short));
+	//memset(mixer1, 64, sizeof(mixer1));
+	FILLMEM((int*)mixer2, 0x1000, sizeof(mixer2), sizeof(int));
+	memset(args->stats, 0, sizeof(args->stats));
 #else
 	ALIGN(32) long long mixer[8*3*A2_NCTX]={0};
 	FILLMEM(mixer, 0x1000, sizeof(mixer), sizeof(long long));
-#endif
 	FILLMEM((unsigned short*)args->stats, 0x8000, sizeof(args->stats), sizeof(short));
-	//memset(args->stats, 0, sizeof(args->stats));
+#endif
 #ifdef ENABLE_SSE2
 	memset(args->sse1, 0, sizeof(args->sse1));
 //	memset(args->sse2, 0, sizeof(args->sse2));
@@ -883,6 +942,9 @@ static void block_thread(void *param)
 		int pred=0, error=0;
 		for(int kx=args->x1;kx<args->x2;++kx)
 		{
+#ifdef ENABLE_ZIPF_VIEW
+			double psize=0;
+#endif
 			int idx=nch*(args->iw*ky+kx);
 			short
 				*NNN	=rows[3]+0*4*2,
@@ -1027,7 +1089,6 @@ static void block_thread(void *param)
 					break;
 				}
 			}
-
 			for(int kc=0;kc<nch;++kc)
 			{
 				int kc2=kc<<1, kc3=kc*WG_NPREDS;
@@ -1094,7 +1155,7 @@ static void block_thread(void *param)
 				energy*=energy;
 				energy=FLOOR_LOG2_P1(energy);//256(4+4+2+2+2+2+2+1+1+1+1)=5632  FLOOR_LOG2_P1(2816^2)=0~25 -> 26 levels
 #endif
-#if A2_NCTX==12
+#if A2_NCTX>=12
 				int e090=
 					+abs(NE[kc2]-NNE[kc2])
 					+abs(N[kc2]-NN[kc2])
@@ -1116,9 +1177,36 @@ static void block_thread(void *param)
 				e090=FLOOR_LOG2_P1(e090);
 				e180=FLOOR_LOG2_P1(e180);
 #endif
+#if A2_NCTX==16
+#define A2CTX(SH, MIXSH, OFFSET, EXPR) args->stats[kc]+((OFFSET+(EXPR))<<8),
+				short *curr_stats[A2_NCTX]={A2CTXLIST};
+#undef  A2CTX
+				unsigned short *curr_mixer1=mixer1[kc];
+				int *curr_mixer2=mixer2[kc];
+#else
+#ifdef ENABLE_GATHER
+				ALIGN(32) unsigned short *curr_stats[A2_NCTX];
+#define A2CTX(SH, MIXSH, OFFSET, EXPR) (OFFSET+(EXPR))<<8,
+				ALIGN(32) unsigned long long ctx[A2_NCTX]={A2CTXLIST};
+#undef  A2CTX
+				unsigned short *statsptr=args->stats[kc];
+#ifdef __GNUC__
+#pragma GCC unroll 12
+#endif
+				for(int k=0;k<A2_NCTX;++k)
+					curr_stats[k]=statsptr+ctx[k];
+				__m256i midx0=_mm256_load_si256((__m256i*)ctx+0);
+				__m256i midx1=_mm256_load_si256((__m256i*)ctx+1);
+				__m256i midx2=_mm256_load_si256((__m256i*)ctx+2);
+				__m256i mtidx=_mm256_set1_epi64x(1);
+				__m256i probmask=_mm256_set1_epi64x(0xFFFF);
+#else
 #define A2CTX(SH, MIXSH, OFFSET, EXPR) args->stats[kc]+((OFFSET+(EXPR))<<8),
 				unsigned short *curr_stats[A2_NCTX]={A2CTXLIST};
 #undef  A2CTX
+#endif
+				long long *curr_mixer=mixer+kc*8*A2_NCTX;
+#endif
 				if(args->fwd)
 				{
 					curr[kc2+0]=yuv[kc];
@@ -1128,24 +1216,12 @@ static void block_thread(void *param)
 				else
 					error=0;
 				int tidx=1;
-#ifdef A2_CTXMIXER
-				int mixeridx;
-				MEDIAN3_32(mixeridx, N[kc2], W[kc2], N[kc2]+W[kc2]-NW[kc2]);
-				mixeridx+=offset;
-				CLAMP2(mixeridx, -128, 127);
-				mixeridx+=128;
-				long long *curr_mixer=args->mixer[kc][mixeridx];
-#else
-				long long *curr_mixer=mixer+kc*8*A2_NCTX;
-#endif
 #ifdef __GNUC__
 #pragma GCC unroll 8
 #endif
-				//for(int kb=7, low=-128, range=255, pred2=pred;kb>=0;--kb)
 				for(int kb=7;kb>=0;--kb)
 				{
-					long long p0=0;
-					int wsum=0, bit;
+					int bit;
 
 					//2.860709	baseine
 					//2.856320	0	rem 0
@@ -1158,9 +1234,11 @@ static void block_thread(void *param)
 					//2.856976	7	rem (NN[kc2+1]<0)<<7|(WW[kc2+1]<0)<<6|(NE[kc2+1]<0)<<5|(NW[kc2+1]<0)<<4|(W[kc2+1]>>6&3)<<2|(N[kc2+1]>>6&3)
 					//curr_mixer[0]=0;
 #if 1
+#if A2_NCTX==4
+					long long p0=0;
+					int wsum=0;
 					ALIGN(32) long long probs[A2_NCTX];
 					ALIGN(32) long long apsum[4], awsum[4];
-#if A2_NCTX==4
 					__m256i mprob0=_mm256_set_epi64x(curr_stats[ 3][tidx], curr_stats[ 2][tidx], curr_stats[ 1][tidx], curr_stats[ 0][tidx]);
 					__m256i mweight0=_mm256_load_si256((__m256i*)curr_mixer+0);
 					__m256i mprod0=_mm256_mul_epi32(mprob0, mweight0);
@@ -1172,6 +1250,10 @@ static void block_thread(void *param)
 					p0+=wsum>>1;
 					p0/=wsum;
 #elif A2_NCTX==8
+					long long p0=0;
+					int wsum=0;
+					ALIGN(32) long long probs[A2_NCTX];
+					ALIGN(32) long long apsum[4], awsum[4];
 					__m256i mprob0=_mm256_set_epi64x(curr_stats[ 3][tidx], curr_stats[ 2][tidx], curr_stats[ 1][tidx], curr_stats[ 0][tidx]);
 					__m256i mprob1=_mm256_set_epi64x(curr_stats[ 7][tidx], curr_stats[ 6][tidx], curr_stats[ 5][tidx], curr_stats[ 4][tidx]);
 					__m256i mweight0=_mm256_load_si256((__m256i*)curr_mixer+0);
@@ -1188,9 +1270,27 @@ static void block_thread(void *param)
 					p0+=wsum>>1;
 					p0/=wsum;
 #elif A2_NCTX==12
+					long long p0=0;
+					int wsum=0;
+					ALIGN(32) long long probs[A2_NCTX];
+					ALIGN(32) long long apsum[4], awsum[4];
+#ifdef ENABLE_GATHER
+					//if(ky==BLOCKY/2&&kx==BLOCKX/2)
+					//	printf("");
+					__m256i mprob0=_mm256_add_epi64(midx0, mtidx);
+					__m256i mprob1=_mm256_add_epi64(midx1, mtidx);
+					__m256i mprob2=_mm256_add_epi64(midx2, mtidx);
+					mprob0=_mm256_i64gather_epi64((long long*)statsptr, mprob0, 2);
+					mprob1=_mm256_i64gather_epi64((long long*)statsptr, mprob1, 2);
+					mprob2=_mm256_i64gather_epi64((long long*)statsptr, mprob2, 2);
+					mprob0=_mm256_and_si256(mprob0, probmask);
+					mprob1=_mm256_and_si256(mprob1, probmask);
+					mprob2=_mm256_and_si256(mprob2, probmask);
+#else
 					__m256i mprob0=_mm256_set_epi64x(curr_stats[ 3][tidx], curr_stats[ 2][tidx], curr_stats[ 1][tidx], curr_stats[ 0][tidx]);
 					__m256i mprob1=_mm256_set_epi64x(curr_stats[ 7][tidx], curr_stats[ 6][tidx], curr_stats[ 5][tidx], curr_stats[ 4][tidx]);
 					__m256i mprob2=_mm256_set_epi64x(curr_stats[11][tidx], curr_stats[10][tidx], curr_stats[ 9][tidx], curr_stats[ 8][tidx]);
+#endif
 					__m256i mweight0=_mm256_load_si256((__m256i*)curr_mixer+0);
 					__m256i mweight1=_mm256_load_si256((__m256i*)curr_mixer+1);
 					__m256i mweight2=_mm256_load_si256((__m256i*)curr_mixer+2);
@@ -1211,6 +1311,64 @@ static void block_thread(void *param)
 					wsum+=!wsum;
 					p0+=wsum>>1;
 					p0/=wsum;
+#elif A2_NCTX==16
+					//if(kx==100&&ky==100)//
+					//	printf("");
+
+					short probs[16]=
+					{
+						curr_stats[ 0][tidx], curr_stats[ 1][tidx], curr_stats[ 2][tidx], curr_stats[ 3][tidx],
+						curr_stats[ 4][tidx], curr_stats[ 5][tidx], curr_stats[ 6][tidx], curr_stats[ 7][tidx],
+						curr_stats[ 8][tidx], curr_stats[ 9][tidx], curr_stats[10][tidx], curr_stats[11][tidx],
+						curr_stats[12][tidx], curr_stats[13][tidx], curr_stats[14][tidx], curr_stats[15][tidx],
+					};
+					int prob32[4]=
+					{
+						(curr_mixer1[ 0]*probs[ 0]+curr_mixer1[ 1]*probs[ 1]+curr_mixer1[ 2]*probs[ 2]+curr_mixer1[ 3]*probs[ 3])>>12,//(+-128)*(+128)*4>>4 = 0x1000
+						(curr_mixer1[ 4]*probs[ 4]+curr_mixer1[ 5]*probs[ 5]+curr_mixer1[ 6]*probs[ 6]+curr_mixer1[ 7]*probs[ 7])>>12,
+						(curr_mixer1[ 8]*probs[ 8]+curr_mixer1[ 9]*probs[ 9]+curr_mixer1[10]*probs[10]+curr_mixer1[11]*probs[11])>>12,
+						(curr_mixer1[12]*probs[12]+curr_mixer1[13]*probs[13]+curr_mixer1[14]*probs[14]+curr_mixer1[15]*probs[15])>>12,
+					};
+					//CLAMP2(prob32[0], -0x4000, 0x4000);
+					//CLAMP2(prob32[1], -0x4000, 0x4000);
+					//CLAMP2(prob32[2], -0x4000, 0x4000);
+					//CLAMP2(prob32[3], -0x4000, 0x4000);
+					int p0=(int)((
+						+(long long)curr_mixer2[0]*prob32[0]
+						+(long long)curr_mixer2[1]*prob32[1]
+						+(long long)curr_mixer2[2]*prob32[2]
+						+(long long)curr_mixer2[3]*prob32[3]
+						+(1LL<<10>>1)
+					)>>10);//0x10000*0x1000*4>>14 = 0x10000
+
+					//p0=
+					//(
+					//	+curr_stats[ 0][tidx]+curr_stats[ 1][tidx]+curr_stats[ 2][tidx]+curr_stats[ 3][tidx]
+					//	+curr_stats[ 4][tidx]+curr_stats[ 5][tidx]+curr_stats[ 6][tidx]+curr_stats[ 7][tidx]
+					//	+curr_stats[ 8][tidx]+curr_stats[ 9][tidx]+curr_stats[10][tidx]+curr_stats[11][tidx]
+					//	+curr_stats[12][tidx]+curr_stats[13][tidx]+curr_stats[14][tidx]+curr_stats[15][tidx]
+					//)<<4;
+					p0+=0x8000;
+
+					//__m128i mmix1=_mm_load_si128((__m128i*)curr_mixer1);
+					//__m128i mmix2=_mm_load_si128((__m128i*)curr_mixer2);
+					//__m128i mprob8=_mm_set_epi8(
+					//	curr_stats[15][tidx], curr_stats[14][tidx], curr_stats[13][tidx], curr_stats[12][tidx],
+					//	curr_stats[11][tidx], curr_stats[10][tidx], curr_stats[ 9][tidx], curr_stats[ 8][tidx],
+					//	curr_stats[ 7][tidx], curr_stats[ 6][tidx], curr_stats[ 5][tidx], curr_stats[ 4][tidx],
+					//	curr_stats[ 3][tidx], curr_stats[ 2][tidx], curr_stats[ 1][tidx], curr_stats[ 0][tidx]
+					//);
+					//__m128i mprob32=_mm_dpbusd_epi32(mmix1, mprob8, _mm_setzero_si128());//(+-128)*(+128) * 4 = 0x10000
+					//mprob32=_mm_srai_epi32(mprob32, 1);
+					//mprob32=_mm_min_epi32(mprob32, _mm_set1_epi32(+0x3FFF));
+					//mprob32=_mm_max_epi32(mprob32, _mm_set1_epi32(-0x3FFF));
+					//mprob32=_mm_and_si128(mprob32, _mm_set1_epi32(0xFFFF));
+					//__m128i mp=_mm_madd_epi16(mprob32, mmix2);//0x4000*0x10000 = 0x40000000		2x faster than mullo32
+					//mp=_mm_srai_epi32(mp, 14);//0x40000000>>14 = 0x10000
+					//ALIGN(16) int probs[4];
+					//_mm_store_si128((__m128i*)probs, mp);
+					//int p0=(probs[0]+probs[1]+probs[2]+probs[3])>>2;
+					//p0+=0x8000;
 #endif
 
 					//long long p0_2=0;
@@ -1243,6 +1401,7 @@ static void block_thread(void *param)
 					//long long *curr_sse_prob=&args->sse_prob[kc][kb][((error&0x1FE<<kb)+pred)>>3&31][p0>>11&31];	//2.859087
 					//long long *curr_sse_prob=&args->sse_prob[kc][kb][(pred+pred2)>>5&15][p0>>11&31];	//2.859014 not worth it
 					long long *curr_sse_prob=&args->sse_prob[kc][kb][(((error&0x1FE<<kb)|1<<kb)+pred)>>3&31][p0>>11&31];	//2.859006 CLIC303 record
+
 					//long long *curr_sse_prob=&args->sse_prob[kc][kb][pred>>3&31][p0>>11&31];	//2.858704
 					//long long *curr_sse_prob=&args->sse_prob[kc][kb][pred>>2&63][p0>>11&31];	//2.858688
 					//long long *curr_sse_prob=&args->sse_prob[kc][kb][pred>>4&15][p0>>11&31];	//2.858656
@@ -1258,39 +1417,173 @@ static void block_thread(void *param)
 					//int change=(*curr_sse_prob+(1<<(SSE3_DECAY+16)>>1))>>(SSE3_DECAY+16);
 					//if(abs(change)>100)
 					//	printf("");
-					p0+=(*curr_sse_prob+(1<<(SSE3_DECAY+SSE3_SCALE)>>1))>>(SSE3_DECAY+SSE3_SCALE);
-					CLAMP2(p0, 1, 0xFFFF);
+					p0+=(int)((*curr_sse_prob+(1<<(SSE3_DECAY+SSE3_SCALE)>>1))>>(SSE3_DECAY+SSE3_SCALE));
 #endif
-					//p0=squash((int)((p0-0x8000)*abs(p0-0x8000)>>16));
-
-					//p0=(p0-0x8000)*abs(p0-0x8000)>>15; p0+=0x8000; CLAMP2(p0, 1, 0xFFFF);
-
-					//p0=(p0-0x8000)*(p0-0x8000)*(p0-0x8000)>>29; p0+=0x8000; CLAMP2(p0, 1, 0xFFFF);
-
-					//p0=squash((int)p0);
-					//p0+=0x8000;
+					CLAMP2(p0, 0x0001, 0xFFFF);
 					if(args->fwd)
 					{
 						bit=error>>kb&1;
 						ac3_enc_bin(&ec, bit, (int)p0, 16);
+#ifdef ENABLE_ZIPF_VIEW
+						psize-=log2((double)(bit?0x10000-p0:p0)/0x10000);
+#endif
 					}
 					else
 					{
 						bit=ac3_dec_bin(&ec, (int)p0, 16);
 						error|=bit<<kb;
 					}
-					//range>>=1;
-					//low+=range&-bit;
-					//CLAMP2(pred2, low, low+range);
-
+					
 					int truth=!bit<<16;
 					int prob_error=truth-(int)p0;
+#if A2_NCTX==16
+					long long dL_dp0=0x171547652/((bit<<16)-p0);
+					CLAMP2(dL_dp0, -0x10000, 0x10000);
+					int gain=(int)dL_dp0;
+					int mixupdate2[]=
+					{
+						curr_mixer2[0]-(int)(((long long)gain*prob32[0]+(1<<9>>1))>>9),//0x4000*0x1000>>18 = 0x100
+						curr_mixer2[1]-(int)(((long long)gain*prob32[1]+(1<<9>>1))>>9),
+						curr_mixer2[2]-(int)(((long long)gain*prob32[2]+(1<<9>>1))>>9),
+						curr_mixer2[3]-(int)(((long long)gain*prob32[3]+(1<<9>>1))>>9),
+					};
+					long long mixupdate1_temp_ll[]=
+					{
+						((long long)gain*curr_mixer2[0]+(1<<14>>1))>>14,
+						((long long)gain*curr_mixer2[1]+(1<<14>>1))>>14,
+						((long long)gain*curr_mixer2[2]+(1<<14>>1))>>14,
+						((long long)gain*curr_mixer2[3]+(1<<14>>1))>>14,
+					};
+					CLAMP2(mixupdate1_temp_ll[0], -0x80000, 0x80000);
+					CLAMP2(mixupdate1_temp_ll[1], -0x80000, 0x80000);
+					CLAMP2(mixupdate1_temp_ll[2], -0x80000, 0x80000);
+					CLAMP2(mixupdate1_temp_ll[3], -0x80000, 0x80000);
+					int mixupdate1_temp[]=
+					{
+						(int)mixupdate1_temp_ll[0],
+						(int)mixupdate1_temp_ll[1],
+						(int)mixupdate1_temp_ll[2],
+						(int)mixupdate1_temp_ll[3],
+					};
+					int mixupdate1[]=
+					{
+						curr_mixer1[ 0]-(int)(((long long)mixupdate1_temp[0]*probs[ 0]+(1<<9>>1))>>9),//(0x4000*0x4000>>8)*0x80>>24 = 0x8
+						curr_mixer1[ 1]-(int)(((long long)mixupdate1_temp[0]*probs[ 1]+(1<<9>>1))>>9),
+						curr_mixer1[ 2]-(int)(((long long)mixupdate1_temp[0]*probs[ 2]+(1<<9>>1))>>9),
+						curr_mixer1[ 3]-(int)(((long long)mixupdate1_temp[0]*probs[ 3]+(1<<9>>1))>>9),
+						curr_mixer1[ 4]-(int)(((long long)mixupdate1_temp[1]*probs[ 4]+(1<<9>>1))>>9),
+						curr_mixer1[ 5]-(int)(((long long)mixupdate1_temp[1]*probs[ 5]+(1<<9>>1))>>9),
+						curr_mixer1[ 6]-(int)(((long long)mixupdate1_temp[1]*probs[ 6]+(1<<9>>1))>>9),
+						curr_mixer1[ 7]-(int)(((long long)mixupdate1_temp[1]*probs[ 7]+(1<<9>>1))>>9),
+						curr_mixer1[ 8]-(int)(((long long)mixupdate1_temp[2]*probs[ 8]+(1<<9>>1))>>9),
+						curr_mixer1[ 9]-(int)(((long long)mixupdate1_temp[2]*probs[ 9]+(1<<9>>1))>>9),
+						curr_mixer1[10]-(int)(((long long)mixupdate1_temp[2]*probs[10]+(1<<9>>1))>>9),
+						curr_mixer1[11]-(int)(((long long)mixupdate1_temp[2]*probs[11]+(1<<9>>1))>>9),
+						curr_mixer1[12]-(int)(((long long)mixupdate1_temp[3]*probs[12]+(1<<9>>1))>>9),
+						curr_mixer1[13]-(int)(((long long)mixupdate1_temp[3]*probs[13]+(1<<9>>1))>>9),
+						curr_mixer1[14]-(int)(((long long)mixupdate1_temp[3]*probs[14]+(1<<9>>1))>>9),
+						curr_mixer1[15]-(int)(((long long)mixupdate1_temp[3]*probs[15]+(1<<9>>1))>>9),
+					};
+					int probupdate[]=
+					{
+						probs[ 0]-(int)(((long long)mixupdate1_temp[0]*curr_mixer1[ 0]+(1<<7>>1))>>7),//(0x4000*0x4000>>8)*0x80>>20 = 0x8
+						probs[ 1]-(int)(((long long)mixupdate1_temp[0]*curr_mixer1[ 1]+(1<<7>>1))>>7),
+						probs[ 2]-(int)(((long long)mixupdate1_temp[0]*curr_mixer1[ 2]+(1<<7>>1))>>7),
+						probs[ 3]-(int)(((long long)mixupdate1_temp[0]*curr_mixer1[ 3]+(1<<7>>1))>>7),
+						probs[ 4]-(int)(((long long)mixupdate1_temp[1]*curr_mixer1[ 4]+(1<<7>>1))>>7),
+						probs[ 5]-(int)(((long long)mixupdate1_temp[1]*curr_mixer1[ 5]+(1<<7>>1))>>7),
+						probs[ 6]-(int)(((long long)mixupdate1_temp[1]*curr_mixer1[ 6]+(1<<7>>1))>>7),
+						probs[ 7]-(int)(((long long)mixupdate1_temp[1]*curr_mixer1[ 7]+(1<<7>>1))>>7),
+						probs[ 8]-(int)(((long long)mixupdate1_temp[2]*curr_mixer1[ 8]+(1<<7>>1))>>7),
+						probs[ 9]-(int)(((long long)mixupdate1_temp[2]*curr_mixer1[ 9]+(1<<7>>1))>>7),
+						probs[10]-(int)(((long long)mixupdate1_temp[2]*curr_mixer1[10]+(1<<7>>1))>>7),
+						probs[11]-(int)(((long long)mixupdate1_temp[2]*curr_mixer1[11]+(1<<7>>1))>>7),
+						probs[12]-(int)(((long long)mixupdate1_temp[3]*curr_mixer1[12]+(1<<7>>1))>>7),
+						probs[13]-(int)(((long long)mixupdate1_temp[3]*curr_mixer1[13]+(1<<7>>1))>>7),
+						probs[14]-(int)(((long long)mixupdate1_temp[3]*curr_mixer1[14]+(1<<7>>1))>>7),
+						probs[15]-(int)(((long long)mixupdate1_temp[3]*curr_mixer1[15]+(1<<7>>1))>>7),
+					};
+					CLAMP2(mixupdate2[0], 1, 0xFFFF);
+					CLAMP2(mixupdate2[1], 1, 0xFFFF);
+					CLAMP2(mixupdate2[2], 1, 0xFFFF);
+					CLAMP2(mixupdate2[3], 1, 0xFFFF);
+					CLAMP2(mixupdate1[ 0], 1, 0xFFFF);
+					CLAMP2(mixupdate1[ 1], 1, 0xFFFF);
+					CLAMP2(mixupdate1[ 2], 1, 0xFFFF);
+					CLAMP2(mixupdate1[ 3], 1, 0xFFFF);
+					CLAMP2(mixupdate1[ 4], 1, 0xFFFF);
+					CLAMP2(mixupdate1[ 5], 1, 0xFFFF);
+					CLAMP2(mixupdate1[ 6], 1, 0xFFFF);
+					CLAMP2(mixupdate1[ 7], 1, 0xFFFF);
+					CLAMP2(mixupdate1[ 8], 1, 0xFFFF);
+					CLAMP2(mixupdate1[ 9], 1, 0xFFFF);
+					CLAMP2(mixupdate1[10], 1, 0xFFFF);
+					CLAMP2(mixupdate1[11], 1, 0xFFFF);
+					CLAMP2(mixupdate1[12], 1, 0xFFFF);
+					CLAMP2(mixupdate1[13], 1, 0xFFFF);
+					CLAMP2(mixupdate1[14], 1, 0xFFFF);
+					CLAMP2(mixupdate1[15], 1, 0xFFFF);
+					CLAMP2(probupdate[ 0], 1, 0xFFFF);
+					CLAMP2(probupdate[ 1], -0x7FFF, 0x7FFF);
+					CLAMP2(probupdate[ 2], -0x7FFF, 0x7FFF);
+					CLAMP2(probupdate[ 3], -0x7FFF, 0x7FFF);
+					CLAMP2(probupdate[ 4], -0x7FFF, 0x7FFF);
+					CLAMP2(probupdate[ 5], -0x7FFF, 0x7FFF);
+					CLAMP2(probupdate[ 6], -0x7FFF, 0x7FFF);
+					CLAMP2(probupdate[ 7], -0x7FFF, 0x7FFF);
+					CLAMP2(probupdate[ 8], -0x7FFF, 0x7FFF);
+					CLAMP2(probupdate[ 9], -0x7FFF, 0x7FFF);
+					CLAMP2(probupdate[10], -0x7FFF, 0x7FFF);
+					CLAMP2(probupdate[11], -0x7FFF, 0x7FFF);
+					CLAMP2(probupdate[12], -0x7FFF, 0x7FFF);
+					CLAMP2(probupdate[13], -0x7FFF, 0x7FFF);
+					CLAMP2(probupdate[14], -0x7FFF, 0x7FFF);
+					CLAMP2(probupdate[15], -0x7FFF, 0x7FFF);
+					curr_mixer2[0]=mixupdate2[0];
+					curr_mixer2[1]=mixupdate2[1];
+					curr_mixer2[2]=mixupdate2[2];
+					curr_mixer2[3]=mixupdate2[3];
+					curr_mixer1[ 0]=(unsigned char)mixupdate1[ 0];
+					curr_mixer1[ 1]=(unsigned char)mixupdate1[ 1];
+					curr_mixer1[ 2]=(unsigned char)mixupdate1[ 2];
+					curr_mixer1[ 3]=(unsigned char)mixupdate1[ 3];
+					curr_mixer1[ 4]=(unsigned char)mixupdate1[ 4];
+					curr_mixer1[ 5]=(unsigned char)mixupdate1[ 5];
+					curr_mixer1[ 6]=(unsigned char)mixupdate1[ 6];
+					curr_mixer1[ 7]=(unsigned char)mixupdate1[ 7];
+					curr_mixer1[ 8]=(unsigned char)mixupdate1[ 8];
+					curr_mixer1[ 9]=(unsigned char)mixupdate1[ 9];
+					curr_mixer1[10]=(unsigned char)mixupdate1[10];
+					curr_mixer1[11]=(unsigned char)mixupdate1[11];
+					curr_mixer1[12]=(unsigned char)mixupdate1[12];
+					curr_mixer1[13]=(unsigned char)mixupdate1[13];
+					curr_mixer1[14]=(unsigned char)mixupdate1[14];
+					curr_mixer1[15]=(unsigned char)mixupdate1[15];
+					curr_stats[ 0][tidx]=(unsigned char)probupdate[ 0];
+					curr_stats[ 1][tidx]=(unsigned char)probupdate[ 1];
+					curr_stats[ 2][tidx]=(unsigned char)probupdate[ 2];
+					curr_stats[ 3][tidx]=(unsigned char)probupdate[ 3];
+					curr_stats[ 4][tidx]=(unsigned char)probupdate[ 4];
+					curr_stats[ 5][tidx]=(unsigned char)probupdate[ 5];
+					curr_stats[ 6][tidx]=(unsigned char)probupdate[ 6];
+					curr_stats[ 7][tidx]=(unsigned char)probupdate[ 7];
+					curr_stats[ 8][tidx]=(unsigned char)probupdate[ 8];
+					curr_stats[ 9][tidx]=(unsigned char)probupdate[ 9];
+					curr_stats[10][tidx]=(unsigned char)probupdate[10];
+					curr_stats[11][tidx]=(unsigned char)probupdate[11];
+					curr_stats[12][tidx]=(unsigned char)probupdate[12];
+					curr_stats[13][tidx]=(unsigned char)probupdate[13];
+					curr_stats[14][tidx]=(unsigned char)probupdate[14];
+					curr_stats[15][tidx]=(unsigned char)probupdate[15];
+					curr_mixer1+=A2_NCTX;
+					curr_mixer2+=A2_NCTX/4;
+#else
 					if(abs(prob_error)>512)
 					{
-						long long dL_dp0=0xE0000000000/((long long)((bit<<16)-(int)p0)*wsum);
 #if 1
-						CLAMP2(dL_dp0, -0x3FFF, 0x3FFF);
 #if A2_NCTX==4
+						long long dL_dp0=0xE0000000000/((long long)((bit<<16)-(int)p0)*wsum);
+						CLAMP2(dL_dp0, -0x3FFF, 0x3FFF);
 						__m256i vmin2=_mm256_set1_epi64x(1);
 						__m256i mp0=_mm256_set1_epi64x(p0);
 						__m256i mdL_dp0=_mm256_set1_epi64x(dL_dp0);
@@ -1301,6 +1594,8 @@ static void block_thread(void *param)
 						mweight0=_mm256_max_epi32(mweight0, vmin2);
 						_mm256_store_si256((__m256i*)curr_mixer+0, mweight0);
 #elif A2_NCTX==8
+						long long dL_dp0=0xE0000000000/((long long)((bit<<16)-(int)p0)*wsum);
+						CLAMP2(dL_dp0, -0x3FFF, 0x3FFF);
 						__m256i vmin2=_mm256_set1_epi64x(1);
 						__m256i mp0=_mm256_set1_epi64x(p0);
 						__m256i mdL_dp0=_mm256_set1_epi64x(dL_dp0);
@@ -1317,6 +1612,8 @@ static void block_thread(void *param)
 						_mm256_store_si256((__m256i*)curr_mixer+0, mweight0);
 						_mm256_store_si256((__m256i*)curr_mixer+1, mweight1);
 #elif A2_NCTX==12
+						long long dL_dp0=0xE0000000000/((long long)((bit<<16)-(int)p0)*wsum);
+						CLAMP2(dL_dp0, -0x3FFF, 0x3FFF);
 						//mweight0=_mm256_load_si256((__m256i*)curr_mixer+0);
 						//mweight1=_mm256_load_si256((__m256i*)curr_mixer+1);
 						//mweight2=_mm256_load_si256((__m256i*)curr_mixer+2);
@@ -1346,6 +1643,7 @@ static void block_thread(void *param)
 						_mm256_store_si256((__m256i*)curr_mixer+2, mweight2);
 #endif
 #else
+						long long dL_dp0=0xE0000000000/((long long)((bit<<16)-(int)p0)*wsum);
 						for(int k=0;k<A2_NCTX;++k)
 						{
 							int update=(int)((int)dL_dp0*(curr_stats[k][tidx]-(int)p0)>>(1+17-4-1));
@@ -1388,14 +1686,14 @@ static void block_thread(void *param)
 					_mm256_store_si256((__m256i*)probs+2, mprob2);
 #endif
 #ifdef __GNUC__
-#pragma GCC unroll 8
+#pragma GCC unroll 12
 #endif
-					for(int k=0;k<A2_NCTX;++k)
+					for(int k=0;k<A2_NCTX;++k)//scatter
 						curr_stats[k][tidx]=(int)probs[k];
 #else
 					int truth=!bit<<16;
 #ifdef __GNUC__
-#pragma GCC unroll 8
+#pragma GCC unroll 12
 #endif
 					for(int k=0;k<A2_NCTX;++k)
 					{
@@ -1405,6 +1703,8 @@ static void block_thread(void *param)
 						curr_stats[k][tidx]=p;
 					}
 #endif
+					curr_mixer+=A2_NCTX;
+#endif
 #ifdef ENABLE_SSE3_PROB
 					long long e=(long long)prob_error<<SSE3_SCALE;
 					*curr_sse_prob=((*curr_sse_prob*((1LL<<SSE3_DECAY)-1)+(1LL<<SSE3_DECAY>>1))>>SSE3_DECAY)+e;
@@ -1413,10 +1713,12 @@ static void block_thread(void *param)
 					//if(abs(*curr_sse_prob>>2)>0xFFFF)
 					//	printf("");
 #endif
-#ifndef A2_CTXMIXER
-					curr_mixer+=A2_NCTX;
-#endif
 					tidx+=tidx+bit;
+#ifdef ENABLE_GATHER
+					mtidx=_mm256_slli_epi32(mtidx, 1);
+					if(bit)
+						mtidx=_mm256_or_si256(mtidx, _mm256_set1_epi64x(1));
+#endif
 				}
 				if(!args->fwd)
 				{
@@ -1507,6 +1809,14 @@ static void block_thread(void *param)
 				}
 #endif
 			}
+#ifdef ENABLE_ZIPF_VIEW
+			else
+			{
+				psize*=255./24;
+				CLAMP2(psize, 0, 255);
+				args->zimage[args->iw*ky+kx]=(unsigned char)psize;
+			}
+#endif
 			__m256i mr=_mm256_load_si256((__m256i*)rows);
 			__m256i er=_mm256_load_si256((__m256i*)erows);
 			mr=_mm256_add_epi64(mr, _mm256_set1_epi64x(sizeof(short[4*2])));
@@ -1524,31 +1834,31 @@ static void block_thread(void *param)
 			__m256i vmax=_mm256_set1_epi32(8);
 			__m256i sh0=_mm256_load_si256((__m256i*)curr_sh+0);
 			__m256i sh1=_mm256_load_si256((__m256i*)curr_sh+1);
-			__m256i sh2=_mm256_load_si256((__m256i*)curr_sh+2);
+		//	__m256i sh2=_mm256_load_si256((__m256i*)curr_sh+2);
 			sh0=_mm256_add_epi32(sh0, one);
 			sh1=_mm256_add_epi32(sh1, one);
-			sh2=_mm256_add_epi32(sh2, one);
+		//	sh2=_mm256_add_epi32(sh2, one);
 			sh0=_mm256_min_epi32(sh0, vmax);
 			sh1=_mm256_min_epi32(sh1, vmax);
-			sh2=_mm256_min_epi32(sh2, vmax);
+		//	sh2=_mm256_min_epi32(sh2, vmax);
 			_mm256_store_si256((__m256i*)curr_sh+0, sh0);
 			_mm256_store_si256((__m256i*)curr_sh+1, sh1);
-			_mm256_store_si256((__m256i*)curr_sh+2, sh2);
+		//	_mm256_store_si256((__m256i*)curr_sh+2, sh2);
 			curr_sh[0]=g_sh[0];
 			curr_sh[3]=g_sh[3];
 
 			sh0=_mm256_load_si256((__m256i*)curr_mixsh+0);
 			sh1=_mm256_load_si256((__m256i*)curr_mixsh+1);
-			sh2=_mm256_load_si256((__m256i*)curr_mixsh+2);
+		//	sh2=_mm256_load_si256((__m256i*)curr_mixsh+2);
 			sh0=_mm256_sub_epi32(sh0, one);
 			sh1=_mm256_sub_epi32(sh1, one);
-			sh2=_mm256_sub_epi32(sh2, one);
-			sh0=_mm256_max_epi32(sh0, vmax);
-			sh1=_mm256_max_epi32(sh1, vmax);
-			sh2=_mm256_max_epi32(sh2, vmax);
+		//	sh2=_mm256_sub_epi32(sh2, one);
+		//	sh0=_mm256_max_epi32(sh0, vmax);
+		//	sh1=_mm256_max_epi32(sh1, vmax);
+		//	sh2=_mm256_max_epi32(sh2, vmax);
 			_mm256_store_si256((__m256i*)curr_mixsh+0, sh0);
 			_mm256_store_si256((__m256i*)curr_mixsh+1, sh1);
-			_mm256_store_si256((__m256i*)curr_mixsh+2, sh2);
+		//	_mm256_store_si256((__m256i*)curr_mixsh+2, sh2);
 		}
 	}
 	if(args->fwd)
@@ -1598,6 +1908,9 @@ int c15_codec(const char *srcfn, const char *dstfn)
 #ifdef ESTIMATE_SIZE
 	double esize[3]={0};
 #endif
+#ifdef ENABLE_ZIPF_VIEW
+	unsigned char *zimage=0;
+#endif
 	
 	t0=time_sec();
 	src=load_file(srcfn, 1, 3, 1);
@@ -1622,7 +1935,18 @@ int c15_codec(const char *srcfn, const char *dstfn)
 	fwd=codec==CODEC_PPM;
 	
 	if(test)
+	{
 		printf("%s \"%s\"  WH %d*%d\n", CODECNAME, srcfn, iw, ih);
+#ifdef ENABLE_ZIPF_VIEW
+		zimage=(unsigned char*)malloc((size_t)iw*ih);
+		if(!zimage)
+		{
+			LOG_ERROR("Alloc error");
+			return 1;
+		}
+		memset(zimage, 0, (size_t)iw*ih);
+#endif
+	}
 	usize=iw*ih*3;
 	xblocks=(iw+BLOCKX-1)/BLOCKX;
 	yblocks=(ih+BLOCKY-1)/BLOCKY;
@@ -1734,6 +2058,9 @@ int c15_codec(const char *srcfn, const char *dstfn)
 #else
 		arg->loud=0;
 #endif
+#ifdef ENABLE_ZIPF_VIEW
+		arg->zimage=zimage;
+#endif
 	}
 	for(int k2=0;k2<=test;++k2)
 	{
@@ -1832,5 +2159,21 @@ int c15_codec(const char *srcfn, const char *dstfn)
 	free(offsets);
 	array_free(&src);
 	array_free(&dst);
+#ifdef ENABLE_ZIPF_VIEW
+	if(test)
+	{
+		acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H%M%S.PGM");
+		FILE *f=fopen(g_buf, "wb");
+		if(!f)
+		{
+			LOG_ERROR("Cannot open \"%s\" for writing", g_buf);
+			return 1;
+		}
+		fprintf(f, "P5\n%d %d\n255\n", iw, ih);
+		fwrite(zimage, 1, (size_t)iw*ih, f);
+		fclose(f);
+		free(zimage);
+	}
+#endif
 	return 0;
 }

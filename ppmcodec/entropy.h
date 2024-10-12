@@ -607,6 +607,107 @@ FORCEINLINE void ac3_dec_update(AC3 *ec, unsigned cdf, unsigned freq)
 	acval_dec(0, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
 }
 
+FORCEINLINE void ac3_enc_update_N(AC3 *ec, unsigned cdf, unsigned freq, int probbits)
+{
+	unsigned long long r2;
+	r2=ec->range>>probbits;
+	AC3_RENORM_STATEMENT(!r2)//this loop runs twice when freq=1 -> range=0
+	{
+		ac3_enc_renorm(ec);
+		r2=ec->range>>probbits;
+	}
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if((unsigned)(freq-1)>=(0x10000-1))
+		LOG_ERROR2("ZPS");
+	if(cdf+freq<cdf)
+		LOG_ERROR2("Invalid CDF");
+#endif
+#ifdef AC3_PREC
+	ec->low+=r2*cdf+((ec->range&(~0ULL>>(64-probbits)))*cdf>>probbits);
+	ec->range=r2*freq+((ec->range&(~0ULL>>(64-probbits)))*freq>>probbits)-1;
+#else
+	ec->low+=r2*cdf;
+	ec->range=r2*freq-1;//must decrement hi because decoder fails when code == hi2
+#endif
+	acval_enc(0, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
+}
+FORCEINLINE unsigned ac3_dec_getcdf_N(AC3 *ec, int probbits)
+{
+	AC3_RENORM_STATEMENT(!(ec->range>>probbits))
+		ac3_dec_renorm(ec);
+#ifdef AC3_PREC
+#if 0
+	unsigned long long num=((ec->code-ec->low+1)<<probbits)-1, den=ec->range;
+	int nzeros=(int)_lzcnt_u64(den);
+	unsigned long long
+		x1=-(long long)(den<<nzeros),
+		x2=__umulh(x1, x1),
+		x3=__umulh(x2, x2),
+		x4=__umulh(x3, x3);
+	//	x5=__umulh(x4, x4),
+	//	x6=__umulh(x5, x5);
+	x1>>=1;
+	x2>>=1;
+	x3>>=1;
+	x4>>=1;
+	//x5>>=1;
+	//x6>>=1;
+	x1|=1ULL<<63;
+	x2|=1ULL<<63;
+	x3|=1ULL<<63;
+	x4|=1ULL<<63;
+	//x5|=1ULL<<63;
+	//x6|=1ULL<<63;
+	//unsigned long long debug[]={x1, x2, x3, x4, x5, x6};
+	x1=__umulh(x1, x2);
+	x3=__umulh(x3, x4);
+	x1=__umulh(x1, x3);
+	//x1=__umulh(x1, x5);
+	//x1=__umulh(x1, x6);
+	x1=__umulh(num, x1);
+	//x1+=1ULL<<(64-4-nzeros)>>1;
+	x1>>=64-4-nzeros;
+	//if(num/den!=x1)
+	//	LOG_ERROR("");
+	return x1&((1ULL<<probbits)-1);
+#endif
+	return (unsigned)((((ec->code-ec->low+1)<<probbits)-1)/ec->range);
+
+	//return (unsigned)(((ec->code-ec->low)<<probbits|((1LL<<probbits)-1))/ec->range);
+
+	//return (unsigned)fast_div64((ec->code-ec->low)<<probbits|((1LL<<probbits)-1), ec->range);//2x slower
+
+	//{
+	//	unsigned long long diff=ec->code-ec->low;
+	//	if(diff>>(64-probbits))//never hit
+	//		printf("%016llX\n", diff>>(64-probbits));
+	//	return (unsigned)_udiv128(diff>>(64-probbits), diff<<probbits|((1LL<<probbits)-1), ec->range, &diff);
+	//}
+#else
+	return (unsigned)((ec->code-ec->low)/(ec->range>>probbits));
+#endif
+}
+FORCEINLINE void ac3_dec_update_N(AC3 *ec, unsigned cdf, unsigned freq, int probbits)
+{
+	unsigned long long r2=ec->range>>probbits;
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if((unsigned)(freq-1)>=(0x10000-1))
+		LOG_ERROR2("ZPS");
+	if(cdf+freq<cdf)
+		LOG_ERROR2("Invalid CDF");
+#endif
+#ifdef AC3_PREC
+	ec->low+=r2*cdf+((ec->range&(~0ULL>>(64-probbits)))*cdf>>probbits);
+	ec->range=r2*freq+((ec->range&(~0ULL>>(64-probbits)))*freq>>probbits)-1;
+#else
+	ec->low+=r2*cdf;
+	ec->range=r2*freq-1;//must decrement hi because decoder fails when code == hi2
+#endif
+	acval_dec(0, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
+}
+
 FORCEINLINE void ac3_enc_update_NPOT(AC3 *ec, unsigned cdf, unsigned freq, unsigned den)
 {
 	unsigned long long q;
@@ -888,6 +989,12 @@ FORCEINLINE void ac3_enc_bin(AC3 *ec, int bit, unsigned p0, int probbits)
 		bit=!bit;
 	}
 #endif
+	//{
+	//	unsigned long long lo, hi;
+	//
+	//	lo=_mulx_u64(ec->range, p0, &hi);
+	//	mid=hi<<(64-probbits)|lo>>probbits;
+	//}
 	mid*=p0;
 #ifdef AC3_PREC
 	mid+=(ec->range&((1LL<<probbits)-1))*p0>>probbits;
@@ -923,6 +1030,12 @@ FORCEINLINE int ac3_dec_bin(AC3 *ec, unsigned p0, int probbits)
 	if(flip)
 		p0=(1<<probbits)-p0;
 #endif
+	//{
+	//	unsigned long long lo, hi;
+	//
+	//	lo=_mulx_u64(ec->range, p0, &hi);
+	//	mid=hi<<(64-probbits)|lo>>probbits;
+	//}
 	mid*=p0;
 #ifdef AC3_PREC
 	mid+=(ec->range&((1LL<<probbits)-1))*p0>>probbits;
