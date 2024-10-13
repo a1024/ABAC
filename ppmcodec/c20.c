@@ -300,6 +300,9 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				Nptr	-=3;
 				ptr	-=3;
 			}
+			kx-=5-1;
+			Nptr	-=3*(5-1);
+			ptr	-=3*(5-1);
 			for(;kx>4;kx-=5)	//fast predict
 			{
 				__m128i mNW	=_mm_loadu_si128((__m128i*)(Nptr-1*3));
@@ -407,12 +410,12 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				++curr_hists	[2*1+1][errorsU[4]];
 				++curr_hists	[2*2+0][errorsV[4]];
 				++curr_hists	[2*2+1][errorsV[4]];
-				curr_dens	[2*0+0][0]+=4;
-				curr_dens	[2*0+1][0]+=4;
-				curr_dens	[2*1+0][0]+=4;
-				curr_dens	[2*1+1][0]+=4;
-				curr_dens	[2*2+0][0]+=4;
-				curr_dens	[2*2+1][0]+=4;
+				curr_dens	[2*0+0][0]+=5;
+				curr_dens	[2*0+1][0]+=5;
+				curr_dens	[2*1+0][0]+=5;
+				curr_dens	[2*1+1][0]+=5;
+				curr_dens	[2*2+0][0]+=5;
+				curr_dens	[2*2+1][0]+=5;
 
 				Nptr	-=3*5;
 				ptr	-=3*5;
