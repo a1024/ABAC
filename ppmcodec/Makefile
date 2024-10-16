@@ -79,3 +79,6 @@ c19:
 
 c19-clang:
 	clang -O3 -Wall -DCODEC_FUNC=c19_codec -mavx2 -mbmi -mlzcnt  c19.c codec.c util.c  -o c19 $(LIBS)
+
+c20:
+	clang -O3 -Wall -DCODEC_FUNC=c20_codec -mavx2 -mbmi -mlzcnt  c20.c codec.c util.c  -o c20 $(LIBS)
