@@ -174,8 +174,8 @@ int main(int argc, char **argv)
 //	c17_codec("C:/dataset-HUGE-ppm/space_huge.LSIM", "C:/dataset-HUGE-ppm/space_huge_dec.PPM");
 
 
-	c20_codec("C:/Projects/datasets/kodim13.ppm", "C:/Projects/datasets/kodim13.lsim");
-	c20_codec("C:/Projects/datasets/kodim13.lsim", "C:/Projects/datasets/kodim13_dec.ppm");
+//	c20_codec("C:/Projects/datasets/kodim13.ppm", "C:/Projects/datasets/kodim13.lsim");
+//	c20_codec("C:/Projects/datasets/kodim13.lsim", "C:/Projects/datasets/kodim13_dec.ppm");
 
 //	c08_codec("C:/Projects/datasets/kodim13-small16.ppm", "C:/Projects/datasets/kodim13-small16.lsim");
 //	c08_codec("C:/Projects/datasets/kodim13-small16.lsim", "C:/Projects/datasets/kodim13-small16_dec.ppm");
@@ -183,8 +183,8 @@ int main(int argc, char **argv)
 //	c08_codec("C:/Projects/datasets/dataset-LPCB-ppm/PIA12811.ppm", "C:/Projects/datasets/PIA12811.lsim");
 //	c08_codec("C:/Projects/datasets/PIA12811.lsim", "C:/Projects/datasets/PIA12811_dec.ppm");
 
-//	c20_codec("C:/Projects/datasets/big_building.PPM", "C:/Projects/datasets/big_building.lsim");		//large image
-//	c20_codec("C:/Projects/datasets/big_building.lsim", "C:/Projects/datasets/big_building_dec.ppm");
+	c20_codec("C:/Projects/datasets/big_building.PPM", "C:/Projects/datasets/big_building.lsim");		//large image
+	c20_codec("C:/Projects/datasets/big_building.lsim", "C:/Projects/datasets/big_building_dec.ppm");
 
 //	c08_codec("C:/Projects/datasets/20240414-noise.PPM", "C:/Projects/datasets/20240414-noise.LSIM");	//bypass
 //	c08_codec("C:/Projects/datasets/20240414-noise.LSIM", "C:/Projects/datasets/20240414-noise_dec.PPM");

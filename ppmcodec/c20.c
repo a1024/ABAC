@@ -89,9 +89,11 @@ static void val_check(unsigned short *probs, int nprobs)
 #endif
 int c20_codec(const char *srcfn, const char *dstfn)
 {
-#ifdef ESTIMATE_SIZE
+#ifdef _MSC_VER
 	double elapsed=time_sec();
 	unsigned long long cycles=__rdtsc();
+#endif
+#ifdef ESTIMATE_SIZE
 	double csizes[3]={0};
 	ptrdiff_t csize_actual=0;
 #endif
@@ -1042,10 +1044,12 @@ int c20_codec(const char *srcfn, const char *dstfn)
 	}
 	_mm_free(pixels);
 	free(srcbuf);
-#ifdef ESTIMATE_SIZE
+#ifdef _MSC_VER
 	cycles=__rdtsc()-cycles;
 	elapsed=time_sec()-elapsed;
 	ptrdiff_t usize=3LL*iw*ih;
+#endif
+#ifdef ESTIMATE_SIZE
 	if(fwd)
 	{
 		printf("T%12.2lf\n", (csizes[0]+csizes[1]+csizes[2])/8);
@@ -1053,6 +1057,8 @@ int c20_codec(const char *srcfn, const char *dstfn)
 			printf("%c%12.2lf\n", "YUV"[kc], csizes[kc]/8);
 		printf(" %9td   /%9td %12.6lf:1\n", csize_actual, usize, (double)usize/csize_actual);
 	}
+#endif
+#ifdef _MSC_VER
 	printf("%c%12lf sec %12lf MB/s  %12lld cycles %12lf C/B\n",
 		'D'+fwd,
 		elapsed,
