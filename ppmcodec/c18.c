@@ -18,6 +18,9 @@ static const char file[]=__FILE__;
 //	#define DISABLE_RCTSEL	//causalRCTSEL > RCT,  disabling RCTSEL breaks SSE
 //	#define ENABLE_NPOT	//bad
 
+//	#define EXPORT_GR_PARAM
+//	#define DISABLE_AC
+
 #define ANALYSIS_XSTRIDE 2	//4	//1
 #define ANALYSIS_YSTRIDE 2	//4	//3
 
@@ -215,6 +218,9 @@ typedef struct _ThreadArgs
 	int predidx[3];
 #ifndef DISABLE_RCTSEL
 	double t_analysis;
+#endif
+#ifdef EXPORT_GR_PARAM
+	unsigned char *grimage;
 #endif
 } ThreadArgs;
 #if 0
@@ -1337,6 +1343,11 @@ static void block_thread(void *param)
 		args->use_AC[0]=compsizes[0]<threshold;
 		args->use_AC[1]=compsizes[1]<threshold;
 		args->use_AC[2]=compsizes[2]<threshold;
+#ifdef DISABLE_AC
+		args->use_AC[0]=0;
+		args->use_AC[1]=0;
+		args->use_AC[2]=0;
+#endif
 		predidx[0]=predsel[rct_combinations[bestrct][0]];
 		predidx[1]=predsel[rct_combinations[bestrct][1]];
 		predidx[2]=predsel[rct_combinations[bestrct][2]];
@@ -1608,6 +1619,8 @@ static void block_thread(void *param)
 			int nbypass[3];
 #ifdef __GNUC__
 #pragma GCC unroll 3
+#elif defined __clang__
+#pragma clang loop unroll_count(3)
 #endif
 			for(int kc=4;kc<4+3;++kc)
 			{
@@ -1645,10 +1658,16 @@ static void block_thread(void *param)
 #endif
 #endif
 	#define GR_PREDICT(DST, IDX) DST=(7*W[3*2+IDX]+3*(NE[3*1+IDX]+N[3*3+IDX]+W[3*3+IDX]))>>4, DST+=(DST)<4
-//	#define GR_PREDICT(DST, IDX) DST=(7*W[3*2+IDX]+3*(NE[3*1+IDX]+N[3*3+IDX]+(IDX==0?W[3*3+IDX]:WW[3*3+IDX])))>>4, DST+=(DST)<4
 	#define GR_UPDATE1(IDX) (MAXVAR(NW[IDX], W[IDX])+sym+NEE[IDX]+MAXVAR(WW[IDX], WWW[IDX]))>>2	//for SW (thru NE)
 	#define GR_UPDATE2(IDX) (MAXVAR(WW[IDX], W[IDX])+sym+NE[IDX]+MAXVAR(NEE[IDX], NEEE[IDX]))>>2	//for E (thru W)
 	#define GR_UPDATE3(IDX) (W[IDX]+sym+MAXVAR(N[IDX], NE[IDX]))/3
+			
+//	#define GR_PREDICT(DST, IDX) DST=(N[3*3+IDX]+W[3*3+IDX])>>1, DST+=(DST)<4
+//	#define GR_UPDATE1(IDX) 0
+//	#define GR_UPDATE2(IDX) 0
+//	#define GR_UPDATE3(IDX) (W[IDX]+sym+MAXVAR(N[IDX], NE[IDX]))/3
+
+//	#define GR_PREDICT(DST, IDX) DST=(7*W[3*2+IDX]+3*(NE[3*1+IDX]+N[3*3+IDX]+(IDX==0?W[3*3+IDX]:WW[3*3+IDX])))>>4, DST+=(DST)<4
 //	#define GR_UPDATE3(IDX) (MAXVAR(NE[IDX], N[IDX])+(IDX==9?W[IDX]:WW[IDX])+sym)/3
 //	#define UPDATE_FORMULA3(IDX) (N[IDX]+(IDX==9?W[IDX]:WW[IDX])+sym)/3
 //	#define UPDATE_FORMULA3(IDX) sym
@@ -1720,6 +1739,8 @@ static void block_thread(void *param)
 				_mm_store_si128((__m128i*)vmax2, mmax);
 #ifdef __GNUC__
 #pragma GCC unroll 3
+#elif defined __clang__
+#pragma clang loop unroll_count(3)
 #endif
 				for(int kc=0;kc<3;++kc)//linear predictor (better for smooth areas)
 				{
@@ -2181,6 +2202,9 @@ static void block_thread(void *param)
 					curr[3*1+0]=GR_UPDATE1(3*1+0);
 					curr[3*2+0]=GR_UPDATE2(3*2+0);
 					curr[3*3+0]=GR_UPDATE3(3*3+0);
+#ifdef EXPORT_GR_PARAM
+					args->grimage[idx+1]=nbypass-128;
+#endif
 				}
 				curr[0]=yuv[0];
 				
@@ -2228,6 +2252,9 @@ static void block_thread(void *param)
 					curr[3*1+1]=GR_UPDATE1(3*1+1);
 					curr[3*2+1]=GR_UPDATE2(3*2+1);
 					curr[3*3+1]=GR_UPDATE3(3*3+1);
+#ifdef EXPORT_GR_PARAM
+					args->grimage[idx+2]=nbypass-128;
+#endif
 				}
 #ifndef DISABLE_RCTSEL
 				curr[1]=yuv[1]-offset;
@@ -2279,6 +2306,9 @@ static void block_thread(void *param)
 					curr[3*1+2]=GR_UPDATE1(3*1+2);
 					curr[3*2+2]=GR_UPDATE2(3*2+2);
 					curr[3*3+2]=GR_UPDATE3(3*3+2);
+#ifdef EXPORT_GR_PARAM
+					args->grimage[idx+0]=nbypass-128;
+#endif
 				}
 #ifndef DISABLE_RCTSEL
 				curr[2]=yuv[2]-offset;
@@ -2658,12 +2688,23 @@ int c18_codec(const char *srcfn, const char *dstfn)
 	double esize;
 	double t_analysis=0;
 #endif
+#ifdef EXPORT_GR_PARAM
+	unsigned char *grimage=0;
+#endif
 	
 	t0=time_sec();
 	src=load_file(srcfn, 1, 3, 1);
 	headersize=header_read(src->data, (int)src->count, &iw, &ih, &codec);
 	image=src->data+headersize;
 	imageend=src->data+src->count;
+#ifdef EXPORT_GR_PARAM
+	grimage=(unsigned char*)malloc(3LL*iw*ih);
+	if(!grimage)
+	{
+		LOG_ERROR("Alloc error");
+		return 1;
+	}
+#endif
 	if(codec==CODEC_INVALID||codec==CODEC_PGM)
 	{
 		LOG_ERROR("Unsupported codec %d.\n", codec);
@@ -2788,6 +2829,9 @@ int c18_codec(const char *srcfn, const char *dstfn)
 		arg->loud=test&&nblocks<MAXPRINTEDBLOCKS;
 #else
 		arg->loud=0;
+#endif
+#ifdef EXPORT_GR_PARAM
+		arg->grimage=grimage;
 #endif
 	}
 	for(int k2=0;k2<=test;++k2)
@@ -2960,5 +3004,22 @@ int c18_codec(const char *srcfn, const char *dstfn)
 	free(args);
 	array_free(&src);
 	array_free(&dst);
+#ifdef EXPORT_GR_PARAM
+	if(test)
+	{
+		acme_strftime(g_buf, G_BUF_SIZE-1, "%Y-%m-%d_%H%M%S.PPM");
+		printf("Saving \"%s\"...\n", g_buf);
+		FILE *fdst2=fopen(g_buf, "wb");
+		if(!fdst2)
+		{
+			LOG_ERROR("Cannot open \"%s\" for writing");
+			return 1;
+		}
+		fprintf(fdst2, "P6\n%d %d\n255\n", iw, ih);
+		fwrite(grimage, 1, 3LL*iw*ih, fdst2);
+		fclose(fdst2);
+	}
+	free(grimage);
+#endif
 	return 0;
 }

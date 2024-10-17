@@ -9,7 +9,7 @@ static const char file[]=__FILE__;
 
 
 #ifndef CODEC_FUNC
-#define CODEC_FUNC c15_codec
+#define CODEC_FUNC c18_codec
 #endif
 
 
@@ -116,12 +116,16 @@ int main(int argc, char **argv)
 	srcfn=
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA13882.ppm"
+		"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_abigail-keenan-27293.ppm"
 	//	"C:/Projects/datasets/big_building.PPM"
 	//	"C:/Projects/datasets/kodim13.ppm"
+	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim23.ppm"
 	//	"C:/Projects/datasets/kodim13-small4.PPM"
 	//	"C:/Projects/datasets/kodim13-small16.PPM"
 	//	"C:/Projects/datasets/dataset-CLIC30-ppm/03.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm"	//large
+	//	"C:/Projects/datasets/20240806 6 why me.PPM"
+	//	"C:/Projects/datasets/temp.c18"
 
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13912.ppm"
@@ -137,7 +141,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-CLIC303-ppm/2048x1320_rosan-harmens-18703.ppm"
 	//	"C:/dataset-CLIC303-ppm/2048x1320_zugr-108.ppm"
 	//	"C:/dataset-HUGE-ppm/kodak.PPM"
-		"D:/ML/big_building.PPM"
+	//	"D:/ML/big_building.PPM"
 	//	"C:/dataset-LPCB-ppm/PIA13803.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13833.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13915.ppm"	//false color terrain
@@ -147,7 +151,10 @@ int main(int argc, char **argv)
 		;
 	dstfn=
 		0
-	//	"D:/ML/dataset-kodak-ppm/kodim13.c01.ppm"
+	//	"C:/Projects/datasets/temp.ppm"
+	//	"C:/Projects/datasets/temp.c18"
+	//	"C:/Projects/datasets/kodim13.c18"
+	//	"D:/ML/dataset-kodak-ppm/kodim13.c18"
 		;
 //	c20_codec("D:/ML/kodim13.ppm", "D:/ML/kodim13.lsim");
 //	c20_codec("D:/ML/kodim13.lsim", "D:/ML/kodim13_dec.ppm");
@@ -183,15 +190,18 @@ int main(int argc, char **argv)
 //	c08_codec("C:/Projects/datasets/dataset-LPCB-ppm/PIA12811.ppm", "C:/Projects/datasets/PIA12811.lsim");
 //	c08_codec("C:/Projects/datasets/PIA12811.lsim", "C:/Projects/datasets/PIA12811_dec.ppm");
 
-	c20_codec("C:/Projects/datasets/big_building.PPM", "C:/Projects/datasets/big_building.lsim");		//large image
-	c20_codec("C:/Projects/datasets/big_building.lsim", "C:/Projects/datasets/big_building_dec.ppm");
+//	c20_codec("C:/Projects/datasets/big_building.PPM", "C:/Projects/datasets/big_building.lsim");		//large image
+//	c20_codec("C:/Projects/datasets/big_building.lsim", "C:/Projects/datasets/big_building_dec.ppm");
+
+//	c20_codec("C:/Projects/datasets/space_huge.ppm", "C:/Projects/datasets/space_huge.lsim");		//very large image
+//	c20_codec("C:/Projects/datasets/space_huge.lsim", "C:/Projects/datasets/space_huge_dec.ppm");
 
 //	c08_codec("C:/Projects/datasets/20240414-noise.PPM", "C:/Projects/datasets/20240414-noise.LSIM");	//bypass
 //	c08_codec("C:/Projects/datasets/20240414-noise.LSIM", "C:/Projects/datasets/20240414-noise_dec.PPM");
 
 //	c07_codec(srcfn, dstfn);
 
-//	CODEC_FUNC(srcfn, dstfn);
+	CODEC_FUNC(srcfn, dstfn);
 #endif
 	return 0;
 }
