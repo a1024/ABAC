@@ -3,21 +3,20 @@
 #include<stdlib.h>
 #include<string.h>
 #include<math.h>
+#ifdef _MSC_VER
+#include<intrin.h>
+#else
+#include<x86intrin.h>
+#endif
 #include<immintrin.h>
-//#include"blist.h"
 static const char file[]=__FILE__;
 
 
-//	#define ESTIMATE_SIZE
+	#define SILENT
+
+//	#define ENABLE_MT
 //	#define ENABLE_GUIDE
-//	#define ENABLE_VALIDATION
-//	#define COPY_TEST
 
-//	#define USE_CTR
-
-
-#define ABAC_SH 6
-//#define ABAC_RISK 16
 
 #ifdef ENABLE_GUIDE
 static int g_iw=0, g_ih=0;
@@ -47,41 +46,34 @@ static void guide_check(unsigned char *image, int kx, int ky)
 #endif
 
 
-#ifdef ENABLE_VALIDATION
-static ArrayHandle g_probs=0;
-static ptrdiff_t g_probidx=0;
-static void val_append(unsigned short prob)
+//https://github.com/samtools/htscodecs
+unsigned char *rans_compress_O0_32x16_avx2(unsigned char *in, unsigned int in_size, unsigned char *out, unsigned int *out_size);
+unsigned char *rans_uncompress_O0_32x16_avx2(unsigned char *in, unsigned int in_size, unsigned char *out, unsigned int out_sz);
+unsigned char *rans_compress_O1_32x16_avx2(unsigned char *in, unsigned int in_size, unsigned char *out, unsigned int *out_size);
+unsigned char *rans_uncompress_O1_32x16_avx2(unsigned char *in, unsigned int in_size, unsigned char *out, unsigned int out_sz);
+
+#ifdef ENABLE_MT
+typedef struct _ThreadArgs
 {
-	if(!g_probs)
-		ARRAY_ALLOC(short, g_probs, 0, 0, 0, 0);
-	ARRAY_APPEND(g_probs, &prob, 1, 1, 0);
-}
-static void val_check(unsigned short prob)
+	unsigned char *in, *out, *ret;
+	unsigned insize, outsize;
+} ThreadArgs;
+static void c20_enc(void *param)
 {
-	unsigned short *correctprob=(unsigned short*)array_at(&g_probs, g_probidx);
-	if(prob!=*correctprob)
-	{
-		printf("%8td %04X %04X\n", g_probidx, prob, *correctprob);
-		LOG_ERROR("Val Error");
-	}
-	++g_probidx;
+	ThreadArgs *args=(ThreadArgs*)param;
+	args->ret=rans_compress_O1_32x16_avx2(args->in, args->insize, args->out, &args->outsize);
 }
-#else
-#define val_append(...)
-#define val_check(...)
+static void c20_dec(void *param)
+{
+	ThreadArgs *args=(ThreadArgs*)param;
+	args->ret=rans_uncompress_O1_32x16_avx2(args->in, args->insize, args->out, args->outsize);
+}
 #endif
-
-
 int c20_codec(const char *srcfn, const char *dstfn)
 {
 #ifdef _MSC_VER
 	double elapsed=time_sec();
 	unsigned long long cycles=__rdtsc();
-#endif
-#ifdef ESTIMATE_SIZE
-	double csizes[3]={0};
-#endif
-#if defined ESTIMATE_SIZE || defined _MSC_VER
 	ptrdiff_t csize_actual=0;
 #endif
 	if(!srcfn||!dstfn)
@@ -193,10 +185,8 @@ int c20_codec(const char *srcfn, const char *dstfn)
 	FILLMEM((unsigned short*)stats, 0x8000, sizeof(stats), sizeof(short));
 #endif
 	
-	unsigned long long low=0, range=0xFFFFFFFFFFFF;
 	if(fwd)//encode
 	{
-#ifndef COPY_TEST
 		ptrdiff_t dstbufsize=4LL*iw*ih;
 		unsigned short *dstbuf=0, *dstptr=0;
 		dstbuf=(unsigned short*)malloc(dstbufsize);
@@ -208,14 +198,16 @@ int c20_codec(const char *srcfn, const char *dstfn)
 		dstptr=dstbuf;
 		unsigned char *image=srcptr;
 		guide_save(image, iw, ih);
-		for(int ky=0, idx=0;ky<ih;++ky)
+		unsigned char *dptr=(unsigned char*)dstptr;
+		int res=iw*ih;
+		for(int ky=0, idx=0, idx2=0;ky<ih;++ky)
 		{
 			ALIGN(16) short *rows[]=
 			{
 				pixels+((iw+32LL)*((ky-0LL)&1)+16LL)*4,
 				pixels+((iw+32LL)*((ky-1LL)&1)+16LL)*4,
 			};
-			for(int kx=0;kx<iw;++kx, idx+=3)
+			for(int kx=0;kx<iw;++kx, idx+=3, ++idx2)
 			{
 				int yuv[]=
 				{
@@ -224,83 +216,93 @@ int c20_codec(const char *srcfn, const char *dstfn)
 					image[idx+0]-128,
 				};
 				int offset=0;
-				for(int kc=0;kc<3;++kc)
+				//if(ky==0&&kx==6&&kc==0)//
+				//	printf("");
 				{
-					//if(ky==0&&kx==6&&kc==0)//
-					//	printf("");
-
 					short
-						NW	=rows[1][-1*4+kc],
-						N	=rows[1][+0*4+kc],
-						W	=rows[0][-1*4+kc],
+						NW	=rows[1][-1*4+0],
+						N	=rows[1][+0*4+0],
+						W	=rows[0][-1*4+0],
+						*pcurr	=rows[0] +0*4 ;
+					int vmax=N, vmin=W; if(N<W)vmin=N, vmax=W;
+					int pred=N+W-NW; CLAMP2(pred, vmin, vmax);
+				//	pred+=offset; CLAMP2(pred, -128, 127);
+					int error=yuv[0]-pred;
+
+					dptr[res*0+idx2]=error;
+					//*dptr++=error;
+
+					pcurr[0]=yuv[0]-offset;
+				}
+				offset=yuv[0];
+				{
+					short
+						NW	=rows[1][-1*4+1],
+						N	=rows[1][+0*4+1],
+						W	=rows[0][-1*4+1],
 						*pcurr	=rows[0] +0*4 ;
 					int vmax=N, vmin=W; if(N<W)vmin=N, vmax=W;
 					int pred=N+W-NW; CLAMP2(pred, vmin, vmax);
 					pred+=offset; CLAMP2(pred, -128, 127);
-					int error=yuv[kc]-pred;
-#ifdef __GNUC__
-#pragma GCC unroll 8
-#elif defined __clang__
-#pragma clang loop unroll_count(8)
-#endif
-					for(int kb=7, tidx=1;kb>=0;--kb)
-					{
-						int bit=error>>kb&1;
-#ifdef USE_CTR
-						unsigned char *ctr=(unsigned char*)(stats[kc]+tidx);
-						int p0=(ctr[0]+ctr[1])*3+2;
-						p0=(((ctr[0]*3+1)<<16)+(p0>>1))/p0;
-						CLAMP2(p0, 1, 0xFFFF);
-#else
-						unsigned short *pp0=stats[kc]+tidx, p0=*pp0;
-						//CLAMP2(p0, ABAC_RISK, 0x10000-ABAC_RISK);
-#endif
-						val_append(p0);
-						while(range<0x10000)
-						{
-							*dstptr++=(unsigned short)(low>>32);
-							low=low<<16&0xFFFFFFFF0000;
-							range=range<<16|0xFFFF;
-							unsigned long long rmax=low^0xFFFFFFFFFFFF;
-							if(range>rmax)
-								range=rmax;
-						}
-						unsigned long long mid=range*p0>>16;
-						if(bit)
-						{
-							low+=mid;
-							range-=mid;
-						}
-						else
-							range=mid-1;
-#ifdef ESTIMATE_SIZE
-						csizes[kc]-=log2((double)(bit?0x10000-p0:p0)/0x10000);
-#endif
-#ifdef USE_CTR
-						if(ctr[bit]>=255)
-						{
-							ctr[0]>>=1;
-							ctr[1]>>=1;
-						}
-						++ctr[bit];
-#else
-						p0+=((!bit<<16)-p0+(1<<ABAC_SH>>1))>>ABAC_SH;
-						p0+=((!bit<<16)-p0+(1<<ABAC_SH>>1))>>ABAC_SH;
-						*pp0=p0;
-#endif
-						tidx=2*tidx+bit;
-					}
-					pcurr[kc]=yuv[kc]-offset;
-					offset=yuv[0];
+					int error=yuv[1]-pred;
+
+					dptr[res*1+idx2]=error;
+					//*dptr++=error;
+
+					pcurr[1]=yuv[1]-offset;
+				}
+				{
+					short
+						NW	=rows[1][-1*4+2],
+						N	=rows[1][+0*4+2],
+						W	=rows[0][-1*4+2],
+						*pcurr	=rows[0] +0*4 ;
+					int vmax=N, vmin=W; if(N<W)vmin=N, vmax=W;
+					int pred=N+W-NW; CLAMP2(pred, vmin, vmax);
+					pred+=offset; CLAMP2(pred, -128, 127);
+					int error=yuv[2]-pred;
+
+					dptr[res*2+idx2]=error;
+					//*dptr++=error;
+
+					pcurr[2]=yuv[2]-offset;
 				}
 				rows[0]+=4;
 				rows[1]+=4;
 			}
 		}
-		*dstptr++=(unsigned short)(low>>32);
-		*dstptr++=(unsigned short)(low>>16);
-		*dstptr++=(unsigned short)low;
+		unsigned char *cdata[3]={0};
+		unsigned cdatasize[3]={0};
+#ifdef ENABLE_MT
+		ThreadArgs args[]=
+		{
+			{dptr+res*0, 0, 0, res, 0},
+			{dptr+res*1, 0, 0, res, 0},
+			{dptr+res*2, 0, 0, res, 0},
+		};
+		void *mt=mt_exec(c20_enc, args, sizeof(*args), _countof(args));
+		mt_finish(mt);
+		cdata[0]=args[0].ret;	cdatasize[0]=args[0].outsize;
+		cdata[1]=args[1].ret;	cdatasize[1]=args[1].outsize;
+		cdata[2]=args[2].ret;	cdatasize[2]=args[2].outsize;
+#else
+		cdata[0]=rans_compress_O1_32x16_avx2(dptr+res*0, res, cdata[0], cdatasize+0);
+		cdata[1]=rans_compress_O1_32x16_avx2(dptr+res*1, res, cdata[1], cdatasize+1);
+		cdata[2]=rans_compress_O1_32x16_avx2(dptr+res*2, res, cdata[2], cdatasize+2);
 #endif
+		if(!cdata[0]||!cdata[1]||!cdata[2])
+		{
+			LOG_ERROR("HTS Encode Error");
+			return 1;
+		}
+		//unsigned char *cdata=0;
+		//unsigned cdatasize=0;
+		//cdata=rans_compress_O1_32x16_avx2((unsigned char*)dstbuf, 3*iw*ih, cdata, &cdatasize);//FIXME planar
+		//if(!cdata)
+		//{
+		//	LOG_ERROR("HTS Encode Error");
+		//	return 1;
+		//}
 		{
 			ptrdiff_t csize=0;
 			FILE *fdst=fopen(dstfn, "wb");
@@ -312,25 +314,30 @@ int c20_codec(const char *srcfn, const char *dstfn)
 			csize+=fwrite("CH", 1, 2, fdst);
 			csize+=fwrite(&iw, 1, 4, fdst);
 			csize+=fwrite(&ih, 1, 4, fdst);
-#ifndef COPY_TEST
-			ptrdiff_t size=dstptr-dstbuf;
-			csize+=fwrite(&size, 1, 4, fdst);
-			csize+=fwrite(dstbuf, 1, 2LL*size, fdst);
-#else
-			csize+=fwrite(srcptr, 1, 3LL*iw*ih, fdst);
-#endif
-#if defined ESTIMATE_SIZE || defined _MSC_VER
+
+			csize+=fwrite(cdatasize+0, 1, 4, fdst);
+			csize+=fwrite(cdatasize+1, 1, 4, fdst);
+			csize+=fwrite(cdata[0], 1, cdatasize[0], fdst);
+			csize+=fwrite(cdata[1], 1, cdatasize[1], fdst);
+			csize+=fwrite(cdata[2], 1, cdatasize[2], fdst);
+			//csize+=fwrite(cdata, 1, cdatasize, fdst);
+
+#ifdef _MSC_VER
 			csize_actual=csize;
+#else
+			(void)csize;
 #endif
 			fclose(fdst);
 		}
-#ifndef COPY_TEST
+		free(cdata[0]);
+		free(cdata[1]);
+		free(cdata[2]);
+		//free(cdata);
+
 		free(dstbuf);
-#endif
 	}
 	else//decode
 	{
-#ifndef COPY_TEST
 		int imsize=3*iw*ih;
 		unsigned char *image=(unsigned char*)malloc(imsize);
 		if(!image)
@@ -338,14 +345,56 @@ int c20_codec(const char *srcfn, const char *dstfn)
 			LOG_ERROR("Alloc error");
 			return 1;
 		}
-		ptrdiff_t nemitts=0;
-		memcpy(&nemitts, srcptr, 4); srcptr+=4;
-		unsigned short *sptr=(unsigned short*)srcptr;
-		unsigned long long code=(unsigned long long)sptr[0]<<32|(unsigned long long)sptr[1]<<16|sptr[2];
-		sptr+=3;
-		//code=code<<16|*sptr++;
-		//code=code<<16|*sptr++;
-		for(int ky=0, idx=0;ky<ih;++ky)
+		unsigned char *im2=(unsigned char*)malloc(imsize);
+		if(!im2)
+		{
+			LOG_ERROR("Alloc error");
+			return 1;
+		}
+		int res=iw*ih;
+		unsigned char *planes[]=
+		{
+			im2+res*0,
+			im2+res*1,
+			im2+res*2,
+		};
+		unsigned char *ret[3]={0};
+		unsigned cdatasize[2]={0};
+		memcpy(cdatasize+0, srcptr, 4); srcptr+=4;
+		memcpy(cdatasize+1, srcptr, 4); srcptr+=4;
+		unsigned char *cdata[3]={0};
+		cdata[0]=srcptr;
+		cdata[1]=cdata[0]+cdatasize[0];
+		cdata[2]=cdata[1]+cdatasize[1];
+#ifdef ENABLE_MT
+		ThreadArgs args[]=
+		{
+			{cdata[0], planes[0], 0, cdatasize[0],			res},
+			{cdata[1], planes[1], 0, cdatasize[1],			res},
+			{cdata[2], planes[2], 0, (unsigned)(srcend-cdata[2]),	res},
+		};
+		void *mt=mt_exec(c20_dec, args, sizeof(*args), _countof(args));
+		mt_finish(mt);
+		ret[0]=args[0].ret;
+		ret[1]=args[1].ret;
+		ret[2]=args[2].ret;
+#else
+		ret[0]=rans_uncompress_O1_32x16_avx2(cdata[0], cdatasize[0], planes[0], res);
+		ret[1]=rans_uncompress_O1_32x16_avx2(cdata[1], cdatasize[1], planes[1], res);
+		ret[2]=rans_uncompress_O1_32x16_avx2(cdata[2], (unsigned)(srcend-cdata[2]), planes[2], res);
+#endif
+		if(!ret[0]||!ret[1]||!ret[2])
+		{
+			LOG_ERROR("HTS Decode Error");
+			return 1;
+		}
+		//unsigned char *ret=rans_uncompress_O1_32x16_avx2(srcptr, (unsigned)(srcend-srcptr), image, imsize);
+		//if(!ret)
+		//{
+		//	LOG_ERROR("HTS Decode Error");
+		//	return 1;
+		//}
+		for(int ky=0, idx=0, idx2=0;ky<ih;++ky)
 		{
 			ALIGN(16) short *rows[]=
 			{
@@ -353,79 +402,78 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				pixels+((iw+32LL)*((ky-1LL)&1)+16LL)*4,
 			};
 			int yuv[3]={0};
-			for(int kx=0;kx<iw;++kx, idx+=3)
+			for(int kx=0;kx<iw;++kx, idx+=3, ++idx2)
 			{
 				int offset=0;
-				for(int kc=0;kc<3;++kc)
 				{
 					//if(ky==0&&kx==6&&kc==0)//
 					//	printf("");
 
 					short
-						NW	=rows[1][-1*4+kc],
-						N	=rows[1][+0*4+kc],
-						W	=rows[0][-1*4+kc],
+						NW	=rows[1][-1*4+0],
+						N	=rows[1][+0*4+0],
+						W	=rows[0][-1*4+0],
+						*pcurr	=rows[0] +0*4 ;
+					int vmax=N, vmin=W; if(N<W)vmin=N, vmax=W;
+					int pred=N+W-NW; CLAMP2(pred, vmin, vmax);
+				//	pred+=offset; CLAMP2(pred, -128, 127);
+					int error=0;
+
+					error=planes[0][idx2];
+					//error=image[idx+0];
+
+					error+=pred;
+					error<<=24;
+					error>>=24;
+					yuv[0]=error;
+					pcurr[0]=yuv[0]-offset;
+				}
+				offset=yuv[0];
+				{
+					//if(ky==0&&kx==6&&kc==0)//
+					//	printf("");
+
+					short
+						NW	=rows[1][-1*4+1],
+						N	=rows[1][+0*4+1],
+						W	=rows[0][-1*4+1],
 						*pcurr	=rows[0] +0*4 ;
 					int vmax=N, vmin=W; if(N<W)vmin=N, vmax=W;
 					int pred=N+W-NW; CLAMP2(pred, vmin, vmax);
 					pred+=offset; CLAMP2(pred, -128, 127);
 					int error=0;
-#ifdef __GNUC__
-#pragma GCC unroll 8
-#elif defined __clang__
-#pragma clang loop unroll_count(8)
-#endif
-					for(int kb=7, tidx=1;kb>=0;--kb)
-					{
-						int bit;
-#ifdef USE_CTR
-						unsigned char *ctr=(unsigned char*)(stats[kc]+tidx);
-						int p0=(ctr[0]+ctr[1])*3+2;
-						p0=(((ctr[0]*3+1)<<16)+(p0>>1))/p0;
-						CLAMP2(p0, 1, 0xFFFF);
-#else
-						unsigned short *pp0=stats[kc]+tidx, p0=*pp0;
-						//CLAMP2(p0, ABAC_RISK, 0x10000-ABAC_RISK);
-#endif
-						val_check(p0);
-						while(range<0x10000)
-						{
-							code=(code<<16&0xFFFFFFFF0000)|*sptr++;
-							low=low<<16&0xFFFFFFFF0000;
-							range=range<<16|0xFFFF;
-							unsigned long long rmax=low^0xFFFFFFFFFFFF;
-							if(range>rmax)
-								range=rmax;
-						}
-						unsigned long long mid=range*p0>>16;
-						unsigned long long t2=low+mid;
-						range-=mid;
-						bit=code>=t2;
-						if(bit)
-							low=t2;
-						else
-							range=mid-1;
-						error|=bit<<kb;
-#ifdef USE_CTR
-						if(ctr[bit]>=255)
-						{
-							ctr[0]>>=1;
-							ctr[1]>>=1;
-						}
-						++ctr[bit];
-#else
-						p0+=((!bit<<16)-p0+(1<<ABAC_SH>>1))>>ABAC_SH;
-						p0+=((!bit<<16)-p0+(1<<ABAC_SH>>1))>>ABAC_SH;
-						*pp0=p0;
-#endif
-						tidx=2*tidx+bit;
-					}
+
+					error=planes[1][idx2];
+					//error=image[idx+1];
+
 					error+=pred;
 					error<<=24;
 					error>>=24;
-					yuv[kc]=error;
-					pcurr[kc]=yuv[kc]-offset;
-					offset=yuv[0];
+					yuv[1]=error;
+					pcurr[1]=yuv[1]-offset;
+				}
+				{
+					//if(ky==0&&kx==6&&kc==0)//
+					//	printf("");
+
+					short
+						NW	=rows[1][-1*4+2],
+						N	=rows[1][+0*4+2],
+						W	=rows[0][-1*4+2],
+						*pcurr	=rows[0] +0*4 ;
+					int vmax=N, vmin=W; if(N<W)vmin=N, vmax=W;
+					int pred=N+W-NW; CLAMP2(pred, vmin, vmax);
+					pred+=offset; CLAMP2(pred, -128, 127);
+					int error=0;
+
+					error=planes[2][idx2];
+					//error=image[idx+2];
+
+					error+=pred;
+					error<<=24;
+					error>>=24;
+					yuv[2]=error;
+					pcurr[2]=yuv[2]-offset;
 				}
 				image[idx+1]=yuv[0]+128;
 				image[idx+2]=yuv[1]+128;
@@ -435,7 +483,7 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				rows[1]+=4;
 			}
 		}
-#endif
+		free(im2);
 		{
 			FILE *fdst=fopen(dstfn, "wb");
 			if(!fdst)
@@ -444,37 +492,19 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				return 1;
 			}
 			fprintf(fdst, "P6\n%d %d\n255\n", iw, ih);
-#ifndef COPY_TEST
 			fwrite(image, 1, imsize, fdst);
-#else
-			fwrite(srcptr, 1, 3LL*iw*ih, fdst);
-#endif
 			fclose(fdst);
 		}
-#ifndef COPY_TEST
 		free(image);
-#endif
 	}
 	_mm_free(pixels);
 	free(srcbuf);
-#ifdef _MSC_VER
+#if defined _MSC_VER && !defined SILENT
 	cycles=__rdtsc()-cycles;
 	elapsed=time_sec()-elapsed;
 	ptrdiff_t usize=3LL*iw*ih;
-#endif
-#ifdef ESTIMATE_SIZE
-	if(fwd)
-	{
-		printf("T%12.2lf\n", (csizes[0]+csizes[1]+csizes[2])/8);
-		for(int kc=0;kc<3;++kc)
-			printf("%c%12.2lf\n", "YUV"[kc], csizes[kc]/8);
-		printf(" %9td   /%9td %12.6lf:1\n", csize_actual, usize, (double)usize/csize_actual);
-	}
-#elif defined _MSC_VER
 	if(fwd)
 		printf(" %9td   /%9td %12.6lf:1\n", csize_actual, usize, (double)usize/csize_actual);
-#endif
-#ifdef _MSC_VER
 	printf("%c%12lf sec %12lf MB/s  %12lld cycles %12lf C/B\n",
 		'D'+fwd,
 		elapsed,

@@ -1,4 +1,7 @@
-﻿add_executable (codec
+﻿include_directories(
+	"."
+)
+add_executable (codec
 	c01.c
 	c02.c
 	c03.c
@@ -21,4 +24,19 @@
 	c20.c
 	codec.c
 	util.c
+
+	htscodecs/arith_dynamic.c
+	htscodecs/fqzcomp_qual.c
+	htscodecs/htscodecs.c
+	htscodecs/pack.c
+	htscodecs/rANS_static.c
+	htscodecs/rANS_static4x16pr.c
+	htscodecs/rANS_static32x16pr.c
+	htscodecs/rANS_static32x16pr_avx2.c
+	htscodecs/rANS_static32x16pr_avx512.c
+	htscodecs/rANS_static32x16pr_neon.c
+	htscodecs/rANS_static32x16pr_sse4.c
+	htscodecs/rle.c
+	htscodecs/tokenise_name3.c
+	htscodecs/utils.c
 )

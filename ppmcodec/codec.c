@@ -9,7 +9,7 @@ static const char file[]=__FILE__;
 
 
 #ifndef CODEC_FUNC
-#define CODEC_FUNC c18_codec
+#define CODEC_FUNC c20_codec
 #endif
 
 
@@ -97,16 +97,15 @@ int main(int argc, char **argv)
 {
 	const char *srcfn, *dstfn;
 	
-#ifdef __GNUC__
-//#ifndef _DEBUG
+//#ifdef __GNUC__
+#ifndef _DEBUG
 //#if 0
 	if((unsigned)(argc-2)>1)
 	{
 		printf("Usage:\n");
-		printf("  %s  input.PPM/PGM          Test without saving\n", argv[0]);
-	//	printf("  %s  path                   Test without saving\n", argv[0]);
-		printf("  %s  input.PPM/PGM  output  Encode file\n", argv[0]);
-		printf("  %s  input  output.PPM/PGM  Decode file\n", argv[0]);
+		printf("  %s  input.PPM          Test without saving\n", argv[0]);
+		printf("  %s  input.PPM  output  Encode file\n", argv[0]);
+		printf("  %s  input  output.PPM  Decode file\n", argv[0]);
 		return 0;
 	}
 	srcfn=argv[1];
@@ -116,9 +115,9 @@ int main(int argc, char **argv)
 	srcfn=
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA13882.ppm"
-		"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_abigail-keenan-27293.ppm"
+	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_abigail-keenan-27293.ppm"
 	//	"C:/Projects/datasets/big_building.PPM"
-	//	"C:/Projects/datasets/kodim13.ppm"
+		"C:/Projects/datasets/kodim13.ppm"
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim23.ppm"
 	//	"C:/Projects/datasets/kodim13-small4.PPM"
 	//	"C:/Projects/datasets/kodim13-small16.PPM"
@@ -193,15 +192,15 @@ int main(int argc, char **argv)
 //	c20_codec("C:/Projects/datasets/big_building.PPM", "C:/Projects/datasets/big_building.lsim");		//large image
 //	c20_codec("C:/Projects/datasets/big_building.lsim", "C:/Projects/datasets/big_building_dec.ppm");
 
-//	c20_codec("C:/Projects/datasets/space_huge.ppm", "C:/Projects/datasets/space_huge.lsim");		//very large image
-//	c20_codec("C:/Projects/datasets/space_huge.lsim", "C:/Projects/datasets/space_huge_dec.ppm");
+	c20_codec("C:/Projects/datasets/space_huge.ppm", "C:/Projects/datasets/space_huge.lsim");		//very large image
+	c20_codec("C:/Projects/datasets/space_huge.lsim", "C:/Projects/datasets/space_huge_dec.ppm");
 
 //	c08_codec("C:/Projects/datasets/20240414-noise.PPM", "C:/Projects/datasets/20240414-noise.LSIM");	//bypass
 //	c08_codec("C:/Projects/datasets/20240414-noise.LSIM", "C:/Projects/datasets/20240414-noise_dec.PPM");
 
 //	c07_codec(srcfn, dstfn);
 
-	CODEC_FUNC(srcfn, dstfn);
+//	CODEC_FUNC(srcfn, dstfn);
 #endif
 	return 0;
 }
