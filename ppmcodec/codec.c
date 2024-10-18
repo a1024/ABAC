@@ -97,8 +97,8 @@ int main(int argc, char **argv)
 {
 	const char *srcfn, *dstfn;
 	
-//#ifdef __GNUC__
-#ifndef _DEBUG
+#ifdef __GNUC__
+//#ifndef _DEBUG
 //#if 0
 	if((unsigned)(argc-2)>1)
 	{
@@ -182,6 +182,9 @@ int main(int argc, char **argv)
 
 	c20_codec("C:/Projects/datasets/kodim13.ppm", "C:/Projects/datasets/kodim13.lsim");
 	c20_codec("C:/Projects/datasets/kodim13.lsim", "C:/Projects/datasets/kodim13_dec.ppm");
+	
+//	c20_codec("C:/Projects/datasets/kodim24.ppm", "C:/Projects/datasets/kodim24.lsim");
+//	c20_codec("C:/Projects/datasets/kodim24.lsim", "C:/Projects/datasets/kodim24_dec.ppm");
 
 //	c08_codec("C:/Projects/datasets/kodim13-small16.ppm", "C:/Projects/datasets/kodim13-small16.lsim");
 //	c08_codec("C:/Projects/datasets/kodim13-small16.lsim", "C:/Projects/datasets/kodim13-small16_dec.ppm");

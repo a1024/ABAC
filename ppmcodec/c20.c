@@ -17,8 +17,6 @@ static const char file[]=__FILE__;
 //	#define ENABLE_MT
 //	#define ENABLE_GUIDE
 
-//	#define ERROR_CORRECTION
-//	#define ERROR_SHIFT 8
 
 #ifdef ENABLE_GUIDE
 static int g_iw=0, g_ih=0;
@@ -209,109 +207,128 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				pixels+((iw+32LL)*((ky-0LL)&1)+16LL)*4,
 				pixels+((iw+32LL)*((ky-1LL)&1)+16LL)*4,
 			};
-#ifdef ERROR_CORRECTION
-			int eWWW[3]={0}, eWW[3]={0}, eW[3]={0};
-#endif
-			for(int kx=0;kx<iw;++kx, idx+=3, ++idx2)
+			int kx=0;
+#if 1
+			__m128i getyuv=_mm_set_epi8(
+			//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+				-1,  9, 11, 10, -1,  6,  8,  7, -1,  3,  5,  4, -1,  0,  2,  1
+			);
+			__m128i half=_mm_set_epi8(
+				0, -128, -128, -128,
+				0, -128, -128, -128,
+				0, -128, -128, -128,
+				0, -128, -128, -128
+			);
+			__m256i getoffset=_mm256_set_epi8(
+			//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+				-1, -1,  9,  8,  9,  8, -1, -1, -1, -1,  1,  0,  1,  0, -1, -1,
+				-1, -1,  9,  8,  9,  8, -1, -1, -1, -1,  1,  0,  1,  0, -1, -1
+			);
+			__m256i deinter=_mm256_set_epi8(
+			//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+				-1, -1, -1, -1, 12,  4, -1, -1, 10,  2, -1, -1,  8,  0, -1, -1,
+				-1, -1, -1, -1, -1, -1, 12,  4, -1, -1, 10,  2, -1, -1,  8,  0
+			);
+			__m256i four=_mm256_set1_epi16(4);
+			__m256i mmin=_mm256_set1_epi16(-128);
+			__m256i mmax=_mm256_set1_epi16(127);
+			ALIGN(16) int errors[4]={0};
+			for(;kx<iw-3;kx+=4, idx+=3*4, idx2+=4)
 			{
+				//if(kx==4&&ky==1)//
+				//	printf("");
+
+				__m128i myuv8=_mm_loadu_si128((__m128i*)(image+idx));
+				myuv8=_mm_shuffle_epi8(myuv8, getyuv);
+				myuv8=_mm_xor_si128(myuv8, half);
+				__m256i myuv=_mm256_cvtepi8_epi16(myuv8);
+				__m256i moffset=_mm256_shuffle_epi8(myuv, getoffset);
+				_mm256_store_si256((__m256i*)rows[0], _mm256_sub_epi16(myuv, moffset));
+
+				__m256i mNW	=_mm256_loadu_si256((__m256i*)(rows[1]-1*4));
+				__m256i mN	=_mm256_loadu_si256((__m256i*)(rows[1]+0*4));
+				__m256i mNE	=_mm256_loadu_si256((__m256i*)(rows[1]+1*4));
+				__m256i mW	=_mm256_loadu_si256((__m256i*)(rows[0]-1*4));
+				__m256i vmin=_mm256_min_epi16(mN, mW);
+				__m256i vmax=_mm256_max_epi16(mN, mW);
+				vmin=_mm256_min_epi16(vmin, mNE);
+				vmax=_mm256_max_epi16(vmax, mNE);
+				__m256i mp=_mm256_slli_epi16(_mm256_add_epi16(mN, mW), 2);
+				mp=_mm256_add_epi16(mp, mNE);
+				mp=_mm256_sub_epi16(mp, mNW);
+				mp=_mm256_add_epi16(mp, four);
+				mp=_mm256_srai_epi16(mp, 3);
+				mp=_mm256_max_epi16(mp, vmin);
+				mp=_mm256_min_epi16(mp, vmax);
+
+				mp=_mm256_add_epi16(mp, moffset);
+				mp=_mm256_max_epi16(mp, mmin);
+				mp=_mm256_min_epi16(mp, mmax);
+
+				myuv=_mm256_sub_epi16(myuv, mp);
+
+				myuv=_mm256_shuffle_epi8(myuv, deinter);
+				myuv8=_mm_or_si128(_mm256_extracti128_si256(myuv, 0), _mm256_extracti128_si256(myuv, 1));
+				_mm_store_si128((__m128i*)errors, myuv8);
+				*(unsigned*)(dptr+res*0+idx2)=errors[0];
+				*(unsigned*)(dptr+res*1+idx2)=errors[1];
+				*(unsigned*)(dptr+res*2+idx2)=errors[2];
+
+				rows[0]+=4*4;
+				rows[1]+=4*4;
+			}
+#endif
+			for(;kx<iw;++kx, idx+=3, ++idx2)
+			{
+				//if(ky==0&&kx==6&&kc==0)//
+				//if(ky==399&&kx==714)//
+				//if(kx==4&&ky==1)//
+				//	printf("");
+
 				int yuv[]=
 				{
 					image[idx+1]-128,
 					image[idx+2]-128,
 					image[idx+0]-128,
 				};
-				int offset=0;
-				//if(ky==0&&kx==6&&kc==0)//
-				//if(ky==399&&kx==714)//
-				//	printf("");
-				{
-					short
-						NW	=rows[1][-1*4+0],
-						N	=rows[1][+0*4+0],
-						NE	=rows[1][+1*4+0],
-						WW	=rows[0][-2*4+0],
-						W	=rows[0][-1*4+0],
-						*pcurr	=rows[0] +0*4 ;
-					int vmax=N, vmin=W; if(N<W)vmin=N, vmax=W;
-					if(vmin>NE)vmin=NE; if(vmax<NE)vmax=NE; int pred=(4*(N+W)+NE-NW+4)>>3;
-					//int pred=N+W-NW;
-					//if(vmin>NE)vmin=NE; if(vmax<NE)vmax=NE; int pred=W+((5*(N-NW)+NE-WW+4)>>3);
-#ifdef ERROR_CORRECTION
-					pred-=(3*(eW[0]+eWW[0])+eWWW[0]+(1<<5>>1))>>5; //CLAMP2(pred, -128, 127);
-#endif
-					CLAMP2(pred, vmin, vmax);
-				//	pred+=offset; CLAMP2(pred, -128, 127);
-					int error=yuv[0]-pred;
+				short
+					yNW	=rows[1][-1*4+0], uNW	=rows[1][-1*4+1], vNW	=rows[1][-1*4+2],
+					yN	=rows[1][+0*4+0], uN	=rows[1][+0*4+1], vN	=rows[1][+0*4+2],
+					yNE	=rows[1][+1*4+0], uNE	=rows[1][+1*4+1], vNE	=rows[1][+1*4+2],
+					yW	=rows[0][-1*4+0], uW	=rows[0][-1*4+1], vW	=rows[0][-1*4+2],
+					*pcurr	=rows[0] +0*4;
+				int ymax=yN, ymin=yW;
+				int umax=uN, umin=uW;
+				int vmax=vN, vmin=vW;
+				if(yN<yW)ymin=yN, ymax=yW;
+				if(ymin>yNE)ymin=yNE;
+				if(ymax<yNE)ymax=yNE;
+				if(uN<uW)umin=uN, umax=uW;
+				if(umin>uNE)umin=uNE;
+				if(umax<uNE)umax=uNE;
+				if(vN<vW)vmin=vN, vmax=vW;
+				if(vmin>vNE)vmin=vNE;
+				if(vmax<vNE)vmax=vNE;
 
-					dptr[res*0+idx2]=error;
-					//*dptr++=error;
-					
-#ifdef ERROR_CORRECTION
-					eWWW[0]=eWW[0];
-					eWW[0]=eW[0];
-					eW[0]=error;
-#endif
-					pcurr[0]=yuv[0]-offset;
-				}
-				offset=yuv[0];
-				{
-					short
-						NW	=rows[1][-1*4+1],
-						N	=rows[1][+0*4+1],
-						NE	=rows[1][+1*4+1],
-						WW	=rows[0][-2*4+1],
-						W	=rows[0][-1*4+1],
-						*pcurr	=rows[0] +0*4 ;
-					int vmax=N, vmin=W; if(N<W)vmin=N, vmax=W;
-					if(vmin>NE)vmin=NE; if(vmax<NE)vmax=NE; int pred=(4*(N+W)+NE-NW+4)>>3;
-					//int pred=N+W-NW;
-					//if(vmin>NE)vmin=NE; if(vmax<NE)vmax=NE; int pred=W+((5*(N-NW)+NE-WW+4)>>3);
-#ifdef ERROR_CORRECTION
-					pred-=(3*(eW[1]+eWW[1])+eWWW[1]+(1<<5>>1))>>5; //CLAMP2(pred, -128, 127);
-#endif
-					CLAMP2(pred, vmin, vmax);
-					pred+=offset; CLAMP2(pred, -128, 127);
-					int error=yuv[1]-pred;
+				int ypred=(4*(yN+yW)+yNE-yNW+4)>>3;
+				CLAMP2(ypred, ymin, ymax);
+				int upred=(4*(uN+uW)+uNE-uNW+4)>>3;
+				CLAMP2(upred, umin, umax);
+				int vpred=(4*(vN+vW)+vNE-vNW+4)>>3;
+				CLAMP2(vpred, vmin, vmax);
 
-					dptr[res*1+idx2]=error;
-					//*dptr++=error;
-					
-#ifdef ERROR_CORRECTION
-					eWWW[1]=eWW[1];
-					eWW[1]=eW[1];
-					eW[1]=error;
-#endif
-					pcurr[1]=yuv[1]-offset;
-				}
-				{
-					short
-						NW	=rows[1][-1*4+2],
-						N	=rows[1][+0*4+2],
-						NE	=rows[1][+1*4+2],
-						WW	=rows[0][-2*4+2],
-						W	=rows[0][-1*4+2],
-						*pcurr	=rows[0] +0*4 ;
-					int vmax=N, vmin=W; if(N<W)vmin=N, vmax=W;
-					if(vmin>NE)vmin=NE; if(vmax<NE)vmax=NE; int pred=(4*(N+W)+NE-NW+4)>>3;
-					//int pred=N+W-NW;
-					//if(vmin>NE)vmin=NE; if(vmax<NE)vmax=NE; int pred=W+((5*(N-NW)+NE-WW+4)>>3);
-#ifdef ERROR_CORRECTION
-					pred-=(3*(eW[2]+eWW[2])+eWWW[2]+(1<<5>>1))>>5; //CLAMP2(pred, -128, 127);
-#endif
-					CLAMP2(pred, vmin, vmax);
-					pred+=offset; CLAMP2(pred, -128, 127);
-					int error=yuv[2]-pred;
+				pcurr[0]=yuv[0];
+				pcurr[1]=yuv[1]-yuv[0];
+				pcurr[2]=yuv[2]-yuv[0];
+				upred+=yuv[0];
+				CLAMP2(upred, -128, 127);
+				vpred+=yuv[0];
+				CLAMP2(vpred, -128, 127);
 
-					dptr[res*2+idx2]=error;
-					//*dptr++=error;
-					
-#ifdef ERROR_CORRECTION
-					eWWW[2]=eWW[2];
-					eWW[2]=eW[2];
-					eW[2]=error;
-#endif
-					pcurr[2]=yuv[2]-offset;
-				}
+				dptr[res*0+idx2]=yuv[0]-ypred;
+				dptr[res*1+idx2]=yuv[1]-upred;
+				dptr[res*2+idx2]=yuv[2]-vpred;
+
 				rows[0]+=4;
 				rows[1]+=4;
 			}
@@ -446,131 +463,49 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				pixels+((iw+32LL)*((ky-0LL)&1)+16LL)*4,
 				pixels+((iw+32LL)*((ky-1LL)&1)+16LL)*4,
 			};
-#ifdef ERROR_CORRECTION
-			int eWWW[3]={0}, eWW[3]={0}, eW[3]={0};
-#endif
 			int yuv[3]={0};
 			for(int kx=0;kx<iw;++kx, idx+=3, ++idx2)
 			{
-				int offset=0;
 				//if(ky==0&&kx==6&&kc==0)//
 				//if(ky==399&&kx==714)//
 				//	printf("");
-				{
-					short
-						NW	=rows[1][-1*4+0],
-						N	=rows[1][+0*4+0],
-						NE	=rows[1][+1*4+0],
-						WW	=rows[0][-2*4+0],
-						W	=rows[0][-1*4+0],
-						*pcurr	=rows[0] +0*4 ;
-					int vmax=N, vmin=W; if(N<W)vmin=N, vmax=W;
-					if(vmin>NE)vmin=NE; if(vmax<NE)vmax=NE; int pred=(4*(N+W)+NE-NW+4)>>3;
-					//int pred=N+W-NW;
-					//if(vmin>NE)vmin=NE; if(vmax<NE)vmax=NE; int pred=W+((5*(N-NW)+NE-WW+4)>>3);
-#ifdef ERROR_CORRECTION
-					pred-=(3*(eW[0]+eWW[0])+eWWW[0]+(1<<5>>1))>>5; //CLAMP2(pred, -128, 127);
-#endif
-					CLAMP2(pred, vmin, vmax);
-				//	pred+=eW[0]>>2; CLAMP2(pred, -128, 127);
-				//	pred+=offset; CLAMP2(pred, -128, 127);
-					int error=0;
+				short
+					yNW	=rows[1][-1*4+0], uNW	=rows[1][-1*4+1], vNW	=rows[1][-1*4+2],
+					yN	=rows[1][+0*4+0], uN	=rows[1][+0*4+1], vN	=rows[1][+0*4+2],
+					yNE	=rows[1][+1*4+0], uNE	=rows[1][+1*4+1], vNE	=rows[1][+1*4+2],
+					yW	=rows[0][-1*4+0], uW	=rows[0][-1*4+1], vW	=rows[0][-1*4+2],
+					*pcurr	=rows[0] +0*4;
+				int ymax=yN, ymin=yW;
+				int umax=uN, umin=uW;
+				int vmax=vN, vmin=vW;
+				if(yN<yW)ymin=yN, ymax=yW;
+				if(ymin>yNE)ymin=yNE;
+				if(ymax<yNE)ymax=yNE;
+				if(uN<uW)umin=uN, umax=uW;
+				if(umin>uNE)umin=uNE;
+				if(umax<uNE)umax=uNE;
+				if(vN<vW)vmin=vN, vmax=vW;
+				if(vmin>vNE)vmin=vNE;
+				if(vmax<vNE)vmax=vNE;
 
-					error=planes[0][idx2];
-					//error=image[idx+0];
+				int ypred=(4*(yN+yW)+yNE-yNW+4)>>3;
+				int upred=(4*(uN+uW)+uNE-uNW+4)>>3;
+				int vpred=(4*(vN+vW)+vNE-vNW+4)>>3;
+				CLAMP2(ypred, ymin, ymax);
+				CLAMP2(upred, umin, umax);
+				CLAMP2(vpred, vmin, vmax);
 
-					error+=pred;
-					error<<=24;
-					error>>=24;
-					yuv[0]=error;
-					pcurr[0]=yuv[0]-offset;
-					
-#ifdef ERROR_CORRECTION
-					eWWW[0]=eWW[0];
-					eWW[0]=eW[0];
-					eW[0]=error-pred;
-				//	eW[0]+=(error-pred-eW[0]+(1<<ERROR_SHIFT>>1))>>ERROR_SHIFT;
-#endif
-				}
-				offset=yuv[0];
-				{
-					//if(ky==0&&kx==6&&kc==0)//
-					//	printf("");
+				pcurr[0]=yuv[0]=(char)(planes[0][idx2]+ypred);
+				upred+=yuv[0];
+				CLAMP2(upred, -128, 127);
+				vpred+=yuv[0];
+				CLAMP2(vpred, -128, 127);
 
-					short
-						NW	=rows[1][-1*4+1],
-						N	=rows[1][+0*4+1],
-						NE	=rows[1][+1*4+1],
-						WW	=rows[0][-2*4+1],
-						W	=rows[0][-1*4+1],
-						*pcurr	=rows[0] +0*4 ;
-					int vmax=N, vmin=W; if(N<W)vmin=N, vmax=W;
-					if(vmin>NE)vmin=NE; if(vmax<NE)vmax=NE; int pred=(4*(N+W)+NE-NW+4)>>3;
-					//int pred=N+W-NW;
-					//if(vmin>NE)vmin=NE; if(vmax<NE)vmax=NE; int pred=W+((5*(N-NW)+NE-WW+4)>>3);
-#ifdef ERROR_CORRECTION
-					pred-=(3*(eW[1]+eWW[1])+eWWW[1]+(1<<5>>1))>>5; //CLAMP2(pred, -128, 127);
-#endif
-					CLAMP2(pred, vmin, vmax);
-				//	pred+=eW[1]>>2; CLAMP2(pred, -128, 127);
-					pred+=offset; CLAMP2(pred, -128, 127);
-					int error=0;
+				yuv[1]=(char)(planes[1][idx2]+upred);
+				yuv[2]=(char)(planes[2][idx2]+vpred);
+				pcurr[1]=yuv[1]-yuv[0];
+				pcurr[2]=yuv[2]-yuv[0];
 
-					error=planes[1][idx2];
-					//error=image[idx+1];
-
-					error+=pred;
-					error<<=24;
-					error>>=24;
-					yuv[1]=error;
-					pcurr[1]=yuv[1]-offset;
-					
-#ifdef ERROR_CORRECTION
-					eWWW[1]=eWW[1];
-					eWW[1]=eW[1];
-					eW[1]=error-pred;
-				//	eW[1]+=(error-pred-eW[1]+(1<<ERROR_SHIFT>>1))>>ERROR_SHIFT;
-#endif
-				}
-				{
-					//if(ky==0&&kx==6&&kc==0)//
-					//	printf("");
-
-					short
-						NW	=rows[1][-1*4+2],
-						N	=rows[1][+0*4+2],
-						NE	=rows[1][+1*4+2],
-						WW	=rows[0][-2*4+2],
-						W	=rows[0][-1*4+2],
-						*pcurr	=rows[0] +0*4 ;
-					int vmax=N, vmin=W; if(N<W)vmin=N, vmax=W;
-					if(vmin>NE)vmin=NE; if(vmax<NE)vmax=NE; int pred=(4*(N+W)+NE-NW+4)>>3;
-					//int pred=N+W-NW;
-					//if(vmin>NE)vmin=NE; if(vmax<NE)vmax=NE; int pred=W+((5*(N-NW)+NE-WW+4)>>3);
-#ifdef ERROR_CORRECTION
-					pred-=(3*(eW[2]+eWW[2])+eWWW[2]+(1<<5>>1))>>5; //CLAMP2(pred, -128, 127);
-#endif
-					CLAMP2(pred, vmin, vmax);
-				//	pred+=eW[2]>>2; CLAMP2(pred, -128, 127);
-					pred+=offset; CLAMP2(pred, -128, 127);
-					int error=0;
-
-					error=planes[2][idx2];
-					//error=image[idx+2];
-
-					error+=pred;
-					error<<=24;
-					error>>=24;
-					yuv[2]=error;
-					pcurr[2]=yuv[2]-offset;
-					
-#ifdef ERROR_CORRECTION
-					eWWW[2]=eWW[2];
-					eWW[2]=eW[2];
-					eW[2]=error-pred;
-				//	eW[2]+=(error-pred-eW[2]+(1<<ERROR_SHIFT>>1))>>ERROR_SHIFT;
-#endif
-				}
 				image[idx+1]=yuv[0]+128;
 				image[idx+2]=yuv[1]+128;
 				image[idx+0]=yuv[2]+128;
