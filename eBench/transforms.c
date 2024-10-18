@@ -3859,7 +3859,7 @@ void pred_nblic(Image *src, int fwd)//https://github.com/WangXuan95/NBLIC-Image-
 //	}
 //}
 
-	#define WGRAD_UPDATE_LUMA
+//	#define WGRAD_UPDATE_LUMA
 //	#define WGRAD_SSE
 #ifdef WGRAD_SSE
 static int quantize_nb(int x)
@@ -3952,7 +3952,7 @@ void pred_wgrad(Image *src, int fwd, int hasRCT)
 #endif
 			for(int kc0=0;kc0<src->nch;++kc0)
 			{
-				int kc=perm[kc0], pred;
+				int kc=perm[kc0];
 				int
 					NNNN	=rows[0][kc+0*4],
 					NNN	=rows[3][kc+0*4],
@@ -3999,11 +3999,15 @@ void pred_wgrad(Image *src, int fwd, int hasRCT)
 					if(kc0>1)
 						offset=(2*offset+rows[0][2])>>1;
 				}
+				int
+					gy=abs(N-NN)+abs(W-NW)+abs(NE-NNE)+1,
+					gx=abs(W-WW)+abs(N-NW)+abs(N-NE)+1;
+				int pred=(gx*N+gy*W)/(gx+gy);
 				//int nb[]={N, W, NW, NE, NEE};
 				//sort_int32(nb, (int)_countof(nb));
 				//int pred=nb[_countof(nb)>>1];
 				//pred=(pred+N+W-NW)>>1;
-#if 1
+#if 0
 				long long lpred, wsum;
 				//int
 				//	gy=abs(N-NN)+abs(W-NW)+1,
@@ -4160,8 +4164,8 @@ void pred_wgrad(Image *src, int fwd, int hasRCT)
 				pred+=curr_sse[0]/(curr_sse[1]+1);
 #endif
 
-				pred+=offset;
-				pred=CLAMP(-halfs[kc], pred, halfs[kc]-1);
+				//pred+=offset;
+				//pred=CLAMP(-halfs[kc], pred, halfs[kc]-1);
 				{
 					int curr=src->data[idx+kc];
 					pred^=fwdmask;
@@ -4172,7 +4176,8 @@ void pred_wgrad(Image *src, int fwd, int hasRCT)
 					pred>>=32-src->depth[kc];
 
 					src->data[idx+kc]=pred;
-					rows[0][kc]=(fwd?curr:pred)-offset;
+					rows[0][kc]=fwd?curr:pred;
+					//rows[0][kc]=(fwd?curr:pred)-offset;
 #ifdef WGRAD_SSE
 					int error=fwd?pred:curr;
 					curr_sse[0]+=error;
@@ -4184,7 +4189,7 @@ void pred_wgrad(Image *src, int fwd, int hasRCT)
 					}
 #endif
 				}
-#if 1
+#if 0
 				{
 					int curr=rows[0][kc];
 					for(int k=0;k<_countof(preds);++k)
