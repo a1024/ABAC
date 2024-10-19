@@ -12,7 +12,7 @@
 static const char file[]=__FILE__;
 
 
-	#define SILENT
+//	#define SILENT
 
 //	#define ENABLE_MT
 //	#define ENABLE_GUIDE
@@ -122,9 +122,6 @@ int c20_codec(const char *srcfn, const char *dstfn)
 		return 1;
 	}
 	int iw=0, ih=0;
-	//unsigned char *image=0;
-	//ptrdiff_t dstbufsize=0;
-	//unsigned char *dstbuf;
 	if(fwd)//encode
 	{
 		if(*srcptr++ != '\n')
@@ -357,14 +354,6 @@ int c20_codec(const char *srcfn, const char *dstfn)
 			LOG_ERROR("HTS Encode Error");
 			return 1;
 		}
-		//unsigned char *cdata=0;
-		//unsigned cdatasize=0;
-		//cdata=rans_compress_O1_32x16_avx2((unsigned char*)dstbuf, 3*iw*ih, cdata, &cdatasize);//FIXME planar
-		//if(!cdata)
-		//{
-		//	LOG_ERROR("HTS Encode Error");
-		//	return 1;
-		//}
 		{
 			ptrdiff_t csize=0;
 			FILE *fdst=fopen(dstfn, "wb");
@@ -382,7 +371,6 @@ int c20_codec(const char *srcfn, const char *dstfn)
 			csize+=fwrite(cdata[0], 1, cdatasize[0], fdst);
 			csize+=fwrite(cdata[1], 1, cdatasize[1], fdst);
 			csize+=fwrite(cdata[2], 1, cdatasize[2], fdst);
-			//csize+=fwrite(cdata, 1, cdatasize, fdst);
 
 #ifdef _MSC_VER
 			csize_actual=csize;
@@ -450,12 +438,6 @@ int c20_codec(const char *srcfn, const char *dstfn)
 			LOG_ERROR("HTS Decode Error");
 			return 1;
 		}
-		//unsigned char *ret=rans_uncompress_O1_32x16_avx2(srcptr, (unsigned)(srcend-srcptr), image, imsize);
-		//if(!ret)
-		//{
-		//	LOG_ERROR("HTS Decode Error");
-		//	return 1;
-		//}
 		for(int ky=0, idx=0, idx2=0;ky<ih;++ky)
 		{
 			ALIGN(16) short *rows[]=

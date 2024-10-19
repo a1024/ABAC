@@ -12,7 +12,7 @@ static const char file[]=__FILE__;
 //	#define ENABLE_SELPRED
 //	#define ESTIMATE_SIZE
 #ifdef _DEBUG
-	#define ENABLE_ZIPF_VIEW
+//	#define ENABLE_ZIPF_VIEW
 #endif
 
 	#define ENABLE_WG//good
