@@ -79,6 +79,8 @@ if __name__=='__main__':
 			total2+=size2
 			etotal+=elapsed
 			idx+=1
+			if idx%50==0:
+				time.sleep(40)
 	if total1<total2:
 		utotal=total2
 	else:
