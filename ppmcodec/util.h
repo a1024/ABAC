@@ -134,6 +134,26 @@ extern "C"
 		DST=_c_[0];\
 	}while(0)
 
+#define IDIV23(DST, NUM, DEN)\
+	do\
+	{\
+		__m128 mnum=_mm_set_ss(NUM);\
+		__m128 mden=_mm_set_ss(DEN);\
+		mnum=_mm_div_ss(mnum, mden);\
+		__m128i result=_mm_cvtps_epi32(mnum);\
+		DST=_mm_extract_epi32(result, 0);\
+	}while(0)
+
+#define IDIV52(DST, NUM, DEN)\
+	do\
+	{\
+		__m128d mnum=_mm_set_sd(NUM);\
+		__m128d mden=_mm_set_sd(DEN);\
+		mnum=_mm_div_sd(mnum, mden);\
+		__m128i result=_mm_cvtpd_epi32(mnum);\
+		DST=_mm_extract_epi32(result, 0);\
+	}while(0)
+
 #define MOVEOBJ(SRC, DST, SIZE) memcpy(DST, SRC, SIZE), memset(SRC, 0, SIZE)
 #define MODVAR(DST, SRC, N) DST=(SRC)%(N), DST+=(N)&-(DST<0)
 #define SHIFT_LEFT_SIGNED(X, SH) ((SH)<0?(X)>>-(SH):(X)<<(SH))

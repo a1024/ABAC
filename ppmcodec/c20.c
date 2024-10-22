@@ -12,7 +12,7 @@
 static const char file[]=__FILE__;
 
 
-//	#define SILENT
+	#define SILENT
 
 //	#define ENABLE_MT
 //	#define ENABLE_GUIDE
