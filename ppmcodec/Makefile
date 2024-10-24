@@ -35,6 +35,9 @@ c05:
 c07:
 	gcc -O3 -Wall -DCODEC_FUNC=c07_codec -mavx2 -mbmi -mlzcnt  c07.c codec.c util.c  -o c07 $(LIBS)
 
+c08:
+	gcc -O3 -Wall -DCODEC_FUNC=c08_codec -mavx2 -mbmi -mlzcnt  c08.c codec.c util.c  -o c08 $(LIBS)
+
 c09:
 	gcc -O3 -Wall -DCODEC_FUNC=c09_codec -mavx2 -mbmi -mlzcnt  c09.c codec.c util.c  -o c09 $(LIBS)
 
@@ -97,3 +100,6 @@ c20:
 	htscodecs/rle.c \
 	htscodecs/tokenise_name3.c \
 	htscodecs/utils.c
+
+c21:
+	gcc -O3 -Wall -DCODEC_FUNC=c21_codec -mavx2 -mbmi -mlzcnt  c21.c codec.c util.c  -o c21 $(LIBS)

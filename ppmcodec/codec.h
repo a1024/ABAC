@@ -40,6 +40,7 @@ int c17_codec(const char *srcfn, const char *dstfn);//ST SubPrev GR (speed test)
 int c18_codec(const char *srcfn, const char *dstfn);//MT SubG AC/GR
 int c19_codec(const char *srcfn, const char *dstfn);//ST CG3D static o0 AC		C10 is better
 int c20_codec(const char *srcfn, const char *dstfn);//ST CG3D binary o0 AC
+int c21_codec(const char *srcfn, const char *dstfn);//ST  deferred WP  snapshot-CDF  AVX2 RC 12 prob bits
 
 	
 #ifdef __cplusplus
