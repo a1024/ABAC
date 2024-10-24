@@ -18,6 +18,8 @@
 static const char file[]=__FILE__;
 
 //	#define ENABLE_GUIDE
+	#define EMBED_SRC
+	#define SAVE_BIN
 	#define ENABLE_PROFILER		//profiler is not thread-safe
 
 #ifdef __GNUC__
@@ -25,6 +27,7 @@ static const char file[]=__FILE__;
 #else
 	#define KERNEL_FN "C:/Projects/rapid/rapid/r01_kernels.h"
 #endif
+#define BINARY_FN "r01_program.bin"
 
 const char* clerr2str(int error)
 {
@@ -144,6 +147,161 @@ const char* clerr2str(int error)
 }
 #define CHECKCL(ERR) ASSERT_MSG(!(ERR), "OpenCL error %d: %s\n", ERR, clerr2str(ERR))
 
+#ifdef EMBED_SRC
+const char srctext[]=
+	"#ifdef __OPEN_CL__\n"
+	"//#pragma OPENCL EXTENSION cl_khr_fp16 : enable\n"
+	"#else\n"
+	"#include<stdio.h>\n"
+	"#include<math.h>\n"
+	"#define __kernel\n"
+	"#define __global\n"
+	"#define __constant\n"
+	"//#define half float\n"
+	"#define get_global_id(X) X\n"
+	"#endif\n"
+	"\n"
+	"#define CLAMP2(X, LO, HI)\\\n"
+	"	do\\\n"
+	"	{\\\n"
+	"		if(X<LO)X=LO;\\\n"
+	"		if(X>HI)X=HI;\\\n"
+	"	}while(0)\\n"
+	"\n"
+	"//worksize: iw*ih			indices: {iw, ih, c0, c1}	{c0, c1} = {00, 40, 31, 22, 13, 04}\n"
+	"__kernel void prep_planes(__global const int *indices, __global unsigned char *image, __global short *planes)\n"
+	"{\n"
+	"	int iw=indices[0], ih=indices[1], c0=indices[2], c1=indices[3];\n"
+	"	int res=iw*ih;\n"
+	"	int idx=get_global_id(0);\n"
+	"	int idx2=idx*3;\n"
+	"	int r=image[idx2+0]-128;\n"
+	"	int g=image[idx2+1]-128;\n"
+	"	int b=image[idx2+2]-128;\n"
+	"	planes[res*0+idx]=r-((c0*g+c1*b)>>2);\n"
+	"	planes[res*1+idx]=g-((c0*b+c1*r)>>2);\n"
+	"	planes[res*2+idx]=b-((c0*r+c1*g)>>2);\n"
+	"}\n"
+	"\n"
+	"#define BLOCKSIZE 64\n"
+	"#define NPREDS 11\n"
+	"\n"
+	"//worksize: nblocks * 3			indices: {iw, ih, xblocks, yblocks}\n"
+	"__kernel void pred_planes(__global const int *indices, __global const short *planes, __global int *hist)\n"
+	"{\n"
+	"	int iw=indices[0], ih=indices[1], xblocks=indices[2];\n"
+	"	int res=iw*ih;\n"
+	"	int idx=get_global_id(0);\n"
+	"	int coffset, x1, y1;\n"
+	"	int kx, ky;\n"
+	"	__global int *curr_hist=hist+idx*(256*NPREDS);\n"
+	"\n"
+	"	for(kx=0;kx<256*NPREDS;++kx)//clear hist\n"
+	"		curr_hist[kx]=0;\n"
+	"	coffset=idx%3*res;\n"
+	"	x1=idx/3%xblocks*BLOCKSIZE;\n"
+	"	y1=idx/(xblocks*3)*BLOCKSIZE;\n"
+	"	for(ky=2;ky<BLOCKSIZE;++ky)\n"
+	"	{\n"
+	"		int y=y1+ky;\n"
+	"		__global const short *NNptr, *Nptr, *currptr;\n"
+	"		if(y>=ih)\n"
+	"			continue;\n"
+	"		NNptr	=planes+coffset+iw*(y-2),\n"
+	"		Nptr	=planes+coffset+iw*(y-1),\n"
+	"		currptr	=planes+coffset+iw*(y+0);\n"
+	"		for(kx=2;kx<BLOCKSIZE-2;++kx)\n"
+	"		{\n"
+	"			int x=x1+kx;\n"
+	"			if(x>iw-2)\n"
+	"				continue;\n"
+	"			int\n"
+	"				NNWW	=NNptr	[x-2],\n"
+	"				NNW	=NNptr	[x-1],\n"
+	"				NN	=NNptr	[x+0],\n"
+	"				NNE	=NNptr	[x+1],\n"
+	"				NNEE	=NNptr	[x+2],\n"
+	"				NWW	=Nptr	[x-2],\n"
+	"				NW	=Nptr	[x-1],\n"
+	"				N	=Nptr	[x+0],\n"
+	"				NE	=Nptr	[x+1],\n"
+	"				NEE	=Nptr	[x+2],\n"
+	"				WW	=currptr[x-2],\n"
+	"				W	=currptr[x-1],\n"
+	"				curr	=currptr[x+0];\n"
+	"\n"
+	"			int gx=abs(W-WW)+abs(N-NW)+abs(NE-N)+1;\n"
+	"			int gy=abs(W-NW)+abs(N-NN)+abs(NE-NNE)+1;\n"
+	"			int preds[NPREDS]=\n"
+	"			{\n"
+	"				N,\n"
+	"				W,\n"
+	"				(N+W+1)>>1,		//AV2\n"
+	"				(gx*N+gy*W)/(gx+gy),	//WG\n"
+	"				N+W-NW,			//CG\n"
+	"				(3*(N+W)-2*NW+2)>>2,	//AV3\n"
+	"				(4*(N+W)+NE-NW+4)>>3,	//AV4\n"
+	"				W+((5*(N-NW)+NE-WW+4)>>3),	//AV5\n"
+	"				W+((6*N-5*NW+NE-NN-WW+4)>>3),	//AV6\n"
+	"				W+((10*N-9*NW+4*NE-2*(NN+WW)-NNE+NNW-NWW+8)>>4),	//AV9\n"
+	"				(4*NNWW+3*NNW-31*NN-38*NNE + 7*NWW-158*NW+219*N+30*NE+19*NEE - 42*WW+243*W+128)>>8,//AVB\n"
+	"			};\n"
+	"			int vmax=N, vmin=W;\n"
+	"\n"
+	"			if(N<W)vmin=N, vmax=W;\n"
+	"			CLAMP2(preds[ 4], vmin, vmax);\n"
+	"			if(vmin<NE)vmin=NE;\n"
+	"			if(vmax>NE)vmax=NE;\n"
+	"			CLAMP2(preds[ 5], vmin, vmax);\n"
+	"			CLAMP2(preds[ 6], vmin, vmax);\n"
+	"			CLAMP2(preds[ 7], vmin, vmax);\n"
+	"			CLAMP2(preds[ 8], vmin, vmax);\n"
+	"			CLAMP2(preds[ 9], vmin, vmax);\n"
+	"			CLAMP2(preds[10], vmin, vmax);\n"
+	"\n"
+	"			//sizeof(hist) = 6 * yblocks*xblocks*3 * sizeof(int[NPREDS*256])\n"
+	"			//sizeof(curr_hist) = sizeof(int[NPREDS*256])\n"
+	"			++curr_hist[ 0<<8|((curr-preds[ 0]+128)&255)];\n"
+	"			++curr_hist[ 1<<8|((curr-preds[ 1]+128)&255)];\n"
+	"			++curr_hist[ 2<<8|((curr-preds[ 2]+128)&255)];\n"
+	"			++curr_hist[ 3<<8|((curr-preds[ 3]+128)&255)];\n"
+	"			++curr_hist[ 4<<8|((curr-preds[ 4]+128)&255)];\n"
+	"			++curr_hist[ 5<<8|((curr-preds[ 5]+128)&255)];\n"
+	"			++curr_hist[ 6<<8|((curr-preds[ 6]+128)&255)];\n"
+	"			++curr_hist[ 7<<8|((curr-preds[ 7]+128)&255)];\n"
+	"			++curr_hist[ 8<<8|((curr-preds[ 8]+128)&255)];\n"
+	"			++curr_hist[ 9<<8|((curr-preds[ 9]+128)&255)];\n"
+	"			++curr_hist[10<<8|((curr-preds[10]+128)&255)];\n"
+	"		}\n"
+	"	}\n"
+	"}\n"
+	"\n"
+	"//workidx: nblocks * 3 * NPREDS		indices: {dstoffset}\n"
+	"__kernel void calc_entropy(__global const int *indices, __global const int *hist, __global float *csizes)\n"
+	"{\n"
+	"	int dstoffset=indices[0];\n"
+	"	int idx=get_global_id(0);\n"
+	"	__global const int *curr_hist=hist+idx*256;\n"
+	"	int hsum;\n"
+	"	float entropy;\n"
+	"	int ks;\n"
+	"\n"
+	"	hsum=0;\n"
+	"	for(ks=0;ks<256;++ks)\n"
+	"		hsum+=curr_hist[ks];\n"
+	"	if(!hsum)\n"
+	"		return;\n"
+	"	entropy=0;\n"
+	"	for(ks=0;ks<256;++ks)\n"
+	"	{\n"
+	"		int freq=curr_hist[ks];\n"
+	"		if(freq)\n"
+	"			entropy-=freq*log2((float)freq/hsum);\n"
+	"	}\n"
+	"	csizes[dstoffset+idx]=entropy*0.125f;\n"
+	"}\n"
+;
+#endif
 #define KERNELLIST\
 	KERNEL(prep_planes)\
 	KERNEL(pred_planes)\
@@ -276,48 +434,98 @@ static R01Context* init_cl(int loud)
 #endif
 
 	//compile kernel
-	ArrayHandle srctext=load_file(KERNEL_FN, 0, 0, 0);
-	//ArrayHandle filename=searchfor_file(searchpath, KERNEL_FN);
-	//if(!filename)
-	//{
-	//	LOG_ERROR("Cannot find " KERNEL_FN);
-	//	return 0;
-	//}
-	//ArrayHandle srctext=load_file(filename->data, 0, 0, 0);
-	//if(!srctext)
-	//{
-	//	LOG_ERROR("Cannot open " KERNEL_FN);
-	//	return 0;
-	//}
-	//array_free(&filename);
-	//ASSERT_MSG(srctext, "Cannot open \'%s\'", srcname);
-	const char *k_src=(const char*)srctext->data;
-	size_t k_len=srctext->count;
-	ctx->program=clCreateProgramWithSource(ctx->context, 1, (const char**)&k_src, &k_len, &error);	CHECKCL(error);
-#ifdef PREC_FIXED
-	sprintf_s(g_buf, G_BUF_SIZE, "-D__OPEN_CL__ -DPREC_FIXED=%d", PREC_FIXED);
-#elif defined PREC_HALF
-	sprintf_s(g_buf, G_BUF_SIZE, "-D__OPEN_CL__ -DPREC_HALF");
-#else
-	sprintf_s(g_buf, G_BUF_SIZE, "-D__OPEN_CL__");
-#endif
-	error=clBuildProgram(ctx->program, 1, ctx->devices, g_buf, 0, 0);
-	if(error)
+#ifdef SAVE_BIN
+	ArrayHandle progpath=0;
 	{
-		error=clGetProgramBuildInfo(ctx->program, ctx->devices[0], CL_PROGRAM_BUILD_LOG, G_BUF_SIZE, g_buf, &retlen);
-		if(retlen>G_BUF_SIZE)
+		int pathlen=(int)strlen(progname)-1;
+		while(pathlen>=0)
 		{
-			char *buf=(char*)malloc(retlen+10);
-			error=clGetProgramBuildInfo(ctx->program, ctx->devices[0], CL_PROGRAM_BUILD_LOG, retlen+10, buf, &retlen);	CHECKCL(error);
-			printf("\nOpenCL Compilation failed:\n%s\n", buf);
-			free(buf);
-			LOG_ERROR("Aborting");
+			char c=progname[pathlen];
+			if(c=='/'||c=='\\')
+				break;
+			--pathlen;
 		}
-		else
-			LOG_ERROR("\nOpenCL Compilation failed:\n%s\n", g_buf);
-		return 0;
+		progpath=filter_path(progname, pathlen);
+		STR_APPEND(progpath, BINARY_FN, sizeof(BINARY_FN)-1, 1);
 	}
-	array_free(&srctext);
+	ArrayHandle bintext=load_file((char*)progpath->data, 1, 0, 0);
+	array_free(&progpath);
+	if(!bintext)
+	{
+#endif
+#ifdef EMBED_SRC
+		const char *k_src=srctext;
+		size_t k_len=sizeof(srctext)-1;
+#else
+		ArrayHandle srctext=load_file(KERNEL_FN, 0, 0, 0);
+		if(!srctext)
+		{
+			LOG_ERROR("Cannot open \"%s\"", KERNEL_FN);
+			return 0;
+		}
+		const char *k_src=(const char*)srctext->data;
+		size_t k_len=srctext->count;
+#endif
+		ctx->program=clCreateProgramWithSource(ctx->context, 1, (const char**)&k_src, &k_len, &error);	CHECKCL(error);
+#ifdef PREC_FIXED
+		sprintf_s(g_buf, G_BUF_SIZE, "-D__OPEN_CL__ -DPREC_FIXED=%d", PREC_FIXED);
+#elif defined PREC_HALF
+		sprintf_s(g_buf, G_BUF_SIZE, "-D__OPEN_CL__ -DPREC_HALF");
+#else
+		sprintf_s(g_buf, G_BUF_SIZE, "-D__OPEN_CL__");
+#endif
+		error=clBuildProgram(ctx->program, 1, ctx->devices, g_buf, 0, 0);
+		if(error)
+		{
+			error=clGetProgramBuildInfo(ctx->program, ctx->devices[0], CL_PROGRAM_BUILD_LOG, G_BUF_SIZE, g_buf, &retlen);
+			if(retlen>G_BUF_SIZE)
+			{
+				char *buf=(char*)malloc(retlen+10);
+				error=clGetProgramBuildInfo(ctx->program, ctx->devices[0], CL_PROGRAM_BUILD_LOG, retlen+10, buf, &retlen);	CHECKCL(error);
+				printf("\nOpenCL Compilation failed:\n%s\n", buf);
+				free(buf);
+				LOG_ERROR("Aborting");
+			}
+			else
+				LOG_ERROR("\nOpenCL Compilation failed:\n%s\n", g_buf);
+			return 0;
+		}
+#ifndef EMBED_SRC
+		array_free(&srctext);
+#endif
+#ifdef SAVE_BIN
+		size_t binsize=0;
+		error=clGetProgramInfo(ctx->program, CL_PROGRAM_BINARY_SIZES, sizeof(binsize), &binsize, 0);	CHECKCL(error);
+		unsigned char *binary=(unsigned char*)malloc(binsize+16);
+		if(!binary)
+		{
+			LOG_ERROR("Alloc error");
+			return 0;
+		}
+		clGetProgramInfo(ctx->program, CL_PROGRAM_BINARIES, binsize, &binary, 0);	CHECKCL(error);
+
+		FILE *fbin=fopen(BINARY_FN, "wb");
+		if(!fbin)
+		{
+			LOG_ERROR("Cannot open \"%s\" for writing", BINARY_FN);
+			return 0;
+		}
+		fwrite(binary, 1, binsize, fbin);
+		fclose(fbin);
+	}
+	else
+	{
+
+		size_t srclen=bintext->count;
+		unsigned char *binary=bintext->data;
+		int status=0;
+		ctx->program=clCreateProgramWithBinary(ctx->context, 1, ctx->devices, &srclen, (const unsigned char**)&binary, &status, &error);	CHECKCL(error);
+
+		array_free(&bintext);
+
+		error=clBuildProgram(ctx->program, 1, ctx->devices, 0, 0, 0);	CHECKCL(error);
+	}
+#endif
 
 #if 1
 	for(int k=0;k<OCL_NKERNELS;++k)

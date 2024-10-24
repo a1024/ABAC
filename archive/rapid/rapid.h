@@ -7,7 +7,8 @@ extern "C"
 {
 #endif
 
-
+	
+extern const char *progname;
 const char* clerr2str(int error);
 
 int r01_codec(const char *srcfn, const char *dstfn, int fwd, int loud);
