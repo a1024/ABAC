@@ -103,7 +103,7 @@ int main(int argc, char **argv)
 	if((unsigned)(argc-2)>1)
 	{
 		printf("Usage:\n");
-		printf("  %s  input.PPM          Test without saving\n", argv[0]);
+	//	printf("  %s  input.PPM          Test without saving\n", argv[0]);
 		printf("  %s  input.PPM  output  Encode file\n", argv[0]);
 		printf("  %s  input  output.PPM  Decode file\n", argv[0]);
 		return 0;
@@ -155,11 +155,11 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/kodim13.c18"
 	//	"D:/ML/dataset-kodak-ppm/kodim13.c18"
 		;
-//	c20_codec("D:/ML/kodim13.ppm", "D:/ML/kodim13.lsim");
-//	c20_codec("D:/ML/kodim13.lsim", "D:/ML/kodim13_dec.ppm");
+	c20_codec("D:/ML/kodim13.ppm", "D:/ML/kodim13.lsim");
+	c20_codec("D:/ML/kodim13.lsim", "D:/ML/kodim13_dec.ppm");
 
-//	c19_codec("C:/dataset-CLIC303-ppm/2048x1320_israel-sundseth-1687.ppm",	"D:/ML/2048x1320_israel-sundseth-1687.lsim");
-//	c19_codec("D:/ML/2048x1320_israel-sundseth-1687.lsim",			"D:/ML/2048x1320_israel-sundseth-1687_dec.ppm");
+//	c19_codec("C:/dataset-CLIC303-ppm/2048x1320_zugr-108.ppm",	"C:\dataset-a-temp\mystery.lsim");
+//	c19_codec("C:\dataset-a-temp\mystery.lsim",			"C:\dataset-a-temp2\mystery.ppm");
 
 //	c19_codec("C:/dataset-HUGE-ppm/space_huge.ppm", "C:/dataset-HUGE-ppm/space_huge.lsim");
 //	c19_codec("C:/dataset-HUGE-ppm/space_huge.lsim", "C:/dataset-HUGE-ppm/space_huge_dec.ppm");
@@ -198,8 +198,8 @@ int main(int argc, char **argv)
 //	c20_codec("C:/Projects/datasets/big_building.PPM", "C:/Projects/datasets/big_building.lsim");		//large image
 //	c20_codec("C:/Projects/datasets/big_building.lsim", "C:/Projects/datasets/big_building_dec.ppm");
 
-	c20_codec("C:/Projects/datasets/space_huge.ppm", "C:/Projects/datasets/space_huge.lsim");		//very large image
-	c20_codec("C:/Projects/datasets/space_huge.lsim", "C:/Projects/datasets/space_huge_dec.ppm");
+//	c20_codec("C:/Projects/datasets/space_huge.ppm", "C:/Projects/datasets/space_huge.lsim");		//very large image
+//	c20_codec("C:/Projects/datasets/space_huge.lsim", "C:/Projects/datasets/space_huge_dec.ppm");
 
 //	c08_codec("C:/Projects/datasets/20240414-noise.PPM", "C:/Projects/datasets/20240414-noise.LSIM");	//bypass
 //	c08_codec("C:/Projects/datasets/20240414-noise.LSIM", "C:/Projects/datasets/20240414-noise_dec.PPM");
