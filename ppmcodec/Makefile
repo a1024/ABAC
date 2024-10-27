@@ -29,6 +29,9 @@ c03:
 c03-clang:
 	clang -O3 -Wall -DCODEC_FUNC=c03_codec -mavx2 -mbmi -mlzcnt  c03.c codec.c util.c  -o c03-clang $(LIBS)
 
+c04:
+	gcc -O3 -Wall -DCODEC_FUNC=c04_codec -mavx2 -mbmi -mlzcnt  c04.c codec.c util.c  -o c04 $(LIBS)
+
 c05:
 	gcc -O3 -Wall -DCODEC_FUNC=c05_codec -mavx2 -mbmi -mlzcnt  c05.c codec.c util.c  -o c05 $(LIBS)
 

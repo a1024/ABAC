@@ -23,8 +23,8 @@ int compare_bufs_8(const unsigned char *b1, const unsigned char *b0, int iw, int
 int c01_codec(const char *srcfn, const char *dstfn);//AC (mix4)
 int c02_codec(const char *srcfn, const char *dstfn);//binary
 int c03_codec(const char *srcfn, const char *dstfn);//binary (A2/WG4)
-int c04_codec(const char *srcfn, const char *dstfn);//Golomb-Rice
-int c05_codec(const char *srcfn, const char *dstfn);//Golomb-Rice MT
+int c04_codec(const char *srcfn, const char *dstfn);//MT Golomb-Rice WP3
+int c05_codec(const char *srcfn, const char *dstfn);//MT Golomb-Rice 3/7 simple preds
 int c06_codec(const char *srcfn, const char *dstfn);//binary
 int c07_codec(const char *srcfn, const char *dstfn);//o0 (binary) AC speed test
 int c08_codec(const char *srcfn, const char *dstfn);//disk AC5 test

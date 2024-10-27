@@ -26,6 +26,7 @@ static const char file[]=__FILE__;
 //	#define USE_FASTPRED
 //	#define USE_ROWPRED
 	#define USE_ROWPRED2	//good
+//	#define USE_SIMDCG	//GDCC 3.2% smaller, 70% slower than ROWPRED2
 
 	#define USE_O1		//good
 
@@ -524,7 +525,7 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				pixels+((iw+32LL)*((ky-1LL)&1)+16LL)*4,
 			};
 			int kx=0;
-#if !defined USE_NBLI_RCT && !defined ENABLE_FASTANALYSIS && ! defined ENABLE_ENTROPYANALYSIS
+#if !defined USE_NBLI_RCT && !defined ENABLE_FASTANALYSIS && ! defined ENABLE_ENTROPYANALYSIS && !defined USE_RCT8
 			__m128i getyuv=_mm_set_epi8(
 			//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
 				-1,  9, 11, 10, -1,  6,  8,  7, -1,  3,  5,  4, -1,  0,  2,  1
@@ -661,6 +662,10 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				int ypred=(10*rows[1][+0*4+0]+3*(rows[1][-1*4+0]+rows[1][+1*4+0])+8)>>4;
 				int upred=(10*rows[1][+0*4+1]+3*(rows[1][-1*4+1]+rows[1][+1*4+1])+8)>>4;
 				int vpred=(10*rows[1][+0*4+2]+3*(rows[1][-1*4+2]+rows[1][+1*4+2])+8)>>4;
+#elif defined USE_SIMDCG
+				__m256i mNW	=_mm256_loadu_si256((__m256i*)(rows[1]-1*4+0));
+				__m256i mN	=_mm256_loadu_si256((__m256i*)(rows[1]+0*4+0));
+				__m256i mNE	=_mm256_loadu_si256((__m256i*)(rows[1]+1*4+0));
 #else
 				short
 					yNW	=rows[1][-1*4+0], uNW	=rows[1][-1*4+1], vNW	=rows[1][-1*4+2],
@@ -711,6 +716,13 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				CLAMP2(vpred, -128, 127);
 #endif
 #else
+#ifdef USE_RCT8
+				yuv[1]-=yuv[0];
+				yuv[2]-=yuv[0];
+				pcurr[0]=yuv[0];
+				pcurr[1]=yuv[1];
+				pcurr[2]=yuv[2];
+#else
 				pcurr[0]=yuv[0];
 				pcurr[1]=yuv[1]-yuv[0];
 				pcurr[2]=yuv[2]-yuv[0];
@@ -718,6 +730,7 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				CLAMP2(upred, -128, 127);
 				vpred+=yuv[0];
 				CLAMP2(vpred, -128, 127);
+#endif
 #endif
 #endif
 
@@ -953,6 +966,13 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				pcurr[2]=yuv[2]-vhelper;
 #endif
 #else
+#ifdef USE_RCT8
+				pcurr[0]=yuv[0]=(char)(planes[0][idx2]+ypred);
+				pcurr[1]=yuv[1]=(char)(planes[1][idx2]+upred);
+				pcurr[2]=yuv[2]=(char)(planes[2][idx2]+vpred);
+				yuv[1]=(char)(pcurr[1]+pcurr[0]);
+				yuv[2]=(char)(pcurr[2]+pcurr[0]);
+#else
 				pcurr[0]=yuv[0]=(char)(planes[0][idx2]+ypred);
 				upred+=yuv[0];
 				CLAMP2(upred, -128, 127);
@@ -963,6 +983,7 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				yuv[2]=(char)(planes[2][idx2]+vpred);
 				pcurr[1]=yuv[1]-yuv[0];
 				pcurr[2]=yuv[2]-yuv[0];
+#endif
 #endif
 
 #if defined ENABLE_FASTANALYSIS || defined ENABLE_ENTROPYANALYSIS
