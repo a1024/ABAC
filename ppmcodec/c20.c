@@ -14,7 +14,7 @@ static const char file[]=__FILE__;
 
 //	#define LOUD
 
-//	#define ENABLE_MT
+	#define ENABLE_MT
 //	#define ENABLE_GUIDE
 
 	#define ENABLE_FASTANALYSIS	//LPCB 3~14% faster, 0.04% larger than entropy
@@ -23,13 +23,22 @@ static const char file[]=__FILE__;
 
 //	#define USE_NBLI_RCT	//mostly worse		needs highly correlated channels
 
-//	#define USE_FASTPRED
-//	#define USE_ROWPRED
-	#define USE_ROWPRED2	//good
-//	#define USE_SIMDCG	//GDCC 3.2% smaller, 70% slower than ROWPRED2
+	#define USE_ROWPRED3A3	//(10*N+3*(NW+NE))/16		good
+//	#define USE_ROWPRED484	//(2*N+NE+NW)/4
+//	#define USE_MIX3
+//	#define USE_MIX4
+
+//	#define USE_REG_W
 
 	#define USE_O1		//good
 
+
+#ifdef USE_MIX3
+#define MIX_FAR 0x4200
+#elif defined USE_MIX4
+#define MIX_NEAR 0x5000
+#define MIX_FAR 0x3000
+#endif
 
 #ifdef ENABLE_GUIDE
 static int g_iw=0, g_ih=0;
@@ -291,47 +300,104 @@ int c20_codec(const char *srcfn, const char *dstfn)
 					-1, -1, 15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2
 				);
 				__m256i half=_mm256_set1_epi8(-128);
+				//__m256i mask_sh1=_mm256_set1_epi8(127);
+				//__m256i mask_sh2=_mm256_set1_epi8(63);
 				for(int kx=0;kx<iw-31;kx+=32, idx+=96)
 				{
-					__m256i mN0	=_mm256_loadu_si256((__m256i*)(image+idx-rowstride+0*32));
-					__m256i mN1	=_mm256_loadu_si256((__m256i*)(image+idx-rowstride+1*32));
-					__m256i mN2	=_mm256_loadu_si256((__m256i*)(image+idx-rowstride+2*32));
+				//	__m256i mNW0	=_mm256_loadu_si256((__m256i*)(image+idx-rowstride+0*32+3));
+				//	__m256i mNW1	=_mm256_loadu_si256((__m256i*)(image+idx-rowstride+1*32+3));
+				//	__m256i mNW2	=_mm256_loadu_si256((__m256i*)(image+idx-rowstride+2*32+3));
+					__m256i mN0	=_mm256_loadu_si256((__m256i*)(image+idx-rowstride+0*32+3));
+					__m256i mN1	=_mm256_loadu_si256((__m256i*)(image+idx-rowstride+1*32+3));
+					__m256i mN2	=_mm256_loadu_si256((__m256i*)(image+idx-rowstride+2*32+3));
+				//	__m256i mNE0	=_mm256_loadu_si256((__m256i*)(image+idx-rowstride+0*32+3));
+				//	__m256i mNE1	=_mm256_loadu_si256((__m256i*)(image+idx-rowstride+1*32+3));
+				//	__m256i mNE2	=_mm256_loadu_si256((__m256i*)(image+idx-rowstride+2*32+3));
 					__m256i mcurr0	=_mm256_loadu_si256((__m256i*)(image+idx+0*32));
 					__m256i mcurr1	=_mm256_loadu_si256((__m256i*)(image+idx+1*32));
 					__m256i mcurr2	=_mm256_loadu_si256((__m256i*)(image+idx+2*32));
-
-					__m256i rN	=_mm256_blendv_epi8(mN0, mN1, blend1);
-					__m256i gN	=_mm256_blendv_epi8(mN0, mN1, blend2);
-					__m256i bN	=_mm256_blendv_epi8(mN0, mN1, blend0);
+					
+				//	__m256i rNW	=_mm256_blendv_epi8(mNW0, mNW1, blend1);
+				//	__m256i gNW	=_mm256_blendv_epi8(mNW0, mNW1, blend2);
+				//	__m256i bNW	=_mm256_blendv_epi8(mNW0, mNW1, blend0);
+					__m256i rN	=_mm256_blendv_epi8(mN0,  mN1,  blend1);
+					__m256i gN	=_mm256_blendv_epi8(mN0,  mN1,  blend2);
+					__m256i bN	=_mm256_blendv_epi8(mN0,  mN1,  blend0);
+				//	__m256i rNE	=_mm256_blendv_epi8(mNE0, mNE1, blend1);
+				//	__m256i gNE	=_mm256_blendv_epi8(mNE0, mNE1, blend2);
+				//	__m256i bNE	=_mm256_blendv_epi8(mNE0, mNE1, blend0);
 					__m256i rcurr	=_mm256_blendv_epi8(mcurr0, mcurr1, blend1);
 					__m256i gcurr	=_mm256_blendv_epi8(mcurr0, mcurr1, blend2);
 					__m256i bcurr	=_mm256_blendv_epi8(mcurr0, mcurr1, blend0);
-					rN	=_mm256_blendv_epi8(rN, mN2, blend2);
-					gN	=_mm256_blendv_epi8(gN, mN2, blend0);
-					bN	=_mm256_blendv_epi8(bN, mN2, blend1);
+				//	rNW	=_mm256_blendv_epi8(rNW, mNW2, blend2);
+				//	gNW	=_mm256_blendv_epi8(gNW, mNW2, blend0);
+				//	bNW	=_mm256_blendv_epi8(bNW, mNW2, blend1);
+					rN	=_mm256_blendv_epi8(rN,  mN2,  blend2);
+					gN	=_mm256_blendv_epi8(gN,  mN2,  blend0);
+					bN	=_mm256_blendv_epi8(bN,  mN2,  blend1);
+				//	rNE	=_mm256_blendv_epi8(rNE, mNE2, blend2);
+				//	gNE	=_mm256_blendv_epi8(gNE, mNE2, blend0);
+				//	bNE	=_mm256_blendv_epi8(bNE, mNE2, blend1);
 					rcurr	=_mm256_blendv_epi8(rcurr, mcurr2, blend2);
 					gcurr	=_mm256_blendv_epi8(gcurr, mcurr2, blend0);
 					bcurr	=_mm256_blendv_epi8(bcurr, mcurr2, blend1);
-
+					
+				//	rNW	=_mm256_and_si256(rNW, maskr);
+				//	gNW	=_mm256_shuffle_epi8(gNW, shufg);
+				//	bNW	=_mm256_shuffle_epi8(bNW, shufb);
 					rN	=_mm256_and_si256(rN, maskr);
 					gN	=_mm256_shuffle_epi8(gN, shufg);
 					bN	=_mm256_shuffle_epi8(bN, shufb);
+				//	rNE	=_mm256_and_si256(rNE, maskr);
+				//	gNE	=_mm256_shuffle_epi8(gNE, shufg);
+				//	bNE	=_mm256_shuffle_epi8(bNE, shufb);
 					rcurr	=_mm256_and_si256(rcurr, maskr);
 					gcurr	=_mm256_shuffle_epi8(gcurr, shufg);
 					bcurr	=_mm256_shuffle_epi8(bcurr, shufb);
 
-					__m256i dr=_mm256_add_epi8(_mm256_sub_epi8(rcurr, rN), half);
-					__m256i dg=_mm256_add_epi8(_mm256_sub_epi8(gcurr, gN), half);
-					__m256i db=_mm256_add_epi8(_mm256_sub_epi8(bcurr, bN), half);
+				//	__m256i pr=_mm256_srli_epi16(rN, 1);
+				//	__m256i pg=_mm256_srli_epi16(gN, 1);
+				//	__m256i pb=_mm256_srli_epi16(bN, 1);
+				//	pr=_mm256_and_si256(pr, mask_sh1);
+				//	pg=_mm256_and_si256(pg, mask_sh1);
+				//	pb=_mm256_and_si256(pb, mask_sh1);
+				//	pr=_mm256_add_epi8(pr, _mm256_and_si256(_mm256_srli_epi16(rNW, 2), mask_sh2));
+				//	pg=_mm256_add_epi8(pg, _mm256_and_si256(_mm256_srli_epi16(gNW, 2), mask_sh2));
+				//	pb=_mm256_add_epi8(pb, _mm256_and_si256(_mm256_srli_epi16(bNW, 2), mask_sh2));
+				//	pr=_mm256_add_epi8(pr, _mm256_and_si256(_mm256_srli_epi16(rNE, 2), mask_sh2));
+				//	pg=_mm256_add_epi8(pg, _mm256_and_si256(_mm256_srli_epi16(gNE, 2), mask_sh2));
+				//	pb=_mm256_add_epi8(pb, _mm256_and_si256(_mm256_srli_epi16(bNE, 2), mask_sh2));
+
+					__m256i dr1=_mm256_add_epi8(_mm256_sub_epi8(rcurr, rN), half);
+					__m256i dg1=_mm256_add_epi8(_mm256_sub_epi8(gcurr, gN), half);
+					__m256i db1=_mm256_add_epi8(_mm256_sub_epi8(bcurr, bN), half);
+#if 1
 					mcounters[0]=_mm256_add_epi64(mcounters[0], _mm256_sad_epu8(rcurr, rN));
 					mcounters[1]=_mm256_add_epi64(mcounters[1], _mm256_sad_epu8(gcurr, gN));
 					mcounters[2]=_mm256_add_epi64(mcounters[2], _mm256_sad_epu8(bcurr, bN));
-					mcounters[3]=_mm256_add_epi64(mcounters[3], _mm256_sad_epu8(dr, dg));
-					mcounters[4]=_mm256_add_epi64(mcounters[4], _mm256_sad_epu8(dg, db));
-					mcounters[5]=_mm256_add_epi64(mcounters[5], _mm256_sad_epu8(db, dr));
+					mcounters[3]=_mm256_add_epi64(mcounters[3], _mm256_sad_epu8(dr1, dg1));
+					mcounters[4]=_mm256_add_epi64(mcounters[4], _mm256_sad_epu8(dg1, db1));
+					mcounters[5]=_mm256_add_epi64(mcounters[5], _mm256_sad_epu8(db1, dr1));
+#else
+					__m256i dr2=_mm256_add_epi8(_mm256_sub_epi8(rcurr, pr), half);
+					__m256i dg2=_mm256_add_epi8(_mm256_sub_epi8(gcurr, pg), half);
+					__m256i db2=_mm256_add_epi8(_mm256_sub_epi8(bcurr, pb), half);
+					mcounters[ 0]=_mm256_add_epi64(mcounters[ 0], _mm256_sad_epu8(rcurr, rN));
+					mcounters[ 1]=_mm256_add_epi64(mcounters[ 1], _mm256_sad_epu8(rcurr, pr));
+					mcounters[ 2]=_mm256_add_epi64(mcounters[ 2], _mm256_sad_epu8(gcurr, gN));
+					mcounters[ 3]=_mm256_add_epi64(mcounters[ 3], _mm256_sad_epu8(gcurr, pg));
+					mcounters[ 4]=_mm256_add_epi64(mcounters[ 4], _mm256_sad_epu8(bcurr, bN));
+					mcounters[ 5]=_mm256_add_epi64(mcounters[ 5], _mm256_sad_epu8(bcurr, pb));
+					mcounters[ 6]=_mm256_add_epi64(mcounters[ 6], _mm256_sad_epu8(dr1, dg1));
+					mcounters[ 7]=_mm256_add_epi64(mcounters[ 7], _mm256_sad_epu8(dr2, dg2));
+					mcounters[ 8]=_mm256_add_epi64(mcounters[ 8], _mm256_sad_epu8(dg1, db1));
+					mcounters[ 9]=_mm256_add_epi64(mcounters[ 9], _mm256_sad_epu8(dg2, db2));
+					mcounters[10]=_mm256_add_epi64(mcounters[10], _mm256_sad_epu8(db1, dr1));
+					mcounters[11]=_mm256_add_epi64(mcounters[11], _mm256_sad_epu8(db2, dr2));
+#endif
 				}
 			}
-			ALIGN(32) unsigned long long counters[6][4]={0};
+			ALIGN(32) unsigned long long counters[OCH_COUNT][4]={0};
 			_mm256_store_si256((__m256i*)counters+0, mcounters[0]);
 			_mm256_store_si256((__m256i*)counters+1, mcounters[1]);
 			_mm256_store_si256((__m256i*)counters+2, mcounters[2]);
@@ -348,7 +414,11 @@ int c20_codec(const char *srcfn, const char *dstfn)
 			for(int kt=0;kt<_countof(rct_indices);++kt)
 			{
 				const unsigned char *rct=rct_indices[kt];
-				unsigned long long currerr=counters[rct[0]][0]+counters[rct[1]][0]+counters[rct[2]][0];
+				unsigned long long currerr=
+					+counters[rct[0]][0]
+					+counters[rct[1]][0]
+					+counters[rct[2]][0]
+				;
 				if(!kt||minerr>currerr)
 				{
 					minerr=currerr;
@@ -517,8 +587,35 @@ int c20_codec(const char *srcfn, const char *dstfn)
 		int uhelpidx=rct[6+0];
 		int vhelpidx=rct[6+1];
 #endif
+#if defined USE_MIX3 || defined USE_MIX4
+		int aNW[]=
+		{
+			MIX_FAR,
+			MIX_FAR,
+			MIX_FAR,
+		};
+#ifdef USE_MIX4
+		int aN[]=
+		{
+			MIX_NEAR,
+			MIX_NEAR,
+			MIX_NEAR,
+		};
+#endif
+		int aNE[]=
+		{
+			MIX_FAR,
+			MIX_FAR,
+			MIX_FAR,
+		};
+#endif
 		for(int ky=0, idx=0, idx2=0;ky<ih;++ky)
 		{
+		//	int e0[3]={0}, e1[3]={0};
+		//	int preds0[3]={0}, preds1[3]={0};
+#ifdef USE_REG_W
+			int W[3]={0};
+#endif
 			ALIGN(16) short *rows[]=
 			{
 				pixels+((iw+32LL)*((ky-0LL)&1)+16LL)*4,
@@ -561,9 +658,9 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				__m256i moffset=_mm256_shuffle_epi8(myuv, getoffset);
 				_mm256_store_si256((__m256i*)rows[0], _mm256_sub_epi16(myuv, moffset));
 				
-#ifdef USE_FASTPRED
+#ifdef USE_ROWPRED010
 				__m256i mp=_mm256_loadu_si256((__m256i*)(rows[1]+0*4));//N
-#elif defined USE_ROWPRED
+#elif defined USE_ROWPRED484
 				//(2*N+NW+NE+2)>>2
 				__m256i mNW	=_mm256_loadu_si256((__m256i*)(rows[1]-1*4));
 				__m256i mN	=_mm256_loadu_si256((__m256i*)(rows[1]+0*4));
@@ -572,7 +669,7 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				mp=_mm256_add_epi16(mp, _mm256_slli_epi16(mN, 1));
 				mp=_mm256_add_epi16(mp, _mm256_set1_epi16(2));
 				mp=_mm256_srai_epi16(mp, 2);
-#elif defined USE_ROWPRED2
+#elif defined USE_ROWPRED3A3
 				//(10*N+3*(NW+NE)+8)/16
 				__m256i mNW	=_mm256_loadu_si256((__m256i*)(rows[1]-1*4));
 				__m256i mN	=_mm256_loadu_si256((__m256i*)(rows[1]+0*4));
@@ -581,6 +678,18 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				mp=_mm256_add_epi16(mp, _mm256_slli_epi16(mp, 1));
 				mp=_mm256_add_epi16(mp, _mm256_slli_epi16(mN, 1));
 				mp=_mm256_add_epi16(mp, _mm256_slli_epi16(mN, 3));
+				mp=_mm256_add_epi16(mp, _mm256_set1_epi16(8));
+				mp=_mm256_srai_epi16(mp, 4);
+#elif defined USE_ROWPRED13831
+				__m256i mNWW	=_mm256_loadu_si256((__m256i*)(rows[1]-2*4));
+				__m256i mNW	=_mm256_loadu_si256((__m256i*)(rows[1]-1*4));
+				__m256i mN	=_mm256_loadu_si256((__m256i*)(rows[1]+0*4));
+				__m256i mNE	=_mm256_loadu_si256((__m256i*)(rows[1]+1*4));
+				__m256i mNEE	=_mm256_loadu_si256((__m256i*)(rows[1]+2*4));
+				__m256i mp=_mm256_add_epi16(mNW, mNE);
+				mp=_mm256_add_epi16(mp, _mm256_slli_epi16(mp, 1));
+				mp=_mm256_add_epi16(mp, _mm256_slli_epi16(mN, 3));
+				mp=_mm256_add_epi16(mp, _mm256_add_epi16(mNWW, mNEE));
 				mp=_mm256_add_epi16(mp, _mm256_set1_epi16(8));
 				mp=_mm256_srai_epi16(mp, 4);
 #else
@@ -618,6 +727,9 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				rows[1]+=4*4;
 			}
 #endif
+#if defined __GNUC__ && (defined USE_ROWPRED3A3 || defined USE_ROWPRED484)
+#pragma GCC unroll 2
+#endif
 			for(;kx<iw;++kx, idx+=3, ++idx2)
 			{
 				//if(ky==0&&kx==6&&kc==0)//
@@ -625,6 +737,9 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				//if(kx==4&&ky==1)//
 				//if(ky==2&&kx==4)//
 				//if(ky==355&&kx==647)//
+				//if(ky==3&&kx==104)//
+				//if(ky==3&&kx==103)//
+				//if(ky==4&&kx==138)//
 				//	printf("");
 				
 				short *pcurr=rows[0]+0*4;
@@ -650,48 +765,36 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				yuv[1]-=yuv[2]>>2;
 #endif
 #endif
-#ifdef USE_FASTPRED
-				int ypred=rows[1][+0*4+0];
-				int upred=rows[1][+0*4+1];
-				int vpred=rows[1][+0*4+2];
-#elif defined USE_ROWPRED
+#ifdef USE_ROWPRED484
 				int ypred=(2*rows[1][+0*4+0]+rows[1][-1*4+0]+rows[1][+1*4+0]+2)>>2;
 				int upred=(2*rows[1][+0*4+1]+rows[1][-1*4+1]+rows[1][+1*4+1]+2)>>2;
 				int vpred=(2*rows[1][+0*4+2]+rows[1][-1*4+2]+rows[1][+1*4+2]+2)>>2;
-#elif defined USE_ROWPRED2
+#elif defined USE_ROWPRED3A3
 				int ypred=(10*rows[1][+0*4+0]+3*(rows[1][-1*4+0]+rows[1][+1*4+0])+8)>>4;
 				int upred=(10*rows[1][+0*4+1]+3*(rows[1][-1*4+1]+rows[1][+1*4+1])+8)>>4;
 				int vpred=(10*rows[1][+0*4+2]+3*(rows[1][-1*4+2]+rows[1][+1*4+2])+8)>>4;
-#elif defined USE_SIMDCG
-				__m256i mNW	=_mm256_loadu_si256((__m256i*)(rows[1]-1*4+0));
-				__m256i mN	=_mm256_loadu_si256((__m256i*)(rows[1]+0*4+0));
-				__m256i mNE	=_mm256_loadu_si256((__m256i*)(rows[1]+1*4+0));
-#else
-				short
-					yNW	=rows[1][-1*4+0], uNW	=rows[1][-1*4+1], vNW	=rows[1][-1*4+2],
-					yN	=rows[1][+0*4+0], uN	=rows[1][+0*4+1], vN	=rows[1][+0*4+2],
-					yNE	=rows[1][+1*4+0], uNE	=rows[1][+1*4+1], vNE	=rows[1][+1*4+2],
-					yW	=rows[0][-1*4+0], uW	=rows[0][-1*4+1], vW	=rows[0][-1*4+2];
-				int ymax=yN, ymin=yW;
-				int umax=uN, umin=uW;
-				int vmax=vN, vmin=vW;
-				if(yN<yW)ymin=yN, ymax=yW;
-				if(ymin>yNE)ymin=yNE;
-				if(ymax<yNE)ymax=yNE;
-				if(uN<uW)umin=uN, umax=uW;
-				if(umin>uNE)umin=uNE;
-				if(umax<uNE)umax=uNE;
-				if(vN<vW)vmin=vN, vmax=vW;
-				if(vmin>vNE)vmin=vNE;
-				if(vmax<vNE)vmax=vNE;
-
-				int ypred=(4*(yN+yW)+yNE-yNW+4)>>3;
-				CLAMP2(ypred, ymin, ymax);
-				int upred=(4*(uN+uW)+uNE-uNW+4)>>3;
-				CLAMP2(upred, umin, umax);
-				int vpred=(4*(vN+vW)+vNE-vNW+4)>>3;
-				CLAMP2(vpred, vmin, vmax);
+#elif defined USE_MIX3
+				int preds[]=
+				{
+					rows[1][-1*4+0], rows[1][+0*4+0], rows[1][+1*4+0],
+					rows[1][-1*4+1], rows[1][+0*4+1], rows[1][+1*4+1],
+					rows[1][-1*4+2], rows[1][+0*4+2], rows[1][+1*4+2],
+				};
+				int ypred=preds[1+0*3]+(((preds[0+0*3]-preds[1+0*3])*aNW[0]+(preds[2+0*3]-preds[1+0*3])*aNE[0])>>16);
+				int upred=preds[1+1*3]+(((preds[0+1*3]-preds[1+1*3])*aNW[1]+(preds[2+1*3]-preds[1+1*3])*aNE[1])>>16);
+				int vpred=preds[1+2*3]+(((preds[0+2*3]-preds[1+2*3])*aNW[2]+(preds[2+2*3]-preds[1+2*3])*aNE[2])>>16);
+#elif defined USE_MIX4
+				int preds[]=
+				{//	W, NW, N, NE
+					rows[0][-1*4+0], rows[1][-1*4+0], rows[1][+0*4+0], rows[1][+1*4+0],
+					rows[0][-1*4+1], rows[1][-1*4+1], rows[1][+0*4+1], rows[1][+1*4+1],
+					rows[0][-1*4+2], rows[1][-1*4+2], rows[1][+0*4+2], rows[1][+1*4+2],
+				};
+				int ypred=preds[0+0*4]+(((preds[1+0*4]-preds[0+0*4])*aNW[0]+(preds[2+0*4]-preds[0+0*4])*aN[0]+(preds[3+0*4]-preds[0+0*4])*aNE[0])>>16);
+				int upred=preds[0+1*4]+(((preds[1+1*4]-preds[0+1*4])*aNW[1]+(preds[2+1*4]-preds[0+1*4])*aN[1]+(preds[3+1*4]-preds[0+1*4])*aNE[1])>>16);
+				int vpred=preds[0+2*4]+(((preds[1+2*4]-preds[0+2*4])*aNW[2]+(preds[2+2*4]-preds[0+2*4])*aN[2]+(preds[3+2*4]-preds[0+2*4])*aNE[2])>>16);
 #endif
+
 #ifdef USE_NBLI_RCT
 				pcurr[0]=yuv[0];
 				pcurr[1]=yuv[1];
@@ -702,8 +805,8 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				pcurr[0]=yuv[0];
 				pcurr[1]=(char)(yuv[1]-yuv[uhelpidx]);
 				pcurr[2]=(char)(yuv[2]-yuv[vhelpidx]);
-				yuv[1]=pcurr[1];
-				yuv[2]=pcurr[2];
+				yuv[1]=(char)pcurr[1];
+				yuv[2]=(char)pcurr[2];
 #else
 				int uhelper=yuv[uhelpidx];
 				int vhelper=yuv[vhelpidx];
@@ -733,11 +836,56 @@ int c20_codec(const char *srcfn, const char *dstfn)
 #endif
 #endif
 #endif
-
 				dptr[res*0+idx2]=yuv[0]-ypred;
 				dptr[res*1+idx2]=yuv[1]-upred;
 				dptr[res*2+idx2]=yuv[2]-vpred;
-
+#ifdef USE_MIX3
+				preds[0+0*3]=abs(yuv[0]-preds[0+0*3])<<7;
+				preds[1+0*3]=abs(yuv[0]-preds[1+0*3])<<7;
+				preds[2+0*3]=abs(yuv[0]-preds[2+0*3])<<7;
+				preds[0+1*3]=abs(yuv[1]-preds[0+1*3])<<7;
+				preds[1+1*3]=abs(yuv[1]-preds[1+1*3])<<7;
+				preds[2+1*3]=abs(yuv[1]-preds[2+1*3])<<7;
+				preds[0+2*3]=abs(yuv[2]-preds[0+2*3])<<7;
+				preds[1+2*3]=abs(yuv[2]-preds[1+2*3])<<7;
+				preds[2+2*3]=abs(yuv[2]-preds[2+2*3])<<7;
+				aNW[0]+=(preds[1+0*3]+preds[2+0*3]-2*preds[0+0*3]-aNW[0]+MIX_FAR+(1<<7>>1))>>7;
+				aNE[0]+=(preds[1+0*3]+preds[0+0*3]-2*preds[2+0*3]-aNE[0]+MIX_FAR+(1<<7>>1))>>7;
+				aNW[1]+=(preds[1+1*3]+preds[2+1*3]-2*preds[0+1*3]-aNW[1]+MIX_FAR+(1<<7>>1))>>7;
+				aNE[1]+=(preds[1+1*3]+preds[0+1*3]-2*preds[2+1*3]-aNE[1]+MIX_FAR+(1<<7>>1))>>7;
+				aNW[2]+=(preds[1+2*3]+preds[2+2*3]-2*preds[0+2*3]-aNW[2]+MIX_FAR+(1<<7>>1))>>7;
+				aNE[2]+=(preds[1+2*3]+preds[0+2*3]-2*preds[2+2*3]-aNE[2]+MIX_FAR+(1<<7>>1))>>7;
+			//	alpha[0]+=(((abs(yuv[0]-preds0[0])-abs(yuv[0]-preds1[0]))<<4)-alpha[0]+0x800+(1<<7>>1))>>7;
+			//	alpha[1]+=(((abs(yuv[1]-preds0[1])-abs(yuv[1]-preds1[1]))<<4)-alpha[1]+0x800+(1<<7>>1))>>7;
+			//	alpha[2]+=(((abs(yuv[2]-preds0[2])-abs(yuv[2]-preds1[2]))<<4)-alpha[2]+0x800+(1<<7>>1))>>7;
+#elif defined USE_MIX4
+				preds[0+0*4]=abs(yuv[0]-preds[0+0*4])<<7;
+				preds[1+0*4]=abs(yuv[0]-preds[1+0*4])<<7;
+				preds[2+0*4]=abs(yuv[0]-preds[2+0*4])<<7;
+				preds[3+0*4]=abs(yuv[0]-preds[3+0*4])<<7;
+				preds[0+1*4]=abs(yuv[1]-preds[0+1*4])<<7;
+				preds[1+1*4]=abs(yuv[1]-preds[1+1*4])<<7;
+				preds[2+1*4]=abs(yuv[1]-preds[2+1*4])<<7;
+				preds[3+1*4]=abs(yuv[1]-preds[3+1*4])<<7;
+				preds[0+2*4]=abs(yuv[2]-preds[0+2*4])<<7;
+				preds[1+2*4]=abs(yuv[2]-preds[1+2*4])<<7;
+				preds[2+2*4]=abs(yuv[2]-preds[2+2*4])<<7;
+				preds[3+2*4]=abs(yuv[2]-preds[3+2*4])<<7;
+				aNW[0]+=(preds[0+0*4]+preds[2+0*4]+preds[3+0*4]-2*preds[1+0*4]-aNW[0]+MIX_FAR +(1<<7>>1))>>7;
+				aN [0]+=(preds[0+0*4]+preds[1+0*4]+preds[3+0*4]-2*preds[2+0*4]-aN [0]+MIX_NEAR+(1<<7>>1))>>7;
+				aNE[0]+=(preds[0+0*4]+preds[1+0*4]+preds[2+0*4]-2*preds[3+0*4]-aNE[0]+MIX_FAR +(1<<7>>1))>>7;
+				aNW[1]+=(preds[1+1*4]+preds[2+1*4]+preds[3+1*4]-2*preds[1+1*4]-aNW[1]+MIX_FAR +(1<<7>>1))>>7;
+				aN [1]+=(preds[1+1*4]+preds[1+1*4]+preds[3+1*4]-2*preds[2+1*4]-aN [1]+MIX_NEAR+(1<<7>>1))>>7;
+				aNE[1]+=(preds[1+1*4]+preds[1+1*4]+preds[2+1*4]-2*preds[3+1*4]-aNE[1]+MIX_FAR +(1<<7>>1))>>7;
+				aNW[2]+=(preds[2+2*4]+preds[2+2*4]+preds[3+2*4]-2*preds[1+2*4]-aNW[2]+MIX_FAR +(1<<7>>1))>>7;
+				aN [2]+=(preds[2+2*4]+preds[1+2*4]+preds[3+2*4]-2*preds[2+2*4]-aN [2]+MIX_NEAR+(1<<7>>1))>>7;
+				aNE[2]+=(preds[2+2*4]+preds[1+2*4]+preds[2+2*4]-2*preds[3+2*4]-aNE[2]+MIX_FAR +(1<<7>>1))>>7;
+#endif
+#ifdef USE_REG_W
+				W[0]=yuv[0];
+				W[1]=yuv[1];
+				W[2]=yuv[2];
+#endif
 				rows[0]+=4;
 				rows[1]+=4;
 			}
@@ -812,7 +960,8 @@ int c20_codec(const char *srcfn, const char *dstfn)
 	{
 		char yuv[4]={0};
 #if defined ENABLE_FASTANALYSIS || defined ENABLE_ENTROPYANALYSIS
-		const unsigned char *rct=rct_indices[*srcptr++];
+		int flag=*srcptr++;
+		const unsigned char *rct=rct_indices[flag];
 		int yidx=rct[3+0];
 		int uidx=rct[3+1];
 		int vidx=rct[3+2];
@@ -878,60 +1027,83 @@ int c20_codec(const char *srcfn, const char *dstfn)
 		etime=time_sec()-etime;
 		ptime=time_sec();
 #endif
+#if defined USE_MIX3 || defined USE_MIX4
+		int aNW[]=
+		{
+			MIX_FAR,
+			MIX_FAR,
+			MIX_FAR,
+		};
+#ifdef USE_MIX4
+		int aN[]=
+		{
+			MIX_NEAR,
+			MIX_NEAR,
+			MIX_NEAR,
+		};
+#endif
+		int aNE[]=
+		{
+			MIX_FAR,
+			MIX_FAR,
+			MIX_FAR,
+		};
+#endif
 		for(int ky=0, idx=0, idx2=0;ky<ih;++ky)
 		{
+		//	int e0[3]={0}, e1[3]={0};
+		//	int preds0[3]={0}, preds1[3]={0};
+#ifdef USE_REG_W
+			int W[3]={0};
+#endif
 			ALIGN(16) short *rows[]=
 			{
 				pixels+((iw+32LL)*((ky-0LL)&1)+16LL)*4,
 				pixels+((iw+32LL)*((ky-1LL)&1)+16LL)*4,
 			};
+#if defined __GNUC__ && (defined USE_ROWPRED3A3 || defined USE_ROWPRED484)
+#pragma GCC unroll 2
+#endif
 			for(int kx=0;kx<iw;++kx, idx+=3, ++idx2)
 			{
 				//if(ky==0&&kx==6&&kc==0)//
 				//if(ky==399&&kx==714)//
 				//if(ky==2&&kx==4)//
 				//if(ky==355&&kx==647)//
+				//if(ky==3&&kx==104)//
+				//if(ky==3&&kx==103)//
+				//if(ky==4&&kx==138)//
 				//	printf("");
 
 				short *pcurr=rows[0]+0*4;
-#ifdef USE_FASTPRED
-				int ypred=rows[1][+0*4+0];
-				int upred=rows[1][+0*4+1];
-				int vpred=rows[1][+0*4+2];
-#elif defined USE_ROWPRED
+#ifdef USE_ROWPRED484
 				int ypred=(2*rows[1][+0*4+0]+rows[1][-1*4+0]+rows[1][+1*4+0]+2)>>2;
 				int upred=(2*rows[1][+0*4+1]+rows[1][-1*4+1]+rows[1][+1*4+1]+2)>>2;
 				int vpred=(2*rows[1][+0*4+2]+rows[1][-1*4+2]+rows[1][+1*4+2]+2)>>2;
-#elif defined USE_ROWPRED2
+#elif defined USE_ROWPRED3A3
 				int ypred=(10*rows[1][+0*4+0]+3*(rows[1][-1*4+0]+rows[1][+1*4+0])+8)>>4;
 				int upred=(10*rows[1][+0*4+1]+3*(rows[1][-1*4+1]+rows[1][+1*4+1])+8)>>4;
 				int vpred=(10*rows[1][+0*4+2]+3*(rows[1][-1*4+2]+rows[1][+1*4+2])+8)>>4;
-#else
-				short
-					yNW	=rows[1][-1*4+0], uNW	=rows[1][-1*4+1], vNW	=rows[1][-1*4+2],
-					yN	=rows[1][+0*4+0], uN	=rows[1][+0*4+1], vN	=rows[1][+0*4+2],
-					yNE	=rows[1][+1*4+0], uNE	=rows[1][+1*4+1], vNE	=rows[1][+1*4+2],
-					yW	=rows[0][-1*4+0], uW	=rows[0][-1*4+1], vW	=rows[0][-1*4+2];
-
-				int ymax=yN, ymin=yW;
-				int umax=uN, umin=uW;
-				int vmax=vN, vmin=vW;
-				if(yN<yW)ymin=yN, ymax=yW;
-				if(ymin>yNE)ymin=yNE;
-				if(ymax<yNE)ymax=yNE;
-				if(uN<uW)umin=uN, umax=uW;
-				if(umin>uNE)umin=uNE;
-				if(umax<uNE)umax=uNE;
-				if(vN<vW)vmin=vN, vmax=vW;
-				if(vmin>vNE)vmin=vNE;
-				if(vmax<vNE)vmax=vNE;
-
-				int ypred=(4*(yN+yW)+yNE-yNW+4)>>3;
-				int upred=(4*(uN+uW)+uNE-uNW+4)>>3;
-				int vpred=(4*(vN+vW)+vNE-vNW+4)>>3;
-				CLAMP2(ypred, ymin, ymax);
-				CLAMP2(upred, umin, umax);
-				CLAMP2(vpred, vmin, vmax);
+#elif defined USE_MIX3
+				int preds[]=
+				{
+					rows[1][-1*4+0], rows[1][+0*4+0], rows[1][+1*4+0],
+					rows[1][-1*4+1], rows[1][+0*4+1], rows[1][+1*4+1],
+					rows[1][-1*4+2], rows[1][+0*4+2], rows[1][+1*4+2],
+				};
+				int ypred=preds[1+0*3]+(((preds[0+0*3]-preds[1+0*3])*aNW[0]+(preds[2+0*3]-preds[1+0*3])*aNE[0])>>16);
+				int upred=preds[1+1*3]+(((preds[0+1*3]-preds[1+1*3])*aNW[1]+(preds[2+1*3]-preds[1+1*3])*aNE[1])>>16);
+				int vpred=preds[1+2*3]+(((preds[0+2*3]-preds[1+2*3])*aNW[2]+(preds[2+2*3]-preds[1+2*3])*aNE[2])>>16);
+#elif defined USE_MIX4
+				int preds[]=
+				{//	W, NW, N, NE
+					rows[0][-1*4+0], rows[1][-1*4+0], rows[1][+0*4+0], rows[1][+1*4+0],
+					rows[0][-1*4+1], rows[1][-1*4+1], rows[1][+0*4+1], rows[1][+1*4+1],
+					rows[0][-1*4+2], rows[1][-1*4+2], rows[1][+0*4+2], rows[1][+1*4+2],
+				};
+				int ypred=preds[0+0*4]+(((preds[1+0*4]-preds[0+0*4])*aNW[0]+(preds[2+0*4]-preds[0+0*4])*aN[0]+(preds[3+0*4]-preds[0+0*4])*aNE[0])>>16);
+				int upred=preds[0+1*4]+(((preds[1+1*4]-preds[0+1*4])*aNW[1]+(preds[2+1*4]-preds[0+1*4])*aN[1]+(preds[3+1*4]-preds[0+1*4])*aNE[1])>>16);
+				int vpred=preds[0+2*4]+(((preds[1+2*4]-preds[0+2*4])*aNW[2]+(preds[2+2*4]-preds[0+2*4])*aN[2]+(preds[3+2*4]-preds[0+2*4])*aNE[2])>>16);
 #endif
 				
 #ifdef USE_NBLI_RCT
@@ -947,6 +1119,53 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				pcurr[0]=yuv[0]=(char)(planes[0][idx2]+ypred);
 				pcurr[1]=yuv[1]=(char)(planes[1][idx2]+upred);
 				pcurr[2]=yuv[2]=(char)(planes[2][idx2]+vpred);
+#ifdef USE_MIX3
+				preds[0+0*3]=abs(yuv[0]-preds[0+0*3])<<7;
+				preds[1+0*3]=abs(yuv[0]-preds[1+0*3])<<7;
+				preds[2+0*3]=abs(yuv[0]-preds[2+0*3])<<7;
+				preds[0+1*3]=abs(yuv[1]-preds[0+1*3])<<7;
+				preds[1+1*3]=abs(yuv[1]-preds[1+1*3])<<7;
+				preds[2+1*3]=abs(yuv[1]-preds[2+1*3])<<7;
+				preds[0+2*3]=abs(yuv[2]-preds[0+2*3])<<7;
+				preds[1+2*3]=abs(yuv[2]-preds[1+2*3])<<7;
+				preds[2+2*3]=abs(yuv[2]-preds[2+2*3])<<7;
+				aNW[0]+=(preds[1+0*3]+preds[2+0*3]-2*preds[0+0*3]-aNW[0]+MIX_FAR+(1<<7>>1))>>7;
+				aNE[0]+=(preds[1+0*3]+preds[0+0*3]-2*preds[2+0*3]-aNE[0]+MIX_FAR+(1<<7>>1))>>7;
+				aNW[1]+=(preds[1+1*3]+preds[2+1*3]-2*preds[0+1*3]-aNW[1]+MIX_FAR+(1<<7>>1))>>7;
+				aNE[1]+=(preds[1+1*3]+preds[0+1*3]-2*preds[2+1*3]-aNE[1]+MIX_FAR+(1<<7>>1))>>7;
+				aNW[2]+=(preds[1+2*3]+preds[2+2*3]-2*preds[0+2*3]-aNW[2]+MIX_FAR+(1<<7>>1))>>7;
+				aNE[2]+=(preds[1+2*3]+preds[0+2*3]-2*preds[2+2*3]-aNE[2]+MIX_FAR+(1<<7>>1))>>7;
+			//	alpha[0]+=(((abs(yuv[0]-preds0[0])-abs(yuv[0]-preds1[0]))<<4)-alpha[0]+0x800+(1<<7>>1))>>7;
+			//	alpha[1]+=(((abs(yuv[1]-preds0[1])-abs(yuv[1]-preds1[1]))<<4)-alpha[1]+0x800+(1<<7>>1))>>7;
+			//	alpha[2]+=(((abs(yuv[2]-preds0[2])-abs(yuv[2]-preds1[2]))<<4)-alpha[2]+0x800+(1<<7>>1))>>7;
+#elif defined USE_MIX4
+				preds[0+0*4]=abs(yuv[0]-preds[0+0*4])<<7;
+				preds[1+0*4]=abs(yuv[0]-preds[1+0*4])<<7;
+				preds[2+0*4]=abs(yuv[0]-preds[2+0*4])<<7;
+				preds[3+0*4]=abs(yuv[0]-preds[3+0*4])<<7;
+				preds[0+1*4]=abs(yuv[1]-preds[0+1*4])<<7;
+				preds[1+1*4]=abs(yuv[1]-preds[1+1*4])<<7;
+				preds[2+1*4]=abs(yuv[1]-preds[2+1*4])<<7;
+				preds[3+1*4]=abs(yuv[1]-preds[3+1*4])<<7;
+				preds[0+2*4]=abs(yuv[2]-preds[0+2*4])<<7;
+				preds[1+2*4]=abs(yuv[2]-preds[1+2*4])<<7;
+				preds[2+2*4]=abs(yuv[2]-preds[2+2*4])<<7;
+				preds[3+2*4]=abs(yuv[2]-preds[3+2*4])<<7;
+				aNW[0]+=(preds[0+0*4]+preds[2+0*4]+preds[3+0*4]-2*preds[1+0*4]-aNW[0]+MIX_FAR +(1<<7>>1))>>7;
+				aN [0]+=(preds[0+0*4]+preds[1+0*4]+preds[3+0*4]-2*preds[2+0*4]-aN [0]+MIX_NEAR+(1<<7>>1))>>7;
+				aNE[0]+=(preds[0+0*4]+preds[1+0*4]+preds[2+0*4]-2*preds[3+0*4]-aNE[0]+MIX_FAR +(1<<7>>1))>>7;
+				aNW[1]+=(preds[1+1*4]+preds[2+1*4]+preds[3+1*4]-2*preds[1+1*4]-aNW[1]+MIX_FAR +(1<<7>>1))>>7;
+				aN [1]+=(preds[1+1*4]+preds[1+1*4]+preds[3+1*4]-2*preds[2+1*4]-aN [1]+MIX_NEAR+(1<<7>>1))>>7;
+				aNE[1]+=(preds[1+1*4]+preds[1+1*4]+preds[2+1*4]-2*preds[3+1*4]-aNE[1]+MIX_FAR +(1<<7>>1))>>7;
+				aNW[2]+=(preds[2+2*4]+preds[2+2*4]+preds[3+2*4]-2*preds[1+2*4]-aNW[2]+MIX_FAR +(1<<7>>1))>>7;
+				aN [2]+=(preds[2+2*4]+preds[1+2*4]+preds[3+2*4]-2*preds[2+2*4]-aN [2]+MIX_NEAR+(1<<7>>1))>>7;
+				aNE[2]+=(preds[2+2*4]+preds[1+2*4]+preds[2+2*4]-2*preds[3+2*4]-aNE[2]+MIX_FAR +(1<<7>>1))>>7;
+#endif
+#ifdef USE_REG_W
+				W[0]=yuv[0];
+				W[1]=yuv[1];
+				W[2]=yuv[2];
+#endif
 				yuv[1]+=yuv[uhelpidx];
 				yuv[2]+=yuv[vhelpidx];
 #else
@@ -995,6 +1214,7 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				image[idx+2]=yuv[1]+128;
 				image[idx+0]=yuv[2]+128;
 #endif
+
 				guide_check(image, kx, ky);
 				rows[0]+=4;
 				rows[1]+=4;
