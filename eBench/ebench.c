@@ -107,12 +107,12 @@ typedef enum TransformTypeEnum
 	ST_FWD_PU,		ST_INV_PU,
 	ST_FWD_CG422,		ST_INV_CG422,
 	ST_FWD_CG420,		ST_INV_CG420,
+	ST_FWD_WP,		ST_INV_WP,
 	ST_FWD_WGRAD,		ST_INV_WGRAD,
 //	ST_FWD_WGRAD2,		ST_INV_WGRAD2,
 	ST_FWD_WGRAD3,		ST_INV_WGRAD3,
 	ST_FWD_WGRAD4,		ST_INV_WGRAD4,
 	ST_FWD_WGRAD5,		ST_INV_WGRAD5,
-	ST_FWD_WP,		ST_INV_WP,
 	ST_FWD_T47,		ST_INV_T47,
 	ST_FWD_P3,		ST_INV_P3,
 	ST_FWD_G2,		ST_INV_G2,
@@ -1695,8 +1695,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_MIX2:		a=" S Inv MIX2";		break;
 //	case ST_FWD_AV3:		a=" S Fwd AV3";			break;
 //	case ST_INV_AV3:		a=" S Inv AV3";			break;
-	case ST_FWD_WGRAD:		a="CS Fwd WG";			break;
-	case ST_INV_WGRAD:		a="CS Inv WG";			break;
+	case ST_FWD_WGRAD:		a="CS Fwd WGrad";		break;
+	case ST_INV_WGRAD:		a="CS Inv WGrad";		break;
 //	case ST_FWD_WGRAD2:		a="CS Fwd WGrad2";		break;
 //	case ST_INV_WGRAD2:		a="CS Inv WGrad2";		break;
 	case ST_FWD_WGRAD3:		a="CS Fwd WGrad3";		break;
@@ -5820,7 +5820,62 @@ int io_keydn(IOKey key, char c)
 			if(GET_KEY_STATE(KEY_CTRL))
 			{
 				//int success=1;
-				if(im0->iw!=im1->iw||im0->ih!=im1->ih||im0->nch!=im1->nch)
+				if(!im1)
+					return 0;
+				if(mode==VIS_ANALYSIS)
+				{
+					C18Info *info=(C18Info*)malloc(sizeof(C18Info));
+					if(!info)
+					{
+						LOG_WARNING("Alloc error");
+						return 0;
+					}
+
+					double esizes[3]={0};
+					int nblocks=0;
+					for(int ky=0;ky<im1->ih;ky+=jhc_boxdy)
+					{
+						int ky2=ky+jhc_boxdy;
+						if(ky2>im1->ih)
+							ky2=im1->ih;
+						for(int kx=0;kx<im1->iw;kx+=jhc_boxdx)
+						{
+							int kx2=kx+jhc_boxdx;
+							if(kx2>im1->iw)
+								kx2=im1->iw;
+							c18_analyze(im1, kx, kx2, ky, ky2, info);
+							const unsigned char *group=rct_combinations[info->bestrct];
+							int selected_ch[]=
+							{
+								group[0]*PRED_COUNT+info->predidx[0],
+								group[1]*PRED_COUNT+info->predidx[1],
+								group[2]*PRED_COUNT+info->predidx[2],
+							};
+							esizes[0]+=info->esizes[selected_ch[0]]*(kx2-kx)*(ky2-ky);
+							esizes[1]+=info->esizes[selected_ch[1]]*(kx2-kx)*(ky2-ky);
+							esizes[2]+=info->esizes[selected_ch[2]]*(kx2-kx)*(ky2-ky);
+							++nblocks;
+						}
+					}
+					ptrdiff_t usize=(ptrdiff_t)im1->iw*im1->ih;
+					char buf[512]={0};
+					int nprinted=snprintf(buf, sizeof(buf)-1,
+						"%d*%d block size, %d blocks\n"
+						"T %6.2lf%%  %12.2lf bytes\n"
+						"Y %6.2lf%%  %12.2lf bytes\n"
+						"U %6.2lf%%  %12.2lf bytes\n"
+						"V %6.2lf%%  %12.2lf bytes\n",
+						jhc_boxdx, jhc_boxdy, nblocks,
+						(esizes[0]+esizes[1]+esizes[2])*100./(3*usize), esizes[0]+esizes[1]+esizes[2],
+						esizes[0]*100/usize, esizes[0],
+						esizes[1]*100/usize, esizes[1],
+						esizes[2]*100/usize, esizes[2]
+					);
+					copy_to_clipboard(buf, nprinted);
+					messagebox(MBOX_OK, "Copied to clipboard", "%s", buf);
+					free(info);
+				}
+				else if(im0->iw!=im1->iw||im0->ih!=im1->ih||im0->nch!=im1->nch)
 				{
 					messagebox(MBOX_OK, "Dimension Error",
 						"Image dimensions changed:\n"
@@ -6605,7 +6660,15 @@ void io_render(void)
 			break;
 		case VIS_ANALYSIS:
 			{
+				const unsigned char *group=rct_combinations[analysis_info.bestrct];
+				int selected_ch[]=
+				{
+					group[0]*PRED_COUNT+analysis_info.predidx[0],
+					group[1]*PRED_COUNT+analysis_info.predidx[1],
+					group[2]*PRED_COUNT+analysis_info.predidx[2],
+				};
 				int bounds[4]={0};//{x1, x2, y1, y2}
+				float xmid, ymid;
 				jhc_getboxbounds(jhc_xbox, jhc_ybox, jhc_boxdx, jhc_boxdy, im1->iw, im1->ih, bounds);
 				
 				display_texture_i(0, wndw, 0, wndh, (int*)im_export, im1->iw, im1->ih, 0, 1, 0, 1, 1, 0);
@@ -6616,27 +6679,18 @@ void io_render(void)
 					float sbounds[4];
 					for(int k=0;k<4;++k)
 						sbounds[k]=bounds[k]*ratios[k>>1];
-					{
-						float xmid=(sbounds[0]+sbounds[1])*0.5f;
-						float ymid=(sbounds[2]+sbounds[3])*0.5f;
-						draw_rect_hollow(sbounds[0]+1, sbounds[1]+1, sbounds[2]+1, sbounds[3]+1, 0xFFFFFFFF);
-						draw_rect_hollow(sbounds[0], sbounds[1], sbounds[2], sbounds[3], crosshaircolor);
-						//draw_line(sbounds[0], sbounds[2], sbounds[0], sbounds[3], crosshaircolor);//{x1, y1, x2, y2}
-						//draw_line(sbounds[1], sbounds[2], sbounds[1], sbounds[3], crosshaircolor);
-						//draw_line(sbounds[0], sbounds[2], sbounds[1], sbounds[2], crosshaircolor);
-						//draw_line(sbounds[0], sbounds[3], sbounds[1], sbounds[3], crosshaircolor);
-						draw_line(xmid, 0, xmid, (float)wndh, crosshaircolor);
-						draw_line(0, ymid, (float)wndw, ymid, crosshaircolor);
-					}
+					xmid=(sbounds[0]+sbounds[1])*0.5f;
+					ymid=(sbounds[2]+sbounds[3])*0.5f;
+					draw_rect_hollow(sbounds[0]+1, sbounds[1]+1, sbounds[2]+1, sbounds[3]+1, 0xFFFFFFFF);
+					draw_rect_hollow(sbounds[0], sbounds[1], sbounds[2], sbounds[3], crosshaircolor);
+					//draw_line(sbounds[0], sbounds[2], sbounds[0], sbounds[3], crosshaircolor);//{x1, y1, x2, y2}
+					//draw_line(sbounds[1], sbounds[2], sbounds[1], sbounds[3], crosshaircolor);
+					//draw_line(sbounds[0], sbounds[2], sbounds[1], sbounds[2], crosshaircolor);
+					//draw_line(sbounds[0], sbounds[3], sbounds[1], sbounds[3], crosshaircolor);
+					draw_line(xmid, 0, xmid, (float)wndh, crosshaircolor);
+					draw_line(0, ymid, (float)wndw, ymid, crosshaircolor);
 				}
 				float y=tdy*2;
-				const unsigned char *group=rct_combinations[analysis_info.bestrct];
-				int selected_ch[]=
-				{
-					group[0]*PRED_COUNT+analysis_info.predidx[0],
-					group[1]*PRED_COUNT+analysis_info.predidx[1],
-					group[2]*PRED_COUNT+analysis_info.predidx[2],
-				};
 				GUIPrint(0, (float)(0.25*wndw), y-tdy*1.5f-2, 1.5f,
 					"3*%d*%d: %6.2lf%% + %6.2lf%% + %6.2lf%% = %6.2lf%%  %s %s %s %s  %lf MB/s",
 					bounds[1]-bounds[0], bounds[3]-bounds[2],
@@ -6650,8 +6704,25 @@ void io_render(void)
 					pred_names[analysis_info.predidx[2]],
 					3*(bounds[1]-bounds[0])*(bounds[3]-bounds[2])/analysis_info.t_analysis/(1024*1024)
 				);
-				draw_rect_hollow((float)(0.25*wndw)-1, (float)(0.75*wndw)+1, y+0, y+RCT_COUNT*3+OCH_COUNT*PRED_COUNT*3+OCH_COUNT*8+0, 0xC0000000);
-				draw_rect_hollow((float)(0.25*wndw)-2, (float)(0.75*wndw)+0, y-1, y+RCT_COUNT*3+OCH_COUNT*PRED_COUNT*3+OCH_COUNT*8-1, 0xC0FFFFFF);
+				{
+					float
+						rx1=(float)(0.25*wndw),
+						rx2=(float)(0.75*wndw),
+						ry1=y,
+						ry2=y+RCT_COUNT*3+OCH_COUNT*PRED_COUNT*3+OCH_COUNT*8;
+					display_texture_i(
+						(int)rx1, (int)rx2, (int)ry1, (int)ry2,
+						(int*)im_export,
+						im1->iw, im1->ih,
+						(float)bounds[0]/im1->iw,
+						(float)bounds[1]/im1->iw,
+						(float)bounds[2]/im1->ih,
+						(float)bounds[3]/im1->ih,
+						0.5f, 0
+					);
+					draw_rect_hollow(rx1-1, rx2+1, ry1+0, ry2+0, 0xC0000000);
+					draw_rect_hollow(rx1-2, rx2+0, ry1-1, ry2-1, 0xC0FFFFFF);
+				}
 				//draw_line((float)(0.25*wndw)+0, y, (float)(0.25*wndw)+0, y+OCH_COUNT*PRED_COUNT*4+OCH_COUNT*10, 0xC0000000);
 				//draw_line((float)(0.25*wndw)-1, y, (float)(0.25*wndw)-1, y+OCH_COUNT*PRED_COUNT*4+OCH_COUNT*10, 0xC0FFFFFF);
 				//draw_line((float)(0.75*wndw)+1, y, (float)(0.75*wndw)+1, y+OCH_COUNT*PRED_COUNT*4+OCH_COUNT*10, 0xC0000000);
@@ -6711,6 +6782,13 @@ void io_render(void)
 				draw_ellipse(centers[0]-10, centers[0]+10, centers[1]-10, centers[1]+10, 0x8000FF00);
 				draw_ellipse(centers[2]-10, centers[2]+10, centers[3]-10, centers[3]+10, 0x8000FF00);
 				draw_ellipse(centers[4]-10, centers[4]+10, centers[5]-10, centers[5]+10, 0x8000FF00);
+				GUIPrint(0, xmid, ymid, 1,
+					"%s %s %s %s",
+					rct_names[analysis_info.bestrct],
+					pred_names[analysis_info.predidx[0]],
+					pred_names[analysis_info.predidx[1]],
+					pred_names[analysis_info.predidx[2]]
+				);
 			}
 			break;
 		case VIS_HISTOGRAM:

@@ -386,7 +386,10 @@ static int format_utf8_message(const char *title, const char *format, char *args
 }
 int messagebox(MessageBoxType type, const char *title, const char *format, ...)//returns index of pressed button
 {
-	int len=format_utf8_message(title, format, (char*)(&format+1));
+	va_list args;
+	va_start(args, format);
+	int len=format_utf8_message(title, format, args);
+	va_end(args);
 	int wintypes[]={MB_OK, MB_OKCANCEL, MB_YESNOCANCEL};
 	int result=MessageBoxW(ghWnd, g_wbuf, g_wbuf+len, wintypes[type]);
 	switch(type)
