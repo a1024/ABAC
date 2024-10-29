@@ -23,22 +23,23 @@ static const char file[]=__FILE__;
 
 //	#define USE_NBLI_RCT	//mostly worse		needs highly correlated channels
 
-	#define USE_ROWPRED3A3	//(10*N+3*(NW+NE))/16		good
+//	#define USE_PREDAV2	//(N+W)/2
+//	#define USE_PREDW	//W
+//	#define USE_ROWPRED010	//N				good with synthetic, bad with natural
+//	#define USE_ROWPRED001	//NE
+	#define USE_ROWPRED101	//NE
+//	#define USE_ROWPRED111	//(N+NW+NE)/3
+//	#define USE_ROWPRED1E1	//(14*N+NW+NE)/16
+//	#define USE_ROWPRED2C2	//(12*N+2*(NW+NE))/16
+//	#define USE_ROWPRED3A3	//(10*N+3*(NW+NE))/16		good
 //	#define USE_ROWPRED484	//(2*N+NE+NW)/4
-//	#define USE_MIX3	//mix(NW, N, NE)	bad
-//	#define USE_MIX4	//mix(W, NW, N, NE)	bad
+//	#define USE_ROWPRED13831//(8*N+3*(NW+NE)+NWW+NEE)/16
+//	#define USE_SIMDCG	//median(N, W, N+W-NW)		GDCC: 3.2% smaller, 70% slower than 3A3
 
 //	#define USE_REG_W
 
 	#define USE_O1		//good
 
-
-#ifdef USE_MIX3
-#define MIX_FAR 0x4200
-#elif defined USE_MIX4
-#define MIX_NEAR 0x5000
-#define MIX_FAR 0x3000
-#endif
 
 #ifdef ENABLE_GUIDE
 static int g_iw=0, g_ih=0;
@@ -587,32 +588,16 @@ int c20_codec(const char *srcfn, const char *dstfn)
 		int uhelpidx=rct[6+0];
 		int vhelpidx=rct[6+1];
 #endif
-#if defined USE_MIX3 || defined USE_MIX4
-		int aNW[]=
+		int alpha[]=
 		{
-			MIX_FAR,
-			MIX_FAR,
-			MIX_FAR,
+			0x800,
+			0x800,
+			0x800,
 		};
-#ifdef USE_MIX4
-		int aN[]=
-		{
-			MIX_NEAR,
-			MIX_NEAR,
-			MIX_NEAR,
-		};
-#endif
-		int aNE[]=
-		{
-			MIX_FAR,
-			MIX_FAR,
-			MIX_FAR,
-		};
-#endif
 		for(int ky=0, idx=0, idx2=0;ky<ih;++ky)
 		{
 		//	int e0[3]={0}, e1[3]={0};
-		//	int preds0[3]={0}, preds1[3]={0};
+			int preds0[3]={0}, preds1[3]={0};
 #ifdef USE_REG_W
 			int W[3]={0};
 #endif
@@ -765,7 +750,31 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				yuv[1]-=yuv[2]>>2;
 #endif
 #endif
-#ifdef USE_ROWPRED484
+#ifdef USE_ROWPRED010
+				int ypred=rows[1][+0*4+0];
+				int upred=rows[1][+0*4+1];
+				int vpred=rows[1][+0*4+2];
+#elif defined USE_PREDW
+				int ypred=rows[0][-1*4+0];
+				int upred=rows[0][-1*4+1];
+				int vpred=rows[0][-1*4+2];
+#elif defined USE_ROWPRED001
+				int ypred=rows[1][+1*4+0];
+				int upred=rows[1][+1*4+1];
+				int vpred=rows[1][+1*4+2];
+#elif defined USE_ROWPRED101
+				int ypred=(rows[1][-1*4+0]+rows[1][+1*4+0])/2;
+				int upred=(rows[1][-1*4+1]+rows[1][+1*4+1])/2;
+				int vpred=(rows[1][-1*4+2]+rows[1][+1*4+2])/2;
+#elif defined USE_PREDAV2
+				int ypred=(rows[1][+0*4+0]+W[0])/2;
+				int upred=(rows[1][+0*4+1]+W[1])/2;
+				int vpred=(rows[1][+0*4+2]+W[2])/2;
+#elif defined USE_ROWPRED111
+				int ypred=(rows[1][-1*4+0]+rows[1][+0*4+0]+rows[1][+1*4+0])/3;
+				int upred=(rows[1][-1*4+1]+rows[1][+0*4+1]+rows[1][+1*4+1])/3;
+				int vpred=(rows[1][-1*4+2]+rows[1][+0*4+2]+rows[1][+1*4+2])/3;
+#elif defined USE_ROWPRED484
 				int ypred=(2*rows[1][+0*4+0]+rows[1][-1*4+0]+rows[1][+1*4+0]+2)>>2;
 				int upred=(2*rows[1][+0*4+1]+rows[1][-1*4+1]+rows[1][+1*4+1]+2)>>2;
 				int vpred=(2*rows[1][+0*4+2]+rows[1][-1*4+2]+rows[1][+1*4+2]+2)>>2;
@@ -773,28 +782,85 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				int ypred=(10*rows[1][+0*4+0]+3*(rows[1][-1*4+0]+rows[1][+1*4+0])+8)>>4;
 				int upred=(10*rows[1][+0*4+1]+3*(rows[1][-1*4+1]+rows[1][+1*4+1])+8)>>4;
 				int vpred=(10*rows[1][+0*4+2]+3*(rows[1][-1*4+2]+rows[1][+1*4+2])+8)>>4;
-#elif defined USE_MIX3
-				int preds[]=
-				{
-					rows[1][-1*4+0], rows[1][+0*4+0], rows[1][+1*4+0],
-					rows[1][-1*4+1], rows[1][+0*4+1], rows[1][+1*4+1],
-					rows[1][-1*4+2], rows[1][+0*4+2], rows[1][+1*4+2],
-				};
-				int ypred=preds[1+0*3]+(((preds[0+0*3]-preds[1+0*3])*aNW[0]+(preds[2+0*3]-preds[1+0*3])*aNE[0])>>16);
-				int upred=preds[1+1*3]+(((preds[0+1*3]-preds[1+1*3])*aNW[1]+(preds[2+1*3]-preds[1+1*3])*aNE[1])>>16);
-				int vpred=preds[1+2*3]+(((preds[0+2*3]-preds[1+2*3])*aNW[2]+(preds[2+2*3]-preds[1+2*3])*aNE[2])>>16);
-#elif defined USE_MIX4
-				int preds[]=
-				{//	W, NW, N, NE
-					rows[0][-1*4+0], rows[1][-1*4+0], rows[1][+0*4+0], rows[1][+1*4+0],
-					rows[0][-1*4+1], rows[1][-1*4+1], rows[1][+0*4+1], rows[1][+1*4+1],
-					rows[0][-1*4+2], rows[1][-1*4+2], rows[1][+0*4+2], rows[1][+1*4+2],
-				};
-				int ypred=preds[0+0*4]+(((preds[1+0*4]-preds[0+0*4])*aNW[0]+(preds[2+0*4]-preds[0+0*4])*aN[0]+(preds[3+0*4]-preds[0+0*4])*aNE[0])>>16);
-				int upred=preds[0+1*4]+(((preds[1+1*4]-preds[0+1*4])*aNW[1]+(preds[2+1*4]-preds[0+1*4])*aN[1]+(preds[3+1*4]-preds[0+1*4])*aNE[1])>>16);
-				int vpred=preds[0+2*4]+(((preds[1+2*4]-preds[0+2*4])*aNW[2]+(preds[2+2*4]-preds[0+2*4])*aN[2]+(preds[3+2*4]-preds[0+2*4])*aNE[2])>>16);
-#endif
+#elif defined USE_ROWPRED2C2
+				int ypred=(12*rows[1][+0*4+0]+2*(rows[1][-1*4+0]+rows[1][+1*4+0])+8)>>4;
+				int upred=(12*rows[1][+0*4+1]+2*(rows[1][-1*4+1]+rows[1][+1*4+1])+8)>>4;
+				int vpred=(12*rows[1][+0*4+2]+2*(rows[1][-1*4+2]+rows[1][+1*4+2])+8)>>4;
+#elif defined USE_ROWPRED1E1
+				int ypred=(14*rows[1][+0*4+0]+rows[1][-1*4+0]+rows[1][+1*4+0]+8)>>4;
+				int upred=(14*rows[1][+0*4+1]+rows[1][-1*4+1]+rows[1][+1*4+1]+8)>>4;
+				int vpred=(14*rows[1][+0*4+2]+rows[1][-1*4+2]+rows[1][+1*4+2]+8)>>4;
+#elif defined USE_ROWPRED13831
+				int ypred=(8*rows[1][+0*4+0]+3*(rows[1][-1*4+0]+rows[1][+1*4+0])+rows[1][-2*4+0]+rows[1][+2*4+0]+8)>>4;
+				int upred=(8*rows[1][+0*4+1]+3*(rows[1][-1*4+1]+rows[1][+1*4+1])+rows[1][-2*4+1]+rows[1][+2*4+1]+8)>>4;
+				int vpred=(8*rows[1][+0*4+2]+3*(rows[1][-1*4+2]+rows[1][+1*4+2])+rows[1][-2*4+2]+rows[1][+2*4+2]+8)>>4;
+#elif defined USE_SIMDCG
+				__m128i mNW	=_mm_loadu_si128((__m128i*)(rows[1]-1*4+0));
+				__m128i mN	=_mm_loadu_si128((__m128i*)(rows[1]+0*4+0));
+				__m128i mW	=_mm_loadu_si128((__m128i*)(rows[0]-1*4+0));
+				__m128i vmin=_mm_min_epi16(mN, mW);
+				__m128i vmax=_mm_max_epi16(mN, mW);
+				__m128i mp=_mm_sub_epi16(_mm_add_epi16(mN, mW), mNW);
+				mp=_mm_max_epi16(mp, vmin);
+				mp=_mm_min_epi16(mp, vmax);
+				short ypred=_mm_extract_epi16(mp, 0);
+				short upred=_mm_extract_epi16(mp, 1);
+				short vpred=_mm_extract_epi16(mp, 2);
+#else
+				short
+					yNW	=rows[1][-1*4+0], uNW	=rows[1][-1*4+1], vNW	=rows[1][-1*4+2],
+					yN	=rows[1][+0*4+0], uN	=rows[1][+0*4+1], vN	=rows[1][+0*4+2],
+					yNE	=rows[1][+1*4+0], uNE	=rows[1][+1*4+1], vNE	=rows[1][+1*4+2],
+					yW	=W[0]		, uW	=W[1]		, vW	=W[2];
+				//	yW	=rows[0][-1*4+0], uW	=rows[0][-1*4+1], vW	=rows[0][-1*4+2];
+				int ymax=yN, ymin=yW;
+				int umax=uN, umin=uW;
+				int vmax=vN, vmin=vW;
+				if(yN<yW)ymin=yN, ymax=yW;
+				if(ymin>yNE)ymin=yNE;
+				if(ymax<yNE)ymax=yNE;
+				if(uN<uW)umin=uN, umax=uW;
+				if(umin>uNE)umin=uNE;
+				if(umax<uNE)umax=uNE;
+				if(vN<vW)vmin=vN, vmax=vW;
+				if(vmin>vNE)vmin=vNE;
+				if(vmax<vNE)vmax=vNE;
 
+				int ypred=(4*(yN+yW)+yNE-yNW+4)>>3;
+				CLAMP2(ypred, ymin, ymax);
+				int upred=(4*(uN+uW)+uNE-uNW+4)>>3;
+				CLAMP2(upred, umin, umax);
+				int vpred=(4*(vN+vW)+vNE-vNW+4)>>3;
+				CLAMP2(vpred, vmin, vmax);
+#endif
+			//	preds0[0]=(2*rows[1][+0*4+0]+rows[1][-1*4+0]+rows[1][+1*4+0]+2)>>2; preds1[0]=ypred;
+			//	preds0[1]=(2*rows[1][+0*4+1]+rows[1][-1*4+1]+rows[1][+1*4+1]+2)>>2; preds1[1]=upred;
+			//	preds0[2]=(2*rows[1][+0*4+2]+rows[1][-1*4+2]+rows[1][+1*4+2]+2)>>2; preds1[2]=vpred;
+				preds0[0]=rows[1][+0*4+0]; preds1[0]=ypred;
+				preds0[1]=rows[1][+0*4+1]; preds1[1]=upred;
+				preds0[2]=rows[1][+0*4+2]; preds1[2]=vpred;
+				ypred=preds0[0]+(((preds1[0]-preds0[0])*alpha[0]+(1<<12>>1))>>12);
+				upred=preds0[1]+(((preds1[1]-preds0[1])*alpha[1]+(1<<12>>1))>>12);
+				vpred=preds0[2]+(((preds1[2]-preds0[2])*alpha[2]+(1<<12>>1))>>12);
+			//	if(e0[0]<e1[0])ypred=preds0[0];
+			//	if(e0[1]<e1[1])upred=preds0[1];
+			//	if(e0[2]<e1[2])vpred=preds0[2];
+
+			//	e0[0]+=abs(yuv[0]-preds0[0]);
+			//	e0[1]+=abs(yuv[1]-preds0[1]);
+			//	e0[2]+=abs(yuv[2]-preds0[2]);
+			//	e1[0]+=abs(yuv[0]-preds1[0]);
+			//	e1[1]+=abs(yuv[1]-preds1[1]);
+			//	e1[2]+=abs(yuv[2]-preds1[2]);
+			//	int sh0=e0[0]+e1[0]>0x100;
+			//	int sh1=e0[1]+e1[1]>0x100;
+			//	int sh2=e0[2]+e1[2]>0x100;
+			//	e0[0]>>=sh0;
+			//	e1[0]>>=sh0;
+			//	e0[1]>>=sh1;
+			//	e1[1]>>=sh1;
+			//	e0[2]>>=sh2;
+			//	e1[2]>>=sh2;
 #ifdef USE_NBLI_RCT
 				pcurr[0]=yuv[0];
 				pcurr[1]=yuv[1];
@@ -839,54 +905,19 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				dptr[res*0+idx2]=yuv[0]-ypred;
 				dptr[res*1+idx2]=yuv[1]-upred;
 				dptr[res*2+idx2]=yuv[2]-vpred;
-#ifdef USE_MIX3
-				preds[0+0*3]=abs(yuv[0]-preds[0+0*3])<<7;
-				preds[1+0*3]=abs(yuv[0]-preds[1+0*3])<<7;
-				preds[2+0*3]=abs(yuv[0]-preds[2+0*3])<<7;
-				preds[0+1*3]=abs(yuv[1]-preds[0+1*3])<<7;
-				preds[1+1*3]=abs(yuv[1]-preds[1+1*3])<<7;
-				preds[2+1*3]=abs(yuv[1]-preds[2+1*3])<<7;
-				preds[0+2*3]=abs(yuv[2]-preds[0+2*3])<<7;
-				preds[1+2*3]=abs(yuv[2]-preds[1+2*3])<<7;
-				preds[2+2*3]=abs(yuv[2]-preds[2+2*3])<<7;
-				aNW[0]+=(preds[1+0*3]+preds[2+0*3]-2*preds[0+0*3]-aNW[0]+MIX_FAR+(1<<7>>1))>>7;
-				aNE[0]+=(preds[1+0*3]+preds[0+0*3]-2*preds[2+0*3]-aNE[0]+MIX_FAR+(1<<7>>1))>>7;
-				aNW[1]+=(preds[1+1*3]+preds[2+1*3]-2*preds[0+1*3]-aNW[1]+MIX_FAR+(1<<7>>1))>>7;
-				aNE[1]+=(preds[1+1*3]+preds[0+1*3]-2*preds[2+1*3]-aNE[1]+MIX_FAR+(1<<7>>1))>>7;
-				aNW[2]+=(preds[1+2*3]+preds[2+2*3]-2*preds[0+2*3]-aNW[2]+MIX_FAR+(1<<7>>1))>>7;
-				aNE[2]+=(preds[1+2*3]+preds[0+2*3]-2*preds[2+2*3]-aNE[2]+MIX_FAR+(1<<7>>1))>>7;
-			//	alpha[0]+=(((abs(yuv[0]-preds0[0])-abs(yuv[0]-preds1[0]))<<4)-alpha[0]+0x800+(1<<7>>1))>>7;
-			//	alpha[1]+=(((abs(yuv[1]-preds0[1])-abs(yuv[1]-preds1[1]))<<4)-alpha[1]+0x800+(1<<7>>1))>>7;
-			//	alpha[2]+=(((abs(yuv[2]-preds0[2])-abs(yuv[2]-preds1[2]))<<4)-alpha[2]+0x800+(1<<7>>1))>>7;
-#elif defined USE_MIX4
-				preds[0+0*4]=abs(yuv[0]-preds[0+0*4]);
-				preds[1+0*4]=abs(yuv[0]-preds[1+0*4]);
-				preds[2+0*4]=abs(yuv[0]-preds[2+0*4]);
-				preds[3+0*4]=abs(yuv[0]-preds[3+0*4]);
-				preds[0+1*4]=abs(yuv[1]-preds[0+1*4]);
-				preds[1+1*4]=abs(yuv[1]-preds[1+1*4]);
-				preds[2+1*4]=abs(yuv[1]-preds[2+1*4]);
-				preds[3+1*4]=abs(yuv[1]-preds[3+1*4]);
-				preds[0+2*4]=abs(yuv[2]-preds[0+2*4]);
-				preds[1+2*4]=abs(yuv[2]-preds[1+2*4]);
-				preds[2+2*4]=abs(yuv[2]-preds[2+2*4]);
-				preds[3+2*4]=abs(yuv[2]-preds[3+2*4]);
-				int esums[]=
-				{
-					preds[0+0*4]+preds[1+0*4]+preds[2+0*4]+preds[3+0*4],
-					preds[0+1*4]+preds[1+1*4]+preds[2+1*4]+preds[3+1*4],
-					preds[0+2*4]+preds[1+2*4]+preds[2+2*4]+preds[3+2*4],
-				};
-				aNW[0]+=(((esums[0]-4*preds[1+0*4])<<6)-aNW[0]+MIX_FAR +(1<<7>>1))>>7;
-				aN [0]+=(((esums[0]-4*preds[2+0*4])<<6)-aN [0]+MIX_NEAR+(1<<7>>1))>>7;
-				aNE[0]+=(((esums[0]-4*preds[3+0*4])<<6)-aNE[0]+MIX_FAR +(1<<7>>1))>>7;
-				aNW[1]+=(((esums[1]-4*preds[1+1*4])<<6)-aNW[1]+MIX_FAR +(1<<7>>1))>>7;
-				aN [1]+=(((esums[1]-4*preds[2+1*4])<<6)-aN [1]+MIX_NEAR+(1<<7>>1))>>7;
-				aNE[1]+=(((esums[1]-4*preds[3+1*4])<<6)-aNE[1]+MIX_FAR +(1<<7>>1))>>7;
-				aNW[2]+=(((esums[2]-4*preds[1+2*4])<<6)-aNW[2]+MIX_FAR +(1<<7>>1))>>7;
-				aN [2]+=(((esums[2]-4*preds[2+2*4])<<6)-aN [2]+MIX_NEAR+(1<<7>>1))>>7;
-				aNE[2]+=(((esums[2]-4*preds[3+2*4])<<6)-aNE[2]+MIX_FAR +(1<<7>>1))>>7;
-#endif
+				
+				alpha[0]+=(((abs(yuv[0]-preds0[0])-abs(yuv[0]-preds1[0]))<<4)-alpha[0]+0x800+(1<<7>>1))>>7;
+				alpha[1]+=(((abs(yuv[1]-preds0[1])-abs(yuv[1]-preds1[1]))<<4)-alpha[1]+0x800+(1<<7>>1))>>7;
+				alpha[2]+=(((abs(yuv[2]-preds0[2])-abs(yuv[2]-preds1[2]))<<4)-alpha[2]+0x800+(1<<7>>1))>>7;
+			//	alpha[0]+=(abs(yuv[0]-preds0[0])-abs(yuv[0]-preds1[0])+1)>>1; CLAMP2(alpha[0], 0, 0x1000);
+			//	alpha[1]+=(abs(yuv[1]-preds0[1])-abs(yuv[1]-preds1[1])+1)>>1; CLAMP2(alpha[1], 0, 0x1000);
+			//	alpha[2]+=(abs(yuv[2]-preds0[2])-abs(yuv[2]-preds1[2])+1)>>1; CLAMP2(alpha[2], 0, 0x1000);
+				//if(alpha[1]!=0x8000)
+				//{
+				//	static int ctr=0;
+				//	if(ctr++<4000)
+				//		printf("[%8d] [%5d %5d] %04X\n", ctr, ky, kx, alpha[1]);
+				//}
 #ifdef USE_REG_W
 				W[0]=yuv[0];
 				W[1]=yuv[1];
@@ -1033,32 +1064,16 @@ int c20_codec(const char *srcfn, const char *dstfn)
 		etime=time_sec()-etime;
 		ptime=time_sec();
 #endif
-#if defined USE_MIX3 || defined USE_MIX4
-		int aNW[]=
+		int alpha[]=
 		{
-			MIX_FAR,
-			MIX_FAR,
-			MIX_FAR,
+			0x800,
+			0x800,
+			0x800,
 		};
-#ifdef USE_MIX4
-		int aN[]=
-		{
-			MIX_NEAR,
-			MIX_NEAR,
-			MIX_NEAR,
-		};
-#endif
-		int aNE[]=
-		{
-			MIX_FAR,
-			MIX_FAR,
-			MIX_FAR,
-		};
-#endif
 		for(int ky=0, idx=0, idx2=0;ky<ih;++ky)
 		{
-		//	int e0[3]={0}, e1[3]={0};
-		//	int preds0[3]={0}, preds1[3]={0};
+			//int e0[3]={0}, e1[3]={0};
+			int preds0[3]={0}, preds1[3]={0};
 #ifdef USE_REG_W
 			int W[3]={0};
 #endif
@@ -1082,7 +1097,31 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				//	printf("");
 
 				short *pcurr=rows[0]+0*4;
-#ifdef USE_ROWPRED484
+#ifdef USE_ROWPRED010
+				int ypred=rows[1][+0*4+0];
+				int upred=rows[1][+0*4+1];
+				int vpred=rows[1][+0*4+2];
+#elif defined USE_PREDW
+				int ypred=rows[0][-1*4+0];
+				int upred=rows[0][-1*4+1];
+				int vpred=rows[0][-1*4+2];
+#elif defined USE_ROWPRED001
+				int ypred=rows[1][+1*4+0];
+				int upred=rows[1][+1*4+1];
+				int vpred=rows[1][+1*4+2];
+#elif defined USE_ROWPRED101
+				int ypred=(rows[1][-1*4+0]+rows[1][+1*4+0])/2;
+				int upred=(rows[1][-1*4+1]+rows[1][+1*4+1])/2;
+				int vpred=(rows[1][-1*4+2]+rows[1][+1*4+2])/2;
+#elif defined USE_PREDAV2
+				int ypred=(rows[1][+0*4+0]+W[0])/2;
+				int upred=(rows[1][+0*4+1]+W[1])/2;
+				int vpred=(rows[1][+0*4+2]+W[2])/2;
+#elif defined USE_ROWPRED111
+				int ypred=(rows[1][-1*4+0]+rows[1][+0*4+0]+rows[1][+1*4+0])/3;
+				int upred=(rows[1][-1*4+1]+rows[1][+0*4+1]+rows[1][+1*4+1])/3;
+				int vpred=(rows[1][-1*4+2]+rows[1][+0*4+2]+rows[1][+1*4+2])/3;
+#elif defined USE_ROWPRED484
 				int ypred=(2*rows[1][+0*4+0]+rows[1][-1*4+0]+rows[1][+1*4+0]+2)>>2;
 				int upred=(2*rows[1][+0*4+1]+rows[1][-1*4+1]+rows[1][+1*4+1]+2)>>2;
 				int vpred=(2*rows[1][+0*4+2]+rows[1][-1*4+2]+rows[1][+1*4+2]+2)>>2;
@@ -1090,27 +1129,70 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				int ypred=(10*rows[1][+0*4+0]+3*(rows[1][-1*4+0]+rows[1][+1*4+0])+8)>>4;
 				int upred=(10*rows[1][+0*4+1]+3*(rows[1][-1*4+1]+rows[1][+1*4+1])+8)>>4;
 				int vpred=(10*rows[1][+0*4+2]+3*(rows[1][-1*4+2]+rows[1][+1*4+2])+8)>>4;
-#elif defined USE_MIX3
-				int preds[]=
-				{
-					rows[1][-1*4+0], rows[1][+0*4+0], rows[1][+1*4+0],
-					rows[1][-1*4+1], rows[1][+0*4+1], rows[1][+1*4+1],
-					rows[1][-1*4+2], rows[1][+0*4+2], rows[1][+1*4+2],
-				};
-				int ypred=preds[1+0*3]+(((preds[0+0*3]-preds[1+0*3])*aNW[0]+(preds[2+0*3]-preds[1+0*3])*aNE[0])>>16);
-				int upred=preds[1+1*3]+(((preds[0+1*3]-preds[1+1*3])*aNW[1]+(preds[2+1*3]-preds[1+1*3])*aNE[1])>>16);
-				int vpred=preds[1+2*3]+(((preds[0+2*3]-preds[1+2*3])*aNW[2]+(preds[2+2*3]-preds[1+2*3])*aNE[2])>>16);
-#elif defined USE_MIX4
-				int preds[]=
-				{//	W, NW, N, NE
-					rows[0][-1*4+0], rows[1][-1*4+0], rows[1][+0*4+0], rows[1][+1*4+0],
-					rows[0][-1*4+1], rows[1][-1*4+1], rows[1][+0*4+1], rows[1][+1*4+1],
-					rows[0][-1*4+2], rows[1][-1*4+2], rows[1][+0*4+2], rows[1][+1*4+2],
-				};
-				int ypred=preds[0+0*4]+(((preds[1+0*4]-preds[0+0*4])*aNW[0]+(preds[2+0*4]-preds[0+0*4])*aN[0]+(preds[3+0*4]-preds[0+0*4])*aNE[0])>>16);
-				int upred=preds[0+1*4]+(((preds[1+1*4]-preds[0+1*4])*aNW[1]+(preds[2+1*4]-preds[0+1*4])*aN[1]+(preds[3+1*4]-preds[0+1*4])*aNE[1])>>16);
-				int vpred=preds[0+2*4]+(((preds[1+2*4]-preds[0+2*4])*aNW[2]+(preds[2+2*4]-preds[0+2*4])*aN[2]+(preds[3+2*4]-preds[0+2*4])*aNE[2])>>16);
+#elif defined USE_ROWPRED2C2
+				int ypred=(12*rows[1][+0*4+0]+2*(rows[1][-1*4+0]+rows[1][+1*4+0])+8)>>4;
+				int upred=(12*rows[1][+0*4+1]+2*(rows[1][-1*4+1]+rows[1][+1*4+1])+8)>>4;
+				int vpred=(12*rows[1][+0*4+2]+2*(rows[1][-1*4+2]+rows[1][+1*4+2])+8)>>4;
+#elif defined USE_ROWPRED1E1
+				int ypred=(14*rows[1][+0*4+0]+rows[1][-1*4+0]+rows[1][+1*4+0]+8)>>4;
+				int upred=(14*rows[1][+0*4+1]+rows[1][-1*4+1]+rows[1][+1*4+1]+8)>>4;
+				int vpred=(14*rows[1][+0*4+2]+rows[1][-1*4+2]+rows[1][+1*4+2]+8)>>4;
+#elif defined USE_ROWPRED13831
+				int ypred=(8*rows[1][+0*4+0]+3*(rows[1][-1*4+0]+rows[1][+1*4+0])+rows[1][-2*4+0]+rows[1][+2*4+0]+8)>>4;
+				int upred=(8*rows[1][+0*4+1]+3*(rows[1][-1*4+1]+rows[1][+1*4+1])+rows[1][-2*4+1]+rows[1][+2*4+1]+8)>>4;
+				int vpred=(8*rows[1][+0*4+2]+3*(rows[1][-1*4+2]+rows[1][+1*4+2])+rows[1][-2*4+2]+rows[1][+2*4+2]+8)>>4;
+#elif defined USE_SIMDCG
+				__m128i mNW	=_mm_loadu_si128((__m128i*)(rows[1]-1*4+0));
+				__m128i mN	=_mm_loadu_si128((__m128i*)(rows[1]+0*4+0));
+				__m128i mW	=_mm_loadu_si128((__m128i*)(rows[0]-1*4+0));
+				__m128i vmin=_mm_min_epi16(mN, mW);
+				__m128i vmax=_mm_max_epi16(mN, mW);
+				__m128i mp=_mm_sub_epi16(_mm_add_epi16(mN, mW), mNW);
+				mp=_mm_max_epi16(mp, vmin);
+				mp=_mm_min_epi16(mp, vmax);
+				short ypred=_mm_extract_epi16(mp, 0);
+				short upred=_mm_extract_epi16(mp, 1);
+				short vpred=_mm_extract_epi16(mp, 2);
+#else
+				short
+					yNW	=rows[1][-1*4+0], uNW	=rows[1][-1*4+1], vNW	=rows[1][-1*4+2],
+					yN	=rows[1][+0*4+0], uN	=rows[1][+0*4+1], vN	=rows[1][+0*4+2],
+					yNE	=rows[1][+1*4+0], uNE	=rows[1][+1*4+1], vNE	=rows[1][+1*4+2],
+					yW	=W[0]		, uW	=W[1]		, vW	=W[2];
+				//	yW	=rows[0][-1*4+0], uW	=rows[0][-1*4+1], vW	=rows[0][-1*4+2];
+
+				int ymax=yN, ymin=yW;
+				int umax=uN, umin=uW;
+				int vmax=vN, vmin=vW;
+				if(yN<yW)ymin=yN, ymax=yW;
+				if(ymin>yNE)ymin=yNE;
+				if(ymax<yNE)ymax=yNE;
+				if(uN<uW)umin=uN, umax=uW;
+				if(umin>uNE)umin=uNE;
+				if(umax<uNE)umax=uNE;
+				if(vN<vW)vmin=vN, vmax=vW;
+				if(vmin>vNE)vmin=vNE;
+				if(vmax<vNE)vmax=vNE;
+
+				int ypred=(4*(yN+yW)+yNE-yNW+4)>>3;
+				int upred=(4*(uN+uW)+uNE-uNW+4)>>3;
+				int vpred=(4*(vN+vW)+vNE-vNW+4)>>3;
+				CLAMP2(ypred, ymin, ymax);
+				CLAMP2(upred, umin, umax);
+				CLAMP2(vpred, vmin, vmax);
 #endif
+			//	preds0[0]=(2*rows[1][+0*4+0]+rows[1][-1*4+0]+rows[1][+1*4+0]+2)>>2; preds1[0]=ypred;
+			//	preds0[1]=(2*rows[1][+0*4+1]+rows[1][-1*4+1]+rows[1][+1*4+1]+2)>>2; preds1[1]=upred;
+			//	preds0[2]=(2*rows[1][+0*4+2]+rows[1][-1*4+2]+rows[1][+1*4+2]+2)>>2; preds1[2]=vpred;
+				preds0[0]=rows[1][+0*4+0]; preds1[0]=ypred;
+				preds0[1]=rows[1][+0*4+1]; preds1[1]=upred;
+				preds0[2]=rows[1][+0*4+2]; preds1[2]=vpred;
+				ypred=preds0[0]+(((preds1[0]-preds0[0])*alpha[0]+(1<<12>>1))>>12);
+				upred=preds0[1]+(((preds1[1]-preds0[1])*alpha[1]+(1<<12>>1))>>12);
+				vpred=preds0[2]+(((preds1[2]-preds0[2])*alpha[2]+(1<<12>>1))>>12);
+			//	if(e0[0]<e1[0])ypred=preds0[0];
+			//	if(e0[1]<e1[1])upred=preds0[1];
+			//	if(e0[2]<e1[2])vpred=preds0[2];
 				
 #ifdef USE_NBLI_RCT
 				pcurr[0]=yuv[0]=(char)(planes[0][idx2]+ypred);
@@ -1125,54 +1207,33 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				pcurr[0]=yuv[0]=(char)(planes[0][idx2]+ypred);
 				pcurr[1]=yuv[1]=(char)(planes[1][idx2]+upred);
 				pcurr[2]=yuv[2]=(char)(planes[2][idx2]+vpred);
-#ifdef USE_MIX3
-				preds[0+0*3]=abs(yuv[0]-preds[0+0*3])<<7;
-				preds[1+0*3]=abs(yuv[0]-preds[1+0*3])<<7;
-				preds[2+0*3]=abs(yuv[0]-preds[2+0*3])<<7;
-				preds[0+1*3]=abs(yuv[1]-preds[0+1*3])<<7;
-				preds[1+1*3]=abs(yuv[1]-preds[1+1*3])<<7;
-				preds[2+1*3]=abs(yuv[1]-preds[2+1*3])<<7;
-				preds[0+2*3]=abs(yuv[2]-preds[0+2*3])<<7;
-				preds[1+2*3]=abs(yuv[2]-preds[1+2*3])<<7;
-				preds[2+2*3]=abs(yuv[2]-preds[2+2*3])<<7;
-				aNW[0]+=(preds[1+0*3]+preds[2+0*3]-2*preds[0+0*3]-aNW[0]+MIX_FAR+(1<<7>>1))>>7;
-				aNE[0]+=(preds[1+0*3]+preds[0+0*3]-2*preds[2+0*3]-aNE[0]+MIX_FAR+(1<<7>>1))>>7;
-				aNW[1]+=(preds[1+1*3]+preds[2+1*3]-2*preds[0+1*3]-aNW[1]+MIX_FAR+(1<<7>>1))>>7;
-				aNE[1]+=(preds[1+1*3]+preds[0+1*3]-2*preds[2+1*3]-aNE[1]+MIX_FAR+(1<<7>>1))>>7;
-				aNW[2]+=(preds[1+2*3]+preds[2+2*3]-2*preds[0+2*3]-aNW[2]+MIX_FAR+(1<<7>>1))>>7;
-				aNE[2]+=(preds[1+2*3]+preds[0+2*3]-2*preds[2+2*3]-aNE[2]+MIX_FAR+(1<<7>>1))>>7;
-			//	alpha[0]+=(((abs(yuv[0]-preds0[0])-abs(yuv[0]-preds1[0]))<<4)-alpha[0]+0x800+(1<<7>>1))>>7;
-			//	alpha[1]+=(((abs(yuv[1]-preds0[1])-abs(yuv[1]-preds1[1]))<<4)-alpha[1]+0x800+(1<<7>>1))>>7;
-			//	alpha[2]+=(((abs(yuv[2]-preds0[2])-abs(yuv[2]-preds1[2]))<<4)-alpha[2]+0x800+(1<<7>>1))>>7;
-#elif defined USE_MIX4
-				preds[0+0*4]=abs(yuv[0]-preds[0+0*4]);
-				preds[1+0*4]=abs(yuv[0]-preds[1+0*4]);
-				preds[2+0*4]=abs(yuv[0]-preds[2+0*4]);
-				preds[3+0*4]=abs(yuv[0]-preds[3+0*4]);
-				preds[0+1*4]=abs(yuv[1]-preds[0+1*4]);
-				preds[1+1*4]=abs(yuv[1]-preds[1+1*4]);
-				preds[2+1*4]=abs(yuv[1]-preds[2+1*4]);
-				preds[3+1*4]=abs(yuv[1]-preds[3+1*4]);
-				preds[0+2*4]=abs(yuv[2]-preds[0+2*4]);
-				preds[1+2*4]=abs(yuv[2]-preds[1+2*4]);
-				preds[2+2*4]=abs(yuv[2]-preds[2+2*4]);
-				preds[3+2*4]=abs(yuv[2]-preds[3+2*4]);
-				int esums[]=
-				{
-					preds[0+0*4]+preds[1+0*4]+preds[2+0*4]+preds[3+0*4],
-					preds[0+1*4]+preds[1+1*4]+preds[2+1*4]+preds[3+1*4],
-					preds[0+2*4]+preds[1+2*4]+preds[2+2*4]+preds[3+2*4],
-				};
-				aNW[0]+=(((esums[0]-4*preds[1+0*4])<<6)-aNW[0]+MIX_FAR +(1<<7>>1))>>7;
-				aN [0]+=(((esums[0]-4*preds[2+0*4])<<6)-aN [0]+MIX_NEAR+(1<<7>>1))>>7;
-				aNE[0]+=(((esums[0]-4*preds[3+0*4])<<6)-aNE[0]+MIX_FAR +(1<<7>>1))>>7;
-				aNW[1]+=(((esums[1]-4*preds[1+1*4])<<6)-aNW[1]+MIX_FAR +(1<<7>>1))>>7;
-				aN [1]+=(((esums[1]-4*preds[2+1*4])<<6)-aN [1]+MIX_NEAR+(1<<7>>1))>>7;
-				aNE[1]+=(((esums[1]-4*preds[3+1*4])<<6)-aNE[1]+MIX_FAR +(1<<7>>1))>>7;
-				aNW[2]+=(((esums[2]-4*preds[1+2*4])<<6)-aNW[2]+MIX_FAR +(1<<7>>1))>>7;
-				aN [2]+=(((esums[2]-4*preds[2+2*4])<<6)-aN [2]+MIX_NEAR+(1<<7>>1))>>7;
-				aNE[2]+=(((esums[2]-4*preds[3+2*4])<<6)-aNE[2]+MIX_FAR +(1<<7>>1))>>7;
-#endif
+				alpha[0]+=(((abs(yuv[0]-preds0[0])-abs(yuv[0]-preds1[0]))<<4)-alpha[0]+0x800+(1<<7>>1))>>7;
+				alpha[1]+=(((abs(yuv[1]-preds0[1])-abs(yuv[1]-preds1[1]))<<4)-alpha[1]+0x800+(1<<7>>1))>>7;
+				alpha[2]+=(((abs(yuv[2]-preds0[2])-abs(yuv[2]-preds1[2]))<<4)-alpha[2]+0x800+(1<<7>>1))>>7;
+			//	alpha[0]+=(abs(yuv[0]-preds0[0])-abs(yuv[0]-preds1[0])+1)>>1; CLAMP2(alpha[0], 0, 0x1000);
+			//	alpha[1]+=(abs(yuv[1]-preds0[1])-abs(yuv[1]-preds1[1])+1)>>1; CLAMP2(alpha[1], 0, 0x1000);
+			//	alpha[2]+=(abs(yuv[2]-preds0[2])-abs(yuv[2]-preds1[2])+1)>>1; CLAMP2(alpha[2], 0, 0x1000);
+				//if(alpha[1]!=0x8000)
+				//{
+				//	static int ctr=0;
+				//	if(ctr++<4000)
+				//		printf("[%8d] [%5d %5d] %04X\n", ctr, ky, kx, alpha[1]);
+				//}
+			//	e0[0]+=abs(yuv[0]-preds0[0]);
+			//	e0[1]+=abs(yuv[1]-preds0[1]);
+			//	e0[2]+=abs(yuv[2]-preds0[2]);
+			//	e1[0]+=abs(yuv[0]-preds1[0]);
+			//	e1[1]+=abs(yuv[1]-preds1[1]);
+			//	e1[2]+=abs(yuv[2]-preds1[2]);
+			//	int sh0=e0[0]+e1[0]>0x100;
+			//	int sh1=e0[1]+e1[1]>0x100;
+			//	int sh2=e0[2]+e1[2]>0x100;
+			//	e0[0]>>=sh0;
+			//	e1[0]>>=sh0;
+			//	e0[1]>>=sh1;
+			//	e1[1]>>=sh1;
+			//	e0[2]>>=sh2;
+			//	e1[2]>>=sh2;
 #ifdef USE_REG_W
 				W[0]=yuv[0];
 				W[1]=yuv[1];
