@@ -158,8 +158,11 @@ int main(int argc, char **argv)
 	c20_codec("D:/ML/kodim13.ppm", "D:/ML/kodim13.lsim");
 	c20_codec("D:/ML/kodim13.lsim", "D:/ML/kodim13_dec.ppm");
 
-//	c19_codec("C:/dataset-CLIC303-ppm/2048x1320_zugr-108.ppm",	"C:\dataset-a-temp\mystery.lsim");
-//	c19_codec("C:\dataset-a-temp\mystery.lsim",			"C:\dataset-a-temp2\mystery.ppm");
+//	c20_codec("D:/ML/kodim24.ppm", "D:/ML/kodim24.lsim");
+//	c20_codec("D:/ML/kodim24.lsim", "D:/ML/kodim24_dec.ppm");
+
+//	c19_codec("C:/dataset-CLIC303-ppm/2048x1320_zugr-108.ppm",	"C:/dataset-a-temp/mystery.lsim");
+//	c19_codec("C:/dataset-a-temp/mystery.lsim",			"C:/dataset-a-temp2/mystery.ppm");
 
 //	c20_codec("C:/dataset-HUGE-ppm/space_huge.ppm", "C:/dataset-HUGE-ppm/space_huge.lsim");
 //	c20_codec("C:/dataset-HUGE-ppm/space_huge.lsim", "C:/dataset-HUGE-ppm/space_huge_dec.ppm");

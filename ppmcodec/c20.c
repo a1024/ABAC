@@ -19,26 +19,13 @@ static const char file[]=__FILE__;
 
 	#define ENABLE_FASTANALYSIS	//LPCB 3~14% faster, 0.04% larger than entropy
 //	#define ENABLE_ENTROPYANALYSIS
-	#define USE_RCT8	//LPCB 3~5% faster, 0.2% larger
-
-//	#define USE_NBLI_RCT	//mostly worse		needs highly correlated channels
+	#define USE_RCT8	//LPCB 3~5% faster, 0.2% larger		good
 
 	#define USE_ROWPRED3A3	//(10*N+3*(NW+NE))/16		good
 //	#define USE_ROWPRED484	//(2*N+NE+NW)/4
-//	#define USE_MIX3	//mix(NW, N, NE)	bad
-//	#define USE_MIX4	//mix(W, NW, N, NE)	bad
-
-//	#define USE_REG_W
 
 	#define USE_O1		//good
 
-
-#ifdef USE_MIX3
-#define MIX_FAR 0x4200
-#elif defined USE_MIX4
-#define MIX_NEAR 0x5000
-#define MIX_FAR 0x3000
-#endif
 
 #ifdef ENABLE_GUIDE
 static int g_iw=0, g_ih=0;
@@ -229,7 +216,7 @@ int c20_codec(const char *srcfn, const char *dstfn)
 		return 1;
 	}
 	
-	int psize=(iw+32LL)*sizeof(short[4*3]);//4 padded rows * 3 channels
+	int psize=(iw+32LL)*sizeof(short[2*3]);//2 padded rows * 3 channels
 	short *pixels=(short*)_mm_malloc(psize, sizeof(__m256i));
 	if(!pixels)
 	{
@@ -587,149 +574,185 @@ int c20_codec(const char *srcfn, const char *dstfn)
 		int uhelpidx=rct[6+0];
 		int vhelpidx=rct[6+1];
 #endif
-#if defined USE_MIX3 || defined USE_MIX4
-		int aNW[]=
+		//deinterleave |rgbr gbrg brgb rgbr|gbrg brgb rgbr gbrg|brgb rgbr gbrg brgb| -> |yyyy yyyy yyyy yyyy|uuuu uuuu uuuu uuuu|vvvv vvvv vvvv vvvv| (in order):
+		__m128i getr0=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+			-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 15, 12,  9,  6,  3,  0
+		);
+		__m128i getr1=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+			-1, -1, -1, -1, -1, 14, 11,  8,  5,  2, -1, -1, -1, -1, -1, -1
+		);
+		__m128i getr2=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+			13, 10,  7,  4,  1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
+		);
+		__m128i getg0=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+			-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 13, 10,  7,  4,  1
+		);
+		__m128i getg1=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+			-1, -1, -1, -1, -1, 15, 12,  9,  6,  3,  0, -1, -1, -1, -1, -1
+		);
+		__m128i getg2=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+			14, 11,  8,  5,  2, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
+		);
+		__m128i getb0=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+			-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 14, 11,  8,  5,  2
+		);
+		__m128i getb1=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+			-1, -1, -1, -1, -1, -1, 13, 10,  7,  4,  1, -1, -1, -1, -1, -1
+		);
+		__m128i getb2=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+			15, 12,  9,  6,  3,  0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
+		);
+		__m128i
+			gety0, gety1, gety2,
+			getu0, getu1, getu2,
+			getv0, getv1, getv2;
+		switch(bestrct)
 		{
-			MIX_FAR,
-			MIX_FAR,
-			MIX_FAR,
-		};
-#ifdef USE_MIX4
-		int aN[]=
+		default:
+		case  0:gety0=getr0, gety1=getr1, gety2=getr2,  getu0=getg0, getu1=getg1, getu2=getg2,  getv0=getb0, getv1=getb1, getv2=getb2;break;//0, 1, 2
+		case  1:gety0=getr0, gety1=getr1, gety2=getr2,  getu0=getg0, getu1=getg1, getu2=getg2,  getv0=getb0, getv1=getb1, getv2=getb2;break;//0, 1, 2
+		case  2:gety0=getr0, gety1=getr1, gety2=getr2,  getu0=getg0, getu1=getg1, getu2=getg2,  getv0=getb0, getv1=getb1, getv2=getb2;break;//0, 1, 2
+		case  3:gety0=getr0, gety1=getr1, gety2=getr2,  getu0=getg0, getu1=getg1, getu2=getg2,  getv0=getb0, getv1=getb1, getv2=getb2;break;//0, 1, 2
+		case  4:gety0=getr0, gety1=getr1, gety2=getr2,  getu0=getg0, getu1=getg1, getu2=getg2,  getv0=getb0, getv1=getb1, getv2=getb2;break;//0, 1, 2
+		case  5:gety0=getr0, gety1=getr1, gety2=getr2,  getu0=getb0, getu1=getb1, getu2=getb2,  getv0=getg0, getv1=getg1, getv2=getg2;break;//0, 2, 1
+		case  6:gety0=getg0, gety1=getg1, gety2=getg2,  getu0=getb0, getu1=getb1, getu2=getb2,  getv0=getr0, getv1=getr1, getv2=getr2;break;//1, 2, 0
+		case  7:gety0=getg0, gety1=getg1, gety2=getg2,  getu0=getb0, getu1=getb1, getu2=getb2,  getv0=getr0, getv1=getr1, getv2=getr2;break;//1, 2, 0
+		case  8:gety0=getg0, gety1=getg1, gety2=getg2,  getu0=getb0, getu1=getb1, getu2=getb2,  getv0=getr0, getv1=getr1, getv2=getr2;break;//1, 2, 0
+		case  9:gety0=getg0, gety1=getg1, gety2=getg2,  getu0=getb0, getu1=getb1, getu2=getb2,  getv0=getr0, getv1=getr1, getv2=getr2;break;//1, 2, 0
+		case 10:gety0=getg0, gety1=getg1, gety2=getg2,  getu0=getr0, getu1=getr1, getu2=getr2,  getv0=getb0, getv1=getb1, getv2=getb2;break;//1, 0, 2
+		case 11:gety0=getb0, gety1=getb1, gety2=getb2,  getu0=getr0, getu1=getr1, getu2=getr2,  getv0=getg0, getv1=getg1, getv2=getg2;break;//2, 0, 1
+		case 12:gety0=getb0, gety1=getb1, gety2=getb2,  getu0=getr0, getu1=getr1, getu2=getr2,  getv0=getg0, getv1=getg1, getv2=getg2;break;//2, 0, 1
+		case 13:gety0=getb0, gety1=getb1, gety2=getb2,  getu0=getr0, getu1=getr1, getu2=getr2,  getv0=getg0, getv1=getg1, getv2=getg2;break;//2, 0, 1
+		case 14:gety0=getb0, gety1=getb1, gety2=getb2,  getu0=getr0, getu1=getr1, getu2=getr2,  getv0=getg0, getv1=getg1, getv2=getg2;break;//2, 0, 1
+		case 15:gety0=getb0, gety1=getb1, gety2=getb2,  getu0=getg0, getu1=getg1, getu2=getg2,  getv0=getr0, getv1=getr1, getv2=getr2;break;//2, 1, 0
+		}
+		__m128i helperUmask=_mm_set1_epi8(-(uhelpidx!=3));
+		__m128i helperVsel=_mm_set1_epi8(-(vhelpidx==1));
+		__m128i helperVmask=_mm_set1_epi8(-(vhelpidx!=3));
+		__m256i eight=_mm256_set1_epi16(8);
+		__m128i mhalf=_mm_set1_epi8(-128);
+		unsigned char *planes[]=
 		{
-			MIX_NEAR,
-			MIX_NEAR,
-			MIX_NEAR,
+			dptr+0*res,
+			dptr+1*res,
+			dptr+2*res,
 		};
-#endif
-		int aNE[]=
-		{
-			MIX_FAR,
-			MIX_FAR,
-			MIX_FAR,
-		};
-#endif
 		for(int ky=0, idx=0, idx2=0;ky<ih;++ky)
 		{
-		//	int e0[3]={0}, e1[3]={0};
-		//	int preds0[3]={0}, preds1[3]={0};
-#ifdef USE_REG_W
-			int W[3]={0};
-#endif
-			ALIGN(16) short *rows[]=
+			ALIGN(32) short *rows[]=
 			{
-				pixels+((iw+32LL)*((ky-0LL)&1)+16LL)*4,
-				pixels+((iw+32LL)*((ky-1LL)&1)+16LL)*4,
+				pixels+((iw+32LL)*(((ky-0LL)&1)+0*2)+16LL),
+				pixels+((iw+32LL)*(((ky-1LL)&1)+0*2)+16LL),
+				pixels+((iw+32LL)*(((ky-0LL)&1)+1*2)+16LL),
+				pixels+((iw+32LL)*(((ky-1LL)&1)+1*2)+16LL),
+				pixels+((iw+32LL)*(((ky-0LL)&1)+2*2)+16LL),
+				pixels+((iw+32LL)*(((ky-1LL)&1)+2*2)+16LL),
+				0,
+				0,
 			};
 			int kx=0;
-#if !defined USE_NBLI_RCT && !defined ENABLE_FASTANALYSIS && ! defined ENABLE_ENTROPYANALYSIS && !defined USE_RCT8
-			__m128i getyuv=_mm_set_epi8(
-			//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
-				-1,  9, 11, 10, -1,  6,  8,  7, -1,  3,  5,  4, -1,  0,  2,  1
-			);
-			__m128i half=_mm_set_epi8(
-				0, -128, -128, -128,
-				0, -128, -128, -128,
-				0, -128, -128, -128,
-				0, -128, -128, -128
-			);
-			__m256i getoffset=_mm256_set_epi8(
-			//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
-				-1, -1,  9,  8,  9,  8, -1, -1, -1, -1,  1,  0,  1,  0, -1, -1,
-				-1, -1,  9,  8,  9,  8, -1, -1, -1, -1,  1,  0,  1,  0, -1, -1
-			);
-			__m256i deinter=_mm256_set_epi8(
-			//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
-				-1, -1, -1, -1, 12,  4, -1, -1, 10,  2, -1, -1,  8,  0, -1, -1,
-				-1, -1, -1, -1, -1, -1, 12,  4, -1, -1, 10,  2, -1, -1,  8,  0
-			);
-			__m256i mmin=_mm256_set1_epi16(-128);
-			__m256i mmax=_mm256_set1_epi16(127);
-			ALIGN(16) int errors[4]={0};
-			for(;kx<iw-3;kx+=4, idx+=3*4, idx2+=4)
+#if 1
+			for(;kx<=iw-16;kx+=16, idx+=3*16, idx2+=16)
 			{
-				//if(kx==4&&ky==1)//
-				//	printf("");
+				//process 16 pixels (48 SPs) at a time:	rows[6]
+				__m256i NW0	=_mm256_loadu_si256((__m256i*)(rows[1+0*2]-1));
+				__m256i NW1	=_mm256_loadu_si256((__m256i*)(rows[1+1*2]-1));
+				__m256i NW2	=_mm256_loadu_si256((__m256i*)(rows[1+2*2]-1));
+				__m256i N0	=_mm256_loadu_si256((__m256i*)(rows[1+0*2]+0));
+				__m256i N1	=_mm256_loadu_si256((__m256i*)(rows[1+1*2]+0));
+				__m256i N2	=_mm256_loadu_si256((__m256i*)(rows[1+2*2]+0));
+				__m256i NE0	=_mm256_loadu_si256((__m256i*)(rows[1+0*2]+1));
+				__m256i NE1	=_mm256_loadu_si256((__m256i*)(rows[1+1*2]+1));
+				__m256i NE2	=_mm256_loadu_si256((__m256i*)(rows[1+2*2]+1));
+				__m256i mp0=_mm256_add_epi16(NW0, NE0);//(10*N+3*(NW+NE)+8)>>4
+				__m256i mp1=_mm256_add_epi16(NW1, NE1);
+				__m256i mp2=_mm256_add_epi16(NW2, NE2);
+				__m256i t0=_mm256_add_epi16(mp0, N0);
+				__m256i t1=_mm256_add_epi16(mp1, N1);
+				__m256i t2=_mm256_add_epi16(mp2, N2);
+				t0	=_mm256_slli_epi16(t0, 1);
+				t1	=_mm256_slli_epi16(t1, 1);
+				t2	=_mm256_slli_epi16(t2, 1);
+				mp0	=_mm256_add_epi16(mp0, t0);
+				mp1	=_mm256_add_epi16(mp1, t1);
+				mp2	=_mm256_add_epi16(mp2, t2);
+				t0	=_mm256_slli_epi16(N0, 3);
+				t1	=_mm256_slli_epi16(N1, 3);
+				t2	=_mm256_slli_epi16(N2, 3);
+				mp0	=_mm256_add_epi16(mp0, t0);
+				mp1	=_mm256_add_epi16(mp1, t1);
+				mp2	=_mm256_add_epi16(mp2, t2);
+				mp0	=_mm256_add_epi16(mp0, eight);
+				mp1	=_mm256_add_epi16(mp1, eight);
+				mp2	=_mm256_add_epi16(mp2, eight);
+				mp0	=_mm256_srai_epi16(mp0, 4);
+				mp1	=_mm256_srai_epi16(mp1, 4);
+				mp2	=_mm256_srai_epi16(mp2, 4);
+				__m128i ypred=_mm_packs_epi16(_mm256_castsi256_si128(mp0), _mm256_extracti128_si256(mp0, 1));//convert only pred to 16-bit and back, then use bytes for RCT8
+				__m128i upred=_mm_packs_epi16(_mm256_castsi256_si128(mp1), _mm256_extracti128_si256(mp1, 1));
+				__m128i vpred=_mm_packs_epi16(_mm256_castsi256_si128(mp2), _mm256_extracti128_si256(mp2, 1));
 
-				__m128i myuv8=_mm_loadu_si128((__m128i*)(image+idx));
-				myuv8=_mm_shuffle_epi8(myuv8, getyuv);
-				myuv8=_mm_xor_si128(myuv8, half);
-				__m256i myuv=_mm256_cvtepi8_epi16(myuv8);
-				__m256i moffset=_mm256_shuffle_epi8(myuv, getoffset);
-				_mm256_store_si256((__m256i*)rows[0], _mm256_sub_epi16(myuv, moffset));
-				
-#ifdef USE_ROWPRED010
-				__m256i mp=_mm256_loadu_si256((__m256i*)(rows[1]+0*4));//N
-#elif defined USE_ROWPRED484
-				//(2*N+NW+NE+2)>>2
-				__m256i mNW	=_mm256_loadu_si256((__m256i*)(rows[1]-1*4));
-				__m256i mN	=_mm256_loadu_si256((__m256i*)(rows[1]+0*4));
-				__m256i mNE	=_mm256_loadu_si256((__m256i*)(rows[1]+1*4));
-				__m256i mp=_mm256_add_epi16(mNW, mNE);
-				mp=_mm256_add_epi16(mp, _mm256_slli_epi16(mN, 1));
-				mp=_mm256_add_epi16(mp, _mm256_set1_epi16(2));
-				mp=_mm256_srai_epi16(mp, 2);
-#elif defined USE_ROWPRED3A3
-				//(10*N+3*(NW+NE)+8)/16
-				__m256i mNW	=_mm256_loadu_si256((__m256i*)(rows[1]-1*4));
-				__m256i mN	=_mm256_loadu_si256((__m256i*)(rows[1]+0*4));
-				__m256i mNE	=_mm256_loadu_si256((__m256i*)(rows[1]+1*4));
-				__m256i mp=_mm256_add_epi16(mNW, mNE);
-				mp=_mm256_add_epi16(mp, _mm256_slli_epi16(mp, 1));
-				mp=_mm256_add_epi16(mp, _mm256_slli_epi16(mN, 1));
-				mp=_mm256_add_epi16(mp, _mm256_slli_epi16(mN, 3));
-				mp=_mm256_add_epi16(mp, _mm256_set1_epi16(8));
-				mp=_mm256_srai_epi16(mp, 4);
-#elif defined USE_ROWPRED13831
-				__m256i mNWW	=_mm256_loadu_si256((__m256i*)(rows[1]-2*4));
-				__m256i mNW	=_mm256_loadu_si256((__m256i*)(rows[1]-1*4));
-				__m256i mN	=_mm256_loadu_si256((__m256i*)(rows[1]+0*4));
-				__m256i mNE	=_mm256_loadu_si256((__m256i*)(rows[1]+1*4));
-				__m256i mNEE	=_mm256_loadu_si256((__m256i*)(rows[1]+2*4));
-				__m256i mp=_mm256_add_epi16(mNW, mNE);
-				mp=_mm256_add_epi16(mp, _mm256_slli_epi16(mp, 1));
-				mp=_mm256_add_epi16(mp, _mm256_slli_epi16(mN, 3));
-				mp=_mm256_add_epi16(mp, _mm256_add_epi16(mNWW, mNEE));
-				mp=_mm256_add_epi16(mp, _mm256_set1_epi16(8));
-				mp=_mm256_srai_epi16(mp, 4);
-#else
-				__m256i mNW	=_mm256_loadu_si256((__m256i*)(rows[1]-1*4));
-				__m256i mN	=_mm256_loadu_si256((__m256i*)(rows[1]+0*4));
-				__m256i mNE	=_mm256_loadu_si256((__m256i*)(rows[1]+1*4));
-				__m256i mW	=_mm256_loadu_si256((__m256i*)(rows[0]-1*4));
-				__m256i vmin=_mm256_min_epi16(mN, mW);
-				__m256i vmax=_mm256_max_epi16(mN, mW);
-				vmin=_mm256_min_epi16(vmin, mNE);
-				vmax=_mm256_max_epi16(vmax, mNE);
-				__m256i mp=_mm256_slli_epi16(_mm256_add_epi16(mN, mW), 2);
-				mp=_mm256_add_epi16(mp, mNE);
-				mp=_mm256_sub_epi16(mp, mNW);
-				mp=_mm256_add_epi16(mp, _mm256_set1_epi16(4));
-				mp=_mm256_srai_epi16(mp, 3);
-				mp=_mm256_max_epi16(mp, vmin);
-				mp=_mm256_min_epi16(mp, vmax);
-#endif
+				__m128i p0=_mm_loadu_si128((__m128i*)(image+idx+0*16));
+				__m128i p1=_mm_loadu_si128((__m128i*)(image+idx+1*16));
+				__m128i p2=_mm_loadu_si128((__m128i*)(image+idx+2*16));
 
-				mp=_mm256_add_epi16(mp, moffset);
-				mp=_mm256_max_epi16(mp, mmin);
-				mp=_mm256_min_epi16(mp, mmax);
+				p0=_mm_sub_epi8(p0, mhalf);
+				p1=_mm_sub_epi8(p1, mhalf);
+				p2=_mm_sub_epi8(p2, mhalf);
 
-				myuv=_mm256_sub_epi16(myuv, mp);
+				//deinterleave |rgbr gbrg brgb rgbr|gbrg brgb rgbr gbrg|brgb rgbr gbrg brgb| -> |yyyy yyyy yyyy yyyy|uuuu uuuu uuuu uuuu|vvvv vvvv vvvv vvvv| (in order):
+				__m128i y0=_mm_shuffle_epi8(p0, gety0);
+				__m128i y1=_mm_shuffle_epi8(p1, gety1);
+				__m128i y2=_mm_shuffle_epi8(p2, gety2);
+				__m128i u0=_mm_shuffle_epi8(p0, getu0);
+				__m128i u1=_mm_shuffle_epi8(p1, getu1);
+				__m128i u2=_mm_shuffle_epi8(p2, getu2);
+				__m128i v0=_mm_shuffle_epi8(p0, getv0);
+				__m128i v1=_mm_shuffle_epi8(p1, getv1);
+				__m128i v2=_mm_shuffle_epi8(p2, getv2);
+				y0=_mm_or_si128(y0, y1);
+				u0=_mm_or_si128(u0, u1);
+				v0=_mm_or_si128(v0, v1);
+				__m128i my=_mm_or_si128(y0, y2);
+				__m128i mu=_mm_or_si128(u0, u2);
+				__m128i mv=_mm_or_si128(v0, v2);
+				__m128i helperU0=_mm_and_si128(my, helperUmask);
+				__m128i helperV0=_mm_blendv_epi8(my, mu, helperVsel);
+				helperV0=_mm_and_si128(helperV0, helperVmask);
+				mu=_mm_sub_epi8(mu, helperU0);
+				mv=_mm_sub_epi8(mv, helperV0);
+				_mm256_storeu_si256((__m256i*)rows[0+0*2], _mm256_cvtepi8_epi16(my));
+				_mm256_storeu_si256((__m256i*)rows[0+1*2], _mm256_cvtepi8_epi16(mu));
+				_mm256_storeu_si256((__m256i*)rows[0+2*2], _mm256_cvtepi8_epi16(mv));
 
-				myuv=_mm256_shuffle_epi8(myuv, deinter);
-				myuv8=_mm_or_si128(_mm256_extracti128_si256(myuv, 0), _mm256_extracti128_si256(myuv, 1));
-				_mm_store_si128((__m128i*)errors, myuv8);
-				*(unsigned*)(dptr+res*0+idx2)=errors[0];
-				*(unsigned*)(dptr+res*1+idx2)=errors[1];
-				*(unsigned*)(dptr+res*2+idx2)=errors[2];
+				my=_mm_sub_epi8(my, ypred);
+				mu=_mm_sub_epi8(mu, upred);
+				mv=_mm_sub_epi8(mv, vpred);
 
-				rows[0]+=4*4;
-				rows[1]+=4*4;
+				_mm_storeu_si128((__m128i*)(planes[0]+idx2), my);
+				_mm_storeu_si128((__m128i*)(planes[1]+idx2), mu);
+				_mm_storeu_si128((__m128i*)(planes[2]+idx2), mv);
+
+				__m256i rows0=_mm256_load_si256((__m256i*)rows+0);
+				__m256i rows1=_mm256_load_si256((__m256i*)rows+1);
+				rows0=_mm256_add_epi64(rows0, _mm256_set1_epi64x(sizeof(short[16])));
+				rows1=_mm256_add_epi64(rows1, _mm256_set1_epi64x(sizeof(short[16])));
+				_mm256_store_si256((__m256i*)rows+0, rows0);
+				_mm256_store_si256((__m256i*)rows+1, rows1);
 			}
 #endif
-#if defined __GNUC__ && (defined USE_ROWPRED3A3 || defined USE_ROWPRED484)
-#pragma GCC unroll 2
-#endif
+//#ifdef __GNUC__
+//#pragma GCC unroll 2
+//#endif
 			for(;kx<iw;++kx, idx+=3, ++idx2)
 			{
 				//if(ky==0&&kx==6&&kc==0)//
@@ -742,8 +765,7 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				//if(ky==4&&kx==138)//
 				//	printf("");
 				
-				short *pcurr=rows[0]+0*4;
-#if defined ENABLE_FASTANALYSIS || defined ENABLE_ENTROPYANALYSIS
+				//short *pcurr=rows[0]+0*4;
 				char yuv[]=
 				{
 					image[idx+yidx]-128,
@@ -751,149 +773,29 @@ int c20_codec(const char *srcfn, const char *dstfn)
 					image[idx+vidx]-128,
 					0,
 				};
-#else
-				char yuv[]=
-				{
-					image[idx+1]-128,
-					image[idx+2]-128,
-					image[idx+0]-128,
-				};
-#ifdef USE_NBLI_RCT
-				yuv[1]-=yuv[0];
-				yuv[2]-=yuv[0];
-				yuv[0]+=(yuv[1]+yuv[2])>>2;
-				yuv[1]-=yuv[2]>>2;
-#endif
-#endif
-#ifdef USE_ROWPRED484
-				int ypred=(2*rows[1][+0*4+0]+rows[1][-1*4+0]+rows[1][+1*4+0]+2)>>2;
-				int upred=(2*rows[1][+0*4+1]+rows[1][-1*4+1]+rows[1][+1*4+1]+2)>>2;
-				int vpred=(2*rows[1][+0*4+2]+rows[1][-1*4+2]+rows[1][+1*4+2]+2)>>2;
-#elif defined USE_ROWPRED3A3
-				int ypred=(10*rows[1][+0*4+0]+3*(rows[1][-1*4+0]+rows[1][+1*4+0])+8)>>4;
-				int upred=(10*rows[1][+0*4+1]+3*(rows[1][-1*4+1]+rows[1][+1*4+1])+8)>>4;
-				int vpred=(10*rows[1][+0*4+2]+3*(rows[1][-1*4+2]+rows[1][+1*4+2])+8)>>4;
-#elif defined USE_MIX3
-				int preds[]=
-				{
-					rows[1][-1*4+0], rows[1][+0*4+0], rows[1][+1*4+0],
-					rows[1][-1*4+1], rows[1][+0*4+1], rows[1][+1*4+1],
-					rows[1][-1*4+2], rows[1][+0*4+2], rows[1][+1*4+2],
-				};
-				int ypred=preds[1+0*3]+(((preds[0+0*3]-preds[1+0*3])*aNW[0]+(preds[2+0*3]-preds[1+0*3])*aNE[0])>>16);
-				int upred=preds[1+1*3]+(((preds[0+1*3]-preds[1+1*3])*aNW[1]+(preds[2+1*3]-preds[1+1*3])*aNE[1])>>16);
-				int vpred=preds[1+2*3]+(((preds[0+2*3]-preds[1+2*3])*aNW[2]+(preds[2+2*3]-preds[1+2*3])*aNE[2])>>16);
-#elif defined USE_MIX4
-				int preds[]=
-				{//	W, NW, N, NE
-					rows[0][-1*4+0], rows[1][-1*4+0], rows[1][+0*4+0], rows[1][+1*4+0],
-					rows[0][-1*4+1], rows[1][-1*4+1], rows[1][+0*4+1], rows[1][+1*4+1],
-					rows[0][-1*4+2], rows[1][-1*4+2], rows[1][+0*4+2], rows[1][+1*4+2],
-				};
-				int ypred=preds[0+0*4]+(((preds[1+0*4]-preds[0+0*4])*aNW[0]+(preds[2+0*4]-preds[0+0*4])*aN[0]+(preds[3+0*4]-preds[0+0*4])*aNE[0])>>16);
-				int upred=preds[0+1*4]+(((preds[1+1*4]-preds[0+1*4])*aNW[1]+(preds[2+1*4]-preds[0+1*4])*aN[1]+(preds[3+1*4]-preds[0+1*4])*aNE[1])>>16);
-				int vpred=preds[0+2*4]+(((preds[1+2*4]-preds[0+2*4])*aNW[2]+(preds[2+2*4]-preds[0+2*4])*aN[2]+(preds[3+2*4]-preds[0+2*4])*aNE[2])>>16);
-#endif
+				int ypred=(10*rows[1+0*2][+0]+3*(rows[1+0*2][-1]+rows[1+0*2][+1])+8)>>4;
+				int upred=(10*rows[1+1*2][+0]+3*(rows[1+1*2][-1]+rows[1+1*2][+1])+8)>>4;
+				int vpred=(10*rows[1+2*2][+0]+3*(rows[1+2*2][-1]+rows[1+2*2][+1])+8)>>4;
 
-#ifdef USE_NBLI_RCT
-				pcurr[0]=yuv[0];
-				pcurr[1]=yuv[1];
-				pcurr[2]=yuv[2];
-#else
-#if defined ENABLE_FASTANALYSIS || defined ENABLE_ENTROPYANALYSIS
-#ifdef USE_RCT8
-				pcurr[0]=yuv[0];
-				pcurr[1]=(char)(yuv[1]-yuv[uhelpidx]);
-				pcurr[2]=(char)(yuv[2]-yuv[vhelpidx]);
-				yuv[1]=(char)pcurr[1];
-				yuv[2]=(char)pcurr[2];
-#else
-				int uhelper=yuv[uhelpidx];
-				int vhelper=yuv[vhelpidx];
-				pcurr[0]=yuv[0];
-				pcurr[1]=yuv[1]-uhelper;
-				pcurr[2]=yuv[2]-vhelper;
-				upred+=uhelper;
-				CLAMP2(upred, -128, 127);
-				vpred+=vhelper;
-				CLAMP2(vpred, -128, 127);
-#endif
-#else
-#ifdef USE_RCT8
-				yuv[1]-=yuv[0];
-				yuv[2]-=yuv[0];
-				pcurr[0]=yuv[0];
-				pcurr[1]=yuv[1];
-				pcurr[2]=yuv[2];
-#else
-				pcurr[0]=yuv[0];
-				pcurr[1]=yuv[1]-yuv[0];
-				pcurr[2]=yuv[2]-yuv[0];
-				upred+=yuv[0];
-				CLAMP2(upred, -128, 127);
-				vpred+=yuv[0];
-				CLAMP2(vpred, -128, 127);
-#endif
-#endif
-#endif
+				//if(ky==1&&kx==192+12)//
+				//if(ky==2&&kx==4)//
+				//	printf("");
+
+				rows[0+0*2][+0]=yuv[0];
+				rows[0+1*2][+0]=(char)(yuv[1]-yuv[uhelpidx]);
+				rows[0+2*2][+0]=(char)(yuv[2]-yuv[vhelpidx]);
+				yuv[1]=(char)rows[0+1*2][+0];
+				yuv[2]=(char)rows[0+2*2][+0];
+
 				dptr[res*0+idx2]=yuv[0]-ypred;
 				dptr[res*1+idx2]=yuv[1]-upred;
 				dptr[res*2+idx2]=yuv[2]-vpred;
-#ifdef USE_MIX3
-				preds[0+0*3]=abs(yuv[0]-preds[0+0*3])<<7;
-				preds[1+0*3]=abs(yuv[0]-preds[1+0*3])<<7;
-				preds[2+0*3]=abs(yuv[0]-preds[2+0*3])<<7;
-				preds[0+1*3]=abs(yuv[1]-preds[0+1*3])<<7;
-				preds[1+1*3]=abs(yuv[1]-preds[1+1*3])<<7;
-				preds[2+1*3]=abs(yuv[1]-preds[2+1*3])<<7;
-				preds[0+2*3]=abs(yuv[2]-preds[0+2*3])<<7;
-				preds[1+2*3]=abs(yuv[2]-preds[1+2*3])<<7;
-				preds[2+2*3]=abs(yuv[2]-preds[2+2*3])<<7;
-				aNW[0]+=(preds[1+0*3]+preds[2+0*3]-2*preds[0+0*3]-aNW[0]+MIX_FAR+(1<<7>>1))>>7;
-				aNE[0]+=(preds[1+0*3]+preds[0+0*3]-2*preds[2+0*3]-aNE[0]+MIX_FAR+(1<<7>>1))>>7;
-				aNW[1]+=(preds[1+1*3]+preds[2+1*3]-2*preds[0+1*3]-aNW[1]+MIX_FAR+(1<<7>>1))>>7;
-				aNE[1]+=(preds[1+1*3]+preds[0+1*3]-2*preds[2+1*3]-aNE[1]+MIX_FAR+(1<<7>>1))>>7;
-				aNW[2]+=(preds[1+2*3]+preds[2+2*3]-2*preds[0+2*3]-aNW[2]+MIX_FAR+(1<<7>>1))>>7;
-				aNE[2]+=(preds[1+2*3]+preds[0+2*3]-2*preds[2+2*3]-aNE[2]+MIX_FAR+(1<<7>>1))>>7;
-			//	alpha[0]+=(((abs(yuv[0]-preds0[0])-abs(yuv[0]-preds1[0]))<<4)-alpha[0]+0x800+(1<<7>>1))>>7;
-			//	alpha[1]+=(((abs(yuv[1]-preds0[1])-abs(yuv[1]-preds1[1]))<<4)-alpha[1]+0x800+(1<<7>>1))>>7;
-			//	alpha[2]+=(((abs(yuv[2]-preds0[2])-abs(yuv[2]-preds1[2]))<<4)-alpha[2]+0x800+(1<<7>>1))>>7;
-#elif defined USE_MIX4
-				preds[0+0*4]=abs(yuv[0]-preds[0+0*4]);
-				preds[1+0*4]=abs(yuv[0]-preds[1+0*4]);
-				preds[2+0*4]=abs(yuv[0]-preds[2+0*4]);
-				preds[3+0*4]=abs(yuv[0]-preds[3+0*4]);
-				preds[0+1*4]=abs(yuv[1]-preds[0+1*4]);
-				preds[1+1*4]=abs(yuv[1]-preds[1+1*4]);
-				preds[2+1*4]=abs(yuv[1]-preds[2+1*4]);
-				preds[3+1*4]=abs(yuv[1]-preds[3+1*4]);
-				preds[0+2*4]=abs(yuv[2]-preds[0+2*4]);
-				preds[1+2*4]=abs(yuv[2]-preds[1+2*4]);
-				preds[2+2*4]=abs(yuv[2]-preds[2+2*4]);
-				preds[3+2*4]=abs(yuv[2]-preds[3+2*4]);
-				int esums[]=
-				{
-					preds[0+0*4]+preds[1+0*4]+preds[2+0*4]+preds[3+0*4],
-					preds[0+1*4]+preds[1+1*4]+preds[2+1*4]+preds[3+1*4],
-					preds[0+2*4]+preds[1+2*4]+preds[2+2*4]+preds[3+2*4],
-				};
-				aNW[0]+=(((esums[0]-4*preds[1+0*4])<<6)-aNW[0]+MIX_FAR +(1<<7>>1))>>7;
-				aN [0]+=(((esums[0]-4*preds[2+0*4])<<6)-aN [0]+MIX_NEAR+(1<<7>>1))>>7;
-				aNE[0]+=(((esums[0]-4*preds[3+0*4])<<6)-aNE[0]+MIX_FAR +(1<<7>>1))>>7;
-				aNW[1]+=(((esums[1]-4*preds[1+1*4])<<6)-aNW[1]+MIX_FAR +(1<<7>>1))>>7;
-				aN [1]+=(((esums[1]-4*preds[2+1*4])<<6)-aN [1]+MIX_NEAR+(1<<7>>1))>>7;
-				aNE[1]+=(((esums[1]-4*preds[3+1*4])<<6)-aNE[1]+MIX_FAR +(1<<7>>1))>>7;
-				aNW[2]+=(((esums[2]-4*preds[1+2*4])<<6)-aNW[2]+MIX_FAR +(1<<7>>1))>>7;
-				aN [2]+=(((esums[2]-4*preds[2+2*4])<<6)-aN [2]+MIX_NEAR+(1<<7>>1))>>7;
-				aNE[2]+=(((esums[2]-4*preds[3+2*4])<<6)-aNE[2]+MIX_FAR +(1<<7>>1))>>7;
-#endif
-#ifdef USE_REG_W
-				W[0]=yuv[0];
-				W[1]=yuv[1];
-				W[2]=yuv[2];
-#endif
-				rows[0]+=4;
-				rows[1]+=4;
+				++rows[0];
+				++rows[1];
+				++rows[2];
+				++rows[3];
+				++rows[4];
+				++rows[5];
 			}
 		}
 		unsigned char *cdata[3]={0};
@@ -1033,44 +935,196 @@ int c20_codec(const char *srcfn, const char *dstfn)
 		etime=time_sec()-etime;
 		ptime=time_sec();
 #endif
-#if defined USE_MIX3 || defined USE_MIX4
-		int aNW[]=
+		//interleave |yyyy yyyy yyyy yyyy|uuuu uuuu uuuu uuuu|vvvv vvvv vvvv vvvv| -> |rgbr gbrg brgb rgbr|gbrg brgb rgbr gbrg|brgb rgbr gbrg brgb| (in order):
+		__m128i sety0=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+		//	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 15, 12,  9,  6,  3,  0
+			 5, -1, -1,  4, -1, -1,  3, -1, -1,  2, -1, -1,  1, -1, -1,  0
+		);
+		__m128i sety1=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+		//	-1, -1, -1, -1, -1, 14, 11,  8,  5,  2, -1, -1, -1, -1, -1, -1
+			-1, 10, -1, -1,  9, -1, -1,  8, -1, -1,  7, -1, -1,  6, -1, -1
+		);
+		__m128i sety2=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+		//	13, 10,  7,  4,  1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
+			-1, -1, 15, -1, -1, 14, -1, -1, 13, -1, -1, 12, -1, -1, 11, -1
+		);
+		__m128i setu0=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+		//	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 13, 10,  7,  4,  1
+			-1, -1,  4, -1, -1,  3, -1, -1,  2, -1, -1,  1, -1, -1,  0, -1
+		);
+		__m128i setu1=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+		//	-1, -1, -1, -1, -1, 15, 12,  9,  6,  3,  0, -1, -1, -1, -1, -1
+			10, -1, -1,  9, -1, -1,  8, -1, -1,  7, -1, -1,  6, -1, -1,  5
+		);
+		__m128i setu2=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+		//	14, 11,  8,  5,  2, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
+			-1, 15, -1, -1, 14, -1, -1, 13, -1, -1, 12, -1, -1, 11, -1, -1
+		);
+		__m128i setv0=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+		//	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 14, 11,  8,  5,  2
+			-1,  4, -1, -1,  3, -1, -1,  2, -1, -1,  1, -1, -1,  0, -1, -1
+		);
+		__m128i setv1=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+		//	-1, -1, -1, -1, -1, -1, 13, 10,  7,  4,  1, -1, -1, -1, -1, -1
+			-1, -1,  9, -1, -1,  8, -1, -1,  7, -1, -1,  6, -1, -1,  5, -1
+		);
+		__m128i setv2=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+		//	15, 12,  9,  6,  3,  0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
+			15, -1, -1, 14, -1, -1, 13, -1, -1, 12, -1, -1, 11, -1, -1, 10
+		);
+		__m128i
+			setr0, setr1, setr2,
+			setg0, setg1, setg2,
+			setb0, setb1, setb2;
+		switch(flag)
 		{
-			MIX_FAR,
-			MIX_FAR,
-			MIX_FAR,
-		};
-#ifdef USE_MIX4
-		int aN[]=
-		{
-			MIX_NEAR,
-			MIX_NEAR,
-			MIX_NEAR,
-		};
-#endif
-		int aNE[]=
-		{
-			MIX_FAR,
-			MIX_FAR,
-			MIX_FAR,
-		};
-#endif
+		default:
+		case  0:setr0=sety0, setr1=sety1, setr2=sety2,  setg0=setu0, setg1=setu1, setg2=setu2,  setb0=setv0, setb1=setv1, setb2=setv2;break;//0, 1, 2
+		case  1:setr0=sety0, setr1=sety1, setr2=sety2,  setg0=setu0, setg1=setu1, setg2=setu2,  setb0=setv0, setb1=setv1, setb2=setv2;break;//0, 1, 2
+		case  2:setr0=sety0, setr1=sety1, setr2=sety2,  setg0=setu0, setg1=setu1, setg2=setu2,  setb0=setv0, setb1=setv1, setb2=setv2;break;//0, 1, 2
+		case  3:setr0=sety0, setr1=sety1, setr2=sety2,  setg0=setu0, setg1=setu1, setg2=setu2,  setb0=setv0, setb1=setv1, setb2=setv2;break;//0, 1, 2
+		case  4:setr0=sety0, setr1=sety1, setr2=sety2,  setg0=setu0, setg1=setu1, setg2=setu2,  setb0=setv0, setb1=setv1, setb2=setv2;break;//0, 1, 2
+		case  5:setr0=sety0, setr1=sety1, setr2=sety2,  setb0=setu0, setb1=setu1, setb2=setu2,  setg0=setv0, setg1=setv1, setg2=setv2;break;//0, 2, 1
+		case  6:setg0=sety0, setg1=sety1, setg2=sety2,  setb0=setu0, setb1=setu1, setb2=setu2,  setr0=setv0, setr1=setv1, setr2=setv2;break;//1, 2, 0
+		case  7:setg0=sety0, setg1=sety1, setg2=sety2,  setb0=setu0, setb1=setu1, setb2=setu2,  setr0=setv0, setr1=setv1, setr2=setv2;break;//1, 2, 0
+		case  8:setg0=sety0, setg1=sety1, setg2=sety2,  setb0=setu0, setb1=setu1, setb2=setu2,  setr0=setv0, setr1=setv1, setr2=setv2;break;//1, 2, 0
+		case  9:setg0=sety0, setg1=sety1, setg2=sety2,  setb0=setu0, setb1=setu1, setb2=setu2,  setr0=setv0, setr1=setv1, setr2=setv2;break;//1, 2, 0
+		case 10:setg0=sety0, setg1=sety1, setg2=sety2,  setr0=setu0, setr1=setu1, setr2=setu2,  setb0=setv0, setb1=setv1, setb2=setv2;break;//1, 0, 2
+		case 11:setb0=sety0, setb1=sety1, setb2=sety2,  setr0=setu0, setr1=setu1, setr2=setu2,  setg0=setv0, setg1=setv1, setg2=setv2;break;//2, 0, 1
+		case 12:setb0=sety0, setb1=sety1, setb2=sety2,  setr0=setu0, setr1=setu1, setr2=setu2,  setg0=setv0, setg1=setv1, setg2=setv2;break;//2, 0, 1
+		case 13:setb0=sety0, setb1=sety1, setb2=sety2,  setr0=setu0, setr1=setu1, setr2=setu2,  setg0=setv0, setg1=setv1, setg2=setv2;break;//2, 0, 1
+		case 14:setb0=sety0, setb1=sety1, setb2=sety2,  setr0=setu0, setr1=setu1, setr2=setu2,  setg0=setv0, setg1=setv1, setg2=setv2;break;//2, 0, 1
+		case 15:setb0=sety0, setb1=sety1, setb2=sety2,  setg0=setu0, setg1=setu1, setg2=setu2,  setr0=setv0, setr1=setv1, setr2=setv2;break;//2, 1, 0
+		}
+		__m128i helperUmask=_mm_set1_epi8(-(uhelpidx!=3));
+		__m128i helperVsel=_mm_set1_epi8(-(vhelpidx==1));
+		__m128i helperVmask=_mm_set1_epi8(-(vhelpidx!=3));
+		__m256i eight=_mm256_set1_epi16(8);
+		__m128i mhalf=_mm_set1_epi8(-128);
 		for(int ky=0, idx=0, idx2=0;ky<ih;++ky)
 		{
-		//	int e0[3]={0}, e1[3]={0};
-		//	int preds0[3]={0}, preds1[3]={0};
-#ifdef USE_REG_W
-			int W[3]={0};
-#endif
-			ALIGN(16) short *rows[]=
+			ALIGN(32) short *rows[]=
 			{
-				pixels+((iw+32LL)*((ky-0LL)&1)+16LL)*4,
-				pixels+((iw+32LL)*((ky-1LL)&1)+16LL)*4,
+				pixels+((iw+32LL)*(((ky-0LL)&1)+0*2)+16LL),
+				pixels+((iw+32LL)*(((ky-1LL)&1)+0*2)+16LL),
+				pixels+((iw+32LL)*(((ky-0LL)&1)+1*2)+16LL),
+				pixels+((iw+32LL)*(((ky-1LL)&1)+1*2)+16LL),
+				pixels+((iw+32LL)*(((ky-0LL)&1)+2*2)+16LL),
+				pixels+((iw+32LL)*(((ky-1LL)&1)+2*2)+16LL),
+				0,
+				0,
 			};
-#if defined __GNUC__ && (defined USE_ROWPRED3A3 || defined USE_ROWPRED484)
-#pragma GCC unroll 2
+			int kx=0;
+#if 1
+			for(;kx<=iw-16;kx+=16, idx+=3*16, idx2+=16)
+			{
+				//process 16 pixels (48 SPs) at a time:	rows[6]
+				__m256i NW0	=_mm256_loadu_si256((__m256i*)(rows[1+0*2]-1));
+				__m256i NW1	=_mm256_loadu_si256((__m256i*)(rows[1+1*2]-1));
+				__m256i NW2	=_mm256_loadu_si256((__m256i*)(rows[1+2*2]-1));
+				__m256i N0	=_mm256_loadu_si256((__m256i*)(rows[1+0*2]+0));
+				__m256i N1	=_mm256_loadu_si256((__m256i*)(rows[1+1*2]+0));
+				__m256i N2	=_mm256_loadu_si256((__m256i*)(rows[1+2*2]+0));
+				__m256i NE0	=_mm256_loadu_si256((__m256i*)(rows[1+0*2]+1));
+				__m256i NE1	=_mm256_loadu_si256((__m256i*)(rows[1+1*2]+1));
+				__m256i NE2	=_mm256_loadu_si256((__m256i*)(rows[1+2*2]+1));
+				__m256i mp0=_mm256_add_epi16(NW0, NE0);//(10*N+3*(NW+NE)+8)>>4
+				__m256i mp1=_mm256_add_epi16(NW1, NE1);
+				__m256i mp2=_mm256_add_epi16(NW2, NE2);
+				__m256i t0=_mm256_add_epi16(mp0, N0);
+				__m256i t1=_mm256_add_epi16(mp1, N1);
+				__m256i t2=_mm256_add_epi16(mp2, N2);
+				t0	=_mm256_slli_epi16(t0, 1);
+				t1	=_mm256_slli_epi16(t1, 1);
+				t2	=_mm256_slli_epi16(t2, 1);
+				mp0	=_mm256_add_epi16(mp0, t0);
+				mp1	=_mm256_add_epi16(mp1, t1);
+				mp2	=_mm256_add_epi16(mp2, t2);
+				t0	=_mm256_slli_epi16(N0, 3);
+				t1	=_mm256_slli_epi16(N1, 3);
+				t2	=_mm256_slli_epi16(N2, 3);
+				mp0	=_mm256_add_epi16(mp0, t0);
+				mp1	=_mm256_add_epi16(mp1, t1);
+				mp2	=_mm256_add_epi16(mp2, t2);
+				mp0	=_mm256_add_epi16(mp0, eight);
+				mp1	=_mm256_add_epi16(mp1, eight);
+				mp2	=_mm256_add_epi16(mp2, eight);
+				mp0	=_mm256_srai_epi16(mp0, 4);
+				mp1	=_mm256_srai_epi16(mp1, 4);
+				mp2	=_mm256_srai_epi16(mp2, 4);
+				__m128i ypred=_mm_packs_epi16(_mm256_castsi256_si128(mp0), _mm256_extracti128_si256(mp0, 1));//convert only pred to 16-bit and back, then use bytes for RCT8
+				__m128i upred=_mm_packs_epi16(_mm256_castsi256_si128(mp1), _mm256_extracti128_si256(mp1, 1));
+				__m128i vpred=_mm_packs_epi16(_mm256_castsi256_si128(mp2), _mm256_extracti128_si256(mp2, 1));
+
+				//if(ky==1&&kx==192)//
+				//if(ky==2&&kx==0)//
+				//	printf("");
+
+				__m128i p0=_mm_loadu_si128((__m128i*)(planes[0]+idx2));
+				__m128i p1=_mm_loadu_si128((__m128i*)(planes[1]+idx2));
+				__m128i p2=_mm_loadu_si128((__m128i*)(planes[2]+idx2));
+				p0=_mm_add_epi8(p0, ypred);
+				p1=_mm_add_epi8(p1, upred);
+				p2=_mm_add_epi8(p2, vpred);
+				_mm256_storeu_si256((__m256i*)rows[0+0*2], _mm256_cvtepi8_epi16(p0));
+				_mm256_storeu_si256((__m256i*)rows[0+1*2], _mm256_cvtepi8_epi16(p1));
+				_mm256_storeu_si256((__m256i*)rows[0+2*2], _mm256_cvtepi8_epi16(p2));
+
+				__m128i helperU0=_mm_and_si128(p0, helperUmask);
+				p1=_mm_add_epi8(p1, helperU0);
+				__m128i helperV0=_mm_blendv_epi8(p0, p1, helperVsel);
+				helperV0=_mm_and_si128(helperV0, helperVmask);
+				p2=_mm_add_epi8(p2, helperV0);
+
+				//interleave |yyyy yyyy yyyy yyyy|uuuu uuuu uuuu uuuu|vvvv vvvv vvvv vvvv| -> |rgbr gbrg brgb rgbr|gbrg brgb rgbr gbrg|brgb rgbr gbrg brgb| (in order):
+				__m128i r0=_mm_shuffle_epi8(p0, setr0);
+				__m128i r1=_mm_shuffle_epi8(p0, setr1);
+				__m128i r2=_mm_shuffle_epi8(p0, setr2);
+				__m128i g0=_mm_shuffle_epi8(p1, setg0);
+				__m128i g1=_mm_shuffle_epi8(p1, setg1);
+				__m128i g2=_mm_shuffle_epi8(p1, setg2);
+				__m128i b0=_mm_shuffle_epi8(p2, setb0);
+				__m128i b1=_mm_shuffle_epi8(p2, setb1);
+				__m128i b2=_mm_shuffle_epi8(p2, setb2);
+				r0=_mm_or_si128(r0, g0);
+				r1=_mm_or_si128(r1, g1);
+				r2=_mm_or_si128(r2, g2);
+				r0=_mm_or_si128(r0, b0);
+				r1=_mm_or_si128(r1, b1);
+				r2=_mm_or_si128(r2, b2);
+
+				r0=_mm_sub_epi8(r0, mhalf);
+				r1=_mm_sub_epi8(r1, mhalf);
+				r2=_mm_sub_epi8(r2, mhalf);
+				_mm_storeu_si128((__m128i*)(image+idx+0*16), r0);
+				_mm_storeu_si128((__m128i*)(image+idx+1*16), r1);
+				_mm_storeu_si128((__m128i*)(image+idx+2*16), r2);
+#ifdef ENABLE_GUIDE
+				for(int k=0;k<16;++k)
+					guide_check(image, kx+k, ky);
 #endif
-			for(int kx=0;kx<iw;++kx, idx+=3, ++idx2)
+
+				__m256i rows0=_mm256_load_si256((__m256i*)rows+0);
+				__m256i rows1=_mm256_load_si256((__m256i*)rows+1);
+				rows0=_mm256_add_epi64(rows0, _mm256_set1_epi64x(sizeof(short[16])));
+				rows1=_mm256_add_epi64(rows1, _mm256_set1_epi64x(sizeof(short[16])));
+				_mm256_store_si256((__m256i*)rows+0, rows0);
+				_mm256_store_si256((__m256i*)rows+1, rows1);
+			}
+#endif
+//#ifdef __GNUC__
+//#pragma GCC unroll 2
+//#endif
+			for(;kx<iw;++kx, idx+=3, ++idx2)
 			{
 				//if(ky==0&&kx==6&&kc==0)//
 				//if(ky==399&&kx==714)//
@@ -1081,155 +1135,29 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				//if(ky==4&&kx==138)//
 				//	printf("");
 
-				short *pcurr=rows[0]+0*4;
-#ifdef USE_ROWPRED484
-				int ypred=(2*rows[1][+0*4+0]+rows[1][-1*4+0]+rows[1][+1*4+0]+2)>>2;
-				int upred=(2*rows[1][+0*4+1]+rows[1][-1*4+1]+rows[1][+1*4+1]+2)>>2;
-				int vpred=(2*rows[1][+0*4+2]+rows[1][-1*4+2]+rows[1][+1*4+2]+2)>>2;
-#elif defined USE_ROWPRED3A3
-				int ypred=(10*rows[1][+0*4+0]+3*(rows[1][-1*4+0]+rows[1][+1*4+0])+8)>>4;
-				int upred=(10*rows[1][+0*4+1]+3*(rows[1][-1*4+1]+rows[1][+1*4+1])+8)>>4;
-				int vpred=(10*rows[1][+0*4+2]+3*(rows[1][-1*4+2]+rows[1][+1*4+2])+8)>>4;
-#elif defined USE_MIX3
-				int preds[]=
-				{
-					rows[1][-1*4+0], rows[1][+0*4+0], rows[1][+1*4+0],
-					rows[1][-1*4+1], rows[1][+0*4+1], rows[1][+1*4+1],
-					rows[1][-1*4+2], rows[1][+0*4+2], rows[1][+1*4+2],
-				};
-				int ypred=preds[1+0*3]+(((preds[0+0*3]-preds[1+0*3])*aNW[0]+(preds[2+0*3]-preds[1+0*3])*aNE[0])>>16);
-				int upred=preds[1+1*3]+(((preds[0+1*3]-preds[1+1*3])*aNW[1]+(preds[2+1*3]-preds[1+1*3])*aNE[1])>>16);
-				int vpred=preds[1+2*3]+(((preds[0+2*3]-preds[1+2*3])*aNW[2]+(preds[2+2*3]-preds[1+2*3])*aNE[2])>>16);
-#elif defined USE_MIX4
-				int preds[]=
-				{//	W, NW, N, NE
-					rows[0][-1*4+0], rows[1][-1*4+0], rows[1][+0*4+0], rows[1][+1*4+0],
-					rows[0][-1*4+1], rows[1][-1*4+1], rows[1][+0*4+1], rows[1][+1*4+1],
-					rows[0][-1*4+2], rows[1][-1*4+2], rows[1][+0*4+2], rows[1][+1*4+2],
-				};
-				int ypred=preds[0+0*4]+(((preds[1+0*4]-preds[0+0*4])*aNW[0]+(preds[2+0*4]-preds[0+0*4])*aN[0]+(preds[3+0*4]-preds[0+0*4])*aNE[0])>>16);
-				int upred=preds[0+1*4]+(((preds[1+1*4]-preds[0+1*4])*aNW[1]+(preds[2+1*4]-preds[0+1*4])*aN[1]+(preds[3+1*4]-preds[0+1*4])*aNE[1])>>16);
-				int vpred=preds[0+2*4]+(((preds[1+2*4]-preds[0+2*4])*aNW[2]+(preds[2+2*4]-preds[0+2*4])*aN[2]+(preds[3+2*4]-preds[0+2*4])*aNE[2])>>16);
-#endif
+				//short *pcurr=rows[0]+0*4;
 				
-#ifdef USE_NBLI_RCT
-				pcurr[0]=yuv[0]=(char)(planes[0][idx2]+ypred);
-				pcurr[1]=yuv[1]=(char)(planes[1][idx2]+upred);
-				pcurr[2]=yuv[2]=(char)(planes[2][idx2]+vpred);
-				yuv[1]+=yuv[2]>>2;
-				yuv[0]-=(yuv[1]+yuv[2])>>2;
-				yuv[2]+=yuv[0];
-				yuv[1]+=yuv[0];
-#elif defined ENABLE_FASTANALYSIS || defined ENABLE_ENTROPYANALYSIS
-#ifdef USE_RCT8
-				pcurr[0]=yuv[0]=(char)(planes[0][idx2]+ypred);
-				pcurr[1]=yuv[1]=(char)(planes[1][idx2]+upred);
-				pcurr[2]=yuv[2]=(char)(planes[2][idx2]+vpred);
-#ifdef USE_MIX3
-				preds[0+0*3]=abs(yuv[0]-preds[0+0*3])<<7;
-				preds[1+0*3]=abs(yuv[0]-preds[1+0*3])<<7;
-				preds[2+0*3]=abs(yuv[0]-preds[2+0*3])<<7;
-				preds[0+1*3]=abs(yuv[1]-preds[0+1*3])<<7;
-				preds[1+1*3]=abs(yuv[1]-preds[1+1*3])<<7;
-				preds[2+1*3]=abs(yuv[1]-preds[2+1*3])<<7;
-				preds[0+2*3]=abs(yuv[2]-preds[0+2*3])<<7;
-				preds[1+2*3]=abs(yuv[2]-preds[1+2*3])<<7;
-				preds[2+2*3]=abs(yuv[2]-preds[2+2*3])<<7;
-				aNW[0]+=(preds[1+0*3]+preds[2+0*3]-2*preds[0+0*3]-aNW[0]+MIX_FAR+(1<<7>>1))>>7;
-				aNE[0]+=(preds[1+0*3]+preds[0+0*3]-2*preds[2+0*3]-aNE[0]+MIX_FAR+(1<<7>>1))>>7;
-				aNW[1]+=(preds[1+1*3]+preds[2+1*3]-2*preds[0+1*3]-aNW[1]+MIX_FAR+(1<<7>>1))>>7;
-				aNE[1]+=(preds[1+1*3]+preds[0+1*3]-2*preds[2+1*3]-aNE[1]+MIX_FAR+(1<<7>>1))>>7;
-				aNW[2]+=(preds[1+2*3]+preds[2+2*3]-2*preds[0+2*3]-aNW[2]+MIX_FAR+(1<<7>>1))>>7;
-				aNE[2]+=(preds[1+2*3]+preds[0+2*3]-2*preds[2+2*3]-aNE[2]+MIX_FAR+(1<<7>>1))>>7;
-			//	alpha[0]+=(((abs(yuv[0]-preds0[0])-abs(yuv[0]-preds1[0]))<<4)-alpha[0]+0x800+(1<<7>>1))>>7;
-			//	alpha[1]+=(((abs(yuv[1]-preds0[1])-abs(yuv[1]-preds1[1]))<<4)-alpha[1]+0x800+(1<<7>>1))>>7;
-			//	alpha[2]+=(((abs(yuv[2]-preds0[2])-abs(yuv[2]-preds1[2]))<<4)-alpha[2]+0x800+(1<<7>>1))>>7;
-#elif defined USE_MIX4
-				preds[0+0*4]=abs(yuv[0]-preds[0+0*4]);
-				preds[1+0*4]=abs(yuv[0]-preds[1+0*4]);
-				preds[2+0*4]=abs(yuv[0]-preds[2+0*4]);
-				preds[3+0*4]=abs(yuv[0]-preds[3+0*4]);
-				preds[0+1*4]=abs(yuv[1]-preds[0+1*4]);
-				preds[1+1*4]=abs(yuv[1]-preds[1+1*4]);
-				preds[2+1*4]=abs(yuv[1]-preds[2+1*4]);
-				preds[3+1*4]=abs(yuv[1]-preds[3+1*4]);
-				preds[0+2*4]=abs(yuv[2]-preds[0+2*4]);
-				preds[1+2*4]=abs(yuv[2]-preds[1+2*4]);
-				preds[2+2*4]=abs(yuv[2]-preds[2+2*4]);
-				preds[3+2*4]=abs(yuv[2]-preds[3+2*4]);
-				int esums[]=
-				{
-					preds[0+0*4]+preds[1+0*4]+preds[2+0*4]+preds[3+0*4],
-					preds[0+1*4]+preds[1+1*4]+preds[2+1*4]+preds[3+1*4],
-					preds[0+2*4]+preds[1+2*4]+preds[2+2*4]+preds[3+2*4],
-				};
-				aNW[0]+=(((esums[0]-4*preds[1+0*4])<<6)-aNW[0]+MIX_FAR +(1<<7>>1))>>7;
-				aN [0]+=(((esums[0]-4*preds[2+0*4])<<6)-aN [0]+MIX_NEAR+(1<<7>>1))>>7;
-				aNE[0]+=(((esums[0]-4*preds[3+0*4])<<6)-aNE[0]+MIX_FAR +(1<<7>>1))>>7;
-				aNW[1]+=(((esums[1]-4*preds[1+1*4])<<6)-aNW[1]+MIX_FAR +(1<<7>>1))>>7;
-				aN [1]+=(((esums[1]-4*preds[2+1*4])<<6)-aN [1]+MIX_NEAR+(1<<7>>1))>>7;
-				aNE[1]+=(((esums[1]-4*preds[3+1*4])<<6)-aNE[1]+MIX_FAR +(1<<7>>1))>>7;
-				aNW[2]+=(((esums[2]-4*preds[1+2*4])<<6)-aNW[2]+MIX_FAR +(1<<7>>1))>>7;
-				aN [2]+=(((esums[2]-4*preds[2+2*4])<<6)-aN [2]+MIX_NEAR+(1<<7>>1))>>7;
-				aNE[2]+=(((esums[2]-4*preds[3+2*4])<<6)-aNE[2]+MIX_FAR +(1<<7>>1))>>7;
-#endif
-#ifdef USE_REG_W
-				W[0]=yuv[0];
-				W[1]=yuv[1];
-				W[2]=yuv[2];
-#endif
+				int ypred=(10*rows[1+0*2][+0]+3*(rows[1+0*2][-1]+rows[1+0*2][+1])+8)>>4;
+				int upred=(10*rows[1+1*2][+0]+3*(rows[1+1*2][-1]+rows[1+1*2][+1])+8)>>4;
+				int vpred=(10*rows[1+2*2][+0]+3*(rows[1+2*2][-1]+rows[1+2*2][+1])+8)>>4;
+				
+				rows[0+0*2][+0]=yuv[0]=(char)(planes[0][idx2]+ypred);
+				rows[0+1*2][+0]=yuv[1]=(char)(planes[1][idx2]+upred);
+				rows[0+2*2][+0]=yuv[2]=(char)(planes[2][idx2]+vpred);
 				yuv[1]+=yuv[uhelpidx];
 				yuv[2]+=yuv[vhelpidx];
-#else
-				pcurr[0]=yuv[0]=(char)(planes[0][idx2]+ypred);
 
-				char uhelper=*puhelper;
-				upred+=uhelper;
-				CLAMP2(upred, -128, 127);
-				yuv[1]=(char)(planes[1][idx2]+upred);
-
-				char vhelper=*pvhelper;
-				vpred+=vhelper;
-				CLAMP2(vpred, -128, 127);
-				yuv[2]=(char)(planes[2][idx2]+vpred);
-
-				pcurr[1]=yuv[1]-uhelper;
-				pcurr[2]=yuv[2]-vhelper;
-#endif
-#else
-#ifdef USE_RCT8
-				pcurr[0]=yuv[0]=(char)(planes[0][idx2]+ypred);
-				pcurr[1]=yuv[1]=(char)(planes[1][idx2]+upred);
-				pcurr[2]=yuv[2]=(char)(planes[2][idx2]+vpred);
-				yuv[1]=(char)(pcurr[1]+pcurr[0]);
-				yuv[2]=(char)(pcurr[2]+pcurr[0]);
-#else
-				pcurr[0]=yuv[0]=(char)(planes[0][idx2]+ypred);
-				upred+=yuv[0];
-				CLAMP2(upred, -128, 127);
-				vpred+=yuv[0];
-				CLAMP2(vpred, -128, 127);
-
-				yuv[1]=(char)(planes[1][idx2]+upred);
-				yuv[2]=(char)(planes[2][idx2]+vpred);
-				pcurr[1]=yuv[1]-yuv[0];
-				pcurr[2]=yuv[2]-yuv[0];
-#endif
-#endif
-
-#if defined ENABLE_FASTANALYSIS || defined ENABLE_ENTROPYANALYSIS
 				image[idx+yidx]=yuv[0]+128;
 				image[idx+uidx]=yuv[1]+128;
 				image[idx+vidx]=yuv[2]+128;
-#else
-				image[idx+1]=yuv[0]+128;
-				image[idx+2]=yuv[1]+128;
-				image[idx+0]=yuv[2]+128;
-#endif
 
 				guide_check(image, kx, ky);
-				rows[0]+=4;
-				rows[1]+=4;
+				++rows[0];
+				++rows[1];
+				++rows[2];
+				++rows[3];
+				++rows[4];
+				++rows[5];
 			}
 		}
 #if defined _MSC_VER && defined LOUD
