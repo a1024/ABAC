@@ -17,12 +17,15 @@ static const char file[]=__FILE__;
 	#define ENABLE_MT
 //	#define ENABLE_GUIDE
 
-	#define ENABLE_FASTANALYSIS	//LPCB 3~14% faster, 0.04% larger than entropy
+	#define ENABLE_FASTANALYSIS	//LPCB 3~14% faster, 0.04% larger than entropy	good
 //	#define ENABLE_ENTROPYANALYSIS
 	#define USE_RCT8	//LPCB 3~5% faster, 0.2% larger		good
 
-	#define USE_ROWPRED3A3	//(10*N+3*(NW+NE))/16		good
-//	#define USE_ROWPRED484	//(2*N+NE+NW)/4
+//	#define USE_PRED_IZ	//clamp((3*(N+W)-2*NW+2)>>2, N,W,NE)
+//	#define USE_PRED_CG	//median(N, W, N+W-NW)
+//	#define USE_ROWPRED3A3	//(10*N+3*(NW+NE))/16		good
+	#define USE_ROWPRED484	//(2*N+NE+NW)/4
+//	#define USE_ROWPRED_8_4G4_161_12I21		//bad
 
 	#define USE_O1		//good
 
@@ -216,7 +219,7 @@ int c20_codec(const char *srcfn, const char *dstfn)
 		return 1;
 	}
 	
-	int psize=(iw+32LL)*sizeof(short[2*3]);//2 padded rows * 3 channels
+	int psize=(iw+32LL)*sizeof(short[4*3]);//4 padded rows * 3 channels
 	short *pixels=(short*)_mm_malloc(psize, sizeof(__m256i));
 	if(!pixels)
 	{
@@ -638,6 +641,7 @@ int c20_codec(const char *srcfn, const char *dstfn)
 		__m128i helperUmask=_mm_set1_epi8(-(uhelpidx!=3));
 		__m128i helperVsel=_mm_set1_epi8(-(vhelpidx==1));
 		__m128i helperVmask=_mm_set1_epi8(-(vhelpidx!=3));
+		__m256i two=_mm256_set1_epi16(2);
 		__m256i eight=_mm256_set1_epi16(8);
 		__m128i mhalf=_mm_set1_epi8(-128);
 		unsigned char *planes[]=
@@ -650,29 +654,91 @@ int c20_codec(const char *srcfn, const char *dstfn)
 		{
 			ALIGN(32) short *rows[]=
 			{
-				pixels+((iw+32LL)*(((ky-0LL)&1)+0*2)+16LL),
-				pixels+((iw+32LL)*(((ky-1LL)&1)+0*2)+16LL),
-				pixels+((iw+32LL)*(((ky-0LL)&1)+1*2)+16LL),
-				pixels+((iw+32LL)*(((ky-1LL)&1)+1*2)+16LL),
-				pixels+((iw+32LL)*(((ky-0LL)&1)+2*2)+16LL),
-				pixels+((iw+32LL)*(((ky-1LL)&1)+2*2)+16LL),
-				0,
-				0,
+				pixels+((iw+32LL)*(((ky-0LL)&3)+0*4)+16LL),
+				pixels+((iw+32LL)*(((ky-1LL)&3)+0*4)+16LL),
+				pixels+((iw+32LL)*(((ky-2LL)&3)+0*4)+16LL),
+				pixels+((iw+32LL)*(((ky-3LL)&3)+0*4)+16LL),
+				pixels+((iw+32LL)*(((ky-0LL)&3)+1*4)+16LL),
+				pixels+((iw+32LL)*(((ky-1LL)&3)+1*4)+16LL),
+				pixels+((iw+32LL)*(((ky-2LL)&3)+1*4)+16LL),
+				pixels+((iw+32LL)*(((ky-3LL)&3)+1*4)+16LL),
+				pixels+((iw+32LL)*(((ky-0LL)&3)+2*4)+16LL),
+				pixels+((iw+32LL)*(((ky-1LL)&3)+2*4)+16LL),
+				pixels+((iw+32LL)*(((ky-2LL)&3)+2*4)+16LL),
+				pixels+((iw+32LL)*(((ky-3LL)&3)+2*4)+16LL),
 			};
 			int kx=0;
 #if 1
 			for(;kx<=iw-16;kx+=16, idx+=3*16, idx2+=16)
 			{
-				//process 16 pixels (48 SPs) at a time:	rows[6]
-				__m256i NW0	=_mm256_loadu_si256((__m256i*)(rows[1+0*2]-1));
-				__m256i NW1	=_mm256_loadu_si256((__m256i*)(rows[1+1*2]-1));
-				__m256i NW2	=_mm256_loadu_si256((__m256i*)(rows[1+2*2]-1));
-				__m256i N0	=_mm256_loadu_si256((__m256i*)(rows[1+0*2]+0));
-				__m256i N1	=_mm256_loadu_si256((__m256i*)(rows[1+1*2]+0));
-				__m256i N2	=_mm256_loadu_si256((__m256i*)(rows[1+2*2]+0));
-				__m256i NE0	=_mm256_loadu_si256((__m256i*)(rows[1+0*2]+1));
-				__m256i NE1	=_mm256_loadu_si256((__m256i*)(rows[1+1*2]+1));
-				__m256i NE2	=_mm256_loadu_si256((__m256i*)(rows[1+2*2]+1));
+				//process 16 pixels (48 SPs) at a time:	rows[6]		convert only pred to 16-bit and back, then use bytes for RCT8
+#ifdef USE_ROWPRED_8_4G4_161_12I21
+			//	__m256i NNW0	=_mm256_loadu_si256((__m256i*)(rows[2+0*4]-1));
+				__m256i NNW1	=_mm256_loadu_si256((__m256i*)(rows[2+1*4]-1));
+				__m256i NNW2	=_mm256_loadu_si256((__m256i*)(rows[2+2*4]-1));
+				__m256i NN0	=_mm256_loadu_si256((__m256i*)(rows[2+0*4]+0));
+				__m256i NN1	=_mm256_loadu_si256((__m256i*)(rows[2+1*4]+0));
+				__m256i NN2	=_mm256_loadu_si256((__m256i*)(rows[2+2*4]+0));
+			//	__m256i NNE0	=_mm256_loadu_si256((__m256i*)(rows[2+0*4]+1));
+				__m256i NNE1	=_mm256_loadu_si256((__m256i*)(rows[2+1*4]+1));
+				__m256i NNE2	=_mm256_loadu_si256((__m256i*)(rows[2+2*4]+1));
+			//	__m256i NWW0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]-2));
+				__m256i NWW1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]-2));
+				__m256i NWW2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]-2));
+				__m256i NW0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]-1));
+				__m256i NW1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]-1));
+				__m256i NW2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]-1));
+				__m256i N0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]+0));
+				__m256i N1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]+0));
+				__m256i N2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]+0));
+				__m256i NE0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]+1));
+				__m256i NE1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]+1));
+				__m256i NE2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]+1));
+			//	__m256i NEE0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]+1));
+				__m256i NEE1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]+1));
+				__m256i NEE2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]+1));
+				__m256i mp0=_mm256_add_epi16(NW0, NE0);//N+((NW+NE-2*NN+2)>>2)
+				__m256i mp1=_mm256_add_epi16(NW1, NE1);//N+((2*(N+NW+NE-NN)+NWW+NEE-4*NN-NNW-NNE+8)>>4)
+				__m256i mp2=_mm256_add_epi16(NW2, NE2);
+				mp0=_mm256_sub_epi16(mp0, _mm256_slli_epi16(NN0, 1));
+				mp1=_mm256_add_epi16(mp1, N1);
+				mp2=_mm256_add_epi16(mp2, N2);
+				mp1=_mm256_sub_epi16(mp1, NN1);
+				mp2=_mm256_sub_epi16(mp2, NN2);
+				mp1=_mm256_slli_epi16(mp1, 1);
+				mp2=_mm256_slli_epi16(mp2, 1);
+				mp1=_mm256_add_epi16(mp1, NWW1);
+				mp2=_mm256_add_epi16(mp2, NWW2);
+				mp1=_mm256_add_epi16(mp1, NEE1);
+				mp2=_mm256_add_epi16(mp2, NEE2);
+				mp1=_mm256_sub_epi16(mp1, _mm256_slli_epi16(NN1, 2));
+				mp2=_mm256_sub_epi16(mp2, _mm256_slli_epi16(NN2, 2));
+				mp1=_mm256_sub_epi16(mp1, NNW1);
+				mp2=_mm256_sub_epi16(mp2, NNW2);
+				mp1=_mm256_sub_epi16(mp1, NNE1);
+				mp2=_mm256_sub_epi16(mp2, NNE2);
+				mp0=_mm256_add_epi16(mp0, two);
+				mp1=_mm256_add_epi16(mp1, eight);
+				mp2=_mm256_add_epi16(mp2, eight);
+				mp0=_mm256_srai_epi16(mp0, 2);
+				mp1=_mm256_srai_epi16(mp1, 4);
+				mp2=_mm256_srai_epi16(mp2, 4);
+				mp0=_mm256_add_epi16(mp0, N0);
+				mp1=_mm256_add_epi16(mp1, N1);
+				mp2=_mm256_add_epi16(mp2, N2);
+				__m128i ypred=_mm_packs_epi16(_mm256_castsi256_si128(mp0), _mm256_extracti128_si256(mp0, 1));
+				__m128i upred=_mm_packs_epi16(_mm256_castsi256_si128(mp1), _mm256_extracti128_si256(mp1, 1));
+				__m128i vpred=_mm_packs_epi16(_mm256_castsi256_si128(mp2), _mm256_extracti128_si256(mp2, 1));
+#elif defined USE_ROWPRED3A3
+				__m256i NW0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]-1));
+				__m256i NW1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]-1));
+				__m256i NW2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]-1));
+				__m256i N0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]+0));
+				__m256i N1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]+0));
+				__m256i N2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]+0));
+				__m256i NE0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]+1));
+				__m256i NE1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]+1));
+				__m256i NE2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]+1));
 				__m256i mp0=_mm256_add_epi16(NW0, NE0);//(10*N+3*(NW+NE)+8)>>4
 				__m256i mp1=_mm256_add_epi16(NW1, NE1);
 				__m256i mp2=_mm256_add_epi16(NW2, NE2);
@@ -697,9 +763,38 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				mp0	=_mm256_srai_epi16(mp0, 4);
 				mp1	=_mm256_srai_epi16(mp1, 4);
 				mp2	=_mm256_srai_epi16(mp2, 4);
-				__m128i ypred=_mm_packs_epi16(_mm256_castsi256_si128(mp0), _mm256_extracti128_si256(mp0, 1));//convert only pred to 16-bit and back, then use bytes for RCT8
+				__m128i ypred=_mm_packs_epi16(_mm256_castsi256_si128(mp0), _mm256_extracti128_si256(mp0, 1));
 				__m128i upred=_mm_packs_epi16(_mm256_castsi256_si128(mp1), _mm256_extracti128_si256(mp1, 1));
 				__m128i vpred=_mm_packs_epi16(_mm256_castsi256_si128(mp2), _mm256_extracti128_si256(mp2, 1));
+#elif defined USE_ROWPRED484
+				__m256i NW0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]-1));
+				__m256i NW1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]-1));
+				__m256i NW2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]-1));
+				__m256i N0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]+0));
+				__m256i N1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]+0));
+				__m256i N2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]+0));
+				__m256i NE0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]+1));
+				__m256i NE1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]+1));
+				__m256i NE2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]+1));
+				__m256i mp0=_mm256_slli_epi16(N0, 1);//(10*N+3*(NW+NE)+8)>>4
+				__m256i mp1=_mm256_slli_epi16(N1, 1);
+				__m256i mp2=_mm256_slli_epi16(N2, 1);
+				mp0=_mm256_add_epi16(mp0, NW0);
+				mp1=_mm256_add_epi16(mp1, NW1);
+				mp2=_mm256_add_epi16(mp2, NW2);
+				mp0=_mm256_add_epi16(mp0, NE0);
+				mp1=_mm256_add_epi16(mp1, NE1);
+				mp2=_mm256_add_epi16(mp2, NE2);
+				mp0=_mm256_add_epi16(mp0, two);
+				mp1=_mm256_add_epi16(mp1, two);
+				mp2=_mm256_add_epi16(mp2, two);
+				mp0=_mm256_srai_epi16(mp0, 2);
+				mp1=_mm256_srai_epi16(mp1, 2);
+				mp2=_mm256_srai_epi16(mp2, 2);
+				__m128i ypred=_mm_packs_epi16(_mm256_castsi256_si128(mp0), _mm256_extracti128_si256(mp0, 1));
+				__m128i upred=_mm_packs_epi16(_mm256_castsi256_si128(mp1), _mm256_extracti128_si256(mp1, 1));
+				__m128i vpred=_mm_packs_epi16(_mm256_castsi256_si128(mp2), _mm256_extracti128_si256(mp2, 1));
+#endif
 
 				__m128i p0=_mm_loadu_si128((__m128i*)(image+idx+0*16));
 				__m128i p1=_mm_loadu_si128((__m128i*)(image+idx+1*16));
@@ -730,9 +825,9 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				helperV0=_mm_and_si128(helperV0, helperVmask);
 				mu=_mm_sub_epi8(mu, helperU0);
 				mv=_mm_sub_epi8(mv, helperV0);
-				_mm256_storeu_si256((__m256i*)rows[0+0*2], _mm256_cvtepi8_epi16(my));
-				_mm256_storeu_si256((__m256i*)rows[0+1*2], _mm256_cvtepi8_epi16(mu));
-				_mm256_storeu_si256((__m256i*)rows[0+2*2], _mm256_cvtepi8_epi16(mv));
+				_mm256_storeu_si256((__m256i*)rows[0+0*4], _mm256_cvtepi8_epi16(my));
+				_mm256_storeu_si256((__m256i*)rows[0+1*4], _mm256_cvtepi8_epi16(mu));
+				_mm256_storeu_si256((__m256i*)rows[0+2*4], _mm256_cvtepi8_epi16(mv));
 
 				my=_mm_sub_epi8(my, ypred);
 				mu=_mm_sub_epi8(mu, upred);
@@ -744,10 +839,13 @@ int c20_codec(const char *srcfn, const char *dstfn)
 
 				__m256i rows0=_mm256_load_si256((__m256i*)rows+0);
 				__m256i rows1=_mm256_load_si256((__m256i*)rows+1);
+				__m256i rows2=_mm256_load_si256((__m256i*)rows+2);
 				rows0=_mm256_add_epi64(rows0, _mm256_set1_epi64x(sizeof(short[16])));
 				rows1=_mm256_add_epi64(rows1, _mm256_set1_epi64x(sizeof(short[16])));
+				rows2=_mm256_add_epi64(rows2, _mm256_set1_epi64x(sizeof(short[16])));
 				_mm256_store_si256((__m256i*)rows+0, rows0);
 				_mm256_store_si256((__m256i*)rows+1, rows1);
+				_mm256_store_si256((__m256i*)rows+2, rows2);
 			}
 #endif
 //#ifdef __GNUC__
@@ -773,29 +871,80 @@ int c20_codec(const char *srcfn, const char *dstfn)
 					image[idx+vidx]-128,
 					0,
 				};
-				int ypred=(10*rows[1+0*2][+0]+3*(rows[1+0*2][-1]+rows[1+0*2][+1])+8)>>4;
-				int upred=(10*rows[1+1*2][+0]+3*(rows[1+1*2][-1]+rows[1+1*2][+1])+8)>>4;
-				int vpred=(10*rows[1+2*2][+0]+3*(rows[1+2*2][-1]+rows[1+2*2][+1])+8)>>4;
+#ifdef USE_ROWPRED_8_4G4_161_12I21
+				int uN=rows[1+1*4][+0], uNN=rows[2+1*4][+0];
+				int vN=rows[1+2*4][+0], vNN=rows[2+2*4][+0];
+				int ypred=rows[1+0*4][+0]+((rows[1+0*4][-1]+rows[1+0*4][+1]-2*rows[2+0*4][+0]+2)>>2);//N+((NW+NE-2*NN+2)>>2)
+				int upred=uN+((2*(uN+rows[1+1*4][-1]+rows[1+1*4][+1]-uNN)+rows[1+1*4][-2]+rows[1+1*4][+2]-4*uNN-rows[2+1*4][-1]-rows[2+1*4][+1]+8)>>4);//N+((2*(NW+N+NE-NN)+NWW+NEE-4*NN-NNW-NNE+8)>>4)
+				int vpred=vN+((2*(vN+rows[1+2*4][-1]+rows[1+2*4][+1]-vNN)+rows[1+2*4][-2]+rows[1+2*4][+2]-4*vNN-rows[2+2*4][-1]-rows[2+2*4][+1]+8)>>4);
+#elif defined USE_ROWPRED3A3
+				int ypred=(10*rows[1+0*4][+0]+3*(rows[1+0*4][-1]+rows[1+0*4][+1])+8)>>4;
+				int upred=(10*rows[1+1*4][+0]+3*(rows[1+1*4][-1]+rows[1+1*4][+1])+8)>>4;
+				int vpred=(10*rows[1+2*4][+0]+3*(rows[1+2*4][-1]+rows[1+2*4][+1])+8)>>4;
+#elif defined USE_ROWPRED484
+				int ypred=(2*rows[1+0*4][+0]+rows[1+0*4][-1]+rows[1+0*4][+1]+2)>>2;
+				int upred=(2*rows[1+1*4][+0]+rows[1+1*4][-1]+rows[1+1*4][+1]+2)>>2;
+				int vpred=(2*rows[1+2*4][+0]+rows[1+2*4][-1]+rows[1+2*4][+1]+2)>>2;
+#elif defined USE_PRED_IZ
+				int yN=rows[1+0*4][+0], yW=rows[0+0*4][-1], yNE=rows[1+0*4][+1];
+				int uN=rows[1+1*4][+0], uW=rows[0+1*4][-1], uNE=rows[1+1*4][+1];
+				int vN=rows[1+2*4][+0], vW=rows[0+2*4][-1], vNE=rows[1+2*4][+1];
+				int ymax=yN, ymin=yW; if(yN<yW)ymin=yN, ymax=yW;
+				int umax=uN, umin=uW; if(uN<uW)umin=uN, umax=uW;
+				int vmax=vN, vmin=vW; if(vN<vW)vmin=vN, vmax=vW;
+				if(ymin>yNE)ymin=yNE; if(ymax<yNE)ymax=yNE;
+				if(umin>uNE)umin=uNE; if(umax<uNE)umax=uNE;
+				if(vmin>vNE)vmin=vNE; if(vmax<vNE)vmax=vNE;
+				int ypred=yN+yW;
+				int upred=uN+uW;
+				int vpred=vN+vW;
+				ypred=(((ypred-rows[1+0*4][-1])<<1)+ypred+2)>>2;	//(3*(N+W)-2*NW+2)>>2
+				upred=(((upred-rows[1+1*4][-1])<<1)+upred+2)>>2;
+				vpred=(((vpred-rows[1+2*4][-1])<<1)+vpred+2)>>2;
+			//	int ypred=(3*(rows[1+0*4][+0]+rows[0+0*4][-1])-2*rows[1+0*4][-1]+2)>>2;
+			//	int upred=(3*(rows[1+1*4][+0]+rows[0+1*4][-1])-2*rows[1+1*4][-1]+2)>>2;
+			//	int vpred=(3*(rows[1+2*4][+0]+rows[0+2*4][-1])-2*rows[1+2*4][-1]+2)>>2;
+				CLAMP2(ypred, ymin, ymax);
+				CLAMP2(upred, umin, umax);
+				CLAMP2(vpred, vmin, vmax);
+#elif defined USE_PRED_CG
+				int yN=rows[1+0*4][+0], yW=rows[0+0*4][-1];
+				int uN=rows[1+1*4][+0], uW=rows[0+1*4][-1];
+				int vN=rows[1+2*4][+0], vW=rows[0+2*4][-1];
+				int ymax=yN, ymin=yW; if(yN<yW)ymin=yN, ymax=yW;
+				int umax=uN, umin=uW; if(uN<uW)umin=uN, umax=uW;
+				int vmax=vN, vmin=vW; if(vN<vW)vmin=vN, vmax=vW;
+				int ypred=rows[1+0*4][+0]+rows[0+0*4][-1]-rows[1+0*4][-1];
+				int upred=rows[1+1*4][+0]+rows[0+1*4][-1]-rows[1+1*4][-1];
+				int vpred=rows[1+2*4][+0]+rows[0+2*4][-1]-rows[1+2*4][-1];
+				CLAMP2(ypred, ymin, ymax);
+				CLAMP2(upred, umin, umax);
+				CLAMP2(vpred, vmin, vmax);
+#endif
 
 				//if(ky==1&&kx==192+12)//
 				//if(ky==2&&kx==4)//
 				//	printf("");
 
-				rows[0+0*2][+0]=yuv[0];
-				rows[0+1*2][+0]=(char)(yuv[1]-yuv[uhelpidx]);
-				rows[0+2*2][+0]=(char)(yuv[2]-yuv[vhelpidx]);
-				yuv[1]=(char)rows[0+1*2][+0];
-				yuv[2]=(char)rows[0+2*2][+0];
+				rows[0+0*4][+0]=yuv[0];
+				rows[0+1*4][+0]=(char)(yuv[1]-yuv[uhelpidx]);
+				rows[0+2*4][+0]=(char)(yuv[2]-yuv[vhelpidx]);
+				yuv[1]=(char)rows[0+1*4][+0];
+				yuv[2]=(char)rows[0+2*4][+0];
 
 				dptr[res*0+idx2]=yuv[0]-ypred;
 				dptr[res*1+idx2]=yuv[1]-upred;
 				dptr[res*2+idx2]=yuv[2]-vpred;
-				++rows[0];
-				++rows[1];
-				++rows[2];
-				++rows[3];
-				++rows[4];
-				++rows[5];
+
+				__m256i rows0=_mm256_load_si256((__m256i*)rows+0);
+				__m256i rows1=_mm256_load_si256((__m256i*)rows+1);
+				__m256i rows2=_mm256_load_si256((__m256i*)rows+2);
+				rows0=_mm256_add_epi64(rows0, _mm256_set1_epi64x(sizeof(short)));
+				rows1=_mm256_add_epi64(rows1, _mm256_set1_epi64x(sizeof(short)));
+				rows2=_mm256_add_epi64(rows2, _mm256_set1_epi64x(sizeof(short)));
+				_mm256_store_si256((__m256i*)rows+0, rows0);
+				_mm256_store_si256((__m256i*)rows+1, rows1);
+				_mm256_store_si256((__m256i*)rows+2, rows2);
 			}
 		}
 		unsigned char *cdata[3]={0};
@@ -875,8 +1024,8 @@ int c20_codec(const char *srcfn, const char *dstfn)
 		int vidx=rct[3+2];
 		int uhelpidx=rct[6+0];
 		int vhelpidx=rct[6+1];
-		char *puhelper=yuv+uhelpidx;
-		char *pvhelper=yuv+vhelpidx;
+		//char *puhelper=yuv+uhelpidx;
+		//char *pvhelper=yuv+vhelpidx;
 #endif
 		int imsize=3*iw*ih;
 		unsigned char *image=(unsigned char*)malloc(imsize);
@@ -1008,35 +1157,98 @@ int c20_codec(const char *srcfn, const char *dstfn)
 		__m128i helperUmask=_mm_set1_epi8(-(uhelpidx!=3));
 		__m128i helperVsel=_mm_set1_epi8(-(vhelpidx==1));
 		__m128i helperVmask=_mm_set1_epi8(-(vhelpidx!=3));
+		__m256i two=_mm256_set1_epi16(2);
 		__m256i eight=_mm256_set1_epi16(8);
 		__m128i mhalf=_mm_set1_epi8(-128);
 		for(int ky=0, idx=0, idx2=0;ky<ih;++ky)
 		{
 			ALIGN(32) short *rows[]=
 			{
-				pixels+((iw+32LL)*(((ky-0LL)&1)+0*2)+16LL),
-				pixels+((iw+32LL)*(((ky-1LL)&1)+0*2)+16LL),
-				pixels+((iw+32LL)*(((ky-0LL)&1)+1*2)+16LL),
-				pixels+((iw+32LL)*(((ky-1LL)&1)+1*2)+16LL),
-				pixels+((iw+32LL)*(((ky-0LL)&1)+2*2)+16LL),
-				pixels+((iw+32LL)*(((ky-1LL)&1)+2*2)+16LL),
-				0,
-				0,
+				pixels+((iw+32LL)*(((ky-0LL)&3)+0*4)+16LL),
+				pixels+((iw+32LL)*(((ky-1LL)&3)+0*4)+16LL),
+				pixels+((iw+32LL)*(((ky-2LL)&3)+0*4)+16LL),
+				pixels+((iw+32LL)*(((ky-3LL)&3)+0*4)+16LL),
+				pixels+((iw+32LL)*(((ky-0LL)&3)+1*4)+16LL),
+				pixels+((iw+32LL)*(((ky-1LL)&3)+1*4)+16LL),
+				pixels+((iw+32LL)*(((ky-2LL)&3)+1*4)+16LL),
+				pixels+((iw+32LL)*(((ky-3LL)&3)+1*4)+16LL),
+				pixels+((iw+32LL)*(((ky-0LL)&3)+2*4)+16LL),
+				pixels+((iw+32LL)*(((ky-1LL)&3)+2*4)+16LL),
+				pixels+((iw+32LL)*(((ky-2LL)&3)+2*4)+16LL),
+				pixels+((iw+32LL)*(((ky-3LL)&3)+2*4)+16LL),
 			};
 			int kx=0;
 #if 1
 			for(;kx<=iw-16;kx+=16, idx+=3*16, idx2+=16)
 			{
 				//process 16 pixels (48 SPs) at a time:	rows[6]
-				__m256i NW0	=_mm256_loadu_si256((__m256i*)(rows[1+0*2]-1));
-				__m256i NW1	=_mm256_loadu_si256((__m256i*)(rows[1+1*2]-1));
-				__m256i NW2	=_mm256_loadu_si256((__m256i*)(rows[1+2*2]-1));
-				__m256i N0	=_mm256_loadu_si256((__m256i*)(rows[1+0*2]+0));
-				__m256i N1	=_mm256_loadu_si256((__m256i*)(rows[1+1*2]+0));
-				__m256i N2	=_mm256_loadu_si256((__m256i*)(rows[1+2*2]+0));
-				__m256i NE0	=_mm256_loadu_si256((__m256i*)(rows[1+0*2]+1));
-				__m256i NE1	=_mm256_loadu_si256((__m256i*)(rows[1+1*2]+1));
-				__m256i NE2	=_mm256_loadu_si256((__m256i*)(rows[1+2*2]+1));
+#ifdef USE_ROWPRED_8_4G4_161_12I21
+			//	__m256i NNW0	=_mm256_loadu_si256((__m256i*)(rows[2+0*4]-1));
+				__m256i NNW1	=_mm256_loadu_si256((__m256i*)(rows[2+1*4]-1));
+				__m256i NNW2	=_mm256_loadu_si256((__m256i*)(rows[2+2*4]-1));
+				__m256i NN0	=_mm256_loadu_si256((__m256i*)(rows[2+0*4]+0));
+				__m256i NN1	=_mm256_loadu_si256((__m256i*)(rows[2+1*4]+0));
+				__m256i NN2	=_mm256_loadu_si256((__m256i*)(rows[2+2*4]+0));
+			//	__m256i NNE0	=_mm256_loadu_si256((__m256i*)(rows[2+0*4]+1));
+				__m256i NNE1	=_mm256_loadu_si256((__m256i*)(rows[2+1*4]+1));
+				__m256i NNE2	=_mm256_loadu_si256((__m256i*)(rows[2+2*4]+1));
+			//	__m256i NWW0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]-2));
+				__m256i NWW1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]-2));
+				__m256i NWW2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]-2));
+				__m256i NW0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]-1));
+				__m256i NW1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]-1));
+				__m256i NW2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]-1));
+				__m256i N0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]+0));
+				__m256i N1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]+0));
+				__m256i N2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]+0));
+				__m256i NE0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]+1));
+				__m256i NE1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]+1));
+				__m256i NE2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]+1));
+			//	__m256i NEE0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]+1));
+				__m256i NEE1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]+1));
+				__m256i NEE2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]+1));
+				__m256i mp0=_mm256_add_epi16(NW0, NE0);//N+((NW+NE-2*NN+2)>>2)
+				__m256i mp1=_mm256_add_epi16(NW1, NE1);//N+((2*(N+NW+NE-NN)+NWW+NEE-4*NN-NNW-NNE+8)>>4)
+				__m256i mp2=_mm256_add_epi16(NW2, NE2);
+				mp0=_mm256_sub_epi16(mp0, _mm256_slli_epi16(NN0, 1));
+				mp1=_mm256_add_epi16(mp1, N1);
+				mp2=_mm256_add_epi16(mp2, N2);
+				mp1=_mm256_sub_epi16(mp1, NN1);
+				mp2=_mm256_sub_epi16(mp2, NN2);
+				mp1=_mm256_slli_epi16(mp1, 1);
+				mp2=_mm256_slli_epi16(mp2, 1);
+				mp1=_mm256_add_epi16(mp1, NWW1);
+				mp2=_mm256_add_epi16(mp2, NWW2);
+				mp1=_mm256_add_epi16(mp1, NEE1);
+				mp2=_mm256_add_epi16(mp2, NEE2);
+				mp1=_mm256_sub_epi16(mp1, _mm256_slli_epi16(NN1, 2));
+				mp2=_mm256_sub_epi16(mp2, _mm256_slli_epi16(NN2, 2));
+				mp1=_mm256_sub_epi16(mp1, NNW1);
+				mp2=_mm256_sub_epi16(mp2, NNW2);
+				mp1=_mm256_sub_epi16(mp1, NNE1);
+				mp2=_mm256_sub_epi16(mp2, NNE2);
+				mp0=_mm256_add_epi16(mp0, two);
+				mp1=_mm256_add_epi16(mp1, eight);
+				mp2=_mm256_add_epi16(mp2, eight);
+				mp0=_mm256_srai_epi16(mp0, 2);
+				mp1=_mm256_srai_epi16(mp1, 4);
+				mp2=_mm256_srai_epi16(mp2, 4);
+				mp0=_mm256_add_epi16(mp0, N0);
+				mp1=_mm256_add_epi16(mp1, N1);
+				mp2=_mm256_add_epi16(mp2, N2);
+				__m128i ypred=_mm_packs_epi16(_mm256_castsi256_si128(mp0), _mm256_extracti128_si256(mp0, 1));
+				__m128i upred=_mm_packs_epi16(_mm256_castsi256_si128(mp1), _mm256_extracti128_si256(mp1, 1));
+				__m128i vpred=_mm_packs_epi16(_mm256_castsi256_si128(mp2), _mm256_extracti128_si256(mp2, 1));
+#elif defined USE_ROWPRED3A3
+				__m256i NW0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]-1));
+				__m256i NW1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]-1));
+				__m256i NW2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]-1));
+				__m256i N0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]+0));
+				__m256i N1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]+0));
+				__m256i N2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]+0));
+				__m256i NE0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]+1));
+				__m256i NE1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]+1));
+				__m256i NE2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]+1));
 				__m256i mp0=_mm256_add_epi16(NW0, NE0);//(10*N+3*(NW+NE)+8)>>4
 				__m256i mp1=_mm256_add_epi16(NW1, NE1);
 				__m256i mp2=_mm256_add_epi16(NW2, NE2);
@@ -1061,9 +1273,38 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				mp0	=_mm256_srai_epi16(mp0, 4);
 				mp1	=_mm256_srai_epi16(mp1, 4);
 				mp2	=_mm256_srai_epi16(mp2, 4);
-				__m128i ypred=_mm_packs_epi16(_mm256_castsi256_si128(mp0), _mm256_extracti128_si256(mp0, 1));//convert only pred to 16-bit and back, then use bytes for RCT8
+				__m128i ypred=_mm_packs_epi16(_mm256_castsi256_si128(mp0), _mm256_extracti128_si256(mp0, 1));
 				__m128i upred=_mm_packs_epi16(_mm256_castsi256_si128(mp1), _mm256_extracti128_si256(mp1, 1));
 				__m128i vpred=_mm_packs_epi16(_mm256_castsi256_si128(mp2), _mm256_extracti128_si256(mp2, 1));
+#elif defined USE_ROWPRED484
+				__m256i NW0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]-1));
+				__m256i NW1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]-1));
+				__m256i NW2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]-1));
+				__m256i N0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]+0));
+				__m256i N1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]+0));
+				__m256i N2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]+0));
+				__m256i NE0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]+1));
+				__m256i NE1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]+1));
+				__m256i NE2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]+1));
+				__m256i mp0=_mm256_slli_epi16(N0, 1);//(10*N+3*(NW+NE)+8)>>4
+				__m256i mp1=_mm256_slli_epi16(N1, 1);
+				__m256i mp2=_mm256_slli_epi16(N2, 1);
+				mp0=_mm256_add_epi16(mp0, NW0);
+				mp1=_mm256_add_epi16(mp1, NW1);
+				mp2=_mm256_add_epi16(mp2, NW2);
+				mp0=_mm256_add_epi16(mp0, NE0);
+				mp1=_mm256_add_epi16(mp1, NE1);
+				mp2=_mm256_add_epi16(mp2, NE2);
+				mp0=_mm256_add_epi16(mp0, two);
+				mp1=_mm256_add_epi16(mp1, two);
+				mp2=_mm256_add_epi16(mp2, two);
+				mp0=_mm256_srai_epi16(mp0, 2);
+				mp1=_mm256_srai_epi16(mp1, 2);
+				mp2=_mm256_srai_epi16(mp2, 2);
+				__m128i ypred=_mm_packs_epi16(_mm256_castsi256_si128(mp0), _mm256_extracti128_si256(mp0, 1));
+				__m128i upred=_mm_packs_epi16(_mm256_castsi256_si128(mp1), _mm256_extracti128_si256(mp1, 1));
+				__m128i vpred=_mm_packs_epi16(_mm256_castsi256_si128(mp2), _mm256_extracti128_si256(mp2, 1));
+#endif
 
 				//if(ky==1&&kx==192)//
 				//if(ky==2&&kx==0)//
@@ -1075,9 +1316,9 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				p0=_mm_add_epi8(p0, ypred);
 				p1=_mm_add_epi8(p1, upred);
 				p2=_mm_add_epi8(p2, vpred);
-				_mm256_storeu_si256((__m256i*)rows[0+0*2], _mm256_cvtepi8_epi16(p0));
-				_mm256_storeu_si256((__m256i*)rows[0+1*2], _mm256_cvtepi8_epi16(p1));
-				_mm256_storeu_si256((__m256i*)rows[0+2*2], _mm256_cvtepi8_epi16(p2));
+				_mm256_storeu_si256((__m256i*)rows[0+0*4], _mm256_cvtepi8_epi16(p0));
+				_mm256_storeu_si256((__m256i*)rows[0+1*4], _mm256_cvtepi8_epi16(p1));
+				_mm256_storeu_si256((__m256i*)rows[0+2*4], _mm256_cvtepi8_epi16(p2));
 
 				__m128i helperU0=_mm_and_si128(p0, helperUmask);
 				p1=_mm_add_epi8(p1, helperU0);
@@ -1112,13 +1353,16 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				for(int k=0;k<16;++k)
 					guide_check(image, kx+k, ky);
 #endif
-
+				
 				__m256i rows0=_mm256_load_si256((__m256i*)rows+0);
 				__m256i rows1=_mm256_load_si256((__m256i*)rows+1);
+				__m256i rows2=_mm256_load_si256((__m256i*)rows+2);
 				rows0=_mm256_add_epi64(rows0, _mm256_set1_epi64x(sizeof(short[16])));
 				rows1=_mm256_add_epi64(rows1, _mm256_set1_epi64x(sizeof(short[16])));
+				rows2=_mm256_add_epi64(rows2, _mm256_set1_epi64x(sizeof(short[16])));
 				_mm256_store_si256((__m256i*)rows+0, rows0);
 				_mm256_store_si256((__m256i*)rows+1, rows1);
+				_mm256_store_si256((__m256i*)rows+2, rows2);
 			}
 #endif
 //#ifdef __GNUC__
@@ -1137,13 +1381,60 @@ int c20_codec(const char *srcfn, const char *dstfn)
 
 				//short *pcurr=rows[0]+0*4;
 				
-				int ypred=(10*rows[1+0*2][+0]+3*(rows[1+0*2][-1]+rows[1+0*2][+1])+8)>>4;
-				int upred=(10*rows[1+1*2][+0]+3*(rows[1+1*2][-1]+rows[1+1*2][+1])+8)>>4;
-				int vpred=(10*rows[1+2*2][+0]+3*(rows[1+2*2][-1]+rows[1+2*2][+1])+8)>>4;
+#ifdef USE_ROWPRED_8_4G4_161_12I21
+				int uN=rows[1+1*4][+0], uNN=rows[2+1*4][+0];
+				int vN=rows[1+2*4][+0], vNN=rows[2+2*4][+0];
+				int ypred=rows[1+0*4][+0]+((rows[1+0*4][-1]+rows[1+0*4][+1]-2*rows[2+0*4][+0]+2)>>2);//N+((NW+NE-2*NN+2)>>2)
+				int upred=uN+((2*(uN+rows[1+1*4][-1]+rows[1+1*4][+1]-uNN)+rows[1+1*4][-2]+rows[1+1*4][+2]-4*uNN-rows[2+1*4][-1]-rows[2+1*4][+1]+8)>>4);//N+((2*(NW+N+NE-NN)+NWW+NEE-4*NN-NNW-NNE+8)>>4)
+				int vpred=vN+((2*(vN+rows[1+2*4][-1]+rows[1+2*4][+1]-vNN)+rows[1+2*4][-2]+rows[1+2*4][+2]-4*vNN-rows[2+2*4][-1]-rows[2+2*4][+1]+8)>>4);
+#elif defined USE_ROWPRED3A3
+				int ypred=(10*rows[1+0*4][+0]+3*(rows[1+0*4][-1]+rows[1+0*4][+1])+8)>>4;
+				int upred=(10*rows[1+1*4][+0]+3*(rows[1+1*4][-1]+rows[1+1*4][+1])+8)>>4;
+				int vpred=(10*rows[1+2*4][+0]+3*(rows[1+2*4][-1]+rows[1+2*4][+1])+8)>>4;
+#elif defined USE_ROWPRED484
+				int ypred=(2*rows[1+0*4][+0]+rows[1+0*4][-1]+rows[1+0*4][+1]+2)>>2;
+				int upred=(2*rows[1+1*4][+0]+rows[1+1*4][-1]+rows[1+1*4][+1]+2)>>2;
+				int vpred=(2*rows[1+2*4][+0]+rows[1+2*4][-1]+rows[1+2*4][+1]+2)>>2;
+#elif defined USE_PRED_IZ
+				int yN=rows[1+0*4][+0], yW=rows[0+0*4][-1], yNE=rows[1+0*4][+1];
+				int uN=rows[1+1*4][+0], uW=rows[0+1*4][-1], uNE=rows[1+1*4][+1];
+				int vN=rows[1+2*4][+0], vW=rows[0+2*4][-1], vNE=rows[1+2*4][+1];
+				int ymax=yN, ymin=yW; if(yN<yW)ymin=yN, ymax=yW;
+				int umax=uN, umin=uW; if(uN<uW)umin=uN, umax=uW;
+				int vmax=vN, vmin=vW; if(vN<vW)vmin=vN, vmax=vW;
+				if(ymin>yNE)ymin=yNE; if(ymax<yNE)ymax=yNE;
+				if(umin>uNE)umin=uNE; if(umax<uNE)umax=uNE;
+				if(vmin>vNE)vmin=vNE; if(vmax<vNE)vmax=vNE;
+				int ypred=yN+yW;
+				int upred=uN+uW;
+				int vpred=vN+vW;
+				ypred=(((ypred-rows[1+0*4][-1])<<1)+ypred+2)>>2;	//(3*(N+W)-2*NW+2)>>2
+				upred=(((upred-rows[1+1*4][-1])<<1)+upred+2)>>2;
+				vpred=(((vpred-rows[1+2*4][-1])<<1)+vpred+2)>>2;
+			//	int ypred=(3*(rows[1+0*4][+0]+rows[0+0*4][-1])-2*rows[1+0*4][-1]+2)>>2;
+			//	int upred=(3*(rows[1+1*4][+0]+rows[0+1*4][-1])-2*rows[1+1*4][-1]+2)>>2;
+			//	int vpred=(3*(rows[1+2*4][+0]+rows[0+2*4][-1])-2*rows[1+2*4][-1]+2)>>2;
+				CLAMP2(ypred, ymin, ymax);
+				CLAMP2(upred, umin, umax);
+				CLAMP2(vpred, vmin, vmax);
+#elif defined USE_PRED_CG
+				int yN=rows[1+0*4][+0], yW=rows[0+0*4][-1];
+				int uN=rows[1+1*4][+0], uW=rows[0+1*4][-1];
+				int vN=rows[1+2*4][+0], vW=rows[0+2*4][-1];
+				int ymax=yN, ymin=yW; if(yN<yW)ymin=yN, ymax=yW;
+				int umax=uN, umin=uW; if(uN<uW)umin=uN, umax=uW;
+				int vmax=vN, vmin=vW; if(vN<vW)vmin=vN, vmax=vW;
+				int ypred=rows[1+0*4][+0]+rows[0+0*4][-1]-rows[1+0*4][-1];
+				int upred=rows[1+1*4][+0]+rows[0+1*4][-1]-rows[1+1*4][-1];
+				int vpred=rows[1+2*4][+0]+rows[0+2*4][-1]-rows[1+2*4][-1];
+				CLAMP2(ypred, ymin, ymax);
+				CLAMP2(upred, umin, umax);
+				CLAMP2(vpred, vmin, vmax);
+#endif
 				
-				rows[0+0*2][+0]=yuv[0]=(char)(planes[0][idx2]+ypred);
-				rows[0+1*2][+0]=yuv[1]=(char)(planes[1][idx2]+upred);
-				rows[0+2*2][+0]=yuv[2]=(char)(planes[2][idx2]+vpred);
+				rows[0+0*4][+0]=yuv[0]=(char)(planes[0][idx2]+ypred);
+				rows[0+1*4][+0]=yuv[1]=(char)(planes[1][idx2]+upred);
+				rows[0+2*4][+0]=yuv[2]=(char)(planes[2][idx2]+vpred);
 				yuv[1]+=yuv[uhelpidx];
 				yuv[2]+=yuv[vhelpidx];
 
@@ -1152,12 +1443,15 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				image[idx+vidx]=yuv[2]+128;
 
 				guide_check(image, kx, ky);
-				++rows[0];
-				++rows[1];
-				++rows[2];
-				++rows[3];
-				++rows[4];
-				++rows[5];
+				__m256i rows0=_mm256_load_si256((__m256i*)rows+0);
+				__m256i rows1=_mm256_load_si256((__m256i*)rows+1);
+				__m256i rows2=_mm256_load_si256((__m256i*)rows+2);
+				rows0=_mm256_add_epi64(rows0, _mm256_set1_epi64x(sizeof(short)));
+				rows1=_mm256_add_epi64(rows1, _mm256_set1_epi64x(sizeof(short)));
+				rows2=_mm256_add_epi64(rows2, _mm256_set1_epi64x(sizeof(short)));
+				_mm256_store_si256((__m256i*)rows+0, rows0);
+				_mm256_store_si256((__m256i*)rows+1, rows1);
+				_mm256_store_si256((__m256i*)rows+2, rows2);
 			}
 		}
 #if defined _MSC_VER && defined LOUD
