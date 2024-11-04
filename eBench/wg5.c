@@ -10,112 +10,22 @@ static const char file[]=__FILE__;
 //WG:
 #define WG_NBITS 0	//why 0 is best?
 
-#define WG_NPREDS	12	//multiple of 4
-#define WG_PREDLIST0\
-	WG_PRED(210,	N+(23*eN-2*(eNN+eNW)+9*eW)/110)\
-	WG_PRED(210,	W+(23*eW-2*(eWW+eNW)+9*eN)/110)\
-	WG_PRED(215,	3*(N-NN)+NNN+(eN/2+eNN/2+eNNN)/3)\
-	WG_PRED(215,	3*(W-WW)+WWW+(eW/2+eWW/2+eWWW)/3)\
-	WG_PRED(140,	W+NE-N+((-13*eN)>>4)+eW*13/32-(eW>>7))\
-	WG_PRED(230,	(WWW+NN-2*NW+NEE+NEEE+NEEEE+(N-W)/6+(NNN-NE-(5*(eN+eW)+eWW))/2)/3)\
-	WG_PRED(120,	N+W-NW+(eN+eW-eNW)/3)\
-	WG_PRED(140,	N+NE-NNE+((eN+eNE+eNNE+4)>>3))\
-	WG_PRED(45,	(4*(N+NNN)-6*NN+NNNW+NNNE-(NNWW+NNEE)/2+NNE+NNW-NE-NW-eN-eNN+eNNN)/3)\
-	WG_PRED(97,	(6*(W+WWW)+20*WW+(eW-eWW+eWWW)/3)/32)\
-	WG_PRED(65,	(W+3*NW-NWW-NNWW)/2+eNW/4+eW/6)\
-	WG_PRED(40,	(3*NE+NEE+NEEEE-NNEE-NNEEE+(3*eNE+6*eNEE+3*eNEEE)/2)/3)
-#define WG_PREDLIST1\
-	WG_PRED(250,	N+(3*eN+eNW+eW)/6)\
-	WG_PRED(250,	W+(3*eW+eNW+eN)/6)\
-	WG_PRED(175,	3*(N-NN)+NNN+(eN/2+eNN/2-eWW)/2)\
-	WG_PRED(175,	3*(W-WW)+WWW+(eW/2+eWW/2-eNN)/2)\
-	WG_PRED(180,	W+NE-N-((eN+eW+31)>>5))\
-	WG_PRED(175,	(WWW+NN-2*NW+NEE+NEEE+NEEEE+(W-N+NNN-NE)/2-eN-eW-eWW/3)/3)\
-	WG_PRED(130,	N+W-NW+(2*(eN+eW)-eNW)/5)\
-	WG_PRED(150,	N+NE-NNE+((eN+eNE+eNNE+8)>>4))\
-	WG_PRED(45,	(4*(N+NNN)-6*NN+NNNW+NNNE-(NNWW+NNEE)/2+NNE+NNW-NE-NW-2*eN-eNN+eNNN)/3)\
-	WG_PRED(57,	(W+WW+(eW-eWW+eWWW)/4)/2)\
-	WG_PRED(35,	(W+3*NW-NWW-NNWW+eNW)/2+eW/3)\
-	WG_PRED(40,	(3*NE+NEE+NEEEE-NNEE-NNEEE+(3*eNE+6*eNEE+3*eNEEE)/2)/3)
-#define WG_PREDLIST2\
-	WG_PRED(270,	N+(3*eN+eW)/6)\
-	WG_PRED(270,	W+(3*eW+eN)/6)\
-	WG_PRED(200,	3*(N-NN)+NNN+(eN/2-eWW)/2)\
-	WG_PRED(200,	3*(W-WW)+WWW+(eW/2-eNN)/2)\
-	WG_PRED(180,	W+NE-N-((2*eN+eW+31)>>5))\
-	WG_PRED(165,	(WWW+NN-2*NW+NEE+NEEE+NEEEE+(W-N+NNN-NE)/2-eN-eW-eWW/3)/3)\
-	WG_PRED(140,	N+W-NW+(2*(eN+eW)-eNW)/5)\
-	WG_PRED(150,	N+NE-NNE+(eN+eNE+eNNE)/16)\
-	WG_PRED(55,	(4*(N+NNN)-6*NN+NNNW+NNNE-(NNWW+NNEE)/2+NNE+NNW-NE-NW)/3-eN-eNN+eNNN)\
-	WG_PRED(47,	(W+WW+(eW+eWWW)/3)/2)\
-	WG_PRED(22,	(W+3*NW-NWW-NNWW+eNW)/2+eW/3)\
-	WG_PRED(40,	(3*NE+NEE+NEEEE-NNEE-NNEEE+(3*eNE+6*eNEE+3*eNEEE)/2)/3)
-#if 0
+#define WG_NPREDS	8	//multiple of 4
 #define WG_PREDLIST\
-	WG_PRED(kc==0?230:(kc==1?250:270),	N+(kc2==0?(3*eN+eNW+eW)/16:(kc2==2?(3*eN+eNW+eW)/6:(3*eN+eW)/6)))\
-	WG_PRED(kc==0?230:(kc==1?250:270),	W+(kc2==0?(3*eW+eNW+eN)/16:(kc2==2?(3*eW+eNW+eN)/6:(3*eW+eN)/6)))\
-	WG_PRED(kc==0?195:(kc==1?185:200),	3*(N-NN)+NNN+(kc2==0?(eN+eNN+eNNN)/3:(kc2==2?(eN+eNN-eWW)/2:(eN-eWW)/2)))\
-	WG_PRED(kc==0?195:(kc==1?185:200),	3*(W-WW)+WWW+(kc2==0?(eW+eWW+eWWW)/3:(kc2==2?(eW+eWW-eNN)/2:(eW-eNN)/2)))\
-	WG_PRED(185,				W+NE-N-(eW>>5)-(kc2==0?eN:(kc2==2?eN>>5:eN>>4)))\
-	WG_PRED(195,				(WWW+(W-N+NN+NNN)/2-NW+NEE+NEEE+NEEEE-eN-eW-eWW)/4)\
-	WG_PRED(132,				N+W-NW+(kc2?(2*(eN+eW)-eNW)/5:(eN+eW-eNW)/3))\
-	WG_PRED(120,				N+NE-NNE+((eN+eNE+eNNE+(kc2?8:4))>>(kc2?4:3)))\
-	WG_PRED(40,				(4*(N+NNN)-6*NN+NNNW+NNNE-(NNWW+NNEE)/2+NNE+NNW-NE-NW-eN)/3)\
-	WG_PRED(kc?37:67,			kc2==0 ? (6*(W+WWW)+20*WW+(eW-eWW+eWWW)/3)/32 : (kc2==2 ? (W+WW+(eW-eWW+eWWW)/4)/2 : (W+WW+(eW+eWWW)/3)/2))\
-	WG_PRED(40,				(W+3*NW-NWW-NNWW)/2+eW/6+eNW)\
-	WG_PRED(30,				(3*NE+NEE+NEEEE-NNEE-NNEEE+(3*eNE+6*eNEE+3*eNEEE)/2)/3)
-#endif
-//	WG_PRED(0, (W+2*NE-NNE+(eW+2*eNE-eNNE)/4)/2)
-//	WG_PRED(0, N+W-NW)
-//	WG_PRED(0, (-WW+3*W+N)/3)
-//	WG_PRED(0, (4*(N+W)-WW-NN)/6)
-//	WG_PRED(0, (10*W+5*(N-WW)-NN+WWW)/10)
-//	WG_PRED(0, (15*(N+W)-6*(NN+WW)+NNN+WWW)/20)
-//	WG_PRED(0, N+NE-NNE+((eN+eNE-eNNE)>>2))
-#if 0
-#define WG_NPREDS	16
-#define WG_PREDLIST\
-	WG_PRED(25, spred)\
-	WG_PRED(50, wgrad)\
-	WG_PRED(50, 3*N-W-NE)\
-	WG_PRED(30, 2*NE-W)\
-	WG_PRED(132, N+W-NW)\
-	WG_PRED(100, N+W-NW+((eN+eW-eNW+16)>>5))\
-	WG_PRED(150, N+eN)\
-	WG_PRED(100, N)\
-	WG_PRED(150, W+eW)\
-	WG_PRED(100, W)\
-	WG_PRED(165, W+NE-N)\
-	WG_PRED(220, N+NE-NNE)\
-	WG_PRED(25, N+NE-NNE+((eN+eNE-eNNE)>>2))\
-	WG_PRED(165, 3*(N-NN)+NNN)\
-	WG_PRED(165, 3*(W-WW)+WWW)\
-	WG_PRED(150, (W+NEEE)/2)
-#endif
+	WG_PRED(210,	N)\
+	WG_PRED(210,	W)\
+	WG_PRED(215,	3*(N-NN)+NNN)\
+	WG_PRED(215,	3*(W-WW)+WWW)\
+	WG_PRED(140,	W+NE-N)\
+	WG_PRED(230,	(WWWW+WWW+NNN+NEE+NEEE+NEEEE-2*NW)/4)\
+	WG_PRED(120,	N+W-NW)\
+	WG_PRED(140,	N+NE-NNE)
 static void wg_init(double *weights, int kc)
 {
 	int j=0;
 #define WG_PRED(WEIGHT, EXPR) weights[j++]=WEIGHT;
-	WG_PREDLIST0
+	WG_PREDLIST
 #undef  WG_PRED
-//	switch(kc)
-//	{
-//	case 0:
-//#define WG_PRED(WEIGHT, EXPR) weights[j++]=WEIGHT;
-//		WG_PREDLIST0
-//#undef  WG_PRED
-//		break;
-//	case 1:
-//#define WG_PRED(WEIGHT, EXPR) weights[j++]=WEIGHT;
-//		WG_PREDLIST1
-//#undef  WG_PRED
-//		break;
-//	case 2:
-//#define WG_PRED(WEIGHT, EXPR) weights[j++]=WEIGHT;
-//		WG_PREDLIST2
-//#undef  WG_PRED
-//		break;
-//	}
 }
 static int wg_predict(
 	const double *weights, int **rows, const int stride, int kc2,
@@ -165,46 +75,19 @@ static int wg_predict(
 		eWWW	=rows[0][kc2-3*stride+1],
 		eWW	=rows[0][kc2-2*stride+1],
 		eW	=rows[0][kc2-1*stride+1];
-	//int sh=kc2?1:2;
-	//int gy=abs(eN)+1, gx=abs(eW)+1;
-	//int wgrad=(N*gy+W*gx)/(gy+gx);
-
-	//int cgrad, cgrad2;
-	//MEDIAN3_32(cgrad, N, W, N+W-NW);
-	//MEDIAN3_32(cgrad2, N, NE, N+NE-NNE);
 	
 #define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
-	WG_PREDLIST0
+	WG_PREDLIST
 #undef  WG_PRED
-//	switch(kc2)
-//	{
-//	case 0:
-//#define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
-//		WG_PREDLIST0
-//#undef  WG_PRED
-//		break;
-//	case 2:
-//#define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
-//		WG_PREDLIST1
-//#undef  WG_PRED
-//		break;
-//	case 4:
-//#define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
-//		WG_PREDLIST2
-//#undef  WG_PRED
-//		break;
-//	}
-	//if((eW*47>>7)!=(eW*3>>3)-(eW>>7))
-	//	LOG_ERROR("%d", eW);
 #if 1
 	__m128i one=_mm_set1_epi32(1);
 	__m128i me0=_mm_load_si128((__m128i*)perrors+0);
 	__m128i me1=_mm_load_si128((__m128i*)perrors+1);
-	__m128i me2=_mm_load_si128((__m128i*)perrors+2);
+//	__m128i me2=_mm_load_si128((__m128i*)perrors+2);
 //	__m128i me3=_mm_load_si128((__m128i*)perrors+3);
 	__m256d w0=_mm256_load_pd(weights+0*4);
 	__m256d w1=_mm256_load_pd(weights+1*4);
-	__m256d w2=_mm256_load_pd(weights+2*4);
+//	__m256d w2=_mm256_load_pd(weights+2*4);
 //	__m256d w3=_mm256_load_pd(weights+3*4);
 	//me0=_mm_srai_epi32(me0, 1);
 	//me1=_mm_srai_epi32(me1, 1);
@@ -212,45 +95,45 @@ static int wg_predict(
 	//me3=_mm_srai_epi32(me3, 1);
 	me0=_mm_add_epi32(me0, _mm_load_si128((__m128i*)NWerrors+0));
 	me1=_mm_add_epi32(me1, _mm_load_si128((__m128i*)NWerrors+1));
-	me2=_mm_add_epi32(me2, _mm_load_si128((__m128i*)NWerrors+2));
+//	me2=_mm_add_epi32(me2, _mm_load_si128((__m128i*)NWerrors+2));
 //	me3=_mm_add_epi32(me3, _mm_load_si128((__m128i*)NWerrors+3));
 	me0=_mm_add_epi32(me0, _mm_slli_epi32(_mm_load_si128((__m128i*)Nerrors+0), 1));
 	me1=_mm_add_epi32(me1, _mm_slli_epi32(_mm_load_si128((__m128i*)Nerrors+1), 1));
-	me2=_mm_add_epi32(me2, _mm_slli_epi32(_mm_load_si128((__m128i*)Nerrors+2), 1));
+//	me2=_mm_add_epi32(me2, _mm_slli_epi32(_mm_load_si128((__m128i*)Nerrors+2), 1));
 //	me3=_mm_add_epi32(me3, _mm_slli_epi32(_mm_load_si128((__m128i*)Nerrors+3), 1));
 	me0=_mm_add_epi32(me0, _mm_load_si128((__m128i*)NEerrors+0));
 	me1=_mm_add_epi32(me1, _mm_load_si128((__m128i*)NEerrors+1));
-	me2=_mm_add_epi32(me2, _mm_load_si128((__m128i*)NEerrors+2));
+//	me2=_mm_add_epi32(me2, _mm_load_si128((__m128i*)NEerrors+2));
 //	me3=_mm_add_epi32(me3, _mm_load_si128((__m128i*)NEerrors+3));
 	me0=_mm_add_epi32(me0, _mm_load_si128((__m128i*)NNEerrors+0));
 	me1=_mm_add_epi32(me1, _mm_load_si128((__m128i*)NNEerrors+1));
-	me2=_mm_add_epi32(me2, _mm_load_si128((__m128i*)NNEerrors+2));
+//	me2=_mm_add_epi32(me2, _mm_load_si128((__m128i*)NNEerrors+2));
 //	me3=_mm_add_epi32(me3, _mm_load_si128((__m128i*)NNEerrors+3));
 	me0=_mm_add_epi32(me0, one);
 	me1=_mm_add_epi32(me1, one);
-	me2=_mm_add_epi32(me2, one);
+//	me2=_mm_add_epi32(me2, one);
 //	me3=_mm_add_epi32(me3, one);
 	__m256d de0=_mm256_cvtepi32_pd(me0);
 	__m256d de1=_mm256_cvtepi32_pd(me1);
-	__m256d de2=_mm256_cvtepi32_pd(me2);
+//	__m256d de2=_mm256_cvtepi32_pd(me2);
 //	__m256d de3=_mm256_cvtepi32_pd(me3);
 	w0=_mm256_div_pd(w0, de0);
 	w1=_mm256_div_pd(w1, de1);
-	w2=_mm256_div_pd(w2, de2);
+//	w2=_mm256_div_pd(w2, de2);
 //	w3=_mm256_div_pd(w3, de3);
 	de0=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)preds+0));
 	de1=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)preds+1));
-	de2=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)preds+2));
+//	de2=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)preds+2));
 //	de3=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)preds+3));
 	de0=_mm256_mul_pd(de0, w0);
 	de1=_mm256_mul_pd(de1, w1);
-	de2=_mm256_mul_pd(de2, w2);
+//	de2=_mm256_mul_pd(de2, w2);
 //	de3=_mm256_mul_pd(de3, w3);
 	w0=_mm256_add_pd(w0, w1);
-	w0=_mm256_add_pd(w0, w2);
+//	w0=_mm256_add_pd(w0, w2);
 //	w0=_mm256_add_pd(w0, w3);
 	de0=_mm256_add_pd(de0, de1);
-	de0=_mm256_add_pd(de0, de2);
+//	de0=_mm256_add_pd(de0, de2);
 //	de0=_mm256_add_pd(de0, de3);
 	
 	//[num3 num2 num1 num0]
@@ -307,20 +190,6 @@ void pred_wgrad5(Image *src, int fwd)
 	ALIGN(32) double wg_weights[4][WG_NPREDS]={0};
 	ALIGN(32) int wg_perrors[4][WG_NPREDS]={0}, wg_preds[WG_NPREDS]={0};
 	int nch;
-	//int nlevels[]=
-	//{
-	//	1<<src->depth[0],
-	//	1<<src->depth[1],
-	//	1<<src->depth[2],
-	//	1<<src->depth[3],
-	//};
-	//int halfs[]=
-	//{
-	//	nlevels[0]>>1,
-	//	nlevels[1]>>1,
-	//	nlevels[2]>>1,
-	//	nlevels[3]>>1,
-	//};
 	int fwdmask=-fwd;
 	int bufsize;
 	int *pixels;
@@ -364,29 +233,13 @@ void pred_wgrad5(Image *src, int fwd)
 				int
 					kc2=kc<<1,
 					kc3=kc*WG_NPREDS,
-				//	*eNNW	=erows[2]+kc3-1*4*WG_NPREDS,
-				//	*eNN	=erows[2]+kc3+0*4*WG_NPREDS,
 					*eNNE	=erows[2]+kc3+1*4*WG_NPREDS,
-				//	*eNNEE	=erows[2]+kc3+2*4*WG_NPREDS,
 					*eNW	=erows[1]+kc3-1*4*WG_NPREDS,
 					*eN	=erows[1]+kc3+0*4*WG_NPREDS,
 					*eNE	=erows[1]+kc3+1*4*WG_NPREDS,
-				//	*eNEE	=erows[1]+kc3+2*4*WG_NPREDS,
-				//	*eNEEE	=erows[1]+kc3+3*4*WG_NPREDS,
 					*eW	=erows[0]+kc3-1*4*WG_NPREDS,
 					*ecurr	=erows[0]+kc3+0*4*WG_NPREDS;
-				if(kc)
-				{
-					int
-						NW	=rows[1][kc2-1*4*2+0],
-						N	=rows[1][kc2+0*4*2+0],
-						W	=rows[0][kc2-1*4*2+0];
-					MEDIAN3_32(pred, N, W, N+W-NW);
-					//pred+=rows[0][2];
-					//CLAMP2(pred, -halfs[kc], halfs[kc]-1);
-				}
-				else
-					pred=wg_predict(wg_weights[0], rows, 4*2, kc2, 0, wg_perrors[kc], eNW, eN, eNE, eNNE, wg_preds);
+				pred=wg_predict(wg_weights[0], rows, 4*2, kc2, 0, wg_perrors[kc], eNW, eN, eNE, eNNE, wg_preds);
 				{
 					int curr=src->data[idx+kc], pred0=pred;
 					pred+=1<<WG_NBITS>>1;
@@ -402,11 +255,7 @@ void pred_wgrad5(Image *src, int fwd)
 					rows[0][kc2+0]=(fwd?curr:pred)<<WG_NBITS;
 					rows[0][kc2+1]=rows[0][kc2]-pred0;
 				}
-				//if(kc)
-				//	rows[0][kc2+0]-=rows[0][2];
-				//else
-				if(!kc)
-					wg_update(rows[0][kc2], kc, wg_preds, wg_perrors[kc], eW, ecurr, eNE);
+				wg_update(rows[0][kc2], kc, wg_preds, wg_perrors[kc], eW, ecurr, eNE);
 			}
 			rows[0]+=4*2;
 			rows[1]+=4*2;
@@ -420,4 +269,115 @@ void pred_wgrad5(Image *src, int fwd)
 	}
 	free(pixels);
 	_mm_free(ebuf);
+}
+
+#define WM_NPREDS	8	//multiple of 4
+#define WM_PREDLIST\
+	WM_PRED(210,	N)\
+	WM_PRED(210,	W)\
+	WM_PRED(215,	3*(N-NN)+NNN)\
+	WM_PRED(215,	3*(W-WW)+WWW)\
+	WM_PRED(140,	W+NE-N)\
+	WM_PRED(230,	(WWWW+WWW+NNN+NEE+NEEE+NEEEE-2*NW)/4)\
+	WM_PRED(120,	N+W-NW)\
+	WM_PRED(140,	N+NE-NNE)
+void pred_wmix(Image *src, int fwd)
+{
+	ALIGN(32) int alphas[4][WM_NPREDS]={0}, preds[WM_NPREDS]={0};
+	int nch;
+	int fwdmask=-fwd;
+	int bufsize;
+	int *pixels;
+
+	FILLMEM((int*)alphas, 0x1000/WM_NPREDS, sizeof(alphas), sizeof(int));
+	bufsize=(src->iw+16LL)*sizeof(int[4*4*2]);//4 padded rows * 4 channels max
+	pixels=(int*)malloc(bufsize);
+	if(!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(pixels, 0, bufsize);
+	nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
+	UPDATE_MAX(nch, src->nch);
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		int *rows[]=
+		{
+			pixels+((src->iw+16LL)*((ky-0LL)&3)+8LL)*4*2,
+			pixels+((src->iw+16LL)*((ky-1LL)&3)+8LL)*4*2,
+			pixels+((src->iw+16LL)*((ky-2LL)&3)+8LL)*4*2,
+			pixels+((src->iw+16LL)*((ky-3LL)&3)+8LL)*4*2,
+		};
+		for(int kx=0;kx<src->iw;++kx, idx+=4)
+		{
+			for(int kc=0;kc<src->nch;++kc)
+			{
+				int pred;
+				int kc2=kc<<1;
+				int
+					NNN	=rows[3][kc2+0*4*2+0],
+					NN	=rows[2][kc2+0*4*2+0],
+					NNE	=rows[2][kc2+1*4*2+0],
+					NW	=rows[1][kc2-1*4*2+0],
+					N	=rows[1][kc2+0*4*2+0],
+					NE	=rows[1][kc2+1*4*2+0],
+					NEE	=rows[1][kc2+2*4*2+0],
+					NEEE	=rows[1][kc2+3*4*2+0],
+					NEEEE	=rows[1][kc2+4*4*2+0],
+					WWWW	=rows[0][kc2-4*4*2+0],
+					WWW	=rows[0][kc2-3*4*2+0],
+					WW	=rows[0][kc2-2*4*2+0],
+					W	=rows[0][kc2-1*4*2+0];
+				int j=0;
+#define WM_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
+				WM_PREDLIST
+#undef  WM_PRED
+
+				pred=0;
+				for(int k=1;k<WM_NPREDS;++k)
+					pred+=preds[k]*alphas[kc][k];
+
+				//pred=preds[0]<<12;
+				//for(int k=1;k<WM_NPREDS;++k)
+				//	pred+=(preds[k]-preds[0])*alphas[kc][k];
+
+				pred+=1<<12>>1;
+				pred>>=12;
+				int vmax=N, vmin=W;
+				if(N<W)vmin=N, vmax=W;
+				if(vmin>NE)vmin=NE;
+				if(vmax<NE)vmax=NE;
+				CLAMP2(pred, vmin, vmax);
+				{
+					int curr=src->data[idx+kc], pred0=pred;
+					pred^=fwdmask;
+					pred-=fwdmask;
+					pred+=curr;
+
+					pred<<=32-src->depth[kc];
+					pred>>=32-src->depth[kc];
+
+					src->data[idx+kc]=pred;
+					rows[0][kc2+0]=fwd?curr:pred;
+					rows[0][kc2+1]=rows[0][kc2]-pred0;
+				}
+				{
+					int curr=rows[0][kc2+0];
+					int esum=0;
+					for(int k=0;k<WM_NPREDS;++k)
+						esum+=preds[k]=abs(curr-preds[k]);
+					for(int k=0;k<WM_NPREDS;++k)
+						alphas[kc][k]+=(((esum-WM_NPREDS*preds[k])<<2)-alphas[kc][k]+0x1000/WM_NPREDS+(1<<8>>1))>>8;
+					//for(int k=1;k<WM_NPREDS;++k)
+					//	alphas[kc][k-1]+=(((esum-WM_NPREDS*preds[k])<<4)-alphas[kc][k-1]+0x1000/WM_NPREDS+(1<<8>>1))>>8;
+				}
+			}
+			rows[0]+=4*2;
+			rows[1]+=4*2;
+			rows[2]+=4*2;
+			rows[3]+=4*2;
+		}
+	}
+	free(pixels);
 }

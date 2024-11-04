@@ -2748,6 +2748,346 @@ void pred_clampgrad(Image *src, int fwd, int enable_ma)
 	free(dst);
 #endif
 }
+void pred_cgplus(Image *src, int fwd)
+{
+	for(int kc=0;kc<src->nch;++kc)
+	{
+		if(fwd)
+		{
+			for(int ky=0;ky<src->ih;ky+=2)
+			{
+				for(int kx=1;kx<src->iw;kx+=2)	//AV8
+				{
+					int
+						N	=ky-1>=0			?src->data[(src->iw*(ky-1)+kx+0)<<2|kc]:0,
+						W	=kx-1>=0			?src->data[(src->iw*(ky+0)+kx-1)<<2|kc]:0,
+						S	=ky+1<src->ih			?src->data[(src->iw*(ky+1)+kx+0)<<2|kc]:0,
+						E	=kx+1<src->iw			?src->data[(src->iw*(ky+0)+kx+1)<<2|kc]:0,
+						NW	=ky-1>=0&&kx-1>=0		?src->data[(src->iw*(ky-1)+kx-1)<<2|kc]:0,
+						NE	=ky-1>=0&&kx+1<src->iw		?src->data[(src->iw*(ky-1)+kx+1)<<2|kc]:0,
+						SW	=ky+1<src->ih&&kx-1>=0		?src->data[(src->iw*(ky+1)+kx-1)<<2|kc]:0,
+						SE	=ky+1<src->ih&&kx+1<src->iw	?src->data[(src->iw*(ky+1)+kx+1)<<2|kc]:0;
+					int pred=(3*(N+W+S+E)-(NW+NE+SW+SE)+4)>>3;
+
+					int *curr=src->data+((src->iw*ky+kx)<<2|kc);
+					*curr=(*curr-pred)<<(32-src->depth[kc])>>(32-src->depth[kc]);
+				}
+			}
+			for(int ky=1;ky<src->ih;ky+=2)
+			{
+				for(int kx=0;kx<src->iw;kx+=2)	//AV12A
+				{
+					int
+						N	=ky-1>=0			?src->data[(src->iw*(ky-1)+kx+0)<<2|kc]:0,
+						W	=kx-1>=0			?src->data[(src->iw*(ky+0)+kx-1)<<2|kc]:0,
+						S	=ky+1<src->ih			?src->data[(src->iw*(ky+1)+kx+0)<<2|kc]:0,
+						E	=kx+1<src->iw			?src->data[(src->iw*(ky+0)+kx+1)<<2|kc]:0,
+						NNW	=ky-2>=0&&kx-1>=0		?src->data[(src->iw*(ky-2)+kx-1)<<2|kc]:0,
+						NNE	=ky-2>=0&&kx+1<src->iw		?src->data[(src->iw*(ky-2)+kx+1)<<2|kc]:0,
+						NWW	=ky-1>=0&&kx-2>=0		?src->data[(src->iw*(ky-1)+kx-2)<<2|kc]:0,
+						NEE	=ky-1>=0&&kx+2<src->iw		?src->data[(src->iw*(ky-1)+kx+2)<<2|kc]:0,
+						SWW	=ky+1<src->ih&&kx-2>=0		?src->data[(src->iw*(ky+1)+kx-2)<<2|kc]:0,
+						SEE	=ky+1<src->ih&&kx+2<src->iw	?src->data[(src->iw*(ky+1)+kx+2)<<2|kc]:0,
+						SSW	=ky+2<src->ih&&kx-1>=0		?src->data[(src->iw*(ky+2)+kx-1)<<2|kc]:0,
+						SSE	=ky+2<src->ih&&kx+1<src->iw	?src->data[(src->iw*(ky+2)+kx+1)<<2|kc]:0;
+					int vmax=N, vmin=W;
+					if(N<W)vmin=N, vmax=W;
+					if(vmin>S)vmin=S;
+					if(vmax<S)vmax=S;
+					if(vmin>E)vmin=E;
+					if(vmax<E)vmax=E;
+					int pred=(6*(N+W+S+E)-(NNW+NNE+NWW+NEE+SWW+SEE+SSW+SSE)+8)>>4;
+					CLAMP2(pred, vmin, vmax);
+
+					int *curr=src->data+((src->iw*ky+kx)<<2|kc);
+					*curr=(*curr-pred)<<(32-src->depth[kc])>>(32-src->depth[kc]);
+				}
+			}
+			for(int ky=1;ky<src->ih;ky+=2)
+			{
+				for(int kx=1;kx<src->iw;kx+=2)	//AV4B
+				{
+					int
+						NW	=ky-1>=0&&kx-1>=0		?src->data[(src->iw*(ky-1)+kx-1)<<2|kc]:0,
+						NE	=ky-1>=0&&kx+1<src->iw		?src->data[(src->iw*(ky-1)+kx+1)<<2|kc]:0,
+						SW	=ky+1<src->ih&&kx-1>=0		?src->data[(src->iw*(ky+1)+kx-1)<<2|kc]:0,
+						SE	=ky+1<src->ih&&kx+1<src->iw	?src->data[(src->iw*(ky+1)+kx+1)<<2|kc]:0;
+					int pred=(NW+NE+SW+SE+2)>>2;
+
+					int *curr=src->data+((src->iw*ky+kx)<<2|kc);
+					*curr=(*curr-pred)<<(32-src->depth[kc])>>(32-src->depth[kc]);
+				}
+			}
+			for(int ky=(src->ih-1)&~1;ky>=0;ky-=2)
+			{
+				for(int kx=(src->iw-1)&~1;kx>=0;kx-=2)	//CG2
+				{
+					int
+						NNWW	=ky-2>=0&&kx-2>=0	?src->data[(src->iw*(ky-2)+kx-2)<<2|kc]:0,
+						NN	=ky-2>=0		?src->data[(src->iw*(ky-2)+kx+0)<<2|kc]:0,
+						WW	=kx-2>=0		?src->data[(src->iw*(ky+0)+kx-2)<<2|kc]:0;
+					int pred, vmax=NN, vmin=WW;
+					if(NN<WW)
+						vmin=NN, vmax=WW;
+					pred=NN+WW-NNWW;
+					CLAMP2(pred, vmin, vmax);
+
+					int *curr=src->data+((src->iw*ky+kx)<<2|kc);
+					*curr=(*curr-pred)<<(32-src->depth[kc])>>(32-src->depth[kc]);
+				}
+			}
+		}
+		else//inv
+		{
+			for(int ky=0;ky<src->ih;ky+=2)
+			{
+				for(int kx=0;kx<src->iw;kx+=2)	//CG2
+				{
+					int
+						NNWW	=ky-2>=0&&kx-2>=0	?src->data[(src->iw*(ky-2)+kx-2)<<2|kc]:0,
+						NN	=ky-2>=0		?src->data[(src->iw*(ky-2)+kx+0)<<2|kc]:0,
+						WW	=kx-2>=0		?src->data[(src->iw*(ky+0)+kx-2)<<2|kc]:0;
+					int pred, vmax=NN, vmin=WW;
+					if(NN<WW)
+						vmin=NN, vmax=WW;
+					pred=NN+WW-NNWW;
+					CLAMP2(pred, vmin, vmax);
+
+					int *curr=src->data+((src->iw*ky+kx)<<2|kc);
+					*curr=(*curr+pred)<<(32-src->depth[kc])>>(32-src->depth[kc]);
+				}
+			}
+			for(int ky=1;ky<src->ih;ky+=2)
+			{
+				for(int kx=1;kx<src->iw;kx+=2)	//AV4B
+				{
+					int
+						NW	=ky-1>=0&&kx-1>=0		?src->data[(src->iw*(ky-1)+kx-1)<<2|kc]:0,
+						NE	=ky-1>=0&&kx+1<src->iw		?src->data[(src->iw*(ky-1)+kx+1)<<2|kc]:0,
+						SW	=ky+1<src->ih&&kx-1>=0		?src->data[(src->iw*(ky+1)+kx-1)<<2|kc]:0,
+						SE	=ky+1<src->ih&&kx+1<src->iw	?src->data[(src->iw*(ky+1)+kx+1)<<2|kc]:0;
+					int pred=(NW+NE+SW+SE+2)>>2;
+
+					int *curr=src->data+((src->iw*ky+kx)<<2|kc);
+					*curr=(*curr+pred)<<(32-src->depth[kc])>>(32-src->depth[kc]);
+				}
+			}
+			for(int ky=1;ky<src->ih;ky+=2)
+			{
+				for(int kx=0;kx<src->iw;kx+=2)	//AV12A
+				{
+					int
+						N	=ky-1>=0			?src->data[(src->iw*(ky-1)+kx+0)<<2|kc]:0,
+						W	=kx-1>=0			?src->data[(src->iw*(ky+0)+kx-1)<<2|kc]:0,
+						S	=ky+1<src->ih			?src->data[(src->iw*(ky+1)+kx+0)<<2|kc]:0,
+						E	=kx+1<src->iw			?src->data[(src->iw*(ky+0)+kx+1)<<2|kc]:0,
+						NNW	=ky-2>=0&&kx-1>=0		?src->data[(src->iw*(ky-2)+kx-1)<<2|kc]:0,
+						NNE	=ky-2>=0&&kx+1<src->iw		?src->data[(src->iw*(ky-2)+kx+1)<<2|kc]:0,
+						NWW	=ky-1>=0&&kx-2>=0		?src->data[(src->iw*(ky-1)+kx-2)<<2|kc]:0,
+						NEE	=ky-1>=0&&kx+2<src->iw		?src->data[(src->iw*(ky-1)+kx+2)<<2|kc]:0,
+						SWW	=ky+1<src->ih&&kx-2>=0		?src->data[(src->iw*(ky+1)+kx-2)<<2|kc]:0,
+						SEE	=ky+1<src->ih&&kx+2<src->iw	?src->data[(src->iw*(ky+1)+kx+2)<<2|kc]:0,
+						SSW	=ky+2<src->ih&&kx-1>=0		?src->data[(src->iw*(ky+2)+kx-1)<<2|kc]:0,
+						SSE	=ky+2<src->ih&&kx+1<src->iw	?src->data[(src->iw*(ky+2)+kx+1)<<2|kc]:0;
+					int vmax=N, vmin=W;
+					if(N<W)vmin=N, vmax=W;
+					if(vmin>S)vmin=S;
+					if(vmax<S)vmax=S;
+					if(vmin>E)vmin=E;
+					if(vmax<E)vmax=E;
+					int pred=(6*(N+W+S+E)-(NNW+NNE+NWW+NEE+SWW+SEE+SSW+SSE)+8)>>4;
+					CLAMP2(pred, vmin, vmax);
+
+					int *curr=src->data+((src->iw*ky+kx)<<2|kc);
+					*curr=(*curr+pred)<<(32-src->depth[kc])>>(32-src->depth[kc]);
+				}
+			}
+			for(int ky=0;ky<src->ih;ky+=2)
+			{
+				for(int kx=1;kx<src->iw;kx+=2)	//AV8
+				{
+					int
+						N	=ky-1>=0			?src->data[(src->iw*(ky-1)+kx+0)<<2|kc]:0,
+						W	=kx-1>=0			?src->data[(src->iw*(ky+0)+kx-1)<<2|kc]:0,
+						S	=ky+1<src->ih			?src->data[(src->iw*(ky+1)+kx+0)<<2|kc]:0,
+						E	=kx+1<src->iw			?src->data[(src->iw*(ky+0)+kx+1)<<2|kc]:0,
+						NW	=ky-1>=0&&kx-1>=0		?src->data[(src->iw*(ky-1)+kx-1)<<2|kc]:0,
+						NE	=ky-1>=0&&kx+1<src->iw		?src->data[(src->iw*(ky-1)+kx+1)<<2|kc]:0,
+						SW	=ky+1<src->ih&&kx-1>=0		?src->data[(src->iw*(ky+1)+kx-1)<<2|kc]:0,
+						SE	=ky+1<src->ih&&kx+1<src->iw	?src->data[(src->iw*(ky+1)+kx+1)<<2|kc]:0;
+					int pred=(3*(N+W+S+E)-(NW+NE+SW+SE)+4)>>3;
+
+					int *curr=src->data+((src->iw*ky+kx)<<2|kc);
+					*curr=(*curr+pred)<<(32-src->depth[kc])>>(32-src->depth[kc]);
+				}
+			}
+		}
+	}
+	if(fwd)
+	{
+		extern ArrayHandle transforms;
+		if(loud_transforms
+		//	&&transforms->count==1
+		)
+		{
+			int maxdepth=src->depth[0];
+			UPDATE_MAX(maxdepth, src->depth[1]);
+			UPDATE_MAX(maxdepth, src->depth[2]);
+			UPDATE_MAX(maxdepth, src->depth[3]);
+			int histsize=(int)sizeof(int)<<maxdepth;
+			int *hist=(int*)malloc(histsize);
+			if(!hist)
+			{
+				LOG_ERROR("Alloc error");
+				return;
+			}
+			double csizes[4][4]={0}, entropy[4][4]={0};
+			for(int kc=0;kc<src->nch;++kc)
+			{
+				int nlevels=1<<src->depth[kc], half=nlevels>>1, mask=nlevels-1;
+				for(int kb=0;kb<4;++kb)
+				{
+					int x0=0, y0=0;
+					switch(kb)
+					{
+					case 0:x0=1; y0=0;break;
+					case 1:x0=0; y0=1;break;
+					case 2:x0=1; y0=1;break;
+					case 3:x0=0; y0=0;break;
+					}
+					memset(hist, 0, histsize);
+					int count=0;
+					for(int ky=y0;ky<src->ih-1;ky+=2)
+					{
+						for(int kx=x0;kx<src->iw-1;kx+=2)
+						{
+							int val=src->data[(src->iw*ky+kx)<<2|kc];
+							val+=half;
+							val&=mask;
+							++hist[val];
+							++count;
+						}
+					}
+					double e=0, gain=1./count;
+					for(int ks=0;ks<nlevels;++ks)
+					{
+						int freq=hist[ks];
+						if(freq)
+							e-=freq*log2((double)freq*gain);
+					}
+					csizes[kb][kc]=e/8;
+					entropy[kb][kc]=csizes[kb][kc]*gain;
+				}
+			}
+			free(hist);
+
+			const int len=4096;
+			char *str=(char*)malloc(len);
+			int printed=0;
+			const char cnames[]="YUVA";
+			printed+=snprintf(str+printed, (size_t)len-printed-1, "T, NE, SW, SE, NW:\n");
+			double ctotal=0, etotal=0;
+			for(int kc=0;kc<src->nch;++kc)
+			{
+				for(int kb=0;kb<4;++kb)
+				{
+					etotal+=entropy[kb][kc];
+					ctotal+=csizes[kb][kc];
+				}
+			}
+			etotal/=src->nch*4;
+			printed+=snprintf(str+printed, (size_t)len-printed-1, "T %8.4lf%% %8.4lf%% %8.4lf%% %8.4lf%% %8.4lf%% %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf\n",
+				etotal*100.,
+				(entropy[0][0]+entropy[0][1]+entropy[0][2]+entropy[0][3])*100./src->nch,
+				(entropy[1][0]+entropy[1][1]+entropy[1][2]+entropy[1][3])*100./src->nch,
+				(entropy[2][0]+entropy[2][1]+entropy[2][2]+entropy[2][3])*100./src->nch,
+				(entropy[3][0]+entropy[3][1]+entropy[3][2]+entropy[3][3])*100./src->nch,
+				ctotal,
+				csizes[0][0]+csizes[0][1]+csizes[0][2]+csizes[0][3],
+				csizes[1][0]+csizes[1][1]+csizes[1][2]+csizes[1][3],
+				csizes[2][0]+csizes[2][1]+csizes[2][2]+csizes[2][3],
+				csizes[3][0]+csizes[3][1]+csizes[3][2]+csizes[3][3]
+			);
+			for(int kc=0;kc<src->nch;++kc)
+				printed+=snprintf(str+printed, (size_t)len-printed-1, "%c %8.4lf%% %8.4lf%% %8.4lf%% %8.4lf%% %8.4lf%% %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf\n",
+					cnames[kc],
+					(entropy[0][kc]+entropy[1][kc]+entropy[2][kc]+entropy[3][kc])*100./4,
+					100.*entropy[0][kc], 100.*entropy[1][kc], 100.*entropy[2][kc], 100.*entropy[3][kc],
+					csizes[0][kc]+csizes[1][kc]+csizes[2][kc]+csizes[3][kc],
+					csizes[0][kc], csizes[1][kc], csizes[2][kc], csizes[3][kc]
+				);
+			copy_to_clipboard(str, printed);
+			messagebox(MBOX_OK, "Copied to clipboard", "%s", str);
+			free(str);
+		}
+	}
+#if 0
+	int nrows=src->iw+src->ih-1;
+	for(int kd=0;kd<nrows;++kd)
+	{
+		int ky0=kd+1-src->iw, yend=kd+1;
+		if(ky0<0)
+			ky0=0;
+		if(yend>src->ih)
+			yend=src->ih;
+		for(;ky0<yend;++ky0)
+		{
+			int kx0=kd-ky0;
+			int kx=fwd?src->iw-1-kx0:kx0, ky=fwd?src->ih-1-ky0:ky0;
+
+			//"CGplus"
+#if 1
+			int jump=ky&1?-1:1;
+			jump &= (unsigned)(kx+jump)<(unsigned)src->iw && (unsigned)(ky-jump)<(unsigned)src->ih;
+			kx+=jump;
+			ky-=jump;
+			for(int kc=0;kc<src->nch;++kc)
+			{
+				int pred, vmin, vmax;
+				int
+					NW	=ky>0		&&kx>0		?src->data[(src->iw*(ky-1)+kx-1)<<2|kc]:0,
+					N	=ky>0				?src->data[(src->iw*(ky-1)+kx+0)<<2|kc]:0,
+					NE	=ky>0		&&kx<src->iw-1	?src->data[(src->iw*(ky-1)+kx+1)<<2|kc]:0,
+					W	=kx>0				?src->data[(src->iw*(ky+0)+kx-1)<<2|kc]:0,
+					SW	=ky<src->ih-1	&&kx>0		?src->data[(src->iw*(ky+1)+kx-1)<<2|kc]:0;
+				vmax=N, vmin=W;
+				if(N<W)
+					vmin=N, vmax=W;
+				pred=N+W-NW;
+				if(jump==-1)
+					pred=(2*pred+SW+NE+2)>>2;
+				CLAMP2(pred, vmin, vmax);
+
+				pred^=-fwd;
+				pred+=fwd;
+				src->data[(src->iw*ky+kx)<<2|kc]+=pred;
+			}
+#endif
+
+			//CG45
+#if 0
+			for(int kc=0;kc<src->nch;++kc)
+			{
+				int pred, vmin, vmax;
+				int
+					NW	=ky>0		&&kx>0		?src->data[(src->iw*(ky-1)+kx-1)<<2|kc]:0,
+					N	=ky>0				?src->data[(src->iw*(ky-1)+kx+0)<<2|kc]:0,
+					W	=kx>0				?src->data[(src->iw*(ky+0)+kx-1)<<2|kc]:0;
+				vmax=N, vmin=W;
+				if(N<W)
+					vmin=N, vmax=W;
+				pred=N+W-NW;
+				CLAMP2(pred, vmin, vmax);
+
+				pred^=-fwd;
+				pred+=fwd;
+				src->data[(src->iw*ky+kx)<<2|kc]+=pred;
+			}
+#endif
+		}
+	}
+#endif
+}
 void pred_CG420(Image *src, int fwd)
 {
 	int nch;
@@ -12044,7 +12384,7 @@ void dwt2d_squeeze_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_e
 	}
 }
 
-//lifting-based 8bit CDF 5/3 DWT
+//lifting-based 8bit LeGall 5/3 DWT
 static void dwt1d_cdf53_fwd(int *buffer, int count, int stride, int *b2)
 {
 	int nodd=count>>1, extraeven=count&1;
@@ -12153,7 +12493,7 @@ static void dwt1d_cdf53_fwd(int *buffer, int count, int stride, int *b2)
 	}
 #endif
 
-	//orginal CDF 5/3 DWT
+	//original CDF 5/3 DWT
 #if 1
 	even[0]-=odd[0];
 	for(int k=1;k<nodd;++k)//linear predictor (deviation from linearity)
@@ -12253,7 +12593,7 @@ static const int cdf97_coeff[]=
 	 0x07189,	// 0.4435068520439f,	//delta
 	 0x1264C,	// 1.1496043988602f,	//zeta		output gain is 1.89
 };
-static void dwt1d_u8_predict(int *odd, int *even, int nodd, int extraeven, int coeff)
+static void dwt1d_cdf97_predict(int *odd, int *even, int nodd, int extraeven, int coeff)
 {
 	even[0]+=odd[0]*coeff>>15;
 	for(int k=1;k<nodd;++k)//predict
@@ -12261,7 +12601,7 @@ static void dwt1d_u8_predict(int *odd, int *even, int nodd, int extraeven, int c
 	if(extraeven)
 		even[nodd]+=odd[nodd-1]*coeff>>15;
 }
-static void dwt1d_u8_unpredict(int *odd, int *even, int nodd, int extraeven, int coeff)
+static void dwt1d_cdf97_unpredict(int *odd, int *even, int nodd, int extraeven, int coeff)
 {
 	even[0]-=odd[0]*coeff>>15;
 	for(int k=1;k<nodd;++k)//unpredict
@@ -12269,14 +12609,14 @@ static void dwt1d_u8_unpredict(int *odd, int *even, int nodd, int extraeven, int
 	if(extraeven)
 		even[nodd]-=odd[nodd-1]*coeff>>15;
 }
-static void dwt1d_u8_update(int *odd, int *even, int nodd, int extraeven, int coeff)
+static void dwt1d_cdf97_update(int *odd, int *even, int nodd, int extraeven, int coeff)
 {
 	for(int k=0;k<nodd-!extraeven;++k)//update
 		odd[k]+=(even[k]+even[k+1])*coeff>>16;
 	if(!extraeven)
 		odd[nodd-1]+=even[nodd-1]*coeff>>15;
 }
-static void dwt1d_u8_unupdate(int *odd, int *even, int nodd, int extraeven, int coeff)
+static void dwt1d_cdf97_unupdate(int *odd, int *even, int nodd, int extraeven, int coeff)
 {
 	for(int k=0;k<nodd-!extraeven;++k)//unupdate
 		odd[k]-=(even[k]+even[k+1])*coeff>>16;
@@ -12306,11 +12646,11 @@ static void dwt1d_cdf97_fwd(int *buffer, int count, int stride, int *b2)
 	if(extraeven)
 		even[nodd]=buffer[stride*(count-1)];
 
-	dwt1d_u8_predict(odd, even, nodd, extraeven, cdf97_coeff[0]);
-	dwt1d_u8_update (odd, even, nodd, extraeven, cdf97_coeff[1]);
-	dwt1d_u8_predict(odd, even, nodd, extraeven, cdf97_coeff[2]);
-	dwt1d_u8_update (odd, even, nodd, extraeven, cdf97_coeff[3]);
-	//dwt1d_u8_scale(b2, count, cdf97_coeff[4]);
+	dwt1d_cdf97_predict(odd, even, nodd, extraeven, cdf97_coeff[0]);
+	dwt1d_cdf97_update (odd, even, nodd, extraeven, cdf97_coeff[1]);
+	dwt1d_cdf97_predict(odd, even, nodd, extraeven, cdf97_coeff[2]);
+	dwt1d_cdf97_update (odd, even, nodd, extraeven, cdf97_coeff[3]);
+//	dwt1d_cdf97_scale(b2, count, cdf97_coeff[4]);
 
 	for(int k=0, ks=0;k<count;++k, ks+=stride)
 		buffer[ks]=b2[k];
@@ -12323,11 +12663,11 @@ static void dwt1d_cdf97_inv(int *buffer, int count, int stride, int *b2)
 	for(int k=0, ks=0;k<count;++k, ks+=stride)
 		b2[k]=buffer[ks];
 	
-	//dwt1d_u8_unscale(b2, count, cdf97_coeff[4]);
-	dwt1d_u8_unupdate (odd, even, nodd, extraeven, cdf97_coeff[3]);
-	dwt1d_u8_unpredict(odd, even, nodd, extraeven, cdf97_coeff[2]);
-	dwt1d_u8_unupdate (odd, even, nodd, extraeven, cdf97_coeff[1]);
-	dwt1d_u8_unpredict(odd, even, nodd, extraeven, cdf97_coeff[0]);
+//	dwt1d_cdf97_unscale(b2, count, cdf97_coeff[4]);
+	dwt1d_cdf97_unupdate (odd, even, nodd, extraeven, cdf97_coeff[3]);
+	dwt1d_cdf97_unpredict(odd, even, nodd, extraeven, cdf97_coeff[2]);
+	dwt1d_cdf97_unupdate (odd, even, nodd, extraeven, cdf97_coeff[1]);
+	dwt1d_cdf97_unpredict(odd, even, nodd, extraeven, cdf97_coeff[0]);
 
 	for(int k=0, ks=0;k<nodd;++k, ks+=stride<<1)//inv lazy wavelet: join even & odd
 	{

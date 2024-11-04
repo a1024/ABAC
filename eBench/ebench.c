@@ -103,6 +103,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_MTF,		ST_INV_MTF,
 	ST_FWD_AV2,		ST_INV_AV2,
 	ST_FWD_CLAMPGRAD,	ST_INV_CLAMPGRAD,
+	ST_FWD_CGPLUS,		ST_INV_CGPLUS,
 	ST_FWD_CG3D,		ST_INV_CG3D,
 	ST_FWD_PU,		ST_INV_PU,
 	ST_FWD_CG422,		ST_INV_CG422,
@@ -113,6 +114,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_WGRAD3,		ST_INV_WGRAD3,
 	ST_FWD_WGRAD4,		ST_INV_WGRAD4,
 	ST_FWD_WGRAD5,		ST_INV_WGRAD5,
+	ST_FWD_WMIX,		ST_INV_WMIX,
 	ST_FWD_T47,		ST_INV_T47,
 	ST_FWD_P3,		ST_INV_P3,
 	ST_FWD_G2,		ST_INV_G2,
@@ -1336,11 +1338,11 @@ static void batch_test(void)
 {
 	const char *ext[]=
 	{
+		"PPM", "PGM", "PNM",
 		"PNG",
-		"JPG",
-		"JPEG",
-		"PPM",
-		"PGM",
+		"JPG", "JPEG",
+		"BMP",
+		"TIF", "TIFF",
 	};
 	ArrayHandle path, filenames, q;
 	int nthreads, maxlen;
@@ -1685,6 +1687,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_CG3D:		a="CS Inv CG3D";		break;
 	case ST_FWD_CLAMPGRAD:		a=" S Fwd ClampGrad";		break;
 	case ST_INV_CLAMPGRAD:		a=" S Inv ClampGrad";		break;
+	case ST_FWD_CGPLUS:		a=" S Fwd CGplus";		break;
+	case ST_INV_CGPLUS:		a=" S Inv CGplus";		break;
 	case ST_FWD_CG422:		a=" S Fwd CG422";		break;
 	case ST_INV_CG422:		a=" S Inv CG422";		break;
 	case ST_FWD_CG420:		a=" S Fwd CG420";		break;
@@ -1705,6 +1709,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_WGRAD4:		a=" S Inv WGrad4";		break;
 	case ST_FWD_WGRAD5:		a=" S Fwd WGrad5";		break;
 	case ST_INV_WGRAD5:		a=" S Inv WGrad5";		break;
+	case ST_FWD_WMIX:		a=" S Fwd WMIX";		break;
+	case ST_INV_WMIX:		a=" S Inv WMIX";		break;
 	case ST_FWD_TABLE:		a=" S Fwd Table";		break;
 	case ST_INV_TABLE:		a=" S Inv Table";		break;
 	case ST_FWD_LWAV:		a=" S Fwd LWAV";		break;
@@ -2821,6 +2827,8 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_INV_CG3D:		pred_CG3D(image, 0, pred_ma_enabled);			break;
 	case ST_FWD_CLAMPGRAD:		pred_clampgrad(image, 1, pred_ma_enabled);		break;
 	case ST_INV_CLAMPGRAD:		pred_clampgrad(image, 0, pred_ma_enabled);		break;
+	case ST_FWD_CGPLUS:		pred_cgplus(image, 1);					break;
+	case ST_INV_CGPLUS:		pred_cgplus(image, 0);					break;
 	case ST_FWD_CG422:		pred_CG422(image, 1);					break;
 	case ST_INV_CG422:		pred_CG422(image, 0);					break;
 	case ST_FWD_CG420:		pred_CG420(image, 1);					break;
@@ -2841,6 +2849,8 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_INV_WGRAD4:		pred_wgrad4(image, 0);					break;
 	case ST_FWD_WGRAD5:		pred_wgrad5(image, 1);					break;
 	case ST_INV_WGRAD5:		pred_wgrad5(image, 0);					break;
+	case ST_FWD_WMIX:		pred_wmix(image, 1);					break;
+	case ST_INV_WMIX:		pred_wmix(image, 0);					break;
 	case ST_FWD_TABLE:		pred_table(image, 1);					break;
 	case ST_INV_TABLE:		pred_table(image, 0);					break;
 	case ST_FWD_LWAV:		pred_lwav(image, 1);					break;
@@ -2954,6 +2964,95 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 			}
 			array_free(&sizes);
 			free(temp);
+			if(loud_transforms
+			//	&&transforms->count==1
+			)
+			{
+				int maxdepth=image->depth[0];
+				UPDATE_MAX(maxdepth, image->depth[1]);
+				UPDATE_MAX(maxdepth, image->depth[2]);
+				UPDATE_MAX(maxdepth, image->depth[3]);
+				int histsize=(int)sizeof(int)<<maxdepth;
+				int *hist=(int*)malloc(histsize);
+				if(!hist)
+				{
+					LOG_ERROR("Alloc error");
+					return;
+				}
+				double csizes[3][4]={0}, entropy[3][4]={0};
+				for(int kc=0;kc<image->nch;++kc)
+				{
+					int nlevels=1<<image->depth[kc], half=nlevels>>1, mask=nlevels-1;
+					for(int kb=0;kb<3;++kb)
+					{
+						int x1=0, x2=0, y1=0, y2=0;
+						switch(kb)
+						{
+						case 0:x1=image->iw>>1, x2=image->iw, y1=0, y2=image->ih>>1;break;
+						case 1:x1=0, x2=image->iw>>1, y1=image->ih>>1, y2=image->ih;break;
+						case 2:x1=image->iw>>1, x2=image->iw, y1=image->ih>>1, y2=image->ih;break;
+						}
+						memset(hist, 0, histsize);
+						for(int ky=y1;ky<y2;++ky)
+						{
+							for(int kx=x1;kx<x2;++kx)
+							{
+								int val=image->data[(image->iw*ky+kx)<<2|kc];
+								val+=half;
+								val&=mask;
+								++hist[val];
+							}
+						}
+						double e=0, gain=1./((x2-x1)*(y2-y1));
+						for(int ks=0;ks<nlevels;++ks)
+						{
+							int freq=hist[ks];
+							if(freq)
+								e-=freq*log2((double)freq*gain);
+						}
+						csizes[kb][kc]=e/8;
+						entropy[kb][kc]=csizes[kb][kc]*gain;
+					}
+				}
+				free(hist);
+
+				const int len=4096;
+				char *str=(char*)malloc(len);
+				int printed=0;
+				const char cnames[]="YUVA";
+				printed+=snprintf(str+printed, (size_t)len-printed-1, "T, NE, SW, SE:\n");
+				double etotal=0, ctotal=0;
+				for(int kc=0;kc<image->nch;++kc)
+				{
+					for(int kb=0;kb<3;++kb)
+					{
+						etotal+=entropy[kb][kc];
+						ctotal+=csizes[kb][kc];
+					}
+				}
+				etotal/=image->nch*3;
+				printed+=snprintf(str+printed, (size_t)len-printed-1, "T %8.4lf%% %8.4lf%% %8.4lf%% %8.4lf%% %12.2lf %12.2lf %12.2lf %12.2lf\n",
+					etotal*100.,
+					(entropy[0][0]+entropy[0][1]+entropy[0][2]+entropy[0][3])*100./image->nch,
+					(entropy[1][0]+entropy[1][1]+entropy[1][2]+entropy[1][3])*100./image->nch,
+					(entropy[2][0]+entropy[2][1]+entropy[2][2]+entropy[2][3])*100./image->nch,
+					ctotal,
+					csizes[0][0]+csizes[0][1]+csizes[0][2]+csizes[0][3],
+					csizes[1][0]+csizes[1][1]+csizes[1][2]+csizes[1][3],
+					csizes[2][0]+csizes[2][1]+csizes[2][2]+csizes[2][3]
+				);
+				for(int kc=0;kc<image->nch;++kc)
+					printed+=snprintf(str+printed, (size_t)len-printed-1, "%c %8.4lf%% %8.4lf%% %8.4lf%% %8.4lf%% %12.2lf %12.2lf %12.2lf %12.2lf\n",
+						cnames[kc],
+						(entropy[0][kc]+entropy[1][kc]+entropy[2][kc])*100./3,
+						entropy[0][kc]*100., entropy[1][kc]*100., entropy[2][kc]*100.,
+						csizes[0][kc]+csizes[1][kc]+csizes[2][kc],
+						csizes[0][kc], csizes[1][kc], csizes[2][kc]
+					);
+				copy_to_clipboard(str, printed);
+				messagebox(MBOX_OK, "Copied to clipboard", "%s", str);
+				free(str);
+			}
 		}
 		break;
 //	case ST_FWD_DEC_DWT:   dwt2d_dec_fwd((char*)image, iw, ih);	break;
@@ -4664,7 +4763,7 @@ int io_keydn(IOKey key, char c)
 			{
 				const char *ext[]=
 				{
-					"PPM", "PGM",
+					"PPM", "PGM", "PNM",
 					"PNG",
 					"JPG", "JPEG",
 					"BMP",
@@ -4679,7 +4778,7 @@ int io_keydn(IOKey key, char c)
 					if(path->data[k]=='/'||path->data[k]=='\\')
 					{
 						path->data[k+1]=0;
-						path->count=k+1;
+						path->count=(size_t)k+1;
 						break;
 					}
 				}
