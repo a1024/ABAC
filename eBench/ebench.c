@@ -1126,6 +1126,116 @@ static void calc_csize_stateful(Image const *image, int *hist_full, double *entr
 			free(hist_full);
 		//channel_entropy(image, iw*ih, 3, 4, ch_cr, usage);
 	}
+	else if(ec_method==ECTX_DWT)
+	{
+		int maxdepth=image->depth[0];
+		UPDATE_MAX(maxdepth, image->depth[1]);
+		UPDATE_MAX(maxdepth, image->depth[2]);
+		UPDATE_MAX(maxdepth, image->depth[3]);
+		int histsize=(int)sizeof(int)<<maxdepth;
+		int *hist=(int*)malloc(histsize);
+		if(!hist)
+		{
+			LOG_ERROR("Alloc error");
+			return;
+		}
+		double e8[4][4]={0};
+		for(int kc=0;kc<image->nch;++kc)
+		{
+			int nlevels=1<<image->depth[kc], half=nlevels>>1, mask=nlevels-1;
+			for(int kb=0;kb<4;++kb)
+			{
+				int x1=0, x2=0, y1=0, y2=0;
+				switch(kb)
+				{
+				case 0:x1=image->iw>>1, x2=image->iw, y1=0, y2=image->ih>>1;break;
+				case 1:x1=0, x2=image->iw>>1, y1=image->ih>>1, y2=image->ih;break;
+				case 2:x1=image->iw>>1, x2=image->iw, y1=image->ih>>1, y2=image->ih;break;
+				case 3:x1=0, x2=image->iw>>1, y1=0, y2=image->ih>>1;break;
+				}
+				memset(hist, 0, histsize);
+				for(int ky=y1;ky<y2;++ky)
+				{
+					for(int kx=x1;kx<x2;++kx)
+					{
+						int val=image->data[(image->iw*ky+kx)<<2|kc];
+						val+=half;
+						val&=mask;
+						++hist[val];
+					}
+				}
+				double e=0, gain=1./((x2-x1)*(y2-y1));
+				for(int ks=0;ks<nlevels;++ks)
+				{
+					int freq=hist[ks];
+					if(freq)
+						e-=freq*log2((double)freq*gain);
+				}
+				e8[kb][kc]=e*gain;
+			}
+		}
+		free(hist);
+		entropy[0]=(e8[0][0]+e8[1][0]+e8[2][0]+e8[3][0])/4;
+		entropy[1]=(e8[0][1]+e8[1][1]+e8[2][1]+e8[3][1])/4;
+		entropy[2]=(e8[0][2]+e8[1][2]+e8[2][2]+e8[3][2])/4;
+		entropy[3]=(e8[0][3]+e8[1][3]+e8[2][3]+e8[3][3])/4;
+	}
+	else if(ec_method==ECTX_INTERLEAVED)
+	{
+		int maxdepth=image->depth[0];
+		UPDATE_MAX(maxdepth, image->depth[1]);
+		UPDATE_MAX(maxdepth, image->depth[2]);
+		UPDATE_MAX(maxdepth, image->depth[3]);
+		int histsize=(int)sizeof(int)<<maxdepth;
+		int *hist=(int*)malloc(histsize);
+		if(!hist)
+		{
+			LOG_ERROR("Alloc error");
+			return;
+		}
+		double e8[4][4]={0};
+		for(int kc=0;kc<image->nch;++kc)
+		{
+			int nlevels=1<<image->depth[kc], half=nlevels>>1, mask=nlevels-1;
+			for(int kb=0;kb<4;++kb)
+			{
+				int x0=0, y0=0;
+				int count=0;
+				switch(kb)
+				{
+				case 0:x0=1; y0=0;break;
+				case 1:x0=0; y0=1;break;
+				case 2:x0=1; y0=1;break;
+				case 3:x0=0; y0=0;break;
+				}
+				memset(hist, 0, histsize);
+				for(int ky=y0;ky<image->ih-1;ky+=2)
+				{
+					for(int kx=x0;kx<image->iw-1;kx+=2)
+					{
+						int val=image->data[(image->iw*ky+kx)<<2|kc];
+						val+=half;
+						val&=mask;
+						++hist[val];
+						++count;
+					}
+				}
+				double e=0, gain=1./count;
+				for(int ks=0;ks<nlevels;++ks)
+				{
+					int freq=hist[ks];
+					if(freq)
+						e-=freq*log2((double)freq*gain);
+				}
+				e8[kb][kc]=e*gain;
+			}
+		}
+		free(hist);
+		entropy[0]=(e8[0][0]+e8[1][0]+e8[2][0]+e8[3][0])/4;
+		entropy[1]=(e8[0][1]+e8[1][1]+e8[2][1]+e8[3][1])/4;
+		entropy[2]=(e8[0][2]+e8[1][2]+e8[2][2]+e8[3][2])/4;
+		entropy[3]=(e8[0][3]+e8[1][3]+e8[2][3]+e8[3][3])/4;
+	}
 	else if(ec_method==ECTX_ABAC)
 		calc_csize_abac(image, entropy);
 	else if(ec_method==ECTX_YUV422||ec_method==ECTX_YUV420)
@@ -2964,6 +3074,7 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 			}
 			array_free(&sizes);
 			free(temp);
+#if 0
 			if(loud_transforms
 			//	&&transforms->count==1
 			)
@@ -3053,6 +3164,7 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 				messagebox(MBOX_OK, "Copied to clipboard", "%s", str);
 				free(str);
 			}
+#endif
 		}
 		break;
 //	case ST_FWD_DEC_DWT:   dwt2d_dec_fwd((char*)image, iw, ih);	break;

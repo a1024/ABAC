@@ -2923,6 +2923,7 @@ void pred_cgplus(Image *src, int fwd)
 			}
 		}
 	}
+#if 0
 	if(fwd)
 	{
 		extern ArrayHandle transforms;
@@ -3021,6 +3022,7 @@ void pred_cgplus(Image *src, int fwd)
 			free(str);
 		}
 	}
+#endif
 #if 0
 	int nrows=src->iw+src->ih-1;
 	for(int kd=0;kd<nrows;++kd)
@@ -13953,11 +13955,13 @@ const char* ec_method_label(EContext ec_method)
 	switch(ec_method)
 	{
 #define CASE(L) case L:label=#L;break;
-	CASE(ECTX_HIST)
-	CASE(ECTX_ABAC)
 	CASE(ECTX_ZERO)
+	CASE(ECTX_HIST)
+	CASE(ECTX_DWT)
+	CASE(ECTX_INTERLEAVED)
 	CASE(ECTX_YUV422)
 	CASE(ECTX_YUV420)
+	CASE(ECTX_ABAC)
 	CASE(ECTX_QNW)
 	CASE(ECTX_MIN_QN_QW)
 	CASE(ECTX_MAX_QN_QW)
@@ -14062,6 +14066,8 @@ void calc_csize_ec(Image const *src, EContext method, int adaptive, int expbits,
 	int (*const getctx[])(const int *nb, int expbits, int msb, int lsb)=
 	{
 		getctx_zero,
+		getctx_zero,//unused
+		getctx_zero,//unused
 		getctx_zero,//unused
 		getctx_zero,//unused
 		getctx_zero,//unused
