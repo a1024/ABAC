@@ -93,6 +93,7 @@ typedef enum TransformTypeEnum
 
 	CST_COMPARE,		CST_INV_SEPARATOR,
 	
+	ST_CONVTEST,		ST_CONVTEST2,
 	ST_FILT_MEDIAN33,	ST_FILT_AV33,
 	ST_FILT_DEINT422,	ST_FILT_DEINT420,
 
@@ -1607,6 +1608,7 @@ static int customtransforms_getflag(unsigned char tid)
 		tid==CT_INV_CUSTOM||
 		tid==ST_FWD_CUSTOM||
 		tid==ST_INV_CUSTOM||
+		tid==ST_CONVTEST||
 		tid==ST_FWD_CC||
 		tid==ST_INV_CC;
 	//	tid==ST_FWD_WP||
@@ -2865,6 +2867,8 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_INV_CUSTOM3:		custom3_apply(image, 0, pred_ma_enabled, &c3_params);	break;
 	case ST_FWD_CUSTOM:		pred_custom(image, 1, pred_ma_enabled, custom_params);	break;
 	case ST_INV_CUSTOM:		pred_custom(image, 0, pred_ma_enabled, custom_params);	break;
+	case ST_CONVTEST:		pred_convtest(image);					break;
+	case ST_CONVTEST2:		pred_convtest(image);					break;
 	case ST_FWD_CC:			conv_custom(image);					break;
 	case ST_INV_CC:			conv_custom(image);					break;
 //	case ST_FWD_CUSTOM4:		custom4_apply((char*)image, iw, ih, 1, &c4_params);	break;
@@ -4266,6 +4270,7 @@ int io_mousewheel(int forward)
 				break;
 			case 1://spatial transform params
 				if(!transforms_mask[ST_FWD_CUSTOM]&&!transforms_mask[ST_INV_CUSTOM]
+					&&!transforms_mask[ST_CONVTEST]&&!transforms_mask[ST_CONVTEST2]
 					&&!transforms_mask[ST_FWD_CC]&&!transforms_mask[ST_INV_CC]
 				//	&&!transforms_mask[ST_FWD_OLS6]&&!transforms_mask[ST_INV_OLS6]
 				)
@@ -7431,6 +7436,7 @@ void io_render(void)
 		}
 		if(
 			transforms_mask[ST_FWD_CUSTOM]||transforms_mask[ST_INV_CUSTOM]
+			||transforms_mask[ST_CONVTEST]||transforms_mask[ST_CONVTEST2]
 			||transforms_mask[ST_FWD_CC]||transforms_mask[ST_INV_CC]
 		//	||transforms_mask[ST_FWD_OLS6]||transforms_mask[ST_INV_OLS6]
 		)

@@ -34,10 +34,12 @@ extern "C"
 #ifdef _MSC_VER
 #define	ALIGN(N) __declspec(align(N))
 #define INLINE static
+#define FORCE_INLINE __forceinline static
 //#define sprintf_s snprintf
 #else
 #define	ALIGN(N) __attribute__((aligned(N)))
 #define INLINE static inline
+#define FORCE_INLINE __attribute__((always_inline)) inline static
 #ifndef _countof
 #define _countof(A) (sizeof(A)/sizeof(*(A)))
 #endif
@@ -157,6 +159,26 @@ extern "C"
 		__m128i _b_=_mm_cvttpd_epi32(_a_);\
 		_mm_store_si128((__m128i*)_c_, _b_);\
 		DST=_c_[0];\
+	}while(0)
+
+#define IDIV23(DST, NUM, DEN)\
+	do\
+	{\
+		__m128 mnum=_mm_set_ss((float)NUM);\
+		__m128 mden=_mm_set_ss((float)DEN);\
+		mnum=_mm_div_ss(mnum, mden);\
+		__m128i result=_mm_cvtps_epi32(mnum);\
+		DST=_mm_extract_epi32(result, 0);\
+	}while(0)
+
+#define IDIV52(DST, NUM, DEN)\
+	do\
+	{\
+		__m128d mnum=_mm_set_sd((double)NUM);\
+		__m128d mden=_mm_set_sd((double)DEN);\
+		mnum=_mm_div_sd(mnum, mden);\
+		__m128i result=_mm_cvtpd_epi32(mnum);\
+		DST=_mm_extract_epi32(result, 0);\
 	}while(0)
 
 #define MOVEOBJ(SRC, DST, SIZE) memcpy(DST, SRC, SIZE), memset(SRC, 0, SIZE)

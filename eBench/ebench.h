@@ -739,6 +739,7 @@ void pred_wgrad4(Image *src, int fwd);
 void pred_wgrad5(Image *src, int fwd);
 void pred_wmix(Image *src, int fwd);
 void pred_table(Image *src, int fwd);
+void pred_convtest(Image *src);
 void pred_lwav(Image *src, int fwd);
 void pred_WPU(Image *src, int fwd);
 

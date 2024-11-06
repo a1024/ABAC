@@ -9583,6 +9583,108 @@ void conv_custom(Image *src)
 	}
 	free(dst);
 }
+void pred_convtest(Image *src)
+{
+	int fwd=0;
+
+	int bufsize=(src->iw+16)*(int)sizeof(int[4*4*2]);//4 padded rows * 4 channels max * {pixel, pred}
+	int *pixels=(int*)malloc(bufsize);
+	if(!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(pixels, 0, bufsize);
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		ALIGN(16) int *rows[]=
+		{
+			pixels+((src->iw+16LL)*((ky-0LL)&3)+8LL)*4*2,
+			pixels+((src->iw+16LL)*((ky-1LL)&3)+8LL)*4*2,
+			pixels+((src->iw+16LL)*((ky-2LL)&3)+8LL)*4*2,
+			pixels+((src->iw+16LL)*((ky-3LL)&3)+8LL)*4*2,
+		};
+		for(int kx=0;kx<src->iw;++kx, ++idx)
+		{
+			for(int kc=0;kc<3;++kc)//there are params only for 3 channels in CUSTOM predictor
+			{
+				int nlevels=1<<src->depth[kc];
+				if(!src->depth[kc])
+					continue;
+				int nb[CUSTOM_NNB*2]=
+				{
+					rows[2][kc-2*8+0], rows[2][kc-2*8+4],
+					rows[2][kc-1*8+0], rows[2][kc-1*8+4],
+					rows[2][kc+0*8+0], rows[2][kc+0*8+4],
+					rows[2][kc+1*8+0], rows[2][kc+1*8+4],
+					rows[2][kc+2*8+0], rows[2][kc+2*8+4],
+					rows[1][kc-2*8+0], rows[1][kc-2*8+4],
+					rows[1][kc-1*8+0], rows[1][kc-1*8+4],
+					rows[1][kc+0*8+0], rows[1][kc+0*8+4],
+					rows[1][kc+1*8+0], rows[1][kc+1*8+4],
+					rows[1][kc+2*8+0], rows[1][kc+2*8+4],
+					rows[0][kc-2*8+0], rows[0][kc-2*8+4],
+					rows[0][kc-1*8+0], rows[0][kc-1*8+4],
+				};
+				int clamp_idx[]={22, 12, 14, 16};//W NW N NE
+				int vmin, vmax, uninitialized;
+				long long pred;
+				int curr=!(kx&63)&&!(ky&63)?64:0;
+				//int curr=(kx+ky/2)&(kx/2+ky)&255?-64:64;
+				//int curr=(255&-!(ky&kx&255))-128;
+				//if(curr==127)
+				//	printf("");
+				//int curr=(255&-!((ky+kx)&(ky-kx)&63))-128;//serpinski triangle
+				//int curr=src->data[idx<<2|kc];
+
+				vmin=-(nlevels>>1);
+				vmax=(nlevels>>1);
+				uninitialized=1;
+				for(int k=0;k<4;++k)
+				{
+					if(custom_clamp[k])
+					{
+						int val=nb[clamp_idx[k]];
+						if(uninitialized)
+						{
+							vmin=val;
+							vmax=val;
+							uninitialized=0;
+						}
+						else
+						{
+							UPDATE_MIN(vmin, val);
+							UPDATE_MAX(vmax, val);
+						}
+					}
+				}
+
+				pred=0;
+				for(int k=0;k<CUSTOM_NNB*2;++k)
+					pred+=(long long)nb[k]*custom_params[k];
+				//	pred+=(long long)nb[k]*custom_params[kc*CUSTOM_NNB*2+k];
+				pred+=1LL<<15;
+				pred>>=16;
+				pred=CLAMP(vmin, pred, vmax);
+
+				rows[0][kc+4*!fwd]=curr;
+				pred^=-fwd;
+				pred+=fwd;
+				pred+=(long long)curr;
+				//pred+=(long long)dst->data[(size_t)idx<<2|kc];
+				pred<<=32-src->depth[kc];
+				pred>>=32-src->depth[kc];
+				src->data[idx<<2|kc]=(int)pred;
+				rows[0][kc+4* fwd]=(int)pred;
+			}
+			rows[0]+=8;
+			rows[1]+=8;
+			rows[2]+=8;
+			rows[3]+=8;
+		}
+	}
+	free(pixels);
+}
 
 
 

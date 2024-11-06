@@ -619,9 +619,10 @@ void c18_analyze(Image const *src, int x1, int x2, int y1, int y2, C18Info *info
 	for(int kc=0;kc<OCH_COUNT;++kc)//select best predictors
 	{
 		int bestpred=0;
+		const double *curr_esizes=info->esizes+kc*PRED_COUNT;
 		for(int kp=1;kp<PRED_COUNT;++kp)
 		{
-			if(info->esizes[kc*PRED_COUNT+bestpred]>info->esizes[kc*PRED_COUNT+kp])
+			if(curr_esizes[bestpred]>curr_esizes[kp])
 				bestpred=kp;
 		}
 		predsel[kc]=bestpred;
