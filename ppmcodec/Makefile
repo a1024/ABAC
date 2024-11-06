@@ -106,3 +106,18 @@ c20:
 
 c21:
 	gcc -O3 -Wall -DCODEC_FUNC=c21_codec -mavx2 -mbmi -mlzcnt  c21.c codec.c util.c  -o c21 $(LIBS)
+
+c22:
+	gcc -O3 -Wall -Ihtscodecs -DCODEC_FUNC=c22_codec -mavx2 -mbmi -mlzcnt  c22.c codec.c util.c  -o c22 $(LIBS) \
+	htscodecs/arith_dynamic.c \
+	htscodecs/fqzcomp_qual.c \
+	htscodecs/htscodecs.c \
+	htscodecs/pack.c \
+	htscodecs/rANS_static.c \
+	htscodecs/rANS_static4x16pr.c \
+	htscodecs/rANS_static32x16pr.c \
+	htscodecs/rANS_static32x16pr_avx2.c \
+	htscodecs/rANS_static32x16pr_sse4.c \
+	htscodecs/rle.c \
+	htscodecs/tokenise_name3.c \
+	htscodecs/utils.c

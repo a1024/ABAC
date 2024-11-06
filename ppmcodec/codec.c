@@ -155,17 +155,17 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/kodim13.c18"
 	//	"D:/ML/dataset-kodak-ppm/kodim13.c18"
 		;
-	c20_codec("D:/ML/kodim13.ppm", "D:/ML/kodim13.lsim");
-	c20_codec("D:/ML/kodim13.lsim", "D:/ML/kodim13_dec.ppm");
+	c22_codec("D:/ML/kodim13.ppm", "D:/ML/kodim13.lsim");
+	c22_codec("D:/ML/kodim13.lsim", "D:/ML/kodim13_dec.ppm");
 
-//	c20_codec("D:/ML/kodim24.ppm", "D:/ML/kodim24.lsim");
-//	c20_codec("D:/ML/kodim24.lsim", "D:/ML/kodim24_dec.ppm");
+//	c22_codec("D:/ML/kodim24.ppm", "D:/ML/kodim24.lsim");
+//	c22_codec("D:/ML/kodim24.lsim", "D:/ML/kodim24_dec.ppm");
 
-//	c19_codec("C:/dataset-CLIC303-ppm/2048x1320_zugr-108.ppm",	"C:/dataset-a-temp/mystery.lsim");
-//	c19_codec("C:/dataset-a-temp/mystery.lsim",			"C:/dataset-a-temp2/mystery.ppm");
+//	c22_codec("C:/dataset-CLIC303-ppm/2048x1320_zugr-108.ppm",	"D:/ML/mystery.lsim");
+//	c22_codec("D:/ML/mystery.lsim",					"D:/ML/mystery.ppm");
 
-//	c20_codec("C:/dataset-HUGE-ppm/space_huge.ppm", "C:/dataset-HUGE-ppm/space_huge.lsim");
-//	c20_codec("C:/dataset-HUGE-ppm/space_huge.lsim", "C:/dataset-HUGE-ppm/space_huge_dec.ppm");
+//	c22_codec("C:/dataset-HUGE-ppm/space_huge.ppm", "C:/dataset-HUGE-ppm/space_huge.lsim");
+//	c22_codec("C:/dataset-HUGE-ppm/space_huge.lsim", "C:/dataset-HUGE-ppm/space_huge_dec.ppm");
 
 //	c15_codec("D:/ML/kodim13.ppm", "D:/ML/kodim13.lsim");
 //	c15_codec("D:/ML/kodim13.lsim", "D:/ML/kodim13_dec.ppm");

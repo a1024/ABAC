@@ -23,6 +23,7 @@ add_executable (codec
 	c19.c
 	c20.c
 	c21.c
+	c22.c
 	codec.c
 	util.c
 

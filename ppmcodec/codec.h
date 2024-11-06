@@ -34,13 +34,14 @@ int c11_codec(const char *srcfn, const char *dstfn);//SubG CG o0 disk nibble AC 
 int c12_codec(const char *srcfn, const char *dstfn);//SubG CG o0 disk binary AC ST
 int c13_codec(const char *srcfn, const char *dstfn);//MT WG4_12
 int c14_codec(const char *srcfn, const char *dstfn);//MT WG4_8 binary AC
-int c15_codec(const char *srcfn, const char *dstfn);//ST WG4_8 symbol AC o0
+int c15_codec(const char *srcfn, const char *dstfn);//MT WG4_8 binary AC
 int c16_codec(const char *srcfn, const char *dstfn);//ST SubG CG AC o0 separate loops
 int c17_codec(const char *srcfn, const char *dstfn);//ST SubPrev GR (speed test)
 int c18_codec(const char *srcfn, const char *dstfn);//MT SubG AC/GR
 int c19_codec(const char *srcfn, const char *dstfn);//ST CG3D static o0 AC		C10 is better
-int c20_codec(const char *srcfn, const char *dstfn);//ST CG3D binary o0 AC
-int c21_codec(const char *srcfn, const char *dstfn);//ST  deferred WP  snapshot-CDF  AVX2 RC 12 prob bits
+int c20_codec(const char *srcfn, const char *dstfn);//ST/MT AVX2 4A4 static o1 rANS
+int c21_codec(const char *srcfn, const char *dstfn);//ST  deferred WP  snapshot-CDF  AVX2 AC/RC 12 prob bits
+int c22_codec(const char *srcfn, const char *dstfn);//ST/MT AVX2
 
 	
 #ifdef __cplusplus
