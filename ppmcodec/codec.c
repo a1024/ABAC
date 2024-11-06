@@ -164,6 +164,9 @@ int main(int argc, char **argv)
 //	c22_codec("C:/dataset-CLIC303-ppm/2048x1320_zugr-108.ppm",	"D:/ML/mystery.lsim");
 //	c22_codec("D:/ML/mystery.lsim",					"D:/ML/mystery.ppm");
 
+//	c22_codec("C:/dataset-a70-ppm/20240816_113656_966.ppm",	"D:/ML/mystery.lsim");
+//	c22_codec("D:/ML/mystery.lsim",				"D:/ML/mystery.ppm");
+
 //	c22_codec("C:/dataset-HUGE-ppm/space_huge.ppm", "C:/dataset-HUGE-ppm/space_huge.lsim");
 //	c22_codec("C:/dataset-HUGE-ppm/space_huge.lsim", "C:/dataset-HUGE-ppm/space_huge_dec.ppm");
 

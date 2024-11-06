@@ -14,7 +14,7 @@ static const char file[]=__FILE__;
 
 //	#define LOUD
 
-//	#define ENABLE_MT
+	#define ENABLE_MT
 //	#define ENABLE_GUIDE
 
 	#define ENABLE_FASTANALYSIS	//LPCB 3~14% faster, 0.04% larger than entropy	good
@@ -806,7 +806,7 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				__m256i NE0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]+1));
 				__m256i NE1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]+1));
 				__m256i NE2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]+1));
-				__m256i mp0=_mm256_slli_epi16(N0, 1);//(10*N+3*(NW+NE)+8)>>4
+				__m256i mp0=_mm256_slli_epi16(N0, 1);//(2*N+NW+NE+2)>>2
 				__m256i mp1=_mm256_slli_epi16(N1, 1);
 				__m256i mp2=_mm256_slli_epi16(N2, 1);
 				mp0=_mm256_add_epi16(mp0, NW0);
@@ -1129,74 +1129,74 @@ int c20_codec(const char *srcfn, const char *dstfn)
 		ptime=time_sec();
 #endif
 		//interleave |yyyy yyyy yyyy yyyy|uuuu uuuu uuuu uuuu|vvvv vvvv vvvv vvvv| -> |rgbr gbrg brgb rgbr|gbrg brgb rgbr gbrg|brgb rgbr gbrg brgb| (in order):
-		__m128i sety0=_mm_set_epi8(
+		__m128i setr0=_mm_set_epi8(
 		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
 		//	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 15, 12,  9,  6,  3,  0
 			 5, -1, -1,  4, -1, -1,  3, -1, -1,  2, -1, -1,  1, -1, -1,  0
 		);
-		__m128i sety1=_mm_set_epi8(
+		__m128i setr1=_mm_set_epi8(
 		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
 		//	-1, -1, -1, -1, -1, 14, 11,  8,  5,  2, -1, -1, -1, -1, -1, -1
 			-1, 10, -1, -1,  9, -1, -1,  8, -1, -1,  7, -1, -1,  6, -1, -1
 		);
-		__m128i sety2=_mm_set_epi8(
+		__m128i setr2=_mm_set_epi8(
 		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
 		//	13, 10,  7,  4,  1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
 			-1, -1, 15, -1, -1, 14, -1, -1, 13, -1, -1, 12, -1, -1, 11, -1
 		);
-		__m128i setu0=_mm_set_epi8(
+		__m128i setg0=_mm_set_epi8(
 		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
 		//	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 13, 10,  7,  4,  1
 			-1, -1,  4, -1, -1,  3, -1, -1,  2, -1, -1,  1, -1, -1,  0, -1
 		);
-		__m128i setu1=_mm_set_epi8(
+		__m128i setg1=_mm_set_epi8(
 		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
 		//	-1, -1, -1, -1, -1, 15, 12,  9,  6,  3,  0, -1, -1, -1, -1, -1
 			10, -1, -1,  9, -1, -1,  8, -1, -1,  7, -1, -1,  6, -1, -1,  5
 		);
-		__m128i setu2=_mm_set_epi8(
+		__m128i setg2=_mm_set_epi8(
 		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
 		//	14, 11,  8,  5,  2, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
 			-1, 15, -1, -1, 14, -1, -1, 13, -1, -1, 12, -1, -1, 11, -1, -1
 		);
-		__m128i setv0=_mm_set_epi8(
+		__m128i setb0=_mm_set_epi8(
 		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
 		//	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 14, 11,  8,  5,  2
 			-1,  4, -1, -1,  3, -1, -1,  2, -1, -1,  1, -1, -1,  0, -1, -1
 		);
-		__m128i setv1=_mm_set_epi8(
+		__m128i setb1=_mm_set_epi8(
 		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
 		//	-1, -1, -1, -1, -1, -1, 13, 10,  7,  4,  1, -1, -1, -1, -1, -1
 			-1, -1,  9, -1, -1,  8, -1, -1,  7, -1, -1,  6, -1, -1,  5, -1
 		);
-		__m128i setv2=_mm_set_epi8(
+		__m128i setb2=_mm_set_epi8(
 		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
 		//	15, 12,  9,  6,  3,  0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
 			15, -1, -1, 14, -1, -1, 13, -1, -1, 12, -1, -1, 11, -1, -1, 10
 		);
 		__m128i
-			setr0, setr1, setr2,
-			setg0, setg1, setg2,
-			setb0, setb1, setb2;
+			getr0, getr1, getr2,
+			getg0, getg1, getg2,
+			getb0, getb1, getb2;
 		switch(flag)
 		{
 		default:
-		case  0:setr0=sety0, setr1=sety1, setr2=sety2,  setg0=setu0, setg1=setu1, setg2=setu2,  setb0=setv0, setb1=setv1, setb2=setv2;break;//0, 1, 2
-		case  1:setr0=sety0, setr1=sety1, setr2=sety2,  setg0=setu0, setg1=setu1, setg2=setu2,  setb0=setv0, setb1=setv1, setb2=setv2;break;//0, 1, 2
-		case  2:setr0=sety0, setr1=sety1, setr2=sety2,  setg0=setu0, setg1=setu1, setg2=setu2,  setb0=setv0, setb1=setv1, setb2=setv2;break;//0, 1, 2
-		case  3:setr0=sety0, setr1=sety1, setr2=sety2,  setg0=setu0, setg1=setu1, setg2=setu2,  setb0=setv0, setb1=setv1, setb2=setv2;break;//0, 1, 2
-		case  4:setr0=sety0, setr1=sety1, setr2=sety2,  setg0=setu0, setg1=setu1, setg2=setu2,  setb0=setv0, setb1=setv1, setb2=setv2;break;//0, 1, 2
-		case  5:setr0=sety0, setr1=sety1, setr2=sety2,  setb0=setu0, setb1=setu1, setb2=setu2,  setg0=setv0, setg1=setv1, setg2=setv2;break;//0, 2, 1
-		case  6:setg0=sety0, setg1=sety1, setg2=sety2,  setb0=setu0, setb1=setu1, setb2=setu2,  setr0=setv0, setr1=setv1, setr2=setv2;break;//1, 2, 0
-		case  7:setg0=sety0, setg1=sety1, setg2=sety2,  setb0=setu0, setb1=setu1, setb2=setu2,  setr0=setv0, setr1=setv1, setr2=setv2;break;//1, 2, 0
-		case  8:setg0=sety0, setg1=sety1, setg2=sety2,  setb0=setu0, setb1=setu1, setb2=setu2,  setr0=setv0, setr1=setv1, setr2=setv2;break;//1, 2, 0
-		case  9:setg0=sety0, setg1=sety1, setg2=sety2,  setb0=setu0, setb1=setu1, setb2=setu2,  setr0=setv0, setr1=setv1, setr2=setv2;break;//1, 2, 0
-		case 10:setg0=sety0, setg1=sety1, setg2=sety2,  setr0=setu0, setr1=setu1, setr2=setu2,  setb0=setv0, setb1=setv1, setb2=setv2;break;//1, 0, 2
-		case 11:setb0=sety0, setb1=sety1, setb2=sety2,  setr0=setu0, setr1=setu1, setr2=setu2,  setg0=setv0, setg1=setv1, setg2=setv2;break;//2, 0, 1
-		case 12:setb0=sety0, setb1=sety1, setb2=sety2,  setr0=setu0, setr1=setu1, setr2=setu2,  setg0=setv0, setg1=setv1, setg2=setv2;break;//2, 0, 1
-		case 13:setb0=sety0, setb1=sety1, setb2=sety2,  setr0=setu0, setr1=setu1, setr2=setu2,  setg0=setv0, setg1=setv1, setg2=setv2;break;//2, 0, 1
-		case 14:setb0=sety0, setb1=sety1, setb2=sety2,  setr0=setu0, setr1=setu1, setr2=setu2,  setg0=setv0, setg1=setv1, setg2=setv2;break;//2, 0, 1
-		case 15:setb0=sety0, setb1=sety1, setb2=sety2,  setg0=setu0, setg1=setu1, setg2=setu2,  setr0=setv0, setr1=setv1, setr2=setv2;break;//2, 1, 0
+		case  0:getr0=setr0, getr1=setr1, getr2=setr2,  getg0=setg0, getg1=setg1, getg2=setg2,  getb0=setb0, getb1=setb1, getb2=setb2;break;//0, 1, 2
+		case  1:getr0=setr0, getr1=setr1, getr2=setr2,  getg0=setg0, getg1=setg1, getg2=setg2,  getb0=setb0, getb1=setb1, getb2=setb2;break;//0, 1, 2
+		case  2:getr0=setr0, getr1=setr1, getr2=setr2,  getg0=setg0, getg1=setg1, getg2=setg2,  getb0=setb0, getb1=setb1, getb2=setb2;break;//0, 1, 2
+		case  3:getr0=setr0, getr1=setr1, getr2=setr2,  getg0=setg0, getg1=setg1, getg2=setg2,  getb0=setb0, getb1=setb1, getb2=setb2;break;//0, 1, 2
+		case  4:getr0=setr0, getr1=setr1, getr2=setr2,  getg0=setg0, getg1=setg1, getg2=setg2,  getb0=setb0, getb1=setb1, getb2=setb2;break;//0, 1, 2
+		case  5:getr0=setr0, getr1=setr1, getr2=setr2,  getg0=setb0, getg1=setb1, getg2=setb2,  getb0=setg0, getb1=setg1, getb2=setg2;break;//0, 2, 1
+		case  6:getr0=setg0, getr1=setg1, getr2=setg2,  getg0=setb0, getg1=setb1, getg2=setb2,  getb0=setr0, getb1=setr1, getb2=setr2;break;//1, 2, 0
+		case  7:getr0=setg0, getr1=setg1, getr2=setg2,  getg0=setb0, getg1=setb1, getg2=setb2,  getb0=setr0, getb1=setr1, getb2=setr2;break;//1, 2, 0
+		case  8:getr0=setg0, getr1=setg1, getr2=setg2,  getg0=setb0, getg1=setb1, getg2=setb2,  getb0=setr0, getb1=setr1, getb2=setr2;break;//1, 2, 0
+		case  9:getr0=setg0, getr1=setg1, getr2=setg2,  getg0=setb0, getg1=setb1, getg2=setb2,  getb0=setr0, getb1=setr1, getb2=setr2;break;//1, 2, 0
+		case 10:getr0=setg0, getr1=setg1, getr2=setg2,  getg0=setr0, getg1=setr1, getg2=setr2,  getb0=setb0, getb1=setb1, getb2=setb2;break;//1, 0, 2
+		case 11:getr0=setb0, getr1=setb1, getr2=setb2,  getg0=setr0, getg1=setr1, getg2=setr2,  getb0=setg0, getb1=setg1, getb2=setg2;break;//2, 0, 1
+		case 12:getr0=setb0, getr1=setb1, getr2=setb2,  getg0=setr0, getg1=setr1, getg2=setr2,  getb0=setg0, getb1=setg1, getb2=setg2;break;//2, 0, 1
+		case 13:getr0=setb0, getr1=setb1, getr2=setb2,  getg0=setr0, getg1=setr1, getg2=setr2,  getb0=setg0, getb1=setg1, getb2=setg2;break;//2, 0, 1
+		case 14:getr0=setb0, getr1=setb1, getr2=setb2,  getg0=setr0, getg1=setr1, getg2=setr2,  getb0=setg0, getb1=setg1, getb2=setg2;break;//2, 0, 1
+		case 15:getr0=setb0, getr1=setb1, getr2=setb2,  getg0=setg0, getg1=setg1, getg2=setg2,  getb0=setr0, getb1=setr1, getb2=setr2;break;//2, 1, 0
 		}
 		__m128i helperUmask=_mm_set1_epi8(-(uhelpidx!=3));
 		__m128i helperVsel=_mm_set1_epi8(-(vhelpidx==1));
@@ -1332,7 +1332,7 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				__m256i NE0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]+1));
 				__m256i NE1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]+1));
 				__m256i NE2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]+1));
-				__m256i mp0=_mm256_slli_epi16(N0, 1);//(10*N+3*(NW+NE)+8)>>4
+				__m256i mp0=_mm256_slli_epi16(N0, 1);//(2*N+NW+NE+2)>>2
 				__m256i mp1=_mm256_slli_epi16(N1, 1);
 				__m256i mp2=_mm256_slli_epi16(N2, 1);
 				mp0=_mm256_add_epi16(mp0, NW0);
@@ -1383,15 +1383,15 @@ int c20_codec(const char *srcfn, const char *dstfn)
 				p2=_mm_add_epi8(p2, helperV0);
 
 				//interleave |yyyy yyyy yyyy yyyy|uuuu uuuu uuuu uuuu|vvvv vvvv vvvv vvvv| -> |rgbr gbrg brgb rgbr|gbrg brgb rgbr gbrg|brgb rgbr gbrg brgb| (in order):
-				__m128i r0=_mm_shuffle_epi8(p0, setr0);
-				__m128i r1=_mm_shuffle_epi8(p0, setr1);
-				__m128i r2=_mm_shuffle_epi8(p0, setr2);
-				__m128i g0=_mm_shuffle_epi8(p1, setg0);
-				__m128i g1=_mm_shuffle_epi8(p1, setg1);
-				__m128i g2=_mm_shuffle_epi8(p1, setg2);
-				__m128i b0=_mm_shuffle_epi8(p2, setb0);
-				__m128i b1=_mm_shuffle_epi8(p2, setb1);
-				__m128i b2=_mm_shuffle_epi8(p2, setb2);
+				__m128i r0=_mm_shuffle_epi8(p0, getr0);
+				__m128i r1=_mm_shuffle_epi8(p0, getr1);
+				__m128i r2=_mm_shuffle_epi8(p0, getr2);
+				__m128i g0=_mm_shuffle_epi8(p1, getg0);
+				__m128i g1=_mm_shuffle_epi8(p1, getg1);
+				__m128i g2=_mm_shuffle_epi8(p1, getg2);
+				__m128i b0=_mm_shuffle_epi8(p2, getb0);
+				__m128i b1=_mm_shuffle_epi8(p2, getb1);
+				__m128i b2=_mm_shuffle_epi8(p2, getb2);
 				r0=_mm_or_si128(r0, g0);
 				r1=_mm_or_si128(r1, g1);
 				r2=_mm_or_si128(r2, g2);
