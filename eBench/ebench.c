@@ -1759,6 +1759,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 //	case ST_PREPROC_X:		a=" S Preproc X";		break;
 //	case ST_PREPROC_X2:		a=" S Preproc X2";		break;
 		
+	case ST_CONVTEST:		a=" S ConvTest";		break;
+	case ST_CONVTEST2:		a=" S ConvTest2";		break;
 	case ST_FWD_PACKSIGN:		a=" S Fwd PackSign";		break;
 	case ST_INV_PACKSIGN:		a=" S Inv PackSign";		break;
 	case ST_FWD_BWTX:		a=" S Fwd BWT-X";		break;
@@ -3049,16 +3051,16 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 					continue;
 				switch(tid)
 				{
-				case ST_FWD_LAZY:      dwt2d_lazy_fwd   (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-				case ST_INV_LAZY:      dwt2d_lazy_inv   (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-				case ST_FWD_HAAR:      dwt2d_haar_fwd   (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-				case ST_INV_HAAR:      dwt2d_haar_inv   (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-				case ST_FWD_SQUEEZE:   dwt2d_squeeze_fwd(image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-				case ST_INV_SQUEEZE:   dwt2d_squeeze_inv(image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-				case ST_FWD_LEGALL53:  dwt2d_cdf53_fwd  (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-				case ST_INV_LEGALL53:  dwt2d_cdf53_inv  (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-				case ST_FWD_CDF97:     dwt2d_cdf97_fwd  (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-				case ST_INV_CDF97:     dwt2d_cdf97_inv  (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+				case ST_FWD_LAZY:      dwt2d_lazy_fwd		(image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+				case ST_INV_LAZY:      dwt2d_lazy_inv		(image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+				case ST_FWD_HAAR:      dwt2d_haar_fwd		(image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+				case ST_INV_HAAR:      dwt2d_haar_inv		(image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+				case ST_FWD_SQUEEZE:   dwt2d_squeeze_fwd	(image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+				case ST_INV_SQUEEZE:   dwt2d_squeeze_inv	(image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+				case ST_FWD_LEGALL53:  dwt2d_legall53_fwd	(image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+				case ST_INV_LEGALL53:  dwt2d_legall53_inv	(image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+				case ST_FWD_CDF97:     dwt2d_cdf97_fwd		(image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+				case ST_INV_CDF97:     dwt2d_cdf97_inv		(image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
 			//	case ST_FWD_GRAD_DWT:  dwt2d_grad_fwd   (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
 			//	case ST_INV_GRAD_DWT:  dwt2d_grad_inv   (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
 			//	case ST_FWD_EXPDWT:    dwt2d_exp_fwd    (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, customparam_st);break;//TODO use customdwtparams instead of sharing allcustomparam_st
@@ -4932,6 +4934,7 @@ int io_keydn(IOKey key, char c)
 							free(im0);
 							im0=im2;
 							array_free(&fn);
+							filesize=get_filesize((char*)fn2[0]->data);
 							fn=filter_path((char*)fn2[0]->data, (int)fn2[0]->count, 0);
 							update_image();
 							set_window_title("%s - eBench", (char*)fn->data);

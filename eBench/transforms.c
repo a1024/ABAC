@@ -11927,14 +11927,14 @@ void dwt2d_custom_fwd(char *buffer, DWTSize *sizes, int sizes_start, int sizes_e
 		for(int ky=0;ky<h2;++ky)//horizontal DWT
 			dwt1d_custom_fwd(buffer+rowlen*ky, w2, stride, temp, params);
 
-		//save_channel(buffer, iw, ih, 4, "cdf53-stage%02dA.PNG", it);
-		//snprintf(g_buf, G_BUF_SIZE, "cdf53-stage%02dA.PNG", it);
+		//save_channel(buffer, iw, ih, 4, "legall53-stage%02dA.PNG", it);
+		//snprintf(g_buf, G_BUF_SIZE, "legall53-stage%02dA.PNG", it);
 		//lodepng_encode_file(g_buf, buffer, iw, ih, LCT_RGBA, 8);
 
 		for(int kx=0;kx<w2;++kx)//vertical DWT
 			dwt1d_custom_fwd(buffer+stride*kx, h2, rowlen, temp, params);
 		
-		//save_channel(buffer, iw, ih, 4, "cdf53-stage%02dB.PNG", it);
+		//save_channel(buffer, iw, ih, 4, "legall53-stage%02dB.PNG", it);
 	}
 }
 void dwt2d_custom_inv(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp, const double *params)
@@ -12166,14 +12166,14 @@ void dwt2d_lazy_fwd(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end
 		for(int ky=0;ky<h2;++ky)//horizontal DWT
 			dwt1d_lazy_fwd(buffer+rowlen*ky, w2, stride, temp);
 
-		//save_channel(buffer, iw, ih, 4, "cdf53-stage%02dA.PNG", it);
-		//snprintf(g_buf, G_BUF_SIZE, "cdf53-stage%02dA.PNG", it);
+		//save_channel(buffer, iw, ih, 4, "legall53-stage%02dA.PNG", it);
+		//snprintf(g_buf, G_BUF_SIZE, "legall53-stage%02dA.PNG", it);
 		//lodepng_encode_file(g_buf, buffer, iw, ih, LCT_RGBA, 8);
 
 		for(int kx=0;kx<w2;++kx)//vertical DWT
 			dwt1d_lazy_fwd(buffer+stride*kx, h2, rowlen, temp);
 		
-		//save_channel(buffer, iw, ih, 4, "cdf53-stage%02dB.PNG", it);
+		//save_channel(buffer, iw, ih, 4, "legall53-stage%02dB.PNG", it);
 	}
 }
 void dwt2d_lazy_inv(char *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, char *temp)
@@ -12244,14 +12244,14 @@ void dwt2d_lazy_fwd(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end,
 		for(int ky=0;ky<h2;++ky)//horizontal DWT
 			dwt1d_lazy_fwd(buffer+rowlen*ky, w2, stride, temp);
 
-		//save_channel(buffer, iw, ih, 4, "cdf53-stage%02dA.PNG", it);
-		//snprintf(g_buf, G_BUF_SIZE, "cdf53-stage%02dA.PNG", it);
+		//save_channel(buffer, iw, ih, 4, "legall53-stage%02dA.PNG", it);
+		//snprintf(g_buf, G_BUF_SIZE, "legall53-stage%02dA.PNG", it);
 		//lodepng_encode_file(g_buf, buffer, iw, ih, LCT_RGBA, 8);
 
 		for(int kx=0;kx<w2;++kx)//vertical DWT
 			dwt1d_lazy_fwd(buffer+stride*kx, h2, rowlen, temp);
 		
-		//save_channel(buffer, iw, ih, 4, "cdf53-stage%02dB.PNG", it);
+		//save_channel(buffer, iw, ih, 4, "legall53-stage%02dB.PNG", it);
 		//break;
 	}
 }
@@ -12341,14 +12341,14 @@ void dwt2d_haar_fwd(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end,
 		for(int ky=0;ky<h2;++ky)//horizontal DWT
 			dwt1d_haar_fwd(buffer+rowlen*ky, w2, stride, temp);
 
-		//save_channel(buffer, iw, ih, 4, "cdf53-stage%02dA.PNG", it);
-		//snprintf(g_buf, G_BUF_SIZE, "cdf53-stage%02dA.PNG", it);
+		//save_channel(buffer, iw, ih, 4, "legall53-stage%02dA.PNG", it);
+		//snprintf(g_buf, G_BUF_SIZE, "legall53-stage%02dA.PNG", it);
 		//lodepng_encode_file(g_buf, buffer, iw, ih, LCT_RGBA, 8);
 
 		for(int kx=0;kx<w2;++kx)//vertical DWT
 			dwt1d_haar_fwd(buffer+stride*kx, h2, rowlen, temp);
 		
-		//save_channel(buffer, iw, ih, 4, "cdf53-stage%02dB.PNG", it);
+		//save_channel(buffer, iw, ih, 4, "legall53-stage%02dB.PNG", it);
 	}
 }
 void dwt2d_haar_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp)
@@ -12489,7 +12489,7 @@ void dwt2d_squeeze_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_e
 }
 
 //lifting-based 8bit LeGall 5/3 DWT
-static void dwt1d_cdf53_fwd(int *buffer, int count, int stride, int *b2)
+static void dwt1d_legall53_fwd(int *buffer, int count, int stride, int *b2)
 {
 	int nodd=count>>1, extraeven=count&1;
 	int *odd=b2, *even=b2+nodd;
@@ -12615,7 +12615,7 @@ static void dwt1d_cdf53_fwd(int *buffer, int count, int stride, int *b2)
 	for(int k=0, ks=0;k<count;++k, ks+=stride)
 		buffer[ks]=b2[k];
 }
-static void dwt1d_cdf53_inv(int *buffer, int count, int stride, int *b2)
+static void dwt1d_legall53_inv(int *buffer, int count, int stride, int *b2)
 {
 	int nodd=count>>1, extraeven=count&1;
 	int *odd=b2, *even=b2+nodd;
@@ -12644,7 +12644,7 @@ static void dwt1d_cdf53_inv(int *buffer, int count, int stride, int *b2)
 	if(extraeven)
 		buffer[stride*(count-1)]=even[nodd];
 }
-void dwt2d_cdf53_fwd(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp)
+void dwt2d_legall53_fwd(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp)
 {
 	int iw=sizes->w, rowlen=stride*iw;
 //	int ih=sizes->h;
@@ -12655,19 +12655,19 @@ void dwt2d_cdf53_fwd(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end
 		int w2=sizes[it].w, h2=sizes[it].h;
 
 		for(int ky=0;ky<h2;++ky)//horizontal DWT
-			dwt1d_cdf53_fwd(buffer+rowlen*ky, w2, stride, temp);
+			dwt1d_legall53_fwd(buffer+rowlen*ky, w2, stride, temp);
 
-		//save_channel(buffer, iw, ih, 4, "cdf53-stage%02dA.PNG", it);
-		//snprintf(g_buf, G_BUF_SIZE, "cdf53-stage%02dA.PNG", it);
+		//save_channel(buffer, iw, ih, 4, "legall53-stage%02dA.PNG", it);
+		//snprintf(g_buf, G_BUF_SIZE, "legall53-stage%02dA.PNG", it);
 		//lodepng_encode_file(g_buf, buffer, iw, ih, LCT_RGBA, 8);
 
 		for(int kx=0;kx<w2;++kx)//vertical DWT
-			dwt1d_cdf53_fwd(buffer+stride*kx, h2, rowlen, temp);
+			dwt1d_legall53_fwd(buffer+stride*kx, h2, rowlen, temp);
 		
-		//save_channel(buffer, iw, ih, 4, "cdf53-stage%02dB.PNG", it);
+		//save_channel(buffer, iw, ih, 4, "legall53-stage%02dB.PNG", it);
 	}
 }
-void dwt2d_cdf53_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp)
+void dwt2d_legall53_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp)
 {
 	int iw=sizes->w, rowlen=stride*iw;
 //	int ih=sizes->h;
@@ -12678,10 +12678,10 @@ void dwt2d_cdf53_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end
 		int w2=sizes[it].w, h2=sizes[it].h;
 
 		for(int kx=0;kx<w2;++kx)//vertical IDWT
-			dwt1d_cdf53_inv(buffer+stride*kx, h2, rowlen, temp);
+			dwt1d_legall53_inv(buffer+stride*kx, h2, rowlen, temp);
 
 		for(int ky=0;ky<h2;++ky)//horizontal IDWT
-			dwt1d_cdf53_inv(buffer+rowlen*ky, w2, stride, temp);
+			dwt1d_legall53_inv(buffer+rowlen*ky, w2, stride, temp);
 	}
 }
 
@@ -12794,12 +12794,12 @@ void dwt2d_cdf97_fwd(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end
 		for(int ky=0;ky<h2;++ky)//horizontal DWT
 			dwt1d_cdf97_fwd(buffer+rowlen*ky, w2, stride, temp);
 
-		//save_channel(buffer, iw, ih, 4, "cdf53-stage%02dA.PNG", it);
+		//save_channel(buffer, iw, ih, 4, "legall53-stage%02dA.PNG", it);
 
 		for(int kx=0;kx<w2;++kx)//vertical DWT
 			dwt1d_cdf97_fwd(buffer+stride*kx, h2, rowlen, temp);
 		
-		//save_channel(buffer, iw, ih, 4, "cdf53-stage%02dB.PNG", it);
+		//save_channel(buffer, iw, ih, 4, "legall53-stage%02dB.PNG", it);
 	}
 }
 void dwt2d_cdf97_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp)
@@ -12841,9 +12841,9 @@ void dwt2d_dec_fwd(char *buffer, int iw, int ih)
 	for(int kc=0;kc<3;++kc)
 	{
 		for(int ky=0;ky<h2;++ky)//horizontal DWT
-			dwt1d_cdf53_fwd(buffer+4*iw*ky+kc, w2, 4, temp);
+			dwt1d_legall53_fwd(buffer+4*iw*ky+kc, w2, 4, temp);
 		for(int kx=0;kx<w2;++kx)//vertical DWT
-			dwt1d_cdf53_fwd(buffer+4*kx+kc, h2, 4*iw, temp);
+			dwt1d_legall53_fwd(buffer+4*kx+kc, h2, 4*iw, temp);
 	}
 	w2>>=1, h2>>=1;
 	for(int kc=0;kc<3;++kc)
@@ -12876,9 +12876,9 @@ void dwt2d_dec_inv(char *buffer, int iw, int ih)
 	for(int kc=0;kc<3;++kc)
 	{
 		for(int kx=0;kx<psizes[1].w;++kx)//vertical invDWT
-			dwt1d_cdf53_inv(buffer+4*kx+kc, psizes[1].h, 4*iw, temp);
+			dwt1d_legall53_inv(buffer+4*kx+kc, psizes[1].h, 4*iw, temp);
 		for(int ky=0;ky<psizes[1].h;++ky)//horizontal invDWT
-			dwt1d_cdf53_inv(buffer+4*iw*ky+kc, psizes[1].w, 4, temp);
+			dwt1d_legall53_inv(buffer+4*iw*ky+kc, psizes[1].w, 4, temp);
 	}
 	for(int kc=0;kc<3;++kc)
 	{
