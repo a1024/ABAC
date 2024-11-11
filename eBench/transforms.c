@@ -2748,6 +2748,139 @@ void pred_clampgrad(Image *src, int fwd, int enable_ma)
 	free(dst);
 #endif
 }
+void pred_LeGallCG(Image *src, int fwd)
+{
+	int psize=src->iw*sizeof(int[4]);//1 row
+	int *pixels=(int*)malloc(psize);
+	if(!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	if(fwd)
+	{
+		int odd=src->iw&1, end=src->iw+(src->iw&1)-2;
+		for(int ky=0;ky<src->ih;++ky)
+		{
+			memcpy(pixels, src->data+((size_t)src->iw*ky<<2), psize);
+			for(int kc=0;kc<src->nch;++kc)
+			{
+				int *ptr=pixels+kc;
+				ptr[1*4]-=(ptr[0*4]+ptr[2*4])>>1;
+				ptr[0*4]+=(ptr[1*4]+ptr[1*4])>>2;
+				ptr+=2*4;
+				for(int kx=2;kx<end;kx+=2)
+				{
+					ptr[ 1*4]-=(ptr[ 0*4]+ptr[ 2*4])>>1;
+					ptr[ 0*4]+=(ptr[-1*4]+ptr[ 1*4])>>2;
+					ptr+=2*4;
+				}
+				if(odd)
+					ptr[ 0*4]+=(ptr[-1*4]+ptr[-1*4])>>2;
+				else
+				{
+					ptr[ 1*4]-=(ptr[ 0*4]+ptr[ 0*4])>>1;
+					ptr[ 0*4]+=(ptr[-1*4]+ptr[ 1*4])>>2;
+				}
+			}
+			//memcpy(src->data+((size_t)src->iw*ky<<2), pixels, psize);
+			{
+				int *srcptr=pixels;
+				int *lodstptr=src->data+((size_t)src->iw*ky<<2), *hidstptr=lodstptr+((src->iw+1LL)>>1<<2);
+				for(int kx=0;kx<end;kx+=2)
+				{
+					lodstptr[0]=srcptr[0+0*4];
+					lodstptr[1]=srcptr[1+0*4];
+					lodstptr[2]=srcptr[2+0*4];
+					lodstptr[3]=srcptr[3+0*4];
+					hidstptr[0]=srcptr[0+1*4];
+					hidstptr[1]=srcptr[1+1*4];
+					hidstptr[2]=srcptr[2+1*4];
+					hidstptr[3]=srcptr[3+1*4];
+					srcptr+=2*4;
+					lodstptr+=4;
+					hidstptr+=4;
+				}
+				lodstptr[0]=srcptr[0+0*4];
+				lodstptr[1]=srcptr[1+0*4];
+				lodstptr[2]=srcptr[2+0*4];
+				lodstptr[3]=srcptr[3+0*4];
+				if(!odd)
+				{
+					hidstptr[0]=srcptr[0+1*4];
+					hidstptr[1]=srcptr[1+1*4];
+					hidstptr[2]=srcptr[2+1*4];
+					hidstptr[3]=srcptr[3+1*4];
+				}
+			}
+		}
+		for(int kc=0;kc<src->nch;++kc)
+			src->depth[kc]+=src->depth[kc]<24;
+	}
+	else
+	{
+		int odd=src->iw&1, end=src->iw+(src->iw&1)-3;
+		for(int ky=0;ky<src->ih;++ky)
+		{
+			{
+				int *srcptr=pixels;
+				int *lodstptr=src->data+((size_t)src->iw*ky<<2), *hidstptr=lodstptr+((src->iw+1LL)>>1<<2);
+				for(int kx=0;kx<end;kx+=2)
+				{
+					srcptr[0+0*4]=lodstptr[0];
+					srcptr[1+0*4]=lodstptr[1];
+					srcptr[2+0*4]=lodstptr[2];
+					srcptr[3+0*4]=lodstptr[3];
+					srcptr[0+1*4]=hidstptr[0];
+					srcptr[1+1*4]=hidstptr[1];
+					srcptr[2+1*4]=hidstptr[2];
+					srcptr[3+1*4]=hidstptr[3];
+					srcptr+=2*4;
+					lodstptr+=4;
+					hidstptr+=4;
+				}
+				srcptr[0+0*4]=lodstptr[0];
+				srcptr[1+0*4]=lodstptr[1];
+				srcptr[2+0*4]=lodstptr[2];
+				srcptr[3+0*4]=lodstptr[3];
+				if(!odd)
+				{
+					srcptr[0+1*4]=hidstptr[0];
+					srcptr[1+1*4]=hidstptr[1];
+					srcptr[2+1*4]=hidstptr[2];
+					srcptr[3+1*4]=hidstptr[3];
+				}
+			}
+			for(int kc=0;kc<src->nch;++kc)
+			{
+				int *ptr=pixels+kc;
+				ptr[0*4]-=(ptr[1*4]+ptr[1*4])>>2;
+				ptr+=1*4;
+				for(int kx=1;kx<end;kx+=2)
+				{
+					ptr[ 1*4]-=(ptr[ 0*4]+ptr[ 2*4])>>2;
+					ptr[ 0*4]+=(ptr[-1*4]+ptr[ 1*4])>>1;
+					ptr+=2*4;
+				}
+				if(odd)
+				{
+					ptr[ 1*4]-=(ptr[ 0*4]+ptr[ 0*4])>>2;
+					ptr[ 0*4]+=(ptr[-1*4]+ptr[ 1*4])>>1;
+				}
+				else
+				{
+					ptr[ 1*4]-=(ptr[ 0*4]+ptr[ 2*4])>>2;
+					ptr[ 0*4]+=(ptr[-1*4]+ptr[ 1*4])>>1;
+					ptr[ 2*4]+=(ptr[ 1*4]+ptr[ 1*4])>>1;
+				}
+			}
+			memcpy(src->data+((size_t)src->iw*ky<<2), pixels, psize);
+		}
+		for(int kc=0;kc<src->nch;++kc)
+			src->depth[kc]-=src->depth[kc]>src->src_depth[kc];
+	}
+	free(pixels);
+}
 void pred_cgplus(Image *src, int fwd)
 {
 	for(int kc=0;kc<src->nch;++kc)

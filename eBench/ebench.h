@@ -720,6 +720,7 @@ void filt_deint422(Image *src);
 void filt_deint420(Image *src);
 void packsign(Image *src, int fwd);
 void pred_clampgrad(Image *image, int fwd, int enable_ma);
+void pred_LeGallCG(Image *src, int fwd);
 void pred_cgplus(Image *src, int fwd);
 void pred_CG420(Image *src, int fwd);
 void pred_CG422(Image *src, int fwd);

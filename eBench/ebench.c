@@ -109,6 +109,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_PU,		ST_INV_PU,
 	ST_FWD_CG422,		ST_INV_CG422,
 	ST_FWD_CG420,		ST_INV_CG420,
+	ST_FWD_LEGALLCG,	ST_INV_LEGALLCG,
 	ST_FWD_WP,		ST_INV_WP,
 	ST_FWD_WGRAD,		ST_INV_WGRAD,
 //	ST_FWD_WGRAD2,		ST_INV_WGRAD2,
@@ -1849,6 +1850,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_NBLIC:		a=" S Inv NBLIC";		break;
 	case ST_FWD_CALIC:		a=" S Fwd CALIC";		break;
 	case ST_INV_CALIC:		a=" S Inv CALIC";		break;
+	case ST_FWD_LEGALLCG:		a=" S Fwd LeGallCG";		break;
+	case ST_INV_LEGALLCG:		a=" S Inv LeGallCG";		break;
 	case ST_FWD_WP:			a=" S Fwd JXL WP";		break;
 	case ST_INV_WP:			a=" S Inv JXL WP";		break;
 //	case ST_FWD_WP2:		a=" S Fwd WP2";			break;
@@ -2899,6 +2902,8 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_INV_NBLIC:		pred_nblic(image, 0);					break;
 	case ST_FWD_CALIC:		pred_calic(image, 1, pred_ma_enabled);			break;
 	case ST_INV_CALIC:		pred_calic(image, 0, pred_ma_enabled);			break;
+	case ST_FWD_LEGALLCG:		pred_LeGallCG(image, 1);				break;
+	case ST_INV_LEGALLCG:		pred_LeGallCG(image, 0);				break;
 	case ST_FWD_WP:			pred_jxl_apply(image, 1, pred_ma_enabled, jxlparams_i16);break;
 	case ST_INV_WP:			pred_jxl_apply(image, 0, pred_ma_enabled, jxlparams_i16);break;
 //	case ST_FWD_WP2:		pred_divfreeWP(image, 1);				break;
