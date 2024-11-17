@@ -2748,9 +2748,263 @@ void pred_clampgrad(Image *src, int fwd, int enable_ma)
 	free(dst);
 #endif
 }
+static void pred_LeGall_1d_fwd(int *data, int *temp, int stride, int count)
+{
+	for(int ks=0, kd=0;kd<count;ks+=stride, ++kd)
+		temp[kd]=data[ks];
+
+	int odd=count&1, end=count+odd-3;
+	int *ptr=temp;
+	ptr[0]-=ptr[1];
+	++ptr;
+	for(int kx=1;kx<end;kx+=2)
+	{
+		ptr[ 1]-=(ptr[ 0]+ptr[ 2])>>1;
+		ptr[ 0]+=(ptr[-1]+ptr[ 1])>>2;
+		ptr+=2;
+	}
+	if(odd)
+	{
+		ptr[ 1]-=ptr[0];
+		ptr[ 0]+=(ptr[-1]+ptr[ 1])>>2;
+	}
+	else
+	{
+		ptr[ 1]-=(ptr[ 0]+ptr[ 2])>>1;
+		ptr[ 0]+=(ptr[-1]+ptr[ 1])>>2;
+		ptr[ 2]+=ptr[1]>>1;
+	}
+	int *loptr=data, *hiptr=loptr+(size_t)(count>>1)*stride;
+	ptr=temp;
+	for(int kx=0;kx<end;kx+=2)
+	{
+		*loptr=ptr[1];
+		*hiptr=ptr[0];
+		ptr+=2;
+		loptr+=stride;
+		hiptr+=stride;
+	}
+	*hiptr=ptr[0];
+	if(!odd)
+		*loptr=ptr[1];
+}
+static void pred_LeGall_1d_inv(int *data, int *temp, int stride, int count)
+{
+	int odd=count&1, end=count+odd-3;
+	int *ptr=temp;
+	int *loptr=data, *hiptr=loptr+(count>>1)*stride;
+	for(int kx=0;kx<end;kx+=2)
+	{
+		ptr[1]=*loptr;
+		ptr[0]=*hiptr;
+		ptr+=2;
+		loptr+=stride;
+		hiptr+=stride;
+	}
+	ptr[0]=*hiptr;
+	if(!odd)
+		ptr[1]=*loptr;
+
+	ptr=temp;
+	ptr[ 1]-=(ptr[ 0]+ptr[ 2])>>2;
+	ptr[ 0]+=ptr[1];
+	ptr+=2;
+	for(int kx=2;kx<end;kx+=2)
+	{
+		ptr[ 1]-=(ptr[ 0]+ptr[ 2])>>2;
+		ptr[ 0]+=(ptr[-1]+ptr[ 1])>>1;
+		ptr+=2;
+	}
+	if(odd)
+		ptr[ 0]+=ptr[-1];
+	else
+	{
+		ptr[ 1]-=ptr[ 0]>>1;
+		ptr[ 0]+=(ptr[-1]+ptr[ 1])>>1;
+	}
+
+	for(int ks=0, kd=0;kd<count;ks+=stride, ++kd)
+		data[ks]=temp[kd];
+}
 void pred_LeGallCG(Image *src, int fwd)
 {
-	int psize=src->iw*sizeof(int[4]);//1 row
+	int nstages=FLOOR_LOG2(src->iw);
+	int psize=MAXVAR(src->iw+16, src->ih)*(int)sizeof(int[2*4]);//2 padded rows * 4 channels max
+	int *pixels=(int*)malloc(psize);
+	if(!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	{
+		int temp=FLOOR_LOG2(src->ih);
+		if(nstages>temp)
+			nstages=temp;
+		nstages-=2;
+	}
+	if(nstages<0)
+		return;
+	if(fwd)
+	{
+		for(int kc=0;kc<src->nch;++kc)
+			src->depth[kc]+=src->depth[kc]<24;
+		for(int k=0;k<nstages;++k)
+		{
+			int w2=src->iw>>k, h2=src->ih>>k;
+			for(int ky=0;ky<h2;++ky)
+				for(int kc=0;kc<src->nch;++kc)
+					pred_LeGall_1d_fwd(src->data+((size_t)src->iw*ky<<2|kc), pixels, 4, w2);
+			for(int kx=0;kx<w2;++kx)
+				for(int kc=0;kc<src->nch;++kc)
+					pred_LeGall_1d_fwd(src->data+((size_t)kx<<2|kc), pixels, src->iw<<2, h2);
+		}
+	}
+	else
+	{
+		for(int k=nstages-1;k>=0;--k)
+		{
+			int w2=src->iw>>k, h2=src->ih>>k;
+			for(int kx=0;kx<w2;++kx)
+				for(int kc=0;kc<src->nch;++kc)
+					pred_LeGall_1d_inv(src->data+((size_t)kx<<2|kc), pixels, src->iw<<2, h2);
+			for(int ky=0;ky<h2;++ky)
+				for(int kc=0;kc<src->nch;++kc)
+					pred_LeGall_1d_inv(src->data+((size_t)src->iw*ky<<2|kc), pixels, 4, w2);
+		}
+		for(int kc=0;kc<src->nch;++kc)
+			src->depth[kc]-=src->depth[kc]>src->src_depth[kc];
+	}
+	free(pixels);
+}
+#if 0
+static void pred_LeGall_1d_fwd(int *data, int *temp, int stride, int count)
+{
+	int odd=count&1, end=count+(count&1)-2;
+	for(int ks=0, kd=0;kd<count;ks+=stride, ++kd)
+		temp[kd]=data[ks];
+	{
+		int *ptr=temp;
+		ptr[1]-=(ptr[0]+ptr[2])>>1;
+		ptr[0]+=(ptr[1]+ptr[1])>>2;
+		ptr+=2;
+		for(int kx=2;kx<end;kx+=2)
+		{
+			ptr[ 1]-=(ptr[ 0]+ptr[ 2])>>1;
+			ptr[ 0]+=(ptr[-1]+ptr[ 1])>>2;
+			ptr+=2;
+		}
+		if(odd)
+			ptr[ 0]+=(ptr[-1]+ptr[-1])>>2;
+		else
+		{
+			ptr[ 1]-=(ptr[ 0]+ptr[ 0])>>1;
+			ptr[ 0]+=(ptr[-1]+ptr[ 1])>>2;
+		}
+	}
+	{
+		int *srcptr=temp;
+		int *lodstptr=data, *hidstptr=lodstptr+(size_t)((count+1)>>1)*stride;
+		for(int kx=0;kx<end;kx+=2)
+		{
+			*lodstptr=srcptr[0];
+			*hidstptr=srcptr[1];
+			srcptr+=2;
+			lodstptr+=stride;
+			hidstptr+=stride;
+		}
+		*lodstptr=srcptr[0];
+		if(!odd)
+			*hidstptr=srcptr[1];
+	}
+}
+static void pred_LeGall_1d_inv(int *data, int *temp, int stride, int count)
+{
+	int odd=count&1, end=count+(count&1)-3;
+	{
+		int *srcptr=temp;
+		int *lodstptr=data, *hidstptr=lodstptr+((count+1LL)>>1)*stride;
+		for(int kx=0;kx<end;kx+=2)
+		{
+			srcptr[0]=lodstptr[0];
+			srcptr[1]=hidstptr[0];
+			srcptr+=2;
+			lodstptr+=stride;
+			hidstptr+=stride;
+		}
+		srcptr[0]=lodstptr[0];
+		if(!odd)
+			srcptr[1]=hidstptr[0];
+	}
+	{
+		int *ptr=temp;
+		ptr[0]-=(ptr[1]+ptr[1])>>2;
+		++ptr;
+		for(int kx=1;kx<end;kx+=2)
+		{
+			ptr[ 1]-=(ptr[ 0]+ptr[ 2])>>2;
+			ptr[ 0]+=(ptr[-1]+ptr[ 1])>>1;
+			ptr+=2;
+		}
+		if(odd)
+		{
+			ptr[ 1]-=(ptr[ 0]+ptr[ 0])>>2;
+			ptr[ 0]+=(ptr[-1]+ptr[ 1])>>1;
+		}
+		else
+		{
+			ptr[ 1]-=(ptr[ 0]+ptr[ 2])>>2;
+			ptr[ 0]+=(ptr[-1]+ptr[ 1])>>1;
+			ptr[ 2]+=(ptr[ 1]+ptr[ 1])>>1;
+		}
+	}
+	for(int ks=0, kd=0;kd<count;ks+=stride, ++kd)
+		data[ks]=temp[kd];
+}
+static void pred_cgpartial(int *data, int *pixels, char *depths, int iw, int ih, int nch, int x1, int x2, int y1, int y2, int fwd)
+{
+	int dx=x2-x1;
+	memset(pixels, 0, (dx+16LL)*sizeof(int[2*4]));
+	for(int ky=y1;ky<y2;++ky)
+	{
+		int *rows[]=
+		{
+			pixels+((dx+16LL)*((ky+0LL)&1)+8)*4,
+			pixels+((dx+16LL)*((ky-1LL)&1)+8)*4,
+		};
+		for(int kx=x1;kx<x2;++kx)
+		{
+			for(int kc=0;kc<nch;++kc)
+			{
+				int
+					idx=(iw*ky+kx)<<2|kc,
+					NW	=rows[1][kc-1*4],
+					N	=rows[1][kc+0*4],
+					W	=rows[0][kc-1*4];
+				int pred=(N+W+1)>>1;
+				//int vmax=N, vmin=W, pred;
+				//if(N<W)vmin=N, vmax=W;
+				//pred=N+W-NW;
+				//if(pred<vmin)pred=vmin;
+				//if(pred<vmax)pred=vmax;
+
+				pred^=-fwd;
+				pred+=fwd;
+				int curr=data[idx];
+				if(fwd)rows[0][kc]=curr;
+				curr+=pred;
+				curr<<=32-depths[kc];
+				curr>>=32-depths[kc];
+				data[idx]=curr;
+				if(!fwd)rows[0][kc]=curr;
+			}
+			rows[0]+=4;
+			rows[1]+=4;
+		}
+	}
+}
+void pred_LeGallCG(Image *src, int fwd)
+{
+	int psize=MAXVAR(src->iw+16, src->ih)*(int)sizeof(int[2*4]);//2 padded rows * 4 channels max
 	int *pixels=(int*)malloc(psize);
 	if(!pixels)
 	{
@@ -2761,126 +3015,31 @@ void pred_LeGallCG(Image *src, int fwd)
 	{
 		int odd=src->iw&1, end=src->iw+(src->iw&1)-2;
 		for(int ky=0;ky<src->ih;++ky)
-		{
-			memcpy(pixels, src->data+((size_t)src->iw*ky<<2), psize);
 			for(int kc=0;kc<src->nch;++kc)
-			{
-				int *ptr=pixels+kc;
-				ptr[1*4]-=(ptr[0*4]+ptr[2*4])>>1;
-				ptr[0*4]+=(ptr[1*4]+ptr[1*4])>>2;
-				ptr+=2*4;
-				for(int kx=2;kx<end;kx+=2)
-				{
-					ptr[ 1*4]-=(ptr[ 0*4]+ptr[ 2*4])>>1;
-					ptr[ 0*4]+=(ptr[-1*4]+ptr[ 1*4])>>2;
-					ptr+=2*4;
-				}
-				if(odd)
-					ptr[ 0*4]+=(ptr[-1*4]+ptr[-1*4])>>2;
-				else
-				{
-					ptr[ 1*4]-=(ptr[ 0*4]+ptr[ 0*4])>>1;
-					ptr[ 0*4]+=(ptr[-1*4]+ptr[ 1*4])>>2;
-				}
-			}
-			//memcpy(src->data+((size_t)src->iw*ky<<2), pixels, psize);
-			{
-				int *srcptr=pixels;
-				int *lodstptr=src->data+((size_t)src->iw*ky<<2), *hidstptr=lodstptr+((src->iw+1LL)>>1<<2);
-				for(int kx=0;kx<end;kx+=2)
-				{
-					lodstptr[0]=srcptr[0+0*4];
-					lodstptr[1]=srcptr[1+0*4];
-					lodstptr[2]=srcptr[2+0*4];
-					lodstptr[3]=srcptr[3+0*4];
-					hidstptr[0]=srcptr[0+1*4];
-					hidstptr[1]=srcptr[1+1*4];
-					hidstptr[2]=srcptr[2+1*4];
-					hidstptr[3]=srcptr[3+1*4];
-					srcptr+=2*4;
-					lodstptr+=4;
-					hidstptr+=4;
-				}
-				lodstptr[0]=srcptr[0+0*4];
-				lodstptr[1]=srcptr[1+0*4];
-				lodstptr[2]=srcptr[2+0*4];
-				lodstptr[3]=srcptr[3+0*4];
-				if(!odd)
-				{
-					hidstptr[0]=srcptr[0+1*4];
-					hidstptr[1]=srcptr[1+1*4];
-					hidstptr[2]=srcptr[2+1*4];
-					hidstptr[3]=srcptr[3+1*4];
-				}
-			}
-		}
+				pred_LeGall_1d_fwd(src->data+((size_t)src->iw*ky<<2|kc), pixels, 4, src->iw);
+		for(int kx=0;kx<src->iw;++kx)
+			for(int kc=0;kc<src->nch;++kc)
+				pred_LeGall_1d_fwd(src->data+((size_t)kx<<2|kc), pixels, src->iw<<2, src->ih);
 		for(int kc=0;kc<src->nch;++kc)
 			src->depth[kc]+=src->depth[kc]<24;
+		pred_cgpartial(src->data, pixels, src->depth, src->iw, src->ih, src->nch, 0, src->iw>>1, 0, src->ih>>1, 1);
 	}
 	else
 	{
 		int odd=src->iw&1, end=src->iw+(src->iw&1)-3;
-		for(int ky=0;ky<src->ih;++ky)
-		{
-			{
-				int *srcptr=pixels;
-				int *lodstptr=src->data+((size_t)src->iw*ky<<2), *hidstptr=lodstptr+((src->iw+1LL)>>1<<2);
-				for(int kx=0;kx<end;kx+=2)
-				{
-					srcptr[0+0*4]=lodstptr[0];
-					srcptr[1+0*4]=lodstptr[1];
-					srcptr[2+0*4]=lodstptr[2];
-					srcptr[3+0*4]=lodstptr[3];
-					srcptr[0+1*4]=hidstptr[0];
-					srcptr[1+1*4]=hidstptr[1];
-					srcptr[2+1*4]=hidstptr[2];
-					srcptr[3+1*4]=hidstptr[3];
-					srcptr+=2*4;
-					lodstptr+=4;
-					hidstptr+=4;
-				}
-				srcptr[0+0*4]=lodstptr[0];
-				srcptr[1+0*4]=lodstptr[1];
-				srcptr[2+0*4]=lodstptr[2];
-				srcptr[3+0*4]=lodstptr[3];
-				if(!odd)
-				{
-					srcptr[0+1*4]=hidstptr[0];
-					srcptr[1+1*4]=hidstptr[1];
-					srcptr[2+1*4]=hidstptr[2];
-					srcptr[3+1*4]=hidstptr[3];
-				}
-			}
+		pred_cgpartial(src->data, pixels, src->depth, src->iw, src->ih, src->nch, 0, src->iw>>1, 0, src->ih>>1, 0);
+		for(int kx=0;kx<src->iw;++kx)
 			for(int kc=0;kc<src->nch;++kc)
-			{
-				int *ptr=pixels+kc;
-				ptr[0*4]-=(ptr[1*4]+ptr[1*4])>>2;
-				ptr+=1*4;
-				for(int kx=1;kx<end;kx+=2)
-				{
-					ptr[ 1*4]-=(ptr[ 0*4]+ptr[ 2*4])>>2;
-					ptr[ 0*4]+=(ptr[-1*4]+ptr[ 1*4])>>1;
-					ptr+=2*4;
-				}
-				if(odd)
-				{
-					ptr[ 1*4]-=(ptr[ 0*4]+ptr[ 0*4])>>2;
-					ptr[ 0*4]+=(ptr[-1*4]+ptr[ 1*4])>>1;
-				}
-				else
-				{
-					ptr[ 1*4]-=(ptr[ 0*4]+ptr[ 2*4])>>2;
-					ptr[ 0*4]+=(ptr[-1*4]+ptr[ 1*4])>>1;
-					ptr[ 2*4]+=(ptr[ 1*4]+ptr[ 1*4])>>1;
-				}
-			}
-			memcpy(src->data+((size_t)src->iw*ky<<2), pixels, psize);
-		}
+				pred_LeGall_1d_inv(src->data+((size_t)kx<<2|kc), pixels, src->iw<<2, src->ih);
+		for(int ky=0;ky<src->ih;++ky)
+			for(int kc=0;kc<src->nch;++kc)
+				pred_LeGall_1d_inv(src->data+((size_t)src->iw*ky<<2|kc), pixels, 4, src->iw);
 		for(int kc=0;kc<src->nch;++kc)
 			src->depth[kc]-=src->depth[kc]>src->src_depth[kc];
 	}
 	free(pixels);
 }
+#endif
 void pred_cgplus(Image *src, int fwd)
 {
 	for(int kc=0;kc<src->nch;++kc)
