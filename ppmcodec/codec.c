@@ -9,7 +9,7 @@ static const char file[]=__FILE__;
 
 
 #ifndef CODEC_FUNC
-#define CODEC_FUNC c20_codec
+#define CODEC_FUNC c22_codec
 #endif
 
 
@@ -155,8 +155,8 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/kodim13.c18"
 	//	"D:/ML/dataset-kodak-ppm/kodim13.c18"
 		;
-	c22_codec("D:/ML/kodim13.ppm", "D:/ML/kodim13.lsim");
-	c22_codec("D:/ML/kodim13.lsim", "D:/ML/kodim13_dec.ppm");
+//	c21_codec("D:/ML/kodim13.ppm", "D:/ML/kodim13.lsim");
+//	c21_codec("D:/ML/kodim13.lsim", "D:/ML/kodim13_dec.ppm");
 
 //	c22_codec("D:/ML/kodim24.ppm", "D:/ML/kodim24.lsim");
 //	c22_codec("D:/ML/kodim24.lsim", "D:/ML/kodim24_dec.ppm");
@@ -164,11 +164,14 @@ int main(int argc, char **argv)
 //	c22_codec("C:/dataset-CLIC303-ppm/2048x1320_zugr-108.ppm",	"D:/ML/mystery.lsim");
 //	c22_codec("D:/ML/mystery.lsim",					"D:/ML/mystery.ppm");
 
+	c21_codec("C:/dataset-CLIC303-ppm/2048x1320_alberto-restifo-4549.ppm",	"D:/ML/mystery.lsim");
+	c21_codec("D:/ML/mystery.lsim",						"D:/ML/mystery.ppm");
+
 //	c22_codec("C:/dataset-a70-ppm/20240816_113656_966.ppm",	"D:/ML/mystery.lsim");
 //	c22_codec("D:/ML/mystery.lsim",				"D:/ML/mystery.ppm");
 
-//	c22_codec("C:/dataset-HUGE-ppm/space_huge.ppm", "C:/dataset-HUGE-ppm/space_huge.lsim");
-//	c22_codec("C:/dataset-HUGE-ppm/space_huge.lsim", "C:/dataset-HUGE-ppm/space_huge_dec.ppm");
+//	c21_codec("C:/dataset-HUGE-ppm/jwst.ppm", "C:/dataset-HUGE-ppm/jwst.lsim");
+//	c21_codec("C:/dataset-HUGE-ppm/jwst.lsim", "C:/dataset-HUGE-ppm/jwst_dec.ppm");
 
 //	c15_codec("D:/ML/kodim13.ppm", "D:/ML/kodim13.lsim");
 //	c15_codec("D:/ML/kodim13.lsim", "D:/ML/kodim13_dec.ppm");

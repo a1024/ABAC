@@ -14,17 +14,19 @@ static const char file[]=__FILE__;
 
 //	#define LOUD
 
-	#define ENABLE_MT
+//	#define ENABLE_MT
 //	#define ENABLE_GUIDE
 
 	#define ENABLE_FASTANALYSIS	//LPCB 3~14% faster, 0.04% larger than entropy	good
 //	#define ENABLE_ENTROPYANALYSIS
 	#define USE_RCT8		//LPCB 3~5% faster, 0.2% larger			good
 
-//	#define USE_ROWPRED565	//(6*N+5*(NW+NE))/16			A70 37.24%
-	#define USE_ROWPRED484	//(2*N+NE+NW)/4		LPCB 35.04%	A70 36.98%	best
-//	#define USE_ROWPRED3A3	//(10*N+3*(NW+NE))/16	LPCB 34.38%	A70 37.23%
-//	#define USE_ROWPREDN	//N		synth 3.6~23.3% faster, 20% smaller, photo X
+//	#define USE_ROWPRED565	//(6*N+5*(NW+NE)+8)>>4			A70 37.24%
+	#define USE_ROWPRED484	//(2*N+NE+NW+2)>>2	LPCB 34.45%	A70 36.98%*	synth 8.14%			exJPEGs 35.91%	best
+//	#define USE_ROWPRED3A3	//(10*N+3*(NW+NE)+8)>>4	LPCB 34.38%	A70 37.23%
+//	#define USE_ROWPREDN	//N			LPCB 35.04%			synth 6.71%, 3.6~23.3% faster	exJPEGs 31.85%
+//	#define USE_PRED31	//(3*N-NN+1)>>1
+//	#define USE_PRED21	//2*N-NN	worse than N
 
 	#define USE_O1		//good
 
@@ -642,11 +644,17 @@ int c22_codec(const char *srcfn, const char *dstfn)
 		__m128i helperUmask=_mm_set1_epi8(-(uhelpidx!=3));
 		__m128i helperVsel=_mm_set1_epi8(-(vhelpidx==1));
 		__m128i helperVmask=_mm_set1_epi8(-(vhelpidx!=3));
+		__m256i one=_mm256_set1_epi16(1);
 		__m256i two=_mm256_set1_epi16(2);
 		__m256i eight=_mm256_set1_epi16(8);
 		__m128i mhalf=_mm_set1_epi8(-128);
+		__m256i mmin=_mm256_set1_epi16(-128);
+		__m256i mmax=_mm256_set1_epi16(127);
+		(void)one;
 		(void)two;
 		(void)eight;
+		(void)mmin;
+		(void)mmax;
 		unsigned char *planes[]=
 		{
 			dptr+0*res,
@@ -777,6 +785,59 @@ int c22_codec(const char *srcfn, const char *dstfn)
 				__m128i ypred=_mm_packs_epi16(_mm256_castsi256_si128(mp0), _mm256_extracti128_si256(mp0, 1));
 				__m128i upred=_mm_packs_epi16(_mm256_castsi256_si128(mp1), _mm256_extracti128_si256(mp1, 1));
 				__m128i vpred=_mm_packs_epi16(_mm256_castsi256_si128(mp2), _mm256_extracti128_si256(mp2, 1));
+#elif defined USE_PRED31
+				__m256i NN0	=_mm256_loadu_si256((__m256i*)(rows[2+0*4]+0));
+				__m256i NN1	=_mm256_loadu_si256((__m256i*)(rows[2+1*4]+0));
+				__m256i NN2	=_mm256_loadu_si256((__m256i*)(rows[2+2*4]+0));
+				__m256i N0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]+0));
+				__m256i N1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]+0));
+				__m256i N2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]+0));
+				__m256i mp0=_mm256_slli_epi16(N0, 1);//clamp(3*N-NN+1)>>1
+				__m256i mp1=_mm256_slli_epi16(N1, 1);
+				__m256i mp2=_mm256_slli_epi16(N2, 1);
+				mp0=_mm256_add_epi16(mp0, N0);
+				mp1=_mm256_add_epi16(mp1, N1);
+				mp2=_mm256_add_epi16(mp2, N2);
+				mp0=_mm256_sub_epi16(mp0, NN0);
+				mp1=_mm256_sub_epi16(mp1, NN1);
+				mp2=_mm256_sub_epi16(mp2, NN2);
+				mp0=_mm256_add_epi16(mp0, one);
+				mp1=_mm256_add_epi16(mp1, one);
+				mp2=_mm256_add_epi16(mp2, one);
+				mp0=_mm256_srai_epi16(mp0, 1);
+				mp1=_mm256_srai_epi16(mp1, 1);
+				mp2=_mm256_srai_epi16(mp2, 1);
+				mp0=_mm256_max_epi16(mp0, mmin);
+				mp1=_mm256_max_epi16(mp1, mmin);
+				mp2=_mm256_max_epi16(mp2, mmin);
+				mp0=_mm256_min_epi16(mp0, mmax);
+				mp1=_mm256_min_epi16(mp1, mmax);
+				mp2=_mm256_min_epi16(mp2, mmax);
+				__m128i ypred=_mm_packs_epi16(_mm256_castsi256_si128(mp0), _mm256_extracti128_si256(mp0, 1));
+				__m128i upred=_mm_packs_epi16(_mm256_castsi256_si128(mp1), _mm256_extracti128_si256(mp1, 1));
+				__m128i vpred=_mm_packs_epi16(_mm256_castsi256_si128(mp2), _mm256_extracti128_si256(mp2, 1));
+#elif defined USE_PRED21
+				__m256i NN0	=_mm256_loadu_si256((__m256i*)(rows[2+0*4]+0));
+				__m256i NN1	=_mm256_loadu_si256((__m256i*)(rows[2+1*4]+0));
+				__m256i NN2	=_mm256_loadu_si256((__m256i*)(rows[2+2*4]+0));
+				__m256i N0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]+0));
+				__m256i N1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]+0));
+				__m256i N2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]+0));
+				__m256i mp0=_mm256_slli_epi16(N0, 1);//clamp(2*N-NN)
+				__m256i mp1=_mm256_slli_epi16(N1, 1);
+				__m256i mp2=_mm256_slli_epi16(N2, 1);
+				mp0=_mm256_sub_epi16(mp0, NN0);
+				mp1=_mm256_sub_epi16(mp1, NN1);
+				mp2=_mm256_sub_epi16(mp2, NN2);
+				mp0=_mm256_max_epi16(mp0, mmin);
+				mp1=_mm256_max_epi16(mp1, mmin);
+				mp2=_mm256_max_epi16(mp2, mmin);
+				mp0=_mm256_min_epi16(mp0, mmax);
+				mp1=_mm256_min_epi16(mp1, mmax);
+				mp2=_mm256_min_epi16(mp2, mmax);
+				__m128i ypred=_mm_packs_epi16(_mm256_castsi256_si128(mp0), _mm256_extracti128_si256(mp0, 1));
+				__m128i upred=_mm_packs_epi16(_mm256_castsi256_si128(mp1), _mm256_extracti128_si256(mp1, 1));
+				__m128i vpred=_mm_packs_epi16(_mm256_castsi256_si128(mp2), _mm256_extracti128_si256(mp2, 1));
 #elif defined USE_ROWPREDN
 				__m128i ypred=_mm_loadu_si128((__m128i*)(rows[1+0*4]+0));
 				__m128i upred=_mm_loadu_si128((__m128i*)(rows[1+1*4]+0));
@@ -876,6 +937,20 @@ int c22_codec(const char *srcfn, const char *dstfn)
 				int ypred=(6*rows[1+0*4][+0]+5*(rows[1+0*4][-1]+rows[1+0*4][+1])+8)>>4;
 				int upred=(6*rows[1+1*4][+0]+5*(rows[1+1*4][-1]+rows[1+1*4][+1])+8)>>4;
 				int vpred=(6*rows[1+2*4][+0]+5*(rows[1+2*4][-1]+rows[1+2*4][+1])+8)>>4;
+#elif defined USE_PRED31
+				int ypred=(3*rows[1+0*4][+0]-rows[2+0*4][+0]+1)>>1;
+				int upred=(3*rows[1+1*4][+0]-rows[2+1*4][+0]+1)>>1;
+				int vpred=(3*rows[1+2*4][+0]-rows[2+2*4][+0]+1)>>1;
+				CLAMP2(ypred, -128, 127);
+				CLAMP2(upred, -128, 127);
+				CLAMP2(vpred, -128, 127);
+#elif defined USE_PRED21
+				int ypred=2*rows[1+0*4][+0]-rows[2+0*4][+0];
+				int upred=2*rows[1+1*4][+0]-rows[2+1*4][+0];
+				int vpred=2*rows[1+2*4][+0]-rows[2+2*4][+0];
+				CLAMP2(ypred, -128, 127);
+				CLAMP2(upred, -128, 127);
+				CLAMP2(vpred, -128, 127);
 #elif defined USE_ROWPREDN
 				int ypred=rows[1+0*4][+0];
 				int upred=rows[1+1*4][+0];
@@ -1117,11 +1192,17 @@ int c22_codec(const char *srcfn, const char *dstfn)
 		__m128i helperUmask=_mm_set1_epi8(-(uhelpidx!=3));
 		__m128i helperVsel=_mm_set1_epi8(-(vhelpidx==1));
 		__m128i helperVmask=_mm_set1_epi8(-(vhelpidx!=3));
+		__m256i one=_mm256_set1_epi16(1);
 		__m256i two=_mm256_set1_epi16(2);
 		__m256i eight=_mm256_set1_epi16(8);
 		__m128i mhalf=_mm_set1_epi8(-128);
+		__m256i mmin=_mm256_set1_epi16(-128);
+		__m256i mmax=_mm256_set1_epi16(127);
+		(void)one;
 		(void)two;
 		(void)eight;
+		(void)mmin;
+		(void)mmax;
 		for(int ky=0, idx=0, idx2=0;ky<ih;++ky)
 		{
 			ALIGN(32) short *rows[]=
@@ -1246,6 +1327,59 @@ int c22_codec(const char *srcfn, const char *dstfn)
 				__m128i ypred=_mm_packs_epi16(_mm256_castsi256_si128(mp0), _mm256_extracti128_si256(mp0, 1));
 				__m128i upred=_mm_packs_epi16(_mm256_castsi256_si128(mp1), _mm256_extracti128_si256(mp1, 1));
 				__m128i vpred=_mm_packs_epi16(_mm256_castsi256_si128(mp2), _mm256_extracti128_si256(mp2, 1));
+#elif defined USE_PRED31
+				__m256i NN0	=_mm256_loadu_si256((__m256i*)(rows[2+0*4]+0));
+				__m256i NN1	=_mm256_loadu_si256((__m256i*)(rows[2+1*4]+0));
+				__m256i NN2	=_mm256_loadu_si256((__m256i*)(rows[2+2*4]+0));
+				__m256i N0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]+0));
+				__m256i N1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]+0));
+				__m256i N2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]+0));
+				__m256i mp0=_mm256_slli_epi16(N0, 1);//clamp((3*N-NN+1)>>1)
+				__m256i mp1=_mm256_slli_epi16(N1, 1);
+				__m256i mp2=_mm256_slli_epi16(N2, 1);
+				mp0=_mm256_add_epi16(mp0, N0);
+				mp1=_mm256_add_epi16(mp1, N1);
+				mp2=_mm256_add_epi16(mp2, N2);
+				mp0=_mm256_sub_epi16(mp0, NN0);
+				mp1=_mm256_sub_epi16(mp1, NN1);
+				mp2=_mm256_sub_epi16(mp2, NN2);
+				mp0=_mm256_add_epi16(mp0, one);
+				mp1=_mm256_add_epi16(mp1, one);
+				mp2=_mm256_add_epi16(mp2, one);
+				mp0=_mm256_srai_epi16(mp0, 1);
+				mp1=_mm256_srai_epi16(mp1, 1);
+				mp2=_mm256_srai_epi16(mp2, 1);
+				mp0=_mm256_max_epi16(mp0, mmin);
+				mp1=_mm256_max_epi16(mp1, mmin);
+				mp2=_mm256_max_epi16(mp2, mmin);
+				mp0=_mm256_min_epi16(mp0, mmax);
+				mp1=_mm256_min_epi16(mp1, mmax);
+				mp2=_mm256_min_epi16(mp2, mmax);
+				__m128i ypred=_mm_packs_epi16(_mm256_castsi256_si128(mp0), _mm256_extracti128_si256(mp0, 1));
+				__m128i upred=_mm_packs_epi16(_mm256_castsi256_si128(mp1), _mm256_extracti128_si256(mp1, 1));
+				__m128i vpred=_mm_packs_epi16(_mm256_castsi256_si128(mp2), _mm256_extracti128_si256(mp2, 1));
+#elif defined USE_PRED21
+				__m256i NN0	=_mm256_loadu_si256((__m256i*)(rows[2+0*4]+0));
+				__m256i NN1	=_mm256_loadu_si256((__m256i*)(rows[2+1*4]+0));
+				__m256i NN2	=_mm256_loadu_si256((__m256i*)(rows[2+2*4]+0));
+				__m256i N0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]+0));
+				__m256i N1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]+0));
+				__m256i N2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]+0));
+				__m256i mp0=_mm256_slli_epi16(N0, 1);//clamp(2*N-NN)
+				__m256i mp1=_mm256_slli_epi16(N1, 1);
+				__m256i mp2=_mm256_slli_epi16(N2, 1);
+				mp0=_mm256_sub_epi16(mp0, NN0);
+				mp1=_mm256_sub_epi16(mp1, NN1);
+				mp2=_mm256_sub_epi16(mp2, NN2);
+				mp0=_mm256_max_epi16(mp0, mmin);
+				mp1=_mm256_max_epi16(mp1, mmin);
+				mp2=_mm256_max_epi16(mp2, mmin);
+				mp0=_mm256_min_epi16(mp0, mmax);
+				mp1=_mm256_min_epi16(mp1, mmax);
+				mp2=_mm256_min_epi16(mp2, mmax);
+				__m128i ypred=_mm_packs_epi16(_mm256_castsi256_si128(mp0), _mm256_extracti128_si256(mp0, 1));
+				__m128i upred=_mm_packs_epi16(_mm256_castsi256_si128(mp1), _mm256_extracti128_si256(mp1, 1));
+				__m128i vpred=_mm_packs_epi16(_mm256_castsi256_si128(mp2), _mm256_extracti128_si256(mp2, 1));
 #elif defined USE_ROWPREDN
 				__m128i ypred=_mm_loadu_si128((__m128i*)(rows[1+0*4]+0));
 				__m128i upred=_mm_loadu_si128((__m128i*)(rows[1+1*4]+0));
@@ -1345,6 +1479,20 @@ int c22_codec(const char *srcfn, const char *dstfn)
 				int ypred=(6*rows[1+0*4][+0]+5*(rows[1+0*4][-1]+rows[1+0*4][+1])+8)>>4;
 				int upred=(6*rows[1+1*4][+0]+5*(rows[1+1*4][-1]+rows[1+1*4][+1])+8)>>4;
 				int vpred=(6*rows[1+2*4][+0]+5*(rows[1+2*4][-1]+rows[1+2*4][+1])+8)>>4;
+#elif defined USE_PRED31
+				int ypred=(3*rows[1+0*4][+0]-rows[2+0*4][+0]+1)>>1;
+				int upred=(3*rows[1+1*4][+0]-rows[2+1*4][+0]+1)>>1;
+				int vpred=(3*rows[1+2*4][+0]-rows[2+2*4][+0]+1)>>1;
+				CLAMP2(ypred, -128, 127);
+				CLAMP2(upred, -128, 127);
+				CLAMP2(vpred, -128, 127);
+#elif defined USE_PRED21
+				int ypred=2*rows[1+0*4][+0]-rows[2+0*4][+0];
+				int upred=2*rows[1+1*4][+0]-rows[2+1*4][+0];
+				int vpred=2*rows[1+2*4][+0]-rows[2+2*4][+0];
+				CLAMP2(ypred, -128, 127);
+				CLAMP2(upred, -128, 127);
+				CLAMP2(vpred, -128, 127);
 #elif defined USE_ROWPREDN
 				int ypred=rows[1+0*4][+0];
 				int upred=rows[1+1*4][+0];

@@ -121,3 +121,18 @@ c22:
 	htscodecs/rle.c \
 	htscodecs/tokenise_name3.c \
 	htscodecs/utils.c
+
+c23:
+	gcc -O3 -Wall -Ihtscodecs -DCODEC_FUNC=c23_codec -mavx2 -mbmi -mlzcnt  c23.c codec.c util.c  -o c23 $(LIBS) \
+	htscodecs/arith_dynamic.c \
+	htscodecs/fqzcomp_qual.c \
+	htscodecs/htscodecs.c \
+	htscodecs/pack.c \
+	htscodecs/rANS_static.c \
+	htscodecs/rANS_static4x16pr.c \
+	htscodecs/rANS_static32x16pr.c \
+	htscodecs/rANS_static32x16pr_avx2.c \
+	htscodecs/rANS_static32x16pr_sse4.c \
+	htscodecs/rle.c \
+	htscodecs/tokenise_name3.c \
+	htscodecs/utils.c
