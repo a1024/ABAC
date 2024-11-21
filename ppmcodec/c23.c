@@ -12,9 +12,9 @@
 static const char file[]=__FILE__;
 
 
-	#define LOUD
+//	#define LOUD
 
-//	#define ENABLE_MT
+	#define ENABLE_MT
 //	#define ENABLE_GUIDE
 
 	#define ENABLE_FASTANALYSIS	//LPCB 3~14% faster, 0.04% larger than entropy	good
@@ -28,22 +28,22 @@ static const char file[]=__FILE__;
 //	#define USE_PRED31	//(3*N-NN+1)>>1
 //	#define USE_PRED21	//2*N-NN	worse than N
 
-//	#define OVERRIDE_PREDSEL 15
+//	#define OVERRIDE_PREDSEL 0
 	#define USE_O1		//good
 
 
-#define HISTTOTAL 8
+#define HISTTOTAL 14
 #define HISTBITS 7
 
-#define LGBLOCKSIZE 9
+#define LGBLOCKSIZE 10
 #define BLOCKSIZE (1<<LGBLOCKSIZE)
 
-#define XSTRIDE 1
-#define YSTRIDE 1
+#define XSTRIDE 4
+#define YSTRIDE 4
 
 #define PREDRES 5
 
-#define NPREDS 11
+#define NPREDS 3
 #ifdef ENABLE_GUIDE
 static int g_iw=0, g_ih=0;
 static unsigned char *g_image=0;
@@ -116,20 +116,29 @@ typedef enum _NBIndex
 
 	NB_COUNT,
 } NBIndex;
-static const char coeffsrc[3*NPREDS]=
+static const short coeffsrc[3*NPREDS]=
 {
 #if 1
+	 0,  0,  0,
 	 0, 32,  0,
-	 1, 30,  1,
-	 2, 28,  2,
-	 3, 26,  3,
-	 4, 24,  4,
-	 5, 22,  5,
 	 6, 20,  6,
-	 7, 18,  7,
+#endif
+
+#if 0
+	 0,  0,  0,
+	 0, 32,  0,
+	 6, 20,  6,
 	 8, 16,  8,
 	 9, 14,  9,
 	10, 12, 10,
+#endif
+
+#if 0
+	 0,  0,  0,	//zero
+	 0, 32,  0,	//N
+	 6, 20,  6,	//(10*N+3*(NW+NE)+8)>>4
+	 8, 16,  8,	//(2*N+NW+NE+2)>>2
+	 9, 14,  9,
 #endif
 
 #if 0
@@ -297,8 +306,8 @@ int c23_codec(const char *srcfn, const char *dstfn)
 	int dsize=sizeof(char[3])*nblocks;
 	unsigned char *dbuf=(unsigned char*)malloc(dsize);
 
-	int coeffbufsize=sizeof(char[3*3])*nblocks;
-	unsigned char *coeffs=(unsigned char*)malloc(coeffbufsize);
+	int coeffbufsize=(int)sizeof(short[3*3*16])*nblocks;
+	short *coeffs=(short*)_mm_malloc(coeffbufsize, sizeof(__m256i));
 
 	int psize=(iw+32LL)*sizeof(short[4*3]);//4 padded rows * 3 channels
 	short *pixels=(short*)_mm_malloc(psize, sizeof(__m256i));
@@ -312,17 +321,14 @@ int c23_codec(const char *srcfn, const char *dstfn)
 	if(fwd)//encode
 	{
 		ptrdiff_t dstbufsize=4LL*iw*ih;
-		unsigned short *dstbuf=0, *dstptr=0;
-		dstbuf=(unsigned short*)malloc(dstbufsize);
+		unsigned char *dstbuf=(unsigned char*)malloc(dstbufsize);
 		if(!dstbuf)
 		{
 			LOG_ERROR("Alloc error");
 			return 1;
 		}
-		dstptr=dstbuf;
 		unsigned char *image=srcptr;
 		guide_save(image, iw, ih);
-		unsigned char *dptr=(unsigned char*)dstptr;
 		int res=iw*ih;
 #if defined _MSC_VER && defined LOUD
 		ptime=time_sec();
@@ -684,7 +690,7 @@ int c23_codec(const char *srcfn, const char *dstfn)
 				if(x2>iw-1)
 					x2=iw-1;
 				int count=0;
-				int residues[48]={0};
+				int residues[3*NPREDS]={0};
 				memset(hists, 0, hsize);
 				for(int ky=y1;ky<=y2-YSTRIDE;ky+=YSTRIDE)
 				{
@@ -728,24 +734,24 @@ int c23_codec(const char *srcfn, const char *dstfn)
 						residues[ 6]=((1<<HISTTOTAL)-1)&(residues[ 6]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[0+NB_curr*4]-((coeffsrc[0+ 2*3]*nb[0+NB_NW*4]+coeffsrc[1+ 2*3]*nb[0+NB_N*4]+coeffsrc[2+ 2*3]*nb[0+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
 						residues[ 7]=((1<<HISTTOTAL)-1)&(residues[ 7]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[1+NB_curr*4]-((coeffsrc[0+ 2*3]*nb[1+NB_NW*4]+coeffsrc[1+ 2*3]*nb[1+NB_N*4]+coeffsrc[2+ 2*3]*nb[1+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
 						residues[ 8]=((1<<HISTTOTAL)-1)&(residues[ 8]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[2+NB_curr*4]-((coeffsrc[0+ 2*3]*nb[2+NB_NW*4]+coeffsrc[1+ 2*3]*nb[2+NB_N*4]+coeffsrc[2+ 2*3]*nb[2+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
-						residues[ 9]=((1<<HISTTOTAL)-1)&(residues[ 9]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[0+NB_curr*4]-((coeffsrc[0+ 3*3]*nb[0+NB_NW*4]+coeffsrc[1+ 3*3]*nb[0+NB_N*4]+coeffsrc[2+ 3*3]*nb[0+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
-						residues[10]=((1<<HISTTOTAL)-1)&(residues[10]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[1+NB_curr*4]-((coeffsrc[0+ 3*3]*nb[1+NB_NW*4]+coeffsrc[1+ 3*3]*nb[1+NB_N*4]+coeffsrc[2+ 3*3]*nb[1+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
-						residues[11]=((1<<HISTTOTAL)-1)&(residues[11]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[2+NB_curr*4]-((coeffsrc[0+ 3*3]*nb[2+NB_NW*4]+coeffsrc[1+ 3*3]*nb[2+NB_N*4]+coeffsrc[2+ 3*3]*nb[2+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
-						residues[12]=((1<<HISTTOTAL)-1)&(residues[12]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[0+NB_curr*4]-((coeffsrc[0+ 4*3]*nb[0+NB_NW*4]+coeffsrc[1+ 4*3]*nb[0+NB_N*4]+coeffsrc[2+ 4*3]*nb[0+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
-						residues[13]=((1<<HISTTOTAL)-1)&(residues[13]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[1+NB_curr*4]-((coeffsrc[0+ 4*3]*nb[1+NB_NW*4]+coeffsrc[1+ 4*3]*nb[1+NB_N*4]+coeffsrc[2+ 4*3]*nb[1+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
-						residues[14]=((1<<HISTTOTAL)-1)&(residues[14]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[2+NB_curr*4]-((coeffsrc[0+ 4*3]*nb[2+NB_NW*4]+coeffsrc[1+ 4*3]*nb[2+NB_N*4]+coeffsrc[2+ 4*3]*nb[2+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
-						residues[15]=((1<<HISTTOTAL)-1)&(residues[15]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[0+NB_curr*4]-((coeffsrc[0+ 5*3]*nb[0+NB_NW*4]+coeffsrc[1+ 5*3]*nb[0+NB_N*4]+coeffsrc[2+ 5*3]*nb[0+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
-						residues[16]=((1<<HISTTOTAL)-1)&(residues[16]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[1+NB_curr*4]-((coeffsrc[0+ 5*3]*nb[1+NB_NW*4]+coeffsrc[1+ 5*3]*nb[1+NB_N*4]+coeffsrc[2+ 5*3]*nb[1+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
-						residues[17]=((1<<HISTTOTAL)-1)&(residues[17]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[2+NB_curr*4]-((coeffsrc[0+ 5*3]*nb[2+NB_NW*4]+coeffsrc[1+ 5*3]*nb[2+NB_N*4]+coeffsrc[2+ 5*3]*nb[2+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
-						residues[18]=((1<<HISTTOTAL)-1)&(residues[18]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[0+NB_curr*4]-((coeffsrc[0+ 6*3]*nb[0+NB_NW*4]+coeffsrc[1+ 6*3]*nb[0+NB_N*4]+coeffsrc[2+ 6*3]*nb[0+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
-						residues[19]=((1<<HISTTOTAL)-1)&(residues[19]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[1+NB_curr*4]-((coeffsrc[0+ 6*3]*nb[1+NB_NW*4]+coeffsrc[1+ 6*3]*nb[1+NB_N*4]+coeffsrc[2+ 6*3]*nb[1+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
-						residues[20]=((1<<HISTTOTAL)-1)&(residues[20]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[2+NB_curr*4]-((coeffsrc[0+ 6*3]*nb[2+NB_NW*4]+coeffsrc[1+ 6*3]*nb[2+NB_N*4]+coeffsrc[2+ 6*3]*nb[2+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
-						residues[21]=((1<<HISTTOTAL)-1)&(residues[21]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[0+NB_curr*4]-((coeffsrc[0+ 7*3]*nb[0+NB_NW*4]+coeffsrc[1+ 7*3]*nb[0+NB_N*4]+coeffsrc[2+ 7*3]*nb[0+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
-						residues[22]=((1<<HISTTOTAL)-1)&(residues[22]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[1+NB_curr*4]-((coeffsrc[0+ 7*3]*nb[1+NB_NW*4]+coeffsrc[1+ 7*3]*nb[1+NB_N*4]+coeffsrc[2+ 7*3]*nb[1+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
-						residues[23]=((1<<HISTTOTAL)-1)&(residues[23]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[2+NB_curr*4]-((coeffsrc[0+ 7*3]*nb[2+NB_NW*4]+coeffsrc[1+ 7*3]*nb[2+NB_N*4]+coeffsrc[2+ 7*3]*nb[2+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
-						residues[24]=((1<<HISTTOTAL)-1)&(residues[24]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[0+NB_curr*4]-((coeffsrc[0+ 8*3]*nb[0+NB_NW*4]+coeffsrc[1+ 8*3]*nb[0+NB_N*4]+coeffsrc[2+ 8*3]*nb[0+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
-						residues[25]=((1<<HISTTOTAL)-1)&(residues[25]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[1+NB_curr*4]-((coeffsrc[0+ 8*3]*nb[1+NB_NW*4]+coeffsrc[1+ 8*3]*nb[1+NB_N*4]+coeffsrc[2+ 8*3]*nb[1+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
-						residues[26]=((1<<HISTTOTAL)-1)&(residues[26]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[2+NB_curr*4]-((coeffsrc[0+ 8*3]*nb[2+NB_NW*4]+coeffsrc[1+ 8*3]*nb[2+NB_N*4]+coeffsrc[2+ 8*3]*nb[2+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
+						//residues[ 9]=((1<<HISTTOTAL)-1)&(residues[ 9]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[0+NB_curr*4]-((coeffsrc[0+ 3*3]*nb[0+NB_NW*4]+coeffsrc[1+ 3*3]*nb[0+NB_N*4]+coeffsrc[2+ 3*3]*nb[0+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
+						//residues[10]=((1<<HISTTOTAL)-1)&(residues[10]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[1+NB_curr*4]-((coeffsrc[0+ 3*3]*nb[1+NB_NW*4]+coeffsrc[1+ 3*3]*nb[1+NB_N*4]+coeffsrc[2+ 3*3]*nb[1+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
+						//residues[11]=((1<<HISTTOTAL)-1)&(residues[11]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[2+NB_curr*4]-((coeffsrc[0+ 3*3]*nb[2+NB_NW*4]+coeffsrc[1+ 3*3]*nb[2+NB_N*4]+coeffsrc[2+ 3*3]*nb[2+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
+						//residues[12]=((1<<HISTTOTAL)-1)&(residues[12]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[0+NB_curr*4]-((coeffsrc[0+ 4*3]*nb[0+NB_NW*4]+coeffsrc[1+ 4*3]*nb[0+NB_N*4]+coeffsrc[2+ 4*3]*nb[0+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
+						//residues[13]=((1<<HISTTOTAL)-1)&(residues[13]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[1+NB_curr*4]-((coeffsrc[0+ 4*3]*nb[1+NB_NW*4]+coeffsrc[1+ 4*3]*nb[1+NB_N*4]+coeffsrc[2+ 4*3]*nb[1+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
+						//residues[14]=((1<<HISTTOTAL)-1)&(residues[14]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[2+NB_curr*4]-((coeffsrc[0+ 4*3]*nb[2+NB_NW*4]+coeffsrc[1+ 4*3]*nb[2+NB_N*4]+coeffsrc[2+ 4*3]*nb[2+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
+						//residues[15]=((1<<HISTTOTAL)-1)&(residues[15]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[0+NB_curr*4]-((coeffsrc[0+ 5*3]*nb[0+NB_NW*4]+coeffsrc[1+ 5*3]*nb[0+NB_N*4]+coeffsrc[2+ 5*3]*nb[0+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
+						//residues[16]=((1<<HISTTOTAL)-1)&(residues[16]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[1+NB_curr*4]-((coeffsrc[0+ 5*3]*nb[1+NB_NW*4]+coeffsrc[1+ 5*3]*nb[1+NB_N*4]+coeffsrc[2+ 5*3]*nb[1+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
+						//residues[17]=((1<<HISTTOTAL)-1)&(residues[17]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[2+NB_curr*4]-((coeffsrc[0+ 5*3]*nb[2+NB_NW*4]+coeffsrc[1+ 5*3]*nb[2+NB_N*4]+coeffsrc[2+ 5*3]*nb[2+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
+						//residues[18]=((1<<HISTTOTAL)-1)&(residues[18]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[0+NB_curr*4]-((coeffsrc[0+ 6*3]*nb[0+NB_NW*4]+coeffsrc[1+ 6*3]*nb[0+NB_N*4]+coeffsrc[2+ 6*3]*nb[0+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
+						//residues[19]=((1<<HISTTOTAL)-1)&(residues[19]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[1+NB_curr*4]-((coeffsrc[0+ 6*3]*nb[1+NB_NW*4]+coeffsrc[1+ 6*3]*nb[1+NB_N*4]+coeffsrc[2+ 6*3]*nb[1+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
+						//residues[20]=((1<<HISTTOTAL)-1)&(residues[20]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[2+NB_curr*4]-((coeffsrc[0+ 6*3]*nb[2+NB_NW*4]+coeffsrc[1+ 6*3]*nb[2+NB_N*4]+coeffsrc[2+ 6*3]*nb[2+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
+						//residues[21]=((1<<HISTTOTAL)-1)&(residues[21]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[0+NB_curr*4]-((coeffsrc[0+ 7*3]*nb[0+NB_NW*4]+coeffsrc[1+ 7*3]*nb[0+NB_N*4]+coeffsrc[2+ 7*3]*nb[0+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
+						//residues[22]=((1<<HISTTOTAL)-1)&(residues[22]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[1+NB_curr*4]-((coeffsrc[0+ 7*3]*nb[1+NB_NW*4]+coeffsrc[1+ 7*3]*nb[1+NB_N*4]+coeffsrc[2+ 7*3]*nb[1+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
+						//residues[23]=((1<<HISTTOTAL)-1)&(residues[23]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[2+NB_curr*4]-((coeffsrc[0+ 7*3]*nb[2+NB_NW*4]+coeffsrc[1+ 7*3]*nb[2+NB_N*4]+coeffsrc[2+ 7*3]*nb[2+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
+						//residues[24]=((1<<HISTTOTAL)-1)&(residues[24]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[0+NB_curr*4]-((coeffsrc[0+ 8*3]*nb[0+NB_NW*4]+coeffsrc[1+ 8*3]*nb[0+NB_N*4]+coeffsrc[2+ 8*3]*nb[0+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
+						//residues[25]=((1<<HISTTOTAL)-1)&(residues[25]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[1+NB_curr*4]-((coeffsrc[0+ 8*3]*nb[1+NB_NW*4]+coeffsrc[1+ 8*3]*nb[1+NB_N*4]+coeffsrc[2+ 8*3]*nb[1+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
+						//residues[26]=((1<<HISTTOTAL)-1)&(residues[26]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[2+NB_curr*4]-((coeffsrc[0+ 8*3]*nb[2+NB_NW*4]+coeffsrc[1+ 8*3]*nb[2+NB_N*4]+coeffsrc[2+ 8*3]*nb[2+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
 						//residues[27]=((1<<HISTTOTAL)-1)&(residues[27]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[0+NB_curr*4]-((coeffsrc[0+ 9*3]*nb[0+NB_NW*4]+coeffsrc[1+ 9*3]*nb[0+NB_N*4]+coeffsrc[2+ 9*3]*nb[0+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
 						//residues[28]=((1<<HISTTOTAL)-1)&(residues[28]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[1+NB_curr*4]-((coeffsrc[0+ 9*3]*nb[1+NB_NW*4]+coeffsrc[1+ 9*3]*nb[1+NB_N*4]+coeffsrc[2+ 9*3]*nb[1+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
 						//residues[29]=((1<<HISTTOTAL)-1)&(residues[29]>>(2*HISTBITS-HISTTOTAL)<<HISTBITS|(255&(nb[2+NB_curr*4]-((coeffsrc[0+ 9*3]*nb[2+NB_NW*4]+coeffsrc[1+ 9*3]*nb[2+NB_N*4]+coeffsrc[2+ 9*3]*nb[2+NB_NE*4]+(1<<PREDRES>>1))>>PREDRES)))>>(8-HISTBITS));
@@ -828,24 +834,24 @@ int c23_codec(const char *srcfn, const char *dstfn)
 						++hists[ 6<<HISTTOTAL|residues[ 6]];
 						++hists[ 7<<HISTTOTAL|residues[ 7]];
 						++hists[ 8<<HISTTOTAL|residues[ 8]];
-						++hists[ 9<<HISTTOTAL|residues[ 9]];
-						++hists[10<<HISTTOTAL|residues[10]];
-						++hists[11<<HISTTOTAL|residues[11]];
-						++hists[12<<HISTTOTAL|residues[12]];
-						++hists[13<<HISTTOTAL|residues[13]];
-						++hists[14<<HISTTOTAL|residues[14]];
-						++hists[15<<HISTTOTAL|residues[15]];
-						++hists[16<<HISTTOTAL|residues[16]];
-						++hists[17<<HISTTOTAL|residues[17]];
-						++hists[18<<HISTTOTAL|residues[18]];
-						++hists[19<<HISTTOTAL|residues[19]];
-						++hists[20<<HISTTOTAL|residues[20]];
-						++hists[21<<HISTTOTAL|residues[21]];
-						++hists[22<<HISTTOTAL|residues[22]];
-						++hists[23<<HISTTOTAL|residues[23]];
-						++hists[24<<HISTTOTAL|residues[24]];
-						++hists[25<<HISTTOTAL|residues[25]];
-						++hists[26<<HISTTOTAL|residues[26]];
+						//++hists[ 9<<HISTTOTAL|residues[ 9]];
+						//++hists[10<<HISTTOTAL|residues[10]];
+						//++hists[11<<HISTTOTAL|residues[11]];
+						//++hists[12<<HISTTOTAL|residues[12]];
+						//++hists[13<<HISTTOTAL|residues[13]];
+						//++hists[14<<HISTTOTAL|residues[14]];
+						//++hists[15<<HISTTOTAL|residues[15]];
+						//++hists[16<<HISTTOTAL|residues[16]];
+						//++hists[17<<HISTTOTAL|residues[17]];
+						//++hists[18<<HISTTOTAL|residues[18]];
+						//++hists[19<<HISTTOTAL|residues[19]];
+						//++hists[20<<HISTTOTAL|residues[20]];
+						//++hists[21<<HISTTOTAL|residues[21]];
+						//++hists[22<<HISTTOTAL|residues[22]];
+						//++hists[23<<HISTTOTAL|residues[23]];
+						//++hists[24<<HISTTOTAL|residues[24]];
+						//++hists[25<<HISTTOTAL|residues[25]];
+						//++hists[26<<HISTTOTAL|residues[26]];
 						//++hists[27<<HISTTOTAL|residues[27]];
 						//++hists[28<<HISTTOTAL|residues[28]];
 						//++hists[29<<HISTTOTAL|residues[29]];
@@ -912,18 +918,18 @@ int c23_codec(const char *srcfn, const char *dstfn)
 						bestpreds[2]=kc;
 				}
 #if defined _MSC_VER && defined LOUD
-				printf("  %d%d %d%d %d%d%c",
-					bestpreds[0]>>2, bestpreds[0]&3,
-					bestpreds[1]>>2, bestpreds[1]&3,
-					bestpreds[2]>>2, bestpreds[2]&3,
-					bx+1>=xblocks?'\n':' '
-				);
-				//printf("  %2d %2d %2d%c",
-				//	bestpreds[0],
-				//	bestpreds[1],
-				//	bestpreds[2],
+				//printf("  %d%d %d%d %d%d%c",
+				//	bestpreds[0]>>2, bestpreds[0]&3,
+				//	bestpreds[1]>>2, bestpreds[1]&3,
+				//	bestpreds[2]>>2, bestpreds[2]&3,
 				//	bx+1>=xblocks?'\n':' '
 				//);
+				printf("  %2d %2d %2d%c",
+					bestpreds[0],
+					bestpreds[1],
+					bestpreds[2],
+					bx+1>=xblocks?'\n':' '
+				);
 #endif
 				int kb=xblocks*by+bx;
 				dbuf[3*kb+0]=bestpreds[0];
@@ -933,19 +939,93 @@ int c23_codec(const char *srcfn, const char *dstfn)
 		}
 		free(hists);
 #endif
-		int ncoeffs=3*3*nblocks;
-		for(int kb=0, kc=0;kc<ncoeffs;++kb, kc+=3)
+		for(int ks=0, kd=0;ks<nblocks*3;++ks, kd+=3*16)
 		{
-			memcpy(coeffs+kc, coeffsrc+dbuf[kb]*3, 3);
+			memfill(coeffs+kd+0*16, coeffsrc+dbuf[ks]*3+0, sizeof(short[16]), sizeof(short));
+			memfill(coeffs+kd+1*16, coeffsrc+dbuf[ks]*3+1, sizeof(short[16]), sizeof(short));
+			memfill(coeffs+kd+2*16, coeffsrc+dbuf[ks]*3+2, sizeof(short[16]), sizeof(short));
+			//memcpy(coeffs+kc, coeffsrc+dbuf[kb]*3, 3);
 #if defined _MSC_VER && defined LOUD
 			printf("%5d  %d %d %d\n",
-				kb,
-				coeffs[kc+0],
-				coeffs[kc+1],
-				coeffs[kc+2]
+				ks,
+				coeffs[kd+0*16],
+				coeffs[kd+1*16],
+				coeffs[kd+2*16]
 			);
 #endif
 		}
+		//deinterleave |rgbr gbrg brgb rgbr|gbrg brgb rgbr gbrg|brgb rgbr gbrg brgb| -> |yyyy yyyy yyyy yyyy|uuuu uuuu uuuu uuuu|vvvv vvvv vvvv vvvv| (in order):
+		__m128i getr0=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+			-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 15, 12,  9,  6,  3,  0
+		);
+		__m128i getr1=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+			-1, -1, -1, -1, -1, 14, 11,  8,  5,  2, -1, -1, -1, -1, -1, -1
+		);
+		__m128i getr2=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+			13, 10,  7,  4,  1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
+		);
+		__m128i getg0=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+			-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 13, 10,  7,  4,  1
+		);
+		__m128i getg1=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+			-1, -1, -1, -1, -1, 15, 12,  9,  6,  3,  0, -1, -1, -1, -1, -1
+		);
+		__m128i getg2=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+			14, 11,  8,  5,  2, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
+		);
+		__m128i getb0=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+			-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 14, 11,  8,  5,  2
+		);
+		__m128i getb1=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+			-1, -1, -1, -1, -1, -1, 13, 10,  7,  4,  1, -1, -1, -1, -1, -1
+		);
+		__m128i getb2=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+			15, 12,  9,  6,  3,  0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
+		);
+		__m128i
+			gety0, gety1, gety2,
+			getu0, getu1, getu2,
+			getv0, getv1, getv2;
+		switch(bestrct)
+		{
+		default:
+		case  0:gety0=getr0, gety1=getr1, gety2=getr2,  getu0=getg0, getu1=getg1, getu2=getg2,  getv0=getb0, getv1=getb1, getv2=getb2;break;//0, 1, 2
+		case  1:gety0=getr0, gety1=getr1, gety2=getr2,  getu0=getg0, getu1=getg1, getu2=getg2,  getv0=getb0, getv1=getb1, getv2=getb2;break;//0, 1, 2
+		case  2:gety0=getr0, gety1=getr1, gety2=getr2,  getu0=getg0, getu1=getg1, getu2=getg2,  getv0=getb0, getv1=getb1, getv2=getb2;break;//0, 1, 2
+		case  3:gety0=getr0, gety1=getr1, gety2=getr2,  getu0=getg0, getu1=getg1, getu2=getg2,  getv0=getb0, getv1=getb1, getv2=getb2;break;//0, 1, 2
+		case  4:gety0=getr0, gety1=getr1, gety2=getr2,  getu0=getg0, getu1=getg1, getu2=getg2,  getv0=getb0, getv1=getb1, getv2=getb2;break;//0, 1, 2
+		case  5:gety0=getr0, gety1=getr1, gety2=getr2,  getu0=getb0, getu1=getb1, getu2=getb2,  getv0=getg0, getv1=getg1, getv2=getg2;break;//0, 2, 1
+		case  6:gety0=getg0, gety1=getg1, gety2=getg2,  getu0=getb0, getu1=getb1, getu2=getb2,  getv0=getr0, getv1=getr1, getv2=getr2;break;//1, 2, 0
+		case  7:gety0=getg0, gety1=getg1, gety2=getg2,  getu0=getb0, getu1=getb1, getu2=getb2,  getv0=getr0, getv1=getr1, getv2=getr2;break;//1, 2, 0
+		case  8:gety0=getg0, gety1=getg1, gety2=getg2,  getu0=getb0, getu1=getb1, getu2=getb2,  getv0=getr0, getv1=getr1, getv2=getr2;break;//1, 2, 0
+		case  9:gety0=getg0, gety1=getg1, gety2=getg2,  getu0=getb0, getu1=getb1, getu2=getb2,  getv0=getr0, getv1=getr1, getv2=getr2;break;//1, 2, 0
+		case 10:gety0=getg0, gety1=getg1, gety2=getg2,  getu0=getr0, getu1=getr1, getu2=getr2,  getv0=getb0, getv1=getb1, getv2=getb2;break;//1, 0, 2
+		case 11:gety0=getb0, gety1=getb1, gety2=getb2,  getu0=getr0, getu1=getr1, getu2=getr2,  getv0=getg0, getv1=getg1, getv2=getg2;break;//2, 0, 1
+		case 12:gety0=getb0, gety1=getb1, gety2=getb2,  getu0=getr0, getu1=getr1, getu2=getr2,  getv0=getg0, getv1=getg1, getv2=getg2;break;//2, 0, 1
+		case 13:gety0=getb0, gety1=getb1, gety2=getb2,  getu0=getr0, getu1=getr1, getu2=getr2,  getv0=getg0, getv1=getg1, getv2=getg2;break;//2, 0, 1
+		case 14:gety0=getb0, gety1=getb1, gety2=getb2,  getu0=getr0, getu1=getr1, getu2=getr2,  getv0=getg0, getv1=getg1, getv2=getg2;break;//2, 0, 1
+		case 15:gety0=getb0, gety1=getb1, gety2=getb2,  getu0=getg0, getu1=getg1, getu2=getg2,  getv0=getr0, getv1=getr1, getv2=getr2;break;//2, 1, 0
+		}
+		__m128i helperUmask=_mm_set1_epi8(-(uhelpidx!=3));
+		__m128i helperVsel=_mm_set1_epi8(-(vhelpidx==1));
+		__m128i helperVmask=_mm_set1_epi8(-(vhelpidx!=3));
+		__m256i sixteen=_mm256_set1_epi16(16);
+		__m128i mhalf=_mm_set1_epi8(-128);
+		unsigned char *planes[]=
+		{
+			dstbuf+res*0,
+			dstbuf+res*1,
+			dstbuf+res*2,
+		};
 		for(int ky=0, idx=0, idx2=0;ky<ih;++ky)
 		{
 			int by=ky>>LGBLOCKSIZE;
@@ -964,7 +1044,108 @@ int c23_codec(const char *srcfn, const char *dstfn)
 				pixels+((iw+32LL)*(((ky-2LL)&3)+2*4)+16LL),
 				pixels+((iw+32LL)*(((ky-3LL)&3)+2*4)+16LL),
 			};
-			for(int kx=0;kx<iw;++kx, idx+=3, ++idx2)
+			int kx=0;
+#if 1
+			for(;kx<=iw-16;kx+=16, idx+=3*16, idx2+=16)
+			{
+				int bx=kx>>LGBLOCKSIZE, kb=9*(xblocks*by+bx);
+
+				//process 16 pixels (48 SPs) at a time:	rows[6]		convert only pred to 16-bit and back, then use bytes for RCT8
+				__m256i NW0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]-1));
+				__m256i NW1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]-1));
+				__m256i NW2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]-1));
+				__m256i N0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]+0));
+				__m256i N1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]+0));
+				__m256i N2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]+0));
+				__m256i NE0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]+1));
+				__m256i NE1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]+1));
+				__m256i NE2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]+1));
+				__m256i cNW0	=_mm256_load_si256((__m256i*)(coeffs+(kb+0+0*3)*16));
+				__m256i cNW1	=_mm256_load_si256((__m256i*)(coeffs+(kb+0+1*3)*16));
+				__m256i cNW2	=_mm256_load_si256((__m256i*)(coeffs+(kb+0+2*3)*16));
+				__m256i cN0	=_mm256_load_si256((__m256i*)(coeffs+(kb+1+0*3)*16));
+				__m256i cN1	=_mm256_load_si256((__m256i*)(coeffs+(kb+1+1*3)*16));
+				__m256i cN2	=_mm256_load_si256((__m256i*)(coeffs+(kb+1+2*3)*16));
+				//__m256i cNE0	=_mm256_load_si256((__m256i*)(coeffs+(kb+2+0*3)*16));//all filters are symmetric
+				//__m256i cNE1	=_mm256_load_si256((__m256i*)(coeffs+(kb+2+1*3)*16));
+				//__m256i cNE2	=_mm256_load_si256((__m256i*)(coeffs+(kb+2+2*3)*16));
+				NW0=_mm256_add_epi16(NW0, NE0);
+				NW1=_mm256_add_epi16(NW1, NE1);
+				NW2=_mm256_add_epi16(NW2, NE2);
+				NW0=_mm256_mullo_epi16(cNW0, NW0);
+				NW1=_mm256_mullo_epi16(cNW1, NW1);
+				NW2=_mm256_mullo_epi16(cNW2, NW2);
+				N0=_mm256_mullo_epi16(N0, cN0);
+				N1=_mm256_mullo_epi16(N1, cN1);
+				N2=_mm256_mullo_epi16(N2, cN2);
+				N0=_mm256_add_epi16(N0, NW0);
+				N1=_mm256_add_epi16(N1, NW1);
+				N2=_mm256_add_epi16(N2, NW2);
+				N0=_mm256_add_epi16(N0, sixteen);
+				N1=_mm256_add_epi16(N1, sixteen);
+				N2=_mm256_add_epi16(N2, sixteen);
+				N0=_mm256_srai_epi16(N0, 5);
+				N1=_mm256_srai_epi16(N1, 5);
+				N2=_mm256_srai_epi16(N2, 5);
+				__m128i ypred=_mm_packs_epi16(_mm256_castsi256_si128(N0), _mm256_extracti128_si256(N0, 1));
+				__m128i upred=_mm_packs_epi16(_mm256_castsi256_si128(N1), _mm256_extracti128_si256(N1, 1));
+				__m128i vpred=_mm_packs_epi16(_mm256_castsi256_si128(N2), _mm256_extracti128_si256(N2, 1));
+
+
+				__m128i p0=_mm_loadu_si128((__m128i*)(image+idx+0*16));
+				__m128i p1=_mm_loadu_si128((__m128i*)(image+idx+1*16));
+				__m128i p2=_mm_loadu_si128((__m128i*)(image+idx+2*16));
+
+				p0=_mm_sub_epi8(p0, mhalf);
+				p1=_mm_sub_epi8(p1, mhalf);
+				p2=_mm_sub_epi8(p2, mhalf);
+
+				//deinterleave |rgbr gbrg brgb rgbr|gbrg brgb rgbr gbrg|brgb rgbr gbrg brgb| -> |yyyy yyyy yyyy yyyy|uuuu uuuu uuuu uuuu|vvvv vvvv vvvv vvvv| (in order):
+				__m128i y0=_mm_shuffle_epi8(p0, gety0);
+				__m128i y1=_mm_shuffle_epi8(p1, gety1);
+				__m128i y2=_mm_shuffle_epi8(p2, gety2);
+				__m128i u0=_mm_shuffle_epi8(p0, getu0);
+				__m128i u1=_mm_shuffle_epi8(p1, getu1);
+				__m128i u2=_mm_shuffle_epi8(p2, getu2);
+				__m128i v0=_mm_shuffle_epi8(p0, getv0);
+				__m128i v1=_mm_shuffle_epi8(p1, getv1);
+				__m128i v2=_mm_shuffle_epi8(p2, getv2);
+				y0=_mm_or_si128(y0, y1);
+				u0=_mm_or_si128(u0, u1);
+				v0=_mm_or_si128(v0, v1);
+				__m128i my=_mm_or_si128(y0, y2);
+				__m128i mu=_mm_or_si128(u0, u2);
+				__m128i mv=_mm_or_si128(v0, v2);
+				__m128i helperU0=_mm_and_si128(my, helperUmask);
+				__m128i helperV0=_mm_blendv_epi8(my, mu, helperVsel);
+				helperV0=_mm_and_si128(helperV0, helperVmask);
+				mu=_mm_sub_epi8(mu, helperU0);
+				mv=_mm_sub_epi8(mv, helperV0);
+
+				_mm256_storeu_si256((__m256i*)rows[0+0*4], _mm256_cvtepi8_epi16(my));
+				_mm256_storeu_si256((__m256i*)rows[0+1*4], _mm256_cvtepi8_epi16(mu));
+				_mm256_storeu_si256((__m256i*)rows[0+2*4], _mm256_cvtepi8_epi16(mv));
+
+				my=_mm_sub_epi8(my, ypred);
+				mu=_mm_sub_epi8(mu, upred);
+				mv=_mm_sub_epi8(mv, vpred);
+
+				_mm_storeu_si128((__m128i*)(planes[0]+idx2), my);
+				_mm_storeu_si128((__m128i*)(planes[1]+idx2), mu);
+				_mm_storeu_si128((__m128i*)(planes[2]+idx2), mv);
+
+				__m256i rows0=_mm256_load_si256((__m256i*)rows+0);
+				__m256i rows1=_mm256_load_si256((__m256i*)rows+1);
+				__m256i rows2=_mm256_load_si256((__m256i*)rows+2);
+				rows0=_mm256_add_epi64(rows0, _mm256_set1_epi64x(sizeof(short[16])));
+				rows1=_mm256_add_epi64(rows1, _mm256_set1_epi64x(sizeof(short[16])));
+				rows2=_mm256_add_epi64(rows2, _mm256_set1_epi64x(sizeof(short[16])));
+				_mm256_store_si256((__m256i*)rows+0, rows0);
+				_mm256_store_si256((__m256i*)rows+1, rows1);
+				_mm256_store_si256((__m256i*)rows+2, rows2);
+			}
+#endif
+			for(;kx<iw;++kx, idx+=3, ++idx2)
 			{
 				int bx=kx>>LGBLOCKSIZE, kb=9*(xblocks*by+bx);
 
@@ -975,24 +1156,19 @@ int c23_codec(const char *srcfn, const char *dstfn)
 					image[idx+vidx]-128,
 					0,
 				};
-				yuv[2]-=yuv[vhelpidx];
+				yuv[2]-=yuv[vhelpidx];//subtract from v then from u
 				yuv[1]-=yuv[uhelpidx];
 				rows[0+0*4][+0]=yuv[0];
 				rows[0+1*4][+0]=yuv[1];
 				rows[0+2*4][+0]=yuv[2];
-				//rows[0+0*4][+0]=yuv[0];
-				//rows[0+1*4][+0]=(char)(yuv[1]-yuv[uhelpidx]);
-				//rows[0+2*4][+0]=(char)(yuv[2]-yuv[vhelpidx]);
-				//yuv[1]=(char)rows[0+1*4][+0];
-				//yuv[2]=(char)rows[0+2*4][+0];
 
-				int ypred=(coeffs[kb+0+0*3]*rows[1+0*4][-1]+coeffs[kb+1+0*3]*rows[1+0*4][+0]+coeffs[kb+2+0*3]*rows[1+0*4][+1]+(1<<PREDRES>>1))>>PREDRES;
-				int upred=(coeffs[kb+0+1*3]*rows[1+1*4][-1]+coeffs[kb+1+1*3]*rows[1+1*4][+0]+coeffs[kb+2+1*3]*rows[1+1*4][+1]+(1<<PREDRES>>1))>>PREDRES;
-				int vpred=(coeffs[kb+0+2*3]*rows[1+2*4][-1]+coeffs[kb+1+2*3]*rows[1+2*4][+0]+coeffs[kb+2+2*3]*rows[1+2*4][+1]+(1<<PREDRES>>1))>>PREDRES;
+				int ypred=(coeffs[(kb+0+0*3)*16]*rows[1+0*4][-1]+coeffs[(kb+1+0*3)*16]*rows[1+0*4][+0]+coeffs[(kb+2+0*3)*16]*rows[1+0*4][+1]+(1<<PREDRES>>1))>>PREDRES;
+				int upred=(coeffs[(kb+0+1*3)*16]*rows[1+1*4][-1]+coeffs[(kb+1+1*3)*16]*rows[1+1*4][+0]+coeffs[(kb+2+1*3)*16]*rows[1+1*4][+1]+(1<<PREDRES>>1))>>PREDRES;
+				int vpred=(coeffs[(kb+0+2*3)*16]*rows[1+2*4][-1]+coeffs[(kb+1+2*3)*16]*rows[1+2*4][+0]+coeffs[(kb+2+2*3)*16]*rows[1+2*4][+1]+(1<<PREDRES>>1))>>PREDRES;
 
-				dptr[res*0+idx2]=yuv[0]-ypred;
-				dptr[res*1+idx2]=yuv[1]-upred;
-				dptr[res*2+idx2]=yuv[2]-vpred;
+				planes[0][idx2]=yuv[0]-ypred;
+				planes[1][idx2]=yuv[1]-upred;
+				planes[2][idx2]=yuv[2]-vpred;
 
 				__m256i rows0=_mm256_load_si256((__m256i*)rows+0);
 				__m256i rows1=_mm256_load_si256((__m256i*)rows+1);
@@ -1014,9 +1190,9 @@ int c23_codec(const char *srcfn, const char *dstfn)
 #ifdef ENABLE_MT
 		ThreadArgs args[]=
 		{
-			{dptr+res*0, 0, 0, res, 0},
-			{dptr+res*1, 0, 0, res, 0},
-			{dptr+res*2, 0, 0, res, 0},
+			{planes[0], 0, 0, res, 0},
+			{planes[1], 0, 0, res, 0},
+			{planes[2], 0, 0, res, 0},
 		};
 		void *mt=mt_exec(c20_enc, args, sizeof(*args), _countof(args));
 		mt_finish(mt);
@@ -1024,9 +1200,9 @@ int c23_codec(const char *srcfn, const char *dstfn)
 		cdata[1]=args[1].ret;	cdatasize[1]=args[1].outsize;
 		cdata[2]=args[2].ret;	cdatasize[2]=args[2].outsize;
 #else
-		cdata[0]=ENTROPY_ENC(dptr+res*0, res, cdata[0], cdatasize+0);
-		cdata[1]=ENTROPY_ENC(dptr+res*1, res, cdata[1], cdatasize+1);
-		cdata[2]=ENTROPY_ENC(dptr+res*2, res, cdata[2], cdatasize+2);
+		cdata[0]=ENTROPY_ENC(planes[0], res, cdata[0], cdatasize+0);
+		cdata[1]=ENTROPY_ENC(planes[1], res, cdata[1], cdatasize+1);
+		cdata[2]=ENTROPY_ENC(planes[2], res, cdata[2], cdatasize+2);
 #endif
 		if(!cdata[0]||!cdata[1]||!cdata[2])
 		{
@@ -1144,9 +1320,89 @@ int c23_codec(const char *srcfn, const char *dstfn)
 		etime=time_sec()-etime;
 		ptime=time_sec();
 #endif
-		int ncoeffs=3*3*nblocks;
-		for(int kb=0, kc=0;kc<ncoeffs;++kb, kc+=3)
-			memcpy(coeffs+kc, coeffsrc+dbuf[kb]*3, 3);
+		for(int ks=0, kd=0;ks<nblocks*3;++ks, kd+=3*16)
+		{
+			memfill(coeffs+kd+0*16, coeffsrc+dbuf[ks]*3+0, sizeof(short[16]), sizeof(short));
+			memfill(coeffs+kd+1*16, coeffsrc+dbuf[ks]*3+1, sizeof(short[16]), sizeof(short));
+			memfill(coeffs+kd+2*16, coeffsrc+dbuf[ks]*3+2, sizeof(short[16]), sizeof(short));
+		}
+		//	memfill(coeffs+kd, coeffsrc+dbuf[ks]*3, sizeof(short[3*16]), sizeof(short[3]));
+		//	memcpy(coeffs+kc, coeffsrc+dbuf[kb]*3, 3);
+		//interleave |yyyy yyyy yyyy yyyy|uuuu uuuu uuuu uuuu|vvvv vvvv vvvv vvvv| -> |rgbr gbrg brgb rgbr|gbrg brgb rgbr gbrg|brgb rgbr gbrg brgb| (in order):
+		__m128i setr0=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+		//	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 15, 12,  9,  6,  3,  0
+			 5, -1, -1,  4, -1, -1,  3, -1, -1,  2, -1, -1,  1, -1, -1,  0
+		);
+		__m128i setr1=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+		//	-1, -1, -1, -1, -1, 14, 11,  8,  5,  2, -1, -1, -1, -1, -1, -1
+			-1, 10, -1, -1,  9, -1, -1,  8, -1, -1,  7, -1, -1,  6, -1, -1
+		);
+		__m128i setr2=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+		//	13, 10,  7,  4,  1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
+			-1, -1, 15, -1, -1, 14, -1, -1, 13, -1, -1, 12, -1, -1, 11, -1
+		);
+		__m128i setg0=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+		//	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 13, 10,  7,  4,  1
+			-1, -1,  4, -1, -1,  3, -1, -1,  2, -1, -1,  1, -1, -1,  0, -1
+		);
+		__m128i setg1=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+		//	-1, -1, -1, -1, -1, 15, 12,  9,  6,  3,  0, -1, -1, -1, -1, -1
+			10, -1, -1,  9, -1, -1,  8, -1, -1,  7, -1, -1,  6, -1, -1,  5
+		);
+		__m128i setg2=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+		//	14, 11,  8,  5,  2, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
+			-1, 15, -1, -1, 14, -1, -1, 13, -1, -1, 12, -1, -1, 11, -1, -1
+		);
+		__m128i setb0=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+		//	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 14, 11,  8,  5,  2
+			-1,  4, -1, -1,  3, -1, -1,  2, -1, -1,  1, -1, -1,  0, -1, -1
+		);
+		__m128i setb1=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+		//	-1, -1, -1, -1, -1, -1, 13, 10,  7,  4,  1, -1, -1, -1, -1, -1
+			-1, -1,  9, -1, -1,  8, -1, -1,  7, -1, -1,  6, -1, -1,  5, -1
+		);
+		__m128i setb2=_mm_set_epi8(
+		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+		//	15, 12,  9,  6,  3,  0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
+			15, -1, -1, 14, -1, -1, 13, -1, -1, 12, -1, -1, 11, -1, -1, 10
+		);
+		__m128i
+			getr0, getr1, getr2,
+			getg0, getg1, getg2,
+			getb0, getb1, getb2;
+		switch(flag)
+		{
+		default:
+		case  0:getr0=setr0, getr1=setr1, getr2=setr2,  getg0=setg0, getg1=setg1, getg2=setg2,  getb0=setb0, getb1=setb1, getb2=setb2;break;//0, 1, 2
+		case  1:getr0=setr0, getr1=setr1, getr2=setr2,  getg0=setg0, getg1=setg1, getg2=setg2,  getb0=setb0, getb1=setb1, getb2=setb2;break;//0, 1, 2
+		case  2:getr0=setr0, getr1=setr1, getr2=setr2,  getg0=setg0, getg1=setg1, getg2=setg2,  getb0=setb0, getb1=setb1, getb2=setb2;break;//0, 1, 2
+		case  3:getr0=setr0, getr1=setr1, getr2=setr2,  getg0=setg0, getg1=setg1, getg2=setg2,  getb0=setb0, getb1=setb1, getb2=setb2;break;//0, 1, 2
+		case  4:getr0=setr0, getr1=setr1, getr2=setr2,  getg0=setg0, getg1=setg1, getg2=setg2,  getb0=setb0, getb1=setb1, getb2=setb2;break;//0, 1, 2
+		case  5:getr0=setr0, getr1=setr1, getr2=setr2,  getg0=setb0, getg1=setb1, getg2=setb2,  getb0=setg0, getb1=setg1, getb2=setg2;break;//0, 2, 1
+		case  6:getr0=setg0, getr1=setg1, getr2=setg2,  getg0=setb0, getg1=setb1, getg2=setb2,  getb0=setr0, getb1=setr1, getb2=setr2;break;//1, 2, 0
+		case  7:getr0=setg0, getr1=setg1, getr2=setg2,  getg0=setb0, getg1=setb1, getg2=setb2,  getb0=setr0, getb1=setr1, getb2=setr2;break;//1, 2, 0
+		case  8:getr0=setg0, getr1=setg1, getr2=setg2,  getg0=setb0, getg1=setb1, getg2=setb2,  getb0=setr0, getb1=setr1, getb2=setr2;break;//1, 2, 0
+		case  9:getr0=setg0, getr1=setg1, getr2=setg2,  getg0=setb0, getg1=setb1, getg2=setb2,  getb0=setr0, getb1=setr1, getb2=setr2;break;//1, 2, 0
+		case 10:getr0=setg0, getr1=setg1, getr2=setg2,  getg0=setr0, getg1=setr1, getg2=setr2,  getb0=setb0, getb1=setb1, getb2=setb2;break;//1, 0, 2
+		case 11:getr0=setb0, getr1=setb1, getr2=setb2,  getg0=setr0, getg1=setr1, getg2=setr2,  getb0=setg0, getb1=setg1, getb2=setg2;break;//2, 0, 1
+		case 12:getr0=setb0, getr1=setb1, getr2=setb2,  getg0=setr0, getg1=setr1, getg2=setr2,  getb0=setg0, getb1=setg1, getb2=setg2;break;//2, 0, 1
+		case 13:getr0=setb0, getr1=setb1, getr2=setb2,  getg0=setr0, getg1=setr1, getg2=setr2,  getb0=setg0, getb1=setg1, getb2=setg2;break;//2, 0, 1
+		case 14:getr0=setb0, getr1=setb1, getr2=setb2,  getg0=setr0, getg1=setr1, getg2=setr2,  getb0=setg0, getb1=setg1, getb2=setg2;break;//2, 0, 1
+		case 15:getr0=setb0, getr1=setb1, getr2=setb2,  getg0=setg0, getg1=setg1, getg2=setg2,  getb0=setr0, getb1=setr1, getb2=setr2;break;//2, 1, 0
+		}
+		__m128i helperUmask=_mm_set1_epi8(-(uhelpidx!=3));
+		__m128i helperVsel=_mm_set1_epi8(-(vhelpidx==1));
+		__m128i helperVmask=_mm_set1_epi8(-(vhelpidx!=3));
+		__m256i sixteen=_mm256_set1_epi16(16);
+		__m128i mhalf=_mm_set1_epi8(-128);
 		for(int ky=0, idx=0, idx2=0;ky<ih;++ky)
 		{
 			int by=ky>>LGBLOCKSIZE;
@@ -1165,13 +1421,120 @@ int c23_codec(const char *srcfn, const char *dstfn)
 				pixels+((iw+32LL)*(((ky-2LL)&3)+2*4)+16LL),
 				pixels+((iw+32LL)*(((ky-3LL)&3)+2*4)+16LL),
 			};
-			for(int kx=0;kx<iw;++kx, idx+=3, ++idx2)
+			int kx=0;
+#if 1
+			for(;kx<=iw-16;kx+=16, idx+=3*16, idx2+=16)
+			{
+				int bx=kx>>LGBLOCKSIZE, kb=9*(xblocks*by+bx);
+
+				//process 16 pixels (48 SPs) at a time:	rows[6]
+				__m256i NW0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]-1));
+				__m256i NW1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]-1));
+				__m256i NW2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]-1));
+				__m256i N0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]+0));
+				__m256i N1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]+0));
+				__m256i N2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]+0));
+				__m256i NE0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]+1));
+				__m256i NE1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]+1));
+				__m256i NE2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]+1));
+				__m256i cNW0	=_mm256_load_si256((__m256i*)(coeffs+(kb+0+0*3)*16));
+				__m256i cNW1	=_mm256_load_si256((__m256i*)(coeffs+(kb+0+1*3)*16));
+				__m256i cNW2	=_mm256_load_si256((__m256i*)(coeffs+(kb+0+2*3)*16));
+				__m256i cN0	=_mm256_load_si256((__m256i*)(coeffs+(kb+1+0*3)*16));
+				__m256i cN1	=_mm256_load_si256((__m256i*)(coeffs+(kb+1+1*3)*16));
+				__m256i cN2	=_mm256_load_si256((__m256i*)(coeffs+(kb+1+2*3)*16));
+				//__m256i cNE0	=_mm256_load_si256((__m256i*)(coeffs+(kb+2+0*3)*16));//all filters are symmetric
+				//__m256i cNE1	=_mm256_load_si256((__m256i*)(coeffs+(kb+2+1*3)*16));
+				//__m256i cNE2	=_mm256_load_si256((__m256i*)(coeffs+(kb+2+2*3)*16));
+				NW0=_mm256_add_epi16(NW0, NE0);
+				NW1=_mm256_add_epi16(NW1, NE1);
+				NW2=_mm256_add_epi16(NW2, NE2);
+				NW0=_mm256_mullo_epi16(cNW0, NW0);
+				NW1=_mm256_mullo_epi16(cNW1, NW1);
+				NW2=_mm256_mullo_epi16(cNW2, NW2);
+				N0=_mm256_mullo_epi16(N0, cN0);
+				N1=_mm256_mullo_epi16(N1, cN1);
+				N2=_mm256_mullo_epi16(N2, cN2);
+				N0=_mm256_add_epi16(N0, NW0);
+				N1=_mm256_add_epi16(N1, NW1);
+				N2=_mm256_add_epi16(N2, NW2);
+				N0=_mm256_add_epi16(N0, sixteen);
+				N1=_mm256_add_epi16(N1, sixteen);
+				N2=_mm256_add_epi16(N2, sixteen);
+				N0=_mm256_srai_epi16(N0, 5);
+				N1=_mm256_srai_epi16(N1, 5);
+				N2=_mm256_srai_epi16(N2, 5);
+				__m128i ypred=_mm_packs_epi16(_mm256_castsi256_si128(N0), _mm256_extracti128_si256(N0, 1));
+				__m128i upred=_mm_packs_epi16(_mm256_castsi256_si128(N1), _mm256_extracti128_si256(N1, 1));
+				__m128i vpred=_mm_packs_epi16(_mm256_castsi256_si128(N2), _mm256_extracti128_si256(N2, 1));
+
+				//if(ky==1&&kx==192)//
+				//if(ky==2&&kx==0)//
+				//	printf("");
+
+				__m128i p0=_mm_loadu_si128((__m128i*)(planes[0]+idx2));
+				__m128i p1=_mm_loadu_si128((__m128i*)(planes[1]+idx2));
+				__m128i p2=_mm_loadu_si128((__m128i*)(planes[2]+idx2));
+				p0=_mm_add_epi8(p0, ypred);
+				p1=_mm_add_epi8(p1, upred);
+				p2=_mm_add_epi8(p2, vpred);
+
+				_mm256_storeu_si256((__m256i*)rows[0+0*4], _mm256_cvtepi8_epi16(p0));
+				_mm256_storeu_si256((__m256i*)rows[0+1*4], _mm256_cvtepi8_epi16(p1));
+				_mm256_storeu_si256((__m256i*)rows[0+2*4], _mm256_cvtepi8_epi16(p2));
+
+				__m128i helperU0=_mm_and_si128(p0, helperUmask);
+				p1=_mm_add_epi8(p1, helperU0);
+				__m128i helperV0=_mm_blendv_epi8(p0, p1, helperVsel);
+				helperV0=_mm_and_si128(helperV0, helperVmask);
+				p2=_mm_add_epi8(p2, helperV0);
+
+				//interleave |yyyy yyyy yyyy yyyy|uuuu uuuu uuuu uuuu|vvvv vvvv vvvv vvvv| -> |rgbr gbrg brgb rgbr|gbrg brgb rgbr gbrg|brgb rgbr gbrg brgb| (in order):
+				__m128i r0=_mm_shuffle_epi8(p0, getr0);
+				__m128i r1=_mm_shuffle_epi8(p0, getr1);
+				__m128i r2=_mm_shuffle_epi8(p0, getr2);
+				__m128i g0=_mm_shuffle_epi8(p1, getg0);
+				__m128i g1=_mm_shuffle_epi8(p1, getg1);
+				__m128i g2=_mm_shuffle_epi8(p1, getg2);
+				__m128i b0=_mm_shuffle_epi8(p2, getb0);
+				__m128i b1=_mm_shuffle_epi8(p2, getb1);
+				__m128i b2=_mm_shuffle_epi8(p2, getb2);
+				r0=_mm_or_si128(r0, g0);
+				r1=_mm_or_si128(r1, g1);
+				r2=_mm_or_si128(r2, g2);
+				r0=_mm_or_si128(r0, b0);
+				r1=_mm_or_si128(r1, b1);
+				r2=_mm_or_si128(r2, b2);
+
+				r0=_mm_sub_epi8(r0, mhalf);
+				r1=_mm_sub_epi8(r1, mhalf);
+				r2=_mm_sub_epi8(r2, mhalf);
+				_mm_storeu_si128((__m128i*)(image+idx+0*16), r0);
+				_mm_storeu_si128((__m128i*)(image+idx+1*16), r1);
+				_mm_storeu_si128((__m128i*)(image+idx+2*16), r2);
+#ifdef ENABLE_GUIDE
+				for(int k=0;k<16;++k)
+					guide_check(image, kx+k, ky);
+#endif
+				
+				__m256i rows0=_mm256_load_si256((__m256i*)rows+0);
+				__m256i rows1=_mm256_load_si256((__m256i*)rows+1);
+				__m256i rows2=_mm256_load_si256((__m256i*)rows+2);
+				rows0=_mm256_add_epi64(rows0, _mm256_set1_epi64x(sizeof(short[16])));
+				rows1=_mm256_add_epi64(rows1, _mm256_set1_epi64x(sizeof(short[16])));
+				rows2=_mm256_add_epi64(rows2, _mm256_set1_epi64x(sizeof(short[16])));
+				_mm256_store_si256((__m256i*)rows+0, rows0);
+				_mm256_store_si256((__m256i*)rows+1, rows1);
+				_mm256_store_si256((__m256i*)rows+2, rows2);
+			}
+#endif
+			for(;kx<iw;++kx, idx+=3, ++idx2)
 			{
 				int bx=kx>>LGBLOCKSIZE, kb=9*(xblocks*by+bx);
 				
-				int ypred=(coeffs[kb+0+0*3]*rows[1+0*4][-1]+coeffs[kb+1+0*3]*rows[1+0*4][+0]+coeffs[kb+2+0*3]*rows[1+0*4][+1]+(1<<PREDRES>>1))>>PREDRES;
-				int upred=(coeffs[kb+0+1*3]*rows[1+1*4][-1]+coeffs[kb+1+1*3]*rows[1+1*4][+0]+coeffs[kb+2+1*3]*rows[1+1*4][+1]+(1<<PREDRES>>1))>>PREDRES;
-				int vpred=(coeffs[kb+0+2*3]*rows[1+2*4][-1]+coeffs[kb+1+2*3]*rows[1+2*4][+0]+coeffs[kb+2+2*3]*rows[1+2*4][+1]+(1<<PREDRES>>1))>>PREDRES;
+				int ypred=(coeffs[(kb+0+0*3)*16]*rows[1+0*4][-1]+coeffs[(kb+1+0*3)*16]*rows[1+0*4][+0]+coeffs[(kb+2+0*3)*16]*rows[1+0*4][+1]+(1<<PREDRES>>1))>>PREDRES;
+				int upred=(coeffs[(kb+0+1*3)*16]*rows[1+1*4][-1]+coeffs[(kb+1+1*3)*16]*rows[1+1*4][+0]+coeffs[(kb+2+1*3)*16]*rows[1+1*4][+1]+(1<<PREDRES>>1))>>PREDRES;
+				int vpred=(coeffs[(kb+0+2*3)*16]*rows[1+2*4][-1]+coeffs[(kb+1+2*3)*16]*rows[1+2*4][+0]+coeffs[(kb+2+2*3)*16]*rows[1+2*4][+1]+(1<<PREDRES>>1))>>PREDRES;
 				
 				rows[0+0*4][+0]=yuv[0]=(char)(planes[0][idx2]+ypred);
 				rows[0+1*4][+0]=yuv[1]=(char)(planes[1][idx2]+upred);
@@ -1214,7 +1577,7 @@ int c23_codec(const char *srcfn, const char *dstfn)
 	}
 	_mm_free(pixels);
 	free(srcbuf);
-	free(coeffs);
+	_mm_free(coeffs);
 	free(dbuf);
 #if defined _MSC_VER && defined LOUD
 	cycles=__rdtsc()-cycles;

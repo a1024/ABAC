@@ -155,17 +155,20 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/kodim13.c18"
 	//	"D:/ML/dataset-kodak-ppm/kodim13.c18"
 		;
-//	c21_codec("D:/ML/kodim13.ppm", "D:/ML/kodim13.lsim");
-//	c21_codec("D:/ML/kodim13.lsim", "D:/ML/kodim13_dec.ppm");
+//	c23_codec("D:/ML/kodim13.ppm", "D:/ML/kodim13.lsim");
+//	c23_codec("D:/ML/kodim13.lsim", "D:/ML/kodim13_dec.ppm");
 
 //	c22_codec("D:/ML/kodim24.ppm", "D:/ML/kodim24.lsim");
 //	c22_codec("D:/ML/kodim24.lsim", "D:/ML/kodim24_dec.ppm");
 
+	c23_codec("C:/dataset-synth-ppm/20240421 1 the front.ppm", "D:/ML/mystery.lsim");//synth
+	c23_codec("D:/ML/mystery.lsim", "D:/ML/mystery_dec.ppm");
+
 //	c22_codec("C:/dataset-CLIC303-ppm/2048x1320_zugr-108.ppm",	"D:/ML/mystery.lsim");
 //	c22_codec("D:/ML/mystery.lsim",					"D:/ML/mystery.ppm");
 
-	c21_codec("C:/dataset-CLIC303-ppm/2048x1320_alberto-restifo-4549.ppm",	"D:/ML/mystery.lsim");
-	c21_codec("D:/ML/mystery.lsim",						"D:/ML/mystery.ppm");
+//	c21_codec("C:/dataset-CLIC303-ppm/2048x1320_alberto-restifo-4549.ppm",	"D:/ML/mystery.lsim");
+//	c21_codec("D:/ML/mystery.lsim",						"D:/ML/mystery.ppm");
 
 //	c22_codec("C:/dataset-a70-ppm/20240816_113656_966.ppm",	"D:/ML/mystery.lsim");
 //	c22_codec("D:/ML/mystery.lsim",				"D:/ML/mystery.ppm");
