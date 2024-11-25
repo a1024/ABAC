@@ -13,6 +13,10 @@ static const char file[]=__FILE__;
 //	#define ENABLE_AV4
 //	#define ENABLE_EDGECASES
 
+	#define DISABLE_W
+//	#define DISABLE_AV2	//no this is good
+	#define DISABLE_GRAD
+
 
 #define AC3_PREC
 #include"entropy.h"
@@ -85,9 +89,7 @@ static const char *rct_names[RCT_COUNT]=
 };
 
 #define PREDLIST\
-	PRED(W)\
 	PRED(AV2)\
-	PRED(grad)\
 	PRED(CG)\
 	PRED(AV5)
 typedef enum _PredIndex
@@ -266,6 +268,7 @@ static void block_thread(void *param)
 		++args->hist[(IDXE*PRED_COUNT+PREDIDX)<<8|result[0xE]];\
 	}while(0)
 				//W
+#ifndef DISABLE_W
 				pred=_mm256_sub_epi16(curr, W);
 				UPDATE(
 					PRED_W,
@@ -299,8 +302,10 @@ static void block_thread(void *param)
 					OCH_GR, OCH_BG, OCH_RB,
 					OCH_GR, OCH_BG, OCH_RB
 				);
+#endif
 
 				//AV2 = (N+W)>>1
+#ifndef DISABLE_AV2
 				pred=_mm256_srai_epi16(_mm256_add_epi16(N, W), 1);
 				pred=_mm256_sub_epi16(curr, pred);
 				UPDATE(
@@ -349,8 +354,10 @@ static void block_thread(void *param)
 						OCH_GR, OCH_BG, OCH_RB
 					);
 				}
+#endif
 
 				//grad = N+W-NW
+#ifndef DISABLE_GRAD
 				pred=_mm256_sub_epi16(_mm256_add_epi16(N, W), NW);
 				pred=_mm256_max_epi16(pred, amin);
 				pred=_mm256_min_epi16(pred, amax);
@@ -407,6 +414,7 @@ static void block_thread(void *param)
 						OCH_GR, OCH_BG, OCH_RB
 					);
 				}
+#endif
 
 				//CG = median(N, W, N+W-NW)
 				vmin=_mm256_min_epi16(N, W);
@@ -843,16 +851,22 @@ static void block_thread(void *param)
 				den=MIX4(args->tlevels);
 				switch(predidx[kc])
 				{
+#ifndef DISABLE_W
 				case PRED_W:
 					pred=W[kc2];
 					break;
+#endif
+#ifndef DISABLE_AV2
 				case PRED_AV2:
 					pred=(N[kc2]+W[kc2])>>1;
 					break;
+#endif
+#ifndef DISABLE_GRAD
 				case PRED_grad:
 					pred=N[kc2]+W[kc2]-NW[kc2];
 				//	CLAMP2(pred, -128, 127);
 					break;
+#endif
 				case PRED_CG:
 					MEDIAN3_32(pred, N[kc2], W[kc2], N[kc2]+W[kc2]-NW[kc2]);
 					break;
