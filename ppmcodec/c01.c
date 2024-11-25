@@ -9,6 +9,8 @@ static const char file[]=__FILE__;
 //	#define ENABLE_GUIDE
 //	#define DISABLE_MT
 
+//	#define DISABLE4
+
 	#define AC3_PREC
 
 #define AC_IMPLEMENTATION
@@ -811,6 +813,7 @@ static void block_thread(void *param)
 					ctxptr[ 4][args->tlevels],//u00
 					ctxptr[ 8][args->tlevels],//v00
 					0,
+#ifndef DISABLE4
 					ctxptr[ 1][args->tlevels],//y01
 					ctxptr[ 5][args->tlevels],//u01
 					ctxptr[ 9][args->tlevels],//v01
@@ -823,9 +826,11 @@ static void block_thread(void *param)
 					ctxptr[ 7][args->tlevels],//u11
 					ctxptr[11][args->tlevels],//v11
 					0,
+#endif
 				};
 #if 1
 				__m256i v00=_mm256_load_si256((__m256i*)temp+0);
+#ifndef DISABLE4
 				__m256i v01=_mm256_load_si256((__m256i*)temp+1);
 				__m256i v10=_mm256_load_si256((__m256i*)temp+2);
 				__m256i v11=_mm256_load_si256((__m256i*)temp+3);
@@ -833,6 +838,7 @@ static void block_thread(void *param)
 				v00=_mm256_add_epi32(v00, v10);
 				v00=_mm256_add_epi32(v00, v11);
 			//	v00=_mm256_srli_epi32(v00, 1);
+#endif
 				v00=_mm256_add_epi32(v00, mtlevels);
 				_mm256_store_si256((__m256i*)dens, v00);
 #else
@@ -1000,6 +1006,7 @@ static void block_thread(void *param)
 					{
 						ALIGN(32) long long freq2[4];
 						__m256i v00=_mm256_cvtepi32_epi64(_mm_loadu_si128((__m128i*)(curr_hist00+ks)));
+#ifndef DISABLE4
 						__m256i v01=_mm256_cvtepi32_epi64(_mm_loadu_si128((__m128i*)(curr_hist01+ks)));
 						__m256i v10=_mm256_cvtepi32_epi64(_mm_loadu_si128((__m128i*)(curr_hist10+ks)));
 						__m256i v11=_mm256_cvtepi32_epi64(_mm_loadu_si128((__m128i*)(curr_hist11+ks)));
@@ -1025,6 +1032,7 @@ static void block_thread(void *param)
 						tmp0=_mm256_slli_epi32(tmp0, MIXBITS);
 						v00=_mm256_add_epi64(v00, tmp0);
 						v00=_mm256_srli_epi32(v00, MIXBITS-1);
+#endif
 #endif
 						v00=_mm256_add_epi32(v00, _mm256_set1_epi64x(1));
 						_mm256_store_si256((__m256i*)freq2, v00);
@@ -1078,6 +1086,7 @@ static void block_thread(void *param)
 					{
 						ALIGN(32) long long freq2[4];
 						__m256i v00=_mm256_cvtepi32_epi64(_mm_loadu_si128((__m128i*)(curr_hist00+token)));
+#ifndef DISABLE4
 						__m256i v01=_mm256_cvtepi32_epi64(_mm_loadu_si128((__m128i*)(curr_hist01+token)));
 						__m256i v10=_mm256_cvtepi32_epi64(_mm_loadu_si128((__m128i*)(curr_hist10+token)));
 						__m256i v11=_mm256_cvtepi32_epi64(_mm_loadu_si128((__m128i*)(curr_hist11+token)));
@@ -1103,6 +1112,7 @@ static void block_thread(void *param)
 						tmp0=_mm256_slli_epi32(tmp0, MIXBITS);
 						v00=_mm256_add_epi64(v00, tmp0);
 						v00=_mm256_srli_epi32(v00, MIXBITS-1);
+#endif
 #endif
 						v00=_mm256_add_epi32(v00, _mm256_set1_epi64x(1));
 						_mm256_store_si256((__m256i*)freq2, v00);
@@ -1207,13 +1217,17 @@ static void block_thread(void *param)
 #if 1
 #if 1
 					curr_hist00[token]+=8;
+#ifndef DISABLE4
 					curr_hist01[token]+=8;
 					curr_hist10[token]+=8;
 					curr_hist11[token]+=8;
+#endif
 					int s00=curr_hist00[args->tlevels]+=8;
+#ifndef DISABLE4
 					int s01=curr_hist01[args->tlevels]+=8;
 					int s10=curr_hist10[args->tlevels]+=8;
 					int s11=curr_hist11[args->tlevels]+=8;
+#endif
 #else
 					ALIGN(32) long long inc[4];
 				//	__m256i axmask=_mm256_set_epi64x(0, ~0ULL, 0, ~0ULL);
@@ -1243,6 +1257,7 @@ static void block_thread(void *param)
 							sum+=curr_hist00[ks]>>=1;
 						curr_hist00[args->tlevels]=sum;
 					}
+#ifndef DISABLE4
 					if(s01>=10752)
 					{
 						int sum=0;
@@ -1264,6 +1279,7 @@ static void block_thread(void *param)
 							sum+=curr_hist11[ks]>>=1;
 						curr_hist11[args->tlevels]=sum;
 					}
+#endif
 #else
 					int inc;
 					inc=((1<<MIXBITS)-alphax)*((1<<MIXBITS)-alphay)>>(MIXBITS+MIXBITS-5); curr_hist00[token]+=inc; curr_hist00[args->tlevels]+=inc;//optimize

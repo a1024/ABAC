@@ -476,14 +476,14 @@ FORCEINLINE void ac3_enc_init(AC3 *ec, BList *dst)
 {
 	memset(ec, 0, sizeof(*ec));
 	ec->low=0;
-	ec->range=~0LLU;
+	ec->range=0xFFFFFFFFFFFF;
 	ec->dst=dst;
 }
 FORCEINLINE void ac3_dec_init(AC3 *ec, const unsigned char *start, unsigned const char *end)
 {
 	memset(ec, 0, sizeof(*ec));
 	ec->low=0;
-	ec->range=~0LLU;
+	ec->range=0xFFFFFFFFFFFF;
 	ec->srcptr=start;
 	ec->srcend=end;
 	
@@ -735,7 +735,7 @@ FORCEINLINE void ac3_enc_update_NPOT(AC3 *ec, unsigned cdf, unsigned freq, unsig
 	ec->low+=q*cdf;
 	ec->range=q*freq-1;//must decrement hi because decoder fails when code == hi2
 #endif
-	acval_enc(0, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
+	acval_enc(den, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
 }
 FORCEINLINE unsigned ac3_dec_getcdf_NPOT(AC3 *ec, unsigned den)
 {
@@ -748,11 +748,14 @@ FORCEINLINE unsigned ac3_dec_getcdf_NPOT(AC3 *ec, unsigned den)
 		if(ec->code<val->lo2||ec->code>val->hi2)
 			printf("");
 #endif
-		unsigned long long lo, hi, lo0;
-		lo0=lo=_umul128(ec->code-ec->low, den, &hi);
-		lo+=den-1LL;
-		hi+=lo<lo0;
-		return (unsigned)_udiv128(hi, lo, ec->range, &hi);
+		return (unsigned)(((ec->code-ec->low)*den+den-1)/ec->range);
+	//	unsigned long long lo, hi, lo0;
+	//	lo0=lo=_umul128(ec->code-ec->low, den, &hi);
+	//	lo+=den-1LL;
+	//	hi+=lo<lo0;
+	//	//if(hi)
+	//	//	LOG_ERROR("Must use _udiv128");
+	//	return (unsigned)_udiv128(hi, lo, ec->range, &hi);
 	}
 #else
 	return (unsigned)((ec->code-ec->low)/(ec->range/den));
@@ -778,7 +781,7 @@ FORCEINLINE void ac3_dec_update_NPOT(AC3 *ec, unsigned cdf, unsigned freq, unsig
 	ec->low+=q*cdf;
 	ec->range=q*freq-1;//must decrement hi because decoder fails when code == hi2
 #endif
-	acval_dec(0, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
+	acval_dec(den, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
 }
 
 FORCEINLINE void ac3_enc_bypass(AC3 *ec, int bypass, int nbits)
@@ -802,7 +805,7 @@ FORCEINLINE void ac3_enc_bypass(AC3 *ec, int bypass, int nbits)
 	ec->low+=r2*bypass;
 	ec->range=r2-1;
 #endif
-	acval_enc(bypass, bypass, 1, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
+	acval_enc(nbits, bypass, 1, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
 }
 FORCEINLINE int ac3_dec_bypass(AC3 *ec, int nbits)
 {
@@ -829,7 +832,7 @@ FORCEINLINE int ac3_dec_bypass(AC3 *ec, int nbits)
 	ec->low+=r2*bypass;
 	ec->range=r2-1;
 #endif
-	acval_dec(bypass, bypass, 1, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
+	acval_dec(nbits, bypass, 1, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
 	return bypass;
 }
 FORCEINLINE void ac3_enc_bypass_NPOT(AC3 *ec, int bypass, int nlevels)
@@ -853,7 +856,7 @@ FORCEINLINE void ac3_enc_bypass_NPOT(AC3 *ec, int bypass, int nlevels)
 	ec->low+=q*bypass;
 	ec->range=q-1;
 #endif
-	acval_enc(bypass, bypass, 1, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
+	acval_enc(nlevels, bypass, 1, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
 }
 FORCEINLINE int ac3_dec_bypass_NPOT(AC3 *ec, int nlevels)
 {
@@ -886,7 +889,7 @@ FORCEINLINE int ac3_dec_bypass_NPOT(AC3 *ec, int nlevels)
 	ec->low+=q*bypass;
 	ec->range=q-1;
 #endif
-	acval_dec(bypass, bypass, 1, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
+	acval_dec(nlevels, bypass, 1, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
 	return bypass;
 }
 

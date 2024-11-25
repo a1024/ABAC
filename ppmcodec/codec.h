@@ -20,9 +20,9 @@ typedef enum _CodecID
 int header_read(const unsigned char *src, int len, int *iw, int *ih, CodecID *codec);//returns header size
 int compare_bufs_8(const unsigned char *b1, const unsigned char *b0, int iw, int ih, int nch, int chstride, const char *name, int backward, int loud);
 
-int c01_codec(const char *srcfn, const char *dstfn);//AC (mix4)
-int c02_codec(const char *srcfn, const char *dstfn);//binary
-int c03_codec(const char *srcfn, const char *dstfn);//binary (A2/WG4)
+int c01_codec(const char *srcfn, const char *dstfn);//MT AC (mix4)
+int c02_codec(const char *srcfn, const char *dstfn);//MT binary
+int c03_codec(const char *srcfn, const char *dstfn);//MT binary (A2/WG4)
 int c04_codec(const char *srcfn, const char *dstfn);//MT Golomb-Rice WP3
 int c05_codec(const char *srcfn, const char *dstfn);//MT Golomb-Rice 3/7 simple preds
 int c06_codec(const char *srcfn, const char *dstfn);//binary
@@ -43,6 +43,7 @@ int c20_codec(const char *srcfn, const char *dstfn);//ST/3T AVX2 3A3 static o1 r
 int c21_codec(const char *srcfn, const char *dstfn);//ST  deferred WP  snapshot-CDF  AVX2 AC/RC 12 prob bits
 int c22_codec(const char *srcfn, const char *dstfn);//ST/3T AVX2 484 static o1 rANS
 int c23_codec(const char *srcfn, const char *dstfn);//ST/3T AVX2 blockwise Shannon, static o1 rANS
+int c24_codec(const char *srcfn, const char *dstfn);//MT add4
 
 	
 #ifdef __cplusplus

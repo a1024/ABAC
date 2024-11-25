@@ -136,3 +136,6 @@ c23:
 	htscodecs/rle.c \
 	htscodecs/tokenise_name3.c \
 	htscodecs/utils.c
+
+c24:
+	gcc -O3 -Wall -DCODEC_FUNC=c24_codec -mavx2 -mbmi -mlzcnt  c24.c codec.c util.c  -o c24 $(LIBS)

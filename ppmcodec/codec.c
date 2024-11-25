@@ -161,8 +161,14 @@ int main(int argc, char **argv)
 //	c22_codec("D:/ML/kodim24.ppm", "D:/ML/kodim24.lsim");
 //	c22_codec("D:/ML/kodim24.lsim", "D:/ML/kodim24_dec.ppm");
 
-	c23_codec("C:/dataset-synth-ppm/20240421 1 the front.ppm", "D:/ML/mystery.lsim");//synth
-	c23_codec("D:/ML/mystery.lsim", "D:/ML/mystery_dec.ppm");
+	c24_codec("C:/dataset-memes-ppm/1725754154794738.ppm",	"D:/ML/mystery.lsim");//synth
+	c24_codec("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm");
+
+//	c24_codec("C:/dataset-synth-ppm/20240421 1 the front.ppm",	"D:/ML/mystery.lsim");//synth
+//	c24_codec("D:/ML/mystery.lsim",					"D:/ML/mystery_dec.ppm");
+
+//	c24_codec("C:/dataset-synth-ppm/20240516 4 DSC_0054.ppm",	"D:/ML/mystery.lsim");//RCT
+//	c24_codec("D:/ML/mystery.lsim",					"D:/ML/mystery_dec.ppm");
 
 //	c22_codec("C:/dataset-CLIC303-ppm/2048x1320_zugr-108.ppm",	"D:/ML/mystery.lsim");
 //	c22_codec("D:/ML/mystery.lsim",					"D:/ML/mystery.ppm");
@@ -173,23 +179,16 @@ int main(int argc, char **argv)
 //	c22_codec("C:/dataset-a70-ppm/20240816_113656_966.ppm",	"D:/ML/mystery.lsim");
 //	c22_codec("D:/ML/mystery.lsim",				"D:/ML/mystery.ppm");
 
-//	c21_codec("C:/dataset-HUGE-ppm/jwst.ppm", "C:/dataset-HUGE-ppm/jwst.lsim");
-//	c21_codec("C:/dataset-HUGE-ppm/jwst.lsim", "C:/dataset-HUGE-ppm/jwst_dec.ppm");
-
-//	c15_codec("D:/ML/kodim13.ppm", "D:/ML/kodim13.lsim");
-//	c15_codec("D:/ML/kodim13.lsim", "D:/ML/kodim13_dec.ppm");
-
-//	c12_codec("D:/ML/kodim13.ppm", "D:/ML/kodim13.lsim");
-//	c12_codec("D:/ML/kodim13.lsim", "D:/ML/kodim13_dec.ppm");
-
-//	c17_codec("D:/ML/kodim13.ppm", "D:/ML/kodim13.lsim");
-//	c17_codec("D:/ML/kodim13.lsim", "D:/ML/kodim13_dec.ppm");
+//	c24_codec("C:/dataset-HUGE-ppm/jwst.ppm", "C:/dataset-HUGE-ppm/jwst.lsim");
+//	c24_codec("C:/dataset-HUGE-ppm/jwst.lsim", "C:/dataset-HUGE-ppm/jwst_dec.ppm");
 
 //	c10_codec("D:/ML/big_building.PPM", "D:/ML/big_building.LSIM");
 //	c10_codec("D:/ML/big_building.LSIM", "D:/ML/big_building_dec.PPM");
 
-//	c17_codec("C:/dataset-HUGE-ppm/space_huge.ppm", "C:/dataset-HUGE-ppm/space_huge.LSIM");
-//	c17_codec("C:/dataset-HUGE-ppm/space_huge.LSIM", "C:/dataset-HUGE-ppm/space_huge_dec.PPM");
+//	c01_codec("C:/dataset-HUGE-ppm/jwst.ppm", "C:/dataset-HUGE-ppm/jwst.LSIM");
+//	c01_codec("C:/dataset-HUGE-ppm/jwst.LSIM", "C:/dataset-HUGE-ppm/jwst_dec.PPM");
+
+
 
 
 //	c20_codec("C:/Projects/datasets/kodim13.ppm", "C:/Projects/datasets/kodim13.lsim");
