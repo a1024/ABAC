@@ -161,8 +161,8 @@ int main(int argc, char **argv)
 //	c22_codec("D:/ML/kodim24.ppm", "D:/ML/kodim24.lsim");
 //	c22_codec("D:/ML/kodim24.lsim", "D:/ML/kodim24_dec.ppm");
 
-	c24_codec("C:/dataset-memes-ppm/1725754154794738.ppm",	"D:/ML/mystery.lsim");//synth
-	c24_codec("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm");
+	c24_codec("C:/dataset-memes-ppm/usa.ppm",	"D:/ML/mystery.lsim");
+	c24_codec("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
 
 //	c24_codec("C:/dataset-synth-ppm/20240421 1 the front.ppm",	"D:/ML/mystery.lsim");//synth
 //	c24_codec("D:/ML/mystery.lsim",					"D:/ML/mystery_dec.ppm");

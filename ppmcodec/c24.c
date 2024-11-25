@@ -9,14 +9,18 @@ static const char file[]=__FILE__;
 //	#define ENABLE_GUIDE
 //	#define DISABLE_MT
 
-	#define ENABLE_MIX4
-	#define AC3_PREC
+//	#define ENABLE_MIX4
+//	#define ENABLE_AV4
+//	#define ENABLE_EDGECASES
 
+
+#define AC3_PREC
 #include"entropy.h"
 
 #define BLOCKSIZE 512
 #define MAXPRINTEDBLOCKS 500
-#define CLEVELS 22
+#define CLEVELS 13
+
 #define MIXBITS 14
 
 #define OCHLIST\
@@ -104,7 +108,7 @@ static const char *pred_names[PRED_COUNT]=
 #define CONFIG_EXP 4
 #define CONFIG_MSB 1
 #define CONFIG_LSB 0
-static void quantize_pixel(int val, int *token, int *bypass, int *nbits)
+FORCEINLINE void quantize_pixel(int val, int *token, int *bypass, int *nbits)
 {
 	if(val<(1<<CONFIG_EXP))
 	{
@@ -114,17 +118,18 @@ static void quantize_pixel(int val, int *token, int *bypass, int *nbits)
 	}
 	else
 	{
-		int lgv=FLOOR_LOG2((unsigned)val);
-		int mantissa=val-(1<<lgv);
+		int msb=FLOOR_LOG2((unsigned)val);
+		int mantissa=val-(1<<msb);
 		*token = (1<<CONFIG_EXP) + (
-				(lgv-CONFIG_EXP)<<(CONFIG_MSB+CONFIG_LSB)|
-				(mantissa>>(lgv-CONFIG_MSB))<<CONFIG_LSB|
+				(msb-CONFIG_EXP)<<(CONFIG_MSB+CONFIG_LSB)|
+				(mantissa>>(msb-CONFIG_MSB))<<CONFIG_LSB|
 				(mantissa&((1<<CONFIG_LSB)-1))
 			);
-		*nbits=lgv-(CONFIG_MSB+CONFIG_LSB);
+		*nbits=msb-(CONFIG_MSB+CONFIG_LSB);
 		*bypass=val>>CONFIG_LSB&((1LL<<*nbits)-1);
 	}
 }
+#if defined ENABLE_MIX4 && !defined ENABLE_AV4
 FORCEINLINE int f28_mix4(int v00, int v01, int v10, int v11, int alphax, int alphay)
 {
 	//v00=v00*((1<<12)-alphax)+v01*alphax;
@@ -133,6 +138,7 @@ FORCEINLINE int f28_mix4(int v00, int v01, int v10, int v11, int alphax, int alp
 	v00=((v00<<MIXBITS)+(v10-v00)*alphay)>>(MIXBITS-1);
 	return v00;
 }
+#endif
 typedef struct _ThreadArgs
 {
 	const unsigned char *src;
@@ -732,26 +738,23 @@ static void block_thread(void *param)
 		{
 			int idx=nch*(args->iw*ky+kx);
 			short
-				*NNN	=rows[3]+0*4*2,
-			//	*NNW	=rows[2]-1*4*2,
+			//	*NNN	=rows[3]+0*4*2,
 				*NN	=rows[2]+0*4*2,
 				*NNE	=rows[2]+1*4*2,
-			//	*NNEE	=rows[2]+2*4*2,
 				*NW	=rows[1]-1*4*2,
 				*N	=rows[1]+0*4*2,
 				*NE	=rows[1]+1*4*2,
-				*NEE	=rows[1]+2*4*2,
-				*NEEE	=rows[1]+3*4*2,
-				*WWW	=rows[0]-3*4*2,
+			//	*WWW	=rows[0]-3*4*2,
 				*WW	=rows[0]-2*4*2,
 				*W	=rows[0]-1*4*2,
 				*curr	=rows[0]+0*4*2;
+#ifdef ENABLE_EDGECASES
 			if(ky<=args->y1+2)
 			{
 				if(ky<=args->y1+1)
 				{
 					if(ky==args->y1)
-						NEEE=NEE=NE=NW=N=W;
+						NE=NW=N=W;
 					NN=N;
 					NNE=NE;
 				}
@@ -767,20 +770,12 @@ static void block_thread(void *param)
 				}
 				WWW=WW;
 			}
-			if(kx>=args->x2-3)
+			if(kx>=args->x2-1)
 			{
-				if(kx>=args->x2-2)
-				{
-					if(kx>=args->x2-1)
-					{
-						NNE=NN;
-						NE=N;
-					}
-					NEE=NE;
-				}
-				NEEE=NEE;
+				NNE=NN;
+				NE=N;
 			}
-			(void)NEEE;
+#endif
 			if(args->fwd)
 			{
 				yuv[0]=args->src[idx+yidx]-128;
@@ -791,33 +786,58 @@ static void block_thread(void *param)
 			{
 				int kc2=kc<<1;
 				int offset=yuv[combination[kc+3]];
-				int
-					vx=abs(W[kc2]-WW[kc2])+abs(N[kc2]-NW[kc2])+abs(NE[kc2]-N  [kc2])+abs(WWW[kc2+1])+abs(WW[kc2+1])+abs(W[kc2+1])*2,
-					vy=abs(W[kc2]-NW[kc2])+abs(N[kc2]-NN[kc2])+abs(NE[kc2]-NNE[kc2])+abs(NNN[kc2+1])+abs(NN[kc2+1])+abs(N[kc2+1])*2;
-				vx*=vx;
-				vy*=vy;
-				int qeN=FLOOR_LOG2(vy+1);
-				int qeW=FLOOR_LOG2(vx+1);
+				int vx, vy;
+				vx=abs(N[kc2]-W[kc2])+abs(W[kc2]-WW[kc2])+abs(N[kc2]-NW[kc2])+abs(NE[kc2]-N  [kc2])+MAXVAR(WW[kc2+1], W[kc2+1])+W[kc2+1];
+				vy=abs(N[kc2]-W[kc2])+abs(N[kc2]-NN[kc2])+abs(W[kc2]-NW[kc2])+abs(NE[kc2]-NNE[kc2])+MAXVAR(NN[kc2+1], N[kc2+1])+N[kc2+1];
+			//	vx*=vx;
+			//	vy*=vy;
+				++vx;
+				++vy;
+				int qeN=FLOOR_LOG2(vy);
+				int qeW=FLOOR_LOG2(vx);
+				//if(qeN>CLEVELS-2||qeW>CLEVELS-2)//
+				//	LOG_ERROR("");
 				int cdf, freq=0, den;
 #ifdef ENABLE_MIX4
 				int *curr_hist[4];
-				int alphax, alphay;
 
-				qeN=MINVAR(qeN, CLEVELS-2);
-				qeW=MINVAR(qeW, CLEVELS-2);
+				//if(qeN>CLEVELS-2||qeW>CLEVELS-2)//
+				//	LOG_ERROR("");
+				//UPDATE_MIN(qeN, CLEVELS-2);
+				//UPDATE_MIN(qeW, CLEVELS-2);
 				curr_hist[0]=args->hist+cdfstride*(nctx*kc+args->clevels*(qeN+0)+qeW+0);
 				curr_hist[1]=args->hist+cdfstride*(nctx*kc+args->clevels*(qeN+0)+qeW+1);
 				curr_hist[2]=args->hist+cdfstride*(nctx*kc+args->clevels*(qeN+1)+qeW+0);
 				curr_hist[3]=args->hist+cdfstride*(nctx*kc+args->clevels*(qeN+1)+qeW+1);
-				alphax=(((vx+1-(1<<qeW))<<MIXBITS)+(1<<qeW>>1))>>qeW;
-				alphay=(((vy+1-(1<<qeN))<<MIXBITS)+(1<<qeN>>1))>>qeN;
-				CLAMP2(alphax, 0, 1<<MIXBITS);
-				CLAMP2(alphay, 0, 1<<MIXBITS);
-				//CLAMP2_32(alphax, 0, alphax, 1<<MIXBITS);
-				//CLAMP2_32(alphay, 0, alphay, 1<<MIXBITS);
-#define MIX4(X) f28_mix4(curr_hist[0][X], curr_hist[1][X], curr_hist[2][X], curr_hist[3][X], alphax, alphay)
+#ifdef ENABLE_AV4
+#define MIX4(X) (curr_hist[0][X]+curr_hist[1][X]+curr_hist[2][X]+curr_hist[3][X])
 #else
-				int *curr_hist=args->hist+cdfstride*(nctx*kc+args->clevels*MINVAR(qeN, CLEVELS-1)+MINVAR(qeW, CLEVELS-1));
+				int alphax=(int)((vx-(1LL<<qeW))<<MIXBITS>>qeW);
+				int alphay=(int)((vy-(1LL<<qeN))<<MIXBITS>>qeN);
+				//if(alphax<0||alphax>(1<<MIXBITS)||alphay<0||alphay>(1<<MIXBITS))
+				//	LOG_ERROR("");
+				//alphax=(((vx-(1<<qeW))<<MIXBITS)+(1<<qeW>>1))>>qeW;
+				//alphay=(((vy-(1<<qeN))<<MIXBITS)+(1<<qeN>>1))>>qeN;
+				//CLAMP2(alphax, 0, 1<<MIXBITS);
+				//CLAMP2(alphay, 0, 1<<MIXBITS);
+				//do
+				//{
+				//	ALIGN(16) int _dst[4];
+				//	__m128i _mx=_mm_set_epi32(0, 0, alphay, alphax);
+				//	__m128i _vmax=_mm_set_epi32(0, 0, 1<<14, 1<<14);
+				//	_mx=_mm_max_epi32(_mx, _mm_setzero_si128());
+				//	_mx=_mm_min_epi32(_mx, _vmax);
+				//	_mm_store_si128((__m128i*)_dst, _mx);
+				//	alphax=_dst[0];
+				//	alphay=_dst[1];
+				//}while(0);
+				//CLAMP2_32(alphax, alphax, 0, 1<<MIXBITS);
+				//CLAMP2_32(alphay, alphay, 0, 1<<MIXBITS);
+#define MIX4(X) f28_mix4(curr_hist[0][X], curr_hist[1][X], curr_hist[2][X], curr_hist[3][X], alphax, alphay)
+#endif
+#else
+				int *curr_hist=args->hist+cdfstride*(nctx*kc+args->clevels*qeN+qeW);
+			//	int *curr_hist=args->hist+cdfstride*(nctx*kc+args->clevels*MINVAR(qeN, CLEVELS-1)+MINVAR(qeW, CLEVELS-1));
 #define MIX4(X) curr_hist[X]
 #endif
 				den=MIX4(args->tlevels);
@@ -831,6 +851,7 @@ static void block_thread(void *param)
 					break;
 				case PRED_grad:
 					pred=N[kc2]+W[kc2]-NW[kc2];
+				//	CLAMP2(pred, -128, 127);
 					break;
 				case PRED_CG:
 					MEDIAN3_32(pred, N[kc2], W[kc2], N[kc2]+W[kc2]-NW[kc2]);
@@ -848,7 +869,7 @@ static void block_thread(void *param)
 				if(args->fwd)
 				{
 					curr[kc2+0]=yuv[kc];
-					curr[kc2+1]=error=yuv[kc]-pred;
+					error=yuv[kc]-pred;
 					{
 						int upred=half-abs(pred), aval=abs(error);
 						if(aval<=upred)
@@ -937,12 +958,28 @@ static void block_thread(void *param)
 						error^=negmask;
 						error-=negmask;
 					}
-					curr[kc2+1]=error;
-					error+=pred;
-					curr[kc2+0]=yuv[kc]=error;
+					curr[kc2+0]=yuv[kc]=error+pred;
 				}
 				curr[kc2+0]-=offset;
+				curr[kc2+1]=abs(error);
 #ifdef ENABLE_MIX4
+#ifdef ENABLE_AV4
+				++curr_hist[0][token]; ++curr_hist[0][args->tlevels];
+				++curr_hist[1][token]; ++curr_hist[1][args->tlevels];
+				++curr_hist[2][token]; ++curr_hist[2][args->tlevels];
+				++curr_hist[3][token]; ++curr_hist[3][args->tlevels];
+				for(int kh=0;kh<4;++kh)
+				{
+					int *hist2=curr_hist[kh];
+					if(hist2[args->tlevels]>=6144)
+					{
+						int sum=0;
+						for(int ks=0;ks<args->tlevels;++ks)
+							sum+=hist2[ks]=(hist2[ks]+1)>>1;
+						hist2[args->tlevels]=sum;
+					}
+				}
+#else
 				{
 					int inc;
 					inc=((1<<MIXBITS)-alphax)*((1<<MIXBITS)-alphay)>>(MIXBITS+MIXBITS-5); curr_hist[0][token]+=inc; curr_hist[0][args->tlevels]+=inc;
@@ -961,6 +998,7 @@ static void block_thread(void *param)
 						hist2[args->tlevels]=sum;
 					}
 				}
+#endif
 #else
 				++curr_hist[token];
 				++curr_hist[args->tlevels];
