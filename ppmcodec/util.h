@@ -161,7 +161,7 @@ extern "C"
 #define UPDATE_MIN(M, X) if(M>X)M=X
 #define UPDATE_MAX(M, X) if(M<X)M=X
 #define THREEWAY(L, R) (((L)>(R))-((L)<(R)))
-#define MIX(V0, V1, X) ((V0)+((V1)-(V0))*(X))
+#define MIXVAR(V0, V1, X) ((V0)+((V1)-(V0))*(X))
 #define FLOOR_LOG2(X)		(sizeof(X)==8?63-(int)_lzcnt_u64((unsigned long long)(X)):31-(int)_lzcnt_u32((unsigned)(X)))
 #define FLOOR_LOG2_P1(X)	(sizeof(X)==8?64-(int)_lzcnt_u64((unsigned long long)(X)):32-(int)_lzcnt_u32((unsigned)(X)))
 //#define FLOOR_LOG2_64(X)	(63-(int)_lzcnt_u64(X))

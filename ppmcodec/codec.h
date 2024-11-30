@@ -43,7 +43,8 @@ int c20_codec(const char *srcfn, const char *dstfn);//ST/3T AVX2 3A3 static o1 r
 int c21_codec(const char *srcfn, const char *dstfn);//ST  deferred WP  snapshot-CDF  AVX2 AC/RC 12 prob bits
 int c22_codec(const char *srcfn, const char *dstfn);//ST/3T AVX2 484 static o1 rANS
 int c23_codec(const char *srcfn, const char *dstfn);//ST/3T AVX2 blockwise Shannon, static o1 rANS
-int c24_codec(const char *srcfn, const char *dstfn);//MT add4
+int c24_codec(const char *srcfn, const char *dstfn);//MT AC mix4
+int c25_codec(const char *srcfn, const char *dstfn);//MT AC mix8
 
 	
 #ifdef __cplusplus

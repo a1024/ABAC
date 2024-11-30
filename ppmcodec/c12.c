@@ -11,14 +11,51 @@
 static const char file[]=__FILE__;
 
 
+//	#define ENABLE_GUIDE
+
 	#define BYPASS_ON_INFLATION
 //	#define ENABLE_FILEGUARD	//makes using scripts harder
 
 //	#define ESTIMATE_SIZE
 
+//	#define ENABLE_O2
+
 //	#include"entropy.h"
+#ifdef ENABLE_GUIDE
+static int g_iw=0, g_ih=0;
+static unsigned char *g_image=0;
+static void guide_save(unsigned char *image, int iw, int ih)
+{
+	int size=3*iw*ih;
+	g_iw=iw;
+	g_ih=ih;
+	g_image=(unsigned char*)malloc(size);
+	if(!g_image)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memcpy(g_image, image, size);
+}
+static void guide_check(unsigned char *image, int kx, int ky)
+{
+	int idx=3*(g_iw*ky+kx);
+	if(memcmp(image+idx, g_image+idx, 3))
+	{
+		LOG_ERROR("");
+		printf("");
+	}
+}
+#else
+#define guide_save(...)
+#define guide_check(...)
+#endif
 typedef unsigned short Emit_t;
+#ifdef ENABLE_O2
+ALIGN(32) static unsigned short stats1[3][128][128][256];
+#else
 ALIGN(32) static unsigned short stats0[3][256];
+#endif
 int c12_codec(const char *srcfn, const char *dstfn)
 {
 #ifdef ESTIMATE_SIZE
@@ -115,6 +152,8 @@ int c12_codec(const char *srcfn, const char *dstfn)
 		nwritten+=fwrite("CH", 1, 2, fdst);
 		nwritten+=fwrite(&iw, 1, 4, fdst);
 		nwritten+=fwrite(&ih, 1, 4, fdst);
+
+		guide_save(buffer, iw, ih);//
 	}
 	else
 	{
@@ -146,8 +185,12 @@ int c12_codec(const char *srcfn, const char *dstfn)
 		return 1;
 	}
 	memset(sbuf, 0, sbufsize);
-
+	
+#ifdef ENABLE_O2
+	FILLMEM((unsigned short*)stats1, 0x8000, sizeof(stats1), sizeof(short));
+#else
 	FILLMEM((unsigned short*)stats0, 0x8000, sizeof(stats0), sizeof(short));
+#endif
 	memset(pixels, 0, psize);
 	int rowsize=iw*3;
 	for(int ky=0, idx=0;ky<ih;++ky)
@@ -184,10 +227,15 @@ int c12_codec(const char *srcfn, const char *dstfn)
 		for(int kx=0;kx<iw;++kx, idx+=3)
 		{
 			short
+				*NNE	=rows[2]+1*4*2,
 				*NW	=rows[1]-1*4*2,
 				*N	=rows[1]+0*4*2,
+				*NE	=rows[1]+1*4*2,
 				*W	=rows[0]-1*4*2,
 				*curr	=rows[0]+0*4*2;
+#ifdef ENABLE_O2
+			memset(preds, 0, sizeof(preds));
+#else
 			__m128i mNW	=_mm_load_si128((__m128i*)NW);
 			__m128i mN	=_mm_load_si128((__m128i*)N);
 			__m128i mW	=_mm_load_si128((__m128i*)W);
@@ -197,6 +245,29 @@ int c12_codec(const char *srcfn, const char *dstfn)
 			mp=_mm_max_epi16(mp, vmin);
 			mp=_mm_min_epi16(mp, vmax);
 			_mm_store_si128((__m128i*)preds, mp);
+#endif
+			//if(kx==1128&&ky==154)//
+			//	printf("");
+#ifdef ENABLE_O2
+			unsigned short *stats0[]=
+			{
+				stats1[0][(N[0]+NE[0]-NNE[0])>>1&127][(N[0]+W[0]-NW[0])>>1&127],
+				stats1[1][(N[1]+NE[1]-NNE[1])>>1&127][(N[1]+W[1]-NW[1])>>1&127],
+				stats1[2][(N[2]+NE[2]-NNE[2])>>1&127][(N[2]+W[2]-NW[2])>>1&127],
+			//	stats1[0][N[4]>>1&127][W[4]>>1&127],
+			//	stats1[1][N[5]>>1&127][W[5]>>1&127],
+			//	stats1[2][N[6]>>1&127][W[6]>>1&127],
+			//	stats1[0][(N[0]-W[0])>>2&127][(N[4]-W[4])>>2&127],
+			//	stats1[1][(N[1]-W[1])>>2&127][(N[5]-W[5])>>2&127],
+			//	stats1[2][(N[2]-W[2])>>2&127][(N[6]-W[6])>>2&127],
+			//	stats1[0][(N[4]+W[4]+1)>>1&255],
+			//	stats1[1][(N[5]+W[5]+1)>>1&255],
+			//	stats1[2][(N[6]+W[6]+1)>>1&255],
+			//	stats1[0][(abs(W[4])+abs(N[4]))&255],
+			//	stats1[1][(abs(W[5])+abs(N[5]))&255],
+			//	stats1[2][(abs(W[6])+abs(N[6]))&255],
+			};
+#endif
 			
 			//if(ky==1&&kx==39)//
 			//if(ky==1&&kx==5)//
@@ -217,9 +288,9 @@ int c12_codec(const char *srcfn, const char *dstfn)
 				curr[0]=yuv[0];
 				curr[1]=yuv[1]-yuv[0];
 				curr[2]=yuv[2]-yuv[0];
-				curr[4]=errors[0];
-				curr[5]=errors[1];
-				curr[6]=errors[2];
+				curr[4]=(char)errors[0];
+				curr[5]=(char)errors[1];
+				curr[6]=(char)errors[2];
 			}
 			else
 			{
@@ -236,11 +307,17 @@ int c12_codec(const char *srcfn, const char *dstfn)
 				{
 					unsigned long long r2;
 					int bit[3];
+					unsigned short *cell0[]=
+					{
+						stats0[0]+tidx[0],
+						stats0[1]+tidx[1],
+						stats0[2]+tidx[2],
+					};
 					unsigned short p0[]=
 					{
-						stats0[0][tidx[0]],
-						stats0[1][tidx[1]],
-						stats0[2][tidx[2]],
+						*cell0[0],
+						*cell0[1],
+						*cell0[2],
 					};
 
 					if(fwd)
@@ -322,9 +399,9 @@ int c12_codec(const char *srcfn, const char *dstfn)
 						yuv[1]|=bit[1]<<kb;
 						yuv[2]|=bit[2]<<kb;
 					}
-					stats0[0][tidx[0]]+=((!bit[0]<<16)-p0[0]+(1<<7>>1))>>7;
-					stats0[1][tidx[1]]+=((!bit[1]<<16)-p0[1]+(1<<7>>1))>>7;
-					stats0[2][tidx[2]]+=((!bit[2]<<16)-p0[2]+(1<<7>>1))>>7;
+					*cell0[0]=p0[0]+(((!bit[0]<<16)-p0[0]+(1<<7>>1))>>7);
+					*cell0[1]=p0[1]+(((!bit[1]<<16)-p0[1]+(1<<7>>1))>>7);
+					*cell0[2]=p0[2]+(((!bit[2]<<16)-p0[2]+(1<<7>>1))>>7);
 					tidx[0]=tidx[0]*2+bit[0];
 					tidx[1]=tidx[1]*2+bit[1];
 					tidx[2]=tidx[2]*2+bit[2];
@@ -332,19 +409,20 @@ int c12_codec(const char *srcfn, const char *dstfn)
 			}
 			if(!fwd)
 			{
+				curr[4]=(char)yuv[0];
+				curr[5]=(char)yuv[1];
+				curr[6]=(char)yuv[2];
 				yuv[0]+=preds[0]; preds[1]+=yuv[0]; CLAMP2(preds[1], -128, 127);
 				yuv[1]+=preds[1]; preds[2]+=yuv[0]; CLAMP2(preds[2], -128, 127);
 				yuv[2]+=preds[2];
 				curr[0]=yuv[0];
 				curr[1]=yuv[1]-yuv[0];
 				curr[2]=yuv[2]-yuv[0];
-				_mm_store_si128((__m128i*)preds, mp);
-				curr[4]=curr[0]-preds[0];
-				curr[5]=curr[1]-preds[1];
-				curr[6]=curr[2]-preds[2];
 				buffer[idx+1]=(unsigned char)(yuv[0]+128);
 				buffer[idx+2]=(unsigned char)(yuv[1]+128);
 				buffer[idx+0]=(unsigned char)(yuv[2]+128);
+
+				guide_check(buffer, kx, ky);//
 			}
 			rows[0]+=4*2;
 			rows[1]+=4*2;

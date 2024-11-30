@@ -990,7 +990,7 @@ static void block_thread(void *param)
 								sym-=negmask;
 							}
 #endif
-							sym=sym<<1^(sym>>31);//pack sign
+							sym=sym<<1^sym>>31;//pack sign
 						}
 						else
 							sym=upred+aval;//error sign is known

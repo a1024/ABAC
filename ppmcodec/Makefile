@@ -139,3 +139,6 @@ c23:
 
 c24:
 	gcc -O3 -Wall -DCODEC_FUNC=c24_codec -mavx2 -mbmi -mlzcnt  c24.c codec.c util.c  -o c24 $(LIBS)
+
+c25:
+	gcc -O3 -Wall -DCODEC_FUNC=c25_codec -mavx2 -mbmi -mlzcnt  c25.c codec.c util.c  -o c25 $(LIBS)

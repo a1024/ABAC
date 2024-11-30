@@ -161,8 +161,20 @@ int main(int argc, char **argv)
 //	c22_codec("D:/ML/kodim24.ppm", "D:/ML/kodim24.lsim");
 //	c22_codec("D:/ML/kodim24.lsim", "D:/ML/kodim24_dec.ppm");
 
-	c24_codec("C:/dataset-memes-ppm/usa.ppm",	"D:/ML/mystery.lsim");
-	c24_codec("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
+//	c24_codec("C:/dataset-memes-ppm/emoji_u1f628.ppm",	"D:/ML/mystery.lsim");
+//	c24_codec("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm");
+
+//	c24_codec("C:/dataset-LPCB-ppm/canon_eos_1100d_02.ppm",	"D:/ML/mystery.lsim");
+//	c24_codec("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm");
+
+//	c25_codec("C:/dataset-LPCB-ppm/PIA13757.ppm",	"D:/ML/mystery.lsim");
+//	c25_codec("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
+
+	c24_codec("C:/dataset-GDCC2020-ppm/astro-01.ppm",	"D:/ML/mystery.lsim");
+	c24_codec("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm");
+
+//	c24_codec("C:/dataset-memes-ppm/usa.ppm",	"D:/ML/mystery.lsim");
+//	c24_codec("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
 
 //	c24_codec("C:/dataset-synth-ppm/20240421 1 the front.ppm",	"D:/ML/mystery.lsim");//synth
 //	c24_codec("D:/ML/mystery.lsim",					"D:/ML/mystery_dec.ppm");

@@ -362,19 +362,19 @@ static void block_thread(void *param)
 				{
 					__m128i nb8[NB_COUNT]=//8-bit
 					{
-						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-2*ystride-2*3+0)), half8),//NNWW
-						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-2*ystride-1*3+0)), half8),//NNW
-						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-2*ystride+0*3+0)), half8),//NN
-						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-2*ystride+1*3+0)), half8),//NNE
-						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-2*ystride+2*3+0)), half8),//NNEE
-						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-1*ystride-2*3+0)), half8),//NWW
-						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-1*ystride-1*3+0)), half8),//NW
-						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-1*ystride+0*3+0)), half8),//N
-						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-1*ystride+1*3+0)), half8),//NE
-						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr-1*ystride+2*3+0)), half8),//NEE
-						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr+0*ystride-2*3+0)), half8),//WW
-						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr+0*ystride-1*3+0)), half8),//W
-						_mm_xor_si128(_mm_load_si128((__m128i*)(ptr+0*ystride+0*3+0)), half8),//curr
+						_mm_xor_si128(_mm_loadu_si128((__m128i*)(ptr-2*ystride-2*3+0)), half8),//NNWW
+						_mm_xor_si128(_mm_loadu_si128((__m128i*)(ptr-2*ystride-1*3+0)), half8),//NNW
+						_mm_xor_si128(_mm_loadu_si128((__m128i*)(ptr-2*ystride+0*3+0)), half8),//NN
+						_mm_xor_si128(_mm_loadu_si128((__m128i*)(ptr-2*ystride+1*3+0)), half8),//NNE
+						_mm_xor_si128(_mm_loadu_si128((__m128i*)(ptr-2*ystride+2*3+0)), half8),//NNEE
+						_mm_xor_si128(_mm_loadu_si128((__m128i*)(ptr-1*ystride-2*3+0)), half8),//NWW
+						_mm_xor_si128(_mm_loadu_si128((__m128i*)(ptr-1*ystride-1*3+0)), half8),//NW
+						_mm_xor_si128(_mm_loadu_si128((__m128i*)(ptr-1*ystride+0*3+0)), half8),//N
+						_mm_xor_si128(_mm_loadu_si128((__m128i*)(ptr-1*ystride+1*3+0)), half8),//NE
+						_mm_xor_si128(_mm_loadu_si128((__m128i*)(ptr-1*ystride+2*3+0)), half8),//NEE
+						_mm_xor_si128(_mm_loadu_si128((__m128i*)(ptr+0*ystride-2*3+0)), half8),//WW
+						_mm_xor_si128(_mm_loadu_si128((__m128i*)(ptr+0*ystride-1*3+0)), half8),//W
+						_mm_xor_si128(_mm_loadu_si128((__m128i*)(ptr+0*ystride+0*3+0)), half8),//curr
 					};
 					for(int k=0;k<(int)_countof(nb8);++k)
 					{
