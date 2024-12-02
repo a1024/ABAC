@@ -9,15 +9,13 @@ static const char file[]=__FILE__;
 //	#define ENABLE_GUIDE
 	#define ENABLE_MT
 
-//	#define ENABLE_MIX4
-//	#define ENABLE_AV4
-
 	#define ENABLE_EDGECASES
 
 //	#define ENABLE_W	//weak
 	#define ENABLE_AV2	//good
 //	#define ENABLE_GRAD	//weaker
 	#define ENABLE_AV9	//good
+	#define ENABLE_WG	//slow
 
 
 #define ANALYSIS_XSTRIDE 2
@@ -28,11 +26,7 @@ static const char file[]=__FILE__;
 
 #define BLOCKSIZE 512
 #define MAXPRINTEDBLOCKS 500
-#ifdef ENABLE_MIX4
-#define CLEVELS 13
-#else
 #define CLEVELS 12
-#endif
 
 #define MIXBITS 14
 
@@ -101,7 +95,8 @@ static const char *rct_names[RCT_COUNT]=
 	PRED(AV2)\
 	PRED(CG)\
 	PRED(AV5)\
-	PRED(AV9)
+	PRED(AV9)\
+	PRED(WG)
 typedef enum _PredIndex
 {
 #define PRED(LABEL) PRED_##LABEL,
@@ -115,6 +110,30 @@ static const char *pred_names[PRED_COUNT]=
 	PREDLIST
 #undef  PRED
 };
+#define MIX2_16x16(DST, A0, A1, C0, C1)\
+	do\
+	{\
+		__m256 _a0lo=_mm256_cvtepi32_ps(_mm256_srai_epi32(_mm256_slli_epi32(A0, 16), 16));\
+		__m256 _a0hi=_mm256_cvtepi32_ps(_mm256_srai_epi32(A0, 16));\
+		__m256 _a1lo=_mm256_cvtepi32_ps(_mm256_srai_epi32(_mm256_slli_epi32(A1, 16), 16));\
+		__m256 _a1hi=_mm256_cvtepi32_ps(_mm256_srai_epi32(A1, 16));\
+		__m256 _c0lo=_mm256_cvtepi32_ps(_mm256_srai_epi32(_mm256_slli_epi32(C0, 16), 16));\
+		__m256 _c0hi=_mm256_cvtepi32_ps(_mm256_srai_epi32(C0, 16));\
+		__m256 _c1lo=_mm256_cvtepi32_ps(_mm256_srai_epi32(_mm256_slli_epi32(C1, 16), 16));\
+		__m256 _c1hi=_mm256_cvtepi32_ps(_mm256_srai_epi32(C1, 16));\
+		_a0lo=_mm256_mul_ps(_a0lo, _c0lo);\
+		_a0hi=_mm256_mul_ps(_a0hi, _c0hi);\
+		_a1lo=_mm256_mul_ps(_a1lo, _c1lo);\
+		_a1hi=_mm256_mul_ps(_a1hi, _c1hi);\
+		_c0lo=_mm256_add_ps(_c0lo, _c1lo);\
+		_c0hi=_mm256_add_ps(_c0hi, _c1hi);\
+		_a0lo=_mm256_add_ps(_a0lo, _a1lo);\
+		_a0hi=_mm256_add_ps(_a0hi, _a1hi);\
+		_a0lo=_mm256_div_ps(_a0lo, _c0lo);\
+		_a0hi=_mm256_div_ps(_a0hi, _c0hi);\
+		DST=_mm256_and_si256(_mm256_cvtps_epi32(_a0lo), _mm256_set1_epi32(0xFFFF));\
+		DST=_mm256_or_si256(DST, _mm256_slli_epi32(_mm256_cvtps_epi32(_a0hi), 16));\
+	}while(0)
 
 //from libjxl		packsign(pixel) = 0b00001MMBB...BBL	token = offset + 0bGGGGMML,  where G = bits of lg(packsign(pixel)),  bypass = 0bBB...BB
 #define CONFIG_EXP 4
@@ -141,16 +160,6 @@ FORCEINLINE void quantize_pixel(int val, int *token, int *bypass, int *nbits)
 		*bypass=val>>CONFIG_LSB&((1LL<<*nbits)-1);
 	}
 }
-#if defined ENABLE_MIX4 && !defined ENABLE_AV4
-FORCEINLINE int f28_mix4(int v00, int v01, int v10, int v11, int alphax, int alphay)
-{
-	//v00=v00*((1<<12)-alphax)+v01*alphax;
-	v00=((v00<<MIXBITS)+(v01-v00)*alphax)>>(MIXBITS-1);
-	v10=((v10<<MIXBITS)+(v11-v10)*alphax)>>(MIXBITS-1);
-	v00=((v00<<MIXBITS)+(v10-v00)*alphay)>>(MIXBITS-1);
-	return v00;
-}
-#endif
 typedef struct _ThreadArgs
 {
 	const unsigned char *src;
@@ -215,9 +224,14 @@ static void block_thread(void *param)
 				 0,  2,  1
 				//15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
 			);
+		//	__m256i four=_mm256_set1_epi16(4);
+		//	__m256i eight=_mm256_set1_epi16(8);
 			ALIGN(32) short result[16]={0};
 			for(;kx<=args->x2-(5*ANALYSIS_XSTRIDE+1+1);kx+=5*ANALYSIS_XSTRIDE, ptr+=15*ANALYSIS_XSTRIDE, count+=5)
 			{
+				//		NNW	NN	NNE
+				//	NWW	NW	N	NE
+				//	WW	W	?
 				__m256i
 					NNW,	NNW2,	NNW3,	NNW4,
 					NN,	NN2,	NN3,	NN4,
@@ -511,6 +525,7 @@ static void block_thread(void *param)
 				pred=_mm256_sub_epi16(N, NW);
 				pred=_mm256_add_epi16(pred, _mm256_slli_epi16(pred, 2));
 				pred=_mm256_add_epi16(pred, _mm256_sub_epi16(NE, WW));
+			//	pred=_mm256_add_epi16(pred, four);
 				pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 3), W);
 				pred=_mm256_max_epi16(pred, vmin[0]);
 				pred=_mm256_min_epi16(pred, vmax[0]);
@@ -529,6 +544,7 @@ static void block_thread(void *param)
 				pred=_mm256_sub_epi16(N3, NW3);
 				pred=_mm256_add_epi16(pred, _mm256_slli_epi16(pred, 2));
 				pred=_mm256_add_epi16(pred, _mm256_sub_epi16(NE3, WW3));
+			//	pred=_mm256_add_epi16(pred, four);
 				pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 3), W3);
 				pred=_mm256_max_epi16(pred, vmin[1]);
 				pred=_mm256_min_epi16(pred, vmax[1]);
@@ -550,6 +566,7 @@ static void block_thread(void *param)
 				pred=_mm256_sub_epi16(N4, NW4);
 				pred=_mm256_add_epi16(pred, _mm256_slli_epi16(pred, 2));
 				pred=_mm256_add_epi16(pred, _mm256_sub_epi16(NE4, WW4));
+			//	pred=_mm256_add_epi16(pred, four);
 				pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 3), W4);
 				pred=_mm256_max_epi16(pred, vmin[2]);
 				pred=_mm256_min_epi16(pred, vmax[2]);
@@ -577,6 +594,7 @@ static void block_thread(void *param)
 				pred=_mm256_add_epi16(pred, _mm256_slli_epi16(NE, 1));//5*N-NN-WW + 2*NE
 				pred=_mm256_sub_epi16(_mm256_slli_epi16(pred, 1), _mm256_add_epi16(_mm256_slli_epi16(NW, 3), NW));//2*(5*N-NN-WW+2*NE) - 9*NW
 				pred=_mm256_add_epi16(pred, _mm256_sub_epi16(NNW, _mm256_add_epi16(NNE, NWW)));//2*(5*N-NN-WW+2*NE)-9*NW + NNW-NNE-NWW
+			//	pred=_mm256_add_epi16(pred, eight);
 				pred=_mm256_add_epi16(W, _mm256_srai_epi16(pred, 4));
 				pred=_mm256_max_epi16(pred, vmin[0]);
 				pred=_mm256_min_epi16(pred, vmax[0]);
@@ -595,6 +613,7 @@ static void block_thread(void *param)
 				pred=_mm256_add_epi16(pred, _mm256_slli_epi16(NE3, 1));
 				pred=_mm256_sub_epi16(_mm256_slli_epi16(pred, 1), _mm256_add_epi16(_mm256_slli_epi16(NW3, 3), NW3));
 				pred=_mm256_add_epi16(pred, _mm256_sub_epi16(NNW3, _mm256_add_epi16(NNE3, NWW3)));
+			//	pred=_mm256_add_epi16(pred, eight);
 				pred=_mm256_add_epi16(W3, _mm256_srai_epi16(pred, 4));
 				pred=_mm256_max_epi16(pred, vmin[1]);
 				pred=_mm256_min_epi16(pred, vmax[1]);
@@ -616,6 +635,7 @@ static void block_thread(void *param)
 				pred=_mm256_add_epi16(pred, _mm256_slli_epi16(NE4, 1));
 				pred=_mm256_sub_epi16(_mm256_slli_epi16(pred, 1), _mm256_add_epi16(_mm256_slli_epi16(NW4, 3), NW4));
 				pred=_mm256_add_epi16(pred, _mm256_sub_epi16(NNW4, _mm256_add_epi16(NNE4, NWW4)));
+			//	pred=_mm256_add_epi16(pred, eight);
 				pred=_mm256_add_epi16(W4, _mm256_srai_epi16(pred, 4));
 				pred=_mm256_max_epi16(pred, vmin[2]);
 				pred=_mm256_min_epi16(pred, vmax[2]);
@@ -626,6 +646,83 @@ static void block_thread(void *param)
 				pred=_mm256_sub_epi16(curr2, pred);
 				UPDATE(
 					PRED_AV9,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB
+				);
+#endif
+				
+				//WG
+				//gx=abs(W-WW)+abs(N-NW)+abs(NE-N)+1?
+				//gy=abs(W-NW)+abs(N-NN)+abs(NE-NNE)+1?
+				//pred=(gx*N+gy*W)/(gx+gy)
+#ifdef ENABLE_WG
+				__m256i gx, gy;
+				gx=_mm256_slli_epi16(_mm256_abs_epi16(_mm256_sub_epi16(W, WW)), 1);
+				gy=_mm256_abs_epi16(_mm256_sub_epi16(W, NW));
+				gx=_mm256_add_epi16(gx, _mm256_abs_epi16(_mm256_sub_epi16(N, NW)));
+				gy=_mm256_add_epi16(gy, _mm256_slli_epi16(_mm256_abs_epi16(_mm256_sub_epi16(N, NN)), 1));
+				gx=_mm256_add_epi16(gx, _mm256_abs_epi16(_mm256_sub_epi16(NE, N)));
+				gy=_mm256_add_epi16(gy, _mm256_abs_epi16(_mm256_sub_epi16(NE, NNE)));
+			//	gx=_mm256_srli_epi16(gx, 1);
+			//	gy=_mm256_srli_epi16(gy, 1);
+				gx=_mm256_add_epi16(gx, _mm256_set1_epi16(1));
+				gy=_mm256_add_epi16(gy, _mm256_set1_epi16(1));
+				MIX2_16x16(pred, N, W, gx, gy);
+
+				pred=_mm256_sub_epi16(curr, pred);
+				UPDATE(
+					PRED_WG,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B
+				);
+				gx=_mm256_slli_epi16(_mm256_abs_epi16(_mm256_sub_epi16(W3, WW3)), 1);
+				gy=_mm256_abs_epi16(_mm256_sub_epi16(W3, NW3));
+				gx=_mm256_add_epi16(gx, _mm256_abs_epi16(_mm256_sub_epi16(N3, NW3)));
+				gy=_mm256_add_epi16(gy, _mm256_slli_epi16(_mm256_abs_epi16(_mm256_sub_epi16(N3, NN3)), 1));
+				gx=_mm256_add_epi16(gx, _mm256_abs_epi16(_mm256_sub_epi16(NE3, N3)));
+				gy=_mm256_add_epi16(gy, _mm256_abs_epi16(_mm256_sub_epi16(NE3, NNE3)));
+			//	gx=_mm256_srli_epi16(gx, 1);
+			//	gy=_mm256_srli_epi16(gy, 1);
+				gx=_mm256_add_epi16(gx, _mm256_set1_epi16(1));
+				gy=_mm256_add_epi16(gy, _mm256_set1_epi16(1));
+				MIX2_16x16(pred, N3, W3, gx, gy);
+
+				pred=_mm256_add_epi16(pred, curr2);
+				pred=_mm256_max_epi16(pred, amin);
+				pred=_mm256_min_epi16(pred, amax);
+				pred=_mm256_sub_epi16(curr, pred);
+				UPDATE(
+					PRED_WG,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR
+				);
+				gx=_mm256_slli_epi16(_mm256_abs_epi16(_mm256_sub_epi16(W4, WW4)), 1);
+				gy=_mm256_abs_epi16(_mm256_sub_epi16(W4, NW4));
+				gx=_mm256_add_epi16(gx, _mm256_abs_epi16(_mm256_sub_epi16(N4, NW4)));
+				gy=_mm256_add_epi16(gy, _mm256_slli_epi16(_mm256_abs_epi16(_mm256_sub_epi16(N4, NN4)), 1));
+				gx=_mm256_add_epi16(gx, _mm256_abs_epi16(_mm256_sub_epi16(NE4, N4)));
+				gy=_mm256_add_epi16(gy, _mm256_abs_epi16(_mm256_sub_epi16(NE4, NNE4)));
+			//	gx=_mm256_srli_epi16(gx, 1);
+			//	gy=_mm256_srli_epi16(gy, 1);
+				gx=_mm256_add_epi16(gx, _mm256_set1_epi16(1));
+				gy=_mm256_add_epi16(gy, _mm256_set1_epi16(1));
+				MIX2_16x16(pred, N4, W4, gx, gy);
+
+				pred=_mm256_add_epi16(pred, curr);
+				pred=_mm256_max_epi16(pred, amin);
+				pred=_mm256_min_epi16(pred, amax);
+				pred=_mm256_sub_epi16(curr2, pred);
+				UPDATE(
+					PRED_WG,
 					OCH_GR, OCH_BG, OCH_RB,
 					OCH_GR, OCH_BG, OCH_RB,
 					OCH_GR, OCH_BG, OCH_RB,
@@ -850,61 +947,66 @@ static void block_thread(void *param)
 				yuv[1]=args->src[idx+uidx]-128;
 				yuv[2]=args->src[idx+vidx]-128;
 			}
+		//	__m128i mNNW	=_mm_loadu_si128((__m128i*)NNW);
+			__m128i mNN	=_mm_loadu_si128((__m128i*)NN);
+			__m128i mNNE	=_mm_loadu_si128((__m128i*)NNE);
+		//	__m128i mNWW	=_mm_loadu_si128((__m128i*)NWW);
+			__m128i mNW	=_mm_loadu_si128((__m128i*)NW);
+			__m128i mN	=_mm_loadu_si128((__m128i*)N);
+			__m128i mNE	=_mm_loadu_si128((__m128i*)NE);
+			__m128i mWW	=_mm_loadu_si128((__m128i*)WW);
+			__m128i mW	=_mm_loadu_si128((__m128i*)W);
+			__m128i mr=_mm_abs_epi16(_mm_sub_epi16(mN, mW));
+			__m128i mx=_mm_add_epi16(mr, _mm_abs_epi16(_mm_sub_epi16(mW, mWW)));
+			__m128i my=_mm_add_epi16(mr, _mm_abs_epi16(_mm_sub_epi16(mN, mNN)));
+			mx=_mm_add_epi16(mx, _mm_abs_epi16(_mm_sub_epi16(mN, mNW)));
+			my=_mm_add_epi16(my, _mm_abs_epi16(_mm_sub_epi16(mW, mNW)));
+			mx=_mm_add_epi16(mx, _mm_abs_epi16(_mm_sub_epi16(mNE, mN)));
+			my=_mm_add_epi16(my, _mm_abs_epi16(_mm_sub_epi16(mNE, mNNE)));
+			__m128i meW=_mm_max_epi16(mW, mWW);
+			__m128i meN=_mm_max_epi16(mN, mNN);
+			meW=_mm_add_epi16(meW, mW);
+			meN=_mm_add_epi16(meN, mN);
+			meW=_mm_shuffle_epi32(meW, _MM_SHUFFLE(1, 0, 3, 2));
+			meN=_mm_shuffle_epi32(meN, _MM_SHUFFLE(1, 0, 3, 2));
+			meW=_mm_slli_epi16(meW, 1);
+			meN=_mm_slli_epi16(meN, 1);
+			mx=_mm_add_epi16(mx, meW);
+			my=_mm_add_epi16(my, meN);
+			mx=_mm_add_epi16(mx, _mm_set1_epi16(1));
+			my=_mm_add_epi16(my, _mm_set1_epi16(1));
+			mx=_mm_cvtepi16_epi32(mx);
+			my=_mm_cvtepi16_epi32(my);
+			mx=_mm_castps_si128(_mm_cvtepi32_ps(mx));
+			my=_mm_castps_si128(_mm_cvtepi32_ps(my));
+			mx=_mm_sub_epi32(mx, _mm_set1_epi32(127<<23));
+			my=_mm_sub_epi32(my, _mm_set1_epi32(127<<23));
+			mx=_mm_slli_epi32(mx, 1);
+			my=_mm_slli_epi32(my, 1);
+			mx=_mm_srli_epi32(mx, 24);
+			my=_mm_srli_epi32(my, 24);
+			ALIGN(16) int grads[8];
+			_mm_store_si128((__m128i*)grads+0, mx);
+			_mm_store_si128((__m128i*)grads+1, my);
 #ifdef __GNUC__
 #pragma GCC unroll 3
 #endif
 			for(int kc=0;kc<nch;++kc)
 			{
 				int offset=yuv[combination[kc+3]];
-				int vx, vy;
-				vx=abs(N[kc]-W[kc])+abs(W[kc]-WW[kc])+abs(N[kc]-NW[kc])+abs(NE[kc]-N  [kc])+(MAXVAR(WW[kc+4], W[kc+4])+W[kc+4])*2+1;//1~3061
-				vy=abs(N[kc]-W[kc])+abs(N[kc]-NN[kc])+abs(W[kc]-NW[kc])+abs(NE[kc]-NNE[kc])+(MAXVAR(NN[kc+4], N[kc+4])+N[kc+4])*2+1;
-				int qeN=FLOOR_LOG2(vy);//0~11
-				int qeW=FLOOR_LOG2(vx);
-				//if(qeN>CLEVELS-2||qeW>CLEVELS-2)//
-				//	LOG_ERROR("");
-				int cdf, freq=0, den;
-#ifdef ENABLE_MIX4
-				int *curr_hist[4];
+				int qeW=grads[kc+0];
+				int qeN=grads[kc+4];
+			//	int vx, vy;
+			//	vx=abs(N[kc]-W[kc])+abs(W[kc]-WW[kc])+abs(N[kc]-NW[kc])+abs(NE[kc]-N  [kc])+(MAXVAR(WW[kc+4], W[kc+4])+W[kc+4])*2+1;//1~3061
+			//	vy=abs(N[kc]-W[kc])+abs(N[kc]-NN[kc])+abs(W[kc]-NW[kc])+abs(NE[kc]-NNE[kc])+(MAXVAR(NN[kc+4], N[kc+4])+N[kc+4])*2+1;
+			//	int qeN=FLOOR_LOG2(vy);//0~11
+			//	int qeW=FLOOR_LOG2(vx);
 
 				//if(qeN>CLEVELS-2||qeW>CLEVELS-2)//
 				//	LOG_ERROR("");
-				//UPDATE_MIN(qeN, CLEVELS-2);
-				//UPDATE_MIN(qeW, CLEVELS-2);
-				curr_hist[0]=args->hist+cdfstride*(CLEVELS*(CLEVELS*kc+qeN+0)+qeW+0);
-				curr_hist[1]=args->hist+cdfstride*(CLEVELS*(CLEVELS*kc+qeN+0)+qeW+1);
-				curr_hist[2]=args->hist+cdfstride*(CLEVELS*(CLEVELS*kc+qeN+1)+qeW+0);
-				curr_hist[3]=args->hist+cdfstride*(CLEVELS*(CLEVELS*kc+qeN+1)+qeW+1);
-#ifdef ENABLE_AV4
-#define MIX4(X) (curr_hist[0][X]+curr_hist[1][X]+curr_hist[2][X]+curr_hist[3][X])
-#else
-				int alphax=(int)((vx-(1LL<<qeW))<<MIXBITS>>qeW);
-				int alphay=(int)((vy-(1LL<<qeN))<<MIXBITS>>qeN);
-				//if(alphax<0||alphax>(1<<MIXBITS)||alphay<0||alphay>(1<<MIXBITS))
-				//	LOG_ERROR("");
-				//alphax=(((vx-(1<<qeW))<<MIXBITS)+(1<<qeW>>1))>>qeW;
-				//alphay=(((vy-(1<<qeN))<<MIXBITS)+(1<<qeN>>1))>>qeN;
-				//CLAMP2(alphax, 0, 1<<MIXBITS);
-				//CLAMP2(alphay, 0, 1<<MIXBITS);
-				//do
-				//{
-				//	ALIGN(16) int _dst[4];
-				//	__m128i _mx=_mm_set_epi32(0, 0, alphay, alphax);
-				//	__m128i _vmax=_mm_set_epi32(0, 0, 1<<14, 1<<14);
-				//	_mx=_mm_max_epi32(_mx, _mm_setzero_si128());
-				//	_mx=_mm_min_epi32(_mx, _vmax);
-				//	_mm_store_si128((__m128i*)_dst, _mx);
-				//	alphax=_dst[0];
-				//	alphay=_dst[1];
-				//}while(0);
-				//CLAMP2_32(alphax, alphax, 0, 1<<MIXBITS);
-				//CLAMP2_32(alphay, alphay, 0, 1<<MIXBITS);
-#define MIX4(X) f28_mix4(curr_hist[0][X], curr_hist[1][X], curr_hist[2][X], curr_hist[3][X], alphax, alphay)
-#endif
-#else
+				int cdf, freq=0, den;
 				int *curr_hist=args->hist+cdfstride*(CLEVELS*(CLEVELS*kc+qeN)+qeW);
 #define MIX4(X) curr_hist[X]
-#endif
 				den=MIX4(args->tlevels);
 				switch(predidx[kc])
 				{
@@ -938,6 +1040,23 @@ static void block_thread(void *param)
 						W[kc]+((10*N[kc]-9*NW[kc]+4*NE[kc]-2*(NN[kc]+WW[kc])+NNW[kc]-(NNE[kc]+NWW[kc]))>>4),
 						N[kc], W[kc], NE[kc]
 					);
+					break;
+#endif
+#ifdef ENABLE_WG
+				case PRED_WG:
+					{
+						int gx=abs(W[kc]-WW[kc])+abs(N[kc]-NW[kc])+abs(NE[kc]-N[kc])+1;
+						int gy=abs(W[kc]-NW[kc])+abs(N[kc]-NN[kc])+abs(NE[kc]-NNE[kc])+1;
+					//	int gx=((2*abs(W[kc]-WW[kc])+abs(N[kc]-NW[kc])+abs(NE[kc]-N[kc]))>>1)+2;
+					//	int gy=((abs(W[kc]-NW[kc])+2*abs(N[kc]-NN[kc])+abs(NE[kc]-NNE[kc]))>>1)+2;
+					//	int gx=2*abs(W[kc]-WW[kc])+abs(N[kc]-NW[kc])+abs(NE[kc]-N[kc])+1;
+					//	int gy=abs(W[kc]-NW[kc])+2*abs(N[kc]-NN[kc])+abs(NE[kc]-NNE[kc])+1;
+					//	int gx=abs(W[kc]-WW[kc])+abs(N[kc]-NW[kc])+abs(NE[kc]-N[kc])+1;
+					//	int gy=abs(W[kc]-NW[kc])+abs(N[kc]-NN[kc])+abs(NE[kc]-NNE[kc])+1;
+					//	int gx=abs(W[kc]-WW[kc])+abs(N[kc]-NW[kc])+abs(NE[kc]-N[kc])+W[kc+4]+1;
+					//	int gy=abs(W[kc]-NW[kc])+abs(N[kc]-NN[kc])+abs(NE[kc]-NNE[kc])+N[kc+4]+1;
+						pred=(gx*N[kc]+gy*W[kc])/(gx+gy);
+					}
 					break;
 #endif
 				}
@@ -1042,44 +1161,6 @@ static void block_thread(void *param)
 				}
 				curr[kc+0]=yuv[kc]-offset;
 				curr[kc+4]=abs(error);
-#ifdef ENABLE_MIX4
-#ifdef ENABLE_AV4
-				++curr_hist[0][token]; ++curr_hist[0][args->tlevels];
-				++curr_hist[1][token]; ++curr_hist[1][args->tlevels];
-				++curr_hist[2][token]; ++curr_hist[2][args->tlevels];
-				++curr_hist[3][token]; ++curr_hist[3][args->tlevels];
-				for(int kh=0;kh<4;++kh)
-				{
-					int *hist2=curr_hist[kh];
-					if(hist2[args->tlevels]>=6144)
-					{
-						int sum=0;
-						for(int ks=0;ks<args->tlevels;++ks)
-							sum+=hist2[ks]=(hist2[ks]+1)>>1;
-						hist2[args->tlevels]=sum;
-					}
-				}
-#else
-				{
-					int inc;
-					inc=((1<<MIXBITS)-alphax)*((1<<MIXBITS)-alphay)>>(MIXBITS+MIXBITS-5); curr_hist[0][token]+=inc; curr_hist[0][args->tlevels]+=inc;
-					inc=(             alphax)*((1<<MIXBITS)-alphay)>>(MIXBITS+MIXBITS-5); curr_hist[1][token]+=inc; curr_hist[1][args->tlevels]+=inc;
-					inc=((1<<MIXBITS)-alphax)*(             alphay)>>(MIXBITS+MIXBITS-5); curr_hist[2][token]+=inc; curr_hist[2][args->tlevels]+=inc;
-					inc=(             alphax)*(             alphay)>>(MIXBITS+MIXBITS-5); curr_hist[3][token]+=inc; curr_hist[3][args->tlevels]+=inc;
-				}
-				for(int kh=0;kh<4;++kh)
-				{
-					int *hist2=curr_hist[kh];
-					if(hist2[args->tlevels]>=10752)//6144	4296	65536
-					{
-						int sum=0;
-						for(int ks=0;ks<args->tlevels;++ks)
-							sum+=hist2[ks]=(hist2[ks]+1)>>1;
-						hist2[args->tlevels]=sum;
-					}
-				}
-#endif
-#else
 				++curr_hist[token];
 				++curr_hist[args->tlevels];
 				if(curr_hist[args->tlevels]>=8192)//6144
@@ -1089,7 +1170,6 @@ static void block_thread(void *param)
 						sum+=curr_hist[ks]=(curr_hist[ks]+1)>>1;
 					curr_hist[args->tlevels]=sum;
 				}
-#endif
 			}
 			if(!args->fwd)
 			{
