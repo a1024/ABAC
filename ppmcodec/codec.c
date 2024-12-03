@@ -170,8 +170,8 @@ int main(int argc, char **argv)
 //	c25_codec("C:/dataset-LPCB-ppm/PIA13757.ppm",	"D:/ML/mystery.lsim");
 //	c25_codec("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
 
-	c24_codec("C:/dataset-GDCC2020-ppm/astro-01.ppm",	"D:/ML/mystery.lsim");
-	c24_codec("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm");
+//	c24_codec("C:/dataset-GDCC2020-ppm/astro-01.ppm",	"D:/ML/mystery.lsim");
+//	c24_codec("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm");
 
 //	c24_codec("C:/dataset-memes-ppm/usa.ppm",	"D:/ML/mystery.lsim");
 //	c24_codec("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
@@ -191,8 +191,8 @@ int main(int argc, char **argv)
 //	c22_codec("C:/dataset-a70-ppm/20240816_113656_966.ppm",	"D:/ML/mystery.lsim");
 //	c22_codec("D:/ML/mystery.lsim",				"D:/ML/mystery.ppm");
 
-//	c24_codec("C:/dataset-HUGE-ppm/jwst.ppm", "C:/dataset-HUGE-ppm/jwst.lsim");
-//	c24_codec("C:/dataset-HUGE-ppm/jwst.lsim", "C:/dataset-HUGE-ppm/jwst_dec.ppm");
+	c24_codec("C:/dataset-HUGE-ppm/jwst.ppm", "C:/dataset-HUGE-ppm/jwst.lsim");
+	c24_codec("C:/dataset-HUGE-ppm/jwst.lsim", "C:/dataset-HUGE-ppm/jwst_dec.ppm");
 
 //	c10_codec("D:/ML/big_building.PPM", "D:/ML/big_building.LSIM");
 //	c10_codec("D:/ML/big_building.LSIM", "D:/ML/big_building_dec.PPM");

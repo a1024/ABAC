@@ -712,7 +712,7 @@ FORCEINLINE void ac3_enc_update_NPOT(AC3 *ec, unsigned cdf, unsigned freq, unsig
 {
 	unsigned long long q;
 #ifdef AC3_PREC
-	unsigned long long r;
+	unsigned r;
 #endif
 #ifdef AC_VALIDATE
 	unsigned long long lo0, r0;
@@ -728,7 +728,7 @@ FORCEINLINE void ac3_enc_update_NPOT(AC3 *ec, unsigned cdf, unsigned freq, unsig
 #endif
 	q=ec->range/den;
 #ifdef AC3_PREC
-	r=ec->range%den;
+	r=(unsigned)(ec->range%den);
 	ec->low+=q*cdf+r*cdf/den;
 	ec->range=q*freq+r*freq/den-1;
 #else
@@ -765,7 +765,7 @@ FORCEINLINE void ac3_dec_update_NPOT(AC3 *ec, unsigned cdf, unsigned freq, unsig
 {
 	unsigned long long q=ec->range/den;
 #ifdef AC3_PREC
-	unsigned long long r=ec->range%den;
+	unsigned r=(unsigned)(ec->range%den);
 #endif
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
