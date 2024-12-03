@@ -15,7 +15,6 @@ static const char file[]=__FILE__;
 #define BLOCKSIZE 768
 #define MAXPRINTEDBLOCKS 0
 #define CODECNAME "C07"
-#define AC3_PREC
 #include"entropy.h"
 
 #define NLEVELS 257

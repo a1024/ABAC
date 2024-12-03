@@ -21,7 +21,6 @@ static const char file[]=__FILE__;
 //	#define ENABLE_GATHER//bad
 
 #define CODECNAME "C15"
-#define AC3_PREC
 #include"entropy.h"
 
 #define BLOCKX 512

@@ -16,7 +16,6 @@ static const char file[]=__FILE__;
 //	#define A2_CTXMIXER//bad
 
 #define CODECNAME "C13"
-#define AC3_PREC
 #include"entropy.h"
 
 #define BLOCKX 512

@@ -24,7 +24,6 @@ static const char file[]=__FILE__;
 //	#define ENABLE_OLS
 	#define DISABLE_PREDSEL
 	#define ENABLE_WG
-	#define AC3_PREC
 
 #define CODECNAME "C02"
 #include"entropy.h"

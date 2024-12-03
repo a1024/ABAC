@@ -21,7 +21,8 @@ static const char file[]=__FILE__;
 #define ANALYSIS_XSTRIDE 2
 #define ANALYSIS_YSTRIDE 2
 
-#define AC3_PREC
+//	#define AC_VALIDATE
+//	#define AC_IMPLEMENTATION
 #include"entropy.h"
 
 #define BLOCKSIZE 512
@@ -1065,6 +1066,9 @@ static void block_thread(void *param)
 				//CLAMP2_32(pred, pred, -128, 127);
 				//if(ky==480&&kx==109&&kc==2)//
 				//if(ky==147&&kx==317&&kc==1)//
+				//if(ky==1&&kx==455&&kc==0)//
+				//if(ky==0&&kx==5&&kc==1)//
+				//if(ky==0&&kx==5&&kc==1)//
 				//	printf("");
 				if(args->fwd)
 				{
@@ -1095,12 +1099,19 @@ static void block_thread(void *param)
 					for(int ks=0;ks<token;++ks)
 						cdf+=MIX4(ks);
 					freq=MIX4(token);
+
+					//if(ky==0&&kx==5&&kc==1)//
+					//	printf("");
+
 					ac3_enc_update_NPOT(&ec, cdf, freq, den);
 					if(nbits)
 						ac3_enc_bypass(&ec, bypass, nbits);
 				}
 				else
 				{
+					//if(ky==0&&kx==5&&kc==1)//
+					//	printf("");
+
 					unsigned code=ac3_dec_getcdf_NPOT(&ec, den);
 					cdf=0;
 					token=0;

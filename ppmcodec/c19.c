@@ -13,7 +13,6 @@ static const char file[]=__FILE__;
 
 #define C19_PROB_BITS 14
 
-#define AC3_PREC
 #include"entropy.h"
 
 

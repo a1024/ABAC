@@ -11,8 +11,6 @@ static const char file[]=__FILE__;
 
 //	#define DISABLE4
 
-	#define AC3_PREC
-
 #define AC_IMPLEMENTATION
 #include"entropy.h"
 

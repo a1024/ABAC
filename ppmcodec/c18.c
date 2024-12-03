@@ -26,7 +26,6 @@ static const char file[]=__FILE__;
 
 
 #define CODECNAME "C18"
-#define AC3_PREC
 #include"entropy.h"
 
 #define BLOCKSIZE 224	//192	//448

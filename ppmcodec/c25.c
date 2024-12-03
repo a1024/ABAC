@@ -27,7 +27,6 @@ static const char file[]=__FILE__;
 #define ANALYSIS_XSTRIDE 4
 #define ANALYSIS_YSTRIDE 4
 
-#define AC3_PREC
 #include"entropy.h"
 
 #define BLOCKSIZE 512
