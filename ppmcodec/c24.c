@@ -12,11 +12,14 @@ static const char file[]=__FILE__;
 	#define ENABLE_EDGECASES
 
 //	#define ENABLE_W	//weak
-	#define ENABLE_AV2	//good
+//	#define ENABLE_AV2	//good, but redundant with WG
 //	#define ENABLE_GRAD	//weaker
+	#define ENABLE_AV4	//good with GDCC
+//	#define ENABLE_AV5	//redundant with AV4
 	#define ENABLE_AV9	//good
-	#define ENABLE_WG	//slow
+	#define ENABLE_WG	//good with noisy areas
 
+	#define ENABLE_FREQINC
 
 #define ANALYSIS_XSTRIDE 2
 #define ANALYSIS_YSTRIDE 2
@@ -27,7 +30,7 @@ static const char file[]=__FILE__;
 
 #define BLOCKSIZE 512
 #define MAXPRINTEDBLOCKS 500
-#define CLEVELS 12
+#define CLEVELS 13
 
 #define MIXBITS 14
 
@@ -93,9 +96,8 @@ static const char *rct_names[RCT_COUNT]=
 };
 
 #define PREDLIST\
-	PRED(AV2)\
 	PRED(CG)\
-	PRED(AV5)\
+	PRED(AV4)\
 	PRED(AV9)\
 	PRED(WG)
 typedef enum _PredIndex
@@ -188,7 +190,8 @@ static void block_thread(void *param)
 	ThreadArgs *args=(ThreadArgs*)param;
 	AC3 ec;
 	const unsigned char *image=args->fwd?args->src:args->dst;
-	unsigned char bestrct=0, combination[6]={0}, predidx[4]={0};
+	unsigned char bestrct=0, predidx[4]={0};
+	const unsigned char *combination=0;
 	int ystride=args->iw*3;
 	int cdfstride=args->tlevels+1;
 
@@ -201,6 +204,7 @@ static void block_thread(void *param)
 		if(dx<=0||dy<=0)
 		{
 			bestrct=RCT_G_BG_RG;
+			combination=rct_combinations[bestrct];
 			predidx[0]=PRED_CG;
 			predidx[1]=PRED_CG;
 			predidx[2]=PRED_CG;
@@ -519,10 +523,74 @@ static void block_thread(void *param)
 					OCH_GR, OCH_BG, OCH_RB,
 					OCH_GR, OCH_BG, OCH_RB
 				);
-				
-				//AV5 = clamp(W+((5*(N-NW)+NE-WW)>>3), N,W,NE)
+
 				vmin[0]=_mm256_min_epi16(vmin[0], NE);
 				vmax[0]=_mm256_max_epi16(vmax[0], NE);
+				vmin[1]=_mm256_min_epi16(vmin[1], NE3);
+				vmax[1]=_mm256_max_epi16(vmax[1], NE3);
+				vmin[2]=_mm256_min_epi16(vmin[2], NE4);
+				vmax[2]=_mm256_max_epi16(vmax[2], NE4);
+				
+				//AV4 = clamp((4*(N+W)+NE-NW)>>3, N,W,NE)
+#ifdef ENABLE_AV4
+				pred=_mm256_add_epi16(N, W);
+				pred=_mm256_slli_epi16(pred, 2);
+				pred=_mm256_add_epi16(pred, _mm256_sub_epi16(NE, NW));
+				pred=_mm256_srai_epi16(pred, 3);
+				pred=_mm256_max_epi16(pred, vmin[0]);
+				pred=_mm256_min_epi16(pred, vmax[0]);
+
+				pred=_mm256_sub_epi16(curr, pred);
+				UPDATE(
+					PRED_AV4,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B
+				);
+				pred=_mm256_add_epi16(N3, W3);
+				pred=_mm256_slli_epi16(pred, 2);
+				pred=_mm256_add_epi16(pred, _mm256_sub_epi16(NE3, NW3));
+				pred=_mm256_srai_epi16(pred, 3);
+				pred=_mm256_max_epi16(pred, vmin[1]);
+				pred=_mm256_min_epi16(pred, vmax[1]);
+
+				pred=_mm256_add_epi16(pred, curr2);
+				pred=_mm256_max_epi16(pred, amin);
+				pred=_mm256_min_epi16(pred, amax);
+				pred=_mm256_sub_epi16(curr, pred);
+				UPDATE(
+					PRED_AV4,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR
+				);
+				pred=_mm256_add_epi16(N4, W4);
+				pred=_mm256_slli_epi16(pred, 2);
+				pred=_mm256_add_epi16(pred, _mm256_sub_epi16(NE4, NW4));
+				pred=_mm256_srai_epi16(pred, 3);
+				pred=_mm256_max_epi16(pred, vmin[2]);
+				pred=_mm256_min_epi16(pred, vmax[2]);
+
+				pred=_mm256_add_epi16(pred, curr);
+				pred=_mm256_max_epi16(pred, amin);
+				pred=_mm256_min_epi16(pred, amax);
+				pred=_mm256_sub_epi16(curr2, pred);
+				UPDATE(
+					PRED_AV4,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB
+				);
+#endif
+				
+				//AV5 = clamp(W+((5*(N-NW)+NE-WW)>>3), N,W,NE)
+#ifdef ENABLE_AV5
 				pred=_mm256_sub_epi16(N, NW);
 				pred=_mm256_add_epi16(pred, _mm256_slli_epi16(pred, 2));
 				pred=_mm256_add_epi16(pred, _mm256_sub_epi16(NE, WW));
@@ -540,8 +608,6 @@ static void block_thread(void *param)
 					OCH_R, OCH_G, OCH_B,
 					OCH_R, OCH_G, OCH_B
 				);
-				vmin[1]=_mm256_min_epi16(vmin[1], NE3);
-				vmax[1]=_mm256_max_epi16(vmax[1], NE3);
 				pred=_mm256_sub_epi16(N3, NW3);
 				pred=_mm256_add_epi16(pred, _mm256_slli_epi16(pred, 2));
 				pred=_mm256_add_epi16(pred, _mm256_sub_epi16(NE3, WW3));
@@ -562,8 +628,6 @@ static void block_thread(void *param)
 					OCH_RG, OCH_GB, OCH_BR,
 					OCH_RG, OCH_GB, OCH_BR
 				);
-				vmin[2]=_mm256_min_epi16(vmin[2], NE4);
-				vmax[2]=_mm256_max_epi16(vmax[2], NE4);
 				pred=_mm256_sub_epi16(N4, NW4);
 				pred=_mm256_add_epi16(pred, _mm256_slli_epi16(pred, 2));
 				pred=_mm256_add_epi16(pred, _mm256_sub_epi16(NE4, WW4));
@@ -584,6 +648,7 @@ static void block_thread(void *param)
 					OCH_GR, OCH_BG, OCH_RB,
 					OCH_GR, OCH_BG, OCH_RB
 				);
+#endif
 				
 				//AV9
 				//		1	-2	-1
@@ -656,8 +721,8 @@ static void block_thread(void *param)
 #endif
 				
 				//WG
-				//gx=abs(W-WW)+abs(N-NW)+abs(NE-N)+1?
-				//gy=abs(W-NW)+abs(N-NN)+abs(NE-NNE)+1?
+				//gx=abs(W-WW)+abs(N-NW)+abs(NE-N)+1
+				//gy=abs(W-NW)+abs(N-NN)+abs(NE-NNE)+1
 				//pred=(gx*N+gy*W)/(gx+gy)
 #ifdef ENABLE_WG
 				__m256i gx, gy;
@@ -765,7 +830,7 @@ static void block_thread(void *param)
 			if(!kt||bestsize>csize)
 				bestsize=csize, bestrct=kt;
 		}
-		memcpy(combination, rct_combinations[bestrct], sizeof(combination));
+		combination=rct_combinations[bestrct];
 		predidx[0]=predsel[combination[0]];
 		predidx[1]=predsel[combination[1]];
 		predidx[2]=predsel[combination[2]];
@@ -827,6 +892,7 @@ static void block_thread(void *param)
 		predidx[0]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
 		predidx[1]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
 		predidx[2]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
+		combination=rct_combinations[bestrct];
 	}
 	int yidx=0, uidx=1, vidx=2;
 	switch(bestrct)
@@ -881,17 +947,21 @@ static void block_thread(void *param)
 		vidx=1;
 		break;
 	}
+	unsigned short *histptr=(unsigned short*)args->hist;
+	memset(histptr, 0, args->histsize);
+#if 0
 	{
 		static const int init_freqs[]={32, 8, 6, 4, 3, 2, 1};
 		int sum=0;
 		for(int ks=0;ks<args->tlevels;++ks)
 		{
 			int freq=init_freqs[MINVAR(ks, (int)_countof(init_freqs)-1)];
-			sum+=args->hist[ks]=freq;
+			sum+=histptr[ks]=freq;
 		}
-		args->hist[args->tlevels]=sum;
+		histptr[args->tlevels]=sum;
 	}
-	memfill(args->hist+cdfstride, args->hist, args->histsize-cdfstride*sizeof(int), cdfstride*sizeof(int));
+	memfill(histptr+cdfstride, histptr, args->histsize-cdfstride*sizeof(short), cdfstride*sizeof(short));
+#endif
 	memset(args->pixels, 0, args->bufsize);
 	int paddedblockwidth=args->x2-args->x1+16;
 	for(int ky=args->y1;ky<args->y2;++ky)//codec loop
@@ -906,11 +976,11 @@ static void block_thread(void *param)
 		int yuv[4]={0};
 		int token=0, bypass=0, nbits=0;
 		int pred=0, error=0, sym=0;
-		const unsigned char *combination=rct_combinations[bestrct];
 		for(int kx=args->x1;kx<args->x2;++kx)
 		{
 			int idx=nch*(args->iw*ky+kx);
 			short
+			//	*NNN	=rows[3]+0*4*2,
 				*NNW	=rows[2]-1*4*2,
 				*NN	=rows[2]+0*4*2,
 				*NNE	=rows[2]+1*4*2,
@@ -918,24 +988,33 @@ static void block_thread(void *param)
 				*NW	=rows[1]-1*4*2,
 				*N	=rows[1]+0*4*2,
 				*NE	=rows[1]+1*4*2,
+			//	*WWW	=rows[0]-3*4*2,
 				*WW	=rows[0]-2*4*2,
 				*W	=rows[0]-1*4*2,
 				*curr	=rows[0]+0*4*2;
 #ifdef ENABLE_EDGECASES
-			if(ky<=args->y1+1)
-			{
-				if(ky==args->y1)
-					NE=NWW=NW=N=W;
-				NNW=NW;
-				NN=N;
-				NNE=NE;
-			}
-			if(kx<=args->x1+1)
-			{
-				if(kx<=args->x1)
-					NWW=NW=W=N;
-				WW=W;
-			}
+			//if(ky<=args->y1+2)
+			//{
+				if(ky<=args->y1+1)
+				{
+					if(ky==args->y1)
+						NE=NWW=NW=N=W;
+					NNW=NW;
+					NN=N;
+					NNE=NE;
+				}
+			//	NNN=NN;
+			//}
+			//if(kx<=args->x1+2)
+			//{
+				if(kx<=args->x1+1)
+				{
+					if(kx<=args->x1)
+						NWW=NW=W=N;
+					WW=W;
+				}
+			//	WWW=WW;
+			//}
 			if(kx>=args->x2-1)
 			{
 				NNE=NN;
@@ -1006,9 +1085,21 @@ static void block_thread(void *param)
 				//if(qeN>CLEVELS-2||qeW>CLEVELS-2)//
 				//	LOG_ERROR("");
 				int cdf, freq=0, den;
-				int *curr_hist=args->hist+cdfstride*(CLEVELS*(CLEVELS*kc+qeN)+qeW);
-#define MIX4(X) curr_hist[X]
-				den=MIX4(args->tlevels);
+				unsigned short *curr_hist0=histptr+cdfstride*(CLEVELS*(CLEVELS*kc+qeN+0)+qeW+0);
+				unsigned short *curr_hist1=histptr+cdfstride*(CLEVELS*(CLEVELS*kc+qeN+0)+qeW+1);
+				unsigned short *curr_hist2=histptr+cdfstride*(CLEVELS*(CLEVELS*kc+qeN+1)+qeW+0);
+				unsigned short *curr_hist3=histptr+cdfstride*(CLEVELS*(CLEVELS*kc+qeN+1)+qeW+1);
+	#define GETCTR(X) (curr_hist1[X]+curr_hist2[X])		//efficient with update4
+//	#define GETCTR(X) ((curr_hist1[X]+curr_hist2[X])*2+curr_hist0[X]+curr_hist3[X])		//X  slow
+//	#define GETCTR(X) (curr_hist0[X]+curr_hist1[X]+curr_hist2[X])
+//	#define GETCTR(X) (curr_hist0[X]+curr_hist1[X]+curr_hist2[X]+curr_hist3[X])
+//	#define GETCTR(X) curr_hist1[X]		//fast
+//	#define GETCTR(X) curr_hist0[X]		//fast
+#ifdef ENABLE_FREQINC
+				den=GETCTR(args->tlevels)+args->tlevels;
+#else
+				den=GETCTR(args->tlevels);
+#endif
 				switch(predidx[kc])
 				{
 #ifdef ENABLE_W
@@ -1029,12 +1120,22 @@ static void block_thread(void *param)
 				case PRED_CG:
 					MEDIAN3_32(pred, N[kc], W[kc], N[kc]+W[kc]-NW[kc]);
 					break;
+#ifdef ENABLE_AV4
+				case PRED_AV4:
+					CLAMP3_32(pred,
+						(4*(N[kc]+W[kc])+NE[kc]-NW[kc])>>3,
+						N[kc], W[kc], NE[kc]
+					);
+					break;
+#endif
+#ifdef ENABLE_AV5
 				case PRED_AV5:
 					CLAMP3_32(pred,
 						W[kc]+((5*(N[kc]-NW[kc])+NE[kc]-WW[kc])>>3),
 						N[kc], W[kc], NE[kc]
 					);
 					break;
+#endif
 #ifdef ENABLE_AV9
 				case PRED_AV9:
 					CLAMP3_32(pred,
@@ -1068,7 +1169,7 @@ static void block_thread(void *param)
 				//if(ky==147&&kx==317&&kc==1)//
 				//if(ky==1&&kx==455&&kc==0)//
 				//if(ky==0&&kx==5&&kc==1)//
-				//if(ky==0&&kx==5&&kc==1)//
+				//if(ky==0&&kx==0&&kc==0)//
 				//	printf("");
 				if(args->fwd)
 				{
@@ -1095,10 +1196,60 @@ static void block_thread(void *param)
 					if(token>=args->tlevels)
 						LOG_ERROR("YXC %d %d %d  token %d/%d", ky, kx, kc, token, args->tlevels);
 #endif
+#if 1
+					cdf=token;
+					freq=GETCTR(token)+1;
+					switch(token)
+					{
+					case 25:cdf+=GETCTR(24);
+					case 24:cdf+=GETCTR(23);
+					case 23:cdf+=GETCTR(22);
+					case 22:cdf+=GETCTR(21);
+					case 21:cdf+=GETCTR(20);
+					case 20:cdf+=GETCTR(19);
+					case 19:cdf+=GETCTR(18);
+					case 18:cdf+=GETCTR(17);
+					case 17:cdf+=GETCTR(16);
+					case 16:cdf+=GETCTR(15);
+					case 15:cdf+=GETCTR(14);
+					case 14:cdf+=GETCTR(13);
+					case 13:cdf+=GETCTR(12);
+					case 12:cdf+=GETCTR(11);
+					case 11:cdf+=GETCTR(10);
+					case 10:cdf+=GETCTR( 9);
+					case  9:cdf+=GETCTR( 8);
+					case  8:cdf+=GETCTR( 7);
+					case  7:cdf+=GETCTR( 6);
+					case  6:cdf+=GETCTR( 5);
+					case  5:cdf+=GETCTR( 4);
+					case  4:cdf+=GETCTR( 3);
+					case  3:cdf+=GETCTR( 2);
+					case  2:cdf+=GETCTR( 1);
+					case  1:cdf+=GETCTR( 0);
+					default:
+						break;
+					}
+#endif
+
+#if 0
+					int ks=0;
 					cdf=0;
-					for(int ks=0;ks<token;++ks)
-						cdf+=MIX4(ks);
-					freq=MIX4(token);
+					for(;;)
+					{
+#ifdef ENABLE_FREQINC
+						freq=GETCTR(ks)+1;
+#else
+						freq=GETCTR(ks);
+#endif
+						if(ks>=token)
+							break;
+						cdf+=freq;
+						++ks;
+					}
+#endif
+					//for(int ks=0;ks<token;++ks)
+					//	cdf+=GETCTR(ks);
+					//freq=GETCTR(token);
 
 					//if(ky==0&&kx==5&&kc==1)//
 					//	printf("");
@@ -1114,12 +1265,13 @@ static void block_thread(void *param)
 
 					unsigned code=ac3_dec_getcdf_NPOT(&ec, den);
 					cdf=0;
+					freq=0;
 					token=0;
+#if 1
 					for(;;)
 					{
 						unsigned cdf2;
-
-						freq=MIX4(token);
+						freq=GETCTR(token)+1;
 						cdf2=cdf+freq;
 						if(cdf2>code)
 							break;
@@ -1130,6 +1282,27 @@ static void block_thread(void *param)
 						cdf=cdf2;
 						++token;
 					}
+#endif
+#if 0
+					for(;;)
+					{
+						unsigned cdf2;
+#ifdef ENABLE_FREQINC
+						freq=GETCTR(token)+1;
+#else
+						freq=GETCTR(token);
+#endif
+						cdf2=cdf+freq;
+						if(cdf2>code)
+							break;
+#ifdef _DEBUG
+						if(token>=args->tlevels)
+							LOG_ERROR("YXC %d %d %d  token %d/%d", ky, kx, kc, token, args->tlevels);
+#endif
+						cdf=cdf2;
+						++token;
+					}
+#endif
 					ac3_dec_update_NPOT(&ec, cdf, freq, den);
 					sym=token;
 					if(sym>=(1<<CONFIG_EXP))
@@ -1172,15 +1345,66 @@ static void block_thread(void *param)
 				}
 				curr[kc+0]=yuv[kc]-offset;
 				curr[kc+4]=abs(error);
-				++curr_hist[token];
-				++curr_hist[args->tlevels];
-				if(curr_hist[args->tlevels]>=8192)//6144
+
+#if 1
+				++curr_hist0[token];
+				++curr_hist0[args->tlevels];
+				if(curr_hist0[args->tlevels]>=6144)//4096	6144	8192
 				{
 					int sum=0;
 					for(int ks=0;ks<args->tlevels;++ks)
-						sum+=curr_hist[ks]=(curr_hist[ks]+1)>>1;
-					curr_hist[args->tlevels]=sum;
+#ifdef ENABLE_FREQINC
+						sum+=curr_hist0[ks]>>=1;
+#else
+						sum+=curr_hist0[ks]=(curr_hist0[ks]+1)>>1;
+#endif
+					curr_hist0[args->tlevels]=sum;
 				}
+#endif
+
+				++curr_hist1[token];
+				++curr_hist1[args->tlevels];
+				if(curr_hist1[args->tlevels]>=6144)
+				{
+					int sum=0;
+					for(int ks=0;ks<args->tlevels;++ks)
+#ifdef ENABLE_FREQINC
+						sum+=curr_hist1[ks]>>=1;
+#else
+						sum+=curr_hist1[ks]=(curr_hist1[ks]+1)>>1;
+#endif
+					curr_hist1[args->tlevels]=sum;
+				}
+
+				++curr_hist2[token];
+				++curr_hist2[args->tlevels];
+				if(curr_hist2[args->tlevels]>=6144)
+				{
+					int sum=0;
+					for(int ks=0;ks<args->tlevels;++ks)
+#ifdef ENABLE_FREQINC
+						sum+=curr_hist2[ks]>>=1;
+#else
+						sum+=curr_hist2[ks]=(curr_hist2[ks]+1)>>1;
+#endif
+					curr_hist2[args->tlevels]=sum;
+				}
+
+#if 1
+				++curr_hist3[token];
+				++curr_hist3[args->tlevels];
+				if(curr_hist3[args->tlevels]>=6144)
+				{
+					int sum=0;
+					for(int ks=0;ks<args->tlevels;++ks)
+#ifdef ENABLE_FREQINC
+						sum+=curr_hist3[ks]>>=1;
+#else
+						sum+=curr_hist3[ks]=(curr_hist3[ks]+1)>>1;
+#endif
+					curr_hist3[args->tlevels]=sum;
+				}
+#endif
 			}
 			if(!args->fwd)
 			{

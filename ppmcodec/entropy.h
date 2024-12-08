@@ -443,12 +443,12 @@ FORCEINLINE int ac2_dec_bin(AC2 *ec, unsigned p1)
 
 
 //arithmetic coder (carry-less)
-#define AC3_PROB_BITS 16			//16-bit stats are best
+#define AC3_PROB_BITS 12			//15-bit stats are best (16 bit may cause errors now?)
 #define AC3_RENORM 32	//multiple of 8!	//32-bit renorm is best
-#if AC3_RENORM<=AC3_PROB_BITS
-#define AC3_RENORM_STATEMENT while
-#else
+#if AC3_RENORM>AC3_PROB_BITS
 #define AC3_RENORM_STATEMENT if
+#else
+#define AC3_RENORM_STATEMENT while
 #endif
 typedef struct _AC3
 {
@@ -658,10 +658,14 @@ FORCEINLINE unsigned ac3_dec_getcdf_NPOT(AC3 *ec, unsigned den)
 {
 	AC3_RENORM_STATEMENT(ec->range<(unsigned)den)
 		ac3_dec_renorm(ec);
+#ifdef _DEBUG
+	if(ec->code<ec->low||ec->code>ec->low+ec->range)
+		LOG_ERROR("CODE OOB");
+#endif
 #ifdef AC_VALIDATE
 	ACVAL *val=(ACVAL*)array_at(&acval, acval_idx);
 	if(ec->code<val->lo2||ec->code>val->hi2)
-		printf("");
+		LOG_ERROR("CODE OOB");
 #endif
 	return (unsigned)(((ec->code-ec->low)*den+den-1)/ec->range);
 }
@@ -748,7 +752,46 @@ FORCEINLINE void ac3_enc(AC3 *ec, int sym, const unsigned *CDF)
 	ec->range=(ec->range*freq>>AC3_PROB_BITS)-1;
 	acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
 }
-FORCEINLINE int ac3_dec(AC3 *ec, const unsigned *CDF, int nlevels)
+FORCEINLINE int ac3_dec(AC3 *ec, const unsigned *CDF, int nbits)
+{
+	unsigned cdf, freq;
+	int sym;
+
+	AC3_RENORM_STATEMENT(!(ec->range>>AC3_PROB_BITS))
+		ac3_dec_renorm(ec);
+	cdf=(unsigned)(((ec->code-ec->low)<<AC3_PROB_BITS|((1ULL<<AC3_PROB_BITS)-1))/ec->range);
+	sym=0;
+	switch(nbits)
+	{
+	default:
+		LOG_ERROR2("Unsupported bit depth");
+		break;
+	case 9:sym|=(cdf>=CDF[sym|256])<<8;
+	case 8:sym|=(cdf>=CDF[sym|128])<<7;
+	case 7:sym|=(cdf>=CDF[sym| 64])<<6;
+	case 6:sym|=(cdf>=CDF[sym| 32])<<5;
+	case 5:sym|=(cdf>=CDF[sym| 16])<<4;
+	case 4:sym|=(cdf>=CDF[sym|  8])<<3;
+	case 3:sym|=(cdf>=CDF[sym|  4])<<2;
+	case 2:sym|=(cdf>=CDF[sym|  2])<<1;
+	case 1:sym|= cdf>=CDF[sym|  1];
+		break;
+	}
+	cdf=CDF[sym];
+	freq=CDF[sym+1]-cdf;
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if(!freq)
+		LOG_ERROR2("ZPS");
+	if(cdf+freq<cdf)
+		LOG_ERROR2("Invalid CDF");
+#endif
+	ec->low+=ec->range*cdf>>AC3_PROB_BITS;
+	ec->range=(ec->range*freq>>AC3_PROB_BITS)-1;
+	acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
+	return sym;
+}
+FORCEINLINE int ac3_dec_NPOT(AC3 *ec, const unsigned *CDF, int nlevels)
 {
 	unsigned cdf, freq;
 	int range, sym;
