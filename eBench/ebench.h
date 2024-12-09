@@ -724,6 +724,7 @@ void pred_LeGallCG(Image *src, int fwd);
 void pred_cgplus(Image *src, int fwd);
 void pred_CG420(Image *src, int fwd);
 void pred_CG422(Image *src, int fwd);
+void pred_synth(Image *src, int fwd);
 void pred_av2(Image *src, int fwd);
 void pred_mix2(Image *src, int fwd);
 void pred_MTF(Image *src, int fwd);

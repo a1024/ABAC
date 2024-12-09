@@ -104,6 +104,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_MTF,		ST_INV_MTF,
 	ST_FWD_AV2,		ST_INV_AV2,
 	ST_FWD_CLAMPGRAD,	ST_INV_CLAMPGRAD,
+	ST_FWD_SYNTH,		ST_INV_SYNTH,
 	ST_FWD_CGPLUS,		ST_INV_CGPLUS,
 	ST_FWD_CG3D,		ST_INV_CG3D,
 	ST_FWD_PU,		ST_INV_PU,
@@ -1802,6 +1803,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_CG3D:		a="CS Inv CG3D";		break;
 	case ST_FWD_CLAMPGRAD:		a=" S Fwd ClampGrad";		break;
 	case ST_INV_CLAMPGRAD:		a=" S Inv ClampGrad";		break;
+	case ST_FWD_SYNTH:		a=" S Fwd Synth";		break;
+	case ST_INV_SYNTH:		a=" S Inv Synth";		break;
 	case ST_FWD_CGPLUS:		a=" S Fwd CGplus";		break;
 	case ST_INV_CGPLUS:		a=" S Inv CGplus";		break;
 	case ST_FWD_CG422:		a=" S Fwd CG422";		break;
@@ -2948,6 +2951,8 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_INV_CG3D:		pred_CG3D(image, 0, pred_ma_enabled);			break;
 	case ST_FWD_CLAMPGRAD:		pred_clampgrad(image, 1, pred_ma_enabled);		break;
 	case ST_INV_CLAMPGRAD:		pred_clampgrad(image, 0, pred_ma_enabled);		break;
+	case ST_FWD_SYNTH:		pred_synth(image, 1);					break;
+	case ST_INV_SYNTH:		pred_synth(image, 0);					break;
 	case ST_FWD_CGPLUS:		pred_cgplus(image, 1);					break;
 	case ST_INV_CGPLUS:		pred_cgplus(image, 0);					break;
 	case ST_FWD_CG422:		pred_CG422(image, 1);					break;

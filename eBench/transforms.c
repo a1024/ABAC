@@ -3554,6 +3554,118 @@ void pred_CG422(Image *src, int fwd)
 	}
 	free(pixels);
 }
+void pred_synth(Image *src, int fwd)
+{
+	int nch;
+	int fwdmask=-fwd;
+
+	int bufsize=(src->iw+16LL)*sizeof(int[4*4]);//4 padded rows * 4 channels max
+	int *pixels=(int*)malloc(bufsize);
+
+	if(!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(pixels, 0, bufsize);
+	nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
+	UPDATE_MAX(nch, src->nch);
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		int *rows[]=
+		{
+			pixels+((src->iw+16LL)*((ky-0LL)&3)+8)*4,
+			pixels+((src->iw+16LL)*((ky-1LL)&3)+8)*4,
+			pixels+((src->iw+16LL)*((ky-2LL)&3)+8)*4,
+			pixels+((src->iw+16LL)*((ky-3LL)&3)+8)*4,
+		};
+		for(int kx=0;kx<src->iw;++kx, idx+=4)
+		{
+			for(int kc=0;kc<3;++kc)
+			{
+				int pred, curr;
+				int
+					NN	=rows[2][kc+0*4],
+					NNE	=rows[2][kc+1*4],
+					NW	=rows[1][kc-1*4],
+					N	=rows[1][kc+0*4],
+					NE	=rows[1][kc+1*4],
+					WW	=rows[0][kc-2*4],
+					W	=rows[0][kc-1*4];
+
+				//if(abs(src->data[idx+kc]-N)<abs(src->data[idx+kc]-W))//cheat
+				//	pred=N;
+				//else
+				//	pred=W;
+
+				if(abs(W-NW)<abs(N-NW))//Paeth without NW
+					pred=N;
+				else
+					pred=W;
+#if 0
+				int p=N+W-NW, d, temp;	//Paeth
+				d=abs(N-p);
+				pred=N;
+				temp=abs(W-p);
+				if(d>temp)
+					d=temp, pred=W;
+				temp=abs(NW-p);
+				if(d>temp)
+					d=temp, pred=NW;
+				//temp=abs(NE-p);
+				//if(d>temp)
+				//	d=temp, pred=NE;
+
+				//if(NW<N&&NW<W)
+				//	pred=MAXVAR(N, W);
+				//else if(NW>N&&NW>W)
+				//	pred=MINVAR(N, W);
+				//else
+				if(abs(W-NW)<abs(N-NW))
+					pred=N;
+				else
+					pred=W;
+				
+				//int vmin=abs(N-NW), temp;
+				//pred=W;
+				//temp=abs(W-NW);
+				//if(vmin>temp)
+				//	vmin=temp, pred=N;
+				//temp=abs(N-W);
+				//if(vmin>temp)
+				//	vmin=temp, pred=NE;
+
+				//if(abs(N-NN)+abs(W-NW)<abs(W-WW)+abs(N-NW))//X
+				//	pred=N;
+				//else
+				//	pred=W;
+				//if(abs(N-NN)+abs(W-NW)+abs(NE-NNE)<abs(W-WW)+abs(N-NW)+abs(NE-N))//X
+				//	pred=N;
+				//else
+				//	pred=W;
+
+				//pred=kx?W:N;
+#endif
+
+				curr=src->data[idx+kc];
+				pred^=fwdmask;
+				pred-=fwdmask;
+				pred+=curr;
+
+				pred<<=32-src->depth[kc];
+				pred>>=32-src->depth[kc];
+
+				src->data[idx+kc]=pred;
+				rows[0][kc]=fwd?curr:pred;
+			}
+			rows[0]+=4;
+			rows[1]+=4;
+			rows[2]+=4;
+			rows[3]+=4;
+		}
+	}
+	free(pixels);
+}
 
 
 //	#define CG3D_ENABLE_MA
