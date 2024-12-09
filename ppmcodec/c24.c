@@ -193,7 +193,7 @@ static void block_thread(void *param)
 	ThreadArgs *args=(ThreadArgs*)param;
 	AC3 ec;
 	const unsigned char *image=args->fwd?args->src:args->dst;
-	unsigned char bestrct=0, predidx[4]={0};
+	unsigned char bestrct=0, predidx[3]={0};
 	const unsigned char *combination=0;
 	int cdfstride=args->tlevels+1;
 	int entropyidx=0;
@@ -212,7 +212,7 @@ static void block_thread(void *param)
 			predidx[0]=PRED_CG;
 			predidx[1]=PRED_CG;
 			predidx[2]=PRED_CG;
-			entropyidx=7;
+			entropyidx=3;
 			goto skip_analysis;
 		}
 		
