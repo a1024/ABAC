@@ -170,11 +170,11 @@ int main(int argc, char **argv)
 //	c25_codec("C:/dataset-LPCB-ppm/PIA13757.ppm",	"D:/ML/mystery.lsim");
 //	c25_codec("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
 
-//	c24_codec("C:/dataset-GDCC2020-ppm/astro-01.ppm",	"D:/ML/mystery.lsim");
-//	c24_codec("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm");
+	c24_codec("C:/dataset-GDCC2020-ppm/astro-01.ppm",	"D:/ML/mystery.lsim");
+	c24_codec("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm");
 
-	c25_codec("C:/dataset-GDCC2020-ppm/astro-43.ppm",	"D:/ML/mystery.lsim");
-	c25_codec("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm");
+//	c25_codec("C:/dataset-GDCC2020-ppm/astro-43.ppm",	"D:/ML/mystery.lsim");
+//	c25_codec("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm");
 
 //	c24_codec("D:/ML/dataset-CID22-ppm/pexels-photo-1933873.PPM",	"D:/ML/mystery.lsim");
 //	c24_codec("D:/ML/mystery.lsim",					"D:/ML/mystery_dec.ppm");

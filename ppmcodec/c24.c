@@ -14,12 +14,13 @@ static const char file[]=__FILE__;
 //	#define ENABLE_W	//weak
 //	#define ENABLE_AV2	//good, but redundant with WG
 //	#define ENABLE_GRAD	//weaker
+//	#define ENABLE_PAETH2	//bad for synthetic due to quantization
 	#define ENABLE_AV4	//good with GDCC
 //	#define ENABLE_AV5	//redundant with AV4
 	#define ENABLE_AV9	//good
 	#define ENABLE_WG	//good with noisy areas
 
-	#define ENABLE_FREQINC
+//	#define ENABLE_FREQINC	//slow
 
 #define ANALYSIS_XSTRIDE 2
 #define ANALYSIS_YSTRIDE 2
@@ -30,9 +31,11 @@ static const char file[]=__FILE__;
 
 #define BLOCKSIZE 512
 #define MAXPRINTEDBLOCKS 500
+#ifdef ENABLE_FREQINC
 #define CLEVELS 13
-
-#define MIXBITS 14
+#else
+#define CLEVELS 12
+#endif
 
 #define OCHLIST\
 	OCH(R)\
@@ -192,8 +195,8 @@ static void block_thread(void *param)
 	const unsigned char *image=args->fwd?args->src:args->dst;
 	unsigned char bestrct=0, predidx[4]={0};
 	const unsigned char *combination=0;
-	int ystride=args->iw*3;
 	int cdfstride=args->tlevels+1;
+	int entropyidx=0;
 
 	if(args->fwd)
 	{
@@ -201,6 +204,7 @@ static void block_thread(void *param)
 		unsigned char predsel[OCH_COUNT]={0};
 		int dx=(args->x2-args->x1-3)/ANALYSIS_XSTRIDE/5*5, dy=(args->y2-args->y1-2)/ANALYSIS_YSTRIDE;
 		int count=0;
+		int ystride=args->iw*3;
 		if(dx<=0||dy<=0)
 		{
 			bestrct=RCT_G_BG_RG;
@@ -208,6 +212,7 @@ static void block_thread(void *param)
 			predidx[0]=PRED_CG;
 			predidx[1]=PRED_CG;
 			predidx[2]=PRED_CG;
+			entropyidx=7;
 			goto skip_analysis;
 		}
 		
@@ -469,6 +474,59 @@ static void block_thread(void *param)
 					OCH_GR, OCH_BG, OCH_RB,
 					OCH_GR, OCH_BG, OCH_RB
 				);
+#endif
+
+				//Paeth2 = abs(W-NW)<abs(N-NW) ? N : W
+#ifdef ENABLE_PAETH2
+				pred=_mm256_cmpgt_epi16(_mm256_abs_epi16(_mm256_sub_epi16(N, NW)), _mm256_abs_epi16(_mm256_sub_epi16(W, NW)));
+				pred=_mm256_blendv_epi8(N, W, pred);
+
+				pred=_mm256_sub_epi16(curr, pred);
+				UPDATE(
+					PRED_Paeth2,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B
+				);
+				pred=_mm256_cmpgt_epi16(_mm256_abs_epi16(_mm256_sub_epi16(N3, NW3)), _mm256_abs_epi16(_mm256_sub_epi16(W3, NW3)));
+				pred=_mm256_blendv_epi8(N3, W3, pred);
+
+				pred=_mm256_add_epi16(pred, curr2);
+				pred=_mm256_max_epi16(pred, amin);
+				pred=_mm256_min_epi16(pred, amax);
+				pred=_mm256_sub_epi16(curr, pred);
+				UPDATE(
+					PRED_Paeth2,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR
+				);
+				pred=_mm256_cmpgt_epi16(_mm256_abs_epi16(_mm256_sub_epi16(N4, NW4)), _mm256_abs_epi16(_mm256_sub_epi16(W4, NW4)));
+				pred=_mm256_blendv_epi8(N4, W4, pred);
+
+				pred=_mm256_add_epi16(pred, curr);
+				pred=_mm256_max_epi16(pred, amin);
+				pred=_mm256_min_epi16(pred, amax);
+				pred=_mm256_sub_epi16(curr2, pred);
+				UPDATE(
+					PRED_Paeth2,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB
+				);
+
+				vmin[0]=_mm256_min_epi16(vmin[0], NE);
+				vmax[0]=_mm256_max_epi16(vmax[0], NE);
+				vmin[1]=_mm256_min_epi16(vmin[1], NE3);
+				vmax[1]=_mm256_max_epi16(vmax[1], NE3);
+				vmin[2]=_mm256_min_epi16(vmin[2], NE4);
+				vmax[2]=_mm256_max_epi16(vmax[2], NE4);
 #endif
 
 				//CG = median(N, W, N+W-NW)
@@ -835,6 +893,19 @@ static void block_thread(void *param)
 		predidx[1]=predsel[combination[1]];
 		predidx[2]=predsel[combination[2]];
 		args->bestsize=bestsize;
+		entropyidx=(int)((
+			csizes[combination[0]*PRED_COUNT+predidx[0]]+
+			csizes[combination[1]*PRED_COUNT+predidx[1]]+
+			csizes[combination[2]*PRED_COUNT+predidx[2]]
+		)*gain*(100/3.));//percent
+		if(entropyidx>25)
+			entropyidx=3;
+		else if(entropyidx>17)
+			entropyidx=2;
+		else if(entropyidx>10)
+			entropyidx=1;
+		else
+			entropyidx=0;
 	skip_analysis:
 		args->bestrct=bestrct;
 		args->predidx[0]=predidx[0];
@@ -884,6 +955,7 @@ static void block_thread(void *param)
 		ac3_enc_bypass_NPOT(&ec, predidx[0], PRED_COUNT);
 		ac3_enc_bypass_NPOT(&ec, predidx[1], PRED_COUNT);
 		ac3_enc_bypass_NPOT(&ec, predidx[2], PRED_COUNT);
+		ac3_enc_bypass(&ec, entropyidx, 2);
 	}
 	else
 	{
@@ -893,6 +965,7 @@ static void block_thread(void *param)
 		predidx[1]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
 		predidx[2]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
 		combination=rct_combinations[bestrct];
+		entropyidx=ac3_dec_bypass(&ec, 2);
 	}
 	int yidx=0, uidx=1, vidx=2;
 	switch(bestrct)
@@ -947,9 +1020,15 @@ static void block_thread(void *param)
 		vidx=1;
 		break;
 	}
-	unsigned short *histptr=(unsigned short*)args->hist;
-	memset(histptr, 0, args->histsize);
+	int histlimit=6144<<(3-entropyidx);
 #if 0
+	int histlimit=0x4000-(entropy<<6);
+	//int histlimit=0x4000-(entropy<<7);
+	if(histlimit<0x1800)
+		histlimit=0x1800;
+#endif
+	unsigned short *histptr=(unsigned short*)args->hist;
+#ifndef ENABLE_FREQINC
 	{
 		static const int init_freqs[]={32, 8, 6, 4, 3, 2, 1};
 		int sum=0;
@@ -961,6 +1040,8 @@ static void block_thread(void *param)
 		histptr[args->tlevels]=sum;
 	}
 	memfill(histptr+cdfstride, histptr, args->histsize-cdfstride*sizeof(short), cdfstride*sizeof(short));
+#else
+	memset(histptr, 0, args->histsize);
 #endif
 	memset(args->pixels, 0, args->bufsize);
 	int paddedblockwidth=args->x2-args->x1+16;
@@ -1085,6 +1166,7 @@ static void block_thread(void *param)
 				//if(qeN>CLEVELS-2||qeW>CLEVELS-2)//
 				//	LOG_ERROR("");
 				int cdf, freq=0, den;
+#ifdef ENABLE_FREQINC
 				unsigned short *curr_hist0=histptr+cdfstride*(CLEVELS*(CLEVELS*kc+qeN+0)+qeW+0);
 				unsigned short *curr_hist1=histptr+cdfstride*(CLEVELS*(CLEVELS*kc+qeN+0)+qeW+1);
 				unsigned short *curr_hist2=histptr+cdfstride*(CLEVELS*(CLEVELS*kc+qeN+1)+qeW+0);
@@ -1095,9 +1177,10 @@ static void block_thread(void *param)
 //	#define GETCTR(X) (curr_hist0[X]+curr_hist1[X]+curr_hist2[X]+curr_hist3[X])
 //	#define GETCTR(X) curr_hist1[X]		//fast
 //	#define GETCTR(X) curr_hist0[X]		//fast
-#ifdef ENABLE_FREQINC
 				den=GETCTR(args->tlevels)+args->tlevels;
 #else
+				unsigned short *curr_hist0=histptr+cdfstride*(CLEVELS*(CLEVELS*kc+qeN)+qeW);
+	#define GETCTR(X) curr_hist0[X]		//fast
 				den=GETCTR(args->tlevels);
 #endif
 				switch(predidx[kc])
@@ -1115,6 +1198,11 @@ static void block_thread(void *param)
 #ifdef ENABLE_GRAD
 				case PRED_grad:
 					pred=N[kc]+W[kc]-NW[kc];
+					break;
+#endif
+#ifdef ENABLE_PAETH2
+				case PRED_Paeth2:
+					pred=abs(W[kc]-NW[kc])<abs(N[kc]-NW[kc])?N[kc]:W[kc];
 					break;
 #endif
 				case PRED_CG:
@@ -1197,8 +1285,13 @@ static void block_thread(void *param)
 						LOG_ERROR("YXC %d %d %d  token %d/%d", ky, kx, kc, token, args->tlevels);
 #endif
 #if 1
+#ifdef ENABLE_FREQINC
 					cdf=token;
 					freq=GETCTR(token)+1;
+#else
+					cdf=0;
+					freq=GETCTR(token);
+#endif
 					switch(token)
 					{
 					case 25:cdf+=GETCTR(24);
@@ -1271,7 +1364,11 @@ static void block_thread(void *param)
 					for(;;)
 					{
 						unsigned cdf2;
+#ifdef ENABLE_FREQINC
 						freq=GETCTR(token)+1;
+#else
+						freq=GETCTR(token);
+#endif
 						cdf2=cdf+freq;
 						if(cdf2>code)
 							break;
@@ -1346,21 +1443,16 @@ static void block_thread(void *param)
 				curr[kc+0]=yuv[kc]-offset;
 				curr[kc+4]=abs(error);
 
-#if 1
+#ifdef ENABLE_FREQINC
 				++curr_hist0[token];
 				++curr_hist0[args->tlevels];
 				if(curr_hist0[args->tlevels]>=6144)//4096	6144	8192
 				{
 					int sum=0;
 					for(int ks=0;ks<args->tlevels;++ks)
-#ifdef ENABLE_FREQINC
 						sum+=curr_hist0[ks]>>=1;
-#else
-						sum+=curr_hist0[ks]=(curr_hist0[ks]+1)>>1;
-#endif
 					curr_hist0[args->tlevels]=sum;
 				}
-#endif
 
 				++curr_hist1[token];
 				++curr_hist1[args->tlevels];
@@ -1368,11 +1460,7 @@ static void block_thread(void *param)
 				{
 					int sum=0;
 					for(int ks=0;ks<args->tlevels;++ks)
-#ifdef ENABLE_FREQINC
 						sum+=curr_hist1[ks]>>=1;
-#else
-						sum+=curr_hist1[ks]=(curr_hist1[ks]+1)>>1;
-#endif
 					curr_hist1[args->tlevels]=sum;
 				}
 
@@ -1382,27 +1470,29 @@ static void block_thread(void *param)
 				{
 					int sum=0;
 					for(int ks=0;ks<args->tlevels;++ks)
-#ifdef ENABLE_FREQINC
 						sum+=curr_hist2[ks]>>=1;
-#else
-						sum+=curr_hist2[ks]=(curr_hist2[ks]+1)>>1;
-#endif
 					curr_hist2[args->tlevels]=sum;
 				}
 
-#if 1
 				++curr_hist3[token];
 				++curr_hist3[args->tlevels];
 				if(curr_hist3[args->tlevels]>=6144)
 				{
 					int sum=0;
 					for(int ks=0;ks<args->tlevels;++ks)
-#ifdef ENABLE_FREQINC
 						sum+=curr_hist3[ks]>>=1;
-#else
-						sum+=curr_hist3[ks]=(curr_hist3[ks]+1)>>1;
-#endif
 					curr_hist3[args->tlevels]=sum;
+				}
+#else
+				++curr_hist0[token];
+				++curr_hist0[args->tlevels];
+			//	if(curr_hist0[args->tlevels]>=6144)//4096	6144	8192	10240	12288
+				if(curr_hist0[args->tlevels]>=histlimit)
+				{
+					int sum=0;
+					for(int ks=0;ks<args->tlevels;++ks)
+						sum+=curr_hist0[ks]=(curr_hist0[ks]+1)>>1;
+					curr_hist0[args->tlevels]=sum;
 				}
 #endif
 			}
