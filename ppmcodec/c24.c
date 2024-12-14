@@ -1621,7 +1621,7 @@ int c24_codec(const char *srcfn, const char *dstfn)
 
 		quantize_pixel(nlevels, &token, &bypass, &nbits);
 		tlevels=token+1;
-		statssize=(tlevels+1)*nch*(int)sizeof(int[CLEVELS*CLEVELS]);
+		statssize=(tlevels+1)*nch*(int)sizeof(short[CLEVELS*CLEVELS]);
 		histsize=(int)sizeof(int[OCH_COUNT*PRED_COUNT<<8]);
 		if(histsize<statssize)
 			histsize=statssize;
@@ -1792,7 +1792,5 @@ int c24_codec(const char *srcfn, const char *dstfn)
 	free(args);
 	array_free(&src);
 	array_free(&dst);
-	if(test)
-		pause();
 	return 0;
 }

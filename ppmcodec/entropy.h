@@ -645,7 +645,7 @@ FORCEINLINE void ac3_enc_update_NPOT(AC3 *ec, unsigned cdf, unsigned freq, unsig
 	if(cdf+freq<cdf||cdf+freq>den)
 		LOG_ERROR2("Invalid CDF");
 #endif
-	AC3_RENORM_STATEMENT(ec->range<(unsigned)den)//only when freq=1 -> range=0, this loop runs twice
+	AC3_RENORM_STATEMENT(ec->range<(unsigned)den)
 		ac3_enc_renorm(ec);
 #ifdef AC_VALIDATE
 	lo0=ec->low, r0=ec->range;

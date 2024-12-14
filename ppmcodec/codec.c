@@ -170,8 +170,17 @@ int main(int argc, char **argv)
 //	c25_codec("C:/dataset-LPCB-ppm/PIA13757.ppm",	"D:/ML/mystery.lsim");
 //	c25_codec("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
 
-	c24_codec("C:/dataset-RAW-ppm/a0014-WP_CRW_6320.ppm",	"D:/ML/mystery.lsim");
-	c24_codec("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm");
+//	c25_codec("C:/dataset-RAW-ppm/a0014-WP_CRW_6320.ppm",	"D:/ML/mystery.lsim");
+//	c25_codec("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm");
+
+//	c12_codec("C:/dataset-synth2-ppm/20240419 3.ppm",	"D:/ML/mystery.lsim");
+//	c12_codec("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm");
+
+	c12_codec("C:/dataset-HUGE-ppm/jwst.ppm",	"D:/ML/mystery.lsim");
+	c12_codec("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
+
+//	c22_codec("C:/dataset-HUGE-ppm/gaia.ppm",	"D:/ML/mystery.lsim");
+//	c22_codec("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
 
 //	c24_codec("C:/dataset-GDCC2020-ppm/astro-01.ppm",	"D:/ML/mystery.lsim");
 //	c24_codec("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm");
