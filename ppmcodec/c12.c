@@ -15,6 +15,9 @@ static const char file[]=__FILE__;
 //	#define AC_VALIDATE
 //	#define LOUD
 
+	#define PROFILER
+
+
 #ifdef AC_VALIDATE
 #define AC_IMPLEMENTATION
 #include"entropy.h"
@@ -84,6 +87,9 @@ static const unsigned char rct_indices[][8]=
 static unsigned short stats1[3][256][256];
 int c12_codec(const char *srcfn, const char *dstfn)
 {
+#ifdef PROFILER
+	void *prof_ctx=prof_start();
+#endif
 #ifdef LOUD
 	double t=time_sec();
 #endif
@@ -248,6 +254,7 @@ int c12_codec(const char *srcfn, const char *dstfn)
 		};
 		char yuv[4]={0};
 		int bit[3]={0};
+		short Wreg[4]={0};
 		for(int kx=0;kx<iw;++kx, idx+=3)
 		{
 			short
@@ -266,9 +273,9 @@ int c12_codec(const char *srcfn, const char *dstfn)
 				*curr	=rows[0]+0*4;
 			unsigned short *stats0[]=
 			{
-				stats1[0][(4*(N[0]+W[0])+NE[0]-NW[0])>>3&255],
-				stats1[1][(4*(N[1]+W[1])+NE[1]-NW[1])>>3&255],
-				stats1[2][(4*(N[2]+W[2])+NE[2]-NW[2])>>3&255],
+				stats1[0][(4*(N[0]+Wreg[0])+NE[0]-NW[0])>>3&255],
+				stats1[1][(4*(N[1]+Wreg[1])+NE[1]-NW[1])>>3&255],
+				stats1[2][(4*(N[2]+Wreg[2])+NE[2]-NW[2])>>3&255],
 			};
 			if(fwd)
 			{
@@ -392,6 +399,9 @@ int c12_codec(const char *srcfn, const char *dstfn)
 				tidx1=tidx1*2+bit[1];
 				tidx2=tidx2*2+bit[2];
 			}
+			Wreg[0]=yuv[0];
+			Wreg[1]=yuv[1];
+			Wreg[2]=yuv[2];
 			if(!fwd)
 			{
 				curr[0]=(char)yuv[0];
@@ -443,6 +453,10 @@ int c12_codec(const char *srcfn, const char *dstfn)
 		fclose(fdst);
 	}
 	free(dstbuf);
+	
+#ifdef PROFILER
+	prof_end(prof_ctx, (size_t)c12_codec);
+#endif
 #if defined LOUD && !defined __GNUC__
 	t=time_sec()-t;
 	if(fwd)

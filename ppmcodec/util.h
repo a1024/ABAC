@@ -390,13 +390,13 @@ RBNodeHandle* map_insert(MapHandle map, const void *data, int *found);//the map 
 int           map_erase(MapHandle map, const void *data, RBNodeHandle node);//either pass data object or node
 
 void map_clear_r(MapHandle map, RBNodeHandle node);
-void map_debugprint_r(RBNodeHandle *node, int depth, void (*printer)(RBNodeHandle *node, int depth));
+void map_traverse_r(RBNodeHandle *node, int depth, void (*callback)(RBNodeHandle *node, int depth, void *param), void *param);
 
-#define MAP_INIT(MAP, ETYPE, CMP, DESTRUCTOR) map_init(MAP, sizeof(ETYPE), CMP, DESTRUCTOR)
-#define MAP_ERASE_DATA(MAP, DATA)             map_erase(MAP, DATA, 0)
-#define MAP_ERASE_NODE(MAP, NODE)             map_erase(MAP, 0, NODE)
-#define MAP_CLEAR(MAP)                        map_clear_r(MAP, (MAP)->root), (MAP)->root=0, (MAP)->nnodes=0
-#define MAP_DEBUGPRINT(MAP, PRINTER)          map_debugprint_r(&(MAP)->root, 0, PRINTER)
+#define MAP_INIT(MAP, ETYPE, CMP, DESTRUCTOR)	map_init(MAP, sizeof(ETYPE), CMP, DESTRUCTOR)
+#define MAP_ERASE_DATA(MAP, DATA)		map_erase(MAP, DATA, 0)
+#define MAP_ERASE_NODE(MAP, NODE)		map_erase(MAP, 0, NODE)
+#define MAP_CLEAR(MAP)				map_clear_r(MAP, (MAP)->root), (MAP)->root=0, (MAP)->nnodes=0
+#define MAP_TRAVERSE(MAP, PRINTER, PARAM)	map_traverse_r(&(MAP)->root, 0, PRINTER, PARAM)
 #endif
 
 
@@ -553,7 +553,13 @@ int query_cpu_cores(void);
 size_t query_mem_usage();
 
 void* mt_exec(void (*func)(void*), void *args, int argbytes, int nthreads);
-void  mt_finish(void *ctx);
+void  mt_finish(void *mt_ctx);
+
+//PROFILER  (spawns a thread)		FIXME port to Linux
+#if defined _MSC_VER || defined _WIN32
+void* prof_start();
+void prof_end(void *prof_ctx, size_t funcptr);
+#endif
 
 
 #ifdef _MSC_VER

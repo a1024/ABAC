@@ -9,7 +9,7 @@ else
 LIBS += -lm
 endif
 
-.PHONY: c01 c02 c03 c03-clang c05 c07 c09 c10 c11 c12 c13 c13-debug c13-profile
+#.PHONY: c01 c02 c03 c03-clang c05 c07 c09 c10 c11 c12 c13 c13-debug c13-profile
 
 build:
 	gcc -O3 -Wall -mavx2 -mbmi -mlzcnt $(SRC) -o codec -static

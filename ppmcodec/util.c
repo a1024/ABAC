@@ -1804,7 +1804,7 @@ static RBNodeHandle* get_node_addr(MapHandle map, RBNodeHandle node)
 		return &node->parent->right;
 	return 0;//inconsistent, should be unreachable
 }
-RBNodeHandle*	map_find(MapHandle map, const void *key)
+RBNodeHandle* map_find(MapHandle map, const void *key)
 {
 	RBNodeHandle node;
 	CmpRes result;
@@ -2012,7 +2012,7 @@ static RBNodeHandle tree_maximum(RBNodeHandle root)
 		root=root->right;
 	return root;
 }
-int  map_erase(MapHandle map, const void *data, RBNodeHandle node)
+int map_erase(MapHandle map, const void *data, RBNodeHandle node)
 {
 	//https://github.com/gcc-mirror/gcc/blob/master/libstdc%2B%2B-v3/src/c%2B%2B98/tree.cc		line 286
 	RBNodeHandle *leftmost, *rightmost, x, xp, y, z, *r2;
@@ -2184,13 +2184,13 @@ int  map_erase(MapHandle map, const void *data, RBNodeHandle node)
 	//return y;
 	return 1;
 }
-void map_debugprint_r(RBNodeHandle *node, int depth, void (*printer)(RBNodeHandle *node, int depth))
+void map_traverse_r(RBNodeHandle *node, int depth, void (*callback)(RBNodeHandle *node, int depth, void *param), void *param)
 {
 	if(*node)
 	{
-		map_debugprint_r(&node[0]->left, depth+1, printer);
-		printer(node, depth);
-		map_debugprint_r(&node[0]->right, depth+1, printer);
+		map_traverse_r(&node[0]->left, depth+1, callback, param);
+		callback(node, depth, param);
+		map_traverse_r(&node[0]->right, depth+1, callback, param);
 	}
 }
 #endif
@@ -2973,9 +2973,9 @@ void* mt_exec(void (*func)(void*), void *args, int argbytes, int nthreads)
 	}
 	return handles;
 }
-void mt_finish(void *ctx)
+void mt_finish(void *mt_ctx)
 {
-	ArrayHandle handles=(ArrayHandle)ctx;
+	ArrayHandle handles=(ArrayHandle)mt_ctx;
 #ifdef _MSC_VER
 	ArrayHandle h2;
 	ARRAY_ALLOC(HANDLE, h2, 0, handles->count, 0, 0);
@@ -3009,3 +3009,125 @@ void mt_finish(void *ctx)
 #endif
 	array_free(&handles);
 }
+
+//profiler
+#if defined _MSC_VER || defined _WIN32
+typedef struct _ProfHistEntry
+{
+	ptrdiff_t addr, count;
+} ProfHistEntry;
+typedef struct _ProfContext
+{
+	unsigned long threadid;
+	int flag;
+	void *mt_ctx;
+	Map map;
+} ProfContext;
+static CmpRes prof_impl_cmp_int64(const void *key, const void *candidate)
+{
+	ProfHistEntry
+		*L=(ProfHistEntry*)key,
+		*R=(ProfHistEntry*)candidate;
+	return (L->addr>R->addr)-(L->addr<R->addr);
+}
+static void prof_impl_map2array(RBNodeHandle *node, int depth, void *param)
+{
+	ArrayHandle *result=(ArrayHandle*)param;
+	ProfHistEntry *data=(ProfHistEntry*)node[0]->data;
+	ARRAY_APPEND(*result, data, 1, 1, 0);
+}
+static void prof_impl_thread(void *param)
+{
+	ProfContext *args=(ProfContext*)param;
+	HANDLE hThread=OpenThread(THREAD_GET_CONTEXT|THREAD_SET_CONTEXT|THREAD_SUSPEND_RESUME|THREAD_QUERY_INFORMATION, 0, args->threadid);
+	ProfHistEntry entry={0};
+	CONTEXT context={0};
+	context.ContextFlags=CONTEXT_CONTROL|CONTEXT_INTEGER;
+	if(!hThread)
+	{
+		LOG_ERROR("profiler OpenThread GetLastError %d", GetLastError());
+		return;
+	}
+	while(args->flag)
+	{
+		//SuspendThread(hThread);
+		int success=GetThreadContext(hThread, &context);
+		if(!success)
+		{
+			int error=GetLastError();
+			LOG_ERROR("profiler GetThreadContext GetLastError %d\n", error);
+			return;
+		}
+		entry.addr=context.Rip;
+		{
+			int found=0;
+			RBNodeHandle *ptr=map_insert(&args->map, &entry, &found);
+			ProfHistEntry *data=(ProfHistEntry*)ptr[0]->data;
+			if(!found)
+				data->addr=entry.addr;
+			++data->count;
+		}
+		//ResumeThread(hThread);
+		//Sleep(1);
+	}
+}
+void* prof_start()
+{
+	ProfContext *args=(ProfContext*)malloc(sizeof(ProfContext));
+	if(!args)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
+	memset(args, 0, sizeof(ProfContext));
+	args->threadid=GetCurrentThreadId();
+	args->flag=1;
+	MAP_INIT(&args->map, ProfHistEntry, prof_impl_cmp_int64, 0);
+	args->mt_ctx=mt_exec(prof_impl_thread, args, sizeof(ProfContext), 1);
+	return args;
+}
+void prof_end(void *prof_ctx, size_t funcptr)
+{
+	ProfContext *args=(ProfContext*)prof_ctx;
+	ArrayHandle results;
+
+	args->flag=0;
+	mt_finish(args->mt_ctx);
+	ARRAY_ALLOC(ProfHistEntry, results, 0, 0, args->map.nnodes, 0);
+	MAP_TRAVERSE(&args->map, prof_impl_map2array, &results);
+	MAP_CLEAR(&args->map);
+	{
+		ProfHistEntry *ptr=(ProfHistEntry*)results->data;
+		int count=(int)results->count;
+		ptrdiff_t sum=0, vmax=0;
+		int hotspot=0;
+
+		for(int k=0;k<count;++k)
+		{
+			if(ptr[k].addr-funcptr<0x100000)
+			{
+				sum+=ptr[k].count;
+				if(vmax<ptr[k].count)
+					vmax=ptr[k].count, hotspot=k;
+			}
+		}
+		printf("%16lld  funcptr\n", funcptr);
+		for(int k=0;k<count;++k)
+		{
+			printf("%16lld  %10lld  %12.8lf%%", ptr[k].addr-funcptr, ptr[k].count, (double)ptr[k].count*100/sum);
+			if(hotspot==k)
+				printf("*");
+			if(ptr[k].addr-funcptr<0x100000)
+			{
+				printf("\t");
+				for(int k2=0, nstars=(int)(ptr[k].count*96/vmax);k2<nstars;++k2)
+					printf("*");
+			}
+			printf("\n");
+		}
+		printf("\n");
+	}
+	array_free(&results);
+	free(args);
+}
+#endif
