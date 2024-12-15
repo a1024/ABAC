@@ -15,8 +15,6 @@ static const char file[]=__FILE__;
 //	#define AC_VALIDATE
 //	#define LOUD
 
-	#define PROFILER
-
 
 #ifdef AC_VALIDATE
 #define AC_IMPLEMENTATION
@@ -87,9 +85,6 @@ static const unsigned char rct_indices[][8]=
 static unsigned short stats1[3][256][256];
 int c12_codec(const char *srcfn, const char *dstfn)
 {
-#ifdef PROFILER
-	void *prof_ctx=prof_start();
-#endif
 #ifdef LOUD
 	double t=time_sec();
 #endif
@@ -258,18 +253,18 @@ int c12_codec(const char *srcfn, const char *dstfn)
 		for(int kx=0;kx<iw;++kx, idx+=3)
 		{
 			short
-				*NNN	=rows[3]+0*4,
-				*NNNE	=rows[3]+1*4,
-				*NN	=rows[2]+0*4,
-				*NNE	=rows[2]+1*4,
+			//	*NNN	=rows[3]+0*4,
+			//	*NNNE	=rows[3]+1*4,
+			//	*NN	=rows[2]+0*4,
+			//	*NNE	=rows[2]+1*4,
 				*NW	=rows[1]-1*4,
 				*N	=rows[1]+0*4,
 				*NE	=rows[1]+1*4,
-				*WWWWW	=rows[0]-5*4,
-				*WWWW	=rows[0]-4*4,
-				*WWW	=rows[0]-3*4,
-				*WW	=rows[0]-2*4,
-				*W	=rows[0]-1*4,
+			//	*WWWWW	=rows[0]-5*4,
+			//	*WWWW	=rows[0]-4*4,
+			//	*WWW	=rows[0]-3*4,
+			//	*WW	=rows[0]-2*4,
+			//	*W	=rows[0]-1*4,
 				*curr	=rows[0]+0*4;
 			unsigned short *stats0[]=
 			{
@@ -454,9 +449,6 @@ int c12_codec(const char *srcfn, const char *dstfn)
 	}
 	free(dstbuf);
 	
-#ifdef PROFILER
-	prof_end(prof_ctx, (size_t)c12_codec);
-#endif
 #if defined LOUD && !defined __GNUC__
 	t=time_sec()-t;
 	if(fwd)

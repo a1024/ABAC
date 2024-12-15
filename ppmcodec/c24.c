@@ -7,7 +7,7 @@ static const char file[]=__FILE__;
 
 
 //	#define ENABLE_GUIDE
-	#define ENABLE_MT
+//	#define ENABLE_MT
 
 	#define ENABLE_EDGECASES
 

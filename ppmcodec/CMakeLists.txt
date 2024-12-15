@@ -1,7 +1,11 @@
 ﻿include_directories(
 	"."
+	"zydist_amalgamated410"
 )
-add_executable (codec
+add_definitions(-DZYDIS_DEFINES_H=)
+add_definitions(-DZYDIS_EXPORT=)
+add_definitions(-DZYDIS_NO_EXPORT=)
+add_executable(codec
 	c01.c
 	c02.c
 	c03.c
@@ -44,4 +48,6 @@ add_executable (codec
 	htscodecs/rle.c
 	htscodecs/tokenise_name3.c
 	htscodecs/utils.c
+
+	zydist_amalgamated410/Zydis.c
 )

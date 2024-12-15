@@ -3012,6 +3012,9 @@ void mt_finish(void *mt_ctx)
 
 //profiler
 #if defined _MSC_VER || defined _WIN32
+#ifdef ENABLE_PROFILER_DISASSEMBLY
+#include"Zydis.h"
+#endif
 typedef struct _ProfHistEntry
 {
 	ptrdiff_t addr, count;
@@ -3086,7 +3089,7 @@ void* prof_start()
 	args->mt_ctx=mt_exec(prof_impl_thread, args, sizeof(ProfContext), 1);
 	return args;
 }
-void prof_end(void *prof_ctx, size_t funcptr)
+void prof_end(void *prof_ctx)
 {
 	ProfContext *args=(ProfContext*)prof_ctx;
 	ArrayHandle results;
@@ -3096,9 +3099,131 @@ void prof_end(void *prof_ctx, size_t funcptr)
 	ARRAY_ALLOC(ProfHistEntry, results, 0, 0, args->map.nnodes, 0);
 	MAP_TRAVERSE(&args->map, prof_impl_map2array, &results);
 	MAP_CLEAR(&args->map);
+
+	ProfHistEntry *ptr=(ProfHistEntry*)results->data;
+	int count=(int)results->count;
+#ifdef ENABLE_PROFILER_DISASSEMBLY
 	{
-		ProfHistEntry *ptr=(ProfHistEntry*)results->data;
-		int count=(int)results->count;
+		ptrdiff_t minaddr=0, maxaddr=0, hitsum=0;
+		for(int k=0;k<count;++k)
+			hitsum+=ptr[k].count;
+		ZydisDecoder decoder;
+		ZydisDecoderInit(&decoder, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64);
+		
+		ZydisFormatter formatter;
+		ZydisFormatterInit(&formatter, ZYDIS_FORMATTER_STYLE_INTEL);
+
+		ZydisDecodedInstruction instruction;
+		ZydisDecodedOperand operands[ZYDIS_MAX_OPERAND_COUNT];
+		int lineno=1;
+		printf("Line, address, freq\n");
+		for(int k=0;k<count;++k)
+		{
+			size_t runtime_addr=ptr[k].addr;
+			if(!ZYAN_SUCCESS(ZydisDecoderDecodeFull(&decoder, (void*)runtime_addr, 16, &instruction, operands)))
+			{
+				LOG_ERROR("prof Disassembly failed");
+				return;
+			}
+			char buffer[256];//Format & print the binary instruction structure to human-readable format
+			ZydisFormatterFormatInstruction(&formatter, &instruction, operands, instruction.operand_count_visible, buffer, sizeof(buffer), runtime_addr, ZYAN_NULL);
+			printf("%4d 0x%016tX ", lineno, runtime_addr);
+			ptrdiff_t freq=ptr[k].count;
+			if((int)(freq*1000/hitsum)>0)
+				printf("%6.2lf%%", (double)freq*100./hitsum);
+			else
+				printf("%*s", 6+1, "");
+			printf(" %8td  %s\n", freq, buffer);
+			if(k+1<count&&(ptrdiff_t)(runtime_addr+instruction.length)<ptr[k+1].addr)
+				printf("...+%td bytes\n", ptr[k+1].addr-(runtime_addr+instruction.length));
+
+			++lineno;
+		}
+	}
+#if 0
+	{
+		ptrdiff_t maxaddr=0, hitsum=0;
+		for(int k=0;k<count;++k)
+		{
+			ptrdiff_t addr=ptr[k].addr-funcptr;
+			if(addr<0x100000)
+			{
+				if(maxaddr<addr)
+					maxaddr=addr;
+				hitsum+=ptr[k].count;
+			}
+		}
+		unsigned char *data=(unsigned char*)funcptr;
+		size_t length=maxaddr+15;
+		size_t offset=0;
+		size_t runtime_address=funcptr;
+		int bookmark=0, lineno=1;
+
+		ZydisDecoder decoder;
+		ZydisDecoderInit(&decoder, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64);
+		
+		ZydisFormatter formatter;
+		ZydisFormatterInit(&formatter, ZYDIS_FORMATTER_STYLE_INTEL);
+
+		ZydisDecodedInstruction instruction;
+		ZydisDecodedOperand operands[ZYDIS_MAX_OPERAND_COUNT];
+		printf("Line, offset, frequency    funcptr=%016zX\n", funcptr);
+		while(ZYAN_SUCCESS(ZydisDecoderDecodeFull(&decoder, data+offset, length-offset, &instruction, operands)))
+		{
+			//printf("%016llX  ", runtime_address-funcptr);//Print current instruction pointer.
+
+			char buffer[256];//Format & print the binary instruction structure to human-readable format
+			ZydisFormatterFormatInstruction(&formatter, &instruction, operands, instruction.operand_count_visible, buffer, sizeof(buffer), offset, ZYAN_NULL);
+
+			ptrdiff_t addr2=runtime_address+instruction.length;
+			ptrdiff_t t=0;
+			while(bookmark<count&&ptr[bookmark].addr<addr2)
+			{
+				t+=ptr[bookmark].count;
+				++bookmark;
+			}
+
+			printf("%3d 0x%08tX ", lineno, runtime_address-funcptr);
+			if((int)(t*1000/hitsum)>0)
+				printf("%6.2lf%%", (double)t*100./hitsum);
+			else
+				printf("%*s", 6+1, "");
+			printf(" %8td  %s\n", t, buffer);
+
+			//printf("%3d 0x%08tX %8.4lf%% %8td  %s\n", lineno, runtime_address-funcptr, (double)t*100./hitsum, t, buffer);
+			//puts(buffer);
+
+			offset+=instruction.length;
+			runtime_address+=instruction.length;
+			++lineno;
+		}
+	}
+#endif
+#else
+	{
+		ptrdiff_t sum=0, vmax=0;
+		int hotspot=0;
+
+		for(int k=0;k<count;++k)
+		{
+			sum+=ptr[k].count;
+			if(vmax<ptr[k].count)
+				vmax=ptr[k].count, hotspot=k;
+		}
+		for(int k=0;k<count;++k)
+		{
+			printf("%16lld  %10td  %12.8lf%%", ptr[k].addr, ptr[k].count, (double)ptr[k].count*100/sum);
+			if(hotspot==k)
+				printf("*");
+			printf("\t");
+			for(int k2=0, nstars=(int)(ptr[k].count*96/vmax);k2<nstars;++k2)
+				printf("*");
+			printf("\n");
+		}
+		printf("\n");
+	}
+#if 0
+	{
 		ptrdiff_t sum=0, vmax=0;
 		int hotspot=0;
 
@@ -3114,7 +3239,7 @@ void prof_end(void *prof_ctx, size_t funcptr)
 		printf("%16lld  funcptr\n", funcptr);
 		for(int k=0;k<count;++k)
 		{
-			printf("%16lld  %10lld  %12.8lf%%", ptr[k].addr-funcptr, ptr[k].count, (double)ptr[k].count*100/sum);
+			printf("%16lld  %10td  %12.8lf%%", ptr[k].addr-funcptr, ptr[k].count, (double)ptr[k].count*100/sum);
 			if(hotspot==k)
 				printf("*");
 			if(ptr[k].addr-funcptr<0x100000)
@@ -3127,6 +3252,8 @@ void prof_end(void *prof_ctx, size_t funcptr)
 		}
 		printf("\n");
 	}
+#endif
+#endif
 	array_free(&results);
 	free(args);
 }

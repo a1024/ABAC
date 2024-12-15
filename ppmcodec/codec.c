@@ -5,12 +5,39 @@
 static const char file[]=__FILE__;
 
 
+	#define PROFILER
 //	#define _DEBUG
 
 
 #ifndef CODEC_FUNC
-#define CODEC_FUNC c22_codec
+//	#define CODEC_FUNC c01_codec
+//	#define CODEC_FUNC c02_codec
+//	#define CODEC_FUNC c03_codec
+//	#define CODEC_FUNC c04_codec
+//	#define CODEC_FUNC c05_codec
+//	#define CODEC_FUNC c06_codec
+//	#define CODEC_FUNC c07_codec
+//	#define CODEC_FUNC c08_codec
+//	#define CODEC_FUNC c09_codec
+//	#define CODEC_FUNC c10_codec
+//	#define CODEC_FUNC c11_codec
+	#define CODEC_FUNC c12_codec
+//	#define CODEC_FUNC c13_codec
+//	#define CODEC_FUNC c14_codec
+//	#define CODEC_FUNC c15_codec
+//	#define CODEC_FUNC c16_codec
+//	#define CODEC_FUNC c17_codec
+//	#define CODEC_FUNC c18_codec
+//	#define CODEC_FUNC c19_codec
+//	#define CODEC_FUNC c20_codec
+//	#define CODEC_FUNC c21_codec
+//	#define CODEC_FUNC c22_codec
+//	#define CODEC_FUNC c23_codec
+//	#define CODEC_FUNC c24_codec
+//	#define CODEC_FUNC c25_codec
 #endif
+//#define STR_EXPAND(X) #X
+//#define STRINGIFY(X) STR_EXPAND(X)
 
 
 static void ppm_skip(const unsigned char **ptr, const unsigned char *end)
@@ -97,6 +124,9 @@ int main(int argc, char **argv)
 {
 	const char *srcfn, *dstfn;
 	
+#ifdef PROFILER
+	void *prof_ctx=prof_start();
+#endif
 #ifdef __GNUC__
 //#ifndef _DEBUG
 //#if 0
@@ -155,108 +185,111 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/kodim13.c18"
 	//	"D:/ML/dataset-kodak-ppm/kodim13.c18"
 		;
-//	c23_codec("D:/ML/kodim13.ppm", "D:/ML/kodim13.lsim");
-//	c23_codec("D:/ML/kodim13.lsim", "D:/ML/kodim13_dec.ppm");
+//	CODEC_FUNC("D:/ML/kodim13.ppm", "D:/ML/kodim13.lsim");
+//	CODEC_FUNC("D:/ML/kodim13.lsim", "D:/ML/kodim13_dec.ppm");
 
-//	c22_codec("D:/ML/kodim24.ppm", "D:/ML/kodim24.lsim");
-//	c22_codec("D:/ML/kodim24.lsim", "D:/ML/kodim24_dec.ppm");
+//	CODEC_FUNC("D:/ML/kodim24.ppm", "D:/ML/kodim24.lsim");
+//	CODEC_FUNC("D:/ML/kodim24.lsim", "D:/ML/kodim24_dec.ppm");
 
-//	c24_codec("C:/dataset-memes-ppm/emoji_u1f628.ppm",	"D:/ML/mystery.lsim");
-//	c24_codec("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm");
+//	CODEC_FUNC("C:/dataset-memes-ppm/emoji_u1f628.ppm",	"D:/ML/mystery.lsim");
+//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
 
-//	c24_codec("C:/dataset-LPCB-ppm/canon_eos_1100d_02.ppm",	"D:/ML/mystery.lsim");
-//	c24_codec("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm");
+//	CODEC_FUNC("C:/dataset-LPCB-ppm/canon_eos_1100d_02.ppm",	"D:/ML/mystery.lsim");
+//	CODEC_FUNC("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm");
 
-//	c25_codec("C:/dataset-LPCB-ppm/PIA13757.ppm",	"D:/ML/mystery.lsim");
-//	c25_codec("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
+//	CODEC_FUNC("C:/dataset-LPCB-ppm/PIA13757.ppm",	"D:/ML/mystery.lsim");
+//	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm");
 
-//	c25_codec("C:/dataset-RAW-ppm/a0014-WP_CRW_6320.ppm",	"D:/ML/mystery.lsim");
-//	c25_codec("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm");
+//	CODEC_FUNC("C:/dataset-RAW-ppm/a0014-WP_CRW_6320.ppm",	"D:/ML/mystery.lsim");
+//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
 
-//	c12_codec("C:/dataset-synth2-ppm/20240419 3.ppm",	"D:/ML/mystery.lsim");
-//	c12_codec("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm");
+//	CODEC_FUNC("C:/dataset-synth2-ppm/20240419 3.ppm",	"D:/ML/mystery.lsim");
+//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
 
-	c12_codec("C:/dataset-HUGE-ppm/jwst.ppm",	"D:/ML/mystery.lsim");
-	c12_codec("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
+	CODEC_FUNC("C:/dataset-HUGE-ppm/jwst.ppm",	"D:/ML/mystery.lsim");
+	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm");
 
-//	c22_codec("C:/dataset-HUGE-ppm/gaia.ppm",	"D:/ML/mystery.lsim");
-//	c22_codec("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
+//	CODEC_FUNC("C:/dataset-HUGE-ppm/gaia.ppm",	"D:/ML/mystery.lsim");
+//	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm");
 
-//	c24_codec("C:/dataset-GDCC2020-ppm/astro-01.ppm",	"D:/ML/mystery.lsim");
-//	c24_codec("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm");
+//	CODEC_FUNC("C:/dataset-GDCC2020-ppm/astro-01.ppm",	"D:/ML/mystery.lsim");
+//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
 
-//	c25_codec("C:/dataset-GDCC2020-ppm/astro-43.ppm",	"D:/ML/mystery.lsim");
-//	c25_codec("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm");
+//	CODEC_FUNC("C:/dataset-GDCC2020-ppm/astro-43.ppm",	"D:/ML/mystery.lsim");
+//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
 
-//	c24_codec("D:/ML/dataset-CID22-ppm/pexels-photo-1933873.PPM",	"D:/ML/mystery.lsim");
-//	c24_codec("D:/ML/mystery.lsim",					"D:/ML/mystery_dec.ppm");
+//	CODEC_FUNC("D:/ML/dataset-CID22-ppm/pexels-photo-1933873.PPM",	"D:/ML/mystery.lsim");
+//	CODEC_FUNC("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm");
 
-//	c24_codec("C:/dataset-HUGE-ppm/chaos1.ppm",	"D:/ML/mystery.lsim");
-//	c24_codec("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
+//	CODEC_FUNC("C:/dataset-HUGE-ppm/chaos1.ppm",	"D:/ML/mystery.lsim");
+//	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm");
 
-//	c24_codec("C:/dataset-HUGE-ppm/diagram.ppm",	"D:/ML/mystery.lsim");
-//	c24_codec("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
+//	CODEC_FUNC("C:/dataset-HUGE-ppm/diagram.ppm",	"D:/ML/mystery.lsim");
+//	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm");
 
-//	c24_codec("C:/dataset-HUGE-ppm/blackmarble.ppm",	"D:/ML/mystery.lsim");		//HUGE
-//	c24_codec("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm");
+//	CODEC_FUNC("C:/dataset-HUGE-ppm/blackmarble.ppm",	"D:/ML/mystery.lsim");		//HUGE
+//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
 
-//	c24_codec("C:/dataset-memes-ppm/usa.ppm",	"D:/ML/mystery.lsim");
-//	c24_codec("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
+//	CODEC_FUNC("C:/dataset-memes-ppm/usa.ppm",	"D:/ML/mystery.lsim");
+//	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm");
 
-//	c24_codec("C:/dataset-synth-ppm/20240421 1 the front.ppm",	"D:/ML/mystery.lsim");//synth
-//	c24_codec("D:/ML/mystery.lsim",					"D:/ML/mystery_dec.ppm");
+//	CODEC_FUNC("C:/dataset-synth-ppm/20240421 1 the front.ppm",	"D:/ML/mystery.lsim");//synth
+//	CODEC_FUNC("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm");
 
-//	c24_codec("C:/dataset-synth-ppm/20240516 4 DSC_0054.ppm",	"D:/ML/mystery.lsim");//RCT
-//	c24_codec("D:/ML/mystery.lsim",					"D:/ML/mystery_dec.ppm");
+//	CODEC_FUNC("C:/dataset-synth-ppm/20240516 4 DSC_0054.ppm",	"D:/ML/mystery.lsim");//RCT
+//	CODEC_FUNC("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm");
 
-//	c22_codec("C:/dataset-CLIC303-ppm/2048x1320_zugr-108.ppm",	"D:/ML/mystery.lsim");
-//	c22_codec("D:/ML/mystery.lsim",					"D:/ML/mystery.ppm");
+//	CODEC_FUNC("C:/dataset-CLIC303-ppm/2048x1320_zugr-108.ppm",	"D:/ML/mystery.lsim");
+//	CODEC_FUNC("D:/ML/mystery.lsim",				"D:/ML/mystery.ppm");
 
-//	c21_codec("C:/dataset-CLIC303-ppm/2048x1320_alberto-restifo-4549.ppm",	"D:/ML/mystery.lsim");
-//	c21_codec("D:/ML/mystery.lsim",						"D:/ML/mystery.ppm");
+//	CODEC_FUNC("C:/dataset-CLIC303-ppm/2048x1320_alberto-restifo-4549.ppm",	"D:/ML/mystery.lsim");
+//	CODEC_FUNC("D:/ML/mystery.lsim",					"D:/ML/mystery.ppm");
 
-//	c22_codec("C:/dataset-a70-ppm/20240816_113656_966.ppm",	"D:/ML/mystery.lsim");
-//	c22_codec("D:/ML/mystery.lsim",				"D:/ML/mystery.ppm");
+//	CODEC_FUNC("C:/dataset-a70-ppm/20240816_113656_966.ppm",	"D:/ML/mystery.lsim");
+//	CODEC_FUNC("D:/ML/mystery.lsim",				"D:/ML/mystery.ppm");
 
-//	c24_codec("C:/dataset-HUGE-ppm/jwst.ppm", "C:/dataset-HUGE-ppm/jwst.lsim");
-//	c24_codec("C:/dataset-HUGE-ppm/jwst.lsim", "C:/dataset-HUGE-ppm/jwst_dec.ppm");
+//	CODEC_FUNC("C:/dataset-HUGE-ppm/jwst.ppm", "C:/dataset-HUGE-ppm/jwst.lsim");
+//	CODEC_FUNC("C:/dataset-HUGE-ppm/jwst.lsim", "C:/dataset-HUGE-ppm/jwst_dec.ppm");
 
-//	c10_codec("D:/ML/big_building.PPM", "D:/ML/big_building.LSIM");
-//	c10_codec("D:/ML/big_building.LSIM", "D:/ML/big_building_dec.PPM");
+//	CODEC_FUNC("D:/ML/big_building.PPM", "D:/ML/big_building.LSIM");
+//	CODEC_FUNC("D:/ML/big_building.LSIM", "D:/ML/big_building_dec.PPM");
 
-//	c01_codec("C:/dataset-HUGE-ppm/jwst.ppm", "C:/dataset-HUGE-ppm/jwst.LSIM");
-//	c01_codec("C:/dataset-HUGE-ppm/jwst.LSIM", "C:/dataset-HUGE-ppm/jwst_dec.PPM");
-
-
+//	CODEC_FUNC("C:/dataset-HUGE-ppm/jwst.ppm", "C:/dataset-HUGE-ppm/jwst.LSIM");
+//	CODEC_FUNC("C:/dataset-HUGE-ppm/jwst.LSIM", "C:/dataset-HUGE-ppm/jwst_dec.PPM");
 
 
-//	c20_codec("C:/Projects/datasets/kodim13.ppm", "C:/Projects/datasets/kodim13.lsim");
-//	c20_codec("C:/Projects/datasets/kodim13.lsim", "C:/Projects/datasets/kodim13_dec.ppm");
+
+
+//	CODEC_FUNC("C:/Projects/datasets/kodim13.ppm", "C:/Projects/datasets/kodim13.lsim");
+//	CODEC_FUNC("C:/Projects/datasets/kodim13.lsim", "C:/Projects/datasets/kodim13_dec.ppm");
 	
-//	c20_codec("C:/Projects/datasets/kodim24.ppm", "C:/Projects/datasets/kodim24.lsim");
-//	c20_codec("C:/Projects/datasets/kodim24.lsim", "C:/Projects/datasets/kodim24_dec.ppm");
+//	CODEC_FUNC("C:/Projects/datasets/kodim24.ppm", "C:/Projects/datasets/kodim24.lsim");
+//	CODEC_FUNC("C:/Projects/datasets/kodim24.lsim", "C:/Projects/datasets/kodim24_dec.ppm");
 
-//	c08_codec("C:/Projects/datasets/kodim13-small16.ppm", "C:/Projects/datasets/kodim13-small16.lsim");
-//	c08_codec("C:/Projects/datasets/kodim13-small16.lsim", "C:/Projects/datasets/kodim13-small16_dec.ppm");
+//	CODEC_FUNC("C:/Projects/datasets/kodim13-small16.ppm", "C:/Projects/datasets/kodim13-small16.lsim");
+//	CODEC_FUNC("C:/Projects/datasets/kodim13-small16.lsim", "C:/Projects/datasets/kodim13-small16_dec.ppm");
 
-//	c21_codec("C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm", "C:/Projects/datasets/mystery.lsim");
-//	c21_codec("C:/Projects/datasets/mystery.lsim", "C:/Projects/datasets/mystery.ppm");
+//	CODEC_FUNC("C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm", "C:/Projects/datasets/mystery.lsim");
+//	CODEC_FUNC("C:/Projects/datasets/mystery.lsim", "C:/Projects/datasets/mystery.ppm");
 
-//	c20_codec("C:/Projects/datasets/dataset-LPCB-ppm/PIA12811.ppm", "C:/Projects/datasets/PIA12811.lsim");
-//	c20_codec("C:/Projects/datasets/PIA12811.lsim", "C:/Projects/datasets/PIA12811_dec.ppm");
+//	CODEC_FUNC("C:/Projects/datasets/dataset-LPCB-ppm/PIA12811.ppm", "C:/Projects/datasets/PIA12811.lsim");
+//	CODEC_FUNC("C:/Projects/datasets/PIA12811.lsim", "C:/Projects/datasets/PIA12811_dec.ppm");
 
-//	c20_codec("C:/Projects/datasets/big_building.PPM", "C:/Projects/datasets/big_building.lsim");		//large image
-//	c20_codec("C:/Projects/datasets/big_building.lsim", "C:/Projects/datasets/big_building_dec.ppm");
+//	CODEC_FUNC("C:/Projects/datasets/big_building.PPM", "C:/Projects/datasets/big_building.lsim");		//large image
+//	CODEC_FUNC("C:/Projects/datasets/big_building.lsim", "C:/Projects/datasets/big_building_dec.ppm");
 
-//	c20_codec("C:/Projects/datasets/space_huge.ppm", "C:/Projects/datasets/space_huge.lsim");		//very large image
-//	c20_codec("C:/Projects/datasets/space_huge.lsim", "C:/Projects/datasets/space_huge_dec.ppm");
+//	CODEC_FUNC("C:/Projects/datasets/space_huge.ppm", "C:/Projects/datasets/space_huge.lsim");		//very large image
+//	CODEC_FUNC("C:/Projects/datasets/space_huge.lsim", "C:/Projects/datasets/space_huge_dec.ppm");
 
-//	c08_codec("C:/Projects/datasets/20240414-noise.PPM", "C:/Projects/datasets/20240414-noise.LSIM");	//bypass
-//	c08_codec("C:/Projects/datasets/20240414-noise.LSIM", "C:/Projects/datasets/20240414-noise_dec.PPM");
-
-//	c07_codec(srcfn, dstfn);
+//	CODEC_FUNC("C:/Projects/datasets/20240414-noise.PPM", "C:/Projects/datasets/20240414-noise.LSIM");	//bypass
+//	CODEC_FUNC("C:/Projects/datasets/20240414-noise.LSIM", "C:/Projects/datasets/20240414-noise_dec.PPM");
 
 //	CODEC_FUNC(srcfn, dstfn);
+
+//	CODEC_FUNC(srcfn, dstfn);
+#endif
+#ifdef PROFILER
+	prof_end(prof_ctx);
 #endif
 	return 0;
 }
