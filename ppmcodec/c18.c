@@ -225,7 +225,7 @@ typedef struct _ThreadArgs
 #endif
 } ThreadArgs;
 #if 0
-FORCEINLINE int max3(int a, int b, int c)
+AWM_INLINE int max3(int a, int b, int c)
 {
 	if(a<b)
 		a=b;
@@ -233,7 +233,7 @@ FORCEINLINE int max3(int a, int b, int c)
 		a=c;
 	return a;
 }
-FORCEINLINE int max4(int v0, int v1, int v2, int v3)
+AWM_INLINE int max4(int v0, int v1, int v2, int v3)
 {
 	if(v0<v1)
 		v0=v1;
@@ -243,12 +243,12 @@ FORCEINLINE int max4(int v0, int v1, int v2, int v3)
 		v0=v3;
 	return v0;
 }
-FORCEINLINE int median3(int a, int b, int c)
+AWM_INLINE int median3(int a, int b, int c)
 {
 	MEDIAN3_32(a, a, b, c);
 	return a;
 }
-FORCEINLINE int sum_largest3of7(int v0, int v1, int v2, int v3, int v4, int v5, int v6)
+AWM_INLINE int sum_largest3of7(int v0, int v1, int v2, int v3, int v4, int v5, int v6)
 {
 	int m0=v0, m1=v0, m2=v0;
 	if(m0<v1)m2=m1, m1=m0, m0=v1;

@@ -104,7 +104,7 @@ static const char *pred_names[PRED_COUNT]=
 #define CONFIG_EXP 4
 #define CONFIG_MSB 1
 #define CONFIG_LSB 0
-FORCEINLINE void quantize_pixel(int val, int *token, int *bypass, int *nbits)
+AWM_INLINE void quantize_pixel(int val, int *token, int *bypass, int *nbits)
 {
 	if(val<(1<<CONFIG_EXP))
 	{
@@ -125,7 +125,7 @@ FORCEINLINE void quantize_pixel(int val, int *token, int *bypass, int *nbits)
 		*bypass=val>>CONFIG_LSB&((1LL<<*nbits)-1);
 	}
 }
-//FORCEINLINE int f28_mix4(int v00, int v01, int v10, int v11, int alphax, int alphay)
+//AWM_INLINE int f28_mix4(int v00, int v01, int v10, int v11, int alphax, int alphay)
 //{
 //	//v00=v00*((1<<12)-alphax)+v01*alphax;
 //	v00=((v00<<MIXBITS)+(v01-v00)*alphax)>>(MIXBITS-1);

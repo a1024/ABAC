@@ -12,11 +12,12 @@
 static const char file[]=__FILE__;
 
 
+//	#define LOUD
+
 #ifndef DISABLE_MT
 	#define ENABLE_MT
 #endif
 //	#define ENABLE_GUIDE
-//	#define LOUD
 
 	#define ENABLE_FASTANALYSIS	//LPCB 3~14% faster, 0.04% larger than entropy	good
 //	#define ENABLE_ENTROPYANALYSIS
@@ -52,10 +53,7 @@ static void guide_check(unsigned char *image, int kx, int ky)
 {
 	int idx=3*(g_iw*ky+kx);
 	if(memcmp(image+idx, g_image+idx, 3))
-	{
 		LOG_ERROR("");
-		printf("");
-	}
 }
 #else
 #define guide_save(...)
@@ -231,8 +229,7 @@ int c22_codec(const char *srcfn, const char *dstfn)
 		LOG_ERROR("Alloc error");
 		return 1;
 	}
-	memset(pixels, 0x80, psize);
-	//memset(pixels, 0, psize);
+	memset(pixels, 0, psize);
 	
 	if(fwd)//encode
 	{
@@ -646,17 +643,13 @@ int c22_codec(const char *srcfn, const char *dstfn)
 		case 14:gety0=getb0, gety1=getb1, gety2=getb2,  getu0=getr0, getu1=getr1, getu2=getr2,  getv0=getg0, getv1=getg1, getv2=getg2;break;//2, 0, 1
 		case 15:gety0=getb0, gety1=getb1, gety2=getb2,  getu0=getg0, getu1=getg1, getu2=getg2,  getv0=getr0, getv1=getr1, getv2=getr2;break;//2, 1, 0
 		}
-		__m256i helperUmask=_mm256_set1_epi8(-(uhelpidx!=3));
-		__m256i helperVsel=_mm256_set1_epi8(-(vhelpidx==1));
-		__m256i helperVmask=_mm256_set1_epi8(-(vhelpidx!=3));
-		char helperUoffsetscalar=(char)(0x80&-(uhelpidx!=3));
-		char helperVoffsetscalar=(char)(0x80&-(vhelpidx!=3));
-		__m256i helperUoffset=_mm256_set1_epi8(helperUoffsetscalar);
-		__m256i helperVoffset=_mm256_set1_epi8(helperVoffsetscalar);
+		__m128i helperUmask=_mm_set1_epi8(-(uhelpidx!=3));
+		__m128i helperVsel=_mm_set1_epi8(-(vhelpidx==1));
+		__m128i helperVmask=_mm_set1_epi8(-(vhelpidx!=3));
 		__m256i one=_mm256_set1_epi16(1);
 		__m256i two=_mm256_set1_epi16(2);
 		__m256i eight=_mm256_set1_epi16(8);
-		//__m128i mhalf=_mm_set1_epi8(-128);
+		__m128i mhalf=_mm_set1_epi8(-128);
 		__m256i mmin=_mm256_set1_epi16(-128);
 		__m256i mmax=_mm256_set1_epi16(127);
 		(void)one;
@@ -672,27 +665,26 @@ int c22_codec(const char *srcfn, const char *dstfn)
 		};
 		for(int ky=0, idx=0, idx2=0;ky<ih;++ky)
 		{
-			ALIGN(32) unsigned char *rows[]=
+			ALIGN(32) short *rows[]=
 			{
-				(unsigned char*)(pixels+((iw+32LL)*(((ky-0LL)&3)+0*4)+16LL)),
-				(unsigned char*)(pixels+((iw+32LL)*(((ky-1LL)&3)+0*4)+16LL)),
-				(unsigned char*)(pixels+((iw+32LL)*(((ky-2LL)&3)+0*4)+16LL)),
-				(unsigned char*)(pixels+((iw+32LL)*(((ky-3LL)&3)+0*4)+16LL)),
-				(unsigned char*)(pixels+((iw+32LL)*(((ky-0LL)&3)+1*4)+16LL)),
-				(unsigned char*)(pixels+((iw+32LL)*(((ky-1LL)&3)+1*4)+16LL)),
-				(unsigned char*)(pixels+((iw+32LL)*(((ky-2LL)&3)+1*4)+16LL)),
-				(unsigned char*)(pixels+((iw+32LL)*(((ky-3LL)&3)+1*4)+16LL)),
-				(unsigned char*)(pixels+((iw+32LL)*(((ky-0LL)&3)+2*4)+16LL)),
-				(unsigned char*)(pixels+((iw+32LL)*(((ky-1LL)&3)+2*4)+16LL)),
-				(unsigned char*)(pixels+((iw+32LL)*(((ky-2LL)&3)+2*4)+16LL)),
-				(unsigned char*)(pixels+((iw+32LL)*(((ky-3LL)&3)+2*4)+16LL)),
+				pixels+((iw+32LL)*(((ky-0LL)&3)+0*4)+16LL),
+				pixels+((iw+32LL)*(((ky-1LL)&3)+0*4)+16LL),
+				pixels+((iw+32LL)*(((ky-2LL)&3)+0*4)+16LL),
+				pixels+((iw+32LL)*(((ky-3LL)&3)+0*4)+16LL),
+				pixels+((iw+32LL)*(((ky-0LL)&3)+1*4)+16LL),
+				pixels+((iw+32LL)*(((ky-1LL)&3)+1*4)+16LL),
+				pixels+((iw+32LL)*(((ky-2LL)&3)+1*4)+16LL),
+				pixels+((iw+32LL)*(((ky-3LL)&3)+1*4)+16LL),
+				pixels+((iw+32LL)*(((ky-0LL)&3)+2*4)+16LL),
+				pixels+((iw+32LL)*(((ky-1LL)&3)+2*4)+16LL),
+				pixels+((iw+32LL)*(((ky-2LL)&3)+2*4)+16LL),
+				pixels+((iw+32LL)*(((ky-3LL)&3)+2*4)+16LL),
 			};
 			int kx=0;
 #if 1
-			//for(;kx<=iw-16;kx+=16, idx+=3*16, idx2+=16)
-			for(;kx<=iw-32;kx+=32, idx+=3*32, idx2+=32)
+			for(;kx<=iw-16;kx+=16, idx+=3*16, idx2+=16)
 			{
-				//process 32 pixels (96 SPs) at a time
+				//process 16 pixels (48 SPs) at a time:	rows[6]		convert only pred to 16-bit and back, then use bytes for RCT8
 #if defined USE_ROWPRED3A3
 				__m256i NW0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]-1));
 				__m256i NW1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]-1));
@@ -740,30 +732,24 @@ int c22_codec(const char *srcfn, const char *dstfn)
 				__m256i NE0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]+1));
 				__m256i NE1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]+1));
 				__m256i NE2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]+1));
-				NW0=_mm256_avg_epu8(NW0, NE0);
-				NW1=_mm256_avg_epu8(NW1, NE1);
-				NW2=_mm256_avg_epu8(NW2, NE2);
-				N0=_mm256_avg_epu8(N0, NW0);
-				N1=_mm256_avg_epu8(N1, NW1);
-				N2=_mm256_avg_epu8(N2, NW2);
-				//__m256i mp0=_mm256_slli_epi16(N0, 1);//(2*N+NW+NE+2)>>2
-				//__m256i mp1=_mm256_slli_epi16(N1, 1);
-				//__m256i mp2=_mm256_slli_epi16(N2, 1);
-				//mp0=_mm256_add_epi16(mp0, NW0);
-				//mp1=_mm256_add_epi16(mp1, NW1);
-				//mp2=_mm256_add_epi16(mp2, NW2);
-				//mp0=_mm256_add_epi16(mp0, NE0);
-				//mp1=_mm256_add_epi16(mp1, NE1);
-				//mp2=_mm256_add_epi16(mp2, NE2);
-				//mp0=_mm256_add_epi16(mp0, two);
-				//mp1=_mm256_add_epi16(mp1, two);
-				//mp2=_mm256_add_epi16(mp2, two);
-				//mp0=_mm256_srai_epi16(mp0, 2);
-				//mp1=_mm256_srai_epi16(mp1, 2);
-				//mp2=_mm256_srai_epi16(mp2, 2);
-				//__m128i ypred=_mm_packs_epi16(_mm256_castsi256_si128(mp0), _mm256_extracti128_si256(mp0, 1));
-				//__m128i upred=_mm_packs_epi16(_mm256_castsi256_si128(mp1), _mm256_extracti128_si256(mp1, 1));
-				//__m128i vpred=_mm_packs_epi16(_mm256_castsi256_si128(mp2), _mm256_extracti128_si256(mp2, 1));
+				__m256i mp0=_mm256_slli_epi16(N0, 1);//(2*N+NW+NE+2)>>2
+				__m256i mp1=_mm256_slli_epi16(N1, 1);
+				__m256i mp2=_mm256_slli_epi16(N2, 1);
+				mp0=_mm256_add_epi16(mp0, NW0);
+				mp1=_mm256_add_epi16(mp1, NW1);
+				mp2=_mm256_add_epi16(mp2, NW2);
+				mp0=_mm256_add_epi16(mp0, NE0);
+				mp1=_mm256_add_epi16(mp1, NE1);
+				mp2=_mm256_add_epi16(mp2, NE2);
+				mp0=_mm256_add_epi16(mp0, two);
+				mp1=_mm256_add_epi16(mp1, two);
+				mp2=_mm256_add_epi16(mp2, two);
+				mp0=_mm256_srai_epi16(mp0, 2);
+				mp1=_mm256_srai_epi16(mp1, 2);
+				mp2=_mm256_srai_epi16(mp2, 2);
+				__m128i ypred=_mm_packs_epi16(_mm256_castsi256_si128(mp0), _mm256_extracti128_si256(mp0, 1));
+				__m128i upred=_mm_packs_epi16(_mm256_castsi256_si128(mp1), _mm256_extracti128_si256(mp1, 1));
+				__m128i vpred=_mm_packs_epi16(_mm256_castsi256_si128(mp2), _mm256_extracti128_si256(mp2, 1));
 #elif defined USE_ROWPRED565
 				__m256i NW0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]-1));
 				__m256i NW1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]-1));
@@ -863,76 +849,56 @@ int c22_codec(const char *srcfn, const char *dstfn)
 				__m128i p0=_mm_loadu_si128((__m128i*)(image+idx+0*16));
 				__m128i p1=_mm_loadu_si128((__m128i*)(image+idx+1*16));
 				__m128i p2=_mm_loadu_si128((__m128i*)(image+idx+2*16));
-				__m128i p3=_mm_loadu_si128((__m128i*)(image+idx+3*16));
-				__m128i p4=_mm_loadu_si128((__m128i*)(image+idx+4*16));
-				__m128i p5=_mm_loadu_si128((__m128i*)(image+idx+5*16));
 
-				//p0=_mm_sub_epi8(p0, mhalf);
-				//p1=_mm_sub_epi8(p1, mhalf);
-				//p2=_mm_sub_epi8(p2, mhalf);
+				p0=_mm_sub_epi8(p0, mhalf);
+				p1=_mm_sub_epi8(p1, mhalf);
+				p2=_mm_sub_epi8(p2, mhalf);
 
 				//deinterleave |rgbr gbrg brgb rgbr|gbrg brgb rgbr gbrg|brgb rgbr gbrg brgb| -> |yyyy yyyy yyyy yyyy|uuuu uuuu uuuu uuuu|vvvv vvvv vvvv vvvv| (in order):
 				__m128i y0=_mm_shuffle_epi8(p0, gety0);
+				__m128i y1=_mm_shuffle_epi8(p1, gety1);
+				__m128i y2=_mm_shuffle_epi8(p2, gety2);
 				__m128i u0=_mm_shuffle_epi8(p0, getu0);
+				__m128i u1=_mm_shuffle_epi8(p1, getu1);
+				__m128i u2=_mm_shuffle_epi8(p2, getu2);
 				__m128i v0=_mm_shuffle_epi8(p0, getv0);
-				__m128i y3=_mm_shuffle_epi8(p3, gety0);
-				__m128i u3=_mm_shuffle_epi8(p3, getu0);
-				__m128i v3=_mm_shuffle_epi8(p3, getv0);
-				y0=_mm_or_si128(y0, _mm_shuffle_epi8(p1, gety1));
-				u0=_mm_or_si128(u0, _mm_shuffle_epi8(p1, getu1));
-				v0=_mm_or_si128(v0, _mm_shuffle_epi8(p1, getv1));
-				y3=_mm_or_si128(y3, _mm_shuffle_epi8(p4, gety1));
-				u3=_mm_or_si128(u3, _mm_shuffle_epi8(p4, getu1));
-				v3=_mm_or_si128(v3, _mm_shuffle_epi8(p4, getv1));
-				y0=_mm_or_si128(y0, _mm_shuffle_epi8(p2, gety2));
-				u0=_mm_or_si128(u0, _mm_shuffle_epi8(p2, getu2));
-				v0=_mm_or_si128(v0, _mm_shuffle_epi8(p2, getv2));
-				y3=_mm_or_si128(y3, _mm_shuffle_epi8(p5, gety2));
-				u3=_mm_or_si128(u3, _mm_shuffle_epi8(p5, getu2));
-				v3=_mm_or_si128(v3, _mm_shuffle_epi8(p5, getv2));
-				__m256i my=_mm256_inserti128_si256(_mm256_castsi128_si256(y0), y3, 1);
-				__m256i mu=_mm256_inserti128_si256(_mm256_castsi128_si256(u0), u3, 1);
-				__m256i mv=_mm256_inserti128_si256(_mm256_castsi128_si256(v0), v3, 1);
-				__m256i helperU0=_mm256_and_si256(my, helperUmask);
-				__m256i helperV0=_mm256_blendv_epi8(my, mu, helperVsel);
-				helperV0=_mm256_and_si256(helperV0, helperVmask);
-				mu=_mm256_sub_epi8(mu, helperU0);
-				mv=_mm256_sub_epi8(mv, helperV0);
-				mu=_mm256_sub_epi8(mu, helperUoffset);
-				mv=_mm256_sub_epi8(mv, helperVoffset);
-				_mm256_storeu_si256((__m256i*)rows[0+0*4], my);
-				_mm256_storeu_si256((__m256i*)rows[0+1*4], mu);
-				_mm256_storeu_si256((__m256i*)rows[0+2*4], mv);
-//#ifdef USE_ROWPREDN
-//				_mm_storeu_si128((__m128i*)rows[0+0*4], my);
-//				_mm_storeu_si128((__m128i*)rows[0+1*4], mu);
-//				_mm_storeu_si128((__m128i*)rows[0+2*4], mv);
-//#else
-//				_mm256_storeu_si256((__m256i*)rows[0+0*4], _mm256_cvtepi8_epi16(my));
-//				_mm256_storeu_si256((__m256i*)rows[0+1*4], _mm256_cvtepi8_epi16(mu));
-//				_mm256_storeu_si256((__m256i*)rows[0+2*4], _mm256_cvtepi8_epi16(mv));
-//#endif
-				
-				my=_mm256_sub_epi8(my, N0);
-				mu=_mm256_sub_epi8(mu, N1);
-				mv=_mm256_sub_epi8(mv, N2);
-				//my=_mm_sub_epi8(my, ypred);
-				//mu=_mm_sub_epi8(mu, upred);
-				//mv=_mm_sub_epi8(mv, vpred);
-				
-				_mm256_storeu_si256((__m256i*)(planes[0]+idx2), my);
-				_mm256_storeu_si256((__m256i*)(planes[1]+idx2), mu);
-				_mm256_storeu_si256((__m256i*)(planes[2]+idx2), mv);
-				//_mm_storeu_si128((__m128i*)(planes[0]+idx2), my);
-				//_mm_storeu_si128((__m128i*)(planes[1]+idx2), mu);
-				//_mm_storeu_si128((__m128i*)(planes[2]+idx2), mv);
+				__m128i v1=_mm_shuffle_epi8(p1, getv1);
+				__m128i v2=_mm_shuffle_epi8(p2, getv2);
+				y0=_mm_or_si128(y0, y1);
+				u0=_mm_or_si128(u0, u1);
+				v0=_mm_or_si128(v0, v1);
+				__m128i my=_mm_or_si128(y0, y2);
+				__m128i mu=_mm_or_si128(u0, u2);
+				__m128i mv=_mm_or_si128(v0, v2);
+				__m128i helperU0=_mm_and_si128(my, helperUmask);
+				__m128i helperV0=_mm_blendv_epi8(my, mu, helperVsel);
+				helperV0=_mm_and_si128(helperV0, helperVmask);
+				mu=_mm_sub_epi8(mu, helperU0);
+				mv=_mm_sub_epi8(mv, helperV0);
+#ifdef USE_ROWPREDN
+				_mm_storeu_si128((__m128i*)rows[0+0*4], my);
+				_mm_storeu_si128((__m128i*)rows[0+1*4], mu);
+				_mm_storeu_si128((__m128i*)rows[0+2*4], mv);
+#else
+				_mm256_storeu_si256((__m256i*)rows[0+0*4], _mm256_cvtepi8_epi16(my));
+				_mm256_storeu_si256((__m256i*)rows[0+1*4], _mm256_cvtepi8_epi16(mu));
+				_mm256_storeu_si256((__m256i*)rows[0+2*4], _mm256_cvtepi8_epi16(mv));
+#endif
+
+				my=_mm_sub_epi8(my, ypred);
+				mu=_mm_sub_epi8(mu, upred);
+				mv=_mm_sub_epi8(mv, vpred);
+
+				_mm_storeu_si128((__m128i*)(planes[0]+idx2), my);
+				_mm_storeu_si128((__m128i*)(planes[1]+idx2), mu);
+				_mm_storeu_si128((__m128i*)(planes[2]+idx2), mv);
 
 				__m256i rows0=_mm256_load_si256((__m256i*)rows+0);
 				__m256i rows1=_mm256_load_si256((__m256i*)rows+1);
 				__m256i rows2=_mm256_load_si256((__m256i*)rows+2);
-				rows0=_mm256_add_epi64(rows0, _mm256_set1_epi64x(sizeof(char[32])));
-				rows1=_mm256_add_epi64(rows1, _mm256_set1_epi64x(sizeof(char[32])));
-				rows2=_mm256_add_epi64(rows2, _mm256_set1_epi64x(sizeof(char[32])));
+				rows0=_mm256_add_epi64(rows0, _mm256_set1_epi64x(sizeof(short[16])));
+				rows1=_mm256_add_epi64(rows1, _mm256_set1_epi64x(sizeof(short[16])));
+				rows2=_mm256_add_epi64(rows2, _mm256_set1_epi64x(sizeof(short[16])));
 				_mm256_store_si256((__m256i*)rows+0, rows0);
 				_mm256_store_si256((__m256i*)rows+1, rows1);
 				_mm256_store_si256((__m256i*)rows+2, rows2);
@@ -954,14 +920,11 @@ int c22_codec(const char *srcfn, const char *dstfn)
 				//	printf("");
 				
 				//short *pcurr=rows[0]+0*4;
-				unsigned char yuv[]=
+				char yuv[]=
 				{
-					image[idx+yidx],
-					image[idx+uidx],
-					image[idx+vidx],
-					//image[idx+yidx]-128,
-					//image[idx+uidx]-128,
-					//image[idx+vidx]-128,
+					image[idx+yidx]-128,
+					image[idx+uidx]-128,
+					image[idx+vidx]-128,
 					0,
 				};
 #if defined USE_ROWPRED3A3
@@ -969,12 +932,9 @@ int c22_codec(const char *srcfn, const char *dstfn)
 				int upred=(10*rows[1+1*4][+0]+3*(rows[1+1*4][-1]+rows[1+1*4][+1])+8)>>4;
 				int vpred=(10*rows[1+2*4][+0]+3*(rows[1+2*4][-1]+rows[1+2*4][+1])+8)>>4;
 #elif defined USE_ROWPRED484
-				int ypred=(rows[1+0*4][+0]+((rows[1+0*4][-1]+rows[1+0*4][+1]+1)>>1)+1)>>1;//6 steps (2 roundings)
-				int upred=(rows[1+1*4][+0]+((rows[1+1*4][-1]+rows[1+1*4][+1]+1)>>1)+1)>>1;
-				int vpred=(rows[1+2*4][+0]+((rows[1+2*4][-1]+rows[1+2*4][+1]+1)>>1)+1)>>1;
-				//int ypred=(2*rows[1+0*4][+0]+rows[1+0*4][-1]+rows[1+0*4][+1]+2)>>2;//5 steps
-				//int upred=(2*rows[1+1*4][+0]+rows[1+1*4][-1]+rows[1+1*4][+1]+2)>>2;
-				//int vpred=(2*rows[1+2*4][+0]+rows[1+2*4][-1]+rows[1+2*4][+1]+2)>>2;
+				int ypred=(2*rows[1+0*4][+0]+rows[1+0*4][-1]+rows[1+0*4][+1]+2)>>2;
+				int upred=(2*rows[1+1*4][+0]+rows[1+1*4][-1]+rows[1+1*4][+1]+2)>>2;
+				int vpred=(2*rows[1+2*4][+0]+rows[1+2*4][-1]+rows[1+2*4][+1]+2)>>2;
 #elif defined USE_ROWPRED565
 				int ypred=(6*rows[1+0*4][+0]+5*(rows[1+0*4][-1]+rows[1+0*4][+1])+8)>>4;
 				int upred=(6*rows[1+1*4][+0]+5*(rows[1+1*4][-1]+rows[1+1*4][+1])+8)>>4;
@@ -1002,11 +962,12 @@ int c22_codec(const char *srcfn, const char *dstfn)
 				//if(ky==1&&kx==192+12)//
 				//if(ky==2&&kx==4)//
 				//	printf("");
-				yuv[2]-=yuv[vhelpidx]-helperVoffsetscalar;
-				yuv[1]-=yuv[uhelpidx]-helperUoffsetscalar;
+
 				rows[0+0*4][+0]=yuv[0];
-				rows[0+1*4][+0]=yuv[1];
-				rows[0+2*4][+0]=yuv[2];
+				rows[0+1*4][+0]=(char)(yuv[1]-yuv[uhelpidx]);
+				rows[0+2*4][+0]=(char)(yuv[2]-yuv[vhelpidx]);
+				yuv[1]=(char)rows[0+1*4][+0];
+				yuv[2]=(char)rows[0+2*4][+0];
 
 				dptr[res*0+idx2]=yuv[0]-ypred;
 				dptr[res*1+idx2]=yuv[1]-upred;
@@ -1015,9 +976,9 @@ int c22_codec(const char *srcfn, const char *dstfn)
 				__m256i rows0=_mm256_load_si256((__m256i*)rows+0);
 				__m256i rows1=_mm256_load_si256((__m256i*)rows+1);
 				__m256i rows2=_mm256_load_si256((__m256i*)rows+2);
-				rows0=_mm256_add_epi64(rows0, _mm256_set1_epi64x(sizeof(char)));
-				rows1=_mm256_add_epi64(rows1, _mm256_set1_epi64x(sizeof(char)));
-				rows2=_mm256_add_epi64(rows2, _mm256_set1_epi64x(sizeof(char)));
+				rows0=_mm256_add_epi64(rows0, _mm256_set1_epi64x(sizeof(short)));
+				rows1=_mm256_add_epi64(rows1, _mm256_set1_epi64x(sizeof(short)));
+				rows2=_mm256_add_epi64(rows2, _mm256_set1_epi64x(sizeof(short)));
 				_mm256_store_si256((__m256i*)rows+0, rows0);
 				_mm256_store_si256((__m256i*)rows+1, rows1);
 				_mm256_store_si256((__m256i*)rows+2, rows2);
@@ -1091,7 +1052,7 @@ int c22_codec(const char *srcfn, const char *dstfn)
 	}
 	else//decode
 	{
-		unsigned char yuv[4]={0};
+		char yuv[4]={0};
 #if defined ENABLE_FASTANALYSIS || defined ENABLE_ENTROPYANALYSIS
 		int flag=*srcptr++;
 		const unsigned char *rct=rct_indices[flag];
@@ -1161,61 +1122,52 @@ int c22_codec(const char *srcfn, const char *dstfn)
 		ptime=time_sec();
 #endif
 		//interleave |yyyy yyyy yyyy yyyy|uuuu uuuu uuuu uuuu|vvvv vvvv vvvv vvvv| -> |rgbr gbrg brgb rgbr|gbrg brgb rgbr gbrg|brgb rgbr gbrg brgb| (in order):
-		__m256i setr0=_mm256_set_epi8(
+		__m128i setr0=_mm_set_epi8(
 		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
 		//	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 15, 12,  9,  6,  3,  0
-			 5, -1, -1,  4, -1, -1,  3, -1, -1,  2, -1, -1,  1, -1, -1,  0,
 			 5, -1, -1,  4, -1, -1,  3, -1, -1,  2, -1, -1,  1, -1, -1,  0
 		);
-		__m256i setr1=_mm256_set_epi8(
+		__m128i setr1=_mm_set_epi8(
 		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
 		//	-1, -1, -1, -1, -1, 14, 11,  8,  5,  2, -1, -1, -1, -1, -1, -1
-			-1, 10, -1, -1,  9, -1, -1,  8, -1, -1,  7, -1, -1,  6, -1, -1,
 			-1, 10, -1, -1,  9, -1, -1,  8, -1, -1,  7, -1, -1,  6, -1, -1
 		);
-		__m256i setr2=_mm256_set_epi8(
+		__m128i setr2=_mm_set_epi8(
 		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
 		//	13, 10,  7,  4,  1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
-			-1, -1, 15, -1, -1, 14, -1, -1, 13, -1, -1, 12, -1, -1, 11, -1,
 			-1, -1, 15, -1, -1, 14, -1, -1, 13, -1, -1, 12, -1, -1, 11, -1
 		);
-		__m256i setg0=_mm256_set_epi8(
+		__m128i setg0=_mm_set_epi8(
 		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
 		//	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 13, 10,  7,  4,  1
-			-1, -1,  4, -1, -1,  3, -1, -1,  2, -1, -1,  1, -1, -1,  0, -1,
 			-1, -1,  4, -1, -1,  3, -1, -1,  2, -1, -1,  1, -1, -1,  0, -1
 		);
-		__m256i setg1=_mm256_set_epi8(
+		__m128i setg1=_mm_set_epi8(
 		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
 		//	-1, -1, -1, -1, -1, 15, 12,  9,  6,  3,  0, -1, -1, -1, -1, -1
-			10, -1, -1,  9, -1, -1,  8, -1, -1,  7, -1, -1,  6, -1, -1,  5,
 			10, -1, -1,  9, -1, -1,  8, -1, -1,  7, -1, -1,  6, -1, -1,  5
 		);
-		__m256i setg2=_mm256_set_epi8(
+		__m128i setg2=_mm_set_epi8(
 		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
 		//	14, 11,  8,  5,  2, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
-			-1, 15, -1, -1, 14, -1, -1, 13, -1, -1, 12, -1, -1, 11, -1, -1,
 			-1, 15, -1, -1, 14, -1, -1, 13, -1, -1, 12, -1, -1, 11, -1, -1
 		);
-		__m256i setb0=_mm256_set_epi8(
+		__m128i setb0=_mm_set_epi8(
 		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
 		//	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 14, 11,  8,  5,  2
-			-1,  4, -1, -1,  3, -1, -1,  2, -1, -1,  1, -1, -1,  0, -1, -1,
 			-1,  4, -1, -1,  3, -1, -1,  2, -1, -1,  1, -1, -1,  0, -1, -1
 		);
-		__m256i setb1=_mm256_set_epi8(
+		__m128i setb1=_mm_set_epi8(
 		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
 		//	-1, -1, -1, -1, -1, -1, 13, 10,  7,  4,  1, -1, -1, -1, -1, -1
-			-1, -1,  9, -1, -1,  8, -1, -1,  7, -1, -1,  6, -1, -1,  5, -1,
 			-1, -1,  9, -1, -1,  8, -1, -1,  7, -1, -1,  6, -1, -1,  5, -1
 		);
-		__m256i setb2=_mm256_set_epi8(
+		__m128i setb2=_mm_set_epi8(
 		//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
 		//	15, 12,  9,  6,  3,  0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
-			15, -1, -1, 14, -1, -1, 13, -1, -1, 12, -1, -1, 11, -1, -1, 10,
 			15, -1, -1, 14, -1, -1, 13, -1, -1, 12, -1, -1, 11, -1, -1, 10
 		);
-		__m256i
+		__m128i
 			getr0, getr1, getr2,
 			getg0, getg1, getg2,
 			getb0, getb1, getb2;
@@ -1239,17 +1191,13 @@ int c22_codec(const char *srcfn, const char *dstfn)
 		case 14:getr0=setb0, getr1=setb1, getr2=setb2,  getg0=setr0, getg1=setr1, getg2=setr2,  getb0=setg0, getb1=setg1, getb2=setg2;break;//2, 0, 1
 		case 15:getr0=setb0, getr1=setb1, getr2=setb2,  getg0=setg0, getg1=setg1, getg2=setg2,  getb0=setr0, getb1=setr1, getb2=setr2;break;//2, 1, 0
 		}
-		__m256i helperUmask	=_mm256_set1_epi8(-(uhelpidx!=3));
-		__m256i helperVsel	=_mm256_set1_epi8(-(vhelpidx==1));
-		__m256i helperVmask	=_mm256_set1_epi8(-(vhelpidx!=3));
-		char helperUoffsetscalar=(char)(0x80&-(uhelpidx!=3));
-		char helperVoffsetscalar=(char)(0x80&-(vhelpidx!=3));
-		__m256i helperUoffset=_mm256_set1_epi8(helperUoffsetscalar);
-		__m256i helperVoffset=_mm256_set1_epi8(helperVoffsetscalar);
+		__m128i helperUmask=_mm_set1_epi8(-(uhelpidx!=3));
+		__m128i helperVsel=_mm_set1_epi8(-(vhelpidx==1));
+		__m128i helperVmask=_mm_set1_epi8(-(vhelpidx!=3));
 		__m256i one=_mm256_set1_epi16(1);
 		__m256i two=_mm256_set1_epi16(2);
 		__m256i eight=_mm256_set1_epi16(8);
-		//__m128i mhalf=_mm_set1_epi8(-128);
+		__m128i mhalf=_mm_set1_epi8(-128);
 		__m256i mmin=_mm256_set1_epi16(-128);
 		__m256i mmax=_mm256_set1_epi16(127);
 		(void)one;
@@ -1259,27 +1207,26 @@ int c22_codec(const char *srcfn, const char *dstfn)
 		(void)mmax;
 		for(int ky=0, idx=0, idx2=0;ky<ih;++ky)
 		{
-			ALIGN(32) unsigned char *rows[]=
+			ALIGN(32) short *rows[]=
 			{
-				(unsigned char*)(pixels+((iw+32LL)*(((ky-0LL)&3)+0*4)+16LL)),
-				(unsigned char*)(pixels+((iw+32LL)*(((ky-1LL)&3)+0*4)+16LL)),
-				(unsigned char*)(pixels+((iw+32LL)*(((ky-2LL)&3)+0*4)+16LL)),
-				(unsigned char*)(pixels+((iw+32LL)*(((ky-3LL)&3)+0*4)+16LL)),
-				(unsigned char*)(pixels+((iw+32LL)*(((ky-0LL)&3)+1*4)+16LL)),
-				(unsigned char*)(pixels+((iw+32LL)*(((ky-1LL)&3)+1*4)+16LL)),
-				(unsigned char*)(pixels+((iw+32LL)*(((ky-2LL)&3)+1*4)+16LL)),
-				(unsigned char*)(pixels+((iw+32LL)*(((ky-3LL)&3)+1*4)+16LL)),
-				(unsigned char*)(pixels+((iw+32LL)*(((ky-0LL)&3)+2*4)+16LL)),
-				(unsigned char*)(pixels+((iw+32LL)*(((ky-1LL)&3)+2*4)+16LL)),
-				(unsigned char*)(pixels+((iw+32LL)*(((ky-2LL)&3)+2*4)+16LL)),
-				(unsigned char*)(pixels+((iw+32LL)*(((ky-3LL)&3)+2*4)+16LL)),
+				pixels+((iw+32LL)*(((ky-0LL)&3)+0*4)+16LL),
+				pixels+((iw+32LL)*(((ky-1LL)&3)+0*4)+16LL),
+				pixels+((iw+32LL)*(((ky-2LL)&3)+0*4)+16LL),
+				pixels+((iw+32LL)*(((ky-3LL)&3)+0*4)+16LL),
+				pixels+((iw+32LL)*(((ky-0LL)&3)+1*4)+16LL),
+				pixels+((iw+32LL)*(((ky-1LL)&3)+1*4)+16LL),
+				pixels+((iw+32LL)*(((ky-2LL)&3)+1*4)+16LL),
+				pixels+((iw+32LL)*(((ky-3LL)&3)+1*4)+16LL),
+				pixels+((iw+32LL)*(((ky-0LL)&3)+2*4)+16LL),
+				pixels+((iw+32LL)*(((ky-1LL)&3)+2*4)+16LL),
+				pixels+((iw+32LL)*(((ky-2LL)&3)+2*4)+16LL),
+				pixels+((iw+32LL)*(((ky-3LL)&3)+2*4)+16LL),
 			};
 			int kx=0;
 #if 1
-			//for(;kx<=iw-16;kx+=16, idx+=3*16, idx2+=16)
-			for(;kx<=iw-32;kx+=32, idx+=3*32, idx2+=32)
+			for(;kx<=iw-16;kx+=16, idx+=3*16, idx2+=16)
 			{
-				//process 32 pixels (96 SPs) at a time
+				//process 16 pixels (48 SPs) at a time:	rows[6]
 #if defined USE_ROWPRED3A3
 				__m256i NW0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]-1));
 				__m256i NW1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]-1));
@@ -1327,30 +1274,24 @@ int c22_codec(const char *srcfn, const char *dstfn)
 				__m256i NE0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]+1));
 				__m256i NE1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]+1));
 				__m256i NE2	=_mm256_loadu_si256((__m256i*)(rows[1+2*4]+1));
-				NW0=_mm256_avg_epu8(NW0, NE0);
-				NW1=_mm256_avg_epu8(NW1, NE1);
-				NW2=_mm256_avg_epu8(NW2, NE2);
-				N0=_mm256_avg_epu8(N0, NW0);
-				N1=_mm256_avg_epu8(N1, NW1);
-				N2=_mm256_avg_epu8(N2, NW2);
-				//__m256i mp0=_mm256_slli_epi16(N0, 1);//(2*N+NW+NE+2)>>2
-				//__m256i mp1=_mm256_slli_epi16(N1, 1);
-				//__m256i mp2=_mm256_slli_epi16(N2, 1);
-				//mp0=_mm256_add_epi16(mp0, NW0);
-				//mp1=_mm256_add_epi16(mp1, NW1);
-				//mp2=_mm256_add_epi16(mp2, NW2);
-				//mp0=_mm256_add_epi16(mp0, NE0);
-				//mp1=_mm256_add_epi16(mp1, NE1);
-				//mp2=_mm256_add_epi16(mp2, NE2);
-				//mp0=_mm256_add_epi16(mp0, two);
-				//mp1=_mm256_add_epi16(mp1, two);
-				//mp2=_mm256_add_epi16(mp2, two);
-				//mp0=_mm256_srai_epi16(mp0, 2);
-				//mp1=_mm256_srai_epi16(mp1, 2);
-				//mp2=_mm256_srai_epi16(mp2, 2);
-				//__m128i ypred=_mm_packs_epi16(_mm256_castsi256_si128(mp0), _mm256_extracti128_si256(mp0, 1));
-				//__m128i upred=_mm_packs_epi16(_mm256_castsi256_si128(mp1), _mm256_extracti128_si256(mp1, 1));
-				//__m128i vpred=_mm_packs_epi16(_mm256_castsi256_si128(mp2), _mm256_extracti128_si256(mp2, 1));
+				__m256i mp0=_mm256_slli_epi16(N0, 1);//(2*N+NW+NE+2)>>2
+				__m256i mp1=_mm256_slli_epi16(N1, 1);
+				__m256i mp2=_mm256_slli_epi16(N2, 1);
+				mp0=_mm256_add_epi16(mp0, NW0);
+				mp1=_mm256_add_epi16(mp1, NW1);
+				mp2=_mm256_add_epi16(mp2, NW2);
+				mp0=_mm256_add_epi16(mp0, NE0);
+				mp1=_mm256_add_epi16(mp1, NE1);
+				mp2=_mm256_add_epi16(mp2, NE2);
+				mp0=_mm256_add_epi16(mp0, two);
+				mp1=_mm256_add_epi16(mp1, two);
+				mp2=_mm256_add_epi16(mp2, two);
+				mp0=_mm256_srai_epi16(mp0, 2);
+				mp1=_mm256_srai_epi16(mp1, 2);
+				mp2=_mm256_srai_epi16(mp2, 2);
+				__m128i ypred=_mm_packs_epi16(_mm256_castsi256_si128(mp0), _mm256_extracti128_si256(mp0, 1));
+				__m128i upred=_mm_packs_epi16(_mm256_castsi256_si128(mp1), _mm256_extracti128_si256(mp1, 1));
+				__m128i vpred=_mm_packs_epi16(_mm256_castsi256_si128(mp2), _mm256_extracti128_si256(mp2, 1));
 #elif defined USE_ROWPRED565
 				__m256i NW0	=_mm256_loadu_si256((__m256i*)(rows[1+0*4]-1));
 				__m256i NW1	=_mm256_loadu_si256((__m256i*)(rows[1+1*4]-1));
@@ -1451,59 +1392,51 @@ int c22_codec(const char *srcfn, const char *dstfn)
 				//if(ky==2&&kx==0)//
 				//	printf("");
 
-				__m256i p0=_mm256_loadu_si256((__m256i*)(planes[0]+idx2));
-				__m256i p1=_mm256_loadu_si256((__m256i*)(planes[1]+idx2));
-				__m256i p2=_mm256_loadu_si256((__m256i*)(planes[2]+idx2));
-				p0=_mm256_add_epi8(p0, N0);
-				p1=_mm256_add_epi8(p1, N1);
-				p2=_mm256_add_epi8(p2, N2);
-				_mm256_storeu_si256((__m256i*)rows[0+0*4], p0);
-				_mm256_storeu_si256((__m256i*)rows[0+1*4], p1);
-				_mm256_storeu_si256((__m256i*)rows[0+2*4], p2);
-//#ifdef USE_ROWPREDN
-//				_mm_storeu_si128((__m128i*)rows[0+0*4], p0);
-//				_mm_storeu_si128((__m128i*)rows[0+1*4], p1);
-//				_mm_storeu_si128((__m128i*)rows[0+2*4], p2);
-//#else
-//				_mm256_storeu_si256((__m256i*)rows[0+0*4], _mm256_cvtepi8_epi16(p0));
-//				_mm256_storeu_si256((__m256i*)rows[0+1*4], _mm256_cvtepi8_epi16(p1));
-//				_mm256_storeu_si256((__m256i*)rows[0+2*4], _mm256_cvtepi8_epi16(p2));
-//#endif
+				__m128i p0=_mm_loadu_si128((__m128i*)(planes[0]+idx2));
+				__m128i p1=_mm_loadu_si128((__m128i*)(planes[1]+idx2));
+				__m128i p2=_mm_loadu_si128((__m128i*)(planes[2]+idx2));
+				p0=_mm_add_epi8(p0, ypred);
+				p1=_mm_add_epi8(p1, upred);
+				p2=_mm_add_epi8(p2, vpred);
+#ifdef USE_ROWPREDN
+				_mm_storeu_si128((__m128i*)rows[0+0*4], p0);
+				_mm_storeu_si128((__m128i*)rows[0+1*4], p1);
+				_mm_storeu_si128((__m128i*)rows[0+2*4], p2);
+#else
+				_mm256_storeu_si256((__m256i*)rows[0+0*4], _mm256_cvtepi8_epi16(p0));
+				_mm256_storeu_si256((__m256i*)rows[0+1*4], _mm256_cvtepi8_epi16(p1));
+				_mm256_storeu_si256((__m256i*)rows[0+2*4], _mm256_cvtepi8_epi16(p2));
+#endif
 
-				__m256i helperU0=_mm256_and_si256(p0, helperUmask);
-				p1=_mm256_add_epi8(p1, helperU0);
-				p1=_mm256_sub_epi8(p1, helperUoffset);
-				__m256i helperV0=_mm256_blendv_epi8(p0, p1, helperVsel);
-				helperV0=_mm256_and_si256(helperV0, helperVmask);
-				p2=_mm256_add_epi8(p2, helperV0);
-				p2=_mm256_sub_epi8(p2, helperVoffset);
+				__m128i helperU0=_mm_and_si128(p0, helperUmask);
+				p1=_mm_add_epi8(p1, helperU0);
+				__m128i helperV0=_mm_blendv_epi8(p0, p1, helperVsel);
+				helperV0=_mm_and_si128(helperV0, helperVmask);
+				p2=_mm_add_epi8(p2, helperV0);
 
 				//interleave |yyyy yyyy yyyy yyyy|uuuu uuuu uuuu uuuu|vvvv vvvv vvvv vvvv| -> |rgbr gbrg brgb rgbr|gbrg brgb rgbr gbrg|brgb rgbr gbrg brgb| (in order):
-				__m256i r0=_mm256_shuffle_epi8(p0, getr0);
-				__m256i r1=_mm256_shuffle_epi8(p0, getr1);
-				__m256i r2=_mm256_shuffle_epi8(p0, getr2);
-				__m256i g0=_mm256_shuffle_epi8(p1, getg0);
-				__m256i g1=_mm256_shuffle_epi8(p1, getg1);
-				__m256i g2=_mm256_shuffle_epi8(p1, getg2);
-				__m256i b0=_mm256_shuffle_epi8(p2, getb0);
-				__m256i b1=_mm256_shuffle_epi8(p2, getb1);
-				__m256i b2=_mm256_shuffle_epi8(p2, getb2);
-				r0=_mm256_or_si256(r0, g0);
-				r1=_mm256_or_si256(r1, g1);
-				r2=_mm256_or_si256(r2, g2);
-				r0=_mm256_or_si256(r0, b0);
-				r1=_mm256_or_si256(r1, b1);
-				r2=_mm256_or_si256(r2, b2);
+				__m128i r0=_mm_shuffle_epi8(p0, getr0);
+				__m128i r1=_mm_shuffle_epi8(p0, getr1);
+				__m128i r2=_mm_shuffle_epi8(p0, getr2);
+				__m128i g0=_mm_shuffle_epi8(p1, getg0);
+				__m128i g1=_mm_shuffle_epi8(p1, getg1);
+				__m128i g2=_mm_shuffle_epi8(p1, getg2);
+				__m128i b0=_mm_shuffle_epi8(p2, getb0);
+				__m128i b1=_mm_shuffle_epi8(p2, getb1);
+				__m128i b2=_mm_shuffle_epi8(p2, getb2);
+				r0=_mm_or_si128(r0, g0);
+				r1=_mm_or_si128(r1, g1);
+				r2=_mm_or_si128(r2, g2);
+				r0=_mm_or_si128(r0, b0);
+				r1=_mm_or_si128(r1, b1);
+				r2=_mm_or_si128(r2, b2);
 
-				//r0=_mm256_sub_epi8(r0, mhalf);
-				//r1=_mm256_sub_epi8(r1, mhalf);
-				//r2=_mm256_sub_epi8(r2, mhalf);
-				_mm_storeu_si128((__m128i*)(image+idx+0*16), _mm256_castsi256_si128(r0));
-				_mm_storeu_si128((__m128i*)(image+idx+1*16), _mm256_castsi256_si128(r1));
-				_mm_storeu_si128((__m128i*)(image+idx+2*16), _mm256_castsi256_si128(r2));
-				_mm_storeu_si128((__m128i*)(image+idx+3*16), _mm256_extracti128_si256(r0, 1));
-				_mm_storeu_si128((__m128i*)(image+idx+4*16), _mm256_extracti128_si256(r1, 1));
-				_mm_storeu_si128((__m128i*)(image+idx+5*16), _mm256_extracti128_si256(r2, 1));
+				r0=_mm_sub_epi8(r0, mhalf);
+				r1=_mm_sub_epi8(r1, mhalf);
+				r2=_mm_sub_epi8(r2, mhalf);
+				_mm_storeu_si128((__m128i*)(image+idx+0*16), r0);
+				_mm_storeu_si128((__m128i*)(image+idx+1*16), r1);
+				_mm_storeu_si128((__m128i*)(image+idx+2*16), r2);
 #ifdef ENABLE_GUIDE
 				for(int k=0;k<16;++k)
 					guide_check(image, kx+k, ky);
@@ -1512,9 +1445,9 @@ int c22_codec(const char *srcfn, const char *dstfn)
 				__m256i rows0=_mm256_load_si256((__m256i*)rows+0);
 				__m256i rows1=_mm256_load_si256((__m256i*)rows+1);
 				__m256i rows2=_mm256_load_si256((__m256i*)rows+2);
-				rows0=_mm256_add_epi64(rows0, _mm256_set1_epi64x(sizeof(char[32])));
-				rows1=_mm256_add_epi64(rows1, _mm256_set1_epi64x(sizeof(char[32])));
-				rows2=_mm256_add_epi64(rows2, _mm256_set1_epi64x(sizeof(char[32])));
+				rows0=_mm256_add_epi64(rows0, _mm256_set1_epi64x(sizeof(short[16])));
+				rows1=_mm256_add_epi64(rows1, _mm256_set1_epi64x(sizeof(short[16])));
+				rows2=_mm256_add_epi64(rows2, _mm256_set1_epi64x(sizeof(short[16])));
 				_mm256_store_si256((__m256i*)rows+0, rows0);
 				_mm256_store_si256((__m256i*)rows+1, rows1);
 				_mm256_store_si256((__m256i*)rows+2, rows2);
@@ -1541,12 +1474,9 @@ int c22_codec(const char *srcfn, const char *dstfn)
 				int upred=(10*rows[1+1*4][+0]+3*(rows[1+1*4][-1]+rows[1+1*4][+1])+8)>>4;
 				int vpred=(10*rows[1+2*4][+0]+3*(rows[1+2*4][-1]+rows[1+2*4][+1])+8)>>4;
 #elif defined USE_ROWPRED484
-				int ypred=(rows[1+0*4][+0]+((rows[1+0*4][-1]+rows[1+0*4][+1]+1)>>1)+1)>>1;
-				int upred=(rows[1+1*4][+0]+((rows[1+1*4][-1]+rows[1+1*4][+1]+1)>>1)+1)>>1;
-				int vpred=(rows[1+2*4][+0]+((rows[1+2*4][-1]+rows[1+2*4][+1]+1)>>1)+1)>>1;
-				//int ypred=(2*rows[1+0*4][+0]+rows[1+0*4][-1]+rows[1+0*4][+1]+2)>>2;
-				//int upred=(2*rows[1+1*4][+0]+rows[1+1*4][-1]+rows[1+1*4][+1]+2)>>2;
-				//int vpred=(2*rows[1+2*4][+0]+rows[1+2*4][-1]+rows[1+2*4][+1]+2)>>2;
+				int ypred=(2*rows[1+0*4][+0]+rows[1+0*4][-1]+rows[1+0*4][+1]+2)>>2;
+				int upred=(2*rows[1+1*4][+0]+rows[1+1*4][-1]+rows[1+1*4][+1]+2)>>2;
+				int vpred=(2*rows[1+2*4][+0]+rows[1+2*4][-1]+rows[1+2*4][+1]+2)>>2;
 #elif defined USE_ROWPRED565
 				int ypred=(6*rows[1+0*4][+0]+5*(rows[1+0*4][-1]+rows[1+0*4][+1])+8)>>4;
 				int upred=(6*rows[1+1*4][+0]+5*(rows[1+1*4][-1]+rows[1+1*4][+1])+8)>>4;
@@ -1571,26 +1501,23 @@ int c22_codec(const char *srcfn, const char *dstfn)
 				int vpred=rows[1+2*4][+0];
 #endif
 				
-				rows[0+0*4][+0]=yuv[0]=(unsigned char)(planes[0][idx2]+ypred);
-				rows[0+1*4][+0]=yuv[1]=(unsigned char)(planes[1][idx2]+upred);
-				rows[0+2*4][+0]=yuv[2]=(unsigned char)(planes[2][idx2]+vpred);
-				yuv[1]+=yuv[uhelpidx]-helperUoffsetscalar;
-				yuv[2]+=yuv[vhelpidx]-helperVoffsetscalar;
-				
-				image[idx+yidx]=yuv[0];
-				image[idx+uidx]=yuv[1];
-				image[idx+vidx]=yuv[2];
-				//image[idx+yidx]=yuv[0]+128;
-				//image[idx+uidx]=yuv[1]+128;
-				//image[idx+vidx]=yuv[2]+128;
+				rows[0+0*4][+0]=yuv[0]=(char)(planes[0][idx2]+ypred);
+				rows[0+1*4][+0]=yuv[1]=(char)(planes[1][idx2]+upred);
+				rows[0+2*4][+0]=yuv[2]=(char)(planes[2][idx2]+vpred);
+				yuv[1]+=yuv[uhelpidx];
+				yuv[2]+=yuv[vhelpidx];
+
+				image[idx+yidx]=yuv[0]+128;
+				image[idx+uidx]=yuv[1]+128;
+				image[idx+vidx]=yuv[2]+128;
 
 				guide_check(image, kx, ky);
 				__m256i rows0=_mm256_load_si256((__m256i*)rows+0);
 				__m256i rows1=_mm256_load_si256((__m256i*)rows+1);
 				__m256i rows2=_mm256_load_si256((__m256i*)rows+2);
-				rows0=_mm256_add_epi64(rows0, _mm256_set1_epi64x(sizeof(char)));
-				rows1=_mm256_add_epi64(rows1, _mm256_set1_epi64x(sizeof(char)));
-				rows2=_mm256_add_epi64(rows2, _mm256_set1_epi64x(sizeof(char)));
+				rows0=_mm256_add_epi64(rows0, _mm256_set1_epi64x(sizeof(short)));
+				rows1=_mm256_add_epi64(rows1, _mm256_set1_epi64x(sizeof(short)));
+				rows2=_mm256_add_epi64(rows2, _mm256_set1_epi64x(sizeof(short)));
 				_mm256_store_si256((__m256i*)rows+0, rows0);
 				_mm256_store_si256((__m256i*)rows+1, rows1);
 				_mm256_store_si256((__m256i*)rows+2, rows2);

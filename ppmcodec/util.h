@@ -35,11 +35,13 @@ extern "C"
 //utility
 #ifdef _MSC_VER
 #define	ALIGN(N) __declspec(align(N))
-#define INLINE static
+#define AWM_INLINE __forceinline static
+//#define INLINE static
 //#define sprintf_s snprintf
 #else
 #define	ALIGN(N) __attribute__((aligned(N)))
-#define INLINE static inline
+#define AWM_INLINE __attribute__((always_inline)) inline static
+//#define INLINE static inline	//plain inline doesn't inline
 #ifndef _countof
 #define _countof(A) (sizeof(A)/sizeof(*(A)))
 #endif

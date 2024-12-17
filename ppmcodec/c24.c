@@ -147,7 +147,7 @@ static const char *pred_names[PRED_COUNT]=
 #define CONFIG_EXP 4
 #define CONFIG_MSB 1
 #define CONFIG_LSB 0
-FORCEINLINE void quantize_pixel(int val, int *token, int *bypass, int *nbits)
+AWM_INLINE void quantize_pixel(int val, int *token, int *bypass, int *nbits)
 {
 	if(val<(1<<CONFIG_EXP))
 	{
@@ -183,6 +183,8 @@ typedef struct _ThreadArgs
 	const unsigned char *decstart, *decend;
 
 	int tlevels;
+
+	//const unsigned *invtable;
 
 	//aux
 	int blockidx;
@@ -1151,9 +1153,9 @@ static void block_thread(void *param)
 			ALIGN(16) int grads[8];
 			_mm_store_si128((__m128i*)grads+0, mx);
 			_mm_store_si128((__m128i*)grads+1, my);
-#ifdef __GNUC__
-#pragma GCC unroll 3
-#endif
+//#ifdef __GNUC__
+//#pragma GCC unroll 3
+//#endif
 			for(int kc=0;kc<nch;++kc)
 			{
 				int offset=yuv[combination[kc+3]];
@@ -1256,8 +1258,34 @@ static void block_thread(void *param)
 				//_mm_prefetch(curr_hist0, _MM_HINT_T0);
 	#define GETCTR(X) curr_hist0[X]		//fast
 				den=GETCTR(args->tlevels);
+				//unsigned invden=args->invtable[den];//2.79% somehow slower
+
+				unsigned invden=0x80000000/den;//10%
+
+				//unsigned invden;
+				//{//12.11%	12.23%
+				//	__m128i i0=_mm_set_epi32(0, 0, 0, den);
+				//	__m128i i1=_mm_set_epi32(0, 0, 0, 31<<23);
+				//	//__m128 f1=_mm_set_ps(0, 0, 0, 1.f/0x80000000);
+				//	__m128 f0=_mm_cvtepi32_ps(i0);//1.66%
+				//	f0=_mm_castsi128_ps(_mm_sub_epi32(_mm_castps_si128(f0), i1));//subtract 31 from exponent part	1.78%
+				//	//f1=_mm_mul_ss(f1, f0);
+				//	f0=_mm_rcp_ss(f0);//3.25%
+				//	//f1=_mm_div_ss(f1, f0);
+				//	//invden=_mm_cvt_ss2si(f0);//7 cycles  4.56%
+				//	union{float f; unsigned i;} temp={_mm_cvtss_f32(_mm_castsi128_ps(_mm_cvtps_epi32(f0)))};//4+1 cycles  4.62%
+				//	invden=temp.i;
+				//}
+
+				//unsigned invden;
+				//{//20.81%
+				//	union{float f; unsigned i;} t0={1/(float)den};//vdivss 8.95%	DON'T RELY ON COMPILER
+				//	//float t0=1/(float)den;//-Wstrict-aliasing
+				//	t0.i+=31<<23;
+				//	//invden=(unsigned)t0.f;//safe clamped conversion
+				//}
+
 				//unsigned invden=(unsigned)((float)0x80000000/den);//div_ss, cvtss2si: slower
-				unsigned invden=0x80000000/den;
 #endif
 				//if(ky==480&&kx==109&&kc==2)//
 				//if(ky==147&&kx==317&&kc==1)//
@@ -1276,17 +1304,7 @@ static void block_thread(void *param)
 					{
 						int upred=half-abs(pred), aval=abs(error);
 						if(aval<=upred)
-						{
-							sym=error;
-#ifdef ENABLE_BIASCORR
-							{
-								int negmask=-((ibias_corr<0)&(sym!=-halfs[ch]));//sign is flipped if SSE correction was negative, to skew the histogram
-								sym^=negmask;
-								sym-=negmask;
-							}
-#endif
-							sym=sym<<1^sym>>31;//pack sign
-						}
+							sym=error<<1^error>>31;//pack sign
 						else
 							sym=upred+aval;//error sign is known
 					}
@@ -1508,21 +1526,16 @@ static void block_thread(void *param)
 						sym|=lsb;
 					}
 					{
-						int upred=half-abs(pred), negmask=0;
+						int upred=half-abs(pred);
 						if(sym<=(upred<<1))
-						{
 							error=sym>>1^-(sym&1);
-#ifdef ENABLE_BIASCORR
-							negmask=-((ibias_corr<0)&(error!=-half));
-#endif
-						}
 						else
 						{
+							int negmask=-(pred>0);
 							error=sym-upred;
-							negmask=-(pred>0);
+							error^=negmask;
+							error-=negmask;
 						}
-						error^=negmask;
-						error-=negmask;
 					}
 					yuv[kc]=error+pred;
 				}
@@ -1625,6 +1638,7 @@ int c24_codec(const char *srcfn, const char *dstfn)
 	double esize;
 	int usize;
 	int maxwidth;
+	//unsigned *invtable;
 	
 	t0=time_sec();
 	src=load_file(srcfn, 1, 3, 1);
@@ -1714,6 +1728,15 @@ int c24_codec(const char *srcfn, const char *dstfn)
 		maxwidth=iw;
 		if(maxwidth>BLOCKSIZE)
 			maxwidth=BLOCKSIZE;
+		//invtable=(unsigned*)malloc(sizeof(int[0x10000]));
+		//if(!invtable)
+		//{
+		//	LOG_ERROR("Alloc error");
+		//	return 1;
+		//}
+		//invtable[0]=0xFFFFFFFF;
+		//for(int k=1;k<0x10000;++k)
+		//	invtable[k]=0x80000000/k;
 	}
 	for(int k=0;k<nthreads;++k)
 	{
@@ -1739,6 +1762,7 @@ int c24_codec(const char *srcfn, const char *dstfn)
 		arg->tlevels=tlevels;
 		arg->fwd=fwd;
 		arg->test=test;
+		//arg->invtable=invtable;
 #ifdef ENABLE_MT
 		arg->loud=0;
 #else
@@ -1878,5 +1902,6 @@ int c24_codec(const char *srcfn, const char *dstfn)
 	free(args);
 	array_free(&src);
 	array_free(&dst);
+	//free(invtable);
 	return 0;
 }

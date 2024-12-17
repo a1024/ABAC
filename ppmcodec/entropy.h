@@ -13,11 +13,6 @@
 extern "C"
 {
 #endif
-#ifdef __GNUC__
-#define FORCEINLINE __attribute__((always_inline)) inline static
-#else
-#define FORCEINLINE __forceinline static
-#endif
 
 	
 //	#define AC_VALIDATE
@@ -229,7 +224,7 @@ typedef struct _AC2
 	BList *dst;
 	const unsigned char *srcptr, *srcend;
 } AC2;
-FORCEINLINE void ac2_bitwrite(AC2 *ec, int bit)
+AWM_INLINE void ac2_bitwrite(AC2 *ec, int bit)
 {
 	ec->cache=ec->cache<<1|bit;
 	++ec->nbits;
@@ -240,7 +235,7 @@ FORCEINLINE void ac2_bitwrite(AC2 *ec, int bit)
 		ec->nbits=0;
 	}
 }
-FORCEINLINE void ac2_bitwrite_withpending(AC2 *ec, int bit)
+AWM_INLINE void ac2_bitwrite_withpending(AC2 *ec, int bit)
 {
 	ac2_bitwrite(ec, bit);
 	bit^=1;
@@ -250,7 +245,7 @@ FORCEINLINE void ac2_bitwrite_withpending(AC2 *ec, int bit)
 		--ec->pending_bits;
 	}
 }
-FORCEINLINE int ac2_bitread(AC2 *ec)
+AWM_INLINE int ac2_bitread(AC2 *ec)
 {
 	if(!ec->nbits)
 	{
@@ -260,14 +255,14 @@ FORCEINLINE int ac2_bitread(AC2 *ec)
 	--ec->nbits;
 	return ec->cache>>ec->nbits&1;
 }
-FORCEINLINE void ac2_enc_init(AC2 *ec, BList *dst)
+AWM_INLINE void ac2_enc_init(AC2 *ec, BList *dst)
 {
 	memset(ec, 0, sizeof(*ec));
 	ec->x1=0;
 	ec->x2=~0;
 	ec->dst=dst;
 }
-FORCEINLINE void ac2_dec_init(AC2 *ec, const unsigned char *start, unsigned const char *end)
+AWM_INLINE void ac2_dec_init(AC2 *ec, const unsigned char *start, unsigned const char *end)
 {
 	memset(ec, 0, sizeof(*ec));
 	ec->x1=0;
@@ -277,7 +272,7 @@ FORCEINLINE void ac2_dec_init(AC2 *ec, const unsigned char *start, unsigned cons
 	for(int k=0;k<32;++k)
 		ec->code=ec->code<<1|ac2_bitread(ec);
 }
-FORCEINLINE void ac2_enc_flush(AC2 *ec)
+AWM_INLINE void ac2_enc_flush(AC2 *ec)
 {
 	do
 	{
@@ -285,7 +280,7 @@ FORCEINLINE void ac2_enc_flush(AC2 *ec)
 		ec->x1<<=1;
 	}while(ec->nbits||ec->x1);//while(ec->nbits);
 }
-FORCEINLINE void ac2_enc_renorm(AC2 *ec)
+AWM_INLINE void ac2_enc_renorm(AC2 *ec)
 {
 	while(!((ec->x1^ec->x2)>>31))
 	{
@@ -304,7 +299,7 @@ FORCEINLINE void ac2_enc_renorm(AC2 *ec)
 		LOG_ERROR("Invalid AC range %08X~%08X", ec->x1, ec->x2);
 #endif
 }
-FORCEINLINE void ac2_dec_renorm(AC2 *ec)
+AWM_INLINE void ac2_dec_renorm(AC2 *ec)
 {
 	while(!((ec->x1^ec->x2)>>31))
 	{
@@ -324,7 +319,7 @@ FORCEINLINE void ac2_dec_renorm(AC2 *ec)
 #endif
 }
 
-FORCEINLINE void ac2_enc_update(AC2 *ec, unsigned cdf_curr, unsigned cdf_next)
+AWM_INLINE void ac2_enc_update(AC2 *ec, unsigned cdf_curr, unsigned cdf_next)
 {
 	unsigned range, x1, x2;
 
@@ -336,7 +331,7 @@ FORCEINLINE void ac2_enc_update(AC2 *ec, unsigned cdf_curr, unsigned cdf_next)
 	ec->x1=x1;
 	ec->x2=x2;
 }
-FORCEINLINE unsigned ac2_dec_getcdf(AC2 *ec)
+AWM_INLINE unsigned ac2_dec_getcdf(AC2 *ec)
 {
 	unsigned cdf;
 
@@ -344,7 +339,7 @@ FORCEINLINE unsigned ac2_dec_getcdf(AC2 *ec)
 	cdf=(unsigned)(((unsigned long long)(ec->code-ec->x1)<<AC2_PROB_BITS|((1LL<<AC2_PROB_BITS)-1))/(ec->x2-ec->x1));
 	return cdf;
 }
-FORCEINLINE void ac2_dec_update(AC2 *ec, unsigned cdf_curr, unsigned cdf_next)
+AWM_INLINE void ac2_dec_update(AC2 *ec, unsigned cdf_curr, unsigned cdf_next)
 {
 	unsigned range, x1, x2;
 
@@ -355,7 +350,7 @@ FORCEINLINE void ac2_dec_update(AC2 *ec, unsigned cdf_curr, unsigned cdf_next)
 	ec->x1=x1;
 	ec->x2=x2;
 }
-FORCEINLINE void ac2_enc_bypass(AC2 *ec, unsigned sym, int nbits)
+AWM_INLINE void ac2_enc_bypass(AC2 *ec, unsigned sym, int nbits)
 {
 	unsigned range, x1, x2;
 	ac2_enc_renorm(ec);
@@ -366,7 +361,7 @@ FORCEINLINE void ac2_enc_bypass(AC2 *ec, unsigned sym, int nbits)
 	ec->x1=x1;
 	ec->x2=x2;
 }
-FORCEINLINE unsigned ac2_dec_bypass(AC2 *ec, int nbits)
+AWM_INLINE unsigned ac2_dec_bypass(AC2 *ec, int nbits)
 {
 	unsigned range, x1, x2, sym;
 	ac2_dec_renorm(ec);
@@ -379,7 +374,7 @@ FORCEINLINE unsigned ac2_dec_bypass(AC2 *ec, int nbits)
 	ec->x2=x2;
 	return sym;
 }
-FORCEINLINE void ac2_enc_bypass_NPOT(AC2 *ec, unsigned sym, int nlevels)
+AWM_INLINE void ac2_enc_bypass_NPOT(AC2 *ec, unsigned sym, int nlevels)
 {
 	unsigned range, x1, x2;
 	ac2_enc_renorm(ec);
@@ -390,7 +385,7 @@ FORCEINLINE void ac2_enc_bypass_NPOT(AC2 *ec, unsigned sym, int nlevels)
 	ec->x1=x1;
 	ec->x2=x2;
 }
-FORCEINLINE unsigned ac2_dec_bypass_NPOT(AC2 *ec, int nlevels)
+AWM_INLINE unsigned ac2_dec_bypass_NPOT(AC2 *ec, int nlevels)
 {
 	unsigned range, x1, x2, sym;
 	ac2_dec_renorm(ec);
@@ -403,7 +398,7 @@ FORCEINLINE unsigned ac2_dec_bypass_NPOT(AC2 *ec, int nlevels)
 	ec->x2=x2;
 	return sym;
 }
-FORCEINLINE void ac2_enc_bin(AC2 *ec, unsigned p1, int bit)
+AWM_INLINE void ac2_enc_bin(AC2 *ec, unsigned p1, int bit)
 {
 	unsigned mid;
 
@@ -420,7 +415,7 @@ FORCEINLINE void ac2_enc_bin(AC2 *ec, unsigned p1, int bit)
 		ec->x1=mid+1;
 	acval_enc(bit, 0, p1, x1, x2, ec->x1, ec->x2, 0, 0);
 }
-FORCEINLINE int ac2_dec_bin(AC2 *ec, unsigned p1)
+AWM_INLINE int ac2_dec_bin(AC2 *ec, unsigned p1)
 {
 	unsigned mid;
 	int bit;
@@ -457,14 +452,14 @@ typedef struct _AC3
 	const unsigned char *srcptr, *srcend;
 	unsigned long long code;
 } AC3;
-FORCEINLINE void ac3_enc_init(AC3 *ec, BList *dst)
+AWM_INLINE void ac3_enc_init(AC3 *ec, BList *dst)
 {
 	memset(ec, 0, sizeof(*ec));
 	ec->low=0;
 	ec->range=0xFFFFFFFFFFFF;
 	ec->dst=dst;
 }
-FORCEINLINE void ac3_dec_init(AC3 *ec, const unsigned char *start, unsigned const char *end)
+AWM_INLINE void ac3_dec_init(AC3 *ec, const unsigned char *start, unsigned const char *end)
 {
 	memset(ec, 0, sizeof(*ec));
 	ec->low=0;
@@ -484,7 +479,7 @@ FORCEINLINE void ac3_dec_init(AC3 *ec, const unsigned char *start, unsigned cons
 		memcpy((unsigned char*)&ec->code+8-AC3_RENORM/8-k, ec->srcptr+k, AC3_RENORM/8);
 	ec->srcptr+=nbytes;
 }
-FORCEINLINE void ac3_enc_renorm(AC3 *ec)
+AWM_INLINE void ac3_enc_renorm(AC3 *ec)
 {
 	unsigned long long rmax;
 
@@ -496,7 +491,7 @@ FORCEINLINE void ac3_enc_renorm(AC3 *ec)
 	if(ec->range>rmax)//clamp hi to register size after renorm
 		ec->range=rmax;
 }
-FORCEINLINE void ac3_dec_renorm(AC3 *ec)
+AWM_INLINE void ac3_dec_renorm(AC3 *ec)
 {
 	unsigned long long rmax;
 
@@ -513,7 +508,7 @@ FORCEINLINE void ac3_dec_renorm(AC3 *ec)
 	if(ec->range>rmax)
 		ec->range=rmax;
 }
-FORCEINLINE void ac3_enc_flush(AC3 *ec)
+AWM_INLINE void ac3_enc_flush(AC3 *ec)
 {
 	unsigned long long code=ec->low+ec->range;
 	int n=FLOOR_LOG2(ec->low^code);
@@ -529,7 +524,7 @@ FORCEINLINE void ac3_enc_flush(AC3 *ec)
 	}
 }
 
-FORCEINLINE void ac3_enc_update(AC3 *ec, unsigned cdf, unsigned freq)
+AWM_INLINE void ac3_enc_update(AC3 *ec, unsigned cdf, unsigned freq)
 {
 	AC3_RENORM_STATEMENT(!(ec->range>>AC3_PROB_BITS))
 		ac3_enc_renorm(ec);
@@ -544,7 +539,7 @@ FORCEINLINE void ac3_enc_update(AC3 *ec, unsigned cdf, unsigned freq)
 	ec->range=(ec->range*freq>>AC3_PROB_BITS)-1;//must decrement hi because decoder fails when code == hi2
 	acval_enc(0, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
 }
-FORCEINLINE unsigned ac3_dec_getcdf(AC3 *ec)
+AWM_INLINE unsigned ac3_dec_getcdf(AC3 *ec)
 {
 	AC3_RENORM_STATEMENT(!(ec->range>>AC3_PROB_BITS))
 		ac3_dec_renorm(ec);
@@ -554,7 +549,7 @@ FORCEINLINE unsigned ac3_dec_getcdf(AC3 *ec)
 #endif
 	return (unsigned)(((ec->code-ec->low)<<AC3_PROB_BITS|((1ULL<<AC3_PROB_BITS)-1))/ec->range);
 }
-FORCEINLINE void ac3_dec_update(AC3 *ec, unsigned cdf, unsigned freq)
+AWM_INLINE void ac3_dec_update(AC3 *ec, unsigned cdf, unsigned freq)
 {
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
@@ -568,7 +563,7 @@ FORCEINLINE void ac3_dec_update(AC3 *ec, unsigned cdf, unsigned freq)
 	acval_dec(0, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
 }
 
-FORCEINLINE void ac3_enc_update_N(AC3 *ec, unsigned cdf, unsigned freq, int probbits)//probbits <= 16
+AWM_INLINE void ac3_enc_update_N(AC3 *ec, unsigned cdf, unsigned freq, int probbits)//probbits <= 16
 {
 	AC3_RENORM_STATEMENT(!(ec->range>>probbits))
 		ac3_enc_renorm(ec);
@@ -583,7 +578,7 @@ FORCEINLINE void ac3_enc_update_N(AC3 *ec, unsigned cdf, unsigned freq, int prob
 	ec->range=(ec->range*freq>>probbits)-1;
 	acval_enc(0, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
 }
-FORCEINLINE unsigned ac3_dec_getcdf_N(AC3 *ec, int probbits)
+AWM_INLINE unsigned ac3_dec_getcdf_N(AC3 *ec, int probbits)
 {
 	AC3_RENORM_STATEMENT(!(ec->range>>probbits))
 		ac3_dec_renorm(ec);
@@ -626,7 +621,7 @@ FORCEINLINE unsigned ac3_dec_getcdf_N(AC3 *ec, int probbits)
 
 	//return (unsigned)(((ec->code-ec->low)<<probbits|((1LL<<probbits)-1))/ec->range);
 }
-FORCEINLINE void ac3_dec_update_N(AC3 *ec, unsigned cdf, unsigned freq, int probbits)
+AWM_INLINE void ac3_dec_update_N(AC3 *ec, unsigned cdf, unsigned freq, int probbits)
 {
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
@@ -640,7 +635,7 @@ FORCEINLINE void ac3_dec_update_N(AC3 *ec, unsigned cdf, unsigned freq, int prob
 	acval_dec(0, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
 }
 
-FORCEINLINE void ac3_enc_update_NPOT(AC3 *ec, unsigned cdf, unsigned freq, unsigned den)
+AWM_INLINE void ac3_enc_update_NPOT(AC3 *ec, unsigned cdf, unsigned freq, unsigned den)
 {
 #ifdef AC_VALIDATE
 	unsigned long long lo0, r0;
@@ -672,7 +667,7 @@ FORCEINLINE void ac3_enc_update_NPOT(AC3 *ec, unsigned cdf, unsigned freq, unsig
 	ec->range=ec->range*freq/den-1;
 	acval_enc(den, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
 }
-FORCEINLINE unsigned ac3_dec_getcdf_NPOT(AC3 *ec, unsigned den)
+AWM_INLINE unsigned ac3_dec_getcdf_NPOT(AC3 *ec, unsigned den)
 {
 	AC3_RENORM_STATEMENT(ec->range<(unsigned)den)
 		ac3_dec_renorm(ec);
@@ -687,7 +682,7 @@ FORCEINLINE unsigned ac3_dec_getcdf_NPOT(AC3 *ec, unsigned den)
 #endif
 	return (unsigned)(((ec->code-ec->low)*den+den-1)/ec->range);
 }
-FORCEINLINE void ac3_dec_update_NPOT(AC3 *ec, unsigned cdf, unsigned freq, unsigned den)
+AWM_INLINE void ac3_dec_update_NPOT(AC3 *ec, unsigned cdf, unsigned freq, unsigned den)
 {
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
@@ -707,7 +702,7 @@ FORCEINLINE void ac3_dec_update_NPOT(AC3 *ec, unsigned cdf, unsigned freq, unsig
 	acval_dec(den, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
 }
 
-FORCEINLINE void ac3_enc(AC3 *ec, int sym, const unsigned *CDF)
+AWM_INLINE void ac3_enc(AC3 *ec, int sym, const unsigned *CDF)
 {
 	unsigned cdf, freq;
 
@@ -726,7 +721,7 @@ FORCEINLINE void ac3_enc(AC3 *ec, int sym, const unsigned *CDF)
 	ec->range=(ec->range*freq>>AC3_PROB_BITS)-1;
 	acval_enc(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
 }
-FORCEINLINE int ac3_dec(AC3 *ec, const unsigned *CDF, int nbits)
+AWM_INLINE int ac3_dec(AC3 *ec, const unsigned *CDF, int nbits)
 {
 	unsigned cdf, freq;
 	int sym;
@@ -765,7 +760,7 @@ FORCEINLINE int ac3_dec(AC3 *ec, const unsigned *CDF, int nbits)
 	acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
 	return sym;
 }
-FORCEINLINE int ac3_dec_NPOT(AC3 *ec, const unsigned *CDF, int nlevels)
+AWM_INLINE int ac3_dec_NPOT(AC3 *ec, const unsigned *CDF, int nlevels)
 {
 	unsigned cdf, freq;
 	int range, sym;
@@ -797,7 +792,7 @@ FORCEINLINE int ac3_dec_NPOT(AC3 *ec, const unsigned *CDF, int nlevels)
 	return sym;
 }
 
-FORCEINLINE void ac3_enc_bypass(AC3 *ec, int bypass, int nbits)//up to 16 bits
+AWM_INLINE void ac3_enc_bypass(AC3 *ec, int bypass, int nbits)//up to 16 bits
 {
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
@@ -808,7 +803,7 @@ FORCEINLINE void ac3_enc_bypass(AC3 *ec, int bypass, int nbits)//up to 16 bits
 	ec->range=(ec->range>>nbits)-1;
 	acval_enc(nbits, bypass, 1, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
 }
-FORCEINLINE int ac3_dec_bypass(AC3 *ec, int nbits)
+AWM_INLINE int ac3_dec_bypass(AC3 *ec, int nbits)
 {
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
@@ -826,7 +821,7 @@ FORCEINLINE int ac3_dec_bypass(AC3 *ec, int nbits)
 	return bypass;
 }
 
-FORCEINLINE void ac3_enc_bypass_NPOT(AC3 *ec, int bypass, int nlevels)
+AWM_INLINE void ac3_enc_bypass_NPOT(AC3 *ec, int bypass, int nlevels)
 {
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
@@ -837,7 +832,7 @@ FORCEINLINE void ac3_enc_bypass_NPOT(AC3 *ec, int bypass, int nlevels)
 	ec->range=ec->range/nlevels-1;
 	acval_enc(nlevels, bypass, 1, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
 }
-FORCEINLINE int ac3_dec_bypass_NPOT(AC3 *ec, int nlevels)
+AWM_INLINE int ac3_dec_bypass_NPOT(AC3 *ec, int nlevels)
 {
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
@@ -852,7 +847,7 @@ FORCEINLINE int ac3_dec_bypass_NPOT(AC3 *ec, int nlevels)
 	return bypass;
 }
 
-FORCEINLINE void ac3_enc_bin(AC3 *ec, int bit, unsigned p0, int probbits)//probbits <= 16
+AWM_INLINE void ac3_enc_bin(AC3 *ec, int bit, unsigned p0, int probbits)//probbits <= 16
 {
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
@@ -871,7 +866,7 @@ FORCEINLINE void ac3_enc_bin(AC3 *ec, int bit, unsigned p0, int probbits)//probb
 		ec->range=mid-1;
 	acval_enc(bit, bit?p0:0, bit?(1<<probbits)-p0:p0, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
 }
-FORCEINLINE int ac3_dec_bin(AC3 *ec, unsigned p0, int probbits)
+AWM_INLINE int ac3_dec_bin(AC3 *ec, unsigned p0, int probbits)
 {
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
@@ -952,14 +947,14 @@ typedef struct _AC4
 	const unsigned char *srcptr, *srcend;
 	unsigned code;
 } AC4;
-FORCEINLINE void ac4_enc_init(AC4 *ec, BList *dst)
+AWM_INLINE void ac4_enc_init(AC4 *ec, BList *dst)
 {
 	memset(ec, 0, sizeof(*ec));
 	ec->lo=0;
 	ec->hi=0xFFFFFFFF;
 	ec->dst=dst;
 }
-FORCEINLINE void ac4_dec_init(AC4 *ec, const unsigned char *srcstart, const unsigned char *srcend)
+AWM_INLINE void ac4_dec_init(AC4 *ec, const unsigned char *srcstart, const unsigned char *srcend)
 {
 	memset(ec, 0, sizeof(*ec));
 	ec->lo=0;
@@ -975,7 +970,7 @@ FORCEINLINE void ac4_dec_init(AC4 *ec, const unsigned char *srcstart, const unsi
 			ec->code|=*ec->srcptr++;
 	}
 }
-FORCEINLINE void ac4_enc_flush(AC4 *ec)
+AWM_INLINE void ac4_enc_flush(AC4 *ec)
 {
 	unsigned mid=(unsigned)(((unsigned long long)ec->lo+ec->hi)>>1);
 	blist_push_back1(ec->dst, (unsigned char*)&mid+3);//big-endian
@@ -983,7 +978,7 @@ FORCEINLINE void ac4_enc_flush(AC4 *ec)
 	blist_push_back1(ec->dst, (unsigned char*)&mid+1);
 	blist_push_back1(ec->dst, (unsigned char*)&mid+0);
 }
-FORCEINLINE void ac4_enc_bin(AC4 *ec, unsigned short p1, int bit)
+AWM_INLINE void ac4_enc_bin(AC4 *ec, unsigned short p1, int bit)
 {
 	unsigned mid;
 	
@@ -1005,7 +1000,7 @@ FORCEINLINE void ac4_enc_bin(AC4 *ec, unsigned short p1, int bit)
 		ec->lo=mid+1;
 	acval_enc(bit, bit, p1, lo, hi, ec->lo, ec->hi, 0, 0);
 }
-FORCEINLINE int ac4_dec_bin(AC4 *ec, unsigned short p1)
+AWM_INLINE int ac4_dec_bin(AC4 *ec, unsigned short p1)
 {
 	unsigned mid;
 	int bit;
@@ -1032,7 +1027,7 @@ FORCEINLINE int ac4_dec_bin(AC4 *ec, unsigned short p1)
 	acval_dec(bit, bit, p1, lo, hi, ec->lo, ec->hi, 0, 0, ec->code);
 	return bit;
 }
-FORCEINLINE void ac4_enc_update_NPOT(AC4 *ec, unsigned cdf_curr, unsigned cdf_next, unsigned den)
+AWM_INLINE void ac4_enc_update_NPOT(AC4 *ec, unsigned cdf_curr, unsigned cdf_next, unsigned den)
 {
 	unsigned lo, hi;
 
@@ -1048,7 +1043,7 @@ FORCEINLINE void ac4_enc_update_NPOT(AC4 *ec, unsigned cdf_curr, unsigned cdf_ne
 	ec->lo=lo;
 	ec->hi=hi;
 }
-FORCEINLINE unsigned ac4_dec_getcdf_NPOT(AC4 *ec, unsigned den)
+AWM_INLINE unsigned ac4_dec_getcdf_NPOT(AC4 *ec, unsigned den)
 {
 	unsigned cdf;
 	
@@ -1063,7 +1058,7 @@ FORCEINLINE unsigned ac4_dec_getcdf_NPOT(AC4 *ec, unsigned den)
 	cdf=(unsigned)(((unsigned long long)(ec->code-ec->lo)*den+den-1)/(ec->hi-ec->lo));
 	return cdf;
 }
-FORCEINLINE void ac4_dec_update_NPOT(AC4 *ec, unsigned cdf_curr, unsigned cdf_next, unsigned den)
+AWM_INLINE void ac4_dec_update_NPOT(AC4 *ec, unsigned cdf_curr, unsigned cdf_next, unsigned den)
 {
 	unsigned lo, hi;
 
@@ -1081,7 +1076,7 @@ typedef struct _AC5
 	unsigned lo, hi, code, enc;
 	FILE *f;
 } AC5;
-FORCEINLINE void ac5_enc_init(AC5 *ec, FILE *fdst)
+AWM_INLINE void ac5_enc_init(AC5 *ec, FILE *fdst)
 {
 	ec->lo=0;
 	ec->hi=0xFFFFFFFF;
@@ -1089,7 +1084,7 @@ FORCEINLINE void ac5_enc_init(AC5 *ec, FILE *fdst)
 	ec->enc=1;
 	ec->f=fdst;
 }
-FORCEINLINE void ac5_dec_init(AC5 *ec, FILE *fsrc)
+AWM_INLINE void ac5_dec_init(AC5 *ec, FILE *fsrc)
 {
 	ec->lo=0;
 	ec->hi=0xFFFFFFFF;
@@ -1100,7 +1095,7 @@ FORCEINLINE void ac5_dec_init(AC5 *ec, FILE *fsrc)
 	ec->code=ec->code<<8|(fgetc(fsrc)&255);
 	ec->code=ec->code<<8|(fgetc(fsrc)&255);
 }
-FORCEINLINE void ac5_enc_flush(AC5 *ec)
+AWM_INLINE void ac5_enc_flush(AC5 *ec)
 {
 	unsigned code=ec->lo;
 	fputc(code>>24, ec->f);	code<<=8;
@@ -1108,7 +1103,7 @@ FORCEINLINE void ac5_enc_flush(AC5 *ec)
 	fputc(code>>24, ec->f);	code<<=8;
 	fputc(code>>24, ec->f);
 }
-FORCEINLINE void ac5_enc_bin(AC5 *ec, int p1, int bit)
+AWM_INLINE void ac5_enc_bin(AC5 *ec, int p1, int bit)
 {
 	while((ec->lo^ec->hi)<0x1000000)
 	{
@@ -1123,7 +1118,7 @@ FORCEINLINE void ac5_enc_bin(AC5 *ec, int p1, int bit)
 		ec->hi=bit?mid:ec->hi;
 	}
 }
-FORCEINLINE int ac5_dec_bin(AC5 *ec, int p1)
+AWM_INLINE int ac5_dec_bin(AC5 *ec, int p1)
 {
 	while((ec->lo^ec->hi)<0x1000000)
 	{
@@ -1156,7 +1151,7 @@ typedef struct GolombRiceCoderStruct
 	unsigned char *dstptr, *dstend, *dststart;
 	BList *dst;
 } GolombRiceCoder;
-FORCEINLINE size_t gr_enc_flush(GolombRiceCoder *ec)
+AWM_INLINE size_t gr_enc_flush(GolombRiceCoder *ec)
 {
 #ifdef EC_USE_ARRAY
 	if(ec->dstptr+sizeof(ec->cache)>ec->dstend)//compression failed
@@ -1169,7 +1164,7 @@ FORCEINLINE size_t gr_enc_flush(GolombRiceCoder *ec)
 	return 1;
 #endif
 }
-FORCEINLINE int gr_dec_impl_read(GolombRiceCoder *ec)
+AWM_INLINE int gr_dec_impl_read(GolombRiceCoder *ec)
 {
 	if(ec->srcptr+sizeof(ec->cache)>ec->srcend)
 	{
@@ -1181,7 +1176,7 @@ FORCEINLINE int gr_dec_impl_read(GolombRiceCoder *ec)
 	ec->srcptr+=sizeof(ec->cache);
 	return 0;
 }
-FORCEINLINE void gr_enc_init(GolombRiceCoder *ec,
+AWM_INLINE void gr_enc_init(GolombRiceCoder *ec,
 #ifdef EC_USE_ARRAY
 	unsigned char *start, unsigned char *end
 #else
@@ -1201,7 +1196,7 @@ FORCEINLINE void gr_enc_init(GolombRiceCoder *ec,
 	ec->dst=dst;
 #endif
 }
-FORCEINLINE void gr_dec_init(GolombRiceCoder *ec, const unsigned char *start, const unsigned char *end)
+AWM_INLINE void gr_dec_init(GolombRiceCoder *ec, const unsigned char *start, const unsigned char *end)
 {
 	memset(ec, 0, sizeof(*ec));
 	ec->cache=0;
@@ -1212,7 +1207,7 @@ FORCEINLINE void gr_dec_init(GolombRiceCoder *ec, const unsigned char *start, co
 	ec->srcstart=start;
 }
 
-FORCEINLINE int gr_enc_NPOT(GolombRiceCoder *ec, unsigned sym, unsigned magnitude)
+AWM_INLINE int gr_enc_NPOT(GolombRiceCoder *ec, unsigned sym, unsigned magnitude)
 {
 	//buffer: {c,c,c,b,b,a,a,a, f,f,f,e,e,e,d,c}, cache: MSB gg[hhh]000 LSB	nbits 6->3, code h is about to be emitted
 	//written 64-bit words are byte-reversed because the CPU is little-endian
@@ -1268,7 +1263,7 @@ FORCEINLINE int gr_enc_NPOT(GolombRiceCoder *ec, unsigned sym, unsigned magnitud
 	ec->cache|=(GREmit_t)bypass<<ec->nbits;
 	return 1;
 }
-FORCEINLINE unsigned gr_dec_NPOT(GolombRiceCoder *ec, unsigned magnitude)
+AWM_INLINE unsigned gr_dec_NPOT(GolombRiceCoder *ec, unsigned magnitude)
 {
 	//cache: MSB 00[hhh]ijj LSB		nbits 6->3, h is about to be read (past codes must be cleared from cache)
 	
@@ -1329,7 +1324,7 @@ FORCEINLINE unsigned gr_dec_NPOT(GolombRiceCoder *ec, unsigned magnitude)
 	return sym;
 }
 
-FORCEINLINE int gr_enc(GolombRiceCoder *ec, int sym, int nbypass)
+AWM_INLINE int gr_enc(GolombRiceCoder *ec, int sym, int nbypass)
 {
 	//buffer: {c,c,c,b,b,a,a,a, f,f,f,e,e,e,d,c}, cache: MSB gg[hhh]000 LSB	nbits 6->3, code h is about to be emitted
 	//written 64-bit words are byte-reversed because the CPU is little-endian
@@ -1377,7 +1372,7 @@ FORCEINLINE int gr_enc(GolombRiceCoder *ec, int sym, int nbypass)
 	ec->cache|=(GREmit_t)bypass<<ec->nbits;
 	return 1;
 }
-FORCEINLINE unsigned gr_dec(GolombRiceCoder *ec, int nbypass)
+AWM_INLINE unsigned gr_dec(GolombRiceCoder *ec, int nbypass)
 {
 	//cache: MSB 00[hhh]ijj LSB		nbits 6->3, h is about to be read (past codes must be cleared from cache)
 	

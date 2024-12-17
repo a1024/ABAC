@@ -218,7 +218,7 @@ static void wg_init(double *weights, int kc)
 //	WG_PREDLIST
 //#undef  WG_PRED
 }
-FORCEINLINE int wg_predict(
+AWM_INLINE int wg_predict(
 	const double *weights, short **rows, const int stride, int kc2,
 	int cgrad, const int *perrors, const int *NWerrors, const int *Nerrors, const int *NEerrors, const int *NNEerrors, int *preds
 )
@@ -394,7 +394,7 @@ FORCEINLINE int wg_predict(
 	}
 #endif
 }
-FORCEINLINE void wg_update(int curr, int kc, const int *preds, int *perrors, int *Nerrors, int *Werrors, int *currerrors, int *NEerrors)
+AWM_INLINE void wg_update(int curr, int kc, const int *preds, int *perrors, int *Nerrors, int *Werrors, int *currerrors, int *NEerrors)
 {
 	static const int factors[]={97, 99, 99};
 	int factor=factors[kc];

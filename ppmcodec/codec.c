@@ -31,9 +31,9 @@ static const char file[]=__FILE__;
 //	#define CODEC_FUNC c19_codec
 //	#define CODEC_FUNC c20_codec
 //	#define CODEC_FUNC c21_codec
-//	#define CODEC_FUNC c22_codec
+	#define CODEC_FUNC c22_codec
 //	#define CODEC_FUNC c23_codec
-	#define CODEC_FUNC c24_codec
+//	#define CODEC_FUNC c24_codec
 //	#define CODEC_FUNC c25_codec
 #endif
 //#define STR_EXPAND(X) #X
@@ -185,14 +185,14 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/kodim13.c18"
 	//	"D:/ML/dataset-kodak-ppm/kodim13.c18"
 		;
-//	CODEC_FUNC("D:/ML/kodim13.ppm", "D:/ML/kodim13.lsim");
-//	CODEC_FUNC("D:/ML/kodim13.lsim", "D:/ML/kodim13_dec.ppm");
+	CODEC_FUNC("D:/ML/kodim13.ppm", "D:/ML/kodim13.lsim");
+	CODEC_FUNC("D:/ML/kodim13.lsim", "D:/ML/kodim13_dec.ppm");
 
 //	CODEC_FUNC("D:/ML/kodim24.ppm", "D:/ML/kodim24.lsim");
 //	CODEC_FUNC("D:/ML/kodim24.lsim", "D:/ML/kodim24_dec.ppm");
 
-	CODEC_FUNC("C:/dataset-meme-ppm/emoji_u1f628.ppm",	"D:/ML/mystery.lsim");
-	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
+//	CODEC_FUNC("C:/dataset-meme-ppm/emoji_u1f628.ppm",	"D:/ML/mystery.lsim");
+//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
 
 //	CODEC_FUNC("C:/dataset-LPCB-ppm/canon_eos_1100d_02.ppm",	"D:/ML/mystery.lsim");
 //	CODEC_FUNC("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm");
