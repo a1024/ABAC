@@ -1,23 +1,33 @@
-SRC = c03.c codec.c util.c
-#SRC = c07.c codec.c util.c
-#SRC = c05.c codec.c util.c
-#SRC = c01.c c02.c c03.c c04.c c05.c c06.c c07.c codec.c util.c
 
-SRC_ZYDIS = -Wno-unused-const-variable -Izydist_amalgamated410 zydist_amalgamated410/Zydis.c
 
-ifeq ($(OS),Windows_NT)
+# build:		make codec
+# with profiler:	make codec PROF=1
+
+
+ifeq ($(PROF), 1)
+SRC_ZYDIS = -DPROFILER -DDISABLE_MT -DENABLE_PROFILER_DISASSEMBLY -Wno-unused-const-variable -Izydist_amalgamated410 zydist_amalgamated410/Zydis.c
+else
+SRC_ZYDIS =
+endif
+
+ifeq ($(OS), Windows_NT)
 LIBS += -static
 else
 LIBS += -lm
 endif
 
+#SRC = c03.c codec.c util.c
+#SRC = c07.c codec.c util.c
+#SRC = c05.c codec.c util.c
+#SRC = c01.c c02.c c03.c c04.c c05.c c06.c c07.c codec.c util.c
+
 #.PHONY: c01 c02 c03 c03-clang c05 c07 c09 c10 c11 c12 c13 c13-debug c13-profile
 
-build:
-	gcc -O3 -Wall -mavx2 -mbmi -mlzcnt $(SRC_ZYDIS) $(SRC) -o codec -static
-
-build-clang:
-	clang -O3 -Wall -mavx2 -mbmi -mlzcnt $(SRC_ZYDIS) $(SRC) -o codec -static
+#build:
+#	gcc -O3 -Wall -mavx2 -mbmi -mlzcnt $(SRC_ZYDIS) $(SRC) -o codec -static
+#
+#build-clang:
+#	clang -O3 -Wall -mavx2 -mbmi -mlzcnt $(SRC_ZYDIS) $(SRC) -o codec -static
 
 c01:
 	gcc -O3 -Wall -DCODEC_FUNC=c01_codec -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c01.c codec.c util.c  -o c01 $(LIBS)

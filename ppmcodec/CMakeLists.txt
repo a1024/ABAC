@@ -5,6 +5,10 @@
 add_definitions(-DZYDIS_DEFINES_H=)
 add_definitions(-DZYDIS_EXPORT=)
 add_definitions(-DZYDIS_NO_EXPORT=)
+
+#	add_definitions(-DPROFILER=)
+#	add_definitions(-DENABLE_PROFILER_DISASSEMBLY=)
+
 add_executable(codec
 	c01.c
 	c02.c

@@ -14,7 +14,9 @@ static const char file[]=__FILE__;
 
 //	#define LOUD
 
+#ifndef DISABLE_MT
 	#define ENABLE_MT
+#endif
 //	#define ENABLE_GUIDE
 
 	#define ENABLE_FASTANALYSIS	//LPCB 3~14% faster, 0.04% larger than entropy	good

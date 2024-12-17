@@ -3089,6 +3089,17 @@ void* prof_start()
 	args->mt_ctx=mt_exec(prof_impl_thread, args, sizeof(ProfContext), 1);
 	return args;
 }
+#ifdef ENABLE_PROFILER_DISASSEMBLY
+static void prof_impl_print_instr(int lineno, size_t runtime_addr, ptrdiff_t freq, ptrdiff_t hitsum, const char *disassembly)
+{
+	printf("%4d 0x%016tX ", lineno, runtime_addr);
+	if((int)(freq*1000/hitsum)>0)
+		printf("%6.2lf%%", (double)freq*100./hitsum);
+	else
+		printf("%*s", 6+1, "");
+	printf(" %8td  %s\n", freq, disassembly);
+}
+#endif
 void prof_end(void *prof_ctx)
 {
 	ProfContext *args=(ProfContext*)prof_ctx;
@@ -3104,7 +3115,7 @@ void prof_end(void *prof_ctx)
 	int count=(int)results->count;
 #ifdef ENABLE_PROFILER_DISASSEMBLY
 	{
-		ptrdiff_t minaddr=0, maxaddr=0, hitsum=0;
+		ptrdiff_t hitsum=0;
 		for(int k=0;k<count;++k)
 			hitsum+=ptr[k].count;
 		ZydisDecoder decoder;
@@ -3115,29 +3126,50 @@ void prof_end(void *prof_ctx)
 
 		ZydisDecodedInstruction instruction;
 		ZydisDecodedOperand operands[ZYDIS_MAX_OPERAND_COUNT];
-		int lineno=1;
-		printf("Line, address, freq\n");
+		printf("Line, address, [%%] freq\n");
+		int lineno=1, gap=1;
 		for(int k=0;k<count;++k)
 		{
-			size_t runtime_addr=ptr[k].addr;
-			if(!ZYAN_SUCCESS(ZydisDecoderDecodeFull(&decoder, (void*)runtime_addr, 16, &instruction, operands)))
+			char buffer[256], buffer2[256];
+			size_t addr=ptr[k].addr;
+			if(!ZYAN_SUCCESS(ZydisDecoderDecodeFull(&decoder, (void*)addr, 16, &instruction, operands)))
 			{
 				LOG_ERROR("prof Disassembly failed");
 				return;
 			}
-			char buffer[256];//Format & print the binary instruction structure to human-readable format
-			ZydisFormatterFormatInstruction(&formatter, &instruction, operands, instruction.operand_count_visible, buffer, sizeof(buffer), runtime_addr, ZYAN_NULL);
-			printf("%4d 0x%016tX ", lineno, runtime_addr);
-			ptrdiff_t freq=ptr[k].count;
-			if((int)(freq*1000/hitsum)>0)
-				printf("%6.2lf%%", (double)freq*100./hitsum);
-			else
-				printf("%*s", 6+1, "");
-			printf(" %8td  %s\n", freq, buffer);
-			if(k+1<count&&(ptrdiff_t)(runtime_addr+instruction.length)<ptr[k+1].addr)
-				printf("...+%td bytes\n", ptr[k+1].addr-(runtime_addr+instruction.length));
-
-			++lineno;
+			ZydisFormatterFormatInstruction(&formatter, &instruction, operands, instruction.operand_count_visible, buffer, sizeof(buffer), addr, ZYAN_NULL);
+			size_t addr2=addr+instruction.length;
+			ptrdiff_t freq=k+1<count&&addr2==(size_t)ptr[k+1].addr?ptr[k+1].count:0;//freqs were shifted down by 1 instrction
+			ptrdiff_t freq2=0;
+			int print_next=0;
+			int gap0=gap;
+			gap=0;
+			if(k+1<count&&addr2<(size_t)ptr[k+1].addr)//check for gap after current instruction
+			{
+				if(!ZYAN_SUCCESS(ZydisDecoderDecodeFull(&decoder, (void*)addr2, 16, &instruction, operands)))
+				{
+					LOG_ERROR("prof Disassembly failed");
+					return;
+				}
+				ZydisFormatterFormatInstruction(&formatter, &instruction, operands, instruction.operand_count_visible, buffer2, sizeof(buffer2), addr2, ZYAN_NULL);
+				if((ptrdiff_t)(addr2+instruction.length)<ptr[k+1].addr)//check if gap is longer than 1 instruction
+				{
+					freq=0;
+					gap=1;
+				}
+				else
+				{
+					print_next=1;
+					freq2=k+1<count?ptr[k+1].count:0;//freqs were shifted down by 1 instrction
+				}
+			}
+			if(gap0)
+				freq+=ptr[k].count;
+			prof_impl_print_instr(lineno++, addr, freq, hitsum, buffer);
+			if(print_next)
+				prof_impl_print_instr(lineno++, addr2, freq2, hitsum, buffer2);
+			else if(gap&&k+1<count)
+				printf("...+%td bytes\n", ptr[k+1].addr-addr2);
 		}
 	}
 #if 0

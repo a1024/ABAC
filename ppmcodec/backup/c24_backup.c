@@ -7,9 +7,7 @@ static const char file[]=__FILE__;
 
 
 //	#define ENABLE_GUIDE
-#ifndef DISABLE_MT
 	#define ENABLE_MT
-#endif
 
 	#define ENABLE_EDGECASES
 
@@ -1167,6 +1165,24 @@ static void block_thread(void *param)
 
 				//if(qeN>CLEVELS-2||qeW>CLEVELS-2)//
 				//	LOG_ERROR("");
+				int cdf, freq=0, den;
+#ifdef ENABLE_FREQINC
+				unsigned short *curr_hist0=histptr+cdfstride*(CLEVELS*(CLEVELS*kc+qeN+0)+qeW+0);
+				unsigned short *curr_hist1=histptr+cdfstride*(CLEVELS*(CLEVELS*kc+qeN+0)+qeW+1);
+				unsigned short *curr_hist2=histptr+cdfstride*(CLEVELS*(CLEVELS*kc+qeN+1)+qeW+0);
+				unsigned short *curr_hist3=histptr+cdfstride*(CLEVELS*(CLEVELS*kc+qeN+1)+qeW+1);
+	#define GETCTR(X) (curr_hist1[X]+curr_hist2[X])		//efficient with update4
+//	#define GETCTR(X) ((curr_hist1[X]+curr_hist2[X])*2+curr_hist0[X]+curr_hist3[X])		//X  slow
+//	#define GETCTR(X) (curr_hist0[X]+curr_hist1[X]+curr_hist2[X])
+//	#define GETCTR(X) (curr_hist0[X]+curr_hist1[X]+curr_hist2[X]+curr_hist3[X])
+//	#define GETCTR(X) curr_hist1[X]		//fast
+//	#define GETCTR(X) curr_hist0[X]		//fast
+				den=GETCTR(args->tlevels)+args->tlevels;
+#else
+				unsigned short *curr_hist0=histptr+cdfstride*(CLEVELS*(CLEVELS*kc+qeN)+qeW);
+	#define GETCTR(X) curr_hist0[X]		//fast
+				den=GETCTR(args->tlevels);
+#endif
 				switch(predidx[kc])
 				{
 #ifdef ENABLE_W
@@ -1237,37 +1253,10 @@ static void block_thread(void *param)
 				pred+=offset;
 				CLAMP2(pred, -128, 127);
 				//CLAMP2_32(pred, pred, -128, 127);
-
-				unsigned short cdf, freq, den;
-#ifdef ENABLE_FREQINC
-				unsigned short *curr_hist0=histptr+cdfstride*(CLEVELS*(CLEVELS*kc+qeN+0)+qeW+0);
-				unsigned short *curr_hist1=histptr+cdfstride*(CLEVELS*(CLEVELS*kc+qeN+0)+qeW+1);
-				unsigned short *curr_hist2=histptr+cdfstride*(CLEVELS*(CLEVELS*kc+qeN+1)+qeW+0);
-				unsigned short *curr_hist3=histptr+cdfstride*(CLEVELS*(CLEVELS*kc+qeN+1)+qeW+1);
-	#define GETCTR(X) (curr_hist1[X]+curr_hist2[X])		//efficient with update4
-//	#define GETCTR(X) ((curr_hist1[X]+curr_hist2[X])*2+curr_hist0[X]+curr_hist3[X])		//X  slow
-//	#define GETCTR(X) (curr_hist0[X]+curr_hist1[X]+curr_hist2[X])
-//	#define GETCTR(X) (curr_hist0[X]+curr_hist1[X]+curr_hist2[X]+curr_hist3[X])
-//	#define GETCTR(X) curr_hist1[X]		//fast
-//	#define GETCTR(X) curr_hist0[X]		//fast
-				den=GETCTR(args->tlevels)+args->tlevels;
-#else
-				unsigned short *curr_hist0=histptr+cdfstride*(CLEVELS*(CLEVELS*kc+qeN)+qeW);
-				//_mm_prefetch(curr_hist0, _MM_HINT_T0);
-	#define GETCTR(X) curr_hist0[X]		//fast
-				den=GETCTR(args->tlevels);
-				//unsigned invden=(unsigned)((float)0x80000000/den);//div_ss, cvtss2si: slower
-				unsigned invden=0x80000000/den;
-#endif
 				//if(ky==480&&kx==109&&kc==2)//
 				//if(ky==147&&kx==317&&kc==1)//
 				//if(ky==1&&kx==455&&kc==0)//
 				//if(ky==0&&kx==5&&kc==1)//
-				//if(ky==0&&kx==0&&kc==0)//
-				//if(ky==747&&kx==2443&&kc==1)//
-				//if(ky==0&&kx==25&&kc==2)//
-				//if(ky==0&&kx==0&&kc==2)//
-				//if(ky==747&&kx==2444&&kc==0)//
 				//if(ky==0&&kx==0&&kc==0)//
 				//	printf("");
 				if(args->fwd)
@@ -1303,94 +1292,36 @@ static void block_thread(void *param)
 					cdf=0;
 					freq=GETCTR(token);
 #endif
-#if 0
-					int ks=0;//3.76%
-					unsigned short *histptr=curr_hist0;
-					if(ks+16<=token)
+					switch(token)
 					{
-						__m128i t0=_mm_loadu_si128((__m128i*)histptr+0);
-						__m128i t1=_mm_loadu_si128((__m128i*)histptr+1);
-						t0=_mm_add_epi16(t0, t1);
-						t0=_mm_hadd_epi16(t0, t0);
-						t0=_mm_hadd_epi16(t0, t0);
-						t0=_mm_hadd_epi16(t0, t0);
-						cdf=_mm_extract_epi16(t0, 0);
-						ks+=16;
-						histptr+=16;
-					}
-					if(ks+8<=token)
-					{
-						__m128i t0=_mm_loadu_si128((__m128i*)histptr);
-						t0=_mm_hadd_epi16(t0, t0);
-						t0=_mm_hadd_epi16(t0, t0);
-						t0=_mm_hadd_epi16(t0, t0);
-						cdf+=_mm_extract_epi16(t0, 0);
-						ks+=8;
-						histptr+=8;
-					}
-					if(ks+4<=token)
-					{
-						__m128i t0=_mm_loadu_si128((__m128i*)histptr);//1.24%
-						t0=_mm_hadd_epi16(t0, t0);
-						t0=_mm_hadd_epi16(t0, t0);
-						cdf+=_mm_extract_epi16(t0, 0);
-						ks+=4;
-						histptr+=4;
-					}
-					switch(token-ks)
-					{
-				//	case 7:cdf+=histptr[6];
-				//	case 6:cdf+=histptr[5];
-				//	case 5:cdf+=histptr[4];
-				//	case 4:cdf+=histptr[3];
-					case 3:cdf+=histptr[2];
-					case 2:cdf+=histptr[1];
-					case 1:cdf+=histptr[0];
+					case 25:cdf+=GETCTR(24);
+					case 24:cdf+=GETCTR(23);
+					case 23:cdf+=GETCTR(22);
+					case 22:cdf+=GETCTR(21);
+					case 21:cdf+=GETCTR(20);
+					case 20:cdf+=GETCTR(19);
+					case 19:cdf+=GETCTR(18);
+					case 18:cdf+=GETCTR(17);
+					case 17:cdf+=GETCTR(16);
+					case 16:cdf+=GETCTR(15);
+					case 15:cdf+=GETCTR(14);
+					case 14:cdf+=GETCTR(13);
+					case 13:cdf+=GETCTR(12);
+					case 12:cdf+=GETCTR(11);
+					case 11:cdf+=GETCTR(10);
+					case 10:cdf+=GETCTR( 9);
+					case  9:cdf+=GETCTR( 8);
+					case  8:cdf+=GETCTR( 7);
+					case  7:cdf+=GETCTR( 6);
+					case  6:cdf+=GETCTR( 5);
+					case  5:cdf+=GETCTR( 4);
+					case  4:cdf+=GETCTR( 3);
+					case  3:cdf+=GETCTR( 2);
+					case  2:cdf+=GETCTR( 1);
+					case  1:cdf+=GETCTR( 0);
 					default:
 						break;
 					}
-#endif
-#if 1
-					unsigned short t0=0, t1=0;
-					switch(token&31)//3.44%
-					{
-					case 31:t0+=GETCTR(30);
-					case 30:t1+=GETCTR(29);
-					case 29:t0+=GETCTR(28);
-					case 28:t1+=GETCTR(27);
-					case 27:t0+=GETCTR(26);
-					case 26:t1+=GETCTR(25);
-					case 25:t0+=GETCTR(24);
-					case 24:t1+=GETCTR(23);
-					case 23:t0+=GETCTR(22);
-					case 22:t1+=GETCTR(21);
-					case 21:t0+=GETCTR(20);
-					case 20:t1+=GETCTR(19);
-					case 19:t0+=GETCTR(18);
-					case 18:t1+=GETCTR(17);
-					case 17:t0+=GETCTR(16);
-					case 16:t1+=GETCTR(15);
-					case 15:t0+=GETCTR(14);
-					case 14:t1+=GETCTR(13);
-					case 13:t0+=GETCTR(12);
-					case 12:t1+=GETCTR(11);
-					case 11:t0+=GETCTR(10);
-					case 10:t1+=GETCTR( 9);
-					case  9:t0+=GETCTR( 8);
-					case  8:t1+=GETCTR( 7);
-					case  7:t0+=GETCTR( 6);
-					case  6:t1+=GETCTR( 5);
-					case  5:t0+=GETCTR( 4);
-					case  4:t1+=GETCTR( 3);
-					case  3:t0+=GETCTR( 2);
-					case  2:t1+=GETCTR( 1);
-					case  1:t0+=GETCTR( 0);
-					case  0:
-						break;
-					}
-#endif
-					cdf=(t0+t1)*invden>>15;
-					freq=freq*invden>>15;
 #endif
 
 #if 0
@@ -1415,9 +1346,8 @@ static void block_thread(void *param)
 
 					//if(ky==0&&kx==5&&kc==1)//
 					//	printf("");
-					
-					ac3_enc_update(&ec, cdf, freq);
-					//ac3_enc_update_NPOT(&ec, cdf, freq, den);
+
+					ac3_enc_update_NPOT(&ec, cdf, freq, den);
 					if(nbits)
 						ac3_enc_bypass(&ec, bypass, nbits);
 				}
@@ -1425,16 +1355,8 @@ static void block_thread(void *param)
 				{
 					//if(ky==0&&kx==5&&kc==1)//
 					//	printf("");
-					
-					AC3_RENORM_STATEMENT(!(ec.range>>AC3_PROB_BITS))
-						ac3_dec_renorm(&ec);
-					unsigned long long r2=(ec.code-ec.low)<<16|0xFFFF;
 
-					//unsigned long long factor=invden*(ec.range>>15)+(invden*(ec.range&((1ULL<<15)-1))>>15);
-					//unsigned long long r1=_umul128(ec.range, invden, &factor);
-					//factor=factor<<(64-16)|r1>>16;
-
-					//unsigned code=ac3_dec_getcdf(&ec);
+					unsigned code=ac3_dec_getcdf_NPOT(&ec, den);
 					cdf=0;
 					freq=0;
 					token=0;
@@ -1448,12 +1370,8 @@ static void block_thread(void *param)
 						freq=GETCTR(token);
 #endif
 						cdf2=cdf+freq;
-						//if((cdf2*factor>>16)>r2)
-						if((unsigned)(cdf2*invden>>15)*ec.range>r2)
+						if(cdf2>code)
 							break;
-						//if(cdf2>code)
-						//if((cdf2*invden>>15)>code)
-						//	break;
 #ifdef _DEBUG
 						if(token>=args->tlevels)
 							LOG_ERROR("YXC %d %d %d  token %d/%d", ky, kx, kc, token, args->tlevels);
@@ -1461,9 +1379,6 @@ static void block_thread(void *param)
 						cdf=cdf2;
 						++token;
 					}
-					cdf=cdf*invden>>15;
-					freq=freq*invden>>15;
-
 #endif
 #if 0
 					for(;;)
@@ -1485,8 +1400,7 @@ static void block_thread(void *param)
 						++token;
 					}
 #endif
-					ac3_dec_update(&ec, cdf, freq);
-					//ac3_dec_update_NPOT(&ec, cdf, freq, den);
+					ac3_dec_update_NPOT(&ec, cdf, freq, den);
 					sym=token;
 					if(sym>=(1<<CONFIG_EXP))
 					{

@@ -443,7 +443,7 @@ FORCEINLINE int ac2_dec_bin(AC2 *ec, unsigned p1)
 
 
 //arithmetic coder (carry-less)
-#define AC3_PROB_BITS 12			//15-bit stats are best (16 bit may cause errors now?)
+#define AC3_PROB_BITS 16
 #define AC3_RENORM 32	//multiple of 8!	//32-bit renorm is best
 #if AC3_RENORM>AC3_PROB_BITS
 #define AC3_RENORM_STATEMENT if
@@ -484,7 +484,7 @@ FORCEINLINE void ac3_dec_init(AC3 *ec, const unsigned char *start, unsigned cons
 		memcpy((unsigned char*)&ec->code+8-AC3_RENORM/8-k, ec->srcptr+k, AC3_RENORM/8);
 	ec->srcptr+=nbytes;
 }
-FORCEINLINE void ac3_enc_renorm(AC3 *ec)//fast renorm by F. Rubin 1979
+FORCEINLINE void ac3_enc_renorm(AC3 *ec)
 {
 	unsigned long long rmax;
 
@@ -496,7 +496,7 @@ FORCEINLINE void ac3_enc_renorm(AC3 *ec)//fast renorm by F. Rubin 1979
 	if(ec->range>rmax)//clamp hi to register size after renorm
 		ec->range=rmax;
 }
-FORCEINLINE void ac3_dec_renorm(AC3 *ec)//fast renorm by F. Rubin 1979
+FORCEINLINE void ac3_dec_renorm(AC3 *ec)
 {
 	unsigned long long rmax;
 
@@ -537,7 +537,7 @@ FORCEINLINE void ac3_enc_update(AC3 *ec, unsigned cdf, unsigned freq)
 	unsigned long long lo0=ec->low, r0=ec->range;
 	if((unsigned)(freq-1)>=(0x10000-1))
 		LOG_ERROR2("ZPS");
-	if(cdf+freq<cdf)
+	if(cdf>(1<<AC3_PROB_BITS)||cdf+freq<cdf)
 		LOG_ERROR2("Invalid CDF");
 #endif
 	ec->low+=ec->range*cdf>>AC3_PROB_BITS;
@@ -548,7 +548,11 @@ FORCEINLINE unsigned ac3_dec_getcdf(AC3 *ec)
 {
 	AC3_RENORM_STATEMENT(!(ec->range>>AC3_PROB_BITS))
 		ac3_dec_renorm(ec);
-	return (unsigned)(((ec->code-ec->low)<<AC3_PROB_BITS|((1<<AC3_PROB_BITS)-1))/ec->range);
+#ifdef _DEBUG
+	if(ec->code<ec->low||ec->code>ec->low+ec->range)
+		LOG_ERROR("CODE OOB");
+#endif
+	return (unsigned)(((ec->code-ec->low)<<AC3_PROB_BITS|((1ULL<<AC3_PROB_BITS)-1))/ec->range);
 }
 FORCEINLINE void ac3_dec_update(AC3 *ec, unsigned cdf, unsigned freq)
 {
@@ -650,6 +654,20 @@ FORCEINLINE void ac3_enc_update_NPOT(AC3 *ec, unsigned cdf, unsigned freq, unsig
 #ifdef AC_VALIDATE
 	lo0=ec->low, r0=ec->range;
 #endif
+	//unsigned	//X
+	//	ncdf=(cdf<<16)/den,
+	//	nfreq=(freq<<16)/den;
+	//ec->low+=ec->range*ncdf>>16;
+	//ec->range=(ec->range*nfreq>>16)-1;
+
+	//__m128d t0=_mm_set1_pd((double)ec->range/den);	//X
+	//__m128d t1=_mm_cvtepi32_pd(_mm_set_epi32(0, 0, freq, cdf));
+	//t0=_mm_mul_pd(t0, t1);
+	//unsigned long long r0=_mm_cvtsd_si64(t0);
+	//unsigned long long r1=_mm_cvtsd_si64(_mm_shuffle_pd(t0, t0, 1));
+	//ec->low+=r0;
+	//ec->range=r1;
+
 	ec->low+=ec->range*cdf/den;
 	ec->range=ec->range*freq/den-1;
 	acval_enc(den, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
@@ -678,59 +696,15 @@ FORCEINLINE void ac3_dec_update_NPOT(AC3 *ec, unsigned cdf, unsigned freq, unsig
 	if(cdf+freq<cdf)
 		LOG_ERROR2("Invalid CDF");
 #endif
+	//unsigned	//X
+	//	ncdf=(cdf<<16)/den,
+	//	nfreq=(freq<<16)/den;
+	//ec->low+=ec->range*ncdf>>16;
+	//ec->range=(ec->range*nfreq>>16)-1;
+
 	ec->low+=ec->range*cdf/den;
 	ec->range=ec->range*freq/den-1;
 	acval_dec(den, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
-}
-
-FORCEINLINE void ac3_enc_bypass(AC3 *ec, int bypass, int nbits)//up to 16 bits
-{
-#ifdef AC_VALIDATE
-	unsigned long long lo0=ec->low, r0=ec->range;
-#endif
-	AC3_RENORM_STATEMENT(!(ec->range>>nbits))
-		ac3_enc_renorm(ec);
-	ec->low+=ec->range*bypass>>nbits;
-	ec->range=(ec->range>>nbits)-1;
-	acval_enc(nbits, bypass, 1, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
-}
-FORCEINLINE int ac3_dec_bypass(AC3 *ec, int nbits)
-{
-#ifdef AC_VALIDATE
-	unsigned long long lo0=ec->low, r0=ec->range;
-#endif
-	AC3_RENORM_STATEMENT(!(ec->range>>nbits))
-		ac3_dec_renorm(ec);
-	int bypass=(int)((((ec->code-ec->low+1)<<nbits)-1)/ec->range);
-	ec->low+=ec->range*bypass>>nbits;
-	ec->range=(ec->range>>nbits)-1;
-	acval_dec(nbits, bypass, 1, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
-	return bypass;
-}
-FORCEINLINE void ac3_enc_bypass_NPOT(AC3 *ec, int bypass, int nlevels)
-{
-#ifdef AC_VALIDATE
-	unsigned long long lo0=ec->low, r0=ec->range;
-#endif
-	AC3_RENORM_STATEMENT(ec->range<(unsigned)nlevels)
-		ac3_enc_renorm(ec);
-	ec->low+=ec->range*bypass/nlevels;
-	ec->range=ec->range/nlevels-1;
-	acval_enc(nlevels, bypass, 1, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
-}
-FORCEINLINE int ac3_dec_bypass_NPOT(AC3 *ec, int nlevels)
-{
-#ifdef AC_VALIDATE
-	unsigned long long lo0=ec->low, r0=ec->range;
-#endif
-	
-	AC3_RENORM_STATEMENT(ec->range<(unsigned)nlevels)
-		ac3_dec_renorm(ec);
-	int bypass=(int)(((ec->code-ec->low)*nlevels+nlevels-1)/ec->range);
-	ec->low+=ec->range*bypass/nlevels;
-	ec->range=ec->range/nlevels-1;
-	acval_dec(nlevels, bypass, 1, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
-	return bypass;
 }
 
 FORCEINLINE void ac3_enc(AC3 *ec, int sym, const unsigned *CDF)
@@ -822,6 +796,62 @@ FORCEINLINE int ac3_dec_NPOT(AC3 *ec, const unsigned *CDF, int nlevels)
 	acval_dec(sym, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
 	return sym;
 }
+
+FORCEINLINE void ac3_enc_bypass(AC3 *ec, int bypass, int nbits)//up to 16 bits
+{
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+#endif
+	AC3_RENORM_STATEMENT(!(ec->range>>nbits))
+		ac3_enc_renorm(ec);
+	ec->low+=ec->range*bypass>>nbits;
+	ec->range=(ec->range>>nbits)-1;
+	acval_enc(nbits, bypass, 1, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
+}
+FORCEINLINE int ac3_dec_bypass(AC3 *ec, int nbits)
+{
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+#endif
+	AC3_RENORM_STATEMENT(!(ec->range>>nbits))
+		ac3_dec_renorm(ec);
+#ifdef _DEBUG
+	if(ec->code<ec->low||ec->code>ec->low+ec->range)
+		LOG_ERROR("CODE OOB");
+#endif
+	int bypass=(int)((((ec->code-ec->low+1)<<nbits)-1)/ec->range);
+	ec->low+=ec->range*bypass>>nbits;
+	ec->range=(ec->range>>nbits)-1;
+	acval_dec(nbits, bypass, 1, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
+	return bypass;
+}
+
+FORCEINLINE void ac3_enc_bypass_NPOT(AC3 *ec, int bypass, int nlevels)
+{
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+#endif
+	AC3_RENORM_STATEMENT(ec->range<(unsigned)nlevels)
+		ac3_enc_renorm(ec);
+	ec->low+=ec->range*bypass/nlevels;
+	ec->range=ec->range/nlevels-1;
+	acval_enc(nlevels, bypass, 1, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
+}
+FORCEINLINE int ac3_dec_bypass_NPOT(AC3 *ec, int nlevels)
+{
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+#endif
+	
+	AC3_RENORM_STATEMENT(ec->range<(unsigned)nlevels)
+		ac3_dec_renorm(ec);
+	int bypass=(int)(((ec->code-ec->low)*nlevels+nlevels-1)/ec->range);
+	ec->low+=ec->range*bypass/nlevels;
+	ec->range=ec->range/nlevels-1;
+	acval_dec(nlevels, bypass, 1, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
+	return bypass;
+}
+
 FORCEINLINE void ac3_enc_bin(AC3 *ec, int bit, unsigned p0, int probbits)//probbits <= 16
 {
 #ifdef AC_VALIDATE

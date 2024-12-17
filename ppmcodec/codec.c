@@ -5,7 +5,7 @@
 static const char file[]=__FILE__;
 
 
-	#define PROFILER
+//	#define PROFILER
 //	#define _DEBUG
 
 
@@ -21,7 +21,7 @@ static const char file[]=__FILE__;
 //	#define CODEC_FUNC c09_codec
 //	#define CODEC_FUNC c10_codec
 //	#define CODEC_FUNC c11_codec
-	#define CODEC_FUNC c12_codec
+//	#define CODEC_FUNC c12_codec
 //	#define CODEC_FUNC c13_codec
 //	#define CODEC_FUNC c14_codec
 //	#define CODEC_FUNC c15_codec
@@ -33,7 +33,7 @@ static const char file[]=__FILE__;
 //	#define CODEC_FUNC c21_codec
 //	#define CODEC_FUNC c22_codec
 //	#define CODEC_FUNC c23_codec
-//	#define CODEC_FUNC c24_codec
+	#define CODEC_FUNC c24_codec
 //	#define CODEC_FUNC c25_codec
 #endif
 //#define STR_EXPAND(X) #X
@@ -191,8 +191,8 @@ int main(int argc, char **argv)
 //	CODEC_FUNC("D:/ML/kodim24.ppm", "D:/ML/kodim24.lsim");
 //	CODEC_FUNC("D:/ML/kodim24.lsim", "D:/ML/kodim24_dec.ppm");
 
-//	CODEC_FUNC("C:/dataset-memes-ppm/emoji_u1f628.ppm",	"D:/ML/mystery.lsim");
-//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
+	CODEC_FUNC("C:/dataset-meme-ppm/emoji_u1f628.ppm",	"D:/ML/mystery.lsim");
+	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
 
 //	CODEC_FUNC("C:/dataset-LPCB-ppm/canon_eos_1100d_02.ppm",	"D:/ML/mystery.lsim");
 //	CODEC_FUNC("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm");
@@ -203,11 +203,17 @@ int main(int argc, char **argv)
 //	CODEC_FUNC("C:/dataset-RAW-ppm/a0014-WP_CRW_6320.ppm",	"D:/ML/mystery.lsim");
 //	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
 
+//	CODEC_FUNC("C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm",	"D:/ML/mystery.lsim");
+//	CODEC_FUNC("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm");
+
+//	CODEC_FUNC("C:/dataset-synth2-ppm/20240419 1 speed for efficiency.ppm",	"D:/ML/mystery.lsim");
+//	CODEC_FUNC("D:/ML/mystery.lsim",					"D:/ML/mystery_dec.ppm");
+
 //	CODEC_FUNC("C:/dataset-synth2-ppm/20240419 3.ppm",	"D:/ML/mystery.lsim");
 //	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
 
-	CODEC_FUNC("C:/dataset-HUGE-ppm/jwst.ppm",	"D:/ML/mystery.lsim");
-	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm");
+//	CODEC_FUNC("C:/dataset-HUGE-ppm/jwst.ppm",	"D:/ML/mystery.lsim");
+//	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm");
 
 //	CODEC_FUNC("C:/dataset-HUGE-ppm/gaia.ppm",	"D:/ML/mystery.lsim");
 //	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm");

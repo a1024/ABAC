@@ -25,13 +25,13 @@ int c02_codec(const char *srcfn, const char *dstfn);//MT binary
 int c03_codec(const char *srcfn, const char *dstfn);//MT binary (A2/WG4)
 int c04_codec(const char *srcfn, const char *dstfn);//MT Golomb-Rice WP3
 int c05_codec(const char *srcfn, const char *dstfn);//MT Golomb-Rice 3/7 simple preds
-int c06_codec(const char *srcfn, const char *dstfn);//binary
-int c07_codec(const char *srcfn, const char *dstfn);//o0 (binary) AC speed test
-int c08_codec(const char *srcfn, const char *dstfn);//disk AC5 test
-int c09_codec(const char *srcfn, const char *dstfn);//J2K CG o0 disk symbol ANS ST
-int c10_codec(const char *srcfn, const char *dstfn);//J2K CG o0 disk symbol AC ST
-int c11_codec(const char *srcfn, const char *dstfn);//SubG CG o0 disk nibble AC ST
-int c12_codec(const char *srcfn, const char *dstfn);//RCT o1 binary AC ST
+int c06_codec(const char *srcfn, const char *dstfn);//MT binary
+int c07_codec(const char *srcfn, const char *dstfn);//MT o0 (binary) AC speed test
+int c08_codec(const char *srcfn, const char *dstfn);//ST disk AC5 test
+int c09_codec(const char *srcfn, const char *dstfn);//ST J2K CG o0 disk symbol ANS
+int c10_codec(const char *srcfn, const char *dstfn);//ST J2K CG o0 disk symbol AC
+int c11_codec(const char *srcfn, const char *dstfn);//ST SubG CG o0 disk nibble AC
+int c12_codec(const char *srcfn, const char *dstfn);//ST RCT o1 binary AC
 int c13_codec(const char *srcfn, const char *dstfn);//MT WG4_12
 int c14_codec(const char *srcfn, const char *dstfn);//MT WG4_8 binary AC
 int c15_codec(const char *srcfn, const char *dstfn);//MT WG4_8 binary AC

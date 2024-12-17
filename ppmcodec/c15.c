@@ -7,7 +7,9 @@ static const char file[]=__FILE__;
 
 
 //	#define ENABLE_GUIDE
-//	#define DISABLE_MT
+#ifndef DISABLE_MT
+	#define ENABLE_MT
+#endif
 
 //	#define ENABLE_SELPRED
 //	#define ESTIMATE_SIZE
@@ -2051,11 +2053,11 @@ int c15_codec(const char *srcfn, const char *dstfn)
 
 		arg->fwd=fwd;
 		arg->test=test;
-#ifdef DISABLE_MT
+#ifdef ENABLE_MT
 		arg->loud=0;
-	//	arg->loud=test&&nblocks<MAXPRINTEDBLOCKS;
 #else
 		arg->loud=0;
+	//	arg->loud=test&&nblocks<MAXPRINTEDBLOCKS;
 #endif
 #ifdef ENABLE_ZIPF_VIEW
 		arg->zimage=zimage;
@@ -2063,12 +2065,12 @@ int c15_codec(const char *srcfn, const char *dstfn)
 	}
 	for(int k2=0;k2<=test;++k2)
 	{
-#ifdef DISABLE_MT
-		for(int k=0;k<nthreads;++k)
-			block_manager(args+k);
-#else
+#ifdef ENABLE_MT
 		void *ctx=mt_exec(block_manager, args, sizeof(ThreadArgs), nthreads);
 		mt_finish(ctx);
+#else
+		for(int k=0;k<nthreads;++k)
+			block_manager(args+k);
 #endif
 		if(fwd)
 		{

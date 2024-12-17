@@ -558,7 +558,7 @@ void  mt_finish(void *mt_ctx);
 //PROFILER  (spawns a thread)		FIXME port to Linux
 #if defined _MSC_VER || defined _WIN32
 
-	#define ENABLE_PROFILER_DISASSEMBLY
+//	#define ENABLE_PROFILER_DISASSEMBLY
 
 void* prof_start();
 void prof_end(void *prof_ctx);

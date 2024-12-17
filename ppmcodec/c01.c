@@ -7,7 +7,9 @@ static const char file[]=__FILE__;
 
 
 //	#define ENABLE_GUIDE
-//	#define DISABLE_MT
+#ifndef DISABLE_MT
+	#define ENABLE_MT
+#endif
 
 //	#define DISABLE4
 
@@ -1527,10 +1529,10 @@ int c01_codec(const char *srcfn, const char *dstfn)
 		arg->clevels=clevels;
 		arg->fwd=fwd;
 		arg->test=test;
-#ifdef DISABLE_MT
-		arg->loud=test&&nblocks<MAXPRINTEDBLOCKS;
-#else
+#ifdef ENABLE_MT
 		arg->loud=0;
+#else
+		arg->loud=test&&nblocks<MAXPRINTEDBLOCKS;
 #endif
 	}
 	for(int k2=0;k2<=test;++k2)
@@ -1559,12 +1561,12 @@ int c01_codec(const char *srcfn, const char *dstfn)
 					arg->decend=image+start;
 				}
 			}
-#ifdef DISABLE_MT
-			for(int k=0;k<nthreads2;++k)
-				block_thread(args+k);
-#else
+#ifdef ENABLE_MT
 			void *ctx=mt_exec(block_thread, args, sizeof(ThreadArgs), nthreads2);
 			mt_finish(ctx);
+#else
+			for(int k=0;k<nthreads2;++k)
+				block_thread(args+k);
 #endif
 			if(fwd)
 			{
