@@ -767,7 +767,7 @@ AWM_INLINE int ac3_dec_NPOT(AC3 *ec, const unsigned *CDF, int nlevels)
 
 	AC3_RENORM_STATEMENT(!(ec->range>>AC3_PROB_BITS))
 		ac3_dec_renorm(ec);
-	cdf=(unsigned)(((ec->code-ec->low)*nlevels+nlevels-1)/ec->range);
+	cdf=(unsigned)((((ec->code-ec->low+1)<<AC3_PROB_BITS)-1)/ec->range);
 	sym=0;
 	range=nlevels;
 	while(range)
@@ -796,6 +796,8 @@ AWM_INLINE void ac3_enc_bypass(AC3 *ec, int bypass, int nbits)//up to 16 bits
 {
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
+	if((unsigned)bypass>=(unsigned)(1<<nbits))
+		LOG_ERROR("Bypass OOB");
 #endif
 	AC3_RENORM_STATEMENT(!(ec->range>>nbits))
 		ac3_enc_renorm(ec);
@@ -825,6 +827,8 @@ AWM_INLINE void ac3_enc_bypass_NPOT(AC3 *ec, int bypass, int nlevels)
 {
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
+	if((unsigned)bypass>=(unsigned)nlevels)
+		LOG_ERROR("Bypass OOB");
 #endif
 	AC3_RENORM_STATEMENT(ec->range<(unsigned)nlevels)
 		ac3_enc_renorm(ec);
