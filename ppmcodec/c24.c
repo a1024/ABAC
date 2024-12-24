@@ -14,7 +14,7 @@ static const char file[]=__FILE__;
 	#define ENABLE_EDGECASES
 
 //	#define ENABLE_W	//weak
-	#define ENABLE_NW	//?
+	#define ENABLE_NW	//good
 //	#define ENABLE_AV2	//good, but redundant with WG
 //	#define ENABLE_GRAD	//weaker
 //	#define ENABLE_PAETH2	//bad for synthetic due to quantization
@@ -25,7 +25,6 @@ static const char file[]=__FILE__;
 
 //	#define ENABLE_FREQINC	//slow
 
-#define STATIC_O1_MAXLEVELS 96
 #define ANALYSIS_XSTRIDE 2
 #define ANALYSIS_YSTRIDE 2
 
@@ -1242,14 +1241,6 @@ static void block_thread(void *param)
 					{
 						int gx=abs(W[kc]-WW[kc])+abs(N[kc]-NW[kc])+abs(NE[kc]-N[kc])+1;
 						int gy=abs(W[kc]-NW[kc])+abs(N[kc]-NN[kc])+abs(NE[kc]-NNE[kc])+1;
-					//	int gx=((2*abs(W[kc]-WW[kc])+abs(N[kc]-NW[kc])+abs(NE[kc]-N[kc]))>>1)+2;
-					//	int gy=((abs(W[kc]-NW[kc])+2*abs(N[kc]-NN[kc])+abs(NE[kc]-NNE[kc]))>>1)+2;
-					//	int gx=2*abs(W[kc]-WW[kc])+abs(N[kc]-NW[kc])+abs(NE[kc]-N[kc])+1;
-					//	int gy=abs(W[kc]-NW[kc])+2*abs(N[kc]-NN[kc])+abs(NE[kc]-NNE[kc])+1;
-					//	int gx=abs(W[kc]-WW[kc])+abs(N[kc]-NW[kc])+abs(NE[kc]-N[kc])+1;
-					//	int gy=abs(W[kc]-NW[kc])+abs(N[kc]-NN[kc])+abs(NE[kc]-NNE[kc])+1;
-					//	int gx=abs(W[kc]-WW[kc])+abs(N[kc]-NW[kc])+abs(NE[kc]-N[kc])+W[kc+4]+1;
-					//	int gy=abs(W[kc]-NW[kc])+abs(N[kc]-NN[kc])+abs(NE[kc]-NNE[kc])+N[kc+4]+1;
 						pred=(gx*N[kc]+gy*W[kc])/(gx+gy);//19/11 bit
 					}
 					break;
@@ -1270,7 +1261,6 @@ static void block_thread(void *param)
 			//	vy=abs(N[kc]-W[kc])+abs(N[kc]-NN[kc])+abs(W[kc]-NW[kc])+abs(NE[kc]-NNE[kc])+(MAXVAR(NN[kc+4], N[kc+4])+N[kc+4])*2+1;
 			//	int qeN=FLOOR_LOG2(vy);//0~11
 			//	int qeW=FLOOR_LOG2(vx);
-
 				//if(qeN>CLEVELS-2||qeW>CLEVELS-2)//
 				//	LOG_ERROR("");
 				pred=preds[kc];

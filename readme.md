@@ -44,7 +44,7 @@ To compile, either make an MSVC 2022 CMake project, or to use GCC:
 Plain 8-bit codecs without alpha. PPM only.
 To compile, either make an MSVC 2022 CMake project, or to use GCC:
 
-`make`
+`make codec [PROF=1]`
 
 
 ## Archived projects (obsolete)
