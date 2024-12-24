@@ -1070,6 +1070,7 @@ static void block_thread(void *param)
 #else
 	memset(histptr, 0, args->histsize);
 #endif
+	__m128i entropysh=_mm_set_epi32(0, 0, 0, 4-entropyidx);
 	memset(args->pixels, 0, args->bufsize);
 	int paddedblockwidth=args->x2-args->x1+16;
 	for(int ky=args->y1;ky<args->y2;++ky)//codec loop
@@ -1085,9 +1086,12 @@ static void block_thread(void *param)
 		int token=0, bypass=0, nbits=0;
 		int pred=0, error=0, sym=0;
 		int preds[3]={0};
-		for(int kx=args->x1;kx<args->x2;++kx)
+		int yidx=3*(args->iw*ky+args->x1)+combination[3+0];
+		int uidx=3*(args->iw*ky+args->x1)+combination[3+1];
+		int vidx=3*(args->iw*ky+args->x1)+combination[3+2];
+		for(int kx=args->x1;kx<args->x2;++kx, yidx+=3, uidx+=3, vidx+=3)
 		{
-			int idx=3*(args->iw*ky+kx);
+			//int idx=3*(args->iw*ky+kx);
 			short
 			//	*NNN	=rows[3]+0*4*2,
 				*NNW	=rows[2]-1*4*2,
@@ -1132,48 +1136,49 @@ static void block_thread(void *param)
 #endif
 			if(args->fwd)
 			{
-				yuv[0]=args->src[idx+combination[3+0]]-128;
-				yuv[1]=args->src[idx+combination[3+1]]-128;
-				yuv[2]=args->src[idx+combination[3+2]]-128;
+				yuv[0]=args->src[yidx]-128;
+				yuv[1]=args->src[uidx]-128;
+				yuv[2]=args->src[vidx]-128;
 			}
-		//	__m128i mNNW	=_mm_loadu_si128((__m128i*)NNW);
 			__m128i mNN	=_mm_loadu_si128((__m128i*)NN);
 			__m128i mNNE	=_mm_loadu_si128((__m128i*)NNE);
-		//	__m128i mNWW	=_mm_loadu_si128((__m128i*)NWW);
 			__m128i mNW	=_mm_loadu_si128((__m128i*)NW);
 			__m128i mN	=_mm_loadu_si128((__m128i*)N);
 			__m128i mNE	=_mm_loadu_si128((__m128i*)NE);
 			__m128i mWW	=_mm_loadu_si128((__m128i*)WW);
 			__m128i mW	=_mm_loadu_si128((__m128i*)W);
-			__m128i mr=_mm_abs_epi16(_mm_sub_epi16(mN, mW));
-			__m128i mx=_mm_add_epi16(mr, _mm_abs_epi16(_mm_sub_epi16(mW, mWW)));
-			__m128i my=_mm_add_epi16(mr, _mm_abs_epi16(_mm_sub_epi16(mN, mNN)));
+			__m128i mx=_mm_abs_epi16(_mm_sub_epi16(mW, mWW));
+			__m128i my=_mm_abs_epi16(_mm_sub_epi16(mN, mNN));
 			mx=_mm_add_epi16(mx, _mm_abs_epi16(_mm_sub_epi16(mN, mNW)));
 			my=_mm_add_epi16(my, _mm_abs_epi16(_mm_sub_epi16(mW, mNW)));
 			mx=_mm_add_epi16(mx, _mm_abs_epi16(_mm_sub_epi16(mNE, mN)));
 			my=_mm_add_epi16(my, _mm_abs_epi16(_mm_sub_epi16(mNE, mNNE)));
-			__m128i meW=_mm_max_epi16(mW, mWW);
-			__m128i meN=_mm_max_epi16(mN, mNN);
-			meW=_mm_add_epi16(meW, mW);
-			meN=_mm_add_epi16(meN, mN);
-			meW=_mm_shuffle_epi32(meW, _MM_SHUFFLE(1, 0, 3, 2));
-			meN=_mm_shuffle_epi32(meN, _MM_SHUFFLE(1, 0, 3, 2));
-			meW=_mm_slli_epi16(meW, 1);
-			meN=_mm_slli_epi16(meN, 1);
-			mx=_mm_add_epi16(mx, meW);
-			my=_mm_add_epi16(my, meN);
-			mx=_mm_add_epi16(mx, _mm_set1_epi16(1));
-			my=_mm_add_epi16(my, _mm_set1_epi16(1));
+			if(entropyidx)
+			{
+				__m128i mr=_mm_abs_epi16(_mm_sub_epi16(mN, mW));
+				__m128i meW=_mm_max_epi16(mW, mWW);
+				__m128i meN=_mm_max_epi16(mN, mNN);
+				meW=_mm_add_epi16(meW, mW);
+				meN=_mm_add_epi16(meN, mN);
+				meW=_mm_shuffle_epi32(meW, _MM_SHUFFLE(1, 0, 3, 2));
+				meN=_mm_shuffle_epi32(meN, _MM_SHUFFLE(1, 0, 3, 2));
+				meW=_mm_add_epi16(meW, mr);
+				meN=_mm_add_epi16(meN, mr);
+				meW=_mm_srl_epi16(meW, entropysh);
+				meN=_mm_srl_epi16(meN, entropysh);
+				mx=_mm_add_epi16(mx, meW);
+				my=_mm_add_epi16(my, meN);
+			}
+			mx=_mm_add_epi16(mx, _mm_set1_epi16(1));//mx = abs(W-WW)+abs(N-NW)+abs(NE-N  ) + [abs(N-W)+MAXVAR(eWW, eW)+eW] + 1	//1~3061
+			my=_mm_add_epi16(my, _mm_set1_epi16(1));//my = abs(N-NN)+abs(W-NW)+abs(NE-NNE) + [abs(N-W)+MAXVAR(eNN, eN)+eN] + 1
 			mx=_mm_cvtepi16_epi32(mx);
 			my=_mm_cvtepi16_epi32(my);
 			mx=_mm_castps_si128(_mm_cvtepi32_ps(mx));
 			my=_mm_castps_si128(_mm_cvtepi32_ps(my));
-			mx=_mm_sub_epi32(mx, _mm_set1_epi32(127<<23));
-			my=_mm_sub_epi32(my, _mm_set1_epi32(127<<23));
-			mx=_mm_slli_epi32(mx, 1);
-			my=_mm_slli_epi32(my, 1);
-			mx=_mm_srli_epi32(mx, 24);
-			my=_mm_srli_epi32(my, 24);
+			mx=_mm_srli_epi32(mx, 23);
+			my=_mm_srli_epi32(my, 23);
+			mx=_mm_sub_epi32(mx, _mm_set1_epi32(127));
+			my=_mm_sub_epi32(my, _mm_set1_epi32(127));
 			ALIGN(16) int grads[8];
 			_mm_store_si128((__m128i*)grads+0, mx);
 			_mm_store_si128((__m128i*)grads+1, my);
@@ -1630,19 +1635,19 @@ static void block_thread(void *param)
 			}
 			if(!args->fwd)
 			{
-				args->dst[idx+combination[3+0]]=yuv[0]+128;
-				args->dst[idx+combination[3+1]]=yuv[1]+128;
-				args->dst[idx+combination[3+2]]=yuv[2]+128;
+				args->dst[yidx]=yuv[0]+128;
+				args->dst[uidx]=yuv[1]+128;
+				args->dst[vidx]=yuv[2]+128;
 
 #ifdef ENABLE_GUIDE
 				guide_check(args->dst, kx, ky);
-				if(args->test&&memcmp(args->dst+idx, args->src+idx, sizeof(char[3])))
-				{
-					unsigned char orig[4]={0};
-					memcpy(orig, args->src+idx, sizeof(char[3]));
-					LOG_ERROR("Guide error XY %d %d", kx, ky);
-					printf("");//
-				}
+				//if(args->test&&memcmp(args->dst+idx, args->src+idx, sizeof(char[3])))
+				//{
+				//	unsigned char orig[4]={0};
+				//	memcpy(orig, args->src+idx, sizeof(char[3]));
+				//	LOG_ERROR("Guide error XY %d %d", kx, ky);
+				//	printf("");//
+				//}
 #endif
 			}
 			rows[0]+=4*2;
