@@ -197,8 +197,11 @@ int main(int argc, char **argv)
 //	CODEC_FUNC("C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm",	"D:/ML/mystery.lsim");
 //	CODEC_FUNC("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm");
 
-	CODEC_FUNC("D:/ML/checkboard.PPM",		"D:/ML/mystery.lsim");
-	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm");
+//	CODEC_FUNC("D:/ML/checkboard.PPM",		"D:/ML/mystery.lsim");
+//	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm");
+
+	CODEC_FUNC("C:/dataset-synth2-ppm/20240412 2 gralic enc.ppm",	"D:/ML/mystery.lsim");
+	CODEC_FUNC("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm");
 
 //	CODEC_FUNC("C:/dataset-synth2-ppm/20240409 1 LPCB.ppm",		"D:/ML/mystery.lsim");
 //	CODEC_FUNC("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm");
