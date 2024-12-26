@@ -11,7 +11,7 @@ static const char file[]=__FILE__;
 	#define ENABLE_MT
 #endif
 
-//	#define ENABLE_EDGECASES
+	#define ENABLE_EDGECASES
 
 	#define ENABLE_W	//good for GDCC
 //	#define ENABLE_N	//?
@@ -26,19 +26,14 @@ static const char file[]=__FILE__;
 	#define ENABLE_AV4	//good with GDCC
 //	#define ENABLE_AV5	//redundant with AV4
 	#define ENABLE_AV9	//good				GDCC 0.31% slower, 0.37% smaller
-	#define ENABLE_WG	//for noisy areas		GDCC 5.69% slower, 0.07% smaller
+//	#define ENABLE_WG	//for noisy areas		GDCC 5.69% slower, 0.07% smaller
 //	#define ENABLE_WG2	//bad
 //	#define ENABLE_WG3	//bad
 
-	#define USE_MIXINCDF	//GDCC: inefficient, synth2: slow
+//	#define ENABLE_FREQINC	//slow
 
-#ifdef USE_MIXINCDF
-//PROB_BITS + PROB_EBITS <= 31
-#define PROB_BITS 16
-#define PROB_EBITS 15
-#endif
 #define ANALYSIS_XSTRIDE 2
-#define ANALYSIS_YSTRIDE 3
+#define ANALYSIS_YSTRIDE 2
 
 //	#define AC_VALIDATE
 //	#define AC_IMPLEMENTATION
@@ -46,8 +41,12 @@ static const char file[]=__FILE__;
 
 #define BLOCKSIZE 512
 #define MAXPRINTEDBLOCKS 500
+#ifdef ENABLE_FREQINC
+#define CLEVELS 13
+#else
 #define CLEVELS 10
 //#define CLEVELS 12
+#endif
 
 #ifdef ENABLE_GUIDE
 static int g_iw=0, g_ih=0;
@@ -144,8 +143,7 @@ static const char *rct_names[RCT_COUNT]=
 	PRED(NE)\
 	PRED(CG)\
 	PRED(AV4)\
-	PRED(AV9)\
-	PRED(WG)
+	PRED(AV9)
 typedef enum _PredIndex
 {
 #define PRED(LABEL) PRED_##LABEL,
@@ -288,10 +286,6 @@ typedef struct _ThreadArgs
 	int tlevels;
 
 	//const unsigned *invtable;
-#ifdef USE_MIXINCDF
-	const unsigned *mixincdfs;
-	int ctx[3][CLEVELS][CLEVELS];
-#endif
 
 	//aux
 	int blockidx;
@@ -307,7 +301,7 @@ static void block_thread(void *param)
 	unsigned char bestrct=0, predidx[3]={0};
 	const unsigned char *combination=0;
 	int cdfstride=args->tlevels+1;
-	int entropylevel=0, entropyidx=0;
+	int entropyidx=0;
 
 	if(args->fwd)
 	{
@@ -1367,16 +1361,23 @@ static void block_thread(void *param)
 		predidx[1]=predsel[combination[1]];
 		predidx[2]=predsel[combination[2]];
 		args->bestsize=bestsize;
-		entropylevel=(int)((
+		entropyidx=(int)((
 			csizes[combination[0]*PRED_COUNT+predidx[0]]+
 			csizes[combination[1]*PRED_COUNT+predidx[1]]+
 			csizes[combination[2]*PRED_COUNT+predidx[2]]
 		)*gain*(100/3.));//percent
-		CLAMP2(entropylevel, 0, 99);
+		if(entropyidx>25)
+			entropyidx=3;
+		else if(entropyidx>17)
+			entropyidx=2;
+		else if(entropyidx>10)
+			entropyidx=1;
+		else
+			entropyidx=0;
 	skip_analysis:
 		blist_init(&args->list);
 		ac3_enc_init(&ec, &args->list);
-		ac3_enc_bypass_NPOT(&ec, entropylevel, 100);
+		ac3_enc_bypass(&ec, entropyidx, 2);
 		ac3_enc_bypass_NPOT(&ec, bestrct, RCT_COUNT);
 		ac3_enc_bypass_NPOT(&ec, predidx[0], PRED_COUNT);
 		ac3_enc_bypass_NPOT(&ec, predidx[1], PRED_COUNT);
@@ -1428,35 +1429,16 @@ static void block_thread(void *param)
 	else//decode header
 	{
 		ac3_dec_init(&ec, args->decstart, args->decend);
-		entropylevel=ac3_dec_bypass_NPOT(&ec, 100);
+		entropyidx=ac3_dec_bypass(&ec, 2);
 		bestrct=ac3_dec_bypass_NPOT(&ec, RCT_COUNT);
 		combination=rct_combinations[bestrct];
 		predidx[0]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
 		predidx[1]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
 		predidx[2]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
 	}
-	if(entropylevel>25)		entropyidx=3;
-	else if(entropylevel>17)	entropyidx=2;
-	else if(entropylevel>10)	entropyidx=1;
-	else				entropyidx=0;
-#ifdef USE_MIXINCDF
-	unsigned *histptr=(unsigned*)args->hist;
-	for(int ks=0;ks<cdfstride;++ks)
-	{
-		histptr[ks]=(unsigned)((ks*((1LL<<PROB_BITS)-args->tlevels)<<PROB_EBITS)/args->tlevels);
-		//histptr[ks]=(ks<<PROB_BITS)/args->tlevels;
-
-#ifdef _DEBUG
-		if(ks&&histptr[ks-1]>histptr[ks])
-			LOG_ERROR("Init error");
-#endif
-	}
-	memfill(histptr+cdfstride, histptr, args->histsize-cdfstride*sizeof(int), cdfstride*sizeof(int));
-	*(int*)args->ctx=1;
-	memfill((int*)args->ctx+1, args->ctx, sizeof(int[3*CLEVELS*CLEVELS-1]), sizeof(int));
-#else
-	unsigned short *histptr=(unsigned short*)args->hist;
 	int histlimit=0x1800<<(3-entropyidx);
+	unsigned short *histptr=(unsigned short*)args->hist;
+#ifndef ENABLE_FREQINC
 	{
 		static const int init_freqs[]={32, 8, 6, 4, 3, 2, 1};
 		int sum=0;
@@ -1468,6 +1450,8 @@ static void block_thread(void *param)
 		histptr[args->tlevels]=sum;
 	}
 	memfill(histptr+cdfstride, histptr, args->histsize-cdfstride*sizeof(short), cdfstride*sizeof(short));
+#else
+	memset(histptr, 0, args->histsize);
 #endif
 	__m128i entropysh=_mm_set_epi32(0, 0, 0, 4-entropyidx);
 	int paddedblockwidth=args->x2-args->x1+16;
@@ -1576,11 +1560,6 @@ static void block_thread(void *param)
 			my=_mm_srli_epi16(my, 1);
 			mx=_mm_cvtepi16_epi32(mx);//mx = (abs(W-WW)+abs(N-NW)+abs(NE-N  ) + [abs(N-W)+MAXVAR(eWW, eW)+eW] + 3)/2	//1 ~ (256*(3+1+2)*b1.001+3)/2 = 864
 			my=_mm_cvtepi16_epi32(my);//my = (abs(N-NN)+abs(W-NW)+abs(NE-NNE) + [abs(N-W)+MAXVAR(eNN, eN)+eN] + 3)/2	//10 levels (<=1023)
-
-			//ALIGN(16) int grads0[8];//
-			//_mm_store_si128((__m128i*)grads0+0, mx);
-			//_mm_store_si128((__m128i*)grads0+1, my);
-
 			mx=_mm_castps_si128(_mm_cvtepi32_ps(mx));
 			my=_mm_castps_si128(_mm_cvtepi32_ps(my));
 			mx=_mm_srli_epi32(mx, 23);
@@ -1727,17 +1706,20 @@ static void block_thread(void *param)
 					//CLAMP2(pred, -128, 127);
 				}
 
-#ifdef USE_MIXINCDF
-				unsigned *curr_hist0=histptr+cdfstride*(CLEVELS*(CLEVELS*kc+qeN)+qeW);
-				unsigned cdf, freq;
-#define GETCDF(X) ((curr_hist0[X]>>PROB_EBITS)+(X))
-//#if PROB_BITS>=16
-//#define GETNEXTCDF(X) ((X)<args->tlevels?curr_hist0[X]:1<<PROB_BITS)	//0x10000 doesn't fit in unsigned short
-//#else
-//#define GETNEXTCDF(X) curr_hist0[X]
-//#endif
-#else
 				unsigned short cdf, freq, den;
+#ifdef ENABLE_FREQINC
+				unsigned short *curr_hist0=histptr+cdfstride*(CLEVELS*(CLEVELS*kc+qeN+0)+qeW+0);
+				unsigned short *curr_hist1=histptr+cdfstride*(CLEVELS*(CLEVELS*kc+qeN+0)+qeW+1);
+				unsigned short *curr_hist2=histptr+cdfstride*(CLEVELS*(CLEVELS*kc+qeN+1)+qeW+0);
+				unsigned short *curr_hist3=histptr+cdfstride*(CLEVELS*(CLEVELS*kc+qeN+1)+qeW+1);
+	#define GETCTR(X) (curr_hist1[X]+curr_hist2[X])		//efficient with update4
+//	#define GETCTR(X) ((curr_hist1[X]+curr_hist2[X])*2+curr_hist0[X]+curr_hist3[X])		//X  slow
+//	#define GETCTR(X) (curr_hist0[X]+curr_hist1[X]+curr_hist2[X])
+//	#define GETCTR(X) (curr_hist0[X]+curr_hist1[X]+curr_hist2[X]+curr_hist3[X])
+//	#define GETCTR(X) curr_hist1[X]		//fast
+//	#define GETCTR(X) curr_hist0[X]		//fast
+				den=GETCTR(args->tlevels)+args->tlevels;
+#else
 				unsigned short *curr_hist0=histptr+cdfstride*(CLEVELS*(CLEVELS*kc+qeN)+qeW);
 				//_mm_prefetch(curr_hist0, _MM_HINT_T0);
 	#define GETCTR(X) curr_hist0[X]		//fast
@@ -1797,15 +1779,62 @@ static void block_thread(void *param)
 					if(token>=args->tlevels)
 						LOG_ERROR("YXC %d %d %d  token %d/%d", ky, kx, kc, token, args->tlevels);
 #endif
-#ifdef USE_MIXINCDF
-					//if(ky==13&&kx==19&&kc==0)//
-					//	printf("");
-					cdf=GETCDF(token);
-					freq=GETCDF(token+1)-cdf;
-					ac3_enc_update_N(&ec, cdf, freq, PROB_BITS);
+#if 1
+#ifdef ENABLE_FREQINC
+					cdf=token;
+					freq=GETCTR(token)+1;
 #else
 					cdf=0;
 					freq=GETCTR(token);
+#endif
+#if 0
+					int ks=0;//3.76%
+					unsigned short *histptr=curr_hist0;
+					if(ks+16<=token)
+					{
+						__m128i t0=_mm_loadu_si128((__m128i*)histptr+0);
+						__m128i t1=_mm_loadu_si128((__m128i*)histptr+1);
+						t0=_mm_add_epi16(t0, t1);
+						t0=_mm_hadd_epi16(t0, t0);
+						t0=_mm_hadd_epi16(t0, t0);
+						t0=_mm_hadd_epi16(t0, t0);
+						cdf=_mm_extract_epi16(t0, 0);
+						ks+=16;
+						histptr+=16;
+					}
+					if(ks+8<=token)
+					{
+						__m128i t0=_mm_loadu_si128((__m128i*)histptr);
+						t0=_mm_hadd_epi16(t0, t0);
+						t0=_mm_hadd_epi16(t0, t0);
+						t0=_mm_hadd_epi16(t0, t0);
+						cdf+=_mm_extract_epi16(t0, 0);
+						ks+=8;
+						histptr+=8;
+					}
+					if(ks+4<=token)
+					{
+						__m128i t0=_mm_loadu_si128((__m128i*)histptr);//1.24%
+						t0=_mm_hadd_epi16(t0, t0);
+						t0=_mm_hadd_epi16(t0, t0);
+						cdf+=_mm_extract_epi16(t0, 0);
+						ks+=4;
+						histptr+=4;
+					}
+					switch(token-ks)
+					{
+				//	case 7:cdf+=histptr[6];
+				//	case 6:cdf+=histptr[5];
+				//	case 5:cdf+=histptr[4];
+				//	case 4:cdf+=histptr[3];
+					case 3:cdf+=histptr[2];
+					case 2:cdf+=histptr[1];
+					case 1:cdf+=histptr[0];
+					default:
+						break;
+					}
+#endif
+#if 1
 					unsigned short t0=0, t1=0;
 					switch(token&31)//3.44%
 					{
@@ -1843,10 +1872,36 @@ static void block_thread(void *param)
 					case  0:
 						break;
 					}
+#endif
 					cdf=(t0+t1)*invden>>15;
 					freq=freq*invden>>15;
-					ac3_enc_update(&ec, cdf, freq);
 #endif
+
+#if 0
+					int ks=0;
+					cdf=0;
+					for(;;)
+					{
+#ifdef ENABLE_FREQINC
+						freq=GETCTR(ks)+1;
+#else
+						freq=GETCTR(ks);
+#endif
+						if(ks>=token)
+							break;
+						cdf+=freq;
+						++ks;
+					}
+#endif
+					//for(int ks=0;ks<token;++ks)
+					//	cdf+=GETCTR(ks);
+					//freq=GETCTR(token);
+
+					//if(ky==0&&kx==5&&kc==1)//
+					//	printf("");
+					
+					ac3_enc_update(&ec, cdf, freq);
+					//ac3_enc_update_NPOT(&ec, cdf, freq, den);
 					if(nbits)
 						ac3_enc_bypass(&ec, bypass, nbits);
 				}
@@ -1855,27 +1910,8 @@ static void block_thread(void *param)
 					//if(ky==0&&kx==5&&kc==1)//
 					//	printf("");
 					
-					AC3_RENORM_STATEMENT(!(ec.range>>PROB_BITS))
+					AC3_RENORM_STATEMENT(!(ec.range>>AC3_PROB_BITS))
 						ac3_dec_renorm(&ec);
-#ifdef USE_MIXINCDF
-					unsigned short r2=(unsigned short)(((ec.code-ec.low)<<PROB_BITS|((1LL<<PROB_BITS)-1))/ec.range);
-					cdf=0;
-					token=0;
-					for(;;)
-					{
-						freq=GETCDF(token+1);
-						if(freq>r2)
-							break;
-						++token;
-#ifdef _DEBUG
-						if(token>=args->tlevels)
-							LOG_ERROR("YXC %d %d %d  token %d/%d", ky, kx, kc, token, args->tlevels);
-#endif
-						cdf=freq;
-					}
-					freq-=cdf;
-					ac3_dec_update_N(&ec, cdf, freq, PROB_BITS);
-#else
 					//unsigned r2=((unsigned)(((ec.code-ec.low)<<16|0xFFFF)/ec.range)<<15|0x7FFF)/invden;
 					unsigned long long r2=(ec.code-ec.low)<<16|0xFFFF;
 
@@ -1886,12 +1922,17 @@ static void block_thread(void *param)
 					//unsigned code=ac3_dec_getcdf(&ec);
 					//unsigned code=ac3_dec_getcdf_NPOT(&ec, den);
 					cdf=0;
+					freq=0;
 					token=0;
+#if 1
 					for(;;)
 					{
 						unsigned cdf2;
-
+#ifdef ENABLE_FREQINC
+						freq=GETCTR(token)+1;
+#else
 						freq=GETCTR(token);
+#endif
 						cdf2=cdf+freq;
 						//if(cdf2>r2)
 						if((unsigned)(cdf2*invden>>15)*ec.range>r2)
@@ -1908,8 +1949,30 @@ static void block_thread(void *param)
 					}
 					cdf=cdf*invden>>15;
 					freq=freq*invden>>15;
-					ac3_dec_update(&ec, cdf, freq);
+
 #endif
+#if 0
+					for(;;)
+					{
+						unsigned cdf2;
+#ifdef ENABLE_FREQINC
+						freq=GETCTR(token)+1;
+#else
+						freq=GETCTR(token);
+#endif
+						cdf2=cdf+freq;
+						if(cdf2>code)
+							break;
+#ifdef _DEBUG
+						if(token>=args->tlevels)
+							LOG_ERROR("YXC %d %d %d  token %d/%d", ky, kx, kc, token, args->tlevels);
+#endif
+						cdf=cdf2;
+						++token;
+					}
+#endif
+					ac3_dec_update(&ec, cdf, freq);
+					//ac3_dec_update_NPOT(&ec, cdf, freq, den);
 					sym=token;
 					if(sym>=(1<<CONFIG_EXP))
 					{
@@ -1946,140 +2009,47 @@ static void block_thread(void *param)
 				}
 				curr[kc+0]=yuv[kc]-offset;
 				curr[kc+4]=abs(error);
-#ifdef USE_MIXINCDF
-				//if(ky==32&&kx==202&&kc==1)//
-				//	printf("");
-				//if(qeN>=10||qeW>=10)//
-				//	printf("");
-				const unsigned *mixincdf=args->mixincdfs+args->tlevels*token;
-				//int sh=entropyidx+5;
-#if 1
-				//if(qeN>=CLEVELS||qeW>=CLEVELS)
-				//{
-				//	for(int k=0;k<4;++k)
-				//		printf("%d %d\n", grads0[k], grads0[k+4]);
-				//	LOG_ERROR("CTX error YXC %d %d XY %d %d", ky, kx, kc, qeN, qeW);
-				//}
-				int *mixctx=&args->ctx[kc][qeN][qeW];
-				int sh=(*mixctx)++;
-				sh*=entropylevel;
-				//sh=(unsigned)((unsigned long long)sh*entropylevel>>3);
-				//sh=(unsigned)((unsigned long long)sh*entropylevel>>7);
-				sh=(FLOOR_LOG2(sh+1)>>1)+1;
-				//sh=FLOOR_LOG2(sh+1)-5;
-				//sh=((sh-7)>>1)+7;
-#define SMIN 5
-#define SMAX 12
-				CLAMP2(sh, SMIN, SMAX);
 
-#if !defined ENABLE_MT && 0
+#ifdef ENABLE_FREQINC
+				++curr_hist0[token];
+				++curr_hist0[args->tlevels];
+				if(curr_hist0[args->tlevels]>=6144)//4096	6144	8192
 				{
-					static int shist[SMAX-SMIN]={0};
-					++shist[sh-SMIN];
-					if(args->fwd&&ky==args->y2-1&&kx==args->x2-1&&kc==2)
-					{
-						printf("block %d\n", args->blockidx);
-						for(int k=0;k<SMAX-SMIN;++k)
-							printf("%2d %8d\n", k+SMIN, shist[k]);
-					}
+					int sum=0;
+					for(int ks=0;ks<args->tlevels;++ks)
+						sum+=curr_hist0[ks]>>=1;
+					curr_hist0[args->tlevels]=sum;
 				}
-#endif
-				int bias=1<<sh>>1;
-#endif
-				//static const int factors[]=
-				//{
-				//	 64,
-				//	128,
-				//	256,
-				//	512,
-				//};
-				//sh=sh*factors[entropyidx]>>8;
 
-				//sh=sh*entropylevel>>7;
-				//sh=FLOOR_LOG2(sh+1);
-				//if(sh>8)
-				//	sh=8;
-
-				//int sh=FLOOR_LOG2((*mixctx)++)+3;
-				//if(sh>5+entropyidx*2)
-				//	sh=5+entropyidx*2;
-				//int bias=1<<sh>>1;
-#if 0
-				static const int factors[]=
+				++curr_hist1[token];
+				++curr_hist1[args->tlevels];
+				if(curr_hist1[args->tlevels]>=6144)
 				{
-					//256,
-					//252,
-					//248,
-					//244,
-					//240,
-					//236,
-					//232,
-					//228,
-					//224,
-					//220,
-					//216,
-					//212,
-					(int)(100*1.28),
-					(int)( 99*1.28),
-					(int)( 97*1.28),
-					(int)( 94*1.28),
-					(int)( 90*1.28),
-					(int)( 85*1.28),
-					(int)( 79*1.28),
-					(int)( 72*1.28),
-					(int)( 64*1.28),
-					(int)( 55*1.28),
-					(int)( 45*1.28),
-				};
-				int factor=FLOOR_LOG2((*mixctx)++);
-				factor=factors[MINVAR(factor, _countof(factors)-1)];
-#endif
-				//int sh=(FLOOR_LOG2((*mixctx)++)>>1)+3;
-				//if(sh>8)
-				//	sh=8;
-				//if(ky==709&&kx==2110&&kc==2)//
-				//	printf("");
-#if 1
-				__m128i ms=_mm_set_epi32(0, 0, 0, sh);
-				__m256i mb=_mm256_set1_epi32(1<<sh>>1);
-				__m256i mx0=_mm256_loadu_si256((__m256i*)mixincdf+0);
-				__m256i mx1=_mm256_loadu_si256((__m256i*)mixincdf+1);
-				__m256i mx2=_mm256_loadu_si256((__m256i*)mixincdf+2);
-				__m256i mc0=_mm256_loadu_si256((__m256i*)curr_hist0+0);
-				__m256i mc1=_mm256_loadu_si256((__m256i*)curr_hist0+1);
-				__m256i mc2=_mm256_loadu_si256((__m256i*)curr_hist0+2);
-				mx0=_mm256_sub_epi32(mx0, mc0);
-				mx1=_mm256_sub_epi32(mx1, mc1);
-				mx2=_mm256_sub_epi32(mx2, mc2);
-				mx0=_mm256_add_epi32(mx0, mb);
-				mx1=_mm256_add_epi32(mx1, mb);
-				mx2=_mm256_add_epi32(mx2, mb);
-				mx0=_mm256_sra_epi32(mx0, ms);
-				mx1=_mm256_sra_epi32(mx1, ms);
-				mx2=_mm256_sra_epi32(mx2, ms);
-				mx0=_mm256_add_epi32(mx0, mc0);
-				mx1=_mm256_add_epi32(mx1, mc1);
-				mx2=_mm256_add_epi32(mx2, mc2);
-				_mm256_storeu_si256((__m256i*)curr_hist0+0, mx0);
-				_mm256_storeu_si256((__m256i*)curr_hist0+1, mx1);
-				_mm256_storeu_si256((__m256i*)curr_hist0+2, mx2);
-				curr_hist0[24]+=(((int)(mixincdf[24]-curr_hist0[24])+bias)>>sh);//8*3+1 = 25 total
-#else
-				for(int ks=0;ks<args->tlevels;++ks)//12.62%
-				{
-					//unsigned next=curr_hist0[ks]+(int)(((long long)(int)(mixincdf[ks]-curr_hist0[ks])*factor+(1<<(6+7)>>1))>>(6+7));//7 bit factor
-					unsigned next=curr_hist0[ks]+(((int)(mixincdf[ks]-curr_hist0[ks])+bias)>>sh);
-					//unsigned next=curr_hist0[ks]+(((int)(mixincdf[ks]-curr_hist0[ks])+(1<<7>>1))>>7);
-					//curr_hist0[ks]+=(int)((mixincdf[ks]-curr_hist0[ks])*factor+(1<<(6+8)>>1))>>(6+8);
-					//curr_hist0[ks]+=(int)((mixincdf[ks]-curr_hist0[ks])+(1<<7>>1))>>7;
-#ifdef _DEBUG
-					unsigned amplitude=((1<<PROB_BITS)-args->tlevels)<<PROB_EBITS;
-					if(ks&&curr_hist0[ks-1]>next||next>amplitude)//
-						LOG_ERROR("Update error");
-#endif
-					curr_hist0[ks]=next;
+					int sum=0;
+					for(int ks=0;ks<args->tlevels;++ks)
+						sum+=curr_hist1[ks]>>=1;
+					curr_hist1[args->tlevels]=sum;
 				}
-#endif
+
+				++curr_hist2[token];
+				++curr_hist2[args->tlevels];
+				if(curr_hist2[args->tlevels]>=6144)
+				{
+					int sum=0;
+					for(int ks=0;ks<args->tlevels;++ks)
+						sum+=curr_hist2[ks]>>=1;
+					curr_hist2[args->tlevels]=sum;
+				}
+
+				++curr_hist3[token];
+				++curr_hist3[args->tlevels];
+				if(curr_hist3[args->tlevels]>=6144)
+				{
+					int sum=0;
+					for(int ks=0;ks<args->tlevels;++ks)
+						sum+=curr_hist3[ks]>>=1;
+					curr_hist3[args->tlevels]=sum;
+				}
 #else
 				++curr_hist0[token];
 				++curr_hist0[args->tlevels];
@@ -2128,9 +2098,6 @@ int c24_codec(const char *srcfn, const char *dstfn)
 	int usize;
 	int maxwidth;
 	//unsigned *invtable;
-#ifdef USE_MIXINCDF
-	unsigned *mixincdfs=0;
-#endif
 	
 	t0=time_sec();
 	src=load_file(srcfn, 1, 3, 1);
@@ -2215,11 +2182,7 @@ int c24_codec(const char *srcfn, const char *dstfn)
 
 		quantize_pixel(nlevels, &token, &bypass, &nbits);
 		tlevels=token+1;
-#ifdef USE_MIXINCDF
-		statssize=(tlevels+1)*(int)sizeof(int[3*CLEVELS*CLEVELS]);
-#else
 		statssize=(tlevels+1)*(int)sizeof(short[3*CLEVELS*CLEVELS]);
-#endif
 		histsize=(int)sizeof(int[OCH_COUNT*PRED_COUNT<<8]);
 		if(histsize<statssize)
 			histsize=statssize;
@@ -2235,52 +2198,6 @@ int c24_codec(const char *srcfn, const char *dstfn)
 		//invtable[0]=0xFFFFFFFF;
 		//for(int k=1;k<0x10000;++k)
 		//	invtable[k]=0x80000000/k;
-#ifdef USE_MIXINCDF
-		mixincdfs=(unsigned*)malloc(sizeof(int)*tlevels*tlevels);
-		if(!mixincdfs)
-		{
-			LOG_ERROR("Alloc error");
-			return 1;
-		}
-		//int sum=0;
-		//for(int ks2=0;ks2<tlevels;++ks2)//sum of squares = n(n+1)(2n+1)/6 = 5525 (tlevels=25) amp=16384
-		//{
-		//	int x=tlevels-ks2;
-		//	sum+=x*x;
-		//}
-		//int aamp=(1<<PROB_BITS)-tlevels-sum;
-		for(int ks=0;ks<tlevels;++ks)
-		{
-			for(int ks2=0;ks2<tlevels;++ks2)
-				mixincdfs[tlevels*ks+ks2]=(((1<<PROB_BITS)-tlevels)<<PROB_EBITS)&-(ks<ks2);
-
-			//for(int ks2=0;ks2<tlevels;++ks2)
-			//	mixincdfs[tlevels*ks+ks2]=(((1<<PROB_BITS)-tlevels)&-(ks<ks2))+ks2;
-
-			//int cdf2=0;
-			//for(int ks2=0;;++ks2)
-			//{
-			//	int c=(aamp&-(ks<ks2))+ks2+cdf2;
-			//	if(ks2>=tlevels)
-			//	{
-			//		if(c!=(1<<PROB_BITS))
-			//			LOG_ERROR("Init error");
-			//		break;
-			//	}
-			//	mixincdfs[tlevels*ks+ks2]=c;
-			//
-			//	int x=tlevels-ks2;
-			//	cdf2+=x*x;
-			//}
-			
-			//for(int ks2=0;ks2<tlevels;++ks2)
-			//{
-			//	int cdf=(((1<<PROB_BITS)-tlevels)&-(ks<ks2));
-			//	cdf=cdf*cdf>>14;
-			//	mixincdfs[tlevels*ks+ks2]=cdf+ks2;
-			//}
-		}
-#endif
 	}
 	for(int k=0;k<nthreads;++k)
 	{
@@ -2307,9 +2224,6 @@ int c24_codec(const char *srcfn, const char *dstfn)
 		arg->fwd=fwd;
 		arg->test=test;
 		//arg->invtable=invtable;
-#ifdef USE_MIXINCDF
-		arg->mixincdfs=mixincdfs;
-#endif
 #ifdef ENABLE_MT
 		arg->loud=0;
 #else
@@ -2450,8 +2364,5 @@ int c24_codec(const char *srcfn, const char *dstfn)
 	array_free(&src);
 	array_free(&dst);
 	//free(invtable);
-#ifdef USE_MIXINCDF
-	free(mixincdfs);
-#endif
 	return 0;
 }
