@@ -33,6 +33,7 @@ static const char file[]=__FILE__;
 	#define USE_MIXINCDF	//GDCC: inefficient, synth2: slow
 
 #ifdef USE_MIXINCDF
+//PROB_BITS <= 16
 //PROB_BITS + PROB_EBITS <= 31
 #define PROB_BITS 16
 #define PROB_EBITS 15
@@ -1474,7 +1475,7 @@ static void block_thread(void *param)
 	memset(args->pixels, 0, args->bufsize);
 	for(int ky=args->y1;ky<args->y2;++ky)//codec loop
 	{
-		ALIGN(16) short *rows[]=
+		ALIGN(32) short *rows[]=
 		{
 			args->pixels+(paddedblockwidth*((ky-0LL)&3)+8LL)*4*2,
 			args->pixels+(paddedblockwidth*((ky-1LL)&3)+8LL)*4*2,
@@ -1729,6 +1730,10 @@ static void block_thread(void *param)
 
 #ifdef USE_MIXINCDF
 				unsigned *curr_hist0=histptr+cdfstride*(CLEVELS*(CLEVELS*kc+qeN)+qeW);
+				__m256i mc0=_mm256_loadu_si256((__m256i*)(curr_hist0+ 1));
+				__m256i mc1=_mm256_loadu_si256((__m256i*)(curr_hist0+ 9));
+				__m256i mc2=_mm256_loadu_si256((__m256i*)(curr_hist0+17));
+				__m256i mx0, mx1, mx2;
 				unsigned cdf, freq;
 #define GETCDF(X) ((curr_hist0[X]>>PROB_EBITS)+(X))
 //#if PROB_BITS>=16
@@ -1859,21 +1864,48 @@ static void block_thread(void *param)
 						ac3_dec_renorm(&ec);
 #ifdef USE_MIXINCDF
 					unsigned short r2=(unsigned short)(((ec.code-ec.low)<<PROB_BITS|((1LL<<PROB_BITS)-1))/ec.range);
-					cdf=0;
-					token=0;
-					for(;;)
+					//unsigned long long r2=(unsigned long long)((ec.code-ec.low)<<PROB_BITS|((1LL<<PROB_BITS)-1));
+#if 1
+					if(entropyidx)
 					{
-						freq=GETCDF(token+1);
-						if(freq>r2)
-							break;
-						++token;
-#ifdef _DEBUG
-						if(token>=args->tlevels)
-							LOG_ERROR("YXC %d %d %d  token %d/%d", ky, kx, kc, token, args->tlevels);
-#endif
-						cdf=freq;
+						__m256i mr2=_mm256_set1_epi32(r2);
+						mx0=_mm256_srli_epi32(mc0, PROB_EBITS);
+						mx1=_mm256_srli_epi32(mc1, PROB_EBITS);
+						mx2=_mm256_srli_epi32(mc2, PROB_EBITS);
+						mx0=_mm256_add_epi32(mx0, _mm256_set_epi32( 8,  7,  6,  5,  4,  3,  2,  1));
+						mx1=_mm256_add_epi32(mx1, _mm256_set_epi32(16, 15, 14, 13, 12, 11, 10,  9));
+						mx2=_mm256_add_epi32(mx2, _mm256_set_epi32(24, 23, 22, 21, 20, 19, 18, 17));
+						mx0=_mm256_cmpgt_epi32(mx0, mr2);
+						mx1=_mm256_cmpgt_epi32(mx1, mr2);
+						mx2=_mm256_cmpgt_epi32(mx2, mr2);
+						int mask=_mm256_movemask_ps(_mm256_castsi256_ps(mx0));
+						mask|=_mm256_movemask_ps(_mm256_castsi256_ps(mx1))<<8;
+						mask|=_mm256_movemask_ps(_mm256_castsi256_ps(mx2))<<16;
+						mask|=1<<24;
+						token=_tzcnt_u32(mask);
+						cdf=GETCDF(token);
+						freq=GETCDF(token+1)-cdf;
 					}
-					freq-=cdf;
+					else
+#endif
+					{
+						cdf=0;
+						token=0;
+						for(;;)
+						{
+							freq=GETCDF(token+1);
+							if(freq>r2)
+							//if(freq*ec.range>r2)
+								break;
+							++token;
+#ifdef _DEBUG
+							if(token>=args->tlevels)
+								LOG_ERROR("YXC %d %d %d  token %d/%d", ky, kx, kc, token, args->tlevels);
+#endif
+							cdf=freq;
+						}
+						freq-=cdf;
+					}
 					ac3_dec_update_N(&ec, cdf, freq, PROB_BITS);
 #else
 					//unsigned r2=((unsigned)(((ec.code-ec.low)<<16|0xFFFF)/ec.range)<<15|0x7FFF)/invden;
@@ -1961,13 +1993,8 @@ static void block_thread(void *param)
 				//	LOG_ERROR("CTX error YXC %d %d XY %d %d", ky, kx, kc, qeN, qeW);
 				//}
 				int *mixctx=&args->ctx[kc][qeN][qeW];
-				int sh=(*mixctx)++;
-				sh*=entropylevel;
-				//sh=(unsigned)((unsigned long long)sh*entropylevel>>3);
-				//sh=(unsigned)((unsigned long long)sh*entropylevel>>7);
+				int sh=(*mixctx)++*entropylevel;
 				sh=(FLOOR_LOG2(sh+1)>>1)+1;
-				//sh=FLOOR_LOG2(sh+1)-5;
-				//sh=((sh-7)>>1)+7;
 #define SMIN 5
 #define SMAX 12
 				CLAMP2(sh, SMIN, SMAX);
@@ -1984,70 +2011,17 @@ static void block_thread(void *param)
 					}
 				}
 #endif
-				int bias=1<<sh>>1;
-#endif
-				//static const int factors[]=
-				//{
-				//	 64,
-				//	128,
-				//	256,
-				//	512,
-				//};
-				//sh=sh*factors[entropyidx]>>8;
-
-				//sh=sh*entropylevel>>7;
-				//sh=FLOOR_LOG2(sh+1);
-				//if(sh>8)
-				//	sh=8;
-
-				//int sh=FLOOR_LOG2((*mixctx)++)+3;
-				//if(sh>5+entropyidx*2)
-				//	sh=5+entropyidx*2;
+				int bias=(1<<13)>>(14-sh);
 				//int bias=1<<sh>>1;
-#if 0
-				static const int factors[]=
-				{
-					//256,
-					//252,
-					//248,
-					//244,
-					//240,
-					//236,
-					//232,
-					//228,
-					//224,
-					//220,
-					//216,
-					//212,
-					(int)(100*1.28),
-					(int)( 99*1.28),
-					(int)( 97*1.28),
-					(int)( 94*1.28),
-					(int)( 90*1.28),
-					(int)( 85*1.28),
-					(int)( 79*1.28),
-					(int)( 72*1.28),
-					(int)( 64*1.28),
-					(int)( 55*1.28),
-					(int)( 45*1.28),
-				};
-				int factor=FLOOR_LOG2((*mixctx)++);
-				factor=factors[MINVAR(factor, _countof(factors)-1)];
 #endif
-				//int sh=(FLOOR_LOG2((*mixctx)++)>>1)+3;
-				//if(sh>8)
-				//	sh=8;
 				//if(ky==709&&kx==2110&&kc==2)//
 				//	printf("");
 #if 1
 				__m128i ms=_mm_set_epi32(0, 0, 0, sh);
-				__m256i mb=_mm256_set1_epi32(1<<sh>>1);
-				__m256i mx0=_mm256_loadu_si256((__m256i*)mixincdf+0);
-				__m256i mx1=_mm256_loadu_si256((__m256i*)mixincdf+1);
-				__m256i mx2=_mm256_loadu_si256((__m256i*)mixincdf+2);
-				__m256i mc0=_mm256_loadu_si256((__m256i*)curr_hist0+0);
-				__m256i mc1=_mm256_loadu_si256((__m256i*)curr_hist0+1);
-				__m256i mc2=_mm256_loadu_si256((__m256i*)curr_hist0+2);
+				__m256i mb=_mm256_set1_epi32(bias);
+				mx0=_mm256_loadu_si256((__m256i*)(mixincdf+ 1));//8*3+1 = 25 total	[0]=0, [25]=1<<PROB_BITS
+				mx1=_mm256_loadu_si256((__m256i*)(mixincdf+ 9));
+				mx2=_mm256_loadu_si256((__m256i*)(mixincdf+17));
 				mx0=_mm256_sub_epi32(mx0, mc0);
 				mx1=_mm256_sub_epi32(mx1, mc1);
 				mx2=_mm256_sub_epi32(mx2, mc2);
@@ -2060,10 +2034,9 @@ static void block_thread(void *param)
 				mx0=_mm256_add_epi32(mx0, mc0);
 				mx1=_mm256_add_epi32(mx1, mc1);
 				mx2=_mm256_add_epi32(mx2, mc2);
-				_mm256_storeu_si256((__m256i*)curr_hist0+0, mx0);
-				_mm256_storeu_si256((__m256i*)curr_hist0+1, mx1);
-				_mm256_storeu_si256((__m256i*)curr_hist0+2, mx2);
-				curr_hist0[24]+=(((int)(mixincdf[24]-curr_hist0[24])+bias)>>sh);//8*3+1 = 25 total
+				_mm256_storeu_si256((__m256i*)(curr_hist0+ 1), mx0);
+				_mm256_storeu_si256((__m256i*)(curr_hist0+ 9), mx1);
+				_mm256_storeu_si256((__m256i*)(curr_hist0+17), mx2);
 #else
 				for(int ks=0;ks<args->tlevels;++ks)//12.62%
 				{
