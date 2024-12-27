@@ -30,11 +30,14 @@ static const char file[]=__FILE__;
 //	#define ENABLE_WG2	//bad
 //	#define ENABLE_WG3	//bad
 
+	#define USE_MIXINCDF	//GDCC: inefficient, synth2: slow
+
+#ifdef USE_MIXINCDF
 //PROB_BITS <= 16
 //PROB_BITS + PROB_EBITS <= 31
 #define PROB_BITS 16
-#define PROB_EBITS 14
-
+#define PROB_EBITS 15
+#endif
 #define ANALYSIS_XSTRIDE 2
 #define ANALYSIS_YSTRIDE 3
 
@@ -44,11 +47,8 @@ static const char file[]=__FILE__;
 
 #define BLOCKSIZE 512
 #define MAXPRINTEDBLOCKS 500
-
-//9<<6 = 576 CDFs size 24
-	#define ELEVELS 9
-	#define CBITS 6
-#define CLEVELS (1<<CBITS)
+#define CLEVELS 10
+//#define CLEVELS 12
 
 #ifdef ENABLE_GUIDE
 static int g_iw=0, g_ih=0;
@@ -160,7 +160,6 @@ static const char *pred_names[PRED_COUNT]=
 	PREDLIST
 #undef  PRED
 };
-#ifdef ENABLE_WG
 #define MIX2_16x16(DST, A0, A1, C0, C1)\
 	do\
 	{\
@@ -185,8 +184,6 @@ static const char *pred_names[PRED_COUNT]=
 		DST=_mm256_and_si256(_mm256_cvtps_epi32(_a0lo), _mm256_set1_epi32(0xFFFF));\
 		DST=_mm256_or_si256(DST, _mm256_slli_epi32(_mm256_cvtps_epi32(_a0hi), 16));\
 	}while(0)
-#endif
-#ifdef ENABLE_WG2
 #define MIX2_16x16_LOG2(DST, A0, A1, C0, C1)\
 	do\
 	{\
@@ -198,6 +195,38 @@ static const char *pred_names[PRED_COUNT]=
 		__m256i _c0hi=FLOOR_LOG2_32x8(_mm256_srai_epi32(C0, 16));\
 		__m256i _c1lo=FLOOR_LOG2_32x8(_mm256_srai_epi32(_mm256_slli_epi32(C1, 16), 16));\
 		__m256i _c1hi=FLOOR_LOG2_32x8(_mm256_srai_epi32(C1, 16));\
+		__m256i t0lo=_mm256_sub_epi32(_a0lo, _mm256_srav_epi32(_mm256_sub_epi32(_a1lo, _a0lo), _mm256_add_epi32(_mm256_sub_epi32(_c0lo, _c1lo), _mm256_set1_epi32(1))));\
+		__m256i t1lo=_mm256_sub_epi32(_a1lo, _mm256_srav_epi32(_mm256_sub_epi32(_a0lo, _a1lo), _mm256_add_epi32(_mm256_sub_epi32(_c1lo, _c0lo), _mm256_set1_epi32(1))));\
+		__m256i t0hi=_mm256_sub_epi32(_a0hi, _mm256_srav_epi32(_mm256_sub_epi32(_a1hi, _a0hi), _mm256_add_epi32(_mm256_sub_epi32(_c0hi, _c1hi), _mm256_set1_epi32(1))));\
+		__m256i t1hi=_mm256_sub_epi32(_a1hi, _mm256_srav_epi32(_mm256_sub_epi32(_a0hi, _a1hi), _mm256_add_epi32(_mm256_sub_epi32(_c1hi, _c0hi), _mm256_set1_epi32(1))));\
+		t0lo=_mm256_blendv_epi8(t0lo, t1lo, _mm256_cmpgt_epi32(_c0lo, _c1lo));\
+		t0hi=_mm256_blendv_epi8(t0hi, t1hi, _mm256_cmpgt_epi32(_c0hi, _c1hi));\
+		DST=_mm256_or_si256(_mm256_and_si256(t0lo, _mm256_set1_epi32(0xFFFF)), _mm256_slli_epi32(t0hi, 16));\
+	}while(0)
+#if 0
+#define MIX2_16x16_LOG2(DST, A0, A1, C0, C1)\
+	do\
+	{\
+		__m256i _a0lo=_mm256_srai_epi32(_mm256_slli_epi32(A0, 16), 16);\
+		__m256i _a0hi=_mm256_srai_epi32(A0, 16);\
+		__m256i _a1lo=_mm256_srai_epi32(_mm256_slli_epi32(A1, 16), 16);\
+		__m256i _a1hi=_mm256_srai_epi32(A1, 16);\
+		__m256i _c0lo=_mm256_srai_epi32(_mm256_slli_epi32(C0, 16), 16);\
+		__m256i _c0hi=_mm256_srai_epi32(C0, 16);\
+		__m256i _c1lo=_mm256_srai_epi32(_mm256_slli_epi32(C1, 16), 16);\
+		__m256i _c1hi=_mm256_srai_epi32(C1, 16);\
+		_c0lo=_mm256_castps_si256(_mm256_cvtepi32_ps(_c0lo));\
+		_c0hi=_mm256_castps_si256(_mm256_cvtepi32_ps(_c0hi));\
+		_c1lo=_mm256_castps_si256(_mm256_cvtepi32_ps(_c1lo));\
+		_c1hi=_mm256_castps_si256(_mm256_cvtepi32_ps(_c1hi));\
+		_c0lo=_mm256_castps_si256(_mm256_mul_ps(_mm256_castsi256_ps(_c0lo), _mm256_castsi256_ps(_c0lo)));\
+		_c0hi=_mm256_castps_si256(_mm256_mul_ps(_mm256_castsi256_ps(_c0hi), _mm256_castsi256_ps(_c0hi)));\
+		_c1lo=_mm256_castps_si256(_mm256_mul_ps(_mm256_castsi256_ps(_c1lo), _mm256_castsi256_ps(_c1lo)));\
+		_c1hi=_mm256_castps_si256(_mm256_mul_ps(_mm256_castsi256_ps(_c1hi), _mm256_castsi256_ps(_c1hi)));\
+		_c0lo=_mm256_sub_epi32(_mm256_srli_epi32(_c0lo, 23), _mm256_set1_epi32(127));\
+		_c0hi=_mm256_sub_epi32(_mm256_srli_epi32(_c0hi, 23), _mm256_set1_epi32(127));\
+		_c1lo=_mm256_sub_epi32(_mm256_srli_epi32(_c1lo, 23), _mm256_set1_epi32(127));\
+		_c1hi=_mm256_sub_epi32(_mm256_srli_epi32(_c1hi, 23), _mm256_set1_epi32(127));\
 		__m256i t0lo=_mm256_sub_epi32(_a0lo, _mm256_srav_epi32(_mm256_sub_epi32(_a1lo, _a0lo), _mm256_add_epi32(_mm256_sub_epi32(_c0lo, _c1lo), _mm256_set1_epi32(1))));\
 		__m256i t1lo=_mm256_sub_epi32(_a1lo, _mm256_srav_epi32(_mm256_sub_epi32(_a0lo, _a1lo), _mm256_add_epi32(_mm256_sub_epi32(_c1lo, _c0lo), _mm256_set1_epi32(1))));\
 		__m256i t0hi=_mm256_sub_epi32(_a0hi, _mm256_srav_epi32(_mm256_sub_epi32(_a1hi, _a0hi), _mm256_add_epi32(_mm256_sub_epi32(_c0hi, _c1hi), _mm256_set1_epi32(1))));\
@@ -259,8 +288,11 @@ typedef struct _ThreadArgs
 
 	int tlevels;
 
+	//const unsigned *invtable;
+#ifdef USE_MIXINCDF
 	const unsigned *mixincdfs;
-	int ctx[3][ELEVELS][CLEVELS];
+	int ctx[3][CLEVELS][CLEVELS];
+#endif
 
 	//aux
 	int blockidx;
@@ -1408,10 +1440,13 @@ static void block_thread(void *param)
 	else if(entropylevel>17)	entropyidx=2;
 	else if(entropylevel>10)	entropyidx=1;
 	else				entropyidx=0;
+#ifdef USE_MIXINCDF
 	unsigned *histptr=(unsigned*)args->hist;
 	for(int ks=0;ks<cdfstride;++ks)
 	{
 		histptr[ks]=(unsigned)((ks*((1LL<<PROB_BITS)-args->tlevels)<<PROB_EBITS)/args->tlevels);
+		//histptr[ks]=(ks<<PROB_BITS)/args->tlevels;
+
 #ifdef _DEBUG
 		if(ks&&histptr[ks-1]>histptr[ks])
 			LOG_ERROR("Init error");
@@ -1419,7 +1454,23 @@ static void block_thread(void *param)
 	}
 	memfill(histptr+cdfstride, histptr, args->histsize-cdfstride*sizeof(int), cdfstride*sizeof(int));
 	*(int*)args->ctx=1;
-	memfill((int*)args->ctx+1, args->ctx, sizeof(args->ctx)-sizeof(int), sizeof(int));
+	memfill((int*)args->ctx+1, args->ctx, sizeof(int[3*CLEVELS*CLEVELS-1]), sizeof(int));
+#else
+	unsigned short *histptr=(unsigned short*)args->hist;
+	int histlimit=0x1800<<(3-entropyidx);
+	{
+		static const int init_freqs[]={32, 8, 6, 4, 3, 2, 1};
+		int sum=0;
+		for(int ks=0;ks<args->tlevels;++ks)
+		{
+			int freq=init_freqs[MINVAR(ks, (int)_countof(init_freqs)-1)];
+			sum+=histptr[ks]=freq;
+		}
+		histptr[args->tlevels]=sum;
+	}
+	memfill(histptr+cdfstride, histptr, args->histsize-cdfstride*sizeof(short), cdfstride*sizeof(short));
+#endif
+	__m128i entropysh=_mm_set_epi32(0, 0, 0, 4-entropyidx);
 	int paddedblockwidth=args->x2-args->x1+16;
 	memset(args->pixels, 0, args->bufsize);
 	for(int ky=args->y1;ky<args->y2;++ky)//codec loop
@@ -1438,20 +1489,10 @@ static void block_thread(void *param)
 		int yidx=3*(args->iw*ky+args->x1)+combination[3+0];
 		int uidx=3*(args->iw*ky+args->x1)+combination[3+1];
 		int vidx=3*(args->iw*ky+args->x1)+combination[3+2];
-		ALIGN(32) int CDF[8*5]={0};//{8 zeros, CDF size 8*3, 8 CDFmax}
-		CDF[8*4+0]=1<<PROB_BITS;
-		CDF[8*4+1]=1<<PROB_BITS;
-		CDF[8*4+2]=1<<PROB_BITS;
-		CDF[8*4+3]=1<<PROB_BITS;
-		CDF[8*4+4]=1<<PROB_BITS;
-		CDF[8*4+5]=1<<PROB_BITS;
-		CDF[8*4+6]=1<<PROB_BITS;
-		CDF[8*4+7]=1<<PROB_BITS;
-		ALIGN(16) short regW[8]={0};
-		ALIGN(16) int grads[8]={0};
 		for(int kx=args->x1;kx<args->x2;++kx, yidx+=3, uidx+=3, vidx+=3)
 		{
 			short
+			//	*NNN	=rows[3]+0*4*2,
 				*NNW	=rows[2]-1*4*2,
 				*NN	=rows[2]+0*4*2,
 				*NNE	=rows[2]+1*4*2,
@@ -1459,44 +1500,97 @@ static void block_thread(void *param)
 				*NW	=rows[1]-1*4*2,
 				*N	=rows[1]+0*4*2,
 				*NE	=rows[1]+1*4*2,
-				*NEE	=rows[1]+2*4*2,
+			//	*WWW	=rows[0]-3*4*2,
 				*WW	=rows[0]-2*4*2,
-			//	*W	=rows[0]-1*4*2,
+				*W	=rows[0]-1*4*2,
 				*curr	=rows[0]+0*4*2;
+#ifdef ENABLE_EDGECASES
+			//if(ky<=args->y1+2)
+			//{
+				if(ky<=args->y1+1)
+				{
+					if(ky==args->y1)
+						NE=NWW=NW=N=W;
+					NNW=NW;
+					NN=N;
+					NNE=NE;
+				}
+			//	NNN=NN;
+			//}
+			//if(kx<=args->x1+2)
+			//{
+				if(kx<=args->x1+1)
+				{
+					if(kx<=args->x1)
+						NWW=NW=W=N;
+					WW=W;
+				}
+			//	WWW=WW;
+			//}
+			if(kx>=args->x2-1)
+			{
+				NNE=NN;
+				NE=N;
+			}
+#endif
 			if(args->fwd)
 			{
 				yuv[0]=args->src[yidx]-128;
 				yuv[1]=args->src[uidx]-128;
 				yuv[2]=args->src[vidx]-128;
 			}
-#if 1
 			__m128i mNN	=_mm_loadu_si128((__m128i*)NN);
+			__m128i mNNE	=_mm_loadu_si128((__m128i*)NNE);
 			__m128i mNW	=_mm_loadu_si128((__m128i*)NW);
 			__m128i mN	=_mm_loadu_si128((__m128i*)N);
 			__m128i mNE	=_mm_loadu_si128((__m128i*)NE);
-			__m128i mNEE	=_mm_loadu_si128((__m128i*)NEE);
 			__m128i mWW	=_mm_loadu_si128((__m128i*)WW);
-			__m128i mW	=_mm_loadu_si128((__m128i*)regW);
+			__m128i mW	=_mm_loadu_si128((__m128i*)W);
+			__m128i mx=_mm_abs_epi16(_mm_sub_epi16(mW, mWW));
+			__m128i my=_mm_abs_epi16(_mm_sub_epi16(mN, mNN));
+			mx=_mm_add_epi16(mx, _mm_abs_epi16(_mm_sub_epi16(mN, mNW)));
+			my=_mm_add_epi16(my, _mm_abs_epi16(_mm_sub_epi16(mW, mNW)));
+			mx=_mm_add_epi16(mx, _mm_abs_epi16(_mm_sub_epi16(mNE, mN)));
+			my=_mm_add_epi16(my, _mm_abs_epi16(_mm_sub_epi16(mNE, mNNE)));
+			if(entropyidx)
+			{
+				__m128i mr=_mm_abs_epi16(_mm_sub_epi16(mN, mW));
+				__m128i meW=_mm_max_epi16(mW, mWW);
+				__m128i meN=_mm_max_epi16(mN, mNN);
+				meW=_mm_add_epi16(meW, mW);
+				meN=_mm_add_epi16(meN, mN);
+				meW=_mm_shuffle_epi32(meW, _MM_SHUFFLE(1, 0, 3, 2));
+				meN=_mm_shuffle_epi32(meN, _MM_SHUFFLE(1, 0, 3, 2));
+				meW=_mm_add_epi16(meW, mr);
+				meN=_mm_add_epi16(meN, mr);
+				meW=_mm_srl_epi16(meW, entropysh);
+				meN=_mm_srl_epi16(meN, entropysh);
+				mx=_mm_add_epi16(mx, meW);
+				my=_mm_add_epi16(my, meN);
 
-			__m128i mqp=_mm_add_epi16(mN, mW);
-			mqp=_mm_add_epi16(mqp, _mm_slli_epi16(_mm_sub_epi16(mqp, mNW), 1));
-			mqp=_mm_srai_epi16(mqp, 11-CBITS);
-			mqp=_mm_and_si128(mqp, _mm_set1_epi16((1<<CBITS)-1));
+				mx=_mm_add_epi16(mx, _mm_srli_epi16(mx, 3));
+				my=_mm_add_epi16(my, _mm_srli_epi16(my, 3));
+			}
+			mx=_mm_add_epi16(mx, _mm_set1_epi16(3));
+			my=_mm_add_epi16(my, _mm_set1_epi16(3));
+			mx=_mm_srli_epi16(mx, 1);
+			my=_mm_srli_epi16(my, 1);
+			mx=_mm_cvtepi16_epi32(mx);//mx = (abs(W-WW)+abs(N-NW)+abs(NE-N  ) + [abs(N-W)+MAXVAR(eWW, eW)+eW] + 3)/2	//1 ~ (256*(3+1+2)*b1.001+3)/2 = 864
+			my=_mm_cvtepi16_epi32(my);//my = (abs(N-NN)+abs(W-NW)+abs(NE-NNE) + [abs(N-W)+MAXVAR(eNN, eN)+eN] + 3)/2	//10 levels (<=1023)
 
-			__m128i mqe=_mm_add_epi16(mNW, mNE);
-			mqe=_mm_add_epi16(mqe, _mm_add_epi16(mWW, mNN));
-			mqe=_mm_srli_epi16(_mm_add_epi16(mqe, mNEE), 1);
-			mqe=_mm_add_epi16(mqe, _mm_add_epi16(mN, mW));
-			mqe=_mm_shuffle_epi32(mqe, _MM_SHUFFLE(1, 0, 3, 2));
-			mqe=_mm_add_epi16(mqe, _mm_abs_epi16(_mm_sub_epi16(mN, mW)));
-			mqe=_mm_add_epi16(mqe, _mm_set1_epi16(1));
+			//ALIGN(16) int grads0[8];//
+			//_mm_store_si128((__m128i*)grads0+0, mx);
+			//_mm_store_si128((__m128i*)grads0+1, my);
 
-			mqp=_mm_cvtepi16_epi32(mqp);
-			mqe=FLOOR_LOG2_32x4(_mm_cvtepi16_epi32(mqe));//7 cycles vs (_lzcnt_u32 3 cycles)*3
-			mqe=_mm_min_epi32(mqe, _mm_set1_epi32(ELEVELS-1));
-			_mm_store_si128((__m128i*)grads+0, mqp);
-			_mm_store_si128((__m128i*)grads+1, mqe);
-#endif
+			mx=_mm_castps_si128(_mm_cvtepi32_ps(mx));
+			my=_mm_castps_si128(_mm_cvtepi32_ps(my));
+			mx=_mm_srli_epi32(mx, 23);
+			my=_mm_srli_epi32(my, 23);
+			mx=_mm_sub_epi32(mx, _mm_set1_epi32(127));//sign=0
+			my=_mm_sub_epi32(my, _mm_set1_epi32(127));
+			ALIGN(16) int grads[8];
+			_mm_store_si128((__m128i*)grads+0, mx);
+			_mm_store_si128((__m128i*)grads+1, my);
 #if defined __GNUC__ && !defined PROFILER
 #pragma GCC unroll 3
 #endif
@@ -1511,22 +1605,22 @@ static void block_thread(void *param)
 #endif
 #ifdef ENABLE_W
 				case PRED_W:
-					pred=regW[kc];
+					pred=W[kc];
 					break;
 #endif
 #ifdef ENABLE_AV2
 				case PRED_AV2:
-					pred=(N[kc]+regW[kc])>>1;
+					pred=(N[kc]+W[kc])>>1;
 					break;
 #endif
 #ifdef ENABLE_GRAD
 				case PRED_grad:
-					pred=N[kc]+regW[kc]-NW[kc];
+					pred=N[kc]+W[kc]-NW[kc];
 					break;
 #endif
 #ifdef ENABLE_PAETH2
 				case PRED_Paeth2:
-					pred=abs(regW[kc]-NW[kc])<abs(N[kc]-NW[kc])?N[kc]:regW[kc];
+					pred=abs(W[kc]-NW[kc])<abs(N[kc]-NW[kc])?N[kc]:W[kc];
 					break;
 #endif
 #ifdef ENABLE_NW
@@ -1551,59 +1645,59 @@ static void block_thread(void *param)
 #endif
 #ifdef ENABLE_CG
 				case PRED_CG:
-					MEDIAN3_32(pred, N[kc], regW[kc], N[kc]+regW[kc]-NW[kc]);
+					MEDIAN3_32(pred, N[kc], W[kc], N[kc]+W[kc]-NW[kc]);
 					break;
 #endif
 #ifdef ENABLE_AV4
 				case PRED_AV4:
 					CLAMP3_32(pred,
-						(4*(N[kc]+regW[kc])+NE[kc]-NW[kc])>>3,
-						N[kc], regW[kc], NE[kc]
+						(4*(N[kc]+W[kc])+NE[kc]-NW[kc])>>3,
+						N[kc], W[kc], NE[kc]
 					);
 					break;
 #endif
 #ifdef ENABLE_AV5
 				case PRED_AV5:
 					CLAMP3_32(pred,
-						regW[kc]+((5*(N[kc]-NW[kc])+NE[kc]-WW[kc])>>3),
-						N[kc], regW[kc], NE[kc]
+						W[kc]+((5*(N[kc]-NW[kc])+NE[kc]-WW[kc])>>3),
+						N[kc], W[kc], NE[kc]
 					);
 					break;
 #endif
 #ifdef ENABLE_AV9
 				case PRED_AV9:
 					CLAMP3_32(pred,
-						regW[kc]+((10*N[kc]-9*NW[kc]+4*NE[kc]-2*(NN[kc]+WW[kc])+NNW[kc]-(NNE[kc]+NWW[kc]))>>4),
-						N[kc], regW[kc], NE[kc]
+						W[kc]+((10*N[kc]-9*NW[kc]+4*NE[kc]-2*(NN[kc]+WW[kc])+NNW[kc]-(NNE[kc]+NWW[kc]))>>4),
+						N[kc], W[kc], NE[kc]
 					);
 					break;
 #endif
 #ifdef ENABLE_WG
 				case PRED_WG:
 					{
-						int gx=abs(regW[kc]-WW[kc])+abs(N[kc]-NW[kc])+abs(NE[kc]-N[kc])+1;//1~769
-						int gy=abs(regW[kc]-NW[kc])+abs(N[kc]-NN[kc])+abs(NE[kc]-NNE[kc])+1;
-						pred=(gx*N[kc]+gy*regW[kc])/(gx+gy);//19/11 bit
+						int gx=abs(W[kc]-WW[kc])+abs(N[kc]-NW[kc])+abs(NE[kc]-N[kc])+1;//1~769
+						int gy=abs(W[kc]-NW[kc])+abs(N[kc]-NN[kc])+abs(NE[kc]-NNE[kc])+1;
+						pred=(gx*N[kc]+gy*W[kc])/(gx+gy);//19/11 bit
 					}
 					break;
 #endif
 #ifdef ENABLE_WG2
 				case PRED_WG2:
 					{
-						int gx=abs(regW[kc]-WW[kc])+abs(N[kc]-NW[kc])+abs(NE[kc]-N[kc])+1;//1~769
-						int gy=abs(regW[kc]-NW[kc])+abs(N[kc]-NN[kc])+abs(NE[kc]-NNE[kc])+1;
+						int gx=abs(W[kc]-WW[kc])+abs(N[kc]-NW[kc])+abs(NE[kc]-N[kc])+1;//1~769
+						int gy=abs(W[kc]-NW[kc])+abs(N[kc]-NN[kc])+abs(NE[kc]-NNE[kc])+1;
 						gx=FLOOR_LOG2(gx);
 						gy=FLOOR_LOG2(gy);
-						pred=gx<gy ? regW[kc]+((N[kc]-regW[kc])>>(gy-gx+1)) : N[kc]-((regW[kc]-N[kc])>>(gx-gy+1));
+						pred=gx<gy ? W[kc]+((N[kc]-W[kc])>>(gy-gx+1)) : N[kc]-((W[kc]-N[kc])>>(gx-gy+1));
 					}
 					break;
 #endif
 #ifdef ENABLE_WG3
 				case PRED_WG3:
 					{
-						int gx=abs(regW[kc]-WW[kc])+abs(N[kc]-NW[kc])+abs(NE[kc]-N[kc])+1;//1~769
-						int gy=abs(regW[kc]-NW[kc])+abs(N[kc]-NN[kc])+abs(NE[kc]-NNE[kc])+1;
-						pred=(gx*N[kc]+gy*regW[kc])/(gx+gy);
+						int gx=abs(W[kc]-WW[kc])+abs(N[kc]-NW[kc])+abs(NE[kc]-N[kc])+1;//1~769
+						int gy=abs(W[kc]-NW[kc])+abs(N[kc]-NN[kc])+abs(NE[kc]-NNE[kc])+1;
+						pred=(gx*N[kc]+gy*W[kc])/(gx+gy);
 						pred=pred+(pred-NW[kc])*(gx+gy)/(2*768);
 					}
 					break;
@@ -1617,15 +1711,15 @@ static void block_thread(void *param)
 			for(int kc=0;kc<3;++kc)
 			{
 				int offset=yuv[combination[kc+6]];
-
-				int qp=grads[kc+0];
-				int qe=grads[kc+4];
-				//int qp=(3*(N[kc]+regW[kc])-2*NW[kc])>>(11-CBITS)&((1<<CBITS)-1);
-				//int qe=abs(N[kc]-regW[kc])+N[kc+4]+regW[kc+4]+((NW[kc+4]+NE[kc+4]+WW[kc+4]+NN[kc+4]+NEE[kc+4])>>1);
-				//qe=FLOOR_LOG2(qe+1);
-				//if(qe>ELEVELS-1)
-				//	qe=ELEVELS-1;
-
+				int qeW=grads[kc+0];
+				int qeN=grads[kc+4];
+			//	int vx, vy;
+			//	vx=abs(N[kc]-W[kc])+abs(W[kc]-WW[kc])+abs(N[kc]-NW[kc])+abs(NE[kc]-N  [kc])+(MAXVAR(WW[kc+4], W[kc+4])+W[kc+4])*2+1;//1~3061
+			//	vy=abs(N[kc]-W[kc])+abs(N[kc]-NN[kc])+abs(W[kc]-NW[kc])+abs(NE[kc]-NNE[kc])+(MAXVAR(NN[kc+4], N[kc+4])+N[kc+4])*2+1;
+			//	int qeN=FLOOR_LOG2(vy);//0~11
+			//	int qeW=FLOOR_LOG2(vx);
+				//if(qeN>CLEVELS-2||qeW>CLEVELS-2)//
+				//	LOG_ERROR("");
 				pred=preds[kc];
 				if(kc)
 				{
@@ -1633,15 +1727,55 @@ static void block_thread(void *param)
 					CLAMP2_32(pred, pred, -128, 127);
 					//CLAMP2(pred, -128, 127);
 				}
-				unsigned *curr_hist0=histptr+cdfstride*(CLEVELS*(ELEVELS*kc+qe)+qp);		//FIXME try kc as least significant index
-				unsigned *curr_hist1=histptr+cdfstride*(CLEVELS*(ELEVELS*kc+qe+(qe<ELEVELS-1))+qp);
 
+#ifdef USE_MIXINCDF
+				unsigned *curr_hist0=histptr+cdfstride*(CLEVELS*(CLEVELS*kc+qeN)+qeW);
 				__m256i mc0=_mm256_loadu_si256((__m256i*)(curr_hist0+ 1));
 				__m256i mc1=_mm256_loadu_si256((__m256i*)(curr_hist0+ 9));
 				__m256i mc2=_mm256_loadu_si256((__m256i*)(curr_hist0+17));
 				__m256i mx0, mx1, mx2;
 				unsigned cdf, freq;
-	#define GETCDF(X) (((curr_hist0[X]+curr_hist1[X])>>(PROB_EBITS+1))+(X))
+#define GETCDF(X) ((curr_hist0[X]>>PROB_EBITS)+(X))
+//#if PROB_BITS>=16
+//#define GETNEXTCDF(X) ((X)<args->tlevels?curr_hist0[X]:1<<PROB_BITS)	//0x10000 doesn't fit in unsigned short
+//#else
+//#define GETNEXTCDF(X) curr_hist0[X]
+//#endif
+#else
+				unsigned short cdf, freq, den;
+				unsigned short *curr_hist0=histptr+cdfstride*(CLEVELS*(CLEVELS*kc+qeN)+qeW);
+				//_mm_prefetch(curr_hist0, _MM_HINT_T0);
+	#define GETCTR(X) curr_hist0[X]		//fast
+				den=GETCTR(args->tlevels);
+				//unsigned invden=args->invtable[den];//2.79% somehow slower
+
+				unsigned invden=0x80000000/den;//10%
+
+				//unsigned invden;
+				//{//12.11%	12.23%
+				//	__m128i i0=_mm_set_epi32(0, 0, 0, den);
+				//	__m128i i1=_mm_set_epi32(0, 0, 0, 31<<23);
+				//	//__m128 f1=_mm_set_ps(0, 0, 0, 1.f/0x80000000);
+				//	__m128 f0=_mm_cvtepi32_ps(i0);//1.66%
+				//	f0=_mm_castsi128_ps(_mm_sub_epi32(_mm_castps_si128(f0), i1));//subtract 31 from exponent part	1.78%
+				//	//f1=_mm_mul_ss(f1, f0);
+				//	f0=_mm_rcp_ss(f0);//3.25%
+				//	//f1=_mm_div_ss(f1, f0);
+				//	//invden=_mm_cvt_ss2si(f0);//7 cycles  4.56%
+				//	union{float f; unsigned i;} temp={_mm_cvtss_f32(_mm_castsi128_ps(_mm_cvtps_epi32(f0)))};//4+1 cycles  4.62%
+				//	invden=temp.i;
+				//}
+
+				//unsigned invden;
+				//{//20.81%
+				//	union{float f; unsigned i;} t0={1/(float)den};//vdivss 8.95%	DON'T RELY ON COMPILER
+				//	//float t0=1/(float)den;//-Wstrict-aliasing
+				//	t0.i+=31<<23;
+				//	//invden=(unsigned)t0.f;//safe clamped conversion
+				//}
+
+				//unsigned invden=(unsigned)((float)0x80000000/den);//div_ss, cvtss2si: slower
+#endif
 				//if(ky==480&&kx==109&&kc==2)//
 				//if(ky==147&&kx==317&&kc==1)//
 				//if(ky==1&&kx==455&&kc==0)//
@@ -1652,7 +1786,6 @@ static void block_thread(void *param)
 				//if(ky==0&&kx==0&&kc==2)//
 				//if(ky==747&&kx==2444&&kc==0)//
 				//if(ky==0&&kx==0&&kc==0)//
-				//if(ky==7&&kx==342&&kc==2)//
 				//	printf("");
 				if(args->fwd)
 				{
@@ -1669,36 +1802,79 @@ static void block_thread(void *param)
 					if(token>=args->tlevels)
 						LOG_ERROR("YXC %d %d %d  token %d/%d", ky, kx, kc, token, args->tlevels);
 #endif
+#ifdef USE_MIXINCDF
+					//if(ky==13&&kx==19&&kc==0)//
+					//	printf("");
 					cdf=GETCDF(token);
 					freq=GETCDF(token+1)-cdf;
 					ac3_enc_update_N(&ec, cdf, freq, PROB_BITS);
+#else
+					cdf=0;
+					freq=GETCTR(token);
+					unsigned short t0=0, t1=0;
+					switch(token&31)//3.44%
+					{
+					case 31:t0+=GETCTR(30);
+					case 30:t1+=GETCTR(29);
+					case 29:t0+=GETCTR(28);
+					case 28:t1+=GETCTR(27);
+					case 27:t0+=GETCTR(26);
+					case 26:t1+=GETCTR(25);
+					case 25:t0+=GETCTR(24);
+					case 24:t1+=GETCTR(23);
+					case 23:t0+=GETCTR(22);
+					case 22:t1+=GETCTR(21);
+					case 21:t0+=GETCTR(20);
+					case 20:t1+=GETCTR(19);
+					case 19:t0+=GETCTR(18);
+					case 18:t1+=GETCTR(17);
+					case 17:t0+=GETCTR(16);
+					case 16:t1+=GETCTR(15);
+					case 15:t0+=GETCTR(14);
+					case 14:t1+=GETCTR(13);
+					case 13:t0+=GETCTR(12);
+					case 12:t1+=GETCTR(11);
+					case 11:t0+=GETCTR(10);
+					case 10:t1+=GETCTR( 9);
+					case  9:t0+=GETCTR( 8);
+					case  8:t1+=GETCTR( 7);
+					case  7:t0+=GETCTR( 6);
+					case  6:t1+=GETCTR( 5);
+					case  5:t0+=GETCTR( 4);
+					case  4:t1+=GETCTR( 3);
+					case  3:t0+=GETCTR( 2);
+					case  2:t1+=GETCTR( 1);
+					case  1:t0+=GETCTR( 0);
+					case  0:
+						break;
+					}
+					cdf=(t0+t1)*invden>>15;
+					freq=freq*invden>>15;
+					ac3_enc_update(&ec, cdf, freq);
+#endif
 					if(nbits)
 						ac3_enc_bypass(&ec, bypass, nbits);
 				}
 				else
 				{
+					//if(ky==0&&kx==5&&kc==1)//
+					//	printf("");
+					
 					AC3_RENORM_STATEMENT(!(ec.range>>PROB_BITS))
 						ac3_dec_renorm(&ec);
+#ifdef USE_MIXINCDF
+					unsigned short r2=(unsigned short)(((ec.code-ec.low)<<PROB_BITS|((1LL<<PROB_BITS)-1))/ec.range);
+					//unsigned long long r2=(unsigned long long)((ec.code-ec.low)<<PROB_BITS|((1LL<<PROB_BITS)-1));
+#if 1
 					if(entropyidx)
 					{
-						__m256i mr2=_mm256_set1_epi32((unsigned short)(((ec.code-ec.low)<<PROB_BITS|((1LL<<PROB_BITS)-1))/ec.range));
-						__m256i md0=_mm256_loadu_si256((__m256i*)(curr_hist1+ 1));
-						__m256i md1=_mm256_loadu_si256((__m256i*)(curr_hist1+ 9));
-						__m256i md2=_mm256_loadu_si256((__m256i*)(curr_hist1+17));
-						
-						mx0=_mm256_add_epi32(mc0, md0);
-						mx1=_mm256_add_epi32(mc1, md1);
-						mx2=_mm256_add_epi32(mc2, md2);
-						mx0=_mm256_srli_epi32(mx0, PROB_EBITS+1);
-						mx1=_mm256_srli_epi32(mx1, PROB_EBITS+1);
-						mx2=_mm256_srli_epi32(mx2, PROB_EBITS+1);
-
+						__m256i mr2=_mm256_set1_epi32(r2);
+						mx0=_mm256_srli_epi32(mc0, PROB_EBITS);
+						mx1=_mm256_srli_epi32(mc1, PROB_EBITS);
+						mx2=_mm256_srli_epi32(mc2, PROB_EBITS);
 						mx0=_mm256_add_epi32(mx0, _mm256_set_epi32( 8,  7,  6,  5,  4,  3,  2,  1));
 						mx1=_mm256_add_epi32(mx1, _mm256_set_epi32(16, 15, 14, 13, 12, 11, 10,  9));
 						mx2=_mm256_add_epi32(mx2, _mm256_set_epi32(24, 23, 22, 21, 20, 19, 18, 17));
-						_mm256_store_si256((__m256i*)CDF+1, mx0);
-						_mm256_store_si256((__m256i*)CDF+2, mx1);
-						_mm256_store_si256((__m256i*)CDF+3, mx2);
 						mx0=_mm256_cmpgt_epi32(mx0, mr2);
 						mx1=_mm256_cmpgt_epi32(mx1, mr2);
 						mx2=_mm256_cmpgt_epi32(mx2, mr2);
@@ -1707,19 +1883,19 @@ static void block_thread(void *param)
 						mask|=_mm256_movemask_ps(_mm256_castsi256_ps(mx2))<<16;
 						mask|=1<<24;
 						token=_tzcnt_u32(mask);
-
-						cdf=CDF[token+7];
-						freq=CDF[token+8]-cdf;
+						cdf=GETCDF(token);
+						freq=GETCDF(token+1)-cdf;
 					}
 					else
+#endif
 					{
-						unsigned long long r2=(unsigned long long)((ec.code-ec.low)<<PROB_BITS|((1LL<<PROB_BITS)-1));
 						cdf=0;
 						token=0;
 						for(;;)
 						{
 							freq=GETCDF(token+1);
-							if(freq*ec.range>r2)
+							if(freq>r2)
+							//if(freq*ec.range>r2)
 								break;
 							++token;
 #ifdef _DEBUG
@@ -1731,6 +1907,41 @@ static void block_thread(void *param)
 						freq-=cdf;
 					}
 					ac3_dec_update_N(&ec, cdf, freq, PROB_BITS);
+#else
+					//unsigned r2=((unsigned)(((ec.code-ec.low)<<16|0xFFFF)/ec.range)<<15|0x7FFF)/invden;
+					unsigned long long r2=(ec.code-ec.low)<<16|0xFFFF;
+
+					//unsigned long long factor=invden*(ec.range>>15)+(invden*(ec.range&((1ULL<<15)-1))>>15);
+					//unsigned long long r1=_umul128(ec.range, invden, &factor);
+					//factor=factor<<(64-16)|r1>>16;
+
+					//unsigned code=ac3_dec_getcdf(&ec);
+					//unsigned code=ac3_dec_getcdf_NPOT(&ec, den);
+					cdf=0;
+					token=0;
+					for(;;)
+					{
+						unsigned cdf2;
+
+						freq=GETCTR(token);
+						cdf2=cdf+freq;
+						//if(cdf2>r2)
+						if((unsigned)(cdf2*invden>>15)*ec.range>r2)
+							break;
+						//if((cdf2*invden>>15)>code)
+						//if(cdf2>code)
+						//	break;
+#ifdef _DEBUG
+						if(token>=args->tlevels)
+							LOG_ERROR("YXC %d %d %d  token %d/%d", ky, kx, kc, token, args->tlevels);
+#endif
+						cdf=cdf2;
+						++token;
+					}
+					cdf=cdf*invden>>15;
+					freq=freq*invden>>15;
+					ac3_dec_update(&ec, cdf, freq);
+#endif
 					sym=token;
 					if(sym>=(1<<CONFIG_EXP))
 					{
@@ -1765,31 +1976,28 @@ static void block_thread(void *param)
 					}
 					yuv[kc]=error+pred;
 				}
-				curr[kc+0]=regW[kc]=yuv[kc]-offset;
-				curr[kc+4]=regW[kc+4]=abs(error);
+				curr[kc+0]=yuv[kc]-offset;
+				curr[kc+4]=abs(error);
+#ifdef USE_MIXINCDF
+				//if(ky==32&&kx==202&&kc==1)//
+				//	printf("");
+				//if(qeN>=10||qeW>=10)//
+				//	printf("");
 				const unsigned *mixincdf=args->mixincdfs+args->tlevels*token;
-
-				int *mixctx=&args->ctx[kc][qe][qp];
+				//int sh=entropyidx+5;
+#if 1
+				//if(qeN>=CLEVELS||qeW>=CLEVELS)
+				//{
+				//	for(int k=0;k<4;++k)
+				//		printf("%d %d\n", grads0[k], grads0[k+4]);
+				//	LOG_ERROR("CTX error YXC %d %d XY %d %d", ky, kx, kc, qeN, qeW);
+				//}
+				int *mixctx=&args->ctx[kc][qeN][qeW];
 				int sh=(*mixctx)++*entropylevel;
-				sh=FLOOR_LOG2(sh+1)>>1;
-//	#define SMIN 1	//422186347
-	#define SMIN 2	//422186347
-//	#define SMIN 3	//422188055
-//	#define SMIN 4	//422227571
-//	#define SMIN 5	//422365319
-
-//	#define SMAX 7	//424049307
-//	#define SMAX 8	//422868507
-//	#define SMAX 9	//422446495
-//	#define SMAX 10	//422367335
-	#define SMAX 11	//422365319
-//	#define SMAX 12	//422365319
+				sh=(FLOOR_LOG2(sh+1)>>1)+1;
+#define SMIN 5
+#define SMAX 12
 				CLAMP2(sh, SMIN, SMAX);
-				int sh2=sh;
-			//	if(sh2<2)sh2=2;//422186347 (off)
-				if(sh2<3)sh2=3;//422185855
-			//	if(sh2<4)sh2=4;//422209019
-			//	if(sh2<5)sh2=5;//422289307
 
 #if !defined ENABLE_MT && 0
 				{
@@ -1803,13 +2011,23 @@ static void block_thread(void *param)
 					}
 				}
 #endif
+				int bias=(1<<13)>>(14-sh);
+				//int bias=1<<sh>>1;
+#endif
+				//if(ky==709&&kx==2110&&kc==2)//
+				//	printf("");
+#if 1
 				__m128i ms=_mm_set_epi32(0, 0, 0, sh);
-				__m256i my0=_mm256_loadu_si256((__m256i*)(mixincdf+ 1));//8*3+1 = 25 total	[0]=0, [25]=1<<PROB_BITS
-				__m256i my1=_mm256_loadu_si256((__m256i*)(mixincdf+ 9));
-				__m256i my2=_mm256_loadu_si256((__m256i*)(mixincdf+17));
-				mx0=_mm256_sub_epi32(my0, mc0);
-				mx1=_mm256_sub_epi32(my1, mc1);
-				mx2=_mm256_sub_epi32(my2, mc2);
+				__m256i mb=_mm256_set1_epi32(bias);
+				mx0=_mm256_loadu_si256((__m256i*)(mixincdf+ 1));//8*3+1 = 25 total	[0]=0, [25]=1<<PROB_BITS
+				mx1=_mm256_loadu_si256((__m256i*)(mixincdf+ 9));
+				mx2=_mm256_loadu_si256((__m256i*)(mixincdf+17));
+				mx0=_mm256_sub_epi32(mx0, mc0);
+				mx1=_mm256_sub_epi32(mx1, mc1);
+				mx2=_mm256_sub_epi32(mx2, mc2);
+				mx0=_mm256_add_epi32(mx0, mb);
+				mx1=_mm256_add_epi32(mx1, mb);
+				mx2=_mm256_add_epi32(mx2, mb);
 				mx0=_mm256_sra_epi32(mx0, ms);
 				mx1=_mm256_sra_epi32(mx1, ms);
 				mx2=_mm256_sra_epi32(mx2, ms);
@@ -1819,22 +2037,34 @@ static void block_thread(void *param)
 				_mm256_storeu_si256((__m256i*)(curr_hist0+ 1), mx0);
 				_mm256_storeu_si256((__m256i*)(curr_hist0+ 9), mx1);
 				_mm256_storeu_si256((__m256i*)(curr_hist0+17), mx2);
-				mc0=_mm256_loadu_si256((__m256i*)(curr_hist1+ 1));
-				mc1=_mm256_loadu_si256((__m256i*)(curr_hist1+ 9));
-				mc2=_mm256_loadu_si256((__m256i*)(curr_hist1+17));
-				ms=_mm_set_epi32(0, 0, 0, sh2);
-				mx0=_mm256_sub_epi32(my0, mc0);
-				mx1=_mm256_sub_epi32(my1, mc1);
-				mx2=_mm256_sub_epi32(my2, mc2);
-				mx0=_mm256_sra_epi32(mx0, ms);
-				mx1=_mm256_sra_epi32(mx1, ms);
-				mx2=_mm256_sra_epi32(mx2, ms);
-				mx0=_mm256_add_epi32(mx0, mc0);
-				mx1=_mm256_add_epi32(mx1, mc1);
-				mx2=_mm256_add_epi32(mx2, mc2);
-				_mm256_storeu_si256((__m256i*)(curr_hist1+ 1), mx0);
-				_mm256_storeu_si256((__m256i*)(curr_hist1+ 9), mx1);
-				_mm256_storeu_si256((__m256i*)(curr_hist1+17), mx2);
+#else
+				for(int ks=0;ks<args->tlevels;++ks)//12.62%
+				{
+					//unsigned next=curr_hist0[ks]+(int)(((long long)(int)(mixincdf[ks]-curr_hist0[ks])*factor+(1<<(6+7)>>1))>>(6+7));//7 bit factor
+					unsigned next=curr_hist0[ks]+(((int)(mixincdf[ks]-curr_hist0[ks])+bias)>>sh);
+					//unsigned next=curr_hist0[ks]+(((int)(mixincdf[ks]-curr_hist0[ks])+(1<<7>>1))>>7);
+					//curr_hist0[ks]+=(int)((mixincdf[ks]-curr_hist0[ks])*factor+(1<<(6+8)>>1))>>(6+8);
+					//curr_hist0[ks]+=(int)((mixincdf[ks]-curr_hist0[ks])+(1<<7>>1))>>7;
+#ifdef _DEBUG
+					unsigned amplitude=((1<<PROB_BITS)-args->tlevels)<<PROB_EBITS;
+					if(ks&&curr_hist0[ks-1]>next||next>amplitude)//
+						LOG_ERROR("Update error");
+#endif
+					curr_hist0[ks]=next;
+				}
+#endif
+#else
+				++curr_hist0[token];
+				++curr_hist0[args->tlevels];
+			//	if(curr_hist0[args->tlevels]>=6144)//4096	6144	8192	10240	12288
+				if(curr_hist0[args->tlevels]>=histlimit)
+				{
+					int sum=0;
+					for(int ks=0;ks<args->tlevels;++ks)
+						sum+=curr_hist0[ks]=(curr_hist0[ks]+1)>>1;
+					curr_hist0[args->tlevels]=sum;
+				}
+#endif
 			}
 			if(!args->fwd)
 			{
@@ -1870,7 +2100,10 @@ int c24_codec(const char *srcfn, const char *dstfn)
 	double esize;
 	int usize;
 	int maxwidth;
+	//unsigned *invtable;
+#ifdef USE_MIXINCDF
 	unsigned *mixincdfs=0;
+#endif
 	
 	t0=time_sec();
 	src=load_file(srcfn, 1, 3, 1);
@@ -1955,25 +2188,72 @@ int c24_codec(const char *srcfn, const char *dstfn)
 
 		quantize_pixel(nlevels, &token, &bypass, &nbits);
 		tlevels=token+1;
-		statssize=(tlevels+1)*(int)sizeof(int[3*ELEVELS*CLEVELS]);
+#ifdef USE_MIXINCDF
+		statssize=(tlevels+1)*(int)sizeof(int[3*CLEVELS*CLEVELS]);
+#else
+		statssize=(tlevels+1)*(int)sizeof(short[3*CLEVELS*CLEVELS]);
+#endif
 		histsize=(int)sizeof(int[OCH_COUNT*PRED_COUNT<<8]);
 		if(histsize<statssize)
 			histsize=statssize;
 		maxwidth=iw;
 		if(maxwidth>BLOCKSIZE)
 			maxwidth=BLOCKSIZE;
+		//invtable=(unsigned*)malloc(sizeof(int[0x10000]));
+		//if(!invtable)
+		//{
+		//	LOG_ERROR("Alloc error");
+		//	return 1;
+		//}
+		//invtable[0]=0xFFFFFFFF;
+		//for(int k=1;k<0x10000;++k)
+		//	invtable[k]=0x80000000/k;
+#ifdef USE_MIXINCDF
 		mixincdfs=(unsigned*)malloc(sizeof(int)*tlevels*tlevels);
-		//mixincdfs2=(unsigned*)malloc(sizeof(int)*tlevels*tlevels);
 		if(!mixincdfs)
 		{
 			LOG_ERROR("Alloc error");
 			return 1;
 		}
+		//int sum=0;
+		//for(int ks2=0;ks2<tlevels;++ks2)//sum of squares = n(n+1)(2n+1)/6 = 5525 (tlevels=25) amp=16384
+		//{
+		//	int x=tlevels-ks2;
+		//	sum+=x*x;
+		//}
+		//int aamp=(1<<PROB_BITS)-tlevels-sum;
 		for(int ks=0;ks<tlevels;++ks)
 		{
 			for(int ks2=0;ks2<tlevels;++ks2)
 				mixincdfs[tlevels*ks+ks2]=(((1<<PROB_BITS)-tlevels)<<PROB_EBITS)&-(ks<ks2);
+
+			//for(int ks2=0;ks2<tlevels;++ks2)
+			//	mixincdfs[tlevels*ks+ks2]=(((1<<PROB_BITS)-tlevels)&-(ks<ks2))+ks2;
+
+			//int cdf2=0;
+			//for(int ks2=0;;++ks2)
+			//{
+			//	int c=(aamp&-(ks<ks2))+ks2+cdf2;
+			//	if(ks2>=tlevels)
+			//	{
+			//		if(c!=(1<<PROB_BITS))
+			//			LOG_ERROR("Init error");
+			//		break;
+			//	}
+			//	mixincdfs[tlevels*ks+ks2]=c;
+			//
+			//	int x=tlevels-ks2;
+			//	cdf2+=x*x;
+			//}
+			
+			//for(int ks2=0;ks2<tlevels;++ks2)
+			//{
+			//	int cdf=(((1<<PROB_BITS)-tlevels)&-(ks<ks2));
+			//	cdf=cdf*cdf>>14;
+			//	mixincdfs[tlevels*ks+ks2]=cdf+ks2;
+			//}
 		}
+#endif
 	}
 	for(int k=0;k<nthreads;++k)
 	{
@@ -1999,7 +2279,10 @@ int c24_codec(const char *srcfn, const char *dstfn)
 		arg->tlevels=tlevels;
 		arg->fwd=fwd;
 		arg->test=test;
+		//arg->invtable=invtable;
+#ifdef USE_MIXINCDF
 		arg->mixincdfs=mixincdfs;
+#endif
 #ifdef ENABLE_MT
 		arg->loud=0;
 #else
@@ -2139,6 +2422,9 @@ int c24_codec(const char *srcfn, const char *dstfn)
 	free(args);
 	array_free(&src);
 	array_free(&dst);
+	//free(invtable);
+#ifdef USE_MIXINCDF
 	free(mixincdfs);
+#endif
 	return 0;
 }
