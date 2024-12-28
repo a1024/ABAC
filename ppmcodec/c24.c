@@ -220,7 +220,7 @@ AWM_INLINE void pred_wg3(short *pred, const short *gx, const short *gy, const sh
 
 //from libjxl		packsign(pixel) = 0b00001MMBB...BBL	token = offset + 0bGGGGMML,  where G = bits of lg(packsign(pixel)),  bypass = 0bBB...BB
 #define CONFIG_EXP 4
-#define CONFIG_MSB 1
+#define CONFIG_MSB 1	//revise AVX2 CDF (size 8*3+2) to change config
 #define CONFIG_LSB 0
 AWM_INLINE void quantize_pixel(int val, int *token, int *bypass, int *nbits)
 {
@@ -1679,37 +1679,72 @@ static void block_thread(void *param)
 				{
 					AC3_RENORM_STATEMENT(!(ec.range>>PROB_BITS))
 						ac3_dec_renorm(&ec);
-					if(entropyidx)
+					if(entropyidx)//+29.92% (CDF[token+7] takes 26% of that)
 					{
-						__m256i mr2=_mm256_set1_epi32((unsigned short)(((ec.code-ec.low)<<PROB_BITS|((1LL<<PROB_BITS)-1))/ec.range));
+						__m256i mr2=_mm256_set1_epi32((unsigned short)(((ec.code-ec.low)<<PROB_BITS|((1LL<<PROB_BITS)-1))/ec.range));//3.75% div, 1.52% broadcast
 						__m256i md0=_mm256_loadu_si256((__m256i*)(curr_hist1+ 1));
 						__m256i md1=_mm256_loadu_si256((__m256i*)(curr_hist1+ 9));
 						__m256i md2=_mm256_loadu_si256((__m256i*)(curr_hist1+17));
-						
-						mx0=_mm256_add_epi32(mc0, md0);
+						mx0=_mm256_add_epi32(mc0, md0);//2.21% 3 mem adds
 						mx1=_mm256_add_epi32(mc1, md1);
 						mx2=_mm256_add_epi32(mc2, md2);
-						mx0=_mm256_srli_epi32(mx0, PROB_EBITS+1);
+						mx0=_mm256_srli_epi32(mx0, PROB_EBITS+1);//1.39% 3 shifts
 						mx1=_mm256_srli_epi32(mx1, PROB_EBITS+1);
 						mx2=_mm256_srli_epi32(mx2, PROB_EBITS+1);
-
-						mx0=_mm256_add_epi32(mx0, _mm256_set_epi32( 8,  7,  6,  5,  4,  3,  2,  1));
+						mx0=_mm256_add_epi32(mx0, _mm256_set_epi32( 8,  7,  6,  5,  4,  3,  2,  1));//0.42% 3 mem adds
 						mx1=_mm256_add_epi32(mx1, _mm256_set_epi32(16, 15, 14, 13, 12, 11, 10,  9));
 						mx2=_mm256_add_epi32(mx2, _mm256_set_epi32(24, 23, 22, 21, 20, 19, 18, 17));
-						_mm256_store_si256((__m256i*)CDF+1, mx0);
+						_mm256_store_si256((__m256i*)CDF+1, mx0);//0.84% 3 stores
 						_mm256_store_si256((__m256i*)CDF+2, mx1);
 						_mm256_store_si256((__m256i*)CDF+3, mx2);
-						mx0=_mm256_cmpgt_epi32(mx0, mr2);
-						mx1=_mm256_cmpgt_epi32(mx1, mr2);
-						mx2=_mm256_cmpgt_epi32(mx2, mr2);
-						int mask=_mm256_movemask_ps(_mm256_castsi256_ps(mx0));
-						mask|=_mm256_movemask_ps(_mm256_castsi256_ps(mx1))<<8;
-						mask|=_mm256_movemask_ps(_mm256_castsi256_ps(mx2))<<16;
+						__m256i cond0=_mm256_cmpgt_epi32(mx0, mr2);//3.94% 3 comparisons
+						__m256i cond1=_mm256_cmpgt_epi32(mx1, mr2);
+						__m256i cond2=_mm256_cmpgt_epi32(mx2, mr2);
+						int mask=_mm256_movemask_ps(_mm256_castsi256_ps(cond0));//3.91% just 3 ORs
+						mask|=_mm256_movemask_ps(_mm256_castsi256_ps(cond1))<<8;
+						mask|=_mm256_movemask_ps(_mm256_castsi256_ps(cond2))<<16;
 						mask|=1<<24;
-						token=_tzcnt_u32(mask);
+						token=_tzcnt_u32(mask);//4.16%
+						
+						cdf=CDF[token+7];//7.78% (8.62% with 3 stores)
+						freq=CDF[token+8]-cdf;//negligible
 
-						cdf=CDF[token+7];
-						freq=CDF[token+8]-cdf;
+					//	//16.46% 16.57% slower
+					//	__m256i perf=_mm256_set1_epi32(token+0+0*8);
+					//	__m256i perc=_mm256_add_epi32(perf, _mm256_set1_epi32(-1+1*8));
+					//	__m256i t0=_mm256_permutevar8x32_epi32(mx0, perc);
+					//	__m256i t1=_mm256_permutevar8x32_epi32(mx0, perf);
+					//	__m256i t2=_mm256_permutevar8x32_epi32(mx1, perc);
+					//	__m256i t3=_mm256_permutevar8x32_epi32(mx1, perf);
+					//	__m256i t4=_mm256_permutevar8x32_epi32(mx2, perc);
+					//	__m256i t5=_mm256_permutevar8x32_epi32(mx2, perf);
+					//	t0=_mm256_blend_epi32(_mm256_setzero_si256(), t0, 0x02);
+					//	t1=_mm256_blend_epi32(_mm256_set1_epi32(1<<PROB_BITS), t1, 0x01);
+					//	t0=_mm256_blend_epi32(t0, t2, 0x04);
+					//	t1=_mm256_blend_epi32(t1, t3, 0x02);
+					//	t0=_mm256_blend_epi32(t0, t4, 0x08);
+					//	t1=_mm256_blend_epi32(t1, t5, 0x04);
+					//	t0=_mm256_permutevar8x32_epi32(t0, _mm256_srli_epi32(perc, 3));
+					//	t1=_mm256_permutevar8x32_epi32(t1, _mm256_srli_epi32(perf, 3));
+					//	cdf=_mm256_extract_epi32(t0, 0);
+					//	freq=_mm256_extract_epi32(t1, 0);
+					//	freq-=cdf;
+
+					//	//15.57% 16.53% slower
+					//	__m256i perf=_mm256_set1_epi32(token+0+0*8);
+					//	//__m256i perc=_mm256_set1_epi32(token-1+1*8);//5.19% sets
+					//	__m256i perc=_mm256_add_epi32(perf, _mm256_set1_epi32(-1+1*8));
+					//	__m256i t0=_mm256_blend_epi32(_mm256_setzero_si256(), _mm256_permutevar8x32_epi32(mx0, perc), 0x02);//2.59% vpermd, 5.25% vpblendd
+					//	__m256i t1=_mm256_blend_epi32(_mm256_set1_epi32(1<<PROB_BITS), _mm256_permutevar8x32_epi32(mx0, perf), 0x01);
+					//	t0=_mm256_blend_epi32(t0, _mm256_permutevar8x32_epi32(mx1, perc), 0x04);
+					//	t1=_mm256_blend_epi32(t1, _mm256_permutevar8x32_epi32(mx1, perf), 0x02);
+					//	t0=_mm256_blend_epi32(t0, _mm256_permutevar8x32_epi32(mx2, perc), 0x08);
+					//	t1=_mm256_blend_epi32(t1, _mm256_permutevar8x32_epi32(mx2, perf), 0x04);
+					//	t0=_mm256_permutevar8x32_epi32(t0, _mm256_srli_epi32(perc, 3));//srl negligible (OoO)
+					//	t1=_mm256_permutevar8x32_epi32(t1, _mm256_srli_epi32(perf, 3));
+					//	cdf=_mm256_extract_epi32(t0, 0);//1.29% vmovd(xmm1) right after vpermd(ymm1)
+					//	freq=_mm256_extract_epi32(t1, 0);
+					//	freq-=cdf;
 					}
 					else
 					{
@@ -1768,37 +1803,23 @@ static void block_thread(void *param)
 				curr[kc+0]=regW[kc]=yuv[kc]-offset;
 				curr[kc+4]=regW[kc+4]=abs(error);
 				const unsigned *mixincdf=args->mixincdfs+args->tlevels*token;
-
 				int *mixctx=&args->ctx[kc][qe][qp];
 				int sh=(*mixctx)++*entropylevel;
 				sh=FLOOR_LOG2(sh+1)>>1;
-//	#define SMIN 1	//422186347
-	#define SMIN 2	//422186347
-//	#define SMIN 3	//422188055
-//	#define SMIN 4	//422227571
-//	#define SMIN 5	//422365319
-
-//	#define SMAX 7	//424049307
-//	#define SMAX 8	//422868507
-//	#define SMAX 9	//422446495
-//	#define SMAX 10	//422367335
-	#define SMAX 11	//422365319
-//	#define SMAX 12	//422365319
+				//sh=(FLOOR_LOG2(sh+1)+FLOOR_LOG2(token+1))>>1;
+#define SMIN 4
+#define SMAX 11
 				CLAMP2(sh, SMIN, SMAX);
 				int sh2=sh;
-			//	if(sh2<2)sh2=2;//422186347 (off)
-				if(sh2<3)sh2=3;//422185855
-			//	if(sh2<4)sh2=4;//422209019
-			//	if(sh2<5)sh2=5;//422289307
-
+				if(sh2<6)sh2=6;
 #if !defined ENABLE_MT && 0
 				{
-					static int shist[SMAX-SMIN]={0};
+					static int shist[SMAX+1-SMIN]={0};
 					++shist[sh-SMIN];
 					if(args->fwd&&ky==args->y2-1&&kx==args->x2-1&&kc==2)
 					{
 						printf("block %d\n", args->blockidx);
-						for(int k=0;k<SMAX-SMIN;++k)
+						for(int k=0;k<SMAX+1-SMIN;++k)
 							printf("%2d %8d\n", k+SMIN, shist[k]);
 					}
 				}
@@ -1819,10 +1840,10 @@ static void block_thread(void *param)
 				_mm256_storeu_si256((__m256i*)(curr_hist0+ 1), mx0);
 				_mm256_storeu_si256((__m256i*)(curr_hist0+ 9), mx1);
 				_mm256_storeu_si256((__m256i*)(curr_hist0+17), mx2);
+				ms=_mm_set_epi32(0, 0, 0, sh2);
 				mc0=_mm256_loadu_si256((__m256i*)(curr_hist1+ 1));
 				mc1=_mm256_loadu_si256((__m256i*)(curr_hist1+ 9));
 				mc2=_mm256_loadu_si256((__m256i*)(curr_hist1+17));
-				ms=_mm_set_epi32(0, 0, 0, sh2);
 				mx0=_mm256_sub_epi32(my0, mc0);
 				mx1=_mm256_sub_epi32(my1, mc1);
 				mx2=_mm256_sub_epi32(my2, mc2);

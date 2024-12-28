@@ -569,10 +569,8 @@ AWM_INLINE void ac3_enc_update_N(AC3 *ec, unsigned cdf, unsigned freq, int probb
 		ac3_enc_renorm(ec);
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
-	if((unsigned)(freq-1)>=(0x10000-1))
-		LOG_ERROR2("ZPS");
-	if(cdf+freq<cdf)
-		LOG_ERROR2("Invalid CDF");
+	if((unsigned)(freq-1)>=(0x10000-1)||cdf+freq<cdf)
+		LOG_ERROR2("Invalid stats");
 #endif
 	ec->low+=ec->range*cdf>>probbits;
 	ec->range=(ec->range*freq>>probbits)-1;
@@ -625,10 +623,8 @@ AWM_INLINE void ac3_dec_update_N(AC3 *ec, unsigned cdf, unsigned freq, int probb
 {
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
-	if((unsigned)(freq-1)>=(0x10000-1))
-		LOG_ERROR2("ZPS");
-	if(cdf+freq<cdf)
-		LOG_ERROR2("Invalid CDF");
+	if((unsigned)(freq-1)>=(0x10000-1)||cdf+freq<cdf)
+		LOG_ERROR2("Invalid stats");
 #endif
 	ec->low+=ec->range*cdf>>probbits;
 	ec->range=(ec->range*freq>>probbits)-1;//must decrement hi because decoder fails when code == hi2
