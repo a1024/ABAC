@@ -1137,10 +1137,83 @@ AWM_INLINE int ac5_dec_bin(AC5 *ec, int p1)
 }
 
 
+//Bypass Coder
+typedef struct _BypassCoder
+{
+	unsigned long long state;
+	int nbits;
+	BList *dst;
+	const unsigned char *srcptr, *srcend;
+} BypassCoder;
+AWM_INLINE void bypass_enc_init(BypassCoder *ec, BList *dst)
+{
+	memset(ec, 0, sizeof(*ec));
+	ec->dst=dst;
+}
+AWM_INLINE void bypass_dec_init(BypassCoder *ec, const unsigned char *start, unsigned const char *end)
+{
+	memset(ec, 0, sizeof(*ec));
+	ec->srcptr=start;
+	ec->srcend=end;
+}
+AWM_INLINE void bypass_enc_flush(BypassCoder *ec)
+{
+	blist_push_back(ec->dst, (unsigned char*)&ec->state+(sizeof(ec->state)>>1)*1, sizeof(ec->state)>>1);//big-endian
+	blist_push_back(ec->dst, (unsigned char*)&ec->state+(sizeof(ec->state)>>1)*0, sizeof(ec->state)>>1);
+}
+AWM_INLINE void bypass_enc(BypassCoder *ec, int bypass, int nbits)
+{
+	if(ec->nbits>(sizeof(ec->state)<<3>>1))	//32-bit renorm
+	{
+		blist_push_back(ec->dst, (unsigned char*)&ec->state+(sizeof(ec->state)>>1), sizeof(ec->state)>>1);
+		ec->state<<=sizeof(ec->state)<<3>>1;
+		ec->nbits-=sizeof(ec->state)<<3>>1;
+	}
+	ec->nbits+=nbits;
+	ec->state|=(unsigned long long)bypass<<((sizeof(ec->state)<<3)-ec->nbits);
+
+	//ec->nbits+=nbits;		//64-bit renorm
+	//if(ec->nbits>(sizeof(ec->state)<<3))
+	//{
+	//	int hicount=ec->nbits&((sizeof(ec->state)<<3)-1);
+	//	ec->state<<=hicount;
+	//	ec->state|=(unsigned long long)bypass>>(nbits-hicount);
+	//	blist_push_back(ec->dst, &ec->state, sizeof(ec->state)<<3);
+	//	ec->state=bypass&((1LL<<(nbits-hicount))-1);
+	//	return;
+	//}
+	//ec->state=ec->state<<nbits|bypass;
+
+	//ec->state=ec->state<<nbits|bypass;				//convention #1: shift state
+	//ec->state|=(unsigned long long)bypass<<ec->nbits;		//convention #2: shift bypass
+	//ec->nbits+=nbits;
+}
+AWM_INLINE int bypass_dec(BypassCoder *ec, int nbits)
+{
+	if(ec->nbits<(sizeof(ec->state)<<3>>1))		//32-bit renorm
+	{
+		ec->state=ec->state<<(sizeof(ec->state)<<3>>1)|*(unsigned*)ec->srcptr;
+		ec->srcptr+=sizeof(ec->state)>>1;
+		ec->nbits+=sizeof(ec->state)<<3>>1;
+	}
+	ec->nbits-=nbits;
+	int bypass=ec->state>>ec->nbits&((1LL<<nbits)-1);
+	return bypass;
+
+	//int bypass=ec->state&((1LL<<nbits)-1);		//convention #1: shift state
+	//ec->state>>=nbits;
+	//return bypass;
+	
+	//ec->nbits-=nbits;
+	//int bypass=ec->state>>ec->nbits&((1LL<<nbits)-1);	//convention #2: shift bypass
+	//return bypass;
+}
+
+
 //Golomb-Rice Coder
 
-	typedef unsigned long long GREmit_t;//0.001% larger, 18% faster enc
 //	typedef unsigned GREmit_t;
+	typedef unsigned long long GREmit_t;//0.001% larger, 18% faster enc
 
 typedef struct GolombRiceCoderStruct
 {

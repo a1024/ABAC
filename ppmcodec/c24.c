@@ -10,8 +10,10 @@ static const char file[]=__FILE__;
 #ifndef DISABLE_MT
 	#define ENABLE_MT
 #endif
-
+//	#define PRINT_PREDHIST
 //	#define ENABLE_EDGECASES
+
+//OG preds: W/NE/CG/AV4/AV9/WG
 
 	#define ENABLE_W	//good for GDCC
 //	#define ENABLE_N	//?
@@ -218,9 +220,9 @@ AWM_INLINE void pred_wg3(short *pred, const short *gx, const short *gy, const sh
 }
 #endif
 
-//from libjxl		packsign(pixel) = 0b00001MMBB...BBL	token = offset + 0bGGGGMML,  where G = bits of lg(packsign(pixel)),  bypass = 0bBB...BB
+//from libjxl		sym = packsign(delta) = 0b00001MMBB...BBL	token = offset + 0bGGGGMML,  where G = bits of floor_log2(sym),  bypass = 0bBB...BB
 #define CONFIG_EXP 4
-#define CONFIG_MSB 1	//revise AVX2 CDF (size 8*3+2) to change config
+#define CONFIG_MSB 1	//revise AVX2 CDF (size 1+24+1) to change config
 #define CONFIG_LSB 0
 AWM_INLINE void quantize_pixel(int val, int *token, int *bypass, int *nbits)
 {
@@ -254,8 +256,9 @@ typedef struct _ThreadArgs
 	short *pixels;
 	int *hist;
 
-	BList list;
+	BList tokenstream, bypassstream;
 	const unsigned char *decstart, *decend;
+	const unsigned char *bypassstart, *bypassend;
 
 	int tlevels;
 
@@ -272,6 +275,7 @@ static void block_thread(void *param)
 	const int half=128;
 	ThreadArgs *args=(ThreadArgs*)param;
 	AC3 ec;
+	BypassCoder bc;
 	const unsigned char *image=args->fwd?args->src:args->dst;
 	unsigned char bestrct=0, predidx[3]={0};
 	const unsigned char *combination=0;
@@ -289,9 +293,15 @@ static void block_thread(void *param)
 		{
 			bestrct=RCT_G_BG_RG;
 			combination=rct_combinations[bestrct];
+#ifdef ENABLE_CG
 			predidx[0]=PRED_CG;
 			predidx[1]=PRED_CG;
 			predidx[2]=PRED_CG;
+#else
+			predidx[0]=0;
+			predidx[1]=0;
+			predidx[2]=0;
+#endif
 			entropyidx=3;
 			goto skip_analysis;
 		}
@@ -725,10 +735,10 @@ static void block_thread(void *param)
 				);
 #endif
 
-				//Paeth2 = abs(W-NW)<abs(N-NW) ? N : W
+				//Paeth2 = abs(N-NW)>abs(W-NW) ? N : W
 #ifdef ENABLE_PAETH2
 				pred=_mm256_cmpgt_epi16(_mm256_abs_epi16(_mm256_sub_epi16(N, NW)), _mm256_abs_epi16(_mm256_sub_epi16(W, NW)));
-				pred=_mm256_blendv_epi8(N, W, pred);
+				pred=_mm256_blendv_epi8(W, N, pred);
 
 				pred=_mm256_sub_epi16(curr, pred);
 				UPDATE(
@@ -740,7 +750,7 @@ static void block_thread(void *param)
 					OCH_R, OCH_G, OCH_B
 				);
 				pred=_mm256_cmpgt_epi16(_mm256_abs_epi16(_mm256_sub_epi16(N3, NW3)), _mm256_abs_epi16(_mm256_sub_epi16(W3, NW3)));
-				pred=_mm256_blendv_epi8(N3, W3, pred);
+				pred=_mm256_blendv_epi8(W3, N3, pred);
 
 				pred=_mm256_add_epi16(pred, curr2);
 				pred=_mm256_max_epi16(pred, amin);
@@ -755,7 +765,7 @@ static void block_thread(void *param)
 					OCH_RG, OCH_GB, OCH_BR
 				);
 				pred=_mm256_cmpgt_epi16(_mm256_abs_epi16(_mm256_sub_epi16(N4, NW4)), _mm256_abs_epi16(_mm256_sub_epi16(W4, NW4)));
-				pred=_mm256_blendv_epi8(N4, W4, pred);
+				pred=_mm256_blendv_epi8(W4, N4, pred);
 
 				pred=_mm256_add_epi16(pred, curr);
 				pred=_mm256_max_epi16(pred, amin);
@@ -1343,8 +1353,10 @@ static void block_thread(void *param)
 		)*gain*(100/3.));//percent
 		CLAMP2(entropylevel, 0, 99);
 	skip_analysis:
-		blist_init(&args->list);
-		ac3_enc_init(&ec, &args->list);
+		blist_init(&args->tokenstream);
+		ac3_enc_init(&ec, &args->tokenstream);
+		blist_init(&args->bypassstream);
+		bypass_enc_init(&bc, &args->bypassstream);
 		ac3_enc_bypass_NPOT(&ec, entropylevel, 100);
 		ac3_enc_bypass_NPOT(&ec, bestrct, RCT_COUNT);
 		ac3_enc_bypass_NPOT(&ec, predidx[0], PRED_COUNT);
@@ -1397,6 +1409,7 @@ static void block_thread(void *param)
 	else//decode header
 	{
 		ac3_dec_init(&ec, args->decstart, args->decend);
+		bypass_dec_init(&bc, args->bypassstart, args->bypassend);
 		entropylevel=ac3_dec_bypass_NPOT(&ec, 100);
 		bestrct=ac3_dec_bypass_NPOT(&ec, RCT_COUNT);
 		combination=rct_combinations[bestrct];
@@ -1408,6 +1421,7 @@ static void block_thread(void *param)
 	else if(entropylevel>17)	entropyidx=2;
 	else if(entropylevel>10)	entropyidx=1;
 	else				entropyidx=0;
+	int shiftgain=entropylevel*entropylevel/16+15;
 	unsigned *histptr=(unsigned*)args->hist;
 	for(int ks=0;ks<cdfstride;++ks)
 	{
@@ -1526,7 +1540,7 @@ static void block_thread(void *param)
 #endif
 #ifdef ENABLE_PAETH2
 				case PRED_Paeth2:
-					pred=abs(regW[kc]-NW[kc])<abs(N[kc]-NW[kc])?N[kc]:regW[kc];
+					pred=abs(regW[kc]-NW[kc])<=abs(N[kc]-NW[kc])?N[kc]:regW[kc];
 					break;
 #endif
 #ifdef ENABLE_NW
@@ -1673,12 +1687,15 @@ static void block_thread(void *param)
 					freq=GETCDF(token+1)-cdf;
 					ac3_enc_update_N(&ec, cdf, freq, PROB_BITS);
 					if(nbits)
-						ac3_enc_bypass(&ec, bypass, nbits);
+						bypass_enc(&bc, bypass, nbits);
+					//	ac3_enc_bypass(&ec, bypass, nbits);
+					//blist_push_back1(&args->bypassstream, &bypass);//
 				}
 				else
 				{
 					AC3_RENORM_STATEMENT(!(ec.range>>PROB_BITS))
 						ac3_dec_renorm(&ec);
+#if 1
 					if(entropyidx)//+29.92% (CDF[token+7] takes 26% of that)
 					{
 						__m256i mr2=_mm256_set1_epi32((unsigned short)(((ec.code-ec.low)<<PROB_BITS|((1LL<<PROB_BITS)-1))/ec.range));//3.75% div, 1.52% broadcast
@@ -1747,6 +1764,7 @@ static void block_thread(void *param)
 					//	freq-=cdf;
 					}
 					else
+#endif
 					{
 						unsigned long long r2=(unsigned long long)((ec.code-ec.low)<<PROB_BITS|((1LL<<PROB_BITS)-1));
 						cdf=0;
@@ -1777,7 +1795,8 @@ static void block_thread(void *param)
 						msb=sym&((1<<CONFIG_MSB)-1);
 						sym>>=CONFIG_MSB;
 						nbits=sym+CONFIG_EXP-(CONFIG_MSB+CONFIG_LSB);
-						bypass=ac3_dec_bypass(&ec, nbits);
+						bypass=bypass_dec(&bc, nbits);
+					//	bypass=ac3_dec_bypass(&ec, nbits);
 						sym=1;
 						sym<<=CONFIG_MSB;
 						sym|=msb;
@@ -1804,9 +1823,8 @@ static void block_thread(void *param)
 				curr[kc+4]=regW[kc+4]=abs(error);
 				const unsigned *mixincdf=args->mixincdfs+args->tlevels*token;
 				int *mixctx=&args->ctx[kc][qe][qp];
-				int sh=(*mixctx)++*entropylevel;
+				int sh=*mixctx+=shiftgain;
 				sh=FLOOR_LOG2(sh+1)>>1;
-				//sh=(FLOOR_LOG2(sh+1)+FLOOR_LOG2(token+1))>>1;
 #define SMIN 4
 #define SMAX 11
 				CLAMP2(sh, SMIN, SMAX);
@@ -1871,7 +1889,10 @@ static void block_thread(void *param)
 		}
 	}
 	if(args->fwd)
+	{
 		ac3_enc_flush(&ec);
+		bypass_enc_flush(&bc);
+	}
 }
 int c24_codec(const char *srcfn, const char *dstfn)
 {
@@ -1892,6 +1913,9 @@ int c24_codec(const char *srcfn, const char *dstfn)
 	int usize;
 	int maxwidth;
 	unsigned *mixincdfs=0;
+#ifdef PRINT_PREDHIST
+	int predhist[PRED_COUNT]={0};
+#endif
 	
 	t0=time_sec();
 	src=load_file(srcfn, 1, 3, 1);
@@ -1919,7 +1943,7 @@ int c24_codec(const char *srcfn, const char *dstfn)
 	xblocks=(iw+BLOCKSIZE-1)/BLOCKSIZE;
 	yblocks=(ih+BLOCKSIZE-1)/BLOCKSIZE;
 	nblocks=xblocks*yblocks, nthreads=MINVAR(nblocks, ncores);
-	coffset=(int)sizeof(int)*nblocks;
+	coffset=(int)sizeof(int[2])*nblocks;
 	start=0;
 	memusage=0;
 	argssize=nthreads*sizeof(ThreadArgs);
@@ -1955,7 +1979,9 @@ int c24_codec(const char *srcfn, const char *dstfn)
 		for(int kt=0;kt<nblocks;++kt)
 		{
 			int size=0;
-			memcpy(&size, image+sizeof(int)*kt, sizeof(int));
+			memcpy(&size, image+sizeof(int[2])*kt+0*sizeof(int), sizeof(int));
+			start+=size;
+			memcpy(&size, image+sizeof(int[2])*kt+1*sizeof(int), sizeof(int));
 			start+=size;
 		}
 		if(image+start!=imageend)
@@ -2047,10 +2073,16 @@ int c24_codec(const char *srcfn, const char *dstfn)
 				if(!fwd)
 				{
 					int size=0;
-					memcpy(&size, image+sizeof(int)*((ptrdiff_t)kt+kt2), sizeof(int));
+
+					memcpy(&size, image+sizeof(int[2])*((ptrdiff_t)kt+kt2)+0*sizeof(int), sizeof(int));
 					arg->decstart=image+start;
 					start+=size;
 					arg->decend=image+start;
+
+					memcpy(&size, image+sizeof(int[2])*((ptrdiff_t)kt+kt2)+1*sizeof(int), sizeof(int));
+					arg->bypassstart=image+start;
+					start+=size;
+					arg->bypassend=image+start;
 				}
 			}
 #ifdef ENABLE_MT
@@ -2075,6 +2107,7 @@ int c24_codec(const char *srcfn, const char *dstfn)
 						kx%=xblocks;
 						if(nblocks<MAXPRINTEDBLOCKS)
 						{
+							ptrdiff_t nbytes=arg->tokenstream.nbytes+args->bypassstream.nbytes;
 							//if(!(kt+kt2))
 							//	printf("block,  nrows,  usize,     best  ->  actual,  (actual-best)\n");
 							printf(
@@ -2085,10 +2118,10 @@ int c24_codec(const char *srcfn, const char *dstfn)
 								arg->x2-arg->x1,
 								blocksize,
 								arg->bestsize,
-								arg->list.nbytes,
-								arg->list.nbytes-arg->bestsize,
-								100.*arg->list.nbytes/blocksize,
-								(double)blocksize/arg->list.nbytes,
+								nbytes,
+								nbytes-arg->bestsize,
+								100.*nbytes/blocksize,
+								(double)blocksize/nbytes,
 								rct_names[arg->bestrct],
 								pred_names[arg->predidx[0]],
 								pred_names[arg->predidx[1]],
@@ -2102,9 +2135,17 @@ int c24_codec(const char *srcfn, const char *dstfn)
 						csizes[2]+=arg->csizes[2];
 #endif
 					}
-					memcpy(dst->data+start+sizeof(int)*((ptrdiff_t)kt+kt2), &arg->list.nbytes, sizeof(int));
-					blist_appendtoarray(&arg->list, &dst);
-					blist_clear(&arg->list);
+					memcpy(dst->data+start+sizeof(int[2])*((ptrdiff_t)kt+kt2)+0*sizeof(int), &arg->tokenstream.nbytes, sizeof(int));
+					memcpy(dst->data+start+sizeof(int[2])*((ptrdiff_t)kt+kt2)+1*sizeof(int), &arg->bypassstream.nbytes, sizeof(int));
+					blist_appendtoarray(&arg->tokenstream, &dst);
+					blist_appendtoarray(&arg->bypassstream, &dst);
+					blist_clear(&arg->tokenstream);
+					blist_clear(&arg->bypassstream);
+#ifdef PRINT_PREDHIST
+					++predhist[arg->predidx[0]];
+					++predhist[arg->predidx[1]];
+					++predhist[arg->predidx[2]];
+#endif
 				}
 			}
 		}
@@ -2161,5 +2202,13 @@ int c24_codec(const char *srcfn, const char *dstfn)
 	array_free(&src);
 	array_free(&dst);
 	free(mixincdfs);
+#ifdef PRINT_PREDHIST
+	if(fwd)
+	{
+		for(int k=0;k<PRED_COUNT;++k)
+			printf("\t%8d %s", predhist[k], pred_names[k]);
+		printf("\n");
+	}
+#endif
 	return 0;
 }

@@ -266,11 +266,20 @@ int c12_codec(const char *srcfn, const char *dstfn)
 			//	*WW	=rows[0]-2*4,
 			//	*W	=rows[0]-1*4,
 				*curr	=rows[0]+0*4;
+			//int cond[]=
+			//{
+			//	abs(N[0]-NW[0])>abs(Wreg[0]-NW[0]),
+			//	abs(N[1]-NW[1])>abs(Wreg[1]-NW[1]),
+			//	abs(N[2]-NW[2])>abs(Wreg[2]-NW[2]),
+			//};
 			unsigned short *stats0[]=
 			{
 				stats1[0][(4*(N[0]+Wreg[0])+NE[0]-NW[0])>>3&255],
 				stats1[1][(4*(N[1]+Wreg[1])+NE[1]-NW[1])>>3&255],
 				stats1[2][(4*(N[2]+Wreg[2])+NE[2]-NW[2])>>3&255],
+				//stats1[0][cond[0]<<7|((cond[0]?N[0]:Wreg[0])&255)>>7&255],
+				//stats1[1][cond[1]<<7|((cond[1]?N[1]:Wreg[1])&255)>>7&255],
+				//stats1[2][cond[2]<<7|((cond[2]?N[2]:Wreg[2])&255)>>7&255],
 			};
 			if(fwd)
 			{

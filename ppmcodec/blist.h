@@ -7,7 +7,12 @@
 #define BLIST_INLINE __forceinline
 #endif
 
-#define BLIST_PAYLOADSIZE 4096	//power of two
+//power of two
+//	#define BLIST_PAYLOADSIZE 65536
+	#define BLIST_PAYLOADSIZE 16384
+//	#define BLIST_PAYLOADSIZE 4096
+//	#define BLIST_PAYLOADSIZE 1024
+//	#define BLIST_PAYLOADSIZE 256
 
 typedef struct BNodeStruct
 {
