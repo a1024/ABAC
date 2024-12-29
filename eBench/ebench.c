@@ -269,7 +269,7 @@ static void invcr2csizes(const double *invcr, const char *src_depths, int iw, in
 		csizes[k+1]=iw*ih*d*invcr[k+1]/8;
 		dtotal+=d;
 	}
-	csizes[0]=iw*ih*dtotal*invcr[0]/8;
+	csizes[0]=(double)iw*ih*dtotal*invcr[0]/8;
 }
 static void center_image(void)
 {
