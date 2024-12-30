@@ -32,6 +32,9 @@ static const char file[]=__FILE__;
 //	#define ENABLE_WG2	//bad
 //	#define ENABLE_WG3	//bad
 
+	#define USE_ARRAY
+	#define BRANCHLESS_RENORM
+
 //PROB_BITS <= 16
 //PROB_BITS + PROB_EBITS <= 31
 #define PROB_BITS 16
@@ -256,7 +259,13 @@ typedef struct _ThreadArgs
 	short *pixels;
 	int *hist;
 
+#ifdef USE_ARRAY
+	unsigned char *dstbuf;
+	ptrdiff_t dstbufsize;
+	unsigned char *tokenptr, *bypassptr;
+#else
 	BList tokenstream, bypassstream;
+#endif
 	const unsigned char *decstart, *decend;
 	const unsigned char *bypassstart, *bypassend;
 
@@ -1353,15 +1362,23 @@ static void block_thread(void *param)
 		)*gain*(100/3.));//percent
 		CLAMP2(entropylevel, 0, 99);
 	skip_analysis:
-		blist_init(&args->tokenstream);
-		ac3_enc_init(&ec, &args->tokenstream);
-		blist_init(&args->bypassstream);
-		bypass_enc_init(&bc, &args->bypassstream);
-		ac3_enc_bypass_NPOT(&ec, entropylevel, 100);
-		ac3_enc_bypass_NPOT(&ec, bestrct, RCT_COUNT);
-		ac3_enc_bypass_NPOT(&ec, predidx[0], PRED_COUNT);
-		ac3_enc_bypass_NPOT(&ec, predidx[1], PRED_COUNT);
-		ac3_enc_bypass_NPOT(&ec, predidx[2], PRED_COUNT);
+		ac3_encbuf_init(&ec, args->dstbuf, args->dstbuf+args->dstbufsize);
+		bypass_encrbuf_init(&bc, args->dstbuf, args->dstbuf+args->dstbufsize);
+		ac3_encbuf_bypass_NPOT(&ec, entropylevel, 100);
+		ac3_encbuf_bypass_NPOT(&ec, bestrct, RCT_COUNT);
+		ac3_encbuf_bypass_NPOT(&ec, predidx[0], PRED_COUNT);
+		ac3_encbuf_bypass_NPOT(&ec, predidx[1], PRED_COUNT);
+		ac3_encbuf_bypass_NPOT(&ec, predidx[2], PRED_COUNT);
+
+		//blist_init(&args->tokenstream);
+		//ac3_enc_init(&ec, &args->tokenstream);
+		//blist_init(&args->bypassstream);
+		//bypass_enc_init(&bc, &args->bypassstream);
+		//ac3_enc_bypass_NPOT(&ec, entropylevel, 100);
+		//ac3_enc_bypass_NPOT(&ec, bestrct, RCT_COUNT);
+		//ac3_enc_bypass_NPOT(&ec, predidx[0], PRED_COUNT);
+		//ac3_enc_bypass_NPOT(&ec, predidx[1], PRED_COUNT);
+		//ac3_enc_bypass_NPOT(&ec, predidx[2], PRED_COUNT);
 		args->bestrct=bestrct;
 		args->predidx[0]=predidx[0];
 		args->predidx[1]=predidx[1];
@@ -1685,9 +1702,11 @@ static void block_thread(void *param)
 #endif
 					cdf=GETCDF(token);
 					freq=GETCDF(token+1)-cdf;
-					ac3_enc_update_N(&ec, cdf, freq, PROB_BITS);
+					ac3_encbuf_update_N(&ec, cdf, freq, PROB_BITS);
+					//ac3_enc_update_N(&ec, cdf, freq, PROB_BITS);
 					if(nbits)
-						bypass_enc(&bc, bypass, nbits);
+						bypass_encrbuf(&bc, bypass, nbits);
+					//	bypass_enc(&bc, bypass, nbits);
 					//	ac3_enc_bypass(&ec, bypass, nbits);
 					//blist_push_back1(&args->bypassstream, &bypass);//
 				}
@@ -1795,7 +1814,8 @@ static void block_thread(void *param)
 						msb=sym&((1<<CONFIG_MSB)-1);
 						sym>>=CONFIG_MSB;
 						nbits=sym+CONFIG_EXP-(CONFIG_MSB+CONFIG_LSB);
-						bypass=bypass_dec(&bc, nbits);
+						bypass=bypass_decrbuf(&bc, nbits);
+					//	bypass=bypass_dec(&bc, nbits);
 					//	bypass=ac3_dec_bypass(&ec, nbits);
 						sym=1;
 						sym<<=CONFIG_MSB;
@@ -1890,8 +1910,8 @@ static void block_thread(void *param)
 	}
 	if(args->fwd)
 	{
-		ac3_enc_flush(&ec);
-		bypass_enc_flush(&bc);
+		args->tokenptr=ac3_encbuf_flush(&ec);
+		args->bypassptr=bypass_encrbuf_flush(&bc);
 	}
 }
 int c24_codec(const char *srcfn, const char *dstfn)
@@ -2042,6 +2062,17 @@ int c24_codec(const char *srcfn, const char *dstfn)
 		}
 		memusage+=arg->bufsize;
 		memusage+=arg->histsize;
+		if(fwd)
+		{
+			arg->dstbufsize=(ptrdiff_t)4*BLOCKSIZE*BLOCKSIZE;
+			arg->dstbuf=(unsigned char*)malloc(arg->dstbufsize+4);//4 byte pad for branchless renorm
+			if(!arg->dstbuf)
+			{
+				LOG_ERROR("Alloc error");
+				return 1;
+			}
+			memusage+=arg->dstbufsize;
+		}
 		
 		arg->tlevels=tlevels;
 		arg->fwd=fwd;
@@ -2099,6 +2130,7 @@ int c24_codec(const char *srcfn, const char *dstfn)
 					ThreadArgs *arg=args+kt2;
 					if(test)
 					{
+#if 0
 						int blocksize=(3*8*(arg->x2-arg->x1)*(arg->y2-arg->y1)+7)>>3;
 						int kx, ky;
 
@@ -2128,6 +2160,7 @@ int c24_codec(const char *srcfn, const char *dstfn)
 								pred_names[arg->predidx[2]]
 							);
 						}
+#endif
 						esize+=arg->bestsize;
 #ifdef ABAC_PROFILE_SIZE
 						csizes[0]+=arg->csizes[0];
@@ -2135,12 +2168,16 @@ int c24_codec(const char *srcfn, const char *dstfn)
 						csizes[2]+=arg->csizes[2];
 #endif
 					}
-					memcpy(dst->data+start+sizeof(int[2])*((ptrdiff_t)kt+kt2)+0*sizeof(int), &arg->tokenstream.nbytes, sizeof(int));
-					memcpy(dst->data+start+sizeof(int[2])*((ptrdiff_t)kt+kt2)+1*sizeof(int), &arg->bypassstream.nbytes, sizeof(int));
-					blist_appendtoarray(&arg->tokenstream, &dst);
-					blist_appendtoarray(&arg->bypassstream, &dst);
-					blist_clear(&arg->tokenstream);
-					blist_clear(&arg->bypassstream);
+					ARRAY_APPEND(dst, arg->dstbuf, arg->tokenptr-arg->dstbuf, 1, 0);
+					ARRAY_APPEND(dst, arg->bypassptr, arg->dstbuf+arg->dstbufsize-arg->bypassptr, 1, 0);
+					*(unsigned*)(dst->data+start+8LL*((ptrdiff_t)kt+kt2)+4*0)=(unsigned)(arg->tokenptr-arg->dstbuf);
+					*(unsigned*)(dst->data+start+8LL*((ptrdiff_t)kt+kt2)+4*1)=(unsigned)(arg->dstbuf+arg->dstbufsize-arg->bypassptr);
+					//memcpy(dst->data+start+sizeof(int[2])*((ptrdiff_t)kt+kt2)+0*sizeof(int), &arg->tokenstream.nbytes, sizeof(int));
+					//memcpy(dst->data+start+sizeof(int[2])*((ptrdiff_t)kt+kt2)+1*sizeof(int), &arg->bypassstream.nbytes, sizeof(int));
+					//blist_appendtoarray(&arg->tokenstream, &dst);
+					//blist_appendtoarray(&arg->bypassstream, &dst);
+					//blist_clear(&arg->tokenstream);
+					//blist_clear(&arg->bypassstream);
 #ifdef PRINT_PREDHIST
 					++predhist[arg->predidx[0]];
 					++predhist[arg->predidx[1]];

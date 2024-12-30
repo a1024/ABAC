@@ -262,7 +262,7 @@ AWM_INLINE void ac2_enc_init(AC2 *ec, BList *dst)
 	ec->x2=~0;
 	ec->dst=dst;
 }
-AWM_INLINE void ac2_dec_init(AC2 *ec, const unsigned char *start, unsigned const char *end)
+AWM_INLINE void ac2_dec_init(AC2 *ec, const unsigned char *start, const unsigned char *end)
 {
 	memset(ec, 0, sizeof(*ec));
 	ec->x1=0;
@@ -447,11 +447,67 @@ AWM_INLINE int ac2_dec_bin(AC2 *ec, unsigned p1)
 #endif
 typedef struct _AC3
 {
-	unsigned long long low, range;
+	unsigned long long low, range, code;
 	BList *dst;
+	unsigned char *dstptr, *dstend;
 	const unsigned char *srcptr, *srcend;
-	unsigned long long code;
 } AC3;
+AWM_INLINE void ac3_encbuf_init(AC3 *ec, unsigned char *start, unsigned char *end)
+{
+	memset(ec, 0, sizeof(*ec));
+	ec->low=0;
+	ec->range=0xFFFFFFFFFFFF;
+	ec->dstptr=start;
+	ec->dstend=end;
+}
+AWM_INLINE void ac3_encbuf_renorm(AC3 *ec)
+{
+	unsigned long long rmax;
+
+	*(unsigned*)ec->dstptr=(unsigned)(ec->low>>32);
+	ec->dstptr+=4;
+	ec->range=ec->range<<AC3_RENORM|((1LL<<AC3_RENORM)-1);
+	ec->low<<=AC3_RENORM;
+
+	rmax=~ec->low;
+	if(ec->range>rmax)//clamp hi to register size after renorm
+		ec->range=rmax;
+}
+AWM_INLINE unsigned char* ac3_encbuf_flush(AC3 *ec)
+{
+	*(unsigned*)ec->dstptr=(unsigned)(ec->low>>32);
+	ec->dstptr+=4;
+	*(unsigned*)ec->dstptr=(unsigned)ec->low;
+	ec->dstptr+=4;
+	return ec->dstptr;
+}
+AWM_INLINE void ac3_encbuf_bypass_NPOT(AC3 *ec, int bypass, int nlevels)
+{
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if((unsigned)bypass>=(unsigned)nlevels)
+		LOG_ERROR("Bypass OOB");
+#endif
+	if(ec->range<(unsigned)nlevels)
+		ac3_encbuf_renorm(ec);
+	ec->low+=ec->range*bypass/nlevels;
+	ec->range=ec->range/nlevels-1;
+	acval_enc(nlevels, bypass, 1, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
+}
+AWM_INLINE void ac3_encbuf_update_N(AC3 *ec, unsigned cdf, unsigned freq, int probbits)//probbits <= 16
+{
+	if(!(ec->range>>probbits))
+		ac3_encbuf_renorm(ec);
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if((unsigned)(freq-1)>=(0x10000-1)||cdf+freq<cdf)
+		LOG_ERROR2("Invalid stats");
+#endif
+	ec->low+=ec->range*cdf>>probbits;
+	ec->range=(ec->range*freq>>probbits)-1;
+	acval_enc(0, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
+}
+
 AWM_INLINE void ac3_enc_init(AC3 *ec, BList *dst)
 {
 	memset(ec, 0, sizeof(*ec));
@@ -459,7 +515,7 @@ AWM_INLINE void ac3_enc_init(AC3 *ec, BList *dst)
 	ec->range=0xFFFFFFFFFFFF;
 	ec->dst=dst;
 }
-AWM_INLINE void ac3_dec_init(AC3 *ec, const unsigned char *start, unsigned const char *end)
+AWM_INLINE void ac3_dec_init(AC3 *ec, const unsigned char *start, const unsigned char *end)
 {
 	memset(ec, 0, sizeof(*ec));
 	ec->low=0;
@@ -1137,20 +1193,86 @@ AWM_INLINE int ac5_dec_bin(AC5 *ec, int p1)
 }
 
 
-//Bypass Coder
+//Bypass Coder		rbuf with branchless renorm requires read/write access 4 bytes past the end
 typedef struct _BypassCoder
 {
 	unsigned long long state;
-	int nbits;
+	int enc_nfree, dec_navailable;
 	BList *dst;
+	unsigned char *dstptr, *dstend;
 	const unsigned char *srcptr, *srcend;
 } BypassCoder;
+AWM_INLINE void bypass_encrbuf_init(BypassCoder *ec, unsigned char *start, unsigned char *end)
+{
+	memset(ec, 0, sizeof(*ec));
+	ec->enc_nfree=64;
+	ec->dstptr=start;
+	ec->dstend=end;
+}
+AWM_INLINE void bypass_decrbuf_init(BypassCoder *ec, const unsigned char *start, const unsigned char *end)
+{
+	memset(ec, 0, sizeof(*ec));
+	ec->srcptr=start;
+	ec->srcend=end;
+}
+AWM_INLINE unsigned char* bypass_encrbuf_flush(BypassCoder *ec)
+{
+	ec->dstend-=4;
+	*(unsigned*)ec->dstend=(unsigned)(ec->state>>32);
+	ec->dstend-=4;
+	*(unsigned*)ec->dstend=(unsigned)ec->state;
+	return ec->dstend;
+}
+AWM_INLINE void bypass_encrbuf(BypassCoder *ec, int bypass, int nbits)
+{
+#ifdef BRANCHLESS_RENORM
+	int renorm=ec->enc_nfree<32;
+	ec->dstend-=4*renorm;
+	if(renorm)				//FIXME ensure CMOV
+		*(unsigned*)ec->dstend=(unsigned)(ec->state>>32);
+	ec->state<<=32*renorm;
+	ec->enc_nfree+=32*renorm;
+#else
+	if(ec->enc_nfree<32)//FIXME branchless
+	{
+		ec->dstend-=4;
+		*(unsigned*)ec->dstend=(unsigned)(ec->state>>32);
+		ec->state<<=32;
+		ec->enc_nfree+=32;
+	}
+#endif
+	ec->enc_nfree-=nbits;
+	ec->state|=(unsigned long long)bypass<<ec->enc_nfree;
+}
+AWM_INLINE int bypass_decrbuf(BypassCoder *ec, int nbits)
+{
+#ifdef BRANCHLESS_RENORM
+	int renorm=ec->dec_navailable<32;
+	ec->srcend-=4*renorm;
+	unsigned long long state2=ec->state<<32|*(unsigned*)ec->srcend;
+	if(renorm)				//FIXME ensure CMOV
+		ec->state=state2;
+	ec->dec_navailable+=32*renorm-nbits;
+#else
+	if(ec->dec_navailable<32)
+	{
+		ec->state=ec->state<<32|*(unsigned*)ec->srcend;
+		ec->srcend-=4;
+		ec->dec_navailable+=32;
+	}
+	ec->dec_navailable-=nbits;
+#endif
+	int bypass=ec->state>>ec->dec_navailable&((1LL<<nbits)-1);//FIXME try BMI
+	return bypass;
+}
+
 AWM_INLINE void bypass_enc_init(BypassCoder *ec, BList *dst)
 {
 	memset(ec, 0, sizeof(*ec));
+	ec->enc_nfree=64;
 	ec->dst=dst;
 }
-AWM_INLINE void bypass_dec_init(BypassCoder *ec, const unsigned char *start, unsigned const char *end)
+AWM_INLINE void bypass_dec_init(BypassCoder *ec, const unsigned char *start, const unsigned char *end)
 {
 	memset(ec, 0, sizeof(*ec));
 	ec->srcptr=start;
@@ -1163,14 +1285,14 @@ AWM_INLINE void bypass_enc_flush(BypassCoder *ec)
 }
 AWM_INLINE void bypass_enc(BypassCoder *ec, int bypass, int nbits)
 {
-	if(ec->nbits>(sizeof(ec->state)<<3>>1))	//32-bit renorm
+	if(ec->enc_nfree<(sizeof(ec->state)<<3>>1))	//32-bit renorm
 	{
 		blist_push_back(ec->dst, (unsigned char*)&ec->state+(sizeof(ec->state)>>1), sizeof(ec->state)>>1);
 		ec->state<<=sizeof(ec->state)<<3>>1;
-		ec->nbits-=sizeof(ec->state)<<3>>1;
+		ec->enc_nfree+=sizeof(ec->state)<<3>>1;
 	}
-	ec->nbits+=nbits;
-	ec->state|=(unsigned long long)bypass<<((sizeof(ec->state)<<3)-ec->nbits);
+	ec->enc_nfree-=nbits;
+	ec->state|=(unsigned long long)bypass<<ec->enc_nfree;
 
 	//ec->nbits+=nbits;		//64-bit renorm
 	//if(ec->nbits>(sizeof(ec->state)<<3))
@@ -1190,14 +1312,14 @@ AWM_INLINE void bypass_enc(BypassCoder *ec, int bypass, int nbits)
 }
 AWM_INLINE int bypass_dec(BypassCoder *ec, int nbits)
 {
-	if(ec->nbits<(sizeof(ec->state)<<3>>1))		//32-bit renorm
+	if(ec->dec_navailable<(sizeof(ec->state)<<3>>1))		//32-bit renorm
 	{
 		ec->state=ec->state<<(sizeof(ec->state)<<3>>1)|*(unsigned*)ec->srcptr;
 		ec->srcptr+=sizeof(ec->state)>>1;
-		ec->nbits+=sizeof(ec->state)<<3>>1;
+		ec->dec_navailable+=sizeof(ec->state)<<3>>1;
 	}
-	ec->nbits-=nbits;
-	int bypass=ec->state>>ec->nbits&((1LL<<nbits)-1);
+	ec->dec_navailable-=nbits;
+	int bypass=ec->state>>ec->dec_navailable&((1LL<<nbits)-1);
 	return bypass;
 
 	//int bypass=ec->state&((1LL<<nbits)-1);		//convention #1: shift state
