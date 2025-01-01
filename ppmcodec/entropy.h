@@ -496,8 +496,33 @@ AWM_INLINE void ac3_encbuf_bypass_NPOT(AC3 *ec, int bypass, int nlevels)
 }
 AWM_INLINE void ac3_encbuf_update_N(AC3 *ec, unsigned cdf, unsigned freq, int probbits)//probbits <= 16
 {
+#ifdef _DEBUG
+	if(cdf>=(unsigned)(1<<probbits)||cdf+freq>(unsigned)(1<<probbits))
+		LOG_ERROR2("Invalid stats");
+#endif
+#ifdef AC3_ENC_BRANCHLESSRENORM
+	unsigned emit=(unsigned)(ec->low>>32);
+	unsigned char *nextptr=ec->dstptr+4;
+	unsigned long long r2=ec->range<<AC3_RENORM|((1LL<<AC3_RENORM)-1);
+	unsigned long long low2=ec->low<<AC3_RENORM;
+	unsigned long long norenormflag=ec->range>>probbits;
+
+	if(!norenormflag)			//FIXME this condition can be replaced with direct assignment
+		*(unsigned*)ec->dstptr=emit;
+	if(!norenormflag)			//FIXME ensure CMOVs
+		ec->dstptr=nextptr;
+	if(!norenormflag)
+		ec->range=r2;
+	if(!norenormflag)
+		ec->low=low2;
+
+	unsigned long long rmax=~ec->low;
+	if(ec->range>rmax)
+		ec->range=rmax;
+#else
 	if(!(ec->range>>probbits))
 		ac3_encbuf_renorm(ec);
+#endif
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
 	if((unsigned)(freq-1)>=(0x10000-1)||cdf+freq<cdf)
@@ -505,7 +530,7 @@ AWM_INLINE void ac3_encbuf_update_N(AC3 *ec, unsigned cdf, unsigned freq, int pr
 #endif
 	ec->low+=ec->range*cdf>>probbits;
 	ec->range=(ec->range*freq>>probbits)-1;
-	acval_enc(0, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
+	acval_enc(probbits, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
 }
 
 AWM_INLINE void ac3_enc_init(AC3 *ec, BList *dst)
@@ -621,6 +646,10 @@ AWM_INLINE void ac3_dec_update(AC3 *ec, unsigned cdf, unsigned freq)
 
 AWM_INLINE void ac3_enc_update_N(AC3 *ec, unsigned cdf, unsigned freq, int probbits)//probbits <= 16
 {
+#ifdef _DEBUG
+	if(cdf>=(unsigned)(1<<probbits)||cdf+freq>(unsigned)(1<<probbits))
+		LOG_ERROR2("Invalid stats");
+#endif
 	AC3_RENORM_STATEMENT(!(ec->range>>probbits))
 		ac3_enc_renorm(ec);
 #ifdef AC_VALIDATE
@@ -630,12 +659,32 @@ AWM_INLINE void ac3_enc_update_N(AC3 *ec, unsigned cdf, unsigned freq, int probb
 #endif
 	ec->low+=ec->range*cdf>>probbits;
 	ec->range=(ec->range*freq>>probbits)-1;
-	acval_enc(0, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
+	acval_enc(probbits, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
 }
 AWM_INLINE unsigned ac3_dec_getcdf_N(AC3 *ec, int probbits)
 {
+#ifdef AC3_DEC_BRANCHLESSRENORM
+	const unsigned char *nextptr=ec->srcptr+4;
+	unsigned long long r2=ec->range<<AC3_RENORM|((1LL<<AC3_RENORM)-1);
+	unsigned long long low2=ec->low<<AC3_RENORM;
+	unsigned long long code2=ec->code<<AC3_RENORM|*(unsigned*)ec->srcptr;
+	unsigned long long norenormflag=(unsigned long long)(ec->range>>probbits);
+	if(!norenormflag)		//FIXME ensure CMOVs
+		ec->range=r2;
+	if(!norenormflag)
+		ec->low=low2;
+	if(!norenormflag)
+		ec->code=code2;
+	if(!norenormflag)
+		ec->srcptr=nextptr;
+
+	unsigned long long rmax=~ec->low;
+	if(ec->range>rmax)
+		ec->range=rmax;
+#else
 	AC3_RENORM_STATEMENT(!(ec->range>>probbits))
 		ac3_dec_renorm(ec);
+#endif
 #if 0
 	unsigned long long num=((ec->code-ec->low+1)<<probbits)-1, den=ec->range;
 	int nzeros=(int)_lzcnt_u64(den);
@@ -677,6 +726,10 @@ AWM_INLINE unsigned ac3_dec_getcdf_N(AC3 *ec, int probbits)
 }
 AWM_INLINE void ac3_dec_update_N(AC3 *ec, unsigned cdf, unsigned freq, int probbits)
 {
+#ifdef _DEBUG
+	if(cdf>=(unsigned)(1<<probbits)||cdf+freq>(unsigned)(1<<probbits))
+		LOG_ERROR2("Invalid stats");
+#endif
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
 	if((unsigned)(freq-1)>=(0x10000-1)||cdf+freq<cdf)
@@ -684,7 +737,7 @@ AWM_INLINE void ac3_dec_update_N(AC3 *ec, unsigned cdf, unsigned freq, int probb
 #endif
 	ec->low+=ec->range*cdf>>probbits;
 	ec->range=(ec->range*freq>>probbits)-1;//must decrement hi because decoder fails when code == hi2
-	acval_dec(0, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
+	acval_dec(probbits, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0, ec->code);
 }
 
 AWM_INLINE void ac3_enc_update_NPOT(AC3 *ec, unsigned cdf, unsigned freq, unsigned den)
@@ -1202,41 +1255,44 @@ typedef struct _BypassCoder
 	unsigned char *dstptr, *dstend;
 	const unsigned char *srcptr, *srcend;
 } BypassCoder;
-AWM_INLINE void bypass_encrbuf_init(BypassCoder *ec, unsigned char *start, unsigned char *end)
+AWM_INLINE void bypass_encbuf_init(BypassCoder *ec, unsigned char *start, unsigned char *end)
 {
 	memset(ec, 0, sizeof(*ec));
 	ec->enc_nfree=64;
 	ec->dstptr=start;
 	ec->dstend=end;
 }
-AWM_INLINE void bypass_decrbuf_init(BypassCoder *ec, const unsigned char *start, const unsigned char *end)
+AWM_INLINE void bypass_decbuf_init(BypassCoder *ec, const unsigned char *start, const unsigned char *end)
 {
 	memset(ec, 0, sizeof(*ec));
 	ec->srcptr=start;
 	ec->srcend=end;
 }
-AWM_INLINE unsigned char* bypass_encrbuf_flush(BypassCoder *ec)
+AWM_INLINE unsigned char* bypass_encbuf_flush(BypassCoder *ec)
 {
-	ec->dstend-=4;
-	*(unsigned*)ec->dstend=(unsigned)(ec->state>>32);
-	ec->dstend-=4;
-	*(unsigned*)ec->dstend=(unsigned)ec->state;
-	return ec->dstend;
+	*(unsigned*)ec->dstptr=(unsigned)(ec->state>>32);
+	ec->dstptr+=4;
+	*(unsigned*)ec->dstptr=(unsigned)ec->state;
+	ec->dstptr+=4;
+	return ec->dstptr;
 }
-AWM_INLINE void bypass_encrbuf(BypassCoder *ec, int bypass, int nbits)
+AWM_INLINE void bypass_encbuf(BypassCoder *ec, int bypass, int nbits)
 {
-#ifdef BRANCHLESS_RENORM
+#ifdef BYPASS_ENC_BRANCHLESSRENORM
+	unsigned char *dstptr=ec->dstptr+4;
 	int renorm=ec->enc_nfree<32;
-	ec->dstend-=4*renorm;
+	unsigned emit=(unsigned)(ec->state>>32);
+	if(renorm)				//FIXME can be replaced with direct assignment
+		*(unsigned*)ec->dstptr=emit;
 	if(renorm)				//FIXME ensure CMOV
-		*(unsigned*)ec->dstend=(unsigned)(ec->state>>32);
+		ec->dstptr=dstptr;
 	ec->state<<=32*renorm;
 	ec->enc_nfree+=32*renorm;
 #else
-	if(ec->enc_nfree<32)//FIXME branchless
+	if(ec->enc_nfree<32)
 	{
-		ec->dstend-=4;
-		*(unsigned*)ec->dstend=(unsigned)(ec->state>>32);
+		*(unsigned*)ec->dstptr=(unsigned)(ec->state>>32);
+		ec->dstptr+=4;
 		ec->state<<=32;
 		ec->enc_nfree+=32;
 	}
@@ -1244,20 +1300,22 @@ AWM_INLINE void bypass_encrbuf(BypassCoder *ec, int bypass, int nbits)
 	ec->enc_nfree-=nbits;
 	ec->state|=(unsigned long long)bypass<<ec->enc_nfree;
 }
-AWM_INLINE int bypass_decrbuf(BypassCoder *ec, int nbits)
+AWM_INLINE int bypass_decbuf(BypassCoder *ec, int nbits)
 {
-#ifdef BRANCHLESS_RENORM
+#ifdef BYPASS_DEC_BRANCHLESSRENORM
+	const unsigned char *srcptr=ec->srcptr+4;
+	unsigned long long state2=ec->state<<32|*(const unsigned*)ec->srcptr;
 	int renorm=ec->dec_navailable<32;
-	ec->srcend-=4*renorm;
-	unsigned long long state2=ec->state<<32|*(unsigned*)ec->srcend;
 	if(renorm)				//FIXME ensure CMOV
 		ec->state=state2;
+	if(renorm)
+		ec->srcptr=srcptr;
 	ec->dec_navailable+=32*renorm-nbits;
 #else
 	if(ec->dec_navailable<32)
 	{
-		ec->state=ec->state<<32|*(unsigned*)ec->srcend;
-		ec->srcend-=4;
+		ec->state=ec->state<<32|*(unsigned*)ec->srcptr;
+		ec->srcptr+=4;
 		ec->dec_navailable+=32;
 	}
 	ec->dec_navailable-=nbits;

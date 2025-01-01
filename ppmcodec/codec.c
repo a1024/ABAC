@@ -200,7 +200,10 @@ int main(int argc, char **argv)
 //	CODEC_FUNC("D:/ML/checkboard.PPM",		"D:/ML/mystery.lsim");
 //	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm");
 
-	CODEC_FUNC("C:/dataset-GDCC2020-ppm/astro-01.ppm",	"D:/ML/mystery.lsim");
+//	CODEC_FUNC("C:/dataset-GDCC2020-ppm/astro-01.ppm",	"D:/ML/mystery.lsim");
+//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
+
+	CODEC_FUNC("C:/dataset-GDCC2020-ppm/astro-30.ppm",	"D:/ML/mystery.lsim");
 	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
 
 //	CODEC_FUNC("C:/dataset-GDCC2020-ppm/astro-06.ppm",	"D:/ML/mystery.lsim");
