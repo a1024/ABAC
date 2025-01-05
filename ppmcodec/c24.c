@@ -1563,9 +1563,9 @@ static void block_thread(void *param)
 		{
 #ifdef SIMD_CTX
 			__m128i msum=_mm_add_epi16(mN, mW);
-			__m128i mqp=_mm_add_epi16(msum, _mm_slli_epi16(_mm_sub_epi16(msum, mNW), 1));
-			mqp=_mm_srai_epi16(mqp, 11-CBITS);
-			mqp=_mm_and_si128(mqp, _mm_set1_epi16((1<<CBITS)-1));
+			//__m128i mqp=_mm_add_epi16(msum, _mm_slli_epi16(_mm_sub_epi16(msum, mNW), 1));
+			//mqp=_mm_srai_epi16(mqp, 11-CBITS);
+			//mqp=_mm_and_si128(mqp, _mm_set1_epi16((1<<CBITS)-1));
 
 			__m128i mqe=_mm_add_epi16(mNW, mNE);
 			mqe=_mm_add_epi16(mqe, _mm_add_epi16(mWW, mNN));
@@ -1575,10 +1575,10 @@ static void block_thread(void *param)
 			mqe=_mm_add_epi16(mqe, _mm_abs_epi16(_mm_sub_epi16(mN, mW)));
 			mqe=_mm_add_epi16(mqe, _mm_set1_epi16(1));
 
-			mqp=_mm_cvtepi16_epi32(mqp);
+			//mqp=_mm_cvtepi16_epi32(mqp);
 			mqe=FLOOR_LOG2_32x4(_mm_cvtepi16_epi32(mqe));//7 cycles vs (_lzcnt_u32 3 cycles)*3 (actually 5 cycles)		2.45%
 			mqe=_mm_min_epi32(mqe, _mm_set1_epi32(ELEVELS-1));
-			_mm_store_si128((__m128i*)grads+0, mqp);
+			//_mm_store_si128((__m128i*)grads+0, mqp);
 			_mm_store_si128((__m128i*)grads+1, mqe);
 #endif
 #ifndef SIMD_PREDS
@@ -1649,6 +1649,13 @@ static void block_thread(void *param)
 #ifdef ENABLE_CG
 				case PRED_CG:
 					MEDIAN3_32(pred, N[kc], regW[kc], N[kc]+regW[kc]-NW[kc]);
+					//{
+					//	int vmax=N[kc], vmin=regW[kc];
+					//	if(N[kc]<regW[kc])
+					//		vmin=N[kc], vmax=regW[kc];
+					//	pred=N[kc]+regW[kc]-NW[kc];
+					//	CLAMP2(pred, vmin, vmax);
+					//}
 					break;
 #endif
 #ifdef ENABLE_AV4
@@ -1657,6 +1664,15 @@ static void block_thread(void *param)
 						(4*(N[kc]+regW[kc])+NE[kc]-NW[kc])>>3,
 						N[kc], regW[kc], NE[kc]
 					);
+					//{
+					//	int vmax=N[kc], vmin=regW[kc];
+					//	if(N[kc]<regW[kc])
+					//		vmin=N[kc], vmax=regW[kc];
+					//	if(vmin>NE[kc])vmin=NE[kc];
+					//	if(vmax<NE[kc])vmax=NE[kc];
+					//	pred=(4*(N[kc]+regW[kc])+NE[kc]-NW[kc])>>3;
+					//	CLAMP2(pred, vmin, vmax);
+					//}
 					break;
 #endif
 #ifdef ENABLE_AV5
@@ -1673,6 +1689,15 @@ static void block_thread(void *param)
 						regW[kc]+((10*N[kc]-9*NW[kc]+4*NE[kc]-2*(NN[kc]+WW[kc])+NNW[kc]-(NNE[kc]+NWW[kc]))>>4),
 						N[kc], regW[kc], NE[kc]
 					);
+					//{
+					//	int vmax=N[kc], vmin=regW[kc];
+					//	if(N[kc]<regW[kc])
+					//		vmin=N[kc], vmax=regW[kc];
+					//	if(vmin>NE[kc])vmin=NE[kc];
+					//	if(vmax<NE[kc])vmax=NE[kc];
+					//	pred=regW[kc]+((10*N[kc]-9*NW[kc]+4*NE[kc]-2*(NN[kc]+WW[kc])+NNW[kc]-(NNE[kc]+NWW[kc]))>>4);
+					//	CLAMP2(pred, vmin, vmax);
+					//}
 					break;
 #endif
 #ifdef ENABLE_WG
@@ -1801,10 +1826,23 @@ static void block_thread(void *param)
 			for(int kc=0;kc<3;++kc)
 			{
 				int offset=yuv[combination[kc+6]];
+				pred=preds[kc];
+				if(kc)
+				{
+					pred+=offset;
+					//CLAMP2_32(pred, pred, -128, 127);
+					CLAMP2(pred, -128, 127);
+				}
 #ifdef SIMD_CTX
-				int qp=grads[kc+0];
+			//	int qp=grads[kc+0];
+				int qp=grads[kc+0]=(pred+128)>>(8-CBITS);
 				int qe=grads[kc+4];
 				int qe2=grads[kc+8]=qe+(qe<ELEVELS-1);
+				//if(!entropyidx&&qe&&args->ctx[kc][qe][qp]<shiftgain)//BAD
+				//{
+				//	--qe;
+				//	--qe2;
+				//}
 #else
 				int qp=(3*(N[kc]+regW[kc])-2*NW[kc])>>(11-CBITS)&((1<<CBITS)-1);
 				int qe=abs(N[kc]-regW[kc])+N[kc+4]+regW[kc+4]+((NW[kc+4]+NE[kc+4]+WW[kc+4]+NN[kc+4]+NEE[kc+4])>>1);
@@ -1814,13 +1852,6 @@ static void block_thread(void *param)
 				grads[kc+0]=qp;
 				grads[kc+4]=qe;
 #endif
-				pred=preds[kc];
-				if(kc)
-				{
-					pred+=offset;
-					//CLAMP2_32(pred, pred, -128, 127);
-					CLAMP2(pred, -128, 127);
-				}
 				unsigned *curr_hist0=histptr+cdfstride*(CLEVELS*(ELEVELS*kc+qe)+qp);		//FIXME try kc as least significant index
 				unsigned *curr_hist1=histptr+cdfstride*(CLEVELS*(ELEVELS*kc+qe2)+qp);
 				
@@ -2038,12 +2069,8 @@ static void block_thread(void *param)
 			for(int kc=0;kc<3;++kc)
 			{
 #if 1
-//#define SMIN 4
-//#define SMAX 11
-				int *mixctx=&args->ctx[kc][grads[kc+4]][grads[kc+0]];
-				int sh=*mixctx+=shiftgain;
+				int sh=args->ctx[kc][grads[kc+4]][grads[kc+0]]+=shiftgain;
 				sh=FLOOR_LOG2(sh)>>1;
-				//CLAMP2(sh, SMIN, SMAX);
 #if !defined ENABLE_MT && 0
 				{
 					static int shist[SMAX+1-SMIN]={0};
@@ -2093,10 +2120,8 @@ static void block_thread(void *param)
 				_mm256_storeu_si256((__m256i*)(cdfptrs[kc+0]+1+3*8), mx3);
 			//	_mm256_storeu_si256((__m256i*)(cdfptrs[kc+0]+1+4*8), mx4);
 			//	_mm256_storeu_si256((__m256i*)(cdfptrs[kc+0]+1+5*8), mx5);
-				mixctx=&args->ctx[kc][grads[kc+8]][grads[kc+0]];
-				sh=*mixctx+=shiftgain;
+				sh=args->ctx[kc][grads[kc+8]][grads[kc+0]]+=shiftgain;
 				sh=FLOOR_LOG2(sh)>>1;
-				//CLAMP2(sh, SMIN, SMAX);
 				ms=_mm_set_epi32(0, 0, 0, sh);
 				mc0=_mm256_loadu_si256((__m256i*)(cdfptrs[kc+3]+1+0*8));
 				mc1=_mm256_loadu_si256((__m256i*)(cdfptrs[kc+3]+1+1*8));
@@ -2416,11 +2441,6 @@ int c24_codec(const char *srcfn, const char *dstfn)
 						}
 #endif
 						esize+=arg->bestsize;
-#ifdef ABAC_PROFILE_SIZE
-						csizes[0]+=arg->csizes[0];
-						csizes[1]+=arg->csizes[1];
-						csizes[2]+=arg->csizes[2];
-#endif
 					}
 					ARRAY_APPEND(dst, arg->tokenbuf, arg->tokenptr-arg->tokenbuf, 1, 0);
 					ARRAY_APPEND(dst, arg->bypassbuf, arg->bypassptr-arg->bypassbuf, 1, 0);
