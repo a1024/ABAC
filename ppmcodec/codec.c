@@ -206,6 +206,9 @@ int main(int argc, char **argv)
 //	CODEC_FUNC("C:/dataset-GDCC2020-ppm/astro-01.ppm",	"D:/ML/mystery.lsim");
 //	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
 
+	CODEC_FUNC("C:/dataset-GDCC2020-ppm/astro-02.ppm",	"D:/ML/mystery.lsim");
+	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
+
 //	CODEC_FUNC("C:/dataset-GDCC2020-ppm/astro-30.ppm",	"D:/ML/mystery.lsim");
 //	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
 
@@ -215,8 +218,8 @@ int main(int argc, char **argv)
 //	CODEC_FUNC("C:/dataset-GDCC2020-ppm/photo-03.ppm",	"D:/ML/mystery.lsim");
 //	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
 
-	CODEC_FUNC("C:/dataset-GDCC2020-ppm/photo-67.ppm",	"D:/ML/mystery.lsim");
-	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
+//	CODEC_FUNC("C:/dataset-GDCC2020-ppm/photo-67.ppm",	"D:/ML/mystery.lsim");
+//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm");
 
 //	CODEC_FUNC("C:/dataset-synth2-ppm/20240412 2 gralic enc.ppm",	"D:/ML/mystery.lsim");
 //	CODEC_FUNC("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm");

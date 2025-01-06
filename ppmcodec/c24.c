@@ -8,7 +8,7 @@ static const char file[]=__FILE__;
 
 //	#define ENABLE_GUIDE
 #ifndef DISABLE_MT
-//	#define ENABLE_MT
+	#define ENABLE_MT
 #endif
 //	#define PRINT_PREDHIST
 //	#define ENABLE_EDGECASES
@@ -1501,6 +1501,11 @@ static void block_thread(void *param)
 		predidx[0]=predsel[combination[0]];
 		predidx[1]=predsel[combination[1]];
 		predidx[2]=predsel[combination[2]];
+#if 0
+		if(csizes[combination[0]*PRED_COUNT+predidx[0]]<0.1*count)predidx[0]=PRED_CG;	//X
+		if(csizes[combination[1]*PRED_COUNT+predidx[1]]<0.1*count)predidx[1]=PRED_CG;
+		if(csizes[combination[2]*PRED_COUNT+predidx[2]]<0.1*count)predidx[2]=PRED_CG;
+#endif
 		args->bestsize=bestsize;
 		entropylevel=(int)((
 			csizes[combination[0]*PRED_COUNT+predidx[0]]+
@@ -1576,6 +1581,14 @@ static void block_thread(void *param)
 	else if(entropylevel>17)	entropyidx=2;
 	else if(entropylevel>10)	entropyidx=1;
 	else				entropyidx=0;
+#if 0
+	predidx[0]=PRED_CG;//synth2 0.8% smaller
+	predidx[1]=PRED_CG;
+	predidx[2]=PRED_CG;
+	//predidx[0]=PRED_WG;//GDCC 0.9% larger
+	//predidx[1]=PRED_WG;
+	//predidx[2]=PRED_WG;
+#endif
 	int shiftgain=(entropylevel*entropylevel>>4)+15;
 	unsigned *histptr=(unsigned*)args->hist;
 	for(int ks=0;ks<cdfstride;++ks)
@@ -1647,7 +1660,7 @@ static void block_thread(void *param)
 		int yidx=3*(args->iw*ky+args->x1)+combination[3+0];
 		int uidx=3*(args->iw*ky+args->x1)+combination[3+1];
 		int vidx=3*(args->iw*ky+args->x1)+combination[3+2];
-		ALIGN(16) short regW[8]={0};
+		ALIGN(16) short regW[12]={0};
 		ALIGN(16) short preds[8]={0};
 		ALIGN(16) int grads[12]={0};
 		ALIGN(32) int CDF[8*6]={0};//{8 zeros, CDF size 8*4, 8 CDFmax}
@@ -1839,15 +1852,7 @@ static void block_thread(void *param)
 					{
 						int gx=abs(regW[kc]-WW[kc])+abs(N[kc]-NW[kc])+abs(NE[kc]-N[kc])+1;//don't add errors
 						int gy=abs(regW[kc]-NW[kc])+abs(N[kc]-NN[kc])+abs(NE[kc]-NNE[kc])+1;
-
 						pred=(gx*N[kc]+gy*regW[kc])/(gx+gy);
-
-						//pred=(gx*N[kc]+gy*regW[kc]-(256-gx-gy)*(NE[kc]-NW[kc]))>>8;
-						//MEDIAN3_32(pred, N[kc], regW[kc], pred);
-
-						//int sum=gx+gy, halfsum=sum>>1;
-						//pred=((gx+halfsum)*N[kc]+(gy+halfsum)*regW[kc]-sum*NW[kc])/sum;
-						//MEDIAN3_32(pred, N[kc], regW[kc], pred);
 					}
 					break;
 #endif
@@ -1969,16 +1974,18 @@ static void block_thread(void *param)
 			{
 				int offset=0;
 				pred=preds[kc];
+			//	int ctx=pred;
 				if(kc)
 				{
 					pred+=offset=yuv[combination[kc+6]];
-					//CLAMP2_32(pred, pred, -128, 127);
+				//	CLAMP2_32(pred, pred, -128, 127);
 					CLAMP2(pred, -128, 127);
 				}
+			//	if(!entropyidx)
+			//		ctx=pred;
 #ifdef SIMD_CTX
+			//	int qp=grads[kc+0]=(ctx+128)>>(8-CBITS)&((1<<CBITS)-1);
 				int qp=grads[kc+0]=(pred+128)>>(8-CBITS);
-			//	int qp=grads[kc+0]=(kc?pred+128:(2*pred+N[kc]+regW[kc]+128*4)>>2)>>(8-CBITS)&((1<<CBITS)-1);//X
-			//	int qp=grads[kc+0];
 				int qe=grads[kc+4];
 				int qe2=grads[kc+8]=qe+(qe<ELEVELS-1);
 #else
@@ -2151,6 +2158,7 @@ static void block_thread(void *param)
 				}
 				curr[kc+0]=regW[kc]=yuv[kc]-offset;
 				curr[kc+4]=regW[kc+4]=abs(error);
+			//	regW[kc+8]=error;
 				cdfptrs[kc+0]=curr_hist0;
 				cdfptrs[kc+3]=curr_hist1;
 				mixinptrs[kc]=args->mixincdfs+args->tlevels*token;
