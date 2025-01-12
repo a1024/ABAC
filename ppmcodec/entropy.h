@@ -548,21 +548,17 @@ AWM_INLINE void ac3_encbuf_update_N(AC3 *ec, unsigned cdf, unsigned freq, int pr
 #else
 	if(ec->range<(1ULL<<probbits))
 	{
-		unsigned long long rmax;
-
 		*(unsigned*)ec->dstptr=(unsigned)(ec->low>>32);
 		ec->dstptr+=4;
 		ec->range=ec->range<<32|0xFFFFFFFF;
 		ec->low<<=32;
-
-		rmax=~ec->low;
-		if(ec->range>rmax)//clamp hi to register size after renorm
-			ec->range=rmax;
+		if(ec->range>~ec->low)//clamp hi to register size after renorm
+			ec->range=~ec->low;
 	}
 #endif
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
-	if((unsigned)(freq-1)>=(0x10000-1)||cdf+freq<cdf)
+	if((unsigned)(freq-1)>=(unsigned)((1<<probbits)-1)||cdf+freq<cdf)
 		LOG_ERROR2("Invalid stats");
 #endif
 	ec->low+=ec->range*cdf>>probbits;
@@ -799,7 +795,7 @@ AWM_INLINE void ac3_dec_update_N(AC3 *ec, unsigned cdf, unsigned freq, int probb
 #endif
 #ifdef AC_VALIDATE
 	unsigned long long lo0=ec->low, r0=ec->range;
-	if((unsigned)(freq-1)>=(0x10000-1)||cdf+freq<cdf)
+	if((unsigned)(freq-1)>=(unsigned)((1<<probbits)-1)||cdf+freq<cdf)
 		LOG_ERROR2("Invalid stats");
 #endif
 	ec->low+=ec->range*cdf>>probbits;
@@ -1395,7 +1391,7 @@ AWM_INLINE int bypass_decbuf(BypassCoder *ec, int nbits)
 	}
 	ec->dec_navailable-=nbits;
 
-	int bypass=_bextr_u64(ec->state, ec->dec_navailable, nbits);//BMI1 (2013)
+	int bypass=(int)_bextr_u64(ec->state, ec->dec_navailable, nbits);//BMI1 (2013)
 //	int bypass=ec->state>>ec->dec_navailable&((1LL<<nbits)-1);
 	//ec->dec_navailable=navailable;
 #endif

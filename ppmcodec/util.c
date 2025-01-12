@@ -33,7 +33,6 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include<Windows.h>//QueryPerformance...
-#include<processthreadsapi.h>
 #include<conio.h>
 #include<psapi.h>
 #else
@@ -3011,6 +3010,8 @@ void mt_finish(void *mt_ctx)
 }
 
 //profiler
+#ifdef PROFILER
+//#include<processthreadsapi.h>
 #if defined _MSC_VER || defined _WIN32
 #ifdef ENABLE_PROFILER_DISASSEMBLY
 #include"Zydis.h"
@@ -3289,4 +3290,6 @@ void prof_end(void *prof_ctx)
 	array_free(&results);
 	free(args);
 }
+#endif
+
 #endif

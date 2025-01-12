@@ -560,7 +560,7 @@ void* mt_exec(void (*func)(void*), void *args, int argbytes, int nthreads);
 void  mt_finish(void *mt_ctx);
 
 //PROFILER  (spawns a thread)		FIXME port to Linux
-#if defined _MSC_VER || defined _WIN32
+#if defined PROFILER && (defined _MSC_VER || defined _WIN32)
 
 //	#define ENABLE_PROFILER_DISASSEMBLY
 
