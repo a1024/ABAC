@@ -137,11 +137,11 @@ int main(int argc, char **argv)
 	if(argc<3||argc>4)
 	{
 		printf("Usage:\n");
-		printf("  %s  input.PPM  output.%s  [N]  Encode file\n", argv[0], STRINGIFY(CODEC_EXT));
-		printf("  %s  input.%s  output.PPM  [N]  Decode file\n", argv[0], STRINGIFY(CODEC_EXT));
+		printf("  %s  input.ppm  output.%s  [N]    Encode file\n", argv[0], STRINGIFY(CODEC_EXT));
+		printf("  %s  input.%s  output.ppm  [N]    Decode file\n", argv[0], STRINGIFY(CODEC_EXT));
 		printf("\n");
-		printf("N is the number of threads (optional).\n");
-		printf("  0: Use as many threads as there are cores.\n");
+		printf("Where N is an optional number of threads.\n");
+		printf("  0: Use as many threads as there are cores (default).\n");
 		printf("  1: Single-threaded.\n");
 	//	printf("  %s  input.PPM          Test without saving\n", argv[0]);
 		return 0;
