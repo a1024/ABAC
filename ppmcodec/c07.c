@@ -1318,7 +1318,7 @@ static void block_thread(void *param)
 		ac3_enc_flush(&ec);
 #endif
 }
-int c07_codec(const char *srcfn, const char *dstfn)
+int c07_codec(const char *srcfn, const char *dstfn, int nthreads0)
 {
 	const int nch=3, depth=8;
 	double t0;

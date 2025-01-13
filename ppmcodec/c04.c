@@ -1208,7 +1208,7 @@ static void block_thread(void *param)
 	if(args->fwd)
 		gr_enc_flush(&ec);
 }
-int c04_codec(const char *srcfn, const char *dstfn)
+int c04_codec(const char *srcfn, const char *dstfn, int nthreads0)
 {
 	const int nch=3, depth=8;
 	double t0;

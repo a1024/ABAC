@@ -14,7 +14,7 @@ static const char file[]=__FILE__;
 //	#define ENABLE_FILEGUARD	//makes using scripts harder
 
 
-int c17_codec(const char *srcfn, const char *dstfn)
+int c17_codec(const char *srcfn, const char *dstfn, int nthreads0)
 {
 #if 0
 	unsigned char *srcbuf=0;

@@ -83,7 +83,7 @@ static const unsigned char rct_indices[][8]=
 	{OCH_B,	OCH_GB,	OCH_RG,		2, 1, 0,	0, 1},
 };
 static unsigned short stats1[3][256][256];
-int c12_codec(const char *srcfn, const char *dstfn)
+int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 {
 #ifdef LOUD
 	double t=time_sec();

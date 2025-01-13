@@ -2856,7 +2856,7 @@ static void block_thread(void *param)
 		block_func(param);
 	}
 }
-int c24_codec(const char *srcfn, const char *dstfn)
+int c24_codec(const char *srcfn, const char *dstfn, int nthreads0)
 {
 	double t0;
 	ArrayHandle src, dst;
@@ -2908,7 +2908,14 @@ int c24_codec(const char *srcfn, const char *dstfn)
 	yblocks=(ih+BLOCKY-1)/BLOCKY;
 	nblocks=xblocks*yblocks;
 	ncores=query_cpu_cores();
-	nthreads=MINVAR(nblocks, ncores);
+	if(nthreads0)
+	{
+		int nthreads2=MINVAR(nblocks, ncores);
+		nthreads=nthreads0;
+		CLAMP2(nthreads, 1, nthreads2);
+	}
+	else
+		nthreads=MINVAR(nblocks, ncores);
 	coffset=(int)sizeof(int[2])*nblocks;
 	start=0;
 	memusage=0;
@@ -3077,12 +3084,17 @@ int c24_codec(const char *srcfn, const char *dstfn)
 	for(int k2=0;k2<=test;++k2)
 	{
 #ifdef ENABLE_MT
-		void *ctx=mt_exec(block_thread, args, sizeof(ThreadArgs), nthreads);
-		mt_finish(ctx);
-#else
-		for(int k=0;k<nthreads;++k)
-			block_thread(args+k);
+		if(nthreads>1)
+		{
+			void *ctx=mt_exec(block_thread, args, sizeof(ThreadArgs), nthreads);
+			mt_finish(ctx);
+		}
+		else
 #endif
+		{
+			for(int k=0;k<nthreads;++k)
+				block_thread(args+k);
+		}
 		if(fwd)
 		{
 			{

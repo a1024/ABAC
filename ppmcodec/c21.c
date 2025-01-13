@@ -52,7 +52,7 @@ static void guide_check(unsigned char *image, int kx, int ky)
 #ifdef ESTIMATE_SIZE
 static int g_hist[3][256]={0};
 #endif
-int c21_codec(const char *srcfn, const char *dstfn)
+int c21_codec(const char *srcfn, const char *dstfn, int nthreads0)
 {
 #ifdef LOUD
 	double elapsed=time_sec();

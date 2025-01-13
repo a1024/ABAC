@@ -379,7 +379,7 @@ static void block_thread(void *param)
 	if(!args->blockidx)//save stats
 		memcpy(g_stats1, args->stats1, sizeof(args->stats1));
 }
-int c06_codec(const char *srcfn, const char *dstfn)
+int c06_codec(const char *srcfn, const char *dstfn, int nthreads0)
 {
 	const int nch=3, depth=8;
 	double t0;

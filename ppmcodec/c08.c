@@ -697,7 +697,7 @@ do\
 	free(hist);
 	return 0;
 }
-int c08_codec(const char *srcfn, const char *dstfn)
+int c08_codec(const char *srcfn, const char *dstfn, int nthreads0)
 {
 #ifdef ESTIMATE_SIZE
 	double t=time_sec();

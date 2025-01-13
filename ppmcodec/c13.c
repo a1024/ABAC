@@ -1293,7 +1293,7 @@ static void block_manager(void *param)
 		block_thread(param);
 	}
 }
-int c13_codec(const char *srcfn, const char *dstfn)
+int c13_codec(const char *srcfn, const char *dstfn, int nthreads0)
 {
 	const int nch=3;
 //	const int depth=8;

@@ -900,7 +900,7 @@ static void update_CDF(const int *hist, unsigned *CDF)
 	}
 	CDF[256]=1<<C19_PROB_BITS;
 }
-int c19_codec(const char *srcfn, const char *dstfn)
+int c19_codec(const char *srcfn, const char *dstfn, int nthreads0)
 {
 #ifdef ESTIMATE_SIZE
 	double csizes[3]={0};

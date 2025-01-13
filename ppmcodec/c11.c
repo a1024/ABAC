@@ -19,7 +19,7 @@ static const char file[]=__FILE__;
 //	#include"entropy.h"
 typedef unsigned short Emit_t;
 ALIGN(32) static unsigned short stats0[3][32], stats1[3][16][32], mixinCDFs[16][16];
-int c11_codec(const char *srcfn, const char *dstfn)
+int c11_codec(const char *srcfn, const char *dstfn, int nthreads0)
 {
 #ifdef ESTIMATE_SIZE
 	double t=time_sec();

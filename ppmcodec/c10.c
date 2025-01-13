@@ -42,7 +42,7 @@ static void rescale_hist(unsigned *hist, int nlevels)
 		hsum+=hist[ks]=(hist[ks]+1)>>1;
 	hist[nlevels]=hsum;
 }
-int c10_codec(const char *srcfn, const char *dstfn)
+int c10_codec(const char *srcfn, const char *dstfn, int nthreads0)
 {
 #ifdef ESTIMATE_SIZE
 	double t=time_sec();

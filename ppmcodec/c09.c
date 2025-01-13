@@ -97,7 +97,7 @@ static void update_CDF(const unsigned *hist, int nlevels, unsigned *CDF)
 	}
 	CDF[nlevels]=1<<16;
 }
-int c09_codec(const char *srcfn, const char *dstfn)
+int c09_codec(const char *srcfn, const char *dstfn, int nthreads0)
 {
 #ifdef ESTIMATE_SIZE
 	double t=time_sec();

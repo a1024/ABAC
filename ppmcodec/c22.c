@@ -131,7 +131,7 @@ static void c20_dec(void *param)
 	args->ret=ENTROPY_DEC(args->in, args->insize, args->out, args->outsize);
 }
 #endif
-int c22_codec(const char *srcfn, const char *dstfn)
+int c22_codec(const char *srcfn, const char *dstfn, int nthreads0)
 {
 #if defined _MSC_VER && defined LOUD
 	double ptime=0, etime=0;
