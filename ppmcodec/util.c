@@ -64,6 +64,13 @@ void memfill(void *dst, const void *src, size_t dstbytes, size_t srcbytes)
 	size_t copied;
 	char *d=(char*)dst;
 	const char *s=(const char*)src;
+#ifdef _DEBUG
+	if(!dstbytes||!srcbytes)
+	{
+		LOG_ERROR("memfill:  dstbytes %zd  srcbytes %zd", dstbytes, srcbytes);
+		return;
+	}
+#endif
 	if(dstbytes<srcbytes)
 	{
 		memcpy(dst, src, dstbytes);

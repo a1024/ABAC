@@ -477,10 +477,12 @@ AWM_INLINE void ac3_encbuf_renorm(AC3 *ec)
 #endif
 AWM_INLINE unsigned char* ac3_encbuf_flush(AC3 *ec)
 {
+#ifndef AC_DISABLE_WRITE
 	*(unsigned*)ec->dstptr=(unsigned)(ec->low>>32);
 	ec->dstptr+=4;
 	*(unsigned*)ec->dstptr=(unsigned)ec->low;
 	ec->dstptr+=4;
+#endif
 	return ec->dstptr;
 }
 AWM_INLINE void ac3_encbuf_bypass_NPOT(AC3 *ec, int bypass, int nlevels)
@@ -548,8 +550,10 @@ AWM_INLINE void ac3_encbuf_update_N(AC3 *ec, unsigned cdf, unsigned freq, int pr
 #else
 	if(ec->range<(1ULL<<probbits))
 	{
+#ifndef AC_DISABLE_WRITE
 		*(unsigned*)ec->dstptr=(unsigned)(ec->low>>32);
 		ec->dstptr+=4;
+#endif
 		ec->range=ec->range<<32|0xFFFFFFFF;
 		ec->low<<=32;
 		if(ec->range>~ec->low)//clamp hi to register size after renorm
@@ -1333,10 +1337,12 @@ AWM_INLINE void bypass_decbuf_init(BypassCoder *ec, const unsigned char *start, 
 }
 AWM_INLINE unsigned char* bypass_encbuf_flush(BypassCoder *ec)
 {
+#ifndef AC_DISABLE_WRITE
 	*(unsigned*)ec->dstptr=(unsigned)(ec->state>>32);
 	ec->dstptr+=4;
 	*(unsigned*)ec->dstptr=(unsigned)ec->state;
 	ec->dstptr+=4;
+#endif
 	return ec->dstptr;
 }
 AWM_INLINE void bypass_encbuf(BypassCoder *ec, int bypass, int nbits)
@@ -1355,8 +1361,17 @@ AWM_INLINE void bypass_encbuf(BypassCoder *ec, int bypass, int nbits)
 #else
 	if(ec->enc_nfree<32)
 	{
+#ifdef _DEBUG
+		if(ec->dstptr>=ec->dstend)
+		{
+			LOG_ERROR("Encoder bypass buffer overflow");
+			return;
+		}
+#endif
+#ifndef AC_DISABLE_WRITE
 		*(unsigned*)ec->dstptr=(unsigned)(ec->state>>32);
 		ec->dstptr+=4;
+#endif
 		ec->state<<=32;
 		//nfree+=32;
 		ec->enc_nfree+=32;
@@ -1384,6 +1399,13 @@ AWM_INLINE int bypass_decbuf(BypassCoder *ec, int nbits)
 	//int navailable=ec->dec_navailable-nbits;
 	if(ec->dec_navailable<32)
 	{
+#ifdef _DEBUG
+		if(ec->srcptr>=ec->srcend)
+		{
+			LOG_ERROR("Decoder bypass buffer overflow");
+			return 0;
+		}
+#endif
 		ec->state=ec->state<<32|*(unsigned*)ec->srcptr;
 		ec->srcptr+=4;
 		//navailable+=32;

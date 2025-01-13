@@ -10,6 +10,7 @@ static const char file[]=__FILE__;
 #ifndef DISABLE_MT
 	#define ENABLE_MT
 #endif
+//	#define AC_DISABLE_WRITE
 //	#define PRINT_PREDHIST
 //	#define ENABLE_EDGECASES
 
@@ -62,7 +63,9 @@ static const char file[]=__FILE__;
 //	#define AC_IMPLEMENTATION
 #include"entropy.h"
 
-#define BLOCKSIZE 512
+#define BLOCKX 512	//384
+#define BLOCKY 512
+
 #define MAXPRINTEDBLOCKS 500
 //11<<6 = 704 CDFs size 32
 #define ELEVELS 11
@@ -115,12 +118,12 @@ typedef enum _OCHIndex
 #undef  OCH
 	OCH_COUNT,
 } OCHIndex;
-static const char *och_names[OCH_COUNT]=
-{
-#define OCH(LABEL) #LABEL,
-	OCHLIST
-#undef  OCH
-};
+//static const char *och_names[OCH_COUNT]=
+//{
+//#define OCH(LABEL) #LABEL,
+//	OCHLIST
+//#undef  OCH
+//};
 
 #define RCTLIST\
 	RCT(R_G_B,	OCH_R,		OCH_G,		OCH_B,		0, 1, 2,	3, 3, 3)\
@@ -141,23 +144,23 @@ static const char *och_names[OCH_COUNT]=
 	RCT(R_BR_GB,	OCH_R,		OCH_BR,		OCH_GB,		0, 2, 1,	3, 0, 1)
 typedef enum _RCTIndex
 {
-#define RCT(LABEL, YOCH, UOCH, VOCH, YIDX, UIDX, VIDX, YOFF, UOFF, VOFF) RCT_##LABEL,
+#define RCT(LABEL, ...) RCT_##LABEL,
 	RCTLIST
 #undef  RCT
 	RCT_COUNT,
 } RCTIndex;
 static const unsigned char rct_combinations[RCT_COUNT][9]=
 {
-#define RCT(LABEL, YOCH, UOCH, VOCH, YIDX, UIDX, VIDX, YOFF, UOFF, VOFF) {YOCH, UOCH, VOCH, YIDX, UIDX, VIDX, YOFF, UOFF, VOFF},
+#define RCT(LABEL, ...) {__VA_ARGS__},
 	RCTLIST
 #undef  RCT
 };
-static const char *rct_names[RCT_COUNT]=
-{
-#define RCT(LABEL, YOCH, UOCH, VOCH, YIDX, UIDX, VIDX, YOFF, UOFF, VOFF) #LABEL,
-	RCTLIST
-#undef  RCT
-};
+//static const char *rct_names[RCT_COUNT]=
+//{
+//#define RCT(LABEL, ...) #LABEL,
+//	RCTLIST
+//#undef  RCT
+//};
 
 #define PREDLIST\
 	PRED(W)\
@@ -173,12 +176,12 @@ typedef enum _PredIndex
 #undef  PRED
 	PRED_COUNT,
 } PredIndex;
-static const char *pred_names[PRED_COUNT]=
-{
-#define PRED(LABEL) #LABEL,
-	PREDLIST
-#undef  PRED
-};
+//static const char *pred_names[PRED_COUNT]=
+//{
+//#define PRED(LABEL) #LABEL,
+//	PREDLIST
+//#undef  PRED
+//};
 #ifdef ENABLE_WG
 #define MIX2_16x16(DST, A0, A1, C0, C1)\
 	do\
@@ -292,18 +295,21 @@ typedef struct _ThreadArgs
 	unsigned char *dst;
 	int iw, ih;
 
-	int fwd, test, loud, x1, x2, y1, y2;
+	int fwd, test, loud, b1, b2, xblocks, nblocks, x1, x2, y1, y2;
 	int bufsize, histsize;
 	short *pixels;
 	int *hist;
 
-	unsigned char *tokenbuf;
-	ptrdiff_t tokenbufsize;
-	unsigned char *bypassbuf;
-	ptrdiff_t bypassbufsize;
-	unsigned char *tokenptr, *bypassptr;
-	const unsigned char *decstart, *decend;
-	const unsigned char *bypassstart, *bypassend;
+	//tokens and bypass are encoded separately:
+	// 0      enctokenoffsets[0]      [1]             [2]      [N-2]             [N-1]=tokentotal
+	// | tokenstream 0 | tokenstream 1 | tokenstream 2 |   ...   | tokenstream N-1 |
+	//
+	// 0     encbypassoffsets[0]        [1]              [2]      [N-2]              [N-1]=bypasstotal
+	// | bypassstream 0 | bypassstream 1 | bypassstream 2 |   ...   | bypassstream N-1 |
+	int *enctokenoffsets, *encbypassoffsets, encbufsize;
+	unsigned char *enctokenbuf, *encbypassbuf;
+	const int *decoffsets;
+	const unsigned char *decstream;
 
 	int tlevels;
 
@@ -315,7 +321,7 @@ typedef struct _ThreadArgs
 	double bestsize;
 	int bestrct, predidx[3];
 } ThreadArgs;
-static void block_thread(void *param)
+static void block_func(void *param)
 {
 	ThreadArgs *args=(ThreadArgs*)param;
 	AC3 ec;
@@ -1740,8 +1746,11 @@ static void block_thread(void *param)
 		)*gain*(100/3.));//percent
 		CLAMP2(entropylevel, 0, 99);
 	skip_analysis:
-		ac3_encbuf_init(&ec, args->tokenbuf, args->tokenbuf+args->tokenbufsize);
-		bypass_encbuf_init(&bc, args->bypassbuf, args->bypassbuf+args->bypassbufsize);
+		{
+			int prevblockidx=args->blockidx-args->b1-1;
+			ac3_encbuf_init(&ec, args->enctokenbuf+(prevblockidx>=0?args->enctokenoffsets[prevblockidx]:0), args->enctokenbuf+args->encbufsize);
+			bypass_encbuf_init(&bc, args->encbypassbuf+(prevblockidx>=0?args->encbypassoffsets[prevblockidx]:0), args->encbypassbuf+args->encbufsize);
+		}
 		ac3_encbuf_bypass_NPOT(&ec, entropylevel, 100);
 		ac3_encbuf_bypass_NPOT(&ec, bestrct, RCT_COUNT);
 		ac3_encbuf_bypass_NPOT(&ec, predidx[0], PRED_COUNT);
@@ -1752,7 +1761,7 @@ static void block_thread(void *param)
 		args->predidx[0]=predidx[0];
 		args->predidx[1]=predidx[1];
 		args->predidx[2]=predidx[2];
-
+#if 0
 		if(args->loud)
 		{
 			printf("Y %5d~%5d  best %12.2lf bytes  %s [YUV: %s %s %s]\n",
@@ -1791,11 +1800,12 @@ static void block_thread(void *param)
 				);
 			}
 		}
+#endif
 	}
 	else//decode header
 	{
-		ac3_dec_init(&ec, args->decstart, args->decend);
-		bypass_decbuf_init(&bc, args->bypassstart, args->bypassend);
+		ac3_dec_init(&ec, args->decstream+(args->blockidx>0?args->decoffsets[args->blockidx-1]:0), args->decstream+args->decoffsets[args->blockidx]);
+		bypass_decbuf_init(&bc, args->decstream+args->decoffsets[args->nblocks+args->blockidx-1], args->decstream+args->decoffsets[args->nblocks+args->blockidx]);
 		entropylevel=ac3_dec_bypass_NPOT(&ec, 100);
 		bestrct=ac3_dec_bypass_NPOT(&ec, RCT_COUNT);
 		combination=rct_combinations[bestrct];
@@ -2300,10 +2310,9 @@ static void block_thread(void *param)
 #endif
 				unsigned *curr_hist0=cdfptrs[kc+0]=histptr+cdfstride*(ELEVELS*(CLEVELS*kc+qp)+qe);
 				ctxctrs[kc+0]=&args->ctxctrs[kc][qe][qp];
-				int qe2=qe<ELEVELS-1;
-				unsigned *curr_hist1=cdfptrs[kc+3]=curr_hist0+(cdfstride&-qe2);
-				qe2+=qe;
-				ctxctrs[kc+3]=&args->ctxctrs[kc][qe2][qp];
+				int qe2=-(qe<ELEVELS-1);
+				unsigned *curr_hist1=cdfptrs[kc+3]=curr_hist0+(cdfstride&qe2);
+				ctxctrs[kc+3]=&args->ctxctrs[kc][qe-qe2][qp];
 
 			//	unsigned *curr_hist0=cdfptrs[kc+0]=histptr+cdfstride*(CLEVELS*(ELEVELS*kc+qe)+qp);	//synth2 1.7% larger, GDCC 0.04% smaller
 			//	ctxctrs[kc+0]=&args->ctxctrs[kc][qe][qp];
@@ -2805,8 +2814,46 @@ static void block_thread(void *param)
 	}
 	if(args->fwd)
 	{
-		args->tokenptr=ac3_encbuf_flush(&ec);
-		args->bypassptr=bypass_encbuf_flush(&bc);
+		int currblockidx=args->blockidx-args->b1;
+		unsigned char *ptr;
+
+		ptr=ac3_encbuf_flush(&ec);
+		args->enctokenoffsets[currblockidx]=(int)(ptr-args->enctokenbuf);
+#ifdef _DEBUG
+		if((ptr-args->enctokenbuf)>>32)
+			LOG_ERROR("Integer overflow");
+#endif
+		
+		ptr=bypass_encbuf_flush(&bc);
+		args->encbypassoffsets[currblockidx]=(int)(ptr-args->encbypassbuf);
+#ifdef _DEBUG
+		if((ptr-args->encbypassbuf)>>32)
+			LOG_ERROR("Integer overflow");
+#endif
+	}
+}
+static void block_thread(void *param)
+{
+	ThreadArgs *args=(ThreadArgs*)param;
+	for(int kb=args->b1;kb<args->b2;++kb)
+	{
+		int kx, ky;
+
+		args->blockidx=kb;
+		ky=args->blockidx/args->xblocks;
+		kx=args->blockidx%args->xblocks;
+		args->x1=BLOCKX*kx;
+		args->y1=BLOCKY*ky;
+		args->x2=MINVAR(args->x1+BLOCKX, args->iw);
+		args->y2=MINVAR(args->y1+BLOCKY, args->ih);
+		//if(!args->fwd)
+		//{
+		//	args->decstart=args->decbuf+args->offsets[kb*2+0];
+		//	args->decend=args->decbuf+args->offsets[kb+2+1];
+		//	args->bypassstart=args->decbuf+args->offsets[kb*2+1];
+		//	args->bypassend=args->decbuf+args->offsets[kb*2+2];
+		//}
+		block_func(param);
 	}
 }
 int c24_codec(const char *srcfn, const char *dstfn)
@@ -2818,8 +2865,7 @@ int c24_codec(const char *srcfn, const char *dstfn)
 	const unsigned char *image, *imageend;
 	unsigned char *image2;
 	CodecID codec;
-	int ncores=query_cpu_cores();
-	int xblocks, yblocks, nblocks, nthreads, coffset;
+	int xblocks, yblocks, nblocks, ncores, nthreads, coffset;
 	ptrdiff_t start, memusage, argssize;
 	ThreadArgs *args;
 	int test, fwd;
@@ -2832,6 +2878,8 @@ int c24_codec(const char *srcfn, const char *dstfn)
 #ifdef PRINT_PREDHIST
 	int predhist[PRED_COUNT]={0};
 #endif
+	int *streamoffsets=0;
+	int encbufsize=0;
 	
 	t0=time_sec();
 	src=load_file(srcfn, 1, 3, 1);
@@ -2856,9 +2904,11 @@ int c24_codec(const char *srcfn, const char *dstfn)
 	fwd=codec==CODEC_PPM;
 	
 	usize=iw*ih*3;
-	xblocks=(iw+BLOCKSIZE-1)/BLOCKSIZE;
-	yblocks=(ih+BLOCKSIZE-1)/BLOCKSIZE;
-	nblocks=xblocks*yblocks, nthreads=MINVAR(nblocks, ncores);
+	xblocks=(iw+BLOCKX-1)/BLOCKX;
+	yblocks=(ih+BLOCKY-1)/BLOCKY;
+	nblocks=xblocks*yblocks;
+	ncores=query_cpu_cores();
+	nthreads=MINVAR(nblocks, ncores);
 	coffset=(int)sizeof(int[2])*nblocks;
 	start=0;
 	memusage=0;
@@ -2872,6 +2922,13 @@ int c24_codec(const char *srcfn, const char *dstfn)
 	esize=0;
 	memusage+=argssize;
 	memset(args, 0, argssize);
+	streamoffsets=(int*)malloc(sizeof(int[2])*nblocks);
+	if(!streamoffsets)
+	{
+		LOG_ERROR("Alloc error");
+		return 1;
+	}
+	memset(streamoffsets, 0, sizeof(int[2])*nblocks);
 	if(fwd)
 	{
 		guide_save(image, iw, ih);
@@ -2879,9 +2936,11 @@ int c24_codec(const char *srcfn, const char *dstfn)
 		dst=0;
 		printed=snprintf(g_buf, G_BUF_SIZE-1, "C01\n%d %d\n", iw, ih);
 		array_append(&dst, g_buf, 1, printed, 1, 0, 0);
-		start=array_append(&dst, 0, 1, coffset, 1, 0, 0);
+		start=dst->count;
+		//start=array_append(&dst, 0, 1, coffset, 1, 0, 0);
 		
 		image2=0;
+		encbufsize=(int)((long long)4*iw*ih/nthreads);
 	}
 	else//integrity check
 	{
@@ -2890,18 +2949,28 @@ int c24_codec(const char *srcfn, const char *dstfn)
 		array_append(&dst, g_buf, 1, printed, 1, 0, 0);
 		array_append(&dst, 0, 1, usize, 1, 0, 0);
 
-		//printed=0;
-		start=coffset;
-		for(int kt=0;kt<nblocks;++kt)
+		memcpy(streamoffsets, image, sizeof(int[2])*nblocks);
+		int sum=0;
+		for(int k=0;k<nblocks*2;++k)
 		{
-			int size[2]={0};
-			memcpy(size, image+sizeof(int[2])*kt, sizeof(int[2]));
-			start+=size[0];
-			start+=size[1];
+			int size=streamoffsets[k];
+			sum+=size;
+			streamoffsets[k]=sum;
 		}
-		if(image+start!=imageend)
-			LOG_ERROR("Corrupt file");
 		start=coffset;
+		if(image+coffset+sum!=imageend)
+			LOG_ERROR("Corrupt file");
+		//start=coffset;
+		//for(int kt=0;kt<nblocks;++kt)
+		//{
+		//	int size[2]={0};
+		//	memcpy(size, image+sizeof(int[2])*kt, sizeof(int[2]));
+		//	start+=size[0];
+		//	start+=size[1];
+		//}
+		//if(image+start!=imageend)
+		//	LOG_ERROR("Corrupt file");
+		//start=coffset;
 
 		image2=(unsigned char*)malloc(usize);
 		if(!image2)
@@ -2912,18 +2981,17 @@ int c24_codec(const char *srcfn, const char *dstfn)
 		memset(image2, 0, usize);
 	}
 	{
-		int smax=256;//256 is a valid symbol due to CALIC-like sign packing
 		int token=0, bypass=0, nbits=0;
 
-		quantize_pixel(smax, &token, &bypass, &nbits);
+		quantize_pixel(256, &token, &bypass, &nbits);//256 is a valid symbol due to CALIC-like sign packing
 		tlevels=token+1;
 		statssize=(tlevels+1)*(int)sizeof(int[3*ELEVELS*CLEVELS]);//CDF padding, contains (1<<PROB_BITS)
 		histsize=(int)sizeof(int[OCH_COUNT*PRED_COUNT<<8]);
 		if(histsize<statssize)
 			histsize=statssize;
 		maxwidth=iw;
-		if(maxwidth>BLOCKSIZE)
-			maxwidth=BLOCKSIZE;
+		if(maxwidth>BLOCKX)
+			maxwidth=BLOCKX;
 		mixincdfs=(unsigned*)malloc(sizeof(int)*tlevels*tlevels);
 		if(!mixincdfs)
 		{
@@ -2936,45 +3004,65 @@ int c24_codec(const char *srcfn, const char *dstfn)
 				mixincdfs[tlevels*ks+ks2]=(((1<<PROB_BITS)-tlevels)<<PROB_EBITS)&-(ks<ks2);
 		}
 	}
-	for(int k=0;k<nthreads;++k)
+	for(int k=0, kb=0;k<nthreads;++k)//initialization
 	{
 		ThreadArgs *arg=args+k;
 		arg->src=image;
 		arg->dst=fwd?0:dst->data+printed;
 		arg->iw=iw;
 		arg->ih=ih;
+		
+		arg->b1=kb;
+		kb=(k+1)*nblocks/nthreads;
+		arg->b2=kb;
+		arg->xblocks=xblocks;
+		arg->nblocks=nblocks;
+
 		arg->bufsize=sizeof(short[4*OCH_COUNT*2])*(maxwidth+16LL);//4 padded rows * OCH_COUNT * {pixels, wg_errors}
 		arg->pixels=(short*)_mm_malloc(arg->bufsize, sizeof(__m128i));
-		if(!arg->pixels)
+		arg->histsize=histsize;
+		arg->hist=(int*)malloc(histsize);
+		if(!arg->pixels||!arg->hist)
 		{
 			LOG_ERROR("Alloc error");
 			return 1;
-		}
-		{
-			arg->histsize=histsize;
-			arg->hist=(int*)malloc(histsize);
-			if(!arg->hist)
-			{
-				LOG_ERROR("Alloc error");
-				return 1;
-			}
 		}
 		memusage+=arg->bufsize;
 		memusage+=arg->histsize;
 		if(fwd)
 		{
-			arg->tokenbufsize=(ptrdiff_t)4*BLOCKSIZE*BLOCKSIZE;//actually 2.5*BLOCKSIZE*BLOCKSIZE
-			arg->tokenbuf=(unsigned char*)malloc(arg->tokenbufsize);
-			arg->bypassbufsize=(ptrdiff_t)4*BLOCKSIZE*BLOCKSIZE;//actually 2.7*BLOCKSIZE*BLOCKSIZE
-			arg->bypassbuf=(unsigned char*)malloc(arg->bypassbufsize+4);//4 byte pad for branchless renorm
-			if(!arg->tokenbuf||!arg->bypassbuf)
+			arg->encbufsize=encbufsize;
+			arg->enctokenbuf=(unsigned char*)malloc(encbufsize);
+			arg->encbypassbuf=(unsigned char*)malloc(encbufsize);
+			if(!arg->enctokenbuf||!arg->encbypassbuf)
 			{
 				LOG_ERROR("Alloc error");
 				return 1;
 			}
-			memusage+=arg->tokenbufsize;
-			memusage+=arg->bypassbufsize;
+			memusage+=2LL*encbufsize;
+
+			arg->enctokenoffsets=streamoffsets+arg->b1;
+			arg->encbypassoffsets=arg->enctokenoffsets+nblocks;
 		}
+		else
+		{
+			arg->decstream=image+start;
+			arg->decoffsets=streamoffsets;
+		}
+		//if(fwd)
+		//{
+		//	arg->tokenbufsize=(ptrdiff_t)4*BLOCKX*BLOCKY;//actually 2.5*BLOCKX*BLOCKY
+		//	arg->tokenbuf=(unsigned char*)malloc(arg->tokenbufsize);
+		//	arg->bypassbufsize=(ptrdiff_t)4*BLOCKX*BLOCKY;//actually 2.7*BLOCKX*BLOCKY
+		//	arg->bypassbuf=(unsigned char*)malloc(arg->bypassbufsize+4);//4 byte pad for branchless renorm
+		//	if(!arg->tokenbuf||!arg->bypassbuf)
+		//	{
+		//		LOG_ERROR("Alloc error");
+		//		return 1;
+		//	}
+		//	memusage+=arg->tokenbufsize;
+		//	memusage+=arg->bypassbufsize;
+		//}
 		
 		arg->tlevels=tlevels;
 		arg->fwd=fwd;
@@ -2988,6 +3076,53 @@ int c24_codec(const char *srcfn, const char *dstfn)
 	}
 	for(int k2=0;k2<=test;++k2)
 	{
+#ifdef ENABLE_MT
+		void *ctx=mt_exec(block_thread, args, sizeof(ThreadArgs), nthreads);
+		mt_finish(ctx);
+#else
+		for(int k=0;k<nthreads;++k)
+			block_thread(args+k);
+#endif
+		if(fwd)
+		{
+			{
+				int *streamsizes=(int*)ARRAY_APPEND(dst, 0, sizeof(int[2])*nblocks, 1, 0);
+				if(!streamsizes)
+				{
+					LOG_ERROR("Alloc error");
+					return 1;
+				}
+				for(int k=0;k<nthreads;++k)//append token stream sizes
+				{
+					ThreadArgs *arg=args+k;
+					for(int kb=arg->b1;kb<arg->b2;++kb)
+						streamsizes[kb]=streamoffsets[kb]-(kb>arg->b1?streamoffsets[kb-1]:0);
+				}
+				for(int k=0;k<nthreads;++k)//append bypass stream sizes
+				{
+					ThreadArgs *arg=args+k;
+					for(int kb=arg->b1;kb<arg->b2;++kb)
+					{
+						int kb2=nblocks+kb;
+						streamsizes[kb2]=streamoffsets[kb2]-(kb>arg->b1?streamoffsets[kb2-1]:0);
+					}
+				}
+				//for(int k=0;k<nblocks*2;++k)
+				//	printf("%3d  %8d\n", k, streamsizes[k]);
+			}
+
+			for(int k=0;k<nthreads;++k)//append token streams
+			{
+				ThreadArgs *arg=args+k;
+				ARRAY_APPEND(dst, arg->enctokenbuf, streamoffsets[arg->b2-1], 1, 0);
+			}
+			for(int k=0;k<nthreads;++k)//append bypass streams
+			{
+				ThreadArgs *arg=args+k;
+				ARRAY_APPEND(dst, arg->encbypassbuf, streamoffsets[nblocks+arg->b2-1], 1, 0);
+			}
+		}
+#if 0
 		for(int kt=0;kt<nblocks;kt+=nthreads)
 		{
 			int nthreads2=MINVAR(kt+nthreads, nblocks)-kt;
@@ -2995,27 +3130,27 @@ int c24_codec(const char *srcfn, const char *dstfn)
 			{
 				ThreadArgs *arg=args+kt2;
 				int kx, ky;
-
+			
 				arg->blockidx=kx=kt+kt2;
 				ky=kx/xblocks;
 				kx%=xblocks;
-				arg->x1=BLOCKSIZE*kx;
-				arg->y1=BLOCKSIZE*ky;
-				arg->x2=MINVAR(arg->x1+BLOCKSIZE, iw);
-				arg->y2=MINVAR(arg->y1+BLOCKSIZE, ih);
-				if(!fwd)
-				{
-					int size[2]={0};
-					memcpy(size, image+sizeof(int[2])*((ptrdiff_t)kt+kt2), sizeof(int[2]));
-
-					arg->decstart=image+start;
-					start+=size[0];
-					arg->decend=image+start;
-
-					arg->bypassstart=image+start;
-					start+=size[1];
-					arg->bypassend=image+start;
-				}
+				arg->x1=BLOCKX*kx;
+				arg->y1=BLOCKY*ky;
+				arg->x2=MINVAR(arg->x1+BLOCKX, iw);
+				arg->y2=MINVAR(arg->y1+BLOCKY, ih);
+				//if(!fwd)
+				//{
+				//	int size[2]={0};
+				//	memcpy(size, image+sizeof(int[2])*((ptrdiff_t)kt+kt2), sizeof(int[2]));
+				//
+				//	arg->decstart=image+start;
+				//	start+=size[0];
+				//	arg->decend=image+start;
+				//
+				//	arg->bypassstart=image+start;
+				//	start+=size[1];
+				//	arg->bypassend=image+start;
+				//}
 			}
 #ifdef ENABLE_MT
 			void *ctx=mt_exec(block_thread, args, sizeof(ThreadArgs), nthreads2);
@@ -3064,10 +3199,10 @@ int c24_codec(const char *srcfn, const char *dstfn)
 #endif
 						esize+=arg->bestsize;
 					}
-					ARRAY_APPEND(dst, arg->tokenbuf, arg->tokenptr-arg->tokenbuf, 1, 0);
-					ARRAY_APPEND(dst, arg->bypassbuf, arg->bypassptr-arg->bypassbuf, 1, 0);
-					*(unsigned*)(dst->data+start+8LL*((ptrdiff_t)kt+kt2)+4*0)=(unsigned)(arg->tokenptr-arg->tokenbuf);
-					*(unsigned*)(dst->data+start+8LL*((ptrdiff_t)kt+kt2)+4*1)=(unsigned)(arg->bypassptr-arg->bypassbuf);
+					//ARRAY_APPEND(dst, arg->tokenbuf, arg->tokenptr-arg->tokenbuf, 1, 0);
+					//ARRAY_APPEND(dst, arg->bypassbuf, arg->bypassptr-arg->bypassbuf, 1, 0);
+					//*(unsigned*)(dst->data+start+8LL*((ptrdiff_t)kt+kt2)+4*0)=(unsigned)(arg->tokenptr-arg->tokenbuf);
+					//*(unsigned*)(dst->data+start+8LL*((ptrdiff_t)kt+kt2)+4*1)=(unsigned)(arg->bypassptr-arg->bypassbuf);
 #ifdef PRINT_PREDHIST
 					++predhist[arg->predidx[0]];
 					++predhist[arg->predidx[1]];
@@ -3076,6 +3211,7 @@ int c24_codec(const char *srcfn, const char *dstfn)
 				}
 			}
 		}
+#endif
 		if(test)
 		{
 			ptrdiff_t usize=((ptrdiff_t)3*8*iw*ih+7)>>3;
@@ -3126,14 +3262,15 @@ int c24_codec(const char *srcfn, const char *dstfn)
 		free(arg->hist);
 		if(fwd||test)
 		{
-			free(arg->tokenbuf);
-			free(arg->bypassbuf);
+			free(arg->enctokenbuf);
+			free(arg->encbypassbuf);
 		}
 	}
 	free(args);
 	array_free(&src);
 	array_free(&dst);
 	free(mixincdfs);
+	free(streamoffsets);
 #ifdef PRINT_PREDHIST
 	if(fwd)
 	{
