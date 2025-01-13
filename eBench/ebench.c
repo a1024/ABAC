@@ -117,7 +117,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_WGRAD3,		ST_INV_WGRAD3,
 	ST_FWD_WGRAD4,		ST_INV_WGRAD4,
 	ST_FWD_WGRAD5,		ST_INV_WGRAD5,
-	ST_FWD_WMIX,		ST_INV_WMIX,
+//	ST_FWD_WMIX,		ST_INV_WMIX,
 	ST_FWD_T47,		ST_INV_T47,
 	ST_FWD_P3,		ST_INV_P3,
 	ST_FWD_G2,		ST_INV_G2,
@@ -142,6 +142,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_TABLE,		ST_INV_TABLE,
 	ST_FWD_LWAV,		ST_INV_LWAV,
 	ST_FWD_MIX2,		ST_INV_MIX2,
+	ST_FWD_MIX3,		ST_INV_MIX3,
 //	ST_FWD_AV3,		ST_INV_AV3,
 //	ST_FWD_ECOEFF,		ST_INV_ECOEFF,
 //	ST_FWD_AVERAGE,		ST_INV_AVERAGE,
@@ -1815,6 +1816,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_AV2:		a=" S Inv (N+W)/2";		break;
 	case ST_FWD_MIX2:		a=" S Fwd MIX2";		break;
 	case ST_INV_MIX2:		a=" S Inv MIX2";		break;
+	case ST_FWD_MIX3:		a=" S Fwd MIX3";		break;
+	case ST_INV_MIX3:		a=" S Inv MIX3";		break;
 //	case ST_FWD_AV3:		a=" S Fwd AV3";			break;
 //	case ST_INV_AV3:		a=" S Inv AV3";			break;
 	case ST_FWD_WGRAD:		a="CS Fwd WGrad";		break;
@@ -1827,8 +1830,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_WGRAD4:		a=" S Inv WGrad4";		break;
 	case ST_FWD_WGRAD5:		a=" S Fwd WGrad5";		break;
 	case ST_INV_WGRAD5:		a=" S Inv WGrad5";		break;
-	case ST_FWD_WMIX:		a=" S Fwd WMIX";		break;
-	case ST_INV_WMIX:		a=" S Inv WMIX";		break;
+//	case ST_FWD_WMIX:		a=" S Fwd WMIX";		break;
+//	case ST_INV_WMIX:		a=" S Inv WMIX";		break;
 	case ST_FWD_TABLE:		a=" S Fwd Table";		break;
 	case ST_INV_TABLE:		a=" S Inv Table";		break;
 	case ST_FWD_LWAV:		a=" S Fwd LWAV";		break;
@@ -2963,6 +2966,8 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_INV_AV2:		pred_av2(image, 0);					break;
 	case ST_FWD_MIX2:		pred_mix2(image, 1);					break;
 	case ST_INV_MIX2:		pred_mix2(image, 0);					break;
+	case ST_FWD_MIX3:		pred_mix3(image, 1);					break;
+	case ST_INV_MIX3:		pred_mix3(image, 0);					break;
 //	case ST_FWD_AV3:		pred_av3(image, 1);					break;
 //	case ST_INV_AV3:		pred_av3(image, 0);					break;
 	case ST_FWD_WGRAD:		pred_wgrad(image, 1, hasRCT);				break;
@@ -2975,8 +2980,8 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_INV_WGRAD4:		pred_wgrad4(image, 0);					break;
 	case ST_FWD_WGRAD5:		pred_wgrad5(image, 1);					break;
 	case ST_INV_WGRAD5:		pred_wgrad5(image, 0);					break;
-	case ST_FWD_WMIX:		pred_wmix(image, 1);					break;
-	case ST_INV_WMIX:		pred_wmix(image, 0);					break;
+//	case ST_FWD_WMIX:		pred_wmix(image, 1);					break;
+//	case ST_INV_WMIX:		pred_wmix(image, 0);					break;
 	case ST_FWD_TABLE:		pred_table(image, 1);					break;
 	case ST_INV_TABLE:		pred_table(image, 0);					break;
 	case ST_FWD_LWAV:		pred_lwav(image, 1);					break;
@@ -7620,15 +7625,19 @@ void io_render(void)
 		int c0=set_bk_color(0x80FFFFFF);
 		float x=0, y=0, ystep=tdy*guizoom;//
 		const short *layer=lossyconv_params+5*5*lossyconv_page;
+		int coeffsum=0;
+		for(int k=0;k<25;++k)
+			coeffsum+=layer[k]>>1;
 		x=buttons[6].x1;
 		y=buttons[6].y1;
 		//Layer 1/4  Ch 1/3
-		GUIPrint_append(0, 0, 0, 0, 0, "Layer %d/4  %c %d/%d  cRCT %d",
+		GUIPrint_append(0, 0, 0, 0, 0, "Layer %d/4  %c %d/%d  cRCT %d  sum %lf",
 			(lossyconv_page>>2)+1,
 			"RGBA"[lossyconv_page&3],
 			(lossyconv_page&3)+1,
 			im0->nch,
-			lossyconv_causalRCT[lossyconv_page>>2]
+			lossyconv_causalRCT[lossyconv_page>>2],
+			coeffsum/32.
 		);
 		if(lossyconv_clipboard)
 		{
