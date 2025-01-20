@@ -1350,8 +1350,8 @@ AWM_INLINE void bypass_encbuf(BypassCoder *ec, int bypass, int nbits)
 	//int nfree=ec->enc_nfree-nbits;
 #ifdef BYPASS_ENC_BRANCHLESSRENORM
 	unsigned char *dstptr=ec->dstptr+4;
-	int renorm=ec->enc_nfree<32;
 	unsigned emit=(unsigned)(ec->state>>32);
+	int renorm=ec->enc_nfree<32;
 	if(renorm)				//FIXME can be replaced with direct assignment
 		*(unsigned*)ec->dstptr=emit;
 	if(renorm)				//FIXME ensure CMOV

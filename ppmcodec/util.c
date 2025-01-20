@@ -3098,9 +3098,17 @@ void* prof_start()
 	return args;
 }
 #ifdef ENABLE_PROFILER_DISASSEMBLY
-static void prof_impl_print_instr(int lineno, size_t runtime_addr, ptrdiff_t freq, ptrdiff_t hitsum, const char *disassembly)
+static void prof_impl_print_instr(int lineno, size_t runtime_addr, int len, ptrdiff_t freq, ptrdiff_t hitsum, const char *disassembly)
 {
 	printf("%4d 0x%016tX ", lineno, runtime_addr);
+	for(int k=0;k<15;++k)
+	{
+		if(k<len)
+			printf("%02X", *(unsigned char*)(runtime_addr+k));
+		else
+			printf("  ");
+	}
+	printf(" ");
 	if((int)(freq*1000/hitsum)>0)
 		printf("%6.2lf%%", (double)freq*100./hitsum);
 	else
@@ -3146,6 +3154,7 @@ void prof_end(void *prof_ctx)
 				return;
 			}
 			ZydisFormatterFormatInstruction(&formatter, &instruction, operands, instruction.operand_count_visible, buffer, sizeof(buffer), addr, ZYAN_NULL);
+			int ilen=instruction.length, ilen2=0;
 			size_t addr2=addr+instruction.length;
 			ptrdiff_t freq=k+1<count&&addr2==(size_t)ptr[k+1].addr?ptr[k+1].count:0;//freqs were shifted down by 1 instrction
 			ptrdiff_t freq2=0;
@@ -3160,6 +3169,7 @@ void prof_end(void *prof_ctx)
 					return;
 				}
 				ZydisFormatterFormatInstruction(&formatter, &instruction, operands, instruction.operand_count_visible, buffer2, sizeof(buffer2), addr2, ZYAN_NULL);
+				ilen2=instruction.length;
 				if((ptrdiff_t)(addr2+instruction.length)<ptr[k+1].addr)//check if gap is longer than 1 instruction
 				{
 					freq=0;
@@ -3173,9 +3183,9 @@ void prof_end(void *prof_ctx)
 			}
 			if(gap0)
 				freq+=ptr[k].count;
-			prof_impl_print_instr(lineno++, addr, freq, hitsum, buffer);
+			prof_impl_print_instr(lineno++, addr, ilen, freq, hitsum, buffer);
 			if(print_next)
-				prof_impl_print_instr(lineno++, addr2, freq2, hitsum, buffer2);
+				prof_impl_print_instr(lineno++, addr2, ilen2, freq2, hitsum, buffer2);
 			else if(gap&&k+1<count)
 				printf("...+%td bytes\n", ptr[k+1].addr-addr2);
 		}

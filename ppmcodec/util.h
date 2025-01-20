@@ -156,6 +156,29 @@ extern "C"
 		DST=_mm_extract_epi32(result, 0);\
 	}while(0)
 
+#ifdef __GNUC__
+#define UMUL128(DST_HI, DST_LO, A, B)\
+	do\
+	{\
+		unsigned __int128 _x=(unsigned __int128)(A)*(B);\
+		DST_LO=(unsigned long long)_x;\
+		DST_HI=(unsigned long long)(_x>>64);\
+	}while(0)
+#define MULHI64(DST, A, B) DST=(unsigned long long)((unsigned __int128)(A)*(B)>>64)
+#define UDIV128(DST_Q, DST_R, NUM_HI, NUM_LO, DEN)\
+	do\
+	{\
+		unsigned __int128 _num=(unsigned __int128)(NUM_HI)<<64|(NUM_LO);\
+		unsigned long long _den=DEN;\
+		DST_Q=_num/_den;\
+		DST_R=_num%_den;\
+	}while(0)
+#elif defined _MSC_VER
+#define UMUL128(DST_HI, DST_LO, A, B) DST_LO=_umul128(A, B, &(DST_HI))
+#define MULHI64(DST, A, B) _umul128(A, B, &(DST))
+#define UDIV128(DST_Q, DST_R, NUM_HI, NUM_LO, DEN) DST_Q=_udiv128(NUM_HI, NUM_LO, DEN, &(DST_R))
+#endif
+
 #define MOVEOBJ(SRC, DST, SIZE) memcpy(DST, SRC, SIZE), memset(SRC, 0, SIZE)
 #define MODVAR(DST, SRC, N) DST=(SRC)%(N), DST+=(N)&-(DST<0)
 #define SHIFT_LEFT_SIGNED(X, SH) ((SH)<0?(X)>>-(SH):(X)<<(SH))
@@ -225,10 +248,10 @@ int log2_fix24(unsigned long long x);
 double power(double x, int y);
 double _10pow(int n);
 int acme_isdigit(char c, char base);
-#ifdef __GNUC__
-unsigned long long _udiv128(unsigned long long hi, unsigned long long lo, unsigned long long den, unsigned long long *rem);
-unsigned long long _umul128(unsigned long long a, unsigned long long b, unsigned long long *hi);
-#endif
+//#ifdef __GNUC__
+//unsigned long long _udiv128(unsigned long long hi, unsigned long long lo, unsigned long long den, unsigned long long *rem);
+//unsigned long long _umul128(unsigned long long a, unsigned long long b, unsigned long long *hi);
+//#endif
 
 double time_ms(void);
 double time_sec(void);

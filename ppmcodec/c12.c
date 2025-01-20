@@ -15,6 +15,10 @@ static const char file[]=__FILE__;
 //	#define AC_VALIDATE
 //	#define LOUD
 
+#define ABAC_PROBBITS 16
+//#define ANALYSIS_XSTRIDE 4
+//#define ANALYSIS_YSTRIDE 4
+
 
 #ifdef AC_VALIDATE
 #define AC_IMPLEMENTATION
@@ -60,6 +64,9 @@ typedef enum _OCHType
 	OCH_RB=OCH_BR,
 	OCH_GR=OCH_RG,
 	OCH_BG=OCH_GB,
+//	OCH_R2=6,
+//	OCH_G2,
+//	OCH_B2,
 
 	OCH_COUNT=6,
 } OCHType;
@@ -82,7 +89,56 @@ static const unsigned char rct_indices[][8]=
 	{OCH_B,	OCH_RB,	OCH_GR,		2, 0, 1,	0, 1},
 	{OCH_B,	OCH_GB,	OCH_RG,		2, 1, 0,	0, 1},
 };
-static unsigned short stats1[3][256][256];
+static int ctxctr[3][4][256];
+static short stats1[3][4][256][256];
+static int mixer[3][256][4];
+//static int mixer[8][3][4];
+AWM_INLINE int squash(int x)//sigmoid(x) = 1/(1-exp(-x))		logit sum -> prob
+{
+#ifdef DISABLE_LOGMIX
+	x>>=11;
+	x+=1<<ABAC_PROBBITS>>1;
+	CLAMP2_32(x, x, 1, (1<<ABAC_PROBBITS)-1);
+#else
+	static const int t[33]=//2^5 table elements, table amplitude 2^12
+	{
+		   1,    2,    3,    6,   10,   16,   27,   45,   73,  120,  194,
+		 310,  488,  747, 1101, 1546, 2047, 2549, 2994, 3348, 3607, 3785,
+		3901, 3975, 4022, 4050, 4068, 4079, 4085, 4089, 4092, 4093, 4094,
+	};
+	int w=x&((1<<(ABAC_PROBBITS-5))-1);
+	x=(x>>(ABAC_PROBBITS-5))+16;
+	if(x>31)
+		return (1<<ABAC_PROBBITS)-1;
+	if(x<0)
+		return 1;
+	x=(t[x]*((1<<(ABAC_PROBBITS-5))-w)+t[x+1]*w+64)>>(12-5);
+#endif
+	return x;
+}
+AWM_INLINE int stretch(int x)//ln(x/(1-x))		probs -> logits
+{
+#ifndef DISABLE_LOGMIX
+	static short t[4096];
+	static int initialized=0;
+	if(!initialized)
+	{
+		initialized=1;
+		
+		int pi=0;
+		for(int k=-2047;k<=2047;++k)//invert squash()
+		{
+			int i=squash(k<<(ABAC_PROBBITS-12))>>(ABAC_PROBBITS-12);
+			for(int j=pi;j<=i;++j)
+				t[j]=k<<(ABAC_PROBBITS-12);
+			pi=i+1;
+		}
+		t[4095]=(1<<ABAC_PROBBITS>>1)-1;
+	}
+	x=t[x>>(ABAC_PROBBITS-12)];
+#endif
+	return x;
+}
 int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 {
 #ifdef LOUD
@@ -162,23 +218,135 @@ int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		}
 		dstptr=dstbuf;
 		{//analysis
-			long long counters[6]={0};
+			long long counters[OCH_COUNT]={0};
+			const unsigned char *ptr=srcptr, *end=srcptr+usize-(sizeof(__m256i[3])+6-1);
+
+			__m256i mc[OCH_COUNT];
+			__m256i shuf=_mm256_set_epi8(
+			//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
+				-1, -1, -1, 14, -1, 11, -1,  8, -1, -1, -1, -1, -1,  5, -1,  3,
+				-1, -1, -1, 15, -1, 12, -1,  9, -1, -1, -1,  6, -1,  3, -1,  0
+			);
+			__m256i mmask=_mm256_set_epi32(0, 0, 0, 0xFFFF, 0, 0, 0, 0xFFFF);
+			memset(mc, 0, sizeof(mc));
+			while(ptr<end)
+			{
+				//process 11 pixels (33 SPs) at a time
+				__m256i rW	=_mm256_loadu_si256((__m256i*)(ptr+0));
+				__m256i gW	=_mm256_loadu_si256((__m256i*)(ptr+1));
+				__m256i bW	=_mm256_loadu_si256((__m256i*)(ptr+2));
+				__m256i r	=_mm256_loadu_si256((__m256i*)(ptr+3));
+				__m256i g	=_mm256_loadu_si256((__m256i*)(ptr+4));
+				__m256i b	=_mm256_loadu_si256((__m256i*)(ptr+5));
+				ptr+=sizeof(__m256i[3]);
+				rW	=_mm256_shuffle_epi8(rW	, shuf);
+				gW	=_mm256_shuffle_epi8(gW	, shuf);
+				bW	=_mm256_shuffle_epi8(bW	, shuf);
+				r	=_mm256_shuffle_epi8(r	, shuf);
+				g	=_mm256_shuffle_epi8(g	, shuf);
+				b	=_mm256_shuffle_epi8(b	, shuf);
+
+				__m256i d0=_mm256_sad_epu8(r, rW);
+				__m256i d1=_mm256_sad_epu8(g, gW);
+				__m256i d2=_mm256_sad_epu8(b, bW);
+
+				__m256i rg=_mm256_sub_epi16(r, g);
+				__m256i gb=_mm256_sub_epi16(g, b);
+				__m256i br=_mm256_sub_epi16(b, r);
+				__m256i rgW=_mm256_sub_epi16(rW, gW);
+				__m256i gbW=_mm256_sub_epi16(gW, bW);
+				__m256i brW=_mm256_sub_epi16(bW, rW);
+				__m256i d3=_mm256_sub_epi16(rg, rgW);
+				__m256i d4=_mm256_sub_epi16(gb, gbW);
+				__m256i d5=_mm256_sub_epi16(br, brW);
+				d3=_mm256_abs_epi16(d3);
+				d4=_mm256_abs_epi16(d4);
+				d5=_mm256_abs_epi16(d5);
+
+				d3=_mm256_hadd_epi16(d3, d3);
+				d4=_mm256_hadd_epi16(d4, d4);
+				d5=_mm256_hadd_epi16(d5, d5);
+				d3=_mm256_hadd_epi16(d3, d3);
+				d4=_mm256_hadd_epi16(d4, d4);
+				d5=_mm256_hadd_epi16(d5, d5);
+				d3=_mm256_hadd_epi16(d3, d3);
+				d4=_mm256_hadd_epi16(d4, d4);
+				d5=_mm256_hadd_epi16(d5, d5);
+				d3=_mm256_and_si256(d3, mmask);
+				d4=_mm256_and_si256(d4, mmask);
+				d5=_mm256_and_si256(d5, mmask);
+				//d3=_mm256_add_epi16(d3, _mm256_srli_epi64(d3, 16));
+				//d4=_mm256_add_epi16(d4, _mm256_srli_epi64(d4, 16));
+				//d5=_mm256_add_epi16(d5, _mm256_srli_epi64(d5, 16));
+				//d3=_mm256_add_epi16(d3, _mm256_srli_epi64(d3, 32));
+				//d4=_mm256_add_epi16(d4, _mm256_srli_epi64(d4, 32));
+				//d5=_mm256_add_epi16(d5, _mm256_srli_epi64(d5, 32));
+				//d3=_mm256_and_si256(d3, _mm256_set1_epi32(0xFFFF));
+				//d4=_mm256_and_si256(d4, _mm256_set1_epi32(0xFFFF));
+				//d5=_mm256_and_si256(d5, _mm256_set1_epi32(0xFFFF));
+
+				//__m256i r2=_mm256_sub_epi16(r, _mm256_avg_epu16(g, b));
+				//__m256i g2=_mm256_sub_epi16(g, _mm256_avg_epu16(b, r));
+				//__m256i b2=_mm256_sub_epi16(b, _mm256_avg_epu16(r, g));
+				//__m256i rW2=_mm256_sub_epi16(rW, _mm256_avg_epu16(gW, bW));
+				//__m256i gW2=_mm256_sub_epi16(gW, _mm256_avg_epu16(bW, rW));
+				//__m256i bW2=_mm256_sub_epi16(bW, _mm256_avg_epu16(rW, gW));
+				//__m256i d6=_mm256_sub_epi16(r2, rW2);
+				//__m256i d7=_mm256_sub_epi16(g2, gW2);
+				//__m256i d8=_mm256_sub_epi16(b2, bW2);
+				//d6=_mm256_abs_epi16(d6);
+				//d7=_mm256_abs_epi16(d7);
+				//d8=_mm256_abs_epi16(d8);
+				//d6=_mm256_hadd_epi16(d6, d6);
+				//d7=_mm256_hadd_epi16(d7, d7);
+				//d8=_mm256_hadd_epi16(d8, d8);
+				//d6=_mm256_hadd_epi16(d6, d6);
+				//d7=_mm256_hadd_epi16(d7, d7);
+				//d8=_mm256_hadd_epi16(d8, d8);
+				//d6=_mm256_hadd_epi16(d6, d6);
+				//d7=_mm256_hadd_epi16(d7, d7);
+				//d8=_mm256_hadd_epi16(d8, d8);
+				//d6=_mm256_and_si256(d6, mmask);
+				//d7=_mm256_and_si256(d7, mmask);
+				//d8=_mm256_and_si256(d8, mmask);
+
+				mc[0]=_mm256_add_epi64(mc[0], d0);
+				mc[1]=_mm256_add_epi64(mc[1], d1);
+				mc[2]=_mm256_add_epi64(mc[2], d2);
+				mc[3]=_mm256_add_epi64(mc[3], d3);
+				mc[4]=_mm256_add_epi64(mc[4], d4);
+				mc[5]=_mm256_add_epi64(mc[5], d5);
+				//mc[6]=_mm256_add_epi64(mc[6], d6);
+				//mc[7]=_mm256_add_epi64(mc[7], d7);
+				//mc[8]=_mm256_add_epi64(mc[8], d8);
+			}
+			for(int k=0;k<OCH_COUNT;++k)
+			{
+				counters[k]=
+					+_mm256_extract_epi64(mc[k], 0)
+					+_mm256_extract_epi64(mc[k], 1)
+					+_mm256_extract_epi64(mc[k], 2)
+					+_mm256_extract_epi64(mc[k], 3)
+				;
+			}
+#if 0
 			int W[6]={0};
-			for(int k=0;k<usize;k+=3)
+			while(ptr<end)
 			{
 				int
-					r=srcptr[k+0],
-					g=srcptr[k+1],
-					b=srcptr[k+2],
+					r=ptr[0],
+					g=ptr[1],
+					b=ptr[2],
 					rg=r-g,
 					gb=g-b,
 					br=b-r;
+				ptr+=3;
 				counters[0]+=abs(r-W[0]);
 				counters[1]+=abs(g-W[1]);
 				counters[2]+=abs(b-W[2]);
-				counters[3]+=abs(rg-W[3]);
-				counters[4]+=abs(gb-W[4]);
-				counters[5]+=abs(br-W[5]);
+				counters[3]+=abs(rg-W[3]);//abs(r-g-rW+gW)
+				counters[4]+=abs(gb-W[4]);//abs(g-b-gW+bW)
+				counters[5]+=abs(br-W[5]);//abs(b-r-bW+rW)
 				W[0]=r;
 				W[1]=g;
 				W[2]=b;
@@ -186,6 +354,7 @@ int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				W[4]=gb;
 				W[5]=br;
 			}
+#endif
 			long long minerr=0;
 			for(int kt=0;kt<_countof(rct_indices);++kt)
 			{
@@ -201,6 +370,135 @@ int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					bestrct=kt;
 				}
 			}
+#if 0
+			int rowstride=iw*3;
+			for(int ky=0;ky<ih;ky+=ANALYSIS_YSTRIDE)
+			{
+				const unsigned char *ptr=srcptr+rowstride*ky, *end=ptr+rowstride;
+				int prev2[6]={0}, prev[6]={0};
+				while(ptr<end)
+				{
+					int
+						r=ptr[0],
+						g=ptr[1],
+						b=ptr[2],
+						rg=r-g,
+						gb=g-b,
+						br=b-r;
+					ptr+=3*ANALYSIS_XSTRIDE;
+					counters[OCH_COUNT*0+0]+=abs(r-prev[0]);
+					counters[OCH_COUNT*0+1]+=abs(g-prev[1]);
+					counters[OCH_COUNT*0+2]+=abs(b-prev[2]);
+					counters[OCH_COUNT*0+3]+=abs(rg-prev[3]);
+					counters[OCH_COUNT*0+4]+=abs(gb-prev[4]);
+					counters[OCH_COUNT*0+5]+=abs(br-prev[5]);
+					counters[OCH_COUNT*1+0]+=abs(r-(2*prev[0]-prev2[0]));
+					counters[OCH_COUNT*1+1]+=abs(g-(2*prev[1]-prev2[1]));
+					counters[OCH_COUNT*1+2]+=abs(b-(2*prev[2]-prev2[2]));
+					counters[OCH_COUNT*1+3]+=abs(rg-(2*prev[3]-prev2[3]));
+					counters[OCH_COUNT*1+4]+=abs(gb-(2*prev[4]-prev2[4]));
+					counters[OCH_COUNT*1+5]+=abs(br-(2*prev[5]-prev2[5]));
+					prev2[0]=prev[0];
+					prev2[1]=prev[1];
+					prev2[2]=prev[2];
+					prev2[3]=prev[3];
+					prev2[4]=prev[4];
+					prev2[5]=prev[5];
+					prev[0]=r;
+					prev[1]=g;
+					prev[2]=b;
+					prev[3]=rg;
+					prev[4]=gb;
+					prev[5]=br;
+				}
+			}
+			for(int kx=0;kx<iw;kx+=ANALYSIS_XSTRIDE)
+			{
+				const unsigned char *ptr=srcptr+kx, *end=srcptr+usize;
+				int stride=ANALYSIS_YSTRIDE*rowstride;
+				int prev2[6]={0}, prev[6]={0};
+				while(ptr<end)
+				{
+					int
+						r=ptr[0],
+						g=ptr[1],
+						b=ptr[2],
+						rg=r-g,
+						gb=g-b,
+						br=b-r;
+					ptr+=stride;
+					counters[OCH_COUNT*2+0]+=abs(r-prev[0]);
+					counters[OCH_COUNT*2+1]+=abs(g-prev[1]);
+					counters[OCH_COUNT*2+2]+=abs(b-prev[2]);
+					counters[OCH_COUNT*2+3]+=abs(rg-prev[3]);
+					counters[OCH_COUNT*2+4]+=abs(gb-prev[4]);
+					counters[OCH_COUNT*2+5]+=abs(br-prev[5]);
+					counters[OCH_COUNT*3+0]+=abs(r-(2*prev[0]-prev2[0]));
+					counters[OCH_COUNT*3+1]+=abs(g-(2*prev[1]-prev2[1]));
+					counters[OCH_COUNT*3+2]+=abs(b-(2*prev[2]-prev2[2]));
+					counters[OCH_COUNT*3+3]+=abs(rg-(2*prev[3]-prev2[3]));
+					counters[OCH_COUNT*3+4]+=abs(gb-(2*prev[4]-prev2[4]));
+					counters[OCH_COUNT*3+5]+=abs(br-(2*prev[5]-prev2[5]));
+					prev2[0]=prev[0];
+					prev2[1]=prev[1];
+					prev2[2]=prev[2];
+					prev2[3]=prev[3];
+					prev2[4]=prev[4];
+					prev2[5]=prev[5];
+					prev[0]=r;
+					prev[1]=g;
+					prev[2]=b;
+					prev[3]=rg;
+					prev[4]=gb;
+					prev[5]=br;
+				}
+			}
+			long long minerr=0;
+			for(int kt=0;kt<_countof(rct_indices);++kt)
+			{
+				const unsigned char *rct=rct_indices[kt];
+				long long currerrW0=
+					+counters[OCH_COUNT*0+rct[0]]
+					+counters[OCH_COUNT*0+rct[1]]
+					+counters[OCH_COUNT*0+rct[2]]
+				;
+				long long currerrW1=
+					+counters[OCH_COUNT*1+rct[0]]
+					+counters[OCH_COUNT*1+rct[1]]
+					+counters[OCH_COUNT*1+rct[2]]
+				;
+				long long currerrN0=
+					+counters[OCH_COUNT*2+rct[0]]
+					+counters[OCH_COUNT*2+rct[1]]
+					+counters[OCH_COUNT*2+rct[2]]
+				;
+				long long currerrN1=
+					+counters[OCH_COUNT*3+rct[0]]
+					+counters[OCH_COUNT*3+rct[1]]
+					+counters[OCH_COUNT*3+rct[2]]
+				;
+				if(!kt||minerrW0>currerrW0)
+				{
+					minerrW0=currerrW0;
+					bestrct=kt;
+				}
+				if(!kt||minerrW1>currerrW1)
+				{
+					minerrW1=currerrW1;
+					bestrct=kt;
+				}
+				if(!kt||minerrN0>currerrN0)
+				{
+					minerrN0=currerrN0;
+					bestrct=kt;
+				}
+				if(!kt||minerrN1>currerrN1)
+				{
+					minerrN1=currerrN1;
+					bestrct=kt;
+				}
+			}
+#endif
 		}
 
 		low+=range*bestrct>>4;
@@ -237,7 +535,10 @@ int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		vidx=rct_indices[bestrct][3+2],
 		uhelpidx=rct_indices[bestrct][6+0],
 		vhelpidx=rct_indices[bestrct][6+1];
-	FILLMEM((unsigned short*)stats1, 0x8000, sizeof(stats1), sizeof(short));
+	memset(ctxctr, 0, sizeof(ctxctr));
+	memset(stats1, 0, sizeof(stats1));
+	//FILLMEM((short*)stats1, 0x8000, sizeof(stats1), sizeof(short));
+	FILLMEM((int*)mixer, 0x8000, sizeof(mixer), sizeof(int));
 	for(int ky=0, idx=0;ky<ih;++ky)
 	{
 		ALIGN(32) short *rows[]=
@@ -272,14 +573,50 @@ int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 			//	abs(N[1]-NW[1])>abs(Wreg[1]-NW[1]),
 			//	abs(N[2]-NW[2])>abs(Wreg[2]-NW[2]),
 			//};
-			unsigned short *stats0[]=
+			short *stats0[]=
 			{
-				stats1[0][(4*(N[0]+Wreg[0])+NE[0]-NW[0])>>3&255],
-				stats1[1][(4*(N[1]+Wreg[1])+NE[1]-NW[1])>>3&255],
-				stats1[2][(4*(N[2]+Wreg[2])+NE[2]-NW[2])>>3&255],
+				stats1[0][0][(4*(N[0]+Wreg[0])+NE[0]-NW[0])>>3&255],
+				stats1[1][0][(4*(N[1]+Wreg[1])+NE[1]-NW[1])>>3&255],
+				stats1[2][0][(4*(N[2]+Wreg[2])+NE[2]-NW[2])>>3&255],
+				stats1[0][1][(N[0]+((Wreg[0]-NW[0])>>2))&255],
+				stats1[1][1][(N[1]+((Wreg[1]-NW[1])>>2))&255],
+				stats1[2][1][(N[2]+((Wreg[2]-NW[2])>>2))&255],
+				stats1[0][2][(Wreg[0]+((N[0]-NW[0])>>2))&255],
+				stats1[1][2][(Wreg[1]+((N[1]-NW[1])>>2))&255],
+				stats1[2][2][(Wreg[2]+((N[2]-NW[2])>>2))&255],
+				stats1[0][3][(N[0]+Wreg[0]-NW[0])&255],
+				stats1[1][3][(N[1]+Wreg[1]-NW[1])&255],
+				stats1[2][3][(N[2]+Wreg[2]-NW[2])&255],
+
+				//stats1[0][0][(4*(N[0]+Wreg[0])+NE[0]-NW[0])>>3&255],
+				//stats1[1][0][(4*(N[1]+Wreg[1])+NE[1]-NW[1])>>3&255],
+				//stats1[2][0][(4*(N[2]+Wreg[2])+NE[2]-NW[2])>>3&255],
+				//stats1[0][1][N[0]&255],
+				//stats1[1][1][N[1]&255],
+				//stats1[2][1][N[2]&255],
+				//stats1[0][2][Wreg[0]&255],
+				//stats1[1][2][Wreg[1]&255],
+				//stats1[2][2][Wreg[2]&255],
+				//stats1[0][3][(N[0]+Wreg[0]-NW[0])&255],
+				//stats1[1][3][(N[1]+Wreg[1]-NW[1])&255],
+				//stats1[2][3][(N[2]+Wreg[2]-NW[2])&255],
+				//stats1[0][3][(Wreg[0]-NE[0]-N[0])&255],
+				//stats1[1][3][(Wreg[1]-NE[1]-N[1])&255],
+				//stats1[2][3][(Wreg[2]-NE[2]-N[2])&255],
+				
+				//stats1[0][0][(4*(N[0]+Wreg[0])+NE[0]-NW[0])>>3&255],
+				//stats1[1][0][(4*(N[1]+Wreg[1])+NE[1]-NW[1])>>3&255],
+				//stats1[2][0][(4*(N[2]+Wreg[2])+NE[2]-NW[2])>>3&255],
+
 				//stats1[0][cond[0]<<7|((cond[0]?N[0]:Wreg[0])&255)>>7&255],
 				//stats1[1][cond[1]<<7|((cond[1]?N[1]:Wreg[1])&255)>>7&255],
 				//stats1[2][cond[2]<<7|((cond[2]?N[2]:Wreg[2])&255)>>7&255],
+			};
+			int *curr_mixers[]=
+			{
+				mixer[0][(N[0]+Wreg[0])>>1&255],
+				mixer[1][(N[1]+Wreg[1])>>1&255],
+				mixer[2][(N[2]+Wreg[2])>>1&255],
 			};
 			if(fwd)
 			{
@@ -300,22 +637,129 @@ int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				yuv[1]=0;
 				yuv[2]=0;
 			}
+#if 0
+#define MIX_PROB(DST)\
+	do\
+	{\
+		int prob=(int)((\
+			+(long long)curr_mixers[kc][0]*p0[kc+3*0]\
+			+(long long)curr_mixers[kc][1]*p0[kc+3*1]\
+			+(long long)curr_mixers[kc][2]*p0[kc+3*2]\
+			+(long long)curr_mixers[kc][3]*p0[kc+3*3]\
+			+(1ULL<<17>>1)\
+		)>>17);\
+		DST=squash(prob);\
+	}while(0)
+#endif
+#if 1
+#define MIX_PROB(DST)\
+	do\
+	{\
+		int prob=(int)((\
+			+(long long)curr_mixers[kc][0]*p0[kc+3*0]\
+			+(long long)curr_mixers[kc][1]*p0[kc+3*1]\
+			+(long long)curr_mixers[kc][2]*p0[kc+3*2]\
+			+(long long)curr_mixers[kc][3]*p0[kc+3*3]\
+			+(1ULL<<17>>1)\
+		)>>17);\
+		int pos=prob>0;\
+		prob=abs(prob);\
+		if(prob>0x7FFF)prob=0x7FFF;\
+		prob=0x8000-prob;\
+		prob=prob*prob>>15;\
+		if(pos)prob=0x10000-prob;\
+		CLAMP2(prob, 1, 0xFFFF);\
+		DST=prob;\
+	}while(0)
+#endif
+#if 0
+#define MIX_PROB(DST)\
+	do\
+	{\
+		int prob=(int)((\
+			+(long long)curr_mixers[kc][0]*p0[kc+3*0]\
+			+(long long)curr_mixers[kc][1]*p0[kc+3*1]\
+			+(long long)curr_mixers[kc][2]*p0[kc+3*2]\
+			+(long long)curr_mixers[kc][3]*p0[kc+3*3]\
+			+(1ULL<<17>>1)\
+		)>>17);\
+		int pos=prob>0;\
+		prob=abs(prob);\
+		if(prob>0x7FFF)prob=0x7FFF;\
+		prob=0x8000-prob;\
+		prob=prob*prob>>15;\
+		prob=prob*prob>>15;\
+		if(prob>0x7FFF)prob=0x7FFF;\
+		if(pos)prob=0x10000-prob;\
+		CLAMP2(prob, 1, 0xFFFF);\
+		DST=prob;\
+	}while(0)
+#endif
+#if 0
+#define MIX_PROB(DST)\
+	do\
+	{\
+		DST=(int)((\
+			+(long long)curr_mixers[kc][0]*p0[kc+3*0]\
+			+(long long)curr_mixers[kc][1]*p0[kc+3*1]\
+			+(long long)curr_mixers[kc][2]*p0[kc+3*2]\
+			+(long long)curr_mixers[kc][3]*p0[kc+3*3]\
+			+(1ULL<<17>>1)\
+		)>>17);\
+		DST+=1<<16>>1;\
+		CLAMP2(DST, 1, 0xFFFF);\
+	}while(0)
+#endif
+#if 0
+#define MIX_PROB(DST)\
+	do\
+	{\
+		DST=(int)((\
+			+p0[kc+3*0]\
+			+p0[kc+3*1]\
+			+p0[kc+3*2]\
+			+p0[kc+3*3]\
+			+(1ULL<<2>>1)\
+		)>>2);\
+		DST+=1<<16>>1;\
+		CLAMP2(DST, 1, 0xFFFF);\
+	}while(0)
+#endif
 #ifdef __GNUC__
 #pragma GCC unroll 8
 #endif
 			for(int kb=7, tidx0=1, tidx1=1, tidx2=1;kb>=0;--kb)
 			{
 				unsigned long long r2;
-				unsigned short
-					*cell0=stats0[0]+tidx0,
-					*cell1=stats0[1]+tidx1,
-					*cell2=stats0[2]+tidx2;
-				unsigned short p0[]=
+				short
+					*cell00=stats0[3*0+0]+tidx0,
+					*cell01=stats0[3*0+1]+tidx1,
+					*cell02=stats0[3*0+2]+tidx2,
+					*cell10=stats0[3*1+0]+tidx0,
+					*cell11=stats0[3*1+1]+tidx1,
+					*cell12=stats0[3*1+2]+tidx2,
+					*cell20=stats0[3*2+0]+tidx0,
+					*cell21=stats0[3*2+1]+tidx1,
+					*cell22=stats0[3*2+2]+tidx2,
+					*cell30=stats0[3*3+0]+tidx0,
+					*cell31=stats0[3*3+1]+tidx1,
+					*cell32=stats0[3*3+2]+tidx2;
+				short p0[]=
 				{
-					*cell0,
-					*cell1,
-					*cell2,
+					*cell00,
+					*cell01,
+					*cell02,
+					*cell10,
+					*cell11,
+					*cell12,
+					*cell20,
+					*cell21,
+					*cell22,
+					*cell30,
+					*cell31,
+					*cell32,
 				};
+				int curr_p0[3];
 				if(fwd)
 				{
 					bit[0]=yuv[0]>>kb&1;
@@ -329,9 +773,13 @@ int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					{
 						if(range<0x10000)
 						{
+#ifdef _DEBUG
+							if(dstptr-dstbuf>=4LL*iw*ih)
+								LOG_ERROR("Encode error");
+#endif
 							*(unsigned*)dstptr=(unsigned)(low>>32);
 							dstptr+=4;
-							low=low<<32;
+							low<<=32;
 							range=range<<32|0xFFFFFFFF;
 							if(range>~low)
 								range=~low;
@@ -339,7 +787,22 @@ int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 #ifdef AC_VALIDATE
 						unsigned long long lo0=low, r0=range;
 #endif
-						r2=range*p0[kc]>>16;
+						//do {
+						//	int prob = (int)((+(long long)curr_mixers[kc][0] * p0[kc + 3 * 0] + (long long)curr_mixers[kc][1] * p0[kc + 3 * 1] + (long long)curr_mixers[kc][2] * p0[kc + 3 * 2] + (long long)curr_mixers[kc][3] * p0[kc + 3 * 3] + (1ULL << 17 >> 1)) >> 17);
+						//	int pos = prob>0;
+						//	//if(prob)
+						//	//	printf("");
+						//	prob = abs(prob);
+						//	if (prob>0x7FFF)prob = 0x7FFF;
+						//	prob = 0x8000 - prob;
+						//	prob=prob*prob>>15;
+						//	if (pos)prob = 0x10000 - prob;
+						//	CLAMP2(prob, 1, 0xFFFF);
+						//	curr_p0[kc] = prob;
+						//} while (0);
+						MIX_PROB(curr_p0[kc]);
+						r2=range*curr_p0[kc]>>16;
+						//r2=range*p0[kc]>>16;
 						if(bit[kc])
 						{
 							low+=r2;
@@ -363,7 +826,7 @@ int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 						{
 							code=code<<32|*(unsigned*)srcptr;
 							srcptr+=4;
-							low=low<<32;
+							low<<=32;
 							range=range<<32|0xFFFFFFFF;
 							if(range>~low)
 								range=~low;
@@ -371,7 +834,9 @@ int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 #ifdef AC_VALIDATE
 						unsigned long long lo0=low, r0=range;
 #endif
-						r2=range*p0[kc]>>16;
+						MIX_PROB(curr_p0[kc]);
+						r2=range*curr_p0[kc]>>16;
+						//r2=range*p0[kc]>>16;
 
 						unsigned long long mid=low+r2;
 						range-=r2;
@@ -396,9 +861,37 @@ int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					yuv[1]|=bit[1]<<kb;
 					yuv[2]|=bit[2]<<kb;
 				}
-				*cell0=p0[0]+(((!bit[0]<<16)-p0[0]+(1<<7>>1))>>7);
-				*cell1=p0[1]+(((!bit[1]<<16)-p0[1]+(1<<7>>1))>>7);
-				*cell2=p0[2]+(((!bit[2]<<16)-p0[2]+(1<<7>>1))>>7);
+				int tmp0, tmp1, tmp2;
+				int tmp3, tmp4, tmp5;
+				int e0=(!bit[0]<<16)-curr_p0[0];
+				int e1=(!bit[1]<<16)-curr_p0[1];
+				int e2=(!bit[2]<<16)-curr_p0[2];
+				//if(kx==iw/2&&ky==ih/2)
+				//	printf("");
+				tmp0=p0[3*0+0]+(int)(((long long)curr_mixers[0][0]*e0+(1<<22>>1))>>22); CLAMP2(tmp0, -0x7FFF, 0x7FFF); *cell00=tmp0;	tmp3=curr_mixers[0][0]+(int)(((long long)p0[3*0+0]*e0+(1<<21>>1))>>21); CLAMP2(tmp3, 1, 0x10000); curr_mixers[0][0]=tmp3;
+				tmp1=p0[3*0+1]+(int)(((long long)curr_mixers[1][0]*e1+(1<<22>>1))>>22); CLAMP2(tmp1, -0x7FFF, 0x7FFF); *cell01=tmp1;	tmp4=curr_mixers[1][0]+(int)(((long long)p0[3*0+1]*e1+(1<<21>>1))>>21); CLAMP2(tmp4, 1, 0x10000); curr_mixers[1][0]=tmp4;
+				tmp2=p0[3*0+2]+(int)(((long long)curr_mixers[2][0]*e2+(1<<22>>1))>>22); CLAMP2(tmp2, -0x7FFF, 0x7FFF); *cell02=tmp2;	tmp5=curr_mixers[2][0]+(int)(((long long)p0[3*0+2]*e2+(1<<21>>1))>>21); CLAMP2(tmp5, 1, 0x10000); curr_mixers[2][0]=tmp5;
+				tmp0=p0[3*1+0]+(int)(((long long)curr_mixers[0][1]*e0+(1<<22>>1))>>22); CLAMP2(tmp0, -0x7FFF, 0x7FFF); *cell10=tmp0;	tmp3=curr_mixers[0][1]+(int)(((long long)p0[3*1+0]*e0+(1<<21>>1))>>21); CLAMP2(tmp3, 1, 0x10000); curr_mixers[0][1]=tmp3;
+				tmp1=p0[3*1+1]+(int)(((long long)curr_mixers[1][1]*e1+(1<<22>>1))>>22); CLAMP2(tmp1, -0x7FFF, 0x7FFF); *cell11=tmp1;	tmp4=curr_mixers[1][1]+(int)(((long long)p0[3*1+1]*e1+(1<<21>>1))>>21); CLAMP2(tmp4, 1, 0x10000); curr_mixers[1][1]=tmp4;
+				tmp2=p0[3*1+2]+(int)(((long long)curr_mixers[2][1]*e2+(1<<22>>1))>>22); CLAMP2(tmp2, -0x7FFF, 0x7FFF); *cell12=tmp2;	tmp5=curr_mixers[2][1]+(int)(((long long)p0[3*1+2]*e2+(1<<21>>1))>>21); CLAMP2(tmp5, 1, 0x10000); curr_mixers[2][1]=tmp5;
+				tmp0=p0[3*2+0]+(int)(((long long)curr_mixers[0][2]*e0+(1<<22>>1))>>22); CLAMP2(tmp0, -0x7FFF, 0x7FFF); *cell20=tmp0;	tmp3=curr_mixers[0][2]+(int)(((long long)p0[3*2+0]*e0+(1<<21>>1))>>21); CLAMP2(tmp3, 1, 0x10000); curr_mixers[0][2]=tmp3;
+				tmp1=p0[3*2+1]+(int)(((long long)curr_mixers[1][2]*e1+(1<<22>>1))>>22); CLAMP2(tmp1, -0x7FFF, 0x7FFF); *cell21=tmp1;	tmp4=curr_mixers[1][2]+(int)(((long long)p0[3*2+1]*e1+(1<<21>>1))>>21); CLAMP2(tmp4, 1, 0x10000); curr_mixers[1][2]=tmp4;
+				tmp2=p0[3*2+2]+(int)(((long long)curr_mixers[2][2]*e2+(1<<22>>1))>>22); CLAMP2(tmp2, -0x7FFF, 0x7FFF); *cell22=tmp2;	tmp5=curr_mixers[2][2]+(int)(((long long)p0[3*2+2]*e2+(1<<21>>1))>>21); CLAMP2(tmp5, 1, 0x10000); curr_mixers[2][2]=tmp5;
+				tmp0=p0[3*3+0]+(int)(((long long)curr_mixers[0][3]*e0+(1<<22>>1))>>22); CLAMP2(tmp0, -0x7FFF, 0x7FFF); *cell30=tmp0;	tmp3=curr_mixers[0][3]+(int)(((long long)p0[3*3+0]*e0+(1<<21>>1))>>21); CLAMP2(tmp3, 1, 0x10000); curr_mixers[0][3]=tmp3;
+				tmp1=p0[3*3+1]+(int)(((long long)curr_mixers[1][3]*e1+(1<<22>>1))>>22); CLAMP2(tmp1, -0x7FFF, 0x7FFF); *cell31=tmp1;	tmp4=curr_mixers[1][3]+(int)(((long long)p0[3*3+1]*e1+(1<<21>>1))>>21); CLAMP2(tmp4, 1, 0x10000); curr_mixers[1][3]=tmp4;
+				tmp2=p0[3*3+2]+(int)(((long long)curr_mixers[2][3]*e2+(1<<22>>1))>>22); CLAMP2(tmp2, -0x7FFF, 0x7FFF); *cell32=tmp2;	tmp5=curr_mixers[2][3]+(int)(((long long)p0[3*3+2]*e2+(1<<21>>1))>>21); CLAMP2(tmp5, 1, 0x10000); curr_mixers[2][3]=tmp5;
+				//tmp0=*cell00; *cell00=tmp0+(((!bit[0]<<16)-tmp0+(1<<7>>1))>>7);
+				//tmp1=*cell01; *cell01=tmp1+(((!bit[1]<<16)-tmp1+(1<<7>>1))>>7);
+				//tmp2=*cell02; *cell02=tmp2+(((!bit[2]<<16)-tmp2+(1<<7>>1))>>7);
+				//tmp0=*cell10; *cell10=tmp0+(((!bit[0]<<16)-tmp0+(1<<7>>1))>>7);
+				//tmp1=*cell11; *cell11=tmp1+(((!bit[1]<<16)-tmp1+(1<<7>>1))>>7);
+				//tmp2=*cell12; *cell12=tmp2+(((!bit[2]<<16)-tmp2+(1<<7>>1))>>7);
+				//tmp0=*cell20; *cell20=tmp0+(((!bit[0]<<16)-tmp0+(1<<7>>1))>>7);
+				//tmp1=*cell21; *cell21=tmp1+(((!bit[1]<<16)-tmp1+(1<<7>>1))>>7);
+				//tmp2=*cell22; *cell22=tmp2+(((!bit[2]<<16)-tmp2+(1<<7>>1))>>7);
+				//tmp0=*cell30; *cell30=tmp0+(((!bit[0]<<16)-tmp0+(1<<7>>1))>>7);
+				//tmp1=*cell31; *cell31=tmp1+(((!bit[1]<<16)-tmp1+(1<<7>>1))>>7);
+				//tmp2=*cell32; *cell32=tmp2+(((!bit[2]<<16)-tmp2+(1<<7>>1))>>7);
 				tidx0=tidx0*2+bit[0];
 				tidx1=tidx1*2+bit[1];
 				tidx2=tidx2*2+bit[2];
