@@ -207,8 +207,8 @@ int main(int argc, char **argv)
 //	CODEC_FUNC("C:/dataset-synth2-ppm/20240524 numbers.ppm",	"D:/ML/mystery.lsim", nthreads);
 //	CODEC_FUNC("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm", nthreads);
 
-	CODEC_FUNC("C:/dataset-synth2-ppm/20240409 1 LPCB.ppm",		"D:/ML/mystery.lsim", nthreads);
-	CODEC_FUNC("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm", nthreads);
+//	CODEC_FUNC("C:/dataset-synth2-ppm/20240409 1 LPCB.ppm",		"D:/ML/mystery.lsim", nthreads);
+//	CODEC_FUNC("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm", nthreads);
 
 //	CODEC_FUNC("C:/dataset-synth2-ppm/20240419 1 speed for efficiency.ppm",	"D:/ML/mystery.lsim", nthreads);
 //	CODEC_FUNC("D:/ML/mystery.lsim",					"D:/ML/mystery_dec.ppm", nthreads);
@@ -231,13 +231,22 @@ int main(int argc, char **argv)
 //	CODEC_FUNC("C:/dataset-GDCC2020-ppm/astro-02.ppm",	"D:/ML/mystery.lsim", nthreads);
 //	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
 
-//	CODEC_FUNC("C:/dataset-GDCC2020-ppm/astro-30.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
-
 //	CODEC_FUNC("C:/dataset-GDCC2020-ppm/astro-06.ppm",	"D:/ML/mystery.lsim", nthreads);
 //	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
 
+	CODEC_FUNC("C:/dataset-GDCC2020-ppm/astro-14.ppm",	"D:/ML/mystery.lsim", nthreads);
+	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
+
+//	CODEC_FUNC("C:/dataset-GDCC2020-ppm/astro-20.ppm",	"D:/ML/mystery.lsim", nthreads);
+//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
+
+//	CODEC_FUNC("C:/dataset-GDCC2020-ppm/astro-30.ppm",	"D:/ML/mystery.lsim", nthreads);
+//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
+
 //	CODEC_FUNC("C:/dataset-GDCC2020-ppm/photo-03.ppm",	"D:/ML/mystery.lsim", nthreads);
+//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
+
+//	CODEC_FUNC("C:/dataset-GDCC2020-ppm/photo-05.ppm",	"D:/ML/mystery.lsim", nthreads);
 //	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
 
 //	CODEC_FUNC("C:/dataset-GDCC2020-ppm/photo-52.ppm",	"D:/ML/mystery.lsim", nthreads);

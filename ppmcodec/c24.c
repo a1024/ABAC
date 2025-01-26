@@ -17,7 +17,7 @@ static const char file[]=__FILE__;
 
 //OG preds: W/NE/CG/AV4/AV9/WG
 
-//	#define ENABLE_ZERO	//slow, good with synth
+	#define ENABLE_ZERO	//good with synth, requires static-o0 to be fast
 	#define ENABLE_W	//good with GDCC
 //	#define ENABLE_N	//useless
 //	#define ENABLE_NW	//good
@@ -28,7 +28,7 @@ static const char file[]=__FILE__;
 //	#define ENABLE_GRAD	//weaker
 	#define ENABLE_CG
 //	#define ENABLE_CGv2	//useless
-//	#define ENABLE_SELECT	//?
+	#define ENABLE_SELECT	//?
 	#define ENABLE_IZ	//weak with CG/AV4
 	#define ENABLE_AV3	//weak with CG/AV4
 	#define ENABLE_AV4	//good with GDCC
@@ -49,6 +49,7 @@ static const char file[]=__FILE__;
 //	#define ENABLE_GR	//bad
 //	#define GR_USE_ARRAY
 
+	#define STATIC_ZERO
 //	#define ENABLE_MIX1	//inefficient			GDCC 9.7~6% faster, 0.6% larger
 //	#define ENABLE_MIX2	//bad
 	#define ENABLE_MIX3	//slow				GDCC 16% slower, 0.2% smaller
@@ -191,16 +192,18 @@ static const unsigned char rct_combinations[RCT_COUNT][II_COUNT]=
 	RCTLIST
 #undef  RCT
 };
-//static const char *rct_names[RCT_COUNT]=
-//{
-//#define RCT(LABEL, ...) #LABEL,
-//	RCTLIST
-//#undef  RCT
-//};
+static const char *rct_names[RCT_COUNT]=
+{
+#define RCT(LABEL, ...) #LABEL,
+	RCTLIST
+#undef  RCT
+};
 
 #define PREDLIST\
+	PRED(ZERO)\
 	PRED(W)\
 	PRED(NE)\
+	PRED(SELECT)\
 	PRED(CG)\
 	PRED(AV2)\
 	PRED(IZ)\
@@ -216,12 +219,12 @@ typedef enum _PredIndex
 #undef  PRED
 	PRED_COUNT,
 } PredIndex;
-//static const char *pred_names[PRED_COUNT]=
-//{
-//#define PRED(LABEL) #LABEL,
-//	PREDLIST
-//#undef  PRED
-//};
+static const char *pred_names[PRED_COUNT]=
+{
+#define PRED(LABEL) #LABEL,
+	PREDLIST
+#undef  PRED
+};
 #ifdef ENABLE_WG
 #define MIX2_16x16(DST, A0, A1, C0, C1)\
 	do\
@@ -2642,6 +2645,98 @@ static void block_func(void *param)
 		args->predidx[0]=predidx[0];
 		args->predidx[1]=predidx[1];
 		args->predidx[2]=predidx[2];
+#ifdef STATIC_ZERO
+		if(predidx[0]==PRED_ZERO||predidx[1]==PRED_ZERO||predidx[2]==PRED_ZERO)
+		{
+			int hist0[3][256]={0};
+			int yidx=combination[II_PERM_Y];
+			int uidx=combination[II_PERM_U];
+			int vidx=combination[II_PERM_V];
+			int helpcoeffs[]=
+			{
+				0,
+				combination[II_HELP_U],
+				combination[II_HELP_V0],
+
+				0,
+				0,
+				combination[II_HELP_V1],
+			};
+			for(int ky=args->y1;ky<args->y2;++ky)
+			{
+				int kx=args->x1;
+				const unsigned char *ptr=image+3*(args->iw*ky+kx);
+				for(;kx<args->x2;++kx, ptr+=3)
+				{
+					char yuv[]=
+					{
+						ptr[yidx]-128,
+						ptr[uidx]-128,
+						ptr[vidx]-128,
+					};
+					yuv[2]-=(helpcoeffs[2]*yuv[0]+helpcoeffs[5]*yuv[1])>>1;
+					yuv[1]-=helpcoeffs[1]*yuv[0]>>1;
+					++hist0[0][(yuv[0]+128)&255];
+					++hist0[1][(yuv[1]+128)&255];
+					++hist0[2][(yuv[2]+128)&255];
+				}
+			}
+			for(int kc=0;kc<3;++kc)
+			{
+				if(predidx[kc]==PRED_ZERO)
+				{
+					int *curr_hist0=hist0[kc];
+					int sum=0;
+					for(int ks=0;ks<256;++ks)
+						sum+=curr_hist0[ks];
+					int sum2=0;
+					int prev=1;
+					for(int ks=0;ks<256;++ks)
+					{
+						int freq=curr_hist0[ks];
+						curr_hist0[ks]=(int)(((long long)sum2*((1ULL<<PROB_BITS)-256))/sum)+ks;//adaptive formula because blocksize>0x10000	FIXME use reciprocal because sum is const
+						sum2+=freq;
+
+						if(ks)//(NLEVELS-1) increasing values
+						{
+							int nlevels=(1<<PROB_BITS)-prev;
+							int sym=curr_hist0[ks]-prev;
+							//if(nlevels>=0x10000)
+							//{
+							//	ac3_encbuf_bypass_NPOT(&ec, sym>>8, nlevels>>8);
+							//	sym&=255;
+							//	nlevels=256;
+							//}
+							ac3_encbuf_bypass_NPOT(&ec, sym, nlevels);
+						}
+						prev=curr_hist0[ks]+1;
+					}
+					unsigned *dsthist=(unsigned*)args->hist+ELEVELS*CLEVELS*cdfstride*kc;
+					memcpy(dsthist, curr_hist0, sizeof(int[256]));
+					dsthist[256]=1<<PROB_BITS;
+				}
+			}
+		}
+#endif
+#ifdef PRINT_CSIZES
+		if(!args->blockidx)
+		{
+			printf("%s %s %s %s\n",
+				rct_names[bestrct],
+				pred_names[predidx[0]],
+				pred_names[predidx[1]],
+				pred_names[predidx[2]]
+			);
+			printf("Block0\n%8d count\n%11.2lf Y est.\n%11.2lf U est.\n%11.2lf V est.\n",
+				count,
+				csizes[combination[0]*PRED_COUNT+predidx[0]],
+				csizes[combination[1]*PRED_COUNT+predidx[1]],
+				csizes[combination[2]*PRED_COUNT+predidx[2]]
+			);
+		}
+#endif
+		(void)rct_names;
+		(void)pred_names;
 #if 0
 		if(args->loud)
 		{
@@ -2703,6 +2798,31 @@ static void block_func(void *param)
 		predidx[0]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
 		predidx[1]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
 		predidx[2]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
+#ifdef STATIC_ZERO
+		for(int kc=0;kc<3;++kc)
+		{
+			if(predidx[kc]==PRED_ZERO)
+			{
+				unsigned *dsthist=(unsigned*)args->hist+ELEVELS*CLEVELS*cdfstride*kc;
+				int prev=1;
+				dsthist[0]=0;
+				for(int ks=1;ks<256;++ks)
+				{
+					int nlevels=(1<<PROB_BITS)-prev;
+					int sym=0;
+					//if(nlevels>=0x10000)
+					//{
+					//	sym=ac3_dec_bypass_NPOT(&ec, nlevels>>8)<<8;
+					//	nlevels=256;
+					//}
+					sym|=ac3_dec_bypass_NPOT(&ec, nlevels);
+					dsthist[ks]=sym+prev;
+					prev=dsthist[ks]+1;
+				}
+				dsthist[256]=1<<PROB_BITS;
+			}
+		}
+#endif
 	}
 #ifdef ENABLE_GR
 	for(int k=0;k<3;++k)
@@ -2737,33 +2857,51 @@ static void block_func(void *param)
 #endif
 	unsigned *histptr=(unsigned*)args->hist;
 #if defined ENABLE_ZERO
-	int disable_quant=0;
-	if(predidx[0]==PRED_ZERO||predidx[1]==PRED_ZERO||predidx[2]==PRED_ZERO)
-	{
-		disable_quant=1;
-		//predidx[0]=PRED_ZERO;
-		//predidx[1]=PRED_ZERO;
-		//predidx[2]=PRED_ZERO;
-	}
+	//int disable_quant=0;
+	//if(predidx[0]==PRED_ZERO||predidx[1]==PRED_ZERO||predidx[2]==PRED_ZERO)
+	//{
+	//	disable_quant=1;
+	//	//predidx[0]=PRED_ZERO;
+	//	//predidx[1]=PRED_ZERO;
+	//	//predidx[2]=PRED_ZERO;
+	//}
 //#ifdef ENABLE_SELECT
 //	if(predidx[0]==PRED_SELECT||predidx[1]==PRED_SELECT||predidx[2]==PRED_SELECT)
 //		disable_quant=1;
 //#endif
+	unsigned char *CDF2sym[]=
+	{
+		(unsigned char*)(histptr+ELEVELS*CLEVELS*cdfstride*0+257),
+		(unsigned char*)(histptr+ELEVELS*CLEVELS*cdfstride*1+257),
+		(unsigned char*)(histptr+ELEVELS*CLEVELS*cdfstride*2+257),
+	};
 	for(int kc=0;kc<3;++kc)
 	{
 		unsigned *curr_hist=histptr+ELEVELS*CLEVELS*cdfstride*kc;
-		//if(predidx[kc]==PRED_ZERO)
-		if(disable_quant)
+		if(predidx[kc]==PRED_ZERO)
 		{
-			for(int ks=0;ks<258;++ks)
+			if(!args->fwd)
 			{
-				curr_hist[ks]=(unsigned)(ks*((((1LL<<PROB_BITS)-257)<<PROB_EBITS) / 257));
-				//if(ks==257)//
-				//	printf("");
+				unsigned char *curr_CDF2sym=CDF2sym[kc];
+				for(int ks=0;ks<256;++ks)
+				{
+					int start=curr_hist[ks], end=curr_hist[ks+1];
+					memset(curr_CDF2sym+start, ks, (size_t)end-start);
+				}
 			}
-			memfill(curr_hist+258, curr_hist, sizeof(int[ELEVELS*258-258]), sizeof(int[258]));
+			continue;
 		}
-		else
+		//if(disable_quant)
+		//{
+		//	for(int ks=0;ks<258;++ks)
+		//	{
+		//		curr_hist[ks]=(unsigned)(ks*((((1LL<<PROB_BITS)-257)<<PROB_EBITS) / 257));
+		//		//if(ks==257)//
+		//		//	printf("");
+		//	}
+		//	memfill(curr_hist+258, curr_hist, sizeof(int[ELEVELS*258-258]), sizeof(int[258]));
+		//}
+		//else
 		{
 			for(int ks=0;ks<cdfstride;++ks)
 				curr_hist[ks]=(unsigned)((ks*((1LL<<PROB_BITS)-args->tlevels)<<PROB_EBITS)/args->tlevels);
@@ -2901,9 +3039,9 @@ static void block_func(void *param)
 		int *ctxctrs[12]={0};
 		unsigned *cdfptrs[12]={0};
 		const unsigned *mixinptrs[3]={0};
-#ifdef ENABLE_ZERO
-		int syms[3]={0};
-#endif
+//#ifdef ENABLE_ZERO
+//		int syms[3]={0};
+//#endif
 #if defined SIMD_CTX || defined SIMD_PREDS
 		__m128i
 			mNNW	=_mm_setzero_si128(),
@@ -3362,9 +3500,45 @@ static void block_func(void *param)
 					qe=ELEVELS-1;
 #endif
 #ifdef ENABLE_ZERO
-				//if(predidx[kc]==PRED_ZERO)
-				if(disable_quant)
+				if(predidx[kc]==PRED_ZERO)
+				//if(disable_quant)
 				{
+					unsigned *curr_hist0=cdfptrs[kc+0]=histptr+(cdfstride*ELEVELS*CLEVELS)*kc;
+					if(args->fwd)
+					{
+						sym=(yuv[kc]-pred+128)&255;
+						cdf=curr_hist0[sym];
+						freq=curr_hist0[sym+1]-cdf;
+						ac3_encbuf_update_N(&ec, cdf, freq, PROB_BITS);
+#ifdef PRINT_CSIZES
+						args->csizes[kc]-=log2(freq/(double)(1<<PROB_BITS));
+#endif
+					}
+					else
+					{
+						if(ec.range<(1ULL<<PROB_BITS))
+						{
+#ifdef _DEBUG
+							if(ec.srcptr>=ec.srcend)
+								LOG_ERROR("Decoder out of memory at YXC %d %d %d", ky, kx, kc);
+#endif
+							ec.code=ec.code<<32|*(unsigned*)ec.srcptr;
+							ec.srcptr+=4;
+							ec.range=ec.range<<32|0xFFFFFFFF;
+							ec.low<<=32;
+							if(ec.range>~ec.low)
+								ec.range=~ec.low;
+						}
+						
+						unsigned c=(unsigned)(((ec.code-ec.low)<<PROB_BITS|((1LL<<PROB_BITS)-1))/ec.range);
+						sym=CDF2sym[kc][c];
+						cdf=curr_hist0[sym];
+						freq=curr_hist0[sym+1]-cdf;
+						ac3_dec_update_N(&ec, cdf, freq, PROB_BITS);
+						yuv[kc]=(char)(sym-128+pred);
+					}
+					curr[kc+0]=regW[kc]=yuv[kc]-offset;
+#if 0
 					//qe=0;//o0	X  bad
 					unsigned *curr_hist=cdfptrs[kc+0]=histptr+(cdfstride*ELEVELS*CLEVELS)*kc+258*qe;
 					//if(curr_hist[0])//
@@ -3456,6 +3630,7 @@ static void block_func(void *param)
 					curr[kc+0]=regW[kc]=yuv[kc]-offset;
 					curr[kc+4]=regW[kc+4]=abs(error);
 					syms[kc]=sym;
+#endif
 					continue;
 				}
 #endif
@@ -3868,10 +4043,12 @@ static void block_func(void *param)
 			for(int kc=0;kc<3;++kc)
 			{
 #ifdef ENABLE_ZERO
-				if(disable_quant)
+				//if(disable_quant)
+				if(predidx[kc]==PRED_ZERO)
 				{
-					//int sh=*ctxctrs[kc+0]+=shiftgain;
-					//sh=FLOOR_LOG2(sh)>>1;
+#if 0
+					int sh=*ctxctrs[kc+0]+=shiftgain;
+					sh=FLOOR_LOG2(sh)>>1;
 					unsigned *curr_cdf=cdfptrs[kc];
 					token=syms[kc];
 					//if(curr_cdf[0])//
@@ -3880,8 +4057,10 @@ static void block_func(void *param)
 #pragma GCC unroll 8
 #endif
 					for(int ks=1;ks<257;++ks)
-						curr_cdf[ks]+=(((((1LL<<PROB_BITS)-257)<<PROB_EBITS)&-(ks>token))-curr_cdf[ks])>>7;
-					//	curr_cdf[ks]+=((((((1LL<<PROB_BITS)-257)<<PROB_EBITS) / 257)&-(ks>token))-curr_cdf[ks])>>sh;
+						curr_cdf[ks]+=(((((1LL<<PROB_BITS)-257)<<PROB_EBITS)&-(ks>token))-curr_cdf[ks])>>sh;
+					//	curr_cdf[ks]+=(((((1LL<<PROB_BITS)-257)<<PROB_EBITS)&-(ks>token))-curr_cdf[ks])>>10;
+					//	curr_cdf[ks]+=(((((1LL<<PROB_BITS)-257)<<PROB_EBITS)&-(ks>token))-curr_cdf[ks])>>7;
+#endif
 					continue;
 				}
 #endif
@@ -4129,6 +4308,19 @@ static void block_func(void *param)
 #ifdef _DEBUG
 		if((ptr-args->encbypassbuf)>>32)
 			LOG_ERROR("Integer overflow");
+#endif
+#ifdef PRINT_CSIZES
+		if(!args->blockidx)
+		{
+			printf("%11.2lf Y act.\n", args->csizes[0]);
+			printf("%11.2lf U act.\n", args->csizes[1]);
+			printf("%11.2lf V act.\n", args->csizes[2]);
+			printf("%8d cblock\n%8d Tokens\n%8d Bypass\n",
+				args->enctokenoffsets[currblockidx]+args->encbypassoffsets[currblockidx]+8,
+				args->enctokenoffsets[currblockidx],
+				args->encbypassoffsets[currblockidx]
+			);
+		}
 #endif
 	}
 }
@@ -4606,12 +4798,12 @@ int c24_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		csizes[1]/=8;
 		csizes[2]/=8;
 		double tsize=csizes[0]+csizes[1]+csizes[2];
-		printf("U %td\n", (ptrdiff_t)3*iw*ih);
-		printf("C %td\n", csize);
-		printf("T %lf\n", tsize);
-		printf("Y %lf\n", csizes[0]);
-		printf("U %lf\n", csizes[1]);
-		printf("V %lf\n", csizes[2]);
+		printf("U %8td\n", (ptrdiff_t)3*iw*ih);
+		printf("C %8td\n", csize);
+		printf("T %11.2lf\n", tsize);
+		printf("Y %11.2lf\n", csizes[0]);
+		printf("U %11.2lf\n", csizes[1]);
+		printf("V %11.2lf\n", csizes[2]);
 	}
 #endif
 #ifdef PRINT_PREDHIST
