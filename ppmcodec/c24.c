@@ -1,8 +1,8 @@
 #include"codec.h"
+#include<stdio.h>
 #include<stdlib.h>
 #include<string.h>
-#include<math.h>//abs
-//#include<immintrin.h>//included by "entropy.h"
+#include<math.h>
 static const char file[]=__FILE__;
 
 
@@ -10,29 +10,34 @@ static const char file[]=__FILE__;
 #ifndef DISABLE_MT
 	#define ENABLE_MT
 #endif
+
 //	#define AC_DISABLE_WRITE
 //	#define PRINT_PREDHIST
+//	#define PRINT_CSIZES
 
 //OG preds: W/NE/CG/AV4/AV9/WG
 
+//	#define ENABLE_ZERO	//slow, good with synth
 	#define ENABLE_W	//good with GDCC
 //	#define ENABLE_N	//useless
 //	#define ENABLE_NW	//good
 	#define ENABLE_NE	//?
 //	#define ENABLE_NWE	//bad
 //	#define ENABLE_CG45	//bad
-//	#define ENABLE_AV2	//good, but redundant with WG
+	#define ENABLE_AV2	//good, but redundant with WG
 //	#define ENABLE_GRAD	//weaker
 	#define ENABLE_CG
 //	#define ENABLE_CGv2	//useless
-//	#define ENABLE_SELECT	//bad for synthetic due to quantization
-//	#define ENABLE_IZ	//weak with CG/AV4
-//	#define ENABLE_AV3	//weak with CG/AV4
+//	#define ENABLE_SELECT	//?
+	#define ENABLE_IZ	//weak with CG/AV4
+	#define ENABLE_AV3	//weak with CG/AV4
 	#define ENABLE_AV4	//good with GDCC
 //	#define ENABLE_AV4v2	//?
-//	#define ENABLE_AV5	//redundant with AV4
+//	#define ENABLE_AV5	//bad, redundant with AV4
+	#define ENABLE_AV6	//good
 	#define ENABLE_AV9	//good				GDCC 0.31% slower, 0.37% smaller
 //	#define ENABLE_AV9v2	//weak				GDCC 3~5% slower, 0.03% smaller
+//	#define ENABLE_AV11	//bad
 	#define ENABLE_WG	//for noisy areas		GDCC 5.69% slower, 0.07% smaller
 //	#define ENABLE_WGB	//bad, steals from CG?
 //	#define ENABLE_WG2	//bad
@@ -41,9 +46,12 @@ static const char file[]=__FILE__;
 	#define SIMD_CTX	//0.8% faster
 //	#define SIMD_PREDS	//3.8% slower
 
+//	#define ENABLE_GR	//bad
+//	#define GR_USE_ARRAY
+
 //	#define ENABLE_MIX1	//inefficient			GDCC 9.7~6% faster, 0.6% larger
 //	#define ENABLE_MIX2	//bad
-//	#define ENABLE_MIX3	//slow				GDCC 16% slower, 0.2% smaller
+	#define ENABLE_MIX3	//slow				GDCC 16% slower, 0.2% smaller
 //	#define ENABLE_MIX4	//slow				GDCC 28% slower, 0.3% smaller
 
 //	#define AC3_ENC_BRANCHLESSRENORM	//slow
@@ -106,10 +114,13 @@ static void guide_check(const unsigned char *image, int kx, int ky)
 	OCH(G)\
 	OCH(B)\
 	OCH(RG)\
-	OCH(RB)\
 	OCH(GB)\
-	OCH(GR)\
 	OCH(BR)\
+	OCH(R2)\
+	OCH(G2)\
+	OCH(B2)\
+	OCH(RB)\
+	OCH(GR)\
 	OCH(BG)
 typedef enum _OCHIndex
 {
@@ -125,23 +136,48 @@ typedef enum _OCHIndex
 //#undef  OCH
 //};
 
+typedef enum _RCTInfoIdx
+{
+	II_OCH_Y,
+	II_OCH_U,
+	II_OCH_V,
+
+	II_PERM_Y,
+	II_PERM_U,
+	II_PERM_V,
+
+	II_HELP_U,
+	II_HELP_V0,
+	II_HELP_V1,
+
+	II_COUNT,
+} RCTInfoIdx;
 #define RCTLIST\
-	RCT(R_G_B,	OCH_R,		OCH_G,		OCH_B,		0, 1, 2,	3, 3, 3)\
-	RCT(R_G_BG,	OCH_R,		OCH_G,		OCH_BG,		0, 1, 2,	3, 3, 1)\
-	RCT(R_G_BR,	OCH_R,		OCH_G,		OCH_BR,		0, 1, 2,	3, 3, 0)\
-	RCT(G_B_RG,	OCH_G,		OCH_B,		OCH_RG,		1, 2, 0,	3, 3, 0)\
-	RCT(G_B_RB,	OCH_G,		OCH_B,		OCH_RB,		1, 2, 0,	3, 3, 1)\
-	RCT(B_R_GR,	OCH_B,		OCH_R,		OCH_GR,		2, 0, 1,	3, 3, 1)\
-	RCT(B_R_GB,	OCH_B,		OCH_R,		OCH_GB,		2, 0, 1,	3, 3, 0)\
-	RCT(G_BG_RG,	OCH_G,		OCH_BG,		OCH_RG,		1, 2, 0,	3, 0, 0)\
-	RCT(G_BG_RB,	OCH_G,		OCH_BG,		OCH_RB,		1, 2, 0,	3, 0, 1)\
-	RCT(G_RG_BR,	OCH_G,		OCH_RG,		OCH_BR,		1, 0, 2,	3, 0, 1)\
-	RCT(B_RB_GB,	OCH_B,		OCH_RB,		OCH_GB,		2, 0, 1,	3, 0, 0)\
-	RCT(B_RB_GR,	OCH_B,		OCH_RB,		OCH_GR,		2, 0, 1,	3, 0, 1)\
-	RCT(B_GB_RG,	OCH_B,		OCH_GB,		OCH_RG,		2, 1, 0,	3, 0, 1)\
-	RCT(R_GR_BR,	OCH_R,		OCH_GR,		OCH_BR,		0, 1, 2,	3, 0, 0)\
-	RCT(R_GR_BG,	OCH_R,		OCH_GR,		OCH_BG,		0, 1, 2,	3, 0, 1)\
-	RCT(R_BR_GB,	OCH_R,		OCH_BR,		OCH_GB,		0, 2, 1,	3, 0, 1)
+	RCT(R_G_B,	OCH_R,		OCH_G,		OCH_B,		0, 1, 2,	0,  0, 0)\
+	RCT(R_G_BG,	OCH_R,		OCH_G,		OCH_BG,		0, 1, 2,	0,  0, 2)\
+	RCT(R_G_BR,	OCH_R,		OCH_G,		OCH_BR,		0, 1, 2,	0,  2, 0)\
+	RCT(G_B_RG,	OCH_G,		OCH_B,		OCH_RG,		1, 2, 0,	0,  2, 0)\
+	RCT(G_B_RB,	OCH_G,		OCH_B,		OCH_RB,		1, 2, 0,	0,  0, 2)\
+	RCT(B_R_GR,	OCH_B,		OCH_R,		OCH_GR,		2, 0, 1,	0,  0, 2)\
+	RCT(B_R_GB,	OCH_B,		OCH_R,		OCH_GB,		2, 0, 1,	0,  2, 0)\
+	RCT(G_BG_RG,	OCH_G,		OCH_BG,		OCH_RG,		1, 2, 0,	2,  2, 0)\
+	RCT(G_BG_RB,	OCH_G,		OCH_BG,		OCH_RB,		1, 2, 0,	2,  0, 2)\
+	RCT(G_RG_BR,	OCH_G,		OCH_RG,		OCH_BR,		1, 0, 2,	2,  0, 2)\
+	RCT(B_RB_GB,	OCH_B,		OCH_RB,		OCH_GB,		2, 0, 1,	2,  2, 0)\
+	RCT(B_RB_GR,	OCH_B,		OCH_RB,		OCH_GR,		2, 0, 1,	2,  0, 2)\
+	RCT(B_GB_RG,	OCH_B,		OCH_GB,		OCH_RG,		2, 1, 0,	2,  0, 2)\
+	RCT(R_GR_BR,	OCH_R,		OCH_GR,		OCH_BR,		0, 1, 2,	2,  2, 0)\
+	RCT(R_GR_BG,	OCH_R,		OCH_GR,		OCH_BG,		0, 1, 2,	2,  0, 2)\
+	RCT(R_BR_GB,	OCH_R,		OCH_BR,		OCH_GB,		0, 2, 1,	2,  0, 2)\
+	RCT(R_G_B2,	OCH_R,		OCH_G,		OCH_B2,		0, 1, 2,	0,  1, 1)\
+	RCT(R_GR_B2,	OCH_R,		OCH_GR,		OCH_B2,		0, 1, 2,	2,  1, 1)\
+	RCT(R_B_G2,	OCH_R,		OCH_B,		OCH_G2,		0, 2, 1,	0,  1, 1)\
+	RCT(R_BR_G2,	OCH_R,		OCH_BR,		OCH_G2,		0, 2, 1,	2,  1, 1)\
+	RCT(G_B_R2,	OCH_G,		OCH_B,		OCH_R2,		1, 2, 0,	0,  1, 1)\
+	RCT(G_BG_R2,	OCH_G,		OCH_BG,		OCH_R2,		1, 2, 0,	2,  1, 1)\
+	RCT(G_RG_B2,	OCH_G,		OCH_RG,		OCH_B2,		1, 0, 2,	2,  1, 1)\
+	RCT(B_RB_G2,	OCH_B,		OCH_RB,		OCH_G2,		2, 0, 1,	2,  1, 1)\
+	RCT(B_GB_R2,	OCH_B,		OCH_GB,		OCH_R2,		2, 1, 0,	2,  1, 1)
 typedef enum _RCTIndex
 {
 #define RCT(LABEL, ...) RCT_##LABEL,
@@ -149,7 +185,7 @@ typedef enum _RCTIndex
 #undef  RCT
 	RCT_COUNT,
 } RCTIndex;
-static const unsigned char rct_combinations[RCT_COUNT][9]=
+static const unsigned char rct_combinations[RCT_COUNT][II_COUNT]=
 {
 #define RCT(LABEL, ...) {__VA_ARGS__},
 	RCTLIST
@@ -166,7 +202,11 @@ static const unsigned char rct_combinations[RCT_COUNT][9]=
 	PRED(W)\
 	PRED(NE)\
 	PRED(CG)\
+	PRED(AV2)\
+	PRED(IZ)\
+	PRED(AV3)\
 	PRED(AV4)\
+	PRED(AV6)\
 	PRED(AV9)\
 	PRED(WG)
 typedef enum _PredIndex
@@ -320,18 +360,28 @@ typedef struct _ThreadArgs
 	int blockidx;
 	double bestsize;
 	int bestrct, predidx[3];
+#ifdef PRINT_CSIZES
+	double csizes[3];
+#endif
 } ThreadArgs;
 static void block_func(void *param)
 {
 	ThreadArgs *args=(ThreadArgs*)param;
-	AC3 ec;
-	const int half=128;
+#ifdef ENABLE_GR
+	GolombRiceCoder gr;
+#else
 	BypassCoder bc;
+#endif
+	AC3 ec;
 	int cdfstride=args->tlevels+1;
 	const unsigned char *image=args->fwd?args->src:args->dst;
 	unsigned char bestrct=0, predidx[3]={0};
 	const unsigned char *combination=0;
+#ifdef ENABLE_GR
+	int entropylevels[3]={0}, entropyidx[3]={0};
+#else
 	int entropylevel=0, entropyidx=0;
+#endif
 
 	if(args->fwd)
 	{
@@ -353,7 +403,12 @@ static void block_func(void *param)
 			predidx[1]=0;
 			predidx[2]=0;
 #endif
+#ifdef ENABLE_GR
+			entropylevels[2]=entropylevels[1]=entropylevels[0]=128;
+#else
+			entropylevel=99;
 			entropyidx=3;
+#endif
 			goto skip_analysis;
 		}
 		
@@ -384,19 +439,28 @@ static void block_func(void *param)
 				//		NNW	NN	NNE
 				//	NWW	NW	N	NE
 				//	WW	W	?
+				//1		rgb
+				//2		gbr			unused exept for curr2
+				//3		rgb - gbr
+				//4		gbr - rgb
+				//5 curr	(gbr+brg)/2
+				//5 ...		rgb - (gbr+brg)/2
 				__m256i
-					NNW,	NNW2,	NNW3,	NNW4,
-					NN,	NN2,	NN3,	NN4,
-					NNE,	NNE2,	NNE3,	NNE4,
-					NWW,	NWW2,	NWW3,	NWW4,
-					NW,	NW2,	NW3,	NW4,
-					N,	N2,	N3,	N4,
-					NE,	NE2,	NE3,	NE4,
-					WW,	WW2,	WW3,	WW4,
-					W,	W2,	W3,	W4,
-					curr,	curr2;
-				__m256i vmin[3], vmax[3], pred;
+				//	NNWW,	NNWW3,	NNWW4,	NNWW5,
+					NNW,	NNW3,	NNW4,	NNW5,
+					NN,	NN3,	NN4,	NN5,
+					NNE,	NNE3,	NNE4,	NNE5,
+					NWW,	NWW3,	NWW4,	NWW5,
+					NW,	NW3,	NW4,	NW5,
+					N,	N3,	N4,	N5,
+					NE,	NE3,	NE4,	NE5,
+				//	NEE,	NEE3,	NEE4,	NEE5,
+					WW,	WW3,	WW4,	WW5,
+					W,	W3,	W4,	W5,
+					curr,	curr2,		curr5;
+				__m256i vmin[4], vmax[4], pred;
 				{
+				//	__m128i NNWW8	=_mm_loadu_si128((__m128i*)(ptr-2*ystride-2*3+0));
 					__m128i NNW8	=_mm_loadu_si128((__m128i*)(ptr-2*ystride-1*3+0));
 					__m128i NN8	=_mm_loadu_si128((__m128i*)(ptr-2*ystride+0*3+0));
 					__m128i NNE8	=_mm_loadu_si128((__m128i*)(ptr-2*ystride+1*3+0));
@@ -404,9 +468,11 @@ static void block_func(void *param)
 					__m128i NW8	=_mm_loadu_si128((__m128i*)(ptr-1*ystride-1*3+0));
 					__m128i N8	=_mm_loadu_si128((__m128i*)(ptr-1*ystride+0*3+0));
 					__m128i NE8	=_mm_loadu_si128((__m128i*)(ptr-1*ystride+1*3+0));
+				//	__m128i NEE8	=_mm_loadu_si128((__m128i*)(ptr-1*ystride+2*3+0));
 					__m128i WW8	=_mm_loadu_si128((__m128i*)(ptr+0*ystride-2*3+0));
 					__m128i W8	=_mm_loadu_si128((__m128i*)(ptr+0*ystride-1*3+0));
 					__m128i curr8	=_mm_loadu_si128((__m128i*)(ptr+0*ystride+0*3+0));
+				//	NNWW8	=_mm_xor_si128(NNWW8	, half8);
 					NNW8	=_mm_xor_si128(NNW8	, half8);
 					NN8	=_mm_xor_si128(NN8	, half8);
 					NNE8	=_mm_xor_si128(NNE8	, half8);
@@ -414,9 +480,11 @@ static void block_func(void *param)
 					NW8	=_mm_xor_si128(NW8	, half8);
 					N8	=_mm_xor_si128(N8	, half8);
 					NE8	=_mm_xor_si128(NE8	, half8);
+				//	NEE8	=_mm_xor_si128(NEE8	, half8);
 					WW8	=_mm_xor_si128(WW8	, half8);
 					W8	=_mm_xor_si128(W8	, half8);
 					curr8	=_mm_xor_si128(curr8	, half8);
+				//	__m128i NNWW82	=_mm_shuffle_epi8(NNWW8	, shuf);
 					__m128i NNW82	=_mm_shuffle_epi8(NNW8	, shuf);
 					__m128i NN82	=_mm_shuffle_epi8(NN8	, shuf);
 					__m128i NNE82	=_mm_shuffle_epi8(NNE8	, shuf);
@@ -424,9 +492,11 @@ static void block_func(void *param)
 					__m128i NW82	=_mm_shuffle_epi8(NW8	, shuf);
 					__m128i N82	=_mm_shuffle_epi8(N8	, shuf);
 					__m128i NE82	=_mm_shuffle_epi8(NE8	, shuf);
+				//	__m128i NEE82	=_mm_shuffle_epi8(NEE8	, shuf);
 					__m128i WW82	=_mm_shuffle_epi8(WW8	, shuf);
 					__m128i W82	=_mm_shuffle_epi8(W8	, shuf);
 					__m128i curr82	=_mm_shuffle_epi8(curr8	, shuf);
+				//	NNWW	=_mm256_cvtepi8_epi16(NNWW8);
 					NNW	=_mm256_cvtepi8_epi16(NNW8);
 					NN	=_mm256_cvtepi8_epi16(NN8);
 					NNE	=_mm256_cvtepi8_epi16(NNE8);
@@ -434,19 +504,23 @@ static void block_func(void *param)
 					NW	=_mm256_cvtepi8_epi16(NW8);
 					N	=_mm256_cvtepi8_epi16(N8);
 					NE	=_mm256_cvtepi8_epi16(NE8);
+				//	NEE	=_mm256_cvtepi8_epi16(NEE8);
 					WW	=_mm256_cvtepi8_epi16(WW8);
 					W	=_mm256_cvtepi8_epi16(W8);
 					curr	=_mm256_cvtepi8_epi16(curr8);
-					NNW2	=_mm256_cvtepi8_epi16(NNW82);
-					NN2	=_mm256_cvtepi8_epi16(NN82);
-					NNE2	=_mm256_cvtepi8_epi16(NNE82);
-					NWW2	=_mm256_cvtepi8_epi16(NWW82);
-					NW2	=_mm256_cvtepi8_epi16(NW82);
-					N2	=_mm256_cvtepi8_epi16(N82);
-					NE2	=_mm256_cvtepi8_epi16(NE82);
-					WW2	=_mm256_cvtepi8_epi16(WW82);
-					W2	=_mm256_cvtepi8_epi16(W82);
+				//	__m256i NNWW2	=_mm256_cvtepi8_epi16(NNWW82);
+					__m256i NNW2	=_mm256_cvtepi8_epi16(NNW82);
+					__m256i NN2	=_mm256_cvtepi8_epi16(NN82);
+					__m256i NNE2	=_mm256_cvtepi8_epi16(NNE82);
+					__m256i NWW2	=_mm256_cvtepi8_epi16(NWW82);
+					__m256i NW2	=_mm256_cvtepi8_epi16(NW82);
+					__m256i N2	=_mm256_cvtepi8_epi16(N82);
+					__m256i NE2	=_mm256_cvtepi8_epi16(NE82);
+				//	__m256i NEE2	=_mm256_cvtepi8_epi16(NEE82);
+					__m256i WW2	=_mm256_cvtepi8_epi16(WW82);
+					__m256i W2	=_mm256_cvtepi8_epi16(W82);
 					curr2	=_mm256_cvtepi8_epi16(curr82);
+				//	NNWW3	=_mm256_sub_epi16(NNWW	, NNWW2	);
 					NNW3	=_mm256_sub_epi16(NNW	, NNW2	);
 					NN3	=_mm256_sub_epi16(NN	, NN2	);
 					NNE3	=_mm256_sub_epi16(NNE	, NNE2	);
@@ -454,9 +528,11 @@ static void block_func(void *param)
 					NW3	=_mm256_sub_epi16(NW	, NW2	);
 					N3	=_mm256_sub_epi16(N	, N2	);
 					NE3	=_mm256_sub_epi16(NE	, NE2	);
+				//	NEE3	=_mm256_sub_epi16(NEE	, NEE2	);
 					WW3	=_mm256_sub_epi16(WW	, WW2	);
 					W3	=_mm256_sub_epi16(W	, W2	);
 				//	curr3	=_mm256_sub_epi16(curr	, curr2	);
+				//	NNWW4	=_mm256_sub_epi16(NNWW2	, NNWW	);
 					NNW4	=_mm256_sub_epi16(NNW2	, NNW	);
 					NN4	=_mm256_sub_epi16(NN2	, NN	);
 					NNE4	=_mm256_sub_epi16(NNE2	, NNE	);
@@ -464,9 +540,46 @@ static void block_func(void *param)
 					NW4	=_mm256_sub_epi16(NW2	, NW	);
 					N4	=_mm256_sub_epi16(N2	, N	);
 					NE4	=_mm256_sub_epi16(NE2	, NE	);
+				//	NEE4	=_mm256_sub_epi16(NEE2	, NEE	);
 					WW4	=_mm256_sub_epi16(WW2	, WW	);
 					W4	=_mm256_sub_epi16(W2	, W	);
 				//	curr4	=_mm256_sub_epi16(curr2	, curr	);
+					
+				//	NNWW5	=_mm256_add_epi16(NNWW2	, _mm256_cvtepi8_epi16(_mm_shuffle_epi8(NNWW82	, shuf)));
+					NNW5	=_mm256_add_epi16(NNW2	, _mm256_cvtepi8_epi16(_mm_shuffle_epi8(NNW82	, shuf)));
+					NN5	=_mm256_add_epi16(NN2	, _mm256_cvtepi8_epi16(_mm_shuffle_epi8(NN82	, shuf)));
+					NNE5	=_mm256_add_epi16(NNE2	, _mm256_cvtepi8_epi16(_mm_shuffle_epi8(NNE82	, shuf)));
+					NWW5	=_mm256_add_epi16(NWW2	, _mm256_cvtepi8_epi16(_mm_shuffle_epi8(NWW82	, shuf)));
+					NW5	=_mm256_add_epi16(NW2	, _mm256_cvtepi8_epi16(_mm_shuffle_epi8(NW82	, shuf)));
+					N5	=_mm256_add_epi16(N2	, _mm256_cvtepi8_epi16(_mm_shuffle_epi8(N82	, shuf)));
+					NE5	=_mm256_add_epi16(NE2	, _mm256_cvtepi8_epi16(_mm_shuffle_epi8(NE82	, shuf)));
+				//	NEE5	=_mm256_add_epi16(NEE2	, _mm256_cvtepi8_epi16(_mm_shuffle_epi8(NEE82	, shuf)));
+					WW5	=_mm256_add_epi16(WW2	, _mm256_cvtepi8_epi16(_mm_shuffle_epi8(WW82	, shuf)));
+					W5	=_mm256_add_epi16(W2	, _mm256_cvtepi8_epi16(_mm_shuffle_epi8(W82	, shuf)));
+					curr5	=_mm256_add_epi16(curr2	, _mm256_cvtepi8_epi16(_mm_shuffle_epi8(curr82	, shuf)));
+				//	NNWW5	=_mm256_srai_epi16(NNWW5, 1);
+					NNW5	=_mm256_srai_epi16(NNW5	, 1);
+					NN5	=_mm256_srai_epi16(NN5	, 1);
+					NNE5	=_mm256_srai_epi16(NNE5	, 1);
+					NWW5	=_mm256_srai_epi16(NWW5	, 1);
+					NW5	=_mm256_srai_epi16(NW5	, 1);
+					N5	=_mm256_srai_epi16(N5	, 1);
+					NE5	=_mm256_srai_epi16(NE5	, 1);
+				//	NEE5	=_mm256_srai_epi16(NEE5	, 1);
+					WW5	=_mm256_srai_epi16(WW5	, 1);
+					W5	=_mm256_srai_epi16(W5	, 1);
+					curr5	=_mm256_srai_epi16(curr5, 1);
+				//	NNWW5	=_mm256_sub_epi16(NNWW	, NNWW5);
+					NNW5	=_mm256_sub_epi16(NNW	, NNW5);
+					NN5	=_mm256_sub_epi16(NN	, NN5);
+					NNE5	=_mm256_sub_epi16(NNE	, NNE5);
+					NWW5	=_mm256_sub_epi16(NWW	, NWW5);
+					NW5	=_mm256_sub_epi16(NW	, NW5);
+					N5	=_mm256_sub_epi16(N	, N5);
+					NE5	=_mm256_sub_epi16(NE	, NE5);
+				//	NEE5	=_mm256_sub_epi16(NEE	, NEE5);
+					WW5	=_mm256_sub_epi16(WW	, WW5);
+					W5	=_mm256_sub_epi16(W	, W5);
 				}
 #define UPDATE(PREDIDX, IDX0, IDX1, IDX2, IDX3, IDX4, IDX5, IDX6, IDX7, IDX8, IDX9, IDXA, IDXB, IDXC, IDXD, IDXE)\
 	do\
@@ -496,18 +609,22 @@ static void block_func(void *param)
 				vmax[1]=_mm256_max_epi16(N3, W3);
 				vmin[2]=_mm256_min_epi16(N4, W4);
 				vmax[2]=_mm256_max_epi16(N4, W4);
+				vmin[3]=_mm256_min_epi16(N5, W5);
+				vmax[3]=_mm256_max_epi16(N5, W5);
 #if defined ENABLE_AV9v2 || defined ENABLE_AV4v2 || defined ENABLE_WGB
 				__m256i vmin0[3]=
 				{
 					vmin[0],
 					vmin[1],
 					vmin[2],
+					vmin[3],
 				};
 				__m256i vmax0[3]=
 				{
 					vmax[0],
 					vmax[1],
 					vmax[2],
+					vmax[3],
 				};
 #endif
 #ifdef ENABLE_AV4v2
@@ -518,6 +635,46 @@ static void block_func(void *param)
 #endif
 #ifdef ENABLE_CGv2
 				__m256i cgpred[3];
+#endif
+				
+				//ZERO
+#ifdef ENABLE_ZERO
+				pred=curr;
+				UPDATE(
+					PRED_ZERO,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B
+				);
+				pred=_mm256_sub_epi16(curr, curr2);
+				UPDATE(
+					PRED_ZERO,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR
+				);
+				pred=_mm256_sub_epi16(curr2, curr);
+				UPDATE(
+					PRED_ZERO,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB
+				);
+				pred=_mm256_sub_epi16(curr, curr5);
+				UPDATE(
+					PRED_ZERO,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2
+				);
 #endif
 
 				//N
@@ -591,6 +748,18 @@ static void block_func(void *param)
 					OCH_GR, OCH_BG, OCH_RB,
 					OCH_GR, OCH_BG, OCH_RB,
 					OCH_GR, OCH_BG, OCH_RB
+				);
+				pred=_mm256_add_epi16(W5, curr5);
+				pred=_mm256_max_epi16(pred, amin);
+				pred=_mm256_min_epi16(pred, amax);
+				pred=_mm256_sub_epi16(curr, pred);
+				UPDATE(
+					PRED_W,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2
 				);
 #endif
 
@@ -677,6 +846,20 @@ static void block_func(void *param)
 					OCH_GR, OCH_BG, OCH_RB,
 					OCH_GR, OCH_BG, OCH_RB,
 					OCH_GR, OCH_BG, OCH_RB
+				);
+				pred=NE5;
+
+				pred=_mm256_add_epi16(pred, curr5);
+				pred=_mm256_max_epi16(pred, amin);
+				pred=_mm256_min_epi16(pred, amax);
+				pred=_mm256_sub_epi16(curr, pred);
+				UPDATE(
+					PRED_NE,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2
 				);
 #endif
 
@@ -766,6 +949,20 @@ static void block_func(void *param)
 					OCH_GR, OCH_BG, OCH_RB,
 					OCH_GR, OCH_BG, OCH_RB
 				);
+				pred=_mm256_srai_epi16(_mm256_add_epi16(N5, W5), 1);
+
+				pred=_mm256_add_epi16(pred, curr5);
+				pred=_mm256_max_epi16(pred, amin);
+				pred=_mm256_min_epi16(pred, amax);
+				pred=_mm256_sub_epi16(curr, pred);
+				UPDATE(
+					PRED_AV2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2
+				);
 #endif
 
 				//grad = N+W-NW
@@ -823,7 +1020,7 @@ static void block_func(void *param)
 
 				pred=_mm256_sub_epi16(curr, pred);
 				UPDATE(
-					PRED_Paeth2,
+					PRED_SELECT,
 					OCH_R, OCH_G, OCH_B,
 					OCH_R, OCH_G, OCH_B,
 					OCH_R, OCH_G, OCH_B,
@@ -838,7 +1035,7 @@ static void block_func(void *param)
 				pred=_mm256_min_epi16(pred, amax);
 				pred=_mm256_sub_epi16(curr, pred);
 				UPDATE(
-					PRED_Paeth2,
+					PRED_SELECT,
 					OCH_RG, OCH_GB, OCH_BR,
 					OCH_RG, OCH_GB, OCH_BR,
 					OCH_RG, OCH_GB, OCH_BR,
@@ -853,12 +1050,27 @@ static void block_func(void *param)
 				pred=_mm256_min_epi16(pred, amax);
 				pred=_mm256_sub_epi16(curr2, pred);
 				UPDATE(
-					PRED_Paeth2,
+					PRED_SELECT,
 					OCH_GR, OCH_BG, OCH_RB,
 					OCH_GR, OCH_BG, OCH_RB,
 					OCH_GR, OCH_BG, OCH_RB,
 					OCH_GR, OCH_BG, OCH_RB,
 					OCH_GR, OCH_BG, OCH_RB
+				);
+				pred=_mm256_cmpgt_epi16(_mm256_abs_epi16(_mm256_sub_epi16(N5, NW5)), _mm256_abs_epi16(_mm256_sub_epi16(W5, NW5)));
+				pred=_mm256_blendv_epi8(W5, N5, pred);
+
+				pred=_mm256_add_epi16(pred, curr5);
+				pred=_mm256_max_epi16(pred, amin);
+				pred=_mm256_min_epi16(pred, amax);
+				pred=_mm256_sub_epi16(curr, pred);
+				UPDATE(
+					PRED_SELECT,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2
 				);
 #endif
 
@@ -974,6 +1186,25 @@ static void block_func(void *param)
 					OCH_GR, OCH_BG, OCH_RB,
 					OCH_GR, OCH_BG, OCH_RB
 				);
+				pred=_mm256_sub_epi16(_mm256_add_epi16(N5, W5), NW5);
+#ifdef ENABLE_CGv2
+				cgpred[1]=pred;
+#endif
+				pred=_mm256_max_epi16(pred, vmin[3]);
+				pred=_mm256_min_epi16(pred, vmax[3]);
+
+				pred=_mm256_add_epi16(pred, curr5);
+				pred=_mm256_max_epi16(pred, amin);
+				pred=_mm256_min_epi16(pred, amax);
+				pred=_mm256_sub_epi16(curr, pred);
+				UPDATE(
+					PRED_CG,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2
+				);
 #endif
 				vmin[0]=_mm256_min_epi16(vmin[0], NE);
 				vmax[0]=_mm256_max_epi16(vmax[0], NE);
@@ -981,6 +1212,8 @@ static void block_func(void *param)
 				vmax[1]=_mm256_max_epi16(vmax[1], NE3);
 				vmin[2]=_mm256_min_epi16(vmin[2], NE4);
 				vmax[2]=_mm256_max_epi16(vmax[2], NE4);
+				vmin[3]=_mm256_min_epi16(vmin[3], NE5);
+				vmax[3]=_mm256_max_epi16(vmax[3], NE5);
 
 				//CGv2 = CLAMP(N+W-NW, N,W,NE)
 #ifdef ENABLE_CGv2
@@ -1030,7 +1263,7 @@ static void block_func(void *param)
 					OCH_GR, OCH_BG, OCH_RB
 				);
 #endif
-				
+
 				//AV3 = clamp((5*(N+W)-2*NW)>>3, N,W,NE)
 #ifdef ENABLE_AV3
 				pred=_mm256_add_epi16(N, W);
@@ -1087,6 +1320,25 @@ static void block_func(void *param)
 					OCH_GR, OCH_BG, OCH_RB,
 					OCH_GR, OCH_BG, OCH_RB
 				);
+				pred=_mm256_add_epi16(N5, W5);
+				pred=_mm256_add_epi16(pred, _mm256_slli_epi16(pred, 2));
+				pred=_mm256_sub_epi16(pred, _mm256_slli_epi16(NW5, 1));
+				pred=_mm256_srai_epi16(pred, 3);
+				pred=_mm256_max_epi16(pred, vmin[3]);
+				pred=_mm256_min_epi16(pred, vmax[3]);
+
+				pred=_mm256_add_epi16(pred, curr5);
+				pred=_mm256_max_epi16(pred, amin);
+				pred=_mm256_min_epi16(pred, amax);
+				pred=_mm256_sub_epi16(curr, pred);
+				UPDATE(
+					PRED_AV3,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2
+				);
 #endif
 
 				//IZ = clamp((3*(N+W)-2*NW)>>2, N,W,NE)
@@ -1141,6 +1393,24 @@ static void block_func(void *param)
 					OCH_GR, OCH_BG, OCH_RB,
 					OCH_GR, OCH_BG, OCH_RB,
 					OCH_GR, OCH_BG, OCH_RB
+				);
+				pred=_mm256_add_epi16(N5, W5);
+				pred=_mm256_add_epi16(pred, _mm256_slli_epi16(_mm256_sub_epi16(pred, NW5), 1));
+				pred=_mm256_srai_epi16(pred, 2);
+				pred=_mm256_max_epi16(pred, vmin[3]);
+				pred=_mm256_min_epi16(pred, vmax[3]);
+
+				pred=_mm256_add_epi16(pred, curr5);
+				pred=_mm256_max_epi16(pred, amin);
+				pred=_mm256_min_epi16(pred, amax);
+				pred=_mm256_sub_epi16(curr, pred);
+				UPDATE(
+					PRED_IZ,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2
 				);
 #endif
 
@@ -1208,6 +1478,28 @@ static void block_func(void *param)
 					OCH_GR, OCH_BG, OCH_RB,
 					OCH_GR, OCH_BG, OCH_RB,
 					OCH_GR, OCH_BG, OCH_RB
+				);
+				pred=_mm256_add_epi16(N5, W5);
+				pred=_mm256_slli_epi16(pred, 2);
+				pred=_mm256_add_epi16(pred, _mm256_sub_epi16(NE5, NW5));
+				pred=_mm256_srai_epi16(pred, 3);
+#ifdef ENABLE_AV4v2
+				av4pred[1]=pred;
+#endif
+				pred=_mm256_max_epi16(pred, vmin[3]);
+				pred=_mm256_min_epi16(pred, vmax[3]);
+
+				pred=_mm256_add_epi16(pred, curr5);
+				pred=_mm256_max_epi16(pred, amin);
+				pred=_mm256_min_epi16(pred, amax);
+				pred=_mm256_sub_epi16(curr, pred);
+				UPDATE(
+					PRED_AV4,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2
 				);
 #endif
 
@@ -1319,6 +1611,109 @@ static void block_func(void *param)
 					OCH_GR, OCH_BG, OCH_RB,
 					OCH_GR, OCH_BG, OCH_RB
 				);
+				pred=_mm256_sub_epi16(N5, NW5);
+				pred=_mm256_add_epi16(pred, _mm256_slli_epi16(pred, 2));
+				pred=_mm256_add_epi16(pred, _mm256_sub_epi16(NE5, WW5));
+				pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 3), W5);
+				pred=_mm256_max_epi16(pred, vmin[3]);
+				pred=_mm256_min_epi16(pred, vmax[3]);
+
+				pred=_mm256_add_epi16(pred, curr5);
+				pred=_mm256_max_epi16(pred, amin);
+				pred=_mm256_min_epi16(pred, amax);
+				pred=_mm256_sub_epi16(curr, pred);
+				UPDATE(
+					PRED_AV5,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR
+				);
+#endif
+				
+				//AV6
+				//			-1
+				//		-5	6	1
+				//	-1	8	[?]>>3		clamp(N,W,NE)
+#ifdef ENABLE_AV6
+				pred=_mm256_sub_epi16(N, NW);
+				pred=_mm256_add_epi16(pred, _mm256_slli_epi16(pred, 2));//5*(N-NW)
+				pred=_mm256_add_epi16(pred, _mm256_sub_epi16(NE, WW));//5*(N-NW)+NE-WW
+				pred=_mm256_add_epi16(pred, _mm256_sub_epi16(N, NN));//6*N-5*NW-NN-WW+NE
+				pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 3), W);//W+(6*N-5*NW-NN-WW+NE)/8
+				pred=_mm256_max_epi16(pred, vmin[0]);
+				pred=_mm256_min_epi16(pred, vmax[0]);
+
+				pred=_mm256_sub_epi16(curr, pred);
+				UPDATE(
+					PRED_AV6,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B
+				);
+				pred=_mm256_sub_epi16(N3, NW3);
+				pred=_mm256_add_epi16(pred, _mm256_slli_epi16(pred, 2));//5*(N-NW)
+				pred=_mm256_add_epi16(pred, _mm256_sub_epi16(NE3, WW3));//5*(N-NW)+NE-WW
+				pred=_mm256_add_epi16(pred, _mm256_sub_epi16(N3, NN3));//6*N-5*NW-NN-WW+NE
+				pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 3), W3);//W+(6*N-5*NW-NN-WW+NE)/8
+				pred=_mm256_max_epi16(pred, vmin[1]);
+				pred=_mm256_min_epi16(pred, vmax[1]);
+
+				pred=_mm256_add_epi16(pred, curr2);
+				pred=_mm256_max_epi16(pred, amin);
+				pred=_mm256_min_epi16(pred, amax);
+				pred=_mm256_sub_epi16(curr, pred);
+				UPDATE(
+					PRED_AV6,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR
+				);
+				pred=_mm256_sub_epi16(N4, NW4);
+				pred=_mm256_add_epi16(pred, _mm256_slli_epi16(pred, 2));//5*(N-NW)
+				pred=_mm256_add_epi16(pred, _mm256_sub_epi16(NE4, WW4));//5*(N-NW)+NE-WW
+				pred=_mm256_add_epi16(pred, _mm256_sub_epi16(N4, NN4));//6*N-5*NW-NN-WW+NE
+				pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 3), W4);//W+(6*N-5*NW-NN-WW+NE)/8
+				pred=_mm256_max_epi16(pred, vmin[2]);
+				pred=_mm256_min_epi16(pred, vmax[2]);
+
+				pred=_mm256_add_epi16(pred, curr);
+				pred=_mm256_max_epi16(pred, amin);
+				pred=_mm256_min_epi16(pred, amax);
+				pred=_mm256_sub_epi16(curr2, pred);
+				UPDATE(
+					PRED_AV6,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB
+				);
+				pred=_mm256_sub_epi16(N5, NW5);
+				pred=_mm256_add_epi16(pred, _mm256_slli_epi16(pred, 2));//5*(N-NW)
+				pred=_mm256_add_epi16(pred, _mm256_sub_epi16(NE5, WW5));//5*(N-NW)+NE-WW
+				pred=_mm256_add_epi16(pred, _mm256_sub_epi16(N5, NN5));//6*N-5*NW-NN-WW+NE
+				pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 3), W5);//W+(6*N-5*NW-NN-WW+NE)/8
+				pred=_mm256_max_epi16(pred, vmin[3]);
+				pred=_mm256_min_epi16(pred, vmax[3]);
+
+				pred=_mm256_add_epi16(pred, curr5);
+				pred=_mm256_max_epi16(pred, amin);
+				pred=_mm256_min_epi16(pred, amax);
+				pred=_mm256_sub_epi16(curr, pred);
+				UPDATE(
+					PRED_AV6,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2
+				);
 #endif
 				
 				//AV9
@@ -1398,6 +1793,30 @@ static void block_func(void *param)
 					OCH_GR, OCH_BG, OCH_RB,
 					OCH_GR, OCH_BG, OCH_RB
 				);
+				pred=_mm256_add_epi16(N5, _mm256_slli_epi16(N5, 2));
+				pred=_mm256_sub_epi16(pred, _mm256_add_epi16(NN5, WW5));
+				pred=_mm256_add_epi16(pred, _mm256_slli_epi16(NE5, 1));
+				pred=_mm256_sub_epi16(_mm256_slli_epi16(pred, 1), _mm256_add_epi16(_mm256_slli_epi16(NW5, 3), NW5));
+				pred=_mm256_add_epi16(pred, _mm256_sub_epi16(NNW5, _mm256_add_epi16(NNE5, NWW5)));
+				pred=_mm256_add_epi16(W5, _mm256_srai_epi16(pred, 4));
+#ifdef ENABLE_AV9v2
+				av9pred[1]=pred;
+#endif
+				pred=_mm256_max_epi16(pred, vmin[3]);
+				pred=_mm256_min_epi16(pred, vmax[3]);
+
+				pred=_mm256_add_epi16(pred, curr5);
+				pred=_mm256_max_epi16(pred, amin);
+				pred=_mm256_min_epi16(pred, amax);
+				pred=_mm256_sub_epi16(curr, pred);
+				UPDATE(
+					PRED_AV9,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2
+				);
 #endif
 				
 				//AV9v2
@@ -1468,6 +1887,231 @@ static void block_func(void *param)
 					OCH_GR, OCH_BG, OCH_RB,
 					OCH_GR, OCH_BG, OCH_RB
 				);
+#endif
+
+				//AV11 = clamp((
+				//	+4*NNWW	+3*NNW	-31*NN	-38*NNE
+				//	+7*NWW	-158*NW	+219*N	+30*NE	+19*NEE
+				//	-42*WW	+243*W
+				//+128)>>8, N,W,NE)
+				//
+				//at analysis:
+				//AV11 = clamp((
+				//			-2*NN	-2*NNE
+				//		-10*NW	+14*N	+2*NE	+1*NEE
+				//	-3*WW	+16*W
+				//)>>4, N,W,NE)
+#ifdef ENABLE_AV11
+				{
+					__m256i threeW, t0, t1;
+					
+					//			-2	-2
+					//		-8-2	16-2	+2	+1
+					//	-2-1	+16	?
+					threeW=_mm256_add_epi16(W, _mm256_srai_epi16(W, 1));
+					pred=_mm256_add_epi16(W, NEE);
+					pred=_mm256_add_epi16(pred, NN);
+					pred=_mm256_sub_epi16(pred, NNW);
+					pred=_mm256_sub_epi16(pred, NWW);
+					pred=_mm256_add_epi16(pred, threeW);
+					t0=_mm256_add_epi16(W, NW);
+					t0=_mm256_sub_epi16(t0, NE);
+					t0=_mm256_sub_epi16(t0, NNE);
+					t0=_mm256_add_epi16(t0, NEE);
+					t0=_mm256_sub_epi16(t0, NNW);
+					t0=_mm256_add_epi16(t0, WW);
+					t1=_mm256_add_epi16(NNWW, NNE);
+					pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 1), t0);	//	pred/128
+					t0=_mm256_add_epi16(WW, NWW);
+					t0=_mm256_add_epi16(t0, threeW);
+					pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 1), t1);	//	pred/64
+					t1=_mm256_sub_epi16(NEE, W);
+					pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 1), t0);	//	pred/32
+					t0=_mm256_add_epi16(NN, NNE);
+					t0=_mm256_add_epi16(t0, NW);
+					t0=_mm256_add_epi16(t0, WW);
+					t0=_mm256_sub_epi16(NE, t0);
+					pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 1), t1);		//	pred/16
+					pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 1), t0);		//	pred/8
+					pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 1), threeW);	//	pred/4
+					pred=_mm256_sub_epi16(_mm256_srai_epi16(pred, 1), NW);		//	pred/2
+					pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 1), W);		//	pred/1
+
+					//pred=_mm256_add_epi16(N, W);
+					//pred=_mm256_sub_epi16(_mm256_slli_epi16(pred, 1), NW);
+					//t0=_mm256_add_epi16(NW, N);
+					//t1=_mm256_add_epi16(NN, NNE);
+					//t0=_mm256_sub_epi16(NE, t0);
+					//t1=_mm256_add_epi16(t1, WW);
+					//pred=_mm256_add_epi16(_mm256_slli_epi16(pred, 2), _mm256_sub_epi16(t0, t1));
+					//pred=_mm256_add_epi16(_mm256_slli_epi16(pred, 1), _mm256_sub_epi16(NEE, WW));
+					pred=_mm256_max_epi16(pred, vmin[0]);
+					pred=_mm256_min_epi16(pred, vmax[0]);
+
+					pred=_mm256_sub_epi16(curr, pred);
+					UPDATE(
+						PRED_AV11,
+						OCH_R, OCH_G, OCH_B,
+						OCH_R, OCH_G, OCH_B,
+						OCH_R, OCH_G, OCH_B,
+						OCH_R, OCH_G, OCH_B,
+						OCH_R, OCH_G, OCH_B
+					);
+					threeW=_mm256_add_epi16(W3, _mm256_srai_epi16(W3, 1));
+					pred=_mm256_add_epi16(W3, NEE3);
+					pred=_mm256_add_epi16(pred, NN3);
+					pred=_mm256_sub_epi16(pred, NNW3);
+					pred=_mm256_sub_epi16(pred, NWW3);
+					pred=_mm256_add_epi16(pred, threeW);
+					t0=_mm256_add_epi16(W3, NW3);
+					t0=_mm256_sub_epi16(t0, NE3);
+					t0=_mm256_sub_epi16(t0, NNE3);
+					t0=_mm256_add_epi16(t0, NEE3);
+					t0=_mm256_sub_epi16(t0, NNW3);
+					t0=_mm256_add_epi16(t0, WW3);
+					t1=_mm256_add_epi16(NNWW3, NNE3);
+					pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 1), t0);
+					t0=_mm256_add_epi16(WW3, NWW3);
+					t0=_mm256_add_epi16(t0, threeW);
+					pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 1), t1);
+					t1=_mm256_sub_epi16(NEE3, W3);
+					pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 1), t0);
+					t0=_mm256_add_epi16(NN3, NNE3);
+					t0=_mm256_add_epi16(t0, NW3);
+					t0=_mm256_add_epi16(t0, WW3);
+					t0=_mm256_sub_epi16(NE3, t0);
+					pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 1), t1);
+					pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 1), t0);
+					pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 1), threeW);
+					pred=_mm256_sub_epi16(_mm256_srai_epi16(pred, 1), NW3);
+					pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 1), W3);
+
+					//pred=_mm256_add_epi16(N3, W3);
+					//pred=_mm256_sub_epi16(_mm256_slli_epi16(pred, 1), NW3);
+					//t0=_mm256_add_epi16(NW3, N3);
+					//t1=_mm256_add_epi16(NN3, NNE3);
+					//t0=_mm256_sub_epi16(NE3, t0);
+					//t1=_mm256_add_epi16(t1, WW3);
+					//pred=_mm256_add_epi16(_mm256_slli_epi16(pred, 2), _mm256_sub_epi16(t0, t1));
+					//pred=_mm256_add_epi16(_mm256_slli_epi16(pred, 1), _mm256_sub_epi16(NEE3, WW3));
+					pred=_mm256_max_epi16(pred, vmin[1]);
+					pred=_mm256_min_epi16(pred, vmax[1]);
+
+					pred=_mm256_add_epi16(pred, curr2);
+					pred=_mm256_max_epi16(pred, amin);
+					pred=_mm256_min_epi16(pred, amax);
+					pred=_mm256_sub_epi16(curr, pred);
+					UPDATE(
+						PRED_AV11,
+						OCH_RG, OCH_GB, OCH_BR,
+						OCH_RG, OCH_GB, OCH_BR,
+						OCH_RG, OCH_GB, OCH_BR,
+						OCH_RG, OCH_GB, OCH_BR,
+						OCH_RG, OCH_GB, OCH_BR
+					);
+					threeW=_mm256_add_epi16(W4, _mm256_srai_epi16(W4, 1));
+					pred=_mm256_add_epi16(W4, NEE4);
+					pred=_mm256_add_epi16(pred, NN4);
+					pred=_mm256_sub_epi16(pred, NNW4);
+					pred=_mm256_sub_epi16(pred, NWW4);
+					pred=_mm256_add_epi16(pred, threeW);
+					t0=_mm256_add_epi16(W4, NW4);
+					t0=_mm256_sub_epi16(t0, NE4);
+					t0=_mm256_sub_epi16(t0, NNE4);
+					t0=_mm256_add_epi16(t0, NEE4);
+					t0=_mm256_sub_epi16(t0, NNW4);
+					t0=_mm256_add_epi16(t0, WW4);
+					t1=_mm256_add_epi16(NNWW4, NNE4);
+					pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 1), t0);
+					t0=_mm256_add_epi16(WW4, NWW4);
+					t0=_mm256_add_epi16(t0, threeW);
+					pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 1), t1);
+					t1=_mm256_sub_epi16(NEE4, W4);
+					pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 1), t0);
+					t0=_mm256_add_epi16(NN4, NNE4);
+					t0=_mm256_add_epi16(t0, NW4);
+					t0=_mm256_add_epi16(t0, WW4);
+					t0=_mm256_sub_epi16(NE4, t0);
+					pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 1), t1);
+					pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 1), t0);
+					pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 1), threeW);
+					pred=_mm256_sub_epi16(_mm256_srai_epi16(pred, 1), NW4);
+					pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 1), W4);
+					//pred=_mm256_add_epi16(N4, W4);
+					//pred=_mm256_sub_epi16(_mm256_slli_epi16(pred, 1), NW4);
+					//t0=_mm256_add_epi16(NW4, N4);
+					//t1=_mm256_add_epi16(NN4, NNE4);
+					//t0=_mm256_sub_epi16(NE4, t0);
+					//t1=_mm256_add_epi16(t1, WW4);
+					//pred=_mm256_add_epi16(_mm256_slli_epi16(pred, 2), _mm256_sub_epi16(t0, t1));
+					//pred=_mm256_add_epi16(_mm256_slli_epi16(pred, 1), _mm256_sub_epi16(NEE4, WW4));
+					pred=_mm256_max_epi16(pred, vmin[2]);
+					pred=_mm256_min_epi16(pred, vmax[2]);
+
+					pred=_mm256_add_epi16(pred, curr);
+					pred=_mm256_max_epi16(pred, amin);
+					pred=_mm256_min_epi16(pred, amax);
+					pred=_mm256_sub_epi16(curr2, pred);
+					UPDATE(
+						PRED_AV11,
+						OCH_GR, OCH_BG, OCH_RB,
+						OCH_GR, OCH_BG, OCH_RB,
+						OCH_GR, OCH_BG, OCH_RB,
+						OCH_GR, OCH_BG, OCH_RB,
+						OCH_GR, OCH_BG, OCH_RB
+					);
+					threeW=_mm256_add_epi16(W5, _mm256_srai_epi16(W5, 1));
+					pred=_mm256_add_epi16(W5, NEE5);
+					pred=_mm256_add_epi16(pred, NN5);
+					pred=_mm256_sub_epi16(pred, NNW5);
+					pred=_mm256_sub_epi16(pred, NWW5);
+					pred=_mm256_add_epi16(pred, threeW);
+					t0=_mm256_add_epi16(W5, NW5);
+					t0=_mm256_sub_epi16(t0, NE5);
+					t0=_mm256_sub_epi16(t0, NNE5);
+					t0=_mm256_add_epi16(t0, NEE5);
+					t0=_mm256_sub_epi16(t0, NNW5);
+					t0=_mm256_add_epi16(t0, WW5);
+					t1=_mm256_add_epi16(NNWW5, NNE5);
+					pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 1), t0);
+					t0=_mm256_add_epi16(WW5, NWW5);
+					t0=_mm256_add_epi16(t0, threeW);
+					pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 1), t1);
+					t1=_mm256_sub_epi16(NEE, W5);
+					pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 1), t0);
+					t0=_mm256_add_epi16(NN5, NNE5);
+					t0=_mm256_add_epi16(t0, NW5);
+					t0=_mm256_add_epi16(t0, WW5);
+					t0=_mm256_sub_epi16(NE5, t0);
+					pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 1), t1);
+					pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 1), t0);
+					pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 1), threeW);
+					pred=_mm256_sub_epi16(_mm256_srai_epi16(pred, 1), NW5);
+					pred=_mm256_add_epi16(_mm256_srai_epi16(pred, 1), W5);
+					//pred=_mm256_add_epi16(N5, W5);
+					//pred=_mm256_sub_epi16(_mm256_slli_epi16(pred, 1), NW5);
+					//t0=_mm256_add_epi16(NW5, N5);
+					//t1=_mm256_add_epi16(NN5, NNE5);
+					//t0=_mm256_sub_epi16(NE5, t0);
+					//t1=_mm256_add_epi16(t1, WW5);
+					//pred=_mm256_add_epi16(_mm256_slli_epi16(pred, 2), _mm256_sub_epi16(t0, t1));
+					//pred=_mm256_add_epi16(_mm256_slli_epi16(pred, 1), _mm256_sub_epi16(NEE5, WW5));
+					pred=_mm256_max_epi16(pred, vmin[3]);
+					pred=_mm256_min_epi16(pred, vmax[3]);
+
+					pred=_mm256_add_epi16(pred, curr5);
+					pred=_mm256_max_epi16(pred, amin);
+					pred=_mm256_min_epi16(pred, amax);
+					pred=_mm256_sub_epi16(curr, pred);
+					UPDATE(
+						PRED_AV11,
+						OCH_R2, OCH_G2, OCH_B2,
+						OCH_R2, OCH_G2, OCH_B2,
+						OCH_R2, OCH_G2, OCH_B2,
+						OCH_R2, OCH_G2, OCH_B2,
+						OCH_R2, OCH_G2, OCH_B2
+					);
+				}
 #endif
 				
 				//WG
@@ -1545,6 +2189,28 @@ static void block_func(void *param)
 						OCH_GR, OCH_BG, OCH_RB,
 						OCH_GR, OCH_BG, OCH_RB,
 						OCH_GR, OCH_BG, OCH_RB
+					);
+					gx=_mm256_abs_epi16(_mm256_sub_epi16(W5, WW5));
+					gy=_mm256_abs_epi16(_mm256_sub_epi16(W5, NW5));
+					gx=_mm256_add_epi16(gx, _mm256_abs_epi16(_mm256_sub_epi16(N5, NW5)));
+					gy=_mm256_add_epi16(gy, _mm256_abs_epi16(_mm256_sub_epi16(N5, NN5)));
+					gx=_mm256_add_epi16(gx, _mm256_abs_epi16(_mm256_sub_epi16(NE5, N5)));
+					gy=_mm256_add_epi16(gy, _mm256_abs_epi16(_mm256_sub_epi16(NE5, NNE5)));
+					gx=_mm256_add_epi16(gx, _mm256_set1_epi16(1));
+					gy=_mm256_add_epi16(gy, _mm256_set1_epi16(1));
+					MIX2_16x16(pred, N5, W5, gx, gy);
+
+					pred=_mm256_add_epi16(pred, curr5);
+					pred=_mm256_max_epi16(pred, amin);
+					pred=_mm256_min_epi16(pred, amax);
+					pred=_mm256_sub_epi16(curr, pred);
+					UPDATE(
+						PRED_WG,
+						OCH_R2, OCH_G2, OCH_B2,
+						OCH_R2, OCH_G2, OCH_B2,
+						OCH_R2, OCH_G2, OCH_B2,
+						OCH_R2, OCH_G2, OCH_B2,
+						OCH_R2, OCH_G2, OCH_B2
 					);
 				}
 #endif
@@ -1932,19 +2598,41 @@ static void block_func(void *param)
 		if(csizes[combination[2]*PRED_COUNT+predidx[2]]<0.1*count)predidx[2]=PRED_CG;
 #endif
 		args->bestsize=bestsize;
+#ifdef ENABLE_GR
+		entropylevels[0]=(int)(csizes[combination[0]*PRED_COUNT+predidx[0]]*gain*255);
+		entropylevels[1]=(int)(csizes[combination[1]*PRED_COUNT+predidx[1]]*gain*255);
+		entropylevels[2]=(int)(csizes[combination[2]*PRED_COUNT+predidx[2]]*gain*255);
+		CLAMP2(entropylevels[0], 0, 255);
+		CLAMP2(entropylevels[1], 0, 255);
+		CLAMP2(entropylevels[2], 0, 255);
+#else
 		entropylevel=(int)((
 			csizes[combination[0]*PRED_COUNT+predidx[0]]+
 			csizes[combination[1]*PRED_COUNT+predidx[1]]+
 			csizes[combination[2]*PRED_COUNT+predidx[2]]
 		)*gain*(100/3.));//percent
 		CLAMP2(entropylevel, 0, 99);
+#endif
 	skip_analysis:
 		{
 			int prevblockidx=args->blockidx-args->b1-1;
 			ac3_encbuf_init(&ec, args->enctokenbuf+(prevblockidx>=0?args->enctokenoffsets[prevblockidx]:0), args->enctokenbuf+args->encbufsize);
+#ifdef ENABLE_GR
+			gr_enc_init(&gr, args->encbypassbuf+(prevblockidx>=0?args->encbypassoffsets[prevblockidx]:0), args->encbypassbuf+args->encbufsize);
+#else
 			bypass_encbuf_init(&bc, args->encbypassbuf+(prevblockidx>=0?args->encbypassoffsets[prevblockidx]:0), args->encbypassbuf+args->encbufsize);
+#endif
 		}
+#ifdef ENABLE_GR
+		gr_enc_bypass(&gr, entropylevels[0], 8);
+		gr_enc_bypass(&gr, entropylevels[1], 8);
+		gr_enc_bypass(&gr, entropylevels[2], 8);
+		//ac3_enc_bypass(&ec, entropylevels[0], 8);
+		//ac3_enc_bypass(&ec, entropylevels[1], 8);
+		//ac3_enc_bypass(&ec, entropylevels[2], 8);
+#else
 		ac3_encbuf_bypass_NPOT(&ec, entropylevel, 100);
+#endif
 		ac3_encbuf_bypass_NPOT(&ec, bestrct, RCT_COUNT);
 		ac3_encbuf_bypass_NPOT(&ec, predidx[0], PRED_COUNT);
 		ac3_encbuf_bypass_NPOT(&ec, predidx[1], PRED_COUNT);
@@ -1998,18 +2686,47 @@ static void block_func(void *param)
 	else//decode header
 	{
 		ac3_dec_init(&ec, args->decstream+(args->blockidx>0?args->decoffsets[args->blockidx-1]:0), args->decstream+args->decoffsets[args->blockidx]);
+#ifdef ENABLE_GR
+		gr_dec_init(&gr, args->decstream+args->decoffsets[args->nblocks+args->blockidx-1], args->decstream+args->decoffsets[args->nblocks+args->blockidx]);
+		entropylevels[0]=gr_dec_bypass(&gr, 8);
+		entropylevels[1]=gr_dec_bypass(&gr, 8);
+		entropylevels[2]=gr_dec_bypass(&gr, 8);
+		//entropylevels[0]=ac3_dec_bypass(&ec, 8);
+		//entropylevels[1]=ac3_dec_bypass(&ec, 8);
+		//entropylevels[2]=ac3_dec_bypass(&ec, 8);
+#else
 		bypass_decbuf_init(&bc, args->decstream+args->decoffsets[args->nblocks+args->blockidx-1], args->decstream+args->decoffsets[args->nblocks+args->blockidx]);
 		entropylevel=ac3_dec_bypass_NPOT(&ec, 100);
+#endif
 		bestrct=ac3_dec_bypass_NPOT(&ec, RCT_COUNT);
 		combination=rct_combinations[bestrct];
 		predidx[0]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
 		predidx[1]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
 		predidx[2]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
 	}
+#ifdef ENABLE_GR
+	for(int k=0;k<3;++k)
+	{
+		if(entropylevels[k]>53)	entropyidx[k]=4;
+		//if(entropylevels[k]>96)		entropyidx[k]=4;
+	//	else if(entropylevels[k]>64)	entropyidx[k]=3;
+		else if(entropylevels[k]>43)	entropyidx[k]=2;
+		else if(entropylevels[k]>25)	entropyidx[k]=1;
+		else				entropyidx[k]=0;
+	}
+	int shiftgains[]=//up to 640, with blocksize 512, counters should not exceed 0xA000000
+	{
+		(entropylevels[0]*entropylevels[0]>>4)+15,
+		(entropylevels[1]*entropylevels[1]>>4)+15,
+		(entropylevels[2]*entropylevels[2]>>4)+15,
+	};
+#else
 	if(entropylevel>25)		entropyidx=3;
 	else if(entropylevel>17)	entropyidx=2;
 	else if(entropylevel>10)	entropyidx=1;
 	else				entropyidx=0;
+	int shiftgain=(entropylevel*entropylevel>>4)+15;//up to 640, with blocksize 512, counters should not exceed 0xA000000
+#endif
 #if 0
 	predidx[0]=PRED_CG;//synth2 0.8% smaller
 	predidx[1]=PRED_CG;
@@ -2018,8 +2735,42 @@ static void block_func(void *param)
 	//predidx[1]=PRED_WG;
 	//predidx[2]=PRED_WG;
 #endif
-	int shiftgain=(entropylevel*entropylevel>>4)+15;
 	unsigned *histptr=(unsigned*)args->hist;
+#if defined ENABLE_ZERO
+	int disable_quant=0;
+	if(predidx[0]==PRED_ZERO||predidx[1]==PRED_ZERO||predidx[2]==PRED_ZERO)
+	{
+		disable_quant=1;
+		//predidx[0]=PRED_ZERO;
+		//predidx[1]=PRED_ZERO;
+		//predidx[2]=PRED_ZERO;
+	}
+//#ifdef ENABLE_SELECT
+//	if(predidx[0]==PRED_SELECT||predidx[1]==PRED_SELECT||predidx[2]==PRED_SELECT)
+//		disable_quant=1;
+//#endif
+	for(int kc=0;kc<3;++kc)
+	{
+		unsigned *curr_hist=histptr+ELEVELS*CLEVELS*cdfstride*kc;
+		//if(predidx[kc]==PRED_ZERO)
+		if(disable_quant)
+		{
+			for(int ks=0;ks<258;++ks)
+			{
+				curr_hist[ks]=(unsigned)(ks*((((1LL<<PROB_BITS)-257)<<PROB_EBITS) / 257));
+				//if(ks==257)//
+				//	printf("");
+			}
+			memfill(curr_hist+258, curr_hist, sizeof(int[ELEVELS*258-258]), sizeof(int[258]));
+		}
+		else
+		{
+			for(int ks=0;ks<cdfstride;++ks)
+				curr_hist[ks]=(unsigned)((ks*((1LL<<PROB_BITS)-args->tlevels)<<PROB_EBITS)/args->tlevels);
+			memfill(curr_hist+cdfstride, curr_hist, (sizeof(int[ELEVELS*CLEVELS])-sizeof(int))*cdfstride, sizeof(int)*cdfstride);
+		}
+	}
+#else
 	for(int ks=0;ks<cdfstride;++ks)
 	{
 		histptr[ks]=(unsigned)((ks*((1LL<<PROB_BITS)-args->tlevels)<<PROB_EBITS)/args->tlevels);
@@ -2030,6 +2781,7 @@ static void block_func(void *param)
 	}
 	//histptr[cdfstride-1]=((1LL<<PROB_BITS)-args->tlevels)<<PROB_EBITS;
 	memfill(histptr+cdfstride, histptr, args->histsize-cdfstride*sizeof(int), cdfstride*sizeof(int));
+#endif
 	*(int*)args->ctxctrs=1;
 	memfill((int*)args->ctxctrs+1, args->ctxctrs, sizeof(args->ctxctrs)-sizeof(int), sizeof(int));
 #ifdef SIMD_PREDS
@@ -2073,30 +2825,66 @@ static void block_func(void *param)
 	);
 #endif
 #endif
+	//int ysh=combination[3+0];
+	//int ush=combination[3+1];
+	//int vsh=combination[3+2];
+	//__m128i shufload=_mm_set_epi8(
+	//	-1, -1, -1, -1,
+	//	-1, -1, -1, combination[3+2],
+	//	-1, -1, -1, combination[3+1],
+	//	-1, -1, -1, combination[3+0]
+	//);
+	//int invpermutation[3]={0};
+	//invpermutation[combination[3+0]]=0*4;
+	//invpermutation[combination[3+1]]=1*4;
+	//invpermutation[combination[3+2]]=2*4;
+	//__m128i shufstore=_mm_set_epi8(
+	//	-1, -1, -1, -1,
+	//	-1, -1, -1, -1,
+	//	-1, -1, -1, -1,
+	//	-1, invpermutation[2], invpermutation[1], invpermutation[0]
+	//);
+	//__m128i mhalf=_mm_set_epi32(0, 128, 128, 128);
 	int paddedblockwidth=args->x2-args->x1+16;
 	memset(args->pixels, 0, args->bufsize);
 	for(int ky=args->y1;ky<args->y2;++ky)//codec loop
 	{
 		ALIGN(32) short *rows[]=
 		{
-			args->pixels+(paddedblockwidth*((ky-0LL)&3)+8LL)*4*2,
-			args->pixels+(paddedblockwidth*((ky-1LL)&3)+8LL)*4*2,
-			args->pixels+(paddedblockwidth*((ky-2LL)&3)+8LL)*4*2,
-			args->pixels+(paddedblockwidth*((ky-3LL)&3)+8LL)*4*2,
+			args->pixels+(paddedblockwidth*((ky-0LL)&3)+8LL)*4*4,
+			args->pixels+(paddedblockwidth*((ky-1LL)&3)+8LL)*4*4,
+			args->pixels+(paddedblockwidth*((ky-2LL)&3)+8LL)*4*4,
+			args->pixels+(paddedblockwidth*((ky-3LL)&3)+8LL)*4*4,
 		};
-		int yuv[4]={0};
-		int *helpers[3]=
+		ALIGN(16) int yuv[4]={0};
+		int helpcoeffs[]=
 		{
-			yuv+combination[6+0],
-			yuv+combination[6+1],
-			yuv+combination[6+2],
+			0,
+			combination[II_HELP_U],
+			combination[II_HELP_V0],
+
+			0,
+			0,
+			combination[II_HELP_V1],
 		};
+		//int *helpers[3]=
+		//{
+		//	yuv+combination[6+0],
+		//	yuv+combination[6+1],
+		//	yuv+combination[6+2],
+		//};
 		int token=0, bypass=0, nbits=0;
 		int pred=0, error=0, sym=0;
-		int yidx=3*(args->iw*ky+args->x1)+combination[3+0];
-		int uidx=3*(args->iw*ky+args->x1)+combination[3+1];
-		int vidx=3*(args->iw*ky+args->x1)+combination[3+2];
-		ALIGN(16) short regW[12]={0};
+		const unsigned char *srcptr=args->fwd?args->src+3*(args->iw*ky+args->x1):0;
+		unsigned char *dstptr=args->fwd?0:args->dst+3*(args->iw*ky+args->x1);
+		int yidx=combination[II_PERM_Y];
+		int uidx=combination[II_PERM_U];
+		int vidx=combination[II_PERM_V];
+		//int idx=3*(args->iw*ky+args->x1);
+		//int yidx=3*(args->iw*ky+args->x1)+combination[3+0];
+		//int uidx=3*(args->iw*ky+args->x1)+combination[3+1];
+		//int vidx=3*(args->iw*ky+args->x1)+combination[3+2];
+		ALIGN(16) short regW[16]={0};
 		ALIGN(16) short preds[8]={0};
 		ALIGN(16) int grads[8]={0};
 		//ALIGN(16) char apred8[16];
@@ -2113,23 +2901,30 @@ static void block_func(void *param)
 		int *ctxctrs[12]={0};
 		unsigned *cdfptrs[12]={0};
 		const unsigned *mixinptrs[3]={0};
+#ifdef ENABLE_ZERO
+		int syms[3]={0};
+#endif
 #if defined SIMD_CTX || defined SIMD_PREDS
 		__m128i
 			mNNW	=_mm_setzero_si128(),
-			mNN	=_mm_loadu_si128((__m128i*)(rows[2]+0*4*2)),
-			mNNE	=_mm_loadu_si128((__m128i*)(rows[2]+1*4*2)),
+			mNN	=_mm_loadu_si128((__m128i*)(rows[2]+0*4*4)),
+			mNNE	=_mm_loadu_si128((__m128i*)(rows[2]+1*4*4)),
 			mNWW	=_mm_setzero_si128(),
 			mNW	=_mm_setzero_si128(),
-			mN	=_mm_loadu_si128((__m128i*)(rows[1]+0*4*2)),
-			mNE	=_mm_loadu_si128((__m128i*)(rows[1]+1*4*2)),
-			mNEE	=_mm_loadu_si128((__m128i*)(rows[1]+2*4*2)),
+			mN	=_mm_loadu_si128((__m128i*)(rows[1]+0*4*4)),
+			mNE	=_mm_loadu_si128((__m128i*)(rows[1]+1*4*4)),
+			mNEE	=_mm_loadu_si128((__m128i*)(rows[1]+2*4*4)),
 			mWW	=_mm_setzero_si128(),
 			mW	=_mm_setzero_si128();
 		(void)mNNW;
 		(void)mNWW;
 #endif
-		for(int kx=args->x1;kx<args->x2;++kx, yidx+=3, uidx+=3, vidx+=3)
+		//for(int kx0=args->x2-args->x1;kx0--;yidx+=3, uidx+=3, vidx+=3)
+		for(int kx0=args->x2-args->x1;kx0--;)
 		{
+#ifdef _DEBUG
+			int kx=args->x2-1-kx0;
+#endif
 #ifdef SIMD_CTX
 			__m128i msum=_mm_add_epi16(mN, mW);
 			//__m128i mqp=_mm_add_epi16(msum, _mm_slli_epi16(_mm_sub_epi16(msum, mNW), 1));
@@ -2153,17 +2948,22 @@ static void block_func(void *param)
 #endif
 #ifndef SIMD_PREDS
 			short
-				*NNW	=rows[2]-1*4*2,
-				*NN	=rows[2]+0*4*2,
-				*NNE	=rows[2]+1*4*2,
-				*NWW	=rows[1]-2*4*2,
-				*NW	=rows[1]-1*4*2,
-				*N	=rows[1]+0*4*2,
-				*NE	=rows[1]+1*4*2,
-			//	*NEE	=rows[1]+2*4*2,
-				*WW	=rows[0]-2*4*2,
-			//	*W	=rows[0]-1*4*2,
-				*curr	=rows[0]+0*4*2;
+			//	*NNWW	=rows[2]-2*4*4,
+				*NNW	=rows[2]-1*4*4,
+				*NN	=rows[2]+0*4*4,
+				*NNE	=rows[2]+1*4*4,
+				*NWW	=rows[1]-2*4*4,
+				*NW	=rows[1]-1*4*4,
+				*N	=rows[1]+0*4*4,
+				*NE	=rows[1]+1*4*4,
+#ifdef ENABLE_GR
+				*NEE	=rows[1]+2*4*4,
+				*NEEE	=rows[1]+3*4*4,
+				*WWW	=rows[0]-3*4*4,
+#endif
+				*WW	=rows[0]-2*4*4,
+			//	*W	=rows[0]-1*4*4,
+				*curr	=rows[0]+0*4*4;
 #if defined __GNUC__ && !defined PROFILER
 #pragma GCC unroll 3
 #endif
@@ -2171,6 +2971,11 @@ static void block_func(void *param)
 			{
 				switch(predidx[kc])
 				{
+#ifdef ENABLE_ZERO
+				case PRED_ZERO:
+					pred=0;
+					break;
+#endif
 #ifdef ENABLE_N
 				case PRED_N:
 					pred=N[kc];
@@ -2192,7 +2997,7 @@ static void block_func(void *param)
 					break;
 #endif
 #ifdef ENABLE_SELECT
-				case PRED_Paeth2:
+				case PRED_SELECT:
 					pred=abs(regW[kc]-NW[kc])<=abs(N[kc]-NW[kc])?N[kc]:regW[kc];
 					break;
 #endif
@@ -2285,6 +3090,14 @@ static void block_func(void *param)
 					);
 					break;
 #endif
+#ifdef ENABLE_AV6
+				case PRED_AV6:
+					CLAMP3_32(pred,
+						regW[kc]+((6*N[kc]-5*NW[kc]-NN[kc]-WW[kc]+NE[kc])>>3),
+						N[kc], regW[kc], NE[kc]
+					);
+					break;
+#endif
 #ifdef ENABLE_AV9
 				case PRED_AV9:
 					CLAMP3_32(pred,
@@ -2307,6 +3120,16 @@ static void block_func(void *param)
 					MEDIAN3_32(pred,
 						regW[kc]+((10*N[kc]-9*NW[kc]+4*NE[kc]-2*(NN[kc]+WW[kc])+NNW[kc]-(NNE[kc]+NWW[kc]))>>4),
 						N[kc], regW[kc]
+					);
+					break;
+#endif
+#ifdef ENABLE_AV11
+				case PRED_AV11:
+					CLAMP3_32(pred, (
+						+4*NNWW[kc]	-3*NNW[kc]	-31*NN[kc]	-38*NNE[kc]
+						+7*NWW[kc]	-158*NW[kc]	+219*N[kc]	+30*NE[kc]	+19*NEE[kc]
+						-42*WW[kc]	+243*regW[kc]
+						+128)>>8, N[kc], regW[kc], NE[kc]
 					);
 					break;
 #endif
@@ -2447,9 +3270,25 @@ static void block_func(void *param)
 #endif
 			if(args->fwd)
 			{
-				yuv[0]=args->src[yidx]-128;
-				yuv[1]=args->src[uidx]-128;
-				yuv[2]=args->src[vidx]-128;
+				yuv[0]=srcptr[yidx]-128;
+				yuv[1]=srcptr[uidx]-128;
+				yuv[2]=srcptr[vidx]-128;
+				srcptr+=3;
+
+				//unsigned rgb=*(unsigned*)(args->src+idx);
+				//rgb^=0x00808080;
+				//yuv[0]=(char)(rgb>>ysh);
+				//yuv[1]=(char)(rgb>>ush);
+				//yuv[2]=(char)(rgb>>vsh);
+
+				//__m128i rgb=_mm_set_epi32(0, 0, 0, *(unsigned*)(args->src+idx));
+				//rgb=_mm_shuffle_epi8(rgb, shufload);
+				//rgb=_mm_sub_epi32(rgb, mhalf);
+				//_mm_store_si128((__m128i*)yuv, rgb);
+
+				//yuv[0]=args->src[yidx]-128;
+				//yuv[1]=args->src[uidx]-128;
+				//yuv[2]=args->src[vidx]-128;
 			}
 #if defined __GNUC__ && !defined PROFILER
 #pragma GCC unroll 3
@@ -2489,7 +3328,9 @@ static void block_func(void *param)
 				}
 				else
 				{
-					__m128i mhelp=_mm_set_epi32(0, 0, 0, offset=*helpers[kc]);
+					offset=(helpcoeffs[kc]*yuv[0]+helpcoeffs[kc+3]*yuv[1])>>1;
+					//offset=*helpers[kc];
+					__m128i mhelp=_mm_set_epi32(0, 0, 0, offset);
 					mp=_mm_add_epi32(mp, mhelp);
 					mp=_mm_max_epi32(mp, _mm_set_epi32(0, 0, 0, -128));
 					mp=_mm_min_epi32(mp, _mm_set_epi32(0, 0, 0, 127));
@@ -2497,10 +3338,6 @@ static void block_func(void *param)
 					pred=_mm_extract_epi32(mp, 0);
 					upred=_mm_extract_epi32(mhelp, 0);
 				}
-				//mp=_mm_add_epi32(mp, mhalf);
-				//mp=_mm_srli_epi32(mp, 8-CBITS);
-				//qp=_mm_extract_epi32(mp, 0);
-				(void)half;
 #else
 				if(kc)
 				{
@@ -2508,8 +3345,9 @@ static void block_func(void *param)
 					CLAMP2_32(pred, pred, -128, 127);	//MOV-MOV-MOV-MIN-MAX-MOV (6 instr)
 				//	CLAMP2(pred, -128, 127);		//MOV-CMP-CMOV (6 instr) slower?
 				}
-				int upred=half-abs(pred);
+				int upred=128-abs(pred);
 #endif
+				unsigned cdf, freq;
 #ifdef SIMD_CTX
 				int qp=(pred+128)>>(8-CBITS);
 				//int qe=FLOOR_LOG2(grads[kc+0]+1);
@@ -2522,6 +3360,104 @@ static void block_func(void *param)
 				qe=FLOOR_LOG2(qe+1);
 				if(qe>ELEVELS-1)
 					qe=ELEVELS-1;
+#endif
+#ifdef ENABLE_ZERO
+				//if(predidx[kc]==PRED_ZERO)
+				if(disable_quant)
+				{
+					//qe=0;//o0	X  bad
+					unsigned *curr_hist=cdfptrs[kc+0]=histptr+(cdfstride*ELEVELS*CLEVELS)*kc+258*qe;
+					//if(curr_hist[0])//
+					//	LOG_ERROR("");
+	#define GETCDF0(X) ((curr_hist[X]>>PROB_EBITS)+(X))
+					ctxctrs[kc+0]=&args->ctxctrs[kc][qe][0];
+					if(args->fwd)
+					{
+						error=yuv[kc]-pred;
+						{
+							int negmask=error>>31;	//8 cycles
+							int abserr=(error^negmask)-negmask;
+							sym=error<<1^negmask;
+							if(upred<abserr)//CMOV
+								sym=upred+abserr;
+						
+							//int abserr=abs(error);
+							//if(abserr<=upred)
+							//	sym=error<<1^error>>31;//pack sign
+							//else
+							//	sym=upred+abserr;//error sign is known
+						}
+						
+						cdf=GETCDF0(sym);
+						freq=GETCDF0(sym+1)-cdf;
+						ac3_encbuf_update_N(&ec, cdf, freq, PROB_BITS);
+#ifdef PRINT_CSIZES
+						args->csizes[kc]-=log2(freq/(double)(1<<PROB_BITS));
+#endif
+					}
+					else
+					{
+						if(ec.range<(1ULL<<PROB_BITS))
+						{
+#ifdef _DEBUG
+							if(ec.srcptr>=ec.srcend)
+								LOG_ERROR("Decoder out of memory at YXC %d %d %d", ky, kx, kc);
+#endif
+							ec.code=ec.code<<32|*(unsigned*)ec.srcptr;
+							ec.srcptr+=4;
+							ec.range=ec.range<<32|0xFFFFFFFF;
+							ec.low<<=32;
+							if(ec.range>~ec.low)
+								ec.range=~ec.low;
+						}
+						
+						unsigned long long r2=(ec.code-ec.low)<<PROB_BITS|((1LL<<PROB_BITS)-1);
+						sym =(r2>=GETCDF0(    256)*ec.range)<<8;//256 is a valid symbol
+						if(!sym)
+						{
+							sym =(r2>=GETCDF0(sym|128)*ec.range)<<7;
+							sym|=(r2>=GETCDF0(sym| 64)*ec.range)<<6;
+							sym|=(r2>=GETCDF0(sym| 32)*ec.range)<<5;
+							sym|=(r2>=GETCDF0(sym| 16)*ec.range)<<4;
+							sym|=(r2>=GETCDF0(sym|  8)*ec.range)<<3;
+							sym|=(r2>=GETCDF0(sym|  4)*ec.range)<<2;
+							sym|=(r2>=GETCDF0(sym|  2)*ec.range)<<1;
+							sym|= r2>=GETCDF0(sym|  1)*ec.range;
+						}
+						//if((unsigned)sym>256)
+						//	LOG_ERROR("");
+						cdf=GETCDF0(sym);
+						freq=GETCDF0(sym+1)-cdf;
+						ac3_dec_update_N(&ec, cdf, freq, PROB_BITS);
+						{
+							int negmask=pred>>31;	//11 cycles
+							int e2=upred-sym;
+							error=sym>>1^-(sym&1);
+							e2=(e2^negmask)-negmask;
+							if((upred<<1)<sym)//CMOV
+								error=e2;
+						}
+
+						//if(sym<=(upred<<1))
+						//	error=sym>>1^-(sym&1);//unpack sign
+						//else
+						//{
+						//	int neg=pred>>31;
+						//	error=upred-sym;
+						//	error^=neg;
+						//	error-=neg;
+						//
+						//	//error=sym-upred;
+						//	//if(pred>0)
+						//	//	error=-error;
+						//}
+						yuv[kc]=error+pred;
+					}
+					curr[kc+0]=regW[kc]=yuv[kc]-offset;
+					curr[kc+4]=regW[kc+4]=abs(error);
+					syms[kc]=sym;
+					continue;
+				}
 #endif
 				unsigned *curr_hist0=cdfptrs[kc+0]=histptr+cdfstride*(ELEVELS*(CLEVELS*kc+qp)+qe);
 				ctxctrs[kc+0]=&args->ctxctrs[kc][qe][qp];
@@ -2556,49 +3492,98 @@ static void block_func(void *param)
 #endif
 //	#define GETCDF(X) ((curr_hist0[X]>>PROB_EBITS)+(X))
 
-				unsigned cdf, freq;
 				if(args->fwd)
 				{
 					error=yuv[kc]-pred;
 					{
-						int abserr=abs(error);
-						sym=upred+abserr;
-						if(abserr<=upred)//CMOV
-							sym=error<<1^error>>31;
+						int negmask=error>>31;	//8 cycles
+						int abserr=(error^negmask)-negmask;
+						sym=error<<1^negmask;
+						if(upred<abserr)//CMOV
+							sym=upred+abserr;
 
+						//int abserr=abs(error);
+						//sym=upred+abserr;
+						//if(abserr<=upred)//CMOV
+						//	sym=error<<1^error>>31;
+						
+						//int abserr=abs(error);
 						//if(abserr<=upred)
 						//	sym=error<<1^error>>31;//pack sign
 						//else
 						//	sym=upred+abserr;//error sign is known
 					}
-					token=sym;
-					if(sym>=(1<<CONFIG_EXP))
+#ifdef ENABLE_GR
+					if(entropyidx[kc]>=4)
+					//if(entropylevels[kc]>127)
+					//if(1)
 					{
-						//int nbits=FLOOR_LOG2((unsigned)sym)-(CONFIG_MSB+CONFIG_LSB);
-						int nbits=31-(CONFIG_MSB+CONFIG_LSB)-_lzcnt_u32(sym);
-						token = (1<<CONFIG_EXP)-((CONFIG_EXP-(CONFIG_MSB+CONFIG_LSB))<<(CONFIG_MSB+CONFIG_LSB)) + (
-								nbits<<(CONFIG_MSB+CONFIG_LSB)|
-								(sym>>nbits&((1<<CONFIG_MSB)-1)<<CONFIG_LSB)|
-								(sym&((1<<CONFIG_LSB)-1))
-							);
-						bypass=sym>>CONFIG_LSB&((1LL<<nbits)-1);
-						//bypass=_bextr_u32(sym>>CONFIG_LSB, 0, nbits);	//slow
-						bypass_encbuf(&bc, bypass, nbits);
+						nbits=(7*regW[4*2+kc]+3*(NE[4*1+kc]+N[4*3+kc]+regW[4*3+kc]))>>4;
+						nbits+=nbits<4;
+						nbits=FLOOR_LOG2(nbits);
+					//	nbits=FLOOR_LOG2(regW[kc+4]+1);
+						gr_enc(&gr, sym, nbits);
 					}
-#ifdef _DEBUG
-					if(token>=args->tlevels)
-						LOG_ERROR("YXC %d %d %d  token %d/%d", ky, kx, kc, token, args->tlevels);
+					else
 #endif
-					cdf=GETCDF(token);
-					freq=GETCDF(token+1)-cdf;
-					ac3_encbuf_update_N(&ec, cdf, freq, PROB_BITS);
-#ifdef _DEBUG
-					if(ec.dstptr>=ec.dstend)
-						LOG_ERROR("Encoder out of memory at YXC %d %d %d", ky, kx, kc);
+					{
+						token=sym;
+						if(sym>=(1<<CONFIG_EXP))
+						{
+							//int nbits=FLOOR_LOG2((unsigned)sym)-(CONFIG_MSB+CONFIG_LSB);
+							int nbits=(31-(CONFIG_MSB+CONFIG_LSB))-_lzcnt_u32(sym);
+							token = (1<<CONFIG_EXP)-((CONFIG_EXP-(CONFIG_MSB+CONFIG_LSB))<<(CONFIG_MSB+CONFIG_LSB)) + (
+									nbits<<(CONFIG_MSB+CONFIG_LSB)|
+									(sym>>nbits&((1<<CONFIG_MSB)-1)<<CONFIG_LSB)|
+									(sym&((1<<CONFIG_LSB)-1))
+								);
+							bypass=sym>>CONFIG_LSB&((1LL<<nbits)-1);
+							//bypass=_bextr_u32(sym>>CONFIG_LSB, 0, nbits);	//slow
+#ifdef ENABLE_GR
+							gr_enc_bypass(&gr, bypass, nbits);
+#else
+							bypass_encbuf(&bc, bypass, nbits);
 #endif
+#ifdef PRINT_CSIZES
+							args->csizes[kc]+=nbits;
+#endif
+						}
+#ifdef _DEBUG
+						if(token>=args->tlevels)
+							LOG_ERROR("YXC %d %d %d  token %d/%d", ky, kx, kc, token, args->tlevels);
+#endif
+						cdf=GETCDF(token);
+						freq=GETCDF(token+1)-cdf;
+						ac3_encbuf_update_N(&ec, cdf, freq, PROB_BITS);
+#ifdef PRINT_CSIZES
+						//if(args->csizes[kc]<0)//
+						//	LOG_ERROR("");
+						//double LOL_1=freq/(double)(1<<PROB_BITS);
+						//double LOL_2=-log2(LOL_1);
+						args->csizes[kc]-=log2(freq/(double)(1<<PROB_BITS));
+#endif
+#ifdef _DEBUG
+						if(ec.dstptr>=ec.dstend)
+							LOG_ERROR("Encoder out of memory at YXC %d %d %d", ky, kx, kc);
+#endif
+					}
 				}
 				else
 				{
+#ifdef ENABLE_GR
+					if(entropyidx[kc]>=4)
+					//if(entropylevels[kc]>127)
+					//if(1)
+					{
+						nbits=(7*regW[4*2+kc]+3*(NE[4*1+kc]+N[4*3+kc]+regW[4*3+kc]))>>4;
+						nbits+=nbits<4;
+						nbits=FLOOR_LOG2(nbits);
+					//	nbits=FLOOR_LOG2(regW[kc+4]+1);
+
+						sym=gr_dec(&gr, nbits);
+						goto skip_ac;
+					}
+#endif
 					if(ec.range<(1ULL<<PROB_BITS))
 					{
 #ifdef _DEBUG
@@ -2613,7 +3598,11 @@ static void block_func(void *param)
 							ec.range=~ec.low;
 					}
 #if 1
+#ifdef ENABLE_GR
+					if(entropyidx[kc])
+#else
 					if(entropyidx)
+#endif
 					{
 						__m256i mr2=_mm256_set1_epi32((unsigned short)(((ec.code-ec.low)<<PROB_BITS|((1LL<<PROB_BITS)-1))/ec.range));
 						__m256i mc0=_mm256_loadu_si256((__m256i*)(curr_hist0+1+0*8));
@@ -2813,18 +3802,34 @@ static void block_func(void *param)
 					if(token>=(1<<CONFIG_EXP))
 					{
 						nbits=(sym>>(CONFIG_MSB+CONFIG_LSB))-((1<<(CONFIG_EXP-(CONFIG_MSB+CONFIG_LSB)))-(CONFIG_EXP-(CONFIG_MSB+CONFIG_LSB)));//2 instructions
+#ifdef ENABLE_GR
+						bypass=gr_dec_bypass(&gr, nbits);
+#else
 						bypass=bypass_decbuf(&bc, nbits);
+#endif
 						sym=
 							+(((1<<(CONFIG_MSB+CONFIG_LSB))+(sym&((1<<CONFIG_MSB)-1)<<CONFIG_LSB))<<nbits)//7 instructions
 							+(bypass<<CONFIG_LSB)
 							+(sym&((1<<CONFIG_LSB)-1))
 						;
 					}
-					error=upred-sym;
-					if(pred<0)
-						error=sym-upred;
-					if(sym<=(upred<<1))//CMOV
+#ifdef ENABLE_GR
+				skip_ac:
+#endif
+					{
+						int negmask=pred>>31;	//11 cycles
+						int e2=upred-sym;
 						error=sym>>1^-(sym&1);
+						e2=(e2^negmask)-negmask;
+						if((upred<<1)<sym)//CMOV
+							error=e2;
+					}
+
+					//error=upred-sym;
+					//if(pred<0)
+					//	error=sym-upred;
+					//if(sym<=(upred<<1))//CMOV
+					//	error=sym>>1^-(sym&1);
 
 					//if(sym<=(upred<<1))
 					//	error=sym>>1^-(sym&1);//unpack sign
@@ -2842,6 +3847,17 @@ static void block_func(void *param)
 					yuv[kc]=error+pred;
 				}
 				curr[kc+0]=regW[kc]=yuv[kc]-offset;
+#ifdef ENABLE_GR
+				if(entropyidx[kc]>=4)
+				{
+					int ecurr=abs(error);
+					curr[kc+4*1]=regW[kc+4*1]=(MAXVAR(NW[kc+4*1], regW[kc+4*1])+ecurr+NEE[kc+4*1]+MAXVAR(WW[kc+4*1], WWW[kc+4*1]))>>2;
+					curr[kc+4*2]=regW[kc+4*2]=(MAXVAR(WW[kc+4*2], regW[kc+4*2])+ecurr+NE[kc+4*2]+MAXVAR(NEE[kc+4*2], NEEE[kc+4*2]))>>2;
+					curr[kc+4*3]=regW[kc+4*3]=(regW[kc+4*3]+ecurr+MAXVAR(N[kc+4*3], NE[kc+4*3]))/3;
+				}
+				//	curr[kc+4]=regW[kc+4]=(2*regW[kc+4]+abs(error)+NEEE[kc+4])>>2;
+				else
+#endif
 				curr[kc+4]=regW[kc+4]=abs(error);
 			//	regW[kc+8]=error;
 				mixinptrs[kc]=args->mixincdfs+args->tlevels*token;
@@ -2851,7 +3867,31 @@ static void block_func(void *param)
 #endif
 			for(int kc=0;kc<3;++kc)
 			{
+#ifdef ENABLE_ZERO
+				if(disable_quant)
+				{
+					//int sh=*ctxctrs[kc+0]+=shiftgain;
+					//sh=FLOOR_LOG2(sh)>>1;
+					unsigned *curr_cdf=cdfptrs[kc];
+					token=syms[kc];
+					//if(curr_cdf[0])//
+					//	LOG_ERROR("");
+#if defined __GNUC__ && !defined PROFILER
+#pragma GCC unroll 8
+#endif
+					for(int ks=1;ks<257;++ks)
+						curr_cdf[ks]+=(((((1LL<<PROB_BITS)-257)<<PROB_EBITS)&-(ks>token))-curr_cdf[ks])>>7;
+					//	curr_cdf[ks]+=((((((1LL<<PROB_BITS)-257)<<PROB_EBITS) / 257)&-(ks>token))-curr_cdf[ks])>>sh;
+					continue;
+				}
+#endif
+#ifdef ENABLE_GR
+				if(entropyidx[kc]>=4)
+					continue;
+				int sh=*ctxctrs[kc+0]+=shiftgains[kc];
+#else
 				int sh=*ctxctrs[kc+0]+=shiftgain;
+#endif
 				sh=FLOOR_LOG2(sh)>>1;
 #if !defined ENABLE_MT && 0
 				{
@@ -2906,7 +3946,11 @@ static void block_func(void *param)
 #ifndef ENABLE_MIX1
 				//if(cdfptrs[kc+3]!=cdfptrs[kc+0])
 				{
+#ifdef ENABLE_GR
+					sh=*ctxctrs[kc+3]+=shiftgains[kc];
+#else
 					sh=*ctxctrs[kc+3]+=shiftgain;
+#endif
 					sh=FLOOR_LOG2(sh)>>1;
 					ms=_mm_set_epi32(0, 0, 0, sh);
 					mc0=_mm256_loadu_si256((__m256i*)(cdfptrs[kc+3]+1+0*8));
@@ -3020,27 +4064,46 @@ static void block_func(void *param)
 			}
 			if(!args->fwd)
 			{
-				args->dst[yidx]=yuv[0]+128;
-				args->dst[uidx]=yuv[1]+128;
-				args->dst[vidx]=yuv[2]+128;
+				dstptr[yidx]=yuv[0]+128;
+				dstptr[uidx]=yuv[1]+128;
+				dstptr[vidx]=yuv[2]+128;
+				dstptr+=3;
+
+				//unsigned *ptr=(unsigned*)(args->dst+idx);		//X  UB
+				//int rgb=(yuv[0]&255)<<ysh|(yuv[1]&255)<<ush|(yuv[2]&255)<<vsh;
+				//unsigned v0=*ptr&0xFF00000;
+				//rgb^=0x808080;
+				//*ptr=v0|rgb;
+
+				//unsigned *ptr=(unsigned*)(args->dst+idx);		//X  UB
+				//__m128i rgb=_mm_load_si128((__m128i*)yuv);
+				//unsigned val=*ptr;
+				//rgb=_mm_add_epi32(rgb, mhalf);
+				//val&=0xFF000000;
+				//rgb=_mm_shuffle_epi8(rgb, shufstore);
+				//*ptr=val|_mm_extract_epi32(rgb, 0);
+
+				//args->dst[yidx]=yuv[0]+128;
+				//args->dst[uidx]=yuv[1]+128;
+				//args->dst[vidx]=yuv[2]+128;
 				guide_check(args->dst, kx, ky);
 			}
-			rows[0]+=4*2;
-			rows[1]+=4*2;
-			rows[2]+=4*2;
-			rows[3]+=4*2;
+			rows[0]+=4*4;
+			rows[1]+=4*4;
+			rows[2]+=4*4;
+			rows[3]+=4*4;
 #if defined SIMD_CTX || defined SIMD_PREDS
 			mNNW	=mNN;
 			mNN	=mNNE;
-			mNNE	=_mm_loadu_si128((__m128i*)(rows[2]+1*4*2));
+			mNNE	=_mm_loadu_si128((__m128i*)(rows[2]+1*4*4));
 			mNWW	=mNW;
 			mNW	=mN;
 			mN	=mNE;
 			mNE	=mNEE;
-			mNEE	=_mm_loadu_si128((__m128i*)(rows[1]+2*4*2));
+			mNEE	=_mm_loadu_si128((__m128i*)(rows[1]+2*4*4));
 			mWW	=mW;
 			mW	=_mm_load_si128((__m128i*)regW);
-		//	mW	=_mm_loadu_si128((__m128i*)(rows[0]-1*4*2));
+		//	mW	=_mm_loadu_si128((__m128i*)(rows[0]-1*4*4));
 #endif
 		}
 	}
@@ -3056,7 +4119,12 @@ static void block_func(void *param)
 			LOG_ERROR("Integer overflow");
 #endif
 		
+#ifdef ENABLE_GR
+		gr_enc_flush(&gr);
+		ptr=gr.dstptr;
+#else
 		ptr=bypass_encbuf_flush(&bc);
+#endif
 		args->encbypassoffsets[currblockidx]=(int)(ptr-args->encbypassbuf);
 #ifdef _DEBUG
 		if((ptr-args->encbypassbuf)>>32)
@@ -3112,6 +4180,9 @@ int c24_codec(const char *srcfn, const char *dstfn, int nthreads0)
 #endif
 	int *streamoffsets=0;
 	int encbufsize=0;
+#ifdef PRINT_CSIZES
+	double csizes[3]={0};
+#endif
 	
 	t0=time_sec();
 	src=load_file(srcfn, 1, 3, 1);
@@ -3180,6 +4251,8 @@ int c24_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		
 		image2=0;
 		encbufsize=(int)((long long)4*iw*ih/nthreads);
+		if(encbufsize<sizeof(char[4*BLOCKX*BLOCKY]))
+			encbufsize=sizeof(char[4*BLOCKX*BLOCKY]);
 	}
 	else//integrity check
 	{
@@ -3257,7 +4330,7 @@ int c24_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		arg->xblocks=xblocks;
 		arg->nblocks=nblocks;
 
-		arg->bufsize=sizeof(short[4*OCH_COUNT*2])*(maxwidth+16LL);//4 padded rows * OCH_COUNT * {pixels, wg_errors}
+		arg->bufsize=sizeof(short[4*4*4])*(maxwidth+16LL);//4 padded rows * 4 channels max * {pixels, wg_errors}
 		arg->pixels=(short*)_mm_malloc(arg->bufsize, sizeof(__m128i));
 		arg->histsize=histsize;
 		arg->hist=(int*)malloc(histsize);
@@ -3365,6 +4438,14 @@ int c24_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				ThreadArgs *arg=args+k;
 				ARRAY_APPEND(dst, arg->encbypassbuf, streamoffsets[nblocks+arg->b2-1], 1, 0);
 			}
+#ifdef PRINT_CSIZES
+			for(int k=0;k<nthreads;++k)
+			{
+				csizes[0]+=args[k].csizes[0];
+				csizes[1]+=args[k].csizes[1];
+				csizes[2]+=args[k].csizes[2];
+			}
+#endif
 		}
 #if 0
 		for(int kt=0;kt<nblocks;kt+=nthreads)
@@ -3497,6 +4578,9 @@ int c24_codec(const char *srcfn, const char *dstfn, int nthreads0)
 	}
 	if(!test)
 		save_file(dstfn, dst->data, dst->count, 1);
+#ifdef PRINT_CSIZES
+	ptrdiff_t csize=dst->count;
+#endif
 	if(image2)
 		free(image2);
 	for(int k=0;k<nthreads;++k)
@@ -3515,6 +4599,21 @@ int c24_codec(const char *srcfn, const char *dstfn, int nthreads0)
 	array_free(&dst);
 	free(mixincdfs);
 	free(streamoffsets);
+#ifdef PRINT_CSIZES
+	if(fwd)
+	{
+		csizes[0]/=8;
+		csizes[1]/=8;
+		csizes[2]/=8;
+		double tsize=csizes[0]+csizes[1]+csizes[2];
+		printf("U %td\n", (ptrdiff_t)3*iw*ih);
+		printf("C %td\n", csize);
+		printf("T %lf\n", tsize);
+		printf("Y %lf\n", csizes[0]);
+		printf("U %lf\n", csizes[1]);
+		printf("V %lf\n", csizes[2]);
+	}
+#endif
 #ifdef PRINT_PREDHIST
 	if(fwd)
 	{

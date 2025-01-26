@@ -6,7 +6,7 @@
 
 
 ifeq ($(DEBUG), 1)
-FLAGS = -Wall -g
+FLAGS = -Wall -O3 -g
 else
 FLAGS = -Wall -O3 -s
 endif

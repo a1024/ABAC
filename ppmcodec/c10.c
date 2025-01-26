@@ -12,12 +12,61 @@ static const char file[]=__FILE__;
 
 
 //	#define ENABLE_GUIDE
+//	#define ENABLE_VAL
 
 
+	#define USE_MIXIN
 //	#define ENABLE_RECIPROCAL
-	#define ENABLE_SSE
+//	#define ENABLE_SSE
 
 
+//	#define AC_VALIDATE
+//	#define AC_IMPLEMENTATION
+#include"entropy.h"
+#ifdef ENABLE_VAL
+typedef struct _ValInfo
+{
+	int cdf, freq;
+	unsigned long long low0, range0, low1, range1;
+} ValInfo;
+static long long validx=0;
+static ArrayHandle valdata=0;
+static void val_enc(int cdf, int freq, unsigned long long low0, unsigned long long range0, unsigned long long low1, unsigned long long range1)
+{
+	if(!valdata)
+	{
+		ARRAY_ALLOC(ValInfo, valdata, 0, 0, 0, 0);
+		if(!valdata)
+		{
+			LOG_ERROR("Alloc error");
+			return;
+		}
+	}
+	ValInfo info={cdf, freq, low0, range0, low1, range1};
+	ARRAY_APPEND(valdata, &info, 1, 1, 0);
+}
+static int val_dec(int cdf, int freq, unsigned long long low0, unsigned long long range0, unsigned long long code0, unsigned long long low1, unsigned long long range1, unsigned long long code1)
+{
+	ValInfo *info=(ValInfo*)array_at(&valdata, validx);
+	if(info->cdf!=cdf||info->freq!=freq||info->low0!=low0||info->range0!=range0||info->low1!=low1||info->range1!=range1)
+	{
+		printf("OG  %d %d\n", info->cdf, info->freq);
+		printf("  0: %016llX %016llX\n", info->low0, info->range0);
+		printf("  1: %016llX %016llX\n", info->low1, info->range1);
+		printf("X   %d %d\n", cdf, freq);
+		printf("  0: %016llX %016llX %016llX\n", low0, range0, code0);
+		printf("  1: %016llX %016llX %016llX\n", low1, range1, code1);
+		return 1;
+	}
+	++validx;
+	return 0;
+}
+#define VAL_DEC(CDF, FREQ, LOW0, RANGE0, CODE0, LOW1, RANGE1, CODE1, ...) if(val_dec(CDF, FREQ, LOW0, RANGE0, CODE0, LOW1, RANGE1, CODE1))LOG_ERROR(__VA_ARGS__)
+#else
+#define val_enc(...)
+#define val_dec(...)
+#define VAL_DEC(...)
+#endif
 #ifdef ENABLE_GUIDE
 static int g_iw=0, g_ih=0;
 static unsigned char *g_image=0;
@@ -39,7 +88,7 @@ static void guide_check(unsigned char *image, int kx, int ky)
 	int idx=3*(g_iw*ky+kx);
 	if(memcmp(image+idx, g_image+idx, 3))
 	{
-		LOG_ERROR("");
+		LOG_ERROR("XY %d %d  RGB 0x%08X 0x%08X OG", kx, ky, *(unsigned*)(image+idx), *(unsigned*)(g_image+idx));
 		printf("");
 	}
 }
@@ -86,9 +135,15 @@ static const unsigned char rct_indices[][8]=
 static int sse[3][64][64];
 //static int sse[3][256];
 #endif
+#ifdef USE_MIXIN
+#define RATE 9
+static unsigned short hist[3][16][256];
+static unsigned short mixin[512];
+#else
 static int hist[3][16][257];
 #ifdef ENABLE_RECIPROCAL
 static unsigned long long divtable[256];
+#endif
 #endif
 int c10_codec(const char *srcfn, const char *dstfn, int nthreads0)
 {
@@ -129,7 +184,7 @@ int c10_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				return 1;
 			}
 			usize=(ptrdiff_t)3*iw*ih;
-			overhead=(ptrdiff_t)24*iw;
+			overhead=(ptrdiff_t)iw*ih;
 			buf=(unsigned char*)malloc(usize+overhead);
 			if(!buf)
 			{
@@ -158,7 +213,7 @@ int c10_codec(const char *srcfn, const char *dstfn, int nthreads0)
 			csize=get_filesize(srcfn);
 			streamsize=csize-headersize;
 			usize=(ptrdiff_t)3*iw*ih;
-			overhead=(ptrdiff_t)24*iw;
+			overhead=(ptrdiff_t)iw*ih;
 			buf=(unsigned char*)malloc(usize+overhead);
 			if(!buf)
 			{
@@ -167,7 +222,7 @@ int c10_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				return 1;
 			}
 			memset(buf, 128, overhead);
-			image=buf+(ptrdiff_t)6*iw;
+			image=buf+(ptrdiff_t)9*iw;
 			stream=buf+usize+overhead-streamsize;
 			nread=fread(stream, 1, streamsize, fsrc);
 			if(nread!=streamsize)
@@ -282,9 +337,17 @@ int c10_codec(const char *srcfn, const char *dstfn, int nthreads0)
 	unsigned char *NNptr=image-(ptrdiff_t)6*iw;
 	unsigned char *Nptr=image-(ptrdiff_t)3*iw;
 	unsigned char *ptr=image;
+#ifdef USE_MIXIN
+	for(int k=0;k<256;++k)
+		hist[0][0][k]=k*((0x10000-256)/256);
+	memfill((unsigned short*)hist+256, hist, sizeof(hist)-sizeof(short[256]), sizeof(short[256]));
+	memset(mixin, 0, sizeof(mixin));
+	FILLMEM(mixin+256, (0x10000-256)>>RATE, sizeof(mixin)-sizeof(short[256]), sizeof(short));
+#else
 	FILLMEM((int*)hist, 1, sizeof(int[256]), sizeof(int));
 	hist[0][0][256]=256;
 	memfill((int*)hist+257, hist, sizeof(hist)-sizeof(int[257]), sizeof(int[257]));
+#endif
 #ifdef ENABLE_RECIPROCAL
 	{
 		unsigned long long rem=0;
@@ -307,14 +370,21 @@ int c10_codec(const char *srcfn, const char *dstfn, int nthreads0)
 #ifdef ENABLE_RECIPROCAL
 		unsigned long long invden=0, hi0=0, hi1=0;
 #endif
+#ifdef USE_MIXIN
+		unsigned short *curr_hist[3]={0};
+#else
 		int *curr_hist[3]={0};
+#endif
 		N[0]=Nptr[yidx]-128;
 		N[1]=Nptr[uidx]-128;
 		N[2]=Nptr[vidx]-128;
 		N[2]-=N[vhelpidx];
 		N[1]-=N[uhelpidx];
-		for(int kx=0;kx<iw;++kx)
+		for(int kx0=iw;kx0--;)
 		{
+#ifdef _DEBUG
+			int kx=iw-1-kx0;
+#endif
 			char NN[4]=
 			{
 				NNptr[yidx+0]-128,
@@ -359,11 +429,17 @@ int c10_codec(const char *srcfn, const char *dstfn, int nthreads0)
 			errors2[0]+=((abs(errors[0])<<3)-errors2[0])>>2;
 			errors2[1]+=((abs(errors[1])<<3)-errors2[1])>>2;
 			errors2[2]+=((abs(errors[2])<<3)-errors2[2])>>2;
+			//if(errors2[0]<0||errors2[1]<0||errors2[2]<0)
+			//	LOG_ERROR("");
 			int ctx[]=
 			{
+				//abs(N[0]-W[0])+abs(N[0]-NW[0])+abs(NE[0]-N[0])+abs(W[0]-NW[0])+((abs(N[0]-NN[0])+abs(W[0]-WW[0]))>>1)+1,
+				//abs(N[1]-W[1])+abs(N[1]-NW[1])+abs(NE[1]-N[1])+abs(W[1]-NW[1])+((abs(N[1]-NN[1])+abs(W[1]-WW[1]))>>1)+1,
+				//abs(N[2]-W[2])+abs(N[2]-NW[2])+abs(NE[2]-N[2])+abs(W[2]-NW[2])+((abs(N[2]-NN[2])+abs(W[2]-WW[2]))>>1)+1,
 				abs(N[0]-W[0])+abs(N[0]-NW[0])+abs(NE[0]-N[0])+abs(W[0]-NW[0])+((abs(N[0]-NN[0])+abs(W[0]-WW[0]))>>1)+errors2[0]+eptr[0+9]+1,
 				abs(N[1]-W[1])+abs(N[1]-NW[1])+abs(NE[1]-N[1])+abs(W[1]-NW[1])+((abs(N[1]-NN[1])+abs(W[1]-WW[1]))>>1)+errors2[1]+eptr[1+9]+1,
 				abs(N[2]-W[2])+abs(N[2]-NW[2])+abs(NE[2]-N[2])+abs(W[2]-NW[2])+((abs(N[2]-NN[2])+abs(W[2]-WW[2]))>>1)+errors2[2]+eptr[2+9]+1,
+
 				//abs(N[0]-W[0])+abs(N[0]-NW[0])+abs(NE[0]-N[0])+abs(W[0]-NW[0])+((abs(N[0]-NN[0])+abs(W[0]-WW[0]))>>1)+2*(errors[0]+errors2[0])+errors3[0]+1,
 				//abs(N[1]-W[1])+abs(N[1]-NW[1])+abs(NE[1]-N[1])+abs(W[1]-NW[1])+((abs(N[1]-NN[1])+abs(W[1]-WW[1]))>>1)+2*(errors[1]+errors2[1])+errors3[1]+1,
 				//abs(N[2]-W[2])+abs(N[2]-NW[2])+abs(NE[2]-N[2])+abs(W[2]-NW[2])+((abs(N[2]-NN[2])+abs(W[2]-WW[2]))>>1)+2*(errors[2]+errors2[2])+errors3[2]+1,
@@ -377,8 +453,6 @@ int c10_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				//(3*(abs(errors[1])+abs(errors2[1]))+2*abs(errors3[1]))>>3&127,
 				//(3*(abs(errors[2])+abs(errors2[2]))+2*abs(errors3[2]))>>3&127,
 			};
-			//if(ctx[0]>0x7FFF||ctx[1]>0x7FFF||ctx[2]>0x7FFF)
-			//	LOG_ERROR("");
 			eptr[0]=errors2[0];
 			eptr[1]=errors2[1];
 			eptr[2]=errors2[2];
@@ -433,11 +507,18 @@ int c10_codec(const char *srcfn, const char *dstfn, int nthreads0)
 			CLAMP2(preds[2], vmin[2], vmax[2]);
 			(void)WWW;
 #endif
-			//if(ky==773&&kx==401)//
-			//	printf("");
 			ctx[0]=FLOOR_LOG2(ctx[0]);
 			ctx[1]=FLOOR_LOG2(ctx[1]);
 			ctx[2]=FLOOR_LOG2(ctx[2]);
+			curr_hist[0]=hist[0][ctx[0]];
+			curr_hist[1]=hist[1][ctx[1]];
+			curr_hist[2]=hist[2][ctx[2]];
+#ifdef AC_VALIDATE
+			unsigned long long lo0, r0;
+#endif
+#ifdef ENABLE_VAL
+			unsigned long long val_low, val_range, val_code;
+#endif
 			if(fwd)
 			{
 				yuv[0]=ptr[yidx]-128;
@@ -452,8 +533,94 @@ int c10_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				deltas[1]=errors[1]<<1^errors[1]>>31;
 				deltas[2]=errors[2]<<1^errors[2]>>31;
 
-				curr_hist[0]=hist[0][ctx[0]];
-				//curr_hist[0]=hist[0][preds[0]>>1&127];
+#ifdef USE_MIXIN
+				cdf=curr_hist[0][deltas[0]];
+				freq=(deltas[0]>=255?0x10000-256:curr_hist[0][deltas[0]+1])-cdf+1;
+				cdf+=deltas[0];
+
+#ifdef AC_VALIDATE
+				lo0=low, r0=range;
+#endif
+#ifdef ENABLE_VAL
+				val_low=low;
+				val_range=range;
+#endif
+				if(range<0x10000)
+				{
+					*(unsigned*)streamptr=(unsigned)(low>>32);
+					streamptr+=4;
+#ifdef _DEBUG
+					if(streamptr>NNptr)
+						LOG_ERROR("");
+#endif
+					low<<=32;
+					range=range<<32|0xFFFFFFFF;
+					if(range>~low)
+						range=~low;
+				}
+				low+=range*cdf>>16;
+				range=(range*freq>>16)-1;
+				acval_enc(deltas[0], cdf, freq, lo0, lo0+r0, low, low+range, 0, 0);
+				val_enc(cdf, freq, val_low, val_range, low, range);
+
+				cdf=curr_hist[1][deltas[1]];
+				freq=(deltas[1]>=255?0x10000-256:curr_hist[1][deltas[1]+1])-cdf+1;
+				cdf+=deltas[1];
+
+#ifdef AC_VALIDATE
+				lo0=low, r0=range;
+#endif
+#ifdef ENABLE_VAL
+				val_low=low;
+				val_range=range;
+#endif
+				if(range<0x10000)
+				{
+					*(unsigned*)streamptr=(unsigned)(low>>32);
+					streamptr+=4;
+#ifdef _DEBUG
+					if(streamptr>NNptr)
+						LOG_ERROR("");
+#endif
+					low<<=32;
+					range=range<<32|0xFFFFFFFF;
+					if(range>~low)
+						range=~low;
+				}
+				low+=range*cdf>>16;
+				range=(range*freq>>16)-1;
+				acval_enc(deltas[1], cdf, freq, lo0, lo0+r0, low, low+range, 0, 0);
+				val_enc(cdf, freq, val_low, val_range, low, range);
+				
+				cdf=curr_hist[2][deltas[2]];
+				freq=(deltas[2]>=255?0x10000-256:curr_hist[2][deltas[2]+1])-cdf+1;
+				cdf+=deltas[2];
+
+#ifdef AC_VALIDATE
+				lo0=low, r0=range;
+#endif
+#ifdef ENABLE_VAL
+				val_low=low;
+				val_range=range;
+#endif
+				if(range<0x10000)
+				{
+					*(unsigned*)streamptr=(unsigned)(low>>32);
+					streamptr+=4;
+#ifdef _DEBUG
+					if(streamptr>NNptr)
+						LOG_ERROR("");
+#endif
+					low<<=32;
+					range=range<<32|0xFFFFFFFF;
+					if(range>~low)
+						range=~low;
+				}
+				low+=range*cdf>>16;
+				range=(range*freq>>16)-1;
+				acval_enc(deltas[2], cdf, freq, lo0, lo0+r0, low, low+range, 0, 0);
+				val_enc(cdf, freq, val_low, val_range, low, range);
+#else
 #ifdef ENABLE_RECIPROCAL
 				den=(curr_hist[0][256]+(256+(1<<8)-1))&~255;
 #else
@@ -495,9 +662,7 @@ int c10_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				range=range*freq/den-1;
 #endif
 				
-				curr_hist[1]=hist[1][ctx[1]];
 #ifdef ENABLE_RECIPROCAL
-				//curr_hist[1]=hist[1][preds[1]>>1&127];
 				den=(curr_hist[1][256]+(256+(1<<8)-1))&~255;
 #else
 				den=curr_hist[1][256]+256;
@@ -532,8 +697,6 @@ int c10_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				range=range*freq/den-1;
 #endif
 				
-				curr_hist[2]=hist[2][ctx[2]];
-				//curr_hist[2]=hist[2][preds[2]>>1&127];
 #ifdef ENABLE_RECIPROCAL
 				den=(curr_hist[2][256]+(256+(1<<8)-1))&~255;
 #else
@@ -568,13 +731,164 @@ int c10_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				low+=range*cdf/den;
 				range=range*freq/den-1;
 #endif
+#endif
 			}
 			else
 			{
 				int c;
+#ifdef USE_MIXIN
+#ifdef _DEBUG
+				if(low>code||low+range<code)
+					LOG_ERROR("XY %d %d", kx, ky);
+#endif
+#ifdef AC_VALIDATE
+				lo0=low, r0=range;
+#endif
+#ifdef ENABLE_VAL
+				val_low=low;
+				val_range=range;
+				val_code=code;
+#endif
+				if(range<0x10000)
+				{
+#ifdef _DEBUG
+					if(ptr>=streamptr)
+						LOG_ERROR("");
+#endif
+					code=code<<32|*(unsigned*)streamptr;
+					streamptr+=4;
+					low<<=32;
+					range=range<<32|0xFFFFFFFF;
+					if(range>~low)
+						range=~low;
+				}
+				c=(int)(((code-low)<<16|0xFFFF)/range);
+				cdf=0;
+				sym=0;
+				for(;;)
+				{
+					freq=sym>=255?0x10000:curr_hist[0][sym+1]+sym+1;
+					//if(curr_hist[0][sym]+sym>freq)
+					//	LOG_ERROR("Invalid CDF %d, %d", curr_hist[0][sym]+sym, freq);
+					if(freq>c)
+						break;
+#ifdef _DEBUG
+					if(sym>=256)
+						LOG_ERROR("0XY %d %d sym OOB %d CDF %d C %d", kx, ky, sym, freq, c);
+#endif
+					++sym;
+					cdf=freq;
+				}
+				freq-=cdf;
+				if(freq<0||cdf<0||cdf>=0x10000)
+					LOG_ERROR("");
+				low+=range*cdf>>16;
+				range=(range*freq>>16)-1;
+				acval_dec(sym, cdf, freq, lo0, lo0+r0, low, low+range, 0, 0, code);
+				VAL_DEC(cdf, freq, val_low, val_range, val_code, low, range, code, "XY  %d %d", kx, ky);
 				
-				curr_hist[0]=hist[0][ctx[0]];
-				//curr_hist[0]=hist[0][preds[0]>>1&127];
+				deltas[0]=sym;
+				errors[0]=deltas[0]>>1^-(deltas[0]&1);
+				yuv[0]=errors[0]+preds[0];
+				preds[1]+=yuv[uhelpidx]; CLAMP2(preds[1], -128, 127);
+
+#ifdef AC_VALIDATE
+				lo0=low, r0=range;
+#endif
+#ifdef ENABLE_VAL
+				val_low=low;
+				val_range=range;
+				val_code=code;
+#endif
+				if(range<0x10000)
+				{
+#ifdef _DEBUG
+					if(ptr>=streamptr)
+						LOG_ERROR("");
+#endif
+					code=code<<32|*(unsigned*)streamptr;
+					streamptr+=4;
+					low<<=32;
+					range=range<<32|0xFFFFFFFF;
+					if(range>~low)
+						range=~low;
+				}
+				c=(int)(((code-low)<<16|0xFFFF)/range);
+#ifdef _DEBUG
+				if(low>code||low+range<code)
+					LOG_ERROR("");
+#endif
+				cdf=0;
+				sym=0;
+				for(;;)
+				{
+					freq=sym>=255?0x10000:curr_hist[1][sym+1]+sym+1;
+					if(freq>c)
+						break;
+#ifdef _DEBUG
+					if(sym>=256)
+						LOG_ERROR("1XY %d %d sym OOB %d", kx, ky, sym);
+#endif
+					++sym;
+					cdf=freq;
+				}
+				freq-=cdf;
+				low+=range*cdf>>16;
+				range=(range*freq>>16)-1;
+				acval_dec(sym, cdf, freq, lo0, lo0+r0, low, low+range, 0, 0, code);
+				VAL_DEC(cdf, freq, val_low, val_range, val_code, low, range, code, "XY  %d %d", kx, ky);
+				
+				deltas[1]=sym;
+				errors[1]=deltas[1]>>1^-(deltas[1]&1);
+				yuv[1]=errors[1]+preds[1];
+				preds[2]+=yuv[vhelpidx]; CLAMP2(preds[2], -128, 127);
+				
+#ifdef AC_VALIDATE
+				lo0=low, r0=range;
+#endif
+#ifdef ENABLE_VAL
+				val_low=low;
+				val_range=range;
+				val_code=code;
+#endif
+				if(range<0x10000)
+				{
+#ifdef _DEBUG
+					if(ptr>=streamptr)
+						LOG_ERROR("");
+#endif
+					code=code<<32|*(unsigned*)streamptr;
+					streamptr+=4;
+					low<<=32;
+					range=range<<32|0xFFFFFFFF;
+					if(range>~low)
+						range=~low;
+				}
+				c=(int)(((code-low)<<16|0xFFFF)/range);
+				cdf=0;
+				sym=0;
+				for(;;)
+				{
+					freq=sym>=255?0x10000:curr_hist[2][sym+1]+sym+1;
+					if(freq>c)
+						break;
+#ifdef _DEBUG
+					if(sym>=256)
+						LOG_ERROR("2XY %d %d sym OOB %d", kx, ky, sym);
+#endif
+					++sym;
+					cdf=freq;
+				}
+				freq-=cdf;
+				low+=range*cdf>>16;
+				range=(range*freq>>16)-1;
+				acval_dec(sym, cdf, freq, lo0, lo0+r0, low, low+range, 0, 0, code);
+				VAL_DEC(cdf, freq, val_low, val_range, val_code, low, range, code, "XY  %d %d", kx, ky);
+
+				deltas[2]=sym;
+				errors[2]=deltas[2]>>1^-(deltas[2]&1);
+				yuv[2]=errors[2]+preds[2];
+#else
 #ifdef ENABLE_RECIPROCAL
 				den=(curr_hist[0][256]+(256+(1<<8)-1))&~255;
 #else
@@ -614,13 +928,10 @@ int c10_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				range=range*freq/den-1;
 #endif
 				deltas[0]=sym;
-				
 				errors[0]=deltas[0]>>1^-(deltas[0]&1);
 				yuv[0]=errors[0]+preds[0];
 				preds[1]+=yuv[uhelpidx]; CLAMP2(preds[1], -128, 127);
 				
-				curr_hist[1]=hist[1][ctx[1]];
-				//curr_hist[1]=hist[1][preds[1]>>1&127];
 #ifdef ENABLE_RECIPROCAL
 				den=(curr_hist[1][256]+(256+(1<<8)-1))&~255;
 #else
@@ -660,13 +971,10 @@ int c10_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				range=range*freq/den-1;
 #endif
 				deltas[1]=sym;
-				
 				errors[1]=deltas[1]>>1^-(deltas[1]&1);
 				yuv[1]=errors[1]+preds[1];
 				preds[2]+=yuv[vhelpidx]; CLAMP2(preds[2], -128, 127);
 				
-				curr_hist[2]=hist[2][ctx[2]];
-				//curr_hist[2]=hist[2][preds[2]>>1&127];
 #ifdef ENABLE_RECIPROCAL
 				den=(curr_hist[2][256]+(256+(1<<8)-1))&~255;
 #else
@@ -706,10 +1014,9 @@ int c10_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				range=range*freq/den-1;
 #endif
 				deltas[2]=sym;
-
 				errors[2]=deltas[2]>>1^-(deltas[2]&1);
 				yuv[2]=errors[2]+preds[2];
-
+#endif
 				ptr[yidx]=yuv[0]+128;
 				ptr[uidx]=yuv[1]+128;
 				ptr[vidx]=yuv[2]+128;
@@ -720,6 +1027,288 @@ int c10_codec(const char *srcfn, const char *dstfn, int nthreads0)
 			if(deltas[0]>>8||deltas[1]>>8||deltas[2]>>8)
 				LOG_ERROR("");
 #endif
+#ifdef USE_MIXIN
+#if 0
+			for(int ks=1;ks<256;++ks)//56.06%
+			{
+				//curr_hist[0][ks]+=(((0x10000-256)&-(ks>deltas[0]))-curr_hist[0][ks]+(1<<RATE>>1))>>RATE;
+				//curr_hist[1][ks]+=(((0x10000-256)&-(ks>deltas[1]))-curr_hist[1][ks]+(1<<RATE>>1))>>RATE;
+				//curr_hist[2][ks]+=(((0x10000-256)&-(ks>deltas[2]))-curr_hist[2][ks]+(1<<RATE>>1))>>RATE;
+			
+				int mc0=curr_hist[0][ks];
+				int mc1=curr_hist[1][ks];
+				int mc2=curr_hist[2][ks];
+				mc0-=mc0>>RATE;
+				mc1-=mc1>>RATE;
+				mc2-=mc2>>RATE;
+				mc0+=(0x10000-256)>>RATE&-(ks>deltas[0]);
+				mc1+=(0x10000-256)>>RATE&-(ks>deltas[1]);
+				mc2+=(0x10000-256)>>RATE&-(ks>deltas[2]);
+				curr_hist[0][ks]=mc0;
+				curr_hist[1][ks]=mc1;
+				curr_hist[2][ks]=mc2;
+			}
+#else
+			__m256i t0, t1, t2, t3;
+			__m256i mc0, mc1, mc2, mc3;
+			unsigned short *curr_mixin;
+
+			curr_mixin=mixin+255-deltas[0];
+			mc0=_mm256_loadu_si256((__m256i*)curr_hist[0]+0);
+			mc1=_mm256_loadu_si256((__m256i*)curr_hist[0]+1);
+			mc2=_mm256_loadu_si256((__m256i*)curr_hist[0]+2);
+			mc3=_mm256_loadu_si256((__m256i*)curr_hist[0]+3);
+			t0=_mm256_srli_epi16(mc0, RATE);
+			t1=_mm256_srli_epi16(mc1, RATE);
+			t2=_mm256_srli_epi16(mc2, RATE);
+			t3=_mm256_srli_epi16(mc3, RATE);
+			mc0=_mm256_sub_epi16(mc0, t0);
+			mc1=_mm256_sub_epi16(mc1, t1);
+			mc2=_mm256_sub_epi16(mc2, t2);
+			mc3=_mm256_sub_epi16(mc3, t3);
+			mc0=_mm256_add_epi16(mc0, _mm256_loadu_si256((__m256i*)curr_mixin+0));
+			mc1=_mm256_add_epi16(mc1, _mm256_loadu_si256((__m256i*)curr_mixin+1));
+			mc2=_mm256_add_epi16(mc2, _mm256_loadu_si256((__m256i*)curr_mixin+2));
+			mc3=_mm256_add_epi16(mc3, _mm256_loadu_si256((__m256i*)curr_mixin+3));
+			_mm256_storeu_si256((__m256i*)curr_hist[0]+0, mc0);
+			_mm256_storeu_si256((__m256i*)curr_hist[0]+1, mc1);
+			_mm256_storeu_si256((__m256i*)curr_hist[0]+2, mc2);
+			_mm256_storeu_si256((__m256i*)curr_hist[0]+3, mc3);
+
+			mc0=_mm256_loadu_si256((__m256i*)curr_hist[0]+4);
+			mc1=_mm256_loadu_si256((__m256i*)curr_hist[0]+5);
+			mc2=_mm256_loadu_si256((__m256i*)curr_hist[0]+6);
+			mc3=_mm256_loadu_si256((__m256i*)curr_hist[0]+7);
+			t0=_mm256_srli_epi16(mc0, RATE);
+			t1=_mm256_srli_epi16(mc1, RATE);
+			t2=_mm256_srli_epi16(mc2, RATE);
+			t3=_mm256_srli_epi16(mc3, RATE);
+			mc0=_mm256_sub_epi16(mc0, t0);
+			mc1=_mm256_sub_epi16(mc1, t1);
+			mc2=_mm256_sub_epi16(mc2, t2);
+			mc3=_mm256_sub_epi16(mc3, t3);
+			mc0=_mm256_add_epi16(mc0, _mm256_loadu_si256((__m256i*)curr_mixin+4));
+			mc1=_mm256_add_epi16(mc1, _mm256_loadu_si256((__m256i*)curr_mixin+5));
+			mc2=_mm256_add_epi16(mc2, _mm256_loadu_si256((__m256i*)curr_mixin+6));
+			mc3=_mm256_add_epi16(mc3, _mm256_loadu_si256((__m256i*)curr_mixin+7));
+			_mm256_storeu_si256((__m256i*)curr_hist[0]+4, mc0);
+			_mm256_storeu_si256((__m256i*)curr_hist[0]+5, mc1);
+			_mm256_storeu_si256((__m256i*)curr_hist[0]+6, mc2);
+			_mm256_storeu_si256((__m256i*)curr_hist[0]+7, mc3);
+
+			mc0=_mm256_loadu_si256((__m256i*)curr_hist[0]+ 8);
+			mc1=_mm256_loadu_si256((__m256i*)curr_hist[0]+ 9);
+			mc2=_mm256_loadu_si256((__m256i*)curr_hist[0]+10);
+			mc3=_mm256_loadu_si256((__m256i*)curr_hist[0]+11);
+			t0=_mm256_srli_epi16(mc0, RATE);
+			t1=_mm256_srli_epi16(mc1, RATE);
+			t2=_mm256_srli_epi16(mc2, RATE);
+			t3=_mm256_srli_epi16(mc3, RATE);
+			mc0=_mm256_sub_epi16(mc0, t0);
+			mc1=_mm256_sub_epi16(mc1, t1);
+			mc2=_mm256_sub_epi16(mc2, t2);
+			mc3=_mm256_sub_epi16(mc3, t3);
+			mc0=_mm256_add_epi16(mc0, _mm256_loadu_si256((__m256i*)curr_mixin+ 8));
+			mc1=_mm256_add_epi16(mc1, _mm256_loadu_si256((__m256i*)curr_mixin+ 9));
+			mc2=_mm256_add_epi16(mc2, _mm256_loadu_si256((__m256i*)curr_mixin+10));
+			mc3=_mm256_add_epi16(mc3, _mm256_loadu_si256((__m256i*)curr_mixin+11));
+			_mm256_storeu_si256((__m256i*)curr_hist[0]+ 8, mc0);
+			_mm256_storeu_si256((__m256i*)curr_hist[0]+ 9, mc1);
+			_mm256_storeu_si256((__m256i*)curr_hist[0]+10, mc2);
+			_mm256_storeu_si256((__m256i*)curr_hist[0]+11, mc3);
+
+			mc0=_mm256_loadu_si256((__m256i*)curr_hist[0]+12);
+			mc1=_mm256_loadu_si256((__m256i*)curr_hist[0]+13);
+			mc2=_mm256_loadu_si256((__m256i*)curr_hist[0]+14);
+			mc3=_mm256_loadu_si256((__m256i*)curr_hist[0]+15);
+			t0=_mm256_srli_epi16(mc0, RATE);
+			t1=_mm256_srli_epi16(mc1, RATE);
+			t2=_mm256_srli_epi16(mc2, RATE);
+			t3=_mm256_srli_epi16(mc3, RATE);
+			mc0=_mm256_sub_epi16(mc0, t0);
+			mc1=_mm256_sub_epi16(mc1, t1);
+			mc2=_mm256_sub_epi16(mc2, t2);
+			mc3=_mm256_sub_epi16(mc3, t3);
+			mc0=_mm256_add_epi16(mc0, _mm256_loadu_si256((__m256i*)curr_mixin+12));
+			mc1=_mm256_add_epi16(mc1, _mm256_loadu_si256((__m256i*)curr_mixin+13));
+			mc2=_mm256_add_epi16(mc2, _mm256_loadu_si256((__m256i*)curr_mixin+14));
+			mc3=_mm256_add_epi16(mc3, _mm256_loadu_si256((__m256i*)curr_mixin+15));
+			_mm256_storeu_si256((__m256i*)curr_hist[0]+12, mc0);
+			_mm256_storeu_si256((__m256i*)curr_hist[0]+13, mc1);
+			_mm256_storeu_si256((__m256i*)curr_hist[0]+14, mc2);
+			_mm256_storeu_si256((__m256i*)curr_hist[0]+15, mc3);
+
+			curr_mixin=mixin+255-deltas[1];
+			mc0=_mm256_loadu_si256((__m256i*)curr_hist[1]+0);
+			mc1=_mm256_loadu_si256((__m256i*)curr_hist[1]+1);
+			mc2=_mm256_loadu_si256((__m256i*)curr_hist[1]+2);
+			mc3=_mm256_loadu_si256((__m256i*)curr_hist[1]+3);
+			t0=_mm256_srli_epi16(mc0, RATE);
+			t1=_mm256_srli_epi16(mc1, RATE);
+			t2=_mm256_srli_epi16(mc2, RATE);
+			t3=_mm256_srli_epi16(mc3, RATE);
+			mc0=_mm256_sub_epi16(mc0, t0);
+			mc1=_mm256_sub_epi16(mc1, t1);
+			mc2=_mm256_sub_epi16(mc2, t2);
+			mc3=_mm256_sub_epi16(mc3, t3);
+			mc0=_mm256_add_epi16(mc0, _mm256_loadu_si256((__m256i*)curr_mixin+0));
+			mc1=_mm256_add_epi16(mc1, _mm256_loadu_si256((__m256i*)curr_mixin+1));
+			mc2=_mm256_add_epi16(mc2, _mm256_loadu_si256((__m256i*)curr_mixin+2));
+			mc3=_mm256_add_epi16(mc3, _mm256_loadu_si256((__m256i*)curr_mixin+3));
+			_mm256_storeu_si256((__m256i*)curr_hist[1]+0, mc0);
+			_mm256_storeu_si256((__m256i*)curr_hist[1]+1, mc1);
+			_mm256_storeu_si256((__m256i*)curr_hist[1]+2, mc2);
+			_mm256_storeu_si256((__m256i*)curr_hist[1]+3, mc3);
+
+			mc0=_mm256_loadu_si256((__m256i*)curr_hist[1]+4);
+			mc1=_mm256_loadu_si256((__m256i*)curr_hist[1]+5);
+			mc2=_mm256_loadu_si256((__m256i*)curr_hist[1]+6);
+			mc3=_mm256_loadu_si256((__m256i*)curr_hist[1]+7);
+			t0=_mm256_srli_epi16(mc0, RATE);
+			t1=_mm256_srli_epi16(mc1, RATE);
+			t2=_mm256_srli_epi16(mc2, RATE);
+			t3=_mm256_srli_epi16(mc3, RATE);
+			mc0=_mm256_sub_epi16(mc0, t0);
+			mc1=_mm256_sub_epi16(mc1, t1);
+			mc2=_mm256_sub_epi16(mc2, t2);
+			mc3=_mm256_sub_epi16(mc3, t3);
+			mc0=_mm256_add_epi16(mc0, _mm256_loadu_si256((__m256i*)curr_mixin+4));
+			mc1=_mm256_add_epi16(mc1, _mm256_loadu_si256((__m256i*)curr_mixin+5));
+			mc2=_mm256_add_epi16(mc2, _mm256_loadu_si256((__m256i*)curr_mixin+6));
+			mc3=_mm256_add_epi16(mc3, _mm256_loadu_si256((__m256i*)curr_mixin+7));
+			_mm256_storeu_si256((__m256i*)curr_hist[1]+4, mc0);
+			_mm256_storeu_si256((__m256i*)curr_hist[1]+5, mc1);
+			_mm256_storeu_si256((__m256i*)curr_hist[1]+6, mc2);
+			_mm256_storeu_si256((__m256i*)curr_hist[1]+7, mc3);
+
+			mc0=_mm256_loadu_si256((__m256i*)curr_hist[1]+ 8);
+			mc1=_mm256_loadu_si256((__m256i*)curr_hist[1]+ 9);
+			mc2=_mm256_loadu_si256((__m256i*)curr_hist[1]+10);
+			mc3=_mm256_loadu_si256((__m256i*)curr_hist[1]+11);
+			t0=_mm256_srli_epi16(mc0, RATE);
+			t1=_mm256_srli_epi16(mc1, RATE);
+			t2=_mm256_srli_epi16(mc2, RATE);
+			t3=_mm256_srli_epi16(mc3, RATE);
+			mc0=_mm256_sub_epi16(mc0, t0);
+			mc1=_mm256_sub_epi16(mc1, t1);
+			mc2=_mm256_sub_epi16(mc2, t2);
+			mc3=_mm256_sub_epi16(mc3, t3);
+			mc0=_mm256_add_epi16(mc0, _mm256_loadu_si256((__m256i*)curr_mixin+ 8));
+			mc1=_mm256_add_epi16(mc1, _mm256_loadu_si256((__m256i*)curr_mixin+ 9));
+			mc2=_mm256_add_epi16(mc2, _mm256_loadu_si256((__m256i*)curr_mixin+10));
+			mc3=_mm256_add_epi16(mc3, _mm256_loadu_si256((__m256i*)curr_mixin+11));
+			_mm256_storeu_si256((__m256i*)curr_hist[1]+ 8, mc0);
+			_mm256_storeu_si256((__m256i*)curr_hist[1]+ 9, mc1);
+			_mm256_storeu_si256((__m256i*)curr_hist[1]+10, mc2);
+			_mm256_storeu_si256((__m256i*)curr_hist[1]+11, mc3);
+
+			mc0=_mm256_loadu_si256((__m256i*)curr_hist[1]+12);
+			mc1=_mm256_loadu_si256((__m256i*)curr_hist[1]+13);
+			mc2=_mm256_loadu_si256((__m256i*)curr_hist[1]+14);
+			mc3=_mm256_loadu_si256((__m256i*)curr_hist[1]+15);
+			t0=_mm256_srli_epi16(mc0, RATE);
+			t1=_mm256_srli_epi16(mc1, RATE);
+			t2=_mm256_srli_epi16(mc2, RATE);
+			t3=_mm256_srli_epi16(mc3, RATE);
+			mc0=_mm256_sub_epi16(mc0, t0);
+			mc1=_mm256_sub_epi16(mc1, t1);
+			mc2=_mm256_sub_epi16(mc2, t2);
+			mc3=_mm256_sub_epi16(mc3, t3);
+			mc0=_mm256_add_epi16(mc0, _mm256_loadu_si256((__m256i*)curr_mixin+12));
+			mc1=_mm256_add_epi16(mc1, _mm256_loadu_si256((__m256i*)curr_mixin+13));
+			mc2=_mm256_add_epi16(mc2, _mm256_loadu_si256((__m256i*)curr_mixin+14));
+			mc3=_mm256_add_epi16(mc3, _mm256_loadu_si256((__m256i*)curr_mixin+15));
+			_mm256_storeu_si256((__m256i*)curr_hist[1]+12, mc0);
+			_mm256_storeu_si256((__m256i*)curr_hist[1]+13, mc1);
+			_mm256_storeu_si256((__m256i*)curr_hist[1]+14, mc2);
+			_mm256_storeu_si256((__m256i*)curr_hist[1]+15, mc3);
+
+			curr_mixin=mixin+255-deltas[2];
+			mc0=_mm256_loadu_si256((__m256i*)curr_hist[2]+0);
+			mc1=_mm256_loadu_si256((__m256i*)curr_hist[2]+1);
+			mc2=_mm256_loadu_si256((__m256i*)curr_hist[2]+2);
+			mc3=_mm256_loadu_si256((__m256i*)curr_hist[2]+3);
+			t0=_mm256_srli_epi16(mc0, RATE);
+			t1=_mm256_srli_epi16(mc1, RATE);
+			t2=_mm256_srli_epi16(mc2, RATE);
+			t3=_mm256_srli_epi16(mc3, RATE);
+			mc0=_mm256_sub_epi16(mc0, t0);
+			mc1=_mm256_sub_epi16(mc1, t1);
+			mc2=_mm256_sub_epi16(mc2, t2);
+			mc3=_mm256_sub_epi16(mc3, t3);
+			mc0=_mm256_add_epi16(mc0, _mm256_loadu_si256((__m256i*)curr_mixin+0));
+			mc1=_mm256_add_epi16(mc1, _mm256_loadu_si256((__m256i*)curr_mixin+1));
+			mc2=_mm256_add_epi16(mc2, _mm256_loadu_si256((__m256i*)curr_mixin+2));
+			mc3=_mm256_add_epi16(mc3, _mm256_loadu_si256((__m256i*)curr_mixin+3));
+			_mm256_storeu_si256((__m256i*)curr_hist[2]+0, mc0);
+			_mm256_storeu_si256((__m256i*)curr_hist[2]+1, mc1);
+			_mm256_storeu_si256((__m256i*)curr_hist[2]+2, mc2);
+			_mm256_storeu_si256((__m256i*)curr_hist[2]+3, mc3);
+
+			mc0=_mm256_loadu_si256((__m256i*)curr_hist[2]+4);
+			mc1=_mm256_loadu_si256((__m256i*)curr_hist[2]+5);
+			mc2=_mm256_loadu_si256((__m256i*)curr_hist[2]+6);
+			mc3=_mm256_loadu_si256((__m256i*)curr_hist[2]+7);
+			t0=_mm256_srli_epi16(mc0, RATE);
+			t1=_mm256_srli_epi16(mc1, RATE);
+			t2=_mm256_srli_epi16(mc2, RATE);
+			t3=_mm256_srli_epi16(mc3, RATE);
+			mc0=_mm256_sub_epi16(mc0, t0);
+			mc1=_mm256_sub_epi16(mc1, t1);
+			mc2=_mm256_sub_epi16(mc2, t2);
+			mc3=_mm256_sub_epi16(mc3, t3);
+			mc0=_mm256_add_epi16(mc0, _mm256_loadu_si256((__m256i*)curr_mixin+4));
+			mc1=_mm256_add_epi16(mc1, _mm256_loadu_si256((__m256i*)curr_mixin+5));
+			mc2=_mm256_add_epi16(mc2, _mm256_loadu_si256((__m256i*)curr_mixin+6));
+			mc3=_mm256_add_epi16(mc3, _mm256_loadu_si256((__m256i*)curr_mixin+7));
+			_mm256_storeu_si256((__m256i*)curr_hist[2]+4, mc0);
+			_mm256_storeu_si256((__m256i*)curr_hist[2]+5, mc1);
+			_mm256_storeu_si256((__m256i*)curr_hist[2]+6, mc2);
+			_mm256_storeu_si256((__m256i*)curr_hist[2]+7, mc3);
+
+			mc0=_mm256_loadu_si256((__m256i*)curr_hist[2]+ 8);
+			mc1=_mm256_loadu_si256((__m256i*)curr_hist[2]+ 9);
+			mc2=_mm256_loadu_si256((__m256i*)curr_hist[2]+10);
+			mc3=_mm256_loadu_si256((__m256i*)curr_hist[2]+11);
+			t0=_mm256_srli_epi16(mc0, RATE);
+			t1=_mm256_srli_epi16(mc1, RATE);
+			t2=_mm256_srli_epi16(mc2, RATE);
+			t3=_mm256_srli_epi16(mc3, RATE);
+			mc0=_mm256_sub_epi16(mc0, t0);
+			mc1=_mm256_sub_epi16(mc1, t1);
+			mc2=_mm256_sub_epi16(mc2, t2);
+			mc3=_mm256_sub_epi16(mc3, t3);
+			mc0=_mm256_add_epi16(mc0, _mm256_loadu_si256((__m256i*)curr_mixin+ 8));
+			mc1=_mm256_add_epi16(mc1, _mm256_loadu_si256((__m256i*)curr_mixin+ 9));
+			mc2=_mm256_add_epi16(mc2, _mm256_loadu_si256((__m256i*)curr_mixin+10));
+			mc3=_mm256_add_epi16(mc3, _mm256_loadu_si256((__m256i*)curr_mixin+11));
+			_mm256_storeu_si256((__m256i*)curr_hist[2]+ 8, mc0);
+			_mm256_storeu_si256((__m256i*)curr_hist[2]+ 9, mc1);
+			_mm256_storeu_si256((__m256i*)curr_hist[2]+10, mc2);
+			_mm256_storeu_si256((__m256i*)curr_hist[2]+11, mc3);
+
+			mc0=_mm256_loadu_si256((__m256i*)curr_hist[2]+12);
+			mc1=_mm256_loadu_si256((__m256i*)curr_hist[2]+13);
+			mc2=_mm256_loadu_si256((__m256i*)curr_hist[2]+14);
+			mc3=_mm256_loadu_si256((__m256i*)curr_hist[2]+15);
+			t0=_mm256_srli_epi16(mc0, RATE);
+			t1=_mm256_srli_epi16(mc1, RATE);
+			t2=_mm256_srli_epi16(mc2, RATE);
+			t3=_mm256_srli_epi16(mc3, RATE);
+			mc0=_mm256_sub_epi16(mc0, t0);
+			mc1=_mm256_sub_epi16(mc1, t1);
+			mc2=_mm256_sub_epi16(mc2, t2);
+			mc3=_mm256_sub_epi16(mc3, t3);
+			mc0=_mm256_add_epi16(mc0, _mm256_loadu_si256((__m256i*)curr_mixin+12));
+			mc1=_mm256_add_epi16(mc1, _mm256_loadu_si256((__m256i*)curr_mixin+13));
+			mc2=_mm256_add_epi16(mc2, _mm256_loadu_si256((__m256i*)curr_mixin+14));
+			mc3=_mm256_add_epi16(mc3, _mm256_loadu_si256((__m256i*)curr_mixin+15));
+			_mm256_storeu_si256((__m256i*)curr_hist[2]+12, mc0);
+			_mm256_storeu_si256((__m256i*)curr_hist[2]+13, mc1);
+			_mm256_storeu_si256((__m256i*)curr_hist[2]+14, mc2);
+			_mm256_storeu_si256((__m256i*)curr_hist[2]+15, mc3);
+#endif
+#else
 			++curr_hist[0][deltas[0]];
 			++curr_hist[1][deltas[1]];
 			++curr_hist[2][deltas[2]];
@@ -750,6 +1339,7 @@ int c10_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				//	sum+=hist[2][ks]=(hist[2][ks]+1)>>1;
 				curr_hist[2][256]=sum;
 			}
+#endif
 			yuv[2]-=yuv[vhelpidx];
 			yuv[1]-=yuv[uhelpidx];
 			//errors[0]=yuv[0]-preds[0];

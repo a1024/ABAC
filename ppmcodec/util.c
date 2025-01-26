@@ -64,27 +64,34 @@ void memfill(void *dst, const void *src, size_t dstbytes, size_t srcbytes)
 	size_t copied;
 	char *d=(char*)dst;
 	const char *s=(const char*)src;
+	//printf("MEMFILL  %016zX %016zX %016zX %016zX\n", (size_t)dst, (size_t)src, dstbytes, srcbytes);//
 #ifdef _DEBUG
 	if(!dstbytes||!srcbytes)
 	{
-		LOG_ERROR("memfill:  dstbytes %zd  srcbytes %zd", dstbytes, srcbytes);
+		//LOG_ERROR("memfill:  dstbytes %zd  srcbytes %zd", dstbytes, srcbytes);
 		return;
 	}
 #endif
 	if(dstbytes<srcbytes)
 	{
+		//printf("  MEMCPY1  %016zX %016zX %016zX\n", (size_t)dst, (size_t)src, dstbytes);//
 		memcpy(dst, src, dstbytes);
 		return;
 	}
 	copied=srcbytes;
-	memcpy(d, s, copied);
-	while(copied<<1<=dstbytes)
+	//printf("  MEMCPY2  %016zX %016zX %016zX\n", (size_t)d, (size_t)s, srcbytes);//
+	memcpy(d, s, srcbytes);
+	while((copied<<1)<=dstbytes)
 	{
+		//printf("  MEMCPY3  %016zX %016zX %016zX\n", (size_t)(d+copied), (size_t)d, copied);//
 		memcpy(d+copied, d, copied);
 		copied<<=1;
 	}
 	if(copied<dstbytes)
+	{
+		//printf("  MEMCPY4  %016zX %016zX %016zX\n", (size_t)(d+copied), (size_t)d, dstbytes-copied);//
 		memcpy(d+copied, d, dstbytes-copied);
+	}
 }
 void memswap_slow(void *p1, void *p2, size_t size)
 {
