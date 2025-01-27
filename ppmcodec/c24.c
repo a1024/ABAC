@@ -18,17 +18,20 @@ static const char file[]=__FILE__;
 //OG preds: W/NE/CG/AV4/AV9/WG
 
 	#define ENABLE_ZERO	//good with astro, requires static-o0 to be fast
+//	#define ENABLE_CLEARTYPE//slightly compensates ZERO-stealing with text
+//	#define ENABLE_N	//bad with GDCC
 	#define ENABLE_W	//good with GDCC
-//	#define ENABLE_N	//useless
-//	#define ENABLE_NW	//good
-	#define ENABLE_NE	//?
+	#define ENABLE_NW	//good
+//	#define ENABLE_NE	//?
 //	#define ENABLE_NWE	//bad
 //	#define ENABLE_CG45	//bad
 	#define ENABLE_AV2	//good, but redundant with WG
 //	#define ENABLE_GRAD	//weaker
+//	#define ENABLE_CGX	//bad
+//	#define ENABLE_CGY	//bad
 	#define ENABLE_CG
 //	#define ENABLE_CGv2	//useless
-	#define ENABLE_SELECT	//?
+	#define ENABLE_SELECT	//good with synth
 	#define ENABLE_IZ	//weak with CG/AV4
 	#define ENABLE_AV3	//weak with CG/AV4
 	#define ENABLE_AV4	//good with GDCC
@@ -73,8 +76,8 @@ static const char file[]=__FILE__;
 //	#define AC_IMPLEMENTATION
 #include"entropy.h"
 
-#define BLOCKX 512	//384
-#define BLOCKY 512
+#define BLOCKX 448	//384
+#define BLOCKY 448
 
 #define MAXPRINTEDBLOCKS 500
 //11<<6 = 704 CDFs size 32
@@ -203,7 +206,7 @@ static const char *rct_names[RCT_COUNT]=
 #define PREDLIST\
 	PRED(ZERO)\
 	PRED(W)\
-	PRED(NE)\
+	PRED(NW)\
 	PRED(SELECT)\
 	PRED(CG)\
 	PRED(AV2)\
@@ -386,6 +389,9 @@ static void block_func(void *param)
 	int entropylevels[3]={0}, entropyidx[3]={0};
 #else
 	int entropylevel=0, entropyidx=0;
+#endif
+#ifdef PRINT_CSIZES
+	double esizes[3]={0};
 #endif
 
 	if(args->fwd)
@@ -682,6 +688,94 @@ static void block_func(void *param)
 				);
 #endif
 
+				//CLEARTYPE
+				//rNW gNW bNW rN gN bN
+				//rW  gW  bW  r  g  b
+				//pred(r) = SELECT(rN, bW, bNW)
+				//pred(g) = SELECT(gN, r, rN)
+				//pred(b) = SELECT(bN, g, gN)
+#ifdef ENABLE_CLEARTYPE
+				{
+					__m256i blendmask=_mm256_set_epi32(
+						0x0000FFFF,
+						0xFFFF0000,
+						0xFFFFFFFF,
+						0x0000FFFF,
+						0xFFFF0000,
+						0xFFFFFFFF,
+						0x0000FFFF,
+						0xFFFF0000
+					);
+					__m256i sNW, sW;
+
+					sNW=_mm256_blendv_epi8(W, curr, blendmask);
+					sW=_mm256_blendv_epi8(W, NW, N);
+					pred=_mm256_cmpgt_epi16(_mm256_abs_epi16(_mm256_sub_epi16(N, sNW)), _mm256_abs_epi16(_mm256_sub_epi16(sW, sNW)));
+					pred=_mm256_blendv_epi8(sW, N, pred);
+
+					pred=_mm256_sub_epi16(curr, pred);
+					UPDATE(
+						PRED_CLEARTYPE,
+						OCH_R, OCH_G, OCH_B,
+						OCH_R, OCH_G, OCH_B,
+						OCH_R, OCH_G, OCH_B,
+						OCH_R, OCH_G, OCH_B,
+						OCH_R, OCH_G, OCH_B
+					);
+					sNW=_mm256_blendv_epi8(W3, curr, blendmask);
+					sW=_mm256_blendv_epi8(W3, NW3, N3);
+					pred=_mm256_cmpgt_epi16(_mm256_abs_epi16(_mm256_sub_epi16(N3, sNW)), _mm256_abs_epi16(_mm256_sub_epi16(sW, sNW)));
+					pred=_mm256_blendv_epi8(sW, N3, pred);
+
+					pred=_mm256_add_epi16(pred, curr2);
+					pred=_mm256_max_epi16(pred, amin);
+					pred=_mm256_min_epi16(pred, amax);
+					pred=_mm256_sub_epi16(curr, pred);
+					UPDATE(
+						PRED_CLEARTYPE,
+						OCH_RG, OCH_GB, OCH_BR,
+						OCH_RG, OCH_GB, OCH_BR,
+						OCH_RG, OCH_GB, OCH_BR,
+						OCH_RG, OCH_GB, OCH_BR,
+						OCH_RG, OCH_GB, OCH_BR
+					);
+					sNW=_mm256_blendv_epi8(W4, curr, blendmask);
+					sW=_mm256_blendv_epi8(W4, NW4, N4);
+					pred=_mm256_cmpgt_epi16(_mm256_abs_epi16(_mm256_sub_epi16(N4, sNW)), _mm256_abs_epi16(_mm256_sub_epi16(sW, sNW)));
+					pred=_mm256_blendv_epi8(sW, N4, pred);
+
+					pred=_mm256_add_epi16(pred, curr);
+					pred=_mm256_max_epi16(pred, amin);
+					pred=_mm256_min_epi16(pred, amax);
+					pred=_mm256_sub_epi16(curr2, pred);
+					UPDATE(
+						PRED_CLEARTYPE,
+						OCH_GR, OCH_BG, OCH_RB,
+						OCH_GR, OCH_BG, OCH_RB,
+						OCH_GR, OCH_BG, OCH_RB,
+						OCH_GR, OCH_BG, OCH_RB,
+						OCH_GR, OCH_BG, OCH_RB
+					);
+					sNW=_mm256_blendv_epi8(W5, curr, blendmask);
+					sW=_mm256_blendv_epi8(W5, NW5, N5);
+					pred=_mm256_cmpgt_epi16(_mm256_abs_epi16(_mm256_sub_epi16(N5, sNW)), _mm256_abs_epi16(_mm256_sub_epi16(sW, sNW)));
+					pred=_mm256_blendv_epi8(sW, N5, pred);
+
+					pred=_mm256_add_epi16(pred, curr5);
+					pred=_mm256_max_epi16(pred, amin);
+					pred=_mm256_min_epi16(pred, amax);
+					pred=_mm256_sub_epi16(curr, pred);
+					UPDATE(
+						PRED_CLEARTYPE,
+						OCH_R2, OCH_G2, OCH_B2,
+						OCH_R2, OCH_G2, OCH_B2,
+						OCH_R2, OCH_G2, OCH_B2,
+						OCH_R2, OCH_G2, OCH_B2,
+						OCH_R2, OCH_G2, OCH_B2
+					);
+				}
+#endif
+
 				//N
 #ifdef ENABLE_N
 				pred=_mm256_sub_epi16(curr, N);
@@ -808,6 +902,20 @@ static void block_func(void *param)
 					OCH_GR, OCH_BG, OCH_RB,
 					OCH_GR, OCH_BG, OCH_RB,
 					OCH_GR, OCH_BG, OCH_RB
+				);
+				pred=NW5;
+
+				pred=_mm256_add_epi16(pred, curr5);
+				pred=_mm256_max_epi16(pred, amin);
+				pred=_mm256_min_epi16(pred, amax);
+				pred=_mm256_sub_epi16(curr, pred);
+				UPDATE(
+					PRED_NW,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2
 				);
 #endif
 
@@ -1018,7 +1126,7 @@ static void block_func(void *param)
 				);
 #endif
 
-				//Select = abs(N-NW)>abs(W-NW) ? N : W
+				//SELECT = abs(N-NW)>abs(W-NW) ? N : W
 #ifdef ENABLE_SELECT
 				pred=_mm256_cmpgt_epi16(_mm256_abs_epi16(_mm256_sub_epi16(N, NW)), _mm256_abs_epi16(_mm256_sub_epi16(W, NW)));
 				pred=_mm256_blendv_epi8(W, N, pred);
@@ -1132,6 +1240,136 @@ static void block_func(void *param)
 					OCH_GR, OCH_BG, OCH_RB,
 					OCH_GR, OCH_BG, OCH_RB,
 					OCH_GR, OCH_BG, OCH_RB
+				);
+#endif
+
+				//CGX = median(N, W, W+(N-NW)/2)
+#ifdef ENABLE_CGX
+				pred=_mm256_add_epi16(W, _mm256_srai_epi16(_mm256_sub_epi16(N, NW), 1));
+				pred=_mm256_max_epi16(pred, vmin[0]);
+				pred=_mm256_min_epi16(pred, vmax[0]);
+
+				pred=_mm256_sub_epi16(curr, pred);
+				UPDATE(
+					PRED_CGX,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B
+				);
+				pred=_mm256_add_epi16(W3, _mm256_srai_epi16(_mm256_sub_epi16(N3, NW3), 1));
+				pred=_mm256_max_epi16(pred, vmin[1]);
+				pred=_mm256_min_epi16(pred, vmax[1]);
+
+				pred=_mm256_add_epi16(pred, curr2);
+				pred=_mm256_max_epi16(pred, amin);
+				pred=_mm256_min_epi16(pred, amax);
+				pred=_mm256_sub_epi16(curr, pred);
+				UPDATE(
+					PRED_CGX,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR
+				);
+				pred=_mm256_add_epi16(W4, _mm256_srai_epi16(_mm256_sub_epi16(N4, NW4), 1));
+				pred=_mm256_max_epi16(pred, vmin[2]);
+				pred=_mm256_min_epi16(pred, vmax[2]);
+
+				pred=_mm256_add_epi16(pred, curr);
+				pred=_mm256_max_epi16(pred, amin);
+				pred=_mm256_min_epi16(pred, amax);
+				pred=_mm256_sub_epi16(curr2, pred);
+				UPDATE(
+					PRED_CGX,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB
+				);
+				pred=_mm256_add_epi16(W5, _mm256_srai_epi16(_mm256_sub_epi16(N5, NW5), 1));
+				pred=_mm256_max_epi16(pred, vmin[3]);
+				pred=_mm256_min_epi16(pred, vmax[3]);
+
+				pred=_mm256_add_epi16(pred, curr5);
+				pred=_mm256_max_epi16(pred, amin);
+				pred=_mm256_min_epi16(pred, amax);
+				pred=_mm256_sub_epi16(curr, pred);
+				UPDATE(
+					PRED_CGX,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2
+				);
+#endif
+
+				//CGY = median(N, W, N+(W-NW)/2)
+#ifdef ENABLE_CGY
+				pred=_mm256_add_epi16(N, _mm256_srai_epi16(_mm256_sub_epi16(W, NW), 1));
+				pred=_mm256_max_epi16(pred, vmin[0]);
+				pred=_mm256_min_epi16(pred, vmax[0]);
+
+				pred=_mm256_sub_epi16(curr, pred);
+				UPDATE(
+					PRED_CGY,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B
+				);
+				pred=_mm256_add_epi16(N3, _mm256_srai_epi16(_mm256_sub_epi16(W3, NW3), 1));
+				pred=_mm256_max_epi16(pred, vmin[1]);
+				pred=_mm256_min_epi16(pred, vmax[1]);
+
+				pred=_mm256_add_epi16(pred, curr2);
+				pred=_mm256_max_epi16(pred, amin);
+				pred=_mm256_min_epi16(pred, amax);
+				pred=_mm256_sub_epi16(curr, pred);
+				UPDATE(
+					PRED_CGY,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR
+				);
+				pred=_mm256_add_epi16(N4, _mm256_srai_epi16(_mm256_sub_epi16(W4, NW4), 1));
+				pred=_mm256_max_epi16(pred, vmin[2]);
+				pred=_mm256_min_epi16(pred, vmax[2]);
+
+				pred=_mm256_add_epi16(pred, curr);
+				pred=_mm256_max_epi16(pred, amin);
+				pred=_mm256_min_epi16(pred, amax);
+				pred=_mm256_sub_epi16(curr2, pred);
+				UPDATE(
+					PRED_CGY,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB
+				);
+				pred=_mm256_add_epi16(N5, _mm256_srai_epi16(_mm256_sub_epi16(W5, NW5), 1));
+				pred=_mm256_max_epi16(pred, vmin[3]);
+				pred=_mm256_min_epi16(pred, vmax[3]);
+
+				pred=_mm256_add_epi16(pred, curr5);
+				pred=_mm256_max_epi16(pred, amin);
+				pred=_mm256_min_epi16(pred, amax);
+				pred=_mm256_sub_epi16(curr, pred);
+				UPDATE(
+					PRED_CGY,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2
 				);
 #endif
 
@@ -2673,6 +2911,14 @@ static void block_func(void *param)
 		predidx[0]=predsel[combination[0]];
 		predidx[1]=predsel[combination[1]];
 		predidx[2]=predsel[combination[2]];
+#ifdef ENABLE_CLEARTYPE
+		if(predidx[0]==PRED_CLEARTYPE)
+			predidx[0]=PRED_SELECT;
+		if(predidx[1]==PRED_CLEARTYPE)
+			predidx[1]=PRED_SELECT;
+		if(predidx[2]==PRED_CLEARTYPE)
+			predidx[2]=PRED_SELECT;
+#endif
 #if 0
 		if(csizes[combination[0]*PRED_COUNT+predidx[0]]<0.1*count)predidx[0]=PRED_CG;	//X
 		if(csizes[combination[1]*PRED_COUNT+predidx[1]]<0.1*count)predidx[1]=PRED_CG;
@@ -2797,21 +3043,26 @@ static void block_func(void *param)
 		}
 #endif
 #ifdef PRINT_CSIZES
-		if(!args->blockidx)
-		{
-			printf("%s %s %s %s\n",
-				rct_names[bestrct],
-				pred_names[predidx[0]],
-				pred_names[predidx[1]],
-				pred_names[predidx[2]]
-			);
-			printf("Block0\n%8d count\n%11.2lf Y est.\n%11.2lf U est.\n%11.2lf V est.\n",
-				count,
-				csizes[combination[0]*PRED_COUNT+predidx[0]],
-				csizes[combination[1]*PRED_COUNT+predidx[1]],
-				csizes[combination[2]*PRED_COUNT+predidx[2]]
-			);
-		}
+		printf("BLOCK %3d XY %5d %5d  %-10s %-10s %-10s %-10s  %11.2lf %11.2lf %11.2lf  ",
+			args->blockidx,
+			args->x1, args->y1,
+			rct_names[bestrct],
+			pred_names[predidx[0]],
+			pred_names[predidx[1]],
+			pred_names[predidx[2]],
+			csizes[combination[0]*PRED_COUNT+predidx[0]],
+			csizes[combination[1]*PRED_COUNT+predidx[1]],
+			csizes[combination[2]*PRED_COUNT+predidx[2]]
+		);
+		//if(!args->blockidx)
+		//{
+		//	printf("Block0\n%8d count\n%11.2lf Y est.\n%11.2lf U est.\n%11.2lf V est.\n",
+		//		count,
+		//		csizes[combination[0]*PRED_COUNT+predidx[0]],
+		//		csizes[combination[1]*PRED_COUNT+predidx[1]],
+		//		csizes[combination[2]*PRED_COUNT+predidx[2]]
+		//	);
+		//}
 #endif
 		(void)rct_names;
 		(void)pred_names;
@@ -3192,6 +3443,26 @@ static void block_func(void *param)
 					pred=0;
 					break;
 #endif
+#if 0
+				case PRED_CLEARTYPE:
+					//NW0 NW1 NW2 N0 N1 N2
+					//W0  W1  W2  c0 c1 c2
+					//pred(r) = SELECT(N0, W2, NW2)
+					//pred(g) = SELECT(N1, c0, N0)
+					//pred(b) = SELECT(N2, c1, N1)
+					switch(kc)
+					{
+					case 0:
+						pred=(abs(N[0]-NW[2])<abs(regW[2]-NW[2])?regW[2]:N[0]);
+						CLAMP2(pred, -128, 127);
+						break;
+					case 1:pred=(abs(N[1]-N [0])<abs(regW[0]-N [0])?regW[0]:N[1]);break;
+					case 2:pred=(abs(N[2]-N [1])<abs(regW[1]-N [1])?regW[1]:N[2]);break;
+					}
+					//if(pred<-256||pred>255||!kc&&(pred<-128||pred>127))
+					//	LOG_ERROR("");
+					break;
+#endif
 #ifdef ENABLE_N
 				case PRED_N:
 					pred=N[kc];
@@ -3235,6 +3506,16 @@ static void block_func(void *param)
 #ifdef ENABLE_CG45
 				case PRED_CG45:
 					MEDIAN3_32(pred, NW[kc], NE[kc], NW[kc]+NE[kc]-NN[kc]);
+					break;
+#endif
+#ifdef ENABLE_CGX
+				case PRED_CGX:
+					MEDIAN3_32(pred, N[kc], regW[kc], regW[kc]+((N[kc]-NW[kc])>>1));
+					break;
+#endif
+#ifdef ENABLE_CGY
+				case PRED_CGY:
+					MEDIAN3_32(pred, N[kc], regW[kc], N[kc]+((regW[kc]-NW[kc])>>1));
 					break;
 #endif
 #ifdef ENABLE_CG
@@ -3574,7 +3855,8 @@ static void block_func(void *param)
 #endif
 				unsigned cdf, freq;
 #ifdef SIMD_CTX
-				int qp=(pred+128)>>(8-CBITS);
+				int qp=(pred+128)>>(8-CBITS)&((1<<CBITS)-1);
+				//int qp=(pred+128)>>(8-CBITS);
 				//int qe=FLOOR_LOG2(grads[kc+0]+1);
 				//if(qe>ELEVELS-1)
 				//	qe=ELEVELS-1;
@@ -3598,7 +3880,7 @@ static void block_func(void *param)
 						freq=curr_hist0[sym+1]-cdf;
 						ac3_encbuf_update_N(&ec, cdf, freq, PROB_BITS);
 #ifdef PRINT_CSIZES
-						args->csizes[kc]-=log2(freq/(double)(1<<PROB_BITS));
+						esizes[kc]-=log2(freq/(double)(1<<PROB_BITS));
 #endif
 					}
 					else
@@ -3653,7 +3935,7 @@ static void block_func(void *param)
 						freq=GETCDF0(sym+1)-cdf;
 						ac3_encbuf_update_N(&ec, cdf, freq, PROB_BITS);
 #ifdef PRINT_CSIZES
-						args->csizes[kc]-=log2(freq/(double)(1<<PROB_BITS));
+						esizes[kc]-=log2(freq/(double)(1<<PROB_BITS));
 #endif
 					}
 					else
@@ -3807,7 +4089,7 @@ static void block_func(void *param)
 							bypass_encbuf(&bc, bypass, nbits);
 #endif
 #ifdef PRINT_CSIZES
-							args->csizes[kc]+=nbits;
+							esizes[kc]+=nbits;
 #endif
 						}
 #ifdef _DEBUG
@@ -3818,11 +4100,7 @@ static void block_func(void *param)
 						freq=GETCDF(token+1)-cdf;
 						ac3_encbuf_update_N(&ec, cdf, freq, PROB_BITS);
 #ifdef PRINT_CSIZES
-						//if(args->csizes[kc]<0)//
-						//	LOG_ERROR("");
-						//double LOL_1=freq/(double)(1<<PROB_BITS);
-						//double LOL_2=-log2(LOL_1);
-						args->csizes[kc]-=log2(freq/(double)(1<<PROB_BITS));
+						esizes[kc]-=log2(freq/(double)(1<<PROB_BITS));
 #endif
 #ifdef _DEBUG
 						if(ec.dstptr>=ec.dstend)
@@ -4397,17 +4675,25 @@ static void block_func(void *param)
 			LOG_ERROR("Integer overflow");
 #endif
 #ifdef PRINT_CSIZES
-		if(!args->blockidx)
-		{
-			printf("%11.2lf Y act.\n", args->csizes[0]);
-			printf("%11.2lf U act.\n", args->csizes[1]);
-			printf("%11.2lf V act.\n", args->csizes[2]);
-			printf("%8d cblock\n%8d Tokens\n%8d Bypass\n",
-				args->enctokenoffsets[currblockidx]+args->encbypassoffsets[currblockidx]+8,
-				args->enctokenoffsets[currblockidx],
-				args->encbypassoffsets[currblockidx]
-			);
-		}
+		printf(" Act %11.2lf %11.2lf %11.2lf\n",
+			esizes[0]/8,
+			esizes[1]/8,
+			esizes[2]/8
+		);
+		args->csizes[0]+=esizes[0];
+		args->csizes[1]+=esizes[1];
+		args->csizes[2]+=esizes[2];
+		//if(!args->blockidx)
+		//{
+		//	printf("%11.2lf Y act.\n", args->csizes[0]);
+		//	printf("%11.2lf U act.\n", args->csizes[1]);
+		//	printf("%11.2lf V act.\n", args->csizes[2]);
+		//	printf("%8d cblock\n%8d Tokens\n%8d Bypass\n",
+		//		args->enctokenoffsets[currblockidx]+args->encbypassoffsets[currblockidx]+8,
+		//		args->enctokenoffsets[currblockidx],
+		//		args->encbypassoffsets[currblockidx]
+		//	);
+		//}
 #endif
 	}
 }

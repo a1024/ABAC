@@ -2790,11 +2790,39 @@ void pred_cleartype(Image *src, int fwd)
 				b	=src->data[idx+2];
 			//rNW gNW bNW rN gN bN
 			//rW  gW  bW  r  g  b
-			//pred(r) = MEDIAN(rN, bW, rN+bW-bNW)
-			//pred(g) = MEDIAN(gN, r, gN+r-rN)
-			//pred(b) = MEDIAN(bN, g, bN+g-gN)
-			int predr, predg, predb;
+			//pred(r) = SELECT(rN, bW, bNW)
+			//pred(g) = SELECT(gN, r, rN)
+			//pred(b) = SELECT(bN, g, gN)
 #define PRED_SELECT(aN, aW, aNW) (abs((aN)-(aNW))<abs((aW)-(aNW))?aW:aN)
+
+			int pred;
+			pred=PRED_SELECT(rN, bW, bNW);
+			if(fwd)
+				pred=-pred;
+			pred=(pred+r)<<(32-src->depth[0])>>(32-src->depth[0]);
+			src->data[idx+0]=pred;
+			if(!fwd)
+				r=pred;
+
+			pred=PRED_SELECT(gN, r, rN);
+			if(fwd)
+				pred=-pred;
+			pred=(pred+g)<<(32-src->depth[1])>>(32-src->depth[1]);
+			src->data[idx+1]=pred;
+			if(!fwd)
+				g=pred;
+			pred=PRED_SELECT(bN, g, gN);
+			if(fwd)
+				pred=-pred;
+			pred=(pred+b)<<(32-src->depth[2])>>(32-src->depth[2]);
+			src->data[idx+2]=pred;
+			if(!fwd)
+				b=pred;
+			rows[0][0]=r;
+			rows[0][1]=g;
+			rows[0][2]=b;
+#if 0
+			int predr, predg, predb;
 			if(fwd)
 			{
 				//if(rN==36&&r==36)//
@@ -2828,10 +2856,11 @@ void pred_cleartype(Image *src, int fwd)
 				rows[0][1]=g;
 				rows[0][2]=b;
 			}
-#undef  PRED_SELECT
 			src->data[idx+0]=r;
 			src->data[idx+1]=g;
 			src->data[idx+2]=b;
+#endif
+#undef  PRED_SELECT
 
 			rows[0]+=4;
 			rows[1]+=4;

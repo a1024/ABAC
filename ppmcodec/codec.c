@@ -222,6 +222,9 @@ int main(int argc, char **argv)
 //	CODEC_FUNC("C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm",	"D:/ML/mystery.lsim", nthreads);
 //	CODEC_FUNC("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm", nthreads);
 
+//	CODEC_FUNC("C:/dataset-synth2-ppm/20241006 linux is cursed.ppm",	"D:/ML/mystery.lsim", nthreads);
+//	CODEC_FUNC("D:/ML/mystery.lsim",					"D:/ML/mystery_dec.ppm", nthreads);
+
 //	CODEC_FUNC("D:/ML/checkboard.PPM",		"D:/ML/mystery.lsim", nthreads);
 //	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm", nthreads);
 
@@ -234,8 +237,8 @@ int main(int argc, char **argv)
 //	CODEC_FUNC("C:/dataset-GDCC2020-ppm/astro-06.ppm",	"D:/ML/mystery.lsim", nthreads);
 //	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
 
-	CODEC_FUNC("C:/dataset-GDCC2020-ppm/astro-14.ppm",	"D:/ML/mystery.lsim", nthreads);
-	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
+//	CODEC_FUNC("C:/dataset-GDCC2020-ppm/astro-14.ppm",	"D:/ML/mystery.lsim", nthreads);
+//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
 
 //	CODEC_FUNC("C:/dataset-GDCC2020-ppm/astro-20.ppm",	"D:/ML/mystery.lsim", nthreads);
 //	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
@@ -243,8 +246,8 @@ int main(int argc, char **argv)
 //	CODEC_FUNC("C:/dataset-GDCC2020-ppm/astro-30.ppm",	"D:/ML/mystery.lsim", nthreads);
 //	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
 
-//	CODEC_FUNC("C:/dataset-GDCC2020-ppm/photo-03.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
+	CODEC_FUNC("C:/dataset-GDCC2020-ppm/photo-03.ppm",	"D:/ML/mystery.lsim", nthreads);
+	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
 
 //	CODEC_FUNC("C:/dataset-GDCC2020-ppm/photo-05.ppm",	"D:/ML/mystery.lsim", nthreads);
 //	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
