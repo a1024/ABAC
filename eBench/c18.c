@@ -8,6 +8,15 @@
 #include<immintrin.h>
 static const char file[]=__FILE__;
 
+#define CODE_ZERO(NBIDX, KC, OCHIDX)\
+	do\
+	{\
+		int pred=0;\
+		pred+=offset##NBIDX[KC];\
+		CLAMP2(pred, -half[KC], half[KC]-1);\
+		pred=(target[KC]-pred+half[KC])&mask[KC];\
+		++hist[(OCHIDX*PRED_COUNT+PRED_ZERO)<<maxdepth|pred];\
+	}while(0)
 #define CODE_N(NBIDX, KC, OCHIDX)\
 	do\
 	{\
@@ -319,6 +328,9 @@ void c18_analyze(Image const *src, int x1, int x2, int y1, int y2, C18Info *info
 #undef  DECL_NB
 			int vmin[3], vmax[3];
 			
+			CODE_ZERO(0, 0, OCH_R);
+			CODE_ZERO(0, 1, OCH_G);
+			CODE_ZERO(0, 2, OCH_B);
 			CODE_N(0, 0, OCH_R);
 			CODE_N(0, 1, OCH_G);
 			CODE_N(0, 2, OCH_B);
@@ -365,6 +377,9 @@ void c18_analyze(Image const *src, int x1, int x2, int y1, int y2, C18Info *info
 			CODE_AVB(0, 1, OCH_G);
 			CODE_AVB(0, 2, OCH_B);
 			
+			CODE_ZERO(1, 0, OCH_RG);
+			CODE_ZERO(1, 1, OCH_GB);
+			CODE_ZERO(1, 2, OCH_BR);
 			CODE_N(1, 0, OCH_RG);
 			CODE_N(1, 1, OCH_GB);
 			CODE_N(1, 2, OCH_BR);
@@ -411,6 +426,9 @@ void c18_analyze(Image const *src, int x1, int x2, int y1, int y2, C18Info *info
 			CODE_AVB(1, 1, OCH_GB);
 			CODE_AVB(1, 2, OCH_BR);
 			
+			CODE_ZERO(2, 0, OCH_R1);
+			CODE_ZERO(2, 1, OCH_G1);
+			CODE_ZERO(2, 2, OCH_B1);
 			CODE_N(2, 0, OCH_R1);
 			CODE_N(2, 1, OCH_G1);
 			CODE_N(2, 2, OCH_B1);
@@ -457,6 +475,9 @@ void c18_analyze(Image const *src, int x1, int x2, int y1, int y2, C18Info *info
 			CODE_AVB(2, 1, OCH_G1);
 			CODE_AVB(2, 2, OCH_B1);
 			
+			CODE_ZERO(3, 0, OCH_R2);
+			CODE_ZERO(3, 1, OCH_G2);
+			CODE_ZERO(3, 2, OCH_B2);
 			CODE_N(3, 0, OCH_R2);
 			CODE_N(3, 1, OCH_G2);
 			CODE_N(3, 2, OCH_B2);
@@ -503,6 +524,9 @@ void c18_analyze(Image const *src, int x1, int x2, int y1, int y2, C18Info *info
 			CODE_AVB(3, 1, OCH_G2);
 			CODE_AVB(3, 2, OCH_B2);
 			
+			CODE_ZERO(4, 0, OCH_R3);
+			CODE_ZERO(4, 1, OCH_G3);
+			CODE_ZERO(4, 2, OCH_B3);
 			CODE_N(4, 0, OCH_R3);
 			CODE_N(4, 1, OCH_G3);
 			CODE_N(4, 2, OCH_B3);
@@ -549,6 +573,9 @@ void c18_analyze(Image const *src, int x1, int x2, int y1, int y2, C18Info *info
 			CODE_AVB(4, 1, OCH_G3);
 			CODE_AVB(4, 2, OCH_B3);
 			
+			CODE_ZERO(5, 0, OCH_RB);
+			CODE_ZERO(5, 1, OCH_GR);
+			CODE_ZERO(5, 2, OCH_BG);
 			CODE_N(5, 0, OCH_RB);
 			CODE_N(5, 1, OCH_GR);
 			CODE_N(5, 2, OCH_BG);

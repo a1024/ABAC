@@ -102,6 +102,7 @@ static const char *rct_names[RCT_COUNT]=
 };
 
 #define PREDLIST\
+	PRED(ZERO, "ZERO")\
 	PRED(N, "N")\
 	PRED(W, "W")\
 	PRED(AV2, "(N+W)/2")\

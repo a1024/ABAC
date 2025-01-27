@@ -720,11 +720,15 @@ void filt_deint422(Image *src);
 void filt_deint420(Image *src);
 void packsign(Image *src, int fwd);
 void pred_clampgrad(Image *image, int fwd, int enable_ma);
+void pred_cleartype(Image *src, int fwd);
+void pred_sse(Image *src, int fwd);
+void pred_artifact(Image *src, int fwd);
 void pred_LeGallCG(Image *src, int fwd);
 void pred_cgplus(Image *src, int fwd);
 void pred_CG420(Image *src, int fwd);
 void pred_CG422(Image *src, int fwd);
-void pred_synth(Image *src, int fwd);
+void pred_sel4(Image *src, int fwd);
+void pred_select(Image *src, int fwd);
 void pred_av2(Image *src, int fwd);
 void pred_mix2(Image *src, int fwd);
 void pred_mix3(Image *src, int fwd);
@@ -746,7 +750,7 @@ void pred_convtest(Image *src);
 void pred_lwav(Image *src, int fwd);
 void pred_WPU(Image *src, int fwd);
 
-void pred_average(Image *src, int fwd, int enable_ma);
+void pred_av4(Image *src, int fwd, int enable_ma);
 void pred_wp_deferred(Image *src, int fwd);
 void pred_ecoeff(Image *src, int fwd, int enable_ma);
 void pred_zipper(Image *src, int fwd, int enable_ma);
@@ -773,7 +777,7 @@ void pred_ols5(Image *src, int fwd);
 void pred_ols6(Image *src, int fwd);
 void pred_ols7(Image *src, int fwd);
 
-void pred_select(Image const *src, Image *dst, int fwd, int enable_ma);
+//void pred_select(Image const *src, Image *dst, int fwd, int enable_ma);
 
 #define LIN_REACH 2
 void pred_linear(Image const *src, Image *dst, const int *coeffs, int lgden, int fwd, int enable_ma);

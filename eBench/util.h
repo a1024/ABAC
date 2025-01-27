@@ -106,6 +106,14 @@ extern "C"
 		_mm_store_pd(arr, vc);\
 		DST=arr[0];\
 	}while(0)
+#define MEDIAN3_CMOV(DST, A, B, C)\
+	do\
+	{\
+		int _vmax=A, _vmin=B;\
+		if((A)<(B))_vmin=A, _vmax=B;\
+		DST=C;\
+		CLAMP2(DST, _vmin, _vmax);\
+	}while(0)
 #define MEDIAN3(A, B, C) (B<A?B<C?C<A?C:A:B:A<C?C<B?C:B:A)//SLOW
 	
 //include<smmintrin.h>	SSE4.1
@@ -191,6 +199,8 @@ extern "C"
 #define MIX(V0, V1, X) ((V0)+((V1)-(V0))*(X))
 #define FLOOR_LOG2(X)		(sizeof(X)==8?63-(int)_lzcnt_u64((unsigned long long)(X)):31-(int)_lzcnt_u32((unsigned)(X)))
 #define FLOOR_LOG2_P1(X)	(sizeof(X)==8?64-(int)_lzcnt_u64((unsigned long long)(X)):32-(int)_lzcnt_u32((unsigned)(X)))
+#define FLOOR_LOG2_32x4(X) _mm_sub_epi32(_mm_srli_epi32(_mm_castps_si128(_mm_cvtepi32_ps(X)), 23), _mm_set1_epi32(127))
+#define FLOOR_LOG2_32x8(X) _mm256_sub_epi32(_mm256_srli_epi32(_mm256_castps_si256(_mm256_cvtepi32_ps(X)), 23), _mm256_set1_epi32(127))
 //#define FLOOR_LOG2_64(X)	(63-(int)_lzcnt_u64(X))
 //#define FLOOR_LOG2_P1_64(X)	(64-(int)_lzcnt_u64(X))
 //#define FLOOR_LOG2_32(X)	(31-(int)_lzcnt_u32(X))

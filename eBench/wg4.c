@@ -10,6 +10,7 @@ static const char file[]=__FILE__;
 //WG:
 #define WG_NBITS 0	//why 0 is best?
 
+#if 1
 #define WG_NPREDS	12	//multiple of 4
 #define WG_PREDLIST0\
 	WG_PRED(210,	N+(23*eN-2*(eNN+eNW)+9*eW)/110)\
@@ -50,6 +51,61 @@ static const char file[]=__FILE__;
 	WG_PRED(47,	(W+WW+(eW+eWWW)/3)/2)\
 	WG_PRED(22,	(W+3*NW-NWW-NNWW+eNW)/2+eW/3)\
 	WG_PRED(40,	(3*NE+NEE+NEEEE-NNEE-NNEEE+(3*eNE+6*eNEE+3*eNEEE)/2)/3)
+#endif
+#if 0
+#define WG_NPREDS	8	//multiple of 4
+#define WG_PREDLIST0\
+	WG_PRED(210,	N+(23*eN-2*(eNN+eNW)+9*eW)/110)\
+	WG_PRED(210,	W+(23*eW-2*(eWW+eNW)+9*eN)/110)\
+	WG_PRED(215,	3*(N-NN)+NNN+(eN/2+eNN/2+eNNN)/3)\
+	WG_PRED(215,	3*(W-WW)+WWW+(eW/2+eWW/2+eWWW)/3)\
+	WG_PRED(140,	W+NE-N+((-13*eN)>>4)+eW*13/32-(eW>>7))\
+	WG_PRED(230,	(WWW+NN-2*NW+NEE+NEEE+NEEEE+(N-W)/6+(NNN-NE-(5*(eN+eW)+eWW))/2)/3)\
+	WG_PRED(120,	N+W-NW+(eN+eW-eNW)/3)\
+	WG_PRED(140,	N+NE-NNE+((eN+eNE+eNNE+4)>>3))
+#define WG_PREDLIST1\
+	WG_PRED(250,	N+(3*eN+eNW+eW)/6)\
+	WG_PRED(250,	W+(3*eW+eNW+eN)/6)\
+	WG_PRED(175,	3*(N-NN)+NNN+(eN/2+eNN/2-eWW)/2)\
+	WG_PRED(175,	3*(W-WW)+WWW+(eW/2+eWW/2-eNN)/2)\
+	WG_PRED(180,	W+NE-N-((eN+eW+31)>>5))\
+	WG_PRED(175,	(WWW+NN-2*NW+NEE+NEEE+NEEEE+(W-N+NNN-NE)/2-eN-eW-eWW/3)/3)\
+	WG_PRED(130,	N+W-NW+(2*(eN+eW)-eNW)/5)\
+	WG_PRED(150,	N+NE-NNE+((eN+eNE+eNNE+8)>>4))
+#define WG_PREDLIST2\
+	WG_PRED(270,	N+(3*eN+eW)/6)\
+	WG_PRED(270,	W+(3*eW+eN)/6)\
+	WG_PRED(200,	3*(N-NN)+NNN+(eN/2-eWW)/2)\
+	WG_PRED(200,	3*(W-WW)+WWW+(eW/2-eNN)/2)\
+	WG_PRED(180,	W+NE-N-((2*eN+eW+31)>>5))\
+	WG_PRED(165,	(WWW+NN-2*NW+NEE+NEEE+NEEEE+(W-N+NNN-NE)/2-eN-eW-eWW/3)/3)\
+	WG_PRED(140,	N+W-NW+(2*(eN+eW)-eNW)/5)\
+	WG_PRED(150,	N+NE-NNE+(eN+eNE+eNNE)/16)
+#endif
+#if 0
+#define WG_NPREDS	20
+#define WG_PREDLIST\
+	WG_PRED(210,	N+(23*eN-2*(eNN+eNW)+9*eW)/110)\
+	WG_PRED(210,	W+(23*eW-2*(eWW+eNW)+9*eN)/110)\
+	WG_PRED(215,	3*(N-NN)+NNN+(eN/2+eNN/2+eNNN)/3)\
+	WG_PRED(215,	3*(W-WW)+WWW+(eW/2+eWW/2+eWWW)/3)\
+	WG_PRED(140,	W+NE-N+((-13*eN)>>4)+eW*13/32-(eW>>7))\
+	WG_PRED(230,	(WWW+NN-2*NW+NEE+NEEE+NEEEE+(N-W)/6+(NNN-NE-(5*(eN+eW)+eWW))/2)/3)\
+	WG_PRED(120,	N+W-NW+(eN+eW-eNW)/3)\
+	WG_PRED(140,	N+NE-NNE+((eN+eNE+eNNE+4)>>3))\
+	WG_PRED(50,	3*N-W-NE)\
+	WG_PRED(30,	2*NE-W)\
+	WG_PRED(132,	N+W-NW)\
+	WG_PRED(100,	N+W-NW+((eN+eW-eNW+16)>>5))\
+	WG_PRED(100,	N)\
+	WG_PRED(100,	W)\
+	WG_PRED(165,	W+NE-N)\
+	WG_PRED(220,	N+NE-NNE)\
+	WG_PRED(25,	N+NE-NNE+((eN+eNE-eNNE)>>2))\
+	WG_PRED(165,	3*(N-NN)+NNN)\
+	WG_PRED(165,	3*(W-WW)+WWW)\
+	WG_PRED(150,	(W+NEEE)/2)
+#endif
 #if 0
 #define WG_PREDLIST\
 	WG_PRED(kc==0?230:(kc==1?250:270),	N+(kc2==0?(3*eN+eNW+eW)/16:(kc2==2?(3*eN+eNW+eW)/6:(3*eN+eW)/6)))\
@@ -95,6 +151,10 @@ static const char file[]=__FILE__;
 static void wg_init(double *weights, int kc)
 {
 	int j=0;
+//#define WG_PRED(WEIGHT, EXPR) weights[j++]=WEIGHT;
+//	WG_PREDLIST
+//#undef  WG_PRED
+#if 1
 	switch(kc)
 	{
 	case 0:
@@ -113,8 +173,9 @@ static void wg_init(double *weights, int kc)
 #undef  WG_PRED
 		break;
 	}
+#endif
 }
-static int wg_predict(
+FORCE_INLINE int wg_predict(
 	const double *weights, int **rows, const int stride, int kc2,
 	int spred, const int *perrors, const int *NWerrors, const int *Nerrors, const int *NEerrors, const int *NNEerrors, int *preds
 )
@@ -169,7 +230,11 @@ static int wg_predict(
 	//int cgrad, cgrad2;
 	//MEDIAN3_32(cgrad, N, W, N+W-NW);
 	//MEDIAN3_32(cgrad2, N, NE, N+NE-NNE);
-	
+
+//#define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
+//	WG_PREDLIST
+//#undef  WG_PRED
+#if 1
 	switch(kc2)
 	{
 	case 0:
@@ -188,6 +253,7 @@ static int wg_predict(
 #undef  WG_PRED
 		break;
 	}
+#endif
 	//if((eW*47>>7)!=(eW*3>>3)-(eW>>7))
 	//	LOG_ERROR("%d", eW);
 #if 1
@@ -284,7 +350,427 @@ static int wg_predict(
 #endif
 	return pred[0];
 }
-static void wg_update(int curr, int kc, const int *preds, int *perrors, int *Werrors, int *currerrors, int *NEerrors)
+FORCE_INLINE int wg_predict2(
+	const double *weights, int **rows, const int stride, int kc2,
+	int spred, const int *perrors, const int *NWerrors, const int *Nerrors, const int *NEerrors, const int *NNEerrors, int *preds
+)
+{
+	int j=0;
+	int
+		NNNWWWW	=rows[3][kc2-4*stride+0],
+		NNNWWW	=rows[3][kc2-3*stride+0],
+		NNNW	=rows[3][kc2-1*stride+0],
+		NNN	=rows[3][kc2+0*stride+0],
+		NNNE	=rows[3][kc2+1*stride+0],
+		NNNEEE	=rows[3][kc2+3*stride+0],
+		NNWWWW	=rows[2][kc2-4*stride+0],
+		NNWW	=rows[2][kc2-2*stride+0],
+		NNW	=rows[2][kc2-1*stride+0],
+		NN	=rows[2][kc2+0*stride+0],
+		NNE	=rows[2][kc2+1*stride+0],
+		NNEE	=rows[2][kc2+2*stride+0],
+		NNEEE	=rows[2][kc2+3*stride+0],
+		NNEEEE	=rows[2][kc2+4*stride+0],
+		NWWW	=rows[1][kc2-3*stride+0],
+		NWW	=rows[1][kc2-2*stride+0],
+		NW	=rows[1][kc2-1*stride+0],
+		N	=rows[1][kc2+0*stride+0],
+		NE	=rows[1][kc2+1*stride+0],
+		NEE	=rows[1][kc2+2*stride+0],
+		NEEE	=rows[1][kc2+3*stride+0],
+		NEEEE	=rows[1][kc2+4*stride+0],
+		WWWWW	=rows[0][kc2-5*stride+0],
+		WWWW	=rows[0][kc2-4*stride+0],
+		WWW	=rows[0][kc2-3*stride+0],
+		WW	=rows[0][kc2-2*stride+0],
+		W	=rows[0][kc2-1*stride+0],
+		eNNN	=rows[3][kc2+0*stride+1],
+		eNN	=rows[2][kc2+0*stride+1],
+		eNNE	=rows[2][kc2+1*stride+1],
+		eNW	=rows[1][kc2-1*stride+1],
+		eN	=rows[1][kc2+0*stride+1],
+		eNE	=rows[1][kc2+1*stride+1],
+		eNEE	=rows[1][kc2+2*stride+1],
+		eNEEE	=rows[1][kc2+3*stride+1],
+		eWWWW	=rows[0][kc2-4*stride+1],
+		eWWW	=rows[0][kc2-3*stride+1],
+		eWW	=rows[0][kc2-2*stride+1],
+		eW	=rows[0][kc2-1*stride+1];
+	
+//#define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
+//	WG_PREDLIST
+//#undef  WG_PRED
+#if 1
+	switch(kc2)
+	{
+	case 0:
+#define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
+		WG_PREDLIST0
+#undef  WG_PRED
+		break;
+	case 2:
+#define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
+		WG_PREDLIST1
+#undef  WG_PRED
+		break;
+	case 4:
+#define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
+		WG_PREDLIST2
+#undef  WG_PRED
+		break;
+	}
+#endif
+	if(N==W)
+		return N;
+
+	int coeffs[]=
+	{
+		perrors[ 0]+NWerrors[ 0]+(Nerrors[ 0]<<1)+NEerrors[ 0]+NNEerrors[ 0],
+		perrors[ 1]+NWerrors[ 1]+(Nerrors[ 1]<<1)+NEerrors[ 1]+NNEerrors[ 1],
+		perrors[ 2]+NWerrors[ 2]+(Nerrors[ 2]<<1)+NEerrors[ 2]+NNEerrors[ 2],
+		perrors[ 3]+NWerrors[ 3]+(Nerrors[ 3]<<1)+NEerrors[ 3]+NNEerrors[ 3],
+		perrors[ 4]+NWerrors[ 4]+(Nerrors[ 4]<<1)+NEerrors[ 4]+NNEerrors[ 4],
+		perrors[ 5]+NWerrors[ 5]+(Nerrors[ 5]<<1)+NEerrors[ 5]+NNEerrors[ 5],
+		perrors[ 6]+NWerrors[ 6]+(Nerrors[ 6]<<1)+NEerrors[ 6]+NNEerrors[ 6],
+		perrors[ 7]+NWerrors[ 7]+(Nerrors[ 7]<<1)+NEerrors[ 7]+NNEerrors[ 7],
+		perrors[ 8]+NWerrors[ 8]+(Nerrors[ 8]<<1)+NEerrors[ 8]+NNEerrors[ 8],
+		perrors[ 9]+NWerrors[ 9]+(Nerrors[ 9]<<1)+NEerrors[ 9]+NNEerrors[ 9],
+		perrors[10]+NWerrors[10]+(Nerrors[10]<<1)+NEerrors[10]+NNEerrors[10],
+		perrors[11]+NWerrors[11]+(Nerrors[11]<<1)+NEerrors[11]+NNEerrors[11],
+	//	perrors[12]+NWerrors[12]+(Nerrors[12]<<1)+NEerrors[12]+NNEerrors[12],
+	//	perrors[13]+NWerrors[13]+(Nerrors[13]<<1)+NEerrors[13]+NNEerrors[13],
+	//	perrors[14]+NWerrors[14]+(Nerrors[14]<<1)+NEerrors[14]+NNEerrors[14],
+	//	perrors[15]+NWerrors[15]+(Nerrors[15]<<1)+NEerrors[15]+NNEerrors[15],
+	//	perrors[16]+NWerrors[16]+(Nerrors[16]<<1)+NEerrors[16]+NNEerrors[16],
+	//	perrors[17]+NWerrors[17]+(Nerrors[17]<<1)+NEerrors[17]+NNEerrors[17],
+	//	perrors[18]+NWerrors[18]+(Nerrors[18]<<1)+NEerrors[18]+NNEerrors[18],
+	//	perrors[19]+NWerrors[19]+(Nerrors[19]<<1)+NEerrors[19]+NNEerrors[19],
+	};
+	int cmax=coeffs[0];
+	if(cmax<coeffs[ 1])cmax=coeffs[ 1];
+	if(cmax<coeffs[ 2])cmax=coeffs[ 2];
+	if(cmax<coeffs[ 3])cmax=coeffs[ 3];
+	if(cmax<coeffs[ 4])cmax=coeffs[ 4];
+	if(cmax<coeffs[ 5])cmax=coeffs[ 5];
+	if(cmax<coeffs[ 6])cmax=coeffs[ 6];
+	if(cmax<coeffs[ 7])cmax=coeffs[ 7];
+	if(cmax<coeffs[ 8])cmax=coeffs[ 8];
+	if(cmax<coeffs[ 9])cmax=coeffs[ 9];
+	if(cmax<coeffs[10])cmax=coeffs[10];
+	if(cmax<coeffs[11])cmax=coeffs[11];
+	//if(cmax<coeffs[12])cmax=coeffs[12];
+	//if(cmax<coeffs[13])cmax=coeffs[13];
+	//if(cmax<coeffs[14])cmax=coeffs[14];
+	//if(cmax<coeffs[15])cmax=coeffs[15];
+	//if(cmax<coeffs[16])cmax=coeffs[16];
+	//if(cmax<coeffs[17])cmax=coeffs[17];
+	//if(cmax<coeffs[18])cmax=coeffs[18];
+	//if(cmax<coeffs[19])cmax=coeffs[19];
+	++cmax;
+	coeffs[ 0]=cmax-coeffs[ 0];
+	coeffs[ 1]=cmax-coeffs[ 1];
+	coeffs[ 2]=cmax-coeffs[ 2];
+	coeffs[ 3]=cmax-coeffs[ 3];
+	coeffs[ 4]=cmax-coeffs[ 4];
+	coeffs[ 5]=cmax-coeffs[ 5];
+	coeffs[ 6]=cmax-coeffs[ 6];
+	coeffs[ 7]=cmax-coeffs[ 7];
+	coeffs[ 8]=cmax-coeffs[ 8];
+	coeffs[ 9]=cmax-coeffs[ 9];
+	coeffs[10]=cmax-coeffs[10];
+	coeffs[11]=cmax-coeffs[11];
+	//coeffs[12]=cmax-coeffs[12];
+	//coeffs[13]=cmax-coeffs[13];
+	//coeffs[14]=cmax-coeffs[14];
+	//coeffs[15]=cmax-coeffs[15];
+	//coeffs[16]=cmax-coeffs[16];
+	//coeffs[17]=cmax-coeffs[17];
+	//coeffs[18]=cmax-coeffs[18];
+	//coeffs[19]=cmax-coeffs[19];
+	coeffs[ 0]*=coeffs[ 0];
+	coeffs[ 1]*=coeffs[ 1];
+	coeffs[ 2]*=coeffs[ 2];
+	coeffs[ 3]*=coeffs[ 3];
+	coeffs[ 4]*=coeffs[ 4];
+	coeffs[ 5]*=coeffs[ 5];
+	coeffs[ 6]*=coeffs[ 6];
+	coeffs[ 7]*=coeffs[ 7];
+	coeffs[ 8]*=coeffs[ 8];
+	coeffs[ 9]*=coeffs[ 9];
+	coeffs[10]*=coeffs[10];
+	coeffs[11]*=coeffs[11];
+	//coeffs[12]*=coeffs[12];
+	//coeffs[13]*=coeffs[13];
+	//coeffs[14]*=coeffs[14];
+	//coeffs[15]*=coeffs[15];
+	//coeffs[16]*=coeffs[16];
+	//coeffs[17]*=coeffs[17];
+	//coeffs[18]*=coeffs[18];
+	//coeffs[19]*=coeffs[19];
+	int pred=(int)((
+		+(long long)coeffs[ 0]*preds[ 0]
+		+(long long)coeffs[ 1]*preds[ 1]
+		+(long long)coeffs[ 2]*preds[ 2]
+		+(long long)coeffs[ 3]*preds[ 3]
+		+(long long)coeffs[ 4]*preds[ 4]
+		+(long long)coeffs[ 5]*preds[ 5]
+		+(long long)coeffs[ 6]*preds[ 6]
+		+(long long)coeffs[ 7]*preds[ 7]
+		+(long long)coeffs[ 8]*preds[ 8]
+		+(long long)coeffs[ 9]*preds[ 9]
+		+(long long)coeffs[10]*preds[10]
+		+(long long)coeffs[11]*preds[11]
+	//	+(long long)coeffs[12]*preds[12]
+	//	+(long long)coeffs[13]*preds[13]
+	//	+(long long)coeffs[14]*preds[14]
+	//	+(long long)coeffs[15]*preds[15]
+	//	+(long long)coeffs[16]*preds[16]
+	//	+(long long)coeffs[17]*preds[17]
+	//	+(long long)coeffs[18]*preds[18]
+	//	+(long long)coeffs[19]*preds[19]
+	)/(
+		+(long long)coeffs[ 0]
+		+(long long)coeffs[ 1]
+		+(long long)coeffs[ 2]
+		+(long long)coeffs[ 3]
+		+(long long)coeffs[ 4]
+		+(long long)coeffs[ 5]
+		+(long long)coeffs[ 6]
+		+(long long)coeffs[ 7]
+		+(long long)coeffs[ 8]
+		+(long long)coeffs[ 9]
+		+(long long)coeffs[10]
+		+(long long)coeffs[11]
+	//	+(long long)coeffs[12]
+	//	+(long long)coeffs[13]
+	//	+(long long)coeffs[14]
+	//	+(long long)coeffs[15]
+	//	+(long long)coeffs[16]
+	//	+(long long)coeffs[17]
+	//	+(long long)coeffs[18]
+	//	+(long long)coeffs[19]
+	));
+#if 0
+	__m128i one=_mm_set1_epi32(1);
+	__m128i me0=_mm_load_si128((__m128i*)perrors+0);
+	__m128i me1=_mm_load_si128((__m128i*)perrors+1);
+	__m128i me2=_mm_load_si128((__m128i*)perrors+2);
+//	__m128i me3=_mm_load_si128((__m128i*)perrors+3);
+//	__m256d w0=_mm256_load_pd(weights+0*4);
+//	__m256d w1=_mm256_load_pd(weights+1*4);
+//	__m256d w2=_mm256_load_pd(weights+2*4);
+//	__m256d w3=_mm256_load_pd(weights+3*4);
+	//me0=_mm_srai_epi32(me0, 1);
+	//me1=_mm_srai_epi32(me1, 1);
+	//me2=_mm_srai_epi32(me2, 1);
+	//me3=_mm_srai_epi32(me3, 1);
+	me0=_mm_add_epi32(me0, _mm_load_si128((__m128i*)NWerrors+0));
+	me1=_mm_add_epi32(me1, _mm_load_si128((__m128i*)NWerrors+1));
+	me2=_mm_add_epi32(me2, _mm_load_si128((__m128i*)NWerrors+2));
+//	me3=_mm_add_epi32(me3, _mm_load_si128((__m128i*)NWerrors+3));
+	me0=_mm_add_epi32(me0, _mm_slli_epi32(_mm_load_si128((__m128i*)Nerrors+0), 1));
+	me1=_mm_add_epi32(me1, _mm_slli_epi32(_mm_load_si128((__m128i*)Nerrors+1), 1));
+	me2=_mm_add_epi32(me2, _mm_slli_epi32(_mm_load_si128((__m128i*)Nerrors+2), 1));
+//	me3=_mm_add_epi32(me3, _mm_slli_epi32(_mm_load_si128((__m128i*)Nerrors+3), 1));
+	me0=_mm_add_epi32(me0, _mm_load_si128((__m128i*)NEerrors+0));
+	me1=_mm_add_epi32(me1, _mm_load_si128((__m128i*)NEerrors+1));
+	me2=_mm_add_epi32(me2, _mm_load_si128((__m128i*)NEerrors+2));
+//	me3=_mm_add_epi32(me3, _mm_load_si128((__m128i*)NEerrors+3));
+	me0=_mm_add_epi32(me0, _mm_load_si128((__m128i*)NNEerrors+0));
+	me1=_mm_add_epi32(me1, _mm_load_si128((__m128i*)NNEerrors+1));
+	me2=_mm_add_epi32(me2, _mm_load_si128((__m128i*)NNEerrors+2));
+//	me3=_mm_add_epi32(me3, _mm_load_si128((__m128i*)NNEerrors+3));
+	me0=_mm_add_epi32(me0, one);
+	me1=_mm_add_epi32(me1, one);
+	me2=_mm_add_epi32(me2, one);
+//	me3=_mm_add_epi32(me3, one);
+
+	__m128i fbias=_mm_set1_epi32(127);
+	me0=_mm_castps_si128(_mm_cvtepi32_ps(me0));//FLOOR_LOG2
+	me1=_mm_castps_si128(_mm_cvtepi32_ps(me1));
+	me2=_mm_castps_si128(_mm_cvtepi32_ps(me2));
+	me0=_mm_srli_epi32(me0, 23);
+	me1=_mm_srli_epi32(me1, 23);
+	me2=_mm_srli_epi32(me2, 23);
+	me0=_mm_sub_epi32(me0, fbias);
+	me1=_mm_sub_epi32(me1, fbias);
+	me2=_mm_sub_epi32(me2, fbias);
+	ALIGN(16) int esums[WG_NPREDS];
+	_mm_store_si128((__m128i*)esums+0, me0);
+	_mm_store_si128((__m128i*)esums+1, me1);
+	_mm_store_si128((__m128i*)esums+2, me2);
+	int t2=esums[0]+esums[1]+esums[2];
+	int t3=esums[3]+esums[4]+esums[5];
+	int t4=esums[6]+esums[7]+esums[8];
+	int t5=esums[9]+esums[10]+esums[11];
+	int t0=t2+t3;
+	int t1=t4+t5;
+	int lweights[WG_NPREDS]=
+	{
+		esums[1]+esums[2]+(t3+t1),
+		esums[0]+esums[2]+(t3+t1),
+		esums[0]+esums[1]+(t3+t1),
+		(t2+t1)+esums[4]+esums[5],
+		(t2+t1)+esums[3]+esums[5],
+		(t2+t1)+esums[3]+esums[4],
+		esums[7]+esums[8]+(t0+t5),
+		esums[6]+esums[8]+(t0+t5),
+		esums[6]+esums[7]+(t0+t5),
+		(t0+t4)+esums[10]+esums[11],
+		(t0+t4)+esums[ 9]+esums[11],
+		(t0+t4)+esums[ 9]+esums[10],
+
+		//esums[1]+esums[2]+(t3+t1)+1,
+		//esums[0]+esums[2]+(t3+t1)+1,
+		//esums[0]+esums[1]+(t3+t1)+1,
+		//(t2+t1)+esums[4]+esums[5]+1,
+		//(t2+t1)+esums[3]+esums[5]+1,
+		//(t2+t1)+esums[3]+esums[4]+1,
+		//esums[7]+esums[8]+(t0+t5)+1,
+		//esums[6]+esums[8]+(t0+t5)+1,
+		//esums[6]+esums[7]+(t0+t5)+1,
+		//(t0+t4)+esums[10]+esums[11]+1,
+		//(t0+t4)+esums[ 9]+esums[11]+1,
+		//(t0+t4)+esums[ 9]+esums[10]+1,
+
+		//esums[1]+esums[2]+(esums[3]+esums[4]+esums[5])+(esums[6]+esums[7]+esums[8]+esums[9]+esums[10]+esums[11]),
+		//esums[0]+esums[2]+(esums[3]+esums[4]+esums[5])+(esums[6]+esums[7]+esums[8]+esums[9]+esums[10]+esums[11]),
+		//esums[0]+esums[1]+(esums[3]+esums[4]+esums[5])+(esums[6]+esums[7]+esums[8]+esums[9]+esums[10]+esums[11]),
+		//(esums[0]+esums[1]+esums[2])+esums[4]+esums[5]+(esums[6]+esums[7]+esums[8]+esums[9]+esums[10]+esums[11]),
+		//(esums[0]+esums[1]+esums[2])+esums[3]+esums[5]+(esums[6]+esums[7]+esums[8]+esums[9]+esums[10]+esums[11]),
+		//(esums[0]+esums[1]+esums[2])+esums[3]+esums[4]+(esums[6]+esums[7]+esums[8]+esums[9]+esums[10]+esums[11]),
+		//(esums[0]+esums[1]+esums[2]+esums[3]+esums[4]+esums[5])+esums[7]+esums[8]+(esums[9]+esums[10]+esums[11]),
+		//(esums[0]+esums[1]+esums[2]+esums[3]+esums[4]+esums[5])+esums[6]+esums[8]+(esums[9]+esums[10]+esums[11]),
+		//(esums[0]+esums[1]+esums[2]+esums[3]+esums[4]+esums[5])+esums[6]+esums[7]+(esums[9]+esums[10]+esums[11]),
+		//(esums[0]+esums[1]+esums[2]+esums[3]+esums[4]+esums[5])+(esums[6]+esums[7]+esums[8])+esums[10]+esums[11],
+		//(esums[0]+esums[1]+esums[2]+esums[3]+esums[4]+esums[5])+(esums[6]+esums[7]+esums[8])+esums[ 9]+esums[11],
+		//(esums[0]+esums[1]+esums[2]+esums[3]+esums[4]+esums[5])+(esums[6]+esums[7]+esums[8])+esums[ 9]+esums[10],
+	};
+	int wsum=
+		+lweights[ 0]
+		+lweights[ 1]
+		+lweights[ 2]
+		+lweights[ 3]
+		+lweights[ 4]
+		+lweights[ 5]
+		+lweights[ 6]
+		+lweights[ 7]
+		+lweights[ 8]
+		+lweights[ 9]
+		+lweights[10]
+		+lweights[11]
+	;
+//	int wmin=lweights[0];
+//	int wmax=lweights[0];
+//	if(wmin>lweights[ 1])wmin=lweights[ 1];
+//	if(wmax<lweights[ 1])wmax=lweights[ 1];
+//	if(wmin>lweights[ 2])wmin=lweights[ 2];
+//	if(wmax<lweights[ 2])wmax=lweights[ 2];
+//	if(wmin>lweights[ 3])wmin=lweights[ 3];
+//	if(wmax<lweights[ 3])wmax=lweights[ 3];
+//	if(wmin>lweights[ 4])wmin=lweights[ 4];
+//	if(wmax<lweights[ 4])wmax=lweights[ 4];
+//	if(wmin>lweights[ 5])wmin=lweights[ 5];
+//	if(wmax<lweights[ 5])wmax=lweights[ 5];
+//	if(wmin>lweights[ 6])wmin=lweights[ 6];
+//	if(wmax<lweights[ 6])wmax=lweights[ 6];
+//	if(wmin>lweights[ 7])wmin=lweights[ 7];
+//	if(wmax<lweights[ 7])wmax=lweights[ 7];
+//	if(wmin>lweights[ 8])wmin=lweights[ 8];
+//	if(wmax<lweights[ 8])wmax=lweights[ 8];
+//	if(wmin>lweights[ 9])wmin=lweights[ 9];
+//	if(wmax<lweights[ 9])wmax=lweights[ 9];
+//	if(wmin>lweights[10])wmin=lweights[10];
+//	if(wmax<lweights[10])wmax=lweights[10];
+//	if(wmin>lweights[11])wmin=lweights[11];
+//	if(wmax<lweights[11])wmax=lweights[11];
+	int sh=FLOOR_LOG2(wsum);
+	lweights[ 0]<<=3;
+	lweights[ 1]<<=3;
+	lweights[ 2]<<=3;
+	lweights[ 3]<<=3;
+	lweights[ 4]<<=3;
+	lweights[ 5]<<=3;
+	lweights[ 6]<<=3;
+	lweights[ 7]<<=3;
+	lweights[ 8]<<=3;
+	lweights[ 9]<<=3;
+	lweights[10]<<=3;
+	lweights[11]<<=3;
+	lweights[ 0]>>=sh;
+	lweights[ 1]>>=sh;
+	lweights[ 2]>>=sh;
+	lweights[ 3]>>=sh;
+	lweights[ 4]>>=sh;
+	lweights[ 5]>>=sh;
+	lweights[ 6]>>=sh;
+	lweights[ 7]>>=sh;
+	lweights[ 8]>>=sh;
+	lweights[ 9]>>=sh;
+	lweights[10]>>=sh;
+	lweights[11]>>=sh;
+	if(lweights[ 0]>8)lweights[ 0]=8;
+	if(lweights[ 1]>8)lweights[ 1]=8;
+	if(lweights[ 2]>8)lweights[ 2]=8;
+	if(lweights[ 3]>8)lweights[ 3]=8;
+	if(lweights[ 4]>8)lweights[ 4]=8;
+	if(lweights[ 5]>8)lweights[ 5]=8;
+	if(lweights[ 6]>8)lweights[ 6]=8;
+	if(lweights[ 7]>8)lweights[ 7]=8;
+	if(lweights[ 8]>8)lweights[ 8]=8;
+	if(lweights[ 9]>8)lweights[ 9]=8;
+	if(lweights[10]>8)lweights[10]=8;
+	if(lweights[11]>8)lweights[11]=8;
+	int pred=(int)((
+		+((long long)preds[ 0]<<lweights[ 0])
+		+((long long)preds[ 1]<<lweights[ 1])
+		+((long long)preds[ 2]<<lweights[ 2])
+		+((long long)preds[ 3]<<lweights[ 3])
+		+((long long)preds[ 4]<<lweights[ 4])
+		+((long long)preds[ 5]<<lweights[ 5])
+		+((long long)preds[ 6]<<lweights[ 6])
+		+((long long)preds[ 7]<<lweights[ 7])
+		+((long long)preds[ 8]<<lweights[ 8])
+		+((long long)preds[ 9]<<lweights[ 9])
+		+((long long)preds[10]<<lweights[10])
+		+((long long)preds[11]<<lweights[11])
+	)/(
+		+(1ULL<<lweights[ 0])
+		+(1ULL<<lweights[ 1])
+		+(1ULL<<lweights[ 2])
+		+(1ULL<<lweights[ 3])
+		+(1ULL<<lweights[ 4])
+		+(1ULL<<lweights[ 5])
+		+(1ULL<<lweights[ 6])
+		+(1ULL<<lweights[ 7])
+		+(1ULL<<lweights[ 8])
+		+(1ULL<<lweights[ 9])
+		+(1ULL<<lweights[10])
+		+(1ULL<<lweights[11])
+	));
+	//int pred=(
+	//	+lweights[ 0]*preds[ 0]
+	//	+lweights[ 1]*preds[ 1]
+	//	+lweights[ 2]*preds[ 2]
+	//	+lweights[ 3]*preds[ 3]
+	//	+lweights[ 4]*preds[ 4]
+	//	+lweights[ 5]*preds[ 5]
+	//	+lweights[ 6]*preds[ 6]
+	//	+lweights[ 7]*preds[ 7]
+	//	+lweights[ 8]*preds[ 8]
+	//	+lweights[ 9]*preds[ 9]
+	//	+lweights[10]*preds[10]
+	//	+lweights[11]*preds[11]
+	//)/((t0+t1+WG_NPREDS)*(WG_NPREDS-1));
+#endif
+	int vmax=N, vmin=W;
+	if(N<W)vmin=N, vmax=W;
+	if(vmin>NE)vmin=NE;
+	if(vmax<NE)vmax=NE;
+	CLAMP2(pred, vmin, vmax);
+	return pred;
+}
+FORCE_INLINE void wg_update(int curr, int kc, const int *preds, int *perrors, int *Werrors, int *currerrors, int *NEerrors)
 {
 	static const int factors[]={97, 99, 99};
 	int factor=factors[kc];
@@ -301,20 +787,6 @@ void pred_wgrad4(Image *src, int fwd)
 	ALIGN(32) double wg_weights[4][WG_NPREDS]={0};
 	ALIGN(32) int wg_perrors[4][WG_NPREDS]={0}, wg_preds[WG_NPREDS]={0};
 	int nch;
-	//int nlevels[]=
-	//{
-	//	1<<src->depth[0],
-	//	1<<src->depth[1],
-	//	1<<src->depth[2],
-	//	1<<src->depth[3],
-	//};
-	//int halfs[]=
-	//{
-	//	nlevels[0]>>1,
-	//	nlevels[1]>>1,
-	//	nlevels[2]>>1,
-	//	nlevels[3]>>1,
-	//};
 	int fwdmask=-fwd;
 	int bufsize;
 	int *pixels;

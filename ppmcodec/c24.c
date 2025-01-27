@@ -17,7 +17,7 @@ static const char file[]=__FILE__;
 
 //OG preds: W/NE/CG/AV4/AV9/WG
 
-	#define ENABLE_ZERO	//good with synth, requires static-o0 to be fast
+	#define ENABLE_ZERO	//good with astro, requires static-o0 to be fast
 	#define ENABLE_W	//good with GDCC
 //	#define ENABLE_N	//useless
 //	#define ENABLE_NW	//good
@@ -35,6 +35,7 @@ static const char file[]=__FILE__;
 //	#define ENABLE_AV4v2	//?
 //	#define ENABLE_AV5	//bad, redundant with AV4
 	#define ENABLE_AV6	//good
+	#define ENABLE_AV8	//?		LPF
 	#define ENABLE_AV9	//good				GDCC 0.31% slower, 0.37% smaller
 //	#define ENABLE_AV9v2	//weak				GDCC 3~5% slower, 0.03% smaller
 //	#define ENABLE_AV11	//bad
@@ -210,6 +211,7 @@ static const char *rct_names[RCT_COUNT]=
 	PRED(AV3)\
 	PRED(AV4)\
 	PRED(AV6)\
+	PRED(AV8)\
 	PRED(AV9)\
 	PRED(WG)
 typedef enum _PredIndex
@@ -457,7 +459,7 @@ static void block_func(void *param)
 					NW,	NW3,	NW4,	NW5,
 					N,	N3,	N4,	N5,
 					NE,	NE3,	NE4,	NE5,
-				//	NEE,	NEE3,	NEE4,	NEE5,
+					NEE,	NEE3,	NEE4,	NEE5,
 					WW,	WW3,	WW4,	WW5,
 					W,	W3,	W4,	W5,
 					curr,	curr2,		curr5;
@@ -471,7 +473,7 @@ static void block_func(void *param)
 					__m128i NW8	=_mm_loadu_si128((__m128i*)(ptr-1*ystride-1*3+0));
 					__m128i N8	=_mm_loadu_si128((__m128i*)(ptr-1*ystride+0*3+0));
 					__m128i NE8	=_mm_loadu_si128((__m128i*)(ptr-1*ystride+1*3+0));
-				//	__m128i NEE8	=_mm_loadu_si128((__m128i*)(ptr-1*ystride+2*3+0));
+					__m128i NEE8	=_mm_loadu_si128((__m128i*)(ptr-1*ystride+2*3+0));
 					__m128i WW8	=_mm_loadu_si128((__m128i*)(ptr+0*ystride-2*3+0));
 					__m128i W8	=_mm_loadu_si128((__m128i*)(ptr+0*ystride-1*3+0));
 					__m128i curr8	=_mm_loadu_si128((__m128i*)(ptr+0*ystride+0*3+0));
@@ -483,7 +485,7 @@ static void block_func(void *param)
 					NW8	=_mm_xor_si128(NW8	, half8);
 					N8	=_mm_xor_si128(N8	, half8);
 					NE8	=_mm_xor_si128(NE8	, half8);
-				//	NEE8	=_mm_xor_si128(NEE8	, half8);
+					NEE8	=_mm_xor_si128(NEE8	, half8);
 					WW8	=_mm_xor_si128(WW8	, half8);
 					W8	=_mm_xor_si128(W8	, half8);
 					curr8	=_mm_xor_si128(curr8	, half8);
@@ -495,7 +497,7 @@ static void block_func(void *param)
 					__m128i NW82	=_mm_shuffle_epi8(NW8	, shuf);
 					__m128i N82	=_mm_shuffle_epi8(N8	, shuf);
 					__m128i NE82	=_mm_shuffle_epi8(NE8	, shuf);
-				//	__m128i NEE82	=_mm_shuffle_epi8(NEE8	, shuf);
+					__m128i NEE82	=_mm_shuffle_epi8(NEE8	, shuf);
 					__m128i WW82	=_mm_shuffle_epi8(WW8	, shuf);
 					__m128i W82	=_mm_shuffle_epi8(W8	, shuf);
 					__m128i curr82	=_mm_shuffle_epi8(curr8	, shuf);
@@ -507,7 +509,7 @@ static void block_func(void *param)
 					NW	=_mm256_cvtepi8_epi16(NW8);
 					N	=_mm256_cvtepi8_epi16(N8);
 					NE	=_mm256_cvtepi8_epi16(NE8);
-				//	NEE	=_mm256_cvtepi8_epi16(NEE8);
+					NEE	=_mm256_cvtepi8_epi16(NEE8);
 					WW	=_mm256_cvtepi8_epi16(WW8);
 					W	=_mm256_cvtepi8_epi16(W8);
 					curr	=_mm256_cvtepi8_epi16(curr8);
@@ -519,7 +521,7 @@ static void block_func(void *param)
 					__m256i NW2	=_mm256_cvtepi8_epi16(NW82);
 					__m256i N2	=_mm256_cvtepi8_epi16(N82);
 					__m256i NE2	=_mm256_cvtepi8_epi16(NE82);
-				//	__m256i NEE2	=_mm256_cvtepi8_epi16(NEE82);
+					__m256i NEE2	=_mm256_cvtepi8_epi16(NEE82);
 					__m256i WW2	=_mm256_cvtepi8_epi16(WW82);
 					__m256i W2	=_mm256_cvtepi8_epi16(W82);
 					curr2	=_mm256_cvtepi8_epi16(curr82);
@@ -531,7 +533,7 @@ static void block_func(void *param)
 					NW3	=_mm256_sub_epi16(NW	, NW2	);
 					N3	=_mm256_sub_epi16(N	, N2	);
 					NE3	=_mm256_sub_epi16(NE	, NE2	);
-				//	NEE3	=_mm256_sub_epi16(NEE	, NEE2	);
+					NEE3	=_mm256_sub_epi16(NEE	, NEE2	);
 					WW3	=_mm256_sub_epi16(WW	, WW2	);
 					W3	=_mm256_sub_epi16(W	, W2	);
 				//	curr3	=_mm256_sub_epi16(curr	, curr2	);
@@ -543,7 +545,7 @@ static void block_func(void *param)
 					NW4	=_mm256_sub_epi16(NW2	, NW	);
 					N4	=_mm256_sub_epi16(N2	, N	);
 					NE4	=_mm256_sub_epi16(NE2	, NE	);
-				//	NEE4	=_mm256_sub_epi16(NEE2	, NEE	);
+					NEE4	=_mm256_sub_epi16(NEE2	, NEE	);
 					WW4	=_mm256_sub_epi16(WW2	, WW	);
 					W4	=_mm256_sub_epi16(W2	, W	);
 				//	curr4	=_mm256_sub_epi16(curr2	, curr	);
@@ -556,7 +558,7 @@ static void block_func(void *param)
 					NW5	=_mm256_add_epi16(NW2	, _mm256_cvtepi8_epi16(_mm_shuffle_epi8(NW82	, shuf)));
 					N5	=_mm256_add_epi16(N2	, _mm256_cvtepi8_epi16(_mm_shuffle_epi8(N82	, shuf)));
 					NE5	=_mm256_add_epi16(NE2	, _mm256_cvtepi8_epi16(_mm_shuffle_epi8(NE82	, shuf)));
-				//	NEE5	=_mm256_add_epi16(NEE2	, _mm256_cvtepi8_epi16(_mm_shuffle_epi8(NEE82	, shuf)));
+					NEE5	=_mm256_add_epi16(NEE2	, _mm256_cvtepi8_epi16(_mm_shuffle_epi8(NEE82	, shuf)));
 					WW5	=_mm256_add_epi16(WW2	, _mm256_cvtepi8_epi16(_mm_shuffle_epi8(WW82	, shuf)));
 					W5	=_mm256_add_epi16(W2	, _mm256_cvtepi8_epi16(_mm_shuffle_epi8(W82	, shuf)));
 					curr5	=_mm256_add_epi16(curr2	, _mm256_cvtepi8_epi16(_mm_shuffle_epi8(curr82	, shuf)));
@@ -568,7 +570,7 @@ static void block_func(void *param)
 					NW5	=_mm256_srai_epi16(NW5	, 1);
 					N5	=_mm256_srai_epi16(N5	, 1);
 					NE5	=_mm256_srai_epi16(NE5	, 1);
-				//	NEE5	=_mm256_srai_epi16(NEE5	, 1);
+					NEE5	=_mm256_srai_epi16(NEE5	, 1);
 					WW5	=_mm256_srai_epi16(WW5	, 1);
 					W5	=_mm256_srai_epi16(W5	, 1);
 					curr5	=_mm256_srai_epi16(curr5, 1);
@@ -580,7 +582,7 @@ static void block_func(void *param)
 					NW5	=_mm256_sub_epi16(NW	, NW5);
 					N5	=_mm256_sub_epi16(N	, N5);
 					NE5	=_mm256_sub_epi16(NE	, NE5);
-				//	NEE5	=_mm256_sub_epi16(NEE	, NEE5);
+					NEE5	=_mm256_sub_epi16(NEE	, NEE5);
 					WW5	=_mm256_sub_epi16(WW	, WW5);
 					W5	=_mm256_sub_epi16(W	, W5);
 				}
@@ -1719,6 +1721,82 @@ static void block_func(void *param)
 				);
 #endif
 				
+				//AV8
+				//			1	1
+				//		1	1	1	1
+				//	1	1	[?]>>3
+#ifdef ENABLE_AV6
+				pred=_mm256_add_epi16(N, W);
+				pred=_mm256_add_epi16(pred, _mm256_add_epi16(NN, WW));
+				pred=_mm256_add_epi16(pred, _mm256_add_epi16(NW, NE));
+				pred=_mm256_add_epi16(pred, _mm256_add_epi16(NNE, NEE));
+				pred=_mm256_srai_epi16(pred, 3);
+
+				pred=_mm256_sub_epi16(curr, pred);
+				UPDATE(
+					PRED_AV8,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B,
+					OCH_R, OCH_G, OCH_B
+				);
+				pred=_mm256_add_epi16(N3, W3);
+				pred=_mm256_add_epi16(pred, _mm256_add_epi16(NN3, WW3));
+				pred=_mm256_add_epi16(pred, _mm256_add_epi16(NW3, NE3));
+				pred=_mm256_add_epi16(pred, _mm256_add_epi16(NNE3, NEE3));
+				pred=_mm256_srai_epi16(pred, 3);
+
+				pred=_mm256_add_epi16(pred, curr2);
+				pred=_mm256_max_epi16(pred, amin);
+				pred=_mm256_min_epi16(pred, amax);
+				pred=_mm256_sub_epi16(curr, pred);
+				UPDATE(
+					PRED_AV8,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR,
+					OCH_RG, OCH_GB, OCH_BR
+				);
+				pred=_mm256_add_epi16(N4, W4);
+				pred=_mm256_add_epi16(pred, _mm256_add_epi16(NN4, WW4));
+				pred=_mm256_add_epi16(pred, _mm256_add_epi16(NW4, NE4));
+				pred=_mm256_add_epi16(pred, _mm256_add_epi16(NNE4, NEE4));
+				pred=_mm256_srai_epi16(pred, 3);
+
+				pred=_mm256_add_epi16(pred, curr);
+				pred=_mm256_max_epi16(pred, amin);
+				pred=_mm256_min_epi16(pred, amax);
+				pred=_mm256_sub_epi16(curr2, pred);
+				UPDATE(
+					PRED_AV8,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB,
+					OCH_GR, OCH_BG, OCH_RB
+				);
+				pred=_mm256_add_epi16(N5, W5);
+				pred=_mm256_add_epi16(pred, _mm256_add_epi16(NN5, WW5));
+				pred=_mm256_add_epi16(pred, _mm256_add_epi16(NW5, NE5));
+				pred=_mm256_add_epi16(pred, _mm256_add_epi16(NNE5, NEE5));
+				pred=_mm256_srai_epi16(pred, 3);
+
+				pred=_mm256_add_epi16(pred, curr5);
+				pred=_mm256_max_epi16(pred, amin);
+				pred=_mm256_min_epi16(pred, amax);
+				pred=_mm256_sub_epi16(curr, pred);
+				UPDATE(
+					PRED_AV8,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2,
+					OCH_R2, OCH_G2, OCH_B2
+				);
+#endif
+				
 				//AV9
 				//		1	-2	-1
 				//	-1	-9	10	4
@@ -2645,7 +2723,7 @@ static void block_func(void *param)
 		args->predidx[0]=predidx[0];
 		args->predidx[1]=predidx[1];
 		args->predidx[2]=predidx[2];
-#ifdef STATIC_ZERO
+#if defined ENABLE_ZERO && defined STATIC_ZERO
 		if(predidx[0]==PRED_ZERO||predidx[1]==PRED_ZERO||predidx[2]==PRED_ZERO)
 		{
 			int hist0[3][256]={0};
@@ -2798,7 +2876,7 @@ static void block_func(void *param)
 		predidx[0]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
 		predidx[1]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
 		predidx[2]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
-#ifdef STATIC_ZERO
+#if defined ENABLE_ZERO && defined STATIC_ZERO
 		for(int kc=0;kc<3;++kc)
 		{
 			if(predidx[kc]==PRED_ZERO)
@@ -3094,8 +3172,8 @@ static void block_func(void *param)
 				*NW	=rows[1]-1*4*4,
 				*N	=rows[1]+0*4*4,
 				*NE	=rows[1]+1*4*4,
-#ifdef ENABLE_GR
 				*NEE	=rows[1]+2*4*4,
+#ifdef ENABLE_GR
 				*NEEE	=rows[1]+3*4*4,
 				*WWW	=rows[0]-3*4*4,
 #endif
@@ -3234,6 +3312,15 @@ static void block_func(void *param)
 						regW[kc]+((6*N[kc]-5*NW[kc]-NN[kc]-WW[kc]+NE[kc])>>3),
 						N[kc], regW[kc], NE[kc]
 					);
+					break;
+#endif
+#ifdef ENABLE_AV8
+				case PRED_AV8:
+					pred=(
+						+NN[kc]+NNE[kc]
+						+NW[kc]+N[kc]+NE[kc]+NEE[kc]
+						+WW[kc]+regW[kc]
+					)>>3;
 					break;
 #endif
 #ifdef ENABLE_AV9

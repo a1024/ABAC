@@ -96,6 +96,7 @@ typedef enum TransformTypeEnum
 	ST_CONVTEST,		ST_CONVTEST2,
 	ST_FILT_MEDIAN33,	ST_FILT_AV33,
 	ST_FILT_DEINT422,	ST_FILT_DEINT420,
+	ST_ARTIFACT,		ST_ARTIFACT_DELTA,
 
 	ST_FWD_PACKSIGN,	ST_INV_PACKSIGN,
 	ST_FWD_PALETTE,		ST_INV_PALETTE,
@@ -104,7 +105,10 @@ typedef enum TransformTypeEnum
 	ST_FWD_MTF,		ST_INV_MTF,
 	ST_FWD_AV2,		ST_INV_AV2,
 	ST_FWD_CLAMPGRAD,	ST_INV_CLAMPGRAD,
-	ST_FWD_SYNTH,		ST_INV_SYNTH,
+	ST_FWD_CLEARTYPE,	ST_INV_CLEARTYPE,
+	ST_FWD_AV4,		ST_INV_AV4,
+	ST_FWD_SEL4,		ST_INV_SEL4,
+	ST_FWD_SELECT,		ST_INV_SELECT,
 	ST_FWD_CGPLUS,		ST_INV_CGPLUS,
 	ST_FWD_CG3D,		ST_INV_CG3D,
 	ST_FWD_PU,		ST_INV_PU,
@@ -117,6 +121,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_WGRAD3,		ST_INV_WGRAD3,
 	ST_FWD_WGRAD4,		ST_INV_WGRAD4,
 	ST_FWD_WGRAD5,		ST_INV_WGRAD5,
+	ST_FWD_SSE,		ST_INV_SSE,
 //	ST_FWD_WMIX,		ST_INV_WMIX,
 	ST_FWD_T47,		ST_INV_T47,
 	ST_FWD_P3,		ST_INV_P3,
@@ -1804,8 +1809,16 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_CG3D:		a="CS Inv CG3D";		break;
 	case ST_FWD_CLAMPGRAD:		a=" S Fwd ClampGrad";		break;
 	case ST_INV_CLAMPGRAD:		a=" S Inv ClampGrad";		break;
-	case ST_FWD_SYNTH:		a=" S Fwd Synth";		break;
-	case ST_INV_SYNTH:		a=" S Inv Synth";		break;
+	case ST_FWD_CLEARTYPE:		a=" S Fwd ClearType";		break;
+	case ST_INV_CLEARTYPE:		a=" S Inv ClearType";		break;
+	case ST_ARTIFACT:		a=" S Artifact";		break;
+	case ST_ARTIFACT_DELTA:		a=" S Artifact Delta";		break;
+	case ST_FWD_AV4:		a=" S Fwd AV4";			break;
+	case ST_INV_AV4:		a=" S Inv AV4";			break;
+	case ST_FWD_SEL4:		a=" S Fwd Sel4";		break;
+	case ST_INV_SEL4:		a=" S Inv Sel4";		break;
+	case ST_FWD_SELECT:		a=" S Fwd Select";		break;
+	case ST_INV_SELECT:		a=" S Inv Select";		break;
 	case ST_FWD_CGPLUS:		a=" S Fwd CGplus";		break;
 	case ST_INV_CGPLUS:		a=" S Inv CGplus";		break;
 	case ST_FWD_CG422:		a=" S Fwd CG422";		break;
@@ -1830,6 +1843,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_WGRAD4:		a=" S Inv WGrad4";		break;
 	case ST_FWD_WGRAD5:		a=" S Fwd WGrad5";		break;
 	case ST_INV_WGRAD5:		a=" S Inv WGrad5";		break;
+	case ST_FWD_SSE:		a=" S Fwd SSE";			break;
+	case ST_INV_SSE:		a=" S Inv SSE";			break;
 //	case ST_FWD_WMIX:		a=" S Fwd WMIX";		break;
 //	case ST_INV_WMIX:		a=" S Inv WMIX";		break;
 	case ST_FWD_TABLE:		a=" S Fwd Table";		break;
@@ -2954,8 +2969,14 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_INV_CG3D:		pred_CG3D(image, 0, pred_ma_enabled);			break;
 	case ST_FWD_CLAMPGRAD:		pred_clampgrad(image, 1, pred_ma_enabled);		break;
 	case ST_INV_CLAMPGRAD:		pred_clampgrad(image, 0, pred_ma_enabled);		break;
-	case ST_FWD_SYNTH:		pred_synth(image, 1);					break;
-	case ST_INV_SYNTH:		pred_synth(image, 0);					break;
+	case ST_FWD_CLEARTYPE:		pred_cleartype(image, 1);				break;
+	case ST_INV_CLEARTYPE:		pred_cleartype(image, 0);				break;
+	case ST_ARTIFACT:		pred_artifact(image, 1);				break;
+	case ST_ARTIFACT_DELTA:		pred_artifact(image, 0);				break;
+	case ST_FWD_SEL4:		pred_sel4(image, 1);					break;
+	case ST_INV_SEL4:		pred_sel4(image, 0);					break;
+	case ST_FWD_SELECT:		pred_select(image, 1);					break;
+	case ST_INV_SELECT:		pred_select(image, 0);					break;
 	case ST_FWD_CGPLUS:		pred_cgplus(image, 1);					break;
 	case ST_INV_CGPLUS:		pred_cgplus(image, 0);					break;
 	case ST_FWD_CG422:		pred_CG422(image, 1);					break;
@@ -2980,6 +3001,8 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_INV_WGRAD4:		pred_wgrad4(image, 0);					break;
 	case ST_FWD_WGRAD5:		pred_wgrad5(image, 1);					break;
 	case ST_INV_WGRAD5:		pred_wgrad5(image, 0);					break;
+	case ST_FWD_SSE:		pred_sse(image, 1);					break;
+	case ST_INV_SSE:		pred_sse(image, 0);					break;
 //	case ST_FWD_WMIX:		pred_wmix(image, 1);					break;
 //	case ST_INV_WMIX:		pred_wmix(image, 0);					break;
 	case ST_FWD_TABLE:		pred_table(image, 1);					break;
@@ -2988,8 +3011,8 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_INV_LWAV:		pred_lwav(image, 0);					break;
 //	case ST_FWD_ECOEFF:		pred_ecoeff(image, 1, pred_ma_enabled);			break;
 //	case ST_INV_ECOEFF:		pred_ecoeff(image, 0, pred_ma_enabled);			break;
-//	case ST_FWD_AVERAGE:		pred_average(image, 1, pred_ma_enabled);		break;
-//	case ST_INV_AVERAGE:		pred_average(image, 0, pred_ma_enabled);		break;
+	case ST_FWD_AV4:		pred_av4(image, 1, pred_ma_enabled);			break;
+	case ST_INV_AV4:		pred_av4(image, 0, pred_ma_enabled);			break;
 	case ST_FWD_MULTISTAGE:		pred_multistage(image, 1, pred_ma_enabled);		break;
 	case ST_INV_MULTISTAGE:		pred_multistage(image, 0, pred_ma_enabled);		break;
 	case ST_FWD_ZIPPER:		pred_zipper(image, 1, pred_ma_enabled);			break;
