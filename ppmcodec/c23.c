@@ -15,7 +15,7 @@ static const char file[]=__FILE__;
 //	#define LOUD
 
 #ifndef DISABLE_MT
-	#define ENABLE_MT
+//	#define ENABLE_MT
 #endif
 //	#define ENABLE_GUIDE
 

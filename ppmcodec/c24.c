@@ -56,8 +56,8 @@ static const char file[]=__FILE__;
 	#define STATIC_ZERO
 //	#define ENABLE_MIX1	//inefficient			GDCC 9.7~6% faster, 0.6% larger
 //	#define ENABLE_MIX2	//bad
-	#define ENABLE_MIX3	//slow				GDCC 16% slower, 0.2% smaller
-//	#define ENABLE_MIX4	//slow				GDCC 28% slower, 0.3% smaller
+//	#define ENABLE_MIX3	//slow				GDCC 16% slower, 0.2% smaller
+	#define ENABLE_MIX4	//worse with synth		GDCC 28% slower, 0.3% smaller
 
 //	#define AC3_ENC_BRANCHLESSRENORM	//slow
 //	#define AC3_DEC_BRANCHLESSRENORM	//slow	//insignificantly (0.2%) faster?
@@ -1963,7 +1963,7 @@ static void block_func(void *param)
 				//			1	1
 				//		1	1	1	1
 				//	1	1	[?]>>3
-#ifdef ENABLE_AV6
+#ifdef ENABLE_AV8
 				pred=_mm256_add_epi16(N, W);
 				pred=_mm256_add_epi16(pred, _mm256_add_epi16(NN, WW));
 				pred=_mm256_add_epi16(pred, _mm256_add_epi16(NW, NE));

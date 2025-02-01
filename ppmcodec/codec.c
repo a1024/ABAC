@@ -33,8 +33,9 @@ static const char file[]=__FILE__;
 //	#define CODEC_EXT c21
 //	#define CODEC_EXT c22
 //	#define CODEC_EXT c23
-	#define CODEC_EXT c24
+//	#define CODEC_EXT c24
 //	#define CODEC_EXT c25
+	#define CODEC_EXT c26
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -246,11 +247,14 @@ int main(int argc, char **argv)
 //	CODEC_FUNC("C:/dataset-GDCC2020-ppm/astro-30.ppm",	"D:/ML/mystery.lsim", nthreads);
 //	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
 
-	CODEC_FUNC("C:/dataset-GDCC2020-ppm/photo-03.ppm",	"D:/ML/mystery.lsim", nthreads);
-	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
+//	CODEC_FUNC("C:/dataset-GDCC2020-ppm/photo-03.ppm",	"D:/ML/mystery.lsim", nthreads);
+//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
 
 //	CODEC_FUNC("C:/dataset-GDCC2020-ppm/photo-05.ppm",	"D:/ML/mystery.lsim", nthreads);
 //	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
+
+	CODEC_FUNC("C:/dataset-GDCC2020-ppm/photo-49.ppm",	"D:/ML/mystery.lsim", nthreads);
+	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
 
 //	CODEC_FUNC("C:/dataset-GDCC2020-ppm/photo-52.ppm",	"D:/ML/mystery.lsim", nthreads);
 //	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);

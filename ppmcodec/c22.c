@@ -13,7 +13,7 @@ static const char file[]=__FILE__;
 
 
 #ifndef DISABLE_MT
-	#define ENABLE_MT
+//	#define ENABLE_MT
 #endif
 //	#define ENABLE_GUIDE
 //	#define LOUD

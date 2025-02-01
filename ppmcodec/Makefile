@@ -162,3 +162,18 @@ c24:
 
 c25:
 	gcc $(FLAGS) -DCODEC_EXT=c25 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c25.c codec.c util.c  -o c25 $(LIBS)
+
+c26:
+	gcc $(FLAGS) -Ihtscodecs -DCODEC_EXT=c26 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c26.c codec.c util.c  -o c26 $(LIBS) \
+	htscodecs/arith_dynamic.c \
+	htscodecs/fqzcomp_qual.c \
+	htscodecs/htscodecs.c \
+	htscodecs/pack.c \
+	htscodecs/rANS_static.c \
+	htscodecs/rANS_static4x16pr.c \
+	htscodecs/rANS_static32x16pr.c \
+	htscodecs/rANS_static32x16pr_avx2.c \
+	htscodecs/rANS_static32x16pr_sse4.c \
+	htscodecs/rle.c \
+	htscodecs/tokenise_name3.c \
+	htscodecs/utils.c
