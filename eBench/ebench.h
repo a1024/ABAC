@@ -957,6 +957,7 @@ typedef enum EContextEnum
 	ECTX_MAX_QN_QW,
 	ECTX_MIN_N_W_NW_NE,
 	ECTX_ARGMIN_N_W_NW_NE,
+	ECTX_GR,
 
 	ECTX_COUNT,
 } EContext;

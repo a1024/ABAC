@@ -1,6 +1,7 @@
 #include"ebench.h"
 #include<stdio.h>//snpirntf
 #include<stdlib.h>
+#include<string.h>
 #define _USE_MATH_DEFINES
 #include<math.h>
 #include<process.h>
@@ -96,7 +97,7 @@ typedef enum TransformTypeEnum
 	ST_CONVTEST,		ST_CONVTEST2,
 	ST_FILT_MEDIAN33,	ST_FILT_AV33,
 	ST_FILT_DEINT422,	ST_FILT_DEINT420,
-	ST_ARTIFACT,		ST_ARTIFACT_DELTA,
+	ST_FWD_QUANT,		ST_INV_QUANT,
 
 	ST_FWD_PACKSIGN,	ST_INV_PACKSIGN,
 	ST_FWD_PALETTE,		ST_INV_PALETTE,
@@ -1112,7 +1113,68 @@ static void test_predmask(Image const *image)
 #endif
 static void calc_csize_stateful(Image const *image, int *hist_full, double *entropy)
 {
-	if(ec_method==ECTX_HIST)
+	if(ec_method==ECTX_GR)
+	{
+		long long bitsizes[4]={0};
+		int bufsize=(int)sizeof(short[4*4*2])*(image->iw+16);//4 padded rows * 4 channels max * {pixels, errors}
+		short *pixels=(short*)malloc(bufsize);
+		if(!pixels)
+		{
+			LOG_ERROR("ALloc error");
+			return;
+		}
+		memset(pixels, 0, bufsize);
+		for(int ky=0, idx=0;ky<image->ih;++ky)
+		{
+			short *rows[]=
+			{
+				pixels+((image->iw+16LL)*((ky-0LL)&3)+8)*4*2,
+				pixels+((image->iw+16LL)*((ky-1LL)&3)+8)*4*2,
+				pixels+((image->iw+16LL)*((ky-2LL)&3)+8)*4*2,
+				pixels+((image->iw+16LL)*((ky-3LL)&3)+8)*4*2,
+			};
+			for(int kx=0;kx<image->iw;++kx, ++idx)
+			{
+				short
+					*NW	=rows[1]-1*4*2,
+					*N	=rows[1]+0*4*2,
+					*NE	=rows[1]+1*4*2,
+					*NEEE	=rows[1]+3*4*2,
+					*W	=rows[0]-1*4*2,
+					*curr	=rows[0]+0*4*2;
+				for(int kc=0;kc<4;++kc)
+				{
+					if(image->depth[kc])
+					{
+						int nbypass=W[kc+4];
+						nbypass+=nbypass<4;
+						nbypass=FLOOR_LOG2(nbypass);
+
+						int val=image->data[idx<<2|kc];
+						int sym=val<<1^val>>31;
+
+						bitsizes[kc]+=(val>>nbypass)+nbypass+1;
+
+						curr[kc+0]=val;
+						curr[kc+4]=(2*W[kc+4]+sym+NEEE[kc+4])>>2;
+					}
+				}
+				rows[0]+=4*2;
+				rows[1]+=4*2;
+				rows[2]+=4*2;
+				rows[3]+=4*2;
+			}
+		}
+		{
+			double usize;
+
+			usize=(double)image->iw*image->ih*image->src_depth[0]; entropy[0]=usize?(bitsizes[0]<<3)/usize:0;//entropy = cbitsize*8/ubitsize
+			usize=(double)image->iw*image->ih*image->src_depth[1]; entropy[1]=usize?(bitsizes[1]<<3)/usize:0;
+			usize=(double)image->iw*image->ih*image->src_depth[2]; entropy[2]=usize?(bitsizes[2]<<3)/usize:0;
+			usize=(double)image->iw*image->ih*image->src_depth[3]; entropy[3]=usize?(bitsizes[3]<<3)/usize:0;
+		}
+	}
+	else if(ec_method==ECTX_HIST)
 	{
 		int allocated=0;
 		if(!hist_full)
@@ -1811,8 +1873,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_CLAMPGRAD:		a=" S Inv ClampGrad";		break;
 	case ST_FWD_CLEARTYPE:		a=" S Fwd ClearType";		break;
 	case ST_INV_CLEARTYPE:		a=" S Inv ClearType";		break;
-	case ST_ARTIFACT:		a=" S Artifact";		break;
-	case ST_ARTIFACT_DELTA:		a=" S Artifact Delta";		break;
+	case ST_FWD_QUANT:		a=" S Fwd Quantize";		break;
+	case ST_INV_QUANT:		a=" S Inv Quantize";		break;
 	case ST_FWD_AV4:		a=" S Fwd AV4";			break;
 	case ST_INV_AV4:		a=" S Inv AV4";			break;
 	case ST_FWD_SEL4:		a=" S Fwd Sel4";		break;
@@ -2971,8 +3033,8 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_INV_CLAMPGRAD:		pred_clampgrad(image, 0, pred_ma_enabled);		break;
 	case ST_FWD_CLEARTYPE:		pred_cleartype(image, 1);				break;
 	case ST_INV_CLEARTYPE:		pred_cleartype(image, 0);				break;
-	case ST_ARTIFACT:		pred_artifact(image, 1);				break;
-	case ST_ARTIFACT_DELTA:		pred_artifact(image, 0);				break;
+	case ST_FWD_QUANT:		pred_artifact(image, 1);				break;
+	case ST_INV_QUANT:		pred_artifact(image, 0);				break;
 	case ST_FWD_SEL4:		pred_sel4(image, 1);					break;
 	case ST_INV_SEL4:		pred_sel4(image, 0);					break;
 	case ST_FWD_SELECT:		pred_select(image, 1);					break;

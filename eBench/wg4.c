@@ -782,8 +782,122 @@ FORCE_INLINE void wg_update(int curr, int kc, const int *preds, int *perrors, in
 		NEerrors[k]+=e2;
 	}
 }
+
+FORCE_INLINE void wg_init_v3(int *weights)
+{
+//	int j=0;
+//#define WG_PRED(WEIGHT, EXPR) weights[j++]=WEIGHT;
+//	WG_PREDLIST0
+//#undef  WG_PRED
+
+	for(int k=0;k<WG_NPREDS+1;++k)
+		weights[k]=k*(0x10000/WG_NPREDS);
+}
+FORCE_INLINE int wg_predict_v3(const int *weights, const int *currptr, const int *Nptr, const int *NNptr, const int *NNNptr, int *preds)
+{
+	int
+		NNNWWWW	=NNNptr	[-4*4*2+0],
+		NNNWWW	=NNNptr	[-3*4*2+0],
+		NNNW	=NNNptr	[-1*4*2+0],
+		NNN	=NNNptr	[+0*4*2+0],
+		NNNE	=NNNptr	[+1*4*2+0],
+		NNNEEE	=NNNptr	[+3*4*2+0],
+		NNWWWW	=NNptr	[-4*4*2+0],
+		NNWW	=NNptr	[-2*4*2+0],
+		NNW	=NNptr	[-1*4*2+0],
+		NN	=NNptr	[+0*4*2+0],
+		NNE	=NNptr	[+1*4*2+0],
+		NNEE	=NNptr	[+2*4*2+0],
+		NNEEE	=NNptr	[+3*4*2+0],
+		NNEEEE	=NNptr	[+4*4*2+0],
+		NWWW	=Nptr	[-3*4*2+0],
+		NWW	=Nptr	[-2*4*2+0],
+		NW	=Nptr	[-1*4*2+0],
+		N	=Nptr	[+0*4*2+0],
+		NE	=Nptr	[+1*4*2+0],
+		NEE	=Nptr	[+2*4*2+0],
+		NEEE	=Nptr	[+3*4*2+0],
+		NEEEE	=Nptr	[+4*4*2+0],
+		WWWWW	=currptr[-5*4*2+0],
+		WWWW	=currptr[-4*4*2+0],
+		WWW	=currptr[-3*4*2+0],
+		WW	=currptr[-2*4*2+0],
+		W	=currptr[-1*4*2+0],
+		eNNN	=NNNptr	[+0*4*2+1],
+		eNN	=NNptr	[+0*4*2+1],
+		eNNE	=NNptr	[+1*4*2+1],
+		eNW	=Nptr	[-1*4*2+1],
+		eN	=Nptr	[+0*4*2+1],
+		eNE	=Nptr	[+1*4*2+1],
+		eNEE	=Nptr	[+2*4*2+1],
+		eNEEE	=Nptr	[+3*4*2+1],
+		eWWWW	=currptr[-4*4*2+1],
+		eWWW	=currptr[-3*4*2+1],
+		eWW	=currptr[-2*4*2+1],
+		eW	=currptr[-1*4*2+1];
+	int j=0;
+
+#define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
+	WG_PREDLIST0
+#undef  WG_PRED
+	if(N==W)
+		return N;
+
+	int pred=(
+		+(weights[ 1]-weights[ 0])*preds[ 0]
+		+(weights[ 2]-weights[ 1])*preds[ 1]
+		+(weights[ 3]-weights[ 2])*preds[ 2]
+		+(weights[ 4]-weights[ 3])*preds[ 3]
+		+(weights[ 5]-weights[ 4])*preds[ 4]
+		+(weights[ 6]-weights[ 5])*preds[ 5]
+		+(weights[ 7]-weights[ 6])*preds[ 6]
+		+(weights[ 8]-weights[ 7])*preds[ 7]
+		+(weights[ 9]-weights[ 8])*preds[ 8]
+		+(weights[10]-weights[ 9])*preds[ 9]
+		+(weights[11]-weights[10])*preds[10]
+		+(weights[12]-weights[11])*preds[11]
+		+(1<<16>>1)
+	)>>16;
+	{
+		int vmax=N, vmin=W;
+		if(N<W)vmin=N, vmin=W;
+		if(vmin>NE)vmin=NE;
+		if(vmax>NE)vmax=NE;
+		CLAMP2(pred, vmin, vmax);
+	}
+	return pred;
+}
+FORCE_INLINE void wg_update_v3(int target, const int *preds, int *weights)
+{
+	int mixin[WG_NPREDS], wsum=0;
+	for(int k=0;k<WG_NPREDS;++k)
+	{
+		int e=abs(target-preds[k])+1;
+		e=0x1000000/e;//(NPREDS*2) DIVs per subpixel is too slow
+		mixin[k]=e;
+		wsum+=e;
+	}
+	int sum2=0;
+	for(int k=0;k<WG_NPREDS;++k)
+	{
+		int val=mixin[k];
+		weights[k]+=((int)(((long long)sum2<<16)/wsum)-weights[k])>>0;
+	//	mixin[k]=(int)(((long long)sum2<<16)/wsum);
+		sum2+=val;
+	}
+
+	//for(int k=0;k<WG_NPREDS;++k)//slow O(N^2)	X  inefficient
+	//{
+	//	int e=target-preds[k];
+	//	e*=e;//instead of abs()
+	//	e=FLOOR_LOG2(e+1);
+	//	for(int k2=1;k2<WG_NPREDS;++k2)
+	//		weights[k2]+=(((k2>k)<<16)-weights[k2])>>e;//FIXME SIMD
+	//}
+}
 void pred_wgrad4(Image *src, int fwd)
 {
+//	ALIGN(32) int wg_weights_v3[4][(WG_NPREDS+7)&~7];
 	ALIGN(32) double wg_weights[4][WG_NPREDS]={0};
 	ALIGN(32) int wg_perrors[4][WG_NPREDS]={0}, wg_preds[WG_NPREDS]={0};
 	int nch;
@@ -805,6 +919,7 @@ void pred_wgrad4(Image *src, int fwd)
 	nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
 	UPDATE_MAX(nch, src->nch);
 	for(int kc=0;kc<nch;++kc)
+	//	wg_init_v3(wg_weights_v3[kc]);
 		wg_init(wg_weights[kc], kc);
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
@@ -824,6 +939,35 @@ void pred_wgrad4(Image *src, int fwd)
 		};
 		for(int kx=0;kx<src->iw;++kx, idx+=4)
 		{
+#if 0
+			//if(ky==src->ih/2&&kx==src->iw/2)
+			//	printf("");
+			for(int kc=0;kc<src->nch;++kc)
+			{
+				int pred=wg_predict_v3(wg_weights_v3[kc], rows[0]+kc, rows[1]+kc, rows[2]+kc, rows[3]+kc, wg_preds);
+				{
+					int curr=src->data[idx+kc], pred0=pred;
+					pred+=1<<WG_NBITS>>1;
+					pred>>=WG_NBITS;
+					pred^=fwdmask;
+					pred-=fwdmask;
+					pred+=curr;
+
+					pred<<=32-src->depth[kc];
+					pred>>=32-src->depth[kc];
+
+					src->data[idx+kc]=pred;
+					rows[0][kc+0]=(fwd?curr:pred)<<WG_NBITS;
+					rows[0][kc+4]=rows[0][kc]-pred0;
+				}
+				wg_update_v3(rows[0][kc+0], wg_preds, wg_weights_v3[kc]);
+			}
+			rows[0]+=4*2;
+			rows[1]+=4*2;
+			rows[2]+=4*2;
+			rows[3]+=4*2;
+#endif
+#if 1
 			for(int kc=0;kc<src->nch;++kc)
 			{
 				int pred;
@@ -867,6 +1011,7 @@ void pred_wgrad4(Image *src, int fwd)
 			erows[1]+=4*WG_NPREDS;
 			erows[2]+=4*WG_NPREDS;
 			erows[3]+=4*WG_NPREDS;
+#endif
 		}
 	}
 	free(pixels);

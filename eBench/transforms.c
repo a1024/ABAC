@@ -2969,19 +2969,65 @@ void pred_sse(Image *src, int fwd)
 					WWW	=rows[0][kc-3*4*3],
 					WW	=rows[0][kc-2*4*3],
 					W	=rows[0][kc-1*4*3];
+				int pred, pred1, pred2, pred3, pred4;
+				int vmin, vmax;
+#define CLAMPGRAD(pred, vmin, vmax, N, W, NW)\
+	do\
+	{\
+		pred=N+W-NW;\
+		vmax=N, vmin=W;\
+		if(N<W)vmin=N, vmax=W;\
+		CLAMP2(pred, vmin, vmax);\
+	}\
+	while(0)
+				CLAMPGRAD(pred1, vmin, vmax, N, W, NW);
+				CLAMPGRAD(pred2, vmin, vmax, N, NE, NNE);
+				CLAMPGRAD(pred3, vmin, vmax, N, NW, NNW);
+				CLAMPGRAD(pred4, vmin, vmax, W, NW, NWW);
+#undef  CLAMPGRAD
+				int target=src->data[idx+kc];
+				rows[0][kc]=target;
+				int d, dmin, t2;
+				d=abs(target-pred1);
+				dmin=d, pred=pred1, t2=-96;
+				d=abs(target-pred2);
+				if(dmin>d)dmin=d, pred=pred2, t2=-32;
+				d=abs(target-pred3);
+				if(dmin>d)dmin=d, pred=pred3, t2=32;
+				d=abs(target-pred4);
+				if(dmin>d)dmin=d, pred=pred4, t2=96;
+				target=t2;
+#if 0
+				if(target<vmin)
+					target=-96;
+				else if(target==vmin)
+					target=-64;
+				else if(target<pred)
+					target=-32;
+				else if(target==pred)
+					target=0;
+				else if(target<vmax)
+					target=32;
+				else if(target==vmax)
+					target=64;
+				else
+					target=96;
+#endif
+				src->data[idx+kc]=target;
 
 				//int sseidx=kc;
 				//sseidx=sseidx<<8|(N&255);
 				//sseidx=sseidx<<8|(W&255);
 				//int *curr_sse=sse+sseidx;
 				
-				int pred=(
-					+NNNW+NNN+NNNE
-					+NNWW+NNW+NN+NNE+NNEE
-					+NWW+NW+N+NE+NEE+NEEE+NEEEE+NEEEEE
-					+WWWWW+WWWW+WWW+WW+W
-					+10
-				)/21;
+				//int pred=(
+				//	+NNNW+NNN+NNNE
+				//	+NNWW+NNW+NN+NNE+NNEE
+				//	+NWW+NW+N+NE+NEE+NEEE+NEEEE+NEEEEE
+				//	+WWWWW+WWWW+WWW+WW+W
+				//	+10
+				//)/21;
+
 				//int pred=(
 				//	+NNWW+NNW+NN+NNE+NNEE	//X
 				//	+NWW+NEE
@@ -3041,7 +3087,8 @@ void pred_sse(Image *src, int fwd)
 				//if(N<W)vmin=N, vmax=W;
 				//CLAMP2(pred, vmin, vmax);
 				//pred+=bias;
-
+				
+#if 0
 				//pred+=amin[kc];//convert to signed
 				//CLAMP2(pred, amin[kc], amax[kc]);
 
@@ -3067,6 +3114,7 @@ void pred_sse(Image *src, int fwd)
 				rows[0][kc+8]=yN;
 				//rows[0][kc]-=bias;
 				//mean2[kc]+=curr;
+#endif
 
 				//*curr_sse+=((curr<<6)-*curr_sse)>>3;
 			}
@@ -3120,18 +3168,22 @@ void pred_artifact(Image *src, int fwd)
 		{
 			for(int kc=0;kc<src->nch;++kc)
 			{
-				int
-					NW	=rows[1][kc-1*4*2+0],
-					N	=rows[1][kc+0*4*2+0],
-					W	=rows[0][kc-1*4*2+0],
-					dNW	=rows[1][kc-1*4*2+4],
-					dN	=rows[1][kc+0*4*2+4],
-					dNE	=rows[1][kc+1*4*2+4],
-					dNEE	=rows[1][kc+2*4*2+4],
-					dNEEE	=rows[1][kc+3*4*2+4],
-					dWW	=rows[0][kc-2*4*2+4],
-					dW	=rows[0][kc-1*4*2+4];
-#if 1
+				//int
+				//	NW	=rows[1][kc-1*4*2+0],
+				//	N	=rows[1][kc+0*4*2+0],
+				//	W	=rows[0][kc-1*4*2+0],
+				//	dNW	=rows[1][kc-1*4*2+4],
+				//	dN	=rows[1][kc+0*4*2+4],
+				//	dNE	=rows[1][kc+1*4*2+4],
+				//	dNEE	=rows[1][kc+2*4*2+4],
+				//	dNEEE	=rows[1][kc+3*4*2+4],
+				//	dWW	=rows[0][kc-2*4*2+4],
+				//	dW	=rows[0][kc-1*4*2+4];
+				if(fwd)
+					src->data[idx+kc]>>=1;
+				else
+					src->data[idx+kc]<<=1;
+#if 0
 				//DSC_0054			(dN+dW)/2, >>8			(dN+dW)/2, >>7			dW
 				//CG		40.4549%
 				//1		32.5676%									45.169213 45.169687 45.169693
@@ -3153,7 +3205,7 @@ void pred_artifact(Image *src, int fwd)
 				//15.1609%	strong artifacts, 2/8 values dominate	cRCT 4
 				//		40.382876 40.371117 40.385353		RGB>>2
 				//21.1966%	40.407838 40.464031 40.451505		cRCT 2  (dN+dW)/2, 16<<, >>3	cRCT		X  1/2 values dominate
-#define DISCARDBITS 7
+#define DISCARDBITS 2
 				int vmax=N, vmin=W;
 				if(N<W)
 					vmin=N, vmax=W;
@@ -15334,6 +15386,7 @@ const char* ec_method_label(EContext ec_method)
 	CASE(ECTX_MAX_QN_QW)
 	CASE(ECTX_MIN_N_W_NW_NE)
 	CASE(ECTX_ARGMIN_N_W_NW_NE)
+	CASE(ECTX_GR)
 #undef  CASE
 	default:
 		break;
@@ -15444,6 +15497,7 @@ void calc_csize_ec(Image const *src, EContext method, int adaptive, int expbits,
 		getctx_max_QN_QW,
 		getctx_min_N_W_NW_NE,
 		getctx_argmin_N_W_NW_NE,
+		getctx_zero,
 	};
 	int maxdepth;
 	HybridUint hu;
