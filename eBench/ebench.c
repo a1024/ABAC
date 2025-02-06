@@ -207,6 +207,7 @@ double ch_entropy[4]={0};//RGBA/YUVA
 //int usage[4]={0};
 EContext ec_method=ECTX_HIST;//ECTX_MIN_QN_QW;
 int ec_adaptive=0, ec_adaptive_threshold=3200, ec_expbits=5, ec_msb=2, ec_lsb=0;
+int abacvis_low=0, abacvis_range=0;
 
 #define combCRhist_SIZE 128
 #define combCRhist_logDX 2
@@ -1153,9 +1154,10 @@ static void calc_csize_stateful(Image const *image, int *hist_full, double *entr
 						int val=image->data[idx<<2|kc];
 						int sym=val<<1^val>>31;
 
-						bitsizes[kc]+=(val>>nbypass)+nbypass+1;
+						bitsizes[kc]+=(long long)(sym>>nbypass)+nbypass+1;
 
 						curr[kc+0]=val;
+
 						curr[kc+4]=(2*W[kc+4]+sym+NEEE[kc+4])>>2;
 					}
 				}
@@ -1307,8 +1309,8 @@ static void calc_csize_stateful(Image const *image, int *hist_full, double *entr
 		entropy[2]=(e8[0][2]+e8[1][2]+e8[2][2]+e8[3][2])/4;
 		entropy[3]=(e8[0][3]+e8[1][3]+e8[2][3]+e8[3][3])/4;
 	}
-	else if(ec_method==ECTX_ABAC)
-		calc_csize_abac(image, entropy);
+	else if(ec_method==ECTX_ABAC0||ec_method==ECTX_ABAC1)
+		calc_csize_abac(image, ec_method==ECTX_ABAC1, entropy);
 	else if(ec_method==ECTX_YUV422||ec_method==ECTX_YUV420)
 	{
 		int nlevels[]=
@@ -3405,12 +3407,65 @@ void update_image(void)//apply selected operations on original image, calculate 
 		}
 		if(view_ma)
 			memset(shift, 0, sizeof(shift));
-		for(ptrdiff_t k=0, res=(ptrdiff_t)im1->iw*im1->ih*4;k<res;k+=4)
+		if(ec_method==ECTX_ABAC0)
 		{
-			im_export[k|0]=(unsigned char)((im1->data[k|c0]>>shift[c0])+128);
-			im_export[k|1]=(unsigned char)((im1->data[k|c1]>>shift[c1])+128);
-			im_export[k|2]=(unsigned char)((im1->data[k|c2]>>shift[c2])+128);
-			im_export[k|3]=0xFF;
+			int maxdepth=im1->depth[c0];
+			if(maxdepth<im1->depth[c1])maxdepth=im1->depth[1];
+			if(maxdepth<im1->depth[c2])maxdepth=im1->depth[2];
+		//	if(maxdepth<im1->depth[3])maxdepth=im1->depth[3];
+			if(abacvis_range<2)
+			{
+				abacvis_low=0;
+				abacvis_range=1<<maxdepth;
+			}
+			int halfs[]=
+			{
+				1<<im1->depth[c0]>>1,
+				1<<im1->depth[c1]>>1,
+				1<<im1->depth[c2]>>1,
+			//	1<<im1->depth[3]>>1,
+			};
+			int abacvis_hi=abacvis_low+abacvis_range, abacvis_mid=abacvis_low+(abacvis_range>>1);
+			for(ptrdiff_t k=0, res=(ptrdiff_t)im1->iw*im1->ih*4;k<res;k+=4)
+			{
+				int r=im1->data[k|c0]+halfs[0];
+				int g=im1->data[k|c1]+halfs[1];
+				int b=im1->data[k|c2]+halfs[2];
+				if(r<abacvis_low||r>=abacvis_hi)
+					r=128;
+				else if(r>=abacvis_mid)
+					r=255;
+				else
+					r=0;
+
+				if(g<abacvis_low||g>=abacvis_hi)
+					g=128;
+				else if(g>=abacvis_mid)
+					g=255;
+				else
+					g=0;
+
+				if(b<abacvis_low||b>=abacvis_hi)
+					b=128;
+				else if(b>=abacvis_mid)
+					b=255;
+				else
+					b=0;
+				im_export[k|0]=r;
+				im_export[k|1]=g;
+				im_export[k|2]=b;
+				im_export[k|3]=0xFF;
+			}
+		}
+		else
+		{
+			for(ptrdiff_t k=0, res=(ptrdiff_t)im1->iw*im1->ih*4;k<res;k+=4)
+			{
+				im_export[k|0]=(unsigned char)((im1->data[k|c0]>>shift[c0])+128);
+				im_export[k|1]=(unsigned char)((im1->data[k|c1]>>shift[c1])+128);
+				im_export[k|2]=(unsigned char)((im1->data[k|c2]>>shift[c2])+128);
+				im_export[k|3]=0xFF;
+			}
 		}
 	}
 	//image_export_uint8(im1, &im_export, 1, 0);
@@ -4552,6 +4607,12 @@ int io_mousewheel(int forward)
 						int *gcc_happy=(int*)&ec_method;
 						*gcc_happy+=sign;
 						MODVAR(*gcc_happy, *gcc_happy, ECTX_COUNT);
+
+						if(ec_method==ECTX_ABAC0)
+						{
+							viewmode=VIEW_C0;
+						}
+
 					}
 					break;
 				}
@@ -6032,7 +6093,33 @@ int io_keydn(IOKey key, char c)
 		break;
 	case KEY_LBRACKET:
 	case KEY_RBRACKET:
-		if(transforms_customenabled)
+		if(ec_method==ECTX_ABAC0)
+		{
+			if(im1)
+			{
+				if(abacvis_range<=2)
+					break;
+				//{
+				//	abacvis_low=0;
+				//	abacvis_range=im1->depth[0];
+				//	if(abacvis_range<im1->depth[1])abacvis_range=im1->depth[1];
+				//	if(abacvis_range<im1->depth[2])abacvis_range=im1->depth[2];
+				//	if(abacvis_range<im1->depth[3])abacvis_range=im1->depth[3];
+				//	abacvis_range=1<<abacvis_range;
+				//}
+				//else
+				{
+					int floorhalf=abacvis_range>>1;
+					int bit=key==KEY_RBRACKET;
+					if(bit)
+						abacvis_low+=abacvis_range-floorhalf;
+					abacvis_range=floorhalf;
+				}
+				update_image();
+				return 1;
+			}
+		}
+		else if(transforms_customenabled)
 		{
 			custom_pred_ch_idx+=((key==KEY_RBRACKET)<<1)-1;
 			MODVAR(custom_pred_ch_idx, custom_pred_ch_idx, 3);
@@ -6050,6 +6137,22 @@ int io_keydn(IOKey key, char c)
 				lossyconv_page=(lossyconv_page&12)|((lossyconv_page+sign)&3);
 			return 1;
 
+		}
+		break;
+	case KEY_QUOTE:
+		if(im1&&ec_method==ECTX_ABAC0)
+		{
+			int maxdepth=im1->depth[0];
+			if(maxdepth<im1->depth[1])maxdepth=im1->depth[1];
+			if(maxdepth<im1->depth[2])maxdepth=im1->depth[2];
+			if(maxdepth<im1->depth[3])maxdepth=im1->depth[3];
+			if(abacvis_range<(1<<maxdepth))
+			{
+				abacvis_low&=~abacvis_range;
+				abacvis_range<<=1;
+				update_image();
+				return 1;
+			}
 		}
 		break;
 	case 'N':
@@ -7929,7 +8032,7 @@ void io_render(void)
 		y=tdy*2;
 		{
 			const char *label=ec_method_label(ec_method);
-			if(ec_method==ECTX_ABAC)
+			if(ec_method==ECTX_ABAC0||ec_method==ECTX_ABAC1)
 				GUIPrint(x, x, y-tdy, 1, "H - - -  -         %s", label);
 			else if(ec_adaptive)//H.E.M.L..A.0x0000..XXXX_XXX
 				GUIPrint(x, x, y-tdy, 1, "H %d %d %d  A 0x%04X  %s", ec_expbits, ec_msb, ec_lsb, ec_adaptive_threshold, label);
@@ -8143,8 +8246,8 @@ void io_render(void)
 			y=ystart;
 			for(int k=0;k<6;++k)
 			{
-				print_i16_row(x, y, zoom, c2_params.c0+k*12, 5);		y+=tdy*zoom;
-				print_i16_row(x, y, zoom, c2_params.c0+k*12+5, 5);		y+=tdy*zoom;
+				print_i16_row(x, y, zoom, c2_params.c0+k*12, 5);	y+=tdy*zoom;
+				print_i16_row(x, y, zoom, c2_params.c0+k*12+5, 5);	y+=tdy*zoom;
 				print_i16_row(x, y, zoom, c2_params.c0+k*12+10, 2);	y+=tdy*zoom;
 				y+=tdy*zoom;
 			}
@@ -8153,8 +8256,8 @@ void io_render(void)
 			y=ystart;
 			for(int k=0;k<6;++k)
 			{
-				print_i16_row(x, y, zoom, c2_params.c1+k*12, 5);		y+=tdy*zoom;
-				print_i16_row(x, y, zoom, c2_params.c1+k*12+5, 5);		y+=tdy*zoom;
+				print_i16_row(x, y, zoom, c2_params.c1+k*12, 5);	y+=tdy*zoom;
+				print_i16_row(x, y, zoom, c2_params.c1+k*12+5, 5);	y+=tdy*zoom;
 				print_i16_row(x, y, zoom, c2_params.c1+k*12+10, 2);	y+=tdy*zoom;
 				y+=tdy*zoom;
 			}
@@ -8164,8 +8267,8 @@ void io_render(void)
 			y=ystart;
 			for(int k=0;k<6;++k)
 			{
-				print_i16_row(x, y, zoom, c2_params.c2+k*12, 5);		y+=tdy*zoom;
-				print_i16_row(x, y, zoom, c2_params.c2+k*12+5, 5);		y+=tdy*zoom;
+				print_i16_row(x, y, zoom, c2_params.c2+k*12, 5);	y+=tdy*zoom;
+				print_i16_row(x, y, zoom, c2_params.c2+k*12+5, 5);	y+=tdy*zoom;
 				print_i16_row(x, y, zoom, c2_params.c2+k*12+10, 2);	y+=tdy*zoom;
 				y+=tdy*zoom;
 			}
@@ -8480,6 +8583,31 @@ void io_render(void)
 			case VIEW_C2:	view_str="C2";break;
 			}
 			GUIPrint(0, 0, tdy*2, 1, "%s %s", show_full_image?"FILL SCREEN":"1:1", view_str);
+			if(ec_method==ECTX_ABAC0)
+			{
+				char bin[]=
+				{
+					'0'+(abacvis_low>>15&1),
+					'0'+(abacvis_low>>14&1),
+					'0'+(abacvis_low>>13&1),
+					'0'+(abacvis_low>>12&1),
+					'0'+(abacvis_low>>11&1),
+					'0'+(abacvis_low>>10&1),
+					'0'+(abacvis_low>> 9&1),
+					'0'+(abacvis_low>> 8&1),
+					'0'+(abacvis_low>> 7&1),
+					'0'+(abacvis_low>> 6&1),
+					'0'+(abacvis_low>> 5&1),
+					'0'+(abacvis_low>> 4&1),
+					'0'+(abacvis_low>> 3&1),
+					'0'+(abacvis_low>> 2&1),
+					'0'+(abacvis_low>> 1&1),
+					'0'+(abacvis_low>> 0&1),
+					0,
+				};
+				GUIPrint(0, 0, tdy*3, 2, "0b%s/%d", bin, abacvis_range);
+			//	GUIPrint(0, 0, tdy*3, 2, "0x%04X/%d", abacvis_low, abacvis_range);
+			}
 		}
 		else if(mode==VIS_JOINT_HISTOGRAM)
 		{

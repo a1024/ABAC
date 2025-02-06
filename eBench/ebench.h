@@ -52,9 +52,9 @@ IOKEY(0x00, 0x00, UNKNOWN)
 
 
 //direct map keys
-IOKEY(0x01, 0x01, LBUTTON)		//inserted
-IOKEY(0x02, 0x04, MBUTTON)		//inserted
-IOKEY(0x03, 0x02, RBUTTON)		//inserted
+IOKEY(0x01, 0x01, LBUTTON)	//inserted
+IOKEY(0x02, 0x04, MBUTTON)	//inserted
+IOKEY(0x03, 0x02, RBUTTON)	//inserted
 
 IOKEY(0x08, 0x08, BKSP)
 IOKEY(0x09, 0x09, TAB)
@@ -107,26 +107,26 @@ IOKEY(0x13, 0x13, PAUSE)
 IOKEY(0x14, 0x91, SCROLLLOCK)
 IOKEY(0x15, 0x2C, PRINTSCR)
 
-IOKEY(0x27, 0xDE, QUOTE)		//inserted '\'' with '\"' 0x22
-IOKEY(0x2B, 0xBB, PLUS)			//inserted '+' with '=' 0x3D
-IOKEY(0x2C, 0xBC, COMMA)		//inserted ',' with '<' 0x3C
-IOKEY(0x2D, 0xBD, MINUS)		//inserted '-' with '_' 0x5F
-IOKEY(0x2E, 0xBE, PERIOD)		//inserted '.' with '>' 0x3E
-IOKEY(0x2F, 0xBF, SLASH)		//inserted '/' with '?' 0x3F
+IOKEY(0x27, 0xDE, QUOTE)	//inserted '\'' with '\"' 0x22
+IOKEY(0x2B, 0xBB, PLUS)		//inserted '+' with '=' 0x3D
+IOKEY(0x2C, 0xBC, COMMA)	//inserted ',' with '<' 0x3C
+IOKEY(0x2D, 0xBD, MINUS)	//inserted '-' with '_' 0x5F
+IOKEY(0x2E, 0xBE, PERIOD)	//inserted '.' with '>' 0x3E
+IOKEY(0x2F, 0xBF, SLASH)	//inserted '/' with '?' 0x3F
 
 IOKEY(0x3B, 0xBA, SEMICOLON)	//inserted ';' with ':' 0x3A
 
-IOKEY(0x5B, 0xDB, LBRACKET)		//inserted '[' with '{' 0x7B
+IOKEY(0x5B, 0xDB, LBRACKET)	//inserted '[' with '{' 0x7B
 IOKEY(0x5C, 0xDC, BACKSLASH)	//inserted '\\' with '|' 0x7C
-IOKEY(0x5D, 0xDD, RBRACKET)		//inserted ']' with '}' 0x7D
+IOKEY(0x5D, 0xDD, RBRACKET)	//inserted ']' with '}' 0x7D
 IOKEY(0x60, 0xC0, GRAVEACCENT)	//inserted '`' with '~' 0x7E
 
 IOKEY(0x7F, 0x2E, DEL)
 
-IOKEY(0x84, 0x10, SHIFT)		//inserted
-IOKEY(0x85, 0x11, CTRL)			//inserted
-IOKEY(0x86, 0x12, ALT)			//inserted
-IOKEY(0x87, 0x00, START)		//inserted
+IOKEY(0x84, 0x10, SHIFT)	//inserted
+IOKEY(0x85, 0x11, CTRL)		//inserted
+IOKEY(0x86, 0x12, ALT)		//inserted
+IOKEY(0x87, 0x00, START)	//inserted
 
 IOKEY(0xA0, 0x60, NP_0)
 IOKEY(0xA1, 0x61, NP_1)
@@ -945,25 +945,26 @@ void pred_c20(char *src, int iw, int ih, int fwd);
 
 typedef enum EContextEnum
 {
-	ECTX_ZERO,
+	ECTX_ABAC0,
+	ECTX_ABAC1,
+	ECTX_GR,
 	ECTX_HIST,
-	ECTX_DWT,
 	ECTX_INTERLEAVED,
+	ECTX_DWT,
 	ECTX_YUV422,
 	ECTX_YUV420,
-	ECTX_ABAC,
+	ECTX_ZERO,
 	ECTX_QNW,
 	ECTX_MIN_QN_QW,
 	ECTX_MAX_QN_QW,
 	ECTX_MIN_N_W_NW_NE,
 	ECTX_ARGMIN_N_W_NW_NE,
-	ECTX_GR,
 
 	ECTX_COUNT,
 } EContext;
 const char* ec_method_label(EContext ec_method);
 void calc_csize_ec(Image const *src, EContext method, int adaptive, int expbits, int msb, int lsb, double *entropy);
-void calc_csize_abac(Image const *src, double *entropy);
+void calc_csize_abac(Image const *src, int order, double *entropy);
 
 
 #ifdef _MSC_VER

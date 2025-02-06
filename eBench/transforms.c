@@ -15374,19 +15374,20 @@ const char* ec_method_label(EContext ec_method)
 	switch(ec_method)
 	{
 #define CASE(L) case L:label=#L;break;
-	CASE(ECTX_ZERO)
+	CASE(ECTX_ABAC0)
+	CASE(ECTX_ABAC1)
+	CASE(ECTX_GR)
 	CASE(ECTX_HIST)
-	CASE(ECTX_DWT)
 	CASE(ECTX_INTERLEAVED)
+	CASE(ECTX_DWT)
 	CASE(ECTX_YUV422)
 	CASE(ECTX_YUV420)
-	CASE(ECTX_ABAC)
+	CASE(ECTX_ZERO)
 	CASE(ECTX_QNW)
 	CASE(ECTX_MIN_QN_QW)
 	CASE(ECTX_MAX_QN_QW)
 	CASE(ECTX_MIN_N_W_NW_NE)
 	CASE(ECTX_ARGMIN_N_W_NW_NE)
-	CASE(ECTX_GR)
 #undef  CASE
 	default:
 		break;
@@ -15485,19 +15486,19 @@ void calc_csize_ec(Image const *src, EContext method, int adaptive, int expbits,
 {
 	int (*const getctx[])(const int *nb, int expbits, int msb, int lsb)=
 	{
+		getctx_zero,//unused
+		getctx_zero,//unused
+		getctx_zero,//unused
+		getctx_zero,//unused
+		getctx_zero,//unused
+		getctx_zero,//unused
+		getctx_zero,//unused
 		getctx_zero,
-		getctx_zero,//unused
-		getctx_zero,//unused
-		getctx_zero,//unused
-		getctx_zero,//unused
-		getctx_zero,//unused
-		getctx_zero,//unused
 		getctx_QNW,
 		getctx_min_QN_QW,
 		getctx_max_QN_QW,
 		getctx_min_N_W_NW_NE,
 		getctx_argmin_N_W_NW_NE,
-		getctx_zero,
 	};
 	int maxdepth;
 	HybridUint hu;
@@ -15724,8 +15725,84 @@ static int abac_quantize(int x, int *qdivs, int ndivs)
 #define ABAC_STATSSHIFT 25
 #define ABAC_MIXERSHIFT 21
 #define MINABS(A, B) (abs(A)<abs(B)?(A):(B))
-void calc_csize_abac(Image const *src, double *entropy)
+void calc_csize_abac(Image const *src, int order, double *entropy)
 {
+#if 1
+	long long cbitsizes[4]={0};
+	int treesizes[]=
+	{
+		1<<src->depth[0],
+		1<<src->depth[1],
+		1<<src->depth[2],
+		1<<src->depth[3],
+	};
+	int maxtreesize=treesizes[0];
+	if(maxtreesize<treesizes[1])maxtreesize=treesizes[1];
+	if(maxtreesize<treesizes[2])maxtreesize=treesizes[2];
+	if(maxtreesize<treesizes[3])maxtreesize=treesizes[3];
+	int statssize=(int)sizeof(short)*maxtreesize;
+	if(order)
+		statssize*=maxtreesize;
+	unsigned short *stats=(short*)malloc(statssize);
+	if(!stats)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	for(int kc=0;kc<4;++kc)
+	{
+		int depth=src->depth[kc], nlevels=1<<depth;
+		if(!depth)
+			continue;
+		FILLMEM(stats, 0x8000, statssize, sizeof(short));
+		unsigned long long low=0, range=0xFFFFFFFF;
+		for(int ky=0, idx=kc;ky<src->ih;++ky)
+		{
+			int prev2=0, prev=0;
+			for(int kx=0;kx<src->iw;++kx, idx+=4)
+			{
+				unsigned short *curr_stats=stats;
+				if(order)
+					curr_stats+=(((ptrdiff_t)prev*2-prev2)&((1ULL<<depth)-1))<<depth;
+				int val=src->data[idx];
+				for(int kb=depth-1, tidx=1;kb>=0;--kb)
+				{
+					int p0=curr_stats[tidx];
+					int bit=val>>kb&1;
+					if(range<0x10000)
+					{
+						cbitsizes[kc]+=32;
+
+						low<<=32;
+						range=range<<32|0xFFFFFFFF;
+						if(range>~low)
+							range=~low;
+					}
+					unsigned long long r2=range*p0>>16;
+					if(val>>kb&1)
+					{
+						low+=r2;
+						range-=r2;
+					}
+					else
+						range=r2-1;
+					p0+=((!bit<<16)-p0)>>7;
+					curr_stats[tidx]=p0;
+					tidx=tidx*2+bit;
+				}
+				prev2=prev;
+				prev=val;
+			}
+		}
+	}
+	free(stats);
+	for(int kc=0;kc<4;++kc)
+	{
+		double usize=(double)src->iw*src->ih*src->src_depth[kc];
+		entropy[kc]=usize?(cbitsizes[kc]<<3)/usize:0;//entropy = cbitsize*8/ubitsize
+	}
+#endif
+#if 0
 	int maxdepth=calc_maxdepth(src, 0);
 	//HybridUint hu;
 	//quantize_signed(1<<maxdepth, expbits, msb, lsb, &hu);
@@ -16011,4 +16088,5 @@ void calc_csize_abac(Image const *src, double *entropy)
 	}
 	free(stats);
 	free(mixer);
+#endif
 }
