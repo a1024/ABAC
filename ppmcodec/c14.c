@@ -1387,7 +1387,14 @@ int c14_codec(const char *srcfn, const char *dstfn, int nthreads0)
 	yblocks=(ih+BLOCKY-1)/BLOCKY;
 	nblocks=xblocks*yblocks;
 	ncores=query_cpu_cores();
-	nthreads=MINVAR(nblocks, ncores);
+	if(nthreads0)
+	{
+		int nthreads2=MINVAR(nblocks, ncores);
+		nthreads=nthreads0;
+		CLAMP2(nthreads, 1, nthreads2);
+	}
+	else
+		nthreads=MINVAR(nblocks, ncores);
 	blocksperthread=(nblocks+nthreads-1)/nthreads;
 	coffset=(int)sizeof(int)*nblocks;
 	int *offsets=(int*)malloc(coffset+sizeof(int));
@@ -1497,12 +1504,17 @@ int c14_codec(const char *srcfn, const char *dstfn, int nthreads0)
 	for(int k2=0;k2<=test;++k2)
 	{
 #ifdef ENABLE_MT
-		void *ctx=mt_exec(block_manager, args, sizeof(ThreadArgs), nthreads);
-		mt_finish(ctx);
-#else
-		for(int k=0;k<nthreads;++k)
-			block_manager(args+k);
+		if(nthreads>1)
+		{
+			void *ctx=mt_exec(block_manager, args, sizeof(ThreadArgs), nthreads);
+			mt_finish(ctx);
+		}
+		else
 #endif
+		{
+			for(int k=0;k<nthreads;++k)
+				block_manager(args+k);
+		}
 		if(fwd)
 		{
 			for(int kt1=0;kt1<nthreads;++kt1)

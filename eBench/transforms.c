@@ -15493,6 +15493,7 @@ void calc_csize_ec(Image const *src, EContext method, int adaptive, int expbits,
 		getctx_zero,//unused
 		getctx_zero,//unused
 		getctx_zero,//unused
+		getctx_zero,//unused
 		getctx_zero,
 		getctx_QNW,
 		getctx_min_QN_QW,
@@ -15727,6 +15728,133 @@ static int abac_quantize(int x, int *qdivs, int ndivs)
 #define MINABS(A, B) (abs(A)<abs(B)?(A):(B))
 void calc_csize_abac(Image const *src, int order, double *entropy)
 {
+#if 0
+	long long cbitsizes[4]={0};
+	int treesizes[]=
+	{
+		1<<src->depth[0],
+		1<<src->depth[1],
+		1<<src->depth[2],
+		1<<src->depth[3],
+	};
+	int maxtreesize=treesizes[0];
+	if(maxtreesize<treesizes[1])maxtreesize=treesizes[1];
+	if(maxtreesize<treesizes[2])maxtreesize=treesizes[2];
+	if(maxtreesize<treesizes[3])maxtreesize=treesizes[3];
+	int statssize=(int)sizeof(short[4*4*4*4])*maxtreesize;
+	unsigned short *stats=(short*)malloc(statssize);
+	if(!stats)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	for(int kc=0;kc<4;++kc)
+	{
+		int depth=src->depth[kc], nlevels=1<<depth;
+		if(!depth)
+			continue;
+		FILLMEM(stats, 0x8000, statssize, sizeof(short));
+		unsigned long long low=0, range=0xFFFFFFFF;
+		for(int ky=0, idx=kc;ky<src->ih;++ky)
+		{
+			int NW=0, N=0, NE=0, WWW=0, WW=0, W=0;
+			for(int kx=0;kx<src->iw;++kx, idx+=4)
+			{
+				unsigned short *curr_stats=stats;
+				int NEE=ky?src->data[idx-(src->iw<<2)+4*2]:0;
+				int NN=ky>1?src->data[idx-(src->iw*2<<2)]:0;
+				int val=src->data[idx];
+				for(int kb=depth-1, tidx=4*4*4*4, slow=0, srange=1<<src->depth[kc];kb>=0;--kb)
+				{
+					int smid=slow+(srange>>1), shi=slow+srange;
+					int n0=0, nctx=0;
+					if((unsigned)(NN-slow)<(unsigned)srange)
+					{
+						n0+=3*(NN<smid);
+						nctx+=3;
+					}
+					if((unsigned)(NW-slow)<(unsigned)srange)
+					{
+						n0+=NW<smid;
+						++nctx;
+					}
+					if((unsigned)(N-slow)<(unsigned)srange)
+					{
+						n0+=3*(N<smid);
+						nctx+=3;
+					}
+					if((unsigned)(NE-slow)<(unsigned)srange)
+					{
+						n0+=NE<smid;
+						++nctx;
+					}
+					if((unsigned)(NEE-slow)<(unsigned)srange)
+					{
+						n0+=NEE<smid;
+						++nctx;
+					}
+					if((unsigned)(WW-slow)<(unsigned)srange)
+					{
+						n0+=WW<smid;
+						++nctx;
+					}
+					if((unsigned)(W-slow)<(unsigned)srange)
+					{
+						n0+=3*(W<smid);
+						nctx+=3;
+					}
+					int p0=(n0+1)*0xFFFE/(nctx+2);
+					++p0;
+
+					//unsigned short *cell=curr_stats+tidx;
+					//if(order)
+					//	cell+=
+					//		+64*((NW	>=slow)+(NW	>=smid)+(NW	>=shi))
+					//		+16*((N		>=slow)+(N	>=smid)+(N	>=shi))
+					//		+ 4*((NE	>=slow)+(NE	>=smid)+(NE	>=shi))
+					//		+ 1*((W		>=slow)+(W	>=smid)+(W	>=shi));
+					//int p0=*cell;
+					int bit=val>>kb&1;
+					if(range<0x10000)
+					{
+						cbitsizes[kc]+=32;
+
+						low<<=32;
+						range=range<<32|0xFFFFFFFF;
+						if(range>~low)
+							range=~low;
+					}
+					unsigned long long r2=range*p0>>16;
+					srange>>=1;
+					if(bit)
+					{
+						low+=r2;
+						range-=r2;
+						slow+=srange;
+					}
+					else
+						range=r2-1;
+
+					//p0+=((!bit<<16)-p0)>>4;
+					//*cell=p0;
+					//tidx=2*tidx+(4*4*4*4)*bit;
+				}
+				NW=N;
+				N=NE;
+				NE=NEE;
+				WWW=WW;
+				WW=W;
+				W=val;
+			}
+		}
+	}
+	free(stats);
+	for(int kc=0;kc<4;++kc)
+	{
+		double usize=(double)src->iw*src->ih*src->src_depth[kc];
+		entropy[kc]=usize?(cbitsizes[kc]<<3)/usize:0;//entropy = cbitsize*8/ubitsize
+	}
+#endif
 #if 1
 	long long cbitsizes[4]={0};
 	int treesizes[]=
@@ -15758,12 +15886,23 @@ void calc_csize_abac(Image const *src, int order, double *entropy)
 		unsigned long long low=0, range=0xFFFFFFFF;
 		for(int ky=0, idx=kc;ky<src->ih;++ky)
 		{
-			int prev2=0, prev=0;
+			int NW=0, N=0, WWW=0, WW=0, W=0;
 			for(int kx=0;kx<src->iw;++kx, idx+=4)
 			{
 				unsigned short *curr_stats=stats;
+				int NE=ky&&kx<src->iw-1?src->data[idx-(src->iw<<2)+4]:0;
 				if(order)
-					curr_stats+=(((ptrdiff_t)prev*2-prev2)&((1ULL<<depth)-1))<<depth;
+				{
+					int ctx=W;
+					if(ky)
+						ctx+=N-NW;
+					//	ctx=(ctx+src->data[idx-(src->iw<<2)])>>1;
+					curr_stats+=((ptrdiff_t)ctx&((1ULL<<depth)-1))<<depth;
+				}
+				//	curr_stats+=((ptrdiff_t)W&((1ULL<<depth)-1))<<depth;
+				//	curr_stats+=(((ptrdiff_t)W*2-WW)&((1ULL<<depth)-1))<<depth;
+				//	curr_stats+=(((ptrdiff_t)W+WW)>>1&((1ULL<<depth)-1))<<depth;
+				//	curr_stats+=((3*((ptrdiff_t)W-WW)+WWW)&((1ULL<<depth)-1))<<depth;
 				int val=src->data[idx];
 				for(int kb=depth-1, tidx=1;kb>=0;--kb)
 				{
@@ -15779,7 +15918,7 @@ void calc_csize_abac(Image const *src, int order, double *entropy)
 							range=~low;
 					}
 					unsigned long long r2=range*p0>>16;
-					if(val>>kb&1)
+					if(bit)
 					{
 						low+=r2;
 						range-=r2;
@@ -15790,8 +15929,11 @@ void calc_csize_abac(Image const *src, int order, double *entropy)
 					curr_stats[tidx]=p0;
 					tidx=tidx*2+bit;
 				}
-				prev2=prev;
-				prev=val;
+				NW=N;
+				N=NE;
+				WWW=WW;
+				WW=W;
+				W=val;
 			}
 		}
 	}

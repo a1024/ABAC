@@ -15,7 +15,7 @@ static const char file[]=__FILE__;
 //	#define LOUD
 
 #ifndef DISABLE_MT
-//	#define ENABLE_MT
+	#define ENABLE_MT
 #endif
 //	#define ENABLE_GUIDE
 
@@ -197,12 +197,12 @@ typedef struct _ThreadArgs
 	unsigned char *in, *out, *ret;
 	unsigned insize, outsize;
 } ThreadArgs;
-static void c20_enc(void *param)
+static void c23_enc(void *param)
 {
 	ThreadArgs *args=(ThreadArgs*)param;
 	args->ret=ENTROPY_ENC(args->in, args->insize, args->out, &args->outsize);
 }
-static void c20_dec(void *param)
+static void c23_dec(void *param)
 {
 	ThreadArgs *args=(ThreadArgs*)param;
 	args->ret=ENTROPY_DEC(args->in, args->insize, args->out, args->outsize);
@@ -1190,22 +1190,27 @@ int c23_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		etime=time_sec();
 #endif
 #ifdef ENABLE_MT
-		ThreadArgs args[]=
+		if(nthreads0)
 		{
-			{planes[0], 0, 0, res, 0},
-			{planes[1], 0, 0, res, 0},
-			{planes[2], 0, 0, res, 0},
-		};
-		void *mt=mt_exec(c20_enc, args, sizeof(*args), _countof(args));
-		mt_finish(mt);
-		cdata[0]=args[0].ret;	cdatasize[0]=args[0].outsize;
-		cdata[1]=args[1].ret;	cdatasize[1]=args[1].outsize;
-		cdata[2]=args[2].ret;	cdatasize[2]=args[2].outsize;
-#else
-		cdata[0]=ENTROPY_ENC(planes[0], res, cdata[0], cdatasize+0);
-		cdata[1]=ENTROPY_ENC(planes[1], res, cdata[1], cdatasize+1);
-		cdata[2]=ENTROPY_ENC(planes[2], res, cdata[2], cdatasize+2);
+			ThreadArgs args[]=
+			{
+				{planes[0], 0, 0, res, 0},
+				{planes[1], 0, 0, res, 0},
+				{planes[2], 0, 0, res, 0},
+			};
+			void *mt=mt_exec(c23_enc, args, sizeof(*args), _countof(args));
+			mt_finish(mt);
+			cdata[0]=args[0].ret;	cdatasize[0]=args[0].outsize;
+			cdata[1]=args[1].ret;	cdatasize[1]=args[1].outsize;
+			cdata[2]=args[2].ret;	cdatasize[2]=args[2].outsize;
+		}
+		else
 #endif
+		{
+			cdata[0]=ENTROPY_ENC(planes[0], res, cdata[0], cdatasize+0);
+			cdata[1]=ENTROPY_ENC(planes[1], res, cdata[1], cdatasize+1);
+			cdata[2]=ENTROPY_ENC(planes[2], res, cdata[2], cdatasize+2);
+		}
 		if(!cdata[0]||!cdata[1]||!cdata[2])
 		{
 			LOG_ERROR("HTS Encode Error");
@@ -1297,22 +1302,27 @@ int c23_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		etime=time_sec();
 #endif
 #ifdef ENABLE_MT
-		ThreadArgs args[]=
+		if(nthreads0)
 		{
-			{cdata[0], planes[0], 0, cdatasize[0],			res},
-			{cdata[1], planes[1], 0, cdatasize[1],			res},
-			{cdata[2], planes[2], 0, (unsigned)(srcend-cdata[2]),	res},
-		};
-		void *mt=mt_exec(c20_dec, args, sizeof(*args), _countof(args));
-		mt_finish(mt);
-		ret[0]=args[0].ret;
-		ret[1]=args[1].ret;
-		ret[2]=args[2].ret;
-#else
-		ret[0]=ENTROPY_DEC(cdata[0], cdatasize[0], planes[0], res);
-		ret[1]=ENTROPY_DEC(cdata[1], cdatasize[1], planes[1], res);
-		ret[2]=ENTROPY_DEC(cdata[2], cdatasize[2], planes[2], res);
+			ThreadArgs args[]=
+			{
+				{cdata[0], planes[0], 0, cdatasize[0],			res},
+				{cdata[1], planes[1], 0, cdatasize[1],			res},
+				{cdata[2], planes[2], 0, (unsigned)(srcend-cdata[2]),	res},
+			};
+			void *mt=mt_exec(c23_dec, args, sizeof(*args), _countof(args));
+			mt_finish(mt);
+			ret[0]=args[0].ret;
+			ret[1]=args[1].ret;
+			ret[2]=args[2].ret;
+		}
+		else
 #endif
+		{
+			ret[0]=ENTROPY_DEC(cdata[0], cdatasize[0], planes[0], res);
+			ret[1]=ENTROPY_DEC(cdata[1], cdatasize[1], planes[1], res);
+			ret[2]=ENTROPY_DEC(cdata[2], cdatasize[2], planes[2], res);
+		}
 		if(!ret[0]||!ret[1]||!ret[2])
 		{
 			LOG_ERROR("HTS Decode Error");

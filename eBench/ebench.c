@@ -1116,57 +1116,232 @@ static void calc_csize_stateful(Image const *image, int *hist_full, double *entr
 {
 	if(ec_method==ECTX_GR)
 	{
+#if 1
+		//long long bitsize_details[8]={0};//4 channels max * {syms, runs}
+#endif
 		long long bitsizes[4]={0};
-		int bufsize=(int)sizeof(short[4*4*2])*(image->iw+16);//4 padded rows * 4 channels max * {pixels, errors}
+		int bufsize=(int)sizeof(short[4*4*4])*(image->iw+16);//4 padded rows * 4 channels max * {pixels, errors, pastyrun, futureyrun}
 		short *pixels=(short*)malloc(bufsize);
-		if(!pixels)
+		ptrdiff_t skipbufsize=(ptrdiff_t)image->iw*image->ih<<2;
+		char *skipbuf=(char*)malloc(skipbufsize);
+		if(!pixels||!skipbuf)
 		{
 			LOG_ERROR("ALloc error");
 			return;
 		}
 		memset(pixels, 0, bufsize);
+		memset(skipbuf, 0, skipbufsize);
 		for(int ky=0, idx=0;ky<image->ih;++ky)
 		{
 			short *rows[]=
 			{
-				pixels+((image->iw+16LL)*((ky-0LL)&3)+8)*4*2,
-				pixels+((image->iw+16LL)*((ky-1LL)&3)+8)*4*2,
-				pixels+((image->iw+16LL)*((ky-2LL)&3)+8)*4*2,
-				pixels+((image->iw+16LL)*((ky-3LL)&3)+8)*4*2,
+				pixels+((image->iw+16LL)*((ky-0LL)&3)+8)*4*4,
+				pixels+((image->iw+16LL)*((ky-1LL)&3)+8)*4*4,
+				pixels+((image->iw+16LL)*((ky-2LL)&3)+8)*4*4,
+				pixels+((image->iw+16LL)*((ky-3LL)&3)+8)*4*4,
 			};
+			int sW[4]={0};
+			int xrun[4]={0};
+			//int nxruns[4]={0};
+			int nbypass0[4]={0}, rbypass[4]={0};
 			for(int kx=0;kx<image->iw;++kx, ++idx)
 			{
 				short
-					*NW	=rows[1]-1*4*2,
-					*N	=rows[1]+0*4*2,
-					*NE	=rows[1]+1*4*2,
-					*NEEE	=rows[1]+3*4*2,
-					*W	=rows[0]-1*4*2,
-					*curr	=rows[0]+0*4*2;
+					*NNNE	=rows[3]+1*4*4,
+					*NNEE	=rows[2]+2*4*4,
+					*NW	=rows[1]-1*4*4,
+					*N	=rows[1]+0*4*4,
+					*NE	=rows[1]+1*4*4,
+					*NEE	=rows[1]+2*4*4,
+					*NEEE	=rows[1]+3*4*4,
+					*NEEEE	=rows[1]+4*4*4,
+					*WW	=rows[0]-2*4*4,
+					*W	=rows[0]-1*4*4,
+					*curr	=rows[0]+0*4*4;
+				(void)NW;
+				(void)N;
+				(void)NE;
+				(void)NEE;
+				(void)NEEE;
+				(void)WW;
+				(void)W;
+				(void)curr;
 				for(int kc=0;kc<4;++kc)
 				{
 					if(image->depth[kc])
 					{
-						int nbypass=W[kc+4];
+						//simple xruns
+#if 0
+						int delta=image->data[idx<<2|kc];
+						if(delta||kx>=image->iw-1)
+						{
+							if(xrun[kc])
+							{
+								bitsizes[kc]+=(long long)(0>>nbypass0[kc])+nbypass0[kc]+1;
+
+								int nbypass2=FLOOR_LOG2(rbypass[kc]+1);
+								bitsizes[kc]+=(long long)((xrun[kc]-1)>>nbypass2)+nbypass2+1;
+								rbypass[kc]=(3*rbypass[kc]+xrun[kc])>>2;
+								xrun[kc]=0;
+							}
+							int nbypass=FLOOR_LOG2(sW[kc]+1);
+							int sym=delta<<1^delta>>31;
+							bitsizes[kc]+=(long long)(sym>>nbypass)+nbypass+1;
+
+							curr[kc+4]=sW[kc]=(2*sW[kc]+sym+NEEE[kc+4])>>2;//
+						//	sW[kc]=(3*sW[kc]+sym)>>2;
+						}
+						else
+						{
+							if(!xrun[kc])
+								nbypass0[kc]=FLOOR_LOG2(sW[kc]+1);
+							++xrun[kc];
+							curr[kc+4]=sW[kc]=(2*sW[kc]+0+NEEE[kc+4])>>2;//
+						//	curr[kc+4]=0;
+						}
+#endif
+
+						//horizontal and vertical zero-runs
+#if 0
+						int delta=image->data[idx<<2|kc];
+						if(!delta)
+						{
+							if(!skipbuf[idx<<2|kc])
+							{
+								int xrun=0, yrun=0;
+								for(int kx2=kx-1;kx2>=0&&!image->data[(idx-kx+kx2)<<2|kc];--kx2, ++xrun);//naive  O(n^2)
+								for(int ky2=ky-1;ky2>=0&&!image->data[(idx+image->iw*(-ky+ky2))<<2|kc];--ky2, ++yrun);
+								if(xrun<yrun)//yrun
+								{
+									int yscan=1;
+									for(int ky2=ky+1;ky2<image->ih&&!image->data[(idx+image->iw*(-ky+ky2))<<2|kc];--ky2, ++yscan);
+								}
+								else//xrun
+								{
+								}
+							}
+						}
+						else
+						{
+						}
+#endif
+
+						//horizontal zero-runs only
+#if 0
+						int delta=image->data[idx<<2|kc];
+						if(delta)
+						{
+							while(xrun[kc])
+							{
+								int n=FLOOR_LOG2(xrun[kc]);
+								int sym2=nxruns[kc]-n;
+
+								int nbypass=FLOOR_LOG2(sW[kc]+1);
+								int ncodebits=(sym2>>nbypass)+1LL+nbypass;
+								bitsizes[kc]+=ncodebits;//GR-encode run deceleration = FLOOR_LOG2(remainder)
+								curr[kc+4]=sW[kc]=(2*sW[kc]+sym2+NEEE[kc+4])>>2;
+
+								//bitsize_details[kc+4]+=ncodebits;//
+
+								xrun[kc]-=1<<n;
+								nxruns[kc]=n;
+							}
+							nxruns[kc]=0;
+
+							int sym=delta<<1^delta>>31;
+							int nbypass=FLOOR_LOG2(sW[kc]+1);
+							int ncodebits=(sym>>nbypass)+1LL+nbypass;
+							bitsizes[kc]+=ncodebits;//GR-encode sym
+							curr[kc+4]=sW[kc]=(2*sW[kc]+sym+NEEE[kc+4])>>2;
+
+							//bitsize_details[kc+0]+=ncodebits;//
+						}
+						else
+						{
+							++xrun[kc];
+							if(xrun[kc]>=(1<<nxruns[kc])||kx>=image->iw-1)
+							{
+								int nbypass=FLOOR_LOG2(sW[kc]+1);
+								int ncodebits=(0>>nbypass)+1LL+nbypass;
+								bitsizes[kc]+=ncodebits;//GR-encode run acceleration = 0
+								curr[kc+4]=sW[kc]=(2*sW[kc]+0+NEEE[kc+4])>>2;
+
+								//bitsize_details[kc+4]+=ncodebits;//
+
+								nxruns[kc]+=xrun[kc]>1;//double the run
+							}
+							else
+								curr[kc+4]=(2*W[kc+4]+0+NEEE[kc+4])>>2;
+						}
+#endif
+
+						//X
+#if 0
+						int nbypass=abs(W[kc+4]);
 						nbypass+=nbypass<4;
 						nbypass=FLOOR_LOG2(nbypass);
+						int run=MAXVAR(xrun, N[kc+8]);
 
 						int val=image->data[idx<<2|kc];
 						int sym=val<<1^val>>31;
-
-						bitsizes[kc]+=(long long)(sym>>nbypass)+nbypass+1;
+						xrun+=!sym;
 
 						curr[kc+0]=val;
-
 						curr[kc+4]=(2*W[kc+4]+sym+NEEE[kc+4])>>2;
+						curr[kc+8]=!sym?N[kc+8]+1:0;
+#endif
+
+						//pure GR estimation
+#if 1
+
+						int delta=image->data[idx<<2|kc];
+						int sym=delta<<1^delta>>31;
+
+						int nbypass=FLOOR_LOG2(sW[kc]+1);
+						bitsizes[kc]+=(long long)(sym>>nbypass)+nbypass+1;
+
+						curr[kc+4]=sW[kc]=(2*sW[kc]+sym+MAXVAR(NEE[kc+4], NEEE[kc+4]))>>2;	//B
+
+						//int vmax=MAXVAR(NEE[kc+4], NEEE[kc+4]);				//C
+						//curr[kc+4]=sW[kc]=(2*sW[kc]+sym+MAXVAR(NE[kc+4], vmax))>>2;
+
+					//	curr[kc+4]=sW[kc]=(2*sW[kc]+sym+MAXVAR(NEEE[kc+4], NEEEE[kc+4]))>>2;
+					//	curr[kc+4]=sW[kc]=(32*sW[kc]+16*sym+16*NEEE[kc+4])/62;
+					//	curr[kc+4]=sW[kc]=(2*sW[kc]+sym+NEEE[kc+4])>>2;				//A
+					//	curr[kc+4]=sW[kc]=(2*MAXVAR(WW[kc+4], sW[kc])+sym+NEEE[kc+4])>>2;
+					//	curr[kc+4]=sW[kc]=(MAXVAR(WW[kc+4], sW[kc])+sym+NE[kc+4]+MAXVAR(NEE[kc+4], NEEE[kc+4]))>>2;
+
+						//int vmax=NEE[kc+4], vmin=NEEE[kc+4];
+						//if(NEE[kc+4]<NEEE[kc+4])
+						//	vmin=NEE[kc+4], vmax=NEEE[kc+4];
+						//int val2=NE[kc+4];
+						//CLAMP2(val2, vmin, vmax);
+						//curr[kc+4]=sW[kc]=(2*sW[kc]+sym+val2)>>2;
+
+					//	curr[kc+4]=sW[kc]=(sW[kc]+sym+NEE[kc+4]+NEEE[kc+4])>>2;
+					//	curr[kc+4]=sW[kc]=(sW[kc]+sym+NE[kc+4]+NEEE[kc+4])>>2;
+					//	curr[kc+4]=sW[kc]=(sW[kc]+sym+NEEE[kc+4])/3;
+					//	curr[kc+4]=sW[kc]=(WW[kc+4]+sW[kc]+sym+NEEE[kc+4])>>2;
+					//	curr[kc+4]=sW[kc]=(3*sW[kc]+2*sym+NE[kc+4]+2*NEEE[kc+4])>>3;
+					//	curr[kc+4]=sW[kc]=(4*sW[kc]+2*sym+NNEE[kc+4]+NEEE[kc+4])>>3;
+					//	curr[kc+4]=sW[kc]=(sW[kc]+NNNE[kc+4]+sym+NEEE[kc+4])>>2;
+					//	curr[kc+4]=sW[kc]=(2*MINVAR(sW[kc], NE[kc+4])+sym+MAXVAR(NEE[kc+4], NEEE[kc+4]))>>2;
+					//	curr[kc+4]=sW[kc]=abs(N[kc+4]-NE[kc+4])+abs(NE[kc+4]-NEE[kc+4])<abs(N[kc+4]-sym)+abs(NE[kc+4]-NEE[kc+4])?(sW[kc]+sym)>>1:(2*NE[kc+4]+sym+NEE[kc+4])>>2;
+					//	curr[kc+4]=sW[kc]=(sW[kc]+2*MAXVAR(sW[kc], WW[kc+4])+sym)>>2;
+					//	curr[kc+4]=sW[kc]=(3*sW[kc]+sym)>>2;
+					//	curr[kc+4]=sW[kc]=(sym+NEEE[kc+4])>>1;
+
+					//	curr[kc+0]=val;
+#endif
 					}
 				}
-				rows[0]+=4*2;
-				rows[1]+=4*2;
-				rows[2]+=4*2;
-				rows[3]+=4*2;
+				rows[0]+=4*4;
+				rows[1]+=4*4;
+				rows[2]+=4*4;
+				rows[3]+=4*4;
 			}
 		}
+		free(skipbuf);
 		{
 			double usize;
 
@@ -1175,6 +1350,28 @@ static void calc_csize_stateful(Image const *image, int *hist_full, double *entr
 			usize=(double)image->iw*image->ih*image->src_depth[2]; entropy[2]=usize?(bitsizes[2]<<3)/usize:0;
 			usize=(double)image->iw*image->ih*image->src_depth[3]; entropy[3]=usize?(bitsizes[3]<<3)/usize:0;
 		}
+#if 0
+		if(loud_transforms)
+		{
+			char msg[2048]={0};
+			int nprinted=snprintf(msg, sizeof(msg)-1,
+				"syms, runs\n"
+				"T %8lld %8lld\n"
+				"Y %8lld %8lld\n"
+				"U %8lld %8lld\n"
+				"V %8lld %8lld\n"
+				"A %8lld %8lld\n",
+				bitsize_details[0]+bitsize_details[1]+bitsize_details[2]+bitsize_details[3],
+				bitsize_details[4]+bitsize_details[5]+bitsize_details[6]+bitsize_details[7],
+				bitsize_details[0], bitsize_details[4],
+				bitsize_details[1], bitsize_details[5],
+				bitsize_details[2], bitsize_details[6],
+				bitsize_details[3], bitsize_details[7]
+			);
+			copy_to_clipboard(msg, nprinted);
+			messagebox(MBOX_OK, "Copied to clipboard", "%s", msg);
+		}
+#endif
 	}
 	else if(ec_method==ECTX_HIST)
 	{

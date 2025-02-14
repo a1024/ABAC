@@ -35,7 +35,8 @@ static const char file[]=__FILE__;
 //	#define CODEC_EXT c23
 //	#define CODEC_EXT c24
 //	#define CODEC_EXT c25
-	#define CODEC_EXT c26
+//	#define CODEC_EXT c26
+	#define CODEC_EXT c27
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -253,8 +254,29 @@ int main(int argc, char **argv)
 //	CODEC_FUNC("C:/dataset-GDCC2020-ppm/photo-05.ppm",	"D:/ML/mystery.lsim", nthreads);
 //	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
 
-	CODEC_FUNC("C:/dataset-GDCC2020-ppm/photo-49.ppm",	"D:/ML/mystery.lsim", nthreads);
-	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
+//	CODEC_FUNC("C:/dataset-GDCC2020-ppm/photo-49.ppm",	"D:/ML/mystery.lsim", nthreads);
+//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
+
+//	CODEC_FUNC("D:/ML/zzz_halfbright.PPM",	"D:/ML/mystery.lsim", nthreads);
+//	CODEC_FUNC("D:/ML/mystery.lsim",	"D:/ML/mystery_dec.ppm", nthreads);
+
+//	CODEC_FUNC("C:/dataset-synth2-ppm/20240422 1.PPM",	"D:/ML/mystery.lsim", nthreads);
+//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
+
+//	CODEC_FUNC("C:/dataset-DIV2K-ppm/0801.ppm",	"D:/ML/mystery.lsim", nthreads);
+//	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm", nthreads);
+
+//	CODEC_FUNC("C:/dataset-DIV2K-ppm/0805.ppm",	"D:/ML/mystery.lsim", nthreads);
+//	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm", nthreads);
+
+//	CODEC_FUNC("C:/dataset-DIV2K-ppm/0807.ppm",	"D:/ML/mystery.lsim", nthreads);
+//	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm", nthreads);
+
+//	CODEC_FUNC("C:/dataset-DIV2K-ppm/0843.ppm",	"D:/ML/mystery.lsim", nthreads);
+//	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm", nthreads);
+
+	CODEC_FUNC("C:/dataset-DIV2K-ppm/0880.ppm",	"D:/ML/mystery.lsim", nthreads);
+	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm", nthreads);
 
 //	CODEC_FUNC("C:/dataset-GDCC2020-ppm/photo-52.ppm",	"D:/ML/mystery.lsim", nthreads);
 //	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);

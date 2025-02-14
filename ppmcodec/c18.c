@@ -2757,7 +2757,15 @@ int c18_codec(const char *srcfn, const char *dstfn, int nthreads0)
 	usize=iw*ih*3;
 	xblocks=(iw+BLOCKSIZE-1)/BLOCKSIZE;
 	yblocks=(ih+BLOCKSIZE-1)/BLOCKSIZE;
-	nblocks=xblocks*yblocks, nthreads=MINVAR(nblocks, ncores);
+	nblocks=xblocks*yblocks;
+	if(nthreads0)
+	{
+		int nthreads2=MINVAR(nblocks, ncores);
+		nthreads=nthreads0;
+		CLAMP2(nthreads, 1, nthreads2);
+	}
+	else
+		nthreads=MINVAR(nblocks, ncores);
 	coffset=(int)sizeof(int[3])*nblocks;
 	start=0;
 	memusage=0;
@@ -2877,12 +2885,17 @@ int c18_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				}
 			}
 #ifdef ENABLE_MT
-			void *ctx=mt_exec(block_thread, args, sizeof(ThreadArgs), nthreads2);
-			mt_finish(ctx);
-#else
-			for(int k=0;k<nthreads2;++k)
-				block_thread(args+k);
+			if(nthreads>1)
+			{
+				void *ctx=mt_exec(block_thread, args, sizeof(ThreadArgs), nthreads2);
+				mt_finish(ctx);
+			}
+			else
 #endif
+			{
+				for(int k=0;k<nthreads2;++k)
+					block_thread(args+k);
+			}
 			if(fwd)
 			{
 				for(int kt2=0;kt2<nthreads2;++kt2)

@@ -46,6 +46,7 @@ static const char file[]=__FILE__;
 //	#define ENABLE_WGB	//bad, steals from CG?
 //	#define ENABLE_WG2	//bad
 //	#define ENABLE_WG3	//bad
+//	#define ENABLE_WG4	//?		WIP
 
 	#define SIMD_CTX	//0.8% faster
 //	#define SIMD_PREDS	//3.8% slower
@@ -84,6 +85,8 @@ static const char file[]=__FILE__;
 #define ELEVELS 11
 #define CBITS 6
 #define CLEVELS (1<<CBITS)
+#define WG4_PREC 5
+#define WG4_LR 5
 
 #ifdef ENABLE_GUIDE
 static int g_iw=0, g_ih=0;
@@ -401,6 +404,9 @@ static void block_func(void *param)
 		int dx=(args->x2-args->x1-3)/ANALYSIS_XSTRIDE/5*5, dy=(args->y2-args->y1-2)/ANALYSIS_YSTRIDE;
 		int count=0;
 		int ystride=args->iw*3;
+#ifdef ENABLE_WG4
+		int wg4_prederrors[4][OCH_COUNT]={0};
+#endif
 		if(dx<=0||dy<=0)
 		{
 			bestrct=RCT_G_BG_RG;
@@ -2872,6 +2878,88 @@ static void block_func(void *param)
 					OCH_GR, OCH_BG, OCH_RB,
 					OCH_GR, OCH_BG, OCH_RB
 				);
+#endif
+
+				//WG4
+				//analysis = mix(
+				//	N,
+				//	W,
+				//	W+NE-N,
+				//	(NN+NNE+WW+NEE)>>2
+				//)
+				//pred = mix(
+				//	N,
+				//	W,
+				//	3*(N-NN)+NNN,
+				//	3*(W-WW)+WWW,
+				//	W+NE-N,
+				//	N+W-NW,
+				//	N+NE-NNE,
+				//	(WWWW+WWW+NNN+NEE+NEEE+NEEEE-2*NW)/4
+				//)
+#ifdef ENABLE_WG4
+#define WG4_MIX4_16x16(DST, C0, C1, C2, C3, V0, V1, V2, V3)\
+	do\
+	{\
+		__m256 c0lo=_mm256_cvtepi32_ps(_mm256_srai_epi32(_mm256_slli_epi32(C0, 16), 16));\
+		__m256 c0hi=_mm256_cvtepi32_ps(_mm256_srai_epi32(C0, 16));\
+		__m256 c0lo=_mm256_cvtepi32_ps(_mm256_srai_epi32(_mm256_slli_epi32(C1, 16), 16));\
+		__m256 c0hi=_mm256_cvtepi32_ps(_mm256_srai_epi32(C1, 16));\
+		__m256 c0lo=_mm256_cvtepi32_ps(_mm256_srai_epi32(_mm256_slli_epi32(C2, 16), 16));\
+		__m256 c0hi=_mm256_cvtepi32_ps(_mm256_srai_epi32(C2, 16));\
+		__m256 c0lo=_mm256_cvtepi32_ps(_mm256_srai_epi32(_mm256_slli_epi32(C3, 16), 16));\
+		__m256 c0hi=_mm256_cvtepi32_ps(_mm256_srai_epi32(C3, 16));\
+		__m256 v0lo=_mm256_cvtepi32_ps(_mm256_srai_epi32(_mm256_slli_epi32(V0, 16), 16));\
+		__m256 v0hi=_mm256_cvtepi32_ps(_mm256_srai_epi32(V0, 16));\
+		__m256 v0lo=_mm256_cvtepi32_ps(_mm256_srai_epi32(_mm256_slli_epi32(V1, 16), 16));\
+		__m256 v0hi=_mm256_cvtepi32_ps(_mm256_srai_epi32(V1, 16));\
+		__m256 v0lo=_mm256_cvtepi32_ps(_mm256_srai_epi32(_mm256_slli_epi32(V2, 16), 16));\
+		__m256 v0hi=_mm256_cvtepi32_ps(_mm256_srai_epi32(V2, 16));\
+		__m256 v0lo=_mm256_cvtepi32_ps(_mm256_srai_epi32(_mm256_slli_epi32(V3, 16), 16));\
+		__m256 v0hi=_mm256_cvtepi32_ps(_mm256_srai_epi32(V3, 16));\
+		v0lo=_mm256_mul_ps(v0lo, c0lo);\
+		v0hi=_mm256_mul_ps(v0hi, c0hi);\
+		v1lo=_mm256_mul_ps(v1lo, c1lo);\
+		v1hi=_mm256_mul_ps(v1hi, c1hi);\
+		v2lo=_mm256_mul_ps(v2lo, c2lo);\
+		v2hi=_mm256_mul_ps(v2hi, c2hi);\
+		v3lo=_mm256_mul_ps(v3lo, c3lo);\
+		v3hi=_mm256_mul_ps(v3hi, c3hi);\
+		c0lo=_mm256_add_ps(c0lo, c1lo);\
+		c0hi=_mm256_add_ps(c0hi, c1hi);\
+		c0lo=_mm256_add_ps(c0lo, c2lo);\
+		c0hi=_mm256_add_ps(c0hi, c2hi);\
+		c0lo=_mm256_add_ps(c0lo, c3lo);\
+		c0hi=_mm256_add_ps(c0hi, c3hi);\
+		v0lo=_mm256_add_ps(v0lo, v1lo);\
+		v0hi=_mm256_add_ps(v0hi, v1hi);\
+		v0lo=_mm256_add_ps(v0lo, v2lo);\
+		v0hi=_mm256_add_ps(v0hi, v2hi);\
+		v0lo=_mm256_add_ps(v0lo, v3lo);\
+		v0hi=_mm256_add_ps(v0hi, v3hi);\
+		v0lo=_mm256_div_ps(v0lo, c0lo);\
+		v0hi=_mm256_div_ps(v0hi, c0hi);\
+		DST=_mm256_blend_epi32(_mm256_cvttps_epi32(_a0lo), _mm256_slli_epi32(_mm256_cvttps_epi32(_a0hi), 16), 0xAA);\
+	}while(0)
+				{
+					__m256i e0, e1, e2, e3;
+
+					e0=N;
+					e1=W;
+					e2=_mm256_sub_epi16(_mm256_add_epi16(W, NE), N);
+					e3=_mm256_srai_epi16(_mm256_add_epi16(_mm256_add_epi16(NN, NNE), _mm256_add_epi16(WW, NEE)), 2);
+					//__m256i c0, c1, c2, c3;
+					//
+					//c0=_mm256_set_epi32(
+					//	0, 0,
+					//	wg4_prederrors[0][2],
+					//	wg4_prederrors[0][1],
+					//	wg4_prederrors[0][0],
+					//	wg4_prederrors[0][2],
+					//	wg4_prederrors[0][1],
+					//	wg4_prederrors[0][0]
+					//);
+				}
 #endif
 			}
 		}

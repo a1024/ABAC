@@ -45,7 +45,8 @@ int c22_codec(const char *srcfn, const char *dstfn, int nthreads0);//ST/3T AVX2 
 int c23_codec(const char *srcfn, const char *dstfn, int nthreads0);//ST/3T AVX2 blockwise Shannon, static o1 rANS
 int c24_codec(const char *srcfn, const char *dstfn, int nthreads0);//MT AC mix4
 int c25_codec(const char *srcfn, const char *dstfn, int nthreads0);//MT AC mix8
-int c26_codec(const char *srcfn, const char *dstfn, int nthreads0);//ST static-o0 rANS
+int c26_codec(const char *srcfn, const char *dstfn, int nthreads0);//ST ABAC		//ST static-o0 rANS
+int c27_codec(const char *srcfn, const char *dstfn, int nthreads0);//ST GR
 
 	
 #ifdef __cplusplus

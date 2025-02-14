@@ -367,6 +367,7 @@ int c10_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		//int errors3[3]={0};
 		int errors2[3]={0}, errors[3]={0}, deltas[3]={0};
 		int sym, den, cdf, freq;
+		(void)den;
 #ifdef ENABLE_RECIPROCAL
 		unsigned long long invden=0, hi0=0, hi1=0;
 #endif

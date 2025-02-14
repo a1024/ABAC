@@ -1684,9 +1684,9 @@ AWM_INLINE int gr_enc(GolombRiceCoder *ec, int sym, int nbypass)
 		nzeros-=ec->nbits;
 		gr_enc_flush(ec);
 		//blist_push_back(ec->dst, &ec->cache, sizeof(ec->cache));
+		ec->cache=0;
 		if(nzeros>=(int)(sizeof(ec->cache)<<3))//just flush zeros
 		{
-			ec->cache=0;
 			do
 			{
 				nzeros-=(sizeof(ec->cache)<<3);
@@ -1695,7 +1695,6 @@ AWM_INLINE int gr_enc(GolombRiceCoder *ec, int sym, int nbypass)
 			}
 			while(nzeros>(int)(sizeof(ec->cache)<<3));
 		}
-		ec->cache=0;
 		ec->nbits=(sizeof(ec->cache)<<3);
 	}
 	//now there is room for zeros:  0 <= nzeros < nbits <= 64
