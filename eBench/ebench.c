@@ -82,6 +82,7 @@ typedef enum TransformTypeEnum
 	CT_FWD_YCbCr_R_v6,	CT_INV_YCbCr_R_v6,
 	CT_FWD_YCbCr_R_v7,	CT_INV_YCbCr_R_v7,
 	CT_FWD_Pei09,		CT_INV_Pei09,
+	CT_FWD_SubG_OPT,	CT_INV_SubG_OPT,
 //	CT_FWD_J2K2,		CT_INV_J2K2,
 //	CT_FWD_CrCgCb,		CT_INV_CrCgCb,
 //	CT_FWD_YRGB_v1,		CT_INV_YRGB_v1,
@@ -210,7 +211,7 @@ EContext ec_method=ECTX_HIST;//ECTX_MIN_QN_QW;
 int ec_adaptive=0, ec_adaptive_threshold=3200, ec_expbits=5, ec_msb=2, ec_lsb=0;
 int abacvis_low=0, abacvis_range=0;
 
-#define MODELPREC 3
+#define MODELPREC 6
 int modelnch=0, modelnctx=0, modeldepth=0, modelhistsize=0, *modelhist=0;
 double modelcsizes[4*32]={0};
 double modelmeans[4*32]={0}, modelsdevs[4*32]={0};
@@ -1125,6 +1126,7 @@ static void calc_csize_stateful(Image const *image, int *hist_full, double *entr
 {
 	if(ec_method==ECTX_GRCTX)
 	{
+		long long bitsizes[4*16*2]={0};
 		int nch=(image->depth[0]!=0)+(image->depth[1]!=0)+(image->depth[2]!=0)+(image->depth[3]!=0);
 		int maxdepth=image->depth[0];
 		if(maxdepth<image->depth[1])maxdepth=image->depth[1];
@@ -1188,7 +1190,11 @@ static void calc_csize_stateful(Image const *image, int *hist_full, double *entr
 						int ctx=FLOOR_LOG2(sW[kc]*sW[kc]+1);
 						++hists[(kc*nctx+ctx)<<maxdepth|(sym&mask)];
 
-						curr[kc+4]=sW[kc]=(2*sW[kc]+sym+MAXVAR(NEE[kc+4], NEEE[kc+4]))>>2;
+						int nbypass=ctx-MODELPREC;
+						if(nbypass<0)nbypass=0;
+						bitsizes[kc*nctx+ctx]+=(long long)(sym>>nbypass)+nbypass+1;
+
+						curr[kc+4]=sW[kc]=(2*sW[kc]+(sym<<MODELPREC)+MAXVAR(NEE[kc+4], NEEE[kc+4]))>>2;
 					}
 				}
 				rows[0]+=4*4;
@@ -1200,15 +1206,21 @@ static void calc_csize_stateful(Image const *image, int *hist_full, double *entr
 		free(pixels);
 		for(int kc=0;kc<nch;++kc)
 		{
-			double chsize=6656;//7168	packed hists don't exceed 7 KB
+			double chsize=0;
 			for(int kctx=0;kctx<nctx;++kctx)
 			{
-				int *curr_hist=hists+((ptrdiff_t)(kc*nctx+kctx)<<maxdepth);
+				int ctx=kc*nctx+kctx;
+				int *curr_hist=hists+((ptrdiff_t)ctx<<maxdepth);
 				int sum=0;
 				for(int ks=0;ks<nlevels;++ks)
 					sum+=curr_hist[ks];
-				if(!sum)
+				//if(!sum)
+				//	continue;
+				if(sum<nlevels*2)
+				{
+					chsize+=bitsizes[ctx]/8.;
 					continue;
+				}
 				double e=0, norm=1./sum;
 				for(int ks=0;ks<nlevels;++ks)
 				{
@@ -1236,6 +1248,7 @@ static void calc_csize_stateful(Image const *image, int *hist_full, double *entr
 			double usize=(double)image->iw*image->ih*image->src_depth[0];
 			entropy[kc]=usize?chsize*8*8/usize:0;//entropy = cbitsize*8/ubitsize
 		}
+		free(hists);
 	}
 	else if(ec_method==ECTX_GR)
 	{
@@ -1420,10 +1433,10 @@ static void calc_csize_stateful(Image const *image, int *hist_full, double *entr
 						int delta=image->data[idx<<2|kc];
 						int sym=delta<<1^delta>>31;
 
-						int nbypass=FLOOR_LOG2(sW[kc]+1);
+						int nbypass=FLOOR_LOG2((sW[kc]>>6)+1);
 						bitsizes[kc]+=(long long)(sym>>nbypass)+nbypass+1;
 
-						curr[kc+4]=sW[kc]=(2*sW[kc]+sym+MAXVAR(NEE[kc+4], NEEE[kc+4]))>>2;	//B
+						curr[kc+4]=sW[kc]=(2*sW[kc]+(sym<<6)+MAXVAR(NEE[kc+4], NEEE[kc+4]))>>2;	//B
 
 						//int vmax=MAXVAR(NEE[kc+4], NEEE[kc+4]);				//C
 						//curr[kc+4]=sW[kc]=(2*sW[kc]+sym+MAXVAR(NE[kc+4], vmax))>>2;
@@ -2110,6 +2123,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 //	case CT_INV_CrCgCb:		a="C  Inv CrCgCb";		break;
 	case CT_FWD_Pei09:		a="C  Fwd Pei09";		break;
 	case CT_INV_Pei09:		a="C  Inv Pei09";		break;
+	case CT_FWD_SubG_OPT:		a="C  Fwd SubG Opt";		break;
+	case CT_INV_SubG_OPT:		a="C  Inv SubG Opt";		break;
 	case CT_FWD_YCoCg_R:		a="C  Fwd YCoCg-R";		break;
 	case CT_INV_YCoCg_R:		a="C  Inv YCoCg-R";		break;
 	case CT_FWD_SUBGREEN:		a="C  Fwd SubGreen";		break;
@@ -3222,6 +3237,8 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 //	case CT_INV_CrCgCb:		colortransform_CrCgCb_R(image, 0);			break;
 	case CT_FWD_Pei09:		colortransform_Pei09(image, 1);				break;
 	case CT_INV_Pei09:		colortransform_Pei09(image, 0);				break;
+	case CT_FWD_SubG_OPT:		colortransform_subg_opt(image, 1);			break;
+	case CT_INV_SubG_OPT:		colortransform_subg_opt(image, 0);			break;
 	case CT_FWD_SUBGREEN:		colortransform_subtractgreen(image, 1);			break;
 	case CT_INV_SUBGREEN:		colortransform_subtractgreen(image, 0);			break;
 	case CT_FWD_JPEG2000:		colortransform_JPEG2000(image, 1);			break;
