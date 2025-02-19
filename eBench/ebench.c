@@ -3898,6 +3898,7 @@ void update_image(void)//apply selected operations on original image, calculate 
 				if(!sum)
 				{
 					modelcsizes[kc]=0;
+					modelmsizes[kc]=0;
 					continue;
 				}
 				double e=0, norm=1./sum;
