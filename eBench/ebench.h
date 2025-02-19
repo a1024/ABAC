@@ -947,6 +947,7 @@ typedef enum EContextEnum
 {
 	ECTX_ABAC0,
 	ECTX_ABAC1,
+	ECTX_GRCTX,
 	ECTX_GR,
 	ECTX_HIST,
 	ECTX_INTERLEAVED,

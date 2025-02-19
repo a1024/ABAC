@@ -15376,6 +15376,7 @@ const char* ec_method_label(EContext ec_method)
 #define CASE(L) case L:label=#L;break;
 	CASE(ECTX_ABAC0)
 	CASE(ECTX_ABAC1)
+	CASE(ECTX_GRCTX)
 	CASE(ECTX_GR)
 	CASE(ECTX_HIST)
 	CASE(ECTX_INTERLEAVED)
