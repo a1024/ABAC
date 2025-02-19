@@ -210,12 +210,13 @@ EContext ec_method=ECTX_HIST;//ECTX_MIN_QN_QW;
 int ec_adaptive=0, ec_adaptive_threshold=3200, ec_expbits=5, ec_msb=2, ec_lsb=0;
 int abacvis_low=0, abacvis_range=0;
 
-#define MODELPREC 4
+#define MODELPREC 3
 int modelnch=0, modelnctx=0, modeldepth=0, modelhistsize=0, *modelhist=0;
 double modelcsizes[4*32]={0};
 double modelmeans[4*32]={0}, modelsdevs[4*32]={0};
 int *modelmhist=0;
 double modelmsizes[4*32]={0};
+double modelstatoverhead=0;
 
 #define combCRhist_SIZE 128
 #define combCRhist_logDX 2
@@ -3889,6 +3890,7 @@ void update_image(void)//apply selected operations on original image, calculate 
 				}
 			}
 			free(pixels);
+			modelstatoverhead=0;
 			for(int kc=0;kc<modelnch*modelnctx;++kc)
 			{
 				int *curr_hist=modelhist+((ptrdiff_t)kc<<modeldepth);
@@ -3936,10 +3938,10 @@ void update_image(void)//apply selected operations on original image, calculate 
 					fval=exp(-fval*fval);
 					curr_hist2[ks]=(int)(fval*0x10000);
 				}
-				sum=0;
+				int msum=0;
 				for(int ks=0;ks<nlevels;++ks)
-					sum+=curr_hist2[ks];
-				norm=1./sum;
+					msum+=curr_hist2[ks];
+				norm=1./msum;
 				e=0;
 				for(int ks=0;ks<nlevels;++ks)//calc cross-entropy
 				{
@@ -3949,6 +3951,43 @@ void update_image(void)//apply selected operations on original image, calculate 
 						e-=freq*log2(prob*norm);
 				}
 				modelmsizes[kc]=e/8;
+
+				if(sum>nlevels*2)
+				{
+					double hsize=0;
+					int cdfWW=0, cdfW=0;
+					int sum2=0;
+					for(int ks=0;ks<nlevels;++ks)//calc model stat overhead
+					{
+						int sym=((ks>>1^-(ks&1))+half)&mask;
+						int freq=curr_hist[sym];
+						//if(freq>sum)
+						//	LOG_ERROR("freq %04X sum %04X", freq, sum);
+						int cdf=sum2*((1ULL<<16)-nlevels)/sum+ks;
+						//if((unsigned)cdf>=0x10000)
+						//	LOG_ERROR("cdf %04X", cdf);
+						//if(ks)
+						//{
+						//	int csym=cdf-cdfW;
+						//	if(csym>0)
+						//		hsize+=log2(csym);
+						//}
+						//int csym=cdf-(2*cdfW-cdfWW);
+						int csym=cdf-cdfW;
+						//csym=csym<<1^csym>>31;
+						//if(csym<0)
+						//	LOG_ERROR("0x%04X -> 0x%04X", cdfW, cdf);
+						hsize+=log2(csym+1);
+						if(hsize!=hsize)
+							LOG_ERROR("sum %d sum2 %d ks %d nlevels %d  0x%04X -> 0x%04X", sum, sum2, ks, nlevels, cdfW, cdf);
+						//	LOG_ERROR("ctx %d sum %d sum2 %d ks %d nlevels %d  0x%04X -> 0x%04X", kc, sum, sum2, ks, nlevels, cdfW, cdf);
+
+						cdfWW=cdfW;
+						cdfW=cdf;
+						sum2+=freq;
+					}
+					modelstatoverhead+=(hsize+nlevels-1)/8;
+				}
 			}
 		}
 		break;
@@ -7701,7 +7740,7 @@ void io_render(void)
 						GUIPrint((float)x, (float)x, (float)(wndh>>1), 2, "%12.2lf", esizes[kc]);
 						esize+=esizes[kc];
 					}
-					GUIPrint((float)(wndw>>1), (float)(wndw>>1), (float)(wndh>>1)+tdy*2, 2, "%12.2lf", esize);
+					GUIPrint((float)(wndw>>1), (float)(wndw>>1), (float)(wndh>>1)+tdy*2, 2, "%12.2lf +%12.2lf =%12.2lf", esize, modelstatoverhead, esize+modelstatoverhead);
 					GUIPrint((float)(wndw>>1), (float)(wndw>>1), (float)(wndh>>1)+tdy*4, 2, "%12.2lf", msizes);
 				}
 			}
