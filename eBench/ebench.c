@@ -45,6 +45,7 @@ typedef enum VisModeEnum
 	VIS_IMAGE_TRICOLOR,
 	VIS_IMAGE,
 	VIS_HISTOGRAM,
+	VIS_MODEL,
 	VIS_ANALYSIS,
 	VIS_JOINT_HISTOGRAM,
 	VIS_ZIPF,
@@ -208,6 +209,13 @@ double ch_entropy[4]={0};//RGBA/YUVA
 EContext ec_method=ECTX_HIST;//ECTX_MIN_QN_QW;
 int ec_adaptive=0, ec_adaptive_threshold=3200, ec_expbits=5, ec_msb=2, ec_lsb=0;
 int abacvis_low=0, abacvis_range=0;
+
+#define MODELPREC 4
+int modelnch=0, modelnctx=0, modeldepth=0, modelhistsize=0, *modelhist=0;
+double modelcsizes[4*32]={0};
+double modelmeans[4*32]={0}, modelsdevs[4*32]={0};
+int *modelmhist=0;
+double modelmsizes[4*32]={0};
 
 #define combCRhist_SIZE 128
 #define combCRhist_logDX 2
@@ -3812,6 +3820,137 @@ void update_image(void)//apply selected operations on original image, calculate 
 		memset(hist, 0, sizeof(hist));
 		chart_hist_update(im1, 0, im1->iw, 0, im1->ih, hist, histmax, 0);
 		break;
+	case VIS_MODEL:
+		{
+			modeldepth=im1->depth[0];
+			if(modeldepth<im1->depth[1])modeldepth=im1->depth[1];
+			if(modeldepth<im1->depth[2])modeldepth=im1->depth[2];
+			if(modeldepth<im1->depth[3])modeldepth=im1->depth[3];
+			modelnch=im1->nch;
+			modelnctx=modeldepth+MODELPREC;
+			modelnctx+=modelnctx;
+			modelhistsize=(int)sizeof(int)*modelnch*modelnctx<<modeldepth;
+			void *p=(int*)realloc(modelhist, modelhistsize);
+			if(!p)
+			{
+				LOG_ERROR("Alloc error");
+				return;
+			}
+			modelhist=p;
+			memset(modelhist, 0, modelhistsize);
+			void *p2=(int*)realloc(modelmhist, modelhistsize);
+			if(!p)
+			{
+				LOG_ERROR("Alloc error");
+				return;
+			}
+			modelmhist=p2;
+			memset(modelmhist, 0, modelhistsize);
+			int nlevels=1<<modeldepth, half=nlevels>>1, mask=nlevels-1;
+			int psize=(int)sizeof(int[4*4])*(im1->iw+16);//4 padded rows * 4 channels max
+			int *pixels=(int*)malloc(psize);
+			if(!psize)
+			{
+				LOG_ERROR("Alloc error");
+				return;
+			}
+			memset(pixels, 0, psize);
+			for(int ky=0, idx=0;ky<im1->ih;++ky)
+			{
+				int *rows[]=
+				{
+					pixels+((im1->iw+16LL)*((ky-0LL)&3)+8)*4,
+					pixels+((im1->iw+16LL)*((ky-1LL)&3)+8)*4,
+					pixels+((im1->iw+16LL)*((ky-2LL)&3)+8)*4,
+					pixels+((im1->iw+16LL)*((ky-3LL)&3)+8)*4,
+				};
+				int eW[4]={0};
+				for(int kx=0;kx<im1->iw;++kx, idx+=4)
+				{
+					for(int kc=0;kc<modelnch;++kc)
+					{
+						int ctx=FLOOR_LOG2(eW[kc]*eW[kc]+1);
+						//if(ctx>=1&&ctx<8)
+						//	printf("");
+						int sym=im1->data[idx|kc];
+						sym+=half;
+						sym&=mask;
+						//if((ptrdiff_t)((modelnctx*kc+ctx)<<modeldepth|sym)>=(ptrdiff_t)(modelhistsize/sizeof(int)))//
+						//	LOG_ERROR("");
+						++modelhist[(modelnctx*kc+ctx)<<modeldepth|sym];
+						sym-=half;
+						sym=sym<<1^sym>>1;
+						rows[0][kc]=eW[kc]=(2*eW[kc]+(sym<<MODELPREC)+MAXVAR(rows[1][kc+2*4], rows[1][kc+3*4]))>>2;
+					}
+					rows[0]+=4;
+					rows[1]+=4;
+					rows[2]+=4;
+					rows[3]+=4;
+				}
+			}
+			free(pixels);
+			for(int kc=0;kc<modelnch*modelnctx;++kc)
+			{
+				int *curr_hist=modelhist+((ptrdiff_t)kc<<modeldepth);
+				int sum=0;
+				for(int ks=0;ks<nlevels;++ks)
+					sum+=curr_hist[ks];
+				if(!sum)
+				{
+					modelcsizes[kc]=0;
+					continue;
+				}
+				double e=0, norm=1./sum;
+				for(int ks=0;ks<nlevels;++ks)//calc entropy
+				{
+					int freq=curr_hist[ks];
+					if(freq)
+						e-=freq*log2(freq*norm);
+				}
+				modelcsizes[kc]=e/8;
+
+				double mean=0;
+				for(int ks=0;ks<nlevels;++ks)//calc mean
+				{
+					int freq=curr_hist[ks];
+					mean+=(double)ks*freq;
+				}
+				mean*=norm;
+				modelmeans[kc]=mean;
+				double variance=0;
+				for(int ks=0;ks<nlevels;++ks)//calc variance
+				{
+					int freq=curr_hist[ks];
+					double val=ks-mean;
+					variance+=(double)freq*val*val;//var = E[(X-mean)^2],    E[X] = (p0*X0+p1*X1+...)/pden
+				}
+				variance*=norm;
+				double sdev=sqrt(variance);
+				modelsdevs[kc]=sdev;
+				
+				int *curr_hist2=modelmhist+((ptrdiff_t)kc<<modeldepth);
+				for(int ks=0;ks<nlevels;++ks)//generate distribution
+				{
+					double fval=(ks-mean)/sdev;
+					fval=exp(-fval*fval);
+					curr_hist2[ks]=(int)(fval*0x10000);
+				}
+				sum=0;
+				for(int ks=0;ks<nlevels;++ks)
+					sum+=curr_hist2[ks];
+				norm=1./sum;
+				e=0;
+				for(int ks=0;ks<nlevels;++ks)//calc cross-entropy
+				{
+					int freq=curr_hist[ks];
+					int prob=curr_hist2[ks];
+					if(prob)
+						e-=freq*log2(prob*norm);
+				}
+				modelmsizes[kc]=e/8;
+			}
+		}
+		break;
 	case VIS_JOINT_HISTOGRAM:
 		chart_jointhist_update(im1, txid_jointhist);
 		break;
@@ -5690,6 +5829,7 @@ int io_keydn(IOKey key, char c)
 		//	"\t7: Optimized block compression estimate (E24)\n"
 		//	"\t7: DWT block histogram\n"
 			"\t%d: Histogram\n"
+			"\t%d: Model\n"
 			"\t%d: Analysis\n"
 			"\t%d: Joint histogram\n"
 			"\t%d: Zipf view\n",
@@ -5697,6 +5837,7 @@ int io_keydn(IOKey key, char c)
 			1+VIS_IMAGE_TRICOLOR,
 			1+VIS_IMAGE,
 			1+VIS_HISTOGRAM,
+			1+VIS_MODEL,
 			1+VIS_ANALYSIS,
 			1+VIS_JOINT_HISTOGRAM,
 			1+VIS_ZIPF
@@ -7410,8 +7551,9 @@ void io_render(void)
 				);
 			}
 			break;
-		case VIS_HISTOGRAM:
 		case VIS_IMAGE:
+		case VIS_HISTOGRAM:
+		case VIS_MODEL:
 		case VIS_ZIPF:
 			{
 				display_texture_i(sx1, sx2, sy1, sy2, (int*)(mode==VIS_ZIPF?zimage:im_export), im1->iw, im1->ih, 0, 1, 0, 1, 1, 0);
@@ -7457,6 +7599,110 @@ void io_render(void)
 				}
 				if(mode==VIS_HISTOGRAM)
 					chart_hist_draw(0, (float)wndw, 0, (float)wndh, 0, 3, 0, 0x60, hist, histmax);
+				else if(mode==VIS_MODEL)
+				{
+					static const int modeltheme[]=
+					{
+						0x600000FF,
+						0x6000FF00,
+						0x60FF0000,
+						0x60C0C0C0,
+						0x80C0C0C0,
+						0x80FF0000,
+						0x800000FF,
+						0x80C0C0C0,
+					};
+					int nhist=modelnch*modelnctx;
+					int YUV=0;
+					for(int k=0;k<CST_COMPARE;++k)
+					{
+						if(transforms_mask[k])
+						{
+							YUV=1;
+							break;
+						}
+					}
+					int wndh2=wndh-(int)(tdy*5);
+					int xhist=modelnch, yhist=nhist/modelnch;
+					//if(wndw<wndh)
+					//{
+					//	xhist=nhist*wndw/wndh;
+					//	CLAMP2(xhist, 1, nhist);
+					//	yhist=(nhist+xhist-1)/xhist;
+					//}
+					//else
+					//{
+					//	yhist=nhist*wndh/wndw;
+					//	CLAMP2(yhist, 1, nhist);
+					//	xhist=(nhist+yhist-1)/yhist;
+					//}
+					double msizes=0;
+					double esizes[4]={0};
+					for(int kh=0;kh<nhist;++kh)
+					{
+						int hx=kh/yhist, hy=kh%yhist;
+						//int hy=kh/xhist, hx=kh%xhist;
+						int xstart=hx*wndw/xhist, xend=(hx+1)*wndw/xhist;
+						int ystart=hy*wndh2/yhist, yend=(hy+1)*wndh2/yhist;
+						int kc=kh/modelnctx;
+						int *curr_hist=modelhist+((ptrdiff_t)kh<<modeldepth);
+						int nlevels=1<<modeldepth;
+						int fmax=0;
+						for(int ks=0;ks<nlevels;++ks)//FIXME
+						{
+							int freq=curr_hist[ks];
+							if(fmax<freq)
+								fmax=freq;
+						}
+						if(fmax)
+						{
+							for(int ks=0;ks<nlevels;++ks)
+							{
+								int freq=curr_hist[ks];
+								int x1=xstart+(xend-xstart)*ks/nlevels;
+								int x2=xstart+(xend-xstart)*(ks+1)/nlevels;
+								int y1=yend-(yend-ystart)*freq/fmax;
+								int y2=yend;
+								draw_rect((float)x1, (float)x2, (float)y1, (float)y2, modeltheme[YUV<<2|kc]);
+							}
+						}
+						int *curr_hist2=modelmhist+((ptrdiff_t)kh<<modeldepth);
+						int fmax2=0;
+						for(int ks=0;ks<nlevels;++ks)//FIXME
+						{
+							int freq=curr_hist2[ks];
+							if(fmax2<freq)
+								fmax2=freq;
+						}
+						if(fmax2)
+						{
+							for(int ks=0;ks<nlevels-1;++ks)
+							{
+								int freq1=curr_hist2[ks+0];
+								int freq2=curr_hist2[ks+1];
+								int x1=xstart+(xend-xstart)*(2*ks+1)/(2*nlevels);
+								int x2=xstart+(xend-xstart)*(2*ks+3)/(2*nlevels);
+								int y1=yend-(yend-ystart)*freq1/fmax2;
+								int y2=yend-(yend-ystart)*freq2/fmax2;
+								draw_line((float)x1, (float)y1, (float)x2, (float)y2, modeltheme[YUV<<2|kc]);
+							}
+						}
+						GUIPrint((float)xstart, (float)xstart, (float)ystart, 1, "%02d %12.2lf %+12.2lf", kh%modelnctx, modelcsizes[kh], modelmsizes[kh]-modelcsizes[kh]);
+						GUIPrint((float)xstart, (float)xstart, (float)ystart+tdy, 1, "   %12.2lf", modelmsizes[kh]);
+						//GUIPrint((float)xstart, (float)xstart, (float)ystart, 1, "%02d%c", kh%modelnctx, " X"[!fmax]);
+						esizes[kc]+=modelcsizes[kh];
+						msizes+=modelmsizes[kh];
+					}
+					double esize=0;
+					for(int kc=0;kc<modelnch;++kc)
+					{
+						int x=wndw*(2*kc+1)/(2*modelnch);
+						GUIPrint((float)x, (float)x, (float)(wndh>>1), 2, "%12.2lf", esizes[kc]);
+						esize+=esizes[kc];
+					}
+					GUIPrint((float)(wndw>>1), (float)(wndw>>1), (float)(wndh>>1)+tdy*2, 2, "%12.2lf", esize);
+					GUIPrint((float)(wndw>>1), (float)(wndw>>1), (float)(wndh>>1)+tdy*4, 2, "%12.2lf", msizes);
+				}
 			}
 			break;
 #if 0
@@ -8760,6 +9006,7 @@ void io_render(void)
 	//	case VIS_MESH_SEPARATE:		mode_str="Separate Mesh";	break;
 		case VIS_ANALYSIS:		mode_str="Analysis";		break;
 		case VIS_HISTOGRAM:		mode_str="Histogram";		break;
+		case VIS_MODEL:			mode_str="Model";		break;
 		case VIS_JOINT_HISTOGRAM:	mode_str="Joint Histogram";	break;
 		case VIS_IMAGE:			mode_str="Image View";		break;
 	//	case VIS_BAYES:			mode_str="Bayes";		break;
