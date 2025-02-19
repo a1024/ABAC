@@ -1126,22 +1126,21 @@ static void calc_csize_stateful(Image const *image, int *hist_full, double *entr
 {
 	if(ec_method==ECTX_GRCTX)
 	{
-		long long bitsizes[4*16*2]={0};
+		//long long bitsizes[4*16*2]={0};
 		int nch=(image->depth[0]!=0)+(image->depth[1]!=0)+(image->depth[2]!=0)+(image->depth[3]!=0);
 		int maxdepth=image->depth[0];
 		if(maxdepth<image->depth[1])maxdepth=image->depth[1];
 		if(maxdepth<image->depth[2])maxdepth=image->depth[2];
 		if(maxdepth<image->depth[3])maxdepth=image->depth[3];
-		int nctx=maxdepth+MODELPREC;
-		nctx+=nctx;
+		int nctx=(maxdepth+MODELPREC)<<1;
 		int nlevels=1<<maxdepth, half=nlevels>>1, mask=nlevels-1;
 		int hsize=(int)sizeof(int)*nch*nctx<<maxdepth;
 		int *hists=(int*)malloc(hsize);
-		int bufsize=(int)sizeof(short[4*4*4])*(image->iw+16);//4 padded rows * 4 channels max * {pixels, errors, pastyrun, futureyrun}
+		int bufsize=(int)sizeof(short[4*4])*(image->iw+16);//4 padded rows * 4 channels max
 		short *pixels=(short*)malloc(bufsize);
 		if(!hists||!pixels)
 		{
-			LOG_ERROR("ALloc error");
+			LOG_ERROR("Alloc error");
 			return;
 		}
 		memset(hists, 0, hsize);
@@ -1150,10 +1149,10 @@ static void calc_csize_stateful(Image const *image, int *hist_full, double *entr
 		{
 			short *rows[]=
 			{
-				pixels+((image->iw+16LL)*((ky-0LL)&3)+8)*4*4,
-				pixels+((image->iw+16LL)*((ky-1LL)&3)+8)*4*4,
-				pixels+((image->iw+16LL)*((ky-2LL)&3)+8)*4*4,
-				pixels+((image->iw+16LL)*((ky-3LL)&3)+8)*4*4,
+				pixels+((image->iw+16LL)*((ky-0LL)&3)+8)*4,
+				pixels+((image->iw+16LL)*((ky-1LL)&3)+8)*4,
+				pixels+((image->iw+16LL)*((ky-2LL)&3)+8)*4,
+				pixels+((image->iw+16LL)*((ky-3LL)&3)+8)*4,
 			};
 			int sW[4]={0};
 			int xrun[4]={0};
@@ -1161,17 +1160,17 @@ static void calc_csize_stateful(Image const *image, int *hist_full, double *entr
 			for(int kx=0;kx<image->iw;++kx, ++idx)
 			{
 				short
-					*NNNE	=rows[3]+1*4*4,
-					*NNEE	=rows[2]+2*4*4,
-					*NW	=rows[1]-1*4*4,
-					*N	=rows[1]+0*4*4,
-					*NE	=rows[1]+1*4*4,
-					*NEE	=rows[1]+2*4*4,
-					*NEEE	=rows[1]+3*4*4,
-					*NEEEE	=rows[1]+4*4*4,
-					*WW	=rows[0]-2*4*4,
-					*W	=rows[0]-1*4*4,
-					*curr	=rows[0]+0*4*4;
+					*NNNE	=rows[3]+1*4,
+					*NNEE	=rows[2]+2*4,
+					*NW	=rows[1]-1*4,
+					*N	=rows[1]+0*4,
+					*NE	=rows[1]+1*4,
+					*NEE	=rows[1]+2*4,
+					*NEEE	=rows[1]+3*4,
+					*NEEEE	=rows[1]+4*4,
+					*WW	=rows[0]-2*4,
+					*W	=rows[0]-1*4,
+					*curr	=rows[0]+0*4;
 				(void)NW;
 				(void)N;
 				(void)NE;
@@ -1186,21 +1185,27 @@ static void calc_csize_stateful(Image const *image, int *hist_full, double *entr
 					{
 						int delta=image->data[idx<<2|kc];
 						int sym=delta<<1^delta>>31;
+						//if(sym>>maxdepth)
+						//	LOG_ERROR("sym %08X", sym);
+						sym&=mask;
 
 						int ctx=FLOOR_LOG2(sW[kc]*sW[kc]+1);
-						++hists[(kc*nctx+ctx)<<maxdepth|(sym&mask)];
+						++hists[(kc*nctx+ctx)<<maxdepth|sym];
 
-						int nbypass=ctx-MODELPREC;
-						if(nbypass<0)nbypass=0;
-						bitsizes[kc*nctx+ctx]+=(long long)(sym>>nbypass)+nbypass+1;
+						//if(NEE[kc]||NEEE[kc])
+						//	LOG_ERROR("%d %d", NEE[kc], NEEE[kc]);
 
-						curr[kc+4]=sW[kc]=(2*sW[kc]+(sym<<MODELPREC)+MAXVAR(NEE[kc+4], NEEE[kc+4]))>>2;
+						//int nbypass=ctx-MODELPREC;
+						//if(nbypass<0)nbypass=0;
+						//bitsizes[kc*nctx+ctx]+=(long long)(sym>>nbypass)+nbypass+1;
+
+						curr[kc]=sW[kc]=(2*sW[kc]+(sym<<MODELPREC)+MAXVAR(NEE[kc], NEEE[kc]))>>2;
 					}
 				}
-				rows[0]+=4*4;
-				rows[1]+=4*4;
-				rows[2]+=4*4;
-				rows[3]+=4*4;
+				rows[0]+=4;
+				rows[1]+=4;
+				rows[2]+=4;
+				rows[3]+=4;
 			}
 		}
 		free(pixels);
@@ -1214,13 +1219,13 @@ static void calc_csize_stateful(Image const *image, int *hist_full, double *entr
 				int sum=0;
 				for(int ks=0;ks<nlevels;++ks)
 					sum+=curr_hist[ks];
-				//if(!sum)
-				//	continue;
-				if(sum<nlevels*2)
-				{
-					chsize+=bitsizes[ctx]/8.;
+				if(!sum)
 					continue;
-				}
+				//if(sum<nlevels*2)
+				//{
+				//	chsize+=bitsizes[ctx]/8.;
+				//	continue;
+				//}
 				double e=0, norm=1./sum;
 				for(int ks=0;ks<nlevels;++ks)
 				{
@@ -1229,7 +1234,7 @@ static void calc_csize_stateful(Image const *image, int *hist_full, double *entr
 						e-=freq*log2(freq*norm);
 				}
 				chsize+=e/8;
-				
+#if 1
 				double hsize=0;
 				int cdfW=0;
 				int sum2=0;
@@ -1244,6 +1249,7 @@ static void calc_csize_stateful(Image const *image, int *hist_full, double *entr
 					sum2+=freq;
 				}
 				chsize+=(hsize+nlevels-1)/8;
+#endif
 			}
 			double usize=(double)image->iw*image->ih*image->src_depth[0];
 			entropy[kc]=usize?chsize*8*8/usize:0;//entropy = cbitsize*8/ubitsize
@@ -1262,7 +1268,7 @@ static void calc_csize_stateful(Image const *image, int *hist_full, double *entr
 		//char *skipbuf=(char*)malloc(skipbufsize);
 		if(!pixels)
 		{
-			LOG_ERROR("ALloc error");
+			LOG_ERROR("Alloc error");
 			return;
 		}
 		memset(pixels, 0, bufsize);
