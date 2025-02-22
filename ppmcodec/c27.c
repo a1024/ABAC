@@ -7,12 +7,14 @@
 static const char file[]=__FILE__;
 
 
+//	#define BYPASS_SSE
 //	#define DISABLE_RCT
 //	#define ENTROPY0
 	#define CALICSIGNPRED
 #ifdef _MSC_VER
 	#define LOUD
-	#define ENABLE_GUIDE
+//	#define ENABLE_MEMCHECKS
+//	#define ENABLE_GUIDE
 #endif
 
 #define GRBITS 6
@@ -205,6 +207,9 @@ static const char *rct_names[RCT_COUNT]=
 	RCTLIST
 #undef  RCT
 };
+#ifdef BYPASS_SSE
+ALIGN(16) static int bypass_sse[64][4]={0};
+#endif
 #ifdef ENTROPY0
 int hist[OCH_COUNT][256]={0};
 #endif
@@ -234,7 +239,7 @@ int c27_codec(const char *srcfn, const char *dstfn, int nthreads0)
 			LOG_ERROR("Cannot open \"%s\"", srcfn);
 			return 1;
 		}
-		srcbuf=(unsigned char*)malloc(srcsize+16);
+		srcbuf=(unsigned char*)malloc(srcsize+sizeof(__m256i[2]));
 		if(!srcbuf)
 		{
 			LOG_ERROR("Alloc error");
@@ -298,6 +303,9 @@ int c27_codec(const char *srcfn, const char *dstfn, int nthreads0)
 	int bestrct=0;
 	ptrdiff_t dstbufsize=0;
 	unsigned char *dstbuf=0, *image=0, *streamptr=0;
+#ifdef _MSC_VER
+	unsigned char *streamend=0;
+#endif
 	if(fwd)
 	{
 		dstbufsize=(ptrdiff_t)4*iw*ih;
@@ -308,6 +316,9 @@ int c27_codec(const char *srcfn, const char *dstfn, int nthreads0)
 			return 1;
 		}
 		streamptr=dstbuf;
+#ifdef _MSC_VER
+		streamend=dstbuf+dstbufsize;
+#endif
 		image=srcptr;
 		guide_save(image, iw, ih);
 		
@@ -445,6 +456,9 @@ int c27_codec(const char *srcfn, const char *dstfn, int nthreads0)
 			return 1;
 		}
 		streamptr=srcptr;
+#ifdef _MSC_VER
+		streamend=srcend+sizeof(__m256i[2]);
+#endif
 		image=dstbuf;
 		
 		cache=*(unsigned long long*)streamptr;
@@ -476,6 +490,9 @@ int c27_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		return 1;
 	}
 	memset(pixels, 0, psize);
+#ifdef BYPASS_SSE
+	memset(bypass_sse, 0, sizeof(bypass_sse));
+#endif
 	int paddedwidth=iw+16;
 	unsigned char *ptr=image;
 	for(int ky=0;ky<ih;++ky)
@@ -488,7 +505,9 @@ int c27_codec(const char *srcfn, const char *dstfn, int nthreads0)
 			pixels+(paddedwidth*((ky-3LL)&3)+8LL)*4*2,
 		};
 		ALIGN(16) short yuv[8]={0};
+#ifdef BYPASS_SSE
 		ALIGN(16) short preds[8]={0};
+#endif
 		ALIGN(16) int nbypass[4]={0};
 		ALIGN(16) int nzeros[4]={0}, bypass[4]={0};
 		__m128i msym=_mm_setzero_si128();
@@ -505,19 +524,34 @@ int c27_codec(const char *srcfn, const char *dstfn, int nthreads0)
 			mp=_mm_sub_epi16(mp, mNW);
 			mp=_mm_max_epi16(mp, mmin);
 			mp=_mm_min_epi16(mp, mmax);
+#ifdef BYPASS_SSE
 			_mm_store_si128((__m128i*)preds, mp);
+#endif
 
 			__m128i mnb=_mm_cvtepi16_epi32(meW);
+#ifdef BYPASS_SSE
+			int *ssectx=bypass_sse[(preds[0]>>2&0x30)|(preds[1]>>4&0x0C)|(preds[2]>>6&0x03)];
+		//	int *ssectx=bypass_sse[(2*preds[0]+preds[1]+preds[2])>>4&63];
+			__m128i msse=_mm_load_si128((__m128i*)ssectx);
+			mnb=_mm_add_epi32(mnb, _mm_srai_epi32(msse, GRBITS+4));
+#endif
 			mnb=_mm_add_epi32(mnb, _mm_set1_epi32(1));
 			mnb=_mm_sub_epi32(_mm_srli_epi32(_mm_castps_si128(_mm_cvtepi32_ps(mnb)), 23), _mm_set1_epi32(127+GRBITS));
 			mnb=_mm_max_epi32(mnb, _mm_setzero_si128());
+#ifdef BYPASS_SSE
+			mnb=_mm_min_epi32(mnb, _mm_set_epi32(0, 9-1, 9-1, 8-1));
+#endif
+			//mnb=_mm_min_epi32(mnb, _mm_set_epi32(0, 9-1, 9-1, 8-1));//0<=nbypass<=depth-1		redundant
+			//mnb=_mm_min_epi32(mnb, _mm_set_epi32(0, 9-3, 9-3, 8-3));//X  bad
 			_mm_store_si128((__m128i*)nbypass, mnb);
-
+			
+#ifdef CALICSIGNPRED
 			__m128i mhp=_mm_abs_epi16(mp);
 #ifdef DISABLE_RCT
 			mhp=_mm_sub_epi16(_mm_set1_epi16(128), mhp);
 #else
 			mhp=_mm_sub_epi16(_mm_set_epi16(0, 0, 0, 0, 0, 256, 256, 128), mhp);
+#endif
 #endif
 #if 0
 			short
@@ -570,11 +604,15 @@ int c27_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				//mW=_mm_loadu_si128((__m128i*)yuv);
 				
 				__m128i me=_mm_sub_epi16(myuv, mp);
+#ifdef CALICSIGNPRED
 				__m128i ae=_mm_abs_epi16(me);
 				__m128i pe=_mm_xor_si128(_mm_slli_epi16(me, 1), _mm_srai_epi16(me, 15));
 				__m128i msum=_mm_add_epi16(ae, mhp);
 				ae=_mm_cmpgt_epi16(ae, mhp);
 				pe=_mm_blendv_epi8(pe, msum, ae);
+#else
+				__m128i pe=_mm_xor_si128(_mm_slli_epi16(me, 1), _mm_srai_epi16(me, 15));
+#endif
 				msym=pe;
 				pe=_mm_cvtepi16_epi32(pe);
 				__m128i mnz=_mm_srlv_epi32(pe, mnb);//AVX2
@@ -646,13 +684,16 @@ int c27_codec(const char *srcfn, const char *dstfn, int nthreads0)
 						break;
 					}
 					nzeros[0]&=63;
-
 					//while(nzeros[0]>=64)//just flush zeros
 					//{
 					//	nzeros[0]-=64;
 					//	*(unsigned long long*)streamptr=0;
 					//	streamptr+=8;
 					//}
+#if defined _MSC_VER && defined ENABLE_MEMCHECKS
+					if(streamptr>streamend)
+						LOG_ERROR("Out of memory XY %d %d", kx, ky);
+#endif
 				}
 				//here  0 <= nzeros < nbits <= 64
 				nbits-=nzeros[0]+1;//emit remaining zeros to cache
@@ -702,6 +743,7 @@ int c27_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					nzeros[2]-=nbits;
 					cache=0;
 					nbits=64;
+
 					switch(nzeros[2]>>6&7)//just flush zeros
 					{
 					case 7:*(unsigned long long*)streamptr=0; streamptr+=8;
@@ -721,6 +763,10 @@ int c27_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					//	*(unsigned long long*)streamptr=0;
 					//	streamptr+=8;
 					//}
+#if defined _MSC_VER && defined ENABLE_MEMCHECKS
+					if(streamptr>streamend)
+						LOG_ERROR("Out of memory XY %d %d", kx, ky);
+#endif
 				}
 				//here  0 <= nzeros < nbits <= 64
 				nbits-=nzeros[2]+1;//emit remaining zeros to cache
@@ -741,6 +787,10 @@ int c27_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					streamptr+=8;
 					cache=0;
 					nbits=64;
+#if defined _MSC_VER && defined ENABLE_MEMCHECKS
+					if(streamptr>streamend)
+						LOG_ERROR("Out of memory XY %d %d", kx, ky);
+#endif
 				}
 				//now there is room for bypass:  0 <= nbypass < nbits <= 64
 				nbits-=totalnbypass;//emit remaining bypass to cache
@@ -758,7 +808,11 @@ int c27_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				if(!cache)//must encounter stop bit
 				{
 					unsigned char *p2=streamptr+8;
-
+					
+#if defined _MSC_VER && defined ENABLE_MEMCHECKS
+					if(streamptr+sizeof(__m256i[2])>streamend)
+						LOG_ERROR("Out of memory XY %d %d", kx, ky);
+#endif
 					__m256i v0=_mm256_loadu_si256((__m256i*)streamptr+0);
 					__m256i v1=_mm256_loadu_si256((__m256i*)streamptr+1);
 					v0=_mm256_cmpeq_epi64(v0, _mm256_setzero_si256());
@@ -773,7 +827,6 @@ int c27_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					//	streamptr+=8;
 					//}
 					//while(!cache);
-
 					ysym+=((int)(streamptr-p2)<<(6-3));//increments of 64 instead of 8
 					nbits=(int)_lzcnt_u64(cache);
 					ysym+=nbits;
@@ -789,7 +842,11 @@ int c27_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				if(!cache)//must encounter stop bit
 				{
 					unsigned char *p2=streamptr+8;
-
+					
+#if defined _MSC_VER && defined ENABLE_MEMCHECKS
+					if(streamptr+sizeof(__m256i[2])>streamend)
+						LOG_ERROR("Out of memory XY %d %d", kx, ky);
+#endif
 					__m256i v0=_mm256_loadu_si256((__m256i*)streamptr+0);
 					__m256i v1=_mm256_loadu_si256((__m256i*)streamptr+1);
 					v0=_mm256_cmpeq_epi64(v0, _mm256_setzero_si256());
@@ -819,7 +876,11 @@ int c27_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				if(!cache)//must encounter stop bit
 				{
 					unsigned char *p2=streamptr+8;
-
+					
+#if defined _MSC_VER && defined ENABLE_MEMCHECKS
+					if(streamptr+sizeof(__m256i[2])>streamend)
+						LOG_ERROR("Out of memory XY %d %d", kx, ky);
+#endif
 					__m256i v0=_mm256_loadu_si256((__m256i*)streamptr+0);
 					__m256i v1=_mm256_loadu_si256((__m256i*)streamptr+1);
 					v0=_mm256_cmpeq_epi64(v0, _mm256_setzero_si256());
@@ -851,6 +912,10 @@ int c27_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					cache=*(unsigned long long*)streamptr;
 					streamptr+=8;
 					nbits=64;
+#if defined _MSC_VER && defined ENABLE_MEMCHECKS
+					if(streamptr>streamend)
+						LOG_ERROR("Out of memory XY %d %d", kx, ky);
+#endif
 				}
 				if(totalnbypass)
 				{
@@ -866,6 +931,7 @@ int c27_codec(const char *srcfn, const char *dstfn, int nthreads0)
 
 				__m128i ps=_mm_set_epi16(0, 0, 0, 0, 0, vsym, usym, ysym);
 				msym=ps;
+#ifdef CALICSIGNPRED
 				__m128i negmask=_mm_srai_epi16(mp, 15);
 				__m128i pe2=_mm_sub_epi16(mhp, ps);
 				__m128i pe=_mm_xor_si128(_mm_srli_epi16(ps, 1), _mm_sub_epi16(_mm_setzero_si128(), _mm_and_si128(ps, _mm_set1_epi16(1))));
@@ -874,6 +940,9 @@ int c27_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				ps=_mm_cmpgt_epi16(ps, _mm_slli_epi16(mhp, 1));
 				pe=_mm_blendv_epi8(pe, pe2, ps);
 				pe=_mm_add_epi16(pe, mp);
+#else
+				__m128i pe=_mm_xor_si128(_mm_srli_epi16(ps, 1), _mm_sub_epi16(_mm_setzero_si128(), _mm_and_si128(ps, _mm_set1_epi16(1))));
+#endif
 				mW=pe;
 				_mm_storeu_si128((__m128i*)rows[0], pe);
 				_mm_store_si128((__m128i*)yuv, pe);
@@ -922,6 +991,7 @@ int c27_codec(const char *srcfn, const char *dstfn, int nthreads0)
 			meW=_mm_slli_epi16(meW, 1);
 			meW=_mm_add_epi16(meW, _mm_slli_epi16(msym, GRBITS));
 			__m128i mbias=_mm_max_epi16(_mm_loadu_si128((__m128i*)(rows[1]+0+2*4*2+4)), _mm_loadu_si128((__m128i*)(rows[1]+0+3*4*2+4)));
+			//__m128i mbias=_mm_loadu_si128((__m128i*)(rows[1]+0+3*4*2+4));//X
 			meW=_mm_srli_epi16(_mm_add_epi16(meW, mbias), 2);
 			_mm_storeu_si128((__m128i*)(rows[0]+0+4), meW);
 			//rows[0][0+4]=(2*yeW+(ysym<<GRBITS)+MAXVAR(rows[1][0+2*4*2+4], rows[1][0+3*4*2+4]))>>2;
@@ -930,6 +1000,16 @@ int c27_codec(const char *srcfn, const char *dstfn, int nthreads0)
 			//rows[0][0+4]=(2*yeW+(ysym<<GRBITS)+MAXVAR(yeNEE, yeNEEE))>>2;
 			//rows[0][1+4]=(2*ueW+(usym<<GRBITS)+MAXVAR(ueNEE, ueNEEE))>>2;
 			//rows[0][2+4]=(2*veW+(vsym<<GRBITS)+MAXVAR(veNEE, veNEEE))>>2;
+#ifdef BYPASS_SSE
+			msym=_mm_sub_epi16(_mm_slli_epi16(msym, GRBITS), meW);
+			msym=_mm_cvtepi16_epi32(msym);
+			msym=_mm_slli_epi32(msym, 4);
+			msym=_mm_sub_epi32(msym, msse);
+			msym=_mm_add_epi32(msym, _mm_set1_epi32(1<<5>>1));
+			msym=_mm_srai_epi32(msym, 5);
+			msse=_mm_add_epi32(msse, msym);
+			_mm_store_si128((__m128i*)ssectx, msse);
+#endif
 			rows[0]+=4*2;
 			rows[1]+=4*2;
 			rows[2]+=4*2;

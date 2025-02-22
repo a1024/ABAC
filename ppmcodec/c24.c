@@ -51,6 +51,12 @@ static const char file[]=__FILE__;
 	#define SIMD_CTX	//0.8% faster
 //	#define SIMD_PREDS	//3.8% slower
 
+//	#define STATIC_ESTIMATE
+//	#define STATIC_ESTIMATE2
+#define PBITS 1
+#define PLEVELS (1<<PBITS)
+
+//	#define ENABLE_GR_FORMULA	//bad
 //	#define ENABLE_GR	//bad
 //	#define GR_USE_ARRAY
 
@@ -81,8 +87,13 @@ static const char file[]=__FILE__;
 #define BLOCKY 448
 
 #define MAXPRINTEDBLOCKS 500
+#ifdef ENABLE_GR_FORMULA
+#define ELEVELS 14
+#else
 //11<<6 = 704 CDFs size 32
 #define ELEVELS 11
+#endif
+#define CBITS_EFFECTIVE 4
 #define CBITS 6
 #define CLEVELS (1<<CBITS)
 #define WG4_PREC 5
@@ -371,6 +382,14 @@ typedef struct _ThreadArgs
 	int blockidx;
 	double bestsize;
 	int bestrct, predidx[3];
+#ifdef STATIC_ESTIMATE
+	int ehistsize, *ehist;
+	double esizes[3*(ELEVELS<<PBITS)*2];//3 channels  *  ELEVELS contexts  *  {streamsize, statsize}
+#endif
+#ifdef STATIC_ESTIMATE2
+	int ehist2[3][ELEVELS][PLEVELS][33], ezerohist2[3][256];
+	double esize2, hsize2;
+#endif
 #ifdef PRINT_CSIZES
 	double csizes[3];
 #endif
@@ -3400,6 +3419,13 @@ static void block_func(void *param)
 	//	-1, invpermutation[2], invpermutation[1], invpermutation[0]
 	//);
 	//__m128i mhalf=_mm_set_epi32(0, 128, 128, 128);
+#ifdef STATIC_ESTIMATE
+	memset(args->ehist, 0, args->ehistsize);
+#endif
+#ifdef STATIC_ESTIMATE2
+	memset(args->ehist2, 0, sizeof(args->ehist2));
+	memset(args->ezerohist2, 0, sizeof(args->ezerohist2));
+#endif
 	int paddedblockwidth=args->x2-args->x1+16;
 	memset(args->pixels, 0, args->bufsize);
 	for(int ky=args->y1;ky<args->y2;++ky)//codec loop
@@ -3480,12 +3506,21 @@ static void block_func(void *param)
 #ifdef _DEBUG
 			int kx=args->x2-1-kx0;
 #endif
-#ifdef SIMD_CTX
+#if defined SIMD_CTX || defined SIMD_PREDS
 			__m128i msum=_mm_add_epi16(mN, mW);
+#endif
+#ifdef SIMD_CTX
 			//__m128i mqp=_mm_add_epi16(msum, _mm_slli_epi16(_mm_sub_epi16(msum, mNW), 1));
 			//mqp=_mm_srai_epi16(mqp, 11-CBITS);
 			//mqp=_mm_and_si128(mqp, _mm_set1_epi16((1<<CBITS)-1));
 
+#ifdef ENABLE_GR_FORMULA
+			__m128i mqe=_mm_shuffle_epi32(mW, _MM_SHUFFLE(1, 0, 3, 2));
+			mqe=_mm_cvtepi16_epi32(mqe);
+			mqe=_mm_add_epi32(mqe, _mm_set1_epi16(1));
+			mqe=FLOOR_LOG2_32x4(_mm_cvtepi16_epi32(mqe));
+			_mm_store_si128((__m128i*)grads+0, mqe);
+#else
 			__m128i mqe=_mm_add_epi16(mNW, mNE);
 			mqe=_mm_add_epi16(mqe, _mm_add_epi16(mWW, mNN));
 			mqe=_mm_srli_epi16(_mm_add_epi16(mqe, mNEE), 1);
@@ -3500,6 +3535,7 @@ static void block_func(void *param)
 			mqe=FLOOR_LOG2_32x4(_mm_cvtepi16_epi32(mqe));//7 cycles vs (_lzcnt_u32 3 cycles)*3 (actually 5 cycles)		2.45%
 			mqe=_mm_min_epi32(mqe, _mm_set1_epi32(ELEVELS-1));
 			_mm_store_si128((__m128i*)grads+0, mqe);
+#endif
 #endif
 #ifndef SIMD_PREDS
 			short
@@ -3943,7 +3979,8 @@ static void block_func(void *param)
 #endif
 				unsigned cdf, freq;
 #ifdef SIMD_CTX
-				int qp=(pred+128)>>(8-CBITS)&((1<<CBITS)-1);
+				int qp=(pred+128)>>(8-CBITS_EFFECTIVE)&((1<<CBITS_EFFECTIVE)-1);
+				//int qp=(pred+128)>>(8-CBITS)&((1<<CBITS)-1);
 				//int qp=(pred+128)>>(8-CBITS);
 				//int qe=FLOOR_LOG2(grads[kc+0]+1);
 				//if(qe>ELEVELS-1)
@@ -3955,6 +3992,14 @@ static void block_func(void *param)
 				qe=FLOOR_LOG2(qe+1);
 				if(qe>ELEVELS-1)
 					qe=ELEVELS-1;
+#endif
+#ifdef STATIC_ESTIMATE
+				if(args->fwd)
+				{
+					int ectx=qe<<1|qp<<PBITS>>CBITS_EFFECTIVE;
+					error=(unsigned char)(yuv[kc]-pred+128);
+					++args->ehist[ectx<<8|error];
+				}
 #endif
 #ifdef ENABLE_ZERO
 				if(predidx[kc]==PRED_ZERO)
@@ -3969,6 +4014,9 @@ static void block_func(void *param)
 						ac3_encbuf_update_N(&ec, cdf, freq, PROB_BITS);
 #ifdef PRINT_CSIZES
 						esizes[kc]-=log2(freq/(double)(1<<PROB_BITS));
+#endif
+#ifdef STATIC_ESTIMATE2
+						++args->ezerohist2[kc][sym];
 #endif
 					}
 					else
@@ -4179,6 +4227,9 @@ static void block_func(void *param)
 #ifdef PRINT_CSIZES
 							esizes[kc]+=nbits;
 #endif
+#ifdef STATIC_ESTIMATE2
+							args->esize2+=nbits;
+#endif
 						}
 #ifdef _DEBUG
 						if(token>=args->tlevels)
@@ -4193,6 +4244,11 @@ static void block_func(void *param)
 #ifdef _DEBUG
 						if(ec.dstptr>=ec.dstend)
 							LOG_ERROR("Encoder out of memory at YXC %d %d %d", ky, kx, kc);
+#endif
+#ifdef STATIC_ESTIMATE2
+						{
+							++args->ehist2[kc][qe][qp<<PBITS>>CBITS_EFFECTIVE][token];
+						}
 #endif
 					}
 				}
@@ -4486,6 +4542,9 @@ static void block_func(void *param)
 				//	curr[kc+4]=regW[kc+4]=(2*regW[kc+4]+abs(error)+NEEE[kc+4])>>2;
 				else
 #endif
+			//	curr[kc+4]=regW[kc+4]=(2*rows[0][kc-1*4*4+4]+((error<<1^error>>31)<<6)+MAXVAR(rows[1][kc+2*4*4+4], rows[1][kc+3*4*4+4]))>>2;
+			//	curr[kc+4]=regW[kc+4]=(2*rows[0][kc-1*4*4+4]+(abs(error)<<6)+MAXVAR(rows[1][kc+2*4*4+4], rows[1][kc+3*4*4+4]))>>2;
+			//	curr[kc+4]=regW[kc+4]=(2*rows[0][kc-1*4*4+4]+(token<<6)+MAXVAR(rows[1][kc+2*4*4+4], rows[1][kc+3*4*4+4]))>>2;
 				curr[kc+4]=regW[kc+4]=abs(error);
 			//	regW[kc+8]=error;
 				mixinptrs[kc]=args->mixincdfs+args->tlevels*token;
@@ -4783,6 +4842,99 @@ static void block_func(void *param)
 		//	);
 		//}
 #endif
+#ifdef STATIC_ESTIMATE
+		for(int kctx=0;kctx<3*(ELEVELS<<PBITS);++kctx)
+		{
+			int *curr_hist=args->ehist+((ptrdiff_t)kctx<<8);
+			int sum=0;
+			for(int ks=0;ks<256;++ks)
+				sum+=curr_hist[ks];
+			if(!sum)
+				continue;
+			double e=0, norm=1./sum;
+			for(int ks=0;ks<256;++ks)//calc entropy
+			{
+				int freq=curr_hist[ks];
+				if(freq)
+					e-=freq*log2(freq*norm);
+			}
+			args->esizes[kctx<<1|0]+=e/8;
+			
+			double hsize=0;
+			int cdfW=0;
+			int sum2=0;
+			for(int ks=0;ks<256;++ks)//calc model stat overhead
+			{
+				int sym=(unsigned char)((ks>>1^-(ks&1))+128);
+				int freq=curr_hist[sym];
+				int cdf=sum2*((1ULL<<16)-256)/sum+ks;
+				int csym=cdf-cdfW;
+				hsize+=log2(csym+1);
+				cdfW=cdf;
+				sum2+=freq;
+			}
+			args->esizes[kctx<<1|1]+=(hsize+256-1)/8;
+		}
+#endif
+#ifdef STATIC_ESTIMATE2
+		for(int kc=0;kc<3;++kc)
+		{
+			int sum=0;
+			for(int ks=0;ks<256;++ks)
+				sum+=args->ezerohist2[kc][ks];
+			if(sum)
+			{
+				double e=0, norm=1./sum;
+				for(int ks=0;ks<256;++ks)
+				{
+					int freq=args->ezerohist2[kc][ks];
+					if(freq)
+						e-=freq*log2(freq*norm);
+				}
+				//if(e!=e)
+				//	LOG_ERROR("sum %d", sum);
+				args->esize2+=e/8;
+			}
+			for(int ke=0;ke<ELEVELS;++ke)
+			{
+				for(int kp=0;kp<PLEVELS;++kp)
+				{
+					int *curr_hist=args->ehist2[kc][ke][kp];
+					sum=0;
+					for(int ks=0;ks<33;++ks)
+						sum+=curr_hist[ks];
+					if(!sum)
+						continue;
+					double e=0, norm=1./sum;
+					for(int ks=0;ks<33;++ks)//calc entropy
+					{
+						int freq=curr_hist[ks];
+						if(freq)
+							e-=freq*log2(freq*norm);
+					}
+					//if(e!=e)
+					//	LOG_ERROR("sum %d", sum);
+					args->esize2+=e/8;
+					double hsize=0;
+					int cdfW=0;
+					int sum2=0;
+					for(int ks=0;ks<33;++ks)//calc model stat overhead
+					{
+						int freq=curr_hist[ks];
+						int cdf=sum2*((1ULL<<16)-33)/sum+ks;
+						int csym=cdf-cdfW;
+						//double LOL_1=log2(csym+1);
+						//if(LOL_1!=LOL_1)//
+						//	LOG_ERROR("edible thermonuclear");
+						hsize+=log2(csym+1);
+						cdfW=cdf;
+						sum2+=freq;
+					}
+					args->hsize2+=(hsize+33-1)/8;
+				}
+			}
+		}
+#endif
 	}
 }
 static void block_thread(void *param)
@@ -4992,6 +5144,19 @@ int c24_codec(const char *srcfn, const char *dstfn, int nthreads0)
 			LOG_ERROR("Alloc error");
 			return 1;
 		}
+#ifdef STATIC_ESTIMATE
+		if(fwd)
+		{
+			arg->ehistsize=(int)sizeof(int[3*2*(ELEVELS<<PBITS)<<8]);//3 channels  *  2*(ELEVELS<<PBITS) contexts  *  int[256]
+			arg->ehist=(int*)malloc(arg->ehistsize);
+			if(!arg->ehist)
+			{
+				LOG_ERROR("Alloc error");
+				return 1;
+			}
+			memset(arg->esizes, 0, sizeof(arg->esizes));
+		}
+#endif
 		memusage+=arg->bufsize;
 		memusage+=arg->histsize;
 		if(fwd)
@@ -5229,6 +5394,35 @@ int c24_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		}
 		t0=time_sec();
 	}
+#ifdef STATIC_ESTIMATE
+	if(fwd)
+	{
+		double esize=0, hsize=0;
+		for(int kt=0;kt<nthreads;++kt)
+		{
+			ThreadArgs *arg=args+kt;
+			for(int kctx=0;kctx<3*(ELEVELS<<PBITS);++kctx)
+			{
+				esize+=arg->esizes[kctx<<1|0];
+				hsize+=arg->esizes[kctx<<1|1];
+			}
+		}
+		printf("%12.2lf - %12.2lf ", esize+hsize, hsize);
+	}
+#endif
+#ifdef STATIC_ESTIMATE2
+	if(fwd)
+	{
+		double esize=0, hsize=0;
+		for(int kt=0;kt<nthreads;++kt)
+		{
+			ThreadArgs *arg=args+kt;
+			esize+=arg->esize2;
+			hsize+=arg->hsize2;
+		}
+		printf("%12.2lf - %12.2lf ", esize+hsize, hsize);
+	}
+#endif
 	if(!test)
 		save_file(dstfn, dst->data, dst->count, 1);
 #ifdef PRINT_CSIZES
@@ -5246,6 +5440,10 @@ int c24_codec(const char *srcfn, const char *dstfn, int nthreads0)
 			free(arg->enctokenbuf);
 			free(arg->encbypassbuf);
 		}
+#ifdef STATIC_ESTIMATE
+		if(fwd)
+			free(arg->ehist);
+#endif
 	}
 	free(args);
 	array_free(&src);

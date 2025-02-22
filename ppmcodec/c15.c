@@ -22,6 +22,8 @@ static const char file[]=__FILE__;
 	#define ENABLE_SSE3_PROB
 //	#define ENABLE_GATHER//bad
 
+//	#define NONBINARY_CODING	//impractical
+
 #define CODECNAME "C15"
 #include"entropy.h"
 
@@ -30,14 +32,11 @@ static const char file[]=__FILE__;
 #define MAXPRINTEDBLOCKS 20
 
 #define A2_NCTX 8	//multiple of 4
-#define A2_CTXBITS 8
-#define A2_SSECBITS 6
-#define A2_SSEPBITS 4
-#define A2_SSECTR 16
 
-#define SSE2_SCALE 4
+#define SSE2_SCALE 11
 #define SSE2_DECAY 7
-#define SSE3_SCALE 4
+
+#define SSE3_SCALE 11
 #define SSE3_DECAY 7
 
 
@@ -677,7 +676,7 @@ static void block_thread(void *param)
 #ifdef __GNUC__
 #pragma GCC unroll 4
 #endif
-					for(int k=0;k<_countof(nb8);++k)
+					for(int k=0;k<NB_COUNT;++k)
 					{
 						__m128i temp;
 						__m256i t2;
@@ -896,7 +895,11 @@ static void block_thread(void *param)
 #else
 	ALIGN(32) long long mixer[8*3*A2_NCTX]={0};
 	FILLMEM(mixer, 0x1000, sizeof(mixer), sizeof(long long));
+#ifdef NONBINARY_CODING
+	memset(args->stats, 0, sizeof(args->stats));
+#else
 	FILLMEM((unsigned short*)args->stats, 0x8000, sizeof(args->stats), sizeof(short));
+#endif
 #endif
 #ifdef ENABLE_SSE2
 	memset(args->sse1, 0, sizeof(args->sse1));
@@ -1117,7 +1120,9 @@ static void block_thread(void *param)
 			//	int *curr_sse1=&args->sse1[kc][(N[kc2]+W[kc2]+(NE[kc2]-NW[kc2])/2+2)>>2&127][(pred+4)>>4&15];	//2.858019
 			//	int *curr_sse1=&args->sse1[kc][(N[kc2]+W[kc2]+(NE[kc2]-NW[kc2])/2+8)>>4&31][(pred+8)>>4&63];	//2.857995
 			//	int *curr_sse1=&args->sse1[kc][(N[kc2]-W[kc2]+2)>>2&127][(pred+8)>>4&15];	//2.857902
-				pred+=(*curr_sse1+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
+				int sseval=*curr_sse1;
+				pred+=(sseval+(1<<SSE2_SCALE>>1))>>SSE2_SCALE;
+			//	pred+=(*curr_sse1+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
 
 			//	int *curr_sse2=&args->sse2[kc][(N[kc2]-NW[kc2]+32)>>6&7][(W[kc2]-NW[kc2]+32)>>6&7][(N[kc2]-NN[kc2]+32)>>6&7][(W[kc2]-WW[kc2]+32)>>6&7];//2.858805 worse
 			//	pred+=(*curr_sse2+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
@@ -1208,6 +1213,57 @@ static void block_thread(void *param)
 #endif
 				long long *curr_mixer=mixer+kc*8*A2_NCTX;
 #endif
+#ifdef NONBINARY_CODING
+				int cdf, freq;
+				if(args->fwd)
+				{
+					error=(char)(yuv[kc]-pred);
+					error=error<<1^error>>31;
+					for(int k=0;;)
+					{
+						freq=(
+							+curr_mixer[0]*curr_stats[0][k]
+							+curr_mixer[1]*curr_stats[1][k]
+							+curr_mixer[2]*curr_stats[2][k]
+							+curr_mixer[3]*curr_stats[3][k]
+							+curr_mixer[4]*curr_stats[4][k]
+							+curr_mixer[5]*curr_stats[5][k]
+							+curr_mixer[6]*curr_stats[6][k]
+							+curr_mixer[7]*curr_stats[7][k]
+						)+1;
+						if(k>=error)
+							break;
+						++k;
+						cdf+=freq;
+					}
+					ac3_enc_update(&ec, cdf, freq);
+				}
+				else
+				{
+					int code=ac3_dec_getcdf(&ec);
+					error=0;
+					for(;;)
+					{
+						freq=(
+							+curr_mixer[0]*curr_stats[0][error]
+							+curr_mixer[1]*curr_stats[1][error]
+							+curr_mixer[2]*curr_stats[2][error]
+							+curr_mixer[3]*curr_stats[3][error]
+							+curr_mixer[4]*curr_stats[4][error]
+							+curr_mixer[5]*curr_stats[5][error]
+							+curr_mixer[6]*curr_stats[6][error]
+							+curr_mixer[7]*curr_stats[7][error]
+						)+1;
+						int cdf2=cdf+freq;
+						if(cdf2>=code)
+							break;
+						++error;
+						cdf=cdf2;
+					}
+				}
+				curr[kc2+0]=yuv[kc];
+				curr[kc2+1]=yuv[kc]-pred;
+#else
 				if(args->fwd)
 				{
 					curr[kc2+0]=yuv[kc];
@@ -1402,6 +1458,7 @@ static void block_thread(void *param)
 					//long long *curr_sse_prob=&args->sse_prob[kc][kb][((error&0x1FE<<kb)+pred)>>3&31][p0>>11&31];	//2.859087
 					//long long *curr_sse_prob=&args->sse_prob[kc][kb][(pred+pred2)>>5&15][p0>>11&31];	//2.859014 not worth it
 					long long *curr_sse_prob=&args->sse_prob[kc][kb][(((error&0x1FE<<kb)|1<<kb)+pred)>>3&31][p0>>11&31];	//2.859006 CLIC303 record
+					long long sseprobval=*curr_sse_prob;
 
 					//long long *curr_sse_prob=&args->sse_prob[kc][kb][pred>>3&31][p0>>11&31];	//2.858704
 					//long long *curr_sse_prob=&args->sse_prob[kc][kb][pred>>2&63][p0>>11&31];	//2.858688
@@ -1418,7 +1475,8 @@ static void block_thread(void *param)
 					//int change=(*curr_sse_prob+(1<<(SSE3_DECAY+16)>>1))>>(SSE3_DECAY+16);
 					//if(abs(change)>100)
 					//	printf("");
-					p0+=(int)((*curr_sse_prob+(1<<(SSE3_DECAY+SSE3_SCALE)>>1))>>(SSE3_DECAY+SSE3_SCALE));
+					p0+=(sseprobval+(1LL<<SSE3_SCALE>>1))>>SSE3_SCALE;
+					//p0+=(int)((*curr_sse_prob+(1LL<<(SSE3_DECAY+SSE3_SCALE)>>1))>>(SSE3_DECAY+SSE3_SCALE));
 #endif
 					CLAMP2(p0, 0x0001, 0xFFFF);
 					if(args->fwd)
@@ -1708,7 +1766,10 @@ static void block_thread(void *param)
 #endif
 #ifdef ENABLE_SSE3_PROB
 					long long e=(long long)prob_error<<SSE3_SCALE;
-					*curr_sse_prob=((*curr_sse_prob*((1LL<<SSE3_DECAY)-1)+(1LL<<SSE3_DECAY>>1))>>SSE3_DECAY)+e;
+
+					*curr_sse_prob=sseprobval+((e-sseprobval+(1LL<<SSE3_DECAY>>1))>>SSE3_DECAY);
+					//*curr_sse_prob=((sseprobval*((1LL<<SSE3_DECAY)-1)+(1LL<<SSE3_DECAY>>1))>>SSE3_DECAY)+e;
+					//*curr_sse_prob=((*curr_sse_prob*((1LL<<SSE3_DECAY)-1)+(1LL<<SSE3_DECAY>>1))>>SSE3_DECAY)+e;
 					//if(!kb)
 					//	printf("%lld\n", *curr_sse_prob);
 					//if(abs(*curr_sse_prob>>2)>0xFFFF)
@@ -1723,12 +1784,12 @@ static void block_thread(void *param)
 				}
 				if(!args->fwd)
 				{
-					error+=pred;
-					error=error<<(32-8)>>(32-8);
+					error=(char)(error+pred);
 					yuv[kc]=error;
 					curr[kc2+0]=yuv[kc];
 					curr[kc2+1]=curr[kc2+0]-pred;
 				}
+#endif
 #ifdef ESTIMATE_SIZE
 				++args->hist2[kc][(curr[kc2+1]+128)&255];
 #endif
@@ -1736,7 +1797,8 @@ static void block_thread(void *param)
 				//if(curr[kc2+0]-pred0!=curr[kc2+1])//
 				//	printf("");
 				int e=curr[kc2+1]<<SSE2_SCALE;
-				*curr_sse1=((*curr_sse1*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
+				*curr_sse1=sseval+((e-sseval+(1<<SSE2_DECAY>>1))>>SSE2_DECAY);
+			//	*curr_sse1=((*curr_sse1*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
 			//	*curr_sse2=((*curr_sse2*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
 			//	*curr_sse3=((*curr_sse3*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
 			//	*curr_sse4=((*curr_sse4*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;

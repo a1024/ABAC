@@ -211,7 +211,7 @@ EContext ec_method=ECTX_HIST;//ECTX_MIN_QN_QW;
 int ec_adaptive=0, ec_adaptive_threshold=3200, ec_expbits=5, ec_msb=2, ec_lsb=0;
 int abacvis_low=0, abacvis_range=0;
 
-#define MODELPREC 6
+#define MODELPREC 3
 int modelnch=0, modelnctx=0, modeldepth=0, modelhistsize=0, *modelhist=0;
 double modelcsizes[4*32]={0};
 double modelmeans[4*32]={0}, modelsdevs[4*32]={0};
@@ -1184,21 +1184,9 @@ static void calc_csize_stateful(Image const *image, int *hist_full, double *entr
 					if(image->depth[kc])
 					{
 						int delta=image->data[idx<<2|kc];
-						int sym=delta<<1^delta>>31;
-						//if(sym>>maxdepth)
-						//	LOG_ERROR("sym %08X", sym);
-						sym&=mask;
-
+						int sym=(delta<<1^delta>>31)&mask;
 						int ctx=FLOOR_LOG2(sW[kc]*sW[kc]+1);
 						++hists[(kc*nctx+ctx)<<maxdepth|sym];
-
-						//if(NEE[kc]||NEEE[kc])
-						//	LOG_ERROR("%d %d", NEE[kc], NEEE[kc]);
-
-						//int nbypass=ctx-MODELPREC;
-						//if(nbypass<0)nbypass=0;
-						//bitsizes[kc*nctx+ctx]+=(long long)(sym>>nbypass)+nbypass+1;
-
 						curr[kc]=sW[kc]=(2*sW[kc]+(sym<<MODELPREC)+MAXVAR(NEE[kc], NEEE[kc]))>>2;
 					}
 				}
@@ -3966,8 +3954,7 @@ void update_image(void)//apply selected operations on original image, calculate 
 			if(modeldepth<im1->depth[2])modeldepth=im1->depth[2];
 			if(modeldepth<im1->depth[3])modeldepth=im1->depth[3];
 			modelnch=im1->nch;
-			modelnctx=modeldepth+MODELPREC;
-			modelnctx+=modelnctx;
+			modelnctx=(modeldepth+MODELPREC)<<1;
 			modelhistsize=(int)sizeof(int)*modelnch*modelnctx<<modeldepth;
 			void *p=(int*)realloc(modelhist, modelhistsize);
 			if(!p)

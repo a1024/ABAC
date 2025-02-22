@@ -1190,7 +1190,7 @@ int c23_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		etime=time_sec();
 #endif
 #ifdef ENABLE_MT
-		if(nthreads0)
+		if(nthreads0>1)
 		{
 			ThreadArgs args[]=
 			{
@@ -1302,7 +1302,7 @@ int c23_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		etime=time_sec();
 #endif
 #ifdef ENABLE_MT
-		if(nthreads0)
+		if(nthreads0>1)
 		{
 			ThreadArgs args[]=
 			{

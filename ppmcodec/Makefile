@@ -168,3 +168,9 @@ c26:
 
 c27:
 	gcc $(FLAGS) -DCODEC_EXT=c27 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c27.c codec.c util.c  -o c27 $(LIBS)
+
+c28:
+	gcc $(FLAGS) -DCODEC_EXT=c28 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c28.c codec.c util.c  -o c28 $(LIBS)
+
+c29:
+	gcc $(FLAGS) -DCODEC_EXT=c29 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c29.c codec.c util.c  -o c29 $(LIBS)
