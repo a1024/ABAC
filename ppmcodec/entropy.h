@@ -6,7 +6,7 @@
 #include<string.h>
 #include<immintrin.h>
 #ifdef _MSC_VER
-#include<intrin.h>//_udiv128, _umul128
+#include<intrin.h>//_udiv128, _umul128 -> _mulx_u64
 #endif
 #include"blist.h"
 #ifdef __cplusplus
@@ -133,6 +133,38 @@ void acval_dec(int sym, int cdf, int freq, unsigned long long lo1, unsigned long
 #define acval_dec(...)
 #endif
 
+#ifdef ANS_VAL
+static ArrayHandle debugstack=0;
+static void ansval_push(const void *data, int size)
+{
+	if(!debugstack)
+		ARRAY_ALLOC(char, debugstack, 0, 0, 1024, 0);
+	ARRAY_APPEND(debugstack, data, size, 1, 0);
+}
+static void ansval_check(const void *data, int size)
+{
+	unsigned char *data0=(unsigned char*)array_back(&debugstack)-(size-1);
+	if(data0<debugstack->data)
+	{
+		printf("DebugStack OOB ptr 0x%016zd < 0x%016zd", (size_t)data0, (size_t)debugstack->data);
+		LOG_ERROR("");
+	}
+	if(memcmp(data, data0, size))
+	{
+		printf("Validation Error  %d bytes\n", size);
+		printf("Original:       ");
+		for(int k=size-1;k>=0;--k)
+			printf("%02X", data0[k]);
+		printf("\n");
+		printf("Corrupt:        ");
+		for(int k=size-1;k>=0;--k)
+			printf("%02X", ((unsigned char*)data)[k]);
+		printf("\n\n");
+		LOG_ERROR("");
+	}
+	debugstack->count-=size;;
+}
+#endif
 	
 //	#define DEBUG_ANS
 
@@ -1313,7 +1345,7 @@ AWM_INLINE int ac5_dec_bin(AC5 *ec, int p1)
 }
 
 
-//Bypass Coder		rbuf with branchless renorm requires read/write access 4 bytes past the end
+//Bypass Coder (POT)		rbuf with branchless renorm requires read/write access 4 bytes past the end
 typedef struct _BypassCoder
 {
 	unsigned long long state;
@@ -1486,6 +1518,123 @@ AWM_INLINE int bypass_dec(BypassCoder *ec, int nbits)
 }
 
 
+//NPOT Bypass Coder
+typedef struct _UIntPackerLIFO//bwd enc / fwd dec
+{
+	unsigned long long state;
+	int enc_nwritten, dec_navailable;//bitcounts, only for tracking renorms
+	unsigned char *dstbwdptr;
+	const unsigned char *srcfwdptr, *streamend;
+} UIntPackerLIFO;
+AWM_INLINE void uintpacker_enc_init(UIntPackerLIFO *ec, const unsigned char *bufstart, unsigned char *bufptr0_OOB)
+{
+	memset(ec, 0, sizeof(*ec));
+	ec->streamend=bufstart;
+	ec->dstbwdptr=bufptr0_OOB;
+}
+AWM_INLINE void uintpacker_dec_init(UIntPackerLIFO *ec, const unsigned char *bufptr0_start, const unsigned char *bufend)
+{
+	memset(ec, 0, sizeof(*ec));
+	ec->srcfwdptr=bufptr0_start+8;
+	ec->streamend=bufend;
+	ec->state=*(const unsigned long long*)bufptr0_start;
+	ec->dec_navailable=64;
+}
+AWM_INLINE void uintpacker_enc_flush(UIntPackerLIFO *ec)
+{
+	ec->dstbwdptr-=8;
+#ifdef _DEBUG
+	if(ec->dstbwdptr<ec->streamend)
+		LOG_ERROR("IntPacker Encoder OOB:  dstbwdptr = 0x%016zX < 0x%016zX", ec->dstbwdptr, ec->streamend);
+#endif
+	*(unsigned long long*)ec->dstbwdptr=ec->state;
+}
+AWM_INLINE void uintpacker_enc(UIntPackerLIFO *ec, int nlevels, int sym)//2 <= nlevels <= INT_MAX=0x7FFFFFFF  (manually skip encoding when nlevels=1)
+{
+	/*
+	Truncated Binary Coding
+
+	nlevels	1	2	3	4	5	6	7	8	9	10	11	12	13	14	15
+
+	0000	0&	0&	0&	0&	0&	0&	0&	0&	0&	 0&	 0&	 0&	 0&	 0&	 0&
+	0001	0&	1&	1 +	1&	1&	1&	1 +	1&	1&	 1&	 1&	 1&	 1&	 1&	 1 +
+	0010		0&	0&	2&	2&	2 +	2 +	2&	2&	 2&	 2&	 2&	 2&	 2 +	 2 +
+	0011		1&	2 +	3&	3 +	3 +	3 +	3&	3&	 3&	 3&	 3&	 3 +	 3 +	 3 +
+	0100				0&	0&	0&	0&	4&	4&	 4&	 4&	 4 +	 4 +	 4 +	 4 +
+	0101				1&	1&	1&	4 +	5&	5&	 5&	 5 +	 5 +	 5 +	 5 +	 5 +
+	0110				2&	2&	4 +	5 +	6&	6&	 6 +	 6 +	 6 +	 6 +	 6 +	 6 +
+	0111				3&	4 +	5 +	6 +	7&	7 +	 7 +	 7 +	 7 +	 7 +	 7 +	 7 +
+	1000								0&	0&	 0&	 0&	 0&	 0&	 0&	 0&
+	1001								1&	1&	 1&	 1&	 1&	 1&	 1&	 8 +
+	1010								2&	2&	 2&	 2&	 2&	 2&	 8 +	 9 +
+	1011								3&	3&	 3&	 3&	 3&	 8 +	 9 +	10 +
+	1100								4&	4&	 4&	 4&	 8 +	 9 +	10 +	11 +
+	1101								5&	5&	 5&	 8 +	 9 +	10 +	11 +	12 +
+	1110								6&	6&	 8 +	 9 +	10 +	11 +	12 +	13 +
+	1111								7&	8 +	 9 +	10 +	11 +	12 +	13 +	14 +
+	*/
+#ifdef _DEBUG
+	if((unsigned)sym>=(unsigned)nlevels)
+		LOG_ERROR("IntPacker OOB:  sym %d  nlevels %d", sym, nlevels);
+#endif
+	int inbits=FLOOR_LOG2(nlevels);
+	int threshold=(2<<inbits)-nlevels;
+	int extra=sym>=threshold;
+	if(sym>=(1<<inbits))
+		sym+=threshold;
+	inbits+=extra;
+
+	//renorm then push inbits
+	ec->enc_nwritten+=inbits;
+	if(ec->enc_nwritten>64)//renorm on overflow	renorm probability ~= 25% when nlevels ~= 0x10000 [PROOF?]
+	{
+		ec->enc_nwritten-=32;
+		ec->dstbwdptr-=4;
+#ifdef _DEBUG
+		if(ec->dstbwdptr<ec->streamend)
+			LOG_ERROR("IntPacker OOB:  dstbwdptr = 0x%016zX < 0x%016zX", ec->dstbwdptr, ec->streamend);
+#endif
+		*(unsigned*)ec->dstbwdptr=(unsigned)ec->state;
+		ec->state>>=32;
+	}
+	ec->state=ec->state<<inbits|sym;
+#ifdef ANS_VAL
+	ansval_push(&ec->state, sizeof(ec->state));
+#endif
+}
+AWM_INLINE int uintpacker_dec(UIntPackerLIFO *ec, int nlevels)
+{
+	int outbits=FLOOR_LOG2(nlevels);
+	int threshold=(2<<outbits)-nlevels, half=1<<outbits;
+	int sym=ec->state&(half-1ULL);
+	int msb=ec->state>>outbits&(sym>=threshold);
+	{
+		int sym2=sym+nlevels-half;
+		if(msb)
+			sym=sym2;
+	}
+	outbits+=msb;
+	
+#ifdef ANS_VAL
+	ansval_check(&ec->state, sizeof(ec->state));
+#endif
+	//pop outbits then renorm
+	ec->dec_navailable-=outbits;
+	ec->state>>=outbits;
+	if(ec->dec_navailable<32)
+	{
+		ec->dec_navailable+=32;
+#ifdef _DEBUG
+		if(ec->srcfwdptr>=ec->streamend)
+			LOG_ERROR("IntPacker OOB:  srcfwdptr = 0x%016zX >= 0x%016zX", ec->srcfwdptr, ec->streamend);
+#endif
+		ec->state=ec->state<<32|*(const unsigned*)ec->srcfwdptr;
+		ec->srcfwdptr+=4;
+	}
+	return sym;
+}
+
+
 //Golomb-Rice Coder
 
 //	typedef unsigned GREmit_t;
@@ -1563,7 +1712,7 @@ AWM_INLINE int gr_enc_NPOT(GolombRiceCoder *ec, unsigned sym, unsigned magnitude
 	//written 64-bit words are byte-reversed because the CPU is little-endian
 
 	//magnitude+=!magnitude;
-	int nbypass=32-_lzcnt_u32(magnitude);
+	int nbypass=32-_lzcnt_u32(magnitude);//FLOOR_LOG2(magnitude)+1
 	int nzeros=sym/magnitude, bypass=sym%magnitude;
 	if(nzeros>=ec->nbits)//fill the rest of cache with zeros, and flush
 	{
@@ -1644,7 +1793,7 @@ AWM_INLINE unsigned gr_dec_NPOT(GolombRiceCoder *ec, unsigned magnitude)
 	//ec->cache>>=nleadingzeros;
 
 	sym*=magnitude;
-	unsigned bypass=0, nunused=(1<<(nbypass+1))-magnitude;
+	unsigned bypass=0, nunused=(1<<(nbypass+1))-magnitude;//this reads k=FLOOR_LOG2(magnitude) bits, then possibly reads one more bit
 	if(ec->nbits<nbypass)
 	{
 		nbypass-=ec->nbits;
@@ -1658,7 +1807,7 @@ AWM_INLINE unsigned gr_dec_NPOT(GolombRiceCoder *ec, unsigned magnitude)
 		bypass|=(int)(ec->cache>>ec->nbits);
 		ec->cache&=(1ULL<<ec->nbits)-1;
 	}
-	if(bypass>=nunused)
+	if(bypass>=nunused)//read one more bit
 	{
 		if(ec->nbits<1)
 		{

@@ -16,7 +16,7 @@ static const char file[]=__FILE__;
 	#define LOUD
 	#define ENABLE_MEMCHECKS
 	#define ENABLE_GUIDE
-	#define AC_VALIDATE
+//	#define AC_VALIDATE
 #endif
 
 #define GRSTATS_THRESHOLD 512

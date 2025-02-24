@@ -24,7 +24,7 @@ static const char file[]=__FILE__;
 //	#define CODEC_EXT c12
 //	#define CODEC_EXT c13
 //	#define CODEC_EXT c14
-	#define CODEC_EXT c15
+//	#define CODEC_EXT c15
 //	#define CODEC_EXT c16
 //	#define CODEC_EXT c17
 //	#define CODEC_EXT c18
@@ -38,6 +38,7 @@ static const char file[]=__FILE__;
 //	#define CODEC_EXT c26
 //	#define CODEC_EXT c27
 //	#define CODEC_EXT c28
+	#define CODEC_EXT c29
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
