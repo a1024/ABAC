@@ -1529,7 +1529,8 @@ typedef struct _UIntPackerLIFO//bwd enc / fwd dec
 AWM_INLINE void uintpacker_enc_init(UIntPackerLIFO *ec, const unsigned char *bufstart, unsigned char *bufptr0_OOB)
 {
 	memset(ec, 0, sizeof(*ec));
-//	ec->state=1ULL<<32;
+	ec->state=1ULL<<32;
+	ec->enc_nwritten=32;
 	ec->streamend=bufstart;
 	ec->dstbwdptr=bufptr0_OOB;
 }
@@ -1553,11 +1554,11 @@ AWM_INLINE void uintpacker_enc_flush(UIntPackerLIFO *ec)
 AWM_INLINE void uintpacker_enc(UIntPackerLIFO *ec, int nlevels, int sym)//2 <= nlevels <= INT_MAX=0x7FFFFFFF  (manually skip encoding when nlevels=1)
 {
 	/*
-	FIXME if doesn't work,  use TBC + bypass-rANS
+	bypass-rANS = shift register
 
 	rANS
 	enc:
-	state = 1<<(REGBITS-RENORMBITS);
+	state = 1<<(REGBITS-RENORMBITS);	//nbits=32
 	...
 	if(state >= (freq<<(REGBITS-PROBBITS)))
 		enc_renorm_RENORMBITS(state);
@@ -1573,13 +1574,13 @@ AWM_INLINE void uintpacker_enc(UIntPackerLIFO *ec, int nlevels, int sym)//2 <= n
 	enc:
 	state = 1<<(REGBITS-RENORMBITS);
 	...
-	if(state >= (1<<(REGBITS-NBYPASS)))
+	if(state >= (1<<(REGBITS-NBYPASS)))	//nbits+NBYPASS>64
 		enc_renorm_RENORMBITS(state);
 	state = state<<NBYPASS|bypass;
 
 	dec:
-	state = (state>>NBYPASS)-bypass+(state&BYPASSMASK);
-	if(state < (1<<(REGBITS-RENORMBITS)))
+	state >>= NBYPASS;
+	if(state < (1<<(REGBITS-RENORMBITS)))	//nbits<32
 		dec_renorm_RENORMBITS(state);
 	*/
 
