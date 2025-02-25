@@ -1529,6 +1529,7 @@ typedef struct _UIntPackerLIFO//bwd enc / fwd dec
 AWM_INLINE void uintpacker_enc_init(UIntPackerLIFO *ec, const unsigned char *bufstart, unsigned char *bufptr0_OOB)
 {
 	memset(ec, 0, sizeof(*ec));
+//	ec->state=1ULL<<32;
 	ec->streamend=bufstart;
 	ec->dstbwdptr=bufptr0_OOB;
 }
@@ -1551,6 +1552,37 @@ AWM_INLINE void uintpacker_enc_flush(UIntPackerLIFO *ec)
 }
 AWM_INLINE void uintpacker_enc(UIntPackerLIFO *ec, int nlevels, int sym)//2 <= nlevels <= INT_MAX=0x7FFFFFFF  (manually skip encoding when nlevels=1)
 {
+	/*
+	FIXME if doesn't work,  use TBC + bypass-rANS
+
+	rANS
+	enc:
+	state = 1<<(REGBITS-RENORMBITS);
+	...
+	if(state >= (freq<<(REGBITS-PROBBITS)))
+		enc_renorm_RENORMBITS(state);
+	state = (state/freq)<<PROBBITS|(cdf+state%freq);
+
+	dec:
+	state = (state>>PROBBITS)*freq-cdf+(state&PROBMASK);
+	if(state < (1<<(REGBITS-RENORMBITS)))
+		dec_renorm_RENORMBITS(state);
+
+
+	freq=1:
+	enc:
+	state = 1<<(REGBITS-RENORMBITS);
+	...
+	if(state >= (1<<(REGBITS-NBYPASS)))
+		enc_renorm_RENORMBITS(state);
+	state = state<<NBYPASS|bypass;
+
+	dec:
+	state = (state>>NBYPASS)-bypass+(state&BYPASSMASK);
+	if(state < (1<<(REGBITS-RENORMBITS)))
+		dec_renorm_RENORMBITS(state);
+	*/
+
 	/*
 	Truncated Binary Coding
 
