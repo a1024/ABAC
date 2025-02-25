@@ -8,9 +8,11 @@ static const char file[]=__FILE__;
 
 
 #ifdef _MSC_VER
-	#define LOUD
+	#define LOUD		//size & time
+	#define PROFILE_SIZE
+
 	#define ENABLE_GUIDE
-	#define ANS_VAL		//this isn't DEBUG_ANS
+	#define ANS_VAL
 #endif
 
 	#define DEBUG_PACKER
@@ -99,6 +101,32 @@ static void guide_check(const unsigned char *image, int kx, int ky)
 #else
 #define guide_save(...)
 #define guide_check(...)
+#endif
+#ifdef PROFILE_SIZE
+#include<stdarg.h>
+static void profile_size(const unsigned char *dstbwdptr, const char *msg, ...)
+{
+	static ptrdiff_t size=0;
+	static const unsigned char *prev=0;
+	if(prev)
+	{
+		ptrdiff_t diff=prev-dstbwdptr;
+		size+=diff;
+		printf("%9td (%+9td) bytes", size, diff);
+		if(msg)
+		{
+			va_list args;
+			va_start(args, msg);
+			printf("  ");
+			vprintf(msg, args);
+			va_end(args);
+		}
+		printf("\n");
+	}
+	prev=dstbwdptr;
+}
+#else
+#define profile_size(...) 0
 #endif
 
 #define OCHLIST\
@@ -662,7 +690,7 @@ static void enc_packhist(UIntPackerLIFO *ec, const int *hist)//histogram must be
 		ansval_push(&nlevels, sizeof(nlevels));
 #endif
 #ifdef DEBUG_PACKER
-		printf(" %d", curr);//
+		//printf(" %d", curr);//
 #endif
 		if(nlevels>1)
 			uintpacker_enc(ec, nlevels, curr-cdfW-1);
@@ -670,7 +698,7 @@ static void enc_packhist(UIntPackerLIFO *ec, const int *hist)//histogram must be
 	}
 #ifdef DEBUG_PACKER
 	static int CDFctr=0;
-	printf("\n^ %d\n", CDFctr);//
+	//printf("\n^ %d\n", CDFctr);//
 	++CDFctr;
 #endif
 }
@@ -853,7 +881,7 @@ AWM_INLINE void dec_yuv(__m256i *mstate, __m256i *ctx0, __m256i *ctx1, const int
 		mstate[2]=_mm256_blendv_epi8(mstate[2], renorm2, cond2);
 		mstate[3]=_mm256_blendv_epi8(mstate[3], renorm3, cond3);
 	}
-	*pstreamptr+=streamptr-*pstreamptr;
+	*pstreamptr=(unsigned char*)(size_t)streamptr;
 }
 int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 {
@@ -946,6 +974,7 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		{
 			fread(image, 1, usize, fsrc);//read image
 			streamptr=streamstart=image+cap;//bwd-bwd ANS encoding
+			profile_size(streamptr, "start");
 		}
 		else
 		{
@@ -1189,7 +1218,7 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		dec_unpackhist(&ec, rCDF2syms+((ptrdiff_t)0<<PROB_BITS));
 		dec_unpackhist(&ec, rCDF2syms+((ptrdiff_t)1<<PROB_BITS));
 		dec_unpackhist(&ec, rCDF2syms+((ptrdiff_t)2<<PROB_BITS));
-		streamptr+=ec.srcfwdptr-streamptr;
+		streamptr=(unsigned char*)(size_t)ec.srcfwdptr;
 
 		//generate decode permutations		eg: mask = MSB 0b11000101 LSB  ->  LO {0, 9, 1, 9, 9, 9, 2, 3} HI
 		for(int km=0;km<256;++km)
@@ -2411,6 +2440,7 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 #endif
 			*(unsigned*)streamptr=state;
 		}
+		profile_size(streamptr, "remainders");
 
 		//encode main
 		mstate[0]=_mm256_set1_epi32(1<<(RANS_STATE_BITS-RANS_RENORM_BITS));
@@ -2638,6 +2668,7 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		//_mm256_storeu_si256((__m256i*)streamptr+1, mstate[1]);
 		//_mm256_storeu_si256((__m256i*)streamptr+2, mstate[2]);
 		//_mm256_storeu_si256((__m256i*)streamptr+3, mstate[3]);
+		profile_size(streamptr, "main");
 
 		//pack hists
 		{
@@ -2656,6 +2687,7 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 			uintpacker_enc_flush(&ec);
 			streamptr=ec.dstbwdptr;
 		}
+		profile_size(streamptr, "overhead (%d unpacked)", (int)sizeof(short[(3*2*(8+GRBITS)+3)<<8]));
 
 		//save compressed file
 		{
