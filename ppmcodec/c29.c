@@ -7,28 +7,31 @@
 static const char file[]=__FILE__;
 
 
+//	#define PROFILER
+
 #ifdef _MSC_VER
 	#define LOUD		//size & time
 	#define PROFILE_SIZE
+	#define ESTIMATE_SIZE
 
+//	#define TEST_INTERLEAVE
+//	#define SAVE_RESIDUAL
 	#define ENABLE_GUIDE
 	#define ANS_VAL
 #endif
 
-	#define DEBUG_PACKER
 	#define WG_DISABLE_eW
 
 
-//3*2*(8+3)+3=69 contexts
+//3*17+3=54 contexts
 #define GRBITS 3
+#define NCTX 17
 
 #define NCODERS 32
 
-//CDF2sym 1104 KB
-#define PROB_BITS 12	//12 bit max
+#define PROBBITS 12	//12 bit max	James Bonfield's CDF2sym: {freq<<20 | bias<<8 | sym}
 
-//DIV-free state is 31 bits
-#define RANS_STATE_BITS 31	//rANS decoder renorm lower bound
+#define RANS_STATE_BITS 31
 #define RANS_RENORM_BITS 16
 
 #include"entropy.h"
@@ -126,7 +129,24 @@ static void profile_size(const unsigned char *dstbwdptr, const char *msg, ...)
 	prev=dstbwdptr;
 }
 #else
-#define profile_size(...) 0
+#define profile_size(...)
+#endif
+#ifdef PROFILER
+static void prof_checkpoint(const char *msg)
+{
+	static double t=0;
+	double t2=time_sec();
+	if(t)
+	{
+		printf("%16.12lf sec", t2-t);
+		if(msg)
+			printf(" %s", msg);
+		printf("\n");
+	}
+	t=t2;
+}
+#else
+#define prof_checkpoint(...)
 #endif
 
 #define OCHLIST\
@@ -574,7 +594,7 @@ AWM_INLINE void wg_mix(int kc, const short *wgWerrors, const short *rowscurrNNpt
 	prederrors[0xE]=_mm256_add_epi16(prederrors[0xE], _mm256_load_si256((__m256i*)(currNNptr+((7+1*WG_NPREDS)*3+0)*NCODERS)+0));
 	prederrors[0xF]=_mm256_add_epi16(prederrors[0xF], _mm256_load_si256((__m256i*)(currNNptr+((7+1*WG_NPREDS)*3+0)*NCODERS)+1));
 
-	__m256i one=_mm256_set1_epi32(1);
+	__m256i one=_mm256_set1_epi16(1);
 	prederrors[0x0]=_mm256_add_epi16(prederrors[0x0], one);
 	prederrors[0x1]=_mm256_add_epi16(prederrors[0x1], one);
 	prederrors[0x2]=_mm256_add_epi16(prederrors[0x2], one);
@@ -601,8 +621,8 @@ AWM_INLINE void wg_mix(int kc, const short *wgWerrors, const short *rowscurrNNpt
 	ires[1]=_mm256_cvtps_epi32(result[1]);
 	ires[2]=_mm256_cvtps_epi32(result[2]);
 	ires[3]=_mm256_cvtps_epi32(result[3]);
-	ires[0]=_mm256_packus_epi32(ires[0], ires[1]);
-	ires[2]=_mm256_packus_epi32(ires[2], ires[3]);
+	ires[0]=_mm256_packs_epi32(ires[0], ires[1]);
+	ires[2]=_mm256_packs_epi32(ires[2], ires[3]);
 	preds[0]=_mm256_permute4x64_epi64(ires[0], _MM_SHUFFLE(3, 1, 2, 0));
 	preds[1]=_mm256_permute4x64_epi64(ires[2], _MM_SHUFFLE(3, 1, 2, 0));
 }
@@ -615,25 +635,60 @@ typedef struct _rANS_SIMD_SymInfo	//16 bytes/level	4KB/ctx = 1<<12 bytes
 	unsigned smax, invf, cdf;
 	unsigned short negf, sh;
 } rANS_SIMD_SymInfo;
-static void enc_hist2stats(int *hist, rANS_SIMD_SymInfo *syminfo)
+static void enc_hist2stats(int *hist, rANS_SIMD_SymInfo *syminfo, long long *ctxmask, int ctxidx)
 {
-	int sum=0;
-	for(int ks=0;ks<256;++ks)
-		sum+=hist[ks];
-	if(!sum)
-	{
-		for(int ks=0;ks<256;++ks)//bypass
-			hist[ks]=1;
-		sum=256;
-	}
-	int sum2=0;
+	int sum=0, count=0;
 	for(int ks=0;ks<256;++ks)
 	{
 		int freq=hist[ks];
-		hist[ks]=(int)(sum2*((1ULL<<PROB_BITS)-256)/sum)+ks;
+		sum+=freq;
+		count+=freq!=0;
+		//ctxmask[ks>>6]|=(unsigned long long)(freq!=0)<<(ks&63);//X
+	}
+	int rare=sum<12*256/8;
+	*ctxmask|=(unsigned long long)rare<<ctxidx;
+	if(rare)
+	{
+		for(int ks=0;ks<256;++ks)//bypass for now	FIXME try emitting mask with present symbols, and handle degenerate distribution
+			hist[ks]=1;
+		sum=256;
+		count=256;
+	}
+	int sum2=0;
+	for(int ks=0, ks2=0;ks<256;++ks)//this allows zero freq
+	{
+		int freq=hist[ks];
+		hist[ks]=(int)(sum2*((1ULL<<PROBBITS)-count)/sum)+ks2;
+//#ifdef _DEBUG
+//		if(ks>0&&hist[ks-1]>hist[ks])
+//			LOG_ERROR("");
+//#endif
+		ks2+=freq!=0;
 		sum2+=freq;
 	}
-	int next=1<<PROB_BITS;
+	//for(int ks=0;ks<256;++ks)//doesn't allow zero freq	INEFFICIENT
+	//{
+	//	int freq=hist[ks];
+	//	hist[ks]=(int)(sum2*((1ULL<<PROBBITS)-256)/sum)+ks;
+	//	sum2+=freq;
+	//}
+#ifdef LOUD
+	double e=0, norm=1./0x1000;
+	for(int ks=0;ks<256;++ks)//estimate
+	{
+		int freq=(ks<256-1?hist[ks+1]:1<<PROBBITS)-hist[ks];
+		if(freq)
+		{
+			double p=freq*norm;
+			e-=p*log2(p);
+		}
+		if(e!=e)
+			LOG_ERROR("");
+	}
+	e*=sum/8.;
+	printf("%12.2lf bytes\n", e);
+#endif
+	int next=1<<PROBBITS;
 	for(int ks=255;ks>=0;--ks)
 	{
 		rANS_SIMD_SymInfo *info=syminfo+ks;
@@ -641,9 +696,9 @@ static void enc_hist2stats(int *hist, rANS_SIMD_SymInfo *syminfo)
 		int freq=next-curr;
 		next=curr;
 		hist[ks]=freq;
-		info->smax=(freq<<(RANS_STATE_BITS-PROB_BITS))-1;//rescale freq to match the rANS state, and decrement to use _mm256_cmpgt_epi32 instead of '>='
+		info->smax=(freq<<(RANS_STATE_BITS-PROBBITS))-1;//rescale freq to match the rANS state, and decrement to use _mm256_cmpgt_epi32 instead of '>='
 		info->cdf=curr;
-		info->negf=(1<<PROB_BITS)-freq;
+		info->negf=(1<<PROBBITS)-freq;
 		//encoding:  state  =  q<<16|(cdf+r)
 		//div-free:  state  =  q*M+cdf+state-q*freq  =  state+q*(M-freq)+cdf  =  state+(state*invf>>sh)*(M-freq)+cdf
 		//sh = FLOOR_LOG2(freq)+32
@@ -657,7 +712,7 @@ static void enc_hist2stats(int *hist, rANS_SIMD_SymInfo *syminfo)
 			//so  state = state+(state-1+1)*(M-1)+cdf  =  state+q'*(M-1)+(cdf+M-1)
 			info->sh=0;
 			info->invf=0xFFFFFFFF;
-			info->cdf+=(1<<PROB_BITS)-1;
+			info->cdf+=(1<<PROBBITS)-1;
 		}
 		else
 		{
@@ -666,10 +721,29 @@ static void enc_hist2stats(int *hist, rANS_SIMD_SymInfo *syminfo)
 		}
 	}
 }
-static void enc_packhist(UIntPackerLIFO *ec, const int *hist)//histogram must be normalized to PROB_BITS, with spike at 128
+static const int rcpmasks[]=
 {
+	-1,
+	0x10000,//q = floor(x/((1<<len)-1)) = x*rcpmasks[len]>>16		supports up to 16 bits
+	0x05555,
+	0x02492,
+	0x01111,
+	0x00842,
+	0x00410,
+	0x00204,
+	0x00101,
+	0x00080,
+	0x00040,
+	0x00020,
+	0x00010,
+	0x00008,
+};
+static void enc_packhist(BitPackerLIFO *ec, const int *hist, unsigned long long ctxmask, int ctxidx)//histogram must be normalized to PROBBITS, with spike at 128
+{
+	if(!(ctxmask>>ctxidx&1))
+		return;
 	int sum=0;
-	unsigned short CDF[256];
+	unsigned short CDF[257];
 	for(int ks=0;ks<256;++ks)//integrage to zigzag CDF to be packed backwards
 	{
 		int sym=((ks>>1^-(ks&1))+128)&255;
@@ -677,58 +751,94 @@ static void enc_packhist(UIntPackerLIFO *ec, const int *hist)//histogram must be
 		CDF[ks]=sum;//separate buffer for faster access in 2nd loop
 		sum+=freq;
 	}
-	int curr=CDF[255];
-	for(int ks=256-2;ks>=0;--ks)
+	CDF[256]=1<<PROBBITS;
+	int unitlen=PROBBITS+1, CDFlevels=1<<PROBBITS, expectedcodelen=unitlen;
+	int cdfW=CDF[0];
+	for(int ks=0;ks<256;++ks)//pack CDF: push codelengths
 	{
-		if(!ks)//
-			printf("");
-
-		int cdfW=CDF[ks];
-		int nlevels=(1<<PROB_BITS)-1-cdfW;//subtract freq guards
-#ifdef ANS_VAL
-		ansval_push(&curr, sizeof(curr));
-		ansval_push(&nlevels, sizeof(nlevels));
-#endif
-#ifdef DEBUG_PACKER
-		//printf(" %d", curr);//
-#endif
-		if(nlevels>1)
-			uintpacker_enc(ec, nlevels, curr-cdfW-1);
-		curr=cdfW;
+		int next=CDF[ks+1], freq=next-cdfW, nlevels=(1<<PROBBITS)-cdfW;
+		if(unitlen>1)
+		{
+			int nextlen=unitlen-1;
+			int nextcodelen=((CDFlevels*rcpmasks[nextlen]>>16)+1)*nextlen;
+		//	int nextcodelen=(CDFlevels/((1<<nextlen)-1)+1)*nextlen;
+			if(nextcodelen<expectedcodelen)
+			{
+				unitlen=nextlen;
+				nextcodelen=expectedcodelen;
+			}
+		}
+		CDF[ks]=unitlen<<PROBBITS|freq;
+		cdfW=next;
+		CDFlevels-=freq;
 	}
-#ifdef DEBUG_PACKER
-	static int CDFctr=0;
-	//printf("\n^ %d\n", CDFctr);//
-	++CDFctr;
-#endif
+	for(int ks=255;ks>0;--ks)//pack CDF: encode
+	{
+		int freq=CDF[ks], unitlen=freq>>PROBBITS;
+		freq&=(1<<PROBBITS)-1;
+		int dmax=(1<<unitlen)-1;
+		bitpacker_enc(ec, unitlen, freq&dmax);
+		while(freq>dmax)
+		{
+			bitpacker_enc(ec, unitlen, dmax);
+			freq-=dmax;
+		}
+	}
 }
-static void dec_unpackhist(UIntPackerLIFO *ec, unsigned *CDF2sym)
+static void dec_unpackhist(BitPackerLIFO *ec, unsigned *CDF2sym, unsigned long long ctxmask, int ctxidx)
 {
-	unsigned short zCDF[257];
-	zCDF[0]=0;
-	int cdfW=0;
-	for(int ks=1;ks<256;++ks)//decode zigzag CDF
-	{
-		int nlevels=(1<<PROB_BITS)-1-cdfW;//subtract freq guards
-		int curr=cdfW+1;
-		if(nlevels>1)
-			curr+=uintpacker_dec(ec, nlevels);
-#ifdef ANS_VAL
-		ansval_check(&nlevels, sizeof(nlevels));
-		ansval_check(&curr, sizeof(curr));
-#endif
-#ifdef _DEBUG
-		if((unsigned)curr>=(1U<<PROB_BITS))
-			LOG_ERROR("Invalid CDF [%d] = %08X", ks, curr);
-#endif
-		cdfW=curr;
-		zCDF[ks-1]=curr-cdfW;
-	}
 	unsigned short hist[257];
-	for(int ks=0;ks<256;++ks)//undo zigzag
+	if(ctxmask>>ctxidx&1)
 	{
-		int sym=((ks>>1^-(ks&1))+128)&255;
-		hist[sym]=zCDF[ks];
+		unsigned short CDF[257];
+		int unitlen=PROBBITS+1, CDFlevels=1<<PROBBITS, expectedcodelen=unitlen;
+		int cdfW=0;
+		CDF[0]=0;
+		for(int ks=1;ks<256;++ks)
+		{
+			int freq=0;
+			int digit=0;
+			if(unitlen>1)
+			{
+				int nextlen=unitlen-1;
+				int nextcodelen=((CDFlevels*rcpmasks[nextlen]>>16)+1)*nextlen;
+				if(nextcodelen<expectedcodelen)
+				{
+					unitlen=nextlen;
+					nextcodelen=expectedcodelen;
+				}
+			}
+			do
+			{
+				digit=bitpacker_dec(ec, unitlen);
+				freq+=digit;
+			}
+			while(!digit);
+			freq+=bitpacker_dec(ec, unitlen);
+			cdfW+=freq;
+			CDF[ks]=freq;
+			CDFlevels-=freq;
+			if(CDFlevels<=0)
+			{
+#ifdef _DEBUG
+				if(CDFlevels<0)
+					LOG_ERROR("CDF unpack error");
+#endif
+				break;
+			}
+		}
+		if(CDFlevels)
+			LOG_ERROR("CDF unpack error");
+		for(int ks=0;ks<256;++ks)//undo zigzag
+		{
+			int sym=((ks>>1^-(ks&1))+128)&255;
+			hist[sym]=CDF[ks];
+		}
+	}
+	else//rare context
+	{
+		for(int ks=0;ks<256;++ks)//bypass for now
+			hist[ks]=(1<<PROBBITS)/256;
 	}
 	int sum=0;
 	for(int ks=0;ks<256;++ks)//integrate
@@ -737,11 +847,11 @@ static void dec_unpackhist(UIntPackerLIFO *ec, unsigned *CDF2sym)
 		hist[ks]=sum;
 		sum+=freq;
 	}
-	hist[256]=1<<PROB_BITS;
+	hist[256]=1<<PROBBITS;
 	for(int ks=0;ks<256;++ks)//CDF2sym contains {freq, (state&0xFFF)-cdf, sym}
 	{
 		int cdf=hist[ks], next=hist[ks+1], freq=next-cdf;
-		int val=(freq<<PROB_BITS|0)<<8|ks;
+		int val=(freq<<PROBBITS|0)<<8|ks;
 		for(int ks2=cdf, bias=0;ks2<next;++ks2, ++bias)
 			CDF2sym[ks2]=val|bias<<8;
 	}
@@ -758,15 +868,15 @@ AWM_INLINE void dec_yuv(__m256i *mstate, __m256i *ctx0, __m256i *ctx1, const int
 		decctx[1]=_mm256_cvtepi16_epi32(t0);
 		decctx[3]=_mm256_cvtepi16_epi32(t1);
 	}
-	decctx[0]=_mm256_slli_epi32(decctx[0], PROB_BITS);
-	decctx[1]=_mm256_slli_epi32(decctx[1], PROB_BITS);
-	decctx[2]=_mm256_slli_epi32(decctx[2], PROB_BITS);
-	decctx[3]=_mm256_slli_epi32(decctx[3], PROB_BITS);
+	decctx[0]=_mm256_slli_epi32(decctx[0], PROBBITS);
+	decctx[1]=_mm256_slli_epi32(decctx[1], PROBBITS);
+	decctx[2]=_mm256_slli_epi32(decctx[2], PROBBITS);
+	decctx[3]=_mm256_slli_epi32(decctx[3], PROBBITS);
 #ifdef ANS_VAL
 	ansval_check(mstate, sizeof(int[NCODERS]));
 #endif
 	{
-		__m256i mprobmask=_mm256_set1_epi32((1<<PROB_BITS)-1);
+		__m256i mprobmask=_mm256_set1_epi32((1<<PROBBITS)-1);
 		__m256i rem0=_mm256_and_si256(mstate[0], mprobmask);
 		__m256i rem1=_mm256_and_si256(mstate[1], mprobmask);
 		__m256i rem2=_mm256_and_si256(mstate[2], mprobmask);
@@ -782,15 +892,15 @@ AWM_INLINE void dec_yuv(__m256i *mstate, __m256i *ctx0, __m256i *ctx1, const int
 	decctx[3]=_mm256_i32gather_epi32(CDF2syms, decctx[3], sizeof(int));
 
 	//update		state = (state>>12)*freq+(rem-cdf)	rem-cdf is prebaked
-	mstate[0]=_mm256_srli_epi32(mstate[0], PROB_BITS);
-	mstate[1]=_mm256_srli_epi32(mstate[1], PROB_BITS);
-	mstate[2]=_mm256_srli_epi32(mstate[2], PROB_BITS);
-	mstate[3]=_mm256_srli_epi32(mstate[3], PROB_BITS);
+	mstate[0]=_mm256_srli_epi32(mstate[0], PROBBITS);
+	mstate[1]=_mm256_srli_epi32(mstate[1], PROBBITS);
+	mstate[2]=_mm256_srli_epi32(mstate[2], PROBBITS);
+	mstate[3]=_mm256_srli_epi32(mstate[3], PROBBITS);
 	{
-		__m256i mfreq0=_mm256_srli_epi32(decctx[0], PROB_BITS+8);//1 <= freq <= 0xF01
-		__m256i mfreq1=_mm256_srli_epi32(decctx[1], PROB_BITS+8);
-		__m256i mfreq2=_mm256_srli_epi32(decctx[2], PROB_BITS+8);
-		__m256i mfreq3=_mm256_srli_epi32(decctx[3], PROB_BITS+8);
+		__m256i mfreq0=_mm256_srli_epi32(decctx[0], PROBBITS+8);//1 <= freq <= 0xF01
+		__m256i mfreq1=_mm256_srli_epi32(decctx[1], PROBBITS+8);
+		__m256i mfreq2=_mm256_srli_epi32(decctx[2], PROBBITS+8);
+		__m256i mfreq3=_mm256_srli_epi32(decctx[3], PROBBITS+8);
 		mstate[0]=_mm256_mullo_epi32(mstate[0], mfreq0);//10 cycles
 		mstate[1]=_mm256_mullo_epi32(mstate[1], mfreq1);
 		mstate[2]=_mm256_mullo_epi32(mstate[2], mfreq2);
@@ -806,14 +916,14 @@ AWM_INLINE void dec_yuv(__m256i *mstate, __m256i *ctx0, __m256i *ctx1, const int
 	msym0=_mm256_permute4x64_epi64(msym0, _MM_SHUFFLE(3, 1, 2, 0));
 	msym1=_mm256_permute4x64_epi64(msym1, _MM_SHUFFLE(3, 1, 2, 0));
 	{
-		__m256i mbias0=_mm256_slli_epi32(decctx[0], PROB_BITS);
-		__m256i mbias1=_mm256_slli_epi32(decctx[1], PROB_BITS);
-		__m256i mbias2=_mm256_slli_epi32(decctx[2], PROB_BITS);
-		__m256i mbias3=_mm256_slli_epi32(decctx[3], PROB_BITS);
-		mbias0=_mm256_srli_epi32(mbias0, 32-PROB_BITS);
-		mbias1=_mm256_srli_epi32(mbias1, 32-PROB_BITS);
-		mbias2=_mm256_srli_epi32(mbias2, 32-PROB_BITS);
-		mbias3=_mm256_srli_epi32(mbias3, 32-PROB_BITS);
+		__m256i mbias0=_mm256_slli_epi32(decctx[0], PROBBITS);
+		__m256i mbias1=_mm256_slli_epi32(decctx[1], PROBBITS);
+		__m256i mbias2=_mm256_slli_epi32(decctx[2], PROBBITS);
+		__m256i mbias3=_mm256_slli_epi32(decctx[3], PROBBITS);
+		mbias0=_mm256_srli_epi32(mbias0, 32-PROBBITS);
+		mbias1=_mm256_srli_epi32(mbias1, 32-PROBBITS);
+		mbias2=_mm256_srli_epi32(mbias2, 32-PROBBITS);
+		mbias3=_mm256_srli_epi32(mbias3, 32-PROBBITS);
 		mstate[0]=_mm256_add_epi32(mstate[0], mbias0);
 		mstate[1]=_mm256_add_epi32(mstate[1], mbias1);
 		mstate[2]=_mm256_add_epi32(mstate[2], mbias2);
@@ -883,12 +993,139 @@ AWM_INLINE void dec_yuv(__m256i *mstate, __m256i *ctx0, __m256i *ctx1, const int
 	}
 	*pstreamptr=(unsigned char*)(size_t)streamptr;
 }
+static void interleave_fwd(unsigned char *image, int iw, int ih, unsigned char *temprow)
+{
+	int blockw=iw/NCODERS, blockstride=3*blockw;
+	int rowstride=3*iw;
+	unsigned char *tptrs[NCODERS]={0}, *tptrs0[NCODERS]={0};
+	{
+		unsigned char *temp=temprow;
+		for(int k=0;k<NCODERS;++k)
+		{
+			tptrs[k]=temp;
+			temp+=blockstride;
+		}
+	}
+	memcpy(tptrs0, tptrs, sizeof(tptrs0));
+	unsigned char *imptr=image;
+	for(int ky=0;ky<ih;++ky)//interleave coder lanes
+	{
+		unsigned char *dstptr=imptr;
+		memcpy(temprow, imptr, (ptrdiff_t)blockstride*NCODERS);
+		memcpy(tptrs, tptrs0, sizeof(tptrs));
+		for(int kx=0;kx<blockw;++kx)
+		{
+			//toy example with 2 coders:
+			// [0] [2] [4] ...                                 [1] [3] [5] ...
+			//|r00 g00 b00|r01 g01 b01|r02 g02 b02|r03 g03 b03|r04 g04 b04|r05 g05 b05|r06 g06 b06|r07 g07 b07|	src
+			//|r00 r04|g00 g04|b00 b04|r01 r05|g01 g05|b01 b05|r02 r06|g02 g06|b02 b06|r03 r07|g03 g07|b03 b07|	dst
+#if defined __GNUC__ && !defined PROFILER
+#pragma GCC unroll 32
+#endif
+			for(int k=0;k<NCODERS;++k)
+				*dstptr++=*tptrs[k]++;
+#if defined __GNUC__ && !defined PROFILER
+#pragma GCC unroll 32
+#endif
+			for(int k=0;k<NCODERS;++k)
+				*dstptr++=*tptrs[k]++;
+#if defined __GNUC__ && !defined PROFILER
+#pragma GCC unroll 32
+#endif
+			for(int k=0;k<NCODERS;++k)
+				*dstptr++=*tptrs[k]++;
+		}
+		imptr+=rowstride;
+	}
+}
+static void interleave_inv(unsigned char *image, int iw, int ih, unsigned char *temprow)
+{
+	int blockw=iw/NCODERS, blockstride=3*blockw;
+	int rowstride=3*iw;
+	unsigned char *tptrs[NCODERS]={0}, *tptrs0[NCODERS]={0};
+	{
+		unsigned char *temp=temprow;
+		for(int k=0;k<NCODERS;++k)
+		{
+			tptrs[k]=temp;
+			temp+=blockstride;
+		}
+	}
+	memcpy(tptrs0, tptrs, sizeof(tptrs0));
+	unsigned char *imptr=image;
+	for(int ky=0;ky<ih;++ky)//deinterleave coder lanes
+	{
+		unsigned char *dstptr=imptr;
+		memcpy(tptrs, tptrs0, sizeof(tptrs));
+		for(int kx=0;kx<blockw;++kx)
+		{
+			//toy example with 2 coders:
+			// [0] [2] [4] ...                                 [1] [3] [5] ...
+			//|r00 g00 b00|r01 g01 b01|r02 g02 b02|r03 g03 b03|r04 g04 b04|r05 g05 b05|r06 g06 b06|r07 g07 b07|	dst
+			//|r00 r04|g00 g04|b00 b04|r01 r05|g01 g05|b01 b05|r02 r06|g02 g06|b02 b06|r03 r07|g03 g07|b03 b07|	src
+#if defined __GNUC__ && !defined PROFILER
+#pragma GCC unroll 32
+#endif
+			for(int k=0;k<NCODERS;++k)
+			{
+#ifdef TEST_INTERLEAVE
+				ptrdiff_t idx=rowstride*ky+tptrs[k]-temprow;
+				if(g_image[idx]!=*dstptr)
+					LOG_ERROR("");
+#endif
+				*tptrs[k]++=*dstptr++;
+			}
+#if defined __GNUC__ && !defined PROFILER
+#pragma GCC unroll 32
+#endif
+			for(int k=0;k<NCODERS;++k)
+			{
+#ifdef TEST_INTERLEAVE
+				ptrdiff_t idx=rowstride*ky+tptrs[k]-temprow;
+				if(g_image[idx]!=*dstptr)
+					LOG_ERROR("");
+#endif
+				*tptrs[k]++=*dstptr++;
+			}
+#if defined __GNUC__ && !defined PROFILER
+#pragma GCC unroll 32
+#endif
+			for(int k=0;k<NCODERS;++k)
+			{
+#ifdef TEST_INTERLEAVE
+				ptrdiff_t idx=rowstride*ky+tptrs[k]-temprow;
+				if(g_image[idx]!=*dstptr)
+					LOG_ERROR("");
+#endif
+				*tptrs[k]++=*dstptr++;
+			}
+		}
+		memcpy(imptr, temprow, (ptrdiff_t)blockstride*NCODERS);
+		imptr+=rowstride;
+	}
+}
+static void save_ppm(const char *fn, const unsigned char *image, int iw, int ih)
+{
+	FILE *fdst=fopen(fn, "wb");
+	if(!fdst)
+	{
+		LOG_ERROR("Cannot open \"%s\" for writing", fdst);
+		return;
+	}
+	fprintf(fdst, "P6\n%d %d\n255\n", iw, ih);
+	fwrite(image, 1, (ptrdiff_t)3*iw*ih, fdst);
+	fclose(fdst);
+}
 int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 {
+#ifdef ESTIMATE_SIZE
+	double esize[3*NCODERS]={0};
+#endif
 #ifdef LOUD
 	ptrdiff_t usize2=get_filesize(srcfn);
 	double t=time_sec();
 #endif
+	prof_checkpoint(0);
 	if(!srcfn||!dstfn)
 	{
 		LOG_ERROR("Codec requires both source and destination filenames");
@@ -985,18 +1222,22 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		}
 		fclose(fsrc);
 	}
+	prof_checkpoint("fread");
 	int bestrct=0, use_wg4=0;
-	const int hsize=(int)sizeof(int[3*2*(8+GRBITS)<<8]);//3 channels  *  2*(8+GRBITS) contexts
+	unsigned long long ctxmask=0;//rare context flags		3*NCTX+3 = 54 flags
+
+	//unsigned long long ctxmask[(3*NCTX<<8)/64]={0}, rctxmask[(3<<8)/64]={0};//1728 bytes	//X
+	const int hsize=(int)sizeof(int[3*NCTX<<8]);//3 channels
 	int *hists=fwd?(int*)malloc(hsize):0;//fwd-only
 	const int rhsize=(int)sizeof(int[3*256]);
 	int *rhist=fwd?(int*)malloc(rhsize):0;
 
-	int CDF2syms_size=(int)sizeof(int[3*2*(8+GRBITS)<<PROB_BITS]);
+	int CDF2syms_size=(int)sizeof(int[3*NCTX<<PROBBITS]);
 	if(fwd)//DIV-free rANS encoder reuses these as SIMD symbol info
-		CDF2syms_size=(int)sizeof(rANS_SIMD_SymInfo[3*2*(8+GRBITS)<<8]);
+		CDF2syms_size=(int)sizeof(rANS_SIMD_SymInfo[3*NCTX<<8]);
 	unsigned *CDF2syms=(unsigned*)_mm_malloc(CDF2syms_size, sizeof(__m128i*));
 
-	int rCDF2syms_size=(int)sizeof(int[3<<PROB_BITS]);
+	int rCDF2syms_size=(int)sizeof(int[3<<PROBBITS]);
 	if(fwd)
 		rCDF2syms_size=(int)sizeof(rANS_SIMD_SymInfo[3<<8]);
 	unsigned *rCDF2syms=(unsigned*)_mm_malloc(rCDF2syms_size, sizeof(__m128i*));
@@ -1020,50 +1261,29 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 	{
 		memset(hists, 0, hsize);
 		memset(rhist, 0, rhsize);
+#ifdef TEST_INTERLEAVE
+		guide_save(image, iw, ih);
+		save_ppm("20250227_1225AM_original.PPM", image, iw, ih);
+		interleave_fwd(image, iw, ih, (unsigned char*)pixels);
+		save_ppm("20250226_1153PM_interleaved.PPM", image, iw, ih);
+		interleave_inv(image, iw, ih, (unsigned char*)pixels);
+		save_ppm("20250227_1244AM_deinterleaved1.PPM", image, iw, ih);
+		//interleave_fwd(image, iw, ih, (unsigned char*)pixels);
+		//interleave_inv(image, iw, ih, (unsigned char*)pixels);
 		{
-			unsigned char *temprow=(unsigned char*)pixels;
-			unsigned char *tptrs[NCODERS]={0}, *tptrs0[NCODERS]={0};
+			if(memcmp(image, g_image, usize))
 			{
-				unsigned char *temp=temprow;
-				for(int k=0;k<NCODERS;++k)
-				{
-					tptrs[k]=temp;
-					temp+=blockw;
-				}
+				const char *fn="20250226_0230AM_corrupt.PPM";
+				save_ppm(fn, image, iw, ih);
+				printf("corrupt  %s\n", fn);
+				LOG_ERROR("");
 			}
-			memcpy(tptrs0, tptrs, sizeof(tptrs0));
-			imptr=image;
-			for(int ky=0;ky<ih;++ky)//interleave coder lanes
-			{
-				unsigned char *dstptr=imptr;
-				memcpy(temprow, imptr, rowstride);
-				memcpy(tptrs, tptrs0, sizeof(tptrs));
-				int kx=0;
-				for(;kx<=rowstride-3*NCODERS;kx+=3*NCODERS)
-				{
-					//toy example with 2 coders:
-					// p0  p2  p4                                      p1  p3  p5
-					//|r00 g00 b00|r01 g01 b01|r02 g02 b02|r03 g03 b03|r04 g04 b04|r05 g05 b05|r06 g06 b06|r07 g07 b07|	src
-					//|r00 r04|g00 g04|b00 b04|r01 r05|g01 g05|b01 b05|r02 r06|g02 g06|b02 b06|r03 r07|g03 g07|b03 b07|	dst
-#if defined __GNUC__ && !defined PROFILER
-#pragma GCC unroll 32
-#endif
-					for(int k=0;k<NCODERS;++k)
-						*dstptr++=*tptrs[k]++;
-#if defined __GNUC__ && !defined PROFILER
-#pragma GCC unroll 32
-#endif
-					for(int k=0;k<NCODERS;++k)
-						*dstptr++=*tptrs[k]++;
-#if defined __GNUC__ && !defined PROFILER
-#pragma GCC unroll 32
-#endif
-					for(int k=0;k<NCODERS;++k)
-						*dstptr++=*tptrs[k]++;
-				}
-				imptr+=rowstride;
-			}
+			printf("SUCCESS\n");
+			exit(0);
 		}
+#endif
+		interleave_fwd(image, iw, ih, (unsigned char*)pixels);
+		prof_checkpoint("interleave");
 		guide_save(image, iw, ih);
 		{
 			ALIGN(32) long long counters[OCH_COUNT]={0};
@@ -1185,6 +1405,10 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 			long long count=3*((long long)iw-rwidth)*ih * 2;//FIXME tune
 			use_wg4=counters[rct[0]]+counters[rct[1]]+counters[rct[2]]>count;
 		}
+		prof_checkpoint("analysis");
+#ifdef LOUD
+		printf("%s  WG4=%d  %td bytes\n", rct_names[bestrct], use_wg4, usize);
+#endif
 		context=(unsigned char*)malloc(usize+sizeof(__m256i));
 		if(!context)
 		{
@@ -1203,6 +1427,7 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					curr[kb2--]=kb;
 			}
 		}
+		prof_checkpoint("gen permutation");
 	}
 	else
 	{
@@ -1211,14 +1436,17 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		use_wg4=flags&1;
 		bestrct=flags>>1;
 
-		UIntPackerLIFO ec;
-		uintpacker_dec_init(&ec, streamptr, streamend);
-		for(int kc=0;kc<3*2*(8+GRBITS);++kc)
-			dec_unpackhist(&ec, CDF2syms+((ptrdiff_t)kc<<PROB_BITS));
-		dec_unpackhist(&ec, rCDF2syms+((ptrdiff_t)0<<PROB_BITS));
-		dec_unpackhist(&ec, rCDF2syms+((ptrdiff_t)1<<PROB_BITS));
-		dec_unpackhist(&ec, rCDF2syms+((ptrdiff_t)2<<PROB_BITS));
+		ctxmask=*(unsigned long long*)streamptr;
+		streamptr+=8;
+		BitPackerLIFO ec;
+		bitpacker_dec_init(&ec, streamptr, streamend);
+		for(int kc=0;kc<3*NCTX;++kc)
+			dec_unpackhist(&ec, CDF2syms+((ptrdiff_t)kc<<PROBBITS), ctxmask, kc+3);
+		dec_unpackhist(&ec, rCDF2syms+((ptrdiff_t)0<<PROBBITS), ctxmask, 0);
+		dec_unpackhist(&ec, rCDF2syms+((ptrdiff_t)1<<PROBBITS), ctxmask, 1);
+		dec_unpackhist(&ec, rCDF2syms+((ptrdiff_t)2<<PROBBITS), ctxmask, 2);
 		streamptr=(unsigned char*)(size_t)ec.srcfwdptr;
+		prof_checkpoint("unpack histograms");
 
 		//generate decode permutations		eg: mask = MSB 0b11000101 LSB  ->  LO {0, 9, 1, 9, 9, 9, 2, 3} HI
 		for(int km=0;km<256;++km)
@@ -1232,7 +1460,9 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					curr[kb]=idx++;
 			}
 		}
+		prof_checkpoint("gen permutation");
 	}
+	//use_wg4=0;
 	const unsigned char *combination=rct_combinations[bestrct];
 	int
 		yidx=combination[II_PERM_Y]*NCODERS,
@@ -1244,14 +1474,14 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 	int paddedwidth=blockw+16;
 	memset(pixels, 0, psize);
 	memset(wgerrors, 0, wgsize);
-	__m256i mctxmax=_mm256_set1_epi16(2*(GRBITS+8)-1);
-	__m256i mctxuoffset=_mm256_set1_epi16(2*(GRBITS+8));
-	__m256i mctxvoffset=_mm256_set1_epi16(2*(GRBITS+8)*2);
+	__m256i mctxmax=_mm256_set1_epi16(NCTX-1);
+	__m256i mctxuoffset=_mm256_set1_epi16(NCTX);
+	__m256i mctxvoffset=_mm256_set1_epi16(NCTX*2);
 	__m256i amin=_mm256_set1_epi16(-128);
 	__m256i amax=_mm256_set1_epi16(127);
 	__m128i half8=_mm_set1_epi8(-128);
 	__m256i bytemask=_mm256_set1_epi16(255);
-	__m256i wordmask=_mm256_set1_epi64x(0xFFFF);
+	__m256i wordmask=_mm256_set1_epi32(0xFFFF);
 	__m256i myuv[6];
 	memset(myuv, 0, sizeof(myuv));
 	imptr=image;
@@ -1315,7 +1545,7 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				predU0, predU1, ctxU0, ctxU1,
 				predV0, predV1, ctxV0, ctxV1;
 			{
-				__m256i one=_mm256_set1_epi16(1);
+				__m256i one=_mm256_set1_epi32(1);
 				__m256i cy0=_mm256_and_si256(eW[0], wordmask), cy1=_mm256_srli_epi32(eW[0], 16);
 				__m256i cy2=_mm256_and_si256(eW[1], wordmask), cy3=_mm256_srli_epi32(eW[1], 16);
 				__m256i cu0=_mm256_and_si256(eW[2], wordmask), cu1=_mm256_srli_epi32(eW[2], 16);
@@ -1334,18 +1564,18 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				cv1=_mm256_mullo_epi32(cv1, cv1);
 				cv2=_mm256_mullo_epi32(cv2, cv2);
 				cv3=_mm256_mullo_epi32(cv3, cv3);
-				cy0=_mm256_add_epi16(cy0, one);
-				cy1=_mm256_add_epi16(cy1, one);
-				cy2=_mm256_add_epi16(cy2, one);
-				cy3=_mm256_add_epi16(cy3, one);
-				cu0=_mm256_add_epi16(cu0, one);
-				cu1=_mm256_add_epi16(cu1, one);
-				cu2=_mm256_add_epi16(cu2, one);
-				cu3=_mm256_add_epi16(cu3, one);
-				cv0=_mm256_add_epi16(cv0, one);
-				cv1=_mm256_add_epi16(cv1, one);
-				cv2=_mm256_add_epi16(cv2, one);
-				cv3=_mm256_add_epi16(cv3, one);
+				cy0=_mm256_add_epi32(cy0, one);
+				cy1=_mm256_add_epi32(cy1, one);
+				cy2=_mm256_add_epi32(cy2, one);
+				cy3=_mm256_add_epi32(cy3, one);
+				cu0=_mm256_add_epi32(cu0, one);
+				cu1=_mm256_add_epi32(cu1, one);
+				cu2=_mm256_add_epi32(cu2, one);
+				cu3=_mm256_add_epi32(cu3, one);
+				cv0=_mm256_add_epi32(cv0, one);
+				cv1=_mm256_add_epi32(cv1, one);
+				cv2=_mm256_add_epi32(cv2, one);
+				cv3=_mm256_add_epi32(cv3, one);
 				//FLOOR_LOG2_32x8(X) = _mm256_sub_epi32(_mm256_srli_epi32(_mm256_castps_si256(_mm256_cvtepi32_ps(X)), 23), _mm256_set1_epi32(127))
 				cy0=_mm256_castps_si256(_mm256_cvtepi32_ps(cy0));
 				cy1=_mm256_castps_si256(_mm256_cvtepi32_ps(cy1));
@@ -2196,6 +2426,12 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 			eW[3]=_mm256_add_epi16(eW[3], _mm256_max_epi16(eNEE[3], eNEEE[3]));
 			eW[4]=_mm256_add_epi16(eW[4], _mm256_max_epi16(eNEE[4], eNEEE[4]));
 			eW[5]=_mm256_add_epi16(eW[5], _mm256_max_epi16(eNEE[5], eNEEE[5]));
+			ecurr[0]=_mm256_slli_epi16(ecurr[0], GRBITS);
+			ecurr[1]=_mm256_slli_epi16(ecurr[1], GRBITS);
+			ecurr[2]=_mm256_slli_epi16(ecurr[2], GRBITS);
+			ecurr[3]=_mm256_slli_epi16(ecurr[3], GRBITS);
+			ecurr[4]=_mm256_slli_epi16(ecurr[4], GRBITS);
+			ecurr[5]=_mm256_slli_epi16(ecurr[5], GRBITS);
 			eW[0]=_mm256_add_epi16(eW[0], ecurr[0]);
 			eW[1]=_mm256_add_epi16(eW[1], ecurr[1]);
 			eW[2]=_mm256_add_epi16(eW[2], ecurr[2]);
@@ -2234,6 +2470,7 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		imptr+=rowstride;
 		ctxptr+=rowstride;
 	}
+	prof_checkpoint("main");
 	_mm_free(wgerrors);
 	_mm_free(wgstate);
 	if(blockw*NCODERS<iw)
@@ -2290,13 +2527,13 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				else
 				{
 					int info;
-					info=rCDF2syms[state&((1<<PROB_BITS)-1)];
+					info=rCDF2syms[state&((1<<PROBBITS)-1)];
 					yuv[kx+0]=(unsigned char)(info+N[kx+0]-128);
 					N[kx+0]=yuv[kx+0];
 #ifdef ANS_VAL
 					ansval_check(&state, sizeof(state));
 #endif
-					state=(state>>PROB_BITS)*(info>>(PROB_BITS+8))+(info<<PROB_BITS>>(32-PROB_BITS));
+					state=(state>>PROBBITS)*(info>>(PROBBITS+8))+(info<<PROBBITS>>(32-PROBBITS));
 					if(state<(1<<(RANS_STATE_BITS-RANS_RENORM_BITS)))
 					{
 #ifdef _DEBUG
@@ -2310,13 +2547,13 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					offset=yuv[kx+0]&vfromy;
 					N[kx+1]+=offset;
 					CLAMP2(N[kx+1], -128, 127);
-					info=rCDF2syms[state&((1<<PROB_BITS)-1)];
+					info=rCDF2syms[state&((1<<PROBBITS)-1)];
 					yuv[kx+1]=(unsigned char)(info+N[kx+1]-128);
 					N[kx+1]=yuv[kx+1]-offset;
 #ifdef ANS_VAL
 					ansval_check(&state, sizeof(state));
 #endif
-					state=(state>>PROB_BITS)*(info>>(PROB_BITS+8))+(info<<PROB_BITS>>(32-PROB_BITS));
+					state=(state>>PROBBITS)*(info>>(PROBBITS+8))+(info<<PROBBITS>>(32-PROBBITS));
 					if(state<(1<<(RANS_STATE_BITS-RANS_RENORM_BITS)))
 					{
 #ifdef _DEBUG
@@ -2330,13 +2567,13 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					offset=vc0*yuv[kx+0]+vc1*yuv[kx+1];
 					N[kx+2]+=offset;
 					CLAMP2(N[kx+2], -128, 127);
-					info=rCDF2syms[state&((1<<PROB_BITS)-1)];
+					info=rCDF2syms[state&((1<<PROBBITS)-1)];
 					yuv[kx+2]=(unsigned char)(info+N[kx+2]-128);
 					N[kx+2]=yuv[kx+2]-offset;
 #ifdef ANS_VAL
 					ansval_check(&state, sizeof(state));
 #endif
-					state=(state>>PROB_BITS)*(info>>(PROB_BITS+8))+(info<<PROB_BITS>>(32-PROB_BITS));
+					state=(state>>PROBBITS)*(info>>(PROBBITS+8))+(info<<PROBBITS>>(32-PROBBITS));
 					if(state<(1<<(RANS_STATE_BITS-RANS_RENORM_BITS)))
 					{
 #ifdef _DEBUG
@@ -2357,18 +2594,66 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 			imptr+=rowstride;
 		}
 	}
+	prof_checkpoint("remainder");
 	if(fwd)//all rANS encoding is bwd-bwd
 	{
+#ifdef SAVE_RESIDUAL
+		{
+			unsigned char *temprow=(unsigned char*)pixels;
+			unsigned char *tptrs[NCODERS]={0}, *tptrs0[NCODERS]={0};
+			{
+				unsigned char *temp=temprow;
+				for(int k=0;k<NCODERS;++k)
+				{
+					tptrs[k]=temp;
+					temp+=blockw;
+				}
+			}
+			memcpy(tptrs0, tptrs, sizeof(tptrs0));
+			imptr=image;
+			for(int ky=0;ky<ih;++ky)//deinterleave coder lanes
+			{
+				unsigned char *dstptr=imptr;
+				memcpy(tptrs, tptrs0, sizeof(tptrs));
+				int kx=0;
+				for(;kx<=rowstride-3*NCODERS;kx+=3*NCODERS)
+				{
+					//toy example with 2 coders:
+					// p0  p2  p4                                      p1  p3  p5
+					//|r00 g00 b00|r01 g01 b01|r02 g02 b02|r03 g03 b03|r04 g04 b04|r05 g05 b05|r06 g06 b06|r07 g07 b07|	dst
+					//|r00 r04|g00 g04|b00 b04|r01 r05|g01 g05|b01 b05|r02 r06|g02 g06|b02 b06|r03 r07|g03 g07|b03 b07|	src
+#if defined __GNUC__ && !defined PROFILER
+#pragma GCC unroll 32
+#endif
+					for(int k=0;k<NCODERS;++k)
+						*tptrs[k]++=*dstptr++;
+#if defined __GNUC__ && !defined PROFILER
+#pragma GCC unroll 32
+#endif
+					for(int k=0;k<NCODERS;++k)
+						*tptrs[k]++=*dstptr++;
+#if defined __GNUC__ && !defined PROFILER
+#pragma GCC unroll 32
+#endif
+					for(int k=0;k<NCODERS;++k)
+						*tptrs[k]++=*dstptr++;
+				}
+				memcpy(imptr, temprow, rowstride);
+				imptr+=rowstride;
+			}
+		}
+		save_ppm("20250226_0230AM.PPM", image, iw, ih);
+#endif
 		//normalize/integrate hists
 		rANS_SIMD_SymInfo *syminfo=(rANS_SIMD_SymInfo*)CDF2syms;
 		rANS_SIMD_SymInfo *rsyminfo=(rANS_SIMD_SymInfo*)rCDF2syms;
-		for(int kc=0;kc<3*2*(8+GRBITS);++kc)
-			enc_hist2stats(hists+(ptrdiff_t)256*kc, syminfo+(ptrdiff_t)256*kc);
+		for(int kc=0;kc<3*NCTX;++kc)
+			enc_hist2stats(hists+(ptrdiff_t)256*kc, syminfo+(ptrdiff_t)256*kc, &ctxmask, kc+3);
 		if(blockw*NCODERS<iw)
 		{
-			enc_hist2stats(rhist+(ptrdiff_t)256*0, rsyminfo+(ptrdiff_t)256*0);
-			enc_hist2stats(rhist+(ptrdiff_t)256*1, rsyminfo+(ptrdiff_t)256*1);
-			enc_hist2stats(rhist+(ptrdiff_t)256*2, rsyminfo+(ptrdiff_t)256*2);
+			enc_hist2stats(rhist+(ptrdiff_t)256*0, rsyminfo+(ptrdiff_t)256*0, &ctxmask, 0);
+			enc_hist2stats(rhist+(ptrdiff_t)256*1, rsyminfo+(ptrdiff_t)256*1, &ctxmask, 1);
+			enc_hist2stats(rhist+(ptrdiff_t)256*2, rsyminfo+(ptrdiff_t)256*2, &ctxmask, 2);
 		}
 
 		//encode remainder
@@ -2440,6 +2725,7 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 #endif
 			*(unsigned*)streamptr=state;
 		}
+		prof_checkpoint("encode remainder");
 		profile_size(streamptr, "remainders");
 
 		//encode main
@@ -2451,9 +2737,10 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		ctxptr=context+usize-rowstride;
 		for(int ky=ih-1;ky>=0;--ky)
 		{
-			__m256i mkctxinit=_mm256_set1_epi32((2*(8+GRBITS)<<8)*2);
-			__m256i mkctxstep=_mm256_set1_epi32(2*(8+GRBITS)<<8);
+			__m256i mkctxinit=_mm256_set1_epi32((NCTX<<8)*2);
+			__m256i mkctxstep=_mm256_set1_epi32(NCTX<<8);
 			__m256i mkctx=mkctxinit;
+			int kc=2;
 			ALIGN(32) int indices[32]={0};
 			for(int kx=3*NCODERS*blockw-NCODERS;kx>=0;kx-=NCODERS)
 			{
@@ -2551,6 +2838,25 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					mcdf	[3]=SHUFFLE_PS(t2, t3, _MM_SHUFFLE(2, 0, 2, 0));
 					mnegf_sh[3]=SHUFFLE_PS(t2, t3, _MM_SHUFFLE(3, 1, 3, 1));
 				}
+#ifdef ESTIMATE_SIZE
+				{
+					ALIGN(32) int anegf[NCODERS]={0};
+					memcpy(anegf, mnegf_sh, sizeof(anegf));
+					const double norm=1./(1<<PROBBITS);
+					for(int k=0;k<NCODERS;++k)
+					{
+						int freq=(1<<PROBBITS)-(anegf[k]&0xFFFF);
+						if((unsigned)(freq-1)>=(unsigned)((1<<PROBBITS)-1))
+							LOG_ERROR("freq = %d", freq);
+						esize[kc*NCODERS+k]-=log2(freq*norm)*0.125;
+					}
+				}
+#endif
+				--kc;
+				if(kc<0)
+					kc=2;
+				(void)kc;
+
 				//enc renorm
 				__m256i cond0=_mm256_cmpgt_epi32(mstate[0], mmax[0]);
 				__m256i cond1=_mm256_cmpgt_epi32(mstate[1], mmax[1]);
@@ -2668,26 +2974,30 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		//_mm256_storeu_si256((__m256i*)streamptr+1, mstate[1]);
 		//_mm256_storeu_si256((__m256i*)streamptr+2, mstate[2]);
 		//_mm256_storeu_si256((__m256i*)streamptr+3, mstate[3]);
+		prof_checkpoint("encode main");
 		profile_size(streamptr, "main");
 
 		//pack hists
 		{
-			UIntPackerLIFO ec;
-			uintpacker_enc_init(&ec, image, streamptr);
-			enc_packhist(&ec, rhist+256*2);
-			enc_packhist(&ec, rhist+256*1);
-			enc_packhist(&ec, rhist+256*0);
-			for(int kc=3*2*(8+GRBITS)-1;kc>=0;--kc)
+			BitPackerLIFO ec;
+			bitpacker_enc_init(&ec, image, streamptr);
+			enc_packhist(&ec, rhist+256*2, ctxmask, 2);
+			enc_packhist(&ec, rhist+256*1, ctxmask, 1);
+			enc_packhist(&ec, rhist+256*0, ctxmask, 0);
+			for(int kc=3*NCTX-1;kc>=0;--kc)
 			{
-				if(!kc)//
-					printf("");
+				//if(!kc)//
+				//	printf("");
 
-				enc_packhist(&ec, hists+(ptrdiff_t)256*kc);
+				enc_packhist(&ec, hists+(ptrdiff_t)256*kc, ctxmask, kc+3);
 			}
-			uintpacker_enc_flush(&ec);
+			bitpacker_enc_flush(&ec);
+			streamptr-=8;
+			*(unsigned long long*)streamptr=ctxmask;
 			streamptr=ec.dstbwdptr;
 		}
-		profile_size(streamptr, "overhead (%d unpacked)", (int)sizeof(short[(3*2*(8+GRBITS)+3)<<8]));
+		prof_checkpoint("pack histograms");
+		profile_size(streamptr, "overhead (%d unpacked)", (int)sizeof(short[(3*NCTX+3)<<8]));
 
 		//save compressed file
 		{
@@ -2711,12 +3021,20 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 #endif
 			csize2+=fwrite(streamptr, 1, streamstart-streamptr, fdst);
 			fclose(fdst);
+			
+#ifdef ESTIMATE_SIZE
+			double etotal=0;
+			for(int k=0;k<3*NCODERS;++k)
+				etotal+=esize[k];
+			printf("Total estimate  %12.2lf bytes\n", etotal);
+#endif
 #ifdef LOUD
 			printf("%s\n", srcfn);
 			printf("%8td/%8td bytes\n", csize2, usize2);
 #endif
 			(void)csize2;
 		}
+		prof_checkpoint("fwrite");
 		free(hists);
 		free(rhist);
 	}
@@ -2767,19 +3085,11 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				imptr+=rowstride;
 			}
 		}
+		prof_checkpoint("deinterleave");
 
 		//save PPM file
-		{
-			FILE *fdst=fopen(dstfn, "wb");
-			if(!fdst)
-			{
-				LOG_ERROR("Cannot open \"%s\" for writing", fdst);
-				return 1;
-			}
-			fprintf(fdst, "P6\n%d %d\n255\n", iw, ih);
-			fwrite(image, 1, usize, fdst);
-			fclose(fdst);
-		}
+		save_ppm(dstfn, image, iw, ih);
+		prof_checkpoint("fwrite");
 	}
 	_mm_free(pixels);
 	_mm_free(CDF2syms);

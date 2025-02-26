@@ -207,10 +207,8 @@ static void ansval_check(const void *data, int size)
 	{
 		printf("\n");
 		printf("Validation Header Mismatch  idx/size: loheader %d/%d != hiheader %d/%d\n",
-			loheader->idx,
-			loheader->size,
-			hiheader->idx,
-			hiheader->size
+			loheader->idx, loheader->size,
+			hiheader->idx, hiheader->size
 		);
 		LOG_ERROR("\n");
 	}
@@ -288,16 +286,12 @@ static void ansval_check(const void *data, int size)
 			{
 				printf("  Header Mismatch:  (idx,size)\n");
 				printf("    hiheader  0x%08X, 0x%08X  %d, %d\n",
-					hiheader2->idx,
-					hiheader2->size,
-					hiheader2->idx,
-					hiheader2->size
+					hiheader2->idx, hiheader2->size,
+					hiheader2->idx, hiheader2->size
 				);
 				printf("    loheader  0x%08X, 0x%08X  %d, %d\n",
-					loheader2->idx,
-					loheader2->size,
-					loheader2->idx,
-					loheader2->size
+					loheader2->idx, loheader2->size,
+					loheader2->idx, loheader2->size
 				);
 				break;
 			}
@@ -1663,15 +1657,15 @@ AWM_INLINE int bypass_dec(BypassCoder *ec, int nbits)
 }
 
 
-//NPOT Bypass Coder
-typedef struct _UIntPackerLIFO//bwd enc / fwd dec
+//LIFO Bypass Coder
+typedef struct _BitPackerLIFO//bwd enc / fwd dec
 {
 	unsigned long long state;
 	int enc_nwritten, dec_navailable;//bitcounts, only for tracking renorms
 	unsigned char *dstbwdptr;
 	const unsigned char *srcfwdptr, *streamend;
-} UIntPackerLIFO;
-AWM_INLINE void uintpacker_enc_init(UIntPackerLIFO *ec, const unsigned char *bufstart, unsigned char *bufptr0_OOB)
+} BitPackerLIFO;
+AWM_INLINE void bitpacker_enc_init(BitPackerLIFO *ec, const unsigned char *bufstart, unsigned char *bufptr0_OOB)
 {
 	memset(ec, 0, sizeof(*ec));
 	ec->state=1ULL<<32;
@@ -1679,7 +1673,7 @@ AWM_INLINE void uintpacker_enc_init(UIntPackerLIFO *ec, const unsigned char *buf
 	ec->streamend=bufstart;
 	ec->dstbwdptr=bufptr0_OOB;
 }
-AWM_INLINE void uintpacker_dec_init(UIntPackerLIFO *ec, const unsigned char *bufptr0_start, const unsigned char *bufend)
+AWM_INLINE void bitpacker_dec_init(BitPackerLIFO *ec, const unsigned char *bufptr0_start, const unsigned char *bufend)
 {
 	memset(ec, 0, sizeof(*ec));
 	ec->srcfwdptr=bufptr0_start+8;
@@ -1687,7 +1681,7 @@ AWM_INLINE void uintpacker_dec_init(UIntPackerLIFO *ec, const unsigned char *buf
 	ec->state=*(const unsigned long long*)bufptr0_start;
 	ec->dec_navailable=64;
 }
-AWM_INLINE void uintpacker_enc_flush(UIntPackerLIFO *ec)
+AWM_INLINE void bitpacker_enc_flush(BitPackerLIFO *ec)
 {
 	ec->dstbwdptr-=8;
 #ifdef _DEBUG
@@ -1696,75 +1690,15 @@ AWM_INLINE void uintpacker_enc_flush(UIntPackerLIFO *ec)
 #endif
 	*(unsigned long long*)ec->dstbwdptr=ec->state;
 }
-AWM_INLINE void uintpacker_enc(UIntPackerLIFO *ec, int nlevels, int sym)//2 <= nlevels <= INT_MAX=0x7FFFFFFF  (manually skip encoding when nlevels=1)
+AWM_INLINE void bitpacker_enc(BitPackerLIFO *ec, int inbits, int sym)
 {
-	/*
-	bypass-rANS = shift register
-
-	rANS
-	enc:
-	state = 1<<(REGBITS-RENORMBITS);	//nbits=32
-	...
-	if(state >= (freq<<(REGBITS-PROBBITS)))
-		enc_renorm_RENORMBITS(state);
-	state = (state/freq)<<PROBBITS|(cdf+state%freq);
-
-	dec:
-	state = (state>>PROBBITS)*freq-cdf+(state&PROBMASK);
-	if(state < (1<<(REGBITS-RENORMBITS)))
-		dec_renorm_RENORMBITS(state);
-
-
-	freq=1:
-	enc:
-	state = 1<<(REGBITS-RENORMBITS);
-	...
-	if(state >= (1<<(REGBITS-NBYPASS)))	//nbits+NBYPASS>64
-		enc_renorm_RENORMBITS(state);
-	state = state<<NBYPASS|bypass;
-
-	dec:
-	state >>= NBYPASS;
-	if(state < (1<<(REGBITS-RENORMBITS)))	//nbits<32
-		dec_renorm_RENORMBITS(state);
-	*/
-
-	/*
-	Truncated Binary Coding
-
-	nlevels	1	2	3	4	5	6	7	8	9	10	11	12	13	14	15
-
-	0000	0&	0&	0&	0&	0&	0&	0&	0&	0&	 0&	 0&	 0&	 0&	 0&	 0&
-	0001	0&	1&	1 +	1&	1&	1&	1 +	1&	1&	 1&	 1&	 1&	 1&	 1&	 1 +
-	0010		0&	0&	2&	2&	2 +	2 +	2&	2&	 2&	 2&	 2&	 2&	 2 +	 2 +
-	0011		1&	2 +	3&	3 +	3 +	3 +	3&	3&	 3&	 3&	 3&	 3 +	 3 +	 3 +
-	0100				0&	0&	0&	0&	4&	4&	 4&	 4&	 4 +	 4 +	 4 +	 4 +
-	0101				1&	1&	1&	4 +	5&	5&	 5&	 5 +	 5 +	 5 +	 5 +	 5 +
-	0110				2&	2&	4 +	5 +	6&	6&	 6 +	 6 +	 6 +	 6 +	 6 +	 6 +
-	0111				3&	4 +	5 +	6 +	7&	7 +	 7 +	 7 +	 7 +	 7 +	 7 +	 7 +
-	1000								0&	0&	 0&	 0&	 0&	 0&	 0&	 0&
-	1001								1&	1&	 1&	 1&	 1&	 1&	 1&	 8 +
-	1010								2&	2&	 2&	 2&	 2&	 2&	 8 +	 9 +
-	1011								3&	3&	 3&	 3&	 3&	 8 +	 9 +	10 +
-	1100								4&	4&	 4&	 4&	 8 +	 9 +	10 +	11 +
-	1101								5&	5&	 5&	 8 +	 9 +	10 +	11 +	12 +
-	1110								6&	6&	 8 +	 9 +	10 +	11 +	12 +	13 +
-	1111								7&	8 +	 9 +	10 +	11 +	12 +	13 +	14 +
-	*/
-#ifdef _DEBUG
-	if((unsigned)sym>=(unsigned)nlevels)
-		LOG_ERROR("IntPacker OOB:  sym %d  nlevels %d", sym, nlevels);
-#endif
-	int inbits=FLOOR_LOG2(nlevels);
-	int threshold=(2<<inbits)-nlevels;
-	int extra=sym>=threshold;
-	if(sym>=(1<<inbits))
-		sym+=threshold;
-	inbits+=extra;
-
 	//renorm then push inbits
+#ifdef ANS_VAL
+	int decinfo=sym<<8^inbits;
+	ansval_push(&decinfo, sizeof(decinfo));
+#endif
 	ec->enc_nwritten+=inbits;
-	if(ec->enc_nwritten>64)//renorm on overflow	renorm probability ~= 25% when nlevels ~= 0x10000 [PROOF?]
+	if(ec->enc_nwritten>64)//renorm on overflow
 	{
 		ec->enc_nwritten-=32;
 		ec->dstbwdptr-=4;
@@ -1780,23 +1714,14 @@ AWM_INLINE void uintpacker_enc(UIntPackerLIFO *ec, int nlevels, int sym)//2 <= n
 	ansval_push(&ec->state, sizeof(ec->state));
 #endif
 }
-AWM_INLINE int uintpacker_dec(UIntPackerLIFO *ec, int nlevels)
+AWM_INLINE int bitpacker_dec(BitPackerLIFO *ec, int outbits)
 {
-	int outbits=FLOOR_LOG2(nlevels);
-	int threshold=(2<<outbits)-nlevels, half=1<<outbits;
-	int sym=ec->state&(half-1ULL);
-	int msb=ec->state>>outbits&(sym>=threshold);
-	{
-		int sym2=sym+nlevels-half;
-		if(msb)
-			sym=sym2;
-	}
-	outbits+=msb;
-	
+	int sym=ec->state&((1ULL<<outbits)-1);
+
+	//pop outbits then renorm
 #ifdef ANS_VAL
 	ansval_check(&ec->state, sizeof(ec->state));
 #endif
-	//pop outbits then renorm
 	ec->dec_navailable-=outbits;
 	ec->state>>=outbits;
 	if(ec->dec_navailable<32)
@@ -1809,6 +1734,10 @@ AWM_INLINE int uintpacker_dec(UIntPackerLIFO *ec, int nlevels)
 		ec->state=ec->state<<32|*(const unsigned*)ec->srcfwdptr;
 		ec->srcfwdptr+=4;
 	}
+#ifdef ANS_VAL
+	int decinfo=sym<<8^outbits;
+	ansval_check(&decinfo, sizeof(decinfo));
+#endif
 	return sym;
 }
 
