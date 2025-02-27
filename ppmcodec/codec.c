@@ -265,7 +265,7 @@ int main(int argc, char **argv)
 //	CODEC_FUNC("C:/dataset-synth2-ppm/20240422 1.PPM",	"D:/ML/mystery.lsim", nthreads);
 //	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
 
-	CODEC_FUNC("C:/dataset-DIV2K-ppm/0835.ppm",	"D:/ML/mystery.lsim", nthreads);
+	CODEC_FUNC("C:/dataset-DIV2K-ppm/0801.ppm",	"D:/ML/mystery.lsim", nthreads);
 	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm", nthreads);
 
 //	CODEC_FUNC("C:/dataset-DIV2K-ppm/0805.ppm",	"D:/ML/mystery.lsim", nthreads);

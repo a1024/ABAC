@@ -134,6 +134,7 @@ void acval_dec(int sym, int cdf, int freq, unsigned long long lo1, unsigned long
 #endif
 
 #ifdef ANS_VAL
+#define ANS_VAL_HISTSIZE 128
 typedef struct _ANSVALHeader
 {
 	unsigned size, idx;
@@ -150,10 +151,14 @@ static void ansval_push(const void *data, int size)
 	ARRAY_APPEND(debugstack, data, size, 1, 0);
 	ARRAY_APPEND(debugstack, &header, sizeof(header), 1, 0);//hi header
 }
-static void ansval_printr(const unsigned char *data, int size)//print bytes in reverse because little-endian
+static void ansval_printr(const void *data, int size)//print bytes in reverse because little-endian
 {
 	for(int k=size-1;k>=0;--k)
-		printf("%02X", data[k]);
+	{
+		if((k&3)==3)
+			printf(" ");
+		printf("%02X", ((unsigned char*)data)[k]);
+	}
 	printf("\n");
 }
 static void* ansval_ptrguard(const void *start, const void *end, const void *ptr, ptrdiff_t nbytes)
@@ -203,6 +208,10 @@ static void ansval_check(const void *data, int size)
 	debugstack->count-=sizeof(ANSVALHeader);
 	if(firstpop)
 		totalcount=hiheader->idx+1;
+	
+	if(hiheader->idx==512598)//
+		printf("");
+
 	if(memcmp(hiheader, loheader, sizeof(*hiheader)))
 	{
 		printf("\n");
@@ -215,16 +224,16 @@ static void ansval_check(const void *data, int size)
 	if(size!=loheader->size||memcmp(data, data0, size))
 	{
 		printf("\n");
-		printf("Validation Error    pop #%d / total %d,  remaining %d\n", popcount, totalcount, totalcount-popcount-1);
+		printf("Validation Error    pop #%d / total %d,  remaining %d,  using %8.2lf/%8.2lf MB\n", popcount, totalcount, totalcount-popcount-1, (double)debugstack->count/(1024*1024), (double)debugstack->cap/(1024*1024));
 		printf("\n");
 
 		const unsigned char *verptr=debugstack->data+debugstack->count+loheader->size+sizeof(ANSVALHeader[2]);
-		const unsigned char *ptrstack[32]={0};
+		const unsigned char *ptrstack[ANS_VAL_HISTSIZE]={0};
 		const ANSVALHeader *loheader2=0, *hiheader2=0;
 		const unsigned char *verdata=0, *unverdata=0;
 		int nptrs=0;
 		printf("Verified pops:\n");
-		for(int k=0;k<32;++k)
+		for(int k=0;k<ANS_VAL_HISTSIZE;++k)
 		{
 			if(verptr>=endptr)
 				break;
@@ -267,7 +276,7 @@ static void ansval_check(const void *data, int size)
 		
 		const unsigned char *unverptr=debugstack->data+debugstack->count;
 		printf("Remaining pops:\n");
-		for(int k=0;k<32;++k)
+		for(int k=0;k<ANS_VAL_HISTSIZE;++k)
 		{
 			if(unverptr<=debugstack->data)
 			{
@@ -1669,7 +1678,7 @@ AWM_INLINE void bitpacker_enc_init(BitPackerLIFO *ec, const unsigned char *bufst
 {
 	memset(ec, 0, sizeof(*ec));
 	ec->state=1ULL<<32;
-	ec->enc_nwritten=32;
+	ec->enc_nwritten=33;
 	ec->streamend=bufstart;
 	ec->dstbwdptr=bufptr0_OOB;
 }
@@ -1679,7 +1688,7 @@ AWM_INLINE void bitpacker_dec_init(BitPackerLIFO *ec, const unsigned char *bufpt
 	ec->srcfwdptr=bufptr0_start+8;
 	ec->streamend=bufend;
 	ec->state=*(const unsigned long long*)bufptr0_start;
-	ec->dec_navailable=64;
+	ec->dec_navailable=FLOOR_LOG2_P1(ec->state);
 }
 AWM_INLINE void bitpacker_enc_flush(BitPackerLIFO *ec)
 {
@@ -1692,11 +1701,11 @@ AWM_INLINE void bitpacker_enc_flush(BitPackerLIFO *ec)
 }
 AWM_INLINE void bitpacker_enc(BitPackerLIFO *ec, int inbits, int sym)
 {
-	//renorm then push inbits
-#ifdef ANS_VAL
-	int decinfo=sym<<8^inbits;
-	ansval_push(&decinfo, sizeof(decinfo));
+#ifdef _DEBUG
+	if(!inbits)
+		LOG_ERROR("BitPacker inbits=0");
 #endif
+	//renorm then push inbits
 	ec->enc_nwritten+=inbits;
 	if(ec->enc_nwritten>64)//renorm on overflow
 	{
@@ -1708,6 +1717,9 @@ AWM_INLINE void bitpacker_enc(BitPackerLIFO *ec, int inbits, int sym)
 #endif
 		*(unsigned*)ec->dstbwdptr=(unsigned)ec->state;
 		ec->state>>=32;
+#ifdef ANS_VAL
+		ansval_push(&ec->state, sizeof(ec->state));
+#endif
 	}
 	ec->state=ec->state<<inbits|sym;
 #ifdef ANS_VAL
@@ -1716,6 +1728,10 @@ AWM_INLINE void bitpacker_enc(BitPackerLIFO *ec, int inbits, int sym)
 }
 AWM_INLINE int bitpacker_dec(BitPackerLIFO *ec, int outbits)
 {
+#ifdef _DEBUG
+	if(!outbits)
+		LOG_ERROR("BitPacker outbits=0");
+#endif
 	int sym=ec->state&((1ULL<<outbits)-1);
 
 	//pop outbits then renorm
@@ -1724,8 +1740,11 @@ AWM_INLINE int bitpacker_dec(BitPackerLIFO *ec, int outbits)
 #endif
 	ec->dec_navailable-=outbits;
 	ec->state>>=outbits;
-	if(ec->dec_navailable<32)
+	if(ec->dec_navailable<=32)
 	{
+#ifdef ANS_VAL
+		ansval_check(&ec->state, sizeof(ec->state));
+#endif
 		ec->dec_navailable+=32;
 #ifdef _DEBUG
 		if(ec->srcfwdptr>=ec->streamend)
@@ -1734,10 +1753,6 @@ AWM_INLINE int bitpacker_dec(BitPackerLIFO *ec, int outbits)
 		ec->state=ec->state<<32|*(const unsigned*)ec->srcfwdptr;
 		ec->srcfwdptr+=4;
 	}
-#ifdef ANS_VAL
-	int decinfo=sym<<8^outbits;
-	ansval_check(&decinfo, sizeof(decinfo));
-#endif
 	return sym;
 }
 
