@@ -137,29 +137,39 @@ void acval_dec(int sym, int cdf, int freq, unsigned long long lo1, unsigned long
 #define ANS_VAL_HISTSIZE 128
 typedef struct _ANSVALHeader
 {
-	unsigned size, idx;
+	unsigned short esize, count;
+	unsigned idx;
 } ANSVALHeader;
 static ArrayHandle debugstack=0;
-static void ansval_push(const void *data, int size)
+static void ansval_push(const void *data, int esize, int count)
 {
 	static int idx=0;
-	ANSVALHeader header={size, idx};
+	ANSVALHeader header={esize, count, idx};
 	++idx;
 	if(!debugstack)
 		ARRAY_ALLOC(char, debugstack, 0, 0, 1024, 0);
 	ARRAY_APPEND(debugstack, &header, sizeof(header), 1, 0);//lo header
-	ARRAY_APPEND(debugstack, data, size, 1, 0);
+	ARRAY_APPEND(debugstack, data, (ptrdiff_t)count*esize, 1, 0);
 	ARRAY_APPEND(debugstack, &header, sizeof(header), 1, 0);//hi header
 }
-static void ansval_printr(const void *data, int size)//print bytes in reverse because little-endian
+static void ansval_printr(const void *data, int esize, int count)//print elements in reverse because little-endian
 {
-	for(int k=size-1;k>=0;--k)
+	const unsigned char *p=(const unsigned char*)data;
+	int size=count*esize;
+	for(int k=0;k<size;k+=esize)
 	{
-		if((k&3)==3)
-			printf(" ");
-		printf("%02X", ((unsigned char*)data)[k]);
+		printf(" ");
+		for(int k2=esize-1;k2>=0;--k2)
+			printf("%02X", p[k+k2]);
 	}
 	printf("\n");
+	//for(int k=size-1;k>=0;--k)
+	//{
+	//	if((k&3)==3)
+	//		printf(" ");
+	//	printf("%02X", ((unsigned char*)data)[k]);
+	//}
+	//printf("\n");
 }
 static void* ansval_ptrguard(const void *start, const void *end, const void *ptr, ptrdiff_t nbytes)
 {
@@ -193,7 +203,7 @@ static void* ansval_ptrguard(const void *start, const void *end, const void *ptr
 	}
 	return (void*)(nbytes<0?ip2:ip1);
 }
-static void ansval_check(const void *data, int size)
+static void ansval_check(const void *data, int esize, int count)
 {
 	static const unsigned char *endptr=0;
 	static int totalcount=0, popcount=0;
@@ -202,32 +212,34 @@ static void ansval_check(const void *data, int size)
 		endptr=debugstack->data+debugstack->count;
 	const ANSVALHeader *hiheader=(const ANSVALHeader*)(debugstack->data+debugstack->count)-1;
 	debugstack->count-=sizeof(ANSVALHeader);
-	const unsigned char *data0=debugstack->data+debugstack->count-hiheader->size;
-	debugstack->count-=hiheader->size;
+	const unsigned char *data0=debugstack->data+debugstack->count-hiheader->count*hiheader->esize;
+	debugstack->count-=hiheader->count*hiheader->esize;
 	const ANSVALHeader *loheader=(const ANSVALHeader*)(debugstack->data+debugstack->count)-1;
 	debugstack->count-=sizeof(ANSVALHeader);
 	if(firstpop)
 		totalcount=hiheader->idx+1;
-	
-	if(hiheader->idx==512598)//
-		printf("");
-
 	if(memcmp(hiheader, loheader, sizeof(*hiheader)))
 	{
 		printf("\n");
-		printf("Validation Header Mismatch  idx/size: loheader %d/%d != hiheader %d/%d\n",
-			loheader->idx, loheader->size,
-			hiheader->idx, hiheader->size
+		printf("Validation Header Mismatch  idx,esize,count: loheader %d,%d,%d != hiheader %d,%d,%d\n",
+			loheader->idx, loheader->esize, loheader->count,
+			hiheader->idx, hiheader->esize, hiheader->count
 		);
 		LOG_ERROR("\n");
 	}
-	if(size!=loheader->size||memcmp(data, data0, size))
+	if(esize!=loheader->esize||count!=loheader->count||memcmp(data, data0, count*esize))
 	{
 		printf("\n");
-		printf("Validation Error    pop #%d / total %d,  remaining %d,  using %8.2lf/%8.2lf MB\n", popcount, totalcount, totalcount-popcount-1, (double)debugstack->count/(1024*1024), (double)debugstack->cap/(1024*1024));
+		printf("Validation Error    pop #%d / total %d,  remaining %d,  using %8.2lf/%8.2lf MB\n",
+			popcount,
+			totalcount,
+			totalcount-popcount-1,
+			(double)debugstack->count/(1024*1024),
+			(double)debugstack->cap/(1024*1024)
+		);
 		printf("\n");
 
-		const unsigned char *verptr=debugstack->data+debugstack->count+loheader->size+sizeof(ANSVALHeader[2]);
+		const unsigned char *verptr=debugstack->data+debugstack->count+loheader->count*loheader->esize+sizeof(ANSVALHeader[2]);
 		const unsigned char *ptrstack[ANS_VAL_HISTSIZE]={0};
 		const ANSVALHeader *loheader2=0, *hiheader2=0;
 		const unsigned char *verdata=0, *unverdata=0;
@@ -240,8 +252,8 @@ static void ansval_check(const void *data, int size)
 
 			loheader2=(const ANSVALHeader*)ansval_ptrguard(debugstack->data, endptr, verptr, +sizeof(ANSVALHeader));
 			verptr+=sizeof(ANSVALHeader);
-			verdata=(const unsigned char*)ansval_ptrguard(debugstack->data, endptr, verptr, +loheader2->size);
-			verptr+=loheader2->size;
+			verdata=(const unsigned char*)ansval_ptrguard(debugstack->data, endptr, verptr, +loheader2->count*loheader2->esize);
+			verptr+=loheader2->count*loheader2->esize;
 			hiheader2=(const ANSVALHeader*)verptr;
 			verptr+=sizeof(ANSVALHeader);
 
@@ -255,12 +267,12 @@ static void ansval_check(const void *data, int size)
 			loheader2=(const ANSVALHeader*)ptr;
 			ptr+=sizeof(ANSVALHeader);
 			verdata=ptr;
-			ptr+=loheader2->size;
+			ptr+=loheader2->count*loheader2->esize;
 			hiheader2=(const ANSVALHeader*)ptr;
 			ptr+=sizeof(ANSVALHeader);
 
-			printf("  [%7d] %7d B    ", loheader2->idx, loheader2->size);
-			ansval_printr(verdata, loheader2->size);
+			printf("  [%7d] %7d B    ", loheader2->idx, loheader2->count*loheader2->esize);
+			ansval_printr(verdata, loheader2->esize, loheader2->count);
 			(void)hiheader2;
 		}
 		if(!nptrs)
@@ -268,10 +280,10 @@ static void ansval_check(const void *data, int size)
 		printf("\n");
 
 		printf("The error:\n");
-		printf("  [%7d] Original %7d B    ", loheader->idx, loheader->size);
-		ansval_printr(data0, loheader->size);
-		printf("  [%7d] Corrupt  %7d B    ", loheader->idx, size);
-		ansval_printr(data, size);
+		printf("  [%7d] Original %7d B    ", loheader->idx, loheader->count*loheader->esize);
+		ansval_printr(data0, loheader->esize, loheader->count);
+		printf("  [%7d] Corrupt  %7d B    ", loheader->idx, count*esize);
+		ansval_printr(data, esize, count);
 		printf("\n");
 		
 		const unsigned char *unverptr=debugstack->data+debugstack->count;
@@ -286,26 +298,26 @@ static void ansval_check(const void *data, int size)
 
 			unverptr=(const unsigned char*)ansval_ptrguard(debugstack->data, endptr, unverptr, -(ptrdiff_t)sizeof(ANSVALHeader));
 			hiheader2=(const ANSVALHeader*)unverptr;
-			unverptr=(const unsigned char*)ansval_ptrguard(debugstack->data, endptr, unverptr, -(ptrdiff_t)hiheader2->size);
+			unverptr=(const unsigned char*)ansval_ptrguard(debugstack->data, endptr, unverptr, -(ptrdiff_t)hiheader2->count*hiheader2->esize);
 			unverdata=unverptr;
 			unverptr=(const unsigned char*)ansval_ptrguard(debugstack->data, endptr, unverptr, -(ptrdiff_t)sizeof(ANSVALHeader));
 			loheader2=(const ANSVALHeader*)unverptr;
 			
 			if(memcmp(hiheader2, loheader2, sizeof(*hiheader2)))
 			{
-				printf("  Header Mismatch:  (idx,size)\n");
-				printf("    hiheader  0x%08X, 0x%08X  %d, %d\n",
-					hiheader2->idx, hiheader2->size,
-					hiheader2->idx, hiheader2->size
+				printf("  Header Mismatch:  (idx,esize,count)\n");
+				printf("    hiheader  0x%08X, 0x%08X, 0x%08X    %d, %d, %d\n",
+					hiheader2->idx, hiheader2->esize, hiheader2->count,
+					hiheader2->idx, hiheader2->esize, hiheader2->count
 				);
-				printf("    loheader  0x%08X, 0x%08X  %d, %d\n",
-					loheader2->idx, loheader2->size,
-					loheader2->idx, loheader2->size
+				printf("    loheader  0x%08X, 0x%08X, 0x%08X    %d, %d, %d\n",
+					loheader2->idx, loheader2->esize, loheader2->count,
+					loheader2->idx, loheader2->esize, loheader2->count
 				);
 				break;
 			}
-			printf("  [%7d] %7d B    ", hiheader2->idx, hiheader2->size);
-			ansval_printr(unverdata, hiheader2->size);
+			printf("  [%7d] %7d B    ", hiheader2->idx, hiheader2->count*hiheader2->esize);
+			ansval_printr(unverdata, hiheader2->esize, hiheader2->count);
 		}
 		printf("\n");
 		LOG_ERROR("");
@@ -1718,12 +1730,12 @@ AWM_INLINE void bitpacker_enc(BitPackerLIFO *ec, int inbits, int sym)
 		*(unsigned*)ec->dstbwdptr=(unsigned)ec->state;
 		ec->state>>=32;
 #ifdef ANS_VAL
-		ansval_push(&ec->state, sizeof(ec->state));
+		ansval_push(&ec->state, sizeof(ec->state), 1);
 #endif
 	}
 	ec->state=ec->state<<inbits|sym;
 #ifdef ANS_VAL
-	ansval_push(&ec->state, sizeof(ec->state));
+	ansval_push(&ec->state, sizeof(ec->state), 1);
 #endif
 }
 AWM_INLINE int bitpacker_dec(BitPackerLIFO *ec, int outbits)
@@ -1736,14 +1748,14 @@ AWM_INLINE int bitpacker_dec(BitPackerLIFO *ec, int outbits)
 
 	//pop outbits then renorm
 #ifdef ANS_VAL
-	ansval_check(&ec->state, sizeof(ec->state));
+	ansval_check(&ec->state, sizeof(ec->state), 1);
 #endif
 	ec->dec_navailable-=outbits;
 	ec->state>>=outbits;
 	if(ec->dec_navailable<=32)
 	{
 #ifdef ANS_VAL
-		ansval_check(&ec->state, sizeof(ec->state));
+		ansval_check(&ec->state, sizeof(ec->state), 1);
 #endif
 		ec->dec_navailable+=32;
 #ifdef _DEBUG

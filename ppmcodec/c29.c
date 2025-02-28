@@ -8,18 +8,17 @@ static const char file[]=__FILE__;
 
 
 //	#define PROFILER
+	#define PROFILE_SIZE
 
 #ifdef _MSC_VER
 	#define LOUD		//size & time
-	#define PROFILE_SIZE
-	#define ESTIMATE_SIZE
+	#define ESTIMATE_SIZE	//slow
 
-//	#define STREAM_STATSONLY
-	#define ENABLE_GUIDE
-	#define ANS_VAL
-#define VAL_NCODERS 1
+//	#define ENABLE_GUIDE	//verify interleaved pixels
+//	#define ANS_VAL
 #endif
 
+//	#define DISABLE_WG
 	#define WG_DISABLE_eW
 
 
@@ -635,7 +634,7 @@ typedef struct _rANS_SIMD_SymInfo	//16 bytes/level	4KB/ctx = 1<<12 bytes
 	unsigned smax, invf, cdf;
 	unsigned short negf, sh;
 } rANS_SIMD_SymInfo;
-static void enc_hist2stats(int *hist, rANS_SIMD_SymInfo *syminfo, long long *ctxmask, int ctxidx)
+static void enc_hist2stats(int *hist, rANS_SIMD_SymInfo *syminfo, unsigned long long *ctxmask, int ctxidx)
 {
 	int sum=0, count=0;
 	for(int ks=0;ks<256;++ks)
@@ -648,10 +647,26 @@ static void enc_hist2stats(int *hist, rANS_SIMD_SymInfo *syminfo, long long *ctx
 	*ctxmask|=(unsigned long long)rare<<ctxidx;
 	if(rare)
 	{
-		for(int ks=0;ks<256;++ks)//bypass for now	FIXME try emitting mask with present symbols, and handle degenerate distribution
+		for(int ks=0;ks<256;++ks)//bypass	FIXME try emitting mask with present symbols, and handle degenerate distribution
 			hist[ks]=1;
 		sum=256;
 		count=256;
+	}
+	else if(count==1)
+	{
+		for(int ks=0;ks<256;++ks)
+		{
+			int freq=hist[ks];
+			if(freq==(1<<PROBBITS))
+			{
+				--freq;
+				if(!ks)
+					++hist[ks+1];
+				else
+					++hist[ks-1];
+				break;
+			}
+		}
 	}
 	int sum2=0;
 	for(int ks=0, ks2=0;ks<256;++ks)//absent symbols get zero freqs
@@ -711,8 +726,8 @@ static void enc_hist2stats(int *hist, rANS_SIMD_SymInfo *syminfo, long long *ctx
 		}
 		else
 		{
-			info->sh=FLOOR_LOG2(freq);
-			info->invf=(int)(((0x100000000<<info->sh)+freq-1)/freq);
+			info->sh=FLOOR_LOG2(freq)-1;//eg: x/2 = x*0x80000000>>32>>0
+			info->invf=(unsigned)(((0x100000000ULL<<info->sh)+freq-1)/freq);
 		}
 	}
 }
@@ -742,7 +757,7 @@ static void enc_packhist(BitPackerLIFO *ec, const int *hist, unsigned long long 
 	int startsym=0;
 	for(int ks=1;ks<=256;++ks)//push nbypass
 	{
-		int next=CDF[ks], freq=next-cdfW, nlevels=(1<<PROBBITS)-cdfW;
+		int next=CDF[ks], freq=next-cdfW;
 		int nbypass=FLOOR_LOG2(CDFlevels);
 		if(ks>1)
 			nbypass-=7;
@@ -769,7 +784,7 @@ static void enc_packhist(BitPackerLIFO *ec, const int *hist, unsigned long long 
 			--nzeros;
 		}
 #ifdef ANS_VAL
-		ansval_push(&ks, sizeof(ks));
+		ansval_push(&ks, sizeof(ks), 1);
 		//if(ctxidx==5||ctxidx==4)
 		//	printf("PUSH [%3d] freq %8d  nzeros %8d  bypass %08X/%4d  size %8.2lf  state %016llX\n", ks, freq, nzeros, bypass, nbypass, (nzeros+1+nbypass)/8., ec->state);//
 #endif
@@ -783,7 +798,7 @@ static void dec_unpackhist(BitPackerLIFO *ec, unsigned *CDF2sym, unsigned long l
 	unsigned short hist[257];
 	if(ctxmask>>ctxidx&1)//rare context
 	{
-		for(int ks=0;ks<256;++ks)//bypass for now
+		for(int ks=0;ks<256;++ks)//bypass
 			hist[ks]=(1<<PROBBITS)/256;
 	}
 	else
@@ -802,7 +817,7 @@ static void dec_unpackhist(BitPackerLIFO *ec, unsigned *CDF2sym, unsigned long l
 			if(nbypass<0)
 				nbypass=0;
 #ifdef ANS_VAL
-			ansval_check(&ks2, sizeof(ks2));
+			ansval_check(&ks2, sizeof(ks2), 1);
 #endif
 			int bit=0;
 			do
@@ -845,11 +860,11 @@ static void dec_unpackhist(BitPackerLIFO *ec, unsigned *CDF2sym, unsigned long l
 	{
 		int cdf=hist[ks], next=hist[ks+1], freq=next-cdf;
 		int val=(freq<<PROBBITS|0)<<8|ks;
-		for(int ks2=cdf, bias=0;ks2<next;++ks2, ++bias)
-			CDF2sym[ks2]=val|bias<<8;
+		for(int ks2=cdf;ks2<next;++ks2, val+=1<<8)
+			CDF2sym[ks2]=val;
 	}
 }
-AWM_INLINE void dec_yuv(__m256i *mstate, __m256i *ctx0, __m256i *ctx1, const int *CDF2syms, const int *ans_permute, unsigned char **pstreamptr, const unsigned char *streamend, __m256i *syms)
+AWM_INLINE void dec_yuv(__m256i *mstate, int kc, const __m256i *ctx0, const __m256i *ctx1, const int *CDF2syms, const int *ans_permute, unsigned char **pstreamptr, const unsigned char *streamend, __m256i *syms)
 {
 	const unsigned char *streamptr=*pstreamptr;
 	__m256i decctx[4];
@@ -866,7 +881,7 @@ AWM_INLINE void dec_yuv(__m256i *mstate, __m256i *ctx0, __m256i *ctx1, const int
 	decctx[2]=_mm256_slli_epi32(decctx[2], PROBBITS);
 	decctx[3]=_mm256_slli_epi32(decctx[3], PROBBITS);
 #ifdef ANS_VAL
-	ansval_check(mstate, sizeof(int[VAL_NCODERS]));
+	ansval_check(mstate, sizeof(int), NCODERS);
 #endif
 	{
 		__m256i mprobmask=_mm256_set1_epi32((1<<PROBBITS)-1);
@@ -879,10 +894,11 @@ AWM_INLINE void dec_yuv(__m256i *mstate, __m256i *ctx0, __m256i *ctx1, const int
 		decctx[2]=_mm256_add_epi32(decctx[2], rem2);
 		decctx[3]=_mm256_add_epi32(decctx[3], rem3);
 	}
-	decctx[0]=_mm256_i32gather_epi32(CDF2syms, decctx[0], sizeof(int));//FIXME try not using gather
-	decctx[1]=_mm256_i32gather_epi32(CDF2syms, decctx[1], sizeof(int));
-	decctx[2]=_mm256_i32gather_epi32(CDF2syms, decctx[2], sizeof(int));
-	decctx[3]=_mm256_i32gather_epi32(CDF2syms, decctx[3], sizeof(int));
+	const int *statsptr=CDF2syms+((ptrdiff_t)NCTX*kc<<PROBBITS);
+	decctx[0]=_mm256_i32gather_epi32(statsptr, decctx[0], sizeof(int));//FIXME try not using gather
+	decctx[1]=_mm256_i32gather_epi32(statsptr, decctx[1], sizeof(int));
+	decctx[2]=_mm256_i32gather_epi32(statsptr, decctx[2], sizeof(int));
+	decctx[3]=_mm256_i32gather_epi32(statsptr, decctx[3], sizeof(int));
 
 	//update		state = (state>>12)*freq+(rem-cdf)	rem-cdf is prebaked
 	mstate[0]=_mm256_srli_epi32(mstate[0], PROBBITS);
@@ -898,6 +914,16 @@ AWM_INLINE void dec_yuv(__m256i *mstate, __m256i *ctx0, __m256i *ctx1, const int
 		mstate[1]=_mm256_mullo_epi32(mstate[1], mfreq1);
 		mstate[2]=_mm256_mullo_epi32(mstate[2], mfreq2);
 		mstate[3]=_mm256_mullo_epi32(mstate[3], mfreq3);
+#ifdef ANS_VAL
+		mfreq0=_mm256_packus_epi32(mfreq0, mfreq1);
+		mfreq2=_mm256_packus_epi32(mfreq2, mfreq3);
+		mfreq0=_mm256_permute4x64_epi64(mfreq0, _MM_SHUFFLE(3, 1, 2, 0));
+		mfreq2=_mm256_permute4x64_epi64(mfreq2, _MM_SHUFFLE(3, 1, 2, 0));
+		ALIGN(32) unsigned short freqs[NCODERS];
+		_mm256_store_si256((__m256i*)freqs+0, mfreq0);
+		_mm256_store_si256((__m256i*)freqs+1, mfreq2);
+		ansval_check(freqs, sizeof(short), NCODERS);
+#endif
 	}
 	__m256i lobyte=_mm256_set1_epi32(255);
 	__m256i msym0=_mm256_and_si256(decctx[0], lobyte);
@@ -922,6 +948,28 @@ AWM_INLINE void dec_yuv(__m256i *mstate, __m256i *ctx0, __m256i *ctx1, const int
 		mstate[2]=_mm256_add_epi32(mstate[2], mbias2);
 		mstate[3]=_mm256_add_epi32(mstate[3], mbias3);
 	}
+	//decctx[0]=_mm256_slli_epi32(decctx[0], 24);
+	//decctx[1]=_mm256_slli_epi32(decctx[1], 24);
+	//decctx[2]=_mm256_slli_epi32(decctx[2], 24);
+	//decctx[3]=_mm256_slli_epi32(decctx[3], 24);
+	//decctx[0]=_mm256_srai_epi32(decctx[0], 24);
+	//decctx[1]=_mm256_srai_epi32(decctx[1], 24);
+	//decctx[2]=_mm256_srai_epi32(decctx[2], 24);
+	//decctx[3]=_mm256_srai_epi32(decctx[3], 24);
+	//decctx[0]=_mm256_packs_epi16(decctx[0], decctx[1]);
+	//decctx[2]=_mm256_packs_epi16(decctx[2], decctx[3]);
+	__m256i symmask=_mm256_set1_epi32(255);
+	decctx[0]=_mm256_and_si256(decctx[0], symmask);
+	decctx[1]=_mm256_and_si256(decctx[1], symmask);
+	decctx[2]=_mm256_and_si256(decctx[2], symmask);
+	decctx[3]=_mm256_and_si256(decctx[3], symmask);
+	decctx[0]=_mm256_packus_epi16(decctx[0], decctx[1]);
+	decctx[2]=_mm256_packus_epi16(decctx[2], decctx[3]);
+	syms[0]=_mm256_permute4x64_epi64(decctx[0], _MM_SHUFFLE(3, 1, 2, 0));
+	syms[1]=_mm256_permute4x64_epi64(decctx[2], _MM_SHUFFLE(3, 1, 2, 0));
+#ifdef ANS_VAL
+	ansval_check(mstate, sizeof(int), NCODERS);
+#endif
 	//renorm
 	{
 #ifdef _DEBUG
@@ -1103,7 +1151,7 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		LOG_ERROR("Codec requires both source and destination filenames");
 		return 1;
 	}
-	int fwd=0, iw=0, ih=0, rowstride=0, blockw=0, remwidth=0, blockstride=0, mainwidth=0, mainbytes=0;
+	int fwd=0, iw=0, ih=0, rowstride=0, blockw=0, remwidth=0, mainwidth=0, mainbytes=0;
 	ptrdiff_t usize=0, cap=0;
 	unsigned char *image=0, *imptr=0, *streamptr=0, *streamstart=0, *streamend=0;
 	unsigned char *context=0;
@@ -1170,7 +1218,6 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		}
 		blockw=iw/NCODERS;
 		remwidth=iw%NCODERS;
-		blockstride=3*blockw;
 		mainwidth=NCODERS*blockw;
 		mainbytes=3*mainwidth;
 		rowstride=3*iw;
@@ -1377,6 +1424,9 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 			const unsigned char *rct=rct_combinations[bestrct];
 			long long count=(long long)mainbytes*ih * 2;//FIXME tune
 			use_wg4=counters[rct[0]]+counters[rct[1]]+counters[rct[2]]>count;
+#ifdef DISABLE_WG
+			use_wg4=0;
+#endif
 		}
 		prof_checkpoint("analysis");
 #ifdef LOUD
@@ -1435,7 +1485,6 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		}
 		prof_checkpoint("gen permutation");
 	}
-	//use_wg4=0;
 	const unsigned char *combination=rct_combinations[bestrct];
 	int
 		yidx=combination[II_PERM_Y]*NCODERS,
@@ -2160,27 +2209,60 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				//decode main
 
 				//decode Y
-				dec_yuv(mstate, &ctxY0, &ctxY1, (int*)CDF2syms, ans_permute, &streamptr, streamend, myuv+0*2);
+				dec_yuv(mstate, 0, &ctxY0, &ctxY1, (int*)CDF2syms, ans_permute, &streamptr, streamend, myuv+0*2);//residuals from [0 ~ 255]
+#ifdef ANS_VAL
+				ALIGN(32) unsigned char debugvals[6*NCODERS];
+				msyms8=_mm256_packus_epi16(ctxY0, ctxY1);
+				msyms8=_mm256_permute4x64_epi64(msyms8, _MM_SHUFFLE(3, 1, 2, 0));
+				_mm256_store_si256((__m256i*)debugvals+0, msyms8);
+				msyms8=_mm256_packus_epi16(myuv[0], myuv[1]);
+				msyms8=_mm256_permute4x64_epi64(msyms8, _MM_SHUFFLE(3, 1, 2, 0));
+				_mm256_store_si256((__m256i*)debugvals+1, msyms8);
+				ansval_check(debugvals+0*NCODERS, 1, NCODERS);//contexts
+				ansval_check(debugvals+1*NCODERS, 1, NCODERS);//residuals
+#endif
 
-				//yuv = (sym+pred-128)&255
+				//yuv = (char)(sym+pred-128)
 				myuv[0]=_mm256_add_epi16(myuv[0], predY0);
 				myuv[1]=_mm256_add_epi16(myuv[1], predY1);
-				myuv[0]=_mm256_add_epi16(myuv[0], amin);
-				myuv[1]=_mm256_add_epi16(myuv[1], amin);
 				myuv[0]=_mm256_and_si256(myuv[0], bytemask);
 				myuv[1]=_mm256_and_si256(myuv[1], bytemask);
+				myuv[0]=_mm256_add_epi16(myuv[0], amin);
+				myuv[1]=_mm256_add_epi16(myuv[1], amin);
 				msyms0=_mm256_sub_epi16(myuv[0], predY0);//sub pred
 				msyms1=_mm256_sub_epi16(myuv[1], predY1);
 				ecurr[0]=_mm256_xor_si256(_mm256_slli_epi16(msyms0, 1), _mm256_srai_epi16(msyms0, 15));
 				ecurr[1]=_mm256_xor_si256(_mm256_slli_epi16(msyms1, 1), _mm256_srai_epi16(msyms1, 15));
-				msyms8=_mm256_packus_epi16(myuv[0], myuv[1]);
+				msyms8=_mm256_packs_epi16(myuv[0], myuv[1]);
 				msyms8=_mm256_permute4x64_epi64(msyms8, _MM_SHUFFLE(3, 1, 2, 0));
 				msyms8=_mm256_xor_si256(msyms8, _mm256_set1_epi8(-128));
 				_mm256_storeu_si256((__m256i*)(imptr+kx+yidx), msyms8);//store Y bytes
+#ifdef ENABLE_GUIDE
+				if(memcmp(imptr+kx+yidx, g_image+rowstride*ky+kx+yidx, NCODERS))
+				{
+					printf("original  decoded  original-decoded  XYC %d %d %d\n", kx, ky, yidx);
+					for(int k=0;k<NCODERS;++k)
+						printf("0x%02X  0x%02X  %3d\n",
+							g_image[rowstride*ky+kx+yidx+k],
+							imptr[kx+yidx+k],
+							g_image[rowstride*ky+kx+yidx+k]-imptr[kx+yidx+k]
+						);
+					LOG_ERROR("guide error XYC %d %d %d/%d", kx, ky, yidx, NCODERS);
+				}
+#endif
+//#ifdef ANS_VAL
+//				ALIGN(32) unsigned char actx[3*NCODERS];
+//				msyms8=_mm256_packus_epi16(ctxY0, ctxY1);
+//				msyms8=_mm256_permute4x64_epi64(msyms8, _MM_SHUFFLE(3, 1, 2, 0));
+//				_mm256_storeu_si256((__m256i*)actx+0, msyms8);
+//				ansval_check(actx+0*NCODERS, 1, NCODERS);
+//				ansval_check(imptr+kx+yidx, 1, NCODERS);
+//#endif
 				W[0]=myuv[0];
 				W[1]=myuv[1];
 				_mm256_store_si256((__m256i*)(rows[0]+(0+0+0*6)*NCODERS)+0, myuv[0]);//store Y neighbors
 				_mm256_store_si256((__m256i*)(rows[0]+(0+0+0*6)*NCODERS)+1, myuv[1]);
+
 
 				//decode U
 				moffset0=_mm256_and_si256(myuv[0], uhelpmask);
@@ -2192,29 +2274,58 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				predU0=_mm256_min_epi16(predU0, amax);
 				predU1=_mm256_min_epi16(predU1, amax);
 				
-				dec_yuv(mstate, &ctxU0, &ctxU1, (int*)CDF2syms, ans_permute, &streamptr, streamend, myuv+1*2);
+				dec_yuv(mstate, 1, &ctxU0, &ctxU1, (int*)CDF2syms, ans_permute, &streamptr, streamend, myuv+1*2);
+#ifdef ANS_VAL
+				msyms8=_mm256_packus_epi16(ctxU0, ctxU1);
+				msyms8=_mm256_permute4x64_epi64(msyms8, _MM_SHUFFLE(3, 1, 2, 0));
+				_mm256_store_si256((__m256i*)debugvals+2, msyms8);
+				msyms8=_mm256_packus_epi16(myuv[2], myuv[3]);
+				msyms8=_mm256_permute4x64_epi64(msyms8, _MM_SHUFFLE(3, 1, 2, 0));
+				_mm256_store_si256((__m256i*)debugvals+3, msyms8);
+				ansval_check(debugvals+2*NCODERS, 1, NCODERS);//contexts
+				ansval_check(debugvals+3*NCODERS, 1, NCODERS);//residuals
+#endif
 				
 				myuv[2]=_mm256_add_epi16(myuv[2], predU0);
 				myuv[3]=_mm256_add_epi16(myuv[3], predU1);
-				myuv[2]=_mm256_add_epi16(myuv[2], amin);
-				myuv[3]=_mm256_add_epi16(myuv[3], amin);
 				myuv[2]=_mm256_and_si256(myuv[2], bytemask);
 				myuv[3]=_mm256_and_si256(myuv[3], bytemask);
+				myuv[2]=_mm256_add_epi16(myuv[2], amin);
+				myuv[3]=_mm256_add_epi16(myuv[3], amin);
 				msyms0=_mm256_sub_epi16(myuv[2], predU0);//sub pred
 				msyms1=_mm256_sub_epi16(myuv[3], predU1);
 				ecurr[2]=_mm256_xor_si256(_mm256_slli_epi16(msyms0, 1), _mm256_srai_epi16(msyms0, 15));
 				ecurr[3]=_mm256_xor_si256(_mm256_slli_epi16(msyms1, 1), _mm256_srai_epi16(msyms1, 15));
-				msyms8=_mm256_packus_epi16(myuv[2], myuv[3]);
+				msyms8=_mm256_packs_epi16(myuv[2], myuv[3]);
 				msyms8=_mm256_permute4x64_epi64(msyms8, _MM_SHUFFLE(3, 1, 2, 0));
 				msyms8=_mm256_xor_si256(msyms8, _mm256_set1_epi8(-128));
 				_mm256_storeu_si256((__m256i*)(imptr+kx+uidx), msyms8);//store U bytes
-				myuv[2]=_mm256_sub_epi16(myuv[2], moffset0);//subtract Uoffset from U
-				myuv[3]=_mm256_sub_epi16(myuv[3], moffset1);
-				W[2]=myuv[2];
-				W[3]=myuv[3];
-				_mm256_store_si256((__m256i*)(rows[0]+(0+1+0*6)*NCODERS)+0, myuv[2]);//store U neighbors
-				_mm256_store_si256((__m256i*)(rows[0]+(0+1+0*6)*NCODERS)+1, myuv[3]);
+#ifdef ENABLE_GUIDE
+				if(memcmp(imptr+kx+uidx, g_image+rowstride*ky+kx+uidx, NCODERS))
+				{
+					printf("original  decoded  original-decoded  XYC %d %d %d\n", kx, ky, uidx);
+					for(int k=0;k<NCODERS;++k)
+						printf("0x%02X  0x%02X  %3d\n",
+							g_image[rowstride*ky+kx+uidx+k],
+							imptr[kx+uidx+k],
+							g_image[rowstride*ky+kx+uidx+k]-imptr[kx+uidx+k]
+						);
+					LOG_ERROR("guide error XYC %d %d %d/%d", kx, ky, uidx, NCODERS);
+				}
+#endif
+//#ifdef ANS_VAL
+//				msyms8=_mm256_packus_epi16(ctxU0, ctxU1);
+//				msyms8=_mm256_permute4x64_epi64(msyms8, _MM_SHUFFLE(3, 1, 2, 0));
+//				_mm256_storeu_si256((__m256i*)actx+1, msyms8);
+//				ansval_check(actx+1*NCODERS, 1, NCODERS);
+//				ansval_check(imptr+kx+uidx, 1, NCODERS);
+//#endif
+				W[2]=_mm256_sub_epi16(myuv[2], moffset0);//subtract Uoffset from U
+				W[3]=_mm256_sub_epi16(myuv[3], moffset1);
+				_mm256_store_si256((__m256i*)(rows[0]+(0+1+0*6)*NCODERS)+0, W[2]);//store U neighbors
+				_mm256_store_si256((__m256i*)(rows[0]+(0+1+0*6)*NCODERS)+1, W[3]);
 				
+
 				//decode V
 				moffset0=_mm256_mullo_epi16(vc0, myuv[0]);
 				moffset1=_mm256_mullo_epi16(vc0, myuv[1]);
@@ -2229,35 +2340,63 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				predV0=_mm256_min_epi16(predV0, amax);
 				predV1=_mm256_min_epi16(predV1, amax);
 				
-				dec_yuv(mstate, &ctxV0, &ctxV1, (int*)CDF2syms, ans_permute, &streamptr, streamend, myuv+2*2);
+				dec_yuv(mstate, 2, &ctxV0, &ctxV1, (int*)CDF2syms, ans_permute, &streamptr, streamend, myuv+2*2);
+#ifdef ANS_VAL
+				msyms8=_mm256_packus_epi16(ctxV0, ctxV1);
+				msyms8=_mm256_permute4x64_epi64(msyms8, _MM_SHUFFLE(3, 1, 2, 0));
+				_mm256_store_si256((__m256i*)debugvals+4, msyms8);
+				msyms8=_mm256_packus_epi16(myuv[4], myuv[5]);
+				msyms8=_mm256_permute4x64_epi64(msyms8, _MM_SHUFFLE(3, 1, 2, 0));
+				_mm256_store_si256((__m256i*)debugvals+5, msyms8);
+				ansval_check(debugvals+4*NCODERS, 1, NCODERS);//contexts
+				ansval_check(debugvals+5*NCODERS, 1, NCODERS);//residuals
+#endif
 				
 				myuv[4]=_mm256_add_epi16(myuv[4], predV0);
 				myuv[5]=_mm256_add_epi16(myuv[5], predV1);
-				myuv[4]=_mm256_add_epi16(myuv[4], amin);
-				myuv[5]=_mm256_add_epi16(myuv[5], amin);
 				myuv[4]=_mm256_and_si256(myuv[4], bytemask);
 				myuv[5]=_mm256_and_si256(myuv[5], bytemask);
+				myuv[4]=_mm256_add_epi16(myuv[4], amin);
+				myuv[5]=_mm256_add_epi16(myuv[5], amin);
 				msyms0=_mm256_sub_epi16(myuv[4], predV0);
 				msyms1=_mm256_sub_epi16(myuv[5], predV1);
 				ecurr[4]=_mm256_xor_si256(_mm256_slli_epi16(msyms0, 1), _mm256_srai_epi16(msyms0, 15));
 				ecurr[5]=_mm256_xor_si256(_mm256_slli_epi16(msyms1, 1), _mm256_srai_epi16(msyms1, 15));
-				msyms8=_mm256_packus_epi16(myuv[4], myuv[5]);
+				msyms8=_mm256_packs_epi16(myuv[4], myuv[5]);
 				msyms8=_mm256_permute4x64_epi64(msyms8, _MM_SHUFFLE(3, 1, 2, 0));
 				msyms8=_mm256_xor_si256(msyms8, _mm256_set1_epi8(-128));
 				_mm256_storeu_si256((__m256i*)(imptr+kx+vidx), msyms8);//store V bytes
-				myuv[4]=_mm256_slli_epi16(myuv[4], 2);
-				myuv[5]=_mm256_slli_epi16(myuv[5], 2);
-				myuv[4]=_mm256_sub_epi16(myuv[4], moffset0);//subtract Voffset from V
-				myuv[5]=_mm256_sub_epi16(myuv[5], moffset1);
-				W[4]=myuv[4];
-				W[5]=myuv[5];
-				_mm256_store_si256((__m256i*)(rows[0]+(0+2+0*6)*NCODERS)+0, myuv[4]);//store V neighbors
-				_mm256_store_si256((__m256i*)(rows[0]+(0+2+0*6)*NCODERS)+1, myuv[5]);
-				
 #ifdef ENABLE_GUIDE
-				for(int kx2=0;kx2<3*NCODERS;kx2+=3)
-					guide_check(image, kx+kx2, ky);
+				if(memcmp(imptr+kx+vidx, g_image+rowstride*ky+kx+vidx, NCODERS))
+				{
+					printf("original  decoded  original-decoded  XYC %d %d %d\n", kx, ky, vidx);
+					for(int k=0;k<NCODERS;++k)
+						printf("0x%02X  0x%02X  %3d\n",
+							g_image[rowstride*ky+kx+vidx+k],
+							imptr[kx+vidx+k],
+							g_image[rowstride*ky+kx+vidx+k]-imptr[kx+vidx+k]
+						);
+					LOG_ERROR("guide error XYC %d %d %d/%d", kx, ky, vidx, NCODERS);
+				}
 #endif
+//#ifdef ANS_VAL
+//				msyms8=_mm256_packus_epi16(ctxV0, ctxV1);
+//				msyms8=_mm256_permute4x64_epi64(msyms8, _MM_SHUFFLE(3, 1, 2, 0));
+//				_mm256_storeu_si256((__m256i*)actx, msyms8);
+//				ansval_check(actx+2*NCODERS, 1, NCODERS);
+//				ansval_check(imptr+kx+vidx, 1, NCODERS);
+//#endif
+				W[4]=_mm256_slli_epi16(myuv[4], 2);
+				W[5]=_mm256_slli_epi16(myuv[5], 2);
+				W[4]=_mm256_sub_epi16(W[4], moffset0);//subtract Voffset from V
+				W[5]=_mm256_sub_epi16(W[5], moffset1);
+				_mm256_store_si256((__m256i*)(rows[0]+(0+2+0*6)*NCODERS)+0, W[4]);//store V neighbors
+				_mm256_store_si256((__m256i*)(rows[0]+(0+2+0*6)*NCODERS)+1, W[5]);
+				
+//#ifdef ENABLE_GUIDE
+//				for(int kx2=0;kx2<3*NCODERS;kx2+=3)
+//					guide_check(image, kx+kx2, ky);
+//#endif
 			}
 			if(use_wg4)//update
 			{
@@ -2266,12 +2405,12 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					__m256i t[8];
 
 					//e = abs(curr-wgpred[i])<<1
-					__m256i me0=_mm256_sub_epi16(myuv[0], wgpreds[kp*6+0]);
-					__m256i me1=_mm256_sub_epi16(myuv[1], wgpreds[kp*6+1]);
-					__m256i me2=_mm256_sub_epi16(myuv[2], wgpreds[kp*6+2]);
-					__m256i me3=_mm256_sub_epi16(myuv[3], wgpreds[kp*6+3]);
-					__m256i me4=_mm256_sub_epi16(myuv[4], wgpreds[kp*6+4]);
-					__m256i me5=_mm256_sub_epi16(myuv[5], wgpreds[kp*6+5]);
+					__m256i me0=_mm256_sub_epi16(W[0], wgpreds[kp*6+0]);//W is now (YUV-offset)
+					__m256i me1=_mm256_sub_epi16(W[1], wgpreds[kp*6+1]);
+					__m256i me2=_mm256_sub_epi16(W[2], wgpreds[kp*6+2]);
+					__m256i me3=_mm256_sub_epi16(W[3], wgpreds[kp*6+3]);
+					__m256i me4=_mm256_sub_epi16(W[4], wgpreds[kp*6+4]);
+					__m256i me5=_mm256_sub_epi16(W[5], wgpreds[kp*6+5]);
 					me0=_mm256_abs_epi16(me0);
 					me1=_mm256_abs_epi16(me1);
 					me2=_mm256_abs_epi16(me2);
@@ -2369,14 +2508,14 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				}
 				//for(int kr=0;kr<6;++kr)//reuse register but fragmented access
 				//{
-				//	__m256i me0=_mm256_sub_epi16(myuv[kr], wgpreds[0*6+kr]);
-				//	__m256i me1=_mm256_sub_epi16(myuv[kr], wgpreds[1*6+kr]);
-				//	__m256i me2=_mm256_sub_epi16(myuv[kr], wgpreds[2*6+kr]);
-				//	__m256i me3=_mm256_sub_epi16(myuv[kr], wgpreds[3*6+kr]);
-				//	__m256i me4=_mm256_sub_epi16(myuv[kr], wgpreds[4*6+kr]);
-				//	__m256i me5=_mm256_sub_epi16(myuv[kr], wgpreds[5*6+kr]);
-				//	__m256i me6=_mm256_sub_epi16(myuv[kr], wgpreds[6*6+kr]);
-				//	__m256i me7=_mm256_sub_epi16(myuv[kr], wgpreds[7*6+kr]);
+				//	__m256i me0=_mm256_sub_epi16(W[kr], wgpreds[0*6+kr]);
+				//	__m256i me1=_mm256_sub_epi16(W[kr], wgpreds[1*6+kr]);
+				//	__m256i me2=_mm256_sub_epi16(W[kr], wgpreds[2*6+kr]);
+				//	__m256i me3=_mm256_sub_epi16(W[kr], wgpreds[3*6+kr]);
+				//	__m256i me4=_mm256_sub_epi16(W[kr], wgpreds[4*6+kr]);
+				//	__m256i me5=_mm256_sub_epi16(W[kr], wgpreds[5*6+kr]);
+				//	__m256i me6=_mm256_sub_epi16(W[kr], wgpreds[6*6+kr]);
+				//	__m256i me7=_mm256_sub_epi16(W[kr], wgpreds[7*6+kr]);
 				//}
 				erows[0]+=NCODERS*3*WG_NPREDS;
 				erows[1]+=NCODERS*3*WG_NPREDS;
@@ -2449,7 +2588,7 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 	if(mainwidth<iw)
 	{
 		int sym=0;
-		int vfromy=-(combination[II_COEFF_U_SUB_Y]!=0);
+		int ufromy=-(combination[II_COEFF_U_SUB_Y]!=0);
 		int vc0=combination[II_COEFF_V_SUB_Y];
 		int vc1=combination[II_COEFF_V_SUB_U];
 		int offset=0;
@@ -2476,14 +2615,14 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				if(fwd)
 				{
 					//sym = (yuv-N+128)&255
-					yuv[kx+0]=imptr[kx+yidx];
-					yuv[kx+1]=imptr[kx+uidx];
-					yuv[kx+2]=imptr[kx+vidx];
+					yuv[kx+0]=imptr[kx+yidx]-128;
+					yuv[kx+1]=imptr[kx+uidx]-128;
+					yuv[kx+2]=imptr[kx+vidx]-128;
 					imptr[kx+0]=sym=(unsigned char)(yuv[kx+0]-N[kx+0]+128);
 					N[kx+0]=yuv[kx+0];
 					++rhist[256*0+sym];
 
-					offset=yuv[kx+0]&vfromy;
+					offset=yuv[kx+0]&ufromy;
 					N[kx+1]+=offset;
 					CLAMP2(N[kx+1], -128, 127);
 					imptr[kx+1]=sym=(unsigned char)(yuv[kx+1]-N[kx+1]+128);
@@ -2499,12 +2638,14 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				}
 				else
 				{
-					int info;
-					info=rCDF2syms[state&((1<<PROBBITS)-1)];
-					yuv[kx+0]=(unsigned char)(info+N[kx+0]-128);
+					unsigned info;
+
+					//yuv = (char)(error+N-128)
+					info=rCDF2syms[0<<PROBBITS|(state&((1<<PROBBITS)-1))];
+					yuv[kx+0]=(char)(info+N[kx+0]-128);
 					N[kx+0]=yuv[kx+0];
 #ifdef ANS_VAL
-					ansval_check(&state, sizeof(state));
+					ansval_check(&state, sizeof(state), 1);
 #endif
 					state=(state>>PROBBITS)*(info>>(PROBBITS+8))+(info<<PROBBITS>>(32-PROBBITS));
 					if(state<(1<<(RANS_STATE_BITS-RANS_RENORM_BITS)))
@@ -2513,18 +2654,18 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 						if(streamptr>streamend)
 							LOG_ERROR("OOB ptr %016zX >= %016zX", streamptr, streamend);
 #endif
-						state=state<<16|*(unsigned*)streamptr;
-						streamptr+=4;
+						state=state<<16|*(unsigned short*)streamptr;
+						streamptr+=2;
 					}
 
-					offset=yuv[kx+0]&vfromy;
+					offset=yuv[kx+0]&ufromy;
 					N[kx+1]+=offset;
 					CLAMP2(N[kx+1], -128, 127);
-					info=rCDF2syms[state&((1<<PROBBITS)-1)];
-					yuv[kx+1]=(unsigned char)(info+N[kx+1]-128);
+					info=rCDF2syms[1<<PROBBITS|(state&((1<<PROBBITS)-1))];
+					yuv[kx+1]=(char)(info+N[kx+1]-128);
 					N[kx+1]=yuv[kx+1]-offset;
 #ifdef ANS_VAL
-					ansval_check(&state, sizeof(state));
+					ansval_check(&state, sizeof(state), 1);
 #endif
 					state=(state>>PROBBITS)*(info>>(PROBBITS+8))+(info<<PROBBITS>>(32-PROBBITS));
 					if(state<(1<<(RANS_STATE_BITS-RANS_RENORM_BITS)))
@@ -2533,18 +2674,18 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 						if(streamptr>streamend)
 							LOG_ERROR("OOB ptr %016zX >= %016zX", streamptr, streamend);
 #endif
-						state=state<<16|*(unsigned*)streamptr;
-						streamptr+=4;
+						state=state<<16|*(unsigned short*)streamptr;
+						streamptr+=2;
 					}
 
 					offset=vc0*yuv[kx+0]+vc1*yuv[kx+1];
-					N[kx+2]+=offset;
-					CLAMP2(N[kx+2], -128, 127);
-					info=rCDF2syms[state&((1<<PROBBITS)-1)];
-					yuv[kx+2]=(unsigned char)(info+N[kx+2]-128);
-					N[kx+2]=yuv[kx+2]-offset;
+					int vpred=(N[kx+2]+offset)>>2;
+					CLAMP2(vpred, -128, 127);
+					info=rCDF2syms[2<<PROBBITS|(state&((1<<PROBBITS)-1))];
+					yuv[kx+2]=(char)(info+vpred-128);
+					N[kx+2]=4*yuv[kx+2]-offset;
 #ifdef ANS_VAL
-					ansval_check(&state, sizeof(state));
+					ansval_check(&state, sizeof(state), 1);
 #endif
 					state=(state>>PROBBITS)*(info>>(PROBBITS+8))+(info<<PROBBITS>>(32-PROBBITS));
 					if(state<(1<<(RANS_STATE_BITS-RANS_RENORM_BITS)))
@@ -2553,14 +2694,14 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 						if(streamptr>streamend)
 							LOG_ERROR("OOB ptr %016zX >= %016zX", streamptr, streamend);
 #endif
-						state=state<<16|*(unsigned*)streamptr;
-						streamptr+=4;
+						state=state<<16|*(unsigned short*)streamptr;
+						streamptr+=2;
 					}
-					imptr[kx+yidx]=(unsigned char)yuv[kx+0];
-					imptr[kx+uidx]=(unsigned char)yuv[kx+1];
-					imptr[kx+vidx]=(unsigned char)yuv[kx+2];
+					imptr[kx+yidx]=(unsigned char)(yuv[kx+0]+128);
+					imptr[kx+uidx]=(unsigned char)(yuv[kx+1]+128);
+					imptr[kx+vidx]=(unsigned char)(yuv[kx+2]+128);
 #ifdef ENABLE_GUIDE
-					guide_check(image, kx+mainbytes, ky);
+					guide_check(image, (mainbytes+kx)/3, ky);
 #endif
 				}
 			}
@@ -2593,6 +2734,9 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 			{
 				for(int kx=rembytes-3;kx>=0;kx-=3)
 				{
+					//if(!ky&&!kx)//
+					//	printf("");
+
 					info=rsyminfo+imptr[kx+2]+256*2;
 					if(state>info->smax)
 					{
@@ -2604,11 +2748,9 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 						*(unsigned short*)streamptr=(unsigned short)state;
 						state>>=RANS_RENORM_BITS;
 					}
-					state+=((unsigned long long)state*info->invf>>info->sh)*info->negf+info->cdf;
-#ifndef STREAM_STATSONLY
+					state+=((unsigned long long)state*info->invf>>32>>info->sh)*info->negf+info->cdf;
 #ifdef ANS_VAL
-					ansval_push(&state, sizeof(state));
-#endif
+					ansval_push(&state, sizeof(state), 1);
 #endif
 
 					info=rsyminfo+imptr[kx+1]+256*1;
@@ -2622,11 +2764,9 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 						*(unsigned short*)streamptr=(unsigned short)state;
 						state>>=RANS_RENORM_BITS;
 					}
-					state+=((unsigned long long)state*info->invf>>info->sh)*info->negf+info->cdf;
-#ifndef STREAM_STATSONLY
+					state+=((unsigned long long)state*info->invf>>32>>info->sh)*info->negf+info->cdf;
 #ifdef ANS_VAL
-					ansval_push(&state, sizeof(state));
-#endif
+					ansval_push(&state, sizeof(state), 1);
 #endif
 
 					info=rsyminfo+imptr[kx+0]+256*0;
@@ -2640,11 +2780,9 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 						*(unsigned short*)streamptr=(unsigned short)state;
 						state>>=RANS_RENORM_BITS;
 					}
-					state+=((unsigned long long)state*info->invf>>info->sh)*info->negf+info->cdf;
-#ifndef STREAM_STATSONLY
+					state+=((unsigned long long)state*info->invf>>32>>info->sh)*info->negf+info->cdf;
 #ifdef ANS_VAL
-					ansval_push(&state, sizeof(state));
-#endif
+					ansval_push(&state, sizeof(state), 1);
 #endif
 				}
 				imptr-=rowstride;
@@ -2679,7 +2817,7 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 			//indices are permuted:
 			//00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F 10 11 12 13 14 15 16 17 18 19 1A 1B 1C 1D 1E 0F	loaded bytes
 			//00 04 08 0C 10 14 18 1C 01 05 09 0D 11 15 19 1D 02 06 0A 0E 12 16 1A 1E 03 07 0B 0F 13 17 1B 1F	saved int32s
-			//lane 0bEDCBA -> 0xBAEDC	indices[0bBA * 8 + 0bEDC]
+			//lane 0bEDCBA -> 0xBAEDC (rotate right 2)	indices[0bBA * 8 + 0bEDC]
 			
 			//00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F 10 11 12 13 14 15 16 17 18 19 1A 1B 1C 1D 1E 0F	loaded bytes	X
 			//00 02 04 06 08 0A 0C 0E 10 12 14 16 18 1A 1C 1E 01 03 05 07 09 0B 0D 0F 11 13 15 16 19 1B 1D 1F	saved int16s	X
@@ -2692,6 +2830,10 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					__m256i mctxmask=_mm256_set1_epi32(0x0000FF00);
 					__m256i lanesyms=_mm256_loadu_si256((__m256i*)(imptr+kx));
 					__m256i lanectxs=_mm256_loadu_si256((__m256i*)(ctxptr+kx));
+#ifdef ANS_VAL
+					ansval_push(imptr+kx, 1, NCODERS);//residuals
+					ansval_push(ctxptr+kx, 1, NCODERS);//contexts
+#endif
 					__m256i midx0=_mm256_slli_epi32(lanesyms, 3*8);
 					__m256i midx1=_mm256_slli_epi32(lanesyms, 2*8);
 					__m256i midx2=_mm256_slli_epi32(lanesyms, 1*8);
@@ -2726,6 +2868,11 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					_mm256_store_si256((__m256i*)indices+2, midx2);
 					_mm256_store_si256((__m256i*)indices+3, midx3);
 				}
+				//if(!ky&&!kx)//
+				//{
+				//	for(int k=0;k<NCODERS;++k)
+				//		printf("%08X\n", indices[k]);
+				//}
 #endif
 				//2 uloads	8 shift/ORs	1 store		32 adds		32 loads
 #if 0
@@ -2749,16 +2896,24 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					__m256i s0, s1, s2, s3;
 					__m256i t0, t1, t2, t3;
 #define SHUFFLE_PS(LO, HI, IMM8_HHLL) _mm256_castps_si256(_mm256_shuffle_ps(_mm256_castsi256_ps(LO), _mm256_castsi256_ps(HI), IMM8_HHLL))
-					
-				//	//original: indices[wave[2]|reg[2]|hi[1]]	permuted: indices[(reg&1)[1] | hi[1] | wave[2] | reg/2[1]]
-					s0=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[0<<4|0<<3|0<<1|0])));//_mm_extract_epi16 x32	4/1
-					s1=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[1<<4|0<<3|0<<1|0])));
-					s2=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[0<<4|0<<3|0<<1|1])));
-					s3=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[1<<4|0<<3|0<<1|1])));
-					s0=_mm256_inserti128_si256(s0,	_mm_load_si128((__m128i*)((char*)syminfo+indices[0<<4|1<<3|0<<1|0])), 1);
-					s1=_mm256_inserti128_si256(s1,	_mm_load_si128((__m128i*)((char*)syminfo+indices[1<<4|1<<3|0<<1|0])), 1);
-					s2=_mm256_inserti128_si256(s2,	_mm_load_si128((__m128i*)((char*)syminfo+indices[0<<4|1<<3|0<<1|1])), 1);
-					s3=_mm256_inserti128_si256(s3,	_mm_load_si128((__m128i*)((char*)syminfo+indices[1<<4|1<<3|0<<1|1])), 1);
+
+					//original: indices[wave[2]|reg[2]|hi[1]]	0bEDCBA -> 0bBAEDC (rotate right 2)	binary literals are C++14 -> C23
+					s0=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[0b00000])));//_mm_extract_epi16 x32	4/1
+					s1=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[0b01000])));
+					s2=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[0b10000])));
+					s3=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[0b11000])));
+					s0=_mm256_inserti128_si256(s0,	_mm_load_si128((__m128i*)((char*)syminfo+indices[0b00001])), 1);
+					s1=_mm256_inserti128_si256(s1,	_mm_load_si128((__m128i*)((char*)syminfo+indices[0b01001])), 1);
+					s2=_mm256_inserti128_si256(s2,	_mm_load_si128((__m128i*)((char*)syminfo+indices[0b10001])), 1);
+					s3=_mm256_inserti128_si256(s3,	_mm_load_si128((__m128i*)((char*)syminfo+indices[0b11001])), 1);
+				//	s0=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[0<<4|0<<3|0<<1|0])));//_mm_extract_epi16 x32	4/1
+				//	s1=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[1<<4|0<<3|0<<1|0])));
+				//	s2=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[0<<4|0<<3|0<<1|1])));
+				//	s3=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[1<<4|0<<3|0<<1|1])));
+				//	s0=_mm256_inserti128_si256(s0,	_mm_load_si128((__m128i*)((char*)syminfo+indices[0<<4|1<<3|0<<1|0])), 1);
+				//	s1=_mm256_inserti128_si256(s1,	_mm_load_si128((__m128i*)((char*)syminfo+indices[1<<4|1<<3|0<<1|0])), 1);
+				//	s2=_mm256_inserti128_si256(s2,	_mm_load_si128((__m128i*)((char*)syminfo+indices[0<<4|1<<3|0<<1|1])), 1);
+				//	s3=_mm256_inserti128_si256(s3,	_mm_load_si128((__m128i*)((char*)syminfo+indices[1<<4|1<<3|0<<1|1])), 1);
 					//original: indices[wave[2]|reg[2]|hi[1]]	permuted: indices[(wave&1)[1] | reg[2] | hi[1] | wave/2[1]]	X
 				//	s0=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)syminfo+((ptrdiff_t)ctxptrx[0*8+0*2+0]<<8|imptrx[0*8+0*2+0])));//32 shift-ORs
 				//	s1=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)syminfo+((ptrdiff_t)ctxptrx[0*8+1*2+0]<<8|imptrx[0*8+1*2+0])));
@@ -2777,14 +2932,22 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					mcdf	[0]=SHUFFLE_PS(t2, t3, _MM_SHUFFLE(2, 0, 2, 0));
 					mnegf_sh[0]=SHUFFLE_PS(t2, t3, _MM_SHUFFLE(3, 1, 3, 1));
 
-					s0=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[0<<4|0<<3|1<<1|0])));
-					s1=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[1<<4|0<<3|1<<1|0])));
-					s2=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[0<<4|0<<3|1<<1|1])));
-					s3=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[1<<4|0<<3|1<<1|1])));
-					s0=_mm256_inserti128_si256(s0,	_mm_load_si128((__m128i*)((char*)syminfo+indices[0<<4|1<<3|1<<1|0])), 1);
-					s1=_mm256_inserti128_si256(s1,	_mm_load_si128((__m128i*)((char*)syminfo+indices[1<<4|1<<3|1<<1|0])), 1);
-					s2=_mm256_inserti128_si256(s2,	_mm_load_si128((__m128i*)((char*)syminfo+indices[0<<4|1<<3|1<<1|1])), 1);
-					s3=_mm256_inserti128_si256(s3,	_mm_load_si128((__m128i*)((char*)syminfo+indices[1<<4|1<<3|1<<1|1])), 1);
+					s0=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[0b00010])));
+					s1=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[0b01010])));
+					s2=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[0b10010])));
+					s3=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[0b11010])));
+					s0=_mm256_inserti128_si256(s0,	_mm_load_si128((__m128i*)((char*)syminfo+indices[0b00011])), 1);
+					s1=_mm256_inserti128_si256(s1,	_mm_load_si128((__m128i*)((char*)syminfo+indices[0b01011])), 1);
+					s2=_mm256_inserti128_si256(s2,	_mm_load_si128((__m128i*)((char*)syminfo+indices[0b10011])), 1);
+					s3=_mm256_inserti128_si256(s3,	_mm_load_si128((__m128i*)((char*)syminfo+indices[0b11011])), 1);
+				//	s0=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[0<<4|0<<3|1<<1|0])));
+				//	s1=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[1<<4|0<<3|1<<1|0])));
+				//	s2=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[0<<4|0<<3|1<<1|1])));
+				//	s3=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[1<<4|0<<3|1<<1|1])));
+				//	s0=_mm256_inserti128_si256(s0,	_mm_load_si128((__m128i*)((char*)syminfo+indices[0<<4|1<<3|1<<1|0])), 1);
+				//	s1=_mm256_inserti128_si256(s1,	_mm_load_si128((__m128i*)((char*)syminfo+indices[1<<4|1<<3|1<<1|0])), 1);
+				//	s2=_mm256_inserti128_si256(s2,	_mm_load_si128((__m128i*)((char*)syminfo+indices[0<<4|1<<3|1<<1|1])), 1);
+				//	s3=_mm256_inserti128_si256(s3,	_mm_load_si128((__m128i*)((char*)syminfo+indices[1<<4|1<<3|1<<1|1])), 1);
 				//	s0=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)syminfo+((ptrdiff_t)ctxptrx[1*8+0*2+0]<<8|imptrx[1*8+0*2+0])));
 				//	s1=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)syminfo+((ptrdiff_t)ctxptrx[1*8+1*2+0]<<8|imptrx[1*8+1*2+0])));
 				//	s2=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)syminfo+((ptrdiff_t)ctxptrx[1*8+2*2+0]<<8|imptrx[1*8+2*2+0])));
@@ -2802,14 +2965,22 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					mcdf	[1]=SHUFFLE_PS(t2, t3, _MM_SHUFFLE(2, 0, 2, 0));
 					mnegf_sh[1]=SHUFFLE_PS(t2, t3, _MM_SHUFFLE(3, 1, 3, 1));
 
-					s0=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[0<<4|0<<3|2<<1|0])));
-					s1=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[1<<4|0<<3|2<<1|0])));
-					s2=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[0<<4|0<<3|2<<1|1])));
-					s3=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[1<<4|0<<3|2<<1|1])));
-					s0=_mm256_inserti128_si256(s0,	_mm_load_si128((__m128i*)((char*)syminfo+indices[0<<4|1<<3|2<<1|0])), 1);
-					s1=_mm256_inserti128_si256(s1,	_mm_load_si128((__m128i*)((char*)syminfo+indices[1<<4|1<<3|2<<1|0])), 1);
-					s2=_mm256_inserti128_si256(s2,	_mm_load_si128((__m128i*)((char*)syminfo+indices[0<<4|1<<3|2<<1|1])), 1);
-					s3=_mm256_inserti128_si256(s3,	_mm_load_si128((__m128i*)((char*)syminfo+indices[1<<4|1<<3|2<<1|1])), 1);
+					s0=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[0b00100])));
+					s1=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[0b01100])));
+					s2=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[0b10100])));
+					s3=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[0b11100])));
+					s0=_mm256_inserti128_si256(s0,	_mm_load_si128((__m128i*)((char*)syminfo+indices[0b00101])), 1);
+					s1=_mm256_inserti128_si256(s1,	_mm_load_si128((__m128i*)((char*)syminfo+indices[0b01101])), 1);
+					s2=_mm256_inserti128_si256(s2,	_mm_load_si128((__m128i*)((char*)syminfo+indices[0b10101])), 1);
+					s3=_mm256_inserti128_si256(s3,	_mm_load_si128((__m128i*)((char*)syminfo+indices[0b11101])), 1);
+				//	s0=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[0<<4|0<<3|2<<1|0])));
+				//	s1=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[1<<4|0<<3|2<<1|0])));
+				//	s2=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[0<<4|0<<3|2<<1|1])));
+				//	s3=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[1<<4|0<<3|2<<1|1])));
+				//	s0=_mm256_inserti128_si256(s0,	_mm_load_si128((__m128i*)((char*)syminfo+indices[0<<4|1<<3|2<<1|0])), 1);
+				//	s1=_mm256_inserti128_si256(s1,	_mm_load_si128((__m128i*)((char*)syminfo+indices[1<<4|1<<3|2<<1|0])), 1);
+				//	s2=_mm256_inserti128_si256(s2,	_mm_load_si128((__m128i*)((char*)syminfo+indices[0<<4|1<<3|2<<1|1])), 1);
+				//	s3=_mm256_inserti128_si256(s3,	_mm_load_si128((__m128i*)((char*)syminfo+indices[1<<4|1<<3|2<<1|1])), 1);
 				//	s0=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)syminfo+((ptrdiff_t)ctxptrx[2*8+0*2+0]<<8|imptrx[2*8+0*2+0])));
 				//	s1=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)syminfo+((ptrdiff_t)ctxptrx[2*8+1*2+0]<<8|imptrx[2*8+1*2+0])));
 				//	s2=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)syminfo+((ptrdiff_t)ctxptrx[2*8+2*2+0]<<8|imptrx[2*8+2*2+0])));
@@ -2827,14 +2998,22 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					mcdf	[2]=SHUFFLE_PS(t2, t3, _MM_SHUFFLE(2, 0, 2, 0));
 					mnegf_sh[2]=SHUFFLE_PS(t2, t3, _MM_SHUFFLE(3, 1, 3, 1));
 
-					s0=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[0<<4|0<<3|3<<1|0])));
-					s1=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[1<<4|0<<3|3<<1|0])));
-					s2=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[0<<4|0<<3|3<<1|1])));
-					s3=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[1<<4|0<<3|3<<1|1])));
-					s0=_mm256_inserti128_si256(s0,	_mm_load_si128((__m128i*)((char*)syminfo+indices[0<<4|1<<3|3<<1|0])), 1);
-					s1=_mm256_inserti128_si256(s1,	_mm_load_si128((__m128i*)((char*)syminfo+indices[1<<4|1<<3|3<<1|0])), 1);
-					s2=_mm256_inserti128_si256(s2,	_mm_load_si128((__m128i*)((char*)syminfo+indices[0<<4|1<<3|3<<1|1])), 1);
-					s3=_mm256_inserti128_si256(s3,	_mm_load_si128((__m128i*)((char*)syminfo+indices[1<<4|1<<3|3<<1|1])), 1);
+					s0=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[0b00110])));
+					s1=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[0b01110])));
+					s2=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[0b10110])));
+					s3=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[0b11110])));
+					s0=_mm256_inserti128_si256(s0,	_mm_load_si128((__m128i*)((char*)syminfo+indices[0b00111])), 1);
+					s1=_mm256_inserti128_si256(s1,	_mm_load_si128((__m128i*)((char*)syminfo+indices[0b01111])), 1);
+					s2=_mm256_inserti128_si256(s2,	_mm_load_si128((__m128i*)((char*)syminfo+indices[0b10111])), 1);
+					s3=_mm256_inserti128_si256(s3,	_mm_load_si128((__m128i*)((char*)syminfo+indices[0b11111])), 1);
+				//	s0=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[0<<4|0<<3|3<<1|0])));
+				//	s1=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[1<<4|0<<3|3<<1|0])));
+				//	s2=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[0<<4|0<<3|3<<1|1])));
+				//	s3=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)((char*)syminfo+indices[1<<4|0<<3|3<<1|1])));
+				//	s0=_mm256_inserti128_si256(s0,	_mm_load_si128((__m128i*)((char*)syminfo+indices[0<<4|1<<3|3<<1|0])), 1);
+				//	s1=_mm256_inserti128_si256(s1,	_mm_load_si128((__m128i*)((char*)syminfo+indices[1<<4|1<<3|3<<1|0])), 1);
+				//	s2=_mm256_inserti128_si256(s2,	_mm_load_si128((__m128i*)((char*)syminfo+indices[0<<4|1<<3|3<<1|1])), 1);
+				//	s3=_mm256_inserti128_si256(s3,	_mm_load_si128((__m128i*)((char*)syminfo+indices[1<<4|1<<3|3<<1|1])), 1);
 				//	s0=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)syminfo+((ptrdiff_t)ctxptrx[3*8+0*2+0]<<8|imptrx[3*8+0*2+0])));
 				//	s1=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)syminfo+((ptrdiff_t)ctxptrx[3*8+1*2+0]<<8|imptrx[3*8+1*2+0])));
 				//	s2=_mm256_castsi128_si256(	_mm_load_si128((__m128i*)syminfo+((ptrdiff_t)ctxptrx[3*8+2*2+0]<<8|imptrx[3*8+2*2+0])));
@@ -2921,6 +3100,11 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					mstate[2]=_mm256_blendv_epi8(mstate[2], state2, cond2);
 					mstate[3]=_mm256_blendv_epi8(mstate[3], state3, cond3);
 				}
+#ifdef ANS_VAL
+				ansval_push(mstate, sizeof(int), NCODERS);
+#endif
+				//if(!ky&&kx<3*NCODERS)//
+				//	printf("");
 
 				//enc update		state += (state*invf>>sh)*negf+cdf
 				{
@@ -2942,10 +3126,10 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					__m256i sh1=_mm256_srli_epi32(mnegf_sh[1], 16);
 					__m256i sh2=_mm256_srli_epi32(mnegf_sh[2], 16);
 					__m256i sh3=_mm256_srli_epi32(mnegf_sh[3], 16);
-					_mm256_srlv_epi32(minvf[0], sh0);
-					_mm256_srlv_epi32(minvf[1], sh1);
-					_mm256_srlv_epi32(minvf[2], sh2);
-					_mm256_srlv_epi32(minvf[3], sh3);
+					minvf[0]=_mm256_srlv_epi32(minvf[0], sh0);
+					minvf[1]=_mm256_srlv_epi32(minvf[1], sh1);
+					minvf[2]=_mm256_srlv_epi32(minvf[2], sh2);
+					minvf[3]=_mm256_srlv_epi32(minvf[3], sh3);
 				}
 				mstate[0]=_mm256_add_epi32(mstate[0], mcdf[0]);
 				mstate[1]=_mm256_add_epi32(mstate[1], mcdf[1]);
@@ -2961,15 +3145,28 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					minvf[1]=_mm256_mullo_epi32(minvf[1], negf1);
 					minvf[2]=_mm256_mullo_epi32(minvf[2], negf2);
 					minvf[3]=_mm256_mullo_epi32(minvf[3], negf3);
+#ifdef ANS_VAL
+					__m256i mM=_mm256_set1_epi32(1<<PROBBITS);
+					negf0=_mm256_sub_epi16(mM, negf0);
+					negf1=_mm256_sub_epi16(mM, negf1);
+					negf2=_mm256_sub_epi16(mM, negf2);
+					negf3=_mm256_sub_epi16(mM, negf3);
+					negf0=_mm256_packus_epi32(negf0, negf1);
+					negf2=_mm256_packus_epi32(negf2, negf3);
+					negf0=_mm256_permute4x64_epi64(negf0, _MM_SHUFFLE(3, 1, 2, 0));
+					negf2=_mm256_permute4x64_epi64(negf2, _MM_SHUFFLE(3, 1, 2, 0));
+					ALIGN(32) unsigned short freqs[NCODERS];
+					_mm256_store_si256((__m256i*)freqs+0, negf0);
+					_mm256_store_si256((__m256i*)freqs+1, negf2);
+					ansval_push(freqs, sizeof(short), NCODERS);
+#endif
 				}
 				mstate[0]=_mm256_add_epi32(mstate[0], minvf[0]);
 				mstate[1]=_mm256_add_epi32(mstate[1], minvf[1]);
 				mstate[2]=_mm256_add_epi32(mstate[2], minvf[2]);
 				mstate[3]=_mm256_add_epi32(mstate[3], minvf[3]);
-#ifndef STREAM_STATSONLY
 #ifdef ANS_VAL
-				ansval_push(mstate, sizeof(int[VAL_NCODERS]));
-#endif
+				ansval_push(mstate, sizeof(int), NCODERS);
 #endif
 
 				mkctx=_mm256_sub_epi32(mkctx, mkctxstep);
@@ -2994,9 +3191,6 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 
 		//pack hists
 		{
-#ifdef STREAM_STATSONLY
-			streamptr=streamstart;
-#endif
 			BitPackerLIFO ec;
 			bitpacker_enc_init(&ec, image, streamptr);
 			enc_packhist(&ec, rhist+256*2, ctxmask, 3*NCTX+2);
@@ -3055,50 +3249,7 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 	else
 	{
 		//deinterleave
-		{
-			unsigned char *temprow=(unsigned char*)pixels;
-			unsigned char *tptrs[NCODERS]={0}, *tptrs0[NCODERS]={0};
-			{
-				unsigned char *temp=temprow;
-				for(int k=0;k<NCODERS;++k)
-				{
-					tptrs[k]=temp;
-					temp+=blockw;
-				}
-			}
-			memcpy(tptrs0, tptrs, sizeof(tptrs0));
-			imptr=image;
-			for(int ky=0;ky<ih;++ky)//deinterleave coder lanes
-			{
-				unsigned char *dstptr=imptr;
-				memcpy(tptrs, tptrs0, sizeof(tptrs));
-				int kx=0;
-				for(;kx<=rowstride-3*NCODERS;kx+=3*NCODERS)
-				{
-					//toy example with 2 coders:
-					// p0  p2  p4                                      p1  p3  p5
-					//|r00 g00 b00|r01 g01 b01|r02 g02 b02|r03 g03 b03|r04 g04 b04|r05 g05 b05|r06 g06 b06|r07 g07 b07|	dst
-					//|r00 r04|g00 g04|b00 b04|r01 r05|g01 g05|b01 b05|r02 r06|g02 g06|b02 b06|r03 r07|g03 g07|b03 b07|	src
-#if defined __GNUC__ && !defined PROFILER
-#pragma GCC unroll 32
-#endif
-					for(int k=0;k<NCODERS;++k)
-						*tptrs[k]++=*dstptr++;
-#if defined __GNUC__ && !defined PROFILER
-#pragma GCC unroll 32
-#endif
-					for(int k=0;k<NCODERS;++k)
-						*tptrs[k]++=*dstptr++;
-#if defined __GNUC__ && !defined PROFILER
-#pragma GCC unroll 32
-#endif
-					for(int k=0;k<NCODERS;++k)
-						*tptrs[k]++=*dstptr++;
-				}
-				memcpy(imptr, temprow, rowstride);
-				imptr+=rowstride;
-			}
-		}
+		interleave_inv(image, iw, ih, (unsigned char*)pixels);
 		prof_checkpoint("deinterleave");
 
 		//save PPM file
