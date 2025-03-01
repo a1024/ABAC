@@ -212,11 +212,18 @@ int ec_adaptive=0, ec_adaptive_threshold=3200, ec_expbits=5, ec_msb=2, ec_lsb=0;
 int abacvis_low=0, abacvis_range=0;
 
 #define MODELPREC 3
+#define MODELNCTX 17
+
+//#define MODELPREC 3
+//#define MODELNCTX (1<<(16+MODELPREC))
+
+//#define MODELCTXBITS 6	//X
+//#define MODELNCTX (1<<MODELCTXBITS)
 int modelnch=0, modelnctx=0, modeldepth=0, modelhistsize=0, *modelhist=0;
-double modelcsizes[4*32]={0};
-double modelmeans[4*32]={0}, modelsdevs[4*32]={0};
+double modelcsizes[4*MODELNCTX]={0};
+double modelmeans[4*MODELNCTX]={0}, modelsdevs[4*MODELNCTX]={0};
 int *modelmhist=0;
-double modelmsizes[4*32]={0};
+double modelmsizes[4*MODELNCTX]={0};
 double modelstatoverhead=0;
 
 #define combCRhist_SIZE 128
@@ -1132,7 +1139,9 @@ static void calc_csize_stateful(Image const *image, int *hist_full, double *entr
 		if(maxdepth<image->depth[1])maxdepth=image->depth[1];
 		if(maxdepth<image->depth[2])maxdepth=image->depth[2];
 		if(maxdepth<image->depth[3])maxdepth=image->depth[3];
-		int nctx=(maxdepth+MODELPREC)<<1;
+		const int nctx=MODELNCTX;
+	//	int nctx=(maxdepth+MODELPREC)<<1;
+	//	int nctx=1<<MODELCTXBITS;//X
 		int nlevels=1<<maxdepth, half=nlevels>>1, mask=nlevels-1;
 		int hsize=(int)sizeof(int)*nch*nctx<<maxdepth;
 		int *hists=(int*)malloc(hsize);
@@ -1157,7 +1166,7 @@ static void calc_csize_stateful(Image const *image, int *hist_full, double *entr
 			int sW[4]={0};
 			int xrun[4]={0};
 			int nbypass0[4]={0}, rbypass[4]={0};
-			for(int kx=0;kx<image->iw;++kx, ++idx)
+			for(int kx=0;kx<image->iw;++kx, idx+=4)
 			{
 				short
 					*NNNE	=rows[3]+1*4,
@@ -1183,11 +1192,33 @@ static void calc_csize_stateful(Image const *image, int *hist_full, double *entr
 				{
 					if(image->depth[kc])
 					{
+#if 1
+						int ctx=FLOOR_LOG2(sW[kc]*sW[kc]+1);
+						if(ctx>MODELNCTX-1)
+							ctx=MODELNCTX-1;
+						int sym=image->data[idx|kc];
+						sym<<=32-image->depth[kc];
+						sym>>=32-image->depth[kc];
+						++hists[(kc*nctx+ctx)<<maxdepth|((sym+(1<<image->depth[kc]>>1))&((1<<image->depth[kc])-1))];
+						sym=sym<<1^sym>>31;
+						//if(sym>>image->depth[kc])
+						//	LOG_WARNING("sym %d > max %d", sym, (1<<image->depth[kc])-1);
+						curr[kc]=sW[kc]=(2*sW[kc]+(sym<<MODELPREC)+MAXVAR(NEE[kc], NEEE[kc]))>>2;
+#endif
+#if 0
 						int delta=image->data[idx<<2|kc];
 						int sym=(delta<<1^delta>>31)&mask;
 						int ctx=FLOOR_LOG2(sW[kc]*sW[kc]+1);
 						++hists[(kc*nctx+ctx)<<maxdepth|sym];
 						curr[kc]=sW[kc]=(2*sW[kc]+(sym<<MODELPREC)+MAXVAR(NEE[kc], NEEE[kc]))>>2;
+#endif
+#if 0
+						int delta=image->data[idx<<2|kc];
+						delta+=1<<image->depth[kc]>>1;
+						delta&=(1<<image->depth[kc])-1;
+						++hists[(kc*nctx+sW[kc])<<maxdepth|delta];
+						sW[kc]=delta<<MODELCTXBITS>>image->depth[kc];
+#endif
 					}
 				}
 				rows[0]+=4;
@@ -1197,6 +1228,7 @@ static void calc_csize_stateful(Image const *image, int *hist_full, double *entr
 			}
 		}
 		free(pixels);
+		double ctxsizes[4]={0};
 		for(int kc=0;kc<nch;++kc)
 		{
 			double chsize=0;
@@ -1214,6 +1246,9 @@ static void calc_csize_stateful(Image const *image, int *hist_full, double *entr
 				//	chsize+=bitsizes[ctx]/8.;
 				//	continue;
 				//}
+
+				//exact estimate
+#if 0
 				double e=0, norm=1./sum;
 				for(int ks=0;ks<nlevels;++ks)
 				{
@@ -1221,27 +1256,105 @@ static void calc_csize_stateful(Image const *image, int *hist_full, double *entr
 					if(freq)
 						e-=freq*log2(freq*norm);
 				}
-				chsize+=e/8;
+#endif
+
+				//simulate bin tracking guard
+#if 1
+				int count=0;
+				for(int ks=0;ks<nlevels;++ks)
+					count+=curr_hist[ks]!=0;
+				double e=0;
+				for(int ks=0;ks<nlevels;++ks)
+				{
+					int freq=curr_hist[ks];
+					if(freq)
+					{
+						int prob=(int)((long long)freq*(0x1000LL-count)/sum)+1;
+						e-=freq*log2(prob*(1./0x1000));
+					}
+				}
+				e/=8;
+#endif
+				//simulate unconditional guard		nlevels = 512 with SubGopt
+#if 0
+				double e=0, norm=1./sum*(0x1000-nlevels)/0x1000;
+				for(int ks=0, ks2=0;ks<nlevels;++ks)
+				{
+					int freq=curr_hist[ks];
+					if(freq)
+						e-=freq*log2(freq*norm+1./0x1000);
+				}
+				e/=8;
+#endif
+				if(e<0)
+					LOG_ERROR("C%d ctx%d e %lf bytes", kc, kctx, e);
+				chsize+=e;
 #if 1
 				double hsize=0;
 				int cdfW=0;
 				int sum2=0;
-				for(int ks=0;ks<nlevels;++ks)//calc model stat overhead
+				const int probbits=12;
+				int codelen=probbits+1, CDFlevels=1<<probbits;
+				int nlevels2=1<<image->depth[kc], half2=nlevels2>>1, mask2=nlevels2-1;
+				for(int ks=0, ks2=0;ks<nlevels2;++ks)//calc model stat overhead
 				{
-					int sym=((ks>>1^-(ks&1))+half)&mask;
+					int sym=((ks>>1^-(ks&1))+half2)&mask2;
 					int freq=curr_hist[sym];
-					int cdf=sum2*((1ULL<<16)-nlevels)/sum+ks;
+					int cdf=sum2*((1ULL<<probbits)-count)/sum+ks2;
+					ks2+=freq!=0;
 					int csym=cdf-cdfW;
-					hsize+=log2(csym+1);
+					if(ks&&CDFlevels)//CDF[0] is always zero
+					{
+						//GR
+						int nbypass=FLOOR_LOG2(CDFlevels);
+						if(ks>1)
+							nbypass-=7;
+						if(nbypass<0)
+							nbypass=0;
+						hsize+=(csym>>nbypass)+1+nbypass;
+
+						//variable-base code
+						//if(codelen>1)
+						//{
+						//	int codelen0=codelen-1;
+						//	codelen-=(CDFlevels/((1<<codelen0)-1)+1)*codelen0 < (CDFlevels/((1<<codelen)-1)+1)*codelen;
+						//}
+						//hsize+=(csym/((1<<codelen)-1)+1)*codelen;
+
+						//variable-base code v2
+						//if(codelen>1)
+						//{
+						//	int codelen0=codelen>>1;
+						//	codelen-=(CDFlevels/((1<<codelen0)-1)+1)*codelen0 < (CDFlevels/((1<<codelen)-1)+1)*codelen;
+						//}
+						//hsize+=(csym/((1<<codelen)-1)+1)*codelen;
+
+						//naive pack
+						//hsize+=probbits;
+
+						//hsize+=csym+1;//unary code
+
+						//hsize+=log2(csym+1);		//X  no stop bit in binary code
+					}
+					CDFlevels-=csym;
 					cdfW=cdf;
 					sum2+=freq;
 				}
-				chsize+=(hsize+nlevels-1)/8;
+				chsize+=hsize/8;
+				ctxsizes[kc]+=hsize/8;
 #endif
 			}
 			double usize=(double)image->iw*image->ih*image->src_depth[0];
 			entropy[kc]=usize?chsize*8*8/usize:0;//entropy = cbitsize*8/ubitsize
 		}
+		(void)ctxsizes;
+		//if(loud_transforms)//
+		//	LOG_WARNING("%10.3lf | %10.3lf %10.3lf %10.3lf %10.3lf",
+		//		ctxsizes[0]+ctxsizes[1]+ctxsizes[2]+ctxsizes[3],
+		//		ctxsizes[0],
+		//		ctxsizes[1],
+		//		ctxsizes[2],
+		//		ctxsizes[3]);
 		free(hists);
 	}
 	else if(ec_method==ECTX_GR)
@@ -3954,7 +4067,9 @@ void update_image(void)//apply selected operations on original image, calculate 
 			if(modeldepth<im1->depth[2])modeldepth=im1->depth[2];
 			if(modeldepth<im1->depth[3])modeldepth=im1->depth[3];
 			modelnch=im1->nch;
-			modelnctx=(modeldepth+MODELPREC)<<1;
+			modelnctx=MODELNCTX;
+		//	modelnctx=(modeldepth+MODELPREC)<<1;
+		//	modelnctx=1<<MODELCTXBITS;
 			modelhistsize=(int)sizeof(int)*modelnch*modelnctx<<modeldepth;
 			void *p=(int*)realloc(modelhist, modelhistsize);
 			if(!p)
@@ -3993,6 +4108,21 @@ void update_image(void)//apply selected operations on original image, calculate 
 				int eW[4]={0};
 				for(int kx=0;kx<im1->iw;++kx, idx+=4)
 				{
+#if 1
+					for(int kc=0;kc<modelnch;++kc)
+					{
+						int ctx=FLOOR_LOG2(eW[kc]*eW[kc]+1);
+						if(ctx>MODELNCTX-1)
+							ctx=MODELNCTX-1;
+						int sym=im1->data[idx|kc];
+						sym<<=32-im1->depth[kc];
+						sym>>=32-im1->depth[kc];
+						++modelhist[(modelnctx*kc+ctx)<<modeldepth|((sym+half)&mask)];
+						sym=sym<<1^sym>>31;
+						rows[0][kc]=eW[kc]=(2*eW[kc]+(sym<<MODELPREC)+MAXVAR(rows[1][kc+2*4], rows[1][kc+3*4]))>>2;
+					}
+#endif
+#if 0
 					for(int kc=0;kc<modelnch;++kc)
 					{
 						int ctx=FLOOR_LOG2(eW[kc]*eW[kc]+1);
@@ -4005,9 +4135,20 @@ void update_image(void)//apply selected operations on original image, calculate 
 						//	LOG_ERROR("");
 						++modelhist[(modelnctx*kc+ctx)<<modeldepth|sym];
 						sym-=half;
-						sym=sym<<1^sym>>1;
+						sym=sym<<1^sym>>31;
 						rows[0][kc]=eW[kc]=(2*eW[kc]+(sym<<MODELPREC)+MAXVAR(rows[1][kc+2*4], rows[1][kc+3*4]))>>2;
 					}
+#endif
+#if 0
+					for(int kc=0;kc<modelnch;++kc)
+					{
+						int sym=im1->data[idx|kc];
+						sym+=1<<im1->depth[kc]>>1;
+						sym&=(1<<im1->depth[kc])-1;
+						++modelhist[(modelnctx*kc+eW[kc])<<modeldepth|sym];
+						eW[kc]=sym<<MODELCTXBITS>>im1->depth[kc]&((1<<MODELCTXBITS)-1);
+					}
+#endif
 					rows[0]+=4;
 					rows[1]+=4;
 					rows[2]+=4;
@@ -4028,14 +4169,36 @@ void update_image(void)//apply selected operations on original image, calculate 
 					modelmsizes[kc]=0;
 					continue;
 				}
+#if 1
+				int count=0;
+				for(int ks=0;ks<nlevels;++ks)
+					count+=curr_hist[ks]!=0;
 				double e=0, norm=1./sum;
-				for(int ks=0;ks<nlevels;++ks)//calc entropy
+				for(int ks=0;ks<nlevels;++ks)//simulate 12-bit precision
+				{
+					int freq=curr_hist[ks];
+					if(freq)
+					{
+						int prob=(int)((long long)freq*(0x1000LL-count)/sum)+1;
+						e-=freq*log2(prob*(1./0x1000));
+					}
+				}
+				e/=8;
+#endif
+#if 0
+				double e=0, norm=1./sum;
+				for(int ks=0;ks<nlevels;++ks)//raw entropy
 				{
 					int freq=curr_hist[ks];
 					if(freq)
 						e-=freq*log2(freq*norm);
 				}
-				modelcsizes[kc]=e/8;
+				e/=8;
+#endif
+				//if(e>sum)
+				//	LOG_ERROR("Context %d %lf > sum %d", kc, e, sum);
+				modelcsizes[kc]=e;
+
 
 				double mean=0;
 				for(int ks=0;ks<nlevels;++ks)//calc mean
@@ -4077,18 +4240,22 @@ void update_image(void)//apply selected operations on original image, calculate 
 				}
 				modelmsizes[kc]=e/8;
 
-				if(sum>nlevels*2)
+
+				//if(sum>nlevels*2)
 				{
 					double hsize=0;
-					int cdfWW=0, cdfW=0;
+					int cdfW=0;
 					int sum2=0;
-					for(int ks=0;ks<nlevels;++ks)//calc model stat overhead
+					const int probbits=12;
+					int codelen=probbits+1, CDFlevels=1<<probbits;
+					for(int ks=0, ks2=0;ks<nlevels;++ks)//calc model stat overhead
 					{
-						int sym=((ks>>1^-(ks&1))+half)&mask;
+						int sym=((ks>>1^-(ks&1))+half)&mask;//midpoint->zigzag->edges
 						int freq=curr_hist[sym];
 						//if(freq>sum)
 						//	LOG_ERROR("freq %04X sum %04X", freq, sum);
-						int cdf=sum2*((1ULL<<16)-nlevels)/sum+ks;
+						int cdf=sum2*((1ULL<<probbits)-count)/sum+ks2;
+						ks2+=freq!=0;
 						//if((unsigned)cdf>=0x10000)
 						//	LOG_ERROR("cdf %04X", cdf);
 						//if(ks)
@@ -4102,16 +4269,48 @@ void update_image(void)//apply selected operations on original image, calculate 
 						//csym=csym<<1^csym>>31;
 						//if(csym<0)
 						//	LOG_ERROR("0x%04X -> 0x%04X", cdfW, cdf);
-						hsize+=log2(csym+1);
+						if(ks&&CDFlevels)//CDF[0]=0
+						{
+							//GR				~8.5 KB
+							int nbypass=FLOOR_LOG2(CDFlevels);
+							if(ks>1)
+								nbypass-=7;
+							if(nbypass<0)
+								nbypass=0;
+							hsize+=(csym>>nbypass)+1+nbypass;
+
+							//variable-base code		~25.9 KB
+							//if(codelen>1)
+							//{
+							//	int codelen0=codelen-1;
+							//	codelen-=(CDFlevels/((1<<codelen0)-1)+1)*codelen0 < (CDFlevels/((1<<codelen)-1)+1)*codelen;
+							//}
+							//hsize+=(csym/((1<<codelen)-1)+1)*codelen;
+
+							//hsize+=csym+1;//unary code	~28.7 KB
+
+							//variable-base code v2		39.3 KB
+							//if(codelen>1)
+							//{
+							//	int codelen0=codelen>>1;
+							//	codelen-=(CDFlevels/((1<<codelen0)-1)+1)*codelen0 < (CDFlevels/((1<<codelen)-1)+1)*codelen;
+							//}
+							//hsize+=(csym/((1<<codelen)-1)+1)*codelen;
+
+							//naive pack			~41.5 KB	~38.2 KB
+							//hsize+=probbits;
+
+							//hsize+=log2(csym+1)+1;//	~7.2 KB		//X  no stop bit in binary code
+						}
+						CDFlevels-=csym;
 						//if(hsize!=hsize)
 						//	LOG_ERROR("sum %d sum2 %d ks %d nlevels %d  0x%04X -> 0x%04X", sum, sum2, ks, nlevels, cdfW, cdf);
 						//	LOG_ERROR("ctx %d sum %d sum2 %d ks %d nlevels %d  0x%04X -> 0x%04X", kc, sum, sum2, ks, nlevels, cdfW, cdf);
 
-						cdfWW=cdfW;
 						cdfW=cdf;
 						sum2+=freq;
 					}
-					modelstatoverhead+=(hsize+nlevels-1)/8;
+					modelstatoverhead+=hsize/8;
 				}
 			}
 		}

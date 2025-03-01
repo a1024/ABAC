@@ -176,7 +176,7 @@ static void wg_init(double *weights, int kc)
 #endif
 }
 FORCE_INLINE int wg_predict(
-	const double *weights, int **rows, const int stride, int kc2,
+	const double *weights, const int **rows, const int stride, int kc2,
 	int spred, const int *perrors, const int *NWerrors, const int *Nerrors, const int *NEerrors, const int *NNEerrors, int *preds
 )
 {
@@ -351,7 +351,7 @@ FORCE_INLINE int wg_predict(
 	return pred[0];
 }
 FORCE_INLINE int wg_predict2(
-	const double *weights, int **rows, const int stride, int kc2,
+	const double *weights, const int **rows, const int stride, int kc2,
 	int spred, const int *perrors, const int *NWerrors, const int *Nerrors, const int *NEerrors, const int *NNEerrors, int *preds
 )
 {
@@ -778,6 +778,7 @@ FORCE_INLINE void wg_update(int curr, int kc, const int *preds, int *perrors, in
 	{
 		int e2=abs(curr-preds[k])<<1;
 		perrors[k]=(perrors[k]+e2)*factor>>7;
+	//	perrors[k]=(e2-perrors[k]+(1<<5>>1))>>5;//slightly worse
 		currerrors[k]=(2*Werrors[k]+e2+NEerrors[k])>>2;
 		NEerrors[k]+=e2;
 	}

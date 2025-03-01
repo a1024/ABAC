@@ -181,6 +181,7 @@ static void wg_update(int curr, int kc, const int *preds, int *perrors, int *Wer
 	{
 		int e2=abs(curr-preds[k])<<1;
 		perrors[k]=(perrors[k]+e2)*factor>>7;
+	//	perrors[k]+=(e2-perrors[k]+(1<<5>>1))>>5;
 		currerrors[k]=(2*Werrors[k]+e2+NEerrors[k])>>2;
 		NEerrors[k]+=e2;
 	}
