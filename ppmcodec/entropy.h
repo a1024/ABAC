@@ -152,15 +152,24 @@ static void ansval_push(const void *data, int esize, int count)
 	ARRAY_APPEND(debugstack, data, (ptrdiff_t)count*esize, 1, 0);
 	ARRAY_APPEND(debugstack, &header, sizeof(header), 1, 0);//hi header
 }
-static void ansval_printr(const void *data, int esize, int count)//print elements in reverse because little-endian
+static void ansval_printr(const void *data, int esize, int count, const void *xdata)//print elements in reverse because little-endian
 {
 	const unsigned char *p=(const unsigned char*)data;
+	const unsigned char *p2=(const unsigned char*)xdata;
 	int size=count*esize;
 	for(int k=0;k<size;k+=esize)
 	{
 		printf(" ");
 		for(int k2=esize-1;k2>=0;--k2)
-			printf("%02X", p[k+k2]);
+		{
+			int val=p[k+k2];
+			if(p2)
+				val^=p2[k+k2];
+			if(p2&&!val)
+				printf("--");
+			else
+				printf("%02X", val);
+		}
 	}
 	printf("\n");
 	//for(int k=size-1;k>=0;--k)
@@ -272,7 +281,7 @@ static void ansval_check(const void *data, int esize, int count)
 			ptr+=sizeof(ANSVALHeader);
 
 			printf("  [%7d] %7d B    ", loheader2->idx, loheader2->count*loheader2->esize);
-			ansval_printr(verdata, loheader2->esize, loheader2->count);
+			ansval_printr(verdata, loheader2->esize, loheader2->count, 0);
 			(void)hiheader2;
 		}
 		if(!nptrs)
@@ -281,9 +290,11 @@ static void ansval_check(const void *data, int esize, int count)
 
 		printf("The error:\n");
 		printf("  [%7d] Original %7d B    ", loheader->idx, loheader->count*loheader->esize);
-		ansval_printr(data0, loheader->esize, loheader->count);
+		ansval_printr(data0, loheader->esize, loheader->count, 0);
 		printf("  [%7d] Corrupt  %7d B    ", loheader->idx, count*esize);
-		ansval_printr(data, esize, count);
+		ansval_printr(data, esize, count, 0);
+		printf("  [%7d] XOR      %7s      ", loheader->idx, "");
+		ansval_printr(data0, esize, count, data);
 		printf("\n");
 		
 		const unsigned char *unverptr=debugstack->data+debugstack->count;
@@ -317,7 +328,7 @@ static void ansval_check(const void *data, int esize, int count)
 				break;
 			}
 			printf("  [%7d] %7d B    ", hiheader2->idx, hiheader2->count*hiheader2->esize);
-			ansval_printr(unverdata, hiheader2->esize, hiheader2->count);
+			ansval_printr(unverdata, hiheader2->esize, hiheader2->count, 0);
 		}
 		printf("\n");
 		LOG_ERROR("");

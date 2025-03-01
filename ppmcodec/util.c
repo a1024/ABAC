@@ -2913,7 +2913,7 @@ int query_cpu_cores(void)
 	return sysconf(_SC_NPROCESSORS_ONLN);
 #endif
 }
-size_t query_mem_usage()
+size_t query_mem_usage(void)
 {
 #ifdef _WIN32
 	PROCESS_MEMORY_COUNTERS_EX pmc={0};
@@ -3317,3 +3317,47 @@ void prof_end(void *prof_ctx)
 #endif
 
 #endif
+
+void colorprintf_init(void)
+{
+#ifdef _WIN32
+	//https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences
+	HANDLE hOut=GetStdHandle(STD_OUTPUT_HANDLE);
+	if(hOut==INVALID_HANDLE_VALUE)
+	{
+		printf("ColorPrintf GetStdHandle() GetLastError %d\n", (int)GetLastError());
+		return;
+	}
+	DWORD dwMode=0;
+	if(!GetConsoleMode(hOut, &dwMode))
+	{
+		printf("ColorPrintf GetConsoleMode() GetLastError %d\n", (int)GetLastError());
+		return;
+	}
+	dwMode|=ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+	if(!SetConsoleMode(hOut, dwMode))
+	{
+		printf("ColorPrintf SetConsoleMode() GetLastError %d\n", (int)GetLastError());
+		return;
+	}
+#endif
+}
+int colorprintf(int textcolor, int bkcolor, const char *format, ...)//0x00BBGGRR
+{
+	int printed=0, msg=0;
+	va_list args;
+
+	printed+=snprintf(g_buf+printed, sizeof(g_buf)-1-printed, "\33[48;2;%d;%d;%d;38;2;%d;%d;%dm",
+		bkcolor&255, bkcolor>>8&255, bkcolor>>16&255,
+		textcolor&255, textcolor>>8&255, textcolor>>16&255
+	);
+	va_start(args, format);
+	msg=vsnprintf(g_buf+printed, sizeof(g_buf)-1-printed, format, args);
+	printed+=msg;
+	va_end(args);
+	printed+=snprintf(g_buf+printed, sizeof(g_buf)-1-printed, "\33[0m");
+
+	printf("%s", g_buf);
+
+	return msg;
+}

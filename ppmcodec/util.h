@@ -591,6 +591,12 @@ void* prof_start();
 void prof_end(void *prof_ctx);
 #endif
 
+//Color Printf
+#define COLORPRINTF_BK_DEFAULT 0x0C0C0C
+#define COLORPRINTF_TXT_DEFAULT 0xF2F2F2
+void colorprintf_init(void);//no initialization is needed as it's ON by default
+int colorprintf(int textcolor, int bkcolor, const char *format, ...);//0x00BBGGRR
+
 
 #ifdef _MSC_VER
 #pragma warning(pop)
