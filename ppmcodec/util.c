@@ -1084,6 +1084,11 @@ int acme_strftime(char *buf, size_t len, const char *format)
 	return (int)strftime(buf, len, format, tformat);
 #endif
 }
+int print_timestamp(const char *format)
+{
+	acme_strftime(g_buf, sizeof(g_buf)-1, format);
+	return printf("%s", g_buf);
+}
 int print_bin8(int x)
 {
 	//printf("0b");

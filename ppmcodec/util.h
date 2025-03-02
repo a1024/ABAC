@@ -264,6 +264,7 @@ typedef struct TimeInfoStruct
 void parsetimedelta(double secs, TimeInfo *ti);
 int timedelta2str(char *buf, size_t len, double secs);
 int acme_strftime(char *buf, size_t len, const char *format);//prints current time to string, recommended format: "%Y-%m-%d_%H%M%S"
+int print_timestamp(const char *format);//"%Y-%m-%d_%H%M%S"
 
 int print_bin8(int x);
 int print_bin32(unsigned x);
