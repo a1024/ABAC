@@ -3366,3 +3366,43 @@ int colorprintf(int textcolor, int bkcolor, const char *format, ...)//0x00BBGGRR
 
 	return msg;
 }
+void colorgen(int *colors, int count, int maxbrightness)
+{
+	unsigned char *limits=(unsigned char*)&maxbrightness;
+	unsigned char *data=(unsigned char*)colors, *ptr=data;
+	limits[0]+=!limits[0];
+	limits[1]+=!limits[1];
+	limits[2]+=!limits[2];
+	int dmax0=limits[0]*limits[0]+limits[1]*limits[1]+limits[2]*limits[2];
+	for(int k=0;k<count;++k)
+	{
+		int reject=0, ntrials=0;
+		do
+		{
+			int r0=rand();
+			int r1=rand();
+			int r2=rand();
+			ptr[0]=(r0>>7)%limits[0];
+			ptr[1]=(r1>>7)%limits[1];
+			ptr[2]=(r2>>7)%limits[2];
+			int rem=(r2&127)<<14|(r1&127)<<7|(r0&127);//21 bit
+			int dmin=dmax0;
+			{
+				const unsigned char *p2=(const unsigned char*)data;
+				for(int k2=0;k2<k;++k2)
+				{
+					int dr=p2[0]-ptr[0];
+					int dg=p2[1]-ptr[1];
+					int db=p2[2]-ptr[2];
+					int d=dr*dr+dg*dg+db*db;
+					if(!k2||dmin>d)
+						dmin=d;
+					p2+=4;
+				}
+			}
+			reject=((unsigned long long)dmin<<21)<(unsigned long long)rem*dmax0;
+			++ntrials;
+		}while(reject&&ntrials<20);
+		ptr+=4;
+	}
+}

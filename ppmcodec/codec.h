@@ -48,7 +48,7 @@ int c25_codec(const char *srcfn, const char *dstfn, int nthreads0);//MT AC mix8
 int c26_codec(const char *srcfn, const char *dstfn, int nthreads0);//ST ABAC
 int c27_codec(const char *srcfn, const char *dstfn, int nthreads0);//ST GR
 int c28_codec(const char *srcfn, const char *dstfn, int nthreads0);//ST AC with GR context
-int c29_codec(const char *srcfn, const char *dstfn, int nthreads0);//C29 ST AVX2 16RCTs WG4 GRctx static-rANS
+int c29_codec(const char *srcfn, const char *dstfn, int nthreads0);//C29 ST interleaved AVX2 cRCT WG4/CG GRctx static-rANS
 
 	
 #ifdef __cplusplus

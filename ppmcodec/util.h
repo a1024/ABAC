@@ -597,6 +597,7 @@ void prof_end(void *prof_ctx);
 #define COLORPRINTF_TXT_DEFAULT 0xF2F2F2
 void colorprintf_init(void);//no initialization is needed as it's ON by default
 int colorprintf(int textcolor, int bkcolor, const char *format, ...);//0x00BBGGRR
+void colorgen(int *colors, int count, int maxbrightness);//distance-based rejection sampling  O(N^2)	maxbrightness is componentwise
 
 
 #ifdef _MSC_VER

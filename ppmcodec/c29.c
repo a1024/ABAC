@@ -7,8 +7,8 @@
 static const char file[]=__FILE__;
 
 
-//	#define PROFILER
-//	#define PROFILE_SIZE
+	#define PROFILER
+	#define PROFILE_SIZE
 
 #ifdef _MSC_VER
 	#define LOUD		//size & time
@@ -80,7 +80,7 @@ static void profile_size(const unsigned char *dstbwdptr, const char *msg, ...)
 	{
 		ptrdiff_t diff=prev-dstbwdptr;
 		size+=diff;
-		printf("%9td (%+9td) bytes", size, diff);
+		printf("%10td (%+10td) bytes", size, diff);
 		if(msg)
 		{
 			va_list args;
@@ -97,24 +97,139 @@ static void profile_size(const unsigned char *dstbwdptr, const char *msg, ...)
 #define profile_size(...)
 #endif
 #ifdef PROFILER
+typedef struct _SpeedProfilerInfo
+{
+	double t;
+	ptrdiff_t size;
+	const char *msg;
+} SpeedProfilerInfo;
+#define PROF_CAP 128
+static double prof_timestamp=0;
+static SpeedProfilerInfo prof_data[PROF_CAP]={0};
+static int prof_count=0;
 static void prof_checkpoint(ptrdiff_t size, const char *msg)
 {
-	static double t=0;
 	double t2=time_sec();
-	if(t)
+	if(prof_timestamp)
 	{
-		double delta=t2-t;
-		printf("%16.12lf sec", delta);
-		if(size)
-			printf(" %12.6lf MB/s %10td bytes", size/(delta*1024*1024), size);
-		if(msg)
-			printf(" %s", msg);
+		SpeedProfilerInfo *info=prof_data+prof_count++;
+		if(prof_count>PROF_CAP)
+		{
+			LOG_ERROR("Profiler OOB");
+			return;
+		}
+		info->t=t2-prof_timestamp;
+		info->size=size;
+		info->msg=msg;
+		//double delta=t2-t;
+		//printf("%16.12lf sec", delta);
+		//if(size)
+		//	printf(" %12.6lf MB/s %10td bytes", size/(delta*1024*1024), size);
+		//if(msg)
+		//	printf(" %s", msg);
+		//printf("\n");
+	}
+	prof_timestamp=t2;
+}
+static void prof_print(ptrdiff_t usize)
+{
+	double timesum=0, tmax=0;
+	for(int k=0;k<prof_count;++k)
+	{
+		double t=prof_data[k].t;
+		timesum+=t;
+		if(tmax<t)
+			tmax=t;
+	}
+	int printed=0;
+	int prev=0;
+	double csum=0;
+	printf("|");
+	//printf("| ");
+	int colors[128]={0};
+	srand((unsigned)__rdtsc());
+	colorgen(colors, prof_count, 0xC0C0C0);
+	for(int k=0;k<prof_count;++k)
+	{
+		SpeedProfilerInfo *info=prof_data+k;
+		csum+=info->t;
+		int curr=(int)(csum*(192-prof_count*1)/timesum);//MULTIPLY prof_count BY SEPARATOR "|" LENGTH
+		int space=curr-prev;
+		int len=0;
+		if(info->msg)
+			len=(int)strlen(info->msg);
+#if 1
+		if(info->msg&&space>=len)
+		{
+			int labelstart=(space-len)>>1;
+			int labelend=labelstart+len;
+			colorprintf(COLORPRINTF_TXT_DEFAULT, colors[k], "%*s%s%*s", labelstart, "", info->msg, space-labelend, "");
+		}
+		else
+			colorprintf(COLORPRINTF_TXT_DEFAULT, colors[k], "%*s", space, "");
+		printf("|");
+#endif
+#if 0
+		if(info->msg&&space>=len)
+		{
+			int labelstart=(space-len)>>1;
+			int labelend=labelstart+len;
+			if(labelstart>2&&space-labelend>2)
+			{
+				for(int k2=0;k2<labelstart;++k2)
+					printf("%c", (printed+k2)&1||k2==labelstart-1?' ':k+'A');
+			}
+			else
+				printf("%*s", labelstart, "");
+			for(int k2=labelstart;k2<labelend;++k2)
+				printf("%c", info->msg[k2-labelstart]);
+			if(labelstart>2&&space-labelend>2)
+			{
+				for(int k2=labelend;k2<space;++k2)
+					printf("%c", (printed+k2)&1||k2==labelend?' ':k+'A');
+			}
+			else
+				printf("%*s", space-labelend, "");
+		}
+		else
+		{
+			for(int k2=0;k2<space;++k2)
+				printf("%c", (printed+k2)&1?' ':k+'A');
+		}
+		printf(" |");
+		if(k<prof_count-1)
+			printf(" ");
+#endif
+		prev=curr;
+		printed+=space+2+(k<prof_count-1);
+	}
+	printf("\n");
+	for(int k=0;k<prof_count;++k)
+	{
+		SpeedProfilerInfo *info=prof_data+k;
+		int nstars=(int)(info->t/tmax*64+0.5);
+	//	colorprintf(COLORPRINTF_TXT_DEFAULT, colors[k], "  %c", k+'A');
+		printf("%16.10lf sec %8.4lf%% ", info->t, 100.*info->t/timesum);
+	//	printf("  %c: %16.12lf sec %8.4lf%% ", k+'A', info->t, info->t/timesum);
+		if(info->size)
+			printf(" %12.6lf MB/s %10td bytes ", info->size/(info->t*1024*1024), info->size);
+		if(info->msg)
+			colorprintf(COLORPRINTF_TXT_DEFAULT, colors[k], "%-20s", info->msg);
+		else if(nstars)
+			colorprintf(COLORPRINTF_TXT_DEFAULT, colors[k], "%-20s", "");
+		for(int k2=0;k2<nstars;++k2)
+			printf("*");
 		printf("\n");
 	}
-	t=t2;
+	printf("\n");
+	printf("%16.10lf sec %12.6lf MB/s Total\n", timesum, usize/(timesum*1024*1024));
+	printf("\n");
+	prof_count=0;
+	prof_timestamp=0;
 }
 #else
 #define prof_checkpoint(...)
+#define prof_print(...)
 #endif
 
 #define OCHLIST\
@@ -3749,8 +3864,9 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 
 #ifdef LOUD
 	t=time_sec()-t;
-	printf("%c  %12.6lf sec  %12.6lf MB/s\n", 'D'+fwd, t, usize2/(t*1024*1024));
+	printf("%c  %12.6lf sec  %12.6lf MB/s\n", 'D'+fwd, t, usize/(t*1024*1024));
 #endif
+	prof_print(usize);
 	(void)och_names;
 	(void)rct_names;
 	return 0;
