@@ -3377,6 +3377,7 @@ void colorgen(int *colors, int count, int maxbrightness)
 	for(int k=0;k<count;++k)
 	{
 		int reject=0, ntrials=0;
+		int bestdist=0, bestcolor=0;
 		do
 		{
 			int r0=rand();
@@ -3400,9 +3401,15 @@ void colorgen(int *colors, int count, int maxbrightness)
 					p2+=4;
 				}
 			}
+			if(bestdist<dmin)
+			{
+				bestdist=dmin;
+				bestcolor=data[k];
+			}
 			reject=((unsigned long long)dmin<<21)<(unsigned long long)rem*dmax0;
 			++ntrials;
 		}while(reject&&ntrials<20);
+		data[k]=bestcolor;
 		ptr+=4;
 	}
 }
