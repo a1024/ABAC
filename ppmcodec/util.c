@@ -3366,7 +3366,7 @@ int colorprintf(int textcolor, int bkcolor, const char *format, ...)//0x00BBGGRR
 
 	return msg;
 }
-void colorgen(int *colors, int count, int maxbrightness)
+void colorgen0(int *colors, int count, int maxbrightness)
 {
 	unsigned char *limits=(unsigned char*)&maxbrightness;
 	unsigned char *data=(unsigned char*)colors, *ptr=data;
@@ -3411,5 +3411,89 @@ void colorgen(int *colors, int count, int maxbrightness)
 		}while(reject&&ntrials<20);
 		data[k]=bestcolor;
 		ptr+=4;
+	}
+}
+void colorgen(int *colors, int count, int minbrightness, int maxbrightness, int maxtrials)
+{
+	unsigned char *data=(unsigned char*)colors;
+	CLAMP2(minbrightness, 0, 765-1);
+	if(maxbrightness<minbrightness+1)
+		maxbrightness=minbrightness+1;
+	int brightnessrange=maxbrightness-minbrightness;
+	int dmax0=brightnessrange*brightnessrange/3>>1;
+	for(int k=0;k<count;++k)
+	{
+		int reject=0, ntrials=0;
+		int bestdist=0, bestcolor=0;
+		do
+		{
+			int r0=rand();//at least 15-bit
+			int r1=rand();
+			int r2=rand();
+			int r=r0>>7;
+			int g=r1>>7;
+			int b=r2>>7;
+			++ntrials;
+			if((unsigned)(r+g+b-minbrightness)>=(unsigned)brightnessrange)
+			{
+				if(ntrials<maxtrials)
+				{
+					reject=1;
+					continue;
+				}
+				r=g=b=(minbrightness+maxbrightness+3)/6;
+				static const char increments[]=
+				{
+					//r, g, b
+					+1, -1, +0,
+					-1, +1, +0,
+					+1, +0, -1,
+					-1, +0, +1,
+					+0, +1, -1,
+					+0, -1, +1,
+				};
+				int t0=rand();
+				while(t0)
+				{
+					int rem=t0;
+					t0/=6;
+					rem-=t0*6;
+					const char *inc=increments+rem*3;
+					if(!(((r+inc[0])|(g+inc[1])|(b+inc[2]))>>8))
+					{
+						r+=inc[0];
+						g+=inc[1];
+						b+=inc[2];
+					}
+				}
+			}
+			int rem=(r2&127)<<14|(r1&127)<<7|(r0&127);//21 bit
+			int dmin=0xFFFFFF;// > 3*255*255
+			{
+				const unsigned char *p2=(const unsigned char*)data;
+				for(int k2=0;k2<k;++k2)
+				{
+					int dr=p2[0]-r;
+					int dg=p2[1]-g;
+					int db=p2[2]-b;
+					int d=dr*dr+dg*dg+db*db;
+					if(!k2||dmin>d)
+						dmin=d;
+					p2+=4;
+				}
+			}
+			if(bestdist<dmin)
+			{
+				bestdist=dmin;
+				bestcolor=b<<16|g<<8|r;
+			}
+			reject=((unsigned long long)dmin<<21)<(unsigned long long)rem*dmax0;
+			if(ntrials>=maxtrials)
+				bestcolor=0x808080;
+			//	LOG_ERROR("%d trials reached, bestcolor %08X", maxtrials, bestcolor);
+			//if(!reject&&(unsigned)(r+g+b-minbrightness)>=(unsigned)brightnessrange)
+			//	LOG_ERROR("");
+		}while(reject&&ntrials<maxtrials);
+		colors[k]=bestcolor;
 	}
 }
