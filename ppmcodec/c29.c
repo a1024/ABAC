@@ -7,8 +7,8 @@
 static const char file[]=__FILE__;
 
 
-	#define PROFILER
-	#define PROFILE_SIZE
+//	#define PROFILE_TIME
+//	#define PROFILE_SIZE
 
 #ifdef _MSC_VER
 	#define LOUD		//size & time
@@ -21,6 +21,7 @@ static const char file[]=__FILE__;
 //	#define TEST_INTERLEAVE
 #endif
 
+//	#define SERIAL_MAIN	//2x slower
 //	#define DISABLE_WG
 
 	#define WG_DISABLE_eW	//eW is bad with blocks unlike in eBench
@@ -96,7 +97,7 @@ static void profile_size(const unsigned char *dstbwdptr, const char *msg, ...)
 #else
 #define profile_size(...)
 #endif
-#ifdef PROFILER
+#ifdef PROFILE_TIME
 typedef struct _SpeedProfilerInfo
 {
 	double t;
@@ -2444,6 +2445,104 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 			wgerrors+(paddedwidth*((ky-0LL)&1)+8LL)*NCODERS*3*WG_NPREDS,
 			wgerrors+(paddedwidth*((ky-1LL)&1)+8LL)*NCODERS*3*WG_NPREDS,
 		};
+#ifdef SERIAL_MAIN
+		int ufromy=-(combination[II_COEFF_U_SUB_Y]!=0);
+		int vcoeff0=combination[II_COEFF_V_SUB_Y];
+		int vcoeff1=combination[II_COEFF_V_SUB_U];
+		//short prev[2*NCODERS]={0};
+		int yuv[3]={0}, uoffset=0, voffset=0, errors[3]={0}, syms[3]={0};
+		for(int kx=0;kx<ixbytes;kx+=3*NCODERS)
+		{
+			short
+				*NW	=rows[1]-1*6*NCODERS,
+				*N	=rows[1]+0*6*NCODERS,
+				*NEE	=rows[1]+2*6*NCODERS,
+				*NEEE	=rows[1]+3*6*NCODERS,
+				*W	=rows[0]-1*6*NCODERS,
+				*curr	=rows[0]+0*6*NCODERS;
+#if defined __GNUC__ && !defined PROFILER
+#pragma GCC unroll 32
+#endif
+			for(int k=0;k<NCODERS;++k)
+			{
+				int ctx0=FLOOR_LOG2(W[k+0*NCODERS]*W[k+0*NCODERS]+1);
+				int ctx1=FLOOR_LOG2(W[k+1*NCODERS]*W[k+1*NCODERS]+1);
+				int ctx2=FLOOR_LOG2(W[k+2*NCODERS]*W[k+2*NCODERS]+1);
+				if(ctx0>NCTX-1)ctx0=NCTX-1;
+				if(ctx1>NCTX-1)ctx1=NCTX-1;
+				if(ctx2>NCTX-1)ctx2=NCTX-1;
+				ctx1+=NCTX;
+				ctx2+=NCTX*2;
+
+				int vmax0=W[k+0*NCODERS], vmin0=W[k+0*NCODERS];
+				int vmax1=W[k+1*NCODERS], vmin1=W[k+1*NCODERS];
+				int vmax2=W[k+2*NCODERS], vmin2=W[k+2*NCODERS];
+				if(vmax0<vmin0)vmin0=N[k+0*NCODERS], vmax0=W[k+0*NCODERS];
+				if(vmax1<vmin1)vmin1=N[k+1*NCODERS], vmax1=W[k+1*NCODERS];
+				if(vmax2<vmin2)vmin2=N[k+2*NCODERS], vmax2=W[k+2*NCODERS];
+				int pred0=vmin0+vmax0-NW[k+0*NCODERS];
+				int pred1=vmin1+vmax1-NW[k+1*NCODERS];
+				int pred2=vmin2+vmax2-NW[k+2*NCODERS];
+				CLAMP2(pred0, vmin0, vmax0);
+				CLAMP2(pred1, vmin1, vmax1);
+				CLAMP2(pred2, vmin2, vmax2);
+				if(fwd)
+				{
+					yuv[0]=imptr[k+yidx]-128;
+					yuv[1]=imptr[k+uidx]-128;
+					yuv[2]=imptr[k+vidx]-128;
+					uoffset=yuv[0]&ufromy;
+					voffset=vcoeff0*yuv[0]+vcoeff1*yuv[1];
+					pred1+=uoffset;
+					pred2+=voffset;
+					pred2>>=2;
+					CLAMP2(pred1, -128, 127);
+					CLAMP2(pred2, -128, 127);
+					errors[0]=(unsigned char)(yuv[0]-pred0+128);
+					errors[1]=(unsigned char)(yuv[1]-pred1+128);
+					errors[2]=(unsigned char)(yuv[2]-pred2+128);
+					((unsigned short*)ctxptr)[k+0*NCODERS]=syms[0]=ctx0<<8|errors[0];
+					((unsigned short*)ctxptr)[k+1*NCODERS]=syms[1]=ctx1<<8|errors[1];
+					((unsigned short*)ctxptr)[k+2*NCODERS]=syms[2]=ctx2<<8|errors[2];
+					++hists[syms[0]];
+					++hists[syms[1]];
+					++hists[syms[2]];
+				}
+				else
+				{
+					LOG_ERROR("");
+				}
+				curr[k+(0+0)*NCODERS]=yuv[0];
+				curr[k+(0+1)*NCODERS]=yuv[1]-uoffset;
+				curr[k+(0+2)*NCODERS]=(yuv[2]<<2)-voffset;
+				curr[k+(3+0)*NCODERS]=(2*W[k+(3+0)*NCODERS]+((errors[0]<<1^errors[0]>>31)<<GRBITS)+MAXVAR(NEE[k+(3+0)*NCODERS], NEEE[k+(3+0)*NCODERS]))>>2;
+				curr[k+(3+1)*NCODERS]=(2*W[k+(3+1)*NCODERS]+((errors[1]<<1^errors[1]>>31)<<GRBITS)+MAXVAR(NEE[k+(3+1)*NCODERS], NEEE[k+(3+1)*NCODERS]))>>2;
+				curr[k+(3+2)*NCODERS]=(2*W[k+(3+2)*NCODERS]+((errors[2]<<1^errors[2]>>31)<<GRBITS)+MAXVAR(NEE[k+(3+2)*NCODERS], NEEE[k+(3+2)*NCODERS]))>>2;
+			}
+			if(fwd)
+				ctxptr+=sizeof(short[3][NCODERS]);
+			rows[0]+=6*NCODERS;
+			rows[1]+=6*NCODERS;
+			rows[2]+=6*NCODERS;
+			rows[3]+=6*NCODERS;
+			imptr+=3*NCODERS;
+		}
+		(void)mctxuoffset;
+		(void)mctxvoffset;
+		(void)mctxmax;
+		(void)uhelpmask;
+		(void)vc0;
+		(void)vc1;
+		(void)amin;
+		(void)amax;
+		(void)bytemask;
+		(void)half8;
+		(void)wordmask;
+
+		(void)erows;
+		(void)wgpreds;
+		(void)wgWerrors;
+#else
 		ALIGN(32) unsigned short syms[3*NCODERS]={0};
 		__m256i NW[6], N[6], W[6];
 		__m256i eW[6], ecurr[6], eNEE[6], eNEEE[6];
@@ -3495,6 +3594,7 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 			rows[3]+=6*NCODERS;
 			imptr+=3*NCODERS;
 		}
+#endif
 	}
 	prof_checkpoint(isize, "main");
 	_mm_free(wgerrors);
