@@ -144,17 +144,19 @@ static void prof_print(ptrdiff_t usize)
 	int printed=0;
 	int prev=0;
 	double csum=0;
-	printf("|");
 	//printf("| ");
 	int colors[128]={0};
 	srand((unsigned)__rdtsc());
 	colorgen(colors, prof_count, 64, 300, 100);
 	//colorgen0(colors, prof_count, 0xC0C0C0);
+	printf("1 char = 4 ms\n");
+	printf("|");
 	for(int k=0;k<prof_count;++k)
 	{
 		SpeedProfilerInfo *info=prof_data+k;
 		csum+=info->t;
-		int curr=(int)(csum*(192-prof_count*1)/timesum);//MULTIPLY prof_count BY SEPARATOR "|" LENGTH
+		int curr=(int)(csum*250);
+	//	int curr=(int)(csum*(192-prof_count*1)/timesum);//MULTIPLY prof_count BY SEPARATOR "|" LENGTH
 		int space=curr-prev;
 		int len=0;
 		if(info->msg)
@@ -208,22 +210,22 @@ static void prof_print(ptrdiff_t usize)
 	for(int k=0;k<prof_count;++k)
 	{
 		SpeedProfilerInfo *info=prof_data+k;
-		int nstars=(int)(info->t/tmax*64+0.5);
+		//int nstars=(int)(info->t/tmax*64+0.5);
 	//	colorprintf(COLORPRINTF_TXT_DEFAULT, colors[k], "  %c", k+'A');
-		printf("%16.10lf sec %8.4lf%% ", info->t, 100.*info->t/timesum);
+		printf("%16.7lf ms %8.4lf%% ", info->t*1000, 100.*info->t/timesum);
 	//	printf("  %c: %16.12lf sec %8.4lf%% ", k+'A', info->t, info->t/timesum);
 		if(info->size)
 			printf(" %12.6lf MB/s %10td bytes ", info->size/(info->t*1024*1024), info->size);
 		if(info->msg)
 			colorprintf(COLORPRINTF_TXT_DEFAULT, colors[k], "%-20s", info->msg);
-		else if(nstars)
+		else// if(nstars)
 			colorprintf(COLORPRINTF_TXT_DEFAULT, colors[k], "%-20s", "");
-		for(int k2=0;k2<nstars;++k2)
-			printf("*");
+		//for(int k2=0;k2<nstars;++k2)
+		//	printf("*");
 		printf("\n");
 	}
 	printf("\n");
-	printf("%16.10lf sec %12.6lf MB/s Total\n", timesum, usize/(timesum*1024*1024));
+	printf("%16.7lf ms %12.6lf MB/s Total\n", timesum*1000, usize/(timesum*1024*1024));
 	printf("\n");
 	prof_count=0;
 	prof_timestamp=0;
@@ -2442,7 +2444,7 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 			wgerrors+(paddedwidth*((ky-0LL)&1)+8LL)*NCODERS*3*WG_NPREDS,
 			wgerrors+(paddedwidth*((ky-1LL)&1)+8LL)*NCODERS*3*WG_NPREDS,
 		};
-		ALIGN(32) unsigned short syms[32]={0};
+		ALIGN(32) unsigned short syms[3*NCODERS]={0};
 		__m256i NW[6], N[6], W[6];
 		__m256i eW[6], ecurr[6], eNEE[6], eNEEE[6];
 		memset(NW, 0, sizeof(NW));
@@ -2933,38 +2935,6 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				_mm256_store_si256((__m256i*)syms+1, ctxY1);
 				_mm256_store_si256((__m256i*)(ctxptr+NCODERS*(0*2+0)), ctxY0);//store Y  ctx|residuals		ctxptr+NCODERS*(C*2+R)
 				_mm256_store_si256((__m256i*)(ctxptr+NCODERS*(0*2+1)), ctxY1);
-				++hists[syms[0x00]];
-				++hists[syms[0x01]];
-				++hists[syms[0x02]];
-				++hists[syms[0x03]];
-				++hists[syms[0x04]];
-				++hists[syms[0x05]];
-				++hists[syms[0x06]];
-				++hists[syms[0x07]];
-				++hists[syms[0x08]];
-				++hists[syms[0x09]];
-				++hists[syms[0x0A]];
-				++hists[syms[0x0B]];
-				++hists[syms[0x0C]];
-				++hists[syms[0x0D]];
-				++hists[syms[0x0E]];
-				++hists[syms[0x0F]];
-				++hists[syms[0x10]];
-				++hists[syms[0x11]];
-				++hists[syms[0x12]];
-				++hists[syms[0x13]];
-				++hists[syms[0x14]];
-				++hists[syms[0x15]];
-				++hists[syms[0x16]];
-				++hists[syms[0x17]];
-				++hists[syms[0x18]];
-				++hists[syms[0x19]];
-				++hists[syms[0x1A]];
-				++hists[syms[0x1B]];
-				++hists[syms[0x1C]];
-				++hists[syms[0x1D]];
-				++hists[syms[0x1E]];
-				++hists[syms[0x1F]];
 
 				moffset0=_mm256_and_si256(myuv[0], uhelpmask);
 				moffset1=_mm256_and_si256(myuv[1], uhelpmask);
@@ -2987,8 +2957,8 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				ctxU1=_mm256_slli_epi16(ctxU1, 8);
 				ctxU0=_mm256_blendv_epi8(ctxU0, msyms0, ctxblendmask);
 				ctxU1=_mm256_blendv_epi8(ctxU1, msyms1, ctxblendmask);
-				_mm256_store_si256((__m256i*)syms+0, ctxU0);
-				_mm256_store_si256((__m256i*)syms+1, ctxU1);
+				_mm256_store_si256((__m256i*)syms+2, ctxU0);
+				_mm256_store_si256((__m256i*)syms+3, ctxU1);
 				_mm256_store_si256((__m256i*)(ctxptr+NCODERS*(1*2+0)), ctxU0);//store U  ctx|residuals		ctxptr+NCODERS*(C*2+R)
 				_mm256_store_si256((__m256i*)(ctxptr+NCODERS*(1*2+1)), ctxU1);
 				msyms0=_mm256_sub_epi16(myuv[2], moffset0);
@@ -2997,38 +2967,6 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				W[3]=msyms1;
 				_mm256_store_si256((__m256i*)(rows[0]+(0+1+0*6)*NCODERS)+0, msyms0);//store U neighbors
 				_mm256_store_si256((__m256i*)(rows[0]+(0+1+0*6)*NCODERS)+1, msyms1);
-				++hists[syms[0x00]];
-				++hists[syms[0x01]];
-				++hists[syms[0x02]];
-				++hists[syms[0x03]];
-				++hists[syms[0x04]];
-				++hists[syms[0x05]];
-				++hists[syms[0x06]];
-				++hists[syms[0x07]];
-				++hists[syms[0x08]];
-				++hists[syms[0x09]];
-				++hists[syms[0x0A]];
-				++hists[syms[0x0B]];
-				++hists[syms[0x0C]];
-				++hists[syms[0x0D]];
-				++hists[syms[0x0E]];
-				++hists[syms[0x0F]];
-				++hists[syms[0x10]];
-				++hists[syms[0x11]];
-				++hists[syms[0x12]];
-				++hists[syms[0x13]];
-				++hists[syms[0x14]];
-				++hists[syms[0x15]];
-				++hists[syms[0x16]];
-				++hists[syms[0x17]];
-				++hists[syms[0x18]];
-				++hists[syms[0x19]];
-				++hists[syms[0x1A]];
-				++hists[syms[0x1B]];
-				++hists[syms[0x1C]];
-				++hists[syms[0x1D]];
-				++hists[syms[0x1E]];
-				++hists[syms[0x1F]];
 
 				moffset0=_mm256_mullo_epi16(vc0, myuv[0]);
 				moffset1=_mm256_mullo_epi16(vc0, myuv[1]);
@@ -3055,8 +2993,8 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				ctxV1=_mm256_slli_epi16(ctxV1, 8);
 				ctxV0=_mm256_blendv_epi8(ctxV0, msyms0, ctxblendmask);
 				ctxV1=_mm256_blendv_epi8(ctxV1, msyms1, ctxblendmask);
-				_mm256_store_si256((__m256i*)syms+0, ctxV0);
-				_mm256_store_si256((__m256i*)syms+1, ctxV1);
+				_mm256_store_si256((__m256i*)syms+4, ctxV0);
+				_mm256_store_si256((__m256i*)syms+5, ctxV1);
 				_mm256_store_si256((__m256i*)(ctxptr+NCODERS*(2*2+0)), ctxV0);//store V  ctx|residuals		ctxptr+NCODERS*(C*2+R)
 				_mm256_store_si256((__m256i*)(ctxptr+NCODERS*(2*2+1)), ctxV1);
 				msyms0=_mm256_slli_epi16(myuv[4], 2);
@@ -3067,38 +3005,102 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				W[5]=msyms1;
 				_mm256_store_si256((__m256i*)(rows[0]+(0+2+0*6)*NCODERS)+0, msyms0);//store V neighbors
 				_mm256_store_si256((__m256i*)(rows[0]+(0+2+0*6)*NCODERS)+1, msyms1);
-				++hists[syms[0x00]];
-				++hists[syms[0x01]];
-				++hists[syms[0x02]];
-				++hists[syms[0x03]];
-				++hists[syms[0x04]];
-				++hists[syms[0x05]];
-				++hists[syms[0x06]];
-				++hists[syms[0x07]];
-				++hists[syms[0x08]];
-				++hists[syms[0x09]];
-				++hists[syms[0x0A]];
-				++hists[syms[0x0B]];
-				++hists[syms[0x0C]];
-				++hists[syms[0x0D]];
-				++hists[syms[0x0E]];
-				++hists[syms[0x0F]];
-				++hists[syms[0x10]];
-				++hists[syms[0x11]];
-				++hists[syms[0x12]];
-				++hists[syms[0x13]];
-				++hists[syms[0x14]];
-				++hists[syms[0x15]];
-				++hists[syms[0x16]];
-				++hists[syms[0x17]];
-				++hists[syms[0x18]];
-				++hists[syms[0x19]];
-				++hists[syms[0x1A]];
-				++hists[syms[0x1B]];
-				++hists[syms[0x1C]];
-				++hists[syms[0x1D]];
-				++hists[syms[0x1E]];
-				++hists[syms[0x1F]];
+				++hists[syms[0*32+0x00]];
+				++hists[syms[1*32+0x00]];
+				++hists[syms[2*32+0x00]];
+				++hists[syms[0*32+0x01]];
+				++hists[syms[1*32+0x01]];
+				++hists[syms[2*32+0x01]];
+				++hists[syms[0*32+0x02]];
+				++hists[syms[1*32+0x02]];
+				++hists[syms[2*32+0x02]];
+				++hists[syms[0*32+0x03]];
+				++hists[syms[1*32+0x03]];
+				++hists[syms[2*32+0x03]];
+				++hists[syms[0*32+0x04]];
+				++hists[syms[1*32+0x04]];
+				++hists[syms[2*32+0x04]];
+				++hists[syms[0*32+0x05]];
+				++hists[syms[1*32+0x05]];
+				++hists[syms[2*32+0x05]];
+				++hists[syms[0*32+0x06]];
+				++hists[syms[1*32+0x06]];
+				++hists[syms[2*32+0x06]];
+				++hists[syms[0*32+0x07]];
+				++hists[syms[1*32+0x07]];
+				++hists[syms[2*32+0x07]];
+				++hists[syms[0*32+0x08]];
+				++hists[syms[1*32+0x08]];
+				++hists[syms[2*32+0x08]];
+				++hists[syms[0*32+0x09]];
+				++hists[syms[1*32+0x09]];
+				++hists[syms[2*32+0x09]];
+				++hists[syms[0*32+0x0A]];
+				++hists[syms[1*32+0x0A]];
+				++hists[syms[2*32+0x0A]];
+				++hists[syms[0*32+0x0B]];
+				++hists[syms[1*32+0x0B]];
+				++hists[syms[2*32+0x0B]];
+				++hists[syms[0*32+0x0C]];
+				++hists[syms[1*32+0x0C]];
+				++hists[syms[2*32+0x0C]];
+				++hists[syms[0*32+0x0D]];
+				++hists[syms[1*32+0x0D]];
+				++hists[syms[2*32+0x0D]];
+				++hists[syms[0*32+0x0E]];
+				++hists[syms[1*32+0x0E]];
+				++hists[syms[2*32+0x0E]];
+				++hists[syms[0*32+0x0F]];
+				++hists[syms[1*32+0x0F]];
+				++hists[syms[2*32+0x0F]];
+				++hists[syms[0*32+0x10]];
+				++hists[syms[1*32+0x10]];
+				++hists[syms[2*32+0x10]];
+				++hists[syms[0*32+0x11]];
+				++hists[syms[1*32+0x11]];
+				++hists[syms[2*32+0x11]];
+				++hists[syms[0*32+0x12]];
+				++hists[syms[1*32+0x12]];
+				++hists[syms[2*32+0x12]];
+				++hists[syms[0*32+0x13]];
+				++hists[syms[1*32+0x13]];
+				++hists[syms[2*32+0x13]];
+				++hists[syms[0*32+0x14]];
+				++hists[syms[1*32+0x14]];
+				++hists[syms[2*32+0x14]];
+				++hists[syms[0*32+0x15]];
+				++hists[syms[1*32+0x15]];
+				++hists[syms[2*32+0x15]];
+				++hists[syms[0*32+0x16]];
+				++hists[syms[1*32+0x16]];
+				++hists[syms[2*32+0x16]];
+				++hists[syms[0*32+0x17]];
+				++hists[syms[1*32+0x17]];
+				++hists[syms[2*32+0x17]];
+				++hists[syms[0*32+0x18]];
+				++hists[syms[1*32+0x18]];
+				++hists[syms[2*32+0x18]];
+				++hists[syms[0*32+0x19]];
+				++hists[syms[1*32+0x19]];
+				++hists[syms[2*32+0x19]];
+				++hists[syms[0*32+0x1A]];
+				++hists[syms[1*32+0x1A]];
+				++hists[syms[2*32+0x1A]];
+				++hists[syms[0*32+0x1B]];
+				++hists[syms[1*32+0x1B]];
+				++hists[syms[2*32+0x1B]];
+				++hists[syms[0*32+0x1C]];
+				++hists[syms[1*32+0x1C]];
+				++hists[syms[2*32+0x1C]];
+				++hists[syms[0*32+0x1D]];
+				++hists[syms[1*32+0x1D]];
+				++hists[syms[2*32+0x1D]];
+				++hists[syms[0*32+0x1E]];
+				++hists[syms[1*32+0x1E]];
+				++hists[syms[2*32+0x1E]];
+				++hists[syms[0*32+0x1F]];
+				++hists[syms[1*32+0x1F]];
+				++hists[syms[2*32+0x1F]];
 				ctxptr+=sizeof(short[3][NCODERS]);
 			}
 			else
