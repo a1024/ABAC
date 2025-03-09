@@ -26,6 +26,16 @@ static int acme_strnimatch(const char *s1, ptrdiff_t len1, const char *s2, ptrdi
 	return s1==end1;
 }
 
+typedef struct _SizeAndStr
+{
+	ptrdiff_t size;
+	const char *str;
+} SizeAndStr;
+static int cmp_size(const void *p1, const void *p2)
+{
+	const SizeAndStr *o1=(const SizeAndStr*)p1, *o2=(const SizeAndStr*)p2;
+	return o1->size-o2->size;
+}
 typedef struct _UInfo
 {
 	long long usize;
@@ -385,6 +395,12 @@ static void exec_process(char *cmd, int loud, double *elapsed, long long *maxmem
 		}
 	}
 }
+static int print_rank(int rank, int total)
+{
+	int bk=rank*255/total;
+	bk|=(255-bk)<<8;
+	return colorprintf(COLORPRINTF_TXT_DEFAULT, bk, "%3d/%3d", rank, total);
+}
 static void print_usage(const char *argv0)
 {
 	printf(
@@ -414,6 +430,7 @@ int main(int argc, char **argv)
 	ArrayHandle tmpfn1=0, tmpfn2=0;
 	ArrayHandle srcpath=0, ext=0, uinfo=0, testinfo=0, latesttestidx=0;
 	CommandFormat enccmd={0}, deccmd={0};
+	ArrayHandle winners=0;
 
 	//1. get program path
 	{
@@ -618,6 +635,7 @@ dec command template
 			}
 		}
 	}
+	ARRAY_ALLOC(SizeAndStr, winners, 0, 0, latesttestidx->count, 0);
 
 	//4. get command templates
 	snprintf(g_buf, sizeof(g_buf)-1, "%szzzcode_%s.txt", programpath, codecname);
@@ -761,19 +779,37 @@ dec command template
 		exec_process(g_buf+0, 0, &currcell->etime, &currcell->emem);
 		
 		currcell->csize=get_filesize((char*)tmpfn1->data);
-		int rank=0;
+	//	int rank=0;
+		winners->count=0;
 		for(int k2=0;k2<(int)latesttestidx->count;++k2)
 		{
 			int *idx=(int*)array_at(&latesttestidx, k2);
 			TestInfo *test=(TestInfo*)array_at(&testinfo, *idx);
 			CellInfo *cell=(CellInfo*)array_at(&test->cells, k);
-			rank+=currcell->csize>cell->csize;
+		//	rank+=currcell->csize>cell->csize;
+			if(currcell->csize>cell->csize)
+			{
+				++winners->count;
+				SizeAndStr *winner=(SizeAndStr*)array_at(&winners, winners->count-1);
+				winner->size=cell->csize;
+				winner->str=(char*)test->codecname->data;
+			}
 		}
-		printf(" -> %10lld B  #%4d/%4d  %12.6lf sec %12.6lf MB/s %8.2lf MB",
-			currcell->csize, rank+1, (int)latesttestidx->count+1,
+		isort(winners->data, winners->count, winners->esize, cmp_size);
+		printf(" -> %10lld B  ", currcell->csize);
+		print_rank((int)winners->count+1, (int)latesttestidx->count+1);
+		//int bk=(rank+1)*255/((int)latesttestidx->count+1);
+		//bk|=(255-bk)<<8;
+		//colorprintf(COLORPRINTF_TXT_DEFAULT, bk, "#%4d/%4d", rank+1, (int)latesttestidx->count+1);
+		printf("  %12.6lf sec %12.6lf MB/s %8.2lf MB",
 			currcell->etime, info->usize/(currcell->etime*1024*1024),
 			(double)currcell->emem/(1024*1024)
 		);
+		//printf(" -> %10lld B  #%4d/%4d  %12.6lf sec %12.6lf MB/s %8.2lf MB",
+		//	currcell->csize, rank+1, (int)latesttestidx->count+1,
+		//	currcell->etime, info->usize/(currcell->etime*1024*1024),
+		//	(double)currcell->emem/(1024*1024)
+		//);
 		
 		exec_process(g_buf+decoffset, 0, &currcell->dtime, &currcell->dmem);
 		int kslash=(int)info->filename->count-1;
@@ -783,11 +819,30 @@ dec command template
 		while(kdot>=0&&info->filename->data[kdot]!='.')--kdot;
 		if(kdot<=kslash)
 			kdot=(int)info->filename->count;
-		printf(" -> %12.6lf sec %12.6lf MB/s %8.2lf MB  %.*s\n",
+		printf(" -> %12.6lf sec %12.6lf MB/s %8.2lf MB  %.*s",
 			currcell->dtime, info->usize/(currcell->dtime*1024*1024),
 			(double)currcell->dmem/(1024*1024),
 			kdot-kslash, (char*)info->filename->data+kslash
 		);
+		if(winners->count)
+		{
+			printf("   ");
+			for(int k2=0;k2<(int)winners->count;++k2)
+			{
+				SizeAndStr *winner=(SizeAndStr*)array_at(&winners, k2);
+				printf(" %s", winner->str);
+				printf(" %td", winner->size);//
+			}
+		}
+		//for(int k2=0;k2<(int)latesttestidx->count;++k2)
+		//{
+		//	int *idx=(int*)array_at(&latesttestidx, k2);
+		//	TestInfo *test=(TestInfo*)array_at(&testinfo, *idx);
+		//	CellInfo *cell=(CellInfo*)array_at(&test->cells, k);
+		//	if(currcell->csize>cell->csize)
+		//		printf(" %s", (char*)test->codecname->data);
+		//}
+		printf("\n");
 
 		usize+=info->usize;
 		currtest->total.csize+=currcell->csize;
@@ -799,20 +854,58 @@ dec command template
 			currtest->total.dmem=currcell->dmem;
 	}
 	{
-		int rank=0;
+		printf("\n");
+
+	//	int rank=0;
+		winners->count=0;
 		for(int k2=0;k2<(int)latesttestidx->count;++k2)
 		{
 			int *idx=(int*)array_at(&latesttestidx, k2);
 			TestInfo *test=(TestInfo*)array_at(&testinfo, *idx);
-			rank+=currtest->total.csize>test->total.csize;
+		//	rank+=currtest->total.csize>test->total.csize;
+			if(currtest->total.csize>test->total.csize)
+			{
+				++winners->count;
+				SizeAndStr *winner=(SizeAndStr*)array_at(&winners, winners->count-1);
+				winner->size=test->total.csize;
+				winner->str=(char*)test->codecname->data;
+			}
 		}
-		printf("\n");
-		printf("%5d %10lld -> %10lld B  #%4d/%4d  %12.6lf sec %12.6lf MB/s %8.2lf MB -> %12.6lf sec %12.6lf MB/s %8.2lf MB\n",
-			(int)uinfo->count,
-			usize, currtest->total.csize, rank+1, (int)latesttestidx->count+1,
+		isort(winners->data, winners->count, winners->esize, cmp_size);
+		printf("%5d %10lld -> %10lld B  ", (int)uinfo->count, usize, currtest->total.csize);
+		print_rank((int)winners->count+1, (int)latesttestidx->count+1);
+		//int bk=(rank+1)*255/((int)latesttestidx->count+1);
+		//bk|=(255-bk)<<8;
+		//colorprintf(COLORPRINTF_TXT_DEFAULT, bk, "#%4d/%4d", rank+1, (int)latesttestidx->count+1);
+		printf("  %12.6lf sec %12.6lf MB/s %8.2lf MB -> %12.6lf sec %12.6lf MB/s %8.2lf MB",
 			currtest->total.etime, usize/(currtest->total.etime*1024*1024), (double)currtest->total.emem/(1024*1024),
 			currtest->total.dtime, usize/(currtest->total.dtime*1024*1024), (double)currtest->total.dmem/(1024*1024)
 		);
+		if(winners->count)
+		{
+			printf("   ");
+			for(int k2=0;k2<(int)winners->count;++k2)
+			{
+				SizeAndStr *winner=(SizeAndStr*)array_at(&winners, k2);
+				printf(" %s", winner->str);
+				printf(" %td", winner->size);//
+			}
+		}
+		//for(int k2=0;k2<(int)latesttestidx->count;++k2)
+		//{
+		//	int *idx=(int*)array_at(&latesttestidx, k2);
+		//	TestInfo *test=(TestInfo*)array_at(&testinfo, *idx);
+		//	if(currtest->total.csize>test->total.csize)
+		//		printf(" %s", (char*)test->codecname->data);
+		//}
+		printf("\n");
+
+		//printf("%5d %10lld -> %10lld B  #%4d/%4d  %12.6lf sec %12.6lf MB/s %8.2lf MB -> %12.6lf sec %12.6lf MB/s %8.2lf MB\n",
+		//	(int)uinfo->count,
+		//	usize, currtest->total.csize, rank+1, (int)latesttestidx->count+1,
+		//	currtest->total.etime, usize/(currtest->total.etime*1024*1024), (double)currtest->total.emem/(1024*1024),
+		//	currtest->total.dtime, usize/(currtest->total.dtime*1024*1024), (double)currtest->total.dmem/(1024*1024)
+		//);
 	}
 #if 1
 	{
@@ -889,5 +982,6 @@ dec command template
 	array_free(&tmpfn1);
 	array_free(&tmpfn2);
 	array_free(&latesttestidx);
+	array_free(&winners);
 	return 0;
 }
