@@ -8,15 +8,23 @@ Each folder contains a different project.
 ## Maintained projects
 
 ### `best`
+[outdated]
 The best codecs are placed here. Sometimes not up to date.
 Reference implementations of the best open-source lossless algorithms that I implemented/encountered.
-To compile, either make an MSVC 2022 CMake project, or to use GCC:
+To build, either create an MSVC 2022 CMake project, or to use GCC:
+
+`make`
+
+### `cbm`
+A codec benchmark that tracks history per-file.
+To build, either create an MSVC 2022 CMake project, or to use GCC:
 
 `make`
 
 ### `e2`
+[outdated]
 Contains most of my latest experiments on lossless image compression, and other older/obsolete algorithms.
-To compile, either make an MSVC 2022 CMake project, or to use GCC:
+To build, either create an MSVC 2022 CMake project, or to use GCC:
 
 `gcc -O3 -mavx2 -mbmi  e2.c format.c lodepng.c t51.c t54.c t55.c tests4.c tests5.c tests6.c transforms.c util.c  -o e2`
 
@@ -24,25 +32,26 @@ To compile, either make an MSVC 2022 CMake project, or to use GCC:
 A GUI tool that evaluates reversible decorrelating transforms.
 Supports high bit depth images.
 Currently works only on Windows.
-To compile, either make an MSVC 2022 CMake project, or to use GCC:
+To build, either create an MSVC 2022 CMake project, or to use GCC:
 
 `make`
 
 ### `fast`
+[outdated]
 Experiments prioritizing speed.
-To compile, either make an MSVC 2022 CMake project, or to use GCC:
+To build, either create an MSVC 2022 CMake project, or to use GCC:
 
 `make`
 
 ### `imgcvt`
 Batch image converter.
-To compile, either make an MSVC 2022 CMake project, or to use GCC:
+To build, either create an MSVC 2022 CMake project, or to use GCC:
 
 `gcc -O3 imgcvt.c util.c -o imgcvt`
 
 ### `ppmcodec`
 Plain 8-bit codecs without alpha. PPM only.
-To compile, either make an MSVC 2022 CMake project, or to use GCC:
+To build, either create an MSVC 2022 CMake project, or to use GCC:
 
 `make codec [PROF=1]`
 
