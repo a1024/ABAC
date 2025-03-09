@@ -117,7 +117,11 @@ static ArrayHandle parse_str(const char *start, const char **ptr, char delim, in
 		LOG_ERROR("");
 	}
 skipcheck:
-	STR_COPY(str, *ptr, ptr2-*ptr);
+	{
+		const char *ptr3=ptr2;
+		while(ptr3>*ptr&&isspace(*(ptr3-1)))--ptr3;
+		STR_COPY(str, *ptr, ptr3-*ptr);
+	}
 	//skipspace(&ptr2);
 	//while(*ptr2&&isspace(*ptr2++));
 	//ptr2-=*ptr2!=0;
@@ -254,36 +258,6 @@ static void write_cell(FILE *fdst, CellInfo *cell)//tabs for excel
 {
 	fprintf(fdst, "\t%10lld\t%12.6lf\t%12.6lf\t%10lld\t%10lld", cell->csize, cell->etime, cell->dtime, cell->emem, cell->dmem);
 }
-#if 0
-static void verify_command(const char *cmd)
-{
-	if(!cmd)
-	{
-		LOG_ERROR("");
-		return;
-	}
-	const char *ptr=cmd;
-	while(*ptr&&!isspace(*ptr++));//assume no spaces
-	ptr-=*ptr!=0;
-	char fn1[MAX_PATH+1]={0}, fn2[MAX_PATH+1]={0};
-	memcpy(fn1, cmd, ptr-cmd);
-	int len=GetFullPathNameA(fn1, sizeof(fn2)-1, fn2, 0);
-	if(!len)
-	{
-		LOG_ERROR("GetFullPathNameA GetLastError %d", (int)GetLastError());
-		return;
-	}
-	ptrdiff_t size=get_filesize(fn2);
-	if(size<1)
-	{
-		printf("Program is inaccessible:\n");
-		printf("  \"%s\"\n", fn1);
-		printf("  \"%s\"\n", fn2);
-		printf("  size %td bytes", size);
-		LOG_ERROR("");
-	}
-}
-#endif
 static void qualify_command(ArrayHandle *cmd)
 {
 	const char *ptr=(char*)cmd[0]->data;
@@ -434,11 +408,11 @@ int main(int argc, char **argv)
 	codecname=argv[2];
 #else
 	datasetname="div2k";
-	codecname="halic072fast";
+	codecname="c29cg";
 #endif
 	char programpath[MAX_PATH+1]={0};
 	ArrayHandle tmpfn1=0, tmpfn2=0;
-	ArrayHandle srcpath=0, ext=0, uinfo=0, testinfo=0;
+	ArrayHandle srcpath=0, ext=0, uinfo=0, testinfo=0, latesttestidx=0;
 	CommandFormat enccmd={0}, deccmd={0};
 
 	//1. get program path
@@ -613,6 +587,37 @@ dec command template
 			ARRAY_ALLOC(TestInfo, testinfo, 0, 0, 0, free_testinfo);
 		}
 	}
+	ARRAY_ALLOC(int, latesttestidx, 0, testinfo->count, 0, 0);
+	for(int k=0;k<(int)testinfo->count;++k)
+	{
+		int *idx=(int*)array_at(&latesttestidx, k);
+		*idx=k;
+	}
+	for(int k=1;k<(int)latesttestidx->count;++k)
+	{
+		for(int k2=0;k2<k;++k2)
+		{
+			int *idx1=(int*)array_at(&latesttestidx, k);
+			TestInfo *test1=(TestInfo*)array_at(&testinfo, *idx1);
+			int *idx2=(int*)array_at(&latesttestidx, k2);
+			TestInfo *test2=(TestInfo*)array_at(&testinfo, *idx2);
+			if(acme_strnimatch((char*)test1->codecname->data, test1->codecname->count, (char*)test2->codecname->data, test2->codecname->count))
+			{
+				if(test1->timestamp<test2->timestamp)//test2 is latest
+				{
+					array_erase(&latesttestidx, k, 1);
+					--k;
+					break;
+				}
+				else//test1 is latest
+				{
+					array_erase(&latesttestidx, k2, 1);
+					--k2;
+					--k;
+				}
+			}
+		}
+	}
 
 	//4. get command templates
 	snprintf(g_buf, sizeof(g_buf)-1, "%szzzcode_%s.txt", programpath, codecname);
@@ -624,10 +629,8 @@ dec command template
 		{
 			const char *start=(char*)text->data, *ptr=start;
 			enccmd.format=parse_str(start, &ptr, '\n', 0);
-		//	verify_command((char*)enccmd.format->data);
 			skipspace(&ptr);
 			deccmd.format=parse_str(start, &ptr, '\n', 1);
-		//	verify_command((char*)deccmd.format->data);
 			array_free(&text);
 		}
 		else
@@ -637,11 +640,9 @@ dec command template
 			printf("  Use \"---extension\" as filename placeholders.\n");
 			printf("Define %s encode:  ", codecname);
 			len=acme_getline(g_buf, sizeof(g_buf), stdin);
-		//	verify_command(g_buf);
 			STR_COPY(enccmd.format, g_buf, len);
 			printf("Define %s decode:  ", codecname);
 			len=acme_getline(g_buf, sizeof(g_buf), stdin);
-		//	verify_command(g_buf);
 			STR_COPY(deccmd.format, g_buf, len);
 			STR_COPY(enc0, enccmd.format->data, enccmd.format->count);
 			STR_COPY(dec0, deccmd.format->data, deccmd.format->count);
@@ -701,7 +702,8 @@ dec command template
 	TestInfo *currtest=(TestInfo*)ARRAY_APPEND(testinfo, 0, 1, 1, 0);
 	STR_COPY(currtest->codecname, codecname, strlen(codecname));
 	ARRAY_ALLOC(CellInfo, currtest->cells, 0, uinfo->count, 0, 0);
-	print_timestamp("%Y-%m-%d_%H%M%S\n");
+	print_timestamp("%Y-%m-%d_%H%M%S");
+	printf("  %s  %s\n", datasetname, codecname);
 	currtest->timestamp=time(0);
 	for(int k=0;k<(int)uinfo->count;++k)
 	{
@@ -756,11 +758,22 @@ dec command template
 //#endif
 
 		printf("%5d %10lld", k+1, info->usize);
-	//	printf("%s\n", g_buf);//
 		exec_process(g_buf+0, 0, &currcell->etime, &currcell->emem);
 		
 		currcell->csize=get_filesize((char*)tmpfn1->data);
-		printf(" -> %10lld B  %12.6lf sec %12.6lf MB/s %10lld B", currcell->csize, currcell->etime, info->usize/(currcell->etime*1024*1024), currcell->emem);
+		int rank=0;
+		for(int k2=0;k2<(int)latesttestidx->count;++k2)
+		{
+			int *idx=(int*)array_at(&latesttestidx, k2);
+			TestInfo *test=(TestInfo*)array_at(&testinfo, *idx);
+			CellInfo *cell=(CellInfo*)array_at(&test->cells, k);
+			rank+=currcell->csize>cell->csize;
+		}
+		printf(" -> %10lld B  #%4d/%4d  %12.6lf sec %12.6lf MB/s %8.2lf MB",
+			currcell->csize, rank+1, (int)latesttestidx->count+1,
+			currcell->etime, info->usize/(currcell->etime*1024*1024),
+			(double)currcell->emem/(1024*1024)
+		);
 		
 		exec_process(g_buf+decoffset, 0, &currcell->dtime, &currcell->dmem);
 		int kslash=(int)info->filename->count-1;
@@ -770,9 +783,11 @@ dec command template
 		while(kdot>=0&&info->filename->data[kdot]!='.')--kdot;
 		if(kdot<=kslash)
 			kdot=(int)info->filename->count;
-		printf(" -> %12.6lf sec %12.6lf MB/s %10lld B  %.*s\n", currcell->dtime, info->usize/(currcell->dtime*1024*1024), currcell->dmem, kdot-kslash, (char*)info->filename->data+kslash);//
-	//	printf("%s\n", g_buf);//
-	//	printf("\n");//
+		printf(" -> %12.6lf sec %12.6lf MB/s %8.2lf MB  %.*s\n",
+			currcell->dtime, info->usize/(currcell->dtime*1024*1024),
+			(double)currcell->dmem/(1024*1024),
+			kdot-kslash, (char*)info->filename->data+kslash
+		);
 
 		usize+=info->usize;
 		currtest->total.csize+=currcell->csize;
@@ -783,13 +798,22 @@ dec command template
 		if(currtest->total.dmem<currcell->dmem)
 			currtest->total.dmem=currcell->dmem;
 	}
-	printf("\n");
-	printf("%5d %10lld -> %10lld B  %12.6lf sec %12.6lf MB/s %10lld B -> %12.6lf sec %12.6lf MB/s %10lld B\n",
-		(int)uinfo->count,
-		usize, currtest->total.csize,
-		currtest->total.etime, usize/(currtest->total.etime*1024*1024), currtest->total.emem,
-		currtest->total.dtime, usize/(currtest->total.dtime*1024*1024), currtest->total.dmem
-	);
+	{
+		int rank=0;
+		for(int k2=0;k2<(int)latesttestidx->count;++k2)
+		{
+			int *idx=(int*)array_at(&latesttestidx, k2);
+			TestInfo *test=(TestInfo*)array_at(&testinfo, *idx);
+			rank+=currtest->total.csize>test->total.csize;
+		}
+		printf("\n");
+		printf("%5d %10lld -> %10lld B  #%4d/%4d  %12.6lf sec %12.6lf MB/s %8.2lf MB -> %12.6lf sec %12.6lf MB/s %8.2lf MB\n",
+			(int)uinfo->count,
+			usize, currtest->total.csize, rank+1, (int)latesttestidx->count+1,
+			currtest->total.etime, usize/(currtest->total.etime*1024*1024), (double)currtest->total.emem/(1024*1024),
+			currtest->total.dtime, usize/(currtest->total.dtime*1024*1024), (double)currtest->total.dmem/(1024*1024)
+		);
+	}
 #if 1
 	{
 		ptrdiff_t size;
@@ -864,5 +888,6 @@ dec command template
 	array_free(&testinfo);
 	array_free(&tmpfn1);
 	array_free(&tmpfn2);
+	array_free(&latesttestidx);
 	return 0;
 }

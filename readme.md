@@ -44,6 +44,7 @@ To build, either create an MSVC 2022 CMake project, or to use GCC:
 `make`
 
 ### `imgcvt`
+[outdated]
 Batch image converter.
 To build, either create an MSVC 2022 CMake project, or to use GCC:
 
