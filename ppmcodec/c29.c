@@ -4,10 +4,13 @@
 #include<string.h>
 #include<math.h>
 #include<immintrin.h>
+#ifdef _WIN32
+#include<Windows.h>
+#endif
 static const char file[]=__FILE__;
 
 
-//	#define PROFILE_TIME
+	#define PROFILE_TIME
 //	#define PROFILE_SIZE
 
 #ifdef _MSC_VER
@@ -21,9 +24,11 @@ static const char file[]=__FILE__;
 //	#define TEST_INTERLEAVE
 #endif
 
+//	#define DISABLE_ANALYSIS	//HORRIBLE	analysis is crucial
 //	#define SERIAL_MAIN	//2x slower
 //	#define DISABLE_WG
 
+//	#define WG_COMMONMIX
 	#define WG_DISABLE_eW	//eW is bad with blocks unlike in eBench
 	#define INTERLEAVESIMD	//2.5x faster interleave
 
@@ -34,6 +39,10 @@ static const char file[]=__FILE__;
 
 #define XCODERS 8	//xrem 1~7 cols
 #define YCODERS 4	//yrem 1~3 rows
+
+//#define XCODERS 1	//X
+//#define YCODERS 32
+
 #define NCODERS 32
 
 #define PROBBITS 12	//12 bit max	James Bonfield's CDF2sym: {freq<<20 | bias<<8 | sym}
@@ -440,14 +449,14 @@ AWM_INLINE void wg_mix_pt2(const __m256i *wgpreds, const __m256i *prederrors, __
 		t0[5]=_mm256_srli_epi32(t0[5], 16);
 		t0[6]=_mm256_srli_epi32(t0[6], 16);
 		t0[7]=_mm256_srli_epi32(t0[7], 16);
-		coeff[0]=_mm256_cvtepi32_ps(t0[0]);
-		coeff[1]=_mm256_cvtepi32_ps(t0[1]);
-		coeff[2]=_mm256_cvtepi32_ps(t0[2]);
-		coeff[3]=_mm256_cvtepi32_ps(t0[3]);
-		coeff[4]=_mm256_cvtepi32_ps(t0[4]);
-		coeff[5]=_mm256_cvtepi32_ps(t0[5]);
-		coeff[6]=_mm256_cvtepi32_ps(t0[6]);
-		coeff[7]=_mm256_cvtepi32_ps(t0[7]);
+		coeff[0*2+0]=_mm256_cvtepi32_ps(t0[0]);
+		coeff[1*2+0]=_mm256_cvtepi32_ps(t0[1]);
+		coeff[2*2+0]=_mm256_cvtepi32_ps(t0[2]);
+		coeff[3*2+0]=_mm256_cvtepi32_ps(t0[3]);
+		coeff[4*2+0]=_mm256_cvtepi32_ps(t0[4]);
+		coeff[5*2+0]=_mm256_cvtepi32_ps(t0[5]);
+		coeff[6*2+0]=_mm256_cvtepi32_ps(t0[6]);
+		coeff[7*2+0]=_mm256_cvtepi32_ps(t0[7]);
 		t0[0]=_mm256_srli_epi32(prederrors[0*2+0], 16);
 		t0[1]=_mm256_srli_epi32(prederrors[1*2+0], 16);
 		t0[2]=_mm256_srli_epi32(prederrors[2*2+0], 16);
@@ -456,14 +465,14 @@ AWM_INLINE void wg_mix_pt2(const __m256i *wgpreds, const __m256i *prederrors, __
 		t0[5]=_mm256_srli_epi32(prederrors[5*2+0], 16);
 		t0[6]=_mm256_srli_epi32(prederrors[6*2+0], 16);
 		t0[7]=_mm256_srli_epi32(prederrors[7*2+0], 16);
-		coeff[0x8]=_mm256_cvtepi32_ps(t0[0]);
-		coeff[0x9]=_mm256_cvtepi32_ps(t0[1]);
-		coeff[0xA]=_mm256_cvtepi32_ps(t0[2]);
-		coeff[0xB]=_mm256_cvtepi32_ps(t0[3]);
-		coeff[0xC]=_mm256_cvtepi32_ps(t0[4]);
-		coeff[0xD]=_mm256_cvtepi32_ps(t0[5]);
-		coeff[0xE]=_mm256_cvtepi32_ps(t0[6]);
-		coeff[0xF]=_mm256_cvtepi32_ps(t0[7]);
+		coeff[0*2+1]=_mm256_cvtepi32_ps(t0[0]);
+		coeff[1*2+1]=_mm256_cvtepi32_ps(t0[1]);
+		coeff[2*2+1]=_mm256_cvtepi32_ps(t0[2]);
+		coeff[3*2+1]=_mm256_cvtepi32_ps(t0[3]);
+		coeff[4*2+1]=_mm256_cvtepi32_ps(t0[4]);
+		coeff[5*2+1]=_mm256_cvtepi32_ps(t0[5]);
+		coeff[6*2+1]=_mm256_cvtepi32_ps(t0[6]);
+		coeff[7*2+1]=_mm256_cvtepi32_ps(t0[7]);
 #if 0
 		__m128i hi[8];
 		__m256i i32[8];
@@ -529,14 +538,14 @@ AWM_INLINE void wg_mix_pt2(const __m256i *wgpreds, const __m256i *prederrors, __
 		t0[5]=_mm256_srai_epi32(t0[5], 16);
 		t0[6]=_mm256_srai_epi32(t0[6], 16);
 		t0[7]=_mm256_srai_epi32(t0[7], 16);
-		pr[0]=_mm256_cvtepi32_ps(t0[0]);
-		pr[1]=_mm256_cvtepi32_ps(t0[1]);
-		pr[2]=_mm256_cvtepi32_ps(t0[2]);
-		pr[3]=_mm256_cvtepi32_ps(t0[3]);
-		pr[4]=_mm256_cvtepi32_ps(t0[4]);
-		pr[5]=_mm256_cvtepi32_ps(t0[5]);
-		pr[6]=_mm256_cvtepi32_ps(t0[6]);
-		pr[7]=_mm256_cvtepi32_ps(t0[7]);
+		pr[0*2+0]=_mm256_cvtepi32_ps(t0[0]);
+		pr[1*2+0]=_mm256_cvtepi32_ps(t0[1]);
+		pr[2*2+0]=_mm256_cvtepi32_ps(t0[2]);
+		pr[3*2+0]=_mm256_cvtepi32_ps(t0[3]);
+		pr[4*2+0]=_mm256_cvtepi32_ps(t0[4]);
+		pr[5*2+0]=_mm256_cvtepi32_ps(t0[5]);
+		pr[6*2+0]=_mm256_cvtepi32_ps(t0[6]);
+		pr[7*2+0]=_mm256_cvtepi32_ps(t0[7]);
 		t0[0]=_mm256_srai_epi32(wgpreds[0*6+0], 16);
 		t0[1]=_mm256_srai_epi32(wgpreds[1*6+0], 16);
 		t0[2]=_mm256_srai_epi32(wgpreds[2*6+0], 16);
@@ -545,14 +554,14 @@ AWM_INLINE void wg_mix_pt2(const __m256i *wgpreds, const __m256i *prederrors, __
 		t0[5]=_mm256_srai_epi32(wgpreds[5*6+0], 16);
 		t0[6]=_mm256_srai_epi32(wgpreds[6*6+0], 16);
 		t0[7]=_mm256_srai_epi32(wgpreds[7*6+0], 16);
-		pr[0x8]=_mm256_cvtepi32_ps(t0[0]);
-		pr[0x9]=_mm256_cvtepi32_ps(t0[1]);
-		pr[0xA]=_mm256_cvtepi32_ps(t0[2]);
-		pr[0xB]=_mm256_cvtepi32_ps(t0[3]);
-		pr[0xC]=_mm256_cvtepi32_ps(t0[4]);
-		pr[0xD]=_mm256_cvtepi32_ps(t0[5]);
-		pr[0xE]=_mm256_cvtepi32_ps(t0[6]);
-		pr[0xF]=_mm256_cvtepi32_ps(t0[7]);
+		pr[0*2+1]=_mm256_cvtepi32_ps(t0[0]);
+		pr[1*2+1]=_mm256_cvtepi32_ps(t0[1]);
+		pr[2*2+1]=_mm256_cvtepi32_ps(t0[2]);
+		pr[3*2+1]=_mm256_cvtepi32_ps(t0[3]);
+		pr[4*2+1]=_mm256_cvtepi32_ps(t0[4]);
+		pr[5*2+1]=_mm256_cvtepi32_ps(t0[5]);
+		pr[6*2+1]=_mm256_cvtepi32_ps(t0[6]);
+		pr[7*2+1]=_mm256_cvtepi32_ps(t0[7]);
 #if 0
 		__m256i t0[16];
 		t0[0*2+1]=_mm256_cvtepi16_epi32(_mm256_extracti128_si256(wgpreds[0*6+0], 1));
@@ -630,6 +639,52 @@ AWM_INLINE void wg_mix_pt2(const __m256i *wgpreds, const __m256i *prederrors, __
 	//coeff[0xD]=_mm256_div_ps(num, coeff[0xD]);
 	//coeff[0xE]=_mm256_div_ps(num, coeff[0xE]);
 	//coeff[0xF]=_mm256_div_ps(num, coeff[0xF]);
+	
+	/*
+	|	WG5	DIV2K -0.13%
+	|		GDCC -0.08%
+	0	210	240 ^	N
+	1	210	240 ^	W
+	2	215	180 v	3*(N-NN)+NNN
+	3	215	180 v	3*(W-WW)+WWW		4*(W+WWW)-6*WW-WWWW
+	4	140	140	W+NE-N
+	5	230	160 v	(WWWW+WWW+NNN+NEE+NEEE+NEEEE-2*NW)/4
+	6	120	120	N+W-NW
+	7	140	120 v	N+NE-NNE
+	*/
+	__m256 g0=_mm256_set1_ps(240);
+	__m256 g1=_mm256_set1_ps(240);
+	__m256 g2=_mm256_set1_ps(180);
+	__m256 g3=_mm256_set1_ps(180);
+	__m256 g4=_mm256_set1_ps(140);
+	__m256 g5=_mm256_set1_ps(160);
+	__m256 g6=_mm256_set1_ps(120);
+	__m256 g7=_mm256_set1_ps(120);
+
+//	__m256 g0=_mm256_set1_ps(210);
+// 	__m256 g1=g0;
+//	__m256 g2=_mm256_set1_ps(215);
+// 	__m256 g3=g2;
+//	__m256 g4=_mm256_set1_ps(140);
+//	__m256 g5=_mm256_set1_ps(230);
+//	__m256 g6=_mm256_set1_ps(120);
+//	__m256 g7=_mm256_set1_ps(140);
+	coeff[0x0]=_mm256_mul_ps(coeff[0x0], g0);
+	coeff[0x1]=_mm256_mul_ps(coeff[0x1], g0);
+	coeff[0x2]=_mm256_mul_ps(coeff[0x2], g1);
+	coeff[0x3]=_mm256_mul_ps(coeff[0x3], g1);
+	coeff[0x4]=_mm256_mul_ps(coeff[0x4], g2);
+	coeff[0x5]=_mm256_mul_ps(coeff[0x5], g2);
+	coeff[0x6]=_mm256_mul_ps(coeff[0x6], g3);
+	coeff[0x7]=_mm256_mul_ps(coeff[0x7], g3);
+	coeff[0x8]=_mm256_mul_ps(coeff[0x8], g4);
+	coeff[0x9]=_mm256_mul_ps(coeff[0x9], g4);
+	coeff[0xA]=_mm256_mul_ps(coeff[0xA], g5);
+	coeff[0xB]=_mm256_mul_ps(coeff[0xB], g5);
+	coeff[0xC]=_mm256_mul_ps(coeff[0xC], g6);
+	coeff[0xD]=_mm256_mul_ps(coeff[0xD], g6);
+	coeff[0xE]=_mm256_mul_ps(coeff[0xE], g7);
+	coeff[0xF]=_mm256_mul_ps(coeff[0xF], g7);
 
 	//pr = (sum: coeff[i]*wg[i])/(sum: coeff[i])	NPREDS=8  (*16 interleaved floats)
 	pr[0x0]=_mm256_mul_ps(pr[0x0], coeff[0x0]);
@@ -649,42 +704,42 @@ AWM_INLINE void wg_mix_pt2(const __m256i *wgpreds, const __m256i *prederrors, __
 	pr[0xE]=_mm256_mul_ps(pr[0xE], coeff[0xE]);
 	pr[0xF]=_mm256_mul_ps(pr[0xF], coeff[0xF]);
 
-	coeff[0x0]=_mm256_add_ps(coeff[0x0], coeff[0x1]);
-	coeff[0x2]=_mm256_add_ps(coeff[0x2], coeff[0x3]);
-	coeff[0x4]=_mm256_add_ps(coeff[0x4], coeff[0x5]);
-	coeff[0x6]=_mm256_add_ps(coeff[0x6], coeff[0x7]);
-	coeff[0x8]=_mm256_add_ps(coeff[0x8], coeff[0x9]);
-	coeff[0xA]=_mm256_add_ps(coeff[0xA], coeff[0xB]);
-	coeff[0xC]=_mm256_add_ps(coeff[0xC], coeff[0xD]);
-	coeff[0xE]=_mm256_add_ps(coeff[0xE], coeff[0xF]);
-
 	coeff[0x0]=_mm256_add_ps(coeff[0x0], coeff[0x2]);
+	coeff[0x1]=_mm256_add_ps(coeff[0x1], coeff[0x3]);
 	coeff[0x4]=_mm256_add_ps(coeff[0x4], coeff[0x6]);
+	coeff[0x5]=_mm256_add_ps(coeff[0x5], coeff[0x7]);
 	coeff[0x8]=_mm256_add_ps(coeff[0x8], coeff[0xA]);
+	coeff[0x9]=_mm256_add_ps(coeff[0x9], coeff[0xB]);
 	coeff[0xC]=_mm256_add_ps(coeff[0xC], coeff[0xE]);
-	
+	coeff[0xD]=_mm256_add_ps(coeff[0xD], coeff[0xF]);
+
 	coeff[0x0]=_mm256_add_ps(coeff[0x0], coeff[0x4]);
+	coeff[0x1]=_mm256_add_ps(coeff[0x1], coeff[0x5]);
 	coeff[0x8]=_mm256_add_ps(coeff[0x8], coeff[0xC]);
-
-	pr[0x0]=_mm256_add_ps(pr[0x0], pr[0x1]);
-	pr[0x2]=_mm256_add_ps(pr[0x2], pr[0x3]);
-	pr[0x4]=_mm256_add_ps(pr[0x4], pr[0x5]);
-	pr[0x6]=_mm256_add_ps(pr[0x6], pr[0x7]);
-	pr[0x8]=_mm256_add_ps(pr[0x8], pr[0x9]);
-	pr[0xA]=_mm256_add_ps(pr[0xA], pr[0xB]);
-	pr[0xC]=_mm256_add_ps(pr[0xC], pr[0xD]);
-	pr[0xE]=_mm256_add_ps(pr[0xE], pr[0xF]);
-
-	pr[0x0]=_mm256_add_ps(pr[0x0], pr[0x2]);
-	pr[0x4]=_mm256_add_ps(pr[0x4], pr[0x6]);
-	pr[0x8]=_mm256_add_ps(pr[0x8], pr[0xA]);
-	pr[0xC]=_mm256_add_ps(pr[0xC], pr[0xE]);
+	coeff[0x9]=_mm256_add_ps(coeff[0x9], coeff[0xD]);
 	
+	coeff[0x0]=_mm256_add_ps(coeff[0x0], coeff[0x8]);
+	coeff[0x1]=_mm256_add_ps(coeff[0x1], coeff[0x9]);
+	
+	pr[0x0]=_mm256_add_ps(pr[0x0], pr[0x2]);
+	pr[0x1]=_mm256_add_ps(pr[0x1], pr[0x3]);
+	pr[0x4]=_mm256_add_ps(pr[0x4], pr[0x6]);
+	pr[0x5]=_mm256_add_ps(pr[0x5], pr[0x7]);
+	pr[0x8]=_mm256_add_ps(pr[0x8], pr[0xA]);
+	pr[0x9]=_mm256_add_ps(pr[0x9], pr[0xB]);
+	pr[0xC]=_mm256_add_ps(pr[0xC], pr[0xE]);
+	pr[0xD]=_mm256_add_ps(pr[0xD], pr[0xF]);
+
 	pr[0x0]=_mm256_add_ps(pr[0x0], pr[0x4]);
+	pr[0x1]=_mm256_add_ps(pr[0x1], pr[0x5]);
 	pr[0x8]=_mm256_add_ps(pr[0x8], pr[0xC]);
+	pr[0x9]=_mm256_add_ps(pr[0x9], pr[0xD]);
+
+	pr[0x0]=_mm256_add_ps(pr[0x0], pr[0x8]);
+	pr[0x1]=_mm256_add_ps(pr[0x1], pr[0x9]);
 
 	result[0]=_mm256_div_ps(pr[0], coeff[0]);//11/5
-	result[1]=_mm256_div_ps(pr[8], coeff[8]);
+	result[1]=_mm256_div_ps(pr[1], coeff[1]);
 #ifdef WG4_SERIALDEBUG
 	for(int k=0;k<NCODERS/2;++k)
 	{
@@ -732,7 +787,7 @@ AWM_INLINE void wg_mix(int kc, const short *wgWerrors, const short *rowscurrNNpt
 	const short *chWerrors=wgWerrors+(ptrdiff_t)NCODERS*kc;
 	const short *Nptr=rowsNptr+(ptrdiff_t)NCODERS*kc;
 	const short *currNNptr=rowscurrNNptr+(ptrdiff_t)NCODERS*kc;
-	__m256i prederrors[WG_NPREDS*NCODERS*sizeof(short)/sizeof(__m256i)];//2 regs per lane  *  NPREDS
+	__m256i prederrors[sizeof(short[WG_NPREDS*NCODERS])/(sizeof(__m256i))];//2 regs per lane  *  NPREDS
 
 	//errors = pI+pNW+2*pN+pNE+pNNE		(__m256i*)(erows[-Y]+((P+X*NPREDS)*3+C)*NCODERS)+R
 	prederrors[0x0]=_mm256_load_si256((const __m256i*)(Nptr+((0+0*WG_NPREDS)*3+0)*NCODERS)+0);//pN
@@ -857,6 +912,256 @@ AWM_INLINE void wg_mix(int kc, const short *wgWerrors, const short *rowscurrNNpt
 	prederrors[0xE]=_mm256_add_epi16(prederrors[0xE], one);
 	prederrors[0xF]=_mm256_add_epi16(prederrors[0xF], one);
 
+#ifdef WG_COMMONMIX
+	prederrors[0x0]=_mm256_add_epi16(prederrors[0x0], prederrors[0x1]);
+	prederrors[0x2]=_mm256_add_epi16(prederrors[0x2], prederrors[0x3]);
+	prederrors[0x4]=_mm256_add_epi16(prederrors[0x4], prederrors[0x5]);
+	prederrors[0x6]=_mm256_add_epi16(prederrors[0x6], prederrors[0x7]);
+	prederrors[0x8]=_mm256_add_epi16(prederrors[0x8], prederrors[0x9]);
+	prederrors[0xA]=_mm256_add_epi16(prederrors[0xA], prederrors[0xB]);
+	prederrors[0xC]=_mm256_add_epi16(prederrors[0xC], prederrors[0xD]);
+	prederrors[0xE]=_mm256_add_epi16(prederrors[0xE], prederrors[0xF]);
+	prederrors[0x1]=_mm256_slli_epi32(prederrors[0x0], 16);
+	prederrors[0x3]=_mm256_slli_epi32(prederrors[0x2], 16);
+	prederrors[0x5]=_mm256_slli_epi32(prederrors[0x4], 16);
+	prederrors[0x7]=_mm256_slli_epi32(prederrors[0x6], 16);
+	prederrors[0x9]=_mm256_slli_epi32(prederrors[0x8], 16);
+	prederrors[0xB]=_mm256_slli_epi32(prederrors[0xA], 16);
+	prederrors[0xD]=_mm256_slli_epi32(prederrors[0xC], 16);
+	prederrors[0xF]=_mm256_slli_epi32(prederrors[0xE], 16);
+
+	prederrors[0x1]=_mm256_srli_epi32(prederrors[0x1], 16);
+	prederrors[0x3]=_mm256_srli_epi32(prederrors[0x3], 16);
+	prederrors[0x5]=_mm256_srli_epi32(prederrors[0x5], 16);
+	prederrors[0x7]=_mm256_srli_epi32(prederrors[0x7], 16);
+	prederrors[0x9]=_mm256_srli_epi32(prederrors[0x9], 16);
+	prederrors[0xB]=_mm256_srli_epi32(prederrors[0xB], 16);
+	prederrors[0xD]=_mm256_srli_epi32(prederrors[0xD], 16);
+	prederrors[0xF]=_mm256_srli_epi32(prederrors[0xF], 16);
+
+	prederrors[0x0]=_mm256_srli_epi32(prederrors[0x0], 16);
+	prederrors[0x2]=_mm256_srli_epi32(prederrors[0x2], 16);
+	prederrors[0x4]=_mm256_srli_epi32(prederrors[0x4], 16);
+	prederrors[0x6]=_mm256_srli_epi32(prederrors[0x6], 16);
+	prederrors[0x8]=_mm256_srli_epi32(prederrors[0x8], 16);
+	prederrors[0xA]=_mm256_srli_epi32(prederrors[0xA], 16);
+	prederrors[0xC]=_mm256_srli_epi32(prederrors[0xC], 16);
+	prederrors[0xE]=_mm256_srli_epi32(prederrors[0xE], 16);
+	prederrors[0x0]=_mm256_add_epi32(prederrors[0x0], prederrors[0x1]);
+	prederrors[0x2]=_mm256_add_epi32(prederrors[0x2], prederrors[0x3]);
+	prederrors[0x4]=_mm256_add_epi32(prederrors[0x4], prederrors[0x5]);
+	prederrors[0x6]=_mm256_add_epi32(prederrors[0x6], prederrors[0x7]);
+	prederrors[0x8]=_mm256_add_epi32(prederrors[0x8], prederrors[0x9]);
+	prederrors[0xA]=_mm256_add_epi32(prederrors[0xA], prederrors[0xB]);
+	prederrors[0xC]=_mm256_add_epi32(prederrors[0xC], prederrors[0xD]);
+	prederrors[0xE]=_mm256_add_epi32(prederrors[0xE], prederrors[0xF]);
+	prederrors[0x0]=_mm256_hadd_epi32(prederrors[0x0], prederrors[0x0]);
+	prederrors[0x2]=_mm256_hadd_epi32(prederrors[0x2], prederrors[0x2]);
+	prederrors[0x4]=_mm256_hadd_epi32(prederrors[0x4], prederrors[0x4]);
+	prederrors[0x6]=_mm256_hadd_epi32(prederrors[0x6], prederrors[0x6]);
+	prederrors[0x8]=_mm256_hadd_epi32(prederrors[0x8], prederrors[0x8]);
+	prederrors[0xA]=_mm256_hadd_epi32(prederrors[0xA], prederrors[0xA]);
+	prederrors[0xC]=_mm256_hadd_epi32(prederrors[0xC], prederrors[0xC]);
+	prederrors[0xE]=_mm256_hadd_epi32(prederrors[0xE], prederrors[0xE]);
+
+	prederrors[0x0]=_mm256_hadd_epi32(prederrors[0x0], prederrors[0x0]);
+	prederrors[0x2]=_mm256_hadd_epi32(prederrors[0x2], prederrors[0x2]);
+	prederrors[0x4]=_mm256_hadd_epi32(prederrors[0x4], prederrors[0x4]);
+	prederrors[0x6]=_mm256_hadd_epi32(prederrors[0x6], prederrors[0x6]);
+	prederrors[0x8]=_mm256_hadd_epi32(prederrors[0x8], prederrors[0x8]);
+	prederrors[0xA]=_mm256_hadd_epi32(prederrors[0xA], prederrors[0xA]);
+	prederrors[0xC]=_mm256_hadd_epi32(prederrors[0xC], prederrors[0xC]);
+	prederrors[0xE]=_mm256_hadd_epi32(prederrors[0xE], prederrors[0xE]);
+	//ALIGN(32) int temp[64];
+	__m256i icoeffs=_mm256_set_epi32(
+		_mm256_extract_epi32(prederrors[0xE], 0)+_mm256_extract_epi32(prederrors[0xE], 4),
+		_mm256_extract_epi32(prederrors[0xC], 0)+_mm256_extract_epi32(prederrors[0xC], 4),
+		_mm256_extract_epi32(prederrors[0xA], 0)+_mm256_extract_epi32(prederrors[0xA], 4),
+		_mm256_extract_epi32(prederrors[0x8], 0)+_mm256_extract_epi32(prederrors[0x8], 4),
+		_mm256_extract_epi32(prederrors[0x6], 0)+_mm256_extract_epi32(prederrors[0x6], 4),
+		_mm256_extract_epi32(prederrors[0x4], 0)+_mm256_extract_epi32(prederrors[0x4], 4),
+		_mm256_extract_epi32(prederrors[0x2], 0)+_mm256_extract_epi32(prederrors[0x2], 4),
+		_mm256_extract_epi32(prederrors[0x0], 0)+_mm256_extract_epi32(prederrors[0x0], 4)
+	);
+	__m256 fcoeffs=_mm256_cvtepi32_ps(icoeffs);
+	fcoeffs=_mm256_rcp_ps(fcoeffs);
+	ALIGN(32) float norm[8];
+	_mm256_store_ps(norm, fcoeffs);
+	norm[0]+=norm[1];
+	norm[2]+=norm[3];
+	norm[4]+=norm[5];
+	norm[6]+=norm[7];
+	norm[0]+=norm[2];
+	norm[4]+=norm[6];
+	norm[0]+=norm[4];
+	__m128 mnorm=_mm_load_ss(norm);
+	mnorm=_mm_rcp_ss(mnorm);
+	__m256 mnorm2=_mm256_broadcastss_ps(mnorm);
+	fcoeffs=_mm256_mul_ps(fcoeffs, mnorm2);
+	_mm256_store_ps(norm, fcoeffs);
+	__m256 c0=_mm256_set1_ps(norm[0]);
+	__m256 c1=_mm256_set1_ps(norm[1]);
+	__m256 c2=_mm256_set1_ps(norm[2]);
+	__m256 c3=_mm256_set1_ps(norm[3]);
+	__m256 c4=_mm256_set1_ps(norm[4]);
+	__m256 c5=_mm256_set1_ps(norm[5]);
+	__m256 c6=_mm256_set1_ps(norm[6]);
+	__m256 c7=_mm256_set1_ps(norm[7]);
+	__m256 pr[32];
+	{
+		const __m256i *predptr=wgpreds+(ptrdiff_t)2*kc+0;
+		__m256i t0[8];
+		t0[0]=_mm256_slli_epi32(predptr[0*6], 16);
+		t0[1]=_mm256_slli_epi32(predptr[1*6], 16);
+		t0[2]=_mm256_slli_epi32(predptr[2*6], 16);
+		t0[3]=_mm256_slli_epi32(predptr[3*6], 16);
+		t0[4]=_mm256_slli_epi32(predptr[4*6], 16);
+		t0[5]=_mm256_slli_epi32(predptr[5*6], 16);
+		t0[6]=_mm256_slli_epi32(predptr[6*6], 16);
+		t0[7]=_mm256_slli_epi32(predptr[7*6], 16);
+		t0[0]=_mm256_srai_epi32(t0[0], 16);//preds are signed
+		t0[1]=_mm256_srai_epi32(t0[1], 16);
+		t0[2]=_mm256_srai_epi32(t0[2], 16);
+		t0[3]=_mm256_srai_epi32(t0[3], 16);
+		t0[4]=_mm256_srai_epi32(t0[4], 16);
+		t0[5]=_mm256_srai_epi32(t0[5], 16);
+		t0[6]=_mm256_srai_epi32(t0[6], 16);
+		t0[7]=_mm256_srai_epi32(t0[7], 16);
+		pr[0*4+0]=_mm256_cvtepi32_ps(t0[0]);
+		pr[1*4+0]=_mm256_cvtepi32_ps(t0[1]);
+		pr[2*4+0]=_mm256_cvtepi32_ps(t0[2]);
+		pr[3*4+0]=_mm256_cvtepi32_ps(t0[3]);
+		pr[4*4+0]=_mm256_cvtepi32_ps(t0[4]);
+		pr[5*4+0]=_mm256_cvtepi32_ps(t0[5]);
+		pr[6*4+0]=_mm256_cvtepi32_ps(t0[6]);
+		pr[7*4+0]=_mm256_cvtepi32_ps(t0[7]);
+		t0[0]=_mm256_srai_epi32(predptr[0*6], 16);
+		t0[1]=_mm256_srai_epi32(predptr[1*6], 16);
+		t0[2]=_mm256_srai_epi32(predptr[2*6], 16);
+		t0[3]=_mm256_srai_epi32(predptr[3*6], 16);
+		t0[4]=_mm256_srai_epi32(predptr[4*6], 16);
+		t0[5]=_mm256_srai_epi32(predptr[5*6], 16);
+		t0[6]=_mm256_srai_epi32(predptr[6*6], 16);
+		t0[7]=_mm256_srai_epi32(predptr[7*6], 16);
+		pr[0*4+1]=_mm256_cvtepi32_ps(t0[0]);
+		pr[1*4+1]=_mm256_cvtepi32_ps(t0[1]);
+		pr[2*4+1]=_mm256_cvtepi32_ps(t0[2]);
+		pr[3*4+1]=_mm256_cvtepi32_ps(t0[3]);
+		pr[4*4+1]=_mm256_cvtepi32_ps(t0[4]);
+		pr[5*4+1]=_mm256_cvtepi32_ps(t0[5]);
+		pr[6*4+1]=_mm256_cvtepi32_ps(t0[6]);
+		pr[7*4+1]=_mm256_cvtepi32_ps(t0[7]);
+	}
+	{
+		const __m256i *predptr=wgpreds+(ptrdiff_t)2*kc+1;
+		__m256i t0[8];
+		t0[0]=_mm256_slli_epi32(predptr[0*6], 16);
+		t0[1]=_mm256_slli_epi32(predptr[1*6], 16);
+		t0[2]=_mm256_slli_epi32(predptr[2*6], 16);
+		t0[3]=_mm256_slli_epi32(predptr[3*6], 16);
+		t0[4]=_mm256_slli_epi32(predptr[4*6], 16);
+		t0[5]=_mm256_slli_epi32(predptr[5*6], 16);
+		t0[6]=_mm256_slli_epi32(predptr[6*6], 16);
+		t0[7]=_mm256_slli_epi32(predptr[7*6], 16);
+		t0[0]=_mm256_srai_epi32(t0[0], 16);//preds are signed
+		t0[1]=_mm256_srai_epi32(t0[1], 16);
+		t0[2]=_mm256_srai_epi32(t0[2], 16);
+		t0[3]=_mm256_srai_epi32(t0[3], 16);
+		t0[4]=_mm256_srai_epi32(t0[4], 16);
+		t0[5]=_mm256_srai_epi32(t0[5], 16);
+		t0[6]=_mm256_srai_epi32(t0[6], 16);
+		t0[7]=_mm256_srai_epi32(t0[7], 16);
+		pr[0*4+2]=_mm256_cvtepi32_ps(t0[0]);
+		pr[1*4+2]=_mm256_cvtepi32_ps(t0[1]);
+		pr[2*4+2]=_mm256_cvtepi32_ps(t0[2]);
+		pr[3*4+2]=_mm256_cvtepi32_ps(t0[3]);
+		pr[4*4+2]=_mm256_cvtepi32_ps(t0[4]);
+		pr[5*4+2]=_mm256_cvtepi32_ps(t0[5]);
+		pr[6*4+2]=_mm256_cvtepi32_ps(t0[6]);
+		pr[7*4+2]=_mm256_cvtepi32_ps(t0[7]);
+		t0[0]=_mm256_srai_epi32(predptr[0*6], 16);
+		t0[1]=_mm256_srai_epi32(predptr[1*6], 16);
+		t0[2]=_mm256_srai_epi32(predptr[2*6], 16);
+		t0[3]=_mm256_srai_epi32(predptr[3*6], 16);
+		t0[4]=_mm256_srai_epi32(predptr[4*6], 16);
+		t0[5]=_mm256_srai_epi32(predptr[5*6], 16);
+		t0[6]=_mm256_srai_epi32(predptr[6*6], 16);
+		t0[7]=_mm256_srai_epi32(predptr[7*6], 16);
+		pr[0*4+3]=_mm256_cvtepi32_ps(t0[0]);
+		pr[1*4+3]=_mm256_cvtepi32_ps(t0[1]);
+		pr[2*4+3]=_mm256_cvtepi32_ps(t0[2]);
+		pr[3*4+3]=_mm256_cvtepi32_ps(t0[3]);
+		pr[4*4+3]=_mm256_cvtepi32_ps(t0[4]);
+		pr[5*4+3]=_mm256_cvtepi32_ps(t0[5]);
+		pr[6*4+3]=_mm256_cvtepi32_ps(t0[6]);
+		pr[7*4+3]=_mm256_cvtepi32_ps(t0[7]);
+	}
+	pr[0*4+0]=_mm256_mul_ps(pr[0*4+0], c0);
+	pr[0*4+1]=_mm256_mul_ps(pr[0*4+1], c0);
+	pr[0*4+2]=_mm256_mul_ps(pr[0*4+2], c0);
+	pr[0*4+3]=_mm256_mul_ps(pr[0*4+3], c0);
+	pr[1*4+0]=_mm256_mul_ps(pr[1*4+0], c1);
+	pr[1*4+1]=_mm256_mul_ps(pr[1*4+1], c1);
+	pr[1*4+2]=_mm256_mul_ps(pr[1*4+2], c1);
+	pr[1*4+3]=_mm256_mul_ps(pr[1*4+3], c1);
+	pr[2*4+0]=_mm256_mul_ps(pr[2*4+0], c2);
+	pr[2*4+1]=_mm256_mul_ps(pr[2*4+1], c2);
+	pr[2*4+2]=_mm256_mul_ps(pr[2*4+2], c2);
+	pr[2*4+3]=_mm256_mul_ps(pr[2*4+3], c2);
+	pr[3*4+0]=_mm256_mul_ps(pr[3*4+0], c3);
+	pr[3*4+1]=_mm256_mul_ps(pr[3*4+1], c3);
+	pr[3*4+2]=_mm256_mul_ps(pr[3*4+2], c3);
+	pr[3*4+3]=_mm256_mul_ps(pr[3*4+3], c3);
+	pr[4*4+0]=_mm256_mul_ps(pr[4*4+0], c4);
+	pr[4*4+1]=_mm256_mul_ps(pr[4*4+1], c4);
+	pr[4*4+2]=_mm256_mul_ps(pr[4*4+2], c4);
+	pr[4*4+3]=_mm256_mul_ps(pr[4*4+3], c4);
+	pr[5*4+0]=_mm256_mul_ps(pr[5*4+0], c5);
+	pr[5*4+1]=_mm256_mul_ps(pr[5*4+1], c5);
+	pr[5*4+2]=_mm256_mul_ps(pr[5*4+2], c5);
+	pr[5*4+3]=_mm256_mul_ps(pr[5*4+3], c5);
+	pr[6*4+0]=_mm256_mul_ps(pr[6*4+0], c6);
+	pr[6*4+1]=_mm256_mul_ps(pr[6*4+1], c6);
+	pr[6*4+2]=_mm256_mul_ps(pr[6*4+2], c6);
+	pr[6*4+3]=_mm256_mul_ps(pr[6*4+3], c6);
+	pr[7*4+0]=_mm256_mul_ps(pr[7*4+0], c7);
+	pr[7*4+1]=_mm256_mul_ps(pr[7*4+1], c7);
+	pr[7*4+2]=_mm256_mul_ps(pr[7*4+2], c7);
+	pr[7*4+3]=_mm256_mul_ps(pr[7*4+3], c7);
+	pr[0*4+0]=_mm256_add_ps(pr[0*4+0], pr[1*4+0]);
+	pr[0*4+1]=_mm256_add_ps(pr[0*4+1], pr[1*4+1]);
+	pr[0*4+2]=_mm256_add_ps(pr[0*4+2], pr[1*4+2]);
+	pr[0*4+3]=_mm256_add_ps(pr[0*4+3], pr[1*4+3]);
+	pr[2*4+0]=_mm256_add_ps(pr[2*4+0], pr[3*4+0]);
+	pr[2*4+1]=_mm256_add_ps(pr[2*4+1], pr[3*4+1]);
+	pr[2*4+2]=_mm256_add_ps(pr[2*4+2], pr[3*4+2]);
+	pr[2*4+3]=_mm256_add_ps(pr[2*4+3], pr[3*4+3]);
+	pr[4*4+0]=_mm256_add_ps(pr[4*4+0], pr[5*4+0]);
+	pr[4*4+1]=_mm256_add_ps(pr[4*4+1], pr[5*4+1]);
+	pr[4*4+2]=_mm256_add_ps(pr[4*4+2], pr[5*4+2]);
+	pr[4*4+3]=_mm256_add_ps(pr[4*4+3], pr[5*4+3]);
+	pr[6*4+0]=_mm256_add_ps(pr[6*4+0], pr[7*4+0]);
+	pr[6*4+1]=_mm256_add_ps(pr[6*4+1], pr[7*4+1]);
+	pr[6*4+2]=_mm256_add_ps(pr[6*4+2], pr[7*4+2]);
+	pr[6*4+3]=_mm256_add_ps(pr[6*4+3], pr[7*4+3]);
+	pr[0*4+0]=_mm256_add_ps(pr[0*4+0], pr[2*4+0]);
+	pr[0*4+1]=_mm256_add_ps(pr[0*4+1], pr[2*4+1]);
+	pr[0*4+2]=_mm256_add_ps(pr[0*4+2], pr[2*4+2]);
+	pr[0*4+3]=_mm256_add_ps(pr[0*4+3], pr[2*4+3]);
+	pr[4*4+0]=_mm256_add_ps(pr[4*4+0], pr[6*4+0]);
+	pr[4*4+1]=_mm256_add_ps(pr[4*4+1], pr[6*4+1]);
+	pr[4*4+2]=_mm256_add_ps(pr[4*4+2], pr[6*4+2]);
+	pr[4*4+3]=_mm256_add_ps(pr[4*4+3], pr[6*4+3]);
+	pr[0*4+0]=_mm256_add_ps(pr[0*4+0], pr[4*4+0]);
+	pr[0*4+1]=_mm256_add_ps(pr[0*4+1], pr[4*4+1]);
+	pr[0*4+2]=_mm256_add_ps(pr[0*4+2], pr[4*4+2]);
+	pr[0*4+3]=_mm256_add_ps(pr[0*4+3], pr[4*4+3]);
+	__m256i ires[4];
+	ires[0]=_mm256_cvtps_epi32(pr[0*4+0]);
+	ires[1]=_mm256_cvtps_epi32(pr[0*4+1]);
+	ires[2]=_mm256_cvtps_epi32(pr[0*4+2]);
+	ires[3]=_mm256_cvtps_epi32(pr[0*4+3]);
+#else
 	__m256 result[4];
 	wg_mix_pt2(wgpreds+(ptrdiff_t)2*kc+0, prederrors+0, result+0);//P*6+2*C+R
 	wg_mix_pt2(wgpreds+(ptrdiff_t)2*kc+1, prederrors+1, result+2);
@@ -866,6 +1171,7 @@ AWM_INLINE void wg_mix(int kc, const short *wgWerrors, const short *rowscurrNNpt
 	ires[1]=_mm256_cvtps_epi32(result[1]);
 	ires[2]=_mm256_cvtps_epi32(result[2]);
 	ires[3]=_mm256_cvtps_epi32(result[3]);
+#endif
 	ires[0]=_mm256_slli_epi32(ires[0], 16);
 	ires[2]=_mm256_slli_epi32(ires[2], 16);
 	ires[1]=_mm256_slli_epi32(ires[1], 16);
@@ -874,10 +1180,6 @@ AWM_INLINE void wg_mix(int kc, const short *wgWerrors, const short *rowscurrNNpt
 	ires[2]=_mm256_srli_epi32(ires[2], 16);
 	preds[0]=_mm256_or_si256(ires[0], ires[1]);
 	preds[1]=_mm256_or_si256(ires[2], ires[3]);
-	//ires[0]=_mm256_packs_epi32(ires[0], ires[1]);
-	//ires[2]=_mm256_packs_epi32(ires[2], ires[3]);
-	//preds[0]=_mm256_permute4x64_epi64(ires[0], _MM_SHUFFLE(3, 1, 2, 0));
-	//preds[1]=_mm256_permute4x64_epi64(ires[2], _MM_SHUFFLE(3, 1, 2, 0));
 }
 
 
@@ -1829,15 +2131,45 @@ static void interleave_blocks_inv(const unsigned char *interleaved, int iw, int 
 }
 static void save_ppm(const char *fn, const unsigned char *image, int iw, int ih)
 {
+#if 0
+	//X  where is the PPM header?
+	HANDLE fdst=CreateFileA(fn, GENERIC_WRITE, 0, 0, CREATE_ALWAYS, FILE_FLAG_NO_BUFFERING|FILE_FLAG_WRITE_THROUGH|FILE_FLAG_SEQUENTIAL_SCAN, 0);
+//	HANDLE fdst=CreateFileA(fn, GENERIC_WRITE, 0, 0, CREATE_ALWAYS, FILE_FLAG_SEQUENTIAL_SCAN, 0);
+	if(fdst==INVALID_HANDLE_VALUE)
+	{
+		LOG_ERROR("Cannot open \"%s\" for writing  GetLastError %d", fn, (int)GetLastError());
+		return;
+	}
+	DWORD nwritten=0;
+	int success=WriteFile(fdst, image, 3*iw*ih, &nwritten, 0);
+	if(!success)
+	{
+		LOG_ERROR("Cannot save \"%s\"  GetLastError %d", fn, (int)GetLastError());
+		return;
+	}
+	success=FlushFileBuffers(fdst);
+	if(!success)
+	{
+		LOG_ERROR("FlushFileBuffers  GetLastError %d", fn, (int)GetLastError());
+		return;
+	}
+	success=CloseHandle(fdst);
+	if(!success)
+	{
+		LOG_ERROR("CloseHandle  GetLastError %d", fn, (int)GetLastError());
+		return;
+	}
+#else
 	FILE *fdst=fopen(fn, "wb");
 	if(!fdst)
 	{
-		LOG_ERROR("Cannot open \"%s\" for writing", fdst);
+		LOG_ERROR("Cannot open \"%s\" for writing", fn);
 		return;
 	}
 	fprintf(fdst, "P6\n%d %d\n255\n", iw, ih);
 	fwrite(image, 1, (ptrdiff_t)3*iw*ih, fdst);
 	fclose(fdst);
+#endif
 }
 static void decorr1d(unsigned char *data, int count, int bytestride, int bestrct, int *rhist)
 {
@@ -2103,6 +2435,7 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		rowstride=3*iw;
 		usize=(ptrdiff_t)3*iw*ih;
 		cap=(ptrdiff_t)4*iw*ih;
+	//	image=(unsigned char*)_mm_malloc(cap+sizeof(__m256i), 0x1000);
 		image=(unsigned char*)malloc(cap+sizeof(__m256i));
 		if(!image)
 		{
@@ -2212,6 +2545,14 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 #endif
 		interleave_blocks_fwd(image, iw, ih, interleaved+isize);//reuse memory: read 8-bit pixel, write 16-bit context<<8|residual
 		guide_save(interleaved+isize, ixcount, blockh);
+#ifdef DISABLE_ANALYSIS
+		bestrct=RCT__040_04X_X13;
+		use_wg4=1;
+		if(nthreads0&1)//force CG
+			use_wg4=0;
+		else if(nthreads0&2)//force WG4
+			use_wg4=1;
+#else
 		prof_checkpoint(usize, "interleave");
 		{
 			ALIGN(32) long long counters[OCH_COUNT]={0};
@@ -2334,15 +2675,16 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 #else
 			const unsigned char *rct=rct_combinations[bestrct];
 			use_wg4=counters[rct[0]]+counters[rct[1]]+counters[rct[2]] > isize*2;//FIXME tune
-			if(nthreads0==1)//force CG
+			if(nthreads0&1)//force CG
 				use_wg4=0;
-			else if(nthreads0==2)//force WG4
+			else if(nthreads0&2)//force WG4
 				use_wg4=1;
 #endif
 		}
 		prof_checkpoint(usize, "analysis");
 #ifdef LOUD
 		printf("%s  WG4=%d  %td bytes\n", rct_names[bestrct], use_wg4, usize);
+#endif
 #endif
 
 		//generate encode permutations		eg: mask = MSB 0b11000101 LSB  ->  LO {x, x, x, x, 0, 2, 6, 7} HI
@@ -2575,6 +2917,7 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				predU0, predU1, ctxU0, ctxU1,
 				predV0, predV1, ctxV0, ctxV1;
 			{
+				//context = FLOOR_LOG2(eW*eW+1)
 				__m256i one=_mm256_set1_epi32(1);
 				__m256i cy0=_mm256_and_si256(eW[0], wordmask), cy1=_mm256_srli_epi32(eW[0], 16);
 				__m256i cy2=_mm256_and_si256(eW[1], wordmask), cy3=_mm256_srli_epi32(eW[1], 16);
@@ -2690,6 +3033,7 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				predV1=_mm256_sub_epi16(predV1, NW[5]);
 				if(use_wg4)//predict
 				{
+					__m256i cache[6];
 					/*
 					0	N
 					1	W
@@ -2700,7 +3044,6 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					6	N+W-NW
 					7	N+NE-NNE
 					*/
-					__m256i cache[6];
 
 					//N
 					wgpreds[0*6+0]=N[0];
@@ -2719,186 +3062,291 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					wgpreds[1*6+5]=W[5];
 
 					//3*(N-NN)+NNN
-					cache[0]=_mm256_load_si256((__m256i*)(rows[2]+(0+0+0*6)*NCODERS)+0);//NN
-					cache[1]=_mm256_load_si256((__m256i*)(rows[2]+(0+0+0*6)*NCODERS)+1);
-					cache[2]=_mm256_load_si256((__m256i*)(rows[2]+(0+1+0*6)*NCODERS)+0);
-					cache[3]=_mm256_load_si256((__m256i*)(rows[2]+(0+1+0*6)*NCODERS)+1);
-					cache[4]=_mm256_load_si256((__m256i*)(rows[2]+(0+2+0*6)*NCODERS)+0);
-					cache[5]=_mm256_load_si256((__m256i*)(rows[2]+(0+2+0*6)*NCODERS)+1);
-					wgpreds[2*6+0]=_mm256_sub_epi16(N[0], cache[0]);
-					wgpreds[2*6+1]=_mm256_sub_epi16(N[1], cache[1]);
-					wgpreds[2*6+2]=_mm256_sub_epi16(N[2], cache[2]);
-					wgpreds[2*6+3]=_mm256_sub_epi16(N[3], cache[3]);
-					wgpreds[2*6+4]=_mm256_sub_epi16(N[4], cache[4]);
-					wgpreds[2*6+5]=_mm256_sub_epi16(N[5], cache[5]);
-					cache[0]=_mm256_slli_epi16(wgpreds[2*6+0], 1);
-					cache[1]=_mm256_slli_epi16(wgpreds[2*6+1], 1);
-					cache[2]=_mm256_slli_epi16(wgpreds[2*6+2], 1);
-					cache[3]=_mm256_slli_epi16(wgpreds[2*6+3], 1);
-					cache[4]=_mm256_slli_epi16(wgpreds[2*6+4], 1);
-					cache[5]=_mm256_slli_epi16(wgpreds[2*6+5], 1);
-					wgpreds[2*6+0]=_mm256_add_epi16(wgpreds[2*6+0], cache[0]);
-					wgpreds[2*6+1]=_mm256_add_epi16(wgpreds[2*6+1], cache[1]);
-					wgpreds[2*6+2]=_mm256_add_epi16(wgpreds[2*6+2], cache[2]);
-					wgpreds[2*6+3]=_mm256_add_epi16(wgpreds[2*6+3], cache[3]);
-					wgpreds[2*6+4]=_mm256_add_epi16(wgpreds[2*6+4], cache[4]);
-					wgpreds[2*6+5]=_mm256_add_epi16(wgpreds[2*6+5], cache[5]);
-					cache[0]=_mm256_load_si256((__m256i*)(rows[3]+(0+0+0*6)*NCODERS)+0);//NNN
-					cache[1]=_mm256_load_si256((__m256i*)(rows[3]+(0+0+0*6)*NCODERS)+1);
-					cache[2]=_mm256_load_si256((__m256i*)(rows[3]+(0+1+0*6)*NCODERS)+0);
-					cache[3]=_mm256_load_si256((__m256i*)(rows[3]+(0+1+0*6)*NCODERS)+1);
-					cache[4]=_mm256_load_si256((__m256i*)(rows[3]+(0+2+0*6)*NCODERS)+0);
-					cache[5]=_mm256_load_si256((__m256i*)(rows[3]+(0+2+0*6)*NCODERS)+1);
-					wgpreds[2*6+0]=_mm256_add_epi16(wgpreds[2*6+0], cache[0]);
-					wgpreds[2*6+1]=_mm256_add_epi16(wgpreds[2*6+1], cache[1]);
-					wgpreds[2*6+2]=_mm256_add_epi16(wgpreds[2*6+2], cache[2]);
-					wgpreds[2*6+3]=_mm256_add_epi16(wgpreds[2*6+3], cache[3]);
-					wgpreds[2*6+4]=_mm256_add_epi16(wgpreds[2*6+4], cache[4]);
-					wgpreds[2*6+5]=_mm256_add_epi16(wgpreds[2*6+5], cache[5]);
+					cache[0]=_mm256_sub_epi16(N[0], _mm256_load_si256((__m256i*)(rows[2]+(0+0+0*6)*NCODERS)+0));//N-NN
+					cache[1]=_mm256_sub_epi16(N[1], _mm256_load_si256((__m256i*)(rows[2]+(0+0+0*6)*NCODERS)+1));
+					cache[2]=_mm256_sub_epi16(N[2], _mm256_load_si256((__m256i*)(rows[2]+(0+1+0*6)*NCODERS)+0));
+					cache[3]=_mm256_sub_epi16(N[3], _mm256_load_si256((__m256i*)(rows[2]+(0+1+0*6)*NCODERS)+1));
+					cache[4]=_mm256_sub_epi16(N[4], _mm256_load_si256((__m256i*)(rows[2]+(0+2+0*6)*NCODERS)+0));
+					cache[5]=_mm256_sub_epi16(N[5], _mm256_load_si256((__m256i*)(rows[2]+(0+2+0*6)*NCODERS)+1));
+					cache[0]=_mm256_add_epi16(cache[0], _mm256_slli_epi16(cache[0], 1));//*3
+					cache[1]=_mm256_add_epi16(cache[1], _mm256_slli_epi16(cache[1], 1));
+					cache[2]=_mm256_add_epi16(cache[2], _mm256_slli_epi16(cache[2], 1));
+					cache[3]=_mm256_add_epi16(cache[3], _mm256_slli_epi16(cache[3], 1));
+					cache[4]=_mm256_add_epi16(cache[4], _mm256_slli_epi16(cache[4], 1));
+					cache[5]=_mm256_add_epi16(cache[5], _mm256_slli_epi16(cache[5], 1));
+					wgpreds[2*6+0]=_mm256_add_epi16(cache[0], _mm256_load_si256((__m256i*)(rows[3]+(0+0+0*6)*NCODERS)+0));//+NNN
+					wgpreds[2*6+1]=_mm256_add_epi16(cache[1], _mm256_load_si256((__m256i*)(rows[3]+(0+0+0*6)*NCODERS)+1));
+					wgpreds[2*6+2]=_mm256_add_epi16(cache[2], _mm256_load_si256((__m256i*)(rows[3]+(0+1+0*6)*NCODERS)+0));
+					wgpreds[2*6+3]=_mm256_add_epi16(cache[3], _mm256_load_si256((__m256i*)(rows[3]+(0+1+0*6)*NCODERS)+1));
+					wgpreds[2*6+4]=_mm256_add_epi16(cache[4], _mm256_load_si256((__m256i*)(rows[3]+(0+2+0*6)*NCODERS)+0));
+					wgpreds[2*6+5]=_mm256_add_epi16(cache[5], _mm256_load_si256((__m256i*)(rows[3]+(0+2+0*6)*NCODERS)+1));
 
-					//3*(W-WW)+WWW
+					//4*(W+WWW)-6*WW-WWWW		X  HORRIBLE
+#if 0
+					cache[0]=_mm256_load_si256((__m256i*)(rows[0]+(0+0-1*6)*NCODERS)+0);//W
+					cache[1]=_mm256_load_si256((__m256i*)(rows[0]+(0+0-1*6)*NCODERS)+1);
+					cache[2]=_mm256_load_si256((__m256i*)(rows[0]+(0+1-1*6)*NCODERS)+0);
+					cache[3]=_mm256_load_si256((__m256i*)(rows[0]+(0+1-1*6)*NCODERS)+1);
+					cache[4]=_mm256_load_si256((__m256i*)(rows[0]+(0+2-1*6)*NCODERS)+0);
+					cache[5]=_mm256_load_si256((__m256i*)(rows[0]+(0+2-1*6)*NCODERS)+1);
+					cache[0]=_mm256_add_epi16(cache[0], _mm256_load_si256((__m256i*)(rows[0]+(0+0-3*6)*NCODERS)+0));//W+WWW
+					cache[1]=_mm256_add_epi16(cache[1], _mm256_load_si256((__m256i*)(rows[0]+(0+0-3*6)*NCODERS)+1));
+					cache[2]=_mm256_add_epi16(cache[2], _mm256_load_si256((__m256i*)(rows[0]+(0+1-3*6)*NCODERS)+0));
+					cache[3]=_mm256_add_epi16(cache[3], _mm256_load_si256((__m256i*)(rows[0]+(0+1-3*6)*NCODERS)+1));
+					cache[4]=_mm256_add_epi16(cache[4], _mm256_load_si256((__m256i*)(rows[0]+(0+2-3*6)*NCODERS)+0));
+					cache[5]=_mm256_add_epi16(cache[5], _mm256_load_si256((__m256i*)(rows[0]+(0+2-3*6)*NCODERS)+1));
+					wgpreds[3*6+0]=_mm256_slli_epi16(cache[0], 2);//4*(W+WWW)
+					wgpreds[3*6+1]=_mm256_slli_epi16(cache[1], 2);
+					wgpreds[3*6+2]=_mm256_slli_epi16(cache[2], 2);
+					wgpreds[3*6+3]=_mm256_slli_epi16(cache[3], 2);
+					wgpreds[3*6+4]=_mm256_slli_epi16(cache[4], 2);
+					wgpreds[3*6+5]=_mm256_slli_epi16(cache[5], 2);
 					cache[0]=_mm256_load_si256((__m256i*)(rows[0]+(0+0-2*6)*NCODERS)+0);//WW
 					cache[1]=_mm256_load_si256((__m256i*)(rows[0]+(0+0-2*6)*NCODERS)+1);
 					cache[2]=_mm256_load_si256((__m256i*)(rows[0]+(0+1-2*6)*NCODERS)+0);
 					cache[3]=_mm256_load_si256((__m256i*)(rows[0]+(0+1-2*6)*NCODERS)+1);
 					cache[4]=_mm256_load_si256((__m256i*)(rows[0]+(0+2-2*6)*NCODERS)+0);
 					cache[5]=_mm256_load_si256((__m256i*)(rows[0]+(0+2-2*6)*NCODERS)+1);
-					wgpreds[3*6+0]=_mm256_sub_epi16(W[0], cache[0]);
-					wgpreds[3*6+1]=_mm256_sub_epi16(W[1], cache[1]);
-					wgpreds[3*6+2]=_mm256_sub_epi16(W[2], cache[2]);
-					wgpreds[3*6+3]=_mm256_sub_epi16(W[3], cache[3]);
-					wgpreds[3*6+4]=_mm256_sub_epi16(W[4], cache[4]);
-					wgpreds[3*6+5]=_mm256_sub_epi16(W[5], cache[5]);
-					cache[0]=_mm256_slli_epi16(wgpreds[3*6+0], 1);
-					cache[1]=_mm256_slli_epi16(wgpreds[3*6+1], 1);
-					cache[2]=_mm256_slli_epi16(wgpreds[3*6+2], 1);
-					cache[3]=_mm256_slli_epi16(wgpreds[3*6+3], 1);
-					cache[4]=_mm256_slli_epi16(wgpreds[3*6+4], 1);
-					cache[5]=_mm256_slli_epi16(wgpreds[3*6+5], 1);
-					wgpreds[3*6+0]=_mm256_add_epi16(wgpreds[3*6+0], cache[0]);
-					wgpreds[3*6+1]=_mm256_add_epi16(wgpreds[3*6+1], cache[1]);
-					wgpreds[3*6+2]=_mm256_add_epi16(wgpreds[3*6+2], cache[2]);
-					wgpreds[3*6+3]=_mm256_add_epi16(wgpreds[3*6+3], cache[3]);
-					wgpreds[3*6+4]=_mm256_add_epi16(wgpreds[3*6+4], cache[4]);
-					wgpreds[3*6+5]=_mm256_add_epi16(wgpreds[3*6+5], cache[5]);
-					cache[0]=_mm256_load_si256((__m256i*)(rows[0]+(0+0-3*6)*NCODERS)+0);//WWW
-					cache[1]=_mm256_load_si256((__m256i*)(rows[0]+(0+0-3*6)*NCODERS)+1);
-					cache[2]=_mm256_load_si256((__m256i*)(rows[0]+(0+1-3*6)*NCODERS)+0);
-					cache[3]=_mm256_load_si256((__m256i*)(rows[0]+(0+1-3*6)*NCODERS)+1);
-					cache[4]=_mm256_load_si256((__m256i*)(rows[0]+(0+2-3*6)*NCODERS)+0);
-					cache[5]=_mm256_load_si256((__m256i*)(rows[0]+(0+2-3*6)*NCODERS)+1);
-					wgpreds[3*6+0]=_mm256_add_epi16(wgpreds[3*6+0], cache[0]);
-					wgpreds[3*6+1]=_mm256_add_epi16(wgpreds[3*6+1], cache[1]);
-					wgpreds[3*6+2]=_mm256_add_epi16(wgpreds[3*6+2], cache[2]);
-					wgpreds[3*6+3]=_mm256_add_epi16(wgpreds[3*6+3], cache[3]);
-					wgpreds[3*6+4]=_mm256_add_epi16(wgpreds[3*6+4], cache[4]);
-					wgpreds[3*6+5]=_mm256_add_epi16(wgpreds[3*6+5], cache[5]);
+					cache[0]=_mm256_add_epi16(_mm256_slli_epi16(cache[0], 2), _mm256_slli_epi16(cache[0], 1));//6*WW
+					cache[1]=_mm256_add_epi16(_mm256_slli_epi16(cache[1], 2), _mm256_slli_epi16(cache[1], 1));
+					cache[2]=_mm256_add_epi16(_mm256_slli_epi16(cache[2], 2), _mm256_slli_epi16(cache[2], 1));
+					cache[3]=_mm256_add_epi16(_mm256_slli_epi16(cache[3], 2), _mm256_slli_epi16(cache[3], 1));
+					cache[4]=_mm256_add_epi16(_mm256_slli_epi16(cache[4], 2), _mm256_slli_epi16(cache[4], 1));
+					cache[5]=_mm256_add_epi16(_mm256_slli_epi16(cache[5], 2), _mm256_slli_epi16(cache[5], 1));
+					wgpreds[3*6+0]=_mm256_sub_epi16(wgpreds[3*6+0], cache[0]);//4*(W+WWW)-6*WW
+					wgpreds[3*6+1]=_mm256_sub_epi16(wgpreds[3*6+1], cache[1]);
+					wgpreds[3*6+2]=_mm256_sub_epi16(wgpreds[3*6+2], cache[2]);
+					wgpreds[3*6+3]=_mm256_sub_epi16(wgpreds[3*6+3], cache[3]);
+					wgpreds[3*6+4]=_mm256_sub_epi16(wgpreds[3*6+4], cache[4]);
+					wgpreds[3*6+5]=_mm256_sub_epi16(wgpreds[3*6+5], cache[5]);
+					wgpreds[3*6+0]=_mm256_sub_epi16(wgpreds[3*6+0], _mm256_load_si256((__m256i*)(rows[0]+(0+0-4*6)*NCODERS)+0));//4*(W+WWW)-6*WW-WWWW
+					wgpreds[3*6+1]=_mm256_sub_epi16(wgpreds[3*6+1], _mm256_load_si256((__m256i*)(rows[0]+(0+0-4*6)*NCODERS)+1));
+					wgpreds[3*6+2]=_mm256_sub_epi16(wgpreds[3*6+2], _mm256_load_si256((__m256i*)(rows[0]+(0+1-4*6)*NCODERS)+0));
+					wgpreds[3*6+3]=_mm256_sub_epi16(wgpreds[3*6+3], _mm256_load_si256((__m256i*)(rows[0]+(0+1-4*6)*NCODERS)+1));
+					wgpreds[3*6+4]=_mm256_sub_epi16(wgpreds[3*6+4], _mm256_load_si256((__m256i*)(rows[0]+(0+2-4*6)*NCODERS)+0));
+					wgpreds[3*6+5]=_mm256_sub_epi16(wgpreds[3*6+5], _mm256_load_si256((__m256i*)(rows[0]+(0+2-4*6)*NCODERS)+1));
+#endif
+					//3*(W-WW)+WWW
+#if 1
+					cache[0]=_mm256_sub_epi16(W[0], _mm256_load_si256((__m256i*)(rows[0]+(0+0-2*6)*NCODERS)+0));//W-WW
+					cache[1]=_mm256_sub_epi16(W[1], _mm256_load_si256((__m256i*)(rows[0]+(0+0-2*6)*NCODERS)+1));
+					cache[2]=_mm256_sub_epi16(W[2], _mm256_load_si256((__m256i*)(rows[0]+(0+1-2*6)*NCODERS)+0));
+					cache[3]=_mm256_sub_epi16(W[3], _mm256_load_si256((__m256i*)(rows[0]+(0+1-2*6)*NCODERS)+1));
+					cache[4]=_mm256_sub_epi16(W[4], _mm256_load_si256((__m256i*)(rows[0]+(0+2-2*6)*NCODERS)+0));
+					cache[5]=_mm256_sub_epi16(W[5], _mm256_load_si256((__m256i*)(rows[0]+(0+2-2*6)*NCODERS)+1));
+					cache[0]=_mm256_add_epi16(cache[0], _mm256_slli_epi16(cache[0], 1));//*3
+					cache[1]=_mm256_add_epi16(cache[1], _mm256_slli_epi16(cache[1], 1));
+					cache[2]=_mm256_add_epi16(cache[2], _mm256_slli_epi16(cache[2], 1));
+					cache[3]=_mm256_add_epi16(cache[3], _mm256_slli_epi16(cache[3], 1));
+					cache[4]=_mm256_add_epi16(cache[4], _mm256_slli_epi16(cache[4], 1));
+					cache[5]=_mm256_add_epi16(cache[5], _mm256_slli_epi16(cache[5], 1));
+					wgpreds[3*6+0]=_mm256_add_epi16(cache[0], _mm256_load_si256((__m256i*)(rows[0]+(0+0-3*6)*NCODERS)+0));//+WWW
+					wgpreds[3*6+1]=_mm256_add_epi16(cache[1], _mm256_load_si256((__m256i*)(rows[0]+(0+0-3*6)*NCODERS)+1));
+					wgpreds[3*6+2]=_mm256_add_epi16(cache[2], _mm256_load_si256((__m256i*)(rows[0]+(0+1-3*6)*NCODERS)+0));
+					wgpreds[3*6+3]=_mm256_add_epi16(cache[3], _mm256_load_si256((__m256i*)(rows[0]+(0+1-3*6)*NCODERS)+1));
+					wgpreds[3*6+4]=_mm256_add_epi16(cache[4], _mm256_load_si256((__m256i*)(rows[0]+(0+2-3*6)*NCODERS)+0));
+					wgpreds[3*6+5]=_mm256_add_epi16(cache[5], _mm256_load_si256((__m256i*)(rows[0]+(0+2-3*6)*NCODERS)+1));
+#endif
+					//2*W-WW	X  HORRIBLE
+#if 0
+					cache[0]=_mm256_load_si256((__m256i*)(rows[0]+(0+0-2*6)*NCODERS)+0);//WW
+					cache[1]=_mm256_load_si256((__m256i*)(rows[0]+(0+0-2*6)*NCODERS)+1);
+					cache[2]=_mm256_load_si256((__m256i*)(rows[0]+(0+1-2*6)*NCODERS)+0);
+					cache[3]=_mm256_load_si256((__m256i*)(rows[0]+(0+1-2*6)*NCODERS)+1);
+					cache[4]=_mm256_load_si256((__m256i*)(rows[0]+(0+2-2*6)*NCODERS)+0);
+					cache[5]=_mm256_load_si256((__m256i*)(rows[0]+(0+2-2*6)*NCODERS)+1);
+					wgpreds[3*6+0]=_mm256_sub_epi16(_mm256_slli_epi16(W[0], 1), cache[0]);
+					wgpreds[3*6+1]=_mm256_sub_epi16(_mm256_slli_epi16(W[1], 1), cache[1]);
+					wgpreds[3*6+2]=_mm256_sub_epi16(_mm256_slli_epi16(W[2], 1), cache[2]);
+					wgpreds[3*6+3]=_mm256_sub_epi16(_mm256_slli_epi16(W[3], 1), cache[3]);
+					wgpreds[3*6+4]=_mm256_sub_epi16(_mm256_slli_epi16(W[4], 1), cache[4]);
+					wgpreds[3*6+5]=_mm256_sub_epi16(_mm256_slli_epi16(W[5], 1), cache[5]);
+#endif
 
 					//W+NE-N
-					cache[0]=_mm256_load_si256((__m256i*)(rows[1]+(0+0+1*6)*NCODERS)+0);//NE
-					cache[1]=_mm256_load_si256((__m256i*)(rows[1]+(0+0+1*6)*NCODERS)+1);
-					cache[2]=_mm256_load_si256((__m256i*)(rows[1]+(0+1+1*6)*NCODERS)+0);
-					cache[3]=_mm256_load_si256((__m256i*)(rows[1]+(0+1+1*6)*NCODERS)+1);
-					cache[4]=_mm256_load_si256((__m256i*)(rows[1]+(0+2+1*6)*NCODERS)+0);
-					cache[5]=_mm256_load_si256((__m256i*)(rows[1]+(0+2+1*6)*NCODERS)+1);
-					wgpreds[4*6+0]=_mm256_sub_epi16(W[0], N[0]);
-					wgpreds[4*6+1]=_mm256_sub_epi16(W[1], N[1]);
-					wgpreds[4*6+2]=_mm256_sub_epi16(W[2], N[2]);
-					wgpreds[4*6+3]=_mm256_sub_epi16(W[3], N[3]);
-					wgpreds[4*6+4]=_mm256_sub_epi16(W[4], N[4]);
-					wgpreds[4*6+5]=_mm256_sub_epi16(W[5], N[5]);
-					wgpreds[4*6+0]=_mm256_add_epi16(wgpreds[4*6+0], cache[0]);
-					wgpreds[4*6+1]=_mm256_add_epi16(wgpreds[4*6+1], cache[1]);
-					wgpreds[4*6+2]=_mm256_add_epi16(wgpreds[4*6+2], cache[2]);
-					wgpreds[4*6+3]=_mm256_add_epi16(wgpreds[4*6+3], cache[3]);
-					wgpreds[4*6+4]=_mm256_add_epi16(wgpreds[4*6+4], cache[4]);
-					wgpreds[4*6+5]=_mm256_add_epi16(wgpreds[4*6+5], cache[5]);
+					cache[0]=_mm256_sub_epi16(W[0], N[0]);
+					cache[1]=_mm256_sub_epi16(W[1], N[1]);
+					cache[2]=_mm256_sub_epi16(W[2], N[2]);
+					cache[3]=_mm256_sub_epi16(W[3], N[3]);
+					cache[4]=_mm256_sub_epi16(W[4], N[4]);
+					cache[5]=_mm256_sub_epi16(W[5], N[5]);
+					wgpreds[4*6+0]=_mm256_add_epi16(cache[0], _mm256_load_si256((__m256i*)(rows[1]+(0+0+1*6)*NCODERS)+0));//+NE
+					wgpreds[4*6+1]=_mm256_add_epi16(cache[1], _mm256_load_si256((__m256i*)(rows[1]+(0+0+1*6)*NCODERS)+1));
+					wgpreds[4*6+2]=_mm256_add_epi16(cache[2], _mm256_load_si256((__m256i*)(rows[1]+(0+1+1*6)*NCODERS)+0));
+					wgpreds[4*6+3]=_mm256_add_epi16(cache[3], _mm256_load_si256((__m256i*)(rows[1]+(0+1+1*6)*NCODERS)+1));
+					wgpreds[4*6+4]=_mm256_add_epi16(cache[4], _mm256_load_si256((__m256i*)(rows[1]+(0+2+1*6)*NCODERS)+0));
+					wgpreds[4*6+5]=_mm256_add_epi16(cache[5], _mm256_load_si256((__m256i*)(rows[1]+(0+2+1*6)*NCODERS)+1));
 
-					//(WWWW+WWW+NNN+NEE+NEEE+NEEEE-2*NW)/4
-					wgpreds[5*6+0]=_mm256_load_si256((__m256i*)(rows[0]+(0+0-4*6)*NCODERS)+0);//WWWW
-					wgpreds[5*6+1]=_mm256_load_si256((__m256i*)(rows[0]+(0+0-4*6)*NCODERS)+1);
-					wgpreds[5*6+2]=_mm256_load_si256((__m256i*)(rows[0]+(0+1-4*6)*NCODERS)+0);
-					wgpreds[5*6+3]=_mm256_load_si256((__m256i*)(rows[0]+(0+1-4*6)*NCODERS)+1);
-					wgpreds[5*6+4]=_mm256_load_si256((__m256i*)(rows[0]+(0+2-4*6)*NCODERS)+0);
-					wgpreds[5*6+5]=_mm256_load_si256((__m256i*)(rows[0]+(0+2-4*6)*NCODERS)+1);
-					cache[0]=_mm256_load_si256((__m256i*)(rows[0]+(0+0-3*6)*NCODERS)+0);//WWW
-					cache[1]=_mm256_load_si256((__m256i*)(rows[0]+(0+0-3*6)*NCODERS)+1);
-					cache[2]=_mm256_load_si256((__m256i*)(rows[0]+(0+1-3*6)*NCODERS)+0);
-					cache[3]=_mm256_load_si256((__m256i*)(rows[0]+(0+1-3*6)*NCODERS)+1);
-					cache[4]=_mm256_load_si256((__m256i*)(rows[0]+(0+2-3*6)*NCODERS)+0);
-					cache[5]=_mm256_load_si256((__m256i*)(rows[0]+(0+2-3*6)*NCODERS)+1);
-					wgpreds[5*6+0]=_mm256_add_epi16(wgpreds[5*6+0], cache[0]);
-					wgpreds[5*6+1]=_mm256_add_epi16(wgpreds[5*6+1], cache[1]);
-					wgpreds[5*6+2]=_mm256_add_epi16(wgpreds[5*6+2], cache[2]);
-					wgpreds[5*6+3]=_mm256_add_epi16(wgpreds[5*6+3], cache[3]);
-					wgpreds[5*6+4]=_mm256_add_epi16(wgpreds[5*6+4], cache[4]);
-					wgpreds[5*6+5]=_mm256_add_epi16(wgpreds[5*6+5], cache[5]);
-					cache[0]=_mm256_load_si256((__m256i*)(rows[3]+(0+0+0*6)*NCODERS)+0);//NNN
-					cache[1]=_mm256_load_si256((__m256i*)(rows[3]+(0+0+0*6)*NCODERS)+1);
-					cache[2]=_mm256_load_si256((__m256i*)(rows[3]+(0+1+0*6)*NCODERS)+0);
-					cache[3]=_mm256_load_si256((__m256i*)(rows[3]+(0+1+0*6)*NCODERS)+1);
-					cache[4]=_mm256_load_si256((__m256i*)(rows[3]+(0+2+0*6)*NCODERS)+0);
-					cache[5]=_mm256_load_si256((__m256i*)(rows[3]+(0+2+0*6)*NCODERS)+1);
-					wgpreds[5*6+0]=_mm256_add_epi16(wgpreds[5*6+0], cache[0]);
-					wgpreds[5*6+1]=_mm256_add_epi16(wgpreds[5*6+1], cache[1]);
-					wgpreds[5*6+2]=_mm256_add_epi16(wgpreds[5*6+2], cache[2]);
-					wgpreds[5*6+3]=_mm256_add_epi16(wgpreds[5*6+3], cache[3]);
-					wgpreds[5*6+4]=_mm256_add_epi16(wgpreds[5*6+4], cache[4]);
-					wgpreds[5*6+5]=_mm256_add_epi16(wgpreds[5*6+5], cache[5]);
-					cache[0]=_mm256_load_si256((__m256i*)(rows[1]+(0+0+2*6)*NCODERS)+0);//NEE
-					cache[1]=_mm256_load_si256((__m256i*)(rows[1]+(0+0+2*6)*NCODERS)+1);
-					cache[2]=_mm256_load_si256((__m256i*)(rows[1]+(0+1+2*6)*NCODERS)+0);
-					cache[3]=_mm256_load_si256((__m256i*)(rows[1]+(0+1+2*6)*NCODERS)+1);
-					cache[4]=_mm256_load_si256((__m256i*)(rows[1]+(0+2+2*6)*NCODERS)+0);
-					cache[5]=_mm256_load_si256((__m256i*)(rows[1]+(0+2+2*6)*NCODERS)+1);
-					wgpreds[5*6+0]=_mm256_add_epi16(wgpreds[5*6+0], cache[0]);
-					wgpreds[5*6+1]=_mm256_add_epi16(wgpreds[5*6+1], cache[1]);
-					wgpreds[5*6+2]=_mm256_add_epi16(wgpreds[5*6+2], cache[2]);
-					wgpreds[5*6+3]=_mm256_add_epi16(wgpreds[5*6+3], cache[3]);
-					wgpreds[5*6+4]=_mm256_add_epi16(wgpreds[5*6+4], cache[4]);
-					wgpreds[5*6+5]=_mm256_add_epi16(wgpreds[5*6+5], cache[5]);
-					cache[0]=_mm256_load_si256((__m256i*)(rows[1]+(0+0+3*6)*NCODERS)+0);//NEEE
-					cache[1]=_mm256_load_si256((__m256i*)(rows[1]+(0+0+3*6)*NCODERS)+1);
-					cache[2]=_mm256_load_si256((__m256i*)(rows[1]+(0+1+3*6)*NCODERS)+0);
-					cache[3]=_mm256_load_si256((__m256i*)(rows[1]+(0+1+3*6)*NCODERS)+1);
-					cache[4]=_mm256_load_si256((__m256i*)(rows[1]+(0+2+3*6)*NCODERS)+0);
-					cache[5]=_mm256_load_si256((__m256i*)(rows[1]+(0+2+3*6)*NCODERS)+1);
-					wgpreds[5*6+0]=_mm256_add_epi16(wgpreds[5*6+0], cache[0]);
-					wgpreds[5*6+1]=_mm256_add_epi16(wgpreds[5*6+1], cache[1]);
-					wgpreds[5*6+2]=_mm256_add_epi16(wgpreds[5*6+2], cache[2]);
-					wgpreds[5*6+3]=_mm256_add_epi16(wgpreds[5*6+3], cache[3]);
-					wgpreds[5*6+4]=_mm256_add_epi16(wgpreds[5*6+4], cache[4]);
-					wgpreds[5*6+5]=_mm256_add_epi16(wgpreds[5*6+5], cache[5]);
-					cache[0]=_mm256_load_si256((__m256i*)(rows[1]+(0+0+4*6)*NCODERS)+0);//NEEEE
-					cache[1]=_mm256_load_si256((__m256i*)(rows[1]+(0+0+4*6)*NCODERS)+1);
-					cache[2]=_mm256_load_si256((__m256i*)(rows[1]+(0+1+4*6)*NCODERS)+0);
-					cache[3]=_mm256_load_si256((__m256i*)(rows[1]+(0+1+4*6)*NCODERS)+1);
-					cache[4]=_mm256_load_si256((__m256i*)(rows[1]+(0+2+4*6)*NCODERS)+0);
-					cache[5]=_mm256_load_si256((__m256i*)(rows[1]+(0+2+4*6)*NCODERS)+1);
-					wgpreds[5*6+0]=_mm256_add_epi16(wgpreds[5*6+0], cache[0]);
-					wgpreds[5*6+1]=_mm256_add_epi16(wgpreds[5*6+1], cache[1]);
-					wgpreds[5*6+2]=_mm256_add_epi16(wgpreds[5*6+2], cache[2]);
-					wgpreds[5*6+3]=_mm256_add_epi16(wgpreds[5*6+3], cache[3]);
-					wgpreds[5*6+4]=_mm256_add_epi16(wgpreds[5*6+4], cache[4]);
-					wgpreds[5*6+5]=_mm256_add_epi16(wgpreds[5*6+5], cache[5]);
-					cache[0]=_mm256_slli_epi16(NW[0], 1);
-					cache[1]=_mm256_slli_epi16(NW[1], 1);
-					cache[2]=_mm256_slli_epi16(NW[2], 1);
-					cache[3]=_mm256_slli_epi16(NW[3], 1);
-					cache[4]=_mm256_slli_epi16(NW[4], 1);
-					cache[5]=_mm256_slli_epi16(NW[5], 1);
-					wgpreds[5*6+0]=_mm256_sub_epi16(wgpreds[5*6+0], cache[0]);
-					wgpreds[5*6+1]=_mm256_sub_epi16(wgpreds[5*6+1], cache[1]);
-					wgpreds[5*6+2]=_mm256_sub_epi16(wgpreds[5*6+2], cache[2]);
-					wgpreds[5*6+3]=_mm256_sub_epi16(wgpreds[5*6+3], cache[3]);
-					wgpreds[5*6+4]=_mm256_sub_epi16(wgpreds[5*6+4], cache[4]);
-					wgpreds[5*6+5]=_mm256_sub_epi16(wgpreds[5*6+5], cache[5]);
-					wgpreds[5*6+0]=_mm256_srai_epi16(wgpreds[5*6+0], 2);
-					wgpreds[5*6+1]=_mm256_srai_epi16(wgpreds[5*6+1], 2);
-					wgpreds[5*6+2]=_mm256_srai_epi16(wgpreds[5*6+2], 2);
-					wgpreds[5*6+3]=_mm256_srai_epi16(wgpreds[5*6+3], 2);
-					wgpreds[5*6+4]=_mm256_srai_epi16(wgpreds[5*6+4], 2);
-					wgpreds[5*6+5]=_mm256_srai_epi16(wgpreds[5*6+5], 2);
+					//(WWWW+WWW+NNN+NEE+NEEE+NEEEE-(NW+N))>>2
+#if 1
+					cache[0]=_mm256_load_si256((__m256i*)(rows[0]+(0+0-4*6)*NCODERS)+0);//WWWW
+					cache[1]=_mm256_load_si256((__m256i*)(rows[0]+(0+0-4*6)*NCODERS)+1);
+					cache[2]=_mm256_load_si256((__m256i*)(rows[0]+(0+1-4*6)*NCODERS)+0);
+					cache[3]=_mm256_load_si256((__m256i*)(rows[0]+(0+1-4*6)*NCODERS)+1);
+					cache[4]=_mm256_load_si256((__m256i*)(rows[0]+(0+2-4*6)*NCODERS)+0);
+					cache[5]=_mm256_load_si256((__m256i*)(rows[0]+(0+2-4*6)*NCODERS)+1);
+					cache[0]=_mm256_add_epi16(cache[0], _mm256_load_si256((__m256i*)(rows[0]+(0+0-3*6)*NCODERS)+0));//+WWW
+					cache[1]=_mm256_add_epi16(cache[1], _mm256_load_si256((__m256i*)(rows[0]+(0+0-3*6)*NCODERS)+1));
+					cache[2]=_mm256_add_epi16(cache[2], _mm256_load_si256((__m256i*)(rows[0]+(0+1-3*6)*NCODERS)+0));
+					cache[3]=_mm256_add_epi16(cache[3], _mm256_load_si256((__m256i*)(rows[0]+(0+1-3*6)*NCODERS)+1));
+					cache[4]=_mm256_add_epi16(cache[4], _mm256_load_si256((__m256i*)(rows[0]+(0+2-3*6)*NCODERS)+0));
+					cache[5]=_mm256_add_epi16(cache[5], _mm256_load_si256((__m256i*)(rows[0]+(0+2-3*6)*NCODERS)+1));
+					cache[0]=_mm256_add_epi16(cache[0], _mm256_load_si256((__m256i*)(rows[3]+(0+0+0*6)*NCODERS)+0));//+NNN
+					cache[1]=_mm256_add_epi16(cache[1], _mm256_load_si256((__m256i*)(rows[3]+(0+0+0*6)*NCODERS)+1));
+					cache[2]=_mm256_add_epi16(cache[2], _mm256_load_si256((__m256i*)(rows[3]+(0+1+0*6)*NCODERS)+0));
+					cache[3]=_mm256_add_epi16(cache[3], _mm256_load_si256((__m256i*)(rows[3]+(0+1+0*6)*NCODERS)+1));
+					cache[4]=_mm256_add_epi16(cache[4], _mm256_load_si256((__m256i*)(rows[3]+(0+2+0*6)*NCODERS)+0));
+					cache[5]=_mm256_add_epi16(cache[5], _mm256_load_si256((__m256i*)(rows[3]+(0+2+0*6)*NCODERS)+1));
+					cache[0]=_mm256_add_epi16(cache[0], _mm256_load_si256((__m256i*)(rows[1]+(0+0+2*6)*NCODERS)+0));//+NEE
+					cache[1]=_mm256_add_epi16(cache[1], _mm256_load_si256((__m256i*)(rows[1]+(0+0+2*6)*NCODERS)+1));
+					cache[2]=_mm256_add_epi16(cache[2], _mm256_load_si256((__m256i*)(rows[1]+(0+1+2*6)*NCODERS)+0));
+					cache[3]=_mm256_add_epi16(cache[3], _mm256_load_si256((__m256i*)(rows[1]+(0+1+2*6)*NCODERS)+1));
+					cache[4]=_mm256_add_epi16(cache[4], _mm256_load_si256((__m256i*)(rows[1]+(0+2+2*6)*NCODERS)+0));
+					cache[5]=_mm256_add_epi16(cache[5], _mm256_load_si256((__m256i*)(rows[1]+(0+2+2*6)*NCODERS)+1));
+					cache[0]=_mm256_add_epi16(cache[0], _mm256_load_si256((__m256i*)(rows[1]+(0+0+3*6)*NCODERS)+0));//+NEEE
+					cache[1]=_mm256_add_epi16(cache[1], _mm256_load_si256((__m256i*)(rows[1]+(0+0+3*6)*NCODERS)+1));
+					cache[2]=_mm256_add_epi16(cache[2], _mm256_load_si256((__m256i*)(rows[1]+(0+1+3*6)*NCODERS)+0));
+					cache[3]=_mm256_add_epi16(cache[3], _mm256_load_si256((__m256i*)(rows[1]+(0+1+3*6)*NCODERS)+1));
+					cache[4]=_mm256_add_epi16(cache[4], _mm256_load_si256((__m256i*)(rows[1]+(0+2+3*6)*NCODERS)+0));
+					cache[5]=_mm256_add_epi16(cache[5], _mm256_load_si256((__m256i*)(rows[1]+(0+2+3*6)*NCODERS)+1));
+					cache[0]=_mm256_add_epi16(cache[0], _mm256_load_si256((__m256i*)(rows[1]+(0+0+4*6)*NCODERS)+0));//+NEEEE
+					cache[1]=_mm256_add_epi16(cache[1], _mm256_load_si256((__m256i*)(rows[1]+(0+0+4*6)*NCODERS)+1));
+					cache[2]=_mm256_add_epi16(cache[2], _mm256_load_si256((__m256i*)(rows[1]+(0+1+4*6)*NCODERS)+0));
+					cache[3]=_mm256_add_epi16(cache[3], _mm256_load_si256((__m256i*)(rows[1]+(0+1+4*6)*NCODERS)+1));
+					cache[4]=_mm256_add_epi16(cache[4], _mm256_load_si256((__m256i*)(rows[1]+(0+2+4*6)*NCODERS)+0));
+					cache[5]=_mm256_add_epi16(cache[5], _mm256_load_si256((__m256i*)(rows[1]+(0+2+4*6)*NCODERS)+1));
+					cache[0]=_mm256_sub_epi16(cache[0], _mm256_add_epi16(N[0], NW[0]));
+					cache[1]=_mm256_sub_epi16(cache[1], _mm256_add_epi16(N[1], NW[1]));
+					cache[2]=_mm256_sub_epi16(cache[2], _mm256_add_epi16(N[2], NW[2]));
+					cache[3]=_mm256_sub_epi16(cache[3], _mm256_add_epi16(N[3], NW[3]));
+					cache[4]=_mm256_sub_epi16(cache[4], _mm256_add_epi16(N[4], NW[4]));
+					cache[5]=_mm256_sub_epi16(cache[5], _mm256_add_epi16(N[5], NW[5]));
+				//	cache[0]=_mm256_sub_epi16(cache[0], _mm256_slli_epi16(N[0], 1));
+				//	cache[1]=_mm256_sub_epi16(cache[1], _mm256_slli_epi16(N[1], 1));
+				//	cache[2]=_mm256_sub_epi16(cache[2], _mm256_slli_epi16(N[2], 1));
+				//	cache[3]=_mm256_sub_epi16(cache[3], _mm256_slli_epi16(N[3], 1));
+				//	cache[4]=_mm256_sub_epi16(cache[4], _mm256_slli_epi16(N[4], 1));
+				//	cache[5]=_mm256_sub_epi16(cache[5], _mm256_slli_epi16(N[5], 1));
+					wgpreds[5*6+0]=_mm256_srai_epi16(cache[0], 2);
+					wgpreds[5*6+1]=_mm256_srai_epi16(cache[1], 2);
+					wgpreds[5*6+2]=_mm256_srai_epi16(cache[2], 2);
+					wgpreds[5*6+3]=_mm256_srai_epi16(cache[3], 2);
+					wgpreds[5*6+4]=_mm256_srai_epi16(cache[4], 2);
+					wgpreds[5*6+5]=_mm256_srai_epi16(cache[5], 2);
+#endif
+					//(WWWW+NNN+NEEE+NEEEE)>>2
+#if 0
+					cache[0]=_mm256_load_si256((__m256i*)(rows[0]+(0+0-4*6)*NCODERS)+0);//WWWW
+					cache[1]=_mm256_load_si256((__m256i*)(rows[0]+(0+0-4*6)*NCODERS)+1);
+					cache[2]=_mm256_load_si256((__m256i*)(rows[0]+(0+1-4*6)*NCODERS)+0);
+					cache[3]=_mm256_load_si256((__m256i*)(rows[0]+(0+1-4*6)*NCODERS)+1);
+					cache[4]=_mm256_load_si256((__m256i*)(rows[0]+(0+2-4*6)*NCODERS)+0);
+					cache[5]=_mm256_load_si256((__m256i*)(rows[0]+(0+2-4*6)*NCODERS)+1);
+					cache[0]=_mm256_add_epi16(cache[0], _mm256_load_si256((__m256i*)(rows[3]+(0+0+0*6)*NCODERS)+0));//NNN	vs NNNE?
+					cache[1]=_mm256_add_epi16(cache[1], _mm256_load_si256((__m256i*)(rows[3]+(0+0+0*6)*NCODERS)+1));
+					cache[2]=_mm256_add_epi16(cache[2], _mm256_load_si256((__m256i*)(rows[3]+(0+1+0*6)*NCODERS)+0));
+					cache[3]=_mm256_add_epi16(cache[3], _mm256_load_si256((__m256i*)(rows[3]+(0+1+0*6)*NCODERS)+1));
+					cache[4]=_mm256_add_epi16(cache[4], _mm256_load_si256((__m256i*)(rows[3]+(0+2+0*6)*NCODERS)+0));
+					cache[5]=_mm256_add_epi16(cache[5], _mm256_load_si256((__m256i*)(rows[3]+(0+2+0*6)*NCODERS)+1));
+					cache[0]=_mm256_add_epi16(cache[0], _mm256_load_si256((__m256i*)(rows[1]+(0+0+3*6)*NCODERS)+0));//NEEE
+					cache[1]=_mm256_add_epi16(cache[1], _mm256_load_si256((__m256i*)(rows[1]+(0+0+3*6)*NCODERS)+1));
+					cache[2]=_mm256_add_epi16(cache[2], _mm256_load_si256((__m256i*)(rows[1]+(0+1+3*6)*NCODERS)+0));
+					cache[3]=_mm256_add_epi16(cache[3], _mm256_load_si256((__m256i*)(rows[1]+(0+1+3*6)*NCODERS)+1));
+					cache[4]=_mm256_add_epi16(cache[4], _mm256_load_si256((__m256i*)(rows[1]+(0+2+3*6)*NCODERS)+0));
+					cache[5]=_mm256_add_epi16(cache[5], _mm256_load_si256((__m256i*)(rows[1]+(0+2+3*6)*NCODERS)+1));
+					cache[0]=_mm256_add_epi16(cache[0], _mm256_load_si256((__m256i*)(rows[1]+(0+0+4*6)*NCODERS)+0));//NEEEE
+					cache[1]=_mm256_add_epi16(cache[1], _mm256_load_si256((__m256i*)(rows[1]+(0+0+4*6)*NCODERS)+1));
+					cache[2]=_mm256_add_epi16(cache[2], _mm256_load_si256((__m256i*)(rows[1]+(0+1+4*6)*NCODERS)+0));
+					cache[3]=_mm256_add_epi16(cache[3], _mm256_load_si256((__m256i*)(rows[1]+(0+1+4*6)*NCODERS)+1));
+					cache[4]=_mm256_add_epi16(cache[4], _mm256_load_si256((__m256i*)(rows[1]+(0+2+4*6)*NCODERS)+0));
+					cache[5]=_mm256_add_epi16(cache[5], _mm256_load_si256((__m256i*)(rows[1]+(0+2+4*6)*NCODERS)+1));
+					wgpreds[5*6+0]=_mm256_srai_epi16(cache[0], 2);
+					wgpreds[5*6+1]=_mm256_srai_epi16(cache[1], 2);
+					wgpreds[5*6+2]=_mm256_srai_epi16(cache[2], 2);
+					wgpreds[5*6+3]=_mm256_srai_epi16(cache[3], 2);
+					wgpreds[5*6+4]=_mm256_srai_epi16(cache[4], 2);
+					wgpreds[5*6+5]=_mm256_srai_epi16(cache[5], 2);
+#endif
+					//(WWWW+WWW+NNNN+NNNNE+NNN+NNNE+NEEE+NEEEE+N+W-2*NW)>>3		X
+					//(WWWWW+WWWW+WWW+NNNN+NNNNE+NNN+NNNE+NEEE+NEEEE+W-2*NW)>>3	X
+					//(WWWWW+WWWW+WWW+NNNN+NNNNE+NNN+NNNE+NEEE+NEEEE-W)>>3		X
+					//(WWWW+WWW+NNNN+NNNNE+NNN+NNNE+NEEE+NEEEE-4*W)>>2		X
+					//(WWWW+WWW+NNNN+NNNNE+NNN+NNNE+NEEE+NEEEE-(W+NW+N+NE))>>2	X
+					//(WWWW+WWW+NNNN+NNNNE+NNN+NNNE+NEEE+NEEEE-2*(N+W))>>2		X
+#if 0
+					cache[0]=_mm256_load_si256((__m256i*)(rows[0]+(0+0-4*6)*NCODERS)+0);//WWWW
+					cache[1]=_mm256_load_si256((__m256i*)(rows[0]+(0+0-4*6)*NCODERS)+1);
+					cache[2]=_mm256_load_si256((__m256i*)(rows[0]+(0+1-4*6)*NCODERS)+0);
+					cache[3]=_mm256_load_si256((__m256i*)(rows[0]+(0+1-4*6)*NCODERS)+1);
+					cache[4]=_mm256_load_si256((__m256i*)(rows[0]+(0+2-4*6)*NCODERS)+0);
+					cache[5]=_mm256_load_si256((__m256i*)(rows[0]+(0+2-4*6)*NCODERS)+1);
+					cache[0]=_mm256_add_epi16(cache[0], _mm256_load_si256((__m256i*)(rows[0]+(0+0-3*6)*NCODERS)+0));//WWW
+					cache[1]=_mm256_add_epi16(cache[1], _mm256_load_si256((__m256i*)(rows[0]+(0+0-3*6)*NCODERS)+1));
+					cache[2]=_mm256_add_epi16(cache[2], _mm256_load_si256((__m256i*)(rows[0]+(0+1-3*6)*NCODERS)+0));
+					cache[3]=_mm256_add_epi16(cache[3], _mm256_load_si256((__m256i*)(rows[0]+(0+1-3*6)*NCODERS)+1));
+					cache[4]=_mm256_add_epi16(cache[4], _mm256_load_si256((__m256i*)(rows[0]+(0+2-3*6)*NCODERS)+0));
+					cache[5]=_mm256_add_epi16(cache[5], _mm256_load_si256((__m256i*)(rows[0]+(0+2-3*6)*NCODERS)+1));
+					cache[0]=_mm256_add_epi16(cache[0], _mm256_load_si256((__m256i*)(rows[0]+(0+0+0*6)*NCODERS)+0));//NNNN
+					cache[1]=_mm256_add_epi16(cache[1], _mm256_load_si256((__m256i*)(rows[0]+(0+0+0*6)*NCODERS)+1));
+					cache[2]=_mm256_add_epi16(cache[2], _mm256_load_si256((__m256i*)(rows[0]+(0+1+0*6)*NCODERS)+0));
+					cache[3]=_mm256_add_epi16(cache[3], _mm256_load_si256((__m256i*)(rows[0]+(0+1+0*6)*NCODERS)+1));
+					cache[4]=_mm256_add_epi16(cache[4], _mm256_load_si256((__m256i*)(rows[0]+(0+2+0*6)*NCODERS)+0));
+					cache[5]=_mm256_add_epi16(cache[5], _mm256_load_si256((__m256i*)(rows[0]+(0+2+0*6)*NCODERS)+1));
+					cache[0]=_mm256_add_epi16(cache[0], _mm256_load_si256((__m256i*)(rows[0]+(0+0+1*6)*NCODERS)+0));//NNNNE
+					cache[1]=_mm256_add_epi16(cache[1], _mm256_load_si256((__m256i*)(rows[0]+(0+0+1*6)*NCODERS)+1));
+					cache[2]=_mm256_add_epi16(cache[2], _mm256_load_si256((__m256i*)(rows[0]+(0+1+1*6)*NCODERS)+0));
+					cache[3]=_mm256_add_epi16(cache[3], _mm256_load_si256((__m256i*)(rows[0]+(0+1+1*6)*NCODERS)+1));
+					cache[4]=_mm256_add_epi16(cache[4], _mm256_load_si256((__m256i*)(rows[0]+(0+2+1*6)*NCODERS)+0));
+					cache[5]=_mm256_add_epi16(cache[5], _mm256_load_si256((__m256i*)(rows[0]+(0+2+1*6)*NCODERS)+1));
+					cache[0]=_mm256_add_epi16(cache[0], _mm256_load_si256((__m256i*)(rows[3]+(0+0+0*6)*NCODERS)+0));//NNN
+					cache[1]=_mm256_add_epi16(cache[1], _mm256_load_si256((__m256i*)(rows[3]+(0+0+0*6)*NCODERS)+1));
+					cache[2]=_mm256_add_epi16(cache[2], _mm256_load_si256((__m256i*)(rows[3]+(0+1+0*6)*NCODERS)+0));
+					cache[3]=_mm256_add_epi16(cache[3], _mm256_load_si256((__m256i*)(rows[3]+(0+1+0*6)*NCODERS)+1));
+					cache[4]=_mm256_add_epi16(cache[4], _mm256_load_si256((__m256i*)(rows[3]+(0+2+0*6)*NCODERS)+0));
+					cache[5]=_mm256_add_epi16(cache[5], _mm256_load_si256((__m256i*)(rows[3]+(0+2+0*6)*NCODERS)+1));
+					cache[0]=_mm256_add_epi16(cache[0], _mm256_load_si256((__m256i*)(rows[3]+(0+0+1*6)*NCODERS)+0));//NNNE
+					cache[1]=_mm256_add_epi16(cache[1], _mm256_load_si256((__m256i*)(rows[3]+(0+0+1*6)*NCODERS)+1));
+					cache[2]=_mm256_add_epi16(cache[2], _mm256_load_si256((__m256i*)(rows[3]+(0+1+1*6)*NCODERS)+0));
+					cache[3]=_mm256_add_epi16(cache[3], _mm256_load_si256((__m256i*)(rows[3]+(0+1+1*6)*NCODERS)+1));
+					cache[4]=_mm256_add_epi16(cache[4], _mm256_load_si256((__m256i*)(rows[3]+(0+2+1*6)*NCODERS)+0));
+					cache[5]=_mm256_add_epi16(cache[5], _mm256_load_si256((__m256i*)(rows[3]+(0+2+1*6)*NCODERS)+1));
+					cache[0]=_mm256_add_epi16(cache[0], _mm256_load_si256((__m256i*)(rows[1]+(0+0+3*6)*NCODERS)+0));//NEEE
+					cache[1]=_mm256_add_epi16(cache[1], _mm256_load_si256((__m256i*)(rows[1]+(0+0+3*6)*NCODERS)+1));
+					cache[2]=_mm256_add_epi16(cache[2], _mm256_load_si256((__m256i*)(rows[1]+(0+1+3*6)*NCODERS)+0));
+					cache[3]=_mm256_add_epi16(cache[3], _mm256_load_si256((__m256i*)(rows[1]+(0+1+3*6)*NCODERS)+1));
+					cache[4]=_mm256_add_epi16(cache[4], _mm256_load_si256((__m256i*)(rows[1]+(0+2+3*6)*NCODERS)+0));
+					cache[5]=_mm256_add_epi16(cache[5], _mm256_load_si256((__m256i*)(rows[1]+(0+2+3*6)*NCODERS)+1));
+					cache[0]=_mm256_add_epi16(cache[0], _mm256_load_si256((__m256i*)(rows[1]+(0+0+4*6)*NCODERS)+0));//NEEEE
+					cache[1]=_mm256_add_epi16(cache[1], _mm256_load_si256((__m256i*)(rows[1]+(0+0+4*6)*NCODERS)+1));
+					cache[2]=_mm256_add_epi16(cache[2], _mm256_load_si256((__m256i*)(rows[1]+(0+1+4*6)*NCODERS)+0));
+					cache[3]=_mm256_add_epi16(cache[3], _mm256_load_si256((__m256i*)(rows[1]+(0+1+4*6)*NCODERS)+1));
+					cache[4]=_mm256_add_epi16(cache[4], _mm256_load_si256((__m256i*)(rows[1]+(0+2+4*6)*NCODERS)+0));
+					cache[5]=_mm256_add_epi16(cache[5], _mm256_load_si256((__m256i*)(rows[1]+(0+2+4*6)*NCODERS)+1));
+					cache[0]=_mm256_add_epi16(cache[0], N[0]);
+					cache[1]=_mm256_add_epi16(cache[1], N[1]);
+					cache[2]=_mm256_add_epi16(cache[2], N[2]);
+					cache[3]=_mm256_add_epi16(cache[3], N[3]);
+					cache[4]=_mm256_add_epi16(cache[4], N[4]);
+					cache[5]=_mm256_add_epi16(cache[5], N[5]);
+					cache[0]=_mm256_add_epi16(cache[0], W[0]);
+					cache[1]=_mm256_add_epi16(cache[1], W[1]);
+					cache[2]=_mm256_add_epi16(cache[2], W[2]);
+					cache[3]=_mm256_add_epi16(cache[3], W[3]);
+					cache[4]=_mm256_add_epi16(cache[4], W[4]);
+					cache[5]=_mm256_add_epi16(cache[5], W[5]);
+					cache[0]=_mm256_sub_epi16(cache[0], _mm256_slli_epi16(NW[0], 1));//-2*NW
+					cache[1]=_mm256_sub_epi16(cache[1], _mm256_slli_epi16(NW[1], 1));
+					cache[2]=_mm256_sub_epi16(cache[2], _mm256_slli_epi16(NW[2], 1));
+					cache[3]=_mm256_sub_epi16(cache[3], _mm256_slli_epi16(NW[3], 1));
+					cache[4]=_mm256_sub_epi16(cache[4], _mm256_slli_epi16(NW[4], 1));
+					cache[5]=_mm256_sub_epi16(cache[5], _mm256_slli_epi16(NW[5], 1));
+					wgpreds[5*6+0]=_mm256_srai_epi16(cache[0], 3);
+					wgpreds[5*6+1]=_mm256_srai_epi16(cache[1], 3);
+					wgpreds[5*6+2]=_mm256_srai_epi16(cache[2], 3);
+					wgpreds[5*6+3]=_mm256_srai_epi16(cache[3], 3);
+					wgpreds[5*6+4]=_mm256_srai_epi16(cache[4], 3);
+					wgpreds[5*6+5]=_mm256_srai_epi16(cache[5], 3);
+#endif
 
 					//N+W-NW
 					wgpreds[6*6+0]=predY0;
@@ -2909,30 +3357,41 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					wgpreds[6*6+5]=predV1;
 
 					//N+NE-NNE
+#if 1
+					cache[0]=_mm256_add_epi16(N[0], _mm256_load_si256((__m256i*)(rows[1]+(0+0+1*6)*NCODERS)+0));//N+NE
+					cache[1]=_mm256_add_epi16(N[1], _mm256_load_si256((__m256i*)(rows[1]+(0+0+1*6)*NCODERS)+1));
+					cache[2]=_mm256_add_epi16(N[2], _mm256_load_si256((__m256i*)(rows[1]+(0+1+1*6)*NCODERS)+0));
+					cache[3]=_mm256_add_epi16(N[3], _mm256_load_si256((__m256i*)(rows[1]+(0+1+1*6)*NCODERS)+1));
+					cache[4]=_mm256_add_epi16(N[4], _mm256_load_si256((__m256i*)(rows[1]+(0+2+1*6)*NCODERS)+0));
+					cache[5]=_mm256_add_epi16(N[5], _mm256_load_si256((__m256i*)(rows[1]+(0+2+1*6)*NCODERS)+1));
+					wgpreds[7*6+0]=_mm256_sub_epi16(cache[0], _mm256_load_si256((__m256i*)(rows[2]+(0+0+1*6)*NCODERS)+0));//NNE
+					wgpreds[7*6+1]=_mm256_sub_epi16(cache[1], _mm256_load_si256((__m256i*)(rows[2]+(0+0+1*6)*NCODERS)+1));
+					wgpreds[7*6+2]=_mm256_sub_epi16(cache[2], _mm256_load_si256((__m256i*)(rows[2]+(0+1+1*6)*NCODERS)+0));
+					wgpreds[7*6+3]=_mm256_sub_epi16(cache[3], _mm256_load_si256((__m256i*)(rows[2]+(0+1+1*6)*NCODERS)+1));
+					wgpreds[7*6+4]=_mm256_sub_epi16(cache[4], _mm256_load_si256((__m256i*)(rows[2]+(0+2+1*6)*NCODERS)+0));
+					wgpreds[7*6+5]=_mm256_sub_epi16(cache[5], _mm256_load_si256((__m256i*)(rows[2]+(0+2+1*6)*NCODERS)+1));
+#endif
+					//NE+NEE-NNEEE		X  bad
+#if 0
 					cache[0]=_mm256_load_si256((__m256i*)(rows[1]+(0+0+1*6)*NCODERS)+0);//NE
 					cache[1]=_mm256_load_si256((__m256i*)(rows[1]+(0+0+1*6)*NCODERS)+1);
 					cache[2]=_mm256_load_si256((__m256i*)(rows[1]+(0+1+1*6)*NCODERS)+0);
 					cache[3]=_mm256_load_si256((__m256i*)(rows[1]+(0+1+1*6)*NCODERS)+1);
 					cache[4]=_mm256_load_si256((__m256i*)(rows[1]+(0+2+1*6)*NCODERS)+0);
 					cache[5]=_mm256_load_si256((__m256i*)(rows[1]+(0+2+1*6)*NCODERS)+1);
-					wgpreds[7*6+0]=_mm256_add_epi16(N[0], cache[0]);
-					wgpreds[7*6+1]=_mm256_add_epi16(N[1], cache[1]);
-					wgpreds[7*6+2]=_mm256_add_epi16(N[2], cache[2]);
-					wgpreds[7*6+3]=_mm256_add_epi16(N[3], cache[3]);
-					wgpreds[7*6+4]=_mm256_add_epi16(N[4], cache[4]);
-					wgpreds[7*6+5]=_mm256_add_epi16(N[5], cache[5]);
-					cache[0]=_mm256_load_si256((__m256i*)(rows[2]+(0+0+1*6)*NCODERS)+0);//NNE
-					cache[1]=_mm256_load_si256((__m256i*)(rows[2]+(0+0+1*6)*NCODERS)+1);
-					cache[2]=_mm256_load_si256((__m256i*)(rows[2]+(0+1+1*6)*NCODERS)+0);
-					cache[3]=_mm256_load_si256((__m256i*)(rows[2]+(0+1+1*6)*NCODERS)+1);
-					cache[4]=_mm256_load_si256((__m256i*)(rows[2]+(0+2+1*6)*NCODERS)+0);
-					cache[5]=_mm256_load_si256((__m256i*)(rows[2]+(0+2+1*6)*NCODERS)+1);
-					wgpreds[7*6+0]=_mm256_sub_epi16(wgpreds[7*6+0], cache[0]);
-					wgpreds[7*6+1]=_mm256_sub_epi16(wgpreds[7*6+1], cache[1]);
-					wgpreds[7*6+2]=_mm256_sub_epi16(wgpreds[7*6+2], cache[2]);
-					wgpreds[7*6+3]=_mm256_sub_epi16(wgpreds[7*6+3], cache[3]);
-					wgpreds[7*6+4]=_mm256_sub_epi16(wgpreds[7*6+4], cache[4]);
-					wgpreds[7*6+5]=_mm256_sub_epi16(wgpreds[7*6+5], cache[5]);
+					cache[0]=_mm256_add_epi16(cache[0], _mm256_load_si256((__m256i*)(rows[1]+(0+0+2*6)*NCODERS)+0));//+NEE
+					cache[1]=_mm256_add_epi16(cache[1], _mm256_load_si256((__m256i*)(rows[1]+(0+0+2*6)*NCODERS)+1));
+					cache[2]=_mm256_add_epi16(cache[2], _mm256_load_si256((__m256i*)(rows[1]+(0+1+2*6)*NCODERS)+0));
+					cache[3]=_mm256_add_epi16(cache[3], _mm256_load_si256((__m256i*)(rows[1]+(0+1+2*6)*NCODERS)+1));
+					cache[4]=_mm256_add_epi16(cache[4], _mm256_load_si256((__m256i*)(rows[1]+(0+2+2*6)*NCODERS)+0));
+					cache[5]=_mm256_add_epi16(cache[5], _mm256_load_si256((__m256i*)(rows[1]+(0+2+2*6)*NCODERS)+1));
+					wgpreds[7*6+0]=_mm256_sub_epi16(cache[0], _mm256_load_si256((__m256i*)(rows[2]+(0+0+3*6)*NCODERS)+0));//-NNEEE
+					wgpreds[7*6+1]=_mm256_sub_epi16(cache[1], _mm256_load_si256((__m256i*)(rows[2]+(0+0+3*6)*NCODERS)+1));
+					wgpreds[7*6+2]=_mm256_sub_epi16(cache[2], _mm256_load_si256((__m256i*)(rows[2]+(0+1+3*6)*NCODERS)+0));
+					wgpreds[7*6+3]=_mm256_sub_epi16(cache[3], _mm256_load_si256((__m256i*)(rows[2]+(0+1+3*6)*NCODERS)+1));
+					wgpreds[7*6+4]=_mm256_sub_epi16(cache[4], _mm256_load_si256((__m256i*)(rows[2]+(0+2+3*6)*NCODERS)+0));
+					wgpreds[7*6+5]=_mm256_sub_epi16(cache[5], _mm256_load_si256((__m256i*)(rows[2]+(0+2+3*6)*NCODERS)+1));
+#endif
 
 					//if(ky==0&&kx==96)//
 					//	printf("");
@@ -2972,7 +3431,19 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					//	printf("");
 
 					//loosen pred range
-					cache[0]=_mm256_load_si256((__m256i*)(rows[1]+(0+0+1*6)*NCODERS)+0);//NE
+					ymin0=_mm256_min_epi16(ymin0, NW[0]);//slightly better crisp DIV2K, negligibly worse noisy GDCC
+					ymax0=_mm256_max_epi16(ymax0, NW[0]);
+					ymin1=_mm256_min_epi16(ymin1, NW[1]);
+					ymax1=_mm256_max_epi16(ymax1, NW[1]);
+					umin0=_mm256_min_epi16(umin0, NW[2]);
+					umax0=_mm256_max_epi16(umax0, NW[2]);
+					umin1=_mm256_min_epi16(umin1, NW[3]);
+					umax1=_mm256_max_epi16(umax1, NW[3]);
+					vmin0=_mm256_min_epi16(vmin0, NW[4]);
+					vmax0=_mm256_max_epi16(vmax0, NW[4]);
+					vmin1=_mm256_min_epi16(vmin1, NW[5]);
+					vmax1=_mm256_max_epi16(vmax1, NW[5]);
+					cache[0]=_mm256_load_si256((__m256i*)(rows[1]+(0+0+1*6)*NCODERS)+0);//NE	a must for WG4
 					cache[1]=_mm256_load_si256((__m256i*)(rows[1]+(0+0+1*6)*NCODERS)+1);
 					cache[2]=_mm256_load_si256((__m256i*)(rows[1]+(0+1+1*6)*NCODERS)+0);
 					cache[3]=_mm256_load_si256((__m256i*)(rows[1]+(0+1+1*6)*NCODERS)+1);
@@ -2990,6 +3461,38 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					vmax0=_mm256_max_epi16(vmax0, cache[4]);
 					vmin1=_mm256_min_epi16(vmin1, cache[5]);
 					vmax1=_mm256_max_epi16(vmax1, cache[5]);
+#if 1
+					cache[0]=_mm256_load_si256((__m256i*)(rows[1]+(0+0+3*6)*NCODERS)+0);//NEEE	crisp DIV2K -0.18%, noisy GDCC +0.13%
+					cache[1]=_mm256_load_si256((__m256i*)(rows[1]+(0+0+3*6)*NCODERS)+1);
+					cache[2]=_mm256_load_si256((__m256i*)(rows[1]+(0+1+3*6)*NCODERS)+0);
+					cache[3]=_mm256_load_si256((__m256i*)(rows[1]+(0+1+3*6)*NCODERS)+1);
+					cache[4]=_mm256_load_si256((__m256i*)(rows[1]+(0+2+3*6)*NCODERS)+0);
+					cache[5]=_mm256_load_si256((__m256i*)(rows[1]+(0+2+3*6)*NCODERS)+1);
+					//cache[0]=_mm256_srai_epi16(_mm256_add_epi16(NE[0], _mm256_load_si256((__m256i*)(rows[1]+(0+0+2*6)*NCODERS)+0)), 1);//(NE+NEE)>>1	X  bad
+					//cache[1]=_mm256_srai_epi16(_mm256_add_epi16(NE[1], _mm256_load_si256((__m256i*)(rows[1]+(0+0+2*6)*NCODERS)+1)), 1);
+					//cache[2]=_mm256_srai_epi16(_mm256_add_epi16(NE[2], _mm256_load_si256((__m256i*)(rows[1]+(0+1+2*6)*NCODERS)+0)), 1);
+					//cache[3]=_mm256_srai_epi16(_mm256_add_epi16(NE[3], _mm256_load_si256((__m256i*)(rows[1]+(0+1+2*6)*NCODERS)+1)), 1);
+					//cache[4]=_mm256_srai_epi16(_mm256_add_epi16(NE[4], _mm256_load_si256((__m256i*)(rows[1]+(0+2+2*6)*NCODERS)+0)), 1);
+					//cache[5]=_mm256_srai_epi16(_mm256_add_epi16(NE[5], _mm256_load_si256((__m256i*)(rows[1]+(0+2+2*6)*NCODERS)+1)), 1);
+					//cache[0]=_mm256_add_epi16(NE[0], _mm256_srai_epi16(_mm256_sub_epi16(_mm256_load_si256((__m256i*)(rows[1]+(0+0+2*6)*NCODERS)+0), NE[0]), 2));//NE+((NEE-NE)>>2)	X  worse
+					//cache[1]=_mm256_add_epi16(NE[1], _mm256_srai_epi16(_mm256_sub_epi16(_mm256_load_si256((__m256i*)(rows[1]+(0+0+2*6)*NCODERS)+1), NE[1]), 2));
+					//cache[2]=_mm256_add_epi16(NE[2], _mm256_srai_epi16(_mm256_sub_epi16(_mm256_load_si256((__m256i*)(rows[1]+(0+1+2*6)*NCODERS)+0), NE[2]), 2));
+					//cache[3]=_mm256_add_epi16(NE[3], _mm256_srai_epi16(_mm256_sub_epi16(_mm256_load_si256((__m256i*)(rows[1]+(0+1+2*6)*NCODERS)+1), NE[3]), 2));
+					//cache[4]=_mm256_add_epi16(NE[4], _mm256_srai_epi16(_mm256_sub_epi16(_mm256_load_si256((__m256i*)(rows[1]+(0+2+2*6)*NCODERS)+0), NE[4]), 2));
+					//cache[5]=_mm256_add_epi16(NE[5], _mm256_srai_epi16(_mm256_sub_epi16(_mm256_load_si256((__m256i*)(rows[1]+(0+2+2*6)*NCODERS)+1), NE[5]), 2));
+					ymin0=_mm256_min_epi16(ymin0, cache[0]);
+					ymax0=_mm256_max_epi16(ymax0, cache[0]);
+					ymin1=_mm256_min_epi16(ymin1, cache[1]);
+					ymax1=_mm256_max_epi16(ymax1, cache[1]);
+					umin0=_mm256_min_epi16(umin0, cache[2]);
+					umax0=_mm256_max_epi16(umax0, cache[2]);
+					umin1=_mm256_min_epi16(umin1, cache[3]);
+					umax1=_mm256_max_epi16(umax1, cache[3]);
+					vmin0=_mm256_min_epi16(vmin0, cache[4]);
+					vmax0=_mm256_max_epi16(vmax0, cache[4]);
+					vmin1=_mm256_min_epi16(vmin1, cache[5]);
+					vmax1=_mm256_max_epi16(vmax1, cache[5]);
+#endif
 				}
 				predY0=_mm256_max_epi16(predY0, ymin0);
 				predY1=_mm256_max_epi16(predY1, ymin1);
@@ -3209,6 +3712,7 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				
 				//decode Y
 				dec_yuv(mstate, 0, &ctxY0, &ctxY1, (int*)CDF2syms, ans_permute, &streamptr, streamend, myuv+0*2);//residuals from [0 ~ 255]
+
 //#ifdef ANS_VAL
 //				ALIGN(32) unsigned char debugvals[6*NCODERS];
 //				msyms8=_mm256_packus_epi16(ctxY0, ctxY1);
@@ -3422,6 +3926,12 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					me3=_mm256_slli_epi16(me3, 1);
 					me4=_mm256_slli_epi16(me4, 1);
 					me5=_mm256_slli_epi16(me5, 1);
+				//	me0=_mm256_xor_si256(_mm256_slli_epi16(me0, 1), _mm256_srai_epi16(me0, 15));//X
+				//	me1=_mm256_xor_si256(_mm256_slli_epi16(me1, 1), _mm256_srai_epi16(me1, 15));
+				//	me2=_mm256_xor_si256(_mm256_slli_epi16(me2, 1), _mm256_srai_epi16(me2, 15));
+				//	me3=_mm256_xor_si256(_mm256_slli_epi16(me3, 1), _mm256_srai_epi16(me3, 15));
+				//	me4=_mm256_xor_si256(_mm256_slli_epi16(me4, 1), _mm256_srai_epi16(me4, 15));
+				//	me5=_mm256_xor_si256(_mm256_slli_epi16(me5, 1), _mm256_srai_epi16(me5, 15));
 
 					//eW += (e-eW+(1<<7>>1))>>7
 #ifdef WG_DISABLE_eW
@@ -3468,43 +3978,31 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 						_mm256_store_si256((__m256i*)wgWerrors+kp*6+5, peW[5]);
 					}
 #endif
-					//curr = (2*eW+e+eNE)>>1		(__m256i*)(erows[-Y]+((P+X*NPREDS)*3+C)*NCODERS)+R
-					t[0]=_mm256_slli_epi16(_mm256_load_si256((__m256i*)(erows[0]+((kp-1*WG_NPREDS)*3+0)*NCODERS)+0), 1);//eW
-					t[1]=_mm256_slli_epi16(_mm256_load_si256((__m256i*)(erows[0]+((kp-1*WG_NPREDS)*3+0)*NCODERS)+1), 1);
-					t[2]=_mm256_slli_epi16(_mm256_load_si256((__m256i*)(erows[0]+((kp-1*WG_NPREDS)*3+1)*NCODERS)+0), 1);
-					t[3]=_mm256_slli_epi16(_mm256_load_si256((__m256i*)(erows[0]+((kp-1*WG_NPREDS)*3+1)*NCODERS)+1), 1);
-					t[4]=_mm256_slli_epi16(_mm256_load_si256((__m256i*)(erows[0]+((kp-1*WG_NPREDS)*3+2)*NCODERS)+0), 1);
-					t[5]=_mm256_slli_epi16(_mm256_load_si256((__m256i*)(erows[0]+((kp-1*WG_NPREDS)*3+2)*NCODERS)+1), 1);
-					t[0]=_mm256_add_epi16(t[0], me0);
-					t[1]=_mm256_add_epi16(t[1], me1);
-					t[2]=_mm256_add_epi16(t[2], me2);
-					t[3]=_mm256_add_epi16(t[3], me3);
-					t[4]=_mm256_add_epi16(t[4], me4);
-					t[5]=_mm256_add_epi16(t[5], me5);
-					__m256i eNE0=_mm256_load_si256((__m256i*)(erows[1]+((kp+1*WG_NPREDS)*3+0)*NCODERS)+0);//eNE
-					__m256i eNE1=_mm256_load_si256((__m256i*)(erows[1]+((kp+1*WG_NPREDS)*3+0)*NCODERS)+1);
-					__m256i eNE2=_mm256_load_si256((__m256i*)(erows[1]+((kp+1*WG_NPREDS)*3+1)*NCODERS)+0);
-					__m256i eNE3=_mm256_load_si256((__m256i*)(erows[1]+((kp+1*WG_NPREDS)*3+1)*NCODERS)+1);
-					__m256i eNE4=_mm256_load_si256((__m256i*)(erows[1]+((kp+1*WG_NPREDS)*3+2)*NCODERS)+0);
-					__m256i eNE5=_mm256_load_si256((__m256i*)(erows[1]+((kp+1*WG_NPREDS)*3+2)*NCODERS)+1);
-					t[0]=_mm256_add_epi16(t[0], eNE0);
-					t[1]=_mm256_add_epi16(t[1], eNE1);
-					t[2]=_mm256_add_epi16(t[2], eNE2);
-					t[3]=_mm256_add_epi16(t[3], eNE3);
-					t[4]=_mm256_add_epi16(t[4], eNE4);
-					t[5]=_mm256_add_epi16(t[5], eNE5);
-					t[0]=_mm256_srli_epi16(t[0], 2);//eW
-					t[1]=_mm256_srli_epi16(t[1], 2);
-					t[2]=_mm256_srli_epi16(t[2], 2);
-					t[3]=_mm256_srli_epi16(t[3], 2);
-					t[4]=_mm256_srli_epi16(t[4], 2);
-					t[5]=_mm256_srli_epi16(t[5], 2);
-					_mm256_store_si256((__m256i*)(erows[0]+((kp+0*WG_NPREDS)*3+0)*NCODERS)+0, t[0]);//ecurr
-					_mm256_store_si256((__m256i*)(erows[0]+((kp+0*WG_NPREDS)*3+0)*NCODERS)+1, t[1]);
-					_mm256_store_si256((__m256i*)(erows[0]+((kp+0*WG_NPREDS)*3+1)*NCODERS)+0, t[2]);
-					_mm256_store_si256((__m256i*)(erows[0]+((kp+0*WG_NPREDS)*3+1)*NCODERS)+1, t[3]);
-					_mm256_store_si256((__m256i*)(erows[0]+((kp+0*WG_NPREDS)*3+2)*NCODERS)+0, t[4]);
-					_mm256_store_si256((__m256i*)(erows[0]+((kp+0*WG_NPREDS)*3+2)*NCODERS)+1, t[5]);
+					//				(__m256i*)(erows[-Y]+((P+X*NPREDS)*3+C)*NCODERS)+R
+					__m256i eNW0	=_mm256_load_si256((__m256i*)(erows[1]+((kp-1*WG_NPREDS)*3+0)*NCODERS)+0);//eNW
+					__m256i eNW1	=_mm256_load_si256((__m256i*)(erows[1]+((kp-1*WG_NPREDS)*3+0)*NCODERS)+1);
+					__m256i eNW2	=_mm256_load_si256((__m256i*)(erows[1]+((kp-1*WG_NPREDS)*3+1)*NCODERS)+0);
+					__m256i eNW3	=_mm256_load_si256((__m256i*)(erows[1]+((kp-1*WG_NPREDS)*3+1)*NCODERS)+1);
+					__m256i eNW4	=_mm256_load_si256((__m256i*)(erows[1]+((kp-1*WG_NPREDS)*3+2)*NCODERS)+0);
+					__m256i eNW5	=_mm256_load_si256((__m256i*)(erows[1]+((kp-1*WG_NPREDS)*3+2)*NCODERS)+1);
+					__m256i eN0	=_mm256_load_si256((__m256i*)(erows[1]+((kp+0*WG_NPREDS)*3+0)*NCODERS)+0);//eN
+					__m256i eN1	=_mm256_load_si256((__m256i*)(erows[1]+((kp+0*WG_NPREDS)*3+0)*NCODERS)+1);
+					__m256i eN2	=_mm256_load_si256((__m256i*)(erows[1]+((kp+0*WG_NPREDS)*3+1)*NCODERS)+0);
+					__m256i eN3	=_mm256_load_si256((__m256i*)(erows[1]+((kp+0*WG_NPREDS)*3+1)*NCODERS)+1);
+					__m256i eN4	=_mm256_load_si256((__m256i*)(erows[1]+((kp+0*WG_NPREDS)*3+2)*NCODERS)+0);
+					__m256i eN5	=_mm256_load_si256((__m256i*)(erows[1]+((kp+0*WG_NPREDS)*3+2)*NCODERS)+1);
+					__m256i eNE0	=_mm256_load_si256((__m256i*)(erows[1]+((kp+1*WG_NPREDS)*3+0)*NCODERS)+0);//eNE
+					__m256i eNE1	=_mm256_load_si256((__m256i*)(erows[1]+((kp+1*WG_NPREDS)*3+0)*NCODERS)+1);
+					__m256i eNE2	=_mm256_load_si256((__m256i*)(erows[1]+((kp+1*WG_NPREDS)*3+1)*NCODERS)+0);
+					__m256i eNE3	=_mm256_load_si256((__m256i*)(erows[1]+((kp+1*WG_NPREDS)*3+1)*NCODERS)+1);
+					__m256i eNE4	=_mm256_load_si256((__m256i*)(erows[1]+((kp+1*WG_NPREDS)*3+2)*NCODERS)+0);
+					__m256i eNE5	=_mm256_load_si256((__m256i*)(erows[1]+((kp+1*WG_NPREDS)*3+2)*NCODERS)+1);
+					__m256i eNEE0	=_mm256_load_si256((__m256i*)(erows[1]+((kp+2*WG_NPREDS)*3+0)*NCODERS)+0);//eNEE
+					__m256i eNEE1	=_mm256_load_si256((__m256i*)(erows[1]+((kp+2*WG_NPREDS)*3+0)*NCODERS)+1);
+					__m256i eNEE2	=_mm256_load_si256((__m256i*)(erows[1]+((kp+2*WG_NPREDS)*3+1)*NCODERS)+0);
+					__m256i eNEE3	=_mm256_load_si256((__m256i*)(erows[1]+((kp+2*WG_NPREDS)*3+1)*NCODERS)+1);
+					__m256i eNEE4	=_mm256_load_si256((__m256i*)(erows[1]+((kp+2*WG_NPREDS)*3+2)*NCODERS)+0);
+					__m256i eNEE5	=_mm256_load_si256((__m256i*)(erows[1]+((kp+2*WG_NPREDS)*3+2)*NCODERS)+1);
 
 					//eNE += e
 					eNE0=_mm256_add_epi16(eNE0, me0);
@@ -3519,6 +4017,80 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					_mm256_store_si256((__m256i*)(erows[1]+((kp+1*WG_NPREDS)*3+1)*NCODERS)+1, eNE3);
 					_mm256_store_si256((__m256i*)(erows[1]+((kp+1*WG_NPREDS)*3+2)*NCODERS)+0, eNE4);
 					_mm256_store_si256((__m256i*)(erows[1]+((kp+1*WG_NPREDS)*3+2)*NCODERS)+1, eNE5);
+
+					t[0]=_mm256_load_si256((__m256i*)(erows[0]+((kp-1*WG_NPREDS)*3+0)*NCODERS)+0);//eW
+					t[1]=_mm256_load_si256((__m256i*)(erows[0]+((kp-1*WG_NPREDS)*3+0)*NCODERS)+1);
+					t[2]=_mm256_load_si256((__m256i*)(erows[0]+((kp-1*WG_NPREDS)*3+1)*NCODERS)+0);
+					t[3]=_mm256_load_si256((__m256i*)(erows[0]+((kp-1*WG_NPREDS)*3+1)*NCODERS)+1);
+					t[4]=_mm256_load_si256((__m256i*)(erows[0]+((kp-1*WG_NPREDS)*3+2)*NCODERS)+0);
+					t[5]=_mm256_load_si256((__m256i*)(erows[0]+((kp-1*WG_NPREDS)*3+2)*NCODERS)+1);
+#if 1
+					//curr = (eW + min(eN, eW) + e + min(eN, eNEE))>>2
+					//curr = (2*eW+e+eNE)>>2	X
+					t[0]=_mm256_add_epi32(t[0], _mm256_min_epi16(eNW0, eN0));
+					t[1]=_mm256_add_epi32(t[1], _mm256_min_epi16(eNW1, eN1));
+					t[2]=_mm256_add_epi32(t[2], _mm256_min_epi16(eNW2, eN2));
+					t[3]=_mm256_add_epi32(t[3], _mm256_min_epi16(eNW3, eN3));
+					t[4]=_mm256_add_epi32(t[4], _mm256_min_epi16(eNW4, eN4));
+					t[5]=_mm256_add_epi32(t[5], _mm256_min_epi16(eNW5, eN5));
+					t[0]=_mm256_add_epi16(t[0], me0);
+					t[1]=_mm256_add_epi16(t[1], me1);
+					t[2]=_mm256_add_epi16(t[2], me2);
+					t[3]=_mm256_add_epi16(t[3], me3);
+					t[4]=_mm256_add_epi16(t[4], me4);
+					t[5]=_mm256_add_epi16(t[5], me5);
+					t[0]=_mm256_add_epi16(t[0], _mm256_min_epi16(eN0, eNEE0));
+					t[1]=_mm256_add_epi16(t[1], _mm256_min_epi16(eN1, eNEE1));
+					t[2]=_mm256_add_epi16(t[2], _mm256_min_epi16(eN2, eNEE2));
+					t[3]=_mm256_add_epi16(t[3], _mm256_min_epi16(eN3, eNEE3));
+					t[4]=_mm256_add_epi16(t[4], _mm256_min_epi16(eN4, eNEE4));
+					t[5]=_mm256_add_epi16(t[5], _mm256_min_epi16(eN5, eNEE5));
+					t[0]=_mm256_srli_epi16(t[0], 2);
+					t[1]=_mm256_srli_epi16(t[1], 2);
+					t[2]=_mm256_srli_epi16(t[2], 2);
+					t[3]=_mm256_srli_epi16(t[3], 2);
+					t[4]=_mm256_srli_epi16(t[4], 2);
+					t[5]=_mm256_srli_epi16(t[5], 2);
+					_mm256_store_si256((__m256i*)(erows[0]+((kp+0*WG_NPREDS)*3+0)*NCODERS)+0, t[0]);//ecurr
+					_mm256_store_si256((__m256i*)(erows[0]+((kp+0*WG_NPREDS)*3+0)*NCODERS)+1, t[1]);
+					_mm256_store_si256((__m256i*)(erows[0]+((kp+0*WG_NPREDS)*3+1)*NCODERS)+0, t[2]);
+					_mm256_store_si256((__m256i*)(erows[0]+((kp+0*WG_NPREDS)*3+1)*NCODERS)+1, t[3]);
+					_mm256_store_si256((__m256i*)(erows[0]+((kp+0*WG_NPREDS)*3+2)*NCODERS)+0, t[4]);
+					_mm256_store_si256((__m256i*)(erows[0]+((kp+0*WG_NPREDS)*3+2)*NCODERS)+1, t[5]);
+#else
+					//curr = eW + ((e-eW+(1<<3>>1))>>3)	X
+					__m256i s0=_mm256_sub_epi16(me0, t[0]);
+					__m256i s1=_mm256_sub_epi16(me1, t[1]);
+					__m256i s2=_mm256_sub_epi16(me2, t[2]);
+					__m256i s3=_mm256_sub_epi16(me3, t[3]);
+					__m256i s4=_mm256_sub_epi16(me4, t[4]);
+					__m256i s5=_mm256_sub_epi16(me5, t[5]);
+					__m256i bias=_mm256_set1_epi16(1<<2>>1);
+					s0=_mm256_add_epi16(s0, bias);
+					s1=_mm256_add_epi16(s1, bias);
+					s2=_mm256_add_epi16(s2, bias);
+					s3=_mm256_add_epi16(s3, bias);
+					s4=_mm256_add_epi16(s4, bias);
+					s5=_mm256_add_epi16(s5, bias);
+					s0=_mm256_srai_epi16(s0, 2);
+					s1=_mm256_srai_epi16(s1, 2);
+					s2=_mm256_srai_epi16(s2, 2);
+					s3=_mm256_srai_epi16(s3, 2);
+					s4=_mm256_srai_epi16(s4, 2);
+					s5=_mm256_srai_epi16(s5, 2);
+					s0=_mm256_add_epi16(s0, t[0]);
+					s1=_mm256_add_epi16(s1, t[1]);
+					s2=_mm256_add_epi16(s2, t[2]);
+					s3=_mm256_add_epi16(s3, t[3]);
+					s4=_mm256_add_epi16(s4, t[4]);
+					s5=_mm256_add_epi16(s5, t[5]);
+					_mm256_store_si256((__m256i*)(erows[0]+((kp+0*WG_NPREDS)*3+0)*NCODERS)+0, s0);//ecurr
+					_mm256_store_si256((__m256i*)(erows[0]+((kp+0*WG_NPREDS)*3+0)*NCODERS)+1, s1);
+					_mm256_store_si256((__m256i*)(erows[0]+((kp+0*WG_NPREDS)*3+1)*NCODERS)+0, s2);
+					_mm256_store_si256((__m256i*)(erows[0]+((kp+0*WG_NPREDS)*3+1)*NCODERS)+1, s3);
+					_mm256_store_si256((__m256i*)(erows[0]+((kp+0*WG_NPREDS)*3+2)*NCODERS)+0, s4);
+					_mm256_store_si256((__m256i*)(erows[0]+((kp+0*WG_NPREDS)*3+2)*NCODERS)+1, s5);
+#endif
 				}
 				//for(int kr=0;kr<6;++kr)//reuse register but fragmented access
 				//{
@@ -3534,6 +4106,7 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				erows[0]+=NCODERS*3*WG_NPREDS;
 				erows[1]+=NCODERS*3*WG_NPREDS;
 			}
+			//context update = (2*eW+(e<<3)+max(eNEE, eNEEE))>>2
 			eNEEE[0]=_mm256_load_si256((__m256i*)(rows[1]+(3+0+3*6)*NCODERS)+0);
 			eNEEE[1]=_mm256_load_si256((__m256i*)(rows[1]+(3+0+3*6)*NCODERS)+1);
 			eNEEE[2]=_mm256_load_si256((__m256i*)(rows[1]+(3+1+3*6)*NCODERS)+0);
@@ -3969,7 +4542,12 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 	t=time_sec()-t;
 	printf("%c  %12.6lf sec  %12.6lf MB/s\n", 'D'+fwd, t, usize/(t*1024*1024));
 #endif
-	prof_print(usize);
+#ifdef PROFILE_TIME
+#ifdef __GNUC__
+	if(nthreads0&4)
+#endif
+		prof_print(usize);
+#endif
 	(void)och_names;
 	(void)rct_names;
 	return 0;

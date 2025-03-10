@@ -231,7 +231,7 @@ int hammingweight16(unsigned short x);
 int hammingweight32(unsigned x);
 int hammingweight64(unsigned long long x);
 //int floor_log2_p1(unsigned long long n);
-//int floor_log2(unsigned long long n);		//use (31-_lzcnt_u64(n)) instead
+//int floor_log2(unsigned long long n);		//use (63-_lzcnt_u64(n)) instead
 //int floor_log2_32(unsigned n);		//use (31-_lzcnt_u32(n)) instead
 int ceil_log2(unsigned long long n);
 int ceil_log2_32(unsigned n);

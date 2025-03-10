@@ -5,6 +5,7 @@
 static const char file[]=__FILE__;
 
 
+	#define SINGLE_THREAD_CLI
 //	#define PROFILER
 //	#define _DEBUG
 
@@ -141,6 +142,11 @@ int main(int argc, char **argv)
 	if(argc<3||argc>4)
 	{
 		printf("Usage:\n");
+#ifdef SINGLE_THREAD_CLI
+		printf("  %s  input.ppm  output.%s  [N]    Encode file\n", argv[0], STRINGIFY(CODEC_EXT));
+		printf("  %s  input.%s  output.ppm  [4]    Decode file\n", argv[0], STRINGIFY(CODEC_EXT));
+		printf("N  =  1 Force CG | 2 Force WG4 | 4 Profile\n");
+#else
 		printf("  %s  input.ppm  output.%s  [N]    Encode file\n", argv[0], STRINGIFY(CODEC_EXT));
 		printf("  %s  input.%s  output.ppm  [N]    Decode file\n", argv[0], STRINGIFY(CODEC_EXT));
 		printf("\n");
@@ -148,6 +154,7 @@ int main(int argc, char **argv)
 		printf("  0: Use as many threads as there are cores (default).\n");
 		printf("  1: Single-threaded.\n");
 	//	printf("  %s  input.PPM          Test without saving\n", argv[0]);
+#endif
 		return 0;
 	}
 	srcfn=argv[1];
