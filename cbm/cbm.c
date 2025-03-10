@@ -397,7 +397,7 @@ static void exec_process(char *cmd, int loud, double *elapsed, long long *maxmem
 }
 static int print_rank(int rank, int total)
 {
-	int bk=rank*255/total;
+	int bk=(rank*255+(total>>1))/total;
 	bk|=(255-bk)<<8;
 	return colorprintf(COLORPRINTF_TXT_DEFAULT, bk, "%3d/%3d", rank, total);
 }
