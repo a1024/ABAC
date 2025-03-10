@@ -200,7 +200,7 @@ extern "C"
 #define LSB_IDX_16(X)	(int)_tzcnt_u16(X)
 #define HAMMING_WEIGHT(X) (int)(sizeof(X)==8?_mm_popcnt_u32(X):_mm_popcnt_u64(X))
 
-#define G_BUF_SIZE 4096
+#define G_BUF_SIZE 8192
 extern char g_buf[G_BUF_SIZE];
 
 void memfill(void *dst, const void *src, size_t dstbytes, size_t srcbytes);

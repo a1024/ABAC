@@ -34,7 +34,7 @@ typedef struct _SizeAndStr
 static int cmp_size(const void *p1, const void *p2)
 {
 	const SizeAndStr *o1=(const SizeAndStr*)p1, *o2=(const SizeAndStr*)p2;
-	return o1->size-o2->size;
+	return (int)(o1->size-o2->size);
 }
 typedef struct _UInfo
 {
@@ -730,19 +730,19 @@ dec command template
 		int printed=0;
 		if(enccmd.srcbounds[0]<enccmd.dstbounds[0])
 		{
-			printed+=snprintf(g_buf+printed, sizeof(g_buf)-1-printed, "%.*s \"%s\" %.*s \"%s\" %s",
+			printed+=snprintf(g_buf+printed, sizeof(g_buf)-1-printed, "%.*s \"%s\" %.*s \"%s.%.*s\" %s",
 				enccmd.srcbounds[0], (char*)enccmd.format->data,
 				(char*)info->filename->data,
 				enccmd.dstbounds[0]-enccmd.srcbounds[1], (char*)enccmd.format->data+enccmd.srcbounds[1],
-				(char*)tmpfn1->data,
+				(char*)tmpfn1->data, enccmd.dstbounds[1]-(enccmd.dstbounds[0]+3), (char*)enccmd.format->data+enccmd.dstbounds[0]+3,
 				(char*)enccmd.format->data+enccmd.dstbounds[1]
 			);
 		}
 		else
 		{
-			printed+=snprintf(g_buf+printed, sizeof(g_buf)-1-printed, "%.*s \"%s\" %.*s \"%s\" %s",
+			printed+=snprintf(g_buf+printed, sizeof(g_buf)-1-printed, "%.*s \"%s.%.*s\" %.*s \"%s\" %s",
 				enccmd.dstbounds[0], (char*)enccmd.format->data,
-				(char*)tmpfn1->data,
+				(char*)tmpfn1->data, enccmd.dstbounds[1]-(enccmd.dstbounds[0]+3), (char*)enccmd.format->data+enccmd.dstbounds[0]+3,
 				enccmd.srcbounds[0]-enccmd.dstbounds[1], (char*)enccmd.format->data+enccmd.dstbounds[1],
 				(char*)info->filename->data,
 				(char*)enccmd.format->data+enccmd.srcbounds[1]
@@ -752,24 +752,29 @@ dec command template
 		int decoffset=printed;
 		if(deccmd.srcbounds[0]<deccmd.dstbounds[0])
 		{
-			printed+=snprintf(g_buf+printed, sizeof(g_buf)-1-printed, "%.*s \"%s\" %.*s \"%s\" %s",
+			printed+=snprintf(g_buf+printed, sizeof(g_buf)-1-printed, "%.*s \"%s.%.*s\" %.*s \"%s.%.*s\" %s",
 				deccmd.srcbounds[0], (char*)deccmd.format->data,
-				(char*)tmpfn1->data,
+				(char*)tmpfn1->data, deccmd.srcbounds[1]-(deccmd.srcbounds[0]+3), (char*)deccmd.format->data+deccmd.srcbounds[0]+3,
 				deccmd.dstbounds[0]-deccmd.srcbounds[1], (char*)deccmd.format->data+deccmd.srcbounds[1],
-				(char*)tmpfn2->data,
+				(char*)tmpfn2->data, deccmd.dstbounds[1]-(deccmd.dstbounds[0]+3), (char*)deccmd.format->data+deccmd.dstbounds[0]+3,
 				(char*)deccmd.format->data+deccmd.dstbounds[1]
 			);
 		}
 		else
 		{
-			printed+=snprintf(g_buf+printed, sizeof(g_buf)-1-printed, "%.*s \"%s\" %.*s \"%s\" %s",
+			printed+=snprintf(g_buf+printed, sizeof(g_buf)-1-printed, "%.*s \"%s.%.*s\" %.*s \"%s.%.*s\" %s",
 				deccmd.dstbounds[0], (char*)deccmd.format->data,
-				(char*)tmpfn2->data,
+				(char*)tmpfn2->data, deccmd.dstbounds[1]-(deccmd.dstbounds[0]+3), (char*)deccmd.format->data+deccmd.dstbounds[0]+3,
 				deccmd.srcbounds[0]-deccmd.dstbounds[1], (char*)deccmd.format->data+deccmd.dstbounds[1],
-				(char*)tmpfn1->data,
+				(char*)tmpfn1->data, deccmd.srcbounds[1]-(deccmd.srcbounds[0]+3), (char*)deccmd.format->data+deccmd.srcbounds[0]+3,
 				(char*)deccmd.format->data+deccmd.srcbounds[1]
 			);
 		}
+		++printed;
+		int cfnoffset=printed;
+		printed+=snprintf(g_buf+printed, sizeof(g_buf)-1-printed, "%s.%.*s",
+			(char*)tmpfn1->data, enccmd.dstbounds[1]-(enccmd.dstbounds[0]+3), (char*)enccmd.format->data+enccmd.dstbounds[0]+3
+		);
 //#ifdef _DEBUG
 //		printf("  %s\n", g_buf+0);//
 //		printf("  %s\n", g_buf+decoffset);//
@@ -777,8 +782,8 @@ dec command template
 
 		printf("%5d %10lld", k+1, info->usize);
 		exec_process(g_buf+0, 0, &currcell->etime, &currcell->emem);
-		
-		currcell->csize=get_filesize((char*)tmpfn1->data);
+
+		currcell->csize=get_filesize(g_buf+cfnoffset);
 	//	int rank=0;
 		winners->count=0;
 		for(int k2=0;k2<(int)latesttestidx->count;++k2)
