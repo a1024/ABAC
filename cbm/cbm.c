@@ -385,7 +385,7 @@ static void exec_process(char *cmd, int loud, double *elapsed, long long *maxmem
 		}
 	}
 }
-static int print_scicolor(double x, int is_ratio)//is_ratio = 0: diff  1: ratio
+static int print_scicolor(double xprint, double xcolor, int is_ratio)//is_ratio = 0: diff  1: ratio
 {
 	int dB=0, red=0, green=0;
 	/*
@@ -405,24 +405,24 @@ static int print_scicolor(double x, int is_ratio)//is_ratio = 0: diff  1: ratio
 	*/
 	if(is_ratio)
 	{
-		dB=(int)(log10(x)*384);
+		dB=(int)(log10(xcolor)*384);
 		CLAMP2(dB, -255, 255);
-		if(x<1)//small ratio is good for the rival	eg: 0.5x time -> 2x faster
+		if(xcolor<1)//small ratio is good for the rival	eg: 0.5x time -> 2x faster
 			green=-dB;
-		else if(x>1)
+		else if(xcolor>1)
 			red=dB;
 	}
-	else if(x)
+	else if(xcolor)
 	{
-		dB=(int)round(log10(fabs(x))*256+2*256);
+		dB=(int)round(log10(fabs(xcolor))*256+2*256);
 		CLAMP2(dB, 0, 255);
-		if(x<0)//negative diff is good for the rival	eg: -300 KB
+		if(xcolor<0)//negative diff is good for the rival	eg: -300 KB
 			green=dB;
-		else if(x>0)
+		else if(xcolor>0)
 			red=dB;
 	}
 	static char str[64]={0};
-	int printed=snprintf(str, sizeof(str)-1, "%+5.0e", x);
+	int printed=snprintf(str, sizeof(str)-1, "%+5.0e", xprint);
 	if(printed!=6)
 	{
 		printed=printf("\nprint_scicolor:  %s\n", str);
@@ -452,10 +452,16 @@ static void print_rivals_v2(ArrayHandle besttestidxs, ArrayHandle testinfo, int 
 		CellInfo *cell=&test->total;
 		if(sampleidx>=0)
 			cell=(CellInfo*)array_at(&test->cells, sampleidx);
-		printf(" %X", k2&15);
-		print_scicolor(((double)cell->csize-currcell->csize)/usize, 0);
-		print_scicolor(cell->etime/currcell->etime, 1);
-		print_scicolor(cell->dtime/currcell->dtime, 1);
+		printf(" %X", (k2+1)&15);
+
+		double x=(double)cell->csize-currcell->csize;
+		print_scicolor(x, x/usize, 0);
+
+		x=cell->etime/currcell->etime;
+		print_scicolor(x, x, 1);
+
+		x=cell->dtime/currcell->dtime;
+		print_scicolor(x, x, 1);
 	}
 }
 static void print_summary(ArrayHandle besttestidxs, ArrayHandle testinfo, ptrdiff_t usize, int special)
@@ -466,22 +472,22 @@ static void print_summary(ArrayHandle besttestidxs, ArrayHandle testinfo, ptrdif
 		const double csize2=360000, etime2=1.3, dtime2=1.2;
 		double score[]=
 		{
-			(csize1-csize2)/usize,
+			csize1-csize2,
 			etime1/etime2,
 			dtime1/dtime2,
 		};
-		printf("Table notation \"+SSE+ED+D\":    for example {(%g-%g)/%g, %g/%g, %g/%g} = {%+g%%, %gx, %gx} -> ",
-			csize1, csize2, usize,
+		printf("Table notation \"+SSE+ED+D\":    for example {%g-%g, %g/%g, %g/%g} = {%+.2lf KB, %gx, %gx} -> ",
+			csize1, csize2,
 			etime1, etime2,
 			dtime1, dtime2,
-			score[0]*100, score[1], score[2]
+			score[0]/1024, score[1], score[2]
 		);
-		print_scicolor((csize1-csize2)/usize, 0);
-		print_scicolor(etime1/etime2, 1);
-		print_scicolor(dtime1/dtime2, 1);
+		print_scicolor(score[0], score[0]/usize, 0);
+		print_scicolor(score[1], score[1], 1);
+		print_scicolor(score[2], score[2], 1);
 		printf("\n");
-		printf("  SS    = size diff  = {SIGN    MSDIGIT * EXP10} = (prevcsize-currcsize)/usize\n");
-		printf("  EE=DD = time ratio = {MSDIGIT * EXPSIGN EXP10} = prevtime/currtime\n");
+		printf("  +SS      = size diff   = {SIGN MSDIGIT * 10 ^      EXP} = listcsize - yourcsize\n");
+		printf("  E+E, D+D = time ratios = {     MSDIGIT * 10 ^ SIGN EXP} = listtime / yourtime\n");
 		printf("The goal is to paint the rivals ");
 		colorprintf(COLORPRINTF_TXT_DEFAULT, 255, "RED");
 		printf("\n");
@@ -493,14 +499,14 @@ static void print_summary(ArrayHandle besttestidxs, ArrayHandle testinfo, ptrdif
 		if((unsigned)special<(unsigned)besttestidxs->count)
 		{
 			if(k2==special)
-				printf("\n* -> %X", k2&15);
+				printf("\n* -> %X", (k2+1)&15);
 			else if(k2<special)
-				printf("%X     ", k2&15);
+				printf("%X     ", (k2+1)&15);
 			else
-				printf("%X -> %X", (k2-1)&15, k2&15);
+				printf("%X -> %X", k2&15, (k2+1)&15);
 		}
 		else
-			printf("%X", k2&15);
+			printf("%X", (k2+1)&15);
 		printf("  %10lld B  %12.6lf %12.6lf sec  %12.6lf %12.6lf MB/s %8.2lf %8.2lf MB  ",
 			test->total.csize,
 			test->total.etime,
@@ -557,7 +563,7 @@ int main(int argc, char **argv)
 	codecname=argv[2];
 #else
 	datasetname="div2k";
-	codecname="c29e";
+	codecname="c29ecg";
 #endif
 	char programpath[MAX_PATH+1]={0};
 	ArrayHandle tmpfn1=0, tmpfn2=0;
@@ -697,7 +703,9 @@ dec command template
 					||(unsigned)date.tm_mon>=12
 					||date.tm_year<2025-1900
 				)
-					LOG_ERROR("Invalid timestamp %04d-%02d-%02d_%02d-%02d-%02d", date.tm_year+1900, date.tm_mon+1, date.tm_mday, date.tm_hour, date.tm_min, date.tm_sec);
+					LOG_ERROR("Invalid timestamp %04d-%02d-%02d_%02d-%02d-%02d",
+						date.tm_year+1900, date.tm_mon+1, date.tm_mday, date.tm_hour, date.tm_min, date.tm_sec
+					);
 				info->timestamp=mktime(&date);
 
 				parse_cell(&ptr, &info->total);
@@ -895,13 +903,19 @@ dec command template
 	print_summary(besttestidxs, testinfo, usize, -1);
 	printf("\n");
 	print_currtimestamp("%Y-%m-%d_%H%M%S");
-	printf("  %s %d  %s\n", datasetname, (int)uinfo->count, codecname);
+	printf("  ");
+	colorprintf(COLORPRINTF_TXT_DEFAULT^0xFFFFFF, 0xC060FF, "%s", datasetname);
+	printf(" ");
+	colorprintf(COLORPRINTF_TXT_DEFAULT^0xFFFFFF, 0xFFC060, "%s", codecname);
+	printf("  %d images\n", (int)uinfo->count);
+//	printf("  %s %d  %s\n", datasetname, (int)uinfo->count, codecname);
 	currtest->timestamp=time(0);
 	for(int k=0;k<(int)uinfo->count;++k)
 	{
 		UInfo *info=(UInfo*)array_at(&uinfo, k);
 		CellInfo *currcell=(CellInfo*)array_at(&currtest->cells, k);
 		int printed=0;
+		const int encoffset=0;
 		if(enccmd.srcbounds[0]<enccmd.dstbounds[0])
 		{
 			printed+=snprintf(g_buf+printed, sizeof(g_buf)-1-printed, "%.*s \"%s\" %.*s \"%s.%.*s\" %s",
@@ -945,43 +959,45 @@ dec command template
 			);
 		}
 		++printed;
-		int cfnoffset=printed;
+		int t1offset=printed;
 		printed+=snprintf(g_buf+printed, sizeof(g_buf)-1-printed, "%s.%.*s",
 			(char*)tmpfn1->data, enccmd.dstbounds[1]-(enccmd.dstbounds[0]+3), (char*)enccmd.format->data+enccmd.dstbounds[0]+3
 		);
 //#ifdef _DEBUG
 //		printf("\n");//
-//		printf("\"%s\"\n", g_buf+cfnoffset);//
-//		printf("  %s\n", g_buf+0);//
+//		printf("\"%s\"\n", g_buf+t1offset);//
+//		printf("  %s\n", g_buf+encoffset);//
 //		printf("  %s\n", g_buf+decoffset);//
 //#endif
-		
-		int kslash=(int)info->filename->count-1;
-		while(kslash>=0&&info->filename->data[kslash]!='/'&&info->filename->data[kslash]!='\\')--kslash;
-		kslash+=kslash!=0;
-		int kdot=(int)info->filename->count-1;
-		while(kdot>=0&&info->filename->data[kdot]!='.')--kdot;
-		if(kdot<=kslash)
-			kdot=(int)info->filename->count;
-		//Print 1:  idx filetitle usize			print filetitle first in case of a CRASH
-		printf("%5d %-*.*s %10lld", k+1, titlecolwidth, kdot-kslash, (char*)info->filename->data+kslash, info->usize);
 
-		exec_process(g_buf+0, 0, &currcell->etime, &currcell->emem);
-		currcell->csize=get_filesize(g_buf+cfnoffset);
+		int titlestart=0, titleend=0;
+		get_filetitle((char*)info->filename->data, (int)info->filename->count, &titlestart, &titleend);
 
-		//Print 2:  csize etime
+		//Print 1:  idx filetitle usize			//print filetitle first in case of CRASH
+		printf("%5d %-*.*s %10lld",
+			k+1,
+			titlecolwidth, titleend-titlestart, (char*)info->filename->data+titlestart,
+			info->usize
+		);
+
+		exec_process(g_buf+encoffset, 0, &currcell->etime, &currcell->emem);
+		currcell->csize=get_filesize(g_buf+t1offset);
+
+		//Print 2:  -> csize etime
 		printf(" -> %10lld B  %12.6lf", currcell->csize, currcell->etime);
 		if(!currcell->csize)
 		{
 			printf("\n");
 			printf("Temp. file #1 not found:\n");
-			printf("  \"%s\"\n", g_buf+cfnoffset);
+			printf("  \"%s\"\n", g_buf+t1offset);
+			printf("The encode command was:\n");
+			printf("  %s\n", g_buf+encoffset);
 			LOG_ERROR("");
 		}
 		
 		exec_process(g_buf+decoffset, 0, &currcell->dtime, &currcell->dmem);
 		
-		//Print 3:  dtime espeed dspeed emem dmem	rivals
+		//Print 3:  dtime espeed dspeed emem dmem  rivals
 		printf(" %12.6lf sec  %12.6lf %12.6lf MB/s %8.2lf %8.2lf MB ",
 			currcell->dtime,
 			info->usize/(currcell->etime*1024*1024),
@@ -1002,9 +1018,9 @@ dec command template
 	}
 	printf("\n");
 	{
-		printf("%5d ",(int)uinfo->count);
-		colorprintf(COLORPRINTF_TXT_DEFAULT, 0xC00000, "%-*s", titlecolwidth, codecname);//print codecname at the end instead of datasetname because you can already infer that from filetitles printed above
-		printf(" %10lld -> %10lld B  %12.6lf %12.6lf sec  %12.6lf %12.6lf MB/s %8.2lf %8.2lf MB ",
+		printf("%5d %*s %10lld -> %10lld B  %12.6lf %12.6lf sec  %12.6lf %12.6lf MB/s %8.2lf %8.2lf MB ",
+			(int)uinfo->count,
+			titlecolwidth, "",
 			usize,
 			currtest->total.csize,
 			currtest->total.etime,
@@ -1016,7 +1032,13 @@ dec command template
 		);
 		print_rivals_v2(besttestidxs, testinfo, -1, &currtest->total, usize);
 		printf("\n");
-		print_currtimestamp("%Y-%m-%d_%H%M%S\n");
+
+		print_currtimestamp("%Y-%m-%d_%H%M%S");
+		printf("  ");
+		colorprintf(COLORPRINTF_TXT_DEFAULT^0xFFFFFF, 0xC060FF, "%s", datasetname);
+		printf(" ");
+		colorprintf(COLORPRINTF_TXT_DEFAULT^0xFFFFFF, 0xFFC060, "%s", codecname);
+		printf("  %lf sec\n", currtest->total.etime+currtest->total.dtime);
 		
 		printf("\n");
 		int rank=0, *idx=0;
