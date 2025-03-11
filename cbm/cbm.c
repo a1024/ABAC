@@ -3,6 +3,7 @@
 #include<stdlib.h>
 #include<string.h>
 #include<ctype.h>
+#include<math.h>
 #include<time.h>
 #include<Windows.h>
 #include<Psapi.h>
@@ -17,7 +18,7 @@ static int acme_getline(char *buf, int len, FILE *f)
 	buf[k]=0;
 	return k;
 }
-static int acme_strnimatch(const char *s1, ptrdiff_t len1, const char *s2, ptrdiff_t len2)//1: match	FIXME return ASCII order & index of first difference
+static int acme_strnimatch(const char *s1, ptrdiff_t len1, const char *s2, ptrdiff_t len2)//return 1: match		FIXME return ASCII order & index of first difference
 {
 	if(len1!=len2)
 		return 0;
@@ -26,15 +27,25 @@ static int acme_strnimatch(const char *s1, ptrdiff_t len1, const char *s2, ptrdi
 	return s1==end1;
 }
 
-typedef struct _SizeAndStr
+//GDCC score
+#define CALCSCORE(CSIZE, ENC, DEC) ((CSIZE)*(1./(1024*1024))+(ENC)+(DEC)*2)
+
+typedef struct _RivalInfo
 {
+	double score;
 	ptrdiff_t size;
 	const char *str;
-} SizeAndStr;
-static int cmp_size(const void *p1, const void *p2)
+	time_t timestamp;
+	int isself;
+} RivalInfo;
+static int rival_cmp(const void *p1, const void *p2)//for use with isort()
 {
-	const SizeAndStr *o1=(const SizeAndStr*)p1, *o2=(const SizeAndStr*)p2;
-	return (int)(o1->size-o2->size);
+	const RivalInfo *o1=(const RivalInfo*)p1, *o2=(const RivalInfo*)p2;
+	if(o1->size==o2->size)//prefer fastest
+		return -(o1->score<o2->score);
+	return -(o1->size<o2->size);
+
+//	return -(o1->size<=o2->size);//prefer newest
 }
 typedef struct _UInfo
 {
@@ -143,8 +154,6 @@ static long long parse_uint(const char **ptr)
 	const char *ptr2=*ptr;
 	long long val=0;
 	skipspace(&ptr2);
-	//while(*ptr2&&isspace(*ptr2++));
-	//ptr2-=*ptr2!=0;
 	while((unsigned)(*ptr2-'0')<10)
 		val=10*val+*ptr2++-'0';
 	*ptr=ptr2;
@@ -155,8 +164,6 @@ static double parse_float(const char **ptr)
 	const char *ptr2=*ptr;
 	double val=0;
 	skipspace(&ptr2);
-	//while(*ptr2&&isspace(*ptr2++));
-	//ptr2-=*ptr2!=0;
 	while((unsigned)(*ptr2-'0')<10)
 		val=10*val+*ptr2++-'0';
 	if(*ptr2=='.')
@@ -181,7 +188,7 @@ static void parse_cell(const char **ptr, CellInfo *cell)
 	cell->emem=parse_uint(ptr);
 	cell->dmem=parse_uint(ptr);
 }
-static int strimatch(const char *text, const char *label)//1: match
+static int strimatch(const char *text, const char *label)//return 1: match
 {
 	while(*label&&tolower(*text++)==tolower(*label++));
 	return !*label;
@@ -395,18 +402,109 @@ static void exec_process(char *cmd, int loud, double *elapsed, long long *maxmem
 		}
 	}
 }
-static int print_rank(int rank, int total)
+static int print_rank(int rank, int total)//rank,total >= 1
 {
-	int bk=(rank*255+(total>>1))/total;
-	bk|=(255-bk)<<8;
-	return colorprintf(COLORPRINTF_TXT_DEFAULT, bk, "%3d/%3d", rank, total);
+	int green=total>1?(total-rank)*255/(total-1):255;//1/1 green  1/2 red  2/2 green  ...
+	int red=255-green;
+	return colorprintf(green>128?COLORPRINTF_TXT_DEFAULT^0xFFFFFF:COLORPRINTF_TXT_DEFAULT, green<<8|red, "%3d/%3d", rank, total);
+}
+static void get_rivals(ArrayHandle *rivals, int *prank, ptrdiff_t *pcolorrange,
+	ArrayHandle besttestidxs, ArrayHandle testinfo, const TestInfo *currtest, int sampleidx, const CellInfo *currcell
+)
+{
+	double currscore=CALCSCORE(currcell->csize, currcell->etime, currcell->dtime);
+	rivals[0]->count=0;
+	ptrdiff_t minsize=0, maxsize=0;
+	{
+		RivalInfo *rival=ARRAY_APPEND(*rivals, 0, 1, 1, 0);
+		rival->score=currscore;
+		rival->size=currcell->csize;
+		rival->str=(char*)currtest->codecname->data;
+		rival->timestamp=currtest->timestamp;
+		rival->isself=1;
+		minsize=currcell->csize;
+		maxsize=currcell->csize;
+	}
+	for(int k2=0;k2<(int)besttestidxs->count;++k2)
+	{
+		int *idx=(int*)array_at(&besttestidxs, k2);
+		TestInfo *test=(TestInfo*)array_at(&testinfo, *idx);
+		CellInfo *cell=&test->total;
+		if(sampleidx>=0)
+			cell=(CellInfo*)array_at(&test->cells, sampleidx);
+		double score2=CALCSCORE(cell->csize, cell->etime, cell->dtime);
+		if(fabs(currscore-score2)<0.05*currscore)//score within +-5%
+		{
+			RivalInfo *rival=ARRAY_APPEND(*rivals, 0, 1, 1, 0);
+			rival->score=score2;
+			rival->size=cell->csize;
+			rival->str=(char*)test->codecname->data;
+			rival->timestamp=test->timestamp;
+			if(minsize>cell->csize)minsize=cell->csize;
+			if(maxsize<cell->csize)maxsize=cell->csize;
+		}
+	}
+	ptrdiff_t colorrange=maxsize-currcell->csize;
+	{
+		ptrdiff_t r2=currcell->csize-minsize;
+		if(colorrange<r2)
+			colorrange=r2;
+	}
+	isort(rivals[0]->data, rivals[0]->count, rivals[0]->esize, rival_cmp);
+	int rank=0;
+	for(;rank<(int)rivals[0]->count;++rank)
+	{
+		RivalInfo *rival=(RivalInfo*)array_at(&rivals[0], rank);
+		if(rival->isself)
+			break;
+	}
+	*prank=rank+1;
+	*pcolorrange=colorrange;
+}
+static void print_rivals(ArrayHandle rivals, const CellInfo *currcell, ptrdiff_t colorrange)
+{
+	if(rivals->count<=1)
+		return;
+	double currscore=CALCSCORE(currcell->csize, currcell->etime, currcell->dtime);
+	printf("\t");
+	for(int k2=0;k2<(int)rivals->count;++k2)
+	{
+		RivalInfo *rival=(RivalInfo*)array_at(&rivals, k2);
+		if(rival->isself)
+			printf(" *");
+		else
+		{
+			int red=0, green=0;
+			ptrdiff_t diff=rival->size-currcell->csize;
+			printf(" ");
+			if(diff)
+			{
+				if(diff<0)
+					green=(int)((-diff*255+colorrange)/(colorrange+1));
+				else if(diff>0)
+					red=(int)((diff*255+colorrange)/(colorrange+1));
+				colorprintf(green>128?COLORPRINTF_TXT_DEFAULT^0xFFFFFF:COLORPRINTF_TXT_DEFAULT, green<<8|red, "%s%+td", rival->str, diff);
+			}
+			else
+			{
+				static char buf[128]={0};
+				print_timestamp(buf, sizeof(buf), rival->timestamp);
+				double diff2=rival->score-currscore;
+				if(diff2<0)//new lost
+					green=128;
+				else if(diff2>0)//new won
+					red=128;
+				colorprintf(green>128?COLORPRINTF_TXT_DEFAULT^0xFFFFFF:COLORPRINTF_TXT_DEFAULT, green<<8|red, "%s %s%+.2lf", rival->str, buf, diff2);
+			}
+		}
+	}
 }
 static void print_usage(const char *argv0)
 {
 	printf(
 		"Usage:    %s  DATASET  CODEC\n"
-		"Example:  %s  div2k    libjxl\n"
-		"You will be prompted to define the DATASET and CODEC macros.\n"
+		"Example:  %s  div2k    jxl7\n"
+		"You will be prompted to define DATASET and CODEC.\n"
 		, argv0, argv0
 	);
 }
@@ -428,9 +526,10 @@ int main(int argc, char **argv)
 #endif
 	char programpath[MAX_PATH+1]={0};
 	ArrayHandle tmpfn1=0, tmpfn2=0;
-	ArrayHandle srcpath=0, ext=0, uinfo=0, testinfo=0, latesttestidx=0;
+	ArrayHandle srcpath=0, ext=0, uinfo=0, testinfo=0;
 	CommandFormat enccmd={0}, deccmd={0};
-	ArrayHandle winners=0;
+
+	ArrayHandle besttestidxs=0, rivals=0;
 
 	//1. get program path
 	{
@@ -604,38 +703,56 @@ dec command template
 			ARRAY_ALLOC(TestInfo, testinfo, 0, 0, 0, free_testinfo);
 		}
 	}
-	ARRAY_ALLOC(int, latesttestidx, 0, testinfo->count, 0, 0);
-	for(int k=0;k<(int)testinfo->count;++k)
+	int titlecolwidth=(int)strlen(codecname);
+	for(int k=0;k<(int)uinfo->count;++k)//get filetitle column width
 	{
-		int *idx=(int*)array_at(&latesttestidx, k);
-		*idx=k;
+		UInfo *info=(UInfo*)array_at(&uinfo, k);
+		int start=0, end=0;
+		get_filetitle((char*)info->filename->data, (int)info->filename->count, &start, &end);
+		int width=end-start;
+		if(titlecolwidth<width)
+			titlecolwidth=width;
 	}
-	for(int k=1;k<(int)latesttestidx->count;++k)
+	ARRAY_ALLOC(int, besttestidxs, 0, 0, testinfo->count, 0);
 	{
-		for(int k2=0;k2<k;++k2)
+		int *idx=(int*)ARRAY_APPEND(besttestidxs, 0, 1, 1, 0);
+		*idx=0;
+	}
+	for(int k=1;k<(int)testinfo->count;++k)//select best prev tests
+	{
+		TestInfo *test1=(TestInfo*)array_at(&testinfo, k);
+		double score1=CALCSCORE(test1->total.csize, test1->total.etime, test1->total.dtime);
+		int encountered=0, bestsofar=1;
+		for(int k2=0;k2<k;++k2)//compare with previous tests
 		{
-			int *idx1=(int*)array_at(&latesttestidx, k);
-			TestInfo *test1=(TestInfo*)array_at(&testinfo, *idx1);
-			int *idx2=(int*)array_at(&latesttestidx, k2);
-			TestInfo *test2=(TestInfo*)array_at(&testinfo, *idx2);
-			if(acme_strnimatch((char*)test1->codecname->data, test1->codecname->count, (char*)test2->codecname->data, test2->codecname->count))
+			TestInfo *test2=(TestInfo*)array_at(&testinfo, k2);
+			if(acme_strnimatch((char*)test2->codecname->data, test2->codecname->count, (char*)test1->codecname->data, test1->codecname->count))
 			{
-				if(test1->timestamp<test2->timestamp)//test2 is latest
+				double score2=CALCSCORE(test2->total.csize, test2->total.etime, test2->total.dtime);
+				encountered=1;
+				if(score2<score1)//new test loses
 				{
-					array_erase(&latesttestidx, k, 1);
-					--k;
+					bestsofar=0;
 					break;
 				}
-				else//test1 is latest
+				for(int k3=0;k3<(int)besttestidxs->count;++k3)//new test surpasses previous test
 				{
-					array_erase(&latesttestidx, k2, 1);
-					--k2;
-					--k;
+					int *idx=(int*)array_at(&besttestidxs, k3);
+					if(*idx==k2)
+					{
+						array_erase(&besttestidxs, k3, 1);
+						break;
+					}
 				}
 			}
 		}
+		if(!encountered||bestsofar)
+		{
+			int *idx=(int*)ARRAY_APPEND(besttestidxs, 0, 1, 1, 0);
+			*idx=k;
+		}
 	}
-	ARRAY_ALLOC(SizeAndStr, winners, 0, 0, latesttestidx->count, 0);
+	ARRAY_ALLOC(RivalInfo, rivals, 0, 0, besttestidxs->count+1, 0);//make way for rivals+me
 
 	//4. get command templates
 	snprintf(g_buf, sizeof(g_buf)-1, "%szzzcode_%s.txt", programpath, codecname);
@@ -720,7 +837,7 @@ dec command template
 	TestInfo *currtest=(TestInfo*)ARRAY_APPEND(testinfo, 0, 1, 1, 0);
 	STR_COPY(currtest->codecname, codecname, strlen(codecname));
 	ARRAY_ALLOC(CellInfo, currtest->cells, 0, uinfo->count, 0, 0);
-	print_timestamp("%Y-%m-%d_%H%M%S");
+	print_currtimestamp("%Y-%m-%d_%H%M%S");
 	printf("  %s  %s\n", datasetname, codecname);
 	currtest->timestamp=time(0);
 	for(int k=0;k<(int)uinfo->count;++k)
@@ -776,47 +893,12 @@ dec command template
 			(char*)tmpfn1->data, enccmd.dstbounds[1]-(enccmd.dstbounds[0]+3), (char*)enccmd.format->data+enccmd.dstbounds[0]+3
 		);
 //#ifdef _DEBUG
+//		printf("\n");//
+//		printf("\"%s\"\n", g_buf+cfnoffset);//
 //		printf("  %s\n", g_buf+0);//
 //		printf("  %s\n", g_buf+decoffset);//
 //#endif
-
-		printf("%5d %10lld", k+1, info->usize);
-		exec_process(g_buf+0, 0, &currcell->etime, &currcell->emem);
-
-		currcell->csize=get_filesize(g_buf+cfnoffset);
-	//	int rank=0;
-		winners->count=0;
-		for(int k2=0;k2<(int)latesttestidx->count;++k2)
-		{
-			int *idx=(int*)array_at(&latesttestidx, k2);
-			TestInfo *test=(TestInfo*)array_at(&testinfo, *idx);
-			CellInfo *cell=(CellInfo*)array_at(&test->cells, k);
-		//	rank+=currcell->csize>cell->csize;
-			if(currcell->csize>cell->csize)
-			{
-				++winners->count;
-				SizeAndStr *winner=(SizeAndStr*)array_at(&winners, winners->count-1);
-				winner->size=cell->csize;
-				winner->str=(char*)test->codecname->data;
-			}
-		}
-		isort(winners->data, winners->count, winners->esize, cmp_size);
-		printf(" -> %10lld B  ", currcell->csize);
-		print_rank((int)winners->count+1, (int)latesttestidx->count+1);
-		//int bk=(rank+1)*255/((int)latesttestidx->count+1);
-		//bk|=(255-bk)<<8;
-		//colorprintf(COLORPRINTF_TXT_DEFAULT, bk, "#%4d/%4d", rank+1, (int)latesttestidx->count+1);
-		printf("  %12.6lf sec %12.6lf MB/s %8.2lf MB",
-			currcell->etime, info->usize/(currcell->etime*1024*1024),
-			(double)currcell->emem/(1024*1024)
-		);
-		//printf(" -> %10lld B  #%4d/%4d  %12.6lf sec %12.6lf MB/s %8.2lf MB",
-		//	currcell->csize, rank+1, (int)latesttestidx->count+1,
-		//	currcell->etime, info->usize/(currcell->etime*1024*1024),
-		//	(double)currcell->emem/(1024*1024)
-		//);
 		
-		exec_process(g_buf+decoffset, 0, &currcell->dtime, &currcell->dmem);
 		int kslash=(int)info->filename->count-1;
 		while(kslash>=0&&info->filename->data[kslash]!='/'&&info->filename->data[kslash]!='\\')--kslash;
 		kslash+=kslash!=0;
@@ -824,29 +906,31 @@ dec command template
 		while(kdot>=0&&info->filename->data[kdot]!='.')--kdot;
 		if(kdot<=kslash)
 			kdot=(int)info->filename->count;
-		printf(" -> %12.6lf sec %12.6lf MB/s %8.2lf MB  %.*s",
-			currcell->dtime, info->usize/(currcell->dtime*1024*1024),
-			(double)currcell->dmem/(1024*1024),
-			kdot-kslash, (char*)info->filename->data+kslash
+		//Print 1:  idx filetitle usize			print filetitle first in case of a CRASH
+		printf("%5d %-*.*s %10lld", k+1, titlecolwidth, kdot-kslash, (char*)info->filename->data+kslash, info->usize);
+
+		exec_process(g_buf+0, 0, &currcell->etime, &currcell->emem);
+		currcell->csize=get_filesize(g_buf+cfnoffset);
+
+		//Print 2:  csize etime
+		printf(" -> %10lld B  %12.6lf", currcell->csize, currcell->etime);
+		
+		exec_process(g_buf+decoffset, 0, &currcell->dtime, &currcell->dmem);
+
+		int rank=0;
+		ptrdiff_t colorrange=0;
+		get_rivals(&rivals, &rank, &colorrange, besttestidxs, testinfo, currtest, k, currcell);
+		
+		//Print 3:  dtime espeed dspeed emem dmem	rank	[rivals]
+		printf(" %12.6lf sec  %12.6lf %12.6lf MB/s %8.2lf %8.2lf MB ",
+			currcell->dtime,
+			info->usize/(currcell->etime*1024*1024),
+			info->usize/(currcell->dtime*1024*1024),
+			(double)currcell->emem/(1024*1024),
+			(double)currcell->dmem/(1024*1024)
 		);
-		if(winners->count)
-		{
-			printf("   ");
-			for(int k2=0;k2<(int)winners->count;++k2)
-			{
-				SizeAndStr *winner=(SizeAndStr*)array_at(&winners, k2);
-				printf(" %s", winner->str);
-				printf(" %td", winner->size);//
-			}
-		}
-		//for(int k2=0;k2<(int)latesttestidx->count;++k2)
-		//{
-		//	int *idx=(int*)array_at(&latesttestidx, k2);
-		//	TestInfo *test=(TestInfo*)array_at(&testinfo, *idx);
-		//	CellInfo *cell=(CellInfo*)array_at(&test->cells, k);
-		//	if(currcell->csize>cell->csize)
-		//		printf(" %s", (char*)test->codecname->data);
-		//}
+		print_rank(rank, (int)rivals->count);
+		print_rivals(rivals, currcell, colorrange);
 		printf("\n");
 
 		usize+=info->usize;
@@ -858,59 +942,38 @@ dec command template
 		if(currtest->total.dmem<currcell->dmem)
 			currtest->total.dmem=currcell->dmem;
 	}
+	printf("\n");
 	{
-		printf("\n");
-
-	//	int rank=0;
-		winners->count=0;
-		for(int k2=0;k2<(int)latesttestidx->count;++k2)
-		{
-			int *idx=(int*)array_at(&latesttestidx, k2);
-			TestInfo *test=(TestInfo*)array_at(&testinfo, *idx);
-		//	rank+=currtest->total.csize>test->total.csize;
-			if(currtest->total.csize>test->total.csize)
-			{
-				++winners->count;
-				SizeAndStr *winner=(SizeAndStr*)array_at(&winners, winners->count-1);
-				winner->size=test->total.csize;
-				winner->str=(char*)test->codecname->data;
-			}
-		}
-		isort(winners->data, winners->count, winners->esize, cmp_size);
-		printf("%5d %10lld -> %10lld B  ", (int)uinfo->count, usize, currtest->total.csize);
-		print_rank((int)winners->count+1, (int)latesttestidx->count+1);
-		//int bk=(rank+1)*255/((int)latesttestidx->count+1);
-		//bk|=(255-bk)<<8;
-		//colorprintf(COLORPRINTF_TXT_DEFAULT, bk, "#%4d/%4d", rank+1, (int)latesttestidx->count+1);
-		printf("  %12.6lf sec %12.6lf MB/s %8.2lf MB -> %12.6lf sec %12.6lf MB/s %8.2lf MB",
-			currtest->total.etime, usize/(currtest->total.etime*1024*1024), (double)currtest->total.emem/(1024*1024),
-			currtest->total.dtime, usize/(currtest->total.dtime*1024*1024), (double)currtest->total.dmem/(1024*1024)
+		int rank=0;
+		ptrdiff_t colorrange=0;
+		get_rivals(&rivals, &rank, &colorrange, besttestidxs, testinfo, currtest, -1, &currtest->total);
+		printf("%5d ",(int)uinfo->count);
+		colorprintf(COLORPRINTF_TXT_DEFAULT, 0xC00000, "%-*s", titlecolwidth, codecname);//print codecname at the end instead of datasetname because you can already infer that from filetitles printed above
+		printf(" %10lld -> %10lld B  %12.6lf %12.6lf sec  %12.6lf %12.6lf MB/s %8.2lf %8.2lf MB ",
+			usize,
+			currtest->total.csize,
+			currtest->total.etime,
+			currtest->total.dtime,
+			usize/(currtest->total.etime*1024*1024),
+			usize/(currtest->total.dtime*1024*1024),
+			(double)currtest->total.emem/(1024*1024),
+			(double)currtest->total.dmem/(1024*1024)
 		);
-		if(winners->count)
-		{
-			printf("   ");
-			for(int k2=0;k2<(int)winners->count;++k2)
-			{
-				SizeAndStr *winner=(SizeAndStr*)array_at(&winners, k2);
-				printf(" %s", winner->str);
-				printf(" %td", winner->size);//
-			}
-		}
-		//for(int k2=0;k2<(int)latesttestidx->count;++k2)
-		//{
-		//	int *idx=(int*)array_at(&latesttestidx, k2);
-		//	TestInfo *test=(TestInfo*)array_at(&testinfo, *idx);
-		//	if(currtest->total.csize>test->total.csize)
-		//		printf(" %s", (char*)test->codecname->data);
-		//}
-		printf("\n");
-
-		//printf("%5d %10lld -> %10lld B  #%4d/%4d  %12.6lf sec %12.6lf MB/s %8.2lf MB -> %12.6lf sec %12.6lf MB/s %8.2lf MB\n",
+		//printf("%5d %-*s %10lld -> %10lld B  %12.6lf %12.6lf sec  %12.6lf %12.6lf MB/s %8.2lf %8.2lf MB ",
 		//	(int)uinfo->count,
-		//	usize, currtest->total.csize, rank+1, (int)latesttestidx->count+1,
-		//	currtest->total.etime, usize/(currtest->total.etime*1024*1024), (double)currtest->total.emem/(1024*1024),
-		//	currtest->total.dtime, usize/(currtest->total.dtime*1024*1024), (double)currtest->total.dmem/(1024*1024)
+		//	titlecolwidth, codecname,
+		//	usize,
+		//	currtest->total.csize,
+		//	currtest->total.etime,
+		//	currtest->total.dtime,
+		//	usize/(currtest->total.etime*1024*1024),
+		//	usize/(currtest->total.dtime*1024*1024),
+		//	(double)currtest->total.emem/(1024*1024),
+		//	(double)currtest->total.dmem/(1024*1024)
 		//);
+		print_rank(rank, (int)rivals->count);
+		print_rivals(rivals, &currtest->total, colorrange);
+		printf("\n");
 	}
 #if 1
 	{
@@ -933,7 +996,7 @@ dec command template
 		}
 	}
 #endif
-	print_timestamp("%Y-%m-%d_%H%M%S\n");
+	print_currtimestamp("%Y-%m-%d_%H%M%S\n");
 
 	//6. save
 #if 1
@@ -986,7 +1049,7 @@ dec command template
 	array_free(&testinfo);
 	array_free(&tmpfn1);
 	array_free(&tmpfn2);
-	array_free(&latesttestidx);
-	array_free(&winners);
+	array_free(&besttestidxs);
+	array_free(&rivals);
 	return 0;
 }

@@ -1084,11 +1084,33 @@ int acme_strftime(char *buf, size_t len, const char *format)
 	return (int)strftime(buf, len, format, tformat);
 #endif
 }
-int print_timestamp(const char *format)
+int print_currtimestamp(const char *format)
 {
 	acme_strftime(g_buf, sizeof(g_buf)-1, format);
 	return printf("%s", g_buf);
 }
+int print_timestamp(char *dst, ptrdiff_t len, time_t timestamp)
+{
+	struct tm *t=localtime(&timestamp);
+	if(dst&&len)
+		return snprintf(dst, len-1, "%04d%02d%02d_%02d%02d%02d",
+			t->tm_year+1900,
+			t->tm_mon+1,
+			t->tm_mday,
+			t->tm_hour,
+			t->tm_min,
+			t->tm_sec
+		);
+	return printf("%04d%02d%02d_%02d%02d%02d",
+		t->tm_year+1900,
+		t->tm_mon+1,
+		t->tm_mday,
+		t->tm_hour,
+		t->tm_min,
+		t->tm_sec
+	);
+}
+
 int print_bin8(int x)
 {
 	//printf("0b");
