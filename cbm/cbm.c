@@ -30,23 +30,6 @@ static int acme_strnimatch(const char *s1, ptrdiff_t len1, const char *s2, ptrdi
 //GDCC score
 #define CALCSCORE(CSIZE, ENC, DEC) ((CSIZE)*(1./(1024*1024))+(ENC)+(DEC)*2)
 
-typedef struct _RivalInfo
-{
-	double score;
-	ptrdiff_t size;
-	const char *str;
-	time_t timestamp;
-	int isself;
-} RivalInfo;
-static int rival_cmp(const void *p1, const void *p2)//for use with isort()
-{
-	const RivalInfo *o1=(const RivalInfo*)p1, *o2=(const RivalInfo*)p2;
-	if(o1->size==o2->size)//prefer fastest
-		return -(o1->score<o2->score);
-	return -(o1->size<o2->size);
-
-//	return -(o1->size<=o2->size);//prefer newest
-}
 typedef struct _UInfo
 {
 	long long usize;
@@ -402,29 +385,66 @@ static void exec_process(char *cmd, int loud, double *elapsed, long long *maxmem
 		}
 	}
 }
-static int print_rank(int rank, int total)//rank,total >= 1
+static int print_scicolor(double x, int is_ratio)//is_ratio = 0: diff  1: ratio
 {
-	int green=total>1?(total-rank)*255/(total-1):255;//1/1 green  1/2 red  2/2 green  ...
-	int red=255-green;
-	return colorprintf(green>128?COLORPRINTF_TXT_DEFAULT^0xFFFFFF:COLORPRINTF_TXT_DEFAULT, green<<8|red, "%3d/%3d", rank, total);
-}
-static void get_rivals(ArrayHandle *rivals, int *prank, ptrdiff_t *pcolorrange,
-	ArrayHandle besttestidxs, ArrayHandle testinfo, const TestInfo *currtest, int sampleidx, const CellInfo *currcell
-)
-{
-	double currscore=CALCSCORE(currcell->csize, currcell->etime, currcell->dtime);
-	rivals[0]->count=0;
-	ptrdiff_t minsize=0, maxsize=0;
+	int dB=0, red=0, green=0;
+	/*
+	diff:
+	x		log10(x)	round((log10(x)+2)*256)
+	200KB/8MB	-1.60		101
+	300KB/10MB	-1.52		121
+	400KB/10MB			178
+
+	ratio:
+	x		log10(x)	round(log10(x)*128)
+	0.01x		-2		-256
+	0.2x		-0.699		-89
+	1x		0		0
+	2x		0.301		38
+	90x		1.954		250
+	*/
+	if(is_ratio)
 	{
-		RivalInfo *rival=ARRAY_APPEND(*rivals, 0, 1, 1, 0);
-		rival->score=currscore;
-		rival->size=currcell->csize;
-		rival->str=(char*)currtest->codecname->data;
-		rival->timestamp=currtest->timestamp;
-		rival->isself=1;
-		minsize=currcell->csize;
-		maxsize=currcell->csize;
+		dB=(int)(log10(x)*384);
+		CLAMP2(dB, -255, 255);
+		if(x<1)//small ratio is good for the rival	eg: 0.5x time -> 2x faster
+			green=-dB;
+		else if(x>1)
+			red=dB;
 	}
+	else if(x)
+	{
+		dB=(int)round(log10(fabs(x))*256+2*256);
+		CLAMP2(dB, 0, 255);
+		if(x<0)//negative diff is good for the rival	eg: -300 KB
+			green=dB;
+		else if(x>0)
+			red=dB;
+	}
+	static char str[64]={0};
+	int printed=snprintf(str, sizeof(str)-1, "%+5.0e", x);
+	if(printed!=6)
+	{
+		printed=printf("\nprint_scicolor:  %s\n", str);
+		LOG_ERROR("");
+		return printed;
+	}
+	// 0123456
+	//"+2e+05"
+	//"+25\0"	diff
+	//"2+5\0"	ratio
+	static const char expdigit[]="0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+	if(is_ratio)
+	{
+		str[0]=str[1];
+		str[1]=str[3];
+	}
+	str[2]=expdigit[(str[4]-'0')<<4|(str[5]-'0')];
+	str[3]=0;
+	return colorprintf(green>128?COLORPRINTF_TXT_DEFAULT^0xFFFFFF:COLORPRINTF_TXT_DEFAULT, green<<8|red, "%s", str);
+}
+static void print_rivals_v2(ArrayHandle besttestidxs, ArrayHandle testinfo, int sampleidx, const CellInfo *currcell, ptrdiff_t usize)
+{
 	for(int k2=0;k2<(int)besttestidxs->count;++k2)
 	{
 		int *idx=(int*)array_at(&besttestidxs, k2);
@@ -432,71 +452,68 @@ static void get_rivals(ArrayHandle *rivals, int *prank, ptrdiff_t *pcolorrange,
 		CellInfo *cell=&test->total;
 		if(sampleidx>=0)
 			cell=(CellInfo*)array_at(&test->cells, sampleidx);
-		double score2=CALCSCORE(cell->csize, cell->etime, cell->dtime);
-		if(fabs(currscore-score2)<0.05*currscore)//score within +-5%
-		{
-			RivalInfo *rival=ARRAY_APPEND(*rivals, 0, 1, 1, 0);
-			rival->score=score2;
-			rival->size=cell->csize;
-			rival->str=(char*)test->codecname->data;
-			rival->timestamp=test->timestamp;
-			if(minsize>cell->csize)minsize=cell->csize;
-			if(maxsize<cell->csize)maxsize=cell->csize;
-		}
+		printf(" %X", k2&15);
+		print_scicolor(((double)cell->csize-currcell->csize)/usize, 0);
+		print_scicolor(cell->etime/currcell->etime, 1);
+		print_scicolor(cell->dtime/currcell->dtime, 1);
 	}
-	ptrdiff_t colorrange=maxsize-currcell->csize;
-	{
-		ptrdiff_t r2=currcell->csize-minsize;
-		if(colorrange<r2)
-			colorrange=r2;
-	}
-	isort(rivals[0]->data, rivals[0]->count, rivals[0]->esize, rival_cmp);
-	int rank=0;
-	for(;rank<(int)rivals[0]->count;++rank)
-	{
-		RivalInfo *rival=(RivalInfo*)array_at(&rivals[0], rank);
-		if(rival->isself)
-			break;
-	}
-	*prank=rank+1;
-	*pcolorrange=colorrange;
 }
-static void print_rivals(ArrayHandle rivals, const CellInfo *currcell, ptrdiff_t colorrange)
+static void print_summary(ArrayHandle besttestidxs, ArrayHandle testinfo, ptrdiff_t usize, int special)
 {
-	if(rivals->count<=1)
-		return;
-	double currscore=CALCSCORE(currcell->csize, currcell->etime, currcell->dtime);
-	printf("\t");
-	for(int k2=0;k2<(int)rivals->count;++k2)
 	{
-		RivalInfo *rival=(RivalInfo*)array_at(&rivals, k2);
-		if(rival->isself)
-			printf(" *");
-		else
+		const double usize=800000;
+		const double csize1=450000, etime1=2.5, dtime1=0.5;
+		const double csize2=360000, etime2=1.3, dtime2=1.2;
+		double score[]=
 		{
-			int red=0, green=0;
-			ptrdiff_t diff=rival->size-currcell->csize;
-			printf(" ");
-			if(diff)
-			{
-				if(diff<0)
-					green=(int)((-diff*255+colorrange)/(colorrange+1));
-				else if(diff>0)
-					red=(int)((diff*255+colorrange)/(colorrange+1));
-				colorprintf(green>128?COLORPRINTF_TXT_DEFAULT^0xFFFFFF:COLORPRINTF_TXT_DEFAULT, green<<8|red, "%s%+td", rival->str, diff);
-			}
+			(csize1-csize2)/usize,
+			etime1/etime2,
+			dtime1/dtime2,
+		};
+		printf("Table notation \"+SSE+ED+D\":    for example {(%g-%g)/%g, %g/%g, %g/%g} = {%+g%%, %gx, %gx} -> ",
+			csize1, csize2, usize,
+			etime1, etime2,
+			dtime1, dtime2,
+			score[0]*100, score[1], score[2]
+		);
+		print_scicolor((csize1-csize2)/usize, 0);
+		print_scicolor(etime1/etime2, 1);
+		print_scicolor(dtime1/dtime2, 1);
+		printf("\n");
+		printf("  SS    = size diff  = {SIGN    MSDIGIT * EXP10} = (prevcsize-currcsize)/usize\n");
+		printf("  EE=DD = time ratio = {MSDIGIT * EXPSIGN EXP10} = prevtime/currtime\n");
+		printf("The goal is to paint the rivals ");
+		colorprintf(COLORPRINTF_TXT_DEFAULT, 255, "RED");
+		printf("\n");
+	}
+	for(int k2=0;k2<(int)besttestidxs->count;++k2)
+	{
+		int *idx=(int*)array_at(&besttestidxs, k2);
+		TestInfo *test=(TestInfo*)array_at(&testinfo, *idx);
+		if((unsigned)special<(unsigned)besttestidxs->count)
+		{
+			if(k2==special)
+				printf("\n* -> %X", k2&15);
+			else if(k2<special)
+				printf("%X     ", k2&15);
 			else
-			{
-				static char buf[128]={0};
-				print_timestamp(buf, sizeof(buf), rival->timestamp);
-				double diff2=rival->score-currscore;
-				if(diff2<0)//new lost
-					green=128;
-				else if(diff2>0)//new won
-					red=128;
-				colorprintf(green>128?COLORPRINTF_TXT_DEFAULT^0xFFFFFF:COLORPRINTF_TXT_DEFAULT, green<<8|red, "%s %s%+.2lf", rival->str, buf, diff2);
-			}
+				printf("%X -> %X", (k2-1)&15, k2&15);
 		}
+		else
+			printf("%X", k2&15);
+		printf("  %10lld B  %12.6lf %12.6lf sec  %12.6lf %12.6lf MB/s %8.2lf %8.2lf MB  ",
+			test->total.csize,
+			test->total.etime,
+			test->total.dtime,
+			usize/(test->total.etime*1024*1024),
+			usize/(test->total.dtime*1024*1024),
+			(double)test->total.emem/(1024*1024),
+			(double)test->total.dmem/(1024*1024)
+		);
+		print_timestamp(0, 0, test->timestamp);
+		printf(" %s\n", (char*)test->codecname->data);
+		if(k2==special)
+			printf("\n");
 	}
 }
 static void ascii_deletefile(const char *fn)
@@ -540,14 +557,14 @@ int main(int argc, char **argv)
 	codecname=argv[2];
 #else
 	datasetname="div2k";
-	codecname="c29cg";
+	codecname="c29e";
 #endif
 	char programpath[MAX_PATH+1]={0};
 	ArrayHandle tmpfn1=0, tmpfn2=0;
 	ArrayHandle srcpath=0, ext=0, uinfo=0, testinfo=0;
 	CommandFormat enccmd={0}, deccmd={0};
 
-	ArrayHandle besttestidxs=0, rivals=0;
+	ArrayHandle besttestidxs=0;
 
 	//1. get program path
 	{
@@ -770,7 +787,22 @@ dec command template
 			*idx=k;
 		}
 	}
-	ARRAY_ALLOC(RivalInfo, rivals, 0, 0, besttestidxs->count+1, 0);//make way for rivals+me
+	for(int k=0;k<(int)besttestidxs->count-1;++k)//rank besttestidxs by csize (insertion sort for simplicity)
+	{
+		int *idx1=(int*)array_at(&besttestidxs, k);
+		TestInfo *test1=(TestInfo*)array_at(&testinfo, *idx1);
+		for(int k2=k+1;k2<(int)besttestidxs->count;++k2)
+		{
+			int *idx2=(int*)array_at(&besttestidxs, k2);
+			TestInfo *test2=(TestInfo*)array_at(&testinfo, *idx2);
+			if(test1->total.csize>test2->total.csize)//test2 is tighter
+			{
+				int temp;
+				SWAPVAR(*idx1, *idx2, temp);
+				test1=test2;
+			}
+		}
+	}
 
 	//4. get command templates
 	snprintf(g_buf, sizeof(g_buf)-1, "%szzzcode_%s.txt", programpath, codecname);
@@ -852,9 +884,16 @@ dec command template
 
 	//5. test
 	ptrdiff_t usize=0;
+	for(int k=0;k<(int)uinfo->count;++k)
+	{
+		UInfo *info=(UInfo*)array_at(&uinfo, k);
+		usize+=info->usize;
+	}
 	TestInfo *currtest=(TestInfo*)ARRAY_APPEND(testinfo, 0, 1, 1, 0);
 	STR_COPY(currtest->codecname, codecname, strlen(codecname));
 	ARRAY_ALLOC(CellInfo, currtest->cells, 0, uinfo->count, 0, 0);
+	print_summary(besttestidxs, testinfo, usize, -1);
+	printf("\n");
 	print_currtimestamp("%Y-%m-%d_%H%M%S");
 	printf("  %s %d  %s\n", datasetname, (int)uinfo->count, codecname);
 	currtest->timestamp=time(0);
@@ -941,12 +980,8 @@ dec command template
 		}
 		
 		exec_process(g_buf+decoffset, 0, &currcell->dtime, &currcell->dmem);
-
-		int rank=0;
-		ptrdiff_t colorrange=0;
-		get_rivals(&rivals, &rank, &colorrange, besttestidxs, testinfo, currtest, k, currcell);
 		
-		//Print 3:  dtime espeed dspeed emem dmem	rank	[rivals]
+		//Print 3:  dtime espeed dspeed emem dmem	rivals
 		printf(" %12.6lf sec  %12.6lf %12.6lf MB/s %8.2lf %8.2lf MB ",
 			currcell->dtime,
 			info->usize/(currcell->etime*1024*1024),
@@ -954,11 +989,9 @@ dec command template
 			(double)currcell->emem/(1024*1024),
 			(double)currcell->dmem/(1024*1024)
 		);
-		print_rank(rank, (int)rivals->count);
-		print_rivals(rivals, currcell, colorrange);
+		print_rivals_v2(besttestidxs, testinfo, k, currcell, info->usize);
 		printf("\n");
 
-		usize+=info->usize;
 		currtest->total.csize+=currcell->csize;
 		currtest->total.etime+=currcell->etime;
 		if(currtest->total.emem<currcell->emem)
@@ -969,9 +1002,6 @@ dec command template
 	}
 	printf("\n");
 	{
-		int rank=0;
-		ptrdiff_t colorrange=0;
-		get_rivals(&rivals, &rank, &colorrange, besttestidxs, testinfo, currtest, -1, &currtest->total);
 		printf("%5d ",(int)uinfo->count);
 		colorprintf(COLORPRINTF_TXT_DEFAULT, 0xC00000, "%-*s", titlecolwidth, codecname);//print codecname at the end instead of datasetname because you can already infer that from filetitles printed above
 		printf(" %10lld -> %10lld B  %12.6lf %12.6lf sec  %12.6lf %12.6lf MB/s %8.2lf %8.2lf MB ",
@@ -984,23 +1014,28 @@ dec command template
 			(double)currtest->total.emem/(1024*1024),
 			(double)currtest->total.dmem/(1024*1024)
 		);
-		//printf("%5d %-*s %10lld -> %10lld B  %12.6lf %12.6lf sec  %12.6lf %12.6lf MB/s %8.2lf %8.2lf MB ",
-		//	(int)uinfo->count,
-		//	titlecolwidth, codecname,
-		//	usize,
-		//	currtest->total.csize,
-		//	currtest->total.etime,
-		//	currtest->total.dtime,
-		//	usize/(currtest->total.etime*1024*1024),
-		//	usize/(currtest->total.dtime*1024*1024),
-		//	(double)currtest->total.emem/(1024*1024),
-		//	(double)currtest->total.dmem/(1024*1024)
-		//);
-		print_rank(rank, (int)rivals->count);
-		print_rivals(rivals, &currtest->total, colorrange);
+		print_rivals_v2(besttestidxs, testinfo, -1, &currtest->total, usize);
 		printf("\n");
+		print_currtimestamp("%Y-%m-%d_%H%M%S\n");
+		
+		printf("\n");
+		int rank=0, *idx=0;
+		for(;rank<(int)besttestidxs->count;++rank)
+		{
+			idx=(int*)array_at(&besttestidxs, rank);
+			TestInfo *test=(TestInfo*)array_at(&testinfo, *idx);
+			int won=0;
+			if(currtest->total.csize==test->total.csize)
+				won=currtest->total.etime+currtest->total.dtime*2<test->total.etime+test->total.dtime*2;
+			else
+				won=currtest->total.csize<test->total.csize;
+			if(won)
+				break;
+		}
+		idx=(int*)array_insert(&besttestidxs, rank, 0, 1, 1, 0);
+		*idx=(int)testinfo->count-1;
+		print_summary(besttestidxs, testinfo, usize, rank);
 	}
-	print_currtimestamp("%Y-%m-%d_%H%M%S\n");
 
 	//6. DELETE temp files
 	{
@@ -1069,6 +1104,5 @@ dec command template
 	array_free(&tmpfn1);
 	array_free(&tmpfn2);
 	array_free(&besttestidxs);
-	array_free(&rivals);
 	return 0;
 }
