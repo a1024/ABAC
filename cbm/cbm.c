@@ -476,21 +476,21 @@ static void print_summary(ArrayHandle besttestidxs, ArrayHandle testinfo, ptrdif
 			etime1/etime2,
 			dtime1/dtime2,
 		};
-		printf("Table notation \"+SSE+ED+D\":    for example {%g-%g, %g/%g, %g/%g} = {%+.2lf KB, %gx, %gx} -> ",
+		printf("Table notation \"+SSE+ED+D\":    For example {%g-%g, %g/%g, %g/%g} = {%+.2lf KB, %gx, %gx} -> ",
 			csize1, csize2,
-			etime1, etime2,
-			dtime1, dtime2,
-			score[0]/1024, score[1], score[2]
+			etime2, etime1,
+			dtime2, dtime1,
+			score[0]/1024, 1/score[1], 1/score[2]
 		);
 		print_scicolor(score[0], score[0]/usize, 0);
 		print_scicolor(1/score[1], score[1], 1);
 		print_scicolor(1/score[2], score[2], 1);
-		printf("\n");
+		printf(".\n");
 		printf("  +SS      = size diff    = {SIGN MSDIGIT * 10 ^      EXP} = listcsize - yourcsize\n");
 		printf("  E+E, D+D = speed ratios = {     MSDIGIT * 10 ^ SIGN EXP} = listspeed / yourspeed\n");
 		printf("The goal is to paint rivals ");
 		colorprintf(COLORPRINTF_TXT_DEFAULT, 255, "RED");
-		printf("\n");
+		printf(".\n");
 	}
 	for(int k2=0;k2<(int)besttestidxs->count;++k2)
 	{
