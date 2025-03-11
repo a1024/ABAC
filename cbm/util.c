@@ -2638,19 +2638,19 @@ void  pqueue_print_heap(PQueueHandle *pq, void (*printer)(const void*))
 }
 #endif
 
-ptrdiff_t get_filesize(const char *filename)//-1 not found,  0: not a file,  ...: regular file size
+ptrdiff_t get_filesize(const char *filename)//-2 not found,  -1: not a file,  >=0: regular file size
 {
 	struct stat info={0};
 	int e2=stat(filename, &info);
 	if(e2)
-		return -1;
+		return -2;
 #if defined _MSC_VER || defined _WIN32
 	if((info.st_mode&S_IFMT)==S_IFREG)
 #else
 	if(S_ISREG(info.st_mode))
 #endif
 		return info.st_size;
-	return 0;
+	return -1;
 }
 
 int acme_stricmp(const char *a, const char *b)//case insensitive strcmp

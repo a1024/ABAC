@@ -564,7 +564,7 @@ void pqueue_print_heap(PQueueHandle *pq, void (*printer)(const void*));
 #endif
 
 
-ptrdiff_t get_filesize(const char *filename);//-1 not found,  0: folder (probably),  ...: regular file size
+ptrdiff_t get_filesize(const char *filename);//-2 not found,  -1: not a file,  >=0: regular file size
 
 int acme_stricmp(const char *a, const char *b);//case insensitive strcmp
 ptrdiff_t acme_strrchr(const char *str, ptrdiff_t len, char c);//find last occurrence, with known length for backward search
