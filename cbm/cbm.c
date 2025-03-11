@@ -396,7 +396,7 @@ static int print_scicolor(double xprint, double xcolor, int is_ratio)//is_ratio 
 	400KB/10MB			178
 
 	ratio:
-	x		log10(x)	round(log10(x)*128)
+	x		log10(x)	round(log10(x)*256)
 	0.01x		-2		-256
 	0.2x		-0.699		-89
 	1x		0		0
@@ -405,7 +405,7 @@ static int print_scicolor(double xprint, double xcolor, int is_ratio)//is_ratio 
 	*/
 	if(is_ratio)
 	{
-		dB=(int)(log10(xcolor)*384);
+		dB=(int)(log10(xcolor)*256);
 		CLAMP2(dB, -255, 255);
 		if(xcolor<1)//small ratio is good for the rival	eg: 0.5x time -> 2x faster
 			green=-dB;
@@ -458,10 +458,10 @@ static void print_rivals_v2(ArrayHandle besttestidxs, ArrayHandle testinfo, int 
 		print_scicolor(x, x/usize, 0);
 
 		x=cell->etime/currcell->etime;
-		print_scicolor(x, x, 1);
+		print_scicolor(1/x, x, 1);
 
 		x=cell->dtime/currcell->dtime;
-		print_scicolor(x, x, 1);
+		print_scicolor(1/x, x, 1);
 	}
 }
 static void print_summary(ArrayHandle besttestidxs, ArrayHandle testinfo, ptrdiff_t usize, int special)
@@ -483,12 +483,12 @@ static void print_summary(ArrayHandle besttestidxs, ArrayHandle testinfo, ptrdif
 			score[0]/1024, score[1], score[2]
 		);
 		print_scicolor(score[0], score[0]/usize, 0);
-		print_scicolor(score[1], score[1], 1);
-		print_scicolor(score[2], score[2], 1);
+		print_scicolor(1/score[1], score[1], 1);
+		print_scicolor(1/score[2], score[2], 1);
 		printf("\n");
-		printf("  +SS      = size diff   = {SIGN MSDIGIT * 10 ^      EXP} = listcsize - yourcsize\n");
-		printf("  E+E, D+D = time ratios = {     MSDIGIT * 10 ^ SIGN EXP} = listtime / yourtime\n");
-		printf("The goal is to paint the rivals ");
+		printf("  +SS      = size diff    = {SIGN MSDIGIT * 10 ^      EXP} = listcsize - yourcsize\n");
+		printf("  E+E, D+D = speed ratios = {     MSDIGIT * 10 ^ SIGN EXP} = listspeed / yourspeed\n");
+		printf("The goal is to paint rivals ");
 		colorprintf(COLORPRINTF_TXT_DEFAULT, 255, "RED");
 		printf("\n");
 	}
