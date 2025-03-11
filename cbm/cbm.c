@@ -496,18 +496,9 @@ static void print_summary(ArrayHandle besttestidxs, ArrayHandle testinfo, ptrdif
 	{
 		int *idx=(int*)array_at(&besttestidxs, k2);
 		TestInfo *test=(TestInfo*)array_at(&testinfo, *idx);
-		if((unsigned)special<(unsigned)besttestidxs->count)
-		{
-			if(k2==special)
-				printf("\n* -> %X", (k2+1)&15);
-			else if(k2<special)
-				printf("%X     ", (k2+1)&15);
-			else
-				printf("%X -> %X", k2&15, (k2+1)&15);
-		}
-		else
-			printf("%X", (k2+1)&15);
-		printf("  %10lld B  %12.6lf %12.6lf sec  %12.6lf %12.6lf MB/s %8.2lf %8.2lf MB  ",
+		if(k2==special)
+			printf("\n");
+		printf("%10lld B  %12.6lf %12.6lf sec  %12.6lf %12.6lf MB/s %8.2lf %8.2lf MB  ",
 			test->total.csize,
 			test->total.etime,
 			test->total.dtime,
@@ -517,6 +508,17 @@ static void print_summary(ArrayHandle besttestidxs, ArrayHandle testinfo, ptrdif
 			(double)test->total.dmem/(1024*1024)
 		);
 		print_timestamp(0, 0, test->timestamp);
+		if((unsigned)special<(unsigned)besttestidxs->count)
+		{
+			if(k2==special)
+				printf("  %X <- *", (k2+1)&15);
+			else if(k2<special)
+				printf("  %X     ", (k2+1)&15);
+			else
+				printf("  %X <- %X", (k2+1)&15, k2&15);
+		}
+		else
+			printf("  %X", (k2+1)&15);
 		printf(" %s\n", (char*)test->codecname->data);
 		if(k2==special)
 			printf("\n");
@@ -546,6 +548,7 @@ static void print_usage(const char *argv0)
 		"Usage:    %s  DATASET  CODEC\n"
 		"Example:  %s  div2k    jxl7\n"
 		"You will be prompted to define DATASET and CODEC.\n"
+		"Zoom out the terminal twice before starting.\n"
 		, argv0, argv0
 	);
 }
