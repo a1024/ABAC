@@ -1005,7 +1005,7 @@ dec command template
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wrestrict"
 #endif
-		char *ptr=g_buf, *end=g_buf2+sizeof(g_buf2)-1;
+		char *ptr=g_buf2, *end=g_buf2+sizeof(g_buf2)-1;
 		t1fn=ptr;
 		ptr+=snprintf(ptr, end-ptr, "%s.%.*s",
 			(char*)tmpfn1->data, enccmd.srcbounds[1]-(enccmd.srcbounds[0]+3), (char*)enccmd.format->data+enccmd.srcbounds[0]+3
@@ -1133,7 +1133,10 @@ dec command template
 		int success=CopyFileA((char*)info->filename->data, t1fn, 1);
 		if(!success)
 		{
-			LOG_ERROR("CopyFileA  GetLastError %d", (int)GetLastError());
+			printf("CopyFileA  GetLastError %d\n", (int)GetLastError());
+			printf("Source:       %s\n", (char*)info->filename->data);
+			printf("Destination:  %s\n", t1fn);
+			LOG_ERROR("");
 			return 0;
 		}
 
