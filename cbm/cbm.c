@@ -558,8 +558,8 @@ static void print_summary(ArrayHandle besttestidxs, ArrayHandle testinfo, ptrdif
 		print_scicolor(1/score[1], score[1], 1);
 		print_scicolor(1/score[2], score[2], 1);
 		printf(".\n");
-		printf("  +SS      = size diff    = {SIGN MSDIGIT * 10 ^      EXP} = listcsize - yourcsize\n");
-		printf("  E+E, D+D = speed ratios = {     MSDIGIT * 10 ^ SIGN EXP} = listspeed / yourspeed\n");
+		printf("  +SS      = size diff   = {SIGN MSDIGIT * 10 ^      EXP} = listsize - yoursize\n");
+		printf("  E+E, D+D = time ratios = {     MSDIGIT * 10 ^ SIGN EXP} = listtime / yourtime\n");
 		printf("The goal is to paint rivals ");
 		colorprintf(COLORPRINTF_TXT_DEFAULT, 255, "RED");
 		printf(".\n");
