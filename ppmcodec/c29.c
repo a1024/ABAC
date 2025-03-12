@@ -1391,12 +1391,6 @@ static void enc_packhist(BitPackerLIFO *ec, const int *hist, unsigned long long 
 	}
 	CDF[256]=1<<PROBBITS;
 	
-//#ifdef _DEBUG
-//	size_t checkpoint=(size_t)ec->dstbwdptr;
-//	int count=0;
-//	for(int ks=0;ks<256;++ks)//
-//		count+=CDF[ks]<CDF[ks+1];
-//#endif
 	int cdfW=CDF[0];
 	int CDFlevels=1<<PROBBITS;
 	int startsym=0;
@@ -1417,9 +1411,6 @@ static void enc_packhist(BitPackerLIFO *ec, const int *hist, unsigned long long 
 	}
 	for(int ks=startsym;ks>0;--ks)//encode GR
 	{
-		//if(ctxidx==1&&ks==1)//
-		//	printf("");
-
 		int freq=CDF[ks], nbypass=freq>>PROBBITS;
 		freq&=(1<<PROBBITS)-1;
 		int nzeros=freq>>nbypass, bypass=freq&((1<<nbypass)-1);
@@ -1433,13 +1424,8 @@ static void enc_packhist(BitPackerLIFO *ec, const int *hist, unsigned long long 
 		}
 #ifdef ANS_VAL
 		ansval_push(&ks, sizeof(ks), 1);
-		//if(ctxidx==5||ctxidx==4)
-		//	printf("PUSH [%3d] freq %8d  nzeros %8d  bypass %08X/%4d  size %8.2lf  state %016llX\n", ks, freq, nzeros, bypass, nbypass, (nzeros+1+nbypass)/8., ec->state);//
 #endif
 	}
-//#ifdef _DEBUG
-//	printf("ctx %3d  count %4d  size %8td  state %016llX\n", ctxidx, count, checkpoint-(size_t)ec->dstbwdptr, ec->state);//
-//#endif
 }
 static void dec_unpackhist(BitPackerLIFO *ec, unsigned *CDF2sym, unsigned long long ctxmask, int ctxidx)
 {
@@ -1506,8 +1492,6 @@ static void dec_unpackhist(BitPackerLIFO *ec, unsigned *CDF2sym, unsigned long l
 	hist[256]=1<<PROBBITS;
 	for(int ks=0;ks<256;++ks)//CDF2sym contains {freq, (state&0xFFF)-cdf, sym}
 	{
-		//if(ctxidx==1&&ks==128)//
-		//	printf("");
 		int cdf=hist[ks], next=hist[ks+1], freq=next-cdf;
 		int val=(freq<<PROBBITS|0)<<8|ks;
 		for(int ks2=cdf;ks2<next;++ks2, val+=1<<8)
@@ -3396,9 +3380,6 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					wgpreds[7*6+5]=_mm256_sub_epi16(cache[5], _mm256_load_si256((__m256i*)(rows[2]+(0+2+3*6)*NCODERS)+1));
 #endif
 
-					//if(ky==0&&kx==96)//
-					//	printf("");
-
 					//mix
 					__m256i result[6];
 					wg_mix(0, wgWerrors, erows[0], erows[1], wgpreds, result+0);
@@ -3430,8 +3411,6 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					de[6*2+1]=_mm256_cvtepi32_pd(_mm256_castsi256_si128(prederrors[6*2+0]));
 					de[7*2+1]=_mm256_cvtepi32_pd(_mm256_castsi256_si128(prederrors[7*2+0]));
 #endif
-					//if(ky==3&&kx==3*NCODERS*3)//
-					//	printf("");
 
 					//loosen pred range
 					ymin0=_mm256_min_epi16(ymin0, NW[0]);//slightly better crisp DIV2K, negligibly worse noisy GDCC
@@ -4302,9 +4281,6 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					ctxptr2-=NCODERS;
 				}
 #ifdef ESTIMATE_SIZE
-				//if(ky==76&&kx==2208)//
-				if(ky==0&&kx==0)//
-					printf("");
 				{
 					ALIGN(32) int anegf[NCODERS]={0};
 					memcpy(anegf, mnegf_sh, sizeof(anegf));

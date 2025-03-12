@@ -26,7 +26,7 @@ static int acme_strnimatch(const char *s1, ptrdiff_t len1, const char *s2, ptrdi
 	if(len1!=len2)
 		return 0;
 	const char *end1=s1+len1;
-	while(s1<end1&&tolower(*s1++)==tolower(*s2++));
+	while(s1<end1&&tolower(*s1)==tolower(*s2))++s1, ++s2;//check then increment  (blind increment misses the last character at s1==end1)
 	return s1==end1;
 }
 static void verify_files(const char *fn0, const char *fn1)
@@ -642,7 +642,7 @@ int main(int argc, char **argv)
 	codecname=argv[2];
 #else
 	datasetname="synth2";
-	codecname="7z";
+	codecname="zstd5";
 #endif
 	char programpath[MAX_PATH+1]={0};
 	ArrayHandle currdir=0, tmpfn1=0, tmpfn2=0;

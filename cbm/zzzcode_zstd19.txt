@@ -1,0 +1,2 @@
+zstd -19 -f ---ppm -o ---zst
+zstd -d -f ---zst -o ---ppm
