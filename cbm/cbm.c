@@ -998,80 +998,98 @@ dec command template
 			array_free(&dec0);
 		}
 	}
-	int t1offset=0, t2offset=0, encoffset=0, decoffset=0;
+	char *t1fn=0, *t2fn, *encline=0, *decline=0;
+	int t1len=0, t2len=0, enclen=0, declen=0;
 	{
-		int printed=0;
-		t1offset=printed;
-		printed+=snprintf(g_buf2+printed, sizeof(g_buf2)-1-printed, "%s.%.*s",
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wrestrict"
+#endif
+		char *ptr=g_buf, *end=g_buf2+sizeof(g_buf2)-1;
+		t1fn=ptr;
+		ptr+=snprintf(ptr, end-ptr, "%s.%.*s",
 			(char*)tmpfn1->data, enccmd.srcbounds[1]-(enccmd.srcbounds[0]+3), (char*)enccmd.format->data+enccmd.srcbounds[0]+3
-		);
+		)+1;//skip null terminator
+		t1len=(int)(ptr-t1fn-1);
 
-		++printed;
-		t2offset=printed;
-		printed+=snprintf(g_buf2+printed, sizeof(g_buf2)-1-printed, "%s.%.*s",
+		t2fn=ptr;
+		ptr+=snprintf(ptr, end-ptr, "%s.%.*s",
 			(char*)tmpfn2->data, enccmd.dstbounds[1]-(enccmd.dstbounds[0]+3), (char*)enccmd.format->data+enccmd.dstbounds[0]+3
-		);
+		)+1;
+		t2len=(int)(ptr-t2fn-1);
 
-		++printed;
-		encoffset=printed;
+		encline=ptr;
 		if(enccmd.srcbounds[0]<enccmd.dstbounds[0])
 		{
-			printed+=snprintf(g_buf2+printed, sizeof(g_buf2)-1-printed, "%.*s \"%s\" %.*s \"%s\" %s",
+			ptr+=snprintf(ptr, end-ptr, "%.*s \"%s\" %.*s \"%s\" %s",
 				enccmd.srcbounds[0], (char*)enccmd.format->data,
-				g_buf2+t1offset,
+				t1fn,
 				enccmd.dstbounds[0]-enccmd.srcbounds[1], (char*)enccmd.format->data+enccmd.srcbounds[1],
-				g_buf2+t2offset,
+				t2fn,
 				(char*)enccmd.format->data+enccmd.dstbounds[1]
-			);
+			)+1;
 		}
 		else
 		{
-			printed+=snprintf(g_buf2+printed, sizeof(g_buf2)-1-printed, "%.*s \"%s\" %.*s \"%s\" %s",
+			ptr+=snprintf(ptr, end-ptr, "%.*s \"%s\" %.*s \"%s\" %s",
 				enccmd.dstbounds[0], (char*)enccmd.format->data,
-				g_buf2+t2offset,
+				t2fn,
 				enccmd.srcbounds[0]-enccmd.dstbounds[1], (char*)enccmd.format->data+enccmd.dstbounds[1],
-				g_buf2+t1offset,
+				t1fn,
 				(char*)enccmd.format->data+enccmd.srcbounds[1]
-			);
+			)+1;
 		}
+		enclen=(int)(ptr-encline-1);
 		
-		++printed;
-		decoffset=printed;
+		decline=ptr;
 		if(deccmd.dstbounds[0]==-1)
 		{
-			printed+=snprintf(g_buf2+printed, sizeof(g_buf2)-1-printed, "%.*s \"%s\" %s",
+			ptr+=snprintf(ptr, end-ptr, "%.*s \"%s\" %s",
 				deccmd.srcbounds[0], (char*)deccmd.format->data,
-				g_buf2+t2offset,
+				t2fn,
 				(char*)deccmd.format->data+deccmd.srcbounds[1]
-			);
+			)+1;
 		}
 		else if(deccmd.srcbounds[0]<deccmd.dstbounds[0])
 		{
-			printed+=snprintf(g_buf2+printed, sizeof(g_buf2)-1-printed, "%.*s \"%s\" %.*s \"%s\" %s",
+			ptr+=snprintf(ptr, end-ptr, "%.*s \"%s\" %.*s \"%s\" %s",
 				deccmd.srcbounds[0], (char*)deccmd.format->data,
-				g_buf2+t2offset,
+				t2fn,
 				deccmd.dstbounds[0]-deccmd.srcbounds[1], (char*)deccmd.format->data+deccmd.srcbounds[1],
-				g_buf2+t1offset,
+				t1fn,
 				(char*)deccmd.format->data+deccmd.dstbounds[1]
-			);
+			)+1;
 		}
 		else
 		{
-			printed+=snprintf(g_buf2+printed, sizeof(g_buf2)-1-printed, "%.*s \"%s\" %.*s \"%s\" %s",
+			ptr+=snprintf(ptr, end-ptr, "%.*s \"%s\" %.*s \"%s\" %s",
 				deccmd.dstbounds[0], (char*)deccmd.format->data,
-				g_buf2+t1offset,
+				t1fn,
 				deccmd.srcbounds[0]-deccmd.dstbounds[1], (char*)deccmd.format->data+deccmd.dstbounds[1],
-				g_buf2+t2offset,
+				t2fn,
 				(char*)deccmd.format->data+deccmd.srcbounds[1]
-			);
+			)+1;
 		}
+		declen=(int)(ptr-decline-1);
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif
 		printf("Temp filenames:\n");//
-		printf("  \"%s\"\n", g_buf2+t1offset);
-		printf("  \"%s\"\n", g_buf2+t2offset);
+		printf("  \"%s\"\n", t1fn);
+		printf("  \"%s\"\n", t2fn);
 		printf("Commands:\n");
-		printf("  %s\n", g_buf2+encoffset);//
-		printf("  %s\n", g_buf2+decoffset);//
+		printf("  %s\n", encline);//
+		printf("  %s\n", decline);//
 		printf("\n");
+		if(ptr>end)
+		{
+			printf("\n\nsnprintf OOB  ptr %016zX > %016zX\n", (size_t)ptr, (size_t)end);
+			LOG_ERROR("");
+		}
+		(void)t1len;
+		(void)t2len;
+		(void)enclen;
+		(void)declen;
 	}
 
 	//5. test		DON'T MODIFY g_buf2 BELOW THIS POINT
@@ -1112,15 +1130,15 @@ dec command template
 			info->usize
 		);
 
-		int success=CopyFileA((char*)info->filename->data, g_buf2+t1offset, 1);
+		int success=CopyFileA((char*)info->filename->data, t1fn, 1);
 		if(!success)
 		{
 			LOG_ERROR("CopyFileA  GetLastError %d", (int)GetLastError());
 			return 0;
 		}
 
-		exec_process(g_buf2+encoffset, (char*)currdir->data, 0, &currcell->etime, &currcell->emem);
-		currcell->csize=get_filesize(g_buf2+t2offset);
+		exec_process(encline, (char*)currdir->data, 0, &currcell->etime, &currcell->emem);
+		currcell->csize=get_filesize(t2fn);
 
 		//Print 2:  -> csize etime
 		printf(" -> %10lld B  %12.6lf", currcell->csize, currcell->etime);
@@ -1128,14 +1146,14 @@ dec command template
 		{
 			printf("\n");
 			printf("Temp. file #1 not found:\n");
-			printf("  \"%s\"\n", g_buf2+t1offset);
+			printf("  \"%s\"\n", t1fn);
 			printf("The encode command was:\n");
-			printf("  %s\n", g_buf2+encoffset);
+			printf("  %s\n", encline);
 			LOG_ERROR("");
 		}
 		
-		ascii_deletefile(g_buf2+t1offset);
-		exec_process(g_buf2+decoffset, (char*)currdir->data, 0, &currcell->dtime, &currcell->dmem);
+		ascii_deletefile(t1fn);
+		exec_process(decline, (char*)currdir->data, 0, &currcell->dtime, &currcell->dmem);
 		
 		//Print 3:  dtime espeed dspeed emem dmem  rivals
 		printf(" %12.6lf sec  %12.6lf %12.6lf MB/s %8.2lf %8.2lf MB ",
@@ -1148,9 +1166,9 @@ dec command template
 		print_rivals_v2(besttestidxs, testinfo, k, currcell, info->usize);
 		printf("\n");
 
-		verify_files((char*)info->filename->data, g_buf2+t1offset);
-		ascii_deletefile(g_buf2+t1offset);
-		ascii_deletefile(g_buf2+t2offset);
+		verify_files((char*)info->filename->data, t1fn);
+		ascii_deletefile(t1fn);
+		ascii_deletefile(t2fn);
 
 		currtest->total.csize+=currcell->csize;
 		currtest->total.etime+=currcell->etime;
