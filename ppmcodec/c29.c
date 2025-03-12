@@ -10,27 +10,27 @@
 static const char file[]=__FILE__;
 
 
-	#define PROFILE_TIME
+	#define PROFILE_TIME		//should be on
 //	#define PROFILE_SIZE
 
 #ifdef _MSC_VER
-	#define LOUD		//size & time
+	#define LOUD			//size & time
 
-//	#define ESTIMATE_SIZE	//DEBUG		checks for zero frequency, visualizes context usage
-//	#define ENABLE_GUIDE	//DEBUG		checks interleaved pixels
-//	#define ANS_VAL		//DEBUG
+//	#define ESTIMATE_SIZE		//DEBUG		checks for zero frequency, visualizes context usage
+	#define ENABLE_GUIDE		//DEBUG		checks interleaved pixels
+	#define ANS_VAL			//DEBUG
 
 //	#define WG4_SERIALDEBUG
 //	#define TEST_INTERLEAVE
 #endif
 
 //	#define DISABLE_ANALYSIS	//HORRIBLE	analysis is crucial
-//	#define SERIAL_MAIN	//2x slower
+//	#define SERIAL_MAIN		//2x slower
 //	#define DISABLE_WG
 
-//	#define WG_COMMONMIX
-	#define WG_DISABLE_eW	//eW is bad with blocks unlike in eBench
-	#define INTERLEAVESIMD	//2.5x faster interleave
+//	#define WG_COMMONMIX		//bad
+	#define WG_DISABLE_eW		//eW is bad with blocks unlike in eBench
+	#define INTERLEAVESIMD		//2.5x faster interleave
 
 
 //3*17+3=54 contexts
@@ -165,13 +165,14 @@ static void prof_print(ptrdiff_t usize)
 	{
 		SpeedProfilerInfo *info=prof_data+k;
 		csum+=info->t;
-		int curr=(int)(csum*250);
-	//	int curr=(int)(csum*(192-prof_count*1)/timesum);//MULTIPLY prof_count BY SEPARATOR "|" LENGTH
+		int curr=(int)(csum*250);//fixed scale
 		int space=curr-prev;
 		int len=0;
 		if(info->msg)
 			len=(int)strlen(info->msg);
 #if 1
+		if(space>2048)//printf("%*s", HUGE, ""); CRASHES
+			space=2048;
 		if(info->msg&&space>=len)
 		{
 			int labelstart=(space-len)>>1;
@@ -2188,22 +2189,23 @@ static void decorr1d(unsigned char *data, int count, int bytestride, int bestrct
 		int y=ptr[yidx]-128;
 		int u=ptr[uidx]-128;
 		int v=ptr[vidx]-128;
-		ptr[0]=prevy=(unsigned char)(y-prevy+128);
-		++rhist[256*0+prevy];
+		int sym;
+		ptr[0]=sym=(unsigned char)(y-prevy+128);
+		++rhist[256*0+sym];
 		prevy=y;
 
 		offset=y&ufromy;
 		prevu+=offset;
 		CLAMP2(prevu, -128, 127);
-		ptr[1]=prevu=(unsigned char)(u-prevu+128);
-		++rhist[256*1+prevu];
+		ptr[1]=sym=(unsigned char)(u-prevu+128);
+		++rhist[256*1+sym];
 		prevu=u-offset;
 
 		offset=vc0*y+vc1*u;
 		int vpred=(prevv+offset)>>2;
 		CLAMP2(vpred, -128, 127);
-		ptr[2]=prevv=(unsigned char)(v-vpred+128);
-		++rhist[256*2+prevv];
+		ptr[2]=sym=(unsigned char)(v-vpred+128);
+		++rhist[256*2+sym];
 		prevv=4*v-offset;
 		ptr+=bytestride;
 	}
@@ -2277,7 +2279,7 @@ static void decode1d(unsigned char *data, int count, int bytestride, int bestrct
 	int ufromy=-(combination[II_COEFF_U_SUB_Y]!=0);
 	int vc0=combination[II_COEFF_V_SUB_Y];
 	int vc1=combination[II_COEFF_V_SUB_U];
-	
+
 	const unsigned char *streamptr=*pstreamptr;
 	unsigned state=*pstate;
 	unsigned char *ptr=data;
@@ -2309,7 +2311,7 @@ static void decode1d(unsigned char *data, int count, int bytestride, int bestrct
 		prevu+=offset;
 		CLAMP2(prevu, -128, 127);
 		info=rCDF2syms[1<<PROBBITS|(state&((1<<PROBBITS)-1))];
-		ptr[uidx]=u=(char)(info+prevu-128);
+		u=(char)(info+prevu-128);
 		prevu=u-offset;
 #ifdef ANS_VAL
 		ansval_check(&state, sizeof(state), 1);
@@ -2460,7 +2462,8 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 	prof_checkpoint(fwd?usize:csize, "fread");
 	int blockw=iw/XCODERS;
 	int blockh=ih/YCODERS;
-	int ixcount=blockw*NCODERS, ixbytes=3*ixcount;
+	int qxbytes=blockw*XCODERS*3;//iw/XCODERS*XCODERS*3
+	int ixcount=blockw*NCODERS, ixbytes=3*ixcount;//ix = interleaved circular buffer width		iw/XCODERS*NCODERS
 	int xremw=iw-blockw*XCODERS, yremh=ih-blockh*YCODERS;
 	int xrembytes=3*xremw;
 	ptrdiff_t isize=(ptrdiff_t)ixbytes*blockh;
@@ -4188,14 +4191,14 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 			for(int ky=0;ky<yremh;++ky)
 				decorr1d(image+rowstride*(blockh*YCODERS+ky), iw, 3, bestrct, rhist);
 			for(int kx=0;kx<xremw;++kx)
-				decorr1d(image+ixbytes+3*kx, blockh*YCODERS, rowstride, bestrct, rhist);
+				decorr1d(image+qxbytes+3*kx, blockh*YCODERS, rowstride, bestrct, rhist);
 			enc_hist2stats(rhist+(ptrdiff_t)256*0, rsyminfo+(ptrdiff_t)256*0, &ctxmask, 3*NCTX+0);
 			enc_hist2stats(rhist+(ptrdiff_t)256*1, rsyminfo+(ptrdiff_t)256*1, &ctxmask, 3*NCTX+1);
 			enc_hist2stats(rhist+(ptrdiff_t)256*2, rsyminfo+(ptrdiff_t)256*2, &ctxmask, 3*NCTX+2);
 			
 			unsigned state=1<<(RANS_STATE_BITS-RANS_RENORM_BITS);
 			for(int kx=xremw-1;kx>=0;--kx)
-				encode1d(image+ixbytes+3*kx, blockh*YCODERS, rowstride, &state, &streamptr, image, rsyminfo);
+				encode1d(image+qxbytes+3*kx, blockh*YCODERS, rowstride, &state, &streamptr, image, rsyminfo);
 			for(int ky=yremh-1;ky>=0;--ky)
 				encode1d(image+rowstride*(blockh*YCODERS+ky), iw, 3, &state, &streamptr, image, rsyminfo);
 			//flush
@@ -4509,6 +4512,10 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 	}
 	else
 	{
+		//deinterleave
+		interleave_blocks_inv(interleaved, iw, ih, image);
+		prof_checkpoint(usize, "deinterleave");
+
 		if(xremw||yremh)
 		{
 #ifdef _DEBUG
@@ -4520,13 +4527,9 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 			for(int ky=0;ky<yremh;++ky)
 				decode1d(image+rowstride*(blockh*YCODERS+ky), iw, 3, bestrct, &state, (const unsigned char**)&streamptr, streamend, rCDF2syms);
 			for(int kx=0;kx<xremw;++kx)
-				decode1d(image+ixbytes+3*kx, blockh*YCODERS, rowstride, bestrct, &state, (const unsigned char**)&streamptr, streamend, rCDF2syms);
+				decode1d(image+qxbytes+3*kx, blockh*YCODERS, rowstride, bestrct, &state, (const unsigned char**)&streamptr, streamend, rCDF2syms);
 			prof_checkpoint(usize-isize, "remainder");
 		}
-
-		//deinterleave
-		interleave_blocks_inv(interleaved, iw, ih, image);
-		prof_checkpoint(usize, "deinterleave");
 
 		//save PPM file
 		save_ppm(dstfn, image, iw, ih);
