@@ -200,7 +200,7 @@ extern "C"
 #define LSB_IDX_16(X)	(int)_tzcnt_u16(X)
 #define HAMMING_WEIGHT(X) (int)(sizeof(X)==8?_mm_popcnt_u32(X):_mm_popcnt_u64(X))
 
-#define G_BUF_SIZE 8192
+#define G_BUF_SIZE 4096
 extern char g_buf[G_BUF_SIZE];
 
 void memfill(void *dst, const void *src, size_t dstbytes, size_t srcbytes);
@@ -564,6 +564,12 @@ void pqueue_print_heap(PQueueHandle *pq, void (*printer)(const void*));
 #endif
 
 
+typedef enum _FileSizeRetCode
+{
+	FSIZE_INACCESSIBLE=-2,
+	FSIZE_FOLDER=-1,
+	FSIZE_EMPTYFILE=0,
+} FileSizeRetCode;
 ptrdiff_t get_filesize(const char *filename);//-2 not found,  -1: not a file,  >=0: regular file size
 
 int acme_stricmp(const char *a, const char *b);//case insensitive strcmp

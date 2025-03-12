@@ -2643,14 +2643,14 @@ ptrdiff_t get_filesize(const char *filename)//-2 not found,  -1: not a file,  >=
 	struct stat info={0};
 	int e2=stat(filename, &info);
 	if(e2)
-		return -2;
+		return FSIZE_INACCESSIBLE;
 #if defined _MSC_VER || defined _WIN32
 	if((info.st_mode&S_IFMT)==S_IFREG)
 #else
 	if(S_ISREG(info.st_mode))
 #endif
 		return info.st_size;
-	return -1;
+	return FSIZE_FOLDER;
 }
 
 int acme_stricmp(const char *a, const char *b)//case insensitive strcmp
