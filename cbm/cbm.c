@@ -320,7 +320,7 @@ static ArrayHandle get_uinfo(const char *path, const char *ext)//extension witho
 	int success=FindClose(hSearch);
 	if(!success)
 	{
-		LOG_ERROR("FindClose GetLastError %d", (int)GetLastError());
+		SYSTEMERROR("FindClose");
 		return 0;
 	}
 	array_free(&searchpath);
@@ -347,7 +347,7 @@ static void qualify_command(ArrayHandle *cmd)
 	//int len=GetFullPathNameA(fn1, sizeof(fn2)-2, fn2+1, 0);
 	if(!len2)
 	{
-		LOG_ERROR("GetFullPathNameA GetLastError %d", (int)GetLastError());
+		SYSTEMERROR("GetFullPathNameA");
 		return;
 	}
 	ptrdiff_t size=get_filesize(fn2+1);
@@ -378,26 +378,26 @@ static void exec_process(char *cmd, const char *currdir, int loud, double *elaps
 		si.hStdOutput=CreateFileA("NUL", GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL);
 		if(si.hStdOutput==INVALID_HANDLE_VALUE)
 		{
-			LOG_ERROR("CreateFileA GetLastError %d", (int)GetLastError());
+			SYSTEMERROR("CreateFileA");
 			return;
 		}
 		si.hStdError=CreateFileA("NUL", GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL);
 		if(si.hStdError==INVALID_HANDLE_VALUE)
 		{
-			LOG_ERROR("CreateFileA GetLastError %d", (int)GetLastError());
+			SYSTEMERROR("CreateFileA");
 			return;
 		}
 		si.hStdInput=CreateFileA("NUL", GENERIC_READ, 0, NULL, CREATE_ALWAYS, 0, NULL);
 		if(si.hStdInput==INVALID_HANDLE_VALUE)
 		{
-			LOG_ERROR("CreateFileA GetLastError %d", (int)GetLastError());
+			SYSTEMERROR("CreateFileA");
 			return;
 		}
 	}
 	success=CreateProcessA(0, cmd, 0, 0, 0, CREATE_SUSPENDED, 0, currdir, &si, &pi);
 	if(!success)
 	{
-		LOG_ERROR("CreateProcessA GetLastError %d", (int)GetLastError());
+		SYSTEMERROR("CreateProcessA");
 		return;
 	}
 	ptrdiff_t memusage=0;
@@ -405,7 +405,7 @@ static void exec_process(char *cmd, const char *currdir, int loud, double *elaps
 	int suspendcount=ResumeThread(pi.hThread);
 	if(suspendcount==(DWORD)-1)
 	{
-		LOG_ERROR("ResumeThread GetLastError %d", (int)GetLastError());
+		SYSTEMERROR("CreateProcessA");
 		return;
 	}
 	while(WaitForSingleObject(pi.hProcess, 10)==WAIT_TIMEOUT)
@@ -415,7 +415,7 @@ static void exec_process(char *cmd, const char *currdir, int loud, double *elaps
 		success=GetProcessMemoryInfo(pi.hProcess, &pmc, sizeof(pmc));
 		if(!success)
 		{
-			LOG_ERROR("GetProcessMemoryInfo GetLastError %d", (int)GetLastError());
+			SYSTEMERROR("GetProcessMemoryInfo");
 			return;
 		}
 		if(memusage<(ptrdiff_t)pmc.WorkingSetSize)
@@ -426,13 +426,13 @@ static void exec_process(char *cmd, const char *currdir, int loud, double *elaps
 	success=CloseHandle(pi.hProcess);
 	if(!success)
 	{
-		LOG_ERROR("CloseHandle GetLastError %d", (int)GetLastError());
+		SYSTEMERROR("CloseHandle");
 		return;
 	}
 	success=CloseHandle(pi.hThread);
 	if(!success)
 	{
-		LOG_ERROR("CloseHandle GetLastError %d", (int)GetLastError());
+		SYSTEMERROR("CloseHandle");
 		return;
 	}
 	if(!loud)
@@ -440,19 +440,19 @@ static void exec_process(char *cmd, const char *currdir, int loud, double *elaps
 		success=CloseHandle(si.hStdOutput);
 		if(!success)
 		{
-			LOG_ERROR("CloseHandle GetLastError %d", (int)GetLastError());
+			SYSTEMERROR("CloseHandle");
 			return;
 		}
 		success=CloseHandle(si.hStdError);
 		if(!success)
 		{
-			LOG_ERROR("CloseHandle GetLastError %d", (int)GetLastError());
+			SYSTEMERROR("CloseHandle");
 			return;
 		}
 		success=CloseHandle(si.hStdInput);
 		if(!success)
 		{
-			LOG_ERROR("CloseHandle GetLastError %d", (int)GetLastError());
+			SYSTEMERROR("CloseHandle");
 			return;
 		}
 	}
@@ -603,10 +603,7 @@ static void ascii_deletefile(const char *fn)
 	{
 		int success=DeleteFileA(fn);
 		if(!success)
-		{
-			printf("DeleteFileA  GetLastError %d\n", (int)GetLastError());
-			LOG_ERROR("");
-		}
+			SYSTEMERROR("DeleteFileA");
 	}
 	else
 	{
@@ -656,7 +653,7 @@ int main(int argc, char **argv)
 		int len=GetModuleFileNameA(0, programpath, sizeof(programpath)-1);
 		if(!len||len==sizeof(programpath)-1)
 		{
-			LOG_ERROR("GetModuleFileNameA GetLastError %s", (int)GetLastError());
+			SYSTEMERROR("GetModuleFileNameA");
 			return 0;
 		}
 		int k=len-1;
@@ -682,7 +679,7 @@ int main(int argc, char **argv)
 #endif
 		if(!len)
 		{
-			LOG_ERROR("GetTempPath2A GetLastError %d", (int)GetLastError());
+			SYSTEMERROR("GetTempPath2A");
 			return 0;
 		}
 		STR_COPY(currdir, g_buf, len);
@@ -690,7 +687,7 @@ int main(int argc, char **argv)
 		val=GetTempFileNameA(g_buf, "t1_", 0, (char*)tmpfn1->data);
 		if(!val)
 		{
-			LOG_ERROR("GetTempFileNameA GetLastError %d", (int)GetLastError());
+			SYSTEMERROR("GetTempFileNameA");
 			return 0;
 		}
 		tmpfn1->count=strlen((char*)tmpfn1->data);
@@ -698,7 +695,7 @@ int main(int argc, char **argv)
 		val=GetTempFileNameA(g_buf, "t2_", 0, (char*)tmpfn2->data);
 		if(!val)
 		{
-			LOG_ERROR("GetTempFileNameA GetLastError %d", (int)GetLastError());
+			SYSTEMERROR("GetTempFileNameA");
 			return 0;
 		}
 		tmpfn2->count=strlen((char*)tmpfn2->data);
@@ -1133,10 +1130,9 @@ dec command template
 		int success=CopyFileA((char*)info->filename->data, t1fn, 1);
 		if(!success)
 		{
-			printf("CopyFileA  GetLastError %d\n", (int)GetLastError());
 			printf("Source:       %s\n", (char*)info->filename->data);
 			printf("Destination:  %s\n", t1fn);
-			LOG_ERROR("");
+			SYSTEMERROR("CopyFileA");
 			return 0;
 		}
 
@@ -1145,10 +1141,17 @@ dec command template
 
 		//Print 2:  -> csize etime
 		printf(" -> %10lld B  %12.6lf", currcell->csize, currcell->etime);
-		if(!currcell->csize)
+		if(currcell->csize<=FSIZE_EMPTYFILE)
 		{
+			const char *msg="malicious";
+			if(currcell->csize==FSIZE_EMPTYFILE)
+				msg="empty";
+			else if(currcell->csize==FSIZE_FOLDER)
+				msg="a folder";
+			else if(currcell->csize==FSIZE_INACCESSIBLE)
+				msg="not found";
 			printf("\n");
-			printf("Temp. file #1 not found:\n");
+			printf("Temp. file #1 is %s:\n", msg);
 			printf("  \"%s\"\n", t1fn);
 			printf("The encode command was:\n");
 			printf("  %s\n", encline);

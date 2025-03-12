@@ -3519,3 +3519,18 @@ void colorgen(int *colors, int count, int minbrightness, int maxbrightness, int 
 		colors[k]=bestcolor;
 	}
 }
+#ifdef _WIN32
+int print_systemerror(const char *file, int line, const char *funcname, int errorcode, int quit)
+{
+	char *msg=0;
+	int len=FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER|FORMAT_MESSAGE_FROM_SYSTEM, 0, errorcode, 0, (char*)&msg, 0, 0);
+	if(!len)
+		return printf("%s GetLastError %d,  print_systemerror GetLastError %d\n", funcname, errorcode, (int)GetLastError());
+
+	len=printf("%s(%d): %s %d: %s", file?file:"?", line, funcname?funcname:"", errorcode, msg);
+	LocalFree(msg);
+	if(quit)
+		exit(0);
+	return len;
+}
+#endif

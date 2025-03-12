@@ -607,6 +607,12 @@ int colorprintf(int textcolor, int bkcolor, const char *format, ...);//0x00BBGGR
 void colorgen0(int *colors, int count, int maxbrightness);//maxbrightness is componentwise
 void colorgen(int *colors, int count, int minbrightness, int maxbrightness, int maxtrials);//distance-based rejection sampling  O(N^2)  brightness range [0 ~ 765]
 
+#ifdef _WIN32
+int print_systemerror(const char *file, int line, const char *funcname, int errorcode, int quit);//GetLastError
+#define SYSTEMERROR(FUNCNAME)   print_systemerror(__FILE__, __LINE__, FUNCNAME, GetLastError(), 1)
+#define SYSTEMWARNING(FUNCNAME) print_systemerror(__FILE__, __LINE__, FUNCNAME, GetLastError(), 0)
+#endif
+
 
 #ifdef _MSC_VER
 #pragma warning(pop)
