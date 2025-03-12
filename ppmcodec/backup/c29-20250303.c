@@ -2127,7 +2127,8 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 	prof_checkpoint(fwd?usize:csize, "fread");
 	int blockw=iw/XCODERS;
 	int blockh=ih/YCODERS;
-	int ixcount=blockw*NCODERS, ixbytes=3*ixcount;
+	int qxbytes=blockw*XCODERS*3;//iw/XCODERS*XCODERS*3
+	int ixcount=blockw*NCODERS, ixbytes=3*ixcount;//ix = interleaved circular buffer width		iw/XCODERS*NCODERS
 	int xremw=iw-blockw*XCODERS, yremh=ih-blockh*YCODERS;
 	int xrembytes=3*xremw;
 	ptrdiff_t isize=(ptrdiff_t)ixbytes*blockh;
@@ -3615,14 +3616,14 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 			for(int ky=0;ky<yremh;++ky)
 				decorr1d(image+rowstride*(blockh*YCODERS+ky), iw, 3, bestrct, rhist);
 			for(int kx=0;kx<xremw;++kx)
-				decorr1d(image+ixbytes+3*kx, blockh*YCODERS, rowstride, bestrct, rhist);
+				decorr1d(image+qxbytes+3*kx, blockh*YCODERS, rowstride, bestrct, rhist);
 			enc_hist2stats(rhist+(ptrdiff_t)256*0, rsyminfo+(ptrdiff_t)256*0, &ctxmask, 3*NCTX+0);
 			enc_hist2stats(rhist+(ptrdiff_t)256*1, rsyminfo+(ptrdiff_t)256*1, &ctxmask, 3*NCTX+1);
 			enc_hist2stats(rhist+(ptrdiff_t)256*2, rsyminfo+(ptrdiff_t)256*2, &ctxmask, 3*NCTX+2);
 			
 			unsigned state=1<<(RANS_STATE_BITS-RANS_RENORM_BITS);
 			for(int kx=xremw-1;kx>=0;--kx)
-				encode1d(image+ixbytes+3*kx, blockh*YCODERS, rowstride, &state, &streamptr, image, rsyminfo);
+				encode1d(image+qxbytes+3*kx, blockh*YCODERS, rowstride, &state, &streamptr, image, rsyminfo);
 			for(int ky=yremh-1;ky>=0;--ky)
 				encode1d(image+rowstride*(blockh*YCODERS+ky), iw, 3, &state, &streamptr, image, rsyminfo);
 			//flush
@@ -3947,7 +3948,7 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 			for(int ky=0;ky<yremh;++ky)
 				decode1d(image+rowstride*(blockh*YCODERS+ky), iw, 3, bestrct, &state, (const unsigned char**)&streamptr, streamend, rCDF2syms);
 			for(int kx=0;kx<xremw;++kx)
-				decode1d(image+ixbytes+3*kx, blockh*YCODERS, rowstride, bestrct, &state, (const unsigned char**)&streamptr, streamend, rCDF2syms);
+				decode1d(image+qxbytes+3*kx, blockh*YCODERS, rowstride, bestrct, &state, (const unsigned char**)&streamptr, streamend, rCDF2syms);
 			prof_checkpoint(usize-isize, "remainder");
 		}
 
