@@ -480,18 +480,18 @@ static int print_scicolor(double xprint, double xcolor, int is_ratio)//is_ratio 
 		dB=(int)(log10(xcolor)*256);
 		CLAMP2(dB, -255, 255);
 		if(xcolor<1)//small ratio is good for the rival	eg: 0.5x time -> 2x faster
-			green=-dB;
+			red=-dB;
 		else if(xcolor>1)
-			red=dB;
+			green=dB;
 	}
 	else if(xcolor)
 	{
 		dB=(int)round(log10(fabs(xcolor))*256+2*256);
 		CLAMP2(dB, 0, 255);
 		if(xcolor<0)//negative diff is good for the rival	eg: -300 KB
-			green=dB;
-		else if(xcolor>0)
 			red=dB;
+		else if(xcolor>0)
+			green=dB;
 	}
 	static char str[64]={0};
 	int printed=snprintf(str, sizeof(str)-1, "%+5.0e", xprint);
@@ -530,10 +530,10 @@ static void print_rivals_v2(ArrayHandle besttestidxs, ArrayHandle testinfo, int 
 		print_scicolor(x, x/usize, 0);
 
 		x=cell->etime/currcell->etime;
-		print_scicolor(1/x, x, 1);
+		print_scicolor(x, x, 1);
 
 		x=cell->dtime/currcell->dtime;
-		print_scicolor(1/x, x, 1);
+		print_scicolor(x, x, 1);
 	}
 }
 static void print_summary(ArrayHandle besttestidxs, ArrayHandle testinfo, ptrdiff_t usize, int special)
@@ -550,19 +550,16 @@ static void print_summary(ArrayHandle besttestidxs, ArrayHandle testinfo, ptrdif
 		};
 		printf("Table notation \"+SSE+ED+D\":    For example {%g-%g, %g/%g, %g/%g} = {%+.2lf KB, %gx, %gx} -> ",
 			csize1, csize2,
-			etime2, etime1,
-			dtime2, dtime1,
-			score[0]/1024, 1/score[1], 1/score[2]
+			etime1, etime2,
+			dtime1, dtime2,
+			score[0]/1024, score[1], score[2]
 		);
 		print_scicolor(score[0], score[0]/usize, 0);
-		print_scicolor(1/score[1], score[1], 1);
-		print_scicolor(1/score[2], score[2], 1);
+		print_scicolor(score[1], score[1], 1);
+		print_scicolor(score[2], score[2], 1);
 		printf(".\n");
 		printf("  +SS      = size diff   = {SIGN MSDIGIT * 10 ^      EXP} = listsize - yoursize\n");
 		printf("  E+E, D+D = time ratios = {     MSDIGIT * 10 ^ SIGN EXP} = listtime / yourtime\n");
-		printf("The goal is to paint rivals ");
-		colorprintf(COLORPRINTF_TXT_DEFAULT, 255, "RED");
-		printf(".\n");
 	}
 	for(int k2=0;k2<(int)besttestidxs->count;++k2)
 	{
