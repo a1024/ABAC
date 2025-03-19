@@ -1,2 +1,2 @@
-c14st ---ppm ---c14
-c14st ---c14 ---ppm
+c14st *.ppm *.c14
+c14st *.c14 *.ppm

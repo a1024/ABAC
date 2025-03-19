@@ -1,2 +1,2 @@
-fnbli -f ---ppm -o ---fnbli
-fnbli -f ---fnbli -o ---ppm
+fnbli -f *.ppm -o *.fnbli
+fnbli -f *.fnbli -o *.ppm

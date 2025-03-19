@@ -1,0 +1,2 @@
+zstd -f --single-thread --ultra -22 *.ppm -o *.zst
+zstd -f --single-thread --ultra -d *.zst -o *.ppm

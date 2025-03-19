@@ -1,2 +1,2 @@
-qic c ---qlic2 ---ppm
-qic d ---qlic2 ---ppm
+qic c *.qlic2 *.ppm
+qic d *.qlic2 *.ppm

@@ -1,2 +1,2 @@
-gralic111d c ---gra111 ---ppm
-gralic111d d ---gra111 ---ppm
+gralic111d c *.gra111 *.ppm
+gralic111d d *.gra111 *.ppm

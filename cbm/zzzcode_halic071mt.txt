@@ -1,2 +1,2 @@
-HALIC_ENCODE_V.0.7.1_MT ---ppm ---halic -mt
-HALIC_DECODE_V.0.7.1_MT ---halic ---ppm -mt
+HALIC_ENCODE_V.0.7.1_MT *.ppm *.halic -mt
+HALIC_DECODE_V.0.7.1_MT *.halic *.ppm -mt

@@ -131,10 +131,19 @@ static void free_testinfo(void *p)
 	array_free(&info->codecname);
 	array_free(&info->cells);
 }
+typedef struct _Range
+{
+	int issrc, start, end;
+} Range;
+//static int range_cmp(const void *p1, const void *p2)
+//{
+//	const Range *r1=(const Range*)p1, *r2=(const Range*)p2;
+//	return (r1->start>r2->start)-(r1->start<r2->start);
+//}
 typedef struct _CommandFormat
 {
 	ArrayHandle format;
-	int srcbounds[2], dstbounds[2];
+	ArrayHandle bounds;//Range
 } CommandFormat;
 static int getlineno(const char *start, const char *ptr)
 {
@@ -146,8 +155,13 @@ static int getlineno(const char *start, const char *ptr)
 static void skipspace(const char **ptr)
 {
 	const char *ptr2=*ptr;
-	while(*ptr2&&isspace(*ptr2++));
-	ptr2-=*ptr2!=0;
+	while(*ptr2&&isspace(*ptr2))++ptr2;
+	*ptr=ptr2;
+}
+static void skip2space(const char **ptr)
+{
+	const char *ptr2=*ptr;
+	while(*ptr2&&!isspace(*ptr2))++ptr2;
 	*ptr=ptr2;
 }
 static int peeklabel(const char *ptr, const char *label)
@@ -245,14 +259,96 @@ static void parse_cell(const char **ptr, CellInfo *cell)
 }
 static int strimatch(const char *text, const char *label)//return 1: match
 {
-	while(*label&&tolower(*text++)==tolower(*label++));
+	while(*label&&tolower(*text)==tolower(*label))++text, ++label;
 	return !*label;
 }
-static int parse_ext(const char *text, int len, int *bounds, const char *targetext, const int *excludebounds)
+static ArrayHandle parse_cmdformatext(const char *text, int len, const char *srcext, int requiredst, int *srcdstbounds)
 {
+	ArrayHandle bounds=0;
+	const char *ptr=text, *end=text+len-1;
+	//if(hassrcdst)*hassrcdst=0;
+	memset(srcdstbounds, -1, sizeof(int[4]));
+	while(ptr<end)
+	{
+		short c=*(short*)ptr;
+		if(c==('*'|'.'<<8))
+		{
+			Range *range=(Range*)array_append(&bounds, 0, sizeof(Range), 1, 1, 0, 0);
+			int idx=(int)(ptr-text);
+			range->issrc=strimatch(text+idx+2, srcext);//add 2 to skip "*."
+			range->start=idx;
+			skip2space(&ptr);
+			range->end=(int)(ptr-text);
+			int *ridx=range->issrc?srcdstbounds:srcdstbounds+2;
+			if(*ridx==-1)
+			{
+				ridx[0]=range->start;
+				ridx[1]=range->end;
+			}
+			else if(!acme_strnimatch(
+				text+range->start, (ptrdiff_t)range->end-range->start,
+				text+ridx[0], (ptrdiff_t)ridx[1]-ridx[0]
+			))
+			{
+				printf(
+					"\n"
+					"Invalid template:  %s\n"
+					"Expected\n"
+					"  [%d] \"%.*s\"  to match\n"
+					"  [%d] \"%.*s\"  (case-insensitive, no spaces)\n",
+					text,
+					ridx[0], ridx[1]-ridx[0], text+ridx[0],
+					range->start, range->end-range->start, text+range->start
+				);
+				LOG_ERROR("");
+			}
+			continue;
+		}
+		++ptr;
+	}
+	if(!bounds)
+	{
+		printf(
+			"\n"
+			"Invalid template:  %s\n"
+			"Missing source%s \"*.extension%s\"\n",
+			text,
+			requiredst?" and codec":"",
+			requiredst?"s":""
+		);
+		LOG_ERROR("");
+	}
+	if(requiredst&&srcdstbounds[2]==-1)
+	{
+		printf(
+			"\n"
+			"Invalid template:  %s\n"
+			"Missing codec \"*.extension\"\n",
+			text
+		);
+		LOG_ERROR("");
+	}
+	//int srcbounds[2]={-1}, dstbounds[2]={-1};
+	//for(int k=0;k<(int)enccmd.bounds->count;++k)
+	//{
+	//	const Range *range=(const Range*)array_at(&enccmd.bounds, k);
+	//	int *dst=range->issrc?srcbounds:dstbounds;
+	//	if(dst[0]==-1)
+	//	{
+	//		dst[0]=range->start;
+	//		dst[1]=range->end;
+	//	}
+	//	else if(!acme_strnimatch(
+	//		(char*)enccmd.format->data+range->start, (ptrdiff_t)range->end-range->start,
+	//		(char*)enccmd.format->data+dst[0], (ptrdiff_t)dst[1]-dst[0]
+	//	))
+	//	{
+	//		valid=0;
+	//		break;
+	//	}
+	//}
+#if 0
 	const int ndashes=3;
-	int found=0;
-	int count=0;
 	const char *ptr=text+len;
 	while(--ptr>=text)//search backward, in case the path itself contains dashes
 	{
@@ -263,24 +359,63 @@ static int parse_ext(const char *text, int len, int *bounds, const char *targete
 			if(count==ndashes)
 			{
 				int idx=(int)(ptr-text);
-				if(excludebounds&&idx==excludebounds[0])
-					count=0;
-				else if(!targetext||strimatch(ptr+ndashes, targetext))
+				int collision=0;
+				if(excludebounds)
 				{
-					found=1;
-					bounds[0]=idx;
+					for(int k=0;k<(int)excludebounds->count;++k)
+					{
+						Range *range=(Range*)array_at(&excludebounds, k);
+						if(idx==range->start)
+						{
+							collision=1;
+							break;
+						}
+					}
+				}
+				if(!collision&&(!targetext||strimatch(ptr+ndashes, targetext)))
+				{
+					Range *range=(Range*)array_append(&bounds, 0, sizeof(Range), 1, 1, 0, 0);
+					range->start=idx;
 					idx+=ndashes;
 					while(text[idx]&&!isspace(text[idx++]));
 					idx-=text[idx]!=0;
-					bounds[1]=idx;
-					break;
+					range->end=idx;
 				}
+				count=0;
 			}
 		}
 		else
 			count=0;
 	}
-	return found;
+	if(bounds&&bounds->count>1)//sort ranges if two or more
+		isort(bounds->data, bounds->count, bounds->esize, range_cmp);
+#endif
+	return bounds;
+}
+static void substitute_cmdplaceholders(char **pptr, const char *end, const CommandFormat *cmd, const char *t1fn, const char *t2fn)
+{
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wrestrict"
+#endif
+	char *ptr=*pptr;
+	int lastidx=0;
+	for(int k=0;k<(int)cmd->bounds->count;++k)
+	{
+		const Range *range=(const Range*)array_at((ArrayHandle*)(size_t)&cmd->bounds, k);
+		ptr+=snprintf(ptr, end-ptr, "%.*s \"%s\" ",
+			range->start-lastidx, (char*)cmd->format->data+lastidx,
+			range->issrc?t1fn:t2fn
+		);
+		lastidx=range->end;
+	}
+	ptr+=snprintf(ptr, end-ptr, "%s",
+		(char*)cmd->format->data+lastidx
+	)+1;
+	*pptr=ptr;
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif
 }
 static const char* get_extension(const char *filename, ptrdiff_t len)//excludes the dot
 {
@@ -333,8 +468,11 @@ static void write_cell(FILE *fdst, CellInfo *cell)//tabs for excel
 static void qualify_command(ArrayHandle *cmd)
 {
 	const char *ptr=(char*)cmd[0]->data;
-	while(*ptr&&!isspace(*ptr++));//assume no spaces
-	ptr-=*ptr!=0;
+	skip2space(&ptr);//assume no spaces
+
+	//while(*ptr&&!isspace(*ptr++));
+	//ptr-=*ptr!=0;
+
 	char fn1[MAX_PATH+1]={0}, fn2[MAX_PATH+2]={0};
 	int len1=(int)(ptr-(char*)cmd[0]->data);
 	memcpy(fn1, cmd[0]->data, len1);
@@ -636,12 +774,16 @@ int main(int argc, char **argv)
 	codecname=argv[2];
 #else
 	datasetname="synth2";
-	codecname="zstd5";
+	codecname="rz";
 #endif
+	const char placeholdertag[]="*.";
+	const int placeholderlen=sizeof(placeholdertag)-1;
 	char programpath[MAX_PATH+1]={0};
 	ArrayHandle currdir=0, tmpfn1=0, tmpfn2=0;
 	ArrayHandle srcpath=0, ext=0, uinfo=0, testinfo=0;
 	CommandFormat enccmd={0}, deccmd={0};
+	int srcdstbounds[4]={0};
+	char *srctitle=0, *dsttitle=0;
 
 	ArrayHandle besttestidxs=0;
 
@@ -696,10 +838,6 @@ int main(int argc, char **argv)
 			return 0;
 		}
 		tmpfn2->count=strlen((char*)tmpfn2->data);
-		//printf("Temp filenames:\n");
-		//printf("  %s\n", (char*)tmpfn1->data);
-		//printf("  %s\n", (char*)tmpfn2->data);
-		//printf("\n");
 		ascii_deletefile((char*)tmpfn1->data);//these were generated by GetTempFileNameA()
 		ascii_deletefile((char*)tmpfn2->data);
 	}
@@ -919,13 +1057,12 @@ dec command template
 			enccmd.format=parse_str(start, &ptr, '\n', 0);
 			skipspace(&ptr);
 			deccmd.format=parse_str(start, &ptr, '\n', 1);
-			array_free(&text);
 		}
-		else
+		else//new
 		{
 			int len=0;
 			printf("\n");
-			printf("  Use \"---extension\" as filename placeholders.\n");
+			printf("  Use \"*.extension\" as filename placeholders.\n");
 			printf("Define %s encode:  ", codecname);
 			len=acme_getline(g_buf, sizeof(g_buf), stdin);
 			STR_COPY(enccmd.format, g_buf, len);
@@ -937,49 +1074,52 @@ dec command template
 		}
 		qualify_command(&enccmd.format);
 		qualify_command(&deccmd.format);
-		enccmd.srcbounds[0]=-1;
-		enccmd.srcbounds[1]=-1;
-		enccmd.dstbounds[0]=-1;
-		enccmd.dstbounds[1]=-1;
-		deccmd.srcbounds[0]=-1;
-		deccmd.srcbounds[1]=-1;
-		deccmd.dstbounds[0]=-1;
-		deccmd.dstbounds[1]=-1;
-		parse_ext((char*)enccmd.format->data, (int)enccmd.format->count, enccmd.srcbounds, (char*)ext->data, 0);
-		parse_ext((char*)enccmd.format->data, (int)enccmd.format->count, enccmd.dstbounds, 0, enccmd.srcbounds);
-		parse_ext((char*)deccmd.format->data, (int)deccmd.format->count, deccmd.dstbounds, (char*)ext->data, 0);
-		parse_ext((char*)deccmd.format->data, (int)deccmd.format->count, deccmd.srcbounds, 0, deccmd.dstbounds);
-		if(
-			enccmd.srcbounds[0]==-1
-		||	enccmd.srcbounds[1]==-1
-		||	enccmd.dstbounds[0]==-1
-		||	enccmd.dstbounds[1]==-1
-		||	deccmd.srcbounds[0]==-1
-		||	deccmd.srcbounds[1]==-1
-	//	||	deccmd.dstbounds[0]==-1
-	//	||	deccmd.dstbounds[1]==-1
-		||	!acme_strnimatch((char*)enccmd.format->data+enccmd.srcbounds[0]+3, enccmd.srcbounds[1]-((ptrdiff_t)enccmd.srcbounds[0]+3), (char*)ext->data, ext->count)
-	//	||	!acme_strnimatch((char*)deccmd.format->data+deccmd.dstbounds[0]+3, deccmd.dstbounds[1]-((ptrdiff_t)deccmd.dstbounds[0]+3), (char*)ext->data, ext->count)
-		||	!acme_strnimatch(
-				(char*)enccmd.format->data+enccmd.dstbounds[0], enccmd.dstbounds[1]-(ptrdiff_t)enccmd.dstbounds[0],
-				(char*)deccmd.format->data+deccmd.srcbounds[0], deccmd.srcbounds[1]-(ptrdiff_t)deccmd.srcbounds[0]
-			)
-		)
+		int srcdstbounds2[4]={0};
+		enccmd.bounds=parse_cmdformatext((char*)enccmd.format->data, (int)enccmd.format->count, (char*)ext->data, 1, srcdstbounds);
+		deccmd.bounds=parse_cmdformatext((char*)deccmd.format->data, (int)deccmd.format->count, (char*)ext->data, 0, srcdstbounds2);
+		int valid=acme_strnimatch(
+			(char*)enccmd.format->data+srcdstbounds[2], (ptrdiff_t)srcdstbounds[3]-srcdstbounds[2],
+			(char*)deccmd.format->data+srcdstbounds2[2], (ptrdiff_t)srcdstbounds2[3]-srcdstbounds2[2]
+		);
+		if(srcdstbounds2[0]!=-1)
 		{
+			valid+=acme_strnimatch(
+				(char*)enccmd.format->data+srcdstbounds[0], (ptrdiff_t)srcdstbounds[1]-srcdstbounds[0],
+				(char*)deccmd.format->data+srcdstbounds2[0], (ptrdiff_t)srcdstbounds2[1]-srcdstbounds2[0]
+			)*2;
+		}
+		//int srcbounds[2]={-1}, dstbounds[2]={-1};
+		//for(int k=0;k<(int)enccmd.bounds->count;++k)
+		//{
+		//	const Range *range=(const Range*)array_at(&enccmd.bounds, k);
+		//	int *dst=range->issrc?srcbounds:dstbounds;
+		//	if(dst[0]==-1)
+		//	{
+		//		dst[0]=range->start;
+		//		dst[1]=range->end;
+		//	}
+		//	else if(!acme_strnimatch(
+		//		(char*)enccmd.format->data+range->start, (ptrdiff_t)range->end-range->start,
+		//		(char*)enccmd.format->data+dst[0], (ptrdiff_t)dst[1]-dst[0]
+		//	))
+		//	{
+		//		valid=0;
+		//		break;
+		//	}
+		//}
+		//if(!enccmd.bounds||!deccmd.bounds||!valid)
+		if(!(valid&1)||(srcdstbounds2[0]!=-1&&!(valid&2)))//dec dst can be omitted, eg 7zip
+		{
+			printf("Template \"*.extension\" mismatch\n");
+			printf("Enc:  %s\n", (char*)enccmd.format->data);
+			printf("Dec:  %s\n", (char*)deccmd.format->data);
 			printf("\n");
-			printf("Invalid templates\n");
-			printf("Each template should contain 2 placeholders of the form ---extension\n");
-			printf("Example:\n");
-			printf("  program ---ppm ---ext\n");
-			printf("  program ---ext ---ppm\n");
-			printf("\n");
-			printf("Enc template:  %s\n", (char*)enccmd.format->data);
-			printf("Dec template:  %s\n", (char*)deccmd.format->data);
-			printf("\n");
-			printf("Enc src \"%.*s\" [%d ~ %d]\n", enccmd.srcbounds[1]-enccmd.srcbounds[0], (char*)enccmd.format->data+enccmd.srcbounds[0], enccmd.srcbounds[0], enccmd.srcbounds[1]);
-			printf("Enc dst \"%.*s\" [%d ~ %d]\n", enccmd.dstbounds[1]-enccmd.dstbounds[0], (char*)enccmd.format->data+enccmd.dstbounds[0], enccmd.dstbounds[0], enccmd.dstbounds[1]);
-			printf("Dec src \"%.*s\" [%d ~ %d]\n", deccmd.srcbounds[1]-deccmd.srcbounds[0], (char*)deccmd.format->data+deccmd.srcbounds[0], deccmd.srcbounds[0], deccmd.srcbounds[1]);
-			printf("Dec dst \"%.*s\" [%d ~ %d]\n", deccmd.dstbounds[1]-deccmd.dstbounds[0], (char*)deccmd.format->data+deccmd.dstbounds[0], deccmd.dstbounds[0], deccmd.dstbounds[1]);
+			printf("Enc template requires source and destination placeholders\n");
+			printf("Dec template requires source placeholder at least\n");
+			printf("Source      extensions must match.\n");
+			printf("Destination extensions must match.\n");
+			if(!is_new)
+				printf("\nCheck \"%s\"\n", g_buf);
 			LOG_ERROR("");
 		}
 		if(is_new)
@@ -991,14 +1131,36 @@ dec command template
 			array_free(&enc0);
 			array_free(&dec0);
 		}
+		else
+			array_free(&text);
 	}
 	char *t1fn=0, *t2fn, *encline=0, *decline=0;
-	int t1len=0, t2len=0, enclen=0, declen=0;
+	//int t1len=0, t2len=0, enclen=0, declen=0;
 	{
 #ifdef __GNUC__
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wrestrict"
 #endif
+		char *ptr=g_buf2, *end=g_buf2+sizeof(g_buf2)-1;
+		t1fn=ptr;
+		ptr+=snprintf(ptr, end-ptr, "%s.%.*s",
+			(char*)tmpfn1->data, srcdstbounds[1]-(srcdstbounds[0]+placeholderlen), (char*)enccmd.format->data+srcdstbounds[0]+placeholderlen
+		)+1;//skip null terminator
+		srctitle=ptr;
+		while(srctitle>t1fn&&srctitle[-1]!='/'&&srctitle[-1]!='\\')--srctitle;
+
+		t2fn=ptr;
+		ptr+=snprintf(ptr, end-ptr, "%s.%.*s",
+			(char*)tmpfn2->data, srcdstbounds[3]-(srcdstbounds[2]+placeholderlen), (char*)enccmd.format->data+srcdstbounds[2]+placeholderlen
+		)+1;
+		dsttitle=ptr;
+		while(dsttitle>t2fn&&dsttitle[-1]!='/'&&dsttitle[-1]!='\\')--dsttitle;
+		
+		encline=ptr;
+		substitute_cmdplaceholders(&ptr, end, &enccmd, srctitle, dsttitle);
+		decline=ptr;
+		substitute_cmdplaceholders(&ptr, end, &deccmd, srctitle, dsttitle);
+#if 0
 		char *ptr=g_buf2, *end=g_buf2+sizeof(g_buf2)-1;
 		t1fn=ptr;
 		ptr+=snprintf(ptr, end-ptr, "%s.%.*s",
@@ -1065,12 +1227,19 @@ dec command template
 			)+1;
 		}
 		declen=(int)(ptr-decline-1);
+		(void)t1len;
+		(void)t2len;
+		(void)enclen;
+		(void)declen;
+#endif
 #ifdef __GNUC__
 #pragma GCC diagnostic pop
 #endif
 		printf("Temp filenames:\n");//
 		printf("  \"%s\"\n", t1fn);
 		printf("  \"%s\"\n", t2fn);
+		printf("Wirking directory:\n");
+		printf("  \"%s\"\n", (char*)currdir->data);
 		printf("Commands:\n");
 		printf("  %s\n", encline);//
 		printf("  %s\n", decline);//
@@ -1080,10 +1249,6 @@ dec command template
 			printf("\n\nsnprintf OOB  ptr %016zX > %016zX\n", (size_t)ptr, (size_t)end);
 			LOG_ERROR("");
 		}
-		(void)t1len;
-		(void)t2len;
-		(void)enclen;
-		(void)declen;
 	}
 
 	//5. test		DON'T MODIFY g_buf2 BELOW THIS POINT

@@ -1,2 +1,2 @@
-cfox ---ppm ---fox
-dfox ---fox ---ppm
+cfox *.ppm *.fox
+dfox *.fox *.ppm

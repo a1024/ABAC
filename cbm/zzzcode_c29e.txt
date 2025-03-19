@@ -1,2 +1,2 @@
-E:\C\codec\codec\c29.exe ---ppm ---c29
-E:\C\codec\codec\c29.exe ---c29 ---ppm
+E:\C\codec\codec\c29.exe *.ppm *.c29
+E:\C\codec\codec\c29.exe *.c29 *.ppm

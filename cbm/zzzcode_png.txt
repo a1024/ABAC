@@ -1,0 +1,2 @@
+fpngconv *.ppm *.png 1
+fpngconv *.png *.ppm

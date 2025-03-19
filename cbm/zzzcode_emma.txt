@@ -1,2 +1,2 @@
-emma_c ---ppm ---emma
-emma_d ---emma ---ppm
+emma_c *.ppm *.emma
+emma_d *.emma *.ppm

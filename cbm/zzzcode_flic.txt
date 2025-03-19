@@ -1,2 +1,2 @@
-flic c ---flic ---ppm
-flic d ---flic ---ppm
+flic c *.flic *.ppm
+flic d *.flic *.ppm

@@ -1440,20 +1440,20 @@ int str_append(ArrayHandle *str, const char *format, ...)
 	return (int)reqlen;
 }
 
-size_t array_append(ArrayHandle *dst, const void *src, size_t esize, size_t count, size_t rep, size_t pad, void (*destructor)(void*))//arr can be 0, returns original array size
+void* array_append(ArrayHandle *dst, const void *src, size_t esize, size_t count, size_t rep, size_t pad, void (*destructor)(void*))//arr can be 0, returns original array size
 {
 	size_t dststart=0;
 	if(!*dst)
-		*dst=array_construct(src, esize, count, rep, pad, destructor);
-	else
 	{
-		dststart=dst[0]->count*dst[0]->esize;
-		if(dst[0]->esize!=esize)
-			LOG_ERROR("Array element size mismatch");
-		else
-			ARRAY_APPEND(*dst, src, count, rep, pad);
+		*dst=array_construct(src, esize, count, rep, pad, destructor);
+		return dst[0]->data;
 	}
-	return dststart;
+	dststart=dst[0]->count*dst[0]->esize;
+	if(dst[0]->esize!=esize)
+		LOG_ERROR("Array element size mismatch");
+	else
+		ARRAY_APPEND(*dst, src, count, rep, pad);
+	return dst[0]->data+dststart;
 }
 #endif
 

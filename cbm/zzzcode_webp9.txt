@@ -1,0 +1,2 @@
+cwebp -quiet -lossless -z 9 *.ppm -o *.webp
+dwebp -ppm *.webp -o *.ppm

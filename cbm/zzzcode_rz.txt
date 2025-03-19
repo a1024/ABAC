@@ -1,0 +1,2 @@
+rz a *.rz *.ppm
+rz e *.rz *.ppm

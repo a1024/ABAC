@@ -231,8 +231,8 @@ int hammingweight16(unsigned short x);
 int hammingweight32(unsigned x);
 int hammingweight64(unsigned long long x);
 //int floor_log2_p1(unsigned long long n);
-//int floor_log2(unsigned long long n);		//use (31-_lzcnt_u64(n)) instead
-//int floor_log2_32(unsigned n);		//use (63-_lzcnt_u32(n)) instead
+//int floor_log2(unsigned long long n);		//use (63-_lzcnt_u64(n)) instead
+//int floor_log2_32(unsigned n);		//use (31-_lzcnt_u32(n)) instead
 int ceil_log2(unsigned long long n);
 int ceil_log2_32(unsigned n);
 //int get_lsb_index(unsigned long long n);//returns lsb position + 1,  returns register bit count if n is zero
@@ -302,7 +302,7 @@ typedef struct ArrayHeaderStruct//32 bytes on 64 bit system, or 16 bytes on 32 b
 	unsigned char data[];
 } ArrayHeader, *ArrayHandle;
 ArrayHandle array_construct(const void *src, size_t esize, size_t count, size_t rep, size_t pad, void (*destructor)(void*));
-size_t array_append(ArrayHandle *dst, const void *src, size_t esize, size_t count, size_t rep, size_t pad, void (*destructor)(void*));//arr can be 0, returns original array size
+void* array_append(ArrayHandle *dst, const void *src, size_t esize, size_t count, size_t rep, size_t pad, void (*destructor)(void*));//arr can be 0, returns pointer to new data
 ArrayHandle array_copy(ArrayHandle *arr);//shallow
 void  array_clear(ArrayHandle *arr);//keeps allocation
 void  array_free(ArrayHandle *arr);
