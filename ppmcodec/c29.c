@@ -143,6 +143,7 @@ static void prof_checkpoint(ptrdiff_t size, const char *msg)
 }
 static void prof_print(ptrdiff_t usize)
 {
+	static char buf[2048]={0};
 	double timesum=0, tmax=0;
 	for(int k=0;k<prof_count;++k)
 	{
@@ -171,16 +172,29 @@ static void prof_print(ptrdiff_t usize)
 		if(info->msg)
 			len=(int)strlen(info->msg);
 #if 1
-		if(space>2048)//printf("%*s", HUGE, ""); CRASHES
-			space=2048;
+		if(space>2047)//printf("%*s", HUGE, ""); CRASHES
+			space=2047;
 		if(info->msg&&space>=len)
 		{
 			int labelstart=(space-len)>>1;
 			int labelend=labelstart+len;
-			colorprintf(COLORPRINTF_TXT_DEFAULT, colors[k], "%*s%s%*s", labelstart, "", info->msg, space-labelend, "");
+
+			memset(buf, '-', labelstart);
+			buf[labelstart]=0;
+			colorprintf(colors[k], colors[k], buf);
+			colorprintf(COLORPRINTF_TXT_DEFAULT, colors[k], "%s", info->msg);
+			memset(buf, '-', (ptrdiff_t)space-labelend);
+			buf[space-labelend]=0;
+			colorprintf(colors[k], colors[k], buf);
+		//	colorprintf(COLORPRINTF_TXT_DEFAULT, colors[k], "%*s%s%*s", labelstart, "", info->msg, space-labelend, "");
 		}
 		else
-			colorprintf(COLORPRINTF_TXT_DEFAULT, colors[k], "%*s", space, "");
+		{
+			memset(buf, '-', space);
+			buf[space]=0;
+			colorprintf(colors[k], colors[k], buf);
+		}
+		//	colorprintf(COLORPRINTF_TXT_DEFAULT, colors[k], "%*s", space, "");
 		printf("|");
 #endif
 #if 0

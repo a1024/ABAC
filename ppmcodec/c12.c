@@ -11,9 +11,11 @@
 static const char file[]=__FILE__;
 
 
-//	#define ENABLE_GUIDE
+#ifdef _MSC_VER
+	#define LOUD
+	#define ENABLE_GUIDE
 //	#define AC_VALIDATE
-//	#define LOUD
+#endif
 
 #define ABAC_PROBBITS 16
 //#define ANALYSIS_XSTRIDE 4
@@ -72,27 +74,25 @@ typedef enum _OCHType
 } OCHType;
 static const unsigned char rct_indices[][8]=
 {//	output channels			permutation	helper index
-	{OCH_R,	OCH_G,	OCH_B,		0, 1, 2,	3, 3},
-	{OCH_R,	OCH_G,	OCH_BG,		0, 1, 2,	3, 1},
-	{OCH_R,	OCH_G,	OCH_BR,		0, 1, 2,	3, 0},
-	{OCH_R,	OCH_GR,	OCH_BR,		0, 1, 2,	0, 0},
-	{OCH_R,	OCH_GR,	OCH_BG,		0, 1, 2,	0, 1},
-	{OCH_R,	OCH_BR,	OCH_GB,		0, 2, 1,	0, 1},
-	{OCH_G,	OCH_B,	OCH_RG,		1, 2, 0,	3, 0},
-	{OCH_G,	OCH_B,	OCH_RB,		1, 2, 0,	3, 1},
-	{OCH_G,	OCH_BG,	OCH_RG,		1, 2, 0,	0, 0},
-	{OCH_G,	OCH_BG,	OCH_RB,		1, 2, 0,	0, 1},
-	{OCH_G,	OCH_RG,	OCH_BR,		1, 0, 2,	0, 1},
-	{OCH_B,	OCH_R,	OCH_GR,		2, 0, 1,	3, 1},
-	{OCH_B,	OCH_R,	OCH_GB,		2, 0, 1,	3, 0},
-	{OCH_B,	OCH_RB,	OCH_GB,		2, 0, 1,	0, 0},
-	{OCH_B,	OCH_RB,	OCH_GR,		2, 0, 1,	0, 1},
-	{OCH_B,	OCH_GB,	OCH_RG,		2, 1, 0,	0, 1},
+	{OCH_R,	OCH_G,	OCH_B,		0, 1, 2,	3, 3},// 0
+	{OCH_R,	OCH_G,	OCH_BG,		0, 1, 2,	3, 1},// 1
+	{OCH_R,	OCH_G,	OCH_BR,		0, 1, 2,	3, 0},// 2
+	{OCH_R,	OCH_GR,	OCH_BR,		0, 1, 2,	0, 0},// 3
+	{OCH_R,	OCH_GR,	OCH_BG,		0, 1, 2,	0, 1},// 4
+	{OCH_R,	OCH_BR,	OCH_GB,		0, 2, 1,	0, 1},// 5
+	{OCH_G,	OCH_B,	OCH_RG,		1, 2, 0,	3, 0},// 6
+	{OCH_G,	OCH_B,	OCH_RB,		1, 2, 0,	3, 1},// 7
+	{OCH_G,	OCH_BG,	OCH_RG,		1, 2, 0,	0, 0},// 8
+	{OCH_G,	OCH_BG,	OCH_RB,		1, 2, 0,	0, 1},// 9
+	{OCH_G,	OCH_RG,	OCH_BR,		1, 0, 2,	0, 1},//10
+	{OCH_B,	OCH_R,	OCH_GR,		2, 0, 1,	3, 1},//11
+	{OCH_B,	OCH_R,	OCH_GB,		2, 0, 1,	3, 0},//12
+	{OCH_B,	OCH_RB,	OCH_GB,		2, 0, 1,	0, 0},//13
+	{OCH_B,	OCH_RB,	OCH_GR,		2, 0, 1,	0, 1},//14
+	{OCH_B,	OCH_GB,	OCH_RG,		2, 1, 0,	0, 1},//15
 };
-static int ctxctr[3][4][256];
-static short stats1[3][4][256][256];
-static int mixer[3][256][4];
-//static int mixer[8][3][4];
+static short stats1[3][1024][256];
+#if 0
 AWM_INLINE int squash(int x)//sigmoid(x) = 1/(1-exp(-x))		logit sum -> prob
 {
 #ifdef DISABLE_LOGMIX
@@ -139,6 +139,133 @@ AWM_INLINE int stretch(int x)//ln(x/(1-x))		probs -> logits
 #endif
 	return x;
 }
+#endif
+typedef struct _C12Info
+{
+	unsigned long long low, range, code;
+	unsigned char *ptr;
+	int fwd;
+	int p0, bit;
+} C12Info;
+AWM_INLINE void codebit(C12Info *info, int sh)
+{
+	unsigned long long r2;
+	int p0=info->p0;
+//	CLAMP2(p0, 0x4000, 0x10000-0x4000);
+	if(info->fwd)
+	{		
+		if(info->range<0x10000)
+		{
+			*(unsigned*)info->ptr=(unsigned)(info->low>>32);
+			info->ptr+=4;
+			info->low=info->low<<32;
+			info->range=info->range<<32|0xFFFFFFFF;
+			if(info->range>~info->low)
+				info->range=~info->low;
+		}
+#ifdef AC_VALIDATE
+		unsigned long long lo0=low, r0=range;
+#endif
+		r2=info->range*p0>>16;
+		if(info->bit)
+		{
+			info->low+=r2;
+			info->range-=r2;
+		}
+		else
+			info->range=r2-1;
+#ifdef AC_VALIDATE
+		acval_enc(bit, 0, p0, lo0, lo0+r0, low, low+range, 0, 0);
+#endif
+	}
+	else
+	{
+		if(info->range<0x10000)
+		{
+			info->code=info->code<<32|*(unsigned*)info->ptr;
+			info->ptr+=4;
+			info->low=info->low<<32;
+			info->range=info->range<<32|0xFFFFFFFF;
+			if(info->range>~info->low)
+				info->range=~info->low;
+		}
+#ifdef AC_VALIDATE
+		unsigned long long lo0=low, r0=range;
+#endif
+		r2=info->range*p0>>16;
+
+		unsigned long long mid=info->low+r2;
+		info->range-=r2;
+		info->bit=info->code>=mid;
+		if(info->bit)
+			info->low=mid;
+		else
+			info->range=r2-1;
+#ifdef AC_VALIDATE
+		acval_dec(bit, 0, p0, lo0, lo0+r0, low, low+range, 0, 0, code);
+#endif
+	}
+	info->p0=info->p0+(((!info->bit<<16)-info->p0+(1<<sh>>1))>>sh);
+}
+#if 0
+AWM_INLINE void bypassbit(C12Info *info)
+{
+	unsigned long long r2;
+	if(info->fwd)
+	{		
+		if(info->range<2)
+		{
+			*(unsigned*)info->ptr=(unsigned)(info->low>>32);
+			info->ptr+=4;
+			info->low=info->low<<32;
+			info->range=info->range<<32|0xFFFFFFFF;
+			if(info->range>~info->low)
+				info->range=~info->low;
+		}
+#ifdef AC_VALIDATE
+		unsigned long long lo0=low, r0=range;
+#endif
+		r2=info->range>>1;
+		if(info->bit)
+		{
+			info->low+=r2;
+			info->range-=r2;
+		}
+		else
+			info->range=r2-1;
+#ifdef AC_VALIDATE
+		acval_enc(bit, 0, p0, lo0, lo0+r0, low, low+range, 0, 0);
+#endif
+	}
+	else
+	{
+		if(info->range<2)
+		{
+			info->code=info->code<<32|*(unsigned*)info->ptr;
+			info->ptr+=4;
+			info->low=info->low<<32;
+			info->range=info->range<<32|0xFFFFFFFF;
+			if(info->range>~info->low)
+				info->range=~info->low;
+		}
+#ifdef AC_VALIDATE
+		unsigned long long lo0=low, r0=range;
+#endif
+		r2=info->range>>1;
+
+		unsigned long long mid=info->low+r2;
+		info->range-=r2;
+		info->bit=info->code>=mid;
+		if(info->bit)
+			info->low=mid;
+		else
+			info->range=r2-1;
+#ifdef AC_VALIDATE
+		acval_dec(bit, 0, p0, lo0, lo0+r0, low, low+range, 0, 0, code);
+#endif
+	}
+}
+#endif
 int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 {
 #ifdef LOUD
@@ -512,6 +639,8 @@ int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 			LOG_ERROR("Alloc error");
 			return 1;
 		}
+		dstptr=dstbuf;
+
 		code=*(unsigned*)srcptr;
 		srcptr+=4;
 		code=code<<4|*(unsigned*)srcptr;
@@ -521,7 +650,8 @@ int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		low+=range*bestrct>>4;
 		range=(range>>4)-1;
 	}
-	int psize=(iw+16LL)*(int)sizeof(short[4*4]);//4 padded rows * 4 channels max
+	ALIGN(32) int wgerrors[3][8]={0};
+	int psize=(iw+16LL)*(int)sizeof(short[4*4*2]);//4 padded rows * 4 channels max * {pixels, nbypass}
 	short *pixels=(short*)_mm_malloc(psize, sizeof(__m128i));
 	if(!pixels)
 	{
@@ -535,390 +665,260 @@ int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		vidx=rct_indices[bestrct][3+2],
 		uhelpidx=rct_indices[bestrct][6+0],
 		vhelpidx=rct_indices[bestrct][6+1];
-	memset(ctxctr, 0, sizeof(ctxctr));
-	memset(stats1, 0, sizeof(stats1));
-	//FILLMEM((short*)stats1, 0x8000, sizeof(stats1), sizeof(short));
-	FILLMEM((int*)mixer, 0x8000, sizeof(mixer), sizeof(int));
-	for(int ky=0, idx=0;ky<ih;++ky)
+//	memset(stats1, 0, sizeof(stats1));
+	FILLMEM((unsigned short*)stats1, 0x8000, sizeof(stats1), sizeof(short));
+	C12Info info=
+	{
+		low, range, code,
+		fwd?dstptr:srcptr,
+		fwd,
+		0, 0,
+	};
+	for(int ky=0;ky<ih;++ky)
 	{
 		ALIGN(32) short *rows[]=
 		{
-			pixels+((iw+16LL)*((ky-0LL)&3)+8LL)*4,
-			pixels+((iw+16LL)*((ky-1LL)&3)+8LL)*4,
-			pixels+((iw+16LL)*((ky-2LL)&3)+8LL)*4,
-			pixels+((iw+16LL)*((ky-3LL)&3)+8LL)*4,
+			pixels+((iw+16LL)*((ky-0LL)&3)+8LL)*4*2,
+			pixels+((iw+16LL)*((ky-1LL)&3)+8LL)*4*2,
+			pixels+((iw+16LL)*((ky-2LL)&3)+8LL)*4*2,
+			pixels+((iw+16LL)*((ky-3LL)&3)+8LL)*4*2,
 		};
 		char yuv[4]={0};
-		int bit[3]={0};
-		short Wreg[4]={0};
-		for(int kx=0;kx<iw;++kx, idx+=3)
+		int errors[3]={0};
+#define WGPREDLIST\
+	WGPRED(240, N)\
+	WGPRED(240, W)\
+	WGPRED(180, 3*(N-NN)+NNN)\
+	WGPRED(180, 3*(W-WW)+WWW)\
+	WGPRED(140, W+NE-N)\
+	WGPRED(140, (WWWW+WWW+NNN+NEE+NEEE+NEEEE-2*NW)>>2)\
+	WGPRED(120, N+W-NW)\
+	WGPRED(120, N+NE-NNE)
+		ALIGN(32) static const float weights[]=
 		{
-			short
-			//	*NNN	=rows[3]+0*4,
-			//	*NNNE	=rows[3]+1*4,
-			//	*NN	=rows[2]+0*4,
-			//	*NNE	=rows[2]+1*4,
-				*NW	=rows[1]-1*4,
-				*N	=rows[1]+0*4,
-				*NE	=rows[1]+1*4,
-			//	*WWWWW	=rows[0]-5*4,
-			//	*WWWW	=rows[0]-4*4,
-			//	*WWW	=rows[0]-3*4,
-			//	*WW	=rows[0]-2*4,
-			//	*W	=rows[0]-1*4,
-				*curr	=rows[0]+0*4;
-			//int cond[]=
-			//{
-			//	abs(N[0]-NW[0])>abs(Wreg[0]-NW[0]),
-			//	abs(N[1]-NW[1])>abs(Wreg[1]-NW[1]),
-			//	abs(N[2]-NW[2])>abs(Wreg[2]-NW[2]),
-			//};
-			short *stats0[]=
-			{
-				stats1[0][0][(4*(N[0]+Wreg[0])+NE[0]-NW[0])>>3&255],
-				stats1[1][0][(4*(N[1]+Wreg[1])+NE[1]-NW[1])>>3&255],
-				stats1[2][0][(4*(N[2]+Wreg[2])+NE[2]-NW[2])>>3&255],
-				stats1[0][1][(N[0]+((Wreg[0]-NW[0])>>2))&255],
-				stats1[1][1][(N[1]+((Wreg[1]-NW[1])>>2))&255],
-				stats1[2][1][(N[2]+((Wreg[2]-NW[2])>>2))&255],
-				stats1[0][2][(Wreg[0]+((N[0]-NW[0])>>2))&255],
-				stats1[1][2][(Wreg[1]+((N[1]-NW[1])>>2))&255],
-				stats1[2][2][(Wreg[2]+((N[2]-NW[2])>>2))&255],
-				stats1[0][3][(N[0]+Wreg[0]-NW[0])&255],
-				stats1[1][3][(N[1]+Wreg[1]-NW[1])&255],
-				stats1[2][3][(N[2]+Wreg[2]-NW[2])&255],
-
-				//stats1[0][0][(4*(N[0]+Wreg[0])+NE[0]-NW[0])>>3&255],
-				//stats1[1][0][(4*(N[1]+Wreg[1])+NE[1]-NW[1])>>3&255],
-				//stats1[2][0][(4*(N[2]+Wreg[2])+NE[2]-NW[2])>>3&255],
-				//stats1[0][1][N[0]&255],
-				//stats1[1][1][N[1]&255],
-				//stats1[2][1][N[2]&255],
-				//stats1[0][2][Wreg[0]&255],
-				//stats1[1][2][Wreg[1]&255],
-				//stats1[2][2][Wreg[2]&255],
-				//stats1[0][3][(N[0]+Wreg[0]-NW[0])&255],
-				//stats1[1][3][(N[1]+Wreg[1]-NW[1])&255],
-				//stats1[2][3][(N[2]+Wreg[2]-NW[2])&255],
-				//stats1[0][3][(Wreg[0]-NE[0]-N[0])&255],
-				//stats1[1][3][(Wreg[1]-NE[1]-N[1])&255],
-				//stats1[2][3][(Wreg[2]-NE[2]-N[2])&255],
-				
-				//stats1[0][0][(4*(N[0]+Wreg[0])+NE[0]-NW[0])>>3&255],
-				//stats1[1][0][(4*(N[1]+Wreg[1])+NE[1]-NW[1])>>3&255],
-				//stats1[2][0][(4*(N[2]+Wreg[2])+NE[2]-NW[2])>>3&255],
-
-				//stats1[0][cond[0]<<7|((cond[0]?N[0]:Wreg[0])&255)>>7&255],
-				//stats1[1][cond[1]<<7|((cond[1]?N[1]:Wreg[1])&255)>>7&255],
-				//stats1[2][cond[2]<<7|((cond[2]?N[2]:Wreg[2])&255)>>7&255],
-			};
-			int *curr_mixers[]=
-			{
-				mixer[0][(N[0]+Wreg[0])>>1&255],
-				mixer[1][(N[1]+Wreg[1])>>1&255],
-				mixer[2][(N[2]+Wreg[2])>>1&255],
-			};
+#define WGPRED(WEIGHT, PRED) WEIGHT,
+			WGPREDLIST
+#undef  WGPRED
+		};
+		__m256 mw=_mm256_load_ps(weights);
+		//ALIGN(32) float fpreds[8]={0}, fcoeff[8]={0};
+		//ptrdiff_t checkpoint=(ptrdiff_t)info.ptr;
+		for(int kx=0;kx<iw;++kx)
+		{
+			short *curr=rows[0]+0*4;
 			if(fwd)
 			{
-				yuv[0]=srcptr[idx+yidx]-128;
-				yuv[1]=srcptr[idx+uidx]-128;
-				yuv[2]=srcptr[idx+vidx]-128;
-
+				yuv[0]=srcptr[yidx]-128;
+				yuv[1]=srcptr[uidx]-128;
+				yuv[2]=srcptr[vidx]-128;
+				srcptr+=3;
 				yuv[2]-=yuv[vhelpidx];
 				yuv[1]-=yuv[uhelpidx];
-				
 				curr[0]=yuv[0];
 				curr[1]=yuv[1];
 				curr[2]=yuv[2];
 			}
-			else
+			for(int kc=0;kc<3;++kc)
 			{
-				yuv[0]=0;
-				yuv[1]=0;
-				yuv[2]=0;
-			}
-#if 0
-#define MIX_PROB(DST)\
-	do\
-	{\
-		int prob=(int)((\
-			+(long long)curr_mixers[kc][0]*p0[kc+3*0]\
-			+(long long)curr_mixers[kc][1]*p0[kc+3*1]\
-			+(long long)curr_mixers[kc][2]*p0[kc+3*2]\
-			+(long long)curr_mixers[kc][3]*p0[kc+3*3]\
-			+(1ULL<<17>>1)\
-		)>>17);\
-		DST=squash(prob);\
-	}while(0)
-#endif
-#if 1
-#define MIX_PROB(DST)\
-	do\
-	{\
-		int prob=(int)((\
-			+(long long)curr_mixers[kc][0]*p0[kc+3*0]\
-			+(long long)curr_mixers[kc][1]*p0[kc+3*1]\
-			+(long long)curr_mixers[kc][2]*p0[kc+3*2]\
-			+(long long)curr_mixers[kc][3]*p0[kc+3*3]\
-			+(1ULL<<17>>1)\
-		)>>17);\
-		int pos=prob>0;\
-		prob=abs(prob);\
-		if(prob>0x7FFF)prob=0x7FFF;\
-		prob=0x8000-prob;\
-		prob=prob*prob>>15;\
-		if(pos)prob=0x10000-prob;\
-		CLAMP2(prob, 1, 0xFFFF);\
-		DST=prob;\
-	}while(0)
-#endif
-#if 0
-#define MIX_PROB(DST)\
-	do\
-	{\
-		int prob=(int)((\
-			+(long long)curr_mixers[kc][0]*p0[kc+3*0]\
-			+(long long)curr_mixers[kc][1]*p0[kc+3*1]\
-			+(long long)curr_mixers[kc][2]*p0[kc+3*2]\
-			+(long long)curr_mixers[kc][3]*p0[kc+3*3]\
-			+(1ULL<<17>>1)\
-		)>>17);\
-		int pos=prob>0;\
-		prob=abs(prob);\
-		if(prob>0x7FFF)prob=0x7FFF;\
-		prob=0x8000-prob;\
-		prob=prob*prob>>15;\
-		prob=prob*prob>>15;\
-		if(prob>0x7FFF)prob=0x7FFF;\
-		if(pos)prob=0x10000-prob;\
-		CLAMP2(prob, 1, 0xFFFF);\
-		DST=prob;\
-	}while(0)
-#endif
-#if 0
-#define MIX_PROB(DST)\
-	do\
-	{\
-		DST=(int)((\
-			+(long long)curr_mixers[kc][0]*p0[kc+3*0]\
-			+(long long)curr_mixers[kc][1]*p0[kc+3*1]\
-			+(long long)curr_mixers[kc][2]*p0[kc+3*2]\
-			+(long long)curr_mixers[kc][3]*p0[kc+3*3]\
-			+(1ULL<<17>>1)\
-		)>>17);\
-		DST+=1<<16>>1;\
-		CLAMP2(DST, 1, 0xFFFF);\
-	}while(0)
-#endif
-#if 0
-#define MIX_PROB(DST)\
-	do\
-	{\
-		DST=(int)((\
-			+p0[kc+3*0]\
-			+p0[kc+3*1]\
-			+p0[kc+3*2]\
-			+p0[kc+3*3]\
-			+(1ULL<<2>>1)\
-		)>>2);\
-		DST+=1<<16>>1;\
-		CLAMP2(DST, 1, 0xFFFF);\
-	}while(0)
-#endif
-#ifdef __GNUC__
-#pragma GCC unroll 8
-#endif
-			for(int kb=7, tidx0=1, tidx1=1, tidx2=1;kb>=0;--kb)
-			{
-				unsigned long long r2;
-				short
-					*cell00=stats0[3*0+0]+tidx0,
-					*cell01=stats0[3*0+1]+tidx1,
-					*cell02=stats0[3*0+2]+tidx2,
-					*cell10=stats0[3*1+0]+tidx0,
-					*cell11=stats0[3*1+1]+tidx1,
-					*cell12=stats0[3*1+2]+tidx2,
-					*cell20=stats0[3*2+0]+tidx0,
-					*cell21=stats0[3*2+1]+tidx1,
-					*cell22=stats0[3*2+2]+tidx2,
-					*cell30=stats0[3*3+0]+tidx0,
-					*cell31=stats0[3*3+1]+tidx1,
-					*cell32=stats0[3*3+2]+tidx2;
-				short p0[]=
+				int
+					NNN	=rows[3][kc+0*4*2],
+					NN	=rows[2][kc+0*4*2],
+					NNE	=rows[2][kc+1*4*2],
+					NW	=rows[1][kc-1*4*2],
+					N	=rows[1][kc+0*4*2],
+					NE	=rows[1][kc+1*4*2],
+					NEE	=rows[1][kc+2*4*2],
+					NEEE	=rows[1][kc+3*4*2],
+					NEEEE	=rows[1][kc+4*4*2],
+					WWWW	=rows[0][kc-4*4*2],
+					WWW	=rows[0][kc-3*4*2],
+					WW	=rows[0][kc-2*4*2],
+					W	=rows[0][kc-1*4*2],
+				//	ctx	=(rows[0][kc-1*4*3+4]+rows[1][kc+0*4*3+4]+256)>>1&255,
+					nbypass	=rows[0][kc-1*4*2+4];
+				ALIGN(32) int wgpreds[]=
 				{
-					*cell00,
-					*cell01,
-					*cell02,
-					*cell10,
-					*cell11,
-					*cell12,
-					*cell20,
-					*cell21,
-					*cell22,
-					*cell30,
-					*cell31,
-					*cell32,
+#define WGPRED(WEIGHT, PRED) PRED,
+					WGPREDLIST
+#undef  WGPRED
 				};
-				int curr_p0[3];
+				int pred=0;
+				__m256i me=_mm256_load_si256((__m256i*)wgerrors+kc);
+				__m256i mp=_mm256_load_si256((__m256i*)wgpreds);
+				me=_mm256_add_epi32(me, _mm256_set1_epi32(1));
+				__m256 fe=_mm256_cvtepi32_ps(me);
+				__m256 fp=_mm256_cvtepi32_ps(mp);
+				fe=_mm256_rcp_ps(fe);
+				fe=_mm256_mul_ps(fe, mw);
+				fp=_mm256_mul_ps(fp, fe);
+				__m128 fe4=_mm_add_ps(_mm256_castps256_ps128(fe), _mm256_extractf128_ps(fe, 1));
+				__m128 fp4=_mm_add_ps(_mm256_castps256_ps128(fp), _mm256_extractf128_ps(fp, 1));
+				fp4=_mm_hadd_ps(fp4, fp4);
+				fe4=_mm_hadd_ps(fe4, fe4);
+				fp4=_mm_hadd_ps(fp4, fp4);
+				fe4=_mm_hadd_ps(fe4, fe4);
+				fp4=_mm_div_ss(fp4, fe4);
+				fp4=_mm_castsi128_ps(_mm_add_epi32(_mm_castps_si128(fp4), _mm_set1_epi32(4<<23)));
+				pred=_mm_cvt_ss2si(fp4);
+				int cpred=(pred+(1<<4>>1))>>4;
+#if 1
+				int vmax=N, vmin=W;
+				if(N<W)
+					vmin=N, vmax=W;
+				if(vmin>NW)vmin=NW;
+				if(vmax<NW)vmax=NW;
+				if(vmin>NE)vmin=NE;
+				if(vmax<NE)vmax=NE;
+				if(vmin>NEE)vmin=NEE;
+				if(vmax<NEE)vmax=NEE;
+				if(vmin>NEEE)vmin=NEEE;
+				if(vmax<NEEE)vmax=NEEE;
+				CLAMP2(cpred, vmin, vmax);
+#endif
+				nbypass=FLOOR_LOG2(nbypass+1)-6;
+				if(nbypass<0)
+					nbypass=0;
+				errors[kc]=0;
+
+				int nzeros=-1, bypass=0, tidx=0;
 				if(fwd)
 				{
-					bit[0]=yuv[0]>>kb&1;
-					bit[1]=yuv[1]>>kb&1;
-					bit[2]=yuv[2]>>kb&1;
-						
-#ifdef __GNUC__
-#pragma GCC unroll 3
-#endif
-					for(int kc=0;kc<3;++kc)
+					errors[kc]=(char)(yuv[kc]-cpred);
+					errors[kc]=errors[kc]<<1^errors[kc]>>31;
+					nzeros=errors[kc]>>nbypass;
+					bypass=errors[kc]&((1<<nbypass)-1);
+				}
+				do
+				{
+					unsigned short *p0ptr=(unsigned short*)&stats1[kc][pred>>2&1023][tidx];
+					if(fwd)
+						info.bit=nzeros--<=0;
+					info.p0=*p0ptr;
+					//int sh=10-tidx;
+					//if(sh<7)
+					//	sh=7;
+					codebit(&info, 7);
+					*p0ptr=info.p0;
+					if(!fwd)
+						++nzeros;
+					++tidx;
+				}while(!info.bit);
+				for(int kb=nbypass-1, tidx=1;kb>=0;--kb)
+				{
+					unsigned short *p0ptr=(unsigned short*)&stats1[kc][pred>>2&1023][256-nbypass+kb];
+				//	unsigned short *p0ptr=(unsigned short*)&stats1[kc][pred&255][256-tidx];//BAD
+					if(fwd)
+						info.bit=bypass>>kb&1;
+					info.p0=*p0ptr;
+					codebit(&info, 9);
+				//	bypassbit(&info);//BAD
+					*p0ptr=info.p0;
+					if(!fwd)
+						bypass|=info.bit<<kb;
+					tidx=tidx*2+info.bit;
+				}
+				if(!fwd)
+				{
+					errors[kc]=nzeros<<nbypass|bypass;
+					errors[kc]=errors[kc]>>1^-(errors[kc]&1);
+					yuv[kc]=(char)(errors[kc]+cpred);
+				}
+#if 0
+				if(fwd)
+				{
+					errors[kc]=(char)(yuv[kc]-pred);
+					errors[kc]=errors[kc]<<1^errors[kc]>>31;
+					int nzeros=errors[kc]>>nbypass, bypass=errors[kc]&((1<<nbypass)-1);
+					int tidx=0;
+					info.bit=0;
+					while(nzeros)
 					{
-						if(range<0x10000)
-						{
-#ifdef _DEBUG
-							if(dstptr-dstbuf>=4LL*iw*ih)
-								LOG_ERROR("Encode error");
-#endif
-							*(unsigned*)dstptr=(unsigned)(low>>32);
-							dstptr+=4;
-							low<<=32;
-							range=range<<32|0xFFFFFFFF;
-							if(range>~low)
-								range=~low;
-						}
-#ifdef AC_VALIDATE
-						unsigned long long lo0=low, r0=range;
-#endif
-						//do {
-						//	int prob = (int)((+(long long)curr_mixers[kc][0] * p0[kc + 3 * 0] + (long long)curr_mixers[kc][1] * p0[kc + 3 * 1] + (long long)curr_mixers[kc][2] * p0[kc + 3 * 2] + (long long)curr_mixers[kc][3] * p0[kc + 3 * 3] + (1ULL << 17 >> 1)) >> 17);
-						//	int pos = prob>0;
-						//	//if(prob)
-						//	//	printf("");
-						//	prob = abs(prob);
-						//	if (prob>0x7FFF)prob = 0x7FFF;
-						//	prob = 0x8000 - prob;
-						//	prob=prob*prob>>15;
-						//	if (pos)prob = 0x10000 - prob;
-						//	CLAMP2(prob, 1, 0xFFFF);
-						//	curr_p0[kc] = prob;
-						//} while (0);
-						MIX_PROB(curr_p0[kc]);
-						r2=range*curr_p0[kc]>>16;
-						//r2=range*p0[kc]>>16;
-						if(bit[kc])
-						{
-							low+=r2;
-							range-=r2;
-						}
-						else
-							range=r2-1;
-#ifdef AC_VALIDATE
-						acval_enc(bit[kc], 0, p0[kc], lo0, lo0+r0, low, low+range, 0, 0);
-#endif
+						unsigned short *p0ptr=(unsigned short*)&stats1[kc][ctx][tidx];
+						info.p0=*p0ptr;
+						codebit(&info);
+						*p0ptr=info.p0;
+						++tidx;
+						--nzeros;
+					}
+					info.bit=1;
+					{
+						unsigned short *p0ptr=(unsigned short*)&stats1[kc][ctx][tidx];
+						info.p0=*p0ptr;
+						codebit(&info);
+						*p0ptr=info.p0;
+						++tidx;
+					}
+					for(int kb=nbypass-1;kb>=0;--kb)
+					{
+						unsigned short *p0ptr=(unsigned short*)&stats1[kc][ctx][256-nbypass+kb];
+						info.bit=bypass>>kb&1;
+						info.p0=*p0ptr;
+						codebit(&info);
+						*p0ptr=info.p0;
 					}
 				}
 				else
 				{
-#ifdef __GNUC__
-#pragma GCC unroll 3
-#endif
-					for(int kc=0;kc<3;++kc)
-					{
-						if(range<0x10000)
-						{
-							code=code<<32|*(unsigned*)srcptr;
-							srcptr+=4;
-							low<<=32;
-							range=range<<32|0xFFFFFFFF;
-							if(range>~low)
-								range=~low;
-						}
-#ifdef AC_VALIDATE
-						unsigned long long lo0=low, r0=range;
-#endif
-						MIX_PROB(curr_p0[kc]);
-						r2=range*curr_p0[kc]>>16;
-						//r2=range*p0[kc]>>16;
-
-						unsigned long long mid=low+r2;
-						range-=r2;
-						bit[kc]=code>=mid;
-						if(bit[kc])
-							low=mid;
-						else
-							range=r2-1;
-						//bit[kc]=code>=low+r2;
-						//if(bit[kc])
-						//{
-						//	low+=r2;
-						//	range-=r2;
-						//}
-						//else
-						//	range=r2-1;
-#ifdef AC_VALIDATE
-						acval_dec(bit[kc], 0, p0[kc], lo0, lo0+r0, low, low+range, 0, 0, code);
-#endif
-					}
-					yuv[0]|=bit[0]<<kb;
-					yuv[1]|=bit[1]<<kb;
-					yuv[2]|=bit[2]<<kb;
 				}
-				int tmp0, tmp1, tmp2;
-				int tmp3, tmp4, tmp5;
-				int e0=(!bit[0]<<16)-curr_p0[0];
-				int e1=(!bit[1]<<16)-curr_p0[1];
-				int e2=(!bit[2]<<16)-curr_p0[2];
-				//if(kx==iw/2&&ky==ih/2)
-				//	printf("");
-				tmp0=p0[3*0+0]+(int)(((long long)curr_mixers[0][0]*e0+(1<<22>>1))>>22); CLAMP2(tmp0, -0x7FFF, 0x7FFF); *cell00=tmp0;	tmp3=curr_mixers[0][0]+(int)(((long long)p0[3*0+0]*e0+(1<<21>>1))>>21); CLAMP2(tmp3, 1, 0x10000); curr_mixers[0][0]=tmp3;
-				tmp1=p0[3*0+1]+(int)(((long long)curr_mixers[1][0]*e1+(1<<22>>1))>>22); CLAMP2(tmp1, -0x7FFF, 0x7FFF); *cell01=tmp1;	tmp4=curr_mixers[1][0]+(int)(((long long)p0[3*0+1]*e1+(1<<21>>1))>>21); CLAMP2(tmp4, 1, 0x10000); curr_mixers[1][0]=tmp4;
-				tmp2=p0[3*0+2]+(int)(((long long)curr_mixers[2][0]*e2+(1<<22>>1))>>22); CLAMP2(tmp2, -0x7FFF, 0x7FFF); *cell02=tmp2;	tmp5=curr_mixers[2][0]+(int)(((long long)p0[3*0+2]*e2+(1<<21>>1))>>21); CLAMP2(tmp5, 1, 0x10000); curr_mixers[2][0]=tmp5;
-				tmp0=p0[3*1+0]+(int)(((long long)curr_mixers[0][1]*e0+(1<<22>>1))>>22); CLAMP2(tmp0, -0x7FFF, 0x7FFF); *cell10=tmp0;	tmp3=curr_mixers[0][1]+(int)(((long long)p0[3*1+0]*e0+(1<<21>>1))>>21); CLAMP2(tmp3, 1, 0x10000); curr_mixers[0][1]=tmp3;
-				tmp1=p0[3*1+1]+(int)(((long long)curr_mixers[1][1]*e1+(1<<22>>1))>>22); CLAMP2(tmp1, -0x7FFF, 0x7FFF); *cell11=tmp1;	tmp4=curr_mixers[1][1]+(int)(((long long)p0[3*1+1]*e1+(1<<21>>1))>>21); CLAMP2(tmp4, 1, 0x10000); curr_mixers[1][1]=tmp4;
-				tmp2=p0[3*1+2]+(int)(((long long)curr_mixers[2][1]*e2+(1<<22>>1))>>22); CLAMP2(tmp2, -0x7FFF, 0x7FFF); *cell12=tmp2;	tmp5=curr_mixers[2][1]+(int)(((long long)p0[3*1+2]*e2+(1<<21>>1))>>21); CLAMP2(tmp5, 1, 0x10000); curr_mixers[2][1]=tmp5;
-				tmp0=p0[3*2+0]+(int)(((long long)curr_mixers[0][2]*e0+(1<<22>>1))>>22); CLAMP2(tmp0, -0x7FFF, 0x7FFF); *cell20=tmp0;	tmp3=curr_mixers[0][2]+(int)(((long long)p0[3*2+0]*e0+(1<<21>>1))>>21); CLAMP2(tmp3, 1, 0x10000); curr_mixers[0][2]=tmp3;
-				tmp1=p0[3*2+1]+(int)(((long long)curr_mixers[1][2]*e1+(1<<22>>1))>>22); CLAMP2(tmp1, -0x7FFF, 0x7FFF); *cell21=tmp1;	tmp4=curr_mixers[1][2]+(int)(((long long)p0[3*2+1]*e1+(1<<21>>1))>>21); CLAMP2(tmp4, 1, 0x10000); curr_mixers[1][2]=tmp4;
-				tmp2=p0[3*2+2]+(int)(((long long)curr_mixers[2][2]*e2+(1<<22>>1))>>22); CLAMP2(tmp2, -0x7FFF, 0x7FFF); *cell22=tmp2;	tmp5=curr_mixers[2][2]+(int)(((long long)p0[3*2+2]*e2+(1<<21>>1))>>21); CLAMP2(tmp5, 1, 0x10000); curr_mixers[2][2]=tmp5;
-				tmp0=p0[3*3+0]+(int)(((long long)curr_mixers[0][3]*e0+(1<<22>>1))>>22); CLAMP2(tmp0, -0x7FFF, 0x7FFF); *cell30=tmp0;	tmp3=curr_mixers[0][3]+(int)(((long long)p0[3*3+0]*e0+(1<<21>>1))>>21); CLAMP2(tmp3, 1, 0x10000); curr_mixers[0][3]=tmp3;
-				tmp1=p0[3*3+1]+(int)(((long long)curr_mixers[1][3]*e1+(1<<22>>1))>>22); CLAMP2(tmp1, -0x7FFF, 0x7FFF); *cell31=tmp1;	tmp4=curr_mixers[1][3]+(int)(((long long)p0[3*3+1]*e1+(1<<21>>1))>>21); CLAMP2(tmp4, 1, 0x10000); curr_mixers[1][3]=tmp4;
-				tmp2=p0[3*3+2]+(int)(((long long)curr_mixers[2][3]*e2+(1<<22>>1))>>22); CLAMP2(tmp2, -0x7FFF, 0x7FFF); *cell32=tmp2;	tmp5=curr_mixers[2][3]+(int)(((long long)p0[3*3+2]*e2+(1<<21>>1))>>21); CLAMP2(tmp5, 1, 0x10000); curr_mixers[2][3]=tmp5;
-				//tmp0=*cell00; *cell00=tmp0+(((!bit[0]<<16)-tmp0+(1<<7>>1))>>7);
-				//tmp1=*cell01; *cell01=tmp1+(((!bit[1]<<16)-tmp1+(1<<7>>1))>>7);
-				//tmp2=*cell02; *cell02=tmp2+(((!bit[2]<<16)-tmp2+(1<<7>>1))>>7);
-				//tmp0=*cell10; *cell10=tmp0+(((!bit[0]<<16)-tmp0+(1<<7>>1))>>7);
-				//tmp1=*cell11; *cell11=tmp1+(((!bit[1]<<16)-tmp1+(1<<7>>1))>>7);
-				//tmp2=*cell12; *cell12=tmp2+(((!bit[2]<<16)-tmp2+(1<<7>>1))>>7);
-				//tmp0=*cell20; *cell20=tmp0+(((!bit[0]<<16)-tmp0+(1<<7>>1))>>7);
-				//tmp1=*cell21; *cell21=tmp1+(((!bit[1]<<16)-tmp1+(1<<7>>1))>>7);
-				//tmp2=*cell22; *cell22=tmp2+(((!bit[2]<<16)-tmp2+(1<<7>>1))>>7);
-				//tmp0=*cell30; *cell30=tmp0+(((!bit[0]<<16)-tmp0+(1<<7>>1))>>7);
-				//tmp1=*cell31; *cell31=tmp1+(((!bit[1]<<16)-tmp1+(1<<7>>1))>>7);
-				//tmp2=*cell32; *cell32=tmp2+(((!bit[2]<<16)-tmp2+(1<<7>>1))>>7);
-				tidx0=tidx0*2+bit[0];
-				tidx1=tidx1*2+bit[1];
-				tidx2=tidx2*2+bit[2];
+#endif
+#if 0
+				if(fwd)
+					errors[kc]=yuv[kc]-pred;
+#if defined __GNUC__ && !defined PROFILER
+#pragma GCC unroll 8
+#endif
+				for(int kb=7, tidx=1;kb>=0;--kb)
+				{
+					unsigned short *p0ptr=(unsigned short*)&stats1[kc][ctx][tidx];
+					if(fwd)
+						info.bit=errors[kc]>>kb&1;
+					info.p0=*p0ptr;
+					codebit(&info);
+					*p0ptr=info.p0;
+					if(!fwd)
+						errors[kc]|=info.bit<<kb;
+					tidx=tidx*2+info.bit;
+				}
+				if(!fwd)
+					yuv[kc]=(char)(errors[kc]+pred);
+#endif
+
+				int e=(yuv[kc]<<4)-pred;
+				e=e<<1^e>>31;
+				curr[kc+4]=(2*rows[0][kc-1*4*2+4]+(e<<2)+rows[1][kc+3*4*2+4])>>2;
+			//	curr[kc+4]=yuv[kc]-pred;
+#if defined __GNUC__ && !defined PROFILER
+#pragma GCC unroll 8
+#endif
+				for(int k=0;k<8;++k)
+				{
+					e=yuv[kc]-wgpreds[k];
+					e=e<<1^e>>31;
+					wgerrors[kc][k]+=((e<<5)-wgerrors[kc][k]+(1<<3>>1))>>3;
+				//	wgerrors[kc][k]+=((abs(yuv[kc]-wgpreds[k])<<3)-wgerrors[kc][k]+(1<<3>>1))>>3;
+				}
 			}
-			Wreg[0]=yuv[0];
-			Wreg[1]=yuv[1];
-			Wreg[2]=yuv[2];
 			if(!fwd)
 			{
 				curr[0]=(char)yuv[0];
 				curr[1]=(char)yuv[1];
 				curr[2]=(char)yuv[2];
-
 				yuv[1]+=yuv[uhelpidx];
 				yuv[2]+=yuv[vhelpidx];
-
-				dstbuf[idx+yidx]=(unsigned char)(yuv[0]+128);
-				dstbuf[idx+uidx]=(unsigned char)(yuv[1]+128);
-				dstbuf[idx+vidx]=(unsigned char)(yuv[2]+128);
+				dstptr[yidx]=(unsigned char)(yuv[0]+128);
+				dstptr[uidx]=(unsigned char)(yuv[1]+128);
+				dstptr[vidx]=(unsigned char)(yuv[2]+128);
+				dstptr+=3;
 
 				guide_check(dstbuf, kx, ky);//
 			}
-			rows[0]+=4;
-			rows[1]+=4;
-			rows[2]+=4;
-			rows[3]+=4;
+			rows[0]+=4*2;
+			rows[1]+=4*2;
+			rows[2]+=4*2;
+			rows[3]+=4*2;
 		}
+	//	checkpoint=(ptrdiff_t)info.ptr-checkpoint;
+	//	printf("%5td / %5d\n", checkpoint, 3*iw);//
 	}
 	free(srcbuf);
 	_mm_free(pixels);
@@ -932,15 +932,15 @@ int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		if(fwd)
 		{
 			//flush
-			*(unsigned*)dstptr=(unsigned)(low>>32);
-			dstptr+=4;
-			*(unsigned*)dstptr=(unsigned)low;
-			dstptr+=4;
+			*(unsigned*)info.ptr=(unsigned)(info.low>>32);
+			info.ptr+=4;
+			*(unsigned*)info.ptr=(unsigned)info.low;
+			info.ptr+=4;
 
 			fwrite("CH", 1, 2, fdst);
 			fwrite(&iw, 1, 4, fdst);
 			fwrite(&ih, 1, 4, fdst);
-			fwrite(dstbuf, 1, dstptr-dstbuf, fdst);
+			fwrite(dstbuf, 1, info.ptr-dstbuf, fdst);
 		}
 		else
 		{
@@ -949,16 +949,15 @@ int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		}
 		fclose(fdst);
 	}
-	free(dstbuf);
-	
-#if defined LOUD && !defined __GNUC__
+#if defined _MSC_VER && defined LOUD
 	t=time_sec()-t;
 	if(fwd)
 	{
-		ptrdiff_t csize=dstptr-dstbuf+10;
+		ptrdiff_t csize=info.ptr-dstbuf+10;
 		printf("%12td/%12td  %12.6lf  %8.4lf%%\n", csize, usize, (double)usize/csize, (double)csize*100/usize);
 	}
 	printf("%c  %lf sec  %lf MB/s\n", 'D'+fwd, t, usize/(t*1024*1024));
 #endif
+	free(dstbuf);
 	return 0;
 }
