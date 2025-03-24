@@ -7,8 +7,13 @@
 #include<time.h>
 #include<Windows.h>
 #include<Psapi.h>
+#include<tlhelp32.h>
 #include<immintrin.h>
 static const char file[]=__FILE__;
+
+
+//	#define TRACK_THREADS
+
 
 static char g_buf2[8192]={0};
 
@@ -135,11 +140,6 @@ typedef struct _Range
 {
 	int issrc, start, end;
 } Range;
-//static int range_cmp(const void *p1, const void *p2)
-//{
-//	const Range *r1=(const Range*)p1, *r2=(const Range*)p2;
-//	return (r1->start>r2->start)-(r1->start<r2->start);
-//}
 typedef struct _CommandFormat
 {
 	ArrayHandle format;
@@ -266,7 +266,6 @@ static ArrayHandle parse_cmdformatext(const char *text, int len, const char *src
 {
 	ArrayHandle bounds=0;
 	const char *ptr=text, *end=text+len-1;
-	//if(hassrcdst)*hassrcdst=0;
 	memset(srcdstbounds, -1, sizeof(int[4]));
 	while(ptr<end)
 	{
@@ -328,68 +327,6 @@ static ArrayHandle parse_cmdformatext(const char *text, int len, const char *src
 		);
 		LOG_ERROR("");
 	}
-	//int srcbounds[2]={-1}, dstbounds[2]={-1};
-	//for(int k=0;k<(int)enccmd.bounds->count;++k)
-	//{
-	//	const Range *range=(const Range*)array_at(&enccmd.bounds, k);
-	//	int *dst=range->issrc?srcbounds:dstbounds;
-	//	if(dst[0]==-1)
-	//	{
-	//		dst[0]=range->start;
-	//		dst[1]=range->end;
-	//	}
-	//	else if(!acme_strnimatch(
-	//		(char*)enccmd.format->data+range->start, (ptrdiff_t)range->end-range->start,
-	//		(char*)enccmd.format->data+dst[0], (ptrdiff_t)dst[1]-dst[0]
-	//	))
-	//	{
-	//		valid=0;
-	//		break;
-	//	}
-	//}
-#if 0
-	const int ndashes=3;
-	const char *ptr=text+len;
-	while(--ptr>=text)//search backward, in case the path itself contains dashes
-	{
-		char c=*ptr;
-		if(c=='-')
-		{
-			++count;
-			if(count==ndashes)
-			{
-				int idx=(int)(ptr-text);
-				int collision=0;
-				if(excludebounds)
-				{
-					for(int k=0;k<(int)excludebounds->count;++k)
-					{
-						Range *range=(Range*)array_at(&excludebounds, k);
-						if(idx==range->start)
-						{
-							collision=1;
-							break;
-						}
-					}
-				}
-				if(!collision&&(!targetext||strimatch(ptr+ndashes, targetext)))
-				{
-					Range *range=(Range*)array_append(&bounds, 0, sizeof(Range), 1, 1, 0, 0);
-					range->start=idx;
-					idx+=ndashes;
-					while(text[idx]&&!isspace(text[idx++]));
-					idx-=text[idx]!=0;
-					range->end=idx;
-				}
-				count=0;
-			}
-		}
-		else
-			count=0;
-	}
-	if(bounds&&bounds->count>1)//sort ranges if two or more
-		isort(bounds->data, bounds->count, bounds->esize, range_cmp);
-#endif
 	return bounds;
 }
 static void substitute_cmdplaceholders(char **pptr, const char *end, const CommandFormat *cmd, const char *t1fn, const char *t2fn)
@@ -504,7 +441,7 @@ static void qualify_command(ArrayHandle *cmd)
 	array_replace(cmd, 0, ptr-(char*)cmd[0]->data, fn2, len2, 1, 1);
 //	printf("  %s\n", cmd2);//
 }
-static void exec_process(char *cmd, const char *currdir, int loud, double *elapsed, long long *maxmem)
+static void exec_process(char *cmd, const char *currdir, int loud, double *elapsed, long long *maxmem, int *threadcount)
 {
 	int success;
 	STARTUPINFOA si={0};
@@ -546,6 +483,9 @@ static void exec_process(char *cmd, const char *currdir, int loud, double *elaps
 		SYSTEMERROR("CreateProcessA");
 		return;
 	}
+#ifdef TRACK_THREADS
+	int k=0;
+#endif
 	while(WaitForSingleObject(pi.hProcess, 10)==WAIT_TIMEOUT)
 	{
 		PROCESS_MEMORY_COUNTERS pmc={0};
@@ -558,6 +498,38 @@ static void exec_process(char *cmd, const char *currdir, int loud, double *elaps
 		}
 		if(memusage<(ptrdiff_t)pmc.WorkingSetSize)
 			memusage=pmc.WorkingSetSize;
+#ifdef TRACK_THREADS
+		if(!k)
+		{
+			HANDLE snapshot=CreateToolhelp32Snapshot(TH32CS_SNAPALL, pi.dwProcessId);
+			if(snapshot==INVALID_HANDLE_VALUE)
+			{
+				continue;
+				//SYSTEMERROR("CreateToolhelp32Snapshot");
+				//return;
+			}
+			THREADENTRY32 threadentry={sizeof(THREADENTRY32)};
+			int nthreads=0;
+			for(int k2=0;;k2|=1)
+			{
+				if(!k2)
+				{
+					if(!Thread32First(snapshot, &threadentry))
+						break;
+				}
+				else
+				{
+					if(!Thread32Next(snapshot, &threadentry))
+						break;
+				}
+				nthreads+=threadentry.th32OwnerProcessID==pi.dwProcessId;
+			}
+			CloseHandle(snapshot);
+			if(*threadcount<nthreads)
+				*threadcount=nthreads;
+		}
+		k|=1;
+#endif
 	}
 	if(elapsed)*elapsed=time_sec()-t;
 	if(maxmem)*maxmem=memusage;
@@ -773,8 +745,8 @@ int main(int argc, char **argv)
 	datasetname=argv[1];
 	codecname=argv[2];
 #else
-	datasetname="synth2";
-	codecname="rz";
+	datasetname="div2k";
+	codecname="c29cg";
 #endif
 	const char placeholdertag[]="*.";
 	const int placeholderlen=sizeof(placeholdertag)-1;
@@ -1253,6 +1225,7 @@ dec command template
 
 	//5. test		DON'T MODIFY g_buf2 BELOW THIS POINT
 	ptrdiff_t usize=0;
+	int maxencthreads=0, maxdecthreads=0;
 	for(int k=0;k<(int)uinfo->count;++k)
 	{
 		UInfo *info=(UInfo*)array_at(&uinfo, k);
@@ -1298,7 +1271,10 @@ dec command template
 			return 0;
 		}
 
-		exec_process(encline, (char*)currdir->data, 0, &currcell->etime, &currcell->emem);
+		int encthreads=0, decthreads=0;
+		exec_process(encline, (char*)currdir->data, 0, &currcell->etime, &currcell->emem, &encthreads);
+		if(maxencthreads<encthreads)
+			maxencthreads=encthreads;
 		currcell->csize=get_filesize(t2fn);
 
 		//Print 2:  -> csize etime
@@ -1321,15 +1297,25 @@ dec command template
 		}
 		
 		ascii_deletefile(t1fn);
-		exec_process(decline, (char*)currdir->data, 0, &currcell->dtime, &currcell->dmem);
+		exec_process(decline, (char*)currdir->data, 0, &currcell->dtime, &currcell->dmem, &decthreads);
+		if(maxdecthreads<decthreads)
+			maxdecthreads=decthreads;
 		
 		//Print 3:  dtime espeed dspeed emem dmem  rivals
-		printf(" %12.6lf sec  %12.6lf %12.6lf MB/s %8.2lf %8.2lf MB ",
-			currcell->dtime,
-			info->usize/(currcell->etime*1024*1024),
-			info->usize/(currcell->dtime*1024*1024),
-			(double)currcell->emem/(1024*1024),
-			(double)currcell->dmem/(1024*1024)
+		printf(
+			" %12.6lf sec  %12.6lf %12.6lf MB/s %8.2lf %8.2lf MB "
+#ifdef TRACK_THREADS
+			"%2d %2d "
+#endif
+			, currcell->dtime
+			, info->usize/(currcell->etime*1024*1024)
+			, info->usize/(currcell->dtime*1024*1024)
+			, (double)currcell->emem/(1024*1024)
+			, (double)currcell->dmem/(1024*1024)
+#ifdef TRACK_THREADS
+			, encthreads
+			, decthreads
+#endif
 		);
 		print_rivals_v2(besttestidxs, testinfo, k, currcell, info->usize);
 		printf("\n");
@@ -1348,18 +1334,30 @@ dec command template
 	}
 	printf("\n");
 	{
-		printf("%5d %*s %10lld -> %10lld B  %12.6lf %12.6lf sec  %12.6lf %12.6lf MB/s %8.2lf %8.2lf MB ",
-			(int)uinfo->count,
-			titlecolwidth, "",
-			usize,
-			currtest->total.csize,
-			currtest->total.etime,
-			currtest->total.dtime,
-			usize/(currtest->total.etime*1024*1024),
-			usize/(currtest->total.dtime*1024*1024),
-			(double)currtest->total.emem/(1024*1024),
-			(double)currtest->total.dmem/(1024*1024)
+		printf(
+			"%5d %*s %10lld -> %10lld B  %12.6lf %12.6lf sec  %12.6lf %12.6lf MB/s %8.2lf %8.2lf MB "
+#ifdef TRACK_THREADS
+			"%2d %2d "
+#endif
+			, (int)uinfo->count
+			, titlecolwidth, ""
+			, usize
+			, currtest->total.csize
+			, currtest->total.etime
+			, currtest->total.dtime
+			, usize/(currtest->total.etime*1024*1024)
+			, usize/(currtest->total.dtime*1024*1024)
+			, (double)currtest->total.emem/(1024*1024)
+			, (double)currtest->total.dmem/(1024*1024)
+#ifdef TRACK_THREADS
+			, maxencthreads
+			, maxdecthreads
+#endif
 		);
+#ifndef TRACK_THREADS
+		(void)maxencthreads;
+		(void)maxdecthreads;
+#endif
 		print_rivals_v2(besttestidxs, testinfo, -1, &currtest->total, usize);
 		printf("\n");
 
