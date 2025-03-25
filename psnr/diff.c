@@ -72,18 +72,38 @@ static unsigned char* ppm_load(const char *fn, int *ret_iw, int *ret_ih)
 	fclose(fsrc);
 	return buf;
 }
+static ptrdiff_t ppm_save(const char *fn, const unsigned char *image, int iw, int ih)
+{
+	FILE *fdst=fopen(fn, "wb");
+	if(!fdst)
+	{
+		LOG_ERROR("Cannot open \"%s\" for writing", fn);
+		return 0;
+	}
+	ptrdiff_t size=fprintf(fdst, "P6\n%d %d\n255\n", iw, ih);
+	ptrdiff_t usize=(ptrdiff_t)3*iw*ih;
+	ptrdiff_t nwritten=fwrite(image, 1, usize, fdst);
+	if(nwritten!=usize)
+	{
+		LOG_ERROR("Error saving \"%s\"", fn);
+		return 0;
+	}
+	size+=nwritten;
+	return size;
+}
 int main(int argc, char **argv)
 {
-	const char *fn1=0, *fn2=0;
+	const char *fn1=0, *fn2=0, *dstfn=0;
 
-	if(argc!=3)
+	if(argc!=4)
 	{
-		printf("Usage:  \"%s\"  image1.ppm  image2.ppm\n", argv[0]);
-		printf("  Prints RMSE & PSNR\n");
+		printf("Usage:  \"%s\"  psrc.ppm  nsrc.ppm  dst.ppm\n", argv[0]);
+		printf("  dst = psrc - nsrc\n");
 		return 1;
 	}
 	fn1=argv[1];
 	fn2=argv[2];
+	dstfn=argv[3];
 
 	int iw=0, ih=0, iw2=0, ih2=0;
 	unsigned char *image1=ppm_load(fn1, &iw, &ih);
@@ -96,65 +116,18 @@ int main(int argc, char **argv)
 			, iw2, ih2
 		);
 	}
-	long long errors[4]={0};
-	ptrdiff_t idx=-1;
-	const unsigned char *ptr1=image1, *ptr2=image2;
+
+	unsigned char *ptr1=image1, *ptr2=image2;
 	for(ptrdiff_t k=0, res=(ptrdiff_t)3*iw*ih;k<res;k+=3)
 	{
-		int a0=ptr1[0], b0=ptr2[0];
-		int a1=ptr1[1], b1=ptr2[1];
-		int a2=ptr1[2], b2=ptr2[2];
-		if(idx==-1&&((a0^b0)|(a1^b1)|(a2^b2)))
-			idx=k;
-		int delta;
-		delta=a0-b0; errors[0]+=delta*delta;
-		delta=a1-b1; errors[1]+=delta*delta;
-		delta=a2-b2; errors[2]+=delta*delta;
+		ptr1[0]=(unsigned char)(ptr1[0]-ptr2[0]+128);
+		ptr1[1]=(unsigned char)(ptr1[1]-ptr2[1]+128);
+		ptr1[2]=(unsigned char)(ptr1[2]-ptr2[2]+128);
 		ptr1+=3;
 		ptr2+=3;
 	}
-	errors[3]=errors[0]+errors[1]+errors[2];
-	double invres=1/((double)iw*ih);
-	double rmse[]=
-	{
-		sqrt((double)errors[0]*invres),
-		sqrt((double)errors[1]*invres),
-		sqrt((double)errors[2]*invres),
-		sqrt((double)errors[3]*invres*(1./3)),
-	};
-	double psnr[]=
-	{
-		20*log10(255/rmse[0]),
-		20*log10(255/rmse[1]),
-		20*log10(255/rmse[2]),
-		20*log10(255/rmse[3]),
-	};
-	printf(
-		"RMSE, PSNR\n"
-		"T %12.6lf/255  %12.6lf dB\n"
-		"R %12.6lf/255  %12.6lf dB\n"
-		"G %12.6lf/255  %12.6lf dB\n"
-		"B %12.6lf/255  %12.6lf dB\n"
-		, rmse[3], psnr[3]
-		, rmse[0], psnr[0]
-		, rmse[1], psnr[1]
-		, rmse[2], psnr[2]
-	);
-	if(idx!=(ptrdiff_t)3*iw*ih)
-	{
-		ptrdiff_t idx2=idx;
-		int kc, kx, ky;
 
-		kc=(int)(idx2%3);
-		idx2/=3;
-		kx=(int)(idx2%iw);
-		idx2/=iw;
-		ky=(int)idx2;
-		printf("First diff at XYC %d %d %d\n", kc, kx, ky);
-	}
-	else
-		printf("Perfect match\n");
+	ppm_save(dstfn, image1, iw, ih);
 	free(image1);
 	free(image2);
-	return 0;
 }
