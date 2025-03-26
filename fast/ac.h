@@ -128,7 +128,7 @@ void acval_dec(int sym, int cdf, int freq, unsigned long long lo1, unsigned long
 #define acval_dec(...)
 #endif
 
-	
+
 //	#define DEBUG_ANS
 
 #ifdef DEBUG_ANS
@@ -1149,7 +1149,7 @@ FORCEINLINE int ac_dec_bin(ArithmeticCoder *ec, unsigned short p0)//binary AC de
 }
 
 
-//arithmetic coder from paq8px (bad)
+//arithmetic coder from paq8px
 #define AC2_PROB_BITS 24
 typedef struct _AC2
 {

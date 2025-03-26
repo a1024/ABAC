@@ -11,10 +11,10 @@ static const char file[]=__FILE__;
 //	#define DNGCODEC
 //	#define BENCH_QOI
 
-#define CODECID     33
-#define CODECNAME "F33"
-#define ENCODE     f33_encode
-#define DECODE     f33_decode
+#define CODECID     23
+#define CODECNAME "F23"
+#define ENCODE     f23_encode
+#define DECODE     f23_decode
 
 
 typedef struct ThreadArgsStruct
@@ -337,7 +337,9 @@ int main(int argc, char **argv)
 			"  %s  input.LSIM  output.PPM/PGM/PNG  Decode image\n",
 			argv[0], argv[0], argv[0], argv[0]
 		);
+#ifndef __GNUC__
 		pause();
+#endif
 		return 1;
 	}
 	const char *fn=argv[1], *arg2=argc==3?argv[2]:0;
@@ -348,11 +350,11 @@ int main(int argc, char **argv)
 	//	"D:/ML/big_building.LSIM.PPM"
 		;
 	const char *fn=
-		"D:/ML/dataset-kodak-ppm/kodim13.ppm"
+	//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
 	//	"D:/ML/kodim13.lsim"
 	//	"D:/ML/dataset-kodak-ppm/kodim20.ppm"
 	//	"D:/ML/dataset-kodak/kodim13.png"
-	//	"D:/ML/dataset-CLIC30-ppm/03.ppm"
+		"D:/ML/dataset-CLIC30-ppm/03.ppm"
 	//	"D:/ML/big_building.PPM"
 	//	"D:/ML/big_building.LSIM"
 	//	"D:/ML/20240407 blank.ppm"
@@ -472,7 +474,9 @@ int main(int argc, char **argv)
 	if(formatsize<0)
 	{
 		printf("Not a file nor directory:  \'%s\'\n", fn);
+#ifndef __GNUC__
 		pause();
+#endif
 		return 1;
 	}
 	if(!formatsize)
@@ -641,6 +645,8 @@ int main(int argc, char **argv)
 		image_clear(&dst);
 	}
 	printf("\nDone.\n");
+#ifndef __GNUC__
 	pause();
+#endif
 	return 0;
 }

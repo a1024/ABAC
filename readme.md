@@ -54,7 +54,7 @@ To build, either create an MSVC 2022 CMake project, or to use GCC:
 Plain 8-bit codecs without alpha. PPM only.
 To build, either create an MSVC 2022 CMake project, or to use GCC:
 
-`make codec [PROF=1]`
+`make c<codecID> [PROF=1]`
 
 
 ## Archived projects (obsolete)
