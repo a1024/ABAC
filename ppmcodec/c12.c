@@ -17,6 +17,7 @@ static const char file[]=__FILE__;
 //	#define AC_VALIDATE
 #endif
 
+#define GRLIMIT 16
 #define ABAC_PROBBITS 16
 //#define ANALYSIS_XSTRIDE 4
 //#define ANALYSIS_YSTRIDE 4
@@ -91,7 +92,7 @@ static const unsigned char rct_indices[][8]=
 	{OCH_B,	OCH_RB,	OCH_GR,		2, 0, 1,	0, 1},//14
 	{OCH_B,	OCH_GB,	OCH_RG,		2, 1, 0,	0, 1},//15
 };
-static short stats1[3][1024][256];
+static short stats1[3][1024][GRLIMIT+8];
 #if 0
 AWM_INLINE int squash(int x)//sigmoid(x) = 1/(1-exp(-x))		logit sum -> prob
 {
@@ -277,7 +278,7 @@ int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		return 1;
 	}
 	ptrdiff_t srcsize=get_filesize(srcfn);
-	if(srcsize<1)
+	if(srcsize<0)
 	{
 		LOG_ERROR("Invalid file \"%s\"", srcfn);
 		return 1;
@@ -331,7 +332,7 @@ int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 	}
 	
 	ptrdiff_t res=(ptrdiff_t)iw*ih, usize=res*3;
-	int bestrct=0;
+	int bestrct=0, flat=0;
 	unsigned char *dstbuf=0, *dstptr=0;
 	unsigned long long low=0, range=0xFFFFFFFF, code=0;
 	if(fwd)
@@ -345,16 +346,17 @@ int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		}
 		dstptr=dstbuf;
 		{//analysis
-			long long counters[OCH_COUNT]={0};
+			long long counters[OCH_COUNT]={0}, flatcount[OCH_COUNT]={0};
 			const unsigned char *ptr=srcptr, *end=srcptr+usize-(sizeof(__m256i[3])+6-1);
 
-			__m256i mc[OCH_COUNT];
+			__m256i mc[OCH_COUNT], fc[OCH_COUNT];
 			__m256i shuf=_mm256_set_epi8(
 			//	15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0
 				-1, -1, -1, 14, -1, 11, -1,  8, -1, -1, -1, -1, -1,  5, -1,  3,
 				-1, -1, -1, 15, -1, 12, -1,  9, -1, -1, -1,  6, -1,  3, -1,  0
 			);
 			__m256i mmask=_mm256_set_epi32(0, 0, 0, 0xFFFF, 0, 0, 0, 0xFFFF);
+			memset(fc, 0, sizeof(fc));
 			memset(mc, 0, sizeof(mc));
 			while(ptr<end)
 			{
@@ -376,6 +378,9 @@ int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				__m256i d0=_mm256_sad_epu8(r, rW);
 				__m256i d1=_mm256_sad_epu8(g, gW);
 				__m256i d2=_mm256_sad_epu8(b, bW);
+				mc[0]=_mm256_add_epi64(mc[0], d0);
+				mc[1]=_mm256_add_epi64(mc[1], d1);
+				mc[2]=_mm256_add_epi64(mc[2], d2);
 
 				__m256i rg=_mm256_sub_epi16(r, g);
 				__m256i gb=_mm256_sub_epi16(g, b);
@@ -389,7 +394,6 @@ int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				d3=_mm256_abs_epi16(d3);
 				d4=_mm256_abs_epi16(d4);
 				d5=_mm256_abs_epi16(d5);
-
 				d3=_mm256_hadd_epi16(d3, d3);
 				d4=_mm256_hadd_epi16(d4, d4);
 				d5=_mm256_hadd_epi16(d5, d5);
@@ -437,18 +441,65 @@ int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				//d7=_mm256_and_si256(d7, mmask);
 				//d8=_mm256_and_si256(d8, mmask);
 
-				mc[0]=_mm256_add_epi64(mc[0], d0);
-				mc[1]=_mm256_add_epi64(mc[1], d1);
-				mc[2]=_mm256_add_epi64(mc[2], d2);
 				mc[3]=_mm256_add_epi64(mc[3], d3);
 				mc[4]=_mm256_add_epi64(mc[4], d4);
 				mc[5]=_mm256_add_epi64(mc[5], d5);
 				//mc[6]=_mm256_add_epi64(mc[6], d6);
 				//mc[7]=_mm256_add_epi64(mc[7], d7);
 				//mc[8]=_mm256_add_epi64(mc[8], d8);
+				
+				d0=_mm256_cmpeq_epi16(r, rW);
+				d1=_mm256_cmpeq_epi16(g, gW);
+				d2=_mm256_cmpeq_epi16(b, bW);
+				d0=_mm256_abs_epi16(d0);
+				d1=_mm256_abs_epi16(d1);
+				d2=_mm256_abs_epi16(d2);
+				d0=_mm256_hadd_epi16(d0, d0);
+				d1=_mm256_hadd_epi16(d1, d1);
+				d2=_mm256_hadd_epi16(d2, d2);
+				d0=_mm256_hadd_epi16(d0, d0);
+				d1=_mm256_hadd_epi16(d1, d1);
+				d2=_mm256_hadd_epi16(d2, d2);
+				d0=_mm256_hadd_epi16(d0, d0);
+				d1=_mm256_hadd_epi16(d1, d1);
+				d2=_mm256_hadd_epi16(d2, d2);
+				d0=_mm256_and_si256(d0, mmask);
+				d1=_mm256_and_si256(d1, mmask);
+				d2=_mm256_and_si256(d2, mmask);
+				fc[0]=_mm256_add_epi64(fc[0], d0);
+				fc[1]=_mm256_add_epi64(fc[1], d1);
+				fc[2]=_mm256_add_epi64(fc[2], d2);
+
+				d0=_mm256_cmpeq_epi16(rg, rgW);
+				d1=_mm256_cmpeq_epi16(gb, gbW);
+				d2=_mm256_cmpeq_epi16(br, brW);
+				d0=_mm256_abs_epi16(d0);
+				d1=_mm256_abs_epi16(d1);
+				d2=_mm256_abs_epi16(d2);
+				d0=_mm256_hadd_epi16(d0, d0);
+				d1=_mm256_hadd_epi16(d1, d1);
+				d2=_mm256_hadd_epi16(d2, d2);
+				d0=_mm256_hadd_epi16(d0, d0);
+				d1=_mm256_hadd_epi16(d1, d1);
+				d2=_mm256_hadd_epi16(d2, d2);
+				d0=_mm256_hadd_epi16(d0, d0);
+				d1=_mm256_hadd_epi16(d1, d1);
+				d2=_mm256_hadd_epi16(d2, d2);
+				d0=_mm256_and_si256(d0, mmask);
+				d1=_mm256_and_si256(d1, mmask);
+				d2=_mm256_and_si256(d2, mmask);
+				fc[3]=_mm256_add_epi64(fc[3], d0);
+				fc[4]=_mm256_add_epi64(fc[4], d1);
+				fc[5]=_mm256_add_epi64(fc[5], d2);
 			}
 			for(int k=0;k<OCH_COUNT;++k)
 			{
+				flatcount[k]=
+					+_mm256_extract_epi64(fc[k], 0)
+					+_mm256_extract_epi64(fc[k], 1)
+					+_mm256_extract_epi64(fc[k], 2)
+					+_mm256_extract_epi64(fc[k], 3)
+				;
 				counters[k]=
 					+_mm256_extract_epi64(mc[k], 0)
 					+_mm256_extract_epi64(mc[k], 1)
@@ -497,6 +548,24 @@ int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					bestrct=kt;
 				}
 			}
+			const unsigned char *rct=rct_indices[bestrct];
+			long long flatarea=
+				+flatcount[rct[0]]
+				+flatcount[rct[1]]
+				+flatcount[rct[2]]
+			;
+			flat=flatarea>usize/3;
+#ifdef LOUD
+			long long currerr=
+				+counters[rct[0]]
+				+counters[rct[1]]
+				+counters[rct[2]]
+			;
+			printf("%s\n", srcfn);
+			printf("flat = %d\n", flat);
+			printf("F/U = %12lld / %12td = %12.6lf\n", flatarea, usize, (double)flatarea/usize);
+			printf("E/U = %12lld / %12td = %12.6lf\n", currerr, usize, (double)currerr/usize);
+#endif
 #if 0
 			int rowstride=iw*3;
 			for(int ky=0;ky<ih;ky+=ANALYSIS_YSTRIDE)
@@ -627,9 +696,14 @@ int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 			}
 #endif
 		}
+		if(nthreads0&1)
+			flat=0;
+		else if(nthreads0&2)
+			flat=1;
 
-		low+=range*bestrct>>4;
-		range=(range>>4)-1;
+		int flag=bestrct<<1|flat;
+		low+=range*flag>>5;
+		range=(range>>5)-1;
 	}
 	else
 	{
@@ -646,11 +720,26 @@ int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		code=code<<4|*(unsigned*)srcptr;
 		srcptr+=4;
 
-		bestrct=(int)((((code-low+1)<<4)-1)/range);
-		low+=range*bestrct>>4;
-		range=(range>>4)-1;
+		int flag=(int)((((code-low+1)<<5)-1)/range);
+		low+=range*flag>>5;
+		range=(range>>5)-1;
+
+		bestrct=flag>>1;
+		flat=flag&1;
 	}
-	ALIGN(32) int wgerrors[3][8]={0};
+
+#define NPREDS 8
+#define WGPREDLIST\
+	WGPRED(260, N)\
+	WGPRED(260, W)\
+	WGPRED(150, 3*(N-NN)+NNN)\
+	WGPRED(150, 3*(W-WW)+WWW)\
+	WGPRED(170, W+NE-N)\
+	WGPRED(100, (WWWW+WWW+NNN+NEE+NEEE+NEEEE-2*NW)>>2)\
+	WGPRED(170, N+W-NW)\
+	WGPRED(160, N+NE-NNE)
+
+	ALIGN(32) int wgerrors[3][NPREDS]={0};
 	int psize=(iw+16LL)*(int)sizeof(short[4*4*2]);//4 padded rows * 4 channels max * {pixels, nbypass}
 	short *pixels=(short*)_mm_malloc(psize, sizeof(__m128i));
 	if(!pixels)
@@ -685,15 +774,6 @@ int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		};
 		char yuv[4]={0};
 		int errors[3]={0};
-#define WGPREDLIST\
-	WGPRED(240, N)\
-	WGPRED(240, W)\
-	WGPRED(180, 3*(N-NN)+NNN)\
-	WGPRED(180, 3*(W-WW)+WWW)\
-	WGPRED(140, W+NE-N)\
-	WGPRED(140, (WWWW+WWW+NNN+NEE+NEEE+NEEEE-2*NW)>>2)\
-	WGPRED(120, N+W-NW)\
-	WGPRED(120, N+NE-NNE)
 		ALIGN(32) static const float weights[]=
 		{
 #define WGPRED(WEIGHT, PRED) WEIGHT,
@@ -703,6 +783,8 @@ int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		__m256 mw=_mm256_load_ps(weights);
 		//ALIGN(32) float fpreds[8]={0}, fcoeff[8]={0};
 		//ptrdiff_t checkpoint=(ptrdiff_t)info.ptr;
+		ALIGN(32) int wgpreds[NPREDS]={0};
+		int hipred=0, pred=0, ctx=0;
 		for(int kx=0;kx<iw;++kx)
 		{
 			short *curr=rows[0]+0*4;
@@ -736,45 +818,55 @@ int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					W	=rows[0][kc-1*4*2],
 				//	ctx	=(rows[0][kc-1*4*3+4]+rows[1][kc+0*4*3+4]+256)>>1&255,
 					nbypass	=rows[0][kc-1*4*2+4];
-				ALIGN(32) int wgpreds[]=
+				if(flat)
 				{
-#define WGPRED(WEIGHT, PRED) PRED,
+					int vmax=N, vmin=W;
+					if(N<W)vmin=N, vmax=W;
+					pred=N+W-NW;
+					CLAMP2(pred, vmin, vmax);
+					hipred=pred<<4;
+					ctx=pred&255;
+				}
+				else
+				{
+					int j=0;
+#define WGPRED(WEIGHT, PRED) wgpreds[j++]=PRED;
 					WGPREDLIST
 #undef  WGPRED
-				};
-				int pred=0;
-				__m256i me=_mm256_load_si256((__m256i*)wgerrors+kc);
-				__m256i mp=_mm256_load_si256((__m256i*)wgpreds);
-				me=_mm256_add_epi32(me, _mm256_set1_epi32(1));
-				__m256 fe=_mm256_cvtepi32_ps(me);
-				__m256 fp=_mm256_cvtepi32_ps(mp);
-				fe=_mm256_rcp_ps(fe);
-				fe=_mm256_mul_ps(fe, mw);
-				fp=_mm256_mul_ps(fp, fe);
-				__m128 fe4=_mm_add_ps(_mm256_castps256_ps128(fe), _mm256_extractf128_ps(fe, 1));
-				__m128 fp4=_mm_add_ps(_mm256_castps256_ps128(fp), _mm256_extractf128_ps(fp, 1));
-				fp4=_mm_hadd_ps(fp4, fp4);
-				fe4=_mm_hadd_ps(fe4, fe4);
-				fp4=_mm_hadd_ps(fp4, fp4);
-				fe4=_mm_hadd_ps(fe4, fe4);
-				fp4=_mm_div_ss(fp4, fe4);
-				fp4=_mm_castsi128_ps(_mm_add_epi32(_mm_castps_si128(fp4), _mm_set1_epi32(4<<23)));
-				pred=_mm_cvt_ss2si(fp4);
-				int cpred=(pred+(1<<4>>1))>>4;
-#if 1
-				int vmax=N, vmin=W;
-				if(N<W)
-					vmin=N, vmax=W;
-				if(vmin>NW)vmin=NW;
-				if(vmax<NW)vmax=NW;
-				if(vmin>NE)vmin=NE;
-				if(vmax<NE)vmax=NE;
-				if(vmin>NEE)vmin=NEE;
-				if(vmax<NEE)vmax=NEE;
-				if(vmin>NEEE)vmin=NEEE;
-				if(vmax<NEEE)vmax=NEEE;
-				CLAMP2(cpred, vmin, vmax);
+					__m256i me=_mm256_load_si256((__m256i*)wgerrors+kc);
+					__m256i mp=_mm256_load_si256((__m256i*)wgpreds);
+					me=_mm256_add_epi32(me, _mm256_set1_epi32(1));
+					__m256 fe=_mm256_cvtepi32_ps(me);
+					__m256 fp=_mm256_cvtepi32_ps(mp);
+					fe=_mm256_rcp_ps(fe);
+					fe=_mm256_mul_ps(fe, mw);
+					fp=_mm256_mul_ps(fp, fe);
+					__m128 fe4=_mm_add_ps(_mm256_castps256_ps128(fe), _mm256_extractf128_ps(fe, 1));
+					__m128 fp4=_mm_add_ps(_mm256_castps256_ps128(fp), _mm256_extractf128_ps(fp, 1));
+					fp4=_mm_hadd_ps(fp4, fp4);
+					fe4=_mm_hadd_ps(fe4, fe4);
+					fp4=_mm_hadd_ps(fp4, fp4);
+					fe4=_mm_hadd_ps(fe4, fe4);
+					fp4=_mm_div_ss(fp4, fe4);
+					fp4=_mm_castsi128_ps(_mm_add_epi32(_mm_castps_si128(fp4), _mm_set1_epi32(4<<23)));//multiply by 16
+					hipred=_mm_cvtt_ss2si(fp4);
+					pred=(hipred+(1<<4>>1))>>4;
+					ctx=hipred>>2&1023;
+#if 0
+					int vmax=N, vmin=W;
+					if(N<W)
+						vmin=N, vmax=W;
+					if(vmin>NW)vmin=NW;
+					if(vmax<NW)vmax=NW;
+					if(vmin>NE)vmin=NE;
+					if(vmax<NE)vmax=NE;
+					if(vmin>NEE)vmin=NEE;
+					if(vmax<NEE)vmax=NEE;
+					if(vmin>NEEE)vmin=NEEE;
+					if(vmax<NEEE)vmax=NEEE;
+					CLAMP2(cpred, vmin, vmax);
 #endif
+				}
 				nbypass=FLOOR_LOG2(nbypass+1)-6;
 				if(nbypass<0)
 					nbypass=0;
@@ -783,35 +875,36 @@ int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				int nzeros=-1, bypass=0, tidx=0;
 				if(fwd)
 				{
-					errors[kc]=(char)(yuv[kc]-cpred);
+					errors[kc]=(char)(yuv[kc]-pred);
 					errors[kc]=errors[kc]<<1^errors[kc]>>31;
 					nzeros=errors[kc]>>nbypass;
 					bypass=errors[kc]&((1<<nbypass)-1);
 				}
 				do
 				{
-					unsigned short *p0ptr=(unsigned short*)&stats1[kc][pred>>2&1023][tidx];
+					unsigned short *p0ptr=(unsigned short*)&stats1[kc][ctx][tidx];
 					if(fwd)
 						info.bit=nzeros--<=0;
 					info.p0=*p0ptr;
-					//int sh=10-tidx;
-					//if(sh<7)
-					//	sh=7;
 					codebit(&info, 7);
 					*p0ptr=info.p0;
 					if(!fwd)
 						++nzeros;
 					++tidx;
-				}while(!info.bit);
+				}while(!info.bit&&tidx<GRLIMIT);
+				if(tidx==GRLIMIT)
+				{
+					nbypass=8;
+					if(fwd)
+						bypass=errors[kc];
+				}
 				for(int kb=nbypass-1, tidx=1;kb>=0;--kb)
 				{
-					unsigned short *p0ptr=(unsigned short*)&stats1[kc][pred>>2&1023][256-nbypass+kb];
-				//	unsigned short *p0ptr=(unsigned short*)&stats1[kc][pred&255][256-tidx];//BAD
+					unsigned short *p0ptr=(unsigned short*)&stats1[kc][ctx][GRLIMIT+8-nbypass+kb];
 					if(fwd)
 						info.bit=bypass>>kb&1;
 					info.p0=*p0ptr;
 					codebit(&info, 9);
-				//	bypassbit(&info);//BAD
 					*p0ptr=info.p0;
 					if(!fwd)
 						bypass|=info.bit<<kb;
@@ -819,9 +912,11 @@ int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				}
 				if(!fwd)
 				{
-					errors[kc]=nzeros<<nbypass|bypass;
+					errors[kc]=bypass;
+					if(tidx<GRLIMIT)
+						errors[kc]|=nzeros<<nbypass;
 					errors[kc]=errors[kc]>>1^-(errors[kc]&1);
-					yuv[kc]=(char)(errors[kc]+cpred);
+					yuv[kc]=(char)(errors[kc]+pred);
 				}
 #if 0
 				if(fwd)
@@ -883,19 +978,22 @@ int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					yuv[kc]=(char)(errors[kc]+pred);
 #endif
 
-				int e=(yuv[kc]<<4)-pred;
+				int e=(yuv[kc]<<4)-hipred;
 				e=e<<1^e>>31;
 				curr[kc+4]=(2*rows[0][kc-1*4*2+4]+(e<<2)+rows[1][kc+3*4*2+4])>>2;
 			//	curr[kc+4]=yuv[kc]-pred;
+				if(!flat)
+				{
 #if defined __GNUC__ && !defined PROFILER
 #pragma GCC unroll 8
 #endif
-				for(int k=0;k<8;++k)
-				{
-					e=yuv[kc]-wgpreds[k];
-					e=e<<1^e>>31;
-					wgerrors[kc][k]+=((e<<5)-wgerrors[kc][k]+(1<<3>>1))>>3;
-				//	wgerrors[kc][k]+=((abs(yuv[kc]-wgpreds[k])<<3)-wgerrors[kc][k]+(1<<3>>1))>>3;
+					for(int k=0;k<8;++k)
+					{
+						e=yuv[kc]-wgpreds[k];
+						e=e<<1^e>>31;
+						wgerrors[kc][k]+=((e<<5)-wgerrors[kc][k]+(1<<3>>1))>>3;
+					//	wgerrors[kc][k]+=((abs(yuv[kc]-wgpreds[k])<<3)-wgerrors[kc][k]+(1<<3>>1))>>3;
+					}
 				}
 			}
 			if(!fwd)

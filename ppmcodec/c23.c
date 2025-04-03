@@ -225,7 +225,7 @@ int c23_codec(const char *srcfn, const char *dstfn, int nthreads0)
 	unsigned char *srcbuf=0, *srcptr=0, *srcend=0;
 	{
 		srcsize=get_filesize(srcfn);
-		if(srcsize<1)
+		if(srcsize<0)
 		{
 			LOG_ERROR("Cannot open \"%s\"", srcfn);
 			return 1;

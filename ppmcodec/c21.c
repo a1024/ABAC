@@ -75,7 +75,7 @@ int c21_codec(const char *srcfn, const char *dstfn, int nthreads0)
 	int headersize=0;
 	{
 		srcsize=get_filesize(srcfn);
-		if(srcsize<1)
+		if(srcsize<0)
 		{
 			LOG_ERROR("Cannot open \"%s\"", srcfn);
 			return 1;

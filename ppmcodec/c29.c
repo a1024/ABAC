@@ -4,9 +4,9 @@
 #include<string.h>
 #include<math.h>
 #include<immintrin.h>
-#ifdef _WIN32
-#include<Windows.h>
-#endif
+//#ifdef _WIN32
+//#include<Windows.h>
+//#endif
 static const char file[]=__FILE__;
 
 
@@ -24,6 +24,7 @@ static const char file[]=__FILE__;
 //	#define TEST_INTERLEAVE
 #endif
 
+	#define CHECK_FLAT
 //	#define DISABLE_ANALYSIS	//HORRIBLE	analysis is crucial
 //	#define SERIAL_MAIN		//2x slower
 //	#define DISABLE_WG
@@ -2556,6 +2557,11 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 #else
 		prof_checkpoint(usize, "interleave");
 		{
+#ifdef CHECK_FLAT
+			long long flatctr[3]={0};
+			__m256i mflat[3];
+			memset(mflat, 0, sizeof(mflat));
+#endif
 			ALIGN(32) long long counters[OCH_COUNT]={0};
 			__m256i mcounters[OCH_COUNT];//64-bit
 			__m128i half8=_mm_set1_epi8(-128);
@@ -2581,6 +2587,26 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					g1=_mm256_slli_epi16(g1, 2);
 					b0=_mm256_slli_epi16(b0, 2);
 					b1=_mm256_slli_epi16(b1, 2);
+#ifdef CHECK_FLAT
+					__m256i cmp0=_mm256_abs_epi16(_mm256_cmpeq_epi16(r0, prev[OCH_Y400*2+0]));
+					__m256i cmp1=_mm256_abs_epi16(_mm256_cmpeq_epi16(g0, prev[OCH_Y040*2+0]));
+					__m256i cmp2=_mm256_abs_epi16(_mm256_cmpeq_epi16(b0, prev[OCH_Y004*2+0]));
+					cmp0=_mm256_add_epi16(cmp0, _mm256_abs_epi16(_mm256_cmpeq_epi16(r1, prev[OCH_Y400*2+1])));
+					cmp1=_mm256_add_epi16(cmp1, _mm256_abs_epi16(_mm256_cmpeq_epi16(g1, prev[OCH_Y040*2+1])));
+					cmp2=_mm256_add_epi16(cmp2, _mm256_abs_epi16(_mm256_cmpeq_epi16(b1, prev[OCH_Y004*2+1])));
+					cmp0=_mm256_add_epi16(cmp0, _mm256_srli_epi64(cmp0, 32));
+					cmp1=_mm256_add_epi16(cmp1, _mm256_srli_epi64(cmp1, 32));
+					cmp2=_mm256_add_epi16(cmp2, _mm256_srli_epi64(cmp2, 32));
+					cmp0=_mm256_add_epi16(cmp0, _mm256_srli_epi64(cmp0, 16));
+					cmp1=_mm256_add_epi16(cmp1, _mm256_srli_epi64(cmp1, 16));
+					cmp2=_mm256_add_epi16(cmp2, _mm256_srli_epi64(cmp2, 16));
+					cmp0=_mm256_and_si256(cmp0, wordmask);
+					cmp1=_mm256_and_si256(cmp1, wordmask);
+					cmp2=_mm256_and_si256(cmp2, wordmask);
+					mflat[0]=_mm256_add_epi16(mflat[0], cmp0);
+					mflat[1]=_mm256_add_epi16(mflat[1], cmp1);
+					mflat[2]=_mm256_add_epi16(mflat[2], cmp2);
+#endif
 					__m256i rg0=_mm256_sub_epi16(r0, g0);
 					__m256i rg1=_mm256_sub_epi16(r1, g1);
 					__m256i gb0=_mm256_sub_epi16(g0, b0);
@@ -2649,9 +2675,9 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 			}
 			for(int k=0;k<OCH_COUNT;++k)
 			{
-				ALIGN(32) long long temp[8]={0};
+				ALIGN(32) long long temp[4]={0};
 				_mm256_store_si256((__m256i*)temp, mcounters[k]);
-				counters[k]=temp[0]+temp[1]+temp[2]+temp[3]+temp[4]+temp[5]+temp[6]+temp[7];
+				counters[k]=temp[0]+temp[1]+temp[2]+temp[3];
 			}
 			long long minerr=0;
 			for(int kt=0;kt<RCT_COUNT;++kt)
@@ -2675,7 +2701,21 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 			use_wg4=0;
 #else
 			const unsigned char *rct=rct_combinations[bestrct];
+#ifdef CHECK_FLAT
+			{
+				ALIGN(32) long long temp[4]={0};
+				_mm256_store_si256((__m256i*)temp, mflat[0]);
+				flatctr[0]=temp[0]+temp[1]+temp[2]+temp[3];
+				_mm256_store_si256((__m256i*)temp, mflat[1]);
+				flatctr[1]=temp[0]+temp[1]+temp[2]+temp[3];
+				_mm256_store_si256((__m256i*)temp, mflat[2]);
+				flatctr[2]=temp[0]+temp[1]+temp[2]+temp[3];
+
+			}
+			use_wg4=flatctr[rct[0]]<isize/12;
+#else
 			use_wg4=counters[rct[0]]+counters[rct[1]]+counters[rct[2]] > isize*2;//FIXME tune
+#endif
 			if(nthreads0&1)//force CG
 				use_wg4=0;
 			else if(nthreads0&2)//force WG4
@@ -4007,6 +4047,12 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					eNE3=_mm256_add_epi16(eNE3, me3);
 					eNE4=_mm256_add_epi16(eNE4, me4);
 					eNE5=_mm256_add_epi16(eNE5, me5);
+					eNE0=_mm256_srli_epi16(eNE0, 1);
+					eNE1=_mm256_srli_epi16(eNE1, 1);
+					eNE2=_mm256_srli_epi16(eNE2, 1);
+					eNE3=_mm256_srli_epi16(eNE3, 1);
+					eNE4=_mm256_srli_epi16(eNE4, 1);
+					eNE5=_mm256_srli_epi16(eNE5, 1);
 					_mm256_store_si256((__m256i*)(erows[1]+((kp+1*WG_NPREDS)*3+0)*NCODERS)+0, eNE0);//eNE
 					_mm256_store_si256((__m256i*)(erows[1]+((kp+1*WG_NPREDS)*3+0)*NCODERS)+1, eNE1);
 					_mm256_store_si256((__m256i*)(erows[1]+((kp+1*WG_NPREDS)*3+1)*NCODERS)+0, eNE2);

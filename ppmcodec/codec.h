@@ -49,6 +49,7 @@ int c26_codec(const char *srcfn, const char *dstfn, int nthreads0);//ST ABAC
 int c27_codec(const char *srcfn, const char *dstfn, int nthreads0);//ST GR
 int c28_codec(const char *srcfn, const char *dstfn, int nthreads0);//ST AC with GR context
 int c29_codec(const char *srcfn, const char *dstfn, int nthreads0);//C29 ST interleaved AVX2 cRCT WG4/CG GRctx static-rANS
+int c30_codec(const char *srcfn, const char *dstfn, int nthreads0);//ST OLS
 
 	
 #ifdef __cplusplus

@@ -22,7 +22,7 @@ static const char file[]=__FILE__;
 //	#define CODEC_EXT c09
 //	#define CODEC_EXT c10
 //	#define CODEC_EXT c11
-	#define CODEC_EXT c12
+//	#define CODEC_EXT c12
 //	#define CODEC_EXT c13
 //	#define CODEC_EXT c14
 //	#define CODEC_EXT c15
@@ -39,7 +39,8 @@ static const char file[]=__FILE__;
 //	#define CODEC_EXT c26
 //	#define CODEC_EXT c27
 //	#define CODEC_EXT c28
-//	#define CODEC_EXT c29
+	#define CODEC_EXT c29
+//	#define CODEC_EXT c30
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -139,7 +140,7 @@ int main(int argc, char **argv)
 #ifdef __GNUC__
 //#ifndef _DEBUG
 //#if 0
-	if(argc<3||argc>4)
+	if(argc<2||argc>4)
 	{
 		printf("Usage:\n");
 #ifdef SINGLE_THREAD_CLI
@@ -271,6 +272,12 @@ int main(int argc, char **argv)
 
 //	CODEC_FUNC("C:/dataset-synth2-ppm/20240422 1.PPM",	"D:/ML/mystery.lsim", nthreads);
 //	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
+
+//	CODEC_FUNC("D:/ML/nice_clock_face.ppm",		"D:/ML/mystery.lsim", nthreads);
+//	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm", nthreads);
+
+//	CODEC_FUNC("C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm",	"D:/ML/mystery.lsim", nthreads);
+//	CODEC_FUNC("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm", nthreads);
 
 	CODEC_FUNC("C:/dataset-DIV2K-ppm/0801.ppm",	"D:/ML/mystery.lsim", nthreads);
 	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm", nthreads);

@@ -126,6 +126,10 @@ extern "C"
 		DST=_dst[0];\
 	}while(0)
 
+#define CVTFP32_I32(X) _mm_cvt_ss2si(_mm_set_ps(0, 0, 0, X))
+#define CVTFP64_I64(X) _mm_cvtsd_si64(_mm_set_pd(0, X))
+
+#if 0
 #define CONVERT_DOUBLE2INT(DST, SRC)\
 	do\
 	{\
@@ -135,6 +139,7 @@ extern "C"
 		_mm_store_si128((__m128i*)_c_, _b_);\
 		DST=_c_[0];\
 	}while(0)
+#endif
 
 #define IDIV23(DST, NUM, DEN)\
 	do\
@@ -563,7 +568,13 @@ void pqueue_print_heap(PQueueHandle *pq, void (*printer)(const void*));
 #endif
 
 
-ptrdiff_t get_filesize(const char *filename);//-1 not found,  0: folder (probably),  ...: regular file size
+typedef enum _FileSizeRetCode
+{
+	FSIZE_INACCESSIBLE=-2,
+	FSIZE_FOLDER=-1,
+	FSIZE_EMPTYFILE=0,
+} FileSizeRetCode;
+ptrdiff_t get_filesize(const char *filename);//-2 not found,  -1: not a file,  >=0: regular file size
 
 int acme_stricmp(const char *a, const char *b);//case insensitive strcmp
 ptrdiff_t acme_strrchr(const char *str, ptrdiff_t len, char c);//find last occurrence, with known length for backward search
@@ -599,6 +610,16 @@ void colorprintf_init(void);//no initialization is needed as it's ON by default
 int colorprintf(int textcolor, int bkcolor, const char *format, ...);//0x00BBGGRR
 void colorgen0(int *colors, int count, int maxbrightness);//maxbrightness is componentwise
 void colorgen(int *colors, int count, int minbrightness, int maxbrightness, int maxtrials);//distance-based rejection sampling  O(N^2)  brightness range [0 ~ 765]
+
+#ifdef _WIN32
+int print_systemerror(const char *file, int line, const char *funcname, int errorcode, int quit);//GetLastError
+#define SYSTEMERROR(FUNCNAME)   print_systemerror(__FILE__, __LINE__, FUNCNAME, GetLastError(), 1)
+#define SYSTEMWARNING(FUNCNAME) print_systemerror(__FILE__, __LINE__, FUNCNAME, GetLastError(), 0)
+#endif
+
+void file_delete(char *fn);
+void get_tmpfn(char *dst);//dst is MAX_PATH
+void exec_process(char *cmd, const char *currdir, int loud, double *elapsed, long long *maxmem);
 
 
 #ifdef _MSC_VER

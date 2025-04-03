@@ -2616,19 +2616,20 @@ void  pqueue_print_heap(PQueueHandle *pq, void (*printer)(const void*))
 }
 #endif
 
-ptrdiff_t get_filesize(const char *filename)//-1 not found,  0: not a file,  ...: regular file size
+
+ptrdiff_t get_filesize(const char *filename)//-2 not found,  -1: not a file,  >=0: regular file size
 {
 	struct stat info={0};
 	int e2=stat(filename, &info);
 	if(e2)
-		return -1;
+		return FSIZE_INACCESSIBLE;
 #if defined _MSC_VER || defined _WIN32
 	if((info.st_mode&S_IFMT)==S_IFREG)
 #else
 	if(S_ISREG(info.st_mode))
 #endif
 		return info.st_size;
-	return 0;
+	return FSIZE_FOLDER;
 }
 
 int acme_stricmp(const char *a, const char *b)//case insensitive strcmp
@@ -2886,11 +2887,11 @@ ArrayHandle searchfor_file(const char *searchpath, const char *filetitle)
 
 	STR_COPY(filename, filetitle, strlen(filetitle));
 	size=get_filesize((char*)filename->data);
-	if(size==-1)
+	if(size==FSIZE_INACCESSIBLE)
 	{
 		array_insert(&filename, 0, searchpath, strlen(searchpath), 1, 1);
 		size=get_filesize((char*)filename->data);
-		if(size==-1)
+		if(size==FSIZE_INACCESSIBLE)
 			array_free(&filename);
 	}
 	return filename;
@@ -3495,5 +3496,146 @@ void colorgen(int *colors, int count, int minbrightness, int maxbrightness, int 
 			//	LOG_ERROR("");
 		}while(reject&&ntrials<maxtrials);
 		colors[k]=bestcolor;
+	}
+}
+
+#ifdef _WIN32
+int print_systemerror(const char *file, int line, const char *funcname, int errorcode, int quit)
+{
+	char *msg=0;
+	int len=FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER|FORMAT_MESSAGE_FROM_SYSTEM, 0, errorcode, 0, (char*)&msg, 0, 0);
+	if(!len)
+		return printf("%s GetLastError %d,  print_systemerror GetLastError %d\n", funcname, errorcode, (int)GetLastError());
+
+	len=printf("%s(%d): %s %d: %s", file?file:"?", line, funcname?funcname:"", errorcode, msg);
+	LocalFree(msg);
+	if(quit)
+		LOG_ERROR("");
+	return len;
+}
+#endif
+
+void file_delete(char *fn)
+{
+#ifdef _WIN32
+	int success=DeleteFileA(fn);//avoid TEMP spam
+	if(!success)
+		SYSTEMERROR("DeleteFileA");
+#endif
+}
+void get_tmpfn(char *dst)//dst is MAX_PATH
+{
+#ifdef _WIN32
+	char path[MAX_PATH+1]={0};
+	int len=GetTempPathA(sizeof(path)-1, path);
+	if(!len)
+	{
+		SYSTEMERROR("GetTempPath2A");
+		return;
+	}
+	int val=GetTempFileNameA(path, "", 0, dst);
+	if(!val)
+	{
+		SYSTEMERROR("GetTempFileNameA");
+		return;
+	}
+	file_delete(dst);
+#endif
+}
+
+void exec_process(char *cmd, const char *currdir, int loud, double *elapsed, long long *maxmem)
+{
+	int success;
+	STARTUPINFOA si={0};
+	PROCESS_INFORMATION pi={0};
+	si.cb=sizeof(si);
+	if(!loud)
+	{
+		si.dwFlags=STARTF_USESTDHANDLES;
+		si.hStdOutput=CreateFileA("NUL", GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL);
+		if(si.hStdOutput==INVALID_HANDLE_VALUE)
+		{
+			SYSTEMERROR("CreateFileA");
+			return;
+		}
+		si.hStdError=CreateFileA("NUL", GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL);
+		if(si.hStdError==INVALID_HANDLE_VALUE)
+		{
+			SYSTEMERROR("CreateFileA");
+			return;
+		}
+		si.hStdInput=CreateFileA("NUL", GENERIC_READ, 0, NULL, CREATE_ALWAYS, 0, NULL);
+		if(si.hStdInput==INVALID_HANDLE_VALUE)
+		{
+			SYSTEMERROR("CreateFileA");
+			return;
+		}
+	}
+	success=CreateProcessA(0, cmd, 0, 0, 0, CREATE_SUSPENDED, 0, currdir, &si, &pi);
+	if(!success)
+	{
+		SYSTEMERROR("CreateProcessA");
+		return;
+	}
+	double t=time_sec();
+	int suspendcount=ResumeThread(pi.hThread);
+	if(suspendcount==(DWORD)-1)
+	{
+		SYSTEMERROR("CreateProcessA");
+		return;
+	}
+	if(elapsed||maxmem)
+	{
+		ptrdiff_t memusage=0;
+		while(WaitForSingleObject(pi.hProcess, 10)==WAIT_TIMEOUT)
+		{
+			PROCESS_MEMORY_COUNTERS pmc={0};
+			pmc.cb=sizeof(pmc);
+			success=GetProcessMemoryInfo(pi.hProcess, &pmc, sizeof(pmc));
+			if(!success)
+			{
+				SYSTEMERROR("GetProcessMemoryInfo");
+				return;
+			}
+			if(memusage<(ptrdiff_t)pmc.WorkingSetSize)
+				memusage=pmc.WorkingSetSize;
+		}
+		if(elapsed)*elapsed=time_sec()-t;
+		if(maxmem)*maxmem=memusage;
+	}
+	else
+		WaitForSingleObject(pi.hProcess, INFINITE);
+	success=CloseHandle(pi.hProcess);
+	if(!success)
+	{
+		SYSTEMERROR("CloseHandle");
+		return;
+	}
+	success=CloseHandle(pi.hThread);
+	if(!success)
+	{
+		SYSTEMERROR("CloseHandle");
+		return;
+	}
+	if(!loud)
+	{
+		success=CloseHandle(si.hStdOutput);
+		if(!success)
+		{
+			SYSTEMERROR("CloseHandle");
+			return;
+		}
+		success=CloseHandle(si.hStdError);
+		if(!success)
+		{
+			SYSTEMERROR("CloseHandle");
+			return;
+		}
+		success=CloseHandle(si.hStdInput);
+		if(!success)
+		{
+			SYSTEMERROR("CloseHandle");
+			return;
+		}
 	}
 }
