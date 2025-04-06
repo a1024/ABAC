@@ -306,6 +306,10 @@ int c12_codec(const char *srcfn, const char *dstfn, int nthreads0)
 	if(fwd)
 	{
 		srcptr+=3;
+		if(*srcptr=='#')
+		{
+			while(*srcptr++!='\n');
+		}
 		while((unsigned)(*srcptr-'0')<10)
 			iw=10*iw+*srcptr++-'0';
 		while(*srcptr==' ')

@@ -17,6 +17,180 @@ static const char file[]=__FILE__;
 
 #define PRECBITS 12
 
+
+//	#define ENABLE_MA
+
+
+typedef enum _RCTInfoIdx
+{
+	II_OCH_Y,
+	II_OCH_U,
+	II_OCH_V,
+
+	II_PERM_Y,
+	II_PERM_U,
+	II_PERM_V,
+
+	II_COEFF_U_SUB_Y,
+	II_COEFF_V_SUB_Y,
+	II_COEFF_V_SUB_U,
+
+	II_COUNT,
+} RCTInfoIdx;
+typedef enum _OCHIndex
+{
+	OCH_R,
+	OCH_G,
+	OCH_B,
+	OCH_RG,
+	OCH_GB,
+	OCH_BR,
+	OCH_COUNT,
+	OCH_GR=OCH_RG,
+	OCH_BG=OCH_GB,
+	OCH_RB=OCH_BR,
+} OCHIndex;
+#define RCTLIST\
+	RCT(_400_0X0_00X,	OCH_R,		OCH_G,		OCH_B,		0, 1, 2,	0,  0, 0)\
+	RCT(_400_0X0_04X,	OCH_R,		OCH_G,		OCH_BG,		0, 1, 2,	0,  0, 4)\
+	RCT(_400_0X0_40X,	OCH_R,		OCH_G,		OCH_BR,		0, 1, 2,	0,  4, 0)\
+	RCT(_040_00X_X40,	OCH_G,		OCH_B,		OCH_RG,		1, 2, 0,	0,  4, 0)\
+	RCT(_040_00X_X04,	OCH_G,		OCH_B,		OCH_RB,		1, 2, 0,	0,  0, 4)\
+	RCT(_004_X00_4X0,	OCH_B,		OCH_R,		OCH_GR,		2, 0, 1,	0,  0, 4)\
+	RCT(_004_X00_0X4,	OCH_B,		OCH_R,		OCH_GB,		2, 0, 1,	0,  4, 0)\
+	RCT(_040_04X_X40,	OCH_G,		OCH_BG,		OCH_RG,		1, 2, 0,	4,  4, 0)\
+	RCT(_040_04X_X04,	OCH_G,		OCH_BG,		OCH_RB,		1, 2, 0,	4,  0, 4)\
+	RCT(_040_X40_40X,	OCH_G,		OCH_RG,		OCH_BR,		1, 0, 2,	4,  0, 4)\
+	RCT(_004_X04_0X4,	OCH_B,		OCH_RB,		OCH_GB,		2, 0, 1,	4,  4, 0)\
+	RCT(_004_X04_4X0,	OCH_B,		OCH_RB,		OCH_GR,		2, 0, 1,	4,  0, 4)\
+	RCT(_004_0X4_X40,	OCH_B,		OCH_GB,		OCH_RG,		2, 1, 0,	4,  0, 4)\
+	RCT(_400_4X0_40X,	OCH_R,		OCH_GR,		OCH_BR,		0, 1, 2,	4,  4, 0)\
+	RCT(_400_4X0_04X,	OCH_R,		OCH_GR,		OCH_BG,		0, 1, 2,	4,  0, 4)\
+	RCT(_400_40X_0X4,	OCH_R,		OCH_BR,		OCH_GB,		0, 2, 1,	4,  0, 4)
+static const char *rct_names[]=
+{
+#define RCT(LABEL, ...) #LABEL,
+	RCTLIST
+#undef  RCT
+};
+typedef enum _RCTIndex
+{
+#define RCT(LABEL, ...) RCT_##LABEL,
+	RCTLIST
+#undef  RCT
+	RCT_COUNT,
+} RCTIndex;
+static const unsigned char rct_combinations[RCT_COUNT][II_COUNT]=
+{
+#define RCT(LABEL, ...) {__VA_ARGS__},
+	RCTLIST
+#undef  RCT
+};
+static int ch_decorrelate(unsigned char *image, int iw, int ih)
+{
+	long long counters[6]={0};
+	int W[6]={0};
+	for(ptrdiff_t k=0, len=(ptrdiff_t)3*iw*ih;k<len;k+=3)
+	{
+		int
+			r=image[k+0],
+			g=image[k+1],
+			b=image[k+2],
+			rg=r-g,
+			gb=g-b,
+			br=b-r;
+		counters[0]+=abs(r -W[0]);
+		counters[1]+=abs(g -W[1]);
+		counters[2]+=abs(b -W[2]);
+		counters[3]+=abs(rg-W[3]);
+		counters[4]+=abs(gb-W[4]);
+		counters[5]+=abs(br-W[5]);
+		W[0]=r;
+		W[1]=g;
+		W[2]=b;
+		W[3]=rg;
+		W[4]=gb;
+		W[5]=br;
+	}
+	int bestrct=0;
+	long long minerr=0;
+	for(int kt=0;kt<RCT_COUNT;++kt)
+	{
+		const unsigned char *rct=rct_combinations[kt];
+		long long currerr=
+			+counters[rct[0]]
+			+counters[rct[1]]
+			+counters[rct[2]]
+		;
+		if(!kt||minerr>currerr)
+		{
+			minerr=currerr;
+			bestrct=kt;
+		}
+	}
+	const unsigned char *combination=rct_combinations[bestrct];
+	int
+		yidx=combination[II_PERM_Y],
+		uidx=combination[II_PERM_U],
+		vidx=combination[II_PERM_V];
+	for(ptrdiff_t k=0, len=(ptrdiff_t)3*iw*ih;k<len;k+=3)
+	{
+		char yuv[]=
+		{
+			image[k+yidx]-128,
+			image[k+uidx]-128,
+			image[k+vidx]-128,
+		};
+#ifdef ENABLE_MA
+		yuv[2]-=(combination[II_COEFF_V_SUB_Y]*yuv[0]+combination[II_COEFF_V_SUB_U]*yuv[1])>>2;
+		yuv[1]-=yuv[0]&-(combination[II_COEFF_U_SUB_Y]!=0);
+#endif
+		image[k+0]=yuv[0]+128;
+		image[k+1]=yuv[1]+128;
+		image[k+2]=yuv[2]+128;
+	}
+	return bestrct;
+}
+static void ch_reconstruct(unsigned char *image, int iw, int ih, int rct)
+{
+	const unsigned char *combination=rct_combinations[rct];
+	int
+		yidx=combination[II_PERM_Y],
+		uidx=combination[II_PERM_U],
+		vidx=combination[II_PERM_V];
+	for(ptrdiff_t k=0, len=(ptrdiff_t)3*iw*ih;k<len;k+=3)
+	{
+		char yuv[]=
+		{
+			image[k+0]-128,
+			image[k+1]-128,
+			image[k+2]-128,
+		};
+#ifdef ENABLE_MA
+		yuv[1]+=yuv[0]&-(combination[II_COEFF_U_SUB_Y]!=0);
+		yuv[2]+=(combination[II_COEFF_V_SUB_Y]*yuv[0]+combination[II_COEFF_V_SUB_U]*yuv[1])>>2;
+#endif
+		image[k+yidx]=yuv[0]+128;
+		image[k+uidx]=yuv[1]+128;
+		image[k+vidx]=yuv[2]+128;
+	}
+}
+
+static double calc_entropy(const int *hist)
+{
+	double e=0;
+	int sum=0;
+	for(int k=0;k<256;++k)
+		sum+=hist[k];
+	for(int k=0;k<256;++k)
+	{
+		int freq=hist[k];
+		if(freq)
+			e-=freq*log2((double)freq/sum);
+	}
+	//printf(" %d", sum);//
+	return e/8;
+}
 static int solve_Mx_v_cholesky(double *matrix, const double *vec, int n, double *solution)
 {
 	int success=1;
@@ -65,9 +239,9 @@ static int solve_Mx_v_cholesky(double *matrix, const double *vec, int n, double 
 }
 static int solveblock(const unsigned char *image, int iw, int ih, int x1, int x2, int y1, int y2, short *coeffs)//13+14+15 coeffs
 {
-	const int msize0=OLS6_NPARAMS0*OLS6_NPARAMS0;
-	const int msize1=OLS6_NPARAMS1*OLS6_NPARAMS1;
-	const int msize2=OLS6_NPARAMS2*OLS6_NPARAMS2;
+	//const int msize0=OLS6_NPARAMS0*OLS6_NPARAMS0;
+	//const int msize1=OLS6_NPARAMS1*OLS6_NPARAMS1;
+	//const int msize2=OLS6_NPARAMS2*OLS6_NPARAMS2;
 	double matrix0[OLS6_NPARAMS0*OLS6_NPARAMS0]={0}, vec0[OLS6_NPARAMS0]={0};
 	double matrix1[OLS6_NPARAMS1*OLS6_NPARAMS1]={0}, vec1[OLS6_NPARAMS1]={0};
 	double matrix2[OLS6_NPARAMS2*OLS6_NPARAMS2]={0}, vec2[OLS6_NPARAMS2]={0};
@@ -287,174 +461,372 @@ static void ols_predict(unsigned char *image, int iw, int ih, const short *allco
 	_mm_free(pixels);
 }
 
-typedef enum _RCTInfoIdx
-{
-	II_OCH_Y,
-	II_OCH_U,
-	II_OCH_V,
+#define NCTX 17
+#define NPREDS 8
+#define PREDLIST\
+	PRED(240, N)\
+	PRED(240, W)\
+	PRED(180, 3*(N-NN)+NNN)\
+	PRED(180, 3*(W-WW)+WWW)\
+	PRED(140, W+NE-N)\
+	PRED(160, (WWWW+WWW+NNN+NEE+NEEE+NEEEE-2*NW)/4)\
+	PRED(120, N+W-NW)\
+	PRED(120, N+NE-NNE)
 
-	II_PERM_Y,
-	II_PERM_U,
-	II_PERM_V,
-
-	II_COEFF_U_SUB_Y,
-	II_COEFF_V_SUB_Y,
-	II_COEFF_V_SUB_U,
-
-	II_COUNT,
-} RCTInfoIdx;
-typedef enum _OCHIndex
+AWM_INLINE int wp_mix_naive(const int *preds, const int *errors, const int *iweights)//faster
 {
-	OCH_R,
-	OCH_G,
-	OCH_B,
-	OCH_RG,
-	OCH_GB,
-	OCH_BR,
-	OCH_COUNT,
-	OCH_GR=OCH_RG,
-	OCH_BG=OCH_GB,
-	OCH_RB=OCH_BR,
-} OCHIndex;
-#define RCTLIST\
-	RCT(_400_0X0_00X,	OCH_R,		OCH_G,		OCH_B,		0, 1, 2,	0,  0, 0)\
-	RCT(_400_0X0_04X,	OCH_R,		OCH_G,		OCH_BG,		0, 1, 2,	0,  0, 4)\
-	RCT(_400_0X0_40X,	OCH_R,		OCH_G,		OCH_BR,		0, 1, 2,	0,  4, 0)\
-	RCT(_040_00X_X40,	OCH_G,		OCH_B,		OCH_RG,		1, 2, 0,	0,  4, 0)\
-	RCT(_040_00X_X04,	OCH_G,		OCH_B,		OCH_RB,		1, 2, 0,	0,  0, 4)\
-	RCT(_004_X00_4X0,	OCH_B,		OCH_R,		OCH_GR,		2, 0, 1,	0,  0, 4)\
-	RCT(_004_X00_0X4,	OCH_B,		OCH_R,		OCH_GB,		2, 0, 1,	0,  4, 0)\
-	RCT(_040_04X_X40,	OCH_G,		OCH_BG,		OCH_RG,		1, 2, 0,	4,  4, 0)\
-	RCT(_040_04X_X04,	OCH_G,		OCH_BG,		OCH_RB,		1, 2, 0,	4,  0, 4)\
-	RCT(_040_X40_40X,	OCH_G,		OCH_RG,		OCH_BR,		1, 0, 2,	4,  0, 4)\
-	RCT(_004_X04_0X4,	OCH_B,		OCH_RB,		OCH_GB,		2, 0, 1,	4,  4, 0)\
-	RCT(_004_X04_4X0,	OCH_B,		OCH_RB,		OCH_GR,		2, 0, 1,	4,  0, 4)\
-	RCT(_004_0X4_X40,	OCH_B,		OCH_GB,		OCH_RG,		2, 1, 0,	4,  0, 4)\
-	RCT(_400_4X0_40X,	OCH_R,		OCH_GR,		OCH_BR,		0, 1, 2,	4,  4, 0)\
-	RCT(_400_4X0_04X,	OCH_R,		OCH_GR,		OCH_BG,		0, 1, 2,	4,  0, 4)\
-	RCT(_400_40X_0X4,	OCH_R,		OCH_BR,		OCH_GB,		0, 2, 1,	4,  0, 4)
-static const char *rct_names[]=
-{
-#define RCT(LABEL, ...) #LABEL,
-	RCTLIST
-#undef  RCT
-};
-typedef enum _RCTIndex
-{
-#define RCT(LABEL, ...) RCT_##LABEL,
-	RCTLIST
-#undef  RCT
-	RCT_COUNT,
-} RCTIndex;
-static const unsigned char rct_combinations[RCT_COUNT][II_COUNT]=
-{
-#define RCT(LABEL, ...) {__VA_ARGS__},
-	RCTLIST
-#undef  RCT
-};
-static int ch_decorrelate(unsigned char *image, int iw, int ih)
-{
-	long long counters[6]={0};
-	int W[6]={0};
-	for(ptrdiff_t k=0, len=(ptrdiff_t)3*iw*ih;k<len;k+=3)
+	long long pred=0, wsum=0;
+#if defined __GNUC__ && !defined PROFILER
+#pragma GCC unroll 8
+#endif
+	for(int k=0;k<NPREDS;++k)
 	{
-		int
-			r=image[k+0],
-			g=image[k+1],
-			b=image[k+2],
-			rg=r-g,
-			gb=g-b,
-			br=b-r;
-		counters[0]+=abs(r -W[0]);
-		counters[1]+=abs(g -W[1]);
-		counters[2]+=abs(b -W[2]);
-		counters[3]+=abs(rg-W[3]);
-		counters[4]+=abs(gb-W[4]);
-		counters[5]+=abs(br-W[5]);
-		W[0]=r;
-		W[1]=g;
-		W[2]=b;
-		W[3]=rg;
-		W[4]=gb;
-		W[5]=br;
+		int coeff=(unsigned)(0x800000*iweights[k])/(unsigned)(errors[k]+1);
+		pred+=(long long)preds[k]*coeff;
+		wsum+=coeff;
 	}
-	int bestrct=0;
-	long long minerr=0;
-	for(int kt=0;kt<RCT_COUNT;++kt)
-	{
-		const unsigned char *rct=rct_combinations[kt];
-		long long currerr=
-			+counters[rct[0]]
-			+counters[rct[1]]
-			+counters[rct[2]]
-		;
-		if(!kt||minerr>currerr)
-		{
-			minerr=currerr;
-			bestrct=kt;
-		}
-	}
-	const unsigned char *combination=rct_combinations[bestrct];
-	int
-		yidx=combination[II_PERM_Y],
-		uidx=combination[II_PERM_U],
-		vidx=combination[II_PERM_V];
-	int vfromy=-(combination[II_COEFF_U_SUB_Y]!=0);
-	for(ptrdiff_t k=0, len=(ptrdiff_t)3*iw*ih;k<len;k+=3)
-	{
-		char yuv[]=
-		{
-			image[k+yidx]-128,
-			image[k+uidx]-128,
-			image[k+vidx]-128,
-		};
-		yuv[2]-=(combination[II_COEFF_V_SUB_Y]*yuv[0]+combination[II_COEFF_V_SUB_U]*yuv[1])>>2;
-		yuv[1]-=yuv[0]&vfromy;
-		image[k+0]=yuv[0]+128;
-		image[k+1]=yuv[1]+128;
-		image[k+2]=yuv[2]+128;
-	}
-	return bestrct;
+//	pred+=wsum>>1;
+	pred/=wsum;
+	return (int)pred;
 }
-static void ch_reconstruct(unsigned char *image, int iw, int ih, int rct)
+AWM_INLINE int wp_mix_eBench(const int *preds, const int *errors, const float *weights)
 {
+	__m256i me=_mm256_add_epi32(_mm256_load_si256((__m256i*)errors), _mm256_set1_epi32(1));
+	__m256 fp=_mm256_cvtepi32_ps(_mm256_load_si256((__m256i*)preds));
+	__m256 fe=_mm256_cvtepi32_ps(me);
+	fe=_mm256_div_ps(_mm256_load_ps(weights), fe);
+
+	fp=_mm256_mul_ps(fp, fe);
+	fe=_mm256_hadd_ps(fe, fe);
+	fp=_mm256_hadd_ps(fp, fp);
+	fe=_mm256_hadd_ps(fe, fe);
+	fp=_mm256_hadd_ps(fp, fp);
+	__m128 fe4=_mm_add_ps(_mm256_castps256_ps128(fe), _mm256_extractf128_ps(fe, 1));
+	__m128 fp4=_mm_add_ps(_mm256_castps256_ps128(fp), _mm256_extractf128_ps(fp, 1));
+	fp4=_mm_div_ss(fp4, fe4);
+	int pred=_mm_cvt_ss2si(fp4);
+	return pred;
+}
+AWM_INLINE int wp_mix(const int *preds, const int *errors, const float *weights)
+{
+	__m256i mp=_mm256_load_si256((__m256i*)preds);
+	__m256i me=_mm256_load_si256((__m256i*)errors);
+	me=_mm256_srli_epi32(me, 1);
+	me=_mm256_add_epi32(me, _mm256_set1_epi32(1));
+	__m256 fe=_mm256_cvtepi32_ps(me);
+	__m256 fp=_mm256_cvtepi32_ps(mp);
+	fe=_mm256_rcp_ps(fe);
+	fe=_mm256_mul_ps(fe, _mm256_load_ps(weights));
+	fp=_mm256_mul_ps(fp, fe);
+	fe=_mm256_hadd_ps(fe, fe);
+	fp=_mm256_hadd_ps(fp, fp);
+	fe=_mm256_hadd_ps(fe, fe);
+	fp=_mm256_hadd_ps(fp, fp);
+	__m128 fe4=_mm_add_ps(_mm256_castps256_ps128(fe), _mm256_extractf128_ps(fe, 1));
+	__m128 fp4=_mm_add_ps(_mm256_castps256_ps128(fp), _mm256_extractf128_ps(fp, 1));
+	fp4=_mm_div_ss(fp4, fe4);
+	int pred=_mm_cvt_ss2si(fp4);
+	return pred;
+}
+static void wp_estimate(const unsigned char *image, int iw, int ih, int rct, int usewp, int blockx, int blocky, double *esizes, double *elapsed)
+{
+	double t=time_sec();
+#ifndef ENABLE_MA
 	const unsigned char *combination=rct_combinations[rct];
-	int
-		yidx=combination[II_PERM_Y],
-		uidx=combination[II_PERM_U],
-		vidx=combination[II_PERM_V];
+	//int
+	//	yidx=combination[II_PERM_Y],
+	//	uidx=combination[II_PERM_U],
+	//	vidx=combination[II_PERM_V];
 	int vfromy=-(combination[II_COEFF_U_SUB_Y]!=0);
-	for(ptrdiff_t k=0, len=(ptrdiff_t)3*iw*ih;k<len;k+=3)
+#endif
+	ALIGN(32) static const float weights[]=
 	{
-		char yuv[]=
-		{
-			image[k+0]-128,
-			image[k+1]-128,
-			image[k+2]-128,
-		};
-		yuv[1]+=yuv[0]&vfromy;
-		yuv[2]+=(combination[II_COEFF_V_SUB_Y]*yuv[0]+combination[II_COEFF_V_SUB_U]*yuv[1])>>2;
-		image[k+yidx]=yuv[0]+128;
-		image[k+uidx]=yuv[1]+128;
-		image[k+vidx]=yuv[2]+128;
+#define PRED(WEIGHT, EXPR) WEIGHT,
+		PREDLIST
+#undef  PRED
+	};
+	ALIGN(32) static const int iweights[]=
+	{
+#define PRED(WEIGHT, EXPR) WEIGHT,
+		PREDLIST
+#undef  PRED
+	};
+	int psize=(int)sizeof(short[4*3*(2+NPREDS)])*(2*blockx+16);//4 padded rows * 3 channels * {yuv, ctx, prederrors...}
+	short *pixels=(short*)malloc(psize);
+	int hsize=(int)sizeof(int[3][NCTX][256]);
+	int *hist=(int*)malloc(hsize);
+	//int hist0[3][256]={0};
+	if(!pixels||!hist)
+	{
+		LOG_ERROR("Alloc error");
+		return;
 	}
+	memset(hist, 0, hsize);
+	for(int y1=0;y1<ih;y1+=blocky)
+	{
+		int y2=y1+blocky;
+		if(y2+blocky>ih)
+			y2=ih;
+		for(int x1=0;x1<iw;x1+=blockx)
+		{
+			int x2=x1+blockx;
+			if(x2+blockx>iw)
+				x2=iw;
+			ALIGN(32) int errors[NPREDS]={0};
+			memset(pixels, 0, psize);
+			for(int ky=y1;ky<y2;++ky)
+			{
+				ALIGN(32) short *rows[]=
+				{
+					pixels+((x2-x1+16LL)*((ky-0LL)&3)+8LL)*3*(2+NPREDS),
+					pixels+((x2-x1+16LL)*((ky-1LL)&3)+8LL)*3*(2+NPREDS),
+					pixels+((x2-x1+16LL)*((ky-2LL)&3)+8LL)*3*(2+NPREDS),
+					pixels+((x2-x1+16LL)*((ky-3LL)&3)+8LL)*3*(2+NPREDS),
+				};
+				const unsigned char *ptr=image+3*(iw*ky+x1);
+				ALIGN(32) int preds[NPREDS]={0}, e2[NPREDS]={0};
+				int pred=0, vmin=0, vmax=0;
+				int p2=0;
+				(void)p2;
+				for(int kx=x1;kx<x2;++kx)
+				{
+#ifndef ENABLE_MA
+					int y=0, offset=0;
+#endif
+#if defined __GNUC__ && !defined PROFILER
+#pragma GCC unroll 3
+#endif
+					for(int kc=0;kc<3;++kc)
+					{
+						short
+							NNN	=rows[3][0+0*3*(2+NPREDS)],
+							NN	=rows[2][0+0*3*(2+NPREDS)],
+							NNE	=rows[2][0+1*3*(2+NPREDS)],
+							NW	=rows[1][0-1*3*(2+NPREDS)],
+							N	=rows[1][0+0*3*(2+NPREDS)],
+							NE	=rows[1][0+1*3*(2+NPREDS)],
+							NEE	=rows[1][0+2*3*(2+NPREDS)],
+							NEEE	=rows[1][0+3*3*(2+NPREDS)],
+							NEEEE	=rows[1][0+4*3*(2+NPREDS)],
+							WWWW	=rows[0][0-4*3*(2+NPREDS)],
+							WWW	=rows[0][0-3*3*(2+NPREDS)],
+							WW	=rows[0][0-2*3*(2+NPREDS)],
+							W	=rows[0][0-1*3*(2+NPREDS)],
+							eW	=rows[0][1-1*3*(2+NPREDS)];
+						int ctx=FLOOR_LOG2(eW*eW+1);
+						if(ctx>NCTX-1)
+							ctx=NCTX-1;
+
+						vmax=N, vmin=W;
+						if(N<W)vmin=N, vmax=W;
+						if(!usewp)
+							pred=N+W-NW;
+						else
+						{
+							int j=0;
+#define PRED(WEIGHT, EXPR) preds[j++]=EXPR;
+							PREDLIST
+#undef  PRED
+							switch(usewp)
+							{
+							case 1:
+								pred=wp_mix(preds, errors, weights);
+								//{
+								//	p2=wp_mix_naive(preds, errors, iweights);
+								//	if(abs(p2-pred)>5)
+								//		printf("");
+								//}
+								break;
+							case 2:
+#if defined __GNUC__ && !defined PROFILER
+#pragma GCC unroll 8
+#endif
+								for(int k=0;k<NPREDS;++k)
+									e2[k]=errors[k]
+										+rows[1][k+2-1*3*(2+NPREDS)]
+										+2*(rows[1][k+2+0*3*(2+NPREDS)]+rows[0][k+2-1*3*(2+NPREDS)])
+										+rows[1][k+2+1*3*(2+NPREDS)]
+										+rows[2][k+2+1*3*(2+NPREDS)];
+								pred=wp_mix(preds, e2, weights);
+								break;
+							case 3:
+								pred=wp_mix_naive(preds, errors, iweights);
+								break;
+							case 4:
+#if defined __GNUC__ && !defined PROFILER
+#pragma GCC unroll 8
+#endif
+								for(int k=0;k<NPREDS;++k)
+									e2[k]=errors[k]
+										+rows[1][k+2-1*3*(2+NPREDS)]
+										+2*(rows[1][k+2+0*3*(2+NPREDS)]+rows[0][k+2-1*3*(2+NPREDS)])
+										+rows[1][k+2+1*3*(2+NPREDS)]
+										+rows[2][k+2+1*3*(2+NPREDS)];
+								pred=wp_mix_naive(preds, e2, iweights);
+								break;
+							case 5:
+								pred=wp_mix_eBench(preds, errors, weights);
+								break;
+							case 6:
+#if 1
+								//pI+eWW+eNW+2*(eN+eW)+eNE+eNNE
+#if defined __GNUC__ && !defined PROFILER
+#pragma GCC unroll 8
+#endif
+								for(int k=0;k<NPREDS;++k)
+									e2[k]=(errors[k]>>2)
+										+rows[0][k+2-2*3*(2+NPREDS)]
+										+rows[1][k+2-1*3*(2+NPREDS)]
+										+3*(rows[1][k+2+0*3*(2+NPREDS)]+rows[0][k+2-1*3*(2+NPREDS)])
+										+rows[1][k+2+1*3*(2+NPREDS)]
+										+rows[2][k+2+0*3*(2+NPREDS)]
+										+rows[2][k+2+1*3*(2+NPREDS)]
+										+rows[1][k+2+2*3*(2+NPREDS)]
+										+rows[1][k+2+3*3*(2+NPREDS)];
+								pred=wp_mix_eBench(preds, e2, weights);
+#endif
+							//	for(int k=0;k<NPREDS;++k)
+							//	{
+							//		e2[k]=errors[k]+rows[1][k+2-1*3*(2+8)]+2*rows[1][k+2+0*3*(2+8)]+rows[1][k+2+1*3*(2+8)]+rows[2][k+2+1*3*(2+8)];
+							//		//if(e2[k]<0)//
+							//		//	LOG_ERROR("");
+							//	}
+							//	pred=(e2[1]*preds[0]+e2[0]*preds[1])/(e2[0]+e2[1]+1);
+							//	pred=(preds[0]+preds[1]+preds[2]+preds[3]+preds[4]+preds[5]+preds[6]+preds[7]+4)>>3;//
+							//	pred=preds[3];//
+								break;
+							case 7:
+								{
+									int p1=wp_mix(preds, errors, weights);		//3176982.10
+									int p2=wp_mix_naive(preds, errors, iweights);	//3216902.64	worst
+									int p3=wp_mix_eBench(preds, errors, weights);	//3176849.18
+									pred=p3;
+									(void)p1;
+									(void)p2;
+									(void)p3;
+								}
+								break;
+							case 8:
+								{
+#if defined __GNUC__ && !defined PROFILER
+#pragma GCC unroll 8
+#endif
+									for(int k=0;k<NPREDS;++k)
+										e2[k]=errors[k]+rows[1][k+2-1*3*(2+NPREDS)]+2*rows[1][k+2+0*3*(2+NPREDS)]+rows[1][k+2+1*3*(2+NPREDS)]+rows[2][k+2+1*3*(2+NPREDS)];
+									int p1=wp_mix(preds, e2, weights);		//3148157.01
+									int p2=wp_mix_naive(preds, e2, iweights);	//3188495.31	worst
+									int p3=wp_mix_eBench(preds, e2, weights);	//3148094.15
+									pred=p3;
+									(void)p1;
+									(void)p2;
+									(void)p3;
+								}
+								break;
+							}
+							//if(usewp==1)
+							//	pred=wp_mix(preds, errors, weights);
+							//else
+							//{
+							//	//if(ky==10&&kx==10)//
+							//	//	printf("");
+							//
+							//	for(int k=0;k<NPREDS;++k)
+							//		e2[k]=errors[k]+rows[1][k+2-1*3*(2+NPREDS)]+2*rows[1][k+2+0*3*(2+NPREDS)]+rows[1][k+2+1*3*(2+NPREDS)]+rows[2][k+2+1*3*(2+NPREDS)];
+							//	pred=wp_mix(preds, e2, weights);
+							//}
+							if(vmin>NE)vmin=NE;
+							if(vmax<NE)vmax=NE;
+						}
+						CLAMP2(pred, vmin, vmax);
+#ifndef ENABLE_MA
+						pred+=offset;
+						CLAMP2(pred, -128, 127);
+#endif
+
+						int curr=*ptr++-128;
+						int error=(char)(curr-pred);
+
+						++hist[(NCTX*kc+ctx)<<8|(error+128)];
+						
+#ifdef ENABLE_MA
+						rows[0][0]=curr;
+#else
+						rows[0][0]=curr-offset;
+#endif
+						rows[0][1]=(2*eW+((error<<1^error>>31)<<3)+rows[1][1+2*3*(2+NPREDS)])>>2;
+						if(usewp)
+						{
+							//static const int factors[]={97, 99, 99};
+							//int factor=factors[kc];
+#if defined __GNUC__ && !defined PROFILER
+#pragma GCC unroll 8
+#endif
+							for(int k=0;k<NPREDS;++k)
+							{
+#ifdef ENABLE_MA
+								int e=abs(curr-preds[k])<<1;
+#else
+								int e=abs(curr-offset-preds[k])<<1;
+#endif
+							//	errors[k]=(errors[k]+e)*factor>>7;
+								errors[k]+=((e<<2)-errors[k]+(1<<3>>1))>>3;
+
+								//(2*eW+e+min(eN, eNEE))>>2
+								rows[0][k+2+0*3*(2+NPREDS)]=(2*rows[0][k+2-1*3*(2+NPREDS)]+e+MINVAR(rows[1][k+2+0*3*(2+NPREDS)], rows[1][k+2+2*3*(2+NPREDS)]))>>2;
+								
+								//(eW+min(eN+eW)+e+min(eN, eNEE))>>2
+								//rows[0][k+2+0*3*(2+NPREDS)]=(
+								//	+rows[0][k+2-1*3*(2+NPREDS)]
+								//	+MINVAR(rows[1][k+2+0*3*(2+NPREDS)], rows[0][k+2-1*3*(2+NPREDS)])
+								//	+e
+								//	+MINVAR(rows[1][k+2+0*3*(2+NPREDS)], rows[1][k+2+2*3*(2+NPREDS)])
+								//)>>2;
+
+								rows[1][k+2+1*3*(2+NPREDS)]=MAXVAR(rows[1][k+2+1*3*(2+NPREDS)], e);
+							//	rows[1][k+2+1*3*(2+NPREDS)]=(rows[1][k+2+1*3*(2+NPREDS)]+3*e)>>2;
+							//	if(rows[1][k+2+1*3*(2+8)]>256*16)//
+							//		LOG_ERROR("");
+							}
+						}
+#ifndef ENABLE_MA
+						switch(kc)
+						{
+						case 0:
+							offset=curr&vfromy;
+							y=curr;
+							break;
+						case 1:
+							offset=(combination[II_COEFF_V_SUB_Y]*y+combination[II_COEFF_V_SUB_U]*curr)>>2;
+							break;
+						}
+#endif
+						rows[0]+=2+NPREDS;
+						rows[1]+=2+NPREDS;
+						rows[2]+=2+NPREDS;
+						rows[3]+=2+NPREDS;
+					}
+				}
+			}
+			if(x2==iw)
+				break;
+		}
+		if(y2==ih)
+			break;
+	}
+	free(pixels);
+	memset(esizes, 0, sizeof(double[3]));
+	for(int k=0;k<NCTX;++k)
+	{
+		esizes[0]+=calc_entropy(hist+((ptrdiff_t)0*NCTX+k)*256);
+		esizes[1]+=calc_entropy(hist+((ptrdiff_t)1*NCTX+k)*256);
+		esizes[2]+=calc_entropy(hist+((ptrdiff_t)2*NCTX+k)*256);
+		//printf("\n");//
+	}
+	free(hist);
+	t=time_sec()-t;
+	if(elapsed)*elapsed=t;
 }
 
-#define NCTX 16
-static double calc_entropy(const int *hist)
-{
-	double e=0;
-	int sum=0;
-	for(int k=0;k<256;++k)
-		sum+=hist[k];
-	for(int k=0;k<256;++k)
-	{
-		int freq=hist[k];
-		if(freq)
-			e-=freq*log2((double)freq/sum);
-	}
-	return e/8;
-}
 static void calc_esize(const unsigned char *image, int iw, int ih, double *esizes0, double *esizes1)//esizes0[3], esizes1[3][NCTX]
 {
 	int rowstride=3*iw;
@@ -525,7 +897,7 @@ static void calc_esize(const unsigned char *image, int iw, int ih, double *esize
 	}
 	free(hist1);
 }
-static void print_yuvsizes(double *sizes, ptrdiff_t res)
+static void print_yuvsizes(double *sizes, ptrdiff_t res, double elapsed)
 {
 	double ctotal=sizes[0]+sizes[1]+sizes[2];
 	printf("U %9td  ", res*3);
@@ -535,11 +907,13 @@ static void print_yuvsizes(double *sizes, ptrdiff_t res)
 		, sizes[1]
 		, sizes[2]
 	);
-	printf(" TYUV %8.4lf%% %8.4lf%% %8.4lf%% %8.4lf%%\n"
+	printf(" TYUV %8.4lf%% %8.4lf%% %8.4lf%% %8.4lf%%  %12.6lf sec %12.6lf MB/s\n"
 		, ctotal/(3*res)*100
 		, sizes[0]/res*100
 		, sizes[1]/res*100
 		, sizes[2]/res*100
+		, elapsed
+		, 3*res/(elapsed*1024*1024)
 	);
 	//printf(
 	//	"T %8.4lf%% %12.2lf / %12td\n"
@@ -553,6 +927,63 @@ static void print_yuvsizes(double *sizes, ptrdiff_t res)
 	//);
 }
 
+static unsigned char* load_ppm(const char *fn, int *ret_iw, int *ret_ih)
+{
+	FILE *fsrc=fopen(fn, "rb");
+	if(!fsrc)
+	{
+		LOG_ERROR("Cannot open \"%s\"", fn);
+		return 0;
+	}
+	int tag=0;
+	fread(&tag, 1, 2, fsrc);
+	if(tag!=('P'|'6'<<8))
+	{
+		LOG_ERROR("Unsupported file \"%s\"", fn);
+		return 0;
+	}
+#ifdef LOUD
+	print_timestamp("%Y-%m-%d_%H%M%S\n");
+#endif
+	int temp=fgetc(fsrc);
+	if(temp!='\n')
+	{
+		LOG_ERROR("Invalid PPM file");
+		return 0;
+	}
+	int iw=0, ih=0;
+	int nread=fscanf(fsrc, "%d %d", &iw, &ih);
+	if(nread!=2)
+	{
+		LOG_ERROR("Unsupported PPM file");
+		return 0;
+	}
+	int vmax=0;
+	nread=fscanf(fsrc, "%d", &vmax);
+	if(nread!=1||vmax!=255)
+	{
+		LOG_ERROR("Unsupported PPM file");
+		return 0;
+	}
+	temp=fgetc(fsrc);
+	if(temp!='\n')
+	{
+		LOG_ERROR("Invalid PPM file");
+		return 0;
+	}
+	if(iw<1||ih<1)
+	{
+		LOG_ERROR("Unsupported source file");
+		return 0;
+	}
+	ptrdiff_t size=(ptrdiff_t)3*iw*ih;
+	unsigned char *image=(unsigned char*)malloc(size+sizeof(__m256i));
+	fread(image, 1, size, fsrc);//read image
+	fclose(fsrc);
+	if(ret_iw)*ret_iw=iw;
+	if(ret_ih)*ret_ih=ih;
+	return image;
+}
 static void save_pgm(const char *fn, const unsigned char *image, int iw, int ih)
 {
 	FILE *fdst=fopen(fn, "wb");
@@ -579,6 +1010,48 @@ static void save_ppm(const char *fn, const unsigned char *image, int iw, int ih)
 }
 int c30_codec(const char *srcfn, const char *dstfn, int nthreads0)
 {
+	const char *ext[]=
+	{
+		"ppm",
+	};
+	ArrayHandle fns=get_filenames(srcfn, ext, _countof(ext), 1);
+	if(!fns)
+	{
+		LOG_ERROR("No images in \"%s\"", srcfn);
+		return 1;
+	}
+	double total=0;
+	long long usize=0;
+	double csize=0;
+	for(int k=0;k<(int)fns->count;++k)
+	{
+		ArrayHandle *fn=(ArrayHandle*)array_at(&fns, k);
+		int iw=0, ih=0;
+		unsigned char *image=load_ppm((char*)fn[0]->data, &iw, &ih);
+		if(!image)
+			continue;
+		int rct=ch_decorrelate(image, iw, ih);
+
+		ptrdiff_t res=(ptrdiff_t)iw*ih;
+		double esizes[3]={0}, t=0;
+		wp_estimate(image, iw, ih, rct, 6, iw/4, ih/8, esizes, &t);
+		printf("%4d ", k+1);
+		print_yuvsizes(esizes, res, t);
+
+		usize+=3LL*iw*ih;
+		csize+=esizes[0]+esizes[1]+esizes[2];
+		total+=t;
+
+		free(image);
+	}
+	printf("%16.2lf/%16lld  %12.6lf sec  %12.6lf MB/s  %12.6lf ms/MB\n"
+		, csize
+		, usize
+		, total
+		, usize/(total*1024*1024)
+		, (total*1000*1024*1024)/usize
+	);
+#if 0
 	ptrdiff_t usize=0;
 	int fwd=0;
 	int iw=0, ih=0;
@@ -647,6 +1120,36 @@ int c30_codec(const char *srcfn, const char *dstfn, int nthreads0)
 	printf("%s\n", srcfn);//
 	printf("%s\n", rct_names[rct]);//
 
+#if 1
+	ptrdiff_t res=(ptrdiff_t)iw*ih;
+	double esizes[3]={0};
+	for(int wp=0;wp<5;++wp)
+	{
+		double t=0;
+
+		wp=6;
+
+		printf("B01 WP%d ", wp);
+		wp_estimate(image, iw, ih, rct, wp, iw, ih, esizes, &t);
+		print_yuvsizes(esizes, res, t);
+		
+		//printf("B16 WP%d ", wp);
+		//wp_estimate(image, iw, ih, rct, wp, iw/4, ih/4, esizes, &t);
+		//print_yuvsizes(esizes, res, t);
+		//
+		//printf("B32 WP%d ", wp);
+		//wp_estimate(image, iw, ih, rct, wp, iw/8, ih/4, esizes, &t);
+		//print_yuvsizes(esizes, res, t);
+		//
+		//printf("B64 WP%d ", wp);
+		//wp_estimate(image, iw, ih, rct, wp, iw/8, ih/8, esizes, &t);
+		//print_yuvsizes(esizes, res, t);
+
+		printf("\n");
+		break;
+	}
+#endif
+#if 0
 	int xblocks=iw/BLOCKX;//floor
 	int yblocks=ih/BLOCKY;
 	int nblocks=xblocks*yblocks;
@@ -780,9 +1283,20 @@ int c30_codec(const char *srcfn, const char *dstfn, int nthreads0)
 	save_pgm("20250402_0644_coeffs.pgm", ctiles, PREVX*xblocks, PREVY*yblocks);//
 	free(ctiles);
 #endif
-	free(image);
 	free(coeffs);
+#endif
+	free(image);
+#endif
+#ifndef __GNUC__
 	exit(0);
+#endif
 //	LOG_ERROR("This is not a codec");
+	(void)ols_predict;
+	(void)ch_reconstruct;
+	(void)solveblock;
+	(void)calc_esize;
+	(void)save_pgm;
+	(void)save_ppm;
+	(void)rct_names;
 	return 0;
 }
