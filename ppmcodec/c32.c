@@ -16,9 +16,9 @@ static const char file[]=__FILE__;
 	#define PROFILE_SIZE
 	#define LOUD			//size & time
 
-	#define ESTIMATE_SIZE		//DEBUG		checks for zero frequency, visualizes context usage
+//	#define ESTIMATE_SIZE		//DEBUG		checks for zero frequency, visualizes context usage
 	#define ENABLE_GUIDE		//DEBUG		checks interleaved pixels
-	#define ANS_VAL			//DEBUG
+//	#define ANS_VAL			//DEBUG
 
 //	#define WG4_PRINTMAXERR
 //	#define WG4_SERIALDEBUG
@@ -38,7 +38,7 @@ static const char file[]=__FILE__;
 
 //3*17+3=54 contexts
 #define GRBITS 3
-#define NCTX 17
+#define NCTX 18		//18*3+3 = 57 total
 
 #define XCODERS 4	//xrem 1~3 cols
 #define YCODERS 4	//yrem 1~3 rows
@@ -1856,7 +1856,7 @@ int c32_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		int tag=0;
 		fread(&tag, 1, 2, fsrc);
 		fwd=tag==('P'|'6'<<8);
-		if(!fwd&&tag!=('2'|'9'<<8))
+		if(!fwd&&tag!=('3'|'2'<<8))
 		{
 			LOG_ERROR("Unsupported file \"%s\"", srcfn);
 			return 1;
@@ -3122,7 +3122,7 @@ int c32_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				return 1;
 			}
 			ptrdiff_t csize2=0;
-			csize2+=fwrite("29", 1, 2, fdst);
+			csize2+=fwrite("32", 1, 2, fdst);
 			csize2+=fwrite(&iw, 1, 4, fdst);
 			csize2+=fwrite(&ih, 1, 4, fdst);
 			int flags=bestrct<<1|use_wg4;

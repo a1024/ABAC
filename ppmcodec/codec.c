@@ -207,8 +207,11 @@ int main(int argc, char **argv)
 //	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
 	
 //	c29_codec("C:/dataset-DIV2K-ppm/0801.ppm",	"D:/ML/mystery.lsim", nthreads);
-	CODEC_FUNC("C:/dataset-DIV2K-ppm/0864.ppm",	"D:/ML/mystery.lsim", nthreads);
+	CODEC_FUNC("C:/dataset-DIV2K-ppm/0801.ppm",	"D:/ML/mystery.lsim", nthreads);
 	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm", nthreads);
+
+//	CODEC_FUNC("C:/dataset-DIV2K-ppm/0864.ppm",	"D:/ML/mystery.lsim", nthreads);
+//	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm", nthreads);
 
 //	CODEC_FUNC("D:/Programs/c29/song.ppm",		"D:/Programs/c29/mystery.lsim", nthreads);
 //	CODEC_FUNC("D:/Programs/c29/mystery.lsim",	"D:/Programs/c29/mystery_dec.ppm", nthreads);

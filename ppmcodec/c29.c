@@ -17,7 +17,7 @@ static const char file[]=__FILE__;
 	#define PROFILE_SIZE
 	#define LOUD			//size & time
 
-	#define ESTIMATE_SIZE		//DEBUG		checks for zero frequency, visualizes context usage
+//	#define ESTIMATE_SIZE		//DEBUG		checks for zero frequency, visualizes context usage
 	#define ENABLE_GUIDE		//DEBUG		checks interleaved pixels
 //	#define ANS_VAL			//DEBUG
 
@@ -4973,7 +4973,7 @@ int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
 #endif
 			*(unsigned*)streamptr=state;
 			prof_checkpoint(usize-isize, "encode remainder");
-			profile_size(streamptr, "/ %9td bytes remainders", usize-isize);
+			profile_size(streamptr, "/ %9td bytes remainders _|rem %d %d", usize-isize, yremh, xremw);
 		}
 
 		//encode main
