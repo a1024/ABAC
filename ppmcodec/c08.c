@@ -1,4 +1,5 @@
 #include"codec.h"
+#include"util.h"
 #include<stdlib.h>
 #include<math.h>//log2
 static const char file[]=__FILE__;

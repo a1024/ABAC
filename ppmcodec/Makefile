@@ -6,7 +6,7 @@
 
 
 ifeq ($(DEBUG), 1)
-FLAGS = -Wall -O3 -g
+FLAGS = -Wall -O3 -g -D_DEBUG
 else
 FLAGS = -Wall -O3 -s
 endif
@@ -177,3 +177,9 @@ c29:
 
 c30:
 	gcc $(FLAGS) -DCODEC_EXT=c30 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c30.c codec.c util.c  -o c30 $(LIBS)
+
+c31:
+	gcc $(FLAGS) -DCODEC_EXT=c31 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c31.c codec.c util.c  -o c31 $(LIBS)
+
+c32:
+	gcc $(FLAGS) -DCODEC_EXT=c32 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c32.c codec.c util.c  -o c32 $(LIBS)

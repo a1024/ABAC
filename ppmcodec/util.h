@@ -18,7 +18,9 @@
 #ifndef INC_UTIL_H
 #define INC_UTIL_H
 #ifdef _MSC_VER
+#ifndef _CRT_SECURE_NO_WARNINGS
 #define _CRT_SECURE_NO_WARNINGS
+#endif
 #elif !defined _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
@@ -126,8 +128,10 @@ extern "C"
 		DST=_dst[0];\
 	}while(0)
 
-#define CVTFP32_I32(X) _mm_cvt_ss2si(_mm_set_ps(0, 0, 0, X))
-#define CVTFP64_I64(X) _mm_cvtsd_si64(_mm_set_pd(0, X))
+#define CVTFP32_I32(X) _mm_cvt_ss2si(_mm_set_ss(X))
+#define CVTTFP32_I32(X) _mm_cvtt_ss2si(_mm_set_ss(X))
+#define CVTFP64_I64(X) _mm_cvtsd_si64(_mm_set_sd(X))
+#define CVTTFP64_I64(X) _mm_cvttsd_si64(_mm_set_sd(X))
 
 #if 0
 #define CONVERT_DOUBLE2INT(DST, SRC)\

@@ -3,7 +3,9 @@
 #endif
 #ifndef INC_CODEC_H
 #define INC_CODEC_H
-#include"util.h"
+#if defined _MSC_VER && !defined _CRT_SECURE_NO_WARNINGS
+#define _CRT_SECURE_NO_WARNINGS
+#endif
 #ifdef __cplusplus
 extern "C"
 {
@@ -50,6 +52,8 @@ int c27_codec(const char *srcfn, const char *dstfn, int nthreads0);//ST GR
 int c28_codec(const char *srcfn, const char *dstfn, int nthreads0);//ST AC with GR context
 int c29_codec(const char *srcfn, const char *dstfn, int nthreads0);//C29 ST interleaved AVX2 cRCT WG4/CG GRctx static-rANS
 int c30_codec(const char *srcfn, const char *dstfn, int nthreads0);//ST OLS
+int c31_codec(const char *srcfn, const char *dstfn, int nthreads0);//cross-platform C29, slower
+int c32_codec(const char *srcfn, const char *dstfn, int nthreads0);//like C29 but 16 coders
 
 	
 #ifdef __cplusplus
