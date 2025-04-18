@@ -1,0 +1,2 @@
+c29og *.ppm *.c29 1
+c29og *.c29 *.ppm

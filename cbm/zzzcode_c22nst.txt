@@ -1,0 +1,2 @@
+c22nst *.ppm *.c22nst
+c22nst *.c22nst *.ppm

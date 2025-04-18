@@ -1,0 +1,2 @@
+lz4 -f -7 *.ppm *.lz4
+lz4 -f -d *.lz4 *.ppm

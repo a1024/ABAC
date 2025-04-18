@@ -1,0 +1,2 @@
+E:\C\alic\alic\a01.exe *.ppm *.a01
+E:\C\alic\alic\a01.exe *.a01 *.ppm

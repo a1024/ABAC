@@ -441,7 +441,7 @@ static void qualify_command(ArrayHandle *cmd)
 	array_replace(cmd, 0, ptr-(char*)cmd[0]->data, fn2, len2, 1, 1);
 //	printf("  %s\n", cmd2);//
 }
-static void exec_process(char *cmd, const char *currdir, int loud, double *elapsed, long long *maxmem, int *threadcount)
+static void exec_process2(char *cmd, const char *currdir, int loud, double *elapsed, long long *maxmem, int *threadcount)
 {
 	int success;
 	STARTUPINFOA si={0};
@@ -483,6 +483,8 @@ static void exec_process(char *cmd, const char *currdir, int loud, double *elaps
 		SYSTEMERROR("CreateProcessA");
 		return;
 	}
+	WaitForSingleObject(pi.hProcess, INFINITE);
+#if 0
 #ifdef TRACK_THREADS
 	int k=0;
 #endif
@@ -531,15 +533,22 @@ static void exec_process(char *cmd, const char *currdir, int loud, double *elaps
 		k|=1;
 #endif
 	}
+#endif
 	if(elapsed)*elapsed=time_sec()-t;
+	FILETIME tstart={0}, tfinish={0}, tkernel={0}, tuser={0};
+	//timer7
+	GetProcessTimes(pi.hProcess, &tstart, &tfinish, &tkernel, &tuser);
+	PROCESS_MEMORY_COUNTERS counters={sizeof(PROCESS_MEMORY_COUNTERS)};
+	GetProcessMemoryInfo(pi.hProcess, &counters, sizeof(counters));
+	memusage=counters.PeakWorkingSetSize;
 	if(maxmem)*maxmem=memusage;
-	success=CloseHandle(pi.hProcess);
+	success=CloseHandle(pi.hThread);
 	if(!success)
 	{
 		SYSTEMERROR("CloseHandle");
 		return;
 	}
-	success=CloseHandle(pi.hThread);
+	success=CloseHandle(pi.hProcess);
 	if(!success)
 	{
 		SYSTEMERROR("CloseHandle");
@@ -722,31 +731,33 @@ static void ascii_deletefile(const char *fn)
 		LOG_ERROR("");
 	}
 }
-static void print_usage(const char *argv0)
-{
-	printf(
-		"Usage:    %s  DATASET  CODEC\n"
-		"Example:  %s  div2k    jxl7\n"
-		"You will be prompted to define DATASET and CODEC.\n"
-		"Zoom out the terminal twice before starting.\n"
-		, argv0, argv0
-	);
-}
 int main(int argc, char **argv)
 {
 	const char *datasetname=0, *codecname=0;
+	int noverify=0;
 //#ifndef _DEBUG
 #ifdef __GNUC__
-	if(argc!=3)
+	if(argc!=3&&argc!=4)
 	{
-		print_usage(argv[0]);
+		printf(
+			"Usage:    %s  DATASET  CODEC\n"
+			"You will be prompted to define DATASET and CODEC.\n"
+			"Zoom out the terminal twice before starting.\n"
+			"Examples:\n"
+			"  %s  div2k  jxl7\n"
+			"  %s  div2k  j2k  1    Disables file verification.\n"
+			, argv[0]
+			, argv[0]
+			, argv[0]
+		);
 		return 0;
 	}
 	datasetname=argv[1];
 	codecname=argv[2];
+	noverify=argc==4?atoi(argv[3]):0;
 #else
 	datasetname="div2k";
-	codecname="c29cg";
+	codecname="c32";
 #endif
 	const char placeholdertag[]="*.";
 	const int placeholderlen=sizeof(placeholdertag)-1;
@@ -885,7 +896,7 @@ dec command template
 				if((unsigned)date.tm_sec>=60
 					||(unsigned)date.tm_min>=60
 					||(unsigned)date.tm_hour>=24
-					||(unsigned)(date.tm_mday-1)>=(unsigned)(31-1)
+					||(unsigned)(date.tm_mday-1)>=31
 					||(unsigned)date.tm_mon>=12
 					||date.tm_year<2025-1900
 				)
@@ -1272,7 +1283,7 @@ dec command template
 		}
 
 		int encthreads=0, decthreads=0;
-		exec_process(encline, (char*)currdir->data, 0, &currcell->etime, &currcell->emem, &encthreads);
+		exec_process2(encline, (char*)currdir->data, 0, &currcell->etime, &currcell->emem, &encthreads);
 		if(maxencthreads<encthreads)
 			maxencthreads=encthreads;
 		currcell->csize=get_filesize(t2fn);
@@ -1297,7 +1308,7 @@ dec command template
 		}
 		
 		ascii_deletefile(t1fn);
-		exec_process(decline, (char*)currdir->data, 0, &currcell->dtime, &currcell->dmem, &decthreads);
+		exec_process2(decline, (char*)currdir->data, 0, &currcell->dtime, &currcell->dmem, &decthreads);
 		if(maxdecthreads<decthreads)
 			maxdecthreads=decthreads;
 		
@@ -1320,7 +1331,8 @@ dec command template
 		print_rivals_v2(besttestidxs, testinfo, k, currcell, info->usize);
 		printf("\n");
 
-		verify_files((char*)info->filename->data, t1fn);
+		if(!noverify)
+			verify_files((char*)info->filename->data, t1fn);
 		ascii_deletefile(t1fn);
 		ascii_deletefile(t2fn);
 

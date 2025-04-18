@@ -1,0 +1,2 @@
+cjxl --num_threads=0 -d 0 -e 6 *.ppm *.jxl
+djxl --num_threads=0 *.jxl *.ppm
