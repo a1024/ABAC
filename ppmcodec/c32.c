@@ -2867,6 +2867,14 @@ int c32_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					me5=_mm256_abs_epi16(me5);
 					me6=_mm256_abs_epi16(me6);
 					me7=_mm256_abs_epi16(me7);
+					//me0=_mm256_xor_si256(_mm256_slli_epi16(me0, 1), _mm256_srai_epi16(me0, 15));
+					//me1=_mm256_xor_si256(_mm256_slli_epi16(me1, 1), _mm256_srai_epi16(me1, 15));
+					//me2=_mm256_xor_si256(_mm256_slli_epi16(me2, 1), _mm256_srai_epi16(me2, 15));
+					//me3=_mm256_xor_si256(_mm256_slli_epi16(me3, 1), _mm256_srai_epi16(me3, 15));
+					//me4=_mm256_xor_si256(_mm256_slli_epi16(me4, 1), _mm256_srai_epi16(me4, 15));
+					//me5=_mm256_xor_si256(_mm256_slli_epi16(me5, 1), _mm256_srai_epi16(me5, 15));
+					//me6=_mm256_xor_si256(_mm256_slli_epi16(me6, 1), _mm256_srai_epi16(me6, 15));
+					//me7=_mm256_xor_si256(_mm256_slli_epi16(me7, 1), _mm256_srai_epi16(me7, 15));
 					if(kx)
 					{
 						__m256i best=_mm256_min_epi16(me0, me1);
