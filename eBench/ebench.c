@@ -70,6 +70,7 @@ int viewmode=VIEW_RGB, view_ma=0;
 
 typedef enum TransformTypeEnum
 {
+	CT_FWD_SubG_OPT,	CT_INV_SubG_OPT,
 	CT_FWD_SUBGREEN,	CT_INV_SUBGREEN,
 	CT_FWD_JPEG2000,	CT_INV_JPEG2000,//	(1997) JPEG2000 RCT
 	CT_FWD_NBLI,		CT_INV_NBLI,	//	(2024) NBLI
@@ -82,7 +83,6 @@ typedef enum TransformTypeEnum
 	CT_FWD_YCbCr_R_v6,	CT_INV_YCbCr_R_v6,
 	CT_FWD_YCbCr_R_v7,	CT_INV_YCbCr_R_v7,
 	CT_FWD_Pei09,		CT_INV_Pei09,
-	CT_FWD_SubG_OPT,	CT_INV_SubG_OPT,
 //	CT_FWD_J2K2,		CT_INV_J2K2,
 //	CT_FWD_CrCgCb,		CT_INV_CrCgCb,
 //	CT_FWD_YRGB_v1,		CT_INV_YRGB_v1,
@@ -124,6 +124,8 @@ typedef enum TransformTypeEnum
 	ST_FWD_WGRAD3,		ST_INV_WGRAD3,
 	ST_FWD_WGRAD4,		ST_INV_WGRAD4,
 	ST_FWD_WGRAD5,		ST_INV_WGRAD5,
+	ST_FWD_WGRAD6,		ST_INV_WGRAD6,
+	ST_FWD_WGRAD7,		ST_INV_WGRAD7,
 	ST_FWD_SSE,		ST_INV_SSE,
 //	ST_FWD_WMIX,		ST_INV_WMIX,
 	ST_FWD_T47,		ST_INV_T47,
@@ -207,11 +209,13 @@ int jointhist_nbits=6;//max
 int jhx=0, jhy=0;
 double ch_entropy[4]={0};//RGBA/YUVA
 //int usage[4]={0};
-EContext ec_method=ECTX_HIST;//ECTX_MIN_QN_QW;
+EContext ec_method=ECTX_GRCTX;
+//EContext ec_method=ECTX_HIST;//ECTX_MIN_QN_QW;
 int ec_adaptive=0, ec_adaptive_threshold=3200, ec_expbits=5, ec_msb=2, ec_lsb=0;
 int abacvis_low=0, abacvis_range=0;
 
 #define MODELPREC 3
+//#define MODELNCTX 256
 #define MODELNCTX 17
 
 //#define MODELPREC 3
@@ -1193,6 +1197,7 @@ static void calc_csize_stateful(Image const *image, int *hist_full, double *entr
 					if(image->depth[kc])
 					{
 #if 1
+					//	int ctx=sW[kc]<<8>>image->depth[kc]&255;
 						int ctx=FLOOR_LOG2(sW[kc]*sW[kc]+1);
 						if(ctx>MODELNCTX-1)
 							ctx=MODELNCTX-1;
@@ -1617,7 +1622,7 @@ static void calc_csize_stateful(Image const *image, int *hist_full, double *entr
 		}
 #endif
 	}
-	else if(ec_method==ECTX_HIST)
+	else if(ec_method==ECTX_STATIC_O0)
 	{
 		int allocated=0;
 		if(!hist_full)
@@ -1639,6 +1644,103 @@ static void calc_csize_stateful(Image const *image, int *hist_full, double *entr
 		if(allocated)
 			free(hist_full);
 		//channel_entropy(image, iw*ih, 3, 4, ch_cr, usage);
+	}
+	else if(ec_method==ECTX_STATIC_O1)
+	{
+		int nlevels[]=
+		{
+			1<<image->depth[0],
+			1<<image->depth[1],
+			1<<image->depth[2],
+			1<<image->depth[3],
+		};
+		int half[]=
+		{
+			nlevels[0]>>1,
+			nlevels[1]>>1,
+			nlevels[2]>>1,
+			nlevels[3]>>1,
+		};
+		int mask[]=
+		{
+			nlevels[0]-1,
+			nlevels[1]-1,
+			nlevels[2]-1,
+			nlevels[3]-1,
+		};
+		int histsize=(int)sizeof(int)*(
+			+nlevels[0]*nlevels[0]
+			+nlevels[1]*nlevels[1]
+			+nlevels[2]*nlevels[2]
+			+nlevels[3]*nlevels[3]
+		);
+		int *hist=(int*)malloc(histsize);
+		if(!hist)
+		{
+			LOG_ERROR("Alloc error");
+			return;
+		}
+		memset(hist, 0, histsize);
+		for(int ky=0, idx=0;ky<image->ih;++ky)
+		{
+			int W[4]={0};
+			for(int kx=0;kx<image->iw;++kx, idx+=4)
+			{
+				int *currhist=hist;
+				for(int kc=0;kc<image->nch;++kc)
+				{
+					int idx2=idx+kc;
+				//	int N=ky?image->data[idx2-image->iw*4]:0;
+					int target=image->data[idx2];
+					int ctx=(W[kc]+half[kc])&mask[kc];
+				//	int ctx=(N+W[kc]+nlevels[kc])>>1&mask[kc];
+					
+					++currhist[ctx<<image->depth[kc]|((target+half[kc])&mask[kc])];
+
+					currhist+=nlevels[kc]*nlevels[kc];
+					W[kc]=target;
+				}
+			}
+		}
+		double csizes[4]={0};
+		int *currhist=hist;
+		for(int kc=0;kc<4;++kc)
+		{
+			if(!image->depth[kc])
+			{
+				currhist+=nlevels[kc]*nlevels[kc];
+				continue;
+			}
+			int totalsum=0;
+			for(int ks0=0;ks0<nlevels[kc];++ks0)
+			{
+			//	int *hist3=currhist+((ptrdiff_t)ks0<<image->depth[kc]);
+				int sum=0;
+				for(int ks=0;ks<nlevels[kc];++ks)
+					sum+=currhist[ks];
+				if(!sum)
+				{
+					currhist+=nlevels[kc];
+					continue;
+				}
+				double e=0, norm=1./sum;
+				for(int ks=0;ks<nlevels[kc];++ks)
+				{
+					int freq=currhist[ks];
+					if(freq)
+						e-=freq*log2(freq*norm);
+				}
+				csizes[kc]+=e/8+84;//average GR overhead
+				totalsum+=sum;
+				currhist+=nlevels[kc];
+			}
+			if(totalsum!=image->iw*image->ih)
+				LOG_ERROR("");
+			double usize=(double)image->iw*image->ih*image->src_depth[0];
+			entropy[kc]=usize?csizes[kc]*8*8/usize:0;//entropy = cbitsize*8/ubitsize
+
+		//	currhist+=nlevels[kc]*nlevels[kc];
+		}
 	}
 	else if(ec_method==ECTX_DWT)
 	{
@@ -2350,6 +2452,10 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_WGRAD4:		a=" S Inv WGrad4";		break;
 	case ST_FWD_WGRAD5:		a=" S Fwd WGrad5";		break;
 	case ST_INV_WGRAD5:		a=" S Inv WGrad5";		break;
+	case ST_FWD_WGRAD6:		a=" S Fwd WGrad6";		break;
+	case ST_INV_WGRAD6:		a=" S Inv WGrad6";		break;
+	case ST_FWD_WGRAD7:		a=" S Fwd WP7";			break;
+	case ST_INV_WGRAD7:		a=" S Inv WP7";			break;
 	case ST_FWD_SSE:		a=" S Fwd SSE";			break;
 	case ST_INV_SSE:		a=" S Inv SSE";			break;
 //	case ST_FWD_WMIX:		a=" S Fwd WMIX";		break;
@@ -3510,6 +3616,10 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_INV_WGRAD4:		pred_wgrad4(image, 0);					break;
 	case ST_FWD_WGRAD5:		pred_wgrad5(image, 1);					break;
 	case ST_INV_WGRAD5:		pred_wgrad5(image, 0);					break;
+	case ST_FWD_WGRAD6:		pred_wgrad6(image, 1);					break;
+	case ST_INV_WGRAD6:		pred_wgrad6(image, 0);					break;
+	case ST_FWD_WGRAD7:		pred_wpred7(image, 1);					break;
+	case ST_INV_WGRAD7:		pred_wpred7(image, 0);					break;
 	case ST_FWD_SSE:		pred_sse(image, 1);					break;
 	case ST_INV_SSE:		pred_sse(image, 0);					break;
 //	case ST_FWD_WMIX:		pred_wmix(image, 1);					break;
@@ -5304,15 +5414,19 @@ int io_mousewheel(int forward)
 					break;
 				case 19:case 20:case 21:case 22:case 23:case 24:case 25:case 26:
 					{
+						int method0=ec_method;
 						int *gcc_happy=(int*)&ec_method;
 						*gcc_happy+=sign;
 						MODVAR(*gcc_happy, *gcc_happy, ECTX_COUNT);
 
+						static int prevmode=0;
 						if(ec_method==ECTX_ABAC0)
 						{
+							prevmode=viewmode;
 							viewmode=VIEW_C0;
 						}
-
+						else if(method0==ECTX_ABAC0)
+							viewmode=prevmode;
 					}
 					break;
 				}
@@ -5974,7 +6088,7 @@ int io_keydn(IOKey key, char c)
 						ec_adaptive_threshold=3200;
 					break;
 				case 19:case 20:case 21:case 22:case 23:case 24:case 25:case 26:
-					ec_method=ECTX_HIST;
+					ec_method=ECTX_STATIC_O0;
 					//ec_method=ECTX_MIN_QN_QW;
 					break;
 				}

@@ -11,6 +11,18 @@ static const char file[]=__FILE__;
 #define WG_NBITS 0	//why 0 is best?
 
 #define WG_NPREDS	8	//multiple of 4
+#if 1
+#define WG_PREDLIST\
+	WG_PRED(240,	N)\
+	WG_PRED(240,	W)\
+	WG_PRED(180,	3*(N-NN)+NNN)\
+	WG_PRED(180,	3*(W-WW)+WWW)\
+	WG_PRED(140,	W+NE-N)\
+	WG_PRED(160,	(WWWW+WWW+NNN+NEE+NEEE+NEEEE-2*NW)/4)\
+	WG_PRED(120,	N+W-NW)\
+	WG_PRED(120,	N+NE-NNE)
+#endif
+#if 0
 #define WG_PREDLIST\
 	WG_PRED(210,	N)\
 	WG_PRED(210,	W)\
@@ -20,6 +32,7 @@ static const char file[]=__FILE__;
 	WG_PRED(230,	(WWWW+WWW+NNN+NEE+NEEE+NEEEE-2*NW)/4)\
 	WG_PRED(120,	N+W-NW)\
 	WG_PRED(140,	N+NE-NNE)
+#endif
 static void wg_init(double *weights, int kc)
 {
 	int j=0;
@@ -181,7 +194,7 @@ static void wg_update(int curr, int kc, const int *preds, int *perrors, int *Wer
 	{
 		int e2=abs(curr-preds[k])<<1;
 		perrors[k]=(perrors[k]+e2)*factor>>7;
-	//	perrors[k]+=(e2-perrors[k]+(1<<5>>1))>>5;
+	//	perrors[k]+=(e2-perrors[k]+(1<<3>>1))>>3;
 		currerrors[k]=(2*Werrors[k]+e2+NEerrors[k])>>2;
 		NEerrors[k]+=e2;
 	}

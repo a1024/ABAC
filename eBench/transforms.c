@@ -3002,16 +3002,34 @@ void pred_cleartype(Image *src, int fwd)
 }
 void pred_sse(Image *src, int fwd)
 {
+	int nlevels[]=
+	{
+		1<<src->depth[0],
+		1<<src->depth[1],
+		1<<src->depth[2],
+		1<<src->depth[3],
+	};
+	int mask[]=
+	{
+		nlevels[0]-1,
+		nlevels[1]-1,
+		nlevels[2]-1,
+		nlevels[3]-1,
+	};
+	const int cellsize=9;
+	int ssesize=(int)sizeof(int)*cellsize*(nlevels[0]+nlevels[1]+nlevels[2]+nlevels[3]);
+	int *sse=(int*)malloc(ssesize);
 	int bufsize=(src->iw+16LL)*sizeof(short[4*4*3]);//4 padded rows * 4 channels max * {pixels, errors}
 	short *pixels=(short*)malloc(bufsize);
 	//int ssesize=sizeof(int[0x40000]);
 	//int *sse=(int*)malloc(ssesize);
-	if(!pixels)
+	if(!sse||!pixels)
 	{
 		LOG_ERROR("Alloc error");
 		return;
 	}
 	memset(pixels, 0, bufsize);
+	memset(sse, 0, ssesize);
 	//memset(sse, 0, ssesize);
 	int fwdmask=-fwd;
 	int amin[]=
@@ -3059,6 +3077,7 @@ void pred_sse(Image *src, int fwd)
 		for(int kx=0;kx<src->iw;++kx, idx+=4)
 		{
 			//++ctr;
+			int *currsse=sse;
 			for(int kc=0;kc<src->nch;++kc)
 			{
 				int
@@ -3101,6 +3120,74 @@ void pred_sse(Image *src, int fwd)
 					WWW	=rows[0][kc-3*4*3],
 					WW	=rows[0][kc-2*4*3],
 					W	=rows[0][kc-1*4*3];
+				int vmax=N, vmin=W;
+				int pred=0, target=src->data[idx+kc], error=target;
+
+				int preds[]=
+				{
+					N,
+					W,
+					N+W-NW,
+					(NN+WW+NEE+NEEE)>>2,
+				};
+				int sseidx=(int)(((N-W)>>1&mask[kc])*cellsize);
+				//if(sseidx>nlevels[kc]*cellsize)
+				//	LOG_ERROR("");
+				int *cells=currsse+sseidx;
+				//int *cells[]=
+				//{
+				//	currsse+(int)(0<<src->depth[kc]|preds[0]&mask[kc]),
+				//	currsse+(int)(1<<src->depth[kc]|preds[1]&mask[kc]),
+				//	currsse+(int)(2<<src->depth[kc]|preds[2]&mask[kc]),
+				//	currsse+(int)(3<<src->depth[kc]|preds[3]&mask[kc]),
+				//};
+				long long psum=0;
+				int wsum=0, weight;
+				preds[0]+=cells[4+0]>>8;
+				preds[1]+=cells[4+1]>>8;
+				preds[2]+=cells[4+2]>>8;
+				preds[3]+=cells[4+3]>>8;
+
+				weight=0x1000000/(cells[0]+1); psum+=(long long)weight*preds[0]; wsum+=weight;
+				weight=0x1000000/(cells[1]+1); psum+=(long long)weight*preds[1]; wsum+=weight;
+				weight=0x1000000/(cells[2]+1); psum+=(long long)weight*preds[2]; wsum+=weight;
+				weight=0x1000000/(cells[3]+1); psum+=(long long)weight*preds[3]; wsum+=weight;
+				pred=(int)(psum/wsum);
+				pred+=cells[8]>>8;
+				if(N<W)vmin=N, vmax=W;
+				if(vmin>NE)vmin=NE;
+				if(vmax<NE)vmax=NE;
+				CLAMP2(pred, vmin, vmax);
+				//preds[0]+=*cells[0]>>8;
+				//preds[1]+=*cells[1]>>8;
+				//preds[2]+=*cells[2]>>8;
+				//preds[3]+=*cells[3]>>8;
+
+				currsse+=nlevels[kc]*cellsize;
+				if(fwd)
+				{
+					error-=pred;
+					error<<=32-src->depth[kc];
+					error>>=32-src->depth[kc];
+					src->data[idx+kc]=error;
+				}
+				else
+				{
+					target+=pred;
+					target<<=32-src->depth[kc];
+					target>>=32-src->depth[kc];
+					src->data[idx+kc]=target;
+				}
+				cells[0]+=((abs(target-preds[0])<<8)-cells[0]+(1<<3>>1))>>3;
+				cells[1]+=((abs(target-preds[1])<<8)-cells[1]+(1<<3>>1))>>3;
+				cells[2]+=((abs(target-preds[2])<<8)-cells[2]+(1<<3>>1))>>3;
+				cells[3]+=((abs(target-preds[3])<<8)-cells[3]+(1<<3>>1))>>3;
+				cells[4+0]+=(((target-preds[0])<<8)-cells[4+0]+(1<<7>>1))>>7;
+				cells[4+1]+=(((target-preds[1])<<8)-cells[4+1]+(1<<7>>1))>>7;
+				cells[4+2]+=(((target-preds[2])<<8)-cells[4+2]+(1<<7>>1))>>7;
+				cells[4+3]+=(((target-preds[3])<<8)-cells[4+3]+(1<<7>>1))>>7;
+				cells[8]+=(((target-pred)<<8)-cells[8]+(1<<9>>1))>>9;
+#if 0
 				int pred, pred1, pred2, pred3, pred4;
 				int vmin, vmax;
 #define CLAMPGRAD(pred, vmin, vmax, N, W, NW)\
@@ -3117,8 +3204,6 @@ void pred_sse(Image *src, int fwd)
 				CLAMPGRAD(pred3, vmin, vmax, N, NW, NNW);
 				CLAMPGRAD(pred4, vmin, vmax, W, NW, NWW);
 #undef  CLAMPGRAD
-				int target=src->data[idx+kc];
-				rows[0][kc]=target;
 				int d, dmin, t2;
 				d=abs(target-pred1);
 				dmin=d, pred=pred1, t2=-96;
@@ -3129,6 +3214,7 @@ void pred_sse(Image *src, int fwd)
 				d=abs(target-pred4);
 				if(dmin>d)dmin=d, pred=pred4, t2=96;
 				target=t2;
+#endif
 #if 0
 				if(target<vmin)
 					target=-96;
@@ -3145,7 +3231,7 @@ void pred_sse(Image *src, int fwd)
 				else
 					target=96;
 #endif
-				src->data[idx+kc]=target;
+				rows[0][kc]=target;
 
 				//int sseidx=kc;
 				//sseidx=sseidx<<8|(N&255);
@@ -3258,7 +3344,7 @@ void pred_sse(Image *src, int fwd)
 		}
 	}
 	free(pixels);
-	//free(sse);
+	free(sse);
 }
 void pred_artifact(Image *src, int fwd)
 {
@@ -6083,7 +6169,8 @@ void pred_wgrad2(Image *src, int fwd)
 						fsum+=weight;
 					}
 					fpred/=fsum;
-					CONVERT_DOUBLE2INT(pred, fpred);
+					pred=(int)CVTTFP64_I64(fpred);
+				//	CONVERT_DOUBLE2INT(pred, fpred);
 				}
 #else
 				for(int k=0;k<_countof(preds);++k)
@@ -6351,7 +6438,8 @@ void pred_wgrad3(Image *src, int fwd, int hasRCT)
 					fsum+=weight;
 				}
 				fpred/=fsum;
-				CONVERT_DOUBLE2INT(pred, fpred);
+				pred=(int)CVTTFP64_I64(fpred);
+			//	CONVERT_DOUBLE2INT(pred, fpred);
 				if(!hasRCT&&kc0>0)
 				{
 					offset+=rows[0][1];
@@ -9676,7 +9764,8 @@ void pred_ols(Image *src, int fwd, int enable_ma)
 						double fpred=0;
 						for(int k=0;k<OLS_NPARAMS;++k)
 							fpred+=nb3[k]*c1_params[kc<<2|k];
-						CONVERT_DOUBLE2INT(pred, fpred);
+						pred=(int)CVTTFP64_I64(fpred);
+					//	CONVERT_DOUBLE2INT(pred, fpred);
 					}
 					++successcount;
 				}
@@ -15506,21 +15595,22 @@ const char* ec_method_label(EContext ec_method)
 	switch(ec_method)
 	{
 #define CASE(L) case L:label=#L;break;
-	CASE(ECTX_ABAC0)
-	CASE(ECTX_ABAC1)
-	CASE(ECTX_GRCTX)
-	CASE(ECTX_GR)
-	CASE(ECTX_HIST)
-	CASE(ECTX_INTERLEAVED)
-	CASE(ECTX_DWT)
-	CASE(ECTX_YUV422)
-	CASE(ECTX_YUV420)
-	CASE(ECTX_ZERO)
 	CASE(ECTX_QNW)
 	CASE(ECTX_MIN_QN_QW)
 	CASE(ECTX_MAX_QN_QW)
 	CASE(ECTX_MIN_N_W_NW_NE)
 	CASE(ECTX_ARGMIN_N_W_NW_NE)
+	CASE(ECTX_ABAC0)
+	CASE(ECTX_ABAC1)
+	CASE(ECTX_GRCTX)
+	CASE(ECTX_GR)
+	CASE(ECTX_STATIC_O0)
+	CASE(ECTX_STATIC_O1)
+	CASE(ECTX_INTERLEAVED)
+	CASE(ECTX_DWT)
+	CASE(ECTX_YUV422)
+	CASE(ECTX_YUV420)
+	CASE(ECTX_ZERO)
 #undef  CASE
 	default:
 		break;
@@ -15619,6 +15709,13 @@ void calc_csize_ec(Image const *src, EContext method, int adaptive, int expbits,
 {
 	int (*const getctx[])(const int *nb, int expbits, int msb, int lsb)=
 	{
+		getctx_QNW,
+		getctx_min_QN_QW,
+		getctx_max_QN_QW,
+		getctx_min_N_W_NW_NE,
+		getctx_argmin_N_W_NW_NE,
+		getctx_zero,//unused
+		getctx_zero,//unused
 		getctx_zero,//unused
 		getctx_zero,//unused
 		getctx_zero,//unused
@@ -15628,11 +15725,6 @@ void calc_csize_ec(Image const *src, EContext method, int adaptive, int expbits,
 		getctx_zero,//unused
 		getctx_zero,//unused
 		getctx_zero,
-		getctx_QNW,
-		getctx_min_QN_QW,
-		getctx_max_QN_QW,
-		getctx_min_N_W_NW_NE,
-		getctx_argmin_N_W_NW_NE,
 	};
 	int maxdepth;
 	HybridUint hu;
@@ -15989,6 +16081,8 @@ void calc_csize_abac(Image const *src, int order, double *entropy)
 	}
 #endif
 #if 1
+	long long crossovercount=0;//
+
 	long long cbitsizes[4]={0};
 	int treesizes[]=
 	{
@@ -16041,6 +16135,7 @@ void calc_csize_abac(Image const *src, int order, double *entropy)
 				{
 					int p0=curr_stats[tidx];
 					int bit=val>>kb&1;
+					CLAMP2(p0, 16, 0x10000-16);
 					if(range<0x10000)
 					{
 						cbitsizes[kc]+=32;
@@ -16058,7 +16153,13 @@ void calc_csize_abac(Image const *src, int order, double *entropy)
 					}
 					else
 						range=r2-1;
-					p0+=((!bit<<16)-p0)>>7;
+					int p00=p0;//
+					p0+=(((!bit<<16)-p0)+(1<<7>>1))>>7;
+					//if(abs(p0-0x8000)<0x4000)
+					//	p0+=(((!bit<<16)-p0)+(1<<7>>1))>>7;
+				//	p0+=((!bit<<16)-p0+(1<<4>>1))>>4;//synthetic
+				//	p0+=((!bit<<16)-p0+(1<<7>>1))>>7;//natural
+					crossovercount+=p0<0x8000&&p00>0x8000||p0>0x8000&&p00<0x8000;//
 					curr_stats[tidx]=p0;
 					tidx=tidx*2+bit;
 				}
@@ -16071,6 +16172,8 @@ void calc_csize_abac(Image const *src, int order, double *entropy)
 		}
 	}
 	free(stats);
+	//long long nbits=((long long)src->depth[0]+src->depth[1]+src->depth[2]+src->depth[3])*src->iw*src->ih;
+	//messagebox(MBOX_OK, "Info", "%lld/%lld = %lf%%", crossovercount, nbits, 100*(double)crossovercount/(double)nbits);//
 	for(int kc=0;kc<4;++kc)
 	{
 		double usize=(double)src->iw*src->ih*src->src_depth[kc];

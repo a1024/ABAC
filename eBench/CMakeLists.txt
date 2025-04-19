@@ -27,6 +27,8 @@ add_executable (eBench WIN32
 	util.c
 	wg4.c
 	wg5.c
+	wg6.c
+	wg7.c
 	window.c
 )
 

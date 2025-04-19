@@ -745,6 +745,8 @@ void pred_wgrad2(Image *src, int fwd);
 void pred_wgrad3(Image *src, int fwd, int hasRCT);
 void pred_wgrad4(Image *src, int fwd);
 void pred_wgrad5(Image *src, int fwd);
+void pred_wgrad6(Image *src, int fwd);
+void pred_wpred7(Image *src, int fwd);
 void pred_wmix(Image *src, int fwd);
 void pred_table(Image *src, int fwd);
 void pred_convtest(Image *src);
@@ -946,21 +948,22 @@ void pred_c20(char *src, int iw, int ih, int fwd);
 
 typedef enum EContextEnum
 {
+	ECTX_QNW,
+	ECTX_MIN_QN_QW,	//#2  prev best
+	ECTX_MAX_QN_QW,
+	ECTX_MIN_N_W_NW_NE,
+	ECTX_ARGMIN_N_W_NW_NE,
 	ECTX_ABAC0,
 	ECTX_ABAC1,
-	ECTX_GRCTX,
+	ECTX_GRCTX,	//#1  the best by far
 	ECTX_GR,
-	ECTX_HIST,
+	ECTX_STATIC_O0,
+	ECTX_STATIC_O1,
 	ECTX_INTERLEAVED,
 	ECTX_DWT,
 	ECTX_YUV422,
 	ECTX_YUV420,
 	ECTX_ZERO,
-	ECTX_QNW,
-	ECTX_MIN_QN_QW,
-	ECTX_MAX_QN_QW,
-	ECTX_MIN_N_W_NW_NE,
-	ECTX_ARGMIN_N_W_NW_NE,
 
 	ECTX_COUNT,
 } EContext;

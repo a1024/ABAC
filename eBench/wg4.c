@@ -286,10 +286,23 @@ FORCE_INLINE int wg_predict(
 	me1=_mm_add_epi32(me1, _mm_load_si128((__m128i*)NNEerrors+1));
 	me2=_mm_add_epi32(me2, _mm_load_si128((__m128i*)NNEerrors+2));
 //	me3=_mm_add_epi32(me3, _mm_load_si128((__m128i*)NNEerrors+3));
+#if 1
+	me0=_mm_srli_epi32(me0, 1);
+	me1=_mm_srli_epi32(me1, 1);
+	me2=_mm_srli_epi32(me2, 1);
+//	me3=_mm_srli_epi32(me3, 1);
+#endif
 	me0=_mm_add_epi32(me0, one);
 	me1=_mm_add_epi32(me1, one);
 	me2=_mm_add_epi32(me2, one);
 //	me3=_mm_add_epi32(me3, one);
+#if 0
+	__m128i emax=_mm_set1_epi32(0x3FFF);
+	me0=_mm_min_epi32(me0, emax);
+	me1=_mm_min_epi32(me1, emax);
+	me2=_mm_min_epi32(me2, emax);
+//	me3=_mm_min_epi32(me3, emax);
+#endif
 	__m256d de0=_mm256_cvtepi32_pd(me0);
 	__m256d de1=_mm256_cvtepi32_pd(me1);
 	__m256d de2=_mm256_cvtepi32_pd(me2);

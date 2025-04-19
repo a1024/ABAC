@@ -159,6 +159,13 @@ extern "C"
 		DST=_dst[0];\
 	}while(0)
 
+#define RCPSS(X) _mm_cvtss_f32(_mm_rcp_ss(_mm_set_ss(X)))
+#define CVTFP32_I32(X) _mm_cvt_ss2si(_mm_set_ss(X))
+#define CVTTFP32_I32(X) _mm_cvtt_ss2si(_mm_set_ss(X))
+#define CVTFP64_I64(X) _mm_cvtsd_si64(_mm_set_sd(X))
+#define CVTTFP64_I64(X) _mm_cvttsd_si64(_mm_set_sd(X))
+
+#if 0
 #define CONVERT_DOUBLE2INT(DST, SRC)\
 	do\
 	{\
@@ -168,6 +175,7 @@ extern "C"
 		_mm_store_si128((__m128i*)_c_, _b_);\
 		DST=_c_[0];\
 	}while(0)
+#endif
 
 #define IDIV23(DST, NUM, DEN)\
 	do\
