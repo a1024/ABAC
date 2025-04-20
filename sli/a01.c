@@ -26,7 +26,7 @@
 
 #define GRLIMIT 16
 #define PROBBITS_STORE 24
-#define PROBBITS_USE 12
+#define PROBBITS_USE 16
 
 #ifdef _MSC_VER
 #define AWM_INLINE __forceinline static
@@ -83,6 +83,7 @@ static void memfill(void *dst, const void *src, size_t dstbytes, size_t srcbytes
 		*(PTR)=(DATA);\
 		memfill((PTR)+1, PTR, (ASIZE)-(ESIZE), ESIZE);\
 	}while(0)
+#ifdef LOUD
 static double time_sec(void)
 {
 #ifdef _MSC_VER
@@ -102,6 +103,7 @@ static double time_sec(void)
 	return t.tv_sec+t.tv_nsec*1e-9;
 #endif
 }
+#endif
 static unsigned char* file_load(const char *fn, ptrdiff_t *ret_size)
 {
 	unsigned char *buf=0;

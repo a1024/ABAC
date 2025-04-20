@@ -3,8 +3,8 @@ int a01_codec(int argc, char **argv);
 int a02_codec(int argc, char **argv);
 
 #ifndef CODEC_EXT
-//	#define CODEC_EXT a01
-	#define CODEC_EXT a02
+	#define CODEC_EXT a01
+//	#define CODEC_EXT a02
 //	#define CODEC_EXT a03
 //	#define CODEC_EXT a04
 #endif
@@ -46,8 +46,8 @@ int main(int argc, char **argv)
 	};
 	if(CODEC_FUNC(_countof(encargs), (char**)(long long)encargs))
 		return 1;
-	//if(CODEC_FUNC(_countof(decargs), (char**)(long long)decargs))
-	//	return 1;
+	if(CODEC_FUNC(_countof(decargs), (char**)(long long)decargs))
+		return 1;
 	return 0;
 #endif
 }
