@@ -1,2 +1,2 @@
-E:/C/codec/codec/c32 *.ppm *.c32
-E:/C/codec/codec/c32 *.c32 *.ppm
+c32 *.ppm *.c32
+c32 *.c32 *.ppm

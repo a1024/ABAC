@@ -1,2 +1,2 @@
-E:\C\codec\codec\c12.exe *.ppm *.c12
-E:\C\codec\codec\c12.exe *.c12 *.ppm
+c12 *.ppm *.c12
+c12 *.c12 *.ppm
