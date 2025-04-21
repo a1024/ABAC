@@ -1,12 +1,18 @@
 ﻿
-int a01_codec(int argc, char **argv);
-int a02_codec(int argc, char **argv);
+int a01_codec(int argc, char **argv);//best
+int a02_codec(int argc, char **argv);//R/W experiment
+int a03_codec(int argc, char **argv);//experimental
+int a04_codec(int argc, char **argv);//fast
+
+
+//	#define RELEASE_THE_KRAKEN
+
 
 #ifndef CODEC_EXT
-	#define CODEC_EXT a01
+//	#define CODEC_EXT a01
 //	#define CODEC_EXT a02
 //	#define CODEC_EXT a03
-//	#define CODEC_EXT a04
+	#define CODEC_EXT a04
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -19,13 +25,15 @@ int a02_codec(int argc, char **argv);
 
 int main(int argc, char **argv)
 {
-#ifdef __GNUC__
+#if defined __GNUC__ || defined RELEASE_THE_KRAKEN
 	return CODEC_FUNC(argc, argv);
 #else
 	const char *srcfn=
 		
+		"C:/dataset-NEF-ppm/DSC_0185.ppm"
+	//	"C:/dataset-DIV2K-ppm/0801.ppm"
 	//	"C:/dataset-HUGE-ppm/jwst.ppm"
-		"C:/dataset-HUGE-ppm/juno.ppm"
+	//	"C:/dataset-HUGE-ppm/juno.ppm"
 	//	"D:/ML/tobruk.ppm"
 
 	;

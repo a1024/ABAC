@@ -10,3 +10,9 @@ a01:
 
 a02:
 	gcc -Wall -O3 -s -mlzcnt -DCODEC_EXT=a02 a02.c sli.c -o a02 $(LIBS)
+
+a03:
+	gcc -Wall -O3 -s -mlzcnt -DCODEC_EXT=a03 a03.c sli.c -o a03 $(LIBS)
+
+a04:
+	gcc -Wall -O3 -s -mlzcnt -DCODEC_EXT=a04 a04.c fpc/fpc.c sli.c -o a04 $(LIBS)

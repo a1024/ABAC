@@ -59,8 +59,10 @@ static double time_sec(void)
 #endif
 }
 
-#define SRCBUFSIZE (1<<26)
-#define DSTBUFSIZE (1<<26)
+#define SRCBUFSIZE (1<<20)
+#define DSTBUFSIZE (1<<20)
+//#define SRCBUFSIZE (1<<26)
+//#define DSTBUFSIZE (1<<26)
 static unsigned char srcbuf[SRCBUFSIZE], dstbuf[DSTBUFSIZE];
 static int g_fwd=0;
 static ptrdiff_t process(const char *srcfn, const char *dstfn, ptrdiff_t srcbufsize, ptrdiff_t dstbufsize)
@@ -178,7 +180,7 @@ int a02_codec(int argc, char **argv)
 	double tbest=0;
 	int sbest=0, dbest=0;
 	ptrdiff_t usize2=0;
-	const int rstart=7, rend=26+1;
+	const int rstart=7, rend=20+1;
 	printf("s\\d  ");
 	for(int kd=rstart;kd<rend;++kd)
 		printf("%7d", kd);
