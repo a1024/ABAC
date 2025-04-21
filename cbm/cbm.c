@@ -734,7 +734,7 @@ static void ascii_deletefile(const char *fn)
 int main(int argc, char **argv)
 {
 	const char *datasetname=0, *codecname=0;
-	int noverify=0;
+	int flags=0;
 //#ifndef _DEBUG
 #ifdef __GNUC__
 	if(argc!=3&&argc!=4)
@@ -745,7 +745,9 @@ int main(int argc, char **argv)
 			"Zoom out the terminal twice before starting.\n"
 			"Examples:\n"
 			"  %s  div2k  jxl7\n"
-			"  %s  div2k  j2k  1    Disables file verification.\n"
+			"  %s  div2k  j2k    1    Disable file verification.\n"
+			"  %s  div2k  qlic2  2    Don't print rivals matrix.\n"
+			, argv[0]
 			, argv[0]
 			, argv[0]
 			, argv[0]
@@ -754,7 +756,7 @@ int main(int argc, char **argv)
 	}
 	datasetname=argv[1];
 	codecname=argv[2];
-	noverify=argc==4?atoi(argv[3]):0;
+	flags=argc==4?atoi(argv[3]):0;
 #else
 	datasetname="div2k";
 	codecname="c32";
@@ -1328,10 +1330,11 @@ dec command template
 			, decthreads
 #endif
 		);
-		print_rivals_v2(besttestidxs, testinfo, k, currcell, info->usize);
+		if(!(flags&2))
+			print_rivals_v2(besttestidxs, testinfo, k, currcell, info->usize);
 		printf("\n");
 
-		if(!noverify)
+		if(!(flags&1))
 			verify_files((char*)info->filename->data, t1fn);
 		ascii_deletefile(t1fn);
 		ascii_deletefile(t2fn);
@@ -1370,7 +1373,8 @@ dec command template
 		(void)maxencthreads;
 		(void)maxdecthreads;
 #endif
-		print_rivals_v2(besttestidxs, testinfo, -1, &currtest->total, usize);
+		if(!(flags&2))
+			print_rivals_v2(besttestidxs, testinfo, -1, &currtest->total, usize);
 		printf("\n");
 
 		print_currtimestamp("%Y-%m-%d_%H%M%S");
