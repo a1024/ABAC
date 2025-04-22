@@ -221,53 +221,36 @@ static unsigned long long g_low, g_range, g_code;
 static unsigned char *g_ptr;
 static int g_fwd;
 static unsigned g_p0, g_bit;
-AWM_INLINE void codebit(int rcon, int sh)
+AWM_INLINE int codebit(int rcon, int sh)
 {
 	unsigned long long r2;
 	unsigned p0=g_p0;
 	unsigned p0e=p0>>(PROBBITS_STORE-PROBBITS_USE);
 	CLAMP2(p0e, 1, (1<<PROBBITS_USE)-1);
-	if(g_fwd)
-	{		
-		if(g_range<(1ULL<<PROBBITS_USE))
-		{
-			*(unsigned*)g_ptr=(unsigned)(g_low>>32);
-			g_ptr+=4;
-			g_low=g_low<<32;
-			g_range=g_range<<32|0xFFFFFFFF;
-			if(g_range>~g_low)
-				g_range=~g_low;
-		}
-		r2=g_range*p0e>>PROBBITS_USE;
-		if(g_bit)
-		{
-			g_low+=r2;
-			g_range-=r2;
-		}
-		else
-			g_range=r2-1;
-	}
-	else
+	
+	if(g_range<(1ULL<<PROBBITS_USE))
 	{
-		if(g_range<(1ULL<<PROBBITS_USE))
-		{
-			g_code=g_code<<32|*(unsigned*)g_ptr;
-			g_ptr+=4;
-			g_low=g_low<<32;
-			g_range=g_range<<32|0xFFFFFFFF;
-			if(g_range>~g_low)
-				g_range=~g_low;
-		}
-		r2=g_range*p0e>>PROBBITS_USE;
-		unsigned long long mid=g_low+r2;
-		g_range-=r2;
-		g_bit=g_code>=mid;
-		if(g_bit)
-			g_low=mid;
+		if(g_fwd)
+			*(unsigned*)g_ptr=(unsigned)(g_low>>32);
 		else
-			g_range=r2-1;
+			g_code=g_code<<32|*(unsigned*)g_ptr;
+		g_ptr+=4;
+		g_low=g_low<<32;
+		g_range=g_range<<32|0xFFFFFFFF;
+		if(g_range>~g_low)
+			g_range=~g_low;
 	}
+	r2=g_range*p0e>>PROBBITS_USE;
+	unsigned long long mid=g_low+r2;
+	g_range-=r2;
+	if(!g_fwd)
+		g_bit=g_code>=mid;
+	if(g_bit)
+		g_low=mid;
+	else
+		g_range=r2-1;
 	g_p0=p0+((int)((!g_bit<<PROBBITS_STORE)-p0+rcon)>>sh);
+	return p0e;
 }
 int a01_codec(int argc, char **argv)
 {
@@ -622,6 +605,13 @@ static double csizes[4]={0};
 					+coeff[7]*preds[7]
 				;
 				pred=ipred*divlookup[wsum-1]>>NUMBITS;
+				int vmax=N, vmin=W;
+				if(N<W)vmin=N, vmax=W;
+				if(vmin>NE)vmin=NE;
+				if(vmax<NE)vmax=NE;
+				if(vmin>NEEE)vmin=NEEE;
+				if(vmax<NEEE)vmax=NEEE;
+				CLAMP2(pred, vmin, vmax);
 #ifndef USE_MA
 				pred+=offset;
 				CLAMP2(pred, -128, 127);
@@ -678,20 +668,15 @@ static double csizes[4]={0};
 					if(g_fwd)
 						g_bit=nzeros--<=0;
 					g_p0=*p0ptr;
-					codebit(rcon[tidx], sh[tidx]);
+					int p0e=codebit(rcon[tidx], sh[tidx]);
+					(void)p0e;
 					*p0ptr=g_p0;
 #ifdef ESTIMATE_SIZE
 					if(g_fwd)
 					{
 						int norm=1<<PROBBITS_USE;
-						unsigned p0e=g_p0>>(PROBBITS_STORE-PROBBITS_USE);
-						CLAMP2(p0e, 1, (1<<PROBBITS_USE)-1);
 						double bitsize=-log2((double)(g_bit?norm-p0e:p0e)/norm);
 						csizes[kc]+=bitsize;
-
-						//int norm=1<<PROBBITS_STORE;
-						//double bitsize=-log2((double)(g_bit?norm-g_p0:g_p0)/norm);
-						//csizes[kc]+=bitsize;
 
 						if(isinf(bitsize))
 							CRASH("");
@@ -711,20 +696,15 @@ static double csizes[4]={0};
 					if(g_fwd)
 						g_bit=bypass>>kb&1;
 					g_p0=*p0ptr;
-					codebit(1<<9>>1, 9);
+					int p0e=codebit(1<<9>>1, 9);
+					(void)p0e;
 					*p0ptr=g_p0;
 #ifdef ESTIMATE_SIZE
 					if(g_fwd)
 					{
 						int norm=1<<PROBBITS_USE;
-						unsigned p0e=g_p0>>(PROBBITS_STORE-PROBBITS_USE);
-						CLAMP2(p0e, 1, (1<<PROBBITS_USE)-1);
 						double bitsize=-log2((double)(g_bit?norm-p0e:p0e)/norm);
 						csizes[kc]+=bitsize;
-
-						//int norm=1<<PROBBITS_STORE;
-						//double bitsize=-log2((double)(g_bit?norm-g_p0:g_p0)/norm);
-						//csizes[kc]+=bitsize;
 
 						if(isinf(bitsize))
 							CRASH("");

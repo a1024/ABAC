@@ -18,12 +18,16 @@
 	#define LOUD
 	#define PROFILE_TIME
 
+//	#define USE_W
 	#define USE_CG
+//	#define USE_WGCG
+
+//	#define DISABLE_ANALYSIS
 
 
 #define ENC_DY 128
 #define ENC_DX 512
-#define YPAD 4
+#define YPAD 2
 
 #ifdef _MSC_VER
 #define AWM_INLINE __forceinline static
@@ -90,7 +94,7 @@ typedef enum _ProfLabel
 #undef  PROFLABEL
 	PROF_COUNT,
 } ProfLabel;
-const char *profnames[]=
+static const char *profnames[]=
 {
 #define PROFLABEL(LABEL) #LABEL,
 	PROFLIST
@@ -371,15 +375,23 @@ int a04_codec(int argc, char **argv)
 				PROF(enc_interleave, blockbytes);
 
 				//analysis
-				int bestrct=0;
+				int bestrct=8;
+#ifndef DISABLE_ANALYSIS
+				//int Wcoeff=0;
 				{
+					//const char
+					//	*yNptr=im2[0]+YPAD*ENC_DX-dx,
+					//	*uNptr=im2[1]+YPAD*ENC_DX-dx,
+					//	*vNptr=im2[2]+YPAD*ENC_DX-dx;
 					const char
 						*yptr=im2[0]+YPAD*ENC_DX,
 						*uptr=im2[1]+YPAD*ENC_DX,
 						*vptr=im2[2]+YPAD*ENC_DX;
 					long long counters[OCH_COUNT]={0};
+					//long long counters2[OCH_COUNT]={0};
 					for(int ky=0, idx=0;ky<dy;++ky)
 					{
+						//int preN[OCH_COUNT]={0};
 						int prev[OCH_COUNT]={0};
 						for(int kx=0;kx<dx;++kx, ++idx)
 						{
@@ -389,6 +401,18 @@ int a04_codec(int argc, char **argv)
 							int rg=r-g;
 							int gb=g-b;
 							int br=b-r;
+							//int rN=yptr[idx-dx];
+							//int gN=uptr[idx-dx];
+							//int bN=vptr[idx-dx];
+							//int rgN=rN-gN;
+							//int gbN=gN-bN;
+							//int brN=bN-rN;
+							//counters[0]+=abs(r	-(prev[0]+rN)/2);
+							//counters[1]+=abs(g	-(prev[1]+gN)/2);
+							//counters[2]+=abs(b	-(prev[2]+bN)/2);
+							//counters[3]+=abs(rg	-(prev[3]+rgN)/2);
+							//counters[4]+=abs(gb	-(prev[4]+gbN)/2);
+							//counters[5]+=abs(br	-(prev[5]+brN)/2);
 							counters[0]+=abs(r	-prev[0]);
 							counters[1]+=abs(g	-prev[1]);
 							counters[2]+=abs(b	-prev[2]);
@@ -401,6 +425,18 @@ int a04_codec(int argc, char **argv)
 							prev[3]=rg;
 							prev[4]=gb;
 							prev[5]=br;
+							//counters2[0]+=abs(r	-rN);
+							//counters2[1]+=abs(g	-gN);
+							//counters2[2]+=abs(b	-bN);
+							//counters2[3]+=abs(rg	-rgN);
+							//counters2[4]+=abs(gb	-gbN);
+							//counters2[5]+=abs(br	-brN);
+							//preN[0]=rN;
+							//preN[1]=gN;
+							//preN[2]=bN;
+							//preN[3]=rgN;
+							//preN[4]=gbN;
+							//preN[5]=brN;
 						}
 					}
 					long long minerr=0;
@@ -418,7 +454,30 @@ int a04_codec(int argc, char **argv)
 							bestrct=kt;
 						}
 					}
+					//int bestrct2=0;
+					//long long minerr2=0;
+					//for(int kt=0;kt<_countof(rct_indices);++kt)
+					//{
+					//	const unsigned char *rct=rct_indices[kt];
+					//	long long currerr=
+					//		+counters2[rct[0]]
+					//		+counters2[rct[1]]
+					//		+counters2[rct[2]]
+					//	;
+					//	if(!kt||minerr>currerr)
+					//	{
+					//		minerr=currerr;
+					//		bestrct2=kt;
+					//	}
+					//}
+					//if(minerr>minerr2)
+					//	bestrct=bestrct2;
+					//long long minerrsum=minerr+minerr2;
+					//Wcoeff=(int)(((minerr<<8)+(minerrsum>>1))/minerrsum);
+					//Wcoeff=(Wcoeff-128)/32+128;
+					//CLAMP2(Wcoeff, 1, 255);
 				}
+#endif
 				PROF(enc_analysis, blockbytes);
 				
 				//decorrelation
@@ -429,6 +488,7 @@ int a04_codec(int argc, char **argv)
 						vidx=rct_indices[bestrct][3+2],
 						uhelpidx=rct_indices[bestrct][6+0],
 						vhelpidx=rct_indices[bestrct][6+1];
+#ifndef USE_W
 #ifndef USE_CG
 					const char
 						*yNNptr=im2[0]+YPAD*ENC_DX-2*dx,
@@ -439,6 +499,7 @@ int a04_codec(int argc, char **argv)
 						*yNptr=im2[0]+YPAD*ENC_DX-dx,
 						*uNptr=im2[1]+YPAD*ENC_DX-dx,
 						*vNptr=im2[2]+YPAD*ENC_DX-dx;
+#endif
 					char
 						*ycurrptr=im2[0]+YPAD*ENC_DX,//YUV
 						*ucurrptr=im2[1]+YPAD*ENC_DX,
@@ -451,6 +512,11 @@ int a04_codec(int argc, char **argv)
 						*ydstptr=im2[0],//residuals
 						*udstptr=im2[1],
 						*vdstptr=im2[2];
+#ifdef USE_W
+					int ypred=0;
+					int upred=0;
+					int vpred=0;
+#endif
 #ifdef __GNUC__
 #pragma GCC unroll 2
 #endif
@@ -469,13 +535,16 @@ int a04_codec(int argc, char **argv)
 						if(yN<yW)ymin=yN, ymax=yW;
 						if(uN<uW)umin=uN, umax=uW;
 						if(vN<vW)vmin=vN, vmax=vW;
+					//	int ypred=2*yN+((yW-yN)*Wcoeff>>7)-yNptr[-1];
+					//	int upred=2*uN+((uW-uN)*Wcoeff>>7)-uNptr[-1];
+					//	int vpred=2*vN+((vW-vN)*Wcoeff>>7)-vNptr[-1];
 						int ypred=yN+yW-yNptr[-1];
 						int upred=uN+uW-uNptr[-1];
 						int vpred=vN+vW-vNptr[-1];
 						CLAMP2(ypred, ymin, ymax);
 						CLAMP2(upred, umin, umax);
 						CLAMP2(vpred, vmin, vmax);
-#else
+#elif defined USE_WGCG
 						int yN=yNptr[0];
 						int uN=uNptr[0];
 						int vN=vNptr[0];
@@ -529,9 +598,11 @@ int a04_codec(int argc, char **argv)
 						++uNNptr;
 						++vNNptr;
 #endif
+#ifndef USE_W
 						++yNptr;
 						++uNptr;
 						++vNptr;
+#endif
 						char yuv[4]=
 						{
 							*ysrcptr++,
@@ -539,8 +610,22 @@ int a04_codec(int argc, char **argv)
 							*vsrcptr++,
 							0,
 						};
+#ifdef DISABLE_ANALYSIS
+						yuv[1]-=yuv[0];
+						yuv[2]-=yuv[0];
+						yuv[0]+=(yuv[1]+yuv[2])>>2;
+						yuv[2]-=yuv[1]>>2;
+						(void)vhelpidx;
+						(void)uhelpidx;
+#else
 						yuv[2]-=yuv[vhelpidx];//need int16 buffer for cRCT
 						yuv[1]-=yuv[uhelpidx];
+#endif
+#ifdef USE_W
+						int yW=yuv[0];
+						int uW=yuv[1];
+						int vW=yuv[2];
+#endif
 						*ycurrptr++=yuv[0];//store YUV
 						*ucurrptr++=yuv[1];
 						*vcurrptr++=yuv[2];
@@ -550,6 +635,11 @@ int a04_codec(int argc, char **argv)
 						*ydstptr++=yuv[0];//store residuals
 						*udstptr++=yuv[1];
 						*vdstptr++=yuv[2];
+#ifdef USE_W
+						ypred=yW;
+						upred=uW;
+						vpred=vW;
+#endif
 						//*ydstptr++=(char)(yuv[0]-ypred);
 						//upred+=yuv[uhelpidx];
 						//CLAMP2(upred, -128, 127);
@@ -562,9 +652,12 @@ int a04_codec(int argc, char **argv)
 				PROF(enc_predict, blockbytes);
 
 				//write
-				size_t csize0=FPC_compress(cim[0], im2[0], blocksize, 0);
-				size_t csize1=FPC_compress(cim[1], im2[1], blocksize, 0);
-				size_t csize2=FPC_compress(cim[2], im2[2], blocksize, 0);
+				int bsize=blocksize;
+				if(bsize>0x4000)
+					bsize=0x4000;
+				size_t csize0=FPC_compress(cim[0], im2[0], blocksize, bsize);
+				size_t csize1=FPC_compress(cim[1], im2[1], blocksize, bsize);
+				size_t csize2=FPC_compress(cim[2], im2[2], blocksize, bsize);
 				if(!csize0||!csize1||!csize2)
 				{
 					CRASH("FPC_compress %d %d %d", csize0, csize1, csize2);
@@ -572,13 +665,14 @@ int a04_codec(int argc, char **argv)
 				}
 				PROF(enc_FPC, blockbytes);
 				fwrite(&bestrct, 1, 1, fdst);
+			//	fwrite(&Wcoeff, 1, 1, fdst);
 				fwrite(&csize0, 1, 4, fdst);
 				fwrite(&csize1, 1, 4, fdst);
 				fwrite(&csize2, 1, 4, fdst);
 				fwrite(cim[0], 1, csize0, fdst);
 				fwrite(cim[1], 1, csize1, fdst);
 				fwrite(cim[2], 1, csize2, fdst);
-				PROF(enc_write, csize0+csize1+csize2+13);
+				PROF(enc_write, csize0+csize1+csize2+1+3*4);
 			}
 		}
 		else
@@ -593,12 +687,14 @@ int a04_codec(int argc, char **argv)
 
 				//read
 				int bestrct=0, csize0=0, csize1=0, csize2=0;
+			//	int Wcoeff=0;
 				ptrdiff_t nread=0;
 				nread+=fread(&bestrct, 1, 1, fsrc);
+			//	nread+=fread(&Wcoeff, 1, 1, fsrc);
 				nread+=fread(&csize0, 1, 4, fsrc);
 				nread+=fread(&csize1, 1, 4, fsrc);
 				nread+=fread(&csize2, 1, 4, fsrc);
-				if(nread!=sizeof(char)+sizeof(int[3]))
+				if((int)nread!=1+3*4)
 				{
 					CRASH("Invalid file");
 					return 1;
@@ -612,7 +708,7 @@ int a04_codec(int argc, char **argv)
 					CRASH("Invalid file");
 					return 1;
 				}
-				PROF(dec_read, csize0+csize1+csize2+13);
+				PROF(dec_read, csize0+csize1+csize2+1+3*4);
 
 				//decompress
 				size_t usize0=FPC_decompress(im2[0], blocksize, cim[0], csize0);
@@ -640,6 +736,7 @@ int a04_codec(int argc, char **argv)
 						vidx=rct_indices[bestrct][3+2],
 						uhelpidx=rct_indices[bestrct][6+0],
 						vhelpidx=rct_indices[bestrct][6+1];
+#ifndef USE_W
 #ifndef USE_CG
 					const char
 						*yNNptr=cim[0]+YPAD*ENC_DX-2*dx,
@@ -650,6 +747,7 @@ int a04_codec(int argc, char **argv)
 						*yNptr=cim[0]+YPAD*ENC_DX-dx,
 						*uNptr=cim[1]+YPAD*ENC_DX-dx,
 						*vNptr=cim[2]+YPAD*ENC_DX-dx;
+#endif
 					char
 						*ycurrptr=cim[0]+YPAD*ENC_DX,//YUV
 						*ucurrptr=cim[1]+YPAD*ENC_DX,
@@ -662,6 +760,11 @@ int a04_codec(int argc, char **argv)
 						*ydstptr=im2[yidx],//RGB
 						*udstptr=im2[uidx],
 						*vdstptr=im2[vidx];
+#ifdef USE_W
+					int ypred=0;
+					int upred=0;
+					int vpred=0;
+#endif
 #ifdef __GNUC__
 #pragma GCC unroll 2
 #endif
@@ -680,13 +783,16 @@ int a04_codec(int argc, char **argv)
 						if(yN<yW)ymin=yN, ymax=yW;
 						if(uN<uW)umin=uN, umax=uW;
 						if(vN<vW)vmin=vN, vmax=vW;
+					//	int ypred=2*yN+((yW-yN)*Wcoeff>>7)-yNptr[-1];
+					//	int upred=2*uN+((uW-uN)*Wcoeff>>7)-uNptr[-1];
+					//	int vpred=2*vN+((vW-vN)*Wcoeff>>7)-vNptr[-1];
 						int ypred=yN+yW-yNptr[-1];
 						int upred=uN+uW-uNptr[-1];
 						int vpred=vN+vW-vNptr[-1];
 						CLAMP2(ypred, ymin, ymax);
 						CLAMP2(upred, umin, umax);
 						CLAMP2(vpred, vmin, vmax);
-#else
+#elif defined USE_WGCG
 						int yN=yNptr[0];
 						int uN=uNptr[0];
 						int vN=vNptr[0];
@@ -746,14 +852,30 @@ int a04_codec(int argc, char **argv)
 						yuv[0]+=ypred;
 						yuv[1]+=upred;
 						yuv[2]+=vpred;
+#ifndef USE_W
 						++yNptr;
 						++uNptr;
 						++vNptr;
+#endif
 						*ycurrptr++=yuv[0];//store YUV
 						*ucurrptr++=yuv[1];
 						*vcurrptr++=yuv[2];
+#ifdef USE_W
+						int yW=yuv[0];
+						int uW=yuv[1];
+						int vW=yuv[2];
+#endif
+#ifdef DISABLE_ANALYSIS
+						yuv[2]+=yuv[1]>>2;
+						yuv[0]-=(yuv[1]+yuv[2])>>2;
+						yuv[2]+=yuv[0];
+						yuv[1]+=yuv[0];
+						(void)vhelpidx;
+						(void)uhelpidx;
+#else
 						yuv[1]+=yuv[uhelpidx];//need int16 buffer for cRCT
 						yuv[2]+=yuv[vhelpidx];
+#endif
 						*ydstptr++=yuv[0];//store RGB
 						*udstptr++=yuv[1];
 						*vdstptr++=yuv[2];
@@ -764,6 +886,11 @@ int a04_codec(int argc, char **argv)
 						//vpred+=yuv[vhelpidx];
 						//CLAMP2(vpred, -128, 127);
 						//*vcurrptr++=(char)(yuv[2]+vpred);
+#ifdef USE_W
+						ypred=yW;
+						upred=uW;
+						vpred=vW;
+#endif
 					}
 				}
 				PROF(dec_predict, blockbytes);

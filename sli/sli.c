@@ -3,6 +3,7 @@ int a01_codec(int argc, char **argv);//best
 int a02_codec(int argc, char **argv);//R/W experiment
 int a03_codec(int argc, char **argv);//experimental
 int a04_codec(int argc, char **argv);//fast
+int a05_codec(int argc, char **argv);//extremely fast, compromise
 
 
 //	#define RELEASE_THE_KRAKEN
@@ -12,7 +13,8 @@ int a04_codec(int argc, char **argv);//fast
 //	#define CODEC_EXT a01
 //	#define CODEC_EXT a02
 //	#define CODEC_EXT a03
-	#define CODEC_EXT a04
+//	#define CODEC_EXT a04
+	#define CODEC_EXT a05
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
