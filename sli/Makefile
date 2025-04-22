@@ -27,13 +27,13 @@ a03:
 	gcc -Wall -O3 -s -mlzcnt -DCODEC_EXT=a03 a03.c sli.c -o a03 $(LIBS)
 
 a04:
-	gcc -Wall -O3 -s -mlzcnt -DCODEC_EXT=a04 a04.c fpc/fpc.c sli.c -o a04 $(LIBS)
+	gcc -Wall -O3 -s -DCODEC_EXT=a04 a04.c fpc/fpc.c sli.c -o a04 $(LIBS)
 
 a04avx2:
-	gcc -Wall -O3 -s -mlzcnt -mavx2 -DCODEC_EXT=a04 a04.c fpc/fpc.c sli.c -o a04avx2 $(LIBS)
+	gcc -Wall -O3 -s -mavx2 -DCODEC_EXT=a04 a04.c fpc/fpc.c sli.c -o a04avx2 $(LIBS)
 
 a05:
-	gcc -Wall -O3 -s -mlzcnt -DCODEC_EXT=a05 a05.c fpc/fpc.c $(FSESRC) sli.c -o a05 $(LIBS)
+	gcc -Wall -O3 -s -DCODEC_EXT=a05 a05.c fpc/fpc.c $(FSESRC) sli.c -o a05 $(LIBS)
 
 a05avx2:
-	gcc -Wall -O3 -s -mlzcnt -mavx2 -DCODEC_EXT=a05 a05.c fpc/fpc.c $(FSESRC) sli.c -o a05avx2 $(LIBS)
+	gcc -Wall -O3 -s -mavx2 -DCODEC_EXT=a05 a05.c fpc/fpc.c $(FSESRC) sli.c -o a05avx2 $(LIBS)
