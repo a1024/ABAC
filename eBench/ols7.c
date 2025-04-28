@@ -12,45 +12,16 @@
 #endif
 static const char file[]=__FILE__;
 
-
-#define OLS7_NPARAMS 3
-#define OLS7_PADX 16	//64
-#define OLS7_PADY 16	//multiple of 4
-static void learn(const int *ctx, int target, long long *acc, long long *params)
-{
-#if OLS7_NPARAMS==3
-	//8 bit only
-	acc[0]+=((long long)ctx[0]*ctx[0]-acc[0])*7>>3;//sqa
-	acc[1]+=((long long)ctx[1]*ctx[1]-acc[1])*7>>3;//sqb
-	acc[2]+=((long long)ctx[2]*ctx[2]-acc[2])*7>>3;//sqc
-	acc[3]+=((long long)ctx[0]*ctx[1]-acc[3])*7>>3;//ab
-	acc[4]+=((long long)ctx[1]*ctx[2]-acc[4])*7>>3;//bc
-	acc[5]+=((long long)ctx[2]*ctx[0]-acc[5])*7>>3;//ca
-	acc[6]+=((long long)ctx[0]*target-acc[6])*7>>3;//at
-	acc[7]+=((long long)ctx[1]*target-acc[7])*7>>3;//bt
-	acc[8]+=((long long)ctx[2]*target-acc[8])*7>>3;//ct
-	params[0]=(acc[1]*acc[2]-acc[4]*acc[4])*acc[6]+(acc[5]*acc[4]-acc[3]*acc[2])*acc[7]+(acc[3]*acc[4]-acc[1]*acc[5])*acc[8];//param0 = [sqb*sqc-bc^2  ac*bc-ab*sqc  ab*bc-sqb*ac] . [at bt ct]
-	params[1]=(acc[5]*acc[4]-acc[3]*acc[2])*acc[6]+(acc[0]*acc[2]-acc[5]*acc[5])*acc[7]+(acc[3]*acc[5]-acc[0]*acc[4])*acc[8];//param1 = [ac*bc-ab*sqc  sqa*sqc-ac^2  ab*ac-sqa*bc] . [at bt ct]
-	params[2]=(acc[3]*acc[4]-acc[5]*acc[1])*acc[6]+(acc[3]*acc[5]-acc[0]*acc[4])*acc[7]+(acc[0]*acc[1]-acc[3]*acc[3])*acc[8];//param2 = [ab*bc-ac*sqb  ab*ac-sqa*bc  sqa*sqb-ab^2] . [at bt ct]
-	params[3]=acc[0]*acc[1]*acc[2]+2*acc[3]*acc[4]*acc[5]-acc[0]*acc[4]*acc[4]-acc[1]*acc[5]*acc[5]-acc[2]*acc[3]*acc[3];//den = sqa*sqb*sqc + 2*ab*bc*ac - sqa*bc^2 - sqb*ac^2 - sqc*ab^2
-#else
-	acc[0]+=((long long)ctx[0]*ctx[0]-acc[0])*7>>3;//sqa
-	acc[1]+=((long long)ctx[1]*ctx[1]-acc[1])*7>>3;//sqb
-	acc[2]+=((long long)ctx[0]*ctx[1]-acc[1])*7>>3;//sab
-	acc[3]+=((long long)ctx[0]*target-acc[1])*7>>3;//at
-	acc[4]+=((long long)ctx[1]*target-acc[1])*7>>3;//bt
-	params[0]=acc[1]*acc[3]-acc[2]*acc[4];//param0 = sqb*at-sab*bt
-	params[1]=acc[0]*acc[4]-acc[2]*acc[3];//param1 = sqa*bt-sab*at
-	params[2]=acc[0]*acc[1]-acc[2]*acc[2];//den = sqa*sqb-sab^2
-#endif
-}
+#define NPREDS 8
 void pred_ols7(Image *src, int fwd)
 {
-	long long acc[3][OLS7_NPARAMS*(OLS7_NPARAMS+1)/2+OLS7_NPARAMS]={0};//{sqa, sqb, sab, at, bt}
-	long long params[3][OLS7_NPARAMS+1]={0};//{param0, param1, den}
-
-	int bufsize=(src->iw+OLS7_PADX*2)*(int)sizeof(short[OLS7_PADY*4]);//16 padded rows * 4 channels max
-	short *pixels=(short*)malloc(bufsize);
+	int weights[4][NPREDS+2]={0};
+	weights[0][NPREDS+1]=1<<src->depth[0];
+	weights[1][NPREDS+1]=1<<src->depth[1];
+	weights[2][NPREDS+1]=1<<src->depth[2];
+	weights[3][NPREDS+1]=1<<src->depth[3];
+	int bufsize=(src->iw+8*2)*(int)sizeof(int[4*4*(1+NPREDS+1)]);//4 padded rows * 4 channels max * {pixel, 8 weights, bias}
+	int *pixels=(int*)malloc(bufsize);
 	if(!pixels)
 	{
 		LOG_ERROR("Alloc error");
@@ -59,109 +30,136 @@ void pred_ols7(Image *src, int fwd)
 	if(loud_transforms)
 		DisableProcessWindowsGhosting();
 	memset(pixels, 0, bufsize);
-	for(int ky=0;ky<src->ih;++ky)
+	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
-		__m256i rowstride=_mm256_set1_epi64x(sizeof(short[4]));
-		ALIGN(32) short *rows[OLS7_PADY]={0};
-		for(int k=0;k<_countof(rows);++k)
-			rows[k]=pixels+((src->iw+OLS7_PADX*2LL)*((ky-(size_t)k)%OLS7_PADY)+OLS7_PADX)*4;
+		int *rows[]=
+		{
+			pixels+((src->iw+16LL)*((ky-0LL)&3)+8)*4*(1+NPREDS+1)-1*(1+NPREDS+1),
+			pixels+((src->iw+16LL)*((ky-1LL)&3)+8)*4*(1+NPREDS+1)-1*(1+NPREDS+1),
+			pixels+((src->iw+16LL)*((ky-2LL)&3)+8)*4*(1+NPREDS+1)-1*(1+NPREDS+1),
+			pixels+((src->iw+16LL)*((ky-3LL)&3)+8)*4*(1+NPREDS+1)-1*(1+NPREDS+1),
+		};
 		for(int kx=0;kx<src->iw;++kx)
 		{
-			for(int kc=0;kc<3;++kc)
+			for(int kc=0;kc<4;++kc, ++idx)
 			{
+				rows[0]+=1+NPREDS+1;
+				rows[1]+=1+NPREDS+1;
+				rows[2]+=1+NPREDS+1;
+				rows[3]+=1+NPREDS+1;
+				if(!src->depth[kc])
+					continue;
 				int
-					NN	=rows[2][kc+0*4],
-					NW	=rows[1][kc-1*4],
-					N	=rows[1][kc+0*4],
-					NE	=rows[1][kc+1*4],
-					WW	=rows[0][kc-2*4],
-					W	=rows[0][kc-1*4];
-				int ctx[]=
+					NNNN	=rows[0][+0*4*(1+NPREDS+1)],
+					NNN	=rows[3][+0*4*(1+NPREDS+1)],
+					NNNE	=rows[3][+1*4*(1+NPREDS+1)],
+					NN	=rows[2][+0*4*(1+NPREDS+1)],
+					NNE	=rows[2][+1*4*(1+NPREDS+1)],
+					NW	=rows[1][-1*4*(1+NPREDS+1)],
+					N	=rows[1][+0*4*(1+NPREDS+1)],
+					NE	=rows[1][+1*4*(1+NPREDS+1)],
+					NEE	=rows[1][+2*4*(1+NPREDS+1)],
+					NEEE	=rows[1][+3*4*(1+NPREDS+1)],
+					NEEEE	=rows[1][+4*4*(1+NPREDS+1)],
+					WWWWW	=rows[0][-5*4*(1+NPREDS+1)],
+					WWWW	=rows[0][-4*4*(1+NPREDS+1)],
+					WWW	=rows[0][-3*4*(1+NPREDS+1)],
+					WW	=rows[0][-2*4*(1+NPREDS+1)],
+					W	=rows[0][-1*4*(1+NPREDS+1)];
+				int preds[]=
 				{
+#if 1
+					N,
+					W,
+					3*(N-NN)+NNN,
+					3*(W-WW)+WWW,
+				//	3*NN-2*NNN,//X
+				//	3*WW-2*WWW,//X
+					W+NE-N,
+					N+W-NW,
+					(WWWW+NNN+NEE+NEEEE)>>2,
+				//	(WWWW+WWW+NNN+NEEE+NEEEE-NW)>>2,//X
+				//	(WWWW+WWW+NNN+NEE+NEEE+NEEEE-2*NW)/4,//X
+					N+NE-NNE,
+#endif
+#if 0
 					N,
 					W,
 					NW,
+					NE,
+					2*N-NN,
+					2*W-WW,
+					3*(N-NN)+NNN,
+					3*(W-WW)+WWW,
+					NEE,
+					NEEE,
+					(WWWW+NNN+NEE+NEEEE)>>2,
+					(WWWW+WWW+NNN+NEE+NEEE+NEEEE-2*NW)/4,
+#endif
 				};
-				//int ctx2[]=
-				//{
-				//	N,
-				//	W,
-				//	NW,
-				//	//4*(N+W-NW),
-				//	//2*(N+W),
-				//};
-				//int ctx3[2];
-				int pred;
-				//if(ky==10&&kx==10&&!kc)//
+				//if(ky==src->ih/2&&kx==src->iw/2)//
 				//	printf("");
+				int *currw=weights[kc];
+			//	int *currwW	=rows[0]-1*4*(1+NPREDS+1)+1;
+			//	int *currNW	=rows[1]-1*4*(1+NPREDS+1)+1;
+				int *currN	=rows[1]+0*4*(1+NPREDS+1)+1;
+			//	int *currNE	=rows[1]+1*4*(1+NPREDS+1)+1;
+				long long pred=currw[NPREDS];
+				for(int k=0;k<NPREDS;++k)
+				{
+					int w=currw[k]+currN[k];
+					pred+=(long long)w*preds[k];
+				}
+			//	int pred0=pred;
+			//	pred*=currw[NPREDS+1];
+				pred+=1LL<<(src->depth[kc]*2+4)>>1;
+				pred>>=src->depth[kc]*2+4;
+				int vmax=N, vmin=W;
+				if(N<W)vmin=N, vmax=W;
+				if(vmin>NW)vmin=NW;
+				if(vmax<NW)vmax=NW;
+				if(vmin>NE)vmin=NE;
+				if(vmax<NE)vmax=NE;
+				if(vmin>NEEE)vmin=NEEE;
+				if(vmax<NEEE)vmax=NEEE;
+				CLAMP2(pred, vmin, vmax);
 
-				int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
-				int half=1<<src->depth[kc]>>1;
-				vmin+=vmin<vmax;
-				vmax-=vmax>vmin;
-				//vmin=MAXVAR(vmin-1, -half);
-				//vmax=MINVAR(vmax+1, half-1);
-				pred=(N+NE)/2+W-NW;
-				UPDATE_MIN(pred, vmax);
-				UPDATE_MAX(pred, vmin);
-				//MEDIAN3_32(pred, N, W, (N+W-NW+2*N-NN+2*W-WW+2+NE)/4);
-				//CLAMP3_32(pred, (N+W-NW+2*N-NN+2*W-WW+2+NE)/4, N, W, NE);
-				//MEDIAN3_32(pred, N, W, N+W-NW);
-				//pred=(2*pred+2*N-NN+2*W-WW+2)>>2;
-#if 0
-#if OLS7_NPARAMS==3
-				if(params[kc][3])
+				int curr=src->data[idx];
+				int pred2=(int)pred;
+				if(!keyboard[KEY_SHIFT])
 				{
-					pred=(int)((params[kc][0]*ctx[0]+params[kc][1]*ctx[1]+params[kc][2]*ctx[2])/params[kc][3]);
-					CLAMP3_32(pred, pred, N, W, NE);
+					pred2^=-fwd;
+					pred2+=fwd;
+					pred2+=curr;
+					pred2<<=32-src->depth[kc];
+					pred2>>=32-src->depth[kc];
 				}
-#else
-				if(params[kc][2])
-				{
-					pred=(int)((params[kc][0]*ctx[0]+params[kc][1]*ctx[1])/params[kc][2]);
-					CLAMP3_32(pred, pred, N, W, NE);
-				}
-#endif
-				else
-					//pred=0;
-					MEDIAN3_32(pred, N, W, N+W-NW);
-#endif
-				int idx=(src->iw*ky+kx)<<2|kc;
-				int curr=0;
-				if(fwd)
-				{
-					curr=src->data[idx];
-					pred=curr-pred;
-					pred<<=32-src->depth[kc];
-					pred>>=32-src->depth[kc];
-				}
-				else
-				{
-					pred+=src->data[idx];
-					pred<<=32-src->depth[kc];
-					pred>>=32-src->depth[kc];
-					curr=pred;
-				}
-				src->data[idx]=pred;
-				rows[0][kc]=curr;
+				src->data[idx]=(int)pred2;
+				if(!fwd)
+					curr=pred2;
+				rows[0][0]=curr;
 
-				//learn(ctx, curr, acc[kc], params[kc]);
-				//acc[kc][0]+=((long long)ctx[0]*ctx[0]-acc[kc][0])*7>>3;//sqa
-				//acc[kc][1]+=((long long)ctx[1]*ctx[1]-acc[kc][1])*7>>3;//sqb
-				//acc[kc][2]+=((long long)ctx[0]*ctx[1]-acc[kc][1])*7>>3;//sab
-				//acc[kc][3]+=((long long)ctx[0]*curr-acc[kc][1])*7>>3;//at
-				//acc[kc][4]+=((long long)ctx[1]*curr-acc[kc][1])*7>>3;//bt
-				//params[kc][0]=acc[kc][1]*acc[kc][3]-acc[kc][2]*acc[kc][4];//param0 = sqb*at-sab*bt
-				//params[kc][1]=acc[kc][0]*acc[kc][4]-acc[kc][2]*acc[kc][3];//param1 = sqa*bt-sab*at
-				//params[kc][2]=acc[kc][0]*acc[kc][1]-acc[kc][2]*acc[kc][2];//den = sqa*sqb-sab^2
-			}
-			for(int k=0;k<sizeof(rows)/sizeof(__m256i);++k)
-			{
-				__m256i mr=_mm256_load_si256((__m256i*)rows+k);
-				mr=_mm256_add_epi64(mr, rowstride);
-				_mm256_store_si256((__m256i*)rows+k, mr);
+				//update
+				int *currC=rows[0]+0*4*(1+NPREDS+1)+1;
+				int e=curr-(int)pred;
+				//int ex=e>>1, ey=e+(e>>1);
+				//if(abs(curr-N)<abs(curr-W))
+				//	ex=e+(e>>1), ey=e>>1;
+			//	e*=currw[NPREDS+1];
+				currw[NPREDS]+=e;
+				currC[NPREDS]=currN[NPREDS]+e;
+				for(int k=0;k<NPREDS;++k)
+				{
+					int e2=e*preds[k];
+					currw[k]+=e2;
+					currC[k]=currN[k]+e2;
+				}
+				//{
+				//	currw[k]+=ex*preds[k];
+				//	currC[k]=currN[k]+ey*preds[k];
+				//}
+			//	currw[NPREDS+1]+=(curr-(int)pred)*pred0;
 			}
 		}
 	}
-	free(pixels);
 }

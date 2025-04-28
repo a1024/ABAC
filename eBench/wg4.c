@@ -1004,6 +1004,7 @@ void pred_wgrad4(Image *src, int fwd)
 					int curr=src->data[idx+kc], pred0=pred;
 					pred+=1<<WG_NBITS>>1;
 					pred>>=WG_NBITS;
+					int p2=pred;
 					pred^=fwdmask;
 					pred-=fwdmask;
 					pred+=curr;
@@ -1011,7 +1012,7 @@ void pred_wgrad4(Image *src, int fwd)
 					pred<<=32-src->depth[kc];
 					pred>>=32-src->depth[kc];
 
-					src->data[idx+kc]=pred;
+					src->data[idx+kc]=keyboard[KEY_SHIFT]?p2:pred;
 					rows[0][kc2+0]=(fwd?curr:pred)<<WG_NBITS;
 					rows[0][kc2+1]=rows[0][kc2]-pred0;
 				}

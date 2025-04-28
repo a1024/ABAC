@@ -150,9 +150,14 @@ void pred_lossyconv(Image *src)
 #endif
 						{
 							int curr=p1[idx<<2|kc];
-							curr-=pred;
-							curr<<=32-depth;//signed-MA
-							curr>>=32-depth;
+							if(keyboard[KEY_SHIFT])
+								curr=pred;
+							else
+							{
+								curr-=pred;
+								curr<<=32-depth;//signed MA
+								curr>>=32-depth;
+							}
 							p2[idx<<2|kc]=curr;
 						}
 					}

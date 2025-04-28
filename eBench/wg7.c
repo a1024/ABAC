@@ -380,6 +380,7 @@ void pred_wpred7(Image *src, int fwd)
 	memset(ebuf, 0, pesize);
 	memset(pixels, 0, bufsize);
 	UPDATE_MAX(nch, src->nch);
+	int predsig=GET_KEY_STATE(KEY_SHIFT);
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
 		int cpred=0, curr=0;
@@ -416,12 +417,14 @@ void pred_wpred7(Image *src, int fwd)
 				curr=src->data[idx+kc];
 
 				cpred=(pred+(1<<NBITS>>1))>>NBITS;
-				cpred^=fwdmask;
-				cpred-=fwdmask;
-				cpred+=curr;
-				cpred<<=32-src->depth[kc];
-				cpred>>=32-src->depth[kc];
-
+				if(!predsig)
+				{
+					cpred^=fwdmask;
+					cpred-=fwdmask;
+					cpred+=curr;
+					cpred<<=32-src->depth[kc];
+					cpred>>=32-src->depth[kc];
+				}
 				src->data[idx+kc]=cpred;
 				if(!fwd)
 					curr=cpred;

@@ -2641,6 +2641,7 @@ void pred_clampgrad(Image *src, int fwd, int enable_ma)
 	);
 	ALIGN(16) int curr[4]={0};
 	int *pixels=(int*)_mm_malloc((src->iw+4LL)*sizeof(int[2*4]), sizeof(__m128i));//2 padded rows * 4 channels max
+	int predsig=GET_KEY_STATE(KEY_SHIFT);
 
 	(void)enable_ma;
 
@@ -2674,10 +2675,13 @@ void pred_clampgrad(Image *src, int fwd, int enable_ma)
 				}
 				{
 					__m128i mc=_mm_loadu_si128((__m128i*)(src->data+idx));
-					pred=_mm_sub_epi32(mc, pred);
-					pred=_mm_add_epi32(pred, mhalf);
-					pred=_mm_and_si128(pred, symmask);
-					pred=_mm_sub_epi32(pred, mhalf);
+					if(!predsig)
+					{
+						pred=_mm_sub_epi32(mc, pred);
+						pred=_mm_add_epi32(pred, mhalf);
+						pred=_mm_and_si128(pred, symmask);
+						pred=_mm_sub_epi32(pred, mhalf);
+					}
 					_mm_store_si128((__m128i*)curr, pred);
 					src->data[idx|0]=curr[0];
 					src->data[idx|1]=curr[1];
@@ -5494,21 +5498,6 @@ void pred_nblic(Image *src, int fwd)//https://github.com/WangXuan95/NBLIC-Image-
 }
 
 
-//static void sort_int32(int *data, int count)
-//{
-//	int temp=0;
-//	for(int k=0;k<count-1;++k)
-//	{
-//		for(int k2=k+1;k2<count;++k2)
-//		{
-//			if(data[k2]<data[k])
-//				SWAPVAR(data[k], data[k2], temp);
-//		}
-//	}
-//}
-
-//	#define WGRAD_UPDATE_LUMA
-//	#define WGRAD_SSE
 #ifdef WGRAD_SSE
 static int quantize_nb(int x)
 {
@@ -5522,13 +5511,6 @@ static int quantize_nb(int x)
 #endif
 void pred_wgrad(Image *src, int fwd, int hasRCT)
 {
-	//static int sh=8;
-	//if(fwd)
-	//{
-	//	--sh;
-	//	if(sh<0)
-	//		sh=8;
-	//}
 	int nch;
 	int nlevels[]=
 	{
@@ -5547,82 +5529,54 @@ void pred_wgrad(Image *src, int fwd, int hasRCT)
 	const int perm0[]={1, 2, 0, 3, 0, 1, 2, 3}, *perm=perm0+hasRCT*4;
 	int fwdmask=-fwd;
 
-	int *pixels=(int*)malloc((src->iw+16LL)*sizeof(int[4*4]));//4 padded rows * 4 channels max
+	int psize=(src->iw+16LL)*(int)sizeof(int[4*4*3]);//4 padded rows * 4 channels max * {pixels, gx, gy}
+	int *pixels=(int*)malloc(psize);
 	if(!pixels)
 	{
 		LOG_ERROR("Alloc error");
 		return;
 	}
-	memset(pixels, 0, (src->iw+16LL)*sizeof(int[4*4]));
-#ifdef WGRAD_SSE
-	int maxdepth=MAXVAR(src->depth[0], src->depth[1]);
-	UPDATE_MAX(maxdepth, src->depth[2]);
-	UPDATE_MAX(maxdepth, src->depth[3]);
-	int clevels=maxdepth<<1|1;
-	size_t ssesize=sizeof(int[4*2])*clevels*clevels;//4 channels max * {sum, count} * clevels^2
-	int *sse=(int*)malloc(ssesize);
-	if(!sse)
-	{
-		LOG_ERROR("Alloc error");
-		return;
-	}
-	memset(sse, 0, ssesize);
-#endif
+	memset(pixels, 0, psize);
 	nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
 	UPDATE_MAX(nch, src->nch);
+	int predsig=keyboard[KEY_SHIFT];
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
 		int eW[16]={0};
 		int *rows[]=
 		{
-			pixels+(((src->iw+16LL)*((ky-0LL)&3)+8LL)<<2),
-			pixels+(((src->iw+16LL)*((ky-1LL)&3)+8LL)<<2),
-			pixels+(((src->iw+16LL)*((ky-2LL)&3)+8LL)<<2),
-			pixels+(((src->iw+16LL)*((ky-3LL)&3)+8LL)<<2),
+			pixels+((src->iw+16LL)*((ky-0LL)&3)+8LL)*4*3,
+			pixels+((src->iw+16LL)*((ky-1LL)&3)+8LL)*4*3,
+			pixels+((src->iw+16LL)*((ky-2LL)&3)+8LL)*4*3,
+			pixels+((src->iw+16LL)*((ky-3LL)&3)+8LL)*4*3,
 		};
 		for(int kx=0;kx<src->iw;++kx, idx+=4)
 		{
-#ifdef WGRAD_UPDATE_LUMA
-			if(!hasRCT&&!fwd)
-			{
-				int
-					cb	=src->data[idx+2],
-					cr	=src->data[idx+0];
-				int update=(cb+cr)>>2;
-				update=CLAMP(-halfs[1], update, halfs[1]-1);
-				{
-					int luma=src->data[idx+1]-update;//subtract update
-					luma<<=32-src->depth[1];
-					luma>>=32-src->depth[1];
-					src->data[idx+1]=luma;
-				}
-			}
-#endif
 			for(int kc=0;kc<nch;++kc)
 			{
 				int
-					NNNN	=rows[0][kc+0*4],
-					NNN	=rows[3][kc+0*4],
-					NNWW	=rows[2][kc-2*4],
-					NNW	=rows[2][kc-1*4],
-					NN	=rows[2][kc+0*4],
-					NNE	=rows[2][kc+1*4],
-					NNEE	=rows[2][kc+2*4],
-					NWW	=rows[1][kc-2*4],
-					NW	=rows[1][kc-1*4],
-					N	=rows[1][kc+0*4],
-					NE	=rows[1][kc+1*4],
-					NEE	=rows[1][kc+2*4],
-					NEEE	=rows[1][kc+3*4],
-					NEEEE	=rows[1][kc+4*4],
-					NEEEEE	=rows[1][kc+5*4],
-					WWWWW	=rows[0][kc-5*4],
-					WWWW	=rows[0][kc-4*4],
-					WWW	=rows[0][kc-3*4],
-					WW	=rows[0][kc-2*4],
-					W	=rows[0][kc-1*4],
+					NNNN	=rows[0][kc+0*4*3],
+					NNN	=rows[3][kc+0*4*3],
+					NNWW	=rows[2][kc-2*4*3],
+					NNW	=rows[2][kc-1*4*3],
+					NN	=rows[2][kc+0*4*3],
+					NNE	=rows[2][kc+1*4*3],
+					NNEE	=rows[2][kc+2*4*3],
+					NWW	=rows[1][kc-2*4*3],
+					NW	=rows[1][kc-1*4*3],
+					N	=rows[1][kc+0*4*3],
+					NE	=rows[1][kc+1*4*3],
+					NEE	=rows[1][kc+2*4*3],
+					NEEE	=rows[1][kc+3*4*3],
+					NEEEE	=rows[1][kc+4*4*3],
+					NEEEEE	=rows[1][kc+5*4*3],
+					WWWWW	=rows[0][kc-5*4*3],
+					WWWW	=rows[0][kc-4*4*3],
+					WWW	=rows[0][kc-3*4*3],
+					WW	=rows[0][kc-2*4*3],
+					W	=rows[0][kc-1*4*3],
 					offset	=0;
-				(void)NNNN;		//<- what insanity looks like
+				(void)NNNN;
 				(void)NNN;
 				(void)NNWW;
 				(void)NNW;
@@ -5640,358 +5594,81 @@ void pred_wgrad(Image *src, int fwd, int hasRCT)
 				(void)WWW;
 				(void)WW;
 				(void)W;
-				//if(!hasRCT&&kc0>0)
-				//{
-				//	offset+=rows[0][1];
-				//	if(kc0>1)
-				//		offset=(2*offset+rows[0][2])>>1;
-				//}
 
 				//int
 				//	gy=abs(N-NN)+abs(W-NW)+abs(NE-NNE)+1,
 				//	gx=abs(W-WW)+abs(N-NW)+abs(N-NE)+1;
 				//int pred=(gx*N+gy*W)/(gx+gy);
-
+				
 				int
-					gy=abs(N-NN)+abs(W-NW)+abs(NE-NNE)+abs(NW-NNW)+1,
-					gx=abs(N-NW)+abs(W-WW)+abs(NE-N)+abs(NW-NWW)+1;
+					gx=rows[0][kc-1*4*3+1*4]+rows[1][kc+0*4*3+1*4]+1,
+					gy=rows[0][kc-1*4*3+2*4]+rows[1][kc+0*4*3+2*4]+1;
+				//int
+				//	gx=rows[0][kc-1*4*3+1*4]+rows[1][kc-1*4*3+1*4]+rows[1][kc+0*4*3+1*4]+rows[1][kc+1*4*3+1*4]+1,
+				//	gy=rows[0][kc-1*4*3+2*4]+rows[1][kc-1*4*3+2*4]+rows[1][kc+0*4*3+2*4]+rows[1][kc+1*4*3+2*4]+1;
+				//int
+				//	gy2=abs(N-NN)+abs(W-NW)+abs(NE-NNE)+abs(NW-NNW)+1,
+				//	gx2=abs(N-NW)+abs(W-WW)+abs(NE-N)+abs(NW-NWW)+1;
+				//if(gy!=gy2||gx!=gx2)
+				//	LOG_ERROR("");
 				//gx*=gx;
 				//gy*=gy;
+#if 1
 				int sum=gx+gy;
+
 				int sh=(src->depth[kc]+3-FLOOR_LOG2(sum))>>1;
 				//int sh=(_lzcnt_u32(sum)-(32-3-src->depth[kc]))>>1;
-				//if(sh<2)//X
-				//	sh=2;
 				int h1=gx>>sh;
 				int h2=gy>>sh;
-				//int h1=gx>>3;
-				//int h2=gy>>3;
 				gx+=h1;
 				gy+=h2;
 				int pred=(gx*N+gy*W-(h1+h2)*NW)/sum;//CG-like
+#endif
+				//int pred=((gx+sum)*N+(gy+sum)*W-sum*NW)/(2*sum);//worse
+				//int pred=(gx*N+gy*W)/(gx+gy);
+
 				int vmax=N, vmin=W;
 				if(N<W)vmin=N, vmax=W;
 				//if(vmin>NE)vmin=NE;//X
 				//if(vmax<NE)vmin=NE;
 				CLAMP2(pred, vmin, vmax);
-
-				//int pred;//for a circle centered at image center
-				//int x=kx-(src->iw>>1);
-				//int y=(src->ih>>1)-ky;
-#if 0
-				if(217167*abs(x) > (abs(y)<<19))	//below 22.5 deg
-					pred = N;
-				else if(217167*abs(y) > (abs(x)<<19))	//above 67.5 deg
-					pred = W;
-				else if((x>0)==(y>0))		//1st or 3rd quad
-					pred = NW;
-				else				//2nd or 4th quad
-					pred = NE;
-#endif
-#if 0
-				if(!x&&!y)
-					pred=W;
-				else
-				{
-					double dx=(double)x, dy=(double)y;
-					double invhyp=1./sqrt(dx*dx+dy*dy);
-					double c=dx*invhyp, s=dy*invhyp;
-
-					double
-						cd0=c*c-s*s,
-						cd45=((c+s)*(c+s)-(s-c)*(s-c))*0.5,
-						cd90=-cd0,
-						cd135=-cd45;
-					double
-						coeff0=cd0*cd0*(cd0>0),
-						coeff45=cd45*cd45*(cd45>0),
-						coeff90=cd90*cd90*(cd90>0),
-						coeff135=cd135*cd135*(cd135>0);
-					//if(fabs(coeff0+coeff45+coeff90+coeff135-1)>1e-3)
-					//	LOG_ERROR("");
-					pred=(int)(coeff0*N+coeff45*NW+coeff90*W+coeff135*NE);
-
-#if 0
-					//double theta=atan2(s, c);
-					//double c0 = cos(theta-0*M_PI/8);
-					//double c1 = cos(theta-1*M_PI/8);
-					//double c2 = cos(theta-2*M_PI/8);
-					//double c3 = cos(theta-3*M_PI/8);
-					//double c4 = cos(theta-4*M_PI/8);
-					//double c5 = cos(theta-5*M_PI/8);
-					//double c6 = cos(theta-6*M_PI/8);
-					//double c7 = cos(theta-7*M_PI/8);
-					double c0 = c;
-					double c1 = 0.9238795325112867561281831893968*c + 0.3826834323650897717284599840304*s;
-					double c2 = (c + s)*M_SQRT1_2;
-					double c3 = 0.3826834323650897717284599840304*c + 0.9238795325112867561281831893968*s;
-					double c4 = s;
-					double c5 = -0.3826834323650897717284599840304*c + 0.9238795325112867561281831893968*s;
-					double c6 = (-c + s)*M_SQRT1_2;
-					double c7 = -0.9238795325112867561281831893968*c + 0.3826834323650897717284599840304*s;
-
-					c0*=c0; c1*=c1; c2*=c2; c3*=c3; c4*=c4; c5*=c5; c6*=c6; c7*=c7;
-					c0*=c0; c1*=c1; c2*=c2; c3*=c3; c4*=c4; c5*=c5; c6*=c6; c7*=c7;
-					c0*=c0; c1*=c1; c2*=c2; c3*=c3; c4*=c4; c5*=c5; c6*=c6; c7*=c7;
-					//if(fabs(c0+c1+c2+c3+c4+c5+c6+c7-2.1875)>1e-3)
-					//	printf("");
-					pred = (int)((c0*N+c1*NNW+c2*NW+c3*NWW+c4*W+c5*NEE+c6*NE+c7*NNE)*0.4571428571428571428571428571429);//1/2.1875
-#endif
-				}
-#endif
-
-				//if(!x&&!y)
-				//	pred=W;
-				//else
-				//{
-				//	float fx=(float)x, fy=(float)y;
-				//	ALIGN(16) float ax[4];
-				//	_mm_store_ps(ax, _mm_rsqrt_ss(_mm_set_ps(0.f, 0.f, 0.f, fx*fx+fy*fy)));
-				//	double c=fx*ax[0], s=fy*ax[0];
-				//	c*=c;
-				//	s*=s;
-				//	pred=(int)(c*N+s*W);
-				//}
-
-				
-				//int
-				//	gy=abs(N-NN)+abs(W-NW)+abs(NE-NNE)+1,
-				//	gx=abs(W-WW)+abs(N-NW)+abs(N-NE)+1,
-				//	gNE=abs(W-N)+abs(NW-NN)+abs(N-NNE)+abs(NE-NNEE)+1,
-				//	gNW=abs(W-NWW)+abs(NW-NNWW)+abs(N-NNW)+abs(NE-NN)+1;
-				//int pred=(gx*N+gy*W)/(gx+gy), p2=(gNE*NW+gNW*NE)/(gNE+gNW);
-				//int w0=gx+gy, w1=(gNE+gNW)>>1;
-				//pred=(w1*pred+w0*p2)/(w1+w0);
-
-				//int nb[]={N, W, NW, NE, NEE};
-				//sort_int32(nb, (int)_countof(nb));
-				//int pred=nb[_countof(nb)>>1];
-				//pred=(pred+N+W-NW)>>1;
-#if 0
-				long long lpred, wsum;
-				//int
-				//	gy=abs(N-NN)+abs(W-NW)+1,
-				//	gx=abs(W-WW)+abs(N-NW)+1;
-				int preds[]=
-				{
-					//(N*gx+W*gy)/(gy+gx),
-					N+W-NW,
-					W+NE-N,
-					N+NE-NNE,
-					N,
-					W,
-					3*(N-NN)+NNN,
-					3*(W-WW)+WWW,
-					(W+NEEE)>>1,
-
-					//(N+NE)>>1,
-					//W+((WWWWW-WWWW+NEEEE-NEEEEE)>>2),
-					//(W+N+NE+NEE+NEEE)/5,
-					//(N+2*NE-NNE)>>1,
-				};
-				//MEDIAN3_32(preds[0], N, W, preds[0]);
-
-				lpred=0;
-				wsum=0;
-				for(int k=0;k<_countof(preds);++k)
-				{
-					int weight=0x1000000/(eW[k]+1);
-					lpred+=(long long)weight*preds[k];
-					wsum+=weight;
-				}
-				lpred/=wsum+1;
-				pred=(int)lpred;
-				//offset=0;
-#endif
-#if 0
-				int cgrad;
-				MEDIAN3_32(cgrad, N, W, N+W-NW);
-				pred=(eW[1]*W+eW[0]*cgrad)/(eW[0]+eW[1]);
-#endif
-#if 0
-				{
-					int
-						gx=abs(W-WW)+abs(N-NW)+abs(NE-N)+1,
-						gy=abs(W-NW)+abs(N-NN)+abs(NE-NNE)+1,
-						g135=abs(W-NWW)+abs(NW-NNWW)+abs(N-NNW)+abs(NE-NN)+1,
-						g45=abs(W-N)+abs(N-NNE)+abs(NE-NNEE)+abs(WW-NW)+1;
-					//int gx=abs(W-WW)+1, gy=abs(N-NN)+1;//X
-					(void)gx;
-					(void)gy;
-					(void)g135;
-					(void)g45;
-
-					//NW, N, NE, W
-					//if(NW>N)
-					//{
-					//	if(N>NE)
-					//	{
-					//		if(W>N)
-					//	}
-					//	else
-					//	{
-					//	}
-					//}
-					//else
-					//{
-					//	if(NW>NE)
-					//	{
-					//	}
-					//	else
-					//	{
-					//	}
-					//}
-					
-					pred=(int)(((long long)gx*N+(long long)gy*W)/(gx+gy));		//<- NOT better than CG: LPCB, DSLR2
-					
-					//pred=(gx*N+gy*W)/((gx+gy)+((gx+gy)>>2));
-
-					//if(kx==10&&ky==10)
-					//	printf("");
-					//pred=(NW+((2*N-NW)*gy+(2*W-NW)*gx)/(gx+gy))>>1;
-					//pred=NW+((N-NW)*gy+(W-NW)*gx)/(gx+gy);
-					//MEDIAN3_32(pred, N, W, pred);
-
-					//MEDIAN3_32(pred, N, W, N+W-NW);
-				}
-#endif
-				//const int sh=8;
-				//int grad=N+W-NW, pred;
-				//MEDIAN3_32(pred, N, W, grad);
-				//pred=(pred<<sh)-pred+grad;
-				//pred=(pred>>sh)+(pred<0);
-				
-#if 0
-				int sh=src->depth[kc]-8;
-				int diff=(gy-gx)>>sh, diff2=(g45-g135)>>sh, diff3=NE-NW;
-				int paper_GAP;
-				if(gy+gx>32)
-					paper_GAP=(int)(((long long)gx*N+(long long)gy*W)/((long long)gy+gx));
-				else if(diff>12)
-					paper_GAP=(N+2*W)/3;
-				else if(diff<-12)
-					paper_GAP=(2*N+W)/3;
-				else
-					paper_GAP=(N+W)>>1;
-
-				if(diff2>32)
-					paper_GAP+=diff3>>2;
-				else if(diff2>16)
-					paper_GAP+=diff3*3>>4;
-				else if(diff2>=-16)
-					paper_GAP+=diff3>>3;
-				else if(diff2>=-32)
-					paper_GAP+=diff3>>4;
-				int pred=paper_GAP;
-#endif
-				//int pred=(3*(N+W)-2*(NN+WW))>>1;
-				//pred=(pred+NE+NEE+NNE-NW+NWW+WW)/5;
-				//int pred=(gx*N+gy*W+g135*((3*NW+NNWW)>>2)+g45*((3*NE+NNEE)>>2))/(gx+gy+g45+g135);
-				//int
-				//	w45=0x10000/g45,
-				//	w90=0x10000/gy,
-				//	w135=0x10000/g135,
-				//	w180=0x10000/gx,
-				//	wsum=w45+w90+w135+w180;
-				//wsum+=!wsum;
-				//int pred=(w45*NE+w90*N+w135*NW+w180*W)/wsum;
-				//int pred=(gx*(2*N-NN)+gy*(2*W-WW))/(gx+gy);
-				//int pred=(W+WW+NEE-NW+3*(N-NN)+NNN+NE)>>2;
-				//int pred=MEDIAN3(N, W, NW);
-#ifdef WGRAD_SSE
-				int sse_idx=kc;
-				{
-					int x=N;
-					int ax=abs(x), negmask=x<0;
-					x=FLOOR_LOG2(ax);
-					x^=negmask;
-					x-=negmask;
-					x+=maxdepth;
-					sse_idx*=clevels;
-					sse_idx+=x;
-				}
-				{
-					int x=W;
-					int ax=abs(x), negmask=x<0;
-					x=FLOOR_LOG2(ax);
-					x^=negmask;
-					x-=negmask;
-					x+=maxdepth;
-					sse_idx*=clevels;
-					sse_idx+=x;
-				}
-				int *curr_sse=sse+((size_t)sse_idx<<1);
-				pred+=curr_sse[0]/(curr_sse[1]+1);
-#endif
-
-				//pred+=offset;
-				//pred=CLAMP(-halfs[kc], pred, halfs[kc]-1);
 				{
 					int curr=src->data[idx+kc];
-					pred^=fwdmask;
-					pred-=fwdmask;
-					pred+=curr;
 
-					pred<<=32-src->depth[kc];
-					pred>>=32-src->depth[kc];
+					//CHEAT
+					pred=abs(curr-NE)<abs(curr-pred)?64:-64;
+					//if(abs(curr-NE)<abs(curr-pred))
+					//	pred=NE;
+					//int gN=abs(curr-N), gW=abs(curr-W), gNW=abs(curr-NW), gNE=abs(curr-NE);
+					//int best=gN;
+					//pred=N;
+					//if(best>gW)best=gW, pred=W;
+					//if(best>gNW)best=gNW, pred=NW;
+					//if(best>gNE)best=gNE, pred=NE;
+					//pred=abs(curr-N)<abs(curr-W)?127:-128;//CHEAT
 
+					if(!predsig)
+					{
+						pred^=fwdmask;
+						pred-=fwdmask;
+						pred+=curr;
+						pred<<=32-src->depth[kc];
+						pred>>=32-src->depth[kc];
+					}
 					src->data[idx+kc]=pred;
-					rows[0][kc]=fwd?curr:pred;
-					//rows[0][kc]=(fwd?curr:pred)-offset;
-#ifdef WGRAD_SSE
-					int error=fwd?pred:curr;
-					curr_sse[0]+=error;
-					++curr_sse[1];
-					if(curr_sse[1]>=640)
-					{
-						curr_sse[0]>>=1;
-						curr_sse[1]>>=1;
-					}
-#endif
-				}
-#if 0
-				{
-					int curr=rows[0][kc];
-					for(int k=0;k<_countof(preds);++k)
-					{
-						int err=abs(curr-preds[k]);
-						eW[k]+=err;
-						eW[k]-=(eW[k]+3)>>2;
-						//eW[k]*=3;
-						//eW[k]>>=2;
-					}
-				}
-#endif
-#if 0
-				{
-					int curr=rows[0][kc];
-					eW[0]=(eW[0]+abs(curr-W)+1)>>1;
-					eW[1]=(eW[1]+abs(curr-cgrad)+1)>>1;
-					//eW[0]=abs(curr-W);
-					//eW[1]=abs(curr-cgrad);
-				}
-#endif
-			}
-#ifdef WGRAD_UPDATE_LUMA
-			if(!hasRCT&&fwd)
-			{
-				int
-					cb	=src->data[idx+2],
-					cr	=src->data[idx+0];
-				int update=(cb+cr)>>2;
-				update=CLAMP(-halfs[1], update, halfs[1]-1);
-				{
-					int luma=src->data[idx+1]+update;//add update
-					luma<<=32-src->depth[1];
-					luma>>=32-src->depth[1];
-					src->data[idx+1]=luma;
+					if(!fwd)
+						curr=pred;
+					rows[0][kc+0*4]=curr;
+					rows[0][kc+1*4]=(2*rows[0][kc-1*4*3+1*4]+4*abs(curr-W)+rows[1][kc+3*4*3+1*4])>>2;
+					rows[0][kc+2*4]=(2*rows[0][kc-1*4*3+2*4]+4*abs(curr-N)+rows[1][kc+3*4*3+2*4])>>2;
+					//rows[0][kc+1*4]=abs(curr-W);
+					//rows[0][kc+2*4]=abs(curr-N);
 				}
 			}
-#endif
-			rows[0]+=4;
-			rows[1]+=4;
-			rows[2]+=4;
-			rows[3]+=4;
+			rows[0]+=4*3;
+			rows[1]+=4*3;
+			rows[2]+=4*3;
+			rows[3]+=4*3;
 		}
 	}
 	free(pixels);
@@ -7110,7 +6787,8 @@ void pred_av2(Image *src, int fwd)
 		nlevels[0]-1
 	);
 	ALIGN(16) int curr[4]={0};
-
+	
+	int predsig=GET_KEY_STATE(KEY_SHIFT);
 	int *pixels=(int*)_mm_malloc((src->iw+4LL)*sizeof(int[2*4]), sizeof(__m128i));//2 padded rows * 4 channels max
 	if(!pixels)
 	{
@@ -7136,10 +6814,13 @@ void pred_av2(Image *src, int fwd)
 				pred=_mm_srai_epi32(pred, 1);
 				{
 					__m128i mc=_mm_loadu_si128((__m128i*)(src->data+idx));
-					pred=_mm_sub_epi32(mc, pred);
-					pred=_mm_add_epi32(pred, mhalf);
-					pred=_mm_and_si128(pred, symmask);
-					pred=_mm_sub_epi32(pred, mhalf);
+					if(!predsig)
+					{
+						pred=_mm_sub_epi32(mc, pred);
+						pred=_mm_add_epi32(pred, mhalf);
+						pred=_mm_and_si128(pred, symmask);
+						pred=_mm_sub_epi32(pred, mhalf);
+					}
 					_mm_store_si128((__m128i*)curr, pred);//error
 					_mm_store_si128((__m128i*)rows[0], mc);//pixel
 				}
@@ -10826,6 +10507,7 @@ void pred_custom(Image *src, int fwd, int enable_ma, const int *params)
 				pred>>=16;
 				pred=CLAMP(vmin, pred, vmax);
 
+				int p0=(int)pred;
 				rows[0][kc+4*!fwd]=curr;
 				pred^=-fwd;
 				pred+=fwd;
@@ -10836,7 +10518,7 @@ void pred_custom(Image *src, int fwd, int enable_ma, const int *params)
 					pred<<=32-src->depth[kc];
 					pred>>=32-src->depth[kc];
 				}
-				src->data[idx<<2|kc]=(int)pred;
+				src->data[idx<<2|kc]=keyboard[KEY_SHIFT]?p0:(int)pred;
 				rows[0][kc+4* fwd]=(int)pred;
 			}
 			rows[0]+=8;

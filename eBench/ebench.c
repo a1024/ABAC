@@ -148,7 +148,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_OLS4,		ST_INV_OLS4,
 	ST_FWD_OLS5,		ST_INV_OLS5,
 	ST_FWD_OLS6,		ST_INV_OLS6,
-//	ST_FWD_OLS7,		ST_INV_OLS7,
+	ST_FWD_OLS7,		ST_INV_OLS7,
 	ST_FWD_TABLE,		ST_INV_TABLE,
 	ST_FWD_LWAV,		ST_INV_LWAV,
 	ST_FWD_MIX2,		ST_INV_MIX2,
@@ -2410,8 +2410,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_OLS5:		a=" S Inv OLS-5";		break;
 	case ST_FWD_OLS6:		a=" S Fwd OLS-6";		break;
 	case ST_INV_OLS6:		a=" S Inv OLS-6";		break;
-//	case ST_FWD_OLS7:		a=" S Fwd OLS-7";		break;
-//	case ST_INV_OLS7:		a=" S Inv OLS-7";		break;
+	case ST_FWD_OLS7:		a=" S Fwd OLS-7";		break;
+	case ST_INV_OLS7:		a=" S Inv OLS-7";		break;
 	case ST_FWD_PU:			a="CS Fwd PU";			break;
 	case ST_INV_PU:			a="CS Inv PU";			break;
 	case ST_FWD_CG3D:		a="CS Fwd CG3D";		break;
@@ -3562,8 +3562,8 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_INV_OLS5:		pred_ols5(image, 0);					break;
 	case ST_FWD_OLS6:		pred_ols6(image, 1);					break;
 	case ST_INV_OLS6:		pred_ols6(image, 0);					break;
-//	case ST_FWD_OLS7:		pred_ols7(image, 1);					break;
-//	case ST_INV_OLS7:		pred_ols7(image, 0);					break;
+	case ST_FWD_OLS7:		pred_ols7(image, 1);					break;
+	case ST_INV_OLS7:		pred_ols7(image, 0);					break;
 	case ST_FWD_PACKSIGN:		packsign(image, 1);					break;
 	case ST_INV_PACKSIGN:		packsign(image, 0);					break;
 	case ST_FWD_BWTX:		prep_BWT_x(pimage, 1);					break;

@@ -16,7 +16,7 @@ add_executable (eBench WIN32
 	ols4.c
 	ols5.c
 	ols6.c
-	#ols7.c
+	ols7.c
 	palette.c
 	#transform_c20.c
 	transforms.c
