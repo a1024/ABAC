@@ -191,7 +191,7 @@ static void v4_submv(V4Context *ctx, long long *dst, const long long *src)
 	for(int k=0;k<ctx->cellsize;++k)
 		dst[k]-=src[k];
 }
-static int v4_predict(V4Context *ctx, const int *nb, int W, int N, int NE, int txid)
+static int v4_predict(V4Context *ctx, const int *nb, int W, int N, int NW, int NE, int NEEE, int txid)
 {
 	ctx->txid=txid;
 	double *pWWW	=ctx->params+(ctx->nparams+1LL)*((ctx->successcount-3LL)&3);
@@ -243,11 +243,17 @@ static int v4_predict(V4Context *ctx, const int *nb, int W, int N, int NE, int t
 	__m128i mpred=_mm_cvtpd_epi32(_mm_set_sd(fpred));
 	__m128i mN	=_mm_set_epi32(0, 0, 0, N);
 	__m128i mW	=_mm_set_epi32(0, 0, 0, W);
+	__m128i mNW	=_mm_set_epi32(0, 0, 0, NW);
 	__m128i mNE	=_mm_set_epi32(0, 0, 0, NE);
+	__m128i mNEEE	=_mm_set_epi32(0, 0, 0, NEEE);
 	__m128i vmin=_mm_min_epi32(mN, mW);
 	__m128i vmax=_mm_max_epi32(mN, mW);
+	vmin=_mm_min_epi32(vmin, mNW);
+	vmax=_mm_max_epi32(vmax, mNW);
 	vmin=_mm_min_epi32(vmin, mNE);
 	vmax=_mm_max_epi32(vmax, mNE);
+	vmin=_mm_min_epi32(vmin, mNEEE);
+	vmax=_mm_max_epi32(vmax, mNEEE);
 	mpred=_mm_max_epi32(mpred, vmin);
 	mpred=_mm_min_epi32(mpred, vmax);
 	_mm_store_si128((__m128i*)pred, mpred);
@@ -836,7 +842,7 @@ void pred_ols6(Image *src, int fwd)
 				if(ky>=OLS6_SAMPLEREACHY&&kx>=OLS6_SAMPLEREACHX&&kx<src->iw-OLS6_SAMPLEREACHX)
 				{
 					int txid=(((rows[1][kc+(0+0)*4]>>(src->depth[kc]-4))+8)&15)<<4|(((rows[0][kc+(0-1)*4]>>(src->depth[kc]-4))+8)&15);
-					pred=v4_predict(ctx, nb, rows[0][kc-1*4], rows[1][kc+0*4], rows[1][kc+1*4], txid);
+					pred=v4_predict(ctx, nb, rows[0][kc-1*4], rows[1][kc+0*4], rows[1][kc-1*4], rows[1][kc+1*4], rows[1][kc+3*4], txid);
 				//	pred=v4_predict(ctx, nb, rows[0][kc-1*4], rows[1][kc+0*4], rows[1][kc+1*4], (pred+128)&255);
 				//	pred=v4_predict(ctx, nb, rows[0][kc-1*4], rows[1][kc+0*4], rows[1][kc+1*4], 1);
 				//	pred=v4_predict(ctx, nb, rows[0][kc-1*4], rows[1][kc+0*4], rows[1][kc+1*4], !(kx&15));
