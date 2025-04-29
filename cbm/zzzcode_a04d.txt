@@ -1,0 +1,2 @@
+a04d *.ppm *.a04d
+a04d *.a04d *.ppm

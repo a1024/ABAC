@@ -1,0 +1,2 @@
+bmf *.ppm
+bmf -pnm *.bmf
