@@ -13,6 +13,31 @@
 #include"c18.h"
 static const char file[]=__FILE__;
 
+	#define ENABLE_L1WEIGHTS
+
+#ifdef ENABLE_L1WEIGHTS
+#define L1NPREDS 12
+#define L1PREDLIST\
+	L1PRED(N)\
+	L1PRED(W)\
+	L1PRED(3*(N-NN)+NNN)\
+	L1PRED(3*(W-WW)+WWW)\
+	L1PRED(N+W-NW)\
+	L1PRED(W+NE-N)\
+	L1PRED(N+NE-NNE)\
+	L1PRED(W+NW-NWW)\
+	L1PRED(N+NW-NNW)\
+	L1PRED(NE+NEE-NNEEE)\
+	L1PRED(W+((NEEE+NEEEEE-N-W)>>3))\
+	L1PRED((WWWWW+WW-W+NNN+N+NEEEEE)>>2)
+static const char *l1prednames[]=
+{
+#define L1PRED(EXPR) #EXPR,
+	L1PREDLIST
+#undef  L1PRED
+};
+static int l1weights[L1NPREDS+1]={0};
+#endif
 float
 	mouse_sensitivity=0.003f,
 	key_turn_speed=0.03f;
@@ -43,6 +68,9 @@ typedef enum VisModeEnum
 
 //	VIS_MESH_SEPARATE,
 	VIS_IMAGE_TRICOLOR,
+#ifdef ENABLE_L1WEIGHTS
+	VIS_L1WEIGHTS,
+#endif
 	VIS_IMAGE,
 	VIS_HISTOGRAM,
 	VIS_MODEL,
@@ -106,9 +134,10 @@ typedef enum TransformTypeEnum
 	ST_FWD_BWTX,		ST_INV_BWTX,
 	ST_FWD_BWTY,		ST_INV_BWTY,
 	ST_FWD_MTF,		ST_INV_MTF,
-	ST_FWD_AV2,		ST_INV_AV2,
+	ST_FWD_OLS7,		ST_INV_OLS7,
 	ST_FWD_CLAMPGRAD,	ST_INV_CLAMPGRAD,
 	ST_FWD_CLEARTYPE,	ST_INV_CLEARTYPE,
+	ST_FWD_AV2,		ST_INV_AV2,
 	ST_FWD_AV4,		ST_INV_AV4,
 	ST_FWD_SEL4,		ST_INV_SEL4,
 	ST_FWD_SELECT,		ST_INV_SELECT,
@@ -148,7 +177,6 @@ typedef enum TransformTypeEnum
 	ST_FWD_OLS4,		ST_INV_OLS4,
 	ST_FWD_OLS5,		ST_INV_OLS5,
 	ST_FWD_OLS6,		ST_INV_OLS6,
-	ST_FWD_OLS7,		ST_INV_OLS7,
 	ST_FWD_TABLE,		ST_INV_TABLE,
 	ST_FWD_LWAV,		ST_INV_LWAV,
 	ST_FWD_MIX2,		ST_INV_MIX2,
@@ -6302,6 +6330,9 @@ int io_keydn(IOKey key, char c)
 		//	"\t2: 3D View: Mesh\n"
 		//	"\t3: 3D View: Mesh (separate channels)\n"
 			"\t%d: Image tricolor view\n"
+#ifdef ENABLE_L1WEIGHTS
+			"\t%d: L1 Weights\n"
+#endif
 			"\t%d: Image view\n"
 		//	"\t6: Image block histogram\n"
 		//	"\t7: Optimized block compression estimate (E24)\n"
@@ -6313,6 +6344,9 @@ int io_keydn(IOKey key, char c)
 			"\t%d: Zipf view\n",
 
 			1+VIS_IMAGE_TRICOLOR,
+#ifdef ENABLE_L1WEIGHTS
+			1+VIS_L1WEIGHTS,
+#endif
 			1+VIS_IMAGE,
 			1+VIS_HISTOGRAM,
 			1+VIS_MODEL,
@@ -6844,8 +6878,15 @@ int io_keydn(IOKey key, char c)
 		if(im1)
 		{
 			int shift=GET_KEY_STATE(KEY_SHIFT);
+			int m0=mode;
 			MODVAR(mode, mode+1-(shift<<1), VIS_COUNT);
 			update_image();
+#ifdef ENABLE_L1WEIGHTS
+			if(m0==VIS_L1WEIGHTS)
+				timer_stop(11);
+			else if(mode==VIS_L1WEIGHTS)
+				timer_start(20, 11);
+#endif
 		}
 		return 1;
 	case 'H':
@@ -8029,6 +8070,9 @@ void io_render(void)
 				);
 			}
 			break;
+#ifdef ENABLE_L1WEIGHTS
+		case VIS_L1WEIGHTS:
+#endif
 		case VIS_IMAGE:
 		case VIS_HISTOGRAM:
 		case VIS_MODEL:
@@ -8075,6 +8119,156 @@ void io_render(void)
 					if(imzoom>=ZOOM_LIMIT_ALPHA&&im1->depth[3])
 						print_pixellabels(ix1, ix2, iy1, iy2, 3, 'a', theme[3], im1->depth[3]);
 				}
+#ifdef ENABLE_L1WEIGHTS
+				if(mode==VIS_L1WEIGHTS)
+				{
+	#define L1HISTSIZE 1024
+					static int vidx=0;
+					static int xpos=0;
+					static int whist[L1HISTSIZE][(L1NPREDS+1)+5]={0};//+{pixel, pred, delta, CG, CGdelta}
+					ptrdiff_t res=(ptrdiff_t)im1->iw*im1->ih;
+					int l1speed=20;
+					int kx=0, ky=0;
+					for(int kpx=0;kpx<l1speed;++kpx)
+					{
+						++vidx;
+						if(vidx>=res)
+							vidx=0;
+						kx=vidx%im1->iw;
+						ky=vidx/im1->iw;
+						int
+							NNNN	=(unsigned)(ky-4)<(unsigned)im1->ih&&(unsigned)(kx+0)<(unsigned)im1->iw?im1->data[((ky-4)*im1->iw+kx+0)*4]:0,
+							NNNW	=(unsigned)(ky-3)<(unsigned)im1->ih&&(unsigned)(kx-1)<(unsigned)im1->iw?im1->data[((ky-3)*im1->iw+kx-1)*4]:0,
+							NNN	=(unsigned)(ky-3)<(unsigned)im1->ih&&(unsigned)(kx+0)<(unsigned)im1->iw?im1->data[((ky-3)*im1->iw+kx+0)*4]:0,
+							NNNE	=(unsigned)(ky-3)<(unsigned)im1->ih&&(unsigned)(kx+1)<(unsigned)im1->iw?im1->data[((ky-3)*im1->iw+kx+1)*4]:0,
+							NNW	=(unsigned)(ky-2)<(unsigned)im1->ih&&(unsigned)(kx-1)<(unsigned)im1->iw?im1->data[((ky-2)*im1->iw+kx-1)*4]:0,
+							NN	=(unsigned)(ky-2)<(unsigned)im1->ih&&(unsigned)(kx+0)<(unsigned)im1->iw?im1->data[((ky-2)*im1->iw+kx+0)*4]:0,
+							NNE	=(unsigned)(ky-2)<(unsigned)im1->ih&&(unsigned)(kx+1)<(unsigned)im1->iw?im1->data[((ky-2)*im1->iw+kx+1)*4]:0,
+							NNEEE	=(unsigned)(ky-2)<(unsigned)im1->ih&&(unsigned)(kx+3)<(unsigned)im1->iw?im1->data[((ky-2)*im1->iw+kx+3)*4]:0,
+							NWW	=(unsigned)(ky-1)<(unsigned)im1->ih&&(unsigned)(kx-2)<(unsigned)im1->iw?im1->data[((ky-1)*im1->iw+kx-2)*4]:0,
+							NW	=(unsigned)(ky-1)<(unsigned)im1->ih&&(unsigned)(kx-1)<(unsigned)im1->iw?im1->data[((ky-1)*im1->iw+kx-1)*4]:0,
+							N	=(unsigned)(ky-1)<(unsigned)im1->ih&&(unsigned)(kx+0)<(unsigned)im1->iw?im1->data[((ky-1)*im1->iw+kx+0)*4]:0,
+							NE	=(unsigned)(ky-1)<(unsigned)im1->ih&&(unsigned)(kx+1)<(unsigned)im1->iw?im1->data[((ky-1)*im1->iw+kx+1)*4]:0,
+							NEE	=(unsigned)(ky-1)<(unsigned)im1->ih&&(unsigned)(kx+2)<(unsigned)im1->iw?im1->data[((ky-1)*im1->iw+kx+2)*4]:0,
+							NEEE	=(unsigned)(ky-1)<(unsigned)im1->ih&&(unsigned)(kx+3)<(unsigned)im1->iw?im1->data[((ky-1)*im1->iw+kx+3)*4]:0,
+							NEEEE	=(unsigned)(ky-1)<(unsigned)im1->ih&&(unsigned)(kx+4)<(unsigned)im1->iw?im1->data[((ky-1)*im1->iw+kx+4)*4]:0,
+							NEEEEE	=(unsigned)(ky-1)<(unsigned)im1->ih&&(unsigned)(kx+5)<(unsigned)im1->iw?im1->data[((ky-1)*im1->iw+kx+5)*4]:0,
+							WWWWWW	=(unsigned)(ky-0)<(unsigned)im1->ih&&(unsigned)(kx-6)<(unsigned)im1->iw?im1->data[((ky-0)*im1->iw+kx-6)*4]:0,
+							WWWWW	=(unsigned)(ky-0)<(unsigned)im1->ih&&(unsigned)(kx-5)<(unsigned)im1->iw?im1->data[((ky-0)*im1->iw+kx-5)*4]:0,
+							WWWW	=(unsigned)(ky-0)<(unsigned)im1->ih&&(unsigned)(kx-4)<(unsigned)im1->iw?im1->data[((ky-0)*im1->iw+kx-4)*4]:0,
+							WWW	=(unsigned)(ky-0)<(unsigned)im1->ih&&(unsigned)(kx-3)<(unsigned)im1->iw?im1->data[((ky-0)*im1->iw+kx-3)*4]:0,
+							WW	=(unsigned)(ky-0)<(unsigned)im1->ih&&(unsigned)(kx-2)<(unsigned)im1->iw?im1->data[((ky-0)*im1->iw+kx-2)*4]:0,
+							W	=(unsigned)(ky-0)<(unsigned)im1->ih&&(unsigned)(kx-1)<(unsigned)im1->iw?im1->data[((ky-0)*im1->iw+kx-1)*4]:0,
+							curr	=im1->data[(ky*im1->iw+kx)*4];
+						int preds[]=
+						{
+	#define L1PRED(EXPR) EXPR,
+							L1PREDLIST
+	#undef  L1PRED
+						};
+						int vmax=N, vmin=W;
+						if(N<W)vmin=N, vmax=W;
+						CLAMP2(preds[0], vmin, vmax);
+						int *currw=l1weights;
+						int pred=currw[L1NPREDS];
+						for(int k=0;k<L1NPREDS;++k)
+							pred+=currw[k]*preds[k];
+		#define L1SH 20	//DIV2K
+	//	#define L1SH 20	//GDCC
+	//	#define L1SH 15	//synth
+						pred+=1<<L1SH>>1;
+						pred>>=L1SH;
+						if(vmin>NW)vmin=NW;
+						if(vmax<NW)vmax=NW;
+						if(vmin>NE)vmin=NE;
+						if(vmax<NE)vmax=NE;
+						if(vmin>NEEE)vmin=NEEE;
+						if(vmax<NEEE)vmax=NEEE;
+						CLAMP2(pred, vmin, vmax);
+
+						++xpos;
+						if(xpos>=L1HISTSIZE-1||xpos>=wndw-1)
+							xpos=0;
+						for(int k=0;k<L1NPREDS+1;++k)
+							whist[xpos][k]=l1weights[(L1NPREDS+1)-1-k]>>8;
+						whist[xpos][(L1NPREDS+1)+0]=curr		+(1<<im1->depth[0]>>1);
+						whist[xpos][(L1NPREDS+1)+1]=pred		+(1<<im1->depth[0]>>1);
+						whist[xpos][(L1NPREDS+1)+2]=curr-pred		+(1<<im1->depth[0]>>1);
+						whist[xpos][(L1NPREDS+1)+3]=preds[0]		+(1<<im1->depth[0]>>1);
+						whist[xpos][(L1NPREDS+1)+4]=curr-preds[0]	+(1<<im1->depth[0]>>1)+(1<<im1->depth[0]);
+						//for(int k=0, wsum=0;k<L1NPREDS+1;++k)
+						//{
+						//	int w=l1weights[L1NPREDS-k];
+						//	wsum+=w;
+						//	whist[xpos][k]=wsum>>11;
+						//}
+						//memcpy(whist[xpos], l1weights, sizeof(l1weights));
+
+						//update
+						int e=curr-pred;
+						CLAMP2(e, 1-8, 15-8);
+						static const int etable[]=
+						{
+							//   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
+							-1, -1, -1, -1, -2, -2, -2, -2,  0, +2, +2, +2, +2, +1, +1, +1,
+						//	-4, -4, -4, -5, -6, -8, -9, -6,  0, +6, +9, +8, +6, +5, +4, +4,
+						};
+						e=etable[e+8];
+						//	... -8 -7 -6 -5 -4 -3 -2 -1  0  1  2  3  4  5  6  7
+						//	... -1 -1 -1 -1 -2 -2 -2 -2  0 +2 +2 +2 +2 +1 +1 +1 ...
+						//e=(((e>0)-(e<0))<<1)-((e>4)-(e<-4));
+						currw[L1NPREDS]+=e;
+						for(int k=0;k<L1NPREDS;++k)
+							currw[k]+=e*preds[k];
+					}
+
+					//draw
+					int dlen=wndw;
+					if(dlen>L1HISTSIZE)
+						dlen=L1HISTSIZE;
+					dlen-=2;
+					for(int kx2=0;kx2<dlen;++kx2)
+					{
+						if(kx2==xpos)
+							continue;
+						for(int ky2=0;ky2<L1NPREDS+1;++ky2)
+							draw_line(
+								(float)kx2, (float)(wndh*7/8-whist[kx2][ky2]),
+								(float)(kx2+1), (float)(wndh*7/8-whist[kx2+1][ky2]), 0xFF000000
+							);
+						draw_line(//curr - pink
+							(float)kx2, (float)(wndh*7/8-whist[kx2][(L1NPREDS+1)+0]),
+							(float)(kx2+1), (float)(wndh*7/8-whist[kx2+1][(L1NPREDS+1)+0]), 0xFFFF00FF
+						);
+						draw_line(//pred - green
+							(float)kx2, (float)(wndh*7/8-whist[kx2][(L1NPREDS+1)+1]),
+							(float)(kx2+1), (float)(wndh*7/8-whist[kx2+1][(L1NPREDS+1)+1]), 0xFF00FF00
+						);
+						draw_line(//delta - gray
+							(float)kx2, (float)(wndh*7/8-whist[kx2][(L1NPREDS+1)+2]),
+							(float)(kx2+1), (float)(wndh*7/8-whist[kx2+1][(L1NPREDS+1)+2]), 0xFFC0C0C0
+						);
+						draw_line(//CG - red
+							(float)kx2, (float)(wndh*7/8-whist[kx2][(L1NPREDS+1)+3]),
+							(float)(kx2+1), (float)(wndh*7/8-whist[kx2+1][(L1NPREDS+1)+3]), 0xFF0000FF
+						);
+						draw_line(//CGdelta - grayish-red
+							(float)kx2, (float)(wndh*7/8-whist[kx2][(L1NPREDS+1)+4]),
+							(float)(kx2+1), (float)(wndh*7/8-whist[kx2+1][(L1NPREDS+1)+4]), 0xFF4040C0
+						);
+					}
+					for(int ky2=0;ky2<L1NPREDS+1;++ky2)
+						GUIPrint(0, L1HISTSIZE, (float)(wndh*7/8-whist[xpos][ky2]), 0.8f, "%s",
+							ky2?l1prednames[L1NPREDS-1-(ky2-1)]:"bias"
+						);
+					{
+						float xs=image2screen_x(kx);
+						float ys=image2screen_y(ky);
+						draw_rect_hollow(xs-7, xs+7, ys-7, ys+7, 0xFFFF00FF);
+					}
+				}
+				else
+#endif
 				if(mode==VIS_HISTOGRAM)
 					chart_hist_draw(0, (float)wndw, 0, (float)wndh, 0, 3, 0, 0x60, hist, histmax);
 				else if(mode==VIS_MODEL)
@@ -9487,6 +9681,9 @@ void io_render(void)
 		case VIS_HISTOGRAM:		mode_str="Histogram";		break;
 		case VIS_MODEL:			mode_str="Model";		break;
 		case VIS_JOINT_HISTOGRAM:	mode_str="Joint Histogram";	break;
+#ifdef ENABLE_L1WEIGHTS
+		case VIS_L1WEIGHTS:		mode_str="L1 Weights";		break;
+#endif
 		case VIS_IMAGE:			mode_str="Image View";		break;
 	//	case VIS_BAYES:			mode_str="Bayes";		break;
 		case VIS_ZIPF:			mode_str="Zipf View";		break;
