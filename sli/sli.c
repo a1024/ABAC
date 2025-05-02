@@ -6,15 +6,12 @@ int a04_codec(int argc, char **argv);//fast
 int a05_codec(int argc, char **argv);//extremely fast, compromise
 
 
-//	#define RELEASE_THE_KRAKEN
-
-
 #ifndef CODEC_EXT
 //	#define CODEC_EXT a01
 //	#define CODEC_EXT a02
 //	#define CODEC_EXT a03
-//	#define CODEC_EXT a04
-	#define CODEC_EXT a05
+	#define CODEC_EXT a04
+//	#define CODEC_EXT a05
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -27,12 +24,15 @@ int a05_codec(int argc, char **argv);//extremely fast, compromise
 
 int main(int argc, char **argv)
 {
-#if defined __GNUC__ || defined RELEASE_THE_KRAKEN
+#if defined __GNUC__ || (!defined _DEBUG && !defined RELWITHDEBINFO)
 	return CODEC_FUNC(argc, argv);
 #else
 	const char *srcfn=
-		
-		"C:/dataset-NEF-ppm/DSC_0185.ppm"
+
+		"C:/Projects/datasets/dataset-DIV2K-ppm/0801.ppm"
+
+	//	"C:/Projects/datasets/dataset-DSLR-ppm/DSC_0825.ppm"
+	//	"C:/dataset-NEF-ppm/DSC_0185.ppm"
 	//	"C:/dataset-DIV2K-ppm/0801.ppm"
 	//	"C:/dataset-HUGE-ppm/jwst.ppm"
 	//	"C:/dataset-HUGE-ppm/juno.ppm"
@@ -43,14 +43,17 @@ int main(int argc, char **argv)
 	{
 		argv[0],
 		srcfn,
-		"C:/dataset-HUGE-ppm/mystery.alic",
+		"C:/Projects/datasets/mystery.alic",
+	//	"C:/dataset-HUGE-ppm/mystery.alic",
 	//	"D:/ML/mystery.alic",
 	};
 	const char *decargs[]=
 	{
 		argv[0],
-		"C:/dataset-HUGE-ppm/mystery.alic",
-		"C:/dataset-HUGE-ppm/mystery.ppm",
+		"C:/Projects/datasets/mystery.alic",
+		"C:/Projects/datasets/mystery.ppm",
+	//	"C:/dataset-HUGE-ppm/mystery.alic",
+	//	"C:/dataset-HUGE-ppm/mystery.ppm",
 	//	"D:/ML/mystery.alic",
 	//	"D:/ML/mystery.ppm",
 	};

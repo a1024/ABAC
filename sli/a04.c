@@ -18,12 +18,15 @@
 	#define LOUD
 	#define PROFILE_TIME
 
+	#define USE_L1
 //	#define USE_W
-	#define USE_CG
+//	#define USE_CG
 //	#define USE_WGCG
 
 //	#define DISABLE_ANALYSIS
 
+
+#define L1NPREDS 4
 
 #define ENC_DY 128
 #define ENC_DX 512
@@ -319,6 +322,9 @@ int a04_codec(int argc, char **argv)
 	}
 	else
 		fprintf(fdst, "P6\n%d %d\n255\n", iw, ih);
+#ifdef USE_L1
+	int coeffs[3][L1NPREDS+1]={0};
+#endif
 	int imsize=iw*ENC_DY*3;
 	unsigned char *image=(unsigned char*)malloc(imsize);
 	if(!image)
@@ -522,7 +528,78 @@ int a04_codec(int argc, char **argv)
 #endif
 					for(int k=0;k<blocksize;++k)
 					{
-#ifdef USE_CG
+#ifdef USE_L1
+						int yNW=yNptr[-1];
+						int uNW=uNptr[-1];
+						int vNW=vNptr[-1];
+						int yN=yNptr[0];
+						int uN=uNptr[0];
+						int vN=vNptr[0];
+						int yNE=yNptr[1];
+						int uNE=uNptr[1];
+						int vNE=vNptr[1];
+						int yW=ycurrptr[-1];
+						int uW=ucurrptr[-1];
+						int vW=vcurrptr[-1];
+						int ymax=yN, ymin=yW;
+						int umax=uN, umin=uW;
+						int vmax=vN, vmin=vW;
+						if(yN<yW)ymin=yN, ymax=yW;
+						if(uN<uW)umin=uN, umax=uW;
+						if(vN<vW)vmin=vN, vmax=vW;
+						if(ymin>yNE)ymin=yNE;
+						if(umin>uNE)umin=uNE;
+						if(vmin>vNE)vmin=vNE;
+						if(ymax<yNE)ymax=yNE;
+						if(umax<uNE)umax=uNE;
+						if(vmax<vNE)vmax=vNE;
+						int preds[]=
+						{
+							yN,
+							uN,
+							vN,
+							yW,
+							uW,
+							vW,
+							yN+yW-yNW,
+							uN+uW-uNW,
+							vN+vW-vNW,
+							(3*yW+yNE)>>2,
+							(3*uW+uNE)>>2,
+							(3*vW+vNE)>>2,
+						};
+						int pred[]=
+						{
+							coeffs[0][L1NPREDS],
+							coeffs[1][L1NPREDS],
+							coeffs[2][L1NPREDS],
+						};
+						pred[0]+=preds[0*3+0]*coeffs[0][0];
+						pred[1]+=preds[0*3+1]*coeffs[1][0];
+						pred[2]+=preds[0*3+2]*coeffs[2][0];
+						pred[0]+=preds[1*3+0]*coeffs[0][1];
+						pred[1]+=preds[1*3+1]*coeffs[1][1];
+						pred[2]+=preds[1*3+2]*coeffs[2][1];
+						pred[0]+=preds[2*3+0]*coeffs[0][2];
+						pred[1]+=preds[2*3+1]*coeffs[1][2];
+						pred[2]+=preds[2*3+2]*coeffs[2][2];
+						pred[0]+=preds[3*3+0]*coeffs[0][3];
+						pred[1]+=preds[3*3+1]*coeffs[1][3];
+						pred[2]+=preds[3*3+2]*coeffs[2][3];
+#define L1SH 20
+						pred[0]+=1<<L1SH>>1;
+						pred[1]+=1<<L1SH>>1;
+						pred[2]+=1<<L1SH>>1;
+						pred[0]>>=L1SH;
+						pred[1]>>=L1SH;
+						pred[2]>>=L1SH;
+						int ypred=pred[0];
+						int upred=pred[1];
+						int vpred=pred[2];
+						CLAMP2(ypred, ymin, ymax);
+						CLAMP2(upred, umin, umax);
+						CLAMP2(vpred, vmin, vmax);
+#elif defined USE_CG
 						int yN=yNptr[0];
 						int uN=uNptr[0];
 						int vN=vNptr[0];
@@ -629,6 +706,26 @@ int a04_codec(int argc, char **argv)
 						*ycurrptr++=yuv[0];//store YUV
 						*ucurrptr++=yuv[1];
 						*vcurrptr++=yuv[2];
+#ifdef USE_L1
+						int ye=(yuv[0]>pred[0])-(yuv[0]<pred[0]);
+						int ue=(yuv[1]>pred[1])-(yuv[1]<pred[1]);
+						int ve=(yuv[2]>pred[2])-(yuv[2]<pred[2]);
+						coeffs[0][L1NPREDS]+=ye;
+						coeffs[1][L1NPREDS]+=ue;
+						coeffs[2][L1NPREDS]+=ve;
+						coeffs[0][0]+=ye*preds[0*3+0];
+						coeffs[1][0]+=ue*preds[0*3+1];
+						coeffs[2][0]+=ve*preds[0*3+2];
+						coeffs[0][1]+=ye*preds[1*3+0];
+						coeffs[1][1]+=ue*preds[1*3+1];
+						coeffs[2][1]+=ve*preds[1*3+2];
+						coeffs[0][2]+=ye*preds[2*3+0];
+						coeffs[1][2]+=ue*preds[2*3+1];
+						coeffs[2][2]+=ve*preds[2*3+2];
+						coeffs[0][3]+=ye*preds[3*3+0];
+						coeffs[1][3]+=ue*preds[3*3+1];
+						coeffs[2][3]+=ve*preds[3*3+2];
+#endif
 						yuv[0]-=ypred;
 						yuv[1]-=upred;
 						yuv[2]-=vpred;
@@ -770,7 +867,78 @@ int a04_codec(int argc, char **argv)
 #endif
 					for(int k=0;k<blocksize;++k)
 					{
-#ifdef USE_CG
+#ifdef USE_L1
+						int yNW=yNptr[-1];
+						int uNW=uNptr[-1];
+						int vNW=vNptr[-1];
+						int yN=yNptr[0];
+						int uN=uNptr[0];
+						int vN=vNptr[0];
+						int yNE=yNptr[1];
+						int uNE=uNptr[1];
+						int vNE=vNptr[1];
+						int yW=ycurrptr[-1];
+						int uW=ucurrptr[-1];
+						int vW=vcurrptr[-1];
+						int ymax=yN, ymin=yW;
+						int umax=uN, umin=uW;
+						int vmax=vN, vmin=vW;
+						if(yN<yW)ymin=yN, ymax=yW;
+						if(uN<uW)umin=uN, umax=uW;
+						if(vN<vW)vmin=vN, vmax=vW;
+						if(ymin>yNE)ymin=yNE;
+						if(umin>uNE)umin=uNE;
+						if(vmin>vNE)vmin=vNE;
+						if(ymax<yNE)ymax=yNE;
+						if(umax<uNE)umax=uNE;
+						if(vmax<vNE)vmax=vNE;
+						int preds[]=
+						{
+							yN,
+							uN,
+							vN,
+							yW,
+							uW,
+							vW,
+							yN+yW-yNW,
+							uN+uW-uNW,
+							vN+vW-vNW,
+							(3*yW+yNE)>>2,
+							(3*uW+uNE)>>2,
+							(3*vW+vNE)>>2,
+						};
+						int pred[]=
+						{
+							coeffs[0][L1NPREDS],
+							coeffs[1][L1NPREDS],
+							coeffs[2][L1NPREDS],
+						};
+						pred[0]+=preds[0*3+0]*coeffs[0][0];
+						pred[1]+=preds[0*3+1]*coeffs[1][0];
+						pred[2]+=preds[0*3+2]*coeffs[2][0];
+						pred[0]+=preds[1*3+0]*coeffs[0][1];
+						pred[1]+=preds[1*3+1]*coeffs[1][1];
+						pred[2]+=preds[1*3+2]*coeffs[2][1];
+						pred[0]+=preds[2*3+0]*coeffs[0][2];
+						pred[1]+=preds[2*3+1]*coeffs[1][2];
+						pred[2]+=preds[2*3+2]*coeffs[2][2];
+						pred[0]+=preds[3*3+0]*coeffs[0][3];
+						pred[1]+=preds[3*3+1]*coeffs[1][3];
+						pred[2]+=preds[3*3+2]*coeffs[2][3];
+#define L1SH 20
+						pred[0]+=1<<L1SH>>1;
+						pred[1]+=1<<L1SH>>1;
+						pred[2]+=1<<L1SH>>1;
+						pred[0]>>=L1SH;
+						pred[1]>>=L1SH;
+						pred[2]>>=L1SH;
+						int ypred=pred[0];
+						int upred=pred[1];
+						int vpred=pred[2];
+						CLAMP2(ypred, ymin, ymax);
+						CLAMP2(upred, umin, umax);
+						CLAMP2(vpred, vmin, vmax);
+#elif defined USE_CG
 						int yN=yNptr[0];
 						int uN=uNptr[0];
 						int vN=vNptr[0];
@@ -860,6 +1028,26 @@ int a04_codec(int argc, char **argv)
 						*ycurrptr++=yuv[0];//store YUV
 						*ucurrptr++=yuv[1];
 						*vcurrptr++=yuv[2];
+#ifdef USE_L1
+						int ye=(yuv[0]>pred[0])-(yuv[0]<pred[0]);
+						int ue=(yuv[1]>pred[1])-(yuv[1]<pred[1]);
+						int ve=(yuv[2]>pred[2])-(yuv[2]<pred[2]);
+						coeffs[0][L1NPREDS]+=ye;
+						coeffs[1][L1NPREDS]+=ue;
+						coeffs[2][L1NPREDS]+=ve;
+						coeffs[0][0]+=ye*preds[0*3+0];
+						coeffs[1][0]+=ue*preds[0*3+1];
+						coeffs[2][0]+=ve*preds[0*3+2];
+						coeffs[0][1]+=ye*preds[1*3+0];
+						coeffs[1][1]+=ue*preds[1*3+1];
+						coeffs[2][1]+=ve*preds[1*3+2];
+						coeffs[0][2]+=ye*preds[2*3+0];
+						coeffs[1][2]+=ue*preds[2*3+1];
+						coeffs[2][2]+=ve*preds[2*3+2];
+						coeffs[0][3]+=ye*preds[3*3+0];
+						coeffs[1][3]+=ue*preds[3*3+1];
+						coeffs[2][3]+=ve*preds[3*3+2];
+#endif
 #ifdef USE_W
 						int yW=yuv[0];
 						int uW=yuv[1];

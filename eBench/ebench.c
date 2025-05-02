@@ -16,27 +16,54 @@ static const char file[]=__FILE__;
 	#define ENABLE_L1WEIGHTS
 
 #ifdef ENABLE_L1WEIGHTS
+#if 1
+#define L1NPREDS 13
+#define L1PREDLIST\
+	L1PRED(100000, N+W-NW)\
+	L1PRED(200000, N+W-NW)\
+	L1PRED(100000, N)\
+	L1PRED(100000, W)\
+	L1PRED(100000, 3*(N-NN)+NNN)\
+	L1PRED(100000, 3*(W-WW)+WWW)\
+	L1PRED(100000, W+NE-N)\
+	L1PRED(100000, N+NE-NNE)\
+	L1PRED(100000, W+((NEEE+NEEEEE-N-W)>>3))\
+	L1PRED( 50000, W+NW-NWW)\
+	L1PRED( 50000, N+NW-NNW)\
+	L1PRED( 50000, NE+NEE-NNEEE)\
+	L1PRED( 50000, (WWWWW+WW-W+NNN+N+NEEEEE)>>2)
+#define L1BIAS0	0
+#endif
+#if 0
 #define L1NPREDS 12
 #define L1PREDLIST\
-	L1PRED(N)\
-	L1PRED(W)\
-	L1PRED(3*(N-NN)+NNN)\
-	L1PRED(3*(W-WW)+WWW)\
-	L1PRED(N+W-NW)\
-	L1PRED(W+NE-N)\
-	L1PRED(N+NE-NNE)\
-	L1PRED(W+NW-NWW)\
-	L1PRED(N+NW-NNW)\
-	L1PRED(NE+NEE-NNEEE)\
-	L1PRED(W+((NEEE+NEEEEE-N-W)>>3))\
-	L1PRED((WWWWW+WW-W+NNN+N+NEEEEE)>>2)
+	L1PRED( 90000, N)\
+	L1PRED( 90000, W)\
+	L1PRED( 90000, 3*(N-NN)+NNN)\
+	L1PRED( 60000, 3*(W-WW)+WWW)\
+	L1PRED(160000, N+W-NW)\
+	L1PRED( 90000, W+NE-N)\
+	L1PRED(100000, N+NE-NNE)\
+	L1PRED( 20000, W+NW-NWW)\
+	L1PRED( 50000, N+NW-NNW)\
+	L1PRED( 70000, NE+NEE-NNEEE)\
+	L1PRED( 80000, W+((NEEE+NEEEEE-N-W)>>3))\
+	L1PRED( 90000, (WWWWW+WW-W+NNN+N+NEEEEE)>>2)
+#define L1BIAS0	0
+#endif
 static const char *l1prednames[]=
 {
-#define L1PRED(EXPR) #EXPR,
+#define L1PRED(W0, EXPR) #EXPR,
 	L1PREDLIST
 #undef  L1PRED
 };
-static int l1weights[L1NPREDS+1]={0};
+static int l1weights[L1NPREDS+1]=
+{
+#define L1PRED(W0, EXPR) W0,
+	L1PREDLIST
+#undef  L1PRED
+	L1BIAS0,
+};
 #endif
 float
 	mouse_sensitivity=0.003f,
@@ -124,6 +151,9 @@ typedef enum TransformTypeEnum
 
 	CST_COMPARE,		CST_INV_SEPARATOR,
 	
+	ST_FWD_OLS7,		ST_INV_OLS7,
+	ST_FWD_CLAMPGRAD,	ST_INV_CLAMPGRAD,
+	ST_FWD_AV2,		ST_INV_AV2,
 	ST_CONVTEST,		ST_CONVTEST2,
 	ST_FILT_MEDIAN33,	ST_FILT_AV33,
 	ST_FILT_DEINT422,	ST_FILT_DEINT420,
@@ -134,10 +164,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_BWTX,		ST_INV_BWTX,
 	ST_FWD_BWTY,		ST_INV_BWTY,
 	ST_FWD_MTF,		ST_INV_MTF,
-	ST_FWD_OLS7,		ST_INV_OLS7,
-	ST_FWD_CLAMPGRAD,	ST_INV_CLAMPGRAD,
 	ST_FWD_CLEARTYPE,	ST_INV_CLEARTYPE,
-	ST_FWD_AV2,		ST_INV_AV2,
 	ST_FWD_AV4,		ST_INV_AV4,
 	ST_FWD_SEL4,		ST_INV_SEL4,
 	ST_FWD_SELECT,		ST_INV_SELECT,
@@ -6885,7 +6912,7 @@ int io_keydn(IOKey key, char c)
 			if(m0==VIS_L1WEIGHTS)
 				timer_stop(11);
 			else if(mode==VIS_L1WEIGHTS)
-				timer_start(20, 11);
+				timer_start(40, 11);
 #endif
 		}
 		return 1;
@@ -8122,6 +8149,8 @@ void io_render(void)
 #ifdef ENABLE_L1WEIGHTS
 				if(mode==VIS_L1WEIGHTS)
 				{
+	#define L1HOLD 1
+	#define L1SCALE 1
 	#define L1HISTSIZE 1024
 					static int vidx=0;
 					static int xpos=0;
@@ -8162,7 +8191,7 @@ void io_render(void)
 							curr	=im1->data[(ky*im1->iw+kx)*4];
 						int preds[]=
 						{
-	#define L1PRED(EXPR) EXPR,
+	#define L1PRED(W0, EXPR) EXPR,
 							L1PREDLIST
 	#undef  L1PRED
 						};
@@ -8178,10 +8207,10 @@ void io_render(void)
 	//	#define L1SH 15	//synth
 						pred+=1<<L1SH>>1;
 						pred>>=L1SH;
-						if(vmin>NW)vmin=NW;
-						if(vmax<NW)vmax=NW;
 						if(vmin>NE)vmin=NE;
 						if(vmax<NE)vmax=NE;
+						//if(vmin>NW)vmin=NW;
+						//if(vmax<NW)vmax=NW;
 						if(vmin>NEEE)vmin=NEEE;
 						if(vmax<NEEE)vmax=NEEE;
 						CLAMP2(pred, vmin, vmax);
@@ -8191,10 +8220,10 @@ void io_render(void)
 							xpos=0;
 						for(int k=0;k<L1NPREDS+1;++k)
 							whist[xpos][k]=l1weights[(L1NPREDS+1)-1-k]>>8;
-						whist[xpos][(L1NPREDS+1)+0]=curr		+(1<<im1->depth[0]>>1);
-						whist[xpos][(L1NPREDS+1)+1]=pred		+(1<<im1->depth[0]>>1);
-						whist[xpos][(L1NPREDS+1)+2]=curr-pred		+(1<<im1->depth[0]>>1);
-						whist[xpos][(L1NPREDS+1)+3]=preds[0]		+(1<<im1->depth[0]>>1);
+						whist[xpos][(L1NPREDS+1)+0]=preds[0]		+(1<<im1->depth[0]>>1)+0*64;
+						whist[xpos][(L1NPREDS+1)+1]=curr		+(1<<im1->depth[0]>>1)+1*64;
+						whist[xpos][(L1NPREDS+1)+2]=pred		+(1<<im1->depth[0]>>1)+2*64;
+						whist[xpos][(L1NPREDS+1)+3]=curr-pred		+(1<<im1->depth[0]>>1);
 						whist[xpos][(L1NPREDS+1)+4]=curr-preds[0]	+(1<<im1->depth[0]>>1)+(1<<im1->depth[0]);
 						//for(int k=0, wsum=0;k<L1NPREDS+1;++k)
 						//{
@@ -8233,37 +8262,38 @@ void io_render(void)
 							continue;
 						for(int ky2=0;ky2<L1NPREDS+1;++ky2)
 							draw_line(
-								(float)kx2, (float)(wndh*7/8-whist[kx2][ky2]),
-								(float)(kx2+1), (float)(wndh*7/8-whist[kx2+1][ky2]), 0xFF000000
+								L1SCALE*(float)kx2, (float)(wndh*7/8-whist[kx2][ky2]),
+								L1SCALE*(float)(kx2+1), (float)(wndh*7/8-whist[kx2+1][ky2]), 0xFF000000
 							);
+						draw_line(//CG - red
+							L1SCALE*(float)kx2, (float)(wndh*7/8-whist[kx2][(L1NPREDS+1)+0]),
+							L1SCALE*(float)(kx2+1), (float)(wndh*7/8-whist[kx2+1*L1HOLD][(L1NPREDS+1)+0]), 0xFF0000FF
+						);
 						draw_line(//curr - pink
-							(float)kx2, (float)(wndh*7/8-whist[kx2][(L1NPREDS+1)+0]),
-							(float)(kx2+1), (float)(wndh*7/8-whist[kx2+1][(L1NPREDS+1)+0]), 0xFFFF00FF
+							L1SCALE*(float)kx2, (float)(wndh*7/8-whist[kx2][(L1NPREDS+1)+1]),
+							L1SCALE*(float)(kx2+1), (float)(wndh*7/8-whist[kx2+1*L1HOLD][(L1NPREDS+1)+1]), 0xFFFF00FF
 						);
 						draw_line(//pred - green
-							(float)kx2, (float)(wndh*7/8-whist[kx2][(L1NPREDS+1)+1]),
-							(float)(kx2+1), (float)(wndh*7/8-whist[kx2+1][(L1NPREDS+1)+1]), 0xFF00FF00
+							L1SCALE*(float)kx2, (float)(wndh*7/8-whist[kx2][(L1NPREDS+1)+2]),
+							L1SCALE*(float)(kx2+1), (float)(wndh*7/8-whist[kx2+1*L1HOLD][(L1NPREDS+1)+2]), 0xFF00FF00
 						);
 						draw_line(//delta - gray
-							(float)kx2, (float)(wndh*7/8-whist[kx2][(L1NPREDS+1)+2]),
-							(float)(kx2+1), (float)(wndh*7/8-whist[kx2+1][(L1NPREDS+1)+2]), 0xFFC0C0C0
-						);
-						draw_line(//CG - red
-							(float)kx2, (float)(wndh*7/8-whist[kx2][(L1NPREDS+1)+3]),
-							(float)(kx2+1), (float)(wndh*7/8-whist[kx2+1][(L1NPREDS+1)+3]), 0xFF0000FF
+							L1SCALE*(float)kx2, (float)(wndh*7/8-whist[kx2][(L1NPREDS+1)+3]),
+							L1SCALE*(float)(kx2+1), (float)(wndh*7/8-whist[kx2+1*L1HOLD][(L1NPREDS+1)+3]), 0xFFC0C0C0
 						);
 						draw_line(//CGdelta - grayish-red
-							(float)kx2, (float)(wndh*7/8-whist[kx2][(L1NPREDS+1)+4]),
-							(float)(kx2+1), (float)(wndh*7/8-whist[kx2+1][(L1NPREDS+1)+4]), 0xFF4040C0
+							L1SCALE*(float)kx2, (float)(wndh*7/8-whist[kx2][(L1NPREDS+1)+4]),
+							L1SCALE*(float)(kx2+1), (float)(wndh*7/8-whist[kx2+1*L1HOLD][(L1NPREDS+1)+4]), 0xFF5050B0
 						);
 					}
 					for(int ky2=0;ky2<L1NPREDS+1;++ky2)
-						GUIPrint(0, L1HISTSIZE, (float)(wndh*7/8-whist[xpos][ky2]), 0.8f, "%s",
+						GUIPrint(0, L1SCALE*L1HISTSIZE, (float)(wndh*7/8-whist[xpos][ky2]), 0.8f, "%10d %s",
+							l1weights[(L1NPREDS+1)-1-ky2],
 							ky2?l1prednames[L1NPREDS-1-(ky2-1)]:"bias"
 						);
 					{
-						float xs=image2screen_x(kx);
-						float ys=image2screen_y(ky);
+						float xs=(float)image2screen_x(kx);
+						float ys=(float)image2screen_y(ky);
 						draw_rect_hollow(xs-7, xs+7, ys-7, ys+7, 0xFFFF00FF);
 					}
 				}

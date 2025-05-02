@@ -205,7 +205,16 @@ int main(int argc, char **argv)
 
 //	CODEC_FUNC("C:/dataset-HUGE2-ppm/andromeda.ppm",	"D:/ML/mystery.lsim", nthreads);
 //	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
-	
+
+//	CODEC_FUNC("C:/Projects/datasets/space_huge.ppm",	"C:/Projects/datasets/mystery.lsim",	2);
+//	CODEC_FUNC("C:/Projects/datasets/mystery.lsim",		"C:/Projects/datasets/mystery_dec.ppm",	2);
+
+//	CODEC_FUNC("C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm",	"C:/Projects/datasets/mystery.lsim",	2);
+//	CODEC_FUNC("C:/Projects/datasets/mystery.lsim",				"C:/Projects/datasets/mystery_dec.ppm",	2);
+
+//	CODEC_FUNC("C:/Projects/datasets/20240513 screenshot.PPM",	"C:/Projects/datasets/mystery.lsim",	2);
+//	CODEC_FUNC("C:/Projects/datasets/mystery.lsim",			"C:/Projects/datasets/mystery_dec.ppm",	2);
+
 	CODEC_FUNC("C:/Projects/datasets/dataset-DIV2K-ppm/0801.ppm",	"C:/Projects/datasets/mystery.lsim",	2);
 	CODEC_FUNC("C:/Projects/datasets/mystery.lsim",			"C:/Projects/datasets/mystery_dec.ppm",	2);
 

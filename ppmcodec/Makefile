@@ -6,9 +6,9 @@
 
 
 ifeq ($(DEBUG), 1)
-FLAGS = -Wall -O3 -g -D_DEBUG
+FLAGS = -Wall -O2 -g -D_DEBUG
 else
-FLAGS = -Wall -O3 -s
+FLAGS = -Wall -O2 -s
 endif
 #FLAGS = -Wall -ffunction-sections -fdata-sections -Wl,--gc-sections -O3 -s
 
