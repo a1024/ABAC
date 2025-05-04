@@ -7,16 +7,33 @@ Each folder contains a different project.
 
 ## Maintained projects
 
-### `best`
-[outdated]
-The best codecs are placed here. Sometimes not up to date.
-Reference implementations of the best open-source lossless algorithms that I implemented/encountered.
+### `cbm`
+A codec benchmark that tracks history per-file.
 To build, either create an MSVC 2022 CMake project, or to use GCC:
 
 `make`
 
-### `cbm`
-A codec benchmark that tracks history per-file.
+### `eBench`
+A GUI tool that evaluates reversible decorrelating transforms.
+Supports high bit depth images.
+Currently works only on Windows.
+To build, either create an MSVC 2022 CMake project, or to use GCC:
+
+`make`
+
+### `ppmcodec`
+Plain 8-bit codecs without alpha. PPM only.
+To build, either create an MSVC 2022 CMake project, or to use GCC:
+
+`make c<codecID> [PROF=1]`
+
+
+## Archived projects (obsolete)
+
+### `best`
+[outdated]
+The best codecs are placed here. Sometimes not up to date.
+Reference implementations of the best open-source lossless algorithms that I implemented/encountered.
 To build, either create an MSVC 2022 CMake project, or to use GCC:
 
 `make`
@@ -28,13 +45,8 @@ To build, either create an MSVC 2022 CMake project, or to use GCC:
 
 `gcc -O3 -mavx2 -mbmi  e2.c format.c lodepng.c t51.c t54.c t55.c tests4.c tests5.c tests6.c transforms.c util.c  -o e2`
 
-### `eBench`
-A GUI tool that evaluates reversible decorrelating transforms.
-Supports high bit depth images.
-Currently works only on Windows.
-To build, either create an MSVC 2022 CMake project, or to use GCC:
-
-`make`
+### `entropy-battle`
+Experiments on lossless image compression. Older, messier project, contains even more obsolete techniques.
 
 ### `fast`
 [outdated]
@@ -49,18 +61,6 @@ Batch image converter.
 To build, either create an MSVC 2022 CMake project, or to use GCC:
 
 `gcc -O3 imgcvt.c util.c -o imgcvt`
-
-### `ppmcodec`
-Plain 8-bit codecs without alpha. PPM only.
-To build, either create an MSVC 2022 CMake project, or to use GCC:
-
-`make c<codecID> [PROF=1]`
-
-
-## Archived projects (obsolete)
-
-### `entropy-battle`
-Experiments on lossless image compression. Older, messier project, contains even more obsolete techniques.
 
 ### `pxView3D`
 A GUI visualization and benchmarking tool for reversible image transforms.
