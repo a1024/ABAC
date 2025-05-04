@@ -53,7 +53,8 @@ int c28_codec(const char *srcfn, const char *dstfn, int nthreads0);//ST AC with 
 int c29_codec(const char *srcfn, const char *dstfn, int nthreads0);//C29 ST interleaved AVX2 cRCT WG4/CG GRctx static-rANS
 int c30_codec(const char *srcfn, const char *dstfn, int nthreads0);//ST OLS
 int c31_codec(const char *srcfn, const char *dstfn, int nthreads0);//cross-platform C29, slower
-int c32_codec(const char *srcfn, const char *dstfn, int nthreads0);//like C29 but 16 coders
+int c32_codec(const char *srcfn, const char *dstfn, int nthreads0);//C32: like C29 but 16 coders
+int c33_codec(const char *srcfn, const char *dstfn, int nthreads0);//C33: speed priority CG-only
 
 	
 #ifdef __cplusplus

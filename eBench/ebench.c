@@ -70,7 +70,8 @@ static int l1weights[L1NPREDS+1]=
 #ifdef USE_OLS
 static double curr_cov[L1NPREDS*L1NPREDS]={0}, curr_vec[L1NPREDS]={0}, curr_cholesky[L1NPREDS*L1NPREDS]={0}, curr_params[L1NPREDS]={0};
 #endif
-static int use_ols=0;
+static int wperrors[L1NPREDS]={0};
+static int use_ols=0;//0: L1    1: OLS    2: WP
 #endif
 float
 	mouse_sensitivity=0.003f,
@@ -6987,7 +6988,11 @@ int io_keydn(IOKey key, char c)
 			batch_test();
 		}
 		else if(mode==VIS_L1WEIGHTS)
-			use_ols=!use_ols;
+		{
+			int fwd=!GET_KEY_STATE(KEY_SHIFT);
+			fwd=2*fwd-1;
+			use_ols=(use_ols+fwd+3)%3;
+		}
 		break;
 	case KEY_LBRACKET:
 	case KEY_RBRACKET:
@@ -8247,7 +8252,46 @@ void io_render(void)
 						CLAMP2(preds[0], vmin, vmax);
 						int *currw=l1weights;
 						int pred=0;
-						if(use_ols)
+						if(use_ols==2)
+						{
+#define NUMBITS 15
+#define DENBITS 7
+#define DIVLUTSIZE (1<<DENBITS)
+							static int divlookup[DIVLUTSIZE]={0};
+							if(!*divlookup)
+							{
+								for(int k=0;k<DIVLUTSIZE;++k)
+									divlookup[k]=(1<<NUMBITS)/(k+1);
+							}
+							unsigned wsum=0;
+							int ipred=0;
+							int sh=0;
+							for(int kp=0;kp<L1NPREDS;++kp)
+							{
+								int e=wperrors[kp];
+								int sh=FLOOR_LOG2(e+1);
+								currw[kp]=(divlookup[e<<(DENBITS-1)>>sh]<<(DENBITS-1)>>sh)+(1<<DENBITS>>2)/L1NPREDS;
+								wsum+=currw[kp];
+							}
+							sh=FLOOR_LOG2(wsum)-(DENBITS-2);
+							wsum=0;
+							for(int kp=0;kp<L1NPREDS;++kp)
+							{
+								int c=(int)(currw[kp]>>sh);
+								wsum+=c;
+								currw[kp]=c;
+							}
+							ipred=wsum>>1;
+							for(int kp=0;kp<L1NPREDS;++kp)
+							{
+								ipred+=(int)(currw[kp]*preds[kp]);
+								currw[kp]<<=8;
+							}
+							//if(wsum<0)
+							//	goto again;
+							pred=ipred*divlookup[wsum-1]>>NUMBITS;
+						}
+						else if(use_ols==1)
 						{
 							double fpred=0;
 							for(int k=0;k<L1NPREDS;++k)
@@ -8255,7 +8299,7 @@ void io_render(void)
 								fpred+=curr_params[k]*preds[k];
 								currw[k]=(int)round(curr_params[k]*0x20000);
 							}
-							pred=(int)round(fpred);
+							pred=(int)CVTFP64_I64(fpred);
 						}
 						else
 						{
@@ -8313,7 +8357,13 @@ void io_render(void)
 									use_ols0=use_ols;
 								}
 							//}
-							GUIPrint(0, 0, (float)wndh*0.5f, 2, "E %10.6lf%% <- %8d %s", e*100, ctr, use_ols?"OLS":"L1");
+							static const char *labels[]=
+							{
+								"L1",
+								"OLS",
+								"WP",
+							};
+							GUIPrint(0, 0, (float)wndh*0.5f, 2, "E %10.6lf%% <- %8d %s", e*100, ctr, labels[use_ols]);
 						}
 						//for(int k=0, wsum=0;k<L1NPREDS+1;++k)
 						//{
@@ -8324,9 +8374,25 @@ void io_render(void)
 						//memcpy(whist[xpos], l1weights, sizeof(l1weights));
 
 						//update
-						if(use_ols)
+						if(use_ols==2)
 						{
-							double lr=0.003;
+							int e2[L1NPREDS], best=0x7FFFFFFF;
+							for(int kp=0;kp<L1NPREDS;++kp)
+							{
+								int e=abs(curr-preds[kp]);
+								if(best>e)
+									best=e;
+								e2[kp]=e;
+							}
+							for(int kp=0;kp<L1NPREDS;++kp)
+							{
+								int e=e2[kp]-best;
+								wperrors[kp]+=((e<<6)-wperrors[kp]+(1<<3>>1))>>3;
+							}
+						}
+						else if(use_ols==1)
+						{
+							double lr=0.00001;
 							for(int ky2=0, midx=0;ky2<L1NPREDS;++ky2)
 							{
 								for(int kx2=0;kx2<L1NPREDS;++kx2, ++midx)

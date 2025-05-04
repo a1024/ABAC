@@ -20,21 +20,12 @@ static const char file[]=__FILE__;
 	#define ENABLE_GUIDE		//DEBUG		checks interleaved pixels
 //	#define ANS_VAL			//DEBUG
 
-//	#define PRINT_L1_BOUNDS
 //	#define WG4_PRINTMAXERR
 //	#define WG4_SERIALDEBUG
 //	#define TEST_INTERLEAVE
 #endif
 
 //	#define EMULATE_GATHER
-//	#define CHECK_FLAT		//slower encode
-//	#define SERIAL_MAIN		//2x slower
-//	#define DISABLE_WG
-
-	#define VNATIVE			//disables useless v-chroma scaling by 4
-//	#define NAIVEMIX		//3.5 3.8x slower	55 58 MB/s vs 196 224 MB/s
-//	#define WG_COMMONMIX		//bad
-	#define WG_ENABLE_eW		//eW is bad with blocks unlike in eBench
 	#define INTERLEAVESIMD		//2.5x faster interleave
 
 
@@ -168,7 +159,7 @@ static void prof_print(ptrdiff_t usize)
 	{
 		SpeedProfilerInfo *info=prof_data+k;
 		csum+=info->t;
-		int curr=(int)(csum*250);//fixed scale
+		int curr=(int)(csum*1000/4);//fixed scale
 		int space=curr-prev;
 		int len=0;
 		if(info->msg)
@@ -396,13 +387,6 @@ static const char *rct_names[RCT_COUNT]=
 	RCTLIST
 #undef  RCT
 };
-
-
-#define WG_NPREDS 8
-
-#ifdef WG4_PRINTMAXERR
-static unsigned maxerror[16*8]={0};
-#endif
 AWM_INLINE void gather32(int *dst, const int *src, const int *offsets)
 {
 #ifdef EMULATE_GATHER
@@ -418,530 +402,6 @@ AWM_INLINE void gather32(int *dst, const int *src, const int *offsets)
 #else
 	_mm256_store_si256((__m256i*)dst, _mm256_i32gather_epi32(src, _mm256_load_si256((__m256i*)offsets), sizeof(int)));
 #endif
-}
-AWM_INLINE void wg_mix_pt2(const __m256i *wgpreds, const __m256i *prederrors, __m256i *result)//process halfwave
-{
-	//mix(const short wgpreds[8, stride 6][16], unsigned short prederrors[8, stride 2][16]) -> float[8][16]
-	__m256i coeff[16];
-
-	//convert 16 shorts * 8 regs -> 8 floats * 16 regs		each 2 float regs make half a wave
-	__m256i wordmask=_mm256_set1_epi32(0xFFFF);
-	coeff[0*2+0]=_mm256_and_si256(prederrors[0], wordmask);
-	coeff[1*2+0]=_mm256_and_si256(prederrors[1], wordmask);
-	coeff[2*2+0]=_mm256_and_si256(prederrors[2], wordmask);
-	coeff[3*2+0]=_mm256_and_si256(prederrors[3], wordmask);
-	coeff[4*2+0]=_mm256_and_si256(prederrors[4], wordmask);
-	coeff[5*2+0]=_mm256_and_si256(prederrors[5], wordmask);
-	coeff[6*2+0]=_mm256_and_si256(prederrors[6], wordmask);
-	coeff[7*2+0]=_mm256_and_si256(prederrors[7], wordmask);
-	coeff[0*2+1]=_mm256_srli_epi32(prederrors[0], 16);
-	coeff[1*2+1]=_mm256_srli_epi32(prederrors[1], 16);
-	coeff[2*2+1]=_mm256_srli_epi32(prederrors[2], 16);
-	coeff[3*2+1]=_mm256_srli_epi32(prederrors[3], 16);
-	coeff[4*2+1]=_mm256_srli_epi32(prederrors[4], 16);
-	coeff[5*2+1]=_mm256_srli_epi32(prederrors[5], 16);
-	coeff[6*2+1]=_mm256_srli_epi32(prederrors[6], 16);
-	coeff[7*2+1]=_mm256_srli_epi32(prederrors[7], 16);
-	
-	//convert 16 shorts * 8 regs -> 8 floats * 16 regs
-#if 1
-	__m256i estim[16];
-	estim[0*2+0]=_mm256_slli_epi32(wgpreds[0*3+0], 16);
-	estim[1*2+0]=_mm256_slli_epi32(wgpreds[1*3+0], 16);
-	estim[2*2+0]=_mm256_slli_epi32(wgpreds[2*3+0], 16);
-	estim[3*2+0]=_mm256_slli_epi32(wgpreds[3*3+0], 16);
-	estim[4*2+0]=_mm256_slli_epi32(wgpreds[4*3+0], 16);
-	estim[5*2+0]=_mm256_slli_epi32(wgpreds[5*3+0], 16);
-	estim[6*2+0]=_mm256_slli_epi32(wgpreds[6*3+0], 16);
-	estim[7*2+0]=_mm256_slli_epi32(wgpreds[7*3+0], 16);
-	estim[0*2+0]=_mm256_srai_epi32(estim[0*2+0], 16);//preds are signed
-	estim[1*2+0]=_mm256_srai_epi32(estim[1*2+0], 16);
-	estim[2*2+0]=_mm256_srai_epi32(estim[2*2+0], 16);
-	estim[3*2+0]=_mm256_srai_epi32(estim[3*2+0], 16);
-	estim[4*2+0]=_mm256_srai_epi32(estim[4*2+0], 16);
-	estim[5*2+0]=_mm256_srai_epi32(estim[5*2+0], 16);
-	estim[6*2+0]=_mm256_srai_epi32(estim[6*2+0], 16);
-	estim[7*2+0]=_mm256_srai_epi32(estim[7*2+0], 16);
-	estim[0*2+1]=_mm256_srai_epi32(wgpreds[0*3+0], 16);
-	estim[1*2+1]=_mm256_srai_epi32(wgpreds[1*3+0], 16);
-	estim[2*2+1]=_mm256_srai_epi32(wgpreds[2*3+0], 16);
-	estim[3*2+1]=_mm256_srai_epi32(wgpreds[3*3+0], 16);
-	estim[4*2+1]=_mm256_srai_epi32(wgpreds[4*3+0], 16);
-	estim[5*2+1]=_mm256_srai_epi32(wgpreds[5*3+0], 16);
-	estim[6*2+1]=_mm256_srai_epi32(wgpreds[6*3+0], 16);
-	estim[7*2+1]=_mm256_srai_epi32(wgpreds[7*3+0], 16);
-#endif
-#ifdef WG4_PRINTMAXERR
-	for(int k=0;k<16*8;++k)
-	{
-		unsigned e=((unsigned*)coeff)[k];
-		if(maxerror[k]<e)
-			maxerror[k]=e;
-	}
-#endif
-	
-	/*
-	|	WG5	DIV2K -0.13%
-	|		GDCC -0.08%
-	0	210	240 ^	N
-	1	210	240 ^	W
-	2	215	180 v	3*(N-NN)+NNN
-	3	215	180 v	3*(W-WW)+WWW		4*(W+WWW)-6*WW-WWWW
-	4	140	140	W+NE-N
-	5	230	160 v	(WWWW+WWW+NNN+NEE+NEEE+NEEEE-2*NW)/4
-	6	120	120	N+W-NW
-	7	140	120 v	N+NE-NNE
-	*/
-#define NUMBITS 15
-#define DENBITS 7
-#define DIVLUTSIZE (1<<DENBITS)
-	static int divlookup[WG_NPREDS+1][DIVLUTSIZE]={0};
-	if(!*(int*)divlookup)
-	{
-		static const int weights[WG_NPREDS]=
-		{
-			240,
-			240,
-			180,
-			180,
-			160,
-			160,
-			120,
-			120,
-		};
-		for(int kp=0;kp<WG_NPREDS;++kp)
-		{
-			for(int k=0;k<DIVLUTSIZE;++k)
-				divlookup[kp][k]=(weights[kp]<<NUMBITS)/(k+1);
-		}
-		for(int k=0;k<DIVLUTSIZE;++k)
-			divlookup[WG_NPREDS][k]=(1<<NUMBITS)/(k+1);
-	}
-	__m256i sh[16];
-	__m256i one=_mm256_set1_epi32(1);
-	sh[0x0]=FLOOR_LOG2_32x8(_mm256_add_epi32(coeff[0x0], one));
-	sh[0x1]=FLOOR_LOG2_32x8(_mm256_add_epi32(coeff[0x1], one));
-	sh[0x2]=FLOOR_LOG2_32x8(_mm256_add_epi32(coeff[0x2], one));
-	sh[0x3]=FLOOR_LOG2_32x8(_mm256_add_epi32(coeff[0x3], one));
-	sh[0x4]=FLOOR_LOG2_32x8(_mm256_add_epi32(coeff[0x4], one));
-	sh[0x5]=FLOOR_LOG2_32x8(_mm256_add_epi32(coeff[0x5], one));
-	sh[0x6]=FLOOR_LOG2_32x8(_mm256_add_epi32(coeff[0x6], one));
-	sh[0x7]=FLOOR_LOG2_32x8(_mm256_add_epi32(coeff[0x7], one));
-	sh[0x8]=FLOOR_LOG2_32x8(_mm256_add_epi32(coeff[0x8], one));
-	sh[0x9]=FLOOR_LOG2_32x8(_mm256_add_epi32(coeff[0x9], one));
-	sh[0xA]=FLOOR_LOG2_32x8(_mm256_add_epi32(coeff[0xA], one));
-	sh[0xB]=FLOOR_LOG2_32x8(_mm256_add_epi32(coeff[0xB], one));
-	sh[0xC]=FLOOR_LOG2_32x8(_mm256_add_epi32(coeff[0xC], one));
-	sh[0xD]=FLOOR_LOG2_32x8(_mm256_add_epi32(coeff[0xD], one));
-	sh[0xE]=FLOOR_LOG2_32x8(_mm256_add_epi32(coeff[0xE], one));
-	sh[0xF]=FLOOR_LOG2_32x8(_mm256_add_epi32(coeff[0xF], one));
-	__m256i offset=_mm256_set1_epi32(DENBITS-1);
-	sh[0x0]=_mm256_sub_epi32(sh[0x0], offset);
-	sh[0x1]=_mm256_sub_epi32(sh[0x1], offset);
-	sh[0x2]=_mm256_sub_epi32(sh[0x2], offset);
-	sh[0x3]=_mm256_sub_epi32(sh[0x3], offset);
-	sh[0x4]=_mm256_sub_epi32(sh[0x4], offset);
-	sh[0x5]=_mm256_sub_epi32(sh[0x5], offset);
-	sh[0x6]=_mm256_sub_epi32(sh[0x6], offset);
-	sh[0x7]=_mm256_sub_epi32(sh[0x7], offset);
-	sh[0x8]=_mm256_sub_epi32(sh[0x8], offset);
-	sh[0x9]=_mm256_sub_epi32(sh[0x9], offset);
-	sh[0xA]=_mm256_sub_epi32(sh[0xA], offset);
-	sh[0xB]=_mm256_sub_epi32(sh[0xB], offset);
-	sh[0xC]=_mm256_sub_epi32(sh[0xC], offset);
-	sh[0xD]=_mm256_sub_epi32(sh[0xD], offset);
-	sh[0xE]=_mm256_sub_epi32(sh[0xE], offset);
-	sh[0xF]=_mm256_sub_epi32(sh[0xF], offset);
-	offset=_mm256_setzero_si256();
-	sh[0x0]=_mm256_max_epi32(sh[0x0], offset);
-	sh[0x1]=_mm256_max_epi32(sh[0x1], offset);
-	sh[0x2]=_mm256_max_epi32(sh[0x2], offset);
-	sh[0x3]=_mm256_max_epi32(sh[0x3], offset);
-	sh[0x4]=_mm256_max_epi32(sh[0x4], offset);
-	sh[0x5]=_mm256_max_epi32(sh[0x5], offset);
-	sh[0x6]=_mm256_max_epi32(sh[0x6], offset);
-	sh[0x7]=_mm256_max_epi32(sh[0x7], offset);
-	sh[0x8]=_mm256_max_epi32(sh[0x8], offset);
-	sh[0x9]=_mm256_max_epi32(sh[0x9], offset);
-	sh[0xA]=_mm256_max_epi32(sh[0xA], offset);
-	sh[0xB]=_mm256_max_epi32(sh[0xB], offset);
-	sh[0xC]=_mm256_max_epi32(sh[0xC], offset);
-	sh[0xD]=_mm256_max_epi32(sh[0xD], offset);
-	sh[0xE]=_mm256_max_epi32(sh[0xE], offset);
-	sh[0xF]=_mm256_max_epi32(sh[0xF], offset);
-	coeff[0x0]=_mm256_srlv_epi32(coeff[0x0], sh[0x0]);
-	coeff[0x1]=_mm256_srlv_epi32(coeff[0x1], sh[0x1]);
-	coeff[0x2]=_mm256_srlv_epi32(coeff[0x2], sh[0x2]);
-	coeff[0x3]=_mm256_srlv_epi32(coeff[0x3], sh[0x3]);
-	coeff[0x4]=_mm256_srlv_epi32(coeff[0x4], sh[0x4]);
-	coeff[0x5]=_mm256_srlv_epi32(coeff[0x5], sh[0x5]);
-	coeff[0x6]=_mm256_srlv_epi32(coeff[0x6], sh[0x6]);
-	coeff[0x7]=_mm256_srlv_epi32(coeff[0x7], sh[0x7]);
-	coeff[0x8]=_mm256_srlv_epi32(coeff[0x8], sh[0x8]);
-	coeff[0x9]=_mm256_srlv_epi32(coeff[0x9], sh[0x9]);
-	coeff[0xA]=_mm256_srlv_epi32(coeff[0xA], sh[0xA]);
-	coeff[0xB]=_mm256_srlv_epi32(coeff[0xB], sh[0xB]);
-	coeff[0xC]=_mm256_srlv_epi32(coeff[0xC], sh[0xC]);
-	coeff[0xD]=_mm256_srlv_epi32(coeff[0xD], sh[0xD]);
-	coeff[0xE]=_mm256_srlv_epi32(coeff[0xE], sh[0xE]);
-	coeff[0xF]=_mm256_srlv_epi32(coeff[0xF], sh[0xF]);
-	gather32((int*)(coeff+0x0), divlookup[0], (int*)(coeff+0x0));
-	gather32((int*)(coeff+0x1), divlookup[0], (int*)(coeff+0x1));
-	gather32((int*)(coeff+0x2), divlookup[1], (int*)(coeff+0x2));
-	gather32((int*)(coeff+0x3), divlookup[1], (int*)(coeff+0x3));
-	gather32((int*)(coeff+0x4), divlookup[2], (int*)(coeff+0x4));
-	gather32((int*)(coeff+0x5), divlookup[2], (int*)(coeff+0x5));
-	gather32((int*)(coeff+0x6), divlookup[3], (int*)(coeff+0x6));
-	gather32((int*)(coeff+0x7), divlookup[3], (int*)(coeff+0x7));
-	gather32((int*)(coeff+0x8), divlookup[4], (int*)(coeff+0x8));
-	gather32((int*)(coeff+0x9), divlookup[4], (int*)(coeff+0x9));
-	gather32((int*)(coeff+0xA), divlookup[5], (int*)(coeff+0xA));
-	gather32((int*)(coeff+0xB), divlookup[5], (int*)(coeff+0xB));
-	gather32((int*)(coeff+0xC), divlookup[6], (int*)(coeff+0xC));
-	gather32((int*)(coeff+0xD), divlookup[6], (int*)(coeff+0xD));
-	gather32((int*)(coeff+0xE), divlookup[7], (int*)(coeff+0xE));
-	gather32((int*)(coeff+0xF), divlookup[7], (int*)(coeff+0xF));
-	coeff[0x0]=_mm256_srlv_epi32(coeff[0x0], sh[0x0]);
-	coeff[0x1]=_mm256_srlv_epi32(coeff[0x1], sh[0x1]);
-	coeff[0x2]=_mm256_srlv_epi32(coeff[0x2], sh[0x2]);
-	coeff[0x3]=_mm256_srlv_epi32(coeff[0x3], sh[0x3]);
-	coeff[0x4]=_mm256_srlv_epi32(coeff[0x4], sh[0x4]);
-	coeff[0x5]=_mm256_srlv_epi32(coeff[0x5], sh[0x5]);
-	coeff[0x6]=_mm256_srlv_epi32(coeff[0x6], sh[0x6]);
-	coeff[0x7]=_mm256_srlv_epi32(coeff[0x7], sh[0x7]);
-	coeff[0x8]=_mm256_srlv_epi32(coeff[0x8], sh[0x8]);
-	coeff[0x9]=_mm256_srlv_epi32(coeff[0x9], sh[0x9]);
-	coeff[0xA]=_mm256_srlv_epi32(coeff[0xA], sh[0xA]);
-	coeff[0xB]=_mm256_srlv_epi32(coeff[0xB], sh[0xB]);
-	coeff[0xC]=_mm256_srlv_epi32(coeff[0xC], sh[0xC]);
-	coeff[0xD]=_mm256_srlv_epi32(coeff[0xD], sh[0xD]);
-	coeff[0xE]=_mm256_srlv_epi32(coeff[0xE], sh[0xE]);
-	coeff[0xF]=_mm256_srlv_epi32(coeff[0xF], sh[0xF]);
-	offset=_mm256_set1_epi32((1<<DENBITS>>2)/WG_NPREDS);
-	coeff[0x0]=_mm256_add_epi32(coeff[0x0], offset);
-	coeff[0x1]=_mm256_add_epi32(coeff[0x1], offset);
-	coeff[0x2]=_mm256_add_epi32(coeff[0x2], offset);
-	coeff[0x3]=_mm256_add_epi32(coeff[0x3], offset);
-	coeff[0x4]=_mm256_add_epi32(coeff[0x4], offset);
-	coeff[0x5]=_mm256_add_epi32(coeff[0x5], offset);
-	coeff[0x6]=_mm256_add_epi32(coeff[0x6], offset);
-	coeff[0x7]=_mm256_add_epi32(coeff[0x7], offset);
-	coeff[0x8]=_mm256_add_epi32(coeff[0x8], offset);
-	coeff[0x9]=_mm256_add_epi32(coeff[0x9], offset);
-	coeff[0xA]=_mm256_add_epi32(coeff[0xA], offset);
-	coeff[0xB]=_mm256_add_epi32(coeff[0xB], offset);
-	coeff[0xC]=_mm256_add_epi32(coeff[0xC], offset);
-	coeff[0xD]=_mm256_add_epi32(coeff[0xD], offset);
-	coeff[0xE]=_mm256_add_epi32(coeff[0xE], offset);
-	coeff[0xF]=_mm256_add_epi32(coeff[0xF], offset);
-	__m256i sum0, sum1;
-	sum0=_mm256_add_epi32(coeff[0*2+0], coeff[1*2+0]); sum1=_mm256_add_epi32(coeff[0*2+1], coeff[1*2+1]);
-	sum0=_mm256_add_epi32(sum0, coeff[2*2+0]); sum1=_mm256_add_epi32(sum1, coeff[2*2+1]);
-	sum0=_mm256_add_epi32(sum0, coeff[3*2+0]); sum1=_mm256_add_epi32(sum1, coeff[3*2+1]);
-	sum0=_mm256_add_epi32(sum0, coeff[4*2+0]); sum1=_mm256_add_epi32(sum1, coeff[4*2+1]);
-	sum0=_mm256_add_epi32(sum0, coeff[5*2+0]); sum1=_mm256_add_epi32(sum1, coeff[5*2+1]);
-	sum0=_mm256_add_epi32(sum0, coeff[6*2+0]); sum1=_mm256_add_epi32(sum1, coeff[6*2+1]);
-	sum0=_mm256_add_epi32(sum0, coeff[7*2+0]); sum1=_mm256_add_epi32(sum1, coeff[7*2+1]);
-	__m256i sh0, sh1;
-	sh0=FLOOR_LOG2_32x8(sum0);
-	sh1=FLOOR_LOG2_32x8(sum1);
-	offset=_mm256_set1_epi32(DENBITS-2);
-	sh0=_mm256_sub_epi32(sh0, offset);
-	sh1=_mm256_sub_epi32(sh1, offset);
-	coeff[0*2+0]=_mm256_srlv_epi32(coeff[0*2+0], sh0); coeff[0*2+1]=_mm256_srlv_epi32(coeff[0*2+1], sh1);
-	coeff[1*2+0]=_mm256_srlv_epi32(coeff[1*2+0], sh0); coeff[1*2+1]=_mm256_srlv_epi32(coeff[1*2+1], sh1);
-	coeff[2*2+0]=_mm256_srlv_epi32(coeff[2*2+0], sh0); coeff[2*2+1]=_mm256_srlv_epi32(coeff[2*2+1], sh1);
-	coeff[3*2+0]=_mm256_srlv_epi32(coeff[3*2+0], sh0); coeff[3*2+1]=_mm256_srlv_epi32(coeff[3*2+1], sh1);
-	coeff[4*2+0]=_mm256_srlv_epi32(coeff[4*2+0], sh0); coeff[4*2+1]=_mm256_srlv_epi32(coeff[4*2+1], sh1);
-	coeff[5*2+0]=_mm256_srlv_epi32(coeff[5*2+0], sh0); coeff[5*2+1]=_mm256_srlv_epi32(coeff[5*2+1], sh1);
-	coeff[6*2+0]=_mm256_srlv_epi32(coeff[6*2+0], sh0); coeff[6*2+1]=_mm256_srlv_epi32(coeff[6*2+1], sh1);
-	coeff[7*2+0]=_mm256_srlv_epi32(coeff[7*2+0], sh0); coeff[7*2+1]=_mm256_srlv_epi32(coeff[7*2+1], sh1);
-	sum0=_mm256_add_epi32(coeff[0*2+0], coeff[1*2+0]); sum1=_mm256_add_epi32(coeff[0*2+1], coeff[1*2+1]);
-	sum0=_mm256_add_epi32(sum0, coeff[2*2+0]); sum1=_mm256_add_epi32(sum1, coeff[2*2+1]);
-	sum0=_mm256_add_epi32(sum0, coeff[3*2+0]); sum1=_mm256_add_epi32(sum1, coeff[3*2+1]);
-	sum0=_mm256_add_epi32(sum0, coeff[4*2+0]); sum1=_mm256_add_epi32(sum1, coeff[4*2+1]);
-	sum0=_mm256_add_epi32(sum0, coeff[5*2+0]); sum1=_mm256_add_epi32(sum1, coeff[5*2+1]);
-	sum0=_mm256_add_epi32(sum0, coeff[6*2+0]); sum1=_mm256_add_epi32(sum1, coeff[6*2+1]);
-	sum0=_mm256_add_epi32(sum0, coeff[7*2+0]); sum1=_mm256_add_epi32(sum1, coeff[7*2+1]);
-#if 1
-	__m256i ipred[2];
-	ipred[0]=_mm256_srli_epi32(sum0, 1);
-	ipred[1]=_mm256_srli_epi32(sum1, 1);
-	sum0=_mm256_sub_epi32(sum0, one);
-	sum1=_mm256_sub_epi32(sum1, one);
-	ipred[0]=_mm256_add_epi32(ipred[0], _mm256_mullo_epi32(coeff[0*2+0], estim[0*2+0])); ipred[1]=_mm256_add_epi32(ipred[1], _mm256_mullo_epi32(coeff[0*2+1], estim[0*2+1]));
-	ipred[0]=_mm256_add_epi32(ipred[0], _mm256_mullo_epi32(coeff[1*2+0], estim[1*2+0])); ipred[1]=_mm256_add_epi32(ipred[1], _mm256_mullo_epi32(coeff[1*2+1], estim[1*2+1]));
-	ipred[0]=_mm256_add_epi32(ipred[0], _mm256_mullo_epi32(coeff[2*2+0], estim[2*2+0])); ipred[1]=_mm256_add_epi32(ipred[1], _mm256_mullo_epi32(coeff[2*2+1], estim[2*2+1]));
-	ipred[0]=_mm256_add_epi32(ipred[0], _mm256_mullo_epi32(coeff[3*2+0], estim[3*2+0])); ipred[1]=_mm256_add_epi32(ipred[1], _mm256_mullo_epi32(coeff[3*2+1], estim[3*2+1]));
-	ipred[0]=_mm256_add_epi32(ipred[0], _mm256_mullo_epi32(coeff[4*2+0], estim[4*2+0])); ipred[1]=_mm256_add_epi32(ipred[1], _mm256_mullo_epi32(coeff[4*2+1], estim[4*2+1]));
-	ipred[0]=_mm256_add_epi32(ipred[0], _mm256_mullo_epi32(coeff[5*2+0], estim[5*2+0])); ipred[1]=_mm256_add_epi32(ipred[1], _mm256_mullo_epi32(coeff[5*2+1], estim[5*2+1]));
-	ipred[0]=_mm256_add_epi32(ipred[0], _mm256_mullo_epi32(coeff[6*2+0], estim[6*2+0])); ipred[1]=_mm256_add_epi32(ipred[1], _mm256_mullo_epi32(coeff[6*2+1], estim[6*2+1]));
-	ipred[0]=_mm256_add_epi32(ipred[0], _mm256_mullo_epi32(coeff[7*2+0], estim[7*2+0])); ipred[1]=_mm256_add_epi32(ipred[1], _mm256_mullo_epi32(coeff[7*2+1], estim[7*2+1]));
-	sum0=_mm256_i32gather_epi32(divlookup[WG_NPREDS], sum0, sizeof(int));
-	sum1=_mm256_i32gather_epi32(divlookup[WG_NPREDS], sum1, sizeof(int));
-	ipred[0]=_mm256_mullo_epi32(ipred[0], sum0);
-	ipred[1]=_mm256_mullo_epi32(ipred[1], sum1);
-	ipred[0]=_mm256_srai_epi32(ipred[0], NUMBITS);
-	ipred[1]=_mm256_srai_epi32(ipred[1], NUMBITS);
-	ipred[0]=_mm256_slli_epi32(ipred[0], 16);
-	ipred[1]=_mm256_slli_epi32(ipred[1], 16);
-	ipred[0]=_mm256_srli_epi32(ipred[0], 16);
-	result[0]=_mm256_or_si256(ipred[0], ipred[1]);
-#endif
-#if 0
-	coeff[0*2+1]=_mm256_slli_epi32(coeff[0*2+1], 16);
-	coeff[1*2+1]=_mm256_slli_epi32(coeff[1*2+1], 16);
-	coeff[2*2+1]=_mm256_slli_epi32(coeff[2*2+1], 16);
-	coeff[3*2+1]=_mm256_slli_epi32(coeff[3*2+1], 16);
-	coeff[4*2+1]=_mm256_slli_epi32(coeff[4*2+1], 16);
-	coeff[5*2+1]=_mm256_slli_epi32(coeff[5*2+1], 16);
-	coeff[6*2+1]=_mm256_slli_epi32(coeff[6*2+1], 16);
-	coeff[7*2+1]=_mm256_slli_epi32(coeff[7*2+1], 16);
-	coeff[0*2+0]=_mm256_or_si256(coeff[0*2+0], coeff[0*2+1]);
-	coeff[1*2+0]=_mm256_or_si256(coeff[1*2+0], coeff[1*2+1]);
-	coeff[2*2+0]=_mm256_or_si256(coeff[2*2+0], coeff[2*2+1]);
-	coeff[3*2+0]=_mm256_or_si256(coeff[3*2+0], coeff[3*2+1]);
-	coeff[4*2+0]=_mm256_or_si256(coeff[4*2+0], coeff[4*2+1]);
-	coeff[5*2+0]=_mm256_or_si256(coeff[5*2+0], coeff[5*2+1]);
-	coeff[6*2+0]=_mm256_or_si256(coeff[6*2+0], coeff[6*2+1]);
-	coeff[7*2+0]=_mm256_or_si256(coeff[7*2+0], coeff[7*2+1]);
-#if 0
-	__m256i tmp[8];
-	tmp[0]=_mm256_mulhi_epi16(coeff[0*2+0], wgpreds[0*3+0]);
-	tmp[1]=_mm256_mulhi_epi16(coeff[1*2+0], wgpreds[1*3+0]);
-	tmp[2]=_mm256_mulhi_epi16(coeff[2*2+0], wgpreds[2*3+0]);
-	tmp[3]=_mm256_mulhi_epi16(coeff[3*2+0], wgpreds[3*3+0]);
-	tmp[4]=_mm256_mulhi_epi16(coeff[4*2+0], wgpreds[4*3+0]);
-	tmp[5]=_mm256_mulhi_epi16(coeff[5*2+0], wgpreds[5*3+0]);
-	tmp[6]=_mm256_mulhi_epi16(coeff[6*2+0], wgpreds[6*3+0]);
-	tmp[7]=_mm256_mulhi_epi16(coeff[7*2+0], wgpreds[7*3+0]);
-	for(int k=0;k<16*8;++k)
-	{
-		int val=((short*)tmp)[k];
-		if(val!=0&&val!=-1)
-			LOG_ERROR("");
-	}
-#endif
-	coeff[0*2+0]=_mm256_mullo_epi16(coeff[0*2+0], wgpreds[0*3+0]);
-	coeff[1*2+0]=_mm256_mullo_epi16(coeff[1*2+0], wgpreds[1*3+0]);
-	coeff[2*2+0]=_mm256_mullo_epi16(coeff[2*2+0], wgpreds[2*3+0]);
-	coeff[3*2+0]=_mm256_mullo_epi16(coeff[3*2+0], wgpreds[3*3+0]);
-	coeff[4*2+0]=_mm256_mullo_epi16(coeff[4*2+0], wgpreds[4*3+0]);
-	coeff[5*2+0]=_mm256_mullo_epi16(coeff[5*2+0], wgpreds[5*3+0]);
-	coeff[6*2+0]=_mm256_mullo_epi16(coeff[6*2+0], wgpreds[6*3+0]);
-	coeff[7*2+0]=_mm256_mullo_epi16(coeff[7*2+0], wgpreds[7*3+0]);
-	
-	__m256i bias0=_mm256_srli_epi32(sum0, 1);
-	__m256i bias1=_mm256_srli_epi32(sum1, 1);
-	sum0=_mm256_sub_epi32(sum0, one);
-	sum1=_mm256_sub_epi32(sum1, one);
-	sum0=_mm256_i32gather_epi32(divlookup[WG_NPREDS], sum0, sizeof(int));
-	sum1=_mm256_i32gather_epi32(divlookup[WG_NPREDS], sum1, sizeof(int));
-
-	//0: hi,  1: lo
-	coeff[0*2+1]=_mm256_slli_epi32(coeff[0*2+0], 16);
-	coeff[1*2+1]=_mm256_slli_epi32(coeff[1*2+0], 16);
-	coeff[2*2+1]=_mm256_slli_epi32(coeff[2*2+0], 16);
-	coeff[3*2+1]=_mm256_slli_epi32(coeff[3*2+0], 16);
-	coeff[4*2+1]=_mm256_slli_epi32(coeff[4*2+0], 16);
-	coeff[5*2+1]=_mm256_slli_epi32(coeff[5*2+0], 16);
-	coeff[6*2+1]=_mm256_slli_epi32(coeff[6*2+0], 16);
-	coeff[7*2+1]=_mm256_slli_epi32(coeff[7*2+0], 16);
-	coeff[0*2+1]=_mm256_srai_epi32(coeff[0*2+1], 16);
-	coeff[1*2+1]=_mm256_srai_epi32(coeff[1*2+1], 16);
-	coeff[2*2+1]=_mm256_srai_epi32(coeff[2*2+1], 16);
-	coeff[3*2+1]=_mm256_srai_epi32(coeff[3*2+1], 16);
-	coeff[4*2+1]=_mm256_srai_epi32(coeff[4*2+1], 16);
-	coeff[5*2+1]=_mm256_srai_epi32(coeff[5*2+1], 16);
-	coeff[6*2+1]=_mm256_srai_epi32(coeff[6*2+1], 16);
-	coeff[7*2+1]=_mm256_srai_epi32(coeff[7*2+1], 16);
-	coeff[0*2+0]=_mm256_srai_epi32(coeff[0*2+0], 16);
-	coeff[1*2+0]=_mm256_srai_epi32(coeff[1*2+0], 16);
-	coeff[2*2+0]=_mm256_srai_epi32(coeff[2*2+0], 16);
-	coeff[3*2+0]=_mm256_srai_epi32(coeff[3*2+0], 16);
-	coeff[4*2+0]=_mm256_srai_epi32(coeff[4*2+0], 16);
-	coeff[5*2+0]=_mm256_srai_epi32(coeff[5*2+0], 16);
-	coeff[6*2+0]=_mm256_srai_epi32(coeff[6*2+0], 16);
-	coeff[7*2+0]=_mm256_srai_epi32(coeff[7*2+0], 16);
-
-	coeff[0*2+1]=_mm256_add_epi32(coeff[0*2+1], coeff[1*2+1]); coeff[0*2+0]=_mm256_add_epi32(coeff[0*2+0], coeff[1*2+0]);
-	coeff[0*2+1]=_mm256_add_epi32(coeff[0*2+1], coeff[2*2+1]); coeff[0*2+0]=_mm256_add_epi32(coeff[0*2+0], coeff[2*2+0]);
-	coeff[0*2+1]=_mm256_add_epi32(coeff[0*2+1], coeff[3*2+1]); coeff[0*2+0]=_mm256_add_epi32(coeff[0*2+0], coeff[3*2+0]);
-	coeff[0*2+1]=_mm256_add_epi32(coeff[0*2+1], coeff[4*2+1]); coeff[0*2+0]=_mm256_add_epi32(coeff[0*2+0], coeff[4*2+0]);
-	coeff[0*2+1]=_mm256_add_epi32(coeff[0*2+1], coeff[5*2+1]); coeff[0*2+0]=_mm256_add_epi32(coeff[0*2+0], coeff[5*2+0]);
-	coeff[0*2+1]=_mm256_add_epi32(coeff[0*2+1], coeff[6*2+1]); coeff[0*2+0]=_mm256_add_epi32(coeff[0*2+0], coeff[6*2+0]);
-	coeff[0*2+1]=_mm256_add_epi32(coeff[0*2+1], coeff[7*2+1]); coeff[0*2+0]=_mm256_add_epi32(coeff[0*2+0], coeff[7*2+0]);
-	coeff[0*2+1]=_mm256_add_epi32(coeff[0*2+1], bias0);
-	coeff[0*2+0]=_mm256_add_epi32(coeff[0*2+0], bias1);
-	coeff[0*2+1]=_mm256_mullo_epi32(coeff[0*2+1], sum0);
-	coeff[0*2+0]=_mm256_mullo_epi32(coeff[0*2+0], sum1);
-	coeff[0*2+1]=_mm256_srai_epi32(coeff[0*2+1], NUMBITS);
-	coeff[0*2+0]=_mm256_srai_epi32(coeff[0*2+0], NUMBITS);
-	coeff[0*2+1]=_mm256_slli_epi32(coeff[0*2+1], 16);
-	coeff[0*2+0]=_mm256_slli_epi32(coeff[0*2+0], 16);
-	coeff[0*2+1]=_mm256_srli_epi32(coeff[0*2+1], 16);
-	result[0]=_mm256_or_si256(coeff[0*2+1], coeff[0*2+0]);
-#endif
-
-#if 0
-#define NUMBITS 20
-#define DENBITS 7
-#define DIVLUTSIZE (1<<DENBITS)
-	static int divlookup[DIVLUTSIZE]={0};
-	if(!*divlookup)
-	{
-		for(int k=0;k<DIVLUTSIZE;++k)
-			divlookup[k]=(1<<NUMBITS)/(k+1);
-	}
-	for(int kl=0;kl<NCODERS/2;++kl)
-	{
-		static const int weights[]=
-		{
-			240,
-			240,
-			180,
-			180,
-			140,
-			160,
-			120,
-			120,
-		};
-		long long coeff2[WG_NPREDS], ipred=0, wsum=0;
-		int sh=0;
-		for(int kp=0;kp<WG_NPREDS;++kp)
-		{
-			int e=((int*)coeff)[NCODERS/2*kp+kl];
-			sh=FLOOR_LOG2(e+1);
-			coeff2[kp]=((long long)weights[kp]*divlookup[e<<(DENBITS-1)>>sh]<<(DENBITS-1)>>sh)+(1<<DENBITS>>1)/WG_NPREDS;
-			wsum+=coeff2[kp];
-		}
-		sh=FLOOR_LOG2(wsum)-(DENBITS-2);
-		wsum=0;
-		for(int kp=0;kp<WG_NPREDS;++kp)
-		{
-			long long c=coeff2[kp]>>=sh;
-			wsum+=c;
-			coeff2[kp]=c;
-		}
-		ipred=(wsum>>1)-1LL;
-		for(int kp=0;kp<WG_NPREDS;++kp)
-			ipred+=(long long)coeff2[kp]*((int*)estim)[NCODERS/2*kp+kl];
-		((int*)result)[kl]=(int)(ipred*divlookup[wsum-1]>>NUMBITS);
-	}
-#endif
-}
-AWM_INLINE void wg_mix(int kc, const short *wgWerrors, const short *rowscurrNNptr, const short *rowsNptr, const __m256i *wgpreds, __m256i *preds)//process channel wave (NCODERS lanes)
-{
-	//pred/errors layout:  {Y[NCODERS], U[NCODERS], V[NCODERS]} * NPREDS
-	const short *chWerrors=wgWerrors+(ptrdiff_t)NCODERS*kc;
-	const short *Nptr=rowsNptr+(ptrdiff_t)NCODERS*kc;
-	const short *currNNptr=rowscurrNNptr+(ptrdiff_t)NCODERS*kc;
-	__m256i prederrors[sizeof(short[WG_NPREDS*NCODERS])/(sizeof(__m256i))];//2 regs per lane  *  NPREDS
-
-	//errors = pI+pNW+2*pN+pNE+pNNE		(__m256i*)erows[-Y]+(P+X*NPREDS)*3+C
-	prederrors[0]=_mm256_load_si256((const __m256i*)currNNptr+(0-1*WG_NPREDS)*3+0);//pW
-	prederrors[1]=_mm256_load_si256((const __m256i*)currNNptr+(1-1*WG_NPREDS)*3+0);
-	prederrors[2]=_mm256_load_si256((const __m256i*)currNNptr+(2-1*WG_NPREDS)*3+0);
-	prederrors[3]=_mm256_load_si256((const __m256i*)currNNptr+(3-1*WG_NPREDS)*3+0);
-	prederrors[4]=_mm256_load_si256((const __m256i*)currNNptr+(4-1*WG_NPREDS)*3+0);
-	prederrors[5]=_mm256_load_si256((const __m256i*)currNNptr+(5-1*WG_NPREDS)*3+0);
-	prederrors[6]=_mm256_load_si256((const __m256i*)currNNptr+(6-1*WG_NPREDS)*3+0);
-	prederrors[7]=_mm256_load_si256((const __m256i*)currNNptr+(7-1*WG_NPREDS)*3+0);
-	
-	prederrors[0]=_mm256_add_epi16(prederrors[0], _mm256_load_si256((const __m256i*)Nptr+(0+0*WG_NPREDS)*3+0));//pN
-	prederrors[1]=_mm256_add_epi16(prederrors[1], _mm256_load_si256((const __m256i*)Nptr+(1+0*WG_NPREDS)*3+0));
-	prederrors[2]=_mm256_add_epi16(prederrors[2], _mm256_load_si256((const __m256i*)Nptr+(2+0*WG_NPREDS)*3+0));
-	prederrors[3]=_mm256_add_epi16(prederrors[3], _mm256_load_si256((const __m256i*)Nptr+(3+0*WG_NPREDS)*3+0));
-	prederrors[4]=_mm256_add_epi16(prederrors[4], _mm256_load_si256((const __m256i*)Nptr+(4+0*WG_NPREDS)*3+0));
-	prederrors[5]=_mm256_add_epi16(prederrors[5], _mm256_load_si256((const __m256i*)Nptr+(5+0*WG_NPREDS)*3+0));
-	prederrors[6]=_mm256_add_epi16(prederrors[6], _mm256_load_si256((const __m256i*)Nptr+(6+0*WG_NPREDS)*3+0));
-	prederrors[7]=_mm256_add_epi16(prederrors[7], _mm256_load_si256((const __m256i*)Nptr+(7+0*WG_NPREDS)*3+0));
-	
-	prederrors[0]=_mm256_add_epi16(prederrors[0], _mm256_load_si256((const __m256i*)Nptr+(0-1*WG_NPREDS)*3+0));//pNW
-	prederrors[1]=_mm256_add_epi16(prederrors[1], _mm256_load_si256((const __m256i*)Nptr+(1-1*WG_NPREDS)*3+0));
-	prederrors[2]=_mm256_add_epi16(prederrors[2], _mm256_load_si256((const __m256i*)Nptr+(2-1*WG_NPREDS)*3+0));
-	prederrors[3]=_mm256_add_epi16(prederrors[3], _mm256_load_si256((const __m256i*)Nptr+(3-1*WG_NPREDS)*3+0));
-	prederrors[4]=_mm256_add_epi16(prederrors[4], _mm256_load_si256((const __m256i*)Nptr+(4-1*WG_NPREDS)*3+0));
-	prederrors[5]=_mm256_add_epi16(prederrors[5], _mm256_load_si256((const __m256i*)Nptr+(5-1*WG_NPREDS)*3+0));
-	prederrors[6]=_mm256_add_epi16(prederrors[6], _mm256_load_si256((const __m256i*)Nptr+(6-1*WG_NPREDS)*3+0));
-	prederrors[7]=_mm256_add_epi16(prederrors[7], _mm256_load_si256((const __m256i*)Nptr+(7-1*WG_NPREDS)*3+0));
-
-	prederrors[0]=_mm256_slli_epi16(prederrors[0], 1);
-	prederrors[1]=_mm256_slli_epi16(prederrors[1], 1);
-	prederrors[2]=_mm256_slli_epi16(prederrors[2], 1);
-	prederrors[3]=_mm256_slli_epi16(prederrors[3], 1);
-	prederrors[4]=_mm256_slli_epi16(prederrors[4], 1);
-	prederrors[5]=_mm256_slli_epi16(prederrors[5], 1);
-	prederrors[6]=_mm256_slli_epi16(prederrors[6], 1);
-	prederrors[7]=_mm256_slli_epi16(prederrors[7], 1);
-	
-	prederrors[0]=_mm256_add_epi16(prederrors[0], _mm256_load_si256((const __m256i*)currNNptr+(0+0*WG_NPREDS)*3+0));//pNN
-	prederrors[1]=_mm256_add_epi16(prederrors[1], _mm256_load_si256((const __m256i*)currNNptr+(1+0*WG_NPREDS)*3+0));
-	prederrors[2]=_mm256_add_epi16(prederrors[2], _mm256_load_si256((const __m256i*)currNNptr+(2+0*WG_NPREDS)*3+0));
-	prederrors[3]=_mm256_add_epi16(prederrors[3], _mm256_load_si256((const __m256i*)currNNptr+(3+0*WG_NPREDS)*3+0));
-	prederrors[4]=_mm256_add_epi16(prederrors[4], _mm256_load_si256((const __m256i*)currNNptr+(4+0*WG_NPREDS)*3+0));
-	prederrors[5]=_mm256_add_epi16(prederrors[5], _mm256_load_si256((const __m256i*)currNNptr+(5+0*WG_NPREDS)*3+0));
-	prederrors[6]=_mm256_add_epi16(prederrors[6], _mm256_load_si256((const __m256i*)currNNptr+(6+0*WG_NPREDS)*3+0));
-	prederrors[7]=_mm256_add_epi16(prederrors[7], _mm256_load_si256((const __m256i*)currNNptr+(7+0*WG_NPREDS)*3+0));
-	
-	prederrors[0]=_mm256_add_epi16(prederrors[0], _mm256_load_si256((const __m256i*)currNNptr+(0+1*WG_NPREDS)*3+0));//pNNE
-	prederrors[1]=_mm256_add_epi16(prederrors[1], _mm256_load_si256((const __m256i*)currNNptr+(1+1*WG_NPREDS)*3+0));
-	prederrors[2]=_mm256_add_epi16(prederrors[2], _mm256_load_si256((const __m256i*)currNNptr+(2+1*WG_NPREDS)*3+0));
-	prederrors[3]=_mm256_add_epi16(prederrors[3], _mm256_load_si256((const __m256i*)currNNptr+(3+1*WG_NPREDS)*3+0));
-	prederrors[4]=_mm256_add_epi16(prederrors[4], _mm256_load_si256((const __m256i*)currNNptr+(4+1*WG_NPREDS)*3+0));
-	prederrors[5]=_mm256_add_epi16(prederrors[5], _mm256_load_si256((const __m256i*)currNNptr+(5+1*WG_NPREDS)*3+0));
-	prederrors[6]=_mm256_add_epi16(prederrors[6], _mm256_load_si256((const __m256i*)currNNptr+(6+1*WG_NPREDS)*3+0));
-	prederrors[7]=_mm256_add_epi16(prederrors[7], _mm256_load_si256((const __m256i*)currNNptr+(7+1*WG_NPREDS)*3+0));
-	
-	prederrors[0]=_mm256_add_epi16(prederrors[0], _mm256_load_si256((const __m256i*)Nptr+(0+1*WG_NPREDS)*3+0));//pNE
-	prederrors[1]=_mm256_add_epi16(prederrors[1], _mm256_load_si256((const __m256i*)Nptr+(1+1*WG_NPREDS)*3+0));
-	prederrors[2]=_mm256_add_epi16(prederrors[2], _mm256_load_si256((const __m256i*)Nptr+(2+1*WG_NPREDS)*3+0));
-	prederrors[3]=_mm256_add_epi16(prederrors[3], _mm256_load_si256((const __m256i*)Nptr+(3+1*WG_NPREDS)*3+0));
-	prederrors[4]=_mm256_add_epi16(prederrors[4], _mm256_load_si256((const __m256i*)Nptr+(4+1*WG_NPREDS)*3+0));
-	prederrors[5]=_mm256_add_epi16(prederrors[5], _mm256_load_si256((const __m256i*)Nptr+(5+1*WG_NPREDS)*3+0));
-	prederrors[6]=_mm256_add_epi16(prederrors[6], _mm256_load_si256((const __m256i*)Nptr+(6+1*WG_NPREDS)*3+0));
-	prederrors[7]=_mm256_add_epi16(prederrors[7], _mm256_load_si256((const __m256i*)Nptr+(7+1*WG_NPREDS)*3+0));
-	
-	prederrors[0]=_mm256_add_epi16(prederrors[0], _mm256_load_si256((const __m256i*)currNNptr+(0-2*WG_NPREDS)*3+0));//pWW
-	prederrors[1]=_mm256_add_epi16(prederrors[1], _mm256_load_si256((const __m256i*)currNNptr+(1-2*WG_NPREDS)*3+0));
-	prederrors[2]=_mm256_add_epi16(prederrors[2], _mm256_load_si256((const __m256i*)currNNptr+(2-2*WG_NPREDS)*3+0));
-	prederrors[3]=_mm256_add_epi16(prederrors[3], _mm256_load_si256((const __m256i*)currNNptr+(3-2*WG_NPREDS)*3+0));
-	prederrors[4]=_mm256_add_epi16(prederrors[4], _mm256_load_si256((const __m256i*)currNNptr+(4-2*WG_NPREDS)*3+0));
-	prederrors[5]=_mm256_add_epi16(prederrors[5], _mm256_load_si256((const __m256i*)currNNptr+(5-2*WG_NPREDS)*3+0));
-	prederrors[6]=_mm256_add_epi16(prederrors[6], _mm256_load_si256((const __m256i*)currNNptr+(6-2*WG_NPREDS)*3+0));
-	prederrors[7]=_mm256_add_epi16(prederrors[7], _mm256_load_si256((const __m256i*)currNNptr+(7-2*WG_NPREDS)*3+0));
-#ifndef WG_ENABLE_eW
-	(void)chWerrors;
-#else
-	prederrors[0]=_mm256_add_epi16(prederrors[0], _mm256_srli_epi16(_mm256_load_si256((const __m256i*)chWerrors+(0*3+0)), 2));//pI	(__m256i*)(wgWerrors+(P*3+C)*NCODERS)+R
-	prederrors[1]=_mm256_add_epi16(prederrors[1], _mm256_srli_epi16(_mm256_load_si256((const __m256i*)chWerrors+(1*3+0)), 2));
-	prederrors[2]=_mm256_add_epi16(prederrors[2], _mm256_srli_epi16(_mm256_load_si256((const __m256i*)chWerrors+(2*3+0)), 2));
-	prederrors[3]=_mm256_add_epi16(prederrors[3], _mm256_srli_epi16(_mm256_load_si256((const __m256i*)chWerrors+(3*3+0)), 2));
-	prederrors[4]=_mm256_add_epi16(prederrors[4], _mm256_srli_epi16(_mm256_load_si256((const __m256i*)chWerrors+(4*3+0)), 2));
-	prederrors[5]=_mm256_add_epi16(prederrors[5], _mm256_srli_epi16(_mm256_load_si256((const __m256i*)chWerrors+(5*3+0)), 2));
-	prederrors[6]=_mm256_add_epi16(prederrors[6], _mm256_srli_epi16(_mm256_load_si256((const __m256i*)chWerrors+(6*3+0)), 2));
-	prederrors[7]=_mm256_add_epi16(prederrors[7], _mm256_srli_epi16(_mm256_load_si256((const __m256i*)chWerrors+(7*3+0)), 2));
-#endif
-
-	wg_mix_pt2(wgpreds+kc, prederrors, preds);
-
-//	__m256i p2;
-//	int mask;
-//again:
-//	wg_mix_pt2v0(wgpreds+kc, prederrors, preds);
-//
-//	wg_mix_pt2(wgpreds+kc, prederrors, &p2);
-//	p2=_mm256_xor_si256(p2, *preds);
-//	mask=_mm256_movemask_epi8(p2);
-//	if(mask)
-//		goto again;
-
-	//__m256i ires[2];
-	//wg_mix_pt2(wgpreds+kc, prederrors, ires);//P*3+C
-	//ires[0]=_mm256_slli_epi32(ires[0], 16);
-	//ires[1]=_mm256_slli_epi32(ires[1], 16);
-	//ires[0]=_mm256_srli_epi32(ires[0], 16);
-	//preds[0]=_mm256_or_si256(ires[0], ires[1]);
 }
 
 
@@ -1905,7 +1365,7 @@ static void decode1d(unsigned char *data, int count, int bytestride, int bestrct
 	*pstreamptr=streamptr;
 	*pstate=state;
 }
-int c32_codec(const char *srcfn, const char *dstfn, int nthreads0)
+int c33_codec(const char *srcfn, const char *dstfn, int nthreads0)
 {
 #ifdef ESTIMATE_SIZE
 	double esize[3*NCODERS]={0};
@@ -1925,8 +1385,8 @@ int c32_codec(const char *srcfn, const char *dstfn, int nthreads0)
 	unsigned char *image=0, *imptr=0, *streamptr=0, *streamstart=0, *streamend=0;
 	int psize=0;
 	short *pixels=0;
-	int wgsize=0, wgstatesize=0;
-	short *wgerrors=0, *wgstate=0;
+	int wgsize=0;
+	short *wgerrors=0;
 	ptrdiff_t cheadersize=0, csize=0;
 	{
 		FILE *fsrc=fopen(srcfn, "rb");
@@ -1938,7 +1398,7 @@ int c32_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		int tag=0;
 		fread(&tag, 1, 2, fsrc);
 		fwd=tag==('P'|'6'<<8);
-		if(!fwd&&tag!=('3'|'2'<<8))
+		if(!fwd&&tag!=('3'|'3'<<8))
 		{
 			LOG_ERROR("Unsupported file \"%s\"", srcfn);
 			return 1;
@@ -2026,8 +1486,7 @@ int c32_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		return 1;
 	}
 	(void)xrembytes;
-	int bestrct=0, use_wg4=0;
-	//int L1sh=0;
+	int bestrct=0;
 	unsigned long long ctxmask=0;//3*NCTX+3 = 54 flags	0: rare context (bypass)  1: emit stats
 	const int hsize=(int)sizeof(int[3*NCTX<<8]);//3 channels
 	int *hists=fwd?(int*)malloc(hsize):0;//fwd-only
@@ -2074,174 +1533,17 @@ int c32_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		guide_save(interleaved+isize, ixcount, blockh);
 		prof_checkpoint(usize, "interleave");
 		{
-#ifdef CHECK_FLAT
-			long long flatctr[3]={0};
-			__m256i mflat[3];
-			memset(mflat, 0, sizeof(mflat));
-#endif
 			ALIGN(32) long long counters[OCH_COUNT]={0};
 			__m256i mcounters[OCH_COUNT];//64-bit
 			__m128i half8=_mm_set1_epi8(-128);
 			__m256i wordmask=_mm256_set1_epi64x(0xFFFF);
 			memset(mcounters, 0, sizeof(mcounters));
 			imptr=interleaved+isize;
-#if 0
-			__m256i coeffs[OCH_COUNT][2];//px = (c0*N+c1*W)>>14	ci += sgn(x-px)*pi
-			memset(coeffs, 0, sizeof(coeffs));
-			for(int ky=1;ky<blockh;ky+=3)//analysis
-			{
-				__m256i NW[OCH_COUNT], N[OCH_COUNT], W[OCH_COUNT];
-				memset(NW, 0, sizeof(NW));
-				memset(N, 0, sizeof(N));
-				memset(W, 0, sizeof(W));
-				for(int kx=3*NCODERS;kx<=ixbytes-3*NCODERS;kx+=3*NCODERS*3)
-				{
-					unsigned char *imNptr=imptr-ixbytes;
-					__m256i r=_mm256_cvtepi8_epi16(_mm_add_epi8(_mm_load_si128((__m128i*)imptr+0), half8));
-					__m256i g=_mm256_cvtepi8_epi16(_mm_add_epi8(_mm_load_si128((__m128i*)imptr+1), half8));
-					__m256i b=_mm256_cvtepi8_epi16(_mm_add_epi8(_mm_load_si128((__m128i*)imptr+2), half8));
-					N[0]=_mm256_cvtepi8_epi16(_mm_add_epi8(_mm_load_si128((__m128i*)imNptr+0), half8));
-					N[1]=_mm256_cvtepi8_epi16(_mm_add_epi8(_mm_load_si128((__m128i*)imNptr+1), half8));
-					N[2]=_mm256_cvtepi8_epi16(_mm_add_epi8(_mm_load_si128((__m128i*)imNptr+2), half8));
-					imptr+=3*NCODERS;
-					__m256i rg=_mm256_sub_epi16(r, g);
-					__m256i gb=_mm256_sub_epi16(g, b);
-					__m256i br=_mm256_sub_epi16(b, r);
-					N[3]=_mm256_sub_epi16(N[0], N[1]);//rg
-					N[4]=_mm256_sub_epi16(N[1], N[2]);//gb
-					N[5]=_mm256_sub_epi16(N[2], N[0]);//br
-					__m256i t0, t1, t2;
-#define UPDATE(IDXA, IDXB, IDXC, A0, B0, C0)\
-	do\
-	{\
-		__m256i amin=_mm256_min_epi16(N[IDXA], W[IDXA]);\
-		__m256i bmin=_mm256_min_epi16(N[IDXB], W[IDXB]);\
-		__m256i cmin=_mm256_min_epi16(N[IDXC], W[IDXC]);\
-		__m256i amax=_mm256_max_epi16(N[IDXA], W[IDXA]);\
-		__m256i bmax=_mm256_max_epi16(N[IDXB], W[IDXB]);\
-		__m256i cmax=_mm256_max_epi16(N[IDXC], W[IDXC]);\
-		__m256i pa=_mm256_add_epi16(N[IDXA], W[IDXA]);\
-		__m256i pb=_mm256_add_epi16(N[IDXB], W[IDXB]);\
-		__m256i pc=_mm256_add_epi16(N[IDXC], W[IDXC]);\
-		pa=_mm256_sub_epi16(pa, NW[IDXA]);\
-		pb=_mm256_sub_epi16(pb, NW[IDXB]);\
-		pc=_mm256_sub_epi16(pc, NW[IDXC]);\
-		pa=_mm256_max_epi16(pa, amin);\
-		pb=_mm256_max_epi16(pb, bmin);\
-		pc=_mm256_max_epi16(pc, cmin);\
-		pa=_mm256_min_epi16(pa, amax);\
-		pb=_mm256_min_epi16(pb, bmax);\
-		pc=_mm256_min_epi16(pc, cmax);\
-		__m256i ta=_mm256_sub_epi16(A0, pa);\
-		__m256i tb=_mm256_sub_epi16(B0, pb);\
-		__m256i tc=_mm256_sub_epi16(C0, pc);\
-		ta=_mm256_abs_epi16(ta);\
-		tb=_mm256_abs_epi16(tb);\
-		tc=_mm256_abs_epi16(tc);\
-		ta=_mm256_add_epi16(ta, _mm256_srli_epi64(ta, 32));\
-		tb=_mm256_add_epi16(tb, _mm256_srli_epi64(tb, 32));\
-		tc=_mm256_add_epi16(tc, _mm256_srli_epi64(tc, 32));\
-		ta=_mm256_add_epi16(ta, _mm256_srli_epi64(ta, 16));\
-		tb=_mm256_add_epi16(tb, _mm256_srli_epi64(tb, 16));\
-		tc=_mm256_add_epi16(tc, _mm256_srli_epi64(tc, 16));\
-		mcounters[IDXA]=_mm256_add_epi64(mcounters[IDXA], _mm256_and_si256(ta, wordmask));\
-		mcounters[IDXB]=_mm256_add_epi64(mcounters[IDXB], _mm256_and_si256(tb, wordmask));\
-		mcounters[IDXC]=_mm256_add_epi64(mcounters[IDXC], _mm256_and_si256(tc, wordmask));\
-		\
-		amin=_mm256_mulhrs_epi16(N[IDXA], coeffs[IDXA][0]);\
-		bmin=_mm256_mulhrs_epi16(N[IDXB], coeffs[IDXB][0]);\
-		cmin=_mm256_mulhrs_epi16(N[IDXC], coeffs[IDXC][0]);\
-		amax=_mm256_mulhrs_epi16(W[IDXA], coeffs[IDXA][1]);\
-		bmax=_mm256_mulhrs_epi16(W[IDXB], coeffs[IDXB][1]);\
-		cmax=_mm256_mulhrs_epi16(W[IDXC], coeffs[IDXC][1]);\
-		pa=_mm256_add_epi16(amin, amax);\
-		pb=_mm256_add_epi16(bmin, bmax);\
-		pc=_mm256_add_epi16(cmin, cmax);\
-		ta=_mm256_sub_epi16(A0, pa);\
-		tb=_mm256_sub_epi16(B0, pb);\
-		tc=_mm256_sub_epi16(C0, pc);\
-		ta=_mm256_abs_epi16(ta);\
-		tb=_mm256_abs_epi16(tb);\
-		tc=_mm256_abs_epi16(tc);\
-		ta=_mm256_add_epi16(ta, _mm256_srli_epi64(ta, 32));\
-		tb=_mm256_add_epi16(tb, _mm256_srli_epi64(tb, 32));\
-		tc=_mm256_add_epi16(tc, _mm256_srli_epi64(tc, 32));\
-		ta=_mm256_add_epi16(ta, _mm256_srli_epi64(ta, 16));\
-		tb=_mm256_add_epi16(tb, _mm256_srli_epi64(tb, 16));\
-		tc=_mm256_add_epi16(tc, _mm256_srli_epi64(tc, 16));\
-		mcounters[IDXA+OCH_COUNT]=_mm256_add_epi64(mcounters[IDXA+OCH_COUNT], _mm256_and_si256(ta, wordmask));\
-		mcounters[IDXB+OCH_COUNT]=_mm256_add_epi64(mcounters[IDXB+OCH_COUNT], _mm256_and_si256(tb, wordmask));\
-		mcounters[IDXC+OCH_COUNT]=_mm256_add_epi64(mcounters[IDXC+OCH_COUNT], _mm256_and_si256(tc, wordmask));\
-		\
-		amin=_mm256_cmpgt_epi16(A0, pa);\
-		bmin=_mm256_cmpgt_epi16(B0, pb);\
-		cmin=_mm256_cmpgt_epi16(C0, pc);\
-		amax=_mm256_cmpgt_epi16(pa, A0);\
-		bmax=_mm256_cmpgt_epi16(pb, B0);\
-		cmax=_mm256_cmpgt_epi16(pc, C0);\
-		amin=_mm256_srli_epi16(amin, 15);\
-		bmin=_mm256_srli_epi16(bmin, 15);\
-		cmin=_mm256_srli_epi16(cmin, 15);\
-		amin=_mm256_add_epi16(amin, amax);\
-		bmin=_mm256_add_epi16(bmin, bmax);\
-		cmin=_mm256_add_epi16(cmin, cmax);\
-		amax=_mm256_mullo_epi16(amin, N[IDXA]);\
-		bmax=_mm256_mullo_epi16(bmin, N[IDXB]);\
-		cmax=_mm256_mullo_epi16(cmin, N[IDXC]);\
-		coeffs[IDXA][0]=_mm256_adds_epi16(coeffs[IDXA][0], amax);\
-		coeffs[IDXB][0]=_mm256_adds_epi16(coeffs[IDXB][0], bmax);\
-		coeffs[IDXC][0]=_mm256_adds_epi16(coeffs[IDXC][0], cmax);\
-		amax=_mm256_mullo_epi16(amin, W[IDXA]);\
-		bmax=_mm256_mullo_epi16(bmin, W[IDXB]);\
-		cmax=_mm256_mullo_epi16(cmin, W[IDXC]);\
-		coeffs[IDXA][1]=_mm256_adds_epi16(coeffs[IDXA][1], amax);\
-		coeffs[IDXB][1]=_mm256_adds_epi16(coeffs[IDXB][1], bmax);\
-		coeffs[IDXC][1]=_mm256_adds_epi16(coeffs[IDXC][1], cmax);\
-		\
-		NW[IDXA]=N[IDXA];\
-		NW[IDXB]=N[IDXB];\
-		NW[IDXC]=N[IDXC];\
-		W[IDXA]=A0;\
-		W[IDXB]=B0;\
-		W[IDXC]=C0;\
-	}while(0)
-					//px = (c0*N+c1*W)>>14		ci += sgn(x-px)*pi
-
-					//N[3]=rg
-					//N[4]=gb
-					//N[5]=br
-					UPDATE(OCH_Y400, OCH_Y040, OCH_Y004, r, g, b);
-					UPDATE(OCH_CX40, OCH_C0X4, OCH_C40X, rg, gb, br);
-					t0=_mm256_add_epi16(rg, _mm256_srai_epi16(gb, 2));//r-(3*g+b)/4 = r-g-(b-g)/4
-					t1=_mm256_add_epi16(rg, _mm256_srai_epi16(br, 2));//g-(3*r+b)/4 = g-r-(b-r)/4
-					t2=_mm256_add_epi16(br, _mm256_srai_epi16(rg, 2));//b-(3*r+g)/4 = b-r-(g-r)/4
-					N[0x6]=_mm256_add_epi16(N[3], _mm256_srai_epi16(N[4], 2));
-					N[0x7]=_mm256_add_epi16(N[3], _mm256_srai_epi16(N[5], 2));
-					N[0x8]=_mm256_add_epi16(N[5], _mm256_srai_epi16(N[3], 2));
-					UPDATE(OCH_CX31, OCH_C3X1, OCH_C31X, t0, t1, t2);
-					t0=_mm256_add_epi16(br, _mm256_srai_epi16(gb, 2));//r-(g+3*b)/4 = r-b-(g-b)/4
-					t1=_mm256_add_epi16(gb, _mm256_srai_epi16(br, 2));//g-(r+3*b)/4 = g-b-(r-b)/4
-					t2=_mm256_add_epi16(gb, _mm256_srai_epi16(rg, 2));//b-(r+3*g)/4 = b-g-(r-g)/4
-					N[0x9]=_mm256_add_epi16(N[5], _mm256_srai_epi16(N[4], 2));
-					N[0xA]=_mm256_add_epi16(N[4], _mm256_srai_epi16(N[5], 2));
-					N[0xB]=_mm256_add_epi16(N[4], _mm256_srai_epi16(N[3], 2));
-					UPDATE(OCH_CX13, OCH_C1X3, OCH_C13X, t0, t1, t2);
-					t0=_mm256_srai_epi16(_mm256_sub_epi16(rg, br), 1);//r-(g+b)/2 = (r-g + r-b)/2
-					t1=_mm256_srai_epi16(_mm256_sub_epi16(gb, rg), 1);//g-(r+b)/2 = (g-r + g-b)/2
-					t2=_mm256_srai_epi16(_mm256_sub_epi16(br, gb), 1);//b-(r+g)/2 = (b-r + b-g)/2
-					N[0xC]=_mm256_srai_epi16(_mm256_sub_epi16(N[3], N[5]), 1);
-					N[0xC]=_mm256_srai_epi16(_mm256_sub_epi16(N[4], N[3]), 1);
-					N[0xC]=_mm256_srai_epi16(_mm256_sub_epi16(N[5], N[4]), 1);
-					UPDATE(OCH_CX22, OCH_C2X2, OCH_C22X, t0, t1, t2);
-				}
-			}
-#endif
-#if 1
-			for(int ky=1;ky<blockh;ky+=3)//analysis
+			for(int ky=0;ky<blockh;++ky)//analysis
 			{
 				__m256i prev[OCH_COUNT];//16-bit
 				memset(prev, 0, sizeof(prev));
-				for(int kx=3*NCODERS;kx<=ixbytes-3*NCODERS;kx+=3*NCODERS*3)
+				for(int kx=0;kx<ixbytes-3*NCODERS;kx+=3*NCODERS)
 				{
 					__m256i r=_mm256_cvtepi8_epi16(_mm_add_epi8(_mm_load_si128((__m128i*)imptr+0), half8));
 					__m256i g=_mm256_cvtepi8_epi16(_mm_add_epi8(_mm_load_si128((__m128i*)imptr+1), half8));
@@ -2250,23 +1552,6 @@ int c32_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					r=_mm256_slli_epi16(r, 2);
 					g=_mm256_slli_epi16(g, 2);
 					b=_mm256_slli_epi16(b, 2);
-#ifdef CHECK_FLAT
-					__m256i cmp0=_mm256_abs_epi16(_mm256_cmpeq_epi16(r, prev[OCH_Y400]));
-					__m256i cmp1=_mm256_abs_epi16(_mm256_cmpeq_epi16(g, prev[OCH_Y040]));
-					__m256i cmp2=_mm256_abs_epi16(_mm256_cmpeq_epi16(b, prev[OCH_Y004]));
-					cmp0=_mm256_add_epi16(cmp0, _mm256_srli_epi64(cmp0, 32));
-					cmp1=_mm256_add_epi16(cmp1, _mm256_srli_epi64(cmp1, 32));
-					cmp2=_mm256_add_epi16(cmp2, _mm256_srli_epi64(cmp2, 32));
-					cmp0=_mm256_add_epi16(cmp0, _mm256_srli_epi64(cmp0, 16));
-					cmp1=_mm256_add_epi16(cmp1, _mm256_srli_epi64(cmp1, 16));
-					cmp2=_mm256_add_epi16(cmp2, _mm256_srli_epi64(cmp2, 16));
-					cmp0=_mm256_and_si256(cmp0, wordmask);
-					cmp1=_mm256_and_si256(cmp1, wordmask);
-					cmp2=_mm256_and_si256(cmp2, wordmask);
-					mflat[0]=_mm256_add_epi16(mflat[0], cmp0);
-					mflat[1]=_mm256_add_epi16(mflat[1], cmp1);
-					mflat[2]=_mm256_add_epi16(mflat[2], cmp2);
-#endif
 					__m256i rg=_mm256_sub_epi16(r, g);
 					__m256i gb=_mm256_sub_epi16(g, b);
 					__m256i br=_mm256_sub_epi16(b, r);
@@ -2309,101 +1594,42 @@ int c32_codec(const char *srcfn, const char *dstfn, int nthreads0)
 					UPDATE(OCH_CX22, OCH_C2X2, OCH_C22X, t0, t1, t2);
 				}
 			}
-#endif
-			for(int k=0;k<OCH_COUNT*2;++k)
+			for(int k=0;k<OCH_COUNT;++k)
 			{
 				ALIGN(32) long long temp[4]={0};
 				_mm256_store_si256((__m256i*)temp, mcounters[k]);
 				counters[k]=temp[0]+temp[1]+temp[2]+temp[3];
 			}
-			//int bestrctCG=0;
-			long long minerr=0;//, minerrCG=0;
+			long long minerr=0;
 			for(int kt=0;kt<RCT_COUNT;++kt)
 			{
 				const unsigned char *rct=rct_combinations[kt];
-				//long long currerrCG=
-				//	+counters[rct[0]]
-				//	+counters[rct[1]]
-				//	+counters[rct[2]]
-				//;
 				long long currerr=
-					+counters[rct[0]+OCH_COUNT]
-					+counters[rct[1]+OCH_COUNT]
-					+counters[rct[2]+OCH_COUNT]
+					+counters[rct[0]]
+					+counters[rct[1]]
+					+counters[rct[2]]
 				;
-#ifdef LOUD
-				printf("%-14s %12lld + %12lld + %12lld = %12lld  vs  CG %12lld%s\n",
-					rct_names[kt],
-					counters[rct[0]],
-					counters[rct[1]],
-					counters[rct[2]],
-					currerr,
-					currerrCG,
-					!kt||minerr>currerr?" <-":""
-				);
-#endif
+//#ifdef LOUD
+//				printf("%-14s %12lld + %12lld + %12lld = %12lld%s\n",
+//					rct_names[kt],
+//					counters[rct[0]],
+//					counters[rct[1]],
+//					counters[rct[2]],
+//					currerr,
+//					!kt||minerr>currerr?" <-":""
+//				);
+//#endif
 				if(!kt||minerr>currerr)
 				{
 					minerr=currerr;
 					bestrct=kt;
 				}
-				//if(!kt||minerrCG>currerrCG)
-				//{
-				//	minerrCG=currerrCG;
-				//	bestrctCG=kt;
-				//}
 			}
-			//use_wg4=minerr*2<minerrCG*3?2:0;
-			//if(minerr<minerrCG)
-			//	bestrct=bestrctCG;
-
-//			bestrct=0;//
-//#ifdef __GNUC__
-//#error remove above
-//#endif
-
-#ifdef DISABLE_WG
-			use_wg4=0;
-#else
-			//const unsigned char *rct=rct_combinations[bestrct];
-#ifdef CHECK_FLAT
-			{
-				ALIGN(32) long long temp[4]={0};
-				_mm256_store_si256((__m256i*)temp, mflat[0]);
-				flatctr[0]=temp[0]+temp[1]+temp[2]+temp[3];
-				_mm256_store_si256((__m256i*)temp, mflat[1]);
-				flatctr[1]=temp[0]+temp[1]+temp[2]+temp[3];
-				_mm256_store_si256((__m256i*)temp, mflat[2]);
-				flatctr[2]=temp[0]+temp[1]+temp[2]+temp[3];
-
-			}
-			use_wg4=flatctr[rct[0]]<isize/6;
-#else
-			//use_wg4=(counters[rct[0]]+counters[rct[1]]+counters[rct[2]] > isize*2)*2;
-#endif
-			switch(nthreads0&3)
-			{
-			case 1://use CG
-				use_wg4=0;
-				break;
-			case 2://use old predictor
-				use_wg4=1;
-//				L1sh=31-(int)((minerr+usize-1)/usize);
-//#ifdef LOUD
-//				printf("L1sh %d\n", L1sh);
-//#endif
-				break;
-			default://use L1 loss by default
-				use_wg4=2;
-				break;
-			}
-#endif
 		}
 		prof_checkpoint(usize, "analysis");
-#ifndef LOUD
-		if(nthreads0&4)
+#ifdef LOUD
+		printf("%s  WH %d*%d = %td bytes\n", rct_names[bestrct], iw, ih, usize);
 #endif
-			printf("%s  WG4=%d  %td bytes\n", rct_names[bestrct], use_wg4, usize);
 
 		//generate encode permutations		eg: mask = MSB 0b11000101 LSB  ->  LO {x, x, x, x, 0, 2, 6, 7} HI
 		for(int km=0;km<256;++km)
@@ -2422,11 +1648,7 @@ int c32_codec(const char *srcfn, const char *dstfn, int nthreads0)
 	else
 	{
 		//decode flags, stats
-		int flags=*streamptr++;
-		use_wg4=flags&3;
-		bestrct=flags>>2;
-		//if(use_wg4==2)
-		//	L1sh=*streamptr++;
+		bestrct=*streamptr++;
 
 		ctxmask=*(unsigned long long*)streamptr;
 		streamptr+=8;
@@ -2457,37 +1679,6 @@ int c32_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		}
 		prof_checkpoint(ans_permute_size, "gen permutation");
 	}
-	int L1statesize=0;
-	int *L1state=0;
-	if(use_wg4==1)
-	{
-		wgsize=(int)sizeof(short[2*NCODERS*3*WG_NPREDS])*(blockw+16);//2 padded rows  *  {WGY*NCODERS, WGU*NCODERS, WGV*NCODERS} * NPREDS = 3*32*8 = 768 channels  ~96*iw bytes
-		wgerrors=(short*)_mm_malloc(wgsize, sizeof(__m256i));//~375 KB for 4K/12MP		NNEerrors = currerrors
-		wgstatesize=(int)sizeof(short[2*NCODERS*3*WG_NPREDS]);//{preds, Wprederrors} * NPREDS * 3 channels * NCODERS
-		wgstate=(short*)_mm_malloc(wgstatesize, sizeof(__m256i));
-		if(!wgerrors||!wgstate)
-		{
-			LOG_ERROR("Alloc error");
-			return 1;
-		}
-		memset(wgerrors, 0, wgsize);
-		memset(wgstate, 0, wgstatesize);
-	}
-	else if(use_wg4==2)
-	{
-		L1statesize=(int)sizeof(int[2*NCODERS*3*(WG_NPREDS+1)]);//{preds, coeffs} * (NPREDS+{bias}) * 3 channels * NCODERS
-		L1state=(int*)_mm_malloc(L1statesize, sizeof(__m256i));
-		if(!L1state)
-		{
-			LOG_ERROR("Alloc error");
-			return 1;
-		}
-		memset(L1state, 0, L1statesize);
-	}
-#ifdef PRINT_L1_BOUNDS
-	int cmin=0, cmax=0;
-	int bmin=0, bmax=0;
-#endif
 	const unsigned char *combination=rct_combinations[bestrct];
 	int
 		yidx=combination[II_PERM_Y]*NCODERS,
@@ -2498,6 +1689,7 @@ int c32_codec(const char *srcfn, const char *dstfn, int nthreads0)
 	__m256i vc1=_mm256_set1_epi16(combination[II_COEFF_V_SUB_U]);
 	int paddedwidth=blockw+16;
 	memset(pixels, 0, psize);
+	memset(wgerrors, 0, wgsize);
 	__m256i mctxmax=_mm256_set1_epi16(NCTX-1);
 	__m256i mctxuoffset=_mm256_set1_epi16(NCTX);
 	__m256i mctxvoffset=_mm256_set1_epi16(NCTX*2);
@@ -2511,40 +1703,6 @@ int c32_codec(const char *srcfn, const char *dstfn, int nthreads0)
 	unsigned char *ctxptr=interleaved;
 	imptr=interleaved+(fwd?isize:0);
 	__m256i mstate[2];
-	__m256i *wgpreds=use_wg4==2?(__m256i*)L1state:(__m256i*)wgstate;
-	short *wgWerrors=use_wg4==2?(short*)(L1state+1*(ptrdiff_t)NCODERS*3*(WG_NPREDS+1)):wgstate+1*(ptrdiff_t)NCODERS*3*WG_NPREDS;
-	if(use_wg4==2)
-	{
-		static const int weights0[]=
-		{
-			/*
-			0	N
-			1	W
-			2	3*(N-NN)+NNN
-			3	3*(W-WW)+WWW
-			4	W+NE-N
-			5	(WWWW+WWW+NNN+NEE+NEEE+NEEEE-2*NW)/4
-			6	N+W-NW
-			7	N+NE-NNE
-			*/
-			100000,
-			100000,
-			 80000,
-			 80000,
-			 50000,
-			 50000,
-			150000,
-			 50000,
-			0,
-		};
-		int *L1coeffs=(int*)wgWerrors;
-		for(int k=0;k<WG_NPREDS;++k)
-			FILLMEM(L1coeffs+6*8*k, weights0[k], sizeof(int[6*8]), sizeof(int));
-	}
-	//short *wgWerrors=wgstate+0*(ptrdiff_t)NCODERS*3*WG_NPREDS;
-	//__m256i *wgpreds=(__m256i*)(wgstate+1*(ptrdiff_t)NCODERS*3*WG_NPREDS);
-	//__m256i rcon=_mm256_set1_epi32(1<<L1sh>>1);
-	//__m256i mL1sh=_mm256_set1_epi32(L1sh);
 	if(!fwd)
 	{
 #ifdef _DEBUG
@@ -2563,11 +1721,6 @@ int c32_codec(const char *srcfn, const char *dstfn, int nthreads0)
 			pixels+(paddedwidth*((ky-2LL)&3)+8LL)*6*NCODERS,
 			pixels+(paddedwidth*((ky-3LL)&3)+8LL)*6*NCODERS,
 		};
-		ALIGN(32) short *erows[]=
-		{
-			wgerrors+(paddedwidth*((ky-0LL)&1)+8LL)*NCODERS*3*WG_NPREDS,
-			wgerrors+(paddedwidth*((ky-1LL)&1)+8LL)*NCODERS*3*WG_NPREDS,
-		};
 		ALIGN(32) unsigned short syms[3*NCODERS]={0};
 		__m256i NW[3], N[3], W[3];
 		__m256i eW[3], ecurr[3], eNEE[3], eNEEE[3];
@@ -2578,7 +1731,6 @@ int c32_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		memset(ecurr, 0, sizeof(ecurr));
 		memset(eNEE, 0, sizeof(eNEE));
 		memset(eNEEE, 0, sizeof(eNEEE));
-		//memset(wgpreds, 0, sizeof(short[NCODERS*3*WG_NPREDS]));
 		//                       (__m256i*)rows[-Y]+E+C+X*6
 		eNEE[0]=_mm256_load_si256((__m256i*)rows[1]+3+0+2*6);
 		eNEE[1]=_mm256_load_si256((__m256i*)rows[1]+3+1+2*6);
@@ -2593,7 +1745,6 @@ int c32_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				predY, ctxY,
 				predU, ctxU,
 				predV, ctxV;
-			__m256i predYUV0[3];
 			{
 				//context = FLOOR_LOG2(eW*eW+1)
 				__m256i one=_mm256_set1_epi32(1);
@@ -2655,348 +1806,19 @@ int c32_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				predY=_mm256_sub_epi16(predY, NW[0]);
 				predU=_mm256_sub_epi16(predU, NW[1]);
 				predV=_mm256_sub_epi16(predV, NW[2]);
-				if(use_wg4)//predict
-				{
-					__m256i cache[3];
-					/*
-					0	N
-					1	W
-					2	3*(N-NN)+NNN
-					3	3*(W-WW)+WWW
-					4	W+NE-N
-					5	(WWWW+WWW+NNN+NEE+NEEE+NEEEE-2*NW)/4
-					6	N+W-NW
-					7	N+NE-NNE
-					*/
-
-					//N
-					wgpreds[0*3+0]=N[0];
-					wgpreds[0*3+1]=N[1];
-					wgpreds[0*3+2]=N[2];
-
-					//W
-					wgpreds[1*3+0]=W[0];
-					wgpreds[1*3+1]=W[1];
-					wgpreds[1*3+2]=W[2];
-
-					//3*(N-NN)+NNN
-					cache[0]=_mm256_sub_epi16(N[0], _mm256_load_si256((__m256i*)rows[2]+0+0+0*6));//N-NN
-					cache[1]=_mm256_sub_epi16(N[1], _mm256_load_si256((__m256i*)rows[2]+0+1+0*6));
-					cache[2]=_mm256_sub_epi16(N[2], _mm256_load_si256((__m256i*)rows[2]+0+2+0*6));
-					cache[0]=_mm256_add_epi16(cache[0], _mm256_slli_epi16(cache[0], 1));//*3
-					cache[1]=_mm256_add_epi16(cache[1], _mm256_slli_epi16(cache[1], 1));
-					cache[2]=_mm256_add_epi16(cache[2], _mm256_slli_epi16(cache[2], 1));
-					wgpreds[2*3+0]=_mm256_add_epi16(cache[0], _mm256_load_si256((__m256i*)rows[3]+0+0+0*6));//+NNN
-					wgpreds[2*3+1]=_mm256_add_epi16(cache[1], _mm256_load_si256((__m256i*)rows[3]+0+1+0*6));
-					wgpreds[2*3+2]=_mm256_add_epi16(cache[2], _mm256_load_si256((__m256i*)rows[3]+0+2+0*6));
-
-					//3*(W-WW)+WWW
-					cache[0]=_mm256_sub_epi16(W[0], _mm256_load_si256((__m256i*)rows[0]+0+0-2*6));//W-WW
-					cache[1]=_mm256_sub_epi16(W[1], _mm256_load_si256((__m256i*)rows[0]+0+1-2*6));
-					cache[2]=_mm256_sub_epi16(W[2], _mm256_load_si256((__m256i*)rows[0]+0+2-2*6));
-					cache[0]=_mm256_add_epi16(cache[0], _mm256_slli_epi16(cache[0], 1));//*3
-					cache[1]=_mm256_add_epi16(cache[1], _mm256_slli_epi16(cache[1], 1));
-					cache[2]=_mm256_add_epi16(cache[2], _mm256_slli_epi16(cache[2], 1));
-					wgpreds[3*3+0]=_mm256_add_epi16(cache[0], _mm256_load_si256((__m256i*)rows[0]+0+0-3*6));//+WWW
-					wgpreds[3*3+1]=_mm256_add_epi16(cache[1], _mm256_load_si256((__m256i*)rows[0]+0+1-3*6));
-					wgpreds[3*3+2]=_mm256_add_epi16(cache[2], _mm256_load_si256((__m256i*)rows[0]+0+2-3*6));
-
-					//W+NE-N
-					cache[0]=_mm256_sub_epi16(W[0], N[0]);
-					cache[1]=_mm256_sub_epi16(W[1], N[1]);
-					cache[2]=_mm256_sub_epi16(W[2], N[2]);
-					wgpreds[4*3+0]=_mm256_add_epi16(cache[0], _mm256_load_si256((__m256i*)rows[1]+0+0+1*6));//+NE
-					wgpreds[4*3+1]=_mm256_add_epi16(cache[1], _mm256_load_si256((__m256i*)rows[1]+0+1+1*6));
-					wgpreds[4*3+2]=_mm256_add_epi16(cache[2], _mm256_load_si256((__m256i*)rows[1]+0+2+1*6));
-
-					//(WWWW+WWW+NNN+NEE+NEEE+NEEEE-(NW+N))>>2
-					cache[0]=_mm256_load_si256((__m256i*)rows[0]+0+0-4*6);//WWWW
-					cache[1]=_mm256_load_si256((__m256i*)rows[0]+0+1-4*6);
-					cache[2]=_mm256_load_si256((__m256i*)rows[0]+0+2-4*6);
-					cache[0]=_mm256_add_epi16(cache[0], _mm256_load_si256((__m256i*)rows[0]+0+0-3*6));//+WWW
-					cache[1]=_mm256_add_epi16(cache[1], _mm256_load_si256((__m256i*)rows[0]+0+1-3*6));
-					cache[2]=_mm256_add_epi16(cache[2], _mm256_load_si256((__m256i*)rows[0]+0+2-3*6));
-					cache[0]=_mm256_add_epi16(cache[0], _mm256_load_si256((__m256i*)rows[3]+0+0+0*6));//+NNN
-					cache[1]=_mm256_add_epi16(cache[1], _mm256_load_si256((__m256i*)rows[3]+0+1+0*6));
-					cache[2]=_mm256_add_epi16(cache[2], _mm256_load_si256((__m256i*)rows[3]+0+2+0*6));
-					cache[0]=_mm256_add_epi16(cache[0], _mm256_load_si256((__m256i*)rows[1]+0+0+2*6));//+NEE
-					cache[1]=_mm256_add_epi16(cache[1], _mm256_load_si256((__m256i*)rows[1]+0+1+2*6));
-					cache[2]=_mm256_add_epi16(cache[2], _mm256_load_si256((__m256i*)rows[1]+0+2+2*6));
-					cache[0]=_mm256_add_epi16(cache[0], _mm256_load_si256((__m256i*)rows[1]+0+0+3*6));//+NEEE
-					cache[1]=_mm256_add_epi16(cache[1], _mm256_load_si256((__m256i*)rows[1]+0+1+3*6));
-					cache[2]=_mm256_add_epi16(cache[2], _mm256_load_si256((__m256i*)rows[1]+0+2+3*6));
-					cache[0]=_mm256_add_epi16(cache[0], _mm256_load_si256((__m256i*)rows[1]+0+0+4*6));//+NEEEE
-					cache[1]=_mm256_add_epi16(cache[1], _mm256_load_si256((__m256i*)rows[1]+0+1+4*6));
-					cache[2]=_mm256_add_epi16(cache[2], _mm256_load_si256((__m256i*)rows[1]+0+2+4*6));
-					cache[0]=_mm256_sub_epi16(cache[0], _mm256_add_epi16(N[0], NW[0]));
-					cache[1]=_mm256_sub_epi16(cache[1], _mm256_add_epi16(N[1], NW[1]));
-					cache[2]=_mm256_sub_epi16(cache[2], _mm256_add_epi16(N[2], NW[2]));
-					wgpreds[5*3+0]=_mm256_srai_epi16(cache[0], 2);
-					wgpreds[5*3+1]=_mm256_srai_epi16(cache[1], 2);
-					wgpreds[5*3+2]=_mm256_srai_epi16(cache[2], 2);
-
-					//N+W-NW
-					wgpreds[6*3+0]=predY;
-					wgpreds[6*3+1]=predU;
-					wgpreds[6*3+2]=predV;
-
-					//N+NE-NNE
-					cache[0]=_mm256_add_epi16(N[0], _mm256_load_si256((__m256i*)rows[1]+0+0+1*6));//N+NE
-					cache[1]=_mm256_add_epi16(N[1], _mm256_load_si256((__m256i*)rows[1]+0+1+1*6));
-					cache[2]=_mm256_add_epi16(N[2], _mm256_load_si256((__m256i*)rows[1]+0+2+1*6));
-					wgpreds[7*3+0]=_mm256_sub_epi16(cache[0], _mm256_load_si256((__m256i*)rows[2]+0+0+1*6));//NNE
-					wgpreds[7*3+1]=_mm256_sub_epi16(cache[1], _mm256_load_si256((__m256i*)rows[2]+0+1+1*6));
-					wgpreds[7*3+2]=_mm256_sub_epi16(cache[2], _mm256_load_si256((__m256i*)rows[2]+0+2+1*6));
-
-
-					//mix
-					if(use_wg4==2)
-					{
-						__m256i mp[6], t[6];
-						int *L1coeffs=(int*)wgWerrors;
-						mp[0]=_mm256_load_si256((__m256i*)L1coeffs+WG_NPREDS*6+0);//bias
-						mp[1]=_mm256_load_si256((__m256i*)L1coeffs+WG_NPREDS*6+1);
-						mp[2]=_mm256_load_si256((__m256i*)L1coeffs+WG_NPREDS*6+2);
-						mp[3]=_mm256_load_si256((__m256i*)L1coeffs+WG_NPREDS*6+3);
-						mp[4]=_mm256_load_si256((__m256i*)L1coeffs+WG_NPREDS*6+4);
-						mp[5]=_mm256_load_si256((__m256i*)L1coeffs+WG_NPREDS*6+5);
-#ifdef PRINT_L1_BOUNDS
-						for(int k2=0;k2<6*8;++k2)
-						{
-							int bias=L1coeffs[WG_NPREDS*6*8+k2];
-							if(bmin>bias)bmin=bias;
-							if(bmax<bias)bmax=bias;
-						}
-#endif
-#if 0
-						for(int k2=0;k2<16*3*8;++k2)//
-						{
-							long long prod=(long long)((short*)wgpreds)[k2]*((int*)L1coeffs)[k2];
-							int hi=(int)(prod>>32);
-							if(hi!=0&&hi!=-1)
-								LOG_ERROR("");
-						}
-#endif
-						//__m256i csum[6]={0};
-#if defined __GNUC__ && !defined PROFILER
-#pragma GCC unroll 8
-#endif
-						for(int k=0;k<WG_NPREDS;++k)
-						{
-							__m256i c[6];
-							c[0]=_mm256_load_si256((__m256i*)L1coeffs+k*6+0);
-							c[1]=_mm256_load_si256((__m256i*)L1coeffs+k*6+1);
-							c[2]=_mm256_load_si256((__m256i*)L1coeffs+k*6+2);
-							c[3]=_mm256_load_si256((__m256i*)L1coeffs+k*6+3);
-							c[4]=_mm256_load_si256((__m256i*)L1coeffs+k*6+4);
-							c[5]=_mm256_load_si256((__m256i*)L1coeffs+k*6+5);
-#ifdef PRINT_L1_BOUNDS
-							for(int k2=0;k2<6*8;++k2)
-							{
-								int coeff=L1coeffs[k*6*8+k2];
-								if(cmin>coeff)cmin=coeff;
-								if(cmax<coeff)cmax=coeff;
-							}
-#endif
-							//16 -> 32		3 lo 3 hi registers
-							t[0]=_mm256_slli_epi32(wgpreds[k*3+0], 16);
-							t[1]=_mm256_slli_epi32(wgpreds[k*3+1], 16);
-							t[2]=_mm256_slli_epi32(wgpreds[k*3+2], 16);
-							t[3]=_mm256_srai_epi32(wgpreds[k*3+0], 16);
-							t[4]=_mm256_srai_epi32(wgpreds[k*3+1], 16);
-							t[5]=_mm256_srai_epi32(wgpreds[k*3+2], 16);
-							t[0]=_mm256_srai_epi32(t[0], 16);
-							t[1]=_mm256_srai_epi32(t[1], 16);
-							t[2]=_mm256_srai_epi32(t[2], 16);
-							t[0]=_mm256_mullo_epi32(t[0], c[0]);
-							t[1]=_mm256_mullo_epi32(t[1], c[1]);
-							t[2]=_mm256_mullo_epi32(t[2], c[2]);
-							t[3]=_mm256_mullo_epi32(t[3], c[3]);
-							t[4]=_mm256_mullo_epi32(t[4], c[4]);
-							t[5]=_mm256_mullo_epi32(t[5], c[5]);
-							mp[0]=_mm256_add_epi32(mp[0], t[0]);
-							mp[1]=_mm256_add_epi32(mp[1], t[1]);
-							mp[2]=_mm256_add_epi32(mp[2], t[2]);
-							mp[3]=_mm256_add_epi32(mp[3], t[3]);
-							mp[4]=_mm256_add_epi32(mp[4], t[4]);
-							mp[5]=_mm256_add_epi32(mp[5], t[5]);
-
-							//csum[0]=_mm256_add_epi32(csum[0], c[0]);
-							//csum[1]=_mm256_add_epi32(csum[1], c[1]);
-							//csum[2]=_mm256_add_epi32(csum[2], c[2]);
-							//csum[3]=_mm256_add_epi32(csum[3], c[3]);
-							//csum[4]=_mm256_add_epi32(csum[4], c[4]);
-							//csum[5]=_mm256_add_epi32(csum[5], c[5]);
-						}
-						//if(ky==blockh-1)//
-						//	printf("");
-#if 0
-						mp[0]=_mm256_add_epi32(mp[0], rcon);
-						mp[3]=_mm256_add_epi32(mp[3], rcon);
-						mp[1]=_mm256_add_epi32(mp[1], rcon);
-						mp[4]=_mm256_add_epi32(mp[4], rcon);
-						mp[2]=_mm256_add_epi32(mp[2], rcon);
-						mp[5]=_mm256_add_epi32(mp[5], rcon);
-
-						mp[0]=_mm256_srav_epi32(mp[0], mL1sh);
-						mp[1]=_mm256_srav_epi32(mp[1], mL1sh);
-						mp[2]=_mm256_srav_epi32(mp[2], mL1sh);
-						mp[3]=_mm256_srav_epi32(mp[3], mL1sh);
-						mp[4]=_mm256_srav_epi32(mp[4], mL1sh);
-						mp[5]=_mm256_srav_epi32(mp[5], mL1sh);
-#endif
-#if 0
-						__m256i tmp=_mm256_setzero_si256();
-						csum[0]=_mm256_add_epi32(csum[0], _mm256_cmpeq_epi32(csum[0], tmp));
-						csum[1]=_mm256_add_epi32(csum[1], _mm256_cmpeq_epi32(csum[1], tmp));
-						csum[2]=_mm256_add_epi32(csum[2], _mm256_cmpeq_epi32(csum[2], tmp));
-						csum[3]=_mm256_add_epi32(csum[3], _mm256_cmpeq_epi32(csum[3], tmp));
-						csum[4]=_mm256_add_epi32(csum[4], _mm256_cmpeq_epi32(csum[4], tmp));
-						csum[5]=_mm256_add_epi32(csum[5], _mm256_cmpeq_epi32(csum[5], tmp));
-						csum[0]=_mm256_castps_si256(_mm256_cvtepi32_ps(csum[0]));
-						csum[1]=_mm256_castps_si256(_mm256_cvtepi32_ps(csum[1]));
-						csum[2]=_mm256_castps_si256(_mm256_cvtepi32_ps(csum[2]));
-						csum[3]=_mm256_castps_si256(_mm256_cvtepi32_ps(csum[3]));
-						csum[4]=_mm256_castps_si256(_mm256_cvtepi32_ps(csum[4]));
-						csum[5]=_mm256_castps_si256(_mm256_cvtepi32_ps(csum[5]));
-						tmp=_mm256_set1_epi32(0x7FFFFFFF);
-						csum[0]=_mm256_and_si256(csum[0], tmp);
-						csum[1]=_mm256_and_si256(csum[1], tmp);
-						csum[2]=_mm256_and_si256(csum[2], tmp);
-						csum[3]=_mm256_and_si256(csum[3], tmp);
-						csum[4]=_mm256_and_si256(csum[4], tmp);
-						csum[5]=_mm256_and_si256(csum[5], tmp);
-						csum[0]=_mm256_srli_epi32(csum[0], 23);
-						csum[1]=_mm256_srli_epi32(csum[1], 23);
-						csum[2]=_mm256_srli_epi32(csum[2], 23);
-						csum[3]=_mm256_srli_epi32(csum[3], 23);
-						csum[4]=_mm256_srli_epi32(csum[4], 23);
-						csum[5]=_mm256_srli_epi32(csum[5], 23);
-						tmp=_mm256_set1_epi32(-127-2);
-						csum[0]=_mm256_add_epi32(csum[0], tmp);
-						csum[1]=_mm256_add_epi32(csum[1], tmp);
-						csum[2]=_mm256_add_epi32(csum[2], tmp);
-						csum[3]=_mm256_add_epi32(csum[3], tmp);
-						csum[4]=_mm256_add_epi32(csum[4], tmp);
-						csum[5]=_mm256_add_epi32(csum[5], tmp);
-						tmp=_mm256_set1_epi32(16);
-						csum[0]=_mm256_max_epi32(csum[0], tmp);
-						csum[1]=_mm256_max_epi32(csum[1], tmp);
-						csum[2]=_mm256_max_epi32(csum[2], tmp);
-						csum[3]=_mm256_max_epi32(csum[3], tmp);
-						csum[4]=_mm256_max_epi32(csum[4], tmp);
-						csum[5]=_mm256_max_epi32(csum[5], tmp);
-						tmp=_mm256_set1_epi32(21);
-						csum[0]=_mm256_min_epi32(csum[0], tmp);
-						csum[1]=_mm256_min_epi32(csum[1], tmp);
-						csum[2]=_mm256_min_epi32(csum[2], tmp);
-						csum[3]=_mm256_min_epi32(csum[3], tmp);
-						csum[4]=_mm256_min_epi32(csum[4], tmp);
-						csum[5]=_mm256_min_epi32(csum[5], tmp);
-
-						mp[0]=_mm256_srav_epi32(mp[0], csum[0]);
-						mp[1]=_mm256_srav_epi32(mp[1], csum[1]);
-						mp[2]=_mm256_srav_epi32(mp[2], csum[2]);
-						mp[3]=_mm256_srav_epi32(mp[3], csum[3]);
-						mp[4]=_mm256_srav_epi32(mp[4], csum[4]);
-						mp[5]=_mm256_srav_epi32(mp[5], csum[5]);
-#endif
-#if 1
-#define L1SH 19
-						__m256i rcon=_mm256_set1_epi32(1<<L1SH>>1);
-						mp[0]=_mm256_add_epi32(mp[0], rcon);
-						mp[3]=_mm256_add_epi32(mp[3], rcon);
-					//	rcon=_mm256_slli_epi32(rcon, 1);
-						mp[1]=_mm256_add_epi32(mp[1], rcon);
-						mp[4]=_mm256_add_epi32(mp[4], rcon);
-						mp[2]=_mm256_add_epi32(mp[2], rcon);
-						mp[5]=_mm256_add_epi32(mp[5], rcon);
-
-						mp[0]=_mm256_srai_epi32(mp[0], L1SH);
-						mp[1]=_mm256_srai_epi32(mp[1], L1SH);
-						mp[2]=_mm256_srai_epi32(mp[2], L1SH);
-						mp[3]=_mm256_srai_epi32(mp[3], L1SH);
-						mp[4]=_mm256_srai_epi32(mp[4], L1SH);
-						mp[5]=_mm256_srai_epi32(mp[5], L1SH);
-#endif
-						
-						//for(int k=0;k<6*8;++k)
-						//{
-						//	int pval=((int*)mp)[k];
-						//	int hi=pval>>16;
-						//	if(hi!=0&&hi!=-1)
-						//		LOG_ERROR("");
-						//}
-
-						//32 -> 16
-						mp[0]=_mm256_slli_epi32(mp[0], 16);
-						mp[1]=_mm256_slli_epi32(mp[1], 16);
-						mp[2]=_mm256_slli_epi32(mp[2], 16);
-						mp[3]=_mm256_slli_epi32(mp[3], 16);
-						mp[4]=_mm256_slli_epi32(mp[4], 16);
-						mp[5]=_mm256_slli_epi32(mp[5], 16);
-						mp[0]=_mm256_srli_epi32(mp[0], 16);
-						mp[1]=_mm256_srli_epi32(mp[1], 16);
-						mp[2]=_mm256_srli_epi32(mp[2], 16);
-						predY=_mm256_or_si256(mp[0], mp[3]);
-						predU=_mm256_or_si256(mp[1], mp[4]);
-						predV=_mm256_or_si256(mp[2], mp[5]);
-					}
-					else
-					{
-						wg_mix(0, wgWerrors, erows[0], erows[1], wgpreds, &predY);
-						wg_mix(1, wgWerrors, erows[0], erows[1], wgpreds, &predU);
-						wg_mix(2, wgWerrors, erows[0], erows[1], wgpreds, &predV);
-					}
-
-
-					//loosen pred range
-					cache[0]=_mm256_load_si256((__m256i*)rows[1]+0+0+1*6);//NE
-					cache[1]=_mm256_load_si256((__m256i*)rows[1]+0+1+1*6);
-					cache[2]=_mm256_load_si256((__m256i*)rows[1]+0+2+1*6);
-					ymin=_mm256_min_epi16(ymin, cache[0]);
-					ymax=_mm256_max_epi16(ymax, cache[0]);
-					umin=_mm256_min_epi16(umin, cache[1]);
-					umax=_mm256_max_epi16(umax, cache[1]);
-					vmin=_mm256_min_epi16(vmin, cache[2]);
-					vmax=_mm256_max_epi16(vmax, cache[2]);
-					cache[0]=_mm256_load_si256((__m256i*)rows[1]+0+0+3*6);//NEEE	crisp DIV2K -0.18%, noisy GDCC +0.13%
-					cache[1]=_mm256_load_si256((__m256i*)rows[1]+0+1+3*6);
-					cache[2]=_mm256_load_si256((__m256i*)rows[1]+0+2+3*6);
-					ymin=_mm256_min_epi16(ymin, cache[0]);
-					ymax=_mm256_max_epi16(ymax, cache[0]);
-					umin=_mm256_min_epi16(umin, cache[1]);
-					umax=_mm256_max_epi16(umax, cache[1]);
-					vmin=_mm256_min_epi16(vmin, cache[2]);
-					vmax=_mm256_max_epi16(vmax, cache[2]);
-					//ymin=_mm256_min_epi16(ymin, NW[0]);
-					//ymax=_mm256_max_epi16(ymax, NW[0]);
-					//umin=_mm256_min_epi16(umin, NW[1]);
-					//umax=_mm256_max_epi16(umax, NW[1]);
-					//vmin=_mm256_min_epi16(vmin, NW[2]);
-					//vmax=_mm256_max_epi16(vmax, NW[2]);
-				}
-				predYUV0[0]=predY;
-				predYUV0[1]=predU;
-				predYUV0[2]=predV;
-
 				predY=_mm256_max_epi16(predY, ymin);
 				predU=_mm256_max_epi16(predU, umin);
 				predV=_mm256_max_epi16(predV, vmin);
 				predY=_mm256_min_epi16(predY, ymax);
 				predU=_mm256_min_epi16(predU, umax);
 				predV=_mm256_min_epi16(predV, vmax);
-
-				//predY=_mm256_setzero_si256();//
-				//predU=_mm256_setzero_si256();//
-				//predV=_mm256_setzero_si256();//
 			}
+
 			__m256i msyms, moffset;
 			if(fwd)
 			{
 				//if(ky==1&&kx==1296)//
 				//if(ky==0&&kx==48)//
-				//if(ky==1&&kx==1296)//
 				//	printf("");
 
 				__m256i ctxblendmask=_mm256_set1_epi16(255);
@@ -3004,11 +1826,9 @@ int c32_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				myuv[1]=_mm256_cvtepi8_epi16(_mm_add_epi8(_mm_loadu_si128((__m128i*)(imptr+uidx)), half8));
 				myuv[2]=_mm256_cvtepi8_epi16(_mm_add_epi8(_mm_loadu_si128((__m128i*)(imptr+vidx)), half8));
 
-				//encode Y
 				W[0]=myuv[0];
 				_mm256_store_si256((__m256i*)rows[0]+0+0+0*6, myuv[0]);//store Y neighbors
 				msyms=_mm256_sub_epi16(myuv[0], predY);//sub pred
-				//ecurr[0]=_mm256_abs_epi16(msyms);
 				ecurr[0]=_mm256_xor_si256(_mm256_slli_epi16(msyms, 1), _mm256_srai_epi16(msyms, 15));//ecurr = pack_sign(yuv-pred)
 				msyms=_mm256_sub_epi16(msyms, amin);
 				ctxY=_mm256_slli_epi16(ctxY, 8);
@@ -3016,14 +1836,12 @@ int c32_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				_mm256_store_si256((__m256i*)syms, ctxY);
 				_mm256_store_si256((__m256i*)ctxptr+0, ctxY);//store Y  ctx|residuals
 				
-				//encode U
 				moffset=_mm256_and_si256(myuv[0], uhelpmask);
 				predU=_mm256_add_epi16(predU, moffset);
 				predU=_mm256_max_epi16(predU, amin);
 				predU=_mm256_min_epi16(predU, amax);
 
 				msyms=_mm256_sub_epi16(myuv[1], predU);
-				//ecurr[1]=_mm256_abs_epi16(msyms);
 				ecurr[1]=_mm256_xor_si256(_mm256_slli_epi16(msyms, 1), _mm256_srai_epi16(msyms, 15));
 				msyms=_mm256_sub_epi16(msyms, amin);
 				ctxU=_mm256_add_epi16(ctxU, mctxuoffset);
@@ -3031,30 +1849,18 @@ int c32_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				ctxU=_mm256_blendv_epi8(ctxU, msyms, ctxblendmask);
 				_mm256_store_si256((__m256i*)syms+1, ctxU);
 				_mm256_store_si256((__m256i*)ctxptr+1, ctxU);//store U  ctx|residuals
-#ifdef VNATIVE
-				W[1]=_mm256_sub_epi16(myuv[1], moffset);
-				_mm256_store_si256((__m256i*)rows[0]+0+1+0*6, W[1]);//store U neighbors
-#else
 				msyms=_mm256_sub_epi16(myuv[1], moffset);
 				W[1]=msyms;
 				_mm256_store_si256((__m256i*)rows[0]+0+1+0*6, msyms);//store U neighbors
-#endif
 				
-				//encode V
 				moffset=_mm256_mullo_epi16(vc0, myuv[0]);
 				moffset=_mm256_add_epi16(moffset, _mm256_mullo_epi16(vc1, myuv[1]));
-#ifdef VNATIVE
-				moffset=_mm256_srai_epi16(moffset, 2);
-#endif
 				predV=_mm256_add_epi16(predV, moffset);
-#ifndef VNATIVE
 				predV=_mm256_srai_epi16(predV, 2);
-#endif
 				predV=_mm256_max_epi16(predV, amin);
 				predV=_mm256_min_epi16(predV, amax);
 
 				msyms=_mm256_sub_epi16(myuv[2], predV);
-				//ecurr[2]=_mm256_abs_epi16(msyms);
 				ecurr[2]=_mm256_xor_si256(_mm256_slli_epi16(msyms, 1), _mm256_srai_epi16(msyms, 15));
 				msyms=_mm256_sub_epi16(msyms, amin);
 				ctxV=_mm256_add_epi16(ctxV, mctxvoffset);
@@ -3062,33 +1868,10 @@ int c32_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				ctxV=_mm256_blendv_epi8(ctxV, msyms, ctxblendmask);
 				_mm256_store_si256((__m256i*)syms+2, ctxV);
 				_mm256_store_si256((__m256i*)ctxptr+2, ctxV);//store V  ctx|residuals		ctxptr+NCODERS*(C*2+R)
-#ifdef VNATIVE
-				W[2]=_mm256_sub_epi16(myuv[2], moffset);
-				_mm256_store_si256((__m256i*)rows[0]+0+2+0*6, W[2]);//store V neighbors
-#else
 				msyms=_mm256_slli_epi16(myuv[2], 2);
 				msyms=_mm256_sub_epi16(msyms, moffset);
 				W[2]=msyms;
 				_mm256_store_si256((__m256i*)rows[0]+0+2+0*6, msyms);//store V neighbors
-#endif
-				int *pa, *pb, *pc, va, vb, vc;
-				pa=hists+syms[0*16+0x0]; pb=hists+syms[1*16+0x0]; pc=hists+syms[2*16+0x0]; va=*pa+1; vb=*pb+1; vc=*pc+1; *pa=va; *pb=vb; *pc=vc;
-				pa=hists+syms[0*16+0x1]; pb=hists+syms[1*16+0x1]; pc=hists+syms[2*16+0x1]; va=*pa+1; vb=*pb+1; vc=*pc+1; *pa=va; *pb=vb; *pc=vc;
-				pa=hists+syms[0*16+0x2]; pb=hists+syms[1*16+0x2]; pc=hists+syms[2*16+0x2]; va=*pa+1; vb=*pb+1; vc=*pc+1; *pa=va; *pb=vb; *pc=vc;
-				pa=hists+syms[0*16+0x3]; pb=hists+syms[1*16+0x3]; pc=hists+syms[2*16+0x3]; va=*pa+1; vb=*pb+1; vc=*pc+1; *pa=va; *pb=vb; *pc=vc;
-				pa=hists+syms[0*16+0x4]; pb=hists+syms[1*16+0x4]; pc=hists+syms[2*16+0x4]; va=*pa+1; vb=*pb+1; vc=*pc+1; *pa=va; *pb=vb; *pc=vc;
-				pa=hists+syms[0*16+0x5]; pb=hists+syms[1*16+0x5]; pc=hists+syms[2*16+0x5]; va=*pa+1; vb=*pb+1; vc=*pc+1; *pa=va; *pb=vb; *pc=vc;
-				pa=hists+syms[0*16+0x6]; pb=hists+syms[1*16+0x6]; pc=hists+syms[2*16+0x6]; va=*pa+1; vb=*pb+1; vc=*pc+1; *pa=va; *pb=vb; *pc=vc;
-				pa=hists+syms[0*16+0x7]; pb=hists+syms[1*16+0x7]; pc=hists+syms[2*16+0x7]; va=*pa+1; vb=*pb+1; vc=*pc+1; *pa=va; *pb=vb; *pc=vc;
-				pa=hists+syms[0*16+0x8]; pb=hists+syms[1*16+0x8]; pc=hists+syms[2*16+0x8]; va=*pa+1; vb=*pb+1; vc=*pc+1; *pa=va; *pb=vb; *pc=vc;
-				pa=hists+syms[0*16+0x9]; pb=hists+syms[1*16+0x9]; pc=hists+syms[2*16+0x9]; va=*pa+1; vb=*pb+1; vc=*pc+1; *pa=va; *pb=vb; *pc=vc;
-				pa=hists+syms[0*16+0xA]; pb=hists+syms[1*16+0xA]; pc=hists+syms[2*16+0xA]; va=*pa+1; vb=*pb+1; vc=*pc+1; *pa=va; *pb=vb; *pc=vc;
-				pa=hists+syms[0*16+0xB]; pb=hists+syms[1*16+0xB]; pc=hists+syms[2*16+0xB]; va=*pa+1; vb=*pb+1; vc=*pc+1; *pa=va; *pb=vb; *pc=vc;
-				pa=hists+syms[0*16+0xC]; pb=hists+syms[1*16+0xC]; pc=hists+syms[2*16+0xC]; va=*pa+1; vb=*pb+1; vc=*pc+1; *pa=va; *pb=vb; *pc=vc;
-				pa=hists+syms[0*16+0xD]; pb=hists+syms[1*16+0xD]; pc=hists+syms[2*16+0xD]; va=*pa+1; vb=*pb+1; vc=*pc+1; *pa=va; *pb=vb; *pc=vc;
-				pa=hists+syms[0*16+0xE]; pb=hists+syms[1*16+0xE]; pc=hists+syms[2*16+0xE]; va=*pa+1; vb=*pb+1; vc=*pc+1; *pa=va; *pb=vb; *pc=vc;
-				pa=hists+syms[0*16+0xF]; pb=hists+syms[1*16+0xF]; pc=hists+syms[2*16+0xF]; va=*pa+1; vb=*pb+1; vc=*pc+1; *pa=va; *pb=vb; *pc=vc;
-#if 0
 				++hists[syms[0*16+0x0]];
 				++hists[syms[1*16+0x0]];
 				++hists[syms[2*16+0x0]];
@@ -3137,7 +1920,6 @@ int c32_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				++hists[syms[0*16+0xF]];
 				++hists[syms[1*16+0xF]];
 				++hists[syms[2*16+0xF]];
-#endif
 				ctxptr+=sizeof(short[3][NCODERS]);
 			}
 			else
@@ -3169,7 +1951,6 @@ int c32_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				myuv[0]=_mm256_and_si256(myuv[0], bytemask);
 				myuv[0]=_mm256_add_epi16(myuv[0], amin);
 				msyms=_mm256_sub_epi16(myuv[0], predY);//sub pred
-				//ecurr[0]=_mm256_abs_epi16(msyms);
 				ecurr[0]=_mm256_xor_si256(_mm256_slli_epi16(msyms, 1), _mm256_srai_epi16(msyms, 15));
 				msyms8=_mm_packs_epi16(_mm256_extracti128_si256(myuv[0], 0), _mm256_extracti128_si256(myuv[0], 1));
 				msyms8=_mm_xor_si128(msyms8, _mm_set1_epi8(-128));
@@ -3220,7 +2001,6 @@ int c32_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				myuv[1]=_mm256_and_si256(myuv[1], bytemask);
 				myuv[1]=_mm256_add_epi16(myuv[1], amin);
 				msyms=_mm256_sub_epi16(myuv[1], predU);//sub pred
-				//ecurr[1]=_mm256_abs_epi16(msyms);
 				ecurr[1]=_mm256_xor_si256(_mm256_slli_epi16(msyms, 1), _mm256_srai_epi16(msyms, 15));
 				msyms8=_mm_packs_epi16(_mm256_extracti128_si256(myuv[1], 0), _mm256_extracti128_si256(myuv[1], 1));
 				msyms8=_mm_xor_si128(msyms8, _mm_set1_epi8(-128));
@@ -3252,13 +2032,8 @@ int c32_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				//decode V
 				moffset=_mm256_mullo_epi16(vc0, myuv[0]);
 				moffset=_mm256_add_epi16(moffset, _mm256_mullo_epi16(vc1, myuv[1]));
-#ifdef VNATIVE
-				moffset=_mm256_srai_epi16(moffset, 2);
-				predV=_mm256_add_epi16(predV, moffset);
-#else
 				predV=_mm256_add_epi16(predV, moffset);
 				predV=_mm256_srai_epi16(predV, 2);
-#endif
 				predV=_mm256_max_epi16(predV, amin);
 				predV=_mm256_min_epi16(predV, amax);
 				dec_yuv(mstate, 2, &ctxV, (int*)CDF2syms, ans_permute, &streamptr, streamend, myuv+2);
@@ -3277,7 +2052,6 @@ int c32_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				myuv[2]=_mm256_and_si256(myuv[2], bytemask);
 				myuv[2]=_mm256_add_epi16(myuv[2], amin);
 				msyms=_mm256_sub_epi16(myuv[2], predV);
-				//ecurr[2]=_mm256_abs_epi16(msyms);
 				ecurr[2]=_mm256_xor_si256(_mm256_slli_epi16(msyms, 1), _mm256_srai_epi16(msyms, 15));
 				msyms8=_mm_packs_epi16(_mm256_extracti128_si256(myuv[2], 0), _mm256_extracti128_si256(myuv[2], 1));
 				msyms8=_mm_xor_si128(msyms8, _mm_set1_epi8(-128));
@@ -3302,294 +2076,14 @@ int c32_codec(const char *srcfn, const char *dstfn, int nthreads0)
 //				ansval_check(actx+2*NCODERS, 1, NCODERS);
 //				ansval_check(imptr+kx+vidx, 1, NCODERS);
 //#endif
-#ifdef VNATIVE
-				W[2]=_mm256_sub_epi16(myuv[2], moffset);//subtract Voffset from V
-#else
 				W[2]=_mm256_slli_epi16(myuv[2], 2);
 				W[2]=_mm256_sub_epi16(W[2], moffset);//subtract Voffset from V
-#endif
 				_mm256_store_si256((__m256i*)rows[0]+0+2+0*6, W[2]);//store V neighbors
 				
 //#ifdef ENABLE_GUIDE
 //				for(int kx2=0;kx2<3*NCODERS;kx2+=3)
 //					guide_check(image, kx+kx2, ky);
 //#endif
-			}
-			if(use_wg4==1)//update
-			{
-				for(int kr=0;kr<3;++kr)
-				{
-					__m256i curr=W[kr];
-					__m256i me0=_mm256_sub_epi16(curr, wgpreds[0*3+kr]);
-					__m256i me1=_mm256_sub_epi16(curr, wgpreds[1*3+kr]);
-					__m256i me2=_mm256_sub_epi16(curr, wgpreds[2*3+kr]);
-					__m256i me3=_mm256_sub_epi16(curr, wgpreds[3*3+kr]);
-					__m256i me4=_mm256_sub_epi16(curr, wgpreds[4*3+kr]);
-					__m256i me5=_mm256_sub_epi16(curr, wgpreds[5*3+kr]);
-					__m256i me6=_mm256_sub_epi16(curr, wgpreds[6*3+kr]);
-					__m256i me7=_mm256_sub_epi16(curr, wgpreds[7*3+kr]);
-					me0=_mm256_abs_epi16(me0);
-					me1=_mm256_abs_epi16(me1);
-					me2=_mm256_abs_epi16(me2);
-					me3=_mm256_abs_epi16(me3);
-					me4=_mm256_abs_epi16(me4);
-					me5=_mm256_abs_epi16(me5);
-					me6=_mm256_abs_epi16(me6);
-					me7=_mm256_abs_epi16(me7);
-					//me0=_mm256_xor_si256(_mm256_slli_epi16(me0, 1), _mm256_srai_epi16(me0, 15));
-					//me1=_mm256_xor_si256(_mm256_slli_epi16(me1, 1), _mm256_srai_epi16(me1, 15));
-					//me2=_mm256_xor_si256(_mm256_slli_epi16(me2, 1), _mm256_srai_epi16(me2, 15));
-					//me3=_mm256_xor_si256(_mm256_slli_epi16(me3, 1), _mm256_srai_epi16(me3, 15));
-					//me4=_mm256_xor_si256(_mm256_slli_epi16(me4, 1), _mm256_srai_epi16(me4, 15));
-					//me5=_mm256_xor_si256(_mm256_slli_epi16(me5, 1), _mm256_srai_epi16(me5, 15));
-					//me6=_mm256_xor_si256(_mm256_slli_epi16(me6, 1), _mm256_srai_epi16(me6, 15));
-					//me7=_mm256_xor_si256(_mm256_slli_epi16(me7, 1), _mm256_srai_epi16(me7, 15));
-					if(kx)
-					{
-						__m256i best=_mm256_min_epi16(me0, me1);
-						best=_mm256_min_epi16(best, me2);
-						best=_mm256_min_epi16(best, me3);
-						best=_mm256_min_epi16(best, me4);
-						best=_mm256_min_epi16(best, me5);
-						best=_mm256_min_epi16(best, me6);
-						best=_mm256_min_epi16(best, me7);
-						me0=_mm256_sub_epi16(me0, best);
-						me1=_mm256_sub_epi16(me1, best);
-						me2=_mm256_sub_epi16(me2, best);
-						me3=_mm256_sub_epi16(me3, best);
-						me4=_mm256_sub_epi16(me4, best);
-						me5=_mm256_sub_epi16(me5, best);
-						me6=_mm256_sub_epi16(me6, best);
-						me7=_mm256_sub_epi16(me7, best);
-					}
-					
-					//                 (__m256i*)erows[-Y]+(P+X*NPREDS)*3+C
-					_mm256_store_si256((__m256i*)erows[0]+(0+0*WG_NPREDS)*3+kr, me0);//ecurr
-					_mm256_store_si256((__m256i*)erows[0]+(1+0*WG_NPREDS)*3+kr, me1);
-					_mm256_store_si256((__m256i*)erows[0]+(2+0*WG_NPREDS)*3+kr, me2);
-					_mm256_store_si256((__m256i*)erows[0]+(3+0*WG_NPREDS)*3+kr, me3);
-					_mm256_store_si256((__m256i*)erows[0]+(4+0*WG_NPREDS)*3+kr, me4);
-					_mm256_store_si256((__m256i*)erows[0]+(5+0*WG_NPREDS)*3+kr, me5);
-					_mm256_store_si256((__m256i*)erows[0]+(6+0*WG_NPREDS)*3+kr, me6);
-					_mm256_store_si256((__m256i*)erows[0]+(7+0*WG_NPREDS)*3+kr, me7);
-					//__m256i t[8];
-					//t[0]=_mm256_add_epi16(me0, _mm256_load_si256((__m256i*)erows[1]+(0+1*WG_NPREDS)*3+kr));//eNE+=e
-					//t[1]=_mm256_add_epi16(me1, _mm256_load_si256((__m256i*)erows[1]+(1+1*WG_NPREDS)*3+kr));
-					//t[2]=_mm256_add_epi16(me2, _mm256_load_si256((__m256i*)erows[1]+(2+1*WG_NPREDS)*3+kr));
-					//t[3]=_mm256_add_epi16(me3, _mm256_load_si256((__m256i*)erows[1]+(3+1*WG_NPREDS)*3+kr));
-					//t[4]=_mm256_add_epi16(me4, _mm256_load_si256((__m256i*)erows[1]+(4+1*WG_NPREDS)*3+kr));
-					//t[5]=_mm256_add_epi16(me5, _mm256_load_si256((__m256i*)erows[1]+(5+1*WG_NPREDS)*3+kr));
-					//t[6]=_mm256_add_epi16(me6, _mm256_load_si256((__m256i*)erows[1]+(6+1*WG_NPREDS)*3+kr));
-					//t[7]=_mm256_add_epi16(me7, _mm256_load_si256((__m256i*)erows[1]+(7+1*WG_NPREDS)*3+kr));
-					//_mm256_store_si256((__m256i*)erows[1]+(0+1*WG_NPREDS)*3+kr, t[0]);
-					//_mm256_store_si256((__m256i*)erows[1]+(1+1*WG_NPREDS)*3+kr, t[1]);
-					//_mm256_store_si256((__m256i*)erows[1]+(2+1*WG_NPREDS)*3+kr, t[2]);
-					//_mm256_store_si256((__m256i*)erows[1]+(3+1*WG_NPREDS)*3+kr, t[3]);
-					//_mm256_store_si256((__m256i*)erows[1]+(4+1*WG_NPREDS)*3+kr, t[4]);
-					//_mm256_store_si256((__m256i*)erows[1]+(5+1*WG_NPREDS)*3+kr, t[5]);
-					//_mm256_store_si256((__m256i*)erows[1]+(6+1*WG_NPREDS)*3+kr, t[6]);
-					//_mm256_store_si256((__m256i*)erows[1]+(7+1*WG_NPREDS)*3+kr, t[7]);
-
-#ifdef WG_ENABLE_eW
-					__m256i t2[8];
-					t2[0]=_mm256_load_si256((__m256i*)wgWerrors+0*3+kr);
-					t2[1]=_mm256_load_si256((__m256i*)wgWerrors+1*3+kr);
-					t2[2]=_mm256_load_si256((__m256i*)wgWerrors+2*3+kr);
-					t2[3]=_mm256_load_si256((__m256i*)wgWerrors+3*3+kr);
-					t2[4]=_mm256_load_si256((__m256i*)wgWerrors+4*3+kr);
-					t2[5]=_mm256_load_si256((__m256i*)wgWerrors+5*3+kr);
-					t2[6]=_mm256_load_si256((__m256i*)wgWerrors+6*3+kr);
-					t2[7]=_mm256_load_si256((__m256i*)wgWerrors+7*3+kr);
-					me0=_mm256_slli_epi16(me0, 5);
-					me1=_mm256_slli_epi16(me1, 5);
-					me2=_mm256_slli_epi16(me2, 5);
-					me3=_mm256_slli_epi16(me3, 5);
-					me4=_mm256_slli_epi16(me4, 5);
-					me5=_mm256_slli_epi16(me5, 5);
-					me6=_mm256_slli_epi16(me6, 5);
-					me7=_mm256_slli_epi16(me7, 5);
-					me0=_mm256_sub_epi16(me0, t2[0]);
-					me1=_mm256_sub_epi16(me1, t2[1]);
-					me2=_mm256_sub_epi16(me2, t2[2]);
-					me3=_mm256_sub_epi16(me3, t2[3]);
-					me4=_mm256_sub_epi16(me4, t2[4]);
-					me5=_mm256_sub_epi16(me5, t2[5]);
-					me6=_mm256_sub_epi16(me6, t2[6]);
-					me7=_mm256_sub_epi16(me7, t2[7]);
-					__m256i rcon=_mm256_set1_epi16(1<<3>>1);
-					me0=_mm256_add_epi16(me0, rcon);
-					me1=_mm256_add_epi16(me1, rcon);
-					me2=_mm256_add_epi16(me2, rcon);
-					me3=_mm256_add_epi16(me3, rcon);
-					me4=_mm256_add_epi16(me4, rcon);
-					me5=_mm256_add_epi16(me5, rcon);
-					me6=_mm256_add_epi16(me6, rcon);
-					me7=_mm256_add_epi16(me7, rcon);
-					me0=_mm256_srai_epi16(me0, 3);
-					me1=_mm256_srai_epi16(me1, 3);
-					me2=_mm256_srai_epi16(me2, 3);
-					me3=_mm256_srai_epi16(me3, 3);
-					me4=_mm256_srai_epi16(me4, 3);
-					me5=_mm256_srai_epi16(me5, 3);
-					me6=_mm256_srai_epi16(me6, 3);
-					me7=_mm256_srai_epi16(me7, 3);
-					t2[0]=_mm256_add_epi16(t2[0], me0);
-					t2[1]=_mm256_add_epi16(t2[1], me1);
-					t2[2]=_mm256_add_epi16(t2[2], me2);
-					t2[3]=_mm256_add_epi16(t2[3], me3);
-					t2[4]=_mm256_add_epi16(t2[4], me4);
-					t2[5]=_mm256_add_epi16(t2[5], me5);
-					t2[6]=_mm256_add_epi16(t2[6], me6);
-					t2[7]=_mm256_add_epi16(t2[7], me7);
-					_mm256_store_si256((__m256i*)wgWerrors+0*3+kr, t2[0]);
-					_mm256_store_si256((__m256i*)wgWerrors+1*3+kr, t2[1]);
-					_mm256_store_si256((__m256i*)wgWerrors+2*3+kr, t2[2]);
-					_mm256_store_si256((__m256i*)wgWerrors+3*3+kr, t2[3]);
-					_mm256_store_si256((__m256i*)wgWerrors+4*3+kr, t2[4]);
-					_mm256_store_si256((__m256i*)wgWerrors+5*3+kr, t2[5]);
-					_mm256_store_si256((__m256i*)wgWerrors+6*3+kr, t2[6]);
-					_mm256_store_si256((__m256i*)wgWerrors+7*3+kr, t2[7]);
-#endif
-				}
-				erows[0]+=NCODERS*3*WG_NPREDS;
-				erows[1]+=NCODERS*3*WG_NPREDS;
-			}
-			else if(use_wg4==2)//update
-			{
-				__m256i mu[6];
-
-				//e = curr - pred
-			//	mu[0]=_mm256_sub_epi16(W[0], predYUV0[0]);
-			//	mu[1]=_mm256_sub_epi16(W[1], predYUV0[1]);
-			//	mu[2]=_mm256_sub_epi16(W[2], predYUV0[2]);
-				//mu[0]=_mm256_sub_epi16(myuv[0], predY);//X
-				//mu[1]=_mm256_sub_epi16(myuv[1], predU);
-				//mu[2]=_mm256_sub_epi16(myuv[2], predV);
-				{
-					__m256i t0, t1, t2;
-					//__m256i zero=_mm256_setzero_si256();
-
-					t0=_mm256_cmpgt_epi16(W[0], predYUV0[0]);
-					t1=_mm256_cmpgt_epi16(W[1], predYUV0[1]);
-					t2=_mm256_cmpgt_epi16(W[2], predYUV0[2]);
-					t0=_mm256_srli_epi16(t0, 15);
-					t1=_mm256_srli_epi16(t1, 15);
-					t2=_mm256_srli_epi16(t2, 15);
-					mu[0]=_mm256_cmpgt_epi16(predYUV0[0], W[0]);
-					mu[1]=_mm256_cmpgt_epi16(predYUV0[1], W[1]);
-					mu[2]=_mm256_cmpgt_epi16(predYUV0[2], W[2]);
-					mu[0]=_mm256_add_epi16(mu[0], t0);
-					mu[1]=_mm256_add_epi16(mu[1], t1);
-					mu[2]=_mm256_add_epi16(mu[2], t2);
-				}
-#if 0
-				{
-					__m256i half=_mm256_set1_epi16(8);
-					mu[0]=_mm256_add_epi16(mu[0], half);
-					mu[1]=_mm256_add_epi16(mu[1], half);
-					mu[2]=_mm256_add_epi16(mu[2], half);
-				}
-				{
-					__m256i vmin=_mm256_set1_epi16(1);
-					mu[0]=_mm256_max_epi16(mu[0], vmin);
-					mu[1]=_mm256_max_epi16(mu[1], vmin);
-					mu[2]=_mm256_max_epi16(mu[2], vmin);
-				}
-				{
-					__m256i vmax=_mm256_set1_epi16(15);
-					mu[0]=_mm256_min_epi16(mu[0], vmax);
-					mu[1]=_mm256_min_epi16(mu[1], vmax);
-					mu[2]=_mm256_min_epi16(mu[2], vmax);
-				}
-				{
-					__m256i lr=_mm256_set_epi8(
-					//     15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0,
-						1,  1,  1,  2,  2,  2,  2,  0, -2, -2, -2, -2, -1, -1, -1,  0,
-						1,  1,  1,  2,  2,  2,  2,  0, -2, -2, -2, -2, -1, -1, -1,  0
-					//	4, +4, +5, +6, +8, +9, +6,  0, -6, -9, -8, -6, -5, -4, -4,  0,
-					//	4, +4, +5, +6, +8, +9, +6,  0, -6, -9, -8, -6, -5, -4, -4,  0
-					//	1,  1,  1,  2,  2,  2,  3,  0, -3, -2, -2, -2, -1, -1, -1,  0,
-					//	1,  1,  1,  2,  2,  2,  3,  0, -3, -2, -2, -2, -1, -1, -1,  0
-					);
-					mu[0]=_mm256_shuffle_epi8(lr, mu[0]);
-					mu[1]=_mm256_shuffle_epi8(lr, mu[1]);
-					mu[2]=_mm256_shuffle_epi8(lr, mu[2]);
-				}
-				mu[0]=_mm256_slli_epi16(mu[0], 8);
-				mu[1]=_mm256_slli_epi16(mu[1], 8);
-				mu[2]=_mm256_slli_epi16(mu[2], 8);
-				mu[0]=_mm256_srai_epi16(mu[0], 8);
-				mu[1]=_mm256_srai_epi16(mu[1], 8);
-				mu[2]=_mm256_srai_epi16(mu[2], 8);
-#endif
-				int *L1coeffs=(int*)wgWerrors;
-
-				//if(wgpreds[0*3+0].m256i_i16[0])//
-				//	printf("");
-
-#if defined __GNUC__ && !defined PROFILER
-#pragma GCC unroll 8
-#endif
-				for(int k=0;k<WG_NPREDS;++k)//update
-				{
-#if 0
-					for(int k2=0;k2<16*3;++k2)//
-					{
-						int prod=((short*)wgpreds)[k2]*((short*)mu)[k2];
-						int hi=prod>>16;
-						if(hi!=0&&hi!=-1)
-							LOG_ERROR("");
-					}
-#endif
-					__m256i mc[6];
-					mc[0]=_mm256_mullo_epi16(wgpreds[k*3+0], mu[0]);
-					mc[1]=_mm256_mullo_epi16(wgpreds[k*3+1], mu[1]);
-					mc[2]=_mm256_mullo_epi16(wgpreds[k*3+2], mu[2]);
-					//16 -> 32	3 lo 3 hi registers
-					mc[3]=_mm256_srai_epi32(mc[0], 16);
-					mc[4]=_mm256_srai_epi32(mc[1], 16);
-					mc[5]=_mm256_srai_epi32(mc[2], 16);
-					mc[0]=_mm256_slli_epi32(mc[0], 16);
-					mc[1]=_mm256_slli_epi32(mc[1], 16);
-					mc[2]=_mm256_slli_epi32(mc[2], 16);
-					mc[0]=_mm256_srai_epi32(mc[0], 16);
-					mc[1]=_mm256_srai_epi32(mc[1], 16);
-					mc[2]=_mm256_srai_epi32(mc[2], 16);
-					mc[0]=_mm256_add_epi32(mc[0], _mm256_load_si256((__m256i*)L1coeffs+k*6+0));//update coeffs
-					mc[1]=_mm256_add_epi32(mc[1], _mm256_load_si256((__m256i*)L1coeffs+k*6+1));
-					mc[2]=_mm256_add_epi32(mc[2], _mm256_load_si256((__m256i*)L1coeffs+k*6+2));
-					mc[3]=_mm256_add_epi32(mc[3], _mm256_load_si256((__m256i*)L1coeffs+k*6+3));
-					mc[4]=_mm256_add_epi32(mc[4], _mm256_load_si256((__m256i*)L1coeffs+k*6+4));
-					mc[5]=_mm256_add_epi32(mc[5], _mm256_load_si256((__m256i*)L1coeffs+k*6+5));
-					_mm256_store_si256((__m256i*)L1coeffs+k*6+0, mc[0]);
-					_mm256_store_si256((__m256i*)L1coeffs+k*6+1, mc[1]);
-					_mm256_store_si256((__m256i*)L1coeffs+k*6+2, mc[2]);
-					_mm256_store_si256((__m256i*)L1coeffs+k*6+3, mc[3]);
-					_mm256_store_si256((__m256i*)L1coeffs+k*6+4, mc[4]);
-					_mm256_store_si256((__m256i*)L1coeffs+k*6+5, mc[5]);
-				}
-				//16 -> 32	3 lo 3 hi registers
-				mu[3]=_mm256_srai_epi32(mu[0], 16);
-				mu[4]=_mm256_srai_epi32(mu[1], 16);
-				mu[5]=_mm256_srai_epi32(mu[2], 16);
-				mu[0]=_mm256_slli_epi32(mu[0], 16);
-				mu[1]=_mm256_slli_epi32(mu[1], 16);
-				mu[2]=_mm256_slli_epi32(mu[2], 16);
-				mu[0]=_mm256_srai_epi32(mu[0], 16);
-				mu[1]=_mm256_srai_epi32(mu[1], 16);
-				mu[2]=_mm256_srai_epi32(mu[2], 16);
-				mu[0]=_mm256_add_epi32(mu[0], _mm256_load_si256((__m256i*)L1coeffs+WG_NPREDS*6+0));//update bias
-				mu[1]=_mm256_add_epi32(mu[1], _mm256_load_si256((__m256i*)L1coeffs+WG_NPREDS*6+1));
-				mu[2]=_mm256_add_epi32(mu[2], _mm256_load_si256((__m256i*)L1coeffs+WG_NPREDS*6+2));
-				mu[3]=_mm256_add_epi32(mu[3], _mm256_load_si256((__m256i*)L1coeffs+WG_NPREDS*6+3));
-				mu[4]=_mm256_add_epi32(mu[4], _mm256_load_si256((__m256i*)L1coeffs+WG_NPREDS*6+4));
-				mu[5]=_mm256_add_epi32(mu[5], _mm256_load_si256((__m256i*)L1coeffs+WG_NPREDS*6+5));
-				_mm256_store_si256((__m256i*)L1coeffs+WG_NPREDS*6+0, mu[0]);
-				_mm256_store_si256((__m256i*)L1coeffs+WG_NPREDS*6+1, mu[1]);
-				_mm256_store_si256((__m256i*)L1coeffs+WG_NPREDS*6+2, mu[2]);
-				_mm256_store_si256((__m256i*)L1coeffs+WG_NPREDS*6+3, mu[3]);
-				_mm256_store_si256((__m256i*)L1coeffs+WG_NPREDS*6+4, mu[4]);
-				_mm256_store_si256((__m256i*)L1coeffs+WG_NPREDS*6+5, mu[5]);
 			}
 			//context update = (2*eW+(e<<3)+max(eNEE, eNEEE))>>2
 			eNEEE[0]=_mm256_load_si256((__m256i*)rows[1]+3+0+3*6);
@@ -3627,20 +2121,7 @@ int c32_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		}
 	}
 	prof_checkpoint(isize, "main");
-
-#ifdef PRINT_L1_BOUNDS
-	printf("Coeff %8d ~ %8d\n", cmin, cmax);
-	printf("Bias  %8d ~ %8d\n", bmin, bmax);
-#endif
-	if(use_wg4==1)
-	{
-		_mm_free(wgerrors);
-		_mm_free(wgstate);
-	}
-	else if(use_wg4==2)
-	{
-		_mm_free(L1state);
-	}
+	_mm_free(wgerrors);
 	if(fwd)//all rANS encoding is bwd-bwd
 	{
 		rANS_SIMD_SymInfo *syminfo=(rANS_SIMD_SymInfo*)CDF2syms;
@@ -3861,13 +2342,10 @@ int c32_codec(const char *srcfn, const char *dstfn, int nthreads0)
 				return 1;
 			}
 			ptrdiff_t csize2=0;
-			csize2+=fwrite("32", 1, 2, fdst);
+			csize2+=fwrite("33", 1, 2, fdst);
 			csize2+=fwrite(&iw, 1, 4, fdst);
 			csize2+=fwrite(&ih, 1, 4, fdst);
-			int flags=bestrct<<2|(use_wg4&3);
-			csize2+=fwrite(&flags, 1, 1, fdst);
-			//if(use_wg4==2)
-			//	csize2+=fwrite(&L1sh, 1, 1, fdst);
+			csize2+=fwrite(&bestrct, 1, 1, fdst);
 #ifdef _DEBUG
 			if(streamptr>streamstart)
 				LOG_ERROR("OOB ptr %016zX > %016zX", streamptr, streamstart);

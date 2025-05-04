@@ -6,9 +6,9 @@
 
 
 ifeq ($(DEBUG), 1)
-FLAGS = -Wall -O2 -g -D_DEBUG
+FLAGS = -Wall -O3 -g -D_DEBUG
 else
-FLAGS = -Wall -O2 -s
+FLAGS = -Wall -O3 -s
 endif
 #FLAGS = -Wall -ffunction-sections -fdata-sections -Wl,--gc-sections -O3 -s
 
@@ -183,3 +183,6 @@ c31:
 
 c32:
 	gcc $(FLAGS) -DCODEC_EXT=c32 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c32.c codec.c util.c  -o c32 $(LIBS)
+
+c33:
+	gcc $(FLAGS) -DCODEC_EXT=c33 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c33.c codec.c util.c  -o c33 $(LIBS)

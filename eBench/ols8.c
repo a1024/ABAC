@@ -50,7 +50,7 @@ static const char file[]=__FILE__;
 #endif
 void pred_ols8(Image *src, int fwd)
 {
-	int vecsize=sizeof(double[3][NPREDS]);
+	int vecsize=sizeof(double[4][NPREDS]);
 	double *vec=(double*)malloc(vecsize);
 	int covsize=sizeof(double[4][NPREDS*NPREDS]);
 	double *cov=(double*)malloc(covsize);
@@ -327,7 +327,9 @@ void pred_ols8(Image *src, int fwd)
 				//update
 				double *curr_cov=cov+NPREDS*NPREDS*kc, *curr_vec=vec+NPREDS*kc;
 				double curr_cholesky[NPREDS*NPREDS];
+				//double lr=0.03;//X
 				double lr=0.003;
+				//double lr=0.00001;//X
 				for(int ky2=0, midx=0;ky2<NPREDS;++ky2)
 				{
 					for(int kx2=0;kx2<NPREDS;++kx2, ++midx)
