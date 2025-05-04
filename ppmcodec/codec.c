@@ -1,4 +1,7 @@
 ﻿#include"codec.h"
+#ifdef PROFILER
+#include"util.h"
+#endif
 #include<stdio.h>
 #include<stdlib.h>
 #include<string.h>

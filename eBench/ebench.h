@@ -779,6 +779,7 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 void pred_ols5(Image *src, int fwd);
 void pred_ols6(Image *src, int fwd);
 void pred_ols7(Image *src, int fwd);
+void pred_ols8(Image *src, int fwd);
 
 //void pred_select(Image const *src, Image *dst, int fwd, int enable_ma);
 
