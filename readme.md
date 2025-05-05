@@ -62,12 +62,12 @@ To build, either create an MSVC 2022 CMake project, or to use GCC:
 
 `gcc -O3 imgcvt.c util.c -o imgcvt`
 
+### `lossy`
+Experiments on lossy compression (inactive).
+
 ### `pxView3D`
 A GUI visualization and benchmarking tool for reversible image transforms.
 Inherently limited to 8-bit images, and uses modular arithmetic, which gives inferior results.
-
-### `lossy`
-Experiments on lossy compression (inactive).
 
 ### `src` and `src-v2`
 Outdated. Only kept in case I need anything from there.

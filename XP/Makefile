@@ -1,0 +1,8 @@
+s01:
+	gcc -DCODECFUNC=s01_codec -Wall -O3 -s -static main.c s01.c -o s01
+
+s02:
+	gcc -DCODECFUNC=s02_codec -Wall -O3 -s -static main.c s02.c -o s02
+
+s02avx2:
+	gcc -DCODECFUNC=s02_codec -Wall -O3 -s -static -mavx2 main.c s02.c -o s02
