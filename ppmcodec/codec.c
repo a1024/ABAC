@@ -1,4 +1,5 @@
 ﻿#include"codec.h"
+//	#define PROFILER
 #ifdef PROFILER
 #include"util.h"
 #endif
@@ -9,7 +10,6 @@
 
 
 	#define SINGLE_THREAD_CLI
-//	#define PROFILER
 //	#define _DEBUG
 
 
@@ -210,16 +210,18 @@ int main(int argc, char **argv)
 //	CODEC_FUNC("C:/dataset-HUGE2-ppm/andromeda.ppm",	"D:/ML/mystery.lsim", nthreads);
 //	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
 
-//	CODEC_FUNC("C:/dataset-HUGE-ppm/jwst.ppm",	"C:/dataset-HUGE-ppm/mystery.lsim", nthreads);
-//	CODEC_FUNC("C:/dataset-HUGE-ppm/mystery.lsim",	"C:/dataset-HUGE-ppm/mystery_dec.ppm", nthreads);
+//	CODEC_FUNC("C:/Projects/datasets/space_huge.ppm",	"C:/Projects/datasets/mystery.lsim",	nthreads);
+//	CODEC_FUNC("C:/Projects/datasets/mystery.lsim",		"C:/Projects/datasets/mystery_dec.ppm",	nthreads);
 
-//	CODEC_FUNC("C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm", nthreads);
+//	CODEC_FUNC("C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm",	"C:/Projects/datasets/mystery.lsim",	nthreads);
+//	CODEC_FUNC("C:/Projects/datasets/mystery.lsim",				"C:/Projects/datasets/mystery_dec.ppm",	nthreads);
 
-	CODEC_FUNC("C:/dataset-DIV2K-ppm/0801.ppm",	"D:/ML/mystery.lsim", nthreads);
-	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm", nthreads);
-	
-//	c29_codec("C:/dataset-DIV2K-ppm/0801.ppm",	"D:/ML/mystery.lsim", nthreads);
+//	CODEC_FUNC("C:/Projects/datasets/20240513 screenshot.PPM",	"C:/Projects/datasets/mystery.lsim",	nthreads);
+//	CODEC_FUNC("C:/Projects/datasets/mystery.lsim",			"C:/Projects/datasets/mystery_dec.ppm",	nthreads);
+
+	CODEC_FUNC("C:/Projects/datasets/dataset-DIV2K-ppm/0801.ppm",	"C:/Projects/datasets/mystery.lsim",	nthreads);
+	CODEC_FUNC("C:/Projects/datasets/mystery.lsim",			"C:/Projects/datasets/mystery_dec.ppm",	nthreads);
+
 //	CODEC_FUNC("C:/dataset-DIV2K-ppm/0801.ppm",	"D:/ML/mystery.lsim", nthreads);
 //	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm", nthreads);
 
