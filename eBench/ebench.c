@@ -20,9 +20,25 @@ static const char file[]=__FILE__;
 	#define L1DELAY 50
 	#define L1SPEED 20
 #if 1
+#define L1BIAS0	0
+#define L1NPREDS 10
+#define L1PREDLIST\
+	L1PRED(100000, N)\
+	L1PRED(100000, W)\
+	L1PRED(100000, 3*(N-NN)+NNN)\
+	L1PRED(100000, 3*(W-WW)+WWW)\
+	L1PRED(100000, W+NE-N)\
+	L1PRED(100000, N+W-NW)\
+	L1PRED(100000, (WWWWW+WW-W+NNN+N+NEEEEE)>>2)\
+	L1PRED(100000, N+NE-NNE)\
+	L1PRED(100000, W+NW-NWW)\
+	L1PRED(100000, NEEE)
+#endif
+#if 0
+#define L1BIAS0	0
 #define L1NPREDS 13
 #define L1PREDLIST\
-	L1PRED(100000, N+W-NW)\
+	L1PRED(100000, (N+W-NW))\
 	L1PRED(200000, N+W-NW)\
 	L1PRED(100000, N)\
 	L1PRED(100000, W)\
@@ -35,9 +51,9 @@ static const char file[]=__FILE__;
 	L1PRED( 50000, N+NW-NNW)\
 	L1PRED( 50000, NE+NEE-NNEEE)\
 	L1PRED( 50000, (WWWWW+WW-W+NNN+N+NEEEEE)>>2)
-#define L1BIAS0	0
 #endif
 #if 0
+#define L1BIAS0	0
 #define L1NPREDS 12
 #define L1PREDLIST\
 	L1PRED( 90000, N)\
@@ -52,7 +68,6 @@ static const char file[]=__FILE__;
 	L1PRED( 70000, NE+NEE-NNEEE)\
 	L1PRED( 80000, W+((NEEE+NEEEEE-N-W)>>3))\
 	L1PRED( 90000, (WWWWW+WW-W+NNN+N+NEEEEE)>>2)
-#define L1BIAS0	0
 #endif
 static const char *l1prednames[]=
 {
@@ -163,6 +178,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_OLS8,		ST_INV_OLS8,
 	ST_FWD_CLAMPGRAD,	ST_INV_CLAMPGRAD,
 	ST_FWD_AV2,		ST_INV_AV2,
+	ST_FWD_CALIC,		ST_INV_CALIC,
 	ST_CONVTEST,		ST_CONVTEST2,
 	ST_FILT_MEDIAN33,	ST_FILT_AV33,
 	ST_FILT_DEINT422,	ST_FILT_DEINT420,
@@ -206,7 +222,6 @@ typedef enum TransformTypeEnum
 	ST_FWD_CUSTOM,		ST_INV_CUSTOM,
 	ST_FWD_CC,		ST_INV_CC,
 	ST_FWD_NBLIC,		ST_INV_NBLIC,
-	ST_FWD_CALIC,		ST_INV_CALIC,
 	ST_FWD_OLS,		ST_INV_OLS,
 	ST_FWD_OLS2,		ST_INV_OLS2,
 	ST_FWD_OLS3,		ST_INV_OLS3,
@@ -2474,10 +2489,10 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_OLS5:		a=" S Inv OLS-5";		break;
 	case ST_FWD_OLS6:		a=" S Fwd OLS-6";		break;
 	case ST_INV_OLS6:		a=" S Inv OLS-6";		break;
-	case ST_FWD_OLS7:		a=" S Fwd OLS-7";		break;
-	case ST_INV_OLS7:		a=" S Inv OLS-7";		break;
-	case ST_FWD_OLS8:		a=" S Fwd OLS-8";		break;
-	case ST_INV_OLS8:		a=" S Inv OLS-8";		break;
+	case ST_FWD_OLS7:		a=" S Fwd L1";			break;
+	case ST_INV_OLS7:		a=" S Inv L1";			break;
+	case ST_FWD_OLS8:		a=" S Fwd L1B";			break;
+	case ST_INV_OLS8:		a=" S Inv L1B";			break;
 	case ST_FWD_PU:			a="CS Fwd PU";			break;
 	case ST_INV_PU:			a="CS Inv PU";			break;
 	case ST_FWD_CG3D:		a="CS Fwd CG3D";		break;
@@ -8325,7 +8340,7 @@ void io_render(void)
 						if(xpos>=L1HISTSIZE-1||xpos>=wndw-1)
 							xpos=0;
 						for(int k=0;k<L1NPREDS+1;++k)
-							whist[xpos][k]=l1weights[(L1NPREDS+1)-1-k]>>8;
+							whist[xpos][k]=l1weights[(L1NPREDS+1)-1-k];
 						whist[xpos][(L1NPREDS+1)+0]=preds[0]		+(1<<im1->depth[0]>>1)+0*64;
 						whist[xpos][(L1NPREDS+1)+1]=curr		+(1<<im1->depth[0]>>1)+1*64;
 						whist[xpos][(L1NPREDS+1)+2]=pred		+(1<<im1->depth[0]>>1)+2*64;
@@ -8529,7 +8544,7 @@ void io_render(void)
 						for(int ky2=0;ky2<L1NPREDS+1;++ky2)
 						{
 							float y=whist[xpos][ky2]*yC1+yC0;
-							labely[ky2]+=(y-labely[ky2]+(1<<6>>1))*(1.f/64);
+							labely[ky2]+=(y-labely[ky2])*(1.f/32);
 							draw_line(
 								(float)xpos, (float)whist[xpos][ky2]*yC1+yC0,
 								L1SCALE*L1HISTSIZE, labely[ky2], 0x80000000

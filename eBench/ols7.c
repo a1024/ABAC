@@ -13,228 +13,126 @@
 static const char file[]=__FILE__;
 
 
-#define CTXBITS1 0
-#define CTXBITS2 4
-
-
-#if 1
-#define BIAS0 0
-#define NPREDS 13
+#define L1SH 19
+#define NPREDS 10
 #define PREDLIST\
-	PRED(100000, N+W-NW)\
-	PRED(200000, N+W-NW)\
-	PRED(100000, N)\
-	PRED(100000, W)\
-	PRED(100000, 3*(N-NN)+NNN)\
-	PRED(100000, 3*(W-WW)+WWW)\
-	PRED(100000, W+NE-N)\
-	PRED(100000, N+NE-NNE)\
-	PRED(100000, W+((NEEE+NEEEEE-N-W)>>3))\
-	PRED( 50000, W+NW-NWW)\
-	PRED( 50000, N+NW-NNW)\
-	PRED( 50000, NE+NEE-NNEEE)\
-	PRED( 50000, (WWWWW+WW-W+NNN+N+NEEEEE)>>2)
-#endif
-
-#if 1
-#define NPREDS2 12
-#define PREDLIST2\
-	PRED(100000, eN+eW-eNW)\
-	PRED(100000, eN)\
-	PRED(100000, eW)\
-	PRED(100000, 3*(eN-eNN)+eNNN)\
-	PRED(100000, 3*(eW-eWW)+eWWW)\
-	PRED(100000, eW+eNE-eN)\
-	PRED(100000, eN+eNE-eNNE)\
-	PRED(100000, eW+((eNEEE+eNEEEEE-eN-eW)>>3))\
-	PRED( 50000, eW+eNW-eNWW)\
-	PRED( 50000, eN+eNW-eNNW)\
-	PRED( 50000, eNE+eNEE-eNNEEE)\
-	PRED( 50000, (eWWWWW+eWW-eW+eNNN+eN+eNEEEEE)>>2)
-#endif
+	PRED( 40000, N)\
+	PRED( 40000, W)\
+	PRED( 40000, 3*(N-NN)+NNN)\
+	PRED( 40000, 3*(W-WW)+WWW)\
+	PRED( 40000, W+NE-N)\
+	PRED(160000, N+W-NW)\
+	PRED( 40000, (WWWWW+WW-W+NNN+N+NEEEEE)>>2)\
+	PRED( 40000, N+NE-NNE)\
+	PRED( 40000, W+NW-NWW)\
+	PRED( 40000, NEEE)
 
 void pred_ols7(Image *src, int fwd)
 {
-	const int wsize=sizeof(long long[4][1<<CTXBITS1][NPREDS+1]);
+	const int wsize=sizeof(long long[4][NPREDS]);
 	long long *weights=(long long*)malloc(wsize);
-	const int w2size=sizeof(long long[4][1<<CTXBITS2][NPREDS2+1]);
-	long long *weights2=(long long*)malloc(w2size);
-	int bufsize=(src->iw+8*2)*(int)sizeof(int[6*4*3]);//6 padded rows * 4 channels max * {pixels, residuals1, residuals2}
-	int *pixels=(int*)malloc(bufsize);
-	if(!pixels||!weights||!weights2)
+	int bufsize=(src->iw+8*2)*(int)sizeof(short[4*4*1]);//4 padded rows * 4 channels max * {pixels}
+	short *pixels=(short*)malloc(bufsize);
+	if(!pixels||!weights)
 	{
 		LOG_ERROR("Alloc error");
 		return;
 	}
 	memset(pixels, 0, bufsize);
-//	{
-//		int j=0;
-//#define PRED(W0, EXPR) weights[0*(NPREDS+1)+j]=weights[1*(NPREDS+1)+j]=weights[2*(NPREDS+1)+j]=weights[3*(NPREDS+1)+j]=W0; ++j;
-//		PREDLIST
-//#undef  PRED
-//		weights[0*(NPREDS+1)+NPREDS]=weights[1*(NPREDS+1)+NPREDS]=weights[2*(NPREDS+1)+NPREDS]=weights[3*(NPREDS+1)+NPREDS]=BIAS0;
-//	}
-	memset(weights, 0, wsize);
-	memset(weights2, 0, w2size);
+	static const int w0[]=
+	{
+#define PRED(W0, EXPR) W0,
+		PREDLIST
+#undef  PRED
+	};
+	for(int kc=0;kc<4;++kc)
+	{
+		for(int kp=0;kp<NPREDS;++kp)
+			weights[kc*NPREDS+kp]=w0[kp];
+	}
+	//memset(weights, 0, wsize);
+	//FILLMEM(weights, (1<<L1SH)/NPREDS, wsize, sizeof(*weights));
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
-		int *rows[]=
+		short *rows[]=
 		{
-			pixels+(((src->iw+16LL)*((ky-0LL+6)%6)+8)*4-1)*3,
-			pixels+(((src->iw+16LL)*((ky-1LL+6)%6)+8)*4-1)*3,
-			pixels+(((src->iw+16LL)*((ky-2LL+6)%6)+8)*4-1)*3,
-			pixels+(((src->iw+16LL)*((ky-3LL+6)%6)+8)*4-1)*3,
-			pixels+(((src->iw+16LL)*((ky-4LL+6)%6)+8)*4-1)*3,
-			pixels+(((src->iw+16LL)*((ky-5LL+6)%6)+8)*4-1)*3,
+			pixels+(((src->iw+16LL)*((ky-0LL+4)%4)+8)*4-1)*1,
+			pixels+(((src->iw+16LL)*((ky-1LL+4)%4)+8)*4-1)*1,
+			pixels+(((src->iw+16LL)*((ky-2LL+4)%4)+8)*4-1)*1,
+			pixels+(((src->iw+16LL)*((ky-3LL+4)%4)+8)*4-1)*1,
 		};
 		for(int kx=0;kx<src->iw;++kx)
 		{
 			for(int kc=0;kc<4;++kc, ++idx)
 			{
-				rows[0]+=3;
-				rows[1]+=3;
-				rows[2]+=3;
-				rows[3]+=3;
-				rows[4]+=3;
-				rows[5]+=3;
+				++rows[0];
+				++rows[1];
+				++rows[2];
+				++rows[3];
 				if(!src->depth[kc])
 					continue;
 				int
-					NNNNN		=rows[5][+0*4*3],
-					NNNNWW		=rows[4][-2*4*3],
-					NNNNW		=rows[4][-1*4*3],
-					NNNN		=rows[4][+0*4*3],
-					NNNNE		=rows[4][+1*4*3],
-					NNNNEE		=rows[4][+2*4*3],
-					NNNNEEEE	=rows[4][+4*4*3],
-					NNNWWW		=rows[3][-3*4*3],
-					NNNW		=rows[3][-1*4*3],
-					NNN		=rows[3][+0*4*3],
-					NNNE		=rows[3][+1*4*3],
-					NNNEE		=rows[3][+2*4*3],
-					NNNEEE		=rows[3][+3*4*3],
-					NNNEEEE		=rows[3][+4*4*3],
-					NNWWWW		=rows[2][-4*4*3],
-					NNWWW		=rows[2][-3*4*3],
-					NNWW		=rows[2][-2*4*3],
-					NNW		=rows[2][-1*4*3],
-					NN		=rows[2][+0*4*3],
-					NNE		=rows[2][+1*4*3],
-					NNEE		=rows[2][+2*4*3],
-					NNEEE		=rows[2][+3*4*3],
-					NNEEEE		=rows[2][+4*4*3],
-					NWWWW		=rows[1][-4*4*3],
-					NWWW		=rows[1][-3*4*3],
-					NWW		=rows[1][-2*4*3],
-					NW		=rows[1][-1*4*3],
-					N		=rows[1][+0*4*3],
-					NE		=rows[1][+1*4*3],
-					NEE		=rows[1][+2*4*3],
-					NEEE		=rows[1][+3*4*3],
-					NEEEE		=rows[1][+4*4*3],
-					NEEEEE		=rows[1][+5*4*3],
-					NEEEEEE		=rows[1][+6*4*3],
-					NEEEEEEE	=rows[1][+7*4*3],
-					NEEEEEEEE	=rows[1][+8*4*3],
-					WWWWWWWWW	=rows[0][-9*4*3],
-					WWWWWWWW	=rows[0][-8*4*3],
-					WWWWWWW		=rows[0][-7*4*3],
-					WWWWWW		=rows[0][-6*4*3],
-					WWWWW		=rows[0][-5*4*3],
-					WWWW		=rows[0][-4*4*3],
-					WWW		=rows[0][-3*4*3],
-					WW		=rows[0][-2*4*3],
-					W		=rows[0][-1*4*3];
+					NNNWWW		=rows[3][-3*4*1],
+					NNNW		=rows[3][-1*4*1],
+					NNN		=rows[3][+0*4*1],
+					NNNE		=rows[3][+1*4*1],
+					NNNEE		=rows[3][+2*4*1],
+					NNNEEE		=rows[3][+3*4*1],
+					NNNEEEE		=rows[3][+4*4*1],
+					NNWWWW		=rows[2][-4*4*1],
+					NNWWW		=rows[2][-3*4*1],
+					NNWW		=rows[2][-2*4*1],
+					NNW		=rows[2][-1*4*1],
+					NN		=rows[2][+0*4*1],
+					NNE		=rows[2][+1*4*1],
+					NNEE		=rows[2][+2*4*1],
+					NNEEE		=rows[2][+3*4*1],
+					NNEEEE		=rows[2][+4*4*1],
+					NWWWW		=rows[1][-4*4*1],
+					NWWW		=rows[1][-3*4*1],
+					NWW		=rows[1][-2*4*1],
+					NW		=rows[1][-1*4*1],
+					N		=rows[1][+0*4*1],
+					NE		=rows[1][+1*4*1],
+					NEE		=rows[1][+2*4*1],
+					NEEE		=rows[1][+3*4*1],
+					NEEEE		=rows[1][+4*4*1],
+					NEEEEE		=rows[1][+5*4*1],
+					NEEEEEE		=rows[1][+6*4*1],
+					NEEEEEEE	=rows[1][+7*4*1],
+					NEEEEEEEE	=rows[1][+8*4*1],
+					WWWWWWWWW	=rows[0][-9*4*1],
+					WWWWWWWW	=rows[0][-8*4*1],
+					WWWWWWW		=rows[0][-7*4*1],
+					WWWWWW		=rows[0][-6*4*1],
+					WWWWW		=rows[0][-5*4*1],
+					WWWW		=rows[0][-4*4*1],
+					WWW		=rows[0][-3*4*1],
+					WW		=rows[0][-2*4*1],
+					W		=rows[0][-1*4*1];
 				int preds[]=
 				{
 #define PRED(W0, EXPR) EXPR,
 					PREDLIST
 #undef  PRED
 				};
+				long long *currw=weights+NPREDS*kc;
+				long long pred=0;
+				for(int k=0;k<NPREDS;++k)
+					pred+=currw[k]*preds[k];
+				long long p0=pred;
+				pred+=1LL<<L1SH>>1;
+				pred>>=L1SH;
 				int vmax=N, vmin=W;
 				if(N<W)vmin=N, vmax=W;
-				CLAMP2(preds[0], vmin, vmax);
-				long long *currw=weights+(NPREDS+1)*((1<<CTXBITS1)*kc+((N+W)/2<<CTXBITS1>>src->depth[kc]&((1<<CTXBITS1)-1)));
-				//long long *currw=weights+(NPREDS+1)*kc;
-				long long pred1=currw[NPREDS];
-				for(int k=0;k<NPREDS;++k)
-					pred1+=currw[k]*preds[k];
-				int
-					eNNNNN		=rows[5][1+0*4*3],
-					eNNNNWW		=rows[4][1-2*4*3],
-					eNNNNW		=rows[4][1-1*4*3],
-					eNNNN		=rows[4][1+0*4*3],
-					eNNNNE		=rows[4][1+1*4*3],
-					eNNNNEE		=rows[4][1+2*4*3],
-					eNNNNEEEE	=rows[4][1+4*4*3],
-					eNNNWWW		=rows[3][1-3*4*3],
-					eNNNW		=rows[3][1-1*4*3],
-					eNNN		=rows[3][1+0*4*3],
-					eNNNE		=rows[3][1+1*4*3],
-					eNNNEE		=rows[3][1+2*4*3],
-					eNNNEEE		=rows[3][1+3*4*3],
-					eNNNEEEE	=rows[3][1+4*4*3],
-					eNNWWWW		=rows[2][1-4*4*3],
-					eNNWWW		=rows[2][1-3*4*3],
-					eNNWW		=rows[2][1-2*4*3],
-					eNNW		=rows[2][1-1*4*3],
-					eNN		=rows[2][1+0*4*3],
-					eNNE		=rows[2][1+1*4*3],
-					eNNEE		=rows[2][1+2*4*3],
-					eNNEEE		=rows[2][1+3*4*3],
-					eNNEEEE		=rows[2][1+4*4*3],
-					eNWWWW		=rows[1][1-4*4*3],
-					eNWWW		=rows[1][1-3*4*3],
-					eNWW		=rows[1][1-2*4*3],
-					eNW		=rows[1][1-1*4*3],
-					eN		=rows[1][1+0*4*3],
-					eNE		=rows[1][1+1*4*3],
-					eNEE		=rows[1][1+2*4*3],
-					eNEEE		=rows[1][1+3*4*3],
-					eNEEEE		=rows[1][1+4*4*3],
-					eNEEEEE		=rows[1][1+5*4*3],
-					eNEEEEEE	=rows[1][1+6*4*3],
-					eNEEEEEEE	=rows[1][1+7*4*3],
-					eNEEEEEEEE	=rows[1][1+8*4*3],
-					eWWWWWWWWW	=rows[0][1-9*4*3],
-					eWWWWWWWW	=rows[0][1-8*4*3],
-					eWWWWWWW	=rows[0][1-7*4*3],
-					eWWWWWW		=rows[0][1-6*4*3],
-					eWWWWW		=rows[0][1-5*4*3],
-					eWWWW		=rows[0][1-4*4*3],
-					eWWW		=rows[0][1-3*4*3],
-					eWW		=rows[0][1-2*4*3],
-					eW		=rows[0][1-1*4*3];
-				int preds2[]=
-				{
-#define PRED(W0, EXPR) EXPR,
-					PREDLIST2
-#undef  PRED
-				};
-				long long *currw2=weights2+(NPREDS+1)*((1<<CTXBITS2)*kc+((N+W)/2<<CTXBITS2>>src->depth[kc]&((1<<CTXBITS2)-1)));
-				//long long *currw2=weights2+(NPREDS2+1)*kc;
-				long long pred2=currw2[NPREDS2];
-				for(int k=0;k<NPREDS2;++k)
-					pred2+=currw2[k]*preds2[k];
-				//if(ky==src->ih/2&&kx==src->iw/2)//
-				//	printf("");
-
-#define L1SH 19
-				pred1+=pred2;
-				pred1+=1<<L1SH>>1;
-				pred1>>=L1SH;
-				pred2+=1<<L1SH>>1;
-				pred2>>=L1SH;
-
-				long long pred2s=pred1+pred2, predc=pred2s;
 				if(vmin>NE)vmin=NE;
 				if(vmax<NE)vmax=NE;
 				if(vmin>NEEE)vmin=NEEE;
 				if(vmax<NEEE)vmax=NEEE;
-				CLAMP2(predc, vmin, vmax);
+				CLAMP2(pred, vmin, vmax);
 
 				int curr=src->data[idx];
-				int val=(int)predc;
+				int val=(int)pred;
 				if(!keyboard[KEY_SHIFT])
 				{
 					val^=-fwd;
@@ -247,23 +145,17 @@ void pred_ols7(Image *src, int fwd)
 				if(!fwd)
 					curr=val;
 				rows[0][0]=curr;
-				rows[0][1]=curr-(int)pred1;
-				rows[0][2]=curr-(int)pred2s;
+
+				//if(ky==src->ih/2&&kx==src->iw/2)//
+				//	printf("");
 
 				//update
-				int e=(curr>pred1)-(curr<pred1);
-				currw[NPREDS]+=e;//bias
+				int e=(curr>pred)-(curr<pred);
 				for(int k=0;k<NPREDS;++k)
-					currw[k]+=e*preds[k];//coeffs
-
-				e=(curr>pred2s)-(curr<pred2s);
-				currw2[NPREDS2]+=e;//bias
-				for(int k=0;k<NPREDS2;++k)
-					currw2[k]+=e*preds2[k];//coeffs
+					currw[k]+=e*preds[k];
 			}
 		}
 	}
 	free(pixels);
 	free(weights);
-	free(weights2);
 }
