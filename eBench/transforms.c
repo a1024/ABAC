@@ -2641,7 +2641,7 @@ void pred_clampgrad(Image *src, int fwd, int enable_ma)
 	);
 	ALIGN(16) int curr[4]={0};
 	int *pixels=(int*)_mm_malloc((src->iw+4LL)*sizeof(int[2*4]), sizeof(__m128i));//2 padded rows * 4 channels max
-	int predsig=GET_KEY_STATE(KEY_SHIFT);
+	int predsig=GET_KEY_STATE(KEY_ALT);
 
 	(void)enable_ma;
 
@@ -5539,7 +5539,7 @@ void pred_wgrad(Image *src, int fwd, int hasRCT)
 	memset(pixels, 0, psize);
 	nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
 	UPDATE_MAX(nch, src->nch);
-	int predsig=keyboard[KEY_SHIFT];
+	int predsig=keyboard[KEY_ALT];
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
 		int eW[16]={0};
@@ -6788,7 +6788,7 @@ void pred_av2(Image *src, int fwd)
 	);
 	ALIGN(16) int curr[4]={0};
 	
-	int predsig=GET_KEY_STATE(KEY_SHIFT);
+	int predsig=GET_KEY_STATE(KEY_ALT);
 	int *pixels=(int*)_mm_malloc((src->iw+4LL)*sizeof(int[2*4]), sizeof(__m128i));//2 padded rows * 4 channels max
 	if(!pixels)
 	{
@@ -10518,7 +10518,7 @@ void pred_custom(Image *src, int fwd, int enable_ma, const int *params)
 					pred<<=32-src->depth[kc];
 					pred>>=32-src->depth[kc];
 				}
-				src->data[idx<<2|kc]=keyboard[KEY_SHIFT]?p0:(int)pred;
+				src->data[idx<<2|kc]=keyboard[KEY_ALT]?p0:(int)pred;
 				rows[0][kc+4* fwd]=(int)pred;
 			}
 			rows[0]+=8;

@@ -380,7 +380,7 @@ void pred_wpred7(Image *src, int fwd)
 	memset(ebuf, 0, pesize);
 	memset(pixels, 0, bufsize);
 	UPDATE_MAX(nch, src->nch);
-	int predsig=GET_KEY_STATE(KEY_SHIFT);
+	int predsig=GET_KEY_STATE(KEY_ALT);
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
 		int cpred=0, curr=0;

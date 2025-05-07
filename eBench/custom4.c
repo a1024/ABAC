@@ -150,7 +150,7 @@ void pred_lossyconv(Image *src)
 #endif
 						{
 							int curr=p1[idx<<2|kc];
-							if(keyboard[KEY_SHIFT])
+							if(keyboard[KEY_ALT])
 								curr=pred;
 							else
 							{

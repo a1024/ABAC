@@ -2675,9 +2675,9 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 		if(highlight)
 			c0=set_text_colors(highlight);
 		if(place<0)
-			GUIPrint(0, x, y, 1, "%s", a);
+			GUIPrint(0, x, y, 0.9f, "%s", a);
 		else
-			GUIPrint(0, x, y, 1, "%d: %s", place, a);
+			GUIPrint(0, x, y, 0.9f, "%d: %s", place, a);
 		if(highlight)
 			set_text_colors(c0);
 	}
@@ -5263,8 +5263,8 @@ int io_mousewheel(int forward)
 					if(!celly)
 					{
 						int x=rct_custom_params[8];
-						x+=sign;
-						MODVAR(x, x, 6);
+						x=(x+sign+6)%6;
+						//MODVAR(x, x, 6);
 						rct_custom_params[8]=(short)x;
 					}
 					else if((unsigned)(cellx-9)<4||(unsigned)(cellx-18)<4)
@@ -5330,10 +5330,11 @@ int io_mousewheel(int forward)
 					//0123456789012345678901234567
 					//Ch 0  Clamp [+W +NW +N +NE]
 					if(ch==3)
-					{
-						custom_pred_ch_idx+=sign;
-						MODVAR(custom_pred_ch_idx, custom_pred_ch_idx, 3);
-					}
+						custom_pred_ch_idx=(custom_pred_ch_idx+sign+3)%3;
+					//{
+					//	custom_pred_ch_idx+=sign;
+					//	MODVAR(custom_pred_ch_idx, custom_pred_ch_idx, 3);
+					//}
 					else if(BETWEEN_EXC(13, ch, 16))//W
 						custom_clamp[0]=!custom_clamp[0];
 					else if(BETWEEN_EXC(16, ch, 20))//NW
@@ -6934,7 +6935,10 @@ int io_keydn(IOKey key, char c)
 		{
 			int shift=GET_KEY_STATE(KEY_SHIFT);
 			int m0=mode;
-			MODVAR(mode, mode+1-(shift<<1), VIS_COUNT);
+			mode+=1-2*shift+VIS_COUNT;
+			mode%=VIS_COUNT;
+			//int m0=mode;
+			//MODVAR(mode, mode+1-(shift<<1), VIS_COUNT);
 			update_image();
 #ifdef ENABLE_L1WEIGHTS
 			if(m0==VIS_L1WEIGHTS)

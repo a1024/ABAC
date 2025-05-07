@@ -13,7 +13,7 @@
 static const char file[]=__FILE__;
 
 
-#define L1SH 19
+#define L1SH 18
 #if 1
 #define NPREDS 10
 #define PREDLIST\
@@ -45,6 +45,7 @@ static const char file[]=__FILE__;
 
 void pred_ols7(Image *src, int fwd)
 {
+	long long sh[4]={0};
 	const int wsize=sizeof(long long[4][NPREDS]);
 	long long *weights=(long long*)malloc(wsize);
 	int bufsize=(src->iw+8*2)*(int)sizeof(short[4*4*1]);//4 padded rows * 4 channels max * {pixels}
@@ -149,7 +150,7 @@ void pred_ols7(Image *src, int fwd)
 
 				int curr=src->data[idx];
 				int val=(int)pred;
-				if(!keyboard[KEY_SHIFT])
+				if(!keyboard[KEY_ALT])
 				{
 					val^=-fwd;
 					val+=fwd;

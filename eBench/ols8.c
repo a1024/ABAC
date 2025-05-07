@@ -235,7 +235,7 @@ void pred_ols8(Image *src, int fwd)
 
 				int curr=src->data[idx];
 				int val=(int)predc;
-				if(!keyboard[KEY_SHIFT])
+				if(!keyboard[KEY_ALT])
 				{
 					val^=-fwd;
 					val+=fwd;
