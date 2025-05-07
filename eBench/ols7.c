@@ -14,6 +14,7 @@ static const char file[]=__FILE__;
 
 
 #define L1SH 19
+#if 1
 #define NPREDS 10
 #define PREDLIST\
 	PRED( 40000, N)\
@@ -26,6 +27,21 @@ static const char file[]=__FILE__;
 	PRED( 40000, N+NE-NNE)\
 	PRED( 40000, W+NW-NWW)\
 	PRED( 40000, NEEE)
+#endif
+#if 0
+#define NPREDS 10
+#define PREDLIST\
+	PRED( 38000, N)\
+	PRED( 69000, W)\
+	PRED( 41000, 3*(N-NN)+NNN)\
+	PRED( 72000, 3*(W-WW)+WWW)\
+	PRED( 70000, W+NE-N)\
+	PRED( 83000, N+W-NW)\
+	PRED(-10000, (WWWWW+WW-W+NNN+N+NEEEEE)>>2)\
+	PRED( 61000, N+NE-NNE)\
+	PRED( 81000, W+NW-NWW)\
+	PRED( 18000, NEEE)
+#endif
 
 void pred_ols7(Image *src, int fwd)
 {
@@ -120,9 +136,9 @@ void pred_ols7(Image *src, int fwd)
 				long long pred=0;
 				for(int k=0;k<NPREDS;++k)
 					pred+=currw[k]*preds[k];
-				long long p0=pred;
 				pred+=1LL<<L1SH>>1;
 				pred>>=L1SH;
+				long long p0=pred;
 				int vmax=N, vmin=W;
 				if(N<W)vmin=N, vmax=W;
 				if(vmin>NE)vmin=NE;
@@ -150,7 +166,7 @@ void pred_ols7(Image *src, int fwd)
 				//	printf("");
 
 				//update
-				int e=(curr>pred)-(curr<pred);
+				int e=(curr>p0)-(curr<p0);
 				for(int k=0;k<NPREDS;++k)
 					currw[k]+=e*preds[k];
 			}
