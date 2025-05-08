@@ -12190,29 +12190,59 @@ void pred_calic(Image *src, int fwd, int enable_ma)
 		(1<<src->depth[2]>>1)-1,
 		(1<<src->depth[3]>>1)-1,
 	};
-	ptrdiff_t res=(ptrdiff_t)src->iw*src->ih;
-	//const int thresholds[]={5, 15, 25, 42, 60, 85, 140};
-	int idx, pred;
-	int *b2=(int*)malloc(res*sizeof(int[4]));
-	int *arrN=(int*)malloc(2048*sizeof(int));//count
-	int *arrS=(int*)malloc(2048*sizeof(int));//sum
-	const int *pixels=fwd?src->data:b2, *errors=fwd?b2:src->data;
-	if(!b2||!arrN||!arrS)
+	int bufsize=(src->iw+8*2)*(int)sizeof(short[4*1*2]);//4 padded rows * 1 channel * {pixels, errors}
+	short *pixels=(short*)malloc(bufsize);
+	if(!pixels)
 	{
 		LOG_ERROR("Alloc error");
 		return;
 	}
-	memcpy(b2, src->data, (size_t)res*sizeof(int[4]));//copy alpha
+	ptrdiff_t res=(ptrdiff_t)src->iw*src->ih;
+	//const int thresholds[]={5, 15, 25, 42, 60, 85, 140};
+	int idx, pred;
+	//int *b2=(int*)malloc(res*sizeof(int[4]));
+	int *arrN=(int*)malloc(2048*sizeof(int));//count
+	int *arrS=(int*)malloc(2048*sizeof(int));//sum
+	//const int *pixels=fwd?src->data:b2, *errors=fwd?b2:src->data;
+	if(!arrN||!arrS)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	//memcpy(b2, src->data, (size_t)res*sizeof(int[4]));//copy alpha
 	for(int kc=0;kc<3;++kc)//process each channel separately
 	{
 		int depth=src->depth[kc], nlevels=1<<depth, half=nlevels>>1, sh=depth-8;
 		memset(arrN, 0, 2048*sizeof(int));
 		memset(arrS, 0, 2048*sizeof(int));
+		memset(pixels, 0, bufsize);
 		for(int ky=0;ky<src->ih;++ky)
 		{
+			short *rows[]=
+			{
+				pixels+((src->iw+16LL)*((ky-0LL+4)%4)+8)*2,
+				pixels+((src->iw+16LL)*((ky-1LL+4)%4)+8)*2,
+				pixels+((src->iw+16LL)*((ky-2LL+4)%4)+8)*2,
+				pixels+((src->iw+16LL)*((ky-3LL+4)%4)+8)*2,
+			};
 			for(int kx=0;kx<src->iw;++kx)
 			{
+				rows[0]+=2;
+				rows[1]+=2;
+				rows[2]+=2;
+				rows[3]+=2;
+				int
+					NN	=rows[2][0+0*2],
+					NNE	=rows[2][0+1*2],
+					NW	=rows[1][0-1*2],
+					N	=rows[1][0+0*2],
+					NE	=rows[1][0+1*2],
+					WW	=rows[0][0-2*2],
+					W	=rows[0][0-1*2],
+					eN	=rows[1][1+0*2],
+					eW	=rows[0][1-1*2];
 				int energy, pattern, context;
+#if 0
 #define LOAD(BUF, X, Y) ((unsigned)(kx+(X))<(unsigned)src->iw&&(unsigned)(ky+(Y))<(unsigned)src->ih?BUF[(src->iw*(ky+(Y))+kx+(X))<<2|kc]:0)
 				int
 				//	NNWW=LOAD(pixels, -2, -2),
@@ -12230,6 +12260,7 @@ void pred_calic(Image *src, int fwd, int enable_ma)
 					eN  =LOAD(errors,  0, -1),
 					eW  =LOAD(errors, -1,  0);
 #undef  LOAD
+#endif
 				//NNWW NNW NN NNE NNEE
 				//NWW  NW  N  NE
 				//WW   W   ?
@@ -12333,7 +12364,10 @@ void pred_calic(Image *src, int fwd, int enable_ma)
 					curr=val;
 					CLAMP2(val, amin[kc], amax[kc]);
 				}
-				b2[idx]=val;
+				src->data[idx]=val;
+				int e=curr-pred;
+				rows[0][0]=curr;
+				rows[0][1]=e;
 				//pred^=-fwd;
 				//pred+=fwd;
 				//pred+=src->data[idx];
@@ -12347,7 +12381,7 @@ void pred_calic(Image *src, int fwd, int enable_ma)
 
 				//update
 				++arrN[context];
-				arrS[context]+=errors[idx];
+				arrS[context]+=e;
 				if(arrN[context]>255)
 				{
 					arrN[context]>>=1;
@@ -12356,8 +12390,9 @@ void pred_calic(Image *src, int fwd, int enable_ma)
 			}
 		}
 	}
-	memcpy(src->data, b2, res*sizeof(int[4]));
-	free(b2);
+	//memcpy(src->data, b2, res*sizeof(int[4]));
+	//free(b2);
+	free(pixels);
 	free(arrN);
 	free(arrS);
 }

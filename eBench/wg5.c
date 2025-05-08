@@ -201,6 +201,20 @@ static void wg_update(int curr, int kc, const int *preds, int *perrors, int *Wer
 }
 void pred_wgrad5(Image *src, int fwd)
 {
+	int amin[]=
+	{
+		-(1<<src->depth[0]>>1),
+		-(1<<src->depth[1]>>1),
+		-(1<<src->depth[2]>>1),
+		-(1<<src->depth[3]>>1),
+	};
+	int amax[]=
+	{
+		(1<<src->depth[0]>>1)-1,
+		(1<<src->depth[1]>>1)-1,
+		(1<<src->depth[2]>>1)-1,
+		(1<<src->depth[3]>>1)-1,
+	};
 	ALIGN(32) double wg_weights[4][WG_NPREDS]={0};
 	ALIGN(32) int wg_perrors[4][WG_NPREDS]={0}, wg_preds[WG_NPREDS]={0};
 	int nch;
@@ -254,21 +268,37 @@ void pred_wgrad5(Image *src, int fwd)
 					*eW	=erows[0]+kc3-1*4*WG_NPREDS,
 					*ecurr	=erows[0]+kc3+0*4*WG_NPREDS;
 				pred=wg_predict(wg_weights[0], rows, 4*2, kc2, 0, wg_perrors[kc], eNW, eN, eNE, eNNE, wg_preds);
+				int curr=src->data[idx+kc];
+				int val;
+				if(fwd)
 				{
-					int curr=src->data[idx+kc], pred0=pred;
-					pred+=1<<WG_NBITS>>1;
-					pred>>=WG_NBITS;
-					pred^=fwdmask;
-					pred-=fwdmask;
-					pred+=curr;
-
-					pred<<=32-src->depth[kc];
-					pred>>=32-src->depth[kc];
-
-					src->data[idx+kc]=pred;
-					rows[0][kc2+0]=(fwd?curr:pred)<<WG_NBITS;
-					rows[0][kc2+1]=rows[0][kc2]-pred0;
+					val=(curr-(int)pred+g_dist/2)/g_dist;
+					curr=g_dist*val+(int)pred;
 				}
+				else
+				{
+					val=g_dist*curr+(int)pred;
+					curr=val;
+					CLAMP2(val, amin[kc], amax[kc]);
+				}
+				src->data[idx+kc]=keyboard[KEY_ALT]?pred:val;
+				rows[0][kc2+0]=curr;
+				rows[0][kc2+1]=curr-pred;
+				//{
+				//	int curr=src->data[idx+kc], pred0=pred;
+				//	pred+=1<<WG_NBITS>>1;
+				//	pred>>=WG_NBITS;
+				//	pred^=fwdmask;
+				//	pred-=fwdmask;
+				//	pred+=curr;
+				//
+				//	pred<<=32-src->depth[kc];
+				//	pred>>=32-src->depth[kc];
+				//
+				//	src->data[idx+kc]=pred;
+				//	rows[0][kc2+0]=(fwd?curr:pred)<<WG_NBITS;
+				//	rows[0][kc2+1]=rows[0][kc2]-pred0;
+				//}
 				wg_update(rows[0][kc2], kc, wg_preds, wg_perrors[kc], eW, ecurr, eNE);
 			}
 			rows[0]+=4*2;
@@ -391,7 +421,7 @@ void pred_wmix(Image *src, int fwd)
 					curr=val;
 					CLAMP2(val, amin[kc], amax[kc]);
 				}
-				src->data[idx+kc]=keyboard[KEY_ALT]?val:pred;
+				src->data[idx+kc]=keyboard[KEY_ALT]?pred:val;
 				rows[0][kc2+0]=curr;
 				rows[0][kc2+1]=curr-pred;
 				//{

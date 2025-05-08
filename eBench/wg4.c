@@ -1027,7 +1027,7 @@ void pred_wgrad4(Image *src, int fwd)
 					curr=val;
 					CLAMP2(val, amin[kc], amax[kc]);
 				}
-				src->data[idx+kc]=keyboard[KEY_ALT]?val:pred;
+				src->data[idx+kc]=keyboard[KEY_ALT]?pred:val;
 				rows[0][kc2+0]=curr;
 				rows[0][kc2+1]=curr-pred;
 				//{
