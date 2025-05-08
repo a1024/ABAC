@@ -297,6 +297,20 @@ void pred_wgrad5(Image *src, int fwd)
 	WM_PRED(140,	N+NE-NNE)
 void pred_wmix(Image *src, int fwd)
 {
+	int amin[]=
+	{
+		-(1<<src->depth[0]>>1),
+		-(1<<src->depth[1]>>1),
+		-(1<<src->depth[2]>>1),
+		-(1<<src->depth[3]>>1),
+	};
+	int amax[]=
+	{
+		(1<<src->depth[0]>>1)-1,
+		(1<<src->depth[1]>>1)-1,
+		(1<<src->depth[2]>>1)-1,
+		(1<<src->depth[3]>>1)-1,
+	};
 	ALIGN(32) int alphas[4][WM_NPREDS]={0}, preds[WM_NPREDS]={0};
 	int nch;
 	int fwdmask=-fwd;
@@ -363,19 +377,36 @@ void pred_wmix(Image *src, int fwd)
 				if(vmin>NE)vmin=NE;
 				if(vmax<NE)vmax=NE;
 				CLAMP2(pred, vmin, vmax);
+
+				int curr=src->data[idx+kc];
+				int val;
+				if(fwd)
 				{
-					int curr=src->data[idx+kc], pred0=pred;
-					pred^=fwdmask;
-					pred-=fwdmask;
-					pred+=curr;
-
-					pred<<=32-src->depth[kc];
-					pred>>=32-src->depth[kc];
-
-					src->data[idx+kc]=pred;
-					rows[0][kc2+0]=fwd?curr:pred;
-					rows[0][kc2+1]=rows[0][kc2]-pred0;
+					val=(curr-(int)pred+g_dist/2)/g_dist;
+					curr=g_dist*val+(int)pred;
 				}
+				else
+				{
+					val=g_dist*curr+(int)pred;
+					curr=val;
+					CLAMP2(val, amin[kc], amax[kc]);
+				}
+				src->data[idx+kc]=keyboard[KEY_ALT]?val:pred;
+				rows[0][kc2+0]=curr;
+				rows[0][kc2+1]=curr-pred;
+				//{
+				//	int curr=src->data[idx+kc], pred0=pred;
+				//	pred^=fwdmask;
+				//	pred-=fwdmask;
+				//	pred+=curr;
+				//
+				//	pred<<=32-src->depth[kc];
+				//	pred>>=32-src->depth[kc];
+				//
+				//	src->data[idx+kc]=pred;
+				//	rows[0][kc2+0]=fwd?curr:pred;
+				//	rows[0][kc2+1]=rows[0][kc2]-pred0;
+				//}
 				{
 					int curr=rows[0][kc2+0];
 					int esum=0;

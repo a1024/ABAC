@@ -653,6 +653,7 @@ Image* paste_bmp_from_clipboard(void);//window.c
 extern ArrayHandle fn;
 extern double ch_entropy[4];
 extern int loud_transforms;
+extern int g_dist;
 void update_image(void);
 
 

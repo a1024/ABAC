@@ -166,20 +166,20 @@ void pred_ols7(Image *src, int fwd)
 
 				//near lossless
 #if 1
-#define DISTANCE 3
+//#define DISTANCE 3
 				int val;
 				//if(ky==src->ih/2&&kx==src->iw/2)
 				//	printf("");
 				if(fwd)
 				{
-					val=(curr-(int)pred+DISTANCE/2)/DISTANCE;
+					val=(curr-(int)pred+g_dist/2)/g_dist;
 					//val<<=32-src->depth[kc];
 					//val>>=32-src->depth[kc];
-					curr=DISTANCE*val+(int)pred;
+					curr=g_dist*val+(int)pred;
 				}
 				else
 				{
-					val=DISTANCE*curr+(int)pred;
+					val=g_dist*curr+(int)pred;
 					//val<<=32-src->depth[kc];
 					//val>>=32-src->depth[kc];
 					curr=val;

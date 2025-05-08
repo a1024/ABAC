@@ -349,6 +349,8 @@ ArrayHandle jhc_mesh=0;
 unsigned jhc_gpubuf=0;
 float jhc_level=10.5f;
 int loud_transforms=1;
+int g_dist=1;
+float g_uiscale=1;
 //int crop_enable=0, crop_x=0, crop_y=0, crop_dx=128, crop_dy=128;
 
 static void entropy2invcr(const double *entropy, const char *src_depth, int nch, double *invcr)//invcr: {T, R/Y, G/U, ...} nch+1=5 elements
@@ -2915,9 +2917,9 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 		if(highlight)
 			c0=set_text_colors(highlight);
 		if(place<0)
-			GUIPrint(0, x, y, 0.9f, "%s", a);
+			GUIPrint(0, x, y, g_uiscale, "%s", a);
 		else
-			GUIPrint(0, x, y, 0.9f, "%d: %s", place, a);
+			GUIPrint(0, x, y, g_uiscale, "%d: %s", place, a);
 		if(highlight)
 			set_text_colors(c0);
 	}
@@ -5301,6 +5303,9 @@ int io_init(int argc, char **argv)//return false to abort
 	(void)argc;//FIXME open 1 command argument
 	(void)argv;
 
+	if(tdy*T_COUNT/2*g_uiscale>wndh*1.2f)
+		g_uiscale=wndh*1.2f/(tdy*T_COUNT/2);
+
 	set_window_title("Entropy Benchmark");
 	glClearColor(1, 1, 1, 1);
 
@@ -5327,7 +5332,7 @@ void io_resize(void)
 	float xstep=tdx*guizoom, ystep=tdy*guizoom;
 	p->x1=xstep*2, p->x2=p->x1+xstep*gui_custom_rct_w, p->y1=(float)(wndh>>1), p->y2=p->y1+ystep*gui_custom_rct_h, ++p;//0: color params - left
 	p->x1=(float)(wndw>>3), p->x2=p->x1+xstep*gui_custom_pred_w, p->y1=(float)((wndh>>1)+(wndh>>2))-ystep, p->y2=p->y1+ystep*gui_custom_pred_h, ++p;//1: spatial params - bottom
-	p->x1=(float)(wndw-300), p->x2=(float)wndw, p->y1=tdy*2, p->y2=p->y1+tdy*T_COUNT/2, ++p;//2: transforms list
+	p->x1=(float)(wndw-300), p->x2=(float)wndw, p->y1=tdy*2, p->y2=p->y1+tdy*T_COUNT/2*g_uiscale, ++p;//2: transforms list
 	
 	//p->x1=(float)(w>>1), p->x2=p->x1+xstep*14, p->y1=(float)((h>>1)+(h>>2))+ystep*4, p->y2=p->y1+ystep, ++p;//3: clamp bounds
 	//p->x1=(float)(w>>1), p->x2=p->x1+xstep*21, p->y1=(float)((h>>1)+(h>>2))+ystep*5, p->y2=p->y1+ystep, ++p;//4: learning rate
@@ -5494,6 +5499,13 @@ int io_mousewheel(int forward)
 	//if(im1&&(transforms_customenabled||transforms_mask[ST_FWD_WP]||transforms_mask[ST_INV_WP]))//change custom transform params
 	if(im1)
 	{
+		if(GET_KEY_STATE(KEY_CTRL))
+		{
+			g_uiscale+=(2*(forward>0)-1)*0.01f;
+			CLAMP2(g_uiscale, 0.01f, 4);
+			io_resize();
+			return 1;
+		}
 		int objidx=0, cellx=0, celly=0, cellidx=0;
 		AABB *gui_cell=buttons;
 		click_hittest(mx, my, &objidx, &cellx, &celly, &cellidx, &gui_cell);
@@ -6185,6 +6197,19 @@ int io_keydn(IOKey key, char c)
 			return 1;
 		}
 		break;
+	case KEY_UP:
+	case KEY_DOWN:
+		if(mode==VIS_IMAGE)
+		{
+			g_dist+=(key==KEY_UP)*2-1;
+			if(g_dist<1)
+				g_dist=1;
+			if(g_dist>16)
+				g_dist=16;
+			update_image();
+			return 1;
+		}
+		break;
 	case KEY_LEFT:
 	case KEY_RIGHT:
 		if(mode!=VIS_JOINT_HISTOGRAM)
@@ -6351,8 +6376,9 @@ int io_keydn(IOKey key, char c)
 			case 2://transform list
 				{
 					int
-						//col=guicell?(int)floorf((mx-guicell->x1)/tdx):0,
-						line=guicell?(int)floorf((my-guicell->y1)/tdy):0;
+						line=celly;
+					//	col=guicell?(int)floorf((mx-guicell->x1)/tdx):0,
+					//	line=guicell?(int)floorf((my-guicell->y1)/tdy):0;
 					//if(BETWEEN_EXC(0, cellidx, T_COUNT/2))
 					if((unsigned)line<(unsigned)(T_COUNT/2))
 					{
@@ -6619,6 +6645,7 @@ int io_keydn(IOKey key, char c)
 		//	"Shift space:\t(Custom transforms) Optimize blockwise\n"
 		//	"Ctrl Space\t(Custom transforms) Reset params\n"
 			"Ctrl B:\t\tBatch test\n"
+			"Ctrl L:\t\tLossy batch test\n"
 			"\n"
 		//	"WASDTG:\tMove cam\n"
 		//	"Arrow keys:\tTurn cam\n"
@@ -9708,7 +9735,7 @@ void io_render(void)
 			transforms_printname(x2, y, k, -1, transforms_mask[k]?0xA0FF0000FFFFFFFF:0);
 			x2=x+(150&-!(k&1));
 			if(k&1)
-				y+=tdy;
+				y+=tdy*g_uiscale;
 		}
 		x=(float)(wndw-450);
 		y=tdy*2;
@@ -10258,7 +10285,7 @@ void io_render(void)
 	//	case VIS_DWT_BLOCK:		mode_str="DWT Block";		break;
 		case VIS_IMAGE_TRICOLOR:	mode_str="Tricolor";		break;
 		}
-		GUIPrint(0, 0, tdy, 1, "timer %d, fps%11lf, [%2d/%2d] %s", timer, 1000./(t2-t), mode+1, VIS_COUNT, mode_str);
+		GUIPrint(0, 0, tdy, 1, "timer %d, fps%11lf, [%2d/%2d] %s  dist=%d", timer, 1000./(t2-t), mode+1, VIS_COUNT, mode_str, g_dist);
 		if(mode==VIS_IMAGE||mode==VIS_ZIPF)
 		{
 			switch(viewmode)

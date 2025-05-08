@@ -364,6 +364,20 @@ FORCE_INLINE void wp_update(
 }
 void pred_wpred7(Image *src, int fwd)
 {
+	int amin[]=
+	{
+		-(1<<src->depth[0]>>1),
+		-(1<<src->depth[1]>>1),
+		-(1<<src->depth[2]>>1),
+		-(1<<src->depth[3]>>1),
+	};
+	int amax[]=
+	{
+		(1<<src->depth[0]>>1)-1,
+		(1<<src->depth[1]>>1)-1,
+		(1<<src->depth[2]>>1)-1,
+		(1<<src->depth[3]>>1)-1,
+	};
 	ALIGN(32) int wp_errors[4][WP_NPREDS]={0}, wp_preds[WP_NPREDS]={0};
 
 	int fwdmask=-fwd;
@@ -417,6 +431,23 @@ void pred_wpred7(Image *src, int fwd)
 				curr=src->data[idx+kc];
 
 				cpred=(pred+(1<<NBITS>>1))>>NBITS;
+
+				int val;
+				if(fwd)
+				{
+					val=(curr-(int)pred+g_dist/2)/g_dist;
+					curr=g_dist*val+(int)pred;
+				}
+				else
+				{
+					val=g_dist*curr+(int)pred;
+					curr=val;
+					CLAMP2(val, amin[kc], amax[kc]);
+				}
+				src->data[idx+kc]=val;
+				rows[0][kc+0]=curr;
+				rows[0][kc+4]=curr-pred;
+#if 0
 				if(!predsig)
 				{
 					cpred^=fwdmask;
@@ -430,6 +461,7 @@ void pred_wpred7(Image *src, int fwd)
 					curr=cpred;
 				rows[0][kc+0]=curr<<NBITS;
 				rows[0][kc+4]=rows[0][kc+0]-pred;
+#endif
 				wp_update(
 					rows[0][kc+0],
 					wp_preds,

@@ -55,6 +55,20 @@ static const char file[]=__FILE__;
 
 void pred_ols8(Image *src, int fwd)
 {
+	int amin[]=
+	{
+		-(1<<src->depth[0]>>1),
+		-(1<<src->depth[1]>>1),
+		-(1<<src->depth[2]>>1),
+		-(1<<src->depth[3]>>1),
+	};
+	int amax[]=
+	{
+		(1<<src->depth[0]>>1)-1,
+		(1<<src->depth[1]>>1)-1,
+		(1<<src->depth[2]>>1)-1,
+		(1<<src->depth[3]>>1)-1,
+	};
 	const int wsize=sizeof(long long[4][1<<CTXBITS1][NPREDS+1]);
 	long long *weights=(long long*)malloc(wsize);
 	const int w2size=sizeof(long long[4][1<<CTXBITS2][NPREDS2+1]);
@@ -232,20 +246,32 @@ void pred_ols8(Image *src, int fwd)
 				if(vmin>NEEE)vmin=NEEE;
 				if(vmax<NEEE)vmax=NEEE;
 				CLAMP2(predc, vmin, vmax);
-
+				
 				int curr=src->data[idx];
-				int val=(int)predc;
-				if(!keyboard[KEY_ALT])
+				int val;
+				if(fwd)
 				{
-					val^=-fwd;
-					val+=fwd;
-					val+=curr;
-					val<<=32-src->depth[kc];
-					val>>=32-src->depth[kc];
+					val=(curr-(int)predc+g_dist/2)/g_dist;
+					curr=g_dist*val+(int)predc;
 				}
-				src->data[idx]=val;
-				if(!fwd)
+				else
+				{
+					val=g_dist*curr+(int)predc;
 					curr=val;
+					CLAMP2(val, amin[kc], amax[kc]);
+				}
+				//int val=(int)predc;
+				//if(!keyboard[KEY_ALT])
+				//{
+				//	val^=-fwd;
+				//	val+=fwd;
+				//	val+=curr;
+				//	val<<=32-src->depth[kc];
+				//	val>>=32-src->depth[kc];
+				//}
+				//if(!fwd)
+				//	curr=val;
+				src->data[idx]=val;
 				rows[0][0]=curr;
 				rows[0][1]=curr-(int)pred1;
 				rows[0][2]=curr-(int)pred2s;

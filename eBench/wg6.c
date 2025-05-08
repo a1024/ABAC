@@ -1121,6 +1121,20 @@ static void wg_update(
 }
 void pred_wgrad6(Image *src, int fwd)
 {
+	int amin[]=
+	{
+		-(1<<src->depth[0]>>1),
+		-(1<<src->depth[1]>>1),
+		-(1<<src->depth[2]>>1),
+		-(1<<src->depth[3]>>1),
+	};
+	int amax[]=
+	{
+		(1<<src->depth[0]>>1)-1,
+		(1<<src->depth[1]>>1)-1,
+		(1<<src->depth[2]>>1)-1,
+		(1<<src->depth[3]>>1)-1,
+	};
 	ALIGN(32) int wg_coeffs[4][WG_NPREDS]={0}, wg_errors[4][WG_NPREDS]={0}, wg_preds[WG_NPREDS*2]={0};
 	int subpreds[2]={0}, mixer[4][WG_NPREDS]={0}, sse[4][WG_NPREDS]={0};
 
@@ -1205,8 +1219,24 @@ void pred_wgrad6(Image *src, int fwd)
 					kc
 				);
 				curr=src->data[idx+kc];
-			//	cpred2=cpred;
 
+				int val;
+				if(fwd)
+				{
+					val=(curr-(int)pred+g_dist/2)/g_dist;
+					curr=g_dist*val+(int)pred;
+				}
+				else
+				{
+					val=g_dist*curr+(int)pred;
+					curr=val;
+					CLAMP2(val, amin[kc], amax[kc]);
+				}
+				src->data[idx+kc]=val;
+				rows[0][kc+0]=curr;
+				rows[0][kc+4]=curr-pred;
+#if 0
+			//	cpred2=cpred;
 				cpred=pred;
 			//	cpred+=((1<<custom_params[0])-1)&cpred>>31;//rounding to zero
 			//	cpred>>=custom_params[0];
@@ -1222,6 +1252,7 @@ void pred_wgrad6(Image *src, int fwd)
 				src->data[idx+kc]=cpred;
 				rows[0][kc+0]=(fwd?curr:cpred)<<custom_params[0];
 				rows[0][kc+4]=rows[0][kc+0]-pred;
+#endif
 				//if(kx==1)//
 				//	printf("");
 				wg_update(

@@ -2642,7 +2642,7 @@ void pred_MTF(Image *src, int fwd)
 //clamped gradient / LOCO-I / Median Edge Detector (MED) predictor from JPEG-LS
 void pred_clampgrad(Image *src, int fwd, int enable_ma)
 {
-#if 1
+#if 0
 	int nlevels[]=
 	{
 		1<<src->depth[0],
@@ -2782,7 +2782,21 @@ void pred_clampgrad(Image *src, int fwd, int enable_ma)
 	}
 	_mm_free(pixels);
 #endif
-#if 0
+#if 1
+	int amin[]=
+	{
+		-(1<<src->depth[0]>>1),
+		-(1<<src->depth[1]>>1),
+		-(1<<src->depth[2]>>1),
+		-(1<<src->depth[3]>>1),
+	};
+	int amax[]=
+	{
+		(1<<src->depth[0]>>1)-1,
+		(1<<src->depth[1]>>1)-1,
+		(1<<src->depth[2]>>1)-1,
+		(1<<src->depth[3]>>1)-1,
+	};
 	short *pixels=(short*)malloc((src->iw+2LL)*sizeof(short[2*4]));//2 padded rows * 4 channels max
 	if(!pixels)
 	{
@@ -2817,20 +2831,37 @@ void pred_clampgrad(Image *src, int fwd, int enable_ma)
 					N	=rows[1][kc+0],
 					W	=rows[0][kc-4];
 				int pred=N+W-NW;
-				int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
-				pred=CLAMP(vmin, pred, vmax);
+				int vmax=N, vmin=W;
+				if(N<W)vmin=N, vmax=W;
+				CLAMP2(pred, vmin, vmax);
+				//int pred=N+W-NW;
+				//int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
+				//pred=CLAMP(vmin, pred, vmax);
 
 				int curr=src->data[idx+kc];
-				pred^=fwdmask;
-				pred-=fwdmask;
-				pred+=curr;
-
-				pred+=nlevels[kc]>>1;
-				pred&=nlevels[kc]-1;
-				pred-=nlevels[kc]>>1;
-
-				src->data[idx+kc]=pred;
-				rows[0][kc]=fwd?curr:pred;
+				int val;
+				if(fwd)
+				{
+					val=(curr-(int)pred+g_dist/2)/g_dist;
+					curr=g_dist*val+(int)pred;
+				}
+				else
+				{
+					val=g_dist*curr+(int)pred;
+					curr=val;
+					CLAMP2(val, amin[kc], amax[kc]);
+				}
+				src->data[idx+kc]=val;
+				rows[0][kc]=curr;
+				//pred^=fwdmask;
+				//pred-=fwdmask;
+				//pred+=curr;
+				//
+				//pred+=nlevels[kc]>>1;
+				//pred&=nlevels[kc]-1;
+				//pred-=nlevels[kc]>>1;
+				//src->data[idx+kc]=pred;
+				//rows[0][kc]=fwd?curr:pred;
 			}
 
 			rows[0]+=4;
@@ -5321,6 +5352,20 @@ void pred_divfreeWP(Image *src, int fwd)//not DIV-free
 void pred_nblic(Image *src, int fwd)//https://github.com/WangXuan95/NBLIC-Image-Compression
 {
 	int nch;
+	int amin[]=
+	{
+		-(1<<src->depth[0]>>1),
+		-(1<<src->depth[1]>>1),
+		-(1<<src->depth[2]>>1),
+		-(1<<src->depth[3]>>1),
+	};
+	int amax[]=
+	{
+		(1<<src->depth[0]>>1)-1,
+		(1<<src->depth[1]>>1)-1,
+		(1<<src->depth[2]>>1)-1,
+		(1<<src->depth[3]>>1)-1,
+	};
 	int nlevels[]=
 	{
 		1<<src->depth[0],
@@ -5384,7 +5429,7 @@ void pred_nblic(Image *src, int fwd)//https://github.com/WangXuan95/NBLIC-Image-
 					NEE	=rows[1][kc+2*4*2+0],
 					WW	=rows[0][kc-2*4*2+0],
 					W	=rows[0][kc-1*4*2+0],
-					*curr	=rows[0]+kc+0*4*2+0,
+				//	*curr	=rows[0]+kc+0*4*2+0,
 					eN	=rows[1][kc+0*4*2+4],
 					eW	=rows[0][kc-1*4*2+4];
 
@@ -5495,20 +5540,38 @@ void pred_nblic(Image *src, int fwd)//https://github.com/WangXuan95/NBLIC-Image-
 				CLAMP2(pred, -halfs[kc], halfs[kc]);
 				
 				//apply prediction:
-				int p2=pred;
-				int c2=src->data[idx];
-				p2^=fwdmask;
-				p2-=fwdmask;
-				p2+=c2;
-				p2<<=32-src->depth[kc];
-				p2>>=32-src->depth[kc];
-				src->data[idx]=p2;
-				rows[0][kc+0]=fwd?c2:p2;
-				rows[0][kc+4]=rows[0][kc+0]-pred0;//FIXME error uses prediction before SSE correction?
+				int curr=src->data[idx];
+				int val;
+				//if(ky==src->ih/2&&kx==src->iw/2)
+				//	printf("");
+				if(fwd)
+				{
+					val=(curr-(int)pred+g_dist/2)/g_dist;
+					curr=g_dist*val+(int)pred;
+				}
+				else
+				{
+					val=g_dist*curr+(int)pred;
+					curr=val;
+					CLAMP2(val, amin[kc], amax[kc]);
+				}
+				src->data[idx]=val;
+				rows[0][kc+0]=curr;
+				rows[0][kc+4]=curr-pred;
+				//int p2=pred;
+				//int c2=src->data[idx];
+				//p2^=fwdmask;
+				//p2-=fwdmask;
+				//p2+=c2;
+				//p2<<=32-src->depth[kc];
+				//p2>>=32-src->depth[kc];
+				//src->data[idx]=p2;
+				//rows[0][kc+0]=fwd?c2:p2;
+				//rows[0][kc+4]=rows[0][kc+0]-pred0;//FIXME error uses prediction before SSE correction?
 
 				//update context:
 				int e2=rows[0][kc+4];
-				*cell=(corr*((1<<7)-1)+(e2<<7)+(1<<7>>1))>>7;//curr = curr*127/128+error	FIXME compare with traditional SSE
+				*cell=corr+(((e2<<7)-corr+(1<<7>>1))>>7);//FIXME compare with traditional SSE
 			}
 			rows[0]+=4*2;
 			rows[1]+=4*2;
@@ -6790,6 +6853,7 @@ void pred_WPU(Image *src, int fwd)
 //(N+W)>>1
 void pred_av2(Image *src, int fwd)
 {
+#if 0
 	int nlevels[]=
 	{
 		1<<src->depth[0],
@@ -6882,6 +6946,77 @@ void pred_av2(Image *src, int fwd)
 		}
 	}
 	_mm_free(pixels);
+#endif
+#if 1
+	int amin[]=
+	{
+		-(1<<src->depth[0]>>1),
+		-(1<<src->depth[1]>>1),
+		-(1<<src->depth[2]>>1),
+		-(1<<src->depth[3]>>1),
+	};
+	int amax[]=
+	{
+		(1<<src->depth[0]>>1)-1,
+		(1<<src->depth[1]>>1)-1,
+		(1<<src->depth[2]>>1)-1,
+		(1<<src->depth[3]>>1)-1,
+	};
+	short *pixels=(short*)malloc((src->iw+2LL)*sizeof(short[2*4]));//2 padded rows * 4 channels max
+	if(!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(pixels, 0, (src->iw+2LL)*sizeof(short[2*4]));
+	int nlevels[]=
+	{
+		1<<src->depth[0],
+		1<<src->depth[1],
+		1<<src->depth[2],
+		1<<src->depth[3],
+	};
+	int fwdmask=-fwd;
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		short *rows[]=
+		{
+			pixels+(((src->iw+2LL)*((ky-0LL)&1)+1)<<2),
+			pixels+(((src->iw+2LL)*((ky-1LL)&1)+1)<<2),
+		};
+		for(int kx=0;kx<src->iw;++kx, idx+=4)
+		{
+			for(int kc=0;kc<src->nch;++kc)
+			{
+				int
+				//	NW	=rows[1][kc-4],
+					N	=rows[1][kc+0],
+					W	=rows[0][kc-4];
+				int pred=(N+W)>>1;
+
+				int curr=src->data[idx+kc];
+				int val;
+				if(fwd)
+				{
+					val=(curr-(int)pred+g_dist/2)/g_dist;
+					curr=g_dist*val+(int)pred;
+				}
+				else
+				{
+					val=g_dist*curr+(int)pred;
+					curr=val;
+					CLAMP2(val, amin[kc], amax[kc]);
+				}
+				src->data[idx+kc]=val;
+				rows[0][kc]=curr;
+			}
+
+			rows[0]+=4;
+			rows[1]+=4;
+		}
+	}
+	free(pixels);
+#endif
 }
 void pred_mix2(Image *src, int fwd)
 {
@@ -10432,6 +10567,20 @@ int custom_params[CUSTOM_NPARAMS]={0};
 int custom_clamp[4]={0};
 void pred_custom(Image *src, int fwd, int enable_ma, const int *params)
 {
+	int amin[]=
+	{
+		-(1<<src->depth[0]>>1),
+		-(1<<src->depth[1]>>1),
+		-(1<<src->depth[2]>>1),
+		-(1<<src->depth[3]>>1),
+	};
+	int amax[]=
+	{
+		(1<<src->depth[0]>>1)-1,
+		(1<<src->depth[1]>>1)-1,
+		(1<<src->depth[2]>>1)-1,
+		(1<<src->depth[3]>>1)-1,
+	};
 	int bufsize=(src->iw+16)*(int)sizeof(int[4*4*2]);//4 padded rows * 4 channels max * {pixel, pred}
 	int *pixels=(int*)malloc(bufsize);
 	if(!pixels)
@@ -10530,19 +10679,40 @@ void pred_custom(Image *src, int fwd, int enable_ma, const int *params)
 				pred>>=16;
 				pred=CLAMP(vmin, pred, vmax);
 
-				int p0=(int)pred;
-				rows[0][kc+4*!fwd]=curr;
-				pred^=-fwd;
-				pred+=fwd;
-				pred+=(long long)curr;
-				//pred+=(long long)dst->data[(size_t)idx<<2|kc];
-				if(enable_ma)
+				int val;
+				if(fwd)
 				{
-					pred<<=32-src->depth[kc];
-					pred>>=32-src->depth[kc];
+					val=(curr-(int)pred+g_dist/2)/g_dist;
+					curr=g_dist*val+(int)pred;
 				}
-				src->data[idx<<2|kc]=keyboard[KEY_ALT]?p0:(int)pred;
-				rows[0][kc+4* fwd]=(int)pred;
+				else
+				{
+					val=g_dist*curr+(int)pred;
+					curr=val;
+					if(g_dist==1)
+					{
+						val<<=32-src->depth[kc];
+						val>>=32-src->depth[kc];
+					}
+					else
+						CLAMP2(val, amin[kc], amax[kc]);
+				}
+				src->data[idx<<2|kc]=val;
+				rows[0][kc+0]=curr;
+				rows[0][kc+4]=curr-(int)pred;
+				//int p0=(int)pred;
+				//rows[0][kc+4*!fwd]=curr;
+				//pred^=-fwd;
+				//pred+=fwd;
+				//pred+=(long long)curr;
+				////pred+=(long long)dst->data[(size_t)idx<<2|kc];
+				//if(enable_ma)
+				//{
+				//	pred<<=32-src->depth[kc];
+				//	pred>>=32-src->depth[kc];
+				//}
+				//src->data[idx<<2|kc]=keyboard[KEY_ALT]?p0:(int)pred;
+				//rows[0][kc+4* fwd]=(int)pred;
 			}
 			rows[0]+=8;
 			rows[1]+=8;
@@ -12005,6 +12175,21 @@ void custom3_opt_batch(Custom3Params *srcparams, int niter, int maskbits, int lo
 //CALIC - optimized for 8-bit	https://github.com/play-co/gcif
 void pred_calic(Image *src, int fwd, int enable_ma)
 {
+	//int invdist=0x10000/g_dist;
+	int amin[]=
+	{
+		-(1<<src->depth[0]>>1),
+		-(1<<src->depth[1]>>1),
+		-(1<<src->depth[2]>>1),
+		-(1<<src->depth[3]>>1),
+	};
+	int amax[]=
+	{
+		(1<<src->depth[0]>>1)-1,
+		(1<<src->depth[1]>>1)-1,
+		(1<<src->depth[2]>>1)-1,
+		(1<<src->depth[3]>>1)-1,
+	};
 	ptrdiff_t res=(ptrdiff_t)src->iw*src->ih;
 	//const int thresholds[]={5, 15, 25, 42, 60, 85, 140};
 	int idx, pred;
@@ -12135,16 +12320,30 @@ void pred_calic(Image *src, int fwd, int enable_ma)
 				pred=CLAMP(-half, pred, half-1);
 
 				idx=(src->iw*ky+kx)<<2|kc;
-				pred^=-fwd;
-				pred+=fwd;
-				pred+=src->data[idx];
-				if(enable_ma)
+				int curr=src->data[idx];
+				int val;
+				if(fwd)
 				{
-					pred+=nlevels>>1;
-					pred&=nlevels-1;
-					pred-=nlevels>>1;
+					val=(curr-(int)pred+g_dist/2)/g_dist;
+					curr=g_dist*val+(int)pred;
 				}
-				b2[idx]=pred;
+				else
+				{
+					val=g_dist*curr+(int)pred;
+					curr=val;
+					CLAMP2(val, amin[kc], amax[kc]);
+				}
+				b2[idx]=val;
+				//pred^=-fwd;
+				//pred+=fwd;
+				//pred+=src->data[idx];
+				//if(enable_ma)
+				//{
+				//	pred+=nlevels>>1;
+				//	pred&=nlevels-1;
+				//	pred-=nlevels>>1;
+				//}
+				//b2[idx]=pred;
 
 				//update
 				++arrN[context];
