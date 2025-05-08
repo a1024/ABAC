@@ -45,6 +45,20 @@ static const char file[]=__FILE__;
 
 void pred_ols7(Image *src, int fwd)
 {
+	int amin[]=
+	{
+		-(1<<src->depth[0]>>1),
+		-(1<<src->depth[1]>>1),
+		-(1<<src->depth[2]>>1),
+		-(1<<src->depth[3]>>1),
+	};
+	int amax[]=
+	{
+		(1<<src->depth[0]>>1)-1,
+		(1<<src->depth[1]>>1)-1,
+		(1<<src->depth[2]>>1)-1,
+		(1<<src->depth[3]>>1)-1,
+	};
 	long long sh[4]={0};
 	const int wsize=sizeof(long long[4][NPREDS]);
 	long long *weights=(long long*)malloc(wsize);
@@ -149,6 +163,55 @@ void pred_ols7(Image *src, int fwd)
 				CLAMP2(pred, vmin, vmax);
 
 				int curr=src->data[idx];
+
+				//near lossless
+#if 1
+#define DISTANCE 3
+				int val;
+				//if(ky==src->ih/2&&kx==src->iw/2)
+				//	printf("");
+				if(fwd)
+				{
+					val=(curr-(int)pred+DISTANCE/2)/DISTANCE;
+					//val<<=32-src->depth[kc];
+					//val>>=32-src->depth[kc];
+					curr=DISTANCE*val+(int)pred;
+				}
+				else
+				{
+					val=DISTANCE*curr+(int)pred;
+					//val<<=32-src->depth[kc];
+					//val>>=32-src->depth[kc];
+					curr=val;
+					CLAMP2(val, amin[kc], amax[kc]);
+				}
+				src->data[idx]=val;
+#endif
+#if 0
+#define LOSSBITS 0
+				int val;
+				//if(ky==src->ih/2&&kx==src->iw/2)
+				//	printf("");
+				if(fwd)
+				{
+					val=(curr-(int)pred+(1<<LOSSBITS>>1))>>LOSSBITS;
+					//val<<=32-src->depth[kc];
+					//val>>=32-src->depth[kc];
+					curr=(val<<LOSSBITS)+(int)pred;
+				}
+				else
+				{
+					val=(curr<<LOSSBITS)+(int)pred;
+					//val<<=32-src->depth[kc];
+					//val>>=32-src->depth[kc];
+					curr=val;
+					CLAMP2(val, amin[kc], amax[kc]);
+				}
+				src->data[idx]=val;
+#endif
+
+				//lossless
+#if 0
 				int val=(int)pred;
 				if(!keyboard[KEY_ALT])
 				{
@@ -161,6 +224,7 @@ void pred_ols7(Image *src, int fwd)
 				src->data[idx]=val;
 				if(!fwd)
 					curr=val;
+#endif
 				rows[0][0]=curr;
 
 				//if(ky==src->ih/2&&kx==src->iw/2)//

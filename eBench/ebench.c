@@ -179,7 +179,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_CLAMPGRAD,	ST_INV_CLAMPGRAD,
 	ST_FWD_AV2,		ST_INV_AV2,
 	ST_FWD_CALIC,		ST_INV_CALIC,
-	ST_CONVTEST,		ST_CONVTEST2,
+	ST_CONVTEST,		ST_DIFF,
 	ST_FILT_MEDIAN33,	ST_FILT_AV33,
 	ST_FILT_DEINT422,	ST_FILT_DEINT420,
 	ST_FWD_QUANT,		ST_INV_QUANT,
@@ -2111,7 +2111,7 @@ static unsigned __stdcall sample_thread(void *param)
 	ThreadCtx *ctx=(ThreadCtx*)param;
 
 	ctx->usize=image_getBMPsize(ctx->image);
-	apply_selected_transforms(&ctx->image, 0);
+	apply_selected_transforms(&ctx->image, 0, 1, 1);
 	maxdepth=calc_maxdepth(ctx->image, 0);
 	nlevels=1<<maxdepth;
 	hist=(int*)malloc(nlevels*sizeof(int));
@@ -2223,11 +2223,17 @@ static void batch_test(void)
 				double csize=ptr->csize[0]+ptr->csize[1]+ptr->csize[2]+ptr->csize[3];
 				fn2=(ArrayHandle*)array_at(&filenames, ptr->idx);
 				console_log(
-					"%5d/%5d %s%*sUTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  invCR %8.4lf%%\n",
+					"%5d/%5d %s%*sUTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  BPD %8.4lf\n",
 					(int)(k+1-(int)q->count+k2+1), (int)filenames->count, (char*)fn2[0]->data, (int)(maxlen-fn2[0]->count+1), "",
 					ptr->usize, csize, ptr->csize[0], ptr->csize[1], ptr->csize[2],
-					100.*csize/ptr->usize
+					8.*csize/ptr->usize
 				);
+				//console_log(
+				//	"%5d/%5d %s%*sUTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  invCR %8.4lf%%\n",
+				//	(int)(k+1-(int)q->count+k2+1), (int)filenames->count, (char*)fn2[0]->data, (int)(maxlen-fn2[0]->count+1), "",
+				//	ptr->usize, csize, ptr->csize[0], ptr->csize[1], ptr->csize[2],
+				//	100.*csize/ptr->usize
+				//);
 				total_usize+=ptr->usize;
 				total_csize[0]+=ptr->csize[0];
 				total_csize[1]+=ptr->csize[1];
@@ -2247,7 +2253,7 @@ static void batch_test(void)
 		if(!image)
 			continue;
 		usize=image_getBMPsize(image), csize[3]={0};
-		apply_selected_transforms(&image, 0);
+		apply_selected_transforms(&image, 0, 1, 1);
 		maxdepth=calc_maxdepth(image, 0);
 		maxlevels=1<<maxdepth;
 		int *hist=(int*)malloc(maxlevels*sizeof(int));
@@ -2280,8 +2286,242 @@ static void batch_test(void)
 		double CR=total_usize/ctotal;
 		t=time_sec()-t;
 		console_log(
-			"Total UTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  invCR %8.4lf%%\n",
-			total_usize, ctotal, total_csize[0], total_csize[1], total_csize[2], 100./CR
+			"Total UTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  BPD %8.4lf\n",
+			total_usize, ctotal, total_csize[0], total_csize[1], total_csize[2], 8./CR
+		);
+		timedelta2str(g_buf, G_BUF_SIZE, t);
+		console_log("Elapsed %s\n", g_buf);
+		acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d-%H:%M:%S");
+		console_log("\nDone.  %s\n", g_buf);
+		console_pause();
+		console_end();
+		loud_transforms=1;
+	}
+}
+
+ptrdiff_t calc_psnr(const Image *im0, const Image *im1, double *ret_rmse, double *ret_psnr)
+{
+	if(im0->iw!=im1->iw||im0->ih!=im1->ih||im0->nch!=im1->nch)
+	{
+		if(ret_rmse)
+		{
+			ret_rmse[0]=INFINITE;
+			ret_rmse[1]=INFINITE;
+			ret_rmse[2]=INFINITE;
+			ret_rmse[3]=INFINITE;
+		}
+		if(ret_psnr)
+		{
+			ret_psnr[0]=0;
+			ret_psnr[1]=0;
+			ret_psnr[2]=0;
+			ret_psnr[3]=0;
+		}
+		return -1;
+	}
+	double rmse[4]={0}, psnr[4]={0};
+	ptrdiff_t res=(ptrdiff_t)im0->iw*im0->ih, idx=-1;
+	int half[]=
+	{
+		1<<im0->src_depth[0]>>1,
+		1<<im0->src_depth[1]>>1,
+		1<<im0->src_depth[2]>>1,
+		1<<im0->src_depth[3]>>1,
+	};
+	for(ptrdiff_t k=0;k<res;++k)
+	{
+		int
+			dr=im1->data[k<<2|0]-im0->data[k<<2|0],
+			dg=im1->data[k<<2|1]-im0->data[k<<2|1],
+			db=im1->data[k<<2|2]-im0->data[k<<2|2],
+			da=im1->data[k<<2|3]-im0->data[k<<2|3];
+		if(idx<0&&(dr|dg|db|da))
+			idx=k;
+		rmse[0]+=dr*dr;
+		rmse[1]+=dg*dg;
+		rmse[2]+=db*db;
+		rmse[3]+=da*da;
+	}
+	for(int kc=0;kc<4;++kc)
+	{
+		rmse[kc]=sqrt(rmse[kc]/res);
+		psnr[kc]=20*log10(half[kc]/rmse[kc]);
+	}
+	if(ret_rmse)
+		memcpy(ret_rmse, rmse, sizeof(rmse));
+	if(ret_psnr)
+		memcpy(ret_psnr, psnr, sizeof(psnr));
+	return idx;
+}
+typedef struct LossyCtxStruct
+{
+	Image *image;
+	double usize, csize[4];
+	ptrdiff_t idx;
+	double rmse[4], psnr[4], sqe[4];
+} LossyCtx;
+static unsigned __stdcall sample_thread_lossy(void *param)
+{
+	int maxdepth, nlevels, *hist;
+	double entropy[4]={0};
+	LossyCtx *ctx=(LossyCtx*)param;
+
+	ctx->usize=image_getBMPsize(ctx->image);
+	{
+		Image *im0=0, *im2=0;
+		image_copy(&im0, ctx->image);
+		apply_selected_transforms(&ctx->image, 0, 1, 0);
+		image_copy(&im2, ctx->image);
+		if(!im2)
+		{
+			LOG_ERROR("Alloc error");
+			return 0;
+		}
+		apply_selected_transforms(&im2, 0, 0, 1);
+		calc_psnr(im2, im0, ctx->rmse, ctx->psnr);
+		ptrdiff_t res=(ptrdiff_t)ctx->image->iw*ctx->image->ih;
+		ctx->sqe[0]=res*ctx->rmse[0]*ctx->rmse[0];
+		ctx->sqe[1]=res*ctx->rmse[1]*ctx->rmse[1];
+		ctx->sqe[2]=res*ctx->rmse[2]*ctx->rmse[2];
+		ctx->sqe[3]=res*ctx->rmse[3]*ctx->rmse[3];
+		free(im0);
+		free(im2);
+	}
+	maxdepth=calc_maxdepth(ctx->image, 0);
+	nlevels=1<<maxdepth;
+	hist=(int*)malloc(nlevels*sizeof(int));
+	if(!hist)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
+	calc_csize_stateful(ctx->image, 0, entropy);
+	for(int kc=0;kc<4;++kc)
+	{
+		int depth=ctx->image->src_depth[kc];
+		double invCR=depth?entropy[kc]/depth:0;
+		ctx->csize[kc]=invCR*ctx->image->iw*ctx->image->ih*ctx->image->src_depth[kc]/8;
+	}
+	free(hist);
+	free(ctx->image);
+	return 0;
+}
+static void batch_test_lossy(void)
+{
+	const char *ext[]=
+	{
+		"PPM", "PGM", "PNM",
+		"PNG",
+		"JPG", "JPEG",
+		"BMP",
+		"TIF", "TIFF",
+	};
+	ArrayHandle path, filenames, q;
+	int nthreads, maxlen;
+	double t, total_usize=0, total_csize[4]={0}, total_sqe[4]={0};
+
+
+	loud_transforms=0;
+	path=dialog_open_folder();
+	if(!path)
+		return;
+	filenames=get_filenames((char*)path->data, ext, _countof(ext), 1);
+	if(!filenames)
+	{
+		array_free(&path);
+		return;
+	}
+
+	DisableProcessWindowsGhosting();
+	console_start();
+	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H:%M:%S");
+	console_log("Batch Test  %s  %s\n", g_buf, (char*)path->data);
+	array_free(&path);
+	console_log("Enter number of threads: ");
+	nthreads=console_scan_int();
+	t=time_sec();
+	total_usize=0;
+	maxlen=0;
+	for(int k=0;k<(int)filenames->count;++k)
+	{
+		ArrayHandle *fn2=(ArrayHandle*)array_at(&filenames, k);
+		if(maxlen<(int)fn2[0]->count)
+			maxlen=(int)fn2[0]->count;
+	}
+	ARRAY_ALLOC(LossyCtx, q, 0, 0, nthreads, 0);
+	for(int k=0;k<(int)filenames->count;++k)
+	{
+		ArrayHandle *fn2=(ArrayHandle*)array_at(&filenames, k);
+		Image *image=image_load((char*)fn2[0]->data, (int)fn2[0]->count);
+		LossyCtx ctx=
+		{
+			image,
+			0, {0},
+			k,
+		};
+		if(!image)
+			continue;
+		ARRAY_APPEND(q, &ctx, 1, 1, 0);
+		if((int)q->count>=nthreads||k+1>=(int)filenames->count)
+		{
+			HANDLE *handles=(HANDLE*)malloc(q->count*sizeof(HANDLE));
+			if(!handles)
+			{
+				LOG_ERROR("Alloc error");
+				return;
+			}
+			memset(handles, 0, q->count*sizeof(HANDLE));
+			for(int k2=0;k2<(int)q->count;++k2)
+			{
+				LossyCtx *ptr=(LossyCtx*)array_at(&q, k2);
+				handles[k2]=(void*)_beginthreadex(0, 0, sample_thread_lossy, ptr, 0, 0);
+				if(!handles[k2])
+				{
+					LOG_ERROR("Thread alloc error");
+					return;
+				}
+			}
+			WaitForMultipleObjects((int)q->count, handles, TRUE, INFINITE);
+			for(int k2=0;k2<(int)q->count;++k2)
+			{
+				LossyCtx *ptr=(LossyCtx*)array_at(&q, k2);
+				double csize=ptr->csize[0]+ptr->csize[1]+ptr->csize[2]+ptr->csize[3];
+				fn2=(ArrayHandle*)array_at(&filenames, ptr->idx);
+				console_log(
+					"%5d/%5d %s%*sUTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  BPD %8.4lf  PSNR %10.4lf %10.4lf %10.4lf %10.4lf\n",
+					(int)(k+1-(int)q->count+k2+1), (int)filenames->count, (char*)fn2[0]->data, (int)(maxlen-fn2[0]->count+1), "",
+					ptr->usize, csize, ptr->csize[0], ptr->csize[1], ptr->csize[2],
+					8.*csize/ptr->usize,
+					ptr->psnr[0], ptr->psnr[1], ptr->psnr[2], ptr->psnr[3]
+				);
+				//console_log(
+				//	"%5d/%5d %s%*sUTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  invCR %8.4lf%%\n",
+				//	(int)(k+1-(int)q->count+k2+1), (int)filenames->count, (char*)fn2[0]->data, (int)(maxlen-fn2[0]->count+1), "",
+				//	ptr->usize, csize, ptr->csize[0], ptr->csize[1], ptr->csize[2],
+				//	100.*csize/ptr->usize
+				//);
+				total_usize+=ptr->usize;
+				total_csize[0]+=ptr->csize[0];
+				total_csize[1]+=ptr->csize[1];
+				total_csize[2]+=ptr->csize[2];
+				total_csize[3]+=ptr->csize[3];
+				total_sqe[0]+=ptr->sqe[0];
+				total_sqe[1]+=ptr->sqe[1];
+				total_sqe[2]+=ptr->sqe[2];
+				total_sqe[3]+=ptr->sqe[3];
+			}
+			array_clear(&q);
+		}
+	}
+	{
+		double ctotal=total_csize[0]+total_csize[1]+total_csize[2]+total_csize[3];
+		double CR=total_usize/ctotal;
+		double rmse=sqrt((total_sqe[0]+total_sqe[1]+total_sqe[2]+total_sqe[3])/total_usize);
+		double psnr=20*log10(255/rmse);
+		t=time_sec()-t;
+		console_log(
+			"Total UTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  BPD %8.4lf  RMSE %12.6lf PSNR %12.6lf  %12.6lf sec\n",
+			total_usize, ctotal, total_csize[0], total_csize[1], total_csize[2], 8./CR, rmse, psnr, t
 		);
 		timedelta2str(g_buf, G_BUF_SIZE, t);
 		console_log("Elapsed %s\n", g_buf);
@@ -2411,8 +2651,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 //	case CT_INV_CrCgCb:		a="C  Inv CrCgCb";		break;
 	case CT_FWD_Pei09:		a="C  Fwd Pei09";		break;
 	case CT_INV_Pei09:		a="C  Inv Pei09";		break;
-	case CT_FWD_SubG_OPT:		a="C  Fwd SubG Opt";		break;
-	case CT_INV_SubG_OPT:		a="C  Inv SubG Opt";		break;
+	case CT_FWD_SubG_OPT:		a="C  Fwd OptSub";		break;
+	case CT_INV_SubG_OPT:		a="C  Inv OptSub";		break;
 	case CT_FWD_YCoCg_R:		a="C  Fwd YCoCg-R";		break;
 	case CT_INV_YCoCg_R:		a="C  Inv YCoCg-R";		break;
 	case CT_FWD_SUBGREEN:		a="C  Fwd SubGreen";		break;
@@ -2456,7 +2696,7 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 //	case ST_PREPROC_X2:		a=" S Preproc X2";		break;
 		
 	case ST_CONVTEST:		a=" S ConvTest";		break;
-	case ST_CONVTEST2:		a=" S ConvTest2";		break;
+	case ST_DIFF:			a="   Difference";		break;
 	case ST_FWD_PACKSIGN:		a=" S Fwd PackSign";		break;
 	case ST_INV_PACKSIGN:		a=" S Inv PackSign";		break;
 	case ST_FWD_BWTX:		a=" S Fwd BWT-X";		break;
@@ -3590,7 +3830,17 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_FWD_CUSTOM:		pred_custom(image, 1, pred_ma_enabled, custom_params);	break;
 	case ST_INV_CUSTOM:		pred_custom(image, 0, pred_ma_enabled, custom_params);	break;
 	case ST_CONVTEST:		pred_convtest(image);					break;
-	case ST_CONVTEST2:		pred_convtest(image);					break;
+	case ST_DIFF:
+		if(im1->iw==im0->iw&&im1->ih==im0->ih)
+		{
+			for(ptrdiff_t k=0, n=(ptrdiff_t)im0->iw*im0->ih*4;k<n;k+=4)
+			{
+				im1->data[k+0]-=im0->data[k+0];
+				im1->data[k+1]-=im0->data[k+1];
+				im1->data[k+2]-=im0->data[k+2];
+			}
+		}
+		break;
 	case ST_FWD_CC:			conv_custom(image);					break;
 	case ST_INV_CC:			conv_custom(image);					break;
 //	case ST_FWD_CUSTOM4:		custom4_apply((char*)image, iw, ih, 1, &c4_params);	break;
@@ -3917,7 +4167,7 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 //	case ST_INV_DEC_DWT:   dwt2d_dec_inv((char*)image, iw, ih);	break;
 	}//switch
 }
-void apply_selected_transforms(Image **pimage, int rct_only)
+void apply_selected_transforms(Image **pimage, int rct_only, int applyfwd, int applyinv)
 {
 	int hasRCT=0;
 
@@ -4000,6 +4250,8 @@ void apply_selected_transforms(Image **pimage, int rct_only)
 		hasRCT|=tid<CST_INV_SEPARATOR;
 		if(rct_only&&tid>CST_INV_SEPARATOR)
 			continue;
+		if(tid&1?!applyinv:!applyfwd)
+			continue;
 		apply_transform(pimage, tid, hasRCT);
 		//calc_depthfromdata(image->data, image->iw, image->ih, image->depth, image->src_depth);//X  depth must depend only on src_depth and applied RCTs, so that preds can apply MA
 	}//for
@@ -4009,7 +4261,7 @@ void update_image(void)//apply selected operations on original image, calculate 
 	if(!im0)
 		return;
 	image_copy(&im1, im0);
-	apply_selected_transforms(&im1, 0);
+	apply_selected_transforms(&im1, 0, 1, 1);
 
 	//do not modify im1 beyond this point
 	
@@ -4553,7 +4805,7 @@ static void draw_AAcuboid_wire(float size, int applyRCT)
 			image->data[k<<2|2]=(int)(cuboid[k*3+2]-half);
 		}
 		memcpy(image->depth, image->src_depth, sizeof(image->depth));
-		apply_selected_transforms(&image, 1);
+		apply_selected_transforms(&image, 1, 1, 1);
 		for(int k=0;k<8;++k)
 		{
 			cuboid[k*3+0]=(float)image->data[k<<2|0]+half;
@@ -5320,7 +5572,7 @@ int io_mousewheel(int forward)
 				break;
 			case 1://spatial transform params
 				if(!transforms_mask[ST_FWD_CUSTOM]&&!transforms_mask[ST_INV_CUSTOM]
-					&&!transforms_mask[ST_CONVTEST]&&!transforms_mask[ST_CONVTEST2]
+					&&!transforms_mask[ST_CONVTEST]
 					&&!transforms_mask[ST_FWD_CC]&&!transforms_mask[ST_INV_CC]
 				//	&&!transforms_mask[ST_FWD_OLS6]&&!transforms_mask[ST_INV_OLS6]
 				)
@@ -7013,6 +7265,12 @@ int io_keydn(IOKey key, char c)
 			use_ols=(use_ols+fwd+3)%3;
 		}
 		break;
+	case 'L':
+		if(GET_KEY_STATE(KEY_CTRL))
+		{
+			batch_test_lossy();
+		}
+		break;
 	case KEY_LBRACKET:
 	case KEY_RBRACKET:
 		if(ec_method==ECTX_ABAC0)
@@ -7233,35 +7491,8 @@ int io_keydn(IOKey key, char c)
 				else
 				{
 					double rmse[4]={0}, psnr[4]={0};
-					ptrdiff_t res=(ptrdiff_t)im0->iw*im0->ih, idx=-1;
-					int printed;
-					int half[]=
-					{
-						1<<im0->src_depth[0]>>1,
-						1<<im0->src_depth[1]>>1,
-						1<<im0->src_depth[2]>>1,
-						1<<im0->src_depth[3]>>1,
-					};
-					for(ptrdiff_t k=0;k<res;++k)
-					{
-						int
-							dr=im1->data[k<<2|0]-im0->data[k<<2|0],
-							dg=im1->data[k<<2|1]-im0->data[k<<2|1],
-							db=im1->data[k<<2|2]-im0->data[k<<2|2],
-							da=im1->data[k<<2|3]-im0->data[k<<2|3];
-						if(idx<0&&(dr|dg|db|da))
-							idx=k;
-						rmse[0]+=dr*dr;
-						rmse[1]+=dg*dg;
-						rmse[2]+=db*db;
-						rmse[3]+=da*da;
-					}
-					for(int kc=0;kc<4;++kc)
-					{
-						rmse[kc]=sqrt(rmse[kc]/res);
-						psnr[kc]=20*log10(half[kc]/rmse[kc]);
-					}
-					printed=snprintf(g_buf, G_BUF_SIZE-1,
+					ptrdiff_t idx=calc_psnr(im0, im1, rmse, psnr);
+					int printed=snprintf(g_buf, G_BUF_SIZE-1,
 						"RMSE PSNR\n"
 						"C0 %12lf %12lf\n"
 						"C1 %12lf %12lf\n"
@@ -7329,7 +7560,7 @@ int io_keydn(IOKey key, char c)
 				image_copy(&im2, im0);
 				if(!im2)
 					return 0;
-				apply_selected_transforms(&im2, 1);
+				apply_selected_transforms(&im2, 1, 1, 1);
 				pred_custom_optimize(im2, custom_params, GET_KEY_STATE(KEY_SHIFT)?2:1);
 				free(im2);
 				update_image();
@@ -7399,7 +7630,7 @@ int io_keydn(IOKey key, char c)
 					image_copy(&im2, im0);
 					if(!im2)
 						return 0;
-					apply_selected_transforms(&im2, 1);
+					apply_selected_transforms(&im2, 1, 1, 1);
 					//if(GET_KEY_STATE(KEY_CTRL))
 					//	colortransform_YCbCr_R_v1(im2, 1);
 					custom3_opt(im2, &c3_params, 0, maskbits, 1, 0);
@@ -9093,7 +9324,7 @@ void io_render(void)
 		}
 		if(
 			transforms_mask[ST_FWD_CUSTOM]||transforms_mask[ST_INV_CUSTOM]
-			||transforms_mask[ST_CONVTEST]||transforms_mask[ST_CONVTEST2]
+			||transforms_mask[ST_CONVTEST]
 			||transforms_mask[ST_FWD_CC]||transforms_mask[ST_INV_CC]
 		//	||transforms_mask[ST_FWD_OLS6]||transforms_mask[ST_INV_OLS6]
 		)

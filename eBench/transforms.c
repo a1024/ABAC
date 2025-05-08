@@ -542,38 +542,35 @@ void colortransform_Pei09(Image *image, int fwd)//Pei09 RCT
 }
 void colortransform_subg_opt(Image *image, int fwd)
 {
-	char temp;
-	if(fwd)
+	typedef enum _RCTInfoIdx
 	{
-		typedef enum _RCTInfoIdx
-		{
-			II_OCH_Y,
-			II_OCH_U,
-			II_OCH_V,
+		II_OCH_Y,
+		II_OCH_U,
+		II_OCH_V,
 
-			II_PERM_Y,
-			II_PERM_U,
-			II_PERM_V,
+		II_PERM_Y,
+		II_PERM_U,
+		II_PERM_V,
 
-			II_COEFF_U_SUB_Y,
-			II_COEFF_V_SUB_Y,
-			II_COEFF_V_SUB_U,
+		II_COEFF_U_SUB_Y,
+		II_COEFF_V_SUB_Y,
+		II_COEFF_V_SUB_U,
 
-			II_COUNT,
-		} RCTInfoIdx;
-		typedef enum _OCHIndex
-		{
-			OCH_R,
-			OCH_G,
-			OCH_B,
-			OCH_RG,
-			OCH_GB,
-			OCH_BR,
-			OCH_COUNT,
-			OCH_GR=OCH_RG,
-			OCH_BG=OCH_GB,
-			OCH_RB=OCH_BR,
-		} OCHIndex;
+		II_COUNT,
+	} RCTInfoIdx;
+	typedef enum _OCHIndex
+	{
+		OCH_R,
+		OCH_G,
+		OCH_B,
+		OCH_RG,
+		OCH_GB,
+		OCH_BR,
+		OCH_COUNT,
+		OCH_GR=OCH_RG,
+		OCH_BG=OCH_GB,
+		OCH_RB=OCH_BR,
+	} OCHIndex;
 #define RCTLIST\
 	RCT(_400_0X0_00X,	OCH_R,		OCH_G,		OCH_B,		0, 1, 2,	0,  0, 0)\
 	RCT(_400_0X0_04X,	OCH_R,		OCH_G,		OCH_BG,		0, 1, 2,	0,  0, 4)\
@@ -591,19 +588,21 @@ void colortransform_subg_opt(Image *image, int fwd)
 	RCT(_400_4X0_40X,	OCH_R,		OCH_GR,		OCH_BR,		0, 1, 2,	4,  4, 0)\
 	RCT(_400_4X0_04X,	OCH_R,		OCH_GR,		OCH_BG,		0, 1, 2,	4,  0, 4)\
 	RCT(_400_40X_0X4,	OCH_R,		OCH_BR,		OCH_GB,		0, 2, 1,	4,  0, 4)
-		typedef enum _RCTIndex
-		{
+	typedef enum _RCTIndex
+	{
 #define RCT(LABEL, ...) RCT_##LABEL,
-			RCTLIST
+		RCTLIST
 #undef  RCT
-			RCT_COUNT,
-		} RCTIndex;
-		static const unsigned char rct_combinations[RCT_COUNT][II_COUNT]=
-		{
+		RCT_COUNT,
+	} RCTIndex;
+	static const unsigned char rct_combinations[RCT_COUNT][II_COUNT]=
+	{
 #define RCT(LABEL, ...) {__VA_ARGS__},
-			RCTLIST
+		RCTLIST
 #undef  RCT
-		};
+	};
+	if(fwd)
+	{
 		long long counters[6]={0};
 		int W[6]={0};
 		for(ptrdiff_t k=0, len=(ptrdiff_t)image->iw*image->ih*4;k<len;k+=4)
@@ -650,6 +649,7 @@ void colortransform_subg_opt(Image *image, int fwd)
 			uidx=combination[II_PERM_U],
 			vidx=combination[II_PERM_V];
 		int vfromy=-(combination[II_COEFF_U_SUB_Y]!=0);
+		image->rct=bestrct;
 		for(ptrdiff_t k=0, len=(ptrdiff_t)image->iw*image->ih*4;k<len;k+=4)
 		{
 			int yuv[]=
@@ -664,12 +664,35 @@ void colortransform_subg_opt(Image *image, int fwd)
 			image->data[k+1]=yuv[1];
 			image->data[k+2]=yuv[2];
 		}
-		ROTATE3(image->depth[0], image->depth[1], image->depth[2], temp);
+		//ROTATE3(image->depth[0], image->depth[1], image->depth[2], temp);
 		image->depth[1]+=image->depth[1]<24;
 		image->depth[2]+=image->depth[2]<24;
 	}
 	else
 	{
+		const unsigned char *combination=rct_combinations[image->rct%RCT_COUNT];
+		int
+			yidx=combination[II_PERM_Y],
+			uidx=combination[II_PERM_U],
+			vidx=combination[II_PERM_V];
+		int vfromy=-(combination[II_COEFF_U_SUB_Y]!=0);
+		for(ptrdiff_t k=0, len=(ptrdiff_t)image->iw*image->ih*4;k<len;k+=4)
+		{
+			int yuv[]=
+			{
+				image->data[k+0],
+				image->data[k+1],
+				image->data[k+2],
+			};
+			yuv[1]+=yuv[0]&vfromy;
+			yuv[2]+=(combination[II_COEFF_V_SUB_Y]*yuv[0]+combination[II_COEFF_V_SUB_U]*yuv[1])>>2;
+			image->data[k+yidx]=yuv[0];
+			image->data[k+uidx]=yuv[1];
+			image->data[k+vidx]=yuv[2];
+		}
+		//ROTATE3(image->depth[0], image->depth[1], image->depth[2], temp);
+		image->depth[1]-=image->depth[1]<24;
+		image->depth[2]-=image->depth[2]<24;
 	}
 }
 void colortransform_JPEG2000(Image *image, int fwd)
@@ -1300,7 +1323,7 @@ static void rct_custom_calcloss(Image const *src, Image **pdst, int *hist, doubl
 	ptrdiff_t res=(ptrdiff_t)src->iw*src->ih;
 	memcpy(dst->data, src->data, res*sizeof(int[4]));
 
-	apply_selected_transforms(pdst, 0);
+	apply_selected_transforms(pdst, 0, 1, 1);
 	dst=*pdst;
 	//rct_custom(dst, 1, params);
 	//pred_grad2(dst, 1);

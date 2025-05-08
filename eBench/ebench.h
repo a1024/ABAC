@@ -628,7 +628,9 @@ unsigned short* stbi_load_16(char const *filename, int *x, int *y, int *comp, in
 //Entropy Benchmark (eBench)
 typedef struct ImageStruct
 {
-	int iw, ih,
+	int iw, ih;
+	short
+		rct,
 		nch;//{greyscale, greyscale+alpha, RGB, RGB+alpha}	alpha can be ignored for now
 	char depth[4];
 	char src_depth[4];//for entropy calculations
@@ -656,7 +658,7 @@ void update_image(void);
 
 //transforms
 void apply_transform(Image **image, int tid, int hasRCT);
-void apply_selected_transforms(Image **image, int rct_only);
+void apply_selected_transforms(Image **pimage, int rct_only, int applyfwd, int applyinv);
 
 
 //aux func
