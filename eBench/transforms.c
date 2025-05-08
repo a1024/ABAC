@@ -4516,6 +4516,20 @@ void pred_sel4(Image *src, int fwd)
 }
 void pred_select(Image *src, int fwd)
 {
+	int amin[]=
+	{
+		-(1<<src->depth[0]>>1),
+		-(1<<src->depth[1]>>1),
+		-(1<<src->depth[2]>>1),
+		-(1<<src->depth[3]>>1),
+	};
+	int amax[]=
+	{
+		(1<<src->depth[0]>>1)-1,
+		(1<<src->depth[1]>>1)-1,
+		(1<<src->depth[2]>>1)-1,
+		(1<<src->depth[3]>>1)-1,
+	};
 	int nch;
 	int fwdmask=-fwd;
 
@@ -4606,17 +4620,32 @@ void pred_select(Image *src, int fwd)
 
 				//pred=kx?W:N;
 #endif
-
 				curr=src->data[idx+kc];
-				pred^=fwdmask;
-				pred-=fwdmask;
-				pred+=curr;
+				int val;
+				if(fwd)
+				{
+					val=(curr-(int)pred+g_dist/2)/g_dist;
+					curr=g_dist*val+(int)pred;
+				}
+				else
+				{
+					val=g_dist*curr+(int)pred;
+					curr=val;
+					CLAMP2(val, amin[kc], amax[kc]);
+				}
+				src->data[idx+kc]=val;
+				rows[0][kc]=curr;
 
-				pred<<=32-src->depth[kc];
-				pred>>=32-src->depth[kc];
-
-				src->data[idx+kc]=pred;
-				rows[0][kc]=fwd?curr:pred;
+				//curr=src->data[idx+kc];
+				//pred^=fwdmask;
+				//pred-=fwdmask;
+				//pred+=curr;
+				//
+				//pred<<=32-src->depth[kc];
+				//pred>>=32-src->depth[kc];
+				//
+				//src->data[idx+kc]=pred;
+				//rows[0][kc]=fwd?curr:pred;
 			}
 			rows[0]+=4;
 			rows[1]+=4;
