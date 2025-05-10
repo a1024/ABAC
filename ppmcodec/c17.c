@@ -1,4 +1,3 @@
-#include"codec.h"
 #include"util.h"
 #include<stdio.h>
 #include<stdlib.h>
@@ -15,8 +14,17 @@ static const char file[]=__FILE__;
 //	#define ENABLE_FILEGUARD	//makes using scripts harder
 
 
-int c17_codec(const char *srcfn, const char *dstfn, int nthreads0)
+int c17_codec(int argc, char **argv)
 {
+	if(argc!=3)
+	{
+		printf(
+			"Usage: \"%s\"  input  output    Encode/decode.\n"
+			, argv[0]
+		);
+		return 1;
+	}
+	const char *srcfn=argv[1], *dstfn=argv[2];
 #if 0
 	unsigned char *srcbuf=0;
 	size_t srcsize=0;

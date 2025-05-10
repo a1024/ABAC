@@ -1,4 +1,3 @@
-#include"codec.h"
 #include"util.h"
 #include<stdio.h>
 #include<stdlib.h>
@@ -251,8 +250,17 @@ static unsigned char CDF2syms[NCTX][1<<PROBBITS]={0};//512 KB
 #ifdef ENTROPY0
 int hist[OCH_COUNT][256]={0};
 #endif
-int c28_codec(const char *srcfn, const char *dstfn, int nthreads0)
+int c28_codec(int argc, char **argv)
 {
+	if(argc!=3)
+	{
+		printf(
+			"Usage: \"%s\"  input  output    Encode/decode.\n"
+			, argv[0]
+		);
+		return 1;
+	}
+	const char *srcfn=argv[1], *dstfn=argv[2];
 #ifdef LOUD
 	double t=time_sec();
 #ifndef ACGR_EMULATION
@@ -2077,7 +2085,6 @@ int c28_codec(const char *srcfn, const char *dstfn, int nthreads0)
 	printf("%c  %12.6lf sec  %12.6lf MB/s\n", 'D'+fwd, t, srcsize/(t*1024*1024));
 #endif
 
-	(void)nthreads0;
 #ifndef LOUD
 	(void)rct_names;
 #endif

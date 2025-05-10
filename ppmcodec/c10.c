@@ -1,4 +1,3 @@
-#include"codec.h"
 #include"util.h"
 #include<stdio.h>
 #include<stdlib.h>
@@ -146,8 +145,17 @@ static int hist[3][16][257];
 static unsigned long long divtable[256];
 #endif
 #endif
-int c10_codec(const char *srcfn, const char *dstfn, int nthreads0)
+int c10_codec(int argc, char **argv)
 {
+	if(argc!=3)
+	{
+		printf(
+			"Usage: \"%s\"  input  output    Encode/decode.\n"
+			, argv[0]
+		);
+		return 1;
+	}
+	const char *srcfn=argv[1], *dstfn=argv[2];
 	const int headersize=3+4+4;
 	ptrdiff_t usize=0, overhead=0, csize=0, streamsize=0;
 	unsigned char *buf=0, *image=0, *stream=0;

@@ -1,4 +1,3 @@
-#include"codec.h"
 #include"util.h"
 #include<stdio.h>
 #include<stdlib.h>
@@ -1009,8 +1008,17 @@ static void save_ppm(const char *fn, const unsigned char *image, int iw, int ih)
 	fwrite(image, 1, (ptrdiff_t)3*iw*ih, fdst);
 	fclose(fdst);
 }
-int c30_codec(const char *srcfn, const char *dstfn, int nthreads0)
+int c30_codec(int argc, char **argv)
 {
+	if(argc!=2)
+	{
+		printf(
+			"Usage: \"%s\"  srcpath    Test PPM files in a folder\n"
+			, argv[0]
+		);
+		return 1;
+	}
+	const char *srcfn=argv[1];
 	const char *ext[]=
 	{
 		"ppm",

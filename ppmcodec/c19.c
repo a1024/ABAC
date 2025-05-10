@@ -1,4 +1,3 @@
-#include"codec.h"
 #include"util.h"
 #include<stdio.h>
 #include<stdlib.h>
@@ -901,8 +900,17 @@ static void update_CDF(const int *hist, unsigned *CDF)
 	}
 	CDF[256]=1<<C19_PROB_BITS;
 }
-int c19_codec(const char *srcfn, const char *dstfn, int nthreads0)
+int c19_codec(int argc, char **argv)
 {
+	if(argc!=3)
+	{
+		printf(
+			"Usage: \"%s\"  input  output    Encode/decode.\n"
+			, argv[0]
+		);
+		return 1;
+	}
+	const char *srcfn=argv[1], *dstfn=argv[2];
 #ifdef ESTIMATE_SIZE
 	double csizes[3]={0};
 #endif

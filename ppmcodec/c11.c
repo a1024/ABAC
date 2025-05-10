@@ -1,4 +1,3 @@
-#include"codec.h"
 #include"util.h"
 #include<stdio.h>
 #include<stdlib.h>
@@ -20,8 +19,17 @@ static const char file[]=__FILE__;
 //	#include"entropy.h"
 typedef unsigned short Emit_t;
 ALIGN(32) static unsigned short stats0[3][32], stats1[3][16][32], mixinCDFs[16][16];
-int c11_codec(const char *srcfn, const char *dstfn, int nthreads0)
+int c11_codec(int argc, char **argv)
 {
+	if(argc!=3)
+	{
+		printf(
+			"Usage: \"%s\"  input  output    Encode/decode.\n"
+			, argv[0]
+		);
+		return 1;
+	}
+	const char *srcfn=argv[1], *dstfn=argv[2];
 #ifdef ESTIMATE_SIZE
 	double t=time_sec();
 	double csizes[6]={0};

@@ -1,4 +1,3 @@
-#include"codec.h"
 #include"util.h"
 #include<stdio.h>
 #include<stdlib.h>
@@ -214,8 +213,17 @@ ALIGN(16) static int bypass_sse[64][4]={0};
 #ifdef ENTROPY0
 int hist[OCH_COUNT][256]={0};
 #endif
-int c27_codec(const char *srcfn, const char *dstfn, int nthreads0)
+int c27_codec(int argc, char **argv)
 {
+	if(argc!=3)
+	{
+		printf(
+			"Usage: \"%s\"  input  output    Encode/decode.\n"
+			, argv[0]
+		);
+		return 1;
+	}
+	const char *srcfn=argv[1], *dstfn=argv[2];
 #ifdef LOUD
 	double t=time_sec();
 	long long bitcount[3][3]={0};
@@ -1059,7 +1067,6 @@ int c27_codec(const char *srcfn, const char *dstfn, int nthreads0)
 	printf("%c  %12.6lf sec  %12.6lf MB/s\n", 'D'+fwd, t, srcsize/(t*1024*1024));
 #endif
 
-	(void)nthreads0;
 #ifndef LOUD
 	(void)rct_names;
 #endif

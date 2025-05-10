@@ -1,4 +1,3 @@
-#include"codec.h"
 #include"util.h"
 #include<stdio.h>
 #include<stdlib.h>
@@ -133,8 +132,17 @@ static const char *rct_names[RCT_COUNT]=
 };
 unsigned short stats1[3][256][256]={0};
 //unsigned short stats0[3][256]={0};
-int c26_codec(const char *srcfn, const char *dstfn, int nthreads0)
+int c26_codec(int argc, char **argv)
 {
+	if(argc!=3)
+	{
+		printf(
+			"Usage: \"%s\"  input  output    Encode/decode.\n"
+			, argv[0]
+		);
+		return 1;
+	}
+	const char *srcfn=argv[1], *dstfn=argv[2];
 #ifdef LOUD
 	double t=time_sec();
 	long long bitcount[3]={0};
@@ -629,7 +637,6 @@ int c26_codec(const char *srcfn, const char *dstfn, int nthreads0)
 	printf("%c  %12.6lf sec  %12.6lf MB/s\n", 'D'+fwd, t, srcsize/(t*1024*1024));
 #endif
 
-	(void)nthreads0;
 	(void)rct_names;
 	return 0;
 }

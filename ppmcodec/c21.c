@@ -1,4 +1,3 @@
-#include"codec.h"
 #include"util.h"
 #include<stdio.h>
 #include<stdlib.h>
@@ -53,8 +52,17 @@ static void guide_check(unsigned char *image, int kx, int ky)
 #ifdef ESTIMATE_SIZE
 static int g_hist[3][256]={0};
 #endif
-int c21_codec(const char *srcfn, const char *dstfn, int nthreads0)
+int c21_codec(int argc, char **argv)
 {
+	if(argc!=3)
+	{
+		printf(
+			"Usage: \"%s\"  input  output    Encode/decode.\n"
+			, argv[0]
+		);
+		return 1;
+	}
+	const char *srcfn=argv[1], *dstfn=argv[2];
 #ifdef LOUD
 	double elapsed=time_sec();
 	unsigned long long cycles=__rdtsc();

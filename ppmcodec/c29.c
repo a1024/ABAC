@@ -1,4 +1,6 @@
-#include"codec.h"
+#if defined _MSC_VER && !defined _CRT_SECURE_NO_WARNINGS
+#define _CRT_SECURE_NO_WARNINGS
+#endif
 #include<stdio.h>
 #include<stdlib.h>
 #include<string.h>
@@ -2830,8 +2832,18 @@ static void decode1d(unsigned char *data, int count, int bytestride, int bestrct
 	*pstreamptr=streamptr;
 	*pstate=state;
 }
-int c29_codec(const char *srcfn, const char *dstfn, int nthreads0)
+int c29_codec(int argc, char **argv)
 {
+	if(argc!=3&&argc!=4)
+	{
+		printf(
+			"Usage: \"%s\"  input  output  [N]    Encode/decode.\n"
+			"N  =  1 Force CG / 2 Force WG4 / 3 Lossy | 4 Profile\n"
+			, argv[0]
+		);
+		return 1;
+	}
+	const char *srcfn=argv[1], *dstfn=argv[2], nthreads0=argc<4?0:atoi(argv[3]);
 #ifdef ESTIMATE_SIZE
 	double esize[3*NCODERS]={0};
 #endif

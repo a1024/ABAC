@@ -652,8 +652,8 @@ typedef struct _AC3
 {
 	unsigned long long low, range, code;
 	BList *dst;
-	unsigned char *dstptr, *dstend;
-	const unsigned char *srcptr, *srcend;
+	unsigned char *dstptr, *dststart, *dstend;
+	const unsigned char *srcptr, *srcstart, *srcend;
 } AC3;
 AWM_INLINE void ac3_encbuf_init(AC3 *ec, unsigned char *start, unsigned char *end)
 {
@@ -661,6 +661,7 @@ AWM_INLINE void ac3_encbuf_init(AC3 *ec, unsigned char *start, unsigned char *en
 	ec->low=0;
 	ec->range=0xFFFFFFFFFFFF;
 	ec->dstptr=start;
+	ec->dststart=start;
 	ec->dstend=end;
 }
 #if 0
@@ -786,6 +787,7 @@ AWM_INLINE void ac3_dec_init(AC3 *ec, const unsigned char *start, const unsigned
 	ec->low=0;
 	ec->range=0xFFFFFFFFFFFF;
 	ec->srcptr=start;
+	ec->srcstart=start;
 	ec->srcend=end;
 	
 	//if(ec->srcptr+8>ec->srcend)
@@ -1522,20 +1524,22 @@ typedef struct _BypassCoder
 	unsigned long long state;
 	int enc_nfree, dec_navailable;
 	BList *dst;
-	unsigned char *dstptr, *dstend;
-	const unsigned char *srcptr, *srcend;
+	unsigned char *dstptr, *dststart, *dstend;
+	const unsigned char *srcptr, *srcstart, *srcend;
 } BypassCoder;
 AWM_INLINE void bypass_encbuf_init(BypassCoder *ec, unsigned char *start, unsigned char *end)
 {
 	memset(ec, 0, sizeof(*ec));
 	ec->enc_nfree=64;
 	ec->dstptr=start;
+	ec->dststart=start;
 	ec->dstend=end;
 }
 AWM_INLINE void bypass_decbuf_init(BypassCoder *ec, const unsigned char *start, const unsigned char *end)
 {
 	memset(ec, 0, sizeof(*ec));
 	ec->srcptr=start;
+	ec->srcstart=start;
 	ec->srcend=end;
 }
 AWM_INLINE unsigned char* bypass_encbuf_flush(BypassCoder *ec)

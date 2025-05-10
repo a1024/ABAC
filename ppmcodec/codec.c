@@ -1,16 +1,47 @@
-﻿#include"codec.h"
+﻿#if defined _MSC_VER && !defined _CRT_SECURE_NO_WARNINGS
+#define _CRT_SECURE_NO_WARNINGS
+#endif
+
 //	#define PROFILER
+
 #ifdef PROFILER
 #include"util.h"
 #endif
 #include<stdio.h>
 #include<stdlib.h>
-#include<string.h>
-//static const char file[]=__FILE__;
-
-
-	#define SINGLE_THREAD_CLI
-//	#define _DEBUG
+int c01_codec(int argc, char **argv);//MT AC (mix4)
+int c02_codec(int argc, char **argv);//MT binary
+int c03_codec(int argc, char **argv);//MT binary (A2/WG4)
+int c04_codec(int argc, char **argv);//MT Golomb-Rice WP3
+int c05_codec(int argc, char **argv);//MT Golomb-Rice 3/7 simple preds
+int c06_codec(int argc, char **argv);//MT binary
+int c07_codec(int argc, char **argv);//MT o0 (binary) AC speed test
+int c08_codec(int argc, char **argv);//ST disk AC5 test
+int c09_codec(int argc, char **argv);//ST J2K CG o0 disk symbol ANS
+int c10_codec(int argc, char **argv);//ST J2K CG o0 disk symbol AC
+int c11_codec(int argc, char **argv);//ST SubG CG o0 disk nibble AC
+int c12_codec(int argc, char **argv);//ST RCT o1 binary AC
+int c13_codec(int argc, char **argv);//MT WG4_12
+int c14_codec(int argc, char **argv);//MT WG4_8 binary AC
+int c15_codec(int argc, char **argv);//MT WG4_8 binary AC
+int c16_codec(int argc, char **argv);//ST SubG CG AC o0 separate loops
+int c17_codec(int argc, char **argv);//ST SubPrev GR (speed test)
+int c18_codec(int argc, char **argv);//MT SubG AC/GR
+int c19_codec(int argc, char **argv);//ST CG3D static o0 AC		C10 is better
+int c20_codec(int argc, char **argv);//ST/3T AVX2 3A3 static o1 rANS
+int c21_codec(int argc, char **argv);//ST  deferred WP  snapshot-CDF  AVX2 AC/RC 12 prob bits
+int c22_codec(int argc, char **argv);//ST/3T AVX2 484 static o1 rANS
+int c23_codec(int argc, char **argv);//ST/3T AVX2 blockwise Shannon, static o1 rANS
+int c24_codec(int argc, char **argv);//MT AC mix4
+int c25_codec(int argc, char **argv);//MT AC mix8
+int c26_codec(int argc, char **argv);//ST ABAC
+int c27_codec(int argc, char **argv);//ST GR
+int c28_codec(int argc, char **argv);//ST AC with GR context
+int c29_codec(int argc, char **argv);//C29 ST interleaved AVX2 cRCT WG4/CG GRctx static-rANS
+int c30_codec(int argc, char **argv);//ST OLS
+int c31_codec(int argc, char **argv);//cross-platform C29, slower	X
+int c32_codec(int argc, char **argv);//C32: like C29 but 16 coders
+int c33_codec(int argc, char **argv);//C33: speed priority CG-only
 
 
 #ifndef CODEC_EXT
@@ -37,7 +68,7 @@
 //	#define CODEC_EXT c21
 //	#define CODEC_EXT c22
 //	#define CODEC_EXT c23
-//	#define CODEC_EXT c24
+	#define CODEC_EXT c24
 //	#define CODEC_EXT c25
 //	#define CODEC_EXT c26
 //	#define CODEC_EXT c27
@@ -45,7 +76,7 @@
 //	#define CODEC_EXT c29
 //	#define CODEC_EXT c30
 //	#define CODEC_EXT c31
-	#define CODEC_EXT c32
+//	#define CODEC_EXT c32
 //	#define CODEC_EXT c33
 #endif
 #define STR_EXPAND(X) #X
@@ -57,316 +88,161 @@
 
 int main(int argc, char **argv)
 {
-	int nthreads=0;
-	const char *srcfn, *dstfn;
-	
+	int retcode=0;
 #ifdef PROFILER
 	void *prof_ctx=prof_start();
 #endif
 #ifdef __GNUC__
-//#ifndef _DEBUG
-//#if 0
-	if(argc<2||argc>4)
-	{
-		printf("Usage:\n");
-#ifdef SINGLE_THREAD_CLI
-		printf("  %s  input.ppm  output.%s  [N]    Encode file\n", argv[0], STRINGIFY(CODEC_EXT));
-		printf("  %s  input.%s  output.ppm  [4]    Decode file\n", argv[0], STRINGIFY(CODEC_EXT));
-		printf("N  =  1 Force CG | 2 Force WG4 | 4 Profile\n");
+	retcode=CODEC_FUNC(argc, argv);
 #else
-		printf("  %s  input.ppm  output.%s  [N]    Encode file\n", argv[0], STRINGIFY(CODEC_EXT));
-		printf("  %s  input.%s  output.ppm  [N]    Decode file\n", argv[0], STRINGIFY(CODEC_EXT));
-		printf("\n");
-		printf("Where N is an optional number of threads.\n");
-		printf("  0: Use as many threads as there are cores (default).\n");
-		printf("  1: Single-threaded.\n");
-	//	printf("  %s  input.PPM          Test without saving\n", argv[0]);
-#endif
-		return 0;
-	}
-	srcfn=argv[1];
-	dstfn=argc>=3?argv[2]:0;
-	if(argc==4)
-		nthreads=atoi(argv[3]);
-	CODEC_FUNC(srcfn, dstfn, nthreads);
-#else
-	srcfn=
+	const char *dstfn=//OVERWRITE
+		"C:/Projects/datasets/zzz_deletethis.ppm"
+
+	//	"D:/ML/zzz_deletethis.ppm"
+	;
+	const char *tmpfn=//OVERWRITE
+		"C:/Projects/datasets/zzz_deletethis.lsim"
+
+	//	"D:/ML/zzz_deletethis.lsim"
+	;
+	const char *srcfn=
+		"C:/Projects/datasets/dataset-DIV2K-ppm/0801.ppm"
+	//	"C:/Projects/datasets/20240806 6 why me.PPM"
+	//	"C:/Projects/datasets/big_building.PPM"
+	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_abigail-keenan-27293.ppm"
+	//	"C:/Projects/datasets/dataset-CLIC30-ppm/03.ppm"
+	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim23.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA13882.ppm"
-	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_abigail-keenan-27293.ppm"
-	//	"C:/Projects/datasets/big_building.PPM"
-		"C:/Projects/datasets/kodim13.ppm"
-	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim23.ppm"
-	//	"C:/Projects/datasets/kodim13-small4.PPM"
-	//	"C:/Projects/datasets/kodim13-small16.PPM"
-	//	"C:/Projects/datasets/dataset-CLIC30-ppm/03.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm"	//large
-	//	"C:/Projects/datasets/20240806 6 why me.PPM"
+	//	"C:/Projects/datasets/kodim13.ppm"
+	//	"C:/Projects/datasets/kodim13-small16.PPM"
+	//	"C:/Projects/datasets/kodim13-small4.PPM"
 	//	"C:/Projects/datasets/temp.c18"
+		
 
-	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
-	//	"C:/dataset-LPCB-ppm/PIA13912.ppm"
-	//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
-	//	"D:/ML/dataset-kodak-ppm/kodim13.c01"
-	//	"C:/dataset-synthetic-ppm/20240409 1 LPCB.ppm"
-	//	"C:/dataset-HUGE-ppm/space_huge.ppm"
-	//	"C:/dataset-GDCC2020-ppm/astro-01.ppm"
-	//	"C:/dataset-DSLR2x4-ppm/DSC_0133.ppm"
 	//	"C:/dataset-CLIC303-ppm/2048x1320_abigail-keenan-27293.ppm"
-	//	"D:/ML/dataset-CLIC303-ppm/2048x1320_lucas-lof-388.ppm"
 	//	"C:/dataset-CLIC303-ppm/2048x1320_cosmic-timetraveler-29758.ppm"
 	//	"C:/dataset-CLIC303-ppm/2048x1320_rosan-harmens-18703.ppm"
 	//	"C:/dataset-CLIC303-ppm/2048x1320_zugr-108.ppm"
+	//	"C:/dataset-DIV2K-ppm/0801.ppm"
+	//	"C:/dataset-DSLR2x4-ppm/DSC_0133.ppm"
+	//	"C:/dataset-GDCC2020-ppm/astro-01.ppm"
 	//	"C:/dataset-HUGE-ppm/kodak.PPM"
-	//	"D:/ML/big_building.PPM"
+	//	"C:/dataset-HUGE-ppm/space_huge.ppm"
+	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13803.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13833.ppm"
+	//	"C:/dataset-LPCB-ppm/PIA13912.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13915.ppm"	//false color terrain
 	//	"C:/dataset-LPCB-ppm/STA13843.ppm"	//space clouds
 	//	"C:/dataset-LPCB-ppm/STA13844.ppm"	//space clouds
 	//	"C:/dataset-LPCB-ppm/STA13845.ppm"	//space clouds
-		;
-	dstfn=
-		0
-	//	"C:/Projects/datasets/temp.ppm"
-	//	"C:/Projects/datasets/temp.c18"
-	//	"C:/Projects/datasets/kodim13.c18"
-	//	"D:/ML/dataset-kodak-ppm/kodim13.c18"
-		;
-//	CODEC_FUNC("D:/ML/kodim13.ppm", "D:/ML/kodim13.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/kodim13.lsim", "D:/ML/kodim13_dec.ppm", nthreads);
-
-//	CODEC_FUNC("D:/ML/kodim24.ppm", "D:/ML/kodim24.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/kodim24.lsim", "D:/ML/kodim24_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-synth2-ppm/20240407 blank.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-synth2-ppm/20240524 numbers.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-synth2-ppm/20240409 1 LPCB.ppm",		"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-synth2-ppm/20240419 1 speed for efficiency.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",					"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-synth2-ppm/20240412 2 gralic enc.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-synth2-ppm/20241006 linux is cursed.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",					"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("D:/ML/checkboard.PPM",		"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-GDCC2020-ppm/astro-01.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-GDCC2020-ppm/astro-02.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-GDCC2020-ppm/astro-06.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-GDCC2020-ppm/astro-14.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-GDCC2020-ppm/astro-20.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-GDCC2020-ppm/astro-30.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-GDCC2020-ppm/photo-03.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-GDCC2020-ppm/photo-05.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-GDCC2020-ppm/photo-49.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("D:/ML/zzz_halfbright.PPM",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",	"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-synth2-ppm/20240422 1.PPM",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("D:/ML/nice_clock_face.ppm",		"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-DIV2K-ppm", 0, 0);//
-
-//	CODEC_FUNC("C:/dataset-HUGE2-ppm/andromeda.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/Projects/datasets/space_huge.ppm",	"C:/Projects/datasets/mystery.lsim",	nthreads);
-//	CODEC_FUNC("C:/Projects/datasets/mystery.lsim",		"C:/Projects/datasets/mystery_dec.ppm",	nthreads);
-
-//	CODEC_FUNC("C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm",	"C:/Projects/datasets/mystery.lsim",	nthreads);
-//	CODEC_FUNC("C:/Projects/datasets/mystery.lsim",				"C:/Projects/datasets/mystery_dec.ppm",	nthreads);
-
-//	CODEC_FUNC("C:/Projects/datasets/20240513 screenshot.PPM",	"C:/Projects/datasets/mystery.lsim",	nthreads);
-//	CODEC_FUNC("C:/Projects/datasets/mystery.lsim",			"C:/Projects/datasets/mystery_dec.ppm",	nthreads);
-
-	CODEC_FUNC("C:/Projects/datasets/dataset-DIV2K-ppm/0801.ppm",	"C:/Projects/datasets/mystery.lsim",	nthreads);
-	CODEC_FUNC("C:/Projects/datasets/mystery.lsim",			"C:/Projects/datasets/mystery_dec.ppm",	nthreads);
-
-//	CODEC_FUNC("C:/dataset-DIV2K-ppm/0801.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-DIV2K-ppm/0864.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("D:/Programs/c29/song.ppm",		"D:/Programs/c29/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/Programs/c29/mystery.lsim",	"D:/Programs/c29/mystery_dec.ppm", nthreads);
-//	CODEC_FUNC("D:/Programs/c29/0801.c29",		"D:/Programs/c29/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-DIV2K-ppm/0805.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-DIV2K-ppm/0807.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-DIV2K-ppm/0823.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-DIV2K-ppm/0843.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-DIV2K-ppm/0859.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-DIV2K-ppm/0880.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-GDCC2020-ppm/photo-52.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-GDCC2020-ppm/photo-67.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-synth2-ppm/art.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-synth2-ppm/20240409 1 LPCB.ppm",		"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-meme-ppm/emoji_u1f628.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-LPCB-ppm/canon_eos_1100d_02.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-LPCB-ppm/PIA13757.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-RAW-ppm/a0014-WP_CRW_6320.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-synth2-ppm/20240419 1 speed for efficiency.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",					"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-synth2-ppm/20240419 3.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-HUGE-ppm/jwst.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-HUGE-ppm/gaia.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-GDCC2020-ppm/astro-01.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-GDCC2020-ppm/astro-43.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("D:/ML/dataset-CID22-ppm/pexels-photo-1933873.PPM",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-HUGE-ppm/chaos1.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-HUGE-ppm/diagram.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-HUGE-ppm/blackmarble.ppm",	"D:/ML/mystery.lsim", nthreads);		//HUGE
-//	CODEC_FUNC("D:/ML/mystery.lsim",			"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-memes-ppm/usa.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",		"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-synth-ppm/20240421 1 the front.ppm",	"D:/ML/mystery.lsim", nthreads);//synth
-//	CODEC_FUNC("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-synth-ppm/20240516 4 DSC_0054.ppm",	"D:/ML/mystery.lsim", nthreads);//RCT
-//	CODEC_FUNC("D:/ML/mystery.lsim",				"D:/ML/mystery_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-CLIC303-ppm/2048x1320_zugr-108.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",				"D:/ML/mystery.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-CLIC303-ppm/2048x1320_alberto-restifo-4549.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",					"D:/ML/mystery.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-a70-ppm/20240816_113656_966.ppm",	"D:/ML/mystery.lsim", nthreads);
-//	CODEC_FUNC("D:/ML/mystery.lsim",				"D:/ML/mystery.ppm", nthreads);
-
-//	CODEC_FUNC("C:/dataset-HUGE-ppm/jwst.ppm", "C:/dataset-HUGE-ppm/jwst.lsim", nthreads);
-//	CODEC_FUNC("C:/dataset-HUGE-ppm/jwst.lsim", "C:/dataset-HUGE-ppm/jwst_dec.ppm", nthreads);
-
-//	CODEC_FUNC("D:/ML/big_building.PPM", "D:/ML/big_building.LSIM", nthreads);
-//	CODEC_FUNC("D:/ML/big_building.LSIM", "D:/ML/big_building_dec.PPM", nthreads);
-
-//	CODEC_FUNC("C:/dataset-HUGE-ppm/jwst.ppm", "C:/dataset-HUGE-ppm/jwst.LSIM", nthreads);
-//	CODEC_FUNC("C:/dataset-HUGE-ppm/jwst.LSIM", "C:/dataset-HUGE-ppm/jwst_dec.PPM", nthreads);
-
-
-
-
-//	CODEC_FUNC("C:/Projects/datasets/kodim13.ppm", "C:/Projects/datasets/kodim13.lsim", nthreads);
-//	CODEC_FUNC("C:/Projects/datasets/kodim13.lsim", "C:/Projects/datasets/kodim13_dec.ppm", nthreads);
-	
-//	CODEC_FUNC("C:/Projects/datasets/kodim24.ppm", "C:/Projects/datasets/kodim24.lsim", nthreads);
-//	CODEC_FUNC("C:/Projects/datasets/kodim24.lsim", "C:/Projects/datasets/kodim24_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/Projects/datasets/kodim13-small16.ppm", "C:/Projects/datasets/kodim13-small16.lsim", nthreads);
-//	CODEC_FUNC("C:/Projects/datasets/kodim13-small16.lsim", "C:/Projects/datasets/kodim13-small16_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm", "C:/Projects/datasets/mystery.lsim", nthreads);
-//	CODEC_FUNC("C:/Projects/datasets/mystery.lsim", "C:/Projects/datasets/mystery.ppm", nthreads);
-
-//	CODEC_FUNC("C:/Projects/datasets/dataset-LPCB-ppm/PIA12811.ppm", "C:/Projects/datasets/PIA12811.lsim", nthreads);
-//	CODEC_FUNC("C:/Projects/datasets/PIA12811.lsim", "C:/Projects/datasets/PIA12811_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/Projects/datasets/big_building.PPM", "C:/Projects/datasets/big_building.lsim", nthreads);		//large image
-//	CODEC_FUNC("C:/Projects/datasets/big_building.lsim", "C:/Projects/datasets/big_building_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/Projects/datasets/space_huge.ppm", "C:/Projects/datasets/space_huge.lsim", nthreads);		//very large image
-//	CODEC_FUNC("C:/Projects/datasets/space_huge.lsim", "C:/Projects/datasets/space_huge_dec.ppm", nthreads);
-
-//	CODEC_FUNC("C:/Projects/datasets/20240414-noise.PPM", "C:/Projects/datasets/20240414-noise.LSIM", nthreads);	//bypass
-//	CODEC_FUNC("C:/Projects/datasets/20240414-noise.LSIM", "C:/Projects/datasets/20240414-noise_dec.PPM", nthreads);
-
-//	CODEC_FUNC(srcfn, dstfn);
-
-//	CODEC_FUNC(srcfn, dstfn);
+	//	"C:/dataset-synthetic-ppm/20240409 1 LPCB.ppm"
+	//	"D:/ML/big_building.PPM"
+	//	"D:/ML/dataset-CLIC303-ppm/2048x1320_lucas-lof-388.ppm"
+	//	"D:/ML/dataset-kodak-ppm/kodim13.c01"
+	//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
+
+
+	//	"C:/Projects/datasets/20240414-noise.LSIM"
+	//	"C:/Projects/datasets/20240414-noise.PPM"
+	//	"C:/Projects/datasets/20240513 screenshot.PPM"
+	//	"C:/Projects/datasets/big_building.PPM"
+	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0801.ppm"
+	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm"
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA12811.ppm"
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm"
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
+	//	"C:/Projects/datasets/kodim13-small16.ppm"
+	//	"C:/Projects/datasets/kodim13.ppm"
+	//	"C:/Projects/datasets/kodim24.ppm"
+	//	"C:/Projects/datasets/space_huge.ppm"
+	//	"C:/Projects/datasets/space_huge.ppm"
+	//	"C:/dataset-CLIC303-ppm/2048x1320_alberto-restifo-4549.ppm"
+	//	"C:/dataset-CLIC303-ppm/2048x1320_zugr-108.ppm"
+	//	"C:/dataset-DIV2K-ppm"
+	//	"C:/dataset-DIV2K-ppm/0801.ppm"
+	//	"C:/dataset-DIV2K-ppm/0805.ppm"
+	//	"C:/dataset-DIV2K-ppm/0807.ppm"
+	//	"C:/dataset-DIV2K-ppm/0823.ppm"
+	//	"C:/dataset-DIV2K-ppm/0843.ppm"
+	//	"C:/dataset-DIV2K-ppm/0859.ppm"
+	//	"C:/dataset-DIV2K-ppm/0864.ppm"
+	//	"C:/dataset-DIV2K-ppm/0880.ppm"
+	//	"C:/dataset-GDCC2020-ppm/astro-01.ppm"
+	//	"C:/dataset-GDCC2020-ppm/astro-01.ppm"
+	//	"C:/dataset-GDCC2020-ppm/astro-02.ppm"
+	//	"C:/dataset-GDCC2020-ppm/astro-06.ppm"
+	//	"C:/dataset-GDCC2020-ppm/astro-14.ppm"
+	//	"C:/dataset-GDCC2020-ppm/astro-20.ppm"
+	//	"C:/dataset-GDCC2020-ppm/astro-30.ppm"
+	//	"C:/dataset-GDCC2020-ppm/astro-43.ppm"
+	//	"C:/dataset-GDCC2020-ppm/photo-03.ppm"
+	//	"C:/dataset-GDCC2020-ppm/photo-05.ppm"
+	//	"C:/dataset-GDCC2020-ppm/photo-49.ppm"
+	//	"C:/dataset-GDCC2020-ppm/photo-52.ppm"
+	//	"C:/dataset-GDCC2020-ppm/photo-67.ppm"
+	//	"C:/dataset-HUGE-ppm/blackmarble.ppm"
+	//	"C:/dataset-HUGE-ppm/chaos1.ppm"
+	//	"C:/dataset-HUGE-ppm/diagram.ppm"
+	//	"C:/dataset-HUGE-ppm/gaia.ppm"
+	//	"C:/dataset-HUGE-ppm/jwst.ppm"
+	//	"C:/dataset-HUGE-ppm/jwst.ppm"
+	//	"C:/dataset-HUGE-ppm/jwst.ppm"
+	//	"C:/dataset-HUGE2-ppm/andromeda.ppm"
+	//	"C:/dataset-LPCB-ppm/PIA13757.ppm"
+	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_02.ppm"
+	//	"C:/dataset-RAW-ppm/a0014-WP_CRW_6320.ppm"
+	//	"C:/dataset-a70-ppm/20240816_113656_966.ppm"
+	//	"C:/dataset-meme-ppm/emoji_u1f628.ppm"
+	//	"C:/dataset-memes-ppm/usa.ppm"
+	//	"C:/dataset-synth-ppm/20240421 1 the front.ppm"
+	//	"C:/dataset-synth-ppm/20240516 4 DSC_0054.ppm"
+	//	"C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
+	//	"C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
+	//	"C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
+	//	"C:/dataset-synth2-ppm/20240407 blank.ppm"
+	//	"C:/dataset-synth2-ppm/20240409 1 LPCB.ppm"
+	//	"C:/dataset-synth2-ppm/20240409 1 LPCB.ppm"
+	//	"C:/dataset-synth2-ppm/20240412 2 gralic enc.ppm"
+	//	"C:/dataset-synth2-ppm/20240419 1 speed for efficiency.ppm"
+	//	"C:/dataset-synth2-ppm/20240419 1 speed for efficiency.ppm"
+	//	"C:/dataset-synth2-ppm/20240419 3.ppm"
+	//	"C:/dataset-synth2-ppm/20240422 1.PPM"
+	//	"C:/dataset-synth2-ppm/20240524 numbers.ppm"
+	//	"C:/dataset-synth2-ppm/20241006 linux is cursed.ppm"
+	//	"C:/dataset-synth2-ppm/art.ppm"
+	//	"D:/ML/big_building.PPM"
+	//	"D:/ML/checkboard.PPM"
+	//	"D:/ML/dataset-CID22-ppm/pexels-photo-1933873.PPM"
+	//	"D:/ML/kodim13.ppm"
+	//	"D:/ML/kodim24.ppm"
+	//	"D:/ML/nice_clock_face.ppm"
+	//	"D:/ML/zzz_halfbright.PPM"
+	//	"D:/Programs/c29/song.ppm"
+	;
+	const char *encargs[]=
+	{
+		argv[0],
+		srcfn,
+		tmpfn,
+		"0",//default nthreads
+		"1",//near
+	};
+	const char *decargs[]=
+	{
+		argv[0],
+		tmpfn,
+		dstfn,
+	};
+	if(CODEC_FUNC(_countof(encargs), (char**)encargs))
+		return 1;
+	if(CODEC_FUNC(_countof(decargs), (char**)decargs))
+		return 1;
 #endif
 #ifdef PROFILER
 	prof_end(prof_ctx);
 #endif
-	return 0;
+	return retcode;
 }

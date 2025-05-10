@@ -1,10 +1,10 @@
-#include"codec.h"
+static const char file[]=__FILE__;
+#include"ppm.h"
 #include"util.h"
 #include<stdlib.h>
 #include<string.h>
 #include<math.h>//abs
 //#include<immintrin.h>//included by "entropy.h"
-static const char file[]=__FILE__;
 
 
 //	#define ENABLE_GUIDE
@@ -1820,8 +1820,23 @@ static void block_manager(void *param)
 		block_thread(param);
 	}
 }
-int c03_codec(const char *srcfn, const char *dstfn, int nthreads0)
+int c03_codec(int argc, char **argv)
 {
+	if(argc!=2&&argc!=3&&argc!=4)
+	{
+		printf(
+			"Usage: \"%s\"  input  output  [maxthreads]    Encode/decode.\n"
+			"       \"%s\"  input                          Test without saving.\n"
+			"[maxthreads]:\n"
+			"  0: nthreads = number of cores (default)\n"
+			"  1: Single thread\n"
+			, argv[0]
+			, argv[0]
+		);
+		return 1;
+	}
+	const char *srcfn=argv[1], *dstfn=argc>2?argv[2]:0;
+	int maxthreads=argc==4?atoi(argv[3]):0;
 	const int nch=3;
 //	const int depth=8;
 	double t0;
@@ -1872,6 +1887,8 @@ int c03_codec(const char *srcfn, const char *dstfn, int nthreads0)
 	nblocks=xblocks*yblocks;
 	ncores=query_cpu_cores();
 	nthreads=MINVAR(nblocks, ncores);
+	if(maxthreads&&nthreads>maxthreads)
+		nthreads=maxthreads;
 	blocksperthread=(nblocks+nthreads-1)/nthreads;
 	coffset=(int)sizeof(int)*nblocks;
 	int *offsets=(int*)malloc(coffset+sizeof(int));

@@ -1,4 +1,3 @@
-#include"codec.h"
 #include"util.h"
 #include<stdio.h>
 #include<stdlib.h>
@@ -132,8 +131,21 @@ static void c20_dec(void *param)
 	args->ret=ENTROPY_DEC(args->in, args->insize, args->out, args->outsize);
 }
 #endif
-int c22_codec(const char *srcfn, const char *dstfn, int nthreads0)
+int c22_codec(int argc, char **argv)
 {
+	if(argc!=3&&argc!=4)
+	{
+		printf(
+			"Usage: \"%s\"  input  output  [maxthreads]    Encode/decode.\n"
+			"[maxthreads]:\n"
+			"  0: nthreads = number of cores (default)\n"
+			"  1: Single thread\n"
+			, argv[0]
+		);
+		return 1;
+	}
+	const char *srcfn=argv[1], *dstfn=argv[2];
+	int maxthreads=argc<4?0:atoi(argv[3]);
 #if defined _MSC_VER && defined LOUD
 	double ptime=0, etime=0;
 	double elapsed=time_sec();
@@ -1031,7 +1043,7 @@ int c22_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		etime=time_sec();
 #endif
 #ifdef ENABLE_MT
-		if(nthreads0>1)
+		if(maxthreads>1)
 		{
 			ThreadArgs args[]=
 			{
@@ -1141,7 +1153,7 @@ int c22_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		etime=time_sec();
 #endif
 #ifdef ENABLE_MT
-		if(nthreads0>1)
+		if(maxthreads>1)
 		{
 			ThreadArgs args[]=
 			{

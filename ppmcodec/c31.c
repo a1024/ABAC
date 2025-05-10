@@ -2251,8 +2251,18 @@ unsigned char* c31_decode(const unsigned char *data, size_t csize, int *ret_iw, 
 	*ret_ih=ih;
 	return image;
 }
-int c31_codec(const char *srcfn, const char *dstfn, int nthreads0)
+int c31_codec(int argc, char **argv)
 {
+	if(argc!=3&&argc!=4)
+	{
+		printf(
+			"Usage: \"%s\"  input  output  [N]    Encode/decode.\n"
+			"N  =  1 Force CG / 2 Force WG4 / 3 Lossy | 4 Profile\n"
+			, argv[0]
+		);
+		return 1;
+	}
+	const char *srcfn=argv[1], *dstfn=argv[2], nthreads0=argc<4?0:atoi(argv[3]);
 #ifdef LOUD
 	double t=time_sec();
 #endif

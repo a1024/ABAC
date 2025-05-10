@@ -1,14 +1,18 @@
-#include"codec.h"
+static const char file[]=__FILE__;
+//#include"ppm.h"
 #include"util.h"
 #include<stdio.h>
 #include<stdlib.h>
 #include<string.h>
 #include<math.h>
-static const char file[]=__FILE__;
+#include<sys/stat.h>
 
 
-//	#define ENABLE_GUIDE
-#ifndef DISABLE_MT
+#ifndef __GNUC__
+	#define LOUD
+	#define ENABLE_GUIDE
+#endif
+#if !defined DISABLE_MT && defined __GNUC__
 	#define ENABLE_MT
 #endif
 
@@ -57,10 +61,6 @@ static const char file[]=__FILE__;
 #define PBITS 1
 #define PLEVELS (1<<PBITS)
 
-//	#define ENABLE_GR_FORMULA	//bad
-//	#define ENABLE_GR	//bad
-//	#define GR_USE_ARRAY
-
 	#define STATIC_ZERO
 //	#define ENABLE_MIX1	//inefficient			GDCC 9.7~6% faster, 0.6% larger
 //	#define ENABLE_MIX2	//bad
@@ -88,12 +88,8 @@ static const char file[]=__FILE__;
 #define BLOCKY 448
 
 #define MAXPRINTEDBLOCKS 500
-#ifdef ENABLE_GR_FORMULA
-#define ELEVELS 14
-#else
 //11<<6 = 704 CDFs size 32
 #define ELEVELS 11
-#endif
 #define CBITS_EFFECTIVE 4
 #define CBITS 6
 #define CLEVELS (1<<CBITS)
@@ -354,15 +350,16 @@ AWM_INLINE void quantize_pixel(int val, int *token, int *bypass, int *nbits)
 }
 typedef struct _ThreadArgs
 {
-	const unsigned char *src;
-	unsigned char *dst;
+	unsigned char *imagebuf, *streambuf;
 	int iw, ih;
+	int *offsets, *chunksizes;//[nblocks*2+1]
 
-	int fwd, test, loud, b1, b2, xblocks, nblocks, x1, x2, y1, y2;
+	int fwd, loud, b1, b2, xblocks, nblocks, x1, x2, y1, y2, near;
 	int bufsize, histsize;
 	short *pixels;
 	int *hist;
 
+#if 0
 	//tokens and bypass are encoded separately:
 	// 0      enctokenoffsets[0]      [1]             [2]      [N-2]             [N-1]=tokentotal
 	// | tokenstream 0 | tokenstream 1 | tokenstream 2 |   ...   | tokenstream N-1 |
@@ -373,6 +370,7 @@ typedef struct _ThreadArgs
 	unsigned char *enctokenbuf, *encbypassbuf;
 	const int *decoffsets;
 	const unsigned char *decstream;
+#endif
 
 	int tlevels;
 
@@ -398,21 +396,13 @@ typedef struct _ThreadArgs
 static void block_func(void *param)
 {
 	ThreadArgs *args=(ThreadArgs*)param;
-#ifdef ENABLE_GR
-	GolombRiceCoder gr;
-#else
 	BypassCoder bc;
-#endif
 	AC3 ec;
 	int cdfstride=args->tlevels+1;
-	const unsigned char *image=args->fwd?args->src:args->dst;
+	const unsigned char *image=args->imagebuf;
 	unsigned char bestrct=0, predidx[3]={0};
 	const unsigned char *combination=0;
-#ifdef ENABLE_GR
-	int entropylevels[3]={0}, entropyidx[3]={0};
-#else
 	int entropylevel=0, entropyidx=0;
-#endif
 #ifdef PRINT_CSIZES
 	double esizes[3]={0};
 #endif
@@ -440,12 +430,8 @@ static void block_func(void *param)
 			predidx[1]=0;
 			predidx[2]=0;
 #endif
-#ifdef ENABLE_GR
-			entropylevels[2]=entropylevels[1]=entropylevels[0]=128;
-#else
 			entropylevel=99;
 			entropyidx=3;
-#endif
 			goto skip_analysis;
 		}
 		
@@ -3033,41 +3019,22 @@ static void block_func(void *param)
 		if(csizes[combination[2]*PRED_COUNT+predidx[2]]<0.1*count)predidx[2]=PRED_CG;
 #endif
 		args->bestsize=bestsize;
-#ifdef ENABLE_GR
-		entropylevels[0]=(int)(csizes[combination[0]*PRED_COUNT+predidx[0]]*gain*255);
-		entropylevels[1]=(int)(csizes[combination[1]*PRED_COUNT+predidx[1]]*gain*255);
-		entropylevels[2]=(int)(csizes[combination[2]*PRED_COUNT+predidx[2]]*gain*255);
-		CLAMP2(entropylevels[0], 0, 255);
-		CLAMP2(entropylevels[1], 0, 255);
-		CLAMP2(entropylevels[2], 0, 255);
-#else
 		entropylevel=(int)((
 			csizes[combination[0]*PRED_COUNT+predidx[0]]+
 			csizes[combination[1]*PRED_COUNT+predidx[1]]+
 			csizes[combination[2]*PRED_COUNT+predidx[2]]
 		)*gain*(100/3.));//percent
 		CLAMP2(entropylevel, 0, 99);
-#endif
 	skip_analysis:
-		{
-			int prevblockidx=args->blockidx-args->b1-1;
-			ac3_encbuf_init(&ec, args->enctokenbuf+(prevblockidx>=0?args->enctokenoffsets[prevblockidx]:0), args->enctokenbuf+args->encbufsize);
-#ifdef ENABLE_GR
-			gr_enc_init(&gr, args->encbypassbuf+(prevblockidx>=0?args->encbypassoffsets[prevblockidx]:0), args->encbypassbuf+args->encbufsize);
-#else
-			bypass_encbuf_init(&bc, args->encbypassbuf+(prevblockidx>=0?args->encbypassoffsets[prevblockidx]:0), args->encbypassbuf+args->encbufsize);
-#endif
-		}
-#ifdef ENABLE_GR
-		gr_enc_bypass(&gr, entropylevels[0], 8);
-		gr_enc_bypass(&gr, entropylevels[1], 8);
-		gr_enc_bypass(&gr, entropylevels[2], 8);
-		//ac3_enc_bypass(&ec, entropylevels[0], 8);
-		//ac3_enc_bypass(&ec, entropylevels[1], 8);
-		//ac3_enc_bypass(&ec, entropylevels[2], 8);
-#else
+		ac3_encbuf_init(&ec, args->streambuf+args->offsets[args->blockidx*2+0], args->streambuf+args->offsets[args->blockidx*2+1]);
+		bypass_encbuf_init(&bc, args->streambuf+args->offsets[args->blockidx*2+1], args->streambuf+args->offsets[args->blockidx*2+2]);
+		//{
+		//	int prevblockidx=args->blockidx-args->b1-1;
+		//	ac3_encbuf_init(&ec, args->enctokenbuf+(prevblockidx>=0?args->enctokenoffsets[prevblockidx]:0), args->enctokenbuf+args->encbufsize);
+		//	bypass_encbuf_init(&bc, args->encbypassbuf+(prevblockidx>=0?args->encbypassoffsets[prevblockidx]:0), args->encbypassbuf+args->encbufsize);
+		//}
+	//	ac3_encbuf_bypass_NPOT(&ec, args->near, 2);
 		ac3_encbuf_bypass_NPOT(&ec, entropylevel, 100);
-#endif
 		ac3_encbuf_bypass_NPOT(&ec, bestrct, RCT_COUNT);
 		ac3_encbuf_bypass_NPOT(&ec, predidx[0], PRED_COUNT);
 		ac3_encbuf_bypass_NPOT(&ec, predidx[1], PRED_COUNT);
@@ -3217,19 +3184,12 @@ static void block_func(void *param)
 	}
 	else//decode header
 	{
-		ac3_dec_init(&ec, args->decstream+(args->blockidx>0?args->decoffsets[args->blockidx-1]:0), args->decstream+args->decoffsets[args->blockidx]);
-#ifdef ENABLE_GR
-		gr_dec_init(&gr, args->decstream+args->decoffsets[args->nblocks+args->blockidx-1], args->decstream+args->decoffsets[args->nblocks+args->blockidx]);
-		entropylevels[0]=gr_dec_bypass(&gr, 8);
-		entropylevels[1]=gr_dec_bypass(&gr, 8);
-		entropylevels[2]=gr_dec_bypass(&gr, 8);
-		//entropylevels[0]=ac3_dec_bypass(&ec, 8);
-		//entropylevels[1]=ac3_dec_bypass(&ec, 8);
-		//entropylevels[2]=ac3_dec_bypass(&ec, 8);
-#else
-		bypass_decbuf_init(&bc, args->decstream+args->decoffsets[args->nblocks+args->blockidx-1], args->decstream+args->decoffsets[args->nblocks+args->blockidx]);
+		ac3_dec_init(&ec, args->streambuf+args->offsets[args->blockidx*2+0], args->streambuf+args->offsets[args->blockidx*2+1]);
+		bypass_decbuf_init(&bc, args->streambuf+args->offsets[args->blockidx*2+1], args->streambuf+args->offsets[args->blockidx*2+2]);
+	//	ac3_dec_init(&ec, args->decstream+(args->blockidx>0?args->decoffsets[args->blockidx-1]:0), args->decstream+args->decoffsets[args->blockidx]);
+	//	bypass_decbuf_init(&bc, args->decstream+args->decoffsets[args->nblocks+args->blockidx-1], args->decstream+args->decoffsets[args->nblocks+args->blockidx]);
+	//	args->near=ac3_dec_bypass_NPOT(&ec, 2);
 		entropylevel=ac3_dec_bypass_NPOT(&ec, 100);
-#endif
 		bestrct=ac3_dec_bypass_NPOT(&ec, RCT_COUNT);
 		combination=rct_combinations[bestrct];
 		predidx[0]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
@@ -3261,29 +3221,11 @@ static void block_func(void *param)
 		}
 #endif
 	}
-#ifdef ENABLE_GR
-	for(int k=0;k<3;++k)
-	{
-		if(entropylevels[k]>53)	entropyidx[k]=4;
-		//if(entropylevels[k]>96)		entropyidx[k]=4;
-	//	else if(entropylevels[k]>64)	entropyidx[k]=3;
-		else if(entropylevels[k]>43)	entropyidx[k]=2;
-		else if(entropylevels[k]>25)	entropyidx[k]=1;
-		else				entropyidx[k]=0;
-	}
-	int shiftgains[]=//up to 640, with blocksize 512, counters should not exceed 0xA000000
-	{
-		(entropylevels[0]*entropylevels[0]>>4)+15,
-		(entropylevels[1]*entropylevels[1]>>4)+15,
-		(entropylevels[2]*entropylevels[2]>>4)+15,
-	};
-#else
 	if(entropylevel>25)		entropyidx=3;
 	else if(entropylevel>17)	entropyidx=2;
 	else if(entropylevel>10)	entropyidx=1;
 	else				entropyidx=0;
 	int shiftgain=(entropylevel*entropylevel>>4)+15;//up to 640, with blocksize 512, counters should not exceed 0xA000000
-#endif
 #if 0
 	predidx[0]=PRED_CG;//synth2 0.8% smaller
 	predidx[1]=PRED_CG;
@@ -3457,8 +3399,9 @@ static void block_func(void *param)
 		//};
 		int token=0, bypass=0, nbits=0;
 		int pred=0, error=0, sym=0;
-		const unsigned char *srcptr=args->fwd?args->src+3*(args->iw*ky+args->x1):0;
-		unsigned char *dstptr=args->fwd?0:args->dst+3*(args->iw*ky+args->x1);
+		unsigned char *imptr=args->imagebuf+3*(args->iw*ky+args->x1);
+		//const unsigned char *srcptr=args->fwd?args->src+3*(args->iw*ky+args->x1):0;
+		//unsigned char *dstptr=args->fwd?0:args->dst+3*(args->iw*ky+args->x1);
 		int yidx=combination[II_PERM_Y];
 		int uidx=combination[II_PERM_U];
 		int vidx=combination[II_PERM_V];
@@ -3504,9 +3447,8 @@ static void block_func(void *param)
 		//for(int kx0=args->x2-args->x1;kx0--;yidx+=3, uidx+=3, vidx+=3)
 		for(int kx0=args->x2-args->x1;kx0--;)
 		{
-#ifdef _DEBUG
 			int kx=args->x2-1-kx0;
-#endif
+			(void)kx;
 #if defined SIMD_CTX || defined SIMD_PREDS
 			__m128i msum=_mm_add_epi16(mN, mW);
 #endif
@@ -3514,14 +3456,6 @@ static void block_func(void *param)
 			//__m128i mqp=_mm_add_epi16(msum, _mm_slli_epi16(_mm_sub_epi16(msum, mNW), 1));
 			//mqp=_mm_srai_epi16(mqp, 11-CBITS);
 			//mqp=_mm_and_si128(mqp, _mm_set1_epi16((1<<CBITS)-1));
-
-#ifdef ENABLE_GR_FORMULA
-			__m128i mqe=_mm_shuffle_epi32(mW, _MM_SHUFFLE(1, 0, 3, 2));
-			mqe=_mm_cvtepi16_epi32(mqe);
-			mqe=_mm_add_epi32(mqe, _mm_set1_epi16(1));
-			mqe=FLOOR_LOG2_32x4(_mm_cvtepi16_epi32(mqe));
-			_mm_store_si128((__m128i*)grads+0, mqe);
-#else
 			__m128i mqe=_mm_add_epi16(mNW, mNE);
 			mqe=_mm_add_epi16(mqe, _mm_add_epi16(mWW, mNN));
 			mqe=_mm_srli_epi16(_mm_add_epi16(mqe, mNEE), 1);
@@ -3537,7 +3471,6 @@ static void block_func(void *param)
 			mqe=_mm_min_epi32(mqe, _mm_set1_epi32(ELEVELS-1));
 			_mm_store_si128((__m128i*)grads+0, mqe);
 #endif
-#endif
 #ifndef SIMD_PREDS
 			short
 			//	*NNWW	=rows[2]-2*4*4,
@@ -3549,10 +3482,6 @@ static void block_func(void *param)
 				*N	=rows[1]+0*4*4,
 				*NE	=rows[1]+1*4*4,
 				*NEE	=rows[1]+2*4*4,
-#ifdef ENABLE_GR
-				*NEEE	=rows[1]+3*4*4,
-				*WWW	=rows[0]-3*4*4,
-#endif
 				*WW	=rows[0]-2*4*4,
 			//	*W	=rows[0]-1*4*4,
 				*curr	=rows[0]+0*4*4;
@@ -3901,10 +3830,10 @@ static void block_func(void *param)
 #endif
 			if(args->fwd)
 			{
-				yuv[0]=srcptr[yidx]-128;
-				yuv[1]=srcptr[uidx]-128;
-				yuv[2]=srcptr[vidx]-128;
-				srcptr+=3;
+				yuv[0]=imptr[yidx]-128;
+				yuv[1]=imptr[uidx]-128;
+				yuv[2]=imptr[vidx]-128;
+				imptr+=3;
 
 				//unsigned rgb=*(unsigned*)(args->src+idx);
 				//rgb^=0x00808080;
@@ -4194,25 +4123,12 @@ static void block_func(void *param)
 						//else
 						//	sym=upred+abserr;//error sign is known
 					}
-#ifdef ENABLE_GR
-					if(entropyidx[kc]>=4)
-					//if(entropylevels[kc]>127)
-					//if(1)
-					{
-						nbits=(7*regW[4*2+kc]+3*(NE[4*1+kc]+N[4*3+kc]+regW[4*3+kc]))>>4;
-						nbits+=nbits<4;
-						nbits=FLOOR_LOG2(nbits);
-					//	nbits=FLOOR_LOG2(regW[kc+4]+1);
-						gr_enc(&gr, sym, nbits);
-					}
-					else
-#endif
 					{
 						token=sym;
 						if(sym>=(1<<CONFIG_EXP))
 						{
-							//int nbits=FLOOR_LOG2((unsigned)sym)-(CONFIG_MSB+CONFIG_LSB);
-							int nbits=(31-(CONFIG_MSB+CONFIG_LSB))-_lzcnt_u32(sym);
+							//nbits=FLOOR_LOG2((unsigned)sym)-(CONFIG_MSB+CONFIG_LSB);
+							nbits=(31-(CONFIG_MSB+CONFIG_LSB))-_lzcnt_u32(sym);
 							token = (1<<CONFIG_EXP)-((CONFIG_EXP-(CONFIG_MSB+CONFIG_LSB))<<(CONFIG_MSB+CONFIG_LSB)) + (
 									nbits<<(CONFIG_MSB+CONFIG_LSB)|
 									(sym>>nbits&((1<<CONFIG_MSB)-1)<<CONFIG_LSB)|
@@ -4220,11 +4136,7 @@ static void block_func(void *param)
 								);
 							bypass=sym>>CONFIG_LSB&((1LL<<nbits)-1);
 							//bypass=_bextr_u32(sym>>CONFIG_LSB, 0, nbits);	//slow
-#ifdef ENABLE_GR
-							gr_enc_bypass(&gr, bypass, nbits);
-#else
 							bypass_encbuf(&bc, bypass, nbits);
-#endif
 #ifdef PRINT_CSIZES
 							esizes[kc]+=nbits;
 #endif
@@ -4255,20 +4167,6 @@ static void block_func(void *param)
 				}
 				else
 				{
-#ifdef ENABLE_GR
-					if(entropyidx[kc]>=4)
-					//if(entropylevels[kc]>127)
-					//if(1)
-					{
-						nbits=(7*regW[4*2+kc]+3*(NE[4*1+kc]+N[4*3+kc]+regW[4*3+kc]))>>4;
-						nbits+=nbits<4;
-						nbits=FLOOR_LOG2(nbits);
-					//	nbits=FLOOR_LOG2(regW[kc+4]+1);
-
-						sym=gr_dec(&gr, nbits);
-						goto skip_ac;
-					}
-#endif
 					if(ec.range<(1ULL<<PROB_BITS))
 					{
 #ifdef _DEBUG
@@ -4283,11 +4181,7 @@ static void block_func(void *param)
 							ec.range=~ec.low;
 					}
 #if 1
-#ifdef ENABLE_GR
-					if(entropyidx[kc])
-#else
 					if(entropyidx)
-#endif
 					{
 						__m256i mr2=_mm256_set1_epi32((unsigned short)(((ec.code-ec.low)<<PROB_BITS|((1LL<<PROB_BITS)-1))/ec.range));
 						__m256i mc0=_mm256_loadu_si256((__m256i*)(curr_hist0+1+0*8));
@@ -4487,20 +4381,13 @@ static void block_func(void *param)
 					if(token>=(1<<CONFIG_EXP))
 					{
 						nbits=(sym>>(CONFIG_MSB+CONFIG_LSB))-((1<<(CONFIG_EXP-(CONFIG_MSB+CONFIG_LSB)))-(CONFIG_EXP-(CONFIG_MSB+CONFIG_LSB)));//2 instructions
-#ifdef ENABLE_GR
-						bypass=gr_dec_bypass(&gr, nbits);
-#else
 						bypass=bypass_decbuf(&bc, nbits);
-#endif
 						sym=
 							+(((1<<(CONFIG_MSB+CONFIG_LSB))+(sym&((1<<CONFIG_MSB)-1)<<CONFIG_LSB))<<nbits)//7 instructions
 							+(bypass<<CONFIG_LSB)
 							+(sym&((1<<CONFIG_LSB)-1))
 						;
 					}
-#ifdef ENABLE_GR
-				skip_ac:
-#endif
 					{
 						int negmask=pred>>31;	//11 cycles
 						int e2=upred-sym;
@@ -4532,17 +4419,6 @@ static void block_func(void *param)
 					yuv[kc]=error+pred;
 				}
 				curr[kc+0]=regW[kc]=yuv[kc]-offset;
-#ifdef ENABLE_GR
-				if(entropyidx[kc]>=4)
-				{
-					int ecurr=abs(error);
-					curr[kc+4*1]=regW[kc+4*1]=(MAXVAR(NW[kc+4*1], regW[kc+4*1])+ecurr+NEE[kc+4*1]+MAXVAR(WW[kc+4*1], WWW[kc+4*1]))>>2;
-					curr[kc+4*2]=regW[kc+4*2]=(MAXVAR(WW[kc+4*2], regW[kc+4*2])+ecurr+NE[kc+4*2]+MAXVAR(NEE[kc+4*2], NEEE[kc+4*2]))>>2;
-					curr[kc+4*3]=regW[kc+4*3]=(regW[kc+4*3]+ecurr+MAXVAR(N[kc+4*3], NE[kc+4*3]))/3;
-				}
-				//	curr[kc+4]=regW[kc+4]=(2*regW[kc+4]+abs(error)+NEEE[kc+4])>>2;
-				else
-#endif
 			//	curr[kc+4]=regW[kc+4]=(2*rows[0][kc-1*4*4+4]+((error<<1^error>>31)<<6)+MAXVAR(rows[1][kc+2*4*4+4], rows[1][kc+3*4*4+4]))>>2;
 			//	curr[kc+4]=regW[kc+4]=(2*rows[0][kc-1*4*4+4]+(abs(error)<<6)+MAXVAR(rows[1][kc+2*4*4+4], rows[1][kc+3*4*4+4]))>>2;
 			//	curr[kc+4]=regW[kc+4]=(2*rows[0][kc-1*4*4+4]+(token<<6)+MAXVAR(rows[1][kc+2*4*4+4], rows[1][kc+3*4*4+4]))>>2;
@@ -4577,13 +4453,7 @@ static void block_func(void *param)
 					continue;
 				}
 #endif
-#ifdef ENABLE_GR
-				if(entropyidx[kc]>=4)
-					continue;
-				int sh=*ctxctrs[kc+0]+=shiftgains[kc];
-#else
 				int sh=*ctxctrs[kc+0]+=shiftgain;
-#endif
 				sh=FLOOR_LOG2(sh)>>1;
 #if !defined ENABLE_MT && 0
 				{
@@ -4638,11 +4508,7 @@ static void block_func(void *param)
 #ifndef ENABLE_MIX1
 				//if(cdfptrs[kc+3]!=cdfptrs[kc+0])
 				{
-#ifdef ENABLE_GR
-					sh=*ctxctrs[kc+3]+=shiftgains[kc];
-#else
 					sh=*ctxctrs[kc+3]+=shiftgain;
-#endif
 					sh=FLOOR_LOG2(sh)>>1;
 					ms=_mm_set_epi32(0, 0, 0, sh);
 					mc0=_mm256_loadu_si256((__m256i*)(cdfptrs[kc+3]+1+0*8));
@@ -4756,10 +4622,10 @@ static void block_func(void *param)
 			}
 			if(!args->fwd)
 			{
-				dstptr[yidx]=yuv[0]+128;
-				dstptr[uidx]=yuv[1]+128;
-				dstptr[vidx]=yuv[2]+128;
-				dstptr+=3;
+				imptr[yidx]=yuv[0]+128;
+				imptr[uidx]=yuv[1]+128;
+				imptr[vidx]=yuv[2]+128;
+				imptr+=3;
 
 				//unsigned *ptr=(unsigned*)(args->dst+idx);		//X  UB
 				//int rgb=(yuv[0]&255)<<ysh|(yuv[1]&255)<<ush|(yuv[2]&255)<<vsh;
@@ -4778,7 +4644,7 @@ static void block_func(void *param)
 				//args->dst[yidx]=yuv[0]+128;
 				//args->dst[uidx]=yuv[1]+128;
 				//args->dst[vidx]=yuv[2]+128;
-				guide_check(args->dst, kx, ky);
+				guide_check(args->imagebuf, kx, ky);
 			}
 			rows[0]+=4*4;
 			rows[1]+=4*4;
@@ -4801,27 +4667,12 @@ static void block_func(void *param)
 	}
 	if(args->fwd)
 	{
-		int currblockidx=args->blockidx-args->b1;
-		unsigned char *ptr;
-
-		ptr=ac3_encbuf_flush(&ec);
-		args->enctokenoffsets[currblockidx]=(int)(ptr-args->enctokenbuf);
-#ifdef _DEBUG
-		if((ptr-args->enctokenbuf)>>32)
-			LOG_ERROR("Integer overflow");
-#endif
-		
-#ifdef ENABLE_GR
-		gr_enc_flush(&gr);
-		ptr=gr.dstptr;
-#else
-		ptr=bypass_encbuf_flush(&bc);
-#endif
-		args->encbypassoffsets[currblockidx]=(int)(ptr-args->encbypassbuf);
-#ifdef _DEBUG
-		if((ptr-args->encbypassbuf)>>32)
-			LOG_ERROR("Integer overflow");
-#endif
+		ac3_encbuf_flush(&ec);
+		args->chunksizes[args->blockidx*2+0]=(int)(ec.dstptr-ec.dststart);
+		//args->chunksizes[args->blockidx*2+0]=(int)(ptr-(args->streambuf+args->offsets[args->blockidx*2+0]));
+		bypass_encbuf_flush(&bc);
+		args->chunksizes[args->blockidx*2+1]=(int)(bc.dstptr-bc.dststart);
+		//args->chunksizes[args->blockidx*2+1]=(int)(ptr-(args->streambuf+args->offsets[args->blockidx*2+1]));
 #ifdef PRINT_CSIZES
 		printf(" Act %11.2lf %11.2lf %11.2lf\n",
 			esizes[0]/8,
@@ -4962,15 +4813,379 @@ static void block_thread(void *param)
 		block_func(param);
 	}
 }
-int c24_codec(const char *srcfn, const char *dstfn, int nthreads0)
+int c24_codec(int argc, char **argv)
 {
+#ifdef LOUD
+	double t=time_sec();
+#endif
+	if(argc!=2&&argc!=3&&argc!=4&&argc!=5)
+	{
+		printf(
+			"Usage: \"%s\"  input  output  [maxthreads]  [dist]    Encode/decode.\n"
+			"       \"%s\"  input                                  Test without saving.\n"
+			"[maxthreads]:\n"
+			"  0: nthreads = number of cores (default)\n"
+			"  1: Single thread\n"
+			, argv[0]
+			, argv[0]
+		);
+		return 1;
+	}
+	const char *srcfn=argv[1], *dstfn=argc<3?0:argv[2];
+	int maxthreads=argc<4?0:atoi(argv[3]), near=argc<5?0:atoi(argv[4]);
+#if 1
+	if(!srcfn||!dstfn)
+	{
+		LOG_ERROR("Codec requires both source and destination filenames");
+		return 1;
+	}
+	int fwd=0, iw=0, ih=0;
+	ptrdiff_t srcsize=0, streamsize=0, usize=0;
+	unsigned char *imagebuf=0, *streambuf=0;
+	unsigned char *streamptr=0, *streamstart=0, *streamend=0;
+	{
+		struct stat info={0};
+		int error=stat(srcfn, &info);
+		if(error)
+		{
+			LOG_ERROR("Cannot stat \"%s\"", srcfn);
+			return 1;
+		}
+		srcsize=info.st_size;
+	}
+	{
+		ptrdiff_t nread;
+		int tag=0;
+		FILE *fsrc=fopen(srcfn, "rb");
+		if(!fsrc)
+		{
+			LOG_ERROR("Cannot open \"%s\"", srcfn);
+			return 1;
+		}
+		fread(&tag, 1, 2, fsrc);
+		fwd=tag==('P'|'6'<<8);
+		if(!fwd&&tag!=('2'|'4'<<8))
+		{
+			LOG_ERROR("Unsupported file \"%s\"", srcfn);
+			return 1;
+		}
+		if(fwd)
+		{
+			int c;
+#ifdef LOUD
+			print_timestamp("%Y-%m-%d_%H%M%S\n");
+#endif
+			c=fgetc(fsrc);
+			if(c!='\n')
+			{
+				LOG_ERROR("Invalid PPM file");
+				return 1;
+			}
+			c=fgetc(fsrc);
+			while(c=='#')
+			{
+				c=fgetc(fsrc);
+				while(c!='\n')
+					c=fgetc(fsrc);
+				c=fgetc(fsrc);
+			}
+			iw=0;
+			while((unsigned)(c-'0')<10)
+			{
+				iw=10*iw+c-'0';
+				c=fgetc(fsrc);
+			}
+			while(c<=' ')
+				c=fgetc(fsrc);
+			ih=0;
+			while((unsigned)(c-'0')<10)
+			{
+				ih=10*ih+c-'0';
+				c=fgetc(fsrc);
+			}
+			while(c<=' ')
+				c=fgetc(fsrc);
+			while(c=='#')
+			{
+				c=fgetc(fsrc);
+				while(c!='\n')
+					c=fgetc(fsrc);
+				c=fgetc(fsrc);
+			}
+			c=c<<8|fgetc(fsrc);
+			c=c<<8|fgetc(fsrc);
+			c=c<<8|fgetc(fsrc);
+			if(c!=('2'<<24|'5'<<16|'5'<<8|'\n'))
+			{
+				LOG_ERROR("Unsupported PPM file");
+				return 1;
+			}
+			
+			//streamsize=(ptrdiff_t)6*iw*ih;
+		}
+		else
+		{
+			fread(&iw, 1, 4, fsrc);
+			fread(&ih, 1, 4, fsrc);
+			nread=ftell(fsrc);
+			streamsize=srcsize-nread;
+
+		}
+		usize=(ptrdiff_t)3*iw*ih;
+		imagebuf=(unsigned char*)malloc(usize);
+		if(!imagebuf)
+		{
+			LOG_ERROR("Alloc error");
+			return 1;
+		}
+		ptrdiff_t expected=0;
+		if(fwd)
+		{
+			expected=usize;
+			nread=fread(imagebuf, 1, usize, fsrc);
+			guide_save(imagebuf, iw, ih);
+		}
+		else
+		{
+			streambuf=(unsigned char*)malloc(streamsize);
+			if(!streambuf)
+			{
+				LOG_ERROR("Alloc error");
+				return 1;
+			}
+			expected=streamsize;
+			nread=fread(streambuf, 1, streamsize, fsrc);
+		}
+		if(nread!=expected)
+			printf("Truncated  expected %td  read %td", expected, nread);
+		fclose(fsrc);
+	}
+	if(!fwd)
+	{
+		streamstart=streambuf;
+		streamend=streambuf+streamsize;
+		streamptr=streambuf;
+
+		near=*streamptr++;
+	}
+	int xblocks=(iw+BLOCKX-1)/BLOCKX;
+	int yblocks=(ih+BLOCKY-1)/BLOCKY;
+	int nblocks=xblocks*yblocks;
+	int ncores=query_cpu_cores();
+	int nthreads=MINVAR(nblocks, ncores);
+	if(maxthreads&&nthreads>maxthreads)
+		nthreads=maxthreads;
+
+	int argssize=nthreads*sizeof(ThreadArgs);
+	ThreadArgs *args=(ThreadArgs*)malloc(argssize);
+	if(!args)
+	{
+		LOG_ERROR("Alloc error");
+		return 1;
+	}
+	memset(args, 0, argssize);
+
+	int *blocksizes=0;
+	if(fwd)
+	{
+		blocksizes=(int*)malloc(nblocks*(int)sizeof(int[2]));
+		if(!blocksizes)
+		{
+			LOG_ERROR("Alloc error");
+			return 1;
+		}
+		memset(blocksizes, 0, nblocks*sizeof(int[2]));
+	}
+	else
+	{
+		blocksizes=(int*)streamptr;
+		streamptr+=nblocks*sizeof(int[2]);
+	}
+	int offsetssize=(2*nblocks+1)*(int)sizeof(int);
+	int *offsets=(int*)malloc(offsetssize);
+	if(!offsets)
+	{
+		LOG_ERROR("Alloc error");
+		return 1;
+	}
+	if(fwd)
+	{
+		offsets[0]=0;
+		int asum=0;
+		for(int kb2=0;kb2<nblocks*2;++kb2)
+		{
+			//if(kb==8*2)//
+			//	printf("");
+
+			int kb=kb2>>1;
+			int bx=kb%xblocks, by=kb/xblocks;
+			int x1=bx*BLOCKX, y1=by*BLOCKY;
+			int x2=x1+BLOCKX, y2=y1+BLOCKY;
+			if(x2>iw)
+				x2=iw;
+			if(y2>ih)
+				y2=ih;
+			int area=(x2-x1)*(y2-y1)*4;
+			asum+=area;
+			//if(asum<0)
+			//	LOG_ERROR("");
+			offsets[kb2+1]=asum;
+		}
+		streamsize=asum;
+		streambuf=(unsigned char*)malloc(streamsize);
+		if(!streambuf)
+		{
+			LOG_ERROR("Alloc error");
+			return 1;
+		}
+		streamstart=streambuf;
+		streamend=streambuf+streamsize;
+		streamptr=streambuf;
+	}
+	else
+	{
+		int sum=0;
+		offsets[0]=0;
+		for(int kb=0;kb<nblocks*2;++kb)
+		{
+			sum+=blocksizes[kb];
+			offsets[kb+1]=sum;
+		}
+		if(streamptr+sum!=streamend)
+			LOG_ERROR("Corrupt file  expected %d  got %d bytes", sum, (int)(streamend-streamptr));
+	}
+	unsigned *mixincdfs=0;
+	int tlevels, histsize, statssize;
+	int maxwidth=iw;
+	if(maxwidth>BLOCKX)
+		maxwidth=BLOCKX;
+	{
+		int token=0, bypass=0, nbits=0;
+
+		quantize_pixel(256, &token, &bypass, &nbits);//256 is a valid symbol due to CALIC-like sign packing
+		tlevels=token+1;
+		statssize=(tlevels+1)*(int)sizeof(int[3*ELEVELS*CLEVELS]);//CDF padding, contains (1<<PROB_BITS)
+		histsize=(int)sizeof(int[OCH_COUNT*PRED_COUNT<<8]);
+		if(histsize<statssize)
+			histsize=statssize;
+		mixincdfs=(unsigned*)malloc(sizeof(int)*tlevels*tlevels);
+		if(!mixincdfs)
+		{
+			LOG_ERROR("Alloc error");
+			return 1;
+		}
+		for(int ks=0;ks<tlevels;++ks)
+		{
+			for(int ks2=0;ks2<tlevels;++ks2)
+				mixincdfs[tlevels*ks+ks2]=(((1<<PROB_BITS)-tlevels)<<PROB_EBITS)&-(ks<ks2);
+		}
+	}
+	for(int k=0, kb=0;k<nthreads;++k)//initialization
+	{
+		ThreadArgs *arg=args+k;
+		arg->imagebuf=imagebuf;
+		arg->streambuf=streamptr;
+		arg->iw=iw;
+		arg->ih=ih;
+		arg->offsets=offsets;
+		arg->chunksizes=blocksizes;
+		
+		arg->b1=kb;
+		kb=(k+1)*nblocks/nthreads;
+		arg->b2=kb;
+		arg->xblocks=xblocks;
+		arg->nblocks=nblocks;
+
+		arg->bufsize=sizeof(short[4*4*4])*(maxwidth+16LL);//4 padded rows * 4 channels max * {pixels, wg_errors}
+		arg->pixels=(short*)_mm_malloc(arg->bufsize, sizeof(__m128i));
+		arg->histsize=histsize;
+		arg->hist=(int*)malloc(histsize);
+		if(!arg->pixels||!arg->hist)
+		{
+			LOG_ERROR("Alloc error");
+			return 1;
+		}
+		arg->near=near;
+		
+		arg->tlevels=tlevels;
+		arg->fwd=fwd;
+		arg->mixincdfs=mixincdfs;
+#ifdef ENABLE_MT
+		arg->loud=0;
+#else
+		arg->loud=nblocks<MAXPRINTEDBLOCKS;
+#endif
+	}
+#ifdef ENABLE_MT
+	if(nthreads>1)
+	{
+		void *ctx=mt_exec(block_thread, args, sizeof(ThreadArgs), nthreads);
+		mt_finish(ctx);
+	}
+	else
+#endif
+	{
+		for(int k=0;k<nthreads;++k)
+			block_thread(args+k);
+	}
+	FILE *fdst=fopen(dstfn, "wb");
+	if(!fdst)
+	{
+		LOG_ERROR("Cannot open \"%s\" for writing", dstfn);
+		return 1;
+	}
+	ptrdiff_t csize=0;
+	if(fwd)
+	{
+		csize+=fwrite("24", 1, 2, fdst);
+		csize+=fwrite(&iw, 1, 4, fdst);
+		csize+=fwrite(&ih, 1, 4, fdst);
+		csize+=fwrite(&near, 1, 1, fdst);
+		csize+=fwrite(blocksizes, 1, nblocks*sizeof(int[2]), fdst);
+		for(int kb=0;kb<nblocks*2;++kb)
+			csize+=fwrite(streambuf+offsets[kb], 1, blocksizes[kb], fdst);
+	}
+	else
+	{
+		csize=srcsize;
+		fprintf(fdst, "P6\n%d %d\n255\n", iw, ih);
+		fwrite(imagebuf, 1, usize, fdst);
+	}
+	fclose(fdst);
+	for(int k=0;k<nthreads;++k)
+	{
+		ThreadArgs *arg=args+k;
+		_mm_free(arg->pixels);
+		free(arg->hist);
+	}
+	free(args);
+	free(imagebuf);
+	free(streambuf);
+	free(mixincdfs);
+	free(offsets);
+	if(fwd)
+		free(blocksizes);
+#ifdef LOUD
+	t=time_sec()-t;
+	if(fwd)
+	{
+		printf("%12td/%12td  %10.6lf%%  %10lf\n", csize, usize, 100.*csize/usize, (double)usize/csize);
+		//printf("Mem usage: ");
+		//print_size((double)memusage, 8, 4, 0, 0);
+		//printf("\n");
+	}
+	printf("%c %16.6lf sec  %16.6lf MB/s\n", 'D'+fwd, t, usize/(t*1024*1024));
+#endif
+	return 0;
+#endif
+#if 0
 	double t0;
 	ArrayHandle src, dst;
 	int headersize, printed;
 	int iw, ih;
 	const unsigned char *image, *imageend;
 	unsigned char *image2;
-	CodecID codec;
+	CodecID codec=CODEC_INVALID;
 	int xblocks, yblocks, nblocks, ncores, nthreads, coffset;
 	ptrdiff_t start, memusage, argssize;
 	ThreadArgs *args;
@@ -5017,14 +5232,17 @@ int c24_codec(const char *srcfn, const char *dstfn, int nthreads0)
 	yblocks=(ih+BLOCKY-1)/BLOCKY;
 	nblocks=xblocks*yblocks;
 	ncores=query_cpu_cores();
-	if(nthreads0)
-	{
-		int nthreads2=MINVAR(nblocks, ncores);
-		nthreads=nthreads0;
-		CLAMP2(nthreads, 1, nthreads2);
-	}
-	else
-		nthreads=MINVAR(nblocks, ncores);
+	nthreads=MINVAR(nblocks, ncores);
+	if(maxthreads&&nthreads>maxthreads)
+		nthreads=maxthreads;
+	//if(nthreads0)
+	//{
+	//	int nthreads2=MINVAR(nblocks, ncores);
+	//	nthreads=nthreads0;
+	//	CLAMP2(nthreads, 1, nthreads2);
+	//}
+	//else
+	//	nthreads=MINVAR(nblocks, ncores);
 	coffset=(int)sizeof(int[2])*nblocks;
 	start=0;
 	memusage=0;
@@ -5052,6 +5270,7 @@ int c24_codec(const char *srcfn, const char *dstfn, int nthreads0)
 		dst=0;
 		printed=snprintf(g_buf, G_BUF_SIZE-1, "C01\n%d %d\n", iw, ih);
 		array_append(&dst, g_buf, 1, printed, 1, 0, 0);
+		array_append(&dst, &near, 1, 1, 1, 0, 0);
 		start=dst->count;
 		//start=array_append(&dst, 0, 1, coffset, 1, 0, 0);
 		
@@ -5174,6 +5393,7 @@ int c24_codec(const char *srcfn, const char *dstfn, int nthreads0)
 
 			arg->enctokenoffsets=streamoffsets+arg->b1;
 			arg->encbypassoffsets=arg->enctokenoffsets+nblocks;
+			arg->near=near;
 		}
 		else
 		{
@@ -5475,4 +5695,5 @@ int c24_codec(const char *srcfn, const char *dstfn, int nthreads0)
 	}
 #endif
 	return 0;
+#endif
 }

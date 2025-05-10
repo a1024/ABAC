@@ -1,4 +1,3 @@
-#include"codec.h"
 #include"util.h"
 #include<stdlib.h>
 #include<math.h>//log2
@@ -698,8 +697,17 @@ do\
 	free(hist);
 	return 0;
 }
-int c08_codec(const char *srcfn, const char *dstfn, int nthreads0)
+int c08_codec(int argc, char **argv)
 {
+	if(argc!=3)
+	{
+		printf(
+			"Usage: \"%s\"  input  output    Encode/decode.\n"
+			, argv[0]
+		);
+		return 1;
+	}
+	const char *srcfn=argv[1], *dstfn=argv[2];
 #ifdef ESTIMATE_SIZE
 	double t=time_sec();
 	double csizes[3]={0};
