@@ -14,8 +14,23 @@ static const char file[]=__FILE__;
 
 //	#define TRACK_THREADS
 
+//	#define PSNR_MAX_8 128
+//	#define PSNR_MAX_16 0x8000
+	#define PSNR_MAX_8 255
+	#define PSNR_MAX_16 0xFFFF
 
 static char g_buf2[8192]={0};
+
+typedef enum _CmdFlags
+{
+	CMDFLAG_VERIFY_BITEXACT=0,
+	CMDFLAG_NOP=1,
+	CMDFLAG_PSNR_8BIT=2,
+	CMDFLAG_PSNR_16BIT=3,
+	CMDFLAG_SSIM_PPM=4,
+
+	CMDFLAG_PRINT_RIVALS=5,
+} CmdFlags;
 
 static int acme_getline(char *buf, int len, FILE *f)
 {
@@ -100,6 +115,529 @@ static void verify_files(const char *fn0, const char *fn1)
 	}
 	if(broken)
 		LOG_ERROR("");
+	array_free(&data0);
+	array_free(&data1);
+}
+static unsigned char* load_ppm(const char *fn, int *ret_iw, int *ret_ih)
+{
+	int iw=0, ih=0;
+	FILE *fsrc=fopen(fn, "rb");
+	if(!fsrc)
+	{
+		LOG_ERROR("Cannot open \"%s\"", fn);
+		return 0;
+	}
+	int c=0;
+	ptrdiff_t nread=fread(&c, 1, 2, fsrc);
+	if(nread!=2||c!=('P'|'6'<<8))
+	{
+		LOG_ERROR("Inalid file \"%s\"", fn);
+		return 0;
+	}
+	c=fgetc(fsrc);
+	if(c!='\n')
+	{
+		LOG_ERROR("Invalid PPM file");
+		return 0;
+	}
+	c=fgetc(fsrc);
+	while(c=='#')
+	{
+		c=fgetc(fsrc);
+		while(c!='\n')
+			c=fgetc(fsrc);
+		c=fgetc(fsrc);
+	}
+	iw=0;
+	while((unsigned)(c-'0')<10)
+	{
+		iw=10*iw+c-'0';
+		c=fgetc(fsrc);
+	}
+	while(c<=' ')
+		c=fgetc(fsrc);
+	ih=0;
+	while((unsigned)(c-'0')<10)
+	{
+		ih=10*ih+c-'0';
+		c=fgetc(fsrc);
+	}
+	while(c<=' ')
+		c=fgetc(fsrc);
+	while(c=='#')
+	{
+		c=fgetc(fsrc);
+		while(c!='\n')
+			c=fgetc(fsrc);
+		c=fgetc(fsrc);
+	}
+	c=c<<8|fgetc(fsrc);
+	c=c<<8|fgetc(fsrc);
+	c=c<<8|fgetc(fsrc);
+	if(c!=('2'<<24|'5'<<16|'5'<<8|'\n'))
+	{
+		LOG_ERROR("Unsupported PPM file");
+		return 0;
+	}
+	ptrdiff_t size=(ptrdiff_t)3*iw*ih;
+	unsigned char *image=(unsigned char*)malloc(size);
+	if(!image)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
+	nread=fread(image, 1, size, fsrc);
+	if(nread!=size)
+	{
+		LOG_ERROR("Truncated file  expected %td  got %td", size, nread);
+		free(image);
+		return 0;
+	}
+	fclose(fsrc);
+	if(ret_iw)*ret_iw=iw;
+	if(ret_ih)*ret_ih=ih;
+	return image;
+}
+#define SSIM_SIZE 11
+static void measure_ssim_ppm_avx2(const char *fn0, const char *fn1, long long csize, double *ret_ssim, double *ret_weight)
+{
+	const int psize=(int)sizeof(int[3][SSIM_SIZE*SSIM_SIZE][8]);
+	int
+		*patch1=(int*)_mm_malloc(psize, sizeof(__m256i)),
+		*patch2=(int*)_mm_malloc(psize, sizeof(__m256i));
+	if(!patch1||!patch2)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	int iw=0, ih=0;
+	unsigned char *im1=0, *im2=0;
+	{
+		int w2=0, h2=0;
+		im1=load_ppm(fn0, &iw, &ih);
+		im2=load_ppm(fn1, &w2, &h2);
+		if(!im1||!im2||iw!=w2||ih!=h2)
+		{
+			LOG_ERROR("Dimension mismatch %d*%d vs %d*%d", iw, ih, w2, h2);
+			return;
+		}
+	}
+	//printf("WH %d*%d\n", iw, ih);
+	ptrdiff_t count=0;
+	__m256 mssim[4]={0};
+	__m256 c1=_mm256_set1_ps(0.01f*255), c2=_mm256_set1_ps(0.03f*255);
+	c1=_mm256_mul_ps(c1, c1);
+	c2=_mm256_mul_ps(c2, c2);
+	for(int ky=SSIM_SIZE/2;ky<ih-SSIM_SIZE/2-1;ky+=2)
+	{
+		for(int kx=SSIM_SIZE/2;kx<iw-SSIM_SIZE/2-3;kx+=4)
+		{
+			int idx=3*(iw*ky+kx);
+			unsigned char *src1=im1+idx, *src2=im2+idx;
+			__m256i half=_mm256_set1_epi32(128);
+			for(int ky3=0;ky3<2;++ky3)
+			{
+				for(int kx3=0;kx3<4;++kx3)
+				{
+					for(int ky2=0;ky2<SSIM_SIZE;++ky2)
+					{
+						for(int kx2=0;kx2<SSIM_SIZE;++kx2)
+						{
+							int srcidx=3*(iw*(ky3+ky2-SSIM_SIZE/2)+kx3+kx2-SSIM_SIZE/2);
+							int dstidx=(SSIM_SIZE*ky2+kx2)*3*8+ky3*4+kx3;
+							patch1[8*0+dstidx]=src1[srcidx+0];
+							patch2[8*0+dstidx]=src2[srcidx+0];
+							patch1[8*1+dstidx]=src1[srcidx+1];
+							patch2[8*1+dstidx]=src2[srcidx+1];
+							patch1[8*2+dstidx]=src1[srcidx+2];
+							patch2[8*2+dstidx]=src2[srcidx+2];
+						}
+					}
+				}
+			}
+			for(int k=0;k<SSIM_SIZE*SSIM_SIZE;++k)//RGB->YUV
+			{
+				__m256i r1=_mm256_load_si256((__m256i*)patch1+3*k+0);
+				__m256i g1=_mm256_load_si256((__m256i*)patch1+3*k+1);
+				__m256i b1=_mm256_load_si256((__m256i*)patch1+3*k+2);
+				__m256i r2=_mm256_load_si256((__m256i*)patch2+3*k+0);
+				__m256i g2=_mm256_load_si256((__m256i*)patch2+3*k+1);
+				__m256i b2=_mm256_load_si256((__m256i*)patch2+3*k+2);
+				r1=_mm256_sub_epi32(r1, half);
+				g1=_mm256_sub_epi32(g1, half);
+				b1=_mm256_sub_epi32(b1, half);
+				r2=_mm256_sub_epi32(r2, half);
+				g2=_mm256_sub_epi32(g2, half);
+				b2=_mm256_sub_epi32(b2, half);
+				r1=_mm256_sub_epi32(r1, g1);
+				b1=_mm256_sub_epi32(b1, g1);
+				g1=_mm256_add_epi32(g1, _mm256_srai_epi32(_mm256_add_epi32(r1, g1), 2));
+				r2=_mm256_sub_epi32(r2, g2);
+				b2=_mm256_sub_epi32(b2, g2);
+				g2=_mm256_add_epi32(g2, _mm256_srai_epi32(_mm256_add_epi32(r2, g2), 2));
+				_mm256_store_ps((float*)patch1+8*(3*k+0), _mm256_cvtepi32_ps(r1));
+				_mm256_store_ps((float*)patch1+8*(3*k+1), _mm256_cvtepi32_ps(g1));
+				_mm256_store_ps((float*)patch1+8*(3*k+2), _mm256_cvtepi32_ps(b1));
+				_mm256_store_ps((float*)patch2+8*(3*k+0), _mm256_cvtepi32_ps(r2));
+				_mm256_store_ps((float*)patch2+8*(3*k+1), _mm256_cvtepi32_ps(g2));
+				_mm256_store_ps((float*)patch2+8*(3*k+2), _mm256_cvtepi32_ps(b2));
+			}
+			__m256 mean1[3], mean2[3];
+			memset(mean1, 0, sizeof(mean1));
+			memset(mean2, 0, sizeof(mean2));
+			for(int k=0;k<SSIM_SIZE*SSIM_SIZE;++k)
+			{
+				mean1[0]=_mm256_add_ps(mean1[0], _mm256_load_ps((float*)patch1+8*(3*k+0)));
+				mean1[1]=_mm256_add_ps(mean1[1], _mm256_load_ps((float*)patch1+8*(3*k+1)));
+				mean1[2]=_mm256_add_ps(mean1[2], _mm256_load_ps((float*)patch1+8*(3*k+2)));
+				mean2[0]=_mm256_add_ps(mean2[0], _mm256_load_ps((float*)patch2+8*(3*k+0)));
+				mean2[1]=_mm256_add_ps(mean2[1], _mm256_load_ps((float*)patch2+8*(3*k+1)));
+				mean2[2]=_mm256_add_ps(mean2[2], _mm256_load_ps((float*)patch2+8*(3*k+2)));
+			}
+			__m256 mcount=_mm256_set1_ps(1.f/(SSIM_SIZE*SSIM_SIZE));
+			mean1[0]=_mm256_mul_ps(mean1[0], mcount);
+			mean1[1]=_mm256_mul_ps(mean1[1], mcount);
+			mean1[2]=_mm256_mul_ps(mean1[2], mcount);
+			mean2[0]=_mm256_mul_ps(mean2[0], mcount);
+			mean2[1]=_mm256_mul_ps(mean2[1], mcount);
+			mean2[2]=_mm256_mul_ps(mean2[2], mcount);
+			__m256 var1[3], var2[3], cov[3];
+			memset(var1, 0, sizeof(var1));
+			memset(var2, 0, sizeof(var2));
+			memset(cov, 0, sizeof(cov));
+			for(int k=0;k<SSIM_SIZE*SSIM_SIZE;++k)
+			{
+				__m256 d1[]=
+				{
+					_mm256_sub_ps(mean1[0], _mm256_load_ps((float*)patch1+8*(3*k+0))),
+					_mm256_sub_ps(mean1[1], _mm256_load_ps((float*)patch1+8*(3*k+1))),
+					_mm256_sub_ps(mean1[2], _mm256_load_ps((float*)patch1+8*(3*k+2))),
+				};
+				__m256 d2[]=
+				{
+					_mm256_sub_ps(mean2[0], _mm256_load_ps((float*)patch2+8*(3*k+0))),
+					_mm256_sub_ps(mean2[1], _mm256_load_ps((float*)patch2+8*(3*k+1))),
+					_mm256_sub_ps(mean2[2], _mm256_load_ps((float*)patch2+8*(3*k+2))),
+				};
+				var1[0]=_mm256_add_ps(var1[0], _mm256_mul_ps(d1[0], d1[0]));
+				var2[0]=_mm256_add_ps(var2[0], _mm256_mul_ps(d2[0], d2[0]));
+				cov[0]=_mm256_add_ps(cov[0], _mm256_mul_ps(d1[0], d2[0]));
+			}
+			var1[0]=_mm256_mul_ps(var1[0], mcount);
+			var1[1]=_mm256_mul_ps(var1[1], mcount);
+			var1[2]=_mm256_mul_ps(var1[2], mcount);
+			var2[0]=_mm256_mul_ps(var2[0], mcount);
+			var2[1]=_mm256_mul_ps(var2[1], mcount);
+			var2[2]=_mm256_mul_ps(var2[2], mcount);
+			cov[0]=_mm256_mul_ps(cov[0], mcount);
+			cov[1]=_mm256_mul_ps(cov[1], mcount);
+			cov[2]=_mm256_mul_ps(cov[2], mcount);
+			__m256 num1[]=
+			{
+				_mm256_mul_ps(mean1[0], mean2[0]),
+				_mm256_mul_ps(mean1[1], mean2[1]),
+				_mm256_mul_ps(mean1[2], mean2[2]),
+			};
+			__m256 num2[]=
+			{
+				_mm256_add_ps(cov[0], cov[0]),
+				_mm256_add_ps(cov[1], cov[1]),
+				_mm256_add_ps(cov[2], cov[2]),
+			};
+			num1[0]=_mm256_add_ps(num1[0], num1[0]);
+			num1[1]=_mm256_add_ps(num1[1], num1[1]);
+			num1[2]=_mm256_add_ps(num1[2], num1[2]);
+			num1[0]=_mm256_add_ps(num1[0], c1);
+			num1[1]=_mm256_add_ps(num1[1], c1);
+			num1[2]=_mm256_add_ps(num1[2], c1);
+			num2[0]=_mm256_add_ps(num2[0], c2);
+			num2[1]=_mm256_add_ps(num2[1], c2);
+			num2[2]=_mm256_add_ps(num2[2], c2);
+			num1[0]=_mm256_mul_ps(num1[0], num2[0]);
+			num1[1]=_mm256_mul_ps(num1[1], num2[1]);
+			num1[2]=_mm256_mul_ps(num1[2], num2[2]);
+			__m256 den1[]=
+			{
+				_mm256_add_ps(_mm256_mul_ps(mean1[0], mean1[0]), _mm256_mul_ps(mean2[0], mean2[0])),
+				_mm256_add_ps(_mm256_mul_ps(mean1[1], mean1[1]), _mm256_mul_ps(mean2[1], mean2[1])),
+				_mm256_add_ps(_mm256_mul_ps(mean1[2], mean1[2]), _mm256_mul_ps(mean2[2], mean2[2])),
+			};
+			den1[0]=_mm256_add_ps(den1[0], c1);
+			den1[1]=_mm256_add_ps(den1[1], c1);
+			den1[2]=_mm256_add_ps(den1[2], c1);
+			__m256 den2[]=
+			{
+				_mm256_add_ps(_mm256_add_ps(var1[0], var2[0]), c2),
+				_mm256_add_ps(_mm256_add_ps(var1[1], var2[1]), c2),
+				_mm256_add_ps(_mm256_add_ps(var1[2], var2[2]), c2),
+			};
+			den1[0]=_mm256_mul_ps(den1[0], den2[0]);
+			den1[1]=_mm256_mul_ps(den1[1], den2[1]);
+			den1[2]=_mm256_mul_ps(den1[2], den2[2]);
+			num1[0]=_mm256_div_ps(num1[0], den1[0]);
+			num1[1]=_mm256_div_ps(num1[1], den1[1]);
+			num1[2]=_mm256_div_ps(num1[2], den1[2]);
+			mssim[0]=_mm256_add_ps(mssim[0], num1[0]);
+			mssim[1]=_mm256_add_ps(mssim[1], num1[1]);
+			mssim[2]=_mm256_add_ps(mssim[2], num1[2]);
+			//double curr_ssim=(2*mean1*mean2+c1)*(2*cov+c2)/((mean1*mean1+mean2*mean2+c1)*(var1+var2+c2));
+			//ssim[kc]+=curr_ssim;
+			++count;
+		}
+	}
+	free(im1);
+	free(im2);
+	_mm_free(patch1);
+	_mm_free(patch2);
+	ALIGN(32) float ssim[4][8]={0};
+	if(count)
+	{
+		__m256 norm=_mm256_set1_ps(1.f/(8*count));
+		mssim[0]=_mm256_mul_ps(mssim[0], norm);
+		mssim[1]=_mm256_mul_ps(mssim[1], norm);
+		mssim[2]=_mm256_mul_ps(mssim[2], norm);
+		_mm256_store_ps(ssim[0], mssim[0]);
+		_mm256_store_ps(ssim[1], mssim[1]);
+		_mm256_store_ps(ssim[2], mssim[2]);
+		for(int k=1;k<8;++k)
+		{
+			ssim[0][0]+=ssim[0][k];
+			ssim[1][0]+=ssim[1][k];
+			ssim[2][0]+=ssim[2][k];
+		}
+	}
+	ssim[3][0]=(6*ssim[0][0]+ssim[1][0]+ssim[2][0])/8;
+	long long res=(long long)iw*ih;
+	if(res)
+		printf("  BPD%7.4lf SSIM%9.6lf%9.6lf%9.6lf%9.6lf"
+			, 8.*csize/(3*res)
+			, ssim[3][0]
+			, ssim[0][0]
+			, ssim[1][0]
+			, ssim[2][0]
+		);
+	double w=(double)res/(1024*1024);
+	ret_ssim[0]+=ssim[0][0]*w;
+	ret_ssim[1]+=ssim[1][0]*w;
+	ret_ssim[2]+=ssim[2][0]*w;
+	ret_ssim[3]+=ssim[3][0]*w;
+	*ret_weight+=w;
+}
+static void measure_ssim_ppm(const char *fn0, const char *fn1, long long csize, double *ret_ssim, double *ret_weight)
+{
+	int iw=0, ih=0;
+	unsigned char *im1=0, *im2=0;
+	{
+		int w2=0, h2=0;
+		im1=load_ppm(fn0, &iw, &ih);
+		im2=load_ppm(fn1, &w2, &h2);
+		if(!im1||!im2||iw!=w2||ih!=h2)
+		{
+			LOG_ERROR("Dimension mismatch %d*%d vs %d*%d", iw, ih, w2, h2);
+			return;
+		}
+	}
+	//printf("WH %d*%d\n", iw, ih);
+	ptrdiff_t count=0;
+	double ssim[4]={0};
+	double c1=0.01*255, c2=0.03*255;
+	c1*=c1;
+	c2*=c2;
+	for(int ky=SSIM_SIZE/2;ky<ih-SSIM_SIZE/2;ky+=5)
+	{
+		for(int kx=SSIM_SIZE/2;kx<iw-SSIM_SIZE/2;kx+=5)
+		{
+			int idx=3*(iw*ky+kx);
+			unsigned char *p1=im1+idx, *p2=im2+idx;
+			short patch1[3][SSIM_SIZE*SSIM_SIZE], patch2[3][SSIM_SIZE*SSIM_SIZE];
+			for(int ky2=0;ky2<SSIM_SIZE;++ky2)
+			{
+				for(int kx2=0;kx2<SSIM_SIZE;++kx2)
+				{
+					int srcidx=3*(iw*(ky2-SSIM_SIZE/2)+kx2-SSIM_SIZE/2);
+					int dstidx=SSIM_SIZE*ky2+kx2;
+					patch1[0][dstidx]=p1[srcidx+0]-128;
+					patch2[0][dstidx]=p2[srcidx+0]-128;
+					patch1[1][dstidx]=p1[srcidx+1]-128;
+					patch2[1][dstidx]=p2[srcidx+1]-128;
+					patch1[2][dstidx]=p1[srcidx+2]-128;
+					patch2[2][dstidx]=p2[srcidx+2]-128;
+				}
+			}
+			for(int k=0;k<SSIM_SIZE*SSIM_SIZE;++k)//RGB->YUV
+			{
+				int r1=patch1[0][k], g1=patch1[1][k], b1=patch1[2][k];
+				int r2=patch2[0][k], g2=patch2[1][k], b2=patch2[2][k];
+
+				r1-=g1;
+				b1-=g1;
+				g1+=(r1+b1)>>2;
+				r2-=g2;
+				b2-=g2;
+				g2+=(r2+b2)>>2;
+
+				patch1[0][k]=g1;
+				patch1[1][k]=b1;
+				patch1[2][k]=r1;
+				patch2[0][k]=g2;
+				patch2[1][k]=b2;
+				patch2[2][k]=r2;
+			}
+			for(int kc=0;kc<3;++kc)
+			{
+				double mean1=0, mean2=0;
+				for(int k=0;k<SSIM_SIZE*SSIM_SIZE;++k)
+				{
+					mean1+=patch1[kc][k];
+					mean2+=patch2[kc][k];
+				}
+				mean1/=SSIM_SIZE*SSIM_SIZE;
+				mean2/=SSIM_SIZE*SSIM_SIZE;
+				double var1=0, var2=0, cov=0;
+				for(int k=0;k<SSIM_SIZE*SSIM_SIZE;++k)
+				{
+					double d1=patch1[kc][k]-mean1;
+					double d2=patch2[kc][k]-mean2;
+					var1+=d1*d1;
+					var2+=d2*d2;
+					cov+=d1*d2;
+				}
+				var1/=SSIM_SIZE*SSIM_SIZE;
+				var2/=SSIM_SIZE*SSIM_SIZE;
+				cov/=SSIM_SIZE*SSIM_SIZE;
+				double curr_ssim=(2*mean1*mean2+c1)*(2*cov+c2)/((mean1*mean1+mean2*mean2+c1)*(var1+var2+c2));
+				ssim[kc]+=curr_ssim;
+			}
+			++count;
+		}
+	}
+	free(im1);
+	free(im2);
+	if(count)
+	{
+		ssim[0]/=count;
+		ssim[1]/=count;
+		ssim[2]/=count;
+	}
+	ssim[3]=(6*ssim[0]+ssim[1]+ssim[2])/8;
+	long long res=(long long)iw*ih;
+	if(res)
+		printf("  BPD%7.4lf SSIM%9.6lf%9.6lf%9.6lf%9.6lf", 8.*csize/(3*res), ssim[3], ssim[0], ssim[1], ssim[2]);
+	double w=(double)res/(1024*1024);
+	ret_ssim[0]+=ssim[0]*w;
+	ret_ssim[1]+=ssim[1]*w;
+	ret_ssim[2]+=ssim[2]*w;
+	ret_ssim[3]+=ssim[3]*w;
+	*ret_weight+=w;
+}
+#if 0
+static void measure_ssim_ppm(const char *fn0, const char *fn1, long long csize, double *ret_ssim, long long *ret_bmpsize)
+{
+	int iw=0, ih=0;
+	unsigned char *im1=0, *im2=0;
+	{
+		int w2=0, h2=0;
+		im1=load_ppm(fn0, &iw, &ih);
+		im2=load_ppm(fn1, &w2, &h2);
+		if(iw!=w2||ih!=h2)
+		{
+			LOG_ERROR("Dimension mismatch %d*%d vs %d*%d", iw, ih, w2, h2);
+			return;
+		}
+	}
+	ptrdiff_t count=0;
+	double ssim=0;
+	double c1=0.01*255, c2=0.03*255;
+	c1*=c1;
+	c2*=c2;
+	for(int ky=SSIM_SIZE/2;ky<ih-SSIM_SIZE/2;++ky)
+	{
+		for(int kx=SSIM_SIZE/2;kx<iw-SSIM_SIZE/2;++kx)
+		{
+			int idx=3*(iw*ky+kx);
+			unsigned char *p1=im1+idx, *p2=im2+idx;
+			for(int kc=0;kc<3;++kc)
+			{
+				unsigned char patch1[SSIM_SIZE*SSIM_SIZE], patch2[SSIM_SIZE*SSIM_SIZE];
+				for(int ky2=0;ky2<SSIM_SIZE;++ky2)
+				{
+					for(int kx2=0;kx2<SSIM_SIZE;++kx2)
+					{
+						int idx=3*(iw*(ky2-SSIM_SIZE/2)+kx-SSIM_SIZE/2)+kx;
+						patch1[SSIM_SIZE*ky2+kx2]=p1[idx];
+						patch2[SSIM_SIZE*ky2+kx2]=p2[idx];
+					}
+				}
+				double mean1=0, mean2=0;
+				for(int k=0;k<SSIM_SIZE*SSIM_SIZE;++k)
+				{
+					mean1+=patch1[k];
+					mean2+=patch2[k];
+				}
+				double var1=0, var2=0, cov=0;
+				for(int k=0;k<SSIM_SIZE*SSIM_SIZE;++k)
+				{
+					double d1=patch1[k]-mean1;
+					double d2=patch2[k]-mean2;
+					var1+=d1*d1;
+					var2+=d2*d2;
+					cov+=d1*d2;
+				}
+				double curr_ssim=(2*mean1*mean2+c1)*(2*cov+c2)/((mean1*mean1+mean2*mean2+c1)*(var1+var2+c2));
+				ssim+=curr_ssim;
+				++count;
+			}
+		}
+	}
+	if(count)
+		ssim/=count;
+	long long bmpsize=(long long)3*iw*ih;
+	if(bmpsize)
+		printf("  BPD%7.4lf SSIM%9.6lf", 8.*csize/bmpsize, ssim);
+	*ret_bmpsize+=bmpsize;
+	*ret_ssim+=ssim*bmpsize;
+	free(im1);
+	free(im2);
+}
+#endif
+static void measure_psnr_8bit(const char *fn0, const char *fn1, long long csize, double *ret_sqe)
+{
+	ArrayHandle data0=load_file(fn0, 1, 32, 1);
+	ArrayHandle data1=load_file(fn1, 1, 32, 1);
+	ptrdiff_t size=MINVAR(data0->count, data1->count), k=0;
+	const unsigned char *ptr0=data0->data, *ptr1=data1->data;
+	double error=0;
+	for(;k<size;++k)
+	{
+		int diff=*ptr0++-*ptr1++;
+		error+=(double)diff*diff;
+	}
+	if(ret_sqe)*ret_sqe+=error;
+	double rmse=sqrt(error/size), psnr=20*log10(PSNR_MAX_8/rmse);
+	printf("  BPD%7.4lf rmse %12.6lf psnr %12.6lf", 8.*csize/size, rmse, psnr);
+//	printf(" rmse %12.6lf psnr %12.6lf", rmse, psnr);
+	if(data0->count!=data1->count)
+		printf("different sizes %zd vs %zd:\n", data0->count, data1->count);
+	array_free(&data0);
+	array_free(&data1);
+}
+static void measure_psnr_16bit(const char *fn0, const char *fn1, long long csize, double *ret_sqe)
+{
+	ArrayHandle data0=load_file(fn0, 1, 32, 1);
+	ArrayHandle data1=load_file(fn1, 1, 32, 1);
+	ptrdiff_t size=MINVAR(data0->count, data1->count)>>1, k=0;
+	const unsigned short *ptr0=(const unsigned short*)data0->data, *ptr1=(const unsigned short*)data1->data;
+	double error=0;
+	for(;k<size;++k)
+	{
+		int diff=(short)(*ptr0++-*ptr1++);
+		error+=(double)diff*diff;
+	}
+	if(ret_sqe)*ret_sqe+=error;
+	double rmse=sqrt(error/size), psnr=20*log10(PSNR_MAX_16/rmse);
+	printf("  rmse %12.6lf psnr %12.6lf", rmse, psnr);
+	if(data0->count!=data1->count)
+		printf("different sizes %zd vs %zd:\n", data0->count, data1->count);
 	array_free(&data0);
 	array_free(&data1);
 }
@@ -734,29 +1272,39 @@ static void ascii_deletefile(const char *fn)
 int main(int argc, char **argv)
 {
 	const char *datasetname=0, *codecname=0;
-	int flags=0;
+	int flags=CMDFLAG_VERIFY_BITEXACT;
 //#ifndef _DEBUG
 #ifdef __GNUC__
 	if(argc!=3&&argc!=4)
 	{
 		printf(
-			"Usage:    %s  DATASET  CODEC\n"
+			"Usage:    %s  DATASET  CODEC  [FLAGS]\n"
 			"You will be prompted to define DATASET and CODEC.\n"
-			"Zoom out the terminal twice before starting.\n"
+			"[FLAGS] (optional):\n"
+			"  [0]  Verify files (default).\n"
+			"  [1]  Don't verify bit-exact decodes.\n"
+			"  [2]  Measure PSNR (8-bit).\n"
+			"  [3]  Measure PSNR (16-bit).\n"
+			"  [4]  Measure SSIM (8-bit PPM).\n"
+			"  [5]  Print rivals. It\'s recommended to zoom out the terminal. Can be added to other flags.\n"
 			"Examples:\n"
-			"  %s  div2k  jxl7\n"
-			"  %s  div2k  j2k    1    Disable file verification.\n"
-			"  %s  div2k  qlic2  2    Don't print rivals matrix.\n"
+			"  %s  div2k  jxl7        Verifies that the decoded files are bit-exact.\n"
+			"  %s  div2k  j2k    %d    Doesn't verify files.\n"
+			"  %s  div2k  c32n   %d    Measures 8-bit PSNR.\n"
+			"  %s  div2k  c32n   %d    Measures 8-bit SSIM.\n"
+		//	"  %s  div2k  qlic2  %d    Prints rivals.\n"
 			, argv[0]
 			, argv[0]
-			, argv[0]
-			, argv[0]
+			, argv[0], CMDFLAG_NOP
+			, argv[0], CMDFLAG_PSNR_8BIT
+			, argv[0], CMDFLAG_SSIM_PPM
+		//	, argv[0], CMDFLAG_PRINT_RIVALS
 		);
 		return 0;
 	}
 	datasetname=argv[1];
 	codecname=argv[2];
-	flags=argc==4?atoi(argv[3]):0;
+	flags=argc==4?atoi(argv[3]):CMDFLAG_VERIFY_BITEXACT;
 #else
 	datasetname="div2k";
 	codecname="c32";
@@ -1237,7 +1785,9 @@ dec command template
 	}
 
 	//5. test		DON'T MODIFY g_buf2 BELOW THIS POINT
+	double sqe=0;
 	ptrdiff_t usize=0;
+	double ssim[4]={0}, ssim_weight=0;
 	int maxencthreads=0, maxdecthreads=0;
 	for(int k=0;k<(int)uinfo->count;++k)
 	{
@@ -1330,14 +1880,28 @@ dec command template
 			, decthreads
 #endif
 		);
-		if(!(flags&2))
+		if(flags/CMDFLAG_PRINT_RIVALS)
 			print_rivals_v2(besttestidxs, testinfo, k, currcell, info->usize);
-		printf("\n");
 
-		if(!(flags&1))
+		switch(flags%CMDFLAG_PRINT_RIVALS)
+		{
+		case CMDFLAG_VERIFY_BITEXACT:
 			verify_files((char*)info->filename->data, t1fn);
+			break;
+		case CMDFLAG_PSNR_8BIT:
+			measure_psnr_8bit((char*)info->filename->data, t1fn, currcell->csize, &sqe);
+			break;
+		case CMDFLAG_PSNR_16BIT:
+			measure_psnr_16bit((char*)info->filename->data, t1fn, currcell->csize, &sqe);
+			break;
+		case CMDFLAG_SSIM_PPM:
+		//	measure_ssim_ppm_avx2((char*)info->filename->data, t1fn, currcell->csize, ssim, &ssim_weight);
+			measure_ssim_ppm((char*)info->filename->data, t1fn, currcell->csize, ssim, &ssim_weight);
+			break;
+		}
 		ascii_deletefile(t1fn);
 		ascii_deletefile(t2fn);
+		printf("\n");
 
 		currtest->total.csize+=currcell->csize;
 		currtest->total.etime+=currcell->etime;
@@ -1348,6 +1912,7 @@ dec command template
 			currtest->total.dmem=currcell->dmem;
 	}
 	printf("\n");
+	//print summary
 	{
 		printf(
 			"%5d %*s %10lld -> %10lld B  %12.6lf %12.6lf sec  %12.6lf %12.6lf MB/s %8.2lf %8.2lf MB "
@@ -1369,11 +1934,32 @@ dec command template
 			, maxdecthreads
 #endif
 		);
+		switch(flags%CMDFLAG_PRINT_RIVALS)
+		{
+		case CMDFLAG_PSNR_8BIT:
+		case CMDFLAG_PSNR_16BIT:
+			{
+				int vmax=(flags%CMDFLAG_PRINT_RIVALS)==CMDFLAG_PSNR_8BIT?PSNR_MAX_8:PSNR_MAX_16;
+				double rmse=sqrt(sqe/usize), psnr=20*log10(vmax/rmse);
+				printf("  BPD%7.4lf rmse %12.6lf psnr %12.6lf", 8.*currtest->total.csize/usize, rmse, psnr);
+			}
+			break;
+		case CMDFLAG_SSIM_PPM:
+			printf("  BPD%7.4lf SSIM%9.6lf%9.6lf%9.6lf%9.6lf"
+				, 8.*currtest->total.csize/usize
+				, ssim[3]/ssim_weight
+				, ssim[0]/ssim_weight
+				, ssim[1]/ssim_weight
+				, ssim[2]/ssim_weight
+			);
+		//	printf("  BPD%7.4lf SSIM%9.6lf", 8.*currtest->total.csize/usize, ssim/ssimden);
+			break;
+		}
 #ifndef TRACK_THREADS
 		(void)maxencthreads;
 		(void)maxdecthreads;
 #endif
-		if(!(flags&2))
+		if(flags/CMDFLAG_PRINT_RIVALS)
 			print_rivals_v2(besttestidxs, testinfo, -1, &currtest->total, usize);
 		printf("\n");
 
