@@ -199,7 +199,7 @@ static unsigned char* load_ppm(const char *fn, int *ret_iw, int *ret_ih)
 	return image;
 }
 #define SSIM_SIZE 11
-static void measure_ssim_ppm_avx2(const char *fn0, const char *fn1, long long csize, double *ret_ssim, double *ret_weight)
+static void measure_ssim_ppm_avx2(const char *fn0, const char *fn1, long long csize, double *ret_ssim, double *ret_weight)//buggy
 {
 	const int psize=(int)sizeof(int[3][SSIM_SIZE*SSIM_SIZE][8]);
 	int
@@ -1193,8 +1193,9 @@ static void print_rivals_v2(ArrayHandle besttestidxs, ArrayHandle testinfo, int 
 		print_scicolor(x, x, 1);
 	}
 }
-static void print_summary(ArrayHandle besttestidxs, ArrayHandle testinfo, ptrdiff_t usize, int special)
+static void print_summary(ArrayHandle besttestidxs, ArrayHandle testinfo, ptrdiff_t usize, int special, int printnotation)
 {
+	if(printnotation)
 	{
 		const double usize=800000;
 		const double csize1=450000, etime1=2.5, dtime1=0.5;
@@ -1797,7 +1798,7 @@ dec command template
 	TestInfo *currtest=(TestInfo*)ARRAY_APPEND(testinfo, 0, 1, 1, 0);
 	STR_COPY(currtest->codecname, codecname, strlen(codecname));
 	ARRAY_ALLOC(CellInfo, currtest->cells, 0, uinfo->count, 0, 0);
-	print_summary(besttestidxs, testinfo, usize, -1);
+	print_summary(besttestidxs, testinfo, usize, -1, flags/CMDFLAG_PRINT_RIVALS);
 	printf("\n");
 	print_currtimestamp("%Y-%m-%d_%H%M%S");
 	printf("  ");
@@ -1986,7 +1987,7 @@ dec command template
 		}
 		idx=(int*)array_insert(&besttestidxs, rank, 0, 1, 1, 0);
 		*idx=(int)testinfo->count-1;
-		print_summary(besttestidxs, testinfo, usize, rank);
+		print_summary(besttestidxs, testinfo, usize, rank, flags/CMDFLAG_PRINT_RIVALS);
 	}
 
 	//6. save		g_buf2 can be modified now
