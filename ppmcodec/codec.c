@@ -68,7 +68,7 @@ int c33_codec(int argc, char **argv);//C33: speed priority CG-only
 //	#define CODEC_EXT c21
 //	#define CODEC_EXT c22
 //	#define CODEC_EXT c23
-	#define CODEC_EXT c24
+//	#define CODEC_EXT c24
 //	#define CODEC_EXT c25
 //	#define CODEC_EXT c26
 //	#define CODEC_EXT c27
@@ -76,7 +76,7 @@ int c33_codec(int argc, char **argv);//C33: speed priority CG-only
 //	#define CODEC_EXT c29
 //	#define CODEC_EXT c30
 //	#define CODEC_EXT c31
-//	#define CODEC_EXT c32
+	#define CODEC_EXT c32
 //	#define CODEC_EXT c33
 #endif
 #define STR_EXPAND(X) #X
@@ -106,11 +106,12 @@ int main(int argc, char **argv)
 	//	"D:/ML/zzz_deletethis.lsim"
 	;
 	const char *srcfn=
-		"C:/Projects/datasets/dataset-DIV2K-ppm/0801.ppm"
+	//	"C:/Projects/datasets/0868-ecrop.ppm"
 	//	"C:/Projects/datasets/20240806 6 why me.PPM"
 	//	"C:/Projects/datasets/big_building.PPM"
 	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_abigail-keenan-27293.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC30-ppm/03.ppm"
+		"C:/Projects/datasets/dataset-DIV2K-ppm/0801.ppm"
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim23.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA13882.ppm"
@@ -228,7 +229,7 @@ int main(int argc, char **argv)
 		srcfn,
 		tmpfn,
 		"0",//default nthreads
-		"1",//near
+		"11",//near
 	};
 	const char *decargs[]=
 	{

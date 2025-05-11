@@ -99,6 +99,7 @@ static const char file[]=__FILE__;
 #ifdef ENABLE_GUIDE
 static int g_iw=0, g_ih=0;
 static unsigned char *g_image=0;
+static double g_sqe=0;
 static void guide_save(const unsigned char *image, int iw, int ih)
 {
 	int size=3*iw*ih;
@@ -121,9 +122,18 @@ static void guide_check(const unsigned char *image, int kx, int ky)
 		printf("");
 	}
 }
+static void guide_update_sqe(const unsigned char *image, int kx, int ky)
+{
+	int idx=3*(g_iw*ky+kx);
+	double diff;
+	diff=g_image[idx+0]-image[idx+0]; g_sqe+=diff*diff;
+	diff=g_image[idx+1]-image[idx+1]; g_sqe+=diff*diff;
+	diff=g_image[idx+2]-image[idx+2]; g_sqe+=diff*diff;
+}
 #else
 #define guide_save(...)
 #define guide_check(...)
+#define guide_update_sqe(...)
 #endif
 #define OCHLIST\
 	OCH(R)\
@@ -2984,7 +2994,9 @@ static void block_func(void *param)
 		for(int kc=0;kc<OCH_COUNT;++kc)//select best predictors
 		{
 			int bestpred=0;
-			for(int kp=1;kp<PRED_COUNT;++kp)
+			if(args->near>=4)
+				bestpred=1;
+			for(int kp=bestpred+1;kp<PRED_COUNT;++kp)
 			{
 				if(csizes[kc*PRED_COUNT+bestpred]>csizes[kc*PRED_COUNT+kp])
 					bestpred=kp;
@@ -4104,8 +4116,77 @@ static void block_func(void *param)
 
 				if(args->fwd)
 				{
-					error=yuv[kc]-pred;
+				//again:
+					if(args->near>=4)
 					{
+						//naive deadzone
+#if 1
+						error=(yuv[kc]-pred)/args->near;
+						sym=error<<1^error>>31;
+						yuv[kc]=error*args->near+pred;
+						CLAMP2(yuv[kc], -128, 127);
+						error=yuv[kc]-pred;
+#endif
+
+						//NBLI
+#if 0
+						//NBLI mapXtoW:
+						int x=yuv[kc]+128, px=pred+128;
+						int spred=(MINVAR(px, 255-px)+(args->near>>1))/args->near;
+						int sw=x>=px;
+						int w=abs(x-px);
+						w=(w+(args->near>>1))/args->near;
+						if(w<=0)
+							w=0;
+						else if(w<=spred)
+							w=2*w-sw;
+						else
+							w+=spred;
+
+						sym=w;
+
+						//NBLI mapWtoX:
+						if(w<=0)
+							x=0, sw=0;
+						else if(w<=2*spred)
+						{
+							x=(w+1)/2;
+							sw=(w&1);
+						}
+						else
+						{
+							x=w-spred;
+							sw=px<128;
+						}
+						x*=args->near;
+						x=(sw?x:-x)+px;
+						CLAMP2(x, 0, 255);
+						yuv[kc]=x-128;
+						error=yuv[kc]-pred;
+#endif
+
+						//X
+#if 0
+						int scaledpred=(MINVAR(pred+128, 127-pred)+(args->near>>1))/args->near;
+						error=yuv[kc]+128-pred;
+						error=(error+(args->near>>1))/args->near;
+						
+						int negmask=error>>31;
+						int abserror=(error^negmask)-negmask;
+						sym=error<<1^negmask;
+						if(scaledpred<abserror)
+							sym=scaledpred+abserror;
+
+						if(scaledpred<0||sym<0)//
+							goto again;//
+
+						yuv[kc]=args->near*error+pred;
+						CLAMP2(yuv[kc], -128, 127);
+#endif
+					}
+					else
+					{
+						error=yuv[kc]-pred;
 						int negmask=error>>31;	//8 cycles
 						int abserr=(error^negmask)-negmask;
 						sym=error<<1^negmask;
@@ -4156,7 +4237,9 @@ static void block_func(void *param)
 #endif
 #ifdef _DEBUG
 						if(ec.dstptr>=ec.dstend)
-							LOG_ERROR("Encoder out of memory at YXC %d %d %d", ky, kx, kc);
+							LOG_ERROR("Encoder out of memory at YXC %d %d %d  inflation %8.4lf%%", ky, kx, kc,
+								100.*3*((args->x2-args->x1)*ky+kx)/((args->x2-args->x1)*(args->y2-args->y1))
+							);
 #endif
 #ifdef STATIC_ESTIMATE2
 						{
@@ -4181,7 +4264,7 @@ static void block_func(void *param)
 							ec.range=~ec.low;
 					}
 #if 1
-					if(entropyidx)
+					if(entropyidx&&args->near<4)
 					{
 						__m256i mr2=_mm256_set1_epi32((unsigned short)(((ec.code-ec.low)<<PROB_BITS|((1LL<<PROB_BITS)-1))/ec.range));
 						__m256i mc0=_mm256_loadu_si256((__m256i*)(curr_hist0+1+0*8));
@@ -4388,6 +4471,56 @@ static void block_func(void *param)
 							+(sym&((1<<CONFIG_LSB)-1))
 						;
 					}
+					if(args->near>=4)
+					{
+						//naive deadzone
+#if 1
+						error=(sym>>1^-(sym&1))*args->near;
+						yuv[kc]=error+pred;
+						CLAMP2(yuv[kc], -128, 127);
+						error=yuv[kc]-pred;
+#endif
+
+						//NBLI
+#if 0
+						int px=pred+128;
+						int spred=(MINVAR(px, 255-px)+(args->near>>1))/args->near;
+						int w=sym, x, sw;
+						if(w<=0)
+							x=0, sw=0;
+						else if(w<=2*spred)
+						{
+							x=(w+1)/2;
+							sw=(w&1);
+						}
+						else
+						{
+							x=w-spred;
+							sw=px<128;
+						}
+						x*=args->near;
+						x=(sw?x:-x)+px;
+						CLAMP2(x, 0, 255);
+						yuv[kc]=x-128;
+						error=yuv[kc]-pred;
+#endif
+
+						//X
+#if 0
+						int scaledpred=(MINVAR(pred-128, 127-pred)-128+(args->near>>1))/args->near;
+						
+						int negmask=pred>>31;	//11 cycles
+						int e2=scaledpred-sym;
+						error=sym>>1^-(sym&1);
+						e2=(e2^negmask)-negmask;
+						if((scaledpred<<1)<sym)//CMOV
+							error=e2;
+						
+						yuv[kc]=args->near*error+pred;
+						CLAMP2(yuv[kc], -128, 127);
+#endif
+					}
+					else
 					{
 						int negmask=pred>>31;	//11 cycles
 						int e2=upred-sym;
@@ -4395,28 +4528,29 @@ static void block_func(void *param)
 						e2=(e2^negmask)-negmask;
 						if((upred<<1)<sym)//CMOV
 							error=e2;
+
+						//error=upred-sym;
+						//if(pred<0)
+						//	error=sym-upred;
+						//if(sym<=(upred<<1))//CMOV
+						//	error=sym>>1^-(sym&1);
+
+						//if(sym<=(upred<<1))
+						//	error=sym>>1^-(sym&1);//unpack sign
+						//else
+						//{
+						//	int neg=pred>>31;
+						//	error=upred-sym;
+						//	error^=neg;
+						//	error-=neg;
+						//
+						//	//error=sym-upred;
+						//	//if(pred>0)
+						//	//	error=-error;
+						//}
+
+						yuv[kc]=error+pred;
 					}
-
-					//error=upred-sym;
-					//if(pred<0)
-					//	error=sym-upred;
-					//if(sym<=(upred<<1))//CMOV
-					//	error=sym>>1^-(sym&1);
-
-					//if(sym<=(upred<<1))
-					//	error=sym>>1^-(sym&1);//unpack sign
-					//else
-					//{
-					//	int neg=pred>>31;
-					//	error=upred-sym;
-					//	error^=neg;
-					//	error-=neg;
-					//
-					//	//error=sym-upred;
-					//	//if(pred>0)
-					//	//	error=-error;
-					//}
-					yuv[kc]=error+pred;
 				}
 				curr[kc+0]=regW[kc]=yuv[kc]-offset;
 			//	curr[kc+4]=regW[kc+4]=(2*rows[0][kc-1*4*4+4]+((error<<1^error>>31)<<6)+MAXVAR(rows[1][kc+2*4*4+4], rows[1][kc+3*4*4+4]))>>2;
@@ -4644,7 +4778,10 @@ static void block_func(void *param)
 				//args->dst[yidx]=yuv[0]+128;
 				//args->dst[uidx]=yuv[1]+128;
 				//args->dst[vidx]=yuv[2]+128;
-				guide_check(args->imagebuf, kx, ky);
+				if(args->near>=4)
+					guide_update_sqe(args->imagebuf, kx, ky);
+				else
+					guide_check(args->imagebuf, kx, ky);
 			}
 			rows[0]+=4*4;
 			rows[1]+=4*4;
@@ -4833,7 +4970,8 @@ int c24_codec(int argc, char **argv)
 	}
 	const char *srcfn=argv[1], *dstfn=argc<3?0:argv[2];
 	int maxthreads=argc<4?0:atoi(argv[3]), near=argc<5?0:atoi(argv[4]);
-#if 1
+	if(near!=0&&near!=1)
+		CLAMP2(near, 4, 64);
 	if(!srcfn||!dstfn)
 	{
 		LOG_ERROR("Codec requires both source and destination filenames");
@@ -4843,6 +4981,7 @@ int c24_codec(int argc, char **argv)
 	ptrdiff_t srcsize=0, streamsize=0, usize=0;
 	unsigned char *imagebuf=0, *streambuf=0;
 	unsigned char *streamptr=0, *streamstart=0, *streamend=0;
+	(void)streamstart;
 	{
 		struct stat info={0};
 		int error=stat(srcfn, &info);
@@ -4920,8 +5059,6 @@ int c24_codec(int argc, char **argv)
 				LOG_ERROR("Unsupported PPM file");
 				return 1;
 			}
-			
-			//streamsize=(ptrdiff_t)6*iw*ih;
 		}
 		else
 		{
@@ -5175,525 +5312,13 @@ int c24_codec(int argc, char **argv)
 		//printf("\n");
 	}
 	printf("%c %16.6lf sec  %16.6lf MB/s\n", 'D'+fwd, t, usize/(t*1024*1024));
+#ifdef ENABLE_GUIDE
+	if(!fwd&&near>=4)
+	{
+		double rmse=sqrt(g_sqe/usize), psnr=20*log10(255/rmse);
+		printf("RMSE %12.6lf  PSNR %12.6lf\n", rmse, psnr);
+	}
+#endif
 #endif
 	return 0;
-#endif
-#if 0
-	double t0;
-	ArrayHandle src, dst;
-	int headersize, printed;
-	int iw, ih;
-	const unsigned char *image, *imageend;
-	unsigned char *image2;
-	CodecID codec=CODEC_INVALID;
-	int xblocks, yblocks, nblocks, ncores, nthreads, coffset;
-	ptrdiff_t start, memusage, argssize;
-	ThreadArgs *args;
-	int test, fwd;
-	int histsize;
-	double esize;
-	int usize;
-	int maxwidth;
-	int tlevels, statssize;
-	unsigned *mixincdfs=0;
-#ifdef PRINT_PREDHIST
-	int predhist[PRED_COUNT]={0};
-#endif
-	int *streamoffsets=0;
-	int encbufsize=0;
-#ifdef PRINT_CSIZES
-	double csizes[3]={0};
-#endif
-	
-	t0=time_sec();
-	src=load_file(srcfn, 1, 3, 1);
-	headersize=header_read(src->data, (int)src->count, &iw, &ih, &codec);
-	image=src->data+headersize;
-	imageend=src->data+src->count;
-	if(codec==CODEC_INVALID||codec==CODEC_PGM)
-	{
-		LOG_ERROR("Unsupported codec %d.\n", codec);
-		array_free(&src);
-		return 1;
-	}
-	else if(codec==CODEC_C01&&!dstfn)
-	{
-		LOG_ERROR(
-			"Test mode expects PPM source.\n"
-			"Decode mode expects destination filename."
-		);
-		return 1;
-	}
-	test=!dstfn;
-	fwd=codec==CODEC_PPM;
-	
-	usize=iw*ih*3;
-	xblocks=(iw+BLOCKX-1)/BLOCKX;
-	yblocks=(ih+BLOCKY-1)/BLOCKY;
-	nblocks=xblocks*yblocks;
-	ncores=query_cpu_cores();
-	nthreads=MINVAR(nblocks, ncores);
-	if(maxthreads&&nthreads>maxthreads)
-		nthreads=maxthreads;
-	//if(nthreads0)
-	//{
-	//	int nthreads2=MINVAR(nblocks, ncores);
-	//	nthreads=nthreads0;
-	//	CLAMP2(nthreads, 1, nthreads2);
-	//}
-	//else
-	//	nthreads=MINVAR(nblocks, ncores);
-	coffset=(int)sizeof(int[2])*nblocks;
-	start=0;
-	memusage=0;
-	argssize=nthreads*sizeof(ThreadArgs);
-	args=(ThreadArgs*)malloc(argssize);
-	if(!args)
-	{
-		LOG_ERROR("Alloc error");
-		return 1;
-	}
-	esize=0;
-	memusage+=argssize;
-	memset(args, 0, argssize);
-	streamoffsets=(int*)malloc(sizeof(int[2])*nblocks);
-	if(!streamoffsets)
-	{
-		LOG_ERROR("Alloc error");
-		return 1;
-	}
-	memset(streamoffsets, 0, sizeof(int[2])*nblocks);
-	if(fwd)
-	{
-		guide_save(image, iw, ih);
-
-		dst=0;
-		printed=snprintf(g_buf, G_BUF_SIZE-1, "C01\n%d %d\n", iw, ih);
-		array_append(&dst, g_buf, 1, printed, 1, 0, 0);
-		array_append(&dst, &near, 1, 1, 1, 0, 0);
-		start=dst->count;
-		//start=array_append(&dst, 0, 1, coffset, 1, 0, 0);
-		
-		image2=0;
-		encbufsize=(int)((long long)4*iw*ih/nthreads);
-		if(encbufsize<sizeof(char[4*BLOCKX*BLOCKY]))
-			encbufsize=sizeof(char[4*BLOCKX*BLOCKY]);
-	}
-	else//integrity check
-	{
-		dst=0;
-		printed=snprintf(g_buf, G_BUF_SIZE-1, "P6\n%d %d\n255\n", iw, ih);
-		array_append(&dst, g_buf, 1, printed, 1, 0, 0);
-		array_append(&dst, 0, 1, usize, 1, 0, 0);
-
-		memcpy(streamoffsets, image, sizeof(int[2])*nblocks);
-		int sum=0;
-		for(int k=0;k<nblocks*2;++k)
-		{
-			int size=streamoffsets[k];
-			sum+=size;
-			streamoffsets[k]=sum;
-		}
-		start=coffset;
-		if(image+coffset+sum!=imageend)
-			LOG_ERROR("Corrupt file");
-		//start=coffset;
-		//for(int kt=0;kt<nblocks;++kt)
-		//{
-		//	int size[2]={0};
-		//	memcpy(size, image+sizeof(int[2])*kt, sizeof(int[2]));
-		//	start+=size[0];
-		//	start+=size[1];
-		//}
-		//if(image+start!=imageend)
-		//	LOG_ERROR("Corrupt file");
-		//start=coffset;
-
-		image2=(unsigned char*)malloc(usize);
-		if(!image2)
-		{
-			LOG_ERROR("Alloc error");
-			return 0;
-		}
-		memset(image2, 0, usize);
-	}
-	{
-		int token=0, bypass=0, nbits=0;
-
-		quantize_pixel(256, &token, &bypass, &nbits);//256 is a valid symbol due to CALIC-like sign packing
-		tlevels=token+1;
-		statssize=(tlevels+1)*(int)sizeof(int[3*ELEVELS*CLEVELS]);//CDF padding, contains (1<<PROB_BITS)
-		histsize=(int)sizeof(int[OCH_COUNT*PRED_COUNT<<8]);
-		if(histsize<statssize)
-			histsize=statssize;
-		maxwidth=iw;
-		if(maxwidth>BLOCKX)
-			maxwidth=BLOCKX;
-		mixincdfs=(unsigned*)malloc(sizeof(int)*tlevels*tlevels);
-		if(!mixincdfs)
-		{
-			LOG_ERROR("Alloc error");
-			return 1;
-		}
-		for(int ks=0;ks<tlevels;++ks)
-		{
-			for(int ks2=0;ks2<tlevels;++ks2)
-				mixincdfs[tlevels*ks+ks2]=(((1<<PROB_BITS)-tlevels)<<PROB_EBITS)&-(ks<ks2);
-		}
-	}
-	for(int k=0, kb=0;k<nthreads;++k)//initialization
-	{
-		ThreadArgs *arg=args+k;
-		arg->src=image;
-		arg->dst=fwd?0:dst->data+printed;
-		arg->iw=iw;
-		arg->ih=ih;
-		
-		arg->b1=kb;
-		kb=(k+1)*nblocks/nthreads;
-		arg->b2=kb;
-		arg->xblocks=xblocks;
-		arg->nblocks=nblocks;
-
-		arg->bufsize=sizeof(short[4*4*4])*(maxwidth+16LL);//4 padded rows * 4 channels max * {pixels, wg_errors}
-		arg->pixels=(short*)_mm_malloc(arg->bufsize, sizeof(__m128i));
-		arg->histsize=histsize;
-		arg->hist=(int*)malloc(histsize);
-		if(!arg->pixels||!arg->hist)
-		{
-			LOG_ERROR("Alloc error");
-			return 1;
-		}
-#ifdef STATIC_ESTIMATE
-		if(fwd)
-		{
-			arg->ehistsize=(int)sizeof(int[3*2*(ELEVELS<<PBITS)<<8]);//3 channels  *  2*(ELEVELS<<PBITS) contexts  *  int[256]
-			arg->ehist=(int*)malloc(arg->ehistsize);
-			if(!arg->ehist)
-			{
-				LOG_ERROR("Alloc error");
-				return 1;
-			}
-			memset(arg->esizes, 0, sizeof(arg->esizes));
-		}
-#endif
-		memusage+=arg->bufsize;
-		memusage+=arg->histsize;
-		if(fwd)
-		{
-			arg->encbufsize=encbufsize;
-			arg->enctokenbuf=(unsigned char*)malloc(encbufsize);
-			arg->encbypassbuf=(unsigned char*)malloc(encbufsize);
-			if(!arg->enctokenbuf||!arg->encbypassbuf)
-			{
-				LOG_ERROR("Alloc error");
-				return 1;
-			}
-			memusage+=2LL*encbufsize;
-
-			arg->enctokenoffsets=streamoffsets+arg->b1;
-			arg->encbypassoffsets=arg->enctokenoffsets+nblocks;
-			arg->near=near;
-		}
-		else
-		{
-			arg->decstream=image+start;
-			arg->decoffsets=streamoffsets;
-		}
-		//if(fwd)
-		//{
-		//	arg->tokenbufsize=(ptrdiff_t)4*BLOCKX*BLOCKY;//actually 2.5*BLOCKX*BLOCKY
-		//	arg->tokenbuf=(unsigned char*)malloc(arg->tokenbufsize);
-		//	arg->bypassbufsize=(ptrdiff_t)4*BLOCKX*BLOCKY;//actually 2.7*BLOCKX*BLOCKY
-		//	arg->bypassbuf=(unsigned char*)malloc(arg->bypassbufsize+4);//4 byte pad for branchless renorm
-		//	if(!arg->tokenbuf||!arg->bypassbuf)
-		//	{
-		//		LOG_ERROR("Alloc error");
-		//		return 1;
-		//	}
-		//	memusage+=arg->tokenbufsize;
-		//	memusage+=arg->bypassbufsize;
-		//}
-		
-		arg->tlevels=tlevels;
-		arg->fwd=fwd;
-		arg->test=test;
-		arg->mixincdfs=mixincdfs;
-#ifdef ENABLE_MT
-		arg->loud=0;
-#else
-		arg->loud=test&&nblocks<MAXPRINTEDBLOCKS;
-#endif
-	}
-	for(int k2=0;k2<=test;++k2)
-	{
-#ifdef ENABLE_MT
-		if(nthreads>1)
-		{
-			void *ctx=mt_exec(block_thread, args, sizeof(ThreadArgs), nthreads);
-			mt_finish(ctx);
-		}
-		else
-#endif
-		{
-			for(int k=0;k<nthreads;++k)
-				block_thread(args+k);
-		}
-		if(fwd)
-		{
-			{
-				int *streamsizes=(int*)ARRAY_APPEND(dst, 0, sizeof(int[2])*nblocks, 1, 0);
-				if(!streamsizes)
-				{
-					LOG_ERROR("Alloc error");
-					return 1;
-				}
-				for(int k=0;k<nthreads;++k)//append token stream sizes
-				{
-					ThreadArgs *arg=args+k;
-					for(int kb=arg->b1;kb<arg->b2;++kb)
-						streamsizes[kb]=streamoffsets[kb]-(kb>arg->b1?streamoffsets[kb-1]:0);
-				}
-				for(int k=0;k<nthreads;++k)//append bypass stream sizes
-				{
-					ThreadArgs *arg=args+k;
-					for(int kb=arg->b1;kb<arg->b2;++kb)
-					{
-						int kb2=nblocks+kb;
-						streamsizes[kb2]=streamoffsets[kb2]-(kb>arg->b1?streamoffsets[kb2-1]:0);
-					}
-				}
-				//for(int k=0;k<nblocks*2;++k)
-				//	printf("%3d  %8d\n", k, streamsizes[k]);
-			}
-
-			for(int k=0;k<nthreads;++k)//append token streams
-			{
-				ThreadArgs *arg=args+k;
-				ARRAY_APPEND(dst, arg->enctokenbuf, streamoffsets[arg->b2-1], 1, 0);
-			}
-			for(int k=0;k<nthreads;++k)//append bypass streams
-			{
-				ThreadArgs *arg=args+k;
-				ARRAY_APPEND(dst, arg->encbypassbuf, streamoffsets[nblocks+arg->b2-1], 1, 0);
-			}
-#ifdef PRINT_CSIZES
-			for(int k=0;k<nthreads;++k)
-			{
-				csizes[0]+=args[k].csizes[0];
-				csizes[1]+=args[k].csizes[1];
-				csizes[2]+=args[k].csizes[2];
-			}
-#endif
-		}
-#if 0
-		for(int kt=0;kt<nblocks;kt+=nthreads)
-		{
-			int nthreads2=MINVAR(kt+nthreads, nblocks)-kt;
-			for(int kt2=0;kt2<nthreads2;++kt2)
-			{
-				ThreadArgs *arg=args+kt2;
-				int kx, ky;
-			
-				arg->blockidx=kx=kt+kt2;
-				ky=kx/xblocks;
-				kx%=xblocks;
-				arg->x1=BLOCKX*kx;
-				arg->y1=BLOCKY*ky;
-				arg->x2=MINVAR(arg->x1+BLOCKX, iw);
-				arg->y2=MINVAR(arg->y1+BLOCKY, ih);
-				//if(!fwd)
-				//{
-				//	int size[2]={0};
-				//	memcpy(size, image+sizeof(int[2])*((ptrdiff_t)kt+kt2), sizeof(int[2]));
-				//
-				//	arg->decstart=image+start;
-				//	start+=size[0];
-				//	arg->decend=image+start;
-				//
-				//	arg->bypassstart=image+start;
-				//	start+=size[1];
-				//	arg->bypassend=image+start;
-				//}
-			}
-#ifdef ENABLE_MT
-			void *ctx=mt_exec(block_thread, args, sizeof(ThreadArgs), nthreads2);
-			mt_finish(ctx);
-#else
-			for(int k=0;k<nthreads2;++k)
-				block_thread(args+k);
-#endif
-			if(fwd)
-			{
-				for(int kt2=0;kt2<nthreads2;++kt2)
-				{
-					ThreadArgs *arg=args+kt2;
-					if(test)
-					{
-#if 0
-						int blocksize=(3*8*(arg->x2-arg->x1)*(arg->y2-arg->y1)+7)>>3;
-						int kx, ky;
-
-						kx=kt+kt2;
-						ky=kx/xblocks;
-						kx%=xblocks;
-						if(nblocks<MAXPRINTEDBLOCKS)
-						{
-							ptrdiff_t nbytes=arg->tokenstream.nbytes+args->bypassstream.nbytes;
-							//if(!(kt+kt2))
-							//	printf("block,  nrows,  usize,     best  ->  actual,  (actual-best)\n");
-							printf(
-								"block %4d/%4d  XY %3d %3d  %4d*%4d:  %8d->%16lf->%8zd bytes (%+10.2lf)  %10.6lf%%  CR %10lf  %s %s %s %s\n",
-								kt+kt2+1, nblocks,
-								kx, ky,
-								arg->y2-arg->y1,
-								arg->x2-arg->x1,
-								blocksize,
-								arg->bestsize,
-								nbytes,
-								nbytes-arg->bestsize,
-								100.*nbytes/blocksize,
-								(double)blocksize/nbytes,
-								rct_names[arg->bestrct],
-								pred_names[arg->predidx[0]],
-								pred_names[arg->predidx[1]],
-								pred_names[arg->predidx[2]]
-							);
-						}
-#endif
-						esize+=arg->bestsize;
-					}
-					//ARRAY_APPEND(dst, arg->tokenbuf, arg->tokenptr-arg->tokenbuf, 1, 0);
-					//ARRAY_APPEND(dst, arg->bypassbuf, arg->bypassptr-arg->bypassbuf, 1, 0);
-					//*(unsigned*)(dst->data+start+8LL*((ptrdiff_t)kt+kt2)+4*0)=(unsigned)(arg->tokenptr-arg->tokenbuf);
-					//*(unsigned*)(dst->data+start+8LL*((ptrdiff_t)kt+kt2)+4*1)=(unsigned)(arg->bypassptr-arg->bypassbuf);
-#ifdef PRINT_PREDHIST
-					++predhist[arg->predidx[0]];
-					++predhist[arg->predidx[1]];
-					++predhist[arg->predidx[2]];
-#endif
-				}
-			}
-		}
-#endif
-		if(test)
-		{
-			ptrdiff_t usize=((ptrdiff_t)3*8*iw*ih+7)>>3;
-			ptrdiff_t csize=dst->count;
-			t0=time_sec()-t0;
-			if(fwd)
-			{
-				printf("Best %15.2lf (%+13.2lf) bytes\n", esize, csize-esize);
-				printf("%12td/%12td  %10.6lf%%  %10lf\n", csize, usize, 100.*csize/usize, (double)usize/csize);
-				printf("Mem usage: ");
-				print_size((double)memusage, 8, 4, 0, 0);
-				printf("\n");
-			}
-			printf("%c %16.6lf sec  %16.6lf MB/s\n", 'D'+fwd, t0, usize/(t0*1024*1024));
-			if(!fwd)
-				compare_bufs_8(image2, src->data+headersize, iw, ih, 3, 3, "C01", 0, 1);
-		}
-		if(!k2&&test)
-		{
-			int usize=iw*ih*3;
-			fwd=0;
-			image2=(unsigned char*)malloc(usize);
-			if(!image2)
-			{
-				LOG_ERROR("Alloc error");
-				return 0;
-			}
-			memset(image2, 0, usize);
-			for(int kt=0;kt<nthreads;++kt)
-			{
-				ThreadArgs *arg=args+kt;
-				arg->dst=image2;
-				arg->fwd=0;
-			}
-			image=dst->data+printed;
-			start=coffset;
-		}
-		t0=time_sec();
-	}
-#ifdef STATIC_ESTIMATE
-	if(fwd)
-	{
-		double esize=0, hsize=0;
-		for(int kt=0;kt<nthreads;++kt)
-		{
-			ThreadArgs *arg=args+kt;
-			for(int kctx=0;kctx<3*(ELEVELS<<PBITS);++kctx)
-			{
-				esize+=arg->esizes[kctx<<1|0];
-				hsize+=arg->esizes[kctx<<1|1];
-			}
-		}
-		printf("%12.2lf - %12.2lf ", esize+hsize, hsize);
-	}
-#endif
-#ifdef STATIC_ESTIMATE2
-	if(fwd)
-	{
-		double esize=0, hsize=0;
-		for(int kt=0;kt<nthreads;++kt)
-		{
-			ThreadArgs *arg=args+kt;
-			esize+=arg->esize2;
-			hsize+=arg->hsize2;
-		}
-		printf("%12.2lf - %12.2lf ", esize+hsize, hsize);
-	}
-#endif
-	if(!test)
-		save_file(dstfn, dst->data, dst->count, 1);
-#ifdef PRINT_CSIZES
-	ptrdiff_t csize=dst->count;
-#endif
-	if(image2)
-		free(image2);
-	for(int k=0;k<nthreads;++k)
-	{
-		ThreadArgs *arg=args+k;
-		_mm_free(arg->pixels);
-		free(arg->hist);
-		if(fwd||test)
-		{
-			free(arg->enctokenbuf);
-			free(arg->encbypassbuf);
-		}
-#ifdef STATIC_ESTIMATE
-		if(fwd)
-			free(arg->ehist);
-#endif
-	}
-	free(args);
-	array_free(&src);
-	array_free(&dst);
-	free(mixincdfs);
-	free(streamoffsets);
-#ifdef PRINT_CSIZES
-	if(fwd)
-	{
-		csizes[0]/=8;
-		csizes[1]/=8;
-		csizes[2]/=8;
-		double tsize=csizes[0]+csizes[1]+csizes[2];
-		printf("U %8td\n", (ptrdiff_t)3*iw*ih);
-		printf("C %8td\n", csize);
-		printf("T %11.2lf\n", tsize);
-		printf("Y %11.2lf\n", csizes[0]);
-		printf("U %11.2lf\n", csizes[1]);
-		printf("V %11.2lf\n", csizes[2]);
-	}
-#endif
-#ifdef PRINT_PREDHIST
-	if(fwd)
-	{
-		for(int k=0;k<PRED_COUNT;++k)
-			printf("\t%8d %s", predhist[k], pred_names[k]);
-		printf("\n");
-	}
-#endif
-	return 0;
-#endif
 }

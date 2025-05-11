@@ -36,7 +36,7 @@ static const char file[]=__FILE__;
 	#define INTERLEAVESIMD		//2.5x faster interleave
 
 
-#define NEAR_DISTORTION 5		//d >= 4
+//#define NEAR_DISTORTION 7		//d >= 4
 
 //3*17+3=54 contexts
 #define GRBITS 3
@@ -1916,16 +1916,20 @@ static void decode1d(unsigned char *data, int count, int bytestride, int bestrct
 }
 int c32_codec(int argc, char **argv)
 {
-	if(argc!=3&&argc!=4)
+	if(argc!=3&&argc!=4&&argc!=5)
 	{
 		printf(
-			"Usage: \"%s\"  input  output  [N]    Encode/decode.\n"
-			"N  =  1 Force CG / 2 Force WG4 / 3 Lossy | 4 Profile\n"
+			"Usage: \"%s\"  input  output  [P]  [D]    Encode/decode.\n"
+			"P  =  1 Force CG / 2 Force WG4 | 4 Profile\n"
+			"D  =  lossy distortion. 4 <= D <= 16\n"
 			, argv[0]
 		);
 		return 1;
 	}
-	const char *srcfn=argv[1], *dstfn=argv[2], nthreads0=argc<4?0:atoi(argv[3]);
+	const char *srcfn=argv[1], *dstfn=argv[2];
+	int nthreads0=argc<4?0:atoi(argv[3]), near=argc<5?0:atoi(argv[4]);
+	if(near)
+		CLAMP2(near, 4, 16);
 #ifdef ESTIMATE_SIZE
 	double esize[3*NCODERS]={0};
 #endif
@@ -2045,7 +2049,7 @@ int c32_codec(int argc, char **argv)
 		return 1;
 	}
 	(void)xrembytes;
-	int bestrct=0, use_wg4=0, near=0;
+	int bestrct=0, use_wg4=0;
 	//int L1sh=0;
 	unsigned long long ctxmask=0;//3*NCTX+3 = 54 flags	0: rare context (bypass)  1: emit stats
 	const int hsize=(int)sizeof(int[3*NCTX<<8]);//3 channels
@@ -2092,11 +2096,6 @@ int c32_codec(int argc, char **argv)
 		interleave_blocks_fwd(image, iw, ih, interleaved+isize);//reuse memory: read 8-bit pixel, write 16-bit context<<8|residual
 		guide_save(interleaved+isize, ixcount, blockh);
 		prof_checkpoint(usize, "interleave");
-		if((nthreads0&3)==3)
-		{
-			near=1;
-			use_wg4=2;
-		}
 		if(!near)
 		{
 			ALIGN(32) long long counters[OCH_COUNT]={0};
@@ -2197,23 +2196,19 @@ int c32_codec(int argc, char **argv)
 //#error remove above
 //#endif
 
-			switch(nthreads0&3)
-			{
-			case 1://use CG
-				use_wg4=0;
-				break;
-			case 2://use WG4
-				use_wg4=1;
-				break;
-			case 3:
-				use_wg4=2;
-				near=1;
-				break;
-			default://use L1 loss
-				use_wg4=2;
-				break;
-			}
 			prof_checkpoint(usize, "analysis");
+		}
+		switch(nthreads0&3)
+		{
+		case 1://use CG
+			use_wg4=0;
+			break;
+		case 2://use WG4
+			use_wg4=1;
+			break;
+		default://use L1 loss
+			use_wg4=2;
+			break;
 		}
 #ifndef LOUD
 		if(nthreads0&4)
@@ -2237,14 +2232,11 @@ int c32_codec(int argc, char **argv)
 	else
 	{
 		//decode flags, stats
-		int flags=*(short*)streamptr;
-		streamptr+=2;
-		near=flags&1;
-		flags>>=1;
+		int flags=*streamptr++;
 		use_wg4=flags&3;
 		flags>>=2;
 		bestrct=flags%RCT_COUNT;
-		//use_wg4=flags&3;
+		near=*streamptr++;
 
 		ctxmask=*(unsigned long long*)streamptr;
 		streamptr+=8;
@@ -2325,6 +2317,13 @@ int c32_codec(int argc, char **argv)
 	__m256i bytemask=_mm256_set1_epi16(255);
 	__m256i wordmask=_mm256_set1_epi32(0xFFFF);
 	__m256i myuv[3];
+	__m256i dist_bias=_mm256_set1_epi16(0), dist_rcp=_mm256_set1_epi16(0x7FFF), dist=_mm256_set1_epi16(1);
+	if(near)
+	{
+		dist_bias=_mm256_set1_epi16(near-1);
+		dist_rcp=_mm256_set1_epi16(((1<<16)+near-1)/near);//x/dist = (x+(x<0?dist-1:0))*ceil(2^16/dist)>>16
+		dist=_mm256_set1_epi16(near);
+	}
 	memset(myuv, 0, sizeof(myuv));
 	unsigned char *ctxptr=interleaved;
 	imptr=interleaved+(fwd?isize:0);
@@ -2703,31 +2702,28 @@ int c32_codec(int argc, char **argv)
 					myuv[1]=_mm256_cvtepi8_epi16(_mm_add_epi8(_mm_loadu_si128((__m128i*)(imptr+1*NCODERS)), half8));
 					myuv[2]=_mm256_cvtepi8_epi16(_mm_add_epi8(_mm_loadu_si128((__m128i*)(imptr+2*NCODERS)), half8));
 
-					//val=(curr-(int)pred+1)/3;
+					//val=(curr-(int)pred)/dist
 					val[0]=_mm256_sub_epi16(myuv[0], predY);
 					val[1]=_mm256_sub_epi16(myuv[1], predU);
 					val[2]=_mm256_sub_epi16(myuv[2], predV);
 					__m256i cond[3];
-					cond[0]=_mm256_srai_epi16(val[0], 15);//x/3 = (x+(x<0?3-1:0))*0x5555>>16
+					cond[0]=_mm256_srai_epi16(val[0], 15);
 					cond[1]=_mm256_srai_epi16(val[1], 15);
 					cond[2]=_mm256_srai_epi16(val[2], 15);
-					tmp=_mm256_set1_epi16(NEAR_DISTORTION-1);
-					cond[0]=_mm256_and_si256(cond[0], tmp);
-					cond[1]=_mm256_and_si256(cond[1], tmp);
-					cond[2]=_mm256_and_si256(cond[2], tmp);
+					cond[0]=_mm256_and_si256(cond[0], dist_bias);
+					cond[1]=_mm256_and_si256(cond[1], dist_bias);
+					cond[2]=_mm256_and_si256(cond[2], dist_bias);
 					val[0]=_mm256_add_epi16(val[0], cond[0]);
 					val[1]=_mm256_add_epi16(val[1], cond[1]);
 					val[2]=_mm256_add_epi16(val[2], cond[2]);
-					tmp=_mm256_set1_epi16(((1<<16)+NEAR_DISTORTION-1)/NEAR_DISTORTION);
-					val[0]=_mm256_mulhi_epi16(val[0], tmp);
-					val[1]=_mm256_mulhi_epi16(val[1], tmp);
-					val[2]=_mm256_mulhi_epi16(val[2], tmp);
+					val[0]=_mm256_mulhi_epi16(val[0], dist_rcp);
+					val[1]=_mm256_mulhi_epi16(val[1], dist_rcp);
+					val[2]=_mm256_mulhi_epi16(val[2], dist_rcp);
 
-					//curr=dist*val+pred;
-					tmp=_mm256_set1_epi16(NEAR_DISTORTION);
-					myuv[0]=_mm256_mullo_epi16(val[0], tmp);
-					myuv[1]=_mm256_mullo_epi16(val[1], tmp);
-					myuv[2]=_mm256_mullo_epi16(val[2], tmp);
+					//curr=dist*val+pred
+					myuv[0]=_mm256_mullo_epi16(val[0], dist);
+					myuv[1]=_mm256_mullo_epi16(val[1], dist);
+					myuv[2]=_mm256_mullo_epi16(val[2], dist);
 
 					myuv[0]=_mm256_add_epi16(myuv[0], predY);
 					myuv[1]=_mm256_add_epi16(myuv[1], predU);
@@ -2748,14 +2744,7 @@ int c32_codec(int argc, char **argv)
 					tmp=_mm256_add_epi16(val[0], val[2]);
 					tmp=_mm256_srai_epi16(tmp, 2);
 					val[1]=_mm256_add_epi16(val[1], tmp);
-				//	val[2]=_mm256_sub_epi16(val[2], val[0]);//
 
-				//	moffset=_mm256_mullo_epi16(val[0], vc0);
-				//	moffset=_mm256_add_epi16(moffset, _mm256_mullo_epi16(val[1], vc1));
-				//	moffset=_mm256_srai_epi16(moffset, 2);
-				//	val[2]=_mm256_sub_epi16(val[2], moffset);
-				//	moffset=_mm256_and_si256(val[0], uhelpmask);
-				//	val[1]=_mm256_sub_epi16(val[1], moffset);
 					ecurr[0]=val[0];
 					ecurr[1]=val[1];
 					ecurr[2]=val[2];
@@ -2834,26 +2823,16 @@ int c32_codec(int argc, char **argv)
 					ecurr[2]=val[2];
 					
 					//RCT
-
-				//	val[2]=_mm256_add_epi16(val[2], val[0]);//
 					tmp=_mm256_add_epi16(val[0], val[2]);
 					tmp=_mm256_srai_epi16(tmp, 2);
 					val[1]=_mm256_sub_epi16(val[1], tmp);
 					val[0]=_mm256_add_epi16(val[0], val[1]);
 					val[2]=_mm256_add_epi16(val[2], val[1]);
 
-				//	moffset=_mm256_and_si256(val[0], uhelpmask);
-				//	val[1]=_mm256_add_epi16(val[1], moffset);
-				//	moffset=_mm256_mullo_epi16(val[0], vc0);
-				//	moffset=_mm256_add_epi16(moffset, _mm256_mullo_epi16(val[1], vc1));
-				//	moffset=_mm256_srai_epi16(moffset, 2);
-				//	val[2]=_mm256_add_epi16(val[2], moffset);
-
-					//val=3*curr+pred
-					tmp=_mm256_set1_epi16(NEAR_DISTORTION);
-					val[0]=_mm256_mullo_epi16(val[0], tmp);
-					val[1]=_mm256_mullo_epi16(val[1], tmp);
-					val[2]=_mm256_mullo_epi16(val[2], tmp);
+					//val=dist*curr+pred
+					val[0]=_mm256_mullo_epi16(val[0], dist);
+					val[1]=_mm256_mullo_epi16(val[1], dist);
+					val[2]=_mm256_mullo_epi16(val[2], dist);
 					val[0]=_mm256_add_epi16(val[0], predY);
 					val[1]=_mm256_add_epi16(val[1], predU);
 					val[2]=_mm256_add_epi16(val[2], predV);
@@ -3738,11 +3717,9 @@ int c32_codec(int argc, char **argv)
 			csize2+=fwrite("32", 1, 2, fdst);
 			csize2+=fwrite(&iw, 1, 4, fdst);
 			csize2+=fwrite(&ih, 1, 4, fdst);
-			int flags=bestrct<<3|(use_wg4&3)<<1|near;
-			//int flags=bestrct<<2|(use_wg4&3);
-			csize2+=fwrite(&flags, 1, 2, fdst);
-			//if(use_wg4==2)
-			//	csize2+=fwrite(&L1sh, 1, 1, fdst);
+			int flags=bestrct<<2|(use_wg4&3);
+			csize2+=fwrite(&flags, 1, 1, fdst);
+			csize2+=fwrite(&near, 1, 1, fdst);
 #ifdef _DEBUG
 			if(streamptr>streamstart)
 				LOG_ERROR("OOB ptr %016zX > %016zX", streamptr, streamstart);
