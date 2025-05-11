@@ -19,12 +19,13 @@ add_executable (eBench WIN32
 	ols7.c
 	ols8.c
 	palette.c
-	#transform_c20.c
+	ssim.c
+#	transform_c20.c
 	transforms.c
-	#transforms_avx2.c
-	#transforms_gpu.c
-	#transforms_learned.c
-	#transforms_pt2.c
+#	transforms_avx2.c
+#	transforms_gpu.c
+#	transforms_learned.c
+#	transforms_pt2.c
 	util.c
 	wg4.c
 	wg5.c

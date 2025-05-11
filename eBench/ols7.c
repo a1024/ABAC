@@ -15,6 +15,18 @@ static const char file[]=__FILE__;
 
 #define L1SH 18
 #if 1
+#define NPREDS 8
+#define PREDLIST\
+	PRED(100000, N)\
+	PRED(100000, W)\
+	PRED( 80000, 3*(N-NN)+NNN)\
+	PRED( 80000, 3*(W-WW)+WWW)\
+	PRED( 50000, W+NE-N)\
+	PRED( 50000, (WWWWW+WW-W+NNN+N+NEEEEE)>>2)\
+	PRED(150000, N+W-NW)\
+	PRED( 50000, N+NE-NNE)
+#endif
+#if 0
 #define NPREDS 10
 #define PREDLIST\
 	PRED( 40000, N)\
@@ -163,13 +175,30 @@ void pred_ols7(Image *src, int fwd)
 				CLAMP2(pred, vmin, vmax);
 
 				int curr=src->data[idx];
+				//if(ky==src->ih/2&&kx==src->iw/2)
+				//	printf("");
 
 				//near lossless
 #if 1
+				if(fwd)
+				{
+					curr=(curr-(int)pred)/g_dist;
+					src->data[idx]=curr;
+
+					curr=g_dist*curr+(int)pred;
+					CLAMP2(curr, amin[kc], amax[kc]);
+				}
+				else
+				{
+					curr=g_dist*curr+(int)pred;
+					CLAMP2(curr, amin[kc], amax[kc]);
+
+					src->data[idx]=curr;
+				}
+#endif
+#if 0
 //#define DISTANCE 3
 				int val;
-				//if(ky==src->ih/2&&kx==src->iw/2)
-				//	printf("");
 				if(fwd)
 				{
 					val=(curr-(int)pred+g_dist/2)/g_dist;
@@ -190,8 +219,6 @@ void pred_ols7(Image *src, int fwd)
 #if 0
 #define LOSSBITS 0
 				int val;
-				//if(ky==src->ih/2&&kx==src->iw/2)
-				//	printf("");
 				if(fwd)
 				{
 					val=(curr-(int)pred+(1<<LOSSBITS>>1))>>LOSSBITS;
@@ -231,7 +258,8 @@ void pred_ols7(Image *src, int fwd)
 				//	printf("");
 
 				//update
-				int e=(curr>p0)-(curr<p0);
+				int e=(curr>p0)-(curr<p0);//L1
+			//	int e=curr-p0;//L2
 				for(int k=0;k<NPREDS;++k)
 					currw[k]+=e*preds[k];
 			}

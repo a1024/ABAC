@@ -180,7 +180,8 @@ typedef enum TransformTypeEnum
 	ST_FWD_SELECT,		ST_INV_SELECT,
 	ST_FWD_AV2,		ST_INV_AV2,
 	ST_FWD_CALIC,		ST_INV_CALIC,
-	ST_CONVTEST,		ST_DIFF,
+	ST_CONVTEST,		ST_CONVTEST2,
+	ST_DIFF,		ST_SSIM,
 	ST_FILT_MEDIAN33,	ST_FILT_AV33,
 	ST_FILT_DEINT422,	ST_FILT_DEINT420,
 	ST_FWD_QUANT,		ST_INV_QUANT,
@@ -215,7 +216,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_MM,		ST_INV_MM,
 //	ST_FWD_WP2,		ST_INV_WP2,
 	ST_FWD_WPU,		ST_INV_WPU,
-	ST_FWD_DEFERRED,	ST_INV_DEFERRED,
+//	ST_FWD_DEFERRED,	ST_INV_DEFERRED,
 	ST_FWD_WC,		ST_INV_WC,	//irreversible conv
 	ST_FWD_CUSTOM4,		ST_INV_CUSTOM4,	//irreversible conv
 	ST_FWD_CUSTOM3,		ST_INV_CUSTOM3,
@@ -235,7 +236,7 @@ typedef enum TransformTypeEnum
 //	ST_FWD_AV3,		ST_INV_AV3,
 //	ST_FWD_ECOEFF,		ST_INV_ECOEFF,
 //	ST_FWD_AVERAGE,		ST_INV_AVERAGE,
-	ST_FWD_MULTISTAGE,	ST_INV_MULTISTAGE,
+//	ST_FWD_MULTISTAGE,	ST_INV_MULTISTAGE,
 	ST_FWD_ZIPPER,		ST_INV_ZIPPER,
 //	ST_FWD_DIR,		ST_INV_DIR,
 #if 0
@@ -370,16 +371,19 @@ static void entropy2invcr(const double *entropy, const char *src_depth, int nch,
 	}
 	invcr[0]=dtotal?etotal/dtotal:0;
 }
-static void invcr2csizes(const double *invcr, const char *src_depths, int iw, int ih, int nch, double *csizes)//invcr & csizes have nch+1=5 elements
+static double invcr2csizes(const double *invcr, const char *src_depths, int iw, int ih, int nch, double *csizes)//invcr & csizes have nch+1=5 elements
 {
+	double usize=0;
 	int dtotal=0;
 	for(int k=0;k<nch;++k)
 	{
 		int d=src_depths[k];
 		csizes[k+1]=iw*ih*d*invcr[k+1]/8;
 		dtotal+=d;
+		usize+=(double)iw*ih*d/8;
 	}
 	csizes[0]=(double)iw*ih*dtotal*invcr[0]/8;
+	return usize;
 }
 static void center_image(void)
 {
@@ -2360,7 +2364,7 @@ typedef struct LossyCtxStruct
 	Image *image;
 	double usize, csize[4];
 	ptrdiff_t idx;
-	double rmse[4], psnr[4], sqe[4];
+	double rmse[4], psnr[4], sqe[4], ssim[4];
 } LossyCtx;
 static unsigned __stdcall sample_thread_lossy(void *param)
 {
@@ -2381,6 +2385,7 @@ static unsigned __stdcall sample_thread_lossy(void *param)
 		}
 		apply_selected_transforms(&im2, 0, 0, 1);
 		calc_psnr(im2, im0, ctx->rmse, ctx->psnr);
+		measure_ssim_avg(im0, im2, ctx->ssim);
 		ptrdiff_t res=(ptrdiff_t)ctx->image->iw*ctx->image->ih;
 		ctx->sqe[0]=res*ctx->rmse[0]*ctx->rmse[0];
 		ctx->sqe[1]=res*ctx->rmse[1]*ctx->rmse[1];
@@ -2421,6 +2426,7 @@ static void batch_test_lossy(void)
 	ArrayHandle path, filenames, q;
 	int nthreads, maxlen;
 	double t, total_usize=0, total_csize[4]={0}, total_sqe[4]={0};
+	double total_ssim[4]={0};
 
 
 	loud_transforms=0;
@@ -2490,11 +2496,12 @@ static void batch_test_lossy(void)
 				double csize=ptr->csize[0]+ptr->csize[1]+ptr->csize[2]+ptr->csize[3];
 				fn2=(ArrayHandle*)array_at(&filenames, ptr->idx);
 				console_log(
-					"%5d/%5d %s%*sUTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  BPD %8.4lf  PSNR %10.4lf %10.4lf %10.4lf %10.4lf\n",
+					"%5d/%5d %s%*sUTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  BPD %8.4lf  PSNR %10.4lf %10.4lf %10.4lf %10.4lf  SSIM%7.4lf\n",
 					(int)(k+1-(int)q->count+k2+1), (int)filenames->count, (char*)fn2[0]->data, (int)(maxlen-fn2[0]->count+1), "",
 					ptr->usize, csize, ptr->csize[0], ptr->csize[1], ptr->csize[2],
 					8.*csize/ptr->usize,
-					ptr->psnr[0], ptr->psnr[1], ptr->psnr[2], ptr->psnr[3]
+					ptr->psnr[0], ptr->psnr[1], ptr->psnr[2], ptr->psnr[3],
+					ptr->ssim[3]
 				);
 				//console_log(
 				//	"%5d/%5d %s%*sUTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  invCR %8.4lf%%\n",
@@ -2511,6 +2518,10 @@ static void batch_test_lossy(void)
 				total_sqe[1]+=ptr->sqe[1];
 				total_sqe[2]+=ptr->sqe[2];
 				total_sqe[3]+=ptr->sqe[3];
+				total_ssim[0]+=ptr->ssim[0]*ptr->usize/(1024*1024);
+				total_ssim[1]+=ptr->ssim[1]*ptr->usize/(1024*1024);
+				total_ssim[2]+=ptr->ssim[2]*ptr->usize/(1024*1024);
+				total_ssim[3]+=ptr->ssim[3]*ptr->usize/(1024*1024);
 			}
 			array_clear(&q);
 		}
@@ -2520,12 +2531,18 @@ static void batch_test_lossy(void)
 		double CR=total_usize/ctotal;
 		double rmse=sqrt((total_sqe[0]+total_sqe[1]+total_sqe[2]+total_sqe[3])/total_usize);
 		double psnr=20*log10(255/rmse);
+		double ssim_norm=1024*1024/(double)total_usize;
+		total_ssim[0]*=ssim_norm;
+		total_ssim[1]*=ssim_norm;
+		total_ssim[2]*=ssim_norm;
+		total_ssim[3]*=ssim_norm;
 		t=time_sec()-t;
-		console_log(
-			"Total UTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  BPD %8.4lf  RMSE %12.6lf PSNR %12.6lf  %12.6lf sec\n",
-			total_usize, ctotal, total_csize[0], total_csize[1], total_csize[2], 8./CR, rmse, psnr, t
-		);
 		timedelta2str(g_buf, G_BUF_SIZE, t);
+		acme_strftime(g_buf, G_BUF_SIZE, "%Y%m%d_%H%M%S");
+		console_log(
+			"Total UTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  BPD %8.4lf  RMSE %10.4lf PSNR %10.4lf  %10.4lf sec  SSIM%7.4lf  %s\n",
+			total_usize, ctotal, total_csize[0], total_csize[1], total_csize[2], 8./CR, rmse, psnr, t, total_ssim[3], g_buf
+		);
 		console_log("Elapsed %s\n", g_buf);
 		acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d-%H:%M:%S");
 		console_log("\nDone.  %s\n", g_buf);
@@ -2545,6 +2562,7 @@ static int customtransforms_getflag(unsigned char tid)
 		tid==ST_FWD_CUSTOM||
 		tid==ST_INV_CUSTOM||
 		tid==ST_CONVTEST||
+		tid==ST_CONVTEST2||
 		tid==ST_FWD_CC||
 		tid==ST_INV_CC;
 	//	tid==ST_FWD_WP||
@@ -2698,7 +2716,9 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 //	case ST_PREPROC_X2:		a=" S Preproc X2";		break;
 		
 	case ST_CONVTEST:		a=" S ConvTest";		break;
+	case ST_CONVTEST2:		a=" S ConvTest2";		break;
 	case ST_DIFF:			a="   Difference";		break;
+	case ST_SSIM:			a="   SSIM";			break;
 	case ST_FWD_PACKSIGN:		a=" S Fwd PackSign";		break;
 	case ST_INV_PACKSIGN:		a=" S Inv PackSign";		break;
 	case ST_FWD_BWTX:		a=" S Fwd BWT-X";		break;
@@ -2791,8 +2811,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 //	case ST_INV_ECOEFF:		a=" S Inv E-Coeff";		break;
 //	case ST_FWD_AVERAGE:		a=" S Fwd Average";		break;
 //	case ST_INV_AVERAGE:		a=" S Inv Average";		break;
-	case ST_FWD_MULTISTAGE:		a=" S Fwd Multistage";		break;
-	case ST_INV_MULTISTAGE:		a=" S Inv Multistage";		break;
+//	case ST_FWD_MULTISTAGE:		a=" S Fwd Multistage";		break;
+//	case ST_INV_MULTISTAGE:		a=" S Inv Multistage";		break;
 	case ST_FWD_ZIPPER:		a=" S Fwd Zipper";		break;
 	case ST_INV_ZIPPER:		a=" S Inv Zipper";		break;
 //	case ST_FWD_DIR:		a=" S Fwd Dir";			break;
@@ -2815,8 +2835,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 //	case ST_INV_WP2:		a=" S Inv WP2";			break;
 	case ST_FWD_WPU:		a="CS Fwd WPU";			break;
 	case ST_INV_WPU:		a="CS Inv WPU";			break;
-	case ST_FWD_DEFERRED:		a=" S Fwd DEFERRED";		break;
-	case ST_INV_DEFERRED:		a=" S Inv DEFERRED";		break;
+//	case ST_FWD_DEFERRED:		a=" S Fwd DEFERRED";		break;
+//	case ST_INV_DEFERRED:		a=" S Inv DEFERRED";		break;
 	case ST_FWD_MM:			a=" S Fwd MM";			break;
 	case ST_INV_MM:			a=" S Inv MM";			break;
 	case ST_FWD_CUSTOM:		a=" S Fwd CUSTOM";		break;
@@ -3832,6 +3852,7 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_FWD_CUSTOM:		pred_custom(image, 1, pred_ma_enabled, custom_params);	break;
 	case ST_INV_CUSTOM:		pred_custom(image, 0, pred_ma_enabled, custom_params);	break;
 	case ST_CONVTEST:		pred_convtest(image);					break;
+	case ST_CONVTEST2:		pred_convtest(image);					break;
 	case ST_DIFF:
 		if(im1->iw==im0->iw&&im1->ih==im0->ih)
 		{
@@ -3842,6 +3863,9 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 				im1->data[k+2]-=im0->data[k+2];
 			}
 		}
+		break;
+	case ST_SSIM:
+		measure_ssim_map(im0, im1);
 		break;
 	case ST_FWD_CC:			conv_custom(image);					break;
 	case ST_INV_CC:			conv_custom(image);					break;
@@ -3879,8 +3903,8 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 //	case ST_INV_WP2:		pred_divfreeWP(image, 0);				break;
 	case ST_FWD_WPU:		pred_WPU(image, 1);					break;
 	case ST_INV_WPU:		pred_WPU(image, 0);					break;
-	case ST_FWD_DEFERRED:		pred_wp_deferred(image, 1);				break;
-	case ST_INV_DEFERRED:		pred_wp_deferred(image, 0);				break;
+//	case ST_FWD_DEFERRED:		pred_wp_deferred(image, 1);				break;
+//	case ST_INV_DEFERRED:		pred_wp_deferred(image, 0);				break;
 	case ST_FWD_MM:			pred_w2_apply(image, 1, pred_ma_enabled, pw2_params);	break;
 	case ST_INV_MM:			pred_w2_apply(image, 0, pred_ma_enabled, pw2_params);	break;
 	case ST_FWD_OLS:		pred_ols(image, 1, pred_ma_enabled);			break;
@@ -3967,8 +3991,8 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 //	case ST_INV_ECOEFF:		pred_ecoeff(image, 0, pred_ma_enabled);			break;
 	case ST_FWD_AV4:		pred_av4(image, 1, pred_ma_enabled);			break;
 	case ST_INV_AV4:		pred_av4(image, 0, pred_ma_enabled);			break;
-	case ST_FWD_MULTISTAGE:		pred_multistage(image, 1, pred_ma_enabled);		break;
-	case ST_INV_MULTISTAGE:		pred_multistage(image, 0, pred_ma_enabled);		break;
+//	case ST_FWD_MULTISTAGE:		pred_multistage(image, 1, pred_ma_enabled);		break;
+//	case ST_INV_MULTISTAGE:		pred_multistage(image, 0, pred_ma_enabled);		break;
 	case ST_FWD_ZIPPER:		pred_zipper(image, 1, pred_ma_enabled);			break;
 	case ST_INV_ZIPPER:		pred_zipper(image, 0, pred_ma_enabled);			break;
 	case ST_FWD_P3:			pred_separate(image, 1, pred_ma_enabled);		break;
@@ -5585,6 +5609,7 @@ int io_mousewheel(int forward)
 			case 1://spatial transform params
 				if(!transforms_mask[ST_FWD_CUSTOM]&&!transforms_mask[ST_INV_CUSTOM]
 					&&!transforms_mask[ST_CONVTEST]
+					&&!transforms_mask[ST_CONVTEST2]
 					&&!transforms_mask[ST_FWD_CC]&&!transforms_mask[ST_INV_CC]
 				//	&&!transforms_mask[ST_FWD_OLS6]&&!transforms_mask[ST_INV_OLS6]
 				)
@@ -6199,7 +6224,7 @@ int io_keydn(IOKey key, char c)
 		break;
 	case KEY_UP:
 	case KEY_DOWN:
-		if(mode==VIS_IMAGE)
+		if(im1)
 		{
 			g_dist+=(key==KEY_UP)*2-1;
 			if(g_dist<1)
@@ -6635,6 +6660,7 @@ int io_keydn(IOKey key, char c)
 			"J / Shift J:\tToggle single-channel view\n"
 			"N:\t\tToggle modular arithmetic in image view\n"
 			"Ctrl R:\t\tDisable all transforms\n"
+			"Ctrl Space:\t\tMeasure PSNR\n"
 		//	"Ctrl E:\t\tReset custom transform parameters\n"
 			"Comma/Period:\tSelect context for size estimation\n"
 			"Slash:\t\tToggle adaptive histogram\n"
@@ -6800,22 +6826,34 @@ int io_keydn(IOKey key, char c)
 			}//no 'else' here
 			if(mode==VIS_IMAGE||mode==VIS_ZIPF)//copy custom transform value
 			{
-				double invcr[5]={0}, csizes[5]={0};
+				double invcr[5]={0}, csizes[5]={0}, usize;
 				entropy2invcr(ch_entropy, im0->src_depth, 4, invcr);
-				invcr2csizes(invcr, im0->src_depth, im0->iw, im0->ih, 4, csizes);
+				usize=invcr2csizes(invcr, im0->src_depth, im0->iw, im0->ih, 4, csizes);
 				str_append(&str,
-					"TRGBA %8.4lf %8.4lf %8.4lf %8.4lf %8.4lf%%  TRGBA %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf bytes",
-					100.*invcr[0],
-					100.*invcr[1],
-					100.*invcr[2],
-					100.*invcr[3],
-					100.*invcr[4],
+					"UTYUVA %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf bytes  BPD %8.4lf",
+					usize,
 					csizes[0],
 					csizes[1],
 					csizes[2],
 					csizes[3],
-					csizes[4]
+					csizes[4],
+					csizes[0]/usize*8
 				);
+
+				//str_append(&str,
+				//	"TRGBA %8.4lf %8.4lf %8.4lf %8.4lf %8.4lf%%  TRGBA %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf bytes",
+				//	100.*invcr[0],
+				//	100.*invcr[1],
+				//	100.*invcr[2],
+				//	100.*invcr[3],
+				//	100.*invcr[4],
+				//	csizes[0],
+				//	csizes[1],
+				//	csizes[2],
+				//	csizes[3],
+				//	csizes[4]
+				//);
+
 				//str_append(&str, "TRGBA %8.4lf %8.4lf %8.4lf %8.4lf %8.4lf",
 				//	100.*(ch_entropy[0]+ch_entropy[1]+ch_entropy[2]+ch_entropy[3])/(im1->src_depth[0]+im1->src_depth[1]+im1->src_depth[2]+im1->src_depth[3]),
 				//	100.*ch_entropy[0]/im1->src_depth[0],
@@ -9352,6 +9390,7 @@ void io_render(void)
 		if(
 			transforms_mask[ST_FWD_CUSTOM]||transforms_mask[ST_INV_CUSTOM]
 			||transforms_mask[ST_CONVTEST]
+			||transforms_mask[ST_CONVTEST2]
 			||transforms_mask[ST_FWD_CC]||transforms_mask[ST_INV_CC]
 		//	||transforms_mask[ST_FWD_OLS6]||transforms_mask[ST_INV_OLS6]
 		)

@@ -975,6 +975,9 @@ const char* ec_method_label(EContext ec_method);
 void calc_csize_ec(Image const *src, EContext method, int adaptive, int expbits, int msb, int lsb, double *entropy);
 void calc_csize_abac(Image const *src, int order, double *entropy);
 
+void measure_ssim_avg(const Image *im0, const Image *im1, double *ret_ssim);
+void measure_ssim_map(const Image *im0, Image *im1);
+
 
 #ifdef _MSC_VER
 #pragma warning(pop)
