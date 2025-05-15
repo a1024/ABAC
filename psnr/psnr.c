@@ -150,7 +150,7 @@ int main(int argc, char **argv)
 		kx=(int)(idx2%iw);
 		idx2/=iw;
 		ky=(int)idx2;
-		printf("First diff at XYC %d %d %d\n", kc, kx, ky);
+		printf("First diff at XYC %d %d %d\n", kx, ky, kc);
 	}
 	else
 		printf("Perfect match\n");
