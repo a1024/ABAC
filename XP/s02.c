@@ -1249,6 +1249,7 @@ int s02_codec(const char *command, const char *srcfn, const char *dstfn)
 				{
 					int32_t
 						NNN	=rows[3][0+0*3*3],
+						NNNE	=rows[3][0+1*3*3],
 						NNW	=rows[2][0-1*3*3],
 						NN	=rows[2][0+0*3*3],
 						NNE	=rows[2][0+1*3*3],
@@ -1315,6 +1316,7 @@ int s02_codec(const char *command, const char *srcfn, const char *dstfn)
 					(void)eNEEEE;
 					(void)eWWWW;
 #endif
+					(void)NNNE;
 					(void)NNW;
 					(void)NNEEE;
 					(void)NWW;
@@ -1325,11 +1327,23 @@ int s02_codec(const char *command, const char *srcfn, const char *dstfn)
 #ifdef USE_CASCADE
 						int32_t tmp;
 #endif
-#define L1SH 19
-#define L1SH2 19
-						pred1=coeffs[kc][L1NPREDS];
+	#define L1SH 19
+	#define L1SH2 19
+//	#define L1SH 15
+//	#define L1SH2 15
+						pred1=0;
+						//pred1=coeffs[kc][L1NPREDS];
 						for(j=0;j<L1NPREDS;++j)
+						{
 							pred1+=coeffs[kc][j]*preds[j];
+							//if(abs(coeffs[kc][j]>>4)>0x7FFF)//never hit on LPCB
+							//	CRASH("");
+							//pred1+=(coeffs[kc][j]>>4)*preds[j];
+							//pred1+=(coeffs[kc][j]>>10)*preds[j]>>2;
+							//pred1+=(coeffs[kc][j]>>12)*preds[j];//X
+							//pred1+=((coeffs[kc][j]>>3)*preds[j]+(1<<15>>1))>>15;//X
+							//pred1+=((coeffs[kc][j]>>4)*preds[j]+(1<<15>>1))>>15;//X
+						}
 #ifdef USE_CASCADE
 						tmp=curr_ecoeffs[L1NPREDS2];
 						for(j=0;j<L1NPREDS2;++j)
@@ -1430,7 +1444,7 @@ int s02_codec(const char *command, const char *srcfn, const char *dstfn)
 						int32_t k, curr=rows[0][0], e;
 
 						e=(curr>pred1)-(curr<pred1);
-						coeffs[kc][L1NPREDS]+=e;
+						//coeffs[kc][L1NPREDS]+=e;
 						for(k=0;k<L1NPREDS;++k)
 							coeffs[kc][k]+=e*preds[k];
 #ifdef USE_CASCADE

@@ -3,10 +3,12 @@
 
 int s01_codec(const char *command, const char *srcfn, const char *dstfn);//binary
 int s02_codec(const char *command, const char *srcfn, const char *dstfn);//ANS
+int s03_codec(const char *command, const char *srcfn, const char *dstfn);//GR
 
 #ifndef CODECFUNC
-//	#define CODECFUNC s01_codec
-	#define CODECFUNC s02_codec
+	#define CODECFUNC s01_codec
+//	#define CODECFUNC s02_codec
+//	#define CODECFUNC s03_codec
 #endif
 int main(int argc, char **argv)
 {
@@ -16,8 +18,8 @@ int main(int argc, char **argv)
 
 		srcfn=
 
-			"C:/Projects/datasets/dataset-DIV2K-ppm/0801.ppm"
-		//	"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm"
+		//	"C:/Projects/datasets/dataset-DIV2K-ppm/0801.ppm"
+			"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm"
 		//	"F:/Projects/dataset-GDCC2020-ppm/astro-01.ppm"
 
 		;

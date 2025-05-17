@@ -17,22 +17,17 @@
 #include<x86intrin.h>
 #include<time.h>
 #endif
-#include<emmintrin.h>
 
 
 #ifdef _MSC_VER
 	#define LOUD
-#ifdef _DEBUG
+//#ifdef _DEBUG
 	#define ESTIMATE_SIZE
 	#define ENABLE_GUIDE
 //	#define PRINTBITS
 //	#define PRINTGR
+//#endif
 #endif
-#endif
-
-	#define USE_L1
-//	#define USE_DIVPRED
-//	#define BYPASSGR
 
 
 #define L1NPREDS 8
@@ -41,7 +36,9 @@
 #define GRBITS 6
 #define GRLIMIT 24
 #define PROBBITS_STORE 16
-#define PROBBITS_USE 12
+#define PROBBITS_USE 9
+
+#define MIXBITS 16
 
 
 #ifdef _MSC_VER
@@ -116,6 +113,7 @@ static void debugcrash(void)
 #ifdef ENABLE_GUIDE
 static int g_iw=0, g_ih=0;
 static unsigned char *g_image=0;
+static double g_sqe=0;
 static void guide_save(unsigned char *image, int iw, int ih)
 {
 	int size=3*iw*ih;
@@ -138,9 +136,17 @@ static void guide_check(unsigned char *image, int kx, int ky)
 		printf("");
 	}
 }
+static void guide_update(unsigned char *image, int kx, int ky)
+{
+	int idx=3*(g_iw*ky+kx), diff;
+	diff=g_image[idx+0]-image[idx+0]; g_sqe+=diff*diff;
+	diff=g_image[idx+1]-image[idx+1]; g_sqe+=diff*diff;
+	diff=g_image[idx+2]-image[idx+2]; g_sqe+=diff*diff;
+}
 #else
 #define guide_save(...)
 #define guide_check(...)
+#define guide_update(...)
 #endif
 static unsigned char* load_file(const char *fn, ptrdiff_t *ret_size)
 {
@@ -218,6 +224,8 @@ static const unsigned char rct_indices[][8]=
 #ifdef ESTIMATE_SIZE
 static int32_t hist[3][256]={0};
 #endif
+//static uint16_t stats[3][256][256];
+//static uint16_t stats[3][8][256][256];
 static uint16_t stats[3][256][8][GRLIMIT+8];
 typedef struct _ACState
 {
@@ -225,17 +233,11 @@ typedef struct _ACState
 	unsigned char *ptr, *end;
 	uint32_t symidx, totalsyms;
 } ACState;
-AWM_INLINE void codebit(ACState *ac, uint16_t *pp0, uint16_t *pp0b, int32_t *bit)
+AWM_INLINE void codebit(ACState *ac, uint16_t *pp0a, int32_t *bit)
 {
 	uint32_t r2, mid;
-#ifndef BYPASSGR
-	int32_t p0b=*pp0b;
-	int32_t p0=*pp0;
-	int32_t p0e=(3*p0+p0b)>>(PROBBITS_STORE+2-PROBBITS_USE);
-//	int32_t p0e=p0>>(PROBBITS_STORE-PROBBITS_USE);
-//	int32_t p0e=p0b>>(PROBBITS_STORE-PROBBITS_USE);
-	CLAMP2(p0e, 1, (1<<PROBBITS_USE)-1);
-#endif
+	int32_t p0a=*pp0a;
+	int32_t p0=p0a>>(PROBBITS_STORE-PROBBITS_USE);
 	if(ac->range<(1<<PROBBITS_USE))
 	{
 		if(ac->ptr>=ac->end)
@@ -258,11 +260,7 @@ AWM_INLINE void codebit(ACState *ac, uint16_t *pp0, uint16_t *pp0b, int32_t *bit
 		if(ac->range>~ac->low)
 			ac->range=~ac->low;
 	}
-#ifndef BYPASSGR
-	r2=(ac->range>>PROBBITS_USE)*p0e;
-#else
-	r2=ac->range>>1;
-#endif
+	r2=(ac->range>>PROBBITS_USE)*(p0+(p0<(1<<PROBBITS_USE>>1)));
 	mid=ac->low+r2;
 	ac->range-=r2;
 	if(!ac->fwd)
@@ -271,35 +269,24 @@ AWM_INLINE void codebit(ACState *ac, uint16_t *pp0, uint16_t *pp0b, int32_t *bit
 		ac->low=mid;
 	else
 		ac->range=r2-1;
-#ifndef BYPASSGR
-	*pp0=p0+((int32_t)((!*bit<<PROBBITS_STORE)-p0+(1<<7>>1))>>7);
-	*pp0b=p0b+((int32_t)((!*bit<<PROBBITS_STORE)-p0b+(1<<8>>1))>>8);
-#endif
+	int32_t truth=!*bit<<PROBBITS_STORE;
+	*pp0a=p0a+((int32_t)(truth-p0a)>>6);
 }
-void debugtest(void)
+int c12_codec(int argc, char **argv)
 {
-	int k;
-
-	for(k=0;k<100000;++k)
+	if(argc!=3&&argc!=4)
 	{
-		int x=rand()*rand();
-		double f=(double)(x+1), g;
-		int e, l2;
-		g=frexp(f, &e);
-		--e;
-		{
-			double f2=(double)(x+1);
-			size_t a=(size_t)&f2+4;
-			int32_t bits=*(int32_t*)a;
-			l2=(bits>>20)-1023;
-		}
-		if(l2!=e)
-			printf("%8d  %4d  %5d  %12.6lf\n", x, l2, e, g);
+		printf(
+			"Usage:  \"%s\"  input  output  [dist]\n"
+			"  dist is optional for lossy\n"
+			, argv[0]
+		);
+		return 1;
 	}
-	exit(0);
-}
-int s01_codec(const char *command, const char *srcfn, const char *dstfn)
-{
+	const char *srcfn=argv[1], *dstfn=argv[2];
+	int dist=argc<4?1:atoi(argv[3]);
+	if(dist!=1)
+		CLAMP2(dist, 4, 16);
 	unsigned char *srcbuf=0, *srcptr=0, *srcend=0;
 	ptrdiff_t srcsize=0, dstsize=0;
 	int fwd=0;
@@ -320,7 +307,7 @@ int s01_codec(const char *command, const char *srcfn, const char *dstfn)
 #ifdef PRINTGR
 	long long gr_symlen=0, gr_bypsum=0;
 #endif
-	//debugtest();
+
 	srcbuf=load_file(srcfn, &srcsize);
 	if(!srcbuf)
 	{
@@ -332,7 +319,7 @@ int s01_codec(const char *command, const char *srcfn, const char *dstfn)
 	{
 		int tag=*(uint16_t*)srcptr;
 		fwd=tag==('P'|'6'<<8);
-		if(!fwd&&tag!=('0'|'1'<<8))
+		if(!fwd&&tag!=('1'|'2'<<8))
 		{
 			printf("Unsupported file  \"%s\"\n", srcfn);
 			debugcrash();
@@ -469,6 +456,7 @@ int s01_codec(const char *command, const char *srcfn, const char *dstfn)
 		}
 		ptr=dstbuf;
 		*ptr++=bestrct;
+		*ptr++=dist;
 
 		ac.ptr=ptr;
 		ac.end=dstbuf+usize;
@@ -478,6 +466,7 @@ int s01_codec(const char *command, const char *srcfn, const char *dstfn)
 		imptr=dstbuf;
 		ptr=srcptr;
 		bestrct=*ptr++;
+		dist=*ptr++;
 
 		ac.code=ac.code<<16|*(uint16_t*)ptr;
 		ptr+=2;
@@ -499,10 +488,10 @@ int s01_codec(const char *command, const char *srcfn, const char *dstfn)
 		int32_t psize=0;
 		int16_t *pixels=0;
 		int32_t paddedwidth=iw+16;
-#ifdef USE_L1
+
 		int32_t coeffs[L1NPREDS+1]={0};
-#endif
-		uint16_t p0z=0x8000, p0b=0x8000;
+
+		int32_t invdist=((1<<16)+dist-1)/dist;
 
 		psize=(int32_t)sizeof(int16_t[4*3*2])*(iw+16);//4 padded rows * 3 channels * {pixels, nbypass}
 		pixels=(int16_t*)malloc(psize);
@@ -562,7 +551,7 @@ int s01_codec(const char *command, const char *srcfn, const char *dstfn)
 					int32_t tidx=0;
 					uint16_t *statsptr;
 					int32_t bit;
-#ifdef USE_L1
+
 					int32_t preds[]=
 					{
 						N,
@@ -573,12 +562,6 @@ int s01_codec(const char *command, const char *srcfn, const char *dstfn)
 						W+NE-N,
 						N+NE-NNE,
 						(WWWW+WWW+NNN+NEE+NEEE+NEEEE-2*NW)/4,
-
-					//	(3*W+NE)>>2,
-					//	NW,
-					//	NE,
-					//	N+W-NW,
-					//	(4*(N+W)+NE-NW)>>3,
 					};
 					pred=coeffs[L1NPREDS];
 					{
@@ -597,53 +580,101 @@ int s01_codec(const char *command, const char *srcfn, const char *dstfn)
 					if(vmin>NEEE)vmin=NEEE;
 					if(vmax<NEEE)vmax=NEEE;
 					CLAMP2(pred, vmin, vmax);
-#elif defined USE_DIVPRED
-					int32_t gx, gy, gsum;
 
-					gx=abs(W-WW)+abs(N-NW)+abs(NE-N)+1;
-					gy=abs(W-NW)+abs(N-NN)+abs(NE-NNE)+1;
-					gsum=gx+gy;
-					pred=((gx+gsum)*N+(gy+gsum)*W-gsum*NW)/(2*gsum);
-					vmax=N, vmin=W;
-					if(N<W)vmin=N, vmax=W;
-					if(vmin>NE)vmin=NE;
-					if(vmax<NE)vmax=NE;
-					CLAMP2(pred, vmin, vmax);
-#else
-					pred=N+W-NW;
-					vmax=N, vmin=W;
-					if(N<W)vmin=N, vmax=W;
-					CLAMP2(pred, vmin, vmax);
-#endif
 					pred+=offset;
 					CLAMP2(pred, -128, 127);
 
-					//if(ky==227&&kx==891&&kc==2)//
-					//	printf("");
-
 					{
-						__m128i t0=_mm_castpd_si128(_mm_cvtsi32_sd(_mm_setzero_pd(), eW+1));
-						t0=_mm_srli_epi64(t0, 52);
-						nbypass=_mm_cvtsi128_si32(t0)-1023-GRBITS;
+						float fval=(float)(eW+1);
+						size_t addr=(size_t)&fval;
+						int32_t bits=*(int32_t*)addr;
+						nbypass=(bits>>23)-127-GRBITS;
+						if(nbypass<0)
+							nbypass=0;
 					}
-					//{
-					//	float f=(float)(eW+1);
-					//	frexpf(f, &nbypass);//FLOOR_LOG2_P1
-					//	nbypass-=GRBITS+1;
-					//}
-					//{
-					//	float fval=(float)(eW+1);
-					//	size_t addr=(size_t)&fval;
-					//	int32_t bits=*(int32_t*)addr;
-					//	nbypass=(bits>>23)-127-GRBITS;
-					//}
-					if(nbypass<0)
-						nbypass=0;
+#if 0
+					statsptr=stats[kc][eW>>GRBITS];
+					//statsptr=stats[kc][nbypass][(pred+128)&255];
+					int step=1<<nbypass;
+					if(fwd)
+					{
+						if(dist>1)
+						{
+							int e2=yuv[kc]-pred;
+							if(e2<0)
+								e2+=dist-1;
+							e2=e2*invdist>>16;
+							error=e2<<1^e2>>31;
+							yuv[kc]=e2*dist+pred;
+							CLAMP2(yuv[kc], -128, 127);
+						}
+						else
+						{
+							error=(char)(yuv[kc]-pred);
+							error=error<<1^error>>31;
+						}
+						nzeros=error>>nbypass;
+						bypass=error&((1<<nbypass)-1);
+#ifdef ESTIMATE_SIZE
+						++hist[kc][error];
+#endif
+					}
+					else
+						error=0;
+					tidx=0;
+					do
+					{
+						int tidx2=tidx+step;
+						bit=tidx2<error;
+						codebit(&ac, statsptr+tidx, &bit);
+						tidx=tidx2;
+					}while(bit);
+					tidx-=step;
+					while(step)
+					{
+						int floorhalf=step>>1;
+						int mid=tidx+floorhalf;
+						bit=mid<error;
+						codebit(&ac, statsptr+mid, &bit);
+						tidx+=(step-floorhalf)&-bit;
+						step=floorhalf;
+					}
+					if(!fwd)
+					{
+						error=tidx;
+						error=error>>1^-(error&1);
+						if(dist>1)
+						{
+							yuv[kc]=error*dist+pred;
+							CLAMP2(yuv[kc], -128, 127);
+						}
+						else
+							yuv[kc]=(char)(error+pred);
+					}
+#ifdef _DEBUG
+					else if(error!=tidx)
+						debugcrash();
+#endif
+#endif
+#if 1
 					statsptr=stats[kc][(pred+128)&255][nbypass];
 					if(fwd)
 					{
-						error=(char)(yuv[kc]-pred);
-						error=error<<1^error>>31;
+						if(dist>1)
+						{
+							int e2=yuv[kc]-pred;
+							if(e2<0)
+								e2+=dist-1;
+							e2=e2*invdist>>16;
+							error=e2<<1^e2>>31;
+							yuv[kc]=e2*dist+pred;
+							CLAMP2(yuv[kc], -128, 127);
+						}
+						else
+						{
+							error=(char)(yuv[kc]-pred);
+							error=error<<1^error>>31;
+						}
 						nzeros=error>>nbypass;
 						bypass=error&((1<<nbypass)-1);
 #ifdef ESTIMATE_SIZE
@@ -664,9 +695,8 @@ int s01_codec(const char *command, const char *srcfn, const char *dstfn)
 						error=0;
 					do
 					{
-						//if(fwd)
-							bit=nzeros--<=0;
-						codebit(&ac, statsptr+tidx, &p0z, &bit);
+						bit=nzeros--<=0;
+						codebit(&ac, statsptr+tidx, &bit);
 #ifdef PRINTBITS
 						if(fwd&&(unsigned)(idx-(usize>>2))<1000)printf("%c", '0'+bit);//
 #endif
@@ -686,7 +716,7 @@ int s01_codec(const char *command, const char *srcfn, const char *dstfn)
 						for(;kb>=0;--kb)
 						{
 							bit=bypass>>kb&1;
-							codebit(&ac, statsptr+GRLIMIT+8-nbypass+kb, &p0b, &bit);
+							codebit(&ac, statsptr+GRLIMIT+8-nbypass+kb, &bit);
 							bypass|=bit<<kb;
 #ifdef PRINTBITS
 							if(fwd&&(unsigned)(idx-(usize>>2))<1000)printf("%c", '0'+bit);//
@@ -697,12 +727,16 @@ int s01_codec(const char *command, const char *srcfn, const char *dstfn)
 					{
 						error=(tidx-1)<<nbypass|bypass;
 						error=error>>1^-(error&1);
-						yuv[kc]=(char)(error+pred);
+						if(dist>1)
+						{
+							yuv[kc]=error*dist+pred;
+							CLAMP2(yuv[kc], -128, 127);
+						}
+						else
+							yuv[kc]=(char)(error+pred);
 					}
-					
-					//if(ky==10&&kx==10)//
-					//	printf("");//
-#ifdef USE_L1
+#endif
+
 					{
 						int32_t k, e=yuv[kc]-offset;
 						e=(e>pred0)-(e<pred0);
@@ -710,27 +744,6 @@ int s01_codec(const char *command, const char *srcfn, const char *dstfn)
 						for(k=0;k<L1NPREDS;++k)
 							coeffs[k]+=e*preds[k];
 					}
-#if 0
-					{
-						static const int32_t etable[]=
-						{
-							//   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
-							-1, -1, -1, -1, -2, -2, -2, -2,  0, +2, +2, +2, +2, +1, +1, +1,
-						//	-4, -4, -4, -5, -6, -8, -9, -6,  0, +6, +9, +8, +6, +5, +4, +4,
-						};
-						int32_t k;
-						int32_t e=yuv[kc]-pred;
-						CLAMP2(e, 1-8, 15-8);
-						e=etable[e+8];
-						//	... -8 -7 -6 -5 -4 -3 -2 -1  0  1  2  3  4  5  6  7
-						//	... -1 -1 -1 -1 -2 -2 -2 -2  0 +2 +2 +2 +2 +1 +1 +1 ...
-						//e=(((e>0)-(e<0))<<1)-((e>4)-(e<-4));
-						coeffs[L1NPREDS]+=e;
-						for(k=0;k<L1NPREDS;++k)
-							coeffs[k]+=e*preds[k];
-					}
-#endif
-#endif
 					error=abs(yuv[kc]-pred);
 					rows[0][0]=yuv[kc]-offset;
 					rows[0][1]=(2*eW+(error<<GRBITS)+eNEEE)>>2;
@@ -748,7 +761,12 @@ int s01_codec(const char *command, const char *srcfn, const char *dstfn)
 					imptr[yidx]=yuv[0]+128;
 					imptr[uidx]=yuv[1]+128;
 					imptr[vidx]=yuv[2]+128;
-					guide_check(dstbuf, kx, ky);
+#ifdef ENABLE_GUIDE
+					if(dist>1)
+						guide_update(dstbuf, kx, ky);
+					else
+						guide_check(dstbuf, kx, ky);
+#endif
 				}
 				imptr+=3;
 			}
@@ -774,7 +792,7 @@ int s01_codec(const char *command, const char *srcfn, const char *dstfn)
 
 			csize=ac.ptr-dstbuf;
 
-			dstsize+=fwrite("01", 1, 2, fdst);
+			dstsize+=fwrite("12", 1, 2, fdst);
 			dstsize+=fwrite(&iw, 1, 4, fdst);
 			dstsize+=fwrite(&ih, 1, 4, fdst);
 			dstsize+=fwrite(dstbuf, 1, csize, fdst);
@@ -826,7 +844,7 @@ int s01_codec(const char *command, const char *srcfn, const char *dstfn)
 		printf("%12lld bypass %12.6lf bits\n", gr_bypsum, (double)gr_bypsum/usize);
 		printf("%12lld symlen %12.6lf bits\n", gr_symlen, (double)gr_symlen/usize);
 #endif
-		printf("%9d->%9d  %8.4lf%%  %12.6lf\n"
+		printf("%9td->%9td  %8.4lf%%  %12.6lf\n"
 			, srcsize
 			, dstsize
 			, 100.*dstsize/srcsize
@@ -838,6 +856,13 @@ int s01_codec(const char *command, const char *srcfn, const char *dstfn)
 		, t
 		, usize/(t*1024*1024)
 	);
+#endif
+#ifdef ENABLE_GUIDE
+	if(!fwd&&dist>1)
+	{
+		double rmse=sqrt(g_sqe/((double)3*iw*ih)), psnr=20*log10(255/rmse);
+		printf("RMSE %12.6lf PSNR %12.6lf\n", rmse, psnr);
+	}
 #endif
 	(void)time_sec;
 	return 0;

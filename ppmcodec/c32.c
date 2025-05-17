@@ -1927,9 +1927,9 @@ int c32_codec(int argc, char **argv)
 		return 1;
 	}
 	const char *srcfn=argv[1], *dstfn=argv[2];
-	int nthreads0=argc<4?0:atoi(argv[3]), near=argc<5?0:atoi(argv[4]);
-	if(near)
-		CLAMP2(near, 4, 16);
+	int nthreads0=argc<4?0:atoi(argv[3]), dist=argc<5?1:atoi(argv[4]);
+	if(dist>1)
+		CLAMP2(dist, 4, 16);
 #ifdef ESTIMATE_SIZE
 	double esize[3*NCODERS]={0};
 #endif
@@ -2096,7 +2096,7 @@ int c32_codec(int argc, char **argv)
 		interleave_blocks_fwd(image, iw, ih, interleaved+isize);//reuse memory: read 8-bit pixel, write 16-bit context<<8|residual
 		guide_save(interleaved+isize, ixcount, blockh);
 		prof_checkpoint(usize, "interleave");
-		if(!near)
+		if(dist<=1)
 		{
 			ALIGN(32) long long counters[OCH_COUNT]={0};
 			__m256i mcounters[OCH_COUNT];//64-bit
@@ -2236,7 +2236,7 @@ int c32_codec(int argc, char **argv)
 		use_wg4=flags&3;
 		flags>>=2;
 		bestrct=flags%RCT_COUNT;
-		near=*streamptr++;
+		dist=*streamptr++;
 
 		ctxmask=*(unsigned long long*)streamptr;
 		streamptr+=8;
@@ -2317,12 +2317,11 @@ int c32_codec(int argc, char **argv)
 	__m256i bytemask=_mm256_set1_epi16(255);
 	__m256i wordmask=_mm256_set1_epi32(0xFFFF);
 	__m256i myuv[3];
-	__m256i dist_bias=_mm256_set1_epi16(0), dist_rcp=_mm256_set1_epi16(0x7FFF), dist=_mm256_set1_epi16(1);
-	if(near)
+	__m256i dist_rcp=_mm256_set1_epi16(0x7FFF), mdist=_mm256_set1_epi16(1);
+	if(dist>1)
 	{
-		dist_bias=_mm256_set1_epi16(near-1);
-		dist_rcp=_mm256_set1_epi16(((1<<16)+near-1)/near);//x/dist = (x+(x<0?dist-1:0))*ceil(2^16/dist)>>16
-		dist=_mm256_set1_epi16(near);
+		dist_rcp=_mm256_set1_epi16(((1<<16)+dist-1)/dist);//x/dist  ->  {x*=inv; x=(x>>16)+((unsigned)x>>31);}
+		mdist=_mm256_set1_epi16(dist);
 	}
 	memset(myuv, 0, sizeof(myuv));
 	unsigned char *ctxptr=interleaved;
@@ -2693,7 +2692,7 @@ int c32_codec(int argc, char **argv)
 			__m256i msyms, moffset;
 			//if(ky==261&&kx==76800)//lane 3
 			//	printf("");
-			if(near)
+			if(dist>1)
 			{
 				__m256i val[3], tmp;
 				if(fwd)
@@ -2710,20 +2709,17 @@ int c32_codec(int argc, char **argv)
 					cond[0]=_mm256_srai_epi16(val[0], 15);
 					cond[1]=_mm256_srai_epi16(val[1], 15);
 					cond[2]=_mm256_srai_epi16(val[2], 15);
-					cond[0]=_mm256_and_si256(cond[0], dist_bias);
-					cond[1]=_mm256_and_si256(cond[1], dist_bias);
-					cond[2]=_mm256_and_si256(cond[2], dist_bias);
-					val[0]=_mm256_add_epi16(val[0], cond[0]);
-					val[1]=_mm256_add_epi16(val[1], cond[1]);
-					val[2]=_mm256_add_epi16(val[2], cond[2]);
 					val[0]=_mm256_mulhi_epi16(val[0], dist_rcp);
 					val[1]=_mm256_mulhi_epi16(val[1], dist_rcp);
 					val[2]=_mm256_mulhi_epi16(val[2], dist_rcp);
+					val[0]=_mm256_sub_epi16(val[0], cond[0]);//(x*inv>>16)-(x>>31)
+					val[1]=_mm256_sub_epi16(val[1], cond[1]);
+					val[2]=_mm256_sub_epi16(val[2], cond[2]);
 
 					//curr=dist*val+pred
-					myuv[0]=_mm256_mullo_epi16(val[0], dist);
-					myuv[1]=_mm256_mullo_epi16(val[1], dist);
-					myuv[2]=_mm256_mullo_epi16(val[2], dist);
+					myuv[0]=_mm256_mullo_epi16(val[0], mdist);
+					myuv[1]=_mm256_mullo_epi16(val[1], mdist);
+					myuv[2]=_mm256_mullo_epi16(val[2], mdist);
 
 					myuv[0]=_mm256_add_epi16(myuv[0], predY);
 					myuv[1]=_mm256_add_epi16(myuv[1], predU);
@@ -2830,9 +2826,9 @@ int c32_codec(int argc, char **argv)
 					val[2]=_mm256_add_epi16(val[2], val[1]);
 
 					//val=dist*curr+pred
-					val[0]=_mm256_mullo_epi16(val[0], dist);
-					val[1]=_mm256_mullo_epi16(val[1], dist);
-					val[2]=_mm256_mullo_epi16(val[2], dist);
+					val[0]=_mm256_mullo_epi16(val[0], mdist);
+					val[1]=_mm256_mullo_epi16(val[1], mdist);
+					val[2]=_mm256_mullo_epi16(val[2], mdist);
 					val[0]=_mm256_add_epi16(val[0], predY);
 					val[1]=_mm256_add_epi16(val[1], predU);
 					val[2]=_mm256_add_epi16(val[2], predV);
@@ -3457,7 +3453,7 @@ int c32_codec(int argc, char **argv)
 	}
 	prof_checkpoint(isize, "main");
 #ifdef ENABLE_GUIDE
-	if(near&&!fwd)
+	if(dist>1&&!fwd)
 	{
 		double rmse[]=
 		{
@@ -3719,7 +3715,7 @@ int c32_codec(int argc, char **argv)
 			csize2+=fwrite(&ih, 1, 4, fdst);
 			int flags=bestrct<<2|(use_wg4&3);
 			csize2+=fwrite(&flags, 1, 1, fdst);
-			csize2+=fwrite(&near, 1, 1, fdst);
+			csize2+=fwrite(&dist, 1, 1, fdst);
 #ifdef _DEBUG
 			if(streamptr>streamstart)
 				LOG_ERROR("OOB ptr %016zX > %016zX", streamptr, streamstart);

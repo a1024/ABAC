@@ -3,12 +3,15 @@ static const char file[]=__FILE__;
 #include"util.h"
 #include<stdlib.h>
 #include<string.h>
-#include<math.h>//abs
+#include<math.h>
+#include<sys/stat.h>
 //#include<immintrin.h>//included by "entropy.h"
 
 
-//	#define ENABLE_GUIDE
-#ifndef DISABLE_MT
+#ifndef __GNUC__
+	#define LOUD
+	#define ENABLE_GUIDE
+#elif !defined DISABLE_MT
 	#define ENABLE_MT
 #endif
 
@@ -18,7 +21,6 @@ static const char file[]=__FILE__;
 	#define ENABLE_WG//good
 //	#define ENABLE_SSE2
 //	#define ENABLE_SSE3_PROB
-//	#define A2_CTXMIXER//bad
 
 #define CODECNAME "C14"
 #include"entropy.h"
@@ -39,6 +41,45 @@ static const char file[]=__FILE__;
 #define SSE3_DECAY 7
 
 
+#ifdef ENABLE_GUIDE
+static int g_iw=0, g_ih=0;
+static unsigned char *g_image=0;
+static double g_sqe=0;
+static void guide_save(const unsigned char *image, int iw, int ih)
+{
+	int size=3*iw*ih;
+	g_iw=iw;
+	g_ih=ih;
+	g_image=(unsigned char*)malloc(size);
+	if(!g_image)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memcpy(g_image, image, size);
+}
+static void guide_check(const unsigned char *image, int kx, int ky)
+{
+	int idx=3*(g_iw*ky+kx);
+	if(memcmp(image+idx, g_image+idx, 3))
+	{
+		LOG_ERROR("");
+		printf("");
+	}
+}
+static void guide_update_sqe(const unsigned char *image, int kx, int ky)
+{
+	int idx=3*(g_iw*ky+kx);
+	double diff;
+	diff=g_image[idx+0]-image[idx+0]; g_sqe+=diff*diff;
+	diff=g_image[idx+1]-image[idx+1]; g_sqe+=diff*diff;
+	diff=g_image[idx+2]-image[idx+2]; g_sqe+=diff*diff;
+}
+#else
+#define guide_save(...)
+#define guide_check(...)
+#define guide_update_sqe(...)
+#endif
 #define OCHLIST\
 	OCH(R)\
 	OCH(G)\
@@ -452,33 +493,19 @@ AWM_INLINE void wg_update(int curr, int kc, const int *preds, int *perrors, int 
 
 typedef struct _ThreadArgs
 {
-	const unsigned char *src;
-	unsigned char *dst;
+	unsigned char *imagebuf, *streambuf;
 	int iw, ih;
+	int *offsets, *chunksizes;//[nblocks+1]
 
-	int fwd, test, loud, b1, b2, xblocks, blocksperthread, currentblock, x1, x2, y1, y2;
+	int fwd, test, loud, b1, b2, xblocks, nblocks, blocksperthread, currentblock, x1, x2, y1, y2, dist;
 	int bufsize, ebufsize, histsize;
 	short *pixels;
 	int *ebuf;
 	int *hist;
 
-	BList *lists;
-	const int *offsets;
-	const unsigned char *decsrc, *decstart, *decend;
-
-	unsigned short stats[3][(1+32+32+128+512+256+256+256)<<8];
-#ifdef A2_CTXMIXER
-	ALIGN(32) long long mixer[3][256][A2_NCTX];
-#endif
-#ifdef ENABLE_SSE2
-	int sse1[3][32][64];
-//	int sse2[3][256][16];
-//	int sse3[3][256][16];
-//	int sse4[3][256];
-#endif
-#ifdef ENABLE_SSE3_PROB
-	long long sse_prob[3][8][512];
-#endif
+	//BList *lists;
+	//const int *offsets;
+	//const unsigned char *decsrc, *decstart, *decend;
 
 	//aux
 	int blockidx;
@@ -488,13 +515,24 @@ typedef struct _ThreadArgs
 #ifdef ESTIMATE_SIZE
 	int hist2[3][256];
 #endif
+
+	unsigned short stats[3][(1+32+32+128+512+256+256+256)<<8];
+#ifdef ENABLE_SSE2
+	int sse1[3][32][64];
+//	int sse2[3][256][16];
+//	int sse3[3][256][16];
+//	int sse4[3][256];
+#endif
+#ifdef ENABLE_SSE3_PROB
+	long long sse_prob[3][8][512];
+#endif
 } ThreadArgs;
-static void block_thread(void *param)
+static void block_func(void *param)
 {
 	const int nch=3;
 	ThreadArgs *args=(ThreadArgs*)param;
 	AC3 ec;
-	const unsigned char *image=args->fwd?args->src:args->dst;
+	unsigned char *image=args->imagebuf;
 	unsigned char bestrct=0;
 	const unsigned char *combination=0;
 	unsigned char predidx[4]={0};
@@ -736,28 +774,30 @@ static void block_thread(void *param)
 				);
 			}
 		}
-		blist_init(args->lists+args->currentblock);
-		ac3_enc_init(&ec, args->lists+args->currentblock);
-		ac3_enc_bypass_NPOT(&ec, bestrct, RCT_COUNT);
+		ac3_encbuf_init(&ec, args->streambuf+args->offsets[args->blockidx+0], args->streambuf+args->offsets[args->blockidx+1]);
+		ac3_encbuf_bypass_NPOT(&ec, bestrct, RCT_COUNT);
+		//blist_init(args->lists+args->currentblock);
+		//ac3_enc_init(&ec, args->lists+args->currentblock);
+		//ac3_enc_bypass_NPOT(&ec, bestrct, RCT_COUNT);
 	//	ac3_enc_bypass_NPOT(&ec, predidx[0], PRED_COUNT);
 	//	ac3_enc_bypass_NPOT(&ec, predidx[1], PRED_COUNT);
 	//	ac3_enc_bypass_NPOT(&ec, predidx[2], PRED_COUNT);
 	}
 	else
 	{
-		ac3_dec_init(&ec, args->decstart, args->decend);
+		ac3_dec_init(&ec, args->streambuf+args->offsets[args->blockidx+0], args->streambuf+args->offsets[args->blockidx+1]);
+		//ac3_dec_init(&ec, args->decstart, args->decend);
 		bestrct=ac3_dec_bypass_NPOT(&ec, RCT_COUNT);
 		combination=rct_combinations[bestrct];
 	//	predidx[0]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
 	//	predidx[1]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
 	//	predidx[2]=ac3_dec_bypass_NPOT(&ec, PRED_COUNT);
 	}
-#ifdef A2_CTXMIXER
-	FILLMEM((long long*)args->mixer, 0x3000, sizeof(args->mixer), sizeof(long long));
-#else
+	int invdist=0x10000;
+	if(args->dist>1)
+		invdist=(0x10000+args->dist-1)/args->dist;
 	ALIGN(32) long long mixer[8*3*A2_NCTX]={0};
 	FILLMEM(mixer, 0x1000, sizeof(mixer), sizeof(long long));
-#endif
 	FILLMEM((unsigned short*)args->stats, 0x8000, sizeof(args->stats), sizeof(short));
 	//memset(args->stats, 0, sizeof(args->stats));
 #ifdef ENABLE_SSE2
@@ -801,7 +841,7 @@ static void block_thread(void *param)
 			args->ebuf+((BLOCKX+16LL)*((ky-2LL)&3)+8LL)*4*WG_NPREDS,
 			args->ebuf+((BLOCKX+16LL)*((ky-3LL)&3)+8LL)*4*WG_NPREDS,
 		};
-		int yuv[4]={0};
+		int yuv[4]={0}, errors[4]={0};
 		int pred=0, error=0;
 		for(int kx=args->x1;kx<args->x2;++kx)
 		{
@@ -896,6 +936,21 @@ static void block_thread(void *param)
 #endif
 			if(args->fwd)
 			{
+				//if(args->dist>1)
+				//{
+				//	yuv[0]=image[0]-128;
+				//	yuv[1]=image[1]-128;
+				//	yuv[2]=image[2]-128;
+				//	//yuv[0]-=yuv[1];
+				//	//yuv[2]-=yuv[1];
+				//	//yuv[0]>>=1;
+				//	//yuv[2]>>=1;
+				//	//yuv[1]+=(yuv[0]+yuv[2])/2;
+				//	//yuv[0]=(char)(yuv[0]-yuv[1]);
+				//	//yuv[2]=(char)(yuv[2]-yuv[1]);
+				//	//yuv[1]=(char)(yuv[1]+(yuv[0]+yuv[2])/4);
+				//}
+				//else
 				switch(bestrct)
 				{
 				case RCT_R_G_B:
@@ -905,9 +960,9 @@ static void block_thread(void *param)
 				case RCT_R_GR_BG:
 				case RCT_R_G_B2:
 				case RCT_R_GR_B2:
-					yuv[0]=args->src[idx+0]-128;
-					yuv[1]=args->src[idx+1]-128;
-					yuv[2]=args->src[idx+2]-128;
+					yuv[0]=image[idx+0]-128;
+					yuv[1]=image[idx+1]-128;
+					yuv[2]=image[idx+2]-128;
 					break;
 				case RCT_G_B_RG:
 				case RCT_G_B_RB:
@@ -915,39 +970,44 @@ static void block_thread(void *param)
 				case RCT_G_BG_RB:
 				case RCT_G_B_R2:
 				case RCT_G_BG_R2:
-					yuv[0]=args->src[idx+1]-128;
-					yuv[1]=args->src[idx+2]-128;
-					yuv[2]=args->src[idx+0]-128;
+					yuv[0]=image[idx+1]-128;
+					yuv[1]=image[idx+2]-128;
+					yuv[2]=image[idx+0]-128;
 					break;
 				case RCT_B_R_GR:
 				case RCT_B_R_GB:
 				case RCT_B_RB_GB:
 				case RCT_B_RB_GR:
 				case RCT_B_RB_G2:
-					yuv[0]=args->src[idx+2]-128;
-					yuv[1]=args->src[idx+0]-128;
-					yuv[2]=args->src[idx+1]-128;
+					yuv[0]=image[idx+2]-128;
+					yuv[1]=image[idx+0]-128;
+					yuv[2]=image[idx+1]-128;
 					break;
 				case RCT_G_RG_BR:
 				case RCT_G_RG_B2:
-					yuv[0]=args->src[idx+1]-128;
-					yuv[1]=args->src[idx+0]-128;
-					yuv[2]=args->src[idx+2]-128;
+					yuv[0]=image[idx+1]-128;
+					yuv[1]=image[idx+0]-128;
+					yuv[2]=image[idx+2]-128;
 					break;
 				case RCT_B_GB_RG:
 				case RCT_B_GB_R2:
-					yuv[0]=args->src[idx+2]-128;
-					yuv[1]=args->src[idx+1]-128;
-					yuv[2]=args->src[idx+0]-128;
+					yuv[0]=image[idx+2]-128;
+					yuv[1]=image[idx+1]-128;
+					yuv[2]=image[idx+0]-128;
 					break;
 				case RCT_R_BR_GB:
 				case RCT_R_B_G2:
 				case RCT_R_BR_G2:
-					yuv[0]=args->src[idx+0]-128;
-					yuv[1]=args->src[idx+2]-128;
-					yuv[2]=args->src[idx+1]-128;
+					yuv[0]=image[idx+0]-128;
+					yuv[1]=image[idx+2]-128;
+					yuv[2]=image[idx+1]-128;
 					break;
 				}
+				//if(args->dist>1)
+				//{
+				//	yuv[2]=(char)(yuv[2]-((yuv[combination[2+3]]+yuv[combination[2+6]])>>combination[2+9]));
+				//	yuv[1]=(char)(yuv[1]-((yuv[combination[1+3]]+yuv[combination[1+6]])>>combination[1+9]));
+				//}
 			}
 
 			for(int kc=0;kc<nch;++kc)
@@ -979,8 +1039,11 @@ static void block_thread(void *param)
 			//	int *curr_sse4=&args->sse4[kc][pred&255];
 			//	pred+=(*curr_sse4+(1<<(SSE2_SCALE+SSE2_DECAY)>>1))>>(SSE2_SCALE+SSE2_DECAY);
 #endif
-				pred+=offset;
-				CLAMP2(pred, -128, 127);
+				if(args->dist<=1)
+				{
+					pred+=offset;
+					CLAMP2(pred, -128, 127);
+				}
 				int grad=
 					+(abs(N[kc2]-W[kc2])<<1)
 					+abs(N[kc2]-NE[kc2])
@@ -1022,22 +1085,21 @@ static void block_thread(void *param)
 #undef  A2CTX
 				if(args->fwd)
 				{
-					curr[kc2+0]=yuv[kc];
-					curr[kc2+1]=error=yuv[kc]-pred;
+					error=yuv[kc]-pred;
+					if(args->dist>1)
+					{
+						error=(error*invdist>>16)+((unsigned)error>>31);//error/=dist
+						yuv[kc]=error*args->dist+pred;
+						CLAMP2(yuv[kc], -128, 127);
+						//if(kc)
+						//	error=(char)(error-errors[kc-1]);
+					//	error-=(errors[combination[kc+3]]+errors[combination[kc+6]])>>combination[kc+9];//X
+					}
 				}
 				else
 					error=0;
 				int tidx=1;
-#ifdef A2_CTXMIXER
-				int mixeridx;
-				MEDIAN3_32(mixeridx, N[kc2], W[kc2], N[kc2]+W[kc2]-NW[kc2]);
-				mixeridx+=offset;
-				CLAMP2(mixeridx, -128, 127);
-				mixeridx+=128;
-				long long *curr_mixer=args->mixer[kc][mixeridx];
-#else
 				long long *curr_mixer=mixer+kc*8*A2_NCTX;
-#endif
 #ifdef __GNUC__
 #pragma GCC unroll 8
 #endif
@@ -1114,7 +1176,8 @@ static void block_thread(void *param)
 					if(args->fwd)
 					{
 						bit=error>>kb&1;
-						ac3_enc_bin(&ec, bit, (int)p0, 16);
+						ac3_encbuf_bin(&ec, bit, (int)p0, 16);
+						//ac3_enc_bin(&ec, bit, (int)p0, 16);
 					}
 					else
 					{
@@ -1208,18 +1271,28 @@ static void block_thread(void *param)
 					//if(abs(*curr_sse_prob>>2)>0xFFFF)
 					//	printf("");
 #endif
-#ifndef A2_CTXMIXER
 					curr_mixer+=A2_NCTX;
-#endif
 					tidx+=tidx+bit;
 				}
 				if(!args->fwd)
 				{
-					error+=pred;
-					error=error<<(32-8)>>(32-8);
-					curr[kc2+0]=yuv[kc]=error;
-					curr[kc2+1]=error-pred;
+					if(args->dist>1)
+					{
+						//if(kc)
+						//	error+=errors[kc-1];
+						error=(char)error;
+					//	error+=(errors[combination[kc+3]]+errors[combination[kc+6]])>>combination[kc+9];//X
+						yuv[kc]=error*args->dist+pred;
+						CLAMP2(yuv[kc], -128, 127);
+					}
+					else
+						yuv[kc]=(char)(error+pred);
+					//error+=pred;
+					//error=error<<(32-8)>>(32-8);
+					//curr[kc2+0]=yuv[kc]=error;
 				}
+				curr[kc2+0]=yuv[kc];
+				curr[kc2+1]=errors[kc]=yuv[kc]-pred;
 #ifdef ESTIMATE_SIZE
 				++args->hist2[kc][(curr[kc2+1]+128)&255];
 #endif
@@ -1230,13 +1303,34 @@ static void block_thread(void *param)
 			//	*curr_sse3=((*curr_sse3*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
 			//	*curr_sse4=((*curr_sse4*((1<<SSE2_DECAY)-1)+(1<<SSE2_DECAY>>1))>>SSE2_DECAY)+e;
 #endif
-				curr[kc2+0]-=offset;
+				if(args->dist<=1)
+					curr[kc2+0]-=offset;
 #ifdef ENABLE_WG
 				wg_update(curr[kc2+0], kc, wg_preds, wg_perrors+WG_NPREDS*kc, eN, eW, ecurr, eNE);
 #endif
 			}
 			if(!args->fwd)
 			{
+				//if(args->dist>1)
+				//{
+				//	yuv[1]=(char)(yuv[1]+((yuv[combination[1+3]]+yuv[combination[1+6]])>>combination[1+9]));
+				//	yuv[2]=(char)(yuv[2]+((yuv[combination[2+3]]+yuv[combination[2+6]])>>combination[2+9]));
+				//}
+				//if(args->dist>1)
+				//{
+				//	yuv[1]-=(yuv[0]+yuv[2])/4;
+				//	yuv[0]<<=1;
+				//	yuv[2]<<=1;
+				//	yuv[0]+=yuv[1];
+				//	yuv[2]+=yuv[1];
+				//	//yuv[1]=(char)(yuv[1]-(yuv[0]+yuv[2])/4);
+				//	//yuv[2]=(char)(yuv[2]+yuv[1]);
+				//	//yuv[0]=(char)(yuv[0]+yuv[1]);
+				//	image[0]=yuv[0]+128;
+				//	image[1]=yuv[1]+128;
+				//	image[2]=yuv[2]+128;
+				//}
+				//else
 				switch(bestrct)
 				{
 				case RCT_R_G_B:
@@ -1246,9 +1340,9 @@ static void block_thread(void *param)
 				case RCT_R_GR_BG:
 				case RCT_R_G_B2:
 				case RCT_R_GR_B2:
-					args->dst[idx+0]=yuv[0]+128;
-					args->dst[idx+1]=yuv[1]+128;
-					args->dst[idx+2]=yuv[2]+128;
+					image[idx+0]=yuv[0]+128;
+					image[idx+1]=yuv[1]+128;
+					image[idx+2]=yuv[2]+128;
 					break;
 				case RCT_G_B_RG:
 				case RCT_G_B_RB:
@@ -1256,47 +1350,51 @@ static void block_thread(void *param)
 				case RCT_G_BG_RB:
 				case RCT_G_B_R2:
 				case RCT_G_BG_R2:
-					args->dst[idx+1]=yuv[0]+128;
-					args->dst[idx+2]=yuv[1]+128;
-					args->dst[idx+0]=yuv[2]+128;
+					image[idx+1]=yuv[0]+128;
+					image[idx+2]=yuv[1]+128;
+					image[idx+0]=yuv[2]+128;
 					break;
 				case RCT_B_R_GR:
 				case RCT_B_R_GB:
 				case RCT_B_RB_GB:
 				case RCT_B_RB_GR:
 				case RCT_B_RB_G2:
-					args->dst[idx+2]=yuv[0]+128;
-					args->dst[idx+0]=yuv[1]+128;
-					args->dst[idx+1]=yuv[2]+128;
+					image[idx+2]=yuv[0]+128;
+					image[idx+0]=yuv[1]+128;
+					image[idx+1]=yuv[2]+128;
 					break;
 				case RCT_G_RG_BR:
 				case RCT_G_RG_B2:
-					args->dst[idx+1]=yuv[0]+128;
-					args->dst[idx+0]=yuv[1]+128;
-					args->dst[idx+2]=yuv[2]+128;
+					image[idx+1]=yuv[0]+128;
+					image[idx+0]=yuv[1]+128;
+					image[idx+2]=yuv[2]+128;
 					break;
 				case RCT_B_GB_RG:
 				case RCT_B_GB_R2:
-					args->dst[idx+2]=yuv[0]+128;
-					args->dst[idx+1]=yuv[1]+128;
-					args->dst[idx+0]=yuv[2]+128;
+					image[idx+2]=yuv[0]+128;
+					image[idx+1]=yuv[1]+128;
+					image[idx+0]=yuv[2]+128;
 					break;
 				case RCT_R_BR_GB:
 				case RCT_R_B_G2:
 				case RCT_R_BR_G2:
-					args->dst[idx+0]=yuv[0]+128;
-					args->dst[idx+2]=yuv[1]+128;
-					args->dst[idx+1]=yuv[2]+128;
+					image[idx+0]=yuv[0]+128;
+					image[idx+2]=yuv[1]+128;
+					image[idx+1]=yuv[2]+128;
 					break;
 				}
 #ifdef ENABLE_GUIDE
-				if(args->test&&memcmp(args->dst+idx, args->src+idx, sizeof(char)*nch))
-				{
-					unsigned char orig[4]={0};
-					memcpy(orig, args->src+idx, nch*sizeof(char));
-					LOG_ERROR("Guide error XY %d %d", kx, ky);
-					printf("");//
-				}
+				if(args->dist>1)
+					guide_update_sqe(args->imagebuf, kx, ky);
+				else
+					guide_check(args->imagebuf, kx, ky);
+				//if(args->test&&memcmp(image+idx, image+idx, sizeof(char)*nch))
+				//{
+				//	unsigned char orig[4]={0};
+				//	memcpy(orig, image+idx, nch*sizeof(char));
+				//	LOG_ERROR("Guide error XY %d %d", kx, ky);
+				//	printf("");//
+				//}
 #endif
 			}
 			__m256i mr=_mm256_load_si256((__m256i*)rows);
@@ -1312,9 +1410,14 @@ static void block_thread(void *param)
 		}
 	}
 	if(args->fwd)
-		ac3_enc_flush(&ec);
+	{
+		//ac3_enc_flush(&ec);
+		ac3_encbuf_flush(&ec);
+		args->chunksizes[args->blockidx+0]=(int)(ec.dstptr-ec.dststart);
+		//args->chunksizes[args->blockidx*2+0]=(int)(ptr-(args->streambuf+args->offsets[args->blockidx*2+0]));
+	}
 }
-static void block_manager(void *param)
+static void block_thread(void *param)
 {
 	ThreadArgs *args=(ThreadArgs*)param;
 	for(int kb=args->b1;kb<args->b2;++kb)
@@ -1322,40 +1425,363 @@ static void block_manager(void *param)
 		int kx, ky;
 
 		args->blockidx=kb;
-		args->currentblock=kb-args->b1;
 		ky=args->blockidx/args->xblocks;
 		kx=args->blockidx%args->xblocks;
 		args->x1=BLOCKX*kx;
 		args->y1=BLOCKY*ky;
 		args->x2=MINVAR(args->x1+BLOCKX, args->iw);
 		args->y2=MINVAR(args->y1+BLOCKY, args->ih);
-		if(!args->fwd)
-		{
-			args->decstart=args->decsrc+args->offsets[kb];
-			args->decend=args->decsrc+args->offsets[kb+1];
-		}
-		block_thread(param);
+		block_func(param);
 	}
 }
 int c14_codec(int argc, char **argv)
 {
-	if(argc!=2&&argc!=3&&argc!=4)
+#ifdef LOUD
+	double t=time_sec();
+#endif
+	if(argc!=2&&argc!=3&&argc!=4&&argc!=5)
 	{
 		printf(
-			"Usage: \"%s\"  input  output  [maxthreads]    Encode/decode.\n"
-			"       \"%s\"  input                          Test without saving.\n"
+			"Usage: \"%s\"  input  output  [maxthreads]  [dist]    Encode/decode.\n"
+			"       \"%s\"  input                                  Test without saving.\n"
 			"[maxthreads]:\n"
 			"  0: nthreads = number of cores (default)\n"
 			"  1: Single thread\n"
+			"[dist]: optional lossy parameter (default off)\n"
 			, argv[0]
 			, argv[0]
 		);
 		return 1;
 	}
-	const char *srcfn=argv[1], *dstfn=argc>2?argv[2]:0;
-	int maxthreads=argc<4?0:atoi(argv[3]);
+	const char *srcfn=argv[1], *dstfn=argc<3?0:argv[2];
+	int maxthreads=argc<4?0:atoi(argv[3]), dist=argc<5?0:atoi(argv[4]);
+	if(dist!=0&&dist!=1)
+		CLAMP2(dist, 4, 64);
+	if(!srcfn||!dstfn)
+	{
+		LOG_ERROR("Codec requires both source and destination filenames");
+		return 1;
+	}
+	int fwd=0, iw=0, ih=0;
+	ptrdiff_t srcsize=0, streamsize=0, usize=0;
+	unsigned char *imagebuf=0, *streambuf=0;
+	unsigned char *streamptr=0, *streamstart=0, *streamend=0;
+	(void)streamstart;
+	{
+		struct stat info={0};
+		int error=stat(srcfn, &info);
+		if(error)
+		{
+			LOG_ERROR("Cannot stat \"%s\"", srcfn);
+			return 1;
+		}
+		srcsize=info.st_size;
+	}
+	{
+		ptrdiff_t nread;
+		int tag=0;
+		FILE *fsrc=fopen(srcfn, "rb");
+		if(!fsrc)
+		{
+			LOG_ERROR("Cannot open \"%s\"", srcfn);
+			return 1;
+		}
+		fread(&tag, 1, 2, fsrc);
+		fwd=tag==('P'|'6'<<8);
+		if(!fwd&&tag!=('1'|'4'<<8))
+		{
+			LOG_ERROR("Unsupported file \"%s\"", srcfn);
+			return 1;
+		}
+		if(fwd)
+		{
+			int c;
+#ifdef LOUD
+			print_timestamp("%Y-%m-%d_%H%M%S\n");
+#endif
+			c=fgetc(fsrc);
+			if(c!='\n')
+			{
+				LOG_ERROR("Invalid PPM file");
+				return 1;
+			}
+			c=fgetc(fsrc);
+			while(c=='#')
+			{
+				c=fgetc(fsrc);
+				while(c!='\n')
+					c=fgetc(fsrc);
+				c=fgetc(fsrc);
+			}
+			iw=0;
+			while((unsigned)(c-'0')<10)
+			{
+				iw=10*iw+c-'0';
+				c=fgetc(fsrc);
+			}
+			while(c<=' ')
+				c=fgetc(fsrc);
+			ih=0;
+			while((unsigned)(c-'0')<10)
+			{
+				ih=10*ih+c-'0';
+				c=fgetc(fsrc);
+			}
+			while(c<=' ')
+				c=fgetc(fsrc);
+			while(c=='#')
+			{
+				c=fgetc(fsrc);
+				while(c!='\n')
+					c=fgetc(fsrc);
+				c=fgetc(fsrc);
+			}
+			c=c<<8|fgetc(fsrc);
+			c=c<<8|fgetc(fsrc);
+			c=c<<8|fgetc(fsrc);
+			if(c!=('2'<<24|'5'<<16|'5'<<8|'\n'))
+			{
+				LOG_ERROR("Unsupported PPM file");
+				return 1;
+			}
+		}
+		else
+		{
+			fread(&iw, 1, 4, fsrc);
+			fread(&ih, 1, 4, fsrc);
+			nread=ftell(fsrc);
+			streamsize=srcsize-nread;
+
+		}
+		usize=(ptrdiff_t)3*iw*ih;
+		imagebuf=(unsigned char*)malloc(usize);
+		if(!imagebuf)
+		{
+			LOG_ERROR("Alloc error");
+			return 1;
+		}
+		ptrdiff_t expected=0;
+		if(fwd)
+		{
+			expected=usize;
+			nread=fread(imagebuf, 1, usize, fsrc);
+			guide_save(imagebuf, iw, ih);
+		}
+		else
+		{
+			streambuf=(unsigned char*)malloc(streamsize);
+			if(!streambuf)
+			{
+				LOG_ERROR("Alloc error");
+				return 1;
+			}
+			expected=streamsize;
+			nread=fread(streambuf, 1, streamsize, fsrc);
+		}
+		if(nread!=expected)
+			printf("Truncated  expected %td  read %td", expected, nread);
+		fclose(fsrc);
+	}
+	if(!fwd)
+	{
+		streamstart=streambuf;
+		streamend=streambuf+streamsize;
+		streamptr=streambuf;
+
+		dist=*streamptr++;
+	}
+	int xblocks=(iw+BLOCKX-1)/BLOCKX;
+	int yblocks=(ih+BLOCKY-1)/BLOCKY;
+	int nblocks=xblocks*yblocks;
+	int ncores=query_cpu_cores();
+	int nthreads=MINVAR(nblocks, ncores);
+	if(maxthreads&&nthreads>maxthreads)
+		nthreads=maxthreads;
+
+	int argssize=nthreads*sizeof(ThreadArgs);
+	ThreadArgs *args=(ThreadArgs*)malloc(argssize);
+	if(!args)
+	{
+		LOG_ERROR("Alloc error");
+		return 1;
+	}
+	memset(args, 0, argssize);
+
+	int *blocksizes=0;
+	if(fwd)
+	{
+		blocksizes=(int*)malloc(nblocks*(int)sizeof(int[2]));
+		if(!blocksizes)
+		{
+			LOG_ERROR("Alloc error");
+			return 1;
+		}
+		memset(blocksizes, 0, nblocks*sizeof(int[2]));
+	}
+	else
+	{
+		blocksizes=(int*)streamptr;
+		streamptr+=nblocks*sizeof(int[2]);
+	}
+	int offsetssize=(2*nblocks+1)*(int)sizeof(int);
+	int *offsets=(int*)malloc(offsetssize);
+	if(!offsets)
+	{
+		LOG_ERROR("Alloc error");
+		return 1;
+	}
+	if(fwd)
+	{
+		offsets[0]=0;
+		int asum=0;
+		for(int kb2=0;kb2<nblocks*2;++kb2)
+		{
+			int kb=kb2>>1;
+			int bx=kb%xblocks, by=kb/xblocks;
+			int x1=bx*BLOCKX, y1=by*BLOCKY;
+			int x2=x1+BLOCKX, y2=y1+BLOCKY;
+			if(x2>iw)
+				x2=iw;
+			if(y2>ih)
+				y2=ih;
+			int area=(x2-x1)*(y2-y1)*4;
+			asum+=area;
+			offsets[kb2+1]=asum;
+		}
+		streamsize=asum;
+		streambuf=(unsigned char*)malloc(streamsize);
+		if(!streambuf)
+		{
+			LOG_ERROR("Alloc error");
+			return 1;
+		}
+		streamstart=streambuf;
+		streamend=streambuf+streamsize;
+		streamptr=streambuf;
+	}
+	else
+	{
+		int sum=0;
+		offsets[0]=0;
+		for(int kb=0;kb<nblocks*2;++kb)
+		{
+			sum+=blocksizes[kb];
+			offsets[kb+1]=sum;
+		}
+		if(streamptr+sum!=streamend)
+			LOG_ERROR("Corrupt file  expected %d  got %d bytes", sum, (int)(streamend-streamptr));
+	}
+	int histsize;
+	int maxwidth=iw;
+	if(maxwidth>BLOCKX)
+		maxwidth=BLOCKX;
+	histsize=(int)sizeof(int[OCH_COUNT*PRED_COUNT<<8]);
+	for(int k=0, kb=0;k<nthreads;++k)//initialization
+	{
+		ThreadArgs *arg=args+k;
+		arg->imagebuf=imagebuf;
+		arg->streambuf=streamptr;
+		arg->iw=iw;
+		arg->ih=ih;
+		arg->offsets=offsets;
+		arg->chunksizes=blocksizes;
+		
+		arg->b1=kb;
+		kb=(k+1)*nblocks/nthreads;
+		arg->b2=kb;
+		arg->xblocks=xblocks;
+		arg->nblocks=nblocks;
+
+		arg->bufsize=sizeof(short[4*4*4])*(maxwidth+16LL);//4 padded rows * 4 channels max * {pixels, wg_errors}
+		arg->pixels=(short*)_mm_malloc(arg->bufsize, sizeof(__m128i));
+		arg->ebufsize=(int)sizeof(int[4][4][WG_NPREDS][BLOCKX+16LL]);
+		arg->ebuf=(int*)_mm_malloc(arg->ebufsize, sizeof(__m256i));
+		arg->histsize=histsize;
+		arg->hist=(int*)malloc(histsize);
+		if(!arg->pixels||!arg->ebuf||!arg->hist)
+		{
+			LOG_ERROR("Alloc error");
+			return 1;
+		}
+		arg->dist=dist;
+		
+		arg->fwd=fwd;
+//#ifdef ENABLE_MT
+//		arg->loud=0;
+//#else
+//		arg->loud=nblocks<MAXPRINTEDBLOCKS;
+//#endif
+	}
+#ifdef ENABLE_MT
+	if(nthreads>1)
+	{
+		void *ctx=mt_exec(block_thread, args, sizeof(ThreadArgs), nthreads);
+		mt_finish(ctx);
+	}
+	else
+#endif
+	{
+		for(int k=0;k<nthreads;++k)
+			block_thread(args+k);
+	}
+	FILE *fdst=fopen(dstfn, "wb");
+	if(!fdst)
+	{
+		LOG_ERROR("Cannot open \"%s\" for writing", dstfn);
+		return 1;
+	}
+	ptrdiff_t csize=0;
+	if(fwd)
+	{
+		csize+=fwrite("14", 1, 2, fdst);
+		csize+=fwrite(&iw, 1, 4, fdst);
+		csize+=fwrite(&ih, 1, 4, fdst);
+		csize+=fwrite(&dist, 1, 1, fdst);
+		csize+=fwrite(blocksizes, 1, nblocks*sizeof(int[2]), fdst);
+		for(int kb=0;kb<nblocks*2;++kb)
+			csize+=fwrite(streambuf+offsets[kb], 1, blocksizes[kb], fdst);
+	}
+	else
+	{
+		csize=srcsize;
+		fprintf(fdst, "P6\n%d %d\n255\n", iw, ih);
+		fwrite(imagebuf, 1, usize, fdst);
+	}
+	fclose(fdst);
+	for(int k=0;k<nthreads;++k)
+	{
+		ThreadArgs *arg=args+k;
+		free(arg->hist);
+		_mm_free(arg->pixels);
+		_mm_free(arg->ebuf);
+	}
+	free(args);
+	free(imagebuf);
+	free(streambuf);
+	free(offsets);
+	if(fwd)
+		free(blocksizes);
+#ifdef LOUD
+	t=time_sec()-t;
+	if(fwd)
+	{
+		printf("%12td/%12td  %10.6lf%%  %10lf\n", csize, usize, 100.*csize/usize, (double)usize/csize);
+		//printf("Mem usage: ");
+		//print_size((double)memusage, 8, 4, 0, 0);
+		//printf("\n");
+	}
+	printf("%c %16.6lf sec  %16.6lf MB/s\n", 'D'+fwd, t, usize/(t*1024*1024));
+#ifdef ENABLE_GUIDE
+	if(!fwd&&dist>=4)
+	{
+		double rmse=sqrt(g_sqe/usize), psnr=20*log10(255/rmse);
+		printf("RMSE %12.6lf  PSNR %12.6lf\n", rmse, psnr);
+	}
+#endif
+#endif
+	return 0;
+#if 0
 	const int nch=3;
-//	const int depth=8;
 	double t0;
 	ArrayHandle src, dst;
 	int headersize, printed;
@@ -1623,4 +2049,5 @@ int c14_codec(int argc, char **argv)
 	array_free(&src);
 	array_free(&dst);
 	return 0;
+#endif
 }

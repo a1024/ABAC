@@ -174,6 +174,7 @@ typedef enum TransformTypeEnum
 
 	CST_COMPARE,		CST_INV_SEPARATOR,
 	
+	ST_FWD_MIXN,		ST_INV_MIXN,
 	ST_FWD_OLS7,		ST_INV_OLS7,
 	ST_FWD_OLS8,		ST_INV_OLS8,
 	ST_FWD_CLAMPGRAD,	ST_INV_CLAMPGRAD,
@@ -232,7 +233,6 @@ typedef enum TransformTypeEnum
 	ST_FWD_TABLE,		ST_INV_TABLE,
 	ST_FWD_LWAV,		ST_INV_LWAV,
 	ST_FWD_MIX2,		ST_INV_MIX2,
-	ST_FWD_MIX3,		ST_INV_MIX3,
 //	ST_FWD_AV3,		ST_INV_AV3,
 //	ST_FWD_ECOEFF,		ST_INV_ECOEFF,
 //	ST_FWD_AVERAGE,		ST_INV_AVERAGE,
@@ -1282,6 +1282,9 @@ static void calc_csize_stateful(Image const *image, int *hist_full, double *entr
 					if(image->depth[kc])
 					{
 #if 1
+						//if(ky==1)//
+						//if(!kc&&((ky==0&&kx==2)||(ky==0&&kx==3)||(ky==1&&kx==0)))//
+						//	printf("");
 					//	int ctx=sW[kc]<<8>>image->depth[kc]&255;
 						int ctx=FLOOR_LOG2(sW[kc]*sW[kc]+1);
 						if(ctx>MODELNCTX-1)
@@ -1361,9 +1364,11 @@ static void calc_csize_stateful(Image const *image, int *hist_full, double *entr
 					{
 						int prob=(int)((long long)freq*(0x1000LL-count)/sum)+1;
 						e-=freq*log2(prob*(1./0x1000));
+						//if(!kc&&!kctx)console_log("%3d %7d\n", ks, freq);
 					}
 				}
 				e/=8;
+				//console_log("%3d %12.2lf\n", kc*nctx+kctx, e);
 #endif
 				//simulate unconditional guard		nlevels = 512 with SubGopt
 #if 0
@@ -2288,13 +2293,16 @@ static void batch_test(void)
 #endif
 	}
 	{
+		char str[1024]={0};
 		double ctotal=total_csize[0]+total_csize[1]+total_csize[2]+total_csize[3];
 		double CR=total_usize/ctotal;
 		t=time_sec()-t;
-		console_log(
-			"Total UTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  BPD %8.4lf\n",
-			total_usize, ctotal, total_csize[0], total_csize[1], total_csize[2], 8./CR
+		int nprinted=snprintf(str, sizeof(str)-1,
+			"%12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  BPD %8.4lf  %12.6lf sec  %12.6lf MB/s",
+			total_usize, ctotal, total_csize[0], total_csize[1], total_csize[2], 8./CR, t, total_usize/(t*1024*1024)
 		);
+		console_log("Total UTYUV %s <- copied\n", str);
+		copy_to_clipboard(str, nprinted);
 		timedelta2str(g_buf, G_BUF_SIZE, t);
 		console_log("Elapsed %s\n", g_buf);
 		acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d-%H:%M:%S");
@@ -2443,7 +2451,7 @@ static void batch_test_lossy(void)
 	DisableProcessWindowsGhosting();
 	console_start();
 	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H:%M:%S");
-	console_log("Batch Test  %s  %s\n", g_buf, (char*)path->data);
+	console_log("Lossy Batch Test  %s  %s\n", g_buf, (char*)path->data);
 	array_free(&path);
 	console_log("Enter number of threads: ");
 	nthreads=console_scan_int();
@@ -2527,6 +2535,7 @@ static void batch_test_lossy(void)
 		}
 	}
 	{
+		char str[1024]={0};
 		double ctotal=total_csize[0]+total_csize[1]+total_csize[2]+total_csize[3];
 		double CR=total_usize/ctotal;
 		double rmse=sqrt((total_sqe[0]+total_sqe[1]+total_sqe[2]+total_sqe[3])/total_usize);
@@ -2539,10 +2548,12 @@ static void batch_test_lossy(void)
 		t=time_sec()-t;
 		timedelta2str(g_buf, G_BUF_SIZE, t);
 		acme_strftime(g_buf, G_BUF_SIZE, "%Y%m%d_%H%M%S");
-		console_log(
-			"Total UTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  BPD %8.4lf  RMSE %10.4lf PSNR %10.4lf  %10.4lf sec  SSIM%7.4lf  %s\n",
+		int nprinted=snprintf(str, sizeof(str)-1,
+			"%12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  BPD %8.4lf  RMSE %10.4lf PSNR %10.4lf  %10.4lf sec  SSIM%7.4lf  %s",
 			total_usize, ctotal, total_csize[0], total_csize[1], total_csize[2], 8./CR, rmse, psnr, t, total_ssim[3], g_buf
 		);
+		console_log("Total UTYUV %s <- copied\n", str);
+		copy_to_clipboard(str, nprinted);
 		console_log("Elapsed %s\n", g_buf);
 		acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d-%H:%M:%S");
 		console_log("\nDone.  %s\n", g_buf);
@@ -2781,8 +2792,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_AV2:		a=" S Inv (N+W)/2";		break;
 	case ST_FWD_MIX2:		a=" S Fwd MIX2";		break;
 	case ST_INV_MIX2:		a=" S Inv MIX2";		break;
-	case ST_FWD_MIX3:		a=" S Fwd MIX3";		break;
-	case ST_INV_MIX3:		a=" S Inv MIX3";		break;
+	case ST_FWD_MIXN:		a=" S Fwd MIX N";		break;
+	case ST_INV_MIXN:		a=" S Inv MIX N";		break;
 //	case ST_FWD_AV3:		a=" S Fwd AV3";			break;
 //	case ST_INV_AV3:		a=" S Inv AV3";			break;
 	case ST_FWD_WGRAD:		a="CS Fwd WGrad";		break;
@@ -3961,8 +3972,8 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_INV_AV2:		pred_av2(image, 0);					break;
 	case ST_FWD_MIX2:		pred_mix2(image, 1);					break;
 	case ST_INV_MIX2:		pred_mix2(image, 0);					break;
-	case ST_FWD_MIX3:		pred_mix3(image, 1);					break;
-	case ST_INV_MIX3:		pred_mix3(image, 0);					break;
+	case ST_FWD_MIXN:		pred_mixN(image, 1);					break;
+	case ST_INV_MIXN:		pred_mixN(image, 0);					break;
 //	case ST_FWD_AV3:		pred_av3(image, 1);					break;
 //	case ST_INV_AV3:		pred_av3(image, 0);					break;
 	case ST_FWD_WGRAD:		pred_wgrad(image, 1, hasRCT);				break;

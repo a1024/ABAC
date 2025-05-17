@@ -70,8 +70,14 @@ c10:
 c11:
 	gcc $(FLAGS) -DCODEC_EXT=c11 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c11.c codec.c util.c  -o c11 $(LIBS)
 
+c12m:
+	gcc $(FLAGS) -DCODEC_EXT=c12 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c12m.c codec.c util.c  -o c12 $(LIBS)
+
 c12:
 	gcc $(FLAGS) -DCODEC_EXT=c12 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c12.c codec.c util.c  -o c12 $(LIBS)
+
+c12s:
+	gcc -Wall -O3 -s -DCODEC_EXT=c12 -mavx2 -mbmi -mlzcnt  c12.c codec.c  -o c12 $(LIBS)
 
 c13:
 	gcc $(FLAGS) -DCODEC_EXT=c13 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c13.c codec.c util.c  -o c13 $(LIBS)

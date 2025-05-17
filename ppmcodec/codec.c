@@ -56,7 +56,7 @@ int c33_codec(int argc, char **argv);//C33: speed priority CG-only
 //	#define CODEC_EXT c09
 //	#define CODEC_EXT c10
 //	#define CODEC_EXT c11
-//	#define CODEC_EXT c12
+	#define CODEC_EXT c12
 //	#define CODEC_EXT c13
 //	#define CODEC_EXT c14
 //	#define CODEC_EXT c15
@@ -76,7 +76,7 @@ int c33_codec(int argc, char **argv);//C33: speed priority CG-only
 //	#define CODEC_EXT c29
 //	#define CODEC_EXT c30
 //	#define CODEC_EXT c31
-	#define CODEC_EXT c32
+//	#define CODEC_EXT c32
 //	#define CODEC_EXT c33
 #endif
 #define STR_EXPAND(X) #X
@@ -112,6 +112,8 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_abigail-keenan-27293.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC30-ppm/03.ppm"
 		"C:/Projects/datasets/dataset-DIV2K-ppm/0801.ppm"
+	//	"C:/Projects/datasets/0801-cg.ppm"
+	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm"
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim23.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA13882.ppm"
@@ -223,6 +225,23 @@ int main(int argc, char **argv)
 	//	"D:/ML/zzz_halfbright.PPM"
 	//	"D:/Programs/c29/song.ppm"
 	;
+#if 1
+	const char *encargs[]=
+	{
+		argv[0],
+		srcfn,
+		tmpfn,
+	//	"0",
+	//	"11",//near
+	};
+	const char *decargs[]=
+	{
+		argv[0],
+		tmpfn,
+		dstfn,
+	};
+#endif
+#if 0
 	const char *encargs[]=
 	{
 		argv[0],
@@ -237,6 +256,7 @@ int main(int argc, char **argv)
 		tmpfn,
 		dstfn,
 	};
+#endif
 	if(CODEC_FUNC(_countof(encargs), (char**)encargs))
 		return 1;
 	if(CODEC_FUNC(_countof(decargs), (char**)decargs))

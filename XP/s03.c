@@ -17,7 +17,6 @@
 #include<x86intrin.h>
 #include<time.h>
 #endif
-#include<emmintrin.h>
 
 
 #ifdef _MSC_VER
@@ -32,16 +31,11 @@
 
 	#define USE_L1
 //	#define USE_DIVPRED
-//	#define BYPASSGR
 
 
 #define L1NPREDS 8
 
-
 #define GRBITS 6
-#define GRLIMIT 24
-#define PROBBITS_STORE 16
-#define PROBBITS_USE 12
 
 
 #ifdef _MSC_VER
@@ -55,6 +49,7 @@
 		if((X)<(LO))X=LO;\
 		if((X)>(HI))X=HI;\
 	}while(0)
+#if 0
 static void memfill(void *dst, const void *src, size_t dstbytes, size_t srcbytes)
 {
 	size_t copied;
@@ -85,6 +80,7 @@ static void memfill(void *dst, const void *src, size_t dstbytes, size_t srcbytes
 		*(PTR)=(DATA);\
 		memfill((PTR)+1, PTR, (ASIZE)-(ESIZE), ESIZE);\
 	}while(0)
+#endif
 static double time_sec(void)
 {
 #ifdef _MSC_VER
@@ -218,87 +214,7 @@ static const unsigned char rct_indices[][8]=
 #ifdef ESTIMATE_SIZE
 static int32_t hist[3][256]={0};
 #endif
-static uint16_t stats[3][256][8][GRLIMIT+8];
-typedef struct _ACState
-{
-	uint32_t low, range, code, fwd;
-	unsigned char *ptr, *end;
-	uint32_t symidx, totalsyms;
-} ACState;
-AWM_INLINE void codebit(ACState *ac, uint16_t *pp0, uint16_t *pp0b, int32_t *bit)
-{
-	uint32_t r2, mid;
-#ifndef BYPASSGR
-	int32_t p0b=*pp0b;
-	int32_t p0=*pp0;
-	int32_t p0e=(3*p0+p0b)>>(PROBBITS_STORE+2-PROBBITS_USE);
-//	int32_t p0e=p0>>(PROBBITS_STORE-PROBBITS_USE);
-//	int32_t p0e=p0b>>(PROBBITS_STORE-PROBBITS_USE);
-	CLAMP2(p0e, 1, (1<<PROBBITS_USE)-1);
-#endif
-	if(ac->range<(1<<PROBBITS_USE))
-	{
-		if(ac->ptr>=ac->end)
-		{
-			printf("ERROR at %d/%d  inflation %8.4lf%%\n"
-				, (int32_t)ac->symidx
-				, (int32_t)ac->totalsyms
-				, 100.*ac->totalsyms/ac->symidx
-			);
-			debugcrash();
-			exit(1);
-		}
-		if(ac->fwd)
-			*(uint16_t*)ac->ptr=(uint16_t)(ac->low>>16);
-		else
-			ac->code=ac->code<<16|*(uint16_t*)ac->ptr;
-		ac->ptr+=2;
-		ac->low<<=16;
-		ac->range=ac->range<<16|0xFFFF;
-		if(ac->range>~ac->low)
-			ac->range=~ac->low;
-	}
-#ifndef BYPASSGR
-	r2=(ac->range>>PROBBITS_USE)*p0e;
-#else
-	r2=ac->range>>1;
-#endif
-	mid=ac->low+r2;
-	ac->range-=r2;
-	if(!ac->fwd)
-		*bit=ac->code>=mid;
-	if(*bit)
-		ac->low=mid;
-	else
-		ac->range=r2-1;
-#ifndef BYPASSGR
-	*pp0=p0+((int32_t)((!*bit<<PROBBITS_STORE)-p0+(1<<7>>1))>>7);
-	*pp0b=p0b+((int32_t)((!*bit<<PROBBITS_STORE)-p0b+(1<<8>>1))>>8);
-#endif
-}
-void debugtest(void)
-{
-	int k;
-
-	for(k=0;k<100000;++k)
-	{
-		int x=rand()*rand();
-		double f=(double)(x+1), g;
-		int e, l2;
-		g=frexp(f, &e);
-		--e;
-		{
-			double f2=(double)(x+1);
-			size_t a=(size_t)&f2+4;
-			int32_t bits=*(int32_t*)a;
-			l2=(bits>>20)-1023;
-		}
-		if(l2!=e)
-			printf("%8d  %4d  %5d  %12.6lf\n", x, l2, e, g);
-	}
-	exit(0);
-}
-int s01_codec(const char *command, const char *srcfn, const char *dstfn)
+int s03_codec(const char *command, const char *srcfn, const char *dstfn)
 {
 	unsigned char *srcbuf=0, *srcptr=0, *srcend=0;
 	ptrdiff_t srcsize=0, dstsize=0;
@@ -307,20 +223,15 @@ int s01_codec(const char *command, const char *srcfn, const char *dstfn)
 	ptrdiff_t res=0, usize=0, csize=0;
 	unsigned char *image=0;
 	unsigned char *dstbuf=0;
-	unsigned char *ptr=0, *imptr=0;
+	unsigned char *streamptr=0, *imptr=0;
 	int bestrct=0;
-	ACState ac=
-	{
-		0, 0xFFFFFFFF, 0, 0,
-		0, 0,
-	};
 #ifdef LOUD
 	double t=time_sec();
 #endif
 #ifdef PRINTGR
 	long long gr_symlen=0, gr_bypsum=0;
 #endif
-	//debugtest();
+
 	srcbuf=load_file(srcfn, &srcsize);
 	if(!srcbuf)
 	{
@@ -408,7 +319,6 @@ int s01_codec(const char *command, const char *srcfn, const char *dstfn)
 		free(srcbuf);
 		return 1;
 	}
-	ac.fwd=fwd;
 	if(fwd)
 	{
 		//analysis
@@ -467,24 +377,17 @@ int s01_codec(const char *command, const char *srcfn, const char *dstfn)
 #endif
 			}
 		}
-		ptr=dstbuf;
-		*ptr++=bestrct;
+		memset(dstbuf, 0, usize);
+		streamptr=dstbuf;
 
-		ac.ptr=ptr;
-		ac.end=dstbuf+usize;
+		*streamptr++=bestrct;
 	}
 	else
 	{
 		imptr=dstbuf;
-		ptr=srcptr;
-		bestrct=*ptr++;
+		streamptr=srcptr;
 
-		ac.code=ac.code<<16|*(uint16_t*)ptr;
-		ptr+=2;
-		ac.code=ac.code<<16|*(uint16_t*)ptr;
-		ptr+=2;
-		ac.ptr=ptr;
-		ac.end=srcend;
+		bestrct=*streamptr++;
 
 		csize=srcsize;
 	}
@@ -502,7 +405,7 @@ int s01_codec(const char *command, const char *srcfn, const char *dstfn)
 #ifdef USE_L1
 		int32_t coeffs[L1NPREDS+1]={0};
 #endif
-		uint16_t p0z=0x8000, p0b=0x8000;
+		int32_t bitidx=0;
 
 		psize=(int32_t)sizeof(int16_t[4*3*2])*(iw+16);//4 padded rows * 3 channels * {pixels, nbypass}
 		pixels=(int16_t*)malloc(psize);
@@ -515,7 +418,6 @@ int s01_codec(const char *command, const char *srcfn, const char *dstfn)
 			return 1;
 		}
 		memset(pixels, 0, psize);
-		FILLMEM((uint16_t*)stats, 0x8000, sizeof(stats), sizeof(int16_t));
 		for(ky=0, idx=0;ky<ih;++ky)
 		{
 			char yuv[4]={0};
@@ -557,11 +459,10 @@ int s01_codec(const char *command, const char *srcfn, const char *dstfn)
 						eNEEE	=rows[1][1-3*3*2],
 						eW	=rows[0][1-1*3*2];
 					int32_t pred, vmax, vmin, pred0;
-					int32_t error;
-					int32_t nbypass, nzeros=-1, bypass=0;
-					int32_t tidx=0;
-					uint16_t *statsptr;
-					int32_t bit;
+					int32_t error, sym;
+					int32_t nbypass, nzeros=-1, stopbit;
+					int32_t codelen;
+					uint32_t code;
 #ifdef USE_L1
 					int32_t preds[]=
 					{
@@ -618,90 +519,79 @@ int s01_codec(const char *command, const char *srcfn, const char *dstfn)
 					pred+=offset;
 					CLAMP2(pred, -128, 127);
 
-					//if(ky==227&&kx==891&&kc==2)//
-					//	printf("");
-
 					{
-						__m128i t0=_mm_castpd_si128(_mm_cvtsi32_sd(_mm_setzero_pd(), eW+1));
-						t0=_mm_srli_epi64(t0, 52);
-						nbypass=_mm_cvtsi128_si32(t0)-1023-GRBITS;
+						float fval=(float)(eW+1);
+						size_t addr=(size_t)&fval;
+						int32_t bits=*(int32_t*)addr;
+						nbypass=(bits>>23)-127-GRBITS;
+						if(nbypass<0)
+							nbypass=0;
 					}
-					//{
-					//	float f=(float)(eW+1);
-					//	frexpf(f, &nbypass);//FLOOR_LOG2_P1
-					//	nbypass-=GRBITS+1;
-					//}
-					//{
-					//	float fval=(float)(eW+1);
-					//	size_t addr=(size_t)&fval;
-					//	int32_t bits=*(int32_t*)addr;
-					//	nbypass=(bits>>23)-127-GRBITS;
-					//}
-					if(nbypass<0)
-						nbypass=0;
-					statsptr=stats[kc][(pred+128)&255][nbypass];
+					//if(ky==437&&kx==735)//
+					//	printf("");
 					if(fwd)
 					{
 						error=(char)(yuv[kc]-pred);
-						error=error<<1^error>>31;
-						nzeros=error>>nbypass;
-						bypass=error&((1<<nbypass)-1);
+						sym=error<<1^error>>31;
 #ifdef ESTIMATE_SIZE
-						++hist[kc][error];
+						++hist[kc][sym];
 #endif
-#ifdef PRINTGR
+						nzeros=sym>>nbypass;
+						stopbit=nzeros<24;
+						if(!stopbit)
 						{
-							float fval=(float)(error+1);
-							size_t addr=(size_t)&fval;
-							int32_t bits=*(int32_t*)addr;
-							bits=(bits>>23)-127;
-							gr_bypsum+=nbypass;
-							gr_symlen+=bits;
+							nbypass=8;
+							nzeros=24;
 						}
-#endif
+						codelen=nzeros+stopbit+nbypass;
+						code=(stopbit<<nbypass|(sym&((1ULL<<nbypass)-1)))<<(32-codelen);
+						{
+							int32_t remaining=32-bitidx;
+							*(uint32_t*)streamptr|=code>>bitidx;
+							bitidx+=codelen;
+							streamptr+=(bitidx>=32)*4;
+							if(bitidx>32)
+								*(uint32_t*)streamptr|=code<<remaining;
+							bitidx&=31;
+						}
 					}
 					else
-						error=0;
-					do
 					{
-						//if(fwd)
-							bit=nzeros--<=0;
-						codebit(&ac, statsptr+tidx, &p0z, &bit);
-#ifdef PRINTBITS
-						if(fwd&&(unsigned)(idx-(usize>>2))<1000)printf("%c", '0'+bit);//
-#endif
-						++tidx;
-						if(tidx==GRLIMIT)
+						code=*(uint32_t*)streamptr;
+						if(bitidx)
+							code=code<<bitidx|((uint32_t*)streamptr)[1]>>(32-bitidx);
+						//code=bitidx?((uint32_t*)streamptr)[0]<<bitidx|((uint32_t*)streamptr)[1]>>(64-bitidx):*(uint32_t*)streamptr;
 						{
-							tidx=1;
-							nbypass=8;
-							if(fwd)
-								bypass=error;
-							break;
+							double f=(double)code;
+							size_t a=(size_t)&f+4;
+							uint32_t b=*(uint32_t*)a>>20;
+							nzeros=31-(b-1023);
+							if(!b)
+								nzeros=32;
 						}
-					}while(!bit);
-					{
-						int32_t kb=nbypass-1;
-
-						for(;kb>=0;--kb)
+						//nzeros=(int)_lzcnt_u64(code);
+						if(nzeros>=24)//24+8 = 32 bit code -> bitidx stays the same
 						{
-							bit=bypass>>kb&1;
-							codebit(&ac, statsptr+GRLIMIT+8-nbypass+kb, &p0b, &bit);
-							bypass|=bit<<kb;
-#ifdef PRINTBITS
-							if(fwd&&(unsigned)(idx-(usize>>2))<1000)printf("%c", '0'+bit);//
-#endif
+							sym=code&255;
+							streamptr+=4;
 						}
-					}
-					if(!fwd)
-					{
-						error=(tidx-1)<<nbypass|bypass;
-						error=error>>1^-(error&1);
+						else
+						{
+							int32_t mantissa=nzeros^31;
+							codelen=nzeros+1+nbypass;
+							code-=1<<mantissa;
+							code>>=mantissa-nbypass;
+							sym=nzeros<<nbypass|(uint32_t)code;
+							bitidx+=codelen;
+							if(bitidx>=32)
+							{
+								streamptr+=4;
+								bitidx-=32;
+							}
+						}
+						error=sym>>1^-(sym&1);
 						yuv[kc]=(char)(error+pred);
 					}
-					
-					//if(ky==10&&kx==10)//
-					//	printf("");//
 #ifdef USE_L1
 					{
 						int32_t k, e=yuv[kc]-offset;
@@ -710,26 +600,6 @@ int s01_codec(const char *command, const char *srcfn, const char *dstfn)
 						for(k=0;k<L1NPREDS;++k)
 							coeffs[k]+=e*preds[k];
 					}
-#if 0
-					{
-						static const int32_t etable[]=
-						{
-							//   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
-							-1, -1, -1, -1, -2, -2, -2, -2,  0, +2, +2, +2, +2, +1, +1, +1,
-						//	-4, -4, -4, -5, -6, -8, -9, -6,  0, +6, +9, +8, +6, +5, +4, +4,
-						};
-						int32_t k;
-						int32_t e=yuv[kc]-pred;
-						CLAMP2(e, 1-8, 15-8);
-						e=etable[e+8];
-						//	... -8 -7 -6 -5 -4 -3 -2 -1  0  1  2  3  4  5  6  7
-						//	... -1 -1 -1 -1 -2 -2 -2 -2  0 +2 +2 +2 +2 +1 +1 +1 ...
-						//e=(((e>0)-(e<0))<<1)-((e>4)-(e<-4));
-						coeffs[L1NPREDS]+=e;
-						for(k=0;k<L1NPREDS;++k)
-							coeffs[k]+=e*preds[k];
-					}
-#endif
 #endif
 					error=abs(yuv[kc]-pred);
 					rows[0][0]=yuv[kc]-offset;
@@ -754,6 +624,8 @@ int s01_codec(const char *command, const char *srcfn, const char *dstfn)
 			}
 		}
 		free(pixels);
+		if(fwd)//flush
+			streamptr+=4;
 	}
 	{
 		FILE *fdst=fopen(dstfn, "wb");
@@ -767,12 +639,12 @@ int s01_codec(const char *command, const char *srcfn, const char *dstfn)
 		}
 		if(fwd)
 		{
-			*(uint16_t*)ac.ptr=(uint16_t)(ac.low>>16);
-			ac.ptr+=2;
-			*(uint16_t*)ac.ptr=(uint16_t)ac.low;
-			ac.ptr+=2;
+			//*(uint16_t*)ac.ptr=(uint16_t)(ac.low>>16);
+			//ac.ptr+=2;
+			//*(uint16_t*)ac.ptr=(uint16_t)ac.low;
+			//ac.ptr+=2;
 
-			csize=ac.ptr-dstbuf;
+			csize=streamptr-dstbuf;
 
 			dstsize+=fwrite("01", 1, 2, fdst);
 			dstsize+=fwrite(&iw, 1, 4, fdst);

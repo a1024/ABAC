@@ -13,8 +13,8 @@
 static const char file[]=__FILE__;
 
 
-#define L1SH 18
 #if 1
+#define L1SH 18
 #define NPREDS 8
 #define PREDLIST\
 	PRED(100000, N)\
@@ -72,11 +72,11 @@ void pred_ols7(Image *src, int fwd)
 		(1<<src->depth[3]>>1)-1,
 	};
 	long long sh[4]={0};
-	const int wsize=sizeof(long long[4][NPREDS]);
-	long long *weights=(long long*)malloc(wsize);
+	long long weights[4][NPREDS+1]={0};
 	int bufsize=(src->iw+8*2)*(int)sizeof(short[4*4*1]);//4 padded rows * 4 channels max * {pixels}
 	short *pixels=(short*)malloc(bufsize);
-	if(!pixels||!weights)
+	int invdist=((1<<16)+g_dist-1)/g_dist;
+	if(!pixels)
 	{
 		LOG_ERROR("Alloc error");
 		return;
@@ -91,10 +91,8 @@ void pred_ols7(Image *src, int fwd)
 	for(int kc=0;kc<4;++kc)
 	{
 		for(int kp=0;kp<NPREDS;++kp)
-			weights[kc*NPREDS+kp]=w0[kp];
+			weights[kc][kp]=w0[kp];
 	}
-	//memset(weights, 0, wsize);
-	//FILLMEM(weights, (1<<L1SH)/NPREDS, wsize, sizeof(*weights));
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
 		short *rows[]=
@@ -159,13 +157,13 @@ void pred_ols7(Image *src, int fwd)
 					PREDLIST
 #undef  PRED
 				};
-				long long *currw=weights+NPREDS*kc;
-				long long pred=0;
+				long long *currw=weights[kc];
+				long long p0=currw[NPREDS];
 				for(int k=0;k<NPREDS;++k)
-					pred+=currw[k]*preds[k];
-				pred+=1LL<<L1SH>>1;
-				pred>>=L1SH;
-				long long p0=pred;
+					p0+=currw[k]*preds[k];
+				p0+=1LL<<L1SH>>1;
+				p0>>=L1SH;
+				long long pred=p0;
 				int vmax=N, vmin=W;
 				if(N<W)vmin=N, vmax=W;
 				if(vmin>NE)vmin=NE;
@@ -179,10 +177,10 @@ void pred_ols7(Image *src, int fwd)
 				//	printf("");
 
 				//near lossless
-#if 1
 				if(fwd)
 				{
-					curr=(curr-(int)pred)/g_dist;
+					curr-=(int)pred;
+					curr=(curr*invdist>>16)-(curr>>31&-(g_dist>1));//curr/=g_dist
 					src->data[idx]=curr;
 
 					curr=g_dist*curr+(int)pred;
@@ -195,76 +193,208 @@ void pred_ols7(Image *src, int fwd)
 
 					src->data[idx]=curr;
 				}
-#endif
-#if 0
-//#define DISTANCE 3
-				int val;
-				if(fwd)
-				{
-					val=(curr-(int)pred+g_dist/2)/g_dist;
-					//val<<=32-src->depth[kc];
-					//val>>=32-src->depth[kc];
-					curr=g_dist*val+(int)pred;
-				}
-				else
-				{
-					val=g_dist*curr+(int)pred;
-					//val<<=32-src->depth[kc];
-					//val>>=32-src->depth[kc];
-					curr=val;
-					CLAMP2(val, amin[kc], amax[kc]);
-				}
-				src->data[idx]=val;
-#endif
-#if 0
-#define LOSSBITS 0
-				int val;
-				if(fwd)
-				{
-					val=(curr-(int)pred+(1<<LOSSBITS>>1))>>LOSSBITS;
-					//val<<=32-src->depth[kc];
-					//val>>=32-src->depth[kc];
-					curr=(val<<LOSSBITS)+(int)pred;
-				}
-				else
-				{
-					val=(curr<<LOSSBITS)+(int)pred;
-					//val<<=32-src->depth[kc];
-					//val>>=32-src->depth[kc];
-					curr=val;
-					CLAMP2(val, amin[kc], amax[kc]);
-				}
-				src->data[idx]=val;
-#endif
-
-				//lossless
-#if 0
-				int val=(int)pred;
-				if(!keyboard[KEY_ALT])
-				{
-					val^=-fwd;
-					val+=fwd;
-					val+=curr;
-					val<<=32-src->depth[kc];
-					val>>=32-src->depth[kc];
-				}
-				src->data[idx]=val;
-				if(!fwd)
-					curr=val;
-#endif
 				rows[0][0]=curr;
-
-				//if(ky==src->ih/2&&kx==src->iw/2)//
-				//	printf("");
 
 				//update
 				int e=(curr>p0)-(curr<p0);//L1
-			//	int e=curr-p0;//L2
+				currw[NPREDS]+=e;
 				for(int k=0;k<NPREDS;++k)
 					currw[k]+=e*preds[k];
 			}
 		}
 	}
 	free(pixels);
-	free(weights);
+}
+void pred_mixN(Image *src, int fwd)
+{
+	int amin[]=
+	{
+		-(1<<src->depth[0]>>1),
+		-(1<<src->depth[1]>>1),
+		-(1<<src->depth[2]>>1),
+		-(1<<src->depth[3]>>1),
+	};
+	int amax[]=
+	{
+		(1<<src->depth[0]>>1)-1,
+		(1<<src->depth[1]>>1)-1,
+		(1<<src->depth[2]>>1)-1,
+		(1<<src->depth[3]>>1)-1,
+	};
+	int nch;
+	int fwdmask=-fwd;
+	
+	int invdist=((1<<16)+g_dist-1)/g_dist;
+	//int coeffsA[4][4]={0};
+	//int coeffsB[4][4]={0};
+	//int coeffsC[4][4]={0};
+	//int coeffsD[4][4]={0};
+	int coeffs[4][9]={0};
+
+	int bufsize=(src->iw+16LL)*sizeof(int[4*4*2]);//4 padded rows * 4 channels max * {pixel, error}
+	int *pixels=(int*)malloc(bufsize);
+
+	if(!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(pixels, 0, bufsize);
+	nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
+	UPDATE_MAX(nch, src->nch);
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		int *rows[]=
+		{
+			pixels+((src->iw+16LL)*((ky-0LL)&3)+8)*4*2,
+			pixels+((src->iw+16LL)*((ky-1LL)&3)+8)*4*2,
+			pixels+((src->iw+16LL)*((ky-2LL)&3)+8)*4*2,
+			pixels+((src->iw+16LL)*((ky-3LL)&3)+8)*4*2,
+		};
+		int asum=0;
+		for(int kx=0;kx<src->iw;++kx, idx+=4)
+		{
+			for(int kc=0;kc<3;++kc)
+			{
+				int
+					NNN	=rows[3][kc+0*4*2+0],
+					NNWW	=rows[2][kc-2*4*2+0],
+					NNW	=rows[2][kc-1*4*2+0],
+					NN	=rows[2][kc+0*4*2+0],
+					NNE	=rows[2][kc+1*4*2+0],
+					NNEE	=rows[2][kc+2*4*2+0],
+					NWW	=rows[1][kc-2*4*2+0],
+					NW	=rows[1][kc-1*4*2+0],
+					N	=rows[1][kc+0*4*2+0],
+					NE	=rows[1][kc+1*4*2+0],
+					NEE	=rows[1][kc+2*4*2+0],
+					NEEE	=rows[1][kc+3*4*2+0],
+					WWWW	=rows[0][kc-4*4*2+0],
+					WWW	=rows[0][kc-3*4*2+0],
+					WW	=rows[0][kc-2*4*2+0],
+					W	=rows[0][kc-1*4*2+0],
+					eNW	=rows[1][kc-1*4*2+1],
+					eN	=rows[1][kc+0*4*2+1],
+					eNE	=rows[1][kc+1*4*2+1],
+					eWW	=rows[0][kc-2*4*2+1],
+					eW	=rows[0][kc-1*4*2+1];
+#if 1
+				int *currw=coeffs[kc];
+				//if(ky==src->ih/2&&kx==src->iw/2)//
+				//	printf("");
+
+				//          X   NN  X
+				//      NWW NW  N   NE  X
+				//X WWW WW  W   ?
+				int dW=W-WW, dWW=WW-WWW, dN=N-NN, dNN=NN-NNN, g=N+W-NW, dNE=N-NE, dNWW=NW-NWW;
+				int pred=
+					+currw[0]*dNN
+					+currw[1]*dN
+					+currw[2]*g
+					+currw[3]*N
+					+currw[4]*dNE
+					+currw[5]*dWW
+					+currw[6]*dW
+					+currw[7]*W
+					+currw[8]*dNWW
+				;
+				pred+=1<<17>>1;
+				pred>>=17;
+				int p0=pred;
+				int vmax=N, vmin=W;
+				if(N<W)vmin=N, vmax=W;
+				if(vmin>NE)vmin=NE;
+				if(vmax<NE)vmax=NE;
+				if(vmin>NEEE)vmin=NEEE;
+				if(vmax<NEEE)vmax=NEEE;
+				CLAMP2(pred, vmin, vmax);
+
+				int curr=src->data[idx+kc];
+				if(fwd)
+				{
+					curr-=(int)pred;
+					curr=(curr*invdist>>16)-(curr>>31&-(g_dist>1));//curr/=g_dist
+					src->data[idx+kc]=curr;
+
+					curr=g_dist*curr+(int)pred;
+					CLAMP2(curr, amin[kc], amax[kc]);
+				}
+				else
+				{
+					curr=g_dist*curr+(int)pred;
+					CLAMP2(curr, amin[kc], amax[kc]);
+
+					src->data[idx+kc]=curr;
+				}
+				rows[0][kc+0]=curr;
+				rows[0][kc+1]=curr-pred;
+				int e=(curr>p0)-(curr<p0);//L1
+				currw[0]+=e*dNN;
+				currw[1]+=e*dN;
+				currw[2]+=e*g;
+				currw[3]+=e*N;
+				currw[4]+=e*dNE;
+				currw[5]+=e*dWW;
+				currw[6]+=e*dW;
+				currw[7]+=e*W;
+				currw[8]+=e*dNWW;
+#endif
+#if 0
+				int *currw=coeffs[kc];
+				//if(ky==src->ih/2&&kx==src->iw/2)//
+				//	printf("");
+
+				//          X   NN  X
+				//          NW  N   NE  X
+				//X WWW WW  W   ?
+				int pred=
+					+currw[0]*N
+					+currw[1]*W
+					+currw[2]*NW
+					+currw[3]*NE
+				;
+				pred+=1<<17>>1;
+				pred>>=17;
+				int p0=pred;
+				int vmax=N, vmin=W;
+				if(N<W)vmin=N, vmax=W;
+				if(vmin>NE)vmin=NE;
+				if(vmax<NE)vmax=NE;
+				//if(vmin>NEEE)vmin=NEEE;
+				//if(vmax<NEEE)vmax=NEEE;
+				CLAMP2(pred, vmin, vmax);
+
+				int curr=src->data[idx+kc];
+				if(fwd)
+				{
+					curr-=(int)pred;
+					curr=(curr*invdist>>16)-(curr>>31&-(g_dist>1));//curr/=g_dist
+					src->data[idx+kc]=curr;
+
+					curr=g_dist*curr+(int)pred;
+					CLAMP2(curr, amin[kc], amax[kc]);
+				}
+				else
+				{
+					curr=g_dist*curr+(int)pred;
+					CLAMP2(curr, amin[kc], amax[kc]);
+
+					src->data[idx+kc]=curr;
+				}
+				rows[0][kc+0]=curr;
+				rows[0][kc+1]=curr-pred;
+				int e=(curr>p0)-(curr<p0);//L1
+				currw[0]+=e*N;
+				currw[1]+=e*W;
+				currw[2]+=e*NW;
+				currw[3]+=e*NE;
+#endif
+			}
+			rows[0]+=4*2;
+			rows[1]+=4*2;
+			rows[2]+=4*2;
+			rows[3]+=4*2;
+		}
+	}
+	free(pixels);
 }

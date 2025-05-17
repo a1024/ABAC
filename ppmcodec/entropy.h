@@ -773,6 +773,34 @@ AWM_INLINE void ac3_encbuf_update_N(AC3 *ec, unsigned cdf, unsigned freq, int pr
 	ec->range=(ec->range*freq>>probbits)-1;
 	acval_enc(probbits, cdf, freq, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
 }
+AWM_INLINE void ac3_encbuf_bin(AC3 *ec, int bit, unsigned p0, int probbits)//probbits <= 16
+{
+#ifdef AC_VALIDATE
+	unsigned long long lo0=ec->low, r0=ec->range;
+	if(!p0||p0>=1ULL<<probbits)
+		LOG_ERROR2("ZPS");
+#endif
+	if(ec->range<(1ULL<<probbits))
+	{
+#ifndef AC_DISABLE_WRITE
+		*(unsigned*)ec->dstptr=(unsigned)(ec->low>>32);
+		ec->dstptr+=4;
+#endif
+		ec->range=ec->range<<32|0xFFFFFFFF;
+		ec->low<<=32;
+		if(ec->range>~ec->low)//clamp hi to register size after renorm
+			ec->range=~ec->low;
+	}
+	unsigned long long mid=ec->range*p0>>probbits;
+	if(bit)
+	{
+		ec->low+=mid;
+		ec->range-=mid;
+	}
+	else
+		ec->range=mid-1;
+	acval_enc(bit, bit?p0:0, bit?(1<<probbits)-p0:p0, lo0, lo0+r0, ec->low, ec->low+ec->range, 0, 0);
+}
 
 AWM_INLINE void ac3_enc_init(AC3 *ec, BList *dst)
 {

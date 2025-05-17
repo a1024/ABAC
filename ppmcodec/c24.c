@@ -11,8 +11,7 @@ static const char file[]=__FILE__;
 #ifndef __GNUC__
 	#define LOUD
 	#define ENABLE_GUIDE
-#endif
-#if !defined DISABLE_MT && defined __GNUC__
+#elif !defined DISABLE_MT
 	#define ENABLE_MT
 #endif
 
@@ -364,7 +363,7 @@ typedef struct _ThreadArgs
 	int iw, ih;
 	int *offsets, *chunksizes;//[nblocks*2+1]
 
-	int fwd, loud, b1, b2, xblocks, nblocks, x1, x2, y1, y2, near;
+	int fwd, loud, b1, b2, xblocks, nblocks, x1, x2, y1, y2, dist;
 	int bufsize, histsize;
 	short *pixels;
 	int *hist;
@@ -2994,7 +2993,7 @@ static void block_func(void *param)
 		for(int kc=0;kc<OCH_COUNT;++kc)//select best predictors
 		{
 			int bestpred=0;
-			if(args->near>=4)
+			if(args->dist>1)
 				bestpred=1;
 			for(int kp=bestpred+1;kp<PRED_COUNT;++kp)
 			{
@@ -3045,7 +3044,7 @@ static void block_func(void *param)
 		//	ac3_encbuf_init(&ec, args->enctokenbuf+(prevblockidx>=0?args->enctokenoffsets[prevblockidx]:0), args->enctokenbuf+args->encbufsize);
 		//	bypass_encbuf_init(&bc, args->encbypassbuf+(prevblockidx>=0?args->encbypassoffsets[prevblockidx]:0), args->encbypassbuf+args->encbufsize);
 		//}
-	//	ac3_encbuf_bypass_NPOT(&ec, args->near, 2);
+	//	ac3_encbuf_bypass_NPOT(&ec, args->dist, 2);
 		ac3_encbuf_bypass_NPOT(&ec, entropylevel, 100);
 		ac3_encbuf_bypass_NPOT(&ec, bestrct, RCT_COUNT);
 		ac3_encbuf_bypass_NPOT(&ec, predidx[0], PRED_COUNT);
@@ -3200,7 +3199,7 @@ static void block_func(void *param)
 		bypass_decbuf_init(&bc, args->streambuf+args->offsets[args->blockidx*2+1], args->streambuf+args->offsets[args->blockidx*2+2]);
 	//	ac3_dec_init(&ec, args->decstream+(args->blockidx>0?args->decoffsets[args->blockidx-1]:0), args->decstream+args->decoffsets[args->blockidx]);
 	//	bypass_decbuf_init(&bc, args->decstream+args->decoffsets[args->nblocks+args->blockidx-1], args->decstream+args->decoffsets[args->nblocks+args->blockidx]);
-	//	args->near=ac3_dec_bypass_NPOT(&ec, 2);
+	//	args->dist=ac3_dec_bypass_NPOT(&ec, 2);
 		entropylevel=ac3_dec_bypass_NPOT(&ec, 100);
 		bestrct=ac3_dec_bypass_NPOT(&ec, RCT_COUNT);
 		combination=rct_combinations[bestrct];
@@ -3299,6 +3298,7 @@ static void block_func(void *param)
 			memfill(curr_hist+cdfstride, curr_hist, (sizeof(int[ELEVELS*CLEVELS])-sizeof(int))*cdfstride, sizeof(int)*cdfstride);
 		}
 	}
+	int invdist=((1<<16)-1+args->dist)/args->dist;
 #else
 	for(int ks=0;ks<cdfstride;++ks)
 	{
@@ -4117,13 +4117,15 @@ static void block_func(void *param)
 				if(args->fwd)
 				{
 				//again:
-					if(args->near>=4)
+					if(args->dist>1)
 					{
 						//naive deadzone
 #if 1
-						error=(yuv[kc]-pred)/args->near;
+						error=(yuv[kc]-pred);
+						error=(error*invdist>>16)+((unsigned)error>>31);
+					//	error=(yuv[kc]-pred)/args->dist;
 						sym=error<<1^error>>31;
-						yuv[kc]=error*args->near+pred;
+						yuv[kc]=error*args->dist+pred;
 						CLAMP2(yuv[kc], -128, 127);
 						error=yuv[kc]-pred;
 #endif
@@ -4132,10 +4134,10 @@ static void block_func(void *param)
 #if 0
 						//NBLI mapXtoW:
 						int x=yuv[kc]+128, px=pred+128;
-						int spred=(MINVAR(px, 255-px)+(args->near>>1))/args->near;
+						int spred=(MINVAR(px, 255-px)+(args->dist>>1))/args->dist;
 						int sw=x>=px;
 						int w=abs(x-px);
-						w=(w+(args->near>>1))/args->near;
+						w=(w+(args->dist>>1))/args->dist;
 						if(w<=0)
 							w=0;
 						else if(w<=spred)
@@ -4158,7 +4160,7 @@ static void block_func(void *param)
 							x=w-spred;
 							sw=px<128;
 						}
-						x*=args->near;
+						x*=args->dist;
 						x=(sw?x:-x)+px;
 						CLAMP2(x, 0, 255);
 						yuv[kc]=x-128;
@@ -4167,9 +4169,9 @@ static void block_func(void *param)
 
 						//X
 #if 0
-						int scaledpred=(MINVAR(pred+128, 127-pred)+(args->near>>1))/args->near;
+						int scaledpred=(MINVAR(pred+128, 127-pred)+(args->dist>>1))/args->dist;
 						error=yuv[kc]+128-pred;
-						error=(error+(args->near>>1))/args->near;
+						error=(error+(args->dist>>1))/args->dist;
 						
 						int negmask=error>>31;
 						int abserror=(error^negmask)-negmask;
@@ -4180,7 +4182,7 @@ static void block_func(void *param)
 						if(scaledpred<0||sym<0)//
 							goto again;//
 
-						yuv[kc]=args->near*error+pred;
+						yuv[kc]=args->dist*error+pred;
 						CLAMP2(yuv[kc], -128, 127);
 #endif
 					}
@@ -4264,7 +4266,7 @@ static void block_func(void *param)
 							ec.range=~ec.low;
 					}
 #if 1
-					if(entropyidx&&args->near<4)
+					if(entropyidx&&args->dist<4)
 					{
 						__m256i mr2=_mm256_set1_epi32((unsigned short)(((ec.code-ec.low)<<PROB_BITS|((1LL<<PROB_BITS)-1))/ec.range));
 						__m256i mc0=_mm256_loadu_si256((__m256i*)(curr_hist0+1+0*8));
@@ -4471,11 +4473,11 @@ static void block_func(void *param)
 							+(sym&((1<<CONFIG_LSB)-1))
 						;
 					}
-					if(args->near>=4)
+					if(args->dist>=4)
 					{
 						//naive deadzone
 #if 1
-						error=(sym>>1^-(sym&1))*args->near;
+						error=(sym>>1^-(sym&1))*args->dist;
 						yuv[kc]=error+pred;
 						CLAMP2(yuv[kc], -128, 127);
 						error=yuv[kc]-pred;
@@ -4484,7 +4486,7 @@ static void block_func(void *param)
 						//NBLI
 #if 0
 						int px=pred+128;
-						int spred=(MINVAR(px, 255-px)+(args->near>>1))/args->near;
+						int spred=(MINVAR(px, 255-px)+(args->dist>>1))/args->dist;
 						int w=sym, x, sw;
 						if(w<=0)
 							x=0, sw=0;
@@ -4498,7 +4500,7 @@ static void block_func(void *param)
 							x=w-spred;
 							sw=px<128;
 						}
-						x*=args->near;
+						x*=args->dist;
 						x=(sw?x:-x)+px;
 						CLAMP2(x, 0, 255);
 						yuv[kc]=x-128;
@@ -4507,7 +4509,7 @@ static void block_func(void *param)
 
 						//X
 #if 0
-						int scaledpred=(MINVAR(pred-128, 127-pred)-128+(args->near>>1))/args->near;
+						int scaledpred=(MINVAR(pred-128, 127-pred)-128+(args->dist>>1))/args->dist;
 						
 						int negmask=pred>>31;	//11 cycles
 						int e2=scaledpred-sym;
@@ -4516,7 +4518,7 @@ static void block_func(void *param)
 						if((scaledpred<<1)<sym)//CMOV
 							error=e2;
 						
-						yuv[kc]=args->near*error+pred;
+						yuv[kc]=args->dist*error+pred;
 						CLAMP2(yuv[kc], -128, 127);
 #endif
 					}
@@ -4778,7 +4780,7 @@ static void block_func(void *param)
 				//args->dst[yidx]=yuv[0]+128;
 				//args->dst[uidx]=yuv[1]+128;
 				//args->dst[vidx]=yuv[2]+128;
-				if(args->near>=4)
+				if(args->dist>=4)
 					guide_update_sqe(args->imagebuf, kx, ky);
 				else
 					guide_check(args->imagebuf, kx, ky);
@@ -4969,9 +4971,9 @@ int c24_codec(int argc, char **argv)
 		return 1;
 	}
 	const char *srcfn=argv[1], *dstfn=argc<3?0:argv[2];
-	int maxthreads=argc<4?0:atoi(argv[3]), near=argc<5?0:atoi(argv[4]);
-	if(near!=0&&near!=1)
-		CLAMP2(near, 4, 64);
+	int maxthreads=argc<4?0:atoi(argv[3]), dist=argc<5?1:atoi(argv[4]);
+	if(dist>1)
+		CLAMP2(dist, 4, 64);
 	if(!srcfn||!dstfn)
 	{
 		LOG_ERROR("Codec requires both source and destination filenames");
@@ -5103,7 +5105,7 @@ int c24_codec(int argc, char **argv)
 		streamend=streambuf+streamsize;
 		streamptr=streambuf;
 
-		near=*streamptr++;
+		dist=*streamptr++;
 	}
 	int xblocks=(iw+BLOCKX-1)/BLOCKX;
 	int yblocks=(ih+BLOCKY-1)/BLOCKY;
@@ -5242,7 +5244,7 @@ int c24_codec(int argc, char **argv)
 			LOG_ERROR("Alloc error");
 			return 1;
 		}
-		arg->near=near;
+		arg->dist=dist;
 		
 		arg->tlevels=tlevels;
 		arg->fwd=fwd;
@@ -5277,7 +5279,7 @@ int c24_codec(int argc, char **argv)
 		csize+=fwrite("24", 1, 2, fdst);
 		csize+=fwrite(&iw, 1, 4, fdst);
 		csize+=fwrite(&ih, 1, 4, fdst);
-		csize+=fwrite(&near, 1, 1, fdst);
+		csize+=fwrite(&dist, 1, 1, fdst);
 		csize+=fwrite(blocksizes, 1, nblocks*sizeof(int[2]), fdst);
 		for(int kb=0;kb<nblocks*2;++kb)
 			csize+=fwrite(streambuf+offsets[kb], 1, blocksizes[kb], fdst);
@@ -5313,7 +5315,7 @@ int c24_codec(int argc, char **argv)
 	}
 	printf("%c %16.6lf sec  %16.6lf MB/s\n", 'D'+fwd, t, usize/(t*1024*1024));
 #ifdef ENABLE_GUIDE
-	if(!fwd&&near>=4)
+	if(!fwd&&dist>=4)
 	{
 		double rmse=sqrt(g_sqe/usize), psnr=20*log10(255/rmse);
 		printf("RMSE %12.6lf  PSNR %12.6lf\n", rmse, psnr);

@@ -2783,27 +2783,6 @@ void pred_clampgrad(Image *src, int fwd, int enable_ma)
 	_mm_free(pixels);
 #endif
 #if 1
-	int amin[]=
-	{
-		-(1<<src->depth[0]>>1),
-		-(1<<src->depth[1]>>1),
-		-(1<<src->depth[2]>>1),
-		-(1<<src->depth[3]>>1),
-	};
-	int amax[]=
-	{
-		(1<<src->depth[0]>>1)-1,
-		(1<<src->depth[1]>>1)-1,
-		(1<<src->depth[2]>>1)-1,
-		(1<<src->depth[3]>>1)-1,
-	};
-	short *pixels=(short*)malloc((src->iw+2LL)*sizeof(short[2*4]));//2 padded rows * 4 channels max
-	if(!pixels)
-	{
-		LOG_ERROR("Alloc error");
-		return;
-	}
-	memset(pixels, 0, (src->iw+2LL)*sizeof(short[2*4]));
 	int nlevels[]=
 	{
 		1<<src->depth[0],
@@ -2811,7 +2790,29 @@ void pred_clampgrad(Image *src, int fwd, int enable_ma)
 		1<<src->depth[2],
 		1<<src->depth[3],
 	};
+	int amin[]=
+	{
+		-(nlevels[0]>>1),
+		-(nlevels[1]>>1),
+		-(nlevels[2]>>1),
+		-(nlevels[3]>>1),
+	};
+	int amax[]=
+	{
+		(nlevels[0]>>1)-1,
+		(nlevels[1]>>1)-1,
+		(nlevels[2]>>1)-1,
+		(nlevels[3]>>1)-1,
+	};
 	int fwdmask=-fwd;
+	int invdist=((1<<16)+g_dist-1)/g_dist;
+	short *pixels=(short*)malloc((src->iw+2LL)*sizeof(short[2*4]));//2 padded rows * 4 channels max
+	if(!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(pixels, 0, (src->iw+2LL)*sizeof(short[2*4]));
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
 		short *rows[]=
@@ -2830,19 +2831,19 @@ void pred_clampgrad(Image *src, int fwd, int enable_ma)
 					NW	=rows[1][kc-4],
 					N	=rows[1][kc+0],
 					W	=rows[0][kc-4];
+				//if(kx==src->iw/2&&ky==src->ih/2)//
+				//	printf("");
 				int pred=N+W-NW;
 				int vmax=N, vmin=W;
 				if(N<W)vmin=N, vmax=W;
 				CLAMP2(pred, vmin, vmax);
-				//int pred=N+W-NW;
-				//int vmin=MINVAR(N, W), vmax=MAXVAR(N, W);
-				//pred=CLAMP(vmin, pred, vmax);
 
 				int curr=src->data[idx+kc];
 				int val;
 				if(fwd)
 				{
-					val=(curr-(int)pred+g_dist/2)/g_dist;
+					val=curr-(int)pred;
+					val=(val*invdist>>16)-(val>>31&-(g_dist>1));
 					curr=g_dist*val+(int)pred;
 				}
 				else
@@ -7178,121 +7179,6 @@ void pred_mix2(Image *src, int fwd)
 				rows[0][kc+4]=alpha;
 			//	rows[0][kc+4]=(2*aW+alpha+aNEEE)/4;
 #endif
-			}
-			rows[0]+=4*2;
-			rows[1]+=4*2;
-			rows[2]+=4*2;
-			rows[3]+=4*2;
-		}
-	}
-	free(pixels);
-}
-void pred_mix3(Image *src, int fwd)
-{
-	int nch;
-	int fwdmask=-fwd;
-
-	int bufsize=(src->iw+16LL)*sizeof(int[4*4*2]);//4 padded rows * 4 channels max
-	int *pixels=(int*)malloc(bufsize);
-
-	if(!pixels)
-	{
-		LOG_ERROR("Alloc error");
-		return;
-	}
-	memset(pixels, 0, bufsize);
-	nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
-	UPDATE_MAX(nch, src->nch);
-	for(int ky=0, idx=0;ky<src->ih;++ky)
-	{
-		int *rows[]=
-		{
-			pixels+((src->iw+16LL)*((ky-0LL)&3)+8)*4*2,
-			pixels+((src->iw+16LL)*((ky-1LL)&3)+8)*4*2,
-			pixels+((src->iw+16LL)*((ky-2LL)&3)+8)*4*2,
-			pixels+((src->iw+16LL)*((ky-3LL)&3)+8)*4*2,
-		};
-		int asum=0;
-	//	int acount=1;
-	//	int asum[3]={0}, acount[3]={1, 1, 1};
-		for(int kx=0;kx<src->iw;++kx, idx+=4)
-		{
-			for(int kc=0;kc<3;++kc)
-			{
-				int pred, curr;
-				int
-					NNW	=rows[2][kc-1*4*2+0],
-					NN	=rows[2][kc+0*4*2+0],
-					NNE	=rows[2][kc+1*4*2+0],
-					NWW	=rows[1][kc-2*4*2+0],
-					NW	=rows[1][kc-1*4*2+0],
-					N	=rows[1][kc+0*4*2+0],
-					NE	=rows[1][kc+1*4*2+0],
-					WW	=rows[0][kc-2*4*2+0],
-					W	=rows[0][kc-1*4*2+0];
-				
-#if 1
-				//      NN
-				//   NW N
-				//WW W  ?
-				int den=NN*WW-NW*NW;
-				pred=NE;
-				if(den)
-				{
-					int vmax=N, vmin=W;
-					if(N<W)vmin=N, vmax=W;
-
-					pred=((WW*N-NW*W)*N + (NN*W-NW*N)*W + (den>>1))/den;
-
-					CLAMP2(pred, vmin, vmax);
-				}
-#endif
-#if 0
-				//    NNW NN NNE
-				//NWW NW  N  NE
-				//WW  W   ?
-				int den1=WW*NNW-NW*NWW;
-				int den2=N*NN-NNE*NW;
-				int pred1 = den1 ? ((WW*NW-NWW*W)*N+(NNW*W-NW*NW)*W+(den1>>1))/den1 : N;
-				int pred2 = den2 ? ((N*N-NW*NE)*N+(NN*NE-NNE*N)*W+(den2>>1))/den2 : W;
-				pred=(pred1+pred2)>>1;
-
-				int vmax=N, vmin=W;
-				if(N<W)vmin=N, vmax=W;
-				if(vmin>NE)vmin=NE;
-				if(vmax<NE)vmax=NE;
-				CLAMP2(pred, vmin, vmax);
-#endif
-#if 0
-				//      NN NNE
-				//   NW N  NE
-				//WW W  ?
-				int den=(WW-NW)*(NNE-NN)-(NW-NN)*(N-NW), c1, c2;
-				pred=W;
-				if(den)
-				{
-					int vmax=N, vmin=W;
-					if(N<W)vmin=N, vmax=W;
-					if(vmin>NE)vmin=NE;
-					if(vmax<NE)vmax=NE;
-
-					c1=(NNE-NN)*(W-NW)-(N-NW)*(N-NN);	//bad
-					c2=(WW-NW)*(N-NN)-(NW-NN)*(W-NW);
-					pred=N+(c1*(W-N)+c2*(NE-N)+(den>>1))/den;
-
-					CLAMP2(pred, vmin, vmax);
-				}
-#endif
-				curr=src->data[idx+kc];
-				pred^=fwdmask;
-				pred-=fwdmask;
-				pred+=curr;
-
-				pred<<=32-src->depth[kc];
-				pred>>=32-src->depth[kc];
-
-				src->data[idx+kc]=pred;
-				rows[0][kc]=fwd?curr:pred;
 			}
 			rows[0]+=4*2;
 			rows[1]+=4*2;

@@ -6,3 +6,6 @@ s02:
 
 s02avx2:
 	gcc -DCODECFUNC=s02_codec -Wall -O3 -s -static -mavx2 main.c s02.c -o s02
+
+s03:
+	gcc -DCODECFUNC=s03_codec -Wall -O3 -s -static -mavx2 main.c s03.c -o s03
