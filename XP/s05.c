@@ -24,7 +24,7 @@
 #ifdef _DEBUG
 	#define ESTIMATE_SIZE
 	#define ENABLE_GUIDE
-//	#define ANS_VAL
+	#define ANS_VAL
 //	#define PRINTBITS
 //	#define PRINTGR
 #endif
@@ -944,7 +944,7 @@ static void dec_unpackhist(BitPackerLIFO *ec, unsigned *CDF2sym, uint32_t *ctxma
 static int32_t ehist[3][256]={0};
 #endif
 static int32_t hist[3][NCTX][256]={0};
-int s02_codec(const char *command, const char *srcfn, const char *dstfn)
+int s05_codec(const char *command, const char *srcfn, const char *dstfn)
 {
 	unsigned char *srcbuf=0, *srcptr=0, *srcend=0;
 	ptrdiff_t srcsize=0, dstsize=0;
@@ -1287,7 +1287,7 @@ int s02_codec(const char *command, const char *srcfn, const char *dstfn)
 						eWW	=rows[0][2-2*3*3],
 						eW	=rows[0][2-1*3*3],
 #endif
-						cNEEE	=rows[1][1+3*3*3],
+						cNEEE	=rows[1][1-3*3*3],
 						cW	=rows[0][1-1*3*3];
 					int32_t predc, vmax, vmin;
 					int32_t error;

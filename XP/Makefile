@@ -9,3 +9,9 @@ s02avx2:
 
 s03:
 	gcc -DCODECFUNC=s03_codec -Wall -O3 -s -static -mavx2 main.c s03.c -o s03
+
+s04:
+	gcc -DCODECFUNC=s04_codec -Wall -O3 -s -static -mavx2 main.c s04.c -o s04
+
+s05:
+	gcc -DCODECFUNC=s05_codec -Wall -O3 -s -static -mavx2 main.c s05.c -o s05
