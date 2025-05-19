@@ -456,7 +456,7 @@ int s03_codec(const char *command, const char *srcfn, const char *dstfn)
 						WWW	=rows[0][0-3*3*2],
 						WW	=rows[0][0-2*3*2],
 						W	=rows[0][0-1*3*2],
-						eNEEE	=rows[1][1-3*3*2],
+						eNEEE	=rows[1][1+3*3*2],
 						eW	=rows[0][1-1*3*2];
 					int32_t pred, vmax, vmin, pred0;
 					int32_t error, sym;

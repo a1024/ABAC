@@ -1287,7 +1287,7 @@ int s05_codec(const char *command, const char *srcfn, const char *dstfn)
 						eWW	=rows[0][2-2*3*3],
 						eW	=rows[0][2-1*3*3],
 #endif
-						cNEEE	=rows[1][1-3*3*3],
+						cNEEE	=rows[1][1+3*3*3],
 						cW	=rows[0][1-1*3*3];
 					int32_t predc, vmax, vmin;
 					int32_t error;

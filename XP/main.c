@@ -5,14 +5,14 @@ int s01_codec(const char *command, const char *srcfn, const char *dstfn);//binar
 int s02_codec(const char *command, const char *srcfn, const char *dstfn);//ANS
 int s03_codec(const char *command, const char *srcfn, const char *dstfn);//GR
 int s04_codec(const char *command, const char *srcfn, const char *dstfn);//binary
-int s05_codec(const char *command, const char *srcfn, const char *dstfn);//FSE (WIP)
+int s05_codec(const char *command, const char *srcfn, const char *dstfn);//FSE
 
 #ifndef CODECFUNC
 //	#define CODECFUNC s01_codec
-	#define CODECFUNC s02_codec
+//	#define CODECFUNC s02_codec
 //	#define CODECFUNC s03_codec
 //	#define CODECFUNC s04_codec
-//	#define CODECFUNC s05_codec
+	#define CODECFUNC s05_codec
 #endif
 int main(int argc, char **argv)
 {
