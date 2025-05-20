@@ -140,7 +140,7 @@ int main(int argc, char **argv)
 		, rmse[1], psnr[1]
 		, rmse[2], psnr[2]
 	);
-	if(idx!=(ptrdiff_t)3*iw*ih)
+	if(idx!=-1)
 	{
 		ptrdiff_t idx2=idx;
 		int kc, kx, ky;
