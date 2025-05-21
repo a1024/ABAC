@@ -148,12 +148,25 @@ static double time_sec(void)
 	return t.tv_sec+t.tv_nsec*1e-9;
 #endif
 }
-AWM_INLINE uint32_t floor_log2(uint32_t n)
+AWM_INLINE uint32_t floor_log2(uint32_t n)//n >= 1
 {
+#ifdef M_LZCNT
+	return 31-_lzcnt_u32(n);
+#else
+	if(n>0x7FFFFFFF)
+		return 31;
+	{
+		__m128i t0=_mm_castpd_si128(_mm_cvtsi32_sd(_mm_setzero_pd(), n));
+		t0=_mm_srli_epi64(t0, 52);
+		return _mm_cvtsi128_si32(t0)-1023;
+	}
+#if 0
 	float x=(float)n;
 	size_t addr=(size_t)&x;
 	uint32_t bits=*(uint32_t*)addr;
 	return (bits>>23)-127;
+#endif
+#endif
 }
 static void crash(const char *file, int line, const char *format, ...)
 {

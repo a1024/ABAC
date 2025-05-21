@@ -17,31 +17,28 @@
 #include<x86intrin.h>
 #include<time.h>
 #endif
-#include<emmintrin.h>
 
 
 #ifdef _MSC_VER
 	#define LOUD
-#ifdef _DEBUG
+//#ifdef _DEBUG
 	#define ESTIMATE_SIZE
 	#define ENABLE_GUIDE
-	#define PRINT_ESTIMS
 //	#define PRINTBITS
+//	#define PRINTGR
+//#endif
 #endif
-#endif
-
-	#define USE_L1
 
 
-#define NLEARNERS 8
-
-#define NPREDS 8
+#define L1NPREDS 8
 
 
 #define GRBITS 6
 #define GRLIMIT 24
 #define PROBBITS_STORE 16
 #define PROBBITS_USE 9
+
+#define MIXBITS 16
 
 
 #ifdef _MSC_VER
@@ -55,16 +52,6 @@
 		if((X)<(LO))X=LO;\
 		if((X)>(HI))X=HI;\
 	}while(0)
-int floor_log2(int n)
-{
-	if(n>0x7FFFFFFF)
-		return 31;
-	{
-		__m128i t0=_mm_castpd_si128(_mm_cvtsi32_sd(_mm_setzero_pd(), n));
-		t0=_mm_srli_epi64(t0, 52);
-		return _mm_cvtsi128_si32(t0)-1023;
-	}
-}
 static void memfill(void *dst, const void *src, size_t dstbytes, size_t srcbytes)
 {
 	size_t copied;
@@ -114,25 +101,19 @@ static double time_sec(void)
 	return t.tv_sec+t.tv_nsec*1e-9;
 #endif
 }
-static void crash(const char *format, ...)
+#ifdef _DEBUG
+static void debugcrash(void)
 {
-	if(format)
-	{
-		va_list args;
-		va_start(args, format);
-		vprintf(format, args);
-		va_end(args);
-		printf("\n");
-	}
 	printf("CRASH\n");
-#ifdef _MSC_VER
-	system("pause");
-#endif
 	exit(1);
 }
+#else
+#define debugcrash()
+#endif
 #ifdef ENABLE_GUIDE
 static int g_iw=0, g_ih=0;
 static unsigned char *g_image=0;
+static double g_sqe=0;
 static void guide_save(unsigned char *image, int iw, int ih)
 {
 	int size=3*iw*ih;
@@ -141,7 +122,7 @@ static void guide_save(unsigned char *image, int iw, int ih)
 	g_image=(unsigned char*)malloc(size);
 	if(!g_image)
 	{
-		crash("Alloc error");
+		debugcrash();
 		return;
 	}
 	memcpy(g_image, image, size);
@@ -151,13 +132,21 @@ static void guide_check(unsigned char *image, int kx, int ky)
 	int idx=3*(g_iw*ky+kx);
 	if(memcmp(image+idx, g_image+idx, 3))
 	{
-		crash("Guide error  XY %d %d", kx, ky);
+		debugcrash();
 		printf("");
 	}
+}
+static void guide_update(unsigned char *image, int kx, int ky)
+{
+	int idx=3*(g_iw*ky+kx), diff;
+	diff=g_image[idx+0]-image[idx+0]; g_sqe+=diff*diff;
+	diff=g_image[idx+1]-image[idx+1]; g_sqe+=diff*diff;
+	diff=g_image[idx+2]-image[idx+2]; g_sqe+=diff*diff;
 }
 #else
 #define guide_save(...)
 #define guide_check(...)
+#define guide_update(...)
 #endif
 static unsigned char* load_file(const char *fn, ptrdiff_t *ret_size)
 {
@@ -183,7 +172,8 @@ static unsigned char* load_file(const char *fn, ptrdiff_t *ret_size)
 	buf=(unsigned char*)malloc(size+16);
 	if(!buf)
 	{
-		crash("Alloc error\n");
+		printf("Alloc error\n");
+		exit(1);
 		return 0;
 	}
 	nread=fread(buf, 1, size, fsrc);
@@ -234,11 +224,69 @@ static const unsigned char rct_indices[][8]=
 #ifdef ESTIMATE_SIZE
 static int32_t hist[3][256]={0};
 #endif
-static uint16_t stats[3][256][256][NLEARNERS];
-static uint32_t Shannon[1<<PROBBITS_USE];
-static double log2table[1<<PROBBITS_STORE];
-int s04_codec(const char *command, const char *srcfn, const char *dstfn)
+//static uint16_t stats[3][256][256];
+//static uint16_t stats[3][8][256][256];
+static uint16_t stats[3][256][8][GRLIMIT+8];
+typedef struct _ACState
 {
+	uint32_t low, range, code, fwd;
+	unsigned char *ptr, *end;
+	uint32_t symidx, totalsyms;
+} ACState;
+AWM_INLINE void codebit(ACState *ac, uint16_t *pp0a, int32_t *bit)
+{
+	uint32_t r2, mid;
+	int32_t p0a=*pp0a;
+	int32_t p0=p0a>>(PROBBITS_STORE-PROBBITS_USE);
+	if(ac->range<(1<<PROBBITS_USE))
+	{
+		if(ac->ptr>=ac->end)
+		{
+			printf("ERROR at %d/%d  inflation %8.4lf%%\n"
+				, (int32_t)ac->symidx
+				, (int32_t)ac->totalsyms
+				, 100.*ac->totalsyms/ac->symidx
+			);
+			debugcrash();
+			exit(1);
+		}
+		if(ac->fwd)
+			*(uint16_t*)ac->ptr=(uint16_t)(ac->low>>16);
+		else
+			ac->code=ac->code<<16|*(uint16_t*)ac->ptr;
+		ac->ptr+=2;
+		ac->low<<=16;
+		ac->range=ac->range<<16|0xFFFF;
+		if(ac->range>~ac->low)
+			ac->range=~ac->low;
+	}
+	r2=(ac->range>>PROBBITS_USE)*(p0+(p0<(1<<PROBBITS_USE>>1)));
+	mid=ac->low+r2;
+	ac->range-=r2;
+	if(!ac->fwd)
+		*bit=ac->code>=mid;
+	if(*bit)
+		ac->low=mid;
+	else
+		ac->range=r2-1;
+	int32_t truth=!*bit<<PROBBITS_STORE;
+	*pp0a=p0a+((int32_t)(truth-p0a)>>6);
+}
+int c12_codec(int argc, char **argv)
+{
+	if(argc!=3&&argc!=4)
+	{
+		printf(
+			"Usage:  \"%s\"  input  output  [dist]\n"
+			"  dist is optional for lossy\n"
+			, argv[0]
+		);
+		return 1;
+	}
+	const char *srcfn=argv[1], *dstfn=argv[2];
+	int dist=argc<4?1:atoi(argv[3]);
+	if(dist!=1)
+		CLAMP2(dist, 4, 16);
 	unsigned char *srcbuf=0, *srcptr=0, *srcend=0;
 	ptrdiff_t srcsize=0, dstsize=0;
 	int fwd=0;
@@ -246,39 +294,24 @@ int s04_codec(const char *command, const char *srcfn, const char *dstfn)
 	ptrdiff_t res=0, usize=0, csize=0;
 	unsigned char *image=0;
 	unsigned char *dstbuf=0;
-	unsigned char *streamptr=0, *streamend=0;
-	unsigned char *imptr=0;
+	unsigned char *ptr=0, *imptr=0;
 	int bestrct=0;
+	ACState ac=
+	{
+		0, 0xFFFFFFFF, 0, 0,
+		0, 0,
+	};
 #ifdef LOUD
 	double t=time_sec();
 #endif
-	uint32_t low=0, range=0xFFFFFFFF, code=0;
-	int64_t totalsizes[3][NLEARNERS]={0};
-#ifdef PRINT_ESTIMS
-	double allsizes[3][NLEARNERS]={0};
-	double esizes[3]={0};
+#ifdef PRINTGR
+	long long gr_symlen=0, gr_bypsum=0;
 #endif
 
-	{
-		int32_t kp;
-
-		for(kp=0;kp<(1<<PROBBITS_USE);++kp)
-		{
-			int prob=kp;
-			CLAMP2(prob, 1, (1<<PROBBITS_USE)-1);
-			Shannon[kp]=(int32_t)(-log((double)prob*(1./(1<<PROBBITS_USE)))*((1<<16)/M_LN2));
-		}
-		for(kp=0;kp<(1<<PROBBITS_STORE);++kp)
-		{
-			int prob=kp;
-			CLAMP2(prob, 1, (1<<PROBBITS_STORE)-1);
-			log2table[kp]=-log((double)prob*(1./(1<<PROBBITS_STORE)))*(1./M_LN2);
-		}
-	}
 	srcbuf=load_file(srcfn, &srcsize);
 	if(!srcbuf)
 	{
-		crash("Cannot open \"%s\"", srcfn);
+		debugcrash();
 		return 1;
 	}
 	srcptr=srcbuf;
@@ -286,9 +319,10 @@ int s04_codec(const char *command, const char *srcfn, const char *dstfn)
 	{
 		int tag=*(uint16_t*)srcptr;
 		fwd=tag==('P'|'6'<<8);
-		if(!fwd&&tag!=('0'|'4'<<8))
+		if(!fwd&&tag!=('1'|'2'<<8))
 		{
-			crash("Unsupported file  \"%s\"\n", srcfn);
+			printf("Unsupported file  \"%s\"\n", srcfn);
+			debugcrash();
 			free(srcbuf);
 			return 1;
 		}
@@ -298,7 +332,8 @@ int s04_codec(const char *command, const char *srcfn, const char *dstfn)
 	{
 		if(*srcptr++!='\n')
 		{
-			crash("Unsupported file\n");
+			printf("Unsupported file\n");
+			debugcrash();
 			free(srcbuf);
 			return 1;
 		}
@@ -316,7 +351,8 @@ int s04_codec(const char *command, const char *srcfn, const char *dstfn)
 			ih=10*ih+*srcptr++-'0';
 		if(*srcptr++!='\n')
 		{
-			crash("Unsupported file\n");
+			printf("Unsupported file\n");
+			debugcrash();
 			free(srcbuf);
 			return 1;
 		}
@@ -327,7 +363,8 @@ int s04_codec(const char *command, const char *srcfn, const char *dstfn)
 		}
 		if(memcmp(srcptr, "255\n", 4))
 		{
-			crash("Unsupported file\n");
+			printf("Unsupported file\n");
+			debugcrash();
 			free(srcbuf);
 			return 1;
 		}
@@ -343,7 +380,8 @@ int s04_codec(const char *command, const char *srcfn, const char *dstfn)
 	}
 	if(iw<1||ih<1)
 	{
-		crash("Invalid file\n");
+		printf("Invalid file\n");
+		debugcrash();
 		free(srcbuf);
 		return 1;
 	}
@@ -352,10 +390,12 @@ int s04_codec(const char *command, const char *srcfn, const char *dstfn)
 	dstbuf=(unsigned char*)malloc(usize);
 	if(!dstbuf)
 	{
-		crash("Alloc error");
+		printf("Alloc error");
+		debugcrash();
 		free(srcbuf);
 		return 1;
 	}
+	ac.fwd=fwd;
 	if(fwd)
 	{
 		//analysis
@@ -414,22 +454,26 @@ int s04_codec(const char *command, const char *srcfn, const char *dstfn)
 #endif
 			}
 		}
-		streamend=dstbuf+usize;
-		streamptr=dstbuf;
-		*streamptr++=bestrct;
+		ptr=dstbuf;
+		*ptr++=bestrct;
+		*ptr++=dist;
+
+		ac.ptr=ptr;
+		ac.end=dstbuf+usize;
 	}
 	else
 	{
 		imptr=dstbuf;
-		streamend=srcptr+srcsize;
-		streamptr=srcptr;
+		ptr=srcptr;
+		bestrct=*ptr++;
+		dist=*ptr++;
 
-		bestrct=*streamptr++;
-
-		code=code<<16|*(uint16_t*)streamptr;
-		streamptr+=2;
-		code=code<<16|*(uint16_t*)streamptr;
-		streamptr+=2;
+		ac.code=ac.code<<16|*(uint16_t*)ptr;
+		ptr+=2;
+		ac.code=ac.code<<16|*(uint16_t*)ptr;
+		ptr+=2;
+		ac.ptr=ptr;
+		ac.end=srcend;
 
 		csize=srcsize;
 	}
@@ -443,26 +487,23 @@ int s04_codec(const char *command, const char *srcfn, const char *dstfn)
 		int32_t ky, kx, idx;
 		int32_t psize=0;
 		int16_t *pixels=0;
-		int32_t ssize=0;
-		int32_t *sbuf=0;
 		int32_t paddedwidth=iw+16;
-#ifdef USE_L1
-		int32_t coeffs[NPREDS+1]={0};
-#endif
 
-		psize=(int32_t)sizeof(int16_t[4*3*2])*paddedwidth;//4 padded rows * 3 channels * {pixels, nbypass}
+		int32_t coeffs[L1NPREDS+1]={0};
+
+		int32_t invdist=((1<<16)+dist-1)/dist;
+
+		psize=(int32_t)sizeof(int16_t[4*3*2])*(iw+16);//4 padded rows * 3 channels * {pixels, nbypass}
 		pixels=(int16_t*)malloc(psize);
-		ssize=(int32_t)sizeof(int32_t[4*3*NLEARNERS])*paddedwidth;//4 padded rows * 3 channels * NLEARNERS rates
-		sbuf=(int32_t*)malloc(ssize);
 		if(!pixels)
 		{
-			crash("Alloc error\n");
+			printf("Alloc error\n");
+			debugcrash();
 			free(srcbuf);
 			free(dstbuf);
 			return 1;
 		}
 		memset(pixels, 0, psize);
-		memset(sbuf, 0, ssize);
 		FILLMEM((uint16_t*)stats, 0x8000, sizeof(stats), sizeof(int16_t));
 		for(ky=0, idx=0;ky<ih;++ky)
 		{
@@ -473,13 +514,6 @@ int s04_codec(const char *command, const char *srcfn, const char *dstfn)
 				pixels+(paddedwidth*((ky-1)&3)+8)*3*2,
 				pixels+(paddedwidth*((ky-2)&3)+8)*3*2,
 				pixels+(paddedwidth*((ky-3)&3)+8)*3*2,
-			};
-			int32_t *srows[]=
-			{
-				sbuf+(paddedwidth*((ky-0)&3)+8)*3*NLEARNERS,
-				sbuf+(paddedwidth*((ky-1)&3)+8)*3*NLEARNERS,
-				sbuf+(paddedwidth*((ky-2)&3)+8)*3*NLEARNERS,
-				sbuf+(paddedwidth*((ky-3)&3)+8)*3*NLEARNERS,
 			};
 			for(kx=0;kx<iw;++kx, ++idx)
 			{
@@ -508,23 +542,16 @@ int s04_codec(const char *command, const char *srcfn, const char *dstfn)
 						WWWW	=rows[0][0-4*3*2],
 						WWW	=rows[0][0-3*3*2],
 						WW	=rows[0][0-2*3*2],
-						W	=rows[0][0-1*3*2];
-					//	eNEEE	=rows[1][1-3*3*2],
-					//	eW	=rows[0][1-1*3*2];
-					int32_t
-						*sNW	=srows[1]-1*3*NLEARNERS,
-						*sN	=srows[1]+0*3*NLEARNERS,
-						*sNE	=srows[1]+1*3*NLEARNERS,
-						*sNEE	=srows[1]+2*3*NLEARNERS,
-						*sNEEE	=srows[1]+3*3*NLEARNERS,
-						*sW	=srows[0]-1*3*NLEARNERS,
-						*scurr	=srows[0];
-					int32_t model;
+						W	=rows[0][0-1*3*2],
+						eNEEE	=rows[1][1-3*3*2],
+						eW	=rows[0][1-1*3*2];
 					int32_t pred, vmax, vmin, pred0;
 					int32_t error;
-					int32_t kb, tidx, bit;
-					int32_t currsizes[NLEARNERS]={0};
-#ifdef USE_L1
+					int32_t nbypass, nzeros=-1, bypass=0;
+					int32_t tidx=0;
+					uint16_t *statsptr;
+					int32_t bit;
+
 					int32_t preds[]=
 					{
 						N,
@@ -536,11 +563,10 @@ int s04_codec(const char *command, const char *srcfn, const char *dstfn)
 						N+NE-NNE,
 						(WWWW+WWW+NNN+NEE+NEEE+NEEEE-2*NW)/4,
 					};
-
-					pred=coeffs[NPREDS];
+					pred=coeffs[L1NPREDS];
 					{
 						int j=0;
-						for(;j<NPREDS;++j)
+						for(;j<L1NPREDS;++j)
 							pred+=coeffs[j]*preds[j];
 					}
 #define L1SH 19
@@ -554,197 +580,219 @@ int s04_codec(const char *command, const char *srcfn, const char *dstfn)
 					if(vmin>NEEE)vmin=NEEE;
 					if(vmax<NEEE)vmax=NEEE;
 					CLAMP2(pred, vmin, vmax);
-#else
-					pred=N+W-NW;
-					vmax=N, vmin=W;
-					if(N<W)vmin=N, vmax=W;
-					CLAMP2(pred, vmin, vmax);
-#endif
+
 					pred+=offset;
 					CLAMP2(pred, -128, 127);
-					{
-						//int32_t sh=floor_log2(idx+1);
-						int64_t bestsize=totalsizes[kc][0];
-						//int32_t bestsize=sNW[0]+sN[0]+sNE[0]+sNE[0]+sW[0];
-						int32_t kp;
 
-						model=0;
-						for(kp=1;kp<NLEARNERS;++kp)
-						{
-							int64_t size=totalsizes[kc][kp];
-							//int32_t size=sNW[kp]+sN[kp]+sNE[kp]+sNE[kp]+sW[kp];
-							if(bestsize>size)
-							{
-								bestsize=size;
-								model=kp;
-							}
-						}
+					{
+						float fval=(float)(eW+1);
+						size_t addr=(size_t)&fval;
+						int32_t bits=*(int32_t*)addr;
+						nbypass=(bits>>23)-127-GRBITS;
+						if(nbypass<0)
+							nbypass=0;
 					}
+#if 0
+					statsptr=stats[kc][eW>>GRBITS];
+					//statsptr=stats[kc][nbypass][(pred+128)&255];
+					int step=1<<nbypass;
 					if(fwd)
 					{
-						error=yuv[kc]-pred;
+						if(dist>1)
+						{
+							int e2=yuv[kc]-pred;
+							if(e2<0)
+								e2+=dist-1;
+							e2=e2*invdist>>16;
+							error=e2<<1^e2>>31;
+							yuv[kc]=e2*dist+pred;
+							CLAMP2(yuv[kc], -128, 127);
+						}
+						else
+						{
+							error=(char)(yuv[kc]-pred);
+							error=error<<1^error>>31;
+						}
+						nzeros=error>>nbypass;
+						bypass=error&((1<<nbypass)-1);
 #ifdef ESTIMATE_SIZE
-						++hist[kc][(unsigned char)(error+128)];
+						++hist[kc][error];
 #endif
 					}
 					else
 						error=0;
-					for(kb=7, tidx=1;kb>=0;--kb)
+					tidx=0;
+					do
 					{
-						uint16_t *pp0=stats[kc][(pred+128)&255][tidx];
-						int32_t p0;
-
-#if 0
-						p0=(
-							+((uint32_t)(totalsizes[kc][0]>>32)+1)*(pp0[0]>>4)
-							+((uint32_t)(totalsizes[kc][1]>>32)+1)*(pp0[1]>>4)
-							+((uint32_t)(totalsizes[kc][2]>>32)+1)*(pp0[2]>>4)
-							+((uint32_t)(totalsizes[kc][3]>>32)+1)*(pp0[3]>>4)
-							+((uint32_t)(totalsizes[kc][4]>>32)+1)*(pp0[4]>>4)
-							+((uint32_t)(totalsizes[kc][5]>>32)+1)*(pp0[5]>>4)
-							+((uint32_t)(totalsizes[kc][6]>>32)+1)*(pp0[6]>>4)
-							+((uint32_t)(totalsizes[kc][7]>>32)+1)*(pp0[7]>>4)
-						)/(
-							+(uint32_t)(totalsizes[kc][0]>>32)
-							+(uint32_t)(totalsizes[kc][1]>>32)
-							+(uint32_t)(totalsizes[kc][2]>>32)
-							+(uint32_t)(totalsizes[kc][3]>>32)
-							+(uint32_t)(totalsizes[kc][4]>>32)
-							+(uint32_t)(totalsizes[kc][5]>>32)
-							+(uint32_t)(totalsizes[kc][6]>>32)
-							+(uint32_t)(totalsizes[kc][7]>>32)
-							+8
-						);
-#endif
-						p0=pp0[model]>>(PROBBITS_STORE-PROBBITS_USE);
-						CLAMP2(p0, 1, (1<<PROBBITS_USE)-1);
-						if(range<(1<<PROBBITS_USE))
-						{
-							if(streamptr>=streamend)
-							{
-								int symidx=3*idx+kc, totalsyms=3*iw*ih;
-
-								crash("ERROR at %d/%d  inflation %8.4lf%%\n"
-									, (int32_t)symidx
-									, (int32_t)totalsyms
-									, 100.*totalsyms/symidx
-								);
-								return 1;
-							}
-							if(fwd)
-								*(uint16_t*)streamptr=(uint16_t)(low>>16);
-							else
-								code=code<<16|*(uint16_t*)streamptr;
-							streamptr+=2;
-							low<<=16;
-							range=range<<16|0xFFFF;
-							if(range>~low)
-								range=~low;
-						}
-						bit=error>>kb&1;
-						{
-							uint32_t r2=(range>>PROBBITS_USE)*p0;
-							uint32_t mid=low+r2;
-							range-=r2;
-							if(!fwd)
-								bit=code>=mid;
-							if(bit)
-								low=mid;
-							else
-								range=r2-1;
-						}
-						error|=bit<<kb;
-#ifdef PRINT_ESTIMS
-						esizes[kc]+=log2table[bit?(1<<PROBBITS_STORE)-pp0[model]:pp0[model]];
-#endif
-						{
-							int32_t sh=3, rcon=1<<sh>>1, kp;
-
-							for(kp=0;kp<NLEARNERS;++kp)
-							{
-								p0=pp0[kp]>>(PROBBITS_STORE-PROBBITS_USE);
-#ifdef PRINT_ESTIMS
-								allsizes[kc][kp]+=log2table[bit?(1<<PROBBITS_STORE)-pp0[kp]:pp0[kp]];//
-#endif
-								CLAMP2(p0, 1, (1<<PROBBITS_USE)-1);
-								currsizes[kp]+=Shannon[bit?(1<<PROBBITS_USE)-p0:p0];
-								pp0[kp]+=((!bit<<PROBBITS_STORE)-pp0[kp]+rcon)>>sh;
-								++sh;
-								rcon<<=1;
-							}
-						}
-						tidx=2*tidx+bit;
+						int tidx2=tidx+step;
+						bit=tidx2<error;
+						codebit(&ac, statsptr+tidx, &bit);
+						tidx=tidx2;
+					}while(bit);
+					tidx-=step;
+					while(step)
+					{
+						int floorhalf=step>>1;
+						int mid=tidx+floorhalf;
+						bit=mid<error;
+						codebit(&ac, statsptr+mid, &bit);
+						tidx+=(step-floorhalf)&-bit;
+						step=floorhalf;
 					}
 					if(!fwd)
-						yuv[kc]=(char)(error+pred);
-					
-					//if(ky==10&&kx==10)//
-					//	printf("");//
+					{
+						error=tidx;
+						error=error>>1^-(error&1);
+						if(dist>1)
+						{
+							yuv[kc]=error*dist+pred;
+							CLAMP2(yuv[kc], -128, 127);
+						}
+						else
+							yuv[kc]=(char)(error+pred);
+					}
+#ifdef _DEBUG
+					else if(error!=tidx)
+						debugcrash();
+#endif
+#endif
+#if 1
+					statsptr=stats[kc][(pred+128)&255][nbypass];
+					if(fwd)
+					{
+						if(dist>1)
+						{
+							int e2=yuv[kc]-pred;
+							if(e2<0)
+								e2+=dist-1;
+							e2=e2*invdist>>16;
+							error=e2<<1^e2>>31;
+							yuv[kc]=e2*dist+pred;
+							CLAMP2(yuv[kc], -128, 127);
+						}
+						else
+						{
+							error=(char)(yuv[kc]-pred);
+							error=error<<1^error>>31;
+						}
+						nzeros=error>>nbypass;
+						bypass=error&((1<<nbypass)-1);
+#ifdef ESTIMATE_SIZE
+						++hist[kc][error];
+#endif
+#ifdef PRINTGR
+						{
+							float fval=(float)(error+1);
+							size_t addr=(size_t)&fval;
+							int32_t bits=*(int32_t*)addr;
+							bits=(bits>>23)-127;
+							gr_bypsum+=nbypass;
+							gr_symlen+=bits;
+						}
+#endif
+					}
+					else
+						error=0;
+					do
+					{
+						bit=nzeros--<=0;
+						codebit(&ac, statsptr+tidx, &bit);
+#ifdef PRINTBITS
+						if(fwd&&(unsigned)(idx-(usize>>2))<1000)printf("%c", '0'+bit);//
+#endif
+						++tidx;
+						if(tidx==GRLIMIT)
+						{
+							tidx=1;
+							nbypass=8;
+							if(fwd)
+								bypass=error;
+							break;
+						}
+					}while(!bit);
+					{
+						int32_t kb=nbypass-1;
 
-				//	error=yuv[kc]-pred;
-				//	error=error<<1^error>>31;
-					rows[0][0]=yuv[kc]-offset;
-				//	rows[0][1]=(2*eW+(error<<GRBITS)+eNEEE)>>2;
-#ifdef USE_L1
+						for(;kb>=0;--kb)
+						{
+							bit=bypass>>kb&1;
+							codebit(&ac, statsptr+GRLIMIT+8-nbypass+kb, &bit);
+							bypass|=bit<<kb;
+#ifdef PRINTBITS
+							if(fwd&&(unsigned)(idx-(usize>>2))<1000)printf("%c", '0'+bit);//
+#endif
+						}
+					}
+					if(!fwd)
+					{
+						error=(tidx-1)<<nbypass|bypass;
+						error=error>>1^-(error&1);
+						if(dist>1)
+						{
+							yuv[kc]=error*dist+pred;
+							CLAMP2(yuv[kc], -128, 127);
+						}
+						else
+							yuv[kc]=(char)(error+pred);
+					}
+#endif
+
 					{
 						int32_t k, e=yuv[kc]-offset;
 						e=(e>pred0)-(e<pred0);
-						coeffs[NPREDS]+=e;
-						for(k=0;k<NPREDS;++k)
+						coeffs[L1NPREDS]+=e;
+						for(k=0;k<L1NPREDS;++k)
 							coeffs[k]+=e*preds[k];
 					}
-#endif
-					{
-						int kp;
-
-						for(kp=0;kp<NLEARNERS;++kp)
-							scurr[kp]+=(2*sW[kp]+currsizes[kp]+(sNEE[kp]>sNEEE[kp]?sNEE[kp]:sNEEE[kp]))>>2;
-						for(kp=0;kp<NLEARNERS;++kp)
-							totalsizes[kc][kp]+=currsizes[kp];
-						//	totalsizes[kc][kp]+=(currsizes[kp]-totalsizes[kc][kp]+(1<<7>>1))>>7;
-					}
-					offset=kc?yuv[vhelpidx]:yuv[uhelpidx];
+					error=abs(yuv[kc]-pred);
+					rows[0][0]=yuv[kc]-offset;
+					rows[0][1]=(2*eW+(error<<GRBITS)+eNEEE)>>2;
+					if(kc)
+						offset=yuv[vhelpidx];
+					else
+						offset=yuv[uhelpidx];
 					rows[0]+=2;
 					rows[1]+=2;
 					rows[2]+=2;
 					rows[3]+=2;
-					srows[0]+=NLEARNERS;
-					srows[1]+=NLEARNERS;
-					srows[2]+=NLEARNERS;
-					srows[3]+=NLEARNERS;
 				}
 				if(!fwd)
 				{
 					imptr[yidx]=yuv[0]+128;
 					imptr[uidx]=yuv[1]+128;
 					imptr[vidx]=yuv[2]+128;
-					guide_check(dstbuf, kx, ky);
+#ifdef ENABLE_GUIDE
+					if(dist>1)
+						guide_update(dstbuf, kx, ky);
+					else
+						guide_check(dstbuf, kx, ky);
+#endif
 				}
 				imptr+=3;
 			}
 		}
 		free(pixels);
-		free(sbuf);
 	}
 	{
 		FILE *fdst=fopen(dstfn, "wb");
 		if(!fdst)
 		{
-			crash("Cannot open \"%s\" for writing\n", dstfn);
+			printf("Cannot open \"%s\" for writing\n", dstfn);
+			debugcrash();
 			free(srcbuf);
 			free(dstbuf);
 			return 1;
 		}
 		if(fwd)
 		{
-			*(uint16_t*)streamptr=(uint16_t)(low>>16);
-			streamptr+=2;
-			*(uint16_t*)streamptr=(uint16_t)low;
-			streamptr+=2;
+			*(uint16_t*)ac.ptr=(uint16_t)(ac.low>>16);
+			ac.ptr+=2;
+			*(uint16_t*)ac.ptr=(uint16_t)ac.low;
+			ac.ptr+=2;
 
-			csize=streamptr-dstbuf;
+			csize=ac.ptr-dstbuf;
 
-			dstsize+=fwrite("04", 1, 2, fdst);
+			dstsize+=fwrite("12", 1, 2, fdst);
 			dstsize+=fwrite(&iw, 1, 4, fdst);
 			dstsize+=fwrite(&ih, 1, 4, fdst);
 			dstsize+=fwrite(dstbuf, 1, csize, fdst);
@@ -792,34 +840,11 @@ int s04_codec(const char *command, const char *srcfn, const char *dstfn)
 			);
 		}
 #endif
-		{
-			int kc, kp;
-
-			for(kp=0;kp<NLEARNERS;++kp)
-			{
-				printf("%2d", kp);
-				for(kc=0;kc<3;++kc)
-					printf(" %16lld", totalsizes[kc][kp]>>(16+3));
-				printf("\n");
-			}
-			esizes[0]/=8;
-			esizes[1]/=8;
-			esizes[2]/=8;
-			printf("TYUV %16.2lf %16.2lf %16.2lf %16.2lf\n"
-				, esizes[0]+esizes[1]+esizes[2]
-				, esizes[0]
-				, esizes[1]
-				, esizes[2]
-			);
-			for(kp=0;kp<NLEARNERS;++kp)
-			{
-				printf("%2d", kp);
-				for(kc=0;kc<3;++kc)
-					printf(" %16.2lf", allsizes[kc][kp]/8);
-				printf("\n");
-			}
-		}
-		printf("%9d->%9d  %8.4lf%%  %12.6lf\n"
+#ifdef PRINTGR
+		printf("%12lld bypass %12.6lf bits\n", gr_bypsum, (double)gr_bypsum/usize);
+		printf("%12lld symlen %12.6lf bits\n", gr_symlen, (double)gr_symlen/usize);
+#endif
+		printf("%9td->%9td  %8.4lf%%  %12.6lf\n"
 			, srcsize
 			, dstsize
 			, 100.*dstsize/srcsize
@@ -831,6 +856,13 @@ int s04_codec(const char *command, const char *srcfn, const char *dstfn)
 		, t
 		, usize/(t*1024*1024)
 	);
+#endif
+#ifdef ENABLE_GUIDE
+	if(!fwd&&dist>1)
+	{
+		double rmse=sqrt(g_sqe/((double)3*iw*ih)), psnr=20*log10(255/rmse);
+		printf("RMSE %12.6lf PSNR %12.6lf\n", rmse, psnr);
+	}
 #endif
 	(void)time_sec;
 	return 0;

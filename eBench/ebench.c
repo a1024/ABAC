@@ -10225,10 +10225,11 @@ void io_render(void)
 		//extern int testhist[3];//
 		//GUIPrint(0, 0, tdy*2, 1, "%d %d %d", testhist[0], testhist[1], testhist[2]);//
 		//const char *label=ec_method_label(ec_method);
-		GUIPrint(0, 0, 0, 1, "WH %dx%d  D0[%d %d %d %d] D[%d %d %d %d]  Z %13.6lf",
+		GUIPrint(0, 0, 0, 1, "WH %dx%d  D0[%d %d %d %d] D[%d %d %d %d]  RCT%2d  Z %13.6lf",
 			im0->iw, im0->ih,
 			im0->src_depth[0], im0->src_depth[1], im0->src_depth[2], im0->src_depth[3],
 			im1->depth[0], im1->depth[1], im1->depth[2], im1->depth[3],
+			im1->rct,
 			imzoom
 		);
 	}

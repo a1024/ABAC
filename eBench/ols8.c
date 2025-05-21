@@ -17,9 +17,11 @@ static const char file[]=__FILE__;
 #define CTXBITS2 4
 
 
+#define L1SH 19
+
 #if 1
 #define BIAS0 0
-#define NPREDS 13
+#define NPREDS 17
 #define PREDLIST\
 	PRED(100000, N+W-NW)\
 	PRED(200000, N+W-NW)\
@@ -33,7 +35,11 @@ static const char file[]=__FILE__;
 	PRED( 50000, W+NW-NWW)\
 	PRED( 50000, N+NW-NNW)\
 	PRED( 50000, NE+NEE-NNEEE)\
-	PRED( 50000, (WWWWW+WW-W+NNN+N+NEEEEE)>>2)
+	PRED( 50000, (WWWWW+WW-W+NNN+N+NEEEEE)>>2)\
+	PRED( 40000, NW)\
+	PRED( 40000, NE)\
+	PRED( 40000, NN)\
+	PRED( 40000, WW)
 #endif
 
 #if 1
@@ -88,6 +94,7 @@ void pred_ols8(Image *src, int fwd)
 //#undef  PRED
 //		weights[0*(NPREDS+1)+NPREDS]=weights[1*(NPREDS+1)+NPREDS]=weights[2*(NPREDS+1)+NPREDS]=weights[3*(NPREDS+1)+NPREDS]=BIAS0;
 //	}
+	//FILLMEM(weights, (1<<L1SH)/NPREDS, wsize, sizeof(long long));
 	memset(weights, 0, wsize);
 	memset(weights2, 0, w2size);
 	for(int ky=0, idx=0;ky<src->ih;++ky)
@@ -168,8 +175,8 @@ void pred_ols8(Image *src, int fwd)
 				int vmax=N, vmin=W;
 				if(N<W)vmin=N, vmax=W;
 				CLAMP2(preds[0], vmin, vmax);
-				long long *currw=weights+(NPREDS+1)*((1<<CTXBITS1)*kc+((N+W)/2<<CTXBITS1>>src->depth[kc]&((1<<CTXBITS1)-1)));
-				//long long *currw=weights+(NPREDS+1)*kc;
+				//long long *currw=weights+(NPREDS+1)*((1<<CTXBITS1)*kc+((N+W)/2<<CTXBITS1>>src->depth[kc]&((1<<CTXBITS1)-1)));
+				long long *currw=weights+(NPREDS+1)*kc;
 				long long pred1=currw[NPREDS];
 				for(int k=0;k<NPREDS;++k)
 					pred1+=currw[k]*preds[k];
@@ -225,7 +232,7 @@ void pred_ols8(Image *src, int fwd)
 					PREDLIST2
 #undef  PRED
 				};
-				long long *currw2=weights2+(NPREDS+1)*((1<<CTXBITS2)*kc+((N+W)/2<<CTXBITS2>>src->depth[kc]&((1<<CTXBITS2)-1)));
+				long long *currw2=weights2+(NPREDS2+1)*((1<<CTXBITS2)*kc+((N+W)/2<<CTXBITS2>>src->depth[kc]&((1<<CTXBITS2)-1)));
 				//long long *currw2=weights2+(NPREDS2+1)*kc;
 				long long pred2=currw2[NPREDS2];
 				for(int k=0;k<NPREDS2;++k)
@@ -233,7 +240,6 @@ void pred_ols8(Image *src, int fwd)
 				//if(ky==src->ih/2&&kx==src->iw/2)//
 				//	printf("");
 
-#define L1SH 19
 				pred1+=pred2;
 				pred1+=1<<L1SH>>1;
 				pred1>>=L1SH;

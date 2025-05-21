@@ -151,9 +151,13 @@ static double time_sec(void)
 }
 AWM_INLINE uint32_t floor_log2(uint32_t n)//n >= 1
 {
-	__m128i t0=_mm_castpd_si128(_mm_cvtsi32_sd(_mm_setzero_pd(), n));
-	t0=_mm_srli_epi64(t0, 52);
-	return _mm_cvtsi128_si32(t0)-1023;
+	if(n>0x7FFFFFFF)
+		return 31;
+	{
+		__m128i t0=_mm_castpd_si128(_mm_cvtsi32_sd(_mm_setzero_pd(), n));
+		t0=_mm_srli_epi64(t0, 52);
+		return _mm_cvtsi128_si32(t0)-1023;
+	}
 #if 0
 	float x=(float)n;
 	size_t addr=(size_t)&x;

@@ -932,7 +932,8 @@ void pred_wgrad4(Image *src, int fwd)
 	int fwdmask=-fwd;
 	int bufsize;
 	int *pixels;
-
+	
+	int invdist=((1<<16)+g_dist-1)/g_dist;
 	int pesize=(src->iw+16)*(int)sizeof(int[4][4][WG_NPREDS]);//4 padded rows * 3 channels * WG_NPREDS
 	int *ebuf=(int*)_mm_malloc(pesize, sizeof(__m256i));
 	bufsize=(src->iw+16LL)*sizeof(int[4*4*2]);//4 padded rows * 4 channels max
@@ -1015,19 +1016,55 @@ void pred_wgrad4(Image *src, int fwd)
 					*ecurr	=erows[0]+kc3+0*4*WG_NPREDS;
 				pred=wg_predict(wg_weights[kc], rows, 4*2, kc2, 0, wg_perrors[kc], eNW, eN, eNE, eNNE, wg_preds);
 				int curr=src->data[idx+kc];
-				int val;
-				if(fwd)
+				if(g_dist>1)
 				{
-					val=(curr-(int)pred+g_dist/2)/g_dist;
-					curr=g_dist*val+(int)pred;
+					if(fwd)
+					{
+						curr-=(int)pred;
+						curr=(curr*invdist>>16)-(curr>>31&-(g_dist>1));//curr/=g_dist
+						src->data[idx+kc]=curr;
+
+						curr=g_dist*curr+(int)pred;
+						CLAMP2(curr, amin[kc], amax[kc]);
+					}
+					else
+					{
+						curr=g_dist*curr+(int)pred;
+						CLAMP2(curr, amin[kc], amax[kc]);
+
+						src->data[idx+kc]=curr;
+					}
 				}
 				else
 				{
-					val=g_dist*curr+(int)pred;
-					curr=val;
-					CLAMP2(val, amin[kc], amax[kc]);
+					if(fwd)
+					{
+						int error=curr-pred;
+						error<<=32-src->depth[kc];
+						error>>=32-src->depth[kc];
+						src->data[idx+kc]=error;
+					}
+					else
+					{
+						curr+=pred;
+						curr<<=32-src->depth[kc];
+						curr>>=32-src->depth[kc];
+						src->data[idx+kc]=curr;
+					}
 				}
-				src->data[idx+kc]=keyboard[KEY_ALT]?pred:val;
+				//int val;
+				//if(fwd)
+				//{
+				//	val=(curr-(int)pred+g_dist/2)/g_dist;
+				//	curr=g_dist*val+(int)pred;
+				//}
+				//else
+				//{
+				//	val=g_dist*curr+(int)pred;
+				//	curr=val;
+				//	CLAMP2(val, amin[kc], amax[kc]);
+				//}
+				//src->data[idx+kc]=keyboard[KEY_ALT]?pred:val;
 				rows[0][kc2+0]=curr;
 				rows[0][kc2+1]=curr-pred;
 				//{

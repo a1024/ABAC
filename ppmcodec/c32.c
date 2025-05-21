@@ -3334,7 +3334,12 @@ int c32_codec(int argc, char **argv)
 			}
 			else if(use_wg4==2)//update
 			{
-				__m256i mu[6];
+				__m256i mu[3];
+
+				mu[0]=_mm256_sub_epi16(W[0], predYUV0[0]);
+				mu[1]=_mm256_sub_epi16(W[1], predYUV0[1]);
+				mu[2]=_mm256_sub_epi16(W[2], predYUV0[2]);
+#if 0
 				{
 					__m256i t0, t1, t2;
 
@@ -3351,6 +3356,7 @@ int c32_codec(int argc, char **argv)
 					mu[1]=_mm256_add_epi16(mu[1], t1);
 					mu[2]=_mm256_add_epi16(mu[2], t2);
 				}
+#endif
 				int *L1coeffs=(int*)wgWerrors;
 
 				//if(wgpreds[0*3+0].m256i_i16[0])//
@@ -3371,9 +3377,9 @@ int c32_codec(int argc, char **argv)
 					}
 #endif
 					__m256i mc[6];
-					mc[0]=_mm256_mullo_epi16(wgpreds[k*3+0], mu[0]);
-					mc[1]=_mm256_mullo_epi16(wgpreds[k*3+1], mu[1]);
-					mc[2]=_mm256_mullo_epi16(wgpreds[k*3+2], mu[2]);
+					mc[0]=_mm256_sign_epi16(wgpreds[k*3+0], mu[0]);
+					mc[1]=_mm256_sign_epi16(wgpreds[k*3+1], mu[1]);
+					mc[2]=_mm256_sign_epi16(wgpreds[k*3+2], mu[2]);
 					//16 -> 32	3 lo 3 hi registers
 					mc[3]=_mm256_srai_epi32(mc[0], 16);
 					mc[4]=_mm256_srai_epi32(mc[1], 16);

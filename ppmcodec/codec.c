@@ -56,7 +56,7 @@ int c33_codec(int argc, char **argv);//C33: speed priority CG-only
 //	#define CODEC_EXT c09
 //	#define CODEC_EXT c10
 //	#define CODEC_EXT c11
-	#define CODEC_EXT c12
+//	#define CODEC_EXT c12
 //	#define CODEC_EXT c13
 //	#define CODEC_EXT c14
 //	#define CODEC_EXT c15
@@ -76,7 +76,7 @@ int c33_codec(int argc, char **argv);//C33: speed priority CG-only
 //	#define CODEC_EXT c29
 //	#define CODEC_EXT c30
 //	#define CODEC_EXT c31
-//	#define CODEC_EXT c32
+	#define CODEC_EXT c32
 //	#define CODEC_EXT c33
 #endif
 #define STR_EXPAND(X) #X

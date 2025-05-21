@@ -54,7 +54,7 @@ AWM_INLINE uint32_t floor_log2(uint32_t n)//n >= 1
 #ifdef M_LZCNT
 	return 31-_lzcnt_u32(n);
 #else
-	if(n>>31)
+	if(n>0x7FFFFFFF)
 		return 31;
 	{
 		__m128i t0=_mm_castpd_si128(_mm_cvtsi32_sd(_mm_setzero_pd(), n));

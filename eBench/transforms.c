@@ -2804,7 +2804,7 @@ void pred_clampgrad(Image *src, int fwd, int enable_ma)
 		(nlevels[2]>>1)-1,
 		(nlevels[3]>>1)-1,
 	};
-	int fwdmask=-fwd;
+	//int fwdmask=-fwd;
 	int invdist=((1<<16)+g_dist-1)/g_dist;
 	short *pixels=(short*)malloc((src->iw+2LL)*sizeof(short[2*4]));//2 padded rows * 4 channels max
 	if(!pixels)
@@ -2839,20 +2839,56 @@ void pred_clampgrad(Image *src, int fwd, int enable_ma)
 				CLAMP2(pred, vmin, vmax);
 
 				int curr=src->data[idx+kc];
-				int val;
-				if(fwd)
+				//int val;
+				if(g_dist>1)
 				{
-					val=curr-(int)pred;
-					val=(val*invdist>>16)-(val>>31&-(g_dist>1));
-					curr=g_dist*val+(int)pred;
+					if(fwd)
+					{
+						curr-=(int)pred;
+						curr=(curr*invdist>>16)-(curr>>31&-(g_dist>1));//curr/=g_dist
+						src->data[idx+kc]=curr;
+
+						curr=g_dist*curr+(int)pred;
+						CLAMP2(curr, amin[kc], amax[kc]);
+					}
+					else
+					{
+						curr=g_dist*curr+(int)pred;
+						CLAMP2(curr, amin[kc], amax[kc]);
+
+						src->data[idx+kc]=curr;
+					}
 				}
 				else
 				{
-					val=g_dist*curr+(int)pred;
-					curr=val;
-					CLAMP2(val, amin[kc], amax[kc]);
+					if(fwd)
+					{
+						int error=curr-pred;
+						error<<=32-src->depth[kc];
+						error>>=32-src->depth[kc];
+						src->data[idx+kc]=error;
+					}
+					else
+					{
+						curr+=pred;
+						curr<<=32-src->depth[kc];
+						curr>>=32-src->depth[kc];
+						src->data[idx+kc]=curr;
+					}
 				}
-				src->data[idx+kc]=val;
+				//if(fwd)
+				//{
+				//	val=curr-(int)pred;
+				//	val=(val*invdist>>16)-(val>>31&-(g_dist>1));
+				//	curr=g_dist*val+(int)pred;
+				//}
+				//else
+				//{
+				//	val=g_dist*curr+(int)pred;
+				//	curr=val;
+				//	CLAMP2(val, amin[kc], amax[kc]);
+				//}
+				//src->data[idx+kc]=val;
 				rows[0][kc]=curr;
 				//pred^=fwdmask;
 				//pred-=fwdmask;

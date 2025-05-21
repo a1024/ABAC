@@ -3465,6 +3465,8 @@ static void block_func(void *param)
 			__m128i msum=_mm_add_epi16(mN, mW);
 #endif
 #ifdef SIMD_CTX
+			//qe = FLOOR_LOG2(abs(N-W)+eN+eW+((eNW+eNE+eNEE+eNN+eWW)>>1)+1);  qe=CLAMP(qe, NLEVELS-1)
+
 			//__m128i mqp=_mm_add_epi16(msum, _mm_slli_epi16(_mm_sub_epi16(msum, mNW), 1));
 			//mqp=_mm_srai_epi16(mqp, 11-CBITS);
 			//mqp=_mm_and_si128(mqp, _mm_set1_epi16((1<<CBITS)-1));
