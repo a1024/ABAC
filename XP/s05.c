@@ -30,6 +30,7 @@
 #endif
 #endif
 
+	#define USE_FSE
 	#define USE_L1
 //	#define USE_CASCADE
 
@@ -148,12 +149,17 @@ static double time_sec(void)
 	return t.tv_sec+t.tv_nsec*1e-9;
 #endif
 }
-AWM_INLINE uint32_t floor_log2(uint32_t n)
+AWM_INLINE uint32_t floor_log2(uint32_t n)//n >= 1
 {
+	__m128i t0=_mm_castpd_si128(_mm_cvtsi32_sd(_mm_setzero_pd(), n));
+	t0=_mm_srli_epi64(t0, 52);
+	return _mm_cvtsi128_si32(t0)-1023;
+#if 0
 	float x=(float)n;
 	size_t addr=(size_t)&x;
 	uint32_t bits=*(uint32_t*)addr;
 	return (bits>>23)-127;
+#endif
 }
 static void crash(const char *file, int line, const char *format, ...)
 {
@@ -641,6 +647,212 @@ AWM_INLINE int bitpacker_dec(BitPackerLIFO *ec, int outbits)
 	//	printf("");
 	return sym;
 }
+
+
+#ifdef USE_FSE
+typedef struct _FSE_EncCell
+{
+	int32_t findstate, nbits;
+} FSE_EncCell;
+typedef struct _FSE_DecCell
+{
+	uint16_t newstate;
+	unsigned char sym, nbits;
+} FSE_DecCell;
+static void fse_enc_buildtable(int32_t *hist, unsigned char *symtable, uint16_t *statetable, FSE_EncCell *enctable, uint32_t *ctxmask, int ctxidx)
+{
+	uint16_t CDF[257];
+	int sum=0, count=0, ks, rare;
+#ifdef ESTIMATE_SIZE
+	int count0, sum0;
+#endif
+	for(ks=0;ks<256;++ks)
+	{
+		int freq=hist[ks];
+		sum+=freq;
+		count+=freq!=0;
+	}
+	rare=sum<12*256/8;
+	ctxmask[ctxidx>>5]|=(uint32_t)rare<<(ctxidx&31);
+#ifdef ESTIMATE_SIZE
+	count0=count;
+	sum0=sum;
+#endif
+	if(rare)
+	{
+		for(ks=0;ks<256;++ks)//bypass
+			hist[ks]=1;
+		sum=256;
+		count=256;
+	}
+	else if(count==1)//disallow degenerate distribution
+	{
+		for(ks=0;ks<256;++ks)
+		{
+			int freq=hist[ks];
+			if(freq==(1<<PROBBITS))
+			{
+				--freq;
+				if(!ks)
+					++hist[ks+1];
+				else
+					++hist[ks-1];
+				break;
+			}
+		}
+		count=2;
+	}
+	{
+		int sum2=0, ks2;
+		for(ks=0, ks2=0;ks<256;++ks)//absent symbols get zero freqs
+		{
+			int freq=hist[ks];
+			hist[ks]=(int)(sum2*((1ULL<<PROBBITS)-count)/sum)+ks2;
+			ks2+=freq!=0;
+			sum2+=freq;
+		}
+	}
+	{
+		int32_t ks, next;
+
+		for(ks=255, next=1<<PROBBITS;ks>=0;--ks)
+		{
+			int curr=hist[ks];
+			CDF[ks]=curr;
+			hist[ks]=next-curr;
+			next=curr;
+		}
+	}
+	//Yann Collet's code
+	{
+		int32_t ks, pos, step;
+
+		step=(1<<PROBBITS>>1)+(1<<PROBBITS>>3)+3;
+		for(ks=0;ks<256;++ks)//spread symbols
+		{
+			int32_t freq, ko;
+
+			for(freq=hist[ks], ko=0;ko<freq;++ko)
+			{
+				symtable[pos]=ks;
+				pos=(pos+step)&((1<<PROBBITS)-1);
+			}
+		}
+	}
+	{
+		int32_t kx;
+
+		for(kx=0;kx<(1<<PROBBITS);++kx)//build table
+		{
+			int sym=symtable[kx];
+			statetable[CDF[sym]++]=kx+(1<<PROBBITS);
+		}
+	}
+	{
+		int32_t ks, total;
+
+		for(ks=0, total=0;ks<256;++ks)//build symbol transformation table
+		{
+			FSE_EncCell *cell=enctable+ks;
+			int32_t freq=hist[ks];
+			if(!freq)
+				cell->nbits=((PROBBITS+1)<<16)-(1<<PROBBITS);
+			else if(freq==1)
+			{
+				cell->nbits=(PROBBITS<<16)-(1<<PROBBITS);
+				cell->findstate=total-1;
+				++total;
+			}
+			else
+			{
+				int32_t maxbitsout=PROBBITS-floor_log2(freq-1);
+				int32_t minstateplus=freq<<maxbitsout;
+				cell->nbits=(maxbitsout<<16)-minstateplus;
+				cell->findstate=total-freq;
+				total+=freq;
+			}
+		}
+	}
+}
+static void fse_dec_unpackhist(BitPackerLIFO *ec, unsigned *CDF2sym, uint32_t *ctxmask, int ctxidx)
+{
+	unsigned short hist[257];
+	int ks;
+	int sum=0;
+
+	if(ctxmask[ctxidx>>5]>>(ctxidx&31)&1)//rare context
+	{
+		for(ks=0;ks<256;++ks)//bypass
+			hist[ks]=(1<<PROBBITS)/256;
+	}
+	else
+	{
+		unsigned short CDF[257]={0};
+		int CDFlevels=1<<PROBBITS;
+		int cdfW=0;
+		CDF[0]=0;
+		for(ks=0;ks<256;++ks)//decode GR
+		{
+			int freq=-1;//stop bit doesn't count
+			int nbypass=floor_log2(CDFlevels);
+			int ks2=ks+1;
+			int bit=0;
+
+			if(ks2>1)
+				nbypass-=7;
+			if(nbypass<0)
+				nbypass=0;
+#ifdef ANS_VAL
+			//ansval_check(&ks2, sizeof(ks2), 1);
+#endif
+			do
+			{
+				bit=bitpacker_dec(ec, 1);
+				++freq;
+			}while(!bit);
+			if(nbypass)
+				freq=freq<<nbypass|bitpacker_dec(ec, nbypass);
+#ifdef ANS_VAL
+			ansval_check(&freq, sizeof(freq), 1);
+#endif
+
+			cdfW+=freq;
+			CDF[ks]=freq;
+			CDFlevels-=freq;
+			if(CDFlevels<=0)
+			{
+#ifdef _DEBUG
+				if(CDFlevels<0)
+					CRASH("CDF unpack error");
+#endif
+				break;
+			}
+		}
+		if(CDFlevels)
+			CRASH("CDF unpack error");
+		for(ks=0;ks<256;++ks)//undo zigzag
+		{
+			int sym=((ks>>1^-(ks&1))+128)&255;
+			hist[sym]=CDF[ks];
+		}
+	}
+	for(ks=0;ks<256;++ks)//integrate
+	{
+		int freq=hist[ks];
+		hist[ks]=sum;
+		sum+=freq;
+	}
+	hist[256]=1<<PROBBITS;
+	for(ks=0;ks<256;++ks)//CDF2sym contains {freq, (state&0xFFF)-cdf, sym}
+	{
+		int cdf=hist[ks], next=hist[ks+1], freq=next-cdf;
+		int val=(freq<<PROBBITS|0)<<8|ks;
+		int ks2;
+		for(ks2=cdf;ks2<next;++ks2, val+=1<<8)
+			CDF2sym[ks2]=val;
+	}
+}
+#endif
 
 typedef struct _rANS_SIMD_SymInfo	//16 bytes/level	4KB/ctx = 1<<12 bytes
 {

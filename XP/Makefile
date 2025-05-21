@@ -15,3 +15,6 @@ s04:
 
 s05:
 	gcc -DCODECFUNC=s05_codec -Wall -O3 -s -static -mavx2 main.c s05.c -o s05
+
+s06:
+	gcc -DCODECFUNC=s06_codec -DM_LZCNT -Wall -O3 -s -static -mavx2 -mlzcnt main.c s06.c -o s06
