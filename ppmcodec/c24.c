@@ -368,19 +368,6 @@ typedef struct _ThreadArgs
 	short *pixels;
 	int *hist;
 
-#if 0
-	//tokens and bypass are encoded separately:
-	// 0      enctokenoffsets[0]      [1]             [2]      [N-2]             [N-1]=tokentotal
-	// | tokenstream 0 | tokenstream 1 | tokenstream 2 |   ...   | tokenstream N-1 |
-	//
-	// 0     encbypassoffsets[0]        [1]              [2]      [N-2]              [N-1]=bypasstotal
-	// | bypassstream 0 | bypassstream 1 | bypassstream 2 |   ...   | bypassstream N-1 |
-	int *enctokenoffsets, *encbypassoffsets, encbufsize;
-	unsigned char *enctokenbuf, *encbypassbuf;
-	const int *decoffsets;
-	const unsigned char *decstream;
-#endif
-
 	int tlevels;
 
 	const unsigned *mixincdfs;
@@ -4122,7 +4109,6 @@ static void block_func(void *param)
 					if(args->dist>1)
 					{
 						//naive deadzone
-#if 1
 						error=(yuv[kc]-pred);
 						error=(error*invdist>>16)+((unsigned)error>>31);
 					//	error=(yuv[kc]-pred)/args->dist;
@@ -4130,63 +4116,6 @@ static void block_func(void *param)
 						yuv[kc]=error*args->dist+pred;
 						CLAMP2(yuv[kc], -128, 127);
 						error=yuv[kc]-pred;
-#endif
-
-						//NBLI
-#if 0
-						//NBLI mapXtoW:
-						int x=yuv[kc]+128, px=pred+128;
-						int spred=(MINVAR(px, 255-px)+(args->dist>>1))/args->dist;
-						int sw=x>=px;
-						int w=abs(x-px);
-						w=(w+(args->dist>>1))/args->dist;
-						if(w<=0)
-							w=0;
-						else if(w<=spred)
-							w=2*w-sw;
-						else
-							w+=spred;
-
-						sym=w;
-
-						//NBLI mapWtoX:
-						if(w<=0)
-							x=0, sw=0;
-						else if(w<=2*spred)
-						{
-							x=(w+1)/2;
-							sw=(w&1);
-						}
-						else
-						{
-							x=w-spred;
-							sw=px<128;
-						}
-						x*=args->dist;
-						x=(sw?x:-x)+px;
-						CLAMP2(x, 0, 255);
-						yuv[kc]=x-128;
-						error=yuv[kc]-pred;
-#endif
-
-						//X
-#if 0
-						int scaledpred=(MINVAR(pred+128, 127-pred)+(args->dist>>1))/args->dist;
-						error=yuv[kc]+128-pred;
-						error=(error+(args->dist>>1))/args->dist;
-						
-						int negmask=error>>31;
-						int abserror=(error^negmask)-negmask;
-						sym=error<<1^negmask;
-						if(scaledpred<abserror)
-							sym=scaledpred+abserror;
-
-						if(scaledpred<0||sym<0)//
-							goto again;//
-
-						yuv[kc]=args->dist*error+pred;
-						CLAMP2(yuv[kc], -128, 127);
-#endif
 					}
 					else
 					{
@@ -4478,51 +4407,10 @@ static void block_func(void *param)
 					if(args->dist>=4)
 					{
 						//naive deadzone
-#if 1
 						error=(sym>>1^-(sym&1))*args->dist;
 						yuv[kc]=error+pred;
 						CLAMP2(yuv[kc], -128, 127);
 						error=yuv[kc]-pred;
-#endif
-
-						//NBLI
-#if 0
-						int px=pred+128;
-						int spred=(MINVAR(px, 255-px)+(args->dist>>1))/args->dist;
-						int w=sym, x, sw;
-						if(w<=0)
-							x=0, sw=0;
-						else if(w<=2*spred)
-						{
-							x=(w+1)/2;
-							sw=(w&1);
-						}
-						else
-						{
-							x=w-spred;
-							sw=px<128;
-						}
-						x*=args->dist;
-						x=(sw?x:-x)+px;
-						CLAMP2(x, 0, 255);
-						yuv[kc]=x-128;
-						error=yuv[kc]-pred;
-#endif
-
-						//X
-#if 0
-						int scaledpred=(MINVAR(pred-128, 127-pred)-128+(args->dist>>1))/args->dist;
-						
-						int negmask=pred>>31;	//11 cycles
-						int e2=scaledpred-sym;
-						error=sym>>1^-(sym&1);
-						e2=(e2^negmask)-negmask;
-						if((scaledpred<<1)<sym)//CMOV
-							error=e2;
-						
-						yuv[kc]=args->dist*error+pred;
-						CLAMP2(yuv[kc], -128, 127);
-#endif
 					}
 					else
 					{

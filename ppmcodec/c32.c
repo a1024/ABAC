@@ -18,7 +18,7 @@ static const char file[]=__FILE__;
 	#define PROFILE_SIZE
 	#define LOUD			//size & time
 
-	#define ESTIMATE_SIZE		//DEBUG		checks for zero frequency, visualizes context usage
+//	#define ESTIMATE_SIZE		//DEBUG		checks for zero frequency, visualizes context usage
 	#define ENABLE_GUIDE		//DEBUG		checks interleaved pixels
 //	#define ANS_VAL			//DEBUG
 
@@ -28,6 +28,7 @@ static const char file[]=__FILE__;
 //	#define TEST_INTERLEAVE
 #endif
 
+	#define ENABLE_RCT_EXTENSION
 //	#define EMULATE_GATHER		//gather is a little faster
 	#define VNATIVE			//disables useless v-chroma scaling by 4
 //	#define NAIVEMIX		//3.5 3.8x slower	55 58 MB/s vs 196 224 MB/s
@@ -238,6 +239,12 @@ static void prof_print(ptrdiff_t usize)
 #define prof_print(...)
 #endif
 
+#ifndef ENABLE_RCT_EXTENSION
+#define OCHLIST\
+	OCH(Y400) OCH(Y040) OCH(Y004)\
+	OCH(CX40) OCH(C0X4) OCH(C40X)
+#endif
+#ifdef ENABLE_RCT_EXTENSION
 #define OCHLIST\
 	OCH(Y400) OCH(Y040) OCH(Y004)\
 	OCH(CX40) OCH(C0X4) OCH(C40X)\
@@ -255,24 +262,27 @@ static void prof_print(ptrdiff_t usize)
 	OCH(CX13) OCH(C1X3) OCH(C13X)\
 	OCH(CX22) OCH(C2X2) OCH(C22X)
 #endif
+#endif
 typedef enum _OCHIndex
 {
 #define OCH(X) OCH_##X,
 	OCHLIST
 #undef  OCH
 	OCH_COUNT,
-	OCH_C4X0=OCH_CX40,
-	OCH_C04X=OCH_C0X4,
-	OCH_CX04=OCH_C40X,
+
 	OCH_R=OCH_Y400,
 	OCH_G=OCH_Y040,
 	OCH_B=OCH_Y004,
+	OCH_C4X0=OCH_CX40,
+	OCH_C04X=OCH_C0X4,
+	OCH_CX04=OCH_C40X,
 	OCH_BG=OCH_C04X,
 	OCH_BR=OCH_C40X,
 	OCH_RG=OCH_CX40,
 	OCH_RB=OCH_CX04,
 	OCH_GB=OCH_C0X4,
 	OCH_GR=OCH_C4X0,
+#ifdef ENABLE_RCT_EXTENSION
 	OCH_R1=OCH_CX13,
 	OCH_G1=OCH_C3X1,
 	OCH_B1=OCH_C13X,
@@ -282,6 +292,7 @@ typedef enum _OCHIndex
 	OCH_R3=OCH_CX31,
 	OCH_G3=OCH_C1X3,
 	OCH_B3=OCH_C31X,
+#endif
 } OCHIndex;
 static const char *och_names[]=
 {
@@ -313,6 +324,26 @@ typedef enum _RCTInfoIdx
 //YUV = RCT * RGB	watch out for permutation in last row
 //luma: averaging	chroma: subtraction
 //example: _400_40X_3X1 == [1 0 0; -1 0 1; -3/4 1 -1/4]
+#ifndef ENABLE_RCT_EXTENSION
+#define RCTLIST\
+	RCT(_400_0X0_00X,	OCH_R,		OCH_G,		OCH_B,		0, 1, 2,	0,  0, 0)\
+	RCT(_400_0X0_04X,	OCH_R,		OCH_G,		OCH_BG,		0, 1, 2,	0,  0, 4)\
+	RCT(_400_0X0_40X,	OCH_R,		OCH_G,		OCH_BR,		0, 1, 2,	0,  4, 0)\
+	RCT(_040_00X_X40,	OCH_G,		OCH_B,		OCH_RG,		1, 2, 0,	0,  4, 0)\
+	RCT(_040_00X_X04,	OCH_G,		OCH_B,		OCH_RB,		1, 2, 0,	0,  0, 4)\
+	RCT(_004_X00_4X0,	OCH_B,		OCH_R,		OCH_GR,		2, 0, 1,	0,  0, 4)\
+	RCT(_004_X00_0X4,	OCH_B,		OCH_R,		OCH_GB,		2, 0, 1,	0,  4, 0)\
+	RCT(_040_04X_X40,	OCH_G,		OCH_BG,		OCH_RG,		1, 2, 0,	4,  4, 0)\
+	RCT(_040_04X_X04,	OCH_G,		OCH_BG,		OCH_RB,		1, 2, 0,	4,  0, 4)\
+	RCT(_040_X40_40X,	OCH_G,		OCH_RG,		OCH_BR,		1, 0, 2,	4,  0, 4)\
+	RCT(_004_X04_0X4,	OCH_B,		OCH_RB,		OCH_GB,		2, 0, 1,	4,  4, 0)\
+	RCT(_004_X04_4X0,	OCH_B,		OCH_RB,		OCH_GR,		2, 0, 1,	4,  0, 4)\
+	RCT(_004_0X4_X40,	OCH_B,		OCH_GB,		OCH_RG,		2, 1, 0,	4,  0, 4)\
+	RCT(_400_4X0_40X,	OCH_R,		OCH_GR,		OCH_BR,		0, 1, 2,	4,  4, 0)\
+	RCT(_400_4X0_04X,	OCH_R,		OCH_GR,		OCH_BG,		0, 1, 2,	4,  0, 4)\
+	RCT(_400_40X_0X4,	OCH_R,		OCH_BR,		OCH_GB,		0, 2, 1,	4,  0, 4)
+#endif
+#ifdef ENABLE_RCT_EXTENSION
 #define RCTLIST\
 	RCT(_400_0X0_00X,	OCH_R,		OCH_G,		OCH_B,		0, 1, 2,	0,  0, 0)\
 	RCT(_400_0X0_04X,	OCH_R,		OCH_G,		OCH_BG,		0, 1, 2,	0,  0, 4)\
@@ -385,6 +416,7 @@ typedef enum _RCTInfoIdx
 	RCT(_103_X40_0X4,	OCH_Y103,	OCH_CX04,	OCH_C0X4,	2, 0, 1,	4,  4, 0,	1, 0, 0, 0)\
 	RCT(_103_X40_1X3,	OCH_Y103,	OCH_CX04,	OCH_C1X3,	2, 0, 1,	4,  4, 0,	1, 0, 0, 1)\
 	RCT(_103_X31_0X4,	OCH_Y103,	OCH_CX13,	OCH_C0X4,	2, 0, 1,	4,  4, 0,	1, 0, 1, 0)
+#endif
 #endif
 typedef enum _RCTIndex
 {
@@ -2120,7 +2152,9 @@ int c32_codec(int argc, char **argv)
 					__m256i rg=_mm256_sub_epi16(r, g);
 					__m256i gb=_mm256_sub_epi16(g, b);
 					__m256i br=_mm256_sub_epi16(b, r);
+#ifdef ENABLE_RCT_EXTENSION
 					__m256i t0, t1, t2;
+#endif
 #define UPDATE(IDXA, IDXB, IDXC, A0, B0, C0)\
 	do\
 	{\
@@ -2145,6 +2179,7 @@ int c32_codec(int argc, char **argv)
 	}while(0)
 					UPDATE(OCH_Y400, OCH_Y040, OCH_Y004, r, g, b);
 					UPDATE(OCH_CX40, OCH_C0X4, OCH_C40X, rg, gb, br);
+#ifdef ENABLE_RCT_EXTENSION
 					t0=_mm256_add_epi16(rg, _mm256_srai_epi16(gb, 2));//r-(3*g+b)/4 = r-g-(b-g)/4
 					t1=_mm256_add_epi16(rg, _mm256_srai_epi16(br, 2));//g-(3*r+b)/4 = g-r-(b-r)/4
 					t2=_mm256_add_epi16(br, _mm256_srai_epi16(rg, 2));//b-(3*r+g)/4 = b-r-(g-r)/4
@@ -2157,6 +2192,7 @@ int c32_codec(int argc, char **argv)
 					t1=_mm256_srai_epi16(_mm256_sub_epi16(gb, rg), 1);//g-(r+b)/2 = (g-r + g-b)/2
 					t2=_mm256_srai_epi16(_mm256_sub_epi16(br, gb), 1);//b-(r+g)/2 = (b-r + b-g)/2
 					UPDATE(OCH_CX22, OCH_C2X2, OCH_C22X, t0, t1, t2);
+#endif
 				}
 			}
 			for(int k=0;k<OCH_COUNT;++k)
@@ -2195,7 +2231,7 @@ int c32_codec(int argc, char **argv)
 //#ifdef __GNUC__
 //#error remove above
 //#endif
-
+			//printf("%2d ", bestrct);
 			prof_checkpoint(usize, "analysis");
 		}
 		switch(nthreads0&3)

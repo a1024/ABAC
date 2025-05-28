@@ -225,14 +225,13 @@ int main(int argc, char **argv)
 	//	"D:/ML/zzz_halfbright.PPM"
 	//	"D:/Programs/c29/song.ppm"
 	;
-#if 1
 	const char *encargs[]=
 	{
 		argv[0],
 		srcfn,
 		tmpfn,
-	//	"0",
-	//	"11",//near
+	//	"0",	//default nthreads
+	//	"11",	//near
 	};
 	const char *decargs[]=
 	{
@@ -240,23 +239,6 @@ int main(int argc, char **argv)
 		tmpfn,
 		dstfn,
 	};
-#endif
-#if 0
-	const char *encargs[]=
-	{
-		argv[0],
-		srcfn,
-		tmpfn,
-		"0",//default nthreads
-		"11",//near
-	};
-	const char *decargs[]=
-	{
-		argv[0],
-		tmpfn,
-		dstfn,
-	};
-#endif
 	if(CODEC_FUNC(_countof(encargs), (char**)encargs))
 		return 1;
 	if(CODEC_FUNC(_countof(decargs), (char**)decargs))

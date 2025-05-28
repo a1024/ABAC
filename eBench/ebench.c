@@ -174,6 +174,7 @@ typedef enum TransformTypeEnum
 
 	CST_COMPARE,		CST_INV_SEPARATOR,
 	
+	ST_FWD_L1CRCT,		ST_INV_L1CRCT,
 	ST_FWD_MIXN,		ST_INV_MIXN,
 	ST_FWD_OLS7,		ST_INV_OLS7,
 	ST_FWD_OLS8,		ST_INV_OLS8,
@@ -2762,6 +2763,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_OLS5:		a=" S Inv OLS-5";		break;
 	case ST_FWD_OLS6:		a=" S Fwd OLS-6";		break;
 	case ST_INV_OLS6:		a=" S Inv OLS-6";		break;
+	case ST_FWD_L1CRCT:		a=" S Fwd L1 CRCT";		break;
+	case ST_INV_L1CRCT:		a=" S Inv L1 CRCT";		break;
 	case ST_FWD_OLS7:		a=" S Fwd L1";			break;
 	case ST_INV_OLS7:		a=" S Inv L1";			break;
 	case ST_FWD_OLS8:		a=" S Fwd L1B";			break;
@@ -3930,6 +3933,8 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_INV_OLS5:		pred_ols5(image, 0);					break;
 	case ST_FWD_OLS6:		pred_ols6(image, 1);					break;
 	case ST_INV_OLS6:		pred_ols6(image, 0);					break;
+	case ST_FWD_L1CRCT:		pred_l1crct(image, 1);					break;
+	case ST_INV_L1CRCT:		pred_l1crct(image, 0);					break;
 	case ST_FWD_OLS7:		pred_ols7(image, 1);					break;
 	case ST_INV_OLS7:		pred_ols7(image, 0);					break;
 	case ST_FWD_OLS8:		pred_ols8(image, 1);					break;
@@ -6671,7 +6676,7 @@ int io_keydn(IOKey key, char c)
 			"J / Shift J:\tToggle single-channel view\n"
 			"N:\t\tToggle modular arithmetic in image view\n"
 			"Ctrl R:\t\tDisable all transforms\n"
-			"Ctrl Space:\t\tMeasure PSNR\n"
+			"Ctrl Space:\tMeasure PSNR\n"
 		//	"Ctrl E:\t\tReset custom transform parameters\n"
 			"Comma/Period:\tSelect context for size estimation\n"
 			"Slash:\t\tToggle adaptive histogram\n"
@@ -6693,7 +6698,7 @@ int io_keydn(IOKey key, char c)
 			"Ctrl C:\t\tCopy data\n"
 			"Ctrl V:\t\tPaste data\n"
 			"Ctrl B:\t\tBatch test\n"
-			"Ctrl SPACE:\tCheck integrity (if restored bit-exact)\n"
+		//	"Ctrl SPACE:\tCheck integrity (if restored bit-exact)\n"
 		//	"Ctrl P:\t\tTest predictors\n"
 		//	"C:\t\tToggle joint histogram type / fill screen in image view\n"
 			"\n"
@@ -7426,10 +7431,22 @@ int io_keydn(IOKey key, char c)
 			}
 			return 1;
 		}
-		else
+		else if(mode==VIS_L1WEIGHTS)
 		{
-			view_ma=!view_ma;
-			update_image();
+			for(int k=0;k<_countof(l1weights);++k)
+				l1weights[k]+=rand()-RAND_MAX/2;
+			return 1;
+		}
+		//{
+		//	view_ma=!view_ma;
+		//	update_image();
+		//	return 1;
+		//}
+		break;
+	case 'Z':
+		if(mode==VIS_L1WEIGHTS)
+		{
+			memset(l1weights, 0, sizeof(l1weights));
 			return 1;
 		}
 		break;
