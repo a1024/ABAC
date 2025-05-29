@@ -18,3 +18,6 @@ s05:
 
 s06:
 	gcc -DCODECFUNC=s06_codec -DM_LZCNT -Wall -O3 -s -static -mavx2 -mlzcnt main.c s06.c -o s06
+
+s07:
+	gcc -DCODECFUNC=s07_codec -DM_LZCNT -Wall -O3 -s -static -mavx2 -mlzcnt main.c s07.c -o s07

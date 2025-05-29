@@ -23,25 +23,26 @@
 #ifdef _MSC_VER
 	#define LOUD
 #ifdef _DEBUG
-	#define ESTIMATE_SIZE
+	#define ESTENT
+	#define PROBHIST
+//	#define PRINT_PROBTABLE
+	#define ESTIMATE_BINSIZES
+//	#define PRINT_RCT
 	#define ENABLE_GUIDE
-	#define PRINT_ESTIMS
-//	#define PRINTBITS
+	#define PRINTBITS1 1000
 #endif
 #endif
 
-	#define USE_L1
 
+#define NCOEFFS 15
+#define COEFF_SH 18
 
-#define NLEARNERS 8
+#define NCTX 12
 
 #define NPREDS 8
 
-
-#define GRBITS 6
-#define GRLIMIT 24
-#define PROBBITS_STORE 16
-#define PROBBITS_USE 9
+#define PROBBITS_STORE	12
+#define PROBBITS_USE	12	//paq8l stretch/squash requires 12 bit
 
 
 #ifdef _MSC_VER
@@ -55,15 +56,26 @@
 		if((X)<(LO))X=LO;\
 		if((X)>(HI))X=HI;\
 	}while(0)
-int floor_log2(int n)
+AWM_INLINE int32_t floor_log2(uint32_t n)
 {
+#ifdef _MSC_VER
+	unsigned long index=0;
+	_BitScanReverse(&index, n);//3 cycles
+	return n?index:-1;
+#elif defined __GNUC__
+	return n?31-__builtin_clz(n):-1;
+#else
+	if(!n)
+		return -1;
 	if(n>0x7FFFFFFF)
 		return 31;
 	{
+		//9 cycles excluding CMOVs above
 		__m128i t0=_mm_castpd_si128(_mm_cvtsi32_sd(_mm_setzero_pd(), n));
 		t0=_mm_srli_epi64(t0, 52);
 		return _mm_cvtsi128_si32(t0)-1023;
 	}
+#endif
 }
 static void memfill(void *dst, const void *src, size_t dstbytes, size_t srcbytes)
 {
@@ -231,14 +243,82 @@ static const unsigned char rct_indices[][8]=
 	{OCH_B,	OCH_RB,	OCH_GR,		2, 0, 1,	0, 1},//14
 	{OCH_B,	OCH_GB,	OCH_RG,		2, 1, 0,	0, 1},//15
 };
-#ifdef ESTIMATE_SIZE
-static int32_t hist[3][256]={0};
+static int32_t stats[3][8][256][256];
+static int32_t
+	mixer11[3][8],		//o0
+	mixer12[3][3*3*3*3][8],	//quantize(ctx)
+	mixer13[3][256][8],	//[tidx]
+	mixer14[3][256][8][8],	//[N+W][kb]
+	mixer2[3][4];		//level 2
+#ifdef ESTIMATE_BINSIZES
+static double shannon_table[1<<PROBBITS_USE];
+static double binsizes[6]={0};
 #endif
-static uint16_t stats[3][256][256][NLEARNERS];
-static uint32_t Shannon[1<<PROBBITS_USE];
-static double log2table[1<<PROBBITS_STORE];
+static uint32_t probtable[1<<PROBBITS_USE];
+#ifdef PROBHIST
+static int32_t probhist[1<<PROBBITS_USE];
+#endif
+#ifdef ESTENT
+static int32_t estent[3][8][256];
+#endif
+//static int16_t stretchtable[4096];//paq8l
+AWM_INLINE int32_t squash2(int32_t p0)
+{
+	CLAMP2(p0, -(1<<PROBBITS_USE>>1), (1<<PROBBITS_USE>>1)-1);
+	p0+=1<<PROBBITS_USE>>1;
+	p0=probtable[p0];
+
+	return p0;
+}
+AWM_INLINE int32_t squash(int32_t p0)
+{
+	/*
+	1/(1+exp(-13(x-0.5)))			//sigmoid
+	x>0.5?1-8*sq(sq(1-x)):8*sq(sq(x))	//good approximation
+	x>0.5?1-2*sq(1-x):2sq(x)		//smooth
+	(x-0.5-re((x-0.5)^3))*4/3+0.5		//almost linear
+
+	x>0?0.5*(1-sq(sq(1-2*x))):-0.5*(1-sq(sq(1+2*x)))		//signed->signed version
+
+	1/(1+exp(-13(x)))-0.5
+	0.5*sgn(x)*(1-sq(sq(1-2*abs(x))))	//branchless
+	*/
+	int32_t negmask;
+
+	CLAMP2(p0, -(1<<PROBBITS_STORE>>1), (1<<PROBBITS_STORE>>1)-1);
+	negmask=p0>>31;
+	p0<<=1;
+	p0^=negmask;
+	p0-=negmask;
+	p0=(1<<PROBBITS_STORE)-p0;
+	p0=(int32_t)((int64_t)p0*p0>>PROBBITS_STORE);
+	p0=(int32_t)((int64_t)p0*p0>>PROBBITS_STORE);
+	p0=(1<<PROBBITS_STORE)-p0;
+	p0^=negmask;
+	p0-=negmask;
+	p0>>=1;
+
+	return p0;
+}
+AWM_INLINE int squash_paq8l(int d)
+{
+	static const int t[33]=
+	{
+		1,2,3,6,10,16,27,45,73,120,194,310,488,747,1101,
+		1546,2047,2549,2994,3348,3607,3785,3901,3975,4022,
+		4050,4068,4079,4085,4089,4092,4093,4094,
+	};
+	int w;
+
+	if(d>+2047)return 4095;
+	if(d<-2047)return 1;
+	w=d&127;
+	d=(d>>7)+16;
+	return t[d]+(((t[d+1]-t[d])*w+64)>>7);
+}
 int s04_codec(const char *command, const char *srcfn, const char *dstfn)
 {
+	//const int mem=sizeof(stats)+sizeof(mixer11)+sizeof(mixer12)+sizeof(mixer13)+sizeof(mixer14)+sizeof(mixer2);
 	unsigned char *srcbuf=0, *srcptr=0, *srcend=0;
 	ptrdiff_t srcsize=0, dstsize=0;
 	int fwd=0;
@@ -252,29 +332,42 @@ int s04_codec(const char *command, const char *srcfn, const char *dstfn)
 #ifdef LOUD
 	double t=time_sec();
 #endif
-	uint32_t low=0, range=0xFFFFFFFF, code=0;
-	int64_t totalsizes[3][NLEARNERS]={0};
-#ifdef PRINT_ESTIMS
-	double allsizes[3][NLEARNERS]={0};
-	double esizes[3]={0};
+#ifdef PRINTBITS1
+	uint32_t bitidx=0;
 #endif
+	uint64_t low=0, range=0xFFFFFFFFFFFFFFFF, code=0;
 
+	(void)memfill;
+	//{
+	//	int k, pi;
+	//
+	//	for(k=-2048, pi=0;k<2047;++k)
+	//	{
+	//		int i=squash_paq8l(k), k2;
+	//		for(k2=pi;k2<=i;++k2)
+	//			stretchtable[k2]=k;
+	//		pi=i+1;
+	//	}
+	//	stretchtable[4095]=2047;
+	//}
+#ifdef ESTIMATE_BINSIZES
 	{
 		int32_t kp;
 
+		//for(kp=0;kp<(1<<PROBBITS_USE);++kp)
+		//{
+		//	int prob=kp;
+		//	CLAMP2(prob, 1, (1<<PROBBITS_USE)-1);
+		//	Shannon[kp]=(int32_t)(-log((double)prob*(1./(1<<PROBBITS_USE)))*((1<<16)/M_LN2));
+		//}
 		for(kp=0;kp<(1<<PROBBITS_USE);++kp)
 		{
 			int prob=kp;
 			CLAMP2(prob, 1, (1<<PROBBITS_USE)-1);
-			Shannon[kp]=(int32_t)(-log((double)prob*(1./(1<<PROBBITS_USE)))*((1<<16)/M_LN2));
-		}
-		for(kp=0;kp<(1<<PROBBITS_STORE);++kp)
-		{
-			int prob=kp;
-			CLAMP2(prob, 1, (1<<PROBBITS_STORE)-1);
-			log2table[kp]=-log((double)prob*(1./(1<<PROBBITS_STORE)))*(1./M_LN2);
+			shannon_table[kp]=-log((double)prob*(1./(1<<PROBBITS_USE)))*(1./(8*M_LN2));
 		}
 	}
+#endif
 	srcbuf=load_file(srcfn, &srcsize);
 	if(!srcbuf)
 	{
@@ -391,7 +484,7 @@ int s04_codec(const char *command, const char *srcfn, const char *dstfn)
 		{
 			int kt;
 
-#ifdef ESTIMATE_SIZE
+#ifdef PRINT_RCT
 			for(kt=0;kt<OCH_COUNT;++kt)
 				printf("%d %16lld\n", kt, counters[kt]);
 			printf("\n");
@@ -409,7 +502,7 @@ int s04_codec(const char *command, const char *srcfn, const char *dstfn)
 					minerr=currerr;
 					bestrct=kt;
 				}
-#ifdef ESTIMATE_SIZE
+#ifdef PRINT_RCT
 				printf("RCT%02d %16lld%s\n", kt, currerr, kt==bestrct?" <-":"");
 #endif
 			}
@@ -426,13 +519,61 @@ int s04_codec(const char *command, const char *srcfn, const char *dstfn)
 
 		bestrct=*streamptr++;
 
-		code=code<<16|*(uint16_t*)streamptr;
-		streamptr+=2;
-		code=code<<16|*(uint16_t*)streamptr;
-		streamptr+=2;
+		code=0;
+		code=code<<32|*(uint32_t*)streamptr;
+		streamptr+=4;
+		code=code<<32|*(uint32_t*)streamptr;
+		streamptr+=4;
 
 		csize=srcsize;
 	}
+#if 1
+	{
+		int k;
+
+		for(k=0;k<(1<<PROBBITS_USE);++k)
+		{
+			int p0e=k;
+
+			p0e+=p0e<(1<<PROBBITS_USE>>1);
+			p0e-=1<<PROBBITS_USE>>1;
+		//	p0e+=p0e>>2;
+		//	p0e+=p0e>>3;
+		//	p0e<<=1;
+			CLAMP2(p0e, -(1<<PROBBITS_USE>>1)+1, (1<<PROBBITS_USE>>1)-1);
+			{
+				int32_t negmask=p0e>>31;
+
+				p0e<<=1;
+				p0e^=negmask;
+				p0e-=negmask;
+				p0e=(1<<PROBBITS_USE)-p0e;
+				p0e=(int32_t)((int64_t)p0e*p0e>>PROBBITS_USE);
+				p0e=(int32_t)((int64_t)p0e*p0e>>PROBBITS_USE);
+				p0e=(1<<PROBBITS_USE)-p0e;
+				p0e^=negmask;
+				p0e-=negmask;
+				p0e>>=1;
+
+				CLAMP2(p0e, -(1<<PROBBITS_USE>>1)+1, (1<<PROBBITS_USE>>1)-1);
+			//	p0e+=1<<PROBBITS_USE>>1;
+			//	CLAMP2(p0e, 1, (1<<PROBBITS_USE)-1);
+			}
+			probtable[k]=p0e;
+#ifdef PRINT_PROBTABLE
+			if(fwd)
+			{
+				int k2;
+
+				printf("%8d  ", k);
+				for(k2=0;k2<(p0e>>3);++k2)
+					printf("*");
+				printf("\n");
+			}
+#endif
+		}
+	}
+#endif
 	{
 		int
 			yidx=rct_indices[bestrct][3+0],
@@ -442,18 +583,11 @@ int s04_codec(const char *command, const char *srcfn, const char *dstfn)
 			vhelpidx=rct_indices[bestrct][6+1];
 		int32_t ky, kx, idx;
 		int32_t psize=0;
-		int16_t *pixels=0;
-		int32_t ssize=0;
-		int32_t *sbuf=0;
+		int32_t *pixels=0;
 		int32_t paddedwidth=iw+16;
-#ifdef USE_L1
-		int32_t coeffs[NPREDS+1]={0};
-#endif
 
-		psize=(int32_t)sizeof(int16_t[4*3*2])*paddedwidth;//4 padded rows * 3 channels * {pixels, nbypass}
-		pixels=(int16_t*)malloc(psize);
-		ssize=(int32_t)sizeof(int32_t[4*3*NLEARNERS])*paddedwidth;//4 padded rows * 3 channels * NLEARNERS rates
-		sbuf=(int32_t*)malloc(ssize);
+		psize=(int32_t)sizeof(int32_t[4*3*2])*paddedwidth;//4 padded rows * 3 channels * {pixels, nbypass}
+		pixels=(int32_t*)malloc(psize);
 		if(!pixels)
 		{
 			crash("Alloc error\n");
@@ -462,24 +596,27 @@ int s04_codec(const char *command, const char *srcfn, const char *dstfn)
 			return 1;
 		}
 		memset(pixels, 0, psize);
-		memset(sbuf, 0, ssize);
-		FILLMEM((uint16_t*)stats, 0x8000, sizeof(stats), sizeof(int16_t));
+		memset(stats, 0, sizeof(stats));
+		memset(mixer11, 0, sizeof(mixer11));
+		memset(mixer12, 0, sizeof(mixer12));
+		memset(mixer13, 0, sizeof(mixer13));
+		memset(mixer14, 0, sizeof(mixer14));
+		memset(mixer2, 0, sizeof(mixer2));
+#ifdef PROBHIST
+		memset(probhist, 0, sizeof(probhist));
+#endif
+#ifdef ESTENT
+		memset(estent, 0, sizeof(estent));
+#endif
 		for(ky=0, idx=0;ky<ih;++ky)
 		{
-			char yuv[4]={0};
-			int16_t *rows[]=
+			unsigned char yuv[4]={0};
+			int32_t *rows[]=
 			{
 				pixels+(paddedwidth*((ky-0)&3)+8)*3*2,
 				pixels+(paddedwidth*((ky-1)&3)+8)*3*2,
 				pixels+(paddedwidth*((ky-2)&3)+8)*3*2,
 				pixels+(paddedwidth*((ky-3)&3)+8)*3*2,
-			};
-			int32_t *srows[]=
-			{
-				sbuf+(paddedwidth*((ky-0)&3)+8)*3*NLEARNERS,
-				sbuf+(paddedwidth*((ky-1)&3)+8)*3*NLEARNERS,
-				sbuf+(paddedwidth*((ky-2)&3)+8)*3*NLEARNERS,
-				sbuf+(paddedwidth*((ky-3)&3)+8)*3*NLEARNERS,
 			};
 			for(kx=0;kx<iw;++kx, ++idx)
 			{
@@ -488,136 +625,215 @@ int s04_codec(const char *command, const char *srcfn, const char *dstfn)
 
 				if(fwd)
 				{
-					yuv[0]=imptr[yidx]-128;
-					yuv[1]=imptr[uidx]-128;
-					yuv[2]=imptr[vidx]-128;
+					yuv[0]=imptr[yidx];
+					yuv[1]=imptr[uidx];
+					yuv[2]=imptr[vidx];
 				}
 				offset=0;
 				for(kc=0;kc<3;++kc)
 				{
 					int32_t
 						NNN	=rows[3][0+0*3*2],
-						NNE	=rows[2][0+1*3*2],
+						NNNE	=rows[3][0+1*3*2],
 						NN	=rows[2][0+0*3*2],
+						NNE	=rows[2][0+1*3*2],
+						NWW	=rows[1][0-2*3*2],
 						NW	=rows[1][0-1*3*2],
 						N	=rows[1][0+0*3*2],
 						NE	=rows[1][0+1*3*2],
 						NEE	=rows[1][0+2*3*2],
 						NEEE	=rows[1][0+3*3*2],
 						NEEEE	=rows[1][0+4*3*2],
+						WWWWW	=rows[0][0-5*3*2],
 						WWWW	=rows[0][0-4*3*2],
 						WWW	=rows[0][0-3*3*2],
 						WW	=rows[0][0-2*3*2],
 						W	=rows[0][0-1*3*2];
-					//	eNEEE	=rows[1][1-3*3*2],
-					//	eW	=rows[0][1-1*3*2];
-					int32_t
-						*sNW	=srows[1]-1*3*NLEARNERS,
-						*sN	=srows[1]+0*3*NLEARNERS,
-						*sNE	=srows[1]+1*3*NLEARNERS,
-						*sNEE	=srows[1]+2*3*NLEARNERS,
-						*sNEEE	=srows[1]+3*3*NLEARNERS,
-						*sW	=srows[0]-1*3*NLEARNERS,
-						*scurr	=srows[0];
-					int32_t model;
-					int32_t pred, vmax, vmin, pred0;
 					int32_t error;
+					int32_t qctx, qctx2;
 					int32_t kb, tidx, bit;
-					int32_t currsizes[NLEARNERS]={0};
-#ifdef USE_L1
-					int32_t preds[]=
+					int32_t *statsptr[8];
+					int32_t ctxs[]=
 					{
 						N,
 						W,
-						3*(W-WW)+WWW,
 						3*(N-NN)+NNN,
+						3*(W-WW)+WWW,
 						N+W-NW,
+
+					//	(4*(N+W)-NN-WW)/6,
 						W+NE-N,
+
+					//	(4*(N+W)+NE-NW)>>3,
+					//	(N+W)>>1,
+					//	(N+NE-NNE+W+NW-NWW)>>1,
 						N+NE-NNE,
-						(WWWW+WWW+NNN+NEE+NEEE+NEEEE-2*NW)/4,
+
+						(15*W-20*WW+15*WWW-6*WWWW+WWWWW+3*(NE-NNE)+NNNE)/6,
+					//	(WWWW+NNN+NEEE+NEEEE)/4,
+					//	(WWWW+WWW+NNN+NEE+NEEE+NEEEE-2*NW)/4,
 					};
+					ctxs[0]+=offset;
+					ctxs[1]+=offset;
+					ctxs[2]+=offset;
+					ctxs[3]+=offset;
+					ctxs[4]+=offset;
+					ctxs[5]+=offset;
+					ctxs[6]+=offset;
+					ctxs[7]+=offset;
 
-					pred=coeffs[NPREDS];
-					{
-						int j=0;
-						for(;j<NPREDS;++j)
-							pred+=coeffs[j]*preds[j];
-					}
-#define L1SH 19
-					pred+=1<<L1SH>>1;
-					pred>>=L1SH;
-					pred0=pred;
-					vmax=N, vmin=W;
-					if(N<W)vmin=N, vmax=W;
-					if(vmin>NE)vmin=NE;
-					if(vmax<NE)vmax=NE;
-					if(vmin>NEEE)vmin=NEEE;
-					if(vmax<NEEE)vmax=NEEE;
-					CLAMP2(pred, vmin, vmax);
-#else
-					pred=N+W-NW;
-					vmax=N, vmin=W;
-					if(N<W)vmin=N, vmax=W;
-					CLAMP2(pred, vmin, vmax);
-#endif
-					pred+=offset;
-					CLAMP2(pred, -128, 127);
-					{
-						//int32_t sh=floor_log2(idx+1);
-						int64_t bestsize=totalsizes[kc][0];
-						//int32_t bestsize=sNW[0]+sN[0]+sNE[0]+sNE[0]+sW[0];
-						int32_t kp;
+					CLAMP2(ctxs[0], 0, 255);
+					CLAMP2(ctxs[1], 0, 255);
+					CLAMP2(ctxs[2], 0, 255);
+					CLAMP2(ctxs[3], 0, 255);
+					CLAMP2(ctxs[4], 0, 255);
+					CLAMP2(ctxs[5], 0, 255);
+					CLAMP2(ctxs[6], 0, 255);
+					CLAMP2(ctxs[7], 0, 255);
 
-						model=0;
-						for(kp=1;kp<NLEARNERS;++kp)
-						{
-							int64_t size=totalsizes[kc][kp];
-							//int32_t size=sNW[kp]+sN[kp]+sNE[kp]+sNE[kp]+sW[kp];
-							if(bestsize>size)
-							{
-								bestsize=size;
-								model=kp;
-							}
-						}
-					}
+					qctx=(N>W)-(N<W)+1;
+					qctx=3*qctx+(N>NW)-(N<NW)+1;
+					qctx=3*qctx+(W>NW)-(W<NW)+1;
+					qctx=3*qctx+(NE>N)-(NE<N)+1;
+
+					qctx2=((N+W)>>1)+offset;
+					CLAMP2(qctx2, 0, 255);
+					
+					statsptr[0]=stats[kc][0][(unsigned char)ctxs[0]];
+					statsptr[1]=stats[kc][1][(unsigned char)ctxs[1]];
+					statsptr[2]=stats[kc][2][(unsigned char)ctxs[2]];
+					statsptr[3]=stats[kc][3][(unsigned char)ctxs[3]];
+					statsptr[4]=stats[kc][4][(unsigned char)ctxs[4]];
+					statsptr[5]=stats[kc][5][(unsigned char)ctxs[5]];
+					statsptr[6]=stats[kc][6][(unsigned char)ctxs[6]];
+					statsptr[7]=stats[kc][7][(unsigned char)ctxs[7]];
 					if(fwd)
 					{
-						error=yuv[kc]-pred;
-#ifdef ESTIMATE_SIZE
-						++hist[kc][(unsigned char)(error+128)];
+						error=yuv[kc];
+#ifdef ESTENT
+						++estent[kc][0][(unsigned char)(error-ctxs[0]+128)];
+						++estent[kc][1][(unsigned char)(error-ctxs[1]+128)];
+						++estent[kc][2][(unsigned char)(error-ctxs[2]+128)];
+						++estent[kc][3][(unsigned char)(error-ctxs[3]+128)];
+						++estent[kc][4][(unsigned char)(error-ctxs[4]+128)];
+						++estent[kc][5][(unsigned char)(error-ctxs[5]+128)];
+						++estent[kc][6][(unsigned char)(error-ctxs[6]+128)];
+						++estent[kc][7][(unsigned char)(error-ctxs[7]+128)];
 #endif
 					}
 					else
 						error=0;
+
+					//if(ky==13&&kx==785)//
+					if(ky==10&&kx==iw/2)//
+						printf("");
+
 					for(kb=7, tidx=1;kb>=0;--kb)
 					{
-						uint16_t *pp0=stats[kc][(pred+128)&255][tidx];
-						int32_t p0;
+						int32_t *pp0[]=
+						{
+							statsptr[0]+tidx,
+							statsptr[1]+tidx,
+							statsptr[2]+tidx,
+							statsptr[3]+tidx,
+							statsptr[4]+tidx,
+							statsptr[5]+tidx,
+							statsptr[6]+tidx,
+							statsptr[7]+tidx,
+						};
+						int32_t p00[]=
+						{
+							*pp0[0],
+							*pp0[1],
+							*pp0[2],
+							*pp0[3],
+							*pp0[4],
+							*pp0[5],
+							*pp0[6],
+							*pp0[7],
+						};
+						int32_t *currmixer[]=
+						{
+							mixer11[kc],
+							mixer12[kc][qctx],
+							mixer13[kc][tidx-1],
+							mixer14[kc][qctx2][kb],
+							mixer2[kc],
+						};
+						int64_t logits[4], p0;
+						int32_t p0e;
 
-#if 0
+						logits[0]=(int64_t)currmixer[0][0]*p00[0];
+						logits[1]=(int64_t)currmixer[1][0]*p00[0];
+						logits[2]=(int64_t)currmixer[2][0]*p00[0];
+						logits[3]=(int64_t)currmixer[3][0]*p00[0];
+						logits[0]+=(int64_t)currmixer[0][1]*p00[1];
+						logits[1]+=(int64_t)currmixer[1][1]*p00[1];
+						logits[2]+=(int64_t)currmixer[2][1]*p00[1];
+						logits[3]+=(int64_t)currmixer[3][1]*p00[1];
+						logits[0]+=(int64_t)currmixer[0][2]*p00[2];
+						logits[1]+=(int64_t)currmixer[1][2]*p00[2];
+						logits[2]+=(int64_t)currmixer[2][2]*p00[2];
+						logits[3]+=(int64_t)currmixer[3][2]*p00[2];
+						logits[0]+=(int64_t)currmixer[0][3]*p00[3];
+						logits[1]+=(int64_t)currmixer[1][3]*p00[3];
+						logits[2]+=(int64_t)currmixer[2][3]*p00[3];
+						logits[3]+=(int64_t)currmixer[3][3]*p00[3];
+						logits[0]+=(int64_t)currmixer[0][4]*p00[4];
+						logits[1]+=(int64_t)currmixer[1][4]*p00[4];
+						logits[2]+=(int64_t)currmixer[2][4]*p00[4];
+						logits[3]+=(int64_t)currmixer[3][4]*p00[4];
+						logits[0]+=(int64_t)currmixer[0][5]*p00[5];
+						logits[1]+=(int64_t)currmixer[1][5]*p00[5];
+						logits[2]+=(int64_t)currmixer[2][5]*p00[5];
+						logits[3]+=(int64_t)currmixer[3][5]*p00[5];
+						logits[0]+=(int64_t)currmixer[0][6]*p00[6];
+						logits[1]+=(int64_t)currmixer[1][6]*p00[6];
+						logits[2]+=(int64_t)currmixer[2][6]*p00[6];
+						logits[3]+=(int64_t)currmixer[3][6]*p00[6];
+						logits[0]+=(int64_t)currmixer[0][7]*p00[7];
+						logits[1]+=(int64_t)currmixer[1][7]*p00[7];
+						logits[2]+=(int64_t)currmixer[2][7]*p00[7];
+						logits[3]+=(int64_t)currmixer[3][7]*p00[7];
+						logits[0]=squash2((int32_t)(logits[0]>>24));
+						logits[1]=squash2((int32_t)(logits[1]>>20));
+						logits[2]=squash2((int32_t)(logits[2]>>20));
+						logits[3]=squash2((int32_t)(logits[3]>>16));
+						//logits[0]=squash2((int32_t)(logits[0]>>36));
+						//logits[1]=squash2((int32_t)(logits[1]>>35));
+						//logits[2]=squash2((int32_t)(logits[2]>>35));
+						//logits[3]=squash2((int32_t)(logits[3]>>29));
 						p0=(
-							+((uint32_t)(totalsizes[kc][0]>>32)+1)*(pp0[0]>>4)
-							+((uint32_t)(totalsizes[kc][1]>>32)+1)*(pp0[1]>>4)
-							+((uint32_t)(totalsizes[kc][2]>>32)+1)*(pp0[2]>>4)
-							+((uint32_t)(totalsizes[kc][3]>>32)+1)*(pp0[3]>>4)
-							+((uint32_t)(totalsizes[kc][4]>>32)+1)*(pp0[4]>>4)
-							+((uint32_t)(totalsizes[kc][5]>>32)+1)*(pp0[5]>>4)
-							+((uint32_t)(totalsizes[kc][6]>>32)+1)*(pp0[6]>>4)
-							+((uint32_t)(totalsizes[kc][7]>>32)+1)*(pp0[7]>>4)
-						)/(
-							+(uint32_t)(totalsizes[kc][0]>>32)
-							+(uint32_t)(totalsizes[kc][1]>>32)
-							+(uint32_t)(totalsizes[kc][2]>>32)
-							+(uint32_t)(totalsizes[kc][3]>>32)
-							+(uint32_t)(totalsizes[kc][4]>>32)
-							+(uint32_t)(totalsizes[kc][5]>>32)
-							+(uint32_t)(totalsizes[kc][6]>>32)
-							+(uint32_t)(totalsizes[kc][7]>>32)
-							+8
-						);
+							+(int64_t)currmixer[4][0]*logits[0]
+							+(int64_t)currmixer[4][1]*logits[1]
+							+(int64_t)currmixer[4][2]*logits[2]
+							+(int64_t)currmixer[4][3]*logits[3]
+						)>>15;
+						p0=squash2((int32_t)p0);
+						p0e=(int32_t)((p0+(1<<PROBBITS_STORE>>1))>>(PROBBITS_STORE-PROBBITS_USE));
+						CLAMP2(p0e, 1, (1<<PROBBITS_USE)-1);
+#if 0
+#define SH 9
+						int32_t p0=(
+							+p00[0]
+							+p00[1]
+							+p00[2]
+							+p00[3]
+							+p00[4]
+							+p00[5]
+							+p00[6]
+							+p00[7]
+						//	+(1<<(PROBBITS_USE+SH)>>1)
+							+(1<<SH>>1)
+						)>>SH;
+						p0=squash_paq8l(p0);
+						//p0+=1<<PROBBITS_USE>>1;
+						//CLAMP2(p0, 1, (1<<PROBBITS_USE)-1);
+						//p0=probtable[p0];
 #endif
-						p0=pp0[model]>>(PROBBITS_STORE-PROBBITS_USE);
-						CLAMP2(p0, 1, (1<<PROBBITS_USE)-1);
+#ifdef PROBHIST
+						++probhist[p0e];
+#endif
 						if(range<(1<<PROBBITS_USE))
 						{
 							if(streamptr>=streamend)
@@ -632,19 +848,19 @@ int s04_codec(const char *command, const char *srcfn, const char *dstfn)
 								return 1;
 							}
 							if(fwd)
-								*(uint16_t*)streamptr=(uint16_t)(low>>16);
+								*(uint32_t*)streamptr=(uint32_t)(low>>32);
 							else
-								code=code<<16|*(uint16_t*)streamptr;
-							streamptr+=2;
-							low<<=16;
-							range=range<<16|0xFFFF;
+								code=code<<32|*(uint32_t*)streamptr;
+							streamptr+=4;
+							low<<=32;
+							range=range<<32|0xFFFFFFFF;
 							if(range>~low)
 								range=~low;
 						}
 						bit=error>>kb&1;
 						{
-							uint32_t r2=(range>>PROBBITS_USE)*p0;
-							uint32_t mid=low+r2;
+							uint64_t r2=(range>>PROBBITS_USE)*p0e;
+							uint64_t mid=low+r2;
 							range-=r2;
 							if(!fwd)
 								bit=code>=mid;
@@ -654,77 +870,113 @@ int s04_codec(const char *command, const char *srcfn, const char *dstfn)
 								range=r2-1;
 						}
 						error|=bit<<kb;
-#ifdef PRINT_ESTIMS
-						esizes[kc]+=log2table[bit?(1<<PROBBITS_STORE)-pp0[model]:pp0[model]];
-#endif
 						{
-							int32_t sh=3, rcon=1<<sh>>1, kp;
-
-							for(kp=0;kp<NLEARNERS;++kp)
+							int32_t error=(!bit<<PROBBITS_STORE)-(1<<PROBBITS_STORE>>1)-(int32_t)p0, k2;
+							//error=(error>0)-(error<0);
+							for(k2=0;k2<4;++k2)
 							{
-								p0=pp0[kp]>>(PROBBITS_STORE-PROBBITS_USE);
-#ifdef PRINT_ESTIMS
-								allsizes[kc][kp]+=log2table[bit?(1<<PROBBITS_STORE)-pp0[kp]:pp0[kp]];//
-#endif
-								CLAMP2(p0, 1, (1<<PROBBITS_USE)-1);
-								currsizes[kp]+=Shannon[bit?(1<<PROBBITS_USE)-p0:p0];
-								pp0[kp]+=((!bit<<PROBBITS_STORE)-pp0[kp]+rcon)>>sh;
-								++sh;
-								rcon<<=1;
+								int64_t t0, t1, t2, t3, t4, t5, t6, t7;
+
+								t0=currmixer[k2][0]+(((int64_t)error*p00[0]+(1<<(PROBBITS_STORE+6)>>1))>>(PROBBITS_STORE+6));
+								t1=currmixer[k2][1]+(((int64_t)error*p00[1]+(1<<(PROBBITS_STORE+6)>>1))>>(PROBBITS_STORE+6));
+								t2=currmixer[k2][2]+(((int64_t)error*p00[2]+(1<<(PROBBITS_STORE+6)>>1))>>(PROBBITS_STORE+6));
+								t3=currmixer[k2][3]+(((int64_t)error*p00[3]+(1<<(PROBBITS_STORE+6)>>1))>>(PROBBITS_STORE+6));
+								t4=currmixer[k2][4]+(((int64_t)error*p00[4]+(1<<(PROBBITS_STORE+6)>>1))>>(PROBBITS_STORE+6));
+								t5=currmixer[k2][5]+(((int64_t)error*p00[5]+(1<<(PROBBITS_STORE+6)>>1))>>(PROBBITS_STORE+6));
+								t6=currmixer[k2][6]+(((int64_t)error*p00[6]+(1<<(PROBBITS_STORE+6)>>1))>>(PROBBITS_STORE+6));
+								t7=currmixer[k2][7]+(((int64_t)error*p00[7]+(1<<(PROBBITS_STORE+6)>>1))>>(PROBBITS_STORE+6));
+								//CLAMP2(t0, -0x8000, 0x7FFF);
+								//CLAMP2(t1, -0x8000, 0x7FFF);
+								//CLAMP2(t2, -0x8000, 0x7FFF);
+								//CLAMP2(t3, -0x8000, 0x7FFF);
+								//CLAMP2(t4, -0x8000, 0x7FFF);
+								//CLAMP2(t5, -0x8000, 0x7FFF);
+								//CLAMP2(t6, -0x8000, 0x7FFF);
+								//CLAMP2(t7, -0x8000, 0x7FFF);
+								currmixer[k2][0]=(int32_t)t0;
+								currmixer[k2][1]=(int32_t)t1;
+								currmixer[k2][2]=(int32_t)t2;
+								currmixer[k2][3]=(int32_t)t3;
+								currmixer[k2][4]=(int32_t)t4;
+								currmixer[k2][5]=(int32_t)t5;
+								currmixer[k2][6]=(int32_t)t6;
+								currmixer[k2][7]=(int32_t)t7;
+							}
+							{
+								int64_t t0, t1, t2, t3;
+
+								t0=currmixer[4][0]+(((int64_t)error*logits[0]+(1<<(PROBBITS_STORE+6)>>1))>>(PROBBITS_STORE+6));
+								t1=currmixer[4][1]+(((int64_t)error*logits[1]+(1<<(PROBBITS_STORE+6)>>1))>>(PROBBITS_STORE+6));
+								t2=currmixer[4][2]+(((int64_t)error*logits[2]+(1<<(PROBBITS_STORE+6)>>1))>>(PROBBITS_STORE+6));
+								t3=currmixer[4][3]+(((int64_t)error*logits[3]+(1<<(PROBBITS_STORE+6)>>1))>>(PROBBITS_STORE+6));
+								//CLAMP2(t0, -0x8000, 0x7FFF);
+								//CLAMP2(t1, -0x8000, 0x7FFF);
+								//CLAMP2(t2, -0x8000, 0x7FFF);
+								//CLAMP2(t3, -0x8000, 0x7FFF);
+								currmixer[4][0]=(int32_t)t0;
+								currmixer[4][1]=(int32_t)t1;
+								currmixer[4][2]=(int32_t)t2;
+								currmixer[4][3]=(int32_t)t3;
 							}
 						}
+#if 1
+						{
+							int32_t e;
+
+							e=(!bit<<PROBBITS_USE)+(1<<7>>1);
+							*pp0[0]=p00[0]+((e-p00[0])>>7);
+							*pp0[1]=p00[1]+((e-p00[1])>>7);
+							*pp0[2]=p00[2]+((e-p00[2])>>7);
+							*pp0[3]=p00[3]+((e-p00[3])>>7);
+							*pp0[4]=p00[4]+((e-p00[4])>>7);
+							*pp0[5]=p00[5]+((e-p00[5])>>7);
+							*pp0[6]=p00[6]+((e-p00[6])>>7);
+							*pp0[7]=p00[7]+((e-p00[7])>>7);
+
+							//e=(!bit<<PROBBITS_USE)-p0e;
+							//*pp0[0]=p00[0]+e;
+							//*pp0[1]=p00[1]+e;
+							//*pp0[2]=p00[2]+e;
+							//*pp0[3]=p00[3]+e;
+							//*pp0[4]=p00[4]+e;
+							//*pp0[5]=p00[5]+e;
+							//*pp0[6]=p00[6]+e;
+							//*pp0[7]=p00[7]+e;
+						}
+#endif
+#ifdef ESTIMATE_BINSIZES
+						binsizes[kc]+=shannon_table[bit?(1<<PROBBITS_USE)-p0e:p0e];
+#endif
+#ifdef PRINTBITS1
+						{
+							const int checkpoint=200000;
+							if(fwd&&(uint32_t)(bitidx-checkpoint)<PRINTBITS1)printf("%c", '0'+bit);
+							if(fwd&&bitidx==checkpoint+PRINTBITS1)printf("\n\n");
+							++bitidx;
+						}
+#endif
 						tidx=2*tidx+bit;
 					}
 					if(!fwd)
-						yuv[kc]=(char)(error+pred);
-					
-					//if(ky==10&&kx==10)//
-					//	printf("");//
-
-				//	error=yuv[kc]-pred;
-				//	error=error<<1^error>>31;
+						yuv[kc]=(char)error;
 					rows[0][0]=yuv[kc]-offset;
-				//	rows[0][1]=(2*eW+(error<<GRBITS)+eNEEE)>>2;
-#ifdef USE_L1
-					{
-						int32_t k, e=yuv[kc]-offset;
-						e=(e>pred0)-(e<pred0);
-						coeffs[NPREDS]+=e;
-						for(k=0;k<NPREDS;++k)
-							coeffs[k]+=e*preds[k];
-					}
-#endif
-					{
-						int kp;
-
-						for(kp=0;kp<NLEARNERS;++kp)
-							scurr[kp]+=(2*sW[kp]+currsizes[kp]+(sNEE[kp]>sNEEE[kp]?sNEE[kp]:sNEEE[kp]))>>2;
-						for(kp=0;kp<NLEARNERS;++kp)
-							totalsizes[kc][kp]+=currsizes[kp];
-						//	totalsizes[kc][kp]+=(currsizes[kp]-totalsizes[kc][kp]+(1<<7>>1))>>7;
-					}
 					offset=kc?yuv[vhelpidx]:yuv[uhelpidx];
 					rows[0]+=2;
 					rows[1]+=2;
 					rows[2]+=2;
 					rows[3]+=2;
-					srows[0]+=NLEARNERS;
-					srows[1]+=NLEARNERS;
-					srows[2]+=NLEARNERS;
-					srows[3]+=NLEARNERS;
 				}
 				if(!fwd)
 				{
-					imptr[yidx]=yuv[0]+128;
-					imptr[uidx]=yuv[1]+128;
-					imptr[vidx]=yuv[2]+128;
+					imptr[yidx]=yuv[0];
+					imptr[uidx]=yuv[1];
+					imptr[vidx]=yuv[2];
 					guide_check(dstbuf, kx, ky);
 				}
 				imptr+=3;
 			}
 		}
 		free(pixels);
-		free(sbuf);
 	}
 	{
 		FILE *fdst=fopen(dstfn, "wb");
@@ -737,10 +989,10 @@ int s04_codec(const char *command, const char *srcfn, const char *dstfn)
 		}
 		if(fwd)
 		{
-			*(uint16_t*)streamptr=(uint16_t)(low>>16);
-			streamptr+=2;
-			*(uint16_t*)streamptr=(uint16_t)low;
-			streamptr+=2;
+			*(uint32_t*)streamptr=(uint32_t)(low>>32);
+			streamptr+=4;
+			*(uint32_t*)streamptr=(uint32_t)low;
+			streamptr+=4;
 
 			csize=streamptr-dstbuf;
 
@@ -762,63 +1014,65 @@ int s04_codec(const char *command, const char *srcfn, const char *dstfn)
 	t=time_sec()-t;
 	if(fwd)
 	{
-#ifdef PRINTBITS
-		printf("\n");
+#ifdef PRINTBITS1
+		printf("\n%d\n", bitidx);
 #endif
-#ifdef ESTIMATE_SIZE
+#ifdef PROBHIST
 		{
-			double csizes[3]={0};
-			int kc, ks;
+			int k;
+
+			k=0;
+			if((1<<PROBBITS_USE)>1000)
+				k=(1<<PROBBITS_USE)-1000;
+			for(;k<(1<<PROBBITS_USE);++k)
+				printf("%5d %8d\n", k, probhist[k]);
+		}
+#endif
+#ifdef ESTENT
+		{
+			double ent[3][8]={0};
+			int kc, ke, ks;
+
 			for(kc=0;kc<3;++kc)
 			{
-				double norm;
-				int32_t sum=0;
-				for(ks=0;ks<256;++ks)
-					sum+=hist[kc][ks];
-				norm=1./sum;
-				for(ks=0;ks<256;++ks)
+				for(ke=0;ke<8;++ke)
 				{
-					int32_t freq=hist[kc][ks];
-					if(freq)
-						csizes[kc]-=freq*log(freq*norm);
+					double e=0, norm;
+					int32_t *currhist=estent[kc][ke];
+					int32_t sum=0;
+					for(ks=0;ks<256;++ks)
+						sum+=currhist[ks];
+					norm=1./sum;
+					for(ks=0;ks<256;++ks)
+					{
+						int freq=currhist[ks];
+						if(freq)
+							e-=freq*log(freq*norm);
+					}
+					e*=1./(8*M_LN2);
+					ent[kc][ke]=e;
+					//printf("C%d E%d %12.2lf\n", kc, ke, e);
 				}
-				csizes[kc]*=1./(M_LN2*8);//convert ln->log2
+				//printf("\n");
 			}
-			printf("TYUV %12.2lf %12.2lf %12.2lf %12.2lf\n"
-				, csizes[0]+csizes[1]+csizes[2]
-				, csizes[0]
-				, csizes[1]
-				, csizes[2]
-			);
+			for(ke=0;ke<8;++ke)
+				printf("E%d %12.2lf   %12.2lf %12.2lf %12.2lf\n"
+					, ke
+					, ent[0][ke]+ent[1][ke]+ent[2][ke]
+					, ent[0][ke]
+					, ent[1][ke]
+					, ent[2][ke]
+				);
 		}
 #endif
-		{
-			int kc, kp;
-
-			for(kp=0;kp<NLEARNERS;++kp)
-			{
-				printf("%2d", kp);
-				for(kc=0;kc<3;++kc)
-					printf(" %16lld", totalsizes[kc][kp]>>(16+3));
-				printf("\n");
-			}
-			esizes[0]/=8;
-			esizes[1]/=8;
-			esizes[2]/=8;
-			printf("TYUV %16.2lf %16.2lf %16.2lf %16.2lf\n"
-				, esizes[0]+esizes[1]+esizes[2]
-				, esizes[0]
-				, esizes[1]
-				, esizes[2]
-			);
-			for(kp=0;kp<NLEARNERS;++kp)
-			{
-				printf("%2d", kp);
-				for(kc=0;kc<3;++kc)
-					printf(" %16.2lf", allsizes[kc][kp]/8);
-				printf("\n");
-			}
-		}
+#ifdef ESTIMATE_BINSIZES
+		printf("TYUV %12.2lf %12.2lf %12.2lf %12.2lf\n"
+			, binsizes[0]+binsizes[1]+binsizes[2]
+			, binsizes[0]
+			, binsizes[1]
+			, binsizes[2]
+		);
+#endif
 		printf("%9d->%9d  %8.4lf%%  %12.6lf\n"
 			, srcsize
 			, dstsize
