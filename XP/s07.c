@@ -36,9 +36,9 @@
 #define CONFIG_LSB 1	//		511->1+44+1
 #define NLEVELS 33
 
-#define NCTX 12
+#define NCTX 16
 
-#define NPREDS 8
+#define NPREDS 12
 #define L1SH 19
 
 #define PROBBITS_STORE	24
@@ -326,7 +326,7 @@ int s07_codec(const char *command, const char *srcfn, const char *dstfn)
 #ifdef LOUD
 	double t=time_sec();
 #endif
-	uint64_t low=0, range=0xFFFFFFFF, code=0;
+	uint64_t low=0, range=0xFFFFFFFFFFFF, code=0;
 
 	(void)memfill;
 
@@ -651,6 +651,7 @@ int s07_codec(const char *command, const char *srcfn, const char *dstfn)
 					int32_t
 						NNN	=rows[3][0+0*3*2],
 						NNNE	=rows[3][0+1*3*2],
+						NNW	=rows[2][0-1*3*2],
 						NN	=rows[2][0+0*3*2],
 						NNE	=rows[2][0+1*3*2],
 						NWW	=rows[1][0-2*3*2],
@@ -668,24 +669,52 @@ int s07_codec(const char *command, const char *srcfn, const char *dstfn)
 						eNEE	=rows[1][1+2*3*2],
 						eNEEE	=rows[1][1+3*3*2],
 						eW	=rows[0][1-1*3*2];
-					int32_t p0, pred, ctx, error, k, token, cdf, freq, nbypass, bypass=0;
+					int32_t p0, pred, vmin, vmax, ctx, error, k, token, cdf, freq, nbypass, bypass=0;
 					uint32_t *currstats, *currstats2;
 					int32_t preds[]=
 					{
+#if 1
 						N,
 						W,
 						3*(N-NN)+NNN,
 						3*(W-WW)+WWW,
 						N+W-NW,
 						W+NE-N,
+						W+NEE-NE,
 						N+NE-NNE,
 						(WWWW+NNN+NEEE+NEEEE)/4,
+						NWratio>128?W:(NWratio<128?N:(N+W)/2),
+						NEEE,
+						0,
+#endif
+#if 0
+						0,
+						W,
+						(N+W)/2,
+						abs(N-NW)>abs(W-NW)?N:W,
+						NW,
+						N+W-NW,
+						(5*(N+W)-2*NW)/8,
+						(3*(N+W)-2*NW)/4,
+						W+(6*N-5*NW-NN-WW+NE)/8,
+						(NN+NNE+NW+N+NE+NEE+WW+W)/8,
+						W+(10*N+9*NW+4*NE-2*(NN+WW)+NNW-(NNE+NWW))/16,
+						0,
+						3*(N-NN)+NNN,
+						3*(W-WW)+WWW,
+#endif
 					};
 #ifdef ENABLE_VAL
 					uint64_t val_low, val_range, val_code;
 #endif
+					{
+						int gx=abs(W-WW)+abs(N-NW)+abs(NE-N)+1;
+						int gy=abs(W-NW)+abs(N-NN)+abs(NE-NNE)+1;
+						preds[11]=(gx*N+gy*W)/(gx+gy);
+					}
 					(void)NNN	;
 					(void)NNNE	;
+					(void)NNW	;
 					(void)NN	;
 					(void)NNE	;
 					(void)NWW	;
@@ -708,8 +737,18 @@ int s07_codec(const char *command, const char *srcfn, const char *dstfn)
 						pred+=coeffs[kc][k]*preds[k];
 					pred>>=L1SH;
 					p0=pred;
-					pred+=offset;
-					CLAMP2(pred, -128, 127);
+					vmax=N, vmin=W;
+					if(N<W)vmin=N, vmax=W;
+					if(vmin>NE)vmin=NE;
+					if(vmax<NE)vmax=NE;
+					if(vmin>NEEE)vmin=NEEE;
+					if(vmax<NEEE)vmax=NEEE;
+					CLAMP2(pred, vmin, vmax);
+					if(kc)
+					{
+						pred+=offset;
+						CLAMP2(pred, -128, 127);
+					}
 					ctx=floor_log2(eW*eW+1);
 					if(ctx>NCTX-1)
 						ctx=NCTX-1;
@@ -746,7 +785,7 @@ int s07_codec(const char *command, const char *srcfn, const char *dstfn)
 					//	printf("");
 
 					//token
-					if(range<(1<<PROBBITS_USE))
+					if(range<0x10000)
 					{
 						if(streamptr>=streamend)
 						{
@@ -849,8 +888,7 @@ int s07_codec(const char *command, const char *srcfn, const char *dstfn)
 
 					if(nbypass)//bypass
 					{
-						uint32_t nlevels=1<<nbypass;
-						if(range<nlevels)
+						if(range<0x10000)
 						{
 							if(streamptr>=streamend)
 							{
