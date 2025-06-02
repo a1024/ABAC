@@ -1,0 +1,2 @@
+l1csse41 *.ppm *.l1c 2
+l1csse41 *.l1c *.ppm

@@ -1,0 +1,2 @@
+qoippm e *.ppm *.qoi
+qoippm d *.qoi *.ppm

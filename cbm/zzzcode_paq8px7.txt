@@ -1,0 +1,2 @@
+paq8px -7 *.ppm *.paq8px208fix1
+paq8px -d *.paq8px208fix1 *.ppm

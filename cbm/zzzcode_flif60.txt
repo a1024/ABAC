@@ -1,0 +1,2 @@
+flif *.ppm *.flif
+flif *.flif *.ppm

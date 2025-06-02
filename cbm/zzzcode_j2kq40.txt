@@ -1,0 +1,2 @@
+C:/Projects/a/openjpeg-v2.5.3-windows-x64/bin/opj_compress.exe -quiet -q 40 -i *.ppm -o *.j2k
+C:/Projects/a/openjpeg-v2.5.3-windows-x64/bin/opj_decompress.exe -quiet -i *.j2k -o *.ppm

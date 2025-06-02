@@ -1,0 +1,2 @@
+nbli -f -1 *.ppm -o *.nbli
+nbli -f *.nbli -o *.ppm

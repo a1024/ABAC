@@ -1,0 +1,2 @@
+flif -E100 *.ppm *.flif
+flif *.flif *.ppm

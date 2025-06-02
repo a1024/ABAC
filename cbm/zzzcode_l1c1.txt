@@ -1,0 +1,2 @@
+l1c *.ppm *.l1c 1
+l1c *.l1c *.ppm

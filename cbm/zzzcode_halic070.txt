@@ -1,0 +1,2 @@
+HALIC_ENCODE_V.0.7.0.exe *.ppm *.halic
+HALIC_DECODE_V.0.7.0.exe *.halic *.ppm
