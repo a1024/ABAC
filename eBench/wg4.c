@@ -1287,6 +1287,7 @@ void pred_wgrad4c(Image *src, int fwd)
 					eWW	=rows[0][-2*4*2+1],
 					eW	=rows[0][-1*4*2+1];
 				int
+					*peNNW	=erows[2]-1*4*WG_NPREDS,
 					*peNN	=erows[2]+0*4*WG_NPREDS,
 					*peNNE	=erows[2]+1*4*WG_NPREDS,
 					*peNNEE	=erows[2]+2*4*WG_NPREDS,
@@ -1328,18 +1329,16 @@ void pred_wgrad4c(Image *src, int fwd)
 			//	int weights0[WG_NPREDS];//
 				for(int kp=0;kp<WG_NPREDS;++kp)
 				{
-					//			1	1
-					//		1	3	1
-					//	1	3	?
+					//		2
+					//	1	5	1
+					//	5	?
 					weights[kp]=
 						+wg_perrors[kc][kp]	//+I
-						+peNN	[kp]		//+eNN
-						+peNNE	[kp]		//+eNNE
+						+peNN	[kp]*2		//+eNN
 						+peNW	[kp]		//+eNW
-						+peN	[kp]*3		//+eN
+						+peN	[kp]*5		//+eN
 						+peNE	[kp]		//+eNE
-						+peWW	[kp]		//+eWW
-						+peW	[kp]*3		//+eW
+						+peW	[kp]*5		//+eW
 						+2
 					;
 #if 0
