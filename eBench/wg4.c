@@ -1287,10 +1287,15 @@ void pred_wgrad4c(Image *src, int fwd)
 					eWW	=rows[0][-2*4*2+1],
 					eW	=rows[0][-1*4*2+1];
 				int
+					*peNN	=erows[2]+0*4*WG_NPREDS,
 					*peNNE	=erows[2]+1*4*WG_NPREDS,
+					*peNNEE	=erows[2]+2*4*WG_NPREDS,
 					*peNW	=erows[1]-1*4*WG_NPREDS,
 					*peN	=erows[1]+0*4*WG_NPREDS,
 					*peNE	=erows[1]+1*4*WG_NPREDS,
+					*peNEE	=erows[1]+2*4*WG_NPREDS,
+					*peNEEE	=erows[1]+3*4*WG_NPREDS,
+					*peWW	=erows[0]-2*4*WG_NPREDS,
 					*peW	=erows[0]-1*4*WG_NPREDS,
 					*pecurr	=erows[0]+0*4*WG_NPREDS;
 				j=0;
@@ -1323,6 +1328,24 @@ void pred_wgrad4c(Image *src, int fwd)
 			//	int weights0[WG_NPREDS];//
 				for(int kp=0;kp<WG_NPREDS;++kp)
 				{
+					//			1	1
+					//		1	3	1
+					//	1	3	?
+					weights[kp]=
+						+wg_perrors[kc][kp]	//+I
+						+peNN	[kp]		//+eNN
+						+peNNE	[kp]		//+eNNE
+						+peNW	[kp]		//+eNW
+						+peN	[kp]*3		//+eN
+						+peNE	[kp]		//+eNE
+						+peWW	[kp]		//+eWW
+						+peW	[kp]*3		//+eW
+						+2
+					;
+#if 0
+					//				1
+					//		1	2	1
+					//	1	1	?
 					weights[kp]=((
 						+wg_perrors[kc][kp]		//+I
 						+peN	[kp-1*4*WG_NPREDS]	//+eNW
@@ -1330,6 +1353,7 @@ void pred_wgrad4c(Image *src, int fwd)
 						+peN	[kp+1*4*WG_NPREDS]	//+eNE
 						+peNNE	[kp+0*4*WG_NPREDS]	//+eNNE
 					)>>1)+1;
+#endif
 #if 0
 					weights[kp]=
 						+(wg_perrors[kc][kp]>>3)	//+I	*8
@@ -1467,6 +1491,8 @@ void pred_wgrad4c(Image *src, int fwd)
 				if(vmax<NE)vmax=NE;
 				if(vmin>NEEE)vmin=NEEE;
 				if(vmax<NEEE)vmax=NEEE;
+				if(vmin>NW)vmin=NW;
+				if(vmax<NW)vmax=NW;
 				CLAMP2(pred, vmin, vmax);
 
 				int curr=src->data[idx+kc];
@@ -1515,11 +1541,12 @@ void pred_wgrad4c(Image *src, int fwd)
 				int factor=factors[kc];
 				for(int k=0;k<WG_NPREDS;++k)
 				{
-					int e2=abs(curr-wg_preds[k])<<1;
+					int e2=(curr-wg_preds[k])<<1;
+					e2=e2<<1^e2>>31;
 					wg_perrors[kc][k]=(wg_perrors[kc][k]+e2)*factor>>7;
 				//	wg_perrors[kc][k]=(e2-wg_perrors[kc][k]+(1<<5>>1))>>5;//slightly worse
-					pecurr[k]=(2*peW[k]+e2+peNE[k])>>2;
-					peNE[k]+=e2;
+					pecurr[k]=(2*peW[k]+e2+peNEE[k])>>2;
+				//	peNE[k]+=e2;
 				}
 				int e=(curr>predu)-(curr<predu);
 				coeffs[kc][L1PREDS]+=e;//bias
