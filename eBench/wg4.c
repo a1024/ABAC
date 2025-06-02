@@ -10,8 +10,8 @@ static const char file[]=__FILE__;
 //WG:
 #define WG_NBITS 0	//why 0 is best?
 
-#define L1SH 19
-#define L1PREDS 16
+#define L1SH 18
+#define L1PREDS 17
 #define L1PREDLIST\
 	L1PRED(eN)\
 	L1PRED(eW)\
@@ -23,12 +23,19 @@ static const char file[]=__FILE__;
 	L1PRED(eWWW)\
 	L1PRED(eNEE)\
 	L1PRED(eNEEE)\
+	L1PRED(eNWW)\
+	L1PRED(eNNW)\
+	L1PRED(eNNE)\
 	L1PRED(3*(eN-eNN)+eNNN)\
 	L1PRED(3*(eW-eWW)+eWWW)\
+	L1PRED(4*(eN+eNNN)-6*eNN-eNNNN)\
+	L1PRED(4*(eW+eWWW)-6*eWW-eWWWW)
+#if 0
 	L1PRED(eW+eNE-eN)\
 	L1PRED(eN+eW-eNW)\
 	L1PRED(eN+eNE-eNNE)\
 	L1PRED((eWWWW+eWWW+eNNN+eNEE+eNEEE+eNEEEE-2*NW)/4)
+#endif
 
 #if 1
 #define WG_NPREDS	12	//multiple of 4
@@ -1273,9 +1280,12 @@ void pred_wgrad4c(Image *src, int fwd)
 					WWW	=rows[0][-3*4*2+0],
 					WW	=rows[0][-2*4*2+0],
 					W	=rows[0][-1*4*2+0],
+					eNNNN	=rows[0][+0*4*2+1],
 					eNNN	=rows[3][+0*4*2+1],
+					eNNW	=rows[2][-1*4*2+1],
 					eNN	=rows[2][+0*4*2+1],
 					eNNE	=rows[2][+1*4*2+1],
+					eNWW	=rows[1][-2*4*2+1],
 					eNW	=rows[1][-1*4*2+1],
 					eN	=rows[1][+0*4*2+1],
 					eNE	=rows[1][+1*4*2+1],
@@ -1287,6 +1297,7 @@ void pred_wgrad4c(Image *src, int fwd)
 					eWW	=rows[0][-2*4*2+1],
 					eW	=rows[0][-1*4*2+1];
 				int
+					*peNNN	=erows[3]+0*4*WG_NPREDS,
 					*peNNW	=erows[2]-1*4*WG_NPREDS,
 					*peNN	=erows[2]+0*4*WG_NPREDS,
 					*peNNE	=erows[2]+1*4*WG_NPREDS,
@@ -1329,16 +1340,17 @@ void pred_wgrad4c(Image *src, int fwd)
 			//	int weights0[WG_NPREDS];//
 				for(int kp=0;kp<WG_NPREDS;++kp)
 				{
+					//		1
 					//		2
-					//	1	5	1
+					//		5	1
 					//	5	?
 					weights[kp]=
-						+wg_perrors[kc][kp]	//+I
+						+peNNN	[kp]		//+eNNN
 						+peNN	[kp]*2		//+eNN
-						+peNW	[kp]		//+eNW
 						+peN	[kp]*5		//+eN
 						+peNE	[kp]		//+eNE
 						+peW	[kp]*5		//+eW
+						+wg_perrors[kc][kp]	//+I
 						+2
 					;
 #if 0
