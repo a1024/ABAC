@@ -1,0 +1,2 @@
+a05avx2 *.ppm *.a05
+a05avx2 *.a05 *.ppm

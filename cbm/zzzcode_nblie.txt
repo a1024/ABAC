@@ -1,0 +1,2 @@
+nblie e *.ppm *.nblie
+nblie d *.nblie *.ppm
