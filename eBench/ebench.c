@@ -178,6 +178,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_MIXN,		ST_INV_MIXN,
 	ST_FWD_OLS7,		ST_INV_OLS7,
 	ST_FWD_OLS8,		ST_INV_OLS8,
+	ST_FWD_CGCRCT,		ST_INV_CGCRCT,
 	ST_FWD_CLAMPGRAD,	ST_INV_CLAMPGRAD,
 	ST_FWD_SELECT,		ST_INV_SELECT,
 	ST_FWD_AV2,		ST_INV_AV2,
@@ -207,6 +208,7 @@ typedef enum TransformTypeEnum
 //	ST_FWD_WGRAD2,		ST_INV_WGRAD2,
 	ST_FWD_WGRAD3,		ST_INV_WGRAD3,
 	ST_FWD_WGRAD4,		ST_INV_WGRAD4,
+	ST_FWD_WGRAD4C,		ST_INV_WGRAD4C,
 	ST_FWD_WGRAD5,		ST_INV_WGRAD5,
 	ST_FWD_WGRAD6,		ST_INV_WGRAD6,
 	ST_FWD_WGRAD7,		ST_INV_WGRAD7,
@@ -2763,8 +2765,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_OLS5:		a=" S Inv OLS-5";		break;
 	case ST_FWD_OLS6:		a=" S Fwd OLS-6";		break;
 	case ST_INV_OLS6:		a=" S Inv OLS-6";		break;
-	case ST_FWD_L1CRCT:		a=" S Fwd L1 CRCT";		break;
-	case ST_INV_L1CRCT:		a=" S Inv L1 CRCT";		break;
+	case ST_FWD_L1CRCT:		a=" S Fwd L1 cRCT";		break;
+	case ST_INV_L1CRCT:		a=" S Inv L1 cRCT";		break;
 	case ST_FWD_OLS7:		a=" S Fwd L1";			break;
 	case ST_INV_OLS7:		a=" S Inv L1";			break;
 	case ST_FWD_OLS8:		a=" S Fwd L1B";			break;
@@ -2773,6 +2775,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_PU:			a="CS Inv PU";			break;
 	case ST_FWD_CG3D:		a="CS Fwd CG3D";		break;
 	case ST_INV_CG3D:		a="CS Inv CG3D";		break;
+	case ST_FWD_CGCRCT:		a=" S Fwd CG cRCT";		break;
+	case ST_INV_CGCRCT:		a=" S Inv CG cRCT";		break;
 	case ST_FWD_CLAMPGRAD:		a=" S Fwd ClampGrad";		break;
 	case ST_INV_CLAMPGRAD:		a=" S Inv ClampGrad";		break;
 	case ST_FWD_CLEARTYPE:		a=" S Fwd ClearType";		break;
@@ -2807,6 +2811,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_WGRAD3:		a="CS Inv WGrad3";		break;
 	case ST_FWD_WGRAD4:		a=" S Fwd WGrad4";		break;
 	case ST_INV_WGRAD4:		a=" S Inv WGrad4";		break;
+	case ST_FWD_WGRAD4C:		a=" S Fwd WG4C";		break;
+	case ST_INV_WGRAD4C:		a=" S Inv WG4C";		break;
 	case ST_FWD_WGRAD5:		a=" S Fwd WGrad5";		break;
 	case ST_INV_WGRAD5:		a=" S Inv WGrad5";		break;
 	case ST_FWD_WGRAD6:		a=" S Fwd WGrad6";		break;
@@ -3957,6 +3963,8 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_INV_PU:			pred_PU(image, 0);					break;
 	case ST_FWD_CG3D:		pred_CG3D(image, 1, pred_ma_enabled);			break;
 	case ST_INV_CG3D:		pred_CG3D(image, 0, pred_ma_enabled);			break;
+	case ST_FWD_CGCRCT:		pred_cg_crct(image, 1, pred_ma_enabled);		break;
+	case ST_INV_CGCRCT:		pred_cg_crct(image, 0, pred_ma_enabled);		break;
 	case ST_FWD_CLAMPGRAD:		pred_clampgrad(image, 1, pred_ma_enabled);		break;
 	case ST_INV_CLAMPGRAD:		pred_clampgrad(image, 0, pred_ma_enabled);		break;
 	case ST_FWD_CLEARTYPE:		pred_cleartype(image, 1);				break;
@@ -3989,6 +3997,8 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_INV_WGRAD3:		pred_wgrad3(image, 0, hasRCT);				break;
 	case ST_FWD_WGRAD4:		pred_wgrad4(image, 1);					break;
 	case ST_INV_WGRAD4:		pred_wgrad4(image, 0);					break;
+	case ST_FWD_WGRAD4C:		pred_wgrad4c(image, 1);					break;
+	case ST_INV_WGRAD4C:		pred_wgrad4c(image, 0);					break;
 	case ST_FWD_WGRAD5:		pred_wgrad5(image, 1);					break;
 	case ST_INV_WGRAD5:		pred_wgrad5(image, 0);					break;
 	case ST_FWD_WGRAD6:		pred_wgrad6(image, 1);					break;
@@ -7539,7 +7549,7 @@ int io_keydn(IOKey key, char c)
 							if(kx2>im1->iw)
 								kx2=im1->iw;
 							c18_analyze(im1, kx, kx2, ky, ky2, info);
-							const unsigned char *group=rct_combinations[info->bestrct];
+							const unsigned char *group=rct2_combinations[info->bestrct];
 							int selected_ch[]=
 							{
 								group[0]*PRED_COUNT+info->predidx[0],
@@ -8328,7 +8338,7 @@ void io_render(void)
 			break;
 		case VIS_ANALYSIS:
 			{
-				const unsigned char *group=rct_combinations[analysis_info.bestrct];
+				const unsigned char *group=rct2_combinations[analysis_info.bestrct];
 				int selected_ch[]=
 				{
 					group[0]*PRED_COUNT+analysis_info.predidx[0],
@@ -8366,7 +8376,7 @@ void io_render(void)
 					analysis_info.esizes[selected_ch[1]]*100,
 					analysis_info.esizes[selected_ch[2]]*100,
 					(analysis_info.esizes[selected_ch[0]]+analysis_info.esizes[selected_ch[1]]+analysis_info.esizes[selected_ch[2]])*100/3,
-					rct_names[analysis_info.bestrct],
+					rct2_names[analysis_info.bestrct],
 					pred_names[analysis_info.predidx[0]],
 					pred_names[analysis_info.predidx[1]],
 					pred_names[analysis_info.predidx[2]],
@@ -8377,7 +8387,7 @@ void io_render(void)
 						rx1=(float)(0.25*wndw),
 						rx2=(float)(0.75*wndw),
 						ry1=y,
-						ry2=y+RCT_COUNT*3+OCH_COUNT*PRED_COUNT*3+OCH_COUNT*8;
+						ry2=y+RCT2_COUNT*3+OCH2_COUNT*PRED_COUNT*3+OCH2_COUNT*8;
 					display_texture_i(
 						(int)rx1, (int)rx2, (int)ry1, (int)ry2,
 						(int*)im_export,
@@ -8391,14 +8401,14 @@ void io_render(void)
 					draw_rect_hollow(rx1-1, rx2+1, ry1+0, ry2+0, 0xC0000000);
 					draw_rect_hollow(rx1-2, rx2+0, ry1-1, ry2-1, 0xC0FFFFFF);
 				}
-				//draw_line((float)(0.25*wndw)+0, y, (float)(0.25*wndw)+0, y+OCH_COUNT*PRED_COUNT*4+OCH_COUNT*10, 0xC0000000);
-				//draw_line((float)(0.25*wndw)-1, y, (float)(0.25*wndw)-1, y+OCH_COUNT*PRED_COUNT*4+OCH_COUNT*10, 0xC0FFFFFF);
-				//draw_line((float)(0.75*wndw)+1, y, (float)(0.75*wndw)+1, y+OCH_COUNT*PRED_COUNT*4+OCH_COUNT*10, 0xC0000000);
-				//draw_line((float)(0.75*wndw)+0, y, (float)(0.75*wndw)+0, y+OCH_COUNT*PRED_COUNT*4+OCH_COUNT*10, 0xC0FFFFFF);
+				//draw_line((float)(0.25*wndw)+0, y, (float)(0.25*wndw)+0, y+OCH2_COUNT*PRED_COUNT*4+OCH2_COUNT*10, 0xC0000000);
+				//draw_line((float)(0.25*wndw)-1, y, (float)(0.25*wndw)-1, y+OCH2_COUNT*PRED_COUNT*4+OCH2_COUNT*10, 0xC0FFFFFF);
+				//draw_line((float)(0.75*wndw)+1, y, (float)(0.75*wndw)+1, y+OCH2_COUNT*PRED_COUNT*4+OCH2_COUNT*10, 0xC0000000);
+				//draw_line((float)(0.75*wndw)+0, y, (float)(0.75*wndw)+0, y+OCH2_COUNT*PRED_COUNT*4+OCH2_COUNT*10, 0xC0FFFFFF);
 				y+=10;
 				float centers[6]={0};
 				int ncenters=0;
-				for(int k=0;k<RCT_COUNT;++k)//RCTs
+				for(int k=0;k<RCT2_COUNT;++k)//RCTs
 				{
 					int hit=k==analysis_info.bestrct;
 					int color=hit?0xC04040FF:0xC0FFFFFF;
@@ -8409,7 +8419,7 @@ void io_render(void)
 					y+=3;
 				}
 				y+=9;
-				for(int k=0;k<OCH_COUNT*PRED_COUNT;++k)//output channels
+				for(int k=0;k<OCH2_COUNT*PRED_COUNT;++k)//output channels
 				{
 					int hit=k==selected_ch[0]||k==selected_ch[1]||k==selected_ch[2];
 					int color=hit?0xC04040FF:0xC0FFFFFF;
@@ -8452,7 +8462,7 @@ void io_render(void)
 				draw_ellipse(centers[4]-10, centers[4]+10, centers[5]-10, centers[5]+10, 0x8000FF00);
 				GUIPrint(0, xmid, ymid, 1,
 					"%s %s %s %s",
-					rct_names[analysis_info.bestrct],
+					rct2_names[analysis_info.bestrct],
 					pred_names[analysis_info.predidx[0]],
 					pred_names[analysis_info.predidx[1]],
 					pred_names[analysis_info.predidx[2]]

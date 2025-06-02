@@ -707,6 +707,155 @@ void rct_custom_getmatrix(double *matrix, int fwd);
 void rct_adaptive(Image *src, int fwd);
 
 
+#define ENABLE_EXTENDED_RCT
+typedef enum _RCTInfoIdx
+{
+	II_OCH_Y,
+	II_OCH_U,
+	II_OCH_V,
+
+	II_PERM_Y,
+	II_PERM_U,
+	II_PERM_V,
+
+	II_COEFF_U_SUB_Y,
+	II_COEFF_V_SUB_Y,
+	II_COEFF_V_SUB_U,
+
+	II_COUNT,
+} RCTInfoIdx;
+#ifdef ENABLE_EXTENDED_RCT
+#define OCHLIST\
+	OCH(Y400) OCH(Y040) OCH(Y004)\
+	OCH(CX40) OCH(C0X4) OCH(C40X)\
+	OCH(CX31) OCH(C3X1) OCH(C31X)\
+	OCH(CX13) OCH(C1X3) OCH(C13X)\
+	OCH(CX22) OCH(C2X2) OCH(C22X)
+typedef enum _OCHIndex
+{
+#define OCH(X) OCH_##X,
+	OCHLIST
+#undef  OCH
+	OCH_COUNT,
+	OCH_C4X0=OCH_CX40,
+	OCH_C04X=OCH_C0X4,
+	OCH_CX04=OCH_C40X,
+	OCH_R=OCH_Y400,
+	OCH_G=OCH_Y040,
+	OCH_B=OCH_Y004,
+	OCH_BG=OCH_C04X,
+	OCH_BR=OCH_C40X,
+	OCH_RG=OCH_CX40,
+	OCH_RB=OCH_CX04,
+	OCH_GB=OCH_C0X4,
+	OCH_GR=OCH_C4X0,
+	OCH_R1=OCH_CX13,
+	OCH_G1=OCH_C3X1,
+	OCH_B1=OCH_C13X,
+	OCH_R2=OCH_CX22,
+	OCH_G2=OCH_C2X2,
+	OCH_B2=OCH_C22X,
+	OCH_R3=OCH_CX31,
+	OCH_G3=OCH_C1X3,
+	OCH_B3=OCH_C31X,
+} OCHIndex;
+#endif
+#ifndef ENABLE_EXTENDED_RCT
+typedef enum _OCHIndex
+{
+	OCH_R,
+	OCH_G,
+	OCH_B,
+	OCH_RG,
+	OCH_GB,
+	OCH_BR,
+	OCH_COUNT,
+	OCH_GR=OCH_RG,
+	OCH_BG=OCH_GB,
+	OCH_RB=OCH_BR,
+} OCHIndex;
+#endif
+#ifdef ENABLE_EXTENDED_RCT
+#define RCTLIST\
+	RCT(_400_0X0_00X,	OCH_R,		OCH_G,		OCH_B,		0, 1, 2,	0,  0, 0)\
+	RCT(_400_0X0_04X,	OCH_R,		OCH_G,		OCH_BG,		0, 1, 2,	0,  0, 4)\
+	RCT(_400_0X0_40X,	OCH_R,		OCH_G,		OCH_BR,		0, 1, 2,	0,  4, 0)\
+	RCT(_040_00X_X40,	OCH_G,		OCH_B,		OCH_RG,		1, 2, 0,	0,  4, 0)\
+	RCT(_040_00X_X04,	OCH_G,		OCH_B,		OCH_RB,		1, 2, 0,	0,  0, 4)\
+	RCT(_004_X00_4X0,	OCH_B,		OCH_R,		OCH_GR,		2, 0, 1,	0,  0, 4)\
+	RCT(_004_X00_0X4,	OCH_B,		OCH_R,		OCH_GB,		2, 0, 1,	0,  4, 0)\
+	RCT(_040_04X_X40,	OCH_G,		OCH_BG,		OCH_RG,		1, 2, 0,	4,  4, 0)\
+	RCT(_040_04X_X04,	OCH_G,		OCH_BG,		OCH_RB,		1, 2, 0,	4,  0, 4)\
+	RCT(_040_X40_40X,	OCH_G,		OCH_RG,		OCH_BR,		1, 0, 2,	4,  0, 4)\
+	RCT(_004_X04_0X4,	OCH_B,		OCH_RB,		OCH_GB,		2, 0, 1,	4,  4, 0)\
+	RCT(_004_X04_4X0,	OCH_B,		OCH_RB,		OCH_GR,		2, 0, 1,	4,  0, 4)\
+	RCT(_004_0X4_X40,	OCH_B,		OCH_GB,		OCH_RG,		2, 1, 0,	4,  0, 4)\
+	RCT(_400_4X0_40X,	OCH_R,		OCH_GR,		OCH_BR,		0, 1, 2,	4,  4, 0)\
+	RCT(_400_4X0_04X,	OCH_R,		OCH_GR,		OCH_BG,		0, 1, 2,	4,  0, 4)\
+	RCT(_400_40X_0X4,	OCH_R,		OCH_BR,		OCH_GB,		0, 2, 1,	4,  0, 4)\
+	RCT(_400_0X0_13X,	OCH_R,		OCH_G,		OCH_B1,		0, 1, 2,	0,  1, 3)\
+	RCT(_400_4X0_13X,	OCH_R,		OCH_GR,		OCH_B1,		0, 1, 2,	4,  1, 3)\
+	RCT(_400_00X_3X1,	OCH_R,		OCH_B,		OCH_G1,		0, 2, 1,	0,  3, 1)\
+	RCT(_400_40X_3X1,	OCH_R,		OCH_BR,		OCH_G1,		0, 2, 1,	4,  3, 1)\
+	RCT(_040_00X_X13,	OCH_G,		OCH_B,		OCH_R1,		1, 2, 0,	0,  1, 3)\
+	RCT(_040_04X_X13,	OCH_G,		OCH_BG,		OCH_R1,		1, 2, 0,	4,  1, 3)\
+	RCT(_040_X40_13X,	OCH_G,		OCH_RG,		OCH_B1,		1, 0, 2,	4,  3, 1)\
+	RCT(_004_X04_3X1,	OCH_B,		OCH_RB,		OCH_G1,		2, 0, 1,	4,  1, 3)\
+	RCT(_004_04X_X13,	OCH_B,		OCH_GB,		OCH_R1,		2, 1, 0,	4,  3, 1)\
+	RCT(_400_0X0_22X,	OCH_R,		OCH_G,		OCH_B2,		0, 1, 2,	0,  2, 2)\
+	RCT(_400_4X0_22X,	OCH_R,		OCH_GR,		OCH_B2,		0, 1, 2,	4,  2, 2)\
+	RCT(_400_00X_2X2,	OCH_R,		OCH_B,		OCH_G2,		0, 2, 1,	0,  2, 2)\
+	RCT(_400_40X_2X2,	OCH_R,		OCH_BR,		OCH_G2,		0, 2, 1,	4,  2, 2)\
+	RCT(_040_00X_X22,	OCH_G,		OCH_B,		OCH_R2,		1, 2, 0,	0,  2, 2)\
+	RCT(_040_04X_X22,	OCH_G,		OCH_BG,		OCH_R2,		1, 2, 0,	4,  2, 2)\
+	RCT(_040_X40_22X,	OCH_G,		OCH_RG,		OCH_B2,		1, 0, 2,	4,  2, 2)\
+	RCT(_004_X04_2X2,	OCH_B,		OCH_RB,		OCH_G2,		2, 0, 1,	4,  2, 2)\
+	RCT(_004_0X4_X22,	OCH_B,		OCH_GB,		OCH_R2,		2, 1, 0,	4,  2, 2)\
+	RCT(_400_0X0_31X,	OCH_R,		OCH_G,		OCH_B3,		0, 1, 2,	0,  3, 1)\
+	RCT(_400_4X0_31X,	OCH_R,		OCH_GR,		OCH_B3,		0, 1, 2,	4,  3, 1)\
+	RCT(_400_00X_1X3,	OCH_R,		OCH_B,		OCH_G3,		0, 2, 1,	0,  1, 3)\
+	RCT(_400_40X_1X3,	OCH_R,		OCH_BR,		OCH_G3,		0, 2, 1,	4,  1, 3)\
+	RCT(_040_00X_X31,	OCH_G,		OCH_B,		OCH_R3,		1, 2, 0,	0,  3, 1)\
+	RCT(_040_04X_X31,	OCH_G,		OCH_BG,		OCH_R3,		1, 2, 0,	4,  3, 1)\
+	RCT(_040_X40_31X,	OCH_G,		OCH_RG,		OCH_B3,		1, 0, 2,	4,  1, 3)\
+	RCT(_004_X04_1X3,	OCH_B,		OCH_RB,		OCH_G3,		2, 0, 1,	4,  3, 1)\
+	RCT(_004_0X4_X31,	OCH_B,		OCH_GB,		OCH_R3,		2, 1, 0,	4,  1, 3)
+#endif
+#ifndef ENABLE_EXTENDED_RCT
+#define RCTLIST\
+	RCT(_400_0X0_00X,	OCH_R,		OCH_G,		OCH_B,		0, 1, 2,	0,  0, 0)\
+	RCT(_400_0X0_04X,	OCH_R,		OCH_G,		OCH_BG,		0, 1, 2,	0,  0, 4)\
+	RCT(_400_0X0_40X,	OCH_R,		OCH_G,		OCH_BR,		0, 1, 2,	0,  4, 0)\
+	RCT(_040_00X_X40,	OCH_G,		OCH_B,		OCH_RG,		1, 2, 0,	0,  4, 0)\
+	RCT(_040_00X_X04,	OCH_G,		OCH_B,		OCH_RB,		1, 2, 0,	0,  0, 4)\
+	RCT(_004_X00_4X0,	OCH_B,		OCH_R,		OCH_GR,		2, 0, 1,	0,  0, 4)\
+	RCT(_004_X00_0X4,	OCH_B,		OCH_R,		OCH_GB,		2, 0, 1,	0,  4, 0)\
+	RCT(_040_04X_X40,	OCH_G,		OCH_BG,		OCH_RG,		1, 2, 0,	4,  4, 0)\
+	RCT(_040_04X_X04,	OCH_G,		OCH_BG,		OCH_RB,		1, 2, 0,	4,  0, 4)\
+	RCT(_040_X40_40X,	OCH_G,		OCH_RG,		OCH_BR,		1, 0, 2,	4,  0, 4)\
+	RCT(_004_X04_0X4,	OCH_B,		OCH_RB,		OCH_GB,		2, 0, 1,	4,  4, 0)\
+	RCT(_004_X04_4X0,	OCH_B,		OCH_RB,		OCH_GR,		2, 0, 1,	4,  0, 4)\
+	RCT(_004_0X4_X40,	OCH_B,		OCH_GB,		OCH_RG,		2, 1, 0,	4,  0, 4)\
+	RCT(_400_4X0_40X,	OCH_R,		OCH_GR,		OCH_BR,		0, 1, 2,	4,  4, 0)\
+	RCT(_400_4X0_04X,	OCH_R,		OCH_GR,		OCH_BG,		0, 1, 2,	4,  0, 4)\
+	RCT(_400_40X_0X4,	OCH_R,		OCH_BR,		OCH_GB,		0, 2, 1,	4,  0, 4)
+#endif
+typedef enum _RCTIndex
+{
+#define RCT(LABEL, ...) RCT_##LABEL,
+	RCTLIST
+#undef  RCT
+	RCT_COUNT,
+} RCTIndex;
+static const unsigned char rct_combinations[RCT_COUNT][II_COUNT]=
+{
+#define RCT(LABEL, ...) {__VA_ARGS__},
+	RCTLIST
+#undef  RCT
+};
+int crct_analysis(Image *src);
+
+
 
 
 //chroma from luma (CfL)
@@ -723,6 +872,7 @@ void prep_BWT_y(Image **psrc, int fwd);
 void filt_deint422(Image *src);
 void filt_deint420(Image *src);
 void packsign(Image *src, int fwd);
+void pred_cg_crct(Image *image, int fwd, int enable_ma);
 void pred_clampgrad(Image *image, int fwd, int enable_ma);
 void pred_cleartype(Image *src, int fwd);
 void pred_sse(Image *src, int fwd);
@@ -747,6 +897,7 @@ void pred_wgrad(Image *src, int fwd, int hasRCT);
 void pred_wgrad2(Image *src, int fwd);
 void pred_wgrad3(Image *src, int fwd, int hasRCT);
 void pred_wgrad4(Image *src, int fwd);
+void pred_wgrad4c(Image *src, int fwd);
 void pred_wgrad5(Image *src, int fwd);
 void pred_wgrad6(Image *src, int fwd);
 void pred_wpred7(Image *src, int fwd);

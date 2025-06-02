@@ -542,6 +542,7 @@ void colortransform_Pei09(Image *image, int fwd)//Pei09 RCT
 }
 void colortransform_subg_opt(Image *image, int fwd)
 {
+#if 0
 	typedef enum _RCTInfoIdx
 	{
 		II_OCH_Y,
@@ -601,8 +602,10 @@ void colortransform_subg_opt(Image *image, int fwd)
 		RCTLIST
 #undef  RCT
 	};
+#endif
 	if(fwd)
 	{
+#if 0
 		long long counters[6]={0};
 		int W[6]={0};
 		for(ptrdiff_t k=0, len=(ptrdiff_t)image->iw*image->ih*4;k<len;k+=4)
@@ -643,6 +646,8 @@ void colortransform_subg_opt(Image *image, int fwd)
 				bestrct=kt;
 			}
 		}
+#endif
+		int bestrct=crct_analysis(image);
 		const unsigned char *combination=rct_combinations[bestrct];
 		int
 			yidx=combination[II_PERM_Y],
@@ -2974,6 +2979,138 @@ void pred_clampgrad(Image *src, int fwd, int enable_ma)
 	}
 	free(dst);
 #endif
+}
+void pred_cg_crct(Image *src, int fwd, int enable_ma)
+{
+	int nlevels[]=
+	{
+		1<<src->depth[0],
+		1<<src->depth[1],
+		1<<src->depth[2],
+		1<<src->depth[3],
+	};
+	int amin[]=
+	{
+		-(nlevels[0]>>1),
+		-(nlevels[1]>>1),
+		-(nlevels[2]>>1),
+		-(nlevels[3]>>1),
+	};
+	int amax[]=
+	{
+		(nlevels[0]>>1)-1,
+		(nlevels[1]>>1)-1,
+		(nlevels[2]>>1)-1,
+		(nlevels[3]>>1)-1,
+	};
+	//int fwdmask=-fwd;
+	int invdist=((1<<16)+g_dist-1)/g_dist;
+	short *pixels=(short*)malloc((src->iw+2LL)*sizeof(short[2*4]));//2 padded rows * 4 channels max
+	if(!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(pixels, 0, (src->iw+2LL)*sizeof(short[2*4]));
+	if(fwd)
+		src->rct=crct_analysis(src);
+	const unsigned char *combination=rct_combinations[src->rct];
+	int
+		yidx=combination[II_PERM_Y],
+		uidx=combination[II_PERM_U],
+		vidx=combination[II_PERM_V];
+	int vfromy=-(combination[II_COEFF_U_SUB_Y]!=0);
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		short *rows[]=
+		{
+			pixels+((src->iw+2LL)*((ky-0LL)&1)+1)*4-1,
+			pixels+((src->iw+2LL)*((ky-1LL)&1)+1)*4-1,
+		};
+		for(int kx=0;kx<src->iw;++kx, idx+=4)
+		{
+			int offset=0;
+			int yuv[]=
+			{
+				src->data[idx+yidx],
+				src->data[idx+uidx],
+				src->data[idx+vidx],
+			};
+			for(int kc=0;kc<4;++kc)
+			{
+				++rows[0];
+				++rows[1];
+				if(!src->depth[kc])
+					continue;
+				//if(ky==100&&kx==100)//
+				//	printf("");
+
+				int
+					NW	=rows[1][-1*4],
+					N	=rows[1][+0*4],
+					W	=rows[0][-1*4];
+				//if(kx==src->iw/2&&ky==src->ih/2)//
+				//	printf("");
+				int pred=N+W-NW;
+				int vmax=N, vmin=W;
+				if(N<W)vmin=N, vmax=W;
+				CLAMP2(pred, vmin, vmax);
+				if(kc)
+				{
+					pred+=offset;
+					CLAMP2(pred, amin[kc], amax[kc]);
+				}
+
+				int curr=yuv[kc];
+				if(g_dist>1)
+				{
+					if(fwd)
+					{
+						curr-=pred;
+						curr=(curr*invdist>>16)-(curr>>31&-(g_dist>1));//curr/=g_dist
+						src->data[idx+kc]=curr;
+
+						curr=g_dist*curr+pred;
+						CLAMP2(curr, amin[kc], amax[kc]);
+					}
+					else
+					{
+						curr=g_dist*curr+pred;
+						CLAMP2(curr, amin[kc], amax[kc]);
+
+						src->data[idx+kc]=curr;
+					}
+				}
+				else
+				{
+					if(fwd)
+					{
+						int error=curr-pred;
+						error<<=32-src->depth[kc];
+						error>>=32-src->depth[kc];
+						src->data[idx+kc]=error;
+					}
+					else
+					{
+						curr=src->data[idx+kc]+pred;
+						curr<<=32-src->depth[kc];
+						curr>>=32-src->depth[kc];
+						yuv[kc]=curr;
+					}
+				}
+				curr-=offset;
+				rows[0][0]=curr;
+				offset=kc?(combination[II_COEFF_V_SUB_Y]*yuv[0]+combination[II_COEFF_V_SUB_U]*yuv[1])>>2:yuv[0]&vfromy;
+			}
+			if(!fwd)
+			{
+				src->data[idx+0]=yuv[yidx];
+				src->data[idx+1]=yuv[uidx];
+				src->data[idx+2]=yuv[vidx];
+			}
+		}
+	}
+	free(pixels);
 }
 void pred_cleartype(Image *src, int fwd)
 {

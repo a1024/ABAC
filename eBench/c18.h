@@ -3,32 +3,32 @@
 #define INC_C18_H
 
 
-#define OCHLIST\
-	OCH(R)\
-	OCH(G)\
-	OCH(B)\
-	OCH(RG)\
-	OCH(GB)\
-	OCH(BR)\
-	OCH(R1)\
-	OCH(G1)\
-	OCH(B1)\
-	OCH(R2)\
-	OCH(G2)\
-	OCH(B2)\
-	OCH(R3)\
-	OCH(G3)\
-	OCH(B3)\
-	OCH(RB)\
-	OCH(GR)\
-	OCH(BG)
-typedef enum _OCHIndex
+#define OCH2LIST\
+	OCH2(R)\
+	OCH2(G)\
+	OCH2(B)\
+	OCH2(RG)\
+	OCH2(GB)\
+	OCH2(BR)\
+	OCH2(R1)\
+	OCH2(G1)\
+	OCH2(B1)\
+	OCH2(R2)\
+	OCH2(G2)\
+	OCH2(B2)\
+	OCH2(R3)\
+	OCH2(G3)\
+	OCH2(B3)\
+	OCH2(RB)\
+	OCH2(GR)\
+	OCH2(BG)
+typedef enum _OCH2Index
 {
-#define OCH(LABEL) OCH_##LABEL,
-	OCHLIST
-#undef  OCH
-	OCH_COUNT,
-} OCHIndex;
+#define OCH2(LABEL) OCH2_##LABEL,
+	OCH2LIST
+#undef  OCH2
+	OCH2_COUNT,
+} OCH2Index;
 static const char *och_names[OCH_COUNT]=
 {
 #define OCH(LABEL) #LABEL,
@@ -36,69 +36,69 @@ static const char *och_names[OCH_COUNT]=
 #undef  OCH
 };
 
-#define RCTLIST\
-	RCT(R_G_B,	OCH_R,		OCH_G,		OCH_B,		0, 1, 2,	3,	3, 3, 0)\
-	RCT(R_G_BG,	OCH_R,		OCH_G,		OCH_BG,		0, 1, 2,	3,	1, 3, 0)\
-	RCT(R_G_BR,	OCH_R,		OCH_G,		OCH_BR,		0, 1, 2,	3,	0, 3, 0)\
-	RCT(R_G_B1,	OCH_R,		OCH_G,		OCH_B1,		0, 1, 2,	3,	0, 1, 1)\
-	RCT(R_G_B2,	OCH_R,		OCH_G,		OCH_B2,		0, 1, 2,	3,	0, 1, 1)\
-	RCT(R_G_B3,	OCH_R,		OCH_G,		OCH_B3,		0, 1, 2,	3,	0, 1, 1)\
-	RCT(R_GR_BR,	OCH_R,		OCH_GR,		OCH_BR,		0, 1, 2,	0,	0, 3, 0)\
-	RCT(R_GR_BG,	OCH_R,		OCH_GR,		OCH_BG,		0, 1, 2,	0,	1, 3, 0)\
-	RCT(R_GR_B1,	OCH_R,		OCH_GR,		OCH_B1,		0, 1, 2,	0,	0, 1, 1)\
-	RCT(R_GR_B2,	OCH_R,		OCH_GR,		OCH_B2,		0, 1, 2,	0,	0, 1, 1)\
-	RCT(R_GR_B3,	OCH_R,		OCH_GR,		OCH_B3,		0, 1, 2,	0,	0, 1, 1)\
-	RCT(R_B_G1,	OCH_R,		OCH_B,		OCH_G1,		0, 2, 1,	3,	0, 1, 1)\
-	RCT(R_B_G2,	OCH_R,		OCH_B,		OCH_G2,		0, 2, 1,	3,	0, 1, 1)\
-	RCT(R_B_G3,	OCH_R,		OCH_B,		OCH_G3,		0, 2, 1,	3,	0, 1, 1)\
-	RCT(R_BR_GB,	OCH_R,		OCH_BR,		OCH_GB,		0, 2, 1,	0,	1, 3, 0)\
-	RCT(R_BR_G1,	OCH_R,		OCH_BR,		OCH_G1,		0, 2, 1,	0,	0, 1, 1)\
-	RCT(R_BR_G2,	OCH_R,		OCH_BR,		OCH_G2,		0, 2, 1,	0,	0, 1, 1)\
-	RCT(R_BR_G3,	OCH_R,		OCH_BR,		OCH_G3,		0, 2, 1,	0,	0, 1, 1)\
-	RCT(G_B_RG,	OCH_G,		OCH_B,		OCH_RG,		1, 2, 0,	3,	0, 3, 0)\
-	RCT(G_B_RB,	OCH_G,		OCH_B,		OCH_RB,		1, 2, 0,	3,	1, 3, 0)\
-	RCT(G_B_R1,	OCH_G,		OCH_B,		OCH_R1,		1, 2, 0,	3,	0, 1, 1)\
-	RCT(G_B_R2,	OCH_G,		OCH_B,		OCH_R2,		1, 2, 0,	3,	0, 1, 1)\
-	RCT(G_B_R3,	OCH_G,		OCH_B,		OCH_R3,		1, 2, 0,	3,	0, 1, 1)\
-	RCT(G_BG_RG,	OCH_G,		OCH_BG,		OCH_RG,		1, 2, 0,	0,	0, 3, 0)\
-	RCT(G_BG_RB,	OCH_G,		OCH_BG,		OCH_RB,		1, 2, 0,	0,	1, 3, 0)\
-	RCT(G_BG_R1,	OCH_G,		OCH_BG,		OCH_R1,		1, 2, 0,	0,	0, 1, 1)\
-	RCT(G_BG_R2,	OCH_G,		OCH_BG,		OCH_R2,		1, 2, 0,	0,	0, 1, 1)\
-	RCT(G_BG_R3,	OCH_G,		OCH_BG,		OCH_R3,		1, 2, 0,	0,	0, 1, 1)\
-	RCT(G_RG_BR,	OCH_G,		OCH_RG,		OCH_BR,		1, 0, 2,	0,	1, 3, 0)\
-	RCT(G_RG_B1,	OCH_G,		OCH_RG,		OCH_B1,		1, 0, 2,	0,	0, 1, 1)\
-	RCT(G_RG_B2,	OCH_G,		OCH_RG,		OCH_B2,		1, 0, 2,	0,	0, 1, 1)\
-	RCT(G_RG_B3,	OCH_G,		OCH_RG,		OCH_B3,		1, 0, 2,	0,	0, 1, 1)\
-	RCT(B_R_GR,	OCH_B,		OCH_R,		OCH_GR,		2, 0, 1,	3,	1, 3, 0)\
-	RCT(B_R_GB,	OCH_B,		OCH_R,		OCH_GB,		2, 0, 1,	3,	0, 3, 0)\
-	RCT(B_RB_GB,	OCH_B,		OCH_RB,		OCH_GB,		2, 0, 1,	0,	0, 3, 0)\
-	RCT(B_RB_GR,	OCH_B,		OCH_RB,		OCH_GR,		2, 0, 1,	0,	1, 3, 0)\
-	RCT(B_RB_G1,	OCH_B,		OCH_RB,		OCH_G1,		2, 0, 1,	0,	0, 1, 1)\
-	RCT(B_RB_G2,	OCH_B,		OCH_RB,		OCH_G2,		2, 0, 1,	0,	0, 1, 1)\
-	RCT(B_RB_G3,	OCH_B,		OCH_RB,		OCH_G3,		2, 0, 1,	0,	0, 1, 1)\
-	RCT(B_GB_RG,	OCH_B,		OCH_GB,		OCH_RG,		2, 1, 0,	0,	1, 3, 0)\
-	RCT(B_GB_R1,	OCH_B,		OCH_GB,		OCH_R1,		2, 1, 0,	0,	0, 1, 1)\
-	RCT(B_GB_R2,	OCH_B,		OCH_GB,		OCH_R2,		2, 1, 0,	0,	0, 1, 1)\
-	RCT(B_GB_R3,	OCH_B,		OCH_GB,		OCH_R3,		2, 1, 0,	0,	0, 1, 1)
-typedef enum _RCTIndex
+#define RCT2LIST\
+	RCT2(R_G_B,	OCH2_R,		OCH2_G,		OCH2_B,		0, 1, 2,	3,	3, 3, 0)\
+	RCT2(R_G_BG,	OCH2_R,		OCH2_G,		OCH2_BG,	0, 1, 2,	3,	1, 3, 0)\
+	RCT2(R_G_BR,	OCH2_R,		OCH2_G,		OCH2_BR,	0, 1, 2,	3,	0, 3, 0)\
+	RCT2(R_G_B1,	OCH2_R,		OCH2_G,		OCH2_B1,	0, 1, 2,	3,	0, 1, 1)\
+	RCT2(R_G_B2,	OCH2_R,		OCH2_G,		OCH2_B2,	0, 1, 2,	3,	0, 1, 1)\
+	RCT2(R_G_B3,	OCH2_R,		OCH2_G,		OCH2_B3,	0, 1, 2,	3,	0, 1, 1)\
+	RCT2(R_GR_BR,	OCH2_R,		OCH2_GR,	OCH2_BR,	0, 1, 2,	0,	0, 3, 0)\
+	RCT2(R_GR_BG,	OCH2_R,		OCH2_GR,	OCH2_BG,	0, 1, 2,	0,	1, 3, 0)\
+	RCT2(R_GR_B1,	OCH2_R,		OCH2_GR,	OCH2_B1,	0, 1, 2,	0,	0, 1, 1)\
+	RCT2(R_GR_B2,	OCH2_R,		OCH2_GR,	OCH2_B2,	0, 1, 2,	0,	0, 1, 1)\
+	RCT2(R_GR_B3,	OCH2_R,		OCH2_GR,	OCH2_B3,	0, 1, 2,	0,	0, 1, 1)\
+	RCT2(R_B_G1,	OCH2_R,		OCH2_B,		OCH2_G1,	0, 2, 1,	3,	0, 1, 1)\
+	RCT2(R_B_G2,	OCH2_R,		OCH2_B,		OCH2_G2,	0, 2, 1,	3,	0, 1, 1)\
+	RCT2(R_B_G3,	OCH2_R,		OCH2_B,		OCH2_G3,	0, 2, 1,	3,	0, 1, 1)\
+	RCT2(R_BR_GB,	OCH2_R,		OCH2_BR,	OCH2_GB,	0, 2, 1,	0,	1, 3, 0)\
+	RCT2(R_BR_G1,	OCH2_R,		OCH2_BR,	OCH2_G1,	0, 2, 1,	0,	0, 1, 1)\
+	RCT2(R_BR_G2,	OCH2_R,		OCH2_BR,	OCH2_G2,	0, 2, 1,	0,	0, 1, 1)\
+	RCT2(R_BR_G3,	OCH2_R,		OCH2_BR,	OCH2_G3,	0, 2, 1,	0,	0, 1, 1)\
+	RCT2(G_B_RG,	OCH2_G,		OCH2_B,		OCH2_RG,	1, 2, 0,	3,	0, 3, 0)\
+	RCT2(G_B_RB,	OCH2_G,		OCH2_B,		OCH2_RB,	1, 2, 0,	3,	1, 3, 0)\
+	RCT2(G_B_R1,	OCH2_G,		OCH2_B,		OCH2_R1,	1, 2, 0,	3,	0, 1, 1)\
+	RCT2(G_B_R2,	OCH2_G,		OCH2_B,		OCH2_R2,	1, 2, 0,	3,	0, 1, 1)\
+	RCT2(G_B_R3,	OCH2_G,		OCH2_B,		OCH2_R3,	1, 2, 0,	3,	0, 1, 1)\
+	RCT2(G_BG_RG,	OCH2_G,		OCH2_BG,	OCH2_RG,	1, 2, 0,	0,	0, 3, 0)\
+	RCT2(G_BG_RB,	OCH2_G,		OCH2_BG,	OCH2_RB,	1, 2, 0,	0,	1, 3, 0)\
+	RCT2(G_BG_R1,	OCH2_G,		OCH2_BG,	OCH2_R1,	1, 2, 0,	0,	0, 1, 1)\
+	RCT2(G_BG_R2,	OCH2_G,		OCH2_BG,	OCH2_R2,	1, 2, 0,	0,	0, 1, 1)\
+	RCT2(G_BG_R3,	OCH2_G,		OCH2_BG,	OCH2_R3,	1, 2, 0,	0,	0, 1, 1)\
+	RCT2(G_RG_BR,	OCH2_G,		OCH2_RG,	OCH2_BR,	1, 0, 2,	0,	1, 3, 0)\
+	RCT2(G_RG_B1,	OCH2_G,		OCH2_RG,	OCH2_B1,	1, 0, 2,	0,	0, 1, 1)\
+	RCT2(G_RG_B2,	OCH2_G,		OCH2_RG,	OCH2_B2,	1, 0, 2,	0,	0, 1, 1)\
+	RCT2(G_RG_B3,	OCH2_G,		OCH2_RG,	OCH2_B3,	1, 0, 2,	0,	0, 1, 1)\
+	RCT2(B_R_GR,	OCH2_B,		OCH2_R,		OCH2_GR,	2, 0, 1,	3,	1, 3, 0)\
+	RCT2(B_R_GB,	OCH2_B,		OCH2_R,		OCH2_GB,	2, 0, 1,	3,	0, 3, 0)\
+	RCT2(B_RB_GB,	OCH2_B,		OCH2_RB,	OCH2_GB,	2, 0, 1,	0,	0, 3, 0)\
+	RCT2(B_RB_GR,	OCH2_B,		OCH2_RB,	OCH2_GR,	2, 0, 1,	0,	1, 3, 0)\
+	RCT2(B_RB_G1,	OCH2_B,		OCH2_RB,	OCH2_G1,	2, 0, 1,	0,	0, 1, 1)\
+	RCT2(B_RB_G2,	OCH2_B,		OCH2_RB,	OCH2_G2,	2, 0, 1,	0,	0, 1, 1)\
+	RCT2(B_RB_G3,	OCH2_B,		OCH2_RB,	OCH2_G3,	2, 0, 1,	0,	0, 1, 1)\
+	RCT2(B_GB_RG,	OCH2_B,		OCH2_GB,	OCH2_RG,	2, 1, 0,	0,	1, 3, 0)\
+	RCT2(B_GB_R1,	OCH2_B,		OCH2_GB,	OCH2_R1,	2, 1, 0,	0,	0, 1, 1)\
+	RCT2(B_GB_R2,	OCH2_B,		OCH2_GB,	OCH2_R2,	2, 1, 0,	0,	0, 1, 1)\
+	RCT2(B_GB_R3,	OCH2_B,		OCH2_GB,	OCH2_R3,	2, 1, 0,	0,	0, 1, 1)
+typedef enum _RCT2Index
 {
-#define RCT(LABEL, YIDX, UIDX, VIDX,  YPERM, UPERM, VPERM,  UOFF1,  VOFF1, VOFF2, VSH2) RCT_##LABEL,
-	RCTLIST
-#undef  RCT
-	RCT_COUNT,
-} RCTIndex;
-static const unsigned char rct_combinations[RCT_COUNT][10]=
+#define RCT2(LABEL, YIDX, UIDX, VIDX,  YPERM, UPERM, VPERM,  UOFF1,  VOFF1, VOFF2, VSH2) RCT2_##LABEL,
+	RCT2LIST
+#undef  RCT2
+	RCT2_COUNT,
+} RCT2Index;
+static const unsigned char rct2_combinations[RCT2_COUNT][10]=
 {
-#define RCT(LABEL, YIDX, UIDX, VIDX,  YPERM, UPERM, VPERM,  UOFF1,  VOFF1, VOFF2, VSH2)\
+#define RCT2(LABEL, YIDX, UIDX, VIDX,  YPERM, UPERM, VPERM,  UOFF1,  VOFF1, VOFF2, VSH2)\
 	{YIDX, UIDX, VIDX,  YPERM, UPERM, VPERM,  UOFF1,  VOFF1, VOFF2, VSH2},
-	RCTLIST
-#undef  RCT
+	RCT2LIST
+#undef  RCT2
 };
-static const char *rct_names[RCT_COUNT]=
+static const char *rct2_names[RCT2_COUNT]=
 {
-#define RCT(LABEL, YIDX, UIDX, VIDX,  YPERM, UPERM, VPERM,  UOFF1,  VOFF1, VOFF2, VSH2) #LABEL,
-	RCTLIST
-#undef  RCT
+#define RCT2(LABEL, YIDX, UIDX, VIDX,  YPERM, UPERM, VPERM,  UOFF1,  VOFF1, VOFF2, VSH2) #LABEL,
+	RCT2LIST
+#undef  RCT2
 };
 
 #define PREDLIST\
