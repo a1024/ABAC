@@ -30,20 +30,22 @@ static const char file[]=__FILE__;
 	PRED( 50000, N+NE-NNE)
 #endif
 #if 1
-#define L1SH 19
+#define L1SH 17
+//#define L1SH 19
 #define NPREDS 11		//up to 11, otherwise slow
 #define PREDLIST\
 	PRED(100000, N)\
 	PRED(100000, W)\
 	PRED( 40000, NNN)\
 	PRED( 40000, WWW)\
+	PRED( 40000, NEEE)\
 	PRED( 80000, 3*(N-NN)+NNN)\
 	PRED( 80000, 3*(W-WW)+WWW)\
 	PRED( 50000, W+NE-N)\
 	PRED(150000, N+W-NW)\
 	PRED( 50000, N+NE-NNE)\
-	PRED( 40000, NEEE)\
-	PRED( 40000, (WWWW+WWW+NNN+NEE+NEEE+NEEEE-2*NW)>>2)
+	PRED( 40000, (WWWW+WWW+NNN+NNEE+NEEE+NEEEE-(N+W))>>2)
+//	PRED( 40000, (WWWW+WWW+NNN+NEE+NEEE+NEEEE-2*NW)>>2)
 #endif
 #if 0
 #define L1SH 19
@@ -752,6 +754,7 @@ void pred_l1crct(Image *src, int fwd)
 		(1<<src->depth[3]>>1)-1,
 	};
 	int weights[4][NPREDS]={0};
+//	int weights[4][8][8][NPREDS]={0};
 	int bufsize=(src->iw+8*2)*(int)sizeof(short[4*4*1]);//4 padded rows * 4 channels max * {pixels}
 	short *pixels=(short*)malloc(bufsize);
 	int invdist=((1<<16)+g_dist-1)/g_dist;
@@ -844,11 +847,13 @@ void pred_l1crct(Image *src, int fwd)
 #undef  PRED
 				};
 				int *currw=weights[kc];
+			//	int *currw=weights[kc][0][0];
+			//	int *currw=weights[kc][ky*8/src->ih][kx*8/src->iw];
 				int p0=0;
 				for(int k=0;k<NPREDS;++k)
-					p0+=(currw[k]>>8)*preds[k];
-				p0+=1LL<<(L1SH-8)>>1;
-				p0>>=L1SH-8;
+					p0+=currw[k]*preds[k];
+				p0+=1LL<<L1SH>>1;
+				p0>>=L1SH;
 				int predc=p0;
 				int vmax=N, vmin=W;
 				if(N<W)vmin=N, vmax=W;
@@ -862,6 +867,8 @@ void pred_l1crct(Image *src, int fwd)
 					predc+=offset;
 					CLAMP2(predc, amin[kc], amax[kc]);
 				}
+				//else
+				//	printf("");
 
 				int curr=yuv[kc];
 				//if(ky==src->ih/2&&kx==src->iw/2&&kc==1)
@@ -908,7 +915,7 @@ void pred_l1crct(Image *src, int fwd)
 
 				//update
 				int e=(curr>p0)-(curr<p0);//L1
-			//	int e=curr-p0;//L2 (worse)
+			//	int e=curr-p0;//L2 (faster rise, worse steady state)
 			//	currw[NPREDS]+=e;
 				for(int k=0;k<NPREDS;++k)
 					currw[k]+=e*preds[k];

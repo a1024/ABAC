@@ -1290,6 +1290,8 @@ static void calc_csize_stateful(Image const *image, int *hist_full, double *entr
 						//	printf("");
 					//	int ctx=sW[kc]<<8>>image->depth[kc]&255;
 						int ctx=FLOOR_LOG2(sW[kc]*sW[kc]+1);
+						//if(!kc)//
+						//	printf("");
 						if(ctx>MODELNCTX-1)
 							ctx=MODELNCTX-1;
 						int sym=image->data[idx|kc];
