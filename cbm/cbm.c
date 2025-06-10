@@ -2041,5 +2041,6 @@ dec command template
 	array_free(&tmpfn2);
 	array_free(&besttestidxs);
 	array_free(&currdir);
+	(void)measure_ssim_ppm_avx2;
 	return 0;
 }
