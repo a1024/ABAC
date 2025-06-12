@@ -881,17 +881,13 @@ void pred_l1crct(Image *src, int fwd)
 						curr-=predc;
 						curr=(curr*invdist>>16)-(curr>>31&-(g_dist>1));//curr/=g_dist
 						src->data[idx+kc]=curr;
-
+						
 						curr=g_dist*curr+predc;
-						CLAMP2(curr, amin[kc], amax[kc]);
 					}
 					else
-					{
-						curr=g_dist*curr+predc;
-						CLAMP2(curr, amin[kc], amax[kc]);
-
-						src->data[idx+kc]=curr;
-					}
+						curr=g_dist*src->data[idx+kc]+predc;
+					CLAMP2(curr, amin[kc], amax[kc]);
+					yuv[kc]=curr;
 				}
 				else
 				{
@@ -924,9 +920,9 @@ void pred_l1crct(Image *src, int fwd)
 			}
 			if(!fwd)
 			{
-				src->data[idx+0]=yuv[yidx];
-				src->data[idx+1]=yuv[uidx];
-				src->data[idx+2]=yuv[vidx];
+				src->data[idx+yidx]=yuv[0];
+				src->data[idx+uidx]=yuv[1];
+				src->data[idx+vidx]=yuv[2];
 			}
 		}
 	}

@@ -3071,15 +3071,11 @@ void pred_cg_crct(Image *src, int fwd, int enable_ma)
 						src->data[idx+kc]=curr;
 
 						curr=g_dist*curr+pred;
-						CLAMP2(curr, amin[kc], amax[kc]);
 					}
 					else
-					{
-						curr=g_dist*curr+pred;
-						CLAMP2(curr, amin[kc], amax[kc]);
-
-						src->data[idx+kc]=curr;
-					}
+						curr=g_dist*src->data[idx+kc]+pred;
+					CLAMP2(curr, amin[kc], amax[kc]);
+					yuv[kc]=curr;
 				}
 				else
 				{
@@ -3104,9 +3100,9 @@ void pred_cg_crct(Image *src, int fwd, int enable_ma)
 			}
 			if(!fwd)
 			{
-				src->data[idx+0]=yuv[yidx];
-				src->data[idx+1]=yuv[uidx];
-				src->data[idx+2]=yuv[vidx];
+				src->data[idx+yidx]=yuv[0];
+				src->data[idx+uidx]=yuv[1];
+				src->data[idx+vidx]=yuv[2];
 			}
 		}
 	}

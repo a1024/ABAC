@@ -934,6 +934,7 @@ void pred_ols5(Image *src, int fwd);
 void pred_ols6(Image *src, int fwd);
 void pred_ols7(Image *src, int fwd);
 void pred_ols8(Image *src, int fwd);
+void pred_ols8_crct(Image *src, int fwd);
 void pred_l1crct(Image *src, int fwd);
 
 //void pred_select(Image const *src, Image *dst, int fwd, int enable_ma);

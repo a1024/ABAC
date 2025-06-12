@@ -174,9 +174,10 @@ typedef enum TransformTypeEnum
 
 	CST_COMPARE,		CST_INV_SEPARATOR,
 	
-	ST_FWD_L1CRCT,		ST_INV_L1CRCT,
 	ST_FWD_MIXN,		ST_INV_MIXN,
+	ST_FWD_L1CRCT,		ST_INV_L1CRCT,
 	ST_FWD_OLS7,		ST_INV_OLS7,
+	ST_FWD_L1BCRCT,		ST_INV_L1BCRCT,
 	ST_FWD_OLS8,		ST_INV_OLS8,
 	ST_FWD_CGCRCT,		ST_INV_CGCRCT,
 	ST_FWD_CLAMPGRAD,	ST_INV_CLAMPGRAD,
@@ -2122,20 +2123,11 @@ typedef struct ThreadCtxStruct
 } ThreadCtx;
 static unsigned __stdcall sample_thread(void *param)
 {
-	int maxdepth, nlevels, *hist;
 	double entropy[4]={0};
 	ThreadCtx *ctx=(ThreadCtx*)param;
 
 	ctx->usize=image_getBMPsize(ctx->image);
 	apply_selected_transforms(&ctx->image, 0, 1, 1);
-	maxdepth=calc_maxdepth(ctx->image, 0);
-	nlevels=1<<maxdepth;
-	hist=(int*)malloc(nlevels*sizeof(int));
-	if(!hist)
-	{
-		LOG_ERROR("Alloc error");
-		return 0;
-	}
 	calc_csize_stateful(ctx->image, 0, entropy);
 	for(int kc=0;kc<4;++kc)
 	{
@@ -2143,16 +2135,7 @@ static unsigned __stdcall sample_thread(void *param)
 		double invCR=depth?entropy[kc]/depth:0;
 		ctx->csize[kc]=invCR*ctx->image->iw*ctx->image->ih*ctx->image->src_depth[kc]/8;
 	}
-	//for(int kc=0;kc<3;++kc)
-	//{
-	//	calc_histogram(ctx->image->data, ctx->image->iw, ctx->image->ih, kc, 0, ctx->image->iw, 0, ctx->image->ih, ctx->image->depth[kc], hist, 0);
-	//	double entropy=calc_entropy(hist, 1<<ctx->image->depth[kc], ctx->image->iw*ctx->image->ih);
-	//	double invCR=entropy/ctx->image->src_depth[kc];
-	//	ctx->csize[kc]=invCR*ctx->image->iw*ctx->image->ih*ctx->image->src_depth[kc]/8;
-	//}
-	free(hist);
 	free(ctx->image);
-	//_endthreadex(0);
 	return 0;
 }
 static void batch_test(void)
@@ -2381,40 +2364,20 @@ typedef struct LossyCtxStruct
 } LossyCtx;
 static unsigned __stdcall sample_thread_lossy(void *param)
 {
-	int maxdepth, nlevels, *hist;
 	double entropy[4]={0};
 	LossyCtx *ctx=(LossyCtx*)param;
+	Image *im0=0;
 
 	ctx->usize=image_getBMPsize(ctx->image);
-	{
-		Image *im0=0, *im2=0;
-		image_copy(&im0, ctx->image);
-		apply_selected_transforms(&ctx->image, 0, 1, 0);
-		image_copy(&im2, ctx->image);
-		if(!im2)
-		{
-			LOG_ERROR("Alloc error");
-			return 0;
-		}
-		apply_selected_transforms(&im2, 0, 0, 1);
-		calc_psnr(im2, im0, ctx->rmse, ctx->psnr);
-		measure_ssim_avg(im0, im2, ctx->ssim);
-		ptrdiff_t res=(ptrdiff_t)ctx->image->iw*ctx->image->ih;
-		ctx->sqe[0]=res*ctx->rmse[0]*ctx->rmse[0];
-		ctx->sqe[1]=res*ctx->rmse[1]*ctx->rmse[1];
-		ctx->sqe[2]=res*ctx->rmse[2]*ctx->rmse[2];
-		ctx->sqe[3]=res*ctx->rmse[3]*ctx->rmse[3];
-		free(im0);
-		free(im2);
-	}
-	maxdepth=calc_maxdepth(ctx->image, 0);
-	nlevels=1<<maxdepth;
-	hist=(int*)malloc(nlevels*sizeof(int));
-	if(!hist)
+	image_copy(&im0, ctx->image);//save original
+	if(!im0)
 	{
 		LOG_ERROR("Alloc error");
 		return 0;
 	}
+
+	apply_selected_transforms(&ctx->image, 0, 1, 0);//fwd
+
 	calc_csize_stateful(ctx->image, 0, entropy);
 	for(int kc=0;kc<4;++kc)
 	{
@@ -2422,7 +2385,19 @@ static unsigned __stdcall sample_thread_lossy(void *param)
 		double invCR=depth?entropy[kc]/depth:0;
 		ctx->csize[kc]=invCR*ctx->image->iw*ctx->image->ih*ctx->image->src_depth[kc]/8;
 	}
-	free(hist);
+
+	apply_selected_transforms(&ctx->image, 0, 0, 1);//inv
+
+	calc_psnr(im0, ctx->image, ctx->rmse, ctx->psnr);
+	measure_ssim_avg(im0, ctx->image, ctx->ssim);
+	{
+		ptrdiff_t res=(ptrdiff_t)ctx->image->iw*ctx->image->ih;
+		ctx->sqe[0]=res*ctx->rmse[0]*ctx->rmse[0];
+		ctx->sqe[1]=res*ctx->rmse[1]*ctx->rmse[1];
+		ctx->sqe[2]=res*ctx->rmse[2]*ctx->rmse[2];
+		ctx->sqe[3]=res*ctx->rmse[3]*ctx->rmse[3];
+	}
+	free(im0);
 	free(ctx->image);
 	return 0;
 }
@@ -2554,8 +2529,8 @@ static void batch_test_lossy(void)
 		timedelta2str(g_buf, G_BUF_SIZE, t);
 		acme_strftime(g_buf, G_BUF_SIZE, "%Y%m%d_%H%M%S");
 		int nprinted=snprintf(str, sizeof(str)-1,
-			"%12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  BPD %8.4lf  RMSE %10.4lf PSNR %10.4lf  %10.4lf sec  SSIM%7.4lf  %s",
-			total_usize, ctotal, total_csize[0], total_csize[1], total_csize[2], 8./CR, rmse, psnr, t, total_ssim[3], g_buf
+			"%12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  BPD %8.4lf  RMSE %10.4lf PSNR %10.4lf  %10.4lf sec  SSIM%7.4lf  dist%3d  %s",
+			total_usize, ctotal, total_csize[0], total_csize[1], total_csize[2], 8./CR, rmse, psnr, t, total_ssim[3], g_dist, g_buf
 		);
 		console_log("Total UTYUV %s <- copied\n", str);
 		copy_to_clipboard(str, nprinted);
@@ -2771,6 +2746,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_L1CRCT:		a=" S Inv L1 cRCT";		break;
 	case ST_FWD_OLS7:		a=" S Fwd L1";			break;
 	case ST_INV_OLS7:		a=" S Inv L1";			break;
+	case ST_FWD_L1BCRCT:		a=" S Fwd L1B cRCT";		break;
+	case ST_INV_L1BCRCT:		a=" S Inv L1B cRCT";		break;
 	case ST_FWD_OLS8:		a=" S Fwd L1B";			break;
 	case ST_INV_OLS8:		a=" S Inv L1B";			break;
 	case ST_FWD_PU:			a="CS Fwd PU";			break;
@@ -3945,6 +3922,8 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_INV_L1CRCT:		pred_l1crct(image, 0);					break;
 	case ST_FWD_OLS7:		pred_ols7(image, 1);					break;
 	case ST_INV_OLS7:		pred_ols7(image, 0);					break;
+	case ST_FWD_L1BCRCT:		pred_ols8_crct(image, 1);				break;
+	case ST_INV_L1BCRCT:		pred_ols8_crct(image, 0);				break;
 	case ST_FWD_OLS8:		pred_ols8(image, 1);					break;
 	case ST_INV_OLS8:		pred_ols8(image, 0);					break;
 	case ST_FWD_PACKSIGN:		packsign(image, 1);					break;
@@ -9800,9 +9779,9 @@ void io_render(void)
 		}
 	}
 #endif
+	double usize=0, csize=0;
 	if(im1)
 	{
-		double usize;
 		float
 			x, y, x2, xstart, xend, ystart, scale,
 			crformat, cr_combined;
@@ -9954,7 +9933,8 @@ void io_render(void)
 			//GUIPrint(xend, xend, ystart-tdy*2, 1, "Uncompressed Size       %9.0lf", usize);
 			GUIPrint(xend, xend, ystart-tdy  , 1, "Format        %8.4f%% %9lld", 100./crformat, filesize);
 			set_bk_color(0xE0FFFFFF);
-			prevtxtcolor=set_text_color(0xFF000000);GUIPrint(xend, xend, ystart      , 1, "Combined      %8.4f%% %12.2lf", 100./cr_combined, usize/cr_combined);
+			csize=usize/cr_combined;
+			prevtxtcolor=set_text_color(0xFF000000);GUIPrint(xend, xend, ystart      , 1, "Combined      %8.4f%% %12.2lf", 100./cr_combined, csize);
 			set_bk_color(0xC0C0C0C0);
 			set_text_color(RGBspace?0xFF0000FF:0xFF404040);	GUIPrint(xend, xend, ystart+tdy  , 1, "%c     %7d %8.4lf%% %12.2lf", RGBspace?'R':'Y', im1->depth[0], 100.*ch_entropy[0]/im1->src_depth[0], (double)im1->iw*im1->ih*ch_entropy[0]/8);
 			set_text_color(RGBspace?0xFF00C000:0xFFC00000);	GUIPrint(xend, xend, ystart+tdy*2, 1, "%c     %7d %8.4lf%% %12.2lf", RGBspace?'G':'U', im1->depth[1], 100.*ch_entropy[1]/im1->src_depth[1], (double)im1->iw*im1->ih*ch_entropy[1]/8);
@@ -10365,7 +10345,9 @@ void io_render(void)
 	//	case VIS_DWT_BLOCK:		mode_str="DWT Block";		break;
 		case VIS_IMAGE_TRICOLOR:	mode_str="Tricolor";		break;
 		}
-		GUIPrint(0, 0, tdy, 1, "timer %d, fps%11lf, [%2d/%2d] %s  dist=%d", timer, 1000./(t2-t), mode+1, VIS_COUNT, mode_str, g_dist);
+		GUIPrint(0, 0, tdy, 1, "timer %d, fps%11lf, [%2d/%2d] %s  dist=%d  BPD %6.4lf"
+			, timer, 1000./(t2-t), mode+1, VIS_COUNT, mode_str, g_dist, usize?8*csize/usize:0
+		);
 		if(mode==VIS_IMAGE||mode==VIS_ZIPF)
 		{
 			switch(viewmode)
