@@ -208,8 +208,9 @@ typedef enum TransformTypeEnum
 	ST_FWD_WGRAD,		ST_INV_WGRAD,
 //	ST_FWD_WGRAD2,		ST_INV_WGRAD2,
 	ST_FWD_WGRAD3,		ST_INV_WGRAD3,
-	ST_FWD_WGRAD4,		ST_INV_WGRAD4,
+	ST_FWD_WGRAD4CCRCT,	ST_INV_WGRAD4CCRCT,
 	ST_FWD_WGRAD4C,		ST_INV_WGRAD4C,
+	ST_FWD_WGRAD4,		ST_INV_WGRAD4,
 	ST_FWD_WGRAD5,		ST_INV_WGRAD5,
 	ST_FWD_WGRAD6,		ST_INV_WGRAD6,
 	ST_FWD_WGRAD7,		ST_INV_WGRAD7,
@@ -2788,10 +2789,12 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 //	case ST_INV_WGRAD2:		a="CS Inv WGrad2";		break;
 	case ST_FWD_WGRAD3:		a="CS Fwd WGrad3";		break;
 	case ST_INV_WGRAD3:		a="CS Inv WGrad3";		break;
-	case ST_FWD_WGRAD4:		a=" S Fwd WGrad4";		break;
-	case ST_INV_WGRAD4:		a=" S Inv WGrad4";		break;
+	case ST_FWD_WGRAD4CCRCT:	a=" S Fwd WG4C cRCT";		break;
+	case ST_INV_WGRAD4CCRCT:	a=" S Inv WG4C cRCT";		break;
 	case ST_FWD_WGRAD4C:		a=" S Fwd WG4C";		break;
 	case ST_INV_WGRAD4C:		a=" S Inv WG4C";		break;
+	case ST_FWD_WGRAD4:		a=" S Fwd WGrad4";		break;
+	case ST_INV_WGRAD4:		a=" S Inv WGrad4";		break;
 	case ST_FWD_WGRAD5:		a=" S Fwd WGrad5";		break;
 	case ST_INV_WGRAD5:		a=" S Inv WGrad5";		break;
 	case ST_FWD_WGRAD6:		a=" S Fwd WGrad6";		break;
@@ -3976,10 +3979,12 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 //	case ST_INV_WGRAD2:		pred_wgrad2(image, 0);					break;
 	case ST_FWD_WGRAD3:		pred_wgrad3(image, 1, hasRCT);				break;
 	case ST_INV_WGRAD3:		pred_wgrad3(image, 0, hasRCT);				break;
-	case ST_FWD_WGRAD4:		pred_wgrad4(image, 1);					break;
-	case ST_INV_WGRAD4:		pred_wgrad4(image, 0);					break;
+	case ST_FWD_WGRAD4CCRCT:	pred_wgrad4c_crct(image, 1);				break;
+	case ST_INV_WGRAD4CCRCT:	pred_wgrad4c_crct(image, 0);				break;
 	case ST_FWD_WGRAD4C:		pred_wgrad4c(image, 1);					break;
 	case ST_INV_WGRAD4C:		pred_wgrad4c(image, 0);					break;
+	case ST_FWD_WGRAD4:		pred_wgrad4(image, 1);					break;
+	case ST_INV_WGRAD4:		pred_wgrad4(image, 0);					break;
 	case ST_FWD_WGRAD5:		pred_wgrad5(image, 1);					break;
 	case ST_INV_WGRAD5:		pred_wgrad5(image, 0);					break;
 	case ST_FWD_WGRAD6:		pred_wgrad6(image, 1);					break;

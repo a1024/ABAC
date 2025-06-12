@@ -754,7 +754,6 @@ void pred_l1crct(Image *src, int fwd)
 		(1<<src->depth[3]>>1)-1,
 	};
 	int weights[4][NPREDS]={0};
-//	int weights[4][8][8][NPREDS]={0};
 	int bufsize=(src->iw+8*2)*(int)sizeof(short[4*4*1]);//4 padded rows * 4 channels max * {pixels}
 	short *pixels=(short*)malloc(bufsize);
 	int invdist=((1<<16)+g_dist-1)/g_dist;
@@ -782,8 +781,6 @@ void pred_l1crct(Image *src, int fwd)
 			pixels+(((src->iw+16LL)*((ky-2LL+4)%4)+8)*4-1)*1,
 			pixels+(((src->iw+16LL)*((ky-3LL+4)%4)+8)*4-1)*1,
 		};
-		//if(ky*16/src->ih!=(ky+1)*16/src->ih)//X
-		//	FILLMEM((int*)weights, (1<<L1SH)/NPREDS, sizeof(weights), sizeof(int));
 		for(int kx=0;kx<src->iw;++kx, idx+=4)
 		{
 			int offset=0;
@@ -847,8 +844,6 @@ void pred_l1crct(Image *src, int fwd)
 #undef  PRED
 				};
 				int *currw=weights[kc];
-			//	int *currw=weights[kc][0][0];
-			//	int *currw=weights[kc][ky*8/src->ih][kx*8/src->iw];
 				int p0=0;
 				for(int k=0;k<NPREDS;++k)
 					p0+=currw[k]*preds[k];
@@ -867,13 +862,8 @@ void pred_l1crct(Image *src, int fwd)
 					predc+=offset;
 					CLAMP2(predc, amin[kc], amax[kc]);
 				}
-				//else
-				//	printf("");
 
 				int curr=yuv[kc];
-				//if(ky==src->ih/2&&kx==src->iw/2&&kc==1)
-				//	printf("");
-				
 				if(g_dist>1)
 				{
 					if(fwd)

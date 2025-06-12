@@ -1059,7 +1059,7 @@ void pred_wgrad4(Image *src, int fwd)
 					}
 					else
 					{
-						curr=g_dist*curr+(int)pred;
+						curr=g_dist*src->data[idx+kc]+(int)pred;
 						CLAMP2(curr, amin[kc], amax[kc]);
 
 						src->data[idx+kc]=curr;
@@ -1520,7 +1520,7 @@ void pred_wgrad4c(Image *src, int fwd)
 					}
 					else
 					{
-						curr=g_dist*curr+(int)pred;
+						curr=g_dist*src->data[idx+kc]+(int)pred;
 						CLAMP2(curr, amin[kc], amax[kc]);
 
 						src->data[idx+kc]=curr;
@@ -1569,4 +1569,347 @@ void pred_wgrad4c(Image *src, int fwd)
 	free(pixels);
 	_mm_free(ebuf);
 	//free(divtable);
+}
+void pred_wgrad4c_crct(Image *src, int fwd)
+{
+	int amin[]=
+	{
+		-(1<<src->depth[0]>>1),
+		-(1<<src->depth[1]>>1),
+		-(1<<src->depth[2]>>1),
+		-(1<<src->depth[3]>>1),
+	};
+	int amax[]=
+	{
+		(1<<src->depth[0]>>1)-1,
+		(1<<src->depth[1]>>1)-1,
+		(1<<src->depth[2]>>1)-1,
+		(1<<src->depth[3]>>1)-1,
+	};
+	int coeffs[4][L1PREDS+1]={0};
+	ALIGN(32) int wg_weights[4][WG_NPREDS]={0};
+	ALIGN(32) int wg_perrors[4][WG_NPREDS]={0}, wg_preds[WG_NPREDS]={0};
+	int nch;
+	int fwdmask=-fwd;
+	int bufsize;
+	int *pixels;
+	int invdist=((1<<16)+g_dist-1)/g_dist;
+	int pesize=(src->iw+16)*(int)sizeof(int[4][4][WG_NPREDS]);//4 padded rows * 3 channels * WG_NPREDS
+	int *ebuf=(int*)_mm_malloc(pesize, sizeof(__m256i));
+	if(fwd)
+		src->rct=crct_analysis(src);
+	const unsigned char *combination=rct_combinations[src->rct];
+	int
+		yidx=combination[II_PERM_Y],
+		uidx=combination[II_PERM_U],
+		vidx=combination[II_PERM_V];
+	int vfromy=-(combination[II_COEFF_U_SUB_Y]!=0);
+
+	bufsize=(src->iw+16LL)*sizeof(int[4*4*2]);//4 padded rows * 4 channels max
+	pixels=(int*)malloc(bufsize);
+	if(!pixels||!ebuf)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(ebuf, 0, pesize);
+	memset(pixels, 0, bufsize);
+	nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
+	UPDATE_MAX(nch, src->nch);
+	int j=0;
+#define WG_PRED(WEIGHT, EXPR) wg_weights[0][j++]=WEIGHT;
+	WG_PREDLIST0
+#undef  WG_PRED
+
+	j=0;
+#define WG_PRED(WEIGHT, EXPR) wg_weights[1][j++]=WEIGHT;
+	WG_PREDLIST1
+#undef  WG_PRED
+
+	j=0;
+#define WG_PRED(WEIGHT, EXPR) wg_weights[2][j++]=WEIGHT;
+	WG_PREDLIST2
+#undef  WG_PRED
+
+	j=0;
+#define WG_PRED(WEIGHT, EXPR) wg_weights[3][j++]=WEIGHT;
+	WG_PREDLIST0
+#undef  WG_PRED
+	__m256d mweights[]=
+	{
+		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[0]+0)),
+		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[0]+1)),
+		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[0]+2)),
+		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[1]+0)),
+		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[1]+1)),
+		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[1]+2)),
+		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[2]+0)),
+		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[2]+1)),
+		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[2]+2)),
+		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[3]+0)),
+		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[3]+1)),
+		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[3]+2)),
+	};
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		int *rows[]=
+		{
+			pixels+((src->iw+16LL)*((ky-0LL)&3)+8LL)*4*2,
+			pixels+((src->iw+16LL)*((ky-1LL)&3)+8LL)*4*2,
+			pixels+((src->iw+16LL)*((ky-2LL)&3)+8LL)*4*2,
+			pixels+((src->iw+16LL)*((ky-3LL)&3)+8LL)*4*2,
+		};
+		int *erows[]=
+		{
+			ebuf+((src->iw+16LL)*((ky-0LL)&3)+8LL)*4*WG_NPREDS,
+			ebuf+((src->iw+16LL)*((ky-1LL)&3)+8LL)*4*WG_NPREDS,
+			ebuf+((src->iw+16LL)*((ky-2LL)&3)+8LL)*4*WG_NPREDS,
+			ebuf+((src->iw+16LL)*((ky-3LL)&3)+8LL)*4*WG_NPREDS,
+		};
+		for(int kx=0;kx<src->iw;++kx, idx+=4)
+		{
+			int offset=0;
+			int yuv[]=
+			{
+				src->data[idx+yidx],
+				src->data[idx+uidx],
+				src->data[idx+vidx],
+			};
+			for(int kc=0;kc<4;++kc)
+			{
+				rows[0]+=2;
+				rows[1]+=2;
+				rows[2]+=2;
+				rows[3]+=2;
+				erows[0]+=WG_NPREDS;
+				erows[1]+=WG_NPREDS;
+				erows[2]+=WG_NPREDS;
+				erows[3]+=WG_NPREDS;
+				if(!src->depth[kc])
+					continue;
+				int
+					NNNWWWW	=rows[3][-4*4*2+0],
+					NNNWWW	=rows[3][-3*4*2+0],
+					NNNW	=rows[3][-1*4*2+0],
+					NNN	=rows[3][+0*4*2+0],
+					NNNE	=rows[3][+1*4*2+0],
+					NNNEEE	=rows[3][+3*4*2+0],
+					NNWWWW	=rows[2][-4*4*2+0],
+					NNWW	=rows[2][-2*4*2+0],
+					NNW	=rows[2][-1*4*2+0],
+					NN	=rows[2][+0*4*2+0],
+					NNE	=rows[2][+1*4*2+0],
+					NNEE	=rows[2][+2*4*2+0],
+					NNEEE	=rows[2][+3*4*2+0],
+					NNEEEE	=rows[2][+4*4*2+0],
+					NWWW	=rows[1][-3*4*2+0],
+					NWW	=rows[1][-2*4*2+0],
+					NW	=rows[1][-1*4*2+0],
+					N	=rows[1][+0*4*2+0],
+					NE	=rows[1][+1*4*2+0],
+					NEE	=rows[1][+2*4*2+0],
+					NEEE	=rows[1][+3*4*2+0],
+					NEEEE	=rows[1][+4*4*2+0],
+					WWWWW	=rows[0][-5*4*2+0],
+					WWWW	=rows[0][-4*4*2+0],
+					WWW	=rows[0][-3*4*2+0],
+					WW	=rows[0][-2*4*2+0],
+					W	=rows[0][-1*4*2+0],
+					eNNNN	=rows[0][+0*4*2+1],
+					eNNN	=rows[3][+0*4*2+1],
+					eNNW	=rows[2][-1*4*2+1],
+					eNN	=rows[2][+0*4*2+1],
+					eNNE	=rows[2][+1*4*2+1],
+					eNWW	=rows[1][-2*4*2+1],
+					eNW	=rows[1][-1*4*2+1],
+					eN	=rows[1][+0*4*2+1],
+					eNE	=rows[1][+1*4*2+1],
+					eNEE	=rows[1][+2*4*2+1],
+					eNEEE	=rows[1][+3*4*2+1],
+					eNEEEE	=rows[1][+4*4*2+1],
+					eWWWW	=rows[0][-4*4*2+1],
+					eWWW	=rows[0][-3*4*2+1],
+					eWW	=rows[0][-2*4*2+1],
+					eW	=rows[0][-1*4*2+1];
+				int
+					*peNNN	=erows[3]+0*4*WG_NPREDS,
+					*peNNW	=erows[2]-1*4*WG_NPREDS,
+					*peNN	=erows[2]+0*4*WG_NPREDS,
+					*peNNE	=erows[2]+1*4*WG_NPREDS,
+					*peNNEE	=erows[2]+2*4*WG_NPREDS,
+					*peNW	=erows[1]-1*4*WG_NPREDS,
+					*peN	=erows[1]+0*4*WG_NPREDS,
+					*peNE	=erows[1]+1*4*WG_NPREDS,
+					*peNEE	=erows[1]+2*4*WG_NPREDS,
+					*peNEEE	=erows[1]+3*4*WG_NPREDS,
+					*peWW	=erows[0]-2*4*WG_NPREDS,
+					*peW	=erows[0]-1*4*WG_NPREDS,
+					*pecurr	=erows[0]+0*4*WG_NPREDS;
+				j=0;
+				switch(kc)
+				{
+				case 3:
+				case 0:
+#define WG_PRED(WEIGHT, EXPR) wg_preds[j++]=EXPR;
+					WG_PREDLIST0
+#undef  WG_PRED
+					break;
+				case 1:
+#define WG_PRED(WEIGHT, EXPR) wg_preds[j++]=EXPR;
+					WG_PREDLIST1
+#undef  WG_PRED
+					break;
+				case 2:
+#define WG_PRED(WEIGHT, EXPR) wg_preds[j++]=EXPR;
+					WG_PREDLIST2
+#undef  WG_PRED
+					break;
+				}
+
+				//mix
+				ALIGN(32) int weights[WG_NPREDS];
+				for(int kp=0;kp<WG_NPREDS;++kp)
+				{
+					//		1
+					//		2
+					//		5	1
+					//	5	?
+					weights[kp]=
+						+peNNN	[kp]		//+eNNN
+						+peNN	[kp]*2		//+eNN
+						+peN	[kp]*5		//+eN
+						+peNE	[kp]		//+eNE
+						+peW	[kp]*5		//+eW
+						+wg_perrors[kc][kp]	//+I
+						+2
+					;
+				}
+#if 1
+				__m256d mp0=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_preds+0));
+				__m256d mp1=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_preds+1));
+				__m256d mp2=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_preds+2));
+				__m256d me0=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)weights+0));
+				__m256d me1=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)weights+1));
+				__m256d me2=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)weights+2));
+				me0=_mm256_div_pd(mweights[3*kc+0], me0);
+				me1=_mm256_div_pd(mweights[3*kc+1], me1);
+				me2=_mm256_div_pd(mweights[3*kc+2], me2);
+				mp0=_mm256_mul_pd(mp0, me0);
+				mp1=_mm256_mul_pd(mp1, me1);
+				mp2=_mm256_mul_pd(mp2, me2);
+				me0=_mm256_add_pd(me0, me1);
+				me0=_mm256_add_pd(me0, me2);
+				mp0=_mm256_add_pd(mp0, mp1);
+				mp0=_mm256_add_pd(mp0, mp2);
+				mp0=_mm256_hadd_pd(mp0, me0);
+				__m128d mp=_mm_add_pd(_mm256_extractf128_pd(mp0, 1), _mm256_extractf128_pd(mp0, 0));
+				mp=_mm_div_pd(mp, _mm_permute_pd(mp, 3));
+				int pred1=_mm_cvtsi128_si32(_mm_cvtpd_epi32(mp));
+#endif
+#if 0
+				double fpred=0, wsum=0;
+				for(int kp=0;kp<WG_NPREDS;++kp)
+				{
+					double weight=(double)wg_weights[kc][kp]/weights[kp];
+					fpred+=weight*wg_preds[kp];
+					wsum+=weight;
+				}
+				fpred/=wsum;
+				int pred1=(int)CVTFP64_I64(fpred);
+#endif
+
+				int preds2[]=
+				{
+#define L1PRED(EXPR) EXPR,
+					L1PREDLIST
+#undef  L1PRED
+				};
+				int pred2=(1<<L1SH>>1);
+				pred2+=coeffs[kc][L1PREDS];
+				for(int kp=0;kp<L1PREDS;++kp)
+					pred2+=coeffs[kc][kp]*preds2[kp];
+				pred2>>=L1SH;
+				int predu=pred1+pred2;
+				int pred=predu;
+
+				int vmax=N, vmin=W;
+				if(N<W)vmin=N, vmax=W;
+				if(vmin>NE)vmin=NE;
+				if(vmax<NE)vmax=NE;
+				if(vmin>NEEE)vmin=NEEE;
+				if(vmax<NEEE)vmax=NEEE;
+				if(vmin>NW)vmin=NW;
+				if(vmax<NW)vmax=NW;
+				CLAMP2(pred, vmin, vmax);
+				if(kc)
+				{
+					pred+=offset;
+					CLAMP2(pred, amin[kc], amax[kc]);
+				}
+				
+				int curr=yuv[kc];
+				if(g_dist>1)
+				{
+					if(fwd)
+					{
+						curr-=pred;
+						curr=(curr*invdist>>16)-(curr>>31&-(g_dist>1));//curr/=g_dist
+						src->data[idx+kc]=curr;
+					}
+					else
+						curr=src->data[idx+kc];
+						
+					curr=g_dist*curr+pred;
+					CLAMP2(curr, amin[kc], amax[kc]);
+					yuv[kc]=curr;
+				}
+				else
+				{
+					if(fwd)
+					{
+						int error=curr-pred;
+						error<<=32-src->depth[kc];
+						error>>=32-src->depth[kc];
+						src->data[idx+kc]=error;
+					}
+					else
+					{
+						curr=src->data[idx+kc]+pred;
+						curr<<=32-src->depth[kc];
+						curr>>=32-src->depth[kc];
+						yuv[kc]=curr;
+					}
+				}
+				curr-=offset;
+				rows[0][0]=curr;
+				rows[0][1]=curr-pred1;
+
+
+				//update
+				static const int factors[]={97, 99, 99};
+				int factor=factors[kc];
+				for(int k=0;k<WG_NPREDS;++k)
+				{
+					int e2=(curr-wg_preds[k])<<1;
+					e2=e2<<1^e2>>31;
+					wg_perrors[kc][k]=(wg_perrors[kc][k]+e2)*factor>>7;
+					pecurr[k]=(2*peW[k]+e2+peNEE[k])>>2;
+				}
+				int e=(curr>predu)-(curr<predu);
+				coeffs[kc][L1PREDS]+=e;//bias
+				for(int k=0;k<L1PREDS;++k)
+					coeffs[kc][k]+=e*preds2[k];//coeffs
+
+				offset=kc?(combination[II_COEFF_V_SUB_Y]*yuv[0]+combination[II_COEFF_V_SUB_U]*yuv[1])>>2:yuv[0]&vfromy;
+			}
+			if(!fwd)
+			{
+				src->data[idx+yidx]=yuv[0];
+				src->data[idx+uidx]=yuv[1];
+				src->data[idx+vidx]=yuv[2];
+			}
+		}
+	}
+	free(pixels);
+	_mm_free(ebuf);
 }
