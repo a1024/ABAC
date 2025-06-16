@@ -1772,7 +1772,7 @@ dec command template
 		printf("Temp filenames:\n");//
 		printf("  \"%s\"\n", t1fn);
 		printf("  \"%s\"\n", t2fn);
-		printf("Wirking directory:\n");
+		printf("Working directory:\n");
 		printf("  \"%s\"\n", (char*)currdir->data);
 		printf("Commands:\n");
 		printf("  %s\n", encline);//
