@@ -6,9 +6,6 @@
 #include<string.h>
 #include<math.h>
 #include<immintrin.h>
-//#ifdef _WIN32
-//#include<Windows.h>
-//#endif
 static const char file[]=__FILE__;
 
 
@@ -164,7 +161,6 @@ static void prof_print(ptrdiff_t usize)
 		if(tmax<t)
 			tmax=t;
 	}
-	int printed=0;
 	int prev=0;
 	double csum=0;
 	//printf("| ");
@@ -208,7 +204,6 @@ static void prof_print(ptrdiff_t usize)
 		//	colorprintf(COLORPRINTF_TXT_DEFAULT, colors[k], "%*s", space, "");
 		printf("|");
 		prev=curr;
-		printed+=space+2+(k<prof_count-1);
 	}
 	printf("\n");
 	for(int k=0;k<prof_count;++k)
@@ -1241,7 +1236,6 @@ static void dec_unpackhist(BitPackerLIFO *ec, unsigned *CDF2sym, unsigned long l
 	{
 		unsigned short CDF[257]={0};
 		int CDFlevels=1<<PROBBITS;
-		int cdfW=0;
 		CDF[0]=0;
 		for(int ks=0;ks<256;++ks)//decode GR
 		{
@@ -1264,7 +1258,6 @@ static void dec_unpackhist(BitPackerLIFO *ec, unsigned *CDF2sym, unsigned long l
 			if(nbypass)
 				freq=freq<<nbypass|bitpacker_dec(ec, nbypass);
 
-			cdfW+=freq;
 			CDF[ks]=freq;
 			CDFlevels-=freq;
 			if(CDFlevels<=0)
@@ -1338,9 +1331,7 @@ AWM_INLINE void dec_yuv(__m256i *mstate, int kc, const __m256i *ctx0, const int 
 		__m256i mdebugfreq[1];
 		mdebugfreq[0]=_mm256_packus_epi32(mfreq0, mfreq1);
 		mdebugfreq[0]=_mm256_permute4x64_epi64(mdebugfreq[0], _MM_SHUFFLE(3, 1, 2, 0));
-		ALIGN(32) unsigned short freqs[NCODERS];
-		memcpy(freqs, mdebugfreq, sizeof(freqs));
-		ansval_check(freqs, sizeof(short), NCODERS);
+		ansval_check(mdebugfreq, sizeof(short), NCODERS);
 #endif
 		mstate[0]=_mm256_srli_epi32(mstate[0], PROBBITS);
 		mstate[1]=_mm256_srli_epi32(mstate[1], PROBBITS);
@@ -1365,34 +1356,28 @@ AWM_INLINE void dec_yuv(__m256i *mstate, int kc, const __m256i *ctx0, const int 
 #endif
 	//renorm
 	{
+		__m256i idx0, idx1, lo0, lo1, renorm0, renorm1;
 		__m256i smin=_mm256_set1_epi32(1<<(RANS_STATE_BITS-RANS_RENORM_BITS));
-#ifdef _DEBUG
-		if(streamptr>streamend)
-			LOG_ERROR("OOB ptr %016zX >= %016zX", streamptr, streamend);
-#endif
-		__m256i lo0=_mm256_cvtepu16_epi32(_mm_loadu_si128((__m128i*)streamptr));
 		__m256i cond0=_mm256_cmpgt_epi32(smin, mstate[0]);//FIXME this is signed comparison
 		__m256i cond1=_mm256_cmpgt_epi32(smin, mstate[1]);
 		int mask0=_mm256_movemask_ps(_mm256_castsi256_ps(cond0));
 		int mask1=_mm256_movemask_ps(_mm256_castsi256_ps(cond1));
-		__m256i idx0=_mm256_load_si256((const __m256i*)ans_permute+mask0);
-		__m256i idx1=_mm256_load_si256((const __m256i*)ans_permute+mask1);
+		idx0=_mm256_load_si256((const __m256i*)ans_permute+mask0);
+		idx1=_mm256_load_si256((const __m256i*)ans_permute+mask1);
 		mask0=_mm_popcnt_u32(mask0);
 		mask1=_mm_popcnt_u32(mask1);
-		__m256i renorm0=_mm256_slli_epi32(mstate[0], 16);
-		__m256i renorm1=_mm256_slli_epi32(mstate[1], 16);
-		streamptr+=mask0*sizeof(short);
+//#ifdef _DEBUG
+//		if(streamptr+((ptrdiff_t)mask0+mask1)*sizeof(short)>streamend)
+//			LOG_ERROR("OOB ptr %016zX >= %016zX", streamptr, streamend);
+//#endif
+		lo0=_mm256_cvtepu16_epi32(_mm_loadu_si128((__m128i*)streamptr)); streamptr+=mask0*sizeof(short);
+		lo1=_mm256_cvtepu16_epi32(_mm_loadu_si128((__m128i*)streamptr)); streamptr+=mask1*sizeof(short);
+		renorm0=_mm256_slli_epi32(mstate[0], 16);
+		renorm1=_mm256_slli_epi32(mstate[1], 16);
 		lo0=_mm256_permutevar8x32_epi32(lo0, idx0);
-#ifdef _DEBUG
-		if(streamptr>streamend)
-			LOG_ERROR("OOB ptr %016zX >= %016zX", streamptr, streamend);
-#endif
-		__m256i lo1=_mm256_cvtepu16_epi32(_mm_loadu_si128((__m128i*)streamptr));
-		streamptr+=mask1*sizeof(short);
 		lo1=_mm256_permutevar8x32_epi32(lo1, idx1);
 		renorm0=_mm256_or_si256(renorm0, lo0);
 		renorm1=_mm256_or_si256(renorm1, lo1);
-
 		mstate[0]=_mm256_blendv_epi8(mstate[0], renorm0, cond0);
 		mstate[1]=_mm256_blendv_epi8(mstate[1], renorm1, cond1);
 	}
@@ -2092,12 +2077,12 @@ int c32_codec(int argc, char **argv)
 	int CDF2syms_size=(int)sizeof(int[3*NCTX<<PROBBITS]);
 	if(fwd)//DIV-free rANS encoder reuses these as SIMD symbol info
 		CDF2syms_size=(int)sizeof(rANS_SIMD_SymInfo[3*NCTX<<8]);
-	unsigned *CDF2syms=(unsigned*)_mm_malloc(CDF2syms_size, sizeof(__m128i*));
+	unsigned *CDF2syms=(unsigned*)_mm_malloc(CDF2syms_size, sizeof(__m256i));
 
 	int rCDF2syms_size=(int)sizeof(int[3<<PROBBITS]);
 	if(fwd)
 		rCDF2syms_size=(int)sizeof(rANS_SIMD_SymInfo[3<<8]);
-	unsigned *rCDF2syms=(unsigned*)_mm_malloc(rCDF2syms_size, sizeof(__m128i*));
+	unsigned *rCDF2syms=(unsigned*)_mm_malloc(rCDF2syms_size, sizeof(__m256i));
 
 	int ans_permute_size=sizeof(__m256i[256]);
 	int *ans_permute=(int*)_mm_malloc(ans_permute_size, sizeof(__m256i));
@@ -2728,6 +2713,7 @@ int c32_codec(int argc, char **argv)
 			__m256i msyms, moffset;
 			//if(ky==261&&kx==76800)//lane 3
 			//	printf("");
+#if 0
 			if(dist>1)
 			{
 				__m256i val[3], tmp;
@@ -2912,7 +2898,9 @@ int c32_codec(int argc, char **argv)
 				ecurr[1]=_mm256_xor_si256(_mm256_slli_epi16(ecurr[1], 1), _mm256_srai_epi16(ecurr[1], 15));
 				ecurr[2]=_mm256_xor_si256(_mm256_slli_epi16(ecurr[2], 1), _mm256_srai_epi16(ecurr[2], 15));
 			}
-			else if(fwd)
+			else
+#endif
+			if(fwd)
 			{
 				//if(ky==1&&kx==1296)//
 				//if(ky==0&&kx==48)//
@@ -2925,9 +2913,19 @@ int c32_codec(int argc, char **argv)
 				myuv[2]=_mm256_cvtepi8_epi16(_mm_add_epi8(_mm_loadu_si128((__m128i*)(imptr+vidx)), half8));
 
 				//encode Y
+				msyms=_mm256_sub_epi16(myuv[0], predY);//sub pred
+				if(dist>1)
+				{
+					__m256i cond=_mm256_srai_epi16(msyms, 15);
+					msyms=_mm256_mulhi_epi16(msyms, dist_rcp);
+					msyms=_mm256_sub_epi16(msyms, cond);//(x*inv>>16)-(x>>31)
+					myuv[0]=_mm256_mullo_epi16(msyms, mdist);
+					myuv[0]=_mm256_add_epi16(myuv[0], predY);
+					myuv[0]=_mm256_max_epi16(myuv[0], _mm256_set1_epi16(-128));
+					myuv[0]=_mm256_min_epi16(myuv[0], _mm256_set1_epi16(127));
+				}
 				W[0]=myuv[0];
 				_mm256_store_si256((__m256i*)rows[0]+0+0+0*6, myuv[0]);//store Y neighbors
-				msyms=_mm256_sub_epi16(myuv[0], predY);//sub pred
 				ecurr[0]=_mm256_xor_si256(_mm256_slli_epi16(msyms, 1), _mm256_srai_epi16(msyms, 15));//ecurr = pack_sign(yuv-pred)
 				msyms=_mm256_sub_epi16(msyms, amin);
 				ctxY=_mm256_slli_epi16(ctxY, 8);
@@ -2942,6 +2940,16 @@ int c32_codec(int argc, char **argv)
 				predU=_mm256_min_epi16(predU, amax);
 
 				msyms=_mm256_sub_epi16(myuv[1], predU);
+				if(dist>1)
+				{
+					__m256i cond=_mm256_srai_epi16(msyms, 15);
+					msyms=_mm256_mulhi_epi16(msyms, dist_rcp);
+					msyms=_mm256_sub_epi16(msyms, cond);//(x*inv>>16)-(x>>31)
+					myuv[1]=_mm256_mullo_epi16(msyms, mdist);
+					myuv[1]=_mm256_add_epi16(myuv[1], predU);
+					myuv[1]=_mm256_max_epi16(myuv[1], _mm256_set1_epi16(-128));
+					myuv[1]=_mm256_min_epi16(myuv[1], _mm256_set1_epi16(127));
+				}
 				ecurr[1]=_mm256_xor_si256(_mm256_slli_epi16(msyms, 1), _mm256_srai_epi16(msyms, 15));
 				msyms=_mm256_sub_epi16(msyms, amin);
 				ctxU=_mm256_add_epi16(ctxU, mctxuoffset);
@@ -2972,6 +2980,24 @@ int c32_codec(int argc, char **argv)
 				predV=_mm256_min_epi16(predV, amax);
 
 				msyms=_mm256_sub_epi16(myuv[2], predV);
+				if(dist>1)
+				{
+					__m256i cond=_mm256_srai_epi16(msyms, 15);
+					msyms=_mm256_mulhi_epi16(msyms, dist_rcp);
+					msyms=_mm256_sub_epi16(msyms, cond);//(x*inv>>16)-(x>>31)
+					myuv[2]=_mm256_mullo_epi16(msyms, mdist);
+					myuv[2]=_mm256_add_epi16(myuv[2], predV);
+					myuv[2]=_mm256_max_epi16(myuv[2], _mm256_set1_epi16(-128));
+					myuv[2]=_mm256_min_epi16(myuv[2], _mm256_set1_epi16(127));
+#ifdef _DEBUG
+					for(int k=0;k<48;++k)
+					{
+						int v=((short*)myuv)[k];
+						if((unsigned)(v+128)>=256)
+							LOG_ERROR("");
+					}
+#endif
+				}
 				ecurr[2]=_mm256_xor_si256(_mm256_slli_epi16(msyms, 1), _mm256_srai_epi16(msyms, 15));
 				msyms=_mm256_sub_epi16(msyms, amin);
 				ctxV=_mm256_add_epi16(ctxV, mctxvoffset);
@@ -3064,34 +3090,47 @@ int c32_codec(int argc, char **argv)
 				//	printf("");
 
 				//decode main
+				__m256i msyms0[3];
 				__m128i msyms8;
 				
 				//decode Y
 				dec_yuv(mstate, 0, &ctxY, (int*)CDF2syms, ans_permute, &streamptr, streamend, myuv+0);//residuals from [0 ~ 255]
-
-//#ifdef ANS_VAL
-//				ALIGN(32) unsigned char debugvals[6*NCODERS];
-//				msyms8=_mm256_packus_epi16(ctxY0, ctxY1);
-//				msyms8=_mm256_permute4x64_epi64(msyms8, _MM_SHUFFLE(3, 1, 2, 0));
-//				_mm256_store_si256((__m256i*)debugvals+0, msyms8);
-//				msyms8=_mm256_packus_epi16(myuv[0], myuv[1]);
-//				msyms8=_mm256_permute4x64_epi64(msyms8, _MM_SHUFFLE(3, 1, 2, 0));
-//				_mm256_store_si256((__m256i*)debugvals+1, msyms8);
-//				ansval_check(debugvals+0*NCODERS, 1, NCODERS);//contexts
-//				ansval_check(debugvals+1*NCODERS, 1, NCODERS);//residuals
-//#endif
+				dec_yuv(mstate, 1, &ctxU, (int*)CDF2syms, ans_permute, &streamptr, streamend, myuv+1);
+				dec_yuv(mstate, 2, &ctxV, (int*)CDF2syms, ans_permute, &streamptr, streamend, myuv+2);
+#ifdef _DEBUG
+				if(streamptr>streamend)
+					LOG_ERROR("OOB stream %8.4lf%%  image %8.4lf%%"
+						, 100.*(streamptr-streamstart)/(streamend-streamstart)
+						, 100.*(ixbytes*ky+kx)/(ixbytes*blockh)
+					);
+#endif
+				if(dist>1)
+				{
+					__m256i tmp=_mm256_set1_epi16(128);
+					myuv[0]=_mm256_sub_epi16(myuv[0], tmp);
+					myuv[1]=_mm256_sub_epi16(myuv[1], tmp);
+					myuv[2]=_mm256_sub_epi16(myuv[2], tmp);
+					msyms0[0]=myuv[0];
+					msyms0[1]=myuv[1];
+					msyms0[2]=myuv[2];
+					myuv[0]=_mm256_mullo_epi16(myuv[0], mdist);
+					myuv[1]=_mm256_mullo_epi16(myuv[1], mdist);
+					myuv[2]=_mm256_mullo_epi16(myuv[2], mdist);
+					myuv[0]=_mm256_add_epi16(myuv[0], tmp);
+					myuv[1]=_mm256_add_epi16(myuv[1], tmp);
+					myuv[2]=_mm256_add_epi16(myuv[2], tmp);
+				}
 
 				//yuv = (char)(sym+pred-128)	= (unsigned char)(sym+pred)-128
 				myuv[0]=_mm256_add_epi16(myuv[0], predY);
 				myuv[0]=_mm256_and_si256(myuv[0], bytemask);
 				myuv[0]=_mm256_add_epi16(myuv[0], amin);
-				msyms=_mm256_sub_epi16(myuv[0], predY);//sub pred
-				ecurr[0]=_mm256_xor_si256(_mm256_slli_epi16(msyms, 1), _mm256_srai_epi16(msyms, 15));
+				//msyms=_mm256_sub_epi16(myuv[0], predY);//sub pred
 				msyms8=_mm_packs_epi16(_mm256_extracti128_si256(myuv[0], 0), _mm256_extracti128_si256(myuv[0], 1));
 				msyms8=_mm_xor_si128(msyms8, _mm_set1_epi8(-128));
 				_mm_store_si128((__m128i*)(imptr+yidx), msyms8);//store Y bytes
 #ifdef ENABLE_GUIDE
-				if(memcmp(imptr+yidx, g_image+(imptr-interleaved)+yidx, NCODERS))
+				if(dist<=1&&memcmp(imptr+yidx, g_image+(imptr-interleaved)+yidx, NCODERS))
 				{
 					printf("original  decoded  original-decoded  XYC0 %d %d %d\n", kx, ky, yidx);
 					for(int k=0;k<NCODERS;++k)
@@ -3103,14 +3142,6 @@ int c32_codec(int argc, char **argv)
 					LOG_ERROR("guide error XYC0 %d %d %d/%d", kx, ky, yidx, NCODERS);
 				}
 #endif
-//#ifdef ANS_VAL
-//				ALIGN(32) unsigned char actx[3*NCODERS];
-//				msyms8=_mm256_packus_epi16(ctxY0, ctxY1);
-//				msyms8=_mm256_permute4x64_epi64(msyms8, _MM_SHUFFLE(3, 1, 2, 0));
-//				_mm256_storeu_si256((__m256i*)actx+0, msyms8);
-//				ansval_check(actx+0*NCODERS, 1, NCODERS);
-//				ansval_check(imptr+kx+yidx, 1, NCODERS);
-//#endif
 				W[0]=myuv[0];
 				_mm256_store_si256((__m256i*)rows[0]+0+0+0*6, myuv[0]);//store Y neighbors
 
@@ -3120,28 +3151,16 @@ int c32_codec(int argc, char **argv)
 				predU=_mm256_add_epi16(predU, moffset);
 				predU=_mm256_max_epi16(predU, amin);
 				predU=_mm256_min_epi16(predU, amax);
-				dec_yuv(mstate, 1, &ctxU, (int*)CDF2syms, ans_permute, &streamptr, streamend, myuv+1);
-//#ifdef ANS_VAL
-//				msyms8=_mm256_packus_epi16(ctxU0, ctxU1);
-//				msyms8=_mm256_permute4x64_epi64(msyms8, _MM_SHUFFLE(3, 1, 2, 0));
-//				_mm256_store_si256((__m256i*)debugvals+2, msyms8);
-//				msyms8=_mm256_packus_epi16(myuv[2], myuv[3]);
-//				msyms8=_mm256_permute4x64_epi64(msyms8, _MM_SHUFFLE(3, 1, 2, 0));
-//				_mm256_store_si256((__m256i*)debugvals+3, msyms8);
-//				ansval_check(debugvals+2*NCODERS, 1, NCODERS);//contexts
-//				ansval_check(debugvals+3*NCODERS, 1, NCODERS);//residuals
-//#endif
 				
 				myuv[1]=_mm256_add_epi16(myuv[1], predU);
 				myuv[1]=_mm256_and_si256(myuv[1], bytemask);
 				myuv[1]=_mm256_add_epi16(myuv[1], amin);
-				msyms=_mm256_sub_epi16(myuv[1], predU);//sub pred
-				ecurr[1]=_mm256_xor_si256(_mm256_slli_epi16(msyms, 1), _mm256_srai_epi16(msyms, 15));
+				//msyms=_mm256_sub_epi16(myuv[1], predU);//sub pred
 				msyms8=_mm_packs_epi16(_mm256_extracti128_si256(myuv[1], 0), _mm256_extracti128_si256(myuv[1], 1));
 				msyms8=_mm_xor_si128(msyms8, _mm_set1_epi8(-128));
 				_mm_store_si128((__m128i*)(imptr+uidx), msyms8);//store U bytes
 #ifdef ENABLE_GUIDE
-				if(memcmp(imptr+uidx, g_image+(imptr-interleaved)+uidx, NCODERS))
+				if(dist<=1&&memcmp(imptr+uidx, g_image+(imptr-interleaved)+uidx, NCODERS))
 				{
 					printf("original  decoded  original-decoded  XYC1 %d %d %d\n", kx, ky, uidx);
 					for(int k=0;k<NCODERS;++k)
@@ -3153,13 +3172,6 @@ int c32_codec(int argc, char **argv)
 					LOG_ERROR("guide error XYC1 %d %d %d/%d", kx, ky, uidx, NCODERS);
 				}
 #endif
-//#ifdef ANS_VAL
-//				msyms8=_mm256_packus_epi16(ctxU0, ctxU1);
-//				msyms8=_mm256_permute4x64_epi64(msyms8, _MM_SHUFFLE(3, 1, 2, 0));
-//				_mm256_storeu_si256((__m256i*)actx+1, msyms8);
-//				ansval_check(actx+1*NCODERS, 1, NCODERS);
-//				ansval_check(imptr+kx+uidx, 1, NCODERS);
-//#endif
 				W[1]=_mm256_sub_epi16(myuv[1], moffset);//subtract Uoffset from U
 				_mm256_store_si256((__m256i*)rows[0]+0+1+0*6, W[1]);//store U neighbors
 				
@@ -3176,28 +3188,16 @@ int c32_codec(int argc, char **argv)
 #endif
 				predV=_mm256_max_epi16(predV, amin);
 				predV=_mm256_min_epi16(predV, amax);
-				dec_yuv(mstate, 2, &ctxV, (int*)CDF2syms, ans_permute, &streamptr, streamend, myuv+2);
-//#ifdef ANS_VAL
-//				msyms8=_mm256_packus_epi16(ctxV0, ctxV1);
-//				msyms8=_mm256_permute4x64_epi64(msyms8, _MM_SHUFFLE(3, 1, 2, 0));
-//				_mm256_store_si256((__m256i*)debugvals+4, msyms8);
-//				msyms8=_mm256_packus_epi16(myuv[4], myuv[5]);
-//				msyms8=_mm256_permute4x64_epi64(msyms8, _MM_SHUFFLE(3, 1, 2, 0));
-//				_mm256_store_si256((__m256i*)debugvals+5, msyms8);
-//				ansval_check(debugvals+4*NCODERS, 1, NCODERS);//contexts
-//				ansval_check(debugvals+5*NCODERS, 1, NCODERS);//residuals
-//#endif
 				
 				myuv[2]=_mm256_add_epi16(myuv[2], predV);
 				myuv[2]=_mm256_and_si256(myuv[2], bytemask);
 				myuv[2]=_mm256_add_epi16(myuv[2], amin);
-				msyms=_mm256_sub_epi16(myuv[2], predV);
-				ecurr[2]=_mm256_xor_si256(_mm256_slli_epi16(msyms, 1), _mm256_srai_epi16(msyms, 15));
+				//msyms=_mm256_sub_epi16(myuv[2], predV);
 				msyms8=_mm_packs_epi16(_mm256_extracti128_si256(myuv[2], 0), _mm256_extracti128_si256(myuv[2], 1));
 				msyms8=_mm_xor_si128(msyms8, _mm_set1_epi8(-128));
 				_mm_store_si128((__m128i*)(imptr+vidx), msyms8);//store V bytes
 #ifdef ENABLE_GUIDE
-				if(memcmp(imptr+vidx, g_image+(imptr-interleaved)+vidx, NCODERS))
+				if(dist<=1&&memcmp(imptr+vidx, g_image+(imptr-interleaved)+vidx, NCODERS))
 				{
 					printf("original  decoded  original-decoded  XYC2 %d %d %d\n", kx, ky, vidx);
 					for(int k=0;k<NCODERS;++k)
@@ -3209,13 +3209,6 @@ int c32_codec(int argc, char **argv)
 					LOG_ERROR("guide error XYC2 %d %d %d/%d", kx, ky, vidx, NCODERS);
 				}
 #endif
-//#ifdef ANS_VAL
-//				msyms8=_mm256_packus_epi16(ctxV0, ctxV1);
-//				msyms8=_mm256_permute4x64_epi64(msyms8, _MM_SHUFFLE(3, 1, 2, 0));
-//				_mm256_storeu_si256((__m256i*)actx, msyms8);
-//				ansval_check(actx+2*NCODERS, 1, NCODERS);
-//				ansval_check(imptr+kx+vidx, 1, NCODERS);
-//#endif
 #ifdef VNATIVE
 				W[2]=_mm256_sub_epi16(myuv[2], moffset);//subtract Voffset from V
 #else
@@ -3224,10 +3217,32 @@ int c32_codec(int argc, char **argv)
 #endif
 				_mm256_store_si256((__m256i*)rows[0]+0+2+0*6, W[2]);//store V neighbors
 				
+#ifdef ENABLE_GUIDE
+				if(dist>1)
+				{
+					for(int kc=0;kc<3;++kc)
+					{
+						for(int k=0;k<NCODERS;++k)
+						{
+							double diff=imptr[kc*NCODERS+k]-g_image[imptr-interleaved+kc*NCODERS+k];
+							g_sqe[kc]+=diff*diff;
+						}
+					}
+				}
+#endif
 //#ifdef ENABLE_GUIDE
 //				for(int kx2=0;kx2<3*NCODERS;kx2+=3)
 //					guide_check(image, kx+kx2, ky);
 //#endif
+				if(dist<=1)
+				{
+					msyms0[0]=_mm256_sub_epi16(myuv[0], predY);
+					msyms0[1]=_mm256_sub_epi16(myuv[1], predU);
+					msyms0[2]=_mm256_sub_epi16(myuv[2], predV);
+				}
+				ecurr[0]=_mm256_xor_si256(_mm256_slli_epi16(msyms0[0], 1), _mm256_srai_epi16(msyms0[0], 15));
+				ecurr[1]=_mm256_xor_si256(_mm256_slli_epi16(msyms0[1], 1), _mm256_srai_epi16(msyms0[1], 15));
+				ecurr[2]=_mm256_xor_si256(_mm256_slli_epi16(msyms0[2], 1), _mm256_srai_epi16(msyms0[2], 15));
 			}
 			if(use_wg4==1)//update
 			{

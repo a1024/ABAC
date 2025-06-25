@@ -164,7 +164,7 @@ c23:
 	htscodecs/utils.c
 
 c24:
-	gcc $(FLAGS) -DCODEC_EXT=c24 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c24.c codec.c util.c  -o c24 $(LIBS)
+	clang $(FLAGS) -DCODEC_EXT=c24 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c24.c codec.c util.c  -o c24 $(LIBS)
 
 c25:
 	gcc $(FLAGS) -DCODEC_EXT=c25 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c25.c codec.c util.c  -o c25 $(LIBS)
@@ -188,7 +188,13 @@ c31:
 	gcc $(FLAGS) -DCODEC_EXT=c31 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c31.c codec.c util.c  -o c31 $(LIBS)
 
 c32:
-	gcc $(FLAGS) -DCODEC_EXT=c32 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c32.c codec.c util.c  -o c32 $(LIBS)
+	clang $(FLAGS) -DCODEC_EXT=c32 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c32.c codec.c util.c  -o c32 $(LIBS)
 
 c33:
 	gcc $(FLAGS) -DCODEC_EXT=c33 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c33.c codec.c util.c  -o c33 $(LIBS)
+
+c34:
+	clang $(FLAGS) -DCODEC_EXT=c34 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c34.c codec.c  -o c34 $(LIBS)
+
+c34-gcc:
+	gcc $(FLAGS) -DCODEC_EXT=c34 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c34.c codec.c  -o c34 $(LIBS)

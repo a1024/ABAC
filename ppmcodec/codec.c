@@ -2,13 +2,14 @@
 #define _CRT_SECURE_NO_WARNINGS
 #endif
 
+//	#define RELEASE
 //	#define PROFILER
 
 #ifdef PROFILER
 #include"util.h"
 #endif
-#include<stdio.h>
 #include<stdlib.h>
+#if 1
 int c01_codec(int argc, char **argv);//MT AC (mix4)
 int c02_codec(int argc, char **argv);//MT binary
 int c03_codec(int argc, char **argv);//MT binary (A2/WG4)
@@ -42,6 +43,8 @@ int c30_codec(int argc, char **argv);//ST OLS
 int c31_codec(int argc, char **argv);//cross-platform C29, slower	X
 int c32_codec(int argc, char **argv);//C32: like C29 but 16 coders
 int c33_codec(int argc, char **argv);//C33: speed priority CG-only
+int c34_codec(int argc, char **argv);//MT rANS
+#endif
 
 
 #ifndef CODEC_EXT
@@ -76,8 +79,9 @@ int c33_codec(int argc, char **argv);//C33: speed priority CG-only
 //	#define CODEC_EXT c29
 //	#define CODEC_EXT c30
 //	#define CODEC_EXT c31
-	#define CODEC_EXT c32
+//	#define CODEC_EXT c32
 //	#define CODEC_EXT c33
+	#define CODEC_EXT c34
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -92,26 +96,40 @@ int main(int argc, char **argv)
 #ifdef PROFILER
 	void *prof_ctx=prof_start();
 #endif
-#ifdef __GNUC__
+#if defined __GNUC__ || defined RELEASE
 	retcode=CODEC_FUNC(argc, argv);
+//#elif 1
+//	const char *args[]=
+//	{
+//		argv[0],
+//
+//		"D:/ML/zzz_deletethis.lsim",
+//	//	"C:/dataset-panasonic-ppm/zzz.c34",
+//		
+//		"D:/ML/zzz_deletethis.ppm"
+//	//	"C:/dataset-panasonic-ppm/zzz.ppm",
+//	};
+//	return c34_codec(_countof(args), (char**)args);
 #else
-	const char *dstfn=//OVERWRITE
-		"C:/Projects/datasets/zzz_deletethis.ppm"
+	const char dstfn[]=//OVERWRITTEN
+	//	"C:/Projects/datasets/zzz_deletethis.ppm"
 
+		"C:/dataset-a-temp/zzz.ppm"
 	//	"D:/ML/zzz_deletethis.ppm"
 	;
-	const char *tmpfn=//OVERWRITE
-		"C:/Projects/datasets/zzz_deletethis.lsim"
-
+	const char tmpfn[]=//OVERWRITTEN
+	//	"C:/Projects/datasets/zzz_deletethis.lsim"
+		
+		"C:/dataset-a-temp/zzz.lsim"
 	//	"D:/ML/zzz_deletethis.lsim"
 	;
-	const char *srcfn=
+	const char srcfn[]=
 	//	"C:/Projects/datasets/0868-ecrop.ppm"
 	//	"C:/Projects/datasets/20240806 6 why me.PPM"
 	//	"C:/Projects/datasets/big_building.PPM"
 	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_abigail-keenan-27293.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC30-ppm/03.ppm"
-		"C:/Projects/datasets/dataset-DIV2K-ppm/0801.ppm"
+	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0801.ppm"
 	//	"C:/Projects/datasets/0801-cg.ppm"
 	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm"
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim23.ppm"
@@ -128,12 +146,15 @@ int main(int argc, char **argv)
 	//	"C:/dataset-CLIC303-ppm/2048x1320_cosmic-timetraveler-29758.ppm"
 	//	"C:/dataset-CLIC303-ppm/2048x1320_rosan-harmens-18703.ppm"
 	//	"C:/dataset-CLIC303-ppm/2048x1320_zugr-108.ppm"
+	//	"C:/dataset-panasonic-ppm/P1000058.ppm"
+	//	"C:/dataset-LPCB-ppm/PIA13914.ppm"
 	//	"C:/dataset-DIV2K-ppm/0801.ppm"
 	//	"C:/dataset-DSLR2x4-ppm/DSC_0133.ppm"
 	//	"C:/dataset-GDCC2020-ppm/astro-01.ppm"
 	//	"C:/dataset-HUGE-ppm/kodak.PPM"
 	//	"C:/dataset-HUGE-ppm/space_huge.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
+		"C:/dataset-DSLR2-ppm/DSC_0320.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13803.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13833.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13912.ppm"
@@ -230,8 +251,8 @@ int main(int argc, char **argv)
 		argv[0],
 		srcfn,
 		tmpfn,
-	//	"0",	//default nthreads
-	//	"11",	//near
+	//	"0",	//param1
+	//	"7",	//near
 	};
 	const char *decargs[]=
 	{

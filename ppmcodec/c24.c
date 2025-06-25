@@ -1,5 +1,4 @@
 static const char file[]=__FILE__;
-//#include"ppm.h"
 #include"util.h"
 #include<stdio.h>
 #include<stdlib.h>
@@ -8,10 +7,12 @@ static const char file[]=__FILE__;
 #include<sys/stat.h>
 
 
-#ifndef __GNUC__
+#ifdef _MSC_VER
 	#define LOUD
 	#define ENABLE_GUIDE
-#elif !defined DISABLE_MT
+//	#define ENABLE_VALIDATION
+#endif
+#if !defined DISABLE_MT && !defined ENABLE_VALIDATION
 	#define ENABLE_MT
 #endif
 
@@ -79,8 +80,10 @@ static const char file[]=__FILE__;
 #define ANALYSIS_XSTRIDE 2
 #define ANALYSIS_YSTRIDE 3
 
-//	#define AC_VALIDATE
-//	#define AC_IMPLEMENTATION
+#ifdef ENABLE_VALIDATION
+	#define AC_VALIDATE
+	#define AC_IMPLEMENTATION
+#endif
 #include"entropy.h"
 
 #define BLOCKX 448	//384
@@ -440,7 +443,7 @@ static void block_func(void *param)
 			__m256i amin=_mm256_set1_epi16(-128);
 			__m256i amax=_mm256_set1_epi16(127);
 			__m256i amask=_mm256_set1_epi16(255);
-			__m128i half8=_mm_set1_epi8(128);
+			__m128i half8=_mm_set1_epi8(-128);
 			__m128i shuf=_mm_set_epi8(
 				-1,
 				12, 14, 13,
@@ -4108,8 +4111,8 @@ static void block_func(void *param)
 				//again:
 					if(args->dist>1)
 					{
-						//naive deadzone
 						error=(yuv[kc]-pred);
+						//naive deadzone
 						error=(error*invdist>>16)+((unsigned)error>>31);
 					//	error=(yuv[kc]-pred)/args->dist;
 						sym=error<<1^error>>31;
@@ -5211,6 +5214,8 @@ int c24_codec(int argc, char **argv)
 		printf("RMSE %12.6lf  PSNR %12.6lf\n", rmse, psnr);
 	}
 #endif
+#else
+	(void)csize;
 #endif
 	return 0;
 }

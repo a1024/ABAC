@@ -9,6 +9,9 @@ add_definitions(-DZYDIS_NO_EXPORT=)
 #	add_definitions(-DPROFILER=)
 #	add_definitions(-DENABLE_PROFILER_DISASSEMBLY=)
 
+#	add_definitions(-DRELEASE=)
+#	add_definitions(-DCODEC_EXT=c34)
+
 add_executable(codec
 	c01.c
 	c02.c
@@ -43,6 +46,7 @@ add_executable(codec
 	c31.c
 	c32.c
 	c33.c
+	c34.c
 	codec.c
 	util.c
 

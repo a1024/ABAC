@@ -31,9 +31,8 @@ static const char file[]=__FILE__;
 	#define INTERLEAVESIMD		//2.5x faster interleave
 
 
-//3*17+3=54 contexts
 #define GRBITS 3
-#define NCTX 18		//18*3+3 = 57 total
+#define NCTX 18		//NCTX*3+3  total
 
 #define XCODERS 4	//xrem 1~3 cols
 #define YCODERS 4	//yrem 1~3 rows
