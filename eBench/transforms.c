@@ -2788,6 +2788,314 @@ void pred_clampgrad(Image *src, int fwd, int enable_ma)
 	_mm_free(pixels);
 #endif
 #if 1
+	//double t=time_sec();
+
+	//0.065 sec
+#if 0
+	if(fwd)
+	{
+		int *ptr=src->data, *end=src->data+4*src->iw*src->ih;
+		int sh1=32-src->depth[0];
+		int sh2=32-src->depth[1];
+		int sh3=32-src->depth[2];
+		int prev1=0;
+		int prev2=0;
+		int prev3=0;
+		while(ptr<end)
+		{
+			int y=ptr[0];
+			int u=ptr[1];
+			int v=ptr[2];
+			int delta1=y-prev1;
+			int delta2=u-prev2;
+			int delta3=v-prev3;
+			delta1<<=sh1;
+			delta2<<=sh2;
+			delta3<<=sh3;
+			delta1>>=sh1;
+			delta2>>=sh2;
+			delta3>>=sh3;
+			ptr[0]=delta1;
+			ptr[1]=delta2;
+			ptr[2]=delta3;
+			ptr+=4;
+			prev1=y;
+			prev2=u;
+			prev3=v;
+		}
+	}
+	else
+	{
+		int *ptr=src->data, *end=src->data+4*src->iw*src->ih;
+		int sh1=32-src->depth[0];
+		int sh2=32-src->depth[1];
+		int sh3=32-src->depth[2];
+		int prev1=0;
+		int prev2=0;
+		int prev3=0;
+		while(ptr<end)
+		{
+			int y=ptr[0];
+			int u=ptr[1];
+			int v=ptr[2];
+			int delta1=y+prev1;
+			int delta2=u+prev2;
+			int delta3=v+prev3;
+			delta1<<=sh1;
+			delta2<<=sh2;
+			delta3<<=sh3;
+			delta1>>=sh1;
+			delta2>>=sh2;
+			delta3>>=sh3;
+			ptr[0]=delta1;
+			ptr[1]=delta2;
+			ptr[2]=delta3;
+			ptr+=4;
+			prev1=delta1;
+			prev2=delta2;
+			prev3=delta3;
+		}
+	}
+#endif
+
+	//0.170 0.156 0.135 sec
+#if 0
+	if(fwd)
+	{
+		for(int kc=0;kc<4;++kc)
+		{
+			int *ptr=src->data+kc, *end=src->data+4*src->iw*src->ih;
+			int sh=32-src->depth[kc];
+			int prev=0;
+			if(!src->depth[kc])
+				continue;
+			while(ptr<end)
+			{
+				int curr=*ptr;
+				int delta=curr-prev;
+				delta<<=sh;
+				delta>>=sh;
+				*ptr=delta;
+				ptr+=4;
+				prev=curr;
+			}
+		}
+	}
+	else
+	{
+		for(int kc=0;kc<4;++kc)
+		{
+			int *ptr=src->data+kc, *end=src->data+4*src->iw*src->ih;
+			int sh=32-src->depth[kc];
+			int prev=0;
+			if(!src->depth[kc])
+				continue;
+			while(ptr<end)
+			{
+				int curr=*ptr;
+				int delta=curr+prev;
+				delta<<=sh;
+				delta>>=sh;
+				*ptr=delta;
+				ptr+=4;
+				prev=delta;
+			}
+		}
+	}
+#endif
+
+	//0.123 0.121 0.117 sec		0.157 sec
+#if 1
+	int rstride=4*src->iw;
+	int sh0=32-src->depth[0];
+	int sh1=32-src->depth[1];
+	int sh2=32-src->depth[2];
+	if(fwd)
+	{
+		int *ptr=src->data+4*src->iw*src->ih-4;
+		for(int ky=src->ih-1;ky>=1;--ky)
+		{
+			for(int kx=src->iw-1;kx>=1;--kx)
+			{
+				int
+					NW0	=ptr[-1*rstride-1*4+0],
+					NW1	=ptr[-1*rstride-1*4+1],
+					NW2	=ptr[-1*rstride-1*4+2],
+					N0	=ptr[-1*rstride+0*4+0],
+					N1	=ptr[-1*rstride+0*4+1],
+					N2	=ptr[-1*rstride+0*4+2],
+					W0	=ptr[+0*rstride-1*4+0],
+					W1	=ptr[+0*rstride-1*4+1],
+					W2	=ptr[+0*rstride-1*4+2],
+					c0	=ptr[0],
+					c1	=ptr[1],
+					c2	=ptr[2];
+				int p0=N0+W0-NW0;
+				int p1=N1+W1-NW1;
+				int p2=N2+W2-NW2;
+				int ymax=N0, ymin=W0;
+				int umax=N1, umin=W1;
+				int vmax=N2, vmin=W2;
+				if(N0<W0)ymin=N0, ymax=W0;
+				if(N1<W1)umin=N1, umax=W1;
+				if(N2<W2)vmin=N2, vmax=W2;
+				CLAMP2(p0, ymin, ymax);
+				CLAMP2(p1, umin, umax);
+				CLAMP2(p2, vmin, vmax);
+				c0-=p0;
+				c1-=p1;
+				c2-=p2;
+				c0<<=sh0;
+				c1<<=sh1;
+				c2<<=sh2;
+				c0>>=sh0;
+				c1>>=sh1;
+				c2>>=sh2;
+				ptr[0]=c0;
+				ptr[1]=c1;
+				ptr[2]=c2;
+				ptr-=4;
+			}
+			int
+				N0	=ptr[-1*rstride+0*4+0],
+				N1	=ptr[-1*rstride+0*4+1],
+				N2	=ptr[-1*rstride+0*4+2],
+				c0	=ptr[0],
+				c1	=ptr[1],
+				c2	=ptr[2];
+			c0-=N0;
+			c1-=N1;
+			c2-=N2;
+			c0<<=sh0;
+			c1<<=sh1;
+			c2<<=sh2;
+			c0>>=sh0;
+			c1>>=sh1;
+			c2>>=sh2;
+			ptr[0]=c0;
+			ptr[1]=c1;
+			ptr[2]=c2;
+			ptr-=4;
+		}
+		for(int kx=src->iw-1;kx>=1;--kx)
+		{
+			int
+				W0	=ptr[+0*rstride-1*4+0],
+				W1	=ptr[+0*rstride-1*4+1],
+				W2	=ptr[+0*rstride-1*4+2],
+				c0	=ptr[0],
+				c1	=ptr[1],
+				c2	=ptr[2];
+			c0-=W0;
+			c1-=W1;
+			c2-=W2;
+			c0<<=sh0;
+			c1<<=sh1;
+			c2<<=sh2;
+			c0>>=sh0;
+			c1>>=sh1;
+			c2>>=sh2;
+			ptr[0]=c0;
+			ptr[1]=c1;
+			ptr[2]=c2;
+			ptr-=4;
+		}
+	}
+	else
+	{
+		int *ptr=src->data+4;
+		for(int kx=1;kx<src->iw;++kx)
+		{
+			int
+				W0	=ptr[+0*rstride-1*4+0],
+				W1	=ptr[+0*rstride-1*4+1],
+				W2	=ptr[+0*rstride-1*4+2],
+				c0	=ptr[0],
+				c1	=ptr[1],
+				c2	=ptr[2];
+			c0+=W0;
+			c1+=W1;
+			c2+=W2;
+			c0<<=sh0;
+			c1<<=sh1;
+			c2<<=sh2;
+			c0>>=sh0;
+			c1>>=sh1;
+			c2>>=sh2;
+			ptr[0]=c0;
+			ptr[1]=c1;
+			ptr[2]=c2;
+			ptr+=4;
+		}
+		for(int ky=1;ky<src->ih;++ky)
+		{
+			int
+				N0	=ptr[-1*rstride+0*4+0],
+				N1	=ptr[-1*rstride+0*4+1],
+				N2	=ptr[-1*rstride+0*4+2],
+				c0	=ptr[0],
+				c1	=ptr[1],
+				c2	=ptr[2];
+			c0+=N0;
+			c1+=N1;
+			c2+=N2;
+			c0<<=sh0;
+			c1<<=sh1;
+			c2<<=sh2;
+			c0>>=sh0;
+			c1>>=sh1;
+			c2>>=sh2;
+			ptr[0]=c0;
+			ptr[1]=c1;
+			ptr[2]=c2;
+			ptr+=4;
+			for(int kx=1;kx<src->iw;++kx)
+			{
+				int
+					NW0	=ptr[-1*rstride-1*4+0],
+					NW1	=ptr[-1*rstride-1*4+1],
+					NW2	=ptr[-1*rstride-1*4+2],
+					N0	=ptr[-1*rstride+0*4+0],
+					N1	=ptr[-1*rstride+0*4+1],
+					N2	=ptr[-1*rstride+0*4+2],
+					W0	=ptr[+0*rstride-1*4+0],
+					W1	=ptr[+0*rstride-1*4+1],
+					W2	=ptr[+0*rstride-1*4+2],
+					c0	=ptr[0],
+					c1	=ptr[1],
+					c2	=ptr[2];
+				int p0=N0+W0-NW0;
+				int p1=N1+W1-NW1;
+				int p2=N2+W2-NW2;
+				int ymax=N0, ymin=W0;
+				int umax=N1, umin=W1;
+				int vmax=N2, vmin=W2;
+				if(N0<W0)ymin=N0, ymax=W0;
+				if(N1<W1)umin=N1, umax=W1;
+				if(N2<W2)vmin=N2, vmax=W2;
+				CLAMP2(p0, ymin, ymax);
+				CLAMP2(p1, umin, umax);
+				CLAMP2(p2, vmin, vmax);
+				c0+=p0;
+				c1+=p1;
+				c2+=p2;
+				c0<<=sh0;
+				c1<<=sh1;
+				c2<<=sh2;
+				c0>>=sh0;
+				c1>>=sh1;
+				c2>>=sh2;
+				ptr[0]=c0;
+				ptr[1]=c1;
+				ptr[2]=c2;
+				ptr+=4;
+			}
+		}
+	}
+#endif
+
+	//0.218 0.220 0.214 sec
+#if 0
 	int nlevels[]=
 	{
 		1<<src->depth[0],
@@ -2911,6 +3219,10 @@ void pred_clampgrad(Image *src, int fwd, int enable_ma)
 		}
 	}
 	free(pixels);
+#endif
+
+	//if(loud_transforms)//
+	//	messagebox(MBOX_OK, "Info", "%lf", time_sec()-t);
 #endif
 #if 0
 	Image *dst=0;
@@ -5585,6 +5897,7 @@ void pred_nblic(Image *src, int fwd)//https://github.com/WangXuan95/NBLIC-Image-
 		1, 3, 9, 20, 50, 110, 300, 800,
 	};
 	const static int q_mid[]={0, 2, 4, 7, 10, 14, 20, 26, 34, 42, 52, 64, 78, 95, 135, 200};
+	int invdist=((1<<16)+g_dist-1)/g_dist;
 	int bufsize=(src->iw+16LL)*sizeof(int[4*4*2]);//4 padded rows * 4 channels max
 	int *pixels=(int*)malloc(bufsize);
 	int ssesize=(int)sizeof(int[4<<4>>1<<8]);
@@ -5740,21 +6053,57 @@ void pred_nblic(Image *src, int fwd)//https://github.com/WangXuan95/NBLIC-Image-
 				
 				//apply prediction:
 				int curr=src->data[idx];
-				int val;
 				//if(ky==src->ih/2&&kx==src->iw/2)
 				//	printf("");
-				if(fwd)
+				if(g_dist>1)
 				{
-					val=(curr-(int)pred+g_dist/2)/g_dist;
-					curr=g_dist*val+(int)pred;
+					if(fwd)
+					{
+						curr-=pred;
+						curr=(curr*invdist>>16)-(curr>>31&-(g_dist>1));//curr/=g_dist
+						src->data[idx]=curr;
+
+						curr=g_dist*curr+pred;
+						CLAMP2(curr, amin[kc], amax[kc]);
+					}
+					else
+					{
+						curr=g_dist*curr+pred;
+						CLAMP2(curr, amin[kc], amax[kc]);
+
+						src->data[idx]=curr;
+					}
 				}
 				else
 				{
-					val=g_dist*curr+(int)pred;
-					curr=val;
-					CLAMP2(val, amin[kc], amax[kc]);
+					if(fwd)
+					{
+						int error=curr-pred;
+						error<<=32-src->depth[kc];
+						error>>=32-src->depth[kc];
+						src->data[idx]=error;
+					}
+					else
+					{
+						curr+=pred;
+						curr<<=32-src->depth[kc];
+						curr>>=32-src->depth[kc];
+						src->data[idx]=curr;
+					}
 				}
-				src->data[idx]=val;
+				//if(fwd)
+				//{
+				//	val=(curr-(int)pred)/g_dist;
+				//	curr=g_dist*val+(int)pred;
+				//	CLAMP2(curr, amin[kc], amax[kc]);
+				//}
+				//else
+				//{
+				//	val=curr;
+				//	curr=g_dist*curr+(int)pred;
+				//	CLAMP2(curr, amin[kc], amax[kc]);
+				//}
+				//src->data[idx]=val;
 				rows[0][kc+0]=curr;
 				rows[0][kc+4]=curr-pred;
 				//int p2=pred;

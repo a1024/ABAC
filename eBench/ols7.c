@@ -113,9 +113,9 @@ void pred_ols7(Image *src, int fwd)
 		(1<<src->depth[3]>>1)-1,
 	};
 	int weights[4][NPREDS]={0};
+	int invdist=((1<<16)+g_dist-1)/g_dist;
 	int bufsize=(src->iw+8*2)*(int)sizeof(short[4*4*1]);//4 padded rows * 4 channels max * {pixels}
 	short *pixels=(short*)malloc(bufsize);
-	int invdist=((1<<16)+g_dist-1)/g_dist;
 	if(!pixels)
 	{
 		LOG_ERROR("Alloc error");

@@ -179,6 +179,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_OLS7,		ST_INV_OLS7,
 	ST_FWD_L1BCRCT,		ST_INV_L1BCRCT,
 	ST_FWD_OLS8,		ST_INV_OLS8,
+	ST_FWD_OLS9,		ST_INV_OLS9,
 	ST_FWD_CGCRCT,		ST_INV_CGCRCT,
 	ST_FWD_CLAMPGRAD,	ST_INV_CLAMPGRAD,
 	ST_FWD_SELECT,		ST_INV_SELECT,
@@ -2757,6 +2758,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_CG3D:		a="CS Inv CG3D";		break;
 	case ST_FWD_CGCRCT:		a=" S Fwd CG cRCT";		break;
 	case ST_INV_CGCRCT:		a=" S Inv CG cRCT";		break;
+	case ST_FWD_OLS9:		a=" S Fwd OLS9";		break;
+	case ST_INV_OLS9:		a=" S Inv OLS9";		break;
 	case ST_FWD_CLAMPGRAD:		a=" S Fwd ClampGrad";		break;
 	case ST_INV_CLAMPGRAD:		a=" S Inv ClampGrad";		break;
 	case ST_FWD_CLEARTYPE:		a=" S Fwd ClearType";		break;
@@ -3949,6 +3952,8 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_INV_CG3D:		pred_CG3D(image, 0, pred_ma_enabled);			break;
 	case ST_FWD_CGCRCT:		pred_cg_crct(image, 1, pred_ma_enabled);		break;
 	case ST_INV_CGCRCT:		pred_cg_crct(image, 0, pred_ma_enabled);		break;
+	case ST_FWD_OLS9:		pred_ols9(image, 1);					break;
+	case ST_INV_OLS9:		pred_ols9(image, 0);					break;
 	case ST_FWD_CLAMPGRAD:		pred_clampgrad(image, 1, pred_ma_enabled);		break;
 	case ST_INV_CLAMPGRAD:		pred_clampgrad(image, 0, pred_ma_enabled);		break;
 	case ST_FWD_CLEARTYPE:		pred_cleartype(image, 1);				break;

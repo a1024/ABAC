@@ -933,10 +933,11 @@ extern unsigned char ols4_mask[4][OLS4_CTXSIZE+1];
 void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsigned char *mask1, unsigned char *mask2, unsigned char *mask3, int fwd);
 void pred_ols5(Image *src, int fwd);
 void pred_ols6(Image *src, int fwd);
-void pred_ols7(Image *src, int fwd);
-void pred_ols8(Image *src, int fwd);
-void pred_ols8_crct(Image *src, int fwd);
-void pred_l1crct(Image *src, int fwd);
+void pred_ols7(Image *src, int fwd);		//L1
+void pred_l1crct(Image *src, int fwd);		//
+void pred_ols8(Image *src, int fwd);		//
+void pred_ols8_crct(Image *src, int fwd);	//
+void pred_ols9(Image *src, int fwd);
 
 //void pred_select(Image const *src, Image *dst, int fwd, int enable_ma);
 

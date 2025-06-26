@@ -7,6 +7,37 @@
 #include<immintrin.h>
 static const char file[]=__FILE__;
 
+
+//	#define ENABLE_SSE
+
+#ifdef ENABLE_SSE
+#define SSEBITS 8
+#define L1PREDSSSE 19
+#define L1PREDLISTSSE\
+	L1PRED(eN)\
+	L1PRED(eW)\
+	L1PRED(eNW)\
+	L1PRED(eNE)\
+	L1PRED(eNN)\
+	L1PRED(eWW)\
+	L1PRED(eNNN)\
+	L1PRED(eWWW)\
+	L1PRED(eNEE)\
+	L1PRED(eNEEE)\
+	L1PRED(eNWW)\
+	L1PRED(eNNW)\
+	L1PRED(eNNE)\
+	L1PRED(3*(eN-eNN)+eNNN)\
+	L1PRED(3*(eW-eWW)+eWWW)\
+	L1PRED(4*(eN+eNNN)-6*eNN-eNNNN)\
+	L1PRED(4*(eW+eWWW)-6*eWW-eWWWW)\
+	L1PRED(ssecell>>SSEBITS)\
+	L1PRED(ssecell2>>SSEBITS)
+#else
+#define L1PREDSSSE L1PREDS
+#define L1PREDLISTSSE L1PREDLIST
+#endif
+
 //WG:
 #define WG_NBITS 0	//why 0 is best?
 
@@ -1586,7 +1617,7 @@ void pred_wgrad4c_crct(Image *src, int fwd)
 		(1<<src->depth[2]>>1)-1,
 		(1<<src->depth[3]>>1)-1,
 	};
-	int coeffs[4][L1PREDS+1]={0};
+	int coeffs[4][L1PREDSSSE+1]={0};
 	ALIGN(32) int wg_weights[4][WG_NPREDS]={0};
 	ALIGN(32) int wg_perrors[4][WG_NPREDS]={0}, wg_preds[WG_NPREDS]={0};
 	int nch;
@@ -1596,6 +1627,16 @@ void pred_wgrad4c_crct(Image *src, int fwd)
 	int invdist=((1<<16)+g_dist-1)/g_dist;
 	int pesize=(src->iw+16)*(int)sizeof(int[4][4][WG_NPREDS]);//4 padded rows * 3 channels * WG_NPREDS
 	int *ebuf=(int*)_mm_malloc(pesize, sizeof(__m256i));
+#ifdef ENABLE_SSE
+	int ssesize=(int)sizeof(int[4*256]);
+	int *sse=(int*)malloc(ssesize);
+	int *sse2=(int*)malloc(ssesize);
+	if(!sse||!sse2)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+#endif
 	if(fwd)
 		src->rct=crct_analysis(src);
 	const unsigned char *combination=rct_combinations[src->rct];
@@ -1604,9 +1645,9 @@ void pred_wgrad4c_crct(Image *src, int fwd)
 		uidx=combination[II_PERM_U],
 		vidx=combination[II_PERM_V];
 	int vfromy=-(combination[II_COEFF_U_SUB_Y]!=0);
-
 	bufsize=(src->iw+16LL)*sizeof(int[4*4*2]);//4 padded rows * 4 channels max
 	pixels=(int*)malloc(bufsize);
+	
 	if(!pixels||!ebuf)
 	{
 		LOG_ERROR("Alloc error");
@@ -1614,6 +1655,10 @@ void pred_wgrad4c_crct(Image *src, int fwd)
 	}
 	memset(ebuf, 0, pesize);
 	memset(pixels, 0, bufsize);
+#ifdef ENABLE_SSE
+	memset(sse, 0, ssesize);
+	memset(sse2, 0, ssesize);
+#endif
 	nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
 	UPDATE_MAX(nch, src->nch);
 	int j=0;
@@ -1817,16 +1862,24 @@ void pred_wgrad4c_crct(Image *src, int fwd)
 				fpred/=wsum;
 				int pred1=(int)CVTFP64_I64(fpred);
 #endif
+#ifdef ENABLE_SSE
+				int *sseptr=sse+kc*256+(((pred1>>(src->depth[kc]-8))+128)&255);
+				int *sseptr2=sse2+kc*256+((((N-W)>>(src->depth[kc]+1-8))+128)&255);
+			//	int *sseptr=sse+(kc*256+(((pred1>>(src->depth[kc]-8))+128)&255))*16+((N-W)>>(src->depth[kc]-4)&15);
+				int ssecell=*sseptr;
+				int ssecell2=*sseptr2;
+				//pred+=ssecell>>(SSEBITS+1);
+#endif
 
 				int preds2[]=
 				{
 #define L1PRED(EXPR) EXPR,
-					L1PREDLIST
+					L1PREDLISTSSE
 #undef  L1PRED
 				};
 				int pred2=(1<<L1SH>>1);
-				pred2+=coeffs[kc][L1PREDS];
-				for(int kp=0;kp<L1PREDS;++kp)
+				pred2+=coeffs[kc][L1PREDSSSE];
+				for(int kp=0;kp<L1PREDSSSE;++kp)
 					pred2+=coeffs[kc][kp]*preds2[kp];
 				pred2>>=L1SH;
 				int predu=pred1+pred2;
@@ -1846,7 +1899,6 @@ void pred_wgrad4c_crct(Image *src, int fwd)
 					pred+=offset;
 					CLAMP2(pred, amin[kc], amax[kc]);
 				}
-				
 				int curr=yuv[kc];
 				if(g_dist>1)
 				{
@@ -1896,10 +1948,15 @@ void pred_wgrad4c_crct(Image *src, int fwd)
 					pecurr[k]=(2*peW[k]+e2+peNEE[k])>>2;
 				}
 				int e=(curr>predu)-(curr<predu);
-				coeffs[kc][L1PREDS]+=e;//bias
-				for(int k=0;k<L1PREDS;++k)
+				coeffs[kc][L1PREDSSSE]+=e;//bias
+				for(int k=0;k<L1PREDSSSE;++k)
 					coeffs[kc][k]+=e*preds2[k];//coeffs
-
+#ifdef ENABLE_SSE
+				ssecell+=(((yuv[kc]-pred)<<SSEBITS)-ssecell+(1<<5>>1))>>5;
+				ssecell2+=(((yuv[kc]-pred)<<SSEBITS)-ssecell2+(1<<5>>1))>>5;
+				*sseptr=ssecell;
+				*sseptr2=ssecell2;
+#endif
 				offset=kc?(combination[II_COEFF_V_SUB_Y]*yuv[0]+combination[II_COEFF_V_SUB_U]*yuv[1])>>2:yuv[0]&vfromy;
 			}
 			if(!fwd)
@@ -1912,4 +1969,8 @@ void pred_wgrad4c_crct(Image *src, int fwd)
 	}
 	free(pixels);
 	_mm_free(ebuf);
+#ifdef ENABLE_SSE
+	free(sse);
+	free(sse2);
+#endif
 }
