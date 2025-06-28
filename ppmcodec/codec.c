@@ -59,7 +59,7 @@ int c34_codec(int argc, char **argv);//MT rANS
 //	#define CODEC_EXT c09
 //	#define CODEC_EXT c10
 //	#define CODEC_EXT c11
-//	#define CODEC_EXT c12
+	#define CODEC_EXT c12
 //	#define CODEC_EXT c13
 //	#define CODEC_EXT c14
 //	#define CODEC_EXT c15
@@ -81,7 +81,7 @@ int c34_codec(int argc, char **argv);//MT rANS
 //	#define CODEC_EXT c31
 //	#define CODEC_EXT c32
 //	#define CODEC_EXT c33
-	#define CODEC_EXT c34
+//	#define CODEC_EXT c34
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -112,15 +112,15 @@ int main(int argc, char **argv)
 //	return c34_codec(_countof(args), (char**)args);
 #else
 	const char dstfn[]=//OVERWRITTEN
-	//	"C:/Projects/datasets/zzz_deletethis.ppm"
+		"C:/Projects/datasets/zzz.ppm"
 
-		"C:/dataset-a-temp/zzz.ppm"
+	//	"C:/dataset-a-temp/zzz.ppm"
 	//	"D:/ML/zzz_deletethis.ppm"
 	;
 	const char tmpfn[]=//OVERWRITTEN
-	//	"C:/Projects/datasets/zzz_deletethis.lsim"
+		"C:/Projects/datasets/zzz.lsim"
 		
-		"C:/dataset-a-temp/zzz.lsim"
+	//	"C:/dataset-a-temp/zzz.lsim"
 	//	"D:/ML/zzz_deletethis.lsim"
 	;
 	const char srcfn[]=
@@ -129,7 +129,7 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/big_building.PPM"
 	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_abigail-keenan-27293.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC30-ppm/03.ppm"
-	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0801.ppm"
+		"C:/Projects/datasets/dataset-DIV2K-ppm/0801.ppm"
 	//	"C:/Projects/datasets/0801-cg.ppm"
 	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm"
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim23.ppm"
@@ -140,13 +140,26 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/kodim13-small16.PPM"
 	//	"C:/Projects/datasets/kodim13-small4.PPM"
 	//	"C:/Projects/datasets/temp.c18"
+	//	"C:/Projects/datasets/20240414-noise.LSIM"
+	//	"C:/Projects/datasets/20240414-noise.PPM"
+	//	"C:/Projects/datasets/20240513 screenshot.PPM"
+	//	"C:/Projects/datasets/big_building.PPM"
+	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0801.ppm"
+	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm"
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA12811.ppm"
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm"
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
+	//	"C:/Projects/datasets/kodim13-small16.ppm"
+	//	"C:/Projects/datasets/kodim13.ppm"
+	//	"C:/Projects/datasets/kodim24.ppm"
+	//	"C:/Projects/datasets/space_huge.ppm"
 		
 
 	//	"C:/dataset-CLIC303-ppm/2048x1320_abigail-keenan-27293.ppm"
 	//	"C:/dataset-CLIC303-ppm/2048x1320_cosmic-timetraveler-29758.ppm"
 	//	"C:/dataset-CLIC303-ppm/2048x1320_rosan-harmens-18703.ppm"
 	//	"C:/dataset-CLIC303-ppm/2048x1320_zugr-108.ppm"
-		"C:/dataset-panasonic-ppm/P1000058.ppm"
+	//	"C:/dataset-panasonic-ppm/P1000058.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13914.ppm"
 	//	"C:/dataset-DIV2K-ppm/0801.ppm"
 	//	"C:/dataset-DSLR2x4-ppm/DSC_0133.ppm"
@@ -167,21 +180,6 @@ int main(int argc, char **argv)
 	//	"D:/ML/dataset-CLIC303-ppm/2048x1320_lucas-lof-388.ppm"
 	//	"D:/ML/dataset-kodak-ppm/kodim13.c01"
 	//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
-
-
-	//	"C:/Projects/datasets/20240414-noise.LSIM"
-	//	"C:/Projects/datasets/20240414-noise.PPM"
-	//	"C:/Projects/datasets/20240513 screenshot.PPM"
-	//	"C:/Projects/datasets/big_building.PPM"
-	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0801.ppm"
-	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm"
-	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA12811.ppm"
-	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm"
-	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
-	//	"C:/Projects/datasets/kodim13-small16.ppm"
-	//	"C:/Projects/datasets/kodim13.ppm"
-	//	"C:/Projects/datasets/kodim24.ppm"
-	//	"C:/Projects/datasets/space_huge.ppm"
 	//	"C:/Projects/datasets/space_huge.ppm"
 	//	"C:/dataset-CLIC303-ppm/2048x1320_alberto-restifo-4549.ppm"
 	//	"C:/dataset-CLIC303-ppm/2048x1320_zugr-108.ppm"
@@ -252,7 +250,7 @@ int main(int argc, char **argv)
 		srcfn,
 		tmpfn,
 
-		"-e", "3",
+	//	"-e", "3",
 
 	//	"0",	//param1
 	//	"7",	//near
