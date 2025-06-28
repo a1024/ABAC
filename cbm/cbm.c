@@ -26,7 +26,7 @@ typedef union _DateTime
 {
 	struct
 	{
-		uint8_t ds, second, minute, hour, day, month;
+		uint8_t cs, second, minute, hour, day, month;
 		uint16_t year;
 	};
 	uint64_t timestamp;
@@ -1460,7 +1460,7 @@ dec command template
 				info->datetime.minute=10*(ptr[0]-'0')+ptr[1]-'0';
 				ptr+=2;
 				info->datetime.second=10*(ptr[0]-'0')+ptr[1]-'0';
-				info->datetime.ds=0;
+				info->datetime.cs=0;
 				ptr+=2;
 #endif
 #if 0
