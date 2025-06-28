@@ -30,14 +30,14 @@ typedef void *THREAD_RET;
 	#define LOUD			//size & time
 #endif
 #if defined _MSC_VER && !defined RELEASE
-	#define DISABLE_MT
+//	#define DISABLE_MT
 
 //	#define INTERCEPT_FWRITE
 	#define PROFILE_SIZE
 
 //	#define ESTIMATE_SIZE		//DEBUG		checks for zero frequency, visualizes context usage
 	#define ENABLE_GUIDE		//DEBUG		checks interleaved pixels
-	#define ANS_VAL			//DEBUG
+//	#define ANS_VAL			//DEBUG
 
 //	#define PRINT_L1_BOUNDS
 #endif
@@ -48,6 +48,14 @@ typedef void *THREAD_RET;
 #define XLANES 4
 #define YLANES 4
 #define NLANES 16
+
+#define DEFAULT_EFFORT_LEVEL 2
+#define NPREDS1 4
+#define NPREDS2 8
+#define NPREDS3 11
+#define SH1 15
+#define SH2 16
+#define SH3 16
 
 #define GRBITS 3
 #define NCTX 18		//NCTX*3+3  total
@@ -209,6 +217,8 @@ static void prof_print(void)
 		int next=(int)(csum*1000/scale);
 		int nstars=next-prev;
 		prev=next;
+		if(!val)
+			continue;
 		for(int k2=0;k2<nstars/2;++k2)
 			printf("-");
 		printf("%d", k-g_profstart+1);
@@ -221,6 +231,8 @@ static void prof_print(void)
 	for(int k=g_profstart;k<g_profend;++k)
 	{
 		double elapsed=g_profinfo[k];
+		if(!elapsed)
+			continue;
 		printf("%8.4lf%%  %12.6lf sec  %10td bytes  %12.6lf MB/s  %2d  %s\n",
 			100.*elapsed/sum,
 			elapsed,
@@ -1344,6 +1356,8 @@ static THREAD_RET THREAD_CALL c34_thread(void *param)
 	rANS_SIMD_SymInfo *encstats;
 	uint32_t *CDF2syms;
 	uint8_t *streamstart=0, *streamend=0, *streamptr=0;
+	const int wsize=(int)sizeof(int[3*NLANES*NPREDS3]);
+	__m256i *L1preds=0, *L1weights=0;
 
 	(void)streamstart;
 	arg=(ThreadArgs*)param;
@@ -1364,6 +1378,9 @@ static THREAD_RET THREAD_CALL c34_thread(void *param)
 	paddedwidth=blockwidth+16;
 	cbufsize=(int)sizeof(int16_t[4*6*NLANES])*paddedwidth;//4 padded rows  *  {Y*NLANES, U*NLANES, V*NLANES,  eY*NLANES, eU*NLANES, eV*NLANES}
 	cbuf=(int16_t*)_mm_malloc(cbufsize, sizeof(__m256i));
+
+	L1preds=(__m256i*)_mm_malloc(sizeof(short[3*NLANES*NPREDS3]), sizeof(__m256i));
+	L1weights=(__m256i*)_mm_malloc(wsize, sizeof(__m256i));
 
 	if(fwd)
 	{
@@ -1564,6 +1581,7 @@ static THREAD_RET THREAD_CALL c34_thread(void *param)
 
 			memset(cbuf, 0, cbufsize);
 			memset(myuv, 0, sizeof(myuv));
+			memset(L1weights, 0, wsize);
 			if(fwd)
 				memset(hists, 0, hsize);
 			else
@@ -1628,7 +1646,7 @@ static THREAD_RET THREAD_CALL c34_thread(void *param)
 						predY, ctxY,
 						predU, ctxU,
 						predV, ctxV;
-					//__m256i predYUV0[3];
+					__m256i predYUV0[3];
 					__m256i msyms, moffset;
 
 					//                     (__m256i*)rows[1]+E+C+X*6
@@ -1694,7 +1712,7 @@ static THREAD_RET THREAD_CALL c34_thread(void *param)
 
 					//predict
 					{
-#if 0
+#if 1
 						const int borderW=3;
 						const int borderN=3;
 						const int borderE=3;
@@ -1714,7 +1732,7 @@ static THREAD_RET THREAD_CALL c34_thread(void *param)
 						predY=_mm256_sub_epi16(predY, NW[0]);
 						predU=_mm256_sub_epi16(predU, NW[1]);
 						predV=_mm256_sub_epi16(predV, NW[2]);
-#if 0
+#if 1
 						mcg[0]=predY;
 						mcg[1]=predU;
 						mcg[2]=predV;
@@ -1757,10 +1775,7 @@ static THREAD_RET THREAD_CALL c34_thread(void *param)
 							mp[3]=_mm256_setzero_si256();
 							mp[4]=_mm256_setzero_si256();
 							mp[5]=_mm256_setzero_si256();
-		#if defined __GNUC__ && !defined PROFILER
-		#pragma GCC unroll 4
-		#endif
-							for(int k=0;k<L1_NPREDS1;++k)
+							for(int k=0;k<NPREDS1;++k)
 							{
 								//16 -> 32		3 lo 3 hi registers
 								t[0]=_mm256_slli_epi32(L1preds[k*3+0], 16);
@@ -1785,15 +1800,8 @@ static THREAD_RET THREAD_CALL c34_thread(void *param)
 								mp[4]=_mm256_add_epi32(mp[4], t[4]);
 								mp[5]=_mm256_add_epi32(mp[5], t[5]);
 							}
-							//__m256i rcon=_mm256_set1_epi32((1<<L1_SH1)-1);
-							//mp[0]=_mm256_add_epi32(mp[0], _mm256_and_si256(rcon, _mm256_srli_epi32(mp[0], 31)));//rounding to zero
-							//mp[1]=_mm256_add_epi32(mp[1], _mm256_and_si256(rcon, _mm256_srli_epi32(mp[1], 31)));
-							//mp[2]=_mm256_add_epi32(mp[2], _mm256_and_si256(rcon, _mm256_srli_epi32(mp[2], 31)));
-							//mp[3]=_mm256_add_epi32(mp[3], _mm256_and_si256(rcon, _mm256_srli_epi32(mp[3], 31)));
-							//mp[4]=_mm256_add_epi32(mp[4], _mm256_and_si256(rcon, _mm256_srli_epi32(mp[4], 31)));
-							//mp[5]=_mm256_add_epi32(mp[5], _mm256_and_si256(rcon, _mm256_srli_epi32(mp[5], 31)));
 
-							__m256i rcon=_mm256_set1_epi32(1<<L1_SH1>>1);
+							__m256i rcon=_mm256_set1_epi32(1<<SH1>>1);
 							mp[0]=_mm256_add_epi32(mp[0], rcon);//rounding to nearest
 							mp[1]=_mm256_add_epi32(mp[1], rcon);
 							mp[2]=_mm256_add_epi32(mp[2], rcon);
@@ -1801,12 +1809,12 @@ static THREAD_RET THREAD_CALL c34_thread(void *param)
 							mp[4]=_mm256_add_epi32(mp[4], rcon);
 							mp[5]=_mm256_add_epi32(mp[5], rcon);
 
-							mp[0]=_mm256_srai_epi32(mp[0], L1_SH1);
-							mp[1]=_mm256_srai_epi32(mp[1], L1_SH1);
-							mp[2]=_mm256_srai_epi32(mp[2], L1_SH1);
-							mp[3]=_mm256_slli_epi32(mp[3], 16-L1_SH1);
-							mp[4]=_mm256_slli_epi32(mp[4], 16-L1_SH1);
-							mp[5]=_mm256_slli_epi32(mp[5], 16-L1_SH1);
+							mp[0]=_mm256_srai_epi32(mp[0], SH1);
+							mp[1]=_mm256_srai_epi32(mp[1], SH1);
+							mp[2]=_mm256_srai_epi32(mp[2], SH1);
+							mp[3]=_mm256_slli_epi32(mp[3], 16-SH1);
+							mp[4]=_mm256_slli_epi32(mp[4], 16-SH1);
+							mp[5]=_mm256_slli_epi32(mp[5], 16-SH1);
 							//32 -> 16
 							predY=_mm256_blend_epi16(mp[0], mp[3], 0xAA);
 							predU=_mm256_blend_epi16(mp[1], mp[4], 0xAA);
@@ -1939,25 +1947,7 @@ static THREAD_RET THREAD_CALL c34_thread(void *param)
 							mp[3]=_mm256_setzero_si256();
 							mp[4]=_mm256_setzero_si256();
 							mp[5]=_mm256_setzero_si256();
-
-							//mp[0]=_mm256_load_si256((__m256i*)L1coeffs+L1_NPREDS3*6+0);//bias
-							//mp[1]=_mm256_load_si256((__m256i*)L1coeffs+L1_NPREDS3*6+1);
-							//mp[2]=_mm256_load_si256((__m256i*)L1coeffs+L1_NPREDS3*6+2);
-							//mp[3]=_mm256_load_si256((__m256i*)L1coeffs+L1_NPREDS3*6+3);
-							//mp[4]=_mm256_load_si256((__m256i*)L1coeffs+L1_NPREDS3*6+4);
-							//mp[5]=_mm256_load_si256((__m256i*)L1coeffs+L1_NPREDS3*6+5);
-		#ifdef PRINT_L1_BOUNDS
-							for(int k2=0;k2<6*8;++k2)
-							{
-								int bias=L1coeffs[L1_NPREDS3*6*8+k2];
-								if(bmin>bias)bmin=bias;
-								if(bmax<bias)bmax=bias;
-							}
-		#endif
-		#if defined __GNUC__ && !defined PROFILER
-		#pragma GCC unroll 8
-		#endif
-							for(int k=0;k<L1_NPREDS2;++k)
+							for(int k=0;k<NPREDS2;++k)
 							{
 								//16 -> 32		3 lo 3 hi registers
 								t[0]=_mm256_slli_epi32(L1preds[k*3+0], 16);
@@ -1982,7 +1972,7 @@ static THREAD_RET THREAD_CALL c34_thread(void *param)
 								mp[4]=_mm256_add_epi32(mp[4], t[4]);
 								mp[5]=_mm256_add_epi32(mp[5], t[5]);
 							}
-							__m256i rcon=_mm256_set1_epi32(1<<L1_SH2>>1);
+							__m256i rcon=_mm256_set1_epi32(1<<SH2>>1);
 							mp[0]=_mm256_add_epi32(mp[0], rcon);//rounding to nearest
 							mp[1]=_mm256_add_epi32(mp[1], rcon);
 							mp[2]=_mm256_add_epi32(mp[2], rcon);
@@ -1990,12 +1980,12 @@ static THREAD_RET THREAD_CALL c34_thread(void *param)
 							mp[4]=_mm256_add_epi32(mp[4], rcon);
 							mp[5]=_mm256_add_epi32(mp[5], rcon);
 
-							mp[0]=_mm256_srai_epi32(mp[0], L1_SH2);
-							mp[1]=_mm256_srai_epi32(mp[1], L1_SH2);
-							mp[2]=_mm256_srai_epi32(mp[2], L1_SH2);
-							mp[3]=_mm256_srai_epi32(mp[3], L1_SH2-16);
-							mp[4]=_mm256_srai_epi32(mp[4], L1_SH2-16);
-							mp[5]=_mm256_srai_epi32(mp[5], L1_SH2-16);
+							mp[0]=_mm256_srai_epi32(mp[0], SH2);
+							mp[1]=_mm256_srai_epi32(mp[1], SH2);
+							mp[2]=_mm256_srai_epi32(mp[2], SH2);
+							mp[3]=_mm256_srai_epi32(mp[3], SH2-16);
+							mp[4]=_mm256_srai_epi32(mp[4], SH2-16);
+							mp[5]=_mm256_srai_epi32(mp[5], SH2-16);
 							//32 -> 16
 							predY=_mm256_blend_epi16(mp[0], mp[3], 0xAA);
 							predU=_mm256_blend_epi16(mp[1], mp[4], 0xAA);
@@ -2112,7 +2102,6 @@ static THREAD_RET THREAD_CALL c34_thread(void *param)
 							L1preds[9*3+2]=_mm256_sub_epi16(cache[2], _mm256_load_si256((__m256i*)rows[2]+0+2+1*6));
 					
 							//(WWWW+WWW+NNN+NNEE+NEEE+NEEEE-(N+W))>>2
-		#if 1
 							cache[0]=_mm256_load_si256((__m256i*)rows[0]+0+0-4*6);//WWWW
 							cache[1]=_mm256_load_si256((__m256i*)rows[0]+0+1-4*6);
 							cache[2]=_mm256_load_si256((__m256i*)rows[0]+0+2-4*6);
@@ -2137,7 +2126,6 @@ static THREAD_RET THREAD_CALL c34_thread(void *param)
 							L1preds[10*3+0]=_mm256_srai_epi16(cache[0], 2);
 							L1preds[10*3+1]=_mm256_srai_epi16(cache[1], 2);
 							L1preds[10*3+2]=_mm256_srai_epi16(cache[2], 2);
-		#endif
 
 
 							//mix
@@ -2148,25 +2136,7 @@ static THREAD_RET THREAD_CALL c34_thread(void *param)
 							mp[3]=_mm256_setzero_si256();
 							mp[4]=_mm256_setzero_si256();
 							mp[5]=_mm256_setzero_si256();
-
-							//mp[0]=_mm256_load_si256((__m256i*)L1coeffs+L1_NPREDS3*6+0);//bias
-							//mp[1]=_mm256_load_si256((__m256i*)L1coeffs+L1_NPREDS3*6+1);
-							//mp[2]=_mm256_load_si256((__m256i*)L1coeffs+L1_NPREDS3*6+2);
-							//mp[3]=_mm256_load_si256((__m256i*)L1coeffs+L1_NPREDS3*6+3);
-							//mp[4]=_mm256_load_si256((__m256i*)L1coeffs+L1_NPREDS3*6+4);
-							//mp[5]=_mm256_load_si256((__m256i*)L1coeffs+L1_NPREDS3*6+5);
-		#ifdef PRINT_L1_BOUNDS
-							for(int k2=0;k2<6*8;++k2)
-							{
-								int bias=L1coeffs[L1_NPREDS3*6*8+k2];
-								if(bmin>bias)bmin=bias;
-								if(bmax<bias)bmax=bias;
-							}
-		#endif
-		//#if defined __GNUC__ && !defined PROFILER
-		//#pragma GCC unroll 11
-		//#endif
-							for(int k=0;k<L1_NPREDS3;++k)
+							for(int k=0;k<NPREDS3;++k)
 							{
 								//16 -> 32		3 lo 3 hi registers
 								t[0]=_mm256_slli_epi32(L1preds[k*3+0], 16);
@@ -2191,7 +2161,7 @@ static THREAD_RET THREAD_CALL c34_thread(void *param)
 								mp[4]=_mm256_add_epi32(mp[4], t[4]);
 								mp[5]=_mm256_add_epi32(mp[5], t[5]);
 							}
-							__m256i rcon=_mm256_set1_epi32(1<<L1_SH3>>1);
+							__m256i rcon=_mm256_set1_epi32(1<<SH3>>1);
 							mp[0]=_mm256_add_epi32(mp[0], rcon);//rounding to nearest
 							mp[1]=_mm256_add_epi32(mp[1], rcon);
 							mp[2]=_mm256_add_epi32(mp[2], rcon);
@@ -2199,12 +2169,12 @@ static THREAD_RET THREAD_CALL c34_thread(void *param)
 							mp[4]=_mm256_add_epi32(mp[4], rcon);
 							mp[5]=_mm256_add_epi32(mp[5], rcon);
 
-							mp[0]=_mm256_srai_epi32(mp[0], L1_SH3);
-							mp[1]=_mm256_srai_epi32(mp[1], L1_SH3);
-							mp[2]=_mm256_srai_epi32(mp[2], L1_SH3);
-							mp[3]=_mm256_srai_epi32(mp[3], L1_SH3-16);
-							mp[4]=_mm256_srai_epi32(mp[4], L1_SH3-16);
-							mp[5]=_mm256_srai_epi32(mp[5], L1_SH3-16);
+							mp[0]=_mm256_srai_epi32(mp[0], SH3);
+							mp[1]=_mm256_srai_epi32(mp[1], SH3);
+							mp[2]=_mm256_srai_epi32(mp[2], SH3);
+							mp[3]=_mm256_srai_epi32(mp[3], SH3-16);
+							mp[4]=_mm256_srai_epi32(mp[4], SH3-16);
+							mp[5]=_mm256_srai_epi32(mp[5], SH3-16);
 							//32 -> 16
 							predY=_mm256_blend_epi16(mp[0], mp[3], 0xAA);
 							predU=_mm256_blend_epi16(mp[1], mp[4], 0xAA);
@@ -2251,10 +2221,6 @@ static THREAD_RET THREAD_CALL c34_thread(void *param)
 						predY=_mm256_min_epi16(predY, ymax);
 						predU=_mm256_min_epi16(predU, umax);
 						predV=_mm256_min_epi16(predV, vmax);
-
-						//predY=_mm256_setzero_si256();//
-						//predU=_mm256_setzero_si256();//
-						//predV=_mm256_setzero_si256();//
 					}
 					
 					//if(kb==1&&ky==35&&kx==83)//
@@ -2710,7 +2676,7 @@ static THREAD_RET THREAD_CALL c34_thread(void *param)
 						}
 #endif
 					}
-#if 0
+#if 1
 					if(effort==1)//update
 					{
 						__m256i mu[3];
@@ -2718,10 +2684,7 @@ static THREAD_RET THREAD_CALL c34_thread(void *param)
 						mu[0]=_mm256_sub_epi16(W[0], predYUV0[0]);
 						mu[1]=_mm256_sub_epi16(W[1], predYUV0[1]);
 						mu[2]=_mm256_sub_epi16(W[2], predYUV0[2]);
-#if defined __GNUC__ && !defined PROFILER
-#pragma GCC unroll 4
-#endif
-						for(int k=0;k<L1_NPREDS1;++k)//update
+						for(int k=0;k<NPREDS1;++k)//update
 						{
 							__m256i mc[6];
 							mc[0]=_mm256_sign_epi16(L1preds[k*3+0], mu[0]);//L1
@@ -2762,10 +2725,7 @@ static THREAD_RET THREAD_CALL c34_thread(void *param)
 						mu[0]=_mm256_sub_epi16(W[0], predYUV0[0]);
 						mu[1]=_mm256_sub_epi16(W[1], predYUV0[1]);
 						mu[2]=_mm256_sub_epi16(W[2], predYUV0[2]);
-		#if defined __GNUC__ && !defined PROFILER
-		#pragma GCC unroll 8
-		#endif
-						for(int k=0;k<L1_NPREDS2;++k)//update
+						for(int k=0;k<NPREDS2;++k)//update
 						{
 							__m256i mc[6];
 							mc[0]=_mm256_sign_epi16(L1preds[k*3+0], mu[0]);
@@ -2802,10 +2762,7 @@ static THREAD_RET THREAD_CALL c34_thread(void *param)
 						mu[0]=_mm256_sub_epi16(W[0], predYUV0[0]);
 						mu[1]=_mm256_sub_epi16(W[1], predYUV0[1]);
 						mu[2]=_mm256_sub_epi16(W[2], predYUV0[2]);
-		//#if defined __GNUC__ && !defined PROFILER
-		//#pragma GCC unroll 11
-		//#endif
-						for(int k=0;k<L1_NPREDS3;++k)//update
+						for(int k=0;k<NPREDS3;++k)//update
 						{
 							__m256i mc[6];
 							mc[0]=_mm256_sign_epi16(L1preds[k*3+0], mu[0]);
@@ -3129,6 +3086,7 @@ int c34_codec(int argc, char **argv)
 	ptrdiff_t csize=0;
 	uint8_t *rbuf=0, *rstream=0;
 	ptrdiff_t rsize;
+	ptrdiff_t dstsize=0;
 
 	prof_start();
 
@@ -3141,9 +3099,8 @@ int c34_codec(int argc, char **argv)
 	if(argc<3)
 	{
 		printf(
-			"Usage:  \"%s\"  input  output  [-d distortion  -m nthreads  -p]\n"
-		//	"Usage:  \"%s\"  input  output  [-e effort  -d distortion  -m nthreads  -p]\n"
-		//	"  -e effort      0: No prediction    1: CG    2: L1A    3: L1B (default)\n"
+			"Usage:  \"%s\"  input  output  [-e effort  -d distortion  -m nthreads  -p]\n"
+			"  -e effort      0: CG    1: L1A    2: L1B (default)    3: L1C\n"
 			"  -d distortion  0: Lossless (default)    otherwise 4 <= dist. <= 16\n"
 			"  -m nthreads    0: MT (default)    1: ST    2...: specify number of threads\n"
 			"  -p             Performance profiler\n"
@@ -3153,7 +3110,7 @@ int c34_codec(int argc, char **argv)
 	}
 	srcfn=argv[1];
 	dstfn=argv[2];
-	nthreads=0, effort=3, dist=0, profiler=0;
+	nthreads=0, effort=DEFAULT_EFFORT_LEVEL, dist=0, profiler=0;
 
 	//parse command args
 	{
@@ -3296,6 +3253,8 @@ int c34_codec(int argc, char **argv)
 			fread(&ih, 1, 4, fsrc);
 			dist=0;
 			fread(&dist, 1, 1, fsrc);
+			effort=DEFAULT_EFFORT_LEVEL;
+			fread(&effort, 1, 1, fsrc);
 
 			nread=ftell(fsrc);
 			streamsize=srcsize-nread;
@@ -3576,8 +3535,39 @@ int c34_codec(int argc, char **argv)
 	}
 
 	//write output
+#ifdef _WIN32
+	if(!fwd)
 	{
-		ptrdiff_t dstsize=0;
+		OVERLAPPED overlapped={0};
+		DWORD nwritten;
+		char header[128]={0};
+		int hlen;
+		int success;
+		HANDLE hdst;
+		//SYSTEM_INFO info;
+
+		//GetSystemInfo(&info);
+		//info.dwPageSize;
+		hdst=CreateFileA(dstfn, GENERIC_WRITE, 0, 0, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL|FILE_FLAG_SEQUENTIAL_SCAN, 0);
+		if(hdst==INVALID_HANDLE_VALUE)
+		{
+			CRASH("Cannot open \"%s\" for writing", dstfn);
+			return 1;
+		}
+
+		hlen=snprintf(header, sizeof(header)-1, "P6\n%d %d\n255\n", iw, ih);
+		nwritten=0;
+		success=WriteFile(hdst, header, hlen, &nwritten, &overlapped);
+		dstsize+=nwritten;
+		overlapped.Offset=nwritten;
+		success=WriteFile(hdst, image, (DWORD)usize, &nwritten, &overlapped);
+		dstsize+=nwritten;
+		CloseHandle(hdst);
+		(void)success;
+	}
+	else
+#endif
+	{
 		FILE *fdst=fopen(dstfn, "wb");
 		if(!fdst)
 		{
@@ -3590,6 +3580,7 @@ int c34_codec(int argc, char **argv)
 			csize+=fwrite(&iw, 1, 4, fdst);
 			csize+=fwrite(&ih, 1, 4, fdst);
 			csize+=fwrite(&dist, 1, 1, fdst);
+			csize+=fwrite(&effort, 1, 1, fdst);
 			csize+=fwrite(bsizes, 1, nblocks*sizeof(int), fdst);
 			for(int kt=0;kt<nthreads;++kt)
 			{
@@ -3612,14 +3603,14 @@ int c34_codec(int argc, char **argv)
 		}
 		else
 		{
-			csize=srcsize;
 			dstsize+=fprintf(fdst, "P6\n%d %d\n255\n", iw, ih);
 			dstsize+=fwrite(image, 1, usize, fdst);
+			csize=srcsize;
 		}
 		fclose(fdst);
-		PROF(write, dstsize);
 		(void)dstsize;
 	}
+	PROF(write, dstsize);
 #if 0
 	if(fwd)
 	{
