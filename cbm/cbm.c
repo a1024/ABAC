@@ -1,4 +1,5 @@
 ﻿#include"util.h"
+#include<stdint.h>
 #include<stdio.h>
 #include<stdlib.h>
 #include<string.h>
@@ -21,6 +22,15 @@ static const char file[]=__FILE__;
 
 static char g_buf2[8192]={0};
 
+typedef union _DateTime
+{
+	struct
+	{
+		uint8_t ds, second, minute, hour, day, month;
+		uint16_t year;
+	};
+	uint64_t timestamp;
+} DateTime;
 typedef enum _CmdFlags
 {
 	CMDFLAG_VERIFY_BITEXACT=0,
@@ -664,7 +674,7 @@ typedef struct _CellInfo
 typedef struct _TestInfo
 {
 	ArrayHandle codecname;
-	time_t timestamp;
+	DateTime datetime;
 	CellInfo total;
 	ArrayHandle cells;
 } TestInfo;
@@ -1234,7 +1244,14 @@ static void print_summary(ArrayHandle besttestidxs, ArrayHandle testinfo, ptrdif
 			(double)test->total.emem/(1024*1024),
 			(double)test->total.dmem/(1024*1024)
 		);
-		print_timestamp(0, 0, test->timestamp);
+		printf("%04d%02d%02d_%02d%02d%02d"
+			, test->datetime.year
+			, test->datetime.month
+			, test->datetime.day
+			, test->datetime.hour
+			, test->datetime.minute
+			, test->datetime.second
+		);
 		if((unsigned)special<(unsigned)besttestidxs->count)
 		{
 			if(k2==special)
@@ -1394,6 +1411,7 @@ codec_CODEC.TXT
 enc command template
 dec command template
 */
+			//int dst=0;
 			const char *start=(char*)text->data, *ptr=start, *end=start+text->count;
 			srcpath=parse_str(start, &ptr, '\t', 0);
 			skipspace(&ptr);
@@ -1415,7 +1433,11 @@ dec command template
 				LOG_ERROR("No %s files in \"%s\"", ext->data, srcpath->data);
 				return 0;
 			}
-
+			//{
+			//	time_t current=time(0);
+			//	struct tm *local=localtime(&current);
+			//	dst=local->tm_isdst;
+			//}
 			ARRAY_ALLOC(TestInfo, testinfo, 0, 0, 0, free_testinfo);
 			skiplabel(start, &ptr, "tests:");
 			skipspace(&ptr);
@@ -1425,6 +1447,23 @@ dec command template
 				info->codecname=parse_str(start, &ptr, '\t', 0);
 
 				//YYYYmmdd_HHMMSS
+#if 1
+				skipspace(&ptr);
+				info->datetime.year=10*(10*(10*(ptr[0]-'0')+ptr[1]-'0')+ptr[2]-'0')+ptr[3]-'0';
+				ptr+=4;
+				info->datetime.month=10*(ptr[0]-'0')+ptr[1]-'0';
+				ptr+=2;
+				info->datetime.day=10*(ptr[0]-'0')+ptr[1]-'0';
+				ptr+=3;//skip '_'
+				info->datetime.hour=10*(ptr[0]-'0')+ptr[1]-'0';
+				ptr+=2;
+				info->datetime.minute=10*(ptr[0]-'0')+ptr[1]-'0';
+				ptr+=2;
+				info->datetime.second=10*(ptr[0]-'0')+ptr[1]-'0';
+				info->datetime.ds=0;
+				ptr+=2;
+#endif
+#if 0
 				int d=(int)parse_uint(&ptr);
 				ptr+=*ptr=='_';
 				int t=(int)parse_uint(&ptr);
@@ -1454,8 +1493,9 @@ dec command template
 					LOG_ERROR("Invalid timestamp %04d-%02d-%02d_%02d-%02d-%02d",
 						date.tm_year+1900, date.tm_mon+1, date.tm_mday, date.tm_hour, date.tm_min, date.tm_sec
 					);
+				date.tm_isdst=dst;
 				info->timestamp=mktime(&date);
-
+#endif
 				parse_cell(&ptr, &info->total);
 				ARRAY_ALLOC(CellInfo, info->cells, 0, 0, 0, 0);
 				for(int k=0;k<(int)uinfo->count;++k)
@@ -1772,7 +1812,7 @@ dec command template
 		printf("Temp filenames:\n");//
 		printf("  \"%s\"\n", t1fn);
 		printf("  \"%s\"\n", t2fn);
-		printf("Working directory:\n");
+		printf("Wirking directory:\n");
 		printf("  \"%s\"\n", (char*)currdir->data);
 		printf("Commands:\n");
 		printf("  %s\n", encline);//
@@ -1807,7 +1847,16 @@ dec command template
 	colorprintf(COLORPRINTF_TXT_DEFAULT^0xFFFFFF, 0xFFC060, "%s", codecname);
 	printf("  %d images\n", (int)uinfo->count);
 //	printf("  %s %d  %s\n", datasetname, (int)uinfo->count, codecname);
-	currtest->timestamp=time(0);
+	{
+		time_t t=time(0);
+		struct tm *date=localtime(&t);
+		currtest->datetime.year		=date->tm_year+1900;
+		currtest->datetime.month	=date->tm_mon+1;
+		currtest->datetime.day		=date->tm_mday;
+		currtest->datetime.hour		=date->tm_hour;
+		currtest->datetime.minute	=date->tm_min;
+		currtest->datetime.second	=date->tm_sec;
+	}
 	for(int k=0;k<(int)uinfo->count;++k)
 	{
 		UInfo *info=(UInfo*)array_at(&uinfo, k);
@@ -1898,6 +1947,7 @@ dec command template
 		case CMDFLAG_SSIM_PPM:
 		//	measure_ssim_ppm_avx2((char*)info->filename->data, t1fn, currcell->csize, ssim, &ssim_weight);
 			measure_ssim_ppm((char*)info->filename->data, t1fn, currcell->csize, ssim, &ssim_weight);
+			(void)measure_ssim_ppm_avx2;
 			break;
 		}
 		ascii_deletefile(t1fn);
@@ -2009,16 +2059,25 @@ dec command template
 		for(int k=0;k<(int)testinfo->count;++k)
 		{
 			TestInfo *info=(TestInfo*)array_at(&testinfo, k);
-			struct tm *t=localtime(&info->timestamp);
 			fprintf(fdst, "%-20s\t%04d%02d%02d_%02d%02d%02d",
 				(char*)info->codecname->data,
-				t->tm_year+1900,
-				t->tm_mon+1,
-				t->tm_mday,
-				t->tm_hour,
-				t->tm_min,
-				t->tm_sec
+				info->datetime.year,
+				info->datetime.month,
+				info->datetime.day,
+				info->datetime.hour,
+				info->datetime.minute,
+				info->datetime.second
 			);
+			//struct tm *t=localtime(&info->timestamp);
+			//fprintf(fdst, "%-20s\t%04d%02d%02d_%02d%02d%02d",
+			//	(char*)info->codecname->data,
+			//	t->tm_year+1900,
+			//	t->tm_mon+1,
+			//	t->tm_mday,
+			//	t->tm_hour,
+			//	t->tm_min,
+			//	t->tm_sec
+			//);
 			write_cell(fdst, &info->total);
 			for(int k2=0;k2<(int)info->cells->count;++k2)
 			{
@@ -2041,6 +2100,5 @@ dec command template
 	array_free(&tmpfn2);
 	array_free(&besttestidxs);
 	array_free(&currdir);
-	(void)measure_ssim_ppm_avx2;
 	return 0;
 }
