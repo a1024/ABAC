@@ -378,8 +378,8 @@ typedef enum _RCTInfoIdx
 
 //	II_COEFF_Y_SUB_U,
 //	II_COEFF_Y_SUB_V,
-//	II_COEFF_U_SUB_V_NBLI,
-//	II_COEFF_V_SUB_U_NBLI,
+//	II_COEFF_U_SUB_V2,
+//	II_COEFF_V_SUB_U2,
 
 	II_COUNT,
 } RCTInfoIdx;
