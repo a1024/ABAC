@@ -17,6 +17,7 @@
 #include<x86intrin.h>
 #include<time.h>
 #endif
+#include<immintrin.h>
 
 
 #ifdef _MSC_VER
@@ -28,6 +29,8 @@
 //	#define PRINTBITS
 //	#define PRINTGR
 #endif
+
+//	#define USE_NONLINEARITY
 
 
 #define L1SH 18
@@ -153,7 +156,7 @@ static void guide_check(unsigned char *image, int kx, int ky)
 	int idx=3*(g_iw*ky+kx);
 	if(memcmp(image+idx, g_image+idx, 3))
 	{
-		CRASH("Guide error");
+		CRASH("Guide error  XY %d %d", kx, ky);
 		printf("");
 	}
 }
@@ -424,13 +427,22 @@ typedef struct _ACState
 {
 	uint64_t low, range, code;
 	unsigned char *ptr, *end;
-	uint32_t fwd, symidx, totalsyms;
+	uint32_t symidx, totalsyms;
 } ACState;
-INLINE void codebit(ACState *ac, uint32_t *pp0a, int32_t *bit)
+#ifdef USE_NONLINEARITY
+static int32_t squashtable[1<<PROBBITS_USE];
+#endif
+INLINE void codebit(ACState *ac, uint32_t *pp0, int32_t *bit, const int fwd)
 {
 	uint64_t r2, mid;
-	int32_t p0a=*pp0a;
-	int32_t p0=p0a>>(PROBBITS_STORE-PROBBITS_USE);
+
+	//uint32_t cell=*pp0;
+	//int32_t p0=cell&((1<<PROBBITS_USE)-1);
+	//int32_t ctr=cell>>PROBBITS_USE;
+
+	int32_t p00=*pp0;
+	int32_t p0=p00>>(PROBBITS_STORE-PROBBITS_USE);
+
 	if(ac->range<0xFFFF)
 	{
 		if(ac->ptr>=ac->end)
@@ -442,10 +454,9 @@ INLINE void codebit(ACState *ac, uint32_t *pp0a, int32_t *bit)
 			);
 			exit(1);
 		}
-		if(ac->fwd)
+		if(fwd)
 			*(uint32_t*)ac->ptr=(uint32_t)(ac->low>>32);
-		else
-			ac->code=ac->code<<32|*(uint32_t*)ac->ptr;
+		ac->code=ac->code<<32|*(uint32_t*)ac->ptr;
 		ac->ptr+=4;
 		ac->low<<=32;
 		ac->range=ac->range<<32|0xFFFFFFFF;
@@ -455,14 +466,398 @@ INLINE void codebit(ACState *ac, uint32_t *pp0a, int32_t *bit)
 	r2=ac->range*((uint64_t)p0+(p0<(1<<PROBBITS_USE>>1)))>>PROBBITS_USE;
 	mid=ac->low+r2;
 	ac->range-=r2;
-	if(!ac->fwd)
+	if(!fwd)
 		*bit=ac->code>=mid;
 	if(*bit)
 		ac->low=mid;
 	else
 		ac->range=r2-1;
+
+#if 0
+	++ctr;
+	if(ctr>(1<<(32-PROBBITS_USE))-1)
+		ctr=(1<<(32-PROBBITS_USE))-1;
+	{
+		static const int gaintable[]=
+		{
+			((1<<17)+ 1-1) /  1,
+			((1<<17)+ 2-1) /  2,
+			((1<<17)+ 3-1) /  3,
+			((1<<17)+ 4-1) /  4,
+			((1<<17)+ 5-1) /  5,
+			((1<<17)+ 6-1) /  6,
+			((1<<17)+ 7-1) /  7,
+			((1<<17)+ 8-1) /  8,
+			((1<<17)+ 9-1) /  9,
+			((1<<17)+10-1) / 10,
+			((1<<17)+11-1) / 11,
+			((1<<17)+12-1) / 12,
+			((1<<17)+13-1) / 13,
+			((1<<17)+14-1) / 14,
+			((1<<17)+15-1) / 15,
+			((1<<17)+16-1) / 16,
+			((1<<17)+17-1) / 17,
+		};
+		int gain=32-_lzcnt_u32(ctr);
+		gain=gaintable[gain];
+		p0+=(((int64_t)!*bit<<PROBBITS_USE)-p0)*gain>>(17+3);
+	//	p0+=((!*bit<<PROBBITS_USE)-p0)/gain>>3;
+	}
+	*pp0=ctr<<PROBBITS_USE|p0;
+#endif
+
 	int32_t truth=!*bit<<PROBBITS_STORE;
-	*pp0a=p0a+((int32_t)(truth-p0a)>>6);
+	*pp0=p00+((int32_t)(truth-p00)>>6);
+}
+INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint8_t *stream, ACState *ac, const int fwd)
+{
+	int
+		yidx=rct_combinations[bestrct][II_PERM_Y],
+		uidx=rct_combinations[bestrct][II_PERM_U],
+		vidx=rct_combinations[bestrct][II_PERM_V],
+		cu0=rct_combinations[bestrct][II_COEFF_U_SUB_Y],
+		cv0=rct_combinations[bestrct][II_COEFF_V_SUB_Y],
+		cv1=rct_combinations[bestrct][II_COEFF_V_SUB_U];
+	int32_t ky, kx, idx;
+	int32_t psize=0;
+	int16_t *pixels=0;
+	int32_t paddedwidth=iw+16;
+
+	int32_t coeffs[3][L1NPREDS+1]={0};
+
+	int32_t invdist=((1<<16)+dist-1)/dist;
+	uint8_t *imptr=image;
+
+	psize=(int32_t)sizeof(int16_t[4*3*2])*(iw+16);//4 padded rows * 3 channels * {pixels, nbypass}
+	pixels=(int16_t*)malloc(psize);
+	if(!pixels)
+	{
+		CRASH("Alloc error\n");
+		free(image);
+		free(stream);
+		return;
+	}
+	memset(pixels, 0, psize);
+//	FILLMEM((uint32_t*)stats, 0xFFFFFFFF<<PROBBITS_USE|1<<PROBBITS_USE>>1, sizeof(stats), sizeof(int32_t));
+	FILLMEM((uint32_t*)stats, 1<<PROBBITS_STORE>>1, sizeof(stats), sizeof(int32_t));
+//	memset(stats, 0, sizeof(stats));
+	FILLMEM((int32_t*)coeffs, (1<<L1SH)/L1NPREDS, sizeof(coeffs), sizeof(int32_t));
+	for(ky=0, idx=0;ky<ih;++ky)
+	{
+		char yuv[4]={0};
+		int16_t *rows[]=
+		{
+			pixels+(paddedwidth*((ky-0)&3)+8)*3*2,
+			pixels+(paddedwidth*((ky-1)&3)+8)*3*2,
+			pixels+(paddedwidth*((ky-2)&3)+8)*3*2,
+			pixels+(paddedwidth*((ky-3)&3)+8)*3*2,
+		};
+		for(kx=0;kx<iw;++kx, ++idx)
+		{
+			int kc;
+			int offset;
+
+			if(fwd)
+			{
+				yuv[0]=imptr[yidx]-128;
+				yuv[1]=imptr[uidx]-128;
+				yuv[2]=imptr[vidx]-128;
+			}
+			offset=0;
+			for(kc=0;kc<3;++kc)
+			{
+				int32_t
+					NNN	=rows[3][0+0*3*2],
+					NNE	=rows[2][0+1*3*2],
+					NN	=rows[2][0+0*3*2],
+					NW	=rows[1][0-1*3*2],
+					N	=rows[1][0+0*3*2],
+					NE	=rows[1][0+1*3*2],
+					NEE	=rows[1][0+2*3*2],
+					NEEE	=rows[1][0+3*3*2],
+					NEEEE	=rows[1][0+4*3*2],
+					WWWW	=rows[0][0-4*3*2],
+					WWW	=rows[0][0-3*3*2],
+					WW	=rows[0][0-2*3*2],
+					W	=rows[0][0-1*3*2],
+					eNEE	=rows[1][1+2*3*2],
+					eNEEE	=rows[1][1+3*3*2],
+					eW	=rows[0][1-1*3*2];
+				int32_t pred, vmax, vmin, pred0;
+				int32_t error;
+				int32_t nbypass, nzeros=-1, bypass=0;
+				int32_t tidx=0;
+				uint32_t *statsptr;
+				int32_t bit;
+
+				int32_t preds[]=
+				{
+#define PRED(EXPR) EXPR,
+					PREDLIST
+#undef  PRED
+				};
+				pred=coeffs[kc][L1NPREDS];
+				{
+					int j=0;
+					for(;j<L1NPREDS;++j)
+						pred+=coeffs[kc][j]*preds[j];
+				}
+				pred+=1<<L1SH>>1;
+				pred>>=L1SH;
+				pred0=pred;
+				vmax=N, vmin=W;
+				if(N<W)vmin=N, vmax=W;
+				if(vmin>NE)vmin=NE;
+				if(vmax<NE)vmax=NE;
+				if(vmin>NEEE)vmin=NEEE;
+				if(vmax<NEEE)vmax=NEEE;
+				CLAMP2(pred, vmin, vmax);
+
+				pred+=offset;
+				CLAMP2(pred, -128, 127);
+
+				{
+					float fval=(float)(eW+1);
+					size_t addr=(size_t)&fval;
+					int32_t bits=*(int32_t*)addr;
+					nbypass=(bits>>23)-127-GRBITS;
+					if(nbypass<0)
+						nbypass=0;
+				}
+#if 0
+				statsptr=stats[kc][eW>>GRBITS];
+				//statsptr=stats[kc][nbypass][(pred+128)&255];
+				int step=1<<nbypass;
+				if(fwd)
+				{
+					if(dist>1)
+					{
+						int e2=yuv[kc]-pred;
+						if(e2<0)
+							e2+=dist-1;
+						e2=e2*invdist>>16;
+						error=e2<<1^e2>>31;
+						yuv[kc]=e2*dist+pred;
+						CLAMP2(yuv[kc], -128, 127);
+					}
+					else
+					{
+						error=(char)(yuv[kc]-pred);
+						error=error<<1^error>>31;
+					}
+					nzeros=error>>nbypass;
+					bypass=error&((1<<nbypass)-1);
+#ifdef ESTIMATE_SIZE
+					++hist[kc][error];
+#endif
+				}
+				else
+					error=0;
+				tidx=0;
+				do
+				{
+					int tidx2=tidx+step;
+					bit=tidx2<error;
+					codebit(&ac, statsptr+tidx, &bit);
+					tidx=tidx2;
+				}while(bit);
+				tidx-=step;
+				while(step)
+				{
+					int floorhalf=step>>1;
+					int mid=tidx+floorhalf;
+					bit=mid<error;
+					codebit(&ac, statsptr+mid, &bit);
+					tidx+=(step-floorhalf)&-bit;
+					step=floorhalf;
+				}
+				if(!fwd)
+				{
+					error=tidx;
+					error=error>>1^-(error&1);
+					if(dist>1)
+					{
+						yuv[kc]=error*dist+pred;
+						CLAMP2(yuv[kc], -128, 127);
+					}
+					else
+						yuv[kc]=(char)(error+pred);
+				}
+#ifdef _DEBUG
+				else if(error!=tidx)
+					CRASH("");
+#endif
+#endif
+#if 1
+				statsptr=stats[kc][(pred+128)&255][nbypass];
+				int upred=128-abs(pred);
+					
+				//if(ky==193&&kx==975&&!kc)//
+				//if(ky==415&&kx==996&&!kc)//
+				//	printf("");
+
+				if(fwd)
+				{
+					if(dist>1)
+					{
+						int e2=yuv[kc]-pred;
+						if(e2<0)
+							e2+=dist-1;
+						e2=e2*invdist>>16;
+						error=e2<<1^e2>>31;
+						yuv[kc]=e2*dist+pred;
+						CLAMP2(yuv[kc], -128, 127);
+					}
+					else
+					{
+						error=yuv[kc]-pred;
+						{
+							int negmask=error>>31;
+							int abserr=(error^negmask)-negmask;
+							error=error<<1^negmask;
+							if(upred<abserr)
+								error=upred+abserr;
+							if(error==256)
+							{
+								error=(char)(yuv[kc]-pred);
+								error=error<<1^error>>31;
+							}
+						}
+#if 0
+						if(pred>0&&yuv[kc]==-128)
+						{
+							error=(char)(yuv[kc]-pred);
+							error=error<<1^error>>31;
+						}
+						else
+						{
+							error=yuv[kc]-pred;
+							{
+								int negmask=error>>31;
+								int abserr=(error^negmask)-negmask;
+								error=error<<1^negmask;
+								if(upred<abserr)
+									error=upred+abserr;
+							}
+						}
+#endif
+						//error=(char)(yuv[kc]-pred);
+						//error=error<<1^error>>31;
+					}
+					nzeros=error>>nbypass;
+					bypass=error&((1<<nbypass)-1);
+#ifdef ESTIMATE_SIZE
+					++hist[kc][error];
+#endif
+#ifdef PRINTGR
+					{
+						float fval=(float)(error+1);
+						size_t addr=(size_t)&fval;
+						int32_t bits=*(int32_t*)addr;
+						bits=(bits>>23)-127;
+						gr_bypsum+=nbypass;
+						gr_symlen+=bits;
+					}
+#endif
+				}
+				else
+					error=0;
+				do
+				{
+					bit=nzeros--<=0;
+					codebit(ac, statsptr+tidx, &bit, fwd);
+#ifdef PRINTBITS
+					if(fwd&&(unsigned)(idx-(usize>>2))<1000)printf("%c", '0'+bit);//
+#endif
+					++tidx;
+					if(tidx==GRLIMIT)
+					{
+						tidx=1;
+						nbypass=8;
+						if(fwd)
+							bypass=error;
+						break;
+					}
+				}while(!bit);
+				{
+					int32_t kb=nbypass-1;
+
+					for(;kb>=0;--kb)
+					{
+						bit=bypass>>kb&1;
+						codebit(ac, statsptr+GRLIMIT+8-nbypass+kb, &bit, fwd);
+						bypass|=bit<<kb;
+#ifdef PRINTBITS
+						if(fwd&&(unsigned)(idx-(usize>>2))<1000)printf("%c", '0'+bit);//
+#endif
+					}
+				}
+				if(!fwd)
+				{
+					error=(tidx-1)<<nbypass|bypass;
+					if(dist>1)
+					{
+						error=error>>1^-(error&1);
+						yuv[kc]=error*dist+pred;
+						CLAMP2(yuv[kc], -128, 127);
+					}
+					else
+					{
+						if(2*pred+error==256)
+						{
+							error=error>>1^-(error&1);
+							yuv[kc]=(char)(error+pred);
+						}
+						else
+						{
+							int negmask=pred>>31;
+							int sym=error;
+							int e2=upred-sym;
+							error=sym>>1^-(sym&1);
+							e2=(e2^negmask)-negmask;
+							if((upred<<1)<sym)
+								error=e2;
+							yuv[kc]=error+pred;
+						}
+						//error=error>>1^-(error&1);
+						//yuv[kc]=(char)(error+pred);
+					}
+				}
+#endif
+
+				{
+					int32_t k, e=yuv[kc]-offset;
+					e=(e>pred0)-(e<pred0);
+					coeffs[kc][L1NPREDS]+=e;
+					for(k=0;k<L1NPREDS;++k)
+						coeffs[kc][k]+=e*preds[k];
+				}
+				error=abs(yuv[kc]-pred);
+				rows[0][0]=yuv[kc]-offset;
+				rows[0][1]=(2*eW+(error<<GRBITS)+(eNEE>eNEEE?eNEE:eNEEE))>>2;
+				offset=(kc ? cv0*yuv[0]+cv1*yuv[1] : cu0*yuv[0])>>2;
+				//offset=kc ? yuv[vhelpidx] : yuv[uhelpidx];
+				rows[0]+=2;
+				rows[1]+=2;
+				rows[2]+=2;
+				rows[3]+=2;
+			}
+			if(!fwd)
+			{
+				imptr[yidx]=yuv[0]+128;
+				imptr[uidx]=yuv[1]+128;
+				imptr[vidx]=yuv[2]+128;
+#ifdef ENABLE_GUIDE
+				if(dist>1)
+					guide_update(image, kx, ky);
+				else
+					guide_check(image, kx, ky);
+#endif
+			}
+			imptr+=3;
+		}
+	}
+	free(pixels);
 }
 int c12_codec(int argc, char **argv)
 {
@@ -783,7 +1178,6 @@ int c12_codec(int argc, char **argv)
 		return 1;
 	}
 #endif
-	ac.fwd=fwd;
 	if(fwd)
 	{
 		//analysis
@@ -913,351 +1307,10 @@ int c12_codec(int argc, char **argv)
 
 		csize=srcsize;
 	}
-	{
-		int
-			yidx=rct_combinations[bestrct][II_PERM_Y],
-			uidx=rct_combinations[bestrct][II_PERM_U],
-			vidx=rct_combinations[bestrct][II_PERM_V],
-			cu0=rct_combinations[bestrct][II_COEFF_U_SUB_Y],
-			cv0=rct_combinations[bestrct][II_COEFF_V_SUB_Y],
-			cv1=rct_combinations[bestrct][II_COEFF_V_SUB_U];
-		int32_t ky, kx, idx;
-		int32_t psize=0;
-		int16_t *pixels=0;
-		int32_t paddedwidth=iw+16;
-
-		int32_t coeffs[3][L1NPREDS+1]={0};
-
-		int32_t invdist=((1<<16)+dist-1)/dist;
-
-		psize=(int32_t)sizeof(int16_t[4*3*2])*(iw+16);//4 padded rows * 3 channels * {pixels, nbypass}
-		pixels=(int16_t*)malloc(psize);
-		if(!pixels)
-		{
-			CRASH("Alloc error\n");
-			free(image);
-			free(stream);
-			return 1;
-		}
-		memset(pixels, 0, psize);
-		FILLMEM((uint32_t*)stats, 1<<PROBBITS_STORE>>1, sizeof(stats), sizeof(int32_t));
-		FILLMEM((int32_t*)coeffs, (1<<L1SH)/L1NPREDS, sizeof(coeffs), sizeof(int32_t));
-		for(ky=0, idx=0;ky<ih;++ky)
-		{
-			char yuv[4]={0};
-			int16_t *rows[]=
-			{
-				pixels+(paddedwidth*((ky-0)&3)+8)*3*2,
-				pixels+(paddedwidth*((ky-1)&3)+8)*3*2,
-				pixels+(paddedwidth*((ky-2)&3)+8)*3*2,
-				pixels+(paddedwidth*((ky-3)&3)+8)*3*2,
-			};
-			for(kx=0;kx<iw;++kx, ++idx)
-			{
-				int kc;
-				int offset;
-
-				if(fwd)
-				{
-					yuv[0]=imptr[yidx]-128;
-					yuv[1]=imptr[uidx]-128;
-					yuv[2]=imptr[vidx]-128;
-				}
-				offset=0;
-				for(kc=0;kc<3;++kc)
-				{
-					int32_t
-						NNN	=rows[3][0+0*3*2],
-						NNE	=rows[2][0+1*3*2],
-						NN	=rows[2][0+0*3*2],
-						NW	=rows[1][0-1*3*2],
-						N	=rows[1][0+0*3*2],
-						NE	=rows[1][0+1*3*2],
-						NEE	=rows[1][0+2*3*2],
-						NEEE	=rows[1][0+3*3*2],
-						NEEEE	=rows[1][0+4*3*2],
-						WWWW	=rows[0][0-4*3*2],
-						WWW	=rows[0][0-3*3*2],
-						WW	=rows[0][0-2*3*2],
-						W	=rows[0][0-1*3*2],
-						eNEEE	=rows[1][1-3*3*2],
-						eW	=rows[0][1-1*3*2];
-					int32_t pred, vmax, vmin, pred0;
-					int32_t error;
-					int32_t nbypass, nzeros=-1, bypass=0;
-					int32_t tidx=0;
-					uint32_t *statsptr;
-					int32_t bit;
-
-					int32_t preds[]=
-					{
-#define PRED(EXPR) EXPR,
-						PREDLIST
-#undef  PRED
-					};
-					pred=coeffs[kc][L1NPREDS];
-					{
-						int j=0;
-						for(;j<L1NPREDS;++j)
-							pred+=coeffs[kc][j]*preds[j];
-					}
-					pred+=1<<L1SH>>1;
-					pred>>=L1SH;
-					pred0=pred;
-					vmax=N, vmin=W;
-					if(N<W)vmin=N, vmax=W;
-					if(vmin>NE)vmin=NE;
-					if(vmax<NE)vmax=NE;
-					if(vmin>NEEE)vmin=NEEE;
-					if(vmax<NEEE)vmax=NEEE;
-					CLAMP2(pred, vmin, vmax);
-
-					pred+=offset;
-					CLAMP2(pred, -128, 127);
-
-					{
-						float fval=(float)(eW+1);
-						size_t addr=(size_t)&fval;
-						int32_t bits=*(int32_t*)addr;
-						nbypass=(bits>>23)-127-GRBITS;
-						if(nbypass<0)
-							nbypass=0;
-					}
-#if 0
-					statsptr=stats[kc][eW>>GRBITS];
-					//statsptr=stats[kc][nbypass][(pred+128)&255];
-					int step=1<<nbypass;
-					if(fwd)
-					{
-						if(dist>1)
-						{
-							int e2=yuv[kc]-pred;
-							if(e2<0)
-								e2+=dist-1;
-							e2=e2*invdist>>16;
-							error=e2<<1^e2>>31;
-							yuv[kc]=e2*dist+pred;
-							CLAMP2(yuv[kc], -128, 127);
-						}
-						else
-						{
-							error=(char)(yuv[kc]-pred);
-							error=error<<1^error>>31;
-						}
-						nzeros=error>>nbypass;
-						bypass=error&((1<<nbypass)-1);
-#ifdef ESTIMATE_SIZE
-						++hist[kc][error];
-#endif
-					}
-					else
-						error=0;
-					tidx=0;
-					do
-					{
-						int tidx2=tidx+step;
-						bit=tidx2<error;
-						codebit(&ac, statsptr+tidx, &bit);
-						tidx=tidx2;
-					}while(bit);
-					tidx-=step;
-					while(step)
-					{
-						int floorhalf=step>>1;
-						int mid=tidx+floorhalf;
-						bit=mid<error;
-						codebit(&ac, statsptr+mid, &bit);
-						tidx+=(step-floorhalf)&-bit;
-						step=floorhalf;
-					}
-					if(!fwd)
-					{
-						error=tidx;
-						error=error>>1^-(error&1);
-						if(dist>1)
-						{
-							yuv[kc]=error*dist+pred;
-							CLAMP2(yuv[kc], -128, 127);
-						}
-						else
-							yuv[kc]=(char)(error+pred);
-					}
-#ifdef _DEBUG
-					else if(error!=tidx)
-						CRASH("");
-#endif
-#endif
-#if 1
-					statsptr=stats[kc][(pred+128)&255][nbypass];
-					int upred=128-abs(pred);
-					
-					//if(ky==193&&kx==975&&!kc)//
-					//if(ky==415&&kx==996&&!kc)//
-					//	printf("");
-
-					if(fwd)
-					{
-						if(dist>1)
-						{
-							int e2=yuv[kc]-pred;
-							if(e2<0)
-								e2+=dist-1;
-							e2=e2*invdist>>16;
-							error=e2<<1^e2>>31;
-							yuv[kc]=e2*dist+pred;
-							CLAMP2(yuv[kc], -128, 127);
-						}
-						else
-						{
-							error=yuv[kc]-pred;
-							{
-								int negmask=error>>31;
-								int abserr=(error^negmask)-negmask;
-								error=error<<1^negmask;
-								if(upred<abserr)
-									error=upred+abserr;
-								if(error==256)
-								{
-									error=(char)(yuv[kc]-pred);
-									error=error<<1^error>>31;
-								}
-							}
-#if 0
-							if(pred>0&&yuv[kc]==-128)
-							{
-								error=(char)(yuv[kc]-pred);
-								error=error<<1^error>>31;
-							}
-							else
-							{
-								error=yuv[kc]-pred;
-								{
-									int negmask=error>>31;
-									int abserr=(error^negmask)-negmask;
-									error=error<<1^negmask;
-									if(upred<abserr)
-										error=upred+abserr;
-								}
-							}
-#endif
-							//error=(char)(yuv[kc]-pred);
-							//error=error<<1^error>>31;
-						}
-						nzeros=error>>nbypass;
-						bypass=error&((1<<nbypass)-1);
-#ifdef ESTIMATE_SIZE
-						++hist[kc][error];
-#endif
-#ifdef PRINTGR
-						{
-							float fval=(float)(error+1);
-							size_t addr=(size_t)&fval;
-							int32_t bits=*(int32_t*)addr;
-							bits=(bits>>23)-127;
-							gr_bypsum+=nbypass;
-							gr_symlen+=bits;
-						}
-#endif
-					}
-					else
-						error=0;
-					do
-					{
-						bit=nzeros--<=0;
-						codebit(&ac, statsptr+tidx, &bit);
-#ifdef PRINTBITS
-						if(fwd&&(unsigned)(idx-(usize>>2))<1000)printf("%c", '0'+bit);//
-#endif
-						++tidx;
-						if(tidx==GRLIMIT)
-						{
-							tidx=1;
-							nbypass=8;
-							if(fwd)
-								bypass=error;
-							break;
-						}
-					}while(!bit);
-					{
-						int32_t kb=nbypass-1;
-
-						for(;kb>=0;--kb)
-						{
-							bit=bypass>>kb&1;
-							codebit(&ac, statsptr+GRLIMIT+8-nbypass+kb, &bit);
-							bypass|=bit<<kb;
-#ifdef PRINTBITS
-							if(fwd&&(unsigned)(idx-(usize>>2))<1000)printf("%c", '0'+bit);//
-#endif
-						}
-					}
-					if(!fwd)
-					{
-						error=(tidx-1)<<nbypass|bypass;
-						if(dist>1)
-						{
-							error=error>>1^-(error&1);
-							yuv[kc]=error*dist+pred;
-							CLAMP2(yuv[kc], -128, 127);
-						}
-						else
-						{
-							if(2*pred+error==256)
-							{
-								error=error>>1^-(error&1);
-								yuv[kc]=(char)(error+pred);
-							}
-							else
-							{
-								int negmask=pred>>31;
-								int sym=error;
-								int e2=upred-sym;
-								error=sym>>1^-(sym&1);
-								e2=(e2^negmask)-negmask;
-								if((upred<<1)<sym)
-									error=e2;
-								yuv[kc]=error+pred;
-							}
-							//error=error>>1^-(error&1);
-							//yuv[kc]=(char)(error+pred);
-						}
-					}
-#endif
-
-					{
-						int32_t k, e=yuv[kc]-offset;
-						e=(e>pred0)-(e<pred0);
-						coeffs[kc][L1NPREDS]+=e;
-						for(k=0;k<L1NPREDS;++k)
-							coeffs[kc][k]+=e*preds[k];
-					}
-					error=abs(yuv[kc]-pred);
-					rows[0][0]=yuv[kc]-offset;
-					rows[0][1]=(2*eW+(error<<GRBITS)+eNEEE)>>2;
-					offset=(kc ? cv0*yuv[0]+cv1*yuv[1] : cu0*yuv[0])>>2;
-					//offset=kc ? yuv[vhelpidx] : yuv[uhelpidx];
-					rows[0]+=2;
-					rows[1]+=2;
-					rows[2]+=2;
-					rows[3]+=2;
-				}
-				if(!fwd)
-				{
-					imptr[yidx]=yuv[0]+128;
-					imptr[uidx]=yuv[1]+128;
-					imptr[vidx]=yuv[2]+128;
-#ifdef ENABLE_GUIDE
-					if(dist>1)
-						guide_update(image, kx, ky);
-					else
-						guide_check(image, kx, ky);
-#endif
-				}
-				imptr+=3;
-			}
-		}
-		free(pixels);
-	}
+	if(fwd)
+		mainloop(iw, ih, bestrct, dist, image, stream, &ac, 1);
+	else
+		mainloop(iw, ih, bestrct, dist, image, stream, &ac, 0);
 	{
 		FILE *fdst=fopen(dstfn, "wb");
 		if(!fdst)
