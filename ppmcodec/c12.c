@@ -22,7 +22,7 @@
 #ifdef _MSC_VER
 	#define LOUD
 
-	#define PRINT_RCT
+//	#define PRINT_RCT
 	#define ESTIMATE_SIZE
 	#define ENABLE_GUIDE
 //	#define PRINTBITS
@@ -466,6 +466,82 @@ INLINE void codebit(ACState *ac, uint32_t *pp0a, int32_t *bit)
 }
 int c12_codec(int argc, char **argv)
 {
+#if 0
+	{
+		printf("pred\\target  naive modular arithmetic sign packing\n");
+		printf("\t");
+		for(int k=0;k<8;++k)
+			printf(" %3d", k-4);
+		printf("\n\n");
+		for(int kp=-4;kp<4;++kp)
+		{
+			printf(" %3d\t", kp);
+			for(int kt=-4;kt<4;++kt)
+			{
+				int e=kt-kp, e0;
+
+				e0=e<<(32-3)>>(32-3);
+				e0=e0<<1^e0>>31;
+				printf(" %3d", e0);
+			}
+			printf("\n");
+		}
+		printf("\n");
+
+		printf("pred\\target  CALIC sign deduction\n");
+		printf("\t");
+		for(int k=0;k<8;++k)
+			printf(" %3d", k-4);
+		printf("\n\n");
+		for(int kp=-4;kp<4;++kp)
+		{
+			printf(" %3d\t", kp);
+			for(int kt=-4;kt<4;++kt)
+			{
+				int e=kt-kp, e1;
+
+				if(kt==-4&&kp>0)
+				{
+					e1=e<<(32-3)>>(32-3);
+					e1=e1<<1^e1>>31;
+				}
+				else
+				{
+					int upred=4-abs(kp);
+					int negmask=e>>31;
+					int abse=(e^negmask)-negmask;
+					e1=e<<1^negmask;
+					if(upred<abse)
+						e1=upred+abse;
+				}
+				printf(" %3d", e1);
+
+				//deduce kt from e1 and kp
+				{
+					int kt2=e1>>1^-(e1&1);
+					kt2+=kp;
+					kt2=kt2<<(32-3)>>(32-3);
+					if(!(kp>0&&kt2==-4))
+					{
+						int upred=4-abs(kp);
+						int negmask=kp>>31;
+						int e2=upred-e1;
+						kt2=e1>>1^-(e1&1);
+						e2=(e2^negmask)-negmask;
+						if(2*upred<e1)
+							kt2=e2;
+						kt2+=kp;
+					}
+					if(kt2!=kt)
+						CRASH("ERROR");
+				}
+			}
+			printf("\n");
+		}
+		printf("\n");
+		exit(0);
+	}
+#endif
 	if(argc!=3&&argc!=4)
 	{
 		printf(
@@ -1013,6 +1089,12 @@ int c12_codec(int argc, char **argv)
 #endif
 #if 1
 					statsptr=stats[kc][(pred+128)&255][nbypass];
+					int upred=128-abs(pred);
+					
+					//if(ky==193&&kx==975&&!kc)//
+					//if(ky==415&&kx==996&&!kc)//
+					//	printf("");
+
 					if(fwd)
 					{
 						if(dist>1)
@@ -1027,8 +1109,39 @@ int c12_codec(int argc, char **argv)
 						}
 						else
 						{
-							error=(char)(yuv[kc]-pred);
-							error=error<<1^error>>31;
+							error=yuv[kc]-pred;
+							{
+								int negmask=error>>31;
+								int abserr=(error^negmask)-negmask;
+								error=error<<1^negmask;
+								if(upred<abserr)
+									error=upred+abserr;
+								if(error==256)
+								{
+									error=(char)(yuv[kc]-pred);
+									error=error<<1^error>>31;
+								}
+							}
+#if 0
+							if(pred>0&&yuv[kc]==-128)
+							{
+								error=(char)(yuv[kc]-pred);
+								error=error<<1^error>>31;
+							}
+							else
+							{
+								error=yuv[kc]-pred;
+								{
+									int negmask=error>>31;
+									int abserr=(error^negmask)-negmask;
+									error=error<<1^negmask;
+									if(upred<abserr)
+										error=upred+abserr;
+								}
+							}
+#endif
+							//error=(char)(yuv[kc]-pred);
+							//error=error<<1^error>>31;
 						}
 						nzeros=error>>nbypass;
 						bypass=error&((1<<nbypass)-1);
@@ -1081,14 +1194,33 @@ int c12_codec(int argc, char **argv)
 					if(!fwd)
 					{
 						error=(tidx-1)<<nbypass|bypass;
-						error=error>>1^-(error&1);
 						if(dist>1)
 						{
+							error=error>>1^-(error&1);
 							yuv[kc]=error*dist+pred;
 							CLAMP2(yuv[kc], -128, 127);
 						}
 						else
-							yuv[kc]=(char)(error+pred);
+						{
+							if(2*pred+error==256)
+							{
+								error=error>>1^-(error&1);
+								yuv[kc]=(char)(error+pred);
+							}
+							else
+							{
+								int negmask=pred>>31;
+								int sym=error;
+								int e2=upred-sym;
+								error=sym>>1^-(sym&1);
+								e2=(e2^negmask)-negmask;
+								if((upred<<1)<sym)
+									error=e2;
+								yuv[kc]=error+pred;
+							}
+							//error=error>>1^-(error&1);
+							//yuv[kc]=(char)(error+pred);
+						}
 					}
 #endif
 
@@ -1207,7 +1339,7 @@ int c12_codec(int argc, char **argv)
 			, (double)usize/csize
 		);
 	}
-	printf("%c  %12.6lf  %12.6lf MB/s\n"
+	printf("%c  %12.6lf sec  %12.6lf MB/s\n"
 		, 'D'+fwd
 		, t
 		, usize/(t*1024*1024)

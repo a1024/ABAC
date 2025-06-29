@@ -129,7 +129,7 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/big_building.PPM"
 	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_abigail-keenan-27293.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC30-ppm/03.ppm"
-		"C:/Projects/datasets/dataset-DIV2K-ppm/0801.ppm"
+		"C:/Projects/datasets/dataset-DIV2K-ppm/0807.ppm"
 	//	"C:/Projects/datasets/0801-cg.ppm"
 	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm"
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim23.ppm"
