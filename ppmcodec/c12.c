@@ -55,7 +55,7 @@ enum
 #define GRBITS 6
 #define GRLIMIT 24
 #define PROBBITS_STORE 24
-#define PROBBITS_USE 12
+#define PROBBITS_USE 15
 
 
 #ifdef _MSC_VER
@@ -171,43 +171,6 @@ static void guide_update(unsigned char *image, int kx, int ky)
 #define guide_save(...)
 #define guide_check(...)
 #define guide_update(...)
-#endif
-#if 0
-static unsigned char* load_file(const char *fn, ptrdiff_t *ret_size)
-{
-	struct stat info={0};
-	int error;
-	ptrdiff_t size, nread;
-	FILE *fsrc;
-	unsigned char *buf;
-
-	error=stat(fn, &info);
-	if(error)
-	{
-		printf("Cannot stat \"%s\"\n", fn);
-		return 0;
-	}
-	size=info.st_size;
-	fsrc=fopen(fn, "rb");
-	if(!fsrc)
-	{
-		printf("Cannot open \"%s\"\n", fn);
-		return 0;
-	}
-	buf=(unsigned char*)malloc(size+16);
-	if(!buf)
-	{
-		printf("Alloc error\n");
-		exit(1);
-		return 0;
-	}
-	nread=fread(buf, 1, size, fsrc);
-	if(nread!=size)
-		printf("Error reading \"%s\"\n", fn);
-	fclose(fsrc);
-	*ret_size=size;
-	return buf;
-}
 #endif
 
 
@@ -378,46 +341,6 @@ static const char *rct_names[RCT_COUNT]=
 	RCTLIST
 #undef  RCT
 };
-#if 0
-typedef enum _OCHType
-{
-	OCH_R,
-	OCH_G,
-	OCH_B,
-	OCH_RG,
-	OCH_GB,
-	OCH_BR,
-//	OCH_R2,
-//	OCH_G2,
-//	OCH_B2,
-
-	OCH_COUNT,
-
-	OCH_RB=OCH_BR,
-	OCH_GR=OCH_RG,
-	OCH_BG=OCH_GB,
-
-} OCHType;
-static const unsigned char rct_indices[][8]=
-{//	output channels			permutation	helper index
-	{OCH_R,	OCH_G,	OCH_B,		0, 1, 2,	3, 3},// 0
-	{OCH_R,	OCH_G,	OCH_BG,		0, 1, 2,	3, 1},// 1
-	{OCH_R,	OCH_G,	OCH_BR,		0, 1, 2,	3, 0},// 2
-	{OCH_R,	OCH_GR,	OCH_BR,		0, 1, 2,	0, 0},// 3
-	{OCH_R,	OCH_GR,	OCH_BG,		0, 1, 2,	0, 1},// 4
-	{OCH_R,	OCH_BR,	OCH_GB,		0, 2, 1,	0, 1},// 5
-	{OCH_G,	OCH_B,	OCH_RG,		1, 2, 0,	3, 0},// 6
-	{OCH_G,	OCH_B,	OCH_RB,		1, 2, 0,	3, 1},// 7
-	{OCH_G,	OCH_BG,	OCH_RG,		1, 2, 0,	0, 0},// 8
-	{OCH_G,	OCH_BG,	OCH_RB,		1, 2, 0,	0, 1},// 9
-	{OCH_G,	OCH_RG,	OCH_BR,		1, 0, 2,	0, 1},//10
-	{OCH_B,	OCH_R,	OCH_GR,		2, 0, 1,	3, 1},//11
-	{OCH_B,	OCH_R,	OCH_GB,		2, 0, 1,	3, 0},//12
-	{OCH_B,	OCH_RB,	OCH_GB,		2, 0, 1,	0, 0},//13
-	{OCH_B,	OCH_RB,	OCH_GR,		2, 0, 1,	0, 1},//14
-	{OCH_B,	OCH_GB,	OCH_RG,		2, 1, 0,	0, 1},//15
-};
-#endif
 
 #ifdef ESTIMATE_SIZE
 static int32_t hist[3][256]={0};
@@ -434,6 +357,7 @@ static int32_t squashtable[1<<PROBBITS_USE];
 #endif
 INLINE void codebit(ACState *ac, uint32_t *pp0, int32_t *bit, const int fwd)
 {
+	int rbit;
 	uint64_t r2, mid;
 
 	//uint32_t cell=*pp0;
@@ -443,7 +367,12 @@ INLINE void codebit(ACState *ac, uint32_t *pp0, int32_t *bit, const int fwd)
 	int32_t p00=*pp0;
 	int32_t p0=p00>>(PROBBITS_STORE-PROBBITS_USE);
 
-	if(ac->range<0xFFFF)
+	//int32_t p001=*pp01, p002=*pp02, p003=*pp03;
+	//int32_t p0=(p002-((p001+p003-2*p002)>>7))>>(PROBBITS_STORE-PROBBITS_USE);
+	//CLAMP2(p0, 1, (1<<PROBBITS_USE)-1);
+
+#if 1
+	if(ac->range<=0xFFFF)
 	{
 		if(ac->ptr>=ac->end)
 		{
@@ -456,22 +385,48 @@ INLINE void codebit(ACState *ac, uint32_t *pp0, int32_t *bit, const int fwd)
 		}
 		if(fwd)
 			*(uint32_t*)ac->ptr=(uint32_t)(ac->low>>32);
-		ac->code=ac->code<<32|*(uint32_t*)ac->ptr;
+		else
+			ac->code=ac->code<<32|*(uint32_t*)ac->ptr;
 		ac->ptr+=4;
 		ac->low<<=32;
 		ac->range=ac->range<<32|0xFFFFFFFF;
 		if(ac->range>~ac->low)
 			ac->range=~ac->low;
 	}
+#endif
+#if 0
+	int renorm=ac->range<=0xFFFF;
+	uint32_t str=(uint32_t)(ac->low>>32);
+	if(fwd)
+	{
+		if(renorm)
+			*(uint32_t*)ac->ptr=str;
+	}
+	else
+	{
+		uint64_t code2=ac->code<<32|*(uint32_t*)ac->ptr;
+		if(renorm)
+			ac->code=code2;
+	}
+	ac->ptr+=4*renorm;
+	ac->low<<=32*renorm;
+	ac->range<<=32*renorm;
+	ac->range|=0xFFFFFFFF&-renorm;
+	if(ac->range>~ac->low)
+		ac->range=~ac->low;
+#endif
 	r2=ac->range*((uint64_t)p0+(p0<(1<<PROBBITS_USE>>1)))>>PROBBITS_USE;
 	mid=ac->low+r2;
 	ac->range-=r2;
-	if(!fwd)
-		*bit=ac->code>=mid;
-	if(*bit)
+	--r2;
+	if(fwd)
+		rbit=*bit;
+	else
+		*bit=rbit=ac->code>=mid;
+	if(rbit)
 		ac->low=mid;
 	else
-		ac->range=r2-1;
+		ac->range=r2;
 
 #if 0
 	++ctr;
@@ -506,10 +461,12 @@ INLINE void codebit(ACState *ac, uint32_t *pp0, int32_t *bit, const int fwd)
 	*pp0=ctr<<PROBBITS_USE|p0;
 #endif
 
-	int32_t truth=!*bit<<PROBBITS_STORE;
-	*pp0=p00+((int32_t)(truth-p00)>>6);
+	int32_t truth=!rbit<<PROBBITS_STORE;
+	*pp0=p00+((truth-p00)>>6);
+
+	//*pp02=p002+(((!*bit<<PROBBITS_STORE)-p002)>>6);
 }
-INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint8_t *stream, ACState *ac, const int fwd)
+INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint8_t *stream, ACState *ac, const int lossy, const int fwd)
 {
 	int
 		yidx=rct_combinations[bestrct][II_PERM_Y],
@@ -522,9 +479,7 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 	int32_t psize=0;
 	int16_t *pixels=0;
 	int32_t paddedwidth=iw+16;
-
 	int32_t coeffs[3][L1NPREDS+1]={0};
-
 	int32_t invdist=((1<<16)+dist-1)/dist;
 	uint8_t *imptr=image;
 
@@ -539,6 +494,7 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 	}
 	memset(pixels, 0, psize);
 //	FILLMEM((uint32_t*)stats, 0xFFFFFFFF<<PROBBITS_USE|1<<PROBBITS_USE>>1, sizeof(stats), sizeof(int32_t));
+//	FILLMEM((uint32_t*)stats, 1<<PROBBITS_USE>>1, sizeof(stats), sizeof(int32_t));
 	FILLMEM((uint32_t*)stats, 1<<PROBBITS_STORE>>1, sizeof(stats), sizeof(int32_t));
 //	memset(stats, 0, sizeof(stats));
 	FILLMEM((int32_t*)coeffs, (1<<L1SH)/L1NPREDS, sizeof(coeffs), sizeof(int32_t));
@@ -616,80 +572,26 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 				pred+=offset;
 				CLAMP2(pred, -128, 127);
 
-				{
-					float fval=(float)(eW+1);
-					size_t addr=(size_t)&fval;
-					int32_t bits=*(int32_t*)addr;
-					nbypass=(bits>>23)-127-GRBITS;
-					if(nbypass<0)
-						nbypass=0;
-				}
-#if 0
-				statsptr=stats[kc][eW>>GRBITS];
-				//statsptr=stats[kc][nbypass][(pred+128)&255];
-				int step=1<<nbypass;
-				if(fwd)
-				{
-					if(dist>1)
-					{
-						int e2=yuv[kc]-pred;
-						if(e2<0)
-							e2+=dist-1;
-						e2=e2*invdist>>16;
-						error=e2<<1^e2>>31;
-						yuv[kc]=e2*dist+pred;
-						CLAMP2(yuv[kc], -128, 127);
-					}
-					else
-					{
-						error=(char)(yuv[kc]-pred);
-						error=error<<1^error>>31;
-					}
-					nzeros=error>>nbypass;
-					bypass=error&((1<<nbypass)-1);
-#ifdef ESTIMATE_SIZE
-					++hist[kc][error];
-#endif
-				}
-				else
-					error=0;
-				tidx=0;
-				do
-				{
-					int tidx2=tidx+step;
-					bit=tidx2<error;
-					codebit(&ac, statsptr+tidx, &bit);
-					tidx=tidx2;
-				}while(bit);
-				tidx-=step;
-				while(step)
-				{
-					int floorhalf=step>>1;
-					int mid=tidx+floorhalf;
-					bit=mid<error;
-					codebit(&ac, statsptr+mid, &bit);
-					tidx+=(step-floorhalf)&-bit;
-					step=floorhalf;
-				}
-				if(!fwd)
-				{
-					error=tidx;
-					error=error>>1^-(error&1);
-					if(dist>1)
-					{
-						yuv[kc]=error*dist+pred;
-						CLAMP2(yuv[kc], -128, 127);
-					}
-					else
-						yuv[kc]=(char)(error+pred);
-				}
-#ifdef _DEBUG
-				else if(error!=tidx)
-					CRASH("");
-#endif
-#endif
-#if 1
+				//if(ky==10&&kx==2019)//
+				//	printf("");
+
+				nbypass=31-GRBITS-_lzcnt_u32(eW+1);
+				CLAMP2(nbypass, 0, 7);
+				//{
+				//	float fval=(float)(eW+1);
+				//	size_t addr=(size_t)&fval;
+				//	int32_t bits=*(int32_t*)addr;
+				//	nbypass=(bits>>23)-127-GRBITS;
+				//	if(nbypass<0)
+				//		nbypass=0;
+				//}
 				statsptr=stats[kc][(pred+128)&255][nbypass];
+				//{
+				//	int ctx=(pred+128)&255;
+				//	statsptr1=stats[kc][ctx+0][nbypass];
+				//	statsptr2=stats[kc][ctx+1][nbypass];
+				//	statsptr3=stats[kc][ctx+2][nbypass];
+				//}
 				int upred=128-abs(pred);
 					
 				//if(ky==193&&kx==975&&!kc)//
@@ -698,7 +600,7 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 
 				if(fwd)
 				{
-					if(dist>1)
+					if(lossy)
 					{
 						int e2=yuv[kc]-pred;
 						if(e2<0)
@@ -795,7 +697,7 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 				if(!fwd)
 				{
 					error=(tidx-1)<<nbypass|bypass;
-					if(dist>1)
+					if(lossy)
 					{
 						error=error>>1^-(error&1);
 						yuv[kc]=error*dist+pred;
@@ -823,18 +725,22 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 						//yuv[kc]=(char)(error+pred);
 					}
 				}
-#endif
 
 				{
-					int32_t k, e=yuv[kc]-offset;
-					e=(e>pred0)-(e<pred0);
+					int32_t curr=yuv[kc]-offset;
+					int32_t k, e;
+
+					e=(curr>pred0)-(curr<pred0);
 					coeffs[kc][L1NPREDS]+=e;
 					for(k=0;k<L1NPREDS;++k)
 						coeffs[kc][k]+=e*preds[k];
+
+					error=yuv[kc]-pred;
+					error=error<<1^error>>31;
+					rows[0][0]=curr;
+					rows[0][1]=(4*eW+2*(error<<GRBITS)+eNEE+eNEEE)>>3;
+				//	rows[0][1]=(2*eW+(error<<GRBITS)+(eNEE>eNEEE?eNEE:eNEEE))>>2;
 				}
-				error=abs(yuv[kc]-pred);
-				rows[0][0]=yuv[kc]-offset;
-				rows[0][1]=(2*eW+(error<<GRBITS)+(eNEE>eNEEE?eNEE:eNEEE))>>2;
 				offset=(kc ? cv0*yuv[0]+cv1*yuv[1] : cu0*yuv[0])>>2;
 				//offset=kc ? yuv[vhelpidx] : yuv[uhelpidx];
 				rows[0]+=2;
@@ -848,7 +754,7 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 				imptr[uidx]=yuv[1]+128;
 				imptr[vidx]=yuv[2]+128;
 #ifdef ENABLE_GUIDE
-				if(dist>1)
+				if(lossy)
 					guide_update(image, kx, ky);
 				else
 					guide_check(image, kx, ky);
@@ -1095,89 +1001,6 @@ int c12_codec(int argc, char **argv)
 		}
 		fclose(fsrc);
 	}
-#if 0
-	srcbuf=load_file(srcfn, &srcsize);
-	if(!srcbuf)
-	{
-		CRASH("");
-		return 1;
-	}
-	srcptr=srcbuf;
-	srcend=srcbuf+srcsize;
-	{
-		int tag=*(uint16_t*)srcptr;
-		fwd=tag==('P'|'6'<<8);
-		if(!fwd&&tag!=('1'|'2'<<8))
-		{
-			CRASH("Unsupported file  \"%s\"\n", srcfn);
-			free(srcbuf);
-			return 1;
-		}
-		srcptr+=2;
-	}
-	if(fwd)
-	{
-		if(*srcptr++!='\n')
-		{
-			CRASH("Unsupported file\n");
-			free(srcbuf);
-			return 1;
-		}
-		while(*srcptr=='#')//skip comment(s)
-		{
-			++srcptr;
-			while(*srcptr++!='\n');
-		}
-		iw=0;
-		while((uint32_t)(*srcptr-'0')<10)
-			iw=10*iw+*srcptr++-'0';
-		while(*srcptr<=' ')++srcptr;//skip space
-		ih=0;
-		while((uint32_t)(*srcptr-'0')<10)
-			ih=10*ih+*srcptr++-'0';
-		if(*srcptr++!='\n')
-		{
-			CRASH("Unsupported file\n");
-			free(srcbuf);
-			return 1;
-		}
-		while(*srcptr=='#')//skip comment(s)
-		{
-			++srcptr;
-			while(*srcptr++!='\n');
-		}
-		if(memcmp(srcptr, "255\n", 4))
-		{
-			CRASH("Unsupported file\n");
-			free(srcbuf);
-			return 1;
-		}
-		srcptr+=4;
-		image=srcptr;
-		guide_save(image, iw, ih);
-	}
-	else
-	{
-		iw=((uint32_t*)srcptr)[0];
-		ih=((uint32_t*)srcptr)[1];
-		srcptr+=sizeof(uint32_t[2]);
-	}
-	if(iw<1||ih<1)
-	{
-		CRASH("Invalid file\n");
-		free(srcbuf);
-		return 1;
-	}
-	res=(ptrdiff_t)iw*ih;
-	usize=3*res;
-	dstbuf=(unsigned char*)malloc(usize);
-	if(!dstbuf)
-	{
-		CRASH("Alloc error");
-		free(srcbuf);
-		return 1;
-	}
-#endif
 	if(fwd)
 	{
 		//analysis
@@ -1307,10 +1130,20 @@ int c12_codec(int argc, char **argv)
 
 		csize=srcsize;
 	}
-	if(fwd)
-		mainloop(iw, ih, bestrct, dist, image, stream, &ac, 1);
+	if(dist>1)
+	{
+		if(fwd)
+			mainloop(iw, ih, bestrct, dist, image, stream, &ac, 1, 1);
+		else
+			mainloop(iw, ih, bestrct, dist, image, stream, &ac, 1, 0);
+	}
 	else
-		mainloop(iw, ih, bestrct, dist, image, stream, &ac, 0);
+	{
+		if(fwd)
+			mainloop(iw, ih, bestrct, dist, image, stream, &ac, 0, 1);
+		else
+			mainloop(iw, ih, bestrct, dist, image, stream, &ac, 0, 0);
+	}
 	{
 		FILE *fdst=fopen(dstfn, "wb");
 		if(!fdst)
