@@ -34,7 +34,7 @@
 //	#define USE_NONLINEARITY
 
 
-#define L1SH 18
+#define L1SH 20
 #define PREDLIST\
 	PRED(N)\
 	PRED(W)\
@@ -567,7 +567,7 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, const uint8_t *steps
 					PREDLIST
 #undef  PRED
 				};
-				pred=coeffs[kc][L1NPREDS];
+				pred=coeffs[kc][L1NPREDS]<<3;
 				{
 					int j=0;
 					for(;j<L1NPREDS;++j)
@@ -587,7 +587,7 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, const uint8_t *steps
 				pred+=offset;
 				CLAMP2(pred, -128, 127);
 				
-				nbypass=31-_lzcnt_u32(eW*eW+1);
+				nbypass=31-_lzcnt_u32(eW*eW+2);
 				ctx=nbypass;
 				nbypass>>=1;
 				nbypass-=GRBITS;
@@ -797,7 +797,7 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, const uint8_t *steps
 					for(;kb>=0;--kb)
 					{
 						bit=bypass>>kb&1;
-						codebit(ac, statsptr+GRLIMIT+8-nbypass+kb, &bit, fwd, 6);
+						codebit(ac, statsptr+GRLIMIT+8-nbypass+kb, &bit, fwd, 8);
 						bypass|=bit<<kb;
 #ifdef PRINTBITS
 						if(fwd&&(unsigned)(idx-(usize>>2))<1000)printf("%c", '0'+bit);//
