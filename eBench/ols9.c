@@ -37,6 +37,22 @@ static const char file[]=__FILE__;
 	PRED(24*W-8*WW-4*NW+3*N+NE)\
 	PRED(6*W+8*NE+2*NEE)\
 	PRED(24*N-8*NN+4*(W-NW+NE-NNE))\
+	PRED(8*(N+W)+2*(NE-NW))\
+	PRED(20*N-4*NN)\
+	PRED(20*W-4*WW)\
+
+#endif
+#if 0
+#define L1SH 16
+#define NBITS 0
+#define PREDLIST\
+	PRED(N)\
+	PRED(W)\
+	PRED(N+W-NW)\
+	PRED(NE)\
+	PRED(NEE)\
+	PRED(NN)\
+	PRED(WW)\
 
 #endif
 enum
@@ -50,6 +66,7 @@ enum
 void pred_ols9(Image *src, int fwd)
 {
 	int weights[4][NPREDS]={0};
+	//int weights[4][2][2][NPREDS]={0};
 	int bufsize=(src->iw+8*2)*(int)sizeof(short[4*4*(NPREDS+1)]);//4 padded rows * 4 channels max * {pixel, prederrors...}
 	short *pixels=(short*)malloc(bufsize);
 	if(!pixels)
@@ -126,7 +143,7 @@ void pred_ols9(Image *src, int fwd)
 
 				//if(ky==src->ih/2&&kx==src->iw/2)//
 				//	printf("");
-#if 1
+#if 0
 				int wp=0, wsum=0;
 				for(int k=0;k<NPREDS;++k)
 				{
@@ -148,18 +165,21 @@ void pred_ols9(Image *src, int fwd)
 				wp/=wsum+1;
 #endif
 #if 1
+				int *currw=weights[kc];
+				//int *currw=weights[kc][ky&1][kx&1];
 				long long p0=1<<L1SH>>1;
 				for(int k=0;k<NPREDS;++k)
-					p0+=(long long)weights[kc][k]*preds[k];
+					p0+=(long long)currw[k]*preds[k];
 				p0>>=L1SH;
 #endif
-				int pred=((int)p0+wp)>>1;
+			//	int pred=((int)p0+wp)>>1;
+				int pred=(int)p0;
 				int vmax=N, vmin=W;
 				if(N<W)vmin=N, vmax=W;
 				if(vmin>NE)vmin=NE;
 				if(vmax<NE)vmax=NE;
-				//if(vmin>NEEE)vmin=NEEE;
-				//if(vmax<NEEE)vmax=NEEE;
+				if(vmin>NEEE)vmin=NEEE;
+				if(vmax<NEEE)vmax=NEEE;
 				CLAMP2(pred, vmin, vmax);
 
 				//if(ky==src->ih/2&&kx>10&&!kc)//
@@ -181,14 +201,14 @@ void pred_ols9(Image *src, int fwd)
 					src->data[idx]=curr;
 				}
 				rows[0][0]=curr;
-#if 1
+#if 0
 				for(int k=0;k<NPREDS;++k)
 					rows[0][k+1+0*(NPREDS+1)]=abs(curr-((preds[k]+(1<<NBITS>>1))>>NBITS));
 #endif
 #if 1
 				int e=(curr>p0)-(curr<p0);
 				for(int k=0;k<NPREDS;++k)
-					weights[kc][k]+=e*preds[k];
+					currw[k]+=e*preds[k];
 #endif
 			}
 		}

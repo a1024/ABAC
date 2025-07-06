@@ -263,6 +263,8 @@ typedef enum TransformTypeEnum
 
 	ST_FWD_DCT4,		ST_INV_DCT4,
 	ST_FWD_DCT8,		ST_INV_DCT8,
+	ST_FWD_WHT4,		ST_INV_WHT4,
+	ST_FWD_WHT8,		ST_INV_WHT8,
 
 	T_COUNT,
 } TransformType;
@@ -2935,6 +2937,10 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_DCT4:		a=" S Inv DCT4";		break;
 	case ST_FWD_DCT8:		a=" S Fwd DCT8";		break;
 	case ST_INV_DCT8:		a=" S Inv DCT8";		break;
+	case ST_FWD_WHT4:		a=" S Fwd WHT4";		break;
+	case ST_INV_WHT4:		a=" S Inv WHT4";		break;
+	case ST_FWD_WHT8:		a=" S Fwd WHT8";		break;
+	case ST_INV_WHT8:		a=" S Inv WHT8";		break;
 	default:			a="ERROR";			break;
 	}
 	{
@@ -4024,6 +4030,10 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_INV_DCT4:		image_dct4_inv(image);					break;
 	case ST_FWD_DCT8:		image_dct8_fwd(image);					break;
 	case ST_INV_DCT8:		image_dct8_inv(image);					break;
+	case ST_FWD_WHT4:		image_wht4_fwd(image);					break;
+	case ST_INV_WHT4:		image_wht4_inv(image);					break;
+	case ST_FWD_WHT8:		image_wht8_fwd(image);					break;
+	case ST_INV_WHT8:		image_wht8_inv(image);					break;
 #if 0
 //	case ST_FWD_JMJ:		pred_jmj_apply((char*)image, iw, ih, 1);		break;
 //	case ST_INV_JMJ:		pred_jmj_apply((char*)image, iw, ih, 0);		break;

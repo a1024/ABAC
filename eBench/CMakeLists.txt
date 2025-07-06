@@ -11,6 +11,7 @@ add_executable (eBench WIN32
 	c18.c
 	ebench.c
 	graphics.c
+	hadamard.c
 	image.c
 	lodepng.c
 	ols4.c

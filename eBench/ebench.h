@@ -1042,6 +1042,12 @@ void image_dct4_inv(Image *image);
 void image_dct8_fwd(Image *image);
 void image_dct8_inv(Image *image);
 
+//Walsh–Hadamard transform
+void image_wht4_fwd(Image *image);
+void image_wht4_inv(Image *image);
+void image_wht8_fwd(Image *image);
+void image_wht8_inv(Image *image);
+
 #if 0
 void image_split_fwd(char *image, int iw, int ih);
 void image_split_inv(char *image, int iw, int ih);

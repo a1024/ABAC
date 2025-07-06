@@ -537,7 +537,7 @@ void pred_mixN(Image *src, int fwd)
 					+currw[0]*W
 					+currw[1]*(N-NW)
 					+currw[2]*(NE-N)
-					+currw[3]*N
+					+currw[3]*(N-W)
 				;
 			//	int pred=
 			//		+currw[0]*N
@@ -581,7 +581,7 @@ void pred_mixN(Image *src, int fwd)
 				currw[0]+=e*W;
 				currw[1]+=e*(N-NW);
 				currw[2]+=e*(NE-N);
-				currw[3]+=e*N;
+				currw[3]+=e*(N-W);
 			//	CLAMP2(currw[0], (1<<17)/4, (1<<17));
 			//	CLAMP2(currw[1], -(1<<17)/4, (1<<17)*3/4);
 			//	currw[2]=(1<<17)/4;
