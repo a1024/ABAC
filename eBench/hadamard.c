@@ -70,7 +70,7 @@ void image_wht4_fwd(Image *image)
 				temp[(kx>>2)+(image->iw>>2)*2]=x[2];
 				temp[(kx>>2)+(image->iw>>2)*3]=x[3];
 			}
-			for(int kx=0;kx<image->iw;++kx)
+			for(int kx=0;kx<(image->iw&~3);++kx)
 				image->data[(image->iw*ky+kx)<<2|kc]=temp[kx];
 		}
 #endif
@@ -95,7 +95,7 @@ void image_wht4_fwd(Image *image)
 				temp[(ky>>2)+(image->ih>>2)*2]=x[2];
 				temp[(ky>>2)+(image->ih>>2)*3]=x[3];
 			}
-			for(int ky=0;ky<image->ih;++ky)
+			for(int ky=0;ky<(image->ih&~3);++ky)
 				image->data[(image->iw*ky+kx)<<2|kc]=temp[ky];
 		}
 #endif
@@ -125,7 +125,7 @@ void image_wht4_inv(Image *image)
 #if 1
 		for(int kx=0;kx<image->iw;++kx)
 		{
-			for(int ky=0;ky<image->ih;++ky)
+			for(int ky=0;ky<(image->ih&~3);++ky)
 				temp[ky]=image->data[(image->iw*ky+kx)<<2|kc];
 			for(int ky=0;ky<image->ih-3;ky+=4)
 			{
@@ -150,7 +150,7 @@ void image_wht4_inv(Image *image)
 #if 1
 		for(int ky=0;ky<image->ih;++ky)
 		{
-			for(int kx=0;kx<image->iw;++kx)
+			for(int kx=0;kx<(image->iw&~3);++kx)
 				temp[kx]=image->data[(image->iw*ky+kx)<<2|kc];
 			for(int kx=0;kx<image->iw-3;kx+=4)
 			{
@@ -291,7 +291,7 @@ void image_wht8_fwd(Image *image)
 				temp[(kx>>3)+(image->iw>>3)*6]=x[6];
 				temp[(kx>>3)+(image->iw>>3)*7]=x[7];
 			}
-			for(int kx=0;kx<image->iw;++kx)
+			for(int kx=0;kx<(image->iw&~7);++kx)
 				image->data[(image->iw*ky+kx)<<2|kc]=temp[kx];
 		}
 #endif
@@ -324,7 +324,7 @@ void image_wht8_fwd(Image *image)
 				temp[(ky>>3)+(image->ih>>3)*6]=x[6];
 				temp[(ky>>3)+(image->ih>>3)*7]=x[7];
 			}
-			for(int ky=0;ky<image->ih;++ky)
+			for(int ky=0;ky<(image->ih&~7);++ky)
 				image->data[(image->iw*ky+kx)<<2|kc]=temp[ky];
 		}
 #endif
@@ -354,7 +354,7 @@ void image_wht8_inv(Image *image)
 #if 1
 		for(int kx=0;kx<image->iw;++kx)
 		{
-			for(int ky=0;ky<image->ih;++ky)
+			for(int ky=0;ky<(image->ih&~7);++ky)
 				temp[ky]=image->data[(image->iw*ky+kx)<<2|kc];
 			for(int ky=0;ky<image->ih-7;ky+=8)
 			{
@@ -387,7 +387,7 @@ void image_wht8_inv(Image *image)
 #if 1
 		for(int ky=0;ky<image->ih;++ky)
 		{
-			for(int kx=0;kx<image->iw;++kx)
+			for(int kx=0;kx<(image->iw&~7);++kx)
 				temp[kx]=image->data[(image->iw*ky+kx)<<2|kc];
 			for(int kx=0;kx<image->iw-7;kx+=8)
 			{
