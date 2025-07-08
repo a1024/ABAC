@@ -33,6 +33,8 @@
 //	#define PRINTBITS
 #endif
 
+	#define UNSIGNED_PIXEL
+
 
 #define L1SH 20
 #define PREDLIST\
@@ -475,7 +477,11 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, const uint8_t *steps
 		free(stream);
 		return;
 	}
+//#ifdef UNSIGNED_PIXEL
+//	FILLMEM((int32_t*)pixels, 128, psize, sizeof(int32_t));
+//#else
 	memset(pixels, 0, psize);
+//#endif
 //	FILLMEM((uint32_t*)stats, 1<<PROBBITS_USE>>1, sizeof(stats), sizeof(int32_t));
 	FILLMEM((uint32_t*)stats, 1<<PROBBITS_STORE>>1, sizeof(stats), sizeof(int32_t));
 //	memset(stats, 0, sizeof(stats));
@@ -490,7 +496,11 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, const uint8_t *steps
 	//memset(history, 0, sizeof(history));
 	for(ky=0;ky<ih;++ky)
 	{
+#ifdef UNSIGNED_PIXEL
+		uint8_t yuv[4]={0};
+#else
 		int8_t yuv[4]={0};
+#endif
 		int16_t *rows[]=
 		{
 			pixels+(padw*((ky-0)&3)+8)*3*2,
@@ -505,9 +515,15 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, const uint8_t *steps
 
 			if(fwd)
 			{
+#ifdef UNSIGNED_PIXEL
+				yuv[0]=imptr[yidx];
+				yuv[1]=imptr[uidx];
+				yuv[2]=imptr[vidx];
+#else
 				yuv[0]=imptr[yidx]-128;
 				yuv[1]=imptr[uidx]-128;
 				yuv[2]=imptr[vidx]-128;
+#endif
 			}
 			offset=0;
 			for(kc=0;kc<3;++kc)
@@ -548,15 +564,13 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, const uint8_t *steps
 				{
 					int j=0;
 
-					pred=currw[L1NPREDS]<<3;
+					pred=currw[L1NPREDS]<<4;
 #define PRED(EXPR) preds[j]=EXPR; pred+=currw[j]*preds[j]; ++j;
 					PREDLIST
 #undef  PRED
-					//for(;j<L1NPREDS;++j)
-					//	pred+=currw[j]*preds[j];
 
 					pred-=pred>>3;
-					pred+=1<<L1SH>>1;
+					//pred+=1<<L1SH>>1;
 					pred>>=L1SH;
 				}
 				pred0=(int32_t)pred;
@@ -573,7 +587,11 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, const uint8_t *steps
 				CLAMP2(pred, vmin, vmax);
 
 				pred+=offset;
+#ifdef UNSIGNED_PIXEL
+				CLAMP2(pred, 0, 255);
+#else
 				CLAMP2(pred, -128, 127);
+#endif
 				
 				nbypass=31-_lzcnt_u32(eW*eW+2);
 				ctx=nbypass;
@@ -606,10 +624,15 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, const uint8_t *steps
 				//if(ky==193&&kx==975&&!kc)//
 				//if(ky==415&&kx==996&&!kc)//
 				//if(ky==ih/2&&kx==iw/2&&!kc)//
+				//if(ky==1&&kx==1861&&kc==1)//
 				//	printf("");
 
 #if 1
+#ifdef UNSIGNED_PIXEL
+				int epred=128-abs((int32_t)pred-128);
+#else
 				int epred=128-abs((int32_t)pred);
+#endif
 				if(fwd)
 				{
 					if(lossy)
@@ -620,7 +643,11 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, const uint8_t *steps
 						e2=e2*invdist>>16;
 						error=e2<<1^e2>>31;
 						yuv[kc]=e2*dist+(int32_t)pred;
+#ifdef UNSIGNED_PIXEL
+						CLAMP2(yuv[kc], 0, 255);
+#else
 						CLAMP2(yuv[kc], -128, 127);
+#endif
 					}
 					else
 					{
@@ -648,7 +675,11 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, const uint8_t *steps
 					5, 5, 5, 4, 4, 4, 4, 4, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,		 6, 6, 6, 6, 6, 6, 6, 6,
 				};
 				const int8_t *sh=shift+(GRLIMIT+8)*(nbypass>3), sh2=7-(nbypass>3);
+#ifdef UNSIGNED_PIXEL
+				upred=pred;
+#else
 				upred=(uint8_t)(pred+128);
+#endif
 				statsptr=stats[kc][upred][ctx];
 				tidx=0;
 #ifdef ESTIMATE_BITSIZE
@@ -711,18 +742,34 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, const uint8_t *steps
 					{
 						error=error>>1^-(error&1);
 						yuv[kc]=error*dist+(int32_t)pred;
+#ifdef UNSIGNED_PIXEL
+						CLAMP2(yuv[kc], 0, 255);
+#else
 						CLAMP2(yuv[kc], -128, 127);
+#endif
 					}
 					else
 					{
+#ifdef UNSIGNED_PIXEL
+						if(2*(pred-128)+error==256)
+#else
 						if(2*pred+error==256)
+#endif
 						{
 							error=error>>1^-(error&1);
+#ifdef UNSIGNED_PIXEL
+							yuv[kc]=(uint8_t)(error+pred);
+#else
 							yuv[kc]=(int8_t)(error+pred);
+#endif
 						}
 						else
 						{
+#ifdef UNSIGNED_PIXEL
+							int negmask=((int32_t)pred-128)>>31;
+#else
 							int negmask=(int32_t)pred>>31;
+#endif
 							int sym=error;
 							int e2=epred-sym;
 							error=sym>>1^-(sym&1);
@@ -765,9 +812,15 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, const uint8_t *steps
 			}
 			if(!fwd)
 			{
+#ifdef UNSIGNED_PIXEL
+				imptr[yidx]=yuv[0];
+				imptr[uidx]=yuv[1];
+				imptr[vidx]=yuv[2];
+#else
 				imptr[yidx]=yuv[0]+128;
 				imptr[uidx]=yuv[1]+128;
 				imptr[vidx]=yuv[2]+128;
+#endif
 #ifdef ENABLE_GUIDE
 				if(lossy)
 					guide_update(image, kx, ky);
