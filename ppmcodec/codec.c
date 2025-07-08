@@ -44,6 +44,7 @@ int c31_codec(int argc, char **argv);//cross-platform C29, slower	X
 int c32_codec(int argc, char **argv);//C32: like C29 but 16 coders
 int c33_codec(int argc, char **argv);//C33: speed priority CG-only
 int c34_codec(int argc, char **argv);//MT rANS
+int c35_codec(int argc, char **argv);//binary FSM
 #endif
 
 
@@ -82,6 +83,7 @@ int c34_codec(int argc, char **argv);//MT rANS
 //	#define CODEC_EXT c32
 //	#define CODEC_EXT c33
 //	#define CODEC_EXT c34
+//	#define CODEC_EXT c35
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -167,8 +169,8 @@ int main(int argc, char **argv)
 	//	"C:/dataset-HUGE-ppm/kodak.PPM"
 	//	"C:/dataset-HUGE-ppm/space_huge.ppm"
 	//	"C:/dataset-DSLR2-ppm/DSC_0320.ppm"
-	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
-		"C:/dataset-LPCB-ppm/STA13845.ppm"
+		"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
+	//	"C:/dataset-LPCB-ppm/STA13845.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13803.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13833.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13912.ppm"

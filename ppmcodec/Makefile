@@ -74,7 +74,7 @@ c12m:
 	gcc $(FLAGS) -DCODEC_EXT=c12 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c12m.c codec.c util.c  -o c12 $(LIBS)
 
 c12:
-	clang $(FLAGS) -DCODEC_EXT=c12 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c12.c codec.c util.c  -o c12 $(LIBS)
+	clang $(FLAGS) -DCODEC_EXT=c12 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c12.c codec.c  -o c12 $(LIBS)
 
 c12s:
 	gcc -Wall -O3 -s -DCODEC_EXT=c12 -mavx2 -mbmi -mlzcnt  c12.c codec.c  -o c12 $(LIBS)

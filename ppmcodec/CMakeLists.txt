@@ -47,6 +47,7 @@ add_executable(codec
 	c32.c
 	c33.c
 	c34.c
+	c35.c
 	codec.c
 	util.c
 
