@@ -40,6 +40,26 @@
 #if 1
 #define PREDLIST\
 	PRED(N)\
+	PRED(NNN)\
+	PRED(NNNN)\
+	PRED(N+yN)\
+	PRED(N+yNE)\
+	PRED(N+yNW)\
+	PRED(N+yW)\
+	PRED(W)\
+	PRED(WWW)\
+	PRED(WWWW)\
+	PRED(W+xW)\
+	PRED(W+xNE)\
+	PRED(W+xNEE)\
+	PRED(W+xNW)\
+	PRED(NEEE)\
+	PRED(NEEEE)\
+
+#endif
+#if 0
+#define PREDLIST\
+	PRED(N)\
 	PRED(W)\
 	PRED(NNN)\
 	PRED(WWW)\
@@ -178,7 +198,7 @@ static void crash(const char *file, int line, const char *format, ...)
 #ifdef ENABLE_GUIDE
 static int g_iw=0, g_ih=0;
 static unsigned char *g_image=0;
-static double g_sqe=0;
+static double g_sqe[3]={0};
 static void guide_save(unsigned char *image, int iw, int ih)
 {
 	int size=3*iw*ih;
@@ -201,13 +221,13 @@ static void guide_check(unsigned char *image, int kx, int ky)
 		printf("");
 	}
 }
-static void guide_update(unsigned char *image, int kx, int ky)
-{
-	int idx=3*(g_iw*ky+kx), diff;
-	diff=g_image[idx+0]-image[idx+0]; g_sqe+=diff*diff;
-	diff=g_image[idx+1]-image[idx+1]; g_sqe+=diff*diff;
-	diff=g_image[idx+2]-image[idx+2]; g_sqe+=diff*diff;
-}
+//static void guide_update(unsigned char *image, int kx, int ky)
+//{
+//	int idx=3*(g_iw*ky+kx), diff;
+//	diff=g_image[idx+0]-image[idx+0]; g_sqe[0]+=diff*diff; if(abs(diff)>96)CRASH("");
+//	diff=g_image[idx+1]-image[idx+1]; g_sqe[1]+=diff*diff; if(abs(diff)>96)CRASH("");
+//	diff=g_image[idx+2]-image[idx+2]; g_sqe[2]+=diff*diff; if(abs(diff)>96)CRASH("");
+//}
 #else
 #define guide_save(...)
 #define guide_check(...)
@@ -681,39 +701,50 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 				//if(ky==415&&kx==996&&!kc)//
 				//if(ky==ih/2&&kx==iw/2&&!kc)//
 				//if(ky==1&&kx==1861&&kc==1)//
-				//	printf("");
+				//if(ky==253&&kx==776)//
+				//if(ky==192&&kx==256&&kc==0)//
+				//if(ky==0&&kx==434&&kc==0)//
+				//	printf("");//
 
 #if 1
 #ifdef UNSIGNED_PIXEL
-				int epred=128-abs((int32_t)pred-128);
+				int epred=pred>=128?255-pred:pred;
+				//int epred=128-abs((int32_t)pred-128);
 #else
 				int epred=128-abs((int32_t)pred);
 #endif
+				//if(lossy)
+				//	epred=epred*invdist>>16;
 				if(fwd)
 				{
+					error=yuv[kc]-(int32_t)pred;
 					if(lossy)
 					{
-						int e2=yuv[kc]-(int32_t)pred;
-						if(e2<0)
-							e2+=dist-1;
-						e2=e2*invdist>>16;
-						error=e2<<1^e2>>31;
-						yuv[kc]=e2*dist+(int32_t)pred;
+						int pixel;
+
+						error=(error*invdist>>16)-(error>>31);
+						pixel=error*dist+(int32_t)pred;
 #ifdef UNSIGNED_PIXEL
-						CLAMP2(yuv[kc], 0, 255);
+						CLAMP2(pixel, 0, 255);
 #else
-						CLAMP2(yuv[kc], -128, 127);
+						CLAMP2(pixel, -128, 127);
 #endif
-					}
-					else
-					{
-						error=yuv[kc]-(int32_t)pred;
+						yuv[kc]=pixel;
+#ifdef ENABLE_GUIDE
+						{
+							uint8_t *pval=&g_image[3*(iw*ky+kx)+rct_combinations[bestrct][II_PERM_Y+kc]];
+							uint8_t val=*pval;
+							int diff=(int)val-pixel;
+							g_sqe[kc]+=diff*diff;
+							*pval=pixel;
+						}
+#endif
 						{
 							int negmask=error>>31;
 							int abserr=(error^negmask)-negmask;
 							error=error<<1^negmask;
-							if(epred<abserr)
-								error=epred+abserr;
+							if(epred<abserr*dist)
+								error=(epred*invdist>>16)+abserr;
 							if(error==256)
 							{
 								error=(int8_t)(yuv[kc]-pred);
@@ -721,7 +752,23 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 							}
 						}
 					}
+					else
+					{
+						int negmask=error>>31;
+						int abserr=(error^negmask)-negmask;
+						error=error<<1^negmask;
+						if(epred<abserr)
+							error=epred+abserr;
+						if(error==256)
+						{
+							error=(int8_t)(yuv[kc]-pred);
+							error=error<<1^error>>31;
+						}
+					}
 					nzeros=error>>nbypass;
+
+					//if(ky==253&&kx==777)//
+					//	printf("%d\n", error);//
 				}
 				else
 					error=0;
@@ -798,12 +845,34 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 					error=(uint8_t)tidx;
 					if(lossy)
 					{
-						error=error>>1^-(error&1);
-						yuv[kc]=error*dist+(int32_t)pred;
+						int pixel;
+						int epredlossy=epred*invdist>>16;
 #ifdef UNSIGNED_PIXEL
-						CLAMP2(yuv[kc], 0, 255);
+						int negmask=((int32_t)pred-128)>>31;
 #else
-						CLAMP2(yuv[kc], -128, 127);
+						int negmask=(int32_t)pred>>31;
+#endif
+						int sym=error;
+						int e2=epredlossy-sym;
+						error=sym>>1^-(sym&1);
+						e2=(e2^negmask)-negmask;
+						if((epredlossy<<1)<sym)
+							error=e2;
+
+						pixel=error*dist+(int32_t)pred;
+#ifdef UNSIGNED_PIXEL
+						CLAMP2(pixel, 0, 255);
+#else
+						CLAMP2(pixel, -128, 127);
+#endif
+						yuv[kc]=pixel;
+#ifdef ENABLE_GUIDE
+						{
+							uint8_t *pval=&g_image[3*(iw*ky+kx)+rct_combinations[bestrct][II_PERM_Y+kc]];
+							uint8_t val=*pval;
+							if(pixel!=val)
+								CRASH("");
+						}
 #endif
 					}
 					else
@@ -830,14 +899,17 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 							int negmask=(int32_t)pred>>31;
 #endif
 							int sym=error;
-							int e2=epred-sym;
+							int e2=(epred*invdist>>16)-sym;
 							error=sym>>1^-(sym&1);
 							e2=(e2^negmask)-negmask;
-							if((epred<<1)<sym)
+							if((epred<<1)<sym*dist)
 								error=e2;
-							yuv[kc]=error+(int32_t)pred;
 						}
+						yuv[kc]=error+(int32_t)pred;
 					}
+
+					//if(ky==253&&kx==777)//
+					//	printf("%d\n", error);//
 				}
 #endif
 				{
@@ -924,12 +996,10 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 				imptr[vidx]=yuv[2]+128;
 #endif
 #ifdef ENABLE_GUIDE
-				if(lossy)
-					guide_update(image, kx, ky);
-				else
-					guide_check(image, kx, ky);
+				guide_check(image, kx, ky);
 #endif
 			}
+			//printf("XY %5d %5d\r", kx, ky);
 		}
 	}
 	free(pixels);
@@ -1196,10 +1266,11 @@ int c12_codec(int argc, char **argv)
 #endif
 			}
 #ifdef LOUD
-			printf("\"%s\"  WH %d*%d  %lld bytes  RCT %d %s\n"
+			printf("\"%s\"  WH %d*%d  %lld bytes  RCT %d %s  dist %d\n"
 				, srcfn
 				, iw, ih, usize
 				, bestrct, rct_names[bestrct]
+				, dist
 			);
 #else
 			(void)och_names;
@@ -1284,6 +1355,7 @@ int c12_codec(int argc, char **argv)
 	t=time_sec()-t;
 	if(fwd)
 	{
+		usize=srcsize;
 #ifdef PRINTBITS
 		printf("\n");
 #endif
@@ -1318,8 +1390,25 @@ int c12_codec(int argc, char **argv)
 #ifdef ENABLE_GUIDE
 	if(!fwd&&dist>1)
 	{
-		double rmse=sqrt(g_sqe/((double)3*iw*ih)), psnr=20*log10(255/rmse);
-		printf("RMSE %12.6lf PSNR %12.6lf\n", rmse, psnr);
+		double rmse[]=
+		{
+			sqrt((g_sqe[0]+g_sqe[1]+g_sqe[2])/((double)3*iw*ih)),
+			sqrt(g_sqe[0]/((double)iw*ih)),
+			sqrt(g_sqe[1]/((double)iw*ih)),
+			sqrt(g_sqe[2]/((double)iw*ih)),
+		};
+		double psnr[]=
+		{
+			20*log10(255/rmse[0]),
+			20*log10(255/rmse[1]),
+			20*log10(255/rmse[2]),
+			20*log10(255/rmse[3]),
+		};
+		printf("RMSE  PSNR\n");
+		printf("T %12.6lf  %12.6lf\n", rmse[0], psnr[0]);
+		printf("Y %12.6lf  %12.6lf\n", rmse[1], psnr[1]);
+		printf("U %12.6lf  %12.6lf\n", rmse[2], psnr[2]);
+		printf("V %12.6lf  %12.6lf\n", rmse[3], psnr[3]);
 	}
 #endif
 #endif

@@ -162,6 +162,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-CLIC303-ppm/2048x1320_rosan-harmens-18703.ppm"
 	//	"C:/dataset-CLIC303-ppm/2048x1320_zugr-108.ppm"
 	//	"C:/dataset-panasonic-ppm/P1000058.ppm"
+	//	"C:/dataset-panasonic-ppm/P1000169.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13914.ppm"
 	//	"C:/dataset-DIV2K-ppm/0801.ppm"
 	//	"C:/dataset-DSLR2x4-ppm/DSC_0133.ppm"
@@ -171,6 +172,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-DSLR2-ppm/DSC_0320.ppm"
 		"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/dataset-LPCB-ppm/STA13845.ppm"
+	//	"C:/dataset-LPCB-ppm/PIA12811.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13803.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13833.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13912.ppm"
@@ -252,6 +254,7 @@ int main(int argc, char **argv)
 		argv[0],
 		srcfn,
 		tmpfn,
+		"5",
 
 	//	"-e", "3",
 
