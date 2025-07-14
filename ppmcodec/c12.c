@@ -36,8 +36,61 @@
 	#define UNSIGNED_PIXEL
 
 
-#define L1SH 20
 #if 1
+#define L1SH_LOSSY 18
+#define PREDLIST_LOSSY\
+	PRED(N)\
+	PRED(NNN)\
+	PRED(NNNN)\
+	PRED(N+yN)\
+	PRED(N+yNE)\
+	PRED(N+yNW)\
+	PRED(N+yW)\
+	PRED(W)\
+	PRED(WWW)\
+	PRED(WWWW)\
+	PRED(W+xW)\
+	PRED(W+xNE)\
+	PRED(W+xNEE)\
+	PRED(W+xNW)\
+	PRED(NE)\
+	PRED(NEEE)\
+	PRED(NEEEE)\
+
+#if 0
+	PRED(3*(N-NN)+NNN)\
+	PRED(3*(W-WW)+WWW)\
+	PRED(4*(N+NNN)-6*NN-NNNN)\
+	PRED(4*(W+WWW)-6*WW-WWWW)\
+
+#endif
+#endif
+#if 0
+#define L1SH_LOSSY 16
+#define PREDLIST_LOSSY\
+	PRED(N)\
+	PRED(W)\
+	PRED(3*(N-NN)+NNN)\
+	PRED(3*(W-WW)+WWW)\
+	PRED(W+xNE)\
+	PRED((WWWW+WWW+NNN+NEE+NEEE+NEEEE-2*NW)/4)\
+	PRED(N+yW)\
+	PRED(N+yNE)\
+
+#endif
+#if 0
+#define L1SH_LOSSY 14
+#define PREDLIST_LOSSY\
+	PRED(N)\
+	PRED(W)\
+	PRED(NE)\
+	PRED(NW)\
+
+#endif
+
+
+#if 1
+#define L1SH 20
 #define PREDLIST\
 	PRED(N)\
 	PRED(NNN)\
@@ -108,6 +161,7 @@ enum
 {
 #define PRED(EXPR) +1
 	L1NPREDS=PREDLIST,
+	L1NPREDS_LOSSY=PREDLIST_LOSSY,
 #undef  PRED
 };
 
@@ -508,12 +562,15 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 	int32_t psize=0;
 	int16_t *pixels=0;
 	int32_t padw=iw+16;
-	int32_t coeffs[3][L1NPREDS+1]={0};
+	int32_t coeffs[3][(L1NPREDS>L1NPREDS_LOSSY?L1NPREDS:L1NPREDS_LOSSY)+1]={0};
 	int32_t invdist=((1<<16)+dist-1)/dist;
+	//int32_t lossybias=dist>>1;
+	const int32_t lossybias=0;
 	uint8_t *imptr=image;
 #ifdef PRINTBITS
 	ptrdiff_t idx=0, usize=(ptrdiff_t)3*iw*ih;
 #endif
+	const int32_t dequant_bias=0;
 	
 	(void)memusage;
 	psize=(int32_t)sizeof(int16_t[4*3*4])*padw;//4 padded rows * 3 channels * {pixels, nbypass, gx, gy}
@@ -536,7 +593,20 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 
 	FILLMEM((uint32_t*)stats2, 1<<PROBBITS_STORE>>1, sizeof(stats2), sizeof(int32_t));
 	FILLMEM((uint32_t*)stats3, 1<<PROBBITS_STORE>>1, sizeof(stats3), sizeof(int32_t));
-	FILLMEM((int32_t*)coeffs, (1<<L1SH)/L1NPREDS, sizeof(coeffs), sizeof(int32_t));
+	if(lossy)
+	{
+		FILLMEM((int32_t*)coeffs, (1<<L1SH_LOSSY)/L1NPREDS_LOSSY, sizeof(coeffs), sizeof(int32_t));
+		//coeffs[0][L1NPREDS_LOSSY]=0;
+		//coeffs[1][L1NPREDS_LOSSY]=0;
+		//coeffs[2][L1NPREDS_LOSSY]=0;
+	}
+	else
+	{
+		FILLMEM((int32_t*)coeffs, (1<<L1SH)/L1NPREDS, sizeof(coeffs), sizeof(int32_t));
+		coeffs[0][L1NPREDS]=0;
+		coeffs[1][L1NPREDS]=0;
+		coeffs[2][L1NPREDS]=0;
+	}
 #ifdef ESTIMATE_BITSIZE
 	memset(bitctr, 0, sizeof(bitctr));
 	memset(bitsizes, 0, sizeof(bitsizes));
@@ -579,12 +649,16 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 				int32_t
 					NNNN	=rows[0][0+0*3*4],
 					NNN	=rows[3][0+0*3*4],
+					NN	=rows[2][0+0*3*4],
+					NW	=rows[1][0-1*3*4],
 					N	=rows[1][0+0*3*4],
 					NE	=rows[1][0+1*3*4],
+					NEE	=rows[1][0+2*3*4],
 					NEEE	=rows[1][0+3*3*4],
 					NEEEE	=rows[1][0+4*3*4],
 					WWWW	=rows[0][0-4*3*4],
 					WWW	=rows[0][0-3*3*4],
+					WW	=rows[0][0-2*3*4],
 					W	=rows[0][0-1*3*4],
 					eNE	=rows[1][1+1*3*4],
 					eNEE	=rows[1][1+2*3*4],
@@ -593,6 +667,7 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 					xNW	=rows[1][2-1*3*4],
 					xNE	=rows[1][2+1*3*4],
 					xNEE	=rows[1][2+2*3*4],
+					xNEEE	=rows[1][2+3*3*4],
 					xW	=rows[0][2-1*3*4],
 					yNW	=rows[1][3-1*3*4],
 					yN	=rows[1][3+0*3*4],
@@ -632,22 +707,31 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 				int32_t bit=0;
 				int32_t ctx;
 				int32_t *currw=coeffs[kc];
-				int32_t preds[L1NPREDS];
+				int32_t preds[L1NPREDS>L1NPREDS_LOSSY?L1NPREDS:L1NPREDS_LOSSY];
+				//int32_t signpred=currw[lossy?L1NPREDS_LOSSY:L1NPREDS]>>31;
 
 				{
 					int j=0;
 
-					pred=currw[L1NPREDS]<<3;
 //#define PRED(EXPR) pred+=currw[j]*(EXPR); ++j;
 //					PREDLIST
 //#undef  PRED
 #define PRED(EXPR) preds[j]=EXPR; pred+=currw[j]*preds[j]; ++j;
-					PREDLIST
+					if(lossy)
+					{
+						pred=1<<L1SH_LOSSY>>1;
+						//pred=(1<<L1SH_LOSSY)/L1NPREDS_LOSSY<<3;
+						//pred=currw[L1NPREDS_LOSSY]<<3;
+						PREDLIST_LOSSY
+						pred>>=L1SH_LOSSY;
+					}
+					else
+					{
+						pred=currw[L1NPREDS]<<3;
+						PREDLIST
+						pred>>=L1SH;
+					}
 #undef  PRED
-
-					//pred-=pred>>3;
-					//pred+=1<<L1SH>>1;
-					pred>>=L1SH;
 				}
 				pred0=(int32_t)pred;
 				vmax=N, vmin=W;
@@ -696,6 +780,34 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 				(void)eNEEE	;
 				(void)eW	;
 #endif
+#if 1
+				(void)NNNN	;
+				(void)NNN	;
+				(void)NN	;
+				(void)NW	;
+				(void)N		;
+				(void)NE	;
+				(void)NEE	;
+				(void)NEEE	;
+				(void)NEEEE	;
+				(void)WWWW	;
+				(void)WWW	;
+				(void)WW	;
+				(void)W		;
+				(void)eNE	;
+				(void)eNEE	;
+				(void)eNEEE	;
+				(void)eW	;
+				(void)xNW	;
+				(void)xNE	;
+				(void)xNEE	;
+				(void)xNEEE	;
+				(void)xW	;
+				(void)yNW	;
+				(void)yN	;
+				(void)yNE	;
+				(void)yW	;
+#endif
 				//if(ky==10&&kx==2019)//
 				//if(ky==193&&kx==975&&!kc)//
 				//if(ky==415&&kx==996&&!kc)//
@@ -704,32 +816,43 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 				//if(ky==253&&kx==776)//
 				//if(ky==192&&kx==256&&kc==0)//
 				//if(ky==0&&kx==434&&kc==0)//
+				//if(ky==169&&kx==271&&kc==0)//
+				//if(ky==2275&&kx==0&&kc==0)//
+				//if(ky==1159&&kx==1088&&kc==2)//
 				//	printf("");//
 
 #if 1
+				int epred;
 #ifdef UNSIGNED_PIXEL
-				int epred=pred>=128?255-pred:pred;
-				//int epred=128-abs((int32_t)pred-128);
+				if(lossy)
+					epred=pred>=128?255-pred:pred;
+				else
+					epred=128-abs(pred-128);
 #else
-				int epred=128-abs((int32_t)pred);
+				if(lossy)
+					epred=pred>=0?127-pred:pred+128;
+				else
+					epred=128-abs(pred);
 #endif
-				//if(lossy)
-				//	epred=epred*invdist>>16;
 				if(fwd)
 				{
 					error=yuv[kc]-(int32_t)pred;
 					if(lossy)
 					{
 						int pixel;
+						int epredlossy=(epred+lossybias)*invdist>>16;
 
+						error+=lossybias;
 						error=(error*invdist>>16)-(error>>31);
-						pixel=error*dist+(int32_t)pred;
+						pixel=error*dist+dequant_bias+(int32_t)pred;
 #ifdef UNSIGNED_PIXEL
 						CLAMP2(pixel, 0, 255);
+						yuv[kc]=pixel;
 #else
 						CLAMP2(pixel, -128, 127);
-#endif
 						yuv[kc]=pixel;
+						pixel+=128;
+#endif
 #ifdef ENABLE_GUIDE
 						{
 							uint8_t *pval=&g_image[3*(iw*ky+kx)+rct_combinations[bestrct][II_PERM_Y+kc]];
@@ -743,13 +866,8 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 							int negmask=error>>31;
 							int abserr=(error^negmask)-negmask;
 							error=error<<1^negmask;
-							if(epred<abserr*dist)
-								error=(epred*invdist>>16)+abserr;
-							if(error==256)
-							{
-								error=(int8_t)(yuv[kc]-pred);
-								error=error<<1^error>>31;
-							}
+							if(epredlossy<abserr)
+								error=epredlossy+abserr;
 						}
 					}
 					else
@@ -759,7 +877,12 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 						error=error<<1^negmask;
 						if(epred<abserr)
 							error=epred+abserr;
-						if(error==256)
+#ifdef UNSIGNED_PIXEL
+						if(!yuv[kc]&&pred>128)
+#else
+						if(yuv[kc]==-128&&pred>0)
+#endif
+						//if(error==256)
 						{
 							error=(int8_t)(yuv[kc]-pred);
 							error=error<<1^error>>31;
@@ -772,12 +895,17 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 				}
 				else
 					error=0;
+				static const int8_t shift_lossy[]=
+				{//	0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 21		22 23 24 25 26 27 28 29
+					6, 5, 5, 5, 5, 5, 4, 4, 4, 4, 4, 4, 4, 3, 3, 3, 3, 3, 3, 3, 3, 3,		 7, 7, 7, 7, 7, 7, 7, 7,
+					4, 4, 4, 4, 4, 4, 4, 4, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,		 6, 6, 6, 6, 6, 6, 6, 6,
+				};
 				static const int8_t shift[]=
 				{//	0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 21		22 23 24 25 26 27 28 29
 					7, 7, 6, 6, 6, 5, 5, 4, 4, 4, 4, 4, 4, 3, 3, 3, 3, 3, 3, 3, 3, 3,		 7, 7, 7, 7, 7, 7, 7, 7,
 					5, 5, 5, 4, 4, 4, 4, 4, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,		 6, 6, 6, 6, 6, 6, 6, 6,
 				};
-				const int8_t *sh=shift+(GRLIMIT+8)*(nbypass>3), sh2=7-(nbypass>3);
+				const int8_t *sh=(lossy?shift_lossy+(GRLIMIT+8)*(nbypass>2):shift+(GRLIMIT+8)*(nbypass>3)), sh2=7-(nbypass>3);
 #ifdef UNSIGNED_PIXEL
 				upred=pred;
 #else
@@ -846,7 +974,7 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 					if(lossy)
 					{
 						int pixel;
-						int epredlossy=epred*invdist>>16;
+						int epredlossy=(epred+lossybias)*invdist>>16;
 #ifdef UNSIGNED_PIXEL
 						int negmask=((int32_t)pred-128)>>31;
 #else
@@ -859,20 +987,14 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 						if((epredlossy<<1)<sym)
 							error=e2;
 
-						pixel=error*dist+(int32_t)pred;
+						pixel=error*dist+dequant_bias+(int32_t)pred;
 #ifdef UNSIGNED_PIXEL
 						CLAMP2(pixel, 0, 255);
+						yuv[kc]=pixel;
 #else
 						CLAMP2(pixel, -128, 127);
-#endif
 						yuv[kc]=pixel;
-#ifdef ENABLE_GUIDE
-						{
-							uint8_t *pval=&g_image[3*(iw*ky+kx)+rct_combinations[bestrct][II_PERM_Y+kc]];
-							uint8_t val=*pval;
-							if(pixel!=val)
-								CRASH("");
-						}
+						pixel+=128;
 #endif
 					}
 					else
@@ -899,7 +1021,7 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 							int negmask=(int32_t)pred>>31;
 #endif
 							int sym=error;
-							int e2=(epred*invdist>>16)-sym;
+							int e2=epred-sym;
 							error=sym>>1^-(sym&1);
 							e2=(e2^negmask)-negmask;
 							if((epred<<1)<sym*dist)
@@ -907,6 +1029,18 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 						}
 						yuv[kc]=error+(int32_t)pred;
 					}
+#ifdef ENABLE_GUIDE
+					{
+						uint8_t *pval=&g_image[3*(iw*ky+kx)+rct_combinations[bestrct][II_PERM_Y+kc]];
+						uint8_t val=*pval;
+#ifdef UNSIGNED_PIXEL
+						if(yuv[kc]!=val)
+#else
+						if(yuv[kc]+128!=val)
+#endif
+							CRASH("GUIDE YXC %d %d %d", ky, kx, kc);
+					}
+#endif
 
 					//if(ky==253&&kx==777)//
 					//	printf("%d\n", error);//
@@ -918,55 +1052,25 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 
 					e=(curr>pred0)-(curr<pred0);
 
-#if 0
-					currw[L1NPREDS]+=e;
-					{
-						__m256i me=_mm256_set1_epi32(e);
-						for(k=0;k<L1NPREDS/8-1;k+=2)
-						{
-							__m256i c0=_mm256_loadu_si256((__m256i*)currw+k+0);
-							__m256i c1=_mm256_loadu_si256((__m256i*)currw+k+1);
-							__m256i p0=_mm256_loadu_si256((__m256i*)preds+k+0);
-							__m256i p1=_mm256_loadu_si256((__m256i*)preds+k+1);
-							p0=_mm256_sign_epi32(p0, me);
-							p1=_mm256_sign_epi32(p1, me);
-							c0=_mm256_add_epi32(c0, p0);
-							c1=_mm256_add_epi32(c1, p1);
-							_mm256_storeu_si256((__m256i*)currw+k+0, c0);
-							_mm256_storeu_si256((__m256i*)currw+k+1, c1);
-						}
-						for(;k<L1NPREDS;++k)
-							currw[k]+=e*preds[k];
-					}
-#endif
-#if 0
-					if(e)
-					{
-						currw[L1NPREDS]+=e;
-						e=e<0?-1:0;
-						k=0;
-#define PRED(EXPR) currw[k]+=(preds[k]^e)-e; ++k;
-						PREDLIST
-#undef  PRED
-					}
-#endif
-//					k=0;
-//#define PRED(EXPR) currw[k]+=e*(EXPR); ++k;
-//					PREDLIST
-//#undef  PRED
-
-//					k=0;
-//#define PRED(EXPR) currw[k]+=e>0?preds[k]:(e<0?-preds[k]:0); ++k;
-//					PREDLIST
-//#undef  PRED
-
 					k=0;
 #define PRED(EXPR) currw[k]+=e*preds[k]; ++k;
-					PREDLIST
+					if(lossy)
+					{
+						//currw[L1NPREDS_LOSSY]+=e;
+						PREDLIST_LOSSY
+					}
+					else
+					{
+						currw[L1NPREDS]+=e;
+						PREDLIST
+					}
 #undef  PRED
 
 					error=yuv[kc]-(int32_t)pred;
-					error=error<<1^error>>31;
+					if(lossy)
+						error=abs(error);
+					else
+						error=error<<1^error>>31;
 					rows[0][0]=curr;
 					rows[0][1]=(eW+(eW<eNE?eW:eNE)+(error<<GRBITS)+(eNEE>eNEEE?eNEE:eNEEE))>>2;
 				//	rows[0][1]=(2*eW+(error<<GRBITS)+(eNEE>eNEEE?eNEE:eNEEE))>>2;
@@ -974,7 +1078,6 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 					rows[0][3]=curr-N;//gy
 				}
 				offset=(kc ? cv0*yuv[0]+cv1*yuv[1] : cu0*yuv[0])>>2;
-				//offset=kc ? yuv[vhelpidx] : yuv[uhelpidx];
 				rows[0]+=4;
 				rows[1]+=4;
 				rows[2]+=4;
@@ -1006,11 +1109,87 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 }
 int c12_codec(int argc, char **argv)
 {
+#if 0
+	{
+		printf("pred\\target  naive modular arithmetic sign packing\n");
+		printf("\t");
+		for(int k=0;k<8;++k)
+			printf(" %3d", k-4);
+		printf("\n\n");
+		for(int kp=-4;kp<4;++kp)
+		{
+			printf(" %3d\t", kp);
+			for(int kt=-4;kt<4;++kt)
+			{
+				int e=kt-kp, e0;
+
+				e0=e<<(32-3)>>(32-3);
+				e0=e0<<1^e0>>31;
+				printf(" %3d", e0);
+			}
+			printf("\n");
+		}
+		printf("\n");
+
+		printf("pred\\target  CALIC sign deduction\n");
+		printf("\t");
+		for(int k=0;k<8;++k)
+			printf(" %3d", k-4);
+		printf("\n\n");
+		for(int kp=-4;kp<4;++kp)
+		{
+			printf(" %3d\t", kp);
+			for(int kt=-4;kt<4;++kt)
+			{
+				int e=kt-kp, e1;
+
+				if(kt==-4&&kp>0)
+				{
+					e1=e<<(32-3)>>(32-3);
+					e1=e1<<1^e1>>31;
+				}
+				else
+				{
+					int upred=4-abs(kp);
+					int negmask=e>>31;
+					int abse=(e^negmask)-negmask;
+					e1=e<<1^negmask;
+					if(upred<abse)
+						e1=upred+abse;
+				}
+				printf(" %3d", e1);
+
+				//deduce kt from e1 and kp
+				{
+					int kt2=e1>>1^-(e1&1);
+					kt2+=kp;
+					kt2=kt2<<(32-3)>>(32-3);
+					if(!(kp>0&&kt2==-4))
+					{
+						int upred=4-abs(kp);
+						int negmask=kp>>31;
+						int e2=upred-e1;
+						kt2=e1>>1^-(e1&1);
+						e2=(e2^negmask)-negmask;
+						if(2*upred<e1)
+							kt2=e2;
+						kt2+=kp;
+					}
+					if(kt2!=kt)
+						CRASH("ERROR");
+				}
+			}
+			printf("\n");
+		}
+		printf("\n");
+		exit(0);
+	}
+#endif
 	if(argc!=3&&argc!=4)
 	{
 		printf(
 			"Usage:  \"%s\"  input  output  [dist]\n"
-			"  dist=1 for lossless (default).  Or 4 <= dist <= 16 for lossy.\n"
+			"  dist=1 for lossless (default).  Or 3 <= dist <= 17 for lossy.\n"
 			, argv[0]
 		);
 		return 1;
@@ -1018,7 +1197,7 @@ int c12_codec(int argc, char **argv)
 	const char *srcfn=argv[1], *dstfn=argv[2];
 	int dist=argc<4?1:atoi(argv[3]);
 	if(dist!=1)
-		CLAMP2(dist, 4, 16);
+		CLAMP2(dist, 3, 17);
 	ptrdiff_t srcsize=0, dstsize=0;
 	int fwd=0;
 	int32_t iw=0, ih=0;
@@ -1375,11 +1554,12 @@ int c12_codec(int argc, char **argv)
 		}
 		printf("\n");
 #endif
-		printf("%9td->%9td  %8.4lf%%  %12.6lf\n"
+		printf("%9td->%9td  %8.4lf%%  %12.6lf:1  BPD %12.6lf\n"
 			, usize
 			, csize
 			, 100.*csize/usize
 			, (double)usize/csize
+			, 8.*csize/usize
 		);
 	}
 	printf("%c  %12.6lf sec  %12.6lf MB/s\n"
@@ -1388,7 +1568,7 @@ int c12_codec(int argc, char **argv)
 		, usize/(t*1024*1024)
 	);
 #ifdef ENABLE_GUIDE
-	if(!fwd&&dist>1)
+	if(fwd&&dist>1)
 	{
 		double rmse[]=
 		{
