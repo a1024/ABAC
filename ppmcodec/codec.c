@@ -60,7 +60,7 @@ int c35_codec(int argc, char **argv);//binary FSM
 //	#define CODEC_EXT c09
 //	#define CODEC_EXT c10
 //	#define CODEC_EXT c11
-	#define CODEC_EXT c12
+//	#define CODEC_EXT c12
 //	#define CODEC_EXT c13
 //	#define CODEC_EXT c14
 //	#define CODEC_EXT c15
@@ -82,7 +82,7 @@ int c35_codec(int argc, char **argv);//binary FSM
 //	#define CODEC_EXT c31
 //	#define CODEC_EXT c32
 //	#define CODEC_EXT c33
-//	#define CODEC_EXT c34
+	#define CODEC_EXT c34
 //	#define CODEC_EXT c35
 #endif
 #define STR_EXPAND(X) #X
@@ -171,6 +171,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-HUGE-ppm/space_huge.ppm"
 	//	"C:/dataset-DSLR2-ppm/DSC_0320.ppm"
 		"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
+	//	"D:/ML/zzz_halfbright.PPM"
 	//	"C:/dataset-LPCB-ppm/STA13845.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA12811.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13803.ppm"

@@ -153,6 +153,217 @@ static int query_cpu_cores(void)
 	return sysconf(_SC_NPROCESSORS_ONLN);
 #endif
 }
+
+
+static int getpagesize(void)
+{
+	SYSTEM_INFO info={0};
+
+	GetSystemInfo(&info);
+	return info.dwPageSize;
+}
+
+typedef struct _Buffer
+{
+	uint8_t *buf;
+	size_t size;
+} Buffer;
+static int buf_alloc(Buffer *buf, size_t size)
+{
+	buf->buf=VirtualAlloc(0, size, MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
+	if(!buf->buf)
+		return 1;
+	buf->size=size;
+	return 0;
+}
+static int buf_free(Buffer *buf)
+{
+	int success=VirtualFree(buf->buf, 0, MEM_RELEASE);
+	return !success;
+}
+
+static int fastread(const char *fn, uint8_t *buf, size_t size, int pagesize)
+{
+	size_t npages, qsize, rsize;
+	int success;
+	HANDLE hfile;
+	FILE_SEGMENT_ELEMENT *segments;
+	OVERLAPPED overlapped={0};
+	DWORD nread;
+
+	if((size_t)buf%pagesize)
+	{
+		printf("fastread: Invalid buffer\n");
+		return 1;
+	}
+
+	npages=size/pagesize;
+	qsize=npages*pagesize;
+	rsize=size-qsize;
+
+	//if(rsize)
+	//	qsize+=pagesize;
+
+	segments=(FILE_SEGMENT_ELEMENT*)malloc(npages*sizeof(FILE_SEGMENT_ELEMENT));
+	if(!segments)
+	{
+		printf("fastread: Alloc error\n");
+		return 1;
+	}
+	{
+		int k;
+		uint8_t *ptr;
+
+		ptr=buf;
+		for(k=0;k<npages;++k)
+		{
+			segments[k].Buffer=ptr;
+			ptr+=pagesize;
+		}
+	}
+
+	hfile=CreateFileA(fn, GENERIC_READ, 0, 0, OPEN_EXISTING, FILE_FLAG_NO_BUFFERING|FILE_FLAG_OVERLAPPED, 0);
+	if(hfile==INVALID_HANDLE_VALUE)
+	{
+		printf("fastread: Cannot open \"%s\"\n", fn);
+		return 1;
+	}
+
+	success=ReadFileScatter(hfile, segments, (DWORD)qsize, 0, &overlapped);
+	if(!success)
+	{
+		success=GetLastError();
+		if(success!=997)//pending
+		{
+			printf("fastread: ReadFileScatter: %d\n", success);
+			return 1;
+		}
+	}
+
+	nread=0;
+	success=GetOverlappedResult(hfile, &overlapped, &nread, TRUE);
+	if(!success)
+	{
+		success=GetLastError();
+		printf("fastwrite: GetOverlappedResult: %d", success);
+		return 1;
+	}
+
+	CloseHandle(hfile);
+	free(segments);
+
+	if(rsize)
+	{
+		FILE *fsrc;
+		size_t nread;
+	
+		fsrc=fopen(fn, "rb");
+		if(!fsrc)
+		{
+			printf("fastread: Cannot open \"%s\"\n", fn);
+			return 1;
+		}
+		fseek(fsrc, (long)qsize, SEEK_SET);
+		nread=fread(buf+qsize, 1, rsize, fsrc);
+		fclose(fsrc);
+	
+		(void)nread;
+	}
+	return 0;
+}
+static int fastwrite(const char *fn, uint8_t *buf, size_t size, int pagesize)
+{
+	size_t npages, qsize, rsize;
+	int success;
+	HANDLE hfile;
+	FILE_SEGMENT_ELEMENT *segments;
+	OVERLAPPED overlapped={0};
+	DWORD nwritten;
+
+	if((size_t)buf%pagesize)
+	{
+		printf("fastwrite: Invalid buffer\n");
+		return 1;
+	}
+
+	npages=size/pagesize;
+	qsize=npages*pagesize;
+	rsize=size-qsize;
+
+	segments=(FILE_SEGMENT_ELEMENT*)malloc(npages*sizeof(FILE_SEGMENT_ELEMENT));
+	if(!segments)
+	{
+		printf("fastwrite: Alloc error\n");
+		return 1;
+	}
+	{
+		int k;
+		uint8_t *ptr;
+
+		ptr=buf;
+		for(k=0;k<npages;++k)
+		{
+			segments[k].Buffer=ptr;
+			ptr+=pagesize;
+		}
+	}
+	
+	hfile=CreateFileA(fn, GENERIC_WRITE, 0, 0, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL|FILE_FLAG_NO_BUFFERING|FILE_FLAG_OVERLAPPED, 0);
+	if(hfile==INVALID_HANDLE_VALUE)
+	{
+		printf("fastwrite: Cannot open \"%s\" for writing\n", fn);
+		return 1;
+	}
+
+	//overlapped.hEvent=CreateEventA(0, 1, 0, 0);
+	//if(!overlapped.hEvent)
+	//{
+	//	printf("fastwrite: Alloc error\n");
+	//	return 1;
+	//}
+
+	success=WriteFileGather(hfile, segments, (DWORD)qsize, 0, &overlapped);
+	if(!success)
+	{
+		success=GetLastError();
+		if(success!=997)//pending
+		{
+			printf("fastwrite: WriteFileGather: %d\n", success);
+			return 1;
+		}
+	}
+
+	nwritten=0;
+	success=GetOverlappedResult(hfile, &overlapped, &nwritten, TRUE);
+	if(!success)
+	{
+		success=GetLastError();
+		printf("fastwrite: GetOverlappedResult: %d", success);
+		return 1;
+	}
+
+	CloseHandle(hfile);
+	free(segments);
+
+	if(rsize)
+	{
+		FILE *fsrc;
+		size_t nwritten;
+
+		fsrc=fopen(fn, "ab");
+		if(!fsrc)
+		{
+			printf("fastread: Cannot open \"%s\"\n", fn);
+			return 1;
+		}
+		nwritten=fwrite(buf+qsize, 1, rsize, fsrc);
+		fclose(fsrc);
+
+		(void)nwritten;
+	}
+	return 0;
+}
+
 #ifdef PROFILE_TIME
 #define PROFLIST\
 	PROFLABEL(read)\
@@ -3077,6 +3288,9 @@ int c34_codec(int argc, char **argv)
 	const char *srcfn=0, *dstfn=0;
 	int ncores;
 
+	int pagesize;
+	Buffer imagebuf={0};
+
 	ptrdiff_t streamsize=0;
 	unsigned char *streamstart=0, *streamend=0;
 
@@ -3094,6 +3308,7 @@ int c34_codec(int argc, char **argv)
 	(void)streamend;
 	(void)memfill;
 	(void)time_sec;
+	(void)fastread;
 	(void)och_names;
 	(void)rct_names;
 	if(argc<3)
@@ -3165,6 +3380,7 @@ int c34_codec(int argc, char **argv)
 			}
 		}
 	}
+	pagesize=getpagesize();
 	ncores=query_cpu_cores();
 	if(!nthreads||nthreads>ncores)
 		nthreads=ncores;
@@ -3268,22 +3484,51 @@ int c34_codec(int argc, char **argv)
 		rowstride=3*iw;
 		res=(ptrdiff_t)iw*ih;
 		usize=3*res;
-		image=(unsigned char*)malloc(usize);
-		if(!image)
+
+		//image=VirtualAlloc(0, usize+128, MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
+		//image=(unsigned char*)malloc(usize);
+		//if(!image)
+		//{
+		//	CRASH("Alloc error");
+		//	return 1;
+		//}
 		{
-			CRASH("Alloc error");
-			return 1;
-		}
-		{
+			int headersize;
 			ptrdiff_t expected=0;
 			if(fwd)
 			{
+				headersize=(int)ftell(fsrc);
+
+				if(buf_alloc(&imagebuf, usize+headersize))
+				{
+					CRASH("Alloc error");
+					return 1;
+				}
+				image=imagebuf.buf+headersize;
+
+				//fseek(fsrc, 0, SEEK_SET);
+				//fread(imagebuf.buf, 1, imagebuf.size, fsrc);
+				//fclose(fsrc);
+
+				//if(fastread(srcfn, imagebuf.buf, imagebuf.size, pagesize))
+				//{
+				//	CRASH("Cannot open \"%s\"\n", srcfn);
+				//	return 1;
+				//}
 				expected=usize;
 				nread=fread(image, 1, usize, fsrc);
 				guide_save(image, iw, ih);
 			}
 			else
 			{
+				if(buf_alloc(&imagebuf, usize+128))
+				{
+					CRASH("Alloc error");
+					return 1;
+				}
+				headersize=snprintf((char*)imagebuf.buf, 128, "P6\n%d %d\n255\n", iw, ih);
+				image=imagebuf.buf+headersize;
+
 				stream=(unsigned char*)malloc(streamsize+sizeof(__m256i));
 				if(!stream)
 				{
@@ -3293,10 +3538,10 @@ int c34_codec(int argc, char **argv)
 				expected=streamsize;
 				nread=fread(stream, 1, streamsize, fsrc);
 			}
+			fclose(fsrc);
 			if(nread!=expected)
 				printf("Truncated  expected %td  read %td", expected, nread);
 		}
-		fclose(fsrc);
 	}
 	memset(ans_permute, 0, sizeof(ans_permute));
 	if(fwd)
@@ -3536,34 +3781,14 @@ int c34_codec(int argc, char **argv)
 
 	//write output
 #ifdef _WIN32
-	if(!fwd)
+	if(!fwd&&usize>4096*2LL)
 	{
-		OVERLAPPED overlapped={0};
-		DWORD nwritten;
-		char header[128]={0};
-		int hlen;
-		int success;
-		HANDLE hdst;
-		//SYSTEM_INFO info;
-
-		//GetSystemInfo(&info);
-		//info.dwPageSize;
-		hdst=CreateFileA(dstfn, GENERIC_WRITE, 0, 0, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL|FILE_FLAG_SEQUENTIAL_SCAN, 0);
-		if(hdst==INVALID_HANDLE_VALUE)
+		dstsize=image-imagebuf.buf+usize;
+		if(fastwrite(dstfn, imagebuf.buf, dstsize, pagesize))
 		{
-			CRASH("Cannot open \"%s\" for writing", dstfn);
+			CRASH("Error saving \"%s\"\n", dstfn);
 			return 1;
 		}
-
-		hlen=snprintf(header, sizeof(header)-1, "P6\n%d %d\n255\n", iw, ih);
-		nwritten=0;
-		success=WriteFile(hdst, header, hlen, &nwritten, &overlapped);
-		dstsize+=nwritten;
-		overlapped.Offset=nwritten;
-		success=WriteFile(hdst, image, (DWORD)usize, &nwritten, &overlapped);
-		dstsize+=nwritten;
-		CloseHandle(hdst);
-		(void)success;
 	}
 	else
 #endif
@@ -3631,7 +3856,8 @@ int c34_codec(int argc, char **argv)
 	}
 #endif
 	free(args);
-	free(image);
+	buf_free(&imagebuf);
+	//free(image);
 	if(!fwd)
 		free(stream);
 #ifdef LOUD
