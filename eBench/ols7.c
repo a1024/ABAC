@@ -30,8 +30,8 @@ static const char file[]=__FILE__;
 	PRED( 50000, N+NE-NNE)
 #endif
 #if 1
-#define L1SH 17
-//#define L1SH 19
+//#define L1SH 17
+#define L1SH 19
 #define NPREDS 11		//up to 11, otherwise slow
 #define PREDLIST\
 	PRED(100000, N)\
@@ -199,16 +199,20 @@ void pred_ols7(Image *src, int fwd)
 #undef  PRED
 				};
 				int *currw=weights[kc];
-				int p0=0;
+				int p0=1LL<<L1SH>>1;
 
 				//int idx2=custom_params[1];
 				//if(idx2>=0&&idx2<NPREDS)
 				//	currw[idx2]=0;
-
+				
 				for(int k=0;k<NPREDS;++k)
-					p0+=(currw[k]>>8)*preds[k];
-				p0+=1LL<<(L1SH-8)>>1;
-				p0>>=L1SH-8;
+					p0+=currw[k]*preds[k];
+				p0>>=L1SH;
+
+				//for(int k=0;k<NPREDS;++k)
+				//	p0+=(currw[k]>>8)*preds[k];
+				//p0+=1LL<<(L1SH-8)>>1;
+				//p0>>=L1SH-8;
 			//	p0-=p0>>31;//X  deadzone bad with advanced pred
 				int predc=p0;
 				int vmax=N, vmin=W;
@@ -913,6 +917,133 @@ void pred_l1crct(Image *src, int fwd)
 				src->data[idx+yidx]=yuv[0];
 				src->data[idx+uidx]=yuv[1];
 				src->data[idx+vidx]=yuv[2];
+			}
+		}
+	}
+	free(pixels);
+}
+
+void pred_grfilt(Image *src, int fwd)
+{
+	int amin[]=
+	{
+		-(1<<src->depth[0]>>1),
+		-(1<<src->depth[1]>>1),
+		-(1<<src->depth[2]>>1),
+		-(1<<src->depth[3]>>1),
+	};
+	int amax[]=
+	{
+		(1<<src->depth[0]>>1)-1,
+		(1<<src->depth[1]>>1)-1,
+		(1<<src->depth[2]>>1)-1,
+		(1<<src->depth[3]>>1)-1,
+	};
+	int weights[4][NPREDS]={0};
+	int invdist=((1<<16)+g_dist-1)/g_dist;
+	int bufsize=(src->iw+8*2)*(int)sizeof(short[4*4*3]);//4 padded rows * 4 channels max * {pixels, error}
+	short *pixels=(short*)malloc(bufsize);
+	if(!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(pixels, 0, bufsize);
+	FILLMEM((int*)weights, (1<<L1SH)/NPREDS, sizeof(weights), sizeof(int));
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		short *rows[]=
+		{
+			pixels+((src->iw+16LL)*((ky-0LL+4)%4)+8)*4*3,
+			pixels+((src->iw+16LL)*((ky-1LL+4)%4)+8)*4*3,
+			pixels+((src->iw+16LL)*((ky-2LL+4)%4)+8)*4*3,
+			pixels+((src->iw+16LL)*((ky-3LL+4)%4)+8)*4*3,
+		};
+		for(int kx=0;kx<src->iw;++kx)
+		{
+			for(int kc=0;kc<4;++kc, ++idx)
+			{
+				rows[0]+=3;
+				rows[1]+=3;
+				rows[2]+=3;
+				rows[3]+=3;
+				if(!src->depth[kc])
+					continue;
+				int
+					NNNWWW		=rows[3][0-3*4*3],
+					NNNW		=rows[3][0-1*4*3],
+					NNN		=rows[3][0+0*4*3],
+					NNNE		=rows[3][0+1*4*3],
+					NNNEE		=rows[3][0+2*4*3],
+					NNNEEE		=rows[3][0+3*4*3],
+					NNNEEEE		=rows[3][0+4*4*3],
+					NNWWWW		=rows[2][0-4*4*3],
+					NNWWW		=rows[2][0-3*4*3],
+					NNWW		=rows[2][0-2*4*3],
+					NNW		=rows[2][0-1*4*3],
+					NN		=rows[2][0+0*4*3],
+					NNE		=rows[2][0+1*4*3],
+					NNEE		=rows[2][0+2*4*3],
+					NNEEE		=rows[2][0+3*4*3],
+					NNEEEE		=rows[2][0+4*4*3],
+					NWWWW		=rows[1][0-4*4*3],
+					NWWW		=rows[1][0-3*4*3],
+					NWW		=rows[1][0-2*4*3],
+					NW		=rows[1][0-1*4*3],
+					N		=rows[1][0+0*4*3],
+					NE		=rows[1][0+1*4*3],
+					NEE		=rows[1][0+2*4*3],
+					NEEE		=rows[1][0+3*4*3],
+					NEEEE		=rows[1][0+4*4*3],
+					NEEEEE		=rows[1][0+5*4*3],
+					NEEEEEE		=rows[1][0+6*4*3],
+					NEEEEEEE	=rows[1][0+7*4*3],
+					NEEEEEEEE	=rows[1][0+8*4*3],
+					WWWWWWWWW	=rows[0][0-9*4*3],
+					WWWWWWWW	=rows[0][0-8*4*3],
+					WWWWWWW		=rows[0][0-7*4*3],
+					WWWWWW		=rows[0][0-6*4*3],
+					WWWWW		=rows[0][0-5*4*3],
+					WWWW		=rows[0][0-4*4*3],
+					WWW		=rows[0][0-3*4*3],
+					WW		=rows[0][0-2*4*3],
+					W		=rows[0][0-1*4*3],
+					eNE		=rows[1][1+1*4*3],
+					eNEE		=rows[1][1+2*4*3],
+					eNEEE		=rows[1][1+3*4*3],
+					eW		=rows[0][1-1*4*3],
+					e2NE		=rows[1][2+1*4*3],
+					e2NEE		=rows[1][2+2*4*3],
+					e2NEEE		=rows[1][2+3*4*3],
+					e2W		=rows[0][2-1*4*3];
+				
+				int pred=0;
+				int curr=src->data[idx];
+
+				src->data[idx]=eW>>6;
+				//if(fwd)
+				//{
+				//	int error=curr-pred;
+				//	error<<=32-src->depth[kc];
+				//	error>>=32-src->depth[kc];
+				//	src->data[idx]=error;
+				//}
+				//else
+				//{
+				//	curr+=pred;
+				//	curr<<=32-src->depth[kc];
+				//	curr>>=32-src->depth[kc];
+				//	src->data[idx]=curr;
+				//}
+				rows[0][0]=curr;
+				{
+					int error=abs(curr);
+					//int error=curr<<1^curr>>31;
+					rows[0][1]=(eW+(eW<eNE?eW:eNE)+(error<<6)+(eNEE>eNEEE?eNEE:eNEEE))>>2;
+				//	rows[0][1]=(2*eW+error+eNEEE)>>2;
+
+					rows[0][2]=(e2W+(e2W<e2NE?e2W:e2NE)+eW+(e2NEE>e2NEEE?e2NEE:e2NEEE))>>2;
+				}
 			}
 		}
 	}

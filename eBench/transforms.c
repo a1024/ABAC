@@ -15374,8 +15374,11 @@ void image_dct8_inv(Image *image)
 		return;
 	}
 	memset(temp, 0, MAXVAR(image->iw, image->ih)*sizeof(int));
+	for(int kc=0;kc<3;++kc)
+		image->depth[kc]-=(image->depth[kc]-3>=image->src_depth[kc])*3;
 	for(int kc=0;kc<4;++kc)
 	{
+		int vmin=-(1<<image->depth[kc]>>1), vmax=(1<<image->depth[kc]>>1)-1;
 		if(!image->depth[kc])
 			continue;
 #if 1
@@ -15432,6 +15435,14 @@ void image_dct8_inv(Image *image)
 				};
 
 				dct8_inv_i8(x);
+				CLAMP2(x[0], vmin, vmax);
+				CLAMP2(x[1], vmin, vmax);
+				CLAMP2(x[2], vmin, vmax);
+				CLAMP2(x[3], vmin, vmax);
+				CLAMP2(x[4], vmin, vmax);
+				CLAMP2(x[5], vmin, vmax);
+				CLAMP2(x[6], vmin, vmax);
+				CLAMP2(x[7], vmin, vmax);
 				
 				image->data[ idx   <<2|kc]=x[0];
 				image->data[(idx+1)<<2|kc]=x[1];
@@ -15446,8 +15457,6 @@ void image_dct8_inv(Image *image)
 #endif
 	}
 	free(temp);
-	for(int kc=0;kc<3;++kc)
-		image->depth[kc]-=(image->depth[kc]-3>=image->src_depth[kc])*3;
 }
 
 

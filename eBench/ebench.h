@@ -935,6 +935,7 @@ void pred_ols5(Image *src, int fwd);
 void pred_ols6(Image *src, int fwd);
 void pred_ols7(Image *src, int fwd);		//L1
 void pred_l1crct(Image *src, int fwd);		//
+void pred_grfilt(Image *src, int fwd);		//
 void pred_ols8(Image *src, int fwd);		//
 void pred_ols8_crct(Image *src, int fwd);	//
 void pred_ols9(Image *src, int fwd);
@@ -1047,6 +1048,10 @@ void image_wht4_fwd(Image *image);
 void image_wht4_inv(Image *image);
 void image_wht8_fwd(Image *image);
 void image_wht8_inv(Image *image);
+void image_haar8_fwd(Image *image);
+void image_haar8_inv(Image *image);
+void image_fdct8_fwd(Image *image);
+void image_fdct8_inv(Image *image);
 
 #if 0
 void image_split_fwd(char *image, int iw, int ih);

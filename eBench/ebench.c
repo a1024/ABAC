@@ -175,6 +175,7 @@ typedef enum TransformTypeEnum
 	CST_COMPARE,		CST_INV_SEPARATOR,
 	
 	ST_FWD_MIXN,		ST_INV_MIXN,
+	ST_FWD_GRFILT,		ST_INV_GRFILT,
 	ST_FWD_L1CRCT,		ST_INV_L1CRCT,
 	ST_FWD_OLS7,		ST_INV_OLS7,
 	ST_FWD_L1BCRCT,		ST_INV_L1BCRCT,
@@ -265,6 +266,8 @@ typedef enum TransformTypeEnum
 	ST_FWD_DCT8,		ST_INV_DCT8,
 	ST_FWD_WHT4,		ST_INV_WHT4,
 	ST_FWD_WHT8,		ST_INV_WHT8,
+	ST_FWD_HAAR8,		ST_INV_HAAR8,
+	ST_FWD_FDCT8,		ST_INV_FDCT8,
 
 	T_COUNT,
 } TransformType;
@@ -2746,6 +2749,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_OLS5:		a=" S Inv OLS-5";		break;
 	case ST_FWD_OLS6:		a=" S Fwd OLS-6";		break;
 	case ST_INV_OLS6:		a=" S Inv OLS-6";		break;
+	case ST_FWD_GRFILT:		a=" S Fwd GR Filt";		break;
+	case ST_INV_GRFILT:		a=" S Inv GR Filt";		break;
 	case ST_FWD_L1CRCT:		a=" S Fwd L1 cRCT";		break;
 	case ST_INV_L1CRCT:		a=" S Inv L1 cRCT";		break;
 	case ST_FWD_OLS7:		a=" S Fwd L1";			break;
@@ -2941,6 +2946,10 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_WHT4:		a=" S Inv WHT4";		break;
 	case ST_FWD_WHT8:		a=" S Fwd WHT8";		break;
 	case ST_INV_WHT8:		a=" S Inv WHT8";		break;
+	case ST_FWD_HAAR8:		a=" S Fwd Haar8";		break;
+	case ST_INV_HAAR8:		a=" S Inv Haar8";		break;
+	case ST_FWD_FDCT8:		a=" S Fwd FDCT8";		break;
+	case ST_INV_FDCT8:		a=" S Inv FDCT8";		break;
 	default:			a="ERROR";			break;
 	}
 	{
@@ -3930,6 +3939,8 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_INV_OLS5:		pred_ols5(image, 0);					break;
 	case ST_FWD_OLS6:		pred_ols6(image, 1);					break;
 	case ST_INV_OLS6:		pred_ols6(image, 0);					break;
+	case ST_FWD_GRFILT:		pred_grfilt(image, 1);					break;
+	case ST_INV_GRFILT:		pred_grfilt(image, 0);					break;
 	case ST_FWD_L1CRCT:		pred_l1crct(image, 1);					break;
 	case ST_INV_L1CRCT:		pred_l1crct(image, 0);					break;
 	case ST_FWD_OLS7:		pred_ols7(image, 1);					break;
@@ -4034,6 +4045,10 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_INV_WHT4:		image_wht4_inv(image);					break;
 	case ST_FWD_WHT8:		image_wht8_fwd(image);					break;
 	case ST_INV_WHT8:		image_wht8_inv(image);					break;
+	case ST_FWD_HAAR8:		image_haar8_fwd(image);					break;
+	case ST_INV_HAAR8:		image_haar8_inv(image);					break;
+	case ST_FWD_FDCT8:		image_fdct8_fwd(image);					break;
+	case ST_INV_FDCT8:		image_fdct8_inv(image);					break;
 #if 0
 //	case ST_FWD_JMJ:		pred_jmj_apply((char*)image, iw, ih, 1);		break;
 //	case ST_INV_JMJ:		pred_jmj_apply((char*)image, iw, ih, 0);		break;
