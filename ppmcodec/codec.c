@@ -45,6 +45,8 @@ int c32_codec(int argc, char **argv);//C32: like C29 but 16 coders
 int c33_codec(int argc, char **argv);//C33: speed priority CG-only
 int c34_codec(int argc, char **argv);//MT rANS
 int c35_codec(int argc, char **argv);//binary FSM
+int c36_codec(int argc, char **argv);//video test
+int c37_codec(int argc, char **argv);//WP vs L1 test
 #endif
 
 
@@ -82,8 +84,10 @@ int c35_codec(int argc, char **argv);//binary FSM
 //	#define CODEC_EXT c31
 //	#define CODEC_EXT c32
 //	#define CODEC_EXT c33
-	#define CODEC_EXT c34
+//	#define CODEC_EXT c34
 //	#define CODEC_EXT c35
+//	#define CODEC_EXT c36
+	#define CODEC_EXT c37
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -100,6 +104,14 @@ int main(int argc, char **argv)
 #endif
 #if defined __GNUC__ || defined RELEASE
 	retcode=CODEC_FUNC(argc, argv);
+#elif 1
+	const char *args[]=
+	{
+		argv[0],
+		"C:/dataset-DIV2K-ppm/0801.ppm"
+	};
+	if(CODEC_FUNC(_countof(args), (char**)args))
+		return 1;
 //#elif 1
 //	const char *args[]=
 //	{
@@ -164,13 +176,15 @@ int main(int argc, char **argv)
 	//	"C:/dataset-panasonic-ppm/P1000058.ppm"
 	//	"C:/dataset-panasonic-ppm/P1000169.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13914.ppm"
-	//	"C:/dataset-DIV2K-ppm/0801.ppm"
+	//	"C:/dataset-sintel-ppm"
+		"C:/dataset-DIV2K-ppm/0801.ppm"
 	//	"C:/dataset-DSLR2x4-ppm/DSC_0133.ppm"
 	//	"C:/dataset-GDCC2020-ppm/astro-01.ppm"
 	//	"C:/dataset-HUGE-ppm/kodak.PPM"
 	//	"C:/dataset-HUGE-ppm/space_huge.ppm"
 	//	"C:/dataset-DSLR2-ppm/DSC_0320.ppm"
-		"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
+	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
+	//	"C:/dataset-sony-ppm/DSC00315.ppm"
 	//	"D:/ML/zzz_halfbright.PPM"
 	//	"C:/dataset-LPCB-ppm/STA13845.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA12811.ppm"
@@ -257,7 +271,7 @@ int main(int argc, char **argv)
 		tmpfn,
 	//	"9",
 
-	//	"-e", "3",
+	//	"-e", "0",
 
 	//	"0",	//param1
 	//	"7",	//near

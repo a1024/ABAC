@@ -201,3 +201,9 @@ c34:
 
 c34-gcc:
 	gcc $(FLAGS) -DCODEC_EXT=c34 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c34.c codec.c  -o c34 $(LIBS)
+
+c36:
+	clang $(FLAGS) -DCODEC_EXT=c36 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c36.c util.c codec.c  -o c36 $(LIBS)
+
+c37:
+	clang $(FLAGS) -DCODEC_EXT=c37 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c37.c codec.c  -o c37 $(LIBS)

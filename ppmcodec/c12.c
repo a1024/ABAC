@@ -27,7 +27,7 @@
 
 //	#define PRINT_RCT
 #ifndef BYPASS_GR
-	#define ESTIMATE_BITSIZE
+//	#define ESTIMATE_BITSIZE
 #endif
 	#define ENABLE_GUIDE
 //	#define PRINTBITS
@@ -53,6 +53,8 @@
 	PRED(W+xNE)\
 	PRED(W+xNEE)\
 	PRED(W+xNW)\
+	PRED(N+2*yN-yNN)\
+	PRED(W+2*xW-xWW)\
 	PRED(NE)\
 	PRED(NEEE)\
 	PRED(NEEEE)\
@@ -106,6 +108,8 @@
 	PRED(W+xNE)\
 	PRED(W+xNEE)\
 	PRED(W+xNW)\
+	PRED(N+2*yN-yNN)\
+	PRED(W+2*xW-xWW)\
 	PRED(NEEE)\
 	PRED(NEEEE)\
 
@@ -474,14 +478,20 @@ static uint32_t bitctr[3][GRLIMIT+8][2];
 static uint32_t winctr[3][GRLIMIT+8];
 static int ekc, eidx;
 #endif
-INLINE void codebit(ACState *ac, uint32_t *pp1, int32_t *bit, const int fwd)
+INLINE void codebit(ACState *ac, uint32_t *pp1a, int32_t *bit, const int fwd)
 {
 	int rbit;
 	uint64_t r2, mid;
 	
 #ifndef BYPASS_GR
-	int32_t p10=*pp1;
-	int32_t p1=p10>>(PROBBITS_STORE-PROBBITS_USE);
+	//int32_t p10a=*pp1a, p10b=*pp1b, p10c=*pp1c;
+	//int32_t p1=(p10a+14*p10b+p10c)>>(PROBBITS_STORE-PROBBITS_USE+4);
+
+	//int32_t p10a=*pp1a, p10b=*pp1b, p10c=*pp1c;
+	//int32_t p1=p10b>>(PROBBITS_STORE-PROBBITS_USE);
+
+	int32_t p10a=*pp1a;
+	int32_t p1=p10a>>(PROBBITS_STORE-PROBBITS_USE);
 
 	p1+=(p1<(1<<PROBBITS_USE>>1));
 #endif
@@ -531,8 +541,18 @@ INLINE void codebit(ACState *ac, uint32_t *pp1, int32_t *bit, const int fwd)
 
 	
 #ifndef BYPASS_GR
-	p10+=((rbit<<PROBBITS_STORE)-p10)>>7;
-	*pp1=p10;
+	p10a+=((rbit<<PROBBITS_STORE)-p10a)>>7;
+	*pp1a=p10a;
+
+	//p10a+=((rbit<<PROBBITS_STORE)-p10a)>>9;
+	//p10b+=((rbit<<PROBBITS_STORE)-p10b)>>7;
+	//p10c+=((rbit<<PROBBITS_STORE)-p10c)>>9;
+	//*pp1a=p10a;
+	//*pp1b=p10b;
+	//*pp1c=p10c;
+
+	//p10+=((rbit<<PROBBITS_STORE)-p10)>>7;
+	//*pp1=p10;
 
 	//{
 	//	int win=rbit==(p10>=1<<PROBBITS_STORE);
@@ -582,13 +602,6 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 	int32_t coeffs[3][(L1NPREDS>L1NPREDS_LOSSY?L1NPREDS:L1NPREDS_LOSSY)+1]={0};
 	int32_t invdist=((1<<16)+dist-1)/dist;
 	uint8_t *imptr=image;
-//#define SHIDXSCALEBITS 16
-	//int32_t shidx[]=
-	//{
-	//	64,
-	//	64,
-	//	64,
-	//};
 #ifdef PRINTBITS
 	ptrdiff_t idx=0, usize=(ptrdiff_t)3*iw*ih;
 #endif
@@ -687,7 +700,9 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 					xNE	=rows[1][1+1*3*4],
 					xNEE	=rows[1][1+2*3*4],
 					xNEEE	=rows[1][1+3*3*4],
+					xWW	=rows[0][1-2*3*4],
 					xW	=rows[0][1-1*3*4],
+					yNN	=rows[2][2+0*3*4],
 					yNW	=rows[1][2-1*3*4],
 					yN	=rows[1][2+0*3*4],
 					yNE	=rows[1][2+1*3*4],
@@ -783,12 +798,6 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 				CLAMP2(nbypass, 0, 7);
 				if(ctx>NCTX-1)
 					ctx=NCTX-1;
-				
-				//sh=31-_lzcnt_u32(abs(xN)+abs(yW)+1)+6;
-				//sh=31-_lzcnt_u32(shidx[kc]+1)+7;
-				//if(sh<3)
-				//	sh=3;
-				//sh=3;
 #if 1
 				(void)NNNN	;
 				(void)NNN	;
@@ -1073,14 +1082,11 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 						error=abs(error);
 					else
 						error=error<<1^error>>31;
-					//shidx[kc]=error;
-					//shidx[kc]+=((error<<SHIDXSCALEBITS)-shidx[kc])>>3;
 					rows[0][0]=curr;
 					rows[0][1]=curr-W;//gx
 					rows[0][2]=curr-N;//gy
 
 					rows[0][3]=(eW+(eW<eNE?eW:eNE)+(error<<GRBITS)+(eNEE>eNEEE?eNEE:eNEEE))>>2;
-				//	rows[0][3]=(2*eW+(error<<GRBITS)+(eNEE>eNEEE?eNEE:eNEEE))>>2;
 				}
 				offset=(kc ? cv0*yuv[0]+cv1*yuv[1] : cu0*yuv[0])>>2;
 				rows[0]+=4;
