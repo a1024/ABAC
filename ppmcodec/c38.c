@@ -1,0 +1,1622 @@
+#if defined _MSC_VER && !defined _CRT_SECURE_NO_WARNINGS
+#define _CRT_SECURE_NO_WARNINGS
+#endif
+#include<stdint.h>
+#include<stdio.h>
+#include<stdlib.h>
+#include<string.h>
+#include<stdarg.h>
+#define _USE_MATH_DEFINES
+#include<math.h>
+#include<sys/stat.h>
+#ifdef _MSC_VER
+#include<intrin.h>
+#define WIN32_LEAN_AND_MEAN
+#include<Windows.h>//QueryPerformanceCounter
+#elif defined __GNUC__
+#include<x86intrin.h>
+#include<time.h>
+#endif
+#include<immintrin.h>
+
+
+//	#define BYPASS_GR
+
+#if defined _MSC_VER && !defined RELEASE
+	#define LOUD
+
+//	#define PRINT_RCT
+#ifndef BYPASS_GR
+//	#define ESTIMATE_BITSIZE
+#endif
+	#define ENABLE_GUIDE
+//	#define PRINTBITS
+#endif
+
+	#define UNSIGNED_PIXEL
+
+
+#define ANALYSIS_DX 1
+#define ANALYSIS_DY 4
+
+
+#define L1SH_LOSSY 18
+#define PREDLIST_LOSSY\
+	PRED(N)\
+	PRED(NNN)\
+	PRED(NNNN)\
+	PRED(N+yN)\
+	PRED(N+yNE)\
+	PRED(N+yNW)\
+	PRED(N+yW)\
+	PRED(W)\
+	PRED(WWW)\
+	PRED(WWWW)\
+	PRED(W+xW)\
+	PRED(W+xNE)\
+	PRED(W+xNEE)\
+	PRED(W+xNW)\
+	PRED(N+2*yN-yNN)\
+	PRED(W+2*xW-xWW)\
+	PRED(NE)\
+	PRED(NEEE)\
+	PRED(NEEEE)\
+
+
+
+#define L1SH 20
+#define PREDLIST\
+	PRED(N)\
+	PRED(NNN)\
+	PRED(NNNN)\
+	PRED(N+yN)\
+	PRED(N+yNE)\
+	PRED(N+yNW)\
+	PRED(N+yW)\
+	PRED(W)\
+	PRED(WWW)\
+	PRED(WWWW)\
+	PRED(W+xW)\
+	PRED(W+xNE)\
+	PRED(W+xNEE)\
+	PRED(W+xNW)\
+	PRED(N+2*yN-yNN)\
+	PRED(W+2*xW-xWW)\
+	PRED(NEEE)\
+	PRED(NEEEE)\
+
+enum
+{
+#define PRED(EXPR) +1
+	L1NPREDS=PREDLIST,
+	L1NPREDS_LOSSY=PREDLIST_LOSSY,
+#undef  PRED
+};
+
+
+
+#define GRBITS 6
+#define NCTX 24
+#define GRLIMIT 22
+#define PROBBITS_STORE 24
+#define PROBBITS_USE 15
+
+
+#ifdef _MSC_VER
+#define INLINE __forceinline static
+#else
+#define INLINE __attribute__((always_inline)) inline static
+#endif
+#define CLAMP2(X, LO, HI)\
+	do\
+	{\
+		if((X)<(LO))X=LO;\
+		if((X)>(HI))X=HI;\
+	}while(0)
+static void memfill(void *dst, const void *src, size_t dstbytes, size_t srcbytes)
+{
+	size_t copied;
+	char *d=(char*)dst;
+	const char *s=(const char*)src;
+#ifdef _DEBUG
+	if(!dstbytes||!srcbytes)
+		return;
+#endif
+	if(dstbytes<srcbytes)
+	{
+		memcpy(dst, src, dstbytes);
+		return;
+	}
+	copied=srcbytes;
+	memcpy(d, s, srcbytes);
+	while((copied<<1)<=dstbytes)
+	{
+		memcpy(d+copied, d, copied);
+		copied<<=1;
+	}
+	if(copied<dstbytes)
+		memcpy(d+copied, d, dstbytes-copied);
+}
+#define FILLMEM(PTR, DATA, ASIZE, ESIZE)\
+	do\
+	{\
+		*(PTR)=(DATA);\
+		memfill((PTR)+1, PTR, (ASIZE)-(ESIZE), ESIZE);\
+	}while(0)
+static double time_sec(void)
+{
+#ifdef _MSC_VER
+	static long long t0=0;
+	LARGE_INTEGER li;
+	double t;
+	QueryPerformanceCounter(&li);
+	if(!t0)
+		t0=li.QuadPart;
+	t=(double)(li.QuadPart-t0);
+	QueryPerformanceFrequency(&li);
+	t/=(double)li.QuadPart;
+	return t;
+#else
+	struct timespec t;
+	clock_gettime(CLOCK_REALTIME, &t);//<time.h>
+	return t.tv_sec+t.tv_nsec*1e-9;
+#endif
+}
+static void crash(const char *file, int line, const char *format, ...)
+{
+	printf("%s(%d):\n", file, line);
+	if(format)
+	{
+		va_list args;
+		printf("\n");
+		va_start(args, format);
+		vprintf(format, args);
+		va_end(args);
+		printf("\n");
+	}
+	printf("CRASH\n");
+	exit(1);
+}
+#define CRASH(FORMAT, ...) crash(__FILE__, __LINE__, FORMAT, ##__VA_ARGS__)
+#ifdef ENABLE_GUIDE
+static int g_iw=0, g_ih=0;
+static unsigned char *g_image=0;
+static double g_sqe[3]={0};
+static void guide_save(unsigned char *image, int iw, int ih)
+{
+	int size=3*iw*ih;
+	g_iw=iw;
+	g_ih=ih;
+	g_image=(unsigned char*)malloc(size);
+	if(!g_image)
+	{
+		CRASH("Alloc error");
+		return;
+	}
+	memcpy(g_image, image, size);
+}
+static void guide_check(unsigned char *image, int kx, int ky)
+{
+	int idx=3*(g_iw*ky+kx);
+	if(memcmp(image+idx, g_image+idx, 3))
+	{
+		CRASH("Guide error  XY %d %d", kx, ky);
+		printf("");
+	}
+}
+//static void guide_update(unsigned char *image, int kx, int ky)
+//{
+//	int idx=3*(g_iw*ky+kx), diff;
+//	diff=g_image[idx+0]-image[idx+0]; g_sqe[0]+=diff*diff; if(abs(diff)>96)CRASH("");
+//	diff=g_image[idx+1]-image[idx+1]; g_sqe[1]+=diff*diff; if(abs(diff)>96)CRASH("");
+//	diff=g_image[idx+2]-image[idx+2]; g_sqe[2]+=diff*diff; if(abs(diff)>96)CRASH("");
+//}
+#else
+#define guide_save(...)
+#define guide_check(...)
+#define guide_update(...)
+#endif
+
+
+#define OCHLIST\
+	OCH(Y400) OCH(Y040) OCH(Y004)\
+	OCH(CX40) OCH(C0X4) OCH(C40X)\
+	OCH(CX31) OCH(C3X1) OCH(C31X)\
+	OCH(CX13) OCH(C1X3) OCH(C13X)\
+	OCH(CX22) OCH(C2X2) OCH(C22X)
+#if 0
+#define OCHLIST\
+	OCH(Y400) OCH(Y040) OCH(Y004)\
+	OCH(Y310) OCH(Y031) OCH(Y103)\
+	OCH(Y301) OCH(Y130) OCH(Y013)\
+	OCH(Y211) OCH(Y121) OCH(Y112)\
+	OCH(CX40) OCH(C0X4) OCH(C40X)\
+	OCH(CX31) OCH(C3X1) OCH(C31X)\
+	OCH(CX13) OCH(C1X3) OCH(C13X)\
+	OCH(CX22) OCH(C2X2) OCH(C22X)
+#endif
+typedef enum _OCHIndex
+{
+#define OCH(X) OCH_##X,
+	OCHLIST
+#undef  OCH
+	OCH_COUNT,
+	OCH_C4X0=OCH_CX40,
+	OCH_C04X=OCH_C0X4,
+	OCH_CX04=OCH_C40X,
+	OCH_R=OCH_Y400,
+	OCH_G=OCH_Y040,
+	OCH_B=OCH_Y004,
+	OCH_BG=OCH_C04X,
+	OCH_BR=OCH_C40X,
+	OCH_RG=OCH_CX40,
+	OCH_RB=OCH_CX04,
+	OCH_GB=OCH_C0X4,
+	OCH_GR=OCH_C4X0,
+	OCH_R1=OCH_CX13,
+	OCH_G1=OCH_C3X1,
+	OCH_B1=OCH_C13X,
+	OCH_R2=OCH_CX22,
+	OCH_G2=OCH_C2X2,
+	OCH_B2=OCH_C22X,
+	OCH_R3=OCH_CX31,
+	OCH_G3=OCH_C1X3,
+	OCH_B3=OCH_C31X,
+} OCHIndex;
+static const char *och_names[]=
+{
+#define OCH(X) #X,
+	OCHLIST
+#undef  OCH
+};
+typedef enum _RCTInfoIdx
+{
+	II_OCH_Y,
+	II_OCH_U,
+	II_OCH_V,
+
+	II_PERM_Y,
+	II_PERM_U,
+	II_PERM_V,
+
+	II_COEFF_U_SUB_Y,
+	II_COEFF_V_SUB_Y,
+	II_COEFF_V_SUB_U,
+
+//	II_COEFF_Y_SUB_U,
+//	II_COEFF_Y_SUB_V,
+//	II_COEFF_U_SUB_V2,
+//	II_COEFF_V_SUB_U2,
+
+	II_COUNT,
+} RCTInfoIdx;
+//YUV = RCT * RGB	example: _400_40X_3X1 == [1 0 0; -1 0 1; -3/4 1 -1/4]
+#define RCTLIST\
+	RCT(_400_0X0_00X,	OCH_R,		OCH_G,		OCH_B,		0, 1, 2,	0,  0, 0)\
+	RCT(_400_0X0_04X,	OCH_R,		OCH_G,		OCH_BG,		0, 1, 2,	0,  0, 4)\
+	RCT(_400_0X0_40X,	OCH_R,		OCH_G,		OCH_BR,		0, 1, 2,	0,  4, 0)\
+	RCT(_040_00X_X40,	OCH_G,		OCH_B,		OCH_RG,		1, 2, 0,	0,  4, 0)\
+	RCT(_040_00X_X04,	OCH_G,		OCH_B,		OCH_RB,		1, 2, 0,	0,  0, 4)\
+	RCT(_004_X00_4X0,	OCH_B,		OCH_R,		OCH_GR,		2, 0, 1,	0,  0, 4)\
+	RCT(_004_X00_0X4,	OCH_B,		OCH_R,		OCH_GB,		2, 0, 1,	0,  4, 0)\
+	RCT(_040_04X_X40,	OCH_G,		OCH_BG,		OCH_RG,		1, 2, 0,	4,  4, 0)\
+	RCT(_040_04X_X04,	OCH_G,		OCH_BG,		OCH_RB,		1, 2, 0,	4,  0, 4)\
+	RCT(_040_X40_40X,	OCH_G,		OCH_RG,		OCH_BR,		1, 0, 2,	4,  0, 4)\
+	RCT(_004_X04_0X4,	OCH_B,		OCH_RB,		OCH_GB,		2, 0, 1,	4,  4, 0)\
+	RCT(_004_X04_4X0,	OCH_B,		OCH_RB,		OCH_GR,		2, 0, 1,	4,  0, 4)\
+	RCT(_004_0X4_X40,	OCH_B,		OCH_GB,		OCH_RG,		2, 1, 0,	4,  0, 4)\
+	RCT(_400_4X0_40X,	OCH_R,		OCH_GR,		OCH_BR,		0, 1, 2,	4,  4, 0)\
+	RCT(_400_4X0_04X,	OCH_R,		OCH_GR,		OCH_BG,		0, 1, 2,	4,  0, 4)\
+	RCT(_400_40X_0X4,	OCH_R,		OCH_BR,		OCH_GB,		0, 2, 1,	4,  0, 4)\
+	RCT(_400_0X0_13X,	OCH_R,		OCH_G,		OCH_B1,		0, 1, 2,	0,  1, 3)\
+	RCT(_400_4X0_13X,	OCH_R,		OCH_GR,		OCH_B1,		0, 1, 2,	4,  1, 3)\
+	RCT(_400_00X_3X1,	OCH_R,		OCH_B,		OCH_G1,		0, 2, 1,	0,  3, 1)\
+	RCT(_400_40X_3X1,	OCH_R,		OCH_BR,		OCH_G1,		0, 2, 1,	4,  3, 1)\
+	RCT(_040_00X_X13,	OCH_G,		OCH_B,		OCH_R1,		1, 2, 0,	0,  1, 3)\
+	RCT(_040_04X_X13,	OCH_G,		OCH_BG,		OCH_R1,		1, 2, 0,	4,  1, 3)\
+	RCT(_040_X40_13X,	OCH_G,		OCH_RG,		OCH_B1,		1, 0, 2,	4,  3, 1)\
+	RCT(_004_X04_3X1,	OCH_B,		OCH_RB,		OCH_G1,		2, 0, 1,	4,  1, 3)\
+	RCT(_004_04X_X13,	OCH_B,		OCH_GB,		OCH_R1,		2, 1, 0,	4,  3, 1)\
+	RCT(_400_0X0_22X,	OCH_R,		OCH_G,		OCH_B2,		0, 1, 2,	0,  2, 2)\
+	RCT(_400_4X0_22X,	OCH_R,		OCH_GR,		OCH_B2,		0, 1, 2,	4,  2, 2)\
+	RCT(_400_00X_2X2,	OCH_R,		OCH_B,		OCH_G2,		0, 2, 1,	0,  2, 2)\
+	RCT(_400_40X_2X2,	OCH_R,		OCH_BR,		OCH_G2,		0, 2, 1,	4,  2, 2)\
+	RCT(_040_00X_X22,	OCH_G,		OCH_B,		OCH_R2,		1, 2, 0,	0,  2, 2)\
+	RCT(_040_04X_X22,	OCH_G,		OCH_BG,		OCH_R2,		1, 2, 0,	4,  2, 2)\
+	RCT(_040_X40_22X,	OCH_G,		OCH_RG,		OCH_B2,		1, 0, 2,	4,  2, 2)\
+	RCT(_004_X04_2X2,	OCH_B,		OCH_RB,		OCH_G2,		2, 0, 1,	4,  2, 2)\
+	RCT(_004_0X4_X22,	OCH_B,		OCH_GB,		OCH_R2,		2, 1, 0,	4,  2, 2)\
+	RCT(_400_0X0_31X,	OCH_R,		OCH_G,		OCH_B3,		0, 1, 2,	0,  3, 1)\
+	RCT(_400_4X0_31X,	OCH_R,		OCH_GR,		OCH_B3,		0, 1, 2,	4,  3, 1)\
+	RCT(_400_00X_1X3,	OCH_R,		OCH_B,		OCH_G3,		0, 2, 1,	0,  1, 3)\
+	RCT(_400_40X_1X3,	OCH_R,		OCH_BR,		OCH_G3,		0, 2, 1,	4,  1, 3)\
+	RCT(_040_00X_X31,	OCH_G,		OCH_B,		OCH_R3,		1, 2, 0,	0,  3, 1)\
+	RCT(_040_04X_X31,	OCH_G,		OCH_BG,		OCH_R3,		1, 2, 0,	4,  3, 1)\
+	RCT(_040_X40_31X,	OCH_G,		OCH_RG,		OCH_B3,		1, 0, 2,	4,  1, 3)\
+	RCT(_004_X04_1X3,	OCH_B,		OCH_RB,		OCH_G3,		2, 0, 1,	4,  3, 1)\
+	RCT(_004_0X4_X31,	OCH_B,		OCH_GB,		OCH_R3,		2, 1, 0,	4,  1, 3)
+#if 0
+	RCT(_211_4X0_40X,	OCH_Y211,	OCH_C4X0,	OCH_C40X,	0, 1, 2,	4,  4, 0,	1, 1, 0, 0)\
+	RCT(_211_4X0_31X,	OCH_Y211,	OCH_C4X0,	OCH_C31X,	0, 1, 2,	4,  4, 0,	1, 1, 0, 1)\
+	RCT(_211_3X1_40X,	OCH_Y211,	OCH_C3X1,	OCH_C40X,	0, 1, 2,	4,  4, 0,	1, 1, 1, 0)\
+	RCT(_310_4X0_40X,	OCH_Y310,	OCH_C4X0,	OCH_C40X,	0, 1, 2,	4,  4, 0,	1, 0, 0, 0)\
+	RCT(_310_4X0_31X,	OCH_Y310,	OCH_C4X0,	OCH_C31X,	0, 1, 2,	4,  4, 0,	1, 0, 0, 1)\
+	RCT(_310_3X1_40X,	OCH_Y310,	OCH_C3X1,	OCH_C40X,	0, 1, 2,	4,  4, 0,	1, 0, 1, 0)\
+	RCT(_301_4X0_40X,	OCH_Y301,	OCH_C4X0,	OCH_C40X,	0, 1, 2,	4,  4, 0,	0, 1, 0, 0)\
+	RCT(_301_4X0_31X,	OCH_Y301,	OCH_C4X0,	OCH_C31X,	0, 1, 2,	4,  4, 0,	0, 1, 0, 1)\
+	RCT(_301_3X1_40X,	OCH_Y301,	OCH_C3X1,	OCH_C40X,	0, 1, 2,	4,  4, 0,	0, 1, 1, 0)\
+	RCT(_121_04X_X40,	OCH_Y121,	OCH_C04X,	OCH_CX40,	1, 2, 0,	4,  4, 0,	1, 1, 0, 0)\
+	RCT(_121_04X_X31,	OCH_Y121,	OCH_C04X,	OCH_CX31,	1, 2, 0,	4,  4, 0,	1, 1, 0, 1)\
+	RCT(_121_13X_X40,	OCH_Y121,	OCH_C13X,	OCH_CX40,	1, 2, 0,	4,  4, 0,	1, 1, 1, 0)\
+	RCT(_031_04X_X40,	OCH_Y031,	OCH_C04X,	OCH_CX40,	1, 2, 0,	4,  4, 0,	0, 1, 0, 0)\
+	RCT(_031_04X_X31,	OCH_Y031,	OCH_C04X,	OCH_CX31,	1, 2, 0,	4,  4, 0,	0, 1, 0, 1)\
+	RCT(_031_13X_X40,	OCH_Y031,	OCH_C13X,	OCH_CX40,	1, 2, 0,	4,  4, 0,	0, 1, 1, 0)\
+	RCT(_130_40X_X40,	OCH_Y130,	OCH_C04X,	OCH_CX40,	1, 2, 0,	4,  4, 0,	1, 0, 0, 0)\
+	RCT(_130_40X_X31,	OCH_Y130,	OCH_C04X,	OCH_CX31,	1, 2, 0,	4,  4, 0,	1, 0, 0, 1)\
+	RCT(_130_31X_X40,	OCH_Y130,	OCH_C13X,	OCH_CX40,	1, 2, 0,	4,  4, 0,	1, 0, 1, 0)\
+	RCT(_112_X04_0X4,	OCH_Y112,	OCH_CX04,	OCH_C0X4,	2, 0, 1,	4,  4, 0,	1, 1, 0, 0)\
+	RCT(_112_X04_1X3,	OCH_Y112,	OCH_CX04,	OCH_C1X3,	2, 0, 1,	4,  4, 0,	1, 1, 0, 1)\
+	RCT(_112_X13_0X4,	OCH_Y112,	OCH_CX13,	OCH_C0X4,	2, 0, 1,	4,  4, 0,	1, 1, 1, 0)\
+	RCT(_013_X04_0X4,	OCH_Y013,	OCH_CX04,	OCH_C0X4,	2, 0, 1,	4,  4, 0,	0, 1, 0, 0)\
+	RCT(_013_X04_1X3,	OCH_Y013,	OCH_CX04,	OCH_C1X3,	2, 0, 1,	4,  4, 0,	0, 1, 0, 1)\
+	RCT(_013_X13_0X4,	OCH_Y013,	OCH_CX13,	OCH_C0X4,	2, 0, 1,	4,  4, 0,	0, 1, 1, 0)\
+	RCT(_103_X40_0X4,	OCH_Y103,	OCH_CX04,	OCH_C0X4,	2, 0, 1,	4,  4, 0,	1, 0, 0, 0)\
+	RCT(_103_X40_1X3,	OCH_Y103,	OCH_CX04,	OCH_C1X3,	2, 0, 1,	4,  4, 0,	1, 0, 0, 1)\
+	RCT(_103_X31_0X4,	OCH_Y103,	OCH_CX13,	OCH_C0X4,	2, 0, 1,	4,  4, 0,	1, 0, 1, 0)
+#endif
+typedef enum _RCTIndex
+{
+#define RCT(LABEL, ...) RCT_##LABEL,
+	RCTLIST
+#undef  RCT
+	RCT_COUNT,
+} RCTIndex;
+static const unsigned char rct_combinations[RCT_COUNT][II_COUNT]=
+{
+#define RCT(LABEL, ...) {__VA_ARGS__},
+	RCTLIST
+#undef  RCT
+};
+static const char *rct_names[RCT_COUNT]=
+{
+#define RCT(LABEL, ...) #LABEL,
+	RCTLIST
+#undef  RCT
+};
+
+static uint32_t stats[3][256][NCTX][GRLIMIT];
+static uint32_t stats2[3][256][256];
+static uint32_t stats3[3][8][256];
+static const size_t memusage=sizeof(stats)+sizeof(stats2)+sizeof(stats3);
+typedef struct _ACState
+{
+	uint64_t low, range, code;
+	unsigned char *ptr, *end;
+
+	uint64_t bitidx, totalbits;
+	uint64_t n[2];
+} ACState;
+#ifdef ESTIMATE_BITSIZE
+static double shannontable[1<<PROBBITS_USE];
+static double bitsizes[3][GRLIMIT+8];
+static uint32_t bitctr[3][GRLIMIT+8][2];
+static uint32_t winctr[3][GRLIMIT+8];
+static int ekc, eidx;
+#endif
+INLINE void codebit(ACState *ac, uint32_t *pp1a, int32_t *bit, const int fwd)
+{
+	int rbit;
+	uint64_t r2, mid;
+	
+#ifndef BYPASS_GR
+	//int32_t p10a=*pp1a, p10b=*pp1b, p10c=*pp1c;
+	//int32_t p1=(p10a+14*p10b+p10c)>>(PROBBITS_STORE-PROBBITS_USE+4);
+
+	//int32_t p10a=*pp1a, p10b=*pp1b, p10c=*pp1c;
+	//int32_t p1=p10b>>(PROBBITS_STORE-PROBBITS_USE);
+
+	int32_t p10a=*pp1a;
+	int32_t p1=p10a>>(PROBBITS_STORE-PROBBITS_USE);
+
+	p1+=(p1<(1<<PROBBITS_USE>>1));
+#endif
+
+#ifdef _MSC_VER
+	++ac->bitidx;
+#endif
+	if(ac->range<=0xFFFF)
+	{
+		if(ac->ptr>=ac->end)
+		{
+#ifdef _MSC_VER
+			CRASH("ERROR at %d/%d  inflation %8.4lf%%\n"
+				, (int32_t)ac->bitidx
+				, (int32_t)ac->totalbits
+				, 100.*ac->totalbits/ac->bitidx
+			);
+#endif
+			exit(1);
+		}
+		if(fwd)
+			*(uint32_t*)ac->ptr=(uint32_t)(ac->low>>32);
+		else
+			ac->code=ac->code<<32|*(uint32_t*)ac->ptr;
+		ac->ptr+=4;
+		ac->low<<=32;
+		ac->range=ac->range<<32|0xFFFFFFFF;
+		if(ac->range>~ac->low)
+			ac->range=~ac->low;
+	}
+#ifdef BYPASS_GR
+	r2=ac->range>>1;
+#else
+	r2=ac->range*p1>>PROBBITS_USE;
+#endif
+	mid=ac->low+r2;
+	ac->range-=r2;
+	--r2;
+	if(fwd)
+		rbit=*bit;
+	else
+		*bit=rbit=ac->code<mid;
+	if(rbit)
+		ac->range=r2;
+	else
+		ac->low=mid;
+
+	
+#ifndef BYPASS_GR
+	p10a+=((rbit<<PROBBITS_STORE)-p10a)>>7;
+	*pp1a=p10a;
+
+	//p10a+=((rbit<<PROBBITS_STORE)-p10a)>>9;
+	//p10b+=((rbit<<PROBBITS_STORE)-p10b)>>7;
+	//p10c+=((rbit<<PROBBITS_STORE)-p10c)>>9;
+	//*pp1a=p10a;
+	//*pp1b=p10b;
+	//*pp1c=p10c;
+
+	//p10+=((rbit<<PROBBITS_STORE)-p10)>>7;
+	//*pp1=p10;
+
+	//{
+	//	int win=rbit==(p10>=1<<PROBBITS_STORE);
+	//	p10+=((rbit<<PROBBITS_STORE)-p10)>>6;
+	//	*pp1=p10;
+	//}
+
+	//if(rbit==(p10>=1<<PROBBITS_STORE))//win
+	//	p10+=((rbit<<PROBBITS_STORE)-p10)>>(sh+1);
+	//else//loss
+	//	p10+=((rbit<<PROBBITS_STORE)-p10)>>sh;
+	//*pp1=p10;
+
+	//int update=(rbit<<PROBBITS_STORE)-p10;
+	//update+=update<<2;//update *= 5
+	//update+=update<<3;//update *= 9
+	//p10+=update>>(sh+6);
+	//*pp1=p10;
+
+	//*pp1=p10+(((rbit<<PROBBITS_STORE)-p10)>>6);
+
+#ifdef ESTIMATE_BITSIZE
+	bitsizes[ekc][eidx]+=shannontable[rbit?p1:(1<<PROBBITS_USE)-p1];
+	++bitctr[ekc][eidx][rbit];
+	winctr[ekc][eidx]+=rbit==(p1>=1<<PROBBITS_USE);
+	//if(bitsizes[ekc][eidx]>ac->bitidx/8.*1.2)
+	//	CRASH("");
+#endif
+#endif
+#ifdef _MSC_VER
+	++ac->n[rbit];
+#endif
+}
+INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint8_t *stream, ACState *ac, int8_t *synthflags, const int lossy, const int fwd)
+{
+	int
+		yidx=rct_combinations[bestrct][II_PERM_Y],
+		uidx=rct_combinations[bestrct][II_PERM_U],
+		vidx=rct_combinations[bestrct][II_PERM_V],
+		cu0=rct_combinations[bestrct][II_COEFF_U_SUB_Y],
+		cv0=rct_combinations[bestrct][II_COEFF_V_SUB_Y],
+		cv1=rct_combinations[bestrct][II_COEFF_V_SUB_U];
+	int32_t ky, kx;
+	int32_t psize=0;
+	int16_t *pixels=0;
+	int32_t padw=iw+16;
+	int32_t coeffs[3][(L1NPREDS>L1NPREDS_LOSSY?L1NPREDS:L1NPREDS_LOSSY)+1]={0};
+	int32_t invdist=((1<<16)+dist-1)/dist;
+	uint8_t *imptr=image;
+#ifdef PRINTBITS
+	ptrdiff_t idx=0, usize=(ptrdiff_t)3*iw*ih;
+#endif
+	
+	(void)memusage;
+	psize=(int32_t)sizeof(int16_t[4*3*4])*padw;//4 padded rows * 3 channels * {pixels, gx, gy, error}
+	pixels=(int16_t*)malloc(psize);
+	if(!pixels)
+	{
+		CRASH("Alloc error\n");
+		free(image);
+		free(stream);
+		return;
+	}
+//#ifdef UNSIGNED_PIXEL
+//	FILLMEM((int32_t*)pixels, 128, psize, sizeof(int32_t));
+//#else
+	memset(pixels, 0, psize);
+//#endif
+//	FILLMEM((uint32_t*)stats, 1<<PROBBITS_USE>>1, sizeof(stats), sizeof(int32_t));
+	FILLMEM((uint32_t*)stats, 1<<PROBBITS_STORE>>1, sizeof(stats), sizeof(int32_t));
+//	memset(stats, 0, sizeof(stats));
+
+	FILLMEM((uint32_t*)stats2, 1<<PROBBITS_STORE>>1, sizeof(stats2), sizeof(int32_t));
+	FILLMEM((uint32_t*)stats3, 1<<PROBBITS_STORE>>1, sizeof(stats3), sizeof(int32_t));
+	if(lossy)
+	{
+		FILLMEM((int32_t*)coeffs, (1<<L1SH_LOSSY)/L1NPREDS_LOSSY, sizeof(coeffs), sizeof(int32_t));
+		//coeffs[0][L1NPREDS_LOSSY]=0;
+		//coeffs[1][L1NPREDS_LOSSY]=0;
+		//coeffs[2][L1NPREDS_LOSSY]=0;
+	}
+	else
+	{
+		FILLMEM((int32_t*)coeffs, (1<<L1SH)/L1NPREDS, sizeof(coeffs), sizeof(int32_t));
+		coeffs[0][L1NPREDS]=0;
+		coeffs[1][L1NPREDS]=0;
+		coeffs[2][L1NPREDS]=0;
+	}
+#ifdef ESTIMATE_BITSIZE
+	memset(bitsizes, 0, sizeof(bitsizes));
+	memset(bitctr, 0, sizeof(bitctr));
+	memset(winctr, 0, sizeof(winctr));
+#endif
+	//memset(history, 0, sizeof(history));
+	for(ky=0;ky<ih;++ky)
+	{
+#ifdef UNSIGNED_PIXEL
+		uint8_t yuv[4]={0};
+#else
+		int8_t yuv[4]={0};
+#endif
+		int16_t *rows[]=
+		{
+			pixels+(padw*((ky-0)&3)+8)*3*4,
+			pixels+(padw*((ky-1)&3)+8)*3*4,
+			pixels+(padw*((ky-2)&3)+8)*3*4,
+			pixels+(padw*((ky-3)&3)+8)*3*4,
+		};
+		for(kx=0;kx<iw;++kx, imptr+=3)
+		{
+			int kc;
+			int offset;
+
+			if(fwd)
+			{
+#ifdef UNSIGNED_PIXEL
+				yuv[0]=imptr[yidx];
+				yuv[1]=imptr[uidx];
+				yuv[2]=imptr[vidx];
+#else
+				yuv[0]=imptr[yidx]-128;
+				yuv[1]=imptr[uidx]-128;
+				yuv[2]=imptr[vidx]-128;
+#endif
+			}
+			offset=0;
+			for(kc=0;kc<3;++kc)
+			{
+				int32_t
+					NNNN	=rows[0][0+0*3*4],
+					NNN	=rows[3][0+0*3*4],
+					NN	=rows[2][0+0*3*4],
+					NW	=rows[1][0-1*3*4],
+					N	=rows[1][0+0*3*4],
+					NE	=rows[1][0+1*3*4],
+					NEE	=rows[1][0+2*3*4],
+					NEEE	=rows[1][0+3*3*4],
+					NEEEE	=rows[1][0+4*3*4],
+					WWWW	=rows[0][0-4*3*4],
+					WWW	=rows[0][0-3*3*4],
+					WW	=rows[0][0-2*3*4],
+					W	=rows[0][0-1*3*4],
+					xNW	=rows[1][1-1*3*4],
+					xN	=rows[1][1+0*3*4],
+					xNE	=rows[1][1+1*3*4],
+					xNEE	=rows[1][1+2*3*4],
+					xNEEE	=rows[1][1+3*3*4],
+					xWW	=rows[0][1-2*3*4],
+					xW	=rows[0][1-1*3*4],
+					yNN	=rows[2][2+0*3*4],
+					yNW	=rows[1][2-1*3*4],
+					yN	=rows[1][2+0*3*4],
+					yNE	=rows[1][2+1*3*4],
+					yW	=rows[0][2-1*3*4],
+					eNE	=rows[1][3+1*3*4],
+					eNEE	=rows[1][3+2*3*4],
+					eNEEE	=rows[1][3+3*3*4],
+					eW	=rows[0][3-1*3*4];
+#if 0
+				int32_t
+					NNNN	=rows[0][0+0*3*4],
+				//	NNN	=rows[3][0+0*3*4],
+					NNW	=rows[2][0-1*3*4],
+					NN	=rows[2][0+0*3*4],
+					NNE	=rows[2][0+1*3*4],
+					NWW	=rows[1][0-2*3*4],
+					NW	=rows[1][0-1*3*4],
+				//	N	=rows[1][0+0*3*4],
+				//	NE	=rows[1][0+1*3*4],
+					NEE	=rows[1][0+2*3*4],
+				//	NEEE	=rows[1][0+3*3*4],
+				//	NEEEE	=rows[1][0+4*3*4],
+					WWWW	=rows[0][0-4*3*4],
+				//	WWW	=rows[0][0-3*3*4],
+					WW	=rows[0][0-2*3*4];
+				//	W	=rows[0][0-1*3*4],
+				//	eN	=rows[1][1+0*3*4],
+				//	eNE	=rows[1][1+1*3*4],
+				//	eNEE	=rows[1][1+2*3*4],
+				//	eNEEE	=rows[1][1+3*3*4],
+				//	eW	=rows[0][1-1*3*4];
+#endif
+				int32_t pred;
+				int32_t upred, vmax, vmin, pred0;
+				int32_t error;
+				int32_t nbypass, nbypass0;
+				int32_t nzeros=-1, grflag;
+				int32_t tidx=0;
+				uint32_t *statsptr;
+				int32_t bit=0;
+				int32_t ctx;
+				int32_t *currw=coeffs[kc];
+				int32_t preds[L1NPREDS>L1NPREDS_LOSSY?L1NPREDS:L1NPREDS_LOSSY];
+
+				if(synthflags[kc])
+					pred=abs(xN)>abs(yW) ? N : W;
+				else
+				{
+					int j=0;
+
+//#define PRED(EXPR) pred+=currw[j]*(EXPR); ++j;
+//					PREDLIST
+//#undef  PRED
+#define PRED(EXPR) preds[j]=EXPR; pred+=currw[j]*preds[j]; ++j;
+					if(lossy)
+					{
+						pred=1<<L1SH_LOSSY>>1;
+						//pred=(1<<L1SH_LOSSY)/L1NPREDS_LOSSY<<3;
+						//pred=currw[L1NPREDS_LOSSY]<<3;
+						PREDLIST_LOSSY
+						pred>>=L1SH_LOSSY;
+					}
+					else
+					{
+						pred=currw[L1NPREDS]<<3;
+						PREDLIST
+						pred>>=L1SH;
+					}
+#undef  PRED
+					pred0=(int32_t)pred;
+					vmax=N, vmin=W;
+					if(N<W)vmin=N, vmax=W;
+					if(vmin>NE)vmin=NE;
+					if(vmax<NE)vmax=NE;
+					if(vmin>NEEE)vmin=NEEE;
+					if(vmax<NEEE)vmax=NEEE;
+					CLAMP2(pred, vmin, vmax);
+				}
+
+				pred+=offset;
+#ifdef UNSIGNED_PIXEL
+				CLAMP2(pred, 0, 255);
+#else
+				CLAMP2(pred, -128, 127);
+#endif
+
+				nbypass=31-_lzcnt_u32(eW*eW+2);
+				ctx=nbypass;
+				nbypass>>=1;
+				nbypass-=GRBITS;
+				CLAMP2(nbypass, 0, 7);
+				if(ctx>NCTX-1)
+					ctx=NCTX-1;
+#if 1
+				(void)NNNN	;
+				(void)NNN	;
+				(void)NN	;
+				(void)NW	;
+				(void)N		;
+				(void)NE	;
+				(void)NEE	;
+				(void)NEEE	;
+				(void)NEEEE	;
+				(void)WWWW	;
+				(void)WWW	;
+				(void)WW	;
+				(void)W		;
+				(void)eNE	;
+				(void)eNEE	;
+				(void)eNEEE	;
+				(void)eW	;
+				(void)xNW	;
+				(void)xNE	;
+				(void)xNEE	;
+				(void)xNEEE	;
+				(void)xW	;
+				(void)yNW	;
+				(void)yN	;
+				(void)yNE	;
+				(void)yW	;
+#endif
+				//if(ky==10&&kx==2019)//
+				//if(ky==193&&kx==975&&!kc)//
+				//if(ky==415&&kx==996&&!kc)//
+				//if(ky==ih/2&&kx==iw/2&&!kc)//
+				//if(ky==1&&kx==1861&&kc==1)//
+				//if(ky==253&&kx==776)//
+				//if(ky==192&&kx==256&&kc==0)//
+				//if(ky==0&&kx==434&&kc==0)//
+				//if(ky==169&&kx==271&&kc==0)//
+				//if(ky==2275&&kx==0&&kc==0)//
+				//if(ky==1159&&kx==1088&&kc==2)//
+				//	printf("");//
+
+#if 1
+				int epred;
+#ifdef UNSIGNED_PIXEL
+				if(lossy)
+					epred=pred>=128?255-pred:pred;
+				else
+					epred=128-abs(pred-128);
+#else
+				if(lossy)
+					epred=pred>=0?127-pred:pred+128;
+				else
+					epred=128-abs(pred);
+#endif
+				if(fwd)
+				{
+					error=yuv[kc]-(int32_t)pred;
+					if(lossy)
+					{
+						int pixel;
+
+						epred=epred*invdist>>16;
+						error=(error*invdist>>16)-(error>>31);
+						pixel=error*dist+(int32_t)pred;
+#ifdef UNSIGNED_PIXEL
+						CLAMP2(pixel, 0, 255);
+						yuv[kc]=pixel;
+#else
+						CLAMP2(pixel, -128, 127);
+						yuv[kc]=pixel;
+						pixel+=128;
+#endif
+#ifdef ENABLE_GUIDE
+						{
+							uint8_t *pval=&g_image[3*(iw*ky+kx)+rct_combinations[bestrct][II_PERM_Y+kc]];
+							uint8_t val=*pval;
+							int diff=(int)val-pixel;
+							g_sqe[kc]+=diff*diff;
+							*pval=pixel;
+						}
+#endif
+						{
+							int negmask=error>>31;
+							int abserr=(error^negmask)-negmask;
+							error=error<<1^negmask;
+							if(epred<abserr)
+								error=epred+abserr;
+						}
+					}
+					else
+					{
+						int negmask=error>>31;
+						int abserr=(error^negmask)-negmask;
+						error=error<<1^negmask;
+						if(epred<abserr)
+							error=epred+abserr;
+//#ifdef UNSIGNED_PIXEL
+//						if(!yuv[kc]&&pred>128)
+//#else
+//						if(yuv[kc]==-128&&pred>0)
+//#endif
+						if(error==256)
+						{
+							error=(int8_t)(yuv[kc]-pred);
+							error=error<<1^error>>31;
+						}
+					}
+					nzeros=error>>nbypass;
+
+					//if(ky==253&&kx==777)//
+					//	printf("%d\n", error);//
+				}
+				else
+					error=0;
+
+				//if(!kc&&pred==128)//
+				//if(ky==ih/2&&kx==iw/2)//
+				//	printf("");
+#ifdef UNSIGNED_PIXEL
+				upred=pred;
+#else
+				upred=(uint8_t)(pred+128);
+#endif
+				statsptr=stats[kc][upred][ctx];
+				tidx=0;
+#ifdef ESTIMATE_BITSIZE
+				ekc=kc;
+#endif
+				do
+				{
+					if(fwd)
+						bit=nzeros--<=0;
+#ifdef ESTIMATE_BITSIZE
+					eidx=tidx;
+#endif
+					codebit(ac, statsptr+tidx, &bit, fwd);
+#ifdef PRINTBITS
+					if(fwd&&(unsigned)(idx-10000)<1000)printf("%c", '0'+bit);//
+#endif
+					++tidx;
+				}while(!bit&&tidx<GRLIMIT);
+				nbypass0=nbypass;
+				grflag=tidx==GRLIMIT;
+				if(grflag)
+				{
+					error-=(GRLIMIT-1)<<nbypass;
+					statsptr=stats3[kc][nbypass];
+					tidx=1;
+					nbypass=8;
+				}
+				else
+				{
+					statsptr=stats2[kc][upred];
+					tidx=(256>>nbypass)-1+tidx;
+				}
+				{
+					int32_t kb=nbypass-1;
+
+					for(;kb>=0;--kb)
+					{
+						if(fwd)
+							bit=error>>kb&1;
+#ifdef ESTIMATE_BITSIZE
+						eidx=GRLIMIT+8-nbypass+kb;
+#endif
+						codebit(ac, statsptr+tidx, &bit, fwd);
+#ifdef PRINTBITS
+						if(fwd&&(unsigned)(idx-10000)<1000)printf("%c", '0'+bit);//
+#endif
+						tidx=2*tidx+bit;
+					}
+				}
+				if(grflag)
+					tidx+=(GRLIMIT-1)<<nbypass0;
+#ifdef _MSC_VER
+				if(fwd&&grflag)
+					error+=(GRLIMIT-1)<<nbypass0;
+				if(fwd&&tidx!=error+256)
+					CRASH("");
+#endif
+				if(!fwd)
+				{
+					error=(uint8_t)tidx;
+					if(lossy)
+					{
+						int pixel, negmask, sym, e2;
+
+						epred=epred*invdist>>16;
+#ifdef UNSIGNED_PIXEL
+						negmask=((int32_t)pred-128)>>31;
+#else
+						negmask=(int32_t)pred>>31;
+#endif
+						sym=error;
+						e2=epred-sym;
+						error=sym>>1^-(sym&1);
+						e2=(e2^negmask)-negmask;
+						if((epred<<1)<sym)
+							error=e2;
+
+						pixel=error*dist+(int32_t)pred;
+#ifdef UNSIGNED_PIXEL
+						CLAMP2(pixel, 0, 255);
+						yuv[kc]=pixel;
+#else
+						CLAMP2(pixel, -128, 127);
+						yuv[kc]=pixel;
+						pixel+=128;
+#endif
+					}
+					else
+					{
+#ifdef UNSIGNED_PIXEL
+						//if(2*(pred-128)+error==256)
+						if(2*pred+error==512)
+#else
+						if(2*pred+error==256)
+#endif
+						{
+							error=error>>1^-(error&1);
+#ifdef UNSIGNED_PIXEL
+							yuv[kc]=(uint8_t)(error+pred);
+#else
+							yuv[kc]=(int8_t)(error+pred);
+#endif
+						}
+						else
+						{
+#ifdef UNSIGNED_PIXEL
+							int negmask=((int32_t)pred-128)>>31;
+#else
+							int negmask=(int32_t)pred>>31;
+#endif
+							int sym=error;
+							int e2=epred-sym;
+							error=sym>>1^-(sym&1);
+							e2=(e2^negmask)-negmask;
+							if((epred<<1)<sym)
+								error=e2;
+						}
+						yuv[kc]=error+(int32_t)pred;
+					}
+#ifdef ENABLE_GUIDE
+					{
+						uint8_t *pval=&g_image[3*(iw*ky+kx)+rct_combinations[bestrct][II_PERM_Y+kc]];
+						uint8_t val=*pval;
+						uint8_t pixel=yuv[kc];
+#ifndef UNSIGNED_PIXEL
+						pixel+=128;
+#endif
+						if(pixel!=val)
+							CRASH("GUIDE YXC %d %d %d", ky, kx, kc);
+					}
+#endif
+
+					//if(ky==253&&kx==777)//
+					//	printf("%d\n", error);//
+				}
+#endif
+				{
+					int32_t curr=yuv[kc]-offset;
+					int32_t k, e;
+
+					if(!synthflags[kc])
+					{
+						e=(curr>pred0)-(curr<pred0);
+
+						k=0;
+#define PRED(EXPR) currw[k]+=e*preds[k]; ++k;
+						if(lossy)
+						{
+							//currw[L1NPREDS_LOSSY]+=e;
+							PREDLIST_LOSSY
+						}
+						else
+						{
+							currw[L1NPREDS]+=e;
+							PREDLIST
+						}
+#undef  PRED
+					}
+
+					error=yuv[kc]-(int32_t)pred;
+					if(lossy)
+						error=abs(error);
+					else
+						error=error<<1^error>>31;
+					rows[0][0]=curr;
+					rows[0][1]=curr-W;//gx
+					rows[0][2]=curr-N;//gy
+
+					rows[0][3]=(eW+(eW<eNE?eW:eNE)+(error<<GRBITS)+(eNEE>eNEEE?eNEE:eNEEE))>>2;
+				}
+				offset=(kc ? cv0*yuv[0]+cv1*yuv[1] : cu0*yuv[0])>>2;
+				rows[0]+=4;
+				rows[1]+=4;
+				rows[2]+=4;
+				rows[3]+=4;
+#ifdef PRINTBITS
+				++idx;
+				(void)idx;
+#endif
+			}
+			if(!fwd)
+			{
+#ifdef UNSIGNED_PIXEL
+				imptr[yidx]=yuv[0];
+				imptr[uidx]=yuv[1];
+				imptr[vidx]=yuv[2];
+#else
+				imptr[yidx]=yuv[0]+128;
+				imptr[uidx]=yuv[1]+128;
+				imptr[vidx]=yuv[2]+128;
+#endif
+#ifdef ENABLE_GUIDE
+				guide_check(image, kx, ky);
+#endif
+			}
+			//printf("XY %5d %5d\r", kx, ky);
+		}
+	}
+	free(pixels);
+}
+int c38_codec(int argc, char **argv)
+{
+#if 0
+	{
+		printf("pred\\target  naive modular arithmetic sign packing\n");
+		printf("\t");
+		for(int k=0;k<8;++k)
+			printf(" %3d", k-4);
+		printf("\n\n");
+		for(int kp=-4;kp<4;++kp)
+		{
+			printf(" %3d\t", kp);
+			for(int kt=-4;kt<4;++kt)
+			{
+				int e=kt-kp, e0;
+
+				e0=e<<(32-3)>>(32-3);
+				e0=e0<<1^e0>>31;
+				printf(" %3d", e0);
+			}
+			printf("\n");
+		}
+		printf("\n");
+
+		printf("pred\\target  CALIC sign deduction\n");
+		printf("\t");
+		for(int k=0;k<8;++k)
+			printf(" %3d", k-4);
+		printf("\n\n");
+		for(int kp=-4;kp<4;++kp)
+		{
+			printf(" %3d\t", kp);
+			for(int kt=-4;kt<4;++kt)
+			{
+				int e=kt-kp, e1;
+
+				if(kt==-4&&kp>0)
+				{
+					e1=e<<(32-3)>>(32-3);
+					e1=e1<<1^e1>>31;
+				}
+				else
+				{
+					int upred=4-abs(kp);
+					int negmask=e>>31;
+					int abse=(e^negmask)-negmask;
+					e1=e<<1^negmask;
+					if(upred<abse)
+						e1=upred+abse;
+				}
+				printf(" %3d", e1);
+
+				//deduce kt from e1 and kp
+				{
+					int kt2=e1>>1^-(e1&1);
+					kt2+=kp;
+					kt2=kt2<<(32-3)>>(32-3);
+					if(!(kp>0&&kt2==-4))
+					{
+						int upred=4-abs(kp);
+						int negmask=kp>>31;
+						int e2=upred-e1;
+						kt2=e1>>1^-(e1&1);
+						e2=(e2^negmask)-negmask;
+						if(2*upred<e1)
+							kt2=e2;
+						kt2+=kp;
+					}
+					if(kt2!=kt)
+						CRASH("ERROR");
+				}
+			}
+			printf("\n");
+		}
+		printf("\n");
+		exit(0);
+	}
+#endif
+	if(argc!=3&&argc!=4)
+	{
+		printf(
+			"Usage:  \"%s\"  input  output  [dist]\n"
+			"  dist=1 for lossless (default).  Or 3 <= dist <= 17 for lossy.\n"
+			, argv[0]
+		);
+		return 1;
+	}
+	const char *srcfn=argv[1], *dstfn=argv[2];
+	int dist=argc<4?1:atoi(argv[3]);
+	if(dist!=1)
+		CLAMP2(dist, 3, 17);
+	ptrdiff_t srcsize=0, dstsize=0;
+	int fwd=0;
+	int32_t iw=0, ih=0;
+	ptrdiff_t res=0, usize=0, csize=0;
+	unsigned char *image=0, *imptr=0, *imend=0, *stream=0, *streamptr=0, *streamend=0;
+	ptrdiff_t streamsize=0;
+	int bestrct=0;
+	ACState ac=
+	{
+		0, 0xFFFFFFFFFFFF, 0,
+		0, 0,
+	};
+	int8_t synthflags[3]={0};
+#ifdef LOUD
+	double t=time_sec();
+#endif
+	
+#ifdef ESTIMATE_BITSIZE
+	for(int k=0;k<1<<PROBBITS_USE;++k)
+	{
+		double val=(double)(k+(k<1<<PROBBITS_USE>>1))*(1./(1<<PROBBITS_USE));
+		val=-log(val)*(1./(8*M_LN2));
+		shannontable[k]=val;
+	}
+#endif
+	//read source
+	{
+		struct stat info={0};
+		int error=stat(srcfn, &info);
+		if(error)
+		{
+			CRASH("Cannot stat \"%s\"", srcfn);
+			return 1;
+		}
+		srcsize=info.st_size;
+	}
+	{
+		ptrdiff_t nread;
+		int c;
+		FILE *fsrc;
+		
+		fsrc=fopen(srcfn, "rb");
+		if(!fsrc)
+		{
+			CRASH("Cannot open \"%s\"", srcfn);
+			return 1;
+		}
+		c=0;
+		fread(&c, 1, 2, fsrc);
+		fwd=c==('P'|'6'<<8);
+		if(!fwd&&c!=('1'|'2'<<8))
+		{
+			CRASH("Unsupported file \"%s\"", srcfn);
+			return 1;
+		}
+		if(fwd)
+		{
+			c=fgetc(fsrc);
+			if(c!='\n')
+			{
+				CRASH("Invalid PPM file");
+				return 1;
+			}
+			c=fgetc(fsrc);
+			while(c=='#')
+			{
+				c=fgetc(fsrc);
+				while(c!='\n')
+					c=fgetc(fsrc);
+				c=fgetc(fsrc);
+			}
+			iw=0;
+			while((unsigned)(c-'0')<10)
+			{
+				iw=10*iw+c-'0';
+				c=fgetc(fsrc);
+			}
+			while(c<=' ')
+				c=fgetc(fsrc);
+			ih=0;
+			while((unsigned)(c-'0')<10)
+			{
+				ih=10*ih+c-'0';
+				c=fgetc(fsrc);
+			}
+			while(c<=' ')
+				c=fgetc(fsrc);
+			while(c=='#')
+			{
+				c=fgetc(fsrc);
+				while(c!='\n')
+					c=fgetc(fsrc);
+				c=fgetc(fsrc);
+			}
+			c=c<<8|fgetc(fsrc);
+			c=c<<8|fgetc(fsrc);
+			c=c<<8|fgetc(fsrc);
+			if(c!=('2'<<24|'5'<<16|'5'<<8|'\n'))
+			{
+				CRASH("Unsupported PPM file");
+				return 1;
+			}
+		}
+		else
+		{
+			fread(&iw, 1, 4, fsrc);
+			fread(&ih, 1, 4, fsrc);
+			bestrct=0;
+			fread(&bestrct, 1, 1, fsrc);
+			dist=1;
+			fread(&dist, 1, 1, fsrc);
+			nread=ftell(fsrc);
+			streamsize=srcsize-nread;
+
+		}
+		if(iw<1||ih<1)
+		{
+			CRASH("Unsupported image dimensions  WH %d*%d", iw, ih);
+			return 1;
+		}
+		res=(ptrdiff_t)iw*ih;
+		usize=3*res;
+		if(fwd)
+			streamsize=usize;
+		image=(unsigned char*)malloc(usize);
+		stream=(unsigned char*)malloc(streamsize+sizeof(char[32]));
+		if(!image||!stream)
+		{
+			CRASH("Alloc error");
+			return 1;
+		}
+		imend=image+usize;
+		{
+			ptrdiff_t expected=0;
+			if(fwd)
+			{
+				expected=usize;
+				nread=fread(image, 1, usize, fsrc);
+				guide_save(image, iw, ih);
+			}
+			else
+			{
+				expected=streamsize;
+				nread=fread(stream, 1, streamsize, fsrc);
+			}
+			if(nread!=expected)
+				printf("Truncated  expected %td  read %td", expected, nread);
+		}
+		fclose(fsrc);
+	}
+	if(fwd)
+	{
+		//analysis
+		int32_t weights[OCH_COUNT*4]={0};
+		int64_t counters[OCH_COUNT*2]={0}, minerr=0;
+		int16_t Nprev[OCH_COUNT*2]={0};
+		int16_t prev[OCH_COUNT]={0};
+		uint8_t *NEptr=image+3;
+		int kx=0;
+		imptr=image+(ptrdiff_t)3*iw;
+		while(imptr<imend)
+		{
+			int NEr, NEg, NEb, NErg, NEgb, NEbr;
+			int r, g, b, rg, gb, br;
+
+			NEr=NEptr[0]<<2;
+			NEg=NEptr[1]<<2;
+			NEb=NEptr[2]<<2;
+			NErg=NEr-NEg;
+			NEgb=NEg-NEb;
+			NEbr=NEb-NEr;
+			r=imptr[0]<<2;
+			g=imptr[1]<<2;
+			b=imptr[2]<<2;
+			rg=r-g;
+			gb=g-b;
+			br=b-r;
+
+			//stride 2*2
+#if ANALYSIS_DX>1 || ANALYSIS_DY>1
+			NEptr+=3*ANALYSIS_DX;
+			imptr+=3*ANALYSIS_DX;
+			kx+=ANALYSIS_DX;
+			if(kx>=iw)
+			{
+				NEptr+=iw*3*ANALYSIS_DY-3*kx;
+				imptr+=iw*3*ANALYSIS_DY-3*kx;
+				kx=0;
+			}
+#else
+			NEptr+=3;
+			imptr+=3;
+#endif
+
+			//Select = abs(NW-N)>abs(NW-W) ? N : W
+			//Evo = mix4(N, W, NW, NE)
+#define UPDATE(I0, C0, NE0,  I1, C1, NE1,  I2, C2, NE2)\
+	do\
+	{\
+		int c0=C0, ne0=NE0;\
+		int c1=C1, ne1=NE1;\
+		int c2=C2, ne2=NE2;\
+		int s0=abs(Nprev[I0+OCH_COUNT*1]-Nprev[I0+OCH_COUNT*0])>abs(Nprev[I0+OCH_COUNT*1]-prev[I0+OCH_COUNT*0])?Nprev[I0+OCH_COUNT*0]:prev[I0+OCH_COUNT*0];\
+		int s1=abs(Nprev[I1+OCH_COUNT*1]-Nprev[I1+OCH_COUNT*0])>abs(Nprev[I1+OCH_COUNT*1]-prev[I1+OCH_COUNT*0])?Nprev[I1+OCH_COUNT*0]:prev[I1+OCH_COUNT*0];\
+		int s2=abs(Nprev[I2+OCH_COUNT*1]-Nprev[I2+OCH_COUNT*0])>abs(Nprev[I2+OCH_COUNT*1]-prev[I2+OCH_COUNT*0])?Nprev[I2+OCH_COUNT*0]:prev[I2+OCH_COUNT*0];\
+		int v0=(weights[I0+OCH_COUNT*0]*Nprev[I0+OCH_COUNT*0] + weights[I0+OCH_COUNT*1]*prev[I0+OCH_COUNT*0] + weights[I0+OCH_COUNT*2]*Nprev[I0+OCH_COUNT*1] + weights[I0+OCH_COUNT*3]*ne0 + (1<<17>>1))>>17;\
+		int v1=(weights[I1+OCH_COUNT*0]*Nprev[I1+OCH_COUNT*0] + weights[I1+OCH_COUNT*1]*prev[I1+OCH_COUNT*0] + weights[I1+OCH_COUNT*2]*Nprev[I1+OCH_COUNT*1] + weights[I1+OCH_COUNT*3]*ne1 + (1<<17>>1))>>17;\
+		int v2=(weights[I2+OCH_COUNT*0]*Nprev[I2+OCH_COUNT*0] + weights[I2+OCH_COUNT*1]*prev[I2+OCH_COUNT*0] + weights[I2+OCH_COUNT*2]*Nprev[I2+OCH_COUNT*1] + weights[I2+OCH_COUNT*3]*ne2 + (1<<17>>1))>>17;\
+		int e0=(c0>v0)-(c0<v0);\
+		int e1=(c1>v1)-(c1<v1);\
+		int e2=(c2>v2)-(c2<v2);\
+		int max0=Nprev[I0+OCH_COUNT*0], min0=prev[I0+OCH_COUNT*0];\
+		int max1=Nprev[I1+OCH_COUNT*0], min1=prev[I1+OCH_COUNT*0];\
+		int max2=Nprev[I2+OCH_COUNT*0], min2=prev[I2+OCH_COUNT*0];\
+		if(Nprev[I0+OCH_COUNT*0]<prev[I0+OCH_COUNT*0])min0=Nprev[I0+OCH_COUNT*0], max0=prev[I0+OCH_COUNT*0];\
+		if(Nprev[I1+OCH_COUNT*0]<prev[I1+OCH_COUNT*0])min1=Nprev[I1+OCH_COUNT*0], max1=prev[I1+OCH_COUNT*0];\
+		if(Nprev[I2+OCH_COUNT*0]<prev[I2+OCH_COUNT*0])min2=Nprev[I2+OCH_COUNT*0], max2=prev[I2+OCH_COUNT*0];\
+		CLAMP2(v0, min0, max0);\
+		CLAMP2(v1, min1, max1);\
+		CLAMP2(v2, min2, max2);\
+		weights[I0+OCH_COUNT*0]+=e0*Nprev[I0+OCH_COUNT*0];\
+		weights[I1+OCH_COUNT*0]+=e1*Nprev[I1+OCH_COUNT*0];\
+		weights[I2+OCH_COUNT*0]+=e2*Nprev[I2+OCH_COUNT*0];\
+		weights[I0+OCH_COUNT*1]+=e0*prev[I0+OCH_COUNT*0];\
+		weights[I1+OCH_COUNT*1]+=e1*prev[I1+OCH_COUNT*0];\
+		weights[I2+OCH_COUNT*1]+=e2*prev[I2+OCH_COUNT*0];\
+		weights[I0+OCH_COUNT*2]+=e0*Nprev[I0+OCH_COUNT*1];\
+		weights[I1+OCH_COUNT*2]+=e1*Nprev[I1+OCH_COUNT*1];\
+		weights[I2+OCH_COUNT*2]+=e2*Nprev[I2+OCH_COUNT*1];\
+		weights[I0+OCH_COUNT*3]+=e0*ne0;\
+		weights[I1+OCH_COUNT*3]+=e1*ne1;\
+		weights[I2+OCH_COUNT*3]+=e2*ne2;\
+		counters[I0+OCH_COUNT*0]+=abs(c0-s0);\
+		counters[I1+OCH_COUNT*0]+=abs(c1-s1);\
+		counters[I2+OCH_COUNT*0]+=abs(c2-s2);\
+		counters[I0+OCH_COUNT*1]+=abs(c0-v0);\
+		counters[I1+OCH_COUNT*1]+=abs(c1-v1);\
+		counters[I2+OCH_COUNT*1]+=abs(c2-v2);\
+		Nprev[I0+OCH_COUNT*1]=Nprev[I0+OCH_COUNT*0];\
+		Nprev[I1+OCH_COUNT*1]=Nprev[I1+OCH_COUNT*0];\
+		Nprev[I2+OCH_COUNT*1]=Nprev[I2+OCH_COUNT*0];\
+		prev[I0+OCH_COUNT*0]=c0;\
+		prev[I1+OCH_COUNT*0]=c1;\
+		prev[I2+OCH_COUNT*0]=c2;\
+		Nprev[I0+OCH_COUNT*0]=ne0;\
+		Nprev[I1+OCH_COUNT*0]=ne1;\
+		Nprev[I2+OCH_COUNT*0]=ne2;\
+	}while(0)
+
+			UPDATE(
+				OCH_Y400, r, NEr,
+				OCH_Y040, g, NEg,
+				OCH_Y004, b, NEb
+			);
+			UPDATE(
+				OCH_CX40, rg, NErg,
+				OCH_C0X4, gb, NEgb,
+				OCH_C40X, br, NEbr
+			);
+			UPDATE(
+				OCH_CX31, rg+(gb>>2), NErg+(NEgb>>2),//r-(3*g+b)/4 = r-g-(b-g)/4
+				OCH_C3X1, rg+(br>>2), NErg+(NEbr>>2),//g-(3*r+b)/4 = g-r-(b-r)/4
+				OCH_C31X, br+(rg>>2), NEbr+(NErg>>2) //b-(3*r+g)/4 = b-r-(g-r)/4
+			);
+			UPDATE(
+				OCH_CX13, br+(gb>>2), NEbr+(NEgb>>2),//r-(g+3*b)/4 = r-b-(g-b)/4
+				OCH_C1X3, gb+(br>>2), NEgb+(NEbr>>2),//g-(r+3*b)/4 = g-b-(r-b)/4
+				OCH_C13X, gb+(rg>>2), NEgb+(NErg>>2) //b-(r+3*g)/4 = b-g-(r-g)/4
+			);
+			UPDATE(
+				OCH_CX22, (rg-br)>>1, (NErg-NEbr)>>1,//r-(g+b)/2 = (r-g + r-b)/2
+				OCH_C2X2, (rg-gb)>>1, (NErg-NEgb)>>1,//g-(r+b)/2 = (g-r + g-b)/2
+				OCH_C22X, (br-gb)>>1, (NEbr-NEgb)>>1 //b-(r+g)/2 = (b-r + b-g)/2
+			);
+#undef  UPDATE
+		}
+		imptr=image;
+		{
+			char synthallflags[OCH_COUNT]={0};
+			int kt;
+			
+			for(kt=0;kt<OCH_COUNT;++kt)
+				synthallflags[kt]=counters[kt+OCH_COUNT*0]<counters[kt+OCH_COUNT*1];
+#ifdef PRINT_RCT
+			printf("Select (synth)  vs  Evo (natural)    stride XY %d*%d\n", ANALYSIS_DX, ANALYSIS_DY);
+			for(kt=0;kt<OCH_COUNT;++kt)
+				printf("%2d %s %16lld %16lld\n", kt, och_names[kt], counters[kt], counters[kt+OCH_COUNT*1]);
+			printf("\n");
+#endif
+			for(kt=0;kt<RCT_COUNT;++kt)
+			{
+				const unsigned char *combination=rct_combinations[kt];
+				long long currerr=
+					+counters[combination[0]+OCH_COUNT*synthallflags[combination[0]]]
+					+counters[combination[1]+OCH_COUNT*synthallflags[combination[1]]]
+					+counters[combination[2]+OCH_COUNT*synthallflags[combination[2]]]
+				;
+				if(!kt||minerr>currerr)
+				{
+					minerr=currerr;
+					bestrct=kt;
+				}
+#ifdef PRINT_RCT
+				printf("RCT%02d %s %16lld %d%d%d%s\n"
+					, kt
+					, rct_names[kt]
+					, currerr
+					, synthallflags[combination[0]]
+					, synthallflags[combination[1]]
+					, synthallflags[combination[2]]
+					, kt==bestrct?" <-":""
+				);
+#endif
+			}
+			synthflags[0]=synthallflags[rct_combinations[bestrct][0]];
+			synthflags[1]=synthallflags[rct_combinations[bestrct][1]];
+			synthflags[2]=synthallflags[rct_combinations[bestrct][2]];
+
+#ifdef LOUD
+			printf("\"%s\"  WH %d*%d  %lld bytes  RCT %d %s  dist %d\n"
+				, srcfn
+				, iw, ih, usize
+				, bestrct, rct_names[bestrct]
+				, dist
+			);
+#else
+			(void)och_names;
+			(void)rct_names;
+#endif
+		}
+		streamptr=stream;
+		streamend=stream+usize;
+
+		*streamptr++=
+			synthflags[2]<<2|
+			synthflags[1]<<1|
+			synthflags[0]<<0;
+
+		ac.ptr=streamptr;
+		ac.end=streamend;
+	}
+	else
+	{
+		imptr=image;
+		streamptr=stream;
+		streamend=stream+srcsize;
+
+		{
+			int t=*streamptr++;
+			synthflags[0]=t&1;
+			synthflags[1]=t&2;
+			synthflags[2]=t&4;
+		}
+
+		ac.code=*(uint32_t*)streamptr;//load
+		streamptr+=4;
+		ac.code=ac.code<<32|*(uint32_t*)streamptr;
+		streamptr+=4;
+		ac.ptr=streamptr;
+		ac.end=streamend;
+
+		csize=srcsize;
+	}
+#ifdef _MSC_VER
+	ac.totalbits=(int64_t)24*iw*ih;
+#endif
+	if(dist>1)
+	{
+		if(fwd)
+			mainloop(iw, ih, bestrct, dist, image, stream, &ac, synthflags, 1, 1);
+		else
+			mainloop(iw, ih, bestrct, dist, image, stream, &ac, synthflags, 1, 0);
+	}
+	else
+	{
+		if(fwd)
+			mainloop(iw, ih, bestrct, dist, image, stream, &ac, synthflags, 0, 1);
+		else
+			mainloop(iw, ih, bestrct, dist, image, stream, &ac, synthflags, 0, 0);
+	}
+	{
+		FILE *fdst=fopen(dstfn, "wb");
+		if(!fdst)
+		{
+			CRASH("Cannot open \"%s\" for writing\n", dstfn);
+			free(image);
+			free(stream);
+			return 1;
+		}
+		if(fwd)
+		{
+			*(uint32_t*)ac.ptr=(uint32_t)(ac.low>>32);//flush
+			ac.ptr+=4;
+			*(uint32_t*)ac.ptr=(uint32_t)ac.low;
+			ac.ptr+=4;
+
+			csize=ac.ptr-stream;
+
+			dstsize+=fwrite("12", 1, 2, fdst);
+			dstsize+=fwrite(&iw, 1, 4, fdst);
+			dstsize+=fwrite(&ih, 1, 4, fdst);
+			dstsize+=fwrite(&bestrct, 1, 1, fdst);
+			dstsize+=fwrite(&dist, 1, 1, fdst);
+			dstsize+=fwrite(stream, 1, csize, fdst);
+			csize=dstsize;
+		}
+		else
+		{
+			dstsize+=fprintf(fdst, "P6\n%d %d\n255\n", iw, ih);
+			dstsize+=fwrite(image, 1, usize, fdst);
+			usize=dstsize;
+		}
+		fclose(fdst);
+	}
+	free(image);
+	free(stream);
+#ifdef LOUD
+	t=time_sec()-t;
+	if(fwd)
+	{
+		usize=srcsize;
+#ifdef PRINTBITS
+		printf("\n");
+#endif
+		printf("%12.2lf zeros B\n%12.2lf ones  B\n", ac.n[0]/8., ac.n[1]/8.);
+		printf("%12.2lf /%12.2lf bytes GR  %12.6lf bit/sym\n", ac.bitidx/8., ac.totalbits/8., ac.bitidx/(3.*iw*ih));
+#ifdef ESTIMATE_BITSIZE
+		printf("plane  csize / usize = invCR  nzeros%%\n");
+		for(int kv=0;kv<GRLIMIT+8;++kv)
+		{
+			printf("%3d %12.2lf/%12.2lf=%8.4lf%% %8.4lf%%  %12.2lf/%12.2lf=%8.4lf%% %8.4lf%%  %12.2lf/%12.2lf=%8.4lf%% %8.4lf%%  %8.4lf%% %8.4lf%% %8.4lf%%\n"
+				, kv
+				, bitsizes[0][kv], (bitctr[0][kv][0]+bitctr[0][kv][1])/8., 800.*bitsizes[0][kv]/(bitctr[0][kv][0]+bitctr[0][kv][1]), 100.*bitctr[0][kv][1]/(bitctr[0][kv][0]+bitctr[0][kv][1])
+				, bitsizes[1][kv], (bitctr[1][kv][0]+bitctr[1][kv][1])/8., 800.*bitsizes[1][kv]/(bitctr[1][kv][0]+bitctr[1][kv][1]), 100.*bitctr[1][kv][1]/(bitctr[1][kv][0]+bitctr[1][kv][1])
+				, bitsizes[2][kv], (bitctr[2][kv][0]+bitctr[2][kv][1])/8., 800.*bitsizes[2][kv]/(bitctr[2][kv][0]+bitctr[2][kv][1]), 100.*bitctr[2][kv][1]/(bitctr[2][kv][0]+bitctr[2][kv][1])
+				, 100.*winctr[0][kv]/(bitctr[0][kv][0]+bitctr[0][kv][1])
+				, 100.*winctr[1][kv]/(bitctr[1][kv][0]+bitctr[1][kv][1])
+				, 100.*winctr[2][kv]/(bitctr[2][kv][0]+bitctr[2][kv][1])
+			);
+			if(kv==GRLIMIT-1)
+				printf("\n");
+		}
+		printf("\n");
+#endif
+		printf("%9td->%9td  %8.4lf%%  %12.6lf:1  BPD %12.6lf\n"
+			, usize
+			, csize
+			, 100.*csize/usize
+			, (double)usize/csize
+			, 8.*csize/usize
+		);
+	}
+	printf("%c  %12.6lf sec  %12.6lf MB/s\n"
+		, 'D'+fwd
+		, t
+		, usize/(t*1024*1024)
+	);
+#ifdef ENABLE_GUIDE
+	if(fwd&&dist>1)
+	{
+		double rmse[]=
+		{
+			sqrt((g_sqe[0]+g_sqe[1]+g_sqe[2])/((double)3*iw*ih)),
+			sqrt(g_sqe[0]/((double)iw*ih)),
+			sqrt(g_sqe[1]/((double)iw*ih)),
+			sqrt(g_sqe[2]/((double)iw*ih)),
+		};
+		double psnr[]=
+		{
+			20*log10(255/rmse[0]),
+			20*log10(255/rmse[1]),
+			20*log10(255/rmse[2]),
+			20*log10(255/rmse[3]),
+		};
+		printf("RMSE  PSNR\n");
+		printf("T %12.6lf  %12.6lf\n", rmse[0], psnr[0]);
+		printf("Y %12.6lf  %12.6lf\n", rmse[1], psnr[1]);
+		printf("U %12.6lf  %12.6lf\n", rmse[2], psnr[2]);
+		printf("V %12.6lf  %12.6lf\n", rmse[3], psnr[3]);
+	}
+#endif
+#endif
+	(void)time_sec;
+	return 0;
+}

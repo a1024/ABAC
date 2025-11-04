@@ -47,6 +47,7 @@ int c34_codec(int argc, char **argv);//MT rANS
 int c35_codec(int argc, char **argv);//binary FSM
 int c36_codec(int argc, char **argv);//video test
 int c37_codec(int argc, char **argv);//WP vs L1 test
+int c38_codec(int argc, char **argv);//Synth-Natural codec
 #endif
 
 
@@ -87,7 +88,8 @@ int c37_codec(int argc, char **argv);//WP vs L1 test
 //	#define CODEC_EXT c34
 //	#define CODEC_EXT c35
 //	#define CODEC_EXT c36
-	#define CODEC_EXT c37
+//	#define CODEC_EXT c37
+	#define CODEC_EXT c38
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -104,14 +106,14 @@ int main(int argc, char **argv)
 #endif
 #if defined __GNUC__ || defined RELEASE
 	retcode=CODEC_FUNC(argc, argv);
-#elif 1
-	const char *args[]=
-	{
-		argv[0],
-		"C:/dataset-DIV2K-ppm/0801.ppm"
-	};
-	if(CODEC_FUNC(_countof(args), (char**)args))
-		return 1;
+//#elif 1
+//	const char *args[]=
+//	{
+//		argv[0],
+//		"C:/dataset-DIV2K-ppm/0801.ppm"
+//	};
+//	if(CODEC_FUNC(_countof(args), (char**)args))
+//		return 1;
 //#elif 1
 //	const char *args[]=
 //	{
@@ -177,7 +179,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-panasonic-ppm/P1000169.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13914.ppm"
 	//	"C:/dataset-sintel-ppm"
-		"C:/dataset-DIV2K-ppm/0801.ppm"
+	//	"C:/dataset-DIV2K-ppm/0801.ppm"
 	//	"C:/dataset-DSLR2x4-ppm/DSC_0133.ppm"
 	//	"C:/dataset-GDCC2020-ppm/astro-01.ppm"
 	//	"C:/dataset-HUGE-ppm/kodak.PPM"
@@ -241,7 +243,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-memes-ppm/usa.ppm"
 	//	"C:/dataset-synth-ppm/20240421 1 the front.ppm"
 	//	"C:/dataset-synth-ppm/20240516 4 DSC_0054.ppm"
-	//	"C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
+		"C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
 	//	"C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
 	//	"C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
 	//	"C:/dataset-synth2-ppm/20240407 blank.ppm"
