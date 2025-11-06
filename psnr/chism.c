@@ -141,7 +141,7 @@ static void prof_print(ptrdiff_t usize)
 		printf("\n");
 	}
 	printf("\n");
-	printf("%16.7lf ms %12.6lf MB/s %12.6lf mb/MB Total\n", timesum*1000, usize/(timesum*1024*1024), timesum*1024*1024*1000/usize);
+	printf("%16.7lf ms %12.6lf MB/s %12.6lf ms/MB Total\n", timesum*1000, usize/(timesum*1024*1024), timesum*1024*1024*1000/usize);
 	printf("\n");
 	prof_count=0;
 	prof_timestamp=0;
