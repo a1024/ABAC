@@ -1017,7 +1017,7 @@ double time_ms(void)
 }
 double time_sec(void)
 {
-#ifdef _MSC_VER
+#if defined _WIN32 || defined WIN32
 	static long long t0=0;
 	LARGE_INTEGER li;
 	double t;
