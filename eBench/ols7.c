@@ -13,6 +13,7 @@
 static const char file[]=__FILE__;
 
 
+//	#define ESTIMATE_SIZE
 	#define ENABLE_EXTENDED_RCT
 
 
@@ -30,9 +31,8 @@ static const char file[]=__FILE__;
 	PRED( 50000, N+NE-NNE)
 #endif
 #if 1
+#define L1SH 21
 //#define L1SH 17
-#define L1SH 19
-#define NPREDS 11		//up to 11, otherwise slow
 #define PREDLIST\
 	PRED(100000, N)\
 	PRED(100000, W)\
@@ -49,7 +49,6 @@ static const char file[]=__FILE__;
 #endif
 #if 0
 #define L1SH 19
-#define NPREDS 15
 #define PREDLIST\
 	PRED(100000, N)\
 	PRED(100000, W)\
@@ -68,7 +67,6 @@ static const char file[]=__FILE__;
 	PRED( 40000, WW)
 #endif
 #if 0
-#define NPREDS 10
 #define PREDLIST\
 	PRED( 40000, N)\
 	PRED( 40000, W)\
@@ -82,7 +80,6 @@ static const char file[]=__FILE__;
 	PRED( 40000, NEEE)
 #endif
 #if 0
-#define NPREDS 10
 #define PREDLIST\
 	PRED( 38000, N)\
 	PRED( 69000, W)\
@@ -95,7 +92,12 @@ static const char file[]=__FILE__;
 	PRED( 81000, W+NW-NWW)\
 	PRED( 18000, NEEE)
 #endif
-
+enum
+{
+#define PRED(WEIGHT, EXPR) +1
+	NPREDS=PREDLIST,
+#undef  PRED
+};
 void pred_ols7(Image *src, int fwd)
 {
 	int amin[]=
@@ -323,6 +325,9 @@ void pred_mixN(Image *src, int fwd)
 	int bufsize=(src->iw+16LL)*sizeof(int[4*4*2]);//4 padded rows * 4 channels max * {pixel, error}
 	int *pixels=(int*)malloc(bufsize);
 
+	//int areas[4]={0};//EXPERIMENT 20251104
+	//int hist[4][256]={0};
+
 	if(!pixels)
 	{
 		LOG_ERROR("Alloc error");
@@ -537,11 +542,20 @@ void pred_mixN(Image *src, int fwd)
 
 				//NW  N   NE
 				//W   ?
+				int vmax=N, vmin=W;
+				if(N<W)vmin=N, vmax=W;
+				int cg=N+W-NW;
+				CLAMP2(cg, vmin, vmax);
 				int pred=
-					+currw[0]*W
-					+currw[1]*(N-NW)
-					+currw[2]*(NE-N)
-					+currw[3]*(N-W)
+					+currw[0]*N
+					+currw[1]*W
+					+currw[2]*cg
+				//	+currw[2]*(N+W-NW)
+					+currw[3]*NE
+				//	+currw[0]*W
+				//	+currw[1]*(N-NW)
+				//	+currw[2]*(NE-N)
+				//	+currw[3]*(N-W)
 				;
 			//	int pred=
 			//		+currw[0]*N
@@ -550,42 +564,84 @@ void pred_mixN(Image *src, int fwd)
 			//		+currw[3]*NE
 			//	;
 			//	pred+=((1<<17)-1)&pred>>31;//rounding to zero	X
+				//if(ky==1170&&kx==1775&&kc==1)//
+				//	printf("");
 				pred+=1<<17>>1;//rounding to nearest
 				pred>>=17;
 				int p0=pred;
-				int vmax=N, vmin=W;
-				if(N<W)vmin=N, vmax=W;
+
+				//int pred2=N+W-NW;//EXPERIMENT 20251104
+				//CLAMP2(pred2, vmin, vmax);
+
 				if(vmin>NE)vmin=NE;
 				if(vmax<NE)vmax=NE;
 				//if(vmin>NEEE)vmin=NEEE;
 				//if(vmax<NEEE)vmax=NEEE;
 				CLAMP2(pred, vmin, vmax);
 
-				int curr=src->data[idx+kc];
-				if(fwd)
-				{
-					curr-=(int)pred;
-					curr=(curr*invdist>>16)-(curr>>31&-(g_dist>1));//curr/=g_dist
-					src->data[idx+kc]=curr;
+				//if(pred>-128&&hist[kc][(pred+128)&255]<hist[kc][(pred-1+128)&255])
+				//	--pred;
+				//else if(pred<127&&hist[kc][(pred+128)&255]<hist[kc][(pred+1+128)&255])
+				//	++pred;
 
-					curr=g_dist*curr+(int)pred;
-					CLAMP2(curr, amin[kc], amax[kc]);
+				int curr=src->data[idx+kc];
+
+				//int mix4wins=abs(curr-pred)<=abs(curr-pred2);//EXPERIMENT 20251104
+				//src->data[idx+kc]=mix4wins?64:-64;
+				//areas[kc]+=mix4wins;
+#if 1
+				if(g_dist>1)
+				{
+					if(fwd)
+					{
+						curr-=(int)pred;
+						curr=(curr*invdist>>16)-(curr>>31&-(g_dist>1));//curr/=g_dist
+						src->data[idx+kc]=curr;
+
+						curr=g_dist*curr+(int)pred;
+						CLAMP2(curr, amin[kc], amax[kc]);
+					}
+					else
+					{
+						curr=g_dist*curr+(int)pred;
+						CLAMP2(curr, amin[kc], amax[kc]);
+
+						src->data[idx+kc]=curr;
+					}
 				}
 				else
 				{
-					curr=g_dist*curr+(int)pred;
-					CLAMP2(curr, amin[kc], amax[kc]);
-
-					src->data[idx+kc]=curr;
+					if(fwd)
+					{
+						int error=curr-pred;
+						error<<=32-src->depth[kc];
+						error>>=32-src->depth[kc];
+						src->data[idx+kc]=error;
+					}
+					else
+					{
+						curr+=pred;
+						curr<<=32-src->depth[kc];
+						curr>>=32-src->depth[kc];
+						src->data[idx+kc]=curr;
+					}
 				}
+#endif
 				rows[0][kc+0]=curr;
 			//	rows[0][kc+1]=curr-pred;
 				int e=(curr>p0)-(curr<p0);//L1
 			//	int e=curr-p0;//L2
-				currw[0]+=e*W;
-				currw[1]+=e*(N-NW);
-				currw[2]+=e*(NE-N);
-				currw[3]+=e*(N-W);
+
+				currw[0]+=e*N;
+				currw[1]+=e*W;
+				currw[2]+=e*cg;
+			//	currw[2]+=e*(N+W-NW);
+				currw[3]+=e*NE;
+			//	currw[0]+=e*W;
+			//	currw[1]+=e*(N-NW);
+			//	currw[2]+=e*(NE-N);
+			//	currw[3]+=e*(N-W);
+
 			//	CLAMP2(currw[0], (1<<17)/4, (1<<17));
 			//	CLAMP2(currw[1], -(1<<17)/4, (1<<17)*3/4);
 			//	currw[2]=(1<<17)/4;
@@ -595,6 +651,8 @@ void pred_mixN(Image *src, int fwd)
 				//currw[1]+=e*W;
 				//currw[2]+=e*NW;
 				//currw[3]+=e*NE;
+
+				//++hist[kc][(curr+128)&255];
 #endif
 			}
 			rows[0]+=4*2;
@@ -665,6 +723,15 @@ void pred_mixN(Image *src, int fwd)
 		}
 #endif
 	}
+	//if(loud_transforms)//EXPERIMENT 20251104
+	//	messagebox(MBOX_OK, "Info",
+	//		"0  %6.4lf%%\n"
+	//		"1  %6.4lf%%\n"
+	//		"2  %6.4lf%%\n"
+	//		, 100.*areas[0]/(src->iw*src->ih)
+	//		, 100.*areas[1]/(src->iw*src->ih)
+	//		, 100.*areas[2]/(src->iw*src->ih)
+	//	);
 	free(pixels);
 }
 
@@ -757,6 +824,36 @@ void pred_l1crct(Image *src, int fwd)
 		(1<<src->depth[2]>>1)-1,
 		(1<<src->depth[3]>>1)-1,
 	};
+#ifdef ESTIMATE_SIZE
+#define PREDBITS 1
+#define NCTX 16
+	int nlevels[]=
+	{
+		1<<src->depth[0],
+		1<<src->depth[1],
+		1<<src->depth[2],
+		1<<src->depth[3],
+	};
+	int hstart[]=
+	{
+		0,
+		nlevels[0],
+		nlevels[0]+nlevels[1],
+		nlevels[0]+nlevels[1]+nlevels[2],
+		nlevels[0]+nlevels[1]+nlevels[2]+nlevels[3],
+	};
+	int hsize=sizeof(int[NCTX])*hstart[4]<<PREDBITS;
+	int *hist=(int*)malloc(hsize);
+	int esize=(src->iw+8*2)*(int)sizeof(short[4*4*1]);//4 padded rows * 4 channels max * {errors}
+	short *ebuf=(short*)malloc(esize);
+	if(!hist||!ebuf)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(hist, 0, hsize);
+	memset(ebuf, 0, esize);
+#endif
 	int weights[4][NPREDS]={0};
 	int bufsize=(src->iw+8*2)*(int)sizeof(short[4*4*1]);//4 padded rows * 4 channels max * {pixels}
 	short *pixels=(short*)malloc(bufsize);
@@ -785,6 +882,15 @@ void pred_l1crct(Image *src, int fwd)
 			pixels+(((src->iw+16LL)*((ky-2LL+4)%4)+8)*4-1)*1,
 			pixels+(((src->iw+16LL)*((ky-3LL+4)%4)+8)*4-1)*1,
 		};
+#ifdef ESTIMATE_SIZE
+		short *erows[]=
+		{
+			ebuf+(((src->iw+16LL)*((ky-0LL+4)%4)+8)*4-1)*1,
+			ebuf+(((src->iw+16LL)*((ky-1LL+4)%4)+8)*4-1)*1,
+			ebuf+(((src->iw+16LL)*((ky-2LL+4)%4)+8)*4-1)*1,
+			ebuf+(((src->iw+16LL)*((ky-3LL+4)%4)+8)*4-1)*1,
+		};
+#endif
 		for(int kx=0;kx<src->iw;++kx, idx+=4)
 		{
 			int offset=0;
@@ -800,6 +906,12 @@ void pred_l1crct(Image *src, int fwd)
 				++rows[1];
 				++rows[2];
 				++rows[3];
+#ifdef ESTIMATE_SIZE
+				++erows[0];
+				++erows[1];
+				++erows[2];
+				++erows[3];
+#endif
 				if(!src->depth[kc])
 					continue;
 				int
@@ -841,6 +953,15 @@ void pred_l1crct(Image *src, int fwd)
 					WWW		=rows[0][-3*4*1],
 					WW		=rows[0][-2*4*1],
 					W		=rows[0][-1*4*1];
+#ifdef ESTIMATE_SIZE
+				int
+					eNEE		=erows[1][+2*4*1],
+					eNEEE		=erows[1][+3*4*1],
+					eW		=erows[0][-1*4*1];
+				int ctx=FLOOR_LOG2(eW*eW+1);
+				if(ctx>NCTX-1)
+					ctx=NCTX-1;
+#endif
 				int preds[]=
 				{
 #define PRED(W0, EXPR) EXPR,
@@ -848,10 +969,9 @@ void pred_l1crct(Image *src, int fwd)
 #undef  PRED
 				};
 				int *currw=weights[kc];
-				int p0=0;
+				int p0=1LL<<L1SH>>1;
 				for(int k=0;k<NPREDS;++k)
 					p0+=currw[k]*preds[k];
-				p0+=1LL<<L1SH>>1;
 				p0>>=L1SH;
 				int predc=p0;
 				int vmax=N, vmin=W;
@@ -900,6 +1020,16 @@ void pred_l1crct(Image *src, int fwd)
 						yuv[kc]=curr;
 					}
 				}
+#ifdef ESTIMATE_SIZE
+				int e2=curr-predc;
+				e2<<=32-src->depth[kc];//MA
+				e2>>=32-src->depth[kc];
+				//if((unsigned)(hstart[4]*((ctx<<PREDBITS)+((predc+(1<<src->depth[kc]>>1))>>(src->depth[kc]-PREDBITS)))+hstart[kc]+e2+(1<<src->depth[kc]>>1))>=(unsigned)hsize)
+				//	LOG_ERROR("");
+				++hist[hstart[4]*((ctx<<PREDBITS)+((predc+(1<<src->depth[kc]>>1))>>(src->depth[kc]-PREDBITS)))+hstart[kc]+e2+(1<<src->depth[kc]>>1)];
+				e2=e2<<1^e2>>31;
+				erows[0][0]=(2*eW+(e2<<3)+(eNEE>eNEEE?eNEE:eNEEE))>>2;
+#endif
 				curr-=offset;
 				rows[0][0]=curr;
 
@@ -921,6 +1051,85 @@ void pred_l1crct(Image *src, int fwd)
 		}
 	}
 	free(pixels);
+#ifdef ESTIMATE_SIZE
+	if(loud_transforms)
+	{
+		double csize=0, overhead=0;
+		for(int kctx=0;kctx<NCTX<<PREDBITS;++kctx)
+		{
+			for(int kc=0;kc<4;++kc)
+			{
+				if(!src->depth[kc])
+					continue;
+				int *hcurr=hist+hstart[4]*kctx+hstart[kc];
+				int sum=0;
+				for(int ks=0;ks<nlevels[kc];++ks)
+					sum+=hcurr[ks];
+				if(!sum)
+					continue;
+
+				//simulate nonzero-bin tracking guard
+				int count=0;
+				for(int ks=0;ks<nlevels[kc];++ks)
+					count+=hcurr[ks]!=0;
+				for(int ks=0;ks<nlevels[kc];++ks)
+				{
+					int freq=hcurr[ks];
+					if(freq)
+					{
+						int prob=(int)((long long)freq*(0x1000LL-count)/sum)+1;
+						csize-=freq*log2(prob*(1./0x1000));
+					}
+				}
+			
+				//overhead size
+				const int probbits=12;
+				int cdfW=0;
+				int sum2=0;
+				int codelen=probbits+1, CDFlevels=1<<probbits;
+				int nlevels2=1<<src->depth[kc], half2=nlevels2>>1, mask2=nlevels2-1;
+				for(int ks=0, ks2=0;ks<nlevels2;++ks)//calc overhead size
+				{
+					int sym=((ks>>1^-(ks&1))+half2)&mask2;
+					int freq=hcurr[sym];
+					int cdf=sum2*((1ULL<<probbits)-count)/sum+ks2;
+					ks2+=freq!=0;
+					int csym=cdf-cdfW;
+					if(ks&&CDFlevels)//CDF[0] is always zero
+					{
+						//GR
+						int nbypass=FLOOR_LOG2(CDFlevels);
+						if(ks>1)
+							nbypass-=7;
+						if(nbypass<0)
+							nbypass=0;
+						overhead+=(csym>>nbypass)+1+nbypass;
+					}
+					CDFlevels-=csym;
+					cdfW=cdf;
+					sum2+=freq;
+				}
+
+				//double norm=1./sum;
+				//for(int ks=0;ks<nlevels[kc];++ks)
+				//{
+				//	int freq=hcurr[ks];
+				//	if(freq)
+				//		csize-=freq*log2(freq*norm);
+				//}
+			}
+		}
+		csize/=8;
+		overhead/=8;
+		set_window_title("%10.2lf + %10.2lf = %10.2lf"
+			, csize
+			, overhead
+			, csize+overhead
+		);
+	}
+	free(ebuf);
+	free(hist);
+#endif
 }
 
 void pred_grfilt(Image *src, int fwd)
