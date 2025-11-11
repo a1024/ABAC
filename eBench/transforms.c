@@ -7572,7 +7572,74 @@ void pred_sub(Image *src, int fwd)
 		1<<src->depth[3],
 	};
 	int p0=0, p1=0, p2=0, p3=0;
-	if(fwd)
+	if(g_dist>1)
+	{
+		int amin[]=
+		{
+			-(1<<src->depth[0]>>1),
+			-(1<<src->depth[1]>>1),
+			-(1<<src->depth[2]>>1),
+			-(1<<src->depth[3]>>1),
+		};
+		int amax[]=
+		{
+			(1<<src->depth[0]>>1)-1,
+			(1<<src->depth[1]>>1)-1,
+			(1<<src->depth[2]>>1)-1,
+			(1<<src->depth[3]>>1)-1,
+		};
+		int invdist=((1<<16)+g_dist-1)/g_dist;
+		for(ptrdiff_t k=0, size=(ptrdiff_t)4*src->iw*src->ih;k<size;k+=4)
+		{
+			int c0=src->data[k|0];
+			int c1=src->data[k|1];
+			int c2=src->data[k|2];
+			int c3=src->data[k|3];
+			int e0, e1, e2, e3;
+			if(fwd)
+			{
+				e0=c0-p0;
+				e1=c1-p1;
+				e2=c2-p2;
+				e3=c3-p3;
+				e0=(e0*invdist>>16)-(e0>>31);//curr/=g_dist
+				e1=(e1*invdist>>16)-(e1>>31);
+				e2=(e2*invdist>>16)-(e2>>31);
+				e3=(e3*invdist>>16)-(e3>>31);
+				if(src->nch>=0)src->data[k|0]=e0;
+				if(src->nch>=1)src->data[k|1]=e1;
+				if(src->nch>=2)src->data[k|2]=e2;
+				if(src->nch>=3)src->data[k|3]=e3;
+			}
+			else
+			{
+				e0=c0;
+				e1=c1;
+				e2=c2;
+				e3=c3;
+			}
+			c0=g_dist*e0+p0;
+			c1=g_dist*e1+p1;
+			c2=g_dist*e2+p2;
+			c3=g_dist*e3+p3;
+			CLAMP2(c0, amin[0], amax[0]);
+			CLAMP2(c1, amin[1], amax[1]);
+			CLAMP2(c2, amin[2], amax[2]);
+			CLAMP2(c3, amin[3], amax[3]);
+			if(!fwd)
+			{
+				if(src->nch>=0)src->data[k|0]=c0;
+				if(src->nch>=1)src->data[k|1]=c1;
+				if(src->nch>=2)src->data[k|2]=c2;
+				if(src->nch>=3)src->data[k|3]=c3;
+			}
+			p0=c0;
+			p1=c1;
+			p2=c2;
+			p3=c3;
+		}
+	}
+	else if(fwd)
 	{
 		for(ptrdiff_t k=0, size=(ptrdiff_t)4*src->iw*src->ih;k<size;k+=4)
 		{

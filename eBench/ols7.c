@@ -234,7 +234,8 @@ void pred_ols7(Image *src, int fwd)
 					if(fwd)
 					{
 						curr-=predc;
-						curr=(curr*invdist>>16)-(curr>>31&-(g_dist>1));//curr/=g_dist
+						//curr=(curr*invdist>>16)-(curr>>31&-(g_dist>1));
+						curr=(curr*invdist>>16)-(curr>>31);//curr/=g_dist
 						src->data[idx]=curr;
 
 						curr=g_dist*curr+predc;
@@ -347,6 +348,7 @@ void pred_mixN(Image *src, int fwd)
 			pixels+((src->iw+16LL)*((ky-3LL)&3)+8)*4*2,
 		};
 		int asum=0;
+		//memset(coeffs, 0, sizeof(coeffs));//X
 		for(int kx=0;kx<src->iw;++kx, idx+=4)
 		{
 			for(int kc=0;kc<3;++kc)
@@ -566,8 +568,8 @@ void pred_mixN(Image *src, int fwd)
 			//	pred+=((1<<17)-1)&pred>>31;//rounding to zero	X
 				//if(ky==1170&&kx==1775&&kc==1)//
 				//	printf("");
-				pred+=1<<17>>1;//rounding to nearest
-				pred>>=17;
+				pred+=1<<18>>1;//rounding to nearest
+				pred>>=18;
 				int p0=pred;
 
 				//int pred2=N+W-NW;//EXPERIMENT 20251104
