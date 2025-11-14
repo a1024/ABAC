@@ -20,6 +20,8 @@ static const char file[]=__FILE__;
 	#define PSNR_MAX_8 255
 	#define PSNR_MAX_16 0xFFFF
 
+#define CBM_DELAY 7000
+
 static char g_buf2[8192]={0};
 
 typedef union _DateTime
@@ -33,13 +35,14 @@ typedef union _DateTime
 } DateTime;
 typedef enum _CmdFlags
 {
-	CMDFLAG_VERIFY_BITEXACT=0,
-	CMDFLAG_NOP=1,
-	CMDFLAG_PSNR_8BIT=2,
-	CMDFLAG_PSNR_16BIT=3,
-	CMDFLAG_SSIM_PPM=4,
+	CMDFLAG_VERIFY_BITEXACT,
+	CMDFLAG_NOP,
+	CMDFLAG_PSNR_8BIT,
+	CMDFLAG_PSNR_16BIT,
+	CMDFLAG_SSIM_PPM,
+	CMDFLAG_DELAY,
 
-	CMDFLAG_PRINT_RIVALS=5,
+	CMDFLAG_PRINT_RIVALS,
 } CmdFlags;
 
 static int acme_getline(char *buf, int len, FILE *f)
@@ -1296,7 +1299,7 @@ int main(int argc, char **argv)
 	if(argc!=3&&argc!=4)
 	{
 		printf(
-			"Usage:    %s  DATASET  CODEC  [FLAGS]\n"
+			"Usage:    \"%s\"  DATASET  CODEC  [FLAGS]\n"
 			"You will be prompted to define DATASET and CODEC.\n"
 			"[FLAGS] (optional):\n"
 			"  [0]  Verify files (default).\n"
@@ -1304,11 +1307,13 @@ int main(int argc, char **argv)
 			"  [2]  Measure PSNR (8-bit).\n"
 			"  [3]  Measure PSNR (16-bit).\n"
 			"  [4]  Measure SSIM (8-bit PPM).\n"
-			"  [5]  Print rivals. It\'s recommended to zoom out the terminal. Can be added to other flags.\n"
+			"  [5]  7-second delays between calls to avoid SSD choking at high throughputs.\n"
+			"  [6]  Print rivals. It\'s recommended to zoom out the terminal. Can be added to other flags.\n"
 			"Examples:\n"
 			"  %s  div2k  jxl7        Verifies that the decoded files are bit-exact.\n"
 			"  %s  div2k  j2k    %d    Doesn't verify files.\n"
 			"  %s  div2k  c32n   %d    Measures 8-bit PSNR.\n"
+			"  %s  div2k  c32n   %d    Measures 8-bit SSIM.\n"
 			"  %s  div2k  c32n   %d    Measures 8-bit SSIM.\n"
 		//	"  %s  div2k  qlic2  %d    Prints rivals.\n"
 			, argv[0]
@@ -1316,6 +1321,7 @@ int main(int argc, char **argv)
 			, argv[0], CMDFLAG_NOP
 			, argv[0], CMDFLAG_PSNR_8BIT
 			, argv[0], CMDFLAG_SSIM_PPM
+			, argv[0], CMDFLAG_DELAY
 		//	, argv[0], CMDFLAG_PRINT_RIVALS
 		);
 		return 0;
@@ -1908,6 +1914,9 @@ dec command template
 			printf("  %s\n", encline);
 			LOG_ERROR("");
 		}
+
+		if(flags%CMDFLAG_PRINT_RIVALS==CMDFLAG_DELAY&&k<(int)uinfo->count-1)
+			Sleep(CBM_DELAY);
 		
 		ascii_deletefile(t1fn);
 		exec_process2(decline, (char*)currdir->data, 0, &currcell->dtime, &currcell->dmem, &decthreads);
@@ -1953,6 +1962,9 @@ dec command template
 		ascii_deletefile(t1fn);
 		ascii_deletefile(t2fn);
 		printf("\n");
+
+		if(flags%CMDFLAG_PRINT_RIVALS==CMDFLAG_DELAY)
+			Sleep(CBM_DELAY);
 
 		currtest->total.csize+=currcell->csize;
 		currtest->total.etime+=currcell->etime;
