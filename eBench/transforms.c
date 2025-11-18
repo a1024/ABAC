@@ -1,18 +1,18 @@
 #include"ebench.h"
 #include<stdio.h>
 #include<stdlib.h>
-#include<string.h>
+//#include<string.h>
 #define _USE_MATH_DEFINES
 #include<math.h>
-#include<process.h>
-#include"intercept_malloc.h"
-#include"lodepng.h"//
+//#include<process.h>
+//#include"intercept_malloc.h"
+//#include"lodepng.h"//
 #include<immintrin.h>
-#ifdef _MSC_VER
-#include<intrin.h>
-#elif defined __GNUC__
-#include<x86intrin.h>
-#endif
+//#ifdef _MSC_VER
+//#include<intrin.h>
+//#elif defined __GNUC__
+//#include<x86intrin.h>
+//#endif
 static const char file[]=__FILE__;
 
 void calc_histogram(const int *buf, int iw, int ih, int kc, int x1, int x2, int y1, int y2, int depth, int *hist, int *hist8)

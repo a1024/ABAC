@@ -1,15 +1,15 @@
 #include"ebench.h"
-#include<stdio.h>
+//#include<stdio.h>
 #include<stdlib.h>
-#include<string.h>
-#define _USE_MATH_DEFINES
-#include<math.h>
+//#include<string.h>
+//#define _USE_MATH_DEFINES
+//#include<math.h>
 #include<immintrin.h>
-#ifdef _MSC_VER
-#include<intrin.h>
-#elif defined __GNUC__
-#include<x86intrin.h>
-#endif
+//#ifdef _MSC_VER
+//#include<intrin.h>
+//#elif defined __GNUC__
+//#include<x86intrin.h>
+//#endif
 static const char file[]=__FILE__;
 
 
@@ -32,7 +32,6 @@ static const char file[]=__FILE__;
 #endif
 #if 1
 #define L1SH 21
-//#define L1SH 17
 #define PREDLIST\
 	PRED(100000, N)\
 	PRED(100000, W)\
@@ -116,7 +115,7 @@ void pred_ols7(Image *src, int fwd)
 	};
 	int weights[4][NPREDS]={0};
 	int invdist=((1<<16)+g_dist-1)/g_dist;
-	int bufsize=(src->iw+8*2)*(int)sizeof(short[4*4*1]);//4 padded rows * 4 channels max * {pixels}
+	int bufsize=(src->iw+16*2)*(int)sizeof(short[4*4*1]);//4 padded rows * 4 channels max * {pixels}
 	short *pixels=(short*)malloc(bufsize);
 	if(!pixels)
 	{
@@ -140,10 +139,10 @@ void pred_ols7(Image *src, int fwd)
 	{
 		short *rows[]=
 		{
-			pixels+(((src->iw+16LL)*((ky-0LL+4)%4)+8)*4-1)*1,
-			pixels+(((src->iw+16LL)*((ky-1LL+4)%4)+8)*4-1)*1,
-			pixels+(((src->iw+16LL)*((ky-2LL+4)%4)+8)*4-1)*1,
-			pixels+(((src->iw+16LL)*((ky-3LL+4)%4)+8)*4-1)*1,
+			pixels+(((src->iw+16LL*2)*((ky-0LL+4)%4)+16)*4-1)*1,
+			pixels+(((src->iw+16LL*2)*((ky-1LL+4)%4)+16)*4-1)*1,
+			pixels+(((src->iw+16LL*2)*((ky-2LL+4)%4)+16)*4-1)*1,
+			pixels+(((src->iw+16LL*2)*((ky-3LL+4)%4)+16)*4-1)*1,
 		};
 		for(int kx=0;kx<src->iw;++kx)
 		{
@@ -201,22 +200,12 @@ void pred_ols7(Image *src, int fwd)
 #undef  PRED
 				};
 				int *currw=weights[kc];
-				int p0=1LL<<L1SH>>1;
-
-				//int idx2=custom_params[1];
-				//if(idx2>=0&&idx2<NPREDS)
-				//	currw[idx2]=0;
-				
+				int predc=1<<L1SH>>1;
 				for(int k=0;k<NPREDS;++k)
-					p0+=currw[k]*preds[k];
-				p0>>=L1SH;
-
-				//for(int k=0;k<NPREDS;++k)
-				//	p0+=(currw[k]>>8)*preds[k];
-				//p0+=1LL<<(L1SH-8)>>1;
-				//p0>>=L1SH-8;
+					predc+=currw[k]*preds[k];
+				predc>>=L1SH;
 			//	p0-=p0>>31;//X  deadzone bad with advanced pred
-				int predc=p0;
+				int p0=predc;
 				int vmax=N, vmin=W;
 				if(N<W)vmin=N, vmax=W;
 				if(vmin>NE)vmin=NE;
@@ -237,17 +226,11 @@ void pred_ols7(Image *src, int fwd)
 						//curr=(curr*invdist>>16)-(curr>>31&-(g_dist>1));
 						curr=(curr*invdist>>16)-(curr>>31);//curr/=g_dist
 						src->data[idx]=curr;
-
-						curr=g_dist*curr+predc;
-						CLAMP2(curr, amin[kc], amax[kc]);
 					}
-					else
-					{
-						curr=g_dist*curr+predc;
-						CLAMP2(curr, amin[kc], amax[kc]);
-
+					curr=g_dist*curr+predc;
+					CLAMP2(curr, amin[kc], amax[kc]);
+					if(!fwd)
 						src->data[idx]=curr;
-					}
 				}
 				else
 				{
@@ -266,23 +249,6 @@ void pred_ols7(Image *src, int fwd)
 						src->data[idx]=curr;
 					}
 				}
-			//	//near lossless
-			//	if(fwd)
-			//	{
-			//		curr-=predc;
-			//		curr=(curr*invdist>>16)-(curr>>31&-(g_dist>1));//curr/=g_dist
-			//		src->data[idx]=curr;
-			//
-			//		curr=g_dist*curr+predc;
-			//		CLAMP2(curr, amin[kc], amax[kc]);
-			//	}
-			//	else
-			//	{
-			//		curr=g_dist*curr+predc;
-			//		CLAMP2(curr, amin[kc], amax[kc]);
-			//
-			//		src->data[idx]=curr;
-			//	}
 				rows[0][0]=curr;
 
 				//update
@@ -568,8 +534,9 @@ void pred_mixN(Image *src, int fwd)
 			//	pred+=((1<<17)-1)&pred>>31;//rounding to zero	X
 				//if(ky==1170&&kx==1775&&kc==1)//
 				//	printf("");
-				pred+=1<<18>>1;//rounding to nearest
-				pred>>=18;
+#define MIXNSH 18
+				pred+=1<<MIXNSH>>1;
+				pred>>=MIXNSH;
 				int p0=pred;
 
 				//int pred2=N+W-NW;//EXPERIMENT 20251104
@@ -597,19 +564,14 @@ void pred_mixN(Image *src, int fwd)
 					if(fwd)
 					{
 						curr-=(int)pred;
-						curr=(curr*invdist>>16)-(curr>>31&-(g_dist>1));//curr/=g_dist
-						src->data[idx+kc]=curr;
-
-						curr=g_dist*curr+(int)pred;
-						CLAMP2(curr, amin[kc], amax[kc]);
-					}
-					else
-					{
-						curr=g_dist*curr+(int)pred;
-						CLAMP2(curr, amin[kc], amax[kc]);
-
+						//curr=(curr*invdist>>16)-(curr>>31&-(g_dist>1));
+						curr=(curr*invdist>>16)-(curr>>31);//curr/=g_dist
 						src->data[idx+kc]=curr;
 					}
+					curr=g_dist*curr+(int)pred;
+					CLAMP2(curr, amin[kc], amax[kc]);
+					if(!fwd)
+						src->data[idx+kc]=curr;
 				}
 				else
 				{
