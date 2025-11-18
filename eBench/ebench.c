@@ -20,8 +20,8 @@ static const char file[]=__FILE__;
 	#define L1DELAY 20
 	#define L1SPEED 1
 #if 1
+#define L1SH 19
 #define L1BIAS0	0
-#define L1NPREDS 10
 #define L1PREDLIST\
 	L1PRED(100000, N)\
 	L1PRED(100000, W)\
@@ -36,7 +36,6 @@ static const char file[]=__FILE__;
 #endif
 #if 0
 #define L1BIAS0	0
-#define L1NPREDS 13
 #define L1PREDLIST\
 	L1PRED(100000, (N+W-NW))\
 	L1PRED(200000, N+W-NW)\
@@ -54,7 +53,6 @@ static const char file[]=__FILE__;
 #endif
 #if 0
 #define L1BIAS0	0
-#define L1NPREDS 12
 #define L1PREDLIST\
 	L1PRED( 90000, N)\
 	L1PRED( 90000, W)\
@@ -69,24 +67,41 @@ static const char file[]=__FILE__;
 	L1PRED( 80000, W+((NEEE+NEEEEE-N-W)>>3))\
 	L1PRED( 90000, (WWWWW+WW-W+NNN+N+NEEEEE)>>2)
 #endif
+enum
+{
+#define L1PRED(...) +1
+	L1NPREDS=L1PREDLIST,
+#undef  L1PRED
+};
 static const char *l1prednames[]=
 {
 #define L1PRED(W0, EXPR) #EXPR,
 	L1PREDLIST
 #undef  L1PRED
 };
-static int l1weights[L1NPREDS+1]=
+static int weights_l1[L1NPREDS+1]=
 {
-#define L1PRED(W0, EXPR) W0,
+#define L1PRED(W0, EXPR) (1<<L1SH)/L1NPREDS,
 	L1PREDLIST
 #undef  L1PRED
 	L1BIAS0,
 };
+static int weights_wp[L1NPREDS+1]={0};
+static int weights_ols[L1NPREDS+1]={0};
+//static int l1weights[L1NPREDS+1]=
+//{
+//#define L1PRED(W0, EXPR) W0,
+//	L1PREDLIST
+//#undef  L1PRED
+//	L1BIAS0,
+//};
 #ifdef USE_OLS
 static double curr_cov[L1NPREDS*L1NPREDS]={0}, curr_vec[L1NPREDS]={0}, curr_cholesky[L1NPREDS*L1NPREDS]={0}, curr_params[L1NPREDS]={0};
 #endif
 static int wperrors[L1NPREDS]={0};
-static int use_ols=0;//0: L1    1: OLS    2: WP
+static int mixmode=0;//0: L1    2: WP    1: OLS
+
+//static int use_ols=0;//0: L1    1: OLS    2: WP
 #endif
 float
 	mouse_sensitivity=0.003f,
@@ -7382,7 +7397,7 @@ int io_keydn(IOKey key, char c)
 		{
 			int fwd=!GET_KEY_STATE(KEY_SHIFT);
 			fwd=2*fwd-1;
-			use_ols=(use_ols+fwd+3)%3;
+			mixmode=(mixmode+fwd+3)%3;
 		}
 		break;
 	case 'L':
@@ -7470,25 +7485,25 @@ int io_keydn(IOKey key, char c)
 			}
 			return 1;
 		}
-		else if(mode==VIS_L1WEIGHTS)
-		{
-			for(int k=0;k<_countof(l1weights);++k)
-				l1weights[k]+=rand()-RAND_MAX/2;
-			return 1;
-		}
+		//else if(mode==VIS_L1WEIGHTS)
+		//{
+		//	for(int k=0;k<_countof(l1weights);++k)
+		//		l1weights[k]+=rand()-RAND_MAX/2;
+		//	return 1;
+		//}
 		//{
 		//	view_ma=!view_ma;
 		//	update_image();
 		//	return 1;
 		//}
 		break;
-	case 'Z':
-		if(mode==VIS_L1WEIGHTS)
-		{
-			memset(l1weights, 0, sizeof(l1weights));
-			return 1;
-		}
-		break;
+	//case 'Z':
+	//	if(mode==VIS_L1WEIGHTS)
+	//	{
+	//		memset(l1weights, 0, sizeof(l1weights));
+	//		return 1;
+	//	}
+	//	break;
 	case KEY_SPACE:
 	//case 'B':
 	//case 'N':
@@ -8588,15 +8603,16 @@ void io_render(void)
 	#define L1XSCALE 16
 	#define L1HISTSIZE 128
 	#define L1SMOOTH 16
-	#define L1YSCALE 4
+	#define L1YSCALE 4	//256*4 = 1024 pixels
 					typedef enum _SignalIndex
 					{
 						SIGNAL_WEIGHT_START,
-						SIGNAL_BIAS=L1NPREDS,
+						SIGNAL_BIAS=SIGNAL_WEIGHT_START+L1NPREDS,
 						SIGNAL_ESTIM_START,
-						SIGNAL_PRED=SIGNAL_ESTIM_START+L1NPREDS,
-						SIGNAL_CURR,
-						SIGNAL_DELTA,
+						SIGNAL_CURR=SIGNAL_ESTIM_START+L1NPREDS,
+						SIGNAL_PRED_L1,
+						SIGNAL_PRED_WP,
+						SIGNAL_PRED_OLS,
 
 						SIGNAL_COUNT,
 					} SignalIndex;
@@ -8606,7 +8622,8 @@ void io_render(void)
 					//static int whist[L1HISTSIZE][(L1NPREDS+1)+5]={0};//+{pixel, pred, delta, CG, CGdelta}
 					static int whist[L1HISTSIZE][SIGNAL_COUNT]={0};//{weights, bias, estimators, pred, curr, delta}
 					static int ctr=0, use_ols0=0;
-					static int hist[256]={0};
+					static int hist[3][256]={0};
+					static long long mad[3]={0}, rmse[3]={0};
 					int posctr0=0;
 					ptrdiff_t res=(ptrdiff_t)im1->iw*im1->ih;
 					int kx=0, ky=0;
@@ -8614,6 +8631,7 @@ void io_render(void)
 					//if(use_ols0!=use_ols)
 					//	speed=im1->iw;
 					static int mx0=0, my0=0;
+					static int preds[L1NPREDS]={0};
 					if(GET_KEY_STATE('L'))
 					{
 						kx=screen2image_x_int(mx);
@@ -8630,15 +8648,41 @@ void io_render(void)
 						else
 							speed=0;
 					}
+					posctr0=posctr;
 					if(!GET_KEY_STATE('P'))
-					{
-						posctr0=posctr;
 						posctr+=speed;
-					}
+					int smooth=(posctr+L1SMOOTH)%L1SMOOTH;
 					int posidx0=posctr0/L1SMOOTH;
 					int posidx=posctr/L1SMOOTH;
+					if(!GET_KEY_STATE('L'))//pan to cursor (wpx, wpy)
+					{
+						//float x1=screen2image_x(wndw*0/8)+(float)smooth/L1SMOOTH;
+						//float x2=screen2image_x(wndw*7/8)+(float)smooth/L1SMOOTH;
+						int x1=screen2image_x_int(wndw*0/8);
+						int x2=screen2image_x_int(wndw*7/8);
+						int y1=screen2image_y_int(wndh*0/8);
+						int y2=screen2image_y_int(wndh*7/8);
+						int ix=posidx%im1->iw;
+						int iy=posidx/im1->iw;
+						if(ix<x1)wpx+=ix-x1;
+						if(ix>x2)wpx+=ix-x2;
+						if(iy<y1)wpy+=iy-y1;
+						if(iy>y2)wpy+=iy-y2;
+					}
+					int *currw=weights_l1;
+					if(mixmode==1)
+						currw=weights_wp;
+					else if(mixmode==2)
+						currw=weights_ols;
 					for(int kpos=posidx0;kpos<posidx;++kpos)
 					{
+						//if(GET_KEY_STATE('P'))//
+						//	LOG_ERROR("%d -> %d  %d"
+						//		, posidx0
+						//		, posidx
+						//		, posidx-posidx0
+						//	);
+
 						kx=kpos%im1->iw;
 						ky=kpos/im1->iw;
 						if(GET_KEY_STATE('L'))
@@ -8672,18 +8716,16 @@ void io_render(void)
 							WW	=(unsigned)(ky-0)<(unsigned)im1->ih&&(unsigned)(kx-2)<(unsigned)im1->iw?im1->data[((ky-0)*im1->iw+kx-2)*4]:0,
 							W	=(unsigned)(ky-0)<(unsigned)im1->ih&&(unsigned)(kx-1)<(unsigned)im1->iw?im1->data[((ky-0)*im1->iw+kx-1)*4]:0,
 							curr	=im1->data[(ky*im1->iw+kx)*4];
-						int preds[]=
-						{
-	#define L1PRED(W0, EXPR) EXPR,
-							L1PREDLIST
+						int j2=0;
+	#define L1PRED(W0, EXPR) preds[j2++]=EXPR;
+						L1PREDLIST
 	#undef  L1PRED
-						};
 						int vmax=N, vmin=W;
 						if(N<W)vmin=N, vmax=W;
 						CLAMP2(preds[0], vmin, vmax);
-						int *currw=l1weights;
-						int pred=0;
-						if(use_ols==2)
+						//int *currw=l1weights;
+						int pred_l1=0, pred_l10=0, pred_wp=0, pred_ols=0;
+						//if(use_ols==2)
 						{
 	#define NUMBITS 15
 	#define DENBITS 7
@@ -8701,48 +8743,47 @@ void io_render(void)
 							{
 								int e=wperrors[kp];
 								int sh=FLOOR_LOG2(e+1);
-								currw[kp]=(divlookup[e<<(DENBITS-1)>>sh]<<(DENBITS-1)>>sh)+(1<<DENBITS>>2)/L1NPREDS;
-								wsum+=currw[kp];
+								weights_wp[kp]=(divlookup[e<<(DENBITS-1)>>sh]<<(DENBITS-1)>>sh)+(1<<DENBITS>>2)/L1NPREDS;
+								wsum+=weights_wp[kp];
 							}
 							sh=FLOOR_LOG2(wsum)-(DENBITS-2);
 							wsum=0;
 							for(int kp=0;kp<L1NPREDS;++kp)
 							{
-								int c=(int)(currw[kp]>>sh);
+								int c=(int)(weights_wp[kp]>>sh);
 								wsum+=c;
-								currw[kp]=c;
+								weights_wp[kp]=c;
 							}
 							ipred=wsum>>1;
 							for(int kp=0;kp<L1NPREDS;++kp)
 							{
-								ipred+=(int)(currw[kp]*preds[kp]);
-								currw[kp]<<=8;
+								ipred+=(int)(weights_wp[kp]*preds[kp]);
+								weights_wp[kp]<<=8;
 							}
 							//if(wsum<0)
 							//	goto again;
-							pred=ipred*divlookup[wsum-1]>>NUMBITS;
+							pred_wp=ipred*divlookup[wsum-1]>>NUMBITS;
 						}
-						else if(use_ols==1)
+						//else if(use_ols==1)
 						{
 							double fpred=0;
 							for(int k=0;k<L1NPREDS;++k)
 							{
 								fpred+=curr_params[k]*preds[k];
-								currw[k]=(int)round(curr_params[k]*0x20000);
+								weights_ols[k]=(int)round(curr_params[k]*0x20000);
 							}
-							pred=(int)CVTFP64_I64(fpred);
+							pred_ols=(int)CVTFP64_I64(fpred);
 						}
-						else
+						//else
 						{
-							pred=currw[L1NPREDS];
+							pred_l1=weights_l1[L1NPREDS];
 							for(int k=0;k<L1NPREDS;++k)
-								pred+=currw[k]*preds[k];
-		#define L1SH 19
+								pred_l1+=weights_l1[k]*preds[k];
 	//	#define L1SH 20	//DIV2K
 	//	#define L1SH 20	//GDCC
 	//	#define L1SH 15	//synth
-							pred+=1<<L1SH>>1;
-							pred>>=L1SH;
+							pred_l1+=1<<L1SH>>1;
+							pred_l1>>=L1SH;
 						}
 						if(vmin>NE)vmin=NE;
 						if(vmax<NE)vmax=NE;
@@ -8750,16 +8791,20 @@ void io_render(void)
 						//if(vmax<NW)vmax=NW;
 						if(vmin>NEEE)vmin=NEEE;
 						if(vmax<NEEE)vmax=NEEE;
-						CLAMP2(pred, vmin, vmax);
+						pred_l10=pred_l1;
+						CLAMP2(pred_l1, vmin, vmax);
+						CLAMP2(pred_wp, vmin, vmax);
+						CLAMP2(pred_ols, vmin, vmax);
 
 						gpos=(gpos+1)%L1HISTSIZE;
 						for(int k=0;k<L1NPREDS+1;++k)
-							whist[gpos][SIGNAL_WEIGHT_START+k]=l1weights[k];
+							whist[gpos][SIGNAL_WEIGHT_START+k]=currw[k];
 						for(int k=0;k<L1NPREDS;++k)
-							whist[gpos][SIGNAL_ESTIM_START+k]=preds[k]+(1<<im1->depth[0]>>1);
-						whist[gpos][SIGNAL_PRED]=pred+(1<<im1->depth[0]>>1);
-						whist[gpos][SIGNAL_CURR]=curr+(1<<im1->depth[0]>>1);
-						whist[gpos][SIGNAL_DELTA]=curr-pred;
+							whist[gpos][SIGNAL_ESTIM_START+k]=preds[k];
+						whist[gpos][SIGNAL_PRED_L1	]=pred_l1;
+						whist[gpos][SIGNAL_PRED_WP	]=pred_wp;
+						whist[gpos][SIGNAL_PRED_OLS	]=pred_ols;
+						whist[gpos][SIGNAL_CURR		]=curr;
 #if 0
 						whist[xpos][(L1NPREDS+1)+0]=preds[0]		+(1<<im1->depth[0]>>1);
 						whist[xpos][(L1NPREDS+1)+1]=curr		+(1<<im1->depth[0]>>1);
@@ -8772,7 +8817,15 @@ void io_render(void)
 					//	whist[xpos][(L1NPREDS+1)+3]=curr-pred		+(1<<im1->depth[0]>>1);
 					//	whist[xpos][(L1NPREDS+1)+4]=curr-preds[0]	+(1<<im1->depth[0]>>1)+(1<<im1->depth[0]);
 #endif
-						++hist[(curr-pred)&255];
+						int delta=curr-pred_l1;
+						mad[0]+=abs(delta); rmse[0]+=delta*delta;
+						delta=curr-pred_wp;
+						mad[1]+=abs(delta); rmse[1]+=delta*delta;
+						delta=curr-pred_ols;
+						mad[2]+=abs(delta); rmse[2]+=delta*delta;
+						++hist[0][(curr-pred_l1+128)&255];
+						++hist[1][(curr-pred_wp+128)&255];
+						++hist[2][(curr-pred_ols+128)&255];
 						++ctr;
 						//for(int k=0, wsum=0;k<L1NPREDS+1;++k)
 						//{
@@ -8783,7 +8836,8 @@ void io_render(void)
 						//memcpy(whist[xpos], l1weights, sizeof(l1weights));
 
 						//update
-						if(use_ols==2)
+
+						//if(use_ols==2)
 						{
 							int e2[L1NPREDS], best=0x7FFFFFFF;
 							for(int kp=0;kp<L1NPREDS;++kp)
@@ -8799,7 +8853,7 @@ void io_render(void)
 								wperrors[kp]+=((e<<6)-wperrors[kp]+(1<<3>>1))>>3;
 							}
 						}
-						else if(use_ols==1)
+						//else if(use_ols==1)
 						{
 							double lr=0.00001;
 							for(int ky2=0, midx=0;ky2<L1NPREDS;++ky2)
@@ -8852,7 +8906,7 @@ void io_render(void)
 								}
 							}
 						}
-						else
+						//else
 						{
 #if 0
 							int e=curr-pred;
@@ -8868,20 +8922,21 @@ void io_render(void)
 							//	... -1 -1 -1 -1 -2 -2 -2 -2  0 +2 +2 +2 +2 +1 +1 +1 ...
 							//e=(((e>0)-(e<0))<<1)-((e>4)-(e<-4));
 #endif
-							int e=(curr>pred)-(curr<pred);
-							currw[L1NPREDS]+=e;
+							int e=(curr>pred_l10)-(curr<pred_l10);
+							weights_l1[L1NPREDS]+=e;
 							for(int k=0;k<L1NPREDS;++k)
-								currw[k]+=e*preds[k];
+								weights_l1[k]+=e*preds[k];
 						}
 					}
 
 					//draw
 
 					//gpos=posidx%L1HISTSIZE;
-					int smooth=(posctr+L1SMOOTH)%L1SMOOTH;
+					//int smooth=(posctr+L1SMOOTH)%L1SMOOTH;
 					int dlen=wndw;
 					if(dlen>L1HISTSIZE)
 						dlen=L1HISTSIZE;
+#if 0
 					//dlen-=2;
 					int vmin2=0, vmax2=0;
 					for(int kx2=0;kx2<L1HISTSIZE;++kx2)
@@ -8902,17 +8957,286 @@ void io_render(void)
 						vmax=vmax2;
 					}
 					if(wndh&&vmax>vmin)
+#endif
+					if(wndh)
 					{
+						//{weights, bias, estimators, pred, curr, delta}
 						static ArrayHandle vertices=0;
 						int color=0;
 						//map {vmin, vmax} -> {wndh*7/8, wndh/8}  ys = C1*yu+C0
-						int xp=0;
+						float charty[]={200, 400, 600};
+
+						int colors[]=
+						{
+							0x80FF4080,
+							0x8080FF40,
+							0x804080FF,
+							0x80FFC080,
+							0x8080FFC0,
+							0x80C080FF,
+						};
+						const int ncolors=_countof(colors);
+						//draw mix L1
+						{
+							int sum=1<<L1SH;
+							float xs=0;
+							for(int k=0;k<L1NPREDS;++k)
+							{
+								float xs0=xs;
+								xs+=1000.f*weights_l1[k]/sum;
+								draw_rect(xs0, xs, charty[0]+50, charty[0]+50-preds[k], colors[k%ncolors]);
+							}
+						}
+
+						//draw mix WP
+						{
+							int sum=0;
+							for(int k=0;k<L1NPREDS;++k)
+								sum+=weights_wp[k];
+							float xs=0;
+							for(int k=0;k<L1NPREDS;++k)
+							{
+								float xs0=xs;
+								xs+=1000.f*weights_wp[k]/sum;
+								draw_rect(xs0, xs, charty[1]+50, charty[1]+50-preds[k], colors[k%ncolors]);
+							}
+						}
+
+						//draw mix OLS
+						{
+							int sum=0x20000;
+							float xs=0;
+							for(int k=0;k<L1NPREDS;++k)
+							{
+								float xs0=xs;
+								xs+=1000.f*weights_ols[k]/sum;
+								draw_rect(xs0, xs, charty[2]+50, charty[2]+50-preds[k], colors[k%ncolors]);
+							}
+						}
+						
+						//label mix L1
+						{
+							int sum=1<<L1SH;
+							float xs=0;
+							for(int k=0;k<L1NPREDS;++k)
+							{
+								float xs0=xs;
+								xs+=1000.f*weights_l1[k]/sum;
+								GUIPrint(0, xs0, charty[0]+k*tdy, 1, "%s", l1prednames[k]);
+							}
+						}
+
+						//label mix WP
+						{
+							int sum=0;
+							for(int k=0;k<L1NPREDS;++k)
+								sum+=weights_wp[k];
+							float xs=0;
+							for(int k=0;k<L1NPREDS;++k)
+							{
+								float xs0=xs;
+								xs+=1000.f*weights_wp[k]/sum;
+								GUIPrint(0, xs0, charty[1]+k*tdy, 1, "%s", l1prednames[k]);
+							}
+						}
+
+						//label mix OLS
+						{
+							int sum=0x20000;
+							float xs=0;
+							for(int k=0;k<L1NPREDS;++k)
+							{
+								float xs0=xs;
+								xs+=1000.f*weights_ols[k]/sum;
+								GUIPrint(0, xs0, charty[2]+k*tdy, 1, "%s", l1prednames[k]);
+							}
+						}
+
+						int gheight=-128;
+
+						//curr - black bars
+						color=0x80C0C0C0;
+						for(int xs=1;xs<dlen;++xs)
+						{
+							int kx2=(xs+gpos+L1HISTSIZE)%L1HISTSIZE;
+							float ys=(float)(wndh*7/8-512-gheight-whist[kx2][SIGNAL_CURR]*L1YSCALE);
+							draw_rect_enqueue(&vertices
+								, L1XSCALE*((float)xs-0.4f-(float)smooth/L1SMOOTH)
+								, L1XSCALE*((float)xs+0.4f-(float)smooth/L1SMOOTH)
+								, ys
+								, (float)(wndh*7/8-512-gheight-0*L1YSCALE)
+							);
+						//	draw_curve_enqueue(&vertices
+						//		, L1XSCALE*((float)xs-(float)smooth/L1SMOOTH), (float)(wndh*7/8-512-whist[kx2][SIGNAL_CURR]*L1YSCALE)
+						//	//	, L1XSCALE*(float)(xs+1), (float)(wndh*7/8-whist[kx2+1*L1HOLD][SIGNAL_CURR]*L1YSCALE)
+						//	//	, 0xFFFF00FF
+						//	);
+							//if(!(x&15))GUIPrint(0, L1XSCALE*(float)x, (float)x, 1, "%d", whist[kx2][SIGNAL_CURR]);
+							if(xs==dlen-1)
+							{
+								int c0=set_text_color(color);
+								GUIPrint(0, L1XSCALE*(float)xs+10, ys, 1, "%4d", whist[kx2][SIGNAL_CURR]);
+								GUIPrint(0, L1XSCALE*(float)xs+10, (float)wndh*7/8-256+0*tdy, 1, "curr");
+								set_text_color(c0);
+							}
+						}
+						draw_2d_flush(vertices, color, GL_TRIANGLES);
+						//draw_2d_flush(vertices, color, GL_LINE_STRIP);
+
+						//pred L1 - red
+						color=0xFF0000FF;
+						for(int xs=1;xs<dlen;++xs)
+						{
+							int kx2=(xs+gpos+L1HISTSIZE)%L1HISTSIZE;
+							draw_curve_enqueue(&vertices
+								, L1XSCALE*((float)xs-(float)smooth/L1SMOOTH), (float)(wndh*7/8-512-gheight-whist[kx2][SIGNAL_PRED_L1]*L1YSCALE)
+							//	, L1XSCALE*(float)(xs+1), (float)(wndh*7/8-whist[kx2+1*L1HOLD][SIGNAL_PRED]*L1YSCALE)
+							//	, 0xFF00FF00
+							);
+							if(xs==dlen-1)
+							{
+								int c0=set_text_color(color);
+								GUIPrint(0, L1XSCALE*(float)xs+10, (float)wndh*7/8-256+1*tdy, 1, "pred L1");
+								set_text_color(c0);
+							}
+						}
+						draw_2d_flush(vertices, color, GL_LINE_STRIP);
+						
+						//pred WP - green
+						color=0xFF00FF00;
+						for(int xs=1;xs<dlen;++xs)
+						{
+							int kx2=(xs+gpos+L1HISTSIZE)%L1HISTSIZE;
+							draw_curve_enqueue(&vertices
+								, L1XSCALE*((float)xs-(float)smooth/L1SMOOTH), (float)(wndh*7/8-512-gheight-whist[kx2][SIGNAL_PRED_WP]*L1YSCALE)
+							//	, L1XSCALE*(float)(xs+1), (float)(wndh*7/8-whist[kx2+1*L1HOLD][SIGNAL_PRED]*L1YSCALE)
+							//	, 0xFF00FF00
+							);
+							if(xs==dlen-1)
+							{
+								int c0=set_text_color(color);
+								GUIPrint(0, L1XSCALE*(float)xs+10, (float)wndh*7/8-256+2*tdy, 1, "pred WP");
+								set_text_color(c0);
+							}
+						}
+						draw_2d_flush(vertices, color, GL_LINE_STRIP);
+						
+						//pred OLS - blue
+						color=0xFFFF0000;
+						for(int xs=1;xs<dlen;++xs)
+						{
+							int kx2=(xs+gpos+L1HISTSIZE)%L1HISTSIZE;
+							draw_curve_enqueue(&vertices
+								, L1XSCALE*((float)xs-(float)smooth/L1SMOOTH), (float)(wndh*7/8-512-gheight-whist[kx2][SIGNAL_PRED_OLS]*L1YSCALE)
+							//	, L1XSCALE*(float)(xs+1), (float)(wndh*7/8-whist[kx2+1*L1HOLD][SIGNAL_PRED]*L1YSCALE)
+							//	, 0xFF00FF00
+							);
+							if(xs==dlen-1)
+							{
+								int c0=set_text_color(color);
+								GUIPrint(0, L1XSCALE*(float)xs+10, (float)wndh*7/8-256+3*tdy, 1, "pred OLS");
+								set_text_color(c0);
+							}
+						}
+						draw_2d_flush(vertices, color, GL_LINE_STRIP);
+
+						//estim - orange
+						for(int kp=1;kp<MINVAR(9, L1NPREDS);++kp)
+						{
+							if(GET_KEY_STATE('0'+kp))
+							{
+								color=colors[kp%ncolors];
+								for(int xs=1;xs<dlen;++xs)//estim
+								{
+									int kx2=(xs+gpos+L1HISTSIZE)%L1HISTSIZE;
+									draw_curve_enqueue(&vertices//estim[kp]
+										, L1XSCALE*((float)xs-(float)smooth/L1SMOOTH), (float)(wndh*7/8-512-gheight-whist[kx2][SIGNAL_ESTIM_START+kp-1]*L1YSCALE)
+									//	, L1XSCALE*(float)(xs+1), (float)(wndh*7/8-whist[kx2+1*L1HOLD][SIGNAL_ESTIM_START+kp-1]*L1YSCALE)
+									//	, 0xFF0080FF
+									);
+								}
+								draw_2d_flush(vertices, color, GL_LINE_STRIP);
+								for(int xs=1;xs<dlen;++xs)//estim delta
+								{
+									int kx2=(xs+gpos+L1HISTSIZE)%L1HISTSIZE;
+									draw_curve_enqueue(&vertices//estim[kp]
+										, L1XSCALE*((float)xs-(float)smooth/L1SMOOTH), (float)(wndh*7/8-512-gheight-(whist[kx2][SIGNAL_CURR]-whist[kx2][SIGNAL_ESTIM_START+kp-1])*L1YSCALE)
+									//	, L1XSCALE*(float)(xs+1), (float)(wndh*7/8-whist[kx2+1*L1HOLD][SIGNAL_ESTIM_START+kp-1]*L1YSCALE)
+									//	, 0xFF0080FF
+									);
+								}
+								draw_2d_flush(vertices, color, GL_LINE_STRIP);
+								int c0=set_text_color(color);
+								GUIPrint(0, wndw/2.f, wndh/2.f, 4, "%s", kp-1<L1NPREDS+1-1?l1prednames[kp-1]:"bias");
+								set_text_color(c0);
+							}
+						}
+
+
+						gheight=128;
+
+						//delta L1 - gray red
+						color=0xFF8080FF;
+						for(int xs=1;xs<dlen;++xs)
+						{
+							int kx2=(xs+gpos+L1HISTSIZE)%L1HISTSIZE;
+							draw_curve_enqueue(&vertices
+								, L1XSCALE*((float)xs-(float)smooth/L1SMOOTH), (float)(wndh*7/8-512-gheight-(whist[kx2][SIGNAL_CURR]-whist[kx2][SIGNAL_PRED_L1])*L1YSCALE)
+							//	, L1XSCALE*(float)(xs+1), (float)(wndh*7/8-(whist[kx2+1*L1HOLD][SIGNAL_DELTA]+128)*L1YSCALE)
+							//	, 0xFFC0C0C0
+							);
+							if(xs==dlen-1)
+							{
+								int c0=set_text_color(color);
+								GUIPrint(0, L1XSCALE*(float)xs+10, (float)wndh*7/8-256-192+0*tdy, 1, "delta L1");
+								set_text_color(c0);
+							}
+						}
+						draw_2d_flush(vertices, color, GL_LINE_STRIP);
+
+						//delta WP - gray green
+						color=0xFF80FF80;
+						for(int xs=1;xs<dlen;++xs)
+						{
+							int kx2=(xs+gpos+L1HISTSIZE)%L1HISTSIZE;
+							draw_curve_enqueue(&vertices
+								, L1XSCALE*((float)xs-(float)smooth/L1SMOOTH), (float)(wndh*7/8-512-gheight-(whist[kx2][SIGNAL_CURR]-whist[kx2][SIGNAL_PRED_WP])*L1YSCALE)
+							//	, L1XSCALE*(float)(xs+1), (float)(wndh*7/8-(whist[kx2+1*L1HOLD][SIGNAL_DELTA]+128)*L1YSCALE)
+							//	, 0xFFC0C0C0
+							);
+							if(xs==dlen-1)
+							{
+								int c0=set_text_color(color);
+								GUIPrint(0, L1XSCALE*(float)xs+10, (float)wndh*7/8-256-192+1*tdy, 1, "delta WP");
+								set_text_color(c0);
+							}
+						}
+						draw_2d_flush(vertices, color, GL_LINE_STRIP);
+
+						//delta OLS - gray blue
+						color=0xFFFF8080;
+						for(int xs=1;xs<dlen;++xs)
+						{
+							int kx2=(xs+gpos+L1HISTSIZE)%L1HISTSIZE;
+							draw_curve_enqueue(&vertices
+								, L1XSCALE*((float)xs-(float)smooth/L1SMOOTH), (float)(wndh*7/8-512-gheight-(whist[kx2][SIGNAL_CURR]-whist[kx2][SIGNAL_PRED_OLS])*L1YSCALE)
+							//	, L1XSCALE*(float)(xs+1), (float)(wndh*7/8-(whist[kx2+1*L1HOLD][SIGNAL_DELTA]+128)*L1YSCALE)
+							//	, 0xFFC0C0C0
+							);
+							if(xs==dlen-1)
+							{
+								int c0=set_text_color(color);
+								GUIPrint(0, L1XSCALE*(float)xs+10, (float)wndh*7/8-256-192+2*tdy, 1, "delta OLS");
+								set_text_color(c0);
+							}
+						}
+						draw_2d_flush(vertices, color, GL_LINE_STRIP);
+
+#if 0
+						//weights - black
 						float
 							yC1=(float)wndh*6/8/(vmin-vmax),
 							yC0=(float)wndh*7/8-yC1*vmin;//(y-wndh*7/8)/(0-vmin) = C1  ->  y = wndh*7/8-C1*vmin
-						//{weights, bias, estimators, pred, curr, delta}
-
-						//weights - black
 						color=0xFF000000;
 						for(int ky2=0;ky2<L1NPREDS+1;++ky2)
 						{
@@ -8928,64 +9252,6 @@ void io_render(void)
 							draw_2d_flush(vertices, color, GL_LINE_STRIP);
 						}
 
-						//curr - green
-						color=0xFF00FF00;
-						for(int xs=1;xs<dlen;++xs)
-						{
-							int kx2=(xs+gpos+L1HISTSIZE)%L1HISTSIZE;
-							draw_curve_enqueue(&vertices
-								, L1XSCALE*((float)xs-(float)smooth/L1SMOOTH), (float)(wndh*7/8-whist[kx2][SIGNAL_CURR]*L1YSCALE)
-							//	, L1XSCALE*(float)(xs+1), (float)(wndh*7/8-whist[kx2+1*L1HOLD][SIGNAL_CURR]*L1YSCALE)
-							//	, 0xFFFF00FF
-							);
-							//if(!(x&15))GUIPrint(0, L1XSCALE*(float)x, (float)x, 1, "%d", whist[kx2][SIGNAL_CURR]);
-							if(xs==dlen-1)
-							{
-								int c0=set_text_color(color);
-								GUIPrint(0, L1XSCALE*(float)xs+10, (float)wndh*7/8-256+0*tdy, 1, "curr");
-								set_text_color(c0);
-							}
-						}
-						draw_2d_flush(vertices, color, GL_LINE_STRIP);
-
-						//pred - pink
-						color=0xFFFF00FF;
-						for(int xs=1;xs<dlen;++xs)
-						{
-							int kx2=(xs+gpos+L1HISTSIZE)%L1HISTSIZE;
-							draw_curve_enqueue(&vertices
-								, L1XSCALE*((float)xs-(float)smooth/L1SMOOTH), (float)(wndh*7/8-whist[kx2][SIGNAL_PRED]*L1YSCALE)
-							//	, L1XSCALE*(float)(xs+1), (float)(wndh*7/8-whist[kx2+1*L1HOLD][SIGNAL_PRED]*L1YSCALE)
-							//	, 0xFF00FF00
-							);
-							if(xs==dlen-1)
-							{
-								int c0=set_text_color(color);
-								GUIPrint(0, L1XSCALE*(float)xs+10, (float)wndh*7/8-256+1*tdy, 1, "pred");
-								set_text_color(c0);
-							}
-						}
-						draw_2d_flush(vertices, color, GL_LINE_STRIP);
-
-						//delta - gray
-						color=0xFFC0C0C0;
-						for(int xs=1;xs<dlen;++xs)
-						{
-							int kx2=(xs+gpos+L1HISTSIZE)%L1HISTSIZE;
-							draw_curve_enqueue(&vertices
-								, L1XSCALE*((float)xs-(float)smooth/L1SMOOTH), (float)(wndh*7/8-(whist[kx2][SIGNAL_DELTA]+128)*L1YSCALE)
-							//	, L1XSCALE*(float)(xs+1), (float)(wndh*7/8-(whist[kx2+1*L1HOLD][SIGNAL_DELTA]+128)*L1YSCALE)
-							//	, 0xFFC0C0C0
-							);
-							if(xs==dlen-1)
-							{
-								int c0=set_text_color(color);
-								GUIPrint(0, L1XSCALE*(float)xs+10, (float)wndh*7/8-256+2*tdy, 1, "delta");
-								set_text_color(c0);
-							}
-						}
-						draw_2d_flush(vertices, color, GL_LINE_STRIP);
-
 						//labels
 						static float labely[L1NPREDS+1]={0};
 						for(int ky2=0;ky2<L1NPREDS+1;++ky2)
@@ -8997,32 +9263,11 @@ void io_render(void)
 							//	L1XSCALE*L1HISTSIZE, labely[ky2], 0x80000000
 							//);
 							GUIPrint(0, L1XSCALE*L1HISTSIZE, labely[ky2], 0.8f, "%10d %s",
-								l1weights[ky2],
+								currw[ky2],
 								ky2<L1NPREDS+1-1?l1prednames[ky2]:"bias"
 							);
 						}
-
-						//estim - orange
-						color=0xFF0080FF;
-						for(int kp=1;kp<MINVAR(9, L1NPREDS);++kp)
-						{
-							if(GET_KEY_STATE('0'+kp))
-							{
-								for(int xs=1;xs<dlen;++xs)
-								{
-									int kx2=(xs+gpos+L1HISTSIZE)%L1HISTSIZE;
-									draw_curve_enqueue(&vertices//estim[kp]
-										, L1XSCALE*((float)xs-(float)smooth/L1SMOOTH), (float)(wndh*7/8-whist[kx2][SIGNAL_ESTIM_START+kp-1]*L1YSCALE)
-									//	, L1XSCALE*(float)(xs+1), (float)(wndh*7/8-whist[kx2+1*L1HOLD][SIGNAL_ESTIM_START+kp-1]*L1YSCALE)
-									//	, 0xFF0080FF
-									);
-								}
-								draw_2d_flush(vertices, color, GL_LINE_STRIP);
-								int c0=set_text_color(color);
-								GUIPrint(0, wndw/2.f, wndh/2.f, 4, "%s", kp-1<L1NPREDS+1-1?l1prednames[kp-1]:"bias");
-								set_text_color(c0);
-							}
-						}
+#endif
 #if 0
 						for(int kx2=0;kx2<dlen;++kx2)//{weights, bias, estimators, pred, curr, delta}
 						{
@@ -9083,38 +9328,57 @@ void io_render(void)
 							}
 						}
 #endif
-					}
-					{
-						double e=0;
-						for(int ks=0;ks<256;++ks)
-						{
-							int freq=hist[ks];
-							if(freq)
-							{
-								double p=(double)freq/ctr;
-								e-=p*log2(p);
-							}
-						}
-						e/=8;
-						if(use_ols0!=use_ols)
-						{
-							ctr=0;
-							memset(hist, 0, sizeof(hist));
-							use_ols0=use_ols;
-						}
 						static const char *labels[]=
 						{
 							"L1",
-							"OLS",
 							"WP",
+							"OLS",
 						};
-						GUIPrint(0, 0, (float)wndh*0.5f, 2, "X%5d Y%5d H%8d %-3s %10.6lf%%"
-							, posidx%im1->iw
-							, posidx/im1->iw
-							, ctr
-							, labels[use_ols]
-							, e*100
-						);
+						double e[3]={0};
+						for(int km=0;km<3;++km)
+						{
+							for(int ks=0;ks<256;++ks)
+							{
+								int freq=hist[km][ks];
+								if(freq)
+								{
+									double p=(double)freq/ctr;
+									e[km]-=p*log2(p);
+								}
+							}
+							e[km]/=8;
+							if(km)
+								GUIPrint(0, 0, charty[km]-2*tdy, 2, "%-3s MAD %7.2lf RMSE %7.2lf H%8d E%10.6lf%%"
+									, labels[km]
+									, (double)mad[km]/ctr
+									, sqrt((double)rmse[km]/ctr)
+									, ctr
+									, e[km]*100
+								);
+							else
+								GUIPrint(0, 0, charty[km]-2*tdy, 2, "%-3s MAD %7.2lf RMSE %7.2lf H%8d E%10.6lf%% X%5d Y%5d"
+									, labels[km]
+									, (double)mad[km]/ctr
+									, sqrt((double)rmse[km]/ctr)
+									, ctr
+									, e[km]*100
+									, posidx%im1->iw
+									, posidx/im1->iw
+								);
+							//GUIPrint(0, 0, (float)wndh*0.5f+2*tdy*km, 2, "X%5d Y%5d H%8d %-3s %10.6lf%%"
+							//	, posidx%im1->iw
+							//	, posidx/im1->iw
+							//	, ctr
+							//	, labels[km]
+							//	, e[km]*100
+							//);
+						}
+						//if(use_ols0!=use_ols)
+						//{
+						//	ctr=0;
+						//	memset(hist, 0, sizeof(hist));
+						//	use_ols0=use_ols;
+						//}
 					}
 #if 0
 					for(int kx2=0;kx2<dlen;++kx2)
@@ -9165,7 +9429,9 @@ void io_render(void)
 						CLAMP2(ky, 0, im1->ih-1);
 						float xs=(float)image2screen_x(kx+0.5f);
 						float ys=(float)image2screen_y(ky+0.5f);
-						draw_rect_hollow(xs-7, xs+7, ys-7, ys+7, 0xFFFF00FF);
+						draw_rect_hollow(xs-10, xs+10, ys-10, ys+10, 0xFFFF00FF);
+						draw_line(wndw*0.5f, wndh*0.5f, xs, ys, 0xFFFF00FF);
+						//draw_rect_hollow(xs-7, xs+7, ys-7, ys+7, 0xFFFF00FF);
 					}
 				}
 				else

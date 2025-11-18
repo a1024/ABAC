@@ -1075,7 +1075,7 @@ void pred_wgrad4(Image *src, int fwd)
 				//	*eNEEE	=erows[1]+kc3+3*4*WG_NPREDS,
 					*eW	=erows[0]+kc3-1*4*WG_NPREDS,
 					*ecurr	=erows[0]+kc3+0*4*WG_NPREDS;
-				pred=wg_predict(wg_weights[kc], rows, 4*2, kc2, 0, wg_perrors[kc], eNW, eN, eNE, eNNE, wg_preds);
+				pred=wg_predict(wg_weights[kc], (const int**)rows, 4*2, kc2, 0, wg_perrors[kc], eNW, eN, eNE, eNNE, wg_preds);
 				int curr=src->data[idx+kc];
 				if(g_dist>1)
 				{
