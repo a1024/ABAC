@@ -29,11 +29,18 @@
 #ifndef BYPASS_GR
 //	#define ESTIMATE_BITSIZE
 #endif
-	#define ENABLE_GUIDE
+//	#define ENABLE_GUIDE
 //	#define PRINTBITS
 #endif
 
 	#define UNSIGNED_PIXEL
+
+//	#define MUL_IM 0.8
+
+//	#define SUB_DC
+#ifdef SUB_DC
+#define DCSH	19
+#endif
 
 
 #if 1
@@ -646,14 +653,22 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 	memset(bitctr, 0, sizeof(bitctr));
 	memset(winctr, 0, sizeof(winctr));
 #endif
+#ifdef SUB_DC
+	int64_t dc[3]={0};
+#endif
+#ifdef MUL_IM
+	const int32_t mulpre=(int32_t)(MUL_IM*0x10000+0.5);
+	const int32_t mulpost=(int32_t)(1/MUL_IM*0x10000+0.5);
+#endif
 	//memset(history, 0, sizeof(history));
 	for(ky=0;ky<ih;++ky)
 	{
-#ifdef UNSIGNED_PIXEL
-		uint8_t yuv[4]={0};
-#else
-		int8_t yuv[4]={0};
-#endif
+		uint32_t yuv[4]={0};
+//#ifdef UNSIGNED_PIXEL
+//		uint8_t yuv[4]={0};
+//#else
+//		int8_t yuv[4]={0};
+//#endif
 		int16_t *rows[]=
 		{
 			pixels+(padw*((ky-0)&3)+8)*3*4,
@@ -676,6 +691,25 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 				yuv[0]=imptr[yidx]-128;
 				yuv[1]=imptr[uidx]-128;
 				yuv[2]=imptr[vidx]-128;
+#endif
+#ifdef SUB_DC
+				yuv[0]-=(int32_t)((dc[0]+(1<<DCSH>>1))>>DCSH);
+				yuv[1]-=(int32_t)((dc[1]+(1<<DCSH>>1))>>DCSH);
+				yuv[2]-=(int32_t)((dc[2]+(1<<DCSH>>1))>>DCSH);
+#if defined UNSIGNED_PIXEL
+				CLAMP2(yuv[0], 0, 255);
+				CLAMP2(yuv[1], 0, 255);
+				CLAMP2(yuv[2], 0, 255);
+#else
+				CLAMP2(yuv[0], -128, 127);
+				CLAMP2(yuv[1], -128, 127);
+				CLAMP2(yuv[2], -128, 127);
+#endif
+#endif
+#ifdef MUL_IM
+				yuv[0]=yuv[0]*mulpre>>16;
+				yuv[1]=yuv[1]*mulpre>>16;
+				yuv[2]=yuv[2]*mulpre>>16;
 #endif
 			}
 			offset=0;
@@ -771,6 +805,9 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 					}
 #undef  PRED
 				}
+#ifdef SUB_DC
+				dc[kc]+=N+W+offset;
+#endif
 				pred0=(int32_t)pred;
 				vmax=N, vmin=W;
 				if(N<W)vmin=N, vmax=W;
@@ -854,11 +891,10 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 #endif
 				if(fwd)
 				{
-					error=yuv[kc]-(int32_t)pred;
 					if(lossy)
 					{
 						int pixel;
-
+						error=yuv[kc]-(int32_t)pred;
 						epred=epred*invdist>>16;
 						error=(error*invdist>>16)-(error>>31);
 						pixel=error*dist+(int32_t)pred;
@@ -874,6 +910,9 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 						{
 							uint8_t *pval=&g_image[3*(iw*ky+kx)+rct_combinations[bestrct][II_PERM_Y+kc]];
 							uint8_t val=*pval;
+#ifdef SUB_DC
+							pixel+=dc[kc]>>DCSH;
+#endif
 							int diff=(int)val-pixel;
 							g_sqe[kc]+=diff*diff;
 							*pval=pixel;
@@ -889,6 +928,7 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 					}
 					else
 					{
+						error=yuv[kc]-(int32_t)pred;
 						int negmask=error>>31;
 						int abserr=(error^negmask)-negmask;
 						error=error<<1^negmask;
@@ -1087,8 +1127,8 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 					rows[0][2]=curr-N;//gy
 
 					rows[0][3]=(eW+(eW<eNE?eW:eNE)+(error<<GRBITS)+(eNEE>eNEEE?eNEE:eNEEE))>>2;
+					offset=(kc ? cv0*yuv[0]+cv1*yuv[1] : cu0*yuv[0])>>2;
 				}
-				offset=(kc ? cv0*yuv[0]+cv1*yuv[1] : cu0*yuv[0])>>2;
 				rows[0]+=4;
 				rows[1]+=4;
 				rows[2]+=4;
@@ -1098,9 +1138,31 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 				(void)idx;
 #endif
 			}
+#ifdef SUB_DC
+			//dc[0]+=yuv[0];
+			//dc[1]+=yuv[1];
+			//dc[2]+=yuv[2];
+			yuv[0]+=(int32_t)((dc[0]+(1<<DCSH>>1))>>DCSH);
+			yuv[1]+=(int32_t)((dc[1]+(1<<DCSH>>1))>>DCSH);
+			yuv[2]+=(int32_t)((dc[2]+(1<<DCSH>>1))>>DCSH);
+#ifdef UNSIGNED_PIXEL
+			CLAMP2(yuv[0], 0, 255);
+			CLAMP2(yuv[1], 0, 255);
+			CLAMP2(yuv[2], 0, 255);
+#else
+			CLAMP2(yuv[0], -128, 127);
+			CLAMP2(yuv[1], -128, 127);
+			CLAMP2(yuv[2], -128, 127);
+#endif
+#endif
 			if(!fwd)
 			{
-#ifdef UNSIGNED_PIXEL
+#ifdef MUL_IM
+				yuv[0]=yuv[0]*mulpost>>16;
+				yuv[1]=yuv[1]*mulpost>>16;
+				yuv[2]=yuv[2]*mulpost>>16;
+#endif
+#if defined UNSIGNED_PIXEL
 				imptr[yidx]=yuv[0];
 				imptr[uidx]=yuv[1];
 				imptr[vidx]=yuv[2];
@@ -1577,10 +1639,11 @@ int c12_codec(int argc, char **argv)
 			, 8.*csize/usize
 		);
 	}
-	printf("%c  %12.6lf sec  %12.6lf MB/s\n"
+	printf("%c  %12.6lf sec  %12.6lf MB/s  %12.6lf ms/MB\n"
 		, 'D'+fwd
 		, t
 		, usize/(t*1024*1024)
+		, t*1024*1024*1000/usize
 	);
 #ifdef ENABLE_GUIDE
 	if(fwd&&dist>1)

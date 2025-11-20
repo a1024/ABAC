@@ -48,6 +48,7 @@ int c35_codec(int argc, char **argv);//binary FSM
 int c36_codec(int argc, char **argv);//video test
 int c37_codec(int argc, char **argv);//WP vs L1 test
 int c38_codec(int argc, char **argv);//Synth-Natural codec
+int c39_codec(int argc, char **argv);//ST C10 incremental
 #endif
 
 
@@ -89,7 +90,8 @@ int c38_codec(int argc, char **argv);//Synth-Natural codec
 //	#define CODEC_EXT c35
 //	#define CODEC_EXT c36
 //	#define CODEC_EXT c37
-	#define CODEC_EXT c38
+//	#define CODEC_EXT c38
+	#define CODEC_EXT c39
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -171,41 +173,15 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/space_huge.ppm"
 		
 
+	//	"C:/dataset-a70-ppm/20240816_113656_966.ppm"
 	//	"C:/dataset-CLIC303-ppm/2048x1320_abigail-keenan-27293.ppm"
+	//	"C:/dataset-CLIC303-ppm/2048x1320_alberto-restifo-4549.ppm"
 	//	"C:/dataset-CLIC303-ppm/2048x1320_cosmic-timetraveler-29758.ppm"
 	//	"C:/dataset-CLIC303-ppm/2048x1320_rosan-harmens-18703.ppm"
 	//	"C:/dataset-CLIC303-ppm/2048x1320_zugr-108.ppm"
-	//	"C:/dataset-panasonic-ppm/P1000058.ppm"
-	//	"C:/dataset-panasonic-ppm/P1000169.ppm"
-	//	"C:/dataset-LPCB-ppm/PIA13914.ppm"
-	//	"C:/dataset-sintel-ppm"
-	//	"C:/dataset-DIV2K-ppm/0801.ppm"
-	//	"C:/dataset-DSLR2x4-ppm/DSC_0133.ppm"
-	//	"C:/dataset-GDCC2020-ppm/astro-01.ppm"
-	//	"C:/dataset-HUGE-ppm/kodak.PPM"
-	//	"C:/dataset-HUGE-ppm/space_huge.ppm"
-	//	"C:/dataset-DSLR2-ppm/DSC_0320.ppm"
-	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
-	//	"C:/dataset-sony-ppm/DSC00315.ppm"
-	//	"D:/ML/zzz_halfbright.PPM"
-	//	"C:/dataset-LPCB-ppm/STA13845.ppm"
-	//	"C:/dataset-LPCB-ppm/PIA12811.ppm"
-	//	"C:/dataset-LPCB-ppm/PIA13803.ppm"
-	//	"C:/dataset-LPCB-ppm/PIA13833.ppm"
-	//	"C:/dataset-LPCB-ppm/PIA13912.ppm"
-	//	"C:/dataset-LPCB-ppm/PIA13915.ppm"	//false color terrain
-	//	"C:/dataset-LPCB-ppm/STA13843.ppm"	//space clouds
-	//	"C:/dataset-LPCB-ppm/STA13844.ppm"	//space clouds
-	//	"C:/dataset-LPCB-ppm/STA13845.ppm"	//space clouds
-	//	"C:/dataset-synthetic-ppm/20240409 1 LPCB.ppm"
-	//	"D:/ML/big_building.PPM"
-	//	"D:/ML/dataset-CLIC303-ppm/2048x1320_lucas-lof-388.ppm"
-	//	"D:/ML/dataset-kodak-ppm/kodim13.c01"
-	//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
-	//	"C:/Projects/datasets/space_huge.ppm"
-	//	"C:/dataset-CLIC303-ppm/2048x1320_alberto-restifo-4549.ppm"
 	//	"C:/dataset-CLIC303-ppm/2048x1320_zugr-108.ppm"
 	//	"C:/dataset-DIV2K-ppm"
+	//	"C:/dataset-DIV2K-ppm/0801.ppm"
 	//	"C:/dataset-DIV2K-ppm/0801.ppm"
 	//	"C:/dataset-DIV2K-ppm/0805.ppm"
 	//	"C:/dataset-DIV2K-ppm/0807.ppm"
@@ -214,19 +190,25 @@ int main(int argc, char **argv)
 	//	"C:/dataset-DIV2K-ppm/0859.ppm"
 	//	"C:/dataset-DIV2K-ppm/0864.ppm"
 	//	"C:/dataset-DIV2K-ppm/0880.ppm"
+	//	"C:/dataset-DSLR2-ppm/DSC_0320.ppm"
+	//	"C:/dataset-DSLR2x4-ppm/DSC_0133.ppm"
+		"C:/dataset-GDCC2020-ppm/astro-01.ppm"
 	//	"C:/dataset-GDCC2020-ppm/astro-01.ppm"
 	//	"C:/dataset-GDCC2020-ppm/astro-01.ppm"
 	//	"C:/dataset-GDCC2020-ppm/astro-02.ppm"
 	//	"C:/dataset-GDCC2020-ppm/astro-06.ppm"
 	//	"C:/dataset-GDCC2020-ppm/astro-14.ppm"
+	//	"C:/dataset-GDCC2020-ppm/astro-17.ppm"
 	//	"C:/dataset-GDCC2020-ppm/astro-20.ppm"
 	//	"C:/dataset-GDCC2020-ppm/astro-30.ppm"
 	//	"C:/dataset-GDCC2020-ppm/astro-43.ppm"
+	//	"C:/dataset-GDCC2020-ppm/astro-46.ppm"
 	//	"C:/dataset-GDCC2020-ppm/photo-03.ppm"
 	//	"C:/dataset-GDCC2020-ppm/photo-05.ppm"
 	//	"C:/dataset-GDCC2020-ppm/photo-49.ppm"
 	//	"C:/dataset-GDCC2020-ppm/photo-52.ppm"
 	//	"C:/dataset-GDCC2020-ppm/photo-67.ppm"
+	//	"C:/dataset-HUGE2-ppm/andromeda.ppm"
 	//	"C:/dataset-HUGE-ppm/blackmarble.ppm"
 	//	"C:/dataset-HUGE-ppm/chaos1.ppm"
 	//	"C:/dataset-HUGE-ppm/diagram.ppm"
@@ -234,16 +216,29 @@ int main(int argc, char **argv)
 	//	"C:/dataset-HUGE-ppm/jwst.ppm"
 	//	"C:/dataset-HUGE-ppm/jwst.ppm"
 	//	"C:/dataset-HUGE-ppm/jwst.ppm"
-	//	"C:/dataset-HUGE2-ppm/andromeda.ppm"
-	//	"C:/dataset-LPCB-ppm/PIA13757.ppm"
+	//	"C:/dataset-HUGE-ppm/kodak.PPM"
+	//	"C:/dataset-HUGE-ppm/space_huge.ppm"
+	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_02.ppm"
-	//	"C:/dataset-RAW-ppm/a0014-WP_CRW_6320.ppm"
-	//	"C:/dataset-a70-ppm/20240816_113656_966.ppm"
+	//	"C:/dataset-LPCB-ppm/PIA12811.ppm"
+	//	"C:/dataset-LPCB-ppm/PIA13757.ppm"
+	//	"C:/dataset-LPCB-ppm/PIA13803.ppm"
+	//	"C:/dataset-LPCB-ppm/PIA13833.ppm"
+	//	"C:/dataset-LPCB-ppm/PIA13912.ppm"
+	//	"C:/dataset-LPCB-ppm/PIA13914.ppm"
+	//	"C:/dataset-LPCB-ppm/PIA13915.ppm"	//false color terrain
+	//	"C:/dataset-LPCB-ppm/STA13843.ppm"	//space clouds
+	//	"C:/dataset-LPCB-ppm/STA13844.ppm"	//space clouds
+	//	"C:/dataset-LPCB-ppm/STA13845.ppm"
+	//	"C:/dataset-LPCB-ppm/STA13845.ppm"	//space clouds
 	//	"C:/dataset-meme-ppm/emoji_u1f628.ppm"
 	//	"C:/dataset-memes-ppm/usa.ppm"
-	//	"C:/dataset-synth-ppm/20240421 1 the front.ppm"
-	//	"C:/dataset-synth-ppm/20240516 4 DSC_0054.ppm"
-		"C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
+	//	"C:/dataset-panasonic-ppm/P1000058.ppm"
+	//	"C:/dataset-panasonic-ppm/P1000169.ppm"
+	//	"C:/dataset-RAW-ppm/a0014-WP_CRW_6320.ppm"
+	//	"C:/dataset-sintel-ppm"
+	//	"C:/dataset-sony-ppm/DSC00315.ppm"
+	//	"C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
 	//	"C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
 	//	"C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
 	//	"C:/dataset-synth2-ppm/20240407 blank.ppm"
@@ -257,12 +252,21 @@ int main(int argc, char **argv)
 	//	"C:/dataset-synth2-ppm/20240524 numbers.ppm"
 	//	"C:/dataset-synth2-ppm/20241006 linux is cursed.ppm"
 	//	"C:/dataset-synth2-ppm/art.ppm"
+	//	"C:/dataset-synthetic-ppm/20240409 1 LPCB.ppm"
+	//	"C:/dataset-synth-ppm/20240421 1 the front.ppm"
+	//	"C:/dataset-synth-ppm/20240516 4 DSC_0054.ppm"
+	//	"C:/Projects/datasets/space_huge.ppm"
+	//	"D:/ML/big_building.PPM"
 	//	"D:/ML/big_building.PPM"
 	//	"D:/ML/checkboard.PPM"
 	//	"D:/ML/dataset-CID22-ppm/pexels-photo-1933873.PPM"
+	//	"D:/ML/dataset-CLIC303-ppm/2048x1320_lucas-lof-388.ppm"
+	//	"D:/ML/dataset-kodak-ppm/kodim13.c01"
+	//	"D:/ML/dataset-kodak-ppm/kodim13.ppm"
 	//	"D:/ML/kodim13.ppm"
 	//	"D:/ML/kodim24.ppm"
 	//	"D:/ML/nice_clock_face.ppm"
+	//	"D:/ML/zzz_halfbright.PPM"
 	//	"D:/ML/zzz_halfbright.PPM"
 	//	"D:/Programs/c29/song.ppm"
 	;
@@ -271,7 +275,7 @@ int main(int argc, char **argv)
 		argv[0],
 		srcfn,
 		tmpfn,
-	//	"9",
+	//	"5",
 
 	//	"-e", "0",
 

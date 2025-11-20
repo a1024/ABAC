@@ -30,7 +30,7 @@
 #include<x86intrin.h>
 #include<unistd.h>
 #endif
-#ifdef _WIN32
+#if defined _WIN32 || defined WIN32
 #define WIN32_LEAN_AND_MEAN
 #include<Windows.h>//QueryPerformance...
 #include<conio.h>
@@ -997,7 +997,7 @@ unsigned long long _umul128(unsigned long long a, unsigned long long b, unsigned
 
 double time_ms(void)
 {
-#ifdef _MSC_VER
+#if defined _WIN32 || defined WIN32
 	static long long t0=0;
 	LARGE_INTEGER li;
 	double t;

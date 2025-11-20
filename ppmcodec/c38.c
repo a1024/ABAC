@@ -1587,10 +1587,11 @@ int c38_codec(int argc, char **argv)
 			, 8.*csize/usize
 		);
 	}
-	printf("%c  %12.6lf sec  %12.6lf MB/s\n"
+	printf("%c  %12.6lf sec  %12.6lf MB/s  %12.6lf ms/MB\n"
 		, 'D'+fwd
 		, t
 		, usize/(t*1024*1024)
+		, t*1024*1024*1000/usize
 	);
 #ifdef ENABLE_GUIDE
 	if(fwd&&dist>1)

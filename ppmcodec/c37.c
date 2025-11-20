@@ -199,6 +199,78 @@ static const unsigned char rct_combinations[RCT_COUNT][II_COUNT]=
 #undef  RCT
 };
 #endif
+static int crct_analysis(unsigned char *image, int iw, int ih)
+{
+	long long counters[OCH_COUNT]={0};
+	int prev[OCH_COUNT]={0};
+	for(ptrdiff_t k=0, len=(ptrdiff_t)3*iw*ih;k<len;k+=3)
+	{
+		int
+			r=image[k+0]<<2,
+			g=image[k+1]<<2,
+			b=image[k+2]<<2,
+			rg=r-g,
+			gb=g-b,
+			br=b-r;
+		counters[0]+=abs(r -prev[0]);
+		counters[1]+=abs(g -prev[1]);
+		counters[2]+=abs(b -prev[2]);
+		counters[3]+=abs(rg-prev[3]);
+		counters[4]+=abs(gb-prev[4]);
+		counters[5]+=abs(br-prev[5]);
+		prev[0]=r;
+		prev[1]=g;
+		prev[2]=b;
+		prev[3]=rg;
+		prev[4]=gb;
+		prev[5]=br;
+#ifdef ENABLE_EXTENDED_RCT
+#define UPDATE(IDXA, IDXB, IDXC, A0, B0, C0)\
+	do\
+	{\
+		int a0=A0, b0=B0, c0=C0;\
+		counters[IDXA]+=abs(a0-prev[IDXA]);\
+		counters[IDXB]+=abs(b0-prev[IDXB]);\
+		counters[IDXC]+=abs(c0-prev[IDXC]);\
+		prev[IDXA]=a0;\
+		prev[IDXB]=b0;\
+		prev[IDXC]=c0;\
+	}while(0)
+		//r-(3*g+b)/4 = r-g-(b-g)/4
+		//g-(3*r+b)/4 = g-r-(b-r)/4
+		//b-(3*r+g)/4 = b-r-(g-r)/4
+		UPDATE(OCH_CX31, OCH_C3X1, OCH_C31X, rg+(gb>>2), rg+(br>>2), br+(rg>>2));
+
+		//r-(g+3*b)/4 = r-b-(g-b)/4
+		//g-(r+3*b)/4 = g-b-(r-b)/4
+		//b-(r+3*g)/4 = b-g-(r-g)/4
+		UPDATE(OCH_CX13, OCH_C1X3, OCH_C13X, br+(gb>>2), gb+(br>>2), gb+(rg>>2));
+
+		//r-(g+b)/2 = (r-g + r-b)/2
+		//g-(r+b)/2 = (g-r + g-b)/2
+		//b-(r+g)/2 = (b-r + b-g)/2
+		UPDATE(OCH_CX22, OCH_C2X2, OCH_C22X, (rg-br)>>1, (gb-rg)>>1, (br-gb)>>1);
+#undef  UPDATE
+#endif
+	}
+	int bestrct=0;
+	long long minerr=0;
+	for(int kt=0;kt<RCT_COUNT;++kt)
+	{
+		const unsigned char *rct=rct_combinations[kt];
+		long long currerr=
+			+counters[rct[0]]
+			+counters[rct[1]]
+			+counters[rct[2]]
+		;
+		if(!kt||minerr>currerr)
+		{
+			minerr=currerr;
+			bestrct=kt;
+		}
+	}
+	return bestrct;
+}
 
 static int hist[3][NCTX][256], hist_wp[3][NCTX][256];
 
@@ -288,78 +360,6 @@ static unsigned char* load_ppm(const char *fn, int *ret_iw, int *ret_ih)
 	if(ret_iw)*ret_iw=iw;
 	if(ret_ih)*ret_ih=ih;
 	return image;
-}
-static int crct_analysis(unsigned char *image, int iw, int ih)
-{
-	long long counters[OCH_COUNT]={0};
-	int prev[OCH_COUNT]={0};
-	for(ptrdiff_t k=0, len=(ptrdiff_t)3*iw*ih;k<len;k+=3)
-	{
-		int
-			r=image[k+0]<<2,
-			g=image[k+1]<<2,
-			b=image[k+2]<<2,
-			rg=r-g,
-			gb=g-b,
-			br=b-r;
-		counters[0]+=abs(r -prev[0]);
-		counters[1]+=abs(g -prev[1]);
-		counters[2]+=abs(b -prev[2]);
-		counters[3]+=abs(rg-prev[3]);
-		counters[4]+=abs(gb-prev[4]);
-		counters[5]+=abs(br-prev[5]);
-		prev[0]=r;
-		prev[1]=g;
-		prev[2]=b;
-		prev[3]=rg;
-		prev[4]=gb;
-		prev[5]=br;
-#ifdef ENABLE_EXTENDED_RCT
-#define UPDATE(IDXA, IDXB, IDXC, A0, B0, C0)\
-	do\
-	{\
-		int a0=A0, b0=B0, c0=C0;\
-		counters[IDXA]+=abs(a0-prev[IDXA]);\
-		counters[IDXB]+=abs(b0-prev[IDXB]);\
-		counters[IDXC]+=abs(c0-prev[IDXC]);\
-		prev[IDXA]=a0;\
-		prev[IDXB]=b0;\
-		prev[IDXC]=c0;\
-	}while(0)
-		//r-(3*g+b)/4 = r-g-(b-g)/4
-		//g-(3*r+b)/4 = g-r-(b-r)/4
-		//b-(3*r+g)/4 = b-r-(g-r)/4
-		UPDATE(OCH_CX31, OCH_C3X1, OCH_C31X, rg+(gb>>2), rg+(br>>2), br+(rg>>2));
-
-		//r-(g+3*b)/4 = r-b-(g-b)/4
-		//g-(r+3*b)/4 = g-b-(r-b)/4
-		//b-(r+3*g)/4 = b-g-(r-g)/4
-		UPDATE(OCH_CX13, OCH_C1X3, OCH_C13X, br+(gb>>2), gb+(br>>2), gb+(rg>>2));
-
-		//r-(g+b)/2 = (r-g + r-b)/2
-		//g-(r+b)/2 = (g-r + g-b)/2
-		//b-(r+g)/2 = (b-r + b-g)/2
-		UPDATE(OCH_CX22, OCH_C2X2, OCH_C22X, (rg-br)>>1, (gb-rg)>>1, (br-gb)>>1);
-#undef  UPDATE
-#endif
-	}
-	int bestrct=0;
-	long long minerr=0;
-	for(int kt=0;kt<RCT_COUNT;++kt)
-	{
-		const unsigned char *rct=rct_combinations[kt];
-		long long currerr=
-			+counters[rct[0]]
-			+counters[rct[1]]
-			+counters[rct[2]]
-		;
-		if(!kt||minerr>currerr)
-		{
-			minerr=currerr;
-			bestrct=kt;
-		}
-	}
-	return bestrct;
 }
 static void calc_csizes(const int *stats, double *csizes)
 {

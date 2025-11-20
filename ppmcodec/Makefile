@@ -210,3 +210,6 @@ c37:
 
 c38:
 	clang $(FLAGS) -DCODEC_EXT=c38 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c38.c codec.c  -o c38 $(LIBS)
+
+c39:
+	clang $(FLAGS) -DCODEC_EXT=c39 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c39.c codec.c  -o c39 $(LIBS)

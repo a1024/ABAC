@@ -11,12 +11,17 @@
 static const char file[]=__FILE__;
 
 
-//	#define ENABLE_GUIDE
+#ifdef _MSC_VER
+	#define ENABLE_GUIDE
 //	#define ENABLE_VAL
+#endif
 
 
-	#define USE_MIXIN
+//	#define SUBW
+
+//	#define USE_MIXIN
 //	#define ENABLE_RECIPROCAL
+
 //	#define ENABLE_SSE
 
 
@@ -135,12 +140,13 @@ static const unsigned char rct_indices[][8]=
 static int sse[3][64][64];
 //static int sse[3][256];
 #endif
+#define NCTX 18
 #ifdef USE_MIXIN
 #define RATE 9
-static unsigned short hist[3][16][256];
+static unsigned short hist[3][NCTX][256];
 static unsigned short mixin[512];
 #else
-static int hist[3][16][257];
+static int hist[3][NCTX][257];
 #ifdef ENABLE_RECIPROCAL
 static unsigned long long divtable[256];
 #endif
@@ -253,7 +259,8 @@ int c10_codec(int argc, char **argv)
 		unsigned char *ptr=image, *end=image+usize;
 		unsigned long long counters[6]={0};
 		//int prev3[6]={0};
-		int prev2[6]={0}, prev[6]={0};
+		//int prev2[6]={0};
+		int prev[6]={0};
 		while(ptr<end)
 		{
 			int
@@ -270,30 +277,30 @@ int c10_codec(int argc, char **argv)
 			//counters[3]+=abs(rg-3*(prev[3]-prev2[3])-prev3[3]);
 			//counters[4]+=abs(gb-3*(prev[4]-prev2[4])-prev3[4]);
 			//counters[5]+=abs(br-3*(prev[5]-prev2[5])-prev3[5]);
-			counters[0]+=abs(r -2*prev[0]+prev2[0]);
-			counters[1]+=abs(g -2*prev[1]+prev2[1]);
-			counters[2]+=abs(b -2*prev[2]+prev2[2]);
-			counters[3]+=abs(rg-2*prev[3]+prev2[3]);
-			counters[4]+=abs(gb-2*prev[4]+prev2[4]);
-			counters[5]+=abs(br-2*prev[5]+prev2[5]);
-			//counters[0]+=abs(r -prev[0]);
-			//counters[1]+=abs(g -prev[1]);
-			//counters[2]+=abs(b -prev[2]);
-			//counters[3]+=abs(rg-prev[3]);
-			//counters[4]+=abs(gb-prev[4]);
-			//counters[5]+=abs(br-prev[5]);
+			//counters[0]+=abs(r -2*prev[0]+prev2[0]);
+			//counters[1]+=abs(g -2*prev[1]+prev2[1]);
+			//counters[2]+=abs(b -2*prev[2]+prev2[2]);
+			//counters[3]+=abs(rg-2*prev[3]+prev2[3]);
+			//counters[4]+=abs(gb-2*prev[4]+prev2[4]);
+			//counters[5]+=abs(br-2*prev[5]+prev2[5]);
+			counters[0]+=abs(r -prev[0]);
+			counters[1]+=abs(g -prev[1]);
+			counters[2]+=abs(b -prev[2]);
+			counters[3]+=abs(rg-prev[3]);
+			counters[4]+=abs(gb-prev[4]);
+			counters[5]+=abs(br-prev[5]);
 			//prev3[0]=prev2[0];
 			//prev3[1]=prev2[1];
 			//prev3[2]=prev2[2];
 			//prev3[3]=prev2[3];
 			//prev3[4]=prev2[4];
 			//prev3[5]=prev2[5];
-			prev2[0]=prev[0];
-			prev2[1]=prev[1];
-			prev2[2]=prev[2];
-			prev2[3]=prev[3];
-			prev2[4]=prev[4];
-			prev2[5]=prev[5];
+			//prev2[0]=prev[0];
+			//prev2[1]=prev[1];
+			//prev2[2]=prev[2];
+			//prev2[3]=prev[3];
+			//prev2[4]=prev[4];
+			//prev2[5]=prev[5];
 			prev[0]=r;
 			prev[1]=g;
 			prev[2]=b;
@@ -330,13 +337,13 @@ int c10_codec(int argc, char **argv)
 		low+=range*bestrct>>4;
 		range=(range>>4)-1;
 	}
-	short *ebuf=(short*)malloc((iw+16LL)*sizeof(short[3]));
-	if(!ebuf)
-	{
-		LOG_ERROR("Alloc error");
-		return 1;
-	}
-	memset(ebuf, 0, (iw+16LL)*sizeof(short[3]));
+	//short *ebuf=(short*)malloc((iw+16LL)*sizeof(short[3]));
+	//if(!ebuf)
+	//{
+	//	LOG_ERROR("Alloc error");
+	//	return 1;
+	//}
+	//memset(ebuf, 0, (iw+16LL)*sizeof(short[3]));
 	int
 		yidx=rct_indices[bestrct][3+0],
 		uidx=rct_indices[bestrct][3+1],
@@ -368,161 +375,253 @@ int c10_codec(int argc, char **argv)
 #ifdef ENABLE_SSE
 	memset(sse, 0, sizeof(sse));
 #endif
+#define L1SH 20
+#define PREDLIST\
+	PRED(N+W-NW)\
+	PRED(N)\
+	PRED(W)\
+	PRED(W+NE-N)\
+	PRED(3*(N-NN)+NNN)\
+	PRED(3*(W-WW)+WWW)\
+	PRED(N+NE-NNE)\
+	PRED(NEE)\
+	PRED(NEEE)\
+	PRED(NN)\
+	PRED(WW)\
+	PRED(2*N-NN)\
+	PRED(2*W-WW)\
+
+#if 0
+	PRED(N+NW-NNW)\
+	PRED(W+NW-NWW)\
+	PRED((WWWW+NEEEE)>>1)\
+	PRED((WWW+NNN+NEEE-NW)>>1)\
+
+#endif
+	enum
+	{
+#define PRED(...) +1
+		NPREDS=PREDLIST,
+#undef  PRED
+	};
+	long long weights[3*NPREDS]={0};
+	for(int k=0;k<3*NPREDS;++k)
+		weights[k]=(1<<L1SH)/NPREDS;
+	int padw=iw+8*2;
+	int psize=padw*(int)sizeof(short[4*3*2]);//4 padded rows * 3 channels * {pixel, noise}
+	short *pixels=(short*)malloc(psize);
+	if(!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return 1;
+	}
+	memset(pixels, 0, psize);
+#ifdef SUBW
+	int W[3]={0};
+#endif
 	for(int ky=0;ky<ih;++ky)
 	{
-		short *eptr=ebuf+(ptrdiff_t)8*3;
-		int vmax[3]={0}, vmin[3]={0}, preds[3]={0};
-		char NW[4]={0}, N[4]={0}, WWW[4]={0}, WW[4]={0}, W[4]={0}, yuv[4]={0};
-		//int errors3[3]={0};
-		int errors2[3]={0}, errors[3]={0}, deltas[3]={0};
-		int sym, den, cdf, freq;
-		(void)den;
+		short *rows[]=
+		{
+			pixels+(padw*((ky-0LL)&3)+8LL)*3*2,
+			pixels+(padw*((ky-1LL)&3)+8LL)*3*2,
+			pixels+(padw*((ky-2LL)&3)+8LL)*3*2,
+			pixels+(padw*((ky-3LL)&3)+8LL)*3*2,
+		};
+		int estim[3*NPREDS]={0};
+		long long preds[3]={0}, preds0[3]={0};
+		int vmin[3]={0}, vmax[3]={0};
+		char yuv[4]={0};
+		int errors[3]={0}, deltas[3]={0};
+		int sym, cdf, freq;
 #ifdef ENABLE_RECIPROCAL
 		unsigned long long invden=0, hi0=0, hi1=0;
 #endif
 #ifdef USE_MIXIN
 		unsigned short *curr_hist[3]={0};
 #else
+		int den;
 		int *curr_hist[3]={0};
 #endif
-		N[0]=Nptr[yidx]-128;
-		N[1]=Nptr[uidx]-128;
-		N[2]=Nptr[vidx]-128;
-		N[2]-=N[vhelpidx];
-		N[1]-=N[uhelpidx];
-		for(int kx0=iw;kx0--;)
+		for(int kx=0;kx<iw;++kx)
 		{
-#ifdef _DEBUG
-			int kx=iw-1-kx0;
-#endif
-			char NN[4]=
-			{
-				NNptr[yidx+0]-128,
-				NNptr[uidx+0]-128,
-				NNptr[vidx+0]-128,
-			};
-			NN[2]-=NN[vhelpidx];
-			NN[1]-=NN[uhelpidx];
-			char NE[4]=
-			{
-				Nptr[yidx+3]-128,
-				Nptr[uidx+3]-128,
-				Nptr[vidx+3]-128,
-			};
-			NE[2]-=NE[vhelpidx];
-			NE[1]-=NE[uhelpidx];
-
-			vmax[0]=N[0], vmin[0]=W[0];
-			vmax[1]=N[1], vmin[1]=W[1];
-			vmax[2]=N[2], vmin[2]=W[2];
-			if(N[0]<W[0])vmin[0]=N[0], vmax[0]=W[0];
-			if(N[1]<W[1])vmin[1]=N[1], vmax[1]=W[1];
-			if(N[2]<W[2])vmin[2]=N[2], vmax[2]=W[2];
-			//if(vmin[0]>NE[0])vmin[0]=NE[0];
-			//if(vmax[0]<NE[0])vmax[0]=NE[0];
-			//if(vmin[1]>NE[1])vmin[1]=NE[1];
-			//if(vmax[1]<NE[1])vmax[1]=NE[1];
-			//if(vmin[2]>NE[2])vmin[2]=NE[2];
-			//if(vmax[2]<NE[2])vmax[2]=NE[2];
-			preds[0]=N[0]+W[0]-NW[0];
-			preds[1]=N[1]+W[1]-NW[1];
-			preds[2]=N[2]+W[2]-NW[2];
-			//preds[0]=(3*(N[0]+W[0])-2*NW[0])>>2;
-			//preds[1]=(3*(N[1]+W[1])-2*NW[1])>>2;
-			//preds[2]=(3*(N[2]+W[2])-2*NW[2])>>2;
-			//preds[0]=(4*(N[0]+W[0])+NE[0]-NW[0])>>3;
-			//preds[1]=(4*(N[1]+W[1])+NE[1]-NW[1])>>3;
-			//preds[2]=(4*(N[2]+W[2])+NE[2]-NW[2])>>3;
-			//errors[0]=abs(errors[0]);
-			//errors[1]=abs(errors[1]);
-			//errors[2]=abs(errors[2]);
-			errors2[0]+=((abs(errors[0])<<3)-errors2[0])>>2;
-			errors2[1]+=((abs(errors[1])<<3)-errors2[1])>>2;
-			errors2[2]+=((abs(errors[2])<<3)-errors2[2])>>2;
-			//if(errors2[0]<0||errors2[1]<0||errors2[2]<0)
-			//	LOG_ERROR("");
-			int ctx[]=
-			{
-				//abs(N[0]-W[0])+abs(N[0]-NW[0])+abs(NE[0]-N[0])+abs(W[0]-NW[0])+((abs(N[0]-NN[0])+abs(W[0]-WW[0]))>>1)+1,
-				//abs(N[1]-W[1])+abs(N[1]-NW[1])+abs(NE[1]-N[1])+abs(W[1]-NW[1])+((abs(N[1]-NN[1])+abs(W[1]-WW[1]))>>1)+1,
-				//abs(N[2]-W[2])+abs(N[2]-NW[2])+abs(NE[2]-N[2])+abs(W[2]-NW[2])+((abs(N[2]-NN[2])+abs(W[2]-WW[2]))>>1)+1,
-				abs(N[0]-W[0])+abs(N[0]-NW[0])+abs(NE[0]-N[0])+abs(W[0]-NW[0])+((abs(N[0]-NN[0])+abs(W[0]-WW[0]))>>1)+errors2[0]+eptr[0+9]+1,
-				abs(N[1]-W[1])+abs(N[1]-NW[1])+abs(NE[1]-N[1])+abs(W[1]-NW[1])+((abs(N[1]-NN[1])+abs(W[1]-WW[1]))>>1)+errors2[1]+eptr[1+9]+1,
-				abs(N[2]-W[2])+abs(N[2]-NW[2])+abs(NE[2]-N[2])+abs(W[2]-NW[2])+((abs(N[2]-NN[2])+abs(W[2]-WW[2]))>>1)+errors2[2]+eptr[2+9]+1,
-
-				//abs(N[0]-W[0])+abs(N[0]-NW[0])+abs(NE[0]-N[0])+abs(W[0]-NW[0])+((abs(N[0]-NN[0])+abs(W[0]-WW[0]))>>1)+2*(errors[0]+errors2[0])+errors3[0]+1,
-				//abs(N[1]-W[1])+abs(N[1]-NW[1])+abs(NE[1]-N[1])+abs(W[1]-NW[1])+((abs(N[1]-NN[1])+abs(W[1]-WW[1]))>>1)+2*(errors[1]+errors2[1])+errors3[1]+1,
-				//abs(N[2]-W[2])+abs(N[2]-NW[2])+abs(NE[2]-N[2])+abs(W[2]-NW[2])+((abs(N[2]-NN[2])+abs(W[2]-WW[2]))>>1)+2*(errors[2]+errors2[2])+errors3[2]+1,
-				//abs(N[0]-W[0])+abs(N[0]-NW[0])+abs(NE[0]-N[0])+abs(W[0]-NW[0])+2*(abs(errors[0])+abs(errors2[0]))+abs(errors3[0]),
-				//abs(N[1]-W[1])+abs(N[1]-NW[1])+abs(NE[1]-N[1])+abs(W[1]-NW[1])+2*(abs(errors[1])+abs(errors2[1]))+abs(errors3[1]),
-				//abs(N[2]-W[2])+abs(N[2]-NW[2])+abs(NE[2]-N[2])+abs(W[2]-NW[2])+2*(abs(errors[2])+abs(errors2[2]))+abs(errors3[2]),
-				//(4*abs(errors[0])+3*abs(errors2[0])+abs(errors3[0]))>>3&127,
-				//(4*abs(errors[1])+3*abs(errors2[1])+abs(errors3[1]))>>3&127,
-				//(4*abs(errors[2])+3*abs(errors2[2])+abs(errors3[2]))>>3&127,
-				//(3*(abs(errors[0])+abs(errors2[0]))+2*abs(errors3[0]))>>3&127,
-				//(3*(abs(errors[1])+abs(errors2[1]))+2*abs(errors3[1]))>>3&127,
-				//(3*(abs(errors[2])+abs(errors2[2]))+2*abs(errors3[2]))>>3&127,
-			};
-			eptr[0]=errors2[0];
-			eptr[1]=errors2[1];
-			eptr[2]=errors2[2];
-			eptr+=3;
-			//errors3[0]=errors2[0];
-			//errors3[1]=errors2[1];
-			//errors3[2]=errors2[2];
-			//errors2[0]=errors[0];
-			//errors2[1]=errors[1];
-			//errors2[2]=errors[2];
-#ifdef ENABLE_SSE
-			int *sse_ptrs[]=
-			{
-				&sse[0][(N[0]-3*(W[0]-WW[0])-WWW[0])>>4&63][preds[0]>>2&63],//best
-				&sse[1][(N[1]-3*(W[1]-WW[1])-WWW[1])>>4&63][preds[1]>>2&63],
-				&sse[2][(N[2]-3*(W[2]-WW[2])-WWW[2])>>4&63][preds[2]>>2&63],
-				//&sse[0][(N[0]-3*(W[0]-WW[0])-WWW[0])>>4&63][(errors2[0]+eptr[0+9])>>5&63],
-				//&sse[1][(N[1]-3*(W[1]-WW[1])-WWW[1])>>4&63][(errors2[1]+eptr[1+9])>>5&63],
-				//&sse[2][(N[2]-3*(W[2]-WW[2])-WWW[2])>>4&63][(errors2[2]+eptr[2+9])>>5&63],
-				//&sse[0][(errors2[0]+eptr[0+9])>>6&63][preds[0]>>2&63],
-				//&sse[1][(errors2[1]+eptr[1+9])>>6&63][preds[1]>>2&63],
-				//&sse[2][(errors2[2]+eptr[2+9])>>6&63][preds[2]>>2&63],
-				//&sse[0][ctx[0]*3>>8&63][preds[0]>>2&63],
-				//&sse[1][ctx[1]*3>>8&63][preds[1]>>2&63],
-				//&sse[2][ctx[2]*3>>8&63][preds[2]>>2&63],
-				//&sse[0][(N[0]+NE[0]-6*(W[0]-WW[0])-2*WWW[0])>>4&31][preds[0]>>2&63],
-				//&sse[1][(N[1]+NE[1]-6*(W[1]-WW[1])-2*WWW[1])>>4&31][preds[1]>>2&63],
-				//&sse[2][(N[2]+NE[2]-6*(W[2]-WW[2])-2*WWW[2])>>4&31][preds[2]>>2&63],
-				//&sse[0][(N[0]-2*W[0]+WW[0])>>3&31][preds[0]>>2&63],
-				//&sse[1][(N[1]-2*W[1]+WW[1])>>3&31][preds[1]>>2&63],
-				//&sse[2][(N[2]-2*W[2]+WW[2])>>3&31][preds[2]>>2&63],
-				//&sse[0][(N[0]-W[0])>>3&31][preds[0]>>2&63],
-				//&sse[1][(N[1]-W[1])>>3&31][preds[1]>>2&63],
-				//&sse[2][(N[2]-W[2])>>3&31][preds[2]>>2&63],
-				//&sse[0][N[0]>>2&63][W[0]>>2&63],
-				//&sse[1][N[1]>>2&63][W[1]>>2&63],
-				//&sse[2][N[2]>>2&63][W[2]>>2&63],
-
-				//&sse[0][preds[0]&255],
-				//&sse[1][preds[1]&255],
-				//&sse[2][preds[2]&255],
-			};
-			preds[0]+=(*sse_ptrs[0]+(1<<SSE_FBITS>>1))>>SSE_FBITS;
-			CLAMP2(preds[0], vmin[0], vmax[0]);
-			preds[1]+=(*sse_ptrs[1]+(1<<SSE_FBITS>>1))>>SSE_FBITS;
-			CLAMP2(preds[1], vmin[1], vmax[1]);
-			preds[2]+=(*sse_ptrs[2]+(1<<SSE_FBITS>>1))>>SSE_FBITS;
-			CLAMP2(preds[2], vmin[2], vmax[2]);
+			int j=0;
+			int//		=rows[-Y][(C+X*3)*2+E]
+				eNEE0	=rows[1][(0+2*3)*2+1],
+				eNEE1	=rows[1][(1+2*3)*2+1],
+				eNEE2	=rows[1][(2+2*3)*2+1],
+				eNEEE0	=rows[1][(0+3*3)*2+1],
+				eNEEE1	=rows[1][(1+3*3)*2+1],
+				eNEEE2	=rows[1][(2+3*3)*2+1],
+				eW0	=rows[0][(0-1*3)*2+1],
+				eW1	=rows[0][(1-1*3)*2+1],
+				eW2	=rows[0][(2-1*3)*2+1];
+			int ctx0=FLOOR_LOG2(eW0*eW0+1);
+			int ctx1=FLOOR_LOG2(eW1*eW1+1);
+			int ctx2=FLOOR_LOG2(eW2*eW2+1);
+			if(ctx0>NCTX-1)ctx0=NCTX-1;
+			if(ctx1>NCTX-1)ctx1=NCTX-1;
+			if(ctx2>NCTX-1)ctx2=NCTX-1;
+#ifdef SUBW
+			preds[0]=W[0];
+			preds[1]=W[1];
+			preds[2]=W[2];
 #else
-			CLAMP2(preds[0], vmin[0], vmax[0]);
-			CLAMP2(preds[1], vmin[1], vmax[1]);
-			CLAMP2(preds[2], vmin[2], vmax[2]);
-			(void)WWW;
+			{
+				int
+					NNN	=rows[3][(0+0*3)*2+0],
+					NNW	=rows[2][(0-1*3)*2+0],
+					NN	=rows[2][(0+0*3)*2+0],
+					NNE	=rows[2][(0+1*3)*2+0],
+					NWW	=rows[1][(0-2*3)*2+0],
+					NW	=rows[1][(0-1*3)*2+0],
+					N	=rows[1][(0+0*3)*2+0],
+					NE	=rows[1][(0+1*3)*2+0],
+					NEE	=rows[1][(0+2*3)*2+0],
+					NEEE	=rows[1][(0+3*3)*2+0],
+					NEEEE	=rows[1][(0+4*3)*2+0],
+					WWWW	=rows[0][(0-4*3)*2+0],
+					WWW	=rows[0][(0-3*3)*2+0],
+					WW	=rows[0][(0-2*3)*2+0],
+					W	=rows[0][(0-1*3)*2+0];
+				(void)NNN	;
+				(void)NNW	;
+				(void)NN	;
+				(void)NNE	;
+				(void)NWW	;
+				(void)NW	;
+				(void)N		;
+				(void)NE	;
+				(void)NEE	;
+				(void)NEEE	;
+				(void)NEEEE	;
+				(void)WWWW	;
+				(void)WWW	;
+				(void)WW	;
+				(void)W		;
+#define PRED(EXPR) estim[j++]=EXPR;
+				PREDLIST
+#undef  PRED
+				vmax[0]=N; vmin[0]=W;
+				if(N<W)vmin[0]=N, vmax[0]=W;
+				if(vmin[0]>NE)vmin[0]=NE;
+				if(vmax[0]<NE)vmax[0]=NE;
+				if(vmin[0]>NEEE)vmin[0]=NEEE;
+				if(vmax[0]<NEEE)vmax[0]=NEEE;
+			}
+			{
+				int
+					NNN	=rows[3][(1+0*3)*2+0],
+					NNW	=rows[2][(1-1*3)*2+0],
+					NN	=rows[2][(1+0*3)*2+0],
+					NNE	=rows[2][(1+1*3)*2+0],
+					NWW	=rows[1][(1-2*3)*2+0],
+					NW	=rows[1][(1-1*3)*2+0],
+					N	=rows[1][(1+0*3)*2+0],
+					NE	=rows[1][(1+1*3)*2+0],
+					NEE	=rows[1][(1+2*3)*2+0],
+					NEEE	=rows[1][(1+3*3)*2+0],
+					NEEEE	=rows[1][(1+4*3)*2+0],
+					WWWW	=rows[0][(1-4*3)*2+0],
+					WWW	=rows[0][(1-3*3)*2+0],
+					WW	=rows[0][(1-2*3)*2+0],
+					W	=rows[0][(1-1*3)*2+0];
+				(void)NNN	;
+				(void)NNW	;
+				(void)NN	;
+				(void)NNE	;
+				(void)NWW	;
+				(void)NW	;
+				(void)N		;
+				(void)NE	;
+				(void)NEE	;
+				(void)NEEE	;
+				(void)NEEEE	;
+				(void)WWWW	;
+				(void)WWW	;
+				(void)WW	;
+				(void)W		;
+#define PRED(EXPR) estim[j++]=EXPR;
+				PREDLIST
+#undef  PRED
+				vmax[1]=N; vmin[1]=W;
+				if(N<W)vmin[1]=N, vmax[1]=W;
+				if(vmin[1]>NE)vmin[1]=NE;
+				if(vmax[1]<NE)vmax[1]=NE;
+				if(vmin[1]>NEEE)vmin[1]=NEEE;
+				if(vmax[1]<NEEE)vmax[1]=NEEE;
+			}
+			{
+				int
+					NNN	=rows[3][(2+0*3)*2+0],
+					NNW	=rows[2][(2-1*3)*2+0],
+					NN	=rows[2][(2+0*3)*2+0],
+					NNE	=rows[2][(2+1*3)*2+0],
+					NWW	=rows[1][(2-2*3)*2+0],
+					NW	=rows[1][(2-1*3)*2+0],
+					N	=rows[1][(2+0*3)*2+0],
+					NE	=rows[1][(2+1*3)*2+0],
+					NEE	=rows[1][(2+2*3)*2+0],
+					NEEE	=rows[1][(2+3*3)*2+0],
+					NEEEE	=rows[1][(3+4*3)*2+0],
+					WWWW	=rows[0][(2-4*3)*2+0],
+					WWW	=rows[0][(2-3*3)*2+0],
+					WW	=rows[0][(2-2*3)*2+0],
+					W	=rows[0][(2-1*3)*2+0];
+				(void)NNN	;
+				(void)NNW	;
+				(void)NN	;
+				(void)NNE	;
+				(void)NWW	;
+				(void)NW	;
+				(void)N		;
+				(void)NE	;
+				(void)NEE	;
+				(void)NEEE	;
+				(void)NEEEE	;
+				(void)WWWW	;
+				(void)WWW	;
+				(void)WW	;
+				(void)W		;
+#define PRED(EXPR) estim[j++]=EXPR;
+				PREDLIST
+#undef  PRED
+				vmax[2]=N; vmin[2]=W;
+				if(N<W)vmin[2]=N, vmax[2]=W;
+				if(vmin[2]>NE)vmin[2]=NE;
+				if(vmax[2]<NE)vmax[2]=NE;
+				if(vmin[2]>NEEE)vmin[2]=NEEE;
+				if(vmax[2]<NEEE)vmax[2]=NEEE;
+			}
+			preds[0]=1<<L1SH>>1;
+			preds[1]=1<<L1SH>>1;
+			preds[2]=1<<L1SH>>1;
+			j=0;
+#define PRED(EXPR) preds[0]+=weights[j]*estim[j]; preds[1]+=weights[j+NPREDS]*estim[j+NPREDS]; preds[2]+=weights[j+NPREDS*2]*estim[j+NPREDS*2]; ++j;
+			PREDLIST
+#undef  PRED
+			preds[0]>>=L1SH;
+			preds[1]>>=L1SH;
+			preds[2]>>=L1SH;
+			preds0[0]=preds[0];
+			preds0[1]=preds[1];
+			preds0[2]=preds[2];
+			if((unsigned)(kx-2)>(unsigned)(iw-2)&&ky<2)
+			{
+				preds[0]=estim[0+0*NPREDS];//CG
+				preds[1]=estim[0+1*NPREDS];
+				preds[2]=estim[0+2*NPREDS];
+			}
+			if(preds[0]<vmin[0])preds[0]=vmin[0];
+			if(preds[0]>vmax[0])preds[0]=vmax[0];
+			if(preds[1]<vmin[1])preds[1]=vmin[1];
+			if(preds[1]>vmax[1])preds[1]=vmax[1];
+			if(preds[2]<vmin[2])preds[2]=vmin[2];
+			if(preds[2]>vmax[2])preds[2]=vmax[2];
 #endif
-			ctx[0]=FLOOR_LOG2(ctx[0]);
-			ctx[1]=FLOOR_LOG2(ctx[1]);
-			ctx[2]=FLOOR_LOG2(ctx[2]);
-			curr_hist[0]=hist[0][ctx[0]];
-			curr_hist[1]=hist[1][ctx[1]];
-			curr_hist[2]=hist[2][ctx[2]];
+			curr_hist[0]=hist[0][ctx0];
+			curr_hist[1]=hist[1][ctx1];
+			curr_hist[2]=hist[2][ctx2];
 #ifdef AC_VALIDATE
 			unsigned long long lo0, r0;
 #endif
@@ -640,7 +739,7 @@ int c10_codec(int argc, char **argv)
 				freq=curr_hist[0][cdf]+1;
 				for(int k=0;k<deltas[0];++k)
 					cdf+=curr_hist[0][k];
-				if(range<den)
+				if(range<0x10000)
 				{
 					*(unsigned*)streamptr=(unsigned)(low>>32);
 					streamptr+=4;
@@ -681,7 +780,7 @@ int c10_codec(int argc, char **argv)
 				freq=curr_hist[1][cdf]+1;
 				for(int k=0;k<deltas[1];++k)
 					cdf+=curr_hist[1][k];
-				if(range<den)
+				if(range<0x10000)
 				{
 					*(unsigned*)streamptr=(unsigned)(low>>32);
 					streamptr+=4;
@@ -716,7 +815,7 @@ int c10_codec(int argc, char **argv)
 				freq=curr_hist[2][cdf]+1;
 				for(int k=0;k<deltas[2];++k)
 					cdf+=curr_hist[2][k];
-				if(range<den)
+				if(range<0x10000)
 				{
 					*(unsigned*)streamptr=(unsigned)(low>>32);
 					streamptr+=4;
@@ -790,8 +889,10 @@ int c10_codec(int argc, char **argv)
 					cdf=freq;
 				}
 				freq-=cdf;
+#ifdef _DEBUG
 				if(freq<0||cdf<0||cdf>=0x10000)
 					LOG_ERROR("");
+#endif
 				low+=range*cdf>>16;
 				range=(range*freq>>16)-1;
 				acval_dec(sym, cdf, freq, lo0, lo0+r0, low, low+range, 0, 0, code);
@@ -799,7 +900,7 @@ int c10_codec(int argc, char **argv)
 				
 				deltas[0]=sym;
 				errors[0]=deltas[0]>>1^-(deltas[0]&1);
-				yuv[0]=errors[0]+preds[0];
+				yuv[0]=errors[0]+(int)preds[0];
 				preds[1]+=yuv[uhelpidx]; CLAMP2(preds[1], -128, 127);
 
 #ifdef AC_VALIDATE
@@ -850,7 +951,7 @@ int c10_codec(int argc, char **argv)
 				
 				deltas[1]=sym;
 				errors[1]=deltas[1]>>1^-(deltas[1]&1);
-				yuv[1]=errors[1]+preds[1];
+				yuv[1]=errors[1]+(int)preds[1];
 				preds[2]+=yuv[vhelpidx]; CLAMP2(preds[2], -128, 127);
 				
 #ifdef AC_VALIDATE
@@ -897,14 +998,14 @@ int c10_codec(int argc, char **argv)
 
 				deltas[2]=sym;
 				errors[2]=deltas[2]>>1^-(deltas[2]&1);
-				yuv[2]=errors[2]+preds[2];
+				yuv[2]=errors[2]+(int)preds[2];
 #else
 #ifdef ENABLE_RECIPROCAL
 				den=(curr_hist[0][256]+(256+(1<<8)-1))&~255;
 #else
 				den=curr_hist[0][256]+256;
 #endif
-				if(range<den)
+				if(range<0x10000)
 				{
 					code=code<<32|*(unsigned*)streamptr;
 					streamptr+=4;
@@ -939,7 +1040,7 @@ int c10_codec(int argc, char **argv)
 #endif
 				deltas[0]=sym;
 				errors[0]=deltas[0]>>1^-(deltas[0]&1);
-				yuv[0]=errors[0]+preds[0];
+				yuv[0]=errors[0]+(int)preds[0];
 				preds[1]+=yuv[uhelpidx]; CLAMP2(preds[1], -128, 127);
 				
 #ifdef ENABLE_RECIPROCAL
@@ -947,7 +1048,7 @@ int c10_codec(int argc, char **argv)
 #else
 				den=curr_hist[1][256]+256;
 #endif
-				if(range<den)
+				if(range<0x10000)
 				{
 					code=code<<32|*(unsigned*)streamptr;
 					streamptr+=4;
@@ -982,7 +1083,7 @@ int c10_codec(int argc, char **argv)
 #endif
 				deltas[1]=sym;
 				errors[1]=deltas[1]>>1^-(deltas[1]&1);
-				yuv[1]=errors[1]+preds[1];
+				yuv[1]=errors[1]+(int)preds[1];
 				preds[2]+=yuv[vhelpidx]; CLAMP2(preds[2], -128, 127);
 				
 #ifdef ENABLE_RECIPROCAL
@@ -990,7 +1091,7 @@ int c10_codec(int argc, char **argv)
 #else
 				den=curr_hist[2][256]+256;
 #endif
-				if(range<den)
+				if(range<0x10000)
 				{
 					code=code<<32|*(unsigned*)streamptr;
 					streamptr+=4;
@@ -1025,7 +1126,7 @@ int c10_codec(int argc, char **argv)
 #endif
 				deltas[2]=sym;
 				errors[2]=deltas[2]>>1^-(deltas[2]&1);
-				yuv[2]=errors[2]+preds[2];
+				yuv[2]=errors[2]+(int)preds[2];
 #endif
 				ptr[yidx]=yuv[0]+128;
 				ptr[uidx]=yuv[1]+128;
@@ -1350,8 +1451,8 @@ int c10_codec(int argc, char **argv)
 				curr_hist[2][256]=sum;
 			}
 #endif
-			yuv[2]-=yuv[vhelpidx];
-			yuv[1]-=yuv[uhelpidx];
+			//yuv[2]-=yuv[vhelpidx];
+			//yuv[1]-=yuv[uhelpidx];
 			//errors[0]=yuv[0]-preds[0];
 			//errors[1]=yuv[1]-preds[1];
 			//errors[2]=yuv[2]-preds[2];
@@ -1360,27 +1461,41 @@ int c10_codec(int argc, char **argv)
 			*sse_ptrs[1]+=((errors[1]<<SSE_FBITS)-*sse_ptrs[1])>>SSE_LBITS;
 			*sse_ptrs[2]+=((errors[2]<<SSE_FBITS)-*sse_ptrs[2])>>SSE_LBITS;
 #endif
-			NW[0]=N[0];
-			NW[1]=N[1];
-			NW[2]=N[2];
-			N[0]=NE[0];
-			N[1]=NE[1];
-			N[2]=NE[2];
-			WWW[0]=WW[0];
-			WWW[1]=WW[1];
-			WWW[2]=WW[2];
-			WW[0]=W[0];
-			WW[1]=W[1];
-			WW[2]=W[2];
-			W[0]=yuv[0];
-			W[1]=yuv[1];
-			W[2]=yuv[2];
-			//*(unsigned*)NW=*(unsigned*)N;//SLOW
-			//*(unsigned*)W=*(unsigned*)yuv;
-
+			int curr0=yuv[0];
+			int curr1=yuv[1]-yuv[uhelpidx];
+			int curr2=yuv[2]-yuv[vhelpidx];
+			rows[0][0*2+0]=curr0;
+			rows[0][1*2+0]=curr1;
+			rows[0][2*2+0]=curr2;
+			rows[0][0*2+1]=(2*eW0+(deltas[0]<<3)+(eNEE0>eNEEE0?eNEE0:eNEEE0))>>2;
+			rows[0][1*2+1]=(2*eW1+(deltas[1]<<3)+(eNEE1>eNEEE1?eNEE1:eNEEE1))>>2;
+			rows[0][2*2+1]=(2*eW2+(deltas[2]<<3)+(eNEE2>eNEEE2?eNEE2:eNEEE2))>>2;
+#ifdef SUBW
+			W[0]=curr0;
+			W[1]=curr1;
+			W[2]=curr2;
+#else
+			int sign0=(curr0>preds0[0])-(curr0<preds0[0]);
+			int sign1=(curr1>preds0[1])-(curr1<preds0[1]);
+			int sign2=(curr2>preds0[2])-(curr2<preds0[2]);
+			j=0;
+#define PRED(EXPR) weights[j]+=sign0*estim[j]; ++j;
+			PREDLIST
+#undef  PRED
+#define PRED(EXPR) weights[j]+=sign1*estim[j]; ++j;
+			PREDLIST
+#undef  PRED
+#define PRED(EXPR) weights[j]+=sign2*estim[j]; ++j;
+			PREDLIST
+#undef  PRED
+#endif
 			NNptr+=3;
 			Nptr+=3;
 			ptr+=3;
+			rows[0]+=3*2;
+			rows[1]+=3*2;
+			rows[2]+=3*2;
+			rows[3]+=3*2;
 		}
 	}
 	{
@@ -1401,7 +1516,7 @@ int c10_codec(int argc, char **argv)
 			fwrite(&iw, 1, 4, fdst);
 			fwrite(&ih, 1, 4, fdst);
 			fwrite(stream, 1, streamptr-stream, fdst);
-#ifdef _DEBUG
+#ifdef _MSC_VER
 			printf("C %td bytes\n", streamptr-stream+headersize);
 #endif
 		}
