@@ -183,6 +183,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-CLIC303-ppm/2048x1320_zugr-108.ppm"
 	//	"C:/dataset-CLIC303-ppm/2048x1320_zugr-108.ppm"
 	//	"C:/dataset-DIV2K-ppm"
+	//	"C:/dataset-HUGE-ppm/jwst.ppm"
 		"C:/dataset-DIV2K-ppm/0801.ppm"
 	//	"C:/dataset-DIV2K-ppm/0801.ppm"
 	//	"C:/dataset-DIV2K-ppm/0805.ppm"

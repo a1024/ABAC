@@ -2538,7 +2538,7 @@ int c40_codec(int argc, char **argv)
 	int CDF2syms_size=nctx*(int)sizeof(int[1<<PROBBITS]);
 	if(fwd)//DIV-free rANS encoder reuses this as SIMD symbol info
 		CDF2syms_size=nctx*(int)sizeof(rANS_SIMD_SymInfo[256]);
-	unsigned *CDF2syms=(unsigned*)_mm_malloc(CDF2syms_size, sizeof(__m256i));
+	unsigned *CDF2syms=userans?(unsigned*)_mm_malloc(CDF2syms_size, sizeof(__m256i)):0;
 	
 	__m256i mstate[2];
 	int ans_permute_size=sizeof(__m256i[256]);
@@ -2805,6 +2805,7 @@ int c40_codec(int argc, char **argv)
 				);
 #endif
 			}
+			prof_checkpoint(sizeof(uint16_t[3*NCTX+3][256]), "unpack histograms");
 		}
 	}
 	switch(effort)
@@ -2816,6 +2817,7 @@ int c40_codec(int argc, char **argv)
 		npreds=L1_NPREDS1;
 		sh=L1_SH1;
 		break;
+	default:
 	case 2:
 		npreds=L1_NPREDS2;
 		sh=L1_SH2;
