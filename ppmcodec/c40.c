@@ -2,6 +2,7 @@
 #define _CRT_SECURE_NO_WARNINGS
 #endif
 #include<stdint.h>
+#include<stddef.h>
 #include<stdio.h>
 #include<stdlib.h>
 #include<string.h>
@@ -840,11 +841,11 @@ AWM_INLINE void tANS_initDState(tANS_DState_t *DStatePtr, BitPackerLIFO *ec, con
 	//BIT_reloadDStream(bitD);
 	DStatePtr->table=dt+1;
 }
-AWM_INLINE BYTE tANS_decodeSymbol(tANS_DState_t *DStatePtr, BitPackerLIFO *ec)
+AWM_INLINE uint8_t tANS_decodeSymbol(tANS_DState_t *DStatePtr, BitPackerLIFO *ec)
 {
 	tANS_decode_t const DInfo=((const tANS_decode_t*)(DStatePtr->table))[DStatePtr->state];
 	uint32_t const nbBits=DInfo.nbBits;
-	BYTE const symbol=DInfo.symbol;
+	uint8_t const symbol=DInfo.symbol;
 	size_t const lowBits=bitpacker_dec(ec, nbBits);
 	//size_t const lowBits=BIT_readBits(bitD, nbBits);
 
@@ -1107,13 +1108,13 @@ static size_t tANS_buildDTable(tANS_DTable *dt, const short *normalizedCounter, 
 		{
 			tANS_FUNCTION_TYPE const symbol=(tANS_FUNCTION_TYPE)tableDecode[u].symbol;
 			uint32_t const nextState=symbolNext[symbol]++;
-			tableDecode[u].nbBits=(BYTE)(tableLog-(31-_lzcnt_u32(nextState)));
+			tableDecode[u].nbBits=(uint8_t)(tableLog-(31-_lzcnt_u32(nextState)));
 			tableDecode[u].newState=(uint16_t)((nextState<<tableDecode[u].nbBits)-tableSize);
 		}
 	}
 	return 0;
 }
-static size_t tANS_buildCTable_rle(tANS_CTable *ct, BYTE symbolValue)
+static size_t tANS_buildCTable_rle(tANS_CTable *ct, uint8_t symbolValue)
 {
 	void *ptr=ct;
 	uint16_t *tableU16=(uint16_t*)ptr+2;
@@ -1133,7 +1134,7 @@ static size_t tANS_buildCTable_rle(tANS_CTable *ct, BYTE symbolValue)
 	symbolTT[symbolValue].deltaFindState=0;
 	return 0;
 }
-static size_t tANS_buildDTable_rle(tANS_DTable *dt, BYTE symbolValue)
+static size_t tANS_buildDTable_rle(tANS_DTable *dt, uint8_t symbolValue)
 {
 	void *ptr=dt;
 	tANS_DTableHeader *const DTableH=(tANS_DTableHeader*)ptr;
@@ -1209,8 +1210,8 @@ static size_t tANS_buildDTable_raw(tANS_DTable *dt, unsigned nbBits)
 	for(s=0;s<maxSV1;++s)
 	{
 		dinfo[s].newState=0;
-		dinfo[s].symbol=(BYTE)s;
-		dinfo[s].nbBits=(BYTE)nbBits;
+		dinfo[s].symbol=(uint8_t)s;
+		dinfo[s].nbBits=(uint8_t)nbBits;
 	}
 	return 0;
 }
