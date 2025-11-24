@@ -49,6 +49,7 @@ int c36_codec(int argc, char **argv);//video test
 int c37_codec(int argc, char **argv);//WP vs L1 test
 int c38_codec(int argc, char **argv);//Synth-Natural codec
 int c39_codec(int argc, char **argv);//ST C10 incremental
+int c40_codec(int argc, char **argv);//ST rANS + FSE
 #endif
 
 
@@ -91,7 +92,8 @@ int c39_codec(int argc, char **argv);//ST C10 incremental
 //	#define CODEC_EXT c36
 //	#define CODEC_EXT c37
 //	#define CODEC_EXT c38
-	#define CODEC_EXT c39
+//	#define CODEC_EXT c39
+	#define CODEC_EXT c40
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -181,7 +183,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-CLIC303-ppm/2048x1320_zugr-108.ppm"
 	//	"C:/dataset-CLIC303-ppm/2048x1320_zugr-108.ppm"
 	//	"C:/dataset-DIV2K-ppm"
-	//	"C:/dataset-DIV2K-ppm/0801.ppm"
+		"C:/dataset-DIV2K-ppm/0801.ppm"
 	//	"C:/dataset-DIV2K-ppm/0801.ppm"
 	//	"C:/dataset-DIV2K-ppm/0805.ppm"
 	//	"C:/dataset-DIV2K-ppm/0807.ppm"
@@ -192,7 +194,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-DIV2K-ppm/0880.ppm"
 	//	"C:/dataset-DSLR2-ppm/DSC_0320.ppm"
 	//	"C:/dataset-DSLR2x4-ppm/DSC_0133.ppm"
-		"C:/dataset-GDCC2020-ppm/astro-01.ppm"
+	//	"C:/dataset-GDCC2020-ppm/astro-01.ppm"
 	//	"C:/dataset-GDCC2020-ppm/astro-01.ppm"
 	//	"C:/dataset-GDCC2020-ppm/astro-01.ppm"
 	//	"C:/dataset-GDCC2020-ppm/astro-02.ppm"
@@ -275,6 +277,7 @@ int main(int argc, char **argv)
 		argv[0],
 		srcfn,
 		tmpfn,
+	//	"2",
 	//	"5",
 
 	//	"-e", "0",

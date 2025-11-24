@@ -385,13 +385,40 @@ int c10_codec(int argc, char **argv)
 	PRED(3*(W-WW)+WWW)\
 	PRED(N+NE-NNE)\
 	PRED(NEE)\
-	PRED(NEEE)\
 	PRED(NN)\
 	PRED(WW)\
 	PRED(2*N-NN)\
 	PRED(2*W-WW)\
+	PRED(NEEE)\
+	PRED(NEEEE)\
+	PRED(NNWW)\
+	PRED(NNEE)\
+	PRED(N+NW-NNW)\
+	PRED(W+NW-NWW)\
+	PRED((WWWW+NEEEE)>>1)\
+	PRED((WWW+NNN+NEEE-NW)>>1)\
 
 #if 0
+	PRED(NW)\
+	PRED(NE)\
+	PRED(NNW)\
+	PRED(NNE)\
+
+	PRED(NNWW)\
+	PRED(NNW)\
+	PRED(NN)\
+	PRED(NNE)\
+	PRED(NNEE)\
+	PRED(NWW)\
+	PRED(NW)\
+	PRED(N)\
+	PRED(NE)\
+	PRED(NEE)\
+	PRED(NEEE)\
+	PRED(WWW)\
+	PRED(WW)\
+	PRED(W)\
+
 	PRED(N+NW-NNW)\
 	PRED(W+NW-NWW)\
 	PRED((WWWW+NEEEE)>>1)\
@@ -470,9 +497,11 @@ int c10_codec(int argc, char **argv)
 			{
 				int
 					NNN	=rows[3][(0+0*3)*2+0],
+					NNWW	=rows[2][(0-2*3)*2+0],
 					NNW	=rows[2][(0-1*3)*2+0],
 					NN	=rows[2][(0+0*3)*2+0],
 					NNE	=rows[2][(0+1*3)*2+0],
+					NNEE	=rows[2][(0+2*3)*2+0],
 					NWW	=rows[1][(0-2*3)*2+0],
 					NW	=rows[1][(0-1*3)*2+0],
 					N	=rows[1][(0+0*3)*2+0],
@@ -485,9 +514,11 @@ int c10_codec(int argc, char **argv)
 					WW	=rows[0][(0-2*3)*2+0],
 					W	=rows[0][(0-1*3)*2+0];
 				(void)NNN	;
+				(void)NNWW	;
 				(void)NNW	;
 				(void)NN	;
 				(void)NNE	;
+				(void)NNEE	;
 				(void)NWW	;
 				(void)NW	;
 				(void)N		;
@@ -512,9 +543,11 @@ int c10_codec(int argc, char **argv)
 			{
 				int
 					NNN	=rows[3][(1+0*3)*2+0],
+					NNWW	=rows[2][(1-2*3)*2+0],
 					NNW	=rows[2][(1-1*3)*2+0],
 					NN	=rows[2][(1+0*3)*2+0],
 					NNE	=rows[2][(1+1*3)*2+0],
+					NNEE	=rows[2][(1+2*3)*2+0],
 					NWW	=rows[1][(1-2*3)*2+0],
 					NW	=rows[1][(1-1*3)*2+0],
 					N	=rows[1][(1+0*3)*2+0],
@@ -527,9 +560,11 @@ int c10_codec(int argc, char **argv)
 					WW	=rows[0][(1-2*3)*2+0],
 					W	=rows[0][(1-1*3)*2+0];
 				(void)NNN	;
+				(void)NNWW	;
 				(void)NNW	;
 				(void)NN	;
 				(void)NNE	;
+				(void)NNEE	;
 				(void)NWW	;
 				(void)NW	;
 				(void)N		;
@@ -554,9 +589,11 @@ int c10_codec(int argc, char **argv)
 			{
 				int
 					NNN	=rows[3][(2+0*3)*2+0],
+					NNWW	=rows[2][(2-2*3)*2+0],
 					NNW	=rows[2][(2-1*3)*2+0],
 					NN	=rows[2][(2+0*3)*2+0],
 					NNE	=rows[2][(2+1*3)*2+0],
+					NNEE	=rows[2][(2+2*3)*2+0],
 					NWW	=rows[1][(2-2*3)*2+0],
 					NW	=rows[1][(2-1*3)*2+0],
 					N	=rows[1][(2+0*3)*2+0],
@@ -569,9 +606,11 @@ int c10_codec(int argc, char **argv)
 					WW	=rows[0][(2-2*3)*2+0],
 					W	=rows[0][(2-1*3)*2+0];
 				(void)NNN	;
+				(void)NNWW	;
 				(void)NNW	;
 				(void)NN	;
 				(void)NNE	;
+				(void)NNEE	;
 				(void)NWW	;
 				(void)NW	;
 				(void)N		;
@@ -1492,6 +1531,8 @@ int c10_codec(int argc, char **argv)
 			NNptr+=3;
 			Nptr+=3;
 			ptr+=3;
+			(void)NNptr;
+			(void)Nptr;
 			rows[0]+=3*2;
 			rows[1]+=3*2;
 			rows[2]+=3*2;

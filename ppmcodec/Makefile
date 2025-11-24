@@ -65,7 +65,7 @@ c09:
 	gcc $(FLAGS) -DCODEC_EXT=c09 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c09.c codec.c util.c  -o c09 $(LIBS)
 
 c10:
-	gcc $(FLAGS) -DCODEC_EXT=c10 -mavx2 -mbmi -mbmi2 -mlzcnt  $(SRC_ZYDIS) c10.c codec.c util.c  -o c10 $(LIBS)
+	clang $(FLAGS) -DCODEC_EXT=c10 -mavx2 -mbmi -mbmi2 -mlzcnt  $(SRC_ZYDIS) c10.c codec.c util.c  -o c10 $(LIBS)
 
 c11:
 	gcc $(FLAGS) -DCODEC_EXT=c11 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c11.c codec.c util.c  -o c11 $(LIBS)
@@ -213,3 +213,9 @@ c38:
 
 c39:
 	clang $(FLAGS) -DCODEC_EXT=c39 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c39.c codec.c  -o c39 $(LIBS)
+
+c39-gcc:
+	gcc $(FLAGS) -DCODEC_EXT=c39 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c39.c codec.c  -o c39 $(LIBS)
+
+c40:
+	clang $(FLAGS) -Dc40_codec=main -mavx2 -mbmi -mlzcnt c40.c -o c40 $(LIBS)

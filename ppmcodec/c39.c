@@ -8,9 +8,11 @@
 #include<stdarg.h>
 #include<math.h>
 #include<immintrin.h>
-#ifdef _MSC_VER
-#include<intrin.h>
-#endif
+//#ifdef _MSC_VER
+//#include<intrin.h>
+//#else
+//#include<x86intrin.h>
+//#endif
 #include<sys/stat.h>
 #if defined _WIN32 || defined WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -27,7 +29,7 @@
 #endif
 
 
-#define NPREDS 8
+#define NPREDS 16
 #define SHIFT 20
 
 #ifdef _MSC_VER
@@ -459,7 +461,7 @@ int c39_codec(int argc, char **argv)
 	int psize=padw*(int)sizeof(int[4*4*2]);//4 padded rows * 4 channels max * {pixel, error}
 	int *pixels=(int*)_mm_malloc(psize, sizeof(__m128i));
 	int sbufsize=iw*16;//rowsize = iw*3, allocate iw*16 just in case
-	uint16_t *sbuf=(uint16_t*)malloc(sbufsize);//stream buffer
+	uint16_t *sbuf=(uint16_t*)malloc((unsigned)sbufsize);//stream buffer
 	if(!pixels||!sbuf)
 	{
 		CRASH("Alloc error");
@@ -556,14 +558,30 @@ int c39_codec(int argc, char **argv)
 			e5=_mm_add_epi32(e5, _mm_load_si128((__m128i*)rows[0]-3*2+0));
 			__m128i e6=_mm_sub_epi32(_mm_add_epi32(mN, mNE), _mm_load_si128((__m128i*)rows[2]+1*2+0));
 			__m128i e7=_mm_load_si128((__m128i*)rows[1]+2*2+0);
-			__m128i t0=_mm_mullo_epi32(weights[0], e0);
-			__m128i t1=_mm_mullo_epi32(weights[1], e1);
-			__m128i t2=_mm_mullo_epi32(weights[2], e2);
-			__m128i t3=_mm_mullo_epi32(weights[3], e3);
-			__m128i t4=_mm_mullo_epi32(weights[4], e4);
-			__m128i t5=_mm_mullo_epi32(weights[5], e5);
-			__m128i t6=_mm_mullo_epi32(weights[6], e6);
-			__m128i t7=_mm_mullo_epi32(weights[7], e7);
+			__m128i e8=_mm_load_si128((__m128i*)rows[2]+0*2+0);
+			__m128i e9=_mm_load_si128((__m128i*)rows[0]-2*2+0);
+			__m128i eA=_mm_sub_epi32(_mm_slli_epi32(mN, 1), e8);
+			__m128i eB=_mm_sub_epi32(_mm_slli_epi32(mW, 1), e9);
+			__m128i eC=_mm_load_si128((__m128i*)rows[1]+3*2+0);
+			__m128i eD=_mm_load_si128((__m128i*)rows[1]+4*2+0);
+			__m128i eE=_mm_load_si128((__m128i*)rows[2]-2*2+0);
+			__m128i eF=_mm_load_si128((__m128i*)rows[2]+2*2+0);
+			__m128i t0=_mm_mullo_epi32(weights[0x0], e0);
+			__m128i t1=_mm_mullo_epi32(weights[0x1], e1);
+			__m128i t2=_mm_mullo_epi32(weights[0x2], e2);
+			__m128i t3=_mm_mullo_epi32(weights[0x3], e3);
+			__m128i t4=_mm_mullo_epi32(weights[0x4], e4);
+			__m128i t5=_mm_mullo_epi32(weights[0x5], e5);
+			__m128i t6=_mm_mullo_epi32(weights[0x6], e6);
+			__m128i t7=_mm_mullo_epi32(weights[0x7], e7);
+			__m128i t8=_mm_mullo_epi32(weights[0x8], e8);
+			__m128i t9=_mm_mullo_epi32(weights[0x9], e9);
+			__m128i tA=_mm_mullo_epi32(weights[0xA], eA);
+			__m128i tB=_mm_mullo_epi32(weights[0xB], eB);
+			__m128i tC=_mm_mullo_epi32(weights[0xC], eC);
+			__m128i tD=_mm_mullo_epi32(weights[0xD], eD);
+			__m128i tE=_mm_mullo_epi32(weights[0xE], eE);
+			__m128i tF=_mm_mullo_epi32(weights[0xF], eF);
 			__m128i mmin=_mm_min_epi32(mN, mW);
 			__m128i mmax=_mm_max_epi32(mN, mW);
 			mmin=_mm_min_epi32(mmin, mNE);
@@ -574,9 +592,20 @@ int c39_codec(int argc, char **argv)
 			t2=_mm_add_epi32(t2, t3);
 			t4=_mm_add_epi32(t4, t5);
 			t6=_mm_add_epi32(t6, t7);
+			t8=_mm_add_epi32(t8, t9);
+			tA=_mm_add_epi32(tA, tB);
+			tC=_mm_add_epi32(tC, tD);
+			tE=_mm_add_epi32(tE, tF);
+
 			t0=_mm_add_epi32(t0, t2);
 			t4=_mm_add_epi32(t4, t6);
+			t8=_mm_add_epi32(t8, tA);
+			tC=_mm_add_epi32(tC, tE);
+
 			t0=_mm_add_epi32(t0, t4);
+			t8=_mm_add_epi32(t8, tC);
+
+			t0=_mm_add_epi32(t0, t8);
 			t0=_mm_add_epi32(t0, _mm_set1_epi32(1<<SHIFT>>1));
 			t0=_mm_srai_epi32(t0, SHIFT);
 			__m128i mp0=t0;
@@ -819,14 +848,22 @@ int c39_codec(int argc, char **argv)
 			}
 
 			__m128i me=_mm_sub_epi32(_mm_load_si128((__m128i*)rows[0]+0*2+0), mp0);
-			weights[0]=_mm_add_epi32(weights[0], _mm_sign_epi32(e0, me));
-			weights[1]=_mm_add_epi32(weights[1], _mm_sign_epi32(e1, me));
-			weights[2]=_mm_add_epi32(weights[2], _mm_sign_epi32(e2, me));
-			weights[3]=_mm_add_epi32(weights[3], _mm_sign_epi32(e3, me));
-			weights[4]=_mm_add_epi32(weights[4], _mm_sign_epi32(e4, me));
-			weights[5]=_mm_add_epi32(weights[5], _mm_sign_epi32(e5, me));
-			weights[6]=_mm_add_epi32(weights[6], _mm_sign_epi32(e6, me));
-			weights[7]=_mm_add_epi32(weights[7], _mm_sign_epi32(e7, me));
+			weights[0x0]=_mm_add_epi32(weights[0x0], _mm_sign_epi32(e0, me));
+			weights[0x1]=_mm_add_epi32(weights[0x1], _mm_sign_epi32(e1, me));
+			weights[0x2]=_mm_add_epi32(weights[0x2], _mm_sign_epi32(e2, me));
+			weights[0x3]=_mm_add_epi32(weights[0x3], _mm_sign_epi32(e3, me));
+			weights[0x4]=_mm_add_epi32(weights[0x4], _mm_sign_epi32(e4, me));
+			weights[0x5]=_mm_add_epi32(weights[0x5], _mm_sign_epi32(e5, me));
+			weights[0x6]=_mm_add_epi32(weights[0x6], _mm_sign_epi32(e6, me));
+			weights[0x7]=_mm_add_epi32(weights[0x7], _mm_sign_epi32(e7, me));
+			weights[0x8]=_mm_add_epi32(weights[0x8], _mm_sign_epi32(e8, me));
+			weights[0x9]=_mm_add_epi32(weights[0x9], _mm_sign_epi32(e9, me));
+			weights[0xA]=_mm_add_epi32(weights[0xA], _mm_sign_epi32(eA, me));
+			weights[0xB]=_mm_add_epi32(weights[0xB], _mm_sign_epi32(eB, me));
+			weights[0xC]=_mm_add_epi32(weights[0xC], _mm_sign_epi32(eC, me));
+			weights[0xD]=_mm_add_epi32(weights[0xD], _mm_sign_epi32(eD, me));
+			weights[0xE]=_mm_add_epi32(weights[0xE], _mm_sign_epi32(eE, me));
+			weights[0xF]=_mm_add_epi32(weights[0xF], _mm_sign_epi32(eF, me));
 
 			//ecurr = (2*eW + (error<<3) + max(eNEE, eNEEE))>>2
 			me=_mm_max_epi32(_mm_load_si128((__m128i*)rows[1]+2*2+1), _mm_load_si128((__m128i*)rows[1]+3*2+1));
