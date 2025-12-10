@@ -20,6 +20,20 @@ static const char file[]=__FILE__;
 	#define L1DELAY 20
 	#define L1SPEED 1
 #if 1
+#define L1SH 18
+#define L1BIAS0	0
+#define L1PREDLIST\
+	L1PRED(100000, NN)\
+	L1PRED(100000, NNE)\
+	L1PRED(100000, NW)\
+	L1PRED(100000, N)\
+	L1PRED(100000, NE)\
+	L1PRED(100000, NEE)\
+	L1PRED(100000, WW)\
+	L1PRED(100000, W)\
+
+#endif
+#if 0
 #define L1SH 19
 #define L1BIAS0	0
 #define L1PREDLIST\
@@ -32,7 +46,8 @@ static const char file[]=__FILE__;
 	L1PRED(100000, (WWWWW+WW-W+NNN+N+NEEEEE)>>2)\
 	L1PRED(100000, N+NE-NNE)\
 	L1PRED(100000, W+NW-NWW)\
-	L1PRED(100000, NEEE)
+	L1PRED(100000, NEEE)\
+
 #endif
 #if 0
 #define L1BIAS0	0
@@ -49,7 +64,8 @@ static const char file[]=__FILE__;
 	L1PRED( 50000, W+NW-NWW)\
 	L1PRED( 50000, N+NW-NNW)\
 	L1PRED( 50000, NE+NEE-NNEEE)\
-	L1PRED( 50000, (WWWWW+WW-W+NNN+N+NEEEEE)>>2)
+	L1PRED( 50000, (WWWWW+WW-W+NNN+N+NEEEEE)>>2)\
+
 #endif
 #if 0
 #define L1BIAS0	0
@@ -65,7 +81,8 @@ static const char file[]=__FILE__;
 	L1PRED( 50000, N+NW-NNW)\
 	L1PRED( 70000, NE+NEE-NNEEE)\
 	L1PRED( 80000, W+((NEEE+NEEEEE-N-W)>>3))\
-	L1PRED( 90000, (WWWWW+WW-W+NNN+N+NEEEEE)>>2)
+	L1PRED( 90000, (WWWWW+WW-W+NNN+N+NEEEEE)>>2)\
+
 #endif
 enum
 {
@@ -419,7 +436,13 @@ static void center_image(void)
 
 	if(!im1)
 		return;
-	wndw2=wndw, wndh2=wndh-17;
+	wndw2=wndw;
+	wndh2=wndh-(int)(tdy*5);
+	if(wndh2<0)
+		wndh2=wndh;
+	if(wndh2<0)
+		return;
+	//wndh2=wndh-17;
 	if((double)wndw2/wndh2>=(double)im1->iw/im1->ih)//window AR > image AR: fit height
 	{
 		if(wndh2>0)
@@ -2246,10 +2269,17 @@ static void batch_test(void)
 				double csize=ptr->csize[0]+ptr->csize[1]+ptr->csize[2]+ptr->csize[3];
 				fn2=(ArrayHandle*)array_at(&filenames, ptr->idx);
 				console_log(
-					"%5d/%5d %s%*sUTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  BPD %8.4lf\n",
-					(int)(k+1-(int)q->count+k2+1), (int)filenames->count, (char*)fn2[0]->data, (int)(maxlen-fn2[0]->count+1), "",
-					ptr->usize, csize, ptr->csize[0], ptr->csize[1], ptr->csize[2],
-					8.*csize/ptr->usize
+					"%5d/%5d %s%*sUTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  BPD %8.4lf\n"
+					, (int)(k+1-(int)q->count+k2+1)
+					, (int)filenames->count
+					, (char*)fn2[0]->data
+					, (int)(maxlen-fn2[0]->count+1), ""
+					, ptr->usize
+					, csize
+					, ptr->csize[0]
+					, ptr->csize[1]
+					, ptr->csize[2]
+					, 8.*csize/ptr->usize
 				);
 				//console_log(
 				//	"%5d/%5d %s%*sUTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  invCR %8.4lf%%\n",
@@ -2309,9 +2339,17 @@ static void batch_test(void)
 		double ctotal=total_csize[0]+total_csize[1]+total_csize[2]+total_csize[3];
 		double CR=total_usize/ctotal;
 		t=time_sec()-t;
-		int nprinted=snprintf(str, sizeof(str)-1,
-			"%12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  BPD %8.4lf  %12.6lf sec  %12.6lf MB/s",
-			total_usize, ctotal, total_csize[0], total_csize[1], total_csize[2], 8./CR, t, total_usize/(t*1024*1024)
+		int nprinted=snprintf(str, sizeof(str)-1
+			, "%12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  BPD %8.4lf  %12.6lf sec  %12.6lf MB/s  %12.6lf ms/MB"
+			, total_usize
+			, ctotal
+			, total_csize[0]
+			, total_csize[1]
+			, total_csize[2]
+			, 8./CR
+			, t
+			, total_usize/(t*1024*1024)
+			, t*1024*1024*1000/total_usize
 		);
 		console_log("Total UTYUV %s <- copied\n", str);
 		copy_to_clipboard(str, nprinted);
@@ -2508,12 +2546,22 @@ static void batch_test_lossy(void)
 				double csize=ptr->csize[0]+ptr->csize[1]+ptr->csize[2]+ptr->csize[3];
 				fn2=(ArrayHandle*)array_at(&filenames, ptr->idx);
 				console_log(
-					"%5d/%5d %s%*sUTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  BPD %8.4lf  PSNR %10.4lf %10.4lf %10.4lf %10.4lf  SSIM%7.4lf\n",
-					(int)(k+1-(int)q->count+k2+1), (int)filenames->count, (char*)fn2[0]->data, (int)(maxlen-fn2[0]->count+1), "",
-					ptr->usize, csize, ptr->csize[0], ptr->csize[1], ptr->csize[2],
-					8.*csize/ptr->usize,
-					ptr->psnr[0], ptr->psnr[1], ptr->psnr[2], ptr->psnr[3],
-					ptr->ssim[3]
+					"%5d/%5d %s%*sUTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  BPD %8.4lf  PSNR %10.4lf %10.4lf %10.4lf %10.4lf  SSIM%7.4lf\n"
+					, (int)(k+1-(int)q->count+k2+1)
+					, (int)filenames->count
+					, (char*)fn2[0]->data
+					, (int)(maxlen-fn2[0]->count+1), ""
+					, ptr->usize
+					, csize
+					, ptr->csize[0]
+					, ptr->csize[1]
+					, ptr->csize[2]
+					, 8.*csize/ptr->usize
+					, ptr->psnr[0]
+					, ptr->psnr[1]
+					, ptr->psnr[2]
+					, ptr->psnr[3]
+					, ptr->ssim[3]
 				);
 				//console_log(
 				//	"%5d/%5d %s%*sUTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  invCR %8.4lf%%\n",
@@ -2553,8 +2601,19 @@ static void batch_test_lossy(void)
 		timedelta2str(g_buf, G_BUF_SIZE, t);
 		acme_strftime(g_buf, G_BUF_SIZE, "%Y%m%d_%H%M%S");
 		int nprinted=snprintf(str, sizeof(str)-1,
-			"%12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  BPD %8.4lf  RMSE %10.4lf PSNR %10.4lf  %10.4lf sec  SSIM%7.4lf  dist%3d  %s",
-			total_usize, ctotal, total_csize[0], total_csize[1], total_csize[2], 8./CR, rmse, psnr, t, total_ssim[3], g_dist, g_buf
+			"%12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  BPD %8.4lf  RMSE %10.4lf PSNR %10.4lf  %10.4lf sec  SSIM%7.4lf  dist%3d  %s"
+			, total_usize
+			, ctotal
+			, total_csize[0]
+			, total_csize[1]
+			, total_csize[2]
+			, 8./CR
+			, rmse
+			, psnr
+			, t
+			, total_ssim[3]
+			, g_dist
+			, g_buf
 		);
 		console_log("Total UTYUV %s <- copied\n", str);
 		copy_to_clipboard(str, nprinted);
@@ -6365,6 +6424,8 @@ int io_keydn(IOKey key, char c)
 							filesize=get_filesize((char*)fn2[0]->data);
 							fn=filter_path((char*)fn2[0]->data, (int)fn2[0]->count, 0);
 							update_image();
+							if(imagecentered)
+								center_image();
 							set_window_title("%s - eBench", (char*)fn->data);
 						}
 					}
@@ -6751,7 +6812,6 @@ int io_keydn(IOKey key, char c)
 			"H:\t\tReset invCR history graph\n"
 			"Ctrl C:\t\tCopy data\n"
 			"Ctrl V:\t\tPaste data\n"
-			"Ctrl B:\t\tBatch test\n"
 		//	"Ctrl SPACE:\tCheck integrity (if restored bit-exact)\n"
 		//	"Ctrl P:\t\tTest predictors\n"
 		//	"C:\t\tToggle joint histogram type / fill screen in image view\n"
@@ -6832,6 +6892,8 @@ int io_keydn(IOKey key, char c)
 						free(im0);
 					im0=im2;
 					update_image();
+					if(imagecentered)
+						center_image();
 					set_window_title("%s - eBench", (char*)fn->data);
 				}
 				else
@@ -9141,15 +9203,15 @@ void io_render(void)
 						draw_2d_flush(vertices, color, GL_LINE_STRIP);
 
 						//estim - orange
-						for(int kp=1;kp<MINVAR(9, L1NPREDS);++kp)
+						for(int kp=1;kp<MINVAR(10, L1NPREDS);++kp)
 						{
-							if(GET_KEY_STATE('0'+kp))
+							if(GET_KEY_STATE('0'+kp)&&kp-1<L1NPREDS)
 							{
-								color=colors[kp%ncolors];
+								color=colors[(kp-1)%ncolors];
 								for(int xs=1;xs<dlen;++xs)//estim
 								{
 									int kx2=(xs+gpos+L1HISTSIZE)%L1HISTSIZE;
-									draw_curve_enqueue(&vertices//estim[kp]
+									draw_curve_enqueue(&vertices//estim[kp-1]
 										, L1XSCALE*((float)xs-(float)smooth/L1SMOOTH), (float)(wndh*7/8-512-gheight-whist[kx2][SIGNAL_ESTIM_START+kp-1]*L1YSCALE)
 									//	, L1XSCALE*(float)(xs+1), (float)(wndh*7/8-whist[kx2+1*L1HOLD][SIGNAL_ESTIM_START+kp-1]*L1YSCALE)
 									//	, 0xFF0080FF
@@ -9159,7 +9221,7 @@ void io_render(void)
 								for(int xs=1;xs<dlen;++xs)//estim delta
 								{
 									int kx2=(xs+gpos+L1HISTSIZE)%L1HISTSIZE;
-									draw_curve_enqueue(&vertices//estim[kp]
+									draw_curve_enqueue(&vertices//estim[kp-1]
 										, L1XSCALE*((float)xs-(float)smooth/L1SMOOTH), (float)(wndh*7/8-512-gheight-(whist[kx2][SIGNAL_CURR]-whist[kx2][SIGNAL_ESTIM_START+kp-1])*L1YSCALE)
 									//	, L1XSCALE*(float)(xs+1), (float)(wndh*7/8-whist[kx2+1*L1HOLD][SIGNAL_ESTIM_START+kp-1]*L1YSCALE)
 									//	, 0xFF0080FF
