@@ -1,2 +1,0 @@
-l1cxp *.ppm *.l1c 2
-l1cxp *.l1c *.ppm

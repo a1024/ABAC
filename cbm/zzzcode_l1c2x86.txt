@@ -1,0 +1,2 @@
+l1c-ssse3-x86 *.ppm *.l1c 2
+l1c-ssse3-x86 *.l1c *.ppm

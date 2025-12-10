@@ -1,0 +1,2 @@
+qlic c *.qlic *.ppm
+qlic d *.qlic *.ppm

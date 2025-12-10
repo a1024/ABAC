@@ -1,2 +1,0 @@
-l1c32 *.ppm *.l1c 2
-l1c32 *.l1c *.ppm

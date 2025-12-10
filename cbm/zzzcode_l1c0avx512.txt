@@ -1,0 +1,2 @@
+l1c-avx512 *.ppm *.l1c 0
+l1c-avx512 *.l1c *.ppm

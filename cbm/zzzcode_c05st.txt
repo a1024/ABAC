@@ -1,0 +1,2 @@
+c05st *.ppm *.c05
+c05st *.c05 *.ppm
