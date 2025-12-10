@@ -13,10 +13,10 @@ void log_error(const char *file, int line, const char *msg, ...)
 		vprintf(msg, args);
 		va_end(args);
 	}
-	{
-		int k=0;
-		while(!scanf(" %d", &k));
-	}
+	//{
+	//	int k=0;
+	//	while(!scanf(" %d", &k));
+	//}
 	exit(1);
 }
 #define LOG_ERROR(MSG, ...) log_error(__FILE__, __LINE__, MSG, ##__VA_ARGS__)

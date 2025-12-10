@@ -1314,15 +1314,11 @@ int main(int argc, char **argv)
 			"  %s  div2k  j2k    %d    Doesn't verify files.\n"
 			"  %s  div2k  c32n   %d    Measures 8-bit PSNR.\n"
 			"  %s  div2k  c32n   %d    Measures 8-bit SSIM.\n"
-			"  %s  div2k  c32n   %d    Measures 8-bit SSIM.\n"
-		//	"  %s  div2k  qlic2  %d    Prints rivals.\n"
 			, argv[0]
 			, argv[0]
 			, argv[0], CMDFLAG_NOP
 			, argv[0], CMDFLAG_PSNR_8BIT
 			, argv[0], CMDFLAG_SSIM_PPM
-			, argv[0], CMDFLAG_DELAY
-		//	, argv[0], CMDFLAG_PRINT_RIVALS
 		);
 		return 0;
 	}
