@@ -888,6 +888,7 @@ void pred_sub(Image *src, int fwd);
 void pred_av2(Image *src, int fwd);
 void pred_mix2(Image *src, int fwd);
 void pred_mixN(Image *src, int fwd);
+void pred_gray(Image *src, int fwd);
 void pred_MTF(Image *src, int fwd);
 void pred_palette(Image *src, int fwd);
 

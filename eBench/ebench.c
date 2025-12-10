@@ -19,7 +19,7 @@ static const char file[]=__FILE__;
 #ifdef ENABLE_L1WEIGHTS
 	#define L1DELAY 20
 	#define L1SPEED 1
-#if 1
+#if 0
 #define L1SH 18
 #define L1BIAS0	0
 #define L1PREDLIST\
@@ -33,7 +33,7 @@ static const char file[]=__FILE__;
 	L1PRED(100000, W)\
 
 #endif
-#if 0
+#if 1
 #define L1SH 19
 #define L1BIAS0	0
 #define L1PREDLIST\
@@ -207,6 +207,7 @@ typedef enum TransformTypeEnum
 
 	CST_COMPARE,		CST_INV_SEPARATOR,
 	
+	ST_FWD_GRAY,		ST_INV_GRAY,
 	ST_FWD_MIXN,		ST_INV_MIXN,
 	ST_FWD_GRFILT,		ST_INV_GRFILT,
 	ST_FWD_L1CRCT,		ST_INV_L1CRCT,
@@ -2869,6 +2870,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_AV2:		a=" S Inv (N+W)/2";		break;
 	case ST_FWD_MIX2:		a=" S Fwd MIX2";		break;
 	case ST_INV_MIX2:		a=" S Inv MIX2";		break;
+	case ST_FWD_GRAY:		a=" S Fwd Gray";		break;
+	case ST_INV_GRAY:		a=" S Inv Gray";		break;
 	case ST_FWD_MIXN:		a=" S Fwd MIX N";		break;
 	case ST_INV_MIXN:		a=" S Inv MIX N";		break;
 //	case ST_FWD_AV3:		a=" S Fwd AV3";			break;
@@ -4075,6 +4078,8 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_INV_AV2:		pred_av2(image, 0);					break;
 	case ST_FWD_MIX2:		pred_mix2(image, 1);					break;
 	case ST_INV_MIX2:		pred_mix2(image, 0);					break;
+	case ST_FWD_GRAY:		pred_gray(image, 1);					break;
+	case ST_INV_GRAY:		pred_gray(image, 0);					break;
 	case ST_FWD_MIXN:		pred_mixN(image, 1);					break;
 	case ST_INV_MIXN:		pred_mixN(image, 0);					break;
 //	case ST_FWD_AV3:		pred_av3(image, 1);					break;
@@ -8784,7 +8789,7 @@ void io_render(void)
 	#undef  L1PRED
 						int vmax=N, vmin=W;
 						if(N<W)vmin=N, vmax=W;
-						CLAMP2(preds[0], vmin, vmax);
+						CLAMP2(preds[5], vmin, vmax);//CG = median(N, W, N+W-NW)
 						//int *currw=l1weights;
 						int pred_l1=0, pred_l10=0, pred_wp=0, pred_ols=0;
 						//if(use_ols==2)
@@ -8849,8 +8854,6 @@ void io_render(void)
 						}
 						if(vmin>NE)vmin=NE;
 						if(vmax<NE)vmax=NE;
-						//if(vmin>NW)vmin=NW;
-						//if(vmax<NW)vmax=NW;
 						if(vmin>NEEE)vmin=NEEE;
 						if(vmax<NEEE)vmax=NEEE;
 						pred_l10=pred_l1;
@@ -9028,7 +9031,7 @@ void io_render(void)
 						//map {vmin, vmax} -> {wndh*7/8, wndh/8}  ys = C1*yu+C0
 						float charty[]={200, 400, 600};
 
-						int colors[]=
+						static const int colors_estim[]=
 						{
 							0x80FF4080,
 							0x8080FF40,
@@ -9037,7 +9040,19 @@ void io_render(void)
 							0x8080FFC0,
 							0x80C080FF,
 						};
-						const int ncolors=_countof(colors);
+						static const int colors_pred[]=
+						{
+							0xFF0000FF,
+							0xFF00FF00,
+							0xFFFF0000,
+						};
+						static const int colors_delta[]=
+						{
+							0xFF8080FF,
+							0xFF80FF80,
+							0xFFFF8080,
+						};
+						const int ncolors=_countof(colors_estim);
 						//draw mix L1
 						{
 							int sum=1<<L1SH;
@@ -9046,7 +9061,7 @@ void io_render(void)
 							{
 								float xs0=xs;
 								xs+=1000.f*weights_l1[k]/sum;
-								draw_rect(xs0, xs, charty[0]+50, charty[0]+50-preds[k], colors[k%ncolors]);
+								draw_rect(xs0, xs, charty[0]+50, charty[0]+50-preds[k], colors_estim[k%ncolors]);
 							}
 						}
 
@@ -9060,7 +9075,7 @@ void io_render(void)
 							{
 								float xs0=xs;
 								xs+=1000.f*weights_wp[k]/sum;
-								draw_rect(xs0, xs, charty[1]+50, charty[1]+50-preds[k], colors[k%ncolors]);
+								draw_rect(xs0, xs, charty[1]+50, charty[1]+50-preds[k], colors_estim[k%ncolors]);
 							}
 						}
 
@@ -9072,7 +9087,7 @@ void io_render(void)
 							{
 								float xs0=xs;
 								xs+=1000.f*weights_ols[k]/sum;
-								draw_rect(xs0, xs, charty[2]+50, charty[2]+50-preds[k], colors[k%ncolors]);
+								draw_rect(xs0, xs, charty[2]+50, charty[2]+50-preds[k], colors_estim[k%ncolors]);
 							}
 						}
 						
@@ -9114,19 +9129,19 @@ void io_render(void)
 							}
 						}
 
-						int gheight=-128;
+						int gheight_signal=-128, gheight_delta=128;
 
 						//curr - black bars
 						color=0x80C0C0C0;
 						for(int xs=1;xs<dlen;++xs)
 						{
 							int kx2=(xs+gpos+L1HISTSIZE)%L1HISTSIZE;
-							float ys=(float)(wndh*7/8-512-gheight-whist[kx2][SIGNAL_CURR]*L1YSCALE);
+							float ys=(float)(wndh*7/8-512-gheight_signal-whist[kx2][SIGNAL_CURR]*L1YSCALE);
 							draw_rect_enqueue(&vertices
 								, L1XSCALE*((float)xs-0.4f-(float)smooth/L1SMOOTH)
 								, L1XSCALE*((float)xs+0.4f-(float)smooth/L1SMOOTH)
 								, ys
-								, (float)(wndh*7/8-512-gheight-0*L1YSCALE)
+								, (float)(wndh*7/8-512-gheight_signal-0*L1YSCALE)
 							);
 						//	draw_curve_enqueue(&vertices
 						//		, L1XSCALE*((float)xs-(float)smooth/L1SMOOTH), (float)(wndh*7/8-512-whist[kx2][SIGNAL_CURR]*L1YSCALE)
@@ -9138,7 +9153,7 @@ void io_render(void)
 							{
 								int c0=set_text_color(color);
 								GUIPrint(0, L1XSCALE*(float)xs+10, ys, 1, "%4d", whist[kx2][SIGNAL_CURR]);
-								GUIPrint(0, L1XSCALE*(float)xs+10, (float)wndh*7/8-256+0*tdy, 1, "curr");
+								//GUIPrint(0, L1XSCALE*(float)xs+10, (float)wndh*7/8-256+0*tdy, 1, "curr");
 								set_text_color(c0);
 							}
 						}
@@ -9146,59 +9161,59 @@ void io_render(void)
 						//draw_2d_flush(vertices, color, GL_LINE_STRIP);
 
 						//pred L1 - red
-						color=0xFF0000FF;
+						color=colors_pred[0];
 						for(int xs=1;xs<dlen;++xs)
 						{
 							int kx2=(xs+gpos+L1HISTSIZE)%L1HISTSIZE;
 							draw_curve_enqueue(&vertices
-								, L1XSCALE*((float)xs-(float)smooth/L1SMOOTH), (float)(wndh*7/8-512-gheight-whist[kx2][SIGNAL_PRED_L1]*L1YSCALE)
+								, L1XSCALE*((float)xs-(float)smooth/L1SMOOTH), (float)(wndh*7/8-512-gheight_signal-whist[kx2][SIGNAL_PRED_L1]*L1YSCALE)
 							//	, L1XSCALE*(float)(xs+1), (float)(wndh*7/8-whist[kx2+1*L1HOLD][SIGNAL_PRED]*L1YSCALE)
 							//	, 0xFF00FF00
 							);
-							if(xs==dlen-1)
-							{
-								int c0=set_text_color(color);
-								GUIPrint(0, L1XSCALE*(float)xs+10, (float)wndh*7/8-256+1*tdy, 1, "pred L1");
-								set_text_color(c0);
-							}
+							//if(xs==dlen-1)
+							//{
+							//	int c0=set_text_color(color);
+							//	GUIPrint(0, L1XSCALE*(float)xs+10, (float)wndh*7/8-256+1*tdy, 1, "pred L1");
+							//	set_text_color(c0);
+							//}
 						}
 						draw_2d_flush(vertices, color, GL_LINE_STRIP);
 						
 						//pred WP - green
-						color=0xFF00FF00;
+						color=colors_pred[1];
 						for(int xs=1;xs<dlen;++xs)
 						{
 							int kx2=(xs+gpos+L1HISTSIZE)%L1HISTSIZE;
 							draw_curve_enqueue(&vertices
-								, L1XSCALE*((float)xs-(float)smooth/L1SMOOTH), (float)(wndh*7/8-512-gheight-whist[kx2][SIGNAL_PRED_WP]*L1YSCALE)
+								, L1XSCALE*((float)xs-(float)smooth/L1SMOOTH), (float)(wndh*7/8-512-gheight_signal-whist[kx2][SIGNAL_PRED_WP]*L1YSCALE)
 							//	, L1XSCALE*(float)(xs+1), (float)(wndh*7/8-whist[kx2+1*L1HOLD][SIGNAL_PRED]*L1YSCALE)
 							//	, 0xFF00FF00
 							);
-							if(xs==dlen-1)
-							{
-								int c0=set_text_color(color);
-								GUIPrint(0, L1XSCALE*(float)xs+10, (float)wndh*7/8-256+2*tdy, 1, "pred WP");
-								set_text_color(c0);
-							}
+							//if(xs==dlen-1)
+							//{
+							//	int c0=set_text_color(color);
+							//	GUIPrint(0, L1XSCALE*(float)xs+10, (float)wndh*7/8-256+2*tdy, 1, "pred WP");
+							//	set_text_color(c0);
+							//}
 						}
 						draw_2d_flush(vertices, color, GL_LINE_STRIP);
 						
 						//pred OLS - blue
-						color=0xFFFF0000;
+						color=colors_pred[2];
 						for(int xs=1;xs<dlen;++xs)
 						{
 							int kx2=(xs+gpos+L1HISTSIZE)%L1HISTSIZE;
 							draw_curve_enqueue(&vertices
-								, L1XSCALE*((float)xs-(float)smooth/L1SMOOTH), (float)(wndh*7/8-512-gheight-whist[kx2][SIGNAL_PRED_OLS]*L1YSCALE)
+								, L1XSCALE*((float)xs-(float)smooth/L1SMOOTH), (float)(wndh*7/8-512-gheight_signal-whist[kx2][SIGNAL_PRED_OLS]*L1YSCALE)
 							//	, L1XSCALE*(float)(xs+1), (float)(wndh*7/8-whist[kx2+1*L1HOLD][SIGNAL_PRED]*L1YSCALE)
 							//	, 0xFF00FF00
 							);
-							if(xs==dlen-1)
-							{
-								int c0=set_text_color(color);
-								GUIPrint(0, L1XSCALE*(float)xs+10, (float)wndh*7/8-256+3*tdy, 1, "pred OLS");
-								set_text_color(c0);
-							}
+							//if(xs==dlen-1)
+							//{
+							//	int c0=set_text_color(color);
+							//	GUIPrint(0, L1XSCALE*(float)xs+10, (float)wndh*7/8-256+3*tdy, 1, "pred OLS");
+							//	set_text_color(c0);
+							//}
 						}
 						draw_2d_flush(vertices, color, GL_LINE_STRIP);
 
@@ -9207,12 +9222,12 @@ void io_render(void)
 						{
 							if(GET_KEY_STATE('0'+kp)&&kp-1<L1NPREDS)
 							{
-								color=colors[(kp-1)%ncolors];
+								color=colors_estim[(kp-1)%ncolors];
 								for(int xs=1;xs<dlen;++xs)//estim
 								{
 									int kx2=(xs+gpos+L1HISTSIZE)%L1HISTSIZE;
 									draw_curve_enqueue(&vertices//estim[kp-1]
-										, L1XSCALE*((float)xs-(float)smooth/L1SMOOTH), (float)(wndh*7/8-512-gheight-whist[kx2][SIGNAL_ESTIM_START+kp-1]*L1YSCALE)
+										, L1XSCALE*((float)xs-(float)smooth/L1SMOOTH), (float)(wndh*7/8-512-gheight_signal-whist[kx2][SIGNAL_ESTIM_START+kp-1]*L1YSCALE)
 									//	, L1XSCALE*(float)(xs+1), (float)(wndh*7/8-whist[kx2+1*L1HOLD][SIGNAL_ESTIM_START+kp-1]*L1YSCALE)
 									//	, 0xFF0080FF
 									);
@@ -9222,7 +9237,7 @@ void io_render(void)
 								{
 									int kx2=(xs+gpos+L1HISTSIZE)%L1HISTSIZE;
 									draw_curve_enqueue(&vertices//estim[kp-1]
-										, L1XSCALE*((float)xs-(float)smooth/L1SMOOTH), (float)(wndh*7/8-512-gheight-(whist[kx2][SIGNAL_CURR]-whist[kx2][SIGNAL_ESTIM_START+kp-1])*L1YSCALE)
+										, L1XSCALE*((float)xs-(float)smooth/L1SMOOTH), (float)(wndh*7/8-512-gheight_delta-(whist[kx2][SIGNAL_CURR]-whist[kx2][SIGNAL_ESTIM_START+kp-1])*L1YSCALE)
 									//	, L1XSCALE*(float)(xs+1), (float)(wndh*7/8-whist[kx2+1*L1HOLD][SIGNAL_ESTIM_START+kp-1]*L1YSCALE)
 									//	, 0xFF0080FF
 									);
@@ -9235,62 +9250,60 @@ void io_render(void)
 						}
 
 
-						gheight=128;
-
 						//delta L1 - gray red
-						color=0xFF8080FF;
+						color=colors_delta[0];
 						for(int xs=1;xs<dlen;++xs)
 						{
 							int kx2=(xs+gpos+L1HISTSIZE)%L1HISTSIZE;
 							draw_curve_enqueue(&vertices
-								, L1XSCALE*((float)xs-(float)smooth/L1SMOOTH), (float)(wndh*7/8-512-gheight-(whist[kx2][SIGNAL_CURR]-whist[kx2][SIGNAL_PRED_L1])*L1YSCALE)
+								, L1XSCALE*((float)xs-(float)smooth/L1SMOOTH), (float)(wndh*7/8-512-gheight_delta-(whist[kx2][SIGNAL_CURR]-whist[kx2][SIGNAL_PRED_L1])*L1YSCALE)
 							//	, L1XSCALE*(float)(xs+1), (float)(wndh*7/8-(whist[kx2+1*L1HOLD][SIGNAL_DELTA]+128)*L1YSCALE)
 							//	, 0xFFC0C0C0
 							);
-							if(xs==dlen-1)
-							{
-								int c0=set_text_color(color);
-								GUIPrint(0, L1XSCALE*(float)xs+10, (float)wndh*7/8-256-192+0*tdy, 1, "delta L1");
-								set_text_color(c0);
-							}
+							//if(xs==dlen-1)
+							//{
+							//	int c0=set_text_color(color);
+							//	GUIPrint(0, L1XSCALE*(float)xs+10, (float)wndh*7/8-256-192+0*tdy, 1, "delta L1");
+							//	set_text_color(c0);
+							//}
 						}
 						draw_2d_flush(vertices, color, GL_LINE_STRIP);
 
 						//delta WP - gray green
-						color=0xFF80FF80;
+						color=colors_delta[1];
 						for(int xs=1;xs<dlen;++xs)
 						{
 							int kx2=(xs+gpos+L1HISTSIZE)%L1HISTSIZE;
 							draw_curve_enqueue(&vertices
-								, L1XSCALE*((float)xs-(float)smooth/L1SMOOTH), (float)(wndh*7/8-512-gheight-(whist[kx2][SIGNAL_CURR]-whist[kx2][SIGNAL_PRED_WP])*L1YSCALE)
+								, L1XSCALE*((float)xs-(float)smooth/L1SMOOTH), (float)(wndh*7/8-512-gheight_delta-(whist[kx2][SIGNAL_CURR]-whist[kx2][SIGNAL_PRED_WP])*L1YSCALE)
 							//	, L1XSCALE*(float)(xs+1), (float)(wndh*7/8-(whist[kx2+1*L1HOLD][SIGNAL_DELTA]+128)*L1YSCALE)
 							//	, 0xFFC0C0C0
 							);
-							if(xs==dlen-1)
-							{
-								int c0=set_text_color(color);
-								GUIPrint(0, L1XSCALE*(float)xs+10, (float)wndh*7/8-256-192+1*tdy, 1, "delta WP");
-								set_text_color(c0);
-							}
+							//if(xs==dlen-1)
+							//{
+							//	int c0=set_text_color(color);
+							//	GUIPrint(0, L1XSCALE*(float)xs+10, (float)wndh*7/8-256-192+1*tdy, 1, "delta WP");
+							//	set_text_color(c0);
+							//}
 						}
 						draw_2d_flush(vertices, color, GL_LINE_STRIP);
 
 						//delta OLS - gray blue
-						color=0xFFFF8080;
+						color=colors_delta[2];
 						for(int xs=1;xs<dlen;++xs)
 						{
 							int kx2=(xs+gpos+L1HISTSIZE)%L1HISTSIZE;
 							draw_curve_enqueue(&vertices
-								, L1XSCALE*((float)xs-(float)smooth/L1SMOOTH), (float)(wndh*7/8-512-gheight-(whist[kx2][SIGNAL_CURR]-whist[kx2][SIGNAL_PRED_OLS])*L1YSCALE)
+								, L1XSCALE*((float)xs-(float)smooth/L1SMOOTH), (float)(wndh*7/8-512-gheight_delta-(whist[kx2][SIGNAL_CURR]-whist[kx2][SIGNAL_PRED_OLS])*L1YSCALE)
 							//	, L1XSCALE*(float)(xs+1), (float)(wndh*7/8-(whist[kx2+1*L1HOLD][SIGNAL_DELTA]+128)*L1YSCALE)
 							//	, 0xFFC0C0C0
 							);
-							if(xs==dlen-1)
-							{
-								int c0=set_text_color(color);
-								GUIPrint(0, L1XSCALE*(float)xs+10, (float)wndh*7/8-256-192+2*tdy, 1, "delta OLS");
-								set_text_color(c0);
-							}
+							//if(xs==dlen-1)
+							//{
+							//	int c0=set_text_color(color);
+							//	GUIPrint(0, L1XSCALE*(float)xs+10, (float)wndh*7/8-256-192+2*tdy, 1, "delta OLS");
+							//	set_text_color(c0);
+							//}
 						}
 						draw_2d_flush(vertices, color, GL_LINE_STRIP);
 
@@ -9409,24 +9422,14 @@ void io_render(void)
 								}
 							}
 							e[km]/=8;
-							if(km)
-								GUIPrint(0, 0, charty[km]-2*tdy, 2, "%-3s MAD %7.2lf RMSE %7.2lf H%8d E%10.6lf%%"
-									, labels[km]
-									, (double)mad[km]/ctr
-									, sqrt((double)rmse[km]/ctr)
-									, ctr
-									, e[km]*100
-								);
-							else
-								GUIPrint(0, 0, charty[km]-2*tdy, 2, "%-3s MAD %7.2lf RMSE %7.2lf H%8d E%10.6lf%% X%5d Y%5d"
-									, labels[km]
-									, (double)mad[km]/ctr
-									, sqrt((double)rmse[km]/ctr)
-									, ctr
-									, e[km]*100
-									, posidx%im1->iw
-									, posidx/im1->iw
-								);
+							int c0=set_text_color(colors_pred[km]);
+							GUIPrint(0, 0, charty[km]-2*tdy, 2, "%-3s MAD %7.2lf RMSE %7.2lf H%8d E%10.6lf%%"
+								, labels[km]
+								, (double)mad[km]/ctr
+								, sqrt((double)rmse[km]/ctr)
+								, ctr
+								, e[km]*100
+							);
 							//GUIPrint(0, 0, (float)wndh*0.5f+2*tdy*km, 2, "X%5d Y%5d H%8d %-3s %10.6lf%%"
 							//	, posidx%im1->iw
 							//	, posidx/im1->iw
@@ -9435,6 +9438,10 @@ void io_render(void)
 							//	, e[km]*100
 							//);
 						}
+						GUIPrint(0, wndw*0.5f, wndh*0.5f, 2, "X%5d Y%5d"
+							, posidx%im1->iw
+							, posidx/im1->iw
+						);
 						//if(use_ols0!=use_ols)
 						//{
 						//	ctr=0;

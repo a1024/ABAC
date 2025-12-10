@@ -734,6 +734,54 @@ void pred_mixN(Image *src, int fwd)
 	//	);
 	_mm_free(pixels);
 }
+void pred_gray(Image *src, int fwd)
+{
+	int half[]=
+	{
+		1<<src->depth[0]>>1,
+		1<<src->depth[1]>>1,
+		1<<src->depth[2]>>1,
+		1<<src->depth[3]>>1,
+	};
+	if(fwd)
+	{
+		for(int ky=0, idx=0;ky<src->ih;++ky)
+		{
+			for(int kx=0;kx<src->iw;++kx)
+			{
+				for(int kc=0;kc<4;++kc, ++idx)
+				{
+					if(!src->depth[kc])
+						continue;
+					int val=src->data[idx]+half[kc];
+					val^=val>>1;
+					src->data[idx]=val-half[kc];
+				}
+			}
+		}
+	}
+	else
+	{
+		for(int ky=0, idx=0;ky<src->ih;++ky)
+		{
+			for(int kx=0;kx<src->iw;++kx)
+			{
+				for(int kc=0;kc<4;++kc, ++idx)
+				{
+					if(!src->depth[kc])
+						continue;
+					int val=src->data[idx]+half[kc];
+					val^=val>>16;
+					val^=val>> 8;
+					val^=val>> 4;
+					val^=val>> 2;
+					val^=val>> 1;
+					src->data[idx]=val-half[kc];
+				}
+			}
+		}
+	}
+}
 
 
 int crct_analysis(Image *src)
@@ -993,9 +1041,10 @@ void pred_l1crct(Image *src, int fwd)
 					if(fwd)
 					{
 						curr-=predc;
-						curr=(curr*invdist>>16)-(curr>>31&-(g_dist>1));//curr/=g_dist
+					//	curr=(curr*invdist>>16)-(curr>>31&-(g_dist>1));//curr/=g_dist
+						curr=(curr*invdist>>16)-(curr>>31);
 						src->data[idx+kc]=curr;
-						
+
 						curr=g_dist*curr+predc;
 					}
 					else
