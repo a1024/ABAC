@@ -50,6 +50,7 @@ int c37_codec(int argc, char **argv);//WP vs L1 test
 int c38_codec(int argc, char **argv);//Synth-Natural codec
 int c39_codec(int argc, char **argv);//ST C10 incremental
 int c40_codec(int argc, char **argv);//ST rANS + FSE
+int c41_codec(int argc, char **argv);//ST analysis-cRCT-select-RLE-GR
 #endif
 
 
@@ -65,7 +66,7 @@ int c40_codec(int argc, char **argv);//ST rANS + FSE
 //	#define CODEC_EXT c09
 //	#define CODEC_EXT c10
 //	#define CODEC_EXT c11
-//	#define CODEC_EXT c12
+	#define CODEC_EXT c12
 //	#define CODEC_EXT c13
 //	#define CODEC_EXT c14
 //	#define CODEC_EXT c15
@@ -93,7 +94,8 @@ int c40_codec(int argc, char **argv);//ST rANS + FSE
 //	#define CODEC_EXT c37
 //	#define CODEC_EXT c38
 //	#define CODEC_EXT c39
-	#define CODEC_EXT c40
+//	#define CODEC_EXT c40
+//	#define CODEC_EXT c41
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -132,49 +134,16 @@ int main(int argc, char **argv)
 //	return c34_codec(_countof(args), (char**)args);
 #else
 	const char dstfn[]=//OVERWRITTEN
-	//	"C:/Projects/datasets/zzz.ppm"
-
 		"C:/dataset-a-temp/zzz.ppm"
+	//	"C:/Projects/datasets/zzz.ppm"
 	//	"D:/ML/zzz_deletethis.ppm"
 	;
 	const char tmpfn[]=//OVERWRITTEN
-	//	"C:/Projects/datasets/zzz.lsim"
-		
 		"C:/dataset-a-temp/zzz.lsim"
+	//	"C:/Projects/datasets/zzz.lsim"
 	//	"D:/ML/zzz_deletethis.lsim"
 	;
 	const char srcfn[]=
-	//	"C:/Projects/datasets/0868-ecrop.ppm"
-	//	"C:/Projects/datasets/20240806 6 why me.PPM"
-	//	"C:/Projects/datasets/big_building.PPM"
-	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_abigail-keenan-27293.ppm"
-	//	"C:/Projects/datasets/dataset-CLIC30-ppm/03.ppm"
-	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0843.ppm"
-	//	"C:/Projects/datasets/0801-cg.ppm"
-	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm"
-	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim23.ppm"
-	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
-	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA13882.ppm"
-	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm"	//large
-	//	"C:/Projects/datasets/kodim13.ppm"
-	//	"C:/Projects/datasets/kodim13-small16.PPM"
-	//	"C:/Projects/datasets/kodim13-small4.PPM"
-	//	"C:/Projects/datasets/temp.c18"
-	//	"C:/Projects/datasets/20240414-noise.LSIM"
-	//	"C:/Projects/datasets/20240414-noise.PPM"
-	//	"C:/Projects/datasets/20240513 screenshot.PPM"
-	//	"C:/Projects/datasets/big_building.PPM"
-	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0801.ppm"
-	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm"
-	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA12811.ppm"
-	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm"
-	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
-	//	"C:/Projects/datasets/kodim13-small16.ppm"
-	//	"C:/Projects/datasets/kodim13.ppm"
-	//	"C:/Projects/datasets/kodim24.ppm"
-	//	"C:/Projects/datasets/space_huge.ppm"
-		
-
 	//	"C:/dataset-a70-ppm/20240816_113656_966.ppm"
 	//	"C:/dataset-CLIC303-ppm/2048x1320_abigail-keenan-27293.ppm"
 	//	"C:/dataset-CLIC303-ppm/2048x1320_alberto-restifo-4549.ppm"
@@ -183,8 +152,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-CLIC303-ppm/2048x1320_zugr-108.ppm"
 	//	"C:/dataset-CLIC303-ppm/2048x1320_zugr-108.ppm"
 	//	"C:/dataset-DIV2K-ppm"
-	//	"C:/dataset-HUGE-ppm/jwst.ppm"
-		"C:/dataset-DIV2K-ppm/0801.ppm"
+	//	"C:/dataset-DIV2K-ppm/0801.ppm"
 	//	"C:/dataset-DIV2K-ppm/0801.ppm"
 	//	"C:/dataset-DIV2K-ppm/0805.ppm"
 	//	"C:/dataset-DIV2K-ppm/0807.ppm"
@@ -219,10 +187,12 @@ int main(int argc, char **argv)
 	//	"C:/dataset-HUGE-ppm/jwst.ppm"
 	//	"C:/dataset-HUGE-ppm/jwst.ppm"
 	//	"C:/dataset-HUGE-ppm/jwst.ppm"
+	//	"C:/dataset-HUGE-ppm/jwst.ppm"
 	//	"C:/dataset-HUGE-ppm/kodak.PPM"
 	//	"C:/dataset-HUGE-ppm/space_huge.ppm"
-	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
+		"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_02.ppm"
+	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_13.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA12811.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13757.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13803.ppm"
@@ -258,7 +228,36 @@ int main(int argc, char **argv)
 	//	"C:/dataset-synthetic-ppm/20240409 1 LPCB.ppm"
 	//	"C:/dataset-synth-ppm/20240421 1 the front.ppm"
 	//	"C:/dataset-synth-ppm/20240516 4 DSC_0054.ppm"
+	//	"C:/Projects/datasets/0801-cg.ppm"
+	//	"C:/Projects/datasets/0868-ecrop.ppm"
+	//	"C:/Projects/datasets/20240414-noise.LSIM"
+	//	"C:/Projects/datasets/20240414-noise.PPM"
+	//	"C:/Projects/datasets/20240513 screenshot.PPM"
+	//	"C:/Projects/datasets/20240806 6 why me.PPM"
+	//	"C:/Projects/datasets/big_building.PPM"
+	//	"C:/Projects/datasets/big_building.PPM"
+	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_abigail-keenan-27293.ppm"
+	//	"C:/Projects/datasets/dataset-CLIC30-ppm/03.ppm"
+	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0801.ppm"
+	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0843.ppm"
+	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm"
+	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm"
+	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim23.ppm"
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA12811.ppm"
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA13882.ppm"
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm"
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm"	//large
+	//	"C:/Projects/datasets/kodim13.ppm"
+	//	"C:/Projects/datasets/kodim13.ppm"
+	//	"C:/Projects/datasets/kodim13-small16.PPM"
+	//	"C:/Projects/datasets/kodim13-small16.ppm"
+	//	"C:/Projects/datasets/kodim13-small4.PPM"
+	//	"C:/Projects/datasets/kodim24.ppm"
 	//	"C:/Projects/datasets/space_huge.ppm"
+	//	"C:/Projects/datasets/space_huge.ppm"
+	//	"C:/Projects/datasets/temp.c18"
 	//	"D:/ML/big_building.PPM"
 	//	"D:/ML/big_building.PPM"
 	//	"D:/ML/checkboard.PPM"

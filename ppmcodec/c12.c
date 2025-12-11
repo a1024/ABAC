@@ -1,5 +1,10 @@
-#if defined _MSC_VER && !defined _CRT_SECURE_NO_WARNINGS
-#define _CRT_SECURE_NO_WARNINGS
+#ifdef _MSC_VER
+#	ifndef _CRT_SECURE_NO_WARNINGS
+#		define _CRT_SECURE_NO_WARNINGS
+#	endif
+#elif defined __linux__ && !defined _GNU_SOURCE
+#	define _GNU_SOURCE
+#	include<stddef.h>//ptrdiff_t
 #endif
 #include<stdint.h>
 #include<stdio.h>
@@ -10,14 +15,12 @@
 #include<math.h>
 #include<sys/stat.h>
 #ifdef _MSC_VER
-#include<intrin.h>
 #define WIN32_LEAN_AND_MEAN
 #include<Windows.h>//QueryPerformanceCounter
 #elif defined __GNUC__
-#include<x86intrin.h>
 #include<time.h>
 #endif
-#include<immintrin.h>
+#include<immintrin.h>//_lzcnt_u32
 
 
 //	#define BYPASS_GR
@@ -29,18 +32,13 @@
 #ifndef BYPASS_GR
 //	#define ESTIMATE_BITSIZE
 #endif
-//	#define ENABLE_GUIDE
+	#define ENABLE_GUIDE
 //	#define PRINTBITS
 #endif
 
+//	#define ZIPF_VIEW
+
 	#define UNSIGNED_PIXEL
-
-//	#define MUL_IM 0.8
-
-//	#define SUB_DC
-#ifdef SUB_DC
-#define DCSH	19
-#endif
 
 
 #if 1
@@ -66,39 +64,6 @@
 	PRED(NEEE)\
 	PRED(NEEEE)\
 
-#if 0
-	PRED(3*(N-NN)+NNN)\
-	PRED(3*(W-WW)+WWW)\
-	PRED(4*(N+NNN)-6*NN-NNNN)\
-	PRED(4*(W+WWW)-6*WW-WWWW)\
-
-#endif
-#endif
-#if 0
-#define L1SH_LOSSY 16
-#define PREDLIST_LOSSY\
-	PRED(N)\
-	PRED(W)\
-	PRED(3*(N-NN)+NNN)\
-	PRED(3*(W-WW)+WWW)\
-	PRED(W+xNE)\
-	PRED((WWWW+WWW+NNN+NEE+NEEE+NEEEE-2*NW)/4)\
-	PRED(N+yW)\
-	PRED(N+yNE)\
-
-#endif
-#if 0
-#define L1SH_LOSSY 14
-#define PREDLIST_LOSSY\
-	PRED(N)\
-	PRED(W)\
-	PRED(NE)\
-	PRED(NW)\
-
-#endif
-
-
-#if 1
 #define L1SH 20
 #define PREDLIST\
 	PRED(N)\
@@ -159,15 +124,6 @@
 	PRED(W+NW-NWW)\
 
 #endif
-#if 0
-	PRED(3*(N-NN)+NNN)\
-	PRED(3*(W-WW)+WWW)\
-	PRED(4*(N+NNN)-6*NN-NNNN)\
-	PRED(4*(W+WWW)-6*WW-WWWW)\
-	PRED(W+((NEE-W)>>2))\
-	PRED((WWWW+WWW+NNN+NEEE)/4)\
-
-#endif
 enum
 {
 #define PRED(EXPR) +1
@@ -184,6 +140,8 @@ enum
 #define PROBBITS_USE 15
 
 
+//runtime
+#if 1
 #ifdef _MSC_VER
 #define INLINE __forceinline static
 #else
@@ -298,8 +256,11 @@ static void guide_check(unsigned char *image, int kx, int ky)
 #define guide_check(...)
 #define guide_update(...)
 #endif
+#endif
 
 
+//cRCT
+#if 1
 #define OCHLIST\
 	OCH(Y400) OCH(Y040) OCH(Y004)\
 	OCH(CX40) OCH(C0X4) OCH(C40X)\
@@ -465,6 +426,7 @@ static const char *rct_names[RCT_COUNT]=
 	RCTLIST
 #undef  RCT
 };
+#endif
 
 static uint32_t stats[3][256][NCTX][GRLIMIT];
 static uint32_t stats2[3][256][256];
@@ -485,22 +447,20 @@ static uint32_t bitctr[3][GRLIMIT+8][2];
 static uint32_t winctr[3][GRLIMIT+8];
 static int ekc, eidx;
 #endif
+#ifdef ZIPF_VIEW
+static double zsize=0;
+static uint8_t *zptr=0;
+#endif
 INLINE void codebit(ACState *ac, uint32_t *pp1a, int32_t *bit, const int fwd)
 {
 	int rbit;
 	uint64_t r2, mid;
 	
 #ifndef BYPASS_GR
-	//int32_t p10a=*pp1a, p10b=*pp1b, p10c=*pp1c;
-	//int32_t p1=(p10a+14*p10b+p10c)>>(PROBBITS_STORE-PROBBITS_USE+4);
-
-	//int32_t p10a=*pp1a, p10b=*pp1b, p10c=*pp1c;
-	//int32_t p1=p10b>>(PROBBITS_STORE-PROBBITS_USE);
-
 	int32_t p10a=*pp1a;
 	int32_t p1=p10a>>(PROBBITS_STORE-PROBBITS_USE);
 
-	p1+=(p1<(1<<PROBBITS_USE>>1));
+	p1+=p1<(1<<PROBBITS_USE>>1);
 #endif
 
 #ifdef _MSC_VER
@@ -545,41 +505,14 @@ INLINE void codebit(ACState *ac, uint32_t *pp1a, int32_t *bit, const int fwd)
 		ac->range=r2;
 	else
 		ac->low=mid;
-
 	
+#ifdef ZIPF_VIEW
+	if(fwd)
+		zsize-=log2((double)(rbit?p1:(1<<PROBBITS_USE)-p1)/(1<<PROBBITS_USE));
+#endif
 #ifndef BYPASS_GR
 	p10a+=((rbit<<PROBBITS_STORE)-p10a)>>7;
 	*pp1a=p10a;
-
-	//p10a+=((rbit<<PROBBITS_STORE)-p10a)>>9;
-	//p10b+=((rbit<<PROBBITS_STORE)-p10b)>>7;
-	//p10c+=((rbit<<PROBBITS_STORE)-p10c)>>9;
-	//*pp1a=p10a;
-	//*pp1b=p10b;
-	//*pp1c=p10c;
-
-	//p10+=((rbit<<PROBBITS_STORE)-p10)>>7;
-	//*pp1=p10;
-
-	//{
-	//	int win=rbit==(p10>=1<<PROBBITS_STORE);
-	//	p10+=((rbit<<PROBBITS_STORE)-p10)>>6;
-	//	*pp1=p10;
-	//}
-
-	//if(rbit==(p10>=1<<PROBBITS_STORE))//win
-	//	p10+=((rbit<<PROBBITS_STORE)-p10)>>(sh+1);
-	//else//loss
-	//	p10+=((rbit<<PROBBITS_STORE)-p10)>>sh;
-	//*pp1=p10;
-
-	//int update=(rbit<<PROBBITS_STORE)-p10;
-	//update+=update<<2;//update *= 5
-	//update+=update<<3;//update *= 9
-	//p10+=update>>(sh+6);
-	//*pp1=p10;
-
-	//*pp1=p10+(((rbit<<PROBBITS_STORE)-p10)>>6);
 
 #ifdef ESTIMATE_BITSIZE
 	bitsizes[ekc][eidx]+=shannontable[rbit?p1:(1<<PROBBITS_USE)-p1];
@@ -623,52 +556,45 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 		free(stream);
 		return;
 	}
-//#ifdef UNSIGNED_PIXEL
-//	FILLMEM((int32_t*)pixels, 128, psize, sizeof(int32_t));
-//#else
 	memset(pixels, 0, psize);
-//#endif
-//	FILLMEM((uint32_t*)stats, 1<<PROBBITS_USE>>1, sizeof(stats), sizeof(int32_t));
 	FILLMEM((uint32_t*)stats, 1<<PROBBITS_STORE>>1, sizeof(stats), sizeof(int32_t));
-//	memset(stats, 0, sizeof(stats));
-
 	FILLMEM((uint32_t*)stats2, 1<<PROBBITS_STORE>>1, sizeof(stats2), sizeof(int32_t));
 	FILLMEM((uint32_t*)stats3, 1<<PROBBITS_STORE>>1, sizeof(stats3), sizeof(int32_t));
 	if(lossy)
 	{
 		FILLMEM((int32_t*)coeffs, (1<<L1SH_LOSSY)/L1NPREDS_LOSSY, sizeof(coeffs), sizeof(int32_t));
-		//coeffs[0][L1NPREDS_LOSSY]=0;
-		//coeffs[1][L1NPREDS_LOSSY]=0;
-		//coeffs[2][L1NPREDS_LOSSY]=0;
 	}
 	else
 	{
 		FILLMEM((int32_t*)coeffs, (1<<L1SH)/L1NPREDS, sizeof(coeffs), sizeof(int32_t));
-		coeffs[0][L1NPREDS]=0;
-		coeffs[1][L1NPREDS]=0;
-		coeffs[2][L1NPREDS]=0;
+		coeffs[0][L1NPREDS]=1<<L1SH>>1;
+		coeffs[1][L1NPREDS]=1<<L1SH>>1;
+		coeffs[2][L1NPREDS]=1<<L1SH>>1;
 	}
 #ifdef ESTIMATE_BITSIZE
 	memset(bitsizes, 0, sizeof(bitsizes));
 	memset(bitctr, 0, sizeof(bitctr));
 	memset(winctr, 0, sizeof(winctr));
 #endif
-#ifdef SUB_DC
-	int64_t dc[3]={0};
+#ifdef ZIPF_VIEW
+	ptrdiff_t res=(ptrdiff_t)iw*ih;
+	uint8_t *zimage=0;
+	if(fwd)
+	{
+		zimage=(uint8_t*)malloc(res);
+		if(!zimage)
+		{
+			CRASH("Alloc error");
+			return;
+		}
+		memset(zimage, 0, res);
+		zptr=zimage;
+	}
 #endif
-#ifdef MUL_IM
-	const int32_t mulpre=(int32_t)(MUL_IM*0x10000+0.5);
-	const int32_t mulpost=(int32_t)(1/MUL_IM*0x10000+0.5);
-#endif
-	//memset(history, 0, sizeof(history));
+
 	for(ky=0;ky<ih;++ky)
 	{
 		uint32_t yuv[4]={0};
-//#ifdef UNSIGNED_PIXEL
-//		uint8_t yuv[4]={0};
-//#else
-//		int8_t yuv[4]={0};
-//#endif
 		int16_t *rows[]=
 		{
 			pixels+(padw*((ky-0)&3)+8)*3*4,
@@ -692,25 +618,6 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 				yuv[1]=imptr[uidx]-128;
 				yuv[2]=imptr[vidx]-128;
 #endif
-#ifdef SUB_DC
-				yuv[0]-=(int32_t)((dc[0]+(1<<DCSH>>1))>>DCSH);
-				yuv[1]-=(int32_t)((dc[1]+(1<<DCSH>>1))>>DCSH);
-				yuv[2]-=(int32_t)((dc[2]+(1<<DCSH>>1))>>DCSH);
-#if defined UNSIGNED_PIXEL
-				CLAMP2(yuv[0], 0, 255);
-				CLAMP2(yuv[1], 0, 255);
-				CLAMP2(yuv[2], 0, 255);
-#else
-				CLAMP2(yuv[0], -128, 127);
-				CLAMP2(yuv[1], -128, 127);
-				CLAMP2(yuv[2], -128, 127);
-#endif
-#endif
-#ifdef MUL_IM
-				yuv[0]=yuv[0]*mulpre>>16;
-				yuv[1]=yuv[1]*mulpre>>16;
-				yuv[2]=yuv[2]*mulpre>>16;
-#endif
 			}
 			offset=0;
 			for(kc=0;kc<3;++kc)
@@ -730,7 +637,6 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 					WW	=rows[0][0-2*3*4],
 					W	=rows[0][0-1*3*4],
 					xNW	=rows[1][1-1*3*4],
-				//	xN	=rows[1][1+0*3*4],
 					xNE	=rows[1][1+1*3*4],
 					xNEE	=rows[1][1+2*3*4],
 					xNEEE	=rows[1][1+3*3*4],
@@ -778,36 +684,29 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 				uint32_t *statsptr;
 				int32_t bit=0;
 				int32_t ctx;
-				//int32_t sh;
 				int32_t *currw=coeffs[kc];
 				int32_t preds[L1NPREDS>L1NPREDS_LOSSY?L1NPREDS:L1NPREDS_LOSSY];
 
 				{
-					int j=0;
+					int j;
 
-//#define PRED(EXPR) pred+=currw[j]*(EXPR); ++j;
-//					PREDLIST
-//#undef  PRED
 #define PRED(EXPR) preds[j]=EXPR; pred+=currw[j]*preds[j]; ++j;
 					if(lossy)
 					{
 						pred=1<<L1SH_LOSSY>>1;
-						//pred=(1<<L1SH_LOSSY)/L1NPREDS_LOSSY<<3;
-						//pred=currw[L1NPREDS_LOSSY]<<3;
+						j=0;
 						PREDLIST_LOSSY
 						pred>>=L1SH_LOSSY;
 					}
 					else
 					{
 						pred=currw[L1NPREDS]<<3;
+						j=0;
 						PREDLIST
 						pred>>=L1SH;
 					}
 #undef  PRED
 				}
-#ifdef SUB_DC
-				dc[kc]+=N+W+offset;
-#endif
 				pred0=(int32_t)pred;
 				vmax=N, vmin=W;
 				if(N<W)vmin=N, vmax=W;
@@ -815,10 +714,6 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 				if(vmax<NE)vmax=NE;
 				if(vmin>NEEE)vmin=NEEE;
 				if(vmax<NEEE)vmax=NEEE;
-				//if(vmin>WWW)vmin=WWW;
-				//if(vmax<WWW)vmax=WWW;
-				//if(vmin>NNN)vmin=NNN;
-				//if(vmax<NNN)vmax=NNN;
 				CLAMP2(pred, vmin, vmax);
 
 				pred+=offset;
@@ -863,19 +758,7 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 				(void)yNE	;
 				(void)yW	;
 #endif
-				//if(ky==10&&kx==2019)//
-				//if(ky==193&&kx==975&&!kc)//
-				//if(ky==415&&kx==996&&!kc)//
-				//if(ky==ih/2&&kx==iw/2&&!kc)//
-				//if(ky==1&&kx==1861&&kc==1)//
-				//if(ky==253&&kx==776)//
-				//if(ky==192&&kx==256&&kc==0)//
-				//if(ky==0&&kx==434&&kc==0)//
-				//if(ky==169&&kx==271&&kc==0)//
-				//if(ky==2275&&kx==0&&kc==0)//
-				//if(ky==1159&&kx==1088&&kc==2)//
-				//	printf("");//
-
+				
 #if 1
 				int epred;
 #ifdef UNSIGNED_PIXEL
@@ -910,9 +793,6 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 						{
 							uint8_t *pval=&g_image[3*(iw*ky+kx)+rct_combinations[bestrct][II_PERM_Y+kc]];
 							uint8_t val=*pval;
-#ifdef SUB_DC
-							pixel+=dc[kc]>>DCSH;
-#endif
 							int diff=(int)val-pixel;
 							g_sqe[kc]+=diff*diff;
 							*pval=pixel;
@@ -934,11 +814,6 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 						error=error<<1^negmask;
 						if(epred<abserr)
 							error=epred+abserr;
-//#ifdef UNSIGNED_PIXEL
-//						if(!yuv[kc]&&pred>128)
-//#else
-//						if(yuv[kc]==-128&&pred>0)
-//#endif
 						if(error==256)
 						{
 							error=(int8_t)(yuv[kc]-pred);
@@ -946,16 +821,9 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 						}
 					}
 					nzeros=error>>nbypass;
-
-					//if(ky==253&&kx==777)//
-					//	printf("%d\n", error);//
 				}
 				else
 					error=0;
-
-				//if(!kc&&pred==128)//
-				//if(ky==ih/2&&kx==iw/2)//
-				//	printf("");
 #ifdef UNSIGNED_PIXEL
 				upred=pred;
 #else
@@ -1077,8 +945,8 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 							e2=(e2^negmask)-negmask;
 							if((epred<<1)<sym)
 								error=e2;
+							yuv[kc]=error+(int32_t)pred;
 						}
-						yuv[kc]=error+(int32_t)pred;
 					}
 #ifdef ENABLE_GUIDE
 					{
@@ -1092,9 +960,6 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 							CRASH("GUIDE YXC %d %d %d", ky, kx, kc);
 					}
 #endif
-
-					//if(ky==253&&kx==777)//
-					//	printf("%d\n", error);//
 				}
 #endif
 				{
@@ -1138,30 +1003,8 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 				(void)idx;
 #endif
 			}
-#ifdef SUB_DC
-			//dc[0]+=yuv[0];
-			//dc[1]+=yuv[1];
-			//dc[2]+=yuv[2];
-			yuv[0]+=(int32_t)((dc[0]+(1<<DCSH>>1))>>DCSH);
-			yuv[1]+=(int32_t)((dc[1]+(1<<DCSH>>1))>>DCSH);
-			yuv[2]+=(int32_t)((dc[2]+(1<<DCSH>>1))>>DCSH);
-#ifdef UNSIGNED_PIXEL
-			CLAMP2(yuv[0], 0, 255);
-			CLAMP2(yuv[1], 0, 255);
-			CLAMP2(yuv[2], 0, 255);
-#else
-			CLAMP2(yuv[0], -128, 127);
-			CLAMP2(yuv[1], -128, 127);
-			CLAMP2(yuv[2], -128, 127);
-#endif
-#endif
 			if(!fwd)
 			{
-#ifdef MUL_IM
-				yuv[0]=yuv[0]*mulpost>>16;
-				yuv[1]=yuv[1]*mulpost>>16;
-				yuv[2]=yuv[2]*mulpost>>16;
-#endif
 #if defined UNSIGNED_PIXEL
 				imptr[yidx]=yuv[0];
 				imptr[uidx]=yuv[1];
@@ -1175,30 +1018,59 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 				guide_check(image, kx, ky);
 #endif
 			}
+#ifdef ZIPF_VIEW
+			if(fwd)
+			{
+				zsize*=255./24;
+				if(zsize>255)
+					zsize=255;
+				*zptr++=(uint8_t)zsize;
+				zsize=0;
+			}
+#endif
 			//printf("XY %5d %5d\r", kx, ky);
 		}
 	}
 	free(pixels);
+#ifdef ZIPF_VIEW
+	if(fwd)
+	{
+		const char fn[]="c12zipf-20251203_0302am.pgm";
+		FILE *fdst=fopen(fn, "wb");
+		if(!fdst)
+		{
+			CRASH("Cannot open \"%s\" for writing\n", fn);
+			return;
+		}
+		fprintf(fdst, "P5\n%d %d\n255\n", iw, ih);
+		fwrite(zimage, 1, res, fdst);
+		fclose(fdst);
+		printf("Saved Zipf file \"%s\"\n", fn);
+		free(zimage);
+	}
+#endif
 }
 int c12_codec(int argc, char **argv)
 {
 #if 0
+#define NBITS 4
+#define HALF (1<<NBITS>>1)
 	{
 		printf("pred\\target  naive modular arithmetic sign packing\n");
 		printf("\t");
-		for(int k=0;k<8;++k)
-			printf(" %3d", k-4);
+		for(int k=0;k<2*HALF;++k)
+			printf(" %4d", k-HALF);
 		printf("\n\n");
-		for(int kp=-4;kp<4;++kp)
+		for(int kp=-HALF;kp<HALF;++kp)
 		{
-			printf(" %3d\t", kp);
-			for(int kt=-4;kt<4;++kt)
+			printf(" %4d\t", kp);
+			for(int kt=-HALF;kt<HALF;++kt)
 			{
 				int e=kt-kp, e0;
 
-				e0=e<<(32-3)>>(32-3);
+				e0=e<<(32-NBITS)>>(32-NBITS);
 				e0=e0<<1^e0>>31;
-				printf(" %3d", e0);
+				printf(" %4d", e0);
 			}
 			printf("\n");
 		}
@@ -1206,40 +1078,40 @@ int c12_codec(int argc, char **argv)
 
 		printf("pred\\target  CALIC sign deduction\n");
 		printf("\t");
-		for(int k=0;k<8;++k)
-			printf(" %3d", k-4);
+		for(int k=0;k<2*HALF;++k)
+			printf(" %4d", k-HALF);
 		printf("\n\n");
-		for(int kp=-4;kp<4;++kp)
+		for(int kp=-HALF;kp<HALF;++kp)
 		{
-			printf(" %3d\t", kp);
-			for(int kt=-4;kt<4;++kt)
+			printf(" %4d\t", kp);
+			for(int kt=-HALF;kt<HALF;++kt)
 			{
 				int e=kt-kp, e1;
 
-				if(kt==-4&&kp>0)
+				if(kt==-HALF&&kp>0)
 				{
-					e1=e<<(32-3)>>(32-3);
+					e1=e<<(32-NBITS)>>(32-NBITS);
 					e1=e1<<1^e1>>31;
 				}
 				else
 				{
-					int upred=4-abs(kp);
+					int upred=HALF-abs(kp);
 					int negmask=e>>31;
 					int abse=(e^negmask)-negmask;
 					e1=e<<1^negmask;
 					if(upred<abse)
 						e1=upred+abse;
 				}
-				printf(" %3d", e1);
+				printf(" %4d", e1);
 
 				//deduce kt from e1 and kp
 				{
 					int kt2=e1>>1^-(e1&1);
 					kt2+=kp;
-					kt2=kt2<<(32-3)>>(32-3);
-					if(!(kp>0&&kt2==-4))
+					kt2=kt2<<(32-NBITS)>>(32-NBITS);
+					if(!(kp>0&&kt2==-HALF))
 					{
-						int upred=4-abs(kp);
+						int upred=HALF-abs(kp);
 						int negmask=kp>>31;
 						int e2=upred-e1;
 						kt2=e1>>1^-(e1&1);
@@ -1670,6 +1542,11 @@ int c12_codec(int argc, char **argv)
 	}
 #endif
 #endif
+#ifdef ZIPF_VIEW
+	exit(0);
+#endif
+	(void)dstsize;
+	(void)csize;
 	(void)time_sec;
 	return 0;
 }

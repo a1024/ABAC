@@ -1,6 +1,9 @@
 #if defined _MSC_VER && !defined _CRT_SECURE_NO_WARNINGS
 #define _CRT_SECURE_NO_WARNINGS
 #endif
+#ifdef __linux__
+#define _GNU_SOURCE
+#endif
 #include<stdint.h>
 #include<stddef.h>
 #include<stdio.h>
@@ -33,7 +36,7 @@
 //	#define TEST_INTERLEAVE
 #endif
 
-//	#define USE_FSE
+//	#define USE_SSE 2
 	#define ENABLE_RCT_EXTENSION
 //	#define EMULATE_GATHER		//gather is a little faster
 	#define INTERLEAVESIMD		//2.5x faster interleave
@@ -222,6 +225,14 @@ static void prof_print(ptrdiff_t usize)
 	//colorgen(colors, prof_count, 64, 300, 100);
 	const int scale=5;
 	printf("1 char = %d ms\n", scale);
+	//{
+	//	const char m[]="1 sec.";
+	//	const int offset=(1000/scale-(sizeof(m)-1))/2;
+	//	memset(buf, '-', 1000/scale);
+	//	int printed=snprintf(buf+offset, sizeof(buf)-1-offset, "%s", m);
+	//	buf[offset+printed]='-';
+	//	printf("|%s|\n", buf);
+	//}
 	printf("|");
 	for(int k=0;k<prof_count;++k)
 	{
@@ -296,15 +307,17 @@ static void prof_print(ptrdiff_t usize)
 #ifndef ENABLE_RCT_EXTENSION
 #define OCHLIST\
 	OCH(Y400) OCH(Y040) OCH(Y004)\
-	OCH(CX40) OCH(C0X4) OCH(C40X)
+	OCH(CX40) OCH(C0X4) OCH(C40X)\
+
 #endif
 #ifdef ENABLE_RCT_EXTENSION
 #define OCHLIST\
-	OCH(Y400) OCH(Y040) OCH(Y004)\
+	OCH(YX00) OCH(Y0X0) OCH(Y00X)\
 	OCH(CX40) OCH(C0X4) OCH(C40X)\
 	OCH(CX31) OCH(C3X1) OCH(C31X)\
 	OCH(CX13) OCH(C1X3) OCH(C13X)\
-	OCH(CX22) OCH(C2X2) OCH(C22X)
+	OCH(CX22) OCH(C2X2) OCH(C22X)\
+
 #if 0
 #define OCHLIST\
 	OCH(Y400) OCH(Y040) OCH(Y004)\
@@ -314,7 +327,8 @@ static void prof_print(ptrdiff_t usize)
 	OCH(CX40) OCH(C0X4) OCH(C40X)\
 	OCH(CX31) OCH(C3X1) OCH(C31X)\
 	OCH(CX13) OCH(C1X3) OCH(C13X)\
-	OCH(CX22) OCH(C2X2) OCH(C22X)
+	OCH(CX22) OCH(C2X2) OCH(C22X)\
+
 #endif
 #endif
 typedef enum _OCHIndex
@@ -324,9 +338,9 @@ typedef enum _OCHIndex
 #undef  OCH
 	OCH_COUNT,
 
-	OCH_R=OCH_Y400,
-	OCH_G=OCH_Y040,
-	OCH_B=OCH_Y004,
+	OCH_R=OCH_YX00,
+	OCH_G=OCH_Y0X0,
+	OCH_B=OCH_Y00X,
 	OCH_C4X0=OCH_CX40,
 	OCH_C04X=OCH_C0X4,
 	OCH_CX04=OCH_C40X,
@@ -380,68 +394,68 @@ typedef enum _RCTInfoIdx
 //example: _400_40X_3X1 == [1 0 0; -1 0 1; -3/4 1 -1/4]
 #ifndef ENABLE_RCT_EXTENSION
 #define RCTLIST\
-	RCT(_400_0X0_00X,	OCH_R,		OCH_G,		OCH_B,		0, 1, 2,	0,  0, 0)\
-	RCT(_400_0X0_04X,	OCH_R,		OCH_G,		OCH_BG,		0, 1, 2,	0,  0, 4)\
-	RCT(_400_0X0_40X,	OCH_R,		OCH_G,		OCH_BR,		0, 1, 2,	0,  4, 0)\
-	RCT(_040_00X_X40,	OCH_G,		OCH_B,		OCH_RG,		1, 2, 0,	0,  4, 0)\
-	RCT(_040_00X_X04,	OCH_G,		OCH_B,		OCH_RB,		1, 2, 0,	0,  0, 4)\
-	RCT(_004_X00_4X0,	OCH_B,		OCH_R,		OCH_GR,		2, 0, 1,	0,  0, 4)\
-	RCT(_004_X00_0X4,	OCH_B,		OCH_R,		OCH_GB,		2, 0, 1,	0,  4, 0)\
-	RCT(_040_04X_X40,	OCH_G,		OCH_BG,		OCH_RG,		1, 2, 0,	4,  4, 0)\
-	RCT(_040_04X_X04,	OCH_G,		OCH_BG,		OCH_RB,		1, 2, 0,	4,  0, 4)\
-	RCT(_040_X40_40X,	OCH_G,		OCH_RG,		OCH_BR,		1, 0, 2,	4,  0, 4)\
-	RCT(_004_X04_0X4,	OCH_B,		OCH_RB,		OCH_GB,		2, 0, 1,	4,  4, 0)\
-	RCT(_004_X04_4X0,	OCH_B,		OCH_RB,		OCH_GR,		2, 0, 1,	4,  0, 4)\
-	RCT(_004_0X4_X40,	OCH_B,		OCH_GB,		OCH_RG,		2, 1, 0,	4,  0, 4)\
-	RCT(_400_4X0_40X,	OCH_R,		OCH_GR,		OCH_BR,		0, 1, 2,	4,  4, 0)\
-	RCT(_400_4X0_04X,	OCH_R,		OCH_GR,		OCH_BG,		0, 1, 2,	4,  0, 4)\
-	RCT(_400_40X_0X4,	OCH_R,		OCH_BR,		OCH_GB,		0, 2, 1,	4,  0, 4)
+	RCT(_X00_0X0_00X,	OCH_R,		OCH_G,		OCH_B,		0, 1, 2,	0,  0, 0)\
+	RCT(_X00_0X0_04X,	OCH_R,		OCH_G,		OCH_BG,		0, 1, 2,	0,  0, 4)\
+	RCT(_X00_0X0_40X,	OCH_R,		OCH_G,		OCH_BR,		0, 1, 2,	0,  4, 0)\
+	RCT(_0X0_00X_X40,	OCH_G,		OCH_B,		OCH_RG,		1, 2, 0,	0,  4, 0)\
+	RCT(_0X0_00X_X04,	OCH_G,		OCH_B,		OCH_RB,		1, 2, 0,	0,  0, 4)\
+	RCT(_00X_X00_4X0,	OCH_B,		OCH_R,		OCH_GR,		2, 0, 1,	0,  0, 4)\
+	RCT(_00X_X00_0X4,	OCH_B,		OCH_R,		OCH_GB,		2, 0, 1,	0,  4, 0)\
+	RCT(_0X0_04X_X40,	OCH_G,		OCH_BG,		OCH_RG,		1, 2, 0,	4,  4, 0)\
+	RCT(_0X0_04X_X04,	OCH_G,		OCH_BG,		OCH_RB,		1, 2, 0,	4,  0, 4)\
+	RCT(_0X0_X40_40X,	OCH_G,		OCH_RG,		OCH_BR,		1, 0, 2,	4,  0, 4)\
+	RCT(_00X_X04_0X4,	OCH_B,		OCH_RB,		OCH_GB,		2, 0, 1,	4,  4, 0)\
+	RCT(_00X_X04_4X0,	OCH_B,		OCH_RB,		OCH_GR,		2, 0, 1,	4,  0, 4)\
+	RCT(_00X_0X4_X40,	OCH_B,		OCH_GB,		OCH_RG,		2, 1, 0,	4,  0, 4)\
+	RCT(_X00_4X0_40X,	OCH_R,		OCH_GR,		OCH_BR,		0, 1, 2,	4,  4, 0)\
+	RCT(_X00_4X0_04X,	OCH_R,		OCH_GR,		OCH_BG,		0, 1, 2,	4,  0, 4)\
+	RCT(_X00_40X_0X4,	OCH_R,		OCH_BR,		OCH_GB,		0, 2, 1,	4,  0, 4)
 #endif
 #ifdef ENABLE_RCT_EXTENSION
 #define RCTLIST\
-	RCT(_400_0X0_00X,	OCH_R,		OCH_G,		OCH_B,		0, 1, 2,	0,  0, 0)\
-	RCT(_400_0X0_04X,	OCH_R,		OCH_G,		OCH_BG,		0, 1, 2,	0,  0, 4)\
-	RCT(_400_0X0_40X,	OCH_R,		OCH_G,		OCH_BR,		0, 1, 2,	0,  4, 0)\
-	RCT(_040_00X_X40,	OCH_G,		OCH_B,		OCH_RG,		1, 2, 0,	0,  4, 0)\
-	RCT(_040_00X_X04,	OCH_G,		OCH_B,		OCH_RB,		1, 2, 0,	0,  0, 4)\
-	RCT(_004_X00_4X0,	OCH_B,		OCH_R,		OCH_GR,		2, 0, 1,	0,  0, 4)\
-	RCT(_004_X00_0X4,	OCH_B,		OCH_R,		OCH_GB,		2, 0, 1,	0,  4, 0)\
-	RCT(_040_04X_X40,	OCH_G,		OCH_BG,		OCH_RG,		1, 2, 0,	4,  4, 0)\
-	RCT(_040_04X_X04,	OCH_G,		OCH_BG,		OCH_RB,		1, 2, 0,	4,  0, 4)\
-	RCT(_040_X40_40X,	OCH_G,		OCH_RG,		OCH_BR,		1, 0, 2,	4,  0, 4)\
-	RCT(_004_X04_0X4,	OCH_B,		OCH_RB,		OCH_GB,		2, 0, 1,	4,  4, 0)\
-	RCT(_004_X04_4X0,	OCH_B,		OCH_RB,		OCH_GR,		2, 0, 1,	4,  0, 4)\
-	RCT(_004_0X4_X40,	OCH_B,		OCH_GB,		OCH_RG,		2, 1, 0,	4,  0, 4)\
-	RCT(_400_4X0_40X,	OCH_R,		OCH_GR,		OCH_BR,		0, 1, 2,	4,  4, 0)\
-	RCT(_400_4X0_04X,	OCH_R,		OCH_GR,		OCH_BG,		0, 1, 2,	4,  0, 4)\
-	RCT(_400_40X_0X4,	OCH_R,		OCH_BR,		OCH_GB,		0, 2, 1,	4,  0, 4)\
-	RCT(_400_0X0_13X,	OCH_R,		OCH_G,		OCH_B1,		0, 1, 2,	0,  1, 3)\
-	RCT(_400_4X0_13X,	OCH_R,		OCH_GR,		OCH_B1,		0, 1, 2,	4,  1, 3)\
-	RCT(_400_00X_3X1,	OCH_R,		OCH_B,		OCH_G1,		0, 2, 1,	0,  3, 1)\
-	RCT(_400_40X_3X1,	OCH_R,		OCH_BR,		OCH_G1,		0, 2, 1,	4,  3, 1)\
-	RCT(_040_00X_X13,	OCH_G,		OCH_B,		OCH_R1,		1, 2, 0,	0,  1, 3)\
-	RCT(_040_04X_X13,	OCH_G,		OCH_BG,		OCH_R1,		1, 2, 0,	4,  1, 3)\
-	RCT(_040_X40_13X,	OCH_G,		OCH_RG,		OCH_B1,		1, 0, 2,	4,  3, 1)\
-	RCT(_004_X04_3X1,	OCH_B,		OCH_RB,		OCH_G1,		2, 0, 1,	4,  1, 3)\
-	RCT(_004_04X_X13,	OCH_B,		OCH_GB,		OCH_R1,		2, 1, 0,	4,  3, 1)\
-	RCT(_400_0X0_22X,	OCH_R,		OCH_G,		OCH_B2,		0, 1, 2,	0,  2, 2)\
-	RCT(_400_4X0_22X,	OCH_R,		OCH_GR,		OCH_B2,		0, 1, 2,	4,  2, 2)\
-	RCT(_400_00X_2X2,	OCH_R,		OCH_B,		OCH_G2,		0, 2, 1,	0,  2, 2)\
-	RCT(_400_40X_2X2,	OCH_R,		OCH_BR,		OCH_G2,		0, 2, 1,	4,  2, 2)\
-	RCT(_040_00X_X22,	OCH_G,		OCH_B,		OCH_R2,		1, 2, 0,	0,  2, 2)\
-	RCT(_040_04X_X22,	OCH_G,		OCH_BG,		OCH_R2,		1, 2, 0,	4,  2, 2)\
-	RCT(_040_X40_22X,	OCH_G,		OCH_RG,		OCH_B2,		1, 0, 2,	4,  2, 2)\
-	RCT(_004_X04_2X2,	OCH_B,		OCH_RB,		OCH_G2,		2, 0, 1,	4,  2, 2)\
-	RCT(_004_0X4_X22,	OCH_B,		OCH_GB,		OCH_R2,		2, 1, 0,	4,  2, 2)\
-	RCT(_400_0X0_31X,	OCH_R,		OCH_G,		OCH_B3,		0, 1, 2,	0,  3, 1)\
-	RCT(_400_4X0_31X,	OCH_R,		OCH_GR,		OCH_B3,		0, 1, 2,	4,  3, 1)\
-	RCT(_400_00X_1X3,	OCH_R,		OCH_B,		OCH_G3,		0, 2, 1,	0,  1, 3)\
-	RCT(_400_40X_1X3,	OCH_R,		OCH_BR,		OCH_G3,		0, 2, 1,	4,  1, 3)\
-	RCT(_040_00X_X31,	OCH_G,		OCH_B,		OCH_R3,		1, 2, 0,	0,  3, 1)\
-	RCT(_040_04X_X31,	OCH_G,		OCH_BG,		OCH_R3,		1, 2, 0,	4,  3, 1)\
-	RCT(_040_X40_31X,	OCH_G,		OCH_RG,		OCH_B3,		1, 0, 2,	4,  1, 3)\
-	RCT(_004_X04_1X3,	OCH_B,		OCH_RB,		OCH_G3,		2, 0, 1,	4,  3, 1)\
-	RCT(_004_0X4_X31,	OCH_B,		OCH_GB,		OCH_R3,		2, 1, 0,	4,  1, 3)
+	RCT(_X00_0X0_00X,	OCH_R,		OCH_G,		OCH_B,		0, 1, 2,	0,  0, 0)\
+	RCT(_X00_0X0_04X,	OCH_R,		OCH_G,		OCH_BG,		0, 1, 2,	0,  0, 4)\
+	RCT(_X00_0X0_40X,	OCH_R,		OCH_G,		OCH_BR,		0, 1, 2,	0,  4, 0)\
+	RCT(_0X0_00X_X40,	OCH_G,		OCH_B,		OCH_RG,		1, 2, 0,	0,  4, 0)\
+	RCT(_0X0_00X_X04,	OCH_G,		OCH_B,		OCH_RB,		1, 2, 0,	0,  0, 4)\
+	RCT(_00X_X00_4X0,	OCH_B,		OCH_R,		OCH_GR,		2, 0, 1,	0,  0, 4)\
+	RCT(_00X_X00_0X4,	OCH_B,		OCH_R,		OCH_GB,		2, 0, 1,	0,  4, 0)\
+	RCT(_0X0_04X_X40,	OCH_G,		OCH_BG,		OCH_RG,		1, 2, 0,	4,  4, 0)\
+	RCT(_0X0_04X_X04,	OCH_G,		OCH_BG,		OCH_RB,		1, 2, 0,	4,  0, 4)\
+	RCT(_0X0_X40_40X,	OCH_G,		OCH_RG,		OCH_BR,		1, 0, 2,	4,  0, 4)\
+	RCT(_00X_X04_0X4,	OCH_B,		OCH_RB,		OCH_GB,		2, 0, 1,	4,  4, 0)\
+	RCT(_00X_X04_4X0,	OCH_B,		OCH_RB,		OCH_GR,		2, 0, 1,	4,  0, 4)\
+	RCT(_00X_0X4_X40,	OCH_B,		OCH_GB,		OCH_RG,		2, 1, 0,	4,  0, 4)\
+	RCT(_X00_4X0_40X,	OCH_R,		OCH_GR,		OCH_BR,		0, 1, 2,	4,  4, 0)\
+	RCT(_X00_4X0_04X,	OCH_R,		OCH_GR,		OCH_BG,		0, 1, 2,	4,  0, 4)\
+	RCT(_X00_40X_0X4,	OCH_R,		OCH_BR,		OCH_GB,		0, 2, 1,	4,  0, 4)\
+	RCT(_X00_0X0_13X,	OCH_R,		OCH_G,		OCH_B1,		0, 1, 2,	0,  1, 3)\
+	RCT(_X00_4X0_13X,	OCH_R,		OCH_GR,		OCH_B1,		0, 1, 2,	4,  1, 3)\
+	RCT(_X00_00X_3X1,	OCH_R,		OCH_B,		OCH_G1,		0, 2, 1,	0,  3, 1)\
+	RCT(_X00_40X_3X1,	OCH_R,		OCH_BR,		OCH_G1,		0, 2, 1,	4,  3, 1)\
+	RCT(_0X0_00X_X13,	OCH_G,		OCH_B,		OCH_R1,		1, 2, 0,	0,  1, 3)\
+	RCT(_0X0_04X_X13,	OCH_G,		OCH_BG,		OCH_R1,		1, 2, 0,	4,  1, 3)\
+	RCT(_0X0_X40_13X,	OCH_G,		OCH_RG,		OCH_B1,		1, 0, 2,	4,  3, 1)\
+	RCT(_00X_X04_3X1,	OCH_B,		OCH_RB,		OCH_G1,		2, 0, 1,	4,  1, 3)\
+	RCT(_00X_04X_X13,	OCH_B,		OCH_GB,		OCH_R1,		2, 1, 0,	4,  3, 1)\
+	RCT(_X00_0X0_22X,	OCH_R,		OCH_G,		OCH_B2,		0, 1, 2,	0,  2, 2)\
+	RCT(_X00_4X0_22X,	OCH_R,		OCH_GR,		OCH_B2,		0, 1, 2,	4,  2, 2)\
+	RCT(_X00_00X_2X2,	OCH_R,		OCH_B,		OCH_G2,		0, 2, 1,	0,  2, 2)\
+	RCT(_X00_40X_2X2,	OCH_R,		OCH_BR,		OCH_G2,		0, 2, 1,	4,  2, 2)\
+	RCT(_0X0_00X_X22,	OCH_G,		OCH_B,		OCH_R2,		1, 2, 0,	0,  2, 2)\
+	RCT(_0X0_04X_X22,	OCH_G,		OCH_BG,		OCH_R2,		1, 2, 0,	4,  2, 2)\
+	RCT(_0X0_X40_22X,	OCH_G,		OCH_RG,		OCH_B2,		1, 0, 2,	4,  2, 2)\
+	RCT(_00X_X04_2X2,	OCH_B,		OCH_RB,		OCH_G2,		2, 0, 1,	4,  2, 2)\
+	RCT(_00X_0X4_X22,	OCH_B,		OCH_GB,		OCH_R2,		2, 1, 0,	4,  2, 2)\
+	RCT(_X00_0X0_31X,	OCH_R,		OCH_G,		OCH_B3,		0, 1, 2,	0,  3, 1)\
+	RCT(_X00_4X0_31X,	OCH_R,		OCH_GR,		OCH_B3,		0, 1, 2,	4,  3, 1)\
+	RCT(_X00_00X_1X3,	OCH_R,		OCH_B,		OCH_G3,		0, 2, 1,	0,  1, 3)\
+	RCT(_X00_40X_1X3,	OCH_R,		OCH_BR,		OCH_G3,		0, 2, 1,	4,  1, 3)\
+	RCT(_0X0_00X_X31,	OCH_G,		OCH_B,		OCH_R3,		1, 2, 0,	0,  3, 1)\
+	RCT(_0X0_04X_X31,	OCH_G,		OCH_BG,		OCH_R3,		1, 2, 0,	4,  3, 1)\
+	RCT(_0X0_X40_31X,	OCH_G,		OCH_RG,		OCH_B3,		1, 0, 2,	4,  1, 3)\
+	RCT(_00X_X04_1X3,	OCH_B,		OCH_RB,		OCH_G3,		2, 0, 1,	4,  3, 1)\
+	RCT(_00X_0X4_X31,	OCH_B,		OCH_GB,		OCH_R3,		2, 1, 0,	4,  1, 3)
 #if 0
 	RCT(_211_4X0_40X,	OCH_Y211,	OCH_C4X0,	OCH_C40X,	0, 1, 2,	4,  4, 0,	1, 1, 0, 0)\
 	RCT(_211_4X0_31X,	OCH_Y211,	OCH_C4X0,	OCH_C31X,	0, 1, 2,	4,  4, 0,	1, 1, 0, 1)\
@@ -662,7 +676,7 @@ AWM_INLINE void bitpacker_dec_init(BitPackerLIFO *ec, const uint8_t *bufptr0_sta
 	memset(ec, 0, sizeof(*ec));
 	ec->srcfwdptr=bufptr0_start+8;
 	ec->streamend=bufend;
-	ec->state=*(const unsigned long long*)bufptr0_start;
+	ec->state=*(const uint64_t*)bufptr0_start;
 	ec->dec_navailable=64-(int)_lzcnt_u64(ec->state);
 }
 AWM_INLINE void bitpacker_enc_flush(BitPackerLIFO *ec)
@@ -672,7 +686,7 @@ AWM_INLINE void bitpacker_enc_flush(BitPackerLIFO *ec)
 	if(ec->dstbwdptr<ec->streamend)
 		CRASH("IntPacker Encoder OOB:  dstbwdptr = 0x%016zX < 0x%016zX", ec->dstbwdptr, ec->streamend);
 #endif
-	*(unsigned long long*)ec->dstbwdptr=ec->state;
+	*(uint64_t*)ec->dstbwdptr=ec->state;
 }
 AWM_INLINE void bitpacker_enc(BitPackerLIFO *ec, int inbits, int sym)
 {
@@ -1224,7 +1238,7 @@ typedef struct _rANS_SIMD_SymInfo	//16 bytes/level	4KB/ctx = 1<<12 bytes
 	uint32_t smax, invf, cdf;
 	uint16_t negf, sh;
 } rANS_SIMD_SymInfo;
-static void enc_hist2stats(int *hist, rANS_SIMD_SymInfo *syminfo, unsigned long long *bypassmask, int ctxidx)
+static void enc_hist2stats(int *hist, rANS_SIMD_SymInfo *syminfo, uint64_t *bypassmask, int ctxidx)
 {
 	int sum=0, count=0;
 	for(int ks=0;ks<256;++ks)
@@ -1234,7 +1248,7 @@ static void enc_hist2stats(int *hist, rANS_SIMD_SymInfo *syminfo, unsigned long 
 		count+=freq!=0;
 	}
 	int rare=sum<12*256/8;
-	*bypassmask|=(unsigned long long)rare<<ctxidx;
+	*bypassmask|=(uint64_t)rare<<ctxidx;
 #ifdef ESTIMATE_SIZE
 	int count0=count, sum0=sum;
 #endif
@@ -1396,7 +1410,7 @@ static void enc_hist2stats(int *hist, rANS_SIMD_SymInfo *syminfo, unsigned long 
 		else
 		{
 			info->sh=31-(int)_lzcnt_u32(freq);//eg: x/2 = x*0x80000000>>32>>0
-			unsigned long long inv=((0x100000000ULL<<info->sh)+freq-1)/freq;
+			uint64_t inv=((0x100000000ULL<<info->sh)+freq-1)/freq;
 			info->invf=(unsigned)inv;
 			if(inv>0xFFFFFFFF)
 			{
@@ -1406,7 +1420,7 @@ static void enc_hist2stats(int *hist, rANS_SIMD_SymInfo *syminfo, unsigned long 
 		}
 	}
 }
-static void enc_packhist(BitPackerLIFO *ec, const int *hist, unsigned long long bypassmask, int ctxidx, int userans)//histogram must be normalized to PROBBITS, with spike at 128
+static void enc_packhist(BitPackerLIFO *ec, const int *hist, uint64_t bypassmask, int ctxidx, int userans)//histogram must be normalized to PROBBITS, with spike at 128
 {
 	if(bypassmask>>ctxidx&1)
 		return;
@@ -1468,7 +1482,7 @@ static void enc_packhist(BitPackerLIFO *ec, const int *hist, unsigned long long 
 #endif
 	}
 }
-static void dec_unpackhist(BitPackerLIFO *ec, unsigned long long bypassmask, int ctxidx, uint16_t *hist)
+static void dec_unpackhist(BitPackerLIFO *ec, uint64_t bypassmask, int ctxidx, uint16_t *hist)
 {
 	if(bypassmask>>ctxidx&1)//rare context
 	{
@@ -2180,7 +2194,7 @@ static void encode1d(unsigned char *data, int count, int bytestride, unsigned *p
 			*(unsigned short*)streamptr=(unsigned short)state;
 			state>>=RANS_RENORM_BITS;
 		}
-		state+=((unsigned long long)state*info->invf>>32>>info->sh)*info->negf+info->cdf;
+		state+=((uint64_t)state*info->invf>>32>>info->sh)*info->negf+info->cdf;
 #ifdef ANS_VAL
 		ansval_push(&state, sizeof(state), 1);
 #endif
@@ -2196,7 +2210,7 @@ static void encode1d(unsigned char *data, int count, int bytestride, unsigned *p
 			*(unsigned short*)streamptr=(unsigned short)state;
 			state>>=RANS_RENORM_BITS;
 		}
-		state+=((unsigned long long)state*info->invf>>32>>info->sh)*info->negf+info->cdf;
+		state+=((uint64_t)state*info->invf>>32>>info->sh)*info->negf+info->cdf;
 #ifdef ANS_VAL
 		ansval_push(&state, sizeof(state), 1);
 #endif
@@ -2212,7 +2226,7 @@ static void encode1d(unsigned char *data, int count, int bytestride, unsigned *p
 			*(unsigned short*)streamptr=(unsigned short)state;
 			state>>=RANS_RENORM_BITS;
 		}
-		state+=((unsigned long long)state*info->invf>>32>>info->sh)*info->negf+info->cdf;
+		state+=((uint64_t)state*info->invf>>32>>info->sh)*info->negf+info->cdf;
 #ifdef ANS_VAL
 		ansval_push(&state, sizeof(state), 1);
 #endif
@@ -2636,7 +2650,7 @@ int c40_codec(int argc, char **argv)
 		mcounters[IDXB]=_mm256_add_epi64(mcounters[IDXB], _mm256_and_si256(tb, wordmask));\
 		mcounters[IDXC]=_mm256_add_epi64(mcounters[IDXC], _mm256_and_si256(tc, wordmask));\
 	}while(0)
-				UPDATE(OCH_Y400, OCH_Y040, OCH_Y004, r, g, b);
+				UPDATE(OCH_YX00, OCH_Y0X0, OCH_Y00X, r, g, b);
 				UPDATE(OCH_CX40, OCH_C0X4, OCH_C40X, rg, gb, br);
 #ifdef ENABLE_RCT_EXTENSION
 				t0=_mm256_add_epi16(rg, _mm256_srai_epi16(gb, 2));//r-(3*g+b)/4 = r-g-(b-g)/4
@@ -2836,6 +2850,12 @@ int c40_codec(int argc, char **argv)
 		printf("%s  NPREDS=%d  %td bytes\n", rct_names[bestrct], npreds, usize);
 	int L1statesize=0;
 	int *L1state=0;
+#ifdef USE_SSE
+	int ssesize=0;
+	int32_t *sse=0;
+	int divtablesize=0;
+	int32_t *divtable=0;
+#endif
 	if(effort)
 	{
 		L1statesize=(int)sizeof(int[2*NCODERS*3*(L1_NPREDS3+1)]);//{preds, coeffs} * (NPREDS+{bias}) * 3 channels * NCODERS
@@ -2847,6 +2867,24 @@ int c40_codec(int argc, char **argv)
 		}
 		memset(L1state, 0, L1statesize);
 	}
+#ifdef USE_SSE
+	if(effort>=USE_SSE)
+	{
+		ssesize=sizeof(int32_t[3<<16]);
+		//ssesize=sizeof(int32_t[3*NCTX<<8]);
+		sse=(int32_t*)malloc(ssesize);
+		divtablesize=sizeof(int32_t[256]);
+		divtable=(int32_t*)malloc(divtablesize);
+		if(!sse||!divtable)
+		{
+			CRASH("Alloc error");
+			return 1;
+		}
+		memset(sse, 0, ssesize);
+		for(int k=0;k<256;++k)
+			divtable[k]=(0x10000+k)/(k+1);
+	}
+#endif
 #ifdef PRINT_L1_BOUNDS
 	int cmin=0, cmax=0;
 	int bmin=0, bmax=0;
@@ -2933,6 +2971,9 @@ int c40_codec(int argc, char **argv)
 				predU, ctxU,
 				predV, ctxV;
 			__m256i predYUV0[3];
+#ifdef USE_SSE
+			__m256i msseidx[6];
+#endif
 			{
 				//context = FLOOR_LOG2(eW*eW+1)
 				__m256i one=_mm256_set1_epi32(1);
@@ -2985,8 +3026,9 @@ int c40_codec(int argc, char **argv)
 				const int borderW=3;
 				const int borderN=3;
 				const int borderE=3;
-				int cond_cg=(unsigned)(kx-borderW)>=(unsigned)(blockw-(borderW+borderE))
-					||(unsigned)(ky-borderN)>=(unsigned)(blockh-borderN);
+				int cond_cg=
+					(unsigned)(kx-borderW)>=(unsigned)(blockw-(borderW+borderE))||
+					(unsigned)(ky-borderN)>=(unsigned)(blockh-borderN);
 				__m256i mcg[3];
 				__m256i ymin=_mm256_min_epi16(N[0], W[0]);
 				__m256i ymax=_mm256_max_epi16(N[0], W[0]);
@@ -3456,9 +3498,9 @@ int c40_codec(int argc, char **argv)
 					L1preds[18*3+2]=_mm256_srai_epi16(cache[2], 1);
 
 					//(WWW+NNN+NEEE-NW)>>1
-					cache[0]=_mm256_add_epi16(_mm256_load_si256((__m256i*)rows[0]+0+0-3*6), _mm256_load_si256((__m256i*)rows[3]+0+0+4*6));//WWW+NNN
-					cache[1]=_mm256_add_epi16(_mm256_load_si256((__m256i*)rows[0]+0+1-3*6), _mm256_load_si256((__m256i*)rows[3]+0+1+4*6));
-					cache[2]=_mm256_add_epi16(_mm256_load_si256((__m256i*)rows[0]+0+2-3*6), _mm256_load_si256((__m256i*)rows[3]+0+2+4*6));
+					cache[0]=_mm256_add_epi16(_mm256_load_si256((__m256i*)rows[0]+0+0-3*6), _mm256_load_si256((__m256i*)rows[3]+0+0+0*6));//WWW+NNN
+					cache[1]=_mm256_add_epi16(_mm256_load_si256((__m256i*)rows[0]+0+1-3*6), _mm256_load_si256((__m256i*)rows[3]+0+1+0*6));
+					cache[2]=_mm256_add_epi16(_mm256_load_si256((__m256i*)rows[0]+0+2-3*6), _mm256_load_si256((__m256i*)rows[3]+0+2+0*6));
 					cache[0]=_mm256_add_epi16(cache[0], _mm256_load_si256((__m256i*)rows[1]+0+0+3*6));//+NEEE
 					cache[1]=_mm256_add_epi16(cache[1], _mm256_load_si256((__m256i*)rows[1]+0+1+3*6));
 					cache[2]=_mm256_add_epi16(cache[2], _mm256_load_si256((__m256i*)rows[1]+0+2+3*6));
@@ -3573,6 +3615,138 @@ int c40_codec(int argc, char **argv)
 					predU=mcg[1];
 					predV=mcg[2];
 				}
+#ifdef USE_SSE
+				if(effort>=USE_SSE)//sse
+				{
+					__m256i msseval[6], mask;
+
+					//if(ky==blockh/2&&kx==blockw/2)//
+					//	printf("");
+					
+					msseidx[0]=ctxY;
+					msseidx[1]=ctxU;
+					msseidx[2]=ctxV;
+					//msseidx[0]=_mm256_sub_epi16(N[0], W[0]);
+					//msseidx[1]=_mm256_sub_epi16(N[1], W[1]);
+					//msseidx[2]=_mm256_sub_epi16(N[2], W[2]);
+					//msseidx[0]=_mm256_sub_epi16(N[0], NW[0]);
+					//msseidx[1]=_mm256_sub_epi16(N[1], NW[1]);
+					//msseidx[2]=_mm256_sub_epi16(N[2], NW[2]);
+					//msseidx[0]=N[0];
+					//msseidx[1]=N[1];
+					//msseidx[2]=N[2];
+					msseidx[0]=_mm256_srli_epi16(msseidx[0], 1);
+					msseidx[1]=_mm256_srli_epi16(msseidx[1], 1);
+					msseidx[2]=_mm256_srli_epi16(msseidx[2], 1);
+					msseidx[0]=_mm256_slli_epi16(msseidx[0], 4);
+					msseidx[1]=_mm256_slli_epi16(msseidx[1], 4);
+					msseidx[2]=_mm256_slli_epi16(msseidx[2], 4);
+					mask=_mm256_set_epi16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
+					msseidx[0]=_mm256_add_epi16(msseidx[0], mask);
+					msseidx[1]=_mm256_add_epi16(msseidx[1], mask);
+					msseidx[2]=_mm256_add_epi16(msseidx[2], mask);
+
+					msseidx[0]=_mm256_slli_epi16(msseidx[0], 8);
+					msseidx[1]=_mm256_slli_epi16(msseidx[1], 8);
+					msseidx[2]=_mm256_slli_epi16(msseidx[2], 8);
+					mask=_mm256_set1_epi16(0x8000);
+					msseidx[0]=_mm256_add_epi16(msseidx[0], mask);
+					msseidx[1]=_mm256_add_epi16(msseidx[1], mask);
+					msseidx[2]=_mm256_add_epi16(msseidx[2], mask);
+					mask=_mm256_set1_epi16(255);
+					msseidx[0]=_mm256_blendv_epi8(msseidx[0], predY, mask);
+					msseidx[1]=_mm256_blendv_epi8(msseidx[1], predU, mask);
+					msseidx[2]=_mm256_blendv_epi8(msseidx[2], predV, mask);
+					//msseidx[0]=_mm256_blendv_epi8(msseidx[0], _mm256_sub_epi16(W[0], NW[0]), mask);
+					//msseidx[1]=_mm256_blendv_epi8(msseidx[1], _mm256_sub_epi16(W[1], NW[1]), mask);
+					//msseidx[2]=_mm256_blendv_epi8(msseidx[2], _mm256_sub_epi16(W[2], NW[2]), mask);
+					//msseidx[0]=_mm256_blendv_epi8(msseidx[0], W[0], mask);
+					//msseidx[1]=_mm256_blendv_epi8(msseidx[1], W[1], mask);
+					//msseidx[2]=_mm256_blendv_epi8(msseidx[2], W[2], mask);
+					msseidx[3]=_mm256_srli_epi32(msseidx[0], 16);
+					msseidx[4]=_mm256_srli_epi32(msseidx[1], 16);
+					msseidx[5]=_mm256_srli_epi32(msseidx[2], 16);
+					mask=_mm256_set1_epi32(0xFFFF);
+					msseidx[0]=_mm256_and_si256(msseidx[0], mask);
+					msseidx[1]=_mm256_and_si256(msseidx[1], mask);
+					msseidx[2]=_mm256_and_si256(msseidx[2], mask);
+					mask=_mm256_set1_epi32(1*0x10000);
+					msseidx[1]=_mm256_add_epi16(msseidx[1], mask);
+					msseidx[4]=_mm256_add_epi16(msseidx[4], mask);
+					mask=_mm256_set1_epi32(2*0x10000);
+					msseidx[2]=_mm256_add_epi16(msseidx[2], mask);
+					msseidx[5]=_mm256_add_epi16(msseidx[5], mask);
+					gather32((int*)(msseval+0), sse, (int*)(msseidx+0));//lo
+					gather32((int*)(msseval+1), sse, (int*)(msseidx+1));
+					gather32((int*)(msseval+2), sse, (int*)(msseidx+2));
+					gather32((int*)(msseval+3), sse, (int*)(msseidx+3));//hi
+					gather32((int*)(msseval+4), sse, (int*)(msseidx+4));
+					gather32((int*)(msseval+5), sse, (int*)(msseidx+5));
+
+					{
+						__m256i count[6];
+						mask=_mm256_set1_epi32(255);
+						count[0]=_mm256_and_si256(msseval[0], mask);//{24 bit unnormalized value, 8-bit count)
+						count[1]=_mm256_and_si256(msseval[1], mask);
+						count[2]=_mm256_and_si256(msseval[2], mask);
+						count[3]=_mm256_and_si256(msseval[3], mask);
+						count[4]=_mm256_and_si256(msseval[4], mask);
+						count[5]=_mm256_and_si256(msseval[5], mask);
+						msseval[0]=_mm256_srai_epi32(msseval[0], 8);
+						msseval[1]=_mm256_srai_epi32(msseval[1], 8);
+						msseval[2]=_mm256_srai_epi32(msseval[2], 8);
+						msseval[3]=_mm256_srai_epi32(msseval[3], 8);
+						msseval[4]=_mm256_srai_epi32(msseval[4], 8);
+						msseval[5]=_mm256_srai_epi32(msseval[5], 8);
+						gather32((int*)(count+0), divtable, (int*)(count+0));//lo
+						gather32((int*)(count+1), divtable, (int*)(count+1));
+						gather32((int*)(count+2), divtable, (int*)(count+2));
+						gather32((int*)(count+3), divtable, (int*)(count+3));//hi
+						gather32((int*)(count+4), divtable, (int*)(count+4));
+						gather32((int*)(count+5), divtable, (int*)(count+5));
+						msseval[0]=_mm256_mullo_epi32(msseval[0], count[0]);
+						msseval[1]=_mm256_mullo_epi32(msseval[1], count[1]);
+						msseval[2]=_mm256_mullo_epi32(msseval[2], count[2]);
+						msseval[3]=_mm256_mullo_epi32(msseval[3], count[3]);
+						msseval[4]=_mm256_mullo_epi32(msseval[4], count[4]);
+						msseval[5]=_mm256_mullo_epi32(msseval[5], count[5]);
+						msseval[0]=_mm256_srai_epi32(msseval[0], 16+4);
+						msseval[1]=_mm256_srai_epi32(msseval[1], 16+4);
+						msseval[2]=_mm256_srai_epi32(msseval[2], 16+4);
+						msseval[3]=_mm256_srai_epi32(msseval[3], 16+4);
+						msseval[4]=_mm256_srai_epi32(msseval[4], 16+4);
+						msseval[5]=_mm256_srai_epi32(msseval[5], 16+4);
+						msseval[0]=_mm256_sub_epi32(msseval[0], _mm256_srai_epi32(msseval[0], 31));
+						msseval[1]=_mm256_sub_epi32(msseval[1], _mm256_srai_epi32(msseval[1], 31));
+						msseval[2]=_mm256_sub_epi32(msseval[2], _mm256_srai_epi32(msseval[2], 31));
+						msseval[3]=_mm256_sub_epi32(msseval[3], _mm256_srai_epi32(msseval[3], 31));
+						msseval[4]=_mm256_sub_epi32(msseval[4], _mm256_srai_epi32(msseval[4], 31));
+						msseval[5]=_mm256_sub_epi32(msseval[5], _mm256_srai_epi32(msseval[5], 31));
+					}
+
+//#define SSESHIFT 20	//LR and precision
+//					mask=_mm256_set1_epi32(1<<SSESHIFT>>1);
+//					msseval[0]=_mm256_add_epi32(msseval[0], mask);
+//					msseval[1]=_mm256_add_epi32(msseval[1], mask);
+//					msseval[2]=_mm256_add_epi32(msseval[2], mask);
+//					msseval[3]=_mm256_add_epi32(msseval[3], mask);
+//					msseval[4]=_mm256_add_epi32(msseval[4], mask);
+//					msseval[5]=_mm256_add_epi32(msseval[5], mask);
+//					msseval[0]=_mm256_srai_epi32(msseval[0], SSESHIFT);
+//					msseval[1]=_mm256_srai_epi32(msseval[1], SSESHIFT);
+//					msseval[2]=_mm256_srai_epi32(msseval[2], SSESHIFT);
+//					msseval[3]=_mm256_srai_epi32(msseval[3], SSESHIFT);
+//					msseval[4]=_mm256_srai_epi32(msseval[4], SSESHIFT);
+//					msseval[5]=_mm256_srai_epi32(msseval[5], SSESHIFT);
+
+					msseval[0]=_mm256_blend_epi16(msseval[0], _mm256_slli_epi32(msseval[3], 16), 0xAA);
+					msseval[1]=_mm256_blend_epi16(msseval[1], _mm256_slli_epi32(msseval[4], 16), 0xAA);
+					msseval[2]=_mm256_blend_epi16(msseval[2], _mm256_slli_epi32(msseval[5], 16), 0xAA);
+					predY=_mm256_add_epi32(predY, msseval[0]);
+					predU=_mm256_add_epi32(predU, msseval[1]);
+					predV=_mm256_add_epi32(predV, msseval[2]);
+				}
+#endif
 
 				predY=_mm256_max_epi16(predY, ymin);
 				predU=_mm256_max_epi16(predU, umin);
@@ -4136,6 +4310,100 @@ int c40_codec(int argc, char **argv)
 					_mm256_store_si256((__m256i*)L1weights+k*6+5, mc[5]);
 				}
 			}
+
+			//sse
+#ifdef USE_SSE
+			if(effort>=USE_SSE)
+			{
+				ALIGN(32) int32_t indices[3*NCODERS];
+				ALIGN(32) int16_t deltas[3*NCODERS];
+				__m256i mdelta[3];
+				mdelta[0]=_mm256_sub_epi16(W[0], predY);
+				mdelta[1]=_mm256_sub_epi16(W[1], predU);
+				mdelta[2]=_mm256_sub_epi16(W[2], predV);
+				_mm256_store_si256((__m256i*)deltas+0, mdelta[0]);
+				_mm256_store_si256((__m256i*)deltas+1, mdelta[1]);
+				_mm256_store_si256((__m256i*)deltas+2, mdelta[2]);
+				_mm256_store_si256((__m256i*)indices+0, msseidx[0]);
+				_mm256_store_si256((__m256i*)indices+1, msseidx[1]);
+				_mm256_store_si256((__m256i*)indices+2, msseidx[2]);
+				_mm256_store_si256((__m256i*)indices+3, msseidx[3]);
+				_mm256_store_si256((__m256i*)indices+4, msseidx[4]);
+				_mm256_store_si256((__m256i*)indices+5, msseidx[5]);
+				for(int k=0;k<NCODERS;++k)
+				{
+					int32_t *p0, *p1, *p2, v0, v1, v2, ctr0, ctr1, ctr2, cond0, cond1, cond2;
+					p0=sse+indices[0x00+k];
+					p1=sse+indices[0x10+k];
+					p2=sse+indices[0x20+k];
+					v0=*p0+deltas[0x00+k]*256;
+					v1=*p1+deltas[0x10+k]*256;
+					v2=*p2+deltas[0x20+k]*256;
+					ctr0=(v0&255)+1;
+					ctr1=(v1&255)+1;
+					ctr2=(v2&255)+1;
+					cond0=ctr0>=256;
+					cond1=ctr1>=256;
+					cond2=ctr2>=256;
+					ctr0>>=cond0;
+					ctr1>>=cond1;
+					ctr2>>=cond2;
+					cond0+=8;
+					cond1+=8;
+					cond2+=8;
+					v0>>=cond0;
+					v1>>=cond1;
+					v2>>=cond2;
+					*p0=v0<<8|ctr0;
+					*p1=v1<<8|ctr1;
+					*p2=v2<<8|ctr2;
+				}
+				//{
+				//	int32_t *p0, *p1, *p2, v0, v1, v2;
+				//	p0=sse+indices[0x00]; p1=sse+indices[0x10]; p2=sse+indices[0x20]; v0=*p0+deltas[0x00]; v1=*p1+deltas[0x10]; v2=*p2+deltas[0x20]; *p0=v0; *p1=v1; *p2=v2;
+				//	p0=sse+indices[0x01]; p1=sse+indices[0x11]; p2=sse+indices[0x21]; v0=*p0+deltas[0x01]; v1=*p1+deltas[0x11]; v2=*p2+deltas[0x21]; *p0=v0; *p1=v1; *p2=v2;
+				//	p0=sse+indices[0x02]; p1=sse+indices[0x12]; p2=sse+indices[0x22]; v0=*p0+deltas[0x02]; v1=*p1+deltas[0x12]; v2=*p2+deltas[0x22]; *p0=v0; *p1=v1; *p2=v2;
+				//	p0=sse+indices[0x03]; p1=sse+indices[0x13]; p2=sse+indices[0x23]; v0=*p0+deltas[0x03]; v1=*p1+deltas[0x13]; v2=*p2+deltas[0x23]; *p0=v0; *p1=v1; *p2=v2;
+				//	p0=sse+indices[0x04]; p1=sse+indices[0x14]; p2=sse+indices[0x24]; v0=*p0+deltas[0x04]; v1=*p1+deltas[0x14]; v2=*p2+deltas[0x24]; *p0=v0; *p1=v1; *p2=v2;
+				//	p0=sse+indices[0x05]; p1=sse+indices[0x15]; p2=sse+indices[0x25]; v0=*p0+deltas[0x05]; v1=*p1+deltas[0x15]; v2=*p2+deltas[0x25]; *p0=v0; *p1=v1; *p2=v2;
+				//	p0=sse+indices[0x06]; p1=sse+indices[0x16]; p2=sse+indices[0x26]; v0=*p0+deltas[0x06]; v1=*p1+deltas[0x16]; v2=*p2+deltas[0x26]; *p0=v0; *p1=v1; *p2=v2;
+				//	p0=sse+indices[0x07]; p1=sse+indices[0x17]; p2=sse+indices[0x27]; v0=*p0+deltas[0x07]; v1=*p1+deltas[0x17]; v2=*p2+deltas[0x27]; *p0=v0; *p1=v1; *p2=v2;
+				//	p0=sse+indices[0x08]; p1=sse+indices[0x18]; p2=sse+indices[0x28]; v0=*p0+deltas[0x08]; v1=*p1+deltas[0x18]; v2=*p2+deltas[0x28]; *p0=v0; *p1=v1; *p2=v2;
+				//	p0=sse+indices[0x09]; p1=sse+indices[0x19]; p2=sse+indices[0x29]; v0=*p0+deltas[0x09]; v1=*p1+deltas[0x19]; v2=*p2+deltas[0x29]; *p0=v0; *p1=v1; *p2=v2;
+				//	p0=sse+indices[0x0A]; p1=sse+indices[0x1A]; p2=sse+indices[0x2A]; v0=*p0+deltas[0x0A]; v1=*p1+deltas[0x1A]; v2=*p2+deltas[0x2A]; *p0=v0; *p1=v1; *p2=v2;
+				//	p0=sse+indices[0x0B]; p1=sse+indices[0x1B]; p2=sse+indices[0x2B]; v0=*p0+deltas[0x0B]; v1=*p1+deltas[0x1B]; v2=*p2+deltas[0x2B]; *p0=v0; *p1=v1; *p2=v2;
+				//	p0=sse+indices[0x0C]; p1=sse+indices[0x1C]; p2=sse+indices[0x2C]; v0=*p0+deltas[0x0C]; v1=*p1+deltas[0x1C]; v2=*p2+deltas[0x2C]; *p0=v0; *p1=v1; *p2=v2;
+				//	p0=sse+indices[0x0D]; p1=sse+indices[0x1D]; p2=sse+indices[0x2D]; v0=*p0+deltas[0x0D]; v1=*p1+deltas[0x1D]; v2=*p2+deltas[0x2D]; *p0=v0; *p1=v1; *p2=v2;
+				//	p0=sse+indices[0x0E]; p1=sse+indices[0x1E]; p2=sse+indices[0x2E]; v0=*p0+deltas[0x0E]; v1=*p1+deltas[0x1E]; v2=*p2+deltas[0x2E]; *p0=v0; *p1=v1; *p2=v2;
+				//	p0=sse+indices[0x0F]; p1=sse+indices[0x1F]; p2=sse+indices[0x2F]; v0=*p0+deltas[0x0F]; v1=*p1+deltas[0x1F]; v2=*p2+deltas[0x2F]; *p0=v0; *p1=v1; *p2=v2;
+				//}
+				//sse[indices[0x00]]+=deltas[0x00]; sse[indices[0x10]]+=deltas[0x10]; sse[indices[0x20]]+=deltas[0x20];
+				//sse[indices[0x01]]+=deltas[0x01]; sse[indices[0x11]]+=deltas[0x11]; sse[indices[0x21]]+=deltas[0x21];
+				//sse[indices[0x02]]+=deltas[0x02]; sse[indices[0x12]]+=deltas[0x12]; sse[indices[0x22]]+=deltas[0x22];
+				//sse[indices[0x03]]+=deltas[0x03]; sse[indices[0x13]]+=deltas[0x13]; sse[indices[0x23]]+=deltas[0x23];
+				//sse[indices[0x04]]+=deltas[0x04]; sse[indices[0x14]]+=deltas[0x14]; sse[indices[0x24]]+=deltas[0x24];
+				//sse[indices[0x05]]+=deltas[0x05]; sse[indices[0x15]]+=deltas[0x15]; sse[indices[0x25]]+=deltas[0x25];
+				//sse[indices[0x06]]+=deltas[0x06]; sse[indices[0x16]]+=deltas[0x16]; sse[indices[0x26]]+=deltas[0x26];
+				//sse[indices[0x07]]+=deltas[0x07]; sse[indices[0x17]]+=deltas[0x17]; sse[indices[0x27]]+=deltas[0x27];
+				//sse[indices[0x08]]+=deltas[0x08]; sse[indices[0x18]]+=deltas[0x18]; sse[indices[0x28]]+=deltas[0x28];
+				//sse[indices[0x09]]+=deltas[0x09]; sse[indices[0x19]]+=deltas[0x19]; sse[indices[0x29]]+=deltas[0x29];
+				//sse[indices[0x0A]]+=deltas[0x0A]; sse[indices[0x1A]]+=deltas[0x1A]; sse[indices[0x2A]]+=deltas[0x2A];
+				//sse[indices[0x0B]]+=deltas[0x0B]; sse[indices[0x1B]]+=deltas[0x1B]; sse[indices[0x2B]]+=deltas[0x2B];
+				//sse[indices[0x0C]]+=deltas[0x0C]; sse[indices[0x1C]]+=deltas[0x1C]; sse[indices[0x2C]]+=deltas[0x2C];
+				//sse[indices[0x0D]]+=deltas[0x0D]; sse[indices[0x1D]]+=deltas[0x1D]; sse[indices[0x2D]]+=deltas[0x2D];
+				//sse[indices[0x0E]]+=deltas[0x0E]; sse[indices[0x1E]]+=deltas[0x1E]; sse[indices[0x2E]]+=deltas[0x2E];
+				//sse[indices[0x0F]]+=deltas[0x0F]; sse[indices[0x1F]]+=deltas[0x1F]; sse[indices[0x2F]]+=deltas[0x2F];
+
+				//msseidx[0]=_mm256_blend_epi16(msseidx[0], _mm256_slli_epi32(msseidx[3], 16), 0xAA);
+				//msseidx[1]=_mm256_blend_epi16(msseidx[1], _mm256_slli_epi32(msseidx[4], 16), 0xAA);
+				//msseidx[2]=_mm256_blend_epi16(msseidx[2], _mm256_slli_epi32(msseidx[5], 16), 0xAA);
+				//_mm256_store_si256((__m256i*)indices+0, msseidx[0]);
+				//_mm256_store_si256((__m256i*)indices+1, msseidx[1]);
+				//_mm256_store_si256((__m256i*)indices+2, msseidx[2]);
+				//for(int k=0;k<3*NCODERS;++k)
+				//	sse[indices[k]]+=deltas[k];
+			}
+#endif
 			//context update = (2*eW+(e<<3)+max(eNEE, eNEEE))>>2
 			eNEEE[0]=_mm256_load_si256((__m256i*)rows[1]+3+0+3*6);
 			eNEEE[1]=_mm256_load_si256((__m256i*)rows[1]+3+1+3*6);
@@ -4635,7 +4903,7 @@ int c40_codec(int argc, char **argv)
 			FILE *fdst=fopen(dstfn, "wb");
 			if(!fdst)
 			{
-				CRASH("Cannot open \"%s\" for writing", fdst);
+				CRASH("Cannot open \"%s\" for writing", dstfn);
 				return 1;
 			}
 			ptrdiff_t csize2=0;

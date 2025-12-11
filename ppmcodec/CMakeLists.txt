@@ -53,6 +53,7 @@ add_executable(codec
 	c38.c
 	c39.c
 	c40.c
+	c41.c
 	codec.c
 	util.c
 
