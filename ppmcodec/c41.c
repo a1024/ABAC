@@ -27,8 +27,11 @@
 #endif
 
 
+#define GRBITS 3
+
 #define RUNMIN 4
-#define RUNMAX 0x10000	//power of two
+#define RUNBITS 9
+#define RUNMAX (1<<RUNBITS)
 
 
 //runtime
@@ -570,7 +573,7 @@ AWM_INLINE void rle_enc_finish(RLECoder *rc)
 	if(rc->qcount)
 	{
 		rice_enc(rc->ec, 0, rc->symbolmode);
-		rice_enc(rc->ec, 16, rc->qcount);
+		rice_enc(rc->ec, RUNBITS, rc->qcount);
 		if(rc->symbolmode)
 		{
 			while(rc->qstart!=rc->qend)
@@ -589,14 +592,15 @@ AWM_INLINE void rle_enc(RLECoder *rc, int nbypass, int sym)
 	if(rc->qcount>=RUNMAX)
 	{
 		rice_enc(rc->ec, 0, rc->symbolmode);
-		rice_enc(rc->ec, 16, rc->qcount-1);
+		rice_enc(rc->ec, RUNBITS, rc->qcount-1);
 		if(rc->symbolmode)
 		{
-			while(rc->qstart!=rc->qend)
+			while(rc->qcount)
 			{
 				Symbol *sym=rc->queue+rc->qstart;
 				rice_enc(rc->ec, sym->nbypass, sym->sym);
 				rc->qstart=(rc->qstart+1)%RUNMAX;
+				--rc->qcount;
 			}
 		}
 		rc->qstart=rc->qend;
@@ -619,14 +623,12 @@ AWM_INLINE void rle_enc(RLECoder *rc, int nbypass, int sym)
 		{
 			int end0=(rc->qend-1+RUNMAX)%RUNMAX;
 			int count=(rc->qend-1-rc->qstart+RUNMAX)%RUNMAX;
-			if(count)
+			if(count>=RUNMIN)
 			{
 				rice_enc(rc->ec, 0, 0);
-				rice_enc(rc->ec, 16, count-1);
+				rice_enc(rc->ec, RUNBITS, count-1);
 				rc->qstart=end0;
 				rc->qcount=1;
-				rc->runstart=rc->qend;
-				rc->runcount=0;
 			}
 			rc->symbolmode=1;
 		}
@@ -644,7 +646,7 @@ AWM_INLINE void rle_enc(RLECoder *rc, int nbypass, int sym)
 				if(count)
 				{
 					rice_enc(rc->ec, 0, 1);
-					rice_enc(rc->ec, 16, count-1);
+					rice_enc(rc->ec, RUNBITS, count-1);
 					while(rc->qstart!=rc->runstart)
 					{
 						Symbol *sym=rc->queue+rc->qstart;
@@ -669,7 +671,7 @@ AWM_INLINE int rle_dec(RLECoder *rc, int nbypass)
 	if(rc->qcount<=0)
 	{
 		rc->symbolmode=rice_dec(rc->ec, 0);
-		rc->qcount=rice_dec(rc->ec, 16)+1;
+		rc->qcount=rice_dec(rc->ec, RUNBITS)+1;
 	}
 	if(rc->symbolmode)
 		sym=rice_dec(rc->ec, nbypass);
@@ -766,7 +768,7 @@ int c41_codec(int argc, char **argv)
 		buf=(uint8_t*)malloc(cap);
 		
 		padw=iw+8*2;
-		psize=padw*(int)sizeof(int16_t[4*3*2]);//4 padded rows * 4 channels max * {pixel, error}
+		psize=padw*(int)sizeof(int16_t[4*3*2]);//4 padded rows * 3 channels * {pixel, error}
 		pixels=(int16_t*)malloc(psize);
 		if(!buf||!pixels)
 		{
@@ -810,7 +812,12 @@ int c41_codec(int argc, char **argv)
 	int umask=-(rct_combinations[bestrct][II_COEFF_U_SUB_Y]!=0);
 	int vc0=rct_combinations[bestrct][II_COEFF_V_SUB_Y];
 	int vc1=rct_combinations[bestrct][II_COEFF_V_SUB_U];
-	memset(pixels, 0, psize);
+	//memset(pixels, 0, psize);
+	for(int k=0;k<psize/sizeof(int16_t);k+=2)
+	{
+		pixels[k+0]=0;
+		pixels[k+1]=128;
+	}
 	for(int ky=0;ky<ih;++ky)
 	{
 		ALIGN(32) int16_t *rows[]=
@@ -840,11 +847,12 @@ int c41_codec(int argc, char **argv)
 					eNEEE	=rows[1][1+3*3*2],
 					eW	=rows[0][1-1*3*2];
 				int error;
-				int nbypass=FLOOR_LOG2(eW+1);
+				int nbypass=eW>>GRBITS;
 				int pred=abs(N-NW)>abs(W-NW)?N:W;
 				pred+=offset;
 				CLAMP2(pred, -128, 127);
-				
+				nbypass=FLOOR_LOG2(nbypass+1);
+
 				//if(ky==786&&kx==409&&kc==2)//
 				//	printf("");
 
@@ -893,7 +901,7 @@ int c41_codec(int argc, char **argv)
 #endif
 				}
 				rows[0][0]=yuv[kc]-offset;
-				rows[0][1]=(2*eW+error+(eNEE>eNEEE?eNEE:eNEEE))>>2;
+				rows[0][1]=(2*eW+(error<<GRBITS)+(eNEE>eNEEE?eNEE:eNEEE))>>2;
 				offset=kc?(vc0*yuv[0]+vc1*yuv[1])>>2:yuv[0]&umask;
 				rows[0]+=2;
 				rows[1]+=2;
