@@ -115,33 +115,42 @@ static double time_sec(void)
 }
 #ifdef ENABLE_GUIDE
 static int g_iw=0, g_ih=0;
-unsigned char *g_image=0;
+uint8_t *g_im1=0, *g_im2=0;
 double g_sqe[3]={0};
-static void guide_save(const unsigned char *image, int iw, int ih)
+static uint8_t* guide_save(const uint8_t *image, int iw, int ih)
 {
+	uint8_t *im2=0;
 	int size=3*iw*ih;
 	g_iw=iw;
 	g_ih=ih;
-	g_image=(unsigned char*)malloc(size);
-	if(!g_image)
+	im2=(uint8_t*)malloc(size);
+	if(!im2)
 	{
 		CRASH("Alloc error");
-		return;
+		return 0;
 	}
-	memcpy(g_image, image, size);
+	memcpy(im2, image, size);
+	return im2;
 }
-static void guide_check(const unsigned char *image, int kx, int ky)
+static void guide_check(const uint8_t *image, const uint8_t *im0, int kx, int ky)
 {
 	int idx=3*(g_iw*ky+kx);
-	if(memcmp(image+idx, g_image+idx, 3))
+	if(memcmp(image+idx, im0+idx, 3))
 	{
-		CRASH("");
-		printf("");
+		printf("\n\nGuide error  X %5d  Y %5d  0x%02X%02X%02X != 0x%02X%02X%02X\n\n"
+			, kx
+			, ky
+			, image[idx+0]
+			, image[idx+1]
+			, image[idx+2]
+			, im0[idx+0]
+			, im0[idx+1]
+			, im0[idx+2]
+		);
+		CRASH("Guide error");
+		printf("\n");//trick for old debuggers
 	}
 }
-#else
-#define guide_save(...)
-#define guide_check(...)
 #endif
 #endif
 
@@ -334,7 +343,7 @@ typedef enum _RCTIndex
 #undef  RCT
 	RCT_COUNT,
 } RCTIndex;
-static const unsigned char rct_combinations[RCT_COUNT][II_COUNT]=
+static const uint8_t rct_combinations[RCT_COUNT][II_COUNT]=
 {
 #define RCT(LABEL, ...) {__VA_ARGS__},
 	RCTLIST
@@ -347,7 +356,7 @@ static const char *rct_names[RCT_COUNT]=
 #undef  RCT
 };
 #endif
-static int crct_analysis(unsigned char *image, int iw, int ih)
+static int crct_analysis(uint8_t *image, int iw, int ih)
 {
 	long long counters[OCH_COUNT]={0};
 	int prev[OCH_COUNT]={0};
@@ -405,7 +414,7 @@ static int crct_analysis(unsigned char *image, int iw, int ih)
 	long long minerr=0;
 	for(int kt=0;kt<RCT_COUNT;++kt)
 	{
-		const unsigned char *rct=rct_combinations[kt];
+		const uint8_t *rct=rct_combinations[kt];
 		long long currerr=
 			+counters[rct[0]]
 			+counters[rct[1]]
@@ -679,6 +688,116 @@ AWM_INLINE int rle_dec(RLECoder *rc, int nbypass)
 	return sym;
 }
 
+static void predict(uint8_t *image, int iw, int ih, int16_t *pixels, int psize, int rct, int fwd)
+{
+	uint8_t *imptr=image;
+	int yidx=rct_combinations[rct][II_PERM_Y];
+	int uidx=rct_combinations[rct][II_PERM_U];
+	int vidx=rct_combinations[rct][II_PERM_V];
+	int umask=-(rct_combinations[rct][II_COEFF_U_SUB_Y]!=0);
+	int vc0=rct_combinations[rct][II_COEFF_V_SUB_Y];
+	int vc1=rct_combinations[rct][II_COEFF_V_SUB_U];
+#ifdef ENABLE_GUIDE
+	int perm[]={yidx, uidx, vidx};
+#endif
+
+	memset(pixels, 0, psize);
+	for(int ky=0;ky<ih;++ky)
+	{
+		ALIGN(32) int16_t *rows[]=
+		{
+			pixels+(8*3*2+(ky-0LL+2)%2)*1,//base + (XPAD*NCH*NROWS + (CY-NY+NROWS)%NROWS)*NVAL
+			pixels+(8*3*2+(ky-1LL+2)%2)*1,
+		};
+		uint8_t yuv[3]={0};
+		for(int kx=0;kx<iw;++kx, imptr+=3)
+		{
+			int offset=0;
+			if(fwd)
+			{
+				yuv[0]=imptr[yidx];
+				yuv[1]=imptr[uidx];
+				yuv[2]=imptr[vidx];
+			}
+			for(int kc=0;kc<3;++kc)
+			{
+				int
+					NW	=rows[1][-1*3*2*1],//NCH*NROWS*NVAL
+					N	=rows[1][+0*3*2*1],
+					W	=rows[0][-1*3*2*1];
+				int error, epred, negmask, sym;
+
+				int pred=abs(N-NW)>abs(W-NW)?N:W;
+				//int vmax=N, vmin=W, pred=N+W-NW;
+				//if(N<W)vmin=N, vmax=W;
+				//CLAMP2(pred, vmin, vmax);
+
+				pred+=offset;
+				CLAMP2(pred, 0, 255);
+				
+				epred=128-abs(pred-128);
+				if(fwd)
+				{
+					int e0, abserr;
+
+					error=yuv[kc]-pred;
+					e0=(int8_t)error;
+					negmask=error>>31;
+					abserr=(error^negmask)-negmask;
+					sym=error<<1^negmask;
+					if(epred<abserr)
+						sym=epred+abserr;
+					if(sym==256)
+						sym=e0<<1^e0>>31;
+					imptr[kc]=sym;
+				}
+				else
+				{
+					sym=imptr[kc];
+					
+					error=sym>>1^-(sym&1);
+					yuv[kc]=(int8_t)(error+pred);
+					if(2*pred+sym!=512)
+					{
+						negmask=(pred-128)>>31;
+						int e2=epred-sym;
+						error=sym>>1^-(sym&1);
+						e2=(e2^negmask)-negmask;
+						if((epred<<1)<sym)
+							error=e2;
+						yuv[kc]=error+pred;
+					}
+#ifdef ENABLE_GUIDE
+					if(g_im1[imptr-image+perm[kc]]!=yuv[kc])
+					{
+						printf("\n\nGuide error  X %5d  Y %5d C%d  0x%02X != 0x%02X\n\n"
+							, kx
+							, ky
+							, kc
+							, yuv[kc]
+							, g_im1[3*(iw*ky+kx)+perm[kc]]
+						);
+						CRASH("Guide error");
+					}
+#endif
+				}
+				rows[0][0]=yuv[kc]-offset;
+				offset=kc?(vc0*yuv[0]+vc1*yuv[1])>>2:yuv[0]&umask;
+				rows[0]+=2*1;//NROWS*NVAL
+				rows[1]+=2*1;
+			}
+			if(!fwd)
+			{
+				imptr[yidx]=yuv[0];
+				imptr[uidx]=yuv[1];
+				imptr[vidx]=yuv[2];
+#ifdef ENABLE_GUIDE
+				guide_check(image, g_im1, kx, ky);
+#endif
+			}
+		}
+	}
+}
 int c41_codec(int argc, char **argv)
 {
 	if(argc!=3)
@@ -698,11 +817,15 @@ int c41_codec(int argc, char **argv)
 	int fwd=0, iw=0, ih=0;
 	int bestrct=0;
 	ptrdiff_t usize=0, csize=0, headersize=0, cap=0;
-	uint8_t *buf=0, *image=0, *imptr=0, *streamstart=0, *streamend=0;
+	uint8_t *buf=0, *image=0, *streamstart=0, *streamend=0;
 	int padw=0, psize=0;
 	int16_t *pixels=0;
 	RiceCoder ec;
 	RLECoder rc;
+#ifdef ENABLE_GUIDE
+	static uint8_t *im0=0;
+#endif
+
 #ifdef LOUD
 	t=time_sec();
 #endif
@@ -713,7 +836,7 @@ int c41_codec(int argc, char **argv)
 			CRASH("Cannot open \"%s\"", srcfn);
 			return 1;
 		}
-		int c=0;
+		int64_t c=0;
 		fread(&c, 1, 2, fsrc);
 		fwd=c==('P'|'6'<<8);
 		if(!fwd&&c!=('4'|'1'<<8))
@@ -723,31 +846,75 @@ int c41_codec(int argc, char **argv)
 		}
 		if(fwd)
 		{
-			int nread=0, vmax=0;
 			c=fgetc(fsrc);
 			if(c!='\n')
-			{
-				CRASH("Invalid PPM file");
-				return 1;
-			}
-			nread=fscanf(fsrc, "%d %d", &iw, &ih);
-			if(nread!=2)
-			{
-				CRASH("Unsupported PPM file");
-				return 1;
-			}
-			nread=fscanf(fsrc, "%d", &vmax);
-			if(nread!=1||vmax!=255)
 			{
 				CRASH("Unsupported PPM file");
 				return 1;
 			}
 			c=fgetc(fsrc);
-			if(c!='\n')
+			while(c=='#')
 			{
-				CRASH("Invalid PPM file");
+				c=fgetc(fsrc);
+				while(c!='\n')
+					c=fgetc(fsrc);
+				c=fgetc(fsrc);
+			}
+			iw=0;
+			while((uint32_t)(c-'0')<10)
+			{
+				iw=10*iw+(int32_t)c-'0';
+				c=fgetc(fsrc);
+			}
+			while(c<=' ')
+				c=fgetc(fsrc);
+			ih=0;
+			while((uint32_t)(c-'0')<10)
+			{
+				ih=10*ih+(int32_t)c-'0';
+				c=fgetc(fsrc);
+			}
+			while(c=='#')
+			{
+				c=fgetc(fsrc);
+				while(c!='\n')
+					c=fgetc(fsrc);
+				c=fgetc(fsrc);
+			}
+			c|=(int64_t)fgetc(fsrc)<<8*1;
+			c|=(int64_t)fgetc(fsrc)<<8*2;
+			c|=(int64_t)fgetc(fsrc)<<8*3;
+			c|=(int64_t)fgetc(fsrc)<<8*4;
+			if(c!=(
+				(uint64_t)'\n'<<8*0|
+				(uint64_t) '2'<<8*1|
+				(uint64_t) '5'<<8*2|
+				(uint64_t) '5'<<8*3|
+				(uint64_t)'\n'<<8*4
+			))
+			{
+				CRASH("Unsupported PPM file");
 				return 1;
 			}
+
+			//nread=fscanf(fsrc, "%d %d", &iw, &ih);
+			//if(nread!=2)
+			//{
+			//	CRASH("Unsupported PPM file");
+			//	return 1;
+			//}
+			//nread=fscanf(fsrc, "%d", &vmax);
+			//if(nread!=1||vmax!=255)
+			//{
+			//	CRASH("Unsupported PPM file");
+			//	return 1;
+			//}
+			//c=fgetc(fsrc);
+			//if(c!='\n')
+			//{
+			//	CRASH("Invalid PPM file");
+			//	return 1;
+			//}
 		}
 		else
 		{
@@ -768,7 +935,9 @@ int c41_codec(int argc, char **argv)
 		buf=(uint8_t*)malloc(cap);
 		
 		padw=iw+8*2;
-		psize=padw*(int)sizeof(int16_t[4*3*2]);//4 padded rows * 3 channels * {pixel, error}
+		psize=padw*(int)sizeof(int16_t[3*2*1]);//int16_t[iw+2*XPAD][NCH][NROWS][NVAL]
+
+		//psize=padw*(int)sizeof(int16_t[4*3*2]);//4 padded rows * 3 channels * {pixel, error}
 		pixels=(int16_t*)malloc(psize);
 		if(!buf||!pixels)
 		{
@@ -782,7 +951,9 @@ int c41_codec(int argc, char **argv)
 			streamend=buf+cap;
 
 			fread(image, 1, usize, fsrc);//read image
-			guide_save(image, iw, ih);
+#ifdef ENABLE_GUIDE
+			g_im1=guide_save(image, iw, ih);
+#endif
 			bestrct=crct_analysis(image, iw, ih);
 
 			rice_enc_init(&ec, streamstart, streamend);
@@ -805,117 +976,74 @@ int c41_codec(int argc, char **argv)
 		}
 		fclose(fsrc);
 	}
-	imptr=image;
-	int yidx=rct_combinations[bestrct][II_PERM_Y];
-	int uidx=rct_combinations[bestrct][II_PERM_U];
-	int vidx=rct_combinations[bestrct][II_PERM_V];
-	int umask=-(rct_combinations[bestrct][II_COEFF_U_SUB_Y]!=0);
-	int vc0=rct_combinations[bestrct][II_COEFF_V_SUB_Y];
-	int vc1=rct_combinations[bestrct][II_COEFF_V_SUB_U];
-	//memset(pixels, 0, psize);
+	if(fwd)
+	{
+		predict(image, iw, ih, pixels, psize, bestrct, 1);
+#ifdef ENABLE_GUIDE
+		g_im2=guide_save(image, iw, ih);
+#endif
+	}
 	for(int k=0;k<psize/sizeof(int16_t);k+=2)
 	{
 		pixels[k+0]=0;
 		pixels[k+1]=128;
 	}
-	for(int ky=0;ky<ih;++ky)
+	for(int kc=0;kc<3;++kc)
 	{
-		ALIGN(32) int16_t *rows[]=
+		uint8_t *imptr=image+kc;
+		for(int ky=0;ky<ih;++ky)
 		{
-			pixels+(padw*((ky-0LL)&3)+8LL)*3*2,
-			pixels+(padw*((ky-1LL)&3)+8LL)*3*2,
-			pixels+(padw*((ky-2LL)&3)+8LL)*3*2,
-			pixels+(padw*((ky-3LL)&3)+8LL)*3*2,
-		};
-		int8_t yuv[4]={0};
-		for(int kx=0;kx<iw;++kx, imptr+=3)
-		{
-			int offset=0;
-			if(fwd)
+			ALIGN(32) int16_t *rows[]=
 			{
-				yuv[0]=imptr[yidx]-128;
-				yuv[1]=imptr[uidx]-128;
-				yuv[2]=imptr[vidx]-128;
-			}
-			for(int kc=0;kc<3;++kc)
+				pixels+(8*1*2+(ky-0LL+2)%2)*1,//base + (XPAD*NCH*NROWS + (CY-NY+NROWS)%NROWS)*NVAL
+				pixels+(8*1*2+(ky-1LL+2)%2)*1,
+			};
+			for(int kx=0;kx<iw;++kx, imptr+=3)
 			{
 				int
-					NW	=rows[1][0-1*3*2],
-					N	=rows[1][0+0*3*2],
-					W	=rows[0][0-1*3*2],
-					eNEE	=rows[1][1+2*3*2],
-					eNEEE	=rows[1][1+3*3*2],
-					eW	=rows[0][1-1*3*2];
-				int error;
+					eNEE	=rows[1][+2*1*2*1],//NCH*NROWS*NVAL
+					eNEEE	=rows[1][+3*1*2*1],
+					eW	=rows[0][-1*1*2*1];
 				int nbypass=eW>>GRBITS;
-				int pred=abs(N-NW)>abs(W-NW)?N:W;
-				pred+=offset;
-				CLAMP2(pred, -128, 127);
+				int error;
+
 				nbypass=FLOOR_LOG2(nbypass+1);
-
-				//if(ky==786&&kx==409&&kc==2)//
-				//	printf("");
-
-				int epred=128-abs(pred);
 				if(fwd)
 				{
-					error=yuv[kc]-pred;
-
-					int negmask=error>>31;
-					int abserr=(error^negmask)-negmask;
-					error=error<<1^negmask;
-					if(epred<abserr)
-						error=epred+abserr;
-					if(error==256)
-					{
-						error=(int8_t)(yuv[kc]-pred);
-						error=error<<1^error>>31;
-					}
+					error=*imptr;
 
 					rle_enc(&rc, nbypass, error);
 				}
 				else
 				{
 					error=rle_dec(&rc, nbypass);
-					
-					yuv[kc]=error>>1^-(error&1);
-					yuv[kc]=(int8_t)(yuv[kc]+pred);
-					if(2*pred+error!=256)
+					*imptr=error;
+#ifdef ENABLE_GUIDE
+					if(g_im2[imptr-image]!=*imptr)
 					{
-						int negmask=(int32_t)pred>>31;
-						int sym=error;
-						int e2=epred-sym;
-						yuv[kc]=sym>>1^-(sym&1);
-						e2=(e2^negmask)-negmask;
-						if((epred<<1)<sym)
-							yuv[kc]=e2;
-						yuv[kc]+=pred;
-					}
-
-#ifdef _MSC_VER
-					int idx[]={yidx, uidx, vidx};
-					if((uint8_t)g_image[imptr-image+idx[kc]]!=(uint8_t)(yuv[kc]+128))
-					{
-						CRASH("GUIDE ERROR");
+						printf("\n\nGuide error  X %5d  Y %5d C%d  0x%02X != 0x%02X\n\n"
+							, kx
+							, ky
+							, kc
+							, *imptr
+							, g_im2[3*(iw*ky+kx)+kc]
+						);
+						CRASH("Guide error");
 					}
 #endif
 				}
-				rows[0][0]=yuv[kc]-offset;
-				rows[0][1]=(2*eW+(error<<GRBITS)+(eNEE>eNEEE?eNEE:eNEEE))>>2;
-				offset=kc?(vc0*yuv[0]+vc1*yuv[1])>>2:yuv[0]&umask;
-				rows[0]+=2;
-				rows[1]+=2;
-				rows[2]+=2;
-				rows[3]+=2;
-			}
-			if(!fwd)
-			{
-				imptr[yidx]=yuv[0]+128;
-				imptr[uidx]=yuv[1]+128;
-				imptr[vidx]=yuv[2]+128;
-				guide_check(image, kx, ky);
+				rows[0][0]=(2*eW+(error<<GRBITS)+(eNEE>eNEEE?eNEE:eNEEE))>>2;
+				rows[0]+=2*1;//NROWS*NVAL
+				rows[1]+=2*1;
 			}
 		}
+	}
+	if(!fwd)
+	{
+#ifdef ENABLE_GUIDE
+		free(g_im2);
+#endif
+		predict(image, iw, ih, pixels, psize, bestrct, 0);
 	}
 	free(pixels);
 	{

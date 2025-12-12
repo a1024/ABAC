@@ -66,7 +66,7 @@ int c41_codec(int argc, char **argv);//ST analysis-cRCT-select-RLE-GR
 //	#define CODEC_EXT c09
 //	#define CODEC_EXT c10
 //	#define CODEC_EXT c11
-	#define CODEC_EXT c12
+//	#define CODEC_EXT c12
 //	#define CODEC_EXT c13
 //	#define CODEC_EXT c14
 //	#define CODEC_EXT c15
@@ -95,7 +95,7 @@ int c41_codec(int argc, char **argv);//ST analysis-cRCT-select-RLE-GR
 //	#define CODEC_EXT c38
 //	#define CODEC_EXT c39
 //	#define CODEC_EXT c40
-//	#define CODEC_EXT c41
+	#define CODEC_EXT c41
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -190,7 +190,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-HUGE-ppm/jwst.ppm"
 	//	"C:/dataset-HUGE-ppm/kodak.PPM"
 	//	"C:/dataset-HUGE-ppm/space_huge.ppm"
-		"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
+	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_02.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_13.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA12811.ppm"
@@ -211,7 +211,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-RAW-ppm/a0014-WP_CRW_6320.ppm"
 	//	"C:/dataset-sintel-ppm"
 	//	"C:/dataset-sony-ppm/DSC00315.ppm"
-	//	"C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
+		"C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
 	//	"C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
 	//	"C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
 	//	"C:/dataset-synth2-ppm/20240407 blank.ppm"
