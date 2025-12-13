@@ -222,3 +222,6 @@ c40:	c40.c
 
 c41:
 	clang $(FLAGS) -Dc41_codec=main -mavx2 -mbmi -mlzcnt c41.c -o c41 $(LIBS)
+
+c42:
+	clang $(FLAGS) -Dc42_codec=main -mavx2 -mbmi -mlzcnt c42.c -o c42 $(LIBS)

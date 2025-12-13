@@ -54,6 +54,7 @@ add_executable(codec
 	c39.c
 	c40.c
 	c41.c
+	c42.c
 	codec.c
 	util.c
 

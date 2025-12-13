@@ -51,6 +51,7 @@ int c38_codec(int argc, char **argv);//Synth-Natural codec
 int c39_codec(int argc, char **argv);//ST C10 incremental
 int c40_codec(int argc, char **argv);//ST rANS + FSE
 int c41_codec(int argc, char **argv);//ST analysis-cRCT-select-RLE-GR
+int c42_codec(int argc, char **argv);//LZ
 #endif
 
 
@@ -95,7 +96,8 @@ int c41_codec(int argc, char **argv);//ST analysis-cRCT-select-RLE-GR
 //	#define CODEC_EXT c38
 //	#define CODEC_EXT c39
 //	#define CODEC_EXT c40
-	#define CODEC_EXT c41
+//	#define CODEC_EXT c41
+	#define CODEC_EXT c42
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -134,13 +136,13 @@ int main(int argc, char **argv)
 //	return c34_codec(_countof(args), (char**)args);
 #else
 	const char dstfn[]=//OVERWRITTEN
-		"C:/dataset-a-temp/zzz.ppm"
-	//	"C:/Projects/datasets/zzz.ppm"
+	//	"C:/dataset-a-temp/zzz.ppm"
+		"C:/Projects/datasets/zzz.ppm"
 	//	"D:/ML/zzz_deletethis.ppm"
 	;
 	const char tmpfn[]=//OVERWRITTEN
-		"C:/dataset-a-temp/zzz.lsim"
-	//	"C:/Projects/datasets/zzz.lsim"
+	//	"C:/dataset-a-temp/zzz.lsim"
+		"C:/Projects/datasets/zzz.lsim"
 	//	"D:/ML/zzz_deletethis.lsim"
 	;
 	const char srcfn[]=
@@ -211,7 +213,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-RAW-ppm/a0014-WP_CRW_6320.ppm"
 	//	"C:/dataset-sintel-ppm"
 	//	"C:/dataset-sony-ppm/DSC00315.ppm"
-		"C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
+	//	"C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
 	//	"C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
 	//	"C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
 	//	"C:/dataset-synth2-ppm/20240407 blank.ppm"
@@ -249,10 +251,12 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA13882.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm"	//large
+		"C:/Projects/datasets/dataset-synth2-ppm/20240405 2 CPU-load.ppm"
+	//	"C:/Projects/datasets/dataset-synth2-ppm/20240409 1 LPCB.ppm"
 	//	"C:/Projects/datasets/kodim13.ppm"
 	//	"C:/Projects/datasets/kodim13.ppm"
-	//	"C:/Projects/datasets/kodim13-small16.PPM"
 	//	"C:/Projects/datasets/kodim13-small16.ppm"
+	//	"C:/Projects/datasets/kodim13-small16.PPM"
 	//	"C:/Projects/datasets/kodim13-small4.PPM"
 	//	"C:/Projects/datasets/kodim24.ppm"
 	//	"C:/Projects/datasets/space_huge.ppm"

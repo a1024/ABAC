@@ -27,7 +27,7 @@
 #endif
 
 
-#define GRBITS 3
+#define GRBITS 6
 
 #define RUNMIN 4
 #define RUNBITS 9
@@ -115,8 +115,8 @@ static double time_sec(void)
 }
 #ifdef ENABLE_GUIDE
 static int g_iw=0, g_ih=0;
-uint8_t *g_im1=0, *g_im2=0;
-double g_sqe[3]={0};
+static uint8_t *g_im1=0, *g_im2=0;
+static double g_sqe[3]={0};
 static uint8_t* guide_save(const uint8_t *image, int iw, int ih)
 {
 	uint8_t *im2=0;
@@ -812,7 +812,7 @@ int c41_codec(int argc, char **argv)
 	}
 	const char *srcfn=argv[1], *dstfn=argv[2];
 #ifdef LOUD
-	double t=time_sec();
+	double t=time_sec(), t2=0;
 #endif
 	int fwd=0, iw=0, ih=0;
 	int bestrct=0;
@@ -896,25 +896,6 @@ int c41_codec(int argc, char **argv)
 				CRASH("Unsupported PPM file");
 				return 1;
 			}
-
-			//nread=fscanf(fsrc, "%d %d", &iw, &ih);
-			//if(nread!=2)
-			//{
-			//	CRASH("Unsupported PPM file");
-			//	return 1;
-			//}
-			//nread=fscanf(fsrc, "%d", &vmax);
-			//if(nread!=1||vmax!=255)
-			//{
-			//	CRASH("Unsupported PPM file");
-			//	return 1;
-			//}
-			//c=fgetc(fsrc);
-			//if(c!='\n')
-			//{
-			//	CRASH("Invalid PPM file");
-			//	return 1;
-			//}
 		}
 		else
 		{
@@ -978,19 +959,26 @@ int c41_codec(int argc, char **argv)
 	}
 	if(fwd)
 	{
+#ifdef LOUD
+		t2=time_sec();
+#endif
 		predict(image, iw, ih, pixels, psize, bestrct, 1);
+#ifdef LOUD
+		t2=time_sec()-t2;
+		printf("%12.6lf sec  predict\n", t2);
+#endif
 #ifdef ENABLE_GUIDE
 		g_im2=guide_save(image, iw, ih);
 #endif
 	}
-	for(int k=0;k<psize/sizeof(int16_t);k+=2)
-	{
-		pixels[k+0]=0;
-		pixels[k+1]=128;
-	}
+#ifdef LOUD
+	t2=time_sec();
+#endif
 	for(int kc=0;kc<3;++kc)
 	{
 		uint8_t *imptr=image+kc;
+		for(int k=0;k<psize/sizeof(int16_t);++k)
+			pixels[k]=128;
 		for(int ky=0;ky<ih;++ky)
 		{
 			ALIGN(32) int16_t *rows[]=
@@ -1038,12 +1026,23 @@ int c41_codec(int argc, char **argv)
 			}
 		}
 	}
+#ifdef LOUD
+	t2=time_sec()-t2;
+	printf("%12.6lf sec  RLE\n", t2);
+#endif
 	if(!fwd)
 	{
 #ifdef ENABLE_GUIDE
 		free(g_im2);
 #endif
+#ifdef LOUD
+		t2=time_sec();
+#endif
 		predict(image, iw, ih, pixels, psize, bestrct, 0);
+#ifdef LOUD
+		t2=time_sec()-t2;
+		printf("%12.6lf sec  reconstruct\n", t2);
+#endif
 	}
 	free(pixels);
 	{
