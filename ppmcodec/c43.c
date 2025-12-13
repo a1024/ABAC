@@ -19,6 +19,7 @@
 #else
 #include<time.h>
 #endif
+#include<immintrin.h>
 
 
 #ifdef _MSC_VER
@@ -26,9 +27,7 @@
 	#define ENABLE_GUIDE
 #endif
 
-
 #define GRBITS 6
-#define LRSHIFT 2
 
 
 //runtime
@@ -111,42 +110,21 @@ static double time_sec(void)
 #endif
 }
 #ifdef ENABLE_GUIDE
-static int g_iw=0, g_ih=0;
-static uint8_t *g_im1=0, *g_im2=0;
-static double g_sqe[3]={0};
-static uint8_t* guide_save(const uint8_t *image, int iw, int ih)
+static ptrdiff_t g_size=0;
+static uint8_t *g_buf=0;
+static uint8_t* guide_save(const uint8_t *buf, ptrdiff_t size)
 {
-	uint8_t *im2=0;
-	int size=3*iw*ih;
-	g_iw=iw;
-	g_ih=ih;
-	im2=(uint8_t*)malloc(size);
-	if(!im2)
+	uint8_t *buf2=0;
+
+	g_size=size;
+	buf2=(uint8_t*)malloc(size);
+	if(!buf2)
 	{
 		CRASH("Alloc error");
 		return 0;
 	}
-	memcpy(im2, image, size);
-	return im2;
-}
-static void guide_check(const uint8_t *image, const uint8_t *im0, int kx, int ky)
-{
-	int idx=3*(g_iw*ky+kx);
-	if(memcmp(image+idx, im0+idx, 3))
-	{
-		printf("\n\nGuide error  X %5d  Y %5d  0x%02X%02X%02X != 0x%02X%02X%02X\n\n"
-			, kx
-			, ky
-			, image[idx+0]
-			, image[idx+1]
-			, image[idx+2]
-			, im0[idx+0]
-			, im0[idx+1]
-			, im0[idx+2]
-		);
-		CRASH("Guide error");
-		printf("\n");//trick for old debuggers
-	}
+	memcpy(buf2, buf, size);
+	return buf2;
 }
 #endif
 #endif
@@ -266,40 +244,42 @@ AWM_INLINE int rice_dec(RiceCoder *ec, int nbypass)
 	return sym;
 }
 
-#define LZMIN 6
+#define LZMIN 5
 #define LZLENBITS 9
 #define LZMAX (1<<LZLENBITS)
-#define LZBACKBITS 24
+#define LZWBITS 11
+#define LZWSIZE (1<<LZWBITS)
 
-#define EBITS 12
+#define EBITS 18
 #define ESIZE (1<<EBITS)
 typedef struct _ETable
 {
 	int32_t etable[ESIZE], estart, eend, ecount;
 } ETable;
-static ETable tables[0x100];
-int c42_codec(int argc, char **argv)
+static ETable tables[256];
+int c43_codec(int argc, char **argv)
 {
-	if(argc!=3)
+	const uint16_t tag='4'|'2'<<8;
+	if(argc!=4||(uint32_t)((argv[1][0]&0xDF)-'D')>=2||argv[1][1])
 	{
 		printf(
-			"Usage:  \"%s\"  input  output    To encode/decode.\n"
+			"Usage:  \"%s\"  e|d  input  output    To encode/decode.\n"
 			"Built on %s %s\n"
 			, argv[0]
 			, __DATE__, __TIME__
 		);
 		return 1;
 	}
-	const char *srcfn=argv[1], *dstfn=argv[2];
+	int fwd=(argv[1][0]&0xDF)=='E';
+	const char *srcfn=argv[2], *dstfn=argv[3];
 #ifdef LOUD
 	double t=time_sec(), t2=0;
 #endif
-	int fwd=0, iw=0, ih=0;
-	ptrdiff_t usize=0, csize=0, headersize=0, cap=0;
-	uint8_t *buf=0, *image=0, *streamstart=0, *streamend=0;
+	ptrdiff_t usize=0, csize=0, cap=0;
+	uint8_t *buf=0, *bufptr=0, *bufend=0;
+	uint8_t *streamstart=0, *streamend=0;
 	RiceCoder ec;
-	uint8_t *imptr=0, *imend=0;
-	int prevdata=0, prevsym=128;
+	const int nbypass=7;
 #ifdef ENABLE_GUIDE
 	static uint8_t *im0=0;
 #endif
@@ -308,132 +288,72 @@ int c42_codec(int argc, char **argv)
 	t=time_sec();
 #endif
 	{
+		struct stat info={0};
+		int error=stat(srcfn, &info);
+		if(error||!info.st_size)
+		{
+			CRASH("Cannot stat \"%s\"", srcfn);
+			return 1;
+		}
+		if(fwd)
+			usize=info.st_size;
+		else
+			csize=info.st_size;
+	}
+	{
 		FILE *fsrc=fopen(srcfn, "rb");
 		if(!fsrc)
 		{
 			CRASH("Cannot open \"%s\"", srcfn);
 			return 1;
 		}
-		int64_t c=0;
-		fread(&c, 1, 2, fsrc);
-		fwd=c==('P'|'6'<<8);
-		if(!fwd&&c!=('4'|'2'<<8))
-		{
-			CRASH("Unsupported file \"%s\"", srcfn);
-			return 1;
-		}
 		if(fwd)
 		{
-			c=fgetc(fsrc);
-			if(c!='\n')
-			{
-				CRASH("Unsupported PPM file");
-				return 1;
-			}
-			c=fgetc(fsrc);
-			while(c=='#')
-			{
-				c=fgetc(fsrc);
-				while(c!='\n')
-					c=fgetc(fsrc);
-				c=fgetc(fsrc);
-			}
-			iw=0;
-			while((uint32_t)(c-'0')<10)
-			{
-				iw=10*iw+(int32_t)c-'0';
-				c=fgetc(fsrc);
-			}
-			while(c<=' ')
-				c=fgetc(fsrc);
-			ih=0;
-			while((uint32_t)(c-'0')<10)
-			{
-				ih=10*ih+(int32_t)c-'0';
-				c=fgetc(fsrc);
-			}
-			while(c=='#')
-			{
-				c=fgetc(fsrc);
-				while(c!='\n')
-					c=fgetc(fsrc);
-				c=fgetc(fsrc);
-			}
-			c|=(int64_t)fgetc(fsrc)<<8*1;
-			c|=(int64_t)fgetc(fsrc)<<8*2;
-			c|=(int64_t)fgetc(fsrc)<<8*3;
-			c|=(int64_t)fgetc(fsrc)<<8*4;
-			if(c!=(
-				(uint64_t)'\n'<<8*0|
-				(uint64_t) '2'<<8*1|
-				(uint64_t) '5'<<8*2|
-				(uint64_t) '5'<<8*3|
-				(uint64_t)'\n'<<8*4
-			))
-			{
-				CRASH("Unsupported PPM file");
-				return 1;
-			}
+			cap=usize*4/3;
 		}
 		else
 		{
-			iw=0;
-			ih=0;
-			fread(&iw, 1, 3, fsrc);
-			fread(&ih, 1, 3, fsrc);
+			int h=0;
+
+			cap=csize;
+			fread(&h, 1, 2, fsrc);
+			if(h!=tag)
+			{
+				CRASH("Unupported file \"%s\"", srcfn);
+				return 1;
+			}
+			fread(&usize, 1, 4, fsrc);
 		}
-		if(iw<1||ih<1)
-		{
-			CRASH("Unsupported source file");
-			return 1;
-		}
-		headersize=ftell(fsrc);
-		//rowstride=3*iw;
-		usize=(ptrdiff_t)3*iw*ih;
-		cap=(ptrdiff_t)7*iw*ih;
-		buf=(uint8_t*)malloc(cap);
-		if(!buf)
+		buf=(uint8_t*)malloc(usize);
+		streamstart=(uint8_t*)malloc(cap);
+		if(!buf||!streamstart)
 		{
 			CRASH("Alloc error");
 			return 1;
 		}
+		streamend=buf+cap;
 		if(fwd)
 		{
-			image=buf+cap-usize-sizeof(uint64_t);
-			streamstart=buf;
-			streamend=buf+cap;
 
-			fread(image, 1, usize, fsrc);//read image
+			fread(buf, 1, usize, fsrc);//read image
 #ifdef ENABLE_GUIDE
-			g_im1=guide_save(image, iw, ih);
+			g_buf=guide_save(buf, usize);
 #endif
 		}
 		else
 		{
-			struct stat info={0};
-			stat(srcfn, &info);
-			csize=info.st_size;
-
-			image=buf;
-			streamstart=buf+cap-csize-sizeof(uint64_t);
-			streamend=buf+cap;
-
-			fread(streamstart, 1, csize-headersize, fsrc);//read stream
+			fread(streamstart, 1, csize-ftell(fsrc), fsrc);//read stream
 		}
 		fclose(fsrc);
 	}
 	rice_init(&ec, streamstart, streamend);
-	imptr=image;
-	imend=image+usize;
+	bufptr=buf;
+	bufend=buf+usize;
 	if(fwd)
 	{
 		const int queuesize=sizeof(uint8_t[LZMAX]);
 		uint8_t *queue=(uint8_t*)malloc(queuesize);
 		int qcount=0, qstart=0, qend=0;
-//#ifdef LOUD
-//		int64_t avback=0, avlen=0, codecount=0;
-//#endif
-
 		if(!queue)
 		{
 			CRASH("Alloc error");
@@ -441,26 +361,18 @@ int c42_codec(int argc, char **argv)
 		}
 		memset(tables, 0, sizeof(tables));
 		memset(queue, 0, queuesize);
-		*imend=0;
-		while(imptr<imend)
+		while(bufptr<bufend)
 		{
+			uint8_t sym=*bufptr;
 			int matchidx=-1, matchlen=0;
-
-			uint32_t sym0=*(uint8_t*)imptr;
-		//	uint32_t sym0=*(uint16_t*)imptr;
-			ETable *table=tables+sym0;
+			
+			ETable *table=tables+sym;
 			int ctr=table->ecount;
 			while(ctr)
 			{
 				int tidx=(table->estart+ctr)%ESIZE;
 				int idx=table->etable[tidx], len=0;
-				uint8_t *search1=image+idx;
-				uint8_t *search2=imptr;
-				ptrdiff_t searchend=image+usize-imptr-sizeof(uint64_t);
-				while(len<searchend&&*(uint64_t*)(search1+len)==*(uint64_t*)(search2+len))
-					len+=sizeof(uint64_t);
-				searchend=image+usize-imptr-1;
-				while(len<searchend&&search1[len]==search2[len])
+				while(bufptr+len<bufend&&bufptr[len]==buf[idx+len])
 					++len;
 				if(len>matchlen)
 					matchidx=idx, matchlen=len;
@@ -471,30 +383,48 @@ int c42_codec(int argc, char **argv)
 			//add current position to table
 			if(table->ecount>=ESIZE)//table is full
 			{
-				table->etable[table->eend]=(int32_t)(imptr-image);
+				table->etable[table->eend]=(int32_t)(bufptr-buf);
 				table->eend=(table->eend+1)%ESIZE;
 				table->estart=(table->estart+1)%ESIZE;
 			}
 			else
 			{
-				table->etable[table->eend]=(int32_t)(imptr-image);
+				table->etable[table->eend]=(int32_t)(bufptr-buf);
 				table->eend=(table->eend+1)%ESIZE;
 				++table->ecount;
 			}
+#if 0
+			for(int k=1;k<LZWSIZE;++k)//search the window
+			{
+				uint8_t *src=bufptr-k;
+				int len;
+
+				if(src<buf)
+					break;
+				if(*src!=sym)
+					continue;
+				for(len=1;len<LZMAX;++len)
+				{
+					if(src[len]!=bufptr[len])
+						break;
+				}
+				if(len>matchlen)
+				{
+					matchlen=len;
+					matchidx=(int32_t)(src-buf);
+				}
+			}
+#endif
 			if(qcount>=LZMAX)//queue is full
 			{
 				rice_enc(&ec, 0, 1);
 				rice_enc(&ec, LZLENBITS, qcount-1);
 				while(qcount)
 				{
-					int data=queue[qstart];
-					int sym=data-prevdata;
-					prevdata=data;
-					sym=sym<<1^sym>>31;
-					rice_enc(&ec, FLOOR_LOG2((prevsym>>GRBITS)+1), sym);
+					uint8_t sym=queue[qstart];
+					rice_enc(&ec, nbypass, sym);
 					qstart=(qstart+1)%LZMAX;
 					--qcount;
-					prevsym+=((sym<<GRBITS)-prevsym)>>LRSHIFT;
 				}
 				qstart=qend;
 			}
@@ -506,106 +436,79 @@ int c42_codec(int argc, char **argv)
 					rice_enc(&ec, LZLENBITS, qcount-1);
 					while(qcount)
 					{
-						int data=queue[qstart];
-						int sym=data-prevdata;
-						prevdata=data;
-						sym=sym<<1^sym>>31;
-						rice_enc(&ec, FLOOR_LOG2((prevsym>>GRBITS)+1), sym);
+						int sym=queue[qstart];
+						rice_enc(&ec, nbypass, sym);
 						qstart=(qstart+1)%LZMAX;
 						--qcount;
-						prevsym+=((sym<<GRBITS)-prevsym)>>LRSHIFT;
 					}
 				}
 				rice_enc(&ec, 0, 0);
 				rice_enc(&ec, LZLENBITS, matchlen-1);
-				rice_enc(&ec, LZBACKBITS, (int)(imptr-image-matchidx));
-				
-#if defined LOUD && 1
-#if 0
-				static int ctr=0;
-				++ctr;
-				if(ctr<<(32-9))
-				{
-					printf("nentries %10d back %10d  len %10d\n"
-						, nentries
-						, (int)(imptr-image)-matchidx
-						, matchlen
-					);
-				}
-#endif
-				//avback+=(int)(imptr-image)-matchidx;
-				//avlen+=matchlen;
-				//++codecount;
-#endif
+				rice_enc(&ec, LZWBITS, (int)(bufptr-buf-matchidx));
 
 				//jump
-				imptr+=matchlen;
+				bufptr+=matchlen;
 			}
 			else//append byte to stream
 			{
 				//enqueue symbol
-				queue[qend]=sym0;
-			//	queue[qend]=sym0&255;
+				queue[qend]=sym;
 				qend=(qend+1)%LZMAX;
 				++qcount;
 
-				++imptr;
+				++bufptr;
 			}
+#ifdef LOUD
+			static int printctr=0;
+			if(!((printctr+1)<<(32-16)))
+				printf("\rIDX %12lld  CR %8.4lf%%"
+					, bufptr-buf
+					, 100.*(ec.ptr-streamstart)/(bufptr-buf)
+				);
+			++printctr;
+#endif
 		}
+#ifdef LOUD
+		printf("\n");
+#endif
 		if(qcount)
 		{
 			rice_enc(&ec, 0, 1);
 			rice_enc(&ec, LZLENBITS, qcount-1);
 			while(qcount)
 			{
-				int data=queue[qstart];
-				int sym=data-prevdata;
-				prevdata=data;
-				sym=sym<<1^sym>>31;
-				rice_enc(&ec, FLOOR_LOG2((prevsym>>GRBITS)+1), sym);
+				uint8_t sym=queue[qstart];
+				rice_enc(&ec, nbypass, sym);
 				qstart=(qstart+1)%LZMAX;
 				--qcount;
-				prevsym+=((sym<<GRBITS)-prevsym)>>LRSHIFT;
 			}
 			qstart=qend;
 		}
-//#ifdef LOUD
-//		printf("\n");
-//		printf("avback %12.2lf  avlen %12.2lf\n"
-//			, (double)avback/codecount
-//			, (double)avlen/codecount
-//		);
-//#endif
-		//free(table);
 		free(queue);
 		rice_enc_flush(&ec);
 	}
 	else
 	{
-		for(;imptr<imend;)
+		for(;bufptr<bufend;)
 		{
 			int mode=rice_dec(&ec, 0);
 			int count=rice_dec(&ec, LZLENBITS)+1;
-			uint8_t *fillend=imptr+count;
-			if(fillend>imend)//guard
-				fillend=imend;
+			uint8_t *fillend=bufptr+count;
+			if(fillend>bufend)//guard
+				fillend=bufend;
 			if(mode)//symbols
 			{
-				while(imptr<fillend)
+				while(bufptr<fillend)
 				{
-					int sym=rice_dec(&ec, FLOOR_LOG2((prevsym>>GRBITS)+1));
-					int data=sym>>1^-(sym&1);
-					prevsym+=((sym<<GRBITS)-prevsym)>>LRSHIFT;
-					data+=prevdata;
-					prevdata=data;
-					*imptr++=data;
+					int sym=rice_dec(&ec, 7);
+					*bufptr++=sym;
 #ifdef ENABLE_GUIDE
-					if(imptr[-1]!=g_im1[imptr-image-1])
+					if(bufptr[-1]!=g_buf[bufptr-buf-1])
 					{
 						printf("Guide error  IDX %10d  0x%02X != 0x%02X\n"
-							, (int)(imptr-image-1)
-							, imptr[-1]
-							, g_im1[imptr-image-1]
+							, (int)(bufptr-buf-1)
+							, bufptr[-1]
+							, g_buf[bufptr-buf-1]
 						);
 						CRASH("Guide error");
 					}
@@ -614,18 +517,18 @@ int c42_codec(int argc, char **argv)
 			}
 			else//copy
 			{
-				int backtrack=rice_dec(&ec, LZBACKBITS);
-				uint8_t *src=imptr-backtrack;
-				while(imptr<fillend)
+				int backtrack=rice_dec(&ec, LZWBITS);
+				uint8_t *src=bufptr-backtrack;
+				while(bufptr<fillend)
 				{
-					*imptr++=*src++;
+					*bufptr++=*src++;
 #ifdef ENABLE_GUIDE
-					if(imptr[-1]!=g_im1[imptr-image-1])
+					if(bufptr[-1]!=g_buf[bufptr-buf-1])
 					{
 						printf("Guide error  IDX %10d  0x%02X != 0x%02X\n"
-							, (int)(imptr-image-1)
-							, imptr[-1]
-							, g_im1[imptr-image-1]
+							, (int)(bufptr-buf-1)
+							, bufptr[-1]
+							, g_buf[bufptr-buf-1]
 						);
 						CRASH("Guide error");
 					}
@@ -646,15 +549,11 @@ int c42_codec(int argc, char **argv)
 		{
 			csize=0;
 			csize+=fwrite("42", 1, 2, fdst);
-			csize+=fwrite(&iw, 1, 3, fdst);
-			csize+=fwrite(&ih, 1, 3, fdst);
+			csize+=fwrite(&usize, 1, 4, fdst);
 			csize+=fwrite(streamstart, 1, ec.ptr-streamstart, fdst);
 		}
 		else
-		{
-			headersize=fprintf(fdst, "P6\n%d %d\n255\n", iw, ih);
-			fwrite(image, 1, usize, fdst);
-		}
+			fwrite(buf, 1, usize, fdst);
 		fclose(fdst);
 	}
 	free(buf);
@@ -662,9 +561,7 @@ int c42_codec(int argc, char **argv)
 	t=time_sec()-t;
 	if(fwd)
 	{
-		printf("Mem usage %lld bytes\n", sizeof(tables));
-		usize+=headersize;
-		printf("WH %d*%d  \"%s\"\n", iw, ih, srcfn);
+		printf("%10lld bytes  \"%s\"\n", (int64_t)usize, srcfn);
 		printf("%9td->%9td  %8.4lf%%  %12.6lf:1  BPD %12.6lf\n"
 			, usize
 			, csize

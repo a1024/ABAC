@@ -52,6 +52,7 @@ int c39_codec(int argc, char **argv);//ST C10 incremental
 int c40_codec(int argc, char **argv);//ST rANS + FSE
 int c41_codec(int argc, char **argv);//ST analysis-cRCT-select-RLE-GR
 int c42_codec(int argc, char **argv);//LZ
+int c43_codec(int argc, char **argv);//LZ
 #endif
 
 
@@ -98,6 +99,7 @@ int c42_codec(int argc, char **argv);//LZ
 //	#define CODEC_EXT c40
 //	#define CODEC_EXT c41
 	#define CODEC_EXT c42
+//	#define CODEC_EXT c43
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -251,12 +253,15 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA13882.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm"	//large
-		"C:/Projects/datasets/dataset-synth2-ppm/20240405 2 CPU-load.ppm"
+		"C:/Projects/datasets/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
+	//	"C:/Projects/datasets/dataset-synth2-ppm/20240405 2 CPU-load.ppm"
 	//	"C:/Projects/datasets/dataset-synth2-ppm/20240409 1 LPCB.ppm"
+	//	"C:/Projects/datasets/dataset-synth2-ppm/art.ppm"
+	//	"C:/Projects/datasets/enwik8"
 	//	"C:/Projects/datasets/kodim13.ppm"
 	//	"C:/Projects/datasets/kodim13.ppm"
-	//	"C:/Projects/datasets/kodim13-small16.ppm"
 	//	"C:/Projects/datasets/kodim13-small16.PPM"
+	//	"C:/Projects/datasets/kodim13-small16.ppm"
 	//	"C:/Projects/datasets/kodim13-small4.PPM"
 	//	"C:/Projects/datasets/kodim24.ppm"
 	//	"C:/Projects/datasets/space_huge.ppm"
@@ -279,6 +284,7 @@ int main(int argc, char **argv)
 	const char *encargs[]=
 	{
 		argv[0],
+	//	"e",
 		srcfn,
 		tmpfn,
 	//	"2",
@@ -292,6 +298,7 @@ int main(int argc, char **argv)
 	const char *decargs[]=
 	{
 		argv[0],
+	//	"d",
 		tmpfn,
 		dstfn,
 	};
