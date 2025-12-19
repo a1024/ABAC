@@ -1671,7 +1671,7 @@ static void print_pareto(IntArray besttestidxs, Tests testinfo, ptrdiff_t usize,
 				double x=floor(((k+1+10-1-xdecimals-leftmargin)*px+cmin)/(1024.*1024*xstep))*xstep;
 				int cond=fabs(x-x0)>1e-6;
 				if(cond)
-					k+=printf("%10.*lf", xdecimals, x0);
+					k+=printf("%10.*lf", xdecimals, x);
 				else
 					k+=printf(" ");
 				x0=x;
@@ -1712,7 +1712,7 @@ int main(int argc, char **argv)
 	datasetname=argv[1];
 	codecname=argv[2];
 #else
-	datasetname="lpcb";
+	datasetname="kodak";
 	codecname="qlic2";
 #endif
 
