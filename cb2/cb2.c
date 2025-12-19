@@ -1100,16 +1100,23 @@ static void print_cmpresult(double *rmse)
 }
 static void print_summary(IntArray besttestidxs, Tests testinfo, ptrdiff_t usize, int special)
 {
+	double ebest=0, dbest=0;
 	for(int k2=0;k2<(int)besttestidxs->count;++k2)
 	{
 		int idx=besttestidxs->data[k2];
 		TestInfo *test=testinfo->data+idx;
+		int epareto=0, dpareto=0;
+
+		if(!k2||ebest>test->total.etime)
+			ebest=test->total.etime, epareto=1;
+		if(!k2||dbest>test->total.dtime)
+			dbest=test->total.dtime, dpareto=1;
 		if(k2&&k2==special)
 			printf("\n");
-		printf("%10lld B  %12.6lf %12.6lf sec  %10.4lf %10.4lf MB/s %8.2lf %8.2lf MB  "
+		printf("%10lld B  %12.6lf%c %12.6lf%c sec  %10.4lf %10.4lf MB/s %8.2lf %8.2lf MB  "
 			, test->total.csize
-			, test->total.etime
-			, test->total.dtime
+			, test->total.etime, epareto?'*':' '
+			, test->total.dtime, dpareto?'*':' '
 			, usize/(test->total.etime*1024*1024)
 			, usize/(test->total.dtime*1024*1024)
 			, test->total.emem
