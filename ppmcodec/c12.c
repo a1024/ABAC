@@ -23,19 +23,16 @@
 #include<immintrin.h>//_lzcnt_u32
 
 
-//	#define BYPASS_GR
-
 #if defined _MSC_VER && !defined RELEASE
 	#define LOUD
 
 //	#define PRINT_RCT
-#ifndef BYPASS_GR
 //	#define ESTIMATE_BITSIZE
-#endif
 	#define ENABLE_GUIDE
 //	#define PRINTBITS
 #endif
 
+//	#define USE_DIV
 //	#define ZIPF_VIEW
 
 	#define UNSIGNED_PIXEL
@@ -456,13 +453,18 @@ INLINE void codebit(ACState *ac, uint32_t *pp1a, int32_t *bit, const int fwd)
 	int rbit;
 	uint64_t r2, mid;
 	
-#ifndef BYPASS_GR
+#ifdef USE_DIV
+	uint32_t p10a=*pp1a;
+	int32_t n[]={p10a&0xFFFF, p10a>>16};
+	int n0e=n[0]+!n[0];
+	int n1e=n[1]+!n[1];
+	int32_t p1=(n1e<<PROBBITS_USE)/(n0e+n1e);
+#else
 	int32_t p10a=*pp1a;
 	int32_t p1=p10a>>(PROBBITS_STORE-PROBBITS_USE);
 
 	p1+=p1<(1<<PROBBITS_USE>>1);
 #endif
-
 #ifdef _MSC_VER
 	++ac->bitidx;
 #endif
@@ -489,11 +491,7 @@ INLINE void codebit(ACState *ac, uint32_t *pp1a, int32_t *bit, const int fwd)
 		if(ac->range>~ac->low)
 			ac->range=~ac->low;
 	}
-#ifdef BYPASS_GR
-	r2=ac->range>>1;
-#else
 	r2=ac->range*p1>>PROBBITS_USE;
-#endif
 	mid=ac->low+r2;
 	ac->range-=r2;
 	--r2;
@@ -505,22 +503,29 @@ INLINE void codebit(ACState *ac, uint32_t *pp1a, int32_t *bit, const int fwd)
 		ac->range=r2;
 	else
 		ac->low=mid;
-	
+
 #ifdef ZIPF_VIEW
 	if(fwd)
 		zsize-=log2((double)(rbit?p1:(1<<PROBBITS_USE)-p1)/(1<<PROBBITS_USE));
 #endif
-#ifndef BYPASS_GR
+#ifdef USE_DIV
+	++n[rbit];
+	if(n[rbit]==0xFFFF)
+	{
+		n[0]>>=1;
+		n[1]>>=1;
+	}
+	*pp1a=n[1]<<16|n[0];
+#else
 	p10a+=((rbit<<PROBBITS_STORE)-p10a)>>7;
 	*pp1a=p10a;
-
+#endif
 #ifdef ESTIMATE_BITSIZE
 	bitsizes[ekc][eidx]+=shannontable[rbit?p1:(1<<PROBBITS_USE)-p1];
 	++bitctr[ekc][eidx][rbit];
 	winctr[ekc][eidx]+=rbit==(p1>=1<<PROBBITS_USE);
 	//if(bitsizes[ekc][eidx]>ac->bitidx/8.*1.2)
 	//	CRASH("");
-#endif
 #endif
 #ifdef _MSC_VER
 	++ac->n[rbit];
@@ -557,9 +562,15 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 		return;
 	}
 	memset(pixels, 0, psize);
+#ifdef USE_DIV
+	memset(stats, 0, sizeof(stats));
+	memset(stats2, 0, sizeof(stats2));
+	memset(stats3, 0, sizeof(stats3));
+#else
 	FILLMEM((uint32_t*)stats, 1<<PROBBITS_STORE>>1, sizeof(stats), sizeof(int32_t));
 	FILLMEM((uint32_t*)stats2, 1<<PROBBITS_STORE>>1, sizeof(stats2), sizeof(int32_t));
 	FILLMEM((uint32_t*)stats3, 1<<PROBBITS_STORE>>1, sizeof(stats3), sizeof(int32_t));
+#endif
 	if(lossy)
 	{
 		FILLMEM((int32_t*)coeffs, (1<<L1SH_LOSSY)/L1NPREDS_LOSSY, sizeof(coeffs), sizeof(int32_t));
@@ -1390,11 +1401,11 @@ int c12_codec(int argc, char **argv)
 #endif
 			}
 #ifdef LOUD
-			printf("\"%s\"  WH %d*%d  %lld bytes  RCT %d %s  dist %d\n"
-				, srcfn
+			printf("WH %d*%d  %lld B  RCT %d %s  dist %d  \"%s\"\n"
 				, iw, ih, usize
 				, bestrct, rct_names[bestrct]
 				, dist
+				, srcfn
 			);
 #else
 			(void)och_names;

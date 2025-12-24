@@ -68,7 +68,7 @@ int c43_codec(int argc, char **argv);//LZ
 //	#define CODEC_EXT c09
 //	#define CODEC_EXT c10
 //	#define CODEC_EXT c11
-//	#define CODEC_EXT c12
+	#define CODEC_EXT c12
 //	#define CODEC_EXT c13
 //	#define CODEC_EXT c14
 //	#define CODEC_EXT c15
@@ -98,7 +98,7 @@ int c43_codec(int argc, char **argv);//LZ
 //	#define CODEC_EXT c39
 //	#define CODEC_EXT c40
 //	#define CODEC_EXT c41
-	#define CODEC_EXT c42
+//	#define CODEC_EXT c42
 //	#define CODEC_EXT c43
 #endif
 #define STR_EXPAND(X) #X
@@ -240,20 +240,25 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/20240806 6 why me.PPM"
 	//	"C:/Projects/datasets/big_building.PPM"
 	//	"C:/Projects/datasets/big_building.PPM"
+	//	"C:/Projects/datasets/calibr.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_abigail-keenan-27293.ppm"
+	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_alexander-schwarz-660.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC30-ppm/03.ppm"
 	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0801.ppm"
 	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0843.ppm"
 	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm"
 	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm"
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim23.ppm"
+		"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
-	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_02.ppm"
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_03.ppm"
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/olympus_xz1_16.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA12811.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA13882.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm"	//large
-		"C:/Projects/datasets/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
+	//	"C:/Projects/datasets/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
 	//	"C:/Projects/datasets/dataset-synth2-ppm/20240405 2 CPU-load.ppm"
 	//	"C:/Projects/datasets/dataset-synth2-ppm/20240409 1 LPCB.ppm"
 	//	"C:/Projects/datasets/dataset-synth2-ppm/art.ppm"

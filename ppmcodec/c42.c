@@ -28,7 +28,7 @@
 
 
 #define GRBITS 6
-#define LRSHIFT 2
+#define LRSHIFT 4
 
 
 //runtime
@@ -271,7 +271,7 @@ AWM_INLINE int rice_dec(RiceCoder *ec, int nbypass)
 #define LZMAX (1<<LZLENBITS)
 #define LZBACKBITS 24
 
-#define EBITS 12
+#define EBITS 14
 #define ESIZE (1<<EBITS)
 typedef struct _ETable
 {
@@ -280,6 +280,20 @@ typedef struct _ETable
 static ETable tables[0x100];
 int c42_codec(int argc, char **argv)
 {
+	const char *srcfn=argv[1], *dstfn=argv[2];
+	int fwd=0, iw=0, ih=0;
+	ptrdiff_t usize=0, csize=0, headersize=0, cap=0;
+	uint8_t *buf=0, *image=0, *streamstart=0, *streamend=0;
+	RiceCoder ec;
+	uint8_t *imptr=0, *imend=0;
+	int prevdata=0, prevsym=128;
+#ifdef ENABLE_GUIDE
+	static uint8_t *im0=0;
+#endif
+#ifdef LOUD
+	double t=0, t2=0;
+#endif
+
 	if(argc!=3)
 	{
 		printf(
@@ -290,20 +304,6 @@ int c42_codec(int argc, char **argv)
 		);
 		return 1;
 	}
-	const char *srcfn=argv[1], *dstfn=argv[2];
-#ifdef LOUD
-	double t=time_sec(), t2=0;
-#endif
-	int fwd=0, iw=0, ih=0;
-	ptrdiff_t usize=0, csize=0, headersize=0, cap=0;
-	uint8_t *buf=0, *image=0, *streamstart=0, *streamend=0;
-	RiceCoder ec;
-	uint8_t *imptr=0, *imend=0;
-	int prevdata=0, prevsym=128;
-#ifdef ENABLE_GUIDE
-	static uint8_t *im0=0;
-#endif
-
 #ifdef LOUD
 	t=time_sec();
 #endif
