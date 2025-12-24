@@ -116,14 +116,14 @@ void pred_ols7(Image *src, int fwd)
 	};
 	int weights[4][NPREDS]={0};
 	int invdist=((1<<16)+g_dist-1)/g_dist;
-	int bufsize=(src->iw+16*2)*(int)sizeof(short[4*4*1]);//4 padded rows * 4 channels max * {pixels}
-	short *pixels=(short*)malloc(bufsize);
+	int psize=(src->iw+16*2)*(int)sizeof(short[4*4*1]);//4 padded rows * 4 channels max * {pixels}
+	short *pixels=(short*)malloc(psize);
 	if(!pixels)
 	{
 		LOG_ERROR("Alloc error");
 		return;
 	}
-	memset(pixels, 0, bufsize);
+	memset(pixels, 0, psize);
 //	static const int w0[]=
 //	{
 //#define PRED(W0, EXPR) W0,
@@ -296,8 +296,8 @@ void pred_mixN(Image *src, int fwd)
 	//int bufsize=(src->iw+16LL)*sizeof(int16_t[4*4*2]);//{...YEUEVEAE:WW,    YEUEVEAE:NNNW, YEUEVEAE:NNW, YEUEVEAE:NW, YEUEVEAE:W}	x-stride 4*4*2	X
 
 	//cache-friendly layout  {...A(NNN NN N C)WW,  |  Y(NNN NN N C)W,  U(NNN NN N C)W,  V(NNN NN N C)W,  A(NNN NN N C)W,  |   Y(NNN NN N C)C,...
-	int bufsize=(src->iw+16LL)*sizeof(int16_t[4*4*1]);//channel stride 4*2		x-stride 4*4*2
-	int16_t *pixels=(int16_t*)_mm_malloc(bufsize, sizeof(__m128i*));
+	int psize=(src->iw+16LL)*sizeof(int16_t[4*4*1]);//channel stride 4*2		x-stride 4*4*2
+	int16_t *pixels=(int16_t*)_mm_malloc(psize, sizeof(__m128i*));
 
 	//int areas[4]={0};//EXPERIMENT 20251104
 	//int hist[4][256]={0};
@@ -307,7 +307,7 @@ void pred_mixN(Image *src, int fwd)
 		LOG_ERROR("Alloc error");
 		return;
 	}
-	memset(pixels, 0, bufsize);
+	memset(pixels, 0, psize);
 	//nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
 	//UPDATE_MAX(nch, src->nch);
 	//FILLMEM((int*)coeffs, (1<<L1SH)/NPREDS, sizeof(coeffs), sizeof(int));
@@ -315,7 +315,7 @@ void pred_mixN(Image *src, int fwd)
 	{
 		int16_t *rows[]=
 		{
-			pixels+(8*4*4-1+(ky+4-0LL)%4)*1,//base + (XPAD*NROWS-1 + (CY-NY)%4) * NCH * NVAL
+			pixels+(8*4*4-1+(ky+4-0LL)%4)*1,//base + (XPAD*NROWS-1 + (CY-NY+NROWS)%NROWS)*NCH*NVAL
 			pixels+(8*4*4-1+(ky+4-1LL)%4)*1,//sub 1 channel for pre-increment
 			pixels+(8*4*4-1+(ky+4-2LL)%4)*1,
 			pixels+(8*4*4-1+(ky+4-3LL)%4)*1,
@@ -330,7 +330,7 @@ void pred_mixN(Image *src, int fwd)
 		{
 			for(int kc=0;kc<4;++kc, ++idx)
 			{
-				rows[0]+=4*1;
+				rows[0]+=4*1;//NROWS*NVAL
 				rows[1]+=4*1;
 				rows[2]+=4*1;
 				rows[3]+=4*1;
@@ -549,10 +549,10 @@ void pred_mixN(Image *src, int fwd)
 					+weights[1]*N
 					+weights[2]*W
 					+weights[3]*NE
-					+weights[4]*(2*N-NN)
-					+weights[5]*(2*W-WW)
-					+weights[6]*(2*(NE-NNE)+NN)
-					+weights[7]*(W+NEE-NE)
+				//	+weights[4]*(2*N-NN)
+				//	+weights[5]*(2*W-WW)
+				//	+weights[6]*(2*(NE-NNE)+NN)
+				//	+weights[7]*(W+NEE-NE)
 
 				//	+weights[0]*(N+W-NW)
 				//	+weights[1]*N
@@ -625,10 +625,10 @@ void pred_mixN(Image *src, int fwd)
 				weights[1]+=e*N;
 				weights[2]+=e*W;
 				weights[3]+=e*NE;
-				weights[4]+=e*(2*N-NN);
-				weights[5]+=e*(2*W-WW);
-				weights[6]+=e*(2*(NE-NNE)+NN);
-				weights[7]+=e*(W+NEE-NE);
+			//	weights[4]+=e*(2*N-NN);
+			//	weights[5]+=e*(2*W-WW);
+			//	weights[6]+=e*(2*(NE-NNE)+NN);
+			//	weights[7]+=e*(W+NEE-NE);
 
 				//weights[0]+=e*(N+W-NW);
 				//weights[1]+=e*N;
@@ -903,8 +903,8 @@ void pred_l1crct(Image *src, int fwd)
 	memset(ebuf, 0, esize);
 #endif
 	int weights[4][NPREDS]={0};
-	int bufsize=(src->iw+8*2)*(int)sizeof(short[4*4*1]);//4 padded rows * 4 channels max * {pixels}
-	short *pixels=(short*)malloc(bufsize);
+	int psize=(src->iw+8*2)*(int)sizeof(short[4*4*1]);//4 padded rows * 4 channels max * {pixels}
+	short *pixels=(short*)malloc(psize);
 	int invdist=((1<<16)+g_dist-1)/g_dist;
 	if(fwd)
 		src->rct=crct_analysis(src);
@@ -919,7 +919,7 @@ void pred_l1crct(Image *src, int fwd)
 		LOG_ERROR("Alloc error");
 		return;
 	}
-	memset(pixels, 0, bufsize);
+	memset(pixels, 0, psize);
 	FILLMEM((int*)weights, (1<<L1SH)/NPREDS, sizeof(weights), sizeof(int));
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
@@ -1199,14 +1199,14 @@ void pred_grfilt(Image *src, int fwd)
 	};
 	int weights[4][NPREDS]={0};
 	int invdist=((1<<16)+g_dist-1)/g_dist;
-	int bufsize=(src->iw+8*2)*(int)sizeof(short[4*4*3]);//4 padded rows * 4 channels max * {pixels, error}
-	short *pixels=(short*)malloc(bufsize);
+	int psize=(src->iw+8*2)*(int)sizeof(short[4*4*3]);//4 padded rows * 4 channels max * {pixels, error}
+	short *pixels=(short*)malloc(psize);
 	if(!pixels)
 	{
 		LOG_ERROR("Alloc error");
 		return;
 	}
-	memset(pixels, 0, bufsize);
+	memset(pixels, 0, psize);
 	FILLMEM((int*)weights, (1<<L1SH)/NPREDS, sizeof(weights), sizeof(int));
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{

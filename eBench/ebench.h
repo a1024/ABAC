@@ -696,6 +696,7 @@ void ct_cmyk_fwd(Image *image);
 void colortransform_lossy_YCbCr(Image *image, int fwd);
 void colortransform_lossy_XYB(Image *image, int fwd);
 void colortransform_lossy_matrix(Image *image, int fwd);
+void colortransform_lossy_pca(Image *image, int fwd);
 
 #define RCT_CUSTOM_NPARAMS 9
 #define RCT_CUSTOM_PARAMBITS 12

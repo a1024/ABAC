@@ -8,7 +8,7 @@
 #include<immintrin.h>
 //#include"stb_image.h"
 #include"lodepng.h"
-#define DEBUG_MEMORY_IMPLEMENTATION
+//#define DEBUG_MEMORY_IMPLEMENTATION
 //#include"intercept_malloc.h"
 #include"c18.h"
 static const char file[]=__FILE__;
@@ -203,6 +203,7 @@ typedef enum TransformTypeEnum
 	CT_FWD_YCbCr,		CT_INV_YCbCr,	//LOSSY	JPEG
 	CT_FWD_XYB,		CT_INV_XYB,	//LOSSY	(2021) JPEG XL
 	CT_FWD_CUSTOM,		CT_INV_CUSTOM,
+	CT_FWD_PCA,		CT_INV_PCA,
 //	CT_FWD_ADAPTIVE,	CT_INV_ADAPTIVE,
 
 	CST_COMPARE,		CST_INV_SEPARATOR,
@@ -2782,6 +2783,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 //	case CT_INV_ADAPTIVE:		a="C  Inv Adaptive";		break;
 	case CT_FWD_CUSTOM:		a="C  Fwd CUSTOM";		break;
 	case CT_INV_CUSTOM:		a="C  Inv CUSTOM";		break;
+	case CT_FWD_PCA:		a="C  Fwd PCA";			break;
+	case CT_INV_PCA:		a="C  Inv PCA";			break;
 //	case CT_FWD_QUAD:		a="C  Fwd Quad";		break;
 //	case CT_INV_QUAD:		a="C  Inv Quad";		break;
 
@@ -3932,6 +3935,8 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 //	case CT_INV_ADAPTIVE:		colortransform_adaptive((char*)image, iw, ih, 0);	break;
 	case CT_FWD_CUSTOM:		rct_custom(image, 1, rct_custom_params);		break;
 	case CT_INV_CUSTOM:		rct_custom(image, 0, rct_custom_params);		break;
+	case CT_FWD_PCA:		colortransform_lossy_pca(image, 1);			break;
+	case CT_INV_PCA:		colortransform_lossy_pca(image, 0);			break;
 //	case CT_FWD_QUAD:		colortransform_quad((char*)image, iw, ih, 1);		break;
 //	case CT_INV_QUAD:		colortransform_quad((char*)image, iw, ih, 1);		break;
 

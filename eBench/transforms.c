@@ -1,4 +1,5 @@
 #include"ebench.h"
+#include<stdint.h>
 #include<stdio.h>
 #include<stdlib.h>
 //#include<string.h>
@@ -691,6 +692,9 @@ void colortransform_subg_opt(Image *image, int fwd)
 			};
 			yuv[1]+=yuv[0]&vfromy;
 			yuv[2]+=(combination[II_COEFF_V_SUB_Y]*yuv[0]+combination[II_COEFF_V_SUB_U]*yuv[1])>>2;
+			CLAMP2(yuv[0], -128, 127);
+			CLAMP2(yuv[1], -128, 127);
+			CLAMP2(yuv[2], -128, 127);
 			image->data[k+yidx]=yuv[0];
 			image->data[k+uidx]=yuv[1];
 			image->data[k+vidx]=yuv[2];
@@ -1088,13 +1092,16 @@ void colortransform_lossy_YCbCr(Image *image, int fwd)//for demonstration purpos
 				b=image->data[k<<2|2];
 
 			double
-				Y=0.299*r+0.587*g+0.114*b,
-				Cb=-0.168736*r-0.331264*g+0.5*b,
-				Cr=+0.5*r-0.418688*g-0.081312*b;
-
-			image->data[k<<2|0]=(int)Y;
-			image->data[k<<2|1]=(int)Cb;
-			image->data[k<<2|2]=(int)Cr;
+				y=0.299*r+0.587*g+0.114*b,
+				u=-0.168736*r-0.331264*g+0.5*b,
+				v=+0.5*r-0.418688*g-0.081312*b;
+			
+			CLAMP2(y, -128, 127);
+			CLAMP2(u, -128, 127);
+			CLAMP2(v, -128, 127);
+			image->data[k<<2|0]=(int)y;
+			image->data[k<<2|1]=(int)u;
+			image->data[k<<2|2]=(int)v;
 		}
 		//image->depth[1]+=image->depth[1]<24;
 		//image->depth[2]+=image->depth[2]<24;
@@ -1114,7 +1121,10 @@ void colortransform_lossy_YCbCr(Image *image, int fwd)//for demonstration purpos
 				r=Y+1.402*Cr,
 				g=Y-0.344136*Cb-0.714136*Cr,
 				b=Y+1.772*Cb;
-
+			
+			CLAMP2(r, -128, 127);
+			CLAMP2(g, -128, 127);
+			CLAMP2(b, -128, 127);
 			image->data[k<<2|0]=(int)r;
 			image->data[k<<2|1]=(int)g;
 			image->data[k<<2|2]=(int)b;
@@ -1242,6 +1252,221 @@ void colortransform_lossy_matrix(Image *image, int fwd)//for demonstration purpo
 			image->data[k<<2|0]=(int)r;
 			image->data[k<<2|1]=(int)g;
 			image->data[k<<2|2]=(int)b;
+		}
+	}
+}
+
+static void matmul3(double *res, const double *mleft, const double *mright)
+{
+	for(int ky=0;ky<3;++ky)
+	{
+		for(int kx=0;kx<3;++kx)
+		{
+			double r=0;
+			for(int k=0;k<3;++k)
+				r+=mleft[3*ky+k]*mright[3*k+kx];
+			res[3*ky+kx]=r;
+		}
+	}
+}
+static void pca(const double *cov, int16_t *lossytransform)
+{
+	double cov0[]=
+	{
+		/*
+		0  1  2  3  4  5
+		rr gg bb rg gb br
+
+		rr rg br
+		rg gg gb
+		br gb bb
+
+		0 3 5
+		3 1 4
+		5 4 2
+		*/
+		cov[0], cov[3], cov[5],
+		cov[3], cov[1], cov[4],
+		cov[5], cov[4], cov[2],
+	};
+	double trans[]={1, 0, 0, 0, 1, 0, 0, 0, 1};
+
+	for(int k=0;k<100;++k)
+	{
+		static const int pairs[][2]=
+		{//	{i, j}
+			{0, 1},
+			{0, 2},
+			{1, 2},
+		};
+
+		for(int k2=0;k2<3;++k2)
+		{
+			double a, b, d;
+			double tau, t, s, c;
+			int i=pairs[k2][0], j=pairs[k2][1];
+			double temp[9];
+
+			a=cov0[3*i+i];
+			b=cov0[3*j+j];
+			d=cov0[3*i+j];
+			tau=(b-a)/(2*d);
+			t=((tau>0)-(tau<0))/(fabs(tau)+sqrt(1+tau*tau));
+			c=1/sqrt(1+t*t);
+			s=t*c;
+
+			/*
+			Jacobi rotations
+			(0,1)
+			c	s	0
+			-s	c	0
+			0	0	1
+
+			(0,2)
+			c	0	s
+			0	1	0
+			-s	0	c
+
+			(1,2)
+			1	0	0
+			0	c	s
+			0	-s	c
+
+			T' = T * J
+			C' = JT * C * J
+			*/
+			double jacobi[]={1, 0, 0, 0, 1, 0, 0, 0, 1};
+			jacobi[3*i+i]=c;
+			jacobi[3*i+j]=s;
+			jacobi[3*j+i]=-s;
+			jacobi[3*j+j]=c;
+			matmul3(temp, trans, jacobi);
+			memcpy(trans, temp, sizeof(temp));
+
+			matmul3(temp, cov0, jacobi);
+			memcpy(cov0, temp, sizeof(temp));
+			jacobi[3*i+j]=-s;//transpose the Jacobi
+			jacobi[3*j+i]=s;
+			matmul3(temp, jacobi, cov0);
+			memcpy(cov0, temp, sizeof(temp));
+		}
+		if(fabs(cov0[1])+fabs(cov0[2])+fabs(cov0[5])<1e-6)
+			break;
+	}
+				
+	CLAMP2(trans[0], -15, 15);
+	CLAMP2(trans[1], -15, 15);
+	CLAMP2(trans[2], -15, 15);
+	CLAMP2(trans[3], -15, 15);
+	CLAMP2(trans[4], -15, 15);
+	CLAMP2(trans[5], -15, 15);
+	CLAMP2(trans[6], -15, 15);
+	CLAMP2(trans[7], -15, 15);
+	CLAMP2(trans[8], -15, 15);
+	lossytransform[0]=(int16_t)(trans[0]*0x4000);//inverse (transpose) matrix
+	lossytransform[1]=(int16_t)(trans[1]*0x4000);
+	lossytransform[2]=(int16_t)(trans[2]*0x4000);
+	lossytransform[3]=(int16_t)(trans[3]*0x4000);
+	lossytransform[4]=(int16_t)(trans[4]*0x4000);
+	lossytransform[5]=(int16_t)(trans[5]*0x4000);
+	lossytransform[6]=(int16_t)(trans[6]*0x4000);
+	lossytransform[7]=(int16_t)(trans[7]*0x4000);
+	lossytransform[8]=(int16_t)(trans[8]*0x4000);
+}
+void colortransform_lossy_pca(Image *image, int fwd)
+{
+	int64_t res=(int64_t)image->iw*image->ih;
+	int16_t lossytransform[9]={0};
+	int8_t *p=(int8_t*)image->data;
+	if(fwd)
+	{
+		int64_t means[3]={0};
+		for(int64_t k=0;k<res;++k)
+		{
+			int
+				r=image->data[k<<2|0],
+				g=image->data[k<<2|1],
+				b=image->data[k<<2|2];
+			means[0]+=r;
+			means[1]+=g;
+			means[2]+=b;
+		}
+		means[0]=(means[0]+res/2)/res;
+		means[1]=(means[1]+res/2)/res;
+		means[2]=(means[2]+res/2)/res;
+
+		int64_t cov[6]={0};
+		for(int64_t k=0;k<res;++k)
+		{
+			int
+				r=image->data[k<<2|0]-(int)means[0],
+				g=image->data[k<<2|1]-(int)means[1],
+				b=image->data[k<<2|2]-(int)means[2];
+			cov[0]+=r*r;
+			cov[1]+=g*g;
+			cov[2]+=b*b;
+			cov[3]+=r*g;
+			cov[4]+=g*b;
+			cov[5]+=b*r;
+		}
+		double invn=1./res;
+		double cov2[]=
+		{
+			cov[0]*invn,
+			cov[1]*invn,
+			cov[2]*invn,
+			cov[3]*invn,
+			cov[4]*invn,
+			cov[5]*invn,
+		};
+		pca(cov2, lossytransform);
+		
+		for(int64_t k=0;k<res;++k)
+		{
+			int
+				r=image->data[k<<2|0]-(int)means[0],
+				g=image->data[k<<2|1]-(int)means[1],
+				b=image->data[k<<2|2]-(int)means[2];
+			int y=(lossytransform[0]*r+lossytransform[1]*g+lossytransform[2]*b+0x2000)>>14;
+			int u=(lossytransform[3]*r+lossytransform[4]*g+lossytransform[5]*b+0x2000)>>14;
+			int v=(lossytransform[6]*r+lossytransform[7]*g+lossytransform[8]*b+0x2000)>>14;
+			CLAMP2(y, -128, 127);
+			CLAMP2(u, -128, 127);
+			CLAMP2(v, -128, 127);
+			image->data[k<<2|0]=y;
+			image->data[k<<2|1]=u;
+			image->data[k<<2|2]=v;
+		}
+		*p++=(int8_t)means[0];
+		*p++=(int8_t)means[1];
+		*p++=(int8_t)means[2];
+		memcpy(p, lossytransform, sizeof(lossytransform));
+	}
+	else
+	{
+		int means[3]={0};
+		means[0]=*p++;
+		means[1]=*p++;
+		means[2]=*p++;
+		memcpy(lossytransform, image->data, sizeof(lossytransform));
+		for(int64_t k=0;k<res;++k)
+		{
+			int
+				y=image->data[k<<2|0],
+				u=image->data[k<<2|1],
+				v=image->data[k<<2|2];
+			int r=(lossytransform[0]*y+lossytransform[3]*u+lossytransform[6]*v+0x2000)>>14;
+			int g=(lossytransform[1]*y+lossytransform[4]*u+lossytransform[7]*v+0x2000)>>14;
+			int b=(lossytransform[2]*y+lossytransform[5]*u+lossytransform[8]*v+0x2000)>>14;
+			r+=means[0];
+			g+=means[1];
+			b+=means[2];
+			CLAMP2(r, -128, 127);
+			CLAMP2(g, -128, 127);
+			CLAMP2(b, -128, 127);
+			image->data[k<<2|0]=r;
+			image->data[k<<2|1]=g;
+			image->data[k<<2|2]=b;
 		}
 	}
 }
