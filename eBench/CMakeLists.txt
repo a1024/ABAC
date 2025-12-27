@@ -4,7 +4,7 @@
 #link_directories(
 #	"C:/Projects/a/OpenCL-Headers"
 #)
-add_executable (eBench WIN32
+add_executable(eBench WIN32
 	bwt.c
 	console.c
 	custom4.c
@@ -14,6 +14,7 @@ add_executable (eBench WIN32
 	hadamard.c
 	image.c
 	lodepng.c
+	lpc.c
 	ols4.c
 	ols5.c
 	ols6.c

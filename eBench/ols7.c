@@ -315,7 +315,7 @@ void pred_mixN(Image *src, int fwd)
 	{
 		int16_t *rows[]=
 		{
-			pixels+(8*4*4-1+(ky+4-0LL)%4)*1,//base + (XPAD*NROWS-1 + (CY-NY+NROWS)%NROWS)*NCH*NVAL
+			pixels+(8*4*4-1+(ky+4-0LL)%4)*1,//base + (XPAD*NROWS*NCH-1 + (CY-NY+NROWS)%NROWS)*NVAL
 			pixels+(8*4*4-1+(ky+4-1LL)%4)*1,//sub 1 channel for pre-increment
 			pixels+(8*4*4-1+(ky+4-2LL)%4)*1,
 			pixels+(8*4*4-1+(ky+4-3LL)%4)*1,
@@ -330,7 +330,7 @@ void pred_mixN(Image *src, int fwd)
 		{
 			for(int kc=0;kc<4;++kc, ++idx)
 			{
-				rows[0]+=4*1;//NROWS*NVAL
+				rows[0]+=4*1;
 				rows[1]+=4*1;
 				rows[2]+=4*1;
 				rows[3]+=4*1;
@@ -546,9 +546,9 @@ void pred_mixN(Image *src, int fwd)
 			#define MIXNSH 18
 				int pred=((1<<MIXNSH>>1)
 					+weights[0]*(N+W-NW)
-					+weights[1]*N
-					+weights[2]*W
-					+weights[3]*NE
+					+weights[1]*(N)
+					+weights[2]*(W)
+					+weights[3]*(NE)
 				//	+weights[4]*(2*N-NN)
 				//	+weights[5]*(2*W-WW)
 				//	+weights[6]*(2*(NE-NNE)+NN)

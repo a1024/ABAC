@@ -944,6 +944,8 @@ void pred_ols8(Image *src, int fwd);		//
 void pred_ols8_crct(Image *src, int fwd);	//
 void pred_ols9(Image *src, int fwd);
 
+void pred_lpc(Image *src, int fwd);//Levinson-Durbin Linear Predictive Coding
+
 //void pred_select(Image const *src, Image *dst, int fwd, int enable_ma);
 
 #define LIN_REACH 2
