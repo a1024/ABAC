@@ -2189,7 +2189,7 @@ int c32_codec(int argc, char **argv)
 	const char *srcfn=argv[1], *dstfn=argv[2];
 	int nthreads0=argc<4?0:atoi(argv[3]), dist=argc<5?1:atoi(argv[4]);
 	if(dist>1)
-		CLAMP2(dist, 4, 31);
+		CLAMP2(dist, 3, 31);
 #ifdef ESTIMATE_SIZE
 	double esize[3*NCODERS]={0};
 #endif
@@ -3409,11 +3409,6 @@ int c32_codec(int argc, char **argv)
 			}
 			else if(fwd)
 			{
-				//if(ky==1&&kx==1296)//
-				//if(ky==0&&kx==48)//
-				//if(ky==1&&kx==1296)//
-				//	printf("");
-
 				__m256i ctxblendmask=_mm256_set1_epi16(255);
 				myuv[0]=_mm256_cvtepi8_epi16(_mm_add_epi8(_mm_loadu_si128((__m128i*)(imptr+yidx)), half8));//load yuv
 				myuv[1]=_mm256_cvtepi8_epi16(_mm_add_epi8(_mm_loadu_si128((__m128i*)(imptr+uidx)), half8));

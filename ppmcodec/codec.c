@@ -53,6 +53,7 @@ int c40_codec(int argc, char **argv);//ST rANS + FSE
 int c41_codec(int argc, char **argv);//ST analysis-cRCT-select-RLE-GR
 int c42_codec(int argc, char **argv);//LZ
 int c43_codec(int argc, char **argv);//LZ
+int c44_codec(int argc, char **argv);//adaptive rANS
 #endif
 
 
@@ -100,6 +101,7 @@ int c43_codec(int argc, char **argv);//LZ
 //	#define CODEC_EXT c41
 //	#define CODEC_EXT c42
 //	#define CODEC_EXT c43
+//	#define CODEC_EXT c44
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -238,7 +240,7 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/20240414-noise.PPM"
 	//	"C:/Projects/datasets/20240513 screenshot.PPM"
 	//	"C:/Projects/datasets/20240806 6 why me.PPM"
-	//	"C:/Projects/datasets/big_building.PPM"
+		"C:/Projects/datasets/big_building.PPM"
 	//	"C:/Projects/datasets/big_building.PPM"
 	//	"C:/Projects/datasets/calibr.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_abigail-keenan-27293.ppm"
@@ -249,7 +251,7 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm"
 	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm"
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim23.ppm"
-		"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_02.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_03.ppm"

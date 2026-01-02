@@ -259,7 +259,7 @@ typedef struct _ETable
 static ETable tables[256];
 int c43_codec(int argc, char **argv)
 {
-	const uint16_t tag='4'|'2'<<8;
+	const uint16_t tag='4'|'3'<<8;
 	if(argc!=4||(uint32_t)((argv[1][0]&0xDF)-'D')>=2||argv[1][1])
 	{
 		printf(

@@ -228,3 +228,6 @@ c42:
 
 c43:
 	clang $(FLAGS) -Dc43_codec=main -mavx2 -mbmi -mlzcnt c43.c -o c43 $(LIBS)
+
+c44:
+	clang $(FLAGS) -Dc44_codec=main -mavx2 -mbmi -mlzcnt c44.c -o c44 $(LIBS)

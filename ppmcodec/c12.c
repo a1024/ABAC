@@ -34,6 +34,7 @@
 
 //	#define USE_DIV
 //	#define ZIPF_VIEW
+//	#define BYTE_RENORM	//X
 
 	#define UNSIGNED_PIXEL
 
@@ -217,14 +218,14 @@ static void crash(const char *file, int line, const char *format, ...)
 #define CRASH(FORMAT, ...) crash(__FILE__, __LINE__, FORMAT, ##__VA_ARGS__)
 #ifdef ENABLE_GUIDE
 static int g_iw=0, g_ih=0;
-static unsigned char *g_image=0;
+static uint8_t *g_image=0;
 static double g_sqe[3]={0};
-static void guide_save(unsigned char *image, int iw, int ih)
+static void guide_save(uint8_t *image, int iw, int ih)
 {
 	int size=3*iw*ih;
 	g_iw=iw;
 	g_ih=ih;
-	g_image=(unsigned char*)malloc(size);
+	g_image=(uint8_t*)malloc(size);
 	if(!g_image)
 	{
 		CRASH("Alloc error");
@@ -232,7 +233,7 @@ static void guide_save(unsigned char *image, int iw, int ih)
 	}
 	memcpy(g_image, image, size);
 }
-static void guide_check(unsigned char *image, int kx, int ky)
+static void guide_check(uint8_t *image, int kx, int ky)
 {
 	int idx=3*(g_iw*ky+kx);
 	if(memcmp(image+idx, g_image+idx, 3))
@@ -241,7 +242,7 @@ static void guide_check(unsigned char *image, int kx, int ky)
 		printf("");
 	}
 }
-//static void guide_update(unsigned char *image, int kx, int ky)
+//static void guide_update(uint8_t *image, int kx, int ky)
 //{
 //	int idx=3*(g_iw*ky+kx), diff;
 //	diff=g_image[idx+0]-image[idx+0]; g_sqe[0]+=diff*diff; if(abs(diff)>96)CRASH("");
@@ -411,7 +412,7 @@ typedef enum _RCTIndex
 #undef  RCT
 	RCT_COUNT,
 } RCTIndex;
-static const unsigned char rct_combinations[RCT_COUNT][II_COUNT]=
+static const uint8_t rct_combinations[RCT_COUNT][II_COUNT]=
 {
 #define RCT(LABEL, ...) {__VA_ARGS__},
 	RCTLIST
@@ -432,7 +433,7 @@ static const size_t memusage=sizeof(stats)+sizeof(stats2)+sizeof(stats3);
 typedef struct _ACState
 {
 	uint64_t low, range, code;
-	unsigned char *ptr, *end;
+	uint8_t *ptr, *end;
 
 	uint64_t bitidx, totalbits;
 	uint64_t n[2];
@@ -468,6 +469,31 @@ INLINE void codebit(ACState *ac, uint32_t *pp1a, int32_t *bit, const int fwd)
 #ifdef _MSC_VER
 	++ac->bitidx;
 #endif
+#ifdef BYTE_RENORM
+	while(ac->range<=0xFFFFFFFFFF)
+	{
+		if(ac->ptr>=ac->end)
+		{
+#ifdef _MSC_VER
+			CRASH("ERROR at %d/%d  inflation %8.4lf%%\n"
+				, (int32_t)ac->bitidx
+				, (int32_t)ac->totalbits
+				, 100.*ac->totalbits/ac->bitidx
+			);
+#endif
+			exit(1);
+		}
+		if(fwd)
+			*ac->ptr=(uint8_t)(ac->low>>56);
+		else
+			ac->code=ac->code<<8|*ac->ptr;
+		++ac->ptr;
+		ac->low<<=8;
+		ac->range=ac->range<<8|255;
+		if(ac->range>~ac->low)
+			ac->range=~ac->low;
+	}
+#else
 	if(ac->range<=0xFFFF)
 	{
 		if(ac->ptr>=ac->end)
@@ -491,6 +517,7 @@ INLINE void codebit(ACState *ac, uint32_t *pp1a, int32_t *bit, const int fwd)
 		if(ac->range>~ac->low)
 			ac->range=~ac->low;
 	}
+#endif
 	r2=ac->range*p1>>PROBBITS_USE;
 	mid=ac->low+r2;
 	ac->range-=r2;
@@ -517,6 +544,12 @@ INLINE void codebit(ACState *ac, uint32_t *pp1a, int32_t *bit, const int fwd)
 	}
 	*pp1a=n[1]<<16|n[0];
 #else
+	//{
+	//	int32_t update=((rbit<<PROBBITS_STORE)-p10a)>>7;
+	//	update-=update>>31;
+	//	p10a+=update;
+	//	*pp1a=p10a;
+	//}
 	p10a+=((rbit<<PROBBITS_STORE)-p10a)>>7;
 	*pp1a=p10a;
 #endif
@@ -854,7 +887,7 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 #endif
 					codebit(ac, statsptr+tidx, &bit, fwd);
 #ifdef PRINTBITS
-					if(fwd&&(unsigned)(idx-10000)<1000)printf("%c", '0'+bit);//
+					if(fwd&&(uint32_t)(idx-10000)<1000)printf("%c", '0'+bit);//
 #endif
 					++tidx;
 				}while(!bit&&tidx<GRLIMIT);
@@ -884,7 +917,7 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 #endif
 						codebit(ac, statsptr+tidx, &bit, fwd);
 #ifdef PRINTBITS
-						if(fwd&&(unsigned)(idx-10000)<1000)printf("%c", '0'+bit);//
+						if(fwd&&(uint32_t)(idx-10000)<1000)printf("%c", '0'+bit);//
 #endif
 						tidx=2*tidx+bit;
 					}
@@ -1158,7 +1191,7 @@ int c12_codec(int argc, char **argv)
 	int fwd=0;
 	int32_t iw=0, ih=0;
 	ptrdiff_t res=0, usize=0, csize=0;
-	unsigned char *image=0, *imptr=0, *imend=0, *stream=0, *streamptr=0, *streamend=0;
+	uint8_t *image=0, *imptr=0, *imend=0, *stream=0, *streamptr=0, *streamend=0;
 	ptrdiff_t streamsize=0;
 	int bestrct=0;
 	ACState ac=
@@ -1225,7 +1258,7 @@ int c12_codec(int argc, char **argv)
 				c=fgetc(fsrc);
 			}
 			iw=0;
-			while((unsigned)(c-'0')<10)
+			while((uint32_t)(c-'0')<10)
 			{
 				iw=10*iw+c-'0';
 				c=fgetc(fsrc);
@@ -1233,7 +1266,7 @@ int c12_codec(int argc, char **argv)
 			while(c<=' ')
 				c=fgetc(fsrc);
 			ih=0;
-			while((unsigned)(c-'0')<10)
+			while((uint32_t)(c-'0')<10)
 			{
 				ih=10*ih+c-'0';
 				c=fgetc(fsrc);
@@ -1277,8 +1310,8 @@ int c12_codec(int argc, char **argv)
 		usize=3*res;
 		if(fwd)
 			streamsize=usize;
-		image=(unsigned char*)malloc(usize);
-		stream=(unsigned char*)malloc(streamsize+sizeof(char[32]));
+		image=(uint8_t*)malloc(usize);
+		stream=(uint8_t*)malloc(streamsize+sizeof(char[32]));
 		if(!image||!stream)
 		{
 			CRASH("Alloc error");
@@ -1385,7 +1418,7 @@ int c12_codec(int argc, char **argv)
 #endif
 			for(kt=0;kt<RCT_COUNT;++kt)
 			{
-				const unsigned char *combination=rct_combinations[kt];
+				const uint8_t *combination=rct_combinations[kt];
 				long long currerr=
 					+counters[combination[0]]
 					+counters[combination[1]]
@@ -1423,11 +1456,22 @@ int c12_codec(int argc, char **argv)
 		imptr=image;
 		streamptr=stream;
 		streamend=stream+srcsize;
-
-		ac.code=*(uint32_t*)streamptr;//load
-		streamptr+=4;
-		ac.code=ac.code<<32|*(uint32_t*)streamptr;
-		streamptr+=4;
+		
+#ifdef BYTE_RENORM
+		ac.code=0;
+		ac.code=ac.code<<8|*streamptr++;//load
+		ac.code=ac.code<<8|*streamptr++;
+		ac.code=ac.code<<8|*streamptr++;
+		ac.code=ac.code<<8|*streamptr++;
+		ac.code=ac.code<<8|*streamptr++;
+		ac.code=ac.code<<8|*streamptr++;
+		ac.code=ac.code<<8|*streamptr++;
+		ac.code=ac.code<<8|*streamptr++;
+#else
+		ac.code=0;
+		ac.code=ac.code<<32|*(uint32_t*)streamptr; streamptr+=4;//load
+		ac.code=ac.code<<32|*(uint32_t*)streamptr; streamptr+=4;
+#endif
 		ac.ptr=streamptr;
 		ac.end=streamend;
 
@@ -1461,10 +1505,19 @@ int c12_codec(int argc, char **argv)
 		}
 		if(fwd)
 		{
-			*(uint32_t*)ac.ptr=(uint32_t)(ac.low>>32);//flush
-			ac.ptr+=4;
-			*(uint32_t*)ac.ptr=(uint32_t)ac.low;
-			ac.ptr+=4;
+#ifdef BYTE_RENORM
+			*ac.ptr++=(uint32_t)(ac.low>>56); ac.low<<=8;//flush
+			*ac.ptr++=(uint32_t)(ac.low>>56); ac.low<<=8;
+			*ac.ptr++=(uint32_t)(ac.low>>56); ac.low<<=8;
+			*ac.ptr++=(uint32_t)(ac.low>>56); ac.low<<=8;
+			*ac.ptr++=(uint32_t)(ac.low>>56); ac.low<<=8;
+			*ac.ptr++=(uint32_t)(ac.low>>56); ac.low<<=8;
+			*ac.ptr++=(uint32_t)(ac.low>>56); ac.low<<=8;
+			*ac.ptr++=(uint32_t)(ac.low>>56); ac.low<<=8;
+#else
+			*(uint32_t*)ac.ptr=(uint32_t)(ac.low>>32); ac.ptr+=4; ac.low<<=32;//flush
+			*(uint32_t*)ac.ptr=(uint32_t)(ac.low>>32); ac.ptr+=4; ac.low<<=32;
+#endif
 
 			csize=ac.ptr-stream;
 
