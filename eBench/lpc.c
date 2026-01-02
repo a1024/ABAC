@@ -140,10 +140,10 @@ void pred_lpc(Image *src, int fwd)
 		int j=0, pred=0, curr=0;
 		int16_t *rows[]=
 		{
-			pixels+(XPAD*NROWS*NCH-1+(ky+NROWS-0LL)%NROWS)*NVAL,
-			pixels+(XPAD*NROWS*NCH-1+(ky+NROWS-1LL)%NROWS)*NVAL,
-			pixels+(XPAD*NROWS*NCH-1+(ky+NROWS-2LL)%NROWS)*NVAL,
-			pixels+(XPAD*NROWS*NCH-1+(ky+NROWS-3LL)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky+NROWS-0LL)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky+NROWS-1LL)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky+NROWS-2LL)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky+NROWS-3LL)%NROWS)*NVAL,
 		};
 		for(int kx=0;kx<src->iw;++kx)
 		{

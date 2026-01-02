@@ -5331,10 +5331,7 @@ void pred_select(Image *src, int fwd)
 				//else
 				//	pred=W;
 
-				if(abs(W-NW)<abs(N-NW))//select (Paeth without NW)
-					pred=N;
-				else
-					pred=W;
+				pred=abs(N-NW)>abs(W-NW)?N:W;//WebP select (Paeth without NW)
 #if 0
 				int p=N+W-NW, d, temp;	//Paeth
 				d=abs(N-p);
@@ -5381,16 +5378,32 @@ void pred_select(Image *src, int fwd)
 #endif
 				curr=src->data[idx+kc];
 				int val;
-				if(fwd)
+				if(g_dist>1)
 				{
-					val=(curr-(int)pred+g_dist/2)/g_dist;
-					curr=g_dist*val+(int)pred;
+					if(fwd)
+					{
+						val=(curr-(int)pred+g_dist/2)/g_dist;
+						curr=g_dist*val+(int)pred;
+					}
+					else
+					{
+						val=g_dist*curr+(int)pred;
+						curr=val;
+						CLAMP2(val, amin[kc], amax[kc]);
+					}
+				}
+				else if(fwd)
+				{
+					val=curr-pred;
+					val<<=32-src->depth[kc];
+					val>>=32-src->depth[kc];
 				}
 				else
 				{
-					val=g_dist*curr+(int)pred;
+					val=curr+pred;
+					val<<=32-src->depth[kc];
+					val>>=32-src->depth[kc];
 					curr=val;
-					CLAMP2(val, amin[kc], amax[kc]);
 				}
 				src->data[idx+kc]=val;
 				rows[0][kc]=curr;
@@ -8101,16 +8114,32 @@ void pred_av2(Image *src, int fwd)
 
 				int curr=src->data[idx+kc];
 				int val;
-				if(fwd)
+				if(g_dist>1)
 				{
-					val=(curr-(int)pred+g_dist/2)/g_dist;
-					curr=g_dist*val+(int)pred;
+					if(fwd)
+					{
+						val=(curr-(int)pred+g_dist/2)/g_dist;
+						curr=g_dist*val+(int)pred;
+					}
+					else
+					{
+						val=g_dist*curr+(int)pred;
+						curr=val;
+						CLAMP2(val, amin[kc], amax[kc]);
+					}
+				}
+				else if(fwd)
+				{
+					val=curr-pred;
+					val<<=32-src->depth[kc];
+					val>>=32-src->depth[kc];
 				}
 				else
 				{
-					val=g_dist*curr+(int)pred;
+					val=curr+pred;
+					val<<=32-src->depth[kc];
+					val>>=32-src->depth[kc];
 					curr=val;
-					CLAMP2(val, amin[kc], amax[kc]);
 				}
 				src->data[idx+kc]=val;
 				rows[0][kc]=curr;
