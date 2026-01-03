@@ -1,6 +1,6 @@
 #include"ebench.h"
 #include<stdint.h>
-//#include<stdio.h>
+#include<stdio.h>
 #include<stdlib.h>
 #include<string.h>
 //#define _USE_MATH_DEFINES
@@ -279,303 +279,134 @@ void pred_mixN(Image *src, int fwd)
 		(1<<src->depth[2]>>1)-1,
 		(1<<src->depth[3]>>1)-1,
 	};
-	//int nch;
-	//int fwdmask=-fwd;
-	
 	int invdist=((1<<16)+g_dist-1)/g_dist;
-	//int coeffsA[4][4]={0};
-	//int coeffsB[4][4]={0};
-	//int coeffsC[4][4]={0};
-	//int coeffsD[4][4]={0};
-//#define NCTX 8
-	//int coeffs[4][NCTX][4]={0};
-	ALIGN(16) int coeffs[4][16]={0};
-	//int coeffs[4][9]={0};
-	
-	//int bufsize=(src->iw+16LL)*sizeof(int16_t[4*4*2]);//4 padded rows * 4 channels max * {pixel, error}
-	//int bufsize=(src->iw+16LL)*sizeof(int16_t[4*4*2]);//{...YEUEVEAE:WW,    YEUEVEAE:NNNW, YEUEVEAE:NNW, YEUEVEAE:NW, YEUEVEAE:W}	x-stride 4*4*2	X
 
-	//cache-friendly layout  {...A(NNN NN N C)WW,  |  Y(NNN NN N C)W,  U(NNN NN N C)W,  V(NNN NN N C)W,  A(NNN NN N C)W,  |   Y(NNN NN N C)C,...
-	int psize=(src->iw+16LL)*sizeof(int16_t[4*4*1]);//channel stride 4*2		x-stride 4*4*2
+	enum
+	{
+		MIXPREDS=4,
+		SHIFT=18,
+
+		XPAD=8,
+		NROWS=4,
+		NCH=4,
+		NVAL=1,
+	//	NVAL=1+MIXPREDS,
+	};
+	ALIGN(16) int coeffs[4][MIXPREDS]={0}, estims[MIXPREDS]={0};
+	ALIGN(16) int errors[4][MIXPREDS]={0};
+
+	//cache-friendly layout  {...A(NNN NN N C)WW,  |  Y(NNN NN N C)W,  U(NNN NN N C)W,  V(NNN NN N C)W,  A(NNN NN N C)W,  |   Y(NNN NN N C)C,...}
+	int psize=(src->iw+2*XPAD)*(int)sizeof(int16_t[NROWS*NCH*NVAL]);
 	int16_t *pixels=(int16_t*)_mm_malloc(psize, sizeof(__m128i*));
-
-	//int areas[4]={0};//EXPERIMENT 20251104
-	//int hist[4][256]={0};
 
 	if(!pixels)
 	{
 		LOG_ERROR("Alloc error");
 		return;
 	}
+	FILLMEM((int32_t*)coeffs, (1<<SHIFT)/MIXPREDS, sizeof(coeffs), sizeof(int32_t));
 	memset(pixels, 0, psize);
-	//nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
-	//UPDATE_MAX(nch, src->nch);
-	//FILLMEM((int*)coeffs, (1<<L1SH)/NPREDS, sizeof(coeffs), sizeof(int));
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
 		int16_t *rows[]=
 		{
-			pixels+(8*4*4-1+(ky+4-0LL)%4)*1,//base + (XPAD*NROWS*NCH-1 + (CY-NY+NROWS)%NROWS)*NVAL
-			pixels+(8*4*4-1+(ky+4-1LL)%4)*1,//sub 1 channel for pre-increment
-			pixels+(8*4*4-1+(ky+4-2LL)%4)*1,
-			pixels+(8*4*4-1+(ky+4-3LL)%4)*1,
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-0LL+NROWS)%NROWS)*NVAL,//base + (XPAD*NROWS*NCH-NROWS + (CY-NY+NROWS)%NROWS)*NVAL
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-1LL+NROWS)%NROWS)*NVAL,//sub 1 channel for pre-increment
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-2LL+NROWS)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-3LL+NROWS)%NROWS)*NVAL,
 			//pixels+((src->iw+16LL)*((ky-0LL)&3)+8)*4*2,
 			//pixels+((src->iw+16LL)*((ky-1LL)&3)+8)*4*2,
 			//pixels+((src->iw+16LL)*((ky-2LL)&3)+8)*4*2,
 			//pixels+((src->iw+16LL)*((ky-3LL)&3)+8)*4*2,
 		};
-		//int asum=0;
-		//memset(coeffs, 0, sizeof(coeffs));//X
 		for(int kx=0;kx<src->iw;++kx)
 		{
 			for(int kc=0;kc<4;++kc, ++idx)
 			{
-				rows[0]+=4*1;
-				rows[1]+=4*1;
-				rows[2]+=4*1;
-				rows[3]+=4*1;
+				rows[0]+=NROWS*NVAL;
+				rows[1]+=NROWS*NVAL;
+				rows[2]+=NROWS*NVAL;
+				rows[3]+=NROWS*NVAL;
 				if(!src->depth[kc])
 					continue;
 				int16_t
-					NNN	=rows[3][0+0*4*4*1],
-					NNWW	=rows[2][0-2*4*4*1],
-					NNW	=rows[2][0-1*4*4*1],
-					NN	=rows[2][0+0*4*4*1],
-					NNE	=rows[2][0+1*4*4*1],
-					NNEE	=rows[2][0+2*4*4*1],
-					NWW	=rows[1][0-2*4*4*1],
-					NW	=rows[1][0-1*4*4*1],
-					N	=rows[1][0+0*4*4*1],
-					NE	=rows[1][0+1*4*4*1],
-					NEE	=rows[1][0+2*4*4*1],
-					NEEE	=rows[1][0+3*4*4*1],
-					NEEEE	=rows[1][0+4*4*4*1],
-					WWWW	=rows[0][0-4*4*4*1],
-					WWW	=rows[0][0-3*4*4*1],
-					WW	=rows[0][0-2*4*4*1],
-					W	=rows[0][0-1*4*4*1];
-				//	eNW	=rows[1][1-1*4*4*2],
-				//	eN	=rows[1][1+0*4*4*2],
-				//	eNE	=rows[1][1+1*4*4*2],
-				//	eNEE	=rows[1][1+2*4*4*2],
-				//	eNEEE	=rows[1][1+3*4*4*2],
-				//	eWW	=rows[0][1-2*4*4*2],
-				//	eW	=rows[0][1-1*4*4*2];
-#if 0
-				int *currw=coeffs[kc];
-
-				//             NNN
-				//             NN
-				//         NW  N  NE  NEE
-				//WWW  WW  W   ?
-
-				//int paeth=abs(N-NW)>abs(W-NW)?N:W;
-				//if(abs(NW-((N+W)>>1))<?)
-				//	paeth=NW;
-				int px=3*(W-WW)+WWW, py=3*(N-NN)+NNN;
-				int g=N+W-NW;
-				int pred=
-					+currw[0]*N
-					+currw[1]*W
-					+currw[2]*NE
-					+currw[3]*g
-					+currw[4]*py
-					+currw[5]*px
-
-				//	+currw[6]*paeth//X
-				//	+currw[6]*(N+NE-NNE)
-				;
-				pred+=1<<18>>1;
-				pred>>=18;
-			//	pred-=pred>>31;
-				int p0=pred;
-				int vmax=N, vmin=W;
-				if(N<W)vmin=N, vmax=W;
-				if(vmin>NE)vmin=NE;
-				if(vmax<NE)vmax=NE;
-				if(vmin>NEEE)vmin=NEEE;
-				if(vmax<NEEE)vmax=NEEE;
-				CLAMP2(pred, vmin, vmax);
-
-				int curr=src->data[idx+kc];
-				//if(ky==src->ih/2&&kx==src->iw/2)//
-				//	printf("");
-				if(g_dist>1)
-				{
-					if(fwd)
-					{
-						curr-=(int)pred;
-						curr=(curr*invdist>>16)-(curr>>31&-(g_dist>1));//curr/=g_dist
-						src->data[idx+kc]=curr;
-
-						curr=g_dist*curr+(int)pred;
-						CLAMP2(curr, amin[kc], amax[kc]);
-					}
-					else
-					{
-						curr=g_dist*curr+(int)pred;
-						CLAMP2(curr, amin[kc], amax[kc]);
-
-						src->data[idx+kc]=curr;
-					}
-				}
-				else
-				{
-					if(fwd)
-					{
-						int error=curr-pred;
-						error<<=32-src->depth[kc];
-						error>>=32-src->depth[kc];
-						src->data[idx+kc]=error;
-					}
-					else
-					{
-						curr+=pred;
-						curr<<=32-src->depth[kc];
-						curr>>=32-src->depth[kc];
-						src->data[idx+kc]=curr;
-					}
-				}
-				rows[0][kc+0]=curr;
-			//	rows[0][kc+1]=curr-pred;
-
-				int t0;
-				t0=N;		if(curr<p0)t0=-t0; if(curr==p0)t0=0; currw[0]+=t0;
-				t0=W;		if(curr<p0)t0=-t0; if(curr==p0)t0=0; currw[1]+=t0;
-				t0=NE;		if(curr<p0)t0=-t0; if(curr==p0)t0=0; currw[2]+=t0;
-				t0=g;		if(curr<p0)t0=-t0; if(curr==p0)t0=0; currw[3]+=t0;
-				t0=py;		if(curr<p0)t0=-t0; if(curr==p0)t0=0; currw[4]+=t0;
-				t0=px;		if(curr<p0)t0=-t0; if(curr==p0)t0=0; currw[5]+=t0;
-
-			//	t0=paeth;	if(curr<p0)t0=-t0; if(curr==p0)t0=0; currw[6]+=t0;//X
-			//	t0=N+NE-NNE;	if(curr<p0)t0=-t0; if(curr==p0)t0=0; currw[6]+=t0;
-#if 0
-				int e=(curr>p0)-(curr<p0);//L1
-				currw[0]+=e*N;
-				currw[1]+=e*W;
-				currw[2]+=e*NE;
-				currw[3]+=e*(3*(N-NN)+NNN);
-				currw[4]+=e*(3*(W-WW)+WWW);
-				currw[5]+=e*(N+W-NW);
-			//	currw[6]+=e*NW;
-#endif
-#endif
-#if 0
-				int *currw=coeffs[kc];
-				//if(ky==src->ih/2&&kx==src->iw/2)//
-				//	printf("");
-
-				//            NNN
-				//            NN
-				//    NWW NW  N   NE
-				//WWW WW  W   ?
-				int dW=W-WW, dWW=WW-WWW, dN=N-NN, dNN=NN-NNN, g=N+W-NW, dNE=N-NE, dNWW=NW-NWW;
-				int pred=
-					+currw[0]*dNN
-					+currw[1]*dN
-					+currw[2]*g
-					+currw[3]*N
-					+currw[4]*dNE
-					+currw[5]*dWW
-					+currw[6]*dW
-					+currw[7]*W
-					+currw[8]*dNWW
-				;
-				pred+=1<<17>>1;
-				pred>>=17;
-				int p0=pred;
-				int vmax=N, vmin=W;
-				if(N<W)vmin=N, vmax=W;
-				if(vmin>NE)vmin=NE;
-				if(vmax<NE)vmax=NE;
-				if(vmin>NEEE)vmin=NEEE;
-				if(vmax<NEEE)vmax=NEEE;
-				CLAMP2(pred, vmin, vmax);
-
-				int curr=src->data[idx+kc];
-				if(fwd)
-				{
-					curr-=(int)pred;
-					curr=(curr*invdist>>16)-(curr>>31&-(g_dist>1));//curr/=g_dist
-					src->data[idx+kc]=curr;
-
-					curr=g_dist*curr+(int)pred;
-					CLAMP2(curr, amin[kc], amax[kc]);
-				}
-				else
-				{
-					curr=g_dist*curr+(int)pred;
-					CLAMP2(curr, amin[kc], amax[kc]);
-
-					src->data[idx+kc]=curr;
-				}
-				rows[0][kc+0]=curr;
-				rows[0][kc+1]=curr-pred;
-				int e=(curr>p0)-(curr<p0);//L1
-				currw[0]+=e*dNN;
-				currw[1]+=e*dN;
-				currw[2]+=e*g;
-				currw[3]+=e*N;
-				currw[4]+=e*dNE;
-				currw[5]+=e*dWW;
-				currw[6]+=e*dW;
-				currw[7]+=e*W;
-				currw[8]+=e*dNWW;
-#endif
-#if 1
+					NNN	=rows[3][0+0*NCH*NROWS*NVAL],
+					NNWW	=rows[2][0-2*NCH*NROWS*NVAL],
+					NNW	=rows[2][0-1*NCH*NROWS*NVAL],
+					NN	=rows[2][0+0*NCH*NROWS*NVAL],
+					NNE	=rows[2][0+1*NCH*NROWS*NVAL],
+					NNEE	=rows[2][0+2*NCH*NROWS*NVAL],
+					NWW	=rows[1][0-2*NCH*NROWS*NVAL],
+					NW	=rows[1][0-1*NCH*NROWS*NVAL],
+					N	=rows[1][0+0*NCH*NROWS*NVAL],
+					NE	=rows[1][0+1*NCH*NROWS*NVAL],
+					NEE	=rows[1][0+2*NCH*NROWS*NVAL],
+					NEEE	=rows[1][0+3*NCH*NROWS*NVAL],
+					NEEEE	=rows[1][0+4*NCH*NROWS*NVAL],
+					WWWW	=rows[0][0-4*NCH*NROWS*NVAL],
+					WWW	=rows[0][0-3*NCH*NROWS*NVAL],
+					WW	=rows[0][0-2*NCH*NROWS*NVAL],
+					W	=rows[0][0-1*NCH*NROWS*NVAL];
 				int curr=src->data[idx];
-				//int ctx=FLOOR_LOG2(eW+1);
-				//if(ctx>NCTX-1)
-				//	ctx=NCTX-1;
-				//int *currw=coeffs[kc][ctx];
 				int *weights=coeffs[kc];
-				//if(ky==src->ih/2&&kx==src->iw/2)//
-				//	printf("");
-
-				//NW  N   NE		136.5 MB/s  4T
-				//W   ?
 				int vmax=N, vmin=W;
 				if(N<W)vmin=N, vmax=W;
-				//int cg=N+W-NW;
-				//CLAMP2(cg, vmin, vmax);
-				//int select=abs(N-NW)>abs(W-NW)?N:W;
 
-				//			NN	NNE
-				//		NW	N	NE	NEE		112.9 MB/s  4T
-				//	WW	W	?
-			#define MIXNSH 18
-				int pred=((1<<MIXNSH>>1)
-					+weights[0]*(N+W-NW)
-					+weights[1]*(N)
-					+weights[2]*(W)
-					+weights[3]*(NE)
-				//	+weights[4]*(2*N-NN)
-				//	+weights[5]*(2*W-WW)
-				//	+weights[6]*(2*(NE-NNE)+NN)
-				//	+weights[7]*(W+NEE-NE)
+				int j=0;
 
-				//	+weights[0]*(N+W-NW)
-				//	+weights[1]*N
-				//	+weights[2]*NE
-				//	+weights[3]*W
-				)>>MIXNSH;
+				//mix 2
+#if 0
+				estims[j++]=(N+W)>>1;
+				estims[j++]=N+W-NW;
+#endif
 
-				//int pred=
-				//	+currw[0]*W
-				//	+currw[1]*(N-NW)
-				//	+currw[2]*(NE-N)
-				//	+currw[3]*(N-W)
-				//;
-				//pred+=1<<MIXNSH>>1;
-				//pred>>=MIXNSH;
+				//mix 4
+#if 1
+				//		NN
+				//	NW	N	NE
+				//	W	?		133 MB/s  7.47 ms/MB  4T
+				estims[j++]=W;
+				estims[j++]=N+W-NW;
+				estims[j++]=2*N-NN;
+				estims[j++]=NE;
+#endif
+
+				//mix 8 - c32
+#if 0
+				//					NNN
+				//					NN	NNE
+				//				NW	N	NE	NEE	NEEE	NEEEE
+				//	WWWW	WWW	WW	W	?
+				estims[j++]=N;
+				estims[j++]=W;
+				estims[j++]=3*(N-NN)+NNN;
+				estims[j++]=3*(W-WW)+WWW;
+				estims[j++]=W+NE-N;
+				estims[j++]=(WWWW+WWW+NNN+NEE+NEEE+NEEEE-2*NW)/4;
+				estims[j++]=N+W-NW;
+				estims[j++]=N+NE-NNE;
+#endif
+
+				int pred=((1<<SHIFT>>1)
+					+weights[0]*estims[0]
+					+weights[1]*estims[1]
+					+weights[2]*estims[2]
+					+weights[3]*estims[3]
+				//	+weights[4]*estims[4]
+				//	+weights[5]*estims[5]
+				//	+weights[6]*estims[6]
+				//	+weights[7]*estims[7]
+				)>>SHIFT;
+
 				int p0=pred;
+
+				//pred=(pred+wp)>>1;
 
 				if(vmin>NE)vmin=NE;
 				if(vmax<NE)vmax=NE;
 				if(vmin>NEEE)vmin=NEEE;
 				if(vmax<NEEE)vmax=NEEE;
 				CLAMP2(pred, vmin, vmax);
-#if 1
 				if(g_dist>1)
 				{
 					if(fwd)
@@ -607,131 +438,20 @@ void pred_mixN(Image *src, int fwd)
 						src->data[idx]=curr;
 					}
 				}
-#endif
 				rows[0][0]=curr;
-			//	int e2=curr-pred;
-			//	int e2=curr-p0;
-			//	rows[0][1]=(2*eW+((e2<<1^e2>>31)<<3)+(eNEE>eNEEE?eNEE:eNEEE))>>2;
-				
-#if 0
-				src->data[idx+kc]=FLOOR_LOG2(e2*e2+1)<<4;//
-				if(src->data[idx+kc]>127)
-					src->data[idx+kc]=127;
-#endif
 
 				int e=(curr>p0)-(curr<p0);//L1
-				
-				weights[0]+=e*(N+W-NW);
-				weights[1]+=e*N;
-				weights[2]+=e*W;
-				weights[3]+=e*NE;
-			//	weights[4]+=e*(2*N-NN);
-			//	weights[5]+=e*(2*W-WW);
-			//	weights[6]+=e*(2*(NE-NNE)+NN);
-			//	weights[7]+=e*(W+NEE-NE);
-
-				//weights[0]+=e*(N+W-NW);
-				//weights[1]+=e*N;
-				//weights[2]+=e*NE;
-				//weights[3]+=e*W;
-
-				//int diff=curr-p0;
-				//int negmask=diff>>31;
-				//int zmask=(diff!=0)<<31>>31;
-				//weights[0]+=(NN		^negmask)-negmask&zmask;
-				//weights[1]+=(NNE	^negmask)-negmask&zmask;
-				//weights[2]+=(NW		^negmask)-negmask&zmask;
-				//weights[3]+=(N		^negmask)-negmask&zmask;
-				//weights[4]+=(NE		^negmask)-negmask&zmask;
-				//weights[5]+=(NEE	^negmask)-negmask&zmask;
-				//weights[6]+=(WWW	^negmask)-negmask&zmask;
-				//weights[7]+=(WW		^negmask)-negmask&zmask;
-				//weights[8]+=(W		^negmask)-negmask&zmask;
-
-			//	currw[0]+=e*W;
-			//	currw[1]+=e*(N-NW);
-			//	currw[2]+=e*(NE-N);
-			//	currw[3]+=e*(N-W);
-
-			//	CLAMP2(currw[0], (1<<17)/4, (1<<17));
-			//	CLAMP2(currw[1], -(1<<17)/4, (1<<17)*3/4);
-			//	currw[2]=(1<<17)/4;
-			//	currw[3]=(1<<17)-currw[0];
-#endif
+				weights[0]+=e*estims[0];
+				weights[1]+=e*estims[1];
+				weights[2]+=e*estims[2];
+				weights[3]+=e*estims[3];
+			//	weights[4]+=e*estims[4];
+			//	weights[5]+=e*estims[5];
+			//	weights[6]+=e*estims[6];
+			//	weights[7]+=e*estims[7];
 			}
 		}
-#if 0
-		for(int it=0;it<1;++it)
-		{
-			rows[0]=pixels+((src->iw+16LL)*((ky-0LL)&3)+8)*4*2;
-			rows[1]=pixels+((src->iw+16LL)*((ky-1LL)&3)+8)*4*2;
-			rows[2]=pixels+((src->iw+16LL)*((ky-2LL)&3)+8)*4*2;
-			rows[3]=pixels+((src->iw+16LL)*((ky-3LL)&3)+8)*4*2;
-			for(int kx=0;kx<src->iw;++kx)
-			{
-				for(int kc=0;kc<3;++kc)
-				{
-					int
-						NNN	=rows[3][kc+0*4*2+0],
-						NNWW	=rows[2][kc-2*4*2+0],
-						NNW	=rows[2][kc-1*4*2+0],
-						NN	=rows[2][kc+0*4*2+0],
-						NNE	=rows[2][kc+1*4*2+0],
-						NNEE	=rows[2][kc+2*4*2+0],
-						NWW	=rows[1][kc-2*4*2+0],
-						NW	=rows[1][kc-1*4*2+0],
-						N	=rows[1][kc+0*4*2+0],
-						NE	=rows[1][kc+1*4*2+0],
-						NEE	=rows[1][kc+2*4*2+0],
-						NEEE	=rows[1][kc+3*4*2+0],
-						NEEEE	=rows[1][kc+4*4*2+0],
-						WWWW	=rows[0][kc-4*4*2+0],
-						WWW	=rows[0][kc-3*4*2+0],
-						WW	=rows[0][kc-2*4*2+0],
-						W	=rows[0][kc-1*4*2+0],
-						eNW	=rows[1][kc-1*4*2+1],
-						eN	=rows[1][kc+0*4*2+1],
-						eNE	=rows[1][kc+1*4*2+1],
-						eWW	=rows[0][kc-2*4*2+1],
-						eW	=rows[0][kc-1*4*2+1];
-					int curr=rows[0][kc];
-					int px=3*(W-WW)+WWW, py=3*(N-NN)+NNN;
-					int g=N+W-NW;
-					int p0=
-						+coeffs[kc][0]*N
-						+coeffs[kc][1]*W
-						+coeffs[kc][2]*NE
-						+coeffs[kc][3]*g
-						+coeffs[kc][4]*py
-						+coeffs[kc][5]*px
-					;
-					p0+=1<<18>>1;
-					p0>>=18;
-					int t0;
-					t0=N;	if(curr<p0)t0=-t0; if(curr==p0)t0=0; coeffs[kc][0]+=t0;
-					t0=W;	if(curr<p0)t0=-t0; if(curr==p0)t0=0; coeffs[kc][1]+=t0;
-					t0=NE;	if(curr<p0)t0=-t0; if(curr==p0)t0=0; coeffs[kc][2]+=t0;
-					t0=g;	if(curr<p0)t0=-t0; if(curr==p0)t0=0; coeffs[kc][3]+=t0;
-					t0=py;	if(curr<p0)t0=-t0; if(curr==p0)t0=0; coeffs[kc][4]+=t0;
-					t0=px;	if(curr<p0)t0=-t0; if(curr==p0)t0=0; coeffs[kc][5]+=t0;
-				}
-				rows[0]+=4*2;
-				rows[1]+=4*2;
-				rows[2]+=4*2;
-				rows[3]+=4*2;
-			}
-		}
-#endif
 	}
-	//if(loud_transforms)//EXPERIMENT 20251104
-	//	messagebox(MBOX_OK, "Info",
-	//		"0  %6.4lf%%\n"
-	//		"1  %6.4lf%%\n"
-	//		"2  %6.4lf%%\n"
-	//		, 100.*areas[0]/(src->iw*src->ih)
-	//		, 100.*areas[1]/(src->iw*src->ih)
-	//		, 100.*areas[2]/(src->iw*src->ih)
-	//	);
 	_mm_free(pixels);
 }
 void pred_gray(Image *src, int fwd)

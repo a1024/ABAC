@@ -5318,18 +5318,22 @@ void pred_select(Image *src, int fwd)
 			{
 				int pred, curr;
 				int
-				//	NN	=rows[2][kc+0*4],
+					NN	=rows[2][kc+0*4],
 				//	NNE	=rows[2][kc+1*4],
 					NW	=rows[1][kc-1*4],
 					N	=rows[1][kc+0*4],
 				//	NE	=rows[1][kc+1*4],
-				//	WW	=rows[0][kc-2*4],
+					WW	=rows[0][kc-2*4],
 					W	=rows[0][kc-1*4];
 
 				//if(abs(src->data[idx+kc]-N)<abs(src->data[idx+kc]-W))//cheat
 				//	pred=N;
 				//else
 				//	pred=W;
+
+				//pred=abs(N-src->data[idx+kc])<abs(W-src->data[idx+kc])?N:W;//CHEAT
+				
+				//pred=abs(N-NW)+abs(W-WW)>abs(W-NW)+abs(N-NN)?N:W;
 
 				pred=abs(N-NW)>abs(W-NW)?N:W;//WebP select (Paeth without NW)
 #if 0
@@ -5406,6 +5410,9 @@ void pred_select(Image *src, int fwd)
 					curr=val;
 				}
 				src->data[idx+kc]=val;
+
+				//src->data[idx+kc]=abs(N-NW)>abs(W-NW)?64:-64;
+
 				rows[0][kc]=curr;
 
 				//curr=src->data[idx+kc];
@@ -5425,6 +5432,9 @@ void pred_select(Image *src, int fwd)
 			rows[3]+=4;
 		}
 	}
+	//src->depth[0]=9;
+	//src->depth[1]=9;
+	//src->depth[2]=9;
 	free(pixels);
 }
 
