@@ -1,4 +1,5 @@
 #include"ebench.h"
+#include<stdint.h>
 #include<stdio.h>
 #include<stdlib.h>
 #include<string.h>
@@ -244,7 +245,7 @@ void pred_ols8(Image *src, int fwd)
 				//if(ky==src->ih/2&&kx==src->iw/2)//
 				//	printf("");
 
-				pred1+=pred2;
+				pred1+=pred2<<3;//[sic]
 				pred1+=1<<L1SH>>1;
 				pred1>>=L1SH;
 				pred2+=1<<L1SH>>1;
@@ -512,7 +513,9 @@ void pred_ols8_crct(Image *src, int fwd)
 				//if(ky==src->ih/2&&kx==src->iw/2)//
 				//	printf("");
 
-				pred1+=pred2;
+				//if((int64_t)pred2<<4!=(int32_t)(pred2<<4))
+				//	LOG_ERROR("");
+				pred1+=pred2<<3;//[sic]
 				pred1+=1<<L1SH>>1;
 				pred1>>=L1SH;
 				pred2+=1<<L1SH>>1;

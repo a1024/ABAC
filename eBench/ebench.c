@@ -2272,7 +2272,7 @@ static void batch_test(void)
 				double csize=ptr->csize[0]+ptr->csize[1]+ptr->csize[2]+ptr->csize[3];
 				fn2=(ArrayHandle*)array_at(&filenames, ptr->idx);
 				console_log(
-					"%5d/%5d %s%*sUTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  BPD %8.4lf\n"
+					"%5d/%5d %s%*sUTYUV %13.2lf %13.2lf %13.2lf %13.2lf %13.2lf  BPD %8.4lf\n"
 					, (int)(k+1-(int)q->count+k2+1)
 					, (int)filenames->count
 					, (char*)fn2[0]->data
@@ -2343,7 +2343,7 @@ static void batch_test(void)
 		double CR=total_usize/ctotal;
 		t=time_sec()-t;
 		int nprinted=snprintf(str, sizeof(str)-1
-			, "%12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  BPD %8.4lf  %12.6lf sec  %12.6lf MB/s  %12.6lf ms/MB"
+			, "%13.2lf %13.2lf %13.2lf %13.2lf %13.2lf  BPD %8.4lf  %12.6lf sec  %12.6lf MB/s  %12.6lf ms/MB"
 			, total_usize
 			, ctotal
 			, total_csize[0]
@@ -2549,7 +2549,7 @@ static void batch_test_lossy(void)
 				double csize=ptr->csize[0]+ptr->csize[1]+ptr->csize[2]+ptr->csize[3];
 				fn2=(ArrayHandle*)array_at(&filenames, ptr->idx);
 				console_log(
-					"%5d/%5d %s%*sUTYUV %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  BPD %8.4lf  PSNR %10.4lf %10.4lf %10.4lf %10.4lf  SSIM%7.4lf\n"
+					"%5d/%5d %s%*sUTYUV %13.2lf %13.2lf %13.2lf %13.2lf %13.2lf  BPD %8.4lf  PSNR %10.4lf %10.4lf %10.4lf %10.4lf  SSIM%7.4lf\n"
 					, (int)(k+1-(int)q->count+k2+1)
 					, (int)filenames->count
 					, (char*)fn2[0]->data
@@ -2604,7 +2604,7 @@ static void batch_test_lossy(void)
 		timedelta2str(g_buf, G_BUF_SIZE, t);
 		acme_strftime(g_buf, G_BUF_SIZE, "%Y%m%d_%H%M%S");
 		int nprinted=snprintf(str, sizeof(str)-1,
-			"%12.2lf %12.2lf %12.2lf %12.2lf %12.2lf  BPD %8.4lf  RMSE %10.4lf PSNR %10.4lf  %10.4lf sec  SSIM%7.4lf  dist%3d  %s"
+			"%13.2lf %13.2lf %13.2lf %13.2lf %13.2lf  BPD %8.4lf  RMSE %10.4lf PSNR %10.4lf  %10.4lf sec  SSIM%7.4lf  dist%3d  %s"
 			, total_usize
 			, ctotal
 			, total_csize[0]
@@ -9516,7 +9516,12 @@ void io_render(void)
 				else
 #endif
 				if(mode==VIS_HISTOGRAM)
-					chart_hist_draw(0, (float)wndw, 0, (float)wndh, 0, 3, 0, 0x60, hist, histmax);
+				{
+					if(wndh>5*tdy)
+						chart_hist_draw(0, (float)wndw, 0, (float)wndh-5*tdy
+							, 0, 3, 0, 0x60, hist, histmax
+						);
+				}
 				else if(mode==VIS_MODEL)
 				{
 					static const int modeltheme[]=

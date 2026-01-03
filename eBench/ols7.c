@@ -263,8 +263,100 @@ void pred_ols7(Image *src, int fwd)
 	}
 	free(pixels);
 }
+
+static void noise_analysis(Image *src)
+{
+#define LAGLIST\
+	LAG(leak[kc][0]>>16)\
+	LAG(leak[kc][1]>>16)\
+	LAG(leak[kc][2]>>16)\
+	LAG(leak[kc][3]>>16)\
+	LAG(leak[kc][4]>>16)\
+	LAG(leak[kc][5]>>16)\
+	LAG(leak[kc][6]>>16)\
+	LAG(leak[kc][7]>>16)\
+
+	enum
+	{
+#define LAG(...) +1
+		NLAGS=LAGLIST
+#undef  LAG
+	};
+	ptrdiff_t k=0, size=0;
+	int *ptr=0;
+	uint64_t ctr[4][NLAGS]={0};
+	int32_t leak[4][NLAGS]={0};
+	volatile double t=0;
+
+	t=time_sec();
+	for(k=0, size=(ptrdiff_t)src->iw*src->ih, ptr=src->data;k<size;k+=4, ptr+=4)
+	{
+		int kc=0;
+
+		for(kc=0;kc<4;++kc)
+		{
+			if(!src->depth[kc])
+				continue;
+			int
+				WWWW	=ptr[kc-4*4],
+				WWW	=ptr[kc-3*4],
+				WW	=ptr[kc-2*4],
+				W	=ptr[kc-1*4],
+				curr	=ptr[kc+0*4];
+			int j=0;
+#define LAG(E) ctr[kc][j++]+=abs(curr-(E));
+			j=0;
+			LAGLIST
+#undef  LAG
+			leak[kc][0]+=((curr<<16)-leak[kc][0])>>0;
+			leak[kc][1]+=((curr<<16)-leak[kc][1])>>1;
+			leak[kc][2]+=((curr<<16)-leak[kc][2])>>2;
+			leak[kc][3]+=((curr<<16)-leak[kc][3])>>3;
+			leak[kc][4]+=((curr<<16)-leak[kc][4])>>4;
+			leak[kc][5]+=((curr<<16)-leak[kc][5])>>5;
+			leak[kc][6]+=((curr<<16)-leak[kc][6])>>6;
+			leak[kc][7]+=((curr<<16)-leak[kc][7])>>7;
+		}
+	}
+	t=time_sec()-t;
+	{
+		char buf[4096]={0};
+		int printed=0;
+		static const char *lagnames[]=
+		{
+#define LAG(E) #E,
+			LAGLIST
+#undef  LAG
+		};
+
+		for(int k=0;k<NLAGS;++k)
+			printed+=snprintf(buf+printed, sizeof(buf)-1-printed, "%14lld %14lld %14lld  %s\n"
+				, ctr[0][k]
+				, ctr[1][k]
+				, ctr[2][k]
+				, lagnames[k]
+			);
+		printed+=snprintf(buf+printed, sizeof(buf)-1-printed, "%12.6lf sec  %12.6lf MB/s  %12.6lf ms/MB\n"
+			, t
+			, (3.*src->iw*src->ih)/(t*1024*1024)
+			, (t*1024*1024*1000)/(3.*src->iw*src->ih)
+		);
+		copy_to_clipboard(buf, printed);
+		messagebox(MBOX_OK, "Copied", "%s", buf);
+	}
+}
 void pred_mixN(Image *src, int fwd)
 {
+	//noise_analysis(src);
+
+//	#define MIXLEAK
+//	#define CASCADE
+
+#ifdef MIXLEAK
+	int64_t ctr[4][8]={0};
+	int leak[4][8]={0}, filtid[4]={0};
+#endif
+
 	int amin[]=
 	{
 		-(1<<src->depth[0]>>1),
@@ -289,13 +381,31 @@ void pred_mixN(Image *src, int fwd)
 		XPAD=8,
 		NROWS=4,
 		NCH=4,
+#ifdef CASCADE
 		NVAL=1,
+#else
+		NVAL=2,
+#endif
 	//	NVAL=1+MIXPREDS,
 	};
 	ALIGN(16) int coeffs[4][MIXPREDS]={0}, estims[MIXPREDS]={0};
-	ALIGN(16) int errors[4][MIXPREDS]={0};
+#ifdef CASCADE
+	ALIGN(16) int coeff2[4][MIXPREDS]={0}, estim2[MIXPREDS]={0};
+#endif
 
-	//cache-friendly layout  {...A(NNN NN N C)WW,  |  Y(NNN NN N C)W,  U(NNN NN N C)W,  V(NNN NN N C)W,  A(NNN NN N C)W,  |   Y(NNN NN N C)C,...}
+	/*
+	cache-friendly layout:
+	...
+	A(NNN NN N C)WW
+
+	Y(NNN NN N C)W
+	U(NNN NN N C)W
+	V(NNN NN N C)W
+	A(NNN NN N C)W
+
+	Y(NNN NN N C)curr
+	...
+	*/
 	int psize=(src->iw+2*XPAD)*(int)sizeof(int16_t[NROWS*NCH*NVAL]);
 	int16_t *pixels=(int16_t*)_mm_malloc(psize, sizeof(__m128i*));
 
@@ -310,8 +420,8 @@ void pred_mixN(Image *src, int fwd)
 	{
 		int16_t *rows[]=
 		{
-			pixels+(XPAD*NCH*NROWS-NROWS+(ky-0LL+NROWS)%NROWS)*NVAL,//base + (XPAD*NROWS*NCH-NROWS + (CY-NY+NROWS)%NROWS)*NVAL
-			pixels+(XPAD*NCH*NROWS-NROWS+(ky-1LL+NROWS)%NROWS)*NVAL,//sub 1 channel for pre-increment
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-0LL+NROWS)%NROWS)*NVAL,//sub 1 channel for pre-increment
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-1LL+NROWS)%NROWS)*NVAL,
 			pixels+(XPAD*NCH*NROWS-NROWS+(ky-2LL+NROWS)%NROWS)*NVAL,
 			pixels+(XPAD*NCH*NROWS-NROWS+(ky-3LL+NROWS)%NROWS)*NVAL,
 			//pixels+((src->iw+16LL)*((ky-0LL)&3)+8)*4*2,
@@ -349,6 +459,27 @@ void pred_mixN(Image *src, int fwd)
 					W	=rows[0][0-1*NCH*NROWS*NVAL];
 				int curr=src->data[idx];
 				int *weights=coeffs[kc];
+#ifdef CASCADE
+				int16_t
+					eNNN	=rows[3][1+0*NCH*NROWS*NVAL],
+					eNNWW	=rows[2][1-2*NCH*NROWS*NVAL],
+					eNNW	=rows[2][1-1*NCH*NROWS*NVAL],
+					eNN	=rows[2][1+0*NCH*NROWS*NVAL],
+					eNNE	=rows[2][1+1*NCH*NROWS*NVAL],
+					eNNEE	=rows[2][1+2*NCH*NROWS*NVAL],
+					eNWW	=rows[1][1-2*NCH*NROWS*NVAL],
+					eNW	=rows[1][1-1*NCH*NROWS*NVAL],
+					eN	=rows[1][1+0*NCH*NROWS*NVAL],
+					eNE	=rows[1][1+1*NCH*NROWS*NVAL],
+					eNEE	=rows[1][1+2*NCH*NROWS*NVAL],
+					eNEEE	=rows[1][1+3*NCH*NROWS*NVAL],
+					eNEEEE	=rows[1][1+4*NCH*NROWS*NVAL],
+					eWWWW	=rows[0][1-4*NCH*NROWS*NVAL],
+					eWWW	=rows[0][1-3*NCH*NROWS*NVAL],
+					eWW	=rows[0][1-2*NCH*NROWS*NVAL],
+					eW	=rows[0][1-1*NCH*NROWS*NVAL];
+				int *weight2=coeff2[kc];
+#endif
 				int vmax=N, vmin=W;
 				if(N<W)vmin=N, vmax=W;
 
@@ -386,6 +517,13 @@ void pred_mixN(Image *src, int fwd)
 				estims[j++]=N+W-NW;
 				estims[j++]=N+NE-NNE;
 #endif
+#ifdef CASCADE
+				j=0;
+				estim2[j++]=eW;//cascade
+				estim2[j++]=eN+eW-eNW;
+				estim2[j++]=2*eN-eNN;
+				estim2[j++]=eNE;
+#endif
 
 				int pred=((1<<SHIFT>>1)
 					+weights[0]*estims[0]
@@ -397,9 +535,18 @@ void pred_mixN(Image *src, int fwd)
 				//	+weights[6]*estims[6]
 				//	+weights[7]*estims[7]
 				)>>SHIFT;
-
-				int p0=pred;
-
+				int p1=pred;
+				
+#ifdef CASCADE
+				int pred2=((1<<SHIFT>>1)
+					+weight2[0]*estim2[0]
+					+weight2[1]*estim2[1]
+					+weight2[2]*estim2[2]
+					+weight2[3]*estim2[3]
+				)>>SHIFT;
+				pred+=pred2;
+				int p2=pred;
+#endif
 				//pred=(pred+wp)>>1;
 
 				if(vmin>NE)vmin=NE;
@@ -407,6 +554,19 @@ void pred_mixN(Image *src, int fwd)
 				if(vmin>NEEE)vmin=NEEE;
 				if(vmax<NEEE)vmax=NEEE;
 				CLAMP2(pred, vmin, vmax);
+				
+#ifdef MIXLEAK
+				leak[kc][0]+=((pred<<16)-leak[kc][0])>>0;
+				leak[kc][1]+=((pred<<16)-leak[kc][1])>>1;
+				leak[kc][2]+=((pred<<16)-leak[kc][2])>>2;
+				leak[kc][3]+=((pred<<16)-leak[kc][3])>>3;
+				leak[kc][4]+=((pred<<16)-leak[kc][4])>>4;
+				leak[kc][5]+=((pred<<16)-leak[kc][5])>>5;
+				leak[kc][6]+=((pred<<16)-leak[kc][6])>>6;
+				leak[kc][7]+=((pred<<16)-leak[kc][7])>>7;
+
+				pred=leak[kc][filtid[kc]]>>16;
+#endif
 				if(g_dist>1)
 				{
 					if(fwd)
@@ -439,8 +599,11 @@ void pred_mixN(Image *src, int fwd)
 					}
 				}
 				rows[0][0]=curr;
+#ifdef CASCADE
+				rows[0][1]=curr-p1;
+#endif
 
-				int e=(curr>p0)-(curr<p0);//L1
+				int e=(curr>p1)-(curr<p1);//L1
 				weights[0]+=e*estims[0];
 				weights[1]+=e*estims[1];
 				weights[2]+=e*estims[2];
@@ -449,8 +612,49 @@ void pred_mixN(Image *src, int fwd)
 			//	weights[5]+=e*estims[5];
 			//	weights[6]+=e*estims[6];
 			//	weights[7]+=e*estims[7];
+				
+#ifdef CASCADE
+				int e2=(curr>p2)-(curr<p2);//L1
+				weight2[0]+=e2*estim2[0];
+				weight2[1]+=e2*estim2[1];
+				weight2[2]+=e2*estim2[2];
+				weight2[3]+=e2*estim2[3];
+#endif
+#ifdef MIXLEAK
+				//ctr[kc][0]-=ctr[kc][0]>>7;
+				//ctr[kc][1]-=ctr[kc][1]>>7;
+				//ctr[kc][2]-=ctr[kc][2]>>7;
+				//ctr[kc][3]-=ctr[kc][3]>>7;
+				//ctr[kc][4]-=ctr[kc][4]>>7;
+				//ctr[kc][5]-=ctr[kc][5]>>7;
+				//ctr[kc][6]-=ctr[kc][6]>>7;
+				//ctr[kc][7]-=ctr[kc][7]>>7;
+
+				ctr[kc][0]+=abs((curr<<16)-leak[kc][0]);
+				ctr[kc][1]+=abs((curr<<16)-leak[kc][1]);
+				ctr[kc][2]+=abs((curr<<16)-leak[kc][2]);
+				ctr[kc][3]+=abs((curr<<16)-leak[kc][3]);
+				ctr[kc][4]+=abs((curr<<16)-leak[kc][4]);
+				ctr[kc][5]+=abs((curr<<16)-leak[kc][5]);
+				ctr[kc][6]+=abs((curr<<16)-leak[kc][6]);
+				ctr[kc][7]+=abs((curr<<16)-leak[kc][7]);
+#endif
 			}
 		}
+#ifdef MIXLEAK
+		for(int kc=0;kc<4;++kc)
+		{
+			int64_t bestval=ctr[kc][0];
+			filtid[kc]=0;
+			if(bestval>ctr[kc][1])bestval=ctr[kc][1], filtid[kc]=1;
+			if(bestval>ctr[kc][2])bestval=ctr[kc][2], filtid[kc]=2;
+			if(bestval>ctr[kc][3])bestval=ctr[kc][3], filtid[kc]=3;
+			if(bestval>ctr[kc][4])bestval=ctr[kc][4], filtid[kc]=4;
+			if(bestval>ctr[kc][5])bestval=ctr[kc][5], filtid[kc]=5;
+			if(bestval>ctr[kc][6])bestval=ctr[kc][6], filtid[kc]=6;
+			if(bestval>ctr[kc][7])bestval=ctr[kc][7], filtid[kc]=7;
+		}
+#endif
 	}
 	_mm_free(pixels);
 }
