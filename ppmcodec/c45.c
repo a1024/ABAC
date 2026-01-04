@@ -59,8 +59,6 @@ enum
 	NVAL=2,
 
 	PROBBITS=12,
-	RANS_STATE_BITS=31,
-	RANS_RENORM_BITS=16,
 };
 
 
@@ -236,10 +234,7 @@ uint8_t imbuf[PBUFSIZE+3], streambuf[SBUFSIZE];
 uint32_t hweight[3*NCTX];
 uint32_t hists[3*NCTX*256];
 
-//enc
-uint16_t enccdf[3*NCTX*256];
-uint32_t symbuf[PBUFSIZE];//{cdf, freq}
-rANS_SymInfo enctable[1<<PROBBITS];
+uint16_t enccdf[3*NCTX*256];//enc
 
 uint32_t CDF2sym[3*NCTX<<PROBBITS];//dec
 static void normalize_enc(int kc, int rescale)
@@ -312,68 +307,13 @@ static void normalize_dec(int kc, int rescale)
 	{
 		uint32_t val=0;
 		int freq=CDF[ks], end=CDF[ks+1];
-		for(val=(end-freq)<<(PROBBITS+8)|ks;freq<end;val+=256)
+		for(val=(end-freq)<<(PROBBITS+8)|freq<<8|ks;freq<end;)//for AC
 			currCDF2sym[freq++]=val;
 	}
 }
-static ptrdiff_t enc_flush(FILE *fdst, ptrdiff_t bufsize)
+int c45_codec(int argc, char **argv)
 {
-	uint32_t *symptr=symbuf+bufsize;
-	uint8_t *streamptr=streambuf+SBUFSIZE;
-	uint32_t state=1<<(RANS_STATE_BITS-RANS_RENORM_BITS);
-	ptrdiff_t csize=0;
-//#ifdef _MSC_VER
-//	ptrdiff_t k=bufsize;
-//#endif
-#ifdef LOUD
-	double t=0;
-#endif
-	
-#ifdef LOUD
-	t=time_sec();
-#endif
-	do
-	{
-		uint32_t fc=*--symptr;
-		int freq=fc>>16;
-		int cdf=fc&0xFFFF;
-		rANS_SymInfo *info=enctable+freq;
-#ifdef _MSC_VER
-		if(!freq)
-			CRASH("ZPS");
-		//--k;
-		//if(k==2)//
-		//	printf("");
-#endif
-		if(state>info->smax)
-		{
-			streamptr-=sizeof(uint16_t);
-			if(streamptr<streambuf+SBUFSIZE-bufsize)
-			{
-				CRASH("Inflation");
-				return 0;
-			}
-			*(uint16_t*)streamptr=(uint16_t)state;
-			state>>=RANS_RENORM_BITS;
-		}
-		state+=(uint32_t)((uint64_t)state*info->invf>>info->sh)*info->negf+info->bias+cdf;
-	}
-	while(symptr>symbuf);
-	streamptr-=sizeof(uint32_t);
-	*(uint32_t*)streamptr=state;
-	{
-		ptrdiff_t chunksize=streambuf+SBUFSIZE-streamptr;
-		csize+=fwrite(&chunksize, 1, 3, fdst);
-		csize+=fwrite(streamptr, 1, chunksize, fdst);
-	}
-#ifdef LOUD
-	twrite+=time_sec()-t;
-#endif
-	return csize;
-}
-int c44_codec(int argc, char **argv)
-{
-	const uint16_t tag='4'|'4'<<8;
+	const uint16_t tag='4'|'5'<<8;
 
 	const char *srcfn=0, *dstfn=0;
 	int64_t c=0;
@@ -381,15 +321,14 @@ int c44_codec(int argc, char **argv)
 	int fwd=0, iw=0, ih=0;
 	ptrdiff_t usize=0, csize=0;
 	uint8_t *imptr=0, *imend=0, *streamptr=0;
-	uint32_t *symptr=0;
 	int psize=0;
 	int16_t *pixels=0;
 	int kx=0, ky=0, kc=0, idx=0;
-	uint32_t state=0;
 #ifdef LOUD
 	double t=0;
 #endif
 	uint64_t nread=0;
+	uint64_t low=0, range=0xFFFFFFFFFFFF, code=0;
 
 	if(argc!=3)
 	{
@@ -500,36 +439,6 @@ int c44_codec(int argc, char **argv)
 		CRASH("Cannot open \"%s\" for writing", dstfn);
 		return 1;
 	}
-	{
-		int freq=0;
-
-		for(freq=1;freq<(1<<PROBBITS);++freq)//init enctable
-		{
-			rANS_SymInfo *info=enctable+freq;
-			info->smax=(freq<<(RANS_STATE_BITS-PROBBITS))-1;
-			info->negf=(1<<PROBBITS)-freq;
-			if(freq<2)
-			{
-				info->sh=32;
-				info->invf=~0;
-				info->bias=(1<<PROBBITS)-1;
-			}
-			else
-			{
-				uint64_t inv=0;
-
-				info->sh=FLOOR_LOG2(freq);
-				inv=((0x100000000ULL<<info->sh)+freq-1)/freq;
-				info->invf=(uint32_t)inv;
-				if(inv>0xFFFFFFFF)
-				{
-					--info->sh;
-					info->invf=(uint32_t)(inv>>1);
-				}
-				info->sh+=32;//
-			}
-		}
-	}
 	memset(pixels, 0, psize);
 	memset(hists, 0, sizeof(hists));
 	memset(hweight, 0, sizeof(hweight));
@@ -541,7 +450,6 @@ int c44_codec(int argc, char **argv)
 		for(kc=0;kc<3*NCTX;++kc)
 			normalize_enc(kc, 0);
 
-		symptr=symbuf;
 		imend=imbuf+PBUFSIZE;
 		if(imend>imbuf+usize)
 			imend=imbuf+usize;
@@ -550,6 +458,8 @@ int c44_codec(int argc, char **argv)
 		csize+=fwrite(&tag, 1, 2, fdst);
 		csize+=fwrite(&iw, 1, 3, fdst);
 		csize+=fwrite(&ih, 1, 3, fdst);
+
+		streamptr=streambuf;
 	}
 	else
 	{
@@ -587,8 +497,9 @@ int c44_codec(int argc, char **argv)
 #ifdef LOUD
 			tread+=time_sec()-t2;
 #endif
-			state=*(uint32_t*)streamptr;
-			streamptr+=sizeof(uint32_t);
+			code=0;
+			code=code<<32|*(uint32_t*)streamptr; streamptr+=sizeof(uint32_t);
+			code=code<<32|*(uint32_t*)streamptr; streamptr+=sizeof(uint32_t);
 		}
 
 		fprintf(fdst, "P6\n%d %d\n255\n", iw, ih);
@@ -619,7 +530,6 @@ int c44_codec(int argc, char **argv)
 				rgb[1]=imptr[1];
 				rgb[2]=imptr[2];
 				imptr+=3;
-				symptr+=3;
 				if(imptr>imend)//enc reload
 				{
 					ptrdiff_t nreq=0, nact=0;
@@ -627,16 +537,33 @@ int c44_codec(int argc, char **argv)
 #ifdef LOUD
 					double t2=0;
 #endif
-			
-#ifdef LOUD
-					t2=time_sec();
-#endif
+
 					imptr=imptr0;
 
 					if(idx)
-						csize+=enc_flush(fdst, imptr-imbuf);//flush a multiple of NCH subpixels
-					symptr=symbuf;
-
+					{
+						ptrdiff_t chunksize=0;
+						
+#ifdef LOUD
+						t2=time_sec();
+#endif
+						*(uint32_t*)streamptr=(uint32_t)(low>>32); streamptr+=sizeof(uint32_t); low<<=32;//flush
+						*(uint32_t*)streamptr=(uint32_t)(low>>32); streamptr+=sizeof(uint32_t); low<<=32;
+						chunksize=streamptr-streambuf;
+						csize+=fwrite(&chunksize, 1, 3, fdst);
+						csize+=fwrite(streambuf, 1, chunksize, fdst);
+						
+						streamptr=streambuf;
+						low=0;
+						range=0xFFFFFFFFFFFF;
+#ifdef LOUD
+						twrite+=time_sec()-t2;
+#endif
+					}
+					
+#ifdef LOUD
+					t2=time_sec();
+#endif
 					for(k=0;imptr<imend;)
 						rgb[k++]=*imptr++;
 					nreq=PBUFSIZE;
@@ -703,30 +630,51 @@ int c44_codec(int argc, char **argv)
 					if(sym<255)
 						freq=enccdf[ctx<<8|(sym+1)];
 					freq-=cdf;
-					symptr[kc]=freq<<16|cdf;
 #ifdef FIFOVAL
 					valfifo_enqueue(symptr[kc]);
 #endif
+					if(range<=0xFFFF)
+					{
+						*(uint32_t*)streamptr=(uint32_t)(low>>32);
+						streamptr+=sizeof(uint32_t);
+						low<<=32;
+						range=range<<32|0xFFFFFFFF;
+						if(range>~low)
+							range=~low;
+					}
+					low+=range*cdf>>PROBBITS;
+					range=(range*freq>>PROBBITS)-1;
 				}
 				else
 				{
-					uint32_t info=CDF2sym[ctx<<PROBBITS|(state&((1<<PROBBITS)-1))];
-					sym=(uint8_t)info;
-					cdf=info<<PROBBITS>>(32-PROBBITS);//bias
-					freq=info>>(PROBBITS+8);
-#ifdef FIFOVAL
-					valfifo_check(freq<<16|((state&((1<<PROBBITS)-1))-cdf));//state = (state>>12)*freq+(rem-cdf)	bias=rem-cdf	cdf=rem-bias
-#endif
-					state=(state>>PROBBITS)*freq+cdf;
-					if(state<(1<<(RANS_STATE_BITS-RANS_RENORM_BITS)))
+					if(range<=0xFFFF)//stall: unpredictable branch
 					{
 #ifdef _MSC_VER
 						if(streamptr>streambuf+SBUFSIZE-sizeof(uint16_t))
 							CRASH("");
 #endif
-						state=state<<RANS_RENORM_BITS|*(uint16_t*)streamptr;
-						streamptr+=sizeof(uint16_t);
+						code=code<<32|*(uint32_t*)streamptr;
+						streamptr+=sizeof(uint32_t);
+						low<<=32;
+						range=range<<32|0xFFFFFFFF;
+						if(range>~low)
+							range=~low;
 					}
+					int c2=(int)(((code-low)<<PROBBITS|((1ULL<<PROBBITS)-1))/range);//stall: DIV64
+#ifdef _MSC_VER
+					if(c2>>PROBBITS)
+						CRASH("Dec error X %d  Y %d  C%d", kx, ky, kc);
+#endif
+					uint32_t info=CDF2sym[ctx<<PROBBITS|c2];//stall: cache miss
+					sym=(uint8_t)info;
+					cdf=info<<PROBBITS>>(32-PROBBITS);
+					freq=info>>(PROBBITS+8);
+#ifdef FIFOVAL
+					valfifo_check(freq<<16|cdf);
+#endif
+					low+=range*cdf>>PROBBITS;
+					range=(range*freq>>PROBBITS)-1;
+
 					yuv[kc]=sym+pred;
 					error=yuv[kc]-pred;
 				}
@@ -829,9 +777,13 @@ int c44_codec(int argc, char **argv)
 #ifdef LOUD
 						tread+=time_sec()-t2;
 #endif
-
-						state=*(uint32_t*)streamptr;
-						streamptr+=sizeof(uint32_t);
+						
+						streamptr=streambuf;
+						low=0;
+						range=0xFFFFFFFFFFFF;
+						code=0;
+						code=code<<32|*(uint32_t*)streamptr; streamptr+=sizeof(uint32_t);
+						code=code<<32|*(uint32_t*)streamptr; streamptr+=sizeof(uint32_t);
 					}
 				}
 			}
@@ -840,7 +792,27 @@ int c44_codec(int argc, char **argv)
 	if(fwd)
 	{
 		if(imptr>imbuf)
-			csize+=enc_flush(fdst, imptr-imbuf);
+		{
+			ptrdiff_t chunksize=0;
+#ifdef LOUD
+			volatile double t2=0;
+#endif
+			
+#ifdef LOUD
+			t2=time_sec();
+#endif
+			*(uint32_t*)streamptr=(uint32_t)(low>>32); streamptr+=sizeof(uint32_t); low<<=32;//flush
+			*(uint32_t*)streamptr=(uint32_t)(low>>32); streamptr+=sizeof(uint32_t); low<<=32;
+			chunksize=streamptr-streambuf;
+			csize+=fwrite(&chunksize, 1, 3, fdst);
+			csize+=fwrite(streambuf, 1, chunksize, fdst);
+
+			low=0;
+			range=0xFFFFFFFFFFFF;
+#ifdef LOUD
+			twrite+=time_sec()-t2;
+#endif
+		}
 	}
 	else if(imptr>imbuf)
 	{

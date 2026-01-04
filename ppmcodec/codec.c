@@ -53,7 +53,8 @@ int c40_codec(int argc, char **argv);//ST rANS + FSE
 int c41_codec(int argc, char **argv);//ST analysis-cRCT-select-RLE-GR
 int c42_codec(int argc, char **argv);//LZ
 int c43_codec(int argc, char **argv);//LZ
-int c44_codec(int argc, char **argv);//adaptive rANS
+int c44_codec(int argc, char **argv);//adaptive o1 rANS
+int c45_codec(int argc, char **argv);//simple, fast, static-o1 AC
 #endif
 
 
@@ -69,7 +70,7 @@ int c44_codec(int argc, char **argv);//adaptive rANS
 //	#define CODEC_EXT c09
 //	#define CODEC_EXT c10
 //	#define CODEC_EXT c11
-	#define CODEC_EXT c12
+//	#define CODEC_EXT c12
 //	#define CODEC_EXT c13
 //	#define CODEC_EXT c14
 //	#define CODEC_EXT c15
@@ -102,6 +103,7 @@ int c44_codec(int argc, char **argv);//adaptive rANS
 //	#define CODEC_EXT c42
 //	#define CODEC_EXT c43
 //	#define CODEC_EXT c44
+	#define CODEC_EXT c45
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)

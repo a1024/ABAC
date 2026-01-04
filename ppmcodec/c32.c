@@ -2984,6 +2984,19 @@ int c32_codec(int argc, char **argv)
 				{
 					__m256i cache[3];
 					/*
+					fast estims
+					N+W-NW
+					N
+					W
+					NE
+					2*N-NN
+					2*W-WW
+					2*(NE-NNE)+NN
+					W+NEE-NE
+					*/
+#if 1
+					/*
+					estims
 					0	N
 					1	W
 					2	3*(N-NN)+NNN
@@ -3072,7 +3085,7 @@ int c32_codec(int argc, char **argv)
 					wgpreds[7*3+0]=_mm256_sub_epi16(cache[0], _mm256_load_si256((__m256i*)rows[2]+0+0+1*6));//NNE
 					wgpreds[7*3+1]=_mm256_sub_epi16(cache[1], _mm256_load_si256((__m256i*)rows[2]+0+1+1*6));
 					wgpreds[7*3+2]=_mm256_sub_epi16(cache[2], _mm256_load_si256((__m256i*)rows[2]+0+2+1*6));
-
+#endif
 
 					//mix
 					if(use_wg4==2)
