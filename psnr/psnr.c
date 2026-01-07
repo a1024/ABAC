@@ -13,6 +13,7 @@ void log_error(const char *file, int line, const char *msg, ...)
 		vprintf(msg, args);
 		va_end(args);
 	}
+	printf("\n");
 	//{
 	//	int k=0;
 	//	while(!scanf(" %d", &k));
@@ -48,7 +49,7 @@ static unsigned char* ppm_load(const char *fn, int *ret_iw, int *ret_ih)
 		return 0;
 	}
 	int vmax=0;
-	nscan=fscanf(fsrc, "%d\n", &vmax);
+	nscan=fscanf(fsrc, "%d", &vmax);
 	if(nscan!=1||vmax!=255)
 	{
 		LOG_ERROR("Invalid PPM file \"%s\"", fn);
@@ -61,11 +62,21 @@ static unsigned char* ppm_load(const char *fn, int *ret_iw, int *ret_ih)
 		LOG_ERROR("Alloc error");
 		return 0;
 	}
+	memset(buf, 0, size+16);
 	ptrdiff_t nread=fread(buf, 1, size, fsrc);
 	if(nread!=size)
 	{
-		LOG_ERROR("Invalid PPM file \"%s\"", fn);
-		return 0;
+		printf(
+			"Truncated \"%s\"\n"
+			"CWH 3*%d*%d\n"
+			"Requested %lld bytes\n"
+			"Read      %lld bytes\n"
+			"\n"
+			, fn
+			, iw, ih
+			, size
+			, nread
+		);
 	}
 	if(ret_iw)*ret_iw=iw;
 	if(ret_ih)*ret_ih=ih;
