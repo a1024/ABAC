@@ -210,6 +210,7 @@ typedef enum TransformTypeEnum
 	
 	ST_FWD_GRAY,		ST_INV_GRAY,
 	ST_FWD_MIXN,		ST_INV_MIXN,
+	ST_FWD_MIXN_CRCT2,	ST_INV_MIXN_CRCT2,
 	ST_FWD_ADAQUANT,	ST_INV_ADAQUANT,
 	ST_FWD_GRFILT,		ST_INV_GRFILT,
 	ST_FWD_L1CRCT,		ST_INV_L1CRCT,
@@ -2883,6 +2884,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_GRAY:		a=" S Inv Gray";		break;
 	case ST_FWD_MIXN:		a=" S Fwd MIX N";		break;
 	case ST_INV_MIXN:		a=" S Inv MIX N";		break;
+	case ST_FWD_MIXN_CRCT2:		a=" S Fwd MIX N cRCT2";		break;
+	case ST_INV_MIXN_CRCT2:		a=" S Inv MIX N cRCT2";		break;
 //	case ST_FWD_AV3:		a=" S Fwd AV3";			break;
 //	case ST_INV_AV3:		a=" S Inv AV3";			break;
 	case ST_FWD_WGRAD:		a="CS Fwd WGrad";		break;
@@ -4097,6 +4100,8 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_INV_GRAY:		pred_gray(image, 0);					break;
 	case ST_FWD_MIXN:		pred_mixN(image, 1);					break;
 	case ST_INV_MIXN:		pred_mixN(image, 0);					break;
+	case ST_FWD_MIXN_CRCT2:		pred_mixN_crct2(image, 1);				break;
+	case ST_INV_MIXN_CRCT2:		pred_mixN_crct2(image, 0);				break;
 //	case ST_FWD_AV3:		pred_av3(image, 1);					break;
 //	case ST_INV_AV3:		pred_av3(image, 0);					break;
 	case ST_FWD_WGRAD:		pred_wgrad(image, 1, hasRCT);				break;

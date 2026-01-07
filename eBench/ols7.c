@@ -4,7 +4,7 @@
 #include<stdlib.h>
 #include<string.h>
 //#define _USE_MATH_DEFINES
-//#include<math.h>
+#include<math.h>//log2
 #include<immintrin.h>
 //#ifdef _MSC_VER
 //#include<intrin.h>
@@ -345,6 +345,93 @@ static void noise_analysis(Image *src)
 		messagebox(MBOX_OK, "Copied", "%s", buf);
 	}
 }
+static void crct2_analysis(Image *src, int32_t *alphas)
+{
+	int maxdepth=src->depth[0];
+	if(maxdepth<src->depth[1])maxdepth=src->depth[1];
+	if(maxdepth<src->depth[2])maxdepth=src->depth[2];
+	if(maxdepth<src->depth[3])maxdepth=src->depth[3];
+	int hsize=(int)sizeof(int32_t[6])<<maxdepth;
+	int32_t *hists=(int32_t*)malloc(hsize);
+	if(!hists)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(hists, 0, hsize);
+	int prev[6]={0};
+	int half[6]=
+	{
+		1<<src->depth[0]>>1,
+		1<<src->depth[1]>>1,
+		1<<src->depth[2]>>1,
+		1<<maxdepth>>1,
+		1<<maxdepth>>1,
+		1<<maxdepth>>1,
+	};
+	int mask[6]=
+	{
+		(1<<src->depth[0])-1,
+		(1<<src->depth[1])-1,
+		(1<<src->depth[2])-1,
+		(1<<maxdepth)-1,
+		(1<<maxdepth)-1,
+		(1<<maxdepth)-1,
+	};
+	for(ptrdiff_t k=0, size=(ptrdiff_t)4*src->iw*src->ih;k<size;k+=4)
+	{
+		int r=src->data[k+0];
+		int g=src->data[k+1];
+		int b=src->data[k+2];
+		int rg=r-g, gb=g-b, br=b-r;
+		++hists[0<<maxdepth|((r -prev[0]+half[0])&mask[0])];
+		++hists[1<<maxdepth|((g -prev[1]+half[1])&mask[1])];
+		++hists[2<<maxdepth|((b -prev[2]+half[2])&mask[2])];
+		++hists[3<<maxdepth|((rg-prev[3]+half[3])&mask[3])];
+		++hists[4<<maxdepth|((gb-prev[4]+half[4])&mask[4])];
+		++hists[5<<maxdepth|((br-prev[5]+half[5])&mask[5])];
+		prev[0]=r;
+		prev[1]=g;
+		prev[2]=b;
+		prev[3]=rg;
+		prev[4]=gb;
+		prev[5]=br;
+	}
+	double csizes[6]={0};
+	for(int kc=0;kc<6;++kc)
+	{
+		int32_t *currhist=hists+((ptrdiff_t)kc<<maxdepth);
+		int32_t sum=0;
+		for(int ks=0;ks<=mask[kc];++ks)
+			sum+=currhist[ks];
+		if(!sum)
+			continue;
+		double invsum=1./sum, e=0;
+		for(int ks=0;ks<=mask[kc];++ks)
+		{
+			int32_t freq=currhist[ks];
+			if(freq)
+				e-=freq*log2(freq*invsum);
+		}
+		csizes[kc]=e/8;
+	}
+	free(hists);
+	
+	//alphas decrease with correlation
+	double a;
+
+	a=(csizes[3]+csizes[0])/(csizes[1]+csizes[0]);//(rg+r)/(g+r)
+	CLAMP2(a, 0, 1);
+	alphas[0]=(int32_t)CVTFP64_I64(a*0x10000);
+
+	a=(csizes[5]+csizes[0])/(csizes[2]+csizes[0]);//(br+r)/(b+r)
+	CLAMP2(a, 0, 1);
+	alphas[1]=(int32_t)CVTFP64_I64(a*0x10000);
+
+	a=(csizes[4]+csizes[1])/(csizes[2]+csizes[1]);//(gb+g)/(b+g)
+	CLAMP2(a, 0, 1);
+	alphas[2]=(int32_t)CVTFP64_I64(a*0x10000);
+}
 void pred_mixN(Image *src, int fwd)
 {
 	//noise_analysis(src);
@@ -660,55 +747,219 @@ void pred_mixN(Image *src, int fwd)
 	}
 	_mm_free(pixels);
 }
-void pred_gray(Image *src, int fwd)
+void pred_mixN_crct2(Image *src, int fwd)
 {
-	int half[]=
+	enum
 	{
-		1<<src->depth[0]>>1,
-		1<<src->depth[1]>>1,
-		1<<src->depth[2]>>1,
-		1<<src->depth[3]>>1,
-	};
-	if(fwd)
-	{
-		for(int ky=0, idx=0;ky<src->ih;++ky)
-		{
-			for(int kx=0;kx<src->iw;++kx)
-			{
-				for(int kc=0;kc<4;++kc, ++idx)
-				{
-					if(!src->depth[kc])
-						continue;
-					int val=src->data[idx]+half[kc];
-					val^=val>>1;
-					src->data[idx]=val-half[kc];
-				}
-			}
-		}
-	}
-	else
-	{
-		for(int ky=0, idx=0;ky<src->ih;++ky)
-		{
-			for(int kx=0;kx<src->iw;++kx)
-			{
-				for(int kc=0;kc<4;++kc, ++idx)
-				{
-					if(!src->depth[kc])
-						continue;
-					int val=src->data[idx]+half[kc];
-					val^=val>>16;
-					val^=val>> 8;
-					val^=val>> 4;
-					val^=val>> 2;
-					val^=val>> 1;
-					src->data[idx]=val-half[kc];
-				}
-			}
-		}
-	}
-}
+		MIXPREDS=4,
+		SHIFT=18,
 
+		XPAD=8,
+		NROWS=4,
+		NCH=4,
+		NVAL=2,
+	};
+	int amin[]=
+	{
+		-(1<<src->depth[0]>>1),
+		-(1<<src->depth[1]>>1),
+		-(1<<src->depth[2]>>1),
+		-(1<<src->depth[3]>>1),
+	};
+	int amax[]=
+	{
+		(1<<src->depth[0]>>1)-1,
+		(1<<src->depth[1]>>1)-1,
+		(1<<src->depth[2]>>1)-1,
+		(1<<src->depth[3]>>1)-1,
+	};
+	int invdist=((1<<16)+g_dist-1)/g_dist;
+
+	ALIGN(16) int coeffs[4][MIXPREDS]={0}, estims[MIXPREDS]={0}, coeff2[4][MIXPREDS]={0}, estim2[MIXPREDS]={0};
+
+	int psize=(src->iw+2*XPAD)*(int)sizeof(int16_t[NROWS*NCH*NVAL]);
+	int16_t *pixels=(int16_t*)_mm_malloc(psize, sizeof(__m128i*));
+
+#ifdef _DEBUG
+	static//either  reversible  or  multithreaded batch test
+#endif
+	int32_t alphas[3]={0};
+
+	if(!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	FILLMEM((int32_t*)coeffs, (1<<SHIFT)/MIXPREDS, sizeof(coeffs), sizeof(int32_t));
+	memset(pixels, 0, psize);
+	if(fwd)
+		crct2_analysis(src, alphas);
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		int16_t *rows[]=
+		{
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-0LL+NROWS)%NROWS)*NVAL,//sub 1 channel for pre-increment
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-1LL+NROWS)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-2LL+NROWS)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-3LL+NROWS)%NROWS)*NVAL,
+		};
+		for(int kx=0;kx<src->iw;++kx)
+		{
+			int offset=0;
+			for(int kc=0;kc<4;++kc, ++idx)
+			{
+				rows[0]+=NROWS*NVAL;
+				rows[1]+=NROWS*NVAL;
+				rows[2]+=NROWS*NVAL;
+				rows[3]+=NROWS*NVAL;
+				if(!src->depth[kc])
+					continue;
+				int16_t
+					NNN	=rows[3][0+0*NCH*NROWS*NVAL],
+					NNWW	=rows[2][0-2*NCH*NROWS*NVAL],
+					NNW	=rows[2][0-1*NCH*NROWS*NVAL],
+					NN	=rows[2][0+0*NCH*NROWS*NVAL],
+					NNE	=rows[2][0+1*NCH*NROWS*NVAL],
+					NNEE	=rows[2][0+2*NCH*NROWS*NVAL],
+					NWW	=rows[1][0-2*NCH*NROWS*NVAL],
+					NW	=rows[1][0-1*NCH*NROWS*NVAL],
+					N	=rows[1][0+0*NCH*NROWS*NVAL],
+					NE	=rows[1][0+1*NCH*NROWS*NVAL],
+					NEE	=rows[1][0+2*NCH*NROWS*NVAL],
+					NEEE	=rows[1][0+3*NCH*NROWS*NVAL],
+					NEEEE	=rows[1][0+4*NCH*NROWS*NVAL],
+					WWWW	=rows[0][0-4*NCH*NROWS*NVAL],
+					WWW	=rows[0][0-3*NCH*NROWS*NVAL],
+					WW	=rows[0][0-2*NCH*NROWS*NVAL],
+					W	=rows[0][0-1*NCH*NROWS*NVAL];
+				int16_t
+					aNNN	=rows[3][1+0*NCH*NROWS*NVAL],
+					aNNWW	=rows[2][1-2*NCH*NROWS*NVAL],
+					aNNW	=rows[2][1-1*NCH*NROWS*NVAL],
+					aNN	=rows[2][1+0*NCH*NROWS*NVAL],
+					aNNE	=rows[2][1+1*NCH*NROWS*NVAL],
+					aNNEE	=rows[2][1+2*NCH*NROWS*NVAL],
+					aNWW	=rows[1][1-2*NCH*NROWS*NVAL],
+					aNW	=rows[1][1-1*NCH*NROWS*NVAL],
+					aN	=rows[1][1+0*NCH*NROWS*NVAL],
+					aNE	=rows[1][1+1*NCH*NROWS*NVAL],
+					aNEE	=rows[1][1+2*NCH*NROWS*NVAL],
+					aNEEE	=rows[1][1+3*NCH*NROWS*NVAL],
+					aNEEEE	=rows[1][1+4*NCH*NROWS*NVAL],
+					aWWWW	=rows[0][1-4*NCH*NROWS*NVAL],
+					aWWW	=rows[0][1-3*NCH*NROWS*NVAL],
+					aWW	=rows[0][1-2*NCH*NROWS*NVAL],
+					aW	=rows[0][1-1*NCH*NROWS*NVAL];
+				int curr=src->data[idx];
+				int *weights=coeffs[kc];
+				int vmax=N, vmin=W;
+
+				int j=0;
+				//mix 4
+				//		NN
+				//	NW	N	NE
+				//	W	?		133 MB/s  7.47 ms/MB  4T
+				j=0;
+				estims[j++]=W;
+				estims[j++]=N+W-NW;
+				estims[j++]=2*N-NN;
+				estims[j++]=NE;
+				int pred=((1<<SHIFT>>1)
+					+weights[0]*estims[0]
+					+weights[1]*estims[1]
+					+weights[2]*estims[2]
+					+weights[3]*estims[3]
+				)>>SHIFT, pred2=0, p2=0;
+				int p1=pred;
+				if(N<W)vmin=N, vmax=W;
+				if(vmin>NE)vmin=NE;
+				if(vmax<NE)vmax=NE;
+				if(vmin>NEEE)vmin=NEEE;
+				if(vmax<NEEE)vmax=NEEE;
+				CLAMP2(pred, vmin, vmax);
+				if(kc)
+				{
+					j=0;
+					estim2[j++]=aW;
+					estim2[j++]=aN+aW-aNW;
+					estim2[j++]=2*aN-aNN;
+					estim2[j++]=aNE;
+					pred2=((1<<SHIFT>>1)
+						+coeff2[kc][0]*estim2[0]
+						+coeff2[kc][1]*estim2[1]
+						+coeff2[kc][2]*estim2[2]
+						+coeff2[kc][3]*estim2[3]
+					)>>SHIFT;
+					p2=pred2;
+					vmax=aN, vmin=aW;
+					if(aN<aW)vmin=aN, vmax=aW;
+					if(vmin>aNE)vmin=aNE;
+					if(vmax<aNE)vmax=aNE;
+					if(vmin>aNEEE)vmin=aNEEE;
+					if(vmax<aNEEE)vmax=aNEEE;
+					CLAMP2(pred2, vmin, vmax);
+
+					pred+=offset;
+					pred+=(pred2-pred)*alphas[kc-1]>>16;
+					CLAMP2(pred, amin[kc], amax[kc]);
+				}
+				if(g_dist>1)
+				{
+					if(fwd)
+					{
+						curr-=(int)pred;
+						//curr=curr<0?-(-curr>>1):curr>>1;//IMG0008 d3  17.9% 33.3 dB  19.19% 34.0 dB
+
+						//curr=(curr*invdist>>16)-(curr>>31&-(g_dist>1));
+						curr=(curr*invdist>>16)-(curr>>31);//curr/=g_dist
+						src->data[idx]=curr;
+					}
+					curr=g_dist*curr+(int)pred;
+					CLAMP2(curr, amin[kc], amax[kc]);
+					if(!fwd)
+						src->data[idx]=curr;
+				}
+				else
+				{
+					if(fwd)
+					{
+						int error=curr-pred;
+						error<<=32-src->depth[kc];
+						error>>=32-src->depth[kc];
+						src->data[idx]=error;
+					}
+					else
+					{
+						curr+=pred;
+						curr<<=32-src->depth[kc];
+						curr>>=32-src->depth[kc];
+						src->data[idx]=curr;
+					}
+				}
+				rows[0][1]=curr;
+				curr-=offset;
+				rows[0][0]=curr;
+				int e=(curr>p1)-(curr<p1);//L1
+				weights[0]+=e*estims[0];
+				weights[1]+=e*estims[1];
+				weights[2]+=e*estims[2];
+				weights[3]+=e*estims[3];
+				if(kc)
+				{
+					int acurr=rows[0][1];
+					int e=(acurr>p2)-(acurr<p2);
+					coeff2[kc][0]+=e*estim2[0];
+					coeff2[kc][1]+=e*estim2[1];
+					coeff2[kc][2]+=e*estim2[2];
+					coeff2[kc][3]+=e*estim2[3];
+				}
+				else
+					offset=curr;
+			}
+		}
+	}
+	_mm_free(pixels);
+}
 
 int crct_analysis(Image *src)
 {
@@ -940,7 +1191,12 @@ void pred_l1crct(Image *src, int fwd)
 					WWWW		=rows[0][0-4*NCH*NROWS*NVAL],
 					WWW		=rows[0][0-3*NCH*NROWS*NVAL],
 					WW		=rows[0][0-2*NCH*NROWS*NVAL],
-					W		=rows[0][0-1*NCH*NROWS*NVAL];
+					W		=rows[0][0-1*NCH*NROWS*NVAL],
+					aNW		=rows[1][1-1*NCH*NROWS*NVAL],
+					aN		=rows[1][1+0*NCH*NROWS*NVAL],
+					aNE		=rows[1][1+1*NCH*NROWS*NVAL],
+					aNEEE		=rows[1][1+3*NCH*NROWS*NVAL],
+					aW		=rows[0][1-1*NCH*NROWS*NVAL];
 #ifdef ESTIMATE_SIZE
 				int
 					eNEE		=erows[1][+2*4*1],
@@ -972,6 +1228,17 @@ void pred_l1crct(Image *src, int fwd)
 				if(kc)
 				{
 					predc+=offset;
+#if 0
+					vmax=aN, vmin=aW;
+					if(aN<aW)vmin=aN, vmax=aW;
+					if(vmin>aNE)vmin=aNE;
+					if(vmax<aNE)vmax=aNE;
+					if(vmin>aNEEE)vmin=aNEEE;
+					if(vmax<aNEEE)vmax=aNEEE;
+					if(vmin>aNW)vmin=aNW;
+					if(vmax<aNW)vmax=aNW;
+					CLAMP2(predc, vmin, vmax);
+#endif
 					CLAMP2(predc, amin[kc], amax[kc]);
 				}
 
@@ -1019,6 +1286,7 @@ void pred_l1crct(Image *src, int fwd)
 				e2=e2<<1^e2>>31;
 				erows[0][0]=(2*eW+(e2<<3)+(eNEE>eNEEE?eNEE:eNEEE))>>2;
 #endif
+				rows[0][1]=curr;
 				curr-=offset;
 				rows[0][0]=curr;
 
@@ -1249,7 +1517,6 @@ void pred_grfilt(Image *src, int fwd)
 	free(pixels);
 }
 
-
 void pred_adaquant(Image *src, int fwd)
 {
 	enum
@@ -1401,4 +1668,53 @@ void pred_adaquant(Image *src, int fwd)
 		}
 	}
 	_mm_free(pixels);
+}
+
+void pred_gray(Image *src, int fwd)
+{
+	int half[]=
+	{
+		1<<src->depth[0]>>1,
+		1<<src->depth[1]>>1,
+		1<<src->depth[2]>>1,
+		1<<src->depth[3]>>1,
+	};
+	if(fwd)
+	{
+		for(int ky=0, idx=0;ky<src->ih;++ky)
+		{
+			for(int kx=0;kx<src->iw;++kx)
+			{
+				for(int kc=0;kc<4;++kc, ++idx)
+				{
+					if(!src->depth[kc])
+						continue;
+					int val=src->data[idx]+half[kc];
+					val^=val>>1;
+					src->data[idx]=val-half[kc];
+				}
+			}
+		}
+	}
+	else
+	{
+		for(int ky=0, idx=0;ky<src->ih;++ky)
+		{
+			for(int kx=0;kx<src->iw;++kx)
+			{
+				for(int kc=0;kc<4;++kc, ++idx)
+				{
+					if(!src->depth[kc])
+						continue;
+					int val=src->data[idx]+half[kc];
+					val^=val>>16;
+					val^=val>> 8;
+					val^=val>> 4;
+					val^=val>> 2;
+					val^=val>> 1;
+					src->data[idx]=val-half[kc];
+				}
+			}
+		}
+	}
 }
