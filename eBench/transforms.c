@@ -4163,18 +4163,25 @@ void pred_sse(Image *src, int fwd)
 	free(pixels);
 	free(sse);
 }
-void pred_artifact(Image *src, int fwd)
+void pred_quantize(Image *src, int fwd)
 {
+	enum
+	{
+		XPAD=8,
+		NROWS=4,
+		NCH=4,
+		NVAL=1,
+	};
 	ALIGN(16) int curr[4]={0};
-	int bufsize=(src->iw+8LL)*(int)sizeof(short[4*4*2]);
-	short *pixels=(short*)_mm_malloc(bufsize, sizeof(__m128i));//4 padded rows * 4 channels max * {pixels, drift}
+	int psize=(src->iw+2*XPAD)*(int)sizeof(int16_t[NROWS*NCH*NVAL]);
+	int16_t *pixels=(int16_t*)_mm_malloc(psize, sizeof(__m128i*));//4 padded rows * 4 channels max * {pixels, drift}
 
 	if(!pixels)
 	{
 		LOG_ERROR("Alloc error");
 		return;
 	}
-	memset(pixels, 0, bufsize);
+	memset(pixels, 0, psize);
 	int amin[]=
 	{
 		-(1<<src->depth[0]>>1),
@@ -4193,31 +4200,80 @@ void pred_artifact(Image *src, int fwd)
 	{
 		short *rows[]=
 		{
-			pixels+((src->iw+4LL)*((ky-0LL)&3)+4)*4*2,
-			pixels+((src->iw+4LL)*((ky-1LL)&3)+4)*4*2,
-			pixels+((src->iw+4LL)*((ky-2LL)&3)+4)*4*2,
-			pixels+((src->iw+4LL)*((ky-3LL)&3)+4)*4*2,
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-0LL+NROWS)%NROWS)*NVAL,//sub 1 channel for pre-increment
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-1LL+NROWS)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-2LL+NROWS)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-3LL+NROWS)%NROWS)*NVAL,
 		};
 		int drift[4]={0};
-		for(int kx=0;kx<src->iw;++kx, idx+=4)
+		for(int kx=0;kx<src->iw;++kx)
 		{
-			for(int kc=0;kc<src->nch;++kc)
+			for(int kc=0;kc<4;++kc, ++idx)
 			{
-				//int
-				//	NW	=rows[1][kc-1*4*2+0],
-				//	N	=rows[1][kc+0*4*2+0],
-				//	W	=rows[0][kc-1*4*2+0],
-				//	dNW	=rows[1][kc-1*4*2+4],
-				//	dN	=rows[1][kc+0*4*2+4],
-				//	dNE	=rows[1][kc+1*4*2+4],
-				//	dNEE	=rows[1][kc+2*4*2+4],
-				//	dNEEE	=rows[1][kc+3*4*2+4],
-				//	dWW	=rows[0][kc-2*4*2+4],
-				//	dW	=rows[0][kc-1*4*2+4];
+				rows[0]+=NROWS*NVAL;
+				rows[1]+=NROWS*NVAL;
+				rows[2]+=NROWS*NVAL;
+				rows[3]+=NROWS*NVAL;
+				if(!src->depth[kc])
+					continue;
+				int
+					NN	=rows[2][0-1*NCH*NROWS*NVAL],
+					NW	=rows[1][0-1*NCH*NROWS*NVAL],
+					N	=rows[1][0+0*NCH*NROWS*NVAL],
+					NE	=rows[1][0+1*NCH*NROWS*NVAL],
+					WW	=rows[0][0-2*NCH*NROWS*NVAL],
+					W	=rows[0][0-1*NCH*NROWS*NVAL];
+				//	dNW	=rows[1][1-1*NCH*NROWS*NVAL],
+				//	dN	=rows[1][1+0*NCH*NROWS*NVAL],
+				//	dNE	=rows[1][1+1*NCH*NROWS*NVAL],
+				//	dNEE	=rows[1][1+2*NCH*NROWS*NVAL],
+				//	dNEEE	=rows[1][1+3*NCH*NROWS*NVAL],
+				//	dWW	=rows[0][1-2*NCH*NROWS*NVAL],
+				//	dW	=rows[0][1-1*NCH*NROWS*NVAL];
+				int val=src->data[idx];
 				if(fwd)
-					src->data[idx+kc]>>=1;
+					val=val<0?-(-val>>1):val>>1;
+				//	val=val<0?-(-val>>1):val>>1;
 				else
-					src->data[idx+kc]<<=1;
+				{
+#if 0
+				//	int p=WW+W+NE+NN;
+					//int vmax=N, vmin=W;
+					//int p=N+W-NW;
+					//if(N<W)vmin=N, vmax=W;
+					//CLAMP2(p, vmin, vmax);
+					val=val<<2;
+					if(g_dist>1)
+					{
+						val+=(val+amin[kc])>>(src->depth[kc]-2);
+						val+=(N>val)+(W>val)+(NE>val);
+					//	int p=4*(N+W-NW)+NE-NW;
+					//	int p=N+W-NW;
+					//	int p=(N+W)>>1;
+					//	int p=N+W+NW+NE;
+					//	int
+					//	//	rm2=abs(val-2-p),
+					//	//	rm1=abs(val-1-p),
+					//		ref=abs(val+0-p),
+					//		rp1=abs(val+1-p),
+					//		rp2=abs(val+2-p),
+					//		rp3=abs(val+3-p);
+					//	val+=(rp1<ref)+(rp2<ref)+(rp3<ref);
+					//	val+=(rp2<ref)+(rp1<ref)-(rm1<ref)-(rm2<ref);
+					}
+#endif
+					val=val<<1|(val-amin[kc])>>(src->depth[kc]-1);
+				//	val=val<<1|(~val>>31&1);
+				//	val<<=1;
+					CLAMP2(val, amin[kc], amax[kc]);
+				}
+				rows[0][0]=val;
+				src->data[idx]=val;
+
+				//if(fwd)
+				//	src->data[idx]>>=1;
+				//else
+				//	src->data[idx]<<=1;
 #if 0
 				//DSC_0054			(dN+dW)/2, >>8			(dN+dW)/2, >>7			dW
 				//CG		40.4549%
@@ -4380,8 +4436,6 @@ void pred_artifact(Image *src, int fwd)
 				rows[0][kc]=fwd?curr:pred;
 #endif
 			}
-			rows[0]+=4*2;
-			rows[1]+=4*2;
 		}
 	}
 	_mm_free(pixels);
@@ -14761,7 +14815,7 @@ void dwt2d_lazy_fwd(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end,
 		//break;
 	}
 }
-void dwt2d_lazy_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp)
+void dwt2d_lazy_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp, int vmin, int vmax)
 {
 	int iw=sizes->w, rowlen=stride*iw;
 //	int ih=sizes->h;
@@ -14857,7 +14911,7 @@ void dwt2d_haar_fwd(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end,
 		//save_channel(buffer, iw, ih, 4, "legall53-stage%02dB.PNG", it);
 	}
 }
-void dwt2d_haar_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp)
+void dwt2d_haar_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp, int vmin, int vmax)
 {
 	int iw=sizes->w, rowlen=stride*iw;
 //	int ih=sizes->h;
@@ -14872,6 +14926,10 @@ void dwt2d_haar_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end,
 
 		for(int ky=0;ky<h2;++ky)//horizontal IDWT
 			dwt1d_haar_inv(buffer+rowlen*ky, w2, stride, temp);
+	}
+	for(ptrdiff_t k=0, size=(ptrdiff_t)stride*sizes->w*sizes->h;k<size;k+=stride)
+	{
+		CLAMP2(buffer[k], vmin, vmax);
 	}
 }
 
@@ -14976,7 +15034,7 @@ void dwt2d_squeeze_fwd(int *buffer, DWTSize *sizes, int sizes_start, int sizes_e
 		//save_channel(buffer, iw, ih, 4, 128, "squeeze-stage%02dB.PNG", it);
 	}
 }
-void dwt2d_squeeze_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp)
+void dwt2d_squeeze_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp, int vmin, int vmax)
 {
 	int iw=sizes->w, rowlen=stride*iw;
 //	int ih=sizes->h;
@@ -14991,6 +15049,10 @@ void dwt2d_squeeze_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_e
 
 		for(int ky=0;ky<h2;++ky)//horizontal IDWT
 			dwt1d_squeeze_inv(buffer+rowlen*ky, w2, stride, temp);
+	}
+	for(ptrdiff_t k=0, size=(ptrdiff_t)stride*sizes->w*sizes->h;k<size;k+=stride)
+	{
+		CLAMP2(buffer[k], vmin, vmax);
 	}
 }
 
@@ -15173,7 +15235,7 @@ void dwt2d_legall53_fwd(int *buffer, DWTSize *sizes, int sizes_start, int sizes_
 		//save_channel(buffer, iw, ih, 4, "legall53-stage%02dB.PNG", it);
 	}
 }
-void dwt2d_legall53_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp)
+void dwt2d_legall53_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp, int vmin, int vmax)
 {
 	int iw=sizes->w, rowlen=stride*iw;
 //	int ih=sizes->h;
@@ -15189,6 +15251,10 @@ void dwt2d_legall53_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_
 		for(int ky=0;ky<h2;++ky)//horizontal IDWT
 			dwt1d_legall53_inv(buffer+rowlen*ky, w2, stride, temp);
 	}
+	for(ptrdiff_t k=0, size=(ptrdiff_t)stride*sizes->w*sizes->h;k<size;k+=stride)
+	{
+		CLAMP2(buffer[k], vmin, vmax);
+	}
 }
 
 //lifting-based 8bit CDF 9/7 DWT
@@ -15197,51 +15263,47 @@ static const int cdf97_coeff[]=
 	//'factring wavelet transforms into lifting steps' - page 19
 	//'a wavelet tour of signal processing - the sparse way' - page 376
 	//Lifting-based Discrete Wavelet Transform for Real-Time Signal Detection 2015-10
-	-0x1960C,	//-1.58613434342059f,	//alpha
-	-0x00D90,	//-0.0529801185729f,	//beta
-	 0x0E206,	// 0.8829110755309f,	//gamma
-	 0x07189,	// 0.4435068520439f,	//delta
+	 0x1960C,	// 1.58613434342059f,	//alpha		predict is negative
+	-0x00D90,	//-0.0529801185729f,	//beta		update is positive
+	-0x0E206,	//-0.8829110755309f,	//gamma		predict
+	 0x07189,	// 0.4435068520439f,	//delta		update
 	 0x1264C,	// 1.1496043988602f,	//zeta		output gain is 1.89
 };
 static void dwt1d_cdf97_predict(int *odd, int *even, int nodd, int extraeven, int coeff)
 {
-	even[0]+=odd[0]*coeff>>15;
+	int p=odd[0]*coeff;
+	even[0]-=p<0?-(-p>>15):p>>15;
 	for(int k=1;k<nodd;++k)//predict
-		even[k]+=(odd[k-1]+odd[k])*coeff>>16;
+	{
+		int p=(odd[k-1]+odd[k])*coeff;
+		even[k]-=p<0?-(-p>>16):p>>16;
+	}
 	if(extraeven)
-		even[nodd]+=odd[nodd-1]*coeff>>15;
-}
-static void dwt1d_cdf97_unpredict(int *odd, int *even, int nodd, int extraeven, int coeff)
-{
-	even[0]-=odd[0]*coeff>>15;
-	for(int k=1;k<nodd;++k)//unpredict
-		even[k]-=(odd[k-1]+odd[k])*coeff>>16;
-	if(extraeven)
-		even[nodd]-=odd[nodd-1]*coeff>>15;
+	{
+		int p=odd[nodd-1]*coeff;
+		even[nodd]-=p<0?-(-p>>15):p>>15;
+	}
 }
 static void dwt1d_cdf97_update(int *odd, int *even, int nodd, int extraeven, int coeff)
 {
 	for(int k=0;k<nodd-!extraeven;++k)//update
-		odd[k]+=(even[k]+even[k+1])*coeff>>16;
+	{
+		int p=(even[k]+even[k+1])*coeff;
+		odd[k]+=p<0?-(-p>>16):p>>16;
+	}
 	if(!extraeven)
-		odd[nodd-1]+=even[nodd-1]*coeff>>15;
-}
-static void dwt1d_cdf97_unupdate(int *odd, int *even, int nodd, int extraeven, int coeff)
-{
-	for(int k=0;k<nodd-!extraeven;++k)//unupdate
-		odd[k]-=(even[k]+even[k+1])*coeff>>16;
-	if(!extraeven)
-		odd[nodd-1]-=even[nodd-1]*coeff>>15;
+	{
+		int p=even[nodd-1]*coeff;
+		odd[nodd-1]+=p<0?-(-p>>15):p>>15;
+	}
 }
 //static void dwt1d_u8_scale(int *buf, int count, int coeff)
 //{
 //	for(int k=0;k<count;++k)
-//		buf[k]=buf[k]*coeff>>16;
-//}
-//static void dwt1d_u8_unscale(int *buf, int count, int coeff)
-//{
-//	for(int k=0;k<count;++k)
-//		buf[k]=(buf[k]<<16)/coeff;
+//	{
+//		int p=buf[k]*coeff;
+//		buf[k]=p<0?-(-p>>16):p>>16;
+//	}
 //}
 static void dwt1d_cdf97_fwd(int *buffer, int count, int stride, int *b2)
 {
@@ -15256,10 +15318,18 @@ static void dwt1d_cdf97_fwd(int *buffer, int count, int stride, int *b2)
 	if(extraeven)
 		even[nodd]=buffer[stride*(count-1)];
 
+	//int temp[256];
+	//memcpy(temp, buffer, sizeof(int[256]));
 	dwt1d_cdf97_predict(odd, even, nodd, extraeven, cdf97_coeff[0]);
 	dwt1d_cdf97_update (odd, even, nodd, extraeven, cdf97_coeff[1]);
 	dwt1d_cdf97_predict(odd, even, nodd, extraeven, cdf97_coeff[2]);
 	dwt1d_cdf97_update (odd, even, nodd, extraeven, cdf97_coeff[3]);
+	//dwt1d_cdf97_update (odd, even, nodd, extraeven, -cdf97_coeff[3]);
+	//dwt1d_cdf97_predict(odd, even, nodd, extraeven, -cdf97_coeff[2]);
+	//dwt1d_cdf97_update (odd, even, nodd, extraeven, -cdf97_coeff[1]);
+	//dwt1d_cdf97_predict(odd, even, nodd, extraeven, -cdf97_coeff[0]);
+	//if(memcmp(buffer, temp, sizeof(int[256])))
+	//	LOG_ERROR("");
 //	dwt1d_cdf97_scale(b2, count, cdf97_coeff[4]);
 
 	for(int k=0, ks=0;k<count;++k, ks+=stride)
@@ -15273,11 +15343,11 @@ static void dwt1d_cdf97_inv(int *buffer, int count, int stride, int *b2)
 	for(int k=0, ks=0;k<count;++k, ks+=stride)
 		b2[k]=buffer[ks];
 	
-//	dwt1d_cdf97_unscale(b2, count, cdf97_coeff[4]);
-	dwt1d_cdf97_unupdate (odd, even, nodd, extraeven, cdf97_coeff[3]);
-	dwt1d_cdf97_unpredict(odd, even, nodd, extraeven, cdf97_coeff[2]);
-	dwt1d_cdf97_unupdate (odd, even, nodd, extraeven, cdf97_coeff[1]);
-	dwt1d_cdf97_unpredict(odd, even, nodd, extraeven, cdf97_coeff[0]);
+//	dwt1d_cdf97_scale(b2, count, ((1<<16)+cdf97_coeff[4]-1)/cdf97_coeff[4]);
+	dwt1d_cdf97_update (odd, even, nodd, extraeven, -cdf97_coeff[3]);
+	dwt1d_cdf97_predict(odd, even, nodd, extraeven, -cdf97_coeff[2]);
+	dwt1d_cdf97_update (odd, even, nodd, extraeven, -cdf97_coeff[1]);
+	dwt1d_cdf97_predict(odd, even, nodd, extraeven, -cdf97_coeff[0]);
 
 	for(int k=0, ks=0;k<nodd;++k, ks+=stride<<1)//inv lazy wavelet: join even & odd
 	{
@@ -15307,13 +15377,52 @@ void dwt2d_cdf97_fwd(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end
 		
 		//save_channel(buffer, iw, ih, 4, "legall53-stage%02dB.PNG", it);
 	}
+	if(g_dist>1)
+	{
+		int invdist=(0x10000+g_dist-1)/g_dist;
+		int *ptr=buffer;
+		int w0=sizes[sizes_end-1].w;
+		int h0=sizes[sizes_end-1].h;
+		for(int ky=0;ky<sizes->h;++ky)
+		{
+			for(int kx=0;kx<sizes->w;++kx, ptr+=stride)
+			{
+				if(ky>=h0&&kx>=w0)
+				{
+					int val=*ptr;
+					val=val*invdist>>16;
+					val-=val>>31;
+					*ptr=val;
+				}
+			}
+		}
+	}
 }
-void dwt2d_cdf97_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp)
+void dwt2d_cdf97_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp, int vmin, int vmax)
 {
 	int iw=sizes->w, rowlen=stride*iw;
 //	int ih=sizes->h;
 	if(sizes_start>=sizes_end-1)
 		return;
+	if(g_dist>1)
+	{
+		int *ptr=buffer;
+		int w0=sizes[sizes_end-1].w;
+		int h0=sizes[sizes_end-1].h;
+		for(int ky=0;ky<sizes->h;++ky)
+		{
+			for(int kx=0;kx<sizes->w;++kx, ptr+=stride)
+			{
+				if(ky>=h0&&kx>=w0)
+				{
+					int val=*ptr;
+					val=val*g_dist;
+					val-=val>>31;
+					*ptr=val;
+				}
+			}
+		}
+	}
 	for(int it=sizes_end-2;it>=sizes_start;--it)
 	{
 		int w2=sizes[it].w, h2=sizes[it].h;
@@ -15323,6 +15432,10 @@ void dwt2d_cdf97_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end
 
 		for(int ky=0;ky<h2;++ky)//horizontal IDWT
 			dwt1d_cdf97_inv(buffer+rowlen*ky, w2, stride, temp);
+	}
+	for(ptrdiff_t k=0, size=(ptrdiff_t)stride*sizes->w*sizes->h;k<size;k+=stride)
+	{
+		CLAMP2(buffer[k], vmin, vmax);
 	}
 }
 

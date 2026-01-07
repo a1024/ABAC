@@ -382,9 +382,9 @@ void pred_mixN(Image *src, int fwd)
 		NROWS=4,
 		NCH=4,
 #ifdef CASCADE
-		NVAL=1,
-#else
 		NVAL=2,
+#else
+		NVAL=1,
 #endif
 	//	NVAL=1+MIXPREDS,
 	};
@@ -572,6 +572,8 @@ void pred_mixN(Image *src, int fwd)
 					if(fwd)
 					{
 						curr-=(int)pred;
+						//curr=curr<0?-(-curr>>1):curr>>1;//IMG0008 d3  17.9% 33.3 dB  19.19% 34.0 dB
+
 						//curr=(curr*invdist>>16)-(curr>>31&-(g_dist>1));
 						curr=(curr*invdist>>16)-(curr>>31);//curr/=g_dist
 						src->data[idx]=curr;
@@ -1230,4 +1232,158 @@ void pred_grfilt(Image *src, int fwd)
 		}
 	}
 	free(pixels);
+}
+
+
+void pred_adaquant(Image *src, int fwd)
+{
+	enum
+	{
+		XPAD=8,
+		NROWS=4,
+		NCH=4,
+		NVAL=2,
+
+		NPREDS=4,
+		SHIFT=18,
+	};
+
+	int amin[]=
+	{
+		-(1<<src->depth[0]>>1),
+		-(1<<src->depth[1]>>1),
+		-(1<<src->depth[2]>>1),
+		-(1<<src->depth[3]>>1),
+	};
+	int amax[]=
+	{
+		(1<<src->depth[0]>>1)-1,
+		(1<<src->depth[1]>>1)-1,
+		(1<<src->depth[2]>>1)-1,
+		(1<<src->depth[3]>>1)-1,
+	};
+	int32_t weights[NCH][NPREDS]={0}, estims[NPREDS]={0};
+	int32_t LPF[4]={0};
+	int psize=(src->iw+2*XPAD)*(int)sizeof(int16_t[NCH*NROWS*NVAL]);
+	int16_t *pixels=(int16_t*)_mm_malloc(psize, sizeof(__m128i));
+
+	if(!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(pixels, 0, psize);
+	FILLMEM((int*)weights, (1<<L1SH)/NPREDS, sizeof(weights), sizeof(int));
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		short *rows[]=
+		{
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-0LL+NROWS)%NROWS)*NVAL,//sub 1 channel for pre-increment
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-1LL+NROWS)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-2LL+NROWS)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-3LL+NROWS)%NROWS)*NVAL,
+		};
+		int drift[4]={0};
+		for(int kx=0;kx<src->iw;++kx)
+		{
+			for(int kc=0;kc<4;++kc, ++idx)
+			{
+				rows[0]+=NROWS*NVAL;
+				rows[1]+=NROWS*NVAL;
+				rows[2]+=NROWS*NVAL;
+				rows[3]+=NROWS*NVAL;
+				if(!src->depth[kc])
+					continue;
+				int16_t
+					NNN	=rows[3][0+0*NCH*NROWS*NVAL],
+					NNWW	=rows[2][0-2*NCH*NROWS*NVAL],
+					NNW	=rows[2][0-1*NCH*NROWS*NVAL],
+					NN	=rows[2][0+0*NCH*NROWS*NVAL],
+					NNE	=rows[2][0+1*NCH*NROWS*NVAL],
+					NNEE	=rows[2][0+2*NCH*NROWS*NVAL],
+					NWW	=rows[1][0-2*NCH*NROWS*NVAL],
+					NW	=rows[1][0-1*NCH*NROWS*NVAL],
+					N	=rows[1][0+0*NCH*NROWS*NVAL],
+					NE	=rows[1][0+1*NCH*NROWS*NVAL],
+					NEE	=rows[1][0+2*NCH*NROWS*NVAL],
+					NEEE	=rows[1][0+3*NCH*NROWS*NVAL],
+					NEEEE	=rows[1][0+4*NCH*NROWS*NVAL],
+					WWWW	=rows[0][0-4*NCH*NROWS*NVAL],
+					WWW	=rows[0][0-3*NCH*NROWS*NVAL],
+					WW	=rows[0][0-2*NCH*NROWS*NVAL],
+					W	=rows[0][0-1*NCH*NROWS*NVAL],
+					eN	=rows[1][1+0*NCH*NROWS*NVAL],
+					eNEEE	=rows[1][1+3*NCH*NROWS*NVAL],
+					eW	=rows[0][1-1*NCH*NROWS*NVAL];
+			//	int sh=0;
+				int pred=1<<SHIFT>>1, p1, j=0, curr, error;
+				int vmax=N, vmin=W;
+				if(N<W)vmin=N, vmax=W;
+				j=0;
+				estims[j++]=W;
+				estims[j++]=N+W-NW;
+				estims[j++]=2*N-NN;
+				estims[j++]=NE;
+				pred=(
+					+weights[kc][0]*estims[0]
+					+weights[kc][1]*estims[1]
+					+weights[kc][2]*estims[2]
+					+weights[kc][3]*estims[3]
+				)>>SHIFT;
+				p1=pred;
+				if(vmin>NE)vmin=NE;
+				if(vmax<NE)vmax=NE;
+				if(vmin>NEEE)vmin=NEEE;
+				if(vmax<NEEE)vmax=NEEE;
+				CLAMP2(pred, vmin, vmax);
+
+				int qden=eW+1;
+				if(qden>(1<<g_dist))//just to decrease penalty for easy regions
+					qden=(1<<g_dist);
+			//	LPF[kc]+=(eW*eW-LPF[kc])>>3;
+			//	sh=FLOOR_LOG2(eW*g_dist+1);
+			//	if(sh>g_dist)
+			//		sh=g_dist;
+				//if(kc)//lighter quantization on chroma
+				//	CLAMP2(sh, g_dist>>3, g_dist>>1);
+				//else
+				//	CLAMP2(sh, g_dist>>2, g_dist);
+
+				curr=src->data[idx];
+				if(fwd)
+				{
+					curr-=pred;
+					//curr<<=32-src->depth[kc];
+					//curr>>=32-src->depth[kc];
+					//curr=curr<0?-(-curr>>sh):curr>>sh;
+					curr/=qden;
+					error=curr;
+					//curr<<=sh;
+					curr*=qden;
+					curr+=pred;
+					CLAMP2(curr, amin[kc], amax[kc]);
+					src->data[idx]=error;
+				}
+				else
+				{
+					error=curr;
+					//curr<<=sh;
+					curr*=qden;
+					curr+=pred;
+					CLAMP2(curr, amin[kc], amax[kc]);
+					src->data[idx]=curr;
+				}
+				rows[0][0]=curr;
+				rows[0][1]=eW+((((error<<1^error>>31)<<g_dist)+eN-2*eW)>>3);
+				//rows[0][1]=(2*eW+((error<<1^error>>31)<<g_dist)+eNEEE)>>2;
+
+				int e=(curr>p1)-(curr<p1);//L1
+				weights[kc][0]+=e*estims[0];
+				weights[kc][1]+=e*estims[1];
+				weights[kc][2]+=e*estims[2];
+				weights[kc][3]+=e*estims[3];
+			}
+		}
+	}
+	_mm_free(pixels);
 }

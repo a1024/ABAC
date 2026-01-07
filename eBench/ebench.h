@@ -709,7 +709,9 @@ void rct_custom_getmatrix(double *matrix, int fwd);
 void rct_adaptive(Image *src, int fwd);
 
 
-#define ENABLE_EXTENDED_RCT
+//cRCT
+#if 1
+	#define ENABLE_EXTENDED_RCT
 typedef enum _RCTInfoIdx
 {
 	II_OCH_Y,
@@ -855,7 +857,14 @@ static const unsigned char rct_combinations[RCT_COUNT][II_COUNT]=
 	RCTLIST
 #undef  RCT
 };
+static const char *rct_names[]=
+{
+#define RCT(LABEL, ...) #LABEL,
+	RCTLIST
+#undef  RCT
+};
 int crct_analysis(Image *src);
+#endif
 
 
 
@@ -878,7 +887,8 @@ void pred_cg_crct(Image *image, int fwd, int enable_ma);
 void pred_clampgrad(Image *image, int fwd, int enable_ma);
 void pred_cleartype(Image *src, int fwd);
 void pred_sse(Image *src, int fwd);
-void pred_artifact(Image *src, int fwd);
+void pred_quantize(Image *src, int fwd);
+void pred_adaquant(Image *src, int fwd);
 void pred_LeGallCG(Image *src, int fwd);
 void pred_cgplus(Image *src, int fwd);
 void pred_CG420(Image *src, int fwd);
@@ -1017,15 +1027,15 @@ typedef struct DWTSizeStruct
 ArrayHandle dwt2d_gensizes(int iw, int ih, int wstop, int hstop, int nstages_override);//calculate dimensions of each DWT stage in descending order
 
 void dwt2d_lazy_fwd	(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp);
-void dwt2d_lazy_inv	(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp);
+void dwt2d_lazy_inv	(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp, int vmin, int vmax);
 void dwt2d_haar_fwd	(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp);
-void dwt2d_haar_inv	(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp);
+void dwt2d_haar_inv	(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp, int vmin, int vmax);
 void dwt2d_squeeze_fwd	(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp);
-void dwt2d_squeeze_inv	(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp);
+void dwt2d_squeeze_inv	(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp, int vmin, int vmax);
 void dwt2d_legall53_fwd	(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp);
-void dwt2d_legall53_inv	(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp);
+void dwt2d_legall53_inv	(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp, int vmin, int vmax);
 void dwt2d_cdf97_fwd	(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp);
-void dwt2d_cdf97_inv	(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp);
+void dwt2d_cdf97_inv	(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp, int vmin, int vmax);
 #if 0
 void dwt2d_grad_fwd   (int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp);
 void dwt2d_grad_inv   (int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp);

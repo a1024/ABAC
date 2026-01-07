@@ -210,6 +210,7 @@ typedef enum TransformTypeEnum
 	
 	ST_FWD_GRAY,		ST_INV_GRAY,
 	ST_FWD_MIXN,		ST_INV_MIXN,
+	ST_FWD_ADAQUANT,	ST_INV_ADAQUANT,
 	ST_FWD_GRFILT,		ST_INV_GRFILT,
 	ST_FWD_L1CRCT,		ST_INV_L1CRCT,
 	ST_FWD_OLS7,		ST_INV_OLS7,
@@ -2860,6 +2861,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_CLEARTYPE:		a=" S Inv ClearType";		break;
 	case ST_FWD_QUANT:		a=" S Fwd Quantize";		break;
 	case ST_INV_QUANT:		a=" S Inv Quantize";		break;
+	case ST_FWD_ADAQUANT:		a=" S Fwd AdaQuant";		break;
+	case ST_INV_ADAQUANT:		a=" S Inv AdaQuant";		break;
 	case ST_FWD_AV4:		a=" S Fwd AV4";			break;
 	case ST_INV_AV4:		a=" S Inv AV4";			break;
 	case ST_FWD_SEL4:		a=" S Fwd Sel4";		break;
@@ -4072,8 +4075,10 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_INV_CLAMPGRAD:		pred_clampgrad(image, 0, pred_ma_enabled);		break;
 	case ST_FWD_CLEARTYPE:		pred_cleartype(image, 1);				break;
 	case ST_INV_CLEARTYPE:		pred_cleartype(image, 0);				break;
-	case ST_FWD_QUANT:		pred_artifact(image, 1);				break;
-	case ST_INV_QUANT:		pred_artifact(image, 0);				break;
+	case ST_FWD_QUANT:		pred_quantize(image, 1);				break;
+	case ST_INV_QUANT:		pred_quantize(image, 0);				break;
+	case ST_FWD_ADAQUANT:		pred_adaquant(image, 1);				break;
+	case ST_INV_ADAQUANT:		pred_adaquant(image, 0);				break;
 	case ST_FWD_SEL4:		pred_sel4(image, 1);					break;
 	case ST_INV_SEL4:		pred_sel4(image, 0);					break;
 	case ST_FWD_SELECT:		pred_select(image, 1);					break;
@@ -4200,24 +4205,25 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 //	case ST_FWD_CUSTOM_DWT:
 //	case ST_INV_CUSTOM_DWT:
 		{
-			ArrayHandle sizes=dwt2d_gensizes(image->iw, image->ih, 3, 3, 0);
+			ArrayHandle sizes=dwt2d_gensizes(image->iw, image->ih, 3, 3, 3);
 			int *temp=(int*)malloc(MAXVAR(image->iw, image->ih)*sizeof(int));
 			for(int kc=0;kc<4;++kc)
 			{
+				int vmin=-(1<<(image->depth[kc]-1)>>1), vmax=(1<<(image->depth[kc]-1)>>1)-1;
 				if(!image->depth[kc])
 					continue;
 				switch(tid)
 				{
 				case ST_FWD_LAZY:      dwt2d_lazy_fwd		(image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-				case ST_INV_LAZY:      dwt2d_lazy_inv		(image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+				case ST_INV_LAZY:      dwt2d_lazy_inv		(image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, vmin, vmax);break;
 				case ST_FWD_HAAR:      dwt2d_haar_fwd		(image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-				case ST_INV_HAAR:      dwt2d_haar_inv		(image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+				case ST_INV_HAAR:      dwt2d_haar_inv		(image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, vmin, vmax);break;
 				case ST_FWD_SQUEEZE:   dwt2d_squeeze_fwd	(image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-				case ST_INV_SQUEEZE:   dwt2d_squeeze_inv	(image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+				case ST_INV_SQUEEZE:   dwt2d_squeeze_inv	(image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, vmin, vmax);break;
 				case ST_FWD_LEGALL53:  dwt2d_legall53_fwd	(image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-				case ST_INV_LEGALL53:  dwt2d_legall53_inv	(image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+				case ST_INV_LEGALL53:  dwt2d_legall53_inv	(image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, vmin, vmax);break;
 				case ST_FWD_CDF97:     dwt2d_cdf97_fwd		(image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
-				case ST_INV_CDF97:     dwt2d_cdf97_inv		(image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
+				case ST_INV_CDF97:     dwt2d_cdf97_inv		(image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, vmin, vmax);break;
 			//	case ST_FWD_GRAD_DWT:  dwt2d_grad_fwd   (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
 			//	case ST_INV_GRAD_DWT:  dwt2d_grad_inv   (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp);break;
 			//	case ST_FWD_EXPDWT:    dwt2d_exp_fwd    (image->data+kc, (DWTSize*)sizes->data, 0, (int)sizes->count, 4, temp, customparam_st);break;//TODO use customdwtparams instead of sharing allcustomparam_st
@@ -4423,15 +4429,9 @@ void apply_selected_transforms(Image **pimage, int rct_only, int applyfwd, int a
 		//calc_depthfromdata(image->data, image->iw, image->ih, image->depth, image->src_depth);//X  depth must depend only on src_depth and applied RCTs, so that preds can apply MA
 	}
 }
-void update_image(void)//apply selected operations on original image, calculate CRs, and export
+static void export_image(Image *im1, unsigned char **pim_export)
 {
-	if(!im0)
-		return;
-	image_copy(&im1, im0);
-	apply_selected_transforms(&im1, 0, 1, 1);
-
-	//do not modify im1 beyond this point
-	
+	unsigned char *im_export=*pim_export;
 	{
 		void *ptr=realloc(im_export, sizeof(char[4])*im1->iw*im1->ih);
 		if(!ptr)
@@ -4525,6 +4525,19 @@ void update_image(void)//apply selected operations on original image, calculate 
 			}
 		}
 	}
+	*pim_export=im_export;
+}
+void update_image(void)//apply selected operations on original image, calculate CRs, and export
+{
+	if(!im0)
+		return;
+	image_copy(&im1, im0);
+	apply_selected_transforms(&im1, 0, 1, 1);
+
+	//do not modify im1 beyond this point
+	
+	export_image(im1, &im_export);
+	export_image(im0, &zimage);
 	//image_export_uint8(im1, &im_export, 1, 0);
 
 	{
@@ -5578,7 +5591,9 @@ int io_mousemove(void)//return true to redraw
 		}
 		return !timer;
 	}
-	else if(profileplotmode>PROFILE_OFF)
+	if(profileplotmode>PROFILE_OFF)
+		return 1;
+	if(mode==VIS_IMAGE&&GET_KEY_STATE('Q'))
 		return 1;
 	return 0;
 }
@@ -6370,8 +6385,8 @@ int io_keydn(IOKey key, char c)
 			g_dist+=(key==KEY_UP)*2-1;
 			if(g_dist<1)
 				g_dist=1;
-			if(g_dist>16)
-				g_dist=16;
+			if(g_dist>31)
+				g_dist=31;
 			update_image();
 			return 1;
 		}
@@ -6818,6 +6833,7 @@ int io_keydn(IOKey key, char c)
 		//	"Ctrl Space\t(Custom transforms) Reset params\n"
 			"Ctrl B:\t\tBatch test\n"
 			"Ctrl L:\t\tLossy batch test\n"
+			"Hold Q:\t\tLossy comparison\n"
 			"\n"
 		//	"WASDTG:\tMove cam\n"
 		//	"Arrow keys:\tTurn cam\n"
@@ -7568,11 +7584,12 @@ int io_keydn(IOKey key, char c)
 		//		l1weights[k]+=rand()-RAND_MAX/2;
 		//	return 1;
 		//}
-		//{
-		//	view_ma=!view_ma;
-		//	update_image();
-		//	return 1;
-		//}
+		else
+		{
+			view_ma=!view_ma;
+			update_image();
+			return 1;
+		}
 		break;
 	//case 'Z':
 	//	if(mode==VIS_L1WEIGHTS)
@@ -7971,6 +7988,8 @@ int io_keyup(IOKey key, char c)
 		count_active_keys(key);
 		break;
 
+	case 'Q':
+		return mode==VIS_IMAGE;
 	default://to make gcc -Wall happy
 		break;
 	//	printf("%02X %02X=%c up\n", key, c, c);
@@ -8598,7 +8617,19 @@ void io_render(void)
 		case VIS_MODEL:
 		case VIS_ZIPF:
 			{
-				display_texture_i(sx1, sx2, sy1, sy2, (int*)(mode==VIS_ZIPF?zimage:im_export), im1->iw, im1->ih, 0, 1, 0, 1, 1, 0);
+				if(mode==VIS_IMAGE&&GET_KEY_STATE('Q'))
+				{
+					int mx2=mx, xstart=image2screen_x_int(0), xend=image2screen_x_int(im0->iw);
+					CLAMP2(mx2, xstart, xend);
+					double divx=screen2image_x(mx2)/im0->iw;
+					CLAMP2(divx, 0, 1);
+					if(divx>0)
+						display_texture_i(sx1, mx2, sy1, sy2, (int*)zimage, im1->iw, im1->ih, 0, (float)divx, 0, 1, 1, 0);
+					if(divx<1)
+						display_texture_i(mx2, sx2, sy1, sy2, (int*)im_export, im1->iw, im1->ih, (float)divx, 1, 0, 1, 1, 0);
+				}
+				else
+					display_texture_i(sx1, sx2, sy1, sy2, (int*)(mode==VIS_ZIPF?zimage:im_export), im1->iw, im1->ih, 0, 1, 0, 1, 1, 0);
 #if 0
 				//int waitstatus=0;
 				//if(ghMutex)
@@ -10835,11 +10866,11 @@ void io_render(void)
 		//extern int testhist[3];//
 		//GUIPrint(0, 0, tdy*2, 1, "%d %d %d", testhist[0], testhist[1], testhist[2]);//
 		//const char *label=ec_method_label(ec_method);
-		GUIPrint(0, 0, 0, 1, "WH %dx%d  D0[%d %d %d %d] D[%d %d %d %d]  RCT%2d  Z %13.6lf",
+		GUIPrint(0, 0, 0, 1, "WH %dx%d  D0[%d %d %d %d] D[%d %d %d %d]  RCT%2d %s  Z %13.6lf",
 			im0->iw, im0->ih,
 			im0->src_depth[0], im0->src_depth[1], im0->src_depth[2], im0->src_depth[3],
 			im1->depth[0], im1->depth[1], im1->depth[2], im1->depth[3],
-			im1->rct,
+			im1->rct, rct_names[im1->rct],
 			imzoom
 		);
 	}

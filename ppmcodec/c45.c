@@ -225,11 +225,6 @@ static void valfifo_check(uint32_t val)
 static volatile double tread=0, twrite=0;
 #endif
 
-typedef struct _rANS_SymInfo
-{
-	uint32_t smax, invf, bias;
-	uint16_t negf, sh;
-} rANS_SymInfo;
 uint8_t imbuf[PBUFSIZE+3], streambuf[SBUFSIZE];
 uint32_t hweight[3*NCTX];
 uint32_t hists[3*NCTX*256];
@@ -789,6 +784,7 @@ int c45_codec(int argc, char **argv)
 			}
 		}
 	}
+	free(pixels);
 	if(fwd)
 	{
 		if(imptr>imbuf)
@@ -824,7 +820,6 @@ int c45_codec(int argc, char **argv)
 			return 1;
 		}
 	}
-	free(pixels);
 	fclose(fsrc);
 	fclose(fdst);
 #ifdef LOUD

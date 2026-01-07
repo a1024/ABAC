@@ -55,6 +55,8 @@ int c42_codec(int argc, char **argv);//LZ
 int c43_codec(int argc, char **argv);//LZ
 int c44_codec(int argc, char **argv);//adaptive o1 rANS
 int c45_codec(int argc, char **argv);//simple, fast, static-o1 AC
+int c46_codec(int argc, char **argv);//Rice
+int c47_codec(int argc, char **argv);//lossy
 #endif
 
 
@@ -103,7 +105,9 @@ int c45_codec(int argc, char **argv);//simple, fast, static-o1 AC
 //	#define CODEC_EXT c42
 //	#define CODEC_EXT c43
 //	#define CODEC_EXT c44
-	#define CODEC_EXT c45
+//	#define CODEC_EXT c45
+//	#define CODEC_EXT c46
+	#define CODEC_EXT c47
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -242,11 +246,13 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/20240414-noise.PPM"
 	//	"C:/Projects/datasets/20240513 screenshot.PPM"
 	//	"C:/Projects/datasets/20240806 6 why me.PPM"
-		"C:/Projects/datasets/big_building.PPM"
+	//	"C:/Projects/datasets/big_building.PPM"
 	//	"C:/Projects/datasets/big_building.PPM"
 	//	"C:/Projects/datasets/calibr.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_abigail-keenan-27293.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_alexander-schwarz-660.ppm"
+	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_dmitrii-medvedev-100580.ppm"
+		"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_kim-daniel-594.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC30-ppm/03.ppm"
 	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0801.ppm"
 	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0843.ppm"

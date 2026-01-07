@@ -405,5 +405,43 @@ void filt_av33(Image *src)
 			}
 		}
 	}
+#if 0
+	for(int kc=0;kc<4;++kc)
+	{
+		int depth;
+
+		depth=src->depth[kc];
+		if(!depth)
+			continue;
+		for(int ky=0, idx=0;ky<src->ih;++ky)
+		{
+			for(int kx=0;kx<src->iw;++kx, ++idx)
+			{
+#define LOAD(X, Y) ((unsigned)(ky+(Y))<(unsigned)src->ih&&(unsigned)(kx+(X))<(unsigned)src->iw?dst->data[(src->iw*(ky+(Y))+kx+(X))<<2|kc]:0)
+				int nb[]=
+				{
+					-LOAD(-1, -1),
+					-LOAD(-1,  0),
+					-LOAD(-1,  1),
+					-LOAD( 0, -1),
+					17*LOAD( 0,  0),
+					-LOAD( 0,  1),
+					-LOAD( 1, -1),
+					-LOAD( 1,  0),
+					-LOAD( 1,  1),
+				};
+#undef  LOAD
+				//if(kx==10&&ky==10)//
+				//	printf("");
+				int pred=0;
+				for(int k=0;k<(int)_countof(nb);++k)
+					pred+=nb[k];
+				pred/=(int)_countof(nb);
+
+				src->data[idx<<2|kc]=pred;
+			}
+		}
+	}
+#endif
 	free(dst);
 }
