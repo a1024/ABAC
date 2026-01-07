@@ -8,6 +8,7 @@ SRC =\
 	hadamard.c\
 	image.c\
 	lodepng.c\
+	lpc.c\
 	ols4.c\
 	ols5.c\
 	ols6.c\
