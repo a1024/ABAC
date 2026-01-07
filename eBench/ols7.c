@@ -784,6 +784,16 @@ int crct_analysis(Image *src)
 }
 void pred_l1crct(Image *src, int fwd)
 {
+	enum
+	{
+		MIXPREDS=4,
+		SHIFT=18,
+
+		XPAD=8,
+		NROWS=4,
+		NCH=4,
+		NVAL=2,
+	};
 	int amin[]=
 	{
 		-(1<<src->depth[0]>>1),
@@ -828,9 +838,9 @@ void pred_l1crct(Image *src, int fwd)
 	memset(hist, 0, hsize);
 	memset(ebuf, 0, esize);
 #endif
-	int weights[4][NPREDS]={0};
-	int psize=(src->iw+8*2)*(int)sizeof(short[4*4*1]);//4 padded rows * 4 channels max * {pixels}
-	short *pixels=(short*)malloc(psize);
+	int32_t weights[4][NPREDS]={0};
+	int psize=(src->iw+2*XPAD)*(int)sizeof(int16_t[NROWS*NCH*NVAL]);
+	int16_t *pixels=(int16_t*)_mm_malloc(psize, sizeof(__m128i*));
 	int invdist=((1<<16)+g_dist-1)/g_dist;
 	if(fwd)
 		src->rct=crct_analysis(src);
@@ -851,10 +861,14 @@ void pred_l1crct(Image *src, int fwd)
 	{
 		short *rows[]=
 		{
-			pixels+(((src->iw+16LL)*((ky-0LL+4)%4)+8)*4-1)*1,
-			pixels+(((src->iw+16LL)*((ky-1LL+4)%4)+8)*4-1)*1,
-			pixels+(((src->iw+16LL)*((ky-2LL+4)%4)+8)*4-1)*1,
-			pixels+(((src->iw+16LL)*((ky-3LL+4)%4)+8)*4-1)*1,
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-0LL+NROWS)%NROWS)*NVAL,//sub 1 channel for pre-increment
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-1LL+NROWS)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-2LL+NROWS)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-3LL+NROWS)%NROWS)*NVAL,
+			//pixels+(((src->iw+16LL)*((ky-0LL+4)%4)+8)*4-1)*1,
+			//pixels+(((src->iw+16LL)*((ky-1LL+4)%4)+8)*4-1)*1,
+			//pixels+(((src->iw+16LL)*((ky-2LL+4)%4)+8)*4-1)*1,
+			//pixels+(((src->iw+16LL)*((ky-3LL+4)%4)+8)*4-1)*1,
 		};
 #ifdef ESTIMATE_SIZE
 		short *erows[]=
@@ -876,10 +890,10 @@ void pred_l1crct(Image *src, int fwd)
 			};
 			for(int kc=0;kc<4;++kc)
 			{
-				++rows[0];
-				++rows[1];
-				++rows[2];
-				++rows[3];
+				rows[0]+=NROWS*NVAL;
+				rows[1]+=NROWS*NVAL;
+				rows[2]+=NROWS*NVAL;
+				rows[3]+=NROWS*NVAL;
 #ifdef ESTIMATE_SIZE
 				++erows[0];
 				++erows[1];
@@ -889,44 +903,44 @@ void pred_l1crct(Image *src, int fwd)
 				if(!src->depth[kc])
 					continue;
 				int
-					NNNWWW		=rows[3][-3*4*1],
-					NNNW		=rows[3][-1*4*1],
-					NNN		=rows[3][+0*4*1],
-					NNNE		=rows[3][+1*4*1],
-					NNNEE		=rows[3][+2*4*1],
-					NNNEEE		=rows[3][+3*4*1],
-					NNNEEEE		=rows[3][+4*4*1],
-					NNWWWW		=rows[2][-4*4*1],
-					NNWWW		=rows[2][-3*4*1],
-					NNWW		=rows[2][-2*4*1],
-					NNW		=rows[2][-1*4*1],
-					NN		=rows[2][+0*4*1],
-					NNE		=rows[2][+1*4*1],
-					NNEE		=rows[2][+2*4*1],
-					NNEEE		=rows[2][+3*4*1],
-					NNEEEE		=rows[2][+4*4*1],
-					NWWWW		=rows[1][-4*4*1],
-					NWWW		=rows[1][-3*4*1],
-					NWW		=rows[1][-2*4*1],
-					NW		=rows[1][-1*4*1],
-					N		=rows[1][+0*4*1],
-					NE		=rows[1][+1*4*1],
-					NEE		=rows[1][+2*4*1],
-					NEEE		=rows[1][+3*4*1],
-					NEEEE		=rows[1][+4*4*1],
-					NEEEEE		=rows[1][+5*4*1],
-					NEEEEEE		=rows[1][+6*4*1],
-					NEEEEEEE	=rows[1][+7*4*1],
-					NEEEEEEEE	=rows[1][+8*4*1],
-					WWWWWWWWW	=rows[0][-9*4*1],
-					WWWWWWWW	=rows[0][-8*4*1],
-					WWWWWWW		=rows[0][-7*4*1],
-					WWWWWW		=rows[0][-6*4*1],
-					WWWWW		=rows[0][-5*4*1],
-					WWWW		=rows[0][-4*4*1],
-					WWW		=rows[0][-3*4*1],
-					WW		=rows[0][-2*4*1],
-					W		=rows[0][-1*4*1];
+					NNNWWW		=rows[3][0-3*NCH*NROWS*NVAL],
+					NNNW		=rows[3][0-1*NCH*NROWS*NVAL],
+					NNN		=rows[3][0+0*NCH*NROWS*NVAL],
+					NNNE		=rows[3][0+1*NCH*NROWS*NVAL],
+					NNNEE		=rows[3][0+2*NCH*NROWS*NVAL],
+					NNNEEE		=rows[3][0+3*NCH*NROWS*NVAL],
+					NNNEEEE		=rows[3][0+4*NCH*NROWS*NVAL],
+					NNWWWW		=rows[2][0-4*NCH*NROWS*NVAL],
+					NNWWW		=rows[2][0-3*NCH*NROWS*NVAL],
+					NNWW		=rows[2][0-2*NCH*NROWS*NVAL],
+					NNW		=rows[2][0-1*NCH*NROWS*NVAL],
+					NN		=rows[2][0+0*NCH*NROWS*NVAL],
+					NNE		=rows[2][0+1*NCH*NROWS*NVAL],
+					NNEE		=rows[2][0+2*NCH*NROWS*NVAL],
+					NNEEE		=rows[2][0+3*NCH*NROWS*NVAL],
+					NNEEEE		=rows[2][0+4*NCH*NROWS*NVAL],
+					NWWWW		=rows[1][0-4*NCH*NROWS*NVAL],
+					NWWW		=rows[1][0-3*NCH*NROWS*NVAL],
+					NWW		=rows[1][0-2*NCH*NROWS*NVAL],
+					NW		=rows[1][0-1*NCH*NROWS*NVAL],
+					N		=rows[1][0+0*NCH*NROWS*NVAL],
+					NE		=rows[1][0+1*NCH*NROWS*NVAL],
+					NEE		=rows[1][0+2*NCH*NROWS*NVAL],
+					NEEE		=rows[1][0+3*NCH*NROWS*NVAL],
+					NEEEE		=rows[1][0+4*NCH*NROWS*NVAL],
+					NEEEEE		=rows[1][0+5*NCH*NROWS*NVAL],
+					NEEEEEE		=rows[1][0+6*NCH*NROWS*NVAL],
+					NEEEEEEE	=rows[1][0+7*NCH*NROWS*NVAL],
+					NEEEEEEEE	=rows[1][0+8*NCH*NROWS*NVAL],
+					WWWWWWWWW	=rows[0][0-9*NCH*NROWS*NVAL],
+					WWWWWWWW	=rows[0][0-8*NCH*NROWS*NVAL],
+					WWWWWWW		=rows[0][0-7*NCH*NROWS*NVAL],
+					WWWWWW		=rows[0][0-6*NCH*NROWS*NVAL],
+					WWWWW		=rows[0][0-5*NCH*NROWS*NVAL],
+					WWWW		=rows[0][0-4*NCH*NROWS*NVAL],
+					WWW		=rows[0][0-3*NCH*NROWS*NVAL],
+					WW		=rows[0][0-2*NCH*NROWS*NVAL],
+					W		=rows[0][0-1*NCH*NROWS*NVAL];
 #ifdef ESTIMATE_SIZE
 				int
 					eNEE		=erows[1][+2*4*1],
@@ -1010,6 +1024,7 @@ void pred_l1crct(Image *src, int fwd)
 
 				//update
 				int e=(curr>p0)-(curr<p0);//L1
+
 			//	int e=curr-p0;//L2 (faster rise, worse steady state)
 			//	currw[NPREDS]+=e;
 				for(int k=0;k<NPREDS;++k)
@@ -1025,7 +1040,7 @@ void pred_l1crct(Image *src, int fwd)
 			}
 		}
 	}
-	free(pixels);
+	_mm_free(pixels);
 #ifdef ESTIMATE_SIZE
 	if(loud_transforms)
 	{

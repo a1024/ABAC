@@ -4340,10 +4340,14 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 //	case ST_INV_DEC_DWT:   dwt2d_dec_inv((char*)image, iw, ih);	break;
 	}//switch
 }
+static char wnd_title[4096];
 void apply_selected_transforms(Image **pimage, int rct_only, int applyfwd, int applyinv)
 {
+	volatile double t=0;
 	int hasRCT=0;
-
+	
+	if(loud_transforms)
+		t=time_sec();
 	if(!transforms)
 		return;
 	for(int k=0;k<(int)transforms->count;++k)
@@ -4427,6 +4431,32 @@ void apply_selected_transforms(Image **pimage, int rct_only, int applyfwd, int a
 			continue;
 		apply_transform(pimage, tid, hasRCT);
 		//calc_depthfromdata(image->data, image->iw, image->ih, image->depth, image->src_depth);//X  depth must depend only on src_depth and applied RCTs, so that preds can apply MA
+	}
+	if(loud_transforms)
+	{
+		t=time_sec()-t;
+		int nch=(im1->depth[0]!=0)+(im1->depth[1]!=0)+(im1->depth[2]!=0)+(im1->depth[3]!=0);
+		ptrdiff_t size=(ptrdiff_t)nch*im1->iw*im1->ih;
+		get_window_title(wnd_title, sizeof(wnd_title)-1);
+
+		int k=0;
+		while(wnd_title[k]&&wnd_title[k]!='|')++k;
+
+		if(transforms->count)
+			set_window_title(
+				"%.*s | %12.6lf sec  %12.6lf MB/s  %12.6lf ms/MB"
+				, k-(wnd_title[k]=='|')
+				, wnd_title
+				, t
+				, size/(t*1024*1024)
+				, t*1024*1024*1000/size
+			);
+		else
+			set_window_title(
+				"%.*s"
+				, k-(wnd_title[k]=='|')
+				, wnd_title
+			);
 	}
 }
 static void export_image(Image *im1, unsigned char **pim_export)
@@ -6453,10 +6483,10 @@ int io_keydn(IOKey key, char c)
 							array_free(&fn);
 							filesize=get_filesize((char*)fn2[0]->data);
 							fn=filter_path((char*)fn2[0]->data, (int)fn2[0]->count, 0);
+							set_window_title("%s - eBench", (char*)fn->data);
 							update_image();
 							if(imagecentered)
 								center_image();
-							set_window_title("%s - eBench", (char*)fn->data);
 						}
 					}
 					array_free(&filenames);
@@ -6922,10 +6952,10 @@ int io_keydn(IOKey key, char c)
 					if(im0)
 						free(im0);
 					im0=im2;
+					set_window_title("%s - eBench", (char*)fn->data);
 					update_image();
 					if(imagecentered)
 						center_image();
-					set_window_title("%s - eBench", (char*)fn->data);
 				}
 				else
 					array_free(&fn2);
