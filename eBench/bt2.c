@@ -198,6 +198,7 @@ void batch_test2(void)
 	{
 		NTIERS=5,
 	};
+	const char cfgfn[]="ebench.txt";
 	const char *ext[]=
 	{
 		"PPM", "PGM", "PNM",
@@ -206,31 +207,78 @@ void batch_test2(void)
 		"BMP",
 		"TIF", "TIFF",
 	};
-	ArrayHandle path, filenames, q;
-	int nthreads, maxlen;
+	ArrayHandle path=0, filenames=0, q=0, paths=0;
+	int nthreads=0, maxlen=0;
 	double t=0, total_usize=0, total_csize[4]={0};
-
-
-	loud_transforms=0;
-	path=dialog_open_folder();
-	if(!path)
-		return;
-	filenames=get_filenames((char*)path->data, ext, _countof(ext), 1);
-	if(!filenames)
-	{
-		array_free(&path);
-		return;
-	}
+	int user=0;
 
 	DisableProcessWindowsGhosting();
 	console_start();
 	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H:%M:%S");
-	console_log("Batch Test  %s  %s\n", g_buf, (char*)path->data);
-	array_free(&path);
+	console_log("Batch Test  %s\n", g_buf);
+
+	{
+		FILE *f=fopen(cfgfn, "r");
+		if(f)
+		{
+			for(;;)
+			{
+				char buf[1024];
+				memset(buf, '\n', sizeof(buf));
+				if(!fgets(buf, sizeof(buf)-1, f))
+					break;
+				char *ptr=buf;
+				while(*ptr!='\n')++ptr;
+				*ptr=0;
+				ArrayHandle fns=get_filenames(buf, ext, _countof(ext), 1);
+				if(fns)
+				{
+					array_append(&filenames, fns->data, sizeof(ArrayHandle*), fns->count, 1, 0, free_str);
+					free(fns);
+				}
+			}
+			fclose(f);
+			if(!filenames||!filenames->count)
+			{
+				console_log("No data found in \"%s\", please add data paths there or remove the file\n", cfgfn);
+				console_pause();
+				console_end();
+				return;
+			}
+		}
+		else
+		{
+			for(filenames=0;;)
+			{
+				path=dialog_open_folder();
+				if(!path)
+					break;
+				ArrayHandle fns=get_filenames((char*)path->data, ext, _countof(ext), 1);
+				if(!fns)
+				{
+					array_free(&path);
+					break;
+				}
+				console_log("\"%s\"\n", (char*)path->data);
+				array_append(&paths, &path, sizeof(ArrayHandle*), 1, 1, 0, free_str);
+				//array_free(&path);
+				array_append(&filenames, fns->data, sizeof(ArrayHandle*), fns->count, 1, 0, free_str);
+				free(fns);//shallow free
+			}
+			if(!filenames||!filenames->count)
+			{
+				console_end();
+				return;
+			}
+			user=1;
+		}
+	}
+	loud_transforms=0;
 	console_log("Enter number of threads: ");
 	nthreads=console_scan_int();
 	if(nthreads<=0)
 		nthreads=query_cpu_cores();
+
 	total_usize=0;
 	maxlen=0;
 	for(int k=0;k<(int)filenames->count;++k)
@@ -366,8 +414,9 @@ void batch_test2(void)
 			double csize=tctx->csize[0]+tctx->csize[1]+tctx->csize[2]+tctx->csize[3];
 			ArrayHandle *fn2=(ArrayHandle*)array_at(&filenames, tctx->idx);
 			console_log(
-				"%5d/%5d %s%*sUTYUV %13.2lf %13.2lf %13.2lf %13.2lf %13.2lf  BPD %8.4lf->%8.4lf\n"
+				"%5d %5d/%5d %s%*sUTYUV %13.2lf %13.2lf %13.2lf %13.2lf %13.2lf  BPD %8.4lf->%8.4lf\n"
 				, (int)(idx+1)
+				, kr+k2
 				, (int)filenames->count
 				, (char*)fn2[0]->data
 				, (int)(maxlen-fn2[0]->count+1), ""
@@ -390,7 +439,7 @@ void batch_test2(void)
 			{
 				++kr2;
 				if(kr2<NTIERS)
-					console_log("Checkpoint %d\n", kr2);
+					console_log("Checkpoint %d/%d\n", kr2, NTIERS);
 			}
 		}
 	}
@@ -423,9 +472,28 @@ void batch_test2(void)
 		acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d-%H:%M:%S");
 		console_log("\nDone.  %s\n", g_buf);
 		console_pause();
-		console_end();
 		loud_transforms=1;
 	}
+	if(user)
+	{
+		FILE *f=fopen(cfgfn, "w");
+		if(!f)
+		{
+			console_log("Cannot open \"%s\" for writing\n", cfgfn);
+			console_pause();
+			console_end();
+			return;
+		}
+		for(int k=0;k<(int)paths->count;++k)
+		{
+			ArrayHandle *fn=(ArrayHandle*)array_at(&paths, k);
+			fwrite((char*)fn[0]->data, 1, fn[0]->count, f);
+			fputc('\n', f);
+		}
+		fclose(f);
+	}
+	array_free(&paths);
+	console_end();
 	free(handles);
 	free(indices);
 	array_free(&q);

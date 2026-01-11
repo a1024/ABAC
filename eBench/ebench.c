@@ -539,7 +539,8 @@ void calc_csize_stateful(Image const *image, int *hist_full, double *entropy)
 					if(image->depth[kc])
 					{
 #if 1
-						int ctx=sW[kc]+N[kc]-((N[kc]+NW[kc]+(WW[kc]>>1))*5>>4);//#1
+						int ctx=sW[kc]+N[kc]-((N[kc]+NW[kc])*5>>4);//#1
+						//int ctx=sW[kc]+N[kc]-((N[kc]+NW[kc]+(WW[kc]>>1))*5>>4);
 						//int ctx=sW[kc]+N[kc]-((2*(N[kc]+NW[kc])+WW[kc])*5>>5);
 						//int ctx=sW[kc]+(7*N[kc]-3*NW[kc])/10;
 						//int ctx=sW[kc]+((11*N[kc]-5*NW[kc])>>4);
@@ -556,7 +557,6 @@ void calc_csize_stateful(Image const *image, int *hist_full, double *entropy)
 						if(ctx<0)
 							ctx=0;
 						ctx=FLOOR_LOG2(ctx*ctx+1);
-						//int ctx=FLOOR_LOG2(sW[kc]*sW[kc]+1);
 						if(ctx>MODELNCTX-1)
 							ctx=MODELNCTX-1;
 						int sym=image->data[idx|kc];
