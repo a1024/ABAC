@@ -5,6 +5,7 @@
 #	"C:/Projects/a/OpenCL-Headers"
 #)
 add_executable(eBench WIN32
+	bt2.c
 	bwt.c
 	console.c
 	custom4.c

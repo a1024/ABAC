@@ -1,4 +1,5 @@
 SRC =\
+	bt2.c\
 	bwt.c\
 	console.c\
 	custom4.c\
