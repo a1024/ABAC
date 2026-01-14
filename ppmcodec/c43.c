@@ -351,7 +351,7 @@ int c43_codec(int argc, char **argv)
 	bufend=buf+usize;
 	if(fwd)
 	{
-		const int queuesize=sizeof(uint8_t[LZMAX]);
+		const int queuesize=(int)sizeof(uint8_t[LZMAX]);
 		uint8_t *queue=(uint8_t*)malloc(queuesize);
 		int qcount=0, qstart=0, qend=0;
 		if(!queue)

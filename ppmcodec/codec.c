@@ -51,12 +51,13 @@ int c38_codec(int argc, char **argv);//Synth-Natural codec
 int c39_codec(int argc, char **argv);//ST C10 incremental
 int c40_codec(int argc, char **argv);//ST rANS + FSE
 int c41_codec(int argc, char **argv);//ST analysis-cRCT-select-RLE-GR
-int c42_codec(int argc, char **argv);//LZ
-int c43_codec(int argc, char **argv);//LZ
+int c42_codec(int argc, char **argv);//LZ+Rice
+int c43_codec(int argc, char **argv);//LZ+Rice (file-agnostic)
 int c44_codec(int argc, char **argv);//adaptive o1 rANS
 int c45_codec(int argc, char **argv);//simple, fast, static-o1 AC
 int c46_codec(int argc, char **argv);//Rice
-int c47_codec(int argc, char **argv);//lossy
+int c47_codec(int argc, char **argv);//lossy DCT size 4
+int c48_codec(int argc, char **argv);//lossy VarDCT size {4, 8, 16, 32}
 #endif
 
 
@@ -107,7 +108,8 @@ int c47_codec(int argc, char **argv);//lossy
 //	#define CODEC_EXT c44
 //	#define CODEC_EXT c45
 //	#define CODEC_EXT c46
-	#define CODEC_EXT c47
+//	#define CODEC_EXT c47
+	#define CODEC_EXT c48
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -252,13 +254,15 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_abigail-keenan-27293.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_alexander-schwarz-660.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_dmitrii-medvedev-100580.ppm"
-		"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_kim-daniel-594.ppm"
+	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_kim-daniel-594.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC30-ppm/03.ppm"
 	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0801.ppm"
 	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0843.ppm"
 	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm"
 	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm"
+	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim04.ppm"
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim23.ppm"
+		"C:/Projects/datasets/dataset-kodak2-ppm/IMG0023.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_02.ppm"
@@ -275,13 +279,14 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/enwik8"
 	//	"C:/Projects/datasets/kodim13.ppm"
 	//	"C:/Projects/datasets/kodim13.ppm"
-	//	"C:/Projects/datasets/kodim13-small16.PPM"
 	//	"C:/Projects/datasets/kodim13-small16.ppm"
+	//	"C:/Projects/datasets/kodim13-small16.PPM"
 	//	"C:/Projects/datasets/kodim13-small4.PPM"
 	//	"C:/Projects/datasets/kodim24.ppm"
 	//	"C:/Projects/datasets/space_huge.ppm"
 	//	"C:/Projects/datasets/space_huge.ppm"
 	//	"C:/Projects/datasets/temp.c18"
+	//	"C:/Projects/datasets/zzzpng.ppm"
 	//	"D:/ML/big_building.PPM"
 	//	"D:/ML/big_building.PPM"
 	//	"D:/ML/checkboard.PPM"

@@ -196,7 +196,9 @@ extern "C"
 #define UPDATE_MAX(M, X) if(M<X)M=X
 #define THREEWAY(L, R) (((L)>(R))-((L)<(R)))
 #define MIXVAR(V0, V1, X) ((V0)+((V1)-(V0))*(X))
+#ifndef FLOOR_LOG2
 #define FLOOR_LOG2(X)		(sizeof(X)==8?63-(int)_lzcnt_u64((unsigned long long)(X)):31-(int)_lzcnt_u32((unsigned)(X)))
+#endif
 #define FLOOR_LOG2_P1(X)	(sizeof(X)==8?64-(int)_lzcnt_u64((unsigned long long)(X)):32-(int)_lzcnt_u32((unsigned)(X)))
 #define FLOOR_LOG2_32x4(X) _mm_sub_epi32(_mm_srli_epi32(_mm_castps_si128(_mm_cvtepi32_ps(X)), 23), _mm_set1_epi32(127))
 #define FLOOR_LOG2_32x8(X) _mm256_sub_epi32(_mm256_srli_epi32(_mm256_castps_si256(_mm256_cvtepi32_ps(X)), 23), _mm256_set1_epi32(127))
@@ -584,6 +586,7 @@ int acme_stricmp(const char *a, const char *b);//case insensitive strcmp
 ptrdiff_t acme_strrchr(const char *str, ptrdiff_t len, char c);//find last occurrence, with known length for backward search
 ArrayHandle filter_path(const char *path, int len);//replaces backslashes with slashes, and adds trailing slash if missing, as ArrayHandle
 void get_filetitle(const char *fn, int len, int *idx_start, int *idx_end);//pass -1 for len if unknown
+void free_str(void *p);
 ArrayHandle get_filenames(const char *path, const char **extensions, int extCount, int fullyqualified);//returns array of strings, extensions without period '.'
 
 ArrayHandle load_file(const char *filename, int bin, int pad, int erroronfail);

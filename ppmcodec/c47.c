@@ -71,7 +71,7 @@ enum
 #else
 	NCTX_DC=18,
 	NCTX_AC=1,
-	NCTX=NCTX_DC+15*NCTX_AC,
+	NCTX=NCTX_DC+(BLOCKX*BLOCKY-1)*NCTX_AC,
 	NLEVELS=512,
 #endif
 
@@ -183,8 +183,8 @@ static void guide_save(uint8_t *image, int iw, int ih)
 
 
 #ifdef FIFOVAL
-ptrdiff_t fifoidx=0, fifocap=0, fifoidx2=0;
-uint32_t *fifoval=0;
+static ptrdiff_t fifoidx=0, fifocap=0, fifoidx2=0;
+static uint32_t *fifoval=0;
 static void valfifo_enqueue(uint32_t val)
 {
 	if(fifoidx+1>=fifocap)
@@ -468,6 +468,73 @@ AWM_INLINE void yuv2rgb(float *c0, float *c1, float *c2)
 		_mm_store_ps(c2+k*4, rgb[2]);
 	}
 }
+
+AWM_INLINE void dct4y4_fwd(float *block)//DCT-II
+{
+	__m128 c3=_mm_set1_ps(0.3826834323650897717284599840304f);//cosd(90*3/4) = sind(90*1/4) = s1
+	__m128 c2=_mm_set1_ps(0.7071067811865475244008443621048f);//cosd(90*2/4) = sind(90*2/4) = s2 = sqrt(2)
+	__m128 c1=_mm_set1_ps(0.9238795325112867561281831893968f);//cosd(90*1/4) = sind(90*3/4) = s3
+
+	__m128 a[4], b[4];
+
+	a[0]=_mm_load_ps(block+0*4);
+	a[1]=_mm_load_ps(block+1*4);
+	a[2]=_mm_load_ps(block+2*4);
+	a[3]=_mm_load_ps(block+3*4);
+
+	b[0]=_mm_add_ps(a[0], a[3]);//step 1
+	b[1]=_mm_add_ps(a[1], a[2]);
+	b[2]=_mm_sub_ps(a[1], a[2]);
+	b[3]=_mm_sub_ps(a[0], a[3]);
+
+	a[0]=_mm_add_ps(b[0], b[1]);//step 2
+	a[1]=_mm_mul_ps(_mm_sub_ps(b[0], b[1]), c2);
+	a[2]=_mm_add_ps(_mm_mul_ps(b[3], c1), _mm_mul_ps(b[2], c3));
+	a[3]=_mm_sub_ps(_mm_mul_ps(b[3], c3), _mm_mul_ps(b[2], c1));
+
+	_mm_store_ps(block+0*4, a[0]);
+	_mm_store_ps(block+2*4, a[1]);
+	_mm_store_ps(block+1*4, a[2]);
+	_mm_store_ps(block+3*4, a[3]);
+}
+AWM_INLINE void dct4y4_inv(float *block)//DCT-III
+{
+	__m128 half=_mm_set1_ps(0.5f);
+	__m128 c3=_mm_set1_ps(0.3826834323650897717284599840304f);//cosd(90*3/4) = sind(90*1/4) = s1
+	__m128 c2=_mm_set1_ps(0.7071067811865475244008443621048f);//cosd(90*2/4) = sind(90*2/4) = s2 = sqrt(2)
+	__m128 c1=_mm_set1_ps(0.9238795325112867561281831893968f);//cosd(90*1/4) = sind(90*3/4) = s3
+
+	__m128 a[4], b[4];
+
+	a[0]=_mm_load_ps(block+0*4);
+	a[1]=_mm_load_ps(block+2*4);
+	a[2]=_mm_load_ps(block+1*4);
+	a[3]=_mm_load_ps(block+3*4);
+	
+	/*
+	matrix					inverse
+	M0 = [1 1;1 -1]				same/2
+	M1: [a0;a1] = [1 1;c2 -c2][b0;b1]	[b0;b1] = [1/2 c2;1/2 -c2][a0;a1]
+	M2: [a2;a3] = [c3 c1;-c1 c3][b2;b3]	transpose [b2;b3] = [c3 -c1;c1 c3][a2;a3]
+	*/
+	a[0]=_mm_mul_ps(a[0], half);
+	a[1]=_mm_mul_ps(a[1], c2);
+
+	b[0]=_mm_add_ps(a[0], a[1]);//step 2
+	b[1]=_mm_sub_ps(a[0], a[1]);
+	b[2]=_mm_sub_ps(_mm_mul_ps(a[2], c3), _mm_mul_ps(a[3], c1));
+	b[3]=_mm_add_ps(_mm_mul_ps(a[2], c1), _mm_mul_ps(a[3], c3));
+
+	a[0]=_mm_add_ps(b[0], b[3]);//step 1
+	a[1]=_mm_add_ps(b[1], b[2]);
+	a[2]=_mm_sub_ps(b[1], b[2]);
+	a[3]=_mm_sub_ps(b[0], b[3]);
+
+	_mm_store_ps(block+0*4, a[0]);
+	_mm_store_ps(block+1*4, a[1]);
+	_mm_store_ps(block+2*4, a[2]);
+	_mm_store_ps(block+3*4, a[3]);
+}
 AWM_INLINE void dct8y8_fwd(float *block)//DCT-II
 {
 	/*
@@ -621,72 +688,435 @@ AWM_INLINE void dct8y8_inv(float *block)//DCT-III
 	_mm256_store_ps(block+6*8, b[6]);
 	_mm256_store_ps(block+7*8, b[7]);
 }
-AWM_INLINE void dct4y4_fwd(float *block)//DCT-II
-{
-	__m128 c3=_mm_set1_ps(0.3826834323650897717284599840304f);//cosd(90*3/4) = sind(90*1/4) = s1
-	__m128 c2=_mm_set1_ps(0.7071067811865475244008443621048f);//cosd(90*2/4) = sind(90*2/4) = s2 = sqrt(2)
-	__m128 c1=_mm_set1_ps(0.9238795325112867561281831893968f);//cosd(90*1/4) = sind(90*3/4) = s3
 
+AWM_INLINE void dctii_4(float *data, const int stride)
+{
 	__m128 a[4], b[4];
 
-	a[0]=_mm_load_ps(block+0*4);
-	a[1]=_mm_load_ps(block+1*4);
-	a[2]=_mm_load_ps(block+2*4);
-	a[3]=_mm_load_ps(block+3*4);
+	a[0]=_mm_load_ps(data+0*stride);
+	a[1]=_mm_load_ps(data+1*stride);
+	a[2]=_mm_load_ps(data+2*stride);
+	a[3]=_mm_load_ps(data+3*stride);
 
-	b[0]=_mm_add_ps(a[0], a[3]);//step 1
+	//Hbar
+	b[0]=_mm_add_ps(a[0], a[3]);
 	b[1]=_mm_add_ps(a[1], a[2]);
-	b[2]=_mm_sub_ps(a[1], a[2]);
-	b[3]=_mm_sub_ps(a[0], a[3]);
+	b[2]=_mm_sub_ps(a[0], a[3]);
+	b[3]=_mm_sub_ps(a[1], a[2]);
 
-	a[0]=_mm_add_ps(b[0], b[1]);//step 2
-	a[1]=_mm_mul_ps(_mm_sub_ps(b[0], b[1]), c2);
-	a[2]=_mm_add_ps(_mm_mul_ps(b[3], c1), _mm_mul_ps(b[2], c3));
-	a[3]=_mm_sub_ps(_mm_mul_ps(b[3], c3), _mm_mul_ps(b[2], c1));
+	//Wc
+	b[2]=_mm_mul_ps(b[2], _mm_set1_ps(0.5411961001461969843997232053664f));//0.5 sec( 1 pi/(2*4))
+	b[3]=_mm_mul_ps(b[3], _mm_set1_ps(1.3065629648763765278566431734272f));//0.5 sec( 3 pi/(2*4))
 
-	_mm_store_ps(block+0*4, a[0]);
-	_mm_store_ps(block+2*4, a[1]);
-	_mm_store_ps(block+1*4, a[2]);
-	_mm_store_ps(block+3*4, a[3]);
+	//two half-DCTs
+	a[0]=_mm_add_ps(b[0], b[1]);
+	a[1]=_mm_sub_ps(b[0], b[1]);
+	a[2]=_mm_add_ps(b[2], b[3]);
+	a[3]=_mm_sub_ps(b[2], b[3]);
+
+	//Bc
+	a[2]=_mm_add_ps(_mm_mul_ps(a[2], _mm_set1_ps(1.4142135623730950488016887242097f)), a[3]);//sqrt2
+
+	//PeoT
+	_mm_store_ps(data+0*stride, a[0]);
+	_mm_store_ps(data+1*stride, a[2]);
+	_mm_store_ps(data+2*stride, a[1]);
+	_mm_store_ps(data+3*stride, a[3]);
 }
-AWM_INLINE void dct4y4_inv(float *block)//DCT-III
+AWM_INLINE void dctiii_4(float *data, const int stride)
 {
-	__m128 half=_mm_set1_ps(0.5f);
-	__m128 c3=_mm_set1_ps(0.3826834323650897717284599840304f);//cosd(90*3/4) = sind(90*1/4) = s1
-	__m128 c2=_mm_set1_ps(0.7071067811865475244008443621048f);//cosd(90*2/4) = sind(90*2/4) = s2 = sqrt(2)
-	__m128 c1=_mm_set1_ps(0.9238795325112867561281831893968f);//cosd(90*1/4) = sind(90*3/4) = s3
-
 	__m128 a[4], b[4];
 
-	a[0]=_mm_load_ps(block+0*4);
-	a[1]=_mm_load_ps(block+2*4);
-	a[2]=_mm_load_ps(block+1*4);
-	a[3]=_mm_load_ps(block+3*4);
+	//Peo
+	a[0]=_mm_load_ps(data+0*stride);
+	a[2]=_mm_load_ps(data+1*stride);
+	a[1]=_mm_load_ps(data+2*stride);
+	a[3]=_mm_load_ps(data+3*stride);
+
+	//BcT
+	a[3]=_mm_add_ps(a[3], a[2]);
+	a[2]=_mm_mul_ps(a[2], _mm_set1_ps(1.4142135623730950488016887242097f));
 	
-	/*
-	matrix					inverse
-	M0 = [1 1;1 -1]				same/2
-	M1: [a0;a1] = [1 1;c2 -c2][b0;b1]	[b0;b1] = [1/2 c2;1/2 -c2][a0;a1]
-	M2: [a2;a3] = [c3 c1;-c1 c3][b2;b3]	transpose [b2;b3] = [c3 -c1;c1 c3][a2;a3]
-	*/
-	a[0]=_mm_mul_ps(a[0], half);
-	a[1]=_mm_mul_ps(a[1], c2);
+	//two half-DCTs
+	b[0]=_mm_add_ps(a[0], a[3]);
+	b[1]=_mm_add_ps(a[1], a[2]);
+	b[2]=_mm_sub_ps(a[0], a[3]);
+	b[3]=_mm_sub_ps(a[1], a[2]);
 
-	b[0]=_mm_add_ps(a[0], a[1]);//step 2
-	b[1]=_mm_sub_ps(a[0], a[1]);
-	b[2]=_mm_sub_ps(_mm_mul_ps(a[2], c3), _mm_mul_ps(a[3], c1));
-	b[3]=_mm_add_ps(_mm_mul_ps(a[2], c1), _mm_mul_ps(a[3], c3));
+	//Wc
+	b[2]=_mm_mul_ps(b[2], _mm_set1_ps(0.5411961001461969843997232053664f));//0.5 sec( 1 pi/(2*4))
+	b[3]=_mm_mul_ps(b[3], _mm_set1_ps(1.3065629648763765278566431734272f));//0.5 sec( 3 pi/(2*4))
 
-	a[0]=_mm_add_ps(b[0], b[3]);//step 1
+	//HbarT
+	a[0]=_mm_add_ps(b[0], b[2]);
+	a[1]=_mm_add_ps(b[1], b[3]);
+	a[2]=_mm_sub_ps(b[0], b[2]);
+	a[3]=_mm_sub_ps(b[1], b[3]);
+
+	_mm_store_ps(data+0*stride, a[0]);
+	_mm_store_ps(data+1*stride, a[1]);
+	_mm_store_ps(data+2*stride, a[2]);
+	_mm_store_ps(data+3*stride, a[3]);
+}
+AWM_INLINE void dctii_8(float *data, const int stride)
+{
+	__m128 w78=_mm_set1_ps(2.5629154477415061787960862961777f);//Wij = sec(i*Pi/(2j))
+	__m128 w58=_mm_set1_ps(0.8999762231364157046385095409419f);
+	__m128 w38=_mm_set1_ps(0.6013448869350452805437218239092f);
+	__m128 w18=_mm_set1_ps(0.5097955791041591689419398039878f);
+	__m128 w34=_mm_set1_ps(1.3065629648763765278566431734272f);
+	__m128 w14=_mm_set1_ps(0.5411961001461969843997232053664f);
+	__m128 sqrt2=_mm_set1_ps(1.4142135623730950488016887242097f);
+
+	__m128 a[8], b[8];
+
+	a[0]=_mm_load_ps(data+0*stride);
+	a[1]=_mm_load_ps(data+1*stride);
+	a[2]=_mm_load_ps(data+2*stride);
+	a[3]=_mm_load_ps(data+3*stride);
+	a[4]=_mm_load_ps(data+4*stride);
+	a[5]=_mm_load_ps(data+5*stride);
+	a[6]=_mm_load_ps(data+6*stride);
+	a[7]=_mm_load_ps(data+7*stride);
+
+	b[0]=_mm_add_ps(a[0], a[7]);
+	b[1]=_mm_add_ps(a[1], a[6]);
+	b[2]=_mm_add_ps(a[2], a[5]);
+	b[3]=_mm_add_ps(a[3], a[4]);
+	b[4]=_mm_sub_ps(a[3], a[4]);
+	b[5]=_mm_sub_ps(a[2], a[5]);
+	b[6]=_mm_sub_ps(a[1], a[6]);
+	b[7]=_mm_sub_ps(a[0], a[7]);
+
+	b[4]=_mm_mul_ps(b[4], w78);
+	b[5]=_mm_mul_ps(b[5], w58);
+	b[6]=_mm_mul_ps(b[6], w38);
+	b[7]=_mm_mul_ps(b[7], w18);
+
+	a[0]=_mm_add_ps(b[0], b[3]);
 	a[1]=_mm_add_ps(b[1], b[2]);
 	a[2]=_mm_sub_ps(b[1], b[2]);
 	a[3]=_mm_sub_ps(b[0], b[3]);
+	a[4]=_mm_sub_ps(b[7], b[4]);
+	a[5]=_mm_sub_ps(b[6], b[5]);
+	a[6]=_mm_add_ps(b[6], b[5]);
+	a[7]=_mm_add_ps(b[7], b[4]);
 
-	_mm_store_ps(block+0*4, a[0]);
-	_mm_store_ps(block+1*4, a[1]);
-	_mm_store_ps(block+2*4, a[2]);
-	_mm_store_ps(block+3*4, a[3]);
+	a[2]=_mm_mul_ps(a[2], w34);
+	a[3]=_mm_mul_ps(a[3], w14);
+	a[4]=_mm_mul_ps(a[4], w14);
+	a[5]=_mm_mul_ps(a[5], w34);
+
+	b[0]=_mm_add_ps(a[0], a[1]);
+	b[1]=_mm_sub_ps(a[0], a[1]);
+	b[2]=_mm_add_ps(a[3], a[2]);
+	b[3]=_mm_sub_ps(a[3], a[2]);
+	b[4]=_mm_add_ps(a[4], a[5]);
+	b[5]=_mm_sub_ps(a[4], a[5]);
+	b[6]=_mm_add_ps(a[7], a[6]);
+	b[7]=_mm_sub_ps(a[7], a[6]);
+
+	b[3]=_mm_add_ps(_mm_mul_ps(b[3], sqrt2), b[2]);
+	b[4]=_mm_add_ps(_mm_mul_ps(b[4], sqrt2), b[5]);
+
+	b[7]=_mm_add_ps(_mm_mul_ps(b[7], sqrt2), b[4]);
+
+	b[4]=_mm_add_ps(b[4], b[6]);
+	b[6]=_mm_add_ps(b[6], b[5]);
+
+	_mm_store_ps(data+0*stride, b[0]);
+	_mm_store_ps(data+1*stride, b[7]);
+	_mm_store_ps(data+2*stride, b[3]);
+	_mm_store_ps(data+3*stride, b[4]);
+	_mm_store_ps(data+4*stride, b[1]);
+	_mm_store_ps(data+5*stride, b[6]);
+	_mm_store_ps(data+6*stride, b[2]);
+	_mm_store_ps(data+7*stride, b[5]);
 }
+AWM_INLINE void dctiii_8(float *data, const int stride)
+{
+	__m128 w78=_mm_set1_ps(2.5629154477415061787960862961777f);//Wij = sec(i*Pi/(2j))
+	__m128 w58=_mm_set1_ps(0.8999762231364157046385095409419f);
+	__m128 w38=_mm_set1_ps(0.6013448869350452805437218239092f);
+	__m128 w18=_mm_set1_ps(0.5097955791041591689419398039878f);
+	__m128 w34=_mm_set1_ps(1.3065629648763765278566431734272f);
+	__m128 w14=_mm_set1_ps(0.5411961001461969843997232053664f);
+	__m128 sqrt2=_mm_set1_ps(1.4142135623730950488016887242097f);
+
+	__m128 a[8], b[8];
+
+	a[0]=_mm_load_ps(data+0*stride);
+	a[1]=_mm_load_ps(data+1*stride);
+	a[2]=_mm_load_ps(data+2*stride);
+	a[3]=_mm_load_ps(data+3*stride);
+	a[4]=_mm_load_ps(data+4*stride);
+	a[5]=_mm_load_ps(data+5*stride);
+	a[6]=_mm_load_ps(data+6*stride);
+	a[7]=_mm_load_ps(data+7*stride);
+
+	b[0]=a[0];
+	b[1]=_mm_mul_ps(sqrt2, a[1]);
+	b[2]=a[2];
+	b[3]=_mm_add_ps(a[1], a[3]);
+	b[4]=a[4];
+	b[5]=_mm_add_ps(a[3], a[5]);
+	b[6]=a[6];
+	b[7]=_mm_add_ps(a[5], a[7]);
+
+	a[0]=b[0];
+	a[1]=b[1];
+	a[2]=_mm_mul_ps(sqrt2, b[2]);
+	a[3]=_mm_mul_ps(sqrt2, b[3]);
+	a[4]=b[4];
+	a[5]=b[5];
+	a[6]=_mm_add_ps(b[2], b[6]);
+	a[7]=_mm_add_ps(b[3], b[7]);
+
+	b[0]=_mm_add_ps(a[0], a[4]);
+	b[1]=_mm_add_ps(a[1], a[5]);
+	b[2]=_mm_add_ps(a[2], a[6]);
+	b[3]=_mm_add_ps(a[3], a[7]);
+	b[4]=_mm_sub_ps(a[0], a[4]);
+	b[5]=_mm_sub_ps(a[1], a[5]);
+	b[6]=_mm_sub_ps(a[2], a[6]);
+	b[7]=_mm_sub_ps(a[3], a[7]);
+
+	b[2]=_mm_mul_ps(b[2], w14);
+	b[3]=_mm_mul_ps(b[3], w14);
+	b[6]=_mm_mul_ps(b[6], w34);
+	b[7]=_mm_mul_ps(b[7], w34);
+
+	a[0]=_mm_add_ps(b[0], b[2]);
+	a[1]=_mm_add_ps(b[1], b[3]);
+	a[2]=_mm_sub_ps(b[0], b[2]);
+	a[3]=_mm_sub_ps(b[1], b[3]);
+	a[4]=_mm_add_ps(b[4], b[6]);
+	a[5]=_mm_add_ps(b[5], b[7]);
+	a[6]=_mm_sub_ps(b[4], b[6]);
+	a[7]=_mm_sub_ps(b[5], b[7]);
+
+	a[1]=_mm_mul_ps(a[1], w18);
+	a[3]=_mm_mul_ps(a[3], w38);
+	a[5]=_mm_mul_ps(a[5], w58);
+	a[7]=_mm_mul_ps(a[7], w78);
+
+	b[0]=_mm_add_ps(a[0], a[1]);
+	b[1]=_mm_sub_ps(a[0], a[1]);
+	b[2]=_mm_add_ps(a[2], a[3]);
+	b[3]=_mm_sub_ps(a[2], a[3]);
+	b[4]=_mm_add_ps(a[4], a[5]);
+	b[5]=_mm_sub_ps(a[4], a[5]);
+	b[6]=_mm_add_ps(a[6], a[7]);
+	b[7]=_mm_sub_ps(a[6], a[7]);
+
+	_mm_store_ps(data+0*stride, b[0]);
+	_mm_store_ps(data+1*stride, b[4]);
+	_mm_store_ps(data+2*stride, b[6]);
+	_mm_store_ps(data+3*stride, b[2]);
+	_mm_store_ps(data+4*stride, b[3]);
+	_mm_store_ps(data+5*stride, b[7]);
+	_mm_store_ps(data+6*stride, b[5]);
+	_mm_store_ps(data+7*stride, b[1]);
+}
+AWM_INLINE void dctii_16(float *data, const int stride)
+{
+	__m128 a[16];
+
+	//Hbar_16
+	float *p1=data, *p2=data+15*stride;
+	for(int k=0;k<8;++k)
+	{
+		__m128 t0=_mm_load_ps(p1);
+		__m128 t1=_mm_load_ps(p2);
+		p1+=stride;
+		p2-=stride;
+		a[k+0*8]=_mm_add_ps(t0, t1);
+		a[k+1*8]=_mm_sub_ps(t0, t1);
+	}
+
+	//Wc_16
+	a[0x8]=_mm_mul_ps(a[0x8], _mm_set1_ps(0.5024192861881557055116701192801f));//0.5 sec( 1 pi/(2*16))
+	a[0x9]=_mm_mul_ps(a[0x9], _mm_set1_ps(0.5224986149396888806285753190567f));//0.5 sec( 3 pi/(2*16))
+	a[0xA]=_mm_mul_ps(a[0xA], _mm_set1_ps(0.5669440348163577036805379151549f));//0.5 sec( 5 pi/(2*16))
+	a[0xB]=_mm_mul_ps(a[0xB], _mm_set1_ps(0.6468217833599901295483601116520f));//0.5 sec( 7 pi/(2*16))
+	a[0xC]=_mm_mul_ps(a[0xC], _mm_set1_ps(0.7881546234512502247339824871974f));//0.5 sec( 9 pi/(2*16))
+	a[0xD]=_mm_mul_ps(a[0xD], _mm_set1_ps(1.0606776859903474713404517472331f));//0.5 sec(11 pi/(2*16))
+	a[0xE]=_mm_mul_ps(a[0xE], _mm_set1_ps(1.7224470982383339278159153641566f));//0.5 sec(13 pi/(2*16))
+	a[0xF]=_mm_mul_ps(a[0xF], _mm_set1_ps(5.1011486186891638581062454923454f));//0.5 sec(15 pi/(2*16))
+
+	dctii_8((float*)(a+0*8), sizeof(__m128)/sizeof(float));
+	dctii_8((float*)(a+1*8), sizeof(__m128)/sizeof(float));
+
+	//Bc_16
+	a[0x8]=_mm_add_ps(_mm_mul_ps(a[0x8], _mm_set1_ps(1.4142135623730950488016887242097f)), a[0x9]);//sqrt2
+	a[0x9]=_mm_add_ps(a[0x9], a[0xA]);
+	a[0xA]=_mm_add_ps(a[0xA], a[0xB]);
+	a[0xB]=_mm_add_ps(a[0xB], a[0xC]);
+	a[0xC]=_mm_add_ps(a[0xC], a[0xD]);
+	a[0xD]=_mm_add_ps(a[0xD], a[0xE]);
+	a[0xE]=_mm_add_ps(a[0xE], a[0xF]);
+
+	//Peo16T
+	for(int k=0;k<8;++k)
+		_mm_store_ps(data+(2*k)*stride, a[k]);
+	for(int k=0;k<8;++k)
+		_mm_store_ps(data+(2*k+1)*stride, a[k+8]);
+}
+AWM_INLINE void dctiii_16(float *data, const int stride)
+{
+	__m128 a[16];
+
+	//Peo16
+	for(int k=0;k<8;++k)
+		a[k]=_mm_load_ps(data+(2*k)*stride);
+	for(int k=0;k<8;++k)
+		a[k+8]=_mm_load_ps(data+(2*k+1)*stride);
+
+	//Bc_16T
+	a[0xF]=_mm_add_ps(a[0xF], a[0xE]);
+	a[0xE]=_mm_add_ps(a[0xE], a[0xD]);
+	a[0xD]=_mm_add_ps(a[0xD], a[0xC]);
+	a[0xC]=_mm_add_ps(a[0xC], a[0xB]);
+	a[0xB]=_mm_add_ps(a[0xB], a[0xA]);
+	a[0xA]=_mm_add_ps(a[0xA], a[0x9]);
+	a[0x9]=_mm_add_ps(a[0x9], a[0x8]);
+	a[0x8]=_mm_mul_ps(a[0x8], _mm_set1_ps(1.4142135623730950488016887242097f));
+
+	dctiii_8((float*)(a+0*8), sizeof(__m128)/sizeof(float));
+	dctiii_8((float*)(a+1*8), sizeof(__m128)/sizeof(float));
+
+	//Wc_16
+	a[0x8]=_mm_mul_ps(a[0x8], _mm_set1_ps(0.5024192861881557055116701192801f));//0.5 sec( 1 pi/(2*16))
+	a[0x9]=_mm_mul_ps(a[0x9], _mm_set1_ps(0.5224986149396888806285753190567f));//0.5 sec( 3 pi/(2*16))
+	a[0xA]=_mm_mul_ps(a[0xA], _mm_set1_ps(0.5669440348163577036805379151549f));//0.5 sec( 5 pi/(2*16))
+	a[0xB]=_mm_mul_ps(a[0xB], _mm_set1_ps(0.6468217833599901295483601116520f));//0.5 sec( 7 pi/(2*16))
+	a[0xC]=_mm_mul_ps(a[0xC], _mm_set1_ps(0.7881546234512502247339824871974f));//0.5 sec( 9 pi/(2*16))
+	a[0xD]=_mm_mul_ps(a[0xD], _mm_set1_ps(1.0606776859903474713404517472331f));//0.5 sec(11 pi/(2*16))
+	a[0xE]=_mm_mul_ps(a[0xE], _mm_set1_ps(1.7224470982383339278159153641566f));//0.5 sec(13 pi/(2*16))
+	a[0xF]=_mm_mul_ps(a[0xF], _mm_set1_ps(5.1011486186891638581062454923454f));//0.5 sec(15 pi/(2*16))
+
+	//Hbar16T
+	for(int k=0;k<8;++k)
+		_mm_store_ps(data+k*stride, _mm_add_ps(a[k], a[k+8]));
+	for(int k=0;k<8;++k)
+		_mm_store_ps(data+(k+8)*stride, _mm_sub_ps(a[7-k], a[7-k+8]));
+}
+AWM_INLINE void dctii_32(float *data, const int stride)
+{
+	__m128 a[32];
+
+	//Hbar_32
+	float *p1=data, *p2=data+31*stride;
+	for(int k=0;k<16;++k)
+	{
+		__m128 t0=_mm_load_ps(p1);
+		__m128 t1=_mm_load_ps(p2);
+		p1+=stride;
+		p2-=stride;
+		a[k+0*16]=_mm_add_ps(t0, t1);
+		a[k+1*16]=_mm_sub_ps(t0, t1);
+	}
+
+	//Wc_32
+	a[0x10]=_mm_mul_ps(a[0x10], _mm_set1_ps( 0.5006029982351963013455041067664f));//0.5 sec( 1 pi/(2*32))
+	a[0x11]=_mm_mul_ps(a[0x11], _mm_set1_ps( 0.5054709598975436599844445856070f));//0.5 sec( 3 pi/(2*32))
+	a[0x12]=_mm_mul_ps(a[0x12], _mm_set1_ps( 0.5154473099226245469749513056493f));//0.5 sec( 5 pi/(2*32))
+	a[0x13]=_mm_mul_ps(a[0x13], _mm_set1_ps( 0.5310425910897841744757339323572f));//0.5 sec( 7 pi/(2*32))
+	a[0x14]=_mm_mul_ps(a[0x14], _mm_set1_ps( 0.5531038960344445278293808381371f));//0.5 sec( 9 pi/(2*32))
+	a[0x15]=_mm_mul_ps(a[0x15], _mm_set1_ps( 0.5829349682061338736738307012526f));//0.5 sec(11 pi/(2*32))
+	a[0x16]=_mm_mul_ps(a[0x16], _mm_set1_ps( 0.6225041230356648161572561567628f));//0.5 sec(13 pi/(2*32))
+	a[0x17]=_mm_mul_ps(a[0x17], _mm_set1_ps( 0.6748083414550057460259687110410f));//0.5 sec(15 pi/(2*32))
+	a[0x18]=_mm_mul_ps(a[0x18], _mm_set1_ps( 0.7445362710022984497769811919729f));//0.5 sec(17 pi/(2*32))
+	a[0x19]=_mm_mul_ps(a[0x19], _mm_set1_ps( 0.8393496454155270387392637466254f));//0.5 sec(19 pi/(2*32))
+	a[0x1A]=_mm_mul_ps(a[0x1A], _mm_set1_ps( 0.9725682378619606936976894140525f));//0.5 sec(21 pi/(2*32))
+	a[0x1B]=_mm_mul_ps(a[0x1B], _mm_set1_ps( 1.1694399334328849551557702840422f));//0.5 sec(23 pi/(2*32))
+	a[0x1C]=_mm_mul_ps(a[0x1C], _mm_set1_ps( 1.4841646163141662772433269374281f));//0.5 sec(25 pi/(2*32))
+	a[0x1D]=_mm_mul_ps(a[0x1D], _mm_set1_ps( 2.0577810099534115508565544797104f));//0.5 sec(27 pi/(2*32))
+	a[0x1E]=_mm_mul_ps(a[0x1E], _mm_set1_ps( 3.4076084184687187857011913334591f));//0.5 sec(29 pi/(2*32))
+	a[0x1F]=_mm_mul_ps(a[0x1F], _mm_set1_ps(10.1900081235480568112121092010356f));//0.5 sec(31 pi/(2*32))
+
+	dctii_16((float*)(a+0*16), sizeof(__m128)/sizeof(float));
+	dctii_16((float*)(a+1*16), sizeof(__m128)/sizeof(float));
+
+	//Bc_16
+	a[0x10]=_mm_add_ps(_mm_mul_ps(a[0x10], _mm_set1_ps(1.4142135623730950488016887242097f)), a[0x11]);//sqrt2
+	a[0x11]=_mm_add_ps(a[0x11], a[0x12]);
+	a[0x12]=_mm_add_ps(a[0x12], a[0x13]);
+	a[0x13]=_mm_add_ps(a[0x13], a[0x14]);
+	a[0x14]=_mm_add_ps(a[0x14], a[0x15]);
+	a[0x15]=_mm_add_ps(a[0x15], a[0x16]);
+	a[0x16]=_mm_add_ps(a[0x16], a[0x17]);
+	a[0x17]=_mm_add_ps(a[0x17], a[0x18]);
+	a[0x18]=_mm_add_ps(a[0x18], a[0x19]);
+	a[0x19]=_mm_add_ps(a[0x19], a[0x1A]);
+	a[0x1A]=_mm_add_ps(a[0x1A], a[0x1B]);
+	a[0x1B]=_mm_add_ps(a[0x1B], a[0x1C]);
+	a[0x1C]=_mm_add_ps(a[0x1C], a[0x1D]);
+	a[0x1D]=_mm_add_ps(a[0x1D], a[0x1E]);
+	a[0x1E]=_mm_add_ps(a[0x1E], a[0x1F]);
+
+	//Peo16T
+	for(int k=0;k<16;++k)
+		_mm_store_ps(data+(2*k)*stride, a[k]);
+	for(int k=0;k<16;++k)
+		_mm_store_ps(data+(2*k+1)*stride, a[k+16]);
+}
+AWM_INLINE void dctiii_32(float *data, const int stride)
+{
+	__m128 a[32];
+
+	//Peo16
+	for(int k=0;k<16;++k)
+		a[k]=_mm_load_ps(data+(2*k)*stride);
+	for(int k=0;k<16;++k)
+		a[k+16]=_mm_load_ps(data+(2*k+1)*stride);
+
+	//Bc_16T
+	a[0x1F]=_mm_add_ps(a[0x1F], a[0x1E]);
+	a[0x1E]=_mm_add_ps(a[0x1E], a[0x1D]);
+	a[0x1D]=_mm_add_ps(a[0x1D], a[0x1C]);
+	a[0x1C]=_mm_add_ps(a[0x1C], a[0x1B]);
+	a[0x1B]=_mm_add_ps(a[0x1B], a[0x1A]);
+	a[0x1A]=_mm_add_ps(a[0x1A], a[0x19]);
+	a[0x19]=_mm_add_ps(a[0x19], a[0x18]);
+	a[0x18]=_mm_add_ps(a[0x18], a[0x17]);
+	a[0x17]=_mm_add_ps(a[0x17], a[0x16]);
+	a[0x16]=_mm_add_ps(a[0x16], a[0x15]);
+	a[0x15]=_mm_add_ps(a[0x15], a[0x14]);
+	a[0x14]=_mm_add_ps(a[0x14], a[0x13]);
+	a[0x13]=_mm_add_ps(a[0x13], a[0x12]);
+	a[0x12]=_mm_add_ps(a[0x12], a[0x11]);
+	a[0x11]=_mm_add_ps(a[0x11], a[0x10]);
+	a[0x10]=_mm_mul_ps(a[0x10], _mm_set1_ps(1.4142135623730950488016887242097f));
+
+	dctiii_16((float*)(a+0*16), sizeof(__m128)/sizeof(float));
+	dctiii_16((float*)(a+1*16), sizeof(__m128)/sizeof(float));
+
+	//Wc_16
+	a[0x10]=_mm_mul_ps(a[0x10], _mm_set1_ps( 0.5006029982351963013455041067664f));//0.5 sec( 1 pi/(2*32))
+	a[0x11]=_mm_mul_ps(a[0x11], _mm_set1_ps( 0.5054709598975436599844445856070f));//0.5 sec( 3 pi/(2*32))
+	a[0x12]=_mm_mul_ps(a[0x12], _mm_set1_ps( 0.5154473099226245469749513056493f));//0.5 sec( 5 pi/(2*32))
+	a[0x13]=_mm_mul_ps(a[0x13], _mm_set1_ps( 0.5310425910897841744757339323572f));//0.5 sec( 7 pi/(2*32))
+	a[0x14]=_mm_mul_ps(a[0x14], _mm_set1_ps( 0.5531038960344445278293808381371f));//0.5 sec( 9 pi/(2*32))
+	a[0x15]=_mm_mul_ps(a[0x15], _mm_set1_ps( 0.5829349682061338736738307012526f));//0.5 sec(11 pi/(2*32))
+	a[0x16]=_mm_mul_ps(a[0x16], _mm_set1_ps( 0.6225041230356648161572561567628f));//0.5 sec(13 pi/(2*32))
+	a[0x17]=_mm_mul_ps(a[0x17], _mm_set1_ps( 0.6748083414550057460259687110410f));//0.5 sec(15 pi/(2*32))
+	a[0x18]=_mm_mul_ps(a[0x18], _mm_set1_ps( 0.7445362710022984497769811919729f));//0.5 sec(17 pi/(2*32))
+	a[0x19]=_mm_mul_ps(a[0x19], _mm_set1_ps( 0.8393496454155270387392637466254f));//0.5 sec(19 pi/(2*32))
+	a[0x1A]=_mm_mul_ps(a[0x1A], _mm_set1_ps( 0.9725682378619606936976894140525f));//0.5 sec(21 pi/(2*32))
+	a[0x1B]=_mm_mul_ps(a[0x1B], _mm_set1_ps( 1.1694399334328849551557702840422f));//0.5 sec(23 pi/(2*32))
+	a[0x1C]=_mm_mul_ps(a[0x1C], _mm_set1_ps( 1.4841646163141662772433269374281f));//0.5 sec(25 pi/(2*32))
+	a[0x1D]=_mm_mul_ps(a[0x1D], _mm_set1_ps( 2.0577810099534115508565544797104f));//0.5 sec(27 pi/(2*32))
+	a[0x1E]=_mm_mul_ps(a[0x1E], _mm_set1_ps( 3.4076084184687187857011913334591f));//0.5 sec(29 pi/(2*32))
+	a[0x1F]=_mm_mul_ps(a[0x1F], _mm_set1_ps(10.1900081235480568112121092010356f));//0.5 sec(31 pi/(2*32))
+
+	//Hbar16T
+	for(int k=0;k<16;++k)
+		_mm_store_ps(data+k*stride, _mm_add_ps(a[k], a[k+16]));
+	for(int k=0;k<16;++k)
+		_mm_store_ps(data+(k+16)*stride, _mm_sub_ps(a[15-k], a[15-k+16]));
+}
+
 AWM_INLINE void transpose4x4(float *block)
 {
 	__m128 a[4];
@@ -702,6 +1132,215 @@ AWM_INLINE void transpose4x4(float *block)
 	_mm_store_ps(block+1*4, a[1]);
 	_mm_store_ps(block+2*4, a[2]);
 	_mm_store_ps(block+3*4, a[3]);
+}
+AWM_INLINE void transpose8x8(float *block)
+{
+	__m128 a[4], b[4];
+
+	//	A	B
+	//	C	D
+	
+	//transpose A
+	a[0]=_mm_load_ps(block+0*8);
+	a[1]=_mm_load_ps(block+1*8);
+	a[2]=_mm_load_ps(block+2*8);
+	a[3]=_mm_load_ps(block+3*8);
+	
+	_MM_TRANSPOSE4_PS(a[0], a[1], a[2], a[3]);
+
+	_mm_store_ps(block+0*8, a[0]);
+	_mm_store_ps(block+1*8, a[1]);
+	_mm_store_ps(block+2*8, a[2]);
+	_mm_store_ps(block+3*8, a[3]);
+
+	//transpose B and C
+	a[0]=_mm_load_ps(block+0*8+4);
+	a[1]=_mm_load_ps(block+1*8+4);
+	a[2]=_mm_load_ps(block+2*8+4);
+	a[3]=_mm_load_ps(block+3*8+4);
+	
+	_MM_TRANSPOSE4_PS(a[0], a[1], a[2], a[3]);
+
+	b[0]=_mm_load_ps(block+4*8);
+	b[1]=_mm_load_ps(block+5*8);
+	b[2]=_mm_load_ps(block+6*8);
+	b[3]=_mm_load_ps(block+7*8);
+	_mm_store_ps(block+4*8, a[0]);
+	_mm_store_ps(block+5*8, a[1]);
+	_mm_store_ps(block+6*8, a[2]);
+	_mm_store_ps(block+7*8, a[3]);
+
+	_MM_TRANSPOSE4_PS(b[0], b[1], b[2], b[3]);
+
+	_mm_store_ps(block+0*8+4, a[0]);
+	_mm_store_ps(block+1*8+4, a[1]);
+	_mm_store_ps(block+2*8+4, a[2]);
+	_mm_store_ps(block+3*8+4, a[3]);
+
+	//transpose D
+	a[0]=_mm_load_ps(block+4*8+4);
+	a[1]=_mm_load_ps(block+5*8+4);
+	a[2]=_mm_load_ps(block+6*8+4);
+	a[3]=_mm_load_ps(block+7*8+4);
+	
+	_MM_TRANSPOSE4_PS(a[0], a[1], a[2], a[3]);
+
+	_mm_store_ps(block+4*8+4, a[0]);
+	_mm_store_ps(block+5*8+4, a[1]);
+	_mm_store_ps(block+6*8+4, a[2]);
+	_mm_store_ps(block+7*8+4, a[3]);
+}
+AWM_INLINE void transpose16x16(float *block)
+{
+	__m128 a[4], b[4];
+	
+#define TRANSPOSE_DIAG(IDX)\
+	do\
+	{\
+		a[0]=_mm_load_ps(block+(0+4*(IDX))*16+4*(IDX));\
+		a[1]=_mm_load_ps(block+(1+4*(IDX))*16+4*(IDX));\
+		a[2]=_mm_load_ps(block+(2+4*(IDX))*16+4*(IDX));\
+		a[3]=_mm_load_ps(block+(3+4*(IDX))*16+4*(IDX));\
+		_MM_TRANSPOSE4_PS(a[0], a[1], a[2], a[3]);\
+		_mm_store_ps(block+(0+4*(IDX))*16+4*(IDX), a[0]);\
+		_mm_store_ps(block+(1+4*(IDX))*16+4*(IDX), a[1]);\
+		_mm_store_ps(block+(2+4*(IDX))*16+4*(IDX), a[2]);\
+		_mm_store_ps(block+(3+4*(IDX))*16+4*(IDX), a[3]);\
+	}while(0)
+#define TRANSPOSE_NOND(Y, X)\
+	do\
+	{\
+		a[0]=_mm_load_ps(block+(0+4*(Y))*16+4*(X));\
+		a[1]=_mm_load_ps(block+(1+4*(Y))*16+4*(X));\
+		a[2]=_mm_load_ps(block+(2+4*(Y))*16+4*(X));\
+		a[3]=_mm_load_ps(block+(3+4*(Y))*16+4*(X));\
+		b[0]=_mm_load_ps(block+(0+4*(X))*16+4*(Y));\
+		b[1]=_mm_load_ps(block+(1+4*(X))*16+4*(Y));\
+		b[2]=_mm_load_ps(block+(2+4*(X))*16+4*(Y));\
+		b[3]=_mm_load_ps(block+(3+4*(X))*16+4*(Y));\
+		_MM_TRANSPOSE4_PS(a[0], a[1], a[2], a[3]);\
+		_MM_TRANSPOSE4_PS(b[0], b[1], b[2], b[3]);\
+		_mm_store_ps(block+(0+4*(Y))*16+4*(X), b[0]);\
+		_mm_store_ps(block+(1+4*(Y))*16+4*(X), b[1]);\
+		_mm_store_ps(block+(2+4*(Y))*16+4*(X), b[2]);\
+		_mm_store_ps(block+(3+4*(Y))*16+4*(X), b[3]);\
+		_mm_store_ps(block+(0+4*(X))*16+4*(Y), a[0]);\
+		_mm_store_ps(block+(1+4*(X))*16+4*(Y), a[1]);\
+		_mm_store_ps(block+(2+4*(X))*16+4*(Y), a[2]);\
+		_mm_store_ps(block+(3+4*(X))*16+4*(Y), a[3]);\
+	}while(0)
+	
+	//	0	1	2	3
+	//	4	5	6	7
+	//	8	9	A	B
+	//	C	D	E	F
+	TRANSPOSE_DIAG(0);
+	TRANSPOSE_DIAG(1);
+	TRANSPOSE_DIAG(2);
+	TRANSPOSE_DIAG(3);
+	TRANSPOSE_NOND(0, 1);
+	TRANSPOSE_NOND(0, 2);
+	TRANSPOSE_NOND(0, 3);
+	TRANSPOSE_NOND(1, 2);
+	TRANSPOSE_NOND(1, 3);
+	TRANSPOSE_NOND(2, 3);
+
+#undef  TRANSPOSE_DIAG
+#undef  TRANSPOSE_NOND
+}
+AWM_INLINE void transpose32x32(float *block)
+{
+	__m128 a[4], b[4];
+	
+#define TRANSPOSE_DIAG(IDX)\
+	do\
+	{\
+		a[0]=_mm_load_ps(block+(0+4*(IDX))*32+4*(IDX));\
+		a[1]=_mm_load_ps(block+(1+4*(IDX))*32+4*(IDX));\
+		a[2]=_mm_load_ps(block+(2+4*(IDX))*32+4*(IDX));\
+		a[3]=_mm_load_ps(block+(3+4*(IDX))*32+4*(IDX));\
+		_MM_TRANSPOSE4_PS(a[0], a[1], a[2], a[3]);\
+		_mm_store_ps(block+(0+4*(IDX))*32+4*(IDX), a[0]);\
+		_mm_store_ps(block+(1+4*(IDX))*32+4*(IDX), a[1]);\
+		_mm_store_ps(block+(2+4*(IDX))*32+4*(IDX), a[2]);\
+		_mm_store_ps(block+(3+4*(IDX))*32+4*(IDX), a[3]);\
+	}while(0)
+#define TRANSPOSE_NOND(Y, X)\
+	do\
+	{\
+		a[0]=_mm_load_ps(block+(0+4*(Y))*32+4*(X));\
+		a[1]=_mm_load_ps(block+(1+4*(Y))*32+4*(X));\
+		a[2]=_mm_load_ps(block+(2+4*(Y))*32+4*(X));\
+		a[3]=_mm_load_ps(block+(3+4*(Y))*32+4*(X));\
+		b[0]=_mm_load_ps(block+(0+4*(X))*32+4*(Y));\
+		b[1]=_mm_load_ps(block+(1+4*(X))*32+4*(Y));\
+		b[2]=_mm_load_ps(block+(2+4*(X))*32+4*(Y));\
+		b[3]=_mm_load_ps(block+(3+4*(X))*32+4*(Y));\
+		_MM_TRANSPOSE4_PS(a[0], a[1], a[2], a[3]);\
+		_MM_TRANSPOSE4_PS(b[0], b[1], b[2], b[3]);\
+		_mm_store_ps(block+(0+4*(Y))*32+4*(X), b[0]);\
+		_mm_store_ps(block+(1+4*(Y))*32+4*(X), b[1]);\
+		_mm_store_ps(block+(2+4*(Y))*32+4*(X), b[2]);\
+		_mm_store_ps(block+(3+4*(Y))*32+4*(X), b[3]);\
+		_mm_store_ps(block+(0+4*(X))*32+4*(Y), a[0]);\
+		_mm_store_ps(block+(1+4*(X))*32+4*(Y), a[1]);\
+		_mm_store_ps(block+(2+4*(X))*32+4*(Y), a[2]);\
+		_mm_store_ps(block+(3+4*(X))*32+4*(Y), a[3]);\
+	}while(0)
+	
+	//	00	01	02	03	04	05	06	07
+	//	08	09	0A	0B	0C	0D	0E	0F
+	//	10	11	12	13	14	15	16	17
+	//	18	19	1A	1B	1C	1D	1E	1F
+	//	20	21	22	23	24	25	26	27
+	//	28	29	2A	2B	2C	2D	2E	2F
+	//	30	31	32	33	34	35	36	37
+	//	38	39	3A	3B	3C	3D	3E	3F
+	TRANSPOSE_DIAG(0);
+	TRANSPOSE_DIAG(1);
+	TRANSPOSE_DIAG(2);
+	TRANSPOSE_DIAG(3);
+	TRANSPOSE_DIAG(4);
+	TRANSPOSE_DIAG(5);
+	TRANSPOSE_DIAG(6);
+	TRANSPOSE_DIAG(7);
+	TRANSPOSE_NOND(0, 1);
+	TRANSPOSE_NOND(0, 2);
+	TRANSPOSE_NOND(0, 3);
+	TRANSPOSE_NOND(0, 4);
+	TRANSPOSE_NOND(0, 5);
+	TRANSPOSE_NOND(0, 6);
+	TRANSPOSE_NOND(0, 7);
+
+	TRANSPOSE_NOND(1, 2);
+	TRANSPOSE_NOND(1, 3);
+	TRANSPOSE_NOND(1, 4);
+	TRANSPOSE_NOND(1, 5);
+	TRANSPOSE_NOND(1, 6);
+	TRANSPOSE_NOND(1, 7);
+
+	TRANSPOSE_NOND(2, 3);
+	TRANSPOSE_NOND(2, 4);
+	TRANSPOSE_NOND(2, 5);
+	TRANSPOSE_NOND(2, 6);
+	TRANSPOSE_NOND(2, 7);
+
+	TRANSPOSE_NOND(3, 4);
+	TRANSPOSE_NOND(3, 5);
+	TRANSPOSE_NOND(3, 6);
+	TRANSPOSE_NOND(3, 7);
+
+	TRANSPOSE_NOND(4, 5);
+	TRANSPOSE_NOND(4, 6);
+	TRANSPOSE_NOND(4, 7);
+
+	TRANSPOSE_NOND(5, 6);
+	TRANSPOSE_NOND(5, 7);
+
+	TRANSPOSE_NOND(6, 7);
+
+#undef  TRANSPOSE_DIAG
+#undef  TRANSPOSE_NOND
 }
 AWM_INLINE void gain(float *block, float *g)
 {
@@ -822,11 +1461,12 @@ static void dcttest()
 
 
 #ifdef PROFILE_SIZE
-double csizes[3][BLOCKX*BLOCKY*2]={0};
+static double csizes[3][BLOCKX*BLOCKY*2]={0};
 #endif
 
-uint32_t hweight[3*NCTX];
-uint32_t hists[3*NCTX*NLEVELS];
+static uint32_t hweight[3*NCTX];
+static uint32_t hists[3*NCTX*NLEVELS];
+ALIGN(32) static float blocks[3][BLOCKX*BLOCKY]={0}, qtable1[BLOCKX*BLOCKY]={0}, qtable2[BLOCKX*BLOCKY]={0};
 
 #ifndef USE_DIVAC
 uint16_t enccdf[3*NCTX*NLEVELS];//enc
@@ -925,7 +1565,6 @@ int c47_codec(int argc, char **argv)
 #ifdef _MSC_VER
 	uint8_t *streamend=0;
 #endif
-	ALIGN(16) float blocks[3][BLOCKX*BLOCKY]={0}, qtable1[BLOCKX*BLOCKY]={0}, qtable2[BLOCKX*BLOCKY]={0};
 #ifdef USE_RLE
 	char rle[3][BLOCKX*BLOCKY*2+1]={0};
 #endif
