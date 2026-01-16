@@ -12,6 +12,7 @@ static const char file[]=__FILE__;
 
 
 #ifdef _MSC_VER
+	#define LOUD
 	#define ENABLE_GUIDE
 //	#define ENABLE_VAL
 #endif
@@ -166,6 +167,10 @@ int c10_codec(int argc, char **argv)
 	ptrdiff_t usize=0, overhead=0, csize=0, streamsize=0;
 	unsigned char *buf=0, *image=0, *stream=0;
 	int iw=0, ih=0, fwd=0;
+#ifdef LOUD
+	double t=time_sec();
+#endif
+
 	if(!srcfn||!dstfn)
 	{
 		LOG_ERROR("Codec requires both source and destination filenames");
@@ -1557,8 +1562,8 @@ int c10_codec(int argc, char **argv)
 			fwrite(&iw, 1, 4, fdst);
 			fwrite(&ih, 1, 4, fdst);
 			fwrite(stream, 1, streamptr-stream, fdst);
-#ifdef _MSC_VER
-			printf("C %td bytes\n", streamptr-stream+headersize);
+#ifdef LOUD
+			csize=streamptr-stream;
 #endif
 		}
 		else
@@ -1569,5 +1574,23 @@ int c10_codec(int argc, char **argv)
 		fclose(fdst);
 	}
 	free(buf);
+#ifdef LOUD
+	t=time_sec()-t;
+	if(fwd)
+		printf("%9td->%9td  %8.4lf%%  %12.6lf:1  BPD %12.6lf\n"
+			, usize
+			, csize
+			, 100.*csize/usize
+			, (double)usize/csize
+			, 8.*csize/usize
+		);
+	printf("%c  %12.6lf sec  %12.6lf MB/s  %12.6lf ms/MB\n"
+		, 'D'+fwd
+		, t
+		, usize/(t*1024*1024)
+		, t*1024*1024*1000/usize
+	);
+	//printf("C %td bytes\n", streamptr-stream+headersize);
+#endif
 	return 0;
 }

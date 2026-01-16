@@ -59,8 +59,9 @@ enum
 };
 
 
-	#define ENABLE_EXTENDED_RCT
+//cRCT
 #if 1
+	#define ENABLE_EXTENDED_RCT
 typedef enum _RCTInfoIdx
 {
 	II_OCH_Y,
@@ -207,66 +208,6 @@ static const unsigned char rct_combinations[RCT_COUNT][II_COUNT]=
 #undef  RCT
 };
 #endif
-
-static int hist[3][NCTX][256];
-
-static unsigned char* load_ppm(const char *fn, int *ret_iw, int *ret_ih)
-{
-	FILE *fsrc=fopen(fn, "rb");
-	if(!fsrc)
-	{
-		LOG_ERROR("Cannot open \"%s\"", fn);
-		return 0;
-	}
-	int tag=0;
-	fread(&tag, 1, 2, fsrc);
-	if(tag!=('P'|'6'<<8))
-	{
-		LOG_ERROR("Unsupported file \"%s\"", fn);
-		return 0;
-	}
-#ifdef LOUD
-	print_timestamp("%Y-%m-%d_%H%M%S\n");
-#endif
-	int temp=fgetc(fsrc);
-	if(temp!='\n')
-	{
-		LOG_ERROR("Invalid PPM file");
-		return 0;
-	}
-	int iw=0, ih=0;
-	int nread=fscanf(fsrc, "%d %d", &iw, &ih);
-	if(nread!=2)
-	{
-		LOG_ERROR("Unsupported PPM file");
-		return 0;
-	}
-	int vmax=0;
-	nread=fscanf(fsrc, "%d", &vmax);
-	if(nread!=1||vmax!=255)
-	{
-		LOG_ERROR("Unsupported PPM file");
-		return 0;
-	}
-	temp=fgetc(fsrc);
-	if(temp!='\n')
-	{
-		LOG_ERROR("Invalid PPM file");
-		return 0;
-	}
-	if(iw<1||ih<1)
-	{
-		LOG_ERROR("Unsupported source file");
-		return 0;
-	}
-	ptrdiff_t size=(ptrdiff_t)3*iw*ih;
-	unsigned char *image=(unsigned char*)malloc(size+sizeof(__m256i));
-	fread(image, 1, size, fsrc);//read image
-	fclose(fsrc);
-	if(ret_iw)*ret_iw=iw;
-	if(ret_ih)*ret_ih=ih;
-	return image;
-}
 static int crct_analysis(unsigned char *image, int iw, int ih)
 {
 	long long counters[OCH_COUNT]={0};
@@ -339,6 +280,65 @@ static int crct_analysis(unsigned char *image, int iw, int ih)
 	}
 	return bestrct;
 }
+
+static unsigned char* load_ppm(const char *fn, int *ret_iw, int *ret_ih)
+{
+	FILE *fsrc=fopen(fn, "rb");
+	if(!fsrc)
+	{
+		LOG_ERROR("Cannot open \"%s\"", fn);
+		return 0;
+	}
+	int tag=0;
+	fread(&tag, 1, 2, fsrc);
+	if(tag!=('P'|'6'<<8))
+	{
+		LOG_ERROR("Unsupported file \"%s\"", fn);
+		return 0;
+	}
+#ifdef LOUD
+	print_timestamp("%Y-%m-%d_%H%M%S\n");
+#endif
+	int temp=fgetc(fsrc);
+	if(temp!='\n')
+	{
+		LOG_ERROR("Invalid PPM file");
+		return 0;
+	}
+	int iw=0, ih=0;
+	int nread=fscanf(fsrc, "%d %d", &iw, &ih);
+	if(nread!=2)
+	{
+		LOG_ERROR("Unsupported PPM file");
+		return 0;
+	}
+	int vmax=0;
+	nread=fscanf(fsrc, "%d", &vmax);
+	if(nread!=1||vmax!=255)
+	{
+		LOG_ERROR("Unsupported PPM file");
+		return 0;
+	}
+	temp=fgetc(fsrc);
+	if(temp!='\n')
+	{
+		LOG_ERROR("Invalid PPM file");
+		return 0;
+	}
+	if(iw<1||ih<1)
+	{
+		LOG_ERROR("Unsupported source file");
+		return 0;
+	}
+	ptrdiff_t size=(ptrdiff_t)3*iw*ih;
+	unsigned char *image=(unsigned char*)malloc(size+sizeof(__m256i));
+	fread(image, 1, size, fsrc);//read image
+	fclose(fsrc);
+	if(ret_iw)*ret_iw=iw;
+	if(ret_ih)*ret_ih=ih;
+	return image;
+}
+static int hist[3][NCTX][256];
 int c36_codec(int argc, char **argv)
 {
 	if(argc!=2)
@@ -364,13 +364,15 @@ int c36_codec(int argc, char **argv)
 	short *pixels=0;
 	int cpsize=0;
 	short *cpixels=0;
+	double total_csize[3]={0};
+	double t=time_sec();
+
 	if(!filenames)
 	{
 		LOG_ERROR("No frames in \"%s\"", path);
 		return 1;
 	}
-	double total_csize[3]={0};
-	printf("Frame  TYUV (bytes)  TYUV (%%)\n");
+	printf("Frame  TYUV (bytes)  TYUV (%%)  %d frames\n", (int)filenames->count);
 	for(int k0=0;k0<(int)filenames->count;++k0)
 	{
 		ArrayHandle *fn=(ArrayHandle*)array_at(&filenames, k0);
@@ -605,6 +607,7 @@ int c36_codec(int argc, char **argv)
 			frames[kf-1]=frames[kf];
 		frames[NFRAMES-1]=temp;
 	}
+	t=time_sec()-t;
 	printf(
 		"\n"
 		"%5d    %12.2lf %12.2lf %12.2lf %12.2lf    %6.2lf %6.2lf %6.2lf %6.2lf%%    %12.2lf\n"
@@ -618,6 +621,12 @@ int c36_codec(int argc, char **argv)
 		, total_csize[1]*100/(filenames->count*iw0*ih0)
 		, total_csize[2]*100/(filenames->count*iw0*ih0)
 		, (double)filenames->count*3*iw0*ih0
+	);
+	double usize=(double)filenames->count*3*iw0*ih0;
+	printf("%12.6lf sec  %12.6lf MB/s  %12.6lf ms/MB\n"
+		, t
+		, usize/(t*1024*1024)
+		, t*1024*1024*1000/usize
 	);
 	for(int k=0;k<NFRAMES;++k)
 		free(frames[k]);
