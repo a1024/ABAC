@@ -118,6 +118,7 @@ Image* image_load(const char *fn, int fnlen)
 			LOG_ERROR("Alloc error");
 			return 0;
 		}
+		memset(image, 0, sizeof(Image));
 		image->iw=iw;
 		image->ih=ih;
 		image->nch=3;

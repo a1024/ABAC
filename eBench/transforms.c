@@ -4174,7 +4174,7 @@ void pred_quantize(Image *src, int fwd)
 	};
 	ALIGN(16) int curr[4]={0};
 	int psize=(src->iw+2*XPAD)*(int)sizeof(int16_t[NROWS*NCH*NVAL]);
-	int16_t *pixels=(int16_t*)_mm_malloc(psize, sizeof(__m128i*));//4 padded rows * 4 channels max * {pixels, drift}
+	int16_t *pixels=(int16_t*)_mm_malloc(psize, sizeof(__m128i));//4 padded rows * 4 channels max * {pixels, drift}
 
 	if(!pixels)
 	{
@@ -8712,64 +8712,108 @@ void pred_wp_deferred(Image *src, int fwd)
 
 void pred_av4(Image *src, int fwd, int enable_ma)
 {
-	Image *dst;
-	const int *pixels;
-//	const int *errors;
-
-	dst=0;
-	image_copy(&dst, src);
-	if(!dst)
+	enum
+	{
+		XPAD=8,
+		NROWS=2,
+		NCH=4,
+		NVAL=1,
+	};
+	int amin[]=
+	{
+		-(1<<src->depth[0]>>1),
+		-(1<<src->depth[1]>>1),
+		-(1<<src->depth[2]>>1),
+		-(1<<src->depth[3]>>1),
+	};
+	int amax[]=
+	{
+		(1<<src->depth[0]>>1)-1,
+		(1<<src->depth[1]>>1)-1,
+		(1<<src->depth[2]>>1)-1,
+		(1<<src->depth[3]>>1)-1,
+	};
+	int psize=(src->iw+2*XPAD)*(int)sizeof(int16_t[NROWS*NCH*NVAL]);
+	int16_t *pixels=(int16_t*)_mm_malloc(psize, sizeof(__m128i));
+	if(!pixels)
 	{
 		LOG_ERROR("Alloc error");
 		return;
 	}
-	pixels=fwd?src->data:dst->data;
-//	errors=fwd?dst->data:src->data;
-	for(int kc=0;kc<4;++kc)
+	memset(pixels, 0, psize);
+	int nlevels[]=
 	{
-		int nlevels;
-
-		if(!src->depth[kc])
-			continue;
-		nlevels=1<<src->depth[kc];
-		for(int ky=0, idx=0;ky<src->ih;++ky)
+		1<<src->depth[0],
+		1<<src->depth[1],
+		1<<src->depth[2],
+		1<<src->depth[3],
+	};
+	int fwdmask=-fwd;
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		int16_t *rows[]=
 		{
-			for(int kx=0;kx<src->iw;++kx, ++idx)
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-0LL+NROWS)%NROWS)*NVAL,//sub 1 channel for pre-increment
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-1LL+NROWS)%NROWS)*NVAL,
+		};
+		for(int kx=0;kx<src->iw;++kx)
+		{
+			for(int kc=0;kc<4;++kc, ++idx)
 			{
-#define LOAD(BUF, X, Y) ((unsigned)(ky+(Y))<(unsigned)src->ih&&(unsigned)(kx+(X))<(unsigned)src->iw?BUF[(src->iw*(ky+(Y))+kx+(X))<<2|kc]:0)
-				int
-				//	NNE	=LOAD(pixels,  1, -2),
-					NW	=LOAD(pixels, -1, -1),
-					N	=LOAD(pixels,  0, -1),
-					NE	=LOAD(pixels,  1, -1),
-					W	=LOAD(pixels, -1,  0);
-#undef  LOAD
+				rows[0]+=NROWS*NVAL;
+				rows[1]+=NROWS*NVAL;
+				if(!src->depth[kc])
+					continue;
+				int16_t
+					NW	=rows[1][0-1*NCH*NROWS*NVAL],
+					N	=rows[1][0+0*NCH*NROWS*NVAL],
+					NE	=rows[1][0+1*NCH*NROWS*NVAL],
+					NEEE	=rows[1][0+3*NCH*NROWS*NVAL],
+					W	=rows[0][0-1*NCH*NROWS*NVAL];
 				int pred=(4*(N+W)+NE-NW)>>3;
-			//	int pred=(W+2*NE-NNE+1)>>1;
-				
-				pred^=-fwd;
-				pred+=fwd;
-				pred+=src->data[idx<<2|kc];
-				if(enable_ma)
+				int vmax=N, vmin=W;
+				if(N<W)vmin=N, vmax=W;
+				if(vmin>NE)vmin=NE;
+				if(vmax<NE)vmax=NE;
+				if(vmin>NEEE)vmin=NEEE;
+				if(vmax<NEEE)vmax=NEEE;
+				CLAMP2(pred, vmin, vmax);
+
+				int curr=src->data[idx];
+				int val;
+				if(g_dist>1)
 				{
-					pred+=nlevels>>1;
-					pred&=nlevels-1;
-					pred-=nlevels>>1;
+					if(fwd)
+					{
+						val=(curr-(int)pred+g_dist/2)/g_dist;
+						curr=g_dist*val+(int)pred;
+					}
+					else
+					{
+						val=g_dist*curr+(int)pred;
+						curr=val;
+						CLAMP2(val, amin[kc], amax[kc]);
+					}
 				}
-				dst->data[idx<<2|kc]=pred;
-				//dst->data[idx<<2|kc]=((src->data[idx<<2|kc]+pred+(nlevels>>1))&(nlevels-1))-(nlevels>>1);
+				else if(fwd)
+				{
+					val=curr-pred;
+					val<<=32-src->depth[kc];
+					val>>=32-src->depth[kc];
+				}
+				else
+				{
+					val=curr+pred;
+					val<<=32-src->depth[kc];
+					val>>=32-src->depth[kc];
+					curr=val;
+				}
+				src->data[idx]=val;
+				rows[0][0]=curr;
 			}
 		}
 	}
-	memcpy(src->data, dst->data, (size_t)src->iw*src->ih*sizeof(int[4]));
-	if(!enable_ma)
-	{
-		++src->depth[0];
-		++src->depth[1];
-		++src->depth[2];
-		src->depth[3]+=src->depth[3]!=0;
-	}
-	free(dst);
+	_mm_free(pixels);
 }
 
 void pred_ecoeff(Image *src, int fwd, int enable_ma)

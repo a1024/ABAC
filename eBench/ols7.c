@@ -492,7 +492,7 @@ void pred_mixN(Image *src, int fwd)
 	...
 	*/
 	int psize=(src->iw+2*XPAD)*(int)sizeof(int16_t[NROWS*NCH*NVAL]);
-	int16_t *pixels=(int16_t*)_mm_malloc(psize, sizeof(__m128i*));
+	int16_t *pixels=(int16_t*)_mm_malloc(psize, sizeof(__m128i));
 
 	int leak[4]={0}, leak2[4]={0};
 
@@ -701,10 +701,6 @@ void pred_mixN(Image *src, int fwd)
 				}
 #endif
 				int e=(curr>p1)-(curr<p1);//L1
-				//weights[0]+=e*abs(curr-estims[0]);
-				//weights[1]+=e*abs(curr-estims[1]);
-				//weights[2]+=e*abs(curr-estims[2]);
-				//weights[3]+=e*abs(curr-estims[3]);
 				weights[0]+=e*estims[0];
 				weights[1]+=e*estims[1];
 				weights[2]+=e*estims[2];
@@ -764,7 +760,7 @@ void pred_mixN_crct2(Image *src, int fwd)
 	ALIGN(16) int coeffs[4][MIXPREDS]={0}, estims[MIXPREDS]={0}, coeff2[4][MIXPREDS]={0}, estim2[MIXPREDS]={0};
 
 	int psize=(src->iw+2*XPAD)*(int)sizeof(int16_t[NROWS*NCH*NVAL]);
-	int16_t *pixels=(int16_t*)_mm_malloc(psize, sizeof(__m128i*));
+	int16_t *pixels=(int16_t*)_mm_malloc(psize, sizeof(__m128i));
 
 #ifdef _DEBUG
 	static//either  reversible  or  multithreaded batch test
@@ -1089,7 +1085,7 @@ void pred_l1crct(Image *src, int fwd)
 #endif
 	int32_t weights[4][NPREDS]={0};
 	int psize=(src->iw+2*XPAD)*(int)sizeof(int16_t[NROWS*NCH*NVAL]);
-	int16_t *pixels=(int16_t*)_mm_malloc(psize, sizeof(__m128i*));
+	int16_t *pixels=(int16_t*)_mm_malloc(psize, sizeof(__m128i));
 	int invdist=((1<<16)+g_dist-1)/g_dist;
 	if(fwd)
 		src->rct=crct_analysis(src);
