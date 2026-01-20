@@ -5389,13 +5389,15 @@ static void chart_hist_draw(float x1, float x2, float y1, float y2, int cstart, 
 			int histmax=0, histmax2=0, kmax=0;
 			for(int ks=0;ks<256;++ks)
 			{
-				int freq=_hist[ks];
+				int freq=_hist[kc<<8|ks];
 				if(histmax<freq)
 				{
 					histmax2=histmax;
 					histmax=freq;
 					kmax=ks;
 				}
+				else if(histmax2<freq)
+					histmax2=freq;
 			}
 			if(histmax2)//2nd max
 			{
@@ -5437,6 +5439,8 @@ static void chart_hist_draw(float x1, float x2, float y1, float y2, int cstart, 
 						histmax2=histmax;
 						histmax=f2;
 					}
+					else if(histmax2<f2)
+						histmax2=f2;
 				}
 			}
 			if(histmode==HISTMODE_LOG2_NOSPIKE)
