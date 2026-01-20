@@ -463,6 +463,20 @@ void pred_mixN(Image *src, int fwd)
 		(1<<src->depth[2]>>1)-1,
 		(1<<src->depth[3]>>1)-1,
 	};
+	int rmin[]=
+	{
+		amin[0]/g_dist,
+		amin[1]/g_dist,
+		amin[2]/g_dist,
+		amin[3]/g_dist,
+	};
+	int rmax[]=
+	{
+		amax[0]/g_dist,
+		amax[1]/g_dist,
+		amax[2]/g_dist,
+		amax[3]/g_dist,
+	};
 	int invdist=((1<<16)+g_dist-1)/g_dist;
 
 	enum
@@ -470,6 +484,7 @@ void pred_mixN(Image *src, int fwd)
 		MIXPREDS=4,
 
 		SHIFT=18,
+	//	SHIFT=17,
 
 		XPAD=8,
 		NROWS=4,
@@ -477,6 +492,7 @@ void pred_mixN(Image *src, int fwd)
 		NVAL=2,
 	};
 	ALIGN(16) int coeffs[4][MIXPREDS]={0}, estims[MIXPREDS]={0};
+//	ALIGN(16) int coeffs[4][64][MIXPREDS]={0}, estims[MIXPREDS]={0};
 
 	/*
 	cache-friendly layout:
@@ -503,11 +519,6 @@ void pred_mixN(Image *src, int fwd)
 	}
 	FILLMEM((int32_t*)coeffs, (1<<SHIFT)/MIXPREDS, sizeof(coeffs), sizeof(int32_t));
 	memset(pixels, 0, psize);
-//	#define EXAMINE
-#ifdef EXAMINE
-	console_start();
-#endif
-	//uint64_t s1=0x57E5D6439B503E27, s2=0x89A421758BC2F538;
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
 		int16_t *rows[]=
@@ -546,9 +557,9 @@ void pred_mixN(Image *src, int fwd)
 					WW	=rows[0][0-2*NCH*NROWS*NVAL],
 					W	=rows[0][0-1*NCH*NROWS*NVAL];
 				int curr=src->data[idx];
+			//	int ctx=32*(NW<0)+16*(NE<0)+4*((N<-64)+(N<0)+(N<64))+(W<-64)+(W<0)+(W<64);
+			//	int *weights=coeffs[kc][ctx];
 				int *weights=coeffs[kc];
-				int vmax=N, vmin=W;
-				if(N<W)vmin=N, vmax=W;
 
 				int j=0;
 
@@ -569,8 +580,6 @@ void pred_mixN(Image *src, int fwd)
 				estims[j++]=N+W-NW;
 				estims[j++]=2*N-NN;
 				estims[j++]=NE;
-				//estims[j++]=leak[kc]>>16;
-				//estims[j++]=leak2[kc]>>16;
 #endif
 
 				//mix 8 - c32
@@ -593,14 +602,11 @@ void pred_mixN(Image *src, int fwd)
 					+weights[1]*estims[1]
 					+weights[2]*estims[2]
 					+weights[3]*estims[3]
-				//	+weights[4]*estims[4]
-				//	+weights[5]*estims[5]
-				//	+weights[6]*estims[6]
-				//	+weights[7]*estims[7]
 				)>>SHIFT;
 				int p1=pred;
 				
-
+				int vmax=N, vmin=W;
+				if(N<W)vmin=N, vmax=W;
 				if(vmin>NE)vmin=NE;
 				if(vmax<NE)vmax=NE;
 				if(vmin>NEEE)vmin=NEEE;
@@ -616,19 +622,13 @@ void pred_mixN(Image *src, int fwd)
 
 						//curr=(curr*invdist>>16)-(curr>>31&-(g_dist>1));
 						curr=(curr*invdist>>16)-(curr>>31);//curr/=g_dist
+						CLAMP2(curr, rmin[kc], rmax[kc]);
 						src->data[idx]=curr;
 					}
-				//	int rng=s1%g_dist-g_dist/2;
-				//	curr=g_dist*curr+(int)pred+(rng/2);
 					curr=g_dist*curr+(int)pred;
 					CLAMP2(curr, amin[kc], amax[kc]);
 					if(!fwd)
 						src->data[idx]=curr;
-
-				//	s2+=s1;
-				//	s1*=0x77777777;
-				//	s1+=s2;
-				//	s2=s2>>17|s2<<(64-17);
 				}
 				else
 				{
@@ -648,86 +648,16 @@ void pred_mixN(Image *src, int fwd)
 					}
 				}
 				rows[0][0]=curr;
-#if 0
-				int16_t
-					eN	=rows[1][1+0*NCH*NROWS*NVAL],
-					eNE	=rows[1][1+1*NCH*NROWS*NVAL],
-					eNEE	=rows[1][1+2*NCH*NROWS*NVAL],
-					eNEEE	=rows[1][1+3*NCH*NROWS*NVAL],
-					eW	=rows[0][1-1*NCH*NROWS*NVAL];
-				src->data[idx]=((eN+eW)>>3<<5)-128;
-				int sym=curr-pred;
-				rows[0][1]=sym<<1^sym>>31;
-#endif
-#if 0
-				int16_t
-					eNEEE	=rows[1][1+3*NCH*NROWS*NVAL],
-					eWW	=rows[0][1-2*NCH*NROWS*NVAL],
-					eW	=rows[0][1-1*NCH*NROWS*NVAL];
-				int val=2*eW-eWW;
-				if(val<0)
-					val=0;
-				val=12*FLOOR_LOG2(eW*eW+1)-128;
-				if(val>127)
-					val=127;
-				src->data[idx]=val;
-				int sym=curr-pred;
-				sym=sym<<1^sym>>31;
-				rows[0][1]=(2*eW+8*sym+eNEEE)>>2;
-#endif
-#ifdef EXAMINE
-				if(ky>2&&!kc)
-				{
-					static int cnt=0;
-					++cnt;
-					console_log(
-						"Weights %10d %10d %10d %10d    p1   %10d %s\n"
-						"Estims  %10d %10d %10d %10d    curr %10d\n"
-						"\n"
-						, weights[0]
-						, weights[1]
-						, weights[2]
-						, weights[3]
-						, p1
-						, curr>p1?"v add":(curr<p1?"^ sub":"= zero")
-						, estims[0]
-						, estims[1]
-						, estims[2]
-						, estims[3]
-						, curr
-					);
-					if(cnt>1000&&!(cnt&15))
-						console_scan_int();
-				}
-#endif
+
 				int e=(curr>p1)-(curr<p1);//L1
 				weights[0]+=e*estims[0];
 				weights[1]+=e*estims[1];
 				weights[2]+=e*estims[2];
 				weights[3]+=e*estims[3];
-			//	weights[4]+=e*estims[4];
-			//	weights[5]+=e*estims[5];
-			//	weights[6]+=e*estims[6];
-			//	weights[7]+=e*estims[7];
-			//	{
-			//		int p=((2*W+curr+NEEE)<<14)-leak[kc];
-			//		leak[kc]+=p<0?-(-p>>5):p>>5;
-			//	}
-			//	{
-			//		int p=(NEE<<16)-leak2[kc];
-			//		leak2[kc]+=p<0?-(-p>>2):p>>2;
-			//	}
 			}
 		}
 	}
 	_mm_free(pixels);
-	//messagebox(MBOX_OK, "Info",
-	//	"%12d\n%12d\n%12d\n%12d"
-	//	, coeffs[0][0]
-	//	, coeffs[0][1]
-	//	, coeffs[0][2]
-	//	, coeffs[0][3]
-	//);
 }
 void pred_mixN_crct2(Image *src, int fwd)
 {

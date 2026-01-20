@@ -178,6 +178,18 @@ typedef enum _ImageViewMode
 } ImageViewMode;
 int viewmode=VIEW_RGB, view_ma=0;
 
+typedef enum _HistMode
+{
+	HISTMODE_LINEAR,
+	HISTMODE_LINEAR_NOSPIKE,
+	HISTMODE_LOG2,
+	HISTMODE_LOG2_NOSPIKE,
+
+	HISTMODE_COUNT,
+} HistMode;
+int histmode=HISTMODE_LINEAR_NOSPIKE;
+ArrayHandle rectangles=0;
+
 typedef enum TransformTypeEnum
 {
 	CT_FWD_SubG_OPT,	CT_INV_SubG_OPT,
@@ -5341,31 +5353,111 @@ void chart_mesh_sep_draw()
 #endif
 static void chart_hist_draw(float x1, float x2, float y1, float y2, int cstart, int cend, int color, unsigned char alpha, int *_hist, int *_histmax)
 {
-	for(int kc=cstart;kc<cend;++kc)
+	switch(histmode)
 	{
-		if(_histmax[kc])
+	case HISTMODE_LINEAR:
+		for(int kc=cstart;kc<cend;++kc)
 		{
-			float dy=(y2-y1)/3.f, histpx=dy/_histmax[kc];
-			//int k=1;
-			//float y=k*histpx*10000;
-			//for(;y<dy;++k)
-			//{
-			//	draw_line(x1, y1+(kc+1)*dy-y, x2, y1+(kc+1)*dy-y, color?color:alpha<<24|0xFF<<(kc<<3));//0x40
-			//	y=k*histpx*10000;
-			//}
-			for(int k2=0;k2<256;++k2)
+			if(_histmax[kc])
 			{
-				draw_rect(x1+k2*(x2-x1)/256, x1+(k2+1)*(x2-x1)/256, y1+(kc+1)*dy-_hist[kc<<8|k2]*histpx, y1+(kc+1)*dy, color?color:alpha<<24|0xFF<<(kc<<3));//0x80
-				float x=x1+(k2+0.5f)*(x2-x1)/256, y;
-				if(k2<128)
-					y=(float)_hist[kc<<8|(k2+0)]/_hist[kc<<8|(k2+1)];
-				else if(k2>128)
-					y=(float)_hist[kc<<8|(k2+0)]/_hist[kc<<8|(k2-1)];
-				else
-					y=0;
-				draw_line(x, y1+(kc+1)*dy, x, y1+(kc+1)*dy-y*dy*0.25f, color?color:0xFF<<24|0xFF<<(kc<<3));
+				float dy=(y2-y1)/3.f, histpx=dy/_histmax[kc];
+				//int k=1;
+				//float y=k*histpx*10000;
+				//for(;y<dy;++k)
+				//{
+				//	draw_line(x1, y1+(kc+1)*dy-y, x2, y1+(kc+1)*dy-y, color?color:alpha<<24|0xFF<<(kc<<3));//0x40
+				//	y=k*histpx*10000;
+				//}
+				for(int k2=0;k2<256;++k2)
+				{
+					draw_rect(x1+k2*(x2-x1)/256, x1+(k2+1)*(x2-x1)/256, y1+(kc+1)*dy-_hist[kc<<8|k2]*histpx, y1+(kc+1)*dy, color?color:alpha<<24|0xFF<<(kc<<3));//0x80
+					float x=x1+(k2+0.5f)*(x2-x1)/256, y;
+					if(k2<128)
+						y=(float)_hist[kc<<8|(k2+0)]/_hist[kc<<8|(k2+1)];
+					else if(k2>128)
+						y=(float)_hist[kc<<8|(k2+0)]/_hist[kc<<8|(k2-1)];
+					else
+						y=0;
+					draw_line(x, y1+(kc+1)*dy, x, y1+(kc+1)*dy-y*dy*0.25f, color?color:0xFF<<24|0xFF<<(kc<<3));
+				}
 			}
 		}
+		break;
+	case HISTMODE_LINEAR_NOSPIKE:
+		for(int kc=cstart;kc<cend;++kc)
+		{
+			int histmax=0, histmax2=0, kmax=0;
+			for(int ks=0;ks<256;++ks)
+			{
+				int freq=_hist[ks];
+				if(histmax<freq)
+				{
+					histmax2=histmax;
+					histmax=freq;
+					kmax=ks;
+				}
+			}
+			if(histmax2)//2nd max
+			{
+				float dy=(y2-y1)/3.f, histpx=dy/histmax2;
+				for(int k2=0;k2<256;++k2)
+				{
+					draw_rect_enqueue(
+						&rectangles,
+						x1+k2*(x2-x1)/256,
+						x1+(k2+1)*(x2-x1)/256,
+						y1+(kc+1)*dy-_hist[kc<<8|k2]*histpx,
+						y1+(kc+1)*dy
+					);
+				}
+				draw_2d_flush(rectangles, color?color:alpha<<24|0xFF<<(kc<<3), GL_TRIANGLES);
+			}
+		}
+		break;
+	case HISTMODE_LOG2:
+	case HISTMODE_LOG2_NOSPIKE:
+		for(int kc=cstart;kc<cend;++kc)
+		{
+			float hist2[256];
+			int hsum=0;
+			float invsum=0;
+			float histmax=0, histmax2=0;
+			for(int ks=0;ks<256;++ks)
+				hsum+=_hist[kc<<8|ks];
+			invsum=1.f/hsum;
+			for(int ks=0;ks<256;++ks)
+			{
+				int freq=_hist[kc<<8|ks];
+				hist2[ks]=0;
+				if(freq)
+				{
+					float f2=hist2[ks]=-freq*log2f((float)freq*invsum);
+					if(histmax<f2)
+					{
+						histmax2=histmax;
+						histmax=f2;
+					}
+				}
+			}
+			if(histmode==HISTMODE_LOG2_NOSPIKE)
+				histmax=histmax2;
+			if(histmax)
+			{
+				float dy=(y2-y1)/3.f, histpx=dy/histmax;
+				for(int k2=0;k2<256;++k2)
+				{
+					draw_rect_enqueue(
+						&rectangles,
+						x1+k2*(x2-x1)/256,
+						x1+(k2+1)*(x2-x1)/256,
+						y1+(kc+1)*dy-hist2[k2]*histpx,
+						y1+(kc+1)*dy
+					);
+				}
+				draw_2d_flush(rectangles, color?color:alpha<<24|0xFF<<(kc<<3), GL_TRIANGLES);
+			}
+		}
+		break;
 	}
 }
 static void chart_hist_draw2(float x1, float x2, float y1, float y2, int color, int *_hist, int _histmax)
@@ -7269,14 +7361,21 @@ int io_keydn(IOKey key, char c)
 			copy_to_clipboard((char*)str->data, (int)str->count);
 			array_free(&str);
 		}
-		else if(mode==VIS_IMAGE||mode==VIS_ZIPF||mode==VIS_IMAGE_TRICOLOR||mode==VIS_JOINT_HISTOGRAM)
+		else//if(mode==VIS_IMAGE||mode==VIS_ZIPF||mode==VIS_IMAGE_TRICOLOR||mode==VIS_JOINT_HISTOGRAM)
 		{
-			if(mode==VIS_JOINT_HISTOGRAM&&GET_KEY_STATE(KEY_SHIFT))
+			//if(mode==VIS_JOINT_HISTOGRAM&&GET_KEY_STATE(KEY_SHIFT))
+			if(mode==VIS_JOINT_HISTOGRAM)
 			{
 				int shift=GET_KEY_STATE(KEY_SHIFT);
 				space_not_color+=1-(shift<<1);
 				MODVAR(space_not_color, space_not_color, 4);
 				update_image();
+			}
+			else if(mode==VIS_HISTOGRAM)
+			{
+				int shift=GET_KEY_STATE(KEY_SHIFT);
+				histmode+=1-(shift<<1);
+				MODVAR(histmode, histmode, HISTMODE_COUNT);
 			}
 			else
 			{
@@ -11057,6 +11156,17 @@ void io_render(void)
 				GUIPrint(0, 0, tdy*3, 2, "0b%s/%d", bin, abacvis_range);
 			//	GUIPrint(0, 0, tdy*3, 2, "0x%04X/%d", abacvis_low, abacvis_range);
 			}
+		}
+		else if(mode==VIS_HISTOGRAM)
+		{
+			switch(histmode)
+			{
+			case HISTMODE_LINEAR:		mode_str="Linear";break;
+			case HISTMODE_LINEAR_NOSPIKE:	mode_str="Linear (no spike)";break;
+			case HISTMODE_LOG2:		mode_str="Shannon";break;
+			case HISTMODE_LOG2_NOSPIKE:	mode_str="Shannon (no spike)";break;
+			}
+			GUIPrint(0, 0, tdy*2, 1, "%d/%d %s", histmode+1, HISTMODE_COUNT, mode_str);
 		}
 		else if(mode==VIS_JOINT_HISTOGRAM)
 		{

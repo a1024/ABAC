@@ -785,7 +785,7 @@ void draw_triangle(float x1, float y1, float x2, float y2, float x3, float y3, i
 #endif
 }
 
-void draw_rect_enqueue(ArrayHandle *vertices, float x1, float x2, float y1, float y2)
+void draw_rect_enqueue(ArrayHandle *vertices, float x1, float x2, float y1, float y2)//primitive GL_TRIANGLES
 {
 	float
 		X1=screen2NDC_x(x1), Y1=screen2NDC_y(y1),
@@ -807,7 +807,7 @@ void draw_rect_enqueue(ArrayHandle *vertices, float x1, float x2, float y1, floa
 	*vptr++=X2; *vptr++=Y1;
 	*vptr++=X1; *vptr++=Y1;
 }
-void draw_curve_enqueue(ArrayHandle *vertices, float x, float y)
+void draw_curve_enqueue(ArrayHandle *vertices, float x, float y)//primitive GL_LINE_STRIP
 {
 	float *vptr;
 	if(!*vertices)
