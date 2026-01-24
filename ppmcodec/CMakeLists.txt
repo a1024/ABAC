@@ -61,6 +61,7 @@ add_executable(codec
 	c46.c
 	c47.c
 	c48.c
+	c49.c
 	codec.c
 	util.c
 
@@ -80,4 +81,4 @@ add_executable(codec
 	htscodecs/utils.c
 
 	zydist_amalgamated410/Zydis.c
- "c49.c")
+)
