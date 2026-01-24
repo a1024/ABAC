@@ -58,6 +58,7 @@ int c45_codec(int argc, char **argv);//simple, fast, static-o1 AC
 int c46_codec(int argc, char **argv);//Rice
 int c47_codec(int argc, char **argv);//lossy DCT size 4
 int c48_codec(int argc, char **argv);//lossy VarDCT size {4, 8, 16, 32}
+int c49_codec(int argc, char **argv);//lossy DWT+AC
 #endif
 
 
@@ -71,7 +72,7 @@ int c48_codec(int argc, char **argv);//lossy VarDCT size {4, 8, 16, 32}
 //	#define CODEC_EXT c07
 //	#define CODEC_EXT c08
 //	#define CODEC_EXT c09
-	#define CODEC_EXT c10
+//	#define CODEC_EXT c10
 //	#define CODEC_EXT c11
 //	#define CODEC_EXT c12
 //	#define CODEC_EXT c13
@@ -108,8 +109,9 @@ int c48_codec(int argc, char **argv);//lossy VarDCT size {4, 8, 16, 32}
 //	#define CODEC_EXT c44
 //	#define CODEC_EXT c45
 //	#define CODEC_EXT c46
-//	#define CODEC_EXT c47
+	#define CODEC_EXT c47
 //	#define CODEC_EXT c48
+//	#define CODEC_EXT c49
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -253,13 +255,16 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/calibr.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_abigail-keenan-27293.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_alberto-restifo-4549.ppm"
+	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_alejandro-escamilla-1.ppm"
+	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_aleksandra-boguslawska-288.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_alexander-schwarz-660.ppm"
-	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_ambitious-creative-co-rick-barrett-110145.ppm"
+		"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_ambitious-creative-co-rick-barrett-110145.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_dmitrii-medvedev-100580.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_jon-flobrant-32821.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_kim-daniel-594.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC30-ppm/03.ppm"
 	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0801.ppm"
+	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0802.ppm"
 	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0843.ppm"
 	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm"
 	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm"
@@ -267,7 +272,7 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/dataset-kodak2-ppm/IMG0023.ppm"
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim04.ppm"
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim23.ppm"
-		"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_02.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_03.ppm"
@@ -288,6 +293,7 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/kodim13-small16.ppm"
 	//	"C:/Projects/datasets/kodim13-small4.PPM"
 	//	"C:/Projects/datasets/kodim24.ppm"
+	//	"C:/Projects/datasets/lena.ppm"
 	//	"C:/Projects/datasets/space_huge.ppm"
 	//	"C:/Projects/datasets/space_huge.ppm"
 	//	"C:/Projects/datasets/temp.c18"

@@ -243,3 +243,6 @@ c47:
 
 c48:
 	gcc $(FLAGS) -Dc48_codec=main -mavx2 -mbmi -mlzcnt c48.c -o c48 $(LIBS)
+
+c49:
+	gcc $(FLAGS) -Dc49_codec=main -mavx2 -mbmi -mlzcnt c49.c -o c49 $(LIBS)
