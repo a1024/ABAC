@@ -656,7 +656,7 @@ extern int loud_transforms;
 extern int g_dist;
 void update_image(void);
 void calc_csize_stateful(Image const *image, int *hist_full, double *entropy);
-void batch_test2(void);
+void batch_test2(int custom);
 
 
 //transforms

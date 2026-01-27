@@ -192,7 +192,7 @@ static unsigned __stdcall sample_thread(void *param)
 //	const SampleCtx *pR=(const SampleCtx*)left;
 //	return pL->bpd0<pR->bpd0;
 //}
-void batch_test2(void)
+void batch_test2(int custom)
 {
 	enum
 	{
@@ -217,6 +217,7 @@ void batch_test2(void)
 	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H:%M:%S");
 	console_log("Batch Test  %s\n", g_buf);
 
+	if(!custom)
 	{
 		FILE *f=fopen(cfgfn, "r");
 		if(f)
@@ -245,34 +246,33 @@ void batch_test2(void)
 				console_end();
 				return;
 			}
-		}
-		else
-		{
-			for(filenames=0;;)
-			{
-				path=dialog_open_folder();
-				if(!path)
-					break;
-				ArrayHandle fns=get_filenames((char*)path->data, ext, _countof(ext), 1);
-				if(!fns)
-				{
-					array_free(&path);
-					break;
-				}
-				console_log("\"%s\"\n", (char*)path->data);
-				array_append(&paths, &path, sizeof(ArrayHandle*), 1, 1, 0, free_str);
-				//array_free(&path);
-				array_append(&filenames, fns->data, sizeof(ArrayHandle*), fns->count, 1, 0, free_str);
-				free(fns);//shallow free
-			}
-			if(!filenames||!filenames->count)
-			{
-				console_end();
-				return;
-			}
-			user=1;
+			goto start;
 		}
 	}
+	for(filenames=0;;)
+	{
+		path=dialog_open_folder();
+		if(!path)
+			break;
+		ArrayHandle fns=get_filenames((char*)path->data, ext, _countof(ext), 1);
+		if(!fns)
+		{
+			array_free(&path);
+			break;
+		}
+		console_log("\"%s\"\n", (char*)path->data);
+		array_append(&paths, &path, sizeof(ArrayHandle*), 1, 1, 0, free_str);
+		//array_free(&path);
+		array_append(&filenames, fns->data, sizeof(ArrayHandle*), fns->count, 1, 0, free_str);
+		free(fns);//shallow free
+	}
+	if(!filenames||!filenames->count)
+	{
+		console_end();
+		return;
+	}
+	user=1;
+start:
 	loud_transforms=0;
 	console_log("Enter number of threads: ");
 	nthreads=console_scan_int();
@@ -474,7 +474,7 @@ void batch_test2(void)
 		console_pause();
 		loud_transforms=1;
 	}
-	if(user)
+	if(!custom&&user)
 	{
 		FILE *f=fopen(cfgfn, "w");
 		if(!f)

@@ -15304,7 +15304,7 @@ void dwt2d_legall53_inv(int *buffer, DWTSize *sizes, int sizes_start, int sizes_
 //lifting-based 8bit CDF 9/7 DWT
 static const int cdf97_coeff[]=
 {
-	//'factring wavelet transforms into lifting steps' - page 19
+	//'factoring wavelet transforms into lifting steps' - page 19
 	//'a wavelet tour of signal processing - the sparse way' - page 376
 	//Lifting-based Discrete Wavelet Transform for Real-Time Signal Detection 2015-10
 	 0x1960C,	// 1.58613434342059f,	//alpha		predict is negative

@@ -7628,7 +7628,7 @@ int io_keydn(IOKey key, char c)
 	case 'B'://batch test
 		if(GET_KEY_STATE(KEY_CTRL))
 		{
-			batch_test2();
+			batch_test2(!GET_KEY_STATE(KEY_SHIFT));
 		}
 		else if(mode==VIS_L1WEIGHTS)
 		{
