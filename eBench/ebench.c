@@ -187,7 +187,7 @@ typedef enum _HistMode
 
 	HISTMODE_COUNT,
 } HistMode;
-int histmode=HISTMODE_LINEAR_NOSPIKE;
+int histmode=HISTMODE_LINEAR;
 ArrayHandle rectangles=0;
 
 typedef enum TransformTypeEnum
@@ -3335,6 +3335,7 @@ static void chart_mesh_sep_update(Image const *image, ArrayHandle *cpuv, unsigne
 	glBufferData(GL_ARRAY_BUFFER, nf*sizeof(float), cpuv[0]->data, GL_STATIC_DRAW);	GL_CHECK(error);
 }
 static int hist[768], histmax[3];
+static double hist_mean[3]={0}, hist_sdev[3]={0}, hist_mad[3]={0}, hist_gausslike[3]={0}, hist_laplacelike[3]={0};//maintained by chart_hist_update
 //static int hist2[768], histmax2[3];
 static int *hist_full=0, hist_full_size=0;
 static float blockCR[3]={0};
@@ -3349,13 +3350,77 @@ static void chart_hist_update(Image const *image, int x1, int x2, int y1, int y2
 		double entropy;
 		if(count)
 		{
+			double norm=1./count;
 			for(int kc=0;kc<3;++kc)
 			{
-				calc_histogram(image->data, image->iw, image->ih, kc, x1, x2, y1, y2, image->depth[kc], hist_full, _hist+(kc<<8));
-				for(int k=0;k<256;++k)
+				int *currhist=_hist+((ptrdiff_t)kc<<8);
+				calc_histogram(image->data, image->iw, image->ih, kc, x1, x2, y1, y2, image->depth[kc], hist_full, currhist);
+				
+				hist_mean[kc]=0;
+				for(int ks=0;ks<256;++ks)
+					hist_mean[kc]+=(double)ks*currhist[ks];
+				hist_mean[kc]*=norm;
+
+				hist_sdev[kc]=0;
+				hist_mad[kc]=0;
+				for(int ks=0;ks<256;++ks)
 				{
-					if(_histmax[kc]<_hist[kc<<8|k])
-						_histmax[kc]=_hist[kc<<8|k];
+					int freq=currhist[ks];
+					double val=ks-hist_mean[kc];
+					hist_sdev[kc]+=val*val*freq;
+					hist_mad[kc]+=fabs(val)*freq;
+				}
+				hist_sdev[kc]=sqrt(hist_sdev[kc]/(count-1));
+				hist_mad[kc]/=count-1;
+				
+				hist_gausslike[kc]=0;
+				hist_laplacelike[kc]=0;
+				double invsdev=1/hist_sdev[kc];
+				double invb=1/hist_mad[kc];
+				double gnorm=1/(sqrt(2*M_PI)*hist_sdev[kc]);
+				double lnorm=1/(2*hist_mad[kc]);
+				for(int ks=0;ks<256;++ks)
+				{
+					int freq=currhist[ks];
+					if(freq)
+					{
+						double prob=freq*norm;
+						double pgauss=(ks-hist_mean[kc])*invsdev;
+						pgauss=gnorm*exp(-pgauss*pgauss);
+						double plaplace=(ks-hist_mean[kc])*invb;
+						plaplace=lnorm*exp(-fabs(plaplace));
+
+						hist_gausslike[kc]+=freq*(pgauss?-log2(pgauss):256);//finite codelength
+						hist_laplacelike[kc]+=freq*(plaplace?-log2(plaplace):256);
+
+					//	hist_gausslike[kc]+=fabs(prob-pgauss);
+					//	hist_laplacelike[kc]+=fabs(prob-plaplace);
+					}
+				}
+				hist_gausslike[kc]*=1./8;
+				hist_laplacelike[kc]*=1./8;
+#if 0
+				int ksign1=-1, ksign2=-1;
+				for(int ks=1, prev=0;ks<256-1;++ks)
+				{
+					int curv=2*currhist[ks]-currhist[ks-1]-currhist[ks+1];
+					if(ks>1)
+					{
+						if((curv>>31)!=(prev>>31))
+						{
+							if(ksign1==-1)
+								ksign1=ks;
+							else
+								ksign2=ks;
+						}
+					}
+					prev=curv;
+				}
+#endif
+				for(int ks=0;ks<256;++ks)
+				{
+					if(_histmax[kc]<currhist[ks])
+						_histmax[kc]=currhist[ks];
 				}
 				if(CR)
 				{
@@ -9697,6 +9762,10 @@ void io_render(void)
 						chart_hist_draw(0, (float)wndw, 0, (float)wndh-5*tdy
 							, 0, 3, 0, 0x60, hist, histmax
 						);
+					GUIPrint(0, 0, 5*tdy, 1, "Mean, RMSE, MAD, RMSE/MAD, Gsize, Lsize");
+					GUIPrint(0, 0, 6*tdy, 1, "Y %10.4lf %10.4lf %10.4lf %10.4lf %12.2lf %12.2lf", hist_mean[0]-128, hist_sdev[0], hist_mad[0], hist_sdev[0]/hist_mad[0], hist_gausslike[0], hist_laplacelike[0]);
+					GUIPrint(0, 0, 7*tdy, 1, "U %10.4lf %10.4lf %10.4lf %10.4lf %12.2lf %12.2lf", hist_mean[1]-128, hist_sdev[1], hist_mad[1], hist_sdev[1]/hist_mad[1], hist_gausslike[1], hist_laplacelike[1]);
+					GUIPrint(0, 0, 8*tdy, 1, "V %10.4lf %10.4lf %10.4lf %10.4lf %12.2lf %12.2lf", hist_mean[2]-128, hist_sdev[2], hist_mad[2], hist_sdev[2]/hist_mad[2], hist_gausslike[2], hist_laplacelike[2]);
 				}
 				else if(mode==VIS_MODEL)
 				{
