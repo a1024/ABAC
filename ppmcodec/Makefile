@@ -236,7 +236,7 @@ c45:
 	clang $(FLAGS) -Dc45_codec=main -mavx2 -mbmi -mlzcnt c45.c -o c45 $(LIBS)
 
 c46:
-	gcc $(FLAGS) -Dc46_codec=main -mavx2 -mbmi -mlzcnt c46.c -o c46 $(LIBS)
+	gcc -Wall -O3 -s -mavx2 -mbmi -mlzcnt -fopt-info -Dc46_codec=main c46.c -o c46 $(LIBS)
 
 c47:
 	gcc $(FLAGS) -Dc47_codec=main -mavx2 -mbmi -mlzcnt c47.c -o c47 $(LIBS)
@@ -246,3 +246,9 @@ c48:
 
 c49:
 	gcc $(FLAGS) -Dc49_codec=main -mavx2 -mbmi -mlzcnt c49.c -o c49 $(LIBS)
+
+c50:
+	gcc $(FLAGS) -fopt-info -Dc50_codec=main -mavx2 -mbmi -mlzcnt c50.c -o c50 $(LIBS)
+
+c51:
+	gcc $(FLAGS) -fopt-info -Dc51_codec=main -mavx2 -mbmi -mlzcnt c51.c -o c51 $(LIBS)

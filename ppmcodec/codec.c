@@ -19,7 +19,7 @@ int c06_codec(int argc, char **argv);//MT binary
 int c07_codec(int argc, char **argv);//MT o0 (binary) AC speed test
 int c08_codec(int argc, char **argv);//ST disk AC5 test
 int c09_codec(int argc, char **argv);//ST J2K CG o0 disk symbol ANS
-int c10_codec(int argc, char **argv);//ST J2K CG o0 disk symbol AC
+int c10_codec(int argc, char **argv);//ST cRCT-L1-GRctx AC
 int c11_codec(int argc, char **argv);//ST SubG CG o0 disk nibble AC
 int c12_codec(int argc, char **argv);//ST RCT o1 binary AC
 int c13_codec(int argc, char **argv);//MT WG4_12
@@ -55,10 +55,12 @@ int c42_codec(int argc, char **argv);//LZ+Rice
 int c43_codec(int argc, char **argv);//LZ+Rice (file-agnostic)
 int c44_codec(int argc, char **argv);//adaptive o1 rANS
 int c45_codec(int argc, char **argv);//simple, fast, static-o1 AC
-int c46_codec(int argc, char **argv);//Rice
+int c46_codec(int argc, char **argv);//Rice vs AC
 int c47_codec(int argc, char **argv);//lossy DCT size 4
 int c48_codec(int argc, char **argv);//lossy VarDCT size {4, 8, 16, 32}
 int c49_codec(int argc, char **argv);//lossy DWT+AC
+int c50_codec(int argc, char **argv);//FELICS-like
+int c51_codec(int argc, char **argv);//chroma subsampling + DCT4 + adaptive quantization
 #endif
 
 
@@ -108,10 +110,12 @@ int c49_codec(int argc, char **argv);//lossy DWT+AC
 //	#define CODEC_EXT c43
 //	#define CODEC_EXT c44
 //	#define CODEC_EXT c45
-//	#define CODEC_EXT c46
-	#define CODEC_EXT c47
+	#define CODEC_EXT c46
+//	#define CODEC_EXT c47
 //	#define CODEC_EXT c48
 //	#define CODEC_EXT c49
+//	#define CODEC_EXT c50
+//	#define CODEC_EXT c51
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -258,7 +262,7 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_alejandro-escamilla-1.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_aleksandra-boguslawska-288.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_alexander-schwarz-660.ppm"
-		"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_ambitious-creative-co-rick-barrett-110145.ppm"
+	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_ambitious-creative-co-rick-barrett-110145.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_dmitrii-medvedev-100580.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_jon-flobrant-32821.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_kim-daniel-594.ppm"
@@ -268,19 +272,23 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0843.ppm"
 	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm"
 	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm"
+	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-02.ppm"
 	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/photo-40.ppm"
 	//	"C:/Projects/datasets/dataset-kodak2-ppm/IMG0023.ppm"
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim04.ppm"
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim23.ppm"
-	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
+		"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_02.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_03.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/olympus_xz1_16.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA12811.ppm"
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA13803.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA13882.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm"
-	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm"	//large
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm"	//large hard
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13844.ppm"	//large med
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13845.ppm"	//large easy
 	//	"C:/Projects/datasets/dataset-sintel-ppm"
 	//	"C:/Projects/datasets/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
 	//	"C:/Projects/datasets/dataset-synth2-ppm/20240405 2 CPU-load.ppm"

@@ -62,6 +62,8 @@ add_executable(codec
 	c47.c
 	c48.c
 	c49.c
+	c50.c
+	c51.c
 	codec.c
 	util.c
 

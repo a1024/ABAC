@@ -26,18 +26,14 @@
 	#define LOUD
 	#define ESTIMATE_SIZES
 	#define ENABLE_GUIDE
+	#define FIFOVAL
 #endif
 
 
-//	#define MATCH_HISTOGRAMS
-//	#define MATCH_HISTOGRAMS_TEST
+	#define USE_FELICS
 //	#define USE_W
 //	#define USE_CG
-	#define USE_L1
-
-	#define USE_AC
-//	#define GR_L1
-//	#define ANALYSIS_SIMD
+//	#define USE_L1
 
 
 #ifdef USE_L1
@@ -54,15 +50,6 @@
 
 #endif
 
-#ifdef GR_L1
-#define GRESTIMLIST\
-	GRESTIM(eNW)\
-	GRESTIM(eN)\
-	GRESTIM(eNE)\
-	GRESTIM(eW)\
-
-#endif
-
 enum
 {
 #ifdef USE_L1
@@ -71,24 +58,20 @@ enum
 	NPREDS=PREDLIST,
 #undef  PRED
 #endif
+
+	SBUFSIZE=512*1024,
+	PBUFSIZE=SBUFSIZE/3*3,
+
+	GRBITS=3,
 	
-#ifdef GR_L1
-	GRSHIFT=18,
-#define GRESTIM(...) +1
-	NGRESTIMS=GRESTIMLIST,
-#undef  GRESTIM
-#else
-	GRBITS=4,
-#endif
-#ifdef USE_AC
 	NCTX=18,
-	NLEVELS=256,
-#endif
 
 	XPAD=8,
 	NCH=3,
 	NROWS=4,
 	NVAL=2,
+
+	GRPREC=3,
 };
 
 //runtime
@@ -208,6 +191,65 @@ static void guide_check(uint8_t *image, int kx, int ky)
 #define guide_check(...)
 #define guide_update(...)
 #endif//ENABLE_GUIDE
+#endif
+
+#ifdef FIFOVAL
+static ptrdiff_t fifoidx=0, fifocap=0, fifoidx2=0;
+static uint32_t *fifoval=0;
+static void valfifo_enqueue(uint32_t val)
+{
+	if(fifoidx+1>=fifocap)
+	{
+		void *p=0;
+
+		if(!fifocap)
+			fifocap=1;
+		fifocap<<=1;
+		p=realloc(fifoval, fifocap*sizeof(uint32_t));
+		if(!p)
+		{
+			CRASH("Alloc error");
+			return;
+		}
+		fifoval=(uint32_t*)p;
+	}
+	fifoval[fifoidx++]=val;
+}
+static void valfifo_check(uint32_t val)
+{
+	uint32_t val0=fifoval[fifoidx2++];
+	if(val!=val0)
+	{
+		--fifoidx2;
+		printf(
+			"\n"
+			"FIFO Error  at %10lld,  remaining %10lld\n"
+			"    0x%08X  !=  original 0x%08X\n"
+			"\n"
+			, fifoidx2
+			, fifoidx-fifoidx2//current element was not decoded successfully
+			, val, val0
+		);
+		for(int k=-32;k<32;++k)
+		{
+			ptrdiff_t idx=fifoidx2+k;
+			if((size_t)idx<(size_t)fifoidx)
+			{
+				printf(
+					"%10td  0x%08X"
+					, idx
+					, fifoval[idx]
+				);
+				if(idx<fifoidx2)
+					printf("  OK");
+				if(idx==fifoidx2)
+					printf("  !=  corrupt 0x%08X", val);
+				printf("\n");
+			}
+		}
+		CRASH("");
+	}
+}
 #endif
 
 
@@ -416,50 +458,16 @@ static const char *rct_names[RCT_COUNT]=
 static int crct_analysis(uint8_t *image, int iw, int ih)
 {
 	long long counters[OCH_COUNT]={0};
-#ifdef ANALYSIS_SIMD
-	__m256i mprev=_mm256_setzero_si256();
-#else
 	int prev[OCH_COUNT]={0};
-#endif
-	for(uint8_t *ptr=image, *end=image+(ptrdiff_t)3*iw*ih;ptr<end;ptr+=3)
+	for(ptrdiff_t k=0, len=(ptrdiff_t)3*iw*ih;k<len;k+=3)
 	{
 		int
-			r=ptr[0]<<2,
-			g=ptr[1]<<2,
-			b=ptr[2]<<2,
+			r=image[k+0]<<2,
+			g=image[k+1]<<2,
+			b=image[k+2]<<2,
 			rg=r-g,
 			gb=g-b,
 			br=b-r;
-#ifdef ANALYSIS_SIMD
-		__m256i mval=_mm256_setr_epi16(
-			r, g, b,
-			rg, gb, br,
-			rg+(gb>>2), rg+(br>>2), br+(rg>>2),
-			br+(gb>>2), gb+(br>>2), gb+(rg>>2),
-			(rg-br)>>1, (gb-rg)>>1, (br-gb)>>1,
-			0
-		);
-		__m256i mdelta=_mm256_sub_epi16(mval, mprev);
-		mprev=mval;
-		mdelta=_mm256_abs_epi16(mdelta);
-		ALIGN(32) int16_t deltas[16];
-		_mm256_store_si256((__m256i*)deltas, mdelta);
-		counters[0x0]+=deltas[0x0];
-		counters[0x1]+=deltas[0x1];
-		counters[0x2]+=deltas[0x2];
-		counters[0x3]+=deltas[0x3];
-		counters[0x4]+=deltas[0x4];
-		counters[0x5]+=deltas[0x5];
-		counters[0x6]+=deltas[0x6];
-		counters[0x7]+=deltas[0x7];
-		counters[0x8]+=deltas[0x8];
-		counters[0x9]+=deltas[0x9];
-		counters[0xA]+=deltas[0xA];
-		counters[0xB]+=deltas[0xB];
-		counters[0xC]+=deltas[0xC];
-		counters[0xD]+=deltas[0xD];
-		counters[0xE]+=deltas[0xE];
-#else
 		counters[0]+=abs(r -prev[0]);
 		counters[1]+=abs(g -prev[1]);
 		counters[2]+=abs(b -prev[2]);
@@ -500,7 +508,6 @@ static int crct_analysis(uint8_t *image, int iw, int ih)
 		UPDATE(OCH_CX22, OCH_C2X2, OCH_C22X, (rg-br)>>1, (gb-rg)>>1, (br-gb)>>1);
 #undef  UPDATE
 #endif
-#endif
 	}
 	int bestrct=0;
 	long long minerr=0;
@@ -521,26 +528,48 @@ static int crct_analysis(uint8_t *image, int iw, int ih)
 	return bestrct;
 }
 
+
 #ifdef ESTIMATE_SIZES
+#define BSIZELIST\
+	BSIZE(UNARY)\
+	BSIZE(BYPASS)\
+	BSIZE(TRUNC)\
+	BSIZE(BITS)\
+
+enum
+{
+#define BSIZE(X) SIZE_##X,
+	BSIZELIST
+#undef  BSIZE
+	SIZE_COUNT,
+};
 static const char *bsize_labels[]=
 {
-	"unary",
-	"bypass",
+#define BSIZE(X) #X,
+	BSIZELIST
+#undef  BSIZE
 };
-static int g_kc;
-static int64_t bsizes[3][2];
+static int g_kc=0;
+static int64_t bsizes[3][SIZE_COUNT]={0};
 #endif
 typedef struct _RiceCoder
 {
-	uint64_t cache, nbits;
+	uint64_t cache;
+	int64_t nbits;
 	uint8_t *ptr, *end;
 } RiceCoder;
-AWM_INLINE void rice_init(RiceCoder *ec, uint8_t *start, uint8_t *end)
+AWM_INLINE void rice_init(RiceCoder *ec, uint8_t *start, uint8_t *end, int fwd)
 {
 	ec->cache=0;
 	ec->nbits=64;
 	ec->ptr=start;
 	ec->end=end;
+	if(!fwd)
+	{
+		ec->cache=*(uint64_t*)ec->ptr;
+		ec->ptr+=8;
+		ec->nbits=0;
+	}
 }
 AWM_INLINE void rice_flush(RiceCoder *ec)
 {
@@ -556,8 +585,8 @@ AWM_INLINE void rice_enc(RiceCoder *ec, int nbypass, int sym)
 	int bypass=sym&0x7FFFFFFF>>(31-nbypass);
 //	int bypass=sym&((1<<nbypass)-1);
 #ifdef ESTIMATE_SIZES
-	bsizes[g_kc][0]+=nzeros+1;
-	bsizes[g_kc][1]+=nbypass;
+	bsizes[g_kc][SIZE_UNARY]+=nzeros+1LL;
+	bsizes[g_kc][SIZE_BYPASS]+=nbypass;
 #endif
 	if(nzeros>=ec->nbits)//fill the rest of cache with zeros, and flush
 	{
@@ -633,34 +662,116 @@ AWM_INLINE int rice_dec(RiceCoder *ec, int nbypass)
 	}
 	return sym;
 }
-
-#ifdef MATCH_HISTOGRAMS
-int32_t matchhist[4][256];
-uint16_t matchtable[2][256];
-#ifdef MATCH_HISTOGRAMS_TEST
-static double calc_csize(int32_t *hist)
+AWM_INLINE void bit_pack(RiceCoder *ec, int bit)
 {
-	int histsum=0;
-	for(int ks=0;ks<256;++ks)
-		histsum+=hist[ks];
-	double invsum=1./histsum, e=0;
-	for(int ks=0;ks<256;++ks)
+#ifdef ESTIMATE_SIZES
+	++bsizes[g_kc][SIZE_BITS];
+#endif
+	--ec->nbits;
+	ec->cache|=(uint64_t)bit<<ec->nbits;
+	if(ec->nbits<=0)
 	{
-		int freq=hist[ks];
-		if(freq)
-			e-=freq*log2((double)freq*invsum);
+		*(uint64_t*)ec->ptr=ec->cache;
+		ec->ptr+=8;
+		ec->cache=0;
+		ec->nbits=64;
 	}
-	return e/8;
 }
-#endif
-#endif
-#ifdef USE_AC
-uint16_t hists[3][NCTX][NLEVELS];
-uint16_t hcounts[3][NCTX];
-#endif
-int c46_codec(int argc, char **argv)
+AWM_INLINE int bit_unpack(RiceCoder *ec)
 {
-	const uint16_t tag='4'|'6'<<8;
+	int bit;
+
+	++ec->nbits;
+	bit=(int)(ec->cache>>(64-ec->nbits));
+	ec->cache&=0xFFFFFFFFFFFFFFFF>>ec->nbits;
+	if(ec->nbits>=64)
+	{
+		ec->nbits-=64;
+		ec->cache=*(uint64_t*)ec->ptr;
+		ec->ptr+=8;
+	}
+	return bit;
+}
+AWM_INLINE void truncbin_enc(RiceCoder *ec, int nlevels, int val)
+{
+	/*
+	truncaed binary code:	nlevels>=2
+	nlevels	6	5	4	3	2
+
+	0	00	00	00	0	0
+	1	01	01	01	10	1
+	2	100	10	10	11
+	3	101	110	11
+	4	110	111
+	5	111
+	*/
+	int k=FLOOR_LOG2(nlevels);
+	int nunused=(1<<(k+1))-nlevels;
+	int bypass, nbypass;
+	if(val<nunused)
+		bypass=val, nbypass=k;
+	else
+		bypass=val+nunused, nbypass=k+1;
+#ifdef ESTIMATE_SIZES
+	bsizes[g_kc][SIZE_TRUNC]+=bypass;
+#endif
+	
+	if(nbypass>=ec->nbits)
+	{
+		nbypass-=(int)ec->nbits;
+		ec->cache|=(uint64_t)bypass>>nbypass;
+		bypass&=0x7FFFFFFF>>(31-nbypass);
+		*(uint64_t*)ec->ptr=ec->cache;
+		ec->ptr+=8;
+		ec->cache=0;
+		ec->nbits=64;
+	}
+	if(nbypass)
+	{
+		ec->nbits-=nbypass;
+		ec->cache|=(uint64_t)bypass<<ec->nbits;
+	}
+}
+AWM_INLINE int truncbin_dec(RiceCoder *ec, int nlevels)
+{
+	int k=FLOOR_LOG2(nlevels);
+	int nunused=(1<<(k+1))-nlevels;
+	int val=0;
+	
+	ec->nbits+=k;
+	if(ec->nbits>=64)
+	{
+		ec->nbits-=64;
+		val|=(int)(ec->cache<<ec->nbits);
+		ec->cache=*(uint64_t*)ec->ptr;
+		ec->ptr+=8;
+		k=(int)ec->nbits;
+	}
+	if(k)
+	{
+		val|=(int)(ec->cache>>(64-ec->nbits));
+		ec->cache&=0xFFFFFFFFFFFFFFFF>>ec->nbits;
+	}
+	if(val>=nunused)
+	{
+		++ec->nbits;
+		val<<=1;
+		val|=(int)(ec->cache>>(64-ec->nbits));
+		ec->cache&=0xFFFFFFFFFFFFFFFF>>ec->nbits;
+		val-=nunused;
+		if(ec->nbits>=64)
+		{
+			ec->nbits-=64;
+			ec->cache=*(uint64_t*)ec->ptr;
+			ec->ptr+=8;
+		}
+	}
+	return val;
+}
+
+int c50_codec(int argc, char **argv)
+{
+	const uint16_t tag='5'|'0'<<8;
 
 	const char *srcfn=0, *dstfn=0;
 	FILE *fsrc=0;
@@ -672,23 +783,24 @@ int c46_codec(int argc, char **argv)
 	uint8_t *image=0, *stream=0, *imptr=0;
 	int yidx=0, uidx=0, vidx=0, uc0=0, vc0=0, vc1=0;
 #ifdef USE_L1
-	int64_t weights[NCH][NPREDS]={0};
-	//int32_t weights[NCH][NPREDS]=
-	//{
-	//	{110945, 45985, 18752, 97238, 24553, 2839, -3204, -45897, 11426},
-	//	{135091, 35463, 8137, 110673, 10225, 10071, 8608, -61836, 4727},
-	//	{150376, 50763, -37948, 96009, -18017, 26950, 21077, -56707, 32104},
-	//};
+	int32_t weights[NCH][NPREDS]={0};
 #endif
-#ifdef GR_L1
-	int64_t grweights[NCH][NGRESTIMS]={0};
+#ifdef USE_FELICS
+	int amin[]=
+	{
+		0,
+		-255,
+		-255,
+	};
+	int amax[]=
+	{
+		255,
+		255,
+		255,
+	};
+	int estim=1<<GRPREC;
 #endif
-#ifdef USE_AC
-	uint64_t low=0, range=0xFFFFFFFFFFFF, code=0;
-	uint8_t *streamptr=0;
-#else
 	RiceCoder ec;
-#endif
 #ifdef LOUD
 	double t=0;
 #endif
@@ -775,7 +887,7 @@ int c46_codec(int argc, char **argv)
 			CRASH("Unsupported PPM file");
 			return 1;
 		}
-		ccap=(int64_t)4*iw*ih;
+		ccap=(int64_t)6*iw*ih;
 	}
 	else
 	{
@@ -811,143 +923,14 @@ int c46_codec(int argc, char **argv)
 		fread(image, 1, usize, fsrc);
 		guide_save(image, iw, ih);
 		bestrct=crct_analysis(image, iw, ih);
-#ifdef MATCH_HISTOGRAMS
-		yidx=rct_combinations[bestrct][II_PERM_Y];
-		uidx=rct_combinations[bestrct][II_PERM_U];
-		vidx=rct_combinations[bestrct][II_PERM_V];
-		uc0=rct_combinations[bestrct][II_COEFF_U_SUB_Y];
-		vc0=rct_combinations[bestrct][II_COEFF_V_SUB_Y];
-		vc1=rct_combinations[bestrct][II_COEFF_V_SUB_U];
-		memset(matchhist, 0, sizeof(matchhist));
-		for(uint8_t *ptr=image, *end=image+usize;ptr<end;ptr+=3)
-		{
-			int y=ptr[yidx], u=ptr[uidx], v=ptr[vidx];
-			int offset1=uc0*y>>2;
-			int offset2=(vc0*y+vc1*u)>>2;
-			++matchhist[0][offset1];
-			++matchhist[1][u];
-			++matchhist[2][offset2];
-			++matchhist[3][v];
-		}
-		int sum0=0, sum1=0, sum2=0, sum3=0;
-		for(int ks=0;ks<256;++ks)//integrate CDFs
-		{
-			int freq0=matchhist[0][ks];
-			int freq1=matchhist[1][ks];
-			int freq2=matchhist[2][ks];
-			int freq3=matchhist[3][ks];
-			matchhist[0][ks]=sum0;
-			matchhist[1][ks]=sum1;
-			matchhist[2][ks]=sum2;
-			matchhist[3][ks]=sum3;
-			sum0+=freq0;
-			sum1+=freq1;
-			sum2+=freq2;
-			sum3+=freq3;
-		}
-		for(int kc=0;kc<2;++kc)
-		{
-			int32_t *srccdf=matchhist[2*kc+0], *dstcdf=matchhist[2*kc+1];
-			uint16_t *table=matchtable[kc];
-			int start=0;
-			for(int ks=0;ks<256;++ks)
-			{
-				int s0=start;
-				int v1=srccdf[ks];
-				while(dstcdf[start]<v1)
-					++start;
-			//	table[ks]=ks;
-				table[ks]=s0;
-			//	table[ks]=(2*ks+s0+start+1)>>2;
-			//	table[ks]=start;
-			}
-		}
-#ifdef MATCH_HISTOGRAMS_TEST
-		int64_t ctr[4]={0};//{ubefore vbefore uafter vafter}
-		int prev[4]={0};
-		memset(matchhist, 0, sizeof(matchhist));
-		for(uint8_t *ptr=image, *end=image+usize;ptr<end;ptr+=3)
-		{
-			int y=ptr[yidx], u=ptr[uidx], v=ptr[vidx];
-
-			int offset1=uc0*y>>2;
-			int pu=prev[0]+offset1;
-			CLAMP2(pu, 0, 255);
-			ctr[0]+=abs(u-pu);
-			++matchhist[0][(u-pu+128)&255];
-
-			int offset2=(vc0*y+vc1*u)>>2;
-			int pv=prev[1]+offset2;
-			CLAMP2(pv, 0, 255);
-			ctr[1]+=abs(v-pv);
-			++matchhist[1][(v-pv+128)&255];
-
-			int offset1b=matchtable[0][offset1];
-			int pu2=prev[2]+offset1b;
-			CLAMP2(pu2, 0, 255);
-			ctr[2]+=abs(u-pu2);
-			++matchhist[2][(u-pu2+128)&255];
-
-			int offset2b=matchtable[1][offset2];
-			int pv2=prev[3]+offset2b;
-			CLAMP2(pv2, 0, 255);
-			ctr[3]+=abs(v-pv2);
-			++matchhist[3][(v-pv2+128)&255];
-			
-			prev[0]=u-offset1;
-			prev[1]=v-offset2;
-			prev[2]=u-offset1b;
-			prev[3]=v-offset2b;
-		}
-		double csizes[4]={0};
-		csizes[0]=calc_csize(matchhist[0]);
-		csizes[1]=calc_csize(matchhist[1]);
-		csizes[2]=calc_csize(matchhist[2]);
-		csizes[3]=calc_csize(matchhist[3]);
-		printf("U before %12.2lf %12lld  ->  U after  %12.2lf %12lld\n", csizes[0], ctr[0], csizes[2], ctr[2]);
-		printf("V before %12.2lf %12lld  ->  V after  %12.2lf %12lld\n", csizes[1], ctr[1], csizes[3], ctr[3]);
-		exit(0);
-#endif
-#if 0
-		int64_t res=(int64_t)iw*ih;
-		int64_t norm=(0xFFFFLL<<32)/res;
-		int64_t c0=0, c1=0, c2=0, c3=0;
-		for(int ks=0;ks<256;++ks)//normalize
-		{
-			int freq0=matchhist[0][ks];
-			int freq1=matchhist[1][ks];
-			int freq2=matchhist[2][ks];
-			int freq3=matchhist[3][ks];
-			matchhist[0][ks]=(int32_t)(c0*norm>>32);
-			matchhist[1][ks]=(int32_t)(c1*norm>>32);
-			matchhist[2][ks]=(int32_t)(c2*norm>>32);
-			matchhist[3][ks]=(int32_t)(c3*norm>>32);
-			c0+=freq0;
-			c1+=freq1;
-			c2+=freq2;
-			c3+=freq3;
-		}
-#endif
-#endif
 	}
 	else
 	{
 		fread(stream, 1, ccap, fsrc);
 	}
 	fclose(fsrc);
-	
-#ifdef USE_AC
-	streamptr=stream;
-	if(!fwd)
-	{
-		code=code<<32|*(uint32_t*)streamptr; streamptr+=sizeof(uint32_t);//load
-		code=code<<32|*(uint32_t*)streamptr; streamptr+=sizeof(uint32_t);
-	}
-	memset(hists, 0, sizeof(hists));
-	memset(hcounts, 0, sizeof(hcounts));
-#else
-	rice_init(&ec, stream, stream+ccap);
-#endif
+
+	rice_init(&ec, stream, stream+ccap, fwd);
 	yidx=rct_combinations[bestrct][II_PERM_Y];
 	uidx=rct_combinations[bestrct][II_PERM_U];
 	vidx=rct_combinations[bestrct][II_PERM_V];
@@ -956,24 +939,22 @@ int c46_codec(int argc, char **argv)
 	vc1=rct_combinations[bestrct][II_COEFF_V_SUB_U];
 #ifdef USE_L1
 	for(int k=0;k<NCH*NPREDS;++k)
-		((int64_t*)weights)[k]=(1<<SHIFT)/NPREDS;
-#endif
-#ifdef RICE_L1
-	for(int k=0;k<NCH*2;++k)
-		((int32_t*)riceweights)[k]=(1<<SHIFT)/2;
+		((int32_t*)weights)[k]=(1<<SHIFT)/NPREDS;
 #endif
 	memset(pixels, 0, psize);
 	imptr=image;
 	for(int ky=0;ky<ih;++ky)
 	{
-#ifdef USE_L1
-		int estim[NPREDS]={0}, j;
+#ifdef USE_FELICS
+		int inside=0, below=0, nlevels=0, val=0;
+#else
+		int error=0, sym=0;
 #endif
-#ifdef GR_L1
-		int grestims[NGRESTIMS]={0};
+#ifdef USE_L1
+		int estim[NPREDS]={0};
 #endif
 		int yuv[3]={0};
-		int error=0, sym=0, curr=0;
+		int curr=0;
 		int16_t *rows[]=
 		{
 			pixels+(XPAD*NCH*NROWS+(ky-0LL+NROWS)%NROWS)*NVAL,
@@ -983,12 +964,20 @@ int c46_codec(int argc, char **argv)
 		};
 		for(int kx=0;kx<iw;++kx, imptr+=3)
 		{
+#ifndef USE_FELICS
 			int offset=0;
+#endif
 			if(fwd)
 			{
 				yuv[0]=imptr[yidx];
 				yuv[1]=imptr[uidx];
 				yuv[2]=imptr[vidx];
+#ifdef USE_FELICS
+				yuv[2]-=(vc0*yuv[0]+vc1*yuv[1])>>2;
+				yuv[1]-=uc0*yuv[0]>>2;
+				if(vc0+vc1&&uc0)
+					yuv[0]+=(yuv[1]+yuv[2])>>2;
+#endif
 			}
 			for(int kc=0;kc<3;++kc)
 			{
@@ -1003,35 +992,109 @@ int c46_codec(int argc, char **argv)
 					WWW	=rows[0][0-3*NCH*NROWS*NVAL],
 					WW	=rows[0][0-2*NCH*NROWS*NVAL],
 					W	=rows[0][0-1*NCH*NROWS*NVAL],
-					eNW	=rows[1][1-1*NCH*NROWS*NVAL],
-					eN	=rows[1][1+0*NCH*NROWS*NVAL],
-					eNE	=rows[1][1+1*NCH*NROWS*NVAL],
-					eNEE	=rows[1][1+2*NCH*NROWS*NVAL],
 					eNEEE	=rows[1][1+3*NCH*NROWS*NVAL],
 					eW	=rows[0][1-1*NCH*NROWS*NVAL];
-#ifdef GR_L1
-				int64_t grestim=1<<GRSHIFT>>1;
-#define GRESTIM(E) grestims[j]=E; grestim+=grweights[kc][j]*grestims[j]; ++j;
-				j=0;
-				GRESTIMLIST
-#undef  GRESTIM
-				grestim>>=GRSHIFT;
-				//int riceestim=(int)((
-				//	+(int64_t)grweights[kc][0]*eW
-				//	+(int64_t)grweights[kc][1]*eNE
-				//	+(int64_t)grweights[kc][2]*eN
-				//)>>SHIFT);
-				int nbypass=FLOOR_LOG2((int)(grestim<0?0:grestim)+1);
-#else
-#ifdef USE_AC
-				int ctx=FLOOR_LOG2(eW*eW+1);
-				if(ctx>NCTX-1)
-					ctx=NCTX-1;
-#else
-				int nbypass=FLOOR_LOG2(((eW+eNE)>>(GRBITS+1))+1);
-			//	int nbypass=FLOOR_LOG2((eW>>GRBITS)+1);
+#ifdef ESTIMATE_SIZES
+				g_kc=kc;
 #endif
+#ifdef USE_FELICS
+				if(!kx)
+					W=NE;
+				if(!ky)
+					N=WW;
+				int vmax=N, vmin=W;
+				if(N<W)vmin=N, vmax=W;
+
+				//if(ky==0&&kx==16)//
+				//if(ky==0&&kx==5)//
+				//if(ky==0&&kx==7&&kc==0)//
+				//if(ky==0&&kx==11&&kc==0)//
+				//if(ky==0&&kx==184&&kc==2)//
+				//if(ky==0&&kx==0&&kc==1)//
+				//if(ky==0&&kx==0&&kc==0)//
+				//if(ky==0&&kx==0&&kc==1)//
+				//if(ky==0&&kx==2&&kc==1)//
+				//if(ky==1&&kx==440&&kc==2)//
+				//	printf("");
+
+				if(fwd)
+				{
+					curr=yuv[kc];
+					inside=(uint32_t)(curr-vmin)<=(uint32_t)(vmax-vmin);
+					bit_pack(&ec, inside);
+					if(inside)
+					{
+						nlevels=vmax-vmin+1;
+						if(nlevels>1)
+						{
+							val=curr-((vmax+vmin+1)>>1);
+							truncbin_enc(&ec, vmax-vmin+1, val<<1^val>>31);
+						}
+					}
+					else
+					{
+						below=curr<vmin;
+						bit_pack(&ec, below);
+						if(below)
+						{
+							nlevels=vmin-amin[kc];
+							val=vmin-1-curr;
+						}
+						else
+						{
+							nlevels=amax[kc]-vmax;
+							val=curr-1-vmax;
+						}
+						if(nlevels>1)
+						{
+							int e2=estim>>GRPREC;
+							rice_enc(&ec, FLOOR_LOG2(e2+1), val);
+							estim+=((val<<GRPREC)-estim)>>GRPREC;
+						//	estim+=val-e2;
+						}
+					}
+#ifdef FIFOVAL
+					valfifo_enqueue(below<<25^inside<<24^estim<<16^nlevels<<8^curr);
 #endif
+				}
+				else
+				{
+					inside=bit_unpack(&ec);
+					if(inside)
+					{
+						nlevels=vmax-vmin+1;
+						val=0;
+						if(nlevels>1)
+							val=truncbin_dec(&ec, nlevels);
+						curr=(val>>1^-(val&1))+((vmax+vmin+1)>>1);
+					}
+					else
+					{
+						below=bit_unpack(&ec);
+						if(below)
+							nlevels=vmin-amin[kc];
+						else
+							nlevels=amax[kc]-vmax;
+						val=0;
+						if(nlevels>1)
+						{
+							int e2=estim>>GRPREC;
+							val=rice_dec(&ec, FLOOR_LOG2(e2+1));
+							estim+=((val<<GRPREC)-estim)>>GRPREC;
+						//	estim+=val-e2;
+						}
+						if(below)
+							curr=vmin-1-val;
+						else
+							curr=vmax+1+val;
+					}
+#ifdef FIFOVAL
+					valfifo_check(below<<25^inside<<24^estim<<16^nlevels<<8^curr);
+#endif
+					yuv[kc]=curr;
+				}
+#else
+				int nbypass=FLOOR_LOG2((eW>>GRBITS)+1);
 #ifdef USE_W
 				int pred=W;
 #endif
@@ -1043,8 +1106,7 @@ int c46_codec(int argc, char **argv)
 				CLAMP2(pred, vmin, vmax);
 #endif
 #ifdef USE_L1
-				int64_t p1;
-				int pred, e;
+				int pred=1<<SHIFT>>1, j=0, p1, e;
 				int vmax=N, vmin=W;
 
 				if(N<W)vmin=N, vmax=W;
@@ -1052,80 +1114,16 @@ int c46_codec(int argc, char **argv)
 				if(vmax<NE)vmax=NE;
 				if(vmin>NEEE)vmin=NEEE;
 				if(vmax<NEEE)vmax=NEEE;
-				p1=1<<SHIFT>>1;
-#define PRED(E) estim[j]=E; p1+=weights[kc][j]*estim[j]; ++j;
+#define PRED(E) estim[j]=E; pred+=weights[kc][j]*estim[j]; ++j;
 				j=0;
 				PREDLIST
 #undef  PRED
-				p1>>=SHIFT;
-				pred=(int)p1;
+				pred>>=SHIFT;
+				p1=pred;
 				CLAMP2(pred, vmin, vmax);
 #endif
 				pred+=offset;
 				CLAMP2(pred, 0, 255);
-#ifdef ESTIMATE_SIZES
-				g_kc=kc;
-#endif
-#ifdef USE_AC
-				int den=hcounts[kc][ctx]+NLEVELS, cdf=0, freq;
-				uint16_t *currhist=hists[kc][ctx];
-				if(fwd)
-				{
-					error=(int8_t)(yuv[kc]-pred);
-					sym=error<<1^error>>31;
-					if(range<=0xFFFF)
-					{
-						*(uint32_t*)streamptr=(uint32_t)(low>>32);
-						streamptr+=sizeof(uint32_t);
-						low<<=32;
-						range=range<<32|0xFFFFFFFF;
-						if(range>~low)
-							range=~low;
-					}
-					for(int t=0;;++t)
-					{
-						freq=currhist[t]+1;
-						if(t>=sym)
-							break;
-						cdf+=freq;
-					}
-					low+=range*cdf/den;
-					range=range*freq/den-1;
-				}
-				else
-				{
-					if(range<=0xFFFF)
-					{
-						code=code<<32|*(uint32_t*)streamptr;
-						streamptr+=sizeof(uint32_t);
-						low<<=32;
-						range=range<<32|0xFFFFFFFF;
-						if(range>~low)
-							range=~low;
-					}
-					int c=(int)(((code-low+1)*den-1)/range);
-					for(sym=0;;++sym)
-					{
-						freq=currhist[sym]+1;
-						if(cdf+freq>c)
-							break;
-						cdf+=freq;
-					}
-					low+=range*cdf/den;
-					range=range*freq/den-1;
-					error=sym>>1^-(sym&1);
-					yuv[kc]=(uint8_t)(error+pred);
-				}
-				++currhist[sym];
-				++hcounts[kc][ctx];
-				if(hcounts[kc][ctx]>=0xFFFF-2*NLEVELS)
-				{
-					den=0;
-					for(int ks=0;ks<NLEVELS;++ks)
-						den+=currhist[ks]>>=1;
-					hcounts[kc][ctx]=den;
-				}
-#else
 				if(fwd)
 				{
 					error=(int8_t)(yuv[kc]-pred);
@@ -1138,36 +1136,18 @@ int c46_codec(int argc, char **argv)
 					error=sym>>1^-(sym&1);
 					yuv[kc]=(uint8_t)(error+pred);
 				}
-#endif
 				curr=yuv[kc]-offset;
-				//if(ky==ih/2&&kx==iw/2)//
-				//	printf("");
 #ifdef USE_L1
 				e=(curr>p1)-(curr<p1);
-			//	e+=(curr-p1)>>0;
-			//	e=curr-(int)p1;
-			//	CLAMP2(e, -2, 2);
 #define PRED(...) weights[kc][j]+=e*estim[j]; ++j;
 				j=0;
 				PREDLIST
 #undef  PRED
 #endif
-				rows[0][0]=curr;
-#ifdef GR_L1
-				int gre=(sym>grestim)-(sym<grestim);
-#define GRESTIM(...) grweights[kc][j]+=gre*grestims[j]; ++j;
-				j=0;
-				GRESTIMLIST
-#undef  GRESTIM
-				rows[0][1]=sym;
-#else
-#ifdef USE_AC
-				rows[0][1]=(2*eW+(sym<<GRBITS)+(eNEE>eNEEE?eNEE:eNEEE))>>2;
-#else
 				rows[0][1]=(2*eW+(sym<<GRBITS)+eNEEE)>>2;
-#endif
-#endif
 				offset=(kc?vc0*yuv[0]+vc1*yuv[1]:uc0*yuv[0])>>2;
+#endif
+				rows[0][0]=curr;
 				rows[0]+=NROWS*NVAL;
 				rows[1]+=NROWS*NVAL;
 				rows[2]+=NROWS*NVAL;
@@ -1187,6 +1167,12 @@ int c46_codec(int argc, char **argv)
 			}
 			if(!fwd)
 			{
+#ifdef USE_FELICS
+				if(vc0+vc1&&uc0)
+					yuv[0]-=(yuv[1]+yuv[2])>>2;
+				yuv[1]+=uc0*yuv[0]>>2;
+				yuv[2]+=(vc0*yuv[0]+vc1*yuv[1])>>2;
+#endif
 				imptr[yidx]=yuv[0];
 				imptr[uidx]=yuv[1];
 				imptr[vidx]=yuv[2];
@@ -1204,20 +1190,14 @@ int c46_codec(int argc, char **argv)
 		}
 		if(fwd)
 		{
-#ifdef USE_AC
-			*(uint32_t*)streamptr=(uint32_t)(low>>32); streamptr+=sizeof(uint32_t); low<<=32;//flush
-			*(uint32_t*)streamptr=(uint32_t)(low>>32); streamptr+=sizeof(uint32_t); low<<=32;
-#else
 			rice_flush(&ec);
-			uint8_t *streamptr=ec.ptr;
-#endif
 
 			csize=0;
 			csize+=fwrite(&tag, 1, 2, fdst);
 			csize+=fwrite(&iw, 1, 3, fdst);
 			csize+=fwrite(&ih, 1, 3, fdst);
 			csize+=fwrite(&bestrct, 1, 1, fdst);
-			csize+=fwrite(stream, 1, streamptr-stream, fdst);
+			csize+=fwrite(stream, 1, ec.ptr-stream, fdst);
 		}
 		else
 		{
@@ -1235,9 +1215,9 @@ int c46_codec(int argc, char **argv)
 	{
 #ifdef ESTIMATE_SIZES
 		int64_t btotal=0;
-		for(int k=0;k<2;++k)
+		for(int k=0;k<SIZE_COUNT;++k)
 			btotal+=bsizes[0][k]+bsizes[1][k]+bsizes[2][k];
-		for(int k=0;k<2;++k)
+		for(int k=0;k<SIZE_COUNT;++k)
 			printf("%12.2lf %12.2lf %12.2lf    %9.5lf%% %9.5lf%% %9.5lf%%  %s\n"
 				, (double)bsizes[0][k]/8.
 				, (double)bsizes[1][k]/8.
