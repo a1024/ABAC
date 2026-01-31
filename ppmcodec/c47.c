@@ -30,6 +30,10 @@
 #endif
 
 
+//	#define ENABLE_QUALITY
+//	#define USE_LOGQUANT	//X
+//	#define USE_RGB
+
 //	#define USE_DCT8
 	#define USE_L1
 
@@ -75,6 +79,7 @@ enum
 #ifdef USE_DCT8
 	NLEVELS=224,
 #else
+//	NLEVELS=256,
 	NLEVELS=72,
 #endif
 };
@@ -246,6 +251,7 @@ static void valfifo_check(uint32_t val)
 #ifdef _MSC_VER
 static double sum_before[3][BLOCKX*BLOCKY], sum_after[3][BLOCKX*BLOCKY];
 static int cmin[3][BLOCKX*BLOCKY], cmax[3][BLOCKX*BLOCKY];
+static int nblocks=0;
 #endif
 static const float qtable_luma[]=//check NLEVELS
 {
@@ -268,11 +274,22 @@ static const float qtable_luma[]=//check NLEVELS
 	//64, 64, 64, 64, 64, 64, 64, 64,
 	//64, 64, 64, 64, 64, 64, 64, 64,
 #else
-	16, 12, 12, 16,//v17
+#ifdef USE_RGB
+	 4, 12, 12, 16,//v18
+	12, 12, 16, 16,
+	12, 16, 16, 16,
+	16, 16, 16, 16,
+#else
+	16, 12, 12, 16,//v19
 	12, 12, 16, 16,
 	12, 16, 16, 16,
 	16, 16, 16, 16,
 
+	//16, 12, 12, 16,//v17
+	//12, 12, 16, 16,
+	//12, 16, 16, 16,
+	//16, 16, 16, 16,
+#endif
 	//16, 12, 12, 12,//v16
 	//12, 10, 12, 12,
 	//12, 12, 12, 12,
@@ -1000,6 +1017,18 @@ AWM_INLINE void dc_update(int16_t **rows, int32_t *weights, int32_t *estim, int3
 }
 
 #if 0
+#define QTEST
+static void qtest(void)
+{
+	for(int k=0;k<NLEVELS*16;++k)
+	{
+		int val=FLOOR_LOG2(k*k+1);
+		printf("%5d %5d\n", k, val);
+	}
+	exit(0);
+}
+#endif
+#if 0
 #define TEST
 static void dcttest()
 {
@@ -1048,6 +1077,9 @@ static uint32_t hists[3*NCTX*NLEVELS];
 ALIGN(32) static float blocks[3][BLOCKX*BLOCKY]={0}, qtable1[BLOCKX*BLOCKY]={0}, qtable2[BLOCKX*BLOCKY]={0};
 int c47_codec(int argc, char **argv)
 {
+#ifdef QTEST
+	qtest();//
+#endif
 #ifdef TEST
 	dcttest();//
 #endif
@@ -1068,14 +1100,16 @@ int c47_codec(int argc, char **argv)
 	int32_t weights[NCH][NPREDS]={0}, estim[NPREDS]={0};
 	int32_t pred=0, ctx=0, error=0, sym=0, curr=0, cdf=0, freq=0;
 	uint64_t low=0, range=0xFFFFFFFFFFFF, code=0;
+	int quality=100, aclevels=NLEVELS;
 #ifdef LOUD
 	double t=0;
 #endif
 
-	if(argc!=3)
+	if(argc!=3&&argc!=4)
 	{
 		printf(
-			"Usage:  \"%s\"  src  dst\n"
+			"Usage:  \"%s\"  src  dst  [quality]\n"
+			"Quality is 0 ~ 100\n"
 			"Only for 24-bit PPM images\n"
 			"Built on %s %s\n"
 			, argv[0]
@@ -1088,6 +1122,12 @@ int c47_codec(int argc, char **argv)
 #endif
 	srcfn=argv[1];
 	dstfn=argv[2];
+	quality=25;
+	if(argc==4)
+	{
+		quality=atoi(argv[3]);
+		CLAMP2(quality, 1, 100);
+	}
 	
 	fsrc=fopen(srcfn, "rb");
 	if(!fsrc)
@@ -1160,8 +1200,10 @@ int c47_codec(int argc, char **argv)
 	{
 		iw=0;
 		ih=0;
+		quality=0;
 		fread(&iw, 1, 3, fsrc);
 		fread(&ih, 1, 3, fsrc);
+		fread(&quality, 1, 1, fsrc);
 		{
 			struct stat info={0};
 
@@ -1188,6 +1230,7 @@ int c47_codec(int argc, char **argv)
 #ifdef _MSC_VER
 	streamend=stream+ccap;
 #endif
+	aclevels=(NLEVELS*quality+100-1)/100;
 	if(fwd)
 	{
 		fread(image, 1, usize, fsrc);
@@ -1212,6 +1255,13 @@ int c47_codec(int argc, char **argv)
 		{
 			qtable1[k]=1/(DCT_ROUND_TRIP_GAIN*qtable_luma[k]);
 			qtable2[k]=1/(DCT_ROUND_TRIP_GAIN*qtable_chroma[k]);
+#ifdef ENABLE_QUALITY
+			if(k)
+			{
+				qtable1[k]*=quality/100.f;
+				qtable2[k]*=quality/100.f;
+			}
+#endif
 		}
 	}
 	else
@@ -1220,6 +1270,13 @@ int c47_codec(int argc, char **argv)
 		{
 			qtable1[k]=qtable_luma[k];
 			qtable2[k]=qtable_chroma[k];
+#ifdef ENABLE_QUALITY
+			if(k)
+			{
+				qtable1[k]/=quality/100.f;
+				qtable2[k]/=quality/100.f;
+			}
+#endif
 		}
 		code=0;
 		code=code<<32|*(uint32_t*)streamptr; streamptr+=sizeof(uint32_t);//load
@@ -1254,9 +1311,15 @@ int c47_codec(int argc, char **argv)
 					imptr=image+3*(iw*(ky+ky2)+kx);
 					for(int kx2=0;kx2<dx;++kx2, imptr+=3)
 					{
+#ifdef USE_RGB
+						((int*)blocks[0])[BLOCKX*ky2+kx2]=imptr[0]-128;
+						((int*)blocks[1])[BLOCKX*ky2+kx2]=imptr[1]-128;
+						((int*)blocks[2])[BLOCKX*ky2+kx2]=imptr[2]-128;
+#else
 						((int*)blocks[0])[BLOCKX*ky2+kx2]=imptr[0];
 						((int*)blocks[1])[BLOCKX*ky2+kx2]=imptr[1];
 						((int*)blocks[2])[BLOCKX*ky2+kx2]=imptr[2];
+#endif
 					}
 					for(int kx2=dx;kx2<BLOCKX;++kx2)
 					{
@@ -1274,7 +1337,9 @@ int c47_codec(int argc, char **argv)
 				cvti2f(blocks[0]);
 				cvti2f(blocks[1]);
 				cvti2f(blocks[2]);
+#ifndef USE_RGB
 				rgb2yuv(blocks[0], blocks[1], blocks[2]);
+#endif
 				dct_fwd(blocks[0]);
 				dct_fwd(blocks[1]);
 				dct_fwd(blocks[2]);
@@ -1287,9 +1352,16 @@ int c47_codec(int argc, char **argv)
 #ifdef _MSC_VER
 				for(int kc=0;kc<3;++kc)for(int k=0;k<BLOCKX*BLOCKY;++k)sum_before[kc][k]+=fabsf(blocks[kc][k]);
 #endif
+#ifndef USE_LOGQUANT
 				gain(blocks[0], qtable1);
+#ifdef USE_RGB
+				gain(blocks[1], qtable1);
+				gain(blocks[2], qtable1);
+#else
 				gain(blocks[1], qtable2);
 				gain(blocks[2], qtable2);
+#endif
+#endif
 				cvtf2i(blocks[0]);
 				cvtf2i(blocks[1]);
 				cvtf2i(blocks[2]);
@@ -1304,12 +1376,14 @@ int c47_codec(int argc, char **argv)
 						if(cmax[kc][k]<val)cmax[kc][k]=val;
 					}
 				}
+				++nblocks;
 #endif
 			}
 			for(int kc=0;kc<3;++kc)
 			{
 				for(int k=0;k<BLOCKX*BLOCKY;++k)
 				{
+					int nlevels=k?aclevels:NLEVELS;
 					int32_t p1=0;
 				//	int ctx2;
 
@@ -1356,7 +1430,7 @@ int c47_codec(int argc, char **argv)
 					uint32_t *currhist=hists+NLEVELS*ctx;
 				//	uint32_t *currhist2=hists+NLEVELS*ctx2;
 				//	den=hweight[ctx]+hweight[ctx2]+NLEVELS;
-					den=hweight[ctx]+NLEVELS;
+					den=hweight[ctx]+nlevels;
 					if(fwd)
 					{
 						int t;
@@ -1364,13 +1438,31 @@ int c47_codec(int argc, char **argv)
 						valfifo_enqueue(ctx<<24^p1<<12^pred);
 #endif
 						curr=((int*)blocks[kc])[k];
-						CLAMP2(curr, -(NLEVELS>>1), (NLEVELS>>1)-1);
+#ifdef USE_LOGQUANT
+						curr>>=2;//Q25
+						if(k)//AC
+						{
+							int sign=curr>>31;
+							curr=FLOOR_LOG2(curr*curr+1);
+							curr^=sign;
+							curr-=sign;
+						}
+						else//DC/(ROUND_TRIP_GAIN*16)
+						{
+							int sign=curr>>31;
+							curr^=sign;
+							curr-=sign;
+							curr>>=4+2;
+							curr^=sign;
+							curr-=sign;
+						}
+#endif
+						CLAMP2(curr, -(nlevels>>1), (nlevels>>1)-1);
 						error=curr-pred;
-						if(error>(NLEVELS>>1)-1)
-							error-=NLEVELS;
-						if(error<-(NLEVELS>>1))
-							error+=NLEVELS;
-					//	error=((curr-pred+(NLEVELS>>1))&(NLEVELS-1))-(NLEVELS>>1);//POT
+						if(error>(nlevels>>1)-1)
+							error-=nlevels;
+						if(error<-(nlevels>>1))
+							error+=nlevels;
 						sym=error<<1^error>>31;
 
 						if(range<=0xFFFF)
@@ -1422,14 +1514,14 @@ int c47_codec(int argc, char **argv)
 							if(range>~low)
 								range=~low;
 						}
-						int c2=(int)(((code-low+1)*den-1)/range);
+						int code2=(int)(((code-low+1)*den-1)/range);
 						sym=0;
 						cdf=0;
 						for(;;)
 						{
 						//	freq=currhist[sym]+currhist2[sym]+1;
 							freq=currhist[sym]+1;
-							if(cdf+freq>c2)
+							if(cdf+freq>code2)
 								break;
 							cdf+=freq;
 							++sym;
@@ -1442,23 +1534,65 @@ int c47_codec(int argc, char **argv)
 
 						error=sym>>1^-(sym&1);
 						curr=error+pred;
-						if(curr>(NLEVELS>>1)-1)
-							curr-=NLEVELS;
-						if(curr<-(NLEVELS>>1))
-							curr+=NLEVELS;
-					//	curr=((error+pred+(NLEVELS>>1))&(NLEVELS-1))-(NLEVELS>>1);//POT
+						if(curr>(nlevels>>1)-1)
+							curr-=nlevels;
+						if(curr<-(nlevels>>1))
+							curr+=nlevels;
 #ifdef FIFOVAL
 						valfifo_check(curr);
 #endif
+#ifdef USE_LOGQUANT
+						int c2=curr;
+						if(k)//AC
+						{
+							static const int rtable[]=
+							{
+								   0,// 0
+								   1,// 1
+								   2,// 2
+								   3,// 3
+								   4,// 4
+								   6,// 5
+								   9,// 6
+								  13,// 7
+								  19,// 8
+								  27,// 9
+								  38,//10
+								  55,//11
+								  77,//12
+								 109,//13
+								 155,//14
+								 219,//15
+								 309,//16
+								 437,//17
+								 618,//18
+								 874,//19
+								1087,//20
+								1151,//21
+							};
+							int sign=c2>>31;
+							c2=abs(c2);
+							if(c2>_countof(rtable)-1)
+								c2=_countof(rtable)-1;
+							c2=rtable[c2];
+							c2^=sign;
+							c2-=sign;
+						}
+						else//DC
+							c2<<=4;
+						c2<<=2;//Q25
+						((int*)blocks[kc])[k]=c2;
+#else
 						((int*)blocks[kc])[k]=curr;
+#endif
 					}
 					
 					++currhist[sym];
 					++hweight[ctx];
-					if(hweight[ctx]>=0xFFFF-NLEVELS)
+					if(hweight[ctx]>=(uint32_t)(0xFFFF-2*nlevels))
 					{
 						den=0;
-						for(int k=0;k<NLEVELS;++k)
+						for(int k=0;k<nlevels;++k)
 							den+=currhist[k]>>=1;
 						hweight[ctx]=den;
 					}
@@ -1488,9 +1622,16 @@ int c47_codec(int argc, char **argv)
 				cvti2f(blocks[0]);
 				cvti2f(blocks[1]);
 				cvti2f(blocks[2]);
+#ifndef USE_LOGQUANT
 				gain(blocks[0], qtable1);
+#ifdef USE_RGB
+				gain(blocks[1], qtable1);
+				gain(blocks[2], qtable1);
+#else
 				gain(blocks[1], qtable2);
 				gain(blocks[2], qtable2);
+#endif
+#endif
 				dct_inv(blocks[0]);
 				dct_inv(blocks[1]);
 				dct_inv(blocks[2]);
@@ -1500,7 +1641,9 @@ int c47_codec(int argc, char **argv)
 				dct_inv(blocks[0]);
 				dct_inv(blocks[1]);
 				dct_inv(blocks[2]);
+#ifndef USE_RGB
 				yuv2rgb(blocks[0], blocks[1], blocks[2]);
+#endif
 				cvtf2i(blocks[0]);
 				cvtf2i(blocks[1]);
 				cvtf2i(blocks[2]);
@@ -1509,9 +1652,23 @@ int c47_codec(int argc, char **argv)
 					imptr=image+3*(iw*(ky+ky2)+kx);
 					for(int kx2=0;kx2<dx;++kx2, imptr+=3)
 					{
+#ifdef USE_RGB
+						int r, g, b;
+
+						r=((int*)blocks[0])[BLOCKX*ky2+kx2]+128;
+						g=((int*)blocks[1])[BLOCKX*ky2+kx2]+128;
+						b=((int*)blocks[2])[BLOCKX*ky2+kx2]+128;
+						CLAMP2(r, 0, 255);
+						CLAMP2(g, 0, 255);
+						CLAMP2(b, 0, 255);
+						imptr[0]=r;
+						imptr[1]=g;
+						imptr[2]=b;
+#else
 						imptr[0]=((int*)blocks[0])[BLOCKX*ky2+kx2];
 						imptr[1]=((int*)blocks[1])[BLOCKX*ky2+kx2];
 						imptr[2]=((int*)blocks[2])[BLOCKX*ky2+kx2];
+#endif
 					}
 				}
 #ifdef ENABLE_GUIDE
@@ -1547,6 +1704,7 @@ int c47_codec(int argc, char **argv)
 		csize+=fwrite(&tag, 1, 2, fdst);
 		csize+=fwrite(&iw, 1, 3, fdst);
 		csize+=fwrite(&ih, 1, 3, fdst);
+		csize+=fwrite(&quality, 1, 1, fdst);
 		csize+=fwrite(stream, 1, streamptr-stream, fdst);
 	}
 	else
@@ -1593,7 +1751,7 @@ int c47_codec(int argc, char **argv)
 			for(int ky=0;ky<BLOCKY;++ky)
 			{
 				for(int kx=0;kx<BLOCKY;++kx)
-					printf(" %16.0lf", sum_before[kc][BLOCKX*ky+kx]);
+					printf(" %16.6lf", sum_before[kc][BLOCKX*ky+kx]/nblocks);
 				printf("\n");
 			}
 			printf("\n");
@@ -1602,7 +1760,7 @@ int c47_codec(int argc, char **argv)
 			for(int ky=0;ky<BLOCKY;++ky)
 			{
 				for(int kx=0;kx<BLOCKY;++kx)
-					printf(" %16.0lf", sum_after[kc][BLOCKX*ky+kx]);
+					printf(" %16.6lf", sum_after[kc][BLOCKX*ky+kx]/nblocks);
 				printf("\n");
 			}
 			printf("\n");
@@ -1653,9 +1811,9 @@ int c47_codec(int argc, char **argv)
 		printf(
 			"RMSE  PSNR\n"
 			"T %12.6lf  %12.6lf\n"
-			"Y %12.6lf  %12.6lf\n"
-			"U %12.6lf  %12.6lf\n"
-			"V %12.6lf  %12.6lf\n"
+			"R %12.6lf  %12.6lf\n"
+			"G %12.6lf  %12.6lf\n"
+			"B %12.6lf  %12.6lf\n"
 			, rmse[3], psnr[3]
 			, rmse[0], psnr[0]
 			, rmse[1], psnr[1]

@@ -239,6 +239,8 @@ static void prof_print(ptrdiff_t usize)
 #define prof_print(...)
 #endif
 
+//cRCT
+#if 1
 #ifndef ENABLE_RCT_EXTENSION
 #define OCHLIST\
 	OCH(Y400) OCH(Y040) OCH(Y004)\
@@ -437,6 +439,7 @@ static const char *rct_names[RCT_COUNT]=
 	RCTLIST
 #undef  RCT
 };
+#endif
 
 
 #define WG_NPREDS 8
@@ -880,6 +883,8 @@ AWM_INLINE void wg_mix(int kc, const short *wgWerrors, const short *rowscurrNNpt
 	__m256i prederrors[sizeof(short[WG_NPREDS*NCODERS])/(sizeof(__m256i))];//2 regs per lane  *  NPREDS
 
 	//errors = pI+pNW+2*pN+pNE+pNNE		(__m256i*)erows[-Y]+(P+X*NPREDS)*3+C
+
+	//e = 2*(N+W+NW)+NN+NNE+NE+WW+I/4
 	prederrors[0]=_mm256_load_si256((const __m256i*)currNNptr+(0-1*WG_NPREDS)*3+0);//pW
 	prederrors[1]=_mm256_load_si256((const __m256i*)currNNptr+(1-1*WG_NPREDS)*3+0);
 	prederrors[2]=_mm256_load_si256((const __m256i*)currNNptr+(2-1*WG_NPREDS)*3+0);

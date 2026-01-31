@@ -13,7 +13,7 @@
 #include<stdarg.h>
 #include<math.h>
 #include<sys/stat.h>
-#if defined _MSC_VER || defined _WIN32
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include<Windows.h>
 #else
@@ -29,6 +29,14 @@
 #endif
 
 
+//	#define TRACK_TRAVEL
+//	#define ENABLE_ANALYSIS2
+//	#define MIXTEST	//X
+//	#define MIXLEAK	//X
+#ifndef ENABLE_ANALYSIS2
+	#define USE_WP
+#endif
+
 //	#define MATCH_HISTOGRAMS
 //	#define MATCH_HISTOGRAMS_TEST
 //	#define USE_W
@@ -42,15 +50,18 @@
 
 #ifdef USE_L1
 #define PREDLIST\
-	PRED(W)\
 	PRED(N+W-NW)\
+	PRED(W)\
 	PRED(2*N-NN)\
 	PRED(NE)\
 	PRED(2*W-WW)\
 	PRED(3*(N-NN)+NNN)\
 	PRED(3*(W-WW)+WWW)\
 	PRED(W+NE-N)\
+	PRED(W+NEE-NE)\
 	PRED(N+NE-NNE)\
+	PRED(W+NW-NWW)\
+	PRED(N+NW-NNW)\
 
 #endif
 
@@ -88,7 +99,11 @@ enum
 	XPAD=8,
 	NCH=3,
 	NROWS=4,
-	NVAL=2,
+	NVAL=3,
+#ifdef ENABLE_ANALYSIS2
+	A2XSTRIDE=1,
+	A2YSTRIDE=1,
+#endif
 };
 
 //runtime
@@ -137,6 +152,10 @@ AWM_INLINE int floor_log2_32(uint32_t n)
 #define FLOOR_LOG2(X)\
 	(sizeof(X)==8?floor_log2_64(X):floor_log2_32((uint32_t)(X)))
 #endif
+#define CVTFP32_I32(X) _mm_cvt_ss2si(_mm_set_ss(X))
+#define CVTTFP32_I32(X) _mm_cvtt_ss2si(_mm_set_ss(X))
+#define CVTFP64_I64(X) _mm_cvtsd_si64(_mm_set_sd(X))
+#define CVTTFP64_I64(X) _mm_cvttsd_si64(_mm_set_sd(X))
 static void crash(const char *file, int line, const char *format, ...)
 {
 	printf("%s(%d):\n", file, line);
@@ -210,6 +229,10 @@ static void guide_check(uint8_t *image, int kx, int ky)
 #endif//ENABLE_GUIDE
 #endif
 
+
+#ifdef MIXTEST
+double best_mad[3];
+#endif
 
 //cRCT
 #if 1
@@ -518,6 +541,11 @@ static int crct_analysis(uint8_t *image, int iw, int ih)
 			bestrct=kt;
 		}
 	}
+#ifdef MIXTEST
+	best_mad[0]=(double)counters[rct_combinations[bestrct][0]]/((double)iw*ih);
+	best_mad[1]=(double)counters[rct_combinations[bestrct][1]]/((double)iw*ih);
+	best_mad[2]=(double)counters[rct_combinations[bestrct][2]]/((double)iw*ih);
+#endif
 	return bestrct;
 }
 
@@ -634,6 +662,267 @@ AWM_INLINE int rice_dec(RiceCoder *ec, int nbypass)
 	return sym;
 }
 
+enum
+{
+	SHIFTSTART=12,
+	NSHIFTS=15,//last one is WP
+
+	NVAL2=NSHIFTS+3,
+
+	YBLOCKS=1,
+};
+#ifdef ENABLE_ANALYSIS2
+static int32_t testhist[3][YBLOCKS][NSHIFTS][NCTX][NLEVELS];
+static int64_t weights[3][YBLOCKS][NSHIFTS][NPREDS];
+static void analysis2(const char *srcfn, uint8_t *image, int iw, int ih, int bestrct, uint8_t *ret_sh)
+{
+	const int fwd=1;
+//	int bestrct=crct_analysis(image, iw, ih);
+	int yidx=rct_combinations[bestrct][II_PERM_Y];
+	int uidx=rct_combinations[bestrct][II_PERM_U];
+	int vidx=rct_combinations[bestrct][II_PERM_V];
+	int uc0=rct_combinations[bestrct][II_COEFF_U_SUB_Y];
+	int vc0=rct_combinations[bestrct][II_COEFF_V_SUB_Y];
+	int vc1=rct_combinations[bestrct][II_COEFF_V_SUB_U];
+	int psize=(iw+2*XPAD)*(int)sizeof(int16_t[NCH*NROWS*NVAL2]);
+	int16_t *pixels=(int16_t*)malloc(psize);
+	int rowstride=3*iw;
+#if defined MIXTEST || defined LOUD
+	double t=time_sec();
+#endif
+	if(!pixels)
+	{
+		CRASH("Alloc error");
+		exit(1);
+		return;
+	}
+	memset(testhist, 0, sizeof(testhist));
+	memset(pixels, 0, psize);
+	memset(weights, 0, sizeof(weights));
+	for(int kc=0;kc<3;++kc)
+	{
+		for(int qy=0;qy<YBLOCKS;++qy)
+		{
+			for(int ks=0;ks<NSHIFTS-1;++ks)
+			{
+				for(int j=0;j<NPREDS;++j)
+					weights[kc][qy][ks][j]=(1LL<<(ks+SHIFTSTART)>>1)/NPREDS;
+			}
+		}
+	}
+	for(int ky=0;ky<ih;ky+=A2YSTRIDE)
+	{
+		uint8_t *imptr=image+rowstride*ky;
+#ifdef USE_L1
+		int estim[NPREDS]={0}, j;
+#endif
+		int yuv[3]={0};
+		int error=0, sym=0, curr=0;
+		int qy=ky*YBLOCKS/ih;
+		int16_t *rows[]=
+		{
+			pixels+(XPAD*NCH*NROWS+(ky-0LL+NROWS)%NROWS)*NVAL2,
+			pixels+(XPAD*NCH*NROWS+(ky-1LL+NROWS)%NROWS)*NVAL2,
+			pixels+(XPAD*NCH*NROWS+(ky-2LL+NROWS)%NROWS)*NVAL2,
+			pixels+(XPAD*NCH*NROWS+(ky-3LL+NROWS)%NROWS)*NVAL2,
+		};
+		for(int kx=0;kx<iw;kx+=A2XSTRIDE, imptr+=3*A2XSTRIDE)
+		{
+			int offset=0;
+			if(fwd)
+			{
+				yuv[0]=imptr[yidx];
+				yuv[1]=imptr[uidx];
+				yuv[2]=imptr[vidx];
+			}
+			for(int kc=0;kc<3;++kc)
+			{
+				int16_t
+					NNN	=rows[3][0+0*NCH*NROWS*NVAL2],
+					NNW	=rows[2][0-1*NCH*NROWS*NVAL2],
+					NN	=rows[2][0+0*NCH*NROWS*NVAL2],
+					NNE	=rows[2][0+1*NCH*NROWS*NVAL2],
+					NWW	=rows[1][0-2*NCH*NROWS*NVAL2],
+					NW	=rows[1][0-1*NCH*NROWS*NVAL2],
+					N	=rows[1][0+0*NCH*NROWS*NVAL2],
+					NE	=rows[1][0+1*NCH*NROWS*NVAL2],
+					NEE	=rows[1][0+2*NCH*NROWS*NVAL2],
+					NEEE	=rows[1][0+3*NCH*NROWS*NVAL2],
+					WWWW	=rows[0][0-4*NCH*NROWS*NVAL2],
+					WWW	=rows[0][0-3*NCH*NROWS*NVAL2],
+					WW	=rows[0][0-2*NCH*NROWS*NVAL2],
+					W	=rows[0][0-1*NCH*NROWS*NVAL2],
+					cN	=rows[1][1+0*NCH*NROWS*NVAL2],
+					cW	=rows[0][1-1*NCH*NROWS*NVAL2];
+				int64_t p1[NSHIFTS];
+				int vmax, vmin;
+				
+				vmax=N, vmin=W;
+				if(N<W)vmin=N, vmax=W;
+				if(vmin>NE)vmin=NE;
+				if(vmax<NE)vmax=NE;
+				if(vmin>NEEE)vmin=NEEE;
+				if(vmax<NEEE)vmax=NEEE;
+#define PRED(E) estim[j++]=E;
+				j=0;
+				PREDLIST
+#undef  PRED
+				curr=yuv[kc]-offset;
+				for(int ks=0;ks<NSHIFTS;++ks)
+				{
+					uint16_t
+					//	eNW	=rows[1][ks+1-1*NCH*NROWS*NVAL2],
+					//	eN	=rows[1][ks+1+0*NCH*NROWS*NVAL2],
+					//	eNE	=rows[1][ks+1+1*NCH*NROWS*NVAL2],
+						eNEE	=rows[1][ks+2+2*NCH*NROWS*NVAL2],
+						eNEEE	=rows[1][ks+2+3*NCH*NROWS*NVAL2],
+						eW	=rows[0][ks+2-1*NCH*NROWS*NVAL2];
+					int ctx=FLOOR_LOG2(eW*eW+1);
+					if(ctx>NCTX-1)
+						ctx=NCTX-1;
+					if(ks==NSHIFTS-1)
+					{
+						int32_t wsum=0;
+						int32_t wp[NPREDS]={0};
+#define PRED(...) wsum+=wp[j]=0x100000/((int32_t)weights[kc][qy][ks][j]+1); p1[ks]+=wp[j]*estim[j]; ++j;
+						j=0;
+						PREDLIST
+#undef  PRED
+						//if(ky==ih/2&&kx==iw/2)//
+						//	printf("");
+
+						p1[ks]/=wsum;
+					}
+					else
+					{
+						int sh=SHIFTSTART+ks;
+						p1[ks]=1LL<<sh>>1;
+#define PRED(...) p1[ks]+=weights[kc][qy][ks][j]*estim[j]; ++j;
+						j=0;
+						PREDLIST
+#undef  PRED
+						p1[ks]>>=sh;
+					}
+					int prob=(int)p1[ks];
+					CLAMP2(prob, vmin, vmax);
+					prob+=offset;
+					CLAMP2(prob, 0, 255);
+
+					error=(int8_t)(yuv[kc]-prob);
+					sym=error<<1^error>>31;
+					++testhist[kc][qy][ks][ctx][sym];
+					
+					if(ks==NSHIFTS-1)
+					{
+#define PRED(...) weights[kc][qy][ks][j]+=(((int64_t)abs(curr-estim[j])<<8)-weights[kc][qy][ks][j])>>3; ++j;
+						j=0;
+						PREDLIST
+#undef  PRED
+					}
+					else
+					{
+						int e=(curr>p1[ks])-(curr<p1[ks]);
+#define PRED(...) weights[kc][qy][ks][j]+=e*estim[j]; ++j;
+						j=0;
+						PREDLIST
+#undef  PRED
+#ifdef MIXLEAK
+#define PRED(...) weights[kc][qy][ks][j]-=weights[kc][qy][ks][j]>>12; ++j;
+						j=0;
+						PREDLIST
+#undef  PRED
+#endif
+					}
+					rows[0][ks+2]=(2*eW+(sym<<4)+(eNEE>eNEEE?eNEE:eNEEE))>>2;
+				}
+				//if(ky==ih/2&&kx==iw/2)//
+				//	printf("");
+				rows[0][0]=curr;
+				rows[0][1]=curr-(int)p1[18-SHIFTSTART];
+				offset=(kc?vc0*yuv[0]+vc1*yuv[1]:uc0*yuv[0])>>2;
+				rows[0]+=NROWS*NVAL2;
+				rows[1]+=NROWS*NVAL2;
+				rows[2]+=NROWS*NVAL2;
+				rows[3]+=NROWS*NVAL2;
+			}
+		}
+	}
+	uint8_t kbest[3*YBLOCKS]={0};
+	double csizes[3][YBLOCKS][NSHIFTS]={0};
+	for(int kc=0;kc<3;++kc)
+	{
+		for(int qy=0;qy<YBLOCKS;++qy)
+		{
+			for(int sh=0;sh<NSHIFTS;++sh)
+			{
+				for(int ctx=0;ctx<NCTX;++ctx)
+				{
+					int32_t *currhist=testhist[kc][qy][sh][ctx];
+					int sum=0;
+					for(int ks=0;ks<NLEVELS;++ks)
+						sum+=currhist[ks];
+					double invsum=1./sum, e=0;
+					for(int ks=0;ks<NLEVELS;++ks)
+					{
+						int freq=currhist[ks];
+						if(freq)
+							e-=freq*log2((double)freq*invsum);
+					}
+					csizes[kc][qy][sh]+=e/8;
+				}
+				if(!sh||csizes[kc][qy][kbest[YBLOCKS*kc+qy]]>csizes[kc][qy][sh])
+					kbest[YBLOCKS*kc+qy]=sh;
+			}
+		}
+	}
+	if(ret_sh)
+	{
+		memcpy(ret_sh, kbest, sizeof(kbest));
+		//ret_sh[0]=SHIFTSTART+kbest[0];
+		//ret_sh[1]=SHIFTSTART+kbest[1];
+		//ret_sh[2]=SHIFTSTART+kbest[2];
+	}
+#if defined MIXTEST || defined LOUD
+	t=time_sec()-t;
+	printf("WH %d*%d  %lld bytes  \"%s\"\n"
+		, iw, ih
+		, (int64_t)3*iw*ih
+		, srcfn
+	);
+	printf("channel usize %lld\n", (int64_t)iw*ih);
+	printf("%12.6lf sec  %12.6lf MB/s\n"
+		, t, (double)3*iw*ih/(t*1024*1024)
+	);
+#ifdef MIXTEST
+	printf("YUV  mad=%12.4lf %12.4lf %12.4lf\n", best_mad[0], best_mad[1], best_mad[2]);
+#endif
+	for(int qy=0;qy<YBLOCKS;++qy)
+	{
+		printf("QY = %2d\n", qy);
+		for(int sh=0;sh<NSHIFTS;++sh)
+		{
+			if(sh==NSHIFTS-1)
+				printf("  WP:");
+			else
+				printf("  %2d:"
+					, sh+SHIFTSTART
+				);
+			printf(" %12.2lf%s %12.2lf%s %12.2lf%s\n"
+				, csizes[0][qy][sh], sh==kbest[YBLOCKS*0+qy]?" <-":"   "
+				, csizes[1][qy][sh], sh==kbest[YBLOCKS*1+qy]?" <-":"   "
+				, csizes[2][qy][sh], sh==kbest[YBLOCKS*2+qy]?" <-":"   "
+			);
+		}
+		printf("\n");
+	}
+#endif
+	free(pixels);
+#ifdef MIXTEST
+	exit(0);
+#endif
+}
+#endif
+
 #ifdef MATCH_HISTOGRAMS
 int32_t matchhist[4][256];
 uint16_t matchtable[2][256];
@@ -669,6 +958,8 @@ int c46_codec(int argc, char **argv)
 	int64_t usize=0, ccap=0, csize=0;
 	int psize=0;
 	int16_t *pixels=0;
+	int wpsize=0;
+	uint16_t *wperrors=0;
 	uint8_t *image=0, *stream=0, *imptr=0;
 	int yidx=0, uidx=0, vidx=0, uc0=0, vc0=0, vc1=0;
 #ifdef USE_L1
@@ -683,6 +974,7 @@ int c46_codec(int argc, char **argv)
 #ifdef GR_L1
 	int64_t grweights[NCH][NGRESTIMS]={0};
 #endif
+	uint8_t l1sh[3*YBLOCKS]={0}, prevsh[3]={0};
 #ifdef USE_AC
 	uint64_t low=0, range=0xFFFFFFFFFFFF, code=0;
 	uint8_t *streamptr=0;
@@ -784,6 +1076,9 @@ int c46_codec(int argc, char **argv)
 		fread(&iw, 1, 3, fsrc);
 		fread(&ih, 1, 3, fsrc);
 		fread(&bestrct, 1, 1, fsrc);
+#ifdef ENABLE_ANALYSIS2
+		fread(l1sh, 1, (size_t)3*YBLOCKS, fsrc);
+#endif
 		{
 			struct stat info={0};
 
@@ -806,11 +1101,22 @@ int c46_codec(int argc, char **argv)
 		CRASH("Alloc error");
 		return 1;
 	}
+	wpsize=(iw+2*XPAD)*(int)sizeof(uint16_t[NCH*NROWS*NPREDS]);
+	wperrors=(uint16_t*)malloc(wpsize);
+	if(!wperrors)
+	{
+		CRASH("Alloc error");
+		return 1;
+	}
+	memset(wperrors, 0, wpsize);
 	if(fwd)
 	{
 		fread(image, 1, usize, fsrc);
 		guide_save(image, iw, ih);
 		bestrct=crct_analysis(image, iw, ih);
+#ifdef ENABLE_ANALYSIS2
+		analysis2(srcfn, image, iw, ih, bestrct, l1sh);
+#endif
 #ifdef MATCH_HISTOGRAMS
 		yidx=rct_combinations[bestrct][II_PERM_Y];
 		uidx=rct_combinations[bestrct][II_PERM_U];
@@ -936,6 +1242,13 @@ int c46_codec(int argc, char **argv)
 	}
 	fclose(fsrc);
 	
+#ifndef ENABLE_ANALYSIS2
+#ifdef USE_WP
+	memset(l1sh, NSHIFTS-1, sizeof(l1sh));//WP
+#else
+	memset(l1sh, 18-SHIFTSTART, sizeof(l1sh));//L1
+#endif
+#endif
 #ifdef USE_AC
 	streamptr=stream;
 	if(!fwd)
@@ -954,9 +1267,15 @@ int c46_codec(int argc, char **argv)
 	uc0=rct_combinations[bestrct][II_COEFF_U_SUB_Y];
 	vc0=rct_combinations[bestrct][II_COEFF_V_SUB_Y];
 	vc1=rct_combinations[bestrct][II_COEFF_V_SUB_U];
-#ifdef USE_L1
-	for(int k=0;k<NCH*NPREDS;++k)
-		((int64_t*)weights)[k]=(1<<SHIFT)/NPREDS;
+#if defined USE_L1 && !defined USE_WP
+	for(int kc=0;kc<NCH;++kc)
+	{
+		if(l1sh[kc]!=SHIFTSTART+NSHIFTS-1)
+		{
+			for(int kp=0;kp<NPREDS;++kp)
+				weights[kc][kp]=(1<<SHIFT)/NPREDS;
+		}
+	}
 #endif
 #ifdef RICE_L1
 	for(int k=0;k<NCH*2;++k)
@@ -964,6 +1283,9 @@ int c46_codec(int argc, char **argv)
 #endif
 	memset(pixels, 0, psize);
 	imptr=image;
+	prevsh[0]=l1sh[YBLOCKS*0+0]+SHIFTSTART;
+	prevsh[1]=l1sh[YBLOCKS*1+0]+SHIFTSTART;
+	prevsh[2]=l1sh[YBLOCKS*2+0]+SHIFTSTART;
 	for(int ky=0;ky<ih;++ky)
 	{
 #ifdef USE_L1
@@ -972,6 +1294,13 @@ int c46_codec(int argc, char **argv)
 #ifdef GR_L1
 		int grestims[NGRESTIMS]={0};
 #endif
+		int qy=ky*YBLOCKS/ih;
+		uint8_t sh[]=
+		{
+			l1sh[YBLOCKS*0+qy]+SHIFTSTART,
+			l1sh[YBLOCKS*1+qy]+SHIFTSTART,
+			l1sh[YBLOCKS*2+qy]+SHIFTSTART,
+		};
 		int yuv[3]={0};
 		int error=0, sym=0, curr=0;
 		int16_t *rows[]=
@@ -981,6 +1310,38 @@ int c46_codec(int argc, char **argv)
 			pixels+(XPAD*NCH*NROWS+(ky-2LL+NROWS)%NROWS)*NVAL,
 			pixels+(XPAD*NCH*NROWS+(ky-3LL+NROWS)%NROWS)*NVAL,
 		};
+		uint16_t *wprows[]=
+		{
+			wperrors+(XPAD*NCH*NROWS+(ky-0LL+NROWS)%NROWS)*NPREDS,
+			wperrors+(XPAD*NCH*NROWS+(ky-0LL+NROWS)%NROWS)*NPREDS,
+			wperrors+(XPAD*NCH*NROWS+(ky-0LL+NROWS)%NROWS)*NPREDS,
+			wperrors+(XPAD*NCH*NROWS+(ky-0LL+NROWS)%NROWS)*NPREDS,
+		};
+#ifdef ENABLE_ANALYSIS2
+		if(qy!=(ky-1)*YBLOCKS/ih)
+		{
+			for(int kc=0;kc<3;++kc)
+			{
+				if(prevsh[kc]!=sh[kc])
+				{
+					if(prevsh[kc]==SHIFTSTART+NSHIFTS-1||sh[kc]==SHIFTSTART+NSHIFTS-1)//switch to L1 or WP
+						memset(weights[kc], 0, sizeof(int64_t[NPREDS]));
+					else if(prevsh[kc]>sh[kc])//shift has decreased
+					{
+						int s=prevsh[kc]-sh[kc];
+						for(int j=0;j<NPREDS;++j)
+							weights[kc][j]>>=s;
+					}
+					else//shift has increased
+					{
+						int s=sh[kc]-prevsh[kc];
+						for(int j=0;j<NPREDS;++j)
+							weights[kc][j]<<=s;
+					}
+				}
+			}
+		}
+#endif
 		for(int kx=0;kx<iw;++kx, imptr+=3)
 		{
 			int offset=0;
@@ -994,21 +1355,28 @@ int c46_codec(int argc, char **argv)
 			{
 				int
 					NNN	=rows[3][0+0*NCH*NROWS*NVAL],
+					NNW	=rows[2][0-1*NCH*NROWS*NVAL],
 					NN	=rows[2][0+0*NCH*NROWS*NVAL],
 					NNE	=rows[2][0+1*NCH*NROWS*NVAL],
+					NWW	=rows[1][0-2*NCH*NROWS*NVAL],
 					NW	=rows[1][0-1*NCH*NROWS*NVAL],
 					N	=rows[1][0+0*NCH*NROWS*NVAL],
 					NE	=rows[1][0+1*NCH*NROWS*NVAL],
+					NEE	=rows[1][0+2*NCH*NROWS*NVAL],
 					NEEE	=rows[1][0+3*NCH*NROWS*NVAL],
+					WWWW	=rows[0][0-4*NCH*NROWS*NVAL],
 					WWW	=rows[0][0-3*NCH*NROWS*NVAL],
 					WW	=rows[0][0-2*NCH*NROWS*NVAL],
 					W	=rows[0][0-1*NCH*NROWS*NVAL],
-					eNW	=rows[1][1-1*NCH*NROWS*NVAL],
-					eN	=rows[1][1+0*NCH*NROWS*NVAL],
-					eNE	=rows[1][1+1*NCH*NROWS*NVAL],
-					eNEE	=rows[1][1+2*NCH*NROWS*NVAL],
-					eNEEE	=rows[1][1+3*NCH*NROWS*NVAL],
-					eW	=rows[0][1-1*NCH*NROWS*NVAL];
+					
+					cNW	=rows[1][1-1*NCH*NROWS*NVAL],
+					cN	=rows[1][1+0*NCH*NROWS*NVAL],
+					cNE	=rows[1][1+1*NCH*NROWS*NVAL],
+					cW	=rows[0][1-1*NCH*NROWS*NVAL],
+
+					eNEE	=rows[1][2+2*NCH*NROWS*NVAL],
+					eNEEE	=rows[1][2+3*NCH*NROWS*NVAL],
+					eW	=rows[0][2-1*NCH*NROWS*NVAL];
 #ifdef GR_L1
 				int64_t grestim=1<<GRSHIFT>>1;
 #define GRESTIM(E) grestims[j]=E; grestim+=grweights[kc][j]*grestims[j]; ++j;
@@ -1052,12 +1420,70 @@ int c46_codec(int argc, char **argv)
 				if(vmax<NE)vmax=NE;
 				if(vmin>NEEE)vmin=NEEE;
 				if(vmax<NEEE)vmax=NEEE;
-				p1=1<<SHIFT>>1;
-#define PRED(E) estim[j]=E; p1+=weights[kc][j]*estim[j]; ++j;
-				j=0;
-				PREDLIST
+				if(sh[kc]==SHIFTSTART+NSHIFTS-1)
+				{
+					int32_t wp[NPREDS]={0};
+					//e = 2*(N+W+NW)+NN+NNE+NE+WW+I/4
+#define PRED(E)\
+	wp[j]=\
+		+wprows[0][j-1*NCH*NROWS*NPREDS]*2\
+		+wprows[1][j+0*NCH*NROWS*NPREDS]*2\
+		+wprows[1][j-1*NCH*NROWS*NPREDS]*2\
+		+wprows[2][j+0*NCH*NROWS*NPREDS]\
+		+wprows[2][j+1*NCH*NROWS*NPREDS]\
+		+wprows[1][j+1*NCH*NROWS*NPREDS]\
+		+wprows[0][j-1*NCH*NROWS*NPREDS]\
+		+(int32_t)(weights[kc][j]>>2)\
+	;++j;
+					j=0;
+					PREDLIST
 #undef  PRED
-				p1>>=SHIFT;
+					//if(ky==ih/2&&kx==iw/2)//
+					//	printf("");
+#if 0
+					float coeff=0, wsum=0, psum=0;
+#define PRED(E) estim[j]=E; coeff=65536.f/((int32_t)weights[kc][j]+1.0f); wsum+=coeff; psum+=coeff*estim[j]; ++j;
+					j=0;
+					PREDLIST
+#undef  PRED
+					//if(wsum)
+					//	p1=CVTFP32_I32(psum/wsum);
+					//else
+					//	p1=estim[0];
+					p1=CVTFP32_I32(psum/(wsum+0.5f));
+#endif
+#if 1
+					int32_t wsum=0;
+					int32_t coeff=0;
+					p1=0;
+#define PRED(E) estim[j]=E; coeff=0x100000/(wp[j]+1); wsum+=coeff; p1+=coeff*estim[j]; ++j;
+					j=0;
+					PREDLIST
+#undef  PRED
+					int64_t sign=p1>>63;
+					p1^=sign;
+					p1-=sign;
+					p1=(p1+(wsum>>1))/wsum;//towards nearest
+					p1^=sign;
+					p1-=sign;
+
+				//	if(p1<0)
+				//		p1=-((-p1+(wsum>>1))/wsum);//towards nearest
+				//	else
+				//		p1=(p1+(wsum>>1))/wsum;
+
+				//	p1/=wsum;//towards zero		X
+#endif
+				}
+				else
+				{
+					p1=1LL<<sh[kc]>>1;
+#define PRED(E) estim[j]=E; p1+=weights[kc][j]*estim[j]; ++j;
+					j=0;
+					PREDLIST
+#undef  PRED
+					p1>>=sh[kc];
+				}
 				pred=(int)p1;
 				CLAMP2(pred, vmin, vmax);
 #endif
@@ -1143,16 +1569,40 @@ int c46_codec(int argc, char **argv)
 				//if(ky==ih/2&&kx==iw/2)//
 				//	printf("");
 #ifdef USE_L1
-				e=(curr>p1)-(curr<p1);
-			//	e+=(curr-p1)>>0;
-			//	e=curr-(int)p1;
-			//	CLAMP2(e, -2, 2);
+				if(sh[kc]==SHIFTSTART+NSHIFTS-1)
+				{
+					int best=0x7FFFFFFF;
+					int32_t errors[NPREDS];
+#define PRED(...) errors[j]=abs(curr-estim[j]); if(best>errors[j])best=errors[j]; ++j;
+					j=0;
+					PREDLIST;
+#undef  PRED
+	#define PRED(...) wprows[0][j]=abs(curr-estim[j])-best; weights[kc][j]+=(((int64_t)wprows[0][j]<<5)-weights[kc][j]+(1<<3>>1))>>3; ++j;
+//	#define PRED(...) weights[kc][j]+=(((int64_t)abs(curr-estim[j])<<8)-weights[kc][j])>>3; ++j;
+					j=0;
+					PREDLIST
+#undef  PRED
+				}
+				else
+				{
+					e=(curr>p1)-(curr<p1);
+				//	e+=(curr-p1)>>0;
+				//	e=curr-(int)p1;
+				//	CLAMP2(e, -2, 2);
 #define PRED(...) weights[kc][j]+=e*estim[j]; ++j;
-				j=0;
-				PREDLIST
+					j=0;
+					PREDLIST
+#undef  PRED
+#ifdef MIXLEAK
+#define PRED(...) weights[kc][j]-=weights[kc][j]>>12; ++j;
+					j=0;
+					PREDLIST
 #undef  PRED
 #endif
+				}
+#endif
 				rows[0][0]=curr;
+				rows[0][1]=curr-pred;
 #ifdef GR_L1
 				int gre=(sym>grestim)-(sym<grestim);
 #define GRESTIM(...) grweights[kc][j]+=gre*grestims[j]; ++j;
@@ -1162,7 +1612,7 @@ int c46_codec(int argc, char **argv)
 				rows[0][1]=sym;
 #else
 #ifdef USE_AC
-				rows[0][1]=(2*eW+(sym<<GRBITS)+(eNEE>eNEEE?eNEE:eNEEE))>>2;
+				rows[0][2]=(2*eW+(sym<<GRBITS)+(eNEE>eNEEE?eNEE:eNEEE))>>2;
 #else
 				rows[0][1]=(2*eW+(sym<<GRBITS)+eNEEE)>>2;
 #endif
@@ -1195,6 +1645,7 @@ int c46_codec(int argc, char **argv)
 		}
 	}
 	free(pixels);
+	free(wperrors);
 	{
 		FILE *fdst=fopen(dstfn, "wb");
 		if(!fdst)
@@ -1217,6 +1668,9 @@ int c46_codec(int argc, char **argv)
 			csize+=fwrite(&iw, 1, 3, fdst);
 			csize+=fwrite(&ih, 1, 3, fdst);
 			csize+=fwrite(&bestrct, 1, 1, fdst);
+#ifdef ENABLE_ANALYSIS2
+			csize+=fwrite(l1sh, 1, (size_t)3*YBLOCKS, fdst);
+#endif
 			csize+=fwrite(stream, 1, streamptr-stream, fdst);
 		}
 		else
@@ -1233,7 +1687,7 @@ int c46_codec(int argc, char **argv)
 	t=time_sec()-t;
 	if(fwd)
 	{
-#ifdef ESTIMATE_SIZES
+#if defined ESTIMATE_SIZES && !defined USE_AC
 		int64_t btotal=0;
 		for(int k=0;k<2;++k)
 			btotal+=bsizes[0][k]+bsizes[1][k]+bsizes[2][k];

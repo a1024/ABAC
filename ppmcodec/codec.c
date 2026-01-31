@@ -267,7 +267,7 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_jon-flobrant-32821.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_kim-daniel-594.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC30-ppm/03.ppm"
-	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0801.ppm"
+		"C:/Projects/datasets/dataset-DIV2K-ppm/0801.ppm"
 	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0802.ppm"
 	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0843.ppm"
 	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm"
@@ -277,17 +277,18 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/dataset-kodak2-ppm/IMG0023.ppm"
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim04.ppm"
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim23.ppm"
-		"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_02.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_03.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/olympus_xz1_16.ppm"
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/sony_a55_11.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA12811.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA13803.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA13882.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm"	//large hard
-	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13844.ppm"	//large med
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13844.ppm"	//large normal
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13845.ppm"	//large easy
 	//	"C:/Projects/datasets/dataset-sintel-ppm"
 	//	"C:/Projects/datasets/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
@@ -326,6 +327,7 @@ int main(int argc, char **argv)
 	//	"e",
 		srcfn,
 		tmpfn,
+	//	"25",
 	//	"2",
 	//	"5",
 
