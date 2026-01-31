@@ -1,4 +1,5 @@
 #include"ebench.h"
+#include<stdint.h>
 #include<stdio.h>
 #include<stdlib.h>
 #include<string.h>
@@ -9,6 +10,7 @@ static const char file[]=__FILE__;
 
 
 //	#define ENABLE_SSE
+//	#define USE_L1
 
 #ifdef ENABLE_SSE
 #define SSEBITS 8
@@ -41,8 +43,6 @@ static const char file[]=__FILE__;
 //WG:
 #define WG_NBITS 0	//why 0 is best?
 
-#define L1SH 18
-#define L1PREDS 17
 #define L1PREDLIST\
 	L1PRED(eN)\
 	L1PRED(eW)\
@@ -69,7 +69,7 @@ static const char file[]=__FILE__;
 #endif
 
 #if 1
-#define WG_NPREDS	12	//multiple of 4
+//multiple of 4 preds
 #define WG_PREDLIST0\
 	WG_PRED(210,	N+(23*eN-2*(eNN+eNW)+9*eW)/110)\
 	WG_PRED(210,	W+(23*eW-2*(eWW+eNW)+9*eN)/110)\
@@ -206,6 +206,18 @@ static const char file[]=__FILE__;
 	WG_PRED(165, 3*(W-WW)+WWW)\
 	WG_PRED(150, (W+NEEE)/2)
 #endif
+
+enum
+{
+#define WG_PRED(...) +1
+	WG_NPREDS=WG_PREDLIST0,
+#undef  WG_PRED
+
+	L1SH=18,
+#define L1PRED(...) +1
+	L1PREDS=L1PREDLIST,
+#undef  L1PRED
+};
 static void wg_init(double *weights, int kc)
 {
 	int j=0;
@@ -1581,10 +1593,22 @@ void pred_wgrad4c(Image *src, int fwd)
 				//update
 				static const int factors[]={97, 99, 99};
 				int factor=factors[kc];
+
+				int errors[WG_NPREDS], best=0x7FFFFFFF;
 				for(int k=0;k<WG_NPREDS;++k)
 				{
 					int e2=(curr-wg_preds[k])<<1;
 					e2=e2<<1^e2>>31;
+					errors[k]=e2;
+					if(best>e2)
+						best=e2;
+				}
+
+				for(int k=0;k<WG_NPREDS;++k)
+				{
+					int e2=errors[k]-best;
+				//	int e2=(curr-wg_preds[k])<<1;
+				//	e2=e2<<1^e2>>31;
 					wg_perrors[kc][k]=(wg_perrors[kc][k]+e2)*factor>>7;
 				//	wg_perrors[kc][k]=(e2-wg_perrors[kc][k]+(1<<5>>1))>>5;//slightly worse
 					pecurr[k]=(2*peW[k]+e2+peNEE[k])>>2;
@@ -1695,6 +1719,19 @@ void pred_wgrad4c_crct(Image *src, int fwd)
 		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[3]+1)),
 		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[3]+2)),
 	};
+#ifdef USE_L1
+	enum
+	{
+		L1SHIFT=18,
+	};
+	for(int k=0;k<WG_NPREDS;++k)
+	{
+		wg_weights[0][k]=(1<<L1SHIFT)/WG_NPREDS;
+		wg_weights[1][k]=(1<<L1SHIFT)/WG_NPREDS;
+		wg_weights[2][k]=(1<<L1SHIFT)/WG_NPREDS;
+		wg_weights[3][k]=(1<<L1SHIFT)/WG_NPREDS;
+	}
+#endif
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
 		int *rows[]=
@@ -1812,6 +1849,13 @@ void pred_wgrad4c_crct(Image *src, int fwd)
 				}
 
 				//mix
+#ifdef USE_L1
+				int64_t p1=1LL<<L1SHIFT>>1;
+				for(int k=0;k<WG_NPREDS;++k)
+					p1+=(int64_t)wg_weights[kc][k]*wg_preds[k];
+				p1>>=L1SHIFT;
+				int pred1=(int)p1;
+#else
 				ALIGN(32) int weights[WG_NPREDS];
 				for(int kp=0;kp<WG_NPREDS;++kp)
 				{
@@ -1861,6 +1905,7 @@ void pred_wgrad4c_crct(Image *src, int fwd)
 				}
 				fpred/=wsum;
 				int pred1=(int)CVTFP64_I64(fpred);
+#endif
 #endif
 #ifdef ENABLE_SSE
 				int *sseptr=sse+kc*256+(((pred1>>(src->depth[kc]-8))+128)&255);
@@ -1938,15 +1983,33 @@ void pred_wgrad4c_crct(Image *src, int fwd)
 
 
 				//update
+#ifdef USE_L1
+				int e0=(curr>p1)-(curr<p1);
+				for(int k=0;k<WG_NPREDS;++k)
+					wg_weights[kc][k]+=e0*wg_preds[k];
+#else
 				static const int factors[]={97, 99, 99};
 				int factor=factors[kc];
+
+				int errors[WG_NPREDS], best=0x7FFFFFFF;
 				for(int k=0;k<WG_NPREDS;++k)
 				{
 					int e2=(curr-wg_preds[k])<<1;
 					e2=e2<<1^e2>>31;
+					errors[k]=e2;
+					if(best>e2)
+						best=e2;
+				}
+
+				for(int k=0;k<WG_NPREDS;++k)
+				{
+					int e2=errors[k]-best;
+				//	int e2=(curr-wg_preds[k])<<1;
+				//	e2=e2<<1^e2>>31;
 					wg_perrors[kc][k]=(wg_perrors[kc][k]+e2)*factor>>7;
 					pecurr[k]=(2*peW[k]+e2+peNEE[k])>>2;
 				}
+#endif
 				int e=(curr>predu)-(curr<predu);
 				coeffs[kc][L1PREDSSSE]+=e;//bias
 				for(int k=0;k<L1PREDSSSE;++k)
