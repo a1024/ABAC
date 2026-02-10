@@ -580,6 +580,11 @@ void pred_mixN(Image *src, int fwd)
 				estims[j++]=N+W-NW;
 				estims[j++]=2*N-NN;
 				estims[j++]=NE;
+			//	estims[j++]=(W+2*NE-NNE)>>1;
+			//	estims[j++]=NEE;
+			//	estims[j++]=W+NE-N;
+			//	estims[j++]=3*(W-WW)+WWW;
+			//	estims[j++]=2*W-WW;
 #endif
 
 				//mix 8 - c32
@@ -604,6 +609,12 @@ void pred_mixN(Image *src, int fwd)
 					+weights[3]*estims[3]
 				)>>SHIFT;
 				int p1=pred;
+
+			//	if(!kc&&ky>2)//
+			//	{
+			//		double sum=(double)(weights[0]+weights[1]+weights[2]+weights[3])/(1<<SHIFT);
+			//		printf("");
+			//	}
 				
 				int vmax=N, vmin=W;
 				if(N<W)vmin=N, vmax=W;
@@ -648,6 +659,9 @@ void pred_mixN(Image *src, int fwd)
 					}
 				}
 				rows[0][0]=curr;
+
+				//if(curr!=p1&&curr==estims[0])
+				//	printf("");
 
 				int e=(curr>p1)-(curr<p1);//L1
 				weights[0]+=e*estims[0];
@@ -1644,4 +1658,584 @@ void pred_gray(Image *src, int fwd)
 			}
 		}
 	}
+}
+
+static void init_weights(int32_t *weights, int npreds, int sh)
+{
+	for(int k=0;k<npreds;++k)
+		weights[k]=(1<<sh)/npreds;
+}
+#define LOAD(X, Y) (uint32_t)(ky+(Y))<(uint32_t)src->ih&&(uint32_t)(kx+(X))<(uint32_t)src->iw?src->data[4*(src->iw*(ky+(Y))+kx+(X))+kc]:0
+static void awav_queen(Image *src, int fwd, int kc, int iw, int ih)
+{
+	enum
+	{
+	//	NPRED=4,
+	//	SHIFT=15,
+	//	NPRED=12,
+	//	SHIFT=19,
+		NPRED=14,
+		SHIFT=20,
+	};
+	int32_t weights[NPRED]={0};
+	int amin=-(1<<src->depth[kc]>>1), amax=(1<<src->depth[kc]>>1)-1;
+
+	init_weights(weights, NPRED, SHIFT);
+	for(int ky=0;ky<ih;ky+=2)
+	{
+		for(int kx=1;kx<iw;kx+=2)
+		{
+			int
+				NNN	=LOAD(+0, -3),
+				WWW	=LOAD(-3, +0),
+				SSS	=LOAD(+0, +3),
+				EEE	=LOAD(+3, +0),
+				NW	=LOAD(-1, -1),
+				NE	=LOAD(+1, -1),
+				SW	=LOAD(-1, +1),
+				SE	=LOAD(+1, +1),
+				N	=LOAD(+0, -1),
+				W	=LOAD(-1, +0),
+				S	=LOAD(+0, +1),
+				E	=LOAD(+1, +0);
+			int estim[]=
+			{
+				N,
+				W,
+				S,
+				E,
+				N+W-NW,
+				N+E-NE,
+				S+W-SW,
+				S+E-SE,
+				(3*N-NNN)>>1,
+				(3*W-WWW)>>1,
+				(3*E-EEE)>>1,
+				(3*S-SSS)>>1,
+				(N+S)>>1,
+				(W+E)>>1,
+			};
+			int vmin, vmax;
+			int64_t p1=1LL<<SHIFT>>1;
+			int32_t pred;
+			for(int k=0;k<NPRED;++k)
+				p1+=(int64_t)weights[k]*estim[k];
+			p1>>=SHIFT;
+			pred=(int)p1;
+			vmax=N; vmin=W;
+			if(N<W)vmin=N, vmax=W;
+			if(vmin>S)vmin=S;
+			if(vmax<S)vmax=S;
+			if(vmin>E)vmin=E;
+			if(vmax<E)vmax=E;
+			CLAMP2(pred, vmin, vmax);
+
+			int idx=4*(src->iw*ky+kx)+kc;
+			int curr, val=src->data[idx];
+			if(fwd)
+			{
+				pred=-pred;
+				curr=val;
+			}
+			val+=pred;
+			if(g_dist<=1)
+			{
+				val<<=32-src->depth[kc];
+				val>>=32-src->depth[kc];
+			}
+			else if(!fwd)
+				CLAMP2(val, amin, amax);
+			if(!fwd)
+				curr=val;
+			src->data[idx]=val;
+
+			int e=(curr>(int32_t)p1)-(curr<(int32_t)p1);
+			for(int k=0;k<NPRED;++k)
+				weights[k]+=e*estim[k];
+		}
+	}
+#if 0
+	if(iw==src->iw)
+		messagebox(MBOX_OK, "Info",
+			" 0 %8d\n"
+			" 1 %8d\n"
+			" 2 %8d\n"
+			" 3 %8d\n"
+			" 4 %8d\n"
+			" 5 %8d\n"
+			" 6 %8d\n"
+			" 7 %8d\n"
+			" 8 %8d\n"
+			" 9 %8d\n"
+			" A %8d\n"
+			" B %8d\n"
+			, weights[0x0]
+			, weights[0x1]
+			, weights[0x2]
+			, weights[0x3]
+			, weights[0x4]
+			, weights[0x5]
+			, weights[0x6]
+			, weights[0x7]
+			, weights[0x8]
+			, weights[0x9]
+			, weights[0xA]
+			, weights[0xB]
+		);
+#endif
+}
+static void awav_rooks(Image *src, int fwd, int kc, int iw, int ih)
+{
+	enum
+	{
+		NPRED=14,
+		SHIFT=19,
+	};
+	int32_t weights[NPRED]={0};
+	int amin=-(1<<src->depth[kc]>>1), amax=(1<<src->depth[kc]>>1)-1;
+
+	init_weights(weights, NPRED, SHIFT);
+	for(int ky=1;ky<ih;ky+=2)
+	{
+		for(int kx=0;kx<iw;kx+=2)
+		{
+			int
+				NNN	=LOAD(+0, -3),
+				WWW	=LOAD(-3, +0),
+				SSS	=LOAD(+0, +3),
+				EEE	=LOAD(+3, +0),
+				NEE	=LOAD(+2, -1),
+				SEE	=LOAD(+2, +1),
+				NWW	=LOAD(-2, -1),
+				SWW	=LOAD(-2, +1),
+				NNE	=LOAD(+1, -2),
+				SSE	=LOAD(+1, +2),
+				NNW	=LOAD(-1, -2),
+				SSW	=LOAD(-1, +2),
+				N	=LOAD(+0, -1),
+				W	=LOAD(-1, +0),
+				S	=LOAD(+0, +1),
+				E	=LOAD(+1, +0);
+			int estim[]=
+			{
+				N,
+				W,
+				S,
+				E,
+				(4*N-NNE-NNW)>>1,
+				(4*S-SSE-SSW)>>1,
+				(4*E-NEE-SEE)>>1,
+				(4*W-NWW-SWW)>>1,
+				(3*N-NNN)>>1,
+				(3*W-WWW)>>1,
+				(3*E-EEE)>>1,
+				(3*S-SSS)>>1,
+				(N+S)>>1,
+				(W+E)>>1,
+			};
+			int vmin, vmax;
+			int64_t p1=1LL<<SHIFT>>1;
+			int32_t pred;
+			for(int k=0;k<NPRED;++k)
+				p1+=(int64_t)weights[k]*estim[k];
+			p1>>=SHIFT;
+			pred=(int)p1;
+			vmax=N; vmin=W;
+			if(N<W)vmin=N, vmax=W;
+			if(vmin>S)vmin=S;
+			if(vmax<S)vmax=S;
+			if(vmin>E)vmin=E;
+			if(vmax<E)vmax=E;
+			CLAMP2(pred, vmin, vmax);
+
+			int idx=4*(src->iw*ky+kx)+kc;
+			int curr, val=src->data[idx];
+			if(fwd)
+			{
+				pred=-pred;
+				curr=val;
+			}
+			val+=pred;
+			if(g_dist<=1)
+			{
+				val<<=32-src->depth[kc];
+				val>>=32-src->depth[kc];
+			}
+			else if(!fwd)
+				CLAMP2(val, amin, amax);
+			if(!fwd)
+				curr=val;
+			src->data[idx]=val;
+
+			int e=(curr>(int32_t)p1)-(curr<(int32_t)p1);
+			for(int k=0;k<NPRED;++k)
+				weights[k]+=e*estim[k];
+		}
+	}
+}
+static void awav_bishop(Image *src, int fwd, int kc, int iw, int ih)
+{
+	enum
+	{
+		NPRED=14,
+		SHIFT=19,
+	};
+	int32_t weights[NPRED]={0};
+	int amin=-(1<<src->depth[kc]>>1), amax=(1<<src->depth[kc]>>1)-1;
+
+	init_weights(weights, NPRED, SHIFT);
+	for(int ky=0;ky<ih;ky+=2)
+	{
+		for(int kx=0;kx<iw;kx+=2)
+		{
+			int
+				NNNWWW	=LOAD(-1, -1),
+				NNNEEE	=LOAD(+1, -1),
+				SSSWWW	=LOAD(-1, +1),
+				SSSEEE	=LOAD(+1, +1),
+				NEEE	=LOAD(+3, -1),
+				NWWW	=LOAD(-3, -1),
+				SEEE	=LOAD(+3, +1),
+				SWWW	=LOAD(-3, +1),
+				NNNE	=LOAD(+1, -3),
+				NNNW	=LOAD(-1, -3),
+				SSSE	=LOAD(+1, +3),
+				SSSW	=LOAD(-1, +3),
+				NW	=LOAD(-1, -1),
+				NE	=LOAD(+1, -1),
+				SW	=LOAD(-1, +1),
+				SE	=LOAD(+1, +1);
+			int estim[]=
+			{
+				NW,
+				NE,
+				SW,
+				SE,
+				(3*NW-NNNWWW)>>1,
+				(3*NE-NNNEEE)>>1,
+				(3*SW-SSSWWW)>>1,
+				(3*SE-SSSEEE)>>1,
+				(4*NW-NWWW-NNNW)>>1,
+				(4*NE-NEEE-NNNE)>>1,
+				(4*SW-SWWW-SSSW)>>1,
+				(4*SE-SEEE-SSSE)>>1,
+				(NW+SE)>>1,
+				(SW+NE)>>1,
+			};
+			int vmin, vmax;
+			int64_t p1=1LL<<SHIFT>>1;
+			int32_t pred;
+			for(int k=0;k<NPRED;++k)
+				p1+=(int64_t)weights[k]*estim[k];
+			p1>>=SHIFT;
+			pred=(int)p1;
+			vmax=NW; vmin=NE;
+			if(NW<NE)vmin=NW, vmax=NE;
+			if(vmin>SW)vmin=SW;
+			if(vmax<SW)vmax=SW;
+			if(vmin>SE)vmin=SE;
+			if(vmax<SE)vmax=SE;
+			CLAMP2(pred, vmin, vmax);
+
+			int idx=4*(src->iw*ky+kx)+kc;
+			int curr, val=src->data[idx];
+			if(fwd)
+			{
+				pred=-pred;
+				curr=val;
+			}
+			val+=pred;
+			if(g_dist<=1)
+			{
+				val<<=32-src->depth[kc];
+				val>>=32-src->depth[kc];
+			}
+			else if(!fwd)
+				CLAMP2(val, amin, amax);
+			if(!fwd)
+				curr=val;
+			src->data[idx]=val;
+
+			int e=(curr>(int32_t)p1)-(curr<(int32_t)p1);
+			for(int k=0;k<NPRED;++k)
+				weights[k]+=e*estim[k];
+		}
+	}
+}
+static void awav_king(Image *src, int fwd, int kc, int iw, int ih)
+{
+	enum
+	{
+		NPRED=14,
+		SHIFT=15,
+		
+		XPAD=8,
+		NROWS=4,
+		NCH=1,
+		NVAL=1,
+	};
+	int32_t weights[NPRED]={0};
+	int amin=-(1<<src->depth[kc]>>1), amax=(1<<src->depth[kc]>>1)-1;
+	int psize=(iw+2*XPAD)*(int)sizeof(int16_t[NROWS*NCH*NVAL]);
+	int16_t *pixels=(int16_t*)_mm_malloc(psize, sizeof(__m128i));
+	if(!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(pixels, 0, psize);
+
+	init_weights(weights, NPRED, SHIFT);
+	for(int ky=1;ky<ih;ky+=2)
+	{
+		int16_t *rows[]=
+		{
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-0LL+NROWS)%NROWS)*NVAL,//sub 1 channel for pre-increment
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-1LL+NROWS)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-2LL+NROWS)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-3LL+NROWS)%NROWS)*NVAL,
+		};
+		for(int kx=1;kx<iw;kx+=2)
+		{
+			rows[0]+=NROWS*NVAL;
+			rows[1]+=NROWS*NVAL;
+			rows[2]+=NROWS*NVAL;
+			rows[3]+=NROWS*NVAL;
+			int
+				NNN	=LOAD(+0, -3),
+				WWW	=LOAD(-3, +0),
+				SSS	=LOAD(+0, +3),
+				EEE	=LOAD(+3, +0),
+				NW	=LOAD(-1, -1),
+				NE	=LOAD(+1, -1),
+				SW	=LOAD(-1, +1),
+				SE	=LOAD(+1, +1),
+				N	=LOAD(+0, -1),
+				W	=LOAD(-1, +0),
+				S	=LOAD(+0, +1),
+				E	=LOAD(+1, +0),
+				NNWW	=rows[1][-1*NCH*NROWS*NVAL],
+				NN	=rows[1][+0*NCH*NROWS*NVAL],
+				WW	=rows[0][-1*NCH*NROWS*NVAL];
+			int p0=NN+WW-NNWW;
+			int estim[]=
+			{
+				N,
+				W,
+				S,
+				E,
+				N+W-NW,
+				N+E-NE,
+				S+W-SW,
+				S+E-SE,
+				(3*N-NNN)>>1,
+				(3*W-WWW)>>1,
+				(3*E-EEE)>>1,
+				(3*S-SSS)>>1,
+				(N+S)>>1,
+				(W+E)>>1,
+			};
+			int vmin, vmax;
+			int64_t p1=1LL<<SHIFT>>1;
+			int32_t pred;
+			for(int k=0;k<NPRED;++k)
+				p1+=(int64_t)weights[k]*estim[k];
+			p1>>=SHIFT;
+			pred=(int)p1;
+			vmax=N; vmin=W;
+			if(N<W)vmin=N, vmax=W;
+			if(vmin>S)vmin=S;
+			if(vmax<S)vmax=S;
+			if(vmin>E)vmin=E;
+			if(vmax<E)vmax=E;
+			CLAMP2(pred, vmin, vmax);
+		//	int pred=(3*(N+W+S+E)+(NW+NE+SW+SE))>>4;
+			pred=-pred;
+
+			int idx=4*(src->iw*ky+kx)+kc;
+			int curr, val=src->data[idx];
+			if(fwd)
+			{
+				pred=-pred;
+				curr=val;
+			}
+			val+=pred;
+		//	if(g_dist<=1)
+			{
+				val<<=32-src->depth[kc];
+				val>>=32-src->depth[kc];
+			}
+		//	else if(!fwd)
+		//		CLAMP2(val, amin, amax);
+			if(!fwd)
+				curr=val;
+			src->data[idx]=val;
+			rows[0][0]=curr;
+
+			int e=(curr-p0>(int32_t)p1)-(curr-p0<(int32_t)p1);
+			for(int k=0;k<NPRED;++k)
+				weights[k]-=e*estim[k];
+		}
+	}
+	_mm_free(pixels);
+}
+static void awav_pawn(Image *src, int fwd, int kc, int iw, int ih)
+{
+	if(g_dist<=1)
+		return;
+	int invdist=((1<<16)+g_dist-1)/g_dist;
+	//	bishop	queen
+	//	rooks	DC
+	for(int ky=0;ky<ih;ky+=2)
+	{
+		for(int kx=0;kx<iw;kx+=2)
+		{
+			int idx=4*(src->iw*ky+kx)+kc;
+			{
+				int val=src->data[idx];
+				if(fwd)
+					val=(val*invdist>>16)-(val>>31);
+				else
+					val*=g_dist;
+				src->data[idx]=val;
+			}
+			if(kx+1<iw)
+			{
+				int val=src->data[idx+4];
+				if(fwd)
+					val=(val*invdist>>16)-(val>>31);
+				else
+					val*=g_dist;
+				src->data[idx+4]=val;
+			}
+			if(ky+1<ih)
+			{
+				int val=src->data[idx+4*src->iw];
+				if(fwd)
+					val=(val*invdist>>16)-(val>>31);
+				else
+					val*=g_dist;
+				src->data[idx+4*src->iw]=val;
+			}
+		}
+	}
+}
+static void awav_horse(Image *src, int fwd, int kc, int iw, int ih, int *tmp)
+{
+	if(fwd)
+	{
+		for(int ky=0;ky<ih;++ky)
+		{
+			int half=iw>>1;
+			for(int kx=0;kx<iw;++kx)
+				tmp[kx]=src->data[4*(src->iw*ky+kx)+kc];
+			for(int kx=0;kx<half;++kx)
+			{
+				src->data[4*(src->iw*ky+kx)+kc]=tmp[2*kx+1];
+				src->data[4*(src->iw*ky+kx+half)+kc]=tmp[2*kx+0];
+			}
+			if(iw&1)
+				src->data[4*(src->iw*ky+iw-1)+kc]=tmp[iw-1];
+		}
+		for(int kx=0;kx<iw;++kx)
+		{
+			int half=ih>>1;
+			for(int ky=0;ky<ih;++ky)
+				tmp[ky]=src->data[4*(src->iw*ky+kx)+kc];
+			for(int ky=0;ky<half;++ky)
+			{
+				src->data[4*(src->iw*ky+kx)+kc]=tmp[2*ky+1];
+				src->data[4*(src->iw*(ky+half)+kx)+kc]=tmp[2*ky+0];
+			}
+			if(ih&1)
+				src->data[4*(src->iw*(ih-1)+kx)+kc]=tmp[ih-1];
+		}
+	}
+	else
+	{
+		for(int kx=0;kx<iw;++kx)
+		{
+			int half=ih>>1;
+			for(int ky=0;ky<ih;++ky)
+				tmp[ky]=src->data[4*(src->iw*ky+kx)+kc];
+			for(int ky=0;ky<half;++ky)
+			{
+				src->data[4*(src->iw*(2*ky+1)+kx)+kc]=tmp[ky];
+				src->data[4*(src->iw*(2*ky+0)+kx)+kc]=tmp[ky+half];
+			}
+			if(ih&1)
+				src->data[4*(src->iw*(ih-1)+kx)+kc]=tmp[ih-1];
+		}
+		for(int ky=0;ky<ih;++ky)
+		{
+			int half=iw>>1;
+			for(int kx=0;kx<iw;++kx)
+				tmp[kx]=src->data[4*(src->iw*ky+kx)+kc];
+			for(int kx=0;kx<half;++kx)
+			{
+				src->data[4*(src->iw*ky+2*kx+1)+kc]=tmp[kx];
+				src->data[4*(src->iw*ky+2*kx+0)+kc]=tmp[kx+half];
+			}
+			if(iw&1)
+				src->data[4*(src->iw*ky+iw-1)+kc]=tmp[iw-1];
+		}
+	}
+}
+#undef  LOAD
+void pred_awav(Image *src, int fwd)
+{
+	enum
+	{
+		MINDIM=64,
+		MAXIT=3,
+	};
+	int dim=src->iw>src->ih?src->iw:src->ih;
+	int *tmp=(int*)malloc(sizeof(int)*dim);
+	if(!tmp)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	for(int kc=0;kc<4;++kc)
+	{
+		int it=0;
+		if(!src->depth[kc])
+			continue;
+		if(fwd)
+		{
+			for(int h2=src->ih, w2=src->iw;h2>MINDIM&&w2>MINDIM&&it<MAXIT;h2>>=1, w2>>=1, ++it)
+			{
+				awav_queen	(src, fwd, kc, w2, h2);
+				awav_rooks	(src, fwd, kc, w2, h2);
+				awav_bishop	(src, fwd, kc, w2, h2);
+			//	awav_king	(src, fwd, kc, w2, h2);
+
+				awav_pawn	(src, fwd, kc, w2, h2);
+				awav_horse	(src, fwd, kc, w2, h2, tmp);
+			}
+		}
+		else
+		{
+			int sizes[16][2]={0}, nsizes=0;
+			for(int h2=src->ih, w2=src->iw;h2>MINDIM&&w2>MINDIM&&it<MAXIT;h2>>=1, w2>>=1, ++it)
+			{
+				sizes[nsizes][0]=w2;
+				sizes[nsizes][1]=h2;
+				++nsizes;
+			}
+			for(int k=nsizes-1;k>=0;--k)
+			{
+				int w2=sizes[k][0], h2=sizes[k][1];
+				
+				awav_horse	(src, fwd, kc, w2, h2, tmp);
+				awav_pawn	(src, fwd, kc, w2, h2);
+				
+			//	awav_king	(src, fwd, kc, w2, h2);
+				awav_bishop	(src, fwd, kc, w2, h2);
+				awav_rooks	(src, fwd, kc, w2, h2);
+				awav_queen	(src, fwd, kc, w2, h2);
+			}
+		}
+	}
+	free(tmp);
 }

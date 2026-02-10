@@ -222,7 +222,7 @@ typedef enum TransformTypeEnum
 	
 	ST_FWD_GRAY,		ST_INV_GRAY,
 	ST_FWD_MIXN,		ST_INV_MIXN,
-	ST_FWD_MIXN_CRCT2,	ST_INV_MIXN_CRCT2,
+//	ST_FWD_MIXN_CRCT2,	ST_INV_MIXN_CRCT2,
 	ST_FWD_ADAQUANT,	ST_INV_ADAQUANT,
 	ST_FWD_GRFILT,		ST_INV_GRFILT,
 	ST_FWD_L1CRCT,		ST_INV_L1CRCT,
@@ -290,7 +290,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_OLS6,		ST_INV_OLS6,
 	ST_FWD_TABLE,		ST_INV_TABLE,
 	ST_FWD_LWAV,		ST_INV_LWAV,
-	ST_FWD_MIX2,		ST_INV_MIX2,
+//	ST_FWD_MIX2,		ST_INV_MIX2,
 //	ST_FWD_AV3,		ST_INV_AV3,
 //	ST_FWD_ECOEFF,		ST_INV_ECOEFF,
 //	ST_FWD_AVERAGE,		ST_INV_AVERAGE,
@@ -310,6 +310,7 @@ typedef enum TransformTypeEnum
 	ST_FWD_SQUEEZE,		ST_INV_SQUEEZE,
 	ST_FWD_LEGALL53,	ST_INV_LEGALL53,
 	ST_FWD_CDF97,		ST_INV_CDF97,
+	ST_FWD_AWAV,		ST_INV_AWAV,
 //	ST_FWD_EXPDWT,		ST_INV_EXPDWT,
 //	ST_FWD_CUSTOM_DWT,	ST_INV_CUSTOM_DWT,
 
@@ -2906,14 +2907,14 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_CG420:		a=" S Inv CG420";		break;
 	case ST_FWD_AV2:		a=" S Fwd (N+W)/2";		break;
 	case ST_INV_AV2:		a=" S Inv (N+W)/2";		break;
-	case ST_FWD_MIX2:		a=" S Fwd MIX2";		break;
-	case ST_INV_MIX2:		a=" S Inv MIX2";		break;
+//	case ST_FWD_MIX2:		a=" S Fwd MIX2";		break;
+//	case ST_INV_MIX2:		a=" S Inv MIX2";		break;
 	case ST_FWD_GRAY:		a=" S Fwd Gray";		break;
 	case ST_INV_GRAY:		a=" S Inv Gray";		break;
 	case ST_FWD_MIXN:		a=" S Fwd MIX N";		break;
 	case ST_INV_MIXN:		a=" S Inv MIX N";		break;
-	case ST_FWD_MIXN_CRCT2:		a=" S Fwd MIX N cRCT2";		break;
-	case ST_INV_MIXN_CRCT2:		a=" S Inv MIX N cRCT2";		break;
+//	case ST_FWD_MIXN_CRCT2:		a=" S Fwd MIX N cRCT2";		break;
+//	case ST_INV_MIXN_CRCT2:		a=" S Inv MIX N cRCT2";		break;
 //	case ST_FWD_AV3:		a=" S Fwd AV3";			break;
 //	case ST_INV_AV3:		a=" S Inv AV3";			break;
 	case ST_FWD_WGRAD:		a="CS Fwd WGrad";		break;
@@ -2940,6 +2941,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 //	case ST_INV_WMIX:		a=" S Inv WMIX";		break;
 	case ST_FWD_TABLE:		a=" S Fwd Table";		break;
 	case ST_INV_TABLE:		a=" S Inv Table";		break;
+	case ST_FWD_AWAV:		a=" S Fwd AWAV";		break;
+	case ST_INV_AWAV:		a=" S Inv AWAV";		break;
 	case ST_FWD_LWAV:		a=" S Fwd LWAV";		break;
 	case ST_INV_LWAV:		a=" S Inv LWAV";		break;
 //	case ST_FWD_ECOEFF:		a=" S Fwd E-Coeff";		break;
@@ -4187,14 +4190,14 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_INV_CG420:		pred_CG420(image, 0);					break;
 	case ST_FWD_AV2:		pred_av2(image, 1);					break;
 	case ST_INV_AV2:		pred_av2(image, 0);					break;
-	case ST_FWD_MIX2:		pred_mix2(image, 1);					break;
-	case ST_INV_MIX2:		pred_mix2(image, 0);					break;
+//	case ST_FWD_MIX2:		pred_mix2(image, 1);					break;
+//	case ST_INV_MIX2:		pred_mix2(image, 0);					break;
 	case ST_FWD_GRAY:		pred_gray(image, 1);					break;
 	case ST_INV_GRAY:		pred_gray(image, 0);					break;
 	case ST_FWD_MIXN:		pred_mixN(image, 1);					break;
 	case ST_INV_MIXN:		pred_mixN(image, 0);					break;
-	case ST_FWD_MIXN_CRCT2:		pred_mixN_crct2(image, 1);				break;
-	case ST_INV_MIXN_CRCT2:		pred_mixN_crct2(image, 0);				break;
+//	case ST_FWD_MIXN_CRCT2:		pred_mixN_crct2(image, 1);				break;
+//	case ST_INV_MIXN_CRCT2:		pred_mixN_crct2(image, 0);				break;
 //	case ST_FWD_AV3:		pred_av3(image, 1);					break;
 //	case ST_INV_AV3:		pred_av3(image, 0);					break;
 	case ST_FWD_WGRAD:		pred_wgrad(image, 1, hasRCT);				break;
@@ -4221,6 +4224,8 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 //	case ST_INV_WMIX:		pred_wmix(image, 0);					break;
 	case ST_FWD_TABLE:		pred_table(image, 1);					break;
 	case ST_INV_TABLE:		pred_table(image, 0);					break;
+	case ST_FWD_AWAV:		pred_awav(image, 1);					break;
+	case ST_INV_AWAV:		pred_awav(image, 0);					break;
 	case ST_FWD_LWAV:		pred_lwav(image, 1);					break;
 	case ST_INV_LWAV:		pred_lwav(image, 0);					break;
 //	case ST_FWD_ECOEFF:		pred_ecoeff(image, 1, pred_ma_enabled);			break;
@@ -7656,6 +7661,8 @@ int io_keydn(IOKey key, char c)
 			return 1;
 		}
 		break;
+	case 'Q':
+		return 1;
 	case 'X'://toggle horizontal profile plot
 		if(profileplotmode!=PROFILE_X)
 			profileplotmode=PROFILE_X;
