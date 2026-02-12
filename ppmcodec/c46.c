@@ -29,12 +29,14 @@
 #endif
 
 
+	#define USE_CASCADE
+//	#define USE_GAINS
 //	#define TRACK_TRAVEL
 //	#define ENABLE_ANALYSIS2
 //	#define MIXTEST	//X
 //	#define MIXLEAK	//X
 #ifndef ENABLE_ANALYSIS2
-	#define USE_WP
+//	#define USE_WP
 #endif
 
 //	#define MATCH_HISTOGRAMS
@@ -50,18 +52,39 @@
 
 #ifdef USE_L1
 #define PREDLIST\
-	PRED(N+W-NW)\
-	PRED(W)\
-	PRED(2*N-NN)\
-	PRED(NE)\
-	PRED(2*W-WW)\
-	PRED(3*(N-NN)+NNN)\
-	PRED(3*(W-WW)+WWW)\
-	PRED(W+NE-N)\
-	PRED(W+NEE-NE)\
-	PRED(N+NE-NNE)\
-	PRED(W+NW-NWW)\
-	PRED(N+NW-NNW)\
+	PRED(240, N)\
+	PRED(240, W)\
+	PRED(120, N+W-NW)\
+	PRED(100, 2*N-NN)\
+	PRED(100, NE)\
+	PRED(100, NEEE)\
+	PRED(100, 2*W-WW)\
+	PRED(180, NNN)\
+	PRED(180, WWW)\
+	PRED(140, W+NE-N)\
+	PRED(100, W+NEE-NE)\
+	PRED(120, N+NE-NNE)\
+	PRED(100, W+NW-NWW)\
+	PRED(100, N+NW-NNW)\
+
+#endif
+
+#ifdef USE_CASCADE
+#define CPREDLIST\
+	PRED(240, N)\
+	PRED(240, W)\
+	PRED(120, N+W-NW)\
+	PRED(100, 2*N-NN)\
+	PRED(100, NE)\
+	PRED(100, NEEE)\
+	PRED(100, 2*W-WW)\
+	PRED(180, NNN)\
+	PRED(180, WWW)\
+	PRED(140, (W+NE+N)/3)\
+	PRED(100, NEE)\
+	PRED(120, NNE)\
+	PRED(100, NWW)\
+	PRED(100, NNW)\
 
 #endif
 
@@ -77,9 +100,15 @@
 enum
 {
 #ifdef USE_L1
-	SHIFT=18,
+	SHIFT=21,
 #define PRED(...) +1
 	NPREDS=PREDLIST,
+#undef  PRED
+#endif
+#ifdef USE_CASCADE
+	CSHIFT=18,
+#define PRED(...) +1
+	NCASCADE=CPREDLIST,
 #undef  PRED
 #endif
 	
@@ -763,9 +792,9 @@ static void analysis2(const char *srcfn, uint8_t *image, int iw, int ih, int bes
 				if(vmax<NE)vmax=NE;
 				if(vmin>NEEE)vmin=NEEE;
 				if(vmax<NEEE)vmax=NEEE;
-#define PRED(E) estim[j++]=E;
+#define PRED(WEIGHT, E) estim[j++]=E;
 				j=0;
-				PREDLIST
+				PREDLIST;
 #undef  PRED
 				curr=yuv[kc]-offset;
 				for(int ks=0;ks<NSHIFTS;++ks)
@@ -786,7 +815,7 @@ static void analysis2(const char *srcfn, uint8_t *image, int iw, int ih, int bes
 						int32_t wp[NPREDS]={0};
 #define PRED(...) wsum+=wp[j]=0x100000/((int32_t)weights[kc][qy][ks][j]+1); p1[ks]+=wp[j]*estim[j]; ++j;
 						j=0;
-						PREDLIST
+						PREDLIST;
 #undef  PRED
 						//if(ky==ih/2&&kx==iw/2)//
 						//	printf("");
@@ -799,7 +828,7 @@ static void analysis2(const char *srcfn, uint8_t *image, int iw, int ih, int bes
 						p1[ks]=1LL<<sh>>1;
 #define PRED(...) p1[ks]+=weights[kc][qy][ks][j]*estim[j]; ++j;
 						j=0;
-						PREDLIST
+						PREDLIST;
 #undef  PRED
 						p1[ks]>>=sh;
 					}
@@ -816,7 +845,7 @@ static void analysis2(const char *srcfn, uint8_t *image, int iw, int ih, int bes
 					{
 #define PRED(...) weights[kc][qy][ks][j]+=(((int64_t)abs(curr-estim[j])<<8)-weights[kc][qy][ks][j])>>3; ++j;
 						j=0;
-						PREDLIST
+						PREDLIST;
 #undef  PRED
 					}
 					else
@@ -824,12 +853,12 @@ static void analysis2(const char *srcfn, uint8_t *image, int iw, int ih, int bes
 						int e=(curr>p1[ks])-(curr<p1[ks]);
 #define PRED(...) weights[kc][qy][ks][j]+=e*estim[j]; ++j;
 						j=0;
-						PREDLIST
+						PREDLIST;
 #undef  PRED
 #ifdef MIXLEAK
 #define PRED(...) weights[kc][qy][ks][j]-=weights[kc][qy][ks][j]>>12; ++j;
 						j=0;
-						PREDLIST
+						PREDLIST;
 #undef  PRED
 #endif
 					}
@@ -970,6 +999,12 @@ int c46_codec(int argc, char **argv)
 	//	{135091, 35463, 8137, 110673, 10225, 10071, 8608, -61836, 4727},
 	//	{150376, 50763, -37948, 96009, -18017, 26950, 21077, -56707, 32104},
 	//};
+#endif
+#ifdef USE_CASCADE
+	int64_t cweights[NCH][NCASCADE]={0};
+#endif
+#ifdef USE_GAINS
+	int64_t gains[NCH][NPREDS]={0};
 #endif
 #ifdef GR_L1
 	int64_t grweights[NCH][NGRESTIMS]={0};
@@ -1277,6 +1312,23 @@ int c46_codec(int argc, char **argv)
 		}
 	}
 #endif
+#ifdef USE_CASCADE
+	for(int kc=0;kc<NCH;++kc)
+	{
+		for(int kp=0;kp<NCASCADE;++kp)
+			cweights[kc][kp]=(1<<CSHIFT)/NCASCADE;
+	}
+#endif
+#ifdef USE_GAINS
+	for(int kc=0;kc<NCH;++kc)
+	{
+		int j=0;
+#define PRED(WEIGHT, E) gains[kc][j++]=WEIGHT;
+		j=0;
+		PREDLIST;
+#undef  PRED
+	}
+#endif
 #ifdef RICE_L1
 	for(int k=0;k<NCH*2;++k)
 		((int32_t*)riceweights)[k]=(1<<SHIFT)/2;
@@ -1290,6 +1342,9 @@ int c46_codec(int argc, char **argv)
 	{
 #ifdef USE_L1
 		int estim[NPREDS]={0}, j;
+#endif
+#ifdef USE_CASCADE
+		int cascade[NCASCADE]={0};
 #endif
 #ifdef GR_L1
 		int grestims[NGRESTIMS]={0};
@@ -1393,6 +1448,11 @@ int c46_codec(int argc, char **argv)
 #else
 #ifdef USE_AC
 				int ctx=FLOOR_LOG2(eW*eW+1);
+				//int ctx=eW;
+				//if(ctx<rows[1][2-1*NCH*NROWS*NVAL])ctx=rows[1][2-1*NCH*NROWS*NVAL];
+				//if(ctx<rows[1][2+0*NCH*NROWS*NVAL])ctx=rows[1][2+0*NCH*NROWS*NVAL];
+				//if(ctx<rows[1][2+1*NCH*NROWS*NVAL])ctx=rows[1][2+1*NCH*NROWS*NVAL];
+				//ctx=FLOOR_LOG2(ctx*ctx+1);
 				if(ctx>NCTX-1)
 					ctx=NCTX-1;
 #else
@@ -1410,6 +1470,31 @@ int c46_codec(int argc, char **argv)
 				if(N<W)vmin=N, vmax=W;
 				CLAMP2(pred, vmin, vmax);
 #endif
+#ifdef USE_CASCADE
+				int64_t c1=0;
+				{
+					int
+						NNN	=rows[3][1+0*NCH*NROWS*NVAL],
+						NNW	=rows[2][1-1*NCH*NROWS*NVAL],
+						NN	=rows[2][1+0*NCH*NROWS*NVAL],
+						NNE	=rows[2][1+1*NCH*NROWS*NVAL],
+						NWW	=rows[1][1-2*NCH*NROWS*NVAL],
+						NW	=rows[1][1-1*NCH*NROWS*NVAL],
+						N	=rows[1][1+0*NCH*NROWS*NVAL],
+						NE	=rows[1][1+1*NCH*NROWS*NVAL],
+						NEE	=rows[1][1+2*NCH*NROWS*NVAL],
+						NEEE	=rows[1][1+3*NCH*NROWS*NVAL],
+						WWWW	=rows[0][1-4*NCH*NROWS*NVAL],
+						WWW	=rows[0][1-3*NCH*NROWS*NVAL],
+						WW	=rows[0][1-2*NCH*NROWS*NVAL],
+						W	=rows[0][1-1*NCH*NROWS*NVAL];
+					c1=0;
+#define PRED(WEIGHT, E) cascade[j]=E; c1+=cweights[kc][j]*cascade[j]; ++j;
+					j=0;
+					CPREDLIST;
+#undef  PRED
+				}
+#endif
 #ifdef USE_L1
 				int64_t p1;
 				int pred, e;
@@ -1420,11 +1505,12 @@ int c46_codec(int argc, char **argv)
 				if(vmax<NE)vmax=NE;
 				if(vmin>NEEE)vmin=NEEE;
 				if(vmax<NEEE)vmax=NEEE;
+#ifdef ENABLE_ANALYSIS2
 				if(sh[kc]==SHIFTSTART+NSHIFTS-1)
 				{
 					int32_t wp[NPREDS]={0};
 					//e = 2*(N+W+NW)+NN+NNE+NE+WW+I/4
-#define PRED(E)\
+#define PRED(WEIGHT, E)\
 	wp[j]=\
 		+wprows[0][j-1*NCH*NROWS*NPREDS]*2\
 		+wprows[1][j+0*NCH*NROWS*NPREDS]*2\
@@ -1436,15 +1522,15 @@ int c46_codec(int argc, char **argv)
 		+(int32_t)(weights[kc][j]>>2)\
 	;++j;
 					j=0;
-					PREDLIST
+					PREDLIST;
 #undef  PRED
 					//if(ky==ih/2&&kx==iw/2)//
 					//	printf("");
 #if 0
 					float coeff=0, wsum=0, psum=0;
-#define PRED(E) estim[j]=E; coeff=65536.f/((int32_t)weights[kc][j]+1.0f); wsum+=coeff; psum+=coeff*estim[j]; ++j;
+#define PRED(WEIGHT, E) estim[j]=E; coeff=65536.f/((int32_t)weights[kc][j]+1.0f); wsum+=coeff; psum+=coeff*estim[j]; ++j;
 					j=0;
-					PREDLIST
+					PREDLIST;
 #undef  PRED
 					//if(wsum)
 					//	p1=CVTFP32_I32(psum/wsum);
@@ -1456,9 +1542,9 @@ int c46_codec(int argc, char **argv)
 					int32_t wsum=0;
 					int32_t coeff=0;
 					p1=0;
-#define PRED(E) estim[j]=E; coeff=0x100000/(wp[j]+1); wsum+=coeff; p1+=coeff*estim[j]; ++j;
+#define PRED(WEIGHT, E) estim[j]=E; coeff=0x100000/(wp[j]+1); wsum+=coeff; p1+=coeff*estim[j]; ++j;
 					j=0;
-					PREDLIST
+					PREDLIST;
 #undef  PRED
 					int64_t sign=p1>>63;
 					p1^=sign;
@@ -1478,13 +1564,31 @@ int c46_codec(int argc, char **argv)
 				else
 				{
 					p1=1LL<<sh[kc]>>1;
-#define PRED(E) estim[j]=E; p1+=weights[kc][j]*estim[j]; ++j;
+#define PRED(WEIGHT, E) estim[j]=E; p1+=weights[kc][j]*estim[j]; ++j;
 					j=0;
-					PREDLIST
+					PREDLIST;
 #undef  PRED
 					p1>>=sh[kc];
 				}
+#else
+				p1=1LL<<SHIFT>>1;
+#define PRED(WEIGHT, E) estim[j]=E; p1+=weights[kc][j]*estim[j]; ++j;
+				j=0;
+				PREDLIST;
+#undef  PRED
+#ifdef USE_CASCADE
+				p1+=c1<<2;
+				c1+=1LL<<CSHIFT>>1;
+				c1>>=CSHIFT;
+#endif
+				p1>>=SHIFT;
+#endif
+#ifdef USE_CASCADE
+				int p2=(int)p1+(int)c1;
+				pred=p2;
+#else
 				pred=(int)p1;
+#endif
 				CLAMP2(pred, vmin, vmax);
 #endif
 				pred+=offset;
@@ -1569,6 +1673,7 @@ int c46_codec(int argc, char **argv)
 				//if(ky==ih/2&&kx==iw/2)//
 				//	printf("");
 #ifdef USE_L1
+#ifdef ENABLE_ANALYSIS2
 				if(sh[kc]==SHIFTSTART+NSHIFTS-1)
 				{
 					int best=0x7FFFFFFF;
@@ -1580,7 +1685,7 @@ int c46_codec(int argc, char **argv)
 	#define PRED(...) wprows[0][j]=abs(curr-estim[j])-best; weights[kc][j]+=(((int64_t)wprows[0][j]<<5)-weights[kc][j]+(1<<3>>1))>>3; ++j;
 //	#define PRED(...) weights[kc][j]+=(((int64_t)abs(curr-estim[j])<<8)-weights[kc][j])>>3; ++j;
 					j=0;
-					PREDLIST
+					PREDLIST;
 #undef  PRED
 				}
 				else
@@ -1591,18 +1696,41 @@ int c46_codec(int argc, char **argv)
 				//	CLAMP2(e, -2, 2);
 #define PRED(...) weights[kc][j]+=e*estim[j]; ++j;
 					j=0;
-					PREDLIST
+					PREDLIST;
 #undef  PRED
 #ifdef MIXLEAK
 #define PRED(...) weights[kc][j]-=weights[kc][j]>>12; ++j;
 					j=0;
-					PREDLIST
+					PREDLIST;
 #undef  PRED
 #endif
 				}
+#else
+				e=(curr>p1)-(curr<p1);
+			//	e=curr-p1;
+#define PRED(...) weights[kc][j]+=e*estim[j]; ++j;
+				j=0;
+				PREDLIST;
+#undef  PRED
+#ifdef USE_GAINS
+#define PRED(...) gains[kc][j]+=e*((estim[j]>0)-(estim[j]<0)); ++j;
+				j=0;
+				PREDLIST;
+#undef  PRED
+#endif
+#endif
 #endif
 				rows[0][0]=curr;
+#ifdef USE_CASCADE
+				rows[0][1]=curr-(int)p1;
+				e=(curr>p2)-(curr<p2);
+#define PRED(...) cweights[kc][j]+=e*cascade[j]; ++j;
+				j=0;
+				CPREDLIST;
+#undef  PRED
+#else
 				rows[0][1]=curr-pred;
+#endif
 #ifdef GR_L1
 				int gre=(sym>grestim)-(sym<grestim);
 #define GRESTIM(...) grweights[kc][j]+=gre*grestims[j]; ++j;
@@ -1612,6 +1740,7 @@ int c46_codec(int argc, char **argv)
 				rows[0][1]=sym;
 #else
 #ifdef USE_AC
+				//rows[0][2]=sym;
 				rows[0][2]=(2*eW+(sym<<GRBITS)+(eNEE>eNEEE?eNEE:eNEEE))>>2;
 #else
 				rows[0][1]=(2*eW+(sym<<GRBITS)+eNEEE)>>2;

@@ -96,7 +96,7 @@ int c51_codec(int argc, char **argv);//chroma subsampling + DCT4 + adaptive quan
 //	#define CODEC_EXT c29
 //	#define CODEC_EXT c30
 //	#define CODEC_EXT c31
-//	#define CODEC_EXT c32
+	#define CODEC_EXT c32
 //	#define CODEC_EXT c33
 //	#define CODEC_EXT c34
 //	#define CODEC_EXT c35
@@ -110,7 +110,7 @@ int c51_codec(int argc, char **argv);//chroma subsampling + DCT4 + adaptive quan
 //	#define CODEC_EXT c43
 //	#define CODEC_EXT c44
 //	#define CODEC_EXT c45
-	#define CODEC_EXT c46
+//	#define CODEC_EXT c46
 //	#define CODEC_EXT c47
 //	#define CODEC_EXT c48
 //	#define CODEC_EXT c49
@@ -267,8 +267,10 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_jon-flobrant-32821.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_kim-daniel-594.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC30-ppm/03.ppm"
-		"C:/Projects/datasets/dataset-DIV2K-ppm/0801.ppm"
+	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0801.ppm"	//blurry
 	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0802.ppm"
+	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0807.ppm"	//hard
+	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0808.ppm"	//crisp+grad
 	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0843.ppm"
 	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm"
 	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm"
@@ -282,7 +284,7 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_02.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_03.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/olympus_xz1_16.ppm"
-	//	"C:/Projects/datasets/dataset-LPCB-ppm/sony_a55_11.ppm"
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/sony_a55_11.ppm"	//noisy, hard
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA12811.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA13803.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA13882.ppm"
@@ -303,7 +305,7 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/kodim13-small4.PPM"
 	//	"C:/Projects/datasets/kodim24.ppm"
 	//	"C:/Projects/datasets/lena.ppm"
-	//	"C:/Projects/datasets/space_huge.ppm"
+		"C:/Projects/datasets/space_huge.ppm"
 	//	"C:/Projects/datasets/space_huge.ppm"
 	//	"C:/Projects/datasets/temp.c18"
 	//	"C:/Projects/datasets/zzzpng.ppm"

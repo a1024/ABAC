@@ -11,6 +11,7 @@
 #include<stdlib.h>
 #include<string.h>
 #include<stdarg.h>
+#define _USE_MATH_DEFINES
 #include<math.h>
 #include<sys/stat.h>
 #if defined _MSC_VER || defined _WIN32
@@ -33,6 +34,7 @@
 //	#define ENABLE_QUALITY
 //	#define USE_LOGQUANT	//X
 //	#define USE_RGB
+//	#define PULSETEST
 
 //	#define USE_DCT8
 	#define USE_L1
@@ -60,6 +62,12 @@ enum
 	BLOCKY=4,
 	DCT_ROUND_TRIP_GAIN=4,
 #endif
+#ifdef PULSETEST
+	PULSEX1=0,
+	PULSEY1=0,
+	PULSEX2=0,
+	PULSEY2=0,
+#endif
 
 	SHIFT=18,
 #define PRED(...) +1
@@ -80,7 +88,8 @@ enum
 	NLEVELS=224,
 #else
 //	NLEVELS=256,
-	NLEVELS=72,
+	NLEVELS=96,
+//	NLEVELS=72,
 #endif
 };
 
@@ -280,8 +289,8 @@ static const float qtable_luma[]=//check NLEVELS
 	12, 16, 16, 16,
 	16, 16, 16, 16,
 #else
-	16, 12, 12, 16,//v19
-	12, 12, 16, 16,
+	12, 14, 12, 16,//v19
+	14, 12, 16, 16,
 	12, 16, 16, 16,
 	16, 16, 16, 16,
 
@@ -372,10 +381,15 @@ static const float qtable_chroma[]=
 	//64, 64, 64, 64, 64, 64, 64, 64,
 	//64, 64, 64, 64, 64, 64, 64, 64,
 #else
-	16, 10, 12, 12,//v14
-	10, 10, 12, 12,
+	16, 12, 12, 12,//v19
 	12, 12, 12, 12,
 	12, 12, 12, 12,
+	12, 12, 12, 12,
+
+	//16, 10, 12, 12,//v14
+	//10, 10, 12, 12,
+	//12, 12, 12, 12,
+	//12, 12, 12, 12,
 
 	//10, 12, 14, 16,
 	//12, 20, 32, 32,
@@ -958,6 +972,16 @@ AWM_INLINE void gain(float *block, float *g)
 	_mm_store_ps(block+3*4, a[3]);
 }
 #endif
+AWM_INLINE void pulse(float *block, int size, int x1, int y1, int x2, int y2)
+{
+	float dc=block[0];
+	float ac1=block[size*y1+x1];
+	float ac2=block[size*y2+x2];
+	memset(block, 0, sizeof(float)*size*size);
+	block[0]=dc;
+	block[size*y1+x1]=ac1;
+	block[size*y2+x2]=ac2;
+}
 AWM_INLINE void dc_predict(int16_t **rows, int32_t *weights, int32_t *estim, int32_t *ret_p1, int32_t *ret_pred, int32_t *ret_ctx)
 {
 	int
@@ -1016,6 +1040,53 @@ AWM_INLINE void dc_update(int16_t **rows, int32_t *weights, int32_t *estim, int3
 	rows[0][1]=(2*eW+(sym<<GRBITS)+eNEEE)>>2;
 }
 
+#if 0
+#define TEST3
+static void test3(void)
+{
+	enum
+	{
+		COUNT=8,
+	};
+	printf("DCT-II %d:\n", COUNT);
+	for(int k=0;k<COUNT;++k)
+	{
+		for(int n=0;n<COUNT;++n)
+			printf(" %12.6lf", cos(M_PI/COUNT*(n+0.5)*k));
+		printf("\n");
+	}
+	printf("\n");
+
+	printf("DCT-III %d:\n", COUNT);
+	for(int k=0;k<COUNT;++k)
+	{
+		printf(" %12.6lf", 0.5);
+		for(int n=1;n<COUNT;++n)
+			printf(" %12.6lf", cos(M_PI/COUNT*(k+0.5)*n));
+		printf("\n");
+	}
+	printf("\n");
+
+	printf("MDCT %d:\n", COUNT);
+	for(int k=0;k<COUNT;++k)
+	{
+		for(int n=0;n<2*COUNT;++n)
+			printf(" %12.6lf", cos(M_PI/COUNT*(n+0.5+COUNT/2.)*(k+0.5)));
+		printf("\n");
+	}
+	printf("\n");
+
+	printf("IMDCT %d:\n", COUNT);
+	for(int n=0;n<2*COUNT;++n)
+	{
+		for(int k=0;k<COUNT;++k)
+			printf(" %12.6lf", cos(M_PI/COUNT*(n+0.5+COUNT/2.)*(k+0.5)));
+		printf("\n");
+	}
+	printf("\n");
+	exit(0);
+}
+#endif
 #if 0
 #define QTEST
 static void qtest(void)
@@ -1077,6 +1148,9 @@ static uint32_t hists[3*NCTX*NLEVELS];
 ALIGN(32) static float blocks[3][BLOCKX*BLOCKY]={0}, qtable1[BLOCKX*BLOCKY]={0}, qtable2[BLOCKX*BLOCKY]={0};
 int c47_codec(int argc, char **argv)
 {
+#ifdef TEST3
+	test3();
+#endif
 #ifdef QTEST
 	qtest();//
 #endif
@@ -1365,6 +1439,11 @@ int c47_codec(int argc, char **argv)
 				cvtf2i(blocks[0]);
 				cvtf2i(blocks[1]);
 				cvtf2i(blocks[2]);
+#ifdef PULSETEST
+				pulse(blocks[0], BLOCKX, PULSEX1, PULSEY1, PULSEX2, PULSEY2);
+				pulse(blocks[1], BLOCKX, PULSEX1, PULSEY1, PULSEX2, PULSEY2);
+				pulse(blocks[2], BLOCKX, PULSEX1, PULSEY1, PULSEX2, PULSEY2);
+#endif
 #ifdef _MSC_VER
 				for(int kc=0;kc<3;++kc)
 				{
