@@ -39,21 +39,22 @@ static const char file[]=__FILE__;
 	#define INTERLEAVESIMD		//2.5x faster interleave
 
 
-//#define NEAR_DISTORTION 7		//d >= 4
+enum
+{
+	L1SH=19,
 
-//3*17+3=54 contexts
-#define GRBITS 3
-#define NCTX 18		//18*3+3 = 57 total
+//	NEAR_DISTORTION=7,	//d >= 4
+	GRBITS=4,
+	NCTX=18,		//18*3+3 = 57 total
 
-#define XCODERS 4	//xrem 1~3 cols
-#define YCODERS 4	//yrem 1~3 rows
+	XCODERS=4,		//xrem 1~3 cols
+	YCODERS=4,		//yrem 1~3 rows
+	NCODERS=XCODERS*YCODERS,
 
-#define NCODERS 16
-
-#define PROBBITS 12	//12 bit max	James Bonfield's CDF2sym: {freq<<20 | bias<<8 | sym}
-
-#define RANS_STATE_BITS 31
-#define RANS_RENORM_BITS 16
+	PROBBITS=12,//12 bit max	James Bonfield's CDF2sym: {freq<<20 | bias<<8 | sym}
+	RANS_STATE_BITS=31,
+	RANS_RENORM_BITS=16,
+};
 
 #include"entropy.h"
 #ifdef ENABLE_GUIDE
@@ -3328,7 +3329,6 @@ int c32_codec(int argc, char **argv)
 							mp[4]=_mm256_add_epi32(mp[4], t[4]);
 							mp[5]=_mm256_add_epi32(mp[5], t[5]);
 						}
-#define L1SH 19
 						__m256i rcon=_mm256_set1_epi32(1<<L1SH>>1);
 						mp[0]=_mm256_add_epi32(mp[0], rcon);
 						mp[3]=_mm256_add_epi32(mp[3], rcon);
