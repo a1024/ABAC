@@ -87,7 +87,7 @@ enum
 #undef  PRED
 #endif
 	
-	GRBITS=4,
+	GRBITS=5,
 	NCTX=18,
 	PREDBITS=8,
 	NLEVELS=256,
