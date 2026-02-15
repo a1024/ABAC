@@ -61,6 +61,7 @@ int c48_codec(int argc, char **argv);//lossy VarDCT size {4, 8, 16, 32}
 int c49_codec(int argc, char **argv);//lossy DWT+AC
 int c50_codec(int argc, char **argv);//FELICS-like
 int c51_codec(int argc, char **argv);//chroma subsampling + DCT4 + adaptive quantization
+int c52_codec(int argc, char **argv);//multichannel-AC
 #endif
 
 
@@ -96,7 +97,7 @@ int c51_codec(int argc, char **argv);//chroma subsampling + DCT4 + adaptive quan
 //	#define CODEC_EXT c29
 //	#define CODEC_EXT c30
 //	#define CODEC_EXT c31
-	#define CODEC_EXT c32
+//	#define CODEC_EXT c32
 //	#define CODEC_EXT c33
 //	#define CODEC_EXT c34
 //	#define CODEC_EXT c35
@@ -116,6 +117,7 @@ int c51_codec(int argc, char **argv);//chroma subsampling + DCT4 + adaptive quan
 //	#define CODEC_EXT c49
 //	#define CODEC_EXT c50
 //	#define CODEC_EXT c51
+	#define CODEC_EXT c52//CHECK ARGS
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -326,9 +328,16 @@ int main(int argc, char **argv)
 	const char *encargs[]=
 	{
 		argv[0],
+
+		"c",
+		"C:/Projects/datasets/zzz.lsim",
+		"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm",	//large hard
+		"C:/Projects/datasets/dataset-LPCB-ppm/STA13844.ppm",	//large normal
+		"C:/Projects/datasets/dataset-LPCB-ppm/STA13845.ppm",	//large easy
+
 	//	"e",
-		srcfn,
-		tmpfn,
+	//	srcfn,
+	//	tmpfn,
 	//	"25",
 	//	"2",
 	//	"5",
@@ -341,9 +350,22 @@ int main(int argc, char **argv)
 	const char *decargs[]=
 	{
 		argv[0],
+
+		"d",
+		"C:/Projects/datasets/zzz.lsim",
+		"C:/Projects/datasets/zzz_43r.pgm",	//large hard
+		"C:/Projects/datasets/zzz_43g.pgm",	//large hard
+		"C:/Projects/datasets/zzz_43b.pgm",	//large hard
+		"C:/Projects/datasets/zzz_44r.pgm",	//large normal
+		"C:/Projects/datasets/zzz_44g.pgm",	//large normal
+		"C:/Projects/datasets/zzz_44b.pgm",	//large normal
+		"C:/Projects/datasets/zzz_45r.pgm",	//large easy
+		"C:/Projects/datasets/zzz_45g.pgm",	//large easy
+		"C:/Projects/datasets/zzz_45b.pgm",	//large easy
+
 	//	"d",
-		tmpfn,
-		dstfn,
+	//	tmpfn,
+	//	dstfn,
 	};
 	if(CODEC_FUNC(_countof(encargs), (char**)encargs))
 		return 1;
