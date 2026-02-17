@@ -35,10 +35,8 @@
 //	#define ENABLE_ANALYSIS2
 //	#define MIXTEST	//X
 //	#define MIXLEAK	//X
-#ifndef ENABLE_ANALYSIS2
-//	#define USE_WP
-#endif
 
+//	#define USE_WP
 //	#define MATCH_HISTOGRAMS
 //	#define MATCH_HISTOGRAMS_TEST
 //	#define USE_W
@@ -122,6 +120,7 @@ enum
 #endif
 #ifdef USE_AC
 	NCTX=18,
+	PREDBITS=0,
 	NLEVELS=256,
 #endif
 
@@ -467,18 +466,19 @@ static const char *rct_names[RCT_COUNT]=
 #endif
 static int crct_analysis(uint8_t *image, int iw, int ih)
 {
+	int rowstride=3*iw;
 	long long counters[OCH_COUNT]={0};
 #ifdef ANALYSIS_SIMD
 	__m256i mprev=_mm256_setzero_si256();
 #else
 	int prev[OCH_COUNT]={0};
 #endif
-	for(uint8_t *ptr=image, *end=image+(ptrdiff_t)3*iw*ih;ptr<end;ptr+=3)
+	for(uint8_t *ptr=image+rowstride, *end=image+(ptrdiff_t)3*iw*ih;ptr<end;ptr+=3)
 	{
 		int
-			r=ptr[0]<<2,
-			g=ptr[1]<<2,
-			b=ptr[2]<<2,
+			r=(ptr[0]-ptr[0-rowstride])<<2,
+			g=(ptr[1]-ptr[1-rowstride])<<2,
+			b=(ptr[2]-ptr[2-rowstride])<<2,
 			rg=r-g,
 			gb=g-b,
 			br=b-r;
@@ -525,7 +525,7 @@ static int crct_analysis(uint8_t *image, int iw, int ih)
 		prev[4]=gb;
 		prev[5]=br;
 #ifdef ENABLE_EXTENDED_RCT
-#define UPDATE(IDXA, IDXB, IDXC, A0, B0, C0)\
+#define UPDATE(IDXA, A0, IDXB, B0, IDXC, C0)\
 	do\
 	{\
 		int a0=A0, b0=B0, c0=C0;\
@@ -536,20 +536,21 @@ static int crct_analysis(uint8_t *image, int iw, int ih)
 		prev[IDXB]=b0;\
 		prev[IDXC]=c0;\
 	}while(0)
-		//r-(3*g+b)/4 = r-g-(b-g)/4
-		//g-(3*r+b)/4 = g-r-(b-r)/4
-		//b-(3*r+g)/4 = b-r-(g-r)/4
-		UPDATE(OCH_CX31, OCH_C3X1, OCH_C31X, rg+(gb>>2), rg+(br>>2), br+(rg>>2));
-
-		//r-(g+3*b)/4 = r-b-(g-b)/4
-		//g-(r+3*b)/4 = g-b-(r-b)/4
-		//b-(r+3*g)/4 = b-g-(r-g)/4
-		UPDATE(OCH_CX13, OCH_C1X3, OCH_C13X, br+(gb>>2), gb+(br>>2), gb+(rg>>2));
-
-		//r-(g+b)/2 = (r-g + r-b)/2
-		//g-(r+b)/2 = (g-r + g-b)/2
-		//b-(r+g)/2 = (b-r + b-g)/2
-		UPDATE(OCH_CX22, OCH_C2X2, OCH_C22X, (rg-br)>>1, (gb-rg)>>1, (br-gb)>>1);
+		UPDATE(
+			OCH_CX31, rg+(gb>>2),//r-(3*g+b)/4 = r-g-(b-g)/4
+			OCH_C3X1, rg+(br>>2),//g-(3*r+b)/4 = g-r-(b-r)/4
+			OCH_C31X, br+(rg>>2) //b-(3*r+g)/4 = b-r-(g-r)/4
+		);
+		UPDATE(
+			OCH_CX13, br+(gb>>2),//r-(g+3*b)/4 = r-b-(g-b)/4
+			OCH_C1X3, gb+(br>>2),//g-(r+3*b)/4 = g-b-(r-b)/4
+			OCH_C13X, gb+(rg>>2) //b-(r+3*g)/4 = b-g-(r-g)/4
+		);
+		UPDATE(
+			OCH_CX22, (rg-br)>>1,//r-(g+b)/2 = (r-g + r-b)/2
+			OCH_C2X2, (gb-rg)>>1,//g-(r+b)/2 = (g-r + g-b)/2
+			OCH_C22X, (br-gb)>>1 //b-(r+g)/2 = (b-r + b-g)/2
+		);
 #undef  UPDATE
 #endif
 #endif
@@ -973,8 +974,7 @@ static double calc_csize(int32_t *hist)
 #endif
 #endif
 #ifdef USE_AC
-uint16_t hists[3][NCTX][NLEVELS];
-uint16_t hcounts[3][NCTX];
+uint16_t hists[3][NCTX][1<<PREDBITS][NLEVELS+1];
 #endif
 int c46_codec(int argc, char **argv)
 {
@@ -987,8 +987,10 @@ int c46_codec(int argc, char **argv)
 	int64_t usize=0, ccap=0, csize=0;
 	int psize=0;
 	int16_t *pixels=0;
+#ifdef USE_WP
 	int wpsize=0;
 	uint16_t *wperrors=0;
+#endif
 	uint8_t *image=0, *stream=0, *imptr=0;
 	int yidx=0, uidx=0, vidx=0, uc0=0, vc0=0, vc1=0;
 #ifdef USE_L1
@@ -1009,7 +1011,7 @@ int c46_codec(int argc, char **argv)
 #ifdef GR_L1
 	int64_t grweights[NCH][NGRESTIMS]={0};
 #endif
-	uint8_t l1sh[3*YBLOCKS]={0}, prevsh[3]={0};
+//	uint8_t l1sh[3*YBLOCKS]={0}, prevsh[3]={0};
 #ifdef USE_AC
 	uint64_t low=0, range=0xFFFFFFFFFFFF, code=0;
 	uint8_t *streamptr=0;
@@ -1111,9 +1113,9 @@ int c46_codec(int argc, char **argv)
 		fread(&iw, 1, 3, fsrc);
 		fread(&ih, 1, 3, fsrc);
 		fread(&bestrct, 1, 1, fsrc);
-#ifdef ENABLE_ANALYSIS2
-		fread(l1sh, 1, (size_t)3*YBLOCKS, fsrc);
-#endif
+//#ifdef ENABLE_ANALYSIS2
+//		fread(l1sh, 1, (size_t)3*YBLOCKS, fsrc);
+//#endif
 		{
 			struct stat info={0};
 
@@ -1136,6 +1138,7 @@ int c46_codec(int argc, char **argv)
 		CRASH("Alloc error");
 		return 1;
 	}
+#ifdef USE_WP
 	wpsize=(iw+2*XPAD)*(int)sizeof(uint16_t[NCH*NROWS*NPREDS]);
 	wperrors=(uint16_t*)malloc(wpsize);
 	if(!wperrors)
@@ -1144,14 +1147,15 @@ int c46_codec(int argc, char **argv)
 		return 1;
 	}
 	memset(wperrors, 0, wpsize);
+#endif
 	if(fwd)
 	{
 		fread(image, 1, usize, fsrc);
 		guide_save(image, iw, ih);
 		bestrct=crct_analysis(image, iw, ih);
-#ifdef ENABLE_ANALYSIS2
-		analysis2(srcfn, image, iw, ih, bestrct, l1sh);
-#endif
+//#ifdef ENABLE_ANALYSIS2
+//		analysis2(srcfn, image, iw, ih, bestrct, l1sh);
+//#endif
 #ifdef MATCH_HISTOGRAMS
 		yidx=rct_combinations[bestrct][II_PERM_Y];
 		uidx=rct_combinations[bestrct][II_PERM_U];
@@ -1277,13 +1281,13 @@ int c46_codec(int argc, char **argv)
 	}
 	fclose(fsrc);
 	
-#ifndef ENABLE_ANALYSIS2
-#ifdef USE_WP
-	memset(l1sh, NSHIFTS-1, sizeof(l1sh));//WP
-#else
-	memset(l1sh, 18-SHIFTSTART, sizeof(l1sh));//L1
-#endif
-#endif
+//#ifndef ENABLE_ANALYSIS2
+//#ifdef USE_WP
+//	memset(l1sh, NSHIFTS-1, sizeof(l1sh));//WP
+//#else
+//	memset(l1sh, 18-SHIFTSTART, sizeof(l1sh));//L1
+//#endif
+//#endif
 #ifdef USE_AC
 	streamptr=stream;
 	if(!fwd)
@@ -1292,7 +1296,6 @@ int c46_codec(int argc, char **argv)
 		code=code<<32|*(uint32_t*)streamptr; streamptr+=sizeof(uint32_t);
 	}
 	memset(hists, 0, sizeof(hists));
-	memset(hcounts, 0, sizeof(hcounts));
 #else
 	rice_init(&ec, stream, stream+ccap);
 #endif
@@ -1302,16 +1305,16 @@ int c46_codec(int argc, char **argv)
 	uc0=rct_combinations[bestrct][II_COEFF_U_SUB_Y];
 	vc0=rct_combinations[bestrct][II_COEFF_V_SUB_Y];
 	vc1=rct_combinations[bestrct][II_COEFF_V_SUB_U];
-#if defined USE_L1 && !defined USE_WP
-	for(int kc=0;kc<NCH;++kc)
-	{
-		if(l1sh[kc]!=SHIFTSTART+NSHIFTS-1)
-		{
-			for(int kp=0;kp<NPREDS;++kp)
-				weights[kc][kp]=(1<<SHIFT)/NPREDS;
-		}
-	}
-#endif
+//#if defined USE_L1 && !defined USE_WP
+//	for(int kc=0;kc<NCH;++kc)
+//	{
+//		if(l1sh[kc]!=SHIFTSTART+NSHIFTS-1)
+//		{
+//			for(int kp=0;kp<NPREDS;++kp)
+//				weights[kc][kp]=(1<<SHIFT)/NPREDS;
+//		}
+//	}
+//#endif
 #ifdef USE_CASCADE
 	for(int kc=0;kc<NCH;++kc)
 	{
@@ -1335,9 +1338,9 @@ int c46_codec(int argc, char **argv)
 #endif
 	memset(pixels, 0, psize);
 	imptr=image;
-	prevsh[0]=l1sh[YBLOCKS*0+0]+SHIFTSTART;
-	prevsh[1]=l1sh[YBLOCKS*1+0]+SHIFTSTART;
-	prevsh[2]=l1sh[YBLOCKS*2+0]+SHIFTSTART;
+	//prevsh[0]=l1sh[YBLOCKS*0+0]+SHIFTSTART;
+	//prevsh[1]=l1sh[YBLOCKS*1+0]+SHIFTSTART;
+	//prevsh[2]=l1sh[YBLOCKS*2+0]+SHIFTSTART;
 	for(int ky=0;ky<ih;++ky)
 	{
 #ifdef USE_L1
@@ -1349,13 +1352,13 @@ int c46_codec(int argc, char **argv)
 #ifdef GR_L1
 		int grestims[NGRESTIMS]={0};
 #endif
-		int qy=ky*YBLOCKS/ih;
-		uint8_t sh[]=
-		{
-			l1sh[YBLOCKS*0+qy]+SHIFTSTART,
-			l1sh[YBLOCKS*1+qy]+SHIFTSTART,
-			l1sh[YBLOCKS*2+qy]+SHIFTSTART,
-		};
+		//int qy=ky*YBLOCKS/ih;
+		//uint8_t sh[]=
+		//{
+		//	l1sh[YBLOCKS*0+qy]+SHIFTSTART,
+		//	l1sh[YBLOCKS*1+qy]+SHIFTSTART,
+		//	l1sh[YBLOCKS*2+qy]+SHIFTSTART,
+		//};
 		int yuv[3]={0};
 		int error=0, sym=0, curr=0;
 		int16_t *rows[]=
@@ -1365,6 +1368,7 @@ int c46_codec(int argc, char **argv)
 			pixels+(XPAD*NCH*NROWS+(ky-2LL+NROWS)%NROWS)*NVAL,
 			pixels+(XPAD*NCH*NROWS+(ky-3LL+NROWS)%NROWS)*NVAL,
 		};
+#ifdef USE_WP
 		uint16_t *wprows[]=
 		{
 			wperrors+(XPAD*NCH*NROWS+(ky-0LL+NROWS)%NROWS)*NPREDS,
@@ -1372,6 +1376,7 @@ int c46_codec(int argc, char **argv)
 			wperrors+(XPAD*NCH*NROWS+(ky-0LL+NROWS)%NROWS)*NPREDS,
 			wperrors+(XPAD*NCH*NROWS+(ky-0LL+NROWS)%NROWS)*NPREDS,
 		};
+#endif
 #ifdef ENABLE_ANALYSIS2
 		if(qy!=(ky-1)*YBLOCKS/ih)
 		{
@@ -1419,15 +1424,10 @@ int c46_codec(int argc, char **argv)
 					NE	=rows[1][0+1*NCH*NROWS*NVAL],
 					NEE	=rows[1][0+2*NCH*NROWS*NVAL],
 					NEEE	=rows[1][0+3*NCH*NROWS*NVAL],
-					WWWW	=rows[0][0-4*NCH*NROWS*NVAL],
+				//	WWWW	=rows[0][0-4*NCH*NROWS*NVAL],
 					WWW	=rows[0][0-3*NCH*NROWS*NVAL],
 					WW	=rows[0][0-2*NCH*NROWS*NVAL],
 					W	=rows[0][0-1*NCH*NROWS*NVAL],
-					
-					cNW	=rows[1][1-1*NCH*NROWS*NVAL],
-					cN	=rows[1][1+0*NCH*NROWS*NVAL],
-					cNE	=rows[1][1+1*NCH*NROWS*NVAL],
-					cW	=rows[0][1-1*NCH*NROWS*NVAL],
 
 					eNEE	=rows[1][2+2*NCH*NROWS*NVAL],
 					eNEEE	=rows[1][2+3*NCH*NROWS*NVAL],
@@ -1484,7 +1484,7 @@ int c46_codec(int argc, char **argv)
 						NE	=rows[1][1+1*NCH*NROWS*NVAL],
 						NEE	=rows[1][1+2*NCH*NROWS*NVAL],
 						NEEE	=rows[1][1+3*NCH*NROWS*NVAL],
-						WWWW	=rows[0][1-4*NCH*NROWS*NVAL],
+					//	WWWW	=rows[0][1-4*NCH*NROWS*NVAL],
 						WWW	=rows[0][1-3*NCH*NROWS*NVAL],
 						WW	=rows[0][1-2*NCH*NROWS*NVAL],
 						W	=rows[0][1-1*NCH*NROWS*NVAL];
@@ -1497,7 +1497,7 @@ int c46_codec(int argc, char **argv)
 #endif
 #ifdef USE_L1
 				int64_t p1;
-				int pred, e;
+				int pred;
 				int vmax=N, vmin=W;
 
 				if(N<W)vmin=N, vmax=W;
@@ -1505,8 +1505,8 @@ int c46_codec(int argc, char **argv)
 				if(vmax<NE)vmax=NE;
 				if(vmin>NEEE)vmin=NEEE;
 				if(vmax<NEEE)vmax=NEEE;
-#ifdef ENABLE_ANALYSIS2
-				if(sh[kc]==SHIFTSTART+NSHIFTS-1)
+#if defined ENABLE_ANALYSIS2 || defined USE_WP
+				//if(sh[kc]==SHIFTSTART+NSHIFTS-1)
 				{
 					int32_t wp[NPREDS]={0};
 					//e = 2*(N+W+NW)+NN+NNE+NE+WW+I/4
@@ -1561,15 +1561,19 @@ int c46_codec(int argc, char **argv)
 				//	p1/=wsum;//towards zero		X
 #endif
 				}
-				else
-				{
-					p1=1LL<<sh[kc]>>1;
-#define PRED(WEIGHT, E) estim[j]=E; p1+=weights[kc][j]*estim[j]; ++j;
-					j=0;
-					PREDLIST;
-#undef  PRED
-					p1>>=sh[kc];
-				}
+//				else
+//				{
+//					p1=1LL<<sh[kc]>>1;
+//#define PRED(WEIGHT, E) estim[j]=E; p1+=weights[kc][j]*estim[j]; ++j;
+//					j=0;
+//					PREDLIST;
+//#undef  PRED
+//					p1>>=sh[kc];
+//				}
+#ifdef USE_CASCADE
+				c1+=1LL<<CSHIFT>>1;
+				c1>>=CSHIFT;
+#endif
 #else
 				p1=1LL<<SHIFT>>1;
 #define PRED(WEIGHT, E) estim[j]=E; p1+=weights[kc][j]*estim[j]; ++j;
@@ -1597,8 +1601,8 @@ int c46_codec(int argc, char **argv)
 				g_kc=kc;
 #endif
 #ifdef USE_AC
-				int den=hcounts[kc][ctx]+NLEVELS, cdf=0, freq;
-				uint16_t *currhist=hists[kc][ctx];
+				uint16_t *currhist=hists[kc][ctx][pred>>(8-PREDBITS)];
+				int den=currhist[NLEVELS]+NLEVELS, cdf=0, freq, tmp;
 				if(fwd)
 				{
 					error=(int8_t)(yuv[kc]-pred);
@@ -1612,10 +1616,10 @@ int c46_codec(int argc, char **argv)
 						if(range>~low)
 							range=~low;
 					}
-					for(int t=0;;++t)
+					for(tmp=0;;++tmp)
 					{
-						freq=currhist[t]+1;
-						if(t>=sym)
+						freq=currhist[tmp]+1;
+						if(tmp>=sym)
 							break;
 						cdf+=freq;
 					}
@@ -1633,11 +1637,11 @@ int c46_codec(int argc, char **argv)
 						if(range>~low)
 							range=~low;
 					}
-					int c=(int)(((code-low+1)*den-1)/range);
+					tmp=(int)(((code-low+1)*den-1)/range);
 					for(sym=0;;++sym)
 					{
 						freq=currhist[sym]+1;
-						if(cdf+freq>c)
+						if(cdf+freq>tmp)
 							break;
 						cdf+=freq;
 					}
@@ -1647,13 +1651,13 @@ int c46_codec(int argc, char **argv)
 					yuv[kc]=(uint8_t)(error+pred);
 				}
 				++currhist[sym];
-				++hcounts[kc][ctx];
-				if(hcounts[kc][ctx]>=0xFFFF-2*NLEVELS)
+				++currhist[NLEVELS];
+				if(currhist[NLEVELS]>=0xFFFF-2*NLEVELS)
 				{
 					den=0;
 					for(int ks=0;ks<NLEVELS;++ks)
 						den+=currhist[ks]>>=1;
-					hcounts[kc][ctx]=den;
+					currhist[NLEVELS]=den;
 				}
 #else
 				if(fwd)
@@ -1673,8 +1677,8 @@ int c46_codec(int argc, char **argv)
 				//if(ky==ih/2&&kx==iw/2)//
 				//	printf("");
 #ifdef USE_L1
-#ifdef ENABLE_ANALYSIS2
-				if(sh[kc]==SHIFTSTART+NSHIFTS-1)
+#if defined ENABLE_ANALYSIS2 || defined USE_WP
+				//if(sh[kc]==SHIFTSTART+NSHIFTS-1)
 				{
 					int best=0x7FFFFFFF;
 					int32_t errors[NPREDS];
@@ -1687,31 +1691,36 @@ int c46_codec(int argc, char **argv)
 					j=0;
 					PREDLIST;
 #undef  PRED
+					wprows[0]+=NROWS*NPREDS;
+					wprows[1]+=NROWS*NPREDS;
+					wprows[2]+=NROWS*NPREDS;
+					wprows[3]+=NROWS*NPREDS;
 				}
-				else
-				{
-					e=(curr>p1)-(curr<p1);
-				//	e+=(curr-p1)>>0;
-				//	e=curr-(int)p1;
-				//	CLAMP2(e, -2, 2);
-#define PRED(...) weights[kc][j]+=e*estim[j]; ++j;
-					j=0;
-					PREDLIST;
-#undef  PRED
-#ifdef MIXLEAK
-#define PRED(...) weights[kc][j]-=weights[kc][j]>>12; ++j;
-					j=0;
-					PREDLIST;
-#undef  PRED
-#endif
-				}
+//				else
+//				{
+//					e=(curr>p1)-(curr<p1);
+//				//	e+=(curr-p1)>>0;
+//				//	e=curr-(int)p1;
+//				//	CLAMP2(e, -2, 2);
+//#define PRED(...) weights[kc][j]+=e*estim[j]; ++j;
+//					j=0;
+//					PREDLIST;
+//#undef  PRED
+//#ifdef MIXLEAK
+//#define PRED(...) weights[kc][j]-=weights[kc][j]>>12; ++j;
+//					j=0;
+//					PREDLIST;
+//#undef  PRED
+//#endif
+//				}
 #else
-				e=(curr>p1)-(curr<p1);
-			//	e=curr-p1;
+				{
+					int e=(curr>p1)-(curr<p1);
 #define PRED(...) weights[kc][j]+=e*estim[j]; ++j;
-				j=0;
-				PREDLIST;
+					j=0;
+					PREDLIST;
 #undef  PRED
+				}
 #ifdef USE_GAINS
 #define PRED(...) gains[kc][j]+=e*((estim[j]>0)-(estim[j]<0)); ++j;
 				j=0;
@@ -1723,11 +1732,13 @@ int c46_codec(int argc, char **argv)
 				rows[0][0]=curr;
 #ifdef USE_CASCADE
 				rows[0][1]=curr-(int)p1;
-				e=(curr>p2)-(curr<p2);
+				{
+					int e=(curr>p2)-(curr<p2);
 #define PRED(...) cweights[kc][j]+=e*cascade[j]; ++j;
-				j=0;
-				CPREDLIST;
+					j=0;
+					CPREDLIST;
 #undef  PRED
+				}
 #else
 				rows[0][1]=curr-pred;
 #endif
@@ -1774,7 +1785,9 @@ int c46_codec(int argc, char **argv)
 		}
 	}
 	free(pixels);
+#ifdef USE_WP
 	free(wperrors);
+#endif
 	{
 		FILE *fdst=fopen(dstfn, "wb");
 		if(!fdst)
@@ -1797,9 +1810,9 @@ int c46_codec(int argc, char **argv)
 			csize+=fwrite(&iw, 1, 3, fdst);
 			csize+=fwrite(&ih, 1, 3, fdst);
 			csize+=fwrite(&bestrct, 1, 1, fdst);
-#ifdef ENABLE_ANALYSIS2
-			csize+=fwrite(l1sh, 1, (size_t)3*YBLOCKS, fdst);
-#endif
+//#ifdef ENABLE_ANALYSIS2
+//			csize+=fwrite(l1sh, 1, (size_t)3*YBLOCKS, fdst);
+//#endif
 			csize+=fwrite(stream, 1, streamptr-stream, fdst);
 		}
 		else

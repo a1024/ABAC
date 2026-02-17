@@ -97,7 +97,7 @@ int c52_codec(int argc, char **argv);//multichannel-AC
 //	#define CODEC_EXT c29
 //	#define CODEC_EXT c30
 //	#define CODEC_EXT c31
-//	#define CODEC_EXT c32
+	#define CODEC_EXT c32
 //	#define CODEC_EXT c33
 //	#define CODEC_EXT c34
 //	#define CODEC_EXT c35
@@ -117,7 +117,7 @@ int c52_codec(int argc, char **argv);//multichannel-AC
 //	#define CODEC_EXT c49
 //	#define CODEC_EXT c50
 //	#define CODEC_EXT c51
-	#define CODEC_EXT c52//CHECK ARGS
+//	#define CODEC_EXT c52//CHECK ARGS
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -272,7 +272,7 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0801.ppm"	//blurry
 	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0802.ppm"
 	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0807.ppm"	//hard
-	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0808.ppm"	//crisp+grad
+		"C:/Projects/datasets/dataset-DIV2K-ppm/0808.ppm"	//crisp+grad
 	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0843.ppm"
 	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm"
 	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm"
@@ -307,7 +307,7 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/kodim13-small4.PPM"
 	//	"C:/Projects/datasets/kodim24.ppm"
 	//	"C:/Projects/datasets/lena.ppm"
-		"C:/Projects/datasets/space_huge.ppm"
+	//	"C:/Projects/datasets/space_huge.ppm"
 	//	"C:/Projects/datasets/space_huge.ppm"
 	//	"C:/Projects/datasets/temp.c18"
 	//	"C:/Projects/datasets/zzzpng.ppm"
@@ -329,17 +329,16 @@ int main(int argc, char **argv)
 	{
 		argv[0],
 
-		"c",
-		"C:/Projects/datasets/zzz.lsim",
-		"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm",	//large hard
-		"C:/Projects/datasets/dataset-LPCB-ppm/STA13844.ppm",	//large normal
-		"C:/Projects/datasets/dataset-LPCB-ppm/STA13845.ppm",	//large easy
+	//	"c",
+	//	"C:/Projects/datasets/zzz.lsim",
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm",	//large hard
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13844.ppm",	//large normal
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13845.ppm",	//large easy
 
 	//	"e",
-	//	srcfn,
-	//	tmpfn,
-	//	"25",
-	//	"2",
+		srcfn,
+		tmpfn,
+		"3",
 	//	"5",
 
 	//	"-e", "0",
@@ -351,21 +350,21 @@ int main(int argc, char **argv)
 	{
 		argv[0],
 
-		"d",
-		"C:/Projects/datasets/zzz.lsim",
-		"C:/Projects/datasets/zzz_43r.pgm",	//large hard
-		"C:/Projects/datasets/zzz_43g.pgm",	//large hard
-		"C:/Projects/datasets/zzz_43b.pgm",	//large hard
-		"C:/Projects/datasets/zzz_44r.pgm",	//large normal
-		"C:/Projects/datasets/zzz_44g.pgm",	//large normal
-		"C:/Projects/datasets/zzz_44b.pgm",	//large normal
-		"C:/Projects/datasets/zzz_45r.pgm",	//large easy
-		"C:/Projects/datasets/zzz_45g.pgm",	//large easy
-		"C:/Projects/datasets/zzz_45b.pgm",	//large easy
+	//	"d",
+	//	"C:/Projects/datasets/zzz.lsim",
+	//	"C:/Projects/datasets/zzz_43r.pgm",
+	//	"C:/Projects/datasets/zzz_43g.pgm",
+	//	"C:/Projects/datasets/zzz_43b.pgm",
+	//	"C:/Projects/datasets/zzz_44r.pgm",
+	//	"C:/Projects/datasets/zzz_44g.pgm",
+	//	"C:/Projects/datasets/zzz_44b.pgm",
+	//	"C:/Projects/datasets/zzz_45r.pgm",
+	//	"C:/Projects/datasets/zzz_45g.pgm",
+	//	"C:/Projects/datasets/zzz_45b.pgm",
 
 	//	"d",
-	//	tmpfn,
-	//	dstfn,
+		tmpfn,
+		dstfn,
 	};
 	if(CODEC_FUNC(_countof(encargs), (char**)encargs))
 		return 1;
