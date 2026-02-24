@@ -44,7 +44,7 @@ int c31_codec(int argc, char **argv);//cross-platform C29, slower	X
 int c32_codec(int argc, char **argv);//C32: like C29 but 16 coders
 int c33_codec(int argc, char **argv);//C33: speed priority CG-only
 int c34_codec(int argc, char **argv);//MT rANS
-int c35_codec(int argc, char **argv);//binary FSM
+int c35_codec(int argc, char **argv);//binary FSM (generic files)
 int c36_codec(int argc, char **argv);//video test
 int c37_codec(int argc, char **argv);//WP vs L1 test
 int c38_codec(int argc, char **argv);//Synth-Natural codec
@@ -62,6 +62,8 @@ int c49_codec(int argc, char **argv);//lossy DWT+AC
 int c50_codec(int argc, char **argv);//FELICS-like
 int c51_codec(int argc, char **argv);//chroma subsampling + DCT4 + adaptive quantization
 int c52_codec(int argc, char **argv);//multichannel-AC
+int c53_codec(int argc, char **argv);//bit coding
+int c54_codec(int argc, char **argv);//low memory
 #endif
 
 
@@ -97,7 +99,7 @@ int c52_codec(int argc, char **argv);//multichannel-AC
 //	#define CODEC_EXT c29
 //	#define CODEC_EXT c30
 //	#define CODEC_EXT c31
-	#define CODEC_EXT c32
+//	#define CODEC_EXT c32
 //	#define CODEC_EXT c33
 //	#define CODEC_EXT c34
 //	#define CODEC_EXT c35
@@ -118,6 +120,8 @@ int c52_codec(int argc, char **argv);//multichannel-AC
 //	#define CODEC_EXT c50
 //	#define CODEC_EXT c51
 //	#define CODEC_EXT c52//CHECK ARGS
+//	#define CODEC_EXT c53
+	#define CODEC_EXT c54
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -156,13 +160,13 @@ int main(int argc, char **argv)
 //	return c34_codec(_countof(args), (char**)args);
 #else
 	const char dstfn[]=//OVERWRITTEN
-	//	"C:/dataset-a-temp/zzz.ppm"
-		"C:/Projects/datasets/zzz.ppm"
+		"C:/dataset-a-temp/zzz.ppm"
+	//	"C:/Projects/datasets/zzz.ppm"
 	//	"D:/ML/zzz_deletethis.ppm"
 	;
 	const char tmpfn[]=//OVERWRITTEN
-	//	"C:/dataset-a-temp/zzz.lsim"
-		"C:/Projects/datasets/zzz.lsim"
+		"C:/dataset-a-temp/zzz.lsim"
+	//	"C:/Projects/datasets/zzz.lsim"
 	//	"D:/ML/zzz_deletethis.lsim"
 	;
 	const char srcfn[]=
@@ -200,13 +204,14 @@ int main(int argc, char **argv)
 	//	"C:/dataset-GDCC2020-ppm/photo-05.ppm"
 	//	"C:/dataset-GDCC2020-ppm/photo-49.ppm"
 	//	"C:/dataset-GDCC2020-ppm/photo-52.ppm"
+	//	"C:/dataset-GDCC2020-ppm/photo-60.ppm"
 	//	"C:/dataset-GDCC2020-ppm/photo-67.ppm"
 	//	"C:/dataset-HUGE2-ppm/andromeda.ppm"
 	//	"C:/dataset-HUGE-ppm/blackmarble.ppm"
 	//	"C:/dataset-HUGE-ppm/chaos1.ppm"
 	//	"C:/dataset-HUGE-ppm/diagram.ppm"
 	//	"C:/dataset-HUGE-ppm/gaia.ppm"
-	//	"C:/dataset-HUGE-ppm/jwst.ppm"
+		"C:/dataset-HUGE-ppm/jwst.ppm"
 	//	"C:/dataset-HUGE-ppm/jwst.ppm"
 	//	"C:/dataset-HUGE-ppm/jwst.ppm"
 	//	"C:/dataset-HUGE-ppm/jwst.ppm"
@@ -272,7 +277,7 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0801.ppm"	//blurry
 	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0802.ppm"
 	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0807.ppm"	//hard
-		"C:/Projects/datasets/dataset-DIV2K-ppm/0808.ppm"	//crisp+grad
+	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0808.ppm"	//crisp+grad
 	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0843.ppm"
 	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm"
 	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm"
@@ -338,7 +343,7 @@ int main(int argc, char **argv)
 	//	"e",
 		srcfn,
 		tmpfn,
-		"3",
+	//	"3",
 	//	"5",
 
 	//	"-e", "0",

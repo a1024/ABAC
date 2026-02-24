@@ -36,7 +36,7 @@
 //	#define MIXTEST	//X
 //	#define MIXLEAK	//X
 
-//	#define USE_WP
+	#define USE_WP
 //	#define MATCH_HISTOGRAMS
 //	#define MATCH_HISTOGRAMS_TEST
 //	#define USE_W
@@ -104,7 +104,7 @@ enum
 #undef  PRED
 #endif
 #ifdef USE_CASCADE
-	CSHIFT=18,
+	CSHIFT=15,
 #define PRED(...) +1
 	NCASCADE=CPREDLIST,
 #undef  PRED
@@ -132,6 +132,7 @@ enum
 	A2XSTRIDE=1,
 	A2YSTRIDE=1,
 #endif
+	PROB_SCALE=0,
 };
 
 //runtime
@@ -974,7 +975,7 @@ static double calc_csize(int32_t *hist)
 #endif
 #endif
 #ifdef USE_AC
-uint16_t hists[3][NCTX][1<<PREDBITS][NLEVELS+1];
+uint32_t hists[3][NCTX][1<<PREDBITS][NLEVELS+1];
 #endif
 int c46_codec(int argc, char **argv)
 {
@@ -1601,8 +1602,8 @@ int c46_codec(int argc, char **argv)
 				g_kc=kc;
 #endif
 #ifdef USE_AC
-				uint16_t *currhist=hists[kc][ctx][pred>>(8-PREDBITS)];
-				int den=currhist[NLEVELS]+NLEVELS, cdf=0, freq, tmp;
+				uint32_t *currhist=hists[kc][ctx][pred>>(8-PREDBITS)];
+				int den=((currhist[NLEVELS]+(1<<PROB_SCALE>>1))>>PROB_SCALE)+NLEVELS, cdf=0, freq, tmp;
 				if(fwd)
 				{
 					error=(int8_t)(yuv[kc]-pred);
@@ -1618,7 +1619,7 @@ int c46_codec(int argc, char **argv)
 					}
 					for(tmp=0;;++tmp)
 					{
-						freq=currhist[tmp]+1;
+						freq=(currhist[tmp]>>PROB_SCALE)+1;
 						if(tmp>=sym)
 							break;
 						cdf+=freq;
@@ -1640,7 +1641,7 @@ int c46_codec(int argc, char **argv)
 					tmp=(int)(((code-low+1)*den-1)/range);
 					for(sym=0;;++sym)
 					{
-						freq=currhist[sym]+1;
+						freq=(currhist[sym]>>PROB_SCALE)+1;
 						if(cdf+freq>tmp)
 							break;
 						cdf+=freq;
@@ -1652,7 +1653,7 @@ int c46_codec(int argc, char **argv)
 				}
 				++currhist[sym];
 				++currhist[NLEVELS];
-				if(currhist[NLEVELS]>=0xFFFF-2*NLEVELS)
+				if(currhist[NLEVELS]>=(0xFFFF-2*NLEVELS)<<PROB_SCALE)
 				{
 					den=0;
 					for(int ks=0;ks<NLEVELS;++ks)

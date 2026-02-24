@@ -252,3 +252,9 @@ c50:
 
 c51:
 	gcc $(FLAGS) -fopt-info -Dc51_codec=main -mavx2 -mbmi -mlzcnt c51.c -o c51 $(LIBS)
+
+c53:
+	gcc $(FLAGS) -fopt-info -Dc53_codec=main -mavx2 -mbmi -mlzcnt c53.c -o c53 $(LIBS)
+
+c54:
+	gcc $(FLAGS) -fopt-info -Dc54_codec=main -mavx2 -mbmi -mlzcnt c54.c -o c54 $(LIBS)
