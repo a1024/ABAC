@@ -24,31 +24,39 @@
 
 #ifdef _MSC_VER
 	#define LOUD
-//	#define ESTIMATE_SIZES
 //	#define ENABLE_GUIDE
 //	#define FIFOVAL
 #endif
 
 
-//	#define ENABLE_L1RCT
+	#define USE_L1
+	#define ENABLE_CRCT
 
 
+#ifdef USE_L1
+#define PREDLIST\
+	PRED(N+W-NW)\
+	PRED(2*N-NN)\
+	PRED(W)\
+	PRED(NE)\
+
+#endif
 enum
 {
-#ifdef ENABLE_L1RCT
-	SHIFT1=13,
-	SHIFT2=18,
-	//SHIFT3=17,
-	GRBITS=8,
-	GRLR=2,
-#else
-	GRBITS=5,
+#ifdef USE_L1
+	SHIFT=18,
+#define PRED(...) +1
+	NPREDS=PREDLIST,
+#undef  PRED
 #endif
+	GRBITS=5,
 
 	XPAD=8,
 	NCH=3,
 	NROWS=4,
 	NVAL=2,
+
+	BUFSIZE=512*1024,
 };
 
 //runtime
@@ -114,7 +122,7 @@ static void crash(const char *file, int line, const char *format, ...)
 static double time_sec(void)
 {
 #ifdef _WIN32
-	static long long t0=0;
+	static int64_t t0=0;
 	LARGE_INTEGER li;
 	double t;
 	QueryPerformanceCounter(&li);
@@ -234,8 +242,91 @@ static void valfifo_check(uint32_t val)
 #endif
 
 
-//cRCT
+static uint8_t rdbuf[BUFSIZE+sizeof(uint64_t)], wtbuf[BUFSIZE+sizeof(uint64_t)];
+INLINE uint64_t acme_read(uint8_t **pptr, ptrdiff_t size, FILE *f)
+{
+	ptrdiff_t left;
+	uint8_t *ptr=*pptr;
+	uint64_t data=*(uint64_t*)ptr;
+
+	/*
+	overshoot:
+	|                    ______left______   ______right_____
+	|                   /                \ /                \
+	|buf1start ... ... [datastart  buf1end|buf2start  dataend] ...
+	|                   \________________    _______________/
+	|                                    size
+	*/
+	
+	left=rdbuf+BUFSIZE-ptr;
+	ptr+=size;
+	if(left<size)
+	{
+		fread(rdbuf, 1, BUFSIZE, f);
+		ptr=rdbuf+size-left;
+		left<<=3;
+		data&=0xFFFFFFFFFFFFFFFF>>(64-left);
+		data|=*(uint64_t*)rdbuf<<left;
+	}
 #if 0
+	ptr+=size;
+	right=ptr-(rdbuf+BUFSIZE);
+	if(right>0)
+	{
+		left=(size-right)<<3;
+		fread(rdbuf, 1, BUFSIZE, f);
+		data&=0xFFFFFFFFFFFFFFFF>>(64-left);
+		ptr=rdbuf+right;
+		data|=*(uint64_t*)rdbuf<<left;
+	}
+#endif
+	*pptr=ptr;
+	return data;
+}
+INLINE void acme_write(uint8_t **pptr, ptrdiff_t size, FILE *f, uint64_t data)
+{
+	ptrdiff_t left;
+	uint8_t *ptr=*pptr;
+	
+	/*
+	overshoot:
+	|                    ______left______   ______right_____
+	|                   /                \ /                \
+	|buf1start ... ... [datastart  buf1end|buf2start  dataend] ...
+	|                   \________________    _______________/
+	|                                    size
+	*/
+	
+	*(uint64_t*)ptr=data;
+	left=wtbuf+BUFSIZE-ptr;
+	ptr+=size;
+	if(left<size)
+	{
+		fwrite(wtbuf, 1, BUFSIZE, f);
+		ptr=wtbuf+size-left;
+		left<<=3;
+		data>>=left;
+		*(uint64_t*)wtbuf=data;
+	}
+#if 0
+	*(uint64_t*)ptr=data;
+	ptr+=size;
+	right=ptr-(wtbuf+BUFSIZE);
+	if(right>0)
+	{
+		left=(size-right)<<3;
+		fwrite(wtbuf, 1, BUFSIZE, f);
+		ptr=wtbuf+right;
+		data>>=left;
+		*(uint64_t*)wtbuf=data;
+	}
+#endif
+	*pptr=ptr;
+}
+
+
+//cRCT
+#ifdef ENABLE_CRCT
 	#define ENABLE_EXTENDED_RCT
 #ifndef ENABLE_EXTENDED_RCT
 #define OCHLIST\
@@ -435,23 +526,24 @@ static const char *rct_names[RCT_COUNT]=
 	RCTLIST
 #undef  RCT
 };
-static int crct_analysis(uint8_t *image, int iw, int ih)
+static int crct_analysis(FILE *f, int iw, int ih)
 {
-	long long counters[OCH_COUNT]={0};
+	int64_t counters[OCH_COUNT]={0};
 	int prev[OCH_COUNT]={0};
-	int rowstride=3*iw;
-	uint8_t *ptr=image+rowstride, *end=image+(ptrdiff_t)rowstride*ih;
+	uint8_t *ptr=rdbuf+BUFSIZE;
+	long idx=ftell(f);
 
-	while(ptr<end)
+	for(ptrdiff_t k=0, size=(ptrdiff_t)3*iw*ih;k<size;k+=3)
 	{
-		int
-			r=(ptr[0]-ptr[0-rowstride])<<2,
-			g=(ptr[1]-ptr[1-rowstride])<<2,
-			b=(ptr[2]-ptr[2-rowstride])<<2,
-			rg=r-g,
-			gb=g-b,
-			br=b-r;
-		ptr+=3;
+		int r, g, b, rg, gb, br;
+
+		uint64_t data=acme_read(&ptr, 3, f);
+		r=data>> 0&255;
+		g=data>> 8&255;
+		b=data>>16&255;
+		rg=r-g;
+		gb=g-b;
+		br=b-r;
 		counters[0]+=abs(r -prev[0]);
 		counters[1]+=abs(g -prev[1]);
 		counters[2]+=abs(b -prev[2]);
@@ -465,7 +557,7 @@ static int crct_analysis(uint8_t *image, int iw, int ih)
 		prev[4]=gb;
 		prev[5]=br;
 #ifdef ENABLE_EXTENDED_RCT
-#define UPDATE(IDXA, IDXB, IDXC, A0, B0, C0)\
+#define UPDATE(IDXA, A0, IDXB, B0, IDXC, C0)\
 	do\
 	{\
 		int a0=A0, b0=B0, c0=C0;\
@@ -476,347 +568,51 @@ static int crct_analysis(uint8_t *image, int iw, int ih)
 		prev[IDXB]=b0;\
 		prev[IDXC]=c0;\
 	}while(0)
-		//r-(3*g+b)/4 = r-g-(b-g)/4
-		//g-(3*r+b)/4 = g-r-(b-r)/4
-		//b-(3*r+g)/4 = b-r-(g-r)/4
-		UPDATE(OCH_CX31, OCH_C3X1, OCH_C31X, rg+(gb>>2), rg+(br>>2), br+(rg>>2));
-
-		//r-(g+3*b)/4 = r-b-(g-b)/4
-		//g-(r+3*b)/4 = g-b-(r-b)/4
-		//b-(r+3*g)/4 = b-g-(r-g)/4
-		UPDATE(OCH_CX13, OCH_C1X3, OCH_C13X, br+(gb>>2), gb+(br>>2), gb+(rg>>2));
-
-		//r-(g+b)/2 = (r-g + r-b)/2
-		//g-(r+b)/2 = (g-r + g-b)/2
-		//b-(r+g)/2 = (b-r + b-g)/2
-		UPDATE(OCH_CX22, OCH_C2X2, OCH_C22X, (rg-br)>>1, (gb-rg)>>1, (br-gb)>>1);
+		UPDATE(
+			OCH_CX31, rg+(gb>>2),//r-(3*g+b)/4 = r-g-(b-g)/4
+			OCH_C3X1, rg+(br>>2),//g-(3*r+b)/4 = g-r-(b-r)/4
+			OCH_C31X, br+(rg>>2) //b-(3*r+g)/4 = b-r-(g-r)/4
+		);
+		UPDATE(
+			OCH_CX13, br+(gb>>2),//r-(g+3*b)/4 = r-b-(g-b)/4
+			OCH_C1X3, gb+(br>>2),//g-(r+3*b)/4 = g-b-(r-b)/4
+			OCH_C13X, gb+(rg>>2) //b-(r+3*g)/4 = b-g-(r-g)/4
+		);
+		UPDATE(
+			OCH_CX22, (rg-br)>>1,//r-(g+b)/2 = (r-g + r-b)/2
+			OCH_C2X2, (gb-rg)>>1,//g-(r+b)/2 = (g-r + g-b)/2
+			OCH_C22X, (br-gb)>>1 //b-(r+g)/2 = (b-r + b-g)/2
+		);
 #undef  UPDATE
 #endif
 	}
-	int bestrct=0;
-	long long minerr=0;
-	for(int kt=0;kt<RCT_COUNT;++kt)
+	fseek(f, idx, SEEK_SET);
 	{
-		const uint8_t *rct=rct_combinations[kt];
-		long long currerr=
-			+counters[rct[0]]
-			+counters[rct[1]]
-			+counters[rct[2]]
-		;
-		if(!kt||minerr>currerr)
+		int bestrct=0;
+		int64_t minerr=0;
+		for(int kt=0;kt<RCT_COUNT;++kt)
 		{
-			minerr=currerr;
-			bestrct=kt;
+			const uint8_t *rct=rct_combinations[kt];
+			int64_t currerr=
+				+counters[rct[0]]
+				+counters[rct[1]]
+				+counters[rct[2]]
+			;
+			if(!kt||minerr>currerr)
+			{
+				minerr=currerr;
+				bestrct=kt;
+			}
 		}
+		return bestrct;
 	}
-	return bestrct;
 }
 #endif
 
 
-#ifdef ESTIMATE_SIZES
-#define BSIZELIST\
-	BSIZE(UNARY)\
-	BSIZE(BYPASS)\
-	BSIZE(TRUNC)\
-	BSIZE(BITS)\
-
-enum
-{
-#define BSIZE(X) SIZE_##X,
-	BSIZELIST
-#undef  BSIZE
-	SIZE_COUNT,
-};
-static const char *bsize_labels[]=
-{
-#define BSIZE(X) #X,
-	BSIZELIST
-#undef  BSIZE
-};
-static int g_kc=0;
-static int64_t bsizes[3][SIZE_COUNT]={0};
-#endif
-typedef struct _RiceCoder
-{
-	uint64_t cache;
-	int64_t nbits;
-	uint8_t *ptr, *end;
-} RiceCoder;
-INLINE void rice_init(RiceCoder *ec, uint8_t *start, uint8_t *end, int fwd)
-{
-	ec->cache=0;
-	ec->nbits=64;
-	ec->ptr=start;
-	ec->end=end;
-	if(!fwd)
-	{
-		ec->cache=*(uint64_t*)ec->ptr;
-		ec->ptr+=8;
-		ec->nbits=0;
-	}
-}
-INLINE void rice_flush(RiceCoder *ec)
-{
-	*(uint64_t*)ec->ptr=ec->cache;
-	ec->ptr+=8;
-}
-INLINE void rice_enc(RiceCoder *ec, int nbypass, int sym)
-{
-	//buffer: {c,c,c,b,b,a,a,a, f,f,f,e,e,e,d,c}, cache: MSB gg[hhh]000 LSB	nbits is number of ASSIGNED bits
-	//written 64-bit words are byte-reversed because the CPU is little-endian
-
-	int nzeros=sym>>nbypass;
-	int bypass=sym&0x7FFFFFFF>>(31-nbypass);
-//	int bypass=sym&((1<<nbypass)-1);
-#ifdef ESTIMATE_SIZES
-	bsizes[g_kc][SIZE_UNARY]+=nzeros+1LL;
-	bsizes[g_kc][SIZE_BYPASS]+=nbypass;
-#endif
-	if(nzeros>=ec->nbits)//fill the rest of cache with zeros, and flush
-	{
-		nzeros-=(int)ec->nbits;
-		*(uint64_t*)ec->ptr=ec->cache;
-		ec->ptr+=8;
-		ec->cache=0;
-		while(nzeros>=64)//just flush zeros
-		{
-			nzeros-=64;
-			*(uint64_t*)ec->ptr=0;
-			ec->ptr+=8;
-		}
-		ec->nbits=64;
-	}
-	//now there is room for zeros:  0 <= nzeros < nbits <= 64
-	ec->nbits-=nzeros;//emit remaining zeros to cache
-
-	bypass|=1<<nbypass;//append 1 stop bit
-	++nbypass;
-	if(nbypass>=ec->nbits)//cache would overflow:  fill, flush, and repeat
-	{
-		nbypass-=(int)ec->nbits;
-		ec->cache|=(uint64_t)bypass>>nbypass;
-		bypass&=0x7FFFFFFF>>(31-nbypass);
-	//	bypass&=(1<<nbypass)-1;
-		*(uint64_t*)ec->ptr=ec->cache;
-		ec->ptr+=8;
-		ec->cache=0;
-		ec->nbits=64;
-	}
-	//now there is room for bypass:  0 <= nbypass < nbits <= 64
-	if(nbypass)
-	{
-		ec->nbits-=nbypass;//emit remaining bypass to cache
-		ec->cache|=(uint64_t)bypass<<ec->nbits;
-	}
-}
-INLINE int rice_dec(RiceCoder *ec, int nbypass)
-{
-	//cache: MSB 00[hhh]ijj LSB	nbits is number of CLEARED bits (past codes must be cleared from cache)
-	
-	int sym;
-
-	sym=-(int)ec->nbits;
-	while(!ec->cache)
-	{
-		sym+=64;
-		ec->cache=*(uint64_t*)ec->ptr;
-		ec->ptr+=8;
-	}
-	ec->nbits=_lzcnt_u64(ec->cache);
-	sym+=(int)ec->nbits;
-
-	sym<<=nbypass;
-	ec->cache&=0x7FFFFFFFFFFFFFFF>>ec->nbits;//remove stop bit
-	ec->nbits+=(uint64_t)nbypass+1;
-	if(ec->nbits>=64)//nbits = nbits0+nbypass > N
-	{
-		//example: 000000[11 1]1010010	nbits=6, nbypass=3	6+3-8 = 1
-		ec->nbits-=64;
-		sym|=(int)(ec->cache<<ec->nbits);
-		ec->cache=*(uint64_t*)ec->ptr;
-		ec->ptr+=8;
-		nbypass=(int)ec->nbits;
-	}
-	if(nbypass)
-	{
-		sym|=(int)(ec->cache>>(64-ec->nbits));
-		ec->cache&=0xFFFFFFFFFFFFFFFF>>ec->nbits;//nbits=61 -> cache&=7;
-
-		//ec->cache&=(1ULL<<sh)-1;//sh=3 -> cache&=7;
-	}
-	return sym;
-}
-INLINE void bit_pack(RiceCoder *ec, int bit)
-{
-#ifdef ESTIMATE_SIZES
-	++bsizes[g_kc][SIZE_BITS];
-#endif
-	--ec->nbits;
-	ec->cache|=(uint64_t)bit<<ec->nbits;
-	if(ec->nbits<=0)
-	{
-		*(uint64_t*)ec->ptr=ec->cache;
-		ec->ptr+=8;
-		ec->cache=0;
-		ec->nbits=64;
-	}
-}
-INLINE int bit_unpack(RiceCoder *ec)
-{
-	int bit;
-
-	++ec->nbits;
-	bit=(int)(ec->cache>>(64-ec->nbits));
-	ec->cache&=0xFFFFFFFFFFFFFFFF>>ec->nbits;
-	if(ec->nbits>=64)
-	{
-		ec->nbits-=64;
-		ec->cache=*(uint64_t*)ec->ptr;
-		ec->ptr+=8;
-	}
-	return bit;
-}
-INLINE void truncbin_enc(RiceCoder *ec, int nlevels, int val)
-{
-	/*
-	truncaed binary code:	nlevels>=2
-	nlevels	6	5	4	3	2
-
-	0	00	00	00	0	0
-	1	01	01	01	10	1
-	2	100	10	10	11
-	3	101	110	11
-	4	110	111
-	5	111
-	*/
-	int k=FLOOR_LOG2(nlevels);
-	int nunused=(1<<(k+1))-nlevels;
-	int bypass, nbypass;
-	if(val<nunused)
-		bypass=val, nbypass=k;
-	else
-		bypass=val+nunused, nbypass=k+1;
-#ifdef ESTIMATE_SIZES
-	bsizes[g_kc][SIZE_TRUNC]+=bypass;
-#endif
-	
-	if(nbypass>=ec->nbits)
-	{
-		nbypass-=(int)ec->nbits;
-		ec->cache|=(uint64_t)bypass>>nbypass;
-		bypass&=0x7FFFFFFF>>(31-nbypass);
-		*(uint64_t*)ec->ptr=ec->cache;
-		ec->ptr+=8;
-		ec->cache=0;
-		ec->nbits=64;
-	}
-	if(nbypass)
-	{
-		ec->nbits-=nbypass;
-		ec->cache|=(uint64_t)bypass<<ec->nbits;
-	}
-}
-INLINE int truncbin_dec(RiceCoder *ec, int nlevels)
-{
-	int k=FLOOR_LOG2(nlevels);
-	int nunused=(1<<(k+1))-nlevels;
-	int val=0;
-	
-	ec->nbits+=k;
-	if(ec->nbits>=64)
-	{
-		ec->nbits-=64;
-		val|=(int)(ec->cache<<ec->nbits);
-		ec->cache=*(uint64_t*)ec->ptr;
-		ec->ptr+=8;
-		k=(int)ec->nbits;
-	}
-	if(k)
-	{
-		val|=(int)(ec->cache>>(64-ec->nbits));
-		ec->cache&=0xFFFFFFFFFFFFFFFF>>ec->nbits;
-	}
-	if(val>=nunused)
-	{
-		++ec->nbits;
-		val<<=1;
-		val|=(int)(ec->cache>>(64-ec->nbits));
-		ec->cache&=0xFFFFFFFFFFFFFFFF>>ec->nbits;
-		val-=nunused;
-		if(ec->nbits>=64)
-		{
-			ec->nbits-=64;
-			ec->cache=*(uint64_t*)ec->ptr;
-			ec->ptr+=8;
-		}
-	}
-	return val;
-}
-
-enum
-{
-	BUFSIZE=128*1024,
-};
-static uint8_t rdbuf[BUFSIZE+sizeof(uint64_t)], wtbuf[BUFSIZE+sizeof(uint64_t)];
-INLINE uint64_t acme_read(uint8_t **pptr, ptrdiff_t size, FILE *f)
-{
-	ptrdiff_t left, right;
-	uint8_t *ptr=*pptr;
-	uint64_t data=*(uint64_t*)ptr;
-
-	/*
-	overshoot:
-	|                    ______left______   ______right_____
-	|                   /                \ /                \
-	|buf1start ... ... [datastart  buf1end|buf2start  dataend] ...
-	|                   \________________    _______________/
-	|                                    size
-	*/
-
-	ptr+=size;
-	right=ptr-(rdbuf+BUFSIZE);
-	if(right>0)
-	{
-		left=(size-right)<<3;
-		fread(rdbuf, 1, BUFSIZE, f);
-		data&=0xFFFFFFFFFFFFFFFF>>(64-left);
-		ptr=rdbuf+right;
-		data|=*(uint64_t*)rdbuf<<left;
-	}
-	*pptr=ptr;
-	return data;
-}
-INLINE void acme_write(uint8_t **pptr, ptrdiff_t size, FILE *f, uint64_t data)
-{
-	ptrdiff_t left, right;
-	uint8_t *ptr=*pptr;
-	
-	/*
-	overshoot:
-	|                    ______left______   ______right_____
-	|                   /                \ /                \
-	|buf1start ... ... [datastart  buf1end|buf2start  dataend] ...
-	|                   \________________    _______________/
-	|                                    size
-	*/
-
-	*(uint64_t*)ptr=data;
-	ptr+=size;
-	right=ptr-(wtbuf+BUFSIZE);
-	if(right>0)
-	{
-		left=(size-right)<<3;
-		fwrite(wtbuf, 1, BUFSIZE, f);
-		ptr=wtbuf+right;
-		data>>=left;
-		*(uint64_t*)wtbuf=data;
-	}
-	*pptr=ptr;
-}
 int c54_codec(int argc, char **argv)
 {
-	const uint16_t tag='5'|'0'<<8;
+	const uint16_t tag='5'|'4'<<8;
 
 	const char *srcfn=0, *dstfn=0;
 	FILE *fsrc=0, *fdst=0;
@@ -828,16 +624,14 @@ int c54_codec(int argc, char **argv)
 	uint64_t cache=0;
 	int nbits=0;
 	uint8_t *rdptr=0, *wtptr=0;
-#ifdef ENABLE_L1RCT
-	int32_t weights[3][2]=
-	{
-		{(1<<SHIFT1)/2, (1<<SHIFT1)/2},
-		{(1<<SHIFT2)/2, (1<<SHIFT2)/2},
-	//	{(1<<SHIFT3)/2, (1<<SHIFT3)/2},
-	};
+#ifdef ENABLE_CRCT
+	int bestrct=0, yidx=0, uidx=0, vidx=0, uc0=0, vc0=0, vc1=0;
 #endif
-	//int bestrct=0, yidx=0, uidx=0, vidx=0;
-	//int yidx=0, uidx=0, vidx=0, uc0=0, vc0=0, vc1=0;
+#ifdef USE_L1
+	int32_t coeffs[3][NPREDS]={0}, p1=0;
+	int estim[NPREDS]={0};
+	int j=0;
+#endif
 #ifdef LOUD
 	double t=0;
 #endif
@@ -931,6 +725,9 @@ int c54_codec(int argc, char **argv)
 		ih=0;
 		fread(&iw, 1, 3, fsrc);
 		fread(&ih, 1, 3, fsrc);
+#ifdef ENABLE_CRCT
+		fread(&bestrct, 1, 1, fsrc);
+#endif
 	}
 	if(iw<1||ih<1)
 	{
@@ -945,11 +742,6 @@ int c54_codec(int argc, char **argv)
 		CRASH("Alloc error");
 		return 1;
 	}
-#ifdef ENABLE_GUIDE
-	if(fwd)
-		guide_save(fsrc, iw, ih);
-#endif
-
 	cache=0;
 	nbits=64;
 	fdst=fopen(dstfn, "wb");
@@ -960,9 +752,18 @@ int c54_codec(int argc, char **argv)
 	}
 	if(fwd)
 	{
+#ifdef ENABLE_GUIDE
+		guide_save(fsrc, iw, ih);
+#endif
+#ifdef ENABLE_CRCT
+		bestrct=crct_analysis(fsrc, iw, ih);
+#endif
 		fwrite(&tag, 1, 2, fdst);
 		fwrite(&iw, 1, 3, fdst);
 		fwrite(&ih, 1, 3, fdst);
+#ifdef ENABLE_CRCT
+		fwrite(&bestrct, 1, 1, fdst);
+#endif
 	}
 	else
 	{
@@ -971,23 +772,26 @@ int c54_codec(int argc, char **argv)
 
 		fprintf(fdst, "P6\n%d %d\n255\n", iw, ih);
 	}
-	//bestrct=RCT__0X0_04X_X40;
-	//yidx=rct_combinations[bestrct][II_PERM_Y];
-	//uidx=rct_combinations[bestrct][II_PERM_U];
-	//vidx=rct_combinations[bestrct][II_PERM_V];
-	//uc0=rct_combinations[bestrct][II_COEFF_U_SUB_Y];
-	//vc0=rct_combinations[bestrct][II_COEFF_V_SUB_Y];
-	//vc1=rct_combinations[bestrct][II_COEFF_V_SUB_U];
+#ifdef ENABLE_CRCT
+	yidx=rct_combinations[bestrct][II_PERM_Y]*8;
+	uidx=rct_combinations[bestrct][II_PERM_U]*8;
+	vidx=rct_combinations[bestrct][II_PERM_V]*8;
+	uc0=rct_combinations[bestrct][II_COEFF_U_SUB_Y];
+	vc0=rct_combinations[bestrct][II_COEFF_V_SUB_Y];
+	vc1=rct_combinations[bestrct][II_COEFF_V_SUB_U];
+#endif
+#ifdef USE_L1
+	for(int kc=0;kc<3;++kc)
+	{
+		for(int kp=0;kp<NPREDS;++kp)
+			coeffs[kc][kp]=(1<<SHIFT)/NPREDS;
+	}
+#endif
 	memset(pixels, 0, psize);
 	rdptr=rdbuf+BUFSIZE;
 	wtptr=wtbuf;
 	for(int ky=0;ky<ih;++ky)
 	{
-#ifdef ENABLE_L1RCT
-		int NW[]={0, 0, 0}, N[]={0, 0, 0}, W[]={0, 0, 0};
-		int acc[]={64, 64, 64};
-		int estim[3][2+2]={0};
-#endif
 		int yuv[3]={0};
 		int pred=0;
 		int16_t *rows[]=
@@ -999,73 +803,26 @@ int c54_codec(int argc, char **argv)
 		};
 		for(int kx=0;kx<iw;++kx)
 		{
-#ifdef ENABLE_L1RCT
-			NW[0]=N[0];
-			NW[1]=N[1];
-			NW[2]=N[2];
-			N[0]=rows[1][0+0*NROWS*NVAL];
-			N[1]=rows[1][0+1*NROWS*NVAL];
-			N[2]=rows[1][0+2*NROWS*NVAL];
-			pred=(weights[0][0]*N[1]+weights[0][1]*N[2]+(1<<SHIFT1>>1))>>SHIFT1;
-			CLAMP2(pred, 0, 255);
-			N[0]-=pred;
-
-			//pred=(weights[1][0]*N[0]+weights[1][1]*N[1]+(1<<SHIFT2>>1))>>SHIFT2;
-			//CLAMP2(pred, 0, 255);
-			//N[2]-=pred;
-			pred=(weights[1][1]*N[1]+(1<<SHIFT2>>1))>>SHIFT2;
-			CLAMP2(pred, 0, 255);
-			N[2]-=pred;
-
-			//pred=(weights[2][0]*N[0]+weights[2][1]*N[2]+(1<<SHIFT3>>1))>>SHIFT3;
-			//CLAMP2(pred, 0, 255);
-			//N[1]-=pred;
+#ifdef ENABLE_CRCT
+			int offset=0;
 #endif
 			if(fwd)
 			{
 				uint64_t data=acme_read(&rdptr, 3, fsrc);
+#ifdef ENABLE_CRCT
+				yuv[0]=data>>yidx&255;
+				yuv[1]=data>>uidx&255;
+				yuv[2]=data>>vidx&255;
+#else
 				yuv[0]=data>> 0&255;
 				yuv[1]=data>> 8&255;
 				yuv[2]=data>>16&255;
-				//yuv[0]=getc(fsrc);
-				//yuv[1]=getc(fsrc);
-				//yuv[2]=getc(fsrc);
-				
-#ifdef ENABLE_L1RCT
-				estim[0][0]=yuv[1];//pixel
-				estim[0][1]=yuv[2];//pixel
-				estim[0][2]=yuv[0];//target
-				estim[0][3]=pred=(weights[0][0]*estim[0][0]+weights[0][1]*estim[0][1]+(1<<SHIFT1>>1))>>SHIFT1;
-				CLAMP2(pred, 0, 255);
-				yuv[0]-=pred;
-
-				estim[1][0]=yuv[0];//residual
-				estim[1][1]=yuv[1];//pixel
-				estim[1][2]=yuv[2];//target
-				estim[1][3]=pred=(weights[1][1]*estim[1][1]+(1<<SHIFT2>>1))>>SHIFT2;
-				CLAMP2(pred, 0, 255);
-				yuv[2]-=pred;
-				//estim[1][0]=yuv[0];//residual
-				//estim[1][1]=yuv[1];//pixel
-				//estim[1][2]=yuv[2];//target
-				//estim[1][3]=pred=(weights[1][0]*estim[1][0]+weights[1][1]*estim[1][1]+(1<<SHIFT2>>1))>>SHIFT2;
-				//CLAMP2(pred, 0, 255);
-				//yuv[2]-=pred;
-
-				//estim[2][0]=yuv[0];//residual
-				//estim[2][1]=yuv[2];//residual
-				//estim[2][2]=yuv[1];//target
-				//estim[2][3]=pred=(weights[2][0]*estim[2][0]+weights[2][1]*estim[2][1]+(1<<SHIFT3>>1))>>SHIFT3;
-				//CLAMP2(pred, 0, 255);
-				//yuv[1]-=pred;
-#else
 				yuv[0]-=yuv[1];
 				yuv[2]-=yuv[1];
 #endif
 			}
 			for(int kc=0;kc<3;++kc)
 			{
-#ifndef ENABLE_L1RCT
 				int
 					NNN	=rows[3][0+0*NCH*NROWS*NVAL],
 					NN	=rows[2][0+0*NCH*NROWS*NVAL],
@@ -1083,24 +840,16 @@ int c54_codec(int argc, char **argv)
 					eNEEE	=rows[1][1+3*NCH*NROWS*NVAL],
 					eWW	=rows[0][1-2*NCH*NROWS*NVAL],
 					eW	=rows[0][1-1*NCH*NROWS*NVAL];
-#endif
 				int vmin, vmax;
 				int nbypass;
-				//int pred=(N+W)>>1;
-				//int nbypass=FLOOR_LOG2(((eNE+eW)>>1)+1);
-				//int nbypass=FLOOR_LOG2(((eWW+eW)>>1)+1);
-				//int nbypass=FLOOR_LOG2(eW+1);
 				int error, sym;
 				int nzeros, bypass;
-				
-#ifdef ENABLE_L1RCT
-				nbypass=FLOOR_LOG2((acc[kc]>>GRBITS)+1);
-				//pred=(N[kc]+W[kc])>>1;
-				pred=N[kc]+W[kc]-NW[kc];
-				vmax=N[kc], vmin=W[kc];
-				if(N[kc]<W[kc])vmin=N[kc], vmax=W[kc];
-				CLAMP2(pred, vmin, vmax);
-#else
+#ifdef ENABLE_CRCT
+				if(kc==1)
+					offset=uc0*yuv[0]>>2;
+				if(kc==2)
+					offset=(vc0*yuv[0]+vc1*yuv[1])>>2;
+#endif
 				(void)NNN;
 				(void)NN;
 				(void)NNE;
@@ -1120,15 +869,35 @@ int c54_codec(int argc, char **argv)
 				nbypass=FLOOR_LOG2(eW>>GRBITS);
 				if(nbypass<0)
 					nbypass=0;
+#ifdef USE_L1
+				p1=1<<SHIFT>>1;
+#define PRED(E) estim[j]=E; p1+=coeffs[kc][j]*estim[j]; ++j;
+				j=0;
+				PREDLIST;
+#undef  PRED
+				p1>>=SHIFT;
+				pred=p1;
+				vmax=N, vmin=W;
+				if(N<W)vmin=N, vmax=W;
+				if(vmin>NE)vmin=NE;
+				if(vmax<NE)vmax=NE;
+				//if(vmin>NEEE)vmin=NEEE;
+				//if(vmax<NEEE)vmax=NEEE;
+				CLAMP2(pred, vmin, vmax);
+#else
 				pred=N+W-NW;
 				vmax=N, vmin=W;
 				if(N<W)vmin=N, vmax=W;
 				CLAMP2(pred, vmin, vmax);
 				//pred=(N+W)>>1;
 #endif
+#ifdef ENABLE_CRCT
+				pred+=offset;
+				CLAMP2(pred, 0, 255);
+#endif
 				if(fwd)
 				{
-					error=yuv[kc]-pred;
+					error=(int8_t)(yuv[kc]-pred);
 					sym=error<<1^error>>31;
 					
 					nzeros=sym>>nbypass;
@@ -1200,94 +969,52 @@ int c54_codec(int argc, char **argv)
 					}
 
 					error=sym>>1^-(sym&1);
-					yuv[kc]=error+pred;
+					yuv[kc]=(uint8_t)(error+pred);
 #ifdef ENABLE_GUIDE
-					if(yuv[kc]!=g_image[3*(iw*ky+kx)+kc])
+					int perm[]=
+					{
+						rct_combinations[bestrct][II_PERM_Y],
+						rct_combinations[bestrct][II_PERM_U],
+						rct_combinations[bestrct][II_PERM_V],
+					};
+					if(yuv[kc]!=g_image[3*(iw*ky+kx)+perm[kc]])
 					{
 						CRASH("Guide");
 						return 1;
 					}
 #endif
 				}
-#ifdef ENABLE_L1RCT
-				acc[kc]+=((sym<<GRBITS)-acc[kc]+(1<<GRLR>>1))>>GRLR;
+#ifdef ENABLE_CRCT
+				rows[0][0]=yuv[kc]-offset;
 #else
 				rows[0][0]=yuv[kc];
+#endif
+#ifdef USE_L1
+				{
+					int e=(rows[0][0]>p1)-(rows[0][0]<p1);
+
+#define PRED(...) coeffs[kc][j]+=e*estim[j]; ++j;
+					j=0;
+					PREDLIST;
+#undef  PRED
+				}
+#endif
 				rows[0][1]=(2*eW+(sym<<GRBITS)+eNEEE)>>2;
 				rows[0]+=NROWS*NVAL;
 				rows[1]+=NROWS*NVAL;
 				rows[2]+=NROWS*NVAL;
 				rows[3]+=NROWS*NVAL;
-#endif
 			}
-#ifdef ENABLE_L1RCT
-			W[0]=yuv[0];
-			W[1]=yuv[1];
-			W[2]=yuv[2];
-
-			//estim[2][0]=yuv[0];//residual
-			//estim[2][1]=yuv[2];//residual
-			//estim[2][2]=yuv[1];//target
-			//estim[2][3]=pred=(weights[2][0]*estim[2][0]+weights[2][1]*estim[2][1]+(1<<SHIFT3>>1))>>SHIFT3;
-			//CLAMP2(pred, 0, 255);
-			//yuv[1]+=pred;
-
-			//estim[1][0]=yuv[0];//residual
-			//estim[1][1]=yuv[1];//pixel
-			//estim[1][2]=yuv[2];//target
-			//estim[1][3]=pred=(weights[1][0]*estim[1][0]+weights[1][1]*estim[1][1]+(1<<SHIFT2>>1))>>SHIFT2;
-			//CLAMP2(pred, 0, 255);
-			//yuv[2]+=pred;
-			estim[1][0]=yuv[0];//residual
-			estim[1][1]=yuv[1];//pixel
-			estim[1][2]=yuv[2];//target
-			estim[1][3]=pred=(weights[1][1]*estim[1][1]+(1<<SHIFT2>>1))>>SHIFT2;
-			CLAMP2(pred, 0, 255);
-			yuv[2]+=pred;
-
-			estim[0][0]=yuv[1];//pixel
-			estim[0][1]=yuv[2];//pixel
-			estim[0][2]=yuv[0];//target
-			estim[0][3]=pred=(weights[0][0]*estim[0][0]+weights[0][1]*estim[0][1]+(1<<SHIFT1>>1))>>SHIFT1;
-			CLAMP2(pred, 0, 255);
-			yuv[0]+=pred;
-
-			//yuv[0]+=yuv[1];
-			//yuv[2]+=yuv[1];
-			rows[0][0+0*NROWS*NVAL]=yuv[0];
-			rows[0][0+1*NROWS*NVAL]=yuv[1];
-			rows[0][0+2*NROWS*NVAL]=yuv[2];
-#endif
 			if(!fwd)
 			{
-#ifndef ENABLE_L1RCT
+#ifdef ENABLE_CRCT
+				acme_write(&wtptr, 3, fdst, (uint64_t)yuv[2]<<vidx|(uint64_t)yuv[1]<<uidx|(uint64_t)yuv[0]<<yidx);
+#else
 				yuv[2]+=yuv[1];
 				yuv[0]+=yuv[1];
-#endif
 				acme_write(&wtptr, 3, fdst, (uint64_t)yuv[2]<<16|(uint64_t)yuv[1]<<8|yuv[0]);
-				//putc((uint8_t)yuv[0], fdst);
-				//putc((uint8_t)yuv[1], fdst);
-				//putc((uint8_t)yuv[2], fdst);
-			}
-#ifdef ENABLE_L1RCT
-			{
-				int e;
-				
-				e=(estim[0][2]>estim[0][3])-(estim[0][2]<estim[0][3]);
-				weights[0][0]+=e*estim[0][0];
-				weights[0][1]+=e*estim[0][1];
-				e=(estim[1][2]>estim[1][3])-(estim[1][2]<estim[1][3]);
-				//weights[1][0]+=e*estim[1][0];
-				weights[1][1]+=e*estim[1][1];
-				//e=(estim[2][2]>estim[2][3])-(estim[2][2]<estim[2][3]);
-				//weights[2][0]+=e*estim[2][0];
-				//weights[2][1]+=e*estim[2][1];
-			}
-			rows[0]+=NCH*NROWS*NVAL;
-			rows[1]+=NCH*NROWS*NVAL;
-			rows[2]+=NCH*NROWS*NVAL;
-			rows[3]+=NCH*NROWS*NVAL;
 #endif
+			}
 		}
 	}
 	if(fwd)
@@ -1306,21 +1033,6 @@ int c54_codec(int argc, char **argv)
 		struct stat info={0};
 		stat(dstfn, &info);
 		csize=info.st_size;
-#ifdef ESTIMATE_SIZES
-		int64_t btotal=0;
-		for(int k=0;k<SIZE_COUNT;++k)
-			btotal+=bsizes[0][k]+bsizes[1][k]+bsizes[2][k];
-		for(int k=0;k<SIZE_COUNT;++k)
-			printf("%12.2lf %12.2lf %12.2lf    %9.5lf%% %9.5lf%% %9.5lf%%  %s\n"
-				, (double)bsizes[0][k]/8.
-				, (double)bsizes[1][k]/8.
-				, (double)bsizes[2][k]/8.
-				, 100.*bsizes[0][k]/btotal
-				, 100.*bsizes[1][k]/btotal
-				, 100.*bsizes[2][k]/btotal
-				, bsize_labels[k]
-			);
-#endif
 		printf("CWH=3*%d*%d  \"%s\"\n", iw, ih, srcfn);
 		printf("%10td->%10td  %8.4lf%%  %12.6lf:1  BPD %12.6lf\n"
 			, usize
@@ -1336,6 +1048,10 @@ int c54_codec(int argc, char **argv)
 		, usize/(t*1024*1024)
 		, t*1024*1024*1000/usize
 	);
+#endif
+#ifdef ENABLE_CRCT
+	(void)rct_names;
+	(void)och_names;
 #endif
 	(void)usize;
 	(void)csize;
