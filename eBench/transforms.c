@@ -3594,7 +3594,7 @@ void pred_cg_crct(Image *src, int fwd, int enable_ma)
 	};
 	//int fwdmask=-fwd;
 	int invdist=((1<<16)+g_dist-1)/g_dist;
-	short *pixels=(short*)malloc((src->iw+2LL)*sizeof(short[2*4]));//2 padded rows * 4 channels max
+	int32_t *pixels=(int32_t*)malloc((src->iw+2LL)*sizeof(int32_t[2*4]));//2 padded rows * 4 channels max
 	if(!pixels)
 	{
 		LOG_ERROR("Alloc error");
@@ -3611,7 +3611,7 @@ void pred_cg_crct(Image *src, int fwd, int enable_ma)
 	int vfromy=-(combination[II_COEFF_U_SUB_Y]!=0);
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
-		short *rows[]=
+		int32_t *rows[]=
 		{
 			pixels+((src->iw+2LL)*((ky-0LL)&1)+1)*4-1,
 			pixels+((src->iw+2LL)*((ky-1LL)&1)+1)*4-1,
@@ -17095,7 +17095,7 @@ void calc_csize_ec(Image const *src, EContext method, int adaptive, int expbits,
 		double chubitsize=image_getBMPsize(src)*8/nch;
 		for(int kc=0;kc<4;++kc)
 		{
-			entropy[kc]=(bitsizes[kc]+bypasssizes[kc])*src->src_depth[kc]/chubitsize;
+			entropy[kc]=(bitsizes[kc]+bypasssizes[kc])/chubitsize;
 			bitsizes[kc]/=8;
 			bypasssizes[kc]/=8;
 		}
@@ -17414,7 +17414,7 @@ void calc_csize_abac(Image const *src, int order, double *entropy)
 	for(int kc=0;kc<4;++kc)
 	{
 		double usize=(double)src->iw*src->ih*src->src_depth[kc];
-		entropy[kc]=usize?(cbitsizes[kc]<<3)/usize:0;//entropy = cbitsize*8/ubitsize
+		entropy[kc]=usize?cbitsizes[kc]/usize:0;//entropy = cbitsize/ubitsize
 	}
 #endif
 #if 0

@@ -507,8 +507,8 @@ void pred_mixN(Image *src, int fwd)
 	Y(NNN NN N C)curr
 	...
 	*/
-	int psize=(src->iw+2*XPAD)*(int)sizeof(int16_t[NROWS*NCH*NVAL]);
-	int16_t *pixels=(int16_t*)_mm_malloc(psize, sizeof(__m128i));
+	int psize=(src->iw+2*XPAD)*(int)sizeof(int32_t[NROWS*NCH*NVAL]);
+	int32_t *pixels=(int32_t*)_mm_malloc(psize, sizeof(__m128i));
 
 	int leak[4]={0}, leak2[4]={0};
 
@@ -521,7 +521,7 @@ void pred_mixN(Image *src, int fwd)
 	memset(pixels, 0, psize);
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
-		int16_t *rows[]=
+		int32_t *rows[]=
 		{
 			pixels+(XPAD*NCH*NROWS-NROWS+(ky-0LL+NROWS)%NROWS)*NVAL,//sub 1 channel for pre-increment
 			pixels+(XPAD*NCH*NROWS-NROWS+(ky-1LL+NROWS)%NROWS)*NVAL,
@@ -538,7 +538,7 @@ void pred_mixN(Image *src, int fwd)
 				rows[3]+=NROWS*NVAL;
 				if(!src->depth[kc])
 					continue;
-				int16_t
+				int32_t
 					NNN	=rows[3][0+0*NCH*NROWS*NVAL],
 					NNWW	=rows[2][0-2*NCH*NROWS*NVAL],
 					NNW	=rows[2][0-1*NCH*NROWS*NVAL],
@@ -602,13 +602,13 @@ void pred_mixN(Image *src, int fwd)
 				estims[j++]=N+W-NW;
 				estims[j++]=N+NE-NNE;
 #endif
-				int pred=((1<<SHIFT>>1)
-					+weights[0]*estims[0]
-					+weights[1]*estims[1]
-					+weights[2]*estims[2]
-					+weights[3]*estims[3]
-				)>>SHIFT;
-				int p1=pred;
+				int p1=(int)(((1<<SHIFT>>1)
+					+(int64_t)weights[0]*estims[0]
+					+(int64_t)weights[1]*estims[1]
+					+(int64_t)weights[2]*estims[2]
+					+(int64_t)weights[3]*estims[3]
+				)>>SHIFT);
+				int pred=p1;
 
 			//	if(!kc&&ky>2)//
 			//	{

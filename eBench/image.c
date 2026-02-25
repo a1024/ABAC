@@ -1,8 +1,9 @@
 #include"ebench.h"
 #include"lodepng.h"
+#include<stdint.h>
 #include<stdlib.h>
 #include<string.h>
-#include<tmmintrin.h>
+#include<immintrin.h>
 static const char file[]=__FILE__;
 
 Image* image_from_uint8(const unsigned char *src, int iw, int ih, int nch, char rdepth, char gdepth, char bdepth, char adepth)
@@ -87,6 +88,7 @@ Image* image_load(const char *fn, int fnlen)
 	{
 		ArrayHandle src;
 		char *ptr, *end;
+		int vmax, depth;
 
 		src=load_file(fn, 1, 16, 0);
 		if(!src)
@@ -107,8 +109,11 @@ Image* image_load(const char *fn, int fnlen)
 		for(;ptr!=end&&isspace(*ptr);++ptr);
 		ih=(int)strtol(ptr, &ptr, 10);
 		++ptr;//skip newline
-		for(;ptr!=end&&*ptr!='\n';++ptr);
+		vmax=(int)strtol(ptr, &ptr, 10);
+		//for(;ptr!=end&&*ptr!='\n';++ptr);
 		++ptr;//skip newline
+
+		depth=vmax==65535?16:8;
 
 		//start of binary data
 		res=(ptrdiff_t)iw*ih;
@@ -122,71 +127,84 @@ Image* image_load(const char *fn, int fnlen)
 		image->iw=iw;
 		image->ih=ih;
 		image->nch=3;
-		image->depth[0]=8;
-		image->depth[1]=8;
-		image->depth[2]=8;
+		image->depth[0]=depth;
+		image->depth[1]=depth;
+		image->depth[2]=depth;
 		image->depth[3]=0;
-		image->src_depth[0]=8;
-		image->src_depth[1]=8;
-		image->src_depth[2]=8;
+		image->src_depth[0]=depth;
+		image->src_depth[1]=depth;
+		image->src_depth[2]=depth;
 		image->src_depth[3]=0;
-
+		if(depth==16)
 		{
-			__m128i extract0=_mm_set_epi8(
-			//	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0
-				-1, -1, -1, -1, -1, -1, -1,  2, -1, -1, -1,  1, -1, -1, -1,  0
-			);
-			__m128i extract1=_mm_set_epi8(
-			//	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0
-				-1, -1, -1, -1, -1, -1, -1,  5, -1, -1, -1,  4, -1, -1, -1,  3
-			);
-			__m128i extract2=_mm_set_epi8(
-			//	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0
-				-1, -1, -1, -1, -1, -1, -1,  8, -1, -1, -1,  7, -1, -1, -1,  6
-			);
-			__m128i extract3=_mm_set_epi8(
-			//	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0
-				-1, -1, -1, -1, -1, -1, -1, 11, -1, -1, -1, 10, -1, -1, -1,  9
-			);
-			__m128i extract4=_mm_set_epi8(
-			//	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0
-				-1, -1, -1, -1, -1, -1, -1, 14, -1, -1, -1, 13, -1, -1, -1, 12
-			);
-			__m128i half=_mm_set1_epi32(128);
-			__m128i *dst=(__m128i*)image->data;
-			ptrdiff_t k=0;
-			int *dst2;
-
-			for(;k<res-4;k+=5)
+			for(int k=0;k<4*res;k+=4)
 			{
-				__m128i packed5=_mm_loadu_si128((__m128i*)ptr);
-				__m128i e0=_mm_shuffle_epi8(packed5, extract0);
-				__m128i e1=_mm_shuffle_epi8(packed5, extract1);
-				__m128i e2=_mm_shuffle_epi8(packed5, extract2);
-				__m128i e3=_mm_shuffle_epi8(packed5, extract3);
-				__m128i e4=_mm_shuffle_epi8(packed5, extract4);
-				e0=_mm_sub_epi32(e0, half);
-				e1=_mm_sub_epi32(e1, half);
-				e2=_mm_sub_epi32(e2, half);
-				e3=_mm_sub_epi32(e3, half);
-				e4=_mm_sub_epi32(e4, half);
-				_mm_storeu_si128(dst+0, e0);
-				_mm_storeu_si128(dst+1, e1);
-				_mm_storeu_si128(dst+2, e2);
-				_mm_storeu_si128(dst+3, e3);
-				_mm_storeu_si128(dst+4, e4);
-				dst+=5;
-				ptr+=3*5;
+				image->data[k+0]=(uint16_t)_loadbe_i16(ptr)-0x8000; ptr+=2;
+				image->data[k+1]=(uint16_t)_loadbe_i16(ptr)-0x8000; ptr+=2;
+				image->data[k+2]=(uint16_t)_loadbe_i16(ptr)-0x8000; ptr+=2;
+				image->data[k+3]=0;
 			}
-			dst2=(int*)dst;
-			for(;k<res;++k)
+		}
+		else
+		{
+
 			{
-				dst2[0]=(unsigned char)ptr[0]-128;
-				dst2[1]=(unsigned char)ptr[1]-128;
-				dst2[2]=(unsigned char)ptr[2]-128;
-				dst2[3]=0;
-				dst2+=4;
-				ptr+=3;
+				__m128i extract0=_mm_set_epi8(
+				//	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0
+					-1, -1, -1, -1, -1, -1, -1,  2, -1, -1, -1,  1, -1, -1, -1,  0
+				);
+				__m128i extract1=_mm_set_epi8(
+				//	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0
+					-1, -1, -1, -1, -1, -1, -1,  5, -1, -1, -1,  4, -1, -1, -1,  3
+				);
+				__m128i extract2=_mm_set_epi8(
+				//	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0
+					-1, -1, -1, -1, -1, -1, -1,  8, -1, -1, -1,  7, -1, -1, -1,  6
+				);
+				__m128i extract3=_mm_set_epi8(
+				//	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0
+					-1, -1, -1, -1, -1, -1, -1, 11, -1, -1, -1, 10, -1, -1, -1,  9
+				);
+				__m128i extract4=_mm_set_epi8(
+				//	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0
+					-1, -1, -1, -1, -1, -1, -1, 14, -1, -1, -1, 13, -1, -1, -1, 12
+				);
+				__m128i half=_mm_set1_epi32(128);
+				__m128i *dst=(__m128i*)image->data;
+				ptrdiff_t k=0;
+				int *dst2;
+
+				for(;k<res-4;k+=5)
+				{
+					__m128i packed5=_mm_loadu_si128((__m128i*)ptr);
+					__m128i e0=_mm_shuffle_epi8(packed5, extract0);
+					__m128i e1=_mm_shuffle_epi8(packed5, extract1);
+					__m128i e2=_mm_shuffle_epi8(packed5, extract2);
+					__m128i e3=_mm_shuffle_epi8(packed5, extract3);
+					__m128i e4=_mm_shuffle_epi8(packed5, extract4);
+					e0=_mm_sub_epi32(e0, half);
+					e1=_mm_sub_epi32(e1, half);
+					e2=_mm_sub_epi32(e2, half);
+					e3=_mm_sub_epi32(e3, half);
+					e4=_mm_sub_epi32(e4, half);
+					_mm_storeu_si128(dst+0, e0);
+					_mm_storeu_si128(dst+1, e1);
+					_mm_storeu_si128(dst+2, e2);
+					_mm_storeu_si128(dst+3, e3);
+					_mm_storeu_si128(dst+4, e4);
+					dst+=5;
+					ptr+=3*5;
+				}
+				dst2=(int*)dst;
+				for(;k<res;++k)
+				{
+					dst2[0]=(unsigned char)ptr[0]-128;
+					dst2[1]=(unsigned char)ptr[1]-128;
+					dst2[2]=(unsigned char)ptr[2]-128;
+					dst2[3]=0;
+					dst2+=4;
+					ptr+=3;
+				}
 			}
 		}
 		array_free(&src);

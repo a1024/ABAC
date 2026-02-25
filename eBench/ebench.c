@@ -1,4 +1,5 @@
 #include"ebench.h"
+#include<stdint.h>
 #include<stdio.h>//snprintf
 #include<stdlib.h>
 #include<string.h>
@@ -350,7 +351,7 @@ static long long pred_hist[3][PRED_COUNT]={0};
 ArrayHandle jointhist=0;
 int jointhist_nbits=6;//max
 int jhx=0, jhy=0;
-double ch_entropy[4]={0};//RGBA/YUVA
+double ch_entropy[4]={0};//RGBA/YUVA	[0 ~ 1]
 //int usage[4]={0};
 EContext ec_method=ECTX_GRCTX;
 //EContext ec_method=ECTX_HIST;//ECTX_MIN_QN_QW;
@@ -417,23 +418,23 @@ int g_dist=1;
 float g_uiscale=1;
 //int crop_enable=0, crop_x=0, crop_y=0, crop_dx=128, crop_dy=128;
 
-static void entropy2invcr(const double *entropy, const char *src_depth, int nch, double *invcr)//invcr: {T, R/Y, G/U, ...} nch+1=5 elements
-{
-	double etotal;
-	int dtotal;
-
-	etotal=0;
-	dtotal=0;
-	for(int k=0;k<nch;++k)
-	{
-		double e=entropy[k];
-		int d=src_depth[k];
-		etotal+=e;
-		dtotal+=d;
-		invcr[k+1]=d?e/d:0;
-	}
-	invcr[0]=dtotal?etotal/dtotal:0;
-}
+//static void entropy2invcr(const double *entropy, const char *src_depth, int nch, double *invcr)//invcr: {T, R/Y, G/U, ...} nch+1=5 elements
+//{
+//	double etotal;
+//	int dtotal;
+//
+//	etotal=0;
+//	dtotal=0;
+//	for(int k=0;k<nch;++k)
+//	{
+//		double e=entropy[k];
+//		int d=src_depth[k];
+//		etotal+=e;
+//		dtotal+=d;
+//		invcr[k+1]=d?e/d:0;
+//	}
+//	invcr[0]=dtotal?etotal/dtotal:0;
+//}
 static double invcr2csizes(const double *invcr, const char *src_depths, int iw, int ih, int nch, double *csizes)//invcr & csizes have nch+1=5 elements
 {
 	double usize=0;
@@ -488,6 +489,13 @@ void calc_csize_stateful(Image const *image, int *hist_full, double *entropy)
 {
 	if(ec_method==ECTX_GRCTX)
 	{
+		enum
+		{
+			XPAD=8,
+			NROWS=4,
+			NCH=4,
+			NVAL=1,
+		};
 		//long long bitsizes[4*16*2]={0};
 		int nch=(image->depth[0]!=0)+(image->depth[1]!=0)+(image->depth[2]!=0)+(image->depth[3]!=0);
 		int maxdepth=image->depth[0];
@@ -500,58 +508,95 @@ void calc_csize_stateful(Image const *image, int *hist_full, double *entropy)
 		int nlevels=1<<maxdepth, half=nlevels>>1, mask=nlevels-1;
 		int hsize=(int)sizeof(int)*nch*nctx<<maxdepth;
 		int *hists=(int*)malloc(hsize);
-		int bufsize=(int)sizeof(short[4*4])*(image->iw+16);//4 padded rows * 4 channels max
-		short *pixels=(short*)malloc(bufsize);
+		int psize=(image->iw+2*XPAD)*(int)sizeof(int32_t[NROWS*NCH*NVAL]);
+		int32_t *pixels=(int32_t*)_mm_malloc(psize, sizeof(__m128i));
+		//int bufsize=(int)sizeof(short[4*4])*(image->iw+16);//4 padded rows * 4 channels max
+		//short *pixels=(short*)malloc(bufsize);
 		if(!hists||!pixels)
 		{
 			LOG_ERROR("Alloc error");
 			return;
 		}
 		memset(hists, 0, hsize);
-		memset(pixels, 0, bufsize);
+		memset(pixels, 0, psize);
 		for(int ky=0, idx=0;ky<image->ih;++ky)
 		{
-			short *rows[]=
+			int32_t *rows[]=
 			{
-				pixels+((image->iw+16LL)*((ky-0LL)&3)+8)*4,
-				pixels+((image->iw+16LL)*((ky-1LL)&3)+8)*4,
-				pixels+((image->iw+16LL)*((ky-2LL)&3)+8)*4,
-				pixels+((image->iw+16LL)*((ky-3LL)&3)+8)*4,
+				pixels+(XPAD*NCH*NROWS-NROWS+(ky-0LL+NROWS)%NROWS)*NVAL,//sub 1 channel for pre-increment
+				pixels+(XPAD*NCH*NROWS-NROWS+(ky-1LL+NROWS)%NROWS)*NVAL,
+				pixels+(XPAD*NCH*NROWS-NROWS+(ky-2LL+NROWS)%NROWS)*NVAL,
+				pixels+(XPAD*NCH*NROWS-NROWS+(ky-3LL+NROWS)%NROWS)*NVAL,
+				//pixels+((image->iw+16LL)*((ky-0LL)&3)+8)*4,
+				//pixels+((image->iw+16LL)*((ky-1LL)&3)+8)*4,
+				//pixels+((image->iw+16LL)*((ky-2LL)&3)+8)*4,
+				//pixels+((image->iw+16LL)*((ky-3LL)&3)+8)*4,
 			};
 			int sW[4]={0};
 			int xrun[4]={0};
 			int nbypass0[4]={0}, rbypass[4]={0};
-			for(int kx=0;kx<image->iw;++kx, idx+=4)
+			for(int kx=0;kx<image->iw;++kx)
 			{
-				short
-					*NNNE	=rows[3]+1*4,
-					*NNWW	=rows[2]-2*4,
-					*NN	=rows[2]+0*4,
-					*NNE	=rows[2]+1*4,
-					*NNEE	=rows[2]+2*4,
-					*NW	=rows[1]-1*4,
-					*N	=rows[1]+0*4,
-					*NE	=rows[1]+1*4,
-					*NEE	=rows[1]+2*4,
-					*NEEE	=rows[1]+3*4,
-					*NEEEE	=rows[1]+4*4,
-					*WWW	=rows[0]-3*4,
-					*WW	=rows[0]-2*4,
-					*W	=rows[0]-1*4,
-					*curr	=rows[0]+0*4;
-				(void)NW;
-				(void)N;
-				(void)NE;
-				(void)NEE;
-				(void)NEEE;
-				(void)WW;
-				(void)W;
-				(void)curr;
-				for(int kc=0;kc<4;++kc)
+				//short
+				//	*NNNE	=rows[3]+1*4,
+				//	*NNWW	=rows[2]-2*4,
+				//	*NN	=rows[2]+0*4,
+				//	*NNE	=rows[2]+1*4,
+				//	*NNEE	=rows[2]+2*4,
+				//	*NW	=rows[1]-1*4,
+				//	*N	=rows[1]+0*4,
+				//	*NE	=rows[1]+1*4,
+				//	*NEE	=rows[1]+2*4,
+				//	*NEEE	=rows[1]+3*4,
+				//	*NEEEE	=rows[1]+4*4,
+				//	*WWW	=rows[0]-3*4,
+				//	*WW	=rows[0]-2*4,
+				//	*W	=rows[0]-1*4,
+				//	*curr	=rows[0]+0*4;
+				//(void)NW;
+				//(void)N;
+				//(void)NE;
+				//(void)NEE;
+				//(void)NEEE;
+				//(void)WW;
+				//(void)W;
+				//(void)curr;
+				for(int kc=0;kc<4;++kc, ++idx)
 				{
+					rows[0]+=NROWS*NVAL;
+					rows[1]+=NROWS*NVAL;
+					rows[2]+=NROWS*NVAL;
+					rows[3]+=NROWS*NVAL;
 					if(image->depth[kc])
 					{
-#if 1
+						int32_t
+							NNN	=rows[3][0+0*NCH*NROWS*NVAL],
+							NNWW	=rows[2][0-2*NCH*NROWS*NVAL],
+							NNW	=rows[2][0-1*NCH*NROWS*NVAL],
+							NN	=rows[2][0+0*NCH*NROWS*NVAL],
+							NNE	=rows[2][0+1*NCH*NROWS*NVAL],
+							NNEE	=rows[2][0+2*NCH*NROWS*NVAL],
+							NWW	=rows[1][0-2*NCH*NROWS*NVAL],
+							NW	=rows[1][0-1*NCH*NROWS*NVAL],
+							N	=rows[1][0+0*NCH*NROWS*NVAL],
+							NE	=rows[1][0+1*NCH*NROWS*NVAL],
+							NEE	=rows[1][0+2*NCH*NROWS*NVAL],
+							NEEE	=rows[1][0+3*NCH*NROWS*NVAL],
+							NEEEE	=rows[1][0+4*NCH*NROWS*NVAL],
+							WWWW	=rows[0][0-4*NCH*NROWS*NVAL],
+							WWW	=rows[0][0-3*NCH*NROWS*NVAL],
+							WW	=rows[0][0-2*NCH*NROWS*NVAL],
+							W	=rows[0][0-1*NCH*NROWS*NVAL];
+						int ctx=FLOOR_LOG2(W*W+1);
+						if(ctx>MODELNCTX-1)
+							ctx=MODELNCTX-1;
+						int sym=image->data[idx];
+						sym<<=32-image->depth[kc];
+						sym>>=32-image->depth[kc];
+						++hists[(kc*nctx+ctx)<<maxdepth|((sym+(1<<image->depth[kc]>>1))&((1<<image->depth[kc])-1))];
+						sym=sym<<1^sym>>31;
+						rows[0][0]=(2*W+(sym<<MODELPREC)+MAXVAR(NEE, NEEE))>>2;
+#if 0
 						int ctx=sW[kc]+N[kc]-((N[kc]+NW[kc])*5>>4);//#1
 						//int ctx=sW[kc]+N[kc]-((N[kc]+NW[kc]+(WW[kc]>>1))*5>>4);
 						//int ctx=sW[kc]+N[kc]-((2*(N[kc]+NW[kc])+WW[kc])*5>>5);
@@ -597,13 +642,13 @@ void calc_csize_stateful(Image const *image, int *hist_full, double *entropy)
 #endif
 					}
 				}
-				rows[0]+=4;
-				rows[1]+=4;
-				rows[2]+=4;
-				rows[3]+=4;
+				//rows[0]+=4;
+				//rows[1]+=4;
+				//rows[2]+=4;
+				//rows[3]+=4;
 			}
 		}
-		free(pixels);
+		_mm_free(pixels);
 		double ctxsizes[4]={0};
 		for(int kc=0;kc<nch;++kc)
 		{
@@ -623,107 +668,109 @@ void calc_csize_stateful(Image const *image, int *hist_full, double *entropy)
 				//	continue;
 				//}
 
-				//exact estimate
-#if 0
-				double e=0, norm=1./sum;
-				for(int ks=0;ks<nlevels;++ks)
-				{
-					int freq=curr_hist[ks];
-					if(freq)
-						e-=freq*log2(freq*norm);
-				}
-#endif
-
-				//simulate bin tracking guard
-#if 1
-				int count=0;
-				for(int ks=0;ks<nlevels;++ks)
-					count+=curr_hist[ks]!=0;
 				double e=0;
-				for(int ks=0;ks<nlevels;++ks)
+				if(maxdepth>8)//exact estimate
 				{
-					int freq=curr_hist[ks];
-					if(freq)
+					double norm=1./sum;
+					for(int ks=0;ks<nlevels;++ks)
 					{
-						int prob=(int)((long long)freq*(0x1000LL-count)/sum)+1;
-						e-=freq*log2(prob*(1./0x1000));
-						//if(!kc&&!kctx)console_log("%3d %7d\n", ks, freq);
+						int freq=curr_hist[ks];
+						if(freq)
+							e-=freq*log2(freq*norm);
 					}
+					chsize+=e/8;
 				}
-				e/=8;
-				//console_log("%3d %12.2lf\n", kc*nctx+kctx, e);
-#endif
-				//simulate unconditional guard		nlevels = 512 with SubGopt
+				else
+				{
+					//simulate bin tracking guard
+					int count=0;
+					for(int ks=0;ks<nlevels;++ks)
+						count+=curr_hist[ks]!=0;
+					for(int ks=0;ks<nlevels;++ks)
+					{
+						int freq=curr_hist[ks];
+						if(freq)
+						{
+							int prob=(int)((long long)freq*(0x1000LL-count)/sum)+1;
+							e-=freq*log2(prob*(1./0x1000));
+							//if(!kc&&!kctx)console_log("%3d %7d\n", ks, freq);
+						}
+					}
+					e/=8;
+					//console_log("%3d %12.2lf\n", kc*nctx+kctx, e);
+					//simulate unconditional guard		nlevels = 512 with SubGopt
 #if 0
-				double e=0, norm=1./sum*(0x1000-nlevels)/0x1000;
-				for(int ks=0, ks2=0;ks<nlevels;++ks)
-				{
-					int freq=curr_hist[ks];
-					if(freq)
-						e-=freq*log2(freq*norm+1./0x1000);
-				}
-				e/=8;
-#endif
-				if(e<0)
-					LOG_ERROR("C%d ctx%d e %lf bytes", kc, kctx, e);
-				chsize+=e;
-#if 1
-				double hsize=0;
-				int cdfW=0;
-				int sum2=0;
-				const int probbits=12;
-				int codelen=probbits+1, CDFlevels=1<<probbits;
-				int nlevels2=1<<image->depth[kc], half2=nlevels2>>1, mask2=nlevels2-1;
-				for(int ks=0, ks2=0;ks<nlevels2;++ks)//calc model stat overhead
-				{
-					int sym=((ks>>1^-(ks&1))+half2)&mask2;
-					int freq=curr_hist[sym];
-					int cdf=sum2*((1ULL<<probbits)-count)/sum+ks2;
-					ks2+=freq!=0;
-					int csym=cdf-cdfW;
-					if(ks&&CDFlevels)//CDF[0] is always zero
+					double e=0, norm=1./sum*(0x1000-nlevels)/0x1000;
+					for(int ks=0, ks2=0;ks<nlevels;++ks)
 					{
-						//GR
-						int nbypass=FLOOR_LOG2(CDFlevels);
-						if(ks>1)
-							nbypass-=7;
-						if(nbypass<0)
-							nbypass=0;
-						hsize+=(csym>>nbypass)+1+nbypass;
-
-						//variable-base code
-						//if(codelen>1)
-						//{
-						//	int codelen0=codelen-1;
-						//	codelen-=(CDFlevels/((1<<codelen0)-1)+1)*codelen0 < (CDFlevels/((1<<codelen)-1)+1)*codelen;
-						//}
-						//hsize+=(csym/((1<<codelen)-1)+1)*codelen;
-
-						//variable-base code v2
-						//if(codelen>1)
-						//{
-						//	int codelen0=codelen>>1;
-						//	codelen-=(CDFlevels/((1<<codelen0)-1)+1)*codelen0 < (CDFlevels/((1<<codelen)-1)+1)*codelen;
-						//}
-						//hsize+=(csym/((1<<codelen)-1)+1)*codelen;
-
-						//naive pack
-						//hsize+=probbits;
-
-						//hsize+=csym+1;//unary code
-
-						//hsize+=log2(csym+1);		//X  no stop bit in binary code
+						int freq=curr_hist[ks];
+						if(freq)
+							e-=freq*log2(freq*norm+1./0x1000);
 					}
-					CDFlevels-=csym;
-					cdfW=cdf;
-					sum2+=freq;
-				}
-				chsize+=hsize/8;
-				ctxsizes[kc]+=hsize/8;
+					e/=8;
 #endif
+					if(e<0||e!=e)
+						LOG_ERROR("C%d ctx%d e %lf bytes", kc, kctx, e);
+					chsize+=e;
+#if 1
+					double hsize=0;
+					int cdfW=0;
+					int sum2=0;
+					const int probbits=12;
+					int codelen=probbits+1, CDFlevels=1<<probbits;
+					int nlevels2=1<<image->depth[kc], half2=nlevels2>>1, mask2=nlevels2-1;
+					for(int ks=0, ks2=0;ks<nlevels2;++ks)//calc model stat overhead
+					{
+						int sym=((ks>>1^-(ks&1))+half2)&mask2;
+						int freq=curr_hist[sym];
+						int cdf=sum2*((1ULL<<probbits)-count)/sum+ks2;
+						ks2+=freq!=0;
+						int csym=cdf-cdfW;
+						if(ks&&CDFlevels)//CDF[0] is always zero
+						{
+							//GR
+							int nbypass=FLOOR_LOG2(CDFlevels);
+							if(ks>1)
+								nbypass-=7;
+							if(nbypass<0)
+								nbypass=0;
+							hsize+=(csym>>nbypass)+1+nbypass;
+
+							//variable-base code
+							//if(codelen>1)
+							//{
+							//	int codelen0=codelen-1;
+							//	codelen-=(CDFlevels/((1<<codelen0)-1)+1)*codelen0 < (CDFlevels/((1<<codelen)-1)+1)*codelen;
+							//}
+							//hsize+=(csym/((1<<codelen)-1)+1)*codelen;
+
+							//variable-base code v2
+							//if(codelen>1)
+							//{
+							//	int codelen0=codelen>>1;
+							//	codelen-=(CDFlevels/((1<<codelen0)-1)+1)*codelen0 < (CDFlevels/((1<<codelen)-1)+1)*codelen;
+							//}
+							//hsize+=(csym/((1<<codelen)-1)+1)*codelen;
+
+							//naive pack
+							//hsize+=probbits;
+
+							//hsize+=csym+1;//unary code
+
+							//hsize+=log2(csym+1);		//X  no stop bit in binary code
+						}
+						CDFlevels-=csym;
+						cdfW=cdf;
+						sum2+=freq;
+					}
+					chsize+=hsize/8;
+					ctxsizes[kc]+=hsize/8;
+#endif
+				}
 			}
-			double usize=(double)image->iw*image->ih*image->src_depth[0];
-			entropy[kc]=usize?chsize*8*8/usize:0;//entropy = cbitsize*8/ubitsize
+			entropy[kc]=image->src_depth[kc]?chsize*8/((double)image->iw*image->ih*image->src_depth[kc]):0;
+			//double usize=(double)image->iw*image->ih*image->src_depth[kc]/8;
+			//entropy[kc]=usize?chsize*image->src_depth[kc]/usize:0;//BPD = cbitsize*depth/ubitsize
 		}
 		(void)ctxsizes;
 		//if(loud_transforms)//
@@ -964,14 +1011,10 @@ void calc_csize_stateful(Image const *image, int *hist_full, double *entropy)
 		}
 		free(pixels);
 		//free(skipbuf);
-		{
-			double usize;
-
-			usize=(double)image->iw*image->ih*image->src_depth[0]; entropy[0]=usize?(bitsizes[0]<<3)/usize:0;//entropy = cbitsize*8/ubitsize
-			usize=(double)image->iw*image->ih*image->src_depth[1]; entropy[1]=usize?(bitsizes[1]<<3)/usize:0;
-			usize=(double)image->iw*image->ih*image->src_depth[2]; entropy[2]=usize?(bitsizes[2]<<3)/usize:0;
-			usize=(double)image->iw*image->ih*image->src_depth[3]; entropy[3]=usize?(bitsizes[3]<<3)/usize:0;
-		}
+		entropy[0]=image->src_depth[0]?bitsizes[0]/((double)image->iw*image->ih*image->src_depth[0]):0;
+		entropy[1]=image->src_depth[1]?bitsizes[1]/((double)image->iw*image->ih*image->src_depth[1]):0;
+		entropy[2]=image->src_depth[2]?bitsizes[2]/((double)image->iw*image->ih*image->src_depth[2]):0;
+		entropy[3]=image->src_depth[3]?bitsizes[3]/((double)image->iw*image->ih*image->src_depth[3]):0;
 #if 0
 		if(loud_transforms)
 		{
@@ -1010,6 +1053,8 @@ void calc_csize_stateful(Image const *image, int *hist_full, double *entropy)
 			{
 				calc_histogram(image->data, image->iw, image->ih, kc, 0, image->iw, 0, image->ih, image->depth[kc], hist_full, 0);
 				entropy[kc]=calc_entropy(hist_full, 1<<image->depth[kc], image->iw*image->ih);
+				if(image->src_depth[kc])
+					entropy[kc]/=image->src_depth[kc];
 			}
 			else
 				entropy[kc]=0;
@@ -1110,7 +1155,7 @@ void calc_csize_stateful(Image const *image, int *hist_full, double *entropy)
 			if(totalsum!=image->iw*image->ih)
 				LOG_ERROR("");
 			double usize=(double)image->iw*image->ih*image->src_depth[0];
-			entropy[kc]=usize?csizes[kc]*8*8/usize:0;//entropy = cbitsize*8/ubitsize
+			entropy[kc]=usize?csizes[kc]*8/usize:0;//entropy = cbitsize/ubitsize
 
 		//	currhist+=nlevels[kc]*nlevels[kc];
 		}
@@ -1164,10 +1209,10 @@ void calc_csize_stateful(Image const *image, int *hist_full, double *entropy)
 			}
 		}
 		free(hist);
-		entropy[0]=(e8[0][0]+e8[1][0]+e8[2][0]+e8[3][0])/4;
-		entropy[1]=(e8[0][1]+e8[1][1]+e8[2][1]+e8[3][1])/4;
-		entropy[2]=(e8[0][2]+e8[1][2]+e8[2][2]+e8[3][2])/4;
-		entropy[3]=(e8[0][3]+e8[1][3]+e8[2][3]+e8[3][3])/4;
+		entropy[0]=image->src_depth[0]?(e8[0][0]+e8[1][0]+e8[2][0]+e8[3][0])/(4*image->src_depth[0]):0;
+		entropy[1]=image->src_depth[1]?(e8[0][1]+e8[1][1]+e8[2][1]+e8[3][1])/(4*image->src_depth[1]):0;
+		entropy[2]=image->src_depth[2]?(e8[0][2]+e8[1][2]+e8[2][2]+e8[3][2])/(4*image->src_depth[2]):0;
+		entropy[3]=image->src_depth[3]?(e8[0][3]+e8[1][3]+e8[2][3]+e8[3][3])/(4*image->src_depth[3]):0;
 	}
 	else if(ec_method==ECTX_INTERLEAVED)
 	{
@@ -1220,10 +1265,10 @@ void calc_csize_stateful(Image const *image, int *hist_full, double *entropy)
 			}
 		}
 		free(hist);
-		entropy[0]=(e8[0][0]+e8[1][0]+e8[2][0]+e8[3][0])/4;
-		entropy[1]=(e8[0][1]+e8[1][1]+e8[2][1]+e8[3][1])/4;
-		entropy[2]=(e8[0][2]+e8[1][2]+e8[2][2]+e8[3][2])/4;
-		entropy[3]=(e8[0][3]+e8[1][3]+e8[2][3]+e8[3][3])/4;
+		entropy[0]=image->src_depth[0]?(e8[0][0]+e8[1][0]+e8[2][0]+e8[3][0])/(4*image->src_depth[0]):0;
+		entropy[1]=image->src_depth[1]?(e8[0][1]+e8[1][1]+e8[2][1]+e8[3][1])/(4*image->src_depth[1]):0;
+		entropy[2]=image->src_depth[2]?(e8[0][2]+e8[1][2]+e8[2][2]+e8[3][2])/(4*image->src_depth[2]):0;
+		entropy[3]=image->src_depth[3]?(e8[0][3]+e8[1][3]+e8[2][3]+e8[3][3])/(4*image->src_depth[3]):0;
 	}
 	else if(ec_method==ECTX_ABAC0||ec_method==ECTX_ABAC1)
 		calc_csize_abac(image, ec_method==ECTX_ABAC1, entropy);
@@ -1380,9 +1425,9 @@ void calc_csize_stateful(Image const *image, int *hist_full, double *entropy)
 			//e2[kc]=calc_entropy(hist+hoffsets[kc], hoffsets[kc+1]-hoffsets[kc], hsum[kc]);
 		}
 		int res=image->iw*image->ih;
-		entropy[0]/=res;
-		entropy[1]/=res;
-		entropy[2]/=res;
+		entropy[0]=image->src_depth[0]?entropy[0]/(res*image->src_depth[0]):0;
+		entropy[1]=image->src_depth[0]?entropy[1]/(res*image->src_depth[1]):0;
+		entropy[2]=image->src_depth[0]?entropy[2]/(res*image->src_depth[2]):0;
 		//entropy[0]=(e2[0]+e2[1])*0.5;
 		//entropy[1]=(e2[2]+e2[3]+e2[4]+e2[5])*0.25;
 		//entropy[2]=(e2[6]+e2[7]+e2[8]+e2[9])*0.25;
@@ -2478,7 +2523,7 @@ static unsigned __stdcall sample_thread_lossy(void *param)
 	for(int kc=0;kc<4;++kc)
 	{
 		int depth=ctx->image->src_depth[kc];
-		double invCR=depth?entropy[kc]/depth:0;
+		double invCR=depth?entropy[kc]:0;
 		ctx->csize[kc]=invCR*ctx->image->iw*ctx->image->ih*ctx->image->src_depth[kc]/8;
 	}
 
@@ -3428,7 +3473,7 @@ static void chart_hist_update(Image const *image, int x1, int x2, int y1, int y2
 				if(CR)
 				{
 					entropy=calc_entropy(hist_full, 1<<image->depth[kc], count);
-					CR[kc]=(float)(image->src_depth[kc]/entropy);
+					CR[kc]=(float)(1/entropy);
 				}
 			}
 		}
@@ -3454,7 +3499,7 @@ static void chart_dwthist_update(Image const *image, int kc, int kband, int x1, 
 			}
 			{
 				double entropy=calc_entropy(hist_full, image->depth[kc], count);
-				blockCR[kband]=(float)(image->src_depth[kc]/entropy);
+				blockCR[kband]=(float)(1/entropy);
 			}
 		}
 	}
@@ -4709,10 +4754,10 @@ void update_image(void)//apply selected operations on original image, calculate 
 		calc_csize_ec(im1, ec_method, ec_adaptive?ec_adaptive_threshold:0, ec_expbits, ec_msb, ec_lsb, ch_entropy);
 #endif
 	
-	combCRhist[combCRhist_idx][0]=1/(float)(im1->src_depth[0]/ch_entropy[0]);
-	combCRhist[combCRhist_idx][1]=1/(float)(im1->src_depth[0]/ch_entropy[1]);
-	combCRhist[combCRhist_idx][2]=1/(float)(im1->src_depth[0]/ch_entropy[2]);
-	combCRhist[combCRhist_idx][3]=1/(float)((im1->src_depth[0]+im1->src_depth[1]+im1->src_depth[2]+im1->src_depth[3])/(ch_entropy[0]+ch_entropy[1]+ch_entropy[2]+ch_entropy[3]));
+	combCRhist[combCRhist_idx][0]=(float)ch_entropy[0];
+	combCRhist[combCRhist_idx][1]=(float)ch_entropy[1];
+	combCRhist[combCRhist_idx][2]=(float)ch_entropy[2];
+	combCRhist[combCRhist_idx][3]=(float)((ch_entropy[0]+ch_entropy[1]+ch_entropy[2]+ch_entropy[3])/((im1->src_depth[0]>0)+(im1->src_depth[1]>0)+(im1->src_depth[2]>0)+(im1->src_depth[3]>0)));
 	for(int k=0;k<4;++k)
 	{
 		//if(combCRhist_max==1||combCRhist_max<combCRhist[combCRhist_idx][k])
@@ -7207,8 +7252,8 @@ int io_keydn(IOKey key, char c)
 			if(mode==VIS_IMAGE||mode==VIS_ZIPF)//copy custom transform value
 			{
 				double invcr[5]={0}, csizes[5]={0}, usize;
-				entropy2invcr(ch_entropy, im0->src_depth, 4, invcr);
-				usize=invcr2csizes(invcr, im0->src_depth, im0->iw, im0->ih, 4, csizes);
+				//entropy2invcr(ch_entropy, im0->src_depth, 4, invcr);
+				usize=invcr2csizes(ch_entropy, im0->src_depth, im0->iw, im0->ih, 4, csizes);
 				str_append(&str,
 					"UTYUVA %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf bytes  BPD %8.4lf",
 					usize,
@@ -10664,7 +10709,7 @@ void io_render(void)
 			for(int k=0;k<(int)transforms->count;++k, y+=tdy)//print applied transforms on left
 				transforms_printname(x, y, transforms->data[k], k, 0);
 		}
-		cr_combined=(float)((im1->src_depth[0]+im1->src_depth[1]+im1->src_depth[2]+im1->src_depth[3])/(ch_entropy[0]+ch_entropy[1]+ch_entropy[2]+ch_entropy[3]));
+		cr_combined=(float)(((im1->src_depth[0]>0)+(im1->src_depth[1]>0)+(im1->src_depth[2]>0)+(im1->src_depth[3]>0))/(ch_entropy[0]+ch_entropy[1]+ch_entropy[2]+ch_entropy[3]));
 		xstart=20, xend=(float)wndw-330, ystart=(float)(wndh-tdy*5);
 		scale=xend-xstart;
 		
@@ -10684,7 +10729,7 @@ void io_render(void)
 			float maxinvcr=1/cr_combined;
 			for(int k=0;k<4;++k)//get max CR
 			{
-				double invCR=ch_entropy[k]/im1->src_depth[k];
+				double invCR=ch_entropy[k];
 				if(isfinite(invCR)&&maxinvcr<invCR)
 					maxinvcr=(float)invCR;
 			}
@@ -10765,12 +10810,13 @@ void io_render(void)
 				}
 				else
 #endif
-				draw_rect(xend-scale/cr_combined,				xend, ystart+tdy*0.5f-barw, ystart+tdy*0.5f+barw+1, 0xFF000000);
-				draw_rect(xend-scale/(float)(im1->src_depth[0]/ch_entropy[0]),	xend, ystart+tdy*1.5f-barw, ystart+tdy*1.5f+barw+1, RGBspace?0xFF0000FF:0xFF404040);//r or Y
-				draw_rect(xend-scale/(float)(im1->src_depth[1]/ch_entropy[1]),	xend, ystart+tdy*2.5f-barw, ystart+tdy*2.5f+barw+1, RGBspace?0xFF00FF00:0xFFC00000);//g or Cb
-				draw_rect(xend-scale/(float)(im1->src_depth[2]/ch_entropy[2]),	xend, ystart+tdy*3.5f-barw, ystart+tdy*3.5f+barw+1, RGBspace?0xFFFF0000:0xFF0000C0);//b or Cr
+				draw_rect(xend-scale/cr_combined,		xend, ystart+tdy*0.5f-barw, ystart+tdy*0.5f+barw+1, 0xFF000000);
+				draw_rect(xend-scale*(float)ch_entropy[0],	xend, ystart+tdy*1.5f-barw, ystart+tdy*1.5f+barw+1, RGBspace?0xFF0000FF:0xFF404040);//r or Y
+				draw_rect(xend-scale*(float)ch_entropy[1],	xend, ystart+tdy*2.5f-barw, ystart+tdy*2.5f+barw+1, RGBspace?0xFF00FF00:0xFFC00000);//g or Cb
+				draw_rect(xend-scale*(float)ch_entropy[2],	xend, ystart+tdy*3.5f-barw, ystart+tdy*3.5f+barw+1, RGBspace?0xFFFF0000:0xFF0000C0);//b or Cr
 				if(im1->depth[3])
-					draw_rect(xend-scale/(float)(im1->src_depth[1]/ch_entropy[3]), xend, ystart+tdy*4.5f-barw, ystart+tdy*4.5f+barw+1, RGBspace?0xFF808080:0xFF00C000);//a or Cg
+					draw_rect(xend-scale*(float)ch_entropy[3], xend, ystart+tdy*4.5f-barw, ystart+tdy*4.5f+barw+1, RGBspace?0xFF808080:0xFF00C000);//a or Cg
+
 				//draw_rect(xend-scale*ch_cr[3]   , xend, ystart+tdy*4.5f-barw, ystart+tdy*4.5f+barw+1, 0xFFFF00FF);
 			}
 			x=xend-scale/crformat;
@@ -10789,12 +10835,12 @@ void io_render(void)
 			csize=usize/cr_combined;
 			prevtxtcolor=set_text_color(0xFF000000);GUIPrint(xend, xend, ystart      , 1, "Combined      %8.4f%% %12.2lf", 100./cr_combined, csize);
 			set_bk_color(0xC0C0C0C0);
-			set_text_color(RGBspace?0xFF0000FF:0xFF404040);	GUIPrint(xend, xend, ystart+tdy  , 1, "%c     %7d %8.4lf%% %12.2lf", RGBspace?'R':'Y', im1->depth[0], 100.*ch_entropy[0]/im1->src_depth[0], (double)im1->iw*im1->ih*ch_entropy[0]/8);
-			set_text_color(RGBspace?0xFF00C000:0xFFC00000);	GUIPrint(xend, xend, ystart+tdy*2, 1, "%c     %7d %8.4lf%% %12.2lf", RGBspace?'G':'U', im1->depth[1], 100.*ch_entropy[1]/im1->src_depth[1], (double)im1->iw*im1->ih*ch_entropy[1]/8);
-			set_text_color(RGBspace?0xFFFF0000:0xFF0000C0);	GUIPrint(xend, xend, ystart+tdy*3, 1, "%c     %7d %8.4lf%% %12.2lf", RGBspace?'B':'V', im1->depth[2], 100.*ch_entropy[2]/im1->src_depth[2], (double)im1->iw*im1->ih*ch_entropy[2]/8);
+			set_text_color(RGBspace?0xFF0000FF:0xFF404040);	GUIPrint(xend, xend, ystart+tdy  , 1, "%c     %7d %8.4lf%% %12.2lf", RGBspace?'R':'Y', im1->depth[0], 100.*ch_entropy[0], (double)im1->iw*im1->ih*im1->src_depth[0]*ch_entropy[0]/8);
+			set_text_color(RGBspace?0xFF00C000:0xFFC00000);	GUIPrint(xend, xend, ystart+tdy*2, 1, "%c     %7d %8.4lf%% %12.2lf", RGBspace?'G':'U', im1->depth[1], 100.*ch_entropy[1], (double)im1->iw*im1->ih*im1->src_depth[1]*ch_entropy[1]/8);
+			set_text_color(RGBspace?0xFFFF0000:0xFF0000C0);	GUIPrint(xend, xend, ystart+tdy*3, 1, "%c     %7d %8.4lf%% %12.2lf", RGBspace?'B':'V', im1->depth[2], 100.*ch_entropy[2], (double)im1->iw*im1->ih*im1->src_depth[2]*ch_entropy[2]/8);
 			if(im1->depth[3])
 			{
-				set_text_color(RGBspace?0xFF404040:0xFF00C000);	GUIPrint(xend, xend, ystart+tdy*4, 1, "%c     %7d %8.4lf%% %12.2lf", RGBspace?'A':'W', im1->depth[3], 100.*ch_entropy[3]/im1->src_depth[1], (double)im1->iw*im1->ih*ch_entropy[3]/8);//src_depth[3] is zero assuming no alpha
+				set_text_color(RGBspace?0xFF404040:0xFF00C000);	GUIPrint(xend, xend, ystart+tdy*4, 1, "%c     %7d %8.4lf%% %12.2lf", RGBspace?'A':'W', im1->depth[3], 100.*ch_entropy[3], (double)im1->iw*im1->ih*im1->src_depth[3]*ch_entropy[3]/8);//src_depth[3] is zero assuming no alpha
 			}
 			//set_text_color(0xFFFF00FF);	GUIPrint(xend, xend, ystart+tdy*4, 1, "Joint %7d %9f", usage[3], ch_cr[3]);
 			set_text_color(prevtxtcolor);
