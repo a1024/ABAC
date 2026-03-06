@@ -481,8 +481,9 @@ void pred_mixN(Image *src, int fwd)
 
 	enum
 	{
-		MIXPREDS=4,
+		MIXPREDS=5,
 
+	//	SHIFT=20,
 		SHIFT=18,
 	//	SHIFT=17,
 
@@ -491,8 +492,12 @@ void pred_mixN(Image *src, int fwd)
 		NCH=4,
 		NVAL=2,
 	};
-	ALIGN(16) int coeffs[4][MIXPREDS]={0}, estims[MIXPREDS]={0};
+	ALIGN(16) int32_t coeffs[4][MIXPREDS]={0}, estims[MIXPREDS]={0}, bias[4]={1<<SHIFT>>1};
 //	ALIGN(16) int coeffs[4][64][MIXPREDS]={0}, estims[MIXPREDS]={0};
+	
+	//int leak[4]={0}, leak2[4]={0};
+
+	//int boundsW[4][2]={0}, boundsNEEE[4][2]={0};
 
 	/*
 	cache-friendly layout:
@@ -510,14 +515,13 @@ void pred_mixN(Image *src, int fwd)
 	int psize=(src->iw+2*XPAD)*(int)sizeof(int32_t[NROWS*NCH*NVAL]);
 	int32_t *pixels=(int32_t*)_mm_malloc(psize, sizeof(__m128i));
 
-	int leak[4]={0}, leak2[4]={0};
-
 	if(!pixels)
 	{
 		LOG_ERROR("Alloc error");
 		return;
 	}
 	FILLMEM((int32_t*)coeffs, (1<<SHIFT)/MIXPREDS, sizeof(coeffs), sizeof(int32_t));
+	bias[3]=bias[2]=bias[1]=bias[0];
 	memset(pixels, 0, psize);
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
@@ -555,31 +559,44 @@ void pred_mixN(Image *src, int fwd)
 					WWWW	=rows[0][0-4*NCH*NROWS*NVAL],
 					WWW	=rows[0][0-3*NCH*NROWS*NVAL],
 					WW	=rows[0][0-2*NCH*NROWS*NVAL],
-					W	=rows[0][0-1*NCH*NROWS*NVAL];
+					W	=rows[0][0-1*NCH*NROWS*NVAL],
+					eN	=rows[1][1+0*NCH*NROWS*NVAL],
+					eW	=rows[0][1-1*NCH*NROWS*NVAL];
 				int curr=src->data[idx];
 			//	int ctx=32*(NW<0)+16*(NE<0)+4*((N<-64)+(N<0)+(N<64))+(W<-64)+(W<0)+(W<64);
 			//	int *weights=coeffs[kc][ctx];
-				int *weights=coeffs[kc];
+			//	int *weights=coeffs[kc];
+
+				//boundsW[kc][0]-=boundsW[kc][0]>>3;
+				//boundsW[kc][1]-=boundsW[kc][1]>>3;
+				//if(boundsW[kc][0]>W)boundsW[kc][0]=W;
+				//if(boundsW[kc][1]<W)boundsW[kc][1]=W;
+				//boundsNEEE[kc][0]-=boundsNEEE[kc][0]>>3;
+				//boundsNEEE[kc][1]-=boundsNEEE[kc][1]>>3;
+				//if(boundsNEEE[kc][0]>NEEE)boundsNEEE[kc][0]=NEEE;
+				//if(boundsNEEE[kc][1]<NEEE)boundsNEEE[kc][1]=NEEE;
 
 				int j=0;
 
 				//mix 2
 #if 0
-				estims[j++]=N;
-				estims[j++]=W;
+				//estims[j++]=N;
+				//estims[j++]=W;
 				//estims[j++]=(N+W)>>1;
 				//estims[j++]=N+W-NW;
 #endif
 
-				//mix 4
+				//mix 5
 #if 1
 				//		NN
 				//	NW	N	NE
-				//	W	?		133 MB/s  7.47 ms/MB  4T
+				//	W	?		216 MB/s  4.49 ms/MB  i7
 				estims[j++]=W;
 				estims[j++]=N+W-NW;
 				estims[j++]=2*N-NN;
 				estims[j++]=NE;
+				estims[j++]=eW;
+
 			//	estims[j++]=(W+2*NE-NNE)>>1;
 			//	estims[j++]=NEE;
 			//	estims[j++]=W+NE-N;
@@ -602,19 +619,19 @@ void pred_mixN(Image *src, int fwd)
 				estims[j++]=N+W-NW;
 				estims[j++]=N+NE-NNE;
 #endif
-				int p1=(int)(((1<<SHIFT>>1)
-					+(int64_t)weights[0]*estims[0]
-					+(int64_t)weights[1]*estims[1]
-					+(int64_t)weights[2]*estims[2]
-					+(int64_t)weights[3]*estims[3]
+				int p1=(int)((bias[kc]
+					+(int64_t)coeffs[kc][0]*estims[0]
+					+(int64_t)coeffs[kc][1]*estims[1]
+					+(int64_t)coeffs[kc][2]*estims[2]
+					+(int64_t)coeffs[kc][3]*estims[3]
+					+(int64_t)coeffs[kc][4]*estims[4]
 				)>>SHIFT);
 				int pred=p1;
 
-			//	if(!kc&&ky>2)//
-			//	{
-			//		double sum=(double)(weights[0]+weights[1]+weights[2]+weights[3])/(1<<SHIFT);
-			//		printf("");
-			//	}
+				//int vmin=boundsW[kc][0], vmax=boundsW[kc][1];
+				//if(vmin>boundsNEEE[kc][0])vmin=boundsNEEE[kc][0];
+				//if(vmax>boundsNEEE[kc][1])vmax=boundsNEEE[kc][1];
+				//CLAMP2(pred, vmin, vmax);
 				
 				int vmax=N, vmin=W;
 				if(N<W)vmin=N, vmax=W;
@@ -659,15 +676,18 @@ void pred_mixN(Image *src, int fwd)
 					}
 				}
 				rows[0][0]=curr;
+				rows[0][1]=curr-p1;
 
 				//if(curr!=p1&&curr==estims[0])
 				//	printf("");
 
 				int e=(curr>p1)-(curr<p1);//L1
-				weights[0]+=e*estims[0];
-				weights[1]+=e*estims[1];
-				weights[2]+=e*estims[2];
-				weights[3]+=e*estims[3];
+				bias[kc]+=e;
+				coeffs[kc][0]+=e*estims[0];
+				coeffs[kc][1]+=e*estims[1];
+				coeffs[kc][2]+=e*estims[2];
+				coeffs[kc][3]+=e*estims[3];
+				coeffs[kc][4]+=e*estims[4];
 			}
 		}
 	}

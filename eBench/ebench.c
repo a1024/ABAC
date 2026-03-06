@@ -519,6 +519,27 @@ void calc_csize_stateful(Image const *image, int *hist_full, double *entropy)
 		}
 		memset(hists, 0, hsize);
 		memset(pixels, 0, psize);
+		uint8_t sh[]=
+		{
+			32-image->depth[0],
+			32-image->depth[1],
+			32-image->depth[2],
+			32-image->depth[3],
+		};
+		int halfs[]=
+		{
+			1<<image->depth[0]>>1,
+			1<<image->depth[1]>>1,
+			1<<image->depth[2]>>1,
+			1<<image->depth[3]>>1,
+		};
+		int masks[]=
+		{
+			(1<<image->depth[0])-1,
+			(1<<image->depth[1])-1,
+			(1<<image->depth[2])-1,
+			(1<<image->depth[3])-1,
+		};
 		for(int ky=0, idx=0;ky<image->ih;++ky)
 		{
 			int32_t *rows[]=
@@ -532,9 +553,9 @@ void calc_csize_stateful(Image const *image, int *hist_full, double *entropy)
 				//pixels+((image->iw+16LL)*((ky-2LL)&3)+8)*4,
 				//pixels+((image->iw+16LL)*((ky-3LL)&3)+8)*4,
 			};
-			int sW[4]={0};
-			int xrun[4]={0};
-			int nbypass0[4]={0}, rbypass[4]={0};
+			//int sW[4]={0};
+			//int xrun[4]={0};
+			//int nbypass0[4]={0}, rbypass[4]={0};
 			for(int kx=0;kx<image->iw;++kx)
 			{
 				//short
@@ -570,32 +591,23 @@ void calc_csize_stateful(Image const *image, int *hist_full, double *entropy)
 					if(image->depth[kc])
 					{
 						int32_t
-							NNN	=rows[3][0+0*NCH*NROWS*NVAL],
-							NNWW	=rows[2][0-2*NCH*NROWS*NVAL],
-							NNW	=rows[2][0-1*NCH*NROWS*NVAL],
-							NN	=rows[2][0+0*NCH*NROWS*NVAL],
-							NNE	=rows[2][0+1*NCH*NROWS*NVAL],
-							NNEE	=rows[2][0+2*NCH*NROWS*NVAL],
-							NWW	=rows[1][0-2*NCH*NROWS*NVAL],
-							NW	=rows[1][0-1*NCH*NROWS*NVAL],
-							N	=rows[1][0+0*NCH*NROWS*NVAL],
-							NE	=rows[1][0+1*NCH*NROWS*NVAL],
-							NEE	=rows[1][0+2*NCH*NROWS*NVAL],
-							NEEE	=rows[1][0+3*NCH*NROWS*NVAL],
-							NEEEE	=rows[1][0+4*NCH*NROWS*NVAL],
-							WWWW	=rows[0][0-4*NCH*NROWS*NVAL],
-							WWW	=rows[0][0-3*NCH*NROWS*NVAL],
-							WW	=rows[0][0-2*NCH*NROWS*NVAL],
-							W	=rows[0][0-1*NCH*NROWS*NVAL];
-						int ctx=FLOOR_LOG2(W*W+1);
+							eNW	=rows[1][0-1*NCH*NROWS*NVAL],
+							eN	=rows[1][0+0*NCH*NROWS*NVAL],
+							eNEE	=rows[1][0+2*NCH*NROWS*NVAL],
+							eNEEE	=rows[1][0+3*NCH*NROWS*NVAL],
+							eW	=rows[0][0-1*NCH*NROWS*NVAL];
+						int ctx=eW+eN-((eN+eNW)*5>>4);
+						if(ctx<0)
+							ctx=0;
+						ctx=FLOOR_LOG2(ctx*ctx+1);
 						if(ctx>MODELNCTX-1)
 							ctx=MODELNCTX-1;
 						int sym=image->data[idx];
-						sym<<=32-image->depth[kc];
-						sym>>=32-image->depth[kc];
-						++hists[(kc*nctx+ctx)<<maxdepth|((sym+(1<<image->depth[kc]>>1))&((1<<image->depth[kc])-1))];
+						sym<<=sh[kc];
+						sym>>=sh[kc];
+						++hists[(kc*nctx+ctx)<<maxdepth|((sym+halfs[kc])&masks[kc])];
 						sym=sym<<1^sym>>31;
-						rows[0][0]=(2*W+(sym<<MODELPREC)+MAXVAR(NEE, NEEE))>>2;
+						rows[0][0]=(2*eW+(sym<<MODELPREC)+MAXVAR(eNEE, eNEEE))>>2;
 #if 0
 						int ctx=sW[kc]+N[kc]-((N[kc]+NW[kc])*5>>4);//#1
 						//int ctx=sW[kc]+N[kc]-((N[kc]+NW[kc]+(WW[kc]>>1))*5>>4);
@@ -6729,6 +6741,21 @@ int io_keydn(IOKey key, char c)
 			return 1;
 		}
 		break;
+	case 'G':
+		if(GET_KEY_STATE(KEY_CTRL))
+		{
+			ArrayHandle text=paste_from_clipboard(0);
+			char *p=text->data;
+
+			int kx=strtol(p, &p, 10);
+			int ky=strtol(p, &p, 10);
+			imzoom=64;
+			wpx=kx-wndw/(2*imzoom);
+			wpy=ky-wndh/(2*imzoom);
+			imagecentered=0;
+			return 1;
+		}
+		break;
 	default://to make gcc -Wall happy
 		break;
 	}
@@ -7077,6 +7104,8 @@ int io_keydn(IOKey key, char c)
 			"Ctrl Mouse1:\tReplace all transforms of this type\n"
 			"E:\t\tShow image at 1:1 scale\n"
 			"C:\t\tCenter image\n"
+			"Ctrl G:\t\tGoto pixel from clipboard\n"
+			"Ctrl H:\t\tToggle hex pixel labels\n"
 			"J / Shift J:\tToggle single-channel view\n"
 			"N:\t\tToggle modular arithmetic in image view\n"
 			"Ctrl R:\t\tDisable all transforms\n"
@@ -7087,7 +7116,7 @@ int io_keydn(IOKey key, char c)
 			"[ ]:\t\t(Custom transforms) Select coefficient page\n"
 			"Ctrl 1/2/3:\t(Custom predictor) Populate page from channel N\n"
 			"Space:\t\t(Custom transforms) Optimize\n"
-			"Ctrl N:\t\tAdd noise to CUSTOM3 params\n"
+		//	"Ctrl N:\t\tAdd noise to CUSTOM3 params\n"
 			"B:\t\tWeights view: Toggle mixing type\n"
 			"P:\t\tWeights view: Hold to pause graph\n"
 			"L:\t\tWeights view: Set cursor to mouse pointer\n"
@@ -7251,9 +7280,17 @@ int io_keydn(IOKey key, char c)
 			}//no 'else' here
 			if(mode==VIS_IMAGE||mode==VIS_ZIPF)//copy custom transform value
 			{
-				double invcr[5]={0}, csizes[5]={0}, usize;
+				double invcr[5]=
+				{
+					(ch_entropy[0]+ch_entropy[1]+ch_entropy[2]+ch_entropy[3])/((im1->src_depth[0]!=0)+(im1->src_depth[1]!=0)+(im1->src_depth[2]!=0)+(im1->src_depth[3]!=0)),
+					ch_entropy[0],
+					ch_entropy[1],
+					ch_entropy[2],
+					ch_entropy[3],
+				};
+				double csizes[5]={0}, usize=0;
 				//entropy2invcr(ch_entropy, im0->src_depth, 4, invcr);
-				usize=invcr2csizes(ch_entropy, im0->src_depth, im0->iw, im0->ih, 4, csizes);
+				usize=invcr2csizes(invcr, im0->src_depth, im0->iw, im0->ih, 4, csizes);
 				str_append(&str,
 					"UTYUVA %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf %12.2lf bytes  BPD %8.4lf",
 					usize,
@@ -7698,14 +7735,15 @@ int io_keydn(IOKey key, char c)
 		}
 		return 1;
 	case 'H':
-		//if(GET_KEY_STATE(KEY_CTRL))
+		if(GET_KEY_STATE(KEY_CTRL))
+			pxlabels_hex=!pxlabels_hex;
+		else
 		{
 			memset(combCRhist, 0, sizeof(combCRhist));
 			combCRhist_idx=0;
 			combCRhist_max=1;
-			return 1;
 		}
-		break;
+		return 1;
 	case 'Q':
 		return 1;
 	case 'X'://toggle horizontal profile plot
@@ -8930,6 +8968,13 @@ void io_render(void)
 						print_pixellabels(ix1, ix2, iy1, iy2, 2, 'b', theme[2], im1->depth[2]);
 					if(imzoom>=ZOOM_LIMIT_ALPHA&&im1->depth[3])
 						print_pixellabels(ix1, ix2, iy1, iy2, 3, 'a', theme[3], im1->depth[3]);
+					//draw_line((float)wndw/2-10, (float)wndh/2-10, (float)wndw/2+10, (float)wndh/2+10, 0xFF000000);//cross-hair
+					//draw_line((float)wndw/2+10, (float)wndh/2-10, (float)wndw/2-10, (float)wndh/2+10, 0xFF000000);
+					{
+						double kx=screen2image_x(wndw*0.5f);
+						double ky=screen2image_y(wndh*0.5f);
+						GUIPrint(0, (float)wndw/2, (float)wndh/2, 1, "(%.2lf, %.2lf)", kx, ky);
+					}
 				}
 #ifdef ENABLE_L1WEIGHTS
 #if 0
