@@ -596,10 +596,11 @@ void calc_csize_stateful(Image const *image, int *hist_full, double *entropy)
 							eNEE	=rows[1][0+2*NCH*NROWS*NVAL],
 							eNEEE	=rows[1][0+3*NCH*NROWS*NVAL],
 							eW	=rows[0][0-1*NCH*NROWS*NVAL];
-						int ctx=eW+eN-((eN+eNW)*5>>4);
-						if(ctx<0)
-							ctx=0;
-						ctx=FLOOR_LOG2(ctx*ctx+1);
+						//int ctx=eW+eN-((eN+eNW)*5>>4);
+						//if(ctx<0)
+						//	ctx=0;
+						//ctx=FLOOR_LOG2(eW*eW+1);
+						int ctx=FLOOR_LOG2(eW*eW+1);
 						if(ctx>MODELNCTX-1)
 							ctx=MODELNCTX-1;
 						int sym=image->data[idx];

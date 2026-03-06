@@ -180,7 +180,7 @@ static unsigned __stdcall sample_thread(void *param)
 	for(int kc=0;kc<4;++kc)
 	{
 		int depth=src->src_depth[kc];
-		double invCR=depth?entropy[kc]/depth:0;
+		double invCR=depth?entropy[kc]:0;
 		tctx->csize[kc]=invCR*src->iw*src->ih*src->src_depth[kc]/8;
 	}
 	free(src);
